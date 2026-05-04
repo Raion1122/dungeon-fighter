@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>D&D風 戦闘プロト - 廃坑</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      --parchment-ink: #3a2912;
+      --parchment-ink-soft: #5a4323;
+      --parchment-gold: #8b6914;
+      --parchment-border: #8b6914;
+      --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      background: #0a0a0a;
+      user-select: none;
+    }
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background:
+        radial-gradient(ellipse at 50% 45%, rgba(60,40,20,0.35) 0%, rgba(10,8,10,0.85) 70%),
+        repeating-linear-gradient(0deg,
+          #2a2420 0 48px, #1f1a16 48px 49px),
+        repeating-linear-gradient(90deg,
+          #2a2420 0 48px, #1f1a16 48px 49px);
+      background-color: #1a1612;
+    }
+
+    /* キャラクター共通 */
+    .unit {
+      position: absolute;
+      image-rendering: pixelated;
+      background-repeat: no-repeat;
+      z-index: 5;
+      transition: filter 0.12s, transform 0.15s;
+    }
+    .unit.dead { opacity: 0.35; filter: grayscale(1) brightness(0.5); }
+    .unit.hurt { filter: brightness(2.2) sepia(1) hue-rotate(-50deg) saturate(4); }
+    .unit.acting { filter: drop-shadow(0 0 10px rgba(255,220,120,0.85)); }
+    .unit.turn   { filter: drop-shadow(0 0 6px rgba(120,200,255,0.75)); }
+
+    /* 戦士(Adamant Knight): 32x32 × 10列 × 5行 → 2.5倍表示 = 80x80 */
+    .unit.warrior {
+      width: 80px; height: 80px;
+      background-image: url("assets/knight_anim.png");
+      background-size: 800px 400px;
+    }
+    /* ゴブリン: 32x32 × 10列 × 10行 → 2倍表示 = 64x64 */
+    .unit.goblin {
+      width: 64px; height: 64px;
+      background-image: url("assets/goblin_anim.png");
+      background-size: 640px 640px;
+    }
+    .unit.face-left { transform: scaleX(-1); }
+    .unit.face-left.hurt { transform: scaleX(-1) translateX(4px); }
+
+    /* HPバー */
+    .hpWrap {
+      position: absolute;
+      width: 90px; height: 12px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(200,180,140,0.7);
+      border-radius: 2px;
+      z-index: 6;
+      overflow: hidden;
+    }
+    .hpFill {
+      height: 100%;
+      background: linear-gradient(90deg, #dc3535 0%, #ff6b6b 50%, #ffa057 100%);
+      transition: width 0.3s ease-out;
+    }
+    .hpLabel {
+      position: absolute;
+      left: 0; right: 0; top: -18px;
+      text-align: center;
+      color: #f5e8c8;
+      font-family: 'MedievalSharp', serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.8);
+    }
+    .acBadge {
+      position: absolute;
+      right: -6px; top: -20px;
+      background: rgba(20,30,50,0.85);
+      color: #c8d8ff;
+      font-family: 'MedievalSharp', serif;
+      font-size: 11px;
+      padding: 1px 5px;
+      border: 1px solid #5a7aa0;
+      border-radius: 2px;
+    }
+
+    /* ダメージポップアップ */
+    .dmgPop {
+      position: absolute;
+      color: #ff5252;
+      font-family: 'MedievalSharp', serif;
+      font-size: 30px;
+      font-weight: 700;
+      text-shadow: 0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(255,100,40,0.6);
+      pointer-events: none;
+      animation: dmgRise 1.0s ease-out forwards;
+      z-index: 9;
+      white-space: nowrap;
+    }
+    .dmgPop.crit {
+      color: #ffec6b;
+      font-size: 44px;
+      text-shadow: 0 0 4px #ff2020, 0 0 12px #ff4020, 0 2px 4px #000, 0 0 20px rgba(255,80,40,0.9);
+      animation: dmgCritBurst 1.2s ease-out forwards;
+    }
+    .dmgPop.crit::before {
+      content: "CRIT! ";
+      color: #fff;
+      font-size: 0.65em;
+      letter-spacing: 2px;
+      margin-right: 4px;
+      text-shadow: 0 0 6px #ff4020;
+    }
+    @keyframes dmgRise {
+      0%   { opacity: 0; transform: translateY(0) scale(0.6); }
+      20%  { opacity: 1; transform: translateY(-8px) scale(1.15); }
+      100% { opacity: 0; transform: translateY(-52px) scale(1); }
+    }
+    @keyframes dmgCritBurst {
+      0%   { opacity: 0; transform: translateY(0) scale(0.4) rotate(-6deg); }
+      15%  { opacity: 1; transform: translateY(-10px) scale(1.45) rotate(4deg); }
+      40%  { transform: translateY(-18px) scale(1.2) rotate(-2deg); }
+      100% { opacity: 0; transform: translateY(-70px) scale(1.1) rotate(0deg); }
+    }
+
+    /* ダイスロールポップアップ(攻撃ロール・イニシアチブ等) */
+    .rollPop {
+      position: absolute;
+      font-family: 'MedievalSharp', serif;
+      font-size: 14px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      pointer-events: none;
+      animation: rollRise 1.3s ease-out forwards;
+      z-index: 8;
+      white-space: nowrap;
+      text-align: center;
+      line-height: 1.25;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+    .rollPop .big {
+      font-size: 22px;
+      font-weight: 700;
+      display: inline-block;
+      margin: 0 2px;
+    }
+    .rollPop .label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      opacity: 0.85;
+      margin-bottom: 2px;
+    }
+    .rollPop.hit {
+      color: #fff4c8;
+      background: linear-gradient(180deg, rgba(70,55,20,0.95), rgba(40,30,10,0.95));
+      border: 2px solid #c8a046;
+      text-shadow: 0 1px 2px #000;
+    }
+    .rollPop.miss {
+      color: #c0c0c8;
+      background: linear-gradient(180deg, rgba(35,35,45,0.92), rgba(20,20,28,0.92));
+      border: 2px solid #707080;
+    }
+    .rollPop.crit {
+      color: #fff;
+      background: linear-gradient(180deg, rgba(200,40,40,0.95), rgba(120,20,20,0.95));
+      border: 2px solid #ffd55a;
+      text-shadow: 0 1px 2px #000, 0 0 8px #ffb020;
+      font-size: 16px;
+      animation: rollCritBurst 1.5s ease-out forwards;
+    }
+    .rollPop.crit .big { font-size: 26px; color: #ffec6b; }
+    .rollPop.fumble {
+      color: #c8c8d0;
+      background: linear-gradient(180deg, rgba(30,30,40,0.95), rgba(60,20,30,0.95));
+      border: 2px dashed #904050;
+    }
+    .rollPop.init {
+      color: #d8e8ff;
+      background: linear-gradient(180deg, rgba(30,50,80,0.9), rgba(20,30,60,0.9));
+      border: 2px solid #5a8abd;
+    }
+
+    @keyframes rollRise {
+      0%   { opacity: 0; transform: translate(-50%, 0) scale(0.5); }
+      15%  { opacity: 1; transform: translate(-50%, -6px) scale(1.1); }
+      80%  { opacity: 1; transform: translate(-50%, -18px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -30px) scale(0.95); }
+    }
+    @keyframes rollCritBurst {
+      0%   { opacity: 0; transform: translate(-50%, 0) scale(0.3) rotate(-8deg); }
+      15%  { opacity: 1; transform: translate(-50%, -10px) scale(1.25) rotate(5deg); }
+      30%  { transform: translate(-50%, -14px) scale(1.1) rotate(-3deg); }
+      75%  { opacity: 1; transform: translate(-50%, -22px) scale(1.05) rotate(0); }
+      100% { opacity: 0; transform: translate(-50%, -40px) scale(1); }
+    }
+
+    /* 戦闘ログ(下部パーチメント) */
+    #log {
+      position: fixed;
+      left: 24px; right: 24px; bottom: 24px;
+      max-height: 200px;
+      padding: 14px 22px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-border);
+      border-radius: 4px;
+      box-shadow: var(--parchment-shadow);
+      color: var(--parchment-ink);
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      line-height: 1.55;
+      overflow-y: auto;
+      z-index: 20;
+    }
+    #log::before, #log::after {
+      content: "";
+      position: absolute;
+      width: 22px; height: 22px;
+      border: 2px solid var(--parchment-gold);
+      pointer-events: none;
+    }
+    #log::before { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+    #log::after  { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+    #log .entry { margin-bottom: 2px; }
+    #log .entry.sys { color: var(--parchment-gold); font-weight: 700; }
+    #log .entry.crit { color: #a02010; font-weight: 700; }
+    #log .entry.miss { color: var(--parchment-ink-soft); font-style: italic; }
+    #log .entry b { color: #5a2010; }
+
+    /* タイトル帯 */
+    #title {
+      position: fixed;
+      top: 16px; left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 28px;
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      font-family: 'MedievalSharp', serif;
+      font-size: 24px;
+      color: var(--parchment-gold);
+      letter-spacing: 3px;
+      text-shadow: 0 1px 0 rgba(255,240,200,0.6);
+      z-index: 20;
+    }
+    #roundBanner {
+      position: fixed;
+      top: 70px; left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 16px;
+      background: rgba(20,16,10,0.8);
+      border: 1px solid var(--parchment-gold);
+      color: #f5e8c8;
+      font-family: 'MedievalSharp', serif;
+      font-size: 14px;
+      letter-spacing: 2px;
+      z-index: 20;
+      display: none;
+    }
+
+    /* 結果画面 */
+    #result {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4,6,10,0.72);
+      z-index: 100;
+    }
+    #resultBox {
+      position: relative;
+      padding: 40px 60px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      text-align: center;
+      min-width: 380px;
+    }
+    #resultBox::before, #resultBox::after {
+      content: "";
+      position: absolute;
+      width: 28px; height: 28px;
+      border: 2px solid var(--parchment-gold);
+      pointer-events: none;
+    }
+    #resultBox::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+    #resultBox::after  { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+    #resultTitle {
+      font-family: 'MedievalSharp', serif;
+      font-size: 44px;
+      color: var(--parchment-gold);
+      letter-spacing: 4px;
+      margin-bottom: 14px;
+      text-shadow: 0 1px 0 rgba(255,240,200,0.6), 0 2px 6px rgba(60,30,0,0.35);
+    }
+    #resultSub {
+      color: var(--parchment-ink);
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    #resultBtn {
+      padding: 10px 22px;
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      letter-spacing: 2px;
+      background: var(--parchment-gold);
+      color: #fff8e0;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      text-transform: uppercase;
+    }
+    #resultBtn:hover { filter: brightness(1.15); }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="title">廃坑 — ゴブリンの巣窟</div>
+    <div id="roundBanner"></div>
+    <div id="log"></div>
+    <div id="result">
+      <div id="resultBox">
+        <div id="resultTitle">勝利</div>
+        <div id="resultSub">廃坑は静寂を取り戻した。</div>
+        <button id="resultBtn" onclick="location.reload()">もう一度</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ─────────────────────────────────────────────────────────────
+  // ダイスユーティリティ (D&D 3.5 準拠)
+  // ─────────────────────────────────────────────────────────────
+  function d20() { return 1 + Math.floor(Math.random() * 20); }
+  function rollDice(n, sides) {
+    const rolls = [];
+    for (let i = 0; i < n; i++) rolls.push(1 + Math.floor(Math.random() * sides));
+    return { rolls, total: rolls.reduce((a, b) => a + b, 0) };
+  }
+  function parseDice(notation) {
+    const m = notation.match(/^(\d+)d(\d+)$/);
+    return { n: +m[1], sides: +m[2] };
+  }
+  function signed(n) { return (n >= 0 ? "+" : "") + n; }
+
+  // ─────────────────────────────────────────────────────────────
+  // ユニット定義
+  // ─────────────────────────────────────────────────────────────
+  const SPR = {
+    warrior: { w: 80, h: 80, frameW: 32, scale: 2.5, rowIdle: 0, rowAttack: 3, rowHurt: 1, rowDead: 4 },
+    goblin:  { w: 64, h: 64, frameW: 32, scale: 2.0, rowIdle: 0, rowAttack: 3, rowHurt: 1, rowDead: 4 },
+  };
+
+  function makeUnit(def) {
+    const { kind, name, side, x, y } = def;
+    const el = document.createElement("div");
+    el.className = "unit " + kind + (side === "right" ? " face-left" : "");
+    el.style.left = x + "px";
+    el.style.top  = y + "px";
+    el.dataset.row = "0";
+    document.getElementById("stage").appendChild(el);
+
+    const hpWrap = document.createElement("div");
+    hpWrap.className = "hpWrap";
+    hpWrap.innerHTML =
+      `<div class="hpLabel">${name}</div>` +
+      `<div class="hpFill" style="width:100%"></div>` +
+      `<div class="acBadge">AC ${def.ac}</div>`;
+    document.getElementById("stage").appendChild(hpWrap);
+
+    const u = {
+      kind, name, side, el, hpWrap,
+      hpFill: hpWrap.querySelector(".hpFill"),
+      hp: def.hp, maxHp: def.hp,
+      alive: true, x, y,
+      // D&D ステータス
+      str: def.str || 0,
+      dex: def.dex || 0,
+      con: def.con || 0,
+      atkBonus:  def.atkBonus || 0,
+      ac:        def.ac || 10,
+      dmgDice:   def.dmgDice || "1d4",
+      dmgBonus:  def.dmgBonus || 0,
+      critRange: def.critRange || 20,   // 19-20 なら 19 を入れる
+      critMult:  def.critMult  || 2,
+      initiative: 0,
+    };
+    positionHpBar(u);
+    setFrame(u, 0, 0);
+    return u;
+  }
+
+  function positionHpBar(u) {
+    const spr = SPR[u.kind];
+    const cx = u.x + spr.w / 2;
+    u.hpWrap.style.left = (cx - 45) + "px";
+    u.hpWrap.style.top  = (u.y - 22) + "px";
+  }
+
+  function setFrame(u, col, row) {
+    const spr = SPR[u.kind];
+    const fx = col * spr.frameW * spr.scale;
+    const fy = row * spr.frameW * spr.scale;
+    u.el.style.backgroundPosition = `${-fx}px ${-fy}px`;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // ログ・ポップアップ
+  // ─────────────────────────────────────────────────────────────
+  const logEl = document.getElementById("log");
+  function log(text, cls = "") {
+    const div = document.createElement("div");
+    div.className = "entry" + (cls ? " " + cls : "");
+    div.innerHTML = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function showRollPop(u, html, type) {
+    const spr = SPR[u.kind];
+    const pop = document.createElement("div");
+    pop.className = "rollPop " + type;
+    pop.innerHTML = html;
+    // 中央寄せ: transform translate(-50%, 0) で調整
+    pop.style.left = (u.x + spr.w / 2) + "px";
+    pop.style.top  = (u.y - 46) + "px";
+    document.getElementById("stage").appendChild(pop);
+    setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
+  }
+
+  function showDmgPop(u, dmg, isCrit) {
+    const spr = SPR[u.kind];
+    const pop = document.createElement("div");
+    pop.className = "dmgPop" + (isCrit ? " crit" : "");
+    pop.textContent = dmg;
+    pop.style.left = (u.x + spr.w / 2 - (isCrit ? 34 : 14)) + "px";
+    pop.style.top  = (u.y - 6) + "px";
+    document.getElementById("stage").appendChild(pop);
+    setTimeout(() => pop.remove(), isCrit ? 1200 : 900);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // アニメーション
+  // ─────────────────────────────────────────────────────────────
+  async function playAttackAnim(u) {
+    const spr = SPR[u.kind];
+    u.el.classList.add("acting");
+    for (let f = 0; f < 10; f++) {
+      setFrame(u, f, spr.rowAttack);
+      await sleep(55);
+    }
+    setFrame(u, 0, spr.rowIdle);
+    u.el.classList.remove("acting");
+  }
+  async function playHurtFlash(u) {
+    u.el.classList.add("hurt");
+    await sleep(180);
+    u.el.classList.remove("hurt");
+  }
+  async function playDeath(u) {
+    const spr = SPR[u.kind];
+    for (let f = 0; f < 10; f++) {
+      setFrame(u, f, spr.rowDead);
+      await sleep(60);
+    }
+    u.el.classList.add("dead");
+    u.hpWrap.style.display = "none";
+  }
+  function updateHp(u) {
+    u.hpFill.style.width = Math.max(0, u.hp / u.maxHp * 100) + "%";
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 戦闘フロー
+  // ─────────────────────────────────────────────────────────────
+  const allies = [
+    makeUnit({
+      kind: "warrior", name: "戦士", side: "left", x: 240, y: 260,
+      hp: 30, str: 3, dex: 1, con: 2,
+      atkBonus: 4, ac: 16,
+      dmgDice: "1d8", dmgBonus: 3,
+      critRange: 19, critMult: 2,   // ロングソード: 19-20/x2
+    }),
+  ];
+  const enemies = [
+    makeUnit({
+      kind: "goblin", name: "ゴブリン①", side: "right", x: 820, y: 240,
+      hp: 8, str: 0, dex: 1, con: 1,
+      atkBonus: 2, ac: 14,
+      dmgDice: "1d6", dmgBonus: 0,
+      critRange: 20, critMult: 2,
+    }),
+    makeUnit({
+      kind: "goblin", name: "ゴブリン②", side: "right", x: 920, y: 330,
+      hp: 8, str: 0, dex: 1, con: 1,
+      atkBonus: 2, ac: 14,
+      dmgDice: "1d6", dmgBonus: 0,
+      critRange: 20, critMult: 2,
+    }),
+  ];
+
+  function livingAllies()  { return allies.filter(u => u.alive); }
+  function livingEnemies() { return enemies.filter(u => u.alive); }
+
+  function pickTarget(list) {
+    const alive = list.filter(u => u.alive);
+    if (alive.length === 0) return null;
+    return alive.reduce((a, b) => (a.hp < b.hp ? a : b));  // HP が最も低い者を狙う
+  }
+
+  // ─── イニシアチブ ───
+  async function rollInitiative() {
+    log("── <b>イニシアチブロール</b> ──", "sys");
+    const all = [...allies, ...enemies];
+    for (const u of all) {
+      const n = d20();
+      u.initiative = n + u.dex;
+      const html =
+        `<span class="label">INITIATIVE</span>` +
+        `1d20(<span class="big">${n}</span>)${signed(u.dex)} = <span class="big">${u.initiative}</span>`;
+      showRollPop(u, html, "init");
+      log(`${u.name}: 1d20(<b>${n}</b>)${signed(u.dex)} = <b>${u.initiative}</b>`);
+      await sleep(420);
+    }
+    all.sort((a, b) => {
+      if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+      // 同値は味方(左側)優先
+      return a.side === "left" ? -1 : 1;
+    });
+    log(`行動順: ${all.map(u => `${u.name}(${u.initiative})`).join(" → ")}`, "sys");
+    await sleep(900);
+    return all;
+  }
+
+  // ─── 攻撃アクション ───
+  async function performAttack(attacker, target) {
+    attacker.el.classList.add("turn");
+    log(`<b>${attacker.name}</b>は <b>${target.name}</b> に攻撃！`);
+    await playAttackAnim(attacker);
+
+    // 命中判定ロール
+    const natD20  = d20();
+    const atkTotal = natD20 + attacker.atkBonus;
+    const isFumble = natD20 === 1;
+    const isThreat = natD20 >= attacker.critRange && !isFumble;
+
+    const atkText =
+      `1d20(<span class="big">${natD20}</span>)${signed(attacker.atkBonus)} = <span class="big">${atkTotal}</span>` +
+      `<br>vs AC ${target.ac}`;
+
+    if (isFumble) {
+      showRollPop(attacker,
+        `<span class="label">FUMBLE!</span>1d20(<span class="big">1</span>)${signed(attacker.atkBonus)}`,
+        "fumble");
+      log(`ファンブル！ 1d20(<b>1</b>) → 自動ミス`, "miss");
+      await sleep(900);
+      attacker.el.classList.remove("turn");
+      return;
+    }
+
+    // 自然20 or 通常命中判定
+    const hit = isThreat || atkTotal >= target.ac;
+
+    if (!hit) {
+      showRollPop(attacker, `<span class="label">MISS</span>${atkText}`, "miss");
+      log(`${attacker.name}: 1d20(<b>${natD20}</b>)${signed(attacker.atkBonus)} = ${atkTotal} vs AC ${target.ac} → ミス`, "miss");
+      await sleep(900);
+      attacker.el.classList.remove("turn");
+      return;
+    }
+
+    // 自然20 → 確認ロール
+    let isCrit = false;
+    if (isThreat) {
+      showRollPop(attacker,
+        `<span class="label">CRITICAL THREAT!</span>1d20(<span class="big">${natD20}</span>)${signed(attacker.atkBonus)}`,
+        "crit");
+      await sleep(700);
+      const confNat = d20();
+      const confTotal = confNat + attacker.atkBonus;
+      const confirmed = confTotal >= target.ac;
+      if (confirmed) {
+        isCrit = true;
+        showRollPop(attacker,
+          `<span class="label">CRIT CONFIRMED x${attacker.critMult}</span>` +
+          `確認: 1d20(<span class="big">${confNat}</span>)${signed(attacker.atkBonus)} = <span class="big">${confTotal}</span>`,
+          "crit");
+        log(`<b>クリティカル確認成功！</b> 確認ロール 1d20(<b>${confNat}</b>)${signed(attacker.atkBonus)} = <b>${confTotal}</b> vs AC ${target.ac} → ×${attacker.critMult} ダメージ`, "crit");
+      } else {
+        showRollPop(attacker,
+          `<span class="label">CRIT FAILED</span>確認: 1d20(${confNat})${signed(attacker.atkBonus)} = ${confTotal} → 通常命中`,
+          "hit");
+        log(`クリティカル未確認 (確認ロール ${confTotal} vs AC ${target.ac}) → 通常命中`);
+      }
+    } else {
+      showRollPop(attacker, `<span class="label">HIT</span>${atkText}`, "hit");
+      log(`${attacker.name}: 1d20(<b>${natD20}</b>)${signed(attacker.atkBonus)} = <b>${atkTotal}</b> vs AC ${target.ac} → 命中`);
+    }
+    await sleep(600);
+
+    // ダメージロール
+    const { n, sides } = parseDice(attacker.dmgDice);
+    const times = isCrit ? attacker.critMult : 1;
+    let allRolls = [];
+    for (let i = 0; i < times; i++) {
+      const r = rollDice(n, sides);
+      allRolls = allRolls.concat(r.rolls);
+    }
+    const diceSum = allRolls.reduce((a, b) => a + b, 0);
+    const bonusTotal = attacker.dmgBonus * times;
+    let dmgTotal = Math.max(1, diceSum + bonusTotal);
+
+    target.hp -= dmgTotal;
+    if (target.hp < 0) target.hp = 0;
+    showDmgPop(target, dmgTotal, isCrit);
+    await playHurtFlash(target);
+    updateHp(target);
+
+    const dmgText = isCrit
+      ? `${attacker.dmgDice}×${attacker.critMult}(${allRolls.join("+")})${signed(bonusTotal)} = <b>${dmgTotal}</b>`
+      : `${attacker.dmgDice}(${allRolls.join("+")})${signed(attacker.dmgBonus)} = <b>${dmgTotal}</b>`;
+    log(`→ ダメージ: ${dmgText}` + (isCrit ? " <b>(CRIT!)</b>" : ""), isCrit ? "crit" : "");
+
+    if (target.hp <= 0) {
+      target.alive = false;
+      await sleep(300);
+      log(`<b>${target.name}</b>は 倒れた！`, "sys");
+      await playDeath(target);
+    }
+    attacker.el.classList.remove("turn");
+    await sleep(380);
+  }
+
+  // ─── ラウンドループ ───
+  const roundBanner = document.getElementById("roundBanner");
+  function showRoundBanner(round) {
+    roundBanner.textContent = `─── ROUND ${round} ───`;
+    roundBanner.style.display = "block";
+  }
+
+  async function runBattle() {
+    log("廃坑の奥から ゴブリン が現れた！", "sys");
+    await sleep(600);
+
+    const order = await rollInitiative();
+
+    let round = 1;
+    while (livingAllies().length > 0 && livingEnemies().length > 0) {
+      showRoundBanner(round);
+      log(`── <b>ラウンド ${round}</b> ──`, "sys");
+      await sleep(400);
+
+      for (const actor of order) {
+        if (!actor.alive) continue;
+        if (livingAllies().length === 0 || livingEnemies().length === 0) break;
+        const list = actor.side === "left" ? livingEnemies() : livingAllies();
+        const tgt = pickTarget(list);
+        if (!tgt) break;
+        await performAttack(actor, tgt);
+      }
+      round++;
+    }
+
+    roundBanner.style.display = "none";
+    await sleep(500);
+    const won = livingAllies().length > 0;
+    if (won) {
+      log("戦闘に勝利した！", "sys");
+      showResult("勝 利", "廃坑は静寂を取り戻した。");
+    } else {
+      log("戦士は力尽きた…", "sys");
+      showResult("敗 北", "廃坑の闇に飲まれた…");
+    }
+  }
+
+  function showResult(title, sub) {
+    document.getElementById("resultTitle").textContent = title;
+    document.getElementById("resultSub").textContent = sub;
+    document.getElementById("result").style.display = "flex";
+  }
+
+  window.addEventListener("load", () => {
+    setTimeout(runBattle, 400);
+  });
+</script>
+</body>
+</html>
