@@ -3657,10 +3657,15 @@
         const shieldLine = (shield && shield.enhancement > 0)
           ? `<div class="sbStat">盾: <span class="${getItemColorClass(shield.name, shield.rarity)}">${shield.name}</span> (AC +${shield.enhancement})</div>`
           : "";
+        // MP 行 (リーダーが mpMax>0 のクラス: 僧侶/魔法使い/エルフ など)
+        const leaderMpLine = (maxMp > 0)
+          ? `<div class="sbStat">MP <b style="color:#2b5d8e">${mp}</b>/${maxMp}</div>`
+          : "";
         wEl.innerHTML =
           `<div class="sbName">${getLeaderName()} <span style="font-size:12px;color:#c8a046">Lv${lv}</span></div>` +
           `<div class="sbStat">HP <b>${hp}</b>/${maxHp}` +
           `  ・ AC ${baseAc}${acBonus} 攻<b>+${baseAtk}</b></div>` +
+          leaderMpLine +
           `<div class="sbStat">${formatWeaponLine(weapon.name, weapon.dmgDice || playerStats.dmgDice, weaponDisplayBonus, playerStats.weaponRange || "melee", weapon.rarity, weapon.bonusDmgDice, weapon.bonusDmgType)}</div>` +
           shieldLine +
           `<div class="sbStat">${formatArmorLine(armor.name, armor.rarity)}</div>` +
