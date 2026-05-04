@@ -3661,6 +3661,13 @@
         const leaderMpLine = (maxMp > 0)
           ? `<div class="sbStat">MP <b style="color:#2b5d8e">${mp}</b>/${maxMp}</div>`
           : "";
+        // スキル行 (装備スキル一覧、仲間と同じ表示パターン)
+        const leaderSkillNames = (typeof equippedSkills !== "undefined" && equippedSkills)
+          ? equippedSkills.map(id => {
+              const sk = (typeof getSkill === "function") ? getSkill(id) : null;
+              return sk ? sk.name : id;
+            }).join(" / ")
+          : "";
         wEl.innerHTML =
           `<div class="sbName">${getLeaderName()} <span style="font-size:12px;color:#c8a046">Lv${lv}</span></div>` +
           `<div class="sbStat">HP <b>${hp}</b>/${maxHp}` +
@@ -3669,6 +3676,7 @@
           `<div class="sbStat">${formatWeaponLine(weapon.name, weapon.dmgDice || playerStats.dmgDice, weaponDisplayBonus, playerStats.weaponRange || "melee", weapon.rarity, weapon.bonusDmgDice, weapon.bonusDmgType)}</div>` +
           shieldLine +
           `<div class="sbStat">${formatArmorLine(armor.name, armor.rarity)}</div>` +
+          `<div class="sbStat">スキル: ${leaderSkillNames || "—"}</div>` +
           `<div class="sbStat">XP <b>${currentTotalXp}</b>/${nextXp} ・ 金貨 ${coins}</div>`;
       }
       // 仲間 (キャラクター毎に DOM 要素を対応付け)
