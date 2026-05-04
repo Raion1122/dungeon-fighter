@@ -6066,7 +6066,72 @@
           else if (skillId === "shield-wall")   await allyShieldWall(actor);
           else if (skillId === "battle-rest")   await allyBattleRest(actor);
         }
-        // 他クラスは a-3 で実装予定 (現状未対応 → 通常攻撃にフォールバック)
+        // 僧侶 (Step a-3 第1弾) ─ 回復&バフは味方ターゲットを構築して渡す
+        else if (leaderClassKey === "cleric") {
+          if (skillId === "cure-light-wounds") {
+            const tgt = findLowestHpPartyMember();
+            if (tgt) await allyCureLight(actor, tgt);
+          } else if (skillId === "shield-of-faith") {
+            // 未バフ候補から優先度付きで選ぶ (前衛 > リーダー > 後衛)
+            const candidates = [];
+            if (hp > 0 && !gameOver && playerBuffs.acBonusRemaining <= 0) {
+              candidates.push({
+                kind: "leader", priority: 2,
+                cx: playerX + 48, cy: playerY + 58,
+              });
+            }
+            for (const a of allies) {
+              if (!a.alive) continue;
+              if (a.buffs.acBonusRemaining > 0) continue;
+              const pri = (a.def.role === "frontline") ? 3 : 1;
+              candidates.push({
+                kind: "ally", ally: a, priority: pri,
+                cx: a.x + a.def.displaySize / 2,
+                cy: a.y + a.def.displaySize / 2,
+              });
+            }
+            if (candidates.length > 0) {
+              candidates.sort((a, b) => b.priority - a.priority);
+              await allyShieldOfFaith(actor, candidates[0]);
+            }
+          }
+        }
+        // 魔法使い (Step a-3 第2弾)
+        else if (leaderClassKey === "mage") {
+          if (skillId === "magic-missile")     await allyMagicMissile(actor, targetIdx);
+          else if (skillId === "fire-bolt")    await allyFireBolt(actor, targetIdx);
+          else if (skillId === "sleep")        await allySleep(actor, targetIdx);
+          else if (skillId === "arcane-shield") await allyArcaneShield(actor);
+        }
+        // エルフ (Step a-3 第3弾)
+        else if (leaderClassKey === "elf") {
+          if (skillId === "aimed-shot")       await allyAimedShot(actor, targetIdx);
+          else if (skillId === "magic-arrow") await allyMagicArrow(actor, targetIdx);
+          else if (skillId === "cure-minor")  await allyCureMinor(actor);
+        }
+        // 盗賊 (Step a-3 第4弾) ─ shadow-step は sneak 条件 (helpless or flanking) を要する
+        else if (leaderClassKey === "rogue") {
+          if (skillId === "shadow-step") {
+            // sneak 可能 & 移動先確保可な敵を探す。なければ通常攻撃にフォールバック
+            const candidates = [];
+            for (let i = 0; i < enemies.length; i++) {
+              if (!enemies[i].alive) continue;
+              if (canSneakOnTarget(actor, enemies[i])) candidates.push(i);
+            }
+            // HP 残量低い順 (確実にトドメを刺せる相手優先)
+            candidates.sort((a, b) => enemies[a].hp - enemies[b].hp);
+            let fired = false;
+            for (const idx of candidates) {
+              if (pickShadowStepTile(actor, enemies[idx])) {
+                await allyShadowStep(actor, idx);
+                fired = true;
+                break;
+              }
+            }
+            if (!fired) await playerSingleAttack(targetIdx, {});
+          }
+        }
+        // 未対応クラス → 通常攻撃にフォールバック
         else {
           await playerSingleAttack(targetIdx, {});
         }
@@ -7253,6 +7318,10 @@
       }
       if (playerBuffs.antiKnockbackRemaining > 0) playerBuffs.antiKnockbackRemaining--;
       if (playerBuffs.acBonusRemaining > 0) playerBuffs.acBonusRemaining--;
+      // リーダースキルクールダウンも 1 進める (rogue の shadow-step CD など)
+      for (const k of Object.keys(leaderSkillCooldowns)) {
+        if (leaderSkillCooldowns[k] > 0) leaderSkillCooldowns[k]--;
+      }
     }
     function currentPlayerAtkBonus() {
       const w = getCurrentWeapon();
@@ -9960,7 +10029,8 @@
       if (target.stunned > 0) return true;
       const tcx = target.x + target.def.displaySize / 2;
       const tcy = target.y + target.def.displaySize / 2;
-      if (hp > 0 && !gameOver) {
+      // ally がリーダー本人なら playerX/Y はワープ前の自分の位置 → フランキング扱いしない
+      if (!ally.isLeader && hp > 0 && !gameOver) {
         if (tileChebyshev(playerX + 48, playerY + 58, tcx, tcy) <= 1) return true;
       }
       for (const a of allies) {
