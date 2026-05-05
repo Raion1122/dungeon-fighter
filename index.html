@@ -2806,6 +2806,25 @@
         clearReward: "謎の紋章入り指令書",
         xp: 700,
       },
+      // ── シナリオ3: 沼地リザードマン ──
+      // SD chibi 画風 (project_enemy_art_style.md 基準)、専用シート 96px×6cols×5rows
+      lizardWarrior: {
+        name: "リザードマン戦士",
+        flavor: "炎の支配者の名のもとに咆哮する沼の戦士",
+        badge: "🦎",
+        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 88,
+        hp: 14, speed: 0.8,
+        hasAttackAnim: true,
+        meleeRange: 160, hitRange: 220,
+        attackDuration: 24, attackHitFrame: 16, attackCooldown: 50,
+        str: 3, dex: 1, atkBonus: 4, ac: 15,
+        dmgDice: "1d6", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        xp: 200,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -2872,11 +2891,12 @@
         hiddenChestCount: 3,
         clearXp: 700,
         spawns: [
-          ["goblin", 19, 11], ["orc", 23, 15],
-          ["goblin", 34, 11], ["skeleton", 40, 12], ["orc", 38, 17],
-          ["orc", 50, 11], ["goblin", 55, 15],
-          ["skeleton", 65, 10], ["orc", 70, 14], ["orc", 72, 17],
-          ["minotaur", 86, 13],   // ボス: 族長
+          // 雑魚: 全て lizardWarrior (狩人/襲撃者/司祭は今後追加して差し替え予定)
+          ["lizardWarrior", 19, 11], ["lizardWarrior", 23, 15],
+          ["lizardWarrior", 34, 11], ["lizardWarrior", 40, 12], ["lizardWarrior", 38, 17],
+          ["lizardWarrior", 50, 11], ["lizardWarrior", 55, 15],
+          ["lizardWarrior", 65, 10], ["lizardWarrior", 70, 14], ["lizardWarrior", 72, 17],
+          ["minotaur", 86, 13],   // ボス: 族長 (今後 lizardChieftain に差し替え予定)
         ],
       },
       "orc-fort": {
