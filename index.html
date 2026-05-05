@@ -748,6 +748,23 @@
         box-shadow: 0 6px 20px rgba(0,0,0,0.7);
       }
     }
+    /* タッチデバイス全般 (画面サイズ問わず): ボタンを大きく、最低 56px のタップ領域確保 */
+    @media (hover: none) {
+      #retreatBtn {
+        padding: 22px 22px;
+        font-size: 26px;
+        letter-spacing: 5px;
+        border-width: 3px;
+        border-radius: 6px;
+        min-height: 64px;
+      }
+      #resultBtn {
+        padding: 24px 50px;
+        font-size: 28px;
+        letter-spacing: 4px;
+        min-height: 70px;
+      }
+    }
 
     /* 撤退ボタン (ステータスパネル最下部) */
     #retreatBtn {

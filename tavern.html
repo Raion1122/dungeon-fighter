@@ -698,6 +698,54 @@
       cursor: not-allowed;
       background: rgba(200,180,140,0.15);
     }
+    /* タッチデバイス: ボタン/インタラクティブ要素を一斉に拡大 (タップしやすく) */
+    @media (hover: none) {
+      .btn {
+        padding: 22px 38px;
+        font-size: 22px;
+        letter-spacing: 3px;
+        border-radius: 6px;
+        min-height: 64px;
+      }
+      .equipToggleBtn {
+        padding: 12px 24px;
+        font-size: 18px;
+        min-height: 48px;
+      }
+      .equipItem {
+        padding: 14px 16px;
+        font-size: 19px;
+        min-height: 56px;
+        border-width: 3px;
+      }
+      .equipItem .eSpec { font-size: 16px; }
+      .skillItem {
+        padding: 14px 16px;
+        font-size: 16px;
+        line-height: 1.45;
+        min-height: 88px;
+        border-width: 3px;
+      }
+      .skillItem .sName { font-size: 18px; margin-bottom: 4px; }
+      .skillItem .sCat { font-size: 14px; letter-spacing: 1.5px; margin-right: 6px; }
+      .skillItem .sFlavor { font-size: 16px; }
+      #skillSlotCounter { font-size: 18px; }
+      #skillSlotTitle { font-size: 18px; letter-spacing: 3px; }
+      .partyMemberToggle {
+        padding: 18px 6px;
+        min-height: 80px;
+        border-width: 3px;
+      }
+      .partyMemberToggle .memberName { font-size: 18px; letter-spacing: 1px; }
+      .partyMemberToggle .memberRole { font-size: 14px; margin-top: 4px; }
+      .partyMemberToggle.locked::after { font-size: 14px; top: 5px; right: 7px; }
+      .partyTab {
+        padding: 14px 6px;
+        font-size: 18px;
+        min-height: 56px;
+      }
+      .partyTab .tabCount { font-size: 14px; margin-top: 4px; }
+    }
   </style>
 </head>
 <body>
