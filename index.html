@@ -9964,7 +9964,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
-      startAllyAttackAnim(ally);
+      startAllyAttackAnim(ally, 1700);  // 詠唱 sleep と同期 (デフォ 500ms だと残り棒立ちになる)
       await sleepMs(1700);  // 詠唱 (短縮、続けて魔力の矢飛翔へ)
 
       // 弓の発射点
