@@ -2200,7 +2200,21 @@
         setSpriteSheet(sprites.attack, sprites.attackSize);
         player.style.backgroundPosition = `${-atkFrame * 96}px ${-row * 96}px`;
         return;
-      } else if (isGuarding) {
+      } else if (leaderSpellAnimActive) {
+        // ally系スキルをリーダーがアダプタ経由で使ったとき: 攻撃シートを elapsed 比例で再生
+        const elapsed = performance.now() - leaderSpellAnimStart;
+        if (elapsed >= leaderSpellAnimDuration) {
+          // setTimeout 遅延の保険
+          leaderSpellAnimActive = false;
+        } else {
+          const progress = Math.min(1, elapsed / leaderSpellAnimDuration);
+          const frame = Math.min(4, Math.floor(progress * 5));
+          setSpriteSheet(sprites.attack, sprites.attackSize);
+          player.style.backgroundPosition = `${-frame * 96}px ${-row * 96}px`;
+          return;
+        }
+      }
+      if (isGuarding) {
         // 戦士のみ simple_knight のガードフレームを使う (他クラスは walk 静止で代用)
         if (leaderClassKey === "warrior") {
           setSpriteSheet(KNIGHT_SHEET_URL, KNIGHT_SHEET_SIZE);
@@ -4436,7 +4450,24 @@
         ally.attackAnimActive = false;
         ally._attackTimer = null;
       }, durationMs);
+      // リーダー本人がアダプタ経由で呼ばれたとき: updateKnightSprite が読むグローバルにも反映
+      // (そうしないと棒立ちのまま — Phase 3 C-3 a の既知制限を解消)
+      if (ally.isLeader) {
+        leaderSpellAnimActive = true;
+        leaderSpellAnimStart = performance.now();
+        leaderSpellAnimDuration = durationMs;
+        if (leaderSpellAnimTimer) clearTimeout(leaderSpellAnimTimer);
+        leaderSpellAnimTimer = setTimeout(() => {
+          leaderSpellAnimActive = false;
+          leaderSpellAnimTimer = null;
+        }, durationMs);
+      }
     }
+    // リーダーがアダプタ経由で ally系スキルを使うときの攻撃モーション
+    let leaderSpellAnimActive = false;
+    let leaderSpellAnimStart = 0;
+    let leaderSpellAnimDuration = 0;
+    let leaderSpellAnimTimer = null;
     function startAllyCastAnim(ally, durationMs = 600) {
       if (!CAST_SHEET_CLASSES.has(ally.classKey)) return;
       if (ally._castTimer) clearTimeout(ally._castTimer);
