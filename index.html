@@ -1104,6 +1104,152 @@
       100% { opacity: 0;   transform: translateY(-26px) scaleY(0.7); }
     }
 
+    /* 霜咬みの弓 (cold) ─ 青白閃光 + 放射状氷晶 + 残留氷粒 */
+    .fxFrostCore {
+      position: absolute;
+      width: 60px; height: 60px;
+      pointer-events: none; z-index: 61;
+      border-radius: 50%;
+      background: radial-gradient(circle,
+        rgba(240,255,255,0.95) 0%,
+        rgba(160,220,255,0.85) 35%,
+        rgba(80,150,220,0.5)   65%,
+        rgba(20,60,120,0)      90%);
+      mix-blend-mode: screen;
+      animation: fxFrostCoreAnim 320ms ease-out forwards;
+    }
+    .fxFrostCore.crit { width: 84px; height: 84px; animation-duration: 420ms; }
+    @keyframes fxFrostCoreAnim {
+      0%   { opacity: 0.95; transform: scale(0.45); }
+      100% { opacity: 0;    transform: scale(1.5); }
+    }
+    .fxFrostShard {
+      position: absolute;
+      width: 14px; height: 14px;
+      pointer-events: none; z-index: 60;
+      background: linear-gradient(135deg,
+        rgba(220,245,255,0.95) 0%,
+        rgba(140,200,250,0.75) 50%,
+        rgba(60,120,200,0)     100%);
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      filter: drop-shadow(0 0 4px rgba(180,220,255,0.85));
+      animation: fxFrostShardAnim 600ms ease-out forwards;
+    }
+    @keyframes fxFrostShardAnim {
+      0%   { opacity: 1; transform: translate(0,0) rotate(0) scale(0.6); }
+      100% { opacity: 0; transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(1.2); }
+    }
+    .fxFrostFlake {
+      position: absolute;
+      width: 8px; height: 8px;
+      pointer-events: none; z-index: 5;
+      background: radial-gradient(circle,
+        rgba(220,245,255,0.95) 0%,
+        rgba(140,200,250,0.7)  50%,
+        rgba(60,120,200,0)     100%);
+      border-radius: 50%;
+      filter: drop-shadow(0 0 3px rgba(180,220,255,0.7));
+      animation: fxFrostFlakeAnim 800ms ease-in forwards;
+    }
+    @keyframes fxFrostFlakeAnim {
+      0%   { opacity: 0.95; transform: translateY(0)    scale(var(--s, 1)); }
+      100% { opacity: 0;    transform: translateY(36px) scale(calc(var(--s, 1) * 0.5)); }
+    }
+
+    /* 嵐のスタッフ等 (lightning) ─ 黄色閃光 + 4方向ジグザグ */
+    .fxLightningCore {
+      position: absolute;
+      width: 56px; height: 56px;
+      pointer-events: none; z-index: 61;
+      border-radius: 50%;
+      background: radial-gradient(circle,
+        rgba(255,255,230,0.98) 0%,
+        rgba(255,235,140,0.9)  35%,
+        rgba(240,180,40,0.5)   65%,
+        rgba(160,100,0,0)      92%);
+      mix-blend-mode: screen;
+      animation: fxLightningCoreAnim 240ms ease-out forwards;
+    }
+    .fxLightningCore.crit { width: 80px; height: 80px; animation-duration: 320ms; }
+    @keyframes fxLightningCoreAnim {
+      0%   { opacity: 1; transform: scale(0.5); }
+      40%  { opacity: 1; transform: scale(1.1); }
+      100% { opacity: 0; transform: scale(1.4); }
+    }
+    .fxLightningBolt {
+      position: absolute;
+      width: 5px; height: 60px;
+      pointer-events: none; z-index: 62;
+      background: linear-gradient(180deg,
+        rgba(255,255,230,1)  0%,
+        rgba(255,225,90,0.95) 60%,
+        rgba(240,180,40,0)    100%);
+      filter: drop-shadow(0 0 6px rgba(255,225,90,0.95));
+      transform-origin: 50% 0%;
+      clip-path: polygon(0% 0%, 100% 0%, 75% 22%, 100% 45%, 70% 65%, 100% 100%, 0% 100%, 25% 65%, 0% 45%, 30% 22%);
+      animation: fxLightningBoltAnim 280ms ease-out forwards;
+    }
+    @keyframes fxLightningBoltAnim {
+      0%   { opacity: 0; transform: rotate(var(--ang)) scaleY(0); }
+      20%  { opacity: 1; transform: rotate(var(--ang)) scaleY(1); }
+      100% { opacity: 0; transform: rotate(var(--ang)) scaleY(1); }
+    }
+
+    /* 聖 (holy、将来武器用) ─ 金色閃光 + 上から降りる光柱 + 上昇光粒 */
+    .fxHolyCore {
+      position: absolute;
+      width: 60px; height: 60px;
+      pointer-events: none; z-index: 61;
+      border-radius: 50%;
+      background: radial-gradient(circle,
+        rgba(255,250,220,0.98) 0%,
+        rgba(255,230,150,0.9)  30%,
+        rgba(220,180,80,0.6)   60%,
+        rgba(180,140,40,0)     90%);
+      mix-blend-mode: screen;
+      animation: fxHolyCoreAnim 480ms ease-out forwards;
+    }
+    .fxHolyCore.crit { width: 88px; height: 88px; animation-duration: 600ms; }
+    @keyframes fxHolyCoreAnim {
+      0%   { opacity: 0.98; transform: scale(0.5); }
+      100% { opacity: 0;    transform: scale(1.6); }
+    }
+    .fxHolyBeam {
+      position: absolute;
+      width: 28px; height: 100px;
+      pointer-events: none; z-index: 60;
+      background: linear-gradient(180deg,
+        rgba(255,255,210,0)    0%,
+        rgba(255,240,170,0.7)  40%,
+        rgba(255,225,130,0.85) 70%,
+        rgba(220,180,80,0)     100%);
+      mix-blend-mode: screen;
+      filter: drop-shadow(0 0 8px rgba(255,225,130,0.85));
+      animation: fxHolyBeamAnim 720ms ease-out forwards;
+    }
+    .fxHolyBeam.crit { width: 38px; height: 130px; animation-duration: 920ms; }
+    @keyframes fxHolyBeamAnim {
+      0%   { opacity: 0; transform: scaleY(0.3); }
+      20%  { opacity: 1; transform: scaleY(1); }
+      100% { opacity: 0; transform: scaleY(1); }
+    }
+    .fxHolyMote {
+      position: absolute;
+      width: 8px; height: 8px;
+      pointer-events: none; z-index: 5;
+      background: radial-gradient(circle,
+        rgba(255,250,210,0.98) 0%,
+        rgba(255,225,130,0.85) 50%,
+        rgba(220,180,80,0)     100%);
+      border-radius: 50%;
+      filter: drop-shadow(0 0 4px rgba(255,225,130,0.85));
+      animation: fxHolyMoteAnim 900ms ease-out forwards;
+    }
+    @keyframes fxHolyMoteAnim {
+      0%   { opacity: 0.95; transform: translateY(0)     scale(var(--s, 1)); }
+      100% { opacity: 0;    transform: translateY(-30px) scale(calc(var(--s, 1) * 0.6)); }
+    }
+
     /* ダンジョン罠 (発見前は非表示、発見後に painterly 画像表示) */
     .trap {
       position: absolute;
@@ -7488,11 +7634,24 @@
         // 属性エフェクト (suppressFx 指定時はスキップ)
         if (!suppressFx) {
           const fxY = target.y + (target.def.displaySize || 64) / 2;
-          playWeaponElementalFx(bonusType, ex, fxY, isCrit);
-          // 炎属性: 命中の瞬間に中央フラッシュ + 炎柱、続けて敵に火が燃え移る粒子継続
           if (bonusType === "fire") {
+            // 炎: 中央フラッシュ + 炎柱 → 敵に火が燃え移る粒子継続
             playFlameTongueImpactFx(ex, fxY, targetIdx, isCrit);
             spawnFireBurnOnEnemy(targetIdx, isCrit ? 1800 : 1400);
+          } else if (bonusType === "cold") {
+            // 冷気: 青白閃光 + 放射状氷晶 → 敵から落ちる氷の粒
+            playFrostbiteImpactFx(ex, fxY, targetIdx, isCrit);
+            spawnFrostOnEnemy(targetIdx, isCrit ? 1500 : 1200);
+          } else if (bonusType === "lightning") {
+            // 雷: 黄色閃光 + 4方向ジグザグ。雷鳴の斧 (shockwave 持ち) は中央フラッシュが
+            // playThunderShockwaveFx で既に出てるので重複回避
+            if (!weaponLike.shockwaveDice) {
+              playLightningImpactFx(ex, fxY, isCrit);
+            }
+          } else if (bonusType === "holy") {
+            // 聖: 金色バースト + 上から降りる光柱 → 上昇する金色の光粒
+            playHolyImpactFx(ex, fxY, targetIdx, isCrit);
+            spawnHolyAuraOnEnemy(targetIdx, isCrit ? 1500 : 1200);
           }
         }
         showDmgAt(ex, target.y - 22, extra, false);
@@ -10030,8 +10189,146 @@
       setTimeout(() => z.remove(), 740);
     }
 
+    // ── 霜咬みの弓 (cold): 中央青白閃光 + 放射状の氷晶シャード散布 ──
+    function playFrostbiteImpactFx(wx, wy, enemyIdx, isCrit) {
+      // 中央コア
+      const core = document.createElement("div");
+      core.className = "fxFrostCore" + (isCrit ? " crit" : "");
+      const half = isCrit ? 42 : 30;
+      core.style.left = (wx - camX - half) + "px";
+      core.style.top  = (wy - camY - half) + "px";
+      document.body.appendChild(core);
+      setTimeout(() => core.remove(), isCrit ? 460 : 360);
+      // 放射状の氷シャード (CRIT時多め)
+      const shardN = isCrit ? 6 : 4;
+      for (let i = 0; i < shardN; i++) {
+        const sh = document.createElement("div");
+        sh.className = "fxFrostShard";
+        const angle = (Math.PI * 2 * i / shardN) + (Math.random() - 0.5) * 0.5;
+        const dist = 28 + Math.random() * 18 + (isCrit ? 8 : 0);
+        const tx = Math.cos(angle) * dist;
+        const ty = Math.sin(angle) * dist;
+        const rot = (Math.random() * 720 - 360) + "deg";
+        sh.style.left = (wx - camX - 7) + "px";
+        sh.style.top  = (wy - camY - 7) + "px";
+        sh.style.setProperty("--tx", tx + "px");
+        sh.style.setProperty("--ty", ty + "px");
+        sh.style.setProperty("--rot", rot);
+        document.body.appendChild(sh);
+        setTimeout(() => sh.remove(), 650);
+      }
+    }
+    // 凍結残留: 敵から落ちる氷の粒
+    function spawnFrostFlake(host) {
+      if (!host) return;
+      const p = document.createElement("div");
+      p.className = "fxFrostFlake";
+      const xOffset = 18 + Math.random() * 50;
+      const yOffset = 30 + Math.random() * 40;
+      p.style.left = (xOffset - 4) + "px";
+      p.style.top  = yOffset + "px";
+      const scale = 0.7 + Math.random() * 0.5;
+      p.style.setProperty("--s", scale);
+      host.appendChild(p);
+      setTimeout(() => p.remove(), 800);
+    }
+    function spawnFrostOnEnemy(enemyIdx, durationMs = 1200) {
+      const host = enemyElements && enemyElements[enemyIdx];
+      if (!host) return;
+      const interval = setInterval(() => {
+        if (!host.parentNode) { clearInterval(interval); return; }
+        spawnFrostFlake(host);
+        if (Math.random() < 0.3) spawnFrostFlake(host);
+      }, 80);
+      setTimeout(() => clearInterval(interval), durationMs);
+    }
+
+    // ── 嵐のスタッフ等 (lightning): 中央黄色閃光 + 4方向ジグザグ稲光 ──
+    // 雷鳴の斧は shockwave 専用 fx (playThunderShockwaveFx) を使うため、こちらの基本属性 fx は呼ばない (重複回避)
+    function playLightningImpactFx(wx, wy, isCrit) {
+      const core = document.createElement("div");
+      core.className = "fxLightningCore" + (isCrit ? " crit" : "");
+      const half = isCrit ? 40 : 28;
+      core.style.left = (wx - camX - half) + "px";
+      core.style.top  = (wy - camY - half) + "px";
+      document.body.appendChild(core);
+      setTimeout(() => core.remove(), isCrit ? 360 : 280);
+      // 4方向ジグザグ稲光
+      const length = isCrit ? 70 : 56;
+      for (let i = 0; i < 4; i++) {
+        const bolt = document.createElement("div");
+        bolt.className = "fxLightningBolt";
+        const ang = (i * 90 + (Math.random() * 30 - 15)) + "deg";
+        bolt.style.width  = "5px";
+        bolt.style.height = length + "px";
+        bolt.style.left = (wx - camX - 2.5) + "px";
+        bolt.style.top  = (wy - camY) + "px";
+        bolt.style.setProperty("--ang", ang);
+        document.body.appendChild(bolt);
+        setTimeout(() => bolt.remove(), 320);
+      }
+    }
+
+    // ── 聖 (holy、将来武器用): 金色バースト + 上から降りる光柱 + 上昇光粒 ──
+    function playHolyImpactFx(wx, wy, enemyIdx, isCrit) {
+      const core = document.createElement("div");
+      core.className = "fxHolyCore" + (isCrit ? " crit" : "");
+      const half = isCrit ? 44 : 30;
+      core.style.left = (wx - camX - half) + "px";
+      core.style.top  = (wy - camY - half) + "px";
+      document.body.appendChild(core);
+      setTimeout(() => core.remove(), isCrit ? 640 : 510);
+      // 上から降りる光柱 (敵に追従)
+      const e = enemies && enemies[enemyIdx];
+      if (e) {
+        const ds = e.def.displaySize || 64;
+        const beam = document.createElement("div");
+        beam.className = "fxHolyBeam" + (isCrit ? " crit" : "");
+        const beamW = isCrit ? 38 : 28;
+        const beamH = isCrit ? 130 : 100;
+        document.body.appendChild(beam);
+        const totalMs = isCrit ? 920 : 720;
+        const startTime = performance.now();
+        function updateBeamPos(now) {
+          const elapsed = now - startTime;
+          if (elapsed >= totalMs) return;
+          const cx = e.x + ds / 2;
+          const cy = e.y + ds - 6;
+          beam.style.left = (cx - camX - beamW / 2) + "px";
+          beam.style.top  = (cy - camY - beamH) + "px";
+          requestAnimationFrame(updateBeamPos);
+        }
+        requestAnimationFrame(updateBeamPos);
+        setTimeout(() => beam.remove(), totalMs);
+      }
+    }
+    function spawnHolyMote(host) {
+      if (!host) return;
+      const p = document.createElement("div");
+      p.className = "fxHolyMote";
+      const xOffset = 18 + Math.random() * 50;
+      const yOffset = 50 + Math.random() * 30;
+      p.style.left = (xOffset - 4) + "px";
+      p.style.top  = yOffset + "px";
+      const scale = 0.7 + Math.random() * 0.5;
+      p.style.setProperty("--s", scale);
+      host.appendChild(p);
+      setTimeout(() => p.remove(), 900);
+    }
+    function spawnHolyAuraOnEnemy(enemyIdx, durationMs = 1200) {
+      const host = enemyElements && enemyElements[enemyIdx];
+      if (!host) return;
+      const interval = setInterval(() => {
+        if (!host.parentNode) { clearInterval(interval); return; }
+        spawnHolyMote(host);
+        if (Math.random() < 0.3) spawnHolyMote(host);
+      }, 90);
+      setTimeout(() => clearInterval(interval), durationMs);
+    }
+
     // ── 武器属性エフェクト (レア武器命中時) ──
-    // 現状 fire のみ実装。残り cold/lightning/holy は今後追加 (TODO)
+    // 旧 API、現状 no-op。属性別に個別関数 (playFlameTongueImpactFx / playFrostbiteImpactFx /
+    // playLightningImpactFx / playHolyImpactFx) を applyWeaponSpecialEffects から直接呼ぶ
     function playWeaponElementalFx(bonusType, wx, wy, isCrit) {
       // エフェクト調整中: 命中時の属性バースト (炎/氷/雷/聖) を一旦オフ
       // 戻すには下のブロックの先頭の return を外す
