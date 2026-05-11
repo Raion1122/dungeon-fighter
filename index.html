@@ -2060,6 +2060,15 @@
       [ 7, 62, 20, 75],   // 4 E 大広間 (14×14)
       [ 5, 79, 22, 94],   // 5 F ボス部屋 (18×16)
     ];
+    // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
+    // (scenery 配置の auto-reserve でも参照するためグローバル化)
+    const CORRIDORS = [
+      [13, 11, 15, 15],   // A-B
+      [13, 26, 15, 30],   // B-C
+      [13, 43, 15, 47],   // C-D
+      [13, 58, 15, 62],   // D-E
+      [13, 75, 15, 79],   // E-F (ボスへ)
+    ];
 
     function buildMap() {
       const map = Array.from({length: MAP_H}, () => Array(MAP_W).fill(2));
@@ -2076,20 +2085,246 @@
           for (let c = c1; c <= c2; c++)
             if (((r * 7 + c * 13) ^ (r * 3 - c)) % 5 === 0) map[r][c] = 1;
       }
-
-      // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
-      const corridors = [
-        [13, 11, 15, 15],   // A-B
-        [13, 26, 15, 30],   // B-C
-        [13, 43, 15, 47],   // C-D
-        [13, 58, 15, 62],   // D-E
-        [13, 75, 15, 79],   // E-F (ボスへ)
-      ];
-      for (const [r1, c1, r2, c2] of corridors) fill(r1, c1, r2, c2, 0);
+      for (const [r1, c1, r2, c2] of CORRIDORS) fill(r1, c1, r2, c2, 0);
 
       return map;
     }
     const mapData = buildMap();
+
+    // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
+    // シナリオ別に、特定の部屋を 1枚絵 (PNG) でレンダリング。
+    // tileBounds = [r1, c1, r2, c2] (両端含む、画像はこの矩形ぴったりを覆う)
+    // 画像が無ければ自動でタイルベース描画にフォールバック。
+    const ROOM_PAINTINGS_DEF = {
+      "lizard-swamp": {
+        0: {  // ROOM 0 スタート部屋 (沼地の畔)
+          src: "assets/room_lizard-swamp_0.png",
+          tileBounds: [7, 0, 20, 13],   // 14×14 = 1344×1344px
+        },
+      },
+    };
+
+    const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
+    const paintedTileMask = new Uint8Array(MAP_W * MAP_H);
+    // 外周 N タイル分は painting の alpha をフェードし、下のタイル描画と混ぜる
+    // (painting と周辺タイル両方を描く帯 → 継ぎ目が溶け込む)
+    const PAINTING_FEATHER_TILES = 1;
+    (function loadRoomPaintings() {
+      const defs = ROOM_PAINTINGS_DEF[_scenIdForTex];
+      if (!defs) return;
+      for (const def of Object.values(defs)) {
+        const [r1, c1, r2, c2] = def.tileBounds;
+        const entry = {
+          loaded: false,
+          canvas: null,
+          tx: c1, ty: r1, tw: c2 - c1 + 1, th: r2 - r1 + 1,
+          px: c1 * TILE_SIZE,
+          py: r1 * TILE_SIZE,
+          pw: (c2 - c1 + 1) * TILE_SIZE,
+          ph: (r2 - r1 + 1) * TILE_SIZE,
+          img: new Image(),
+        };
+        entry.img.onload = () => {
+          // 四辺フェード処理 (各辺 1 タイル分を alpha 1→0 にグラデで削る)
+          const w = entry.img.naturalWidth;
+          const h = entry.img.naturalHeight;
+          const off = document.createElement("canvas");
+          off.width = w;
+          off.height = h;
+          const octx = off.getContext("2d");
+          octx.drawImage(entry.img, 0, 0);
+          const featherW = Math.round(w * PAINTING_FEATHER_TILES / entry.tw);
+          const featherH = Math.round(h * PAINTING_FEATHER_TILES / entry.th);
+          octx.globalCompositeOperation = "destination-out";
+          let g;
+          // 上辺: 外側 (y=0) で alpha=1 (削る) → 内側 (y=featherH) で alpha=0 (残す)
+          g = octx.createLinearGradient(0, 0, 0, featherH);
+          g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+          octx.fillStyle = g; octx.fillRect(0, 0, w, featherH);
+          // 下辺
+          g = octx.createLinearGradient(0, h, 0, h - featherH);
+          g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+          octx.fillStyle = g; octx.fillRect(0, h - featherH, w, featherH);
+          // 左辺
+          g = octx.createLinearGradient(0, 0, featherW, 0);
+          g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+          octx.fillStyle = g; octx.fillRect(0, 0, featherW, h);
+          // 右辺
+          g = octx.createLinearGradient(w, 0, w - featherW, 0);
+          g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
+          octx.fillStyle = g; octx.fillRect(w - featherW, 0, featherW, h);
+          entry.canvas = off;
+          entry.loaded = true;
+        };
+        entry.img.onerror = () => { /* フォールバック: 通常タイル描画のまま */ };
+        entry.img.src = def.src;
+        roomPaintings.push(entry);
+        // painted-skip マスクは内側 (feather 帯を除く) のみ
+        // 外側の帯は painting (feather alpha) と下のタイル描画を両方描く
+        const inset = PAINTING_FEATHER_TILES;
+        for (let r = r1 + inset; r <= r2 - inset; r++) {
+          for (let c = c1 + inset; c <= c2 - inset; c++) {
+            if (r < 0 || r >= MAP_H || c < 0 || c >= MAP_W) continue;
+            paintedTileMask[r * MAP_W + c] = 1;
+          }
+        }
+      }
+    })();
+    function isPaintedTile(tx, ty) {
+      if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
+      return paintedTileMask[ty * MAP_W + tx] === 1;
+    }
+    function isPaintedAndLoaded(tx, ty) {
+      if (!isPaintedTile(tx, ty)) return false;
+      for (const p of roomPaintings) {
+        if (!p.loaded) continue;
+        if (tx >= p.tx && tx < p.tx + p.tw && ty >= p.ty && ty < p.ty + p.th) return true;
+      }
+      return false;
+    }
+
+    // ── 情景スプライト (草/葦/倒木/雑多) ─────────────────────────────
+    // 部屋ペインティング上に procedural seeded random で散らす。
+    // 大型 (倒木 全種, 葦 variant 2-3) のみ衝突あり → obstacleTileMask に登録。
+    // シード = scenarioId + roomIdx で固定 → セッションをまたいで同じ配置。
+    const SCENERY_FRAMES = {
+      grass: [
+        {x:75,y:460,w:211,h:87},   {x:331,y:405,w:226,h:148},
+        {x:596,y:398,w:267,h:157}, {x:880,y:436,w:224,h:123},
+        {x:1101,y:433,w:180,h:118},{x:1297,y:451,w:191,h:102},
+      ],
+      reed: [
+        {x:114,y:374,w:200,h:250}, {x:393,y:340,w:327,h:314},
+        {x:747,y:320,w:363,h:340}, {x:1124,y:325,w:370,h:335},
+      ],
+      log: [
+        {x:49,y:472,w:480,h:122}, {x:555,y:471,w:449,h:130},
+        {x:1043,y:472,w:441,h:125},
+      ],
+      detail: [
+        {x:27,y:431,w:187,h:130},  {x:218,y:429,w:260,h:139},
+        {x:480,y:426,w:170,h:141}, {x:657,y:418,w:168,h:147},
+        {x:831,y:419,w:152,h:148}, {x:976,y:438,w:236,h:132},
+        {x:1209,y:456,w:173,h:112},{x:1381,y:468,w:128,h:86},
+      ],
+    };
+    // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
+    const SCENERY_SHEETS = {
+      grass:  { src: "assets/grass_tufts.png",  blocking: [false,false,false,false,false,false], displayMax: 80,
+                img: new Image(), loaded: false },
+      reed:   { src: "assets/swamp_reeds.png",  blocking: [false,false,true,true],                displayMax: [88,120,150,160],
+                img: new Image(), loaded: false },
+      log:    { src: "assets/fallen_logs.png",  blocking: [true,true,true],                       displayMax: 200,
+                img: new Image(), loaded: false },
+      detail: { src: "assets/swamp_detail.png", blocking: [false,false,false,false,false,false,false,false], displayMax: 60,
+                img: new Image(), loaded: false },
+    };
+    for (const [k, s] of Object.entries(SCENERY_SHEETS)) {
+      s.img.onload  = () => { s.loaded = true; };
+      s.img.onerror = () => { /* フォールバック: 描画 skip */ };
+      s.img.src = s.src;
+    }
+
+    // シナリオ × 部屋ごとの配置レシピ (Sce3 全 6 部屋)
+    // floorBounds = ROOMS[idx] と同値 (部屋床範囲)
+    // 障害物配置禁止帯は CORRIDORS + ENEMY_SPAWNS + プレイヤー起点 から自動導出
+    const SCENERY_RECIPES = {
+      "lizard-swamp": {
+        0: { floorBounds: [ 9,  2, 18, 11], counts: { grass: 40, reed: 14, log: 3, detail: 25 } },
+        1: { floorBounds: [ 8, 15, 19, 26], counts: { grass: 56, reed: 20, log: 4, detail: 35 } },
+        2: { floorBounds: [ 7, 30, 20, 43], counts: { grass: 78, reed: 27, log: 5, detail: 48 } },
+        3: { floorBounds: [ 8, 47, 19, 58], counts: { grass: 56, reed: 20, log: 4, detail: 35 } },
+        4: { floorBounds: [ 7, 62, 20, 75], counts: { grass: 78, reed: 27, log: 5, detail: 48 } },
+        5: { floorBounds: [ 5, 79, 22, 94], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
+      },
+    };
+
+    // mulberry32 PRNG + FNV-1a 文字列 hash → 決定論的 RNG
+    function mulberry32(seed) {
+      return function() {
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+        let t = seed;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    function hashStr(s) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    const obstacleTileMask = new Uint8Array(MAP_W * MAP_H);
+    const sceneryPlacements = [];  // { kind, variant, tx, ty, jx, jy, blocking }
+
+    // ENEMY_SPAWNS / プレイヤー起点情報がそろってから呼ぶ (currentScenario 確定後)
+    function generateScenery(enemySpawns, playerStartTx, playerStartTy) {
+      const recipes = SCENERY_RECIPES[_scenIdForTex];
+      if (!recipes) return;
+      // 自動 reserved: 廊下 + 2タイル膨張、敵スポーン + 1タイル膨張、プレイヤー起点 + 1タイル膨張
+      const globalReserved = new Set();
+      function reserveAround(r, c, buf) {
+        for (let dr = -buf; dr <= buf; dr++) {
+          for (let dc = -buf; dc <= buf; dc++) {
+            const rr = r + dr, cc = c + dc;
+            if (rr < 0 || rr >= MAP_H || cc < 0 || cc >= MAP_W) continue;
+            globalReserved.add(rr * MAP_W + cc);
+          }
+        }
+      }
+      for (const [cr1, cc1, cr2, cc2] of CORRIDORS) {
+        for (let r = cr1; r <= cr2; r++) {
+          for (let c = cc1; c <= cc2; c++) reserveAround(r, c, 2);
+        }
+      }
+      for (const sp of (enemySpawns || [])) {
+        // sp = [type, x, y] (x=col, y=row)
+        reserveAround(sp[2], sp[1], 1);
+      }
+      if (playerStartTx != null && playerStartTy != null) {
+        reserveAround(playerStartTy, playerStartTx, 1);
+      }
+
+      for (const [roomIdx, def] of Object.entries(recipes)) {
+        const rng = mulberry32(hashStr(_scenIdForTex + ":" + roomIdx));
+        const [r1, c1, r2, c2] = def.floorBounds;
+        const blockedTiles = new Set();
+        function tryPlace(kind, count) {
+          const sheet = SCENERY_SHEETS[kind];
+          const frames = SCENERY_FRAMES[kind];
+          let placed = 0, attempts = 0;
+          const maxAttempts = count * 8;
+          while (placed < count && attempts < maxAttempts) {
+            attempts++;
+            const variant = Math.floor(rng() * frames.length);
+            const isBlocking = sheet.blocking[variant];
+            const r = r1 + Math.floor(rng() * (r2 - r1 + 1));
+            const c = c1 + Math.floor(rng() * (c2 - c1 + 1));
+            const tileKey = r * MAP_W + c;
+            if (isBlocking) {
+              if (globalReserved.has(tileKey)) continue;
+              if (blockedTiles.has(tileKey)) continue;
+              blockedTiles.add(tileKey);
+            }
+            const jx = (rng() - 0.5) * 28;
+            const jy = (rng() - 0.5) * 28;
+            sceneryPlacements.push({ kind, variant, tx: c, ty: r, jx, jy, blocking: isBlocking });
+            placed++;
+          }
+        }
+        for (const [kind, count] of Object.entries(def.counts)) tryPlace(kind, count);
+        for (const k of blockedTiles) obstacleTileMask[k] = 1;
+      }
+      // 描画 z-order: 上(奥)→下(手前)、同 ty なら jy が小さい方が先
+      sceneryPlacements.sort((a, b) => {
+        if (a.ty !== b.ty) return a.ty - b.ty;
+        return a.jy - b.jy;
+      });
+    }
 
     // ── 装飾オブジェクト(非衝突)生成 ──────────────────────────────
     // タイルセット内座標(16x16)。ジャンルごとに複数バリエーション
@@ -2143,7 +2378,9 @@
 
     function isTileWall(tileX, tileY) {
       if (tileX < 0 || tileY < 0 || tileX >= MAP_W || tileY >= MAP_H) return true;
-      return mapData[tileY][tileX] === 2;
+      if (mapData[tileY][tileX] === 2) return true;
+      // 情景スプライト (倒木 / 大型葦) もブロック扱い
+      return obstacleTileMask[tileY * MAP_W + tileX] === 1;
     }
 
     let playerMovingThisFrame = false;
@@ -2386,9 +2623,11 @@
       const endTY = Math.min(MAP_H - 1, Math.ceil((camY + mapCanvas.height) / TILE_SIZE));
 
       // ── Pass 1a: 天井(void)セル — 暗い背景 ──
+      // 部屋ペインティングが覆うセルはスキップ(painting に含まれる)
       for (let ty = startTY; ty <= endTY; ty++) {
         for (let tx = startTX; tx <= endTX; tx++) {
           if (mapData[ty][tx] !== 2) continue;
+          if (isPaintedAndLoaded(tx, ty)) continue;
           const screenX = Math.round(tx * TILE_SIZE - camX);
           const screenY = Math.round(ty * TILE_SIZE - camY);
           const [sx, sy, sw, sh] = SPR_CEILING;
@@ -2397,6 +2636,7 @@
       }
       // ── Pass 1b: 床セル — 床1 シームレステクスチャをワールド座標アンカーで pattern fill ──
       // (隣接セルで模様が連続する。fall back は 床2 (1セル1枚) → tileset)
+      // 部屋ペインティングが覆うセルはスキップ(painting に含まれる)
       if (floorPattern) {
         ctx.save();
         ctx.translate(-camX, -camY);
@@ -2404,6 +2644,7 @@
         for (let ty = startTY; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (mapData[ty][tx] === 2) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
             ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
           }
         }
@@ -2412,6 +2653,7 @@
         for (let ty = startTY; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (mapData[ty][tx] === 2) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
             const screenX = Math.round(tx * TILE_SIZE - camX);
             const screenY = Math.round(ty * TILE_SIZE - camY);
             if (floorTexLoaded) {
@@ -2423,6 +2665,41 @@
             }
           }
         }
+      }
+
+      // ── Pass 1b.5: 部屋ペインティング — 床と天井の上に painterly 1枚絵を貼る ──
+      // 画像未ロードならフォールバック(タイル描画は既に走っている)
+      // フェザー済 canvas を優先 (外周 1タイル分が alpha フェード)
+      for (const p of roomPaintings) {
+        if (!p.loaded) continue;
+        // 簡易カリング (画面外なら skip)
+        const sx = Math.round(p.px - camX);
+        const sy = Math.round(p.py - camY);
+        if (sx + p.pw < 0 || sx > mapCanvas.width) continue;
+        if (sy + p.ph < 0 || sy > mapCanvas.height) continue;
+        ctx.drawImage(p.canvas || p.img, sx, sy, p.pw, p.ph);
+      }
+
+      // ── Pass 1b.6: 情景スプライト (草/葦/倒木/雑多) ──
+      // 各 placement は seeded random で固定配置済 (sceneryPlacements)
+      // sheet 未ロードなら skip (placement 自体は残るので後で出現)
+      for (const sp of sceneryPlacements) {
+        const sheet = SCENERY_SHEETS[sp.kind];
+        if (!sheet || !sheet.loaded) continue;
+        const fr = SCENERY_FRAMES[sp.kind][sp.variant];
+        const dispMax = Array.isArray(sheet.displayMax) ? sheet.displayMax[sp.variant] : sheet.displayMax;
+        const scale = dispMax / Math.max(fr.w, fr.h);
+        const dw = fr.w * scale;
+        const dh = fr.h * scale;
+        const cx = sp.tx * TILE_SIZE + TILE_SIZE / 2 + sp.jx - camX;
+        const cy = sp.ty * TILE_SIZE + TILE_SIZE / 2 + sp.jy - camY;
+        // タイル中央に bbox 中央を合わせる (足元寄せはせず、jitter で散らす)
+        const dx = Math.round(cx - dw / 2);
+        const dy = Math.round(cy - dh / 2);
+        // 画面外カリング
+        if (dx + dw < 0 || dx > mapCanvas.width)  continue;
+        if (dy + dh < 0 || dy > mapCanvas.height) continue;
+        ctx.drawImage(sheet.img, fr.x, fr.y, fr.w, fr.h, dx, dy, dw, dh);
       }
 
       // ── Pass 1.2: 床にグリッド線 (床セルのみ、天井=2 にはひかない) ──
@@ -2465,6 +2742,7 @@
       }
 
       // ── Pass 2: 壁立て描画 (壁1 パターンで床境界の壁を 2セル高さで描画) ──
+      // 部屋ペインティングが覆う壁位置はスキップ(painting に壁の上部が含まれる)
       const ty0 = Math.max(0, startTY - 1);
       if (wallPattern) {
         ctx.save();
@@ -2473,6 +2751,7 @@
         for (let ty = ty0; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isNorthWall(tx, ty)) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
             // 1セル上から 2セル分塗る (壁の「立体感」)
             ctx.fillRect(tx * TILE_SIZE, (ty - 1) * TILE_SIZE, TILE_SIZE, TILE_SIZE * 2);
           }
@@ -2483,6 +2762,7 @@
         for (let ty = ty0; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isNorthWall(tx, ty)) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
             const westIsWall = isNorthWall(tx - 1, ty);
             const eastIsWall = isNorthWall(tx + 1, ty);
             let spr;
@@ -2949,6 +3229,10 @@
     const scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
     const currentScenario = SCENARIOS[scenarioId] || SCENARIOS["goblin-mine"];
     const ENEMY_SPAWNS = currentScenario.spawns;
+
+    // 情景スプライト生成 (敵スポーンとプレイヤー起点を avoid して配置)
+    // プレイヤー起点 tile(6,13) は L3346 playerX = 6 * TILE_SIZE の前提
+    generateScenery(ENEMY_SPAWNS, 6, 13);
 
     const enemyLayer = document.getElementById("enemyLayer");
 
