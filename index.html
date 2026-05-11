@@ -6056,15 +6056,16 @@
     }
 
     function nearestFloorTileIn(room) {
-      // 部屋中央、壁なら近傍を走査
+      // 部屋中央、壁/障害物 (倒木・大型葦) なら近傍を走査
       const [r1, c1, r2, c2] = room;
       const cTX = Math.floor((c1 + c2) / 2);
       const cTY = Math.floor((r1 + r2) / 2);
-      if (mapData[cTY][cTX] !== 2) return { tx: cTX, ty: cTY };
-      for (let r = 0; r < 4; r++) {
+      if (!isTileWall(cTX, cTY)) return { tx: cTX, ty: cTY };
+      // 半径を最大 8 まで広げる (情景障害物が中央に密集しても抜ける)
+      for (let r = 1; r <= 8; r++) {
         for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
           const tx = cTX + dx, ty = cTY + dy;
-          if (tx >= c1 && tx <= c2 && ty >= r1 && ty <= r2 && mapData[ty][tx] !== 2) {
+          if (tx >= c1 && tx <= c2 && ty >= r1 && ty <= r2 && !isTileWall(tx, ty)) {
             return { tx, ty };
           }
         }
@@ -8314,11 +8315,13 @@
       for (const i of candidates) {
         if (Math.random() >= CHEST_SPAWN_CHANCE) continue;
         const [r1, c1, r2, c2] = ROOMS[i];
-        // 部屋内の床タイル (mapData===0) からランダム1個選ぶ
+        // 部屋内の床タイル (壁・障害物除外) からランダム1個選ぶ
         const floorTiles = [];
         for (let r = r1; r <= r2; r++) {
           for (let c = c1; c <= c2; c++) {
-            if (mapData[r][c] === 0) floorTiles.push([c, r]);
+            if (mapData[r][c] !== 0) continue;       // 1=レア床 も除外 (元仕様)
+            if (isTileWall(c, r)) continue;           // 倒木/大型葦の上は避ける
+            floorTiles.push([c, r]);
           }
         }
         if (floorTiles.length === 0) continue;
@@ -8345,6 +8348,7 @@
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
           if (mapData[r][c] !== 0) continue;
+          if (isTileWall(c, r)) continue;              // 倒木/大型葦の上は避ける
           let inExcluded = false;
           for (const i of excludeRooms) {
             const [r1, c1, r2, c2] = ROOMS[i];
@@ -8514,6 +8518,7 @@
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
           if (mapData[r][c] !== 0) continue;
+          if (isTileWall(c, r)) continue;              // 倒木/大型葦の上は避ける
           // 除外部屋内ならスキップ
           let inExcluded = false;
           for (const i of excludeRooms) {
@@ -11626,12 +11631,28 @@
         await sleepMs(2100);
         showBanner("生きて戻ることもまた勇気。傷を癒し、再び挑め。", 2000);
         await sleepMs(2100);
+        // 撤退はペナルティなし: このランで拾った金貨/装備/XP を永続化
+        // (勝利時 L11559-11565 と同等。ただし clearXp ボーナスは未付与)
+        const retreatTotalGold = persistent.gold + coins;
+        try {
+          localStorage.setItem("dragonfighters.gold",      String(retreatTotalGold));
+          localStorage.setItem("dragonfighters.weaponIdx", String(currentWeaponIndex));
+          localStorage.setItem("dragonfighters.armorIdx",  String(currentArmorIndex));
+          localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
+          localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
+        } catch (e) { /* localStorage 失敗は無視 */ }
         sessionStorage.setItem("dragonfighters.lastResult", JSON.stringify({
           scenarioId,
           scenarioTitle: currentScenario.title,
           cleared: false,
           defeated: false,
           retreated: true,
+          reward: {
+            gold: coins,
+            totalGold: retreatTotalGold,
+            earnedXp: earnedXpThisRun,
+            totalXp:  currentTotalXp,
+          },
         }));
         window.location.href = "tavern.html";
       });
