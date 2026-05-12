@@ -8467,6 +8467,11 @@
           const w = weapons[nextIdx];
           updateInfo(`宝箱の中身: 武器『${w.name}』`);
           showBanner(`武器 "${w.name}" を手に入れた!`, 1800);
+          // 即時保存 (撤退/敗北/タブ閉じで失わないセーフネット)
+          try {
+            localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
+            localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
+          } catch (e) { /* silent */ }
         } else {
           // 既に最上位 → 金貨に変換
           const bonus = 25;
@@ -8481,6 +8486,10 @@
           const a = armors[nextIdx];
           updateInfo(`宝箱の中身: 防具『${a.name}』`);
           showBanner(`防具 "${a.name}" を手に入れた!`, 1800);
+          try {
+            localStorage.setItem("dragonfighters.armorIdx",      String(currentArmorIndex));
+            localStorage.setItem("dragonfighters.equipArmorIdx", String(currentArmorIndex));
+          } catch (e) { /* silent */ }
         } else {
           const bonus = 25;
           coins += bonus;
@@ -8494,6 +8503,10 @@
           const s = shields[nextIdx];
           updateInfo(`宝箱の中身: 盾『${s.name}』`);
           showBanner(`盾 "${s.name}" を手に入れた!`, 1800);
+          try {
+            localStorage.setItem("dragonfighters.shieldIdx",      String(currentShieldIndex));
+            localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
+          } catch (e) { /* silent */ }
         } else {
           const bonus = 20;
           coins += bonus;
@@ -11583,6 +11596,11 @@
           localStorage.setItem("dragonfighters.armorIdx",  String(currentArmorIndex));
           localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
+          // 拾った装備を次回も装備状態に同期 (tavern の Math.min(equip, idx) が
+          // 古い equip で新装備を弾かないように)
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(currentArmorIndex));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
         } catch (e) { /* localStorage 失敗は無視 */ }
 
         reward = {
@@ -11656,6 +11674,11 @@
           localStorage.setItem("dragonfighters.armorIdx",  String(currentArmorIndex));
           localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
+          // 拾った装備を次回も装備状態に同期 (tavern の Math.min(equip, idx) が
+          // 古い equip で新装備を弾かないように)
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(currentArmorIndex));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
         } catch (e) { /* localStorage 失敗は無視 */ }
         sessionStorage.setItem("dragonfighters.lastResult", JSON.stringify({
           scenarioId,
