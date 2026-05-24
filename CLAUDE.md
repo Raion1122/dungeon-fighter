@@ -113,6 +113,41 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 - 本ゲームプロジェクトのコード変更は本 PC で完結
 - ボールトと本プロジェクトの双方向参照: ボールト = 設計、本プロジェクト = 実装
 
+## ChatGPT 画像生成の自動化フロー
+
+部屋画 / スプライト / 装飾アセットは、`tools/chatgpt_generate.py` を経由して
+Edge + Playwright で ChatGPT を自動操作して生成する。詳細は `tools/README.md`。
+
+### Claude (会話 AI) の動作方針
+
+1. **プロンプト起草**: 従来通り、Claude が部屋テーマ・スプライト仕様等から ChatGPT 用プロンプトを起草し、ユーザーに提示する。
+2. **ユーザー確認**: ユーザーが OK を出したら、Claude は **自動的に** Bash 経由でスクリプトを実行する。「ChatGPT に貼り付けてください」とは依頼しない。
+3. **スクリプト呼び出し例**:
+
+   ```bash
+   # プロンプトを一時ファイルに書き出して実行
+   py tools/chatgpt_generate.py \
+     --prompt-file /tmp/sce4_room0.txt \
+     --output assets/room_orc-fort_0.png \
+     --timeout 200
+   ```
+
+4. **出力パス選定**:
+   - 部屋画: `assets/room_<scenarioId>_<roomIdx>.png`(例: `room_orc-fort_0.png`)
+   - スプライト: `source_images/<name>/<seq>_<label>.png`(例: `source_images/orc_fort_scenery/01_torch.png`)
+5. **生成後**: Claude が `Read` ツールで画像確認 → ユーザーに提示 → 修正点ヒアリング or 次工程(`ROOM_PAINTINGS_DEF` 追加など)。
+6. **失敗時**: 終了コード別に対処(`tools/README.md` の Exit code 表参照)。レート制限(exit 2)や生成失敗(exit 3)はユーザーに報告して判断を仰ぐ。
+
+### 初回セットアップが未済の場合
+
+ユーザーから「自動生成して」と要求された時点で `~/.claude/chatgpt-automation/edge-profile/` が
+存在しなければ、初回ログイン手順(`tools/README.md` 参照)を案内する。
+
+### 従来の手動フローも併用可
+
+レート制限到達時や緊急時は、Claude が起草したプロンプトをユーザーが手動で
+ChatGPT に貼り付けて生成 → 手動で `assets/` に配置するフローも引き続き利用できる。
+
 ## 出典・著作権
 
 - D&D 5.1 SRD: CC-BY 4.0
