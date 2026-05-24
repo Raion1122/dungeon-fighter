@@ -1,0 +1,4 @@
+# 族長 (lizardChieftain) — 1 チャットで walk → attack を連投。
+# キャラ統一感を ChatGPT 会話コンテキストで保証する。
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_walk.txt",   "output": "source_images/enemy_lizardChieftain/族長歩き.png"}
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt", "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}

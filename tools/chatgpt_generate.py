@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -437,9 +438,127 @@ def cmd_generate(prompt: str, output: Path, timeout_s: int, retries: int) -> int
             close_browser(browser, edge_proc)
 
 
-def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -> int:
-    """1 回の生成試行。終了コードを返す。"""
-    # 新規チャットへ
+def cmd_generate_batch(items: list, timeout_s: int) -> int:
+    """バッチ生成: 1 起動 / 1 新規チャット内で複数プロンプトを連投。
+
+    items: list of (prompt_text, output_path) tuples。
+    同じチャット内で連投することで、ChatGPT 側の会話コンテキスト (画風 / キャラ
+    記憶) が共有され、同キャラの walk + attack を「同じ人物」として描かせやすい。
+
+    挙動 (Plan 準拠):
+      - 0 (OK)        → 次の item へ
+      - 1/2/5 (致命) → 即中断、残り items は [skipped] ログ + 当該 rc を全体に返す
+      - 3/4/6 (失敗) → 当該 item だけスキップ、次へ。最終 exit code は 3 (部分失敗)
+    """
+    if not items:
+        log_err("Batch is empty.")
+        return 6
+
+    log_info(f"Batch mode: {len(items)} item(s), shared chat session.")
+    log_info(f"Timeout per item: {timeout_s}s")
+    for i, (_, out) in enumerate(items, 1):
+        log_info(f"  [{i}] -> {out}")
+
+    ensure_dir(DEBUG_DIR)
+
+    seen_urls: set = set()
+    had_partial_failure = False
+
+    with sync_playwright() as p:
+        browser, ctx, edge_proc = launch_browser(p, headless=False)
+        try:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+
+            # 新規チャットへ 1 回だけ遷移
+            rc = _navigate_new_chat(page)
+            if rc != 0:
+                log_err(f"Failed to open new chat (rc={rc}). Aborting batch.")
+                for i, (_, out) in enumerate(items, 1):
+                    log_err(f"  [{i}] skipped: {out}")
+                return rc
+
+            for i, (prompt, output) in enumerate(items, 1):
+                log_info(f"=== [{i}/{len(items)}] {output} ===")
+                log_info(f"Prompt length: {len(prompt)} chars")
+                try:
+                    rc = _send_prompt_and_capture(page, prompt, output, seen_urls, timeout_s)
+                except PWTimeoutError as e:
+                    log_err(f"Playwright timeout: {e}")
+                    save_debug(page, f"batch-{i}-pw-timeout")
+                    rc = 4
+                except Exception as e:
+                    log_err(f"Unexpected error: {e}")
+                    save_debug(page, f"batch-{i}-unexpected")
+                    rc = 6
+
+                if rc == 0:
+                    continue
+                # 致命: 残り全部を skipped としてログ、即返す
+                if rc in (1, 2, 5):
+                    log_err(f"Fatal rc={rc} at item {i}. Skipping remaining {len(items) - i} item(s):")
+                    for j in range(i, len(items)):
+                        log_err(f"  [{j + 1}] skipped: {items[j][1]}")
+                    return rc
+                # 部分失敗: その item だけスキップ
+                log_err(f"Item {i} failed (rc={rc}). Continuing to next item.")
+                had_partial_failure = True
+
+            return 3 if had_partial_failure else 0
+        finally:
+            close_browser(browser, edge_proc)
+
+
+def _load_batch(batch_path: Path) -> Optional[list]:
+    """JSONL バッチファイルを読み込んで (prompt_text, output_path) のリストを返す。
+
+    各行: {"prompt_file": "<rel-path>", "output": "<rel-path>"}
+    空行と # で始まる行はコメント扱いでスキップ。
+    パスは batch_path の親ディレクトリではなく **CWD** からの相対 (ユーザーが
+    プロジェクトルートで実行する前提)。
+    """
+    try:
+        raw = batch_path.read_text(encoding="utf-8")
+    except Exception as e:
+        log_err(f"Failed to read batch file '{batch_path}': {e}")
+        return None
+
+    items = []
+    for lineno, line in enumerate(raw.splitlines(), 1):
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        try:
+            obj = json.loads(s)
+        except json.JSONDecodeError as e:
+            log_err(f"{batch_path}:{lineno}: invalid JSON: {e}")
+            return None
+        pf = obj.get("prompt_file")
+        op = obj.get("output")
+        if not pf or not op:
+            log_err(f"{batch_path}:{lineno}: missing 'prompt_file' or 'output'")
+            return None
+        prompt_path = Path(pf)
+        try:
+            prompt_text = prompt_path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            log_err(f"{batch_path}:{lineno}: cannot read prompt_file '{pf}': {e}")
+            return None
+        if not prompt_text:
+            log_err(f"{batch_path}:{lineno}: prompt_file '{pf}' is empty")
+            return None
+        items.append((prompt_text, Path(op)))
+
+    if not items:
+        log_err(f"{batch_path}: no valid items found (file may be empty or all comments).")
+        return None
+    return items
+
+
+def _navigate_new_chat(page: Page) -> int:
+    """新規チャットへ遷移し、入力欄が出るまで待つ。終了コードを返す (0 = OK)。
+
+    バッチモードでは「最初の1回だけ」呼ぶ。以降は同じチャット内で連続メッセージを送る。
+    """
     page.goto(CHATGPT_URL, wait_until="domcontentloaded", timeout=WAIT_DEFAULT_TIMEOUT_MS)
     try:
         page.wait_for_load_state("networkidle", timeout=WAIT_DEFAULT_TIMEOUT_MS)
@@ -464,8 +583,31 @@ def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -
         save_debug(page, "no-input")
         return 6
 
-    # 既存テキストをクリア (再試行時の残骸対策)
-    page.click(SELECTORS["prompt_input"])
+    return 0
+
+
+def _send_prompt_and_capture(
+    page: Page,
+    prompt: str,
+    output: Path,
+    seen_urls: set,
+    timeout_s: int,
+) -> int:
+    """同じ page にプロンプトを送信し、新規画像 1 枚を取得して output に保存。
+
+    バッチで連投する場合は seen_urls に既出 URL が積まれているので、それを
+    除外した新規画像のみを採用する。採用した URL は seen_urls に追加して返す。
+    終了コードを返す (0 = OK)。
+    """
+    ensure_dir(output.parent)
+
+    # 入力欄の取得 + 既存テキストクリア (再試行時 / バッチ 2 件目以降の残骸対策)
+    try:
+        page.click(SELECTORS["prompt_input"])
+    except Exception as e:
+        log_err(f"Cannot focus prompt input: {e}")
+        save_debug(page, "focus-fail")
+        return 6
     page.keyboard.press("Control+A")
     page.keyboard.press("Delete")
 
@@ -505,7 +647,8 @@ def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -
             return 3
 
         # 画像出現確認 — フル画像 (naturalWidth >= 1024) のみを採用、
-        # 小さなサムネイル/プレビュー (例: 512x512 の estuary file-aNU...) は除外
+        # 小さなサムネイル/プレビュー (例: 512x512 の estuary file-aNU...) は除外。
+        # バッチ時は既出 URL (前のプロンプトで採用済) も除外。
         try:
             elems = page.query_selector_all(SELECTORS["generated_image"])
             big_imgs = []  # (natural_width, src) のリスト
@@ -514,6 +657,8 @@ def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -
                 if not any(t in src for t in (
                     "backend-api/estuary", "oaiusercontent", "dalle", "files.openai.com"
                 )):
+                    continue
+                if src in seen_urls:
                     continue
                 try:
                     nw = el.evaluate("el => el.naturalWidth") or 0
@@ -582,7 +727,16 @@ def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -
 
     size_kb = output.stat().st_size // 1024
     log_info(f"Saved: {output} ({size_kb} KB)")
+    seen_urls.add(img_url)
     return 0
+
+
+def _run_one_generation(page: Page, prompt: str, output: Path, timeout_s: int) -> int:
+    """1 回の単発生成試行: 新規チャットへ → プロンプト送信 → 画像保存。"""
+    rc = _navigate_new_chat(page)
+    if rc != 0:
+        return rc
+    return _send_prompt_and_capture(page, prompt, output, set(), timeout_s)
 
 
 # === エントリポイント =================================================
@@ -601,12 +755,15 @@ def main() -> int:
                         help="プロンプトファイルパス (UTF-8)")
     parser.add_argument("--prompt-string", type=str,
                         help="プロンプト文字列 (--prompt-file と排他)")
+    parser.add_argument("--prompt-batch", type=Path,
+                        help="JSONL バッチファイル。各行 {\"prompt_file\":\"...\",\"output\":\"...\"} を "
+                             "同じ ChatGPT チャット内で順に連投する (会話コンテキスト共有でキャラ統一感を保証)")
     parser.add_argument("--output", type=Path,
-                        help="出力 PNG パス (例: assets/room_X.png)")
+                        help="出力 PNG パス (例: assets/room_X.png)。--prompt-batch 時は無視 (jsonl 側で指定)")
     parser.add_argument("--timeout", type=int, default=GENERATION_TIMEOUT_S_DEFAULT,
                         help=f"生成タイムアウト秒数 (デフォルト {GENERATION_TIMEOUT_S_DEFAULT})")
     parser.add_argument("--retries", type=int, default=1,
-                        help="生成失敗時のリトライ回数 (デフォルト 1)")
+                        help="生成失敗時のリトライ回数 (単発モードのみ、デフォルト 1)")
     args = parser.parse_args()
 
     if args.setup:
@@ -615,11 +772,21 @@ def main() -> int:
     if args.check_login:
         return cmd_check_login()
 
+    # --prompt-batch は単発系引数と排他
+    if args.prompt_batch:
+        if args.prompt_file or args.prompt_string or args.output:
+            parser.error("--prompt-batch is exclusive with --prompt-file / --prompt-string / --output "
+                         "(specify prompt_file and output inside the jsonl)")
+        items = _load_batch(args.prompt_batch)
+        if items is None:
+            return 6
+        return cmd_generate_batch(items, args.timeout)
+
     # 通常実行の引数チェック
     if not args.output:
-        parser.error("--output is required for generation mode")
+        parser.error("--output is required for generation mode (or use --prompt-batch)")
     if not args.prompt_file and not args.prompt_string:
-        parser.error("either --prompt-file or --prompt-string is required")
+        parser.error("either --prompt-file or --prompt-string is required (or use --prompt-batch)")
     if args.prompt_file and args.prompt_string:
         parser.error("--prompt-file and --prompt-string are mutually exclusive")
 

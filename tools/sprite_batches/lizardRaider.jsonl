@@ -1,0 +1,3 @@
+# 沼の襲撃者 (lizardRaider) — 1 チャットで walk → attack を連投。
+{"prompt_file": "source_images/enemy_lizardRaider/_prompt_walk.txt",   "output": "source_images/enemy_lizardRaider/襲撃者歩き.png"}
+{"prompt_file": "source_images/enemy_lizardRaider/_prompt_attack.txt", "output": "source_images/enemy_lizardRaider/襲撃者攻撃.png"}

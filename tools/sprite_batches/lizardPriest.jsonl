@@ -1,0 +1,3 @@
+# 蛇神司祭 (lizardPriest) — 1 チャットで walk → attack を連投。
+{"prompt_file": "source_images/enemy_lizardPriest/_prompt_walk.txt",   "output": "source_images/enemy_lizardPriest/司祭歩き.png"}
+{"prompt_file": "source_images/enemy_lizardPriest/_prompt_attack.txt", "output": "source_images/enemy_lizardPriest/司祭攻撃.png"}

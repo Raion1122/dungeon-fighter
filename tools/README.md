@@ -57,20 +57,55 @@ py tools/chatgpt_generate.py `
 | オプション | 役割 | デフォルト |
 | --- | --- | --- |
 | `--setup` | 初回ログイン用 | (off) |
-| `--prompt-file <path>` | プロンプトファイルパス | — |
-| `--prompt-string <text>` | プロンプト文字列 | — |
-| `--output <path>` | 出力 PNG パス | (必須) |
-| `--timeout <sec>` | 生成タイムアウト秒数 | 180 |
-| `--retries <n>` | 生成失敗時の再試行回数 | 1 |
+| `--check-login` | ログイン引き継ぎ確認のみ (DALL-E 枠消費なし) | (off) |
+| `--prompt-file <path>` | 単発: プロンプトファイルパス | — |
+| `--prompt-string <text>` | 単発: プロンプト文字列 | — |
+| `--prompt-batch <path>` | バッチ: JSONL ファイル。同じチャット内で連投 | — |
+| `--output <path>` | 単発: 出力 PNG パス (バッチ時は jsonl 内で指定) | 単発で必須 |
+| `--timeout <sec>` | 生成タイムアウト秒数 (バッチでは項目ごと) | 180 |
+| `--retries <n>` | 単発: 生成失敗時の再試行回数 | 1 |
+
+### バッチモード (`--prompt-batch`)
+
+**同じキャラの walk + attack** のような「会話コンテキスト共有が欲しい」セットは、
+JSONL バッチで連投する。1 起動で 1 つの新規チャットを開き、各項目を続けて投下するため、
+ChatGPT 会話側の画風・キャラ記憶を引き継いでスプライト統一感を保てる。
+
+**運用方針**: 同じキャラ内なら 1 チャット、キャラを変える時は別の jsonl で別チャットを開く。
+
+例: `tools/sprite_batches/lizardChieftain.jsonl`
+
+```jsonl
+# 族長 — 1 チャットで walk → attack を連投。
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_walk.txt",   "output": "source_images/enemy_lizardChieftain/族長歩き.png"}
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt", "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}
+```
+
+実行:
+
+```powershell
+py tools/chatgpt_generate.py --prompt-batch tools/sprite_batches/lizardChieftain.jsonl --timeout 240
+```
+
+JSONL 仕様:
+
+- 1 行 = 1 項目、`{"prompt_file": "<UTF-8テキストファイル相対パス>", "output": "<出力PNG相対パス>"}`
+- `#` で始まる行・空行はコメント扱いでスキップ
+- パスは **CWD からの相対** (ユーザーがプロジェクトルートで実行する前提)
+
+エラーハンドリング:
+
+- 致命的失敗(login_expired / rate_limit / captcha) → 即中断し、残り項目を `[skipped]` でログ出力
+- 部分失敗(gen_error / timeout / その他) → 該当項目だけスキップして次へ、最終 exit code は `3`
 
 ### Exit code
 
 | code | 意味 | 対処 |
 | ---: | --- | --- |
-| 0 | 成功 | — |
+| 0 | 成功 (全項目) | — |
 | 1 | ログイン期限切れ | `--setup` を再実行 |
 | 2 | レート制限 | ChatGPT 無料枠の DALL-E 日次上限。翌日まで待つ |
-| 3 | 生成失敗(リトライ済) | プロンプト見直し |
+| 3 | 生成失敗(単発リトライ済 / バッチで部分失敗あり) | プロンプト見直し、ログで失敗項目を確認 |
 | 4 | タイムアウト | `--timeout` を伸ばす、または手動継続 |
 | 5 | CAPTCHA 検出 | 表示された Edge ウィンドウで手動解決 |
 | 6 | その他(セレクタ変更等) | デバッグスクショ確認、セレクタ更新 |

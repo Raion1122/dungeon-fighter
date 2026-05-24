@@ -143,6 +143,25 @@ Edge + Playwright で ChatGPT を自動操作して生成する。詳細は `too
 ユーザーから「自動生成して」と要求された時点で `~/.claude/chatgpt-automation/edge-profile/` が
 存在しなければ、初回ログイン手順(`tools/README.md` 参照)を案内する。
 
+### バッチモード(同キャラ複数シートの統一感保証)
+
+**同じキャラの walk + attack** のような「会話コンテキスト共有が欲しい」セットは、
+`--prompt-batch` を使って **1 起動 = 1 新規チャット内で連投** する。これにより
+ChatGPT が同じ人物として描き続けるため、attack 側で別キャラ(人間剣士など)が
+出る事故を防げる。
+
+**ルール**:
+
+- **同じキャラ内** (walk + attack) → 1 つの jsonl にまとめる = 1 チャットで連投
+- **キャラを変える時** → 別の jsonl を別起動 = 新規チャットで開始(前キャラの装備色が混入するのを防ぐ)
+
+jsonl は `tools/sprite_batches/<characterKey>.jsonl` に置く(例: `lizardChieftain.jsonl`)。
+詳細仕様は `tools/README.md` の「バッチモード」セクション参照。
+
+```bash
+py tools/chatgpt_generate.py --prompt-batch tools/sprite_batches/lizardChieftain.jsonl --timeout 240
+```
+
 ### 従来の手動フローも併用可
 
 レート制限到達時や緊急時は、Claude が起草したプロンプトをユーザーが手動で
