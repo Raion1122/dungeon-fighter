@@ -278,6 +278,11 @@
     .enemy-scar         {
       filter: drop-shadow(0 0 8px rgba(180,40,80,0.85));
     }
+    /* シナリオ3 リザードマン族長: 暫定スプライト (lizardWarrior_anim 流用) + 暗赤血塗の威圧 + 蛇神オーラ */
+    .enemy-lizardChieftain {
+      filter: hue-rotate(-25deg) saturate(1.3) brightness(0.9) contrast(1.15)
+              drop-shadow(0 0 9px rgba(180,30,70,0.85));
+    }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
     .enemy.fx-sleep::before {
@@ -3125,6 +3130,32 @@
         range: "melee",
         xp: 200,
       },
+      // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
+      // 暫定スプライトは lizardWarrior_anim.png 流用 + 巨体化、色替えは CSS .enemy-lizardChieftain 側。
+      // 後で専用シート生成予定
+      lizardChieftain: {
+        name: "リザードマン族長",
+        flavor: "蛇神を祀る沼の主、ファラクサスの忠実なる走狗",
+        badge: "🦎",
+        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 124,                    // 戦士 88 より一回り大きく (玉座のボス感)
+        hp: 80, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,      // 大斧でリーチ広め
+        attackDuration: 38, attackHitFrame: 18, attackCooldown: 58,
+        str: 5, dex: 1, atkBonus: 8, ac: 18, // 骨鎧+鱗+蛇神の盾
+        dmgDice: "2d8", dmgBonus: 5, critRange: 19, critMult: 3, // 大両手斧
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.7,               // HP70%以下で「族長の咆哮」(統制ボス、早めに発動)
+        // ragePhaseDefensive 未指定 = 既定の攻撃強化 (+2atk +2dmg + 速度UP)
+        maxSummons: 2,
+        summonType: "lizardWarrior",
+        deathLine: "…炎の…御方よ…我が血を…捧げ…ます…",
+        xp: 900,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -3190,13 +3221,14 @@
         trapCount: 4,
         hiddenChestCount: 3,
         clearXp: 700,
+        clearReward: "蛇神の鱗 (ファラクサスの伏線)",
         spawns: [
           // 雑魚: 全て lizardWarrior (狩人/襲撃者/司祭は今後追加して差し替え予定)
           ["lizardWarrior", 19, 11], ["lizardWarrior", 23, 15],
           ["lizardWarrior", 34, 11], ["lizardWarrior", 40, 12], ["lizardWarrior", 38, 17],
           ["lizardWarrior", 50, 11], ["lizardWarrior", 55, 15],
           ["lizardWarrior", 65, 10], ["lizardWarrior", 70, 14], ["lizardWarrior", 72, 17],
-          ["minotaur", 86, 13],   // ボス: 族長 (今後 lizardChieftain に差し替え予定)
+          ["lizardChieftain", 86, 13],   // ボス: リザードマン族長
         ],
       },
       "orc-fort": {
