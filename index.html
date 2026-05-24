@@ -278,7 +278,11 @@
     .enemy-scar         {
       filter: drop-shadow(0 0 8px rgba(180,40,80,0.85));
     }
-    /* シナリオ3 リザードマン族長: 暫定スプライト (lizardWarrior_anim 流用) + 暗赤血塗の威圧 + 蛇神オーラ */
+    /* シナリオ3 リザードマン亜種: 全て lizardWarrior_anim 流用、CSS 色替えで差別化 */
+    .enemy-lizardHunter   { filter: hue-rotate(35deg)  saturate(0.85) brightness(1.1); }  /* 明黄緑 (軽装の狩人) */
+    .enemy-lizardRaider   { filter: hue-rotate(-12deg) saturate(1.45) brightness(0.95); } /* 赤茶緑 (血塗の戦闘狂) */
+    .enemy-lizardPriest   { filter: hue-rotate(95deg)  saturate(1.3)  brightness(0.85); } /* 紫青 (蛇神司祭) */
+    /* 族長: 暗赤血塗の威圧 + 蛇神オーラ */
     .enemy-lizardChieftain {
       filter: hue-rotate(-25deg) saturate(1.3) brightness(0.9) contrast(1.15)
               drop-shadow(0 0 9px rgba(180,30,70,0.85));
@@ -3130,6 +3134,61 @@
         range: "melee",
         xp: 200,
       },
+      // 沼の狩人 (リザードマン版アーチャー、葦の茂みから骨弓で牽制)
+      lizardHunter: {
+        name: "沼の狩人",
+        flavor: "葦の茂みから骨の矢を放つ静かなリザードマン",
+        badge: "🏹",
+        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 82,                          // 戦士 88 より一回り小柄
+        hp: 11, speed: 0.9,
+        hasAttackAnim: true,
+        meleeRange: 120, hitRange: 460,           // 弓の射程
+        attackDuration: 28, attackHitFrame: 14, attackCooldown: 45,
+        str: 1, dex: 3, atkBonus: 5, ac: 14,
+        dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 3,
+        range: "long",
+        projectile: "arrow",                      // 矢演出 (既存 playEnemyAttackVisual)
+        xp: 180,
+      },
+      // 沼の襲撃者 (二刀の石斧で斬り込む機動型、リザードマン版ライダー的)
+      lizardRaider: {
+        name: "沼の襲撃者",
+        flavor: "二刀の石斧で踊り込む血塗の戦闘狂",
+        badge: "⚔",
+        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 90,                          // 戦士よりわずかに大きい (装備量で威圧)
+        hp: 17, speed: 0.95,                      // 速い
+        hasAttackAnim: true,
+        meleeRange: 170, hitRange: 230,
+        attackDuration: 22, attackHitFrame: 14, attackCooldown: 42, // 早い攻撃テンポ
+        str: 2, dex: 3, atkBonus: 5, ac: 15,
+        dmgDice: "2d6", dmgBonus: 2, critRange: 19, critMult: 2,    // 二刀 = 1d6+1d6 合算、クリ19-20
+        range: "melee",
+        xp: 220,
+      },
+      // 蛇神司祭 (リザードマン版シャーマン、蛇神の呪いで攻撃)
+      lizardPriest: {
+        name: "蛇神司祭",
+        flavor: "ファラクサスを蛇神として崇める異教の祭祀",
+        badge: "🐍",
+        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 84,
+        hp: 12, speed: 0.75,
+        hasAttackAnim: true,
+        meleeRange: 130, hitRange: 540,           // 呪文射程
+        attackDuration: 36, attackHitFrame: 18, attackCooldown: 55,
+        str: 0, dex: 1, atkBonus: 4, ac: 13,
+        dmgDice: "2d6", dmgBonus: 1, critRange: 20, critMult: 2,
+        range: "long",
+        xp: 200,
+      },
       // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
       // 暫定スプライトは lizardWarrior_anim.png 流用 + 巨体化、色替えは CSS .enemy-lizardChieftain 側。
       // 後で専用シート生成予定
@@ -3223,11 +3282,15 @@
         clearXp: 700,
         clearReward: "蛇神の鱗 (ファラクサスの伏線)",
         spawns: [
-          // 雑魚: 全て lizardWarrior (狩人/襲撃者/司祭は今後追加して差し替え予定)
-          ["lizardWarrior", 19, 11], ["lizardWarrior", 23, 15],
-          ["lizardWarrior", 34, 11], ["lizardWarrior", 40, 12], ["lizardWarrior", 38, 17],
-          ["lizardWarrior", 50, 11], ["lizardWarrior", 55, 15],
-          ["lizardWarrior", 65, 10], ["lizardWarrior", 70, 14], ["lizardWarrior", 72, 17],
+          // ROOM 1 古い橋桁の残骸: 前哨見張り (戦士 + 狩人)
+          ["lizardWarrior", 19, 11], ["lizardHunter", 23, 15],
+          // ROOM 2 古代石組の祭壇広場: 蛇神への儀式中 (戦士 + 司祭 + 襲撃者)
+          ["lizardWarrior", 34, 11], ["lizardPriest", 40, 12], ["lizardRaider", 38, 17],
+          // ROOM 3 見張り野営跡: 野営見張り (戦士 + 狩人)
+          ["lizardWarrior", 50, 11], ["lizardHunter", 55, 15],
+          // ROOM 4 蛇神の社・血染めの儀式広場: 信仰の中心、強敵集中 (司祭 + 襲撃者 + 戦士)
+          ["lizardPriest", 65, 10], ["lizardRaider", 70, 14], ["lizardWarrior", 72, 17],
+          // ROOM 5 族長の謁見の間
           ["lizardChieftain", 86, 13],   // ボス: リザードマン族長
         ],
       },
