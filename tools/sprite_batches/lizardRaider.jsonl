@@ -1,3 +1,4 @@
-# 沼の襲撃者 (lizardRaider) — 1 チャットで walk → attack を連投。
-{"prompt_file": "source_images/enemy_lizardRaider/_prompt_walk.txt",   "output": "source_images/enemy_lizardRaider/襲撃者歩き.png"}
-{"prompt_file": "source_images/enemy_lizardRaider/_prompt_attack.txt", "output": "source_images/enemy_lizardRaider/襲撃者攻撃.png"}
+# 沼の襲撃者 (lizardRaider) — v10 フロー: テンプレ把握 → walk (キャラ詳細 1 行) → 共通 attack
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardRaider/_prompt_walk.txt",     "output": "source_images/enemy_lizardRaider/襲撃者歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt",        "output": "source_images/enemy_lizardRaider/襲撃者攻撃.png"}

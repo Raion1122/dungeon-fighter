@@ -1,3 +1,4 @@
-# 沼の狩人 (lizardHunter) — 1 チャットで walk → attack を連投。
-{"prompt_file": "source_images/enemy_lizardHunter/_prompt_walk.txt",   "output": "source_images/enemy_lizardHunter/狩人歩き.png"}
-{"prompt_file": "source_images/enemy_lizardHunter/_prompt_attack.txt", "output": "source_images/enemy_lizardHunter/狩人攻撃.png"}
+# 沼の狩人 (lizardHunter) — v10 フロー: テンプレ把握 → walk (キャラ詳細 1 行) → 共通 attack
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardHunter/_prompt_walk.txt",     "output": "source_images/enemy_lizardHunter/狩人歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt",        "output": "source_images/enemy_lizardHunter/狩人攻撃.png"}

@@ -1,3 +1,4 @@
-# 蛇神司祭 (lizardPriest) — 1 チャットで walk → attack を連投。
-{"prompt_file": "source_images/enemy_lizardPriest/_prompt_walk.txt",   "output": "source_images/enemy_lizardPriest/司祭歩き.png"}
-{"prompt_file": "source_images/enemy_lizardPriest/_prompt_attack.txt", "output": "source_images/enemy_lizardPriest/司祭攻撃.png"}
+# 蛇神司祭 (lizardPriest) — v10 フロー: テンプレ把握 → walk (キャラ詳細 1 行) → 共通 attack
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardPriest/_prompt_walk.txt",     "output": "source_images/enemy_lizardPriest/司祭歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt",        "output": "source_images/enemy_lizardPriest/司祭攻撃.png"}
