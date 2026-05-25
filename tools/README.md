@@ -73,10 +73,17 @@ ChatGPT 会話側の画風・キャラ記憶を引き継いでスプライト統
 
 **運用方針**: 同じキャラ内なら 1 チャット、キャラを変える時は別の jsonl で別チャットを開く。
 
-例: `tools/sprite_batches/lizardChieftain.jsonl`
+**手動運用準拠の 2 段階フロー (2026-05-25 確立)**: 共通仕様テンプレを 1 ターン目で
+「画像生成なしで把握」してもらい、2 ターン目以降で「○○の右歩き 6 コマ」のような
+極短い指示で生成する。これで DALL-E が「テンプレを画像化」してしまう事故
+(モデルシート化、人間剣士事故)を回避できる。`expect_image: false` フィールドで
+画像生成ターンとテキスト把握ターンを使い分ける。
+
+例: `tools/sprite_batches/lizardChieftain.jsonl` (テンプレ把握 + walk + attack の 3 行)
 
 ```jsonl
-# 族長 — 1 チャットで walk → attack を連投。
+# 族長 — 1 チャットで「テンプレ把握 → walk → attack」を連投。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_walk.txt",   "output": "source_images/enemy_lizardChieftain/族長歩き.png"}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt", "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}
 ```
@@ -89,7 +96,9 @@ py tools/chatgpt_generate.py --prompt-batch tools/sprite_batches/lizardChieftain
 
 JSONL 仕様:
 
-- 1 行 = 1 項目、`{"prompt_file": "<UTF-8テキストファイル相対パス>", "output": "<出力PNG相対パス>"}`
+- 1 行 = 1 項目、`{"prompt_file": "<UTF-8テキストファイル相対パス>", "output": "<出力PNG相対パス>", "expect_image": <bool>}`
+- `expect_image`: 省略時 `true`。`false` の場合は画像生成を待たず、テキスト応答が
+  返ってきたら次の項目に進む(テンプレ把握ターン用)。`false` の時は `output` 省略可。
 - `#` で始まる行・空行はコメント扱いでスキップ
 - パスは **CWD からの相対** (ユーザーがプロジェクトルートで実行する前提)
 

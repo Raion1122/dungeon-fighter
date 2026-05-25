@@ -282,10 +282,9 @@
     .enemy-lizardHunter   { filter: hue-rotate(35deg)  saturate(0.85) brightness(1.1); }  /* 明黄緑 (軽装の狩人) */
     .enemy-lizardRaider   { filter: hue-rotate(-12deg) saturate(1.45) brightness(0.95); } /* 赤茶緑 (血塗の戦闘狂) */
     .enemy-lizardPriest   { filter: hue-rotate(95deg)  saturate(1.3)  brightness(0.85); } /* 紫青 (蛇神司祭) */
-    /* 族長: 暗赤血塗の威圧 + 蛇神オーラ */
+    /* 族長: 専用シート (SD chibi、緑鱗、骨面冠) なので hue-rotate 不要、蛇神オーラの drop-shadow だけ残す */
     .enemy-lizardChieftain {
-      filter: hue-rotate(-25deg) saturate(1.3) brightness(0.9) contrast(1.15)
-              drop-shadow(0 0 9px rgba(180,30,70,0.85));
+      filter: drop-shadow(0 0 9px rgba(180,30,70,0.85));
     }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
@@ -3190,13 +3189,13 @@
         xp: 200,
       },
       // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
-      // 暫定スプライトは lizardWarrior_anim.png 流用 + 巨体化、色替えは CSS .enemy-lizardChieftain 側。
-      // 後で専用シート生成予定
+      // 専用スプライト (2026-05-25 案 A3 手動運用テンプレ準拠 2 段階フローで生成)。
+      // 骨面冠+両手で斧+血塗りタトゥー、SD chibi pixel-art-hybrid 画風。
       lizardChieftain: {
         name: "リザードマン族長",
         flavor: "蛇神を祀る沼の主、ファラクサスの忠実なる走狗",
         badge: "🦎",
-        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sprite: "assets/lizardChieftain_anim.png?v=1",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 124,                    // 戦士 88 より一回り大きく (玉座のボス感)

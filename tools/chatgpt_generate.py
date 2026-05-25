@@ -441,9 +441,12 @@ def cmd_generate(prompt: str, output: Path, timeout_s: int, retries: int) -> int
 def cmd_generate_batch(items: list, timeout_s: int) -> int:
     """バッチ生成: 1 起動 / 1 新規チャット内で複数プロンプトを連投。
 
-    items: list of (prompt_text, output_path) tuples。
+    items: list of (prompt_text, output_path_or_None, expect_image) tuples。
     同じチャット内で連投することで、ChatGPT 側の会話コンテキスト (画風 / キャラ
     記憶) が共有され、同キャラの walk + attack を「同じ人物」として描かせやすい。
+
+    expect_image=False の項目はテキスト応答だけ待って次へ進む (テンプレ把握ターン)。
+    手動運用と同じ「テンプレ把握 → キャラ指示連投」フロー対応。
 
     挙動 (Plan 準拠):
       - 0 (OK)        → 次の item へ
@@ -456,8 +459,11 @@ def cmd_generate_batch(items: list, timeout_s: int) -> int:
 
     log_info(f"Batch mode: {len(items)} item(s), shared chat session.")
     log_info(f"Timeout per item: {timeout_s}s")
-    for i, (_, out) in enumerate(items, 1):
-        log_info(f"  [{i}] -> {out}")
+    for i, (_, out, expect_image) in enumerate(items, 1):
+        if expect_image:
+            log_info(f"  [{i}] image -> {out}")
+        else:
+            log_info(f"  [{i}] text-only (template grasp, no image)")
 
     ensure_dir(DEBUG_DIR)
 
@@ -473,15 +479,21 @@ def cmd_generate_batch(items: list, timeout_s: int) -> int:
             rc = _navigate_new_chat(page)
             if rc != 0:
                 log_err(f"Failed to open new chat (rc={rc}). Aborting batch.")
-                for i, (_, out) in enumerate(items, 1):
-                    log_err(f"  [{i}] skipped: {out}")
+                for i, (_, out, expect_image) in enumerate(items, 1):
+                    label = str(out) if expect_image else "(text-only)"
+                    log_err(f"  [{i}] skipped: {label}")
                 return rc
 
-            for i, (prompt, output) in enumerate(items, 1):
-                log_info(f"=== [{i}/{len(items)}] {output} ===")
+            for i, (prompt, output, expect_image) in enumerate(items, 1):
+                if expect_image:
+                    log_info(f"=== [{i}/{len(items)}] image -> {output} ===")
+                else:
+                    log_info(f"=== [{i}/{len(items)}] text-only (template grasp) ===")
                 log_info(f"Prompt length: {len(prompt)} chars")
                 try:
-                    rc = _send_prompt_and_capture(page, prompt, output, seen_urls, timeout_s)
+                    rc = _send_prompt_and_capture(
+                        page, prompt, output, seen_urls, timeout_s, expect_image
+                    )
                 except PWTimeoutError as e:
                     log_err(f"Playwright timeout: {e}")
                     save_debug(page, f"batch-{i}-pw-timeout")
@@ -497,7 +509,9 @@ def cmd_generate_batch(items: list, timeout_s: int) -> int:
                 if rc in (1, 2, 5):
                     log_err(f"Fatal rc={rc} at item {i}. Skipping remaining {len(items) - i} item(s):")
                     for j in range(i, len(items)):
-                        log_err(f"  [{j + 1}] skipped: {items[j][1]}")
+                        _, out_j, expect_j = items[j]
+                        label = str(out_j) if expect_j else "(text-only)"
+                        log_err(f"  [{j + 1}] skipped: {label}")
                     return rc
                 # 部分失敗: その item だけスキップ
                 log_err(f"Item {i} failed (rc={rc}). Continuing to next item.")
@@ -509,12 +523,18 @@ def cmd_generate_batch(items: list, timeout_s: int) -> int:
 
 
 def _load_batch(batch_path: Path) -> Optional[list]:
-    """JSONL バッチファイルを読み込んで (prompt_text, output_path) のリストを返す。
+    """JSONL バッチファイルを読み込んで (prompt_text, output_path, expect_image) のリストを返す。
 
-    各行: {"prompt_file": "<rel-path>", "output": "<rel-path>"}
+    各行: {"prompt_file": "<rel-path>", "output": "<rel-path>", "expect_image": true}
+      - "expect_image" は省略可、デフォルト true。
+      - "expect_image": false の場合は "output" は省略可 (画像保存しないため)。
     空行と # で始まる行はコメント扱いでスキップ。
     パスは batch_path の親ディレクトリではなく **CWD** からの相対 (ユーザーが
     プロジェクトルートで実行する前提)。
+
+    expect_image=false は手動運用と同じ「テンプレ把握 → キャラ指示連投」の
+    最初のターン(テンプレ把握ターン)で使う。ChatGPT に仕様を読ませて
+    「把握しました」とテキスト返答してもらうだけで、画像は生成させない。
     """
     try:
         raw = batch_path.read_text(encoding="utf-8")
@@ -534,8 +554,12 @@ def _load_batch(batch_path: Path) -> Optional[list]:
             return None
         pf = obj.get("prompt_file")
         op = obj.get("output")
-        if not pf or not op:
-            log_err(f"{batch_path}:{lineno}: missing 'prompt_file' or 'output'")
+        expect_image = bool(obj.get("expect_image", True))
+        if not pf:
+            log_err(f"{batch_path}:{lineno}: missing 'prompt_file'")
+            return None
+        if expect_image and not op:
+            log_err(f"{batch_path}:{lineno}: 'output' is required when expect_image is true")
             return None
         prompt_path = Path(pf)
         try:
@@ -546,7 +570,7 @@ def _load_batch(batch_path: Path) -> Optional[list]:
         if not prompt_text:
             log_err(f"{batch_path}:{lineno}: prompt_file '{pf}' is empty")
             return None
-        items.append((prompt_text, Path(op)))
+        items.append((prompt_text, Path(op) if op else None, expect_image))
 
     if not items:
         log_err(f"{batch_path}: no valid items found (file may be empty or all comments).")
@@ -589,17 +613,25 @@ def _navigate_new_chat(page: Page) -> int:
 def _send_prompt_and_capture(
     page: Page,
     prompt: str,
-    output: Path,
+    output: Optional[Path],
     seen_urls: set,
     timeout_s: int,
+    expect_image: bool = True,
 ) -> int:
     """同じ page にプロンプトを送信し、新規画像 1 枚を取得して output に保存。
 
     バッチで連投する場合は seen_urls に既出 URL が積まれているので、それを
     除外した新規画像のみを採用する。採用した URL は seen_urls に追加して返す。
     終了コードを返す (0 = OK)。
+
+    expect_image=False のとき(テンプレ把握ターンなど):
+      - 画像 URL を待たず、ChatGPT のテキスト応答 (generating_indicator 消失)
+        を最大 60 秒だけ待って return。output 書き込みはスキップ。
+      - 「これは仕様です、把握だけ」「画像生成は次のメッセージから」を伝える
+        2 段階フロー (手動運用準拠) の最初のターン用。
     """
-    ensure_dir(output.parent)
+    if expect_image and output is not None:
+        ensure_dir(output.parent)
 
     # 入力欄の取得 + 既存テキストクリア (再試行時 / バッチ 2 件目以降の残骸対策)
     try:
@@ -627,6 +659,41 @@ def _send_prompt_and_capture(
     if not sent:
         log_info("Send button not found, falling back to Enter key")
         page.keyboard.press("Enter")
+
+    if not expect_image:
+        # テキスト応答待ちモード: generating_indicator (Stop ボタン) の出現→消失を待つ。
+        # 出現する前の極早期に return しないよう、送信直後に短時間 sleep してから polling。
+        log_info("Prompt sent. Waiting for text-only response (no image expected)...")
+        time.sleep(3)
+        text_deadline = time.time() + min(timeout_s, 60)
+        last_text_log = 0.0
+        while time.time() < text_deadline:
+            err = detect_failure(page)
+            if err == "RATE_LIMIT":
+                log_err("Rate limit detected during text-only wait.")
+                save_debug(page, "rate-limit-text")
+                return 2
+            if err == "GEN_ERROR":
+                log_err("ChatGPT replied with a generation error in text-only mode.")
+                save_debug(page, "gen-error-text")
+                return 3
+            try:
+                busy = page.query_selector(SELECTORS["generating_indicator"])
+            except Exception:
+                busy = None
+            if not busy:
+                # generating_indicator が無い = 応答が完了している(または受信中ではない)
+                log_info("Text-only response complete (generating indicator absent).")
+                return 0
+            now = time.time()
+            if now - last_text_log > 10:
+                remaining = int(text_deadline - now)
+                log_info(f"Still waiting for text response... ({remaining}s remaining)")
+                last_text_log = now
+            time.sleep(GENERATION_POLL_INTERVAL_S)
+        # 60 秒以内に indicator が消えなかった場合も OK 扱い(次プロンプト送信で上書きされる)
+        log_info("Text-only wait exceeded 60s, proceeding (response may still be incoming).")
+        return 0
 
     log_info("Prompt sent. Waiting for image generation...")
 

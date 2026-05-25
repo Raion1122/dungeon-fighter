@@ -1,4 +1,6 @@
-# 族長 (lizardChieftain) — 1 チャットで walk → attack を連投。
+# 族長 (lizardChieftain) — 手動運用準拠 2 段階フロー: テンプレ把握 → walk → attack
+# 1 ターン目で共通仕様テンプレを把握させる(画像生成なし)、2-3 ターン目でキャラ指示
 # キャラ統一感を ChatGPT 会話コンテキストで保証する。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_walk.txt",   "output": "source_images/enemy_lizardChieftain/族長歩き.png"}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt", "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}
