@@ -1,7 +1,6 @@
-# 族長 (lizardChieftain) — 4 ターン構成フロー: テンプレ把握 → キャラ設定把握 → walk → attack
-# 1 ターン目で共通仕様テンプレを把握、2 ターン目でキャラ設定を会話コンテキストに固定、
-# 3-4 ターン目で「上記キャラの〜」と動作のみ指示。キャラ一貫性を会話で保証する。
+# 族長 (lizardChieftain) — 3 ターン構成 (シンプル prompt 路線、ユーザー手動運用準拠)
+# テンプレ把握 → walk (キャラ詳細 1 行 + 右歩き 6 コマ) → attack (「このキャラの攻撃 6 コマ」極短)
+# 動作詳細/否定形を撤去、ユーザー手動成功例 (女盗賊) と同じシンプル指示でキャラ一貫性と動作 dramatic 化を狙う。
 {"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",         "expect_image": false}
-{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_character.txt", "expect_image": false}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_walk.txt",   "output": "source_images/enemy_lizardChieftain/族長歩き.png"}
 {"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt", "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}

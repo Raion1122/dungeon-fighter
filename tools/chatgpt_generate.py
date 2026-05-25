@@ -737,7 +737,30 @@ def _send_prompt_and_capture(
                 # 最大サイズの画像 (生成本体) を採用
                 big_imgs.sort(reverse=True)
                 img_url = big_imgs[0][1]
-                break
+                log_info(f"Image URL captured: {img_url[:80]}...")
+                # ChatGPT 応答完了 (generating_indicator = Stop ボタン消失) を待つ。
+                # 画像 URL は応答途中で DOM に現れることがあり、その状態で次プロンプト
+                # を送ると ChatGPT が混乱する。ユーザー要望「1 個うったらレスポンス
+                # 待って次」を実装。最大 30 秒待ち、それ以上は諦めて続行。
+                settle_deadline = time.time() + 30
+                last_settle_log = 0.0
+                while time.time() < settle_deadline:
+                    try:
+                        busy = page.query_selector(SELECTORS["generating_indicator"])
+                    except Exception:
+                        busy = None
+                    if not busy:
+                        log_info("Generation settled (no busy indicator).")
+                        break
+                    now2 = time.time()
+                    if now2 - last_settle_log > 5:
+                        remaining_settle = int(settle_deadline - now2)
+                        log_info(f"Waiting for response to settle... ({remaining_settle}s remaining)")
+                        last_settle_log = now2
+                    time.sleep(1.0)
+                else:
+                    log_info("Settle wait timed out (30s), proceeding anyway.")
+                break  # polling ループ脱出 → 画像取得処理へ
         except Exception:
             pass
 
@@ -755,7 +778,7 @@ def _send_prompt_and_capture(
         save_debug(page, "timeout")
         return 4
 
-    log_info(f"Image URL captured: {img_url[:80]}...")
+    # (Image URL captured ログは settle wait 直前で既に出力済)
 
     # ブラウザ内 fetch で画像取得 (CORS 回避)
     try:
