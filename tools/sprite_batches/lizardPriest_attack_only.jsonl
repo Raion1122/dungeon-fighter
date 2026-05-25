@@ -1,0 +1,5 @@
+# 蛇神司祭 attack 再生成 — 静止呪文詠唱で隣フレーム侵入による分身を回避
+# テンプレ把握 + 司祭キャラ詳細 (walk と同じ詳細を再投入) → 静止 attack の 3 段階
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardPriest/_prompt_walk.txt",     "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardPriest/_prompt_attack.txt",   "output": "source_images/enemy_lizardPriest/司祭攻撃.png"}

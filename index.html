@@ -278,11 +278,10 @@
     .enemy-scar         {
       filter: drop-shadow(0 0 8px rgba(180,40,80,0.85));
     }
-    /* シナリオ3 リザードマン亜種: 全て lizardWarrior_anim 流用、CSS 色替えで差別化 */
-    /* 沼の狩人: 専用シート (2026-05-26 v10 フロー) なので hue-rotate 不要 */
+    /* シナリオ3 リザードマン亜種: 全員専用シート (2026-05-26 v10 フローで生成済) */
     .enemy-lizardHunter   { /* 専用シート、特別な filter なし */ }
-    .enemy-lizardRaider   { filter: hue-rotate(-12deg) saturate(1.45) brightness(0.95); } /* 赤茶緑 (血塗の戦闘狂) */
-    .enemy-lizardPriest   { filter: hue-rotate(95deg)  saturate(1.3)  brightness(0.85); } /* 紫青 (蛇神司祭) */
+    .enemy-lizardRaider   { /* 専用シート、特別な filter なし */ }
+    .enemy-lizardPriest   { /* 専用シート、特別な filter なし */ }
     /* 族長: 専用シート (SD chibi、緑鱗、骨面冠) なので hue-rotate 不要、蛇神オーラの drop-shadow だけ残す */
     .enemy-lizardChieftain {
       filter: drop-shadow(0 0 9px rgba(180,30,70,0.85));
@@ -3158,7 +3157,7 @@
         name: "沼の襲撃者",
         flavor: "二刀の石斧で踊り込む血塗の戦闘狂",
         badge: "⚔",
-        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sprite: "assets/lizardRaider_anim.png?v=1",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 90,                          // 戦士よりわずかに大きい (装備量で威圧)
@@ -3176,7 +3175,7 @@
         name: "蛇神司祭",
         flavor: "ファラクサスを蛇神として崇める異教の祭祀",
         badge: "🐍",
-        sprite: "assets/lizardWarrior_anim.png?v=1",
+        sprite: "assets/lizardPriest_anim.png?v=1",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 84,
