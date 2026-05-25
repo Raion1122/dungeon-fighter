@@ -1,0 +1,5 @@
+# 族長 attack 単独再生成用 — テンプレ把握 → キャラ設定把握 → attack(動作強化版)
+# walk は既存採用版を保護し、attack だけ動作 dramatic 版に差し替える時に使う。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",            "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_character.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_lizardChieftain/_prompt_attack.txt",    "output": "source_images/enemy_lizardChieftain/族長攻撃.png"}
