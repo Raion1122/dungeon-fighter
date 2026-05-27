@@ -278,6 +278,10 @@
     .enemy-scar         {
       filter: drop-shadow(0 0 8px rgba(180,40,80,0.85));
     }
+    /* 残影の獣 (Sce2 隠し要素): 紫の残影オーラを drop-shadow で表現 */
+    .enemy-shadowBeast  {
+      filter: drop-shadow(0 0 10px rgba(140,80,200,0.85));
+    }
     /* シナリオ3 リザードマン亜種: 全員専用シート (2026-05-26 v10 フローで生成済) */
     .enemy-lizardHunter   { /* 専用シート、特別な filter なし */ }
     .enemy-lizardRaider   { /* 専用シート、特別な filter なし */ }
@@ -3114,6 +3118,32 @@
         clearReward: "謎の紋章入り指令書",
         xp: 700,
       },
+      // 残影の獣 (Sce2 隠し要素ミニボス、第三勢力)
+      // 黒紫の六本足の豹 + 背中に 2 本の触手。盗賊が捕獲して檻に閉じ込めている。
+      // 鍵で檻を開けるか戦闘音で確率脱走 → PT も盗賊も区別なく襲う第三勢力として行動。
+      // 仕様詳細: shadow-beast.md。Phase 1 では「鍵による任意解放 + 撃破時毛皮」MVP のみ。
+      shadowBeast: {
+        name: "残影の獣",
+        flavor: "盗賊が捕えた六本足の黒豹、檻を破れば敵味方の区別なく襲う",
+        badge: "🐾",
+        sprite: "assets/shadowBeast_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 132,                  // プレイヤーの約 1.4 倍 (仕様書「2 倍」を画面映え優先で抑制)
+        hp: 70, speed: 0.75,               // 盗賊より速い四足獣
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,    // 触手の分やや長め
+        attackDuration: 28, attackHitFrame: 14, attackCooldown: 50,
+        str: 4, dex: 3, atkBonus: 7, ac: 16,
+        // 爪 1d6 + 噛みつき 1d6 + STR の合算扱いで 2d6+4
+        dmgDice: "2d6", dmgBonus: 4, critRange: 19, critMult: 2,
+        range: "melee",
+        // Phase 1 では参照のみ。AI 実装 (P1-C) で読み取って第三勢力ロジック分岐させる。
+        faction: "beast",
+        // 撃破時の特殊報酬。Phase 1 は暫定で gainGold で代用、Phase 2 で残影の首飾り化。
+        pelt: true,
+        xp: 800,
+      },
       // ── シナリオ3: 沼地リザードマン ──
       // SD chibi 画風 (project_enemy_art_style.md 基準)、専用シート 96px×6cols×5rows
       lizardWarrior: {
@@ -3270,6 +3300,9 @@
           ["bandit",       72, 17],
           // F ボス部屋
           ["scar",         86, 13],
+          // Sce2 隠し要素: 残影の獣 (Phase 1 暫定: 檻ギミック未実装なので直接 spawn)
+          // D 部屋の壁際に配置。Phase 1-D で檻オブジェクトに置き換える予定
+          ["shadowBeast",  58, 14],
         ],
       },
       "lizard-swamp": {
@@ -8850,6 +8883,21 @@
           cy: a.y + a.def.displaySize / 2
         });
       }
+      // 第三勢力 (faction="beast"): 他の敵 (faction != "beast") も candidates に追加。
+      // PT も盗賊も区別なく最寄りを襲う。同種ビースト同士は対象外。
+      if (e.def.faction === "beast") {
+        for (let i = 0; i < enemies.length; i++) {
+          if (i === enemyIdx) continue;
+          const o = enemies[i];
+          if (!o.alive) continue;
+          if (o.def.faction === "beast") continue;
+          candidates.push({
+            kind: "enemy", idx: i,
+            cx: o.x + o.def.displaySize / 2,
+            cy: o.y + o.def.displaySize / 2
+          });
+        }
+      }
       if (candidates.length === 0) return null;
       let best = null, bestDist = Infinity;
       for (const c of candidates) {
@@ -11258,11 +11306,28 @@
         }
       }
 
-      // ── ターゲット選択: 最寄りの生存パーティーメンバー ──
+      // ── ターゲット選択: 最寄りの生存パーティーメンバー (または第三勢力時は他の敵も) ──
       const pick = pickEnemyTarget(idx);
       if (!pick) return;
       if (pick.kind === "ally") {
         await enemyAttackAllyTarget(idx, pick.idx, bossAction);
+        return;
+      }
+      if (pick.kind === "enemy") {
+        // 第三勢力 (beast) → 他の敵を攻撃。射程外なら相手方向へ 1 タイル前進。
+        const target = enemies[pick.idx];
+        const tgtCX = target.x + target.def.displaySize / 2;
+        const tgtCY = target.y + target.def.displaySize / 2;
+        const rangeKeyB = def.range || "melee";
+        const rangeTilesB = getRange(rangeKeyB).tiles;
+        const eCXB = enemy.x + def.displaySize / 2;
+        const eCYB = enemy.y + def.displaySize / 2;
+        const distTilesB = tileChebyshev(eCXB, eCYB, tgtCX, tgtCY);
+        if (distTilesB > rangeTilesB) {
+          await enemyAdvanceOneTile(idx, tgtCX, tgtCY);
+          return;
+        }
+        await enemyAttackEnemyTarget(idx, pick.idx);
         return;
       }
 
@@ -11565,6 +11630,78 @@
       } else {
         // ドワーフの意地: HP が閾値以下まで落ちたら自動発動
         await checkDwarvenGritTrigger(ally);
+      }
+    }
+
+    // 第三勢力 (faction="beast") が他の敵を攻撃する。
+    // enemyAttackAllyTarget の軽量版 (バフ/DR/激怒フェーズなど無視)。
+    // 射程チェックは呼び出し側 (enemyAttackTurn) で済んでいる前提。
+    async function enemyAttackEnemyTarget(beastIdx, victimIdx) {
+      const beast = enemies[beastIdx];
+      const def = beast.def;
+      const victim = enemies[victimIdx];
+      if (!victim || !victim.alive) return;
+      const vDef = victim.def;
+      const tCX = victim.x + vDef.displaySize / 2;
+      const tCY = victim.y + vDef.displaySize / 2;
+
+      flashAction(enemyElements[beastIdx], "attack");
+
+      const natD20 = d20();
+      const atkBonus = def.atkBonus || 0;
+      const atkTotal = natD20 + atkBonus;
+      const isFumble = natD20 === 1;
+      const isThreat = natD20 >= (def.critRange || 20) && !isFumble;
+      const targetAc = vDef.ac;
+      const atkText =
+        `1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ` +
+        `<span class="big">${atkTotal}</span><br>vs ${vDef.name} AC ${targetAc}`;
+
+      if (isFumble) {
+        showRollAtEnemy(beastIdx,
+          `<span class="label">FUMBLE!</span>${atkText}`, "fumble");
+        updateInfo(`${def.name} → ${vDef.name}: ファンブル!`);
+        await sleepMs(900);
+        return;
+      }
+
+      const hit = isThreat || atkTotal >= targetAc;
+      let isCrit = false;
+      if (!hit) {
+        showRollAtEnemy(beastIdx,
+          `<span class="label">MISS</span>${atkText}`, "miss");
+        updateInfo(`${def.name} → ${vDef.name}: ミス`);
+        await playEnemyAttackVisual(beastIdx, tCX, tCY);
+        return;
+      }
+      if (isThreat) {
+        const cn = d20(), ct = cn + atkBonus;
+        if (ct >= targetAc) isCrit = true;
+      }
+      showRollAtEnemy(beastIdx,
+        `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>${atkText}`,
+        isCrit ? "crit" : "hit");
+      await sleepMs(450);
+      await playEnemyAttackVisual(beastIdx, tCX, tCY);
+
+      // ダメージロール (ボスフェーズ補正なし、第三勢力は素のステ)
+      const { n, sides } = parseDiceDD(def.dmgDice || "1d6");
+      const critMult = def.critMult || 2;
+      const times = isCrit ? critMult : 1;
+      let allRolls = [];
+      for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
+      const bonusTotal = (def.dmgBonus || 0) * times;
+      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
+
+      victim.hp = Math.max(0, victim.hp - dmg);
+      triggerEnemyDamageFlash(victimIdx);
+      showDmgAt(tCX, victim.y, dmg, isCrit);
+      updateInfo(`${def.name} → ${vDef.name}: ${dmg} ダメージ (HP ${victim.hp}/${victim.maxHp})`);
+      await sleepMs(500);
+
+      if (victim.hp <= 0) {
+        defeatEnemy(victimIdx);
+        await sleepMs(400);
       }
     }
 
