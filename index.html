@@ -278,10 +278,8 @@
     .enemy-scar         {
       filter: drop-shadow(0 0 8px rgba(180,40,80,0.85));
     }
-    /* 残影の獣 (Sce2 隠し要素): 紫の残影オーラを drop-shadow で表現 */
-    .enemy-shadowBeast  {
-      filter: drop-shadow(0 0 10px rgba(140,80,200,0.85));
-    }
+    /* 残影の獣 (Sce2 隠し要素): オーラなし方針 → 専用シートのままくっきり表示 */
+    .enemy-shadowBeast  { /* 特別な filter なし */ }
     /* シナリオ3 リザードマン亜種: 全員専用シート (2026-05-26 v10 フローで生成済) */
     .enemy-lizardHunter   { /* 専用シート、特別な filter なし */ }
     .enemy-lizardRaider   { /* 専用シート、特別な filter なし */ }
@@ -3126,7 +3124,7 @@
         name: "残影の獣",
         flavor: "盗賊が捕えた六本足の黒豹、檻を破れば敵味方の区別なく襲う",
         badge: "🐾",
-        sprite: "assets/shadowBeast_anim.png?v=2",
+        sprite: "assets/shadowBeast_anim.png?v=3",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 192,                  // 2 タイル分の大型ミニボス
