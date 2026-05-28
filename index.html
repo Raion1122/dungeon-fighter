@@ -1331,8 +1331,8 @@
     }
     /* 檻内に閉じ込められているビースト: 半透明 + 暗く + z-index 下げて檻の後ろに */
     .enemy.beast-caged {
-      opacity: 0.55;
-      filter: brightness(0.5) saturate(0.7);
+      opacity: 0.78;
+      filter: brightness(0.72) saturate(0.85);
       z-index: 2;
     }
 
@@ -2725,6 +2725,11 @@
       ctx.fillStyle = "#0a0a0a";
       ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
       if (!tilesetLoaded) return;
+      // canvas 範囲外への描画漏れ防止 (松明・部屋ペインティング等が画面外にはみ出すのを clip)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, mapCanvas.width, mapCanvas.height);
+      ctx.clip();
       const startTX = Math.max(0, Math.floor(camX / TILE_SIZE));
       const startTY = Math.max(0, Math.floor(camY / TILE_SIZE));
       const endTX = Math.min(MAP_W - 1, Math.ceil((camX + mapCanvas.width) / TILE_SIZE));
@@ -2920,6 +2925,7 @@
           ctx.restore();
         }
       }
+      ctx.restore();
     }
     // ─────────────────────────────────────────────────────────────
 
@@ -4095,6 +4101,8 @@
     // ── showChoice ダイアログ (Yes/No 選択、Promise<boolean> 返却) ──
     // 檻開放や将来の対話 NPC 等で使用。表示中は他の入力をブロックしたいので、
     // キーボードリスナーは capture phase で登録。Enter=Yes / Esc=No
+    // showChoice 表示中はゲームループを停止 (moveEnemies で参照)
+    let dialogPaused = false;
     function showChoice(message, yesText = "はい", noText = "いいえ") {
       return new Promise((resolve) => {
         let dlg = document.getElementById("choiceDialog");
@@ -4115,9 +4123,11 @@
         btnYes.textContent = yesText + " (Enter)";
         btnNo.textContent  = noText  + " (Esc)";
         dlg.classList.add("show");
+        dialogPaused = true;   // ダイアログ中はゲーム時間停止
 
         const cleanup = () => {
           dlg.classList.remove("show");
+          dialogPaused = false;   // 解除
           btnYes.onclick = null;
           btnNo.onclick  = null;
           document.removeEventListener("keydown", onKey, true);
@@ -5262,7 +5272,8 @@
         defeatEnemy(index);
       } else {
         if (stage === 0) {
-          updateInfo("スライムに " + damage + " ダメージ！ 残りHP: " + enemy.hp);
+          const nm = (enemy.def && enemy.def.name) || "敵";
+          updateInfo(nm + "に " + damage + " ダメージ！ 残りHP: " + enemy.hp);
         } else {
           updateInfo("ダッシュカウンター命中！ 残りHP: " + enemy.hp);
         }
@@ -5368,6 +5379,7 @@
       for (let i = 0; i < enemies.length; i++) {
         if (hitEnemiesThisSwing.has(i)) continue;
         if (!enemies[i].alive) continue;
+        if (enemies[i].inactive) continue;   // 檻内のビースト等は探索フェーズの当たり判定から除外
 
         const enemyHitbox = getEnemyHitbox(enemies[i]);
         if (isOverlapping(attackHitbox, enemyHitbox)) {
@@ -5574,8 +5586,15 @@
             worldX >= enemy.weaponX && worldX <= enemy.weaponX + 36 &&
             worldY >= enemy.weaponY && worldY <= enemy.weaponY + 30) {
           enemy.weaponVisible = false;
-          currentWeaponIndex = 1;
+          const cur = weapons[currentWeaponIndex];
           const newW = weapons[1];
+          // 装備中の方が強ければ拾わない (上位武器の消失防止)
+          if (cur && (cur.power || 0) >= (newW.power || 0)) {
+            updateInfo(`『${newW.name}』を見つけたが、装備中の『${cur.name}』の方が強い。`);
+            updatePositions();
+            return true;
+          }
+          currentWeaponIndex = 1;
           updateInfo(`宝箱を開けた！\n『${newW.name}』を手に入れた！\n${newW.flavor}`);
           updatePositions();
           return true;
@@ -5584,8 +5603,15 @@
             worldX >= enemy.armorX && worldX <= enemy.armorX + 36 &&
             worldY >= enemy.armorY && worldY <= enemy.armorY + 30) {
           enemy.armorVisible = false;
-          currentArmorIndex = 1;
+          const curA = armors[currentArmorIndex];
           const newA = armors[1];
+          // 装備中の方が頼もしければ拾わない (上位防具の消失防止)
+          if (curA && (curA.enhancement || 0) >= (newA.enhancement || 0)) {
+            updateInfo(`『${newA.name}』を見つけたが、装備中の『${curA.name}』の方が頼もしい。`);
+            updatePositions();
+            return true;
+          }
+          currentArmorIndex = 1;
           updateInfo(`宝箱を開けた！\n『${newA.name}』を手に入れた！\n${newA.flavor}`);
           updatePositions();
           return true;
@@ -5881,6 +5907,7 @@
 
     function moveEnemies() {
       if (!gameStarted || gameOver) return;
+      if (dialogPaused) return;   // showChoice 表示中はゲーム時間停止
 
       // エンカウンター発動検出(ターン制戦闘へ移行)
       tryStartEncounter();
@@ -6367,6 +6394,7 @@
       let best = null, bestDist = Infinity;
       for (const e of enemies) {
         if (!e.alive) continue;
+        if (e.inactive) continue;   // 檻内のビースト等は感知対象外 (檻を開けるまで非敵扱い)
         const size = e.def.displaySize;
         const eCX = e.x + size / 2;
         const eCY = e.y + size / 2;
@@ -6623,6 +6651,7 @@
             let globalEnemy = null, bestD = Infinity;
             for (const e of enemies) {
               if (!e.alive) continue;
+              if (e.inactive) continue;   // 檻内のビーストは「未探索の敵」に数えない
               const size = e.def.displaySize;
               const d = Math.hypot(pCX - (e.x + size/2), pCY - (e.y + size/2));
               if (d < bestD) { globalEnemy = e; bestD = d; }
@@ -6730,6 +6759,7 @@
 
       for (let i = 0; i < enemies.length; i++) {
         if (!enemies[i].alive) continue;
+        if (enemies[i].inactive) continue;   // 檻内のビースト等は auto-target から除外
         const ex = enemies[i].x + enemies[i].def.displaySize / 2;
         const ey = enemies[i].y + enemies[i].def.displaySize / 2;
         const dx = ex - center.x;
@@ -8717,6 +8747,7 @@
         let inDanger = false;
         for (const e of enemies) {
           if (!e.alive) continue;
+          if (e.inactive) continue;   // 檻内のビーストは脅威扱いしない
           const eCX = e.x + e.def.displaySize / 2;
           const eCY = e.y + e.def.displaySize / 2;
           if (Math.hypot(pCX - eCX, pCY - eCY) < CHEST_SAFE_DIST) { inDanger = true; break; }
@@ -8879,7 +8910,16 @@
         if (bestCage >= 0) {
           cages[bestCage].beastIdx = ei;
           e.inactive = true;
-          if (enemyElements[ei]) enemyElements[ei].classList.add("beast-caged");
+          const el = enemyElements[ei];
+          if (el) {
+            el.classList.add("beast-caged");
+            // 防御的にサイズ再適用 (.enemy.beast-caged クラス追加で width/height が消える事故防止)
+            const ds = e.def.displaySize || TILE_SIZE;
+            const scale = ds / e.def.frameW;
+            el.style.width  = Math.round(e.def.frameW * scale) + "px";
+            el.style.height = Math.round(e.def.frameH * scale) + "px";
+            el.style.backgroundSize = `${Math.round(e.def.sheetW * scale)}px ${Math.round(e.def.sheetH * scale)}px`;
+          }
           // 檻位置にビーストを固定 (檻のタイル中央と敵中央を一致させる)
           const ds = e.def.displaySize || TILE_SIZE;
           e.x = cages[bestCage].tx * TILE_SIZE + TILE_SIZE / 2 - ds / 2;
@@ -8902,6 +8942,11 @@
         const cx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
         const cy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
         const d = Math.hypot(pCX - cx, pCY - cy);
+        // 「やめる」した後は半径外に出るまで再プロンプトしない
+        if (cage.declined) {
+          if (d > CAGE_INTERACT_RADIUS) cage.declined = false;  // 距離を離れたら次の接近で再プロンプト可
+          continue;
+        }
         if (d > CAGE_INTERACT_RADIUS) continue;
 
         if (!hasKey) {
@@ -8925,6 +8970,9 @@
         if (yes) {
           await openCage(cage);
           break;   // 1 tick で複数檻を扱わない
+        } else {
+          cage.declined = true;   // 「やめる」→ 半径外に出るまで再プロンプト抑制
+          break;
         }
       }
     }
@@ -11364,6 +11412,7 @@
         const candidates = [];
         for (let i = 0; i < enemies.length; i++) {
           if (!enemies[i].alive) continue;
+          if (enemies[i].inactive) continue;   // 檻内のビースト等は対象外
           if (canSneakOnTarget(ally, enemies[i])) candidates.push(i);
         }
         if (candidates.length > 0) {
