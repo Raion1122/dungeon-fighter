@@ -1327,6 +1327,7 @@
     .roomCage.opened {
       background-image: url("assets/cage_open.png");
       filter: drop-shadow(0 0 4px rgba(0,0,0,0.5)) brightness(0.92);
+      z-index: 1;   /* 開放後は床に倒れ伏した檻として後景化、ビースト (z-index 2) が前面に来る */
     }
     /* 檻内に閉じ込められているビースト: 半透明 + 暗く + z-index 下げて檻の後ろに */
     .enemy.beast-caged {
@@ -8928,24 +8929,45 @@
       }
     }
 
-    // 檻を開放してビーストを活性化する
+    // 檻を開放してビーストを活性化する。
+    // ビーストは開放と同時に「最寄りの他陣営敵 (盗賊)」の隣へワープし、
+    // プレイヤー視界外で第三勢力 AI が盗賊と交戦する演出になる。
     async function openCage(cage) {
       if (cage.opened) return;
       cage.opened = true;
       if (cage.el) cage.el.classList.add("opened");
       showBanner("🗝 鉄格子が弾け飛んだ!", 1600);
-      showDMMessage("鉄格子が砕け散り、黒い獣が影のように飛び出した! 残影の獣は獲物を選ばない…!", 3800);
+      showDMMessage(
+        "鉄格子が砕け散り、黒い影が砦の奥へと駆け去った…" +
+        "奥から獣の咆哮と盗賊たちの悲鳴が聞こえる…", 4200);
       await sleepMs(600);
 
-      // 連動するビーストを活性化
+      // 連動するビーストを「奥の盗賊」の隣へワープ + 活性化
       if (cage.beastIdx >= 0) {
         const beast = enemies[cage.beastIdx];
         if (beast) {
+          // 最寄りの「他陣営敵 (faction != "beast")」を探す
+          let targetIdx = -1, targetDist = Infinity;
+          for (let i = 0; i < enemies.length; i++) {
+            if (i === cage.beastIdx) continue;
+            const o = enemies[i];
+            if (!o || !o.alive || o.inactive) continue;
+            if (o.def.faction === "beast") continue;
+            const d = Math.hypot(beast.x - o.x, beast.y - o.y);
+            if (d < targetDist) { targetDist = d; targetIdx = i; }
+          }
+          if (targetIdx >= 0) {
+            // target の左隣 1 タイル分の位置にワープ (即座に第三勢力 AI が攻撃開始)
+            const target = enemies[targetIdx];
+            const ds = beast.def.displaySize || TILE_SIZE;
+            beast.x = target.x - ds * 0.9;
+            beast.y = target.y;
+          }
           beast.inactive = false;
           const el = enemyElements[cage.beastIdx];
           if (el) {
             el.classList.remove("beast-caged");
-            // 出現演出: 一瞬の filter brightness
+            // ワープ後の出現演出 (見えない場所だが念のため)
             el.style.filter = "brightness(1.6) saturate(1.4)";
             setTimeout(() => { el.style.filter = ""; }, 600);
           }
