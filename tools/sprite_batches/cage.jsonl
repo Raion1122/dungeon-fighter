@@ -1,0 +1,4 @@
+# 鉄檻オブジェクト (Sce2 隠し要素の檻、closed/open ペア)
+# 同じチャット内で連続生成して画風統一を保証
+{"prompt_file": "source_images/object_cage/_prompt_closed.txt", "output": "assets/cage_closed.png"}
+{"prompt_file": "source_images/object_cage/_prompt_open.txt",   "output": "assets/cage_open.png"}

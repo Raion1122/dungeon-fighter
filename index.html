@@ -1310,6 +1310,83 @@
     }
     /* 隠された宝箱: 発見前は非表示、発見後は通常の roomChest と同じ表示 */
     .roomChest.hidden-unfound { display: none; }
+
+    /* Sce2 隠し要素: 鉄檻オブジェクト (残影の獣を閉じ込めている、2タイル分=192px) */
+    .roomCage {
+      width: 192px;
+      height: 192px;
+      position: absolute;
+      z-index: 3;
+      background-image: url("assets/cage_closed.png");
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      filter: drop-shadow(0 0 8px rgba(0,0,0,0.7));
+      transition: transform 0.4s ease-out, filter 0.5s ease-out;
+    }
+    .roomCage.opened {
+      background-image: url("assets/cage_open.png");
+      filter: drop-shadow(0 0 4px rgba(0,0,0,0.5)) brightness(0.92);
+    }
+    /* 檻内に閉じ込められているビースト: 半透明 + 暗く + z-index 下げて檻の後ろに */
+    .enemy.beast-caged {
+      opacity: 0.55;
+      filter: brightness(0.5) saturate(0.7);
+      z-index: 2;
+    }
+
+    /* 選択ダイアログ (showChoice 用、檻開放の はい/いいえ 等で使用) */
+    #choiceDialog {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1000;
+      min-width: 340px;
+      max-width: 500px;
+      background: linear-gradient(135deg, #f5e7c4 0%, #ecd49a 100%);
+      border: 3px solid #6a3a10;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.65);
+      padding: 26px 30px;
+      font-family: "Noto Serif JP", serif;
+      transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+    }
+    #choiceDialog.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: auto;
+    }
+    #choiceDialog .choiceMessage {
+      font-size: 18px;
+      color: #2a1808;
+      margin-bottom: 20px;
+      text-align: center;
+      line-height: 1.65;
+      letter-spacing: 1px;
+    }
+    #choiceDialog .choiceButtons {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+    #choiceDialog button {
+      padding: 10px 24px;
+      background: linear-gradient(135deg, #8b5a2b 0%, #6a3a10 100%);
+      color: #f5e7c4;
+      border: 2px solid #4a2008;
+      border-radius: 6px;
+      font-size: 15px;
+      font-family: inherit;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: transform 0.1s, box-shadow 0.15s;
+    }
+    #choiceDialog button:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.35); }
+    #choiceDialog button:focus { outline: 2px solid #ffcc66; outline-offset: 2px; }
+    #choiceDialog button.choiceNo { background: linear-gradient(135deg, #6a4a2a 0%, #4a2a10 100%); }
     @keyframes chestGlow {
       0%   { filter: drop-shadow(0 0 6px rgba(255, 200, 100, 0.6)); transform: translateY(0) scale(1); }
       50%  { filter: drop-shadow(0 0 20px rgba(255, 235, 150, 1)) brightness(1.2); transform: translateY(-6px) scale(1.18); }
@@ -3138,6 +3215,8 @@
         range: "melee",
         // Phase 1 では参照のみ。AI 実装 (P1-C) で読み取って第三勢力ロジック分岐させる。
         faction: "beast",
+        // P1-D: 初期は檻に閉じ込められている。linkCagedBeasts() で最寄り cage と紐付けて inactive 化
+        startsCaged: true,
         // 撃破時の特殊報酬。Phase 1 は暫定で gainGold で代用、Phase 2 で残影の首飾り化。
         pelt: true,
         xp: 800,
@@ -3298,9 +3377,12 @@
           ["bandit",       72, 17],
           // F ボス部屋
           ["scar",         86, 13],
-          // Sce2 隠し要素: 残影の獣 (Phase 1 暫定: 檻ギミック未実装なので直接 spawn)
-          // D 部屋の壁際に配置。Phase 1-D で檻オブジェクトに置き換える予定
+          // Sce2 隠し要素: 残影の獣 (ENEMY_TYPES.shadowBeast.startsCaged=true で初期 inactive)
+          // 同じタイル (58, 14) に cageSpawns で檻が配置され、linkCagedBeasts が両者を紐付ける
           ["shadowBeast",  58, 14],
+        ],
+        cageSpawns: [
+          { tx: 58, ty: 14 },   // D 部屋の壁際、残影の獣を閉じ込める檻
         ],
       },
       "lizard-swamp": {
@@ -3706,6 +3788,8 @@
     let maxHp = 30;
     let score = 0;
     let coins = 0;
+    // Sce2 隠し要素: 盗賊の鍵束。rogue が拾うと true、檻を開ける条件
+    let hasKey = false;
 
     // ── 永続進行データ (前ランの金貨・装備・装備選択を引き継ぐ) ──
     function loadPersistentProgress() {
@@ -4005,6 +4089,52 @@
       el.classList.add("show");
       if (el._hideTimer) clearTimeout(el._hideTimer);
       el._hideTimer = setTimeout(() => el.classList.remove("show"), ms);
+    }
+
+    // ── showChoice ダイアログ (Yes/No 選択、Promise<boolean> 返却) ──
+    // 檻開放や将来の対話 NPC 等で使用。表示中は他の入力をブロックしたいので、
+    // キーボードリスナーは capture phase で登録。Enter=Yes / Esc=No
+    function showChoice(message, yesText = "はい", noText = "いいえ") {
+      return new Promise((resolve) => {
+        let dlg = document.getElementById("choiceDialog");
+        if (!dlg) {
+          dlg = document.createElement("div");
+          dlg.id = "choiceDialog";
+          dlg.innerHTML =
+            '<div class="choiceMessage"></div>' +
+            '<div class="choiceButtons">' +
+              '<button class="choiceYes" type="button"></button>' +
+              '<button class="choiceNo" type="button"></button>' +
+            '</div>';
+          document.body.appendChild(dlg);
+        }
+        dlg.querySelector(".choiceMessage").textContent = message;
+        const btnYes = dlg.querySelector(".choiceYes");
+        const btnNo  = dlg.querySelector(".choiceNo");
+        btnYes.textContent = yesText + " (Enter)";
+        btnNo.textContent  = noText  + " (Esc)";
+        dlg.classList.add("show");
+
+        const cleanup = () => {
+          dlg.classList.remove("show");
+          btnYes.onclick = null;
+          btnNo.onclick  = null;
+          document.removeEventListener("keydown", onKey, true);
+        };
+        const onKey = (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault(); ev.stopPropagation();
+            cleanup(); resolve(true);
+          } else if (ev.key === "Escape" || ev.key === "Esc") {
+            ev.preventDefault(); ev.stopPropagation();
+            cleanup(); resolve(false);
+          }
+        };
+        btnYes.onclick = () => { cleanup(); resolve(true); };
+        btnNo.onclick  = () => { cleanup(); resolve(false); };
+        document.addEventListener("keydown", onKey, true);   // capture phase
+        setTimeout(() => btnYes.focus(), 50);
+      });
     }
 
     // 敵種族ごとのエンカ時メッセージ
@@ -4833,6 +4963,16 @@
           const wy = chest.ty * TILE_SIZE + TILE_SIZE / 2 - 28;
           chest.el.style.left = (wx - camX) + "px";
           chest.el.style.top  = (wy - camY) + "px";
+        }
+      }
+      // 檻オブジェクト (Sce2 隠し要素、192px = 2タイル分、tile 中心に配置)
+      if (typeof cages !== "undefined") {
+        for (const cage of cages) {
+          if (!cage.el) continue;
+          const wx = cage.tx * TILE_SIZE + TILE_SIZE / 2 - 96;
+          const wy = cage.ty * TILE_SIZE + TILE_SIZE / 2 - 96;
+          cage.el.style.left = (wx - camX) + "px";
+          cage.el.style.top  = (wy - camY) + "px";
         }
       }
       // 罠 (発見済みのみ表示。発動済みは薄暗く残す)
@@ -5746,6 +5886,8 @@
 
       enemies.forEach((enemy, index) => {
         if (!enemy.alive) return;
+        // 檻内のビースト (inactive=true) は完全停止 (位置固定、AI 無し)
+        if (enemy.inactive) return;
 
         if (enemy.damageFlashTimer > 0) {
           enemy.damageFlashTimer -= 1;
@@ -7098,6 +7240,7 @@
         if (excludeSet && excludeSet.has(i)) continue;
         const e = enemies[i];
         if (!e.alive) continue;
+        if (e.inactive) continue;   // 檻内のビーストはエンカ発生に絡まない
         const ex = e.x + e.def.displaySize / 2;
         const ey = e.y + e.def.displaySize / 2;
         const d = Math.hypot(pCX - ex, pCY - ey);
@@ -8524,6 +8667,26 @@
         roomChests.push(chest);
         createRoomChestDom(chest, roomChests.length - 1);
       }
+
+      // Sce2 隠し要素: rogue がパーティに居る場合のみ、鍵束を別の hidden chest として配置。
+      // この chest は通常 hidden chest と同じ知覚チェックで発見可能だが、rogue 不在なら
+      // そもそも spawn しない (= 隠し要素「残影の獣」が封印される)。
+      if (scenarioId === "bandits-forest" && partyComposition.includes("rogue")) {
+        // 残りの candidates (まだ chest を置いていないタイル) から 1 つ追加配置
+        const usedTiles = new Set(roomChests.map(ch => `${ch.tx},${ch.ty}`));
+        const freeTiles = candidates.filter(([c, r]) => !usedTiles.has(`${c},${r}`));
+        if (freeTiles.length > 0) {
+          const [tx, ty] = freeTiles[Math.floor(Math.random() * freeTiles.length)];
+          const keyChest = {
+            tx, ty, opened: false, found: false,
+            hidden: true,
+            loot: { kind: "key" },     // 専用 loot 種別
+            el: null,
+          };
+          roomChests.push(keyChest);
+          createRoomChestDom(keyChest, roomChests.length - 1);
+        }
+      }
     }
 
     function createRoomChestDom(chest, idx) {
@@ -8642,6 +8805,12 @@
           updateInfo(`宝箱の中身: 予備の盾 (既に上位所持) → 金貨 +${bonus}`);
           showBanner(`予備の盾を換金 金貨 +${bonus}`, 1400);
         }
+      } else if (loot.kind === "key") {
+        // Sce2 隠し要素: 盗賊の鍵束。檻を開ける鍵
+        hasKey = true;
+        updateInfo("宝箱の中身: 盗賊の鍵束 — 何かを開けられそうだ");
+        showBanner("🗝 盗賊の鍵束を手に入れた!", 1800);
+        showDMMessage("古い革の束に錆びた鉄鍵が数本。盗賊たちが何か危険なものを閉じ込めているのかもしれない…", 2800);
       } else {
         // empty
         updateInfo("宝箱の中身: 空っぽだった…");
@@ -8661,6 +8830,130 @@
     }
 
     setInterval(tryDiscoverChest, 400);
+
+    // ═════════════════════════════════════════════════════════
+    // 檻オブジェクト (Sce2 隠し要素「残影の獣」を閉じ込めている)
+    // ═════════════════════════════════════════════════════════
+    const cages = [];
+    const CAGE_INTERACT_RADIUS = 240;   // この距離以内に入ると接近判定発火
+
+    function spawnCages() {
+      const spawns = currentScenario.cageSpawns;
+      if (!spawns || spawns.length === 0) return;
+      for (const sp of spawns) {
+        const cage = {
+          tx: sp.tx, ty: sp.ty,
+          opened: false,
+          warningShown: false,    // 鍵なしで接近した時の警告は 1 戦闘あたり 1 回だけ
+          dialogActive: false,    // showChoice 表示中フラグ (重複起動防止)
+          beastIdx: -1,           // linkCagedBeasts() で紐付け
+          el: null,
+        };
+        cages.push(cage);
+        createCageDom(cage, cages.length - 1);
+      }
+    }
+
+    function createCageDom(cage, idx) {
+      const el = document.createElement("div");
+      el.className = "roomCage";
+      el.id = "roomCage" + idx;
+      document.body.appendChild(el);
+      cage.el = el;
+    }
+
+    // ENEMY_SPAWNS で startsCaged フラグを持つ敵を、最寄りの cage と紐付けて初期 inactive 化。
+    // spawn 順序: createEnemy → linkCagedBeasts (spawnEnemies の直後に呼ぶ)
+    function linkCagedBeasts() {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.def || !e.def.startsCaged) continue;
+        let bestCage = -1, bestDist = Infinity;
+        const eTX = e.x / TILE_SIZE, eTY = e.y / TILE_SIZE;
+        for (let ci = 0; ci < cages.length; ci++) {
+          if (cages[ci].beastIdx >= 0) continue;     // 既にビースト紐付け済の檻は skip
+          const d = Math.hypot(eTX - cages[ci].tx, eTY - cages[ci].ty);
+          if (d < bestDist) { bestDist = d; bestCage = ci; }
+        }
+        if (bestCage >= 0) {
+          cages[bestCage].beastIdx = ei;
+          e.inactive = true;
+          if (enemyElements[ei]) enemyElements[ei].classList.add("beast-caged");
+          // 檻位置にビーストを固定 (檻のタイル中央と敵中央を一致させる)
+          const ds = e.def.displaySize || TILE_SIZE;
+          e.x = cages[bestCage].tx * TILE_SIZE + TILE_SIZE / 2 - ds / 2;
+          e.y = cages[bestCage].ty * TILE_SIZE + TILE_SIZE / 2 - ds / 2;
+        }
+      }
+    }
+
+    // 接近時インタラクション: 400ms tick でリーダー / 仲間が檻に十分近づいたら判定。
+    // 鍵あり → showChoice で「檻を開けますか?」、鍵なし → 警告 DM ナレ (1 戦闘 1 回)。
+    async function tryInteractCage() {
+      if (!gameStarted || gameOver) return;
+      if (encounterActive || encounterRunning) return;   // 戦闘中は判定しない
+      if (hp <= 0) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+
+      for (const cage of cages) {
+        if (cage.opened) continue;
+        if (cage.dialogActive) continue;
+        const cx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
+        const cy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
+        const d = Math.hypot(pCX - cx, pCY - cy);
+        if (d > CAGE_INTERACT_RADIUS) continue;
+
+        if (!hasKey) {
+          if (!cage.warningShown) {
+            cage.warningShown = true;
+            showDMMessage(
+              "鉄檻の奥で、黒い獣の輪郭が二重に揺れている…触手が鉄格子を叩いている。" +
+              "この檻を開けるのは危険そうだ。だが、開ける鍵は持っていない。", 3800);
+          }
+          continue;
+        }
+
+        // 鍵あり: 「はい/いいえ」ダイアログを出す
+        cage.dialogActive = true;
+        const yes = await showChoice(
+          "盗賊の鍵束を取り出した。この檻を開けてみますか?\n" +
+          "(中の獣はおそらく敵味方の区別なく襲ってくる)",
+          "開ける", "やめる"
+        );
+        cage.dialogActive = false;
+        if (yes) {
+          await openCage(cage);
+          break;   // 1 tick で複数檻を扱わない
+        }
+      }
+    }
+
+    // 檻を開放してビーストを活性化する
+    async function openCage(cage) {
+      if (cage.opened) return;
+      cage.opened = true;
+      if (cage.el) cage.el.classList.add("opened");
+      showBanner("🗝 鉄格子が弾け飛んだ!", 1600);
+      showDMMessage("鉄格子が砕け散り、黒い獣が影のように飛び出した! 残影の獣は獲物を選ばない…!", 3800);
+      await sleepMs(600);
+
+      // 連動するビーストを活性化
+      if (cage.beastIdx >= 0) {
+        const beast = enemies[cage.beastIdx];
+        if (beast) {
+          beast.inactive = false;
+          const el = enemyElements[cage.beastIdx];
+          if (el) {
+            el.classList.remove("beast-caged");
+            // 出現演出: 一瞬の filter brightness
+            el.style.filter = "brightness(1.6) saturate(1.4)";
+            setTimeout(() => { el.style.filter = ""; }, 600);
+          }
+        }
+      }
+    }
+
+    setInterval(tryInteractCage, 400);
 
     // ═════════════════════════════════════════════════════════
     // ダンジョン罠 (知覚チェックで発見、未発見で踏むとダメージ)
@@ -8882,12 +9175,13 @@
         });
       }
       // 第三勢力 (faction="beast"): 他の敵 (faction != "beast") も candidates に追加。
-      // PT も盗賊も区別なく最寄りを襲う。同種ビースト同士は対象外。
+      // PT も盗賊も区別なく最寄りを襲う。同種ビースト同士は対象外。inactive な敵 (檻内) も除外。
       if (e.def.faction === "beast") {
         for (let i = 0; i < enemies.length; i++) {
           if (i === enemyIdx) continue;
           const o = enemies[i];
           if (!o.alive) continue;
+          if (o.inactive) continue;
           if (o.def.faction === "beast") continue;
           candidates.push({
             kind: "enemy", idx: i,
@@ -11264,6 +11558,9 @@
       const enemy = enemies[idx];
       const def = enemy.def;
 
+      // 檻内のビースト (inactive) は行動しない (念のための保護、通常 moveEnemies で除外済)
+      if (enemy.inactive) return;
+
       // スタン判定: 盾バッシュ等でスタン状態なら1ターン行動不能
       if (enemy.stunned && enemy.stunned > 0) {
         enemy.stunned -= 1;
@@ -11780,6 +12077,9 @@
     spawnTraps();
     // 隠された宝箱を初期化 (知覚チェックで発見)
     spawnHiddenChests();
+    // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
+    spawnCages();
+    linkCagedBeasts();
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 
