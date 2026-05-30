@@ -781,6 +781,66 @@
         letter-spacing: 6px;
         box-shadow: 0 6px 20px rgba(0,0,0,0.7);
       }
+      /* スマホ: 戦闘ログをさらに 2x 拡大 (高さ 640px + フォント 44px) */
+      #combatLog {
+        height: 640px;
+        padding: 24px 32px;
+        font-size: 44px;
+        line-height: 1.55;
+        letter-spacing: 0.5px;
+      }
+      #combatLog::before {
+        font-size: 36px;
+        letter-spacing: 8px;
+        padding-bottom: 10px;
+        margin-bottom: 12px;
+      }
+      #combatLog .logLine {
+        padding: 4px 0;
+      }
+      /* スマホ: partyPanel の下端を combatLog 上端まで引き上げて重ならないように */
+      #partyPanel {
+        bottom: 640px;
+        overflow-y: auto;
+      }
+      /* スマホ: DM イベントメッセージ (画面上部のミニバナー) をさらに 2x 拡大 */
+      #dmMessage {
+        max-width: 96vw;
+        padding: 40px 48px;
+        font-size: 52px;
+        letter-spacing: 3px;
+        line-height: 1.7;
+        border-width: 6px;
+        top: 80px;
+      }
+      /* スマホ: DM ナレーション (ゲーム開始時の語り) をさらに 2x 拡大 */
+      #dmNarration {
+        width: 96vw;
+        max-width: 96vw;
+        padding: 48px 36px 40px;
+        border-width: 8px;
+        top: 28px;
+      }
+      .dmHeader {
+        font-size: 44px;
+        letter-spacing: 6px;
+        padding-bottom: 22px;
+        margin-bottom: 30px;
+      }
+      .dmBody {
+        font-size: 56px;
+        line-height: 1.85;
+        min-height: 320px;
+        letter-spacing: 3px;
+      }
+      .dmBody .dmCursor {
+        width: 24px;
+        height: 64px;
+      }
+      .dmHint {
+        font-size: 36px;
+        padding-top: 22px;
+      }
     }
     /* タッチデバイス全般 (画面サイズ問わず): ボタンを大きく、最低 56px のタップ領域確保 */
     @media (hover: none) {
@@ -2204,6 +2264,33 @@
       0%   { opacity: 0; transform: translateX(-50%) scale(0.6); }
       40%  { opacity: 1; transform: translateX(-50%) scale(1.1); }
       100% { opacity: 1; transform: translateX(-50%) scale(1); }
+    }
+
+    /* ─── スマホ用上書き (CSS 順序の都合で末尾に再宣言) ─── */
+    /* 上の @media ブロック (line 773 周辺) で combatLog/partyPanel を拡大しているが、
+       その後に来るデスクトップ定義 (#combatLog line 1881, #partyPanel line 1763) で
+       同じ specificity のまま上書きされてしまうため、ここで再宣言する。 */
+    @media (max-width: 768px) {
+      #combatLog {
+        height: 640px;
+        padding: 24px 32px;
+        font-size: 44px;
+        line-height: 1.55;
+        letter-spacing: 0.5px;
+      }
+      #combatLog::before {
+        font-size: 36px;
+        letter-spacing: 8px;
+        padding-bottom: 10px;
+        margin-bottom: 12px;
+      }
+      #combatLog .logLine {
+        padding: 4px 0;
+      }
+      #partyPanel {
+        bottom: 640px;
+        overflow-y: auto;
+      }
     }
   </style>
 </head>
