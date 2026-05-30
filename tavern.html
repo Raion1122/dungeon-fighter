@@ -746,6 +746,55 @@
       }
       .partyTab .tabCount { font-size: 14px; margin-top: 4px; }
     }
+
+    /* Phase 2-G DEBUG: 残影回避モードのトグルボタン (出発準備画面) */
+    .debugEvadeBtn {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      padding: 8px 14px;
+      border: 2px solid #6a5a44;
+      border-radius: 4px;
+      background: rgba(40, 30, 20, 0.7);
+      color: #d8c8a0;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .debugEvadeBtn:hover {
+      background: rgba(60, 45, 30, 0.85);
+      border-color: #c8a046;
+    }
+    .debugEvadeBtn.on {
+      background: rgba(120, 30, 60, 0.85);
+      border-color: rgba(220, 60, 80, 0.95);
+      color: #ffe6dd;
+      box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
+    }
+
+    /* Phase 2-H: 道具袋セクション */
+    .bagSection {
+      margin-top: 6px;
+      padding: 6px 8px 4px 8px;
+      border-top: 1px dashed rgba(200, 160, 70, 0.4);
+    }
+    .bagLabel {
+      font-size: 11px;
+      color: rgba(200, 160, 70, 0.85);
+      letter-spacing: 1px;
+      margin-bottom: 3px;
+    }
+    .bagList {
+      max-height: 90px;
+      overflow-y: auto;
+    }
+    .equipItem.bagItem {
+      background: rgba(80, 50, 20, 0.4);
+      border-left: 3px solid rgba(200, 160, 70, 0.8);
+      transition: background 0.12s ease;
+    }
+    .equipItem.bagItem:hover {
+      background: rgba(120, 80, 30, 0.55);
+    }
   </style>
 </head>
 <body>
@@ -815,14 +864,27 @@
           <div class="equipGroup">
             <div class="equipLabel">武器</div>
             <div class="equipList" id="equipWeaponList"></div>
+            <!-- Phase 2-H: 道具袋から (このキャラ向けの保管装備) -->
+            <div class="bagSection" id="bagWeaponSection" style="display:none;">
+              <div class="bagLabel">🎒 道具袋</div>
+              <div class="equipList bagList" id="bagWeaponList"></div>
+            </div>
           </div>
           <div class="equipGroup">
             <div class="equipLabel">盾</div>
             <div class="equipList" id="equipShieldList"></div>
+            <div class="bagSection" id="bagShieldSection" style="display:none;">
+              <div class="bagLabel">🎒 道具袋</div>
+              <div class="equipList bagList" id="bagShieldList"></div>
+            </div>
           </div>
           <div class="equipGroup">
             <div class="equipLabel">防具</div>
             <div class="equipList" id="equipArmorList"></div>
+            <div class="bagSection" id="bagArmorSection" style="display:none;">
+              <div class="bagLabel">🎒 道具袋</div>
+              <div class="equipList bagList" id="bagArmorList"></div>
+            </div>
           </div>
 
           <div class="equipGroup" id="skillSection">
@@ -837,6 +899,11 @@
         <div class="prepPanel">
           <div class="ph">敵情報</div>
           <div class="stub" id="prepEnemyInfo"></div>
+        </div>
+        <!-- Phase 2-G DEBUG: 残影回避の確認用トグル (出発時に URL ?evade=all を付与) -->
+        <div id="debugEvadeRow" style="display:flex;gap:8px;justify-content:center;margin:6px 0 10px;flex-wrap:wrap;">
+          <button type="button" id="btnDebugEvadeAll"   class="btn debugEvadeBtn">🛡 必ず回避 (全攻撃) OFF</button>
+          <button type="button" id="btnDebugEvadeArrow" class="btn debugEvadeBtn">🏹 必ず回避 (矢のみ) OFF</button>
         </div>
         <div class="choices">
           <button class="btn decline" id="btnBack">酒場に戻る</button>
@@ -1152,6 +1219,10 @@
     { id: "fire-bolt",      name: "ファイアボルト", category: "攻撃", range: "long", mpCost: 4, flavor: "火球 2d6+INT (命中判定)" },
     { id: "sleep",          name: "スリープ",       category: "妨害", range: "long", mpCost: 6, flavor: "命中で敵を 2T 眠らせる" },
     { id: "arcane-shield",  name: "アーケイン・シールド", category: "防御", range: "self", mpCost: 3, flavor: "自分に AC +4 (3T)" },
+    // Phase 2-I: 新規 3 呪文 (派手 fx + 動的光源、PT 巻き込みなし)
+    { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "long",   mpCost: 7, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "long",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
   ];
   // ドワーフスキル (index.html DWARF_SKILLS と同期)
   const DWARF_SKILLS_UI = [
@@ -1725,6 +1796,75 @@
     }
   }
 
+  // ── Phase 2-H: 道具袋 (inventoryBag) ロード/セーブ + 描画 ──
+  function loadInventoryBag() {
+    const empty = {};
+    for (const k of ["warrior","dwarf","cleric","mage","elf","rogue"]) {
+      empty[k] = { weapons: [], armors: [], shields: [] };
+    }
+    try {
+      const raw = localStorage.getItem("dragonfighters.inventoryBag");
+      if (!raw) return empty;
+      const parsed = JSON.parse(raw) || {};
+      for (const k of Object.keys(empty)) {
+        if (parsed[k]) {
+          empty[k].weapons = Array.isArray(parsed[k].weapons) ? parsed[k].weapons.slice() : [];
+          empty[k].armors  = Array.isArray(parsed[k].armors)  ? parsed[k].armors.slice()  : [];
+          empty[k].shields = Array.isArray(parsed[k].shields) ? parsed[k].shields.slice() : [];
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return empty;
+  }
+  function saveInventoryBag(bag) {
+    try {
+      localStorage.setItem("dragonfighters.inventoryBag", JSON.stringify(bag));
+    } catch (e) { /* ignore */ }
+  }
+  let tavernInventoryBag = loadInventoryBag();
+
+  // 道具袋の中身を表示。クリックで「装備に切り替え + 道具袋から取り除く」
+  function renderBagSlot(listEl, sectionEl, classKey, kind, pool) {
+    if (!listEl || !sectionEl) return;
+    const slot = (tavernInventoryBag[classKey] || {})[kind] || [];
+    if (slot.length === 0) {
+      sectionEl.style.display = "none";
+      return;
+    }
+    sectionEl.style.display = "";
+    listEl.innerHTML = "";
+    for (const idx of slot) {
+      const item = pool[idx];
+      if (!item) continue;
+      const itemEl = document.createElement("div");
+      itemEl.className = "equipItem bagItem";
+      itemEl.innerHTML = `<span class="eName">🎒 ${item.name}</span>`;
+      itemEl.style.cursor = "pointer";
+      itemEl.addEventListener("click", () => {
+        // 道具袋から取り出して装備セットに移す + tavern の最強所持上限を更新
+        const map = (kind === "weapons") ? "weaponIdx"
+                  : (kind === "armors")  ? "armorIdx"
+                  : "shieldIdx";
+        // 戦士の場合は inventory (最強所持) も更新 (上限が ally で見られる)
+        if (classKey === "warrior" && idx > inventory[map]) {
+          inventory[map] = idx;
+        }
+        // 装備セットに反映
+        const kindShort = (kind === "weapons") ? "weapon"
+                       : (kind === "armors")  ? "armor"
+                       : "shield";
+        setEquipSelection(classKey, kindShort, idx);
+        // 道具袋から削除 + 保存
+        const i = tavernInventoryBag[classKey][kind].indexOf(idx);
+        if (i >= 0) tavernInventoryBag[classKey][kind].splice(i, 1);
+        saveInventoryBag(tavernInventoryBag);
+        renderCharLoadout();
+      });
+      listEl.appendChild(itemEl);
+    }
+  }
+
+
   // ── スキル/魔法 共通レンダ (mpCost で自動分類) ──
   function renderSkillItem(sk, equippedSet, full, classKey) {
     const selected = equippedSet.has(sk.id);
@@ -1792,10 +1932,25 @@
       renderEquipSlot(weaponListEl, pool.weapons, inventory.weaponIdx, sel.weapon, "weapon");
       renderEquipSlot(armorListEl,  pool.armors,  inventory.armorIdx,  sel.armor,  "armor");
       renderEquipSlot(shieldListEl, pool.shields, inventory.shieldIdx, sel.shield, "shield");
+      // Phase 2-H: 道具袋セクション (このキャラ向けの保管装備)
+      renderBagSlot(document.getElementById("bagWeaponList"),
+                    document.getElementById("bagWeaponSection"),
+                    activeCharTab, "weapons", pool.weapons);
+      renderBagSlot(document.getElementById("bagArmorList"),
+                    document.getElementById("bagArmorSection"),
+                    activeCharTab, "armors",  pool.armors);
+      renderBagSlot(document.getElementById("bagShieldList"),
+                    document.getElementById("bagShieldSection"),
+                    activeCharTab, "shields", pool.shields);
     } else {
       weaponSection.style.display = "none";
       armorSection.style.display  = "none";
       if (shieldSection) shieldSection.style.display = "none";
+      // Phase 2-H: 道具袋セクションも非表示
+      ["bagWeaponSection","bagArmorSection","bagShieldSection"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";
+      });
     }
 
     // ── スキル/魔法 セクション ──
@@ -1842,6 +1997,38 @@
     prepEl.style.display = "none";
     prepScenario = null;
   });
+  // Phase 2-G DEBUG: 残影回避モードのトグル状態 (出発時に URL ?evade=... を付与)
+  let __debugEvadeMode = "off";   // "off" | "all" | "arrow"
+  (function setupDebugEvadeBtns() {
+    const btnAll = document.getElementById("btnDebugEvadeAll");
+    const btnArrow = document.getElementById("btnDebugEvadeArrow");
+    function refresh() {
+      if (btnAll) {
+        const on = __debugEvadeMode === "all";
+        btnAll.classList.toggle("on", on);
+        btnAll.textContent = on ? "🛡 必ず回避 (全攻撃) ON" : "🛡 必ず回避 (全攻撃) OFF";
+      }
+      if (btnArrow) {
+        const on = __debugEvadeMode === "arrow";
+        btnArrow.classList.toggle("on", on);
+        btnArrow.textContent = on ? "🏹 必ず回避 (矢のみ) ON" : "🏹 必ず回避 (矢のみ) OFF";
+      }
+    }
+    if (btnAll) {
+      btnAll.addEventListener("click", () => {
+        __debugEvadeMode = (__debugEvadeMode === "all") ? "off" : "all";
+        refresh();
+      });
+    }
+    if (btnArrow) {
+      btnArrow.addEventListener("click", () => {
+        __debugEvadeMode = (__debugEvadeMode === "arrow") ? "off" : "arrow";
+        refresh();
+      });
+    }
+    refresh();
+  })();
+
   document.getElementById("btnDepart").addEventListener("click", () => {
     if (!prepScenario) return;
     // 選んだ構成を永続化 + sessionStorage 経由で index.html へ
@@ -1849,7 +2036,12 @@
     sessionStorage.setItem("dragonfighters.currentScenario", prepScenario.id);
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
     // フォールバックは index.html (本編)。battle.html は単体検証用なので明示指定された時のみ
-    const target = prepScenario.target || "index.html";
+    let target = prepScenario.target || "index.html";
+    // Phase 2-G DEBUG: デバッグ回避モードが ON なら URL パラメータを付与
+    if (__debugEvadeMode === "all" || __debugEvadeMode === "arrow") {
+      const sep = target.includes("?") ? "&" : "?";
+      target += sep + "evade=" + __debugEvadeMode;
+    }
     window.location.href = target;
   });
 

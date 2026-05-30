@@ -69,6 +69,30 @@
       border-left: none; border-top: none;
     }
 
+    /* Phase 2-G DEBUG: 残影回避モードのトグルボタン */
+    .debugBtn {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      padding: 8px 14px;
+      border: 2px solid #6a5a44;
+      border-radius: 4px;
+      background: rgba(40, 30, 20, 0.7);
+      color: #d8c8a0;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .debugBtn:hover {
+      background: rgba(60, 45, 30, 0.85);
+      border-color: #c8a046;
+    }
+    .debugBtn.on {
+      background: rgba(120, 30, 60, 0.85);
+      border-color: rgba(220, 60, 80, 0.95);
+      color: #ffe6dd;
+      box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
+    }
+
     #startTitle {
       font-family: 'MedievalSharp', serif;
       color: var(--parchment-gold);
@@ -1335,6 +1359,238 @@
       filter: brightness(0.72) saturate(0.85);
       z-index: 2;
     }
+    /* Phase 2-F: 檻解放直後の咆哮硬直演出 (1500ms 振動 + 紫赤グロウ) */
+    .roomCage.roaring {
+      animation: cageRoar 250ms ease-in-out infinite;
+      filter: drop-shadow(0 0 14px rgba(220, 60, 70, 0.85))
+              drop-shadow(0 0 28px rgba(140, 40, 180, 0.7))
+              brightness(1.18);
+      z-index: 4;
+    }
+    @keyframes cageRoar {
+      0%   { transform: translate(-2px,  1px) scale(1.02); }
+      25%  { transform: translate( 3px, -1px) scale(1.04); }
+      50%  { transform: translate(-1px,  2px) scale(1.02); }
+      75%  { transform: translate( 2px, -2px) scale(1.05); }
+      100% { transform: translate(-2px,  1px) scale(1.02); }
+    }
+    /* 咆哮中のビースト本体 (檻越しでも見える / 残影パルス) */
+    .enemy.beast-roaring {
+      opacity: 1 !important;
+      filter: brightness(1.4) saturate(1.4)
+              drop-shadow(0 0 12px rgba(220, 40, 60, 0.9))
+              drop-shadow(0 0 24px rgba(120, 20, 180, 0.7)) !important;
+      animation: beastRoarPulse 300ms ease-in-out infinite;
+      z-index: 5 !important;
+    }
+    @keyframes beastRoarPulse {
+      0%, 100% { transform: scale(1.00); }
+      50%      { transform: scale(1.06); }
+    }
+    /* Phase 2-A: 残影回避時の残像エフェクト */
+    .displaceAfterimage {
+      position: absolute;
+      pointer-events: none;
+      z-index: 4;
+      image-rendering: pixelated;
+      background-repeat: no-repeat;
+      animation: displaceFade 520ms ease-out forwards;
+    }
+    @keyframes displaceFade {
+      0%   { opacity: 0.85; transform: translate(0, 0)        scale(1.00); filter: hue-rotate(280deg) brightness(0.7); }
+      50%  { opacity: 0.50; transform: translate(-22px, -4px) scale(1.04); filter: hue-rotate(300deg) brightness(0.5); }
+      100% { opacity: 0.00; transform: translate(-44px,  2px) scale(1.10); filter: hue-rotate(320deg) brightness(0.3); }
+    }
+
+    /* ─── Phase 2-I: 魔法使い 新規呪文の派手 fx ─── */
+
+    /* 詠唱オーブ (魔法使いの手元に膨張する小球) */
+    .fxCastOrb {
+      position: absolute;
+      pointer-events: none;
+      z-index: 6;
+      border-radius: 50%;
+      animation: castOrbGrow 700ms ease-out forwards;
+    }
+    @keyframes castOrbGrow {
+      0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+      30%  { transform: translate(-50%, -50%) scale(1.0); opacity: 0.9; }
+      80%  { transform: translate(-50%, -50%) scale(1.4); opacity: 0.85; }
+      100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+    }
+
+    /* 飛翔火球 (Fireball projectile) */
+    .fxFireballProjectile {
+      position: absolute;
+      pointer-events: none;
+      z-index: 7;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle at 40% 40%,
+        rgba(255, 255, 230, 1) 0%,
+        rgba(255, 200, 80, 0.95) 30%,
+        rgba(255, 100, 30, 0.85) 60%,
+        rgba(180, 30, 0, 0.0) 100%);
+      box-shadow: 0 0 32px rgba(255, 140, 40, 0.9),
+                  0 0 64px rgba(255, 80, 0, 0.7);
+      animation: fireballPulse 220ms ease-in-out infinite;
+    }
+    @keyframes fireballPulse {
+      0%, 100% { filter: brightness(1.0) hue-rotate(0deg); }
+      50%      { filter: brightness(1.25) hue-rotate(-10deg); }
+    }
+
+    /* 飛翔の火粉 (Trail particles) */
+    .fxFireSpark {
+      position: absolute;
+      pointer-events: none;
+      z-index: 6;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,220,150,1) 0%, rgba(255,120,30,0.7) 60%, transparent 100%);
+      animation: fireSparkFade 440ms ease-out forwards;
+    }
+    @keyframes fireSparkFade {
+      0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+    }
+
+    /* 着弾爆発リング (3 連) */
+    .fxFireballRing {
+      position: absolute;
+      pointer-events: none;
+      z-index: 8;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      animation: fireballRingExpand 700ms ease-out forwards;
+    }
+    .fxFireballRing.r1 { border: 6px solid rgba(255, 240, 200, 0.95); box-shadow: 0 0 40px rgba(255, 200, 120, 0.9); }
+    .fxFireballRing.r2 { border: 5px solid rgba(255, 180,  60, 0.85); box-shadow: 0 0 30px rgba(255, 140,  40, 0.85); animation-delay: 100ms; }
+    .fxFireballRing.r3 { border: 4px solid rgba(220,  70,  20, 0.75); box-shadow: 0 0 26px rgba(200,  50,   0, 0.7);  animation-delay: 200ms; }
+    @keyframes fireballRingExpand {
+      0%   { width: 12px;  height: 12px;  opacity: 0; }
+      10%  { opacity: 1; }
+      100% { width: 240px; height: 240px; opacity: 0; }
+    }
+
+    /* 火柱 (着弾後の縦エフェクト) */
+    .fxFirePillar {
+      position: absolute;
+      pointer-events: none;
+      z-index: 7;
+      width: 60px;
+      height: 130px;
+      transform: translate(-50%, -90%);
+      background: radial-gradient(ellipse at 50% 100%,
+        rgba(255, 255, 230, 1) 0%,
+        rgba(255, 180, 60, 0.85) 40%,
+        rgba(255, 80, 20, 0.5) 70%,
+        rgba(180, 30, 0, 0) 100%);
+      filter: blur(2px);
+      animation: firePillarRise 800ms ease-out forwards;
+    }
+    @keyframes firePillarRise {
+      0%   { opacity: 0; height: 30px; }
+      30%  { opacity: 1; height: 140px; }
+      100% { opacity: 0; height: 180px; transform: translate(-50%, -110%); }
+    }
+
+    /* 衝撃波 (画面全体の薄いフラッシュ) */
+    .fxScreenFlash {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 99;
+      background: rgba(255, 200, 120, 0.0);
+      animation: screenFlashFade 320ms ease-out forwards;
+    }
+    @keyframes screenFlashFade {
+      0%   { background: rgba(255, 200, 120, 0.45); }
+      100% { background: rgba(255, 200, 120, 0.0); }
+    }
+    .fxScreenFlash.lightning { animation-name: screenFlashLightning; }
+    @keyframes screenFlashLightning {
+      0%, 60%, 100% { background: rgba(180, 220, 255, 0.0); }
+      10%           { background: rgba(180, 220, 255, 0.55); }
+      40%           { background: rgba(180, 220, 255, 0.30); }
+    }
+    .fxScreenFlash.cold { animation-name: screenFlashCold; }
+    @keyframes screenFlashCold {
+      0%   { background: rgba(180, 230, 255, 0.35); }
+      100% { background: rgba(180, 230, 255, 0.0); }
+    }
+
+    /* 焼夷地面 (Fireball 着弾後の残り火) — ground fx kind="fireball-scorch" */
+    .groundFx.fireball-scorch {
+      background: radial-gradient(circle, rgba(255, 120, 40, 0.5) 0%, rgba(160, 40, 0, 0.3) 50%, rgba(60, 20, 0, 0) 100%);
+      box-shadow: inset 0 0 30px rgba(255, 100, 30, 0.6);
+      animation: scorchPulse 600ms ease-in-out infinite;
+      border-radius: 6px;
+    }
+    @keyframes scorchPulse {
+      0%, 100% { filter: brightness(1.0); }
+      50%      { filter: brightness(1.2); }
+    }
+
+    /* 凍結地面 (Cold 着弾後) — ground fx kind="cold-frost" */
+    .groundFx.cold-frost {
+      background: radial-gradient(circle, rgba(200, 240, 255, 0.55) 0%, rgba(120, 180, 230, 0.4) 50%, rgba(40, 80, 140, 0) 100%);
+      box-shadow: inset 0 0 24px rgba(180, 220, 255, 0.7);
+      border-radius: 6px;
+    }
+
+    /* SVG 稲妻ライン (Lightning Bolt) */
+    .fxLightningSvg {
+      position: absolute;
+      pointer-events: none;
+      z-index: 8;
+      animation: lightningFlicker 220ms ease-out forwards;
+    }
+    @keyframes lightningFlicker {
+      0%   { opacity: 0; filter: brightness(1.5) drop-shadow(0 0 8px rgba(180,220,255,1)); }
+      10%  { opacity: 1; }
+      40%  { opacity: 0.85; }
+      100% { opacity: 0; filter: brightness(1.0) drop-shadow(0 0 12px rgba(180,220,255,0.4)); }
+    }
+
+    /* 雷の火花 (着弾点パーティクル) */
+    .fxLightningSpark {
+      position: absolute;
+      pointer-events: none;
+      z-index: 8;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(180,220,255,0.85) 50%, transparent 100%);
+      box-shadow: 0 0 12px rgba(180,220,255,1);
+      animation: lightningSparkFade 480ms ease-out forwards;
+    }
+    @keyframes lightningSparkFade {
+      0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(0.2) translate(var(--dx), var(--dy)); opacity: 0; }
+    }
+
+    /* 冷気結晶 (Cone of Cold) */
+    .fxColdCrystal {
+      position: absolute;
+      pointer-events: none;
+      z-index: 7;
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%) rotate(45deg);
+      background: linear-gradient(135deg,
+        rgba(220, 240, 255, 0.9) 0%,
+        rgba(160, 210, 255, 0.7) 50%,
+        rgba(80, 130, 200, 0.5) 100%);
+      box-shadow: 0 0 16px rgba(180, 220, 255, 0.9);
+      animation: coldCrystalDrift 600ms ease-out forwards;
+    }
+    @keyframes coldCrystalDrift {
+      0%   { transform: translate(-50%, -50%) rotate(45deg) scale(0.3); opacity: 0; }
+      30%  { transform: translate(-50%, -50%) rotate(60deg) scale(1.0); opacity: 1; }
+      100% { transform: translate(-50%, -50%) rotate(120deg) scale(0.6); opacity: 0; }
+    }
 
     /* 選択ダイアログ (showChoice 用、檻開放の はい/いいえ 等で使用) */
     #choiceDialog {
@@ -1970,6 +2226,15 @@
       <div id="startTitle">廃坑のゴブリンの巣窟</div>
       <div id="startFlavor" style="font-size:14px;opacity:0.8;margin-bottom:12px;letter-spacing:1px;"></div>
       <div id="startText">クリックで開始<br>英雄は自動で探索・戦闘します<br><span style="font-size:14px;opacity:0.75;">[ I ] キーでインベントリ確認</span></div>
+      <!-- Phase 2-G DEBUG: 残影回避モードのトグル (装備中のみ反映) -->
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button id="debugEvadeAllBtn" type="button" class="debugBtn">
+          🛡 必ず回避 (全攻撃) OFF
+        </button>
+        <button id="debugEvadeArrowBtn" type="button" class="debugBtn">
+          🏹 必ず回避 (矢のみ) OFF
+        </button>
+      </div>
     </div>
   </div>
 
@@ -2718,7 +2983,49 @@
         drawLight(sx, sy, 80 * f, 200 * f, 0.95, 0.6, "255,180,90");
       }
 
+      // Phase 2-I: 呪文の動的光源 (飛翔中の弾道 + 着弾フラッシュ)
+      // spellLightSources は配列 [{worldX, worldY, inner, outer, strongAlpha, midAlpha, rgb, expireAt}, ...]
+      const nowMs = Date.now();
+      for (let i = spellLightSources.length - 1; i >= 0; i--) {
+        const ls = spellLightSources[i];
+        if (ls.expireAt && nowMs > ls.expireAt) {
+          spellLightSources.splice(i, 1);
+          continue;
+        }
+        const sx = ls.worldX - camX;
+        const sy = ls.worldY - camY;
+        if (sx < -ls.outer || sx > W + ls.outer || sy < -ls.outer || sy > H + ls.outer) continue;
+        // フェード: expireAt が指定されていれば残り時間で alpha 減衰
+        let alpha = ls.strongAlpha || 1;
+        let midA  = ls.midAlpha || 0.55;
+        if (ls.fadeMs && ls.expireAt) {
+          const remain = Math.max(0, ls.expireAt - nowMs);
+          const ratio = Math.min(1, remain / ls.fadeMs);
+          alpha *= ratio;
+          midA  *= ratio;
+        }
+        drawLight(sx, sy, ls.inner, ls.outer, alpha, midA, ls.rgb || "255,200,120");
+      }
+
       lctx.globalCompositeOperation = "source-over";
+    }
+
+    // ── Phase 2-I: 呪文 fx の動的光源リスト ──
+    // 弾道や着弾の動く/光る効果を renderLighting で描画する。
+    // フィールド: worldX, worldY, inner, outer, strongAlpha, midAlpha, rgb, expireAt, fadeMs
+    const spellLightSources = [];
+    function addSpellLight(opts) {
+      const src = {
+        worldX: opts.worldX, worldY: opts.worldY,
+        inner: opts.inner || 60, outer: opts.outer || 220,
+        strongAlpha: opts.strongAlpha != null ? opts.strongAlpha : 1,
+        midAlpha:    opts.midAlpha    != null ? opts.midAlpha    : 0.65,
+        rgb: opts.rgb || "255,200,120",
+        expireAt: opts.duration ? Date.now() + opts.duration : 0,
+        fadeMs: opts.fadeMs || 0,
+      };
+      spellLightSources.push(src);
+      return src;
     }
 
     function renderMap() {
@@ -3226,6 +3533,10 @@
         startsCaged: true,
         // 撃破時の特殊報酬。Phase 1 は暫定で gainGold で代用、Phase 2 で残影の首飾り化。
         pelt: true,
+        // Phase 2-A: 残影回避 — 攻撃が命中判定で通っても 25% で「位相ずれ」発動 (ダメージ 0)。
+        // 被弾後 2 秒間は無効 (集中砲火で確実に削れるバランス)。
+        displacementChance: 0.25,
+        displacementCooldownMs: 2000,
         xp: 800,
       },
       // ── シナリオ3: 沼地リザードマン ──
@@ -3479,6 +3790,14 @@
       const curveSign = (Math.random() < 0.5) ? 1 : -1;
       const curveAmp  = 26 + Math.random() * 36;  // 26〜62px
       const startTime = performance.now();
+      // Phase 2-I: 飛翔中の動的光源 (青紫の魔力光が暗闇を照らす)
+      const light = (typeof addSpellLight === "function") ? addSpellLight({
+        worldX: fromX, worldY: fromY,
+        inner: 60, outer: 200,
+        strongAlpha: 0.95, midAlpha: 0.6,
+        rgb: "200,180,255",
+        duration: durationMs + 320, fadeMs: 0,
+      }) : null;
       return new Promise(resolve => {
         function step(now) {
           const t = Math.min((now - startTime) / durationMs, 1);
@@ -3491,6 +3810,7 @@
           const cy = fromY + dy * t + py * offset;
           el.style.left = (cx - camX) + "px";
           el.style.top  = (cy - camY) + "px";
+          if (light) { light.worldX = cx; light.worldY = cy; }
           if (t < 1) requestAnimationFrame(step);
           else {
             el.classList.add("burst");
@@ -3621,6 +3941,319 @@
         sizeTilesX, sizeTilesY,
         expireAt: Date.now() + durationMs,
       });
+    }
+
+    // ─── Phase 2-I: 呪文 fx ヘルパー群 ───
+
+    // 詠唱オーブ (ally の手元に膨張する小球)
+    function spawnCastOrb(ally, color, durationMs = 700) {
+      if (!ally || !ally.el) return;
+      const orb = document.createElement("div");
+      orb.className = "fxCastOrb";
+      const size = 56;
+      orb.style.width = size + "px";
+      orb.style.height = size + "px";
+      orb.style.background = `radial-gradient(circle, ${color} 0%, transparent 70%)`;
+      orb.style.boxShadow = `0 0 24px ${color}`;
+      const cx = ally.x + (ally.def.displaySize || 96) / 2;
+      const cy = ally.y + (ally.def.displaySize || 96) / 2 - 10;
+      orb.style.left = (cx - camX) + "px";
+      orb.style.top  = (cy - camY) + "px";
+      document.body.appendChild(orb);
+      // 動的光源も追加 (詠唱中の手元が明るくなる)
+      const light = addSpellLight({
+        worldX: cx, worldY: cy,
+        inner: 50, outer: 180,
+        strongAlpha: 0.95, midAlpha: 0.55,
+        rgb: color === "rgba(180,220,255,1)" ? "180,220,255" :
+             color === "rgba(255,200,90,1)"  ? "255,200,120" : "200,230,255",
+        duration: durationMs, fadeMs: durationMs,
+      });
+      setTimeout(() => {
+        try { orb.remove(); } catch {}
+      }, durationMs);
+      return light;
+    }
+
+    // 飛翔火球: from → to を duration で移動、軌跡に光源と火粉
+    function spawnFireballProjectile(fromWX, fromWY, toWX, toWY, durationMs = 380) {
+      return new Promise((resolve) => {
+        const ball = document.createElement("div");
+        ball.className = "fxFireballProjectile";
+        document.body.appendChild(ball);
+        // 動的光源 (飛翔と一緒に移動)
+        const light = addSpellLight({
+          worldX: fromWX, worldY: fromWY,
+          inner: 80, outer: 260,
+          strongAlpha: 1.0, midAlpha: 0.7,
+          rgb: "255,180,80",
+          duration: durationMs + 50, fadeMs: 0,
+        });
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / durationMs);
+          const wx = fromWX + (toWX - fromWX) * t;
+          const wy = fromWY + (toWY - fromWY) * t;
+          ball.style.left = (wx - camX) + "px";
+          ball.style.top  = (wy - camY) + "px";
+          light.worldX = wx; light.worldY = wy;
+          // 火粉軌跡 (5 フレームに 1 回)
+          if (Math.random() < 0.5) {
+            const spark = document.createElement("div");
+            spark.className = "fxFireSpark";
+            spark.style.left = (wx - camX + (Math.random() - 0.5) * 12) + "px";
+            spark.style.top  = (wy - camY + (Math.random() - 0.5) * 12) + "px";
+            document.body.appendChild(spark);
+            setTimeout(() => { try { spark.remove(); } catch {} }, 450);
+          }
+          if (t < 1) requestAnimationFrame(step);
+          else {
+            try { ball.remove(); } catch {}
+            resolve();
+          }
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    // 着弾の 3 連リング展開 + 火柱 + 衝撃光 (Fireball)
+    function spawnFireballExplosion(centerWX, centerWY) {
+      // 動的光源 (大きく明るく、800ms フェード)
+      addSpellLight({
+        worldX: centerWX, worldY: centerWY,
+        inner: 180, outer: 460,
+        strongAlpha: 1.0, midAlpha: 0.8,
+        rgb: "255,200,100",
+        duration: 800, fadeMs: 800,
+      });
+      // 3 連リング
+      for (let i = 1; i <= 3; i++) {
+        const ring = document.createElement("div");
+        ring.className = "fxFireballRing r" + i;
+        ring.style.left = (centerWX - camX) + "px";
+        ring.style.top  = (centerWY - camY) + "px";
+        document.body.appendChild(ring);
+        setTimeout(() => { try { ring.remove(); } catch {} }, 900);
+      }
+      // 火柱
+      const pillar = document.createElement("div");
+      pillar.className = "fxFirePillar";
+      pillar.style.left = (centerWX - camX) + "px";
+      pillar.style.top  = (centerWY - camY) + "px";
+      document.body.appendChild(pillar);
+      setTimeout(() => { try { pillar.remove(); } catch {} }, 850);
+      // 画面フラッシュ
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch {} }, 350);
+    }
+
+    // 稲妻 SVG ライン (jagged path) — Phase 2-I 派手版: メイン稲妻 5 本 + 分岐 6 本 + 余韻線
+    function spawnLightningBolt(fromWX, fromWY, toWX, toWY) {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.classList.add("fxLightningSvg");
+      const minX = Math.min(fromWX, toWX) - 90;
+      const minY = Math.min(fromWY, toWY) - 90;
+      const w = Math.abs(toWX - fromWX) + 180;
+      const h = Math.abs(toWY - fromWY) + 180;
+      svg.setAttribute("width", w);
+      svg.setAttribute("height", h);
+      svg.style.left = (minX - camX) + "px";
+      svg.style.top  = (minY - camY) + "px";
+
+      // jagged path 生成 (ジグザグ振幅と位置オフセットを変えて 5 本生成)
+      // jitter: 振幅、curveOff: メインラインからの全体オフセット
+      function genPathD(jitter, curveOff) {
+        const segs = 8;
+        const dx = (toWX - fromWX) / segs;
+        const dy = (toWY - fromWY) / segs;
+        // 進行方向に直交するベクトル
+        const len = Math.hypot(toWX - fromWX, toWY - fromWY) || 1;
+        const nx = -(toWY - fromWY) / len;
+        const ny =  (toWX - fromWX) / len;
+        let d = `M ${fromWX - minX + nx * curveOff} ${fromWY - minY + ny * curveOff}`;
+        for (let i = 1; i <= segs; i++) {
+          const jx = (Math.random() - 0.5) * jitter;
+          const jy = (Math.random() - 0.5) * jitter;
+          const x = fromWX + dx * i + jx + nx * curveOff - minX;
+          const y = fromWY + dy * i + jy + ny * curveOff - minY;
+          d += ` L ${x} ${y}`;
+        }
+        return d;
+      }
+
+      // メイン稲妻 5 本 (中心 + 左右にずらした副ライン、それぞれに細い白芯を重ねる)
+      const mainConfigs = [
+        { jitter: 36, off: 0,   widths: [10, 5, 2], alphas: [0.45, 0.75, 1.0] },
+        { jitter: 28, off: -18, widths: [7,  3, 1.5], alphas: [0.35, 0.6, 0.85] },
+        { jitter: 28, off: 18,  widths: [7,  3, 1.5], alphas: [0.35, 0.6, 0.85] },
+        { jitter: 22, off: -36, widths: [5,  2, 1],   alphas: [0.25, 0.45, 0.7] },
+        { jitter: 22, off: 36,  widths: [5,  2, 1],   alphas: [0.25, 0.45, 0.7] },
+      ];
+      for (const cfg of mainConfigs) {
+        const d = genPathD(cfg.jitter, cfg.off);
+        for (let i = 0; i < cfg.widths.length; i++) {
+          const path = document.createElementNS(svgNS, "path");
+          path.setAttribute("d", d);
+          // 重ね順: 太外側 → 細白芯。色も外側ほど青、芯は白
+          const rgb = i === cfg.widths.length - 1
+            ? `rgba(255,255,255,${cfg.alphas[i]})`     // 白芯
+            : i === 0
+            ? `rgba(140,200,255,${cfg.alphas[i]})`     // 外側青
+            : `rgba(200,225,255,${cfg.alphas[i]})`;    // 中間青白
+          path.setAttribute("stroke", rgb);
+          path.setAttribute("stroke-width", cfg.widths[i]);
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          svg.appendChild(path);
+        }
+      }
+
+      // 分岐稲妻 (メインラインの中間点から枝分かれする短い稲妻 6 本)
+      const segs = 8;
+      const dxMain = (toWX - fromWX) / segs;
+      const dyMain = (toWY - fromWY) / segs;
+      for (let b = 0; b < 6; b++) {
+        const startSeg = 2 + Math.floor(Math.random() * 5);   // 中間付近から
+        const branchFromX = fromWX + dxMain * startSeg;
+        const branchFromY = fromWY + dyMain * startSeg;
+        // 分岐先: 進行方向に直交する側面へランダムに伸ばす
+        const dirAng = Math.atan2(toWY - fromWY, toWX - fromWX);
+        const perp = dirAng + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2)
+                            + (Math.random() - 0.5) * 0.9;
+        const blen = 50 + Math.random() * 80;
+        const branchToX = branchFromX + Math.cos(perp) * blen;
+        const branchToY = branchFromY + Math.sin(perp) * blen;
+        // 分岐の jagged path
+        const subSegs = 4;
+        const sdx = (branchToX - branchFromX) / subSegs;
+        const sdy = (branchToY - branchFromY) / subSegs;
+        let bd = `M ${branchFromX - minX} ${branchFromY - minY}`;
+        for (let i = 1; i <= subSegs; i++) {
+          const jx = (Math.random() - 0.5) * 18;
+          const jy = (Math.random() - 0.5) * 18;
+          const x = branchFromX + sdx * i + jx - minX;
+          const y = branchFromY + sdy * i + jy - minY;
+          bd += ` L ${x} ${y}`;
+        }
+        // 分岐も 2 本重ね (外青 + 白芯)
+        const outer = document.createElementNS(svgNS, "path");
+        outer.setAttribute("d", bd);
+        outer.setAttribute("stroke", "rgba(160,210,255,0.5)");
+        outer.setAttribute("stroke-width", 4);
+        outer.setAttribute("fill", "none");
+        outer.setAttribute("stroke-linecap", "round");
+        outer.setAttribute("stroke-linejoin", "round");
+        svg.appendChild(outer);
+        const core = document.createElementNS(svgNS, "path");
+        core.setAttribute("d", bd);
+        core.setAttribute("stroke", "rgba(255,255,255,0.95)");
+        core.setAttribute("stroke-width", 1.5);
+        core.setAttribute("fill", "none");
+        core.setAttribute("stroke-linecap", "round");
+        core.setAttribute("stroke-linejoin", "round");
+        svg.appendChild(core);
+      }
+
+      document.body.appendChild(svg);
+
+      // 動的光源 (始点 / 中央 / 終点の 3 つ、全体に強烈なフラッシュ)
+      const midX = (fromWX + toWX) / 2;
+      const midY = (fromWY + toWY) / 2;
+      addSpellLight({
+        worldX: midX, worldY: midY,
+        inner: 260, outer: 640,
+        strongAlpha: 1.0, midAlpha: 0.75,
+        rgb: "200,220,255",
+        duration: 320, fadeMs: 320,
+      });
+      addSpellLight({
+        worldX: fromWX, worldY: fromWY,
+        inner: 120, outer: 300,
+        strongAlpha: 0.95, midAlpha: 0.65,
+        rgb: "220,230,255",
+        duration: 280, fadeMs: 280,
+      });
+      addSpellLight({
+        worldX: toWX, worldY: toWY,
+        inner: 160, outer: 400,
+        strongAlpha: 1.0, midAlpha: 0.75,
+        rgb: "180,210,255",
+        duration: 360, fadeMs: 360,
+      });
+
+      // 着弾点に火花 (8 → 16 個に増量)
+      for (let i = 0; i < 16; i++) {
+        const spark = document.createElement("div");
+        spark.className = "fxLightningSpark";
+        const ang = (Math.PI * 2 * i) / 16 + (Math.random() - 0.5) * 0.4;
+        const dist = 30 + Math.random() * 50;
+        spark.style.setProperty("--dx", (Math.cos(ang) * dist) + "px");
+        spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
+        spark.style.left = (toWX - camX) + "px";
+        spark.style.top  = (toWY - camY) + "px";
+        document.body.appendChild(spark);
+        setTimeout(() => { try { spark.remove(); } catch {} }, 520);
+      }
+      // 始点にも軽く火花を散らす (5 個)
+      for (let i = 0; i < 5; i++) {
+        const spark = document.createElement("div");
+        spark.className = "fxLightningSpark";
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 18 + Math.random() * 24;
+        spark.style.setProperty("--dx", (Math.cos(ang) * dist) + "px");
+        spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
+        spark.style.left = (fromWX - camX) + "px";
+        spark.style.top  = (fromWY - camY) + "px";
+        document.body.appendChild(spark);
+        setTimeout(() => { try { spark.remove(); } catch {} }, 460);
+      }
+      // 画面フラッシュ (青白)
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash lightning";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch {} }, 280);
+      // メイン稲妻持続をやや長く (250 → 340ms)
+      setTimeout(() => { try { svg.remove(); } catch {} }, 340);
+    }
+
+    // 円錐内に結晶を散布 (Cone of Cold)
+    function spawnConeCrystals(originWX, originWY, dirX, dirY) {
+      // dirX, dirY: -1/0/1 の方向ベクトル
+      // 動的光源 (円錐位置に冷気フラッシュ)
+      const cx = originWX + dirX * 1.5 * TILE_SIZE;
+      const cy = originWY + dirY * 1.5 * TILE_SIZE;
+      addSpellLight({
+        worldX: cx, worldY: cy,
+        inner: 160, outer: 380,
+        strongAlpha: 0.95, midAlpha: 0.65,
+        rgb: "180,230,255",
+        duration: 700, fadeMs: 700,
+      });
+      // 結晶を 12-16 個散布
+      const count = 14;
+      for (let i = 0; i < count; i++) {
+        const cr = document.createElement("div");
+        cr.className = "fxColdCrystal";
+        const distTile = 0.4 + Math.random() * 2.6;   // 0.4 〜 3.0 タイル
+        const lateral = (Math.random() - 0.5) * 1.2;
+        // dirX,dirY 方向に + 直交方向 (横) に振る
+        const px = originWX + dirX * distTile * TILE_SIZE + (-dirY) * lateral * TILE_SIZE;
+        const py = originWY + dirY * distTile * TILE_SIZE + (dirX)  * lateral * TILE_SIZE;
+        cr.style.left = (px - camX) + "px";
+        cr.style.top  = (py - camY) + "px";
+        cr.style.animationDelay = (i * 25) + "ms";
+        document.body.appendChild(cr);
+        setTimeout(() => { try { cr.remove(); } catch {} }, 700);
+      }
+      // 画面フラッシュ (冷気)
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash cold";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch {} }, 340);
     }
     function updateGroundFx() {
       const now = Date.now();
@@ -3798,9 +4431,36 @@
     // Sce2 隠し要素: 盗賊の鍵束。rogue が拾うと true、檻を開ける条件
     let hasKey = false;
 
+    // ── Phase 2-G DEBUG: 残影回避を必ず発動させるデバッグモード ──
+    // URL に ?evade=all  → 全攻撃を確定回避
+    // URL に ?evade=arrow → 矢攻撃のみ確定回避
+    // ブラウザ Console から `__evadeAlways = true` で動的に切替可
+    // ※ 装備中に残影の首飾りがある場合のみ反映 (アクセサリー未装備時は無効)
+    (function() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const v = (p.get("evade") || "").toLowerCase();
+        if (v === "all" || v === "1" || v === "true") {
+          window.__evadeAlways = true;
+        } else if (v === "arrow") {
+          window.__evadeArrowsOnly = true;
+        }
+        if (window.__evadeAlways || window.__evadeArrowsOnly) {
+          console.log("[DEBUG] 残影回避 強制モード:",
+            window.__evadeAlways ? "ALL ATTACKS" : "ARROWS ONLY");
+        }
+      } catch (e) { /* ignore */ }
+    })();
+
     // ── 永続進行データ (前ランの金貨・装備・装備選択を引き継ぐ) ──
     function loadPersistentProgress() {
       try {
+        // Phase 2-G: アクセサリー所持リスト (JSON 配列) + 装備中スロット 1/2
+        let accIds = [];
+        try {
+          const raw = localStorage.getItem("dragonfighters.accessoryIds");
+          if (raw) accIds = JSON.parse(raw) || [];
+        } catch (e) { accIds = []; }
         return {
           gold:         Number(localStorage.getItem("dragonfighters.gold")) || 0,
           xp:           Number(localStorage.getItem("dragonfighters.xp")) || 0,
@@ -3814,9 +4474,18 @@
           equipSkills:  localStorage.getItem("dragonfighters.equippedSkills"),
           partySkills:  localStorage.getItem("dragonfighters.partySkills"),
           allyEquip:    localStorage.getItem("dragonfighters.allyEquip"),
+          // Phase 2-G: アクセサリー所持リスト / 装備中スロット 1/2
+          accessoryIds:    accIds,
+          equipAccessory1: localStorage.getItem("dragonfighters.equipAccessory1"),
+          equipAccessory2: localStorage.getItem("dragonfighters.equipAccessory2"),
+          // Phase 2-G 拡張: 全キャラの装備状態 (JSON: {player:[id,id], allies:{classKey:[id,id]}})
+          accessoryStateJson: localStorage.getItem("dragonfighters.accessoryState"),
+          // Phase 2-H: 道具袋 (各クラスごとの装備保管) と アクセサリー在庫
+          inventoryBagJson:   localStorage.getItem("dragonfighters.inventoryBag"),
+          accessoryStockJson: localStorage.getItem("dragonfighters.accessoryStock"),
         };
       } catch (e) {
-        return { gold: 0, xp: 0, weaponIdx: 0, armorIdx: 0, shieldIdx: 0 };
+        return { gold: 0, xp: 0, weaponIdx: 0, armorIdx: 0, shieldIdx: 0, accessoryIds: [] };
       }
     }
     const persistent = loadPersistentProgress();
@@ -3984,6 +4653,84 @@
     let currentArmorIndex = Math.min(chosenArmorIdx, armors.length - 1);
     const startedWithArmorIdx = currentArmorIndex;
 
+    // ── Phase 2-G: アクセサリー (2 枠装備可能、同一不可) ──
+    // accessories[0] = "なし"。残影の獣撃破で「残影の首飾り」が解放され、persistent.accessoryIds に保存される。
+    // 効果は avoidAll (全攻撃 5% で完全回避) と avoidArrow (矢攻撃に追加 50%) を持つ。
+    const accessories = [
+      { id: "none",          name: "なし",         flavor: "",                                                                rarity: "common" },
+      { id: "shadow-amulet", name: "残影の首飾り", flavor: "残影の獣の毛皮から織られた首飾り、攻撃を時折逸らす",
+        avoidAll: 0.05, avoidArrow: 0.50, rarity: "special" },
+    ];
+    function accessoryIdxFromId(id) {
+      const i = accessories.findIndex(a => a.id === id);
+      return i < 0 ? 0 : i;
+    }
+    // 装備中の 2 枠 (各 accessories のインデックス、初期は [0,0] = なし)
+    let currentAccessoryIndices = [
+      persistent.equipAccessory1 ? accessoryIdxFromId(persistent.equipAccessory1) : 0,
+      persistent.equipAccessory2 ? accessoryIdxFromId(persistent.equipAccessory2) : 0,
+    ];
+    // 同一不可: 2 枠が同じ id を指していたらスロット 2 を強制 0 (なし) にリセット
+    if (currentAccessoryIndices[0] !== 0 &&
+        currentAccessoryIndices[0] === currentAccessoryIndices[1]) {
+      currentAccessoryIndices[1] = 0;
+    }
+
+    // ── Phase 2-H: 道具袋 (PT 内に装備可能職業がいないアイテムを保管) ──
+    // 構造: { warrior:{weapons:[idx,...], armors:[...], shields:[...]}, dwarf:{...}, ... }
+    // ダブり (同じ idx 既保管) → 換金、新規 → 追加保管
+    const ALL_CLASS_KEYS = ["warrior", "dwarf", "cleric", "mage", "elf", "rogue"];
+    let inventoryBag = (function loadBag() {
+      const empty = {};
+      for (const k of ALL_CLASS_KEYS) empty[k] = { weapons: [], armors: [], shields: [] };
+      if (!persistent.inventoryBagJson) return empty;
+      try {
+        const parsed = JSON.parse(persistent.inventoryBagJson);
+        for (const k of ALL_CLASS_KEYS) {
+          if (parsed[k]) {
+            empty[k].weapons = Array.isArray(parsed[k].weapons) ? parsed[k].weapons.slice() : [];
+            empty[k].armors  = Array.isArray(parsed[k].armors)  ? parsed[k].armors.slice()  : [];
+            empty[k].shields = Array.isArray(parsed[k].shields) ? parsed[k].shields.slice() : [];
+          }
+        }
+      } catch (e) { /* JSON 不正は無視 */ }
+      return empty;
+    })();
+
+    function saveInventoryBag() {
+      try {
+        localStorage.setItem("dragonfighters.inventoryBag", JSON.stringify(inventoryBag));
+      } catch (e) { /* ignore */ }
+    }
+
+    // アクセサリー在庫: {"shadow-amulet": 個数, ...}
+    let accessoryStock = (function loadStock() {
+      if (!persistent.accessoryStockJson) return {};
+      try { return JSON.parse(persistent.accessoryStockJson) || {}; }
+      catch (e) { return {}; }
+    })();
+
+    function saveAccessoryStock() {
+      try {
+        localStorage.setItem("dragonfighters.accessoryStock", JSON.stringify(accessoryStock));
+      } catch (e) { /* ignore */ }
+    }
+
+    // 装備中のアクセサリーから在庫を再計算 (装備合計)
+    function recomputeAccessoryStock() {
+      const stock = {};
+      const allIdx = [
+        ...currentAccessoryIndices,
+        ...((typeof allies !== "undefined" ? allies : []).flatMap(a => a.accessoryIndices || [])),
+      ];
+      for (const i of allIdx) {
+        const a = accessories[i];
+        if (a && a.id !== "none") stock[a.id] = (stock[a.id] || 0) + 1;
+      }
+      accessoryStock = stock;
+      saveAccessoryStock();
+    }
+
     const enemyMaxHp = 3;
     const ironSwordDropChance = 0.15;
     const leatherArmorDropChance = 0.12;
@@ -4036,6 +4783,8 @@
         facing: "right",
         state: "idle",
         playerMovingThisFrame: false,
+        // Phase 2-G 拡張: アクセサリースロット (2 枠、accessories[] の index で参照)
+        accessoryIndices: [0, 0],
         // DOM 要素は createAllyDom で割り当て
         el: null, hpWrapEl: null, hpFillEl: null, nameLabelEl: null,
       };
@@ -4085,6 +4834,43 @@
       updateInfo("ゲームスタート！");
       setPhase("explore");
     }
+
+    // Phase 2-G DEBUG: 残影回避モードのトグルボタン処理
+    (function setupDebugEvadeBtns() {
+      const btnAll = document.getElementById("debugEvadeAllBtn");
+      const btnArrow = document.getElementById("debugEvadeArrowBtn");
+      function refresh() {
+        if (btnAll) {
+          const on = !!window.__evadeAlways;
+          btnAll.classList.toggle("on", on);
+          btnAll.textContent = on ? "🛡 必ず回避 (全攻撃) ON" : "🛡 必ず回避 (全攻撃) OFF";
+        }
+        if (btnArrow) {
+          const on = !!window.__evadeArrowsOnly;
+          btnArrow.classList.toggle("on", on);
+          btnArrow.textContent = on ? "🏹 必ず回避 (矢のみ) ON" : "🏹 必ず回避 (矢のみ) OFF";
+        }
+      }
+      if (btnAll) {
+        btnAll.addEventListener("click", (ev) => {
+          ev.stopPropagation();          // ゲーム開始を抑止
+          ev.preventDefault();
+          window.__evadeAlways = !window.__evadeAlways;
+          if (window.__evadeAlways) window.__evadeArrowsOnly = false;   // 排他
+          refresh();
+        });
+      }
+      if (btnArrow) {
+        btnArrow.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          window.__evadeArrowsOnly = !window.__evadeArrowsOnly;
+          if (window.__evadeArrowsOnly) window.__evadeAlways = false;   // 排他
+          refresh();
+        });
+      }
+      refresh();   // URL ?evade=... で起動した状態を反映
+    })();
 
     // ── DM イベントメッセージ (羊皮紙ミニバナー) ──
     function showDMMessage(text, ms = 2500) {
@@ -4145,6 +4931,67 @@
         btnNo.onclick  = () => { cleanup(); resolve(false); };
         document.addEventListener("keydown", onKey, true);   // capture phase
         setTimeout(() => btnYes.focus(), 50);
+      });
+    }
+
+    // Phase 2-G 拡張: 多択ダイアログ (各候補にボタン、Esc で null)
+    // candidates: [{label: string, ...}, ...] / 返り値: 選択された index (0..N-1) または null
+    function showCharChoice(message, candidates) {
+      return new Promise((resolve) => {
+        let dlg = document.getElementById("choiceDialog");
+        if (!dlg) {
+          dlg = document.createElement("div");
+          dlg.id = "choiceDialog";
+          dlg.innerHTML =
+            '<div class="choiceMessage"></div>' +
+            '<div class="choiceButtons"></div>';
+          document.body.appendChild(dlg);
+        }
+        dlg.querySelector(".choiceMessage").textContent = message;
+        const btnArea = dlg.querySelector(".choiceButtons");
+        btnArea.innerHTML = "";   // 前回のボタンを消す
+        dlg.classList.add("show");
+        dialogPaused = true;
+
+        const cleanup = () => {
+          dlg.classList.remove("show");
+          dialogPaused = false;
+          document.removeEventListener("keydown", onKey, true);
+        };
+        const onKey = (ev) => {
+          // 1〜9 で対応する候補を選択、Esc でキャンセル
+          if (ev.key === "Escape" || ev.key === "Esc") {
+            ev.preventDefault(); ev.stopPropagation();
+            cleanup(); resolve(null);
+            return;
+          }
+          const n = parseInt(ev.key, 10);
+          if (!isNaN(n) && n >= 1 && n <= candidates.length) {
+            ev.preventDefault(); ev.stopPropagation();
+            cleanup(); resolve(n - 1);
+          }
+        };
+        candidates.forEach((cand, i) => {
+          const btn = document.createElement("button");
+          btn.className = "choiceYes";   // 既存スタイル流用
+          btn.type = "button";
+          btn.textContent = `${i + 1}. ${cand.label}`;
+          btn.onclick = () => { cleanup(); resolve(i); };
+          btnArea.appendChild(btn);
+        });
+        // キャンセルボタン
+        const btnCancel = document.createElement("button");
+        btnCancel.className = "choiceNo";
+        btnCancel.type = "button";
+        btnCancel.textContent = "持ち帰る (Esc)";
+        btnCancel.onclick = () => { cleanup(); resolve(null); };
+        btnArea.appendChild(btnCancel);
+
+        document.addEventListener("keydown", onKey, true);
+        setTimeout(() => {
+          const first = btnArea.querySelector("button");
+          if (first) first.focus();
+        }, 50);
       });
     }
 
@@ -4350,6 +5197,36 @@
       return pool[Math.min(Math.max(0, idx), pool.length - 1)];
     }
 
+    // ── Phase 2-G: アクセサリーヘルパー ──
+    // unit: 文字列 "player" (= リーダー戦士) or ally オブジェクト
+    function getUnitAccessoryIndices(unit) {
+      if (unit === "player") return currentAccessoryIndices;
+      if (unit && Array.isArray(unit.accessoryIndices)) return unit.accessoryIndices;
+      return [0, 0];
+    }
+    function getEquippedAccessories(unit) {
+      return getUnitAccessoryIndices(unit || "player")
+        .map(i => accessories[i])
+        .filter(a => a && a.id !== "none");
+    }
+    function hasAccessoryId(id, unit) {
+      return getUnitAccessoryIndices(unit || "player")
+        .some(i => accessories[i] && accessories[i].id === id);
+    }
+    // 装備中のアクセサリーから kind ("all" | "arrow") の回避率を合算
+    function getTotalAvoidance(kind, unit) {
+      let total = 0;
+      for (const i of getUnitAccessoryIndices(unit || "player")) {
+        const a = accessories[i];
+        if (!a || a.id === "none") continue;
+        if (kind === "all"   && a.avoidAll)   total += a.avoidAll;
+        if (kind === "arrow" && a.avoidArrow) total += a.avoidArrow;
+      }
+      return total;
+    }
+    // 互換: 後方互換のために PT 全体に展開された関数 (旧コードが渡してない引数を補完)
+    function getUnitAvoidance(unit, kind) { return getTotalAvoidance(kind, unit); }
+
     function hasIronSword() {
       return currentWeaponIndex === 1;
     }
@@ -4449,6 +5326,16 @@
               return sk ? sk.name : id;
             }).join(" / ")
           : "";
+        // Phase 2-G: アクセサリー欄 2 枠 (装備中のスロットのみ表示)
+        let accLines = "";
+        for (let slot = 0; slot < 2; slot++) {
+          const a = accessories[currentAccessoryIndices[slot]];
+          if (a && a.id !== "none") {
+            accLines +=
+              `<div class="sbStat">アクセ${slot + 1}: ` +
+              `<span class="${getItemColorClass(a.name, a.rarity)}">${a.name}</span></div>`;
+          }
+        }
         wEl.innerHTML =
           `<div class="sbName">${getLeaderName()} <span style="font-size:12px;color:#c8a046">Lv${lv}</span></div>` +
           `<div class="sbStat">HP <b>${hp}</b>/${maxHp}` +
@@ -4457,6 +5344,7 @@
           `<div class="sbStat">${formatWeaponLine(weapon.name, weapon.dmgDice || playerStats.dmgDice, weaponDisplayBonus, playerStats.weaponRange || "melee", weapon.rarity, weapon.bonusDmgDice, weapon.bonusDmgType)}</div>` +
           shieldLine +
           `<div class="sbStat">${formatArmorLine(armor.name, armor.rarity)}</div>` +
+          accLines +
           `<div class="sbStat">スキル: ${leaderSkillNames || "—"}</div>` +
           `<div class="sbStat">XP <b>${currentTotalXp}</b>/${nextXp} ・ 金貨 ${coins}</div>`;
       }
@@ -4493,6 +5381,16 @@
           const mpLine = (a.maxMp > 0)
             ? `<div class="sbStat">MP <b style="color:#2b5d8e">${a.mp}</b>/${a.maxMp}</div>`
             : "";
+          // Phase 2-G 拡張: 仲間のアクセサリー欄 (装備中のみ表示)
+          let aAccLines = "";
+          for (let slot = 0; slot < 2; slot++) {
+            const acc = accessories[a.accessoryIndices[slot]];
+            if (acc && acc.id !== "none") {
+              aAccLines +=
+                `<div class="sbStat">アクセ${slot + 1}: ` +
+                `<span class="${getItemColorClass(acc.name, acc.rarity)}">${acc.name}</span></div>`;
+            }
+          }
           // 武器表記は純粋な武器ダメージ (ダイスのみ、STR 修正はダメ計算で別途加算)
           box.innerHTML =
             `<div class="sbName">${a.def.name} <span style="font-size:12px;color:#c8a046">Lv${allyLv}</span></div>` +
@@ -4501,6 +5399,7 @@
             mpLine +
             `<div class="sbStat">${formatWeaponLine(a.weaponName || a.def.weaponName, a.dmgDice, 0, a.weaponRange || "melee", a.weaponRarity, a.weaponBonusDmgDice, a.weaponBonusDmgType)}</div>` +
             `<div class="sbStat">${formatArmorLine(a.armorName || a.def.armorName, a.armorRarity)}</div>` +
+            aAccLines +
             `<div class="sbStat">スキル: ${skillNames || "—"}</div>` +
             `<div class="sbStat">XP <b>${currentTotalXp}</b>/${allyNextXp}</div>`;
         }
@@ -5183,6 +6082,103 @@
       enemies[index].damageFlashTimer = 10;
     }
 
+    // ── Phase 2-A: 残影回避 (Displacement) ヘルパー ──
+    // shadowBeast 等 def.displacementChance を持つ敵に対する命中後判定。
+    // 返り値 true = 攻撃が位相ずれで空振り (ダメージなし)。被弾後 2 秒間は無効。
+    // 呼び出し側は、命中ロール通過後・ダメージ計算前に呼び、true なら更新せず終了する。
+    function tryDisplacement(enemyIdx) {
+      const e = enemies[enemyIdx];
+      if (!e || !e.alive) return false;
+      const def = e.def;
+      const chance = def.displacementChance || 0;
+      if (chance <= 0) return false;
+      // 被弾後クールダウン中は回避できない
+      const now = (typeof performance !== "undefined" && performance.now)
+        ? performance.now() : Date.now();
+      if (e.displacementDisabledUntil && now < e.displacementDisabledUntil) return false;
+      if (Math.random() >= chance) return false;
+      // 発動: 残像 fx + 残影回避ログ
+      spawnDisplaceAfterimage(enemyIdx);
+      try { updateInfo(`${def.name} は残影で攻撃をかわした!`); } catch {}
+      return true;
+    }
+
+    // 被弾時に呼ぶ: クールダウン開始 (displacementChance を持つ敵のみ)
+    function noteDisplacementHit(enemyIdx) {
+      const e = enemies[enemyIdx];
+      if (!e || !e.def) return;
+      if (!(e.def.displacementChance > 0)) return;
+      const cd = e.def.displacementCooldownMs || 2000;
+      const now = (typeof performance !== "undefined" && performance.now)
+        ? performance.now() : Date.now();
+      e.displacementDisabledUntil = now + cd;
+    }
+
+    // 残像エフェクト DOM を spawn (520ms で自動 fade-out)
+    function spawnDisplaceAfterimage(enemyIdx) {
+      const e = enemies[enemyIdx];
+      const el = enemyElements[enemyIdx];
+      if (!e || !el) return;
+      const ghost = document.createElement("div");
+      ghost.className = "displaceAfterimage";
+      const ds = e.def.displaySize || TILE_SIZE;
+      ghost.style.width  = ds + "px";
+      ghost.style.height = ds + "px";
+      ghost.style.left   = (e.x - camX) + "px";
+      ghost.style.top    = (e.y - camY) + "px";
+      ghost.style.backgroundImage = `url("${e.def.sprite}")`;
+      const scale = ds / e.def.frameW;
+      ghost.style.backgroundSize = `${Math.round(e.def.sheetW * scale)}px ${Math.round(e.def.sheetH * scale)}px`;
+      ghost.style.backgroundPosition = el.style.backgroundPosition || "0 0";
+      ghost.style.transform = el.style.transform || "";
+      enemyLayer.appendChild(ghost);
+      setTimeout(() => { try { ghost.remove(); } catch {} }, 560);
+    }
+
+    // Phase 2-G: PC 用の残像エフェクト (残影の首飾りで回避時に発動)
+    // #player の現在の sprite sheet / frame / transform を動的に読み取って複製する。
+    // 戦士は walk / attack で複数シートを切替えるので、ハードコードせず player の現値をコピー。
+    function spawnPlayerDisplaceAfterimage() {
+      if (!player) return;
+      const cs = window.getComputedStyle(player);
+      const ghost = document.createElement("div");
+      ghost.className = "displaceAfterimage";
+      ghost.style.width  = playerWidth  + "px";
+      ghost.style.height = playerHeight + "px";
+      ghost.style.left   = (playerX - camX) + "px";
+      ghost.style.top    = (playerY - camY) + "px";
+      // インライン優先 → 計算済 → simple_knight フォールバック
+      ghost.style.backgroundImage    = player.style.backgroundImage
+        || cs.backgroundImage || "url(\"assets/simple_knight.png\")";
+      ghost.style.backgroundSize     = player.style.backgroundSize
+        || cs.backgroundSize  || "480px 1152px";
+      ghost.style.backgroundPosition = player.style.backgroundPosition
+        || cs.backgroundPosition || "0 0";
+      ghost.style.transform          = player.style.transform || "";
+      document.body.appendChild(ghost);
+      setTimeout(() => { try { ghost.remove(); } catch {} }, 560);
+    }
+
+    // Phase 2-G 拡張: 仲間用の残像エフェクト (ally.el を複製)
+    function spawnAllyDisplaceAfterimage(ally) {
+      if (!ally || !ally.el) return;
+      const el = ally.el;
+      const cs = window.getComputedStyle(el);
+      const ghost = document.createElement("div");
+      ghost.className = "displaceAfterimage";
+      const ds = (ally.def && ally.def.displaySize) || 96;
+      ghost.style.width  = ds + "px";
+      ghost.style.height = ds + "px";
+      ghost.style.left   = (ally.x - camX) + "px";
+      ghost.style.top    = (ally.y - camY) + "px";
+      ghost.style.backgroundImage    = el.style.backgroundImage    || cs.backgroundImage    || "";
+      ghost.style.backgroundSize     = el.style.backgroundSize     || cs.backgroundSize     || "";
+      ghost.style.backgroundPosition = el.style.backgroundPosition || cs.backgroundPosition || "0 0";
+      ghost.style.transform          = el.style.transform || "";
+      document.body.appendChild(ghost);
+      setTimeout(() => { try { ghost.remove(); } catch {} }, 560);
+    }
+
     // (廃止) tryHealWithCoins — 3枚で 1HP 回復の機構は削除済
 
     function isGuardFacingEnemy(enemy) {
@@ -5300,6 +6296,104 @@
       }
     }
 
+    // Phase 2-G 拡張: shadowBeast 撃破時に「残影の首飾り」を入手
+    // 4 人パーティ全員 (戦士 + 仲間 3 名) が独立スロット 2 つを持つ。
+    // 同一キャラ内では重複不可、別キャラには同じアクセを装備可。
+    // 装備可能キャラ (未所持 + 空き枠あり) のリストを作って、選択ダイアログを出す。
+    async function maybeDropShadowAmulet(index) {
+      const enemy = enemies[index];
+      if (!enemy || !enemy.def || !enemy.def.pelt) return;
+      const amuletIdx = accessories.findIndex(a => a.id === "shadow-amulet");
+      if (amuletIdx < 0) return;
+      // Phase 2-H: 4 個まで (PT 4 人分) 持てる、5 個目は換金
+      const currentCount = (accessoryStock["shadow-amulet"] || 0);
+      if (currentCount >= 4) {
+        const bonus = 50;
+        coins += bonus;
+        updateInfo(`残影の首飾り を見つけた (既に 4 個所持) → 金貨 +${bonus}`);
+        return;
+      }
+      // 装備可能候補を列挙: 未装備 (hasAccessoryId が false) + 空き枠あり
+      const candidates = [];
+      // 戦士 (リーダー)
+      if (!hasAccessoryId("shadow-amulet", "player")) {
+        const slot = currentAccessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
+        if (slot >= 0) candidates.push({ kind: "player", label: getLeaderName(), slot });
+      }
+      // 仲間
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          if (hasAccessoryId("shadow-amulet", a)) continue;
+          const slot = a.accessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
+          if (slot >= 0) candidates.push({ kind: "ally", ally: a, label: a.def.name, slot });
+        }
+      }
+      if (candidates.length === 0) {
+        updateInfo("残影の首飾り を見つけたが、PT 全員が既に装備中 / 枠が満杯");
+        return;
+      }
+      // 装着先選択 (新規 showCharChoice モーダル)
+      const pickedIdx = await showCharChoice("🌒 残影の首飾り を誰に装備?", candidates);
+      if (pickedIdx == null || pickedIdx < 0) {
+        // キャンセル / 未選択 → 持ち帰り (persistent には積み増し)
+        savePersistentAccessoryStock();
+        updateInfo("残影の首飾り を持ち帰った (装備先を選ばず)");
+        return;
+      }
+      const chosen = candidates[pickedIdx];
+      if (chosen.kind === "player") {
+        currentAccessoryIndices[chosen.slot] = amuletIdx;
+        if (typeof showBanner === "function") {
+          showBanner(`🌒 残影の首飾り → ${chosen.label}`, 2400);
+        }
+        updateInfo(`残影の首飾り を ${chosen.label} のアクセ${chosen.slot + 1} に装着`);
+      } else {
+        chosen.ally.accessoryIndices[chosen.slot] = amuletIdx;
+        if (typeof showBanner === "function") {
+          showBanner(`🌒 残影の首飾り → ${chosen.label}`, 2400);
+        }
+        updateInfo(`残影の首飾り を ${chosen.label} のアクセ${chosen.slot + 1} に装着`);
+      }
+      // persistent 保存
+      savePersistentAccessoryStock();
+      // Phase 2-H: 在庫数も同期
+      recomputeAccessoryStock();
+      // UI 即時反映
+      if (typeof renderPartyStatuses === "function") renderPartyStatuses();
+    }
+
+    // 全キャラのアクセサリースロット状態を persistent / localStorage に保存
+    function savePersistentAccessoryStock() {
+      // 各キャラのスロット 2 つを JSON で保存
+      const snap = {
+        player: currentAccessoryIndices.map(i => (accessories[i] || accessories[0]).id),
+        allies: {},
+      };
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.classKey) continue;
+          snap.allies[a.classKey] = a.accessoryIndices.map(i => (accessories[i] || accessories[0]).id);
+        }
+      }
+      // 在庫リスト = 全キャラの装備中 "shadow-amulet" 個数 (将来の素材保管にも対応)
+      const stock = [];
+      const allEquipped = [
+        ...currentAccessoryIndices,
+        ...((typeof allies !== "undefined") ? allies.flatMap(a => a.accessoryIndices) : []),
+      ].filter(i => accessories[i] && accessories[i].id !== "none");
+      for (const i of allEquipped) stock.push(accessories[i].id);
+      persistent.accessoryIds = stock;
+      persistent.accessoryStateJson = JSON.stringify(snap);
+      try {
+        localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify(stock));
+        localStorage.setItem("dragonfighters.accessoryState", persistent.accessoryStateJson);
+        // 後方互換: スロット 1/2 (リーダー用) も保存
+        localStorage.setItem("dragonfighters.equipAccessory1", snap.player[0]);
+        localStorage.setItem("dragonfighters.equipAccessory2", snap.player[1]);
+      } catch (e) { /* ignore */ }
+    }
+
     function defeatEnemy(index) {
       const enemy = enemies[index];
       enemy.alive = false;
@@ -5312,6 +6406,7 @@
 
       maybeDropIronSword(index);
       maybeDropLeatherArmor(index);
+      maybeDropShadowAmulet(index);   // Phase 2-G: shadowBeast 撃破で残影の首飾り入手
 
       const nm = (enemy.def && enemy.def.name) || "敵";
       // ボス死亡セリフ (deathLine 定義時のみ)
@@ -5579,6 +6674,84 @@
     // (廃止) checkCoinPickup — コインドロップ自体を撤去したので不要 (no-op で残置)
     function checkCoinPickup() {}
 
+    // ── Phase 2-H: ドロップ装備のディスパッチ ──
+    // PT 内に装備可能職業がいれば該当キャラに装備変更、いなければ道具袋へ (ダブったら換金)。
+    // 現状の敵ドロップは戦士用ロングソード (weapons[1]) と 鋲打ち革鎧 (armors[1]) のみ。
+    function partyHasClass(classKey) {
+      if (leaderClassKey === classKey) return true;
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (a && a.classKey === classKey && a.alive) return true;
+        }
+      }
+      return false;
+    }
+
+    function handleDroppedEquipment(targetClassKey, kind, idx, displayName) {
+      if (partyHasClass(targetClassKey)) {
+        if (targetClassKey === leaderClassKey) {
+          tryEquipOnLeader(kind, idx, displayName);
+        } else {
+          tryEquipOnAlly(targetClassKey, kind, idx, displayName);
+        }
+        return;
+      }
+      // PT に該当職業なし → 道具袋へ
+      const slot = inventoryBag[targetClassKey] && inventoryBag[targetClassKey][kind];
+      if (!slot) return;
+      if (slot.includes(idx)) {
+        // ダブり → 換金
+        const bonus = (kind === "weapons") ? 25 : 20;
+        coins += bonus;
+        updateInfo(`『${displayName}』を見つけた (道具袋に既に保管) → 金貨 +${bonus}`);
+      } else {
+        slot.push(idx);
+        saveInventoryBag();
+        updateInfo(`『${displayName}』を道具袋に保管 (装備可能な仲間が PT にいない)`);
+      }
+      updatePositions();
+    }
+
+    // リーダーが targetClass の場合の装備変更 (戦士のみ現状)
+    function tryEquipOnLeader(kind, idx, displayName) {
+      if (kind === "weapons") {
+        const cur = weapons[currentWeaponIndex];
+        const newW = weapons[idx];
+        if (cur && (cur.power || 0) >= (newW.power || 0)) {
+          updateInfo(`『${newW.name}』を見つけたが、装備中の『${cur.name}』の方が強い。`);
+        } else {
+          currentWeaponIndex = idx;
+          updateInfo(`宝箱を開けた！\n『${newW.name}』を手に入れた！\n${newW.flavor || ""}`);
+        }
+      } else if (kind === "armors") {
+        const curA = armors[currentArmorIndex];
+        const newA = armors[idx];
+        if (curA && (curA.enhancement || 0) >= (newA.enhancement || 0)) {
+          updateInfo(`『${newA.name}』を見つけたが、装備中の『${curA.name}』の方が頼もしい。`);
+        } else {
+          currentArmorIndex = idx;
+          updateInfo(`宝箱を開けた！\n『${newA.name}』を手に入れた！\n${newA.flavor || ""}`);
+        }
+      }
+      updatePositions();
+    }
+
+    // 仲間 (該当 classKey) が PT にいる場合: 装備変更は現状未実装、ひとまず道具袋へ
+    // (走行中の ally 装備変更は副作用が大きいため、酒場での装備変更経由を推奨)
+    function tryEquipOnAlly(classKey, kind, idx, displayName) {
+      const slot = inventoryBag[classKey] && inventoryBag[classKey][kind];
+      if (!slot) return;
+      if (slot.includes(idx)) {
+        const bonus = (kind === "weapons") ? 25 : 20;
+        coins += bonus;
+        updateInfo(`『${displayName}』を見つけた (${classKey} の道具袋に既に保管) → 金貨 +${bonus}`);
+      } else {
+        slot.push(idx);
+        saveInventoryBag();
+        updateInfo(`『${displayName}』を道具袋に保管 (酒場で${classKey}に装備可能)`);
+      }
+    }
+
     function openChestAt(worldX, worldY) {
       for (let i = 0; i < enemies.length; i++) {
         const enemy = enemies[i];
@@ -5586,34 +6759,16 @@
             worldX >= enemy.weaponX && worldX <= enemy.weaponX + 36 &&
             worldY >= enemy.weaponY && worldY <= enemy.weaponY + 30) {
           enemy.weaponVisible = false;
-          const cur = weapons[currentWeaponIndex];
-          const newW = weapons[1];
-          // 装備中の方が強ければ拾わない (上位武器の消失防止)
-          if (cur && (cur.power || 0) >= (newW.power || 0)) {
-            updateInfo(`『${newW.name}』を見つけたが、装備中の『${cur.name}』の方が強い。`);
-            updatePositions();
-            return true;
-          }
-          currentWeaponIndex = 1;
-          updateInfo(`宝箱を開けた！\n『${newW.name}』を手に入れた！\n${newW.flavor}`);
-          updatePositions();
+          // 敵ドロップ武器は戦士用ロングソード (weapons[1])
+          handleDroppedEquipment("warrior", "weapons", 1, "ロングソード");
           return true;
         }
         if (enemy.armorVisible &&
             worldX >= enemy.armorX && worldX <= enemy.armorX + 36 &&
             worldY >= enemy.armorY && worldY <= enemy.armorY + 30) {
           enemy.armorVisible = false;
-          const curA = armors[currentArmorIndex];
-          const newA = armors[1];
-          // 装備中の方が頼もしければ拾わない (上位防具の消失防止)
-          if (curA && (curA.enhancement || 0) >= (newA.enhancement || 0)) {
-            updateInfo(`『${newA.name}』を見つけたが、装備中の『${curA.name}』の方が頼もしい。`);
-            updatePositions();
-            return true;
-          }
-          currentArmorIndex = 1;
-          updateInfo(`宝箱を開けた！\n『${newA.name}』を手に入れた！\n${newA.flavor}`);
-          updatePositions();
+          // 敵ドロップ防具は戦士用鋲打ち革鎧 (armors[1])
+          handleDroppedEquipment("warrior", "armors", 1, "鋲打ち革鎧");
           return true;
         }
       }
@@ -6946,6 +8101,10 @@
           else if (skillId === "fire-bolt")    await allyFireBolt(actor, targetIdx);
           else if (skillId === "sleep")        await allySleep(actor, targetIdx);
           else if (skillId === "arcane-shield") await allyArcaneShield(actor);
+          // Phase 2-I: 新規 3 呪文
+          else if (skillId === "fireball")        await allyFireball(actor, targetIdx);
+          else if (skillId === "lightning-bolt")  await allyLightningBolt(actor, targetIdx);
+          else if (skillId === "cone-of-cold")    await allyConeOfCold(actor, targetIdx);
         }
         // エルフ (Step a-3 第3弾)
         else if (leaderClassKey === "elf") {
@@ -7193,6 +8352,7 @@
     let encounterActive = false;
     let encounterRunning = false;
     let encounterEnemyIndices = [];
+    let encounterStartedAt = 0;   // Phase 2-B: 戦闘開始時刻 (確率脱走の経過時間基準)
 
     // ── ポップアップ(ワールド座標→スクリーン座標) ──
     function showRollAtPlayer(html, type) {
@@ -7362,6 +8522,8 @@
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
       encounterActive = true;
+      encounterStartedAt = (typeof performance !== "undefined" && performance.now)
+        ? performance.now() : Date.now();   // Phase 2-B: 確率脱走の経過時間基準
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
       // DM ナレーション: ボスがいればボス戦前メッセージ、そうでなければ敵種族別
@@ -7764,6 +8926,29 @@
         acBonusAmount: 4, duration: 3, range: "self",
         mpCost: 3,
         flavor: "自分に AC +4 を 3ターン (MP 3)",
+      },
+      // ── Phase 2-I: 新規呪文 3 種 (派手 fx + 動的光源) ──
+      "fireball": {
+        name: "ファイアボール", category: "attack", target: "area3x3",
+        dmgDice: "5d6", useInt: true, range: "long",
+        mpCost: 7, levelReq: 3,
+        saveAbility: "dex",
+        flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減、MP 7)",
+      },
+      "lightning-bolt": {
+        name: "ライトニングボルト", category: "attack", target: "line3",
+        dmgDice: "5d6", useInt: false, range: "long",
+        mpCost: 6, levelReq: 3,
+        saveAbility: "dex",
+        flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減、MP 6)",
+      },
+      "cone-of-cold": {
+        name: "コーンオブコールド", category: "attack", target: "cone3",
+        dmgDice: "4d6", useInt: false, range: "medium",
+        mpCost: 8, levelReq: 5,
+        saveAbility: "con",
+        freezeTarget: 1,
+        flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減、MP 8)",
       },
     };
 
@@ -8456,9 +9641,15 @@
       const bonusTotal = dmgBonus * times;
       const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
 
+      // Phase 2-A: 残影回避判定 (shadowBeast 等) — 命中ロール通過後、ダメージ適用直前
+      if (tryDisplacement(targetIdx)) {
+        await sleepMs(420);
+        return { missed: true, displaced: true };
+      }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
       triggerEnemyDamageFlash(targetIdx);
+      noteDisplacementHit(targetIdx);
       showHitSpark(targetIdx, isCrit);
       showDmgAt(ex, target.y, dmg, isCrit);
       const rollText = allRolls.join("+");
@@ -8983,12 +10174,22 @@
     async function openCage(cage) {
       if (cage.opened) return;
       cage.opened = true;
-      if (cage.el) cage.el.classList.add("opened");
-      showBanner("🗝 鉄格子が弾け飛んだ!", 1600);
+      // Phase 2-F: 咆哮硬直 (1500ms) — まずは鍵で錠は外れたが、獣が咆哮で威圧
+      // 檻に振動 + ビーストに赤紫グロウ。プレイヤーの理不尽事故死を防ぐためのインターバル。
+      if (cage.el) cage.el.classList.add("roaring");
+      const beastEl0 = (cage.beastIdx >= 0) ? enemyElements[cage.beastIdx] : null;
+      if (beastEl0) beastEl0.classList.add("beast-roaring");
+      showBanner("💢 残影の獣 解き放たれた! 💢", 1500);
       showDMMessage(
-        "鉄格子が砕け散り、黒い影が砦の奥へと駆け去った…" +
-        "奥から獣の咆哮と盗賊たちの悲鳴が聞こえる…", 4200);
-      await sleepMs(600);
+        "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた…!\n" +
+        "獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…", 4400);
+      await sleepMs(1500);
+      // 咆哮終了 → 檻は床に倒れる、ビーストは活性化
+      if (cage.el) {
+        cage.el.classList.remove("roaring");
+        cage.el.classList.add("opened");
+      }
+      if (beastEl0) beastEl0.classList.remove("beast-roaring");
 
       // 連動するビーストを「奥の盗賊」の隣へワープ + 活性化
       if (cage.beastIdx >= 0) {
@@ -9024,6 +10225,43 @@
     }
 
     setInterval(tryInteractCage, 400);
+
+    // ── Phase 2-B: 確率脱走 (檻近くで戦闘 → 5秒ごとに 20% で自動解放) ──
+    // 戦闘開始から 5 秒経過したら、5 秒ごとに、戦闘地点 (player) と檻の距離が 800px 以内の
+    // 閉じた檻について 20% で自動解放判定。発動したら openCage() を呼ぶ (咆哮 → ワープ → 第三勢力化)。
+    const CAGE_ESCAPE_INTERVAL_MS = 5000;
+    const CAGE_ESCAPE_CHANCE = 0.20;
+    const CAGE_ESCAPE_PROXIMITY_PX = 800;
+    let _lastCageEscapeCheck = 0;
+    setInterval(async () => {
+      if (!gameStarted || gameOver) return;
+      if (!encounterActive) return;              // 戦闘中のみ
+      if (dialogPaused) return;                  // showChoice 中は休止
+      const now = (typeof performance !== "undefined" && performance.now)
+        ? performance.now() : Date.now();
+      // 戦闘開始から 5 秒未満は対象外
+      if (now - encounterStartedAt < CAGE_ESCAPE_INTERVAL_MS) return;
+      // 5 秒ごとにのみ判定
+      if (now - _lastCageEscapeCheck < CAGE_ESCAPE_INTERVAL_MS) return;
+      _lastCageEscapeCheck = now;
+
+      const pCX = playerX + 48, pCY = playerY + 58;
+      for (const cage of cages) {
+        if (cage.opened) continue;
+        if (cage.dialogActive) continue;
+        // 戦闘地点との距離 (檻中央 from player center)
+        const cx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
+        const cy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
+        const d = Math.hypot(pCX - cx, pCY - cy);
+        if (d > CAGE_ESCAPE_PROXIMITY_PX) continue;
+        // 20% 判定
+        if (Math.random() >= CAGE_ESCAPE_CHANCE) continue;
+        // 発動: 自動解放 (DM ナレが咆哮 → ワープを描写)
+        showDMMessage("…檻の中で何かが暴れている。戦闘の音に反応している…!", 2200);
+        await openCage(cage);
+        break;   // 1 tick で複数檻は扱わない
+      }
+    }, 1000);
 
     // ═════════════════════════════════════════════════════════
     // ダンジョン罠 (知覚チェックで発見、未発見で踏むとダメージ)
@@ -9463,9 +10701,15 @@
       const bonusTotal = ally.dmgBonus * times;
       const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
 
+      // Phase 2-A: 残影回避判定 (shadowBeast 等)
+      if (tryDisplacement(enemyIdx)) {
+        await sleepMs(420);
+        return;
+      }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
       triggerEnemyDamageFlash(enemyIdx);
+      noteDisplacementHit(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
       showDmgAt(ex, target.y, dmg, isCrit);
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} ダメージ`);
@@ -9651,8 +10895,14 @@
       }
       await sleepMs(300);
 
+      // Phase 2-A: 残影回避判定 (Magic Missile も例外なく、必中の魔力矢でも位相ずれで外す)
+      if (tryDisplacement(enemyIdx)) {
+        await sleepMs(420);
+        return;
+      }
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
+      noteDisplacementHit(enemyIdx);
       showHitSpark(enemyIdx, helpless);
       showDmgAt(ex, target.y, dmg, helpless);
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} ダメージ ${helpless ? "(無抵抗×" + critMult + ")" : "(必中)"}`);
@@ -9664,6 +10914,7 @@
     }
 
     // ファイアボルト: 命中判定あり、ヒットで 2d6+INT
+    // Phase 2-I 拡張: 詠唱オーブ + 火球飛翔 (動的光源) + 着弾時はフレイムタンインパクト fx
     async function allyFireBolt(ally, enemyIdx) {
       const skill = MAGE_SKILLS["fire-bolt"];
       const target = enemies[enemyIdx];
@@ -9690,6 +10941,8 @@
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
+      // Phase 2-I: 詠唱オーブ (手元に火球が膨張、動的光源で暗闇を照らす)
+      spawnCastOrb(ally, "rgba(255,200,90,1)", 700);
       await sleepMs(2400);
 
       // 命中判定
@@ -9710,10 +10963,17 @@
       const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
       let isCrit = helpless;
       if (!hit) {
+        // Phase 2-I: MISS でも火球は飛ぶ (敵の手前で外れる演出)
+        const fallDist = 60;
+        const dist = Math.hypot(dfx, dfy);
+        const fallX = ex - (dfx / dist) * fallDist;
+        const fallY = ey - (dfy / dist) * fallDist;
+        const flyP = spawnFireballProjectile(aCX, aCY - 8, fallX, fallY, 320);
         showRollAtAlly(ally,
           `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
           "miss");
-        await sleepMs(800);
+        await flyP;
+        await sleepMs(400);
         return;
       }
       if (!helpless && isThreat) {
@@ -9729,7 +10989,9 @@
           `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
           isCrit ? "crit" : "hit");
       }
-      await sleepMs(500);
+
+      // Phase 2-I: 火球が敵まで飛翔 (動的光源で暗闇を照らす)
+      await spawnFireballProjectile(aCX, aCY - 8, ex, ey, 360);
 
       // ダメージ
       const { n, sides } = parseDiceDD(skill.dmgDice);
@@ -9739,9 +11001,13 @@
       const intBonus = (ally.int || 0) * times;
       const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + intBonus);
 
+      // Phase 2-I: 着弾はフレイムタンインパクト fx (中央フラッシュ + 炎柱)
+      const fxY = target.y + (tgtDef.displaySize || 64) / 2;
+      playFlameTongueImpactFx(ex, fxY, enemyIdx, isCrit);
+
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
-      showHitSpark(enemyIdx, isCrit);
+      noteDisplacementHit(enemyIdx);
       showDmgAt(ex, target.y, dmg, isCrit);
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} 炎ダメージ`);
       await sleepMs(500);
@@ -9863,6 +11129,339 @@
         `${ally.def.name}: AC <span class="big">+${skill.acBonusAmount}</span> (${skill.duration}T)`
       );
       updateInfo(`${ally.def.name}: アーケイン・シールド AC+${skill.acBonusAmount}`);
+      await sleepMs(700);
+    }
+
+    // ─── Phase 2-I: PT 巻き込みなし判定ヘルパー ───
+    // origin タイル中心と sizeTilesX×sizeTilesY 範囲に味方 (リーダー or ally) がいるか判定
+    function partyInArea(originTX, originTY, sizeTilesX, sizeTilesY) {
+      const lTX = Math.floor((playerX + 48) / TILE_SIZE);
+      const lTY = Math.floor((playerY + 58) / TILE_SIZE);
+      if (lTX >= originTX && lTX < originTX + sizeTilesX &&
+          lTY >= originTY && lTY < originTY + sizeTilesY) return true;
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          const aTX = Math.floor((a.x + a.def.displaySize / 2) / TILE_SIZE);
+          const aTY = Math.floor((a.y + a.def.displaySize / 2) / TILE_SIZE);
+          if (aTX >= originTX && aTX < originTX + sizeTilesX &&
+              aTY >= originTY && aTY < originTY + sizeTilesY) return true;
+        }
+      }
+      return false;
+    }
+    function enemiesInArea(originTX, originTY, sizeTilesX, sizeTilesY) {
+      const out = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e.alive || e.inactive) continue;
+        const eTX = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
+        const eTY = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
+        if (eTX >= originTX && eTX < originTX + sizeTilesX &&
+            eTY >= originTY && eTY < originTY + sizeTilesY) out.push(i);
+      }
+      return out;
+    }
+
+    // ─── Phase 2-I A: ファイアボール (3x3 範囲、5d6+INT 火炎、DEX セーヴ半減) ───
+    async function allyFireball(ally, enemyIdx) {
+      const skill = MAGE_SKILLS["fireball"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      // 3x3 候補生成: ターゲットを含む 9 通りの origin。PT 不在 + 敵密集を最大化
+      const targetTX = Math.floor(ex / TILE_SIZE);
+      const targetTY = Math.floor(ey / TILE_SIZE);
+      const candidates = [];
+      for (let dy = -2; dy <= 0; dy++) {
+        for (let dx = -2; dx <= 0; dx++) {
+          candidates.push({ tx: targetTX + dx, ty: targetTY + dy });
+        }
+      }
+      let best = null, bestCount = 0;
+      for (const c of candidates) {
+        if (partyInArea(c.tx, c.ty, 3, 3)) continue;   // PT 巻き込み回避
+        const cnt = enemiesInArea(c.tx, c.ty, 3, 3).length;
+        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        // 発動できる安全な範囲なし → 通常基本攻撃 (スリング) にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      const affectedIdxs = enemiesInArea(best.tx, best.ty, 3, 3);
+
+      // MP 消費 + 詠唱
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        "skill");
+      startAllyAttackAnim(ally);
+      // 詠唱: 火球が手元で膨張 (700ms)
+      spawnCastOrb(ally, "rgba(255,200,90,1)", 700);
+      await sleepMs(750);
+
+      // 飛翔: 火球が中心へ
+      const centerWX = best.tx * TILE_SIZE + 1.5 * TILE_SIZE;
+      const centerWY = best.ty * TILE_SIZE + 1.5 * TILE_SIZE;
+      const fromWX = aCX, fromWY = aCY - 8;
+      await spawnFireballProjectile(fromWX, fromWY, centerWX, centerWY, 380);
+
+      // 着弾: 爆発リング + 火柱 + 動的光源 + 衝撃光
+      spawnFireballExplosion(centerWX, centerWY);
+      // 焼夷地面 (1.5 秒)
+      spawnGroundFx(best.tx, best.ty, 3, 3, "fireball-scorch", 1500);
+      await sleepMs(250);
+
+      // 全敵に DEX セーヴ + ダメージ
+      const intMod = ally.int || 4;
+      const spellDC = 12 + intMod;
+      let totalHits = 0, halved = 0;
+      const killedNames = [];
+      for (const idx of affectedIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg += intMod;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        // 残影回避判定 (Phase 2-A)
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        totalHits++;
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      const msg = `${ally.def.name}: ファイアボール ${affectedIdxs.length}体に着弾 (${halved}体セーヴ半減)`;
+      updateInfo(msg);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
+    // ─── Phase 2-I B: ライトニングボルト (直線 3 タイル、5d6 雷、DEX セーヴ半減) ───
+    async function allyLightningBolt(ally, enemyIdx) {
+      const skill = MAGE_SKILLS["lightning-bolt"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const aTX = Math.floor(aCX / TILE_SIZE);
+      const aTY = Math.floor(aCY / TILE_SIZE);
+
+      // 8 方向の直線候補 (上/下/左/右 + 4 斜め、3 タイル先まで)
+      // 各方向で「PT 不在 + 敵数」を評価
+      const directions = [
+        { dx:  1, dy:  0, name: "right"    },
+        { dx: -1, dy:  0, name: "left"     },
+        { dx:  0, dy:  1, name: "down"     },
+        { dx:  0, dy: -1, name: "up"       },
+        { dx:  1, dy: -1, name: "up-right"   },
+        { dx:  1, dy:  1, name: "down-right" },
+        { dx: -1, dy: -1, name: "up-left"    },
+        { dx: -1, dy:  1, name: "down-left"  },
+      ];
+      let best = null, bestCount = 0;
+      for (const d of directions) {
+        // 3 タイルの直線 (aTX+dx, aTY+dy) から (aTX+3dx, aTY+3dy)
+        let blocked = false;
+        const lineIdxs = [];
+        for (let step = 1; step <= 3; step++) {
+          const tx = aTX + d.dx * step;
+          const ty = aTY + d.dy * step;
+          if (partyInArea(tx, ty, 1, 1)) { blocked = true; break; }
+          lineIdxs.push(...enemiesInArea(tx, ty, 1, 1));
+        }
+        if (blocked) continue;
+        if (lineIdxs.length > bestCount) { best = d; bestCount = lineIdxs.length; }
+      }
+      if (!best || bestCount === 0) {
+        // PT 巻き込みなしで撃てる方向なし → 通常基本攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      // 直線範囲内の全敵
+      const lineEnemyIdxs = new Set();
+      for (let step = 1; step <= 3; step++) {
+        const tx = aTX + best.dx * step;
+        const ty = aTY + best.dy * step;
+        for (const i of enemiesInArea(tx, ty, 1, 1)) lineEnemyIdxs.add(i);
+      }
+
+      // MP 消費 + 詠唱
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      flashAction(ally.el, "skill");
+      if (best.dx !== 0) ally.facing = best.dx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 直線 ${lineEnemyIdxs.size}体`,
+        "skill");
+      startAllyAttackAnim(ally);
+      spawnCastOrb(ally, "rgba(180,220,255,1)", 600);
+      await sleepMs(620);
+
+      // 稲妻発射: ally から 3 タイル先までライン描画 + 全敵にダメージ
+      const endWX = aCX + best.dx * 3 * TILE_SIZE;
+      const endWY = aCY + best.dy * 3 * TILE_SIZE;
+      spawnLightningBolt(aCX, aCY - 8, endWX, endWY);
+      await sleepMs(200);
+
+      const intMod = ally.int || 4;
+      const spellDC = 12 + intMod;
+      let totalHits = 0, halved = 0;
+      const killedNames = [];
+      for (const idx of lineEnemyIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        totalHits++;
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: ライトニングボルト ${lineEnemyIdxs.size}体貫通 (${halved}体セーヴ半減)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
+    // ─── Phase 2-I C: コーンオブコールド (前方円錐 3 タイル、4d6 冷気 + 凍結 1T、CON セーヴ半減) ───
+    async function allyConeOfCold(ally, enemyIdx) {
+      const skill = MAGE_SKILLS["cone-of-cold"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const aTX = Math.floor(aCX / TILE_SIZE);
+      const aTY = Math.floor(aCY / TILE_SIZE);
+
+      // 4 方向の円錐 (前方 3 タイル分、横幅 1→3→5 タイル拡張)
+      const directions = [
+        { dx:  1, dy:  0 },
+        { dx: -1, dy:  0 },
+        { dx:  0, dy:  1 },
+        { dx:  0, dy: -1 },
+      ];
+      // 円錐内のタイル一覧 (方向 d / 距離 step / 横ずれ lat に対応)
+      function coneTiles(d) {
+        const tiles = [];
+        for (let step = 1; step <= 3; step++) {
+          const halfWidth = step;   // 1, 2, 3
+          for (let lat = -halfWidth + 1; lat <= halfWidth - 1; lat++) {
+            const tx = aTX + d.dx * step + (-d.dy) * lat;
+            const ty = aTY + d.dy * step + (d.dx)  * lat;
+            tiles.push({ tx, ty });
+          }
+        }
+        return tiles;
+      }
+      let best = null, bestCount = 0;
+      for (const d of directions) {
+        const tiles = coneTiles(d);
+        let safe = true;
+        let cnt = 0;
+        for (const t of tiles) {
+          if (partyInArea(t.tx, t.ty, 1, 1)) { safe = false; break; }
+          cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;
+        }
+        if (!safe) continue;
+        if (cnt > bestCount) { best = { d, tiles }; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        // 4 方向すべて NG → 通常基本攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      // 円錐内全敵
+      const coneEnemyIdxs = new Set();
+      for (const t of best.tiles) {
+        for (const i of enemiesInArea(t.tx, t.ty, 1, 1)) coneEnemyIdxs.add(i);
+      }
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      flashAction(ally.el, "skill");
+      if (best.d.dx !== 0) ally.facing = best.d.dx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 円錐 ${coneEnemyIdxs.size}体`,
+        "skill");
+      startAllyAttackAnim(ally);
+      spawnCastOrb(ally, "rgba(200,230,255,1)", 600);
+      await sleepMs(620);
+
+      // 結晶散布 + 動的光源
+      spawnConeCrystals(aCX, aCY, best.d.dx, best.d.dy);
+      // 凍結地面 (2 秒)
+      for (const t of best.tiles) {
+        spawnGroundFx(t.tx, t.ty, 1, 1, "cold-frost", 2000);
+      }
+      await sleepMs(350);
+
+      const intMod = ally.int || 4;
+      const spellDC = 12 + intMod;
+      let totalHits = 0, halved = 0, frozen = 0;
+      const killedNames = [];
+      for (const idx of coneEnemyIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.con || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        // 凍結 (セーヴ失敗時のみ)
+        if (!halvedSave) {
+          t.stunned = Math.max(t.stunned || 0, skill.freezeTarget || 1);
+          frozen++;
+        }
+        totalHits++;
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: コーンオブコールド ${coneEnemyIdxs.size}体 (${halved}半減 / ${frozen}凍結)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
       await sleepMs(700);
     }
 
@@ -10531,25 +12130,52 @@
         }
       }
 
-      // 3. 攻撃呪文: 脅威度が低いなら温存、高いほど許可呪文が増える
-      //    <12: スリングのみ / 12-25: fire-bolt まで / >=25: 全呪文
-      // MP 残量が極少 (3 以下) なら攻撃呪文は温存
-      if (ally.mp > 3 && threatScore >= 12) {
+      // 3. 攻撃呪文: 装備している攻撃呪文 + MP があるものをすべて候補に。
+      //    脅威度は優先順位の判定のみに使用 (threatScore で弾かない)。
+      //    MP 残量が極少 (3 以下) なら呪文は温存。
+      if (ally.mp > 3) {
         const attackSpells = [];
         if (ally.equippedSkills.includes("fire-bolt") && ally.mp >= MAGE_SKILLS["fire-bolt"].mpCost) {
           attackSpells.push("fire-bolt");
         }
-        if (threatScore >= 25 &&
-            ally.equippedSkills.includes("magic-missile") &&
-            ally.mp >= MAGE_SKILLS["magic-missile"].mpCost) {
+        if (ally.equippedSkills.includes("magic-missile") && ally.mp >= MAGE_SKILLS["magic-missile"].mpCost) {
           attackSpells.push("magic-missile");
+        }
+        // Phase 2-I: 新規 3 呪文 — 装備していれば常に候補に入る
+        if (ally.equippedSkills.includes("fireball") && ally.mp >= MAGE_SKILLS["fireball"].mpCost) {
+          attackSpells.push("fireball");
+        }
+        if (ally.equippedSkills.includes("lightning-bolt") && ally.mp >= MAGE_SKILLS["lightning-bolt"].mpCost) {
+          attackSpells.push("lightning-bolt");
+        }
+        if (ally.equippedSkills.includes("cone-of-cold") && ally.mp >= MAGE_SKILLS["cone-of-cold"].mpCost) {
+          attackSpells.push("cone-of-cold");
         }
         if (attackSpells.length > 0) {
           const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
           if (tgtIdx < 0) return false;
-          const spellId = attackSpells[Math.floor(Math.random() * attackSpells.length)];
-          if (spellId === "magic-missile") await allyMagicMissile(ally, tgtIdx);
-          else await allyFireBolt(ally, tgtIdx);
+          // 選択優先順: threatScore が高ければ強力な範囲呪文を優先、低ければ単体や火球を優先
+          //   - threatScore ≥ 30 + Fireball 候補にあり → Fireball
+          //   - threatScore ≥ 25 + Lightning Bolt or Cone of Cold → 優先
+          //   - その他: Lightning Bolt / Cone of Cold → Fireball → Magic Missile → Fire Bolt の順
+          let spellId = null;
+          if (threatScore >= 30 && attackSpells.includes("fireball")) spellId = "fireball";
+          else if (threatScore >= 25 && attackSpells.includes("lightning-bolt")) spellId = "lightning-bolt";
+          else if (threatScore >= 25 && attackSpells.includes("cone-of-cold")) spellId = "cone-of-cold";
+          else {
+            // 装備されている強力なものから順に選ぶ (低 threatScore でも使う)
+            const fallbackOrder = ["lightning-bolt", "cone-of-cold", "fireball", "magic-missile", "fire-bolt"];
+            for (const p of fallbackOrder) {
+              if (attackSpells.includes(p)) { spellId = p; break; }
+            }
+          }
+          if (!spellId) spellId = attackSpells[0];
+          if (spellId === "magic-missile")        await allyMagicMissile(ally, tgtIdx);
+          else if (spellId === "fire-bolt")       await allyFireBolt(ally, tgtIdx);
+          else if (spellId === "fireball")        await allyFireball(ally, tgtIdx);
+          else if (spellId === "lightning-bolt")  await allyLightningBolt(ally, tgtIdx);
+          else if (spellId === "cone-of-cold")    await allyConeOfCold(ally, tgtIdx);
+          else                                    await allyFireBolt(ally, tgtIdx);
           return true;
         }
       }
@@ -11788,6 +13414,28 @@
 
       await playEnemyAttackVisual(idx, playerX + 48, playerY + 58);
 
+      // ── Phase 2-G: アクセサリー回避判定 (PC リーダー限定) ──
+      // 全攻撃 5% + 矢攻撃なら追加 50%。発動時は PC 残像を出してダメージなしで終了。
+      // DEBUG: window.__evadeAlways / __evadeArrowsOnly で確定回避モード (装備時のみ)
+      {
+        const isArrow = def.projectile === "arrow";
+        let avoidance = getTotalAvoidance("all");
+        if (isArrow) avoidance += getTotalAvoidance("arrow");
+        const forceEvade = avoidance > 0 && (
+          window.__evadeAlways ||
+          (window.__evadeArrowsOnly && isArrow)
+        );
+        if (forceEvade || (avoidance > 0 && Math.random() < avoidance)) {
+          spawnPlayerDisplaceAfterimage();
+          const evadeLabel = isArrow ? "矢をかわした!" : "攻撃を逸らした!";
+          showRollAtPlayer(`<span class="label">EVADE!</span>${evadeLabel}`, "hit");
+          updateInfo(`${def.name} の攻撃を残影でかわした! (${evadeLabel})`);
+          if (autoGuardActive) isGuarding = false;
+          await sleepMs(420);
+          return;
+        }
+      }
+
       // ダメージロール
       // smash は「ダイス数を2倍」の固定強攻撃 (crit とは排他にしてバランス保つ)
       const { n, sides } = parseDiceDD(def.dmgDice || "1d4");
@@ -11946,6 +13594,29 @@
         isCrit ? "crit" : "hit");
       await sleepMs(500);
       await playEnemyAttackVisual(enemyIdx, tCX, tCY);
+
+      // ── Phase 2-G 拡張: 仲間用アクセサリー回避判定 ──
+      // 装備中の残影の首飾り等が反応。発動時は仲間の残像を出してダメージなしで終了。
+      // DEBUG: window.__evadeAlways / __evadeArrowsOnly で確定回避
+      {
+        const isArrowA = def.projectile === "arrow";
+        let avoidanceA = getTotalAvoidance("all", ally);
+        if (isArrowA) avoidanceA += getTotalAvoidance("arrow", ally);
+        const forceEvadeA = avoidanceA > 0 && (
+          window.__evadeAlways ||
+          (window.__evadeArrowsOnly && isArrowA)
+        );
+        if (forceEvadeA || (avoidanceA > 0 && Math.random() < avoidanceA)) {
+          spawnAllyDisplaceAfterimage(ally);
+          const evadeLabel = isArrowA ? "矢をかわした!" : "攻撃を逸らした!";
+          if (typeof showRollAtAlly === "function") {
+            showRollAtAlly(ally, `<span class="label">EVADE!</span>${evadeLabel}`, "hit");
+          }
+          updateInfo(`${ally.def.name} は ${def.name} の攻撃を残影でかわした! (${evadeLabel})`);
+          await sleepMs(420);
+          return;
+        }
+      }
 
       // ダメージロール
       const { n, sides } = parseDiceDD(def.dmgDice || "1d4");
@@ -12131,6 +13802,39 @@
       createAllyDom(allies[idx], idx);
     });
 
+    // Phase 2-G 拡張: accessoryState から各キャラの装備状態を復元
+    (function restoreAccessoryState() {
+      if (!persistent.accessoryStateJson) return;
+      try {
+        const snap = JSON.parse(persistent.accessoryStateJson);
+        if (snap && snap.player && Array.isArray(snap.player)) {
+          currentAccessoryIndices = [
+            accessoryIdxFromId(snap.player[0] || "none"),
+            accessoryIdxFromId(snap.player[1] || "none"),
+          ];
+          if (currentAccessoryIndices[0] !== 0 &&
+              currentAccessoryIndices[0] === currentAccessoryIndices[1]) {
+            currentAccessoryIndices[1] = 0;
+          }
+        }
+        if (snap && snap.allies) {
+          for (const a of allies) {
+            const ids = snap.allies[a.classKey];
+            if (Array.isArray(ids)) {
+              a.accessoryIndices = [
+                accessoryIdxFromId(ids[0] || "none"),
+                accessoryIdxFromId(ids[1] || "none"),
+              ];
+              if (a.accessoryIndices[0] !== 0 &&
+                  a.accessoryIndices[0] === a.accessoryIndices[1]) {
+                a.accessoryIndices[1] = 0;
+              }
+            }
+          }
+        }
+      } catch (e) { /* JSON 不正は無視 */ }
+    })();
+
     // ── 永続化された XP から、Lv1 → 現在 Lv 分の成長をパーティー全員に適用 ──
     // (XP は永続、stat はランごとに base からスタート + ここで再構築)
     (function applyInitialLevels() {
@@ -12194,17 +13898,35 @@
         const clearXp = (currentScenario && currentScenario.clearXp) || 0;
         if (clearXp > 0) gainXP(clearXp, "クリア報酬");
 
+        // 持ち物 (最強所持) は出発時の値より下げない (戦士の武器が下がると
+        // tavern.html 側の min(allyWeapon, inventory.weaponIdx) で仲間装備も clip されてしまう)
+        const winSafeWeaponIdx = Math.max(currentWeaponIndex, startedWithWeaponIdx);
+        const winSafeArmorIdx  = Math.max(currentArmorIndex,  startedWithArmorIdx);
+        const winSafeShieldIdx = Math.max(currentShieldIndex, startedWithShieldIdx);
         try {
           localStorage.setItem("dragonfighters.gold",      String(newTotalGold));
-          localStorage.setItem("dragonfighters.weaponIdx", String(currentWeaponIndex));
-          localStorage.setItem("dragonfighters.armorIdx",  String(currentArmorIndex));
-          localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
+          localStorage.setItem("dragonfighters.weaponIdx", String(winSafeWeaponIdx));
+          localStorage.setItem("dragonfighters.armorIdx",  String(winSafeArmorIdx));
+          localStorage.setItem("dragonfighters.shieldIdx", String(winSafeShieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
-          // 拾った装備を次回も装備状態に同期 (tavern の Math.min(equip, idx) が
-          // 古い equip で新装備を弾かないように)
-          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
-          localStorage.setItem("dragonfighters.equipArmorIdx",  String(currentArmorIndex));
-          localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
+          // 装備選択も同様に保護 (拾った上位装備があれば反映、ランで下がっても出発時を維持)
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(winSafeWeaponIdx));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(winSafeArmorIdx));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(winSafeShieldIdx));
+          // Phase 2-G: アクセサリー所持リストと装備中スロット (リーダー)
+          localStorage.setItem("dragonfighters.accessoryIds",
+            JSON.stringify(persistent.accessoryIds || []));
+          localStorage.setItem("dragonfighters.equipAccessory1",
+            (accessories[currentAccessoryIndices[0]] || accessories[0]).id);
+          localStorage.setItem("dragonfighters.equipAccessory2",
+            (accessories[currentAccessoryIndices[1]] || accessories[0]).id);
+          // Phase 2-G 拡張: 全キャラの装備状態を JSON で保存
+          if (typeof savePersistentAccessoryStock === "function") {
+            savePersistentAccessoryStock();
+          }
+          // Phase 2-H: 道具袋 + アクセサリー在庫
+          if (typeof saveInventoryBag === "function") saveInventoryBag();
+          if (typeof recomputeAccessoryStock === "function") recomputeAccessoryStock();
         } catch (e) { /* localStorage 失敗は無視 */ }
 
         reward = {
@@ -12272,17 +13994,24 @@
         // 撤退はペナルティなし: このランで拾った金貨/装備/XP を永続化
         // (勝利時 L11559-11565 と同等。ただし clearXp ボーナスは未付与)
         const retreatTotalGold = persistent.gold + coins;
+        // 持ち物 (最強所持) は出発時の値より下げない (撤退中に装備が下がる事故防止)
+        const safeWeaponIdx = Math.max(currentWeaponIndex, startedWithWeaponIdx);
+        const safeArmorIdx  = Math.max(currentArmorIndex,  startedWithArmorIdx);
+        const safeShieldIdx = Math.max(currentShieldIndex, startedWithShieldIdx);
         try {
           localStorage.setItem("dragonfighters.gold",      String(retreatTotalGold));
-          localStorage.setItem("dragonfighters.weaponIdx", String(currentWeaponIndex));
-          localStorage.setItem("dragonfighters.armorIdx",  String(currentArmorIndex));
-          localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
+          localStorage.setItem("dragonfighters.weaponIdx", String(safeWeaponIdx));
+          localStorage.setItem("dragonfighters.armorIdx",  String(safeArmorIdx));
+          localStorage.setItem("dragonfighters.shieldIdx", String(safeShieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
-          // 拾った装備を次回も装備状態に同期 (tavern の Math.min(equip, idx) が
-          // 古い equip で新装備を弾かないように)
-          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
-          localStorage.setItem("dragonfighters.equipArmorIdx",  String(currentArmorIndex));
-          localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
+          // 装備選択は「出発時より下がらない」を保証しつつ、ランで拾った装備があれば反映
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(safeWeaponIdx));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(safeArmorIdx));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(safeShieldIdx));
+          // Phase 2-G/H: アクセサリー状態 + 道具袋 + 在庫
+          if (typeof savePersistentAccessoryStock === "function") savePersistentAccessoryStock();
+          if (typeof saveInventoryBag === "function") saveInventoryBag();
+          if (typeof recomputeAccessoryStock === "function") recomputeAccessoryStock();
         } catch (e) { /* localStorage 失敗は無視 */ }
         sessionStorage.setItem("dragonfighters.lastResult", JSON.stringify({
           scenarioId,
