@@ -4599,30 +4599,71 @@
     // hitDieMax: 毎レベルの HP 増加 (Q1=C 常に最大)
     // babFn(lv): その Lv での累積 BAB (Full=lv, 3/4=floor(lv*3/4), 1/2=floor(lv/2))
     // statBoost: 4 Lv ごとに +1 する固定ステ (Q2=A クラス別)
-    // mpPerLevel: 呪文使い向け MP 増加
+    // (Phase 2-J: mpPerLevel は呪文記憶スロットシステム導入により廃止)
     const LEVEL_PROGRESSION = {
-      warrior: { hitDieMax: 10, babFn: lv => lv,                 statBoost: "str", mpPerLevel: 0 },
-      dwarf:   { hitDieMax: 10, babFn: lv => lv,                 statBoost: "con", mpPerLevel: 0 },
-      cleric:  { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "wis", mpPerLevel: 2 },
-      mage:    { hitDieMax: 4,  babFn: lv => Math.floor(lv / 2),     statBoost: "int", mpPerLevel: 2 },
-      elf:     { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "dex", mpPerLevel: 1 },
+      warrior: { hitDieMax: 10, babFn: lv => lv,                 statBoost: "str" },
+      dwarf:   { hitDieMax: 10, babFn: lv => lv,                 statBoost: "con" },
+      cleric:  { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "wis" },
+      mage:    { hitDieMax: 4,  babFn: lv => Math.floor(lv / 2),     statBoost: "int" },
+      elf:     { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "dex" },
     };
+
+    // ── Phase 2-J: 呪文記憶スロットシステム ──
+    // 魔法使い: 自由配分、Lv1=3 → Lv10=15
+    // エルフ: 自由配分 (魔法使いの約 65%)、Lv1=2 → Lv10=10
+    // 僧侶: 自動固定 (呪文ごとに Lv 別使用回数表)、酒場で編集不可
+    const SPELL_SLOT_CURVE_MAGE = [0, 3, 4, 5, 6, 8, 9, 10, 12, 13, 15];   // index = Lv (1-10)
+    const SPELL_SLOT_CURVE_ELF  = [0, 2, 2, 3, 4, 5,  6,  7,  8,  9, 10];
+    const CLERIC_SLOTS_TABLE = {
+      // index = Lv (0 はダミー)
+      "cure-light-wounds":   [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
+      "shield-of-faith":     [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+      // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
+    };
+    function isCasterClass(classKey) {
+      return classKey === "cleric" || classKey === "mage" || classKey === "elf";
+    }
+    function isAutoSlotClass(classKey) {
+      // 自動配分クラス (酒場で編集不可、呪文ごとに Lv 別自動分配)
+      return classKey === "cleric";
+    }
+    // 僧侶の Lv N 時点でのスロット配分 → { skillId: 個数, ... }
+    function getClericSlots(lv) {
+      const out = {};
+      const cap = Math.max(0, Math.min(10, lv));
+      for (const [id, table] of Object.entries(CLERIC_SLOTS_TABLE)) {
+        const n = table[cap] || 0;
+        if (n > 0) out[id] = n;
+      }
+      return out;
+    }
+    // 任意クラスの Lv N 時点での「総スロット数上限」 (魔法使い/エルフは自由配分の上限値)
+    function getMaxSpellSlotsForClass(classKey, lv) {
+      const cap = Math.max(1, Math.min(10, lv));
+      if (classKey === "mage")   return SPELL_SLOT_CURVE_MAGE[cap] || 0;
+      if (classKey === "elf")    return SPELL_SLOT_CURVE_ELF [cap] || 0;
+      if (classKey === "cleric") {
+        return Object.values(getClericSlots(lv)).reduce((a, b) => a + b, 0);
+      }
+      return 0;
+    }
 
     // 1ユニット (player or ally) のレベルアップ適用
     // Q1=C (HP最大値固定増)、Q2=A (クラス別固定ステ)、Q3=B (増分のみ回復)
     function applyLevelUpToUnit(unitRef, classKey, prevLv, newLv) {
       const cfg = LEVEL_PROGRESSION[classKey];
       if (!cfg) return null;
-      let hpGain = 0, atkGainBab = 0, mpGain = 0;
+      let hpGain = 0, atkGainBab = 0;
       const statBoosts = {};
       for (let lv = prevLv + 1; lv <= newLv; lv++) {
         hpGain += cfg.hitDieMax;
         atkGainBab += cfg.babFn(lv) - cfg.babFn(lv - 1);
-        if (cfg.mpPerLevel) mpGain += cfg.mpPerLevel;
         if (lv % 4 === 0 && cfg.statBoost) {
           statBoosts[cfg.statBoost] = (statBoosts[cfg.statBoost] || 0) + 1;
         }
       }
+      // Phase 2-J: mpGain は廃止、代わりにレベル別スロット数で自動再計算
+      const mpGain = 0;
       // 派生効果: 武器の攻撃ステに +1 が乗ったら atk/dmg ボーナスも追従
       // warrior: STR → atk + dmg、elf: DEX → atk (弓は DEX 命中)
       let atkGainStat = 0, dmgGainStat = 0;
@@ -4651,10 +4692,14 @@
         for (const s of Object.keys(statBoosts)) {
           unitRef[s] = (unitRef[s] || 0) + statBoosts[s];
         }
-        if (mpGain && unitRef.maxMp != null && unitRef.maxMp > 0) {
-          unitRef.maxMp += mpGain;
-          unitRef.mp = Math.min(unitRef.maxMp, (unitRef.mp || 0) + mpGain);
+        // Phase 2-J: ally の spellSlots を Lv 別に再計算
+        if (typeof recalcAllySpellSlotsOnLevelUp === "function") {
+          recalcAllySpellSlotsOnLevelUp(unitRef, classKey, newLv);
         }
+      }
+      // Phase 2-J: リーダー (player) の spellSlots も再計算
+      if (unitRef === "player" && typeof recalcLeaderSpellSlotsOnLevelUp === "function") {
+        recalcLeaderSpellSlotsOnLevelUp(classKey, newLv);
       }
       return { hpGain, atkGain: atkGainBab + atkGainStat, mpGain, statBoosts };
     }
@@ -4676,7 +4721,7 @@
           const parts = [];
           if (s.hpGain) parts.push(`HP+${s.hpGain}`);
           if (s.atkGain) parts.push(`攻+${s.atkGain}`);
-          if (s.mpGain) parts.push(`MP+${s.mpGain}`);
+          // Phase 2-J Polish: MP+ 行は完全廃止 (mpGain は 0 固定だが念のため削除)
           for (const k of Object.keys(s.statBoosts || {})) {
             parts.push(`${STAT_LABEL[k] || k}+${s.statBoosts[k]}`);
           }
@@ -4844,7 +4889,12 @@
         def: cd,
         x: startX, y: startY,
         hp: cd.hpMax, maxHp: cd.hpMax,
-        mp: cd.mpMax || 0, maxMp: cd.mpMax || 0,
+        // Phase 2-J: MP は完全廃止 (互換性のため 0 で残置、spellSlots に移行)
+        mp: 0, maxMp: 0,
+        // Phase 2-J: 呪文記憶スロット (createAlly 後に initAllySpellSlots で初期化)
+        spellSlots: {},
+        maxSpellSlots: {},
+        maxSpellSlotsTotal: 0,
         alive: true,
         // D&D ステータス
         str: cd.str, dex: cd.dex, con: cd.con, wis: cd.wis, int: cd.int || 0,
@@ -4875,6 +4925,121 @@
         // DOM 要素は createAllyDom で割り当て
         el: null, hpWrapEl: null, hpFillEl: null, nameLabelEl: null,
       };
+    }
+
+    // ── Phase 2-J: 各 SKILL_DICT のエントリに _slotId を埋め込む ──
+    // 各 skill オブジェクトに `_slotId = キー` を付与して、ally.spellSlots の参照と一致させる。
+    // 既存の呪文取得 (例: MAGE_SKILLS["fireball"]) が変わらず、skill._slotId で id 取得可能。
+    function _decorateSkillsWithSlotId(dict) {
+      if (!dict) return;
+      for (const k of Object.keys(dict)) {
+        if (dict[k] && typeof dict[k] === "object") dict[k]._slotId = k;
+      }
+    }
+    // 注: 各 *_SKILLS は後で定義されるので、ロード後に呼び出す
+    setTimeout(() => {
+      if (typeof MAGE_SKILLS    !== "undefined") _decorateSkillsWithSlotId(MAGE_SKILLS);
+      if (typeof CLERIC_SKILLS  !== "undefined") _decorateSkillsWithSlotId(CLERIC_SKILLS);
+      if (typeof ELF_SKILLS     !== "undefined") _decorateSkillsWithSlotId(ELF_SKILLS);
+    }, 0);
+
+    // ── Phase 2-J: 呪文スロット 消費 / 残数チェック ヘルパー ──
+    // unit: player の場合は leader 用、ally の場合は ally オブジェクト
+    function getSpellSlotsRef(unit) {
+      if (unit === "player" || (unit && unit === window)) {
+        return (typeof currentSpellSlots !== "undefined") ? currentSpellSlots : null;
+      }
+      return (unit && unit.spellSlots) || null;
+    }
+    function hasSpellSlot(unit, skillId) {
+      const ref = getSpellSlotsRef(unit);
+      return ref && (ref[skillId] || 0) > 0;
+    }
+    function consumeSpellSlot(unit, skillId) {
+      const ref = getSpellSlotsRef(unit);
+      if (!ref) return false;
+      if (!ref[skillId] || ref[skillId] <= 0) return false;
+      ref[skillId] -= 1;
+      return true;
+    }
+
+    // ── Phase 2-J: ally / leader の呪文スロット初期化 ──
+    // partySkillsMap: tavern から渡される { classKey: { skillId: 個数, ... } } マップ (mage/elf 用)
+    // 僧侶 (cleric) は partySkillsMap を無視して CLERIC_SLOTS_TABLE から自動配分。
+    function initAllySpellSlots(ally, classKey, lv, partySkillsMap) {
+      if (!isCasterClass(classKey)) {
+        ally.spellSlots = {};
+        ally.maxSpellSlots = {};
+        ally.maxSpellSlotsTotal = 0;
+        ally.equippedSkills = [];
+        return;
+      }
+      let allocMap = {};
+      if (isAutoSlotClass(classKey)) {
+        // 僧侶: Lv 別自動配分
+        allocMap = getClericSlots(lv);
+      } else {
+        // 魔法使い / エルフ: 酒場でセットされた配分を採用
+        const fromTavern = (partySkillsMap && partySkillsMap[classKey]) || {};
+        const upperCap = getMaxSpellSlotsForClass(classKey, lv);
+        // 合計が上限超えてたら 0 に強制カット (古いセーブの過剰配分対策)
+        let used = 0;
+        for (const [id, n] of Object.entries(fromTavern)) {
+          if (n > 0) {
+            // Lv 制限チェック (呪文 def に levelReq があれば)
+            const skill = (typeof getSkill === "function") ? getSkill(id) : null;
+            const lvReq = (skill && skill.levelReq) || 1;
+            if (lv < lvReq) continue;
+            // 上限超えない範囲で割り当て
+            const take = Math.min(n, upperCap - used);
+            if (take > 0) { allocMap[id] = take; used += take; }
+          }
+        }
+      }
+      ally.spellSlots = { ...allocMap };
+      ally.maxSpellSlots = { ...allocMap };
+      ally.maxSpellSlotsTotal = Object.values(allocMap).reduce((a, b) => a + b, 0);
+      // equippedSkills は spellSlots のキー集合 (既存 AI のチェックと互換)
+      ally.equippedSkills = Object.keys(allocMap);
+    }
+
+    // レベルアップ時の再計算: 僧侶は自動、mage/elf は新 Lv の上限内で既存配分を保持
+    function recalcAllySpellSlotsOnLevelUp(ally, classKey, newLv) {
+      if (!ally || !isCasterClass(classKey)) return;
+      const oldMax = { ...ally.maxSpellSlots };
+      if (isAutoSlotClass(classKey)) {
+        // 僧侶: Lv に応じて再配分
+        const fresh = getClericSlots(newLv);
+        ally.maxSpellSlots = { ...fresh };
+        // 残スロットを上限内で保ち、差分は補充 (上限が増えた呪文だけ満タンに)
+        const newSlots = {};
+        for (const id of Object.keys(fresh)) {
+          const cap = fresh[id];
+          const prevCur = ally.spellSlots[id] || 0;
+          const prevMax = oldMax[id] || 0;
+          // 増加分は満タン補充、既存は max(prev, cap-(prevMax-prevCur)) ≒ prevCur で
+          newSlots[id] = Math.min(cap, prevCur + Math.max(0, cap - prevMax));
+        }
+        ally.spellSlots = newSlots;
+      } else {
+        // mage / elf: 上限内で既存配分を再構築
+        const upperCap = getMaxSpellSlotsForClass(classKey, newLv);
+        let used = 0;
+        const fresh = {};
+        for (const [id, n] of Object.entries(ally.maxSpellSlots)) {
+          const take = Math.min(n, upperCap - used);
+          if (take > 0) { fresh[id] = take; used += take; }
+        }
+        ally.maxSpellSlots = { ...fresh };
+        // 残スロットは min(prev, new max) で維持
+        const newSlots = {};
+        for (const id of Object.keys(fresh)) {
+          newSlots[id] = Math.min(fresh[id], ally.spellSlots[id] || 0);
+        }
+        ally.spellSlots = newSlots;
+      }
+      ally.maxSpellSlotsTotal = Object.values(ally.maxSpellSlots).reduce((a, b) => a + b, 0);
+      ally.equippedSkills = Object.keys(ally.maxSpellSlots);
     }
 
     function createAllyDom(ally, index) {
@@ -5403,7 +5568,22 @@
           ? `<div class="sbStat">盾: <span class="${getItemColorClass(shield.name, shield.rarity)}">${shield.name}</span> (AC +${shield.enhancement})</div>`
           : "";
         // MP 行 (リーダーが mpMax>0 のクラス: 僧侶/魔法使い/エルフ など)
-        const leaderMpLine = (maxMp > 0)
+        // Phase 2-J: MP → 呪文スロット表示
+        let leaderMpLine = "";
+        if (currentMaxSpellSlotsTotal > 0) {
+          const slotsRemain = Object.values(currentSpellSlots || {}).reduce((s, v) => s + v, 0);
+          const slotDetail = Object.entries(currentSpellSlots || {})
+            .filter(([id, n]) => (currentMaxSpellSlots[id] || 0) > 0)
+            .map(([id, n]) => {
+              const skName = (typeof getSkill === "function" && getSkill(id)) ? getSkill(id).name : id;
+              return `${skName} ${n}/${currentMaxSpellSlots[id]}`;
+            })
+            .join(" / ");
+          leaderMpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${currentMaxSpellSlotsTotal}</div>` +
+                         (slotDetail ? `<div class="sbStat" style="font-size:11px;opacity:0.8">${slotDetail}</div>` : "");
+        }
+        // 旧 MP 行 (互換性、Phase 2-J でほぼ未使用): 0 のとき非表示
+        if (false) leaderMpLine = (maxMp > 0)
           ? `<div class="sbStat">MP <b style="color:#2b5d8e">${mp}</b>/${maxMp}</div>`
           : "";
         // スキル行 (装備スキル一覧、仲間と同じ表示パターン)
@@ -5465,9 +5645,20 @@
           }).join(" / ");
           const acBonus = (a.buffs && a.buffs.acBonusRemaining > 0)
             ? `<span style="color:#2b5d8e">+${a.buffs.acBonusAmount}</span>` : "";
-          const mpLine = (a.maxMp > 0)
-            ? `<div class="sbStat">MP <b style="color:#2b5d8e">${a.mp}</b>/${a.maxMp}</div>`
-            : "";
+          // Phase 2-J: MP → 呪文スロット表示 (合計 + 各呪文の残/最大)
+          let mpLine = "";
+          if (a.maxSpellSlotsTotal && a.maxSpellSlotsTotal > 0) {
+            const slotsRemain = Object.values(a.spellSlots || {}).reduce((s, v) => s + v, 0);
+            const slotDetail = Object.entries(a.spellSlots || {})
+              .filter(([id, n]) => (a.maxSpellSlots[id] || 0) > 0)
+              .map(([id, n]) => {
+                const skName = (typeof getSkill === "function" && getSkill(id)) ? getSkill(id).name : id;
+                return `${skName} ${n}/${a.maxSpellSlots[id]}`;
+              })
+              .join(" / ");
+            mpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${a.maxSpellSlotsTotal}</div>` +
+                     (slotDetail ? `<div class="sbStat" style="font-size:11px;opacity:0.8">${slotDetail}</div>` : "");
+          }
           // Phase 2-G 拡張: 仲間のアクセサリー欄 (装備中のみ表示)
           let aAccLines = "";
           for (let slot = 0; slot < 2; slot++) {
@@ -7984,6 +8175,15 @@
       if (dungeonCleared || gameOver) return;
       if (enemies.every(e => !e.alive) && visitedRooms.size >= ROOMS.length - 2) {
         dungeonCleared = true;
+        // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
+        for (const a of allies) {
+          if (a && a.alive && a.maxSpellSlots) {
+            a.spellSlots = { ...a.maxSpellSlots };
+          }
+        }
+        if (currentMaxSpellSlots) {
+          currentSpellSlots = { ...currentMaxSpellSlots };
+        }
         updateInfo("ダンジョン制覇！\n全ての敵を倒した");
       }
     }
@@ -8088,6 +8288,10 @@
         maxHp: maxHp,
         mp: mp,
         maxMp: maxMp,
+        // Phase 2-J: 呪文スロットを参照 (同一オブジェクトでなく現在値をコピー渡し)
+        spellSlots: currentSpellSlots,
+        maxSpellSlots: currentMaxSpellSlots,
+        maxSpellSlotsTotal: currentMaxSpellSlotsTotal,
         alive: hp > 0,
         stunned: 0,
         facing: facing,
@@ -8122,6 +8326,8 @@
       if (!actor) return;
       hp = Math.max(0, Math.min(maxHp, actor.hp));
       mp = Math.max(0, Math.min(maxMp, actor.mp));
+      // Phase 2-J: actor.spellSlots は currentSpellSlots と同一オブジェクト参照なので
+      // ally* 関数内での減算がそのまま反映される。明示書き戻しは不要。
       // x/y の変動 (例: 盗賊シャドウステップでワープ) はリーダーに反映
       if (actor.x !== playerX || actor.y !== playerY) {
         playerX = actor.x;
@@ -8229,11 +8435,78 @@
         syncLeaderFromActor(actor);
       }
     }
-    // プレイヤーの MP 状態 (リーダーが mpMax>0 のクラスなら有効)
+    // プレイヤーの MP 状態 (リーダーが mpMax>0 のクラスなら有効、Phase 2-J で 0 固定)
     let mp = 0, maxMp = 0;
+    // Phase 2-J: リーダー (= プレイヤー) の呪文記憶スロット
+    let currentSpellSlots = {};
+    let currentMaxSpellSlots = {};
+    let currentMaxSpellSlotsTotal = 0;
     // リーダー (= プレイヤー) のスキル使用記録 (1戦1回・クールダウン管理、Step 2-C-3 a)
     const leaderSkillsUsedInEncounter = new Set();
     const leaderSkillCooldowns = {};
+
+    // Phase 2-J: リーダーの spellSlots を初期化 (Lv 別自動配分 / 酒場 partySkillsMap から)
+    function initLeaderSpellSlots(classKey, lv, partySkillsMap) {
+      if (!isCasterClass(classKey)) {
+        currentSpellSlots = {};
+        currentMaxSpellSlots = {};
+        currentMaxSpellSlotsTotal = 0;
+        return;
+      }
+      let allocMap = {};
+      if (isAutoSlotClass(classKey)) {
+        allocMap = getClericSlots(lv);
+      } else {
+        const fromTavern = (partySkillsMap && partySkillsMap[classKey]) || {};
+        const upperCap = getMaxSpellSlotsForClass(classKey, lv);
+        let used = 0;
+        for (const [id, n] of Object.entries(fromTavern)) {
+          if (n > 0) {
+            const skill = (typeof getSkill === "function") ? getSkill(id) : null;
+            const lvReq = (skill && skill.levelReq) || 1;
+            if (lv < lvReq) continue;
+            const take = Math.min(n, upperCap - used);
+            if (take > 0) { allocMap[id] = take; used += take; }
+          }
+        }
+      }
+      currentSpellSlots = { ...allocMap };
+      currentMaxSpellSlots = { ...allocMap };
+      currentMaxSpellSlotsTotal = Object.values(allocMap).reduce((a, b) => a + b, 0);
+    }
+
+    // レベルアップ時にリーダー spellSlots を再計算 (applyLevelUpToUnit から呼ばれる)
+    function recalcLeaderSpellSlotsOnLevelUp(classKey, newLv) {
+      if (!isCasterClass(classKey)) return;
+      const oldMax = { ...currentMaxSpellSlots };
+      if (isAutoSlotClass(classKey)) {
+        const fresh = getClericSlots(newLv);
+        currentMaxSpellSlots = { ...fresh };
+        const newSlots = {};
+        for (const id of Object.keys(fresh)) {
+          const cap = fresh[id];
+          const prevCur = currentSpellSlots[id] || 0;
+          const prevMax = oldMax[id] || 0;
+          newSlots[id] = Math.min(cap, prevCur + Math.max(0, cap - prevMax));
+        }
+        currentSpellSlots = newSlots;
+      } else {
+        const upperCap = getMaxSpellSlotsForClass(classKey, newLv);
+        let used = 0;
+        const fresh = {};
+        for (const [id, n] of Object.entries(currentMaxSpellSlots)) {
+          const take = Math.min(n, upperCap - used);
+          if (take > 0) { fresh[id] = take; used += take; }
+        }
+        currentMaxSpellSlots = { ...fresh };
+        const newSlots = {};
+        for (const id of Object.keys(fresh)) {
+          newSlots[id] = Math.min(fresh[id], currentSpellSlots[id] || 0);
+        }
+        currentSpellSlots = newSlots;
+      }
+      currentMaxSpellSlotsTotal = Object.values(currentMaxSpellSlots).reduce((a, b) => a + b, 0);
+    }
 
     // リーダークラスの def を引いて playerStats / hp / maxHp を構築
     function applyLeaderStats(leaderKey) {
@@ -8255,9 +8528,12 @@
       // HP も動的化 (Lv up での加算は applyInitialLevels で別途やる)
       maxHp = def.hpMax || 30;
       hp = maxHp;
-      // MP (リーダーが MP 持ちなら初期化)
-      maxMp = def.mpMax || 0;
-      mp = maxMp;
+      // MP (Phase 2-J: 完全廃止、互換性のため 0 で初期化)
+      maxMp = 0;
+      mp = 0;
+      // Phase 2-J: 呪文記憶スロット初期化 (リーダー Lv は applyInitialLevels 後に再計算可能)
+      const curLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
+      initLeaderSpellSlots(leaderKey, curLv, partySkillsMap);
       // 頭上ラベル (#warriorLabel) のテキストもリーダー名に
       const lbl = document.getElementById("warriorLabel");
       if (lbl) lbl.textContent = def.name || "戦士";
@@ -8813,22 +9089,32 @@
           }
           await sleepMs(900);
 
-          // 1. MP 回復 (勝利ボーナス: maxMp × 25% 切上げ)
+          // 1. Phase 2-J: 呪文スロット回復 (勝利ボーナス: maxSpellSlots[id] × 25% 切上げ)
           //    対象者が1人でもいれば「息を整える…」バナーを出す
-          const mpRestorable = allies.some(a => a.alive && a.maxMp > 0 && a.mp < a.maxMp);
-          if (mpRestorable) showBanner("息を整える…", 1500);
+          const slotRestorable = allies.some(a => {
+            if (!a.alive || !a.maxSpellSlots) return false;
+            for (const id of Object.keys(a.maxSpellSlots)) {
+              if ((a.spellSlots[id] || 0) < a.maxSpellSlots[id]) return true;
+            }
+            return false;
+          });
+          if (slotRestorable) showBanner("息を整える…", 1500);
           let anyMpRestored = false;
           for (const a of allies) {
-            if (!a.alive || a.maxMp <= 0) continue;
-            const amt = Math.ceil(a.maxMp * 0.25);
-            const prev = a.mp;
-            a.mp = Math.min(a.maxMp, a.mp + amt);
-            const actual = a.mp - prev;
-            if (actual > 0) {
+            if (!a.alive || !a.maxSpellSlots) continue;
+            let totalRestored = 0;
+            for (const id of Object.keys(a.maxSpellSlots)) {
+              const max = a.maxSpellSlots[id];
+              const refill = Math.ceil(max * 0.25);
+              const prev = a.spellSlots[id] || 0;
+              a.spellSlots[id] = Math.min(max, prev + refill);
+              totalRestored += a.spellSlots[id] - prev;
+            }
+            if (totalRestored > 0) {
               anyMpRestored = true;
               flashAction(a.el, "skill");
-              showHealAtAllyMp(a, actual);
-              updateInfo(`${a.def.name}のMPが、${actual} 回復した。`);
+              if (typeof showHealAtAllyMp === "function") showHealAtAllyMp(a, totalRestored);
+              updateInfo(`${a.def.name}の呪文が、${totalRestored} スロット回復した。`);
               await sleepMs(450);
             }
           }
@@ -10616,7 +10902,8 @@
       pop.style.color = "#6ab0ff";
       pop.style.textShadow =
         "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(80,140,255,0.9)";
-      pop.textContent = `MP +${amount}`;
+      // Phase 2-J: MP → 呪文スロット表記に変更
+      pop.textContent = `呪文 +${amount}`;
       const wx = ally.x + ally.def.displaySize / 2;
       const wy = ally.y;
       pop.style.left = (wx - camX) + "px";
@@ -10834,6 +11121,9 @@
 
       // 発動確定 → MP 消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
 
       // 向きを対象へ
@@ -10885,6 +11175,9 @@
 
       // 発動確定 → MP 消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
 
       // 向きを対象へ
@@ -10944,6 +11237,9 @@
 
       // 発動確定 → MP 消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
 
       // 向き
@@ -11020,6 +11316,9 @@
 
       // 発動確定 → MP 消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
 
       const dfx = ex - aCX, dfy = ey - aCY;
@@ -11153,6 +11452,9 @@
 
       // 発動確定 → MP 消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
 
       const dfx = ex - aCX;
@@ -11200,6 +11502,9 @@
       const skill = MAGE_SKILLS["arcane-shield"];
       // 発動確定 → MP 消費 (self なので射程チェック不要)
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       showRollAtAlly(ally,
         `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
@@ -11291,6 +11596,9 @@
 
       // MP 消費 + 詠唱
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       const dfx = ex - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
@@ -11400,6 +11708,9 @@
 
       // MP 消費 + 詠唱
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       if (best.dx !== 0) ally.facing = best.dx > 0 ? "right" : "left";
 
@@ -11500,6 +11811,9 @@
       }
 
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       if (best.d.dx !== 0) ally.facing = best.d.dx > 0 ? "right" : "left";
 
@@ -12149,7 +12463,8 @@
       // (回復は雑魚戦でも価値があるので閾値なし)
       const hasHeal = ally.equippedSkills.includes("cure-light-wounds");
       const cureCost = CLERIC_SKILLS["cure-light-wounds"]?.mpCost || 0;
-      if (hasHeal && ally.mp >= cureCost) {
+      // Phase 2-J: MP → 呪文スロット残数
+      if (hasHeal && hasSpellSlot(ally, "cure-light-wounds")) {
         const low = findLowestHpPartyMember();
         if (low && low.ratio < 0.75 && Math.random() < 0.5) {
           await allyCureLight(ally, low);
@@ -12160,7 +12475,8 @@
       //   雑魚1体相手には MP 温存する
       const hasShield = ally.equippedSkills.includes("shield-of-faith");
       const shieldCost = CLERIC_SKILLS["shield-of-faith"]?.mpCost || 0;
-      if (hasShield && ally.mp >= shieldCost && threat.score >= 15) {
+      // Phase 2-J: MP → 呪文スロット残数
+      if (hasShield && hasSpellSlot(ally, "shield-of-faith") && threat.score >= 15) {
         const candidates = [];
         if (hp > 0 && !gameOver && playerBuffs.acBonusRemaining <= 0) {
           candidates.push({
@@ -12195,12 +12511,12 @@
       // 1. 緊急自己シールド: 自分HP50%以下 & 未バフ → ほぼ確定で発動
       const hasAShield = ally.equippedSkills.includes("arcane-shield");
       const aShieldCost = MAGE_SKILLS["arcane-shield"]?.mpCost || 0;
-      if (hasAShield && ally.mp >= aShieldCost && ally.buffs.acBonusRemaining <= 0 && selfLowHp) {
+      if (hasAShield && hasSpellSlot(ally, "arcane-shield") && ally.buffs.acBonusRemaining <= 0 && selfLowHp) {
         await allyArcaneShield(ally);
         return true;
       }
       // 通常自己シールド: HP 70%以下 & 未バフ & 脅威度が十分高ければ 30%
-      if (hasAShield && ally.mp >= aShieldCost && ally.buffs.acBonusRemaining <= 0
+      if (hasAShield && hasSpellSlot(ally, "arcane-shield") && ally.buffs.acBonusRemaining <= 0
           && ally.hp < ally.maxHp * 0.7 && threatScore >= 15 && Math.random() < 0.3) {
         await allyArcaneShield(ally);
         return true;
@@ -12209,7 +12525,7 @@
       // 2. スリープ: 未スタンの敵が 2体以上 & 50%確率
       const hasSleep = ally.equippedSkills.includes("sleep");
       const sleepCost = MAGE_SKILLS["sleep"]?.mpCost || 0;
-      if (hasSleep && ally.mp >= sleepCost && unstunnedEnemies.length >= 2 && Math.random() < 0.5) {
+      if (hasSleep && hasSpellSlot(ally, "sleep") && unstunnedEnemies.length >= 2 && Math.random() < 0.5) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0) {
           await allySleep(ally, tgtIdx);
@@ -12222,20 +12538,20 @@
       //    MP 残量が極少 (3 以下) なら呪文は温存。
       if (ally.mp > 3) {
         const attackSpells = [];
-        if (ally.equippedSkills.includes("fire-bolt") && ally.mp >= MAGE_SKILLS["fire-bolt"].mpCost) {
+        // Phase 2-J: MP → 呪文スロット残数
+        if (ally.equippedSkills.includes("fire-bolt") && hasSpellSlot(ally, "fire-bolt")) {
           attackSpells.push("fire-bolt");
         }
-        if (ally.equippedSkills.includes("magic-missile") && ally.mp >= MAGE_SKILLS["magic-missile"].mpCost) {
+        if (ally.equippedSkills.includes("magic-missile") && hasSpellSlot(ally, "magic-missile")) {
           attackSpells.push("magic-missile");
         }
-        // Phase 2-I: 新規 3 呪文 — 装備していれば常に候補に入る
-        if (ally.equippedSkills.includes("fireball") && ally.mp >= MAGE_SKILLS["fireball"].mpCost) {
+        if (ally.equippedSkills.includes("fireball") && hasSpellSlot(ally, "fireball")) {
           attackSpells.push("fireball");
         }
-        if (ally.equippedSkills.includes("lightning-bolt") && ally.mp >= MAGE_SKILLS["lightning-bolt"].mpCost) {
+        if (ally.equippedSkills.includes("lightning-bolt") && hasSpellSlot(ally, "lightning-bolt")) {
           attackSpells.push("lightning-bolt");
         }
-        if (ally.equippedSkills.includes("cone-of-cold") && ally.mp >= MAGE_SKILLS["cone-of-cold"].mpCost) {
+        if (ally.equippedSkills.includes("cone-of-cold") && hasSpellSlot(ally, "cone-of-cold")) {
           attackSpells.push("cone-of-cold");
         }
         if (attackSpells.length > 0) {
@@ -12456,6 +12772,9 @@
       }
 
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       const dfx = ex - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
@@ -12550,6 +12869,9 @@
       }
 
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       const dfx = ex - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
@@ -12594,6 +12916,9 @@
     async function allyCureMinor(ally) {
       const skill = ELF_SKILLS["cure-minor"];
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
       flashAction(ally.el, "skill");
       showRollAtAlly(ally,
         `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
@@ -12619,18 +12944,18 @@
     async function elfAI(ally) {
       const threat = evaluateThreat();
 
-      // 1. 自己ヒール: HP 35%以下 & MP 足りる
+      // 1. 自己ヒール: HP 35%以下 & スロット残あり (Phase 2-J: MP → spellSlots)
       const hasCure = ally.equippedSkills.includes("cure-minor");
       const cureCost = ELF_SKILLS["cure-minor"]?.mpCost || 0;
-      if (hasCure && ally.mp >= cureCost && ally.hp / ally.maxHp < 0.35) {
+      if (hasCure && hasSpellSlot(ally, "cure-minor") && ally.hp / ally.maxHp < 0.35) {
         await allyCureMinor(ally);
         return true;
       }
 
-      // 2. マジック・アロー (必中): 脅威度 >= 15 & MP 足りる、50%
+      // 2. マジック・アロー (必中): 脅威度 >= 15 & スロット残あり、50%
       const hasMArrow = ally.equippedSkills.includes("magic-arrow");
       const mArrowCost = ELF_SKILLS["magic-arrow"]?.mpCost || 0;
-      if (hasMArrow && ally.mp >= mArrowCost && threat.score >= 15) {
+      if (hasMArrow && hasSpellSlot(ally, "magic-arrow") && threat.score >= 15) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0 && Math.random() < 0.5) {
           await allyMagicArrow(ally, tgtIdx);
@@ -12638,10 +12963,13 @@
         }
       }
 
-      // 3. エイムドショット (命中強化): MP に余裕あり (cure 用に 3 残す) かつ 50%
+      // 3. エイムドショット (命中強化): スロット残あり (cure 用に 1 残す) かつ 50%
       const hasAimed = ally.equippedSkills.includes("aimed-shot");
       const aimedCost = ELF_SKILLS["aimed-shot"]?.mpCost || 0;
-      if (hasAimed && ally.mp >= aimedCost + 3 && Math.random() < 0.5) {
+      const remainCure = (ally.spellSlots && ally.spellSlots["cure-minor"]) || 0;
+      const aimedSlotOk = hasSpellSlot(ally, "aimed-shot") &&
+                         (!hasCure || remainCure >= 1 || (ally.spellSlots["aimed-shot"] || 0) > 1);
+      if (hasAimed && aimedSlotOk && Math.random() < 0.5) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0) {
           await allyAimedShot(ally, tgtIdx);
@@ -13855,6 +14183,27 @@
     leaderClassKey = partyComposition[0] || "warrior";
     // Step 2-B: リーダーのステで playerStats / hp / maxHp を初期化
     applyLeaderStats(leaderClassKey);
+    // Phase 2-J Polish: applyLeaderStats 内で initLeaderSpellSlots が呼ばれるが
+    // その時点で partySkillsMap がまだ null のため、ここで再実行して呪文スロットを反映
+    if (typeof initLeaderSpellSlots === "function") {
+      const curLv2 = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
+      // 旧形式 (配列) を {id: 個数} に正規化してから渡す
+      let normalizedMap = null;
+      if (partySkillsMap && typeof partySkillsMap === "object") {
+        normalizedMap = {};
+        for (const k of Object.keys(partySkillsMap)) {
+          const v = partySkillsMap[k];
+          if (Array.isArray(v)) {
+            const obj = {};
+            for (const id of v) obj[id] = (obj[id] || 0) + 1;
+            normalizedMap[k] = obj;
+          } else if (v && typeof v === "object") {
+            normalizedMap[k] = { ...v };
+          }
+        }
+      }
+      initLeaderSpellSlots(leaderClassKey, curLv2, normalizedMap);
+    }
     // Step 2-C-3 a: リーダー用の equippedSkills を partySkillsMap から再設定
     // (戦士前提の初期値を上書き、リーダーが他クラスの場合に対応)
     if (partySkillsMap && Array.isArray(partySkillsMap[leaderClassKey])) {
@@ -13874,20 +14223,49 @@
       applyAllyEquipment(allies[idx], classKey);
     });
     // 酒場で選んだスキル構成を適用 (無ければデフォルトのまま)
+    // Phase 2-J: 呪文職 (cleric/mage/elf) は partySkillsMap[classKey] が {id: 個数} オブジェクト形式の可能性あり
+    // 呪文以外 (warrior/dwarf/rogue) は配列形式のまま
     const applyPartySkill = (ally, classKey, skillsDict) => {
-      // 酒場で明示的に登録された配列があれば、空配列であってもそれを尊重する
-      // (空 = ユーザが全スキルを外した状態 → AI もスキルを使わない)
-      if (!partySkillsMap || !Array.isArray(partySkillsMap[classKey])) return;
-      const validSkills = partySkillsMap[classKey]
-        .filter(id => id in skillsDict)
-        .slice(0, 3);
-      ally.equippedSkills = validSkills;
+      if (!partySkillsMap) return;
+      const raw = partySkillsMap[classKey];
+      if (raw == null) return;
+      if (Array.isArray(raw)) {
+        // 旧形式: 単純な ID 配列
+        const validSkills = raw.filter(id => id in skillsDict).slice(0, 3);
+        ally.equippedSkills = validSkills;
+      } else if (typeof raw === "object") {
+        // 新形式 (呪文職): {id: 個数} → equippedSkills は initAllySpellSlots で設定
+        // ここでは何もしない (initAllySpellSlots が後で設定する)
+      }
     };
     allyKeys.forEach((classKey, idx) => {
       const dict = CLASS_SKILL_DICTS[classKey];
       if (dict) applyPartySkill(allies[idx], classKey, dict);
       createAllyDom(allies[idx], idx);
     });
+    // Phase 2-J: 呪文職の spellSlots を初期化 (酒場 partySkillsMap + 現在 Lv から)
+    (function initAlliesSpellSlots() {
+      const curLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+      // partySkillsMap を一段正規化 (配列形式が混在している場合に対応)
+      const normalized = {};
+      if (partySkillsMap) {
+        for (const k of Object.keys(partySkillsMap)) {
+          const v = partySkillsMap[k];
+          if (Array.isArray(v)) {
+            const obj = {};
+            for (const id of v) obj[id] = (obj[id] || 0) + 1;
+            normalized[k] = obj;
+          } else if (v && typeof v === "object") {
+            normalized[k] = { ...v };
+          }
+        }
+      }
+      for (const ally of allies) {
+        if (isCasterClass(ally.classKey)) {
+          initAllySpellSlots(ally, ally.classKey, curLv, normalized);
+        }
+      }
+    })();
 
     // Phase 2-G 拡張: accessoryState から各キャラの装備状態を復元
     (function restoreAccessoryState() {

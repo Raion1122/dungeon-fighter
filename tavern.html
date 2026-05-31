@@ -771,6 +771,50 @@
       box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
     }
 
+    /* Phase 2-J: 呪文記憶スロット ±UI */
+    .spellCountCtrl {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .spcBtn {
+      width: 28px;
+      height: 28px;
+      font-size: 18px;
+      font-weight: 700;
+      border: 2px solid var(--parchment-border);
+      border-radius: 4px;
+      background: var(--parchment-bg);
+      color: var(--parchment-ink);
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+      transition: background 0.12s, transform 0.08s;
+    }
+    .spcBtn:hover:not(:disabled) { background: #e0c890; transform: scale(1.05); }
+    .spcBtn:active:not(:disabled) { transform: scale(0.95); }
+    .spcBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .spcNum {
+      min-width: 22px;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--parchment-ink);
+    }
+    .spellAuto {
+      flex-shrink: 0;
+      font-size: 13px;
+      color: var(--parchment-gold);
+      padding: 4px 10px;
+      border: 1.5px dashed var(--parchment-gold);
+      border-radius: 4px;
+    }
+    .spellAuto b { font-size: 16px; }
+    .skillItem.spellCountItem.selected {
+      background: rgba(200, 160, 70, 0.18);
+    }
+
     /* Phase 2-H: 道具袋セクション */
     .bagSection {
       margin-top: 6px;
@@ -1298,6 +1342,45 @@
     return XP_THRESHOLDS[lv];
   }
   const inventory = loadInventory();
+
+  // ── Phase 2-J: 呪文記憶スロット用ヘルパー (index.html と同期) ──
+  const SPELL_SLOT_CURVE_MAGE = [0, 3, 4, 5, 6, 8, 9, 10, 12, 13, 15];
+  const SPELL_SLOT_CURVE_ELF  = [0, 2, 2, 3, 4, 5,  6,  7,  8,  9, 10];
+  const CLERIC_SLOTS_TABLE = {
+    "cure-light-wounds": [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
+    "shield-of-faith":   [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+  };
+  function isCasterClassTV(classKey) {
+    return classKey === "cleric" || classKey === "mage" || classKey === "elf";
+  }
+  function isAutoSlotClassTV(classKey) { return classKey === "cleric"; }
+  function getClericSlotsTV(lv) {
+    const out = {};
+    const cap = Math.max(0, Math.min(10, lv));
+    for (const [id, table] of Object.entries(CLERIC_SLOTS_TABLE)) {
+      const n = table[cap] || 0;
+      if (n > 0) out[id] = n;
+    }
+    return out;
+  }
+  function getMaxSpellSlotsForClassTV(classKey, lv) {
+    const cap = Math.max(1, Math.min(10, lv));
+    if (classKey === "mage") return SPELL_SLOT_CURVE_MAGE[cap] || 0;
+    if (classKey === "elf")  return SPELL_SLOT_CURVE_ELF [cap] || 0;
+    if (classKey === "cleric") {
+      return Object.values(getClericSlotsTV(lv)).reduce((a, b) => a + b, 0);
+    }
+    return 0;
+  }
+  // 旧形式 (ID 配列) → 新形式 ({id: 個数}) に正規化、新形式ならそのまま返す
+  function normalizeSpellSkills(raw) {
+    if (Array.isArray(raw)) {
+      const out = {};
+      for (const id of raw) out[id] = (out[id] || 0) + 1;
+      return out;
+    }
+    return (raw && typeof raw === "object") ? { ...raw } : {};
+  }
 
   // 装備・スキルの選択状態 (localStorage から復元)
   function loadSelections() {
@@ -1865,6 +1948,68 @@
   }
 
 
+  // ── Phase 2-J: 呪文職用 個数指定 (±ボタン) アイテム描画 ──
+  // partySkills[classKey] は重複 ID 配列 (例: ["fireball","fireball","magic-missile"])
+  // 個数 = 重複数。getMaxSpellSlotsForClassTV(classKey, lv) を上限とする。
+  // 僧侶 (auto-slot) は CLERIC_SLOTS_TABLE による自動配分のみ、編集不可。
+  function renderSpellSlotItem(sk, classKey, totalUsed, totalMax, currentLv) {
+    const list = selection.partySkills[classKey];
+    const arr = Array.isArray(list) ? list : [];
+    const cnt = arr.filter(x => x === sk.id).length;
+    const isAuto = isAutoSlotClassTV(classKey);
+    const autoFromTable = isAuto ? (CLERIC_SLOTS_TABLE[sk.id] || [])[Math.max(0, Math.min(10, currentLv))] || 0 : 0;
+    const lvReq = sk.levelReq || 1;
+    const lvOk = currentLv >= lvReq;
+    const item = document.createElement("div");
+    item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!lvOk ? " full" : "");
+    const rangeTag = RANGE_LABEL[sk.range] || "";
+    const lvLock = !lvOk ? ` <span class="sCat" style="color:#8b2010">[Lv${lvReq} 必要]</span>` : "";
+    const mpTag = sk.mpCost ? ` <span class="sCat" style="color:#2b5d8e">[1 スロット]</span>` : "";
+    item.innerHTML =
+      `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">` +
+        `<div style="flex:1;">` +
+          `<span class="sName"><span class="sCat">[${sk.category}]</span>${sk.name}` +
+          (rangeTag ? ` <span class="sCat" style="color:#5a2085">[${rangeTag}]</span>` : "") +
+          mpTag + lvLock +
+          `</span>` +
+          `<span class="sFlavor">${sk.flavor}</span>` +
+        `</div>` +
+        (isAuto
+          ? `<div class="spellAuto">自動 <b>${autoFromTable}</b></div>`
+          : `<div class="spellCountCtrl">` +
+              `<button type="button" class="spcBtn spcMinus" ${cnt <= 0 ? "disabled" : ""}>−</button>` +
+              `<span class="spcNum">${cnt}</span>` +
+              `<button type="button" class="spcBtn spcPlus" ${(!lvOk || totalUsed >= totalMax) ? "disabled" : ""}>＋</button>` +
+            `</div>`) +
+      `</div>`;
+    if (!isAuto) {
+      const btnMinus = item.querySelector(".spcMinus");
+      const btnPlus  = item.querySelector(".spcPlus");
+      if (btnMinus) btnMinus.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const list2 = selection.partySkills[classKey];
+        const idx = (Array.isArray(list2) ? list2 : []).indexOf(sk.id);
+        if (idx >= 0) {
+          list2.splice(idx, 1);
+          saveSelections();
+          renderCharTabs();
+          renderCharLoadout();
+        }
+      });
+      if (btnPlus) btnPlus.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!lvOk) return;
+        if (totalUsed >= totalMax) return;
+        const list2 = selection.partySkills[classKey] || (selection.partySkills[classKey] = []);
+        list2.push(sk.id);
+        saveSelections();
+        renderCharTabs();
+        renderCharLoadout();
+      });
+    }
+    return item;
+  }
+
   // ── スキル/魔法 共通レンダ (mpCost で自動分類) ──
   function renderSkillItem(sk, equippedSet, full, classKey) {
     const selected = equippedSet.has(sk.id);
@@ -1965,7 +2110,32 @@
     const skillSection = document.getElementById("skillSection");
     const magicSection = document.getElementById("magicSection");
     renderSkillSubsection(skillListEl, skillSection, skills, equippedSet, full, slot.classKey);
-    renderSkillSubsection(magicListEl, magicSection, magics, equippedSet, full, slot.classKey);
+    // Phase 2-J: 呪文職 (cleric/mage/elf) は magic セクションを ±UI で描画
+    if (isCasterClassTV(slot.classKey)) {
+      const playerLv = getLevelFromXP(inventory.xp);
+      const totalMax = getMaxSpellSlotsForClassTV(slot.classKey, playerLv);
+      // partySkills の現在の合計 (僧侶は自動なので 0 を出して上限と比較しない)
+      const list = Array.isArray(selection.partySkills[slot.classKey]) ? selection.partySkills[slot.classKey] : [];
+      const totalUsed = isAutoSlotClassTV(slot.classKey) ? totalMax : list.length;
+      magicListEl.innerHTML = "";
+      if (magics.length === 0) {
+        magicSection.style.display = "none";
+      } else {
+        magicSection.style.display = "";
+        for (const sk of magics) {
+          magicListEl.appendChild(renderSpellSlotItem(sk, slot.classKey, totalUsed, totalMax, playerLv));
+        }
+        // セクション見出しに「N/M 使用」表示
+        const magicHint = document.getElementById("magicHint");
+        if (magicHint) {
+          magicHint.textContent = isAutoSlotClassTV(slot.classKey)
+            ? `(自動配分 Lv${playerLv} = 合計 ${totalMax} スロット)`
+            : `(使用 ${totalUsed}/${totalMax} スロット)`;
+        }
+      }
+    } else {
+      renderSkillSubsection(magicListEl, magicSection, magics, equippedSet, full, slot.classKey);
+    }
     // カウンタ更新
     const counter = document.getElementById("skillSlotCounter");
     if (counter) {
