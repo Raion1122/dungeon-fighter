@@ -4503,6 +4503,53 @@
       document.body.appendChild(flash);
       setTimeout(() => { try { flash.remove(); } catch {} }, 340);
     }
+
+    // 円錐内に炎を散布 (Burning Hands) — spawnConeCrystals の火炎版
+    function spawnConeFlames(originWX, originWY, dirX, dirY) {
+      // dirX, dirY: -1/0/1 の方向ベクトル
+      // 動的光源 (円錐位置に火炎フラッシュ)
+      const cx = originWX + dirX * 1.5 * TILE_SIZE;
+      const cy = originWY + dirY * 1.5 * TILE_SIZE;
+      addSpellLight({
+        worldX: cx, worldY: cy,
+        inner: 150, outer: 360,
+        strongAlpha: 1.0, midAlpha: 0.7,
+        rgb: "255,170,70",
+        duration: 650, fadeMs: 650,
+      });
+      // 火粉を 24 個散布 (遠いほど横に広がる円錐状)
+      const count = 24;
+      for (let i = 0; i < count; i++) {
+        const spark = document.createElement("div");
+        spark.className = "fxFireSpark";
+        const distTile = 0.4 + Math.random() * 2.8;        // 0.4 〜 3.2 タイル
+        const lateral = (Math.random() - 0.5) * (distTile * 0.9);  // 遠いほど横に広がる
+        const px = originWX + dirX * distTile * TILE_SIZE + (-dirY) * lateral * TILE_SIZE;
+        const py = originWY + dirY * distTile * TILE_SIZE + (dirX)  * lateral * TILE_SIZE;
+        spark.style.left = (px - camX) + "px";
+        spark.style.top  = (py - camY) + "px";
+        spark.style.animationDelay = (i * 12) + "ms";
+        document.body.appendChild(spark);
+        setTimeout(() => { try { spark.remove(); } catch {} }, 620);
+      }
+      // 円錐の各距離に火炎コアを立てる (3 段階・前方ほど大きく)
+      for (let step = 1; step <= 3; step++) {
+        const core = document.createElement("div");
+        core.className = "fxFireImpactCore" + (step >= 2 ? " crit" : "");
+        const px = originWX + dirX * step * TILE_SIZE;
+        const py = originWY + dirY * step * TILE_SIZE;
+        core.style.left = (px - camX) + "px";
+        core.style.top  = (py - camY) + "px";
+        core.style.transform = "translate(-50%, -50%)";
+        document.body.appendChild(core);
+        setTimeout(() => { try { core.remove(); } catch {} }, 420);
+      }
+      // 画面フラッシュ (火炎・既定の暖色)
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch {} }, 320);
+    }
     function updateGroundFx() {
       const now = Date.now();
       for (let i = groundFxElements.length - 1; i >= 0; i--) {
@@ -8587,6 +8634,7 @@
           else if (skillId === "fireball")        await allyFireball(actor, targetIdx);
           else if (skillId === "lightning-bolt")  await allyLightningBolt(actor, targetIdx);
           else if (skillId === "cone-of-cold")    await allyConeOfCold(actor, targetIdx);
+          else if (skillId === "burning-hands")   await allyBurningHands(actor, targetIdx);
         }
         // エルフ (Step a-3 第3弾)
         else if (leaderClassKey === "elf") {
@@ -9561,6 +9609,13 @@
         saveAbility: "con",
         freezeTarget: 1,
         flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減、MP 8)",
+      },
+      "burning-hands": {
+        name: "バーニングハンズ", category: "attack", target: "cone3",
+        dmgDice: "3d6", useInt: true, range: "medium",
+        mpCost: 4, levelReq: 1,
+        saveAbility: "dex",
+        flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減、MP 4)",
       },
     };
 
@@ -12268,6 +12323,111 @@
       await sleepMs(700);
     }
 
+    // ─── バーニングハンズ (前方円錐 3 タイル、3d6+INT 火炎、DEX セーヴ半減) ───
+    async function allyBurningHands(ally, enemyIdx) {
+      const skill = MAGE_SKILLS["burning-hands"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const aTX = Math.floor(aCX / TILE_SIZE);
+      const aTY = Math.floor(aCY / TILE_SIZE);
+
+      // 4 方向の円錐 (前方 3 タイル分、横幅 1→3→5 タイル拡張)
+      const directions = [
+        { dx:  1, dy:  0 },
+        { dx: -1, dy:  0 },
+        { dx:  0, dy:  1 },
+        { dx:  0, dy: -1 },
+      ];
+      function coneTiles(d) {
+        const tiles = [];
+        for (let step = 1; step <= 3; step++) {
+          const halfWidth = step;   // 1, 2, 3
+          for (let lat = -halfWidth + 1; lat <= halfWidth - 1; lat++) {
+            const tx = aTX + d.dx * step + (-d.dy) * lat;
+            const ty = aTY + d.dy * step + (d.dx)  * lat;
+            tiles.push({ tx, ty });
+          }
+        }
+        return tiles;
+      }
+      let best = null, bestCount = 0;
+      for (const d of directions) {
+        const tiles = coneTiles(d);
+        let safe = true;
+        let cnt = 0;
+        for (const t of tiles) {
+          if (partyInArea(t.tx, t.ty, 1, 1)) { safe = false; break; }
+          cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;
+        }
+        if (!safe) continue;
+        if (cnt > bestCount) { best = { d, tiles }; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        // 4 方向すべて NG → 通常基本攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      // 円錐内全敵
+      const coneEnemyIdxs = new Set();
+      for (const t of best.tiles) {
+        for (const i of enemiesInArea(t.tx, t.ty, 1, 1)) coneEnemyIdxs.add(i);
+      }
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      if (best.d.dx !== 0) ally.facing = best.d.dx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 円錐 ${coneEnemyIdxs.size}体`,
+        "skill");
+      startAllyAttackAnim(ally);
+      spawnCastOrb(ally, "rgba(255,180,80,1)", 600);
+      await sleepMs(620);
+
+      // 炎散布 + 動的光源
+      spawnConeFlames(aCX, aCY, best.d.dx, best.d.dy);
+      // 焼夷地面 (1.5 秒)
+      for (const t of best.tiles) {
+        spawnGroundFx(t.tx, t.ty, 1, 1, "fireball-scorch", 1500);
+      }
+      await sleepMs(350);
+
+      const intMod = ally.int || 4;
+      const spellDC = 12 + intMod;
+      let totalHits = 0, halved = 0;
+      const killedNames = [];
+      for (const idx of coneEnemyIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg += intMod;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        totalHits++;
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: バーニングハンズ ${coneEnemyIdxs.size}体 (${halved}体セーヴ半減)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
     // ══════════ ドワーフスキル (Phase 2) ══════════
     // パワーアタック: 命中-2 / ダメージ+4 (extraDmg) の単体力押し
     async function allyPowerAttack(ally, enemyIdx) {
@@ -13001,6 +13161,9 @@
         if (ally.equippedSkills.includes("cone-of-cold") && hasSpellSlot(ally, "cone-of-cold")) {
           attackSpells.push("cone-of-cold");
         }
+        if (ally.equippedSkills.includes("burning-hands") && hasSpellSlot(ally, "burning-hands")) {
+          attackSpells.push("burning-hands");
+        }
         if (attackSpells.length > 0) {
           const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
           if (tgtIdx < 0) return false;
@@ -13012,9 +13175,10 @@
           if (threatScore >= 30 && attackSpells.includes("fireball")) spellId = "fireball";
           else if (threatScore >= 25 && attackSpells.includes("lightning-bolt")) spellId = "lightning-bolt";
           else if (threatScore >= 25 && attackSpells.includes("cone-of-cold")) spellId = "cone-of-cold";
+          else if (threatScore >= 20 && attackSpells.includes("burning-hands")) spellId = "burning-hands";
           else {
             // 装備されている強力なものから順に選ぶ (低 threatScore でも使う)
-            const fallbackOrder = ["lightning-bolt", "cone-of-cold", "fireball", "magic-missile", "fire-bolt"];
+            const fallbackOrder = ["lightning-bolt", "cone-of-cold", "fireball", "burning-hands", "magic-missile", "fire-bolt"];
             for (const p of fallbackOrder) {
               if (attackSpells.includes(p)) { spellId = p; break; }
             }
@@ -13025,6 +13189,7 @@
           else if (spellId === "fireball")        await allyFireball(ally, tgtIdx);
           else if (spellId === "lightning-bolt")  await allyLightningBolt(ally, tgtIdx);
           else if (spellId === "cone-of-cold")    await allyConeOfCold(ally, tgtIdx);
+          else if (spellId === "burning-hands")   await allyBurningHands(ally, tgtIdx);
           else                                    await allyFireBolt(ally, tgtIdx);
           return true;
         }
