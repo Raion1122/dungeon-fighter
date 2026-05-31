@@ -957,6 +957,7 @@
         <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
           <button type="button" id="btnDepartAutoplay" class="btn debugEvadeBtn">⚡ オートプレイ出発 (x10)</button>
           <button type="button" id="btnDepartAutoplayFast" class="btn debugEvadeBtn">⚡⚡ 高速 (x30)</button>
+          <button type="button" id="btnDepartAutoDebug" class="btn debugEvadeBtn">🐞 自動デバッグ巡回 (全6シナリオ)</button>
         </div>
       </div>
     </div>
@@ -2239,6 +2240,18 @@
   if (btnAuto) btnAuto.addEventListener("click", () => departToScenario(10));
   const btnAutoFast = document.getElementById("btnDepartAutoplayFast");
   if (btnAutoFast) btnAutoFast.addEventListener("click", () => departToScenario(30));
+  // 自動デバッグ巡回: index.html?autodebug=N で N ラン連続実行 (全6シナリオを自動巡回)。
+  // 選んだパーティ構成は引き継ぎ、シナリオは巡回側が決めるため出発シナリオは無視する。
+  function departAutoDebug(runs) {
+    if (!prepScenario) return;
+    saveSelections();
+    try {
+      sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
+    } catch (e) {}
+    window.location.href = "index.html?autodebug=" + encodeURIComponent(runs);
+  }
+  const btnAutoDebug = document.getElementById("btnDepartAutoDebug");
+  if (btnAutoDebug) btnAutoDebug.addEventListener("click", () => departAutoDebug(6));
 
   // ─────────────────────────────────────────────────────────────
   // 初期化

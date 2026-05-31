@@ -1487,6 +1487,30 @@
       100%    { opacity: 0; transform: translateX(-50%) translateY(-12px); }
     }
 
+    /* 自動デバッグ: 診断パネル (autoplay/autodebug/?diag=1 時のみ表示、バッククォートでトグル) */
+    .diagPanel {
+      position: fixed; top: 8px; left: 8px; z-index: 9998;
+      width: 300px; max-height: 56vh; overflow-y: auto;
+      background: rgba(8, 12, 18, 0.88); color: #cfe;
+      font-family: monospace; font-size: 11px; line-height: 1.45;
+      border: 1px solid #2a6a4a; border-radius: 5px; padding: 7px 9px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.6); pointer-events: none;
+      white-space: normal;
+    }
+    .diagPanel .diagHead {
+      font-weight: 700; color: #7fffa8; font-size: 12px;
+      margin-bottom: 3px; letter-spacing: 1px;
+    }
+    .diagPanel.hasCrit .diagHead { color: #ff8a7a; }
+    .diagPanel .diagSub {
+      color: #9bd; margin-bottom: 5px;
+      border-bottom: 1px solid #244; padding-bottom: 4px;
+    }
+    .diagPanel .diagBody {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      color: #eee; font-size: 11px;
+    }
+
     /* ─── Phase 2-I: 魔法使い 新規呪文の派手 fx ─── */
 
     /* 詠唱オーブ (魔法使いの手元に膨張する小球) */
@@ -2430,12 +2454,14 @@
         const msg = `${ev.message} @ ${ev.filename}:${ev.lineno}:${ev.colno}`;
         console.error("[BUG]", msg, ev.error);
         record("error", { msg, stack: ev.error && ev.error.stack });
+        if (window.__diag) window.__diag.record("js-error", "critical", "JS エラー: " + ev.message, { msg });
         bugBanner(`JS エラー: ${ev.message}`);
       });
       window.addEventListener("unhandledrejection", (ev) => {
         const reason = ev.reason && (ev.reason.message || String(ev.reason));
         console.error("[BUG] unhandledrejection:", reason, ev.reason);
         record("rejection", { reason, stack: ev.reason && ev.reason.stack });
+        if (window.__diag) window.__diag.record("js-rejection", "critical", "非同期エラー: " + reason, { reason });
         bugBanner(`非同期エラー: ${reason}`);
       });
       // ヘルパー API (console コマンドで使う)
@@ -2468,6 +2494,50 @@
           console.log("[AUTOPLAY] enabled, speed x" + window.__autoplay);
         }
       } catch (e) { window.__autoplay = 0; }
+    })();
+
+    // ─── 自動デバッグ巡回: ?autodebug=N / ?diag=1 パース + キャンペーン状態復元 ───
+    // ?autodebug=N    → N ラン連続実行 (既定で全6シナリオ巡回)、autoplay 自動 ON
+    // ?autodebug=resume → 巡回途中のページ再入 (localStorage のキャンペーン状態を継続)
+    // ?scen=<id>      → 巡回を1シナリオ固定、?autoplay=N → 巡回速度上書き、?diag=1 → 検査のみ
+    (function setupAutoDebugFlags() {
+      const CK = "dragonfighters.debugCampaign";
+      let campaign = null;
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const adRaw = (p.get("autodebug") || "").toLowerCase();
+        if (adRaw === "resume") {
+          try { campaign = JSON.parse(localStorage.getItem(CK) || "null"); } catch (e) {}
+        } else if (adRaw && adRaw !== "0" && adRaw !== "false") {
+          const n = Math.max(1, Math.min(50, parseInt(adRaw, 10) || 1));
+          const ALL = ["goblin-mine", "bandits-forest", "lizard-swamp", "orc-fort", "undead-temple", "dragon-lair"];
+          const scenParam = p.get("scen");
+          const cycle = scenParam ? [scenParam] : ALL.slice();
+          const speed = Math.max(1, Math.min(30, parseInt(p.get("autoplay") || "", 10) || 15));
+          let startedAt = ""; try { startedAt = new Date().toISOString(); } catch (e) {}
+          campaign = { total: n, done: 0, cycle, cycleIdx: 0, speed, startedAt };
+          try { localStorage.setItem(CK, JSON.stringify(campaign)); } catch (e) {}
+          // 新規巡回開始時は古いレポートを一掃 (累積を混ぜない)
+          try { localStorage.removeItem("dragonfighters.debugReport"); } catch (e) {}
+        }
+        if (campaign && typeof campaign.done === "number" && campaign.done < campaign.total) {
+          const idx = campaign.done % campaign.cycle.length;
+          campaign.cycleIdx = idx;
+          // line 3951 が sessionStorage を読む前にシナリオを確定させる
+          try { sessionStorage.setItem("dragonfighters.currentScenario", campaign.cycle[idx]); } catch (e) {}
+          window.__autodebug = campaign;
+          window.__autoplay = campaign.speed || 15;
+          console.log("[AUTODEBUG] run " + (campaign.done + 1) + "/" + campaign.total +
+            " scenario=" + campaign.cycle[idx] + " speed x" + window.__autoplay);
+        } else {
+          window.__autodebug = null;
+          if (campaign) console.log("[AUTODEBUG] campaign already complete");
+        }
+        window.__diagEnabled = !!(window.__autoplay || window.__autodebug || p.get("diag") === "1");
+      } catch (e) {
+        window.__autodebug = null;
+        window.__diagEnabled = !!window.__autoplay;
+      }
     })();
 
     const startScreen = document.getElementById("startScreen");
@@ -6775,6 +6845,7 @@
     function defeatEnemy(index) {
       const enemy = enemies[index];
       enemy.alive = false;
+      enemy.__diagDead = true;   // 自動デバッグ: 死亡反転検出マーカー
       // コインドロップは廃止 (報酬は宝箱とクリア報酬に集約)
       enemy.coinVisible = false;
       enemy.knockbackVX = 0;
@@ -6812,6 +6883,7 @@
       enemies[index].originY = pos.y;
       enemies[index].searchTimer = 0;
       enemies[index].alive = true;
+      enemies[index].__diagDead = false;   // 自動デバッグ: 正規リスポーン (死亡反転と区別)
       enemies[index].hp = enemies[index].maxHp;
       enemies[index].coinVisible = false;
       enemies[index].weaponVisible = false;
@@ -7439,6 +7511,7 @@
     // ────────────────────────────────────────────────────────────
 
     function moveEnemies() {
+      if (window.__diag) window.__diag.beat("tick");   // 自動デバッグ: フレーム落ち計測
       if (!gameStarted || gameOver) return;
       if (dialogPaused) return;   // showChoice 表示中はゲーム時間停止
 
@@ -8990,6 +9063,7 @@
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
       encounterActive = true;
+      if (window.__diag) window.__diag.beat("combat", true);   // 自動デバッグ: 戦闘開始
       encounterStartedAt = (typeof performance !== "undefined" && performance.now)
         ? performance.now() : Date.now();   // Phase 2-B: 確率脱走の経過時間基準
       setPhase("combat");
@@ -9158,6 +9232,7 @@
           }
 
           showBanner(`ROUND ${round}`, 850);
+          if (window.__diag) window.__diag.beat("round", round);   // 自動デバッグ: ラウンド進行
           await sleepMs(650);
 
           for (const actor of units) {
@@ -9238,6 +9313,7 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
         // エンカウンター終了でセカンドウィンドの使用権を回復 (次戦の立て直し用)
         secondWindUsed = false;
         // 探索フェーズへ復帰 (敗北/ゲームオーバー以外)
@@ -14446,6 +14522,7 @@
     const resultBtnEl     = document.getElementById("resultBtn");
     let resultShown = false;
     function showResult(win) {
+      if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
       resultShown = true;
       resultOverlayEl.classList.remove("defeat");
@@ -14633,58 +14710,350 @@
       } catch (e) {}
     }
 
-    // ─── Phase 2-K: 停滞検出 (autoplay 時のみ。10 秒同一座標で bugReport に dump) ───
-    (function setupStallDetection() {
-      let lastPosKey = null;
-      let stallCount = 0;
-      setInterval(() => {
-        if (!window.__autoplay) return;
-        if (typeof gameStarted === "undefined" || !gameStarted) return;
-        if (typeof gameOver !== "undefined" && gameOver) return;
-        if (typeof dungeonCleared !== "undefined" && dungeonCleared) return;
-        if (typeof encounterActive !== "undefined" && encounterActive) { stallCount = 0; return; }
-        if (typeof encounterRunning !== "undefined" && encounterRunning) { stallCount = 0; return; }
-        if (typeof dialogPaused !== "undefined" && dialogPaused) { stallCount = 0; return; }
-        const curKey = `${Math.round(playerX)},${Math.round(playerY)}`;
-        if (curKey === lastPosKey) stallCount++;
-        else { stallCount = 0; lastPosKey = curKey; }
-        if (stallCount >= 10) {
-          const dump = {
-            pos: curKey,
-            flags: {
-              gameStarted: !!gameStarted,
-              encounterActive: typeof encounterActive !== "undefined" ? encounterActive : null,
-              encounterRunning: typeof encounterRunning !== "undefined" ? encounterRunning : null,
-              dialogPaused: typeof dialogPaused !== "undefined" ? dialogPaused : null,
-              gameOver: !!gameOver,
-              dungeonCleared: !!dungeonCleared,
-            },
-            hero: {
-              pathLen: (typeof heroPath !== "undefined" && heroPath) ? heroPath.length : null,
-              wiggleUntil: typeof heroWiggleUntil !== "undefined" ? heroWiggleUntil : null,
-              stuckTicks: typeof heroStuckTicks !== "undefined" ? heroStuckTicks : null,
-            },
-            explore: {
-              allyTurnRunning: typeof exploreAllyTurnRunning !== "undefined" ? exploreAllyTurnRunning : null,
-              enemyTurnRunning: typeof exploreEnemyTurnRunning !== "undefined" ? exploreEnemyTurnRunning : null,
-            },
-            allies: (typeof allies !== "undefined") ? allies.map(a => ({
-              cls: a.classKey, alive: a.alive,
-              hp: a.hp, maxHp: a.maxHp,
-              x: Math.round(a.x), y: Math.round(a.y),
-              dist: Math.round(Math.hypot(a.x - playerX, a.y - playerY)),
-            })) : null,
-          };
-          console.error("[BUG][STALL] 10 秒間動きなし:", dump);
-          if (typeof window.__recordBugReport === "function") {
-            window.__recordBugReport("stall", dump);
+    // ═════════════════════════════════════════════════════════
+    // 自動デバッグ: 不変条件ウォッチドッグ + 巡回キャンペーン制御
+    //   - 有効化: ?autoplay / ?autodebug / ?diag=1 のいずれか (通常プレイは休眠)
+    //   - 検査 4 カテゴリ: 致命系 / 状態整合性 / ライフサイクル / 進行バランス
+    //   - レポート: localStorage["dragonfighters.debugReport"] + 画面パネル + console
+    //   - 巡回: ?autodebug=N で N ラン自動リスタート + 全6シナリオ巡回
+    // ═════════════════════════════════════════════════════════
+    (function setupDiagnostics() {
+      if (!window.__diagEnabled) return;   // 通常プレイでは完全休眠 (オーバーヘッド0)
+
+      const REPORT_KEY = "dragonfighters.debugReport";
+      const CAMPAIGN_KEY = "dragonfighters.debugCampaign";
+      const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      const isoNow = () => { try { return new Date().toISOString(); } catch (e) { return "" + Date.now(); } };
+      const finite = (x) => typeof x === "number" && Number.isFinite(x);
+
+      // ── レポートストア (localStorage に蓄積、ページ遷移を跨ぐ) ──
+      function loadReport() {
+        try {
+          const r = JSON.parse(localStorage.getItem(REPORT_KEY) || "null");
+          if (r && r.runs) return r;
+        } catch (e) {}
+        return { startedAt: isoNow(), lastUpdated: isoNow(), campaign: null,
+                 current: null, runs: [], totals: { criticals: 0, warns: 0, byId: {} } };
+      }
+      let report = loadReport();
+      let saveQueued = false;
+      function saveReport() {
+        // 高頻度の record でも書き込みは間引く (体感負荷回避)
+        if (saveQueued) return;
+        saveQueued = true;
+        setTimeout(() => {
+          saveQueued = false;
+          report.lastUpdated = isoNow();
+          try { localStorage.setItem(REPORT_KEY, JSON.stringify(report)); } catch (e) {}
+        }, 250);
+      }
+
+      // ── 現在ランの初期化 ──
+      const campaign = window.__autodebug || null;
+      report.campaign = campaign ? {
+        total: campaign.total, done: campaign.done,
+        cycle: campaign.cycle, cycleIdx: campaign.done % campaign.cycle.length, speed: campaign.speed
+      } : null;
+      report.current = {
+        idx: campaign ? campaign.done : report.runs.length,
+        scenarioId: (typeof scenarioId !== "undefined" ? scenarioId : "?"),
+        startedAt: isoNow(), startMs: nowMs(), rounds: 0, violations: {},
+      };
+      saveReport();
+
+      // ── 違反記録 (id 単位で dedup: 同一異常は count に集約) ──
+      function record(id, severity, label, detail) {
+        const cur = report.current;
+        if (!cur) return;
+        let v = cur.violations[id];
+        if (!v) {
+          v = { sev: severity, label: label || id, count: 0, firstTs: isoNow(), lastTs: isoNow(), detail: detail || null };
+          cur.violations[id] = v;
+          if (severity === "critical") {
+            report.totals.criticals++;
+            console.error("[DIAG][" + id + "]", label, detail || "");
+            if (typeof window.__bugBanner === "function") window.__bugBanner("異常検出: " + (label || id));
+          } else {
+            report.totals.warns++;
+            console.warn("[DIAG][" + id + "]", label, detail || "");
           }
-          if (typeof window.__bugBanner === "function") {
-            window.__bugBanner(`停滞検出: 10秒間動きなし @ (${curKey})`);
-          }
-          stallCount = 0;   // 1 度通知したらリセット
         }
-      }, 1000);
+        v.count++; v.lastTs = isoNow();
+        if (detail) v.detail = detail;
+        report.totals.byId[id] = (report.totals.byId[id] || 0) + 1;
+        saveReport();
+      }
+
+      // ── ビート (進行情報の明示通知。sampling で取れないものだけ) ──
+      const beats = {
+        lastTick: nowMs(), everStarted: false,
+        combatActive: false, combatStartMs: 0, lastRound: 0, lastRoundMs: nowMs(),
+        resultCount: 0, hpStillCount: 0, lastHpSig: null,
+        posStill: 0, lastPosKey: null,
+      };
+      function beat(kind, val) {
+        const t = nowMs();
+        if (kind === "tick") {
+          const gap = t - beats.lastTick;
+          beats.lastTick = t;
+          if (beats.everStarted && gap > 600) {
+            record("frame-lag", "warn", "フレーム落ち (tick間隔 " + Math.round(gap) + "ms)", { gapMs: Math.round(gap) });
+          }
+          beats.everStarted = true;
+        } else if (kind === "combat") {
+          beats.combatActive = !!val;
+          if (val) { beats.combatStartMs = t; beats.lastRound = 0; beats.lastRoundMs = t; beats.hpStillCount = 0; beats.lastHpSig = null; }
+        } else if (kind === "round") {
+          beats.lastRound = val; beats.lastRoundMs = t;
+          if (report.current && val > report.current.rounds) report.current.rounds = val;
+          if (val > 25) record("combat-long", "warn", "戦闘が長い (" + val + " ラウンド)",
+            { round: val, scen: report.current && report.current.scenarioId });
+        } else if (kind === "result") {
+          beats.resultCount++;
+          if (beats.resultCount > 1) record("result-double-fire", "critical",
+            "結果画面が複数回発火 (" + beats.resultCount + ")", { count: beats.resultCount });
+        }
+      }
+
+      window.__diag = { record, beat, getReport: () => report };
+      // js-error は既存エラートラップ経由でミラーされる (record 経由)
+      window.dumpDebugReport = function () { try { console.table(report.totals.byId); } catch (e) {} return report; };
+      window.clearDebugReport = function () {
+        try { localStorage.removeItem(REPORT_KEY); } catch (e) {}
+        report = loadReport(); console.log("[DIAG] debugReport cleared");
+      };
+
+      // ── 検査本体 ──
+      const sampleState = {};
+      let lastXp = (typeof currentTotalXp !== "undefined" && finite(currentTotalXp)) ? currentTotalXp : 0;
+      let lastCoins = (typeof coins !== "undefined" && finite(coins)) ? coins : 0;
+      let domPeak = 0;
+
+      function inBounds(x, y) {
+        const T = (typeof TILE_SIZE !== "undefined") ? TILE_SIZE : 96;
+        const W = ((typeof MAP_W !== "undefined") ? MAP_W : 95) * T;
+        const H = ((typeof MAP_H !== "undefined") ? MAP_H : 28) * T;
+        return x >= -T && x <= W + T && y >= -T && y <= H + T;
+      }
+      // cond が連続 k 回成立で true (連続値のゆらぎ誤検知を抑制)
+      function sustained(key, cond, k) {
+        if (cond) sampleState[key] = (sampleState[key] || 0) + 1;
+        else sampleState[key] = 0;
+        return (sampleState[key] || 0) >= k;
+      }
+
+      function runChecks() {
+        report.heartbeat = nowMs();   // 生存ビート (違反ゼロでも進む。外部ランナーの凍結検出用)
+        if (typeof gameStarted === "undefined" || !gameStarted) return;
+        if (!report.current) return;
+        const spatialStable = !((typeof heroSliding !== "undefined" && heroSliding) ||
+                                (typeof attackActive !== "undefined" && attackActive));
+
+        // ── 状態整合性: リーダー ──
+        if (!finite(hp) || !finite(maxHp)) record("nan-leader-hp", "critical", "リーダーHPが数値破綻", { hp: hp, maxHp: maxHp });
+        if (!finite(playerX) || !finite(playerY)) record("nan-leader-pos", "critical", "リーダー座標が数値破綻", { playerX: playerX, playerY: playerY });
+        if (finite(hp) && finite(maxHp) && sustained("leader-hp-over", hp > maxHp + 1, 2))
+          record("leader-hp-over", "warn", "リーダーHP>maxHP", { hp: hp, maxHp: maxHp });
+        if (finite(playerX) && finite(playerY) && spatialStable && sustained("leader-oob", !inBounds(playerX, playerY), 2))
+          record("leader-oob", "critical", "リーダー座標がマップ範囲外", { x: Math.round(playerX), y: Math.round(playerY) });
+        if (typeof currentTotalXp !== "undefined" && finite(currentTotalXp)) {
+          if (currentTotalXp < lastXp) record("xp-decrease", "warn", "XPが減少", { from: lastXp, to: currentTotalXp });
+          lastXp = currentTotalXp;
+        }
+        if (typeof coins !== "undefined" && finite(coins)) {
+          if (coins < lastCoins) record("coins-decrease", "warn", "金貨が減少", { from: lastCoins, to: coins });
+          lastCoins = coins;
+        }
+
+        // ── 状態整合性 + ライフサイクル: 仲間 ──
+        if (typeof allies !== "undefined" && allies) {
+          allies.forEach((a, i) => {
+            if (!finite(a.hp) || !finite(a.maxHp)) record("nan-ally-hp", "critical", "仲間HPが数値破綻 (" + (a.classKey || i) + ")", { cls: a.classKey, hp: a.hp, maxHp: a.maxHp });
+            if (!finite(a.x) || !finite(a.y)) record("nan-ally-pos", "critical", "仲間座標が数値破綻 (" + (a.classKey || i) + ")", { cls: a.classKey });
+            if (a.alive && finite(a.hp) && sustained("ally-zero-" + i, a.hp <= 0, 3))
+              record("ally-alive-zero-hp", "warn", "生存仲間のHPが0以下 (" + (a.classKey || i) + ")", { cls: a.classKey, hp: a.hp });
+            if (finite(a.hp) && finite(a.maxHp) && sustained("ally-over-" + i, a.hp > a.maxHp + 1, 2))
+              record("ally-hp-over", "warn", "仲間HP>maxHP (" + (a.classKey || i) + ")", { cls: a.classKey, hp: a.hp, maxHp: a.maxHp });
+            if (a.spellSlots && a.maxSpellSlots) {
+              for (const id of Object.keys(a.spellSlots)) {
+                const sv = a.spellSlots[id], mx = a.maxSpellSlots[id];
+                if (finite(sv) && (sv < 0 || (finite(mx) && sv > mx))) {
+                  record("spellslot-range", "warn", "呪文スロット範囲外 (" + (a.classKey || i) + ":" + id + ")", { cls: a.classKey, id: id, v: sv, max: mx });
+                  break;
+                }
+              }
+            }
+          });
+        }
+
+        // ── ライフサイクル + 整合性: 敵 ──
+        if (typeof enemies !== "undefined" && enemies) {
+          enemies.forEach((e, i) => {
+            if (!finite(e.hp) || !finite(e.maxHp)) record("nan-enemy-hp", "critical", "敵HPが数値破綻 (idx " + i + ")", { type: e.type, hp: e.hp });
+            if (e.__diagDead && e.alive) record("enemy-resurrect", "critical", "死亡した敵が復活 (idx " + i + ", " + (e.type || "?") + ")", { idx: i, type: e.type });
+          });
+        }
+
+        // ── ライフサイクル: 全滅未検出 ──
+        const wipe = finite(hp) && hp <= 0 && typeof allies !== "undefined" && allies.length &&
+          allies.every(a => !a.alive) &&
+          !(typeof gameOver !== "undefined" && gameOver) &&
+          !(typeof resultShown !== "undefined" && resultShown);
+        if (sustained("wipe", wipe, 4)) record("wipe-not-detected", "critical", "全滅状態だが結果未発火 (>2秒)", { hp: hp });
+
+        // ── 致命/進行: 戦闘無限ループ・進行なし ──
+        if (typeof encounterActive !== "undefined" && encounterActive) {
+          const dur = nowMs() - beats.combatStartMs;
+          if (dur > 45000) record("combat-stall", "critical", "戦闘が45秒以上継続 (無限ループ疑い)",
+            { durSec: Math.round(dur / 1000), round: beats.lastRound, scen: report.current.scenarioId });
+          if (beats.lastRound > 0 && (nowMs() - beats.lastRoundMs) > 15000)
+            record("combat-no-round", "critical", "ラウンドが15秒進行せず", { round: beats.lastRound });
+          const ehp = (typeof enemies !== "undefined") ? enemies.reduce((s, e) => s + (e.alive && finite(e.hp) ? e.hp : 0), 0) : 0;
+          const php = (finite(hp) ? hp : 0) + ((typeof allies !== "undefined") ? allies.reduce((s, a) => s + (a.alive && finite(a.hp) ? a.hp : 0), 0) : 0);
+          const sig = ehp + "," + php;
+          if (sig === beats.lastHpSig) beats.hpStillCount++;
+          else { beats.hpStillCount = 0; beats.lastHpSig = sig; }
+          if (beats.hpStillCount >= 24) record("combat-no-progress", "warn", "戦闘中HP総和が12秒不変 (到達不能疑い)",
+            { ehp: ehp, php: php, round: beats.lastRound });
+        } else {
+          beats.hpStillCount = 0; beats.lastHpSig = null;
+        }
+
+        // ── 致命: 探索停滞 (旧 setupStallDetection を統合、10秒同一座標) ──
+        const exploring = !(typeof encounterActive !== "undefined" && encounterActive) &&
+          !(typeof encounterRunning !== "undefined" && encounterRunning) &&
+          !(typeof dialogPaused !== "undefined" && dialogPaused) &&
+          !(typeof gameOver !== "undefined" && gameOver) &&
+          !(typeof dungeonCleared !== "undefined" && dungeonCleared);
+        if (exploring && finite(playerX) && finite(playerY)) {
+          const key = Math.round(playerX) + "," + Math.round(playerY);
+          if (key === beats.lastPosKey) beats.posStill++;
+          else { beats.posStill = 0; beats.lastPosKey = key; }
+          if (beats.posStill >= 20) {   // 500ms × 20 = 10秒
+            record("stall", "critical", "探索停滞: 10秒間動きなし @ (" + key + ")", {
+              pos: key, round: beats.lastRound,
+              hero: { pathLen: (typeof heroPath !== "undefined" && heroPath) ? heroPath.length : null },
+              allies: (typeof allies !== "undefined") ? allies.map(a => ({ cls: a.classKey, alive: a.alive, hp: a.hp })) : null,
+            });
+            beats.posStill = 0;
+          }
+        } else { beats.posStill = 0; }
+
+        // ── 進行: DOM/fx リーク ──
+        try {
+          const layer = document.getElementById("enemyLayer");
+          const fxCount = document.querySelectorAll(".fxArrow,.fxAimLine,.actionFlash,.groundFx,.openBurst,.fxShadowPuff").length;
+          const childCount = (layer ? layer.children.length : 0) + fxCount;
+          if (childCount > domPeak) domPeak = childCount;
+          if (sustained("dom-leak", childCount > 400, 4))
+            record("dom-leak", "warn", "DOM/fx要素が過多 (" + childCount + ")", { childCount: childCount, peak: domPeak });
+        } catch (e) {}
+      }
+
+      // ── ラン終了処理 + 巡回キャンペーン ──
+      let runEnded = false;
+      function finalizeRun(outcome) {
+        if (runEnded) return;
+        runEnded = true;
+        const cur = report.current;
+        if (cur) {
+          cur.endedAt = isoNow();
+          cur.durationMs = Math.round(nowMs() - cur.startMs);
+          cur.outcome = outcome;
+          cur.finalLeaderHp = finite(hp) ? hp : null;
+          cur.partyAlive = (typeof allies !== "undefined") ? allies.filter(a => a.alive).length : null;
+          report.runs.push(cur);
+          report.current = null;
+          report.lastUpdated = isoNow();
+          try { localStorage.setItem(REPORT_KEY, JSON.stringify(report)); } catch (e) {}
+        }
+        console.log("[AUTODEBUG] run finalized: " + outcome + " (" + (cur && cur.scenarioId) + ", " +
+          (cur ? Math.round(cur.durationMs / 1000) : "?") + "s, " + (cur ? Object.keys(cur.violations).length : 0) + " 違反種)");
+      }
+      function advanceCampaignAndNavigate() {
+        const camp = window.__autodebug;
+        if (!camp) return;   // 単発 diag → ナビゲートしない
+        camp.done++;
+        if (camp.done < camp.total) {
+          camp.cycleIdx = camp.done % camp.cycle.length;
+          try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(camp)); } catch (e) {}
+          try { sessionStorage.setItem("dragonfighters.currentScenario", camp.cycle[camp.cycleIdx]); } catch (e) {}
+          console.log("[AUTODEBUG] → next run " + (camp.done + 1) + "/" + camp.total + " scen=" + camp.cycle[camp.cycleIdx]);
+          setTimeout(() => { window.location.href = "index.html?autodebug=resume"; }, 1200);
+        } else {
+          let completedAt = ""; try { completedAt = new Date().toISOString(); } catch (e) {}
+          try { localStorage.setItem(CAMPAIGN_KEY, JSON.stringify(Object.assign({}, camp, { completedAt }))); } catch (e) {}
+          window.__autodebugComplete = true;
+          console.log("[AUTODEBUG] ✅ 巡回完了: " + camp.total + " ラン。dumpDebugReport() で確認 / crit=" + report.totals.criticals + " warn=" + report.totals.warns);
+          if (typeof window.__bugBanner === "function") window.__bugBanner("自動デバッグ巡回 完了 (" + camp.total + " ラン)");
+        }
+      }
+      function manageCampaign() {
+        if (runEnded) return;
+        if (typeof resultShown !== "undefined" && resultShown) {
+          const outcome = (typeof dungeonCleared !== "undefined" && dungeonCleared) ? "clear" : "defeat";
+          finalizeRun(outcome);
+          advanceCampaignAndNavigate();
+          return;
+        }
+        // ハード上限 (4分) で強制 abort (凍結や詰まりで巡回が止まらないように)
+        if (report.current && (nowMs() - report.current.startMs) > 240000) {
+          record("run-timeout", "critical", "ランがハード上限(4分)を超過 → 強制終了", { scen: report.current.scenarioId });
+          finalizeRun("aborted");
+          advanceCampaignAndNavigate();
+        }
+      }
+
+      // ── 画面診断パネル ──
+      let panelVisible = true;
+      let panel = null;
+      function buildPanel() {
+        panel = document.createElement("div");
+        panel.id = "diagPanel";
+        panel.className = "diagPanel";
+        document.body.appendChild(panel);
+      }
+      function fmtElapsed(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+      function updatePanel() {
+        if (!panel) return;
+        const cur = report.current;
+        const camp = window.__autodebug;
+        let head = "🐞 AUTO-DEBUG";
+        if (camp && !window.__autodebugComplete) head += "  run " + (camp.done + 1) + "/" + camp.total;
+        if (window.__autodebugComplete) head = "🐞 巡回完了 (" + (camp ? camp.total : 0) + " ラン)";
+        const sub = [];
+        if (cur) sub.push(cur.scenarioId + " · " + fmtElapsed(nowMs() - cur.startMs) + " · R" + cur.rounds);
+        sub.push("crit " + report.totals.criticals + " / warn " + report.totals.warns + " · 完了 " + report.runs.length + " ラン");
+        // 全ラン横断の違反集計
+        const allV = {};
+        const scan = report.runs.concat(cur ? [cur] : []);
+        for (const r of scan) {
+          for (const id of Object.keys(r.violations || {})) {
+            const v = r.violations[id];
+            if (!allV[id]) allV[id] = { sev: v.sev, count: 0 };
+            allV[id].count += v.count;
+          }
+        }
+        const ids = Object.keys(allV).sort((a, b) =>
+          (allV[a].sev === "critical" ? 0 : 1) - (allV[b].sev === "critical" ? 0 : 1) || allV[b].count - allV[a].count);
+        let body = ids.slice(0, 14).map(id => (allV[id].sev === "critical" ? "🔴 " : "🟡 ") + id + " ×" + allV[id].count).join("\n");
+        if (!ids.length) body = "(異常なし)";
+        panel.classList.toggle("hasCrit", report.totals.criticals > 0);
+        panel.innerHTML = "<div class='diagHead'>" + head + "</div><div class='diagSub'>" +
+          sub.join("<br>") + "</div><pre class='diagBody'>" + body.replace(/</g, "&lt;") + "</pre>";
+        panel.style.display = panelVisible ? "block" : "none";
+      }
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "`" || e.code === "Backquote") { panelVisible = !panelVisible; updatePanel(); }
+      });
+
+      // ── 駆動 ──
+      buildPanel();
+      updatePanel();
+      setInterval(() => { try { runChecks(); manageCampaign(); } catch (e) { console.error("[DIAG] check error", e); } }, 500);
+      setInterval(() => { try { updatePanel(); } catch (e) {} }, 500);
+      console.log("[DIAG] 診断有効 (autodebug=" + (!!window.__autodebug) +
+        ")。dumpDebugReport()/clearDebugReport()、バッククォートでパネル開閉");
     })();
 
     // ── シナリオ開始時: DM ナレーションを表示してからゲーム開始 ──
