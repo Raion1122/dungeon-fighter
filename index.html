@@ -1462,6 +1462,31 @@
       100% { opacity: 0.00; transform: translate(-44px,  2px) scale(1.10); filter: hue-rotate(320deg) brightness(0.3); }
     }
 
+    /* Phase 2-K: エラーバナー (画面上部、6 秒で fade out) */
+    .errorBugBanner {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      padding: 14px 24px;
+      background: rgba(180, 30, 30, 0.95);
+      color: #ffeeee;
+      font-family: monospace;
+      font-size: 14px;
+      border: 2px solid #ff6060;
+      border-radius: 4px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.7);
+      pointer-events: none;
+      animation: bugBannerFade 6s ease-out forwards;
+      max-width: 90vw;
+      word-break: break-word;
+    }
+    @keyframes bugBannerFade {
+      0%, 75% { opacity: 1; }
+      100%    { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+    }
+
     /* ─── Phase 2-I: 魔法使い 新規呪文の派手 fx ─── */
 
     /* 詠唱オーブ (魔法使いの手元に膨張する小球) */
@@ -2380,6 +2405,71 @@
   <div id="enemyLayer"></div>
 
   <script>
+    // ─── Phase 2-K: 自動バグチェック (エラートラップ + バナー + localStorage 記録) ───
+    (function setupErrorTrap() {
+      const HISTORY_KEY = "dragonfighters.bugReport";
+      const MAX_HISTORY = 20;
+      function record(label, info) {
+        try {
+          const list = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+          list.unshift({ ts: new Date().toISOString(), label, info });
+          while (list.length > MAX_HISTORY) list.pop();
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+        } catch (e) { /* localStorage 不可なら無視 */ }
+      }
+      function bugBanner(msg) {
+        try {
+          const el = document.createElement("div");
+          el.className = "errorBugBanner";
+          el.textContent = "⚠ " + msg;
+          document.body.appendChild(el);
+          setTimeout(() => { try { el.remove(); } catch {} }, 6000);
+        } catch (e) {}
+      }
+      window.addEventListener("error", (ev) => {
+        const msg = `${ev.message} @ ${ev.filename}:${ev.lineno}:${ev.colno}`;
+        console.error("[BUG]", msg, ev.error);
+        record("error", { msg, stack: ev.error && ev.error.stack });
+        bugBanner(`JS エラー: ${ev.message}`);
+      });
+      window.addEventListener("unhandledrejection", (ev) => {
+        const reason = ev.reason && (ev.reason.message || String(ev.reason));
+        console.error("[BUG] unhandledrejection:", reason, ev.reason);
+        record("rejection", { reason, stack: ev.reason && ev.reason.stack });
+        bugBanner(`非同期エラー: ${reason}`);
+      });
+      // ヘルパー API (console コマンドで使う)
+      window.dumpBugReport = function() {
+        return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      };
+      window.clearBugReport = function() {
+        localStorage.removeItem(HISTORY_KEY);
+        console.log("[BUG] history cleared");
+      };
+      window.__recordBugReport = record;   // 停滞検出から呼ぶ
+      window.__bugBanner = bugBanner;
+    })();
+
+    // ─── Phase 2-K: autoplay モード URL パラメータ解析 ───
+    // ?autoplay=1 → 5x 速度、?autoplay=10 → 10x、?autoplay=N (1-20 clamp)
+    (function setupAutoplay() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const v = (p.get("autoplay") || "").toLowerCase();
+        if (v === "" || v === "0" || v === "false") {
+          window.__autoplay = 0;
+        } else if (v === "1" || v === "true") {
+          window.__autoplay = 5;
+        } else {
+          const n = parseInt(v, 10);
+          window.__autoplay = isNaN(n) ? 0 : Math.max(1, Math.min(30, n));
+        }
+        if (window.__autoplay) {
+          console.log("[AUTOPLAY] enabled, speed x" + window.__autoplay);
+        }
+      } catch (e) { window.__autoplay = 0; }
+    })();
+
     const startScreen = document.getElementById("startScreen");
     const player = document.getElementById("player");
     const guardEffect = document.getElementById("guardEffect");
@@ -5142,6 +5232,11 @@
     // showChoice 表示中はゲームループを停止 (moveEnemies で参照)
     let dialogPaused = false;
     function showChoice(message, yesText = "はい", noText = "いいえ") {
+      // Phase 2-K: autoplay 時は自動「はい」(true) で即座に解決
+      if (window.__autoplay) {
+        try { console.log("[AUTOPLAY] showChoice:", message, "→ はい"); } catch {}
+        return Promise.resolve(true);
+      }
       return new Promise((resolve) => {
         let dlg = document.getElementById("choiceDialog");
         if (!dlg) {
@@ -5189,6 +5284,11 @@
     // Phase 2-G 拡張: 多択ダイアログ (各候補にボタン、Esc で null)
     // candidates: [{label: string, ...}, ...] / 返り値: 選択された index (0..N-1) または null
     function showCharChoice(message, candidates) {
+      // Phase 2-K: autoplay 時は 1 番目の候補を自動選択
+      if (window.__autoplay && candidates && candidates.length > 0) {
+        try { console.log("[AUTOPLAY] showCharChoice:", message, "→ 1 番目:", candidates[0].label); } catch {}
+        return Promise.resolve(0);
+      }
       return new Promise((resolve) => {
         let dlg = document.getElementById("choiceDialog");
         if (!dlg) {
@@ -8688,7 +8788,12 @@
       return { n: +m[1], sides: +m[2] };
     }
     function signedDD(n) { return (n >= 0 ? "+" : "") + n; }
-    function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function sleepMs(ms) {
+      // Phase 2-K: autoplay 時は速度倍率で短縮 (最小 8ms 保証で stable)
+      const speed = window.__autoplay || 1;
+      const actual = speed > 1 ? Math.max(8, Math.floor(ms / speed)) : ms;
+      return new Promise(r => setTimeout(r, actual));
+    }
 
     // ── 行動点滅エフェクト (non-blocking) ──
     // kind: "move" (青) / "attack" (赤) / "skill" (黄)
@@ -14515,10 +14620,81 @@
     updateInfo("キーかマウスを押すとスタート");
     updatePositions();
 
+    // ─── Phase 2-K: autoplay 時のスタート画面に [AUTOPLAY xN] ラベルを追加 ───
+    if (window.__autoplay) {
+      try {
+        const startTextEl = document.getElementById("startText");
+        if (startTextEl) {
+          const lab = document.createElement("div");
+          lab.style.cssText = "color:#ff8060;font-size:13px;letter-spacing:2px;margin-top:8px;font-weight:700;";
+          lab.textContent = `[AUTOPLAY x${window.__autoplay}]`;
+          startTextEl.appendChild(lab);
+        }
+      } catch (e) {}
+    }
+
+    // ─── Phase 2-K: 停滞検出 (autoplay 時のみ。10 秒同一座標で bugReport に dump) ───
+    (function setupStallDetection() {
+      let lastPosKey = null;
+      let stallCount = 0;
+      setInterval(() => {
+        if (!window.__autoplay) return;
+        if (typeof gameStarted === "undefined" || !gameStarted) return;
+        if (typeof gameOver !== "undefined" && gameOver) return;
+        if (typeof dungeonCleared !== "undefined" && dungeonCleared) return;
+        if (typeof encounterActive !== "undefined" && encounterActive) { stallCount = 0; return; }
+        if (typeof encounterRunning !== "undefined" && encounterRunning) { stallCount = 0; return; }
+        if (typeof dialogPaused !== "undefined" && dialogPaused) { stallCount = 0; return; }
+        const curKey = `${Math.round(playerX)},${Math.round(playerY)}`;
+        if (curKey === lastPosKey) stallCount++;
+        else { stallCount = 0; lastPosKey = curKey; }
+        if (stallCount >= 10) {
+          const dump = {
+            pos: curKey,
+            flags: {
+              gameStarted: !!gameStarted,
+              encounterActive: typeof encounterActive !== "undefined" ? encounterActive : null,
+              encounterRunning: typeof encounterRunning !== "undefined" ? encounterRunning : null,
+              dialogPaused: typeof dialogPaused !== "undefined" ? dialogPaused : null,
+              gameOver: !!gameOver,
+              dungeonCleared: !!dungeonCleared,
+            },
+            hero: {
+              pathLen: (typeof heroPath !== "undefined" && heroPath) ? heroPath.length : null,
+              wiggleUntil: typeof heroWiggleUntil !== "undefined" ? heroWiggleUntil : null,
+              stuckTicks: typeof heroStuckTicks !== "undefined" ? heroStuckTicks : null,
+            },
+            explore: {
+              allyTurnRunning: typeof exploreAllyTurnRunning !== "undefined" ? exploreAllyTurnRunning : null,
+              enemyTurnRunning: typeof exploreEnemyTurnRunning !== "undefined" ? exploreEnemyTurnRunning : null,
+            },
+            allies: (typeof allies !== "undefined") ? allies.map(a => ({
+              cls: a.classKey, alive: a.alive,
+              hp: a.hp, maxHp: a.maxHp,
+              x: Math.round(a.x), y: Math.round(a.y),
+              dist: Math.round(Math.hypot(a.x - playerX, a.y - playerY)),
+            })) : null,
+          };
+          console.error("[BUG][STALL] 10 秒間動きなし:", dump);
+          if (typeof window.__recordBugReport === "function") {
+            window.__recordBugReport("stall", dump);
+          }
+          if (typeof window.__bugBanner === "function") {
+            window.__bugBanner(`停滞検出: 10秒間動きなし @ (${curKey})`);
+          }
+          stallCount = 0;   // 1 度通知したらリセット
+        }
+      }, 1000);
+    })();
+
     // ── シナリオ開始時: DM ナレーションを表示してからゲーム開始 ──
     (async function initScenarioNarration() {
       const paragraphs = SCENARIO_NARRATIONS[scenarioId];
-      if (!paragraphs || paragraphs.length === 0) return;  // ナレーションなしのシナリオ
+      if (!paragraphs || paragraphs.length === 0) {
+        // Phase 2-K: autoplay 時はスタート画面も自動でスキップ
+        if (window.__autoplay) setTimeout(() => { if (!gameStarted) startGame(); }, 300);
+        return;
+      }
 
       // タイトル画面を一旦隠し、ナレーションウィンドウを表示
       startScreen.style.display = "none";
@@ -14526,6 +14702,11 @@
       const headerEl = narrEl.querySelector(".dmHeader");
       headerEl.textContent = `📜 ダンジョンマスターの語り ― ${currentScenario.title}`;
       narrEl.style.display = "block";
+
+      // Phase 2-K: autoplay 時はナレーションを即スキップ
+      if (window.__autoplay) {
+        narrationSkipRequested = true;
+      }
 
       await playNarration(paragraphs);
 

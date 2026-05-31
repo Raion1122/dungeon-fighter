@@ -953,6 +953,11 @@
           <button class="btn decline" id="btnBack">酒場に戻る</button>
           <button class="btn accept"  id="btnDepart">出発する</button>
         </div>
+        <!-- Phase 2-K DEBUG: オートプレイ出発 (?autoplay=N で高速自動進行 + バグ検出) -->
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+          <button type="button" id="btnDepartAutoplay" class="btn debugEvadeBtn">⚡ オートプレイ出発 (x10)</button>
+          <button type="button" id="btnDepartAutoplayFast" class="btn debugEvadeBtn">⚡⚡ 高速 (x30)</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2199,7 +2204,8 @@
     refresh();
   })();
 
-  document.getElementById("btnDepart").addEventListener("click", () => {
+  // 出発処理 (共通)。autoplayOverride に数値を渡すと autoplay=N を強制付与
+  function departToScenario(autoplayOverride) {
     if (!prepScenario) return;
     // 選んだ構成を永続化 + sessionStorage 経由で index.html へ
     saveSelections();
@@ -2207,13 +2213,32 @@
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
     // フォールバックは index.html (本編)。battle.html は単体検証用なので明示指定された時のみ
     let target = prepScenario.target || "index.html";
+    const params = [];
     // Phase 2-G DEBUG: デバッグ回避モードが ON なら URL パラメータを付与
     if (__debugEvadeMode === "all" || __debugEvadeMode === "arrow") {
+      params.push("evade=" + __debugEvadeMode);
+    }
+    // Phase 2-K: autoplay 指定 (ボタン override 優先、なければ tavern URL から引き継ぎ)
+    let ap = autoplayOverride;
+    if (ap == null) {
+      try {
+        const tavParams = new URLSearchParams(window.location.search);
+        ap = tavParams.get("autoplay");
+      } catch (e) {}
+    }
+    if (ap) params.push("autoplay=" + encodeURIComponent(ap));
+    if (params.length) {
       const sep = target.includes("?") ? "&" : "?";
-      target += sep + "evade=" + __debugEvadeMode;
+      target += sep + params.join("&");
     }
     window.location.href = target;
-  });
+  }
+  document.getElementById("btnDepart").addEventListener("click", () => departToScenario());
+  // Phase 2-K: ワンクリック オートプレイ出発 (x10 / x30)
+  const btnAuto = document.getElementById("btnDepartAutoplay");
+  if (btnAuto) btnAuto.addEventListener("click", () => departToScenario(10));
+  const btnAutoFast = document.getElementById("btnDepartAutoplayFast");
+  if (btnAutoFast) btnAutoFast.addEventListener("click", () => departToScenario(30));
 
   // ─────────────────────────────────────────────────────────────
   // 初期化
