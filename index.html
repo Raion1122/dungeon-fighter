@@ -5748,15 +5748,8 @@
         let leaderMpLine = "";
         if (currentMaxSpellSlotsTotal > 0) {
           const slotsRemain = Object.values(currentSpellSlots || {}).reduce((s, v) => s + v, 0);
-          const slotDetail = Object.entries(currentSpellSlots || {})
-            .filter(([id, n]) => (currentMaxSpellSlots[id] || 0) > 0)
-            .map(([id, n]) => {
-              const skName = (typeof getSkill === "function" && getSkill(id)) ? getSkill(id).name : id;
-              return `${skName} ${n}/${currentMaxSpellSlots[id]}`;
-            })
-            .join(" / ");
-          leaderMpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${currentMaxSpellSlotsTotal}</div>` +
-                         (slotDetail ? `<div class="sbStat" style="font-size:11px;opacity:0.8">${slotDetail}</div>` : "");
+          // 呪文ごとの残り回数 内訳は廃止 (呪文増加でパネルが縦に入りきらないため)。合計のみ表示。
+          leaderMpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${currentMaxSpellSlotsTotal}</div>`;
         }
         // 旧 MP 行 (互換性、Phase 2-J でほぼ未使用): 0 のとき非表示
         if (false) leaderMpLine = (maxMp > 0)
@@ -5825,15 +5818,8 @@
           let mpLine = "";
           if (a.maxSpellSlotsTotal && a.maxSpellSlotsTotal > 0) {
             const slotsRemain = Object.values(a.spellSlots || {}).reduce((s, v) => s + v, 0);
-            const slotDetail = Object.entries(a.spellSlots || {})
-              .filter(([id, n]) => (a.maxSpellSlots[id] || 0) > 0)
-              .map(([id, n]) => {
-                const skName = (typeof getSkill === "function" && getSkill(id)) ? getSkill(id).name : id;
-                return `${skName} ${n}/${a.maxSpellSlots[id]}`;
-              })
-              .join(" / ");
-            mpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${a.maxSpellSlotsTotal}</div>` +
-                     (slotDetail ? `<div class="sbStat" style="font-size:11px;opacity:0.8">${slotDetail}</div>` : "");
+            // 呪文ごとの残り回数 内訳は廃止 (呪文増加でパネルが縦に入りきらないため)。合計のみ表示。
+            mpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${a.maxSpellSlotsTotal}</div>`;
           }
           // Phase 2-G 拡張: 仲間のアクセサリー欄 (装備中のみ表示)
           let aAccLines = "";
