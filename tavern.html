@@ -1266,6 +1266,7 @@
     { id: "cure-critical-wounds", name: "キュア・クリティカル・ウーンズ", category: "回復", range: "medium", mpCost: 10, levelReq: 7, flavor: "味方1人 4d8+WIS 大回復" },
     { id: "bless", name: "ブレス", category: "バフ", range: "medium", mpCost: 4, levelReq: 1, flavor: "味方全体の攻撃ロール +1d4 (3ターン)" },
     { id: "shield-of-faith",   name: "シールド・オブ・フェイス", category: "防御", range: "medium", mpCost: 3, flavor: "味方1人 AC +2 (3ターン)" },
+    { id: "striking", name: "ストライキング", category: "バフ", range: "medium", mpCost: 5, levelReq: 3, flavor: "味方1人の武器に +1d6 ダメージ (3ターン)" },
     { id: "turn-undead", name: "ターンアンデッド", category: "神聖", range: "medium", mpCost: 6, levelReq: 3, flavor: "アンデッドを畏怖行動不能 + 低HP浄化" },
   ];
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
@@ -1364,6 +1365,7 @@
     "cure-critical-wounds": [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2],
     "bless":                [0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],
     "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+    "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],
     "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
   };
   function isCasterClassTV(classKey) {

@@ -4783,6 +4783,7 @@
       "cure-critical-wounds": [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2],   // Lv7 解禁 (4d8)
       "bless":                [0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],   // Lv1 解禁 (+1d4 攻撃)
       "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+      "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],   // Lv3 解禁 (単体武器 +1d6)
       "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // Lv3 解禁 (対アンデッド)
       // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
     };
@@ -5078,6 +5079,7 @@
           skipNextTurn: false,
           resilientFired: false,
           acBonusRemaining: 0, acBonusAmount: 0,
+          strikingRemaining: 0, strikingDie: 0,   // ストライキング (武器 +Xd6)
         },
         stunned: 0,
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
@@ -8533,6 +8535,23 @@
             await allyBless(actor);
           } else if (skillId === "turn-undead") {
             await allyTurnUndead(actor);
+          } else if (skillId === "striking") {
+            // 前衛/近接の未バフ PT 員を選んで武器強化
+            const cands = [];
+            if (hp > 0 && !gameOver && playerBuffs.strikingRemaining <= 0
+                && (playerStats.weaponRange === "melee" || leaderClassKey === "warrior" || leaderClassKey === "dwarf")) {
+              cands.push({ kind: "leader", priority: 2, cx: playerX + 48, cy: playerY + 58 });
+            }
+            for (const a of allies) {
+              if (!a.alive || a.buffs.strikingRemaining > 0) continue;
+              const pri = (a.def.role === "frontline") ? 3 : ((a.weaponRange === "melee" || a.def.weaponRange === "melee") ? 2 : 0);
+              if (pri <= 0) continue;
+              cands.push({ kind: "ally", ally: a, priority: pri, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+            }
+            if (cands.length > 0) {
+              cands.sort((a, b) => b.priority - a.priority);
+              await allyStriking(actor, cands[0]);
+            }
           } else if (skillId === "shield-of-faith") {
             // 未バフ候補から優先度付きで選ぶ (前衛 > リーダー > 後衛)
             const candidates = [];
@@ -8935,6 +8954,8 @@
       ally.buffs.resilientFired = false;
       ally.buffs.acBonusRemaining = 0;
       ally.buffs.acBonusAmount = 0;
+      ally.buffs.strikingRemaining = 0;
+      ally.buffs.strikingDie = 0;
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
 
@@ -9476,6 +9497,13 @@
         mpCost: 4, levelReq: 1,
         flavor: "味方全体の攻撃ロールに +1d4 (3ターン)",
       },
+      // ── ストライキング (単体の武器に +1d6 ダメージ) ──
+      "striking": {
+        name: "ストライキング", category: "バフ", target: "ally",
+        strikingDie: 6, duration: 3, range: "medium",
+        mpCost: 5, levelReq: 3,
+        flavor: "味方1人の武器に +1d6 ダメージ (3ターン)",
+      },
       // ── ターンアンデッド (対アンデッド: 畏怖行動不能 + 低HP浄化) ──
       "turn-undead": {
         name: "ターンアンデッド", category: "神聖", target: "enemies-undead",
@@ -9919,6 +9947,8 @@
       playerBuffs.resilientFired = false;
       playerBuffs.acBonusRemaining = 0;
       playerBuffs.acBonusAmount = 0;
+      playerBuffs.strikingRemaining = 0;
+      playerBuffs.strikingDie = 0;
     }
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
@@ -9932,6 +9962,7 @@
       }
       if (playerBuffs.antiKnockbackRemaining > 0) playerBuffs.antiKnockbackRemaining--;
       if (playerBuffs.acBonusRemaining > 0) playerBuffs.acBonusRemaining--;
+      if (playerBuffs.strikingRemaining > 0) playerBuffs.strikingRemaining--;
       // リーダースキルクールダウンも 1 進める (rogue の shadow-step CD など)
       for (const k of Object.keys(leaderSkillCooldowns)) {
         if (leaderSkillCooldowns[k] > 0) leaderSkillCooldowns[k]--;
@@ -10223,7 +10254,13 @@
         allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
       }
       const bonusTotal = dmgBonus * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
+      // ストライキング: 命中ごとに +1dX (ボーナスダイスは D&D RAW で crit 非倍化)
+      let strikeDmg = 0;
+      if (playerBuffs.strikingRemaining > 0 && playerBuffs.strikingDie > 0) {
+        strikeDmg = rollDiceDD(1, playerBuffs.strikingDie).total;
+        dmg += strikeDmg;
+      }
 
       // Phase 2-A: 残影回避判定 (shadowBeast 等) — 命中ロール通過後、ダメージ適用直前
       if (tryDisplacement(targetIdx)) {
@@ -10239,7 +10276,7 @@
       const rollText = allRolls.join("+");
       const diceStr = opts.dmgDice || playerStats.dmgDice;
       updateInfo(`${getLeaderName()}${opts.skillName ? "の"+opts.skillName : ""}: ${tgtDef.name} に ${dmg} ダメージ ` +
-        `(${diceStr}${isCrit ? "×" + critMult : ""}[${rollText}]${signedDD(bonusTotal)})`);
+        `(${diceStr}${isCrit ? "×" + critMult : ""}[${rollText}]${signedDD(bonusTotal)}${strikeDmg > 0 ? " +striking1d" + playerBuffs.strikingDie + "[" + strikeDmg + "]" : ""})`);
       await sleepMs(400);
 
       // ── レア武器の特殊効果 (D&D 3.5 RAW: エネルギーダメは crit で倍化されない) ──
@@ -11285,7 +11322,11 @@
       let allRolls = [];
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
       const bonusTotal = ally.dmgBonus * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
+      // ストライキング: 命中ごとに +1dX (crit 非倍化)
+      if (ally.buffs.strikingRemaining > 0 && ally.buffs.strikingDie > 0) {
+        dmg += rollDiceDD(1, ally.buffs.strikingDie).total;
+      }
 
       // Phase 2-A: 残影回避判定 (shadowBeast 等)
       if (tryDisplacement(enemyIdx)) {
@@ -11439,6 +11480,45 @@
         `${targetName}: AC <span class="big">+${amt}</span> (${skill.duration}T)`
       );
       updateInfo(`${ally.def.name}: ${targetName} に シールド AC+${amt} 付与`);
+      await sleepMs(700);
+    }
+
+    // 僧侶のストライキング (味方1人の武器に +1dX ダメージを付与、leader/ally 両対応)
+    async function allyStriking(ally, target) {
+      const skill = CLERIC_SKILLS["striking"];
+      const rangeTiles = getRange(skill.range).tiles;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      if (tileChebyshev(aCX, aCY, target.cx, target.cy) > rangeTiles
+          || !hasLineOfSight(aCX, aCY, target.cx, target.cy)) {
+        await allyAdvanceTowardPoint(ally, target.cx, target.cy);
+        return;
+      }
+      // 発動確定 → スロット消費
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = target.cx - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(2500);
+
+      const dur = (skill.duration || 3) + 1;   // 次ターン tick 分を見越す
+      const die = skill.strikingDie || 6;
+      if (target.kind === "leader") {
+        playerBuffs.strikingRemaining = dur;
+        playerBuffs.strikingDie = die;
+      } else {
+        target.ally.buffs.strikingRemaining = dur;
+        target.ally.buffs.strikingDie = die;
+      }
+      spawnCureFx(target.cx, target.cy);
+      const targetName = target.kind === "leader" ? getLeaderName() : target.ally.def.name;
+      showBuffPop(`<span class="label">STRIKING</span>${targetName}: 武器 <span class="big">+1d${die}</span> ダメージ (${skill.duration}T)`);
+      updateInfo(`${ally.def.name}: ${targetName} の武器にストライキング +1d${die} 付与`);
       await sleepMs(700);
     }
 
@@ -12715,6 +12795,7 @@
     async function allyAttackTurn(ally) {
       // バフ tick
       if (ally.buffs.atkBonusRemaining > 0) ally.buffs.atkBonusRemaining--;
+      if (ally.buffs.strikingRemaining > 0) ally.buffs.strikingRemaining--;
       if (ally.buffs.dmgReductionRemaining > 0) {
         ally.buffs.dmgReductionRemaining--;
         if (ally.buffs.dmgReductionRemaining <= 0) ally.buffs.dmgReductionDice = null;
@@ -12809,6 +12890,26 @@
         const unbuffed = members.filter(b => !b).length;
         if (members.length > 0 && unbuffed >= Math.ceil(members.length / 2)) {
           await allyBless(ally);
+          return true;
+        }
+      }
+
+      // 3b. ストライキング: 前衛/近接の未バフ PT 員の武器を強化 (脅威度 10 以上)
+      if (ally.equippedSkills.includes("striking") && hasSpellSlot(ally, "striking") && threat.score >= 10) {
+        const cands = [];
+        if (hp > 0 && !gameOver && playerBuffs.strikingRemaining <= 0
+            && (playerStats.weaponRange === "melee" || leaderClassKey === "warrior" || leaderClassKey === "dwarf")) {
+          cands.push({ kind: "leader", priority: 2, cx: playerX + 48, cy: playerY + 58 });
+        }
+        for (const a of allies) {
+          if (!a.alive || a.buffs.strikingRemaining > 0) continue;
+          const pri = (a.def.role === "frontline") ? 3 : ((a.weaponRange === "melee" || a.def.weaponRange === "melee") ? 2 : 0);
+          if (pri <= 0) continue;   // 近接攻撃役のみ対象 (後衛キャスター/射手は除外)
+          cands.push({ kind: "ally", ally: a, priority: pri, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+        }
+        if (cands.length > 0 && Math.random() < 0.5) {
+          cands.sort((a, b) => b.priority - a.priority);
+          await allyStriking(ally, cands[0]);
           return true;
         }
       }
