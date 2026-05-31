@@ -3624,6 +3624,7 @@
         dmgDice: "1d6", dmgBonus: 1, critRange: 20, critMult: 2,
         range: "melee",
         xp: 150,
+        undead: true,   // ターンアンデッド対象
       },
       orc: {
         name: "オーク",
@@ -4776,8 +4777,13 @@
     const SPELL_SLOT_CURVE_ELF  = [0, 2, 2, 3, 4, 5,  6,  7,  8,  9, 10];
     const CLERIC_SLOTS_TABLE = {
       // index = Lv (0 はダミー)
-      "cure-light-wounds":   [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
-      "shield-of-faith":     [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+      "cure-light-wounds":    [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
+      "cure-moderate-wounds": [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3],   // Lv3 解禁 (2d8)
+      "cure-serious-wounds":  [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],   // Lv5 解禁 (3d8)
+      "cure-critical-wounds": [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2],   // Lv7 解禁 (4d8)
+      "bless":                [0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],   // Lv1 解禁 (+1d4 攻撃)
+      "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+      "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // Lv3 解禁 (対アンデッド)
       // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
     };
     function isCasterClass(classKey) {
@@ -8533,9 +8539,14 @@
         }
         // 僧侶 (Step a-3 第1弾) ─ 回復&バフは味方ターゲットを構築して渡す
         else if (leaderClassKey === "cleric") {
-          if (skillId === "cure-light-wounds") {
+          if (skillId === "cure-light-wounds" || skillId === "cure-moderate-wounds"
+              || skillId === "cure-serious-wounds" || skillId === "cure-critical-wounds") {
             const tgt = findLowestHpPartyMember();
-            if (tgt) await allyCureLight(actor, tgt);
+            if (tgt) await allyCureWounds(actor, tgt, skillId);
+          } else if (skillId === "bless") {
+            await allyBless(actor);
+          } else if (skillId === "turn-undead") {
+            await allyTurnUndead(actor);
           } else if (skillId === "shield-of-faith") {
             // 未バフ候補から優先度付きで選ぶ (前衛 > リーダー > 後衛)
             const candidates = [];
@@ -9452,6 +9463,39 @@
         acBonusAmount: 2, duration: 3, range: "medium",
         mpCost: 3,
         flavor: "味方1人に AC +2 の守護 3ターン (MP 3)",
+      },
+      // ── 回復ラダー (3.5 準拠、Lv 適性で段階解禁) ──
+      "cure-moderate-wounds": {
+        name: "キュア・モデレート・ウーンズ", category: "回復", target: "ally",
+        healDice: "2d8", useWis: true, range: "medium",
+        mpCost: 6, levelReq: 3,
+        flavor: "味方1人を 2d8+WIS HP 回復",
+      },
+      "cure-serious-wounds": {
+        name: "キュア・シリアス・ウーンズ", category: "回復", target: "ally",
+        healDice: "3d8", useWis: true, range: "medium",
+        mpCost: 8, levelReq: 5,
+        flavor: "味方1人を 3d8+WIS HP 回復",
+      },
+      "cure-critical-wounds": {
+        name: "キュア・クリティカル・ウーンズ", category: "回復", target: "ally",
+        healDice: "4d8", useWis: true, range: "medium",
+        mpCost: 10, levelReq: 7,
+        flavor: "味方1人を 4d8+WIS HP 大回復",
+      },
+      // ── ブレス (味方全体の攻撃ロール +1d4) ──
+      "bless": {
+        name: "ブレス", category: "バフ", target: "party",
+        blessDie: 4, duration: 3, range: "medium",
+        mpCost: 4, levelReq: 1,
+        flavor: "味方全体の攻撃ロールに +1d4 (3ターン)",
+      },
+      // ── ターンアンデッド (対アンデッド: 畏怖行動不能 + 低HP浄化) ──
+      "turn-undead": {
+        name: "ターンアンデッド", category: "神聖", target: "enemies-undead",
+        turnDuration: 3, range: "medium",
+        mpCost: 6, levelReq: 3,
+        flavor: "射程内アンデッドを畏怖させ行動不能 + 低HP個体を浄化",
       },
     };
 
@@ -11201,7 +11245,8 @@
 
       const helpless = target.stunned > 0;
       const natD20 = d20();
-      const atkTotal = natD20 + ally.atkBonus;
+      const aAtk = ally.atkBonus + allyAtkBuff(ally);   // ブレス/咆哮等の攻撃バフを反映
+      const atkTotal = natD20 + aAtk;
       const isFumble = !helpless && natD20 === 1;
       const isThreat = natD20 >= ally.critRange && !isFumble;
 
@@ -11215,7 +11260,7 @@
 
       if (isFumble) {
         showRollAtAlly(ally,
-          `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(ally.atkBonus)}`,
+          `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`,
           "fumble");
         await sleepMs(900);
         return;
@@ -11225,7 +11270,7 @@
       let isCrit = helpless;
       if (!hit) {
         showRollAtAlly(ally,
-          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(ally.atkBonus)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
+          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
           "miss");
         await fireArrowFromAlly();
         await sleepMs(500);
@@ -11233,7 +11278,7 @@
       }
 
       if (!helpless && isThreat) {
-        const cn = d20(), ct = cn + ally.atkBonus;
+        const cn = d20(), ct = cn + aAtk;
         if (ct >= effectiveEnemyAc(target)) isCrit = true;
       }
       if (helpless) {
@@ -11242,7 +11287,7 @@
           "crit");
       } else {
         showRollAtAlly(ally,
-          `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(ally.atkBonus)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
+          `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
           isCrit ? "crit" : "hit");
       }
       await sleepMs(300);
@@ -11288,9 +11333,27 @@
       }
     }
 
-    // 僧侶のキュア・ライトウーンズ
-    async function allyCureLight(ally, target) {
-      const skill = CLERIC_SKILLS["cure-light-wounds"];
+    // アンデッド判定 (ターンアンデッド用)。将来の不死敵は def.undead=true を付与。
+    function isUndeadEnemy(e) {
+      return !!(e && ((e.def && e.def.undead) || e.type === "skeleton"));
+    }
+    // 仲間の攻撃バフ (atkBonusRemaining)。リーダーは currentPlayerAtkBonus が別途反映。
+    function allyAtkBuff(ally) {
+      return (ally && ally.buffs && ally.buffs.atkBonusRemaining > 0) ? (ally.buffs.atkBonusAmount || 0) : 0;
+    }
+    // スロットのある最良(emergency=true)/最小(温存)の回復呪文 id を返す。無ければ null
+    function bestAffordableHeal(ally, emergency) {
+      const order = ["cure-critical-wounds", "cure-serious-wounds", "cure-moderate-wounds", "cure-light-wounds"];
+      const ids = emergency ? order : order.slice().reverse();
+      for (const id of ids) {
+        if (ally.equippedSkills.includes(id) && hasSpellSlot(ally, id)) return id;
+      }
+      return null;
+    }
+
+    // 僧侶の回復呪文 (汎用: skill.healDice を可変ロール)。leader/ally 両対応。
+    async function allyCureWounds(ally, target, skillId) {
+      const skill = CLERIC_SKILLS[skillId] || CLERIC_SKILLS["cure-light-wounds"];
       const rangeTiles = getRange(skill.range).tiles;
       const aCX = ally.x + ally.def.displaySize / 2;
       const aCY = ally.y + ally.def.displaySize / 2;
@@ -11300,25 +11363,24 @@
         return;
       }
 
-      // 発動確定 → MP 消費
+      // 発動確定 → MP + スロット消費
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
-      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+      if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
         ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
       }
       flashAction(ally.el, "skill");
 
-      // 向きを対象へ
-      const dfx = target.cx - aCX, dfy = target.cy - aCY;
-      // 右向きのみ運用: X軸に差があれば更新、ほぼ真上/真下なら facing 維持
+      const dfx = target.cx - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
       await sleepMs(2400);
 
-      // 回復ロール
-      const r = rollDiceDD(1, 8);
-      const heal = Math.max(1, r.total + ally.wis);
+      // 回復ロール (skill.healDice 可変、useWis なら WIS 加算)
+      const { n, sides } = parseDiceDD(skill.healDice || "1d8");
+      const r = rollDiceDD(n, sides);
+      const heal = Math.max(1, r.total + (skill.useWis ? ally.wis : 0));
       let actualHeal = 0;
       if (target.kind === "leader") {
         const prev = hp;
@@ -11330,16 +11392,18 @@
         actualHeal = target.ally.hp - prev;
       }
 
-      // 回復エフェクト: 中央リング拡大 + 周囲に降り注ぐ金の光粒
       spawnCureFx(target.cx, target.cy);
-
       showRollAtAlly(ally,
-        `<span class="label">CURE</span>1d8(${r.rolls.join("+")})${signedDD(ally.wis)} = <span class="big">+${actualHeal}</span>`,
+        `<span class="label">CURE</span>${skill.healDice}(${r.rolls.join("+")})${skill.useWis ? signedDD(ally.wis) : ""} = <span class="big">+${actualHeal}</span>`,
         "init");
       showHealAt(target.cx, target.cy - 4, actualHeal);
       const targetName = target.kind === "leader" ? getLeaderName() : target.ally.def.name;
       updateInfo(`${ally.def.name}: ${targetName} を ${actualHeal} HP 回復`);
       await sleepMs(700);
+    }
+    // 互換ラッパ (既存呼出箇所と AI から)
+    async function allyCureLight(ally, target) {
+      await allyCureWounds(ally, target, "cure-light-wounds");
     }
 
     // 僧侶のシールド・オブ・フェイス (味方1人に AC +2 を 3ターン付与)
@@ -11390,6 +11454,97 @@
       );
       updateInfo(`${ally.def.name}: ${targetName} に シールド AC+${amt} 付与`);
       await sleepMs(700);
+    }
+
+    // 僧侶のブレス (味方全体の攻撃ロールに +1d4。詠唱時1回ロール→持続中フラット、leader/ally 両対応)
+    async function allyBless(ally) {
+      const skill = CLERIC_SKILLS["bless"];
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(2200);
+
+      const roll = rollDiceDD(1, skill.blessDie || 4).total;
+      const dur = (skill.duration || 3) + 1;   // 次ターン tick 分を見越す
+      let n = 0;
+      // リーダー (currentPlayerAtkBonus が atkBonusRemaining を反映)
+      if (hp > 0 && !gameOver) {
+        playerBuffs.atkBonusRemaining = Math.max(playerBuffs.atkBonusRemaining || 0, dur);
+        playerBuffs.atkBonusAmount = Math.max(playerBuffs.atkBonusAmount || 0, roll);
+        n++;
+      }
+      // 全生存仲間 (allyAtkBuff が攻撃ロールに反映)
+      for (const a of allies) {
+        if (!a.alive) continue;
+        a.buffs.atkBonusRemaining = Math.max(a.buffs.atkBonusRemaining || 0, dur);
+        a.buffs.atkBonusAmount = Math.max(a.buffs.atkBonusAmount || 0, roll);
+        n++;
+      }
+      spawnCureFx(playerX + 48, playerY + 58);
+      showBuffPop(`<span class="label">BLESS</span>味方${n}人: 攻撃 <span class="big">+${roll}</span> (${skill.duration}T)`);
+      updateInfo(`${ally.def.name}: ブレス! 味方${n}人の攻撃ロール +${roll} (1d${skill.blessDie || 4})`);
+      await sleepMs(700);
+    }
+
+    // 僧侶のターンアンデッド (射程内アンデッドを畏怖行動不能 + 低HP個体を浄化)
+    async function allyTurnUndead(ally) {
+      const skill = CLERIC_SKILLS["turn-undead"];
+      const rangeTiles = getRange(skill.range).tiles;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const targets = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e.alive || !isUndeadEnemy(e)) continue;
+        const ecx = e.x + e.def.displaySize / 2;
+        const ecy = e.y + e.def.displaySize / 2;
+        if (tileChebyshev(aCX, aCY, ecx, ecy) > rangeTiles) continue;
+        if (!hasLineOfSight(aCX, aCY, ecx, ecy)) continue;
+        targets.push(i);
+      }
+      // 消費 + 詠唱
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = (enemies[targets[0]] ? (enemies[targets[0]].x - ally.x) : 0);
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(2600);
+
+      if (targets.length === 0) {
+        updateInfo(`${ally.def.name}: ターンアンデッド — 範囲内にアンデッドはいない`);
+        await sleepMs(500);
+        return;
+      }
+
+      const lvl = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+      const threshold = lvl * 3;   // ≤Lv×3 HP のアンデッドは浄化
+      let destroyed = 0, turned = 0;
+      for (const i of targets) {
+        const e = enemies[i];
+        const ecx = e.x + e.def.displaySize / 2;
+        spawnCureFx(ecx, e.y + e.def.displaySize / 2);   // 神聖な光
+        if (e.hp <= threshold) {
+          showDmgAt(ecx, e.y, e.hp, true);
+          e.hp = 0;
+          defeatEnemy(i);
+          destroyed++;
+        } else {
+          e.stunned = Math.max(e.stunned || 0, skill.turnDuration || 3);
+          showRollAtEnemy(i, `<span class="label">TURNED</span>畏怖 ${skill.turnDuration || 3}T`, "skill");
+          turned++;
+        }
+        await sleepMs(180);
+      }
+      updateInfo(`${ally.def.name}: ターンアンデッド! 浄化 ${destroyed} / 畏怖 ${turned}`);
+      await sleepMs(600);
     }
 
     // ══════════ 魔法使いスキル (Phase 2) ══════════
@@ -12639,24 +12794,48 @@
     // 僧侶 AI: ヒール/シールド判断。スキル発動したら true を返す
     async function clericAI(ally) {
       const threat = evaluateThreat();
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const low = findLowestHpPartyMember();
 
-      // 味方HPが75%未満で回復スキル持ち & MP 足りれば、50%の確率でヒール
-      // (回復は雑魚戦でも価値があるので閾値なし)
-      const hasHeal = ally.equippedSkills.includes("cure-light-wounds");
-      const cureCost = CLERIC_SKILLS["cure-light-wounds"]?.mpCost || 0;
-      // Phase 2-J: MP → 呪文スロット残数
-      if (hasHeal && hasSpellSlot(ally, "cure-light-wounds")) {
-        const low = findLowestHpPartyMember();
-        if (low && low.ratio < 0.75 && Math.random() < 0.5) {
-          await allyCureLight(ally, low);
+      // 1. 緊急回復: 最も低いPT員が 45% 未満 → 最強の使える回復を即発動
+      if (low && low.ratio < 0.45) {
+        const healId = bestAffordableHeal(ally, true);
+        if (healId) { await allyCureWounds(ally, low, healId); return true; }
+      }
+
+      // 2. ターンアンデッド: 射程内に生存アンデッドがいてスロットあり
+      if (ally.equippedSkills.includes("turn-undead") && hasSpellSlot(ally, "turn-undead")) {
+        const tuRange = getRange(CLERIC_SKILLS["turn-undead"].range).tiles;
+        const undeadInRange = enemies.some(e => {
+          if (!e.alive || !isUndeadEnemy(e)) return false;
+          const ecx = e.x + e.def.displaySize / 2, ecy = e.y + e.def.displaySize / 2;
+          return tileChebyshev(aCX, aCY, ecx, ecy) <= tuRange && hasLineOfSight(aCX, aCY, ecx, ecy);
+        });
+        if (undeadInRange) { await allyTurnUndead(ally); return true; }
+      }
+
+      // 3. ブレス: PT の大半が未バフ & 脅威度 10 以上 & スロットあり (スロット希少性で実質1戦1回)
+      if (ally.equippedSkills.includes("bless") && hasSpellSlot(ally, "bless") && threat.score >= 10) {
+        const members = [];
+        if (hp > 0 && !gameOver) members.push(playerBuffs.atkBonusRemaining > 0);
+        for (const a of allies) if (a.alive) members.push(a.buffs.atkBonusRemaining > 0);
+        const unbuffed = members.filter(b => !b).length;
+        if (members.length > 0 && unbuffed >= Math.ceil(members.length / 2)) {
+          await allyBless(ally);
           return true;
         }
       }
-      // シールド: 脅威度 15 以上 (= ボス・複数敵・強敵) の時のみ発動。
-      //   雑魚1体相手には MP 温存する
+
+      // 4. 通常回復: 75% 未満 & 50% (温存のため弱めの回復から)
+      if (low && low.ratio < 0.75 && Math.random() < 0.5) {
+        const healId = bestAffordableHeal(ally, false);
+        if (healId) { await allyCureWounds(ally, low, healId); return true; }
+      }
+
+      // 5. シールド: 脅威度 15 以上 (= ボス・複数敵・強敵) の時のみ発動。
+      //   雑魚1体相手には スロット温存する
       const hasShield = ally.equippedSkills.includes("shield-of-faith");
-      const shieldCost = CLERIC_SKILLS["shield-of-faith"]?.mpCost || 0;
-      // Phase 2-J: MP → 呪文スロット残数
       if (hasShield && hasSpellSlot(ally, "shield-of-faith") && threat.score >= 15) {
         const candidates = [];
         if (hp > 0 && !gameOver && playerBuffs.acBonusRemaining <= 0) {

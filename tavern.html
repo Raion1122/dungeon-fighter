@@ -1261,7 +1261,12 @@
   // 僧侶スキル (index.html CLERIC_SKILLS と同期)
   const CLERIC_SKILLS_UI = [
     { id: "cure-light-wounds", name: "キュア・ライトウーンズ", category: "回復", range: "medium", mpCost: 4, flavor: "味方1人 1d8+WIS 回復" },
+    { id: "cure-moderate-wounds", name: "キュア・モデレート・ウーンズ", category: "回復", range: "medium", mpCost: 6, levelReq: 3, flavor: "味方1人 2d8+WIS 回復" },
+    { id: "cure-serious-wounds", name: "キュア・シリアス・ウーンズ", category: "回復", range: "medium", mpCost: 8, levelReq: 5, flavor: "味方1人 3d8+WIS 回復" },
+    { id: "cure-critical-wounds", name: "キュア・クリティカル・ウーンズ", category: "回復", range: "medium", mpCost: 10, levelReq: 7, flavor: "味方1人 4d8+WIS 大回復" },
+    { id: "bless", name: "ブレス", category: "バフ", range: "medium", mpCost: 4, levelReq: 1, flavor: "味方全体の攻撃ロール +1d4 (3ターン)" },
     { id: "shield-of-faith",   name: "シールド・オブ・フェイス", category: "防御", range: "medium", mpCost: 3, flavor: "味方1人 AC +2 (3ターン)" },
+    { id: "turn-undead", name: "ターンアンデッド", category: "神聖", range: "medium", mpCost: 6, levelReq: 3, flavor: "アンデッドを畏怖行動不能 + 低HP浄化" },
   ];
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
   const MAGE_SKILLS_UI = [
@@ -1353,8 +1358,13 @@
   const SPELL_SLOT_CURVE_MAGE = [0, 3, 4, 5, 6, 8, 9, 10, 12, 13, 15];
   const SPELL_SLOT_CURVE_ELF  = [0, 2, 2, 3, 4, 5,  6,  7,  8,  9, 10];
   const CLERIC_SLOTS_TABLE = {
-    "cure-light-wounds": [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
-    "shield-of-faith":   [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+    "cure-light-wounds":    [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
+    "cure-moderate-wounds": [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3],
+    "cure-serious-wounds":  [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],
+    "cure-critical-wounds": [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2],
+    "bless":                [0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2],
+    "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
+    "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
   };
   function isCasterClassTV(classKey) {
     return classKey === "cleric" || classKey === "mage" || classKey === "elf";
