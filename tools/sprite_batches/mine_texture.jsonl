@@ -1,0 +1,4 @@
+# 廃坑 (Sce1 goblin-mine) 床/壁シームレステクスチャ — 湿った洞窟の土・岩肌
+# 同一チャット連投で画風を統一。seamless tileable を強調 (createPattern repeat で敷き詰めるため)
+{"prompt_file": "tools/sprite_batches/mine_floor_tex.txt", "output": "source_images/mine_texture/01_floor.png"}
+{"prompt_file": "tools/sprite_batches/mine_wall_tex.txt",  "output": "source_images/mine_texture/02_wall.png"}
