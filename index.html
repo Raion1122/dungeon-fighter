@@ -4585,6 +4585,8 @@
         animTick: 0,
         attackTimer: 0, attackCooldown: 0, attackHitDealt: false,
         stunned: 0,  // D&D スキル(盾バッシュ等)のデバフ残ターン
+        poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
+        atkPenaltyRemaining: 0, atkPenaltyAmount: 0, // 盗賊 煙幕 (命中ペナルティ)
         // ボス専用(ボス以外では未使用)
         phase: 0,                 // 0=通常, 1=激怒
         ragePhaseEntered: false,  // 激怒フェーズ演出を一度だけ
@@ -5076,6 +5078,8 @@
           resilientFired: false,
           acBonusRemaining: 0, acBonusAmount: 0,
           strikingRemaining: 0, strikingDie: 0,   // ストライキング (武器 +Xd6)
+          evasionRemaining: 0,                     // 盗賊 回避 (被ダメ半減、ターン制)
+          luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張、ターン制)
         },
         stunned: 0,
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
@@ -6830,6 +6834,13 @@
         localStorage.setItem("dragonfighters.equipAccessory1", snap.player[0]);
         localStorage.setItem("dragonfighters.equipAccessory2", snap.player[1]);
       } catch (e) { /* ignore */ }
+    }
+
+    // 盗賊 毒塗り短剣: 毒 (DoT) を付与 (リフレッシュ式、スタックなし)
+    function applyPoison(enemy, die, turns) {
+      if (!enemy || !enemy.alive) return;
+      enemy.poisonDie = die || "1d4";
+      enemy.poisonRemaining = Math.max(enemy.poisonRemaining || 0, turns || 3);
     }
 
     function defeatEnemy(index) {
@@ -8612,6 +8623,12 @@
             }
             if (!fired) await playerSingleAttack(targetIdx, {});
           }
+          else if (skillId === "thrown-dagger") await allyThrownDagger(actor, targetIdx);
+          else if (skillId === "poison-blade")  await allyPoisonBlade(actor, targetIdx);
+          else if (skillId === "evasion")       await allyEvasion(actor);
+          else if (skillId === "smoke-bomb")    await allySmokeBomb(actor);
+          else if (skillId === "lucky")         await allyLucky(actor);
+          else await playerSingleAttack(targetIdx, {});  // find-traps(パッシブ) 等は通常攻撃
         }
         // 未対応クラス → 通常攻撃にフォールバック
         else {
@@ -8953,6 +8970,9 @@
       ally.buffs.acBonusAmount = 0;
       ally.buffs.strikingRemaining = 0;
       ally.buffs.strikingDie = 0;
+      ally.buffs.evasionRemaining = 0;
+      ally.buffs.luckyRemaining = 0;
+      ally.buffs.luckyCritWiden = 0;
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
 
@@ -9108,6 +9128,8 @@
           e.path = [];
           e.pathTimer = 0;
           e.stunned = 0;
+          e.poisonRemaining = 0; e.poisonDie = null;
+          e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
         }
 
         // プレイヤーのバフ・デバフもリセット
@@ -9225,6 +9247,8 @@
                 e.path = [];
                 e.pathTimer = 0;
                 e.stunned = 0;
+                e.poisonRemaining = 0; e.poisonDie = null;
+                e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
 
                 const dexVal = e.def.dex || 0;
                 const n = d20();
@@ -9598,6 +9622,40 @@
         flavor: "敵の背後へ瞬間移動 → 1d6+2d6+DEX (敵スタン/睡眠 or フランキング時に発動・2Tクールダウン)",
         cooldown: 2,
       },
+      // ── classes.md 仕様 残り 6 スキル (MPなし・CD/1戦1回) ──
+      "thrown-dagger": {
+        name: "投げナイフ", category: "attack", target: "single",
+        dmgDice: "1d4", useDex: true, range: "medium",
+        throws: 2, cooldown: 1,
+        flavor: "中距離単体にナイフを2連投 (各 1d4+DEX・1Tクールダウン)",
+      },
+      "poison-blade": {
+        name: "毒塗り短剣", category: "attack", target: "single",
+        dmgDice: "1d4", useDex: true, range: "melee",
+        poisonDie: "1d4", poisonTurns: 3, cooldown: 2,
+        flavor: "近接単体に 1d4+DEX + 毒 (3ターン毎ターン 1d4・2Tクールダウン)",
+      },
+      "evasion": {
+        name: "回避", category: "defense", target: "self",
+        evasionTurns: 3, range: "self", cooldown: 4,
+        flavor: "3ターン、自分の被ダメージを半減 (4Tクールダウン)",
+      },
+      "smoke-bomb": {
+        name: "煙幕", category: "defense", target: "around",
+        enemyAtkPenalty: 6, enemyAtkPenaltyTurns: 1, range: "self",
+        oncePerEncounter: true,
+        flavor: "周囲の敵全員の命中を1ターン -6 (1戦1回)",
+      },
+      "lucky": {
+        name: "幸運", category: "buff", target: "self",
+        luckyCritWiden: 2, luckyTurns: 3, range: "self", cooldown: 4,
+        flavor: "3ターン、自分のクリティカル率 +10% (critRange-2・4Tクールダウン)",
+      },
+      "find-traps": {
+        name: "罠探知強化", category: "buff", target: "self",
+        passive: true, outOfCombat: true, range: "self",
+        flavor: "罠・隠し宝箱の発見率を大幅アップ (常時パッシブ・盗賊専用)",
+      },
     };
 
     // ドワーフスキル (Phase 2 + フェーズ A/B 攻撃3 + 防御3 = classes.md 仕様準拠)
@@ -9937,6 +9995,9 @@
       resilientFired: false,   // 不屈 (エンカウンター1回)
       acBonusRemaining: 0,     // シールド・オブ・フェイス等 の AC バフ
       acBonusAmount: 0,
+      strikingRemaining: 0, strikingDie: 0,
+      evasionRemaining: 0,                     // 盗賊 回避 (被ダメ半減)
+      luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張)
     };
     function resetPlayerBuffs() {
       playerBuffs.atkBonusRemaining = 0;
@@ -9953,6 +10014,9 @@
       playerBuffs.acBonusAmount = 0;
       playerBuffs.strikingRemaining = 0;
       playerBuffs.strikingDie = 0;
+      playerBuffs.evasionRemaining = 0;
+      playerBuffs.luckyRemaining = 0;
+      playerBuffs.luckyCritWiden = 0;
     }
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
@@ -9967,6 +10031,11 @@
       if (playerBuffs.antiKnockbackRemaining > 0) playerBuffs.antiKnockbackRemaining--;
       if (playerBuffs.acBonusRemaining > 0) playerBuffs.acBonusRemaining--;
       if (playerBuffs.strikingRemaining > 0) playerBuffs.strikingRemaining--;
+      if (playerBuffs.evasionRemaining > 0) playerBuffs.evasionRemaining--;
+      if (playerBuffs.luckyRemaining > 0) {
+        playerBuffs.luckyRemaining--;
+        if (playerBuffs.luckyRemaining <= 0) playerBuffs.luckyCritWiden = 0;
+      }
       // リーダースキルクールダウンも 1 進める (rogue の shadow-step CD など)
       for (const k of Object.keys(leaderSkillCooldowns)) {
         if (leaderSkillCooldowns[k] > 0) leaderSkillCooldowns[k]--;
@@ -10160,6 +10229,13 @@
       return ac;
     }
 
+    // 盗賊 幸運: critRange を一時的に下げる (=クリ閾値を広げる)。unit は ally / leader actor。
+    function effectiveCritRange(unit) {
+      const base = (unit && unit.critRange) || 20;
+      const widen = (unit && unit.buffs && unit.buffs.luckyRemaining > 0) ? (unit.buffs.luckyCritWiden || 0) : 0;
+      return base - widen;
+    }
+
     // ── 単体攻撃の共通処理(通常攻撃・スキル共用) ──
     // opts: { skillName?, dmgDice, dmgBonus, critMult, useStr?, onAfterHit?, range? }
     async function playerSingleAttack(targetIdx, opts) {
@@ -10189,7 +10265,8 @@
       const natD20  = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;  // 無抵抗相手はファンブルなし
-      const isThreat = natD20 >= playerStats.critRange && !isFumble;
+      const luckyWiden = (playerBuffs.luckyRemaining > 0) ? (playerBuffs.luckyCritWiden || 0) : 0;
+      const isThreat = natD20 >= (playerStats.critRange - luckyWiden) && !isFumble;
       const critMult = opts.critMult != null ? opts.critMult : playerStats.critMult;
       const labelPrefix = opts.skillName ? `${opts.skillName} ` : "";
       const atkText =
@@ -10946,73 +11023,66 @@
     // 知覚チェック: プレイヤー 1 タイル移動後に呼ばれる
     //   周辺 TRAP_PERCEPTION_RADIUS 以内の未発見罠 + 隠された宝箱を
     //   PT 全員で 1d20+WIS+perceptionBonus 判定、1人成功で発見
+    // ── 罠/隠し宝箱 発見: 職業別確率モデル (classes.md 準拠) ──
+    // 旧実装は「移動ごと×全員×d20」で累積発見しほぼ必中=職業差消失。
+    // 1対象につき半径内で1回だけ職業別確率で判定し、職業差を効かせる。
+    const CLASS_TRAP_FIND_CHANCE = {
+      rogue: 0.80, dwarf: 0.40, elf: 0.35, warrior: 0.20, cleric: 0.20, mage: 0.20,
+    };
+    const FIND_TRAPS_CHANCE = 0.95;  // 盗賊が「罠探知強化」装備時
+    function memberTrapChance(classKey, equipped) {
+      if (Array.isArray(equipped) && equipped.includes("find-traps")) return FIND_TRAPS_CHANCE;
+      return CLASS_TRAP_FIND_CHANCE[classKey] != null ? CLASS_TRAP_FIND_CHANCE[classKey] : 0.20;
+    }
+    // 生存メンバー中の最良発見確率 + その担当者名 (最も鋭い者が見つける)
+    function partyBestTrapFinder() {
+      let best = 0, name = "";
+      if (hp > 0 && !gameOver) {
+        const c = memberTrapChance(leaderClassKey, equippedSkills);
+        if (c > best) { best = c; name = getLeaderName(); }
+      }
+      for (const a of allies) {
+        if (!a.alive) continue;
+        const c = memberTrapChance(a.classKey, a.equippedSkills);
+        if (c > best) { best = c; name = a.def.name; }
+      }
+      return { chance: best, name };
+    }
+
     function runPerceptionCheck() {
       if (encounterActive || encounterRunning) return;
       if (!gameStarted || gameOver) return;
-      const dc = currentScenario.perceptionDC || 15;
       const pCX = playerX + 48, pCY = playerY + 58;
       const pTX = Math.floor(pCX / TILE_SIZE);
       const pTY = Math.floor(pCY / TILE_SIZE);
-      // ロール担当者をリスト化 (毎 tick 同じなので先に作る)
-      function getRollers() {
-        const rollers = [];
-        if (hp > 0 && !gameOver) {
-          rollers.push({ name: getLeaderName(), wis: playerStats.wis || 0, bonus: 0 });
-        }
-        for (const a of allies) {
-          if (!a.alive) continue;
-          rollers.push({
-            name: a.def.name,
-            wis: a.wis || 0,
-            bonus: a.def.perceptionBonus || 0,
-          });
-        }
-        return rollers;
-      }
+      const finder = partyBestTrapFinder();   // {chance, name}
+      const pct = Math.round(finder.chance * 100);
 
-      // 罠の発見判定
+      // 罠の発見判定 (半径内に入った対象につき1回だけ確率判定)
       for (const trap of traps) {
-        if (trap.found || trap.triggered) continue;
+        if (trap.found || trap.triggered || trap._percRolled) continue;
         if (Math.abs(trap.tx - pTX) > TRAP_PERCEPTION_RADIUS) continue;
         if (Math.abs(trap.ty - pTY) > TRAP_PERCEPTION_RADIUS) continue;
-        for (const r of getRollers()) {
-          const natD20 = d20();
-          const total = natD20 + r.wis + r.bonus;
-          if (total >= dc) {
-            trap.found = true;
-            showBanner("⚠ 罠を見つけた!", 1400);
-            showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
-            updateInfo(
-              `${r.name} が罠を発見! 1d20(${natD20})` +
-              `${r.wis !== 0 ? (r.wis > 0 ? "+" : "") + "WIS" + r.wis : ""}` +
-              `${r.bonus !== 0 ? "+" + r.bonus : ""}` +
-              ` = ${total} vs DC${dc}`
-            );
-            break;
-          }
+        trap._percRolled = true;   // この罠は判定済 (見逃したら踏むまで未発見)
+        if (Math.random() < finder.chance) {
+          trap.found = true;
+          showBanner("⚠ 罠を見つけた!", 1400);
+          showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
+          updateInfo(`${finder.name} が罠を発見! (発見率 ${pct}%)`);
         }
       }
 
       // 隠された宝箱の発見判定
       if (typeof roomChests !== "undefined") {
         for (const chest of roomChests) {
-          if (!chest.hidden || chest.found) continue;
+          if (!chest.hidden || chest.found || chest._percRolled) continue;
           if (Math.abs(chest.tx - pTX) > TRAP_PERCEPTION_RADIUS) continue;
           if (Math.abs(chest.ty - pTY) > TRAP_PERCEPTION_RADIUS) continue;
-          for (const r of getRollers()) {
-            const natD20 = d20();
-            const total = natD20 + r.wis + r.bonus;
-            if (total >= dc) {
-              chest.found = true;
-              showBanner("🎁 隠された宝箱を見つけた!", 1400);
-              updateInfo(
-                `${r.name} が隠された宝箱を発見! 1d20(${natD20})` +
-                `${r.wis !== 0 ? (r.wis > 0 ? "+" : "") + "WIS" + r.wis : ""}` +
-                `${r.bonus !== 0 ? "+" + r.bonus : ""}` +
-                ` = ${total} vs DC${dc}`
-              );
-              break;
-            }
+          chest._percRolled = true;
+          if (Math.random() < finder.chance) {
+            chest.found = true;
+            showBanner("🎁 隠された宝箱を見つけた!", 1400);
+            updateInfo(`${finder.name} が隠された宝箱を発見! (発見率 ${pct}%)`);
           }
         }
       }
@@ -11275,7 +11345,7 @@
       const aAtk = ally.atkBonus + allyAtkBuff(ally);   // ブレス/咆哮等の攻撃バフを反映
       const atkTotal = natD20 + aAtk;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       // 弓使い (weaponProjectile=arrow) は矢発射ヘルパー
       const fireArrowFromAlly = async () => {
@@ -11743,7 +11813,7 @@
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       if (isFumble) {
         showRollAtAlly(ally,
@@ -11885,7 +11955,7 @@
         if (!t.alive) continue;
         const natD20 = d20();
         const atkTotal = natD20 + atkBonus;
-        const hit = (natD20 !== 1) && (natD20 >= ally.critRange || atkTotal >= effectiveEnemyAc(t));
+        const hit = (natD20 !== 1) && (natD20 >= effectiveCritRange(ally) || atkTotal >= effectiveEnemyAc(t));
         if (hit) {
           t.stunned = Math.max(t.stunned || 0, skill.stunTarget);
           hits++;
@@ -12414,7 +12484,7 @@
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       if (isFumble) {
         showRollAtAlly(ally,
@@ -12577,7 +12647,7 @@
       const natD20 = d20();
       const atkTotal = natD20 + ally.atkBonus;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       if (isFumble) {
         showRollAtAlly(ally,
@@ -12670,7 +12740,7 @@
         const natD20 = d20();
         const atkTotal = natD20 + ally.atkBonus;
         const isFumble = !helpless && natD20 === 1;
-        const isThreat = natD20 >= ally.critRange && !isFumble;
+        const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
         const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(t);
         if (!hit || isFumble) {
           showDmgAt(tx, t.y - 22, "MISS", false);
@@ -12732,7 +12802,7 @@
         const natD20 = d20();
         const atkTotal = natD20 + ally.atkBonus;
         const isFumble = !helpless && natD20 === 1;
-        const isThreat = natD20 >= ally.critRange && !isFumble;
+        const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
         const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(t);
         if (!hit || isFumble) {
           showDmgAt(tx, t.y - 22, "MISS", false);
@@ -12915,6 +12985,11 @@
       }
       if (ally.buffs.antiKnockbackRemaining > 0) ally.buffs.antiKnockbackRemaining--;
       if (ally.buffs.acBonusRemaining > 0) ally.buffs.acBonusRemaining--;
+      if (ally.buffs.evasionRemaining > 0) ally.buffs.evasionRemaining--;
+      if (ally.buffs.luckyRemaining > 0) {
+        ally.buffs.luckyRemaining--;
+        if (ally.buffs.luckyRemaining <= 0) ally.buffs.luckyCritWiden = 0;
+      }
       // スタン
       if (ally.stunned > 0) {
         ally.stunned--;
@@ -13361,7 +13436,7 @@
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       if (isFumble) {
         showRollAtAlly(ally,
@@ -13958,7 +14033,7 @@
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
       const isFumble = !helpless && natD20 === 1;
-      const isThreat = natD20 >= ally.critRange && !isFumble;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
       if (isFumble) {
         showRollAtAlly(ally, `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(atkBonus)}`, "fumble");
         await sleepMs(900);
@@ -14002,32 +14077,256 @@
       }
     }
 
+    // 盗賊 投げナイフ: 中距離単体に 1d4+DEX を 2連投 (各命中ロール、CD1)
+    async function allyThrownDagger(ally, enemyIdx) {
+      const skill = ROGUE_SKILLS["thrown-dagger"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+      ally.skillCooldowns["thrown-dagger"] = skill.cooldown || 1;
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(500);
+
+      const throws = skill.throws || 2;
+      let totalDmg = 0, hitCount = 0;
+      for (let t = 0; t < throws; t++) {
+        if (!target.alive) break;
+        const launchX = aCX + (ally.facing === "right" ? 18 : -18);
+        const launchY = aCY - 4;
+        await spawnArrow(launchX, launchY, ex, ey, 320, { variant: "thrownAxe", spinning: true });
+        const helpless = target.stunned > 0;
+        const atkBonus = ally.atkBonus + (ally.dex || 0);
+        const natD20 = d20();
+        const atkTotal = natD20 + atkBonus;
+        const isFumble = !helpless && natD20 === 1;
+        const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
+        const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
+        if (!hit) {
+          showRollAtAlly(ally, `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ${atkTotal}`, "miss");
+          await sleepMs(380);
+          continue;
+        }
+        let isCrit = helpless;
+        if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) isCrit = true; }
+        const critMult = ally.critMult || 2;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        const times = isCrit ? critMult : 1;
+        let rolls = [];
+        for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(n, sides).rolls);
+        const dexBonus = (ally.dex || 0) * times;
+        const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+        target.hp = Math.max(0, target.hp - dmg);
+        totalDmg += dmg; hitCount++;
+        triggerEnemyDamageFlash(enemyIdx);
+        showHitSpark(enemyIdx, isCrit);
+        showDmgAt(ex, target.y, dmg, isCrit);
+        await sleepMs(380);
+        if (target.hp <= 0) { defeatEnemy(enemyIdx); await sleepMs(300); break; }
+      }
+      updateInfo(`${ally.def.name}: 投げナイフ ×${throws} → ${hitCount}命中 計 ${totalDmg} ダメージ`);
+      await sleepMs(400);
+    }
+
+    // 盗賊 毒塗り短剣: 近接 1d4+DEX + 毒 (3T毎ターン1d4、CD2)
+    async function allyPoisonBlade(ally, enemyIdx) {
+      const skill = ROGUE_SKILLS["poison-blade"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;  // melee = 1
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+      ally.skillCooldowns["poison-blade"] = skill.cooldown || 2;
+      flashAction(ally.el, "skill");
+      if (Math.abs(ex - aCX) > 2) ally.facing = ex > aCX ? "right" : "left";
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(500);
+
+      const helpless = target.stunned > 0;
+      const atkBonus = ally.atkBonus + (ally.dex || 0);
+      const natD20 = d20();
+      const atkTotal = natD20 + atkBonus;
+      const isFumble = !helpless && natD20 === 1;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
+      if (isFumble) {
+        showRollAtAlly(ally, `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(atkBonus)}`, "fumble");
+        await sleepMs(800); return;
+      }
+      const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
+      if (!hit) {
+        showRollAtAlly(ally, `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`, "miss");
+        await sleepMs(700); return;
+      }
+      let isCrit = helpless;
+      if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) isCrit = true; }
+      const critMult = ally.critMult || 2;
+      const { n, sides } = parseDiceDD(skill.dmgDice);
+      const times = isCrit ? critMult : 1;
+      let rolls = [];
+      for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(n, sides).rolls);
+      const dexBonus = (ally.dex || 0) * times;
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+      target.hp = Math.max(0, target.hp - dmg);
+      triggerEnemyDamageFlash(enemyIdx);
+      showHitSpark(enemyIdx, isCrit);
+      showDmgAt(ex, target.y, dmg, isCrit);
+      // 毒付与 (撃破していなければ)
+      if (target.hp > 0) applyPoison(target, skill.poisonDie, skill.poisonTurns);
+      showRollAtAlly(ally,
+        `<span class="label">${isCrit ? "CRIT!" : "POISON!"}</span>${skill.dmgDice}${signedDD(dexBonus)} = <span class="big">${dmg}</span>${target.hp > 0 ? "<br>+毒 " + skill.poisonTurns + "T" : ""}`,
+        isCrit ? "crit" : "skill");
+      updateInfo(`${ally.def.name}: 毒塗り短剣で ${tgtDef.name} に ${dmg} ダメージ${target.hp > 0 ? " + 毒付与" : ""}`);
+      await sleepMs(600);
+      if (target.hp <= 0) { defeatEnemy(enemyIdx); await sleepMs(400); }
+    }
+
+    // 盗賊 回避: 自分の被ダメージを半減 3T (CD4)
+    async function allyEvasion(ally) {
+      const skill = ROGUE_SKILLS["evasion"];
+      ally.skillCooldowns["evasion"] = skill.cooldown || 4;
+      ally.buffs.evasionRemaining = (skill.evasionTurns || 3) + 1;  // +1: 発動ターンの tick を見越す
+      flashAction(ally.el, "skill");
+      startAllyAttackAnim(ally);
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span><br>被ダメ半減 ${skill.evasionTurns || 3}T`, "skill");
+      updateInfo(`${ally.def.name}: 回避態勢 — ${skill.evasionTurns || 3}ターン被ダメ半減`);
+      await sleepMs(900);
+    }
+
+    // 盗賊 煙幕: 周囲(medium=3タイル)の敵全員の命中を1ターン -6 (1戦1回)
+    async function allySmokeBomb(ally) {
+      const skill = ROGUE_SKILLS["smoke-bomb"];
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const aTX = Math.floor(aCX / TILE_SIZE);
+      const aTY = Math.floor(aCY / TILE_SIZE);
+      const targets = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive) continue;
+        const eCX = e.x + e.def.displaySize / 2;
+        const eCY = e.y + e.def.displaySize / 2;
+        if (tileChebyshev(aCX, aCY, eCX, eCY) > 3) continue;
+        targets.push(i);
+      }
+      if (targets.length === 0) return;  // 周囲に敵なし → 使用権を消費しない
+      ally.skillsUsedInEncounter.add("smoke-bomb");
+      flashAction(ally.el, "skill");
+      startAllyAttackAnim(ally);
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span> ${targets.length}体`, "skill");
+      spawnGroundFx(aTX - 3, aTY - 3, 7, 7, "axestorm", 700);
+      await sleepMs(800);
+      for (const idx of targets) {
+        const e = enemies[idx];
+        e.atkPenaltyAmount = skill.enemyAtkPenalty || 6;
+        e.atkPenaltyRemaining = (skill.enemyAtkPenaltyTurns || 1) + 1;  // +1: 敵次ターンの減算を相殺
+        showRollAtEnemy(idx, `<span class="label">SMOKE!</span>命中 -${skill.enemyAtkPenalty || 6}`, "miss");
+      }
+      updateInfo(`${ally.def.name}: 煙幕 — ${targets.length}体の命中 -${skill.enemyAtkPenalty || 6} (1T)`);
+      await sleepMs(600);
+    }
+
+    // 盗賊 幸運: 自分のクリ率 +10% (critRange-2) 3T (CD4)
+    async function allyLucky(ally) {
+      const skill = ROGUE_SKILLS["lucky"];
+      ally.skillCooldowns["lucky"] = skill.cooldown || 4;
+      ally.buffs.luckyRemaining = (skill.luckyTurns || 3) + 1;  // +1: 発動ターンの tick を見越す
+      ally.buffs.luckyCritWiden = skill.luckyCritWiden || 2;
+      flashAction(ally.el, "skill");
+      startAllyAttackAnim(ally);
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span><br>クリ率+10% ${skill.luckyTurns || 3}T`, "crit");
+      updateInfo(`${ally.def.name}: 幸運 — ${skill.luckyTurns || 3}ターン クリティカル率 +10%`);
+      await sleepMs(900);
+    }
+
     // 盗賊 AI: シャドウステップ条件を満たす敵 (HP低い順) → 居れば発動、無ければ通常攻撃
     async function rogueAI(ally) {
-      // クールダウンを 1 デクリメント (自分のターン開始時)
-      if (ally.skillCooldowns && ally.skillCooldowns["shadow-step"] > 0) {
-        ally.skillCooldowns["shadow-step"] -= 1;
-      }
-      const hasShadow = ally.equippedSkills.includes("shadow-step");
-      const onCooldown = ally.skillCooldowns && ally.skillCooldowns["shadow-step"] > 0;
-      if (hasShadow && !onCooldown) {
-        const candidates = [];
-        for (let i = 0; i < enemies.length; i++) {
-          if (!enemies[i].alive) continue;
-          if (enemies[i].inactive) continue;   // 檻内のビースト等は対象外
-          if (canSneakOnTarget(ally, enemies[i])) candidates.push(i);
+      // 全クールダウンを 1 デクリメント (自分のターン開始時)
+      if (ally.skillCooldowns) {
+        for (const k of Object.keys(ally.skillCooldowns)) {
+          if (ally.skillCooldowns[k] > 0) ally.skillCooldowns[k]--;
         }
-        if (candidates.length > 0) {
-          // HP 残量低い順 (確実にトドメ刺せる相手優先)
-          candidates.sort((a, b) => enemies[a].hp - enemies[b].hp);
-          // 移動先が確保できるかチェック (ダメなら次候補)
-          for (const idx of candidates) {
-            if (pickShadowStepTile(ally, enemies[idx])) {
-              await allyShadowStep(ally, idx);
-              return true;
-            }
+      }
+      const eq = ally.equippedSkills || [];
+      const cd = ally.skillCooldowns || {};
+      const has = (id) => eq.includes(id);
+      const ready = (id) => !(cd[id] > 0);
+      const used = ally.skillsUsedInEncounter;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      // 生存(非inactive)敵を距離付きで収集
+      const live = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive) continue;
+        const eCX = e.x + e.def.displaySize / 2;
+        const eCY = e.y + e.def.displaySize / 2;
+        live.push({ idx: i, e, dist: tileChebyshev(aCX, aCY, eCX, eCY) });
+      }
+      if (live.length === 0) return false;
+
+      // ① 毒塗り短剣: 隣接(≤1)・未毒の敵 → HP高い相手に塗って継続削り
+      if (has("poison-blade") && ready("poison-blade")) {
+        const adj = live.filter(o => o.dist <= 1 && (o.e.poisonRemaining || 0) <= 0);
+        if (adj.length > 0) {
+          adj.sort((a, b) => b.e.hp - a.e.hp);  // HP高い相手優先 (毒が長く効く)
+          await allyPoisonBlade(ally, adj[0].idx);
+          return true;
+        }
+      }
+      // ② シャドウステップ: sneak 可能な敵 (HP低い順) + 移動先確保
+      if (has("shadow-step") && ready("shadow-step")) {
+        const cands = live.filter(o => canSneakOnTarget(ally, o.e)).map(o => o.idx);
+        if (cands.length > 0) {
+          cands.sort((a, b) => enemies[a].hp - enemies[b].hp);
+          for (const idx of cands) {
+            if (pickShadowStepTile(ally, enemies[idx])) { await allyShadowStep(ally, idx); return true; }
           }
         }
+      }
+      // ③ 投げナイフ: 2〜3タイル(近接外〜中距離)に敵 + LOS
+      if (has("thrown-dagger") && ready("thrown-dagger")) {
+        const ranged = live.filter(o => o.dist >= 2 && o.dist <= 3)
+          .filter(o => hasLineOfSight(aCX, aCY, o.e.x + o.e.def.displaySize / 2, o.e.y + o.e.def.displaySize / 2));
+        if (ranged.length > 0) {
+          ranged.sort((a, b) => a.e.hp - b.e.hp);
+          await allyThrownDagger(ally, ranged[0].idx);
+          return true;
+        }
+      }
+      // ④ 煙幕: 敵2体以上が中距離内 & 未使用 (防御的牽制)
+      if (has("smoke-bomb") && !used.has("smoke-bomb")) {
+        const near = live.filter(o => o.dist <= 3).length;
+        if (near >= 2) { await allySmokeBomb(ally); return true; }
+      }
+      // ⑤ 幸運: バフ無し & 敵が居る (攻撃前の仕込み)
+      if (has("lucky") && ready("lucky") && ally.buffs.luckyRemaining <= 0) {
+        await allyLucky(ally);
+        return true;
+      }
+      // ⑥ 回避: 強敵/ボスが居る & バフ無し (生存仕込み)
+      if (has("evasion") && ready("evasion") && ally.buffs.evasionRemaining <= 0) {
+        const strong = live.some(o => o.e.def.isBoss || o.e.hp >= 30);
+        if (strong) { await allyEvasion(ally); return true; }
       }
       return false;  // 通常攻撃ロジックへフォールバック
     }
@@ -14118,6 +14417,8 @@
             if (sk.healDice && hp >= maxHp) return false;
             // バフ系: 既に効いていれば除外
             if (sk.acBonusAmount && playerBuffs.acBonusRemaining > 0) return false;
+            if (id === "evasion" && playerBuffs.evasionRemaining > 0) return false;
+            if (id === "lucky" && playerBuffs.luckyRemaining > 0) return false;
             return true;
           });
         }
@@ -14234,6 +14535,28 @@
       // 檻内のビースト (inactive) は行動しない (念のための保護、通常 moveEnemies で除外済)
       if (enemy.inactive) return;
 
+      // 煙幕の命中ペナルティを1ターン分減衰 (この敵の行動前)
+      if (enemy.atkPenaltyRemaining > 0) enemy.atkPenaltyRemaining--;
+
+      // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
+      if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
+        const pd = parseDiceDD(enemy.poisonDie);
+        const pr = rollDiceDD(pd.n, pd.sides);
+        const pdmg = Math.max(1, pr.total);
+        enemy.hp = Math.max(0, enemy.hp - pdmg);
+        enemy.poisonRemaining -= 1;
+        triggerEnemyDamageFlash(idx);
+        showDmgAt(enemy.x + def.displaySize / 2, enemy.y, pdmg, false);
+        showRollAtEnemy(idx, `<span class="label">POISON</span>${enemy.poisonDie}(${pr.rolls.join("+")}) = ${pdmg}`, "miss");
+        updateInfo(`${def.name} は毒で ${pdmg} ダメージ (残${enemy.poisonRemaining}T)`);
+        await sleepMs(500);
+        if (enemy.hp <= 0) {
+          defeatEnemy(idx);
+          await sleepMs(400);
+          return;   // 毒で倒れたらこのターンは行動しない
+        }
+      }
+
       // スタン判定: 盾バッシュ等でスタン状態なら1ターン行動不能
       if (enemy.stunned && enemy.stunned > 0) {
         enemy.stunned -= 1;
@@ -14336,7 +14659,8 @@
       const phaseDmgBonus = offensiveRage ? 2 : 0;
 
       const natD20  = d20();
-      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus;
+      const smokePen = (enemy.atkPenaltyRemaining > 0) ? (enemy.atkPenaltyAmount || 0) : 0;  // 盗賊 煙幕
+      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen;
       const atkTotal = natD20 + atkBonus;
       const isFumble = natD20 === 1;
       const isThreat = natD20 >= (def.critRange || 20) && !isFumble;
@@ -14444,7 +14768,14 @@
 
       // 鉄壁の構え: ダメージ軽減バフが乗っていれば減算
       const dr = applyDmgReductionToPlayerDmg(rawDmg - autoGuardReduction);
-      const dmg = dr.final;
+      let dmg = dr.final;
+
+      // 盗賊 回避: 被ダメージを半減 (最低1)
+      if (playerBuffs.evasionRemaining > 0) {
+        const before = dmg;
+        dmg = Math.max(1, Math.floor(dmg / 2));
+        if (before !== dmg) showBuffPop(`<span class="label">EVASION!</span>被ダメ半減 -${before - dmg}`);
+      }
 
       // 不屈 (resilient) チェック: この一撃で HP が 0 以下になるなら、1d4 HP で踏みとどまる (1戦1回)
       const wouldBeLethal = (hp - dmg) <= 0;
@@ -14537,7 +14868,8 @@
       const phaseAtkBonus = offensiveRage2 ? 2 : 0;
       const phaseDmgBonus = offensiveRage2 ? 2 : 0;
       const natD20 = d20();
-      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus;
+      const smokePen = (enemy.atkPenaltyRemaining > 0) ? (enemy.atkPenaltyAmount || 0) : 0;  // 盗賊 煙幕
+      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen;
       const atkTotal = natD20 + atkBonus;
       const isFumble = natD20 === 1;
       const isThreat = natD20 >= (def.critRange || 20) && !isFumble;
@@ -14627,6 +14959,12 @@
         const before = finalDmg;
         finalDmg = Math.max(1, finalDmg - drRoll.total);
         drNotes.push(`踏ん張り${ally.buffs.dmgReductionDice}(${drRoll.rolls.join("+")})-${before - finalDmg}`);
+      }
+      // 盗賊 回避: 被ダメージを半減 (最低1)
+      if (ally.buffs.evasionRemaining > 0) {
+        const before = finalDmg;
+        finalDmg = Math.max(1, Math.floor(finalDmg / 2));
+        if (before !== finalDmg) drNotes.push(`回避-${before - finalDmg}`);
       }
 
       ally.hp -= finalDmg;

@@ -1283,7 +1283,13 @@
   ];
   // 盗賊スキル (index.html ROGUE_SKILLS と同期)
   const ROGUE_SKILLS_UI = [
-    { id: "shadow-step", name: "シャドウステップ", category: "攻撃", range: "any", flavor: "敵の背後へ瞬間移動 → 1d6+2d6+DEX (敵スタン/睡眠 or フランキング時・2Tクールダウン)" },
+    { id: "shadow-step",   name: "シャドウステップ", category: "攻撃", range: "any",    flavor: "敵の背後へ瞬間移動 → 1d6+2d6+DEX (敵スタン/睡眠 or フランキング時・2Tクールダウン)" },
+    { id: "thrown-dagger", name: "投げナイフ",       category: "攻撃", range: "medium", flavor: "中距離単体にナイフを2連投 (各 1d4+DEX・1Tクールダウン)" },
+    { id: "poison-blade",  name: "毒塗り短剣",       category: "攻撃", range: "melee",  flavor: "近接単体に 1d4+DEX + 毒 (3ターン毎ターン 1d4・2Tクールダウン)" },
+    { id: "evasion",       name: "回避",             category: "防御", range: "self",   flavor: "3ターン、自分の被ダメージを半減 (4Tクールダウン)" },
+    { id: "smoke-bomb",    name: "煙幕",             category: "防御", range: "self",   flavor: "周囲の敵全員の命中を1ターン -6 (1戦1回)" },
+    { id: "lucky",         name: "幸運",             category: "バフ", range: "self",   flavor: "3ターン、自分のクリティカル率 +10% (4Tクールダウン)" },
+    { id: "find-traps",    name: "罠探知強化",       category: "バフ", range: "self",   flavor: "罠・隠し宝箱の発見率を大幅アップ (常時パッシブ・盗賊専用)" },
   ];
   const SKILL_SLOT_LIMIT = 3;
 
@@ -1300,7 +1306,7 @@
     { classKey: "elf",     name: "エルフ", skillPool: ELF_SKILLS_UI,
       defaults: ["aimed-shot", "magic-arrow", "cure-minor"] },
     { classKey: "rogue",   name: "盗賊",   skillPool: ROGUE_SKILLS_UI,
-      defaults: ["shadow-step"] },
+      defaults: ["shadow-step", "poison-blade", "find-traps"] },
   ];
   function loadInventory() {
     try {
