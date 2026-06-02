@@ -1,0 +1,5 @@
+# 廃坑 (Sce1 goblin-mine) 情景スプライト — rubble / cart / rail の 3 枚
+# 同一チャット連投で 1990s Capcom D&D 調の画風を統一する (各 prompt は自己完結・他オブジェクト混入禁止を明記)
+{"prompt_file": "tools/sprite_batches/mine_rubble.txt", "output": "source_images/mine_scenery/01_rubble.png"}
+{"prompt_file": "tools/sprite_batches/mine_cart.txt",   "output": "source_images/mine_scenery/02_cart.png"}
+{"prompt_file": "tools/sprite_batches/mine_rail.txt",   "output": "source_images/mine_scenery/03_rail.png"}

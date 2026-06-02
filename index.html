@@ -2740,6 +2740,20 @@
         {x:831,y:419,w:152,h:148}, {x:976,y:438,w:236,h:132},
         {x:1209,y:456,w:173,h:112},{x:1381,y:468,w:128,h:86},
       ],
+      // ── 廃坑 (Sce1) 情景。frames.json (mine_scenery/_extract.py 出力) の実測値 ──
+      rubble: [
+        {x:16,y:298,w:272,h:177},   {x:324,y:251,w:333,h:247},
+        {x:696,y:252,w:322,h:253},  {x:1057,y:306,w:311,h:187},
+        {x:1401,y:160,w:431,h:360}, {x:1865,y:199,w:302,h:330},
+      ],
+      cart: [
+        {x:44,y:100,w:658,h:554}, {x:773,y:104,w:625,h:527},
+        {x:1495,y:112,w:637,h:506},
+      ],
+      rail: [
+        {x:80,y:94,w:350,h:814}, {x:588,y:95,w:359,h:813},
+        {x:1049,y:82,w:410,h:828},
+      ],
     };
     // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
     const SCENERY_SHEETS = {
@@ -2750,6 +2764,13 @@
       log:    { src: "assets/fallen_logs.png",  blocking: [true,true,true],                       displayMax: 200,
                 img: new Image(), loaded: false },
       detail: { src: "assets/swamp_detail.png", blocking: [false,false,false,false,false,false,false,false], displayMax: 60,
+                img: new Image(), loaded: false },
+      // ── 廃坑 (Sce1): 大型(トロッコ/大崩落/折れ支柱)はブロック、線路/小瓦礫は踏める ──
+      rubble: { src: "assets/mine_rubble.png", blocking: [false,false,false,false,true,true], displayMax: [100,120,130,110,170,150],
+                img: new Image(), loaded: false },
+      cart:   { src: "assets/mine_cart.png",   blocking: [true,true,true],                    displayMax: 200,
+                img: new Image(), loaded: false },
+      rail:   { src: "assets/mine_rail.png",   blocking: [false,false,false],                 displayMax: 130, flat: true,
                 img: new Image(), loaded: false },
     };
     for (const [k, s] of Object.entries(SCENERY_SHEETS)) {
@@ -2769,6 +2790,15 @@
         3: { floorBounds: [ 8, 47, 19, 58], counts: { grass: 56, reed: 20, log: 4, detail: 35 } },
         4: { floorBounds: [ 7, 62, 20, 75], counts: { grass: 78, reed: 27, log: 5, detail: 48 } },
         5: { floorBounds: [ 5, 79, 22, 94], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
+      },
+      // 廃坑: 入口Aは瓦礫(壊れた場所)中心、奥(B〜E)に線路+トロッコ、F(ボス)は控えめ
+      "goblin-mine": {
+        0: { floorBounds: [ 9,  2, 18, 11], counts: { rubble: 16, rail: 2, cart: 1 } },
+        1: { floorBounds: [ 8, 15, 19, 26], counts: { rubble: 12, rail: 4, cart: 2 } },
+        2: { floorBounds: [ 7, 30, 20, 43], counts: { rubble: 18, rail: 7, cart: 4 } },
+        3: { floorBounds: [ 8, 47, 19, 58], counts: { rubble: 12, rail: 4, cart: 2 } },
+        4: { floorBounds: [ 7, 62, 20, 75], counts: { rubble: 18, rail: 7, cart: 4 } },
+        5: { floorBounds: [ 5, 79, 22, 94], counts: { rubble: 8,  rail: 3, cart: 1 } },
       },
     };
 
@@ -2843,8 +2873,11 @@
               if (blockedTiles.has(tileKey)) continue;
               blockedTiles.add(tileKey);
             }
-            const jx = (rng() - 0.5) * 28;
-            const jy = (rng() - 0.5) * 28;
+            // flat 種(線路など)は地面に平置きするので jitter を抑える
+            const isFlat = SCENERY_SHEETS[kind] && SCENERY_SHEETS[kind].flat;
+            const jitterAmp = isFlat ? 6 : 28;
+            const jx = (rng() - 0.5) * jitterAmp;
+            const jy = (rng() - 0.5) * jitterAmp;
             sceneryPlacements.push({ kind, variant, tx: c, ty: r, jx, jy, blocking: isBlocking });
             placed++;
           }
@@ -2852,9 +2885,12 @@
         for (const [kind, count] of Object.entries(def.counts)) tryPlace(kind, count);
         for (const k of blockedTiles) obstacleTileMask[k] = 1;
       }
-      // 描画 z-order: 上(奥)→下(手前)、同 ty なら jy が小さい方が先
+      // 描画 z-order: 上(奥)→下(手前)、同 ty 帯では flat 種(線路)を先(下)に、その後 jy 昇順
       sceneryPlacements.sort((a, b) => {
         if (a.ty !== b.ty) return a.ty - b.ty;
+        const fa = (SCENERY_SHEETS[a.kind] && SCENERY_SHEETS[a.kind].flat) ? 0 : 1;
+        const fb = (SCENERY_SHEETS[b.kind] && SCENERY_SHEETS[b.kind].flat) ? 0 : 1;
+        if (fa !== fb) return fa - fb;
         return a.jy - b.jy;
       });
     }
