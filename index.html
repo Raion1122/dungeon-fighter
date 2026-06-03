@@ -4596,6 +4596,7 @@
         attackTimer: 0, attackCooldown: 0, attackHitDealt: false,
         stunned: 0,  // D&D スキル(盾バッシュ等)のデバフ残ターン
         poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
+        huntMarkRemaining: 0, huntMarkDie: 0,        // エルフ ハンターズ・マーク (PT の武器命中に +1dX)
         atkPenaltyRemaining: 0, atkPenaltyAmount: 0, // 盗賊 煙幕 (命中ペナルティ)
         // ボス専用(ボス以外では未使用)
         phase: 0,                 // 0=通常, 1=激怒
@@ -8623,6 +8624,12 @@
           if (skillId === "aimed-shot")       await allyAimedShot(actor, targetIdx);
           else if (skillId === "magic-arrow") await allyMagicArrow(actor, targetIdx);
           else if (skillId === "cure-minor")  await allyCureMinor(actor);
+          // spells.md Ranger 5呪文 (Phase 2-V)
+          else if (skillId === "hail-of-thorns") await allyHailOfThorns(actor, targetIdx);
+          else if (skillId === "conjure-volley") await allyConjureVolley(actor, targetIdx);
+          else if (skillId === "hunters-mark")   await allyHuntersMark(actor, targetIdx);
+          else if (skillId === "lightning-arrow") await allyLightningArrow(actor, targetIdx);
+          else if (skillId === "cordon-of-arrows") await allyCordonOfArrows(actor, targetIdx);
         }
         // 盗賊 (Step a-3 第4弾) ─ shadow-step は sneak 条件 (helpless or flanking) を要する
         else if (leaderClassKey === "rogue") {
@@ -8944,6 +8951,7 @@
     // ── エンカウンター状態 ──
     let encounterActive = false;
     let encounterRunning = false;
+    const cordonZones = [];   // エルフ コードン・オブ・アロー: 設置型ゾーン (ラウンド開始時に発動)
     let encounterEnemyIndices = [];
     let encounterStartedAt = 0;   // Phase 2-B: 戦闘開始時刻 (確率脱走の経過時間基準)
 
@@ -9151,6 +9159,7 @@
           e.pathTimer = 0;
           e.stunned = 0;
           e.poisonRemaining = 0; e.poisonDie = null;
+          e.huntMarkRemaining = 0; e.huntMarkDie = 0;
           e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
         }
 
@@ -9270,6 +9279,7 @@
                 e.pathTimer = 0;
                 e.stunned = 0;
                 e.poisonRemaining = 0; e.poisonDie = null;
+                e.huntMarkRemaining = 0; e.huntMarkDie = 0;
                 e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
 
                 const dexVal = e.def.dex || 0;
@@ -9295,6 +9305,9 @@
           showBanner(`ROUND ${round}`, 850);
           if (window.__diag) window.__diag.beat("round", round);   // 自動デバッグ: ラウンド進行
           await sleepMs(650);
+
+          // エルフ コードン・オブ・アロー: 設置ゾーンをラウンド開始時に発動
+          await tickCordonZones();
 
           for (const actor of units) {
             if (gameOver || hp <= 0) break;
@@ -9374,6 +9387,7 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        clearCordonZones();   // 設置ゾーンを次エンカへ持ち越さない
         if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
         // エンカウンター終了でセカンドウィンドの使用権を回復 (次戦の立て直し用)
         secondWindUsed = false;
@@ -9633,6 +9647,37 @@
         healDice: "1d6", useWis: true, range: "self",
         mpCost: 3,
         flavor: "自分に 1d6+WIS HP 回復 (MP 3)",
+      },
+      // ── spells.md エルフ Ranger 5呪文 (Phase 2-V) ──
+      "hail-of-thorns": {
+        name: "ヘイル・オブ・ソーン", category: "attack", target: "area3",
+        dmgDice: "1d10", useDex: true, range: "long",
+        mpCost: 4, levelReq: 1,
+        flavor: "着弾点周囲に棘の雨 1d10 (DEX セーヴ半減・MP 4)",
+      },
+      "conjure-volley": {
+        name: "コンジュア・ヴォリー", category: "attack", target: "area5",
+        dmgDice: "8d8", useDex: true, range: "long",
+        mpCost: 8, levelReq: 5,
+        flavor: "広範囲に矢の雨 8d8 (DEX セーヴ半減・MP 8) — 奥義",
+      },
+      "hunters-mark": {
+        name: "ハンターズ・マーク", category: "バフ", target: "single",
+        huntMarkDie: 6, duration: 5, useDex: true, range: "long",
+        mpCost: 2, levelReq: 1,
+        flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6 (MP 2)",
+      },
+      "lightning-arrow": {
+        name: "ライトニング・アロー", category: "attack", target: "single",
+        dmgDice: "4d8", splashDice: "2d8", useDex: true, range: "long",
+        mpCost: 6, levelReq: 3,
+        flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減・MP 6)",
+      },
+      "cordon-of-arrows": {
+        name: "コードン・オブ・アロー", category: "attack", target: "area3",
+        dmgDice: "1d6", zoneRounds: 3, useDex: true, range: "medium",
+        mpCost: 3, levelReq: 2,
+        flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6 (MP 3)",
       },
     };
 
@@ -10364,6 +10409,12 @@
         strikeDmg = rollDiceDD(1, playerBuffs.strikingDie).total;
         dmg += strikeDmg;
       }
+      // ハンターズ・マーク: 標的が烙印されていれば武器命中ごとに +1dX (crit 非倍化)
+      let markDmg = 0;
+      if (target.huntMarkRemaining > 0 && target.huntMarkDie > 0) {
+        markDmg = rollDiceDD(1, target.huntMarkDie).total;
+        dmg += markDmg;
+      }
 
       // Phase 2-A: 残影回避判定 (shadowBeast 等) — 命中ロール通過後、ダメージ適用直前
       if (tryDisplacement(targetIdx)) {
@@ -10379,7 +10430,7 @@
       const rollText = allRolls.join("+");
       const diceStr = opts.dmgDice || playerStats.dmgDice;
       updateInfo(`${getLeaderName()}${opts.skillName ? "の"+opts.skillName : ""}: ${tgtDef.name} に ${dmg} ダメージ ` +
-        `(${diceStr}${isCrit ? "×" + critMult : ""}[${rollText}]${signedDD(bonusTotal)}${strikeDmg > 0 ? " +striking1d" + playerBuffs.strikingDie + "[" + strikeDmg + "]" : ""})`);
+        `(${diceStr}${isCrit ? "×" + critMult : ""}[${rollText}]${signedDD(bonusTotal)}${strikeDmg > 0 ? " +striking1d" + playerBuffs.strikingDie + "[" + strikeDmg + "]" : ""}${markDmg > 0 ? " +印1d" + target.huntMarkDie + "[" + markDmg + "]" : ""})`);
       await sleepMs(400);
 
       // ── レア武器の特殊効果 (D&D 3.5 RAW: エネルギーダメは crit で倍化されない) ──
@@ -11463,6 +11514,10 @@
       // ストライキング: 命中ごとに +1dX (crit 非倍化)
       if (ally.buffs.strikingRemaining > 0 && ally.buffs.strikingDie > 0) {
         dmg += rollDiceDD(1, ally.buffs.strikingDie).total;
+      }
+      // ハンターズ・マーク: 標的が烙印されていれば武器命中ごとに +1dX (crit 非倍化)
+      if (target.huntMarkRemaining > 0 && target.huntMarkDie > 0) {
+        dmg += rollDiceDD(1, target.huntMarkDie).total;
       }
 
       // Phase 2-A: 残影回避判定 (shadowBeast 等)
@@ -13639,6 +13694,452 @@
       await sleepMs(700);
     }
 
+    // ─── ヘイル・オブ・ソーン (Phase 2-V): 着弾点周囲 3x3 に棘の雨 1d10 (DEX セーヴ半減) ───
+    async function allyHailOfThorns(ally, enemyIdx) {
+      const skill = ELF_SKILLS["hail-of-thorns"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      // 3x3 候補生成: ターゲットを含む 9 通りの origin。PT 不在 + 敵密集を最大化
+      const targetTX = Math.floor(ex / TILE_SIZE);
+      const targetTY = Math.floor(ey / TILE_SIZE);
+      const candidates = [];
+      for (let dy = -2; dy <= 0; dy++) {
+        for (let dx = -2; dx <= 0; dx++) {
+          candidates.push({ tx: targetTX + dx, ty: targetTY + dy });
+        }
+      }
+      let best = null, bestCount = 0;
+      for (const c of candidates) {
+        if (partyInArea(c.tx, c.ty, 3, 3)) continue;   // PT 巻き込み回避
+        const cnt = enemiesInArea(c.tx, c.ty, 3, 3).length;
+        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        // 安全に撃てる範囲なし → 通常弓攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      const affectedIdxs = enemiesInArea(best.tx, best.ty, 3, 3);
+
+      // スロット消費 + 詠唱 (弓を引き絞る)
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        "skill");
+      startAllyAttackAnim(ally, 1200);
+      await sleepMs(1100);
+
+      // 矢を放つ → 着弾点で棘が爆ぜる
+      const launchX = aCX + (ally.facing === "right" ? 22 : -22);
+      const launchY = aCY - 6;
+      const centerWX = best.tx * TILE_SIZE + 1.5 * TILE_SIZE;
+      const centerWY = best.ty * TILE_SIZE + 1.5 * TILE_SIZE;
+      await spawnArrow(launchX, launchY, centerWX, centerWY, 360);
+      spawnGroundFx(best.tx, best.ty, 3, 3, "fireball-scorch", 1200);
+      await sleepMs(220);
+
+      // 範囲内の全敵に DEX セーヴ + ダメージ
+      const dexMod = ally.dex || 4;
+      const spellDC = 12 + dexMod;
+      let halved = 0;
+      const killedNames = [];
+      for (const idx of affectedIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg += dexMod;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        // 残影回避判定 (Phase 2-A)
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: ヘイル・オブ・ソーン ${affectedIdxs.length}体に着弾 (${halved}体セーヴ半減)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
+    // ─── コンジュア・ヴォリー (Phase 2-V): 5x5 広範囲に矢の雨 8d8 (DEX セーヴ半減) — エルフ奥義 ───
+    async function allyConjureVolley(ally, enemyIdx) {
+      const skill = ELF_SKILLS["conjure-volley"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      // 5x5 候補生成: ターゲットを含む 25 通りの origin。PT 不在 + 敵密集を最大化
+      const targetTX = Math.floor(ex / TILE_SIZE);
+      const targetTY = Math.floor(ey / TILE_SIZE);
+      const candidates = [];
+      for (let dy = -4; dy <= 0; dy++) {
+        for (let dx = -4; dx <= 0; dx++) {
+          candidates.push({ tx: targetTX + dx, ty: targetTY + dy });
+        }
+      }
+      let best = null, bestCount = 0;
+      for (const c of candidates) {
+        if (partyInArea(c.tx, c.ty, 5, 5)) continue;   // PT 巻き込み回避
+        const cnt = enemiesInArea(c.tx, c.ty, 5, 5).length;
+        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      const affectedIdxs = enemiesInArea(best.tx, best.ty, 5, 5);
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">奥義</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        "skill");
+      startAllyAttackAnim(ally, 1700);
+      await sleepMs(1500);
+
+      // 空から矢の雨: 5x5 範囲のランダム着弾点へ複数の矢を降らせる
+      const centerWX = best.tx * TILE_SIZE + 2.5 * TILE_SIZE;
+      const centerWY = best.ty * TILE_SIZE + 2.5 * TILE_SIZE;
+      addSpellLight({ worldX: centerWX, worldY: centerWY, inner: 120, outer: 380,
+        strongAlpha: 0.9, midAlpha: 0.55, rgb: "200,255,200", duration: 1400, fadeMs: 1400 });
+      const launchX = aCX + (ally.facing === "right" ? 22 : -22);
+      const launchY = aCY - 6;
+      const volley = [];
+      for (let v = 0; v < 6; v++) {
+        const rx = centerWX + (Math.random() - 0.5) * 4 * TILE_SIZE;
+        const ry = centerWY + (Math.random() - 0.5) * 4 * TILE_SIZE;
+        volley.push(spawnArrow(launchX, launchY - v * 4, rx, ry, 420, { variant: "magicArrow" }));
+        await sleepMs(70);
+      }
+      spawnGroundFx(best.tx, best.ty, 5, 5, "fireball-scorch", 1400);
+      await Promise.all(volley);
+      await sleepMs(150);
+
+      const dexMod = ally.dex || 4;
+      const spellDC = 12 + dexMod;
+      let halved = 0;
+      const killedNames = [];
+      for (const idx of affectedIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg += dexMod;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: コンジュア・ヴォリー ${affectedIdxs.length}体に矢の雨 (${halved}体セーヴ半減)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
+    // ─── ハンターズ・マーク (Phase 2-V): 敵に烙印 → PT 全員のその敵への武器命中に +1d6 ───
+    async function allyHuntersMark(ally, enemyIdx) {
+      const skill = ELF_SKILLS["hunters-mark"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally, 1100);
+      await sleepMs(1000);
+
+      // 標的に烙印 (照準矢 → マーク)
+      const launchX = aCX + (ally.facing === "right" ? 22 : -22);
+      const launchY = aCY - 6;
+      await spawnArrow(launchX, launchY, ex, ey, 340, { variant: "magicArrow" });
+      spawnGroundFx(Math.floor(ex / TILE_SIZE), Math.floor(ey / TILE_SIZE), 1, 1, "fireball-scorch", 900);
+
+      target.huntMarkRemaining = skill.duration || 5;
+      target.huntMarkDie = skill.huntMarkDie || 6;
+      triggerEnemyDamageFlash(enemyIdx);
+      showRollAtEnemy(enemyIdx, `<span class="label">MARKED</span>狩りの標的`, "skill");
+      updateInfo(`${ally.def.name}: ${tgtDef.name} に狩りの標的を刻んだ (PT の武器命中に +1d${target.huntMarkDie})`);
+      await sleepMs(600);
+    }
+
+    // ─── ライトニング・アロー (Phase 2-V): 単体 4d8 雷 (命中判定) + 周囲 2d8 (DEX セーヴ半減) ───
+    async function allyLightningArrow(ally, enemyIdx) {
+      const skill = ELF_SKILLS["lightning-arrow"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally, 1500);
+      await sleepMs(1300);
+
+      // 雷の矢を放つ → 命中点に稲妻
+      const launchX = aCX + (ally.facing === "right" ? 22 : -22);
+      const launchY = aCY - 6;
+      await spawnArrow(launchX, launchY, ex, ey, 360, { variant: "magicArrow" });
+      spawnLightningBolt(launchX, launchY, ex, ey);
+      addSpellLight({ worldX: ex, worldY: ey, inner: 80, outer: 280,
+        strongAlpha: 0.95, midAlpha: 0.6, rgb: "180,220,255", duration: 700, fadeMs: 700 });
+      await sleepMs(200);
+
+      const dexMod = ally.dex || 4;
+
+      // ── 主弾: 命中判定 (エイムドショット式)、4d8 + DEX、CRIT でダイス倍化 ──
+      const atkBonus = ally.atkBonus + dexMod;
+      const natD20 = d20();
+      const atkTotal = natD20 + atkBonus;
+      const helpless = target.stunned > 0;
+      const isFumble = !helpless && natD20 === 1;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
+      let primaryHit = false, isCrit = helpless;
+      if (!isFumble) {
+        primaryHit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
+        if (!helpless && isThreat && primaryHit) {
+          const cn = d20(), ct = cn + atkBonus;
+          if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        }
+      }
+      if (primaryHit) {
+        const { n, sides } = parseDiceDD(skill.dmgDice);  // 4d8
+        const times = isCrit ? (ally.critMult || 2) : 1;
+        let dmg = 0;
+        for (let i = 0; i < times; i++) for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg = Math.max(1, dmg + dexMod);
+        if (!tryDisplacement(enemyIdx)) {
+          target.hp = Math.max(0, target.hp - dmg);
+          triggerEnemyDamageFlash(enemyIdx);
+          noteDisplacementHit(enemyIdx);
+          showHitSpark(enemyIdx, isCrit);
+          showDmgAt(ex, target.y, dmg, isCrit);
+          updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} 雷ダメージ${isCrit ? " (CRIT!)" : ""}`);
+          if (target.hp <= 0) defeatEnemy(enemyIdx);
+        }
+      } else {
+        showRollAtAlly(ally,
+          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
+          "miss");
+      }
+      await sleepMs(350);
+
+      // ── 周囲 splash: 主弾タイル中心 3x3 (主弾除外)、各 2d8 DEX セーヴ半減 ──
+      // PT が範囲内なら splash のみスキップ (主弾は通す)
+      const pTX = Math.floor(ex / TILE_SIZE);
+      const pTY = Math.floor(ey / TILE_SIZE);
+      if (!partyInArea(pTX - 1, pTY - 1, 3, 3)) {
+        const splashIdxs = enemiesInArea(pTX - 1, pTY - 1, 3, 3).filter(i => i !== enemyIdx);
+        const spellDC = 12 + dexMod;
+        for (const idx of splashIdxs) {
+          const t = enemies[idx];
+          if (!t.alive) continue;
+          const tDef = t.def;
+          const saveRoll = d20() + (tDef.dex || 0);
+          const halvedSave = saveRoll >= spellDC;
+          const { n, sides } = parseDiceDD(skill.splashDice);  // 2d8
+          let dmg = 0;
+          for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+          if (halvedSave) dmg = Math.floor(dmg / 2);
+          dmg = Math.max(1, dmg);
+          if (tryDisplacement(idx)) continue;
+          t.hp = Math.max(0, t.hp - dmg);
+          triggerEnemyDamageFlash(idx);
+          noteDisplacementHit(idx);
+          const tex = t.x + tDef.displaySize / 2;
+          showDmgAt(tex, t.y, dmg, false);
+          if (t.hp <= 0) defeatEnemy(idx);
+        }
+        if (splashIdxs.length > 0) updateInfo(`${ally.def.name}: 雷光が周囲 ${splashIdxs.length}体に飛散`);
+      }
+      await sleepMs(600);
+    }
+
+    // ─── コードン・オブ・アロー: 設置ゾーンのライフサイクル ───
+    function clearCordonZones() { cordonZones.length = 0; }
+    async function tickCordonZones() {
+      if (cordonZones.length === 0) return;
+      for (let z = cordonZones.length - 1; z >= 0; z--) {
+        const zone = cordonZones[z];
+        const idxs = enemiesInArea(zone.tx, zone.ty, zone.w, zone.h);
+        let hitCount = 0;
+        for (const idx of idxs) {
+          const t = enemies[idx];
+          if (!t.alive) continue;
+          const { n, sides } = parseDiceDD(zone.dmgDice);
+          let dmg = 0;
+          for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+          dmg = Math.max(1, dmg);
+          if (tryDisplacement(idx)) continue;
+          t.hp = Math.max(0, t.hp - dmg);
+          triggerEnemyDamageFlash(idx);
+          noteDisplacementHit(idx);
+          showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, false);
+          hitCount++;
+          if (t.hp <= 0) defeatEnemy(idx);
+        }
+        if (hitCount > 0) {
+          spawnGroundFx(zone.tx, zone.ty, zone.w, zone.h, "fireball-scorch", 500);
+          updateInfo(`コードンの矢が ${hitCount}体を貫いた`);
+          await sleepMs(320);
+        }
+        zone.roundsLeft -= 1;
+        if (zone.roundsLeft <= 0) cordonZones.splice(z, 1);
+      }
+    }
+
+    // ─── コードン・オブ・アロー (Phase 2-V): 3x3 に矢を仕込む。3R 間ラウンド開始時に範囲内の敵へ 1d6 ───
+    async function allyCordonOfArrows(ally, enemyIdx) {
+      const skill = ELF_SKILLS["cordon-of-arrows"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      // 3x3 候補生成: ターゲットを含む origin。PT 不在 + 敵密集を最大化
+      const targetTX = Math.floor(ex / TILE_SIZE);
+      const targetTY = Math.floor(ey / TILE_SIZE);
+      const candidates = [];
+      for (let dy = -2; dy <= 0; dy++) {
+        for (let dx = -2; dx <= 0; dx++) {
+          candidates.push({ tx: targetTX + dx, ty: targetTY + dy });
+        }
+      }
+      let best = null, bestCount = -1;
+      for (const c of candidates) {
+        if (partyInArea(c.tx, c.ty, 3, 3)) continue;   // PT 巻き込み回避
+        const cnt = enemiesInArea(c.tx, c.ty, 3, 3).length;
+        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      }
+      if (!best) {
+        // 安全な設置先なし → 通常弓攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span> 設置`, "skill");
+      startAllyAttackAnim(ally, 1100);
+      await sleepMs(1000);
+
+      // 4 本の矢を地帯へ撃ち込む (設置演出)
+      const launchX = aCX + (ally.facing === "right" ? 22 : -22);
+      const launchY = aCY - 6;
+      const planted = [];
+      for (let v = 0; v < 4; v++) {
+        const rx = best.tx * TILE_SIZE + (0.5 + (v % 2) * 2) * TILE_SIZE;
+        const ry = best.ty * TILE_SIZE + (0.5 + Math.floor(v / 2) * 2) * TILE_SIZE;
+        planted.push(spawnArrow(launchX, launchY, rx, ry, 380));
+        await sleepMs(80);
+      }
+      await Promise.all(planted);
+      spawnGroundFx(best.tx, best.ty, 3, 3, "fireball-scorch", (skill.zoneRounds || 3) * 2600);
+
+      cordonZones.push({ tx: best.tx, ty: best.ty, w: 3, h: 3,
+        dmgDice: skill.dmgDice || "1d6", roundsLeft: skill.zoneRounds || 3 });
+      updateInfo(`${ally.def.name}: コードン・オブ・アローを地帯に仕込んだ (${skill.zoneRounds || 3}R)`);
+      await sleepMs(500);
+    }
+
     // エルフ AI: 自己ヒール優先 → 強敵に必中 → エイムドショット汎用 → 通常弓
     async function elfAI(ally) {
       const threat = evaluateThreat();
@@ -13651,6 +14152,26 @@
         return true;
       }
 
+      // 1.5 コンジュア・ヴォリー (奥義・最優先 AoE): 敵 3 体以上 & スロット残あり
+      if (ally.equippedSkills.includes("conjure-volley") && hasSpellSlot(ally, "conjure-volley")
+          && threat.aliveEnemies.length >= 3) {
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
+        if (tgtIdx >= 0) {
+          await allyConjureVolley(ally, tgtIdx);
+          return true;
+        }
+      }
+
+      // 1.7 ライトニング・アロー (ボスキラー): 脅威度 >= 18 & スロット残あり
+      if (ally.equippedSkills.includes("lightning-arrow") && hasSpellSlot(ally, "lightning-arrow")
+          && threat.score >= 18) {
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
+        if (tgtIdx >= 0) {
+          await allyLightningArrow(ally, tgtIdx);
+          return true;
+        }
+      }
+
       // 2. マジック・アロー (必中): 脅威度 >= 15 & スロット残あり、50%
       const hasMArrow = ally.equippedSkills.includes("magic-arrow");
       const mArrowCost = ELF_SKILLS["magic-arrow"]?.mpCost || 0;
@@ -13658,6 +14179,36 @@
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0 && Math.random() < 0.5) {
           await allyMagicArrow(ally, tgtIdx);
+          return true;
+        }
+      }
+
+      // 2.5 ヘイル・オブ・ソーン (範囲): 敵 2 体以上 & スロット残あり、50%
+      if (ally.equippedSkills.includes("hail-of-thorns") && hasSpellSlot(ally, "hail-of-thorns")
+          && threat.aliveEnemies.length >= 2) {
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
+        if (tgtIdx >= 0 && Math.random() < 0.5) {
+          await allyHailOfThorns(ally, tgtIdx);
+          return true;
+        }
+      }
+
+      // 2.7 ハンターズ・マーク: 最寄り敵が未烙印 & 脅威度 >= 10、50%
+      if (ally.equippedSkills.includes("hunters-mark") && hasSpellSlot(ally, "hunters-mark")
+          && threat.score >= 10) {
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
+        if (tgtIdx >= 0 && (enemies[tgtIdx].huntMarkRemaining || 0) <= 0 && Math.random() < 0.5) {
+          await allyHuntersMark(ally, tgtIdx);
+          return true;
+        }
+      }
+
+      // 2.8 コードン・オブ・アロー (設置ゾーン): 敵 2 体以上 & 既存ゾーンなし、40%
+      if (ally.equippedSkills.includes("cordon-of-arrows") && hasSpellSlot(ally, "cordon-of-arrows")
+          && threat.aliveEnemies.length >= 2 && cordonZones.length === 0) {
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
+        if (tgtIdx >= 0 && Math.random() < 0.4) {
+          await allyCordonOfArrows(ally, tgtIdx);
           return true;
         }
       }
@@ -14600,6 +15151,8 @@
 
       // 煙幕の命中ペナルティを1ターン分減衰 (この敵の行動前)
       if (enemy.atkPenaltyRemaining > 0) enemy.atkPenaltyRemaining--;
+      // ハンターズ・マーク (狩りの標的) を1ターン分減衰
+      if (enemy.huntMarkRemaining > 0) enemy.huntMarkRemaining--;
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {

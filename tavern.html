@@ -1280,6 +1280,12 @@
     { id: "aimed-shot",   name: "エイムドショット", category: "攻撃", range: "long", mpCost: 3, flavor: "命中+3 / 弓ダメ+1d6 の精密射撃" },
     { id: "magic-arrow",  name: "マジック・アロー", category: "攻撃", range: "long", mpCost: 4, flavor: "必中の魔法矢 1d6+INT" },
     { id: "cure-minor",   name: "キュア・マイナー", category: "回復", range: "self", mpCost: 3, flavor: "自分に 1d6+WIS HP 回復" },
+    // ── spells.md エルフ Ranger 5呪文 (Phase 2-V) ──
+    { id: "hail-of-thorns",   name: "ヘイル・オブ・ソーン", category: "攻撃", range: "long", mpCost: 4, levelReq: 1, flavor: "着弾点周囲に棘の雨 1d10 (DEX セーヴ半減)" },
+    { id: "conjure-volley",   name: "コンジュア・ヴォリー", category: "攻撃", range: "long", mpCost: 8, levelReq: 5, flavor: "広範囲に矢の雨 8d8 (DEX セーヴ半減) — 奥義" },
+    { id: "hunters-mark",     name: "ハンターズ・マーク", category: "バフ", range: "long", mpCost: 2, levelReq: 1, flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6" },
+    { id: "lightning-arrow",  name: "ライトニング・アロー", category: "攻撃", range: "long", mpCost: 6, levelReq: 3, flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減)" },
+    { id: "cordon-of-arrows", name: "コードン・オブ・アロー", category: "攻撃", range: "medium", mpCost: 3, levelReq: 2, flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6" },
   ];
   // 盗賊スキル (index.html ROGUE_SKILLS と同期)
   const ROGUE_SKILLS_UI = [
@@ -1304,7 +1310,7 @@
     { classKey: "mage",    name: "魔法使い", skillPool: MAGE_SKILLS_UI,
       defaults: ["magic-missile", "fire-bolt", "arcane-shield"] },
     { classKey: "elf",     name: "エルフ", skillPool: ELF_SKILLS_UI,
-      defaults: ["aimed-shot", "magic-arrow", "cure-minor"] },
+      defaults: ["aimed-shot", "hunters-mark", "cure-minor"] },
     { classKey: "rogue",   name: "盗賊",   skillPool: ROGUE_SKILLS_UI,
       defaults: ["shadow-step", "poison-blade", "find-traps"] },
   ];
