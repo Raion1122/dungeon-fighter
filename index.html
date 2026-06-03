@@ -7849,6 +7849,7 @@
     // ヒーローAI(フルオート探索+戦闘)
     // ─────────────────────────────────────────────────────────
     const visitedRooms = new Set();
+    let bossRoomNarrationShown = false;  // ボス部屋到達ナレーションを1ランで1回だけ出すためのフラグ
     const visitedTiles = new Set();  // フォグオブウォー用 (key = ty * 100 + tx)
     let heroPath = [];           // A*経路(ワールドタイル)
     let heroPathGoal = null;     // {tx, ty} 現在向かっている場所
@@ -8212,8 +8213,19 @@
       }
 
       // 現在位置の部屋を訪問済みにマーク
+      const bossRoomIdx = ROOMS.length - 1;
       for (let i = 0; i < ROOMS.length; i++) {
-        if (roomContainsTile(ROOMS[i], pTX, pTY)) visitedRooms.add(i);
+        if (roomContainsTile(ROOMS[i], pTX, pTY)) {
+          const firstEntry = !visitedRooms.has(i);
+          visitedRooms.add(i);
+          // ボス部屋に初入室 → 到達ナレーション (戦闘開始前の入室時のみ。
+          // 戦闘開始時の「足音」メッセージ runEncounter L9110 とは別タイミング)
+          if (firstEntry && i === bossRoomIdx && !bossRoomNarrationShown &&
+              !encounterActive && !gameOver && !dungeonCleared) {
+            bossRoomNarrationShown = true;
+            showDMMessage("…この先に、奴がいる。準備はいいか。", 2400);
+          }
+        }
       }
       // 周囲タイルをフォグオブウォーで「見た」扱いに
       markVisitedAround(pTX, pTY, 6);
