@@ -11189,21 +11189,21 @@
           cy: a.y + a.def.displaySize / 2
         });
       }
-      // 第三勢力 (faction="beast"): 他の敵 (faction != "beast") も candidates に追加。
-      // PT も盗賊も区別なく最寄りを襲う。同種ビースト同士は対象外。inactive な敵 (檻内) も除外。
-      if (e.def.faction === "beast") {
-        for (let i = 0; i < enemies.length; i++) {
-          if (i === enemyIdx) continue;
-          const o = enemies[i];
-          if (!o.alive) continue;
-          if (o.inactive) continue;
-          if (o.def.faction === "beast") continue;
-          candidates.push({
-            kind: "enemy", idx: i,
-            cx: o.x + o.def.displaySize / 2,
-            cy: o.y + o.def.displaySize / 2
-          });
-        }
+      // 第三勢力 (beast) は他陣営の敵と相互に敵対する (双方向)。
+      //   beast → 非beast の敵 / 非beast → アクティブな beast の敵 を candidates に追加。
+      // PT も盗賊も区別なく最寄りを襲い、解放された獣には盗賊も反撃する (仕様: 戦場の混乱)。
+      // 同陣営 (beast 同士 / 通常の敵同士) は対象外。inactive な敵 (檻内) も除外。
+      const eIsBeast = e.def.faction === "beast";
+      for (let i = 0; i < enemies.length; i++) {
+        if (i === enemyIdx) continue;
+        const o = enemies[i];
+        if (!o.alive || o.inactive) continue;
+        if ((o.def.faction === "beast") === eIsBeast) continue;  // 同陣営は除外
+        candidates.push({
+          kind: "enemy", idx: i,
+          cx: o.x + o.def.displaySize / 2,
+          cy: o.y + o.def.displaySize / 2
+        });
       }
       if (candidates.length === 0) return null;
       let best = null, bestDist = Infinity;
@@ -14617,7 +14617,7 @@
         return;
       }
       if (pick.kind === "enemy") {
-        // 第三勢力 (beast) → 他の敵を攻撃。射程外なら相手方向へ 1 タイル前進。
+        // 敵 → 他陣営の敵を攻撃 (beast↔盗賊 の双方向)。射程外なら相手方向へ 1 タイル前進。
         const target = enemies[pick.idx];
         const tgtCX = target.x + target.def.displaySize / 2;
         const tgtCY = target.y + target.def.displaySize / 2;
@@ -15056,8 +15056,15 @@
       const bonusTotal = (def.dmgBonus || 0) * times;
       const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
 
+      // Phase 2-A: 残影回避 — 被攻撃側が displacementChance を持つ (= 残影の獣) なら位相ずれで空振り。
+      // 双方向化により盗賊→獣の攻撃もここを通る (party→獣の playerSingleAttack L10359 と対称)。
+      if (tryDisplacement(victimIdx)) {
+        await sleepMs(420);
+        return;
+      }
       victim.hp = Math.max(0, victim.hp - dmg);
       triggerEnemyDamageFlash(victimIdx);
+      noteDisplacementHit(victimIdx);  // 被弾でクールダウン開始 (2秒回避停止)
       showDmgAt(tCX, victim.y, dmg, isCrit);
       updateInfo(`${def.name} → ${vDef.name}: ${dmg} ダメージ (HP ${victim.hp}/${victim.maxHp})`);
       await sleepMs(500);
