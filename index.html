@@ -1359,6 +1359,16 @@
       filter: brightness(0.72) saturate(0.85);
       z-index: 2;
     }
+    /* 誘導状態 (CAGE_AGITATED): 獣を煽った檻。穏やかな脈動で「いつ弾けてもおかしくない」緊張感 */
+    .roomCage.agitated {
+      animation: cageAgitate 900ms ease-in-out infinite;
+      filter: drop-shadow(0 0 8px rgba(180, 60, 80, 0.55)) brightness(1.06);
+      z-index: 3;
+    }
+    @keyframes cageAgitate {
+      0%, 100% { transform: translate(0, 0) scale(1.00); }
+      50%      { transform: translate(1px, -1px) scale(1.015); }
+    }
     /* Phase 2-F: 檻解放直後の咆哮硬直演出 (1500ms 振動 + 紫赤グロウ) */
     .roomCage.roaring {
       animation: cageRoar 250ms ease-in-out infinite;
@@ -5361,7 +5371,7 @@
 
     // Phase 2-G 拡張: 多択ダイアログ (各候補にボタン、Esc で null)
     // candidates: [{label: string, ...}, ...] / 返り値: 選択された index (0..N-1) または null
-    function showCharChoice(message, candidates) {
+    function showCharChoice(message, candidates, cancelLabel = "持ち帰る (Esc)") {
       // Phase 2-K: autoplay 時は 1 番目の候補を自動選択
       if (window.__autoplay && candidates && candidates.length > 0) {
         try { console.log("[AUTOPLAY] showCharChoice:", message, "→ 1 番目:", candidates[0].label); } catch {}
@@ -5413,7 +5423,7 @@
         const btnCancel = document.createElement("button");
         btnCancel.className = "choiceNo";
         btnCancel.type = "button";
-        btnCancel.textContent = "持ち帰る (Esc)";
+        btnCancel.textContent = cancelLabel;
         btnCancel.onclick = () => { cleanup(); resolve(null); };
         btnArea.appendChild(btnCancel);
 
@@ -10783,6 +10793,7 @@
           opened: false,
           warningShown: false,    // 鍵なしで接近した時の警告は 1 戦闘あたり 1 回だけ
           dialogActive: false,    // showChoice 表示中フラグ (重複起動防止)
+          lured: false,           // 「誘導」選択で誘発状態 → 盗賊近接で確定脱走 (餅になる脱走)
           beastIdx: -1,           // linkCagedBeasts() で紐付け
           el: null,
         };
@@ -10843,6 +10854,7 @@
 
       for (const cage of cages) {
         if (cage.opened) continue;
+        if (cage.lured) continue;       // 誘導済み: 再プロンプトせず盗賊近接の確定脱走を待つ
         if (cage.dialogActive) continue;
         const cx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
         const cy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
@@ -10864,19 +10876,34 @@
           continue;
         }
 
-        // 鍵あり: 「はい/いいえ」ダイアログを出す
+        // 鍵あり: 逃がす / 誘導 / 無視 の3択
         cage.dialogActive = true;
-        const yes = await showChoice(
-          "盗賊の鍵束を取り出した。この檻を開けてみますか?\n" +
-          "(中の獣はおそらく敵味方の区別なく襲ってくる)",
-          "開ける", "やめる"
+        const choice = await showCharChoice(
+          "盗賊の鍵束を取り出した。この鉄檻をどうする?\n" +
+          "(中の獣は敵味方の区別なく襲う)",
+          [
+            { label: "逃がす — 今すぐ解き放つ" },
+            { label: "誘導 — 獣を煽り、盗賊を誘い込む" },
+          ],
+          "無視する (Esc)"
         );
         cage.dialogActive = false;
-        if (yes) {
+        if (choice === 0) {
+          // 逃がす: その場で即解放 (獣は最寄りの盗賊へワープ、プレイヤーも近いのでリスク)
           await openCage(cage);
           break;   // 1 tick で複数檻を扱わない
+        } else if (choice === 1) {
+          // 誘導: 檻を煽って誘発状態に。戦闘中に盗賊が近づいた瞬間に確定で弾ける (餅になる脱走)
+          cage.lured = true;
+          if (cage.el) cage.el.classList.add("agitated");
+          showBanner("🪤 獣を煽った — 盗賊が近づけば檻は弾ける", 2000);
+          showDMMessage(
+            "君は鉄格子を打ち鳴らし、獣を煽り立てた。\n" +
+            "檻はもう長くは保つまい。盗賊が近づいた時、それは弾け飛ぶだろう…", 3600);
+          break;
         } else {
-          cage.declined = true;   // 「やめる」→ 半径外に出るまで再プロンプト抑制
+          // 無視 (idx 2 相当 / Esc=null): 半径外に出るまで再プロンプト抑制
+          cage.declined = true;
           break;
         }
       }
@@ -10890,7 +10917,7 @@
       cage.opened = true;
       // Phase 2-F: 咆哮硬直 (1500ms) — まずは鍵で錠は外れたが、獣が咆哮で威圧
       // 檻に振動 + ビーストに赤紫グロウ。プレイヤーの理不尽事故死を防ぐためのインターバル。
-      if (cage.el) cage.el.classList.add("roaring");
+      if (cage.el) { cage.el.classList.remove("agitated"); cage.el.classList.add("roaring"); }
       const beastEl0 = (cage.beastIdx >= 0) ? enemyElements[cage.beastIdx] : null;
       if (beastEl0) beastEl0.classList.add("beast-roaring");
       showBanner("💢 残影の獣 解き放たれた! 💢", 1500);
@@ -10946,11 +10973,35 @@
     const CAGE_ESCAPE_INTERVAL_MS = 5000;
     const CAGE_ESCAPE_CHANCE = 0.20;
     const CAGE_ESCAPE_PROXIMITY_PX = 800;
+    const CAGE_LURE_RELEASE_PX = 420;   // 誘導済みの檻: 盗賊がこの距離に来たら確定脱走 (餅になる脱走)
     let _lastCageEscapeCheck = 0;
     setInterval(async () => {
       if (!gameStarted || gameOver) return;
       if (!encounterActive) return;              // 戦闘中のみ
       if (dialogPaused) return;                  // showChoice 中は休止
+
+      // 誘導された檻 (餅になる脱走): 5秒throttle に関係なく毎tick判定。
+      // 盗賊 (非beast) が檻に近づいた瞬間に確定で弾ける → 獣はその盗賊に襲いかかる。
+      for (const cage of cages) {
+        if (cage.opened || cage.dialogActive || !cage.lured) continue;
+        const lcx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
+        const lcy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
+        let banditNear = false;
+        for (let i = 0; i < enemies.length; i++) {
+          const o = enemies[i];
+          if (!o || !o.alive || o.inactive) continue;
+          if (o.def.faction === "beast") continue;
+          const ocx = o.x + o.def.displaySize / 2;
+          const ocy = o.y + o.def.displaySize / 2;
+          if (Math.hypot(lcx - ocx, lcy - ocy) <= CAGE_LURE_RELEASE_PX) { banditNear = true; break; }
+        }
+        if (banditNear) {
+          showDMMessage("…煽られた獣が檻に体当たりしている。獲物が、近い…!", 2000);
+          await openCage(cage);
+          return;   // このtickは終了 (下の確率脱走は走らせない)
+        }
+      }
+
       const now = (typeof performance !== "undefined" && performance.now)
         ? performance.now() : Date.now();
       // 戦闘開始から 5 秒未満は対象外
