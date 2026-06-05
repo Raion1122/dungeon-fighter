@@ -2542,7 +2542,10 @@
       "goblin-mine":    { floor: "床1.png",        wall: "壁1.png" },
       "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
       "lizard-swamp":   { floor: "シナリオ3床.png", wall: "シナリオ3壁.png" },
-      // 未実装シナリオは廃坑テクスチャにフォールバック (素材追加時にここへ)
+      "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png" },
+      "undead-temple":  { floor: "シナリオ5床.png", wall: "シナリオ5壁.png" },
+      "dragon-lair":    { floor: "シナリオ6床.png", wall: "シナリオ6壁.png" },
+      // 未登録 scenarioId は廃坑テクスチャにフォールバック (素材追加時にここへ)
     };
     const _texSet = SCENARIO_TEX[_scenIdForTex] || SCENARIO_TEX["goblin-mine"];
 
@@ -4883,6 +4886,13 @@
     // 僧侶: 自動固定 (呪文ごとに Lv 別使用回数表)、酒場で編集不可
     const SPELL_SLOT_CURVE_MAGE = [0, 3, 4, 5, 6, 8, 9, 10, 12, 13, 15];   // index = Lv (1-10)
     const SPELL_SLOT_CURVE_ELF  = [0, 2, 2, 3, 4, 5,  6,  7,  8,  9, 10];
+    // ── スキルスロット (マーシャル職の装備スキル数): Lv1=1 → Lv5=3 → Lv10=5 (spec.md 7章) ──
+    // 2レベルごと +1 の単調補間。呪文スロットとは別管理。
+    const SKILL_SLOT_CURVE = [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5];   // index = Lv (1-10)
+    function skillSlotsForLevel(lv) {
+      const cap = Math.max(1, Math.min(10, (lv | 0) || 1));
+      return SKILL_SLOT_CURVE[cap];
+    }
     const CLERIC_SLOTS_TABLE = {
       // index = Lv (0 はダミー)
       "cure-light-wounds":    [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
@@ -10322,17 +10332,20 @@
     // partySkills は character セットアップで全キャラに適用するためにパースして保持
     let partySkillsMap = null;
     try {
+      // 戦士(マーシャル)の暫定枠数: 主人公の永続Lv 連動 (編成コードが後で headLevel で再スライスする)
+      const heroSkillSlots = skillSlotsForLevel(
+        (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1);
       if (persistent.partySkills) {
         partySkillsMap = JSON.parse(persistent.partySkills);
         if (partySkillsMap && Array.isArray(partySkillsMap.warrior)) {
           equippedSkills = partySkillsMap.warrior
-            .filter(id => id in WARRIOR_SKILLS).slice(0, 3);
+            .filter(id => id in WARRIOR_SKILLS).slice(0, heroSkillSlots);
         }
       } else if (persistent.equipSkills) {
         // 旧キー: 戦士のスキルとして使う
         const arr = JSON.parse(persistent.equipSkills);
         if (Array.isArray(arr)) {
-          equippedSkills = arr.filter(id => id in WARRIOR_SKILLS).slice(0, 3);
+          equippedSkills = arr.filter(id => id in WARRIOR_SKILLS).slice(0, heroSkillSlots);
         }
       }
     } catch (e) { /* ignore — fall back to default */ }
@@ -11527,7 +11540,16 @@
       sfx("trap");
       const r = rollDiceDD(1, 6);
       const dmg = r.total;
-      hp = Math.max(0, hp - dmg);
+      // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (1戦1回)
+      if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired
+          && (hp - dmg) <= 0 && dmg > 0) {
+        playerBuffs.resilientFired = true;
+        const s = rollDiceDD(1, 4);
+        hp = s.total;
+        showBuffPop(`<span class="label">不屈!</span>罠の致命傷を 1d4(<span class="big">${s.total}</span>) HP で耐える`);
+      } else {
+        hp = Math.max(0, hp - dmg);
+      }
       showBanner("罠発動!", 1200);
       showDMMessage("しまった! 罠だ!", 1800);
       updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
@@ -11540,10 +11562,20 @@
       trap.found = true;
       const r = rollDiceDD(1, 6);
       const dmg = r.total;
-      ally.hp = Math.max(0, ally.hp - dmg);
+      // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (戦士系の仲間のみ・1戦1回)
+      let trapResilientNote = "";
+      if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+          && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+        ally.buffs.resilientFired = true;
+        const s = rollDiceDD(1, 4);
+        ally.hp = s.total;
+        trapResilientNote = ` → 不屈! ${s.total} HP で耐えた`;
+      } else {
+        ally.hp = Math.max(0, ally.hp - dmg);
+      }
       showBanner("罠発動!", 1200);
       showDMMessage("しまった! 罠だ!", 1800);
-      updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
+      updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ${trapResilientNote}`);
       showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
       if (ally.hp <= 0) {
         ally.alive = false;
@@ -15760,7 +15792,7 @@
       if (autoGuardActive) isGuarding = false;
     }
 
-    // 敵が仲間キャラを攻撃する (簡易版 — 不屈/カウンター/DR バフ未対応)
+    // 敵が仲間キャラを攻撃する (DR/回避/不屈/ドワーフの意地 対応。カウンターのみ未対応)
     async function enemyAttackAllyTarget(enemyIdx, allyIdx, bossAction) {
       const enemy = enemies[enemyIdx];
       const def = enemy.def;
@@ -15891,6 +15923,22 @@
         const before = finalDmg;
         finalDmg = Math.max(1, Math.floor(finalDmg / 2));
         if (before !== finalDmg) drNotes.push(`回避-${before - finalDmg}`);
+      }
+
+      // 不屈 (resilient): この一撃で HP が 0 以下になるなら 1d4 HP で踏みとどまる (1戦1回)。
+      // ※ resilient は WARRIOR_SKILLS。装備している仲間 (戦士系) のみ発動。
+      if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+          && !ally.buffs.resilientFired && (ally.hp - finalDmg) <= 0 && finalDmg > 0) {
+        ally.buffs.resilientFired = true;
+        const sRoll = rollDiceDD(1, 4);
+        showDmgAt(tCX, ally.y, finalDmg, isCrit);
+        ally.hp = sRoll.total;
+        showRollAtAlly(ally,
+          `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+        updateInfo(`${ally.def.name}: 不屈発動! 致命傷を ${sRoll.total}/${ally.maxHp} HP で耐えた`);
+        await sleepMs(700);
+        await checkDwarvenGritTrigger(ally);   // 耐えた後の低HPで意地が乗る場合あり
+        return;
       }
 
       ally.hp -= finalDmg;
@@ -16057,6 +16105,14 @@
       : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
     { const lbl = document.getElementById("warriorLabel"); if (lbl) lbl.textContent = headDisplayName; }
 
+    // 頭のレベル (主人公=永続XP由来 / NPC=ティア帯Lv)。スキルスロット算定に使用 (仲間のフォールバックも兼ねる)
+    const headLevel = headMember.isHero
+      ? ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1)
+      : ((typeof headMember.level === "number" && headMember.level > 0) ? headMember.level : 1);
+    // 頭のスキルスロット数: マーシャル職は Lv 連動 (Lv1=1→Lv10=5)、キャスターは呪文ローテ枠として従来通り 3
+    const headSkillSlots = ["warrior", "dwarf", "rogue"].includes(leaderClassKey)
+      ? skillSlotsForLevel(headLevel) : 3;
+
     // 頭の呪文スロット: 主人公頭=酒場カスタム(永続Lv)、NPC頭=ティア帯Lvでデフォルト配分
     if (typeof initLeaderSpellSlots === "function") {
       const playerLvHead = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
@@ -16069,10 +16125,10 @@
     // 頭の equippedSkills: 主人公頭=酒場カスタム、NPC頭=クラスデフォルト
     if (headMember.isHero && partySkillsMap && Array.isArray(partySkillsMap[leaderClassKey])) {
       const dict = CLASS_SKILL_DICTS[leaderClassKey] || WARRIOR_SKILLS;
-      equippedSkills = partySkillsMap[leaderClassKey].filter(id => id in dict).slice(0, 3);
+      equippedSkills = partySkillsMap[leaderClassKey].filter(id => id in dict).slice(0, headSkillSlots);
     } else {
       const def = CLASS_DEFS[leaderClassKey];
-      equippedSkills = (def && def.defaultSkills) ? [...def.defaultSkills].slice(0, 3) : equippedSkills;
+      equippedSkills = (def && def.defaultSkills) ? [...def.defaultSkills].slice(0, headSkillSlots) : equippedSkills;
     }
 
     // ── allies = formation[1:] を隊列順に生成 (個性情報を付与) ──
@@ -16098,7 +16154,10 @@
         const raw = partySkillsMap && partySkillsMap[ally.classKey];
         if (Array.isArray(raw)) {
           const dict = CLASS_SKILL_DICTS[ally.classKey];
-          if (dict) ally.equippedSkills = raw.filter(id => id in dict).slice(0, 3);
+          // マーシャル職は Lv 連動枠、キャスターは後段 initAllySpellSlots で上書きされるため値は仮 (3)
+          const lim = ["warrior", "dwarf", "rogue"].includes(ally.classKey)
+            ? skillSlotsForLevel(ally.level || headLevel) : 3;
+          if (dict) ally.equippedSkills = raw.filter(id => id in dict).slice(0, lim);
         }
         // 呪文職主人公の equippedSkills は initAllySpellSlots で設定
       } else {
@@ -16121,6 +16180,14 @@
         initAllySpellSlots(ally, ally.classKey, aLv, map);
       }
     })();
+
+    // マーシャル職仲間 (NPC含む) の装備スキルを Lv 連動でスライス (Lv1=1→Lv10=5)。
+    // キャスターは equippedSkills が呪文キー集合 (上の initAllySpellSlots で設定) のため除外。
+    for (const ally of allies) {
+      if (!["warrior", "dwarf", "rogue"].includes(ally.classKey)) continue;
+      if (!Array.isArray(ally.equippedSkills)) continue;
+      ally.equippedSkills = ally.equippedSkills.slice(0, skillSlotsForLevel(ally.level || headLevel));
+    }
 
     // Phase 2-G 拡張: accessoryState から各キャラの装備状態を復元
     (function restoreAccessoryState() {

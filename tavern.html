@@ -1867,6 +1867,22 @@
     if (lv >= XP_THRESHOLDS.length) return XP_THRESHOLDS[XP_THRESHOLDS.length - 1];
     return XP_THRESHOLDS[lv];
   }
+  // ── スキルスロット (マーシャル職の装備スキル数): Lv1=1 → Lv5=3 → Lv10=5 (spec.md 7章, index.html と同期) ──
+  const SKILL_SLOT_CURVE = [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5];   // index = Lv (1-10)
+  function skillSlotsForLevel(lv) {
+    const cap = Math.max(1, Math.min(10, (lv | 0) || 1));
+    return SKILL_SLOT_CURVE[cap];
+  }
+  // クラス → そのパーティメンバーのレベル (主人公=永続XP由来 / NPC=ティア帯Lv)
+  function memberLevelOf(classKey) {
+    const ms = (typeof selection !== "undefined" && selection && selection.partyMembers) || [];
+    const m = ms.find(x => x && x.classKey === classKey);
+    if (m && m.isHero) return getLevelFromXP(inventory.xp);
+    if (m && typeof m.level === "number" && m.level > 0) return m.level;
+    return getLevelFromXP(inventory.xp);   // 未確定は主人公Lvにフォールバック
+  }
+  // クラス別スキルスロット上限 (Lv 連動)
+  function skillLimitForClass(classKey) { return skillSlotsForLevel(memberLevelOf(classKey)); }
   const inventory = loadInventory();
 
   // ── Phase 2-J: 呪文記憶スロット用ヘルパー (index.html と同期) ──
@@ -1968,7 +1984,7 @@
             const migrated = ps[slot.classKey]
               .map(id => id === "sneak-attack" ? "shadow-step" : id)
               .filter(id => validIds.has(id))
-              .slice(0, SKILL_SLOT_LIMIT);
+              .slice(0, skillSlotsForLevel(10));  // 最大枠(5)まで保持。Lv上限はUI/戦闘で動的適用しデータ消失を防ぐ
             partySkills[slot.classKey] = migrated;
           }
         }
@@ -1978,7 +1994,7 @@
         if (oldRaw) {
           const old = JSON.parse(oldRaw);
           if (Array.isArray(old)) {
-            partySkills["warrior"] = old.slice(0, SKILL_SLOT_LIMIT);
+            partySkills["warrior"] = old.slice(0, skillSlotsForLevel(10));  // 最大枠(5)まで保持。Lv上限はUI/戦闘で動的適用しデータ消失を防ぐ
           }
         }
       }
@@ -2379,7 +2395,7 @@
       const tab = document.createElement("div");
       tab.className = "partyTab" + (isActive ? " active" : "");
       tab.innerHTML = `<div>${slot.name}</div>` +
-                      `<div class="tabCount">スキル ${equipped}/${SKILL_SLOT_LIMIT}</div>`;
+                      `<div class="tabCount">スキル ${equipped}/${skillLimitForClass(slot.classKey)}</div>`;
       tab.addEventListener("click", () => {
         if (activeCharTab === slot.classKey) return;
         activeCharTab = slot.classKey;
@@ -2589,7 +2605,7 @@
       if (isSel) {
         selection.partySkills[classKey] = list.filter(s => s !== sk.id);
       } else {
-        if (list.length >= SKILL_SLOT_LIMIT) return;
+        if (list.length >= skillLimitForClass(classKey)) return;
         selection.partySkills[classKey] = [...list, sk.id];
       }
       saveSelections();
@@ -2657,7 +2673,7 @@
     // ── スキル/魔法 セクション ──
     const equipped = selection.partySkills[slot.classKey] || [];
     const equippedSet = new Set(equipped);
-    const full = equippedSet.size >= SKILL_SLOT_LIMIT;
+    const full = equippedSet.size >= skillLimitForClass(slot.classKey);
     // mpCost が無い (or 0) → スキル、ある (>0) → 魔法
     const skills = slot.skillPool.filter(sk => !sk.mpCost);
     const magics = slot.skillPool.filter(sk =>  sk.mpCost > 0);
@@ -2695,8 +2711,8 @@
     // カウンタ更新
     const counter = document.getElementById("skillSlotCounter");
     if (counter) {
-      counter.textContent = `(${equippedSet.size}/${SKILL_SLOT_LIMIT})`;
-      counter.style.color = (equippedSet.size >= SKILL_SLOT_LIMIT) ? "#8b2010" : "";
+      counter.textContent = `(${equippedSet.size}/${skillLimitForClass(slot.classKey)})`;
+      counter.style.color = (equippedSet.size >= skillLimitForClass(slot.classKey)) ? "#8b2010" : "";
     }
     const magicHint = document.getElementById("magicHint");
     if (magicHint) magicHint.textContent = magics.length === 0 ? "" : "(スキル枠と共有)";
