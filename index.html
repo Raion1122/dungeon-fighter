@@ -2994,6 +2994,10 @@
     };
     // パーティ編成 (sessionStorage 経由) の先頭がリーダー = プレイヤーキャラ
     let leaderClassKey = "warrior";  // 初期値、後で partyComposition から上書き
+    // ── パーティ編成 (Q1=B): 頭(player アバター)と主人公(isHero)を分離 ──
+    let heroIsHead = true;       // 頭(player)が主人公本人か (主人公が前衛=warrior/dwarf なら true)
+    let heroRef = null;          // 主人公が ally の場合の参照 (頭でない時=主人公が mid/rear)
+    let headDisplayName = "";    // 頭の表示名 (NPC=個人名 / 主人公="あなた")
     let knightFrameTick = 0;
     let lastSpriteUrl = null;
     function setSpriteSheet(url, size) {
@@ -4776,6 +4780,7 @@
       cleric:  { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "wis" },
       mage:    { hitDieMax: 4,  babFn: lv => Math.floor(lv / 2),     statBoost: "int" },
       elf:     { hitDieMax: 8,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "dex" },
+      rogue:   { hitDieMax: 6,  babFn: lv => Math.floor(lv * 3 / 4), statBoost: "dex" },  // 欠落バグ修正 (新編成で露出増)
     };
 
     // ── Phase 2-J: 呪文記憶スロットシステム ──
@@ -5004,6 +5009,93 @@
       } catch (e) { /* JSON 不正は無視 */ }
       return empty;
     })();
+
+    // ════════════ パーティ編成システム (party-spec.md 準拠) ════════════
+    // 主人公1人 + ランダムNPC冒険者でパーティを編成。zone(前衛/中衛/後衛)でばらけさせ + 重複許可。
+    // ※ tavern.html にも同一定義あり (変更時は両方同期)。ALL_CLASS_KEYS は上の既存定義を再利用。
+    const PARTY_ZONES = { warrior: "front", dwarf: "front", rogue: "mid", elf: "mid", cleric: "mid", mage: "rear" };
+    const ZONE_ORDER  = ["front", "mid", "rear"];
+    const PARTY_SIZE  = 4;   // 主人公1 + NPC3 (コードで変更可、推奨 2〜6)
+    const NPC_NAMES = ["ロルフ", "イレーナ", "ガウェイン", "ミラ", "ダグ", "セシリア", "ブラン", "ヨナ",
+                       "クヌート", "リーゼ", "オズ", "ファルケ", "ニカ", "ベルント", "ソフィ", "トルガ"];
+    const NPC_TRAITS = ["無口で何を考えているか読めない", "やたらお調子者で場を和ませる", "慎重で石橋を叩いて渡る",
+      "血の気が多くすぐ突っ込む", "理屈っぽいが頼りになる", "酒好きで宵越しの金を持たない", "信心深く事あるごとに祈る",
+      "皮肉屋だが面倒見はいい", "金にがめついが約束は守る", "夢見がちで英雄譚に憧れている"];
+    const NPC_LINES = ["「あんたも依頼かい？ なら手を組もうじゃないか。」", "「足を引っ張るなよ ―― なんてな、よろしく頼む。」",
+      "「報酬は山分けだ。それでいいな？」", "「久々の大仕事だ、腕が鳴るぜ。」", "「無事に帰れたら一杯おごるよ。」",
+      "「……よろしく。」", "「神のご加護があらんことを。さあ行こう。」", "「死なない程度に頑張ろうや。」",
+      "「あたしの腕、見せてやる。」", "「この出会いも何かの縁ってやつさ。」"];
+
+    // 直近除外つきランダム: 同じ要素が連続して出にくい (key ごとに直近履歴を保持)
+    const pickRandom = (() => {
+      const history = {};
+      return function (key, arr, avoidIdx) {
+        if (!arr || !arr.length) return undefined;
+        const recent = history[key] || (history[key] = []);
+        const avoidSet = new Set(recent);
+        if (typeof avoidIdx === "number") avoidSet.add(avoidIdx);
+        let pool = arr.map((_, i) => i).filter(i => !avoidSet.has(i));
+        if (!pool.length) pool = arr.map((_, i) => i);
+        const idx = pool[Math.floor(Math.random() * pool.length)];
+        recent.push(idx);
+        while (recent.length > Math.min(3, arr.length - 1)) recent.shift();
+        return arr[idx];
+      };
+    })();
+
+    function makeHeroMember(classKey) {
+      return { classKey, isHero: true, zone: PARTY_ZONES[classKey], name: null, trait: null, line: null };
+    }
+    function pickUniqueName(usedSet) {
+      let n, guard = 0;
+      do { n = NPC_NAMES[Math.floor(Math.random() * NPC_NAMES.length)]; } while (usedSet.has(n) && ++guard < 50);
+      usedSet.add(n);
+      return n;
+    }
+    function makeNpcMember(classKey, usedSet) {
+      return {
+        classKey, isHero: false, zone: PARTY_ZONES[classKey],
+        name: pickUniqueName(usedSet),
+        trait: pickRandom("trait", NPC_TRAITS),
+        line: pickRandom("line", NPC_LINES),
+      };
+    }
+    // 主人公1人 + NPC で PARTY_SIZE 人を構築 (各 zone 最低1人を front→mid→rear 順に確保、残りは重複可)
+    function buildParty(heroClassKey) {
+      if (!PARTY_ZONES[heroClassKey]) heroClassKey = "warrior";
+      const members = [makeHeroMember(heroClassKey)];
+      const usedNames = new Set();
+      const coveredZones = new Set([PARTY_ZONES[heroClassKey]]);
+      const usedClasses = new Set([heroClassKey]);
+      // (1) 各 zone に最低1人 (未使用職業優先)
+      for (const zone of ZONE_ORDER) {
+        if (members.length >= PARTY_SIZE) break;
+        if (coveredZones.has(zone)) continue;
+        const zoneClasses = ALL_CLASS_KEYS.filter(k => PARTY_ZONES[k] === zone);
+        const fresh = zoneClasses.filter(k => !usedClasses.has(k));
+        const cand = fresh.length ? fresh : zoneClasses;
+        if (!cand.length) continue;
+        const pick = cand[Math.floor(Math.random() * cand.length)];
+        members.push(makeNpcMember(pick, usedNames));
+        coveredZones.add(zone);
+        usedClasses.add(pick);
+      }
+      // (2) 残り枠は全職業からランダム (重複可)
+      while (members.length < PARTY_SIZE) {
+        const pick = ALL_CLASS_KEYS[Math.floor(Math.random() * ALL_CLASS_KEYS.length)];
+        members.push(makeNpcMember(pick, usedNames));
+      }
+      return members;
+    }
+    // 隊列順に並べ替え (front→mid→rear の安定ソート。[0]=移動の先頭=蛇の頭=最も狙われる位置)
+    function orderFormation(party) {
+      const rank = { front: 0, mid: 1, rear: 2 };
+      return party
+        .map((m, i) => ({ m, i }))
+        .sort((a, b) => (rank[a.m.zone] - rank[b.m.zone]) || (a.i - b.i))
+        .map(x => x.m);
+    }
+    // ════════════ パーティ編成システム ここまで ════════════
 
     function saveInventoryBag() {
       try {
@@ -5247,12 +5339,15 @@
       document.body.appendChild(hpWrap);
       ally.hpWrapEl = hpWrap;
       ally.hpFillEl = hpWrap.querySelector(".allyHpFill");
-      // 名前ラベル
+      // 名前ラベル (NPC は個人名、主人公は職業名+「あなた」で金色ハイライト)
       const label = document.createElement("div");
-      label.className = "allyLabel";
-      label.textContent = cd.name;
+      label.className = "allyLabel" + (ally.isHero ? " heroLabel" : "");
+      label.textContent = ally.isHero ? (cd.name + "（あなた）") : (ally.npcName || cd.name);
+      if (ally.isHero) label.style.color = "#e0b43c";
       document.body.appendChild(label);
       ally.nameLabelEl = label;
+      // 主人公 ally は見失い防止に金色グロー
+      if (ally.isHero) { el.classList.add("heroAlly"); el.style.filter = "drop-shadow(0 0 6px gold)"; }
     }
 
     // (注意) 初期パーティーの push は CLASS_DEFS 定義後に実行する必要があるので
@@ -7097,6 +7192,7 @@
       updateInfo("ダメージを受けた！");
 
       if (hp <= 0) {
+        if (onHeadDowned("explore")) return;   // 頭=NPC → 委譲して継続
         gameOver = true;
         invincible = false;
         guardInvincible = false;
@@ -7105,7 +7201,7 @@
         stopDamageBlink();
         player.style.opacity = "1";
         player.style.filter = "none";
-        updateInfo("ゲームオーバー！更新でやり直し");
+        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
         return;
       }
 
@@ -8456,8 +8552,88 @@
     };
     // リーダー名を動的に取得 (ログ表示用)
     function getLeaderName() {
+      // 頭の表示名 (主人公="あなた" / NPC=個人名)。未設定時はクラス名にフォールバック
+      if (typeof headDisplayName === "string" && headDisplayName) return headDisplayName;
       const def = (typeof CLASS_DEFS !== "undefined") ? CLASS_DEFS[leaderClassKey] : null;
       return (def && def.name) || "戦士";
+    }
+
+    // ── パーティ生存 / 全滅 判定 (Q1=B GO 条件: 主人公死亡 or 全滅) ──
+    function isHeroAlive() {
+      if (heroIsHead) return hp > 0;
+      const h = (heroRef && typeof heroRef.alive !== "undefined") ? heroRef : allies.find(a => a.isHero);
+      return !!(h && h.alive);
+    }
+    function isPartyWiped() {
+      return hp <= 0 && allies.length > 0 && allies.every(a => !a.alive);
+    }
+
+    // バフ obj を in-place で総入替 (const playerBuffs 用)
+    function copyBuffsInto(dst, src) {
+      if (!dst) return;
+      for (const k of Object.keys(dst)) {
+        const v = dst[k];
+        if (typeof v === "number") dst[k] = 0;
+        else if (typeof v === "boolean") dst[k] = false;
+        else dst[k] = null;
+      }
+      if (src) for (const k of Object.keys(src)) dst[k] = src[k];
+    }
+
+    // 隊列順(前→後)で最初の生存 ally の index。委譲先。なければ -1 (=全滅)
+    function pickNextHeadIndex() {
+      for (let i = 0; i < allies.length; i++) if (allies[i].alive) return i;
+      return -1;
+    }
+
+    // ── 頭委譲 (Q1=B): 頭(player)が倒れたら次の最前生存メンバーを頭に昇格 ──
+    // グローバル群 + #player を新頭へ差し替え、旧頭(ally)の DOM を撤去。true=昇格成功 / false=不能(全滅)
+    function tryPromoteNewHead(context) {
+      const ni = pickNextHeadIndex();
+      if (ni < 0) return false;
+      const nh = allies[ni];
+      leaderClassKey = nh.classKey;
+      applyLeaderStats(leaderClassKey);                 // playerStats/maxHp 再構築 (hp は満タンになる)
+      hp = Math.max(1, Math.min(maxHp, nh.hp || 1));    // ★現在 hp を復元
+      equippedSkills = Array.isArray(nh.equippedSkills) ? nh.equippedSkills.slice() : equippedSkills;
+      currentSpellSlots = { ...(nh.spellSlots || {}) };
+      currentMaxSpellSlots = { ...(nh.maxSpellSlots || {}) };
+      currentMaxSpellSlotsTotal = nh.maxSpellSlotsTotal || 0;
+      copyBuffsInto(playerBuffs, nh.buffs);
+      if (leaderSkillsUsedInEncounter && leaderSkillsUsedInEncounter.clear) {
+        leaderSkillsUsedInEncounter.clear();
+        if (nh.skillsUsedInEncounter && nh.skillsUsedInEncounter.forEach)
+          nh.skillsUsedInEncounter.forEach(id => leaderSkillsUsedInEncounter.add(id));
+      }
+      if (leaderSkillCooldowns) {
+        for (const k of Object.keys(leaderSkillCooldowns)) delete leaderSkillCooldowns[k];
+        if (nh.skillCooldowns) for (const k of Object.keys(nh.skillCooldowns)) leaderSkillCooldowns[k] = nh.skillCooldowns[k];
+      }
+      playerX = nh.x; playerY = nh.y; facing = nh.facing || "right";
+      heroIsHead = !!nh.isHero;
+      if (heroIsHead) heroRef = null;
+      headDisplayName = nh.isHero ? "あなた"
+        : (nh.npcName || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
+      const lbl = document.getElementById("warriorLabel");
+      if (lbl) lbl.textContent = headDisplayName;
+      // 旧頭(player)の見た目をリセット
+      if (typeof player !== "undefined" && player) { player.style.opacity = "1"; player.style.filter = "none"; }
+      // 新頭の ally DOM を撤去 (#player が描画を担う → 二重描画防止)
+      if (nh.el && nh.el.remove) nh.el.remove();
+      if (nh.hpWrapEl && nh.hpWrapEl.remove) nh.hpWrapEl.remove();
+      if (nh.nameLabelEl && nh.nameLabelEl.remove) nh.nameLabelEl.remove();
+      allies.splice(ni, 1);
+      lastSpriteUrl = null;   // updateKnightSprite の差分キャッシュ無効化
+      if (typeof updateKnightSprite === "function") updateKnightSprite();
+      if (typeof updatePositions === "function") updatePositions();
+      updateInfo(`${headDisplayName}が前線に立った!`);
+      return true;
+    }
+
+    // 頭が hp<=0 になった時: 主人公頭なら GO(false)、NPC頭なら委譲を試みる(成功=true で継続)
+    function onHeadDowned(context) {
+      if (heroIsHead) return false;       // 頭=主人公の死 → GO
+      return tryPromoteNewHead(context);  // NPC頭 → 委譲(不能なら false=GO)
     }
     // リーダーが MP 持ちのクラスか
     function leaderHasMp() {
@@ -9996,10 +10172,10 @@
 
     // 仲間に選択装備を適用 (createAlly 直後に呼ぶ)
     // tier 0 からの差分で ally.dmgDice / dmgBonus / ac を更新
-    function applyAllyEquipment(ally, classKey) {
+    function applyAllyEquipment(ally, classKey, selOverride) {
       const pool = ALLY_EQUIP_POOLS[classKey];
       if (!pool) return;
-      const sel = allyEquipSelection[classKey];
+      const sel = selOverride || allyEquipSelection[classKey];
       if (!sel) return;
       const w = pool.weapons[sel.weapon];
       const a = pool.armors[sel.armor];
@@ -11236,7 +11412,7 @@
       showDMMessage("しまった! 罠だ!", 1800);
       updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
       showDmgAt(playerX + 48, playerY + 48, dmg, false);
-      if (hp <= 0) gameOver = true;
+      if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }
     }
 
     function triggerTrapOnAlly(trap, ally) {
@@ -11251,7 +11427,8 @@
       showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
       if (ally.hp <= 0) {
         ally.alive = false;
-        updateInfo(`${ally.def.name} は倒れた…`);
+        updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
+        if (ally.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
       }
     }
 
@@ -11280,13 +11457,14 @@
       const eCY = e.y + e.def.displaySize / 2;
       const candidates = [];
       if (hp > 0 && !gameOver) {
-        candidates.push({ kind: "leader", cx: playerX + 48, cy: playerY + 58 });
+        candidates.push({ kind: "leader", zone: PARTY_ZONES[leaderClassKey] || "front", cx: playerX + 48, cy: playerY + 58 });
       }
       for (let i = 0; i < allies.length; i++) {
         if (!allies[i].alive) continue;
         const a = allies[i];
         candidates.push({
           kind: "ally", idx: i,
+          zone: a.zone || PARTY_ZONES[a.classKey] || "mid",
           cx: a.x + a.def.displaySize / 2,
           cy: a.y + a.def.displaySize / 2
         });
@@ -11308,9 +11486,12 @@
         });
       }
       if (candidates.length === 0) return null;
+      // 前衛バイアス (Q1=B/§7): 前衛ほど実効距離を短く扱い「最も狙われる」。第三勢力(enemy)は等倍。
+      const ZONE_PULL = { front: 0.75, mid: 1.0, rear: 1.25 };
       let best = null, bestDist = Infinity;
       for (const c of candidates) {
-        const d = Math.hypot(eCX - c.cx, eCY - c.cy);
+        const base = Math.hypot(eCX - c.cx, eCY - c.cy);
+        const d = base * (c.kind === "enemy" ? 1.0 : (ZONE_PULL[c.zone] || 1.0));
         if (d < bestDist) { bestDist = d; best = c; }
       }
       return best;
@@ -15428,6 +15609,12 @@
       await sleepMs(500);
 
       if (hp <= 0) {
+        if (onHeadDowned("battle")) {
+          // 頭=NPC → 委譲成功。見た目リセットして戦闘継続
+          invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
+          stopDamageBlink();
+          return;
+        }
         gameOver = true;
         invincible = false;
         guardInvincible = false;
@@ -15436,7 +15623,7 @@
         stopDamageBlink();
         player.style.opacity = "1";
         player.style.filter = "none";
-        updateInfo("戦士は倒れた… ゲームオーバー(更新でやり直し)");
+        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
         return;
       }
 
@@ -15592,7 +15779,8 @@
 
       if (ally.hp <= 0) {
         ally.alive = false;
-        updateInfo(`${ally.def.name} は倒れた…`);
+        updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
+        if (ally.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
         await sleepMs(400);
       } else {
         // ドワーフの意地: HP が閾値以下まで落ちたら自動発動
@@ -15683,6 +15871,30 @@
     // 初期パーティー: 酒場で選んだ partyComposition (1〜4人) を反映
     // 第1段階: 戦士は強制リーダー (プレイヤー本体)、他キャラは partyComposition の登場順で allies に追加
     // 各キャラの初期位置はスタート部屋 A (row 9-18, col 2-11) 内、戦士の周囲に展開
+    // ── パーティ編成ヘルパー: partySkillsMap 正規化 / NPCキャスターのデフォルト呪文配分 ──
+    function normalizePartySkillsMap(map) {
+      if (!map || typeof map !== "object") return {};
+      const out = {};
+      for (const k of Object.keys(map)) {
+        const v = map[k];
+        if (Array.isArray(v)) { const o = {}; for (const id of v) o[id] = (o[id] || 0) + 1; out[k] = o; }
+        else if (v && typeof v === "object") out[k] = { ...v };
+      }
+      return out;
+    }
+    function defaultCasterMap(classKey, lv) {
+      // NPC キャスター用デフォルト呪文配分。cleric は自動(空でOK)、mage/elf は defaultSkills の呪文を割当
+      if (!isCasterClass(classKey) || (typeof isAutoSlotClass === "function" && isAutoSlotClass(classKey))) return {};
+      const def = CLASS_DEFS[classKey];
+      const dict = CLASS_SKILL_DICTS[classKey];
+      if (!def || !dict) return {};
+      const alloc = {};
+      for (const id of (def.defaultSkills || [])) {
+        if (dict[id] && dict[id].mpCost > 0) alloc[id] = 2;  // 上限は init*SpellSlots が自動カット
+      }
+      return { [classKey]: alloc };
+    }
+
     const ALLY_INIT_POSITIONS = {
       dwarf:  { tx: 5, ty: 14 },  // 戦士の左下 (前衛タンク)
       cleric: { tx: 5, ty: 13 },  // 戦士の後ろ (回復)
@@ -15690,102 +15902,93 @@
       elf:    { tx: 4, ty: 14 },  // 後衛 (弓+魔法ハイブリッド)
       rogue:  { tx: 5, ty: 12 },  // 戦士の右上 (中衛)
     };
-    let partyComposition = ["warrior", "dwarf", "cleric", "mage"];  // デフォルト4人
+    // ── 新パーティ編成 (Q1=B): rich な partyMembers (隊列順 [0]=頭) を読む ──
+    // formation[0] = 頭(player アバター=移動の先頭=蛇の頭)、formation[1:] = allies(隊列順)
+    let formation = null;
     try {
-      const pcRaw = sessionStorage.getItem("dragonfighters.partyComposition");
-      if (pcRaw) {
-        const pc = JSON.parse(pcRaw);
-        if (Array.isArray(pc) && pc.length >= 1) {
-          partyComposition = pc;
-        }
+      const pmRaw = sessionStorage.getItem("dragonfighters.partyMembers");
+      if (pmRaw) {
+        const pm = JSON.parse(pmRaw);
+        if (Array.isArray(pm) && pm.length >= 1 && pm.every(m => m && m.classKey && PARTY_ZONES[m.classKey]))
+          formation = pm;
       }
     } catch (e) { /* ignore */ }
-    // リーダーは partyComposition の先頭。第1段階の制約で warrior 強制だが、
-    // Step 2-A 以降で他クラスもリーダーになりえる
-    leaderClassKey = partyComposition[0] || "warrior";
-    // Step 2-B: リーダーのステで playerStats / hp / maxHp を初期化
-    applyLeaderStats(leaderClassKey);
-    // Phase 2-J Polish: applyLeaderStats 内で initLeaderSpellSlots が呼ばれるが
-    // その時点で partySkillsMap がまだ null のため、ここで再実行して呪文スロットを反映
-    if (typeof initLeaderSpellSlots === "function") {
-      const curLv2 = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
-      // 旧形式 (配列) を {id: 個数} に正規化してから渡す
-      let normalizedMap = null;
-      if (partySkillsMap && typeof partySkillsMap === "object") {
-        normalizedMap = {};
-        for (const k of Object.keys(partySkillsMap)) {
-          const v = partySkillsMap[k];
-          if (Array.isArray(v)) {
-            const obj = {};
-            for (const id of v) obj[id] = (obj[id] || 0) + 1;
-            normalizedMap[k] = obj;
-          } else if (v && typeof v === "object") {
-            normalizedMap[k] = { ...v };
-          }
-        }
-      }
-      initLeaderSpellSlots(leaderClassKey, curLv2, normalizedMap);
+    if (!formation) {
+      // 後方互換: rich が無ければ旧 partyComposition の先頭を主人公として再構築
+      let heroOld = "warrior";
+      try {
+        const pcRaw = sessionStorage.getItem("dragonfighters.partyComposition");
+        if (pcRaw) { const pc = JSON.parse(pcRaw); if (Array.isArray(pc) && pc.length && PARTY_ZONES[pc[0]]) heroOld = pc[0]; }
+      } catch (e) { /* ignore */ }
+      formation = orderFormation(buildParty(heroOld));
     }
-    // Step 2-C-3 a: リーダー用の equippedSkills を partySkillsMap から再設定
-    // (戦士前提の初期値を上書き、リーダーが他クラスの場合に対応)
-    if (partySkillsMap && Array.isArray(partySkillsMap[leaderClassKey])) {
-      // 酒場で明示登録された配列は空でも尊重する (= ユーザが全スキルを外した状態)
+    // 既存参照 (シナリオ判定など) 用に classKey 配列も維持 (隊列順 [0]=頭)
+    let partyComposition = formation.map(m => m.classKey);
+    const headMember = formation[0];
+    heroIsHead = !!headMember.isHero;
+
+    // ── 頭(player アバター) を formation[0] のクラスで初期化 ──
+    leaderClassKey = headMember.classKey;
+    applyLeaderStats(leaderClassKey);
+    headDisplayName = headMember.isHero ? "あなた"
+      : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
+    { const lbl = document.getElementById("warriorLabel"); if (lbl) lbl.textContent = headDisplayName; }
+
+    // 頭の呪文スロット: 主人公頭=酒場カスタム、NPC頭=デフォルト配分
+    if (typeof initLeaderSpellSlots === "function") {
+      const curLvHead = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
+      const headMap = headMember.isHero ? normalizePartySkillsMap(partySkillsMap)
+                                        : defaultCasterMap(leaderClassKey, curLvHead);
+      initLeaderSpellSlots(leaderClassKey, curLvHead, headMap);
+    }
+    // 頭の equippedSkills: 主人公頭=酒場カスタム、NPC頭=クラスデフォルト
+    if (headMember.isHero && partySkillsMap && Array.isArray(partySkillsMap[leaderClassKey])) {
       const dict = CLASS_SKILL_DICTS[leaderClassKey] || WARRIOR_SKILLS;
       equippedSkills = partySkillsMap[leaderClassKey].filter(id => id in dict).slice(0, 3);
-    } else if (leaderClassKey !== "warrior") {
-      // partySkillsMap に該当キー自体が無い (=未訪問) → CLASS_DEFS のデフォルトを使う
+    } else {
       const def = CLASS_DEFS[leaderClassKey];
-      equippedSkills = (def && def.defaultSkills) ? [...def.defaultSkills].slice(0, 3) : [];
+      equippedSkills = (def && def.defaultSkills) ? [...def.defaultSkills].slice(0, 3) : equippedSkills;
     }
-    // リーダー以外を順に allies に追加 (= 仲間)
-    const allyKeys = partyComposition.filter(k => k !== leaderClassKey);
-    allyKeys.forEach((classKey, idx) => {
-      const pos = ALLY_INIT_POSITIONS[classKey] || { tx: 5, ty: 13 };
-      allies.push(createAlly(classKey, pos.tx * TILE_SIZE, pos.ty * TILE_SIZE));
-      applyAllyEquipment(allies[idx], classKey);
+
+    // ── allies = formation[1:] を隊列順に生成 (個性情報を付与) ──
+    const allyMembers = formation.slice(1);
+    allyMembers.forEach((m) => {
+      const pos = ALLY_INIT_POSITIONS[m.classKey] || { tx: 5, ty: 13 };
+      const ally = createAlly(m.classKey, pos.tx * TILE_SIZE, pos.ty * TILE_SIZE);
+      ally.isHero  = !!m.isHero;
+      ally.zone    = m.zone;
+      ally.npcName = m.isHero ? null : (m.name || null);
+      ally.npcTrait = m.trait || null;
+      ally.npcLine  = m.line || null;
+      allies.push(ally);
     });
-    // 酒場で選んだスキル構成を適用 (無ければデフォルトのまま)
-    // Phase 2-J: 呪文職 (cleric/mage/elf) は partySkillsMap[classKey] が {id: 個数} オブジェクト形式の可能性あり
-    // 呪文以外 (warrior/dwarf/rogue) は配列形式のまま
-    const applyPartySkill = (ally, classKey, skillsDict) => {
-      if (!partySkillsMap) return;
-      const raw = partySkillsMap[classKey];
-      if (raw == null) return;
-      if (Array.isArray(raw)) {
-        // 旧形式: 単純な ID 配列
-        const validSkills = raw.filter(id => id in skillsDict).slice(0, 3);
-        ally.equippedSkills = validSkills;
-      } else if (typeof raw === "object") {
-        // 新形式 (呪文職): {id: 個数} → equippedSkills は initAllySpellSlots で設定
-        // ここでは何もしない (initAllySpellSlots が後で設定する)
+    heroRef = heroIsHead ? null : (allies.find(a => a.isHero) || null);
+
+    // ロードアウト適用 (Q2=A): 主人公 ally=酒場カスタム / NPC=デフォルト装備・スキル
+    allies.forEach((ally, idx) => {
+      if (ally.isHero) {
+        applyAllyEquipment(ally, ally.classKey);   // allyEquip[class] = 主人公カスタム装備
+        const raw = partySkillsMap && partySkillsMap[ally.classKey];
+        if (Array.isArray(raw)) {
+          const dict = CLASS_SKILL_DICTS[ally.classKey];
+          if (dict) ally.equippedSkills = raw.filter(id => id in dict).slice(0, 3);
+        }
+        // 呪文職主人公の equippedSkills は initAllySpellSlots で設定
+      } else {
+        applyAllyEquipment(ally, ally.classKey, { weapon: 0, armor: 0, shield: 0 });  // NPC=基本装備
+        // NPC のスキルは createAlly のデフォルト (cd.defaultSkills) のまま
       }
-    };
-    allyKeys.forEach((classKey, idx) => {
-      const dict = CLASS_SKILL_DICTS[classKey];
-      if (dict) applyPartySkill(allies[idx], classKey, dict);
-      createAllyDom(allies[idx], idx);
+      createAllyDom(ally, idx);
     });
-    // Phase 2-J: 呪文職の spellSlots を初期化 (酒場 partySkillsMap + 現在 Lv から)
+
+    // 呪文スロット初期化 (主人公 ally=酒場カスタム、NPC caster=デフォルト配分)
     (function initAlliesSpellSlots() {
       const curLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
-      // partySkillsMap を一段正規化 (配列形式が混在している場合に対応)
-      const normalized = {};
-      if (partySkillsMap) {
-        for (const k of Object.keys(partySkillsMap)) {
-          const v = partySkillsMap[k];
-          if (Array.isArray(v)) {
-            const obj = {};
-            for (const id of v) obj[id] = (obj[id] || 0) + 1;
-            normalized[k] = obj;
-          } else if (v && typeof v === "object") {
-            normalized[k] = { ...v };
-          }
-        }
-      }
+      const heroMap = normalizePartySkillsMap(partySkillsMap);
       for (const ally of allies) {
-        if (isCasterClass(ally.classKey)) {
-          initAllySpellSlots(ally, ally.classKey, curLv, normalized);
-        }
+        if (!isCasterClass(ally.classKey)) continue;
+        const map = ally.isHero ? heroMap : defaultCasterMap(ally.classKey, curLv);
+        initAllySpellSlots(ally, ally.classKey, curLv, map);
       }
     })();
 
@@ -16236,8 +16439,7 @@
         }
 
         // ── ライフサイクル: 全滅未検出 ──
-        const wipe = finite(hp) && hp <= 0 && typeof allies !== "undefined" && allies.length &&
-          allies.every(a => !a.alive) &&
+        const wipe = finite(hp) && (typeof isPartyWiped === "function" && isPartyWiped()) &&
           !(typeof gameOver !== "undefined" && gameOver) &&
           !(typeof resultShown !== "undefined" && resultShown);
         if (sustained("wipe", wipe, 4)) record("wipe-not-detected", "critical", "全滅状態だが結果未発火 (>2秒)", { hp: hp });

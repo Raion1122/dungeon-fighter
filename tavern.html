@@ -903,10 +903,18 @@
         <div class="sub" id="prepSub"></div>
         <div class="prepPanel">
           <div class="ph" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <span>パーティ編成 <span style="opacity:0.6;font-size:12px;">(1〜4人、戦士は固定)</span></span>
-            <span id="partyCompCount" style="font-size:13px;opacity:0.85;">4 / 4 人</span>
+            <span>主人公をえらぶ <span style="opacity:0.6;font-size:12px;">(残りはランダムな仲間で埋まる)</span></span>
+            <span id="partyCompCount" style="font-size:13px;opacity:0.85;"></span>
           </div>
           <div class="partyComp" id="partyComp"></div>
+        </div>
+
+        <div class="prepPanel">
+          <div class="ph" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <span>パーティ <span style="opacity:0.6;font-size:12px;">(酒場で居合わせた冒険者・自動編成 / 先頭=前衛が盾)</span></span>
+            <button type="button" id="btnReroll" class="equipToggleBtn">🎲 仲間を引き直す</button>
+          </div>
+          <div id="partyPreview"></div>
         </div>
 
         <div class="prepPanel">
@@ -1361,6 +1369,95 @@
     { classKey: "rogue",   name: "盗賊",   skillPool: ROGUE_SKILLS_UI,
       defaults: ["shadow-step", "poison-blade", "find-traps"] },
   ];
+
+  // ════════════ パーティ編成システム (party-spec.md 準拠) ════════════
+  // 主人公1人 + ランダムNPC冒険者でパーティを編成。zone(前衛/中衛/後衛)でばらけさせ + 重複許可。
+  // ※ index.html にも同一定義あり (変更時は両方同期)。
+  const ALL_CLASS_KEYS = ["warrior", "dwarf", "cleric", "mage", "elf", "rogue"];
+  const PARTY_ZONES = { warrior: "front", dwarf: "front", rogue: "mid", elf: "mid", cleric: "mid", mage: "rear" };
+  const ZONE_ORDER  = ["front", "mid", "rear"];
+  const PARTY_SIZE  = 4;   // 主人公1 + NPC3 (コードで変更可、推奨 2〜6)
+  const NPC_NAMES = ["ロルフ", "イレーナ", "ガウェイン", "ミラ", "ダグ", "セシリア", "ブラン", "ヨナ",
+                     "クヌート", "リーゼ", "オズ", "ファルケ", "ニカ", "ベルント", "ソフィ", "トルガ"];
+  const NPC_TRAITS = ["無口で何を考えているか読めない", "やたらお調子者で場を和ませる", "慎重で石橋を叩いて渡る",
+    "血の気が多くすぐ突っ込む", "理屈っぽいが頼りになる", "酒好きで宵越しの金を持たない", "信心深く事あるごとに祈る",
+    "皮肉屋だが面倒見はいい", "金にがめついが約束は守る", "夢見がちで英雄譚に憧れている"];
+  const NPC_LINES = ["「あんたも依頼かい？ なら手を組もうじゃないか。」", "「足を引っ張るなよ ―― なんてな、よろしく頼む。」",
+    "「報酬は山分けだ。それでいいな？」", "「久々の大仕事だ、腕が鳴るぜ。」", "「無事に帰れたら一杯おごるよ。」",
+    "「……よろしく。」", "「神のご加護があらんことを。さあ行こう。」", "「死なない程度に頑張ろうや。」",
+    "「あたしの腕、見せてやる。」", "「この出会いも何かの縁ってやつさ。」"];
+
+  // 直近除外つきランダム: 同じ要素が連続して出にくい (key ごとに直近履歴を保持)
+  const pickRandom = (() => {
+    const history = {};
+    return function (key, arr, avoidIdx) {
+      if (!arr || !arr.length) return undefined;
+      const recent = history[key] || (history[key] = []);
+      const avoidSet = new Set(recent);
+      if (typeof avoidIdx === "number") avoidSet.add(avoidIdx);
+      let pool = arr.map((_, i) => i).filter(i => !avoidSet.has(i));
+      if (!pool.length) pool = arr.map((_, i) => i);
+      const idx = pool[Math.floor(Math.random() * pool.length)];
+      recent.push(idx);
+      while (recent.length > Math.min(3, arr.length - 1)) recent.shift();
+      return arr[idx];
+    };
+  })();
+
+  function makeHeroMember(classKey) {
+    return { classKey, isHero: true, zone: PARTY_ZONES[classKey], name: null, trait: null, line: null };
+  }
+  function pickUniqueName(usedSet) {
+    let n, guard = 0;
+    do { n = NPC_NAMES[Math.floor(Math.random() * NPC_NAMES.length)]; } while (usedSet.has(n) && ++guard < 50);
+    usedSet.add(n);
+    return n;
+  }
+  function makeNpcMember(classKey, usedSet) {
+    return {
+      classKey, isHero: false, zone: PARTY_ZONES[classKey],
+      name: pickUniqueName(usedSet),
+      trait: pickRandom("trait", NPC_TRAITS),
+      line: pickRandom("line", NPC_LINES),
+    };
+  }
+  // 主人公1人 + NPC で PARTY_SIZE 人を構築 (各 zone 最低1人を front→mid→rear 順に確保、残りは重複可)
+  function buildParty(heroClassKey) {
+    if (!PARTY_ZONES[heroClassKey]) heroClassKey = "warrior";
+    const members = [makeHeroMember(heroClassKey)];
+    const usedNames = new Set();
+    const coveredZones = new Set([PARTY_ZONES[heroClassKey]]);
+    const usedClasses = new Set([heroClassKey]);
+    // (1) 各 zone に最低1人 (未使用職業優先)
+    for (const zone of ZONE_ORDER) {
+      if (members.length >= PARTY_SIZE) break;
+      if (coveredZones.has(zone)) continue;
+      const zoneClasses = ALL_CLASS_KEYS.filter(k => PARTY_ZONES[k] === zone);
+      const fresh = zoneClasses.filter(k => !usedClasses.has(k));
+      const cand = fresh.length ? fresh : zoneClasses;
+      if (!cand.length) continue;
+      const pick = cand[Math.floor(Math.random() * cand.length)];
+      members.push(makeNpcMember(pick, usedNames));
+      coveredZones.add(zone);
+      usedClasses.add(pick);
+    }
+    // (2) 残り枠は全職業からランダム (重複可)
+    while (members.length < PARTY_SIZE) {
+      const pick = ALL_CLASS_KEYS[Math.floor(Math.random() * ALL_CLASS_KEYS.length)];
+      members.push(makeNpcMember(pick, usedNames));
+    }
+    return members;
+  }
+  // 隊列順に並べ替え (front→mid→rear の安定ソート。[0]=移動の先頭=蛇の頭=最も狙われる位置)
+  function orderFormation(party) {
+    const rank = { front: 0, mid: 1, rear: 2 };
+    return party
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => (rank[a.m.zone] - rank[b.m.zone]) || (a.i - b.i))
+      .map(x => x.m);
+  }
+  // ════════════ パーティ編成システム ここまで ════════════
+
   function loadInventory() {
     try {
       return {
@@ -1446,7 +1543,8 @@
       if (slot) partySkills[slot.classKey] = [...slot.defaults];
     }
     // パーティ編成 (1-4人): 第1段階は戦士強制リーダー、デフォルト 4人推奨構成
-    let partyComposition = ["warrior", "dwarf", "cleric", "mage"];
+    let partyComposition = ["warrior"];   // 主人公のみ (仲間は出発時にNPC自動編成)
+    let partyMembers = [];                 // 隊列順の rich 構成 (openPrep/引き直しで生成)
     // 仲間装備 (キャラ別。CHAR_EQUIP に登録された全キャラ分の枠を作る)
     const allyEquip = {};
     for (const key of Object.keys(CHAR_EQUIP)) {
@@ -1502,20 +1600,18 @@
           }
         }
       }
-      // パーティ編成 (Step 2-C 完了: 先頭=リーダー、誰でもなれる)
+      // パーティ編成: 新方式は「主人公1人」のみ保持 (残りは出発時にNPC自動編成)
       const pcRaw = localStorage.getItem("dragonfighters.partyComposition");
       if (pcRaw) {
         const pc = JSON.parse(pcRaw);
-        if (Array.isArray(pc) && pc.length >= 1 && pc.length <= 4) {
+        if (Array.isArray(pc) && pc.length >= 1) {
           const validKeys = new Set(PARTY_SLOTS.map(s => s.classKey));
-          const filtered = pc.filter(k => validKeys.has(k));
-          if (filtered.length > 0) {
-            partyComposition = filtered.slice(0, 4);
-          }
+          const hero = pc.find(k => validKeys.has(k));
+          if (hero) partyComposition = [hero];   // 先頭=主人公だけ採用
         }
       }
     } catch (e) { /* ignore */ }
-    return { equipWeapon, equipArmor, equipShield, partySkills, allyEquip, partyComposition };
+    return { equipWeapon, equipArmor, equipShield, partySkills, allyEquip, partyComposition, partyMembers };
   }
   const selection = loadSelections();
 
@@ -1763,12 +1859,11 @@
     document.getElementById("prepSub").textContent = `「${sc.title}」に挑む`;
     const info = sc.enemies.map(e => (e.boss ? `【${e.name}】` : e.name)).join(" / ");
     document.getElementById("prepEnemyInfo").textContent = info;
-    // 編成にいないキャラがアクティブだとそのキャラの装備リストが表示されてしまう
-    // → 編成先頭(リーダー)に戻す
-    if (!selection.partyComposition.includes(activeCharTab)) {
-      activeCharTab = selection.partyComposition[0] || "warrior";
-    }
+    // 主人公を activeCharTab に固定し、仲間を新規抽選 (Q3=A: 出発のたび再抽選)
+    activeCharTab = selection.partyComposition[0] || "warrior";
+    regeneratePartyMembers();
     renderPartyComposition();
+    renderPartyPreview();
     renderCharTabs();
     renderCharLoadout();
     dialogEl.style.display = "none";
@@ -1802,65 +1897,88 @@
     }
   }
 
-  // ── パーティ編成 (6キャラから 1〜4人選択、先頭=リーダー) ──
-  // Step 2-C 完了で戦士ロック解除、誰でもリーダーになれる (リーダーが戦士以外ならスキル発動なし通常攻撃のみ)
+  // ── 主人公セレクタ (6職から1人だけ選ぶ。残りはNPC冒険者で自動編成) ──
+  // Q1=B: 隊列は front→mid→rear に並び、先頭(前衛)が移動の先頭=蛇の頭=盾役。主人公が後衛なら後方に下がる。
   function renderPartyComposition() {
     const compEl = document.getElementById("partyComp");
     const countEl = document.getElementById("partyCompCount");
     if (!compEl) return;
     compEl.innerHTML = "";
-    const composition = selection.partyComposition;
-    const set = new Set(composition);
-    const atMax = composition.length >= 4;
-    const leaderKey = composition[0];
+    const heroKey = selection.partyComposition[0];
     PARTY_SLOTS.forEach((slot) => {
       if (!slot) return;
-      const isActive = set.has(slot.classKey);
-      const isLeader = slot.classKey === leaderKey;
-      // 最低1人は維持: 唯一の出陣キャラを外せない
-      const isLastOne = isActive && composition.length === 1;
-      const isDisabled = !isActive && atMax;
+      const isHero = slot.classKey === heroKey;
       const el = document.createElement("div");
-      el.className = "partyMemberToggle"
-        + (isActive ? " active" : "")
-        + (isLeader ? " locked" : "")
-        + (isDisabled ? " disabled" : "");
-      const role = isLeader ? "リーダー" : (isActive ? "出陣" : "—");
+      el.className = "partyMemberToggle" + (isHero ? " active locked" : "");
       el.innerHTML = `<div class="memberName">${slot.name}</div>` +
-                     `<div class="memberRole">${role}</div>`;
-      if (!isDisabled && !isLastOne) {
-        el.addEventListener("click", () => togglePartyMember(slot.classKey));
-      } else if (isLastOne) {
-        el.title = "最低1人は出陣しないといけない";
-      } else if (isDisabled) {
-        el.title = "最大4人まで";
-      }
+                     `<div class="memberRole">${isHero ? "主人公" : "—"}</div>`;
+      if (!isHero) el.addEventListener("click", () => selectHero(slot.classKey));
       compEl.appendChild(el);
     });
-    if (countEl) countEl.textContent = `${composition.length} / 4 人`;
+    const heroSlot = PARTY_SLOTS.find(s => s && s.classKey === heroKey);
+    if (countEl) countEl.textContent = heroSlot ? `主人公: ${heroSlot.name}` : "";
   }
 
-  function togglePartyMember(classKey) {
-    const composition = selection.partyComposition;
-    const set = new Set(composition);
-    if (set.has(classKey)) {
-      // 外す。最低1人は維持
-      if (composition.length <= 1) return;
-      selection.partyComposition = composition.filter(k => k !== classKey);
-    } else {
-      // 追加 (最大4人、追加した人は末尾 → 先頭=リーダーは変わらない)
-      if (composition.length >= 4) return;
-      selection.partyComposition.push(classKey);
-    }
+  // 主人公を切替 → 仲間も再編成 → プレビュー/カスタマイズUIを更新
+  function selectHero(classKey) {
+    selection.partyComposition = [classKey];
+    activeCharTab = classKey;
+    regeneratePartyMembers();
     saveSelections();
     renderPartyComposition();
-    // 編成外のキャラを開いてたらリーダーに戻す
-    if (!selection.partyComposition.includes(activeCharTab)) {
-      activeCharTab = selection.partyComposition[0] || "warrior";
-    }
+    renderPartyPreview();
     renderCharTabs();
     renderCharLoadout();
   }
+
+  // 主人公に合わせて仲間(NPC)を抽選し、隊列順(front→mid→rear)に並べる
+  function regeneratePartyMembers() {
+    const heroKey = selection.partyComposition[0] || "warrior";
+    selection.partyMembers = orderFormation(buildParty(heroKey));
+  }
+
+  // ── パーティのプレビュー (隊列順。先頭=前衛が盾、主人公を金色ハイライト) ──
+  function renderPartyPreview() {
+    const el = document.getElementById("partyPreview");
+    if (!el) return;
+    if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+    const members = selection.partyMembers || [];
+    const ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
+    const nameOf = (k) => { const s = PARTY_SLOTS.find(x => x && x.classKey === k); return s ? s.name : k; };
+    el.innerHTML = "";
+    members.forEach((m, i) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:10px;align-items:flex-start;padding:8px 10px;margin:4px 0;border-radius:8px;"
+        + (m.isHero ? "background:rgba(220,180,60,0.16);border:1px solid rgba(220,180,60,0.6);"
+                    : "background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);");
+      const order = document.createElement("div");
+      order.style.cssText = "flex:0 0 auto;font-size:12px;opacity:0.85;min-width:78px;";
+      order.innerHTML = `<b>${i + 1}.</b> ${ZONE_LABEL[m.zone] || m.zone}`
+        + (i === 0 ? ` <span style="color:#e0b43c;">◆先頭</span>` : "");
+      const body = document.createElement("div");
+      body.style.cssText = "flex:1 1 auto;font-size:13px;line-height:1.5;";
+      if (m.isHero) {
+        body.innerHTML = `<span style="color:#e0b43c;font-weight:700;">★ ${nameOf(m.classKey)}（主人公・あなた）</span>`;
+      } else {
+        body.innerHTML = `<b>${m.name}</b> <span style="opacity:0.7;">（${nameOf(m.classKey)}）</span>`
+          + `<div style="opacity:0.8;font-size:12px;">${m.trait}</div>`
+          + `<div style="opacity:0.7;font-size:12px;font-style:italic;">${m.line}</div>`;
+      }
+      row.appendChild(order);
+      row.appendChild(body);
+      el.appendChild(row);
+    });
+  }
+
+  // 「仲間を引き直す」ボタン (出発前に何度でも再抽選可)
+  (function bindRerollBtn() {
+    const btn = document.getElementById("btnReroll");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      regeneratePartyMembers();
+      renderPartyPreview();
+    });
+  })();
 
   // ── キャラタブ (装備+スキル+魔法を1キャラずつ切替、編成中のキャラのみ) ──
   function renderCharTabs() {
@@ -2258,7 +2376,10 @@
     // 選んだ構成を永続化 + sessionStorage 経由で index.html へ
     saveSelections();
     sessionStorage.setItem("dragonfighters.currentScenario", prepScenario.id);
-    sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
+    // 新方式: rich なパーティ構成(隊列順 [0]=頭)を渡す。partyComposition は後方互換で classKey 配列を併記
+    if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+    sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
+    sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     // フォールバックは index.html (本編)。battle.html は単体検証用なので明示指定された時のみ
     let target = prepScenario.target || "index.html";
     const params = [];
@@ -2293,7 +2414,9 @@
     if (!prepScenario) return;
     saveSelections();
     try {
-      sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
+      if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+      sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
+      sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     } catch (e) {}
     window.location.href = "index.html?autodebug=" + encodeURIComponent(runs);
   }
