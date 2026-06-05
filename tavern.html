@@ -943,8 +943,10 @@
     #questBoardBody .qdetailWrap { margin-top: 9px; }
     #questBoardBody .qdetail .qsentence { margin-bottom: 0; }
   </style>
+  <script src="audio.js"></script>
 </head>
 <body>
+  <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
   <div id="tavern">
     <div id="wallTop"></div>
     <div id="fireplace"></div>
@@ -2851,6 +2853,21 @@
   // ─────────────────────────────────────────────────────────────
   // 初期化
   // ─────────────────────────────────────────────────────────────
+  // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM、UIクリックで効果音、⚙で設定 ──
+  document.addEventListener("pointerdown", function () {
+    if (window.GameAudio) { GameAudio.unlock(); GameAudio.playBgm("tavern"); }
+  }, { once: true });
+  document.addEventListener("click", function (e) {
+    if (!window.GameAudio) return;
+    var t = e.target;
+    if (t && t.closest && t.closest("button, .qcard, .table, .partyMemberToggle, .charTab")) GameAudio.playSfx("button");
+  }, true);
+  (function () {
+    var sb = document.getElementById("settingsBtn");
+    if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
+  })();
+  if (window.GameAudio) GameAudio.applySettings();
+
   renderPlayerCard();
   renderTables();
 

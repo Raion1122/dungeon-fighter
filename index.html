@@ -2289,6 +2289,7 @@
       100% { opacity: 1; transform: translateX(-50%) scale(1); }
     }
   </style>
+  <script src="audio.js"></script>
 </head>
 <body>
   <!-- SVG フィルタ定義 (炎オーラの動的歪み用) -->
@@ -2325,6 +2326,8 @@
   <div id="phaseIndicator" class="phase-explore">
     <span id="phaseIcon">🔍</span> <span id="phaseText">探索フェーズ</span>
   </div>
+  <!-- 設定ボタン (右上・フェーズ表示の左) -->
+  <button id="settingsBtn" type="button" title="設定" style="position:fixed;top:11px;right:172px;z-index:60;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:4px 9px;font-size:17px;line-height:1;cursor:pointer;">⚙</button>
 
   <!-- DM イベントメッセージ (エンカ・宝箱・罠・フェーズ切替) -->
   <div id="dmMessage"></div>
@@ -2371,6 +2374,14 @@
   <div id="enemyLayer"></div>
 
   <script>
+    // ── オーディオ薄ラッパ (audio.js 未読込でも安全に no-op) ──
+    function sfx(n, o) { try { if (window.GameAudio) GameAudio.playSfx(n, o); } catch (e) {} }
+    function bgm(n) { try { if (window.GameAudio) GameAudio.playBgm(n); } catch (e) {} }
+    if (window.GameAudio) GameAudio.applySettings();
+    (function wireSettingsBtn() {
+      var sb = document.getElementById("settingsBtn");
+      if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
+    })();
     // ─── Phase 2-K: 自動バグチェック (エラートラップ + バナー + localStorage 記録) ───
     (function setupErrorTrap() {
       const HISTORY_KEY = "dragonfighters.bugReport";
@@ -4977,6 +4988,7 @@
       updateInfo(`+${amount} XP (${source || "撃破"})`);
       if (newLv > prevLv) {
         // レベルアップ演出
+        sfx("levelUp");
         showBanner(`⬆ レベルアップ! Lv${prevLv} → Lv${newLv}`, 2500);
         // 全パーティーに D&D 3.5 準拠の進歩を適用
         const STAT_LABEL = { str: "STR", dex: "DEX", con: "CON", int: "INT", wis: "WIS" };
@@ -5660,6 +5672,8 @@
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
       currentPhase = kind;
+      // BGM: フェーズに応じてクロスフェード (ボス部屋の戦闘は boss トラック)
+      bgm((kind === "combat" && window.__inBossRoom) ? "boss" : kind);
       const el = document.getElementById("phaseIndicator");
       if (el) {
         el.classList.remove("phase-explore", "phase-combat", "phase-rest");
@@ -5733,7 +5747,8 @@
           return;
         }
         bodyEl.textContent = text.substring(0, i + 1);
-        await sleepMs(NARRATION_CHAR_MS);
+        if (i % 3 === 0) sfx("narration");   // タイプ音 (3文字に1回・極小)
+        await sleepMs((window.GameAudio && GameAudio.textSpeed) || NARRATION_CHAR_MS);
       }
     }
 
@@ -7051,6 +7066,7 @@
       enemy.knockbackVY = 0;
       enemy.hitStun = 0;
       enemy.damageFlashTimer = 0;
+      sfx(enemy.def && enemy.def.boss ? "bossDeath" : "enemyDeath");
 
       maybeDropIronSword(index);
       maybeDropLeatherArmor(index);
@@ -7487,6 +7503,7 @@
     });
 
     document.addEventListener("click", (e) => {
+      if (window.GameAudio) GameAudio.unlock();
       if (!gameStarted) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
@@ -7505,6 +7522,7 @@
     });
 
     document.addEventListener("mousedown", (e) => {
+      if (window.GameAudio) GameAudio.unlock();
       if (!gameStarted) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
@@ -7542,6 +7560,7 @@
     }
 
     document.addEventListener("keydown", async (e) => {
+      if (window.GameAudio) GameAudio.unlock();
       if (!gameStarted) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
@@ -8422,6 +8441,8 @@
           if (firstEntry && i === bossRoomIdx && !bossRoomNarrationShown &&
               !encounterActive && !gameOver && !dungeonCleared) {
             bossRoomNarrationShown = true;
+            window.__inBossRoom = true;
+            bgm("boss");
             showDMMessage("…この先に、奴がいる。準備はいいか。", 2400);
           }
         }
@@ -10612,6 +10633,7 @@
         showRollAtPlayer(
           `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(atkBonus)}`,
           "fumble");
+        sfx("fumble");
         updateInfo(`${getLeaderName()}${opts.skillName ? "の"+opts.skillName : ""}: ファンブル! 自動ミス`);
         await sleepMs(1000);
         return { missed: true };
@@ -10621,6 +10643,7 @@
       let isCrit = helpless;  // 無抵抗は確定クリティカル相当
 
       if (!hit) {
+        sfx("miss");
         showRollAtPlayer(`<span class="label">${labelPrefix}MISS</span>${atkText}`, "miss");
         updateInfo(`${getLeaderName()}${opts.skillName ? "の"+opts.skillName : ""}: ${atkTotal} vs AC${effectiveEnemyAc(target)} → ミス`);
         const angle = Math.atan2(ey - (playerY + 58), ex - (playerX + 48));
@@ -10654,6 +10677,7 @@
         showRollAtPlayer(`<span class="label">${labelPrefix}HIT</span>${atkText}`, "hit");
       }
       await sleepMs(550);
+      sfx(isCrit ? "crit" : "hit");
 
       const angle = Math.atan2(ey - (playerY + 58), ex - (playerX + 48));
       await runSwingNoHit(angle);
@@ -10998,6 +11022,7 @@
 
     async function discoverChest(chest, opts = {}) {
       if (!opts.skipBanner) {
+        sfx("chestFound");
         showBanner("🎁 宝箱をみつけた!", 1500);
         appendLog("宝箱を発見！", "sys");
         // レア判定: loot 種別で differentiate (武器/防具/大金貨=レア的扱い)
@@ -11010,6 +11035,7 @@
       }
       if (chest.el) chest.el.classList.add("discovering");
       await sleepMs(800);
+      sfx("chestOpen");
 
       // 中身処理
       const loot = chest.loot;
@@ -11234,6 +11260,7 @@
     async function openCage(cage) {
       if (cage.opened) return;
       cage.opened = true;
+      sfx("cageOpen");
       // Phase 2-F: 咆哮硬直 (1500ms) — まずは鍵で錠は外れたが、獣が咆哮で威圧
       // 檻に振動 + ビーストに赤紫グロウ。プレイヤーの理不尽事故死を防ぐためのインターバル。
       if (cage.el) { cage.el.classList.remove("agitated"); cage.el.classList.add("roaring"); }
@@ -11497,6 +11524,7 @@
     function triggerTrapOnPlayer(trap) {
       trap.triggered = true;
       trap.found = true;
+      sfx("trap");
       const r = rollDiceDD(1, 6);
       const dmg = r.total;
       hp = Math.max(0, hp - dmg);
@@ -11527,6 +11555,7 @@
     // ── カウンター (被弾後の自動反撃) ──
     async function performCounter(enemyIdx) {
       if (!enemies[enemyIdx].alive) return;
+      sfx("counter");
       showSkillAnnounce("カウンター");
       flashAction(player, "skill");
       await sleepMs(400);
@@ -11845,6 +11874,7 @@
 
     // 僧侶の回復呪文 (汎用: skill.healDice を可変ロール)。leader/ally 両対応。
     async function allyCureWounds(ally, target, skillId) {
+      sfx("heal");
       const skill = CLERIC_SKILLS[skillId] || CLERIC_SKILLS["cure-light-wounds"];
       const rangeTiles = getRange(skill.range).tiles;
       const aCX = ally.x + ally.def.displaySize / 2;
@@ -11989,6 +12019,7 @@
 
     // 僧侶のブレス (味方全体の攻撃ロールに +1d4。詠唱時1回ロール→持続中フラット、leader/ally 両対応)
     async function allyBless(ally) {
+      sfx("buff");
       const skill = CLERIC_SKILLS["bless"];
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
       if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
@@ -16174,6 +16205,8 @@
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
       resultShown = true;
+      if (window.GameAudio) { GameAudio.stopBgm(); GameAudio.playJingle(win ? "victory" : "defeat"); }
+      window.__inBossRoom = false;
       resultOverlayEl.classList.remove("defeat");
       // クリア/全滅時の DM ナレーション
       if (win) {
@@ -16282,6 +16315,7 @@
         if (!gameStarted) return;
         retreatInProgress = true;
         retreatBtnEl.disabled = true;
+        sfx("button");
         showBanner("…やむなし。君たちは撤退を選んだ。", 2000);
         updateInfo("撤退する…");
         await sleepMs(2100);
