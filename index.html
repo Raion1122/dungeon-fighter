@@ -1835,6 +1835,15 @@
       box-shadow: 4px 0 16px rgba(0,0,0,0.85);
       box-sizing: border-box;
     }
+    /* 実パーティと1対1で並ぶ動的ステータス枠 (頭+仲間, 隊列順) */
+    #partyStatusList {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
     .statusBox {
       font-family: 'MedievalSharp', 'Cinzel', serif;
       width: 100%;
@@ -1870,6 +1879,21 @@
     }
     .statusBox.lowhp .sbStat b {
       color: #a02020;
+    }
+    /* 主人公(あなた)の枠を金枠で強調 (頭でも後衛でも) */
+    .statusBox.heroBox {
+      border-color: var(--parchment-gold);
+      box-shadow: 0 0 16px rgba(220,180,60,0.6), inset 0 0 20px rgba(120,80,30,0.3);
+    }
+    .statusBox .sbYou {
+      font-size: 12px;
+      color: #b8860b;
+      font-weight: 700;
+    }
+    .statusBox .sbClass {
+      font-size: 12px;
+      color: var(--parchment-ink-soft);
+      letter-spacing: 0;
     }
     /* 装備の色分類 (白=通常 / 青=+Nエンハンスメント / 紫=特殊効果) */
     .item-normal  { color: var(--parchment-ink); font-weight: 600; }
@@ -2313,12 +2337,7 @@
   </div>
 
   <div id="partyPanel">
-    <div class="statusBox" id="warriorStatus"></div>
-    <div class="statusBox" id="dwarfStatus"></div>
-    <div class="statusBox" id="clericStatus"></div>
-    <div class="statusBox" id="mageStatus"></div>
-    <div class="statusBox" id="elfStatus"></div>
-    <div class="statusBox" id="rogueStatus"></div>
+    <div id="partyStatusList"></div>
     <button id="retreatBtn" type="button">🏃 撤退する</button>
   </div>
   <div id="combatLog"></div>
@@ -2499,7 +2518,15 @@
 
     // ── シナリオ別シームレステクスチャ (ワールド座標アンカーで連続描画) ──
     // 新シナリオの素材を追加するときは下の SCENARIO_TEX に1行足すだけでよい
-    const _scenIdForTex = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
+    // 生成クエスト (酒場の掲示板) があれば themeId をテクスチャ/情景のテーマ選択に優先採用
+    let _genScenForTex = null;
+    try {
+      const _gtRaw = sessionStorage.getItem("dragonfighters.generatedScenario");
+      _genScenForTex = _gtRaw ? JSON.parse(_gtRaw) : null;
+    } catch (e) { _genScenForTex = null; }
+    const _scenIdForTex = (_genScenForTex && _genScenForTex.themeId)
+      ? _genScenForTex.themeId
+      : (sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine");
     const SCENARIO_TEX = {
       "goblin-mine":    { floor: "床1.png",        wall: "壁1.png" },
       "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
@@ -2998,6 +3025,7 @@
     let heroIsHead = true;       // 頭(player)が主人公本人か (主人公が前衛=warrior/dwarf なら true)
     let heroRef = null;          // 主人公が ally の場合の参照 (頭でない時=主人公が mid/rear)
     let headDisplayName = "";    // 頭の表示名 (NPC=個人名 / 主人公="あなた")
+    let leaderLevel = 1;         // 頭(player)の実効レベル (主人公=永続Lv / NPC=ティア帯Lv)
     let knightFrameTick = 0;
     let lastSpriteUrl = null;
     function setSpriteSheet(url, size) {
@@ -3100,18 +3128,51 @@
     // UI 領域サイズ (ダンジョン描画を避ける領域)
     const UI_MENU_WIDTH = 280;   // 左側ステータスパネル領域
     const UI_LOG_HEIGHT = 170;   // 下側ログ領域
+    // 主人公(hero)のワールド座標を取得。カメラは前衛(隊列先頭)ではなく主人公を中央に据えるため、
+    // heroIsHead なら先頭 playerX/Y、主人公が ally なら heroRef(無ければ allies 内の hero) を返す。
+    function getHeroWorldPos() {
+      if (heroIsHead) return { x: playerX, y: playerY, w: playerWidth, h: playerHeight };
+      const h = heroRef || (typeof allies !== "undefined" ? allies.find(a => a && a.isHero) : null);
+      if (h && h.alive) {
+        const s = (h.def && h.def.displaySize) || 96;
+        return { x: h.x, y: h.y, w: s, h: s };
+      }
+      return { x: playerX, y: playerY, w: playerWidth, h: playerHeight };   // フォールバック (主人公不在/死亡)
+    }
+
     function updateCamera() {
-      // プレイヤーを「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
+      // 主人公を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
       const usableW = window.innerWidth - UI_MENU_WIDTH;
       const usableH = window.innerHeight - UI_LOG_HEIGHT;
       const centerScreenX = UI_MENU_WIDTH + usableW / 2;
       const centerScreenY = usableH / 2;
-      const cx = playerX + playerWidth / 2 - centerScreenX;
-      const cy = playerY + playerHeight / 2 - centerScreenY;
-      // マップ左端が menu 右側 (screen x = UI_MENU_WIDTH) に張り付くまで camX を下げられる
+      // (1) 主人公中央の希望カメラ
+      const hero = getHeroWorldPos();
+      let cx = hero.x + hero.w / 2 - centerScreenX;
+      let cy = hero.y + hero.h / 2 - centerScreenY;
+      // (2) 工夫: 隊列(先頭+生存仲間)が画面外に出ないよう、全員が収まる範囲にカメラをクランプ。
+      //     可視ワールド矩形 x∈[camX+UI_MENU_WIDTH, camX+innerWidth] / y∈[camY, camY+usableH]。
+      //     通常は主人公が中央、隊列が端に達した時だけ最小限ずれて全員を画面内に保つ。
+      let minX = playerX, minY = playerY, maxX = playerX + playerWidth, maxY = playerY + playerHeight;
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          const s = (a.def && a.def.displaySize) || 96;
+          if (a.x < minX) minX = a.x;
+          if (a.y < minY) minY = a.y;
+          if (a.x + s > maxX) maxX = a.x + s;
+          if (a.y + s > maxY) maxY = a.y + s;
+        }
+      }
+      const M = 48;   // 画面端マージン
+      const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
+      const loCy = maxY - usableH + M,          hiCy = minY - M;
+      // 区間が成立(隊列が画面に収まる)→希望カメラを範囲にクランプ / 空(隊列が画面より大)→bbox 中央寄せ
+      cx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
+      cy = (loCy <= hiCy) ? Math.max(loCy, Math.min(cy, hiCy)) : (loCy + hiCy) / 2;
+      // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
       const minCamX = -UI_MENU_WIDTH;
       const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
-      // マップ下端が log 上端 (screen y = innerHeight - UI_LOG_HEIGHT) より下に行かないように
       const minCamY = 0;
       const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - UI_LOG_HEIGHT));
       camX = Math.max(minCamX, Math.min(cx, maxCamX));
@@ -3982,8 +4043,30 @@
       },
     };
 
-    const scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
-    const currentScenario = SCENARIOS[scenarioId] || SCENARIOS["goblin-mine"];
+    // 生成クエスト (酒場の掲示板) があれば ad-hoc シナリオとして採用 (敵キーは ENEMY_TYPES で検証)
+    let _genScenario = null;
+    try {
+      const _gsRaw = sessionStorage.getItem("dragonfighters.generatedScenario");
+      _genScenario = _gsRaw ? JSON.parse(_gsRaw) : null;
+    } catch (e) { _genScenario = null; }
+    let scenarioId, currentScenario;
+    if (_genScenario) {
+      scenarioId = "generated-quest";
+      const _safeSpawns = (Array.isArray(_genScenario.spawns) ? _genScenario.spawns : [])
+        .filter(s => Array.isArray(s) && ENEMY_TYPES[s[0]]);   // 未知敵キーを除外 (クラッシュ防止)
+      currentScenario = {
+        title: _genScenario.title || "依頼",
+        flavor: _genScenario.flavor || "",
+        perceptionDC: _genScenario.perceptionDC || 14,
+        trapCount: _genScenario.trapCount || 3,
+        hiddenChestCount: _genScenario.hiddenChestCount || 2,
+        clearXp: _genScenario.clearXp || 0,
+        spawns: _safeSpawns.length ? _safeSpawns : SCENARIOS["goblin-mine"].spawns,
+      };
+    } else {
+      scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
+      currentScenario = SCENARIOS[scenarioId] || SCENARIOS["goblin-mine"];
+    }
     const ENEMY_SPAWNS = currentScenario.spawns;
 
     // 情景スプライト生成 (敵スポーンとプレイヤー起点を avoid して配置)
@@ -5826,16 +5909,23 @@
 
     // キャラ別ステータス枠のレンダリング
     function renderPartyStatuses() {
-      // 戦士
-      const wEl = document.getElementById("warriorStatus");
-      if (wEl) {
+      // 実パーティ(頭 + 仲間)を隊列順に動的描画。固定クラス枠は廃止し、
+      // 戦場ラベルと同じ表示名(主人公=（あなた）/ NPC=個人名)で 1 対 1 に一致させる。
+      const listEl = document.getElementById("partyStatusList");
+      if (!listEl) return;
+      listEl.innerHTML = "";
+
+      // ── 頭(player アバター) を先頭に描画 (隊列順 [0]) ──
+      {
         const weapon = getCurrentWeapon();
         const armor = getCurrentArmor();
         const shield = getCurrentShield();
         const lowHp = hp <= maxHp * 0.25;
-        wEl.className = "statusBox" +
+        const box = document.createElement("div");
+        box.className = "statusBox" +
           (gameOver ? " dead" : "") +
-          (lowHp && !gameOver ? " lowhp" : "");
+          (lowHp && !gameOver ? " lowhp" : "") +
+          (heroIsHead ? " heroBox" : "");
         const acBonus = (typeof playerBuffs !== "undefined" && playerBuffs.acBonusRemaining > 0)
           ? `<span style="color:#2b5d8e">+${playerBuffs.acBonusAmount}</span>` : "";
         // 装備エンハンスメントを含む基本 AC / 攻撃値 (鎧 + 盾 + 武器)
@@ -5845,24 +5935,19 @@
         const baseAtk = playerStats.atkBonus + ((weapon && weapon.enhancement) || 0);
         // 武器表記の +N は STR + 武器エンハ込みの総ダメージボーナス (酒場の表示と統一)
         const weaponDisplayBonus = playerStats.dmgBonus + ((weapon && weapon.enhancement) || 0);
-        const lv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+        // 頭の実効レベル: leaderLevel (主人公=永続Lv / NPC頭=ティア帯Lv)。未設定時は XP 由来
+        const headLv = leaderLevel || ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1);
         const nextXp = (typeof getNextLevelXP === "function") ? getNextLevelXP(currentTotalXp) : 1000;
         // 盾行 (装備あり時のみ表示)
         const shieldLine = (shield && shield.enhancement > 0)
           ? `<div class="sbStat">盾: <span class="${getItemColorClass(shield.name, shield.rarity)}">${shield.name}</span> (AC +${shield.enhancement})</div>`
           : "";
-        // MP 行 (リーダーが mpMax>0 のクラス: 僧侶/魔法使い/エルフ など)
-        // Phase 2-J: MP → 呪文スロット表示
+        // MP 行 (Phase 2-J: 呪文スロット表示)
         let leaderMpLine = "";
         if (currentMaxSpellSlotsTotal > 0) {
           const slotsRemain = Object.values(currentSpellSlots || {}).reduce((s, v) => s + v, 0);
-          // 呪文ごとの残り回数 内訳は廃止 (呪文増加でパネルが縦に入りきらないため)。合計のみ表示。
           leaderMpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${currentMaxSpellSlotsTotal}</div>`;
         }
-        // 旧 MP 行 (互換性、Phase 2-J でほぼ未使用): 0 のとき非表示
-        if (false) leaderMpLine = (maxMp > 0)
-          ? `<div class="sbStat">MP <b style="color:#2b5d8e">${mp}</b>/${maxMp}</div>`
-          : "";
         // スキル行 (装備スキル一覧、仲間と同じ表示パターン)
         const leaderSkillNames = (typeof equippedSkills !== "undefined" && equippedSkills)
           ? equippedSkills.map(id => {
@@ -5880,8 +5965,17 @@
               `<span class="${getItemColorClass(a.name, a.rarity)}">${a.name}</span></div>`;
           }
         }
-        wEl.innerHTML =
-          `<div class="sbName">${getLeaderName()} <span style="font-size:12px;color:#c8a046">Lv${lv}</span></div>` +
+        const headClassName = (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "";
+        // 主人公が頭なら "あなた"、NPC頭なら個人名。クラス名を併記
+        const headTitle = heroIsHead
+          ? `あなた <span class="sbClass">（${headClassName}）</span>`
+          : `${getLeaderName()} <span class="sbClass">（${headClassName}）</span>`;
+        // XP・金貨は主人公(あなた)の枠だけに表示
+        const xpLine = heroIsHead
+          ? `<div class="sbStat">XP <b>${currentTotalXp}</b>/${nextXp} ・ 金貨 ${coins}</div>`
+          : "";
+        box.innerHTML =
+          `<div class="sbName">${headTitle} <span style="font-size:12px;color:#c8a046">Lv${headLv}</span></div>` +
           `<div class="sbStat">HP <b>${hp}</b>/${maxHp}` +
           `  ・ AC ${baseAc}${acBonus} 攻<b>+${baseAtk}</b></div>` +
           leaderMpLine +
@@ -5890,43 +5984,32 @@
           `<div class="sbStat">${formatArmorLine(armor.name, armor.rarity)}</div>` +
           accLines +
           `<div class="sbStat">スキル: ${leaderSkillNames || "—"}</div>` +
-          `<div class="sbStat">XP <b>${currentTotalXp}</b>/${nextXp} ・ 金貨 ${coins}</div>`;
+          xpLine;
+        listEl.appendChild(box);
       }
-      // 仲間 (キャラクター毎に DOM 要素を対応付け)
-      const allyBoxMap = {
-        dwarf:  document.getElementById("dwarfStatus"),
-        cleric: document.getElementById("clericStatus"),
-        mage:   document.getElementById("mageStatus"),
-        elf:    document.getElementById("elfStatus"),
-        rogue:  document.getElementById("rogueStatus"),
-      };
-      // 一旦すべて非表示にしてから、該当クラスの味方があれば描画
-      for (const box of Object.values(allyBoxMap)) {
-        if (box) box.style.display = "none";
-      }
+
+      // ── 仲間 (allies は隊列順) を続けて描画 ──
       if (typeof allies !== "undefined") {
-        const allyLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
-        const allyNextXp = (typeof getNextLevelXP === "function") ? getNextLevelXP(currentTotalXp) : 1000;
         for (const a of allies) {
-          const box = allyBoxMap[a.classKey];
-          if (!box) continue;
-          box.style.display = "";
+          const box = document.createElement("div");
           const lowHp = a.alive && a.hp <= a.maxHp * 0.25;
           box.className = "statusBox" +
             (!a.alive ? " dead" : "") +
-            (lowHp ? " lowhp" : "");
+            (lowHp ? " lowhp" : "") +
+            (a.isHero ? " heroBox" : "");
           const hpText = a.alive ? `<b>${a.hp}</b>/${a.maxHp}` : `<b>倒</b>`;
+          // 仲間の実効レベル: a.level (主人公ally=永続Lv / NPC=ティア帯Lv)。未設定時は XP 由来
+          const allyLv = a.level || ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1);
           const skillNames = a.equippedSkills.map(id => {
             const sk = getSkill(id);
             return sk ? sk.name : id;
           }).join(" / ");
           const acBonus = (a.buffs && a.buffs.acBonusRemaining > 0)
             ? `<span style="color:#2b5d8e">+${a.buffs.acBonusAmount}</span>` : "";
-          // Phase 2-J: MP → 呪文スロット表示 (合計 + 各呪文の残/最大)
+          // Phase 2-J: MP → 呪文スロット表示 (合計)
           let mpLine = "";
           if (a.maxSpellSlotsTotal && a.maxSpellSlotsTotal > 0) {
             const slotsRemain = Object.values(a.spellSlots || {}).reduce((s, v) => s + v, 0);
-            // 呪文ごとの残り回数 内訳は廃止 (呪文増加でパネルが縦に入りきらないため)。合計のみ表示。
             mpLine = `<div class="sbStat">呪文 <b style="color:#2b5d8e">${slotsRemain}</b>/${a.maxSpellSlotsTotal}</div>`;
           }
           // Phase 2-G 拡張: 仲間のアクセサリー欄 (装備中のみ表示)
@@ -5939,9 +6022,17 @@
                 `<span class="${getItemColorClass(acc.name, acc.rarity)}">${acc.name}</span></div>`;
             }
           }
-          // 武器表記は純粋な武器ダメージ (ダイスのみ、STR 修正はダメ計算で別途加算)
+          const allyClassName = (a.def && a.def.name) || "";
+          // 戦場ラベルと同じ表示名: 主人公ally="クラス名（あなた）"、NPC=個人名（クラス名）
+          const allyTitle = a.isHero
+            ? `${allyClassName} <span class="sbYou">（あなた）</span>`
+            : `${a.npcName || allyClassName} <span class="sbClass">（${allyClassName}）</span>`;
+          // XP・金貨は主人公(あなた)が ally のときその枠に表示
+          const allyXpLine = a.isHero
+            ? `<div class="sbStat">XP <b>${currentTotalXp}</b>/${(typeof getNextLevelXP === "function") ? getNextLevelXP(currentTotalXp) : 1000} ・ 金貨 ${coins}</div>`
+            : "";
           box.innerHTML =
-            `<div class="sbName">${a.def.name} <span style="font-size:12px;color:#c8a046">Lv${allyLv}</span></div>` +
+            `<div class="sbName">${allyTitle} <span style="font-size:12px;color:#c8a046">Lv${allyLv}</span></div>` +
             `<div class="sbStat">HP ${hpText}` +
             `  ・ AC ${a.ac}${acBonus} 攻<b>+${a.atkBonus}</b></div>` +
             mpLine +
@@ -5949,7 +6040,8 @@
             `<div class="sbStat">${formatArmorLine(a.armorName || a.def.armorName, a.armorRarity)}</div>` +
             aAccLines +
             `<div class="sbStat">スキル: ${skillNames || "—"}</div>` +
-            `<div class="sbStat">XP <b>${currentTotalXp}</b>/${allyNextXp}</div>`;
+            allyXpLine;
+          listEl.appendChild(box);
         }
       }
     }
@@ -15934,9 +16026,11 @@
       : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
     { const lbl = document.getElementById("warriorLabel"); if (lbl) lbl.textContent = headDisplayName; }
 
-    // 頭の呪文スロット: 主人公頭=酒場カスタム、NPC頭=デフォルト配分
+    // 頭の呪文スロット: 主人公頭=酒場カスタム(永続Lv)、NPC頭=ティア帯Lvでデフォルト配分
     if (typeof initLeaderSpellSlots === "function") {
-      const curLvHead = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
+      const playerLvHead = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
+      const curLvHead = headMember.isHero ? playerLvHead
+        : ((typeof headMember.level === "number" && headMember.level > 0) ? headMember.level : playerLvHead);
       const headMap = headMember.isHero ? normalizePartySkillsMap(partySkillsMap)
                                         : defaultCasterMap(leaderClassKey, curLvHead);
       initLeaderSpellSlots(leaderClassKey, curLvHead, headMap);
@@ -15960,6 +16054,8 @@
       ally.npcName = m.isHero ? null : (m.name || null);
       ally.npcTrait = m.trait || null;
       ally.npcLine  = m.line || null;
+      // ティア連動レベル (酒場でスタンプ済): 主人公ally=永続Lv / NPC=ティア帯Lv。未設定は null
+      ally.level   = (typeof m.level === "number" && m.level > 0) ? m.level : null;
       allies.push(ally);
     });
     heroRef = heroIsHead ? null : (allies.find(a => a.isHero) || null);
@@ -15983,12 +16079,15 @@
 
     // 呪文スロット初期化 (主人公 ally=酒場カスタム、NPC caster=デフォルト配分)
     (function initAlliesSpellSlots() {
-      const curLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
+      const playerLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1;
       const heroMap = normalizePartySkillsMap(partySkillsMap);
       for (const ally of allies) {
         if (!isCasterClass(ally.classKey)) continue;
-        const map = ally.isHero ? heroMap : defaultCasterMap(ally.classKey, curLv);
-        initAllySpellSlots(ally, ally.classKey, curLv, map);
+        // NPC caster はティア帯Lv、主人公allyは永続Lv で呪文スロットを配分
+        const aLv = ally.isHero ? playerLv
+          : ((typeof ally.level === "number" && ally.level > 0) ? ally.level : playerLv);
+        const map = ally.isHero ? heroMap : defaultCasterMap(ally.classKey, aLv);
+        initAllySpellSlots(ally, ally.classKey, aLv, map);
       }
     })();
 
@@ -16025,14 +16124,20 @@
       } catch (e) { /* JSON 不正は無視 */ }
     })();
 
-    // ── 永続化された XP から、Lv1 → 現在 Lv 分の成長をパーティー全員に適用 ──
+    // ── レベル適用: 主人公=永続 XP 由来 Lv、NPC=酒場でスタンプしたティア帯 Lv ──
     // (XP は永続、stat はランごとに base からスタート + ここで再構築)
+    // member.level 未設定(直接起動/旧storage)時は従来どおり全員 currentLv にフォールバック。
     (function applyInitialLevels() {
       const currentLv = getLevelFromXP(currentTotalXp);
-      if (currentLv <= 1) return;
-      applyLevelUpToUnit("player", leaderClassKey, 1, currentLv);
+      // 頭(player)の実効 Lv をグローバルへ (サイドバー表示と一致させる)
+      const headLv = (typeof headMember.level === "number" && headMember.level > 0)
+        ? headMember.level : currentLv;
+      leaderLevel = headLv;
+      if (headLv > 1) applyLevelUpToUnit("player", leaderClassKey, 1, headLv);
       for (const a of allies) {
-        if (a.classKey) applyLevelUpToUnit(a, a.classKey, 1, currentLv);
+        if (!a.classKey) continue;
+        const lv = (typeof a.level === "number" && a.level > 0) ? a.level : currentLv;
+        if (lv > 1) applyLevelUpToUnit(a, a.classKey, 1, lv);
       }
     })();
 

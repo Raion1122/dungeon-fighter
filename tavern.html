@@ -850,6 +850,98 @@
       color: var(--parchment-ink-soft); margin-bottom: 5px;
     }
     #changelogBox .changelogList li b { color: var(--parchment-ink); }
+
+    /* 酒場の掲示板 (左下) — クエスト自動生成 */
+    #questBoard {
+      position: absolute;
+      bottom: 18px; left: 18px;
+      width: min(360px, 44vw);
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 12px 14px;
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      color: var(--parchment-ink);
+      font-family: 'Noto Serif JP', serif;
+      z-index: 15;
+      pointer-events: auto;
+    }
+    #questBoard .questBoardHeader {
+      font-family: 'MedievalSharp', serif;
+      color: var(--parchment-gold);
+      font-size: 15px; font-weight: bold;
+      text-align: center; letter-spacing: 1px;
+      border-bottom: 1px solid var(--parchment-border);
+      padding-bottom: 5px; margin-bottom: 8px;
+    }
+    .questBoardBtn {
+      display: inline-block;
+      font-family: 'Noto Serif JP', serif;
+      background: var(--wood-mid, #6b4a25);
+      color: #f3e6c8;
+      border: 1px solid var(--parchment-border);
+      border-radius: 4px;
+      padding: 7px 12px; font-size: 13px; cursor: pointer;
+      transition: filter 0.12s ease;
+    }
+    .questBoardBtn:hover { filter: brightness(1.12); }
+    .questBoardBtn.accept { background: #7a5a2a; font-weight: bold; }
+    .questBoardBtn.small { font-size: 12px; padding: 6px 10px; }
+    #btnDrawQuest { width: 100%; }
+    #questBoardBody { margin-top: 10px; }
+    #questBoardBody .qsentence {
+      font-size: 12.5px; line-height: 1.7;
+      color: var(--parchment-ink);
+      border-left: 3px solid var(--parchment-border);
+      padding-left: 9px; margin-bottom: 10px;
+    }
+    #questBoardBody .qmetabox {
+      border-top: 1px dashed var(--parchment-border);
+      padding-top: 7px;
+    }
+    #questBoardBody .qmeta {
+      display: flex; gap: 8px; font-size: 12px;
+      line-height: 1.6; margin-bottom: 2px;
+    }
+    #questBoardBody .qmeta .qk {
+      flex: 0 0 52px; color: var(--parchment-gold);
+      font-family: 'MedievalSharp', serif;
+    }
+    #questBoardBody .qmeta .qv { color: var(--parchment-ink); }
+    #questBoardActions {
+      display: flex; gap: 8px; justify-content: space-between;
+      margin-top: 11px;
+    }
+    /* 掲示板: ティアの幅つき 3 件カード */
+    #questBoardBody .qcardList { display: flex; flex-direction: column; gap: 7px; }
+    #questBoardBody .qcard {
+      border: 1px solid var(--parchment-border);
+      border-radius: 5px;
+      padding: 7px 9px;
+      cursor: pointer;
+      background: rgba(120,80,30,0.06);
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    #questBoardBody .qcard:hover { background: rgba(120,80,30,0.14); }
+    #questBoardBody .qcard.selected {
+      border-color: var(--parchment-gold);
+      background: rgba(220,180,60,0.16);
+      box-shadow: 0 0 8px rgba(220,180,60,0.35);
+    }
+    #questBoardBody .qcardHead {
+      display: flex; gap: 8px; align-items: baseline; justify-content: space-between;
+      font-size: 12.5px; margin-bottom: 3px;
+    }
+    #questBoardBody .qcardHead .qtier {
+      color: var(--parchment-gold); font-family: 'MedievalSharp', serif;
+      font-weight: bold; flex: 0 0 auto;
+    }
+    #questBoardBody .qcardHead .qtarget { color: var(--parchment-ink); text-align: right; }
+    #questBoardBody .qcardMeta { font-size: 11px; color: var(--parchment-ink); opacity: 0.85; }
+    #questBoardBody .qcardComp { font-size: 11px; color: var(--parchment-ink); opacity: 0.75; margin-top: 2px; }
+    #questBoardBody .qdetailWrap { margin-top: 9px; }
+    #questBoardBody .qdetail .qsentence { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -991,6 +1083,17 @@
         <li>廃坑シーンの情景(瓦礫・トロッコ)と床/壁を刷新</li>
       </ul>
     </div>
+
+    <!-- 酒場の掲示板: クエスト自動生成 (左下) -->
+    <div id="questBoard">
+      <div class="questBoardHeader">📋 酒場の掲示板</div>
+      <button type="button" id="btnDrawQuest" class="questBoardBtn">✨ 依頼を引く</button>
+      <div id="questBoardBody" style="display:none;"></div>
+      <div id="questBoardActions" style="display:none;">
+        <button type="button" id="btnQuestRedraw" class="questBoardBtn small">🎲 引き直す</button>
+        <button type="button" id="btnQuestDepart" class="questBoardBtn accept">この依頼で出発</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -1003,6 +1106,7 @@
       place: "廃坑",
       title: "ゴブリンの巣窟",
       difficulty: "★☆☆",
+      recommendedLevel: 3,
       reward: "金貨 50枚 + 装備",
       client: { name: "ボルダック", role: "困り果てた商人", type: "merchant" },
       dialog:
@@ -1025,6 +1129,7 @@
       place: "町外れの森",
       title: "盗賊団の根城",
       difficulty: "★★☆",
+      recommendedLevel: 4,
       reward: "金貨 120枚 + 装備",
       client: { name: "ケネット", role: "森の監視員", type: "ranger" },
       dialog:
@@ -1044,6 +1149,7 @@
       place: "沼地",
       title: "リザードマン族長の討伐",
       difficulty: "★★☆",
+      recommendedLevel: 5,
       reward: "金貨 200枚 + 装備",
       client: { name: "マリア", role: "村の長老", type: "villager" },
       dialog:
@@ -1063,6 +1169,7 @@
       place: "廃墟の砦",
       title: "オーク将軍ガロック",
       difficulty: "★★★",
+      recommendedLevel: 6,
       reward: "金貨 350枚 + 武具",
       client: { name: "ロダン隊長", role: "自警団長", type: "soldier" },
       dialog:
@@ -1082,6 +1189,7 @@
       place: "地下神殿",
       title: "リッチと召喚の儀",
       difficulty: "★★★",
+      recommendedLevel: 8,
       reward: "金貨 600枚 + 魔法具",
       client: { name: "マーテル司祭", role: "聖印の司祭", type: "cleric" },
       dialog:
@@ -1101,6 +1209,7 @@
       place: "ドラゴンの巣",
       title: "レッドドラゴン「ファラクサス」",
       difficulty: "★★★★",
+      recommendedLevel: 10,
       reward: "プランの町の救済",
       client: { name: "???", role: "謎の語り部", type: "mystery" },
       dialog:
@@ -1116,6 +1225,277 @@
       unlockAfter: "undead-temple",
     },
   ];
+
+  // ════════════ クエスト自動生成システム (quest-spec.md 準拠) ════════════
+  // 酒場の掲示板で随時クエストを生成。client/place/task/reward/companion を
+  // 「直近除外つきランダム + 環境タグ整合性フィルタ + 文章テンプレート」で組み立てる。
+  // 戦闘は「系統別テンプレ編成を tier 連動で動的注入」(ハイブリッド方式)。
+  // 標的名は実フィールド敵系統に一致させる (表示と戦闘が噛み合う)。
+  // ※ 敵キーの実在検証は index.html 側フックで最終的に行う (ENEMY_TYPES はあちらにある)。
+  // ※ 既存 pickRandom(1391: index ベース・パーティ生成専用) とは別物。ここでは自前 qPick を使う。
+  const QuestGen = (() => {
+    const DATA = {
+      companionChance: 0.35,
+      clients: [
+        "銀の鹿亭の女主人マレン", "掲示板に貼られた匿名の依頼書", "隻腕の元騎士ガレス",
+        "旅の吟遊詩人フィオナ", "教会の若き司祭", "没落した貴族の令嬢",
+        "森に住む物静かな薬師", "親をなくした気の強い少年",
+      ],
+      clientsHigh: ["王の使者", "塔の大魔法使いオルゴス", "神殿の大司教", "辺境を統べる辺境伯"],
+      places: [
+        { name: "霧に沈む古い坑道",      tags: ["underground"] },
+        { name: "打ち捨てられた監視塔",   tags: ["ruin", "mountain"] },
+        { name: "地下に広がる水路跡",     tags: ["underground", "aquatic"] },
+        { name: "呪われた貴族の館",       tags: ["ruin", "arcane"] },
+        { name: "樹海の奥の朽ちた祭壇",   tags: ["forest", "arcane"] },
+        { name: "魔物が巣食う廃村",       tags: ["ruin", "urban"] },
+        { name: "街の地下に眠る古代遺跡", tags: ["underground", "ruin", "arcane"] },
+      ],
+      placesHigh: [
+        { name: "天空に浮かぶ崩れた古城",             tags: ["ruin", "arcane", "mountain"] },
+        { name: "異界へ通じる封印の領域",             tags: ["arcane"] },
+        { name: "神々が眠るという忘れられた地下都市", tags: ["underground", "arcane", "ruin"] },
+      ],
+      companions: [
+        { name: "寡黙な傭兵剣士グリム",         roles: ["guard"] },
+        { name: "おしゃべりな見習い斥候ピップ", roles: ["guide", "tagalong"] },
+        { name: "祈りを捧げる従軍司祭リアン",   roles: ["guard", "watcher"] },
+        { name: "地元の猟師ボーダン",           roles: ["guide"] },
+        { name: "依頼を見張るギルドの記録官",   roles: ["watcher"] },
+        { name: "腕利きだが無愛想な女弓手セラ", roles: ["guard", "guide"] },
+        { name: "魔法を学ぶ好奇心旺盛な弟子",   roles: ["tagalong", "guide"] },
+      ],
+      companionTemplates: {
+        client_self: "此度は依頼主である{c}自らが同行するという。",
+        guard:       "道中の護衛として、{n}が同道することになった。",
+        guide:       "現地に詳しい{n}が、道案内として加わる。",
+        watcher:     "依頼の遂行を見届けるため、{n}が付き従う。",
+        tagalong:    "なぜか{n}が「自分も行く」と聞かずについてきた。",
+      },
+      tiers: {
+        tier1: {
+          label: "Tier I", levelRange: [1, 4],
+          clearXp: 300, trapCount: 3, hiddenChestCount: 2, perceptionDC: 12,
+          tasks: ["さらわれた村の子供を救い出して", "家畜を襲う魔物を駆除して", "奪われた家宝を取り返して",
+                  "廃坑に巣くう魔物を一掃して", "毒に侵された井戸の元凶を断って", "行方不明の行商人を捜して"],
+          rewards: ["金貨300枚", "治癒のポーション数本", "名工が鍛えた業物の短剣",
+                    "領主への口利きと信用", "街道の通行手形と宿の便宜"],
+        },
+        tier2: {
+          label: "Tier II", levelRange: [5, 10],
+          clearXp: 600, trapCount: 4, hiddenChestCount: 3, perceptionDC: 14,
+          tasks: ["封印の綻びを修復して", "行方不明の調査隊を捜索して救出して", "村を脅かす魔物の巣を叩いて",
+                  "遺跡から失われた古文書を回収して", "領地を荒らす竜を討って", "呪われた館の元凶を祓って"],
+          rewards: ["金貨3,000枚", "アンコモンの魔法のアイテム", "不思議な力を秘めた宝石",
+                    "小さな土地の権利書", "貴族家への正式な紹介状"],
+        },
+        tier3: {
+          label: "Tier III", levelRange: [11, 16],
+          clearXp: 1000, trapCount: 5, hiddenChestCount: 4, perceptionDC: 16,
+          tasks: ["国を脅かす竜の脅威を排除して", "都市に巣くう精神支配者を討って", "失われた王家の遺物を奪還して",
+                  "異界から漏れ出す侵蝕を食い止めて", "暗躍する吸血鬼の貴族を滅ぼして", "巨人の襲撃から砦を守り抜いて"],
+          rewards: ["金貨30,000枚相当の財宝", "レアの魔法のアイテム", "高位呪文を記した古代の巻物",
+                    "広大な領地と貴族の称号", "王宮への推薦状と謁見の機会"],
+        },
+        tier4: {
+          label: "Tier IV", levelRange: [17, 20],
+          clearXp: 1500, trapCount: 6, hiddenChestCount: 5, perceptionDC: 20,
+          tasks: ["世界を滅ぼす古龍を討伐して", "不死の魔王の野望を打ち砕いて", "異界からの侵略の門を封じて",
+                  "神を僭称する存在を引きずり下ろして", "多元宇宙の均衡を脅かす陰謀を阻止して"],
+          rewards: ["一国の宝物庫に匹敵する財宝", "レジェンダリーの魔法のアイテム", "失われた神器(アーティファクト)",
+                    "一国に匹敵する領地と王位への道", "神々や大いなる存在からの加護"],
+        },
+      },
+      templates: [
+        "{c}が、あなたたちに声をかける。「{p}で、{t}ほしい。{m}が立ちはだかるだろう。成し遂げれば、{r}を約束しよう。」",
+        "今宵の依頼は{c}から。曰く、{p}に巣くう{m}を退け、{t}ほしいとのこと。報酬は{r}。",
+        "{c}いわく ―― {p}にて{t}こと。道中、{m}との対峙は避けられまい。礼として{r}を用意してある。",
+        "{c}が深刻な面持ちで語る。「{p}で{t}ほしいのです。{m}がそこを根城にしています。報酬として{r}を。」",
+        "依頼者は{c}。{m}の脅威が迫る{p}へ赴き、{t}ことが求められている。達成の暁には{r}が与えられる。",
+        "「頼みがある」と{c}。{p}に潜む{m}を討ち、{t}ほしい。見返りは{r}だ。",
+      ],
+    };
+
+    // ── 敵系統 (ハイブリッド戦闘の中核): place タグで選び、tier で規模を決める ──
+    // enemyPool/eliteKeys/bossKey はすべて index.html の ENEMY_TYPES 実在キー (スプライト有)。
+    // shadowBeast は誤出現回避のため除外。themeId は実テクスチャのある 3 テーマに限定。
+    const FAMILIES = [
+      {
+        id: "goblin", label: "ゴブリン勢", placeTags: ["underground", "ruin", "forest"],
+        themeId: "goblin-mine",
+        enemyPool: ["rat", "goblin", "goblinArcher", "goblinShaman", "goblinRider", "goblinBrute"],
+        eliteKeys: ["goblinBrute"], bossKey: "goblinKing", minionLabel: "ゴブリンの群れ",
+        targetNames: ["ゴブリンの一団", "コボルドまがいの群れ", "洞窟に巣くうゴブリンの首領", "略奪を繰り返すゴブリン部族"],
+      },
+      {
+        id: "bandit", label: "盗賊団", placeTags: ["ruin", "forest", "urban"],
+        themeId: "bandits-forest",
+        enemyPool: ["bandit", "banditArcher", "banditMage", "banditHeavy"],
+        eliteKeys: ["banditHeavy"], bossKey: "scar", minionLabel: "盗賊たち",
+        targetNames: ["街道を荒らす盗賊団", "名うての無頼の一党", "盗賊頭とその手下ども", "森に潜む山賊の群れ"],
+      },
+      {
+        id: "lizard", label: "リザードマン族", placeTags: ["aquatic", "forest", "ruin"],
+        themeId: "lizard-swamp",
+        enemyPool: ["lizardWarrior", "lizardHunter", "lizardRaider", "lizardPriest"],
+        eliteKeys: ["lizardRaider"], bossKey: "lizardChieftain", minionLabel: "リザードマンの戦士",
+        targetNames: ["沼に巣くうリザードマンの一族", "蛇神を奉じる沼の戦士団", "沼地の族長とその眷属", "水辺を縄張りとする爬虫人"],
+      },
+      {
+        id: "orc-undead", label: "オーク・アンデッド勢", placeTags: ["ruin", "underground", "mountain", "arcane"],
+        themeId: "goblin-mine",
+        enemyPool: ["skeleton", "orc", "minotaur"],
+        eliteKeys: ["minotaur"], bossKey: "minotaur", minionLabel: "オークと骸骨の混成",
+        targetNames: ["廃墟を占拠したオーク戦士団", "墓所をさまよう骸骨の軍勢", "迷宮に潜む牛頭の魔物", "古き砦に巣食う混成の群れ"],
+      },
+    ];
+
+    // 各部屋(B/C/D/E)の有効スポーン座標 [col, row] (既存シナリオ流用 = 有効性保証)。
+    // room ごとに最低1体置き、パーティが全部屋を踏破してボス部屋まで自動進行できるようにする
+    // (後方部屋を空にするとオート進行がボス手前で停滞するため)。
+    const ROOM_SLOTS = [
+      [[19, 11], [23, 15], [21, 13]],            // B
+      [[34, 11], [40, 12], [38, 17], [36, 14]],  // C
+      [[50, 11], [55, 15], [52, 13]],            // D
+      [[65, 10], [70, 14], [72, 17], [68, 13]],  // E
+    ];
+    const BOSS_SLOT = [86, 13];   // F ボス部屋
+
+    // ── 値ベース・N可変の直近除外抽選 (key ごとに直近 maxAvoid 件を除外) ──
+    const qHist = {};
+    function qPick(key, arr, avoid) {
+      if (avoid == null) avoid = 3;
+      if (!arr || !arr.length) return undefined;
+      const recent = qHist[key] || (qHist[key] = []);
+      const maxAvoid = Math.max(0, Math.min(avoid, arr.length - 1));
+      const banned = recent.slice(-maxAvoid);
+      let pool = arr.filter(item => banned.indexOf(item) === -1);
+      if (!pool.length) pool = arr.slice();
+      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      recent.push(chosen);
+      while (recent.length > maxAvoid) recent.shift();
+      return chosen;
+    }
+    function qGetTier(level) {
+      if (level <= 4) return "tier1";
+      if (level <= 10) return "tier2";
+      if (level <= 16) return "tier3";
+      return "tier4";
+    }
+    function tierNumOf(tierKey) { return { tier1: 1, tier2: 2, tier3: 3, tier4: 4 }[tierKey] || 1; }
+    function familyOf(quest) {
+      return quest.family || FAMILIES.find(f => f.id === quest.familyId) || FAMILIES[0];
+    }
+
+    // place の環境タグと共通タグを持つ系統に絞り、直近除外で 1 つ引く (整合性フィルタ)
+    function selectFamily(place) {
+      if (typeof window !== "undefined" && window.__forceFamily) {
+        const forced = FAMILIES.find(f => f.id === window.__forceFamily);
+        if (forced) return forced;
+      }
+      const tags = (place && place.tags) || [];
+      let cand = FAMILIES.filter(f => f.placeTags.some(t => tags.indexOf(t) !== -1));
+      if (!cand.length) cand = FAMILIES.slice();   // フォールバック (仕様書 §3-5)
+      return qPick("family", cand, 3);
+    }
+
+    function generateQuest(level) {
+      const tierKey = qGetTier(level);
+      const tier = DATA.tiers[tierKey];
+      const isHigh = (tierKey === "tier3" || tierKey === "tier4");
+      const clientPool = isHigh ? DATA.clients.concat(DATA.clientsHigh) : DATA.clients;
+      const placePool  = isHigh ? DATA.places.concat(DATA.placesHigh)  : DATA.places;
+
+      const client = qPick("client", clientPool, 3);
+      const place  = qPick("place", placePool, 3);
+      const family = selectFamily(place);
+      const target = qPick(family.id + "_target", family.targetNames, 3);
+      const task   = qPick(tierKey + "_task",   tier.tasks, 3);
+      const reward = qPick(tierKey + "_reward", tier.rewards, 3);
+
+      const quest = {
+        tierKey, tierLabel: tier.label, level,
+        client, place: place.name, placeTags: place.tags,
+        familyId: family.id, family,
+        target, task, reward,
+        companion: null,
+      };
+
+      // 随行人 (companionChance で付与。client_self のみ依頼者本人を流用)
+      if (Math.random() < DATA.companionChance) {
+        const roleKey = qPick("compRole", ["client_self", "guard", "guide", "watcher", "tagalong"], 2);
+        let companionName = null;
+        if (roleKey === "client_self") {
+          companionName = client;
+        } else {
+          let pool = DATA.companions.filter(c => c.roles.indexOf(roleKey) !== -1);
+          pool = pool.filter(c => c.name !== client);   // 同名除外
+          if (pool.length) companionName = qPick("companion", pool, 3).name;
+        }
+        if (companionName) quest.companion = { role: roleKey, name: companionName };
+      }
+      return quest;
+    }
+
+    function buildSentence(quest) {
+      const tpl = qPick("template", DATA.templates, 2);
+      let s = tpl
+        .replace(/\{c\}/g, quest.client)
+        .replace(/\{p\}/g, quest.place)
+        .replace(/\{t\}/g, quest.task)
+        .replace(/\{m\}/g, quest.target)
+        .replace(/\{r\}/g, quest.reward);
+      if (quest.companion) {
+        const line = (DATA.companionTemplates[quest.companion.role] || "")
+          .replace(/\{n\}/g, quest.companion.name)
+          .replace(/\{c\}/g, quest.client);
+        if (line) s = s + " " + line;
+      }
+      return s;
+    }
+
+    // 系統 + tier から spawn ロスターを動的生成。各部屋(B/C/D/E)に最低1体置き、tier で密度を増やす。
+    // room F は系統ボス。後方部屋ほど強キー + 高 tier でエリート混入。
+    function buildSpawns(quest) {
+      const fam = familyOf(quest);
+      const tn = tierNumOf(quest.tierKey);
+      const perRoom = ({ 1: [1, 1, 1, 1], 2: [2, 2, 1, 2], 3: [2, 3, 2, 3], 4: [3, 3, 3, 3] })[tn] || [1, 1, 1, 1];
+      const pool = fam.enemyPool;
+      const elites = fam.eliteKeys || [];
+      const spawns = [];
+      ROOM_SLOTS.forEach((slots, roomIdx) => {
+        const n = Math.min(perRoom[roomIdx], slots.length);
+        for (let i = 0; i < n; i++) {
+          const slot = slots[i];
+          let strength = ((tn - 1) / 3) * 0.55 + (roomIdx / 3) * 0.35 + (Math.random() - 0.5) * 0.2;
+          strength = Math.max(0, Math.min(0.999, strength));
+          let key;
+          if (tn >= 3 && roomIdx >= 2 && elites.length && Math.random() < 0.45) {
+            key = elites[Math.floor(Math.random() * elites.length)];   // 後方部屋にエリート
+          } else {
+            key = pool[Math.floor(strength * pool.length)];
+          }
+          spawns.push([key, slot[0], slot[1]]);
+        }
+      });
+      spawns.push([fam.bossKey, BOSS_SLOT[0], BOSS_SLOT[1]]);
+      return spawns;
+    }
+
+    // 生成クエスト → 戦闘パラメータ (tier 連動 + 系統テーマ)
+    function combatParams(quest) {
+      const t = DATA.tiers[quest.tierKey] || DATA.tiers.tier1;
+      const fam = familyOf(quest);
+      return {
+        clearXp: t.clearXp, trapCount: t.trapCount,
+        hiddenChestCount: t.hiddenChestCount, perceptionDC: t.perceptionDC,
+        themeId: fam.themeId,
+      };
+    }
+
+    return { generateQuest, buildSentence, buildSpawns, combatParams, qGetTier };
+  })();
+  // ════════════ クエスト自動生成システム ここまで ════════════
 
   // ─────────────────────────────────────────────────────────────
   // 進行状態 (localStorage に永続化)
@@ -1708,8 +2088,11 @@
     try {
       const r = JSON.parse(resultRaw);
       if (r && r.cleared && r.scenarioId) {
-        progress.cleared.add(r.scenarioId);
-        saveClearedSet(progress.cleared);
+        // 生成クエスト (酒場の掲示板) はシナリオ進行 (unlock) に混ぜない。報酬(gold/xp)は index 側で加算済
+        if (r.scenarioId !== "generated-quest") {
+          progress.cleared.add(r.scenarioId);
+          saveClearedSet(progress.cleared);
+        }
         // 次 tick でバナー表示(renderTables 後)
         setTimeout(() => showReturnBanner(r), 100);
       } else if (r && (r.defeated || r.retreated)) {
@@ -2370,14 +2753,51 @@
     refresh();
   })();
 
+  // 仲間(NPC)のレベルをクエストのティア帯で個別抽選 (Q1=ティア帯ランダム)。
+  // 主人公(isHero)は永続Lvを維持。NPC は ≤主人公Lv かつ ≤10 にクランプ。
+  function assignCompanionLevels(members, questLevel, heroLevel) {
+    if (!members || !members.length) return;
+    const tierKey = (typeof QuestGen !== "undefined" && QuestGen.qGetTier)
+      ? QuestGen.qGetTier(questLevel) : "tier2";
+    const BAND = { tier1: [2, 4], tier2: [5, 8], tier3: [9, 10], tier4: [10, 10] };
+    const cap = Math.min(heroLevel, 10);
+    const band = BAND[tierKey] || [2, 4];
+    const lo = band[0], hi = band[1];
+    members.forEach(m => {
+      if (m.isHero) { m.level = heroLevel; return; }
+      const r = lo + Math.floor(Math.random() * (hi - lo + 1));
+      m.level = Math.max(1, Math.min(cap, r));
+    });
+  }
+
+  // prepScenario から「クエスト推奨Lv」を引く (生成クエスト=tier由来 / 固定=recommendedLevel / 無ければ主人公Lv)
+  function questLevelOf(scenario, heroLevel) {
+    if (scenario && scenario.__generated && typeof scenario.__generated.questLevel === "number")
+      return scenario.__generated.questLevel;
+    if (scenario && typeof scenario.recommendedLevel === "number")
+      return scenario.recommendedLevel;
+    return heroLevel;
+  }
+
   // 出発処理 (共通)。autoplayOverride に数値を渡すと autoplay=N を強制付与
   function departToScenario(autoplayOverride) {
     if (!prepScenario) return;
     // 選んだ構成を永続化 + sessionStorage 経由で index.html へ
     saveSelections();
+    // 生成クエスト以外では stale な generatedScenario を必ず除去 (既存6本が生成扱いに化けるのを防ぐ)
+    sessionStorage.removeItem("dragonfighters.generatedScenario");
     sessionStorage.setItem("dragonfighters.currentScenario", prepScenario.id);
+    // 生成クエスト (酒場の掲示板) のときは ad-hoc シナリオ定義を index.html に渡す
+    if (prepScenario.__generated) {
+      try { sessionStorage.setItem("dragonfighters.generatedScenario", JSON.stringify(prepScenario.__generated)); } catch (e) {}
+    }
     // 新方式: rich なパーティ構成(隊列順 [0]=頭)を渡す。partyComposition は後方互換で classKey 配列を併記
     if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+    // ティア連動: 仲間レベルをクエストのティア帯で抽選 (主人公=永続Lv維持)
+    try {
+      const heroLv = getLevelFromXP(inventory.xp);
+      assignCompanionLevels(selection.partyMembers, questLevelOf(prepScenario, heroLv), heroLv);
+    } catch (e) {}
     sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     // フォールバックは index.html (本編)。battle.html は単体検証用なので明示指定された時のみ
@@ -2413,8 +2833,13 @@
   function departAutoDebug(runs) {
     if (!prepScenario) return;
     saveSelections();
+    // 自動デバッグ巡回は既存6シナリオを回す → stale な生成クエストを除去
+    sessionStorage.removeItem("dragonfighters.generatedScenario");
     try {
       if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+      // 自動デバッグ巡回はクエスト未確定 → 主人公Lv相当のティア帯で仲間Lvを割当
+      const heroLv = getLevelFromXP(inventory.xp);
+      assignCompanionLevels(selection.partyMembers, heroLv, heroLv);
       sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
       sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     } catch (e) {}
@@ -2428,6 +2853,123 @@
   // ─────────────────────────────────────────────────────────────
   renderPlayerCard();
   renderTables();
+
+  // ── 酒場の掲示板: クエスト自動生成 (ティアの幅つき 3 件提示 → 選択 → 出発) ──
+  (function setupQuestBoard() {
+    const drawBtn   = document.getElementById("btnDrawQuest");
+    const redrawBtn = document.getElementById("btnQuestRedraw");
+    const departBtn = document.getElementById("btnQuestDepart");
+    const bodyEl    = document.getElementById("questBoardBody");
+    const actionsEl = document.getElementById("questBoardActions");
+    if (!drawBtn || !bodyEl || !actionsEl) return;
+    let currentQuests = [];
+    let currentQuest = null;
+
+    function curLevel() {
+      try { return getLevelFromXP(inventory.xp); } catch (e) { return 1; }
+    }
+    function randInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+    const ROLE_JP = { client_self: "依頼主同行", guard: "護衛", guide: "案内", watcher: "監視", tagalong: "同行者" };
+
+    // プレイヤーLv L 以下で、なるべく異なるティアに散らした最大3つの目標Lvを返す
+    // (低ティア=低報酬・低Lv仲間 / 自分相当=高報酬 を選べるようにする)
+    function pickQuestLevels(L) {
+      const out = [];
+      const add = (lv) => { lv = Math.max(1, Math.min(L, lv)); if (out.indexOf(lv) === -1) out.push(lv); };
+      if (L >= 5) {
+        add(randInt(2, 4));                 // tier1 (低ティア)
+        add(randInt(5, Math.min(10, L)));   // tier2 中位
+        add(L);                             // 自分相当
+      }
+      const target = Math.min(3, L);
+      let guard = 0;
+      while (out.length < target && guard++ < 50) add(randInt(1, L));
+      return out.slice(0, 3);
+    }
+
+    function cardHtml(q, i, selected) {
+      let comp = "";
+      if (q.companion) {
+        const r = ROLE_JP[q.companion.role] || "同行";
+        comp = `<div class="qcardComp">随行: ${q.companion.name}（${r}）</div>`;
+      }
+      return `<div class="qcard${selected ? " selected" : ""}" data-idx="${i}">` +
+        `<div class="qcardHead"><span class="qtier">${q.tierLabel}・Lv${q.level}</span>` +
+        `<span class="qtarget">${q.target}</span></div>` +
+        `<div class="qcardMeta">場所: ${q.place} ／ 報酬: ${q.reward}</div>` +
+        comp +
+        `</div>`;
+    }
+
+    function detailHtml(q) {
+      return `<div class="qdetail"><div class="qsentence">${q._sentence}</div></div>`;
+    }
+
+    function selectIdx(i) {
+      if (!currentQuests[i]) return;
+      currentQuest = currentQuests[i];
+      bodyEl.querySelectorAll(".qcard").forEach(c =>
+        c.classList.toggle("selected", Number(c.getAttribute("data-idx")) === i));
+      const detailEl = bodyEl.querySelector(".qdetailWrap");
+      if (detailEl) detailEl.innerHTML = detailHtml(currentQuest);
+    }
+
+    function render(quests) {
+      currentQuests = quests;
+      currentQuest = quests[0] || null;
+      const cards = quests.map((q, i) => cardHtml(q, i, i === 0)).join("");
+      bodyEl.innerHTML = `<div class="qcardList">${cards}</div>` +
+        `<div class="qdetailWrap">${currentQuest ? detailHtml(currentQuest) : ""}</div>`;
+      bodyEl.querySelectorAll(".qcard").forEach(c =>
+        c.addEventListener("click", () => selectIdx(Number(c.getAttribute("data-idx")))));
+      bodyEl.style.display = "block";
+      actionsEl.style.display = "flex";
+    }
+
+    function draw() {
+      const L = curLevel();
+      const quests = pickQuestLevels(L).map(lv => {
+        const q = QuestGen.generateQuest(lv);
+        q._sentence = QuestGen.buildSentence(q);   // 表示と戦闘 flavor を一致させるため保持
+        return q;
+      });
+      quests.sort((a, b) => a.level - b.level);     // 低ティア(低Lv)を上に
+      render(quests);
+    }
+
+    drawBtn.addEventListener("click", draw);
+    redrawBtn.addEventListener("click", draw);
+    departBtn.addEventListener("click", () => {
+      if (!currentQuest) return;
+      const q = currentQuest;
+      const cp = QuestGen.combatParams(q);
+      // 合成シナリオを作って既存 prep (主人公/パーティ/装備) → departToScenario を再利用
+      const synthetic = {
+        id: "generated-quest",
+        place: q.place,
+        title: q.target,
+        enemies: [
+          { name: q.family.minionLabel, boss: false },
+          { name: q.target, boss: true },
+        ],
+        target: "index.html",
+        recommendedLevel: q.level,   // 出発時の仲間Lvスケール用
+        __generated: {
+          title: q.place + " — " + q.target,
+          flavor: q._sentence,
+          spawns: QuestGen.buildSpawns(q),
+          clearXp: cp.clearXp,
+          trapCount: cp.trapCount,
+          hiddenChestCount: cp.hiddenChestCount,
+          perceptionDC: cp.perceptionDC,
+          themeId: cp.themeId,
+          questLevel: q.level,       // index.html / 仲間Lvスケールで参照
+          tierKey: q.tierKey,
+        },
+      };
+      openPrep(synthetic);
+    });
+  })();
 </script>
 </body>
 </html>
