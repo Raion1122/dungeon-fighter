@@ -6617,7 +6617,12 @@
       ],
       dwarf:  [ { walk: DWARF_WALK_URL,  walkSize: DWARF_WALK_SIZE,  attack: DWARF_ATTACK_URL,  attackSize: DWARF_ATTACK_SIZE } ],
       cleric: [ { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE } ],
-      mage:   [ { walk: MAGE_WALK_URL,   walkSize: MAGE_WALK_SIZE,   attack: MAGE_ATTACK_URL,   attackSize: MAGE_ATTACK_SIZE } ],
+      mage: [
+        { walk: MAGE_WALK_URL, walkSize: MAGE_WALK_SIZE, attack: MAGE_ATTACK_URL, attackSize: MAGE_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/mage_old_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/mage_old_attack.png")',     attackSize: "480px 384px", label: "老魔術師" },
+        { walk: 'url("assets/mage_crimson_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_crimson_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
+        { walk: 'url("assets/mage_dark_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/mage_dark_attack.png")',    attackSize: "480px 384px", label: "黒衣の魔道士" },
+      ],
       elf:    [ { walk: ELF_WALK_URL,    walkSize: ELF_WALK_SIZE,    attack: ELF_ATTACK_URL,    attackSize: ELF_ATTACK_SIZE } ],
       rogue:  [ { walk: ROGUE_WALK_URL,  walkSize: ROGUE_WALK_SIZE,  attack: ROGUE_ATTACK_URL,  attackSize: ROGUE_ATTACK_SIZE } ],
     };
