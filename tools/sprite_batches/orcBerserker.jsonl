@@ -1,0 +1,3 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_orcBerserker/_prompt_walk.txt", "output": "source_images/enemy_orcBerserker/オーク狂戦士歩き.png"}
+{"prompt_file": "source_images/enemy_orcBerserker/_prompt_attack.txt", "output": "source_images/enemy_orcBerserker/オーク狂戦士攻撃.png"}
