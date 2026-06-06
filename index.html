@@ -3771,15 +3771,15 @@
         range: "melee",
         xp: 240,
       },
-      // ボス: オーク将軍ガロック (Sce4 玉座、minotaur_anim.png 暫定流用 → 専用へ)
+      // ボス: オーク将軍ガロック (Sce4 玉座、専用シート 192px ボス詳細)
       garrock: {
         name: "オーク将軍ガロック",
         flavor: "砦を支配する戦鬼、ドラゴンの紋章を帯びた炎の支配者の将",
         badge: "👹",
-        sprite: "assets/minotaur_anim.png",
-        sheetW: 480, sheetH: 260,
-        frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
-        displaySize: 112,
+        sprite: "assets/garrock_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 120,
         hp: 95, speed: 0.68,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 290,
@@ -5807,9 +5807,9 @@
         if (t.startsWith("goblin")) fam = "goblinoid";
         else if (t.startsWith("bandit") || t === "scar") fam = "bandit";
         else if (t === "skeleton") fam = "undead";
-        else if (t === "orc") fam = "orc";
+        else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
-        else if (t === "minotaur") fam = "orc";  // 暫定扱い
+        else if (t === "minotaur") fam = "orc";  // Sce5 リッチ暫定扱い
         counts[fam] = (counts[fam] || 0) + 1;
       }
       let best = "generic", max = 0;
