@@ -3697,6 +3697,147 @@
         range: "melee",
         xp: 600,  // ボス級
       },
+      // ── シナリオ4: 廃墟の砦オーク (orc-fort) ──
+      // 暫定スプライトは orc_anim.png 流用 (32px×10cols)。確定後に専用シート (96px×6cols) へ。
+      orcGrunt: {
+        name: "オーク兵",
+        flavor: "砦を守る屈強な戦士、ガロックの手勢",
+        badge: "🪓",
+        sprite: "assets/orc_anim.png",
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 80,
+        hp: 16, speed: 0.78,
+        hasAttackAnim: true,
+        meleeRange: 160, hitRange: 240,
+        attackDuration: 36, attackHitFrame: 16, attackCooldown: 50,
+        str: 3, dex: 0, atkBonus: 5, ac: 13,
+        dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 3,
+        range: "melee",
+        xp: 200,
+      },
+      // オーク弓兵 (胸壁から矢で牽制、lizardHunter 同型の遠隔)
+      orcArcher: {
+        name: "オーク弓兵",
+        flavor: "胸壁から粗い矢を射かける狙撃手",
+        badge: "🏹",
+        sprite: "assets/orc_anim.png",
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 74,
+        hp: 12, speed: 0.85,
+        hasAttackAnim: true,
+        meleeRange: 120, hitRange: 460,
+        attackDuration: 32, attackHitFrame: 14, attackCooldown: 48,
+        str: 1, dex: 2, atkBonus: 4, ac: 13,
+        dmgDice: "1d8", dmgBonus: 2, critRange: 19, critMult: 3,
+        range: "long",
+        projectile: "arrow",
+        xp: 180,
+      },
+      // オーク呪術師 (炎の支配者の呪詛、lizardPriest 同型の後列魔法)
+      orcShaman: {
+        name: "オーク呪術師",
+        flavor: "炎の支配者の名を唱え呪詛を放つ祈祷師",
+        badge: "🌀",
+        sprite: "assets/orc_anim.png",
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 76,
+        hp: 12, speed: 0.72,
+        hasAttackAnim: true,
+        meleeRange: 130, hitRange: 540,
+        attackDuration: 38, attackHitFrame: 18, attackCooldown: 55,
+        str: 0, dex: 1, atkBonus: 4, ac: 12,
+        dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
+        range: "long",
+        xp: 200,
+      },
+      // オーク狂戦士 (痛みを忘れ突進する高速近接、lizardRaider 同型)
+      orcBerserker: {
+        name: "オーク狂戦士",
+        flavor: "痛みを忘れ突進する血濡れの暴れ者",
+        badge: "💢",
+        sprite: "assets/orc_anim.png",
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 88,
+        hp: 22, speed: 0.98,
+        hasAttackAnim: true,
+        meleeRange: 170, hitRange: 250,
+        attackDuration: 30, attackHitFrame: 14, attackCooldown: 44,
+        str: 4, dex: 0, atkBonus: 6, ac: 12,
+        dmgDice: "2d6", dmgBonus: 4, critRange: 19, critMult: 2,
+        range: "melee",
+        xp: 240,
+      },
+      // ボス: オーク将軍ガロック (Sce4 玉座、minotaur_anim.png 暫定流用 → 専用へ)
+      garrock: {
+        name: "オーク将軍ガロック",
+        flavor: "砦を支配する戦鬼、ドラゴンの紋章を帯びた炎の支配者の将",
+        badge: "👹",
+        sprite: "assets/minotaur_anim.png",
+        sheetW: 480, sheetH: 260,
+        frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
+        displaySize: 112,
+        hp: 95, speed: 0.68,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 290,
+        attackDuration: 48, attackHitFrame: 22, attackCooldown: 68,
+        str: 5, dex: 0, atkBonus: 10, ac: 17,
+        dmgDice: "2d8", dmgBonus: 6, critRange: 19, critMult: 3,
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,   // HP50%以下で激怒 (+2atk +2dmg + 速度UP)
+        maxSummons: 3,
+        summonType: "orcGrunt",
+        deathLine: "…炎の…御方よ…砦は…燃え尽きた…",
+        clearReward: "ガロックの戦斧",
+        xp: 1000,
+      },
+      // ── シナリオ4 隠し要素: 古代王国の守護者 (fort-golems.md) ──
+      // 非魔法物理免疫 (physicalImmunity): +1以上の魔法武器か呪文でないと通用しない。
+      // faction:"beast" = 第三勢力 (オークも PT も無差別)。象徴アイテムでの味方化は後追い。
+      // minotaur_anim.png / skeleton_anim.png を暫定流用 → 確定後に専用シートへ。
+      stoneGolem: {
+        name: "ストーンゴーレム",
+        flavor: "古代王国の術式で動く石の巨人、非魔法の武器を弾く",
+        badge: "🗿",
+        sprite: "assets/minotaur_anim.png",
+        sheetW: 480, sheetH: 260,
+        frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
+        displaySize: 132,
+        hp: 178, speed: 0.5,
+        hasAttackAnim: true,
+        meleeRange: 210, hitRange: 300,
+        attackDuration: 52, attackHitFrame: 24, attackCooldown: 80,
+        str: 6, dex: 0, atkBonus: 10, ac: 17,
+        dmgDice: "3d8", dmgBonus: 6, critRange: 20, critMult: 2,
+        range: "melee",
+        physicalImmunity: true,   // 非魔法物理免疫 (golemPhysImmune)
+        faction: "beast",         // 第三勢力 (無差別) — 既存 beast ロジック流用
+        startsDormant: true,      // 初期は休眠 (initGuardians で inactive 化、接近で覚醒)
+        xp: 1500,
+      },
+      animatedArmor: {
+        name: "動く鎧",
+        flavor: "誰も着ていないのに動き出す古代王国の甲冑",
+        badge: "🛡",
+        sprite: "assets/skeleton_anim.png",
+        sheetW: 320, sheetH: 160,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 78,
+        hp: 33, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 150, hitRange: 220,
+        attackDuration: 34, attackHitFrame: 15, attackCooldown: 48,
+        str: 2, dex: 0, atkBonus: 4, ac: 18,
+        dmgDice: "1d6", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        faction: "beast",
+        startsDormant: true,      // ゴーレムと共に休眠 → 接近で一斉覚醒
+        xp: 150,
+      },
       // ── シナリオ2: 盗賊団 ──
       // bandit/banditArcher/banditMage は専用シート (96px×6cols×5rows、ChatGPT 素材ベース)
       // banditHeavy/scar は引き続き orc_anim.png + hue-rotate を使用
@@ -4019,11 +4160,20 @@
         hiddenChestCount: 4,
         clearXp: 1000,
         spawns: [
-          ["orc", 19, 11], ["orc", 23, 15],
-          ["orc", 34, 11], ["skeleton", 40, 12], ["orc", 38, 17],
-          ["orc", 50, 11], ["orc", 55, 15],
-          ["skeleton", 65, 10], ["orc", 70, 14], ["orc", 72, 17],
-          ["minotaur", 86, 13],   // ボス: ガロック
+          // ROOM 1 跳ね橋・前哨: 門番 (兵 + 弓兵)
+          ["orcGrunt", 19, 11], ["orcArcher", 23, 15],
+          // ROOM 2 中庭・篝火: 呪術師の指揮下 (兵 + 呪術師 + 狂戦士)
+          ["orcGrunt", 34, 11], ["orcShaman", 40, 12], ["orcBerserker", 38, 17],
+          // ROOM 3 兵舎: 巡回兵 (兵 + 弓兵)
+          ["orcGrunt", 50, 11], ["orcArcher", 55, 15],
+          // ROOM 4 武器庫・血の祭壇: 精鋭 (呪術師 + 狂戦士 + 兵)
+          ["orcShaman", 65, 10], ["orcBerserker", 70, 14], ["orcGrunt", 72, 17],
+          // ROOM 4 隠し要素: 古代王国の守護者 (休眠。接近で一斉覚醒 → 第三勢力)
+          ["stoneGolem",    68, 9],
+          ["animatedArmor", 64, 11], ["animatedArmor", 72, 11],
+          ["animatedArmor", 66, 18], ["animatedArmor", 70, 18],
+          // ROOM 5 将軍の玉座
+          ["garrock", 86, 13],   // ボス: オーク将軍ガロック
         ],
       },
       "undead-temple": {
@@ -6815,6 +6965,17 @@
       e.displacementDisabledUntil = now + cd;
     }
 
+    // ── 非魔法物理免疫 (ストーンゴーレム等、fort-golems.md) ──
+    // physicalImmunity を持つ敵は、+1以上の魔法武器 (enhancement>=1) でない物理攻撃を
+    // 完全に無効化する。呪文ダメージは別経路 (この関数を呼ばない) なので常に通過する。
+    // 武器命中ロール通過後・ダメージ適用直前 (tryDisplacement と同じ介入点) で判定する。
+    // attackerEnh: リーダーは weaponEnh、仲間は ally.weaponEnhancement (当面 0 = 通用しない)。
+    function golemPhysImmune(enemyIdx, attackerEnh) {
+      const e = enemies[enemyIdx];
+      if (!e || !e.def || !e.def.physicalImmunity) return false;
+      return (Number(attackerEnh) || 0) < 1;
+    }
+
     // 残像エフェクト DOM を spawn (520ms で自動 fade-out)
     function spawnDisplaceAfterimage(enemyIdx) {
       const e = enemies[enemyIdx];
@@ -7122,6 +7283,13 @@
       // ボス死亡セリフ (deathLine 定義時のみ)
       if (enemy.def && enemy.def.deathLine && typeof showDMMessage === "function") {
         setTimeout(() => showDMMessage(`「${enemy.def.deathLine}」 — ${nm}`, 3600), 600);
+      }
+      // Sce4 隠し要素: ストーンゴーレム撃破 → 伏線ナレ + バナー (実アイテム化は後追い)
+      if (enemy.type === "stoneGolem" && typeof showDMMessage === "function") {
+        if (typeof showBanner === "function") showBanner("🏛 古代王国の守護者を打ち倒した!", 2600);
+        setTimeout(() => showDMMessage(
+          "巨人は瓦礫へと崩れ落ちた。砕けた胸甲の奥に、古代王国の紋章と…\n" +
+          "炎竜の鱗が一片、埋め込まれている。なぜ、この古の砦に竜の鱗が…?", 4600), 700);
       }
       if (enemy.weaponVisible && enemy.armorVisible) {
         updateInfo(`${nm}を倒した！ 宝箱2つが落ちた`);
@@ -10762,6 +10930,15 @@
         await sleepMs(420);
         return { missed: true, displaced: true };
       }
+      // 非魔法物理免疫 (ストーンゴーレム等): +1以上の魔法武器でなければ通用しない
+      if (golemPhysImmune(targetIdx, weaponEnh)) {
+        showRollAtEnemy(targetIdx, `<span class="label">IMMUNE</span>通用しない!`, "miss");
+        showHitSpark(targetIdx, false);
+        updateInfo(`${tgtDef.name}: 非魔法の武器は通用しない! (魔法武器か呪文が必要)`);
+        noteDisplacementHit(targetIdx);
+        await sleepMs(420);
+        return { missed: true, immune: true };
+      }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
       triggerEnemyDamageFlash(targetIdx);
@@ -11362,6 +11539,71 @@
 
     setInterval(tryInteractCage, 400);
 
+    // ── Sce4 隠し要素: 古代王国の守護者 (休眠 → 接近で覚醒、専用トリガー) ──
+    // 残影の檻 (beast cage) には一切依存しない独立実装。faction:"beast" を流用して
+    // 覚醒後は第三勢力 (オークも PT も無差別) として行動する。
+    let guardiansAwakened = false;
+    const GUARDIAN_AWAKEN_RADIUS = 270;   // この距離以内に入ると一斉覚醒
+
+    // startsDormant の守護者を初期 inactive 化 + 休眠ビジュアル (石化フィルタ)。
+    // spawnCages / linkCagedBeasts の直後に呼ぶ。
+    function initGuardians() {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.def || !e.def.startsDormant) continue;
+        e.inactive = true;
+        e.dormant = true;
+        const el = enemyElements[ei];
+        if (el) {
+          el.classList.add("guardian-dormant");
+          el.style.filter = "grayscale(0.85) brightness(0.78) contrast(0.9)";
+        }
+      }
+    }
+
+    async function awakenGuardians() {
+      showBanner("⚙ 古代王国の守護者、起動! ⚙", 1800);
+      showDMMessage(
+        "床が震え、石の巨人がゆっくりと頭をもたげた。\n" +
+        "古の術式が再び駆動する…『侵入者を、排除する』。\n" +
+        "守護者は敵味方を問わず、この間のすべてを敵と見なした…!", 4600);
+      try { sfx("cageOpen"); } catch (e) {}
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || !e.dormant) continue;
+        e.dormant = false;
+        e.inactive = false;
+        const el = enemyElements[i];
+        if (el) {
+          el.classList.remove("guardian-dormant");
+          el.style.filter = "brightness(1.8) saturate(1.3) drop-shadow(0 0 12px rgba(180,200,255,0.9))";
+          setTimeout(() => { el.style.filter = ""; }, 700);
+        }
+      }
+      await sleepMs(900);
+    }
+
+    // 接近tick: 休眠守護者に十分近づいたら一斉覚醒 (戦闘外でのみ判定、cage と同方針)
+    async function tryAwakenGuardian() {
+      if (!gameStarted || gameOver || guardiansAwakened) return;
+      if (encounterActive || encounterRunning) return;
+      if (hp <= 0) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      let near = false;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || !e.dormant) continue;
+        const ds = e.def.displaySize || TILE_SIZE;
+        const ecx = e.x + ds / 2, ecy = e.y + ds / 2;
+        if (Math.hypot(pCX - ecx, pCY - ecy) <= GUARDIAN_AWAKEN_RADIUS) { near = true; break; }
+      }
+      if (!near) return;
+      guardiansAwakened = true;
+      await awakenGuardians();
+    }
+
+    setInterval(tryAwakenGuardian, 400);
+
     // ── Phase 2-B: 確率脱走 (檻近くで戦闘 → 5秒ごとに 20% で自動解放) ──
     // 戦闘開始から 5 秒経過したら、5 秒ごとに、戦闘地点 (player) と檻の距離が 800px 以内の
     // 閉じた檻について 20% で自動解放判定。発動したら openCage() を呼ぶ (咆哮 → ワープ → 第三勢力化)。
@@ -11893,6 +12135,14 @@
       // Phase 2-A: 残影回避判定 (shadowBeast 等)
       if (tryDisplacement(enemyIdx)) {
         await sleepMs(420);
+        return;
+      }
+      // 非魔法物理免疫 (ストーンゴーレム等): 仲間は当面 weaponEnhancement 未設定=0 で無効化
+      if (golemPhysImmune(enemyIdx, ally.weaponEnhancement || 0)) {
+        showRollAtEnemy(enemyIdx, `<span class="label">IMMUNE</span>通用しない!`, "miss");
+        updateInfo(`${ally.def.name}: 非魔法の武器は ${tgtDef.name} に通用しない!`);
+        noteDisplacementHit(enemyIdx);
+        await sleepMs(380);
         return;
       }
       target.hp -= dmg;
@@ -16286,6 +16536,7 @@
     // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
     spawnCages();
     linkCagedBeasts();
+    initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 
