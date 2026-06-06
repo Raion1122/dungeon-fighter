@@ -6616,7 +6616,12 @@
         { walk: 'url("assets/warrior_knight_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_knight_attack.png")', attackSize: "480px 384px", label: "騎士" },
       ],
       dwarf:  [ { walk: DWARF_WALK_URL,  walkSize: DWARF_WALK_SIZE,  attack: DWARF_ATTACK_URL,  attackSize: DWARF_ATTACK_SIZE } ],
-      cleric: [ { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE } ],
+      cleric: [
+        { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/cleric_elder_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/cleric_elder_attack.png")',     attackSize: "480px 384px", label: "老神官" },
+        { walk: 'url("assets/cleric_priestess_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_priestess_attack.png")', attackSize: "480px 384px", label: "女神官" },
+        { walk: 'url("assets/cleric_war_walk.png")',       walkSize: "576px 384px", attack: 'url("assets/cleric_war_attack.png")',       attackSize: "480px 384px", label: "戦僧" },
+      ],
       mage: [
         { walk: MAGE_WALK_URL, walkSize: MAGE_WALK_SIZE, attack: MAGE_ATTACK_URL, attackSize: MAGE_ATTACK_SIZE, label: "標準" },
         { walk: 'url("assets/mage_old_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/mage_old_attack.png")',     attackSize: "480px 384px", label: "老魔術師" },

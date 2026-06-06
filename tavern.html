@@ -1787,7 +1787,7 @@
   })();
 
   // 職業ごとのスプライト変種数 (index.html の SPRITE_VARIANTS と同期)。1=正規のみ。
-  const VARIANT_COUNT = { warrior: 4, dwarf: 1, cleric: 1, mage: 4, elf: 4, rogue: 1 };
+  const VARIANT_COUNT = { warrior: 4, dwarf: 1, cleric: 4, mage: 4, elf: 4, rogue: 1 };
   // NPC用に変種をランダム選択。変種があれば 1..n-1 (正規0=主人公の見た目は避ける)、無ければ0。
   function pickVariant(classKey) {
     const n = VARIANT_COUNT[classKey] || 1;
