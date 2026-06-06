@@ -6623,7 +6623,12 @@
         { walk: 'url("assets/mage_crimson_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_crimson_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
         { walk: 'url("assets/mage_dark_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/mage_dark_attack.png")',    attackSize: "480px 384px", label: "黒衣の魔道士" },
       ],
-      elf:    [ { walk: ELF_WALK_URL,    walkSize: ELF_WALK_SIZE,    attack: ELF_ATTACK_URL,    attackSize: ELF_ATTACK_SIZE } ],
+      elf: [
+        { walk: ELF_WALK_URL, walkSize: ELF_WALK_SIZE, attack: ELF_ATTACK_URL, attackSize: ELF_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/elf_high_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/elf_high_attack.png")',     attackSize: "480px 384px", label: "ハイエルフの射手" },
+        { walk: 'url("assets/elf_huntress_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_huntress_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
+        { walk: 'url("assets/elf_shadow_walk.png")',   walkSize: "576px 384px", attack: 'url("assets/elf_shadow_attack.png")',   attackSize: "480px 384px", label: "闇森の影射手" },
+      ],
       rogue:  [ { walk: ROGUE_WALK_URL,  walkSize: ROGUE_WALK_SIZE,  attack: ROGUE_ATTACK_URL,  attackSize: ROGUE_ATTACK_SIZE } ],
     };
     // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。

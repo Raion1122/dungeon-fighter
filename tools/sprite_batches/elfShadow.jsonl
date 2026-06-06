@@ -1,0 +1,3 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/elf_shadow/_prompt_walk.txt", "output": "source_images/elf_shadow/影エルフ歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt", "output": "source_images/elf_shadow/影エルフ攻撃.png"}

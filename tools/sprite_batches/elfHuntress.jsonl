@@ -1,0 +1,3 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/elf_huntress/_prompt_walk.txt", "output": "source_images/elf_huntress/女狩人歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt", "output": "source_images/elf_huntress/女狩人攻撃.png"}
