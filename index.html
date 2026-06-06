@@ -3035,6 +3035,7 @@
     };
     // パーティ編成 (sessionStorage 経由) の先頭がリーダー = プレイヤーキャラ
     let leaderClassKey = "warrior";  // 初期値、後で partyComposition から上書き
+    let leaderVariant = 0;           // 頭のスプライト変種 (主人公=0/正規、NPC頭=割当て変種)
     // ── パーティ編成 (Q1=B): 頭(player アバター)と主人公(isHero)を分離 ──
     let heroIsHead = true;       // 頭(player)が主人公本人か (主人公が前衛=warrior/dwarf なら true)
     let heroRef = null;          // 主人公が ally の場合の参照 (頭でない時=主人公が mid/rear)
@@ -3056,8 +3057,8 @@
       const row = 3;
       // 左向き時だけ水平反転
       player.style.transform = facing === "left" ? "scaleX(-1)" : "";
-      // リーダークラスのスプライトを引く (デフォルトは warrior)
-      const sprites = LEADER_SPRITES[leaderClassKey] || LEADER_SPRITES.warrior;
+      // リーダークラス + 変種のスプライトを引く (主人公=0/正規、NPC頭=割当て変種)
+      const sprites = getSpriteSet(leaderClassKey, leaderVariant) || LEADER_SPRITES[leaderClassKey] || LEADER_SPRITES.warrior;
       if (attackActive) {
         const atkFrame = Math.min(4, Math.floor(currentSwingProgress * 5));
         setSpriteSheet(sprites.attack, sprites.attackSize);
@@ -5427,11 +5428,12 @@
       el.style.width = "96px";
       el.style.height = "96px";
       el.style.position = "absolute";
-      el.style.backgroundImage = `url("${cd.sprite}")`;
       el.style.backgroundRepeat = "no-repeat";
-      // 専用シートクラス: dwarf/cleric/mage/elf (576×384)、他は simple_knight (480×1152)
+      // 専用シートクラス + 変種: getSpriteSet で walk シート/サイズを解決。未登録職のみ simple_knight。
       const ck = ally.classKey;
-      el.style.backgroundSize = CUSTOM_SHEET_CLASSES.has(ck) ? "576px 384px" : "480px 1152px";
+      const ss0 = getSpriteSet(ck, ally.variant || 0);
+      el.style.backgroundImage = ss0 ? ss0.walk : `url("${cd.sprite}")`;
+      el.style.backgroundSize  = ss0 ? ss0.walkSize : "480px 1152px";
       el.style.imageRendering = "pixelated";
       el.style.zIndex = "6";
       document.body.appendChild(el);
@@ -6600,8 +6602,33 @@
       ally.el.style.backgroundImage = url;
       ally.el.style.backgroundSize = size;
     }
-    // 専用シートを持つクラス (歩き 6F、576×384)
-    const CUSTOM_SHEET_CLASSES = new Set(["dwarf", "cleric", "mage", "elf", "rogue"]);
+    // 専用シートを持つクラス (歩き 6F、576×384)。warrior も正規シート(warrior_walk)で統一。
+    const CUSTOM_SHEET_CLASSES = new Set(["warrior", "dwarf", "cleric", "mage", "elf", "rogue"]);
+
+    // ── スプライト変種レジストリ (NPC冒険者の見た目バリエーション) ──
+    // 各職業は変種シートの配列。index 0 = 正規 (主人公/既定)、1 以降が NPC 用バリアント。
+    // 新バリアント追加はここに1行足すだけ。サイズ規格は walk 576×384 / attack 480×384 で統一。
+    const SPRITE_VARIANTS = {
+      warrior: [
+        { walk: WARRIOR_WALK_URL, walkSize: WARRIOR_WALK_SIZE, attack: WARRIOR_ATTACK_URL, attackSize: WARRIOR_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/warrior_heavy_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/warrior_heavy_attack.png")',  attackSize: "480px 384px", label: "重戦士" },
+        { walk: 'url("assets/warrior_female_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_female_attack.png")', attackSize: "480px 384px", label: "女戦士" },
+        { walk: 'url("assets/warrior_knight_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_knight_attack.png")', attackSize: "480px 384px", label: "騎士" },
+      ],
+      dwarf:  [ { walk: DWARF_WALK_URL,  walkSize: DWARF_WALK_SIZE,  attack: DWARF_ATTACK_URL,  attackSize: DWARF_ATTACK_SIZE } ],
+      cleric: [ { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE } ],
+      mage:   [ { walk: MAGE_WALK_URL,   walkSize: MAGE_WALK_SIZE,   attack: MAGE_ATTACK_URL,   attackSize: MAGE_ATTACK_SIZE } ],
+      elf:    [ { walk: ELF_WALK_URL,    walkSize: ELF_WALK_SIZE,    attack: ELF_ATTACK_URL,    attackSize: ELF_ATTACK_SIZE } ],
+      rogue:  [ { walk: ROGUE_WALK_URL,  walkSize: ROGUE_WALK_SIZE,  attack: ROGUE_ATTACK_URL,  attackSize: ROGUE_ATTACK_SIZE } ],
+    };
+    // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。
+    function getSpriteSet(classKey, variant) {
+      const arr = SPRITE_VARIANTS[classKey];
+      if (!arr || !arr.length) return null;
+      const n = arr.length;
+      const idx = (((variant | 0) % n) + n) % n;
+      return arr[idx] || arr[0];
+    }
     // 歩きのみで攻撃シート未対応 (攻撃アニメは flashAction で代用)。新キャラ追加時のフック
     const WALK_ONLY_CLASSES = new Set();
     function startAllyAttackAnim(ally, durationMs = 500) {
@@ -6674,11 +6701,8 @@
         const elapsed = performance.now() - ally.attackAnimStart;
         const progress = Math.min(1, elapsed / ally.attackAnimDuration);
         const frame = Math.min(4, Math.floor(progress * 5));
-        if (ck === "dwarf") setAllySpriteSheet(ally, DWARF_ATTACK_URL, DWARF_ATTACK_SIZE);
-        else if (ck === "cleric") setAllySpriteSheet(ally, CLERIC_ATTACK_URL, CLERIC_ATTACK_SIZE);
-        else if (ck === "mage") setAllySpriteSheet(ally, MAGE_ATTACK_URL, MAGE_ATTACK_SIZE);
-        else if (ck === "elf") setAllySpriteSheet(ally, ELF_ATTACK_URL, ELF_ATTACK_SIZE);
-        else if (ck === "rogue") setAllySpriteSheet(ally, ROGUE_ATTACK_URL, ROGUE_ATTACK_SIZE);
+        const ssA = getSpriteSet(ck, ally.variant || 0);
+        if (ssA) setAllySpriteSheet(ally, ssA.attack, ssA.attackSize);
         ally.el.style.backgroundPosition = `${-frame * 96}px ${-row * 96}px`;
         ally.playerMovingThisFrame = false;
         return;
@@ -6694,12 +6718,9 @@
         framesPerStep = 1; frameCount = 1;
       }
       const frame = Math.floor(ally.animTick / framesPerStep) % frameCount;
-      if (ck === "dwarf")       setAllySpriteSheet(ally, DWARF_WALK_URL, DWARF_WALK_SIZE);
-      else if (ck === "cleric") setAllySpriteSheet(ally, CLERIC_WALK_URL, CLERIC_WALK_SIZE);
-      else if (ck === "mage")   setAllySpriteSheet(ally, MAGE_WALK_URL, MAGE_WALK_SIZE);
-      else if (ck === "elf")    setAllySpriteSheet(ally, ELF_WALK_URL, ELF_WALK_SIZE);
-      else if (ck === "rogue")  setAllySpriteSheet(ally, ROGUE_WALK_URL, ROGUE_WALK_SIZE);
-      else                      setAllySpriteSheet(ally, `url("${ally.def.sprite}")`, "480px 1152px");
+      const ssW = getSpriteSet(ck, ally.variant || 0);
+      if (ssW) setAllySpriteSheet(ally, ssW.walk, ssW.walkSize);
+      else     setAllySpriteSheet(ally, `url("${ally.def.sprite}")`, "480px 1152px");
       ally.el.style.backgroundPosition = `${-frame * 96}px ${-row * 96}px`;
       ally.playerMovingThisFrame = false;
     }
@@ -16100,6 +16121,7 @@
 
     // ── 頭(player アバター) を formation[0] のクラスで初期化 ──
     leaderClassKey = headMember.classKey;
+    leaderVariant = headMember.isHero ? 0 : (headMember.variant || 0);  // 主人公頭=正規、NPC頭=割当て変種
     applyLeaderStats(leaderClassKey);
     headDisplayName = headMember.isHero ? "あなた"
       : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
@@ -16143,6 +16165,7 @@
       ally.npcLine  = m.line || null;
       // ティア連動レベル (酒場でスタンプ済): 主人公ally=永続Lv / NPC=ティア帯Lv。未設定は null
       ally.level   = (typeof m.level === "number" && m.level > 0) ? m.level : null;
+      ally.variant = m.isHero ? 0 : (m.variant || 0);  // 主人公ally=正規、NPC=割当て変種
       allies.push(ally);
     });
     heroRef = heroIsHead ? null : (allies.find(a => a.isHero) || null);

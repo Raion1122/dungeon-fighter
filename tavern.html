@@ -1786,8 +1786,15 @@
     };
   })();
 
+  // 職業ごとのスプライト変種数 (index.html の SPRITE_VARIANTS と同期)。1=正規のみ。
+  const VARIANT_COUNT = { warrior: 4, dwarf: 1, cleric: 1, mage: 1, elf: 1, rogue: 1 };
+  // NPC用に変種をランダム選択。変種があれば 1..n-1 (正規0=主人公の見た目は避ける)、無ければ0。
+  function pickVariant(classKey) {
+    const n = VARIANT_COUNT[classKey] || 1;
+    return n <= 1 ? 0 : 1 + Math.floor(Math.random() * (n - 1));
+  }
   function makeHeroMember(classKey) {
-    return { classKey, isHero: true, zone: PARTY_ZONES[classKey], name: null, trait: null, line: null };
+    return { classKey, isHero: true, zone: PARTY_ZONES[classKey], name: null, trait: null, line: null, variant: 0 };
   }
   function pickUniqueName(usedSet) {
     let n, guard = 0;
@@ -1801,6 +1808,7 @@
       name: pickUniqueName(usedSet),
       trait: pickRandom("trait", NPC_TRAITS),
       line: pickRandom("line", NPC_LINES),
+      variant: pickVariant(classKey),
     };
   }
   // 主人公1人 + NPC で PARTY_SIZE 人を構築 (各 zone 最低1人を front→mid→rear 順に確保、残りは重複可)
