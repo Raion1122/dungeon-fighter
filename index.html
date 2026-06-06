@@ -13904,10 +13904,11 @@
         }
       }
 
-      // 3. 攻撃呪文: 装備している攻撃呪文 + MP があるものをすべて候補に。
+      // 3. 攻撃呪文: 装備している攻撃呪文をすべて候補に。
       //    脅威度は優先順位の判定のみに使用 (threatScore で弾かない)。
-      //    MP 残量が極少 (3 以下) なら呪文は温存。
-      if (ally.mp > 3) {
+      //    Phase 2-J: MP 廃止。攻撃呪文の可否は各呪文の hasSpellSlot で判定する
+      //    (旧 `ally.mp > 3` ゲートは ally.mp が常に 0 で呪文を恒久封印していたため撤去)。
+      {
         const attackSpells = [];
         // Phase 2-J: MP → 呪文スロット残数
         if (ally.equippedSkills.includes("fire-bolt") && hasSpellSlot(ally, "fire-bolt")) {
@@ -15646,7 +15647,8 @@
           activeEquipped = equippedSkills.filter(id => {
             const sk = dict[id];
             if (!sk || sk.reactive || sk.outOfCombat) return false;
-            if (sk.mpCost && mp < sk.mpCost) return false;
+            // Phase 2-J: MP 廃止 → 呪文スロット残数で判定（スロット切れの呪文のみ除外）
+            if (sk.mpCost && !hasSpellSlot("player", id)) return false;
             if (sk.oncePerEncounter && leaderSkillsUsedInEncounter.has(id)) return false;
             if (sk.cooldown && (leaderSkillCooldowns[id] || 0) > 0) return false;
             // 回復系: 既に HP 満タンなら除外
