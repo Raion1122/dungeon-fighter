@@ -7616,8 +7616,8 @@
       updatePositions();
     }
 
-    // 仲間 (該当 classKey) が PT にいる場合: 装備変更は現状未実装、ひとまず道具袋へ
-    // (走行中の ally 装備変更は副作用が大きいため、酒場での装備変更経由を推奨)
+    // 仲間 (該当 classKey) が PT にいる場合: 走行中の即時付け替えは副作用が大きいため道具袋へ保管し、
+    // 出発前の酒場で職業別プリセットとして装備する (renderCharTabs で全6職タブ対応済み)。
     function tryEquipOnAlly(classKey, kind, idx, displayName) {
       const slot = inventoryBag[classKey] && inventoryBag[classKey][kind];
       if (!slot) return;
@@ -10461,8 +10461,30 @@
       { name: "革の小盾 +1",       enhancement: 1 },
       { name: "月の小盾 +2",       enhancement: 2 },
     ];
+    // 戦士仲間プール: 主人公の weapons/armors/shields (index.html:5182-5213) を idx 整合でミラー。
+    // tavern の CHAR_EQUIP.warrior と同じ並びなので equipWeapon/Armor/Shield idx がそのまま対応する。
+    // applyAllyEquipment が参照するフィールド (name/dmgDice/range/enhancement/rarity/bonus*) のみ持つ。
+    const WARRIOR_ALLY_WEAPONS = [
+      { name: "錆びた木の剣",       dmgDice: "1d6", range: "melee", enhancement: 0 },
+      { name: "ロングソード",       dmgDice: "1d8", range: "melee", enhancement: 0 },
+      { name: "鍛えし鋼の長剣 +1",  dmgDice: "1d8", range: "melee", enhancement: 1, rarity: "rare" },
+      { name: "フレームタング",     dmgDice: "1d8", range: "melee", enhancement: 0,
+        bonusDmgDice: "1d6", bonusDmgType: "fire", rarity: "special" },
+    ];
+    const WARRIOR_ALLY_ARMORS = [
+      { name: "粗布の服",        enhancement: 0 },
+      { name: "鋲打ち革鎧 +1",   enhancement: 1 },
+      { name: "チェインメイル",   enhancement: 2 },
+    ];
+    const WARRIOR_ALLY_SHIELDS = [
+      { name: "なし",       enhancement: 0 },
+      { name: "木の盾",     enhancement: 1 },
+      { name: "革の盾",     enhancement: 2 },
+      { name: "鋼鉄の盾",   enhancement: 3 },
+    ];
     // クラス別装備プール (キーは ally.classKey)
     const ALLY_EQUIP_POOLS = {
+      warrior:{ weapons: WARRIOR_ALLY_WEAPONS, armors: WARRIOR_ALLY_ARMORS, shields: WARRIOR_ALLY_SHIELDS },
       dwarf:  { weapons: DWARF_WEAPONS,  armors: DWARF_ARMORS,  shields: DWARF_SHIELDS },
       cleric: { weapons: CLERIC_WEAPONS, armors: CLERIC_ARMORS, shields: CLERIC_SHIELDS },
       mage:   { weapons: MAGE_WEAPONS,   armors: MAGE_ARMORS,   shields: MAGE_SHIELDS },
@@ -10496,6 +10518,19 @@
         }
       }
     } catch (e) { /* ignore */ }
+    // 戦士プリセットは主人公と共有の equipWeapon/Armor/Shield 永続キーから読む (tavern の warrior タブはここに書く)。
+    // 未設定時は主人公と同じく所持最上位 (weaponIdx 等) にフォールバック (idx0 の錆びた木の剣を避ける)。
+    {
+      const wp = ALLY_EQUIP_POOLS.warrior;
+      const wSel = persistent.equipWeapon != null ? Number(persistent.equipWeapon) : (persistent.weaponIdx || 0);
+      const aSel = persistent.equipArmor  != null ? Number(persistent.equipArmor)  : (persistent.armorIdx  || 0);
+      const sSel = persistent.equipShield != null ? Number(persistent.equipShield) : (persistent.shieldIdx || 0);
+      allyEquipSelection.warrior = {
+        weapon: Math.max(0, Math.min(wSel | 0, wp.weapons.length - 1)),
+        armor:  Math.max(0, Math.min(aSel | 0, wp.armors.length  - 1)),
+        shield: Math.max(0, Math.min(sSel | 0, wp.shields.length - 1)),
+      };
+    }
 
     // 仲間に選択装備を適用 (createAlly 直後に呼ぶ)
     // tier 0 からの差分で ally.dmgDice / dmgBonus / ac を更新
@@ -16437,23 +16472,21 @@
     });
     heroRef = heroIsHead ? null : (allies.find(a => a.isHero) || null);
 
-    // ロードアウト適用 (Q2=A): 主人公 ally=酒場カスタム / NPC=デフォルト装備・スキル
+    // ロードアウト適用 (職業別プリセット方式): 主人公 ally も NPC 仲間も、酒場で
+    // 設定した職業別プリセット (allyEquip[class] / partySkills[class]) を読み込む。
+    // 来た NPC の職業に応じて、その職業のプリセットが自動適用される。
+    // プリセット未設定の職業は applyAllyEquipment 内の tier0 / createAlly デフォルトにフォールバック。
     allies.forEach((ally, idx) => {
-      if (ally.isHero) {
-        applyAllyEquipment(ally, ally.classKey);   // allyEquip[class] = 主人公カスタム装備
-        const raw = partySkillsMap && partySkillsMap[ally.classKey];
-        if (Array.isArray(raw)) {
-          const dict = CLASS_SKILL_DICTS[ally.classKey];
-          // マーシャル職は Lv 連動枠、キャスターは後段 initAllySpellSlots で上書きされるため値は仮 (3)
-          const lim = ["warrior", "dwarf", "rogue"].includes(ally.classKey)
-            ? skillSlotsForLevel(ally.level || headLevel) : 3;
-          if (dict) ally.equippedSkills = raw.filter(id => id in dict).slice(0, lim);
-        }
-        // 呪文職主人公の equippedSkills は initAllySpellSlots で設定
-      } else {
-        applyAllyEquipment(ally, ally.classKey, { weapon: 0, armor: 0, shield: 0 });  // NPC=基本装備
-        // NPC のスキルは createAlly のデフォルト (cd.defaultSkills) のまま
+      applyAllyEquipment(ally, ally.classKey);   // allyEquip[class] = 酒場プリセット装備
+      const raw = partySkillsMap && partySkillsMap[ally.classKey];
+      if (Array.isArray(raw)) {
+        const dict = CLASS_SKILL_DICTS[ally.classKey];
+        // マーシャル職は Lv 連動枠、キャスターは後段 initAllySpellSlots で上書きされるため値は仮 (3)
+        const lim = ["warrior", "dwarf", "rogue"].includes(ally.classKey)
+          ? skillSlotsForLevel(ally.level || headLevel) : 3;
+        if (dict) ally.equippedSkills = raw.filter(id => id in dict).slice(0, lim);
       }
+      // raw が無ければ createAlly のデフォルトスキルのまま。呪文職の equippedSkills は initAllySpellSlots で設定。
       createAllyDom(ally, idx);
     });
 
@@ -16466,7 +16499,11 @@
         // NPC caster はティア帯Lv、主人公allyは永続Lv で呪文スロットを配分
         const aLv = ally.isHero ? playerLv
           : ((typeof ally.level === "number" && ally.level > 0) ? ally.level : playerLv);
-        const map = ally.isHero ? heroMap : defaultCasterMap(ally.classKey, aLv);
+        // 職業別プリセット: 主人公 ally、または当該職に酒場プリセットがある NPC は酒場配分(heroMap)を使う。
+        // mage/elf でプリセット未設定の NPC のみデフォルト配分にフォールバック (cleric は autoSlot なので影響なし)。
+        const hasPreset = !!(partySkillsMap && Array.isArray(partySkillsMap[ally.classKey])
+          && partySkillsMap[ally.classKey].length > 0);
+        const map = (ally.isHero || hasPreset) ? heroMap : defaultCasterMap(ally.classKey, aLv);
         initAllySpellSlots(ally, ally.classKey, aLv, map);
       }
     })();

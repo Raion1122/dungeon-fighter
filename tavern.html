@@ -2394,15 +2394,17 @@
     const tabsEl = document.getElementById("charTabs");
     if (!tabsEl) return;
     tabsEl.innerHTML = "";
-    const set = new Set(selection.partyComposition);
+    // 職業別プリセット board: 全6職のタブを出す。出発時、ランダム編成された
+    // NPC仲間の職業に応じて、ここで設定したスキル/装備プリセットが自動適用される。
+    const heroKey = selection.partyComposition[0];
     PARTY_SLOTS.forEach((slot) => {
       if (!slot) return;
-      if (!set.has(slot.classKey)) return;  // 編成外はタブを出さない
       const isActive = slot.classKey === activeCharTab;
+      const isHero = slot.classKey === heroKey;
       const equipped = (selection.partySkills[slot.classKey] || []).length;
       const tab = document.createElement("div");
       tab.className = "partyTab" + (isActive ? " active" : "");
-      tab.innerHTML = `<div>${slot.name}</div>` +
+      tab.innerHTML = `<div>${slot.name}${isHero ? " ★" : ""}</div>` +
                       `<div class="tabCount">スキル ${equipped}/${skillLimitForClass(slot.classKey)}</div>`;
       tab.addEventListener("click", () => {
         if (activeCharTab === slot.classKey) return;
