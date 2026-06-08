@@ -3665,6 +3665,89 @@
         xp: 150,
         undead: true,   // ターンアンデッド対象
       },
+      // ── シナリオ5: 地下神殿アンデッド (undead-temple) ──
+      // 専用スプライト (96px×6cols / ボスは 192px×6cols)。全て undead:true (ターンアンデッド + family 検出)。
+      zombie: {
+        name: "ゾンビ",
+        flavor: "腐臭を放ちよろめき歩く動く屍、鈍いが頑強",
+        badge: "🧟",
+        sprite: "assets/zombie_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 82,
+        hp: 26, speed: 0.5,
+        hasAttackAnim: true,
+        meleeRange: 150, hitRange: 220,
+        attackDuration: 30, attackHitFrame: 15, attackCooldown: 60,
+        str: 3, dex: -1, atkBonus: 3, ac: 12,
+        dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 2,
+        range: "melee",
+        xp: 180,
+        undead: true,
+      },
+      skeletonArcher: {
+        name: "スケルトン・アーチャー",
+        flavor: "朽ちた弓で射かける骨の狙撃手",
+        badge: "🏹",
+        sprite: "assets/skeletonArcher_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 74,
+        hp: 12, speed: 0.8,
+        hasAttackAnim: true,
+        meleeRange: 120, hitRange: 460,
+        attackDuration: 24, attackHitFrame: 12, attackCooldown: 45,
+        str: 0, dex: 2, atkBonus: 4, ac: 14,
+        dmgDice: "1d8", dmgBonus: 2, critRange: 19, critMult: 3,
+        range: "long",
+        projectile: "arrow",
+        xp: 170,
+        undead: true,
+      },
+      wraith: {
+        name: "レイス",
+        flavor: "冷気を纏い生者の温もりを奪う高速の亡霊",
+        badge: "👻",
+        sprite: "assets/wraith_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 80,
+        hp: 18, speed: 1.05,
+        hasAttackAnim: true,
+        meleeRange: 165, hitRange: 240,
+        attackDuration: 22, attackHitFrame: 11, attackCooldown: 42,
+        str: 0, dex: 3, atkBonus: 6, ac: 15,
+        dmgDice: "1d8", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        xp: 240,
+        undead: true,
+      },
+      // ボス: リッチ (192px)。Frightful Presence (partyWillSave DC16) + スケルトン召喚。
+      lich: {
+        name: "リッチ",
+        flavor: "不死を得た大魔道士、ドラゴン召喚の儀の主宰者",
+        badge: "💀",
+        sprite: "assets/lich_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 120,
+        hp: 92, speed: 0.6,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 540,
+        attackDuration: 44, attackHitFrame: 20, attackCooldown: 64,
+        str: 0, dex: 1, atkBonus: 9, ac: 17,
+        dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,
+        range: "long",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,    // HP50%以下で激怒 + 恐怖オーラ再発
+        maxSummons: 3,
+        summonType: "skeleton",
+        fearDC: 16,               // Frightful Presence (partyWillSave)
+        deathLine: "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…",
+        clearReward: "リッチの封印石",
+        undead: true,
+        xp: 1200,
+      },
       orc: {
         name: "オーク",
         flavor: "屈強な戦士族",
@@ -4184,11 +4267,16 @@
         hiddenChestCount: 4,
         clearXp: 1200,
         spawns: [
+          // ROOM 1 朽ちた前室: 骨兵の見張り
           ["skeleton", 19, 11], ["skeleton", 23, 15],
-          ["skeleton", 34, 11], ["skeleton", 40, 12], ["skeleton", 38, 17],
-          ["skeleton", 50, 11], ["skeleton", 55, 15],
-          ["skeleton", 65, 10], ["skeleton", 70, 14], ["skeleton", 72, 17],
-          ["minotaur", 86, 13],   // ボス: リッチ扱い
+          // ROOM 2 納骨堂: 射手混じり
+          ["skeleton", 34, 11], ["skeletonArcher", 40, 12], ["zombie", 38, 17],
+          // ROOM 3 腐肉の回廊: 壁役 + 機動
+          ["zombie", 50, 11], ["wraith", 55, 15],
+          // ROOM 4 祭壇前広間: 精鋭集中
+          ["skeletonArcher", 65, 10], ["wraith", 70, 14], ["zombie", 72, 17],
+          // ROOM 5 召喚の儀の間
+          ["lich", 86, 13],   // ボス: リッチ (Frightful Presence DC16、スケルトン召喚)
         ],
       },
       "dragon-lair": {
@@ -5439,6 +5527,8 @@
           strikingRemaining: 0, strikingDie: 0,   // ストライキング (武器 +Xd6)
           evasionRemaining: 0,                     // 盗賊 回避 (被ダメ半減、ターン制)
           luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張、ターン制)
+          frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
+          fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
         },
         stunned: 0,
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
@@ -5806,10 +5896,11 @@
         let fam = "generic";
         if (t.startsWith("goblin")) fam = "goblinoid";
         else if (t.startsWith("bandit") || t === "scar") fam = "bandit";
-        else if (t === "skeleton") fam = "undead";
+        else if (t === "skeleton" || t === "zombie" || t === "wraith"
+                 || t === "skeletonArcher" || t === "lich") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
-        else if (t === "minotaur") fam = "orc";  // Sce5 リッチ暫定扱い
+        else if (t === "minotaur") fam = "orc";  // Sce6 ファラクサス暫定 (専用 family 未定義のため据置)
         counts[fam] = (counts[fam] || 0) + 1;
       }
       let best = "generic", max = 0;
@@ -9488,6 +9579,61 @@
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
 
+    // ── 恐怖セーヴ (Will save) ──────────────────────────────────────
+    // frightened = 攻撃ロール -2 (spec.md)。リッチの Frightful Presence (DC16) と
+    // Sce6 ファラクサス (DC18) で共用。免疫フック (playerFearImmune/allyFearImmune) は
+    // 現状 false 固定、カエルム「神官の祝福」が後で fearImmuneRemaining を立てる。
+    const FRIGHTENED_DURATION = 3;   // 恐怖は3ターン継続
+    const FRIGHTENED_PENALTY  = 2;   // frightened: 攻撃ロール -2
+    function playerFearImmune() {
+      return !!(window.__fearImmune || (playerBuffs && playerBuffs.fearImmuneRemaining > 0));
+    }
+    function allyFearImmune(a) {
+      return !!(window.__fearImmune || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
+    }
+    // dc に対しパーティ全員 (頭 + 生存仲間) が d20+WIS を振り、失敗者に frightened を付与。
+    // 結果配列 [{kind, ally?, saved, immune?}] を返す (検証ドライバ用)。
+    function partyWillSave(dc) {
+      const results = [];
+      // ── 頭 (player) ──
+      if (hp > 0 && !gameOver) {
+        if (playerFearImmune()) {
+          results.push({ kind: "player", saved: true, immune: true });
+        } else {
+          const roll = d20();
+          const total = roll + (playerStats.wis || 0);
+          const saved = total >= dc;
+          if (!saved) {
+            playerBuffs.frightenedRemaining = Math.max(playerBuffs.frightenedRemaining || 0, FRIGHTENED_DURATION);
+            playerBuffs.frightenedPenalty = FRIGHTENED_PENALTY;
+          }
+          showRollAtPlayer(
+            `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
+            `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
+            saved ? "hit" : "miss");
+          results.push({ kind: "player", saved });
+        }
+      }
+      // ── 仲間 ──
+      for (const a of allies) {
+        if (!a.alive) continue;
+        if (allyFearImmune(a)) { results.push({ kind: "ally", ally: a, saved: true, immune: true }); continue; }
+        const roll = d20();
+        const total = roll + (a.wis || 0);
+        const saved = total >= dc;
+        if (!saved) {
+          a.buffs.frightenedRemaining = Math.max(a.buffs.frightenedRemaining || 0, FRIGHTENED_DURATION);
+          a.buffs.frightenedPenalty = FRIGHTENED_PENALTY;
+        }
+        showRollAtAlly(a,
+          `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(a.wis || 0)} = ${total}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        results.push({ kind: "ally", ally: a, saved });
+      }
+      return results;
+    }
+
     function resetAllyBuffs(ally) {
       ally.buffs.atkBonusRemaining = 0;
       ally.buffs.atkBonusAmount = 0;
@@ -9506,6 +9652,9 @@
       ally.buffs.evasionRemaining = 0;
       ally.buffs.luckyRemaining = 0;
       ally.buffs.luckyCritWiden = 0;
+      ally.buffs.frightenedRemaining = 0;
+      ally.buffs.frightenedPenalty = 0;
+      ally.buffs.fearImmuneRemaining = 0;
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
 
@@ -9759,6 +9908,20 @@
         sortUnits();
         updateInfo("行動順: " + units.map(u => `${u.name}(${u.initiative})`).join(" → "));
         await sleepMs(600);
+
+        // ── ボスの恐怖オーラ (リッチ Frightful Presence / Sce6 ファラクサス) ──
+        // 戦闘開始時に1回、def.fearDC を持つボスがいればパーティ全員が Will セーヴ。
+        const fearBossIdx = encounterEnemyIndices.find(i =>
+          enemies[i] && enemies[i].alive && enemies[i].def.isBoss && enemies[i].def.fearDC);
+        if (fearBossIdx !== undefined) {
+          const fb = enemies[fearBossIdx];
+          showBanner(`💀 ${fb.def.name} 恐怖のオーラ! 💀`, 1500);
+          showRollAtEnemy(fearBossIdx, `<span class="label">FRIGHTFUL PRESENCE</span>Will DC ${fb.def.fearDC}`, "crit");
+          updateInfo(`${fb.def.name} の威圧! パーティは Will セーヴ (DC ${fb.def.fearDC})`);
+          await sleepMs(900);
+          partyWillSave(fb.def.fearDC);
+          await sleepMs(1100);
+        }
 
         // ── ラウンドループ ──
         let round = 1;
@@ -10606,6 +10769,8 @@
       strikingRemaining: 0, strikingDie: 0,
       evasionRemaining: 0,                     // 盗賊 回避 (被ダメ半減)
       luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張)
+      frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
+      fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
     };
     function resetPlayerBuffs() {
       playerBuffs.atkBonusRemaining = 0;
@@ -10625,6 +10790,9 @@
       playerBuffs.evasionRemaining = 0;
       playerBuffs.luckyRemaining = 0;
       playerBuffs.luckyCritWiden = 0;
+      playerBuffs.frightenedRemaining = 0;
+      playerBuffs.frightenedPenalty = 0;
+      playerBuffs.fearImmuneRemaining = 0;
     }
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
@@ -10644,6 +10812,8 @@
         playerBuffs.luckyRemaining--;
         if (playerBuffs.luckyRemaining <= 0) playerBuffs.luckyCritWiden = 0;
       }
+      if (playerBuffs.frightenedRemaining > 0) playerBuffs.frightenedRemaining--;
+      if (playerBuffs.fearImmuneRemaining > 0) playerBuffs.fearImmuneRemaining--;
       // リーダースキルクールダウンも 1 進める (rogue の shadow-step CD など)
       for (const k of Object.keys(leaderSkillCooldowns)) {
         if (leaderSkillCooldowns[k] > 0) leaderSkillCooldowns[k]--;
@@ -10653,7 +10823,8 @@
       const w = getCurrentWeapon();
       const weaponEnh = (w && w.enhancement) || 0;
       return playerStats.atkBonus + weaponEnh +
-        (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0);
+        (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) -
+        playerFearPenalty();
     }
     function currentPlayerDmgBonus() {
       // 武器エンハンスメントをダメージにも加算
@@ -12301,9 +12472,18 @@
     function isUndeadEnemy(e) {
       return !!(e && ((e.def && e.def.undead) || e.type === "skeleton"));
     }
-    // 仲間の攻撃バフ (atkBonusRemaining)。リーダーは currentPlayerAtkBonus が別途反映。
+    // frightened (-2) ペナルティ。allyAtkBuff/currentPlayerAtkBonus に内包して to-hit へ反映。
+    function allyFearPenalty(ally) {
+      return (ally && ally.buffs && ally.buffs.frightenedRemaining > 0) ? (ally.buffs.frightenedPenalty || 0) : 0;
+    }
+    function playerFearPenalty() {
+      return (playerBuffs.frightenedRemaining > 0) ? (playerBuffs.frightenedPenalty || 0) : 0;
+    }
+    // 仲間の攻撃バフ (atkBonusRemaining) − frightened ペナルティ。リーダーは currentPlayerAtkBonus が別途反映。
+    // 主要近接 (allyBasicAttack/performAllyCounter) は本関数経由で恐怖が自動反映される。
     function allyAtkBuff(ally) {
-      return (ally && ally.buffs && ally.buffs.atkBonusRemaining > 0) ? (ally.buffs.atkBonusAmount || 0) : 0;
+      const buff = (ally && ally.buffs && ally.buffs.atkBonusRemaining > 0) ? (ally.buffs.atkBonusAmount || 0) : 0;
+      return buff - allyFearPenalty(ally);
     }
     // スロットのある最良(emergency=true)/最小(温存)の回復呪文 id を返す。無ければ null
     function bestAffordableHeal(ally, emergency) {
@@ -12555,7 +12735,7 @@
     // ══════════ 魔法使いスキル (Phase 2) ══════════
     // 呪文の命中補正 = atkBonus + INT (BAB + 能力値)
     function spellAtkBonus(ally) {
-      return ally.atkBonus + (ally.int || 0) + (ally.def.spellAtkBonus || 0);
+      return ally.atkBonus + (ally.int || 0) + (ally.def.spellAtkBonus || 0) - allyFearPenalty(ally);
     }
 
     // 必中ダメージ演出を含む魔法単体攻撃 (マジックミサイル)
@@ -13345,7 +13525,7 @@
 
       // 命中判定 (penalty 適用)
       const helpless = target.stunned > 0;
-      const atkBonus = ally.atkBonus - (skill.atkPenalty || 0);
+      const atkBonus = ally.atkBonus - (skill.atkPenalty || 0) - allyFearPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
@@ -13509,14 +13689,15 @@
 
       // 命中判定
       const helpless = target.stunned > 0;
+      const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
       const natD20 = d20();
-      const atkTotal = natD20 + ally.atkBonus;
+      const atkTotal = natD20 + aAtk;
       const isFumble = !helpless && natD20 === 1;
       const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
 
       if (isFumble) {
         showRollAtAlly(ally,
-          `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(ally.atkBonus)}`,
+          `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`,
           "fumble");
         await sleepMs(800);
         return;
@@ -13525,13 +13706,13 @@
       let isCrit = helpless;
       if (!hit) {
         showRollAtAlly(ally,
-          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(ally.atkBonus)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
+          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
           "miss");
         await sleepMs(700);
         return;
       }
       if (!helpless && isThreat) {
-        const cn = d20(), ct = cn + ally.atkBonus;
+        const cn = d20(), ct = cn + aAtk;
         if (ct >= effectiveEnemyAc(target)) isCrit = true;
       }
 
@@ -13602,8 +13783,9 @@
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
         const helpless = t.stunned > 0;
+        const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
-        const atkTotal = natD20 + ally.atkBonus;
+        const atkTotal = natD20 + aAtk;
         const isFumble = !helpless && natD20 === 1;
         const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
         const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(t);
@@ -13613,7 +13795,7 @@
         }
         let isCrit = helpless;
         if (!helpless && isThreat) {
-          const cn = d20(), ct = cn + ally.atkBonus;
+          const cn = d20(), ct = cn + aAtk;
           if (ct >= effectiveEnemyAc(t)) isCrit = true;
         }
         const critMult = ally.critMult || 2;
@@ -13664,8 +13846,9 @@
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
         const helpless = t.stunned > 0;
+        const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
-        const atkTotal = natD20 + ally.atkBonus;
+        const atkTotal = natD20 + aAtk;
         const isFumble = !helpless && natD20 === 1;
         const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
         const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(t);
@@ -13675,7 +13858,7 @@
         }
         let isCrit = helpless;
         if (!helpless && isThreat) {
-          const cn = d20(), ct = cn + ally.atkBonus;
+          const cn = d20(), ct = cn + aAtk;
           if (ct >= effectiveEnemyAc(t)) isCrit = true;
         }
         const critMult = ally.critMult || 2;
@@ -13855,6 +14038,8 @@
         ally.buffs.luckyRemaining--;
         if (ally.buffs.luckyRemaining <= 0) ally.buffs.luckyCritWiden = 0;
       }
+      if (ally.buffs.frightenedRemaining > 0) ally.buffs.frightenedRemaining--;
+      if (ally.buffs.fearImmuneRemaining > 0) ally.buffs.fearImmuneRemaining--;
       // スタン
       if (ally.stunned > 0) {
         ally.stunned--;
@@ -14297,7 +14482,7 @@
       await spawnArrow(launchX, launchY, ex, ey, 380);
 
       // 命中: 通常 atkBonus + DEX + skill.atkBonusAmount
-      const atkBonus = ally.atkBonus + (ally.dex || 0) + (skill.atkBonusAmount || 0);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) + (skill.atkBonusAmount || 0) - allyFearPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -14719,7 +14904,7 @@
       const dexMod = ally.dex || 4;
 
       // ── 主弾: 命中判定 (エイムドショット式)、4d8 + DEX、CRIT でダイス倍化 ──
-      const atkBonus = ally.atkBonus + dexMod;
+      const atkBonus = ally.atkBonus + dexMod - allyFearPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -15390,7 +15575,7 @@
       await sleepMs(420);
 
       // 命中判定 (helpless=スタン中の敵は automatic crit 扱い、D&D 3.5 RAW 寄り)
-      const atkBonus = ally.atkBonus + (ally.dex || 0);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -15470,7 +15655,7 @@
         const launchY = aCY - 4;
         await spawnArrow(launchX, launchY, ex, ey, 320, { variant: "thrownAxe", spinning: true });
         const helpless = target.stunned > 0;
-        const atkBonus = ally.atkBonus + (ally.dex || 0);
+        const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
         const natD20 = d20();
         const atkTotal = natD20 + atkBonus;
         const isFumble = !helpless && natD20 === 1;
@@ -15525,7 +15710,7 @@
       await sleepMs(500);
 
       const helpless = target.stunned > 0;
-      const atkBonus = ally.atkBonus + (ally.dex || 0);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
@@ -15948,6 +16133,11 @@
           showRollAtEnemy(idx,
             `<span class="label">RAGE!</span>激怒モード<br>攻撃 +2 / ダメ +2`, "crit");
           updateInfo(`${def.name} が激怒した! 攻撃・ダメージ上昇`);
+        }
+        if (def.fearDC) {
+          // 恐怖オーラ持ちボス (リッチ): 怒気で恐怖が増幅、再度 Will セーヴ
+          updateInfo(`${def.name} の怒気が恐怖を増幅! 再び Will セーヴ (DC ${def.fearDC})`);
+          partyWillSave(def.fearDC);
         }
         await sleepMs(1300);
       }

@@ -1,0 +1,4 @@
+# wraith — 3 ターン構成 (テンプレ把握 → 右歩き → 攻撃)
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_wraith/_prompt_walk.txt", "output": "source_images/enemy_wraith/レイス歩き.png"}
+{"prompt_file": "source_images/enemy_wraith/_prompt_attack.txt", "output": "source_images/enemy_wraith/レイス攻撃.png"}

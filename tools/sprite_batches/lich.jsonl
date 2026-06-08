@@ -1,0 +1,4 @@
+# lich — 3 ターン構成 (テンプレ把握 → 右歩き → 攻撃)
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_lich/_prompt_walk.txt", "output": "source_images/enemy_lich/リッチ歩き.png"}
+{"prompt_file": "source_images/enemy_lich/_prompt_attack.txt", "output": "source_images/enemy_lich/リッチ攻撃.png"}
