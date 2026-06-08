@@ -4213,6 +4213,34 @@
         deathLine: "…炎の…御方よ…我が血を…捧げ…ます…",
         xp: 900,
       },
+      // ── Sce3 隠し要素: 沼の守護神・古代ハイドラ (swamp-hydra.md) ──
+      // 多頭再生: 物理切断 → 頭が完全再生 (+1本・HP全回復) / 炎・酸切断 → 永続切除。
+      // 祭壇接近3択 (立ち去る/破壊/供物強奪) で覚醒。封印中は inactive+passiveNpc でクリア非ブロック。
+      hydra: {
+        name: "古代ハイドラ",
+        flavor: "沼の最深部に眠る五頭の守護神、リザードマンの崇める古き神",
+        badge: "🐲",
+        sprite: "assets/hydra_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 150,
+        hp: 34, speed: 0.6,                  // hp = 1頭ぶん (headHp)。HPバー=現在の頭
+        hasAttackAnim: true,
+        meleeRange: 210, hitRange: 300,
+        attackDuration: 40, attackHitFrame: 20, attackCooldown: 70,
+        str: 5, dex: 1, atkBonus: 8, ac: 15,
+        dmgDice: "1d10", dmgBonus: 5, critRange: 20, critMult: 2, // 噛みつき 1d10+5
+        range: "melee",
+        isBoss: true,
+        isHydra: true,                       // 隠しボスフラグ (initHydra で封印初期化)
+        multiHead: true, maxHeads: 5, headHp: 34, maxHeadsCap: 8,
+        dragHeadsThreshold: 2,               // 頭が初めて≤2 → 「沼の引き込み」
+        roarHeadsThreshold: 1,               // 頭が初めて≤1 (最後の頭) → 「激怒の咆哮」
+        fearDC: 15,                          // 咆哮の WIS 恐怖セーヴ
+        // ragePhaseHpRatio / maxSummons は意図的に未設定 (汎用激怒・召喚は使わず頭数で駆動)
+        deathLine: "…守護…神は…眠りに…還る……",
+        xp: 1100,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -4294,6 +4322,8 @@
           ["lizardWarrior", 50, 11], ["lizardHunter", 55, 15],
           // ROOM 4 蛇神の社・血染めの儀式広場: 信仰の中心、強敵集中 (司祭 + 襲撃者 + 戦士)
           ["lizardPriest", 65, 10], ["lizardRaider", 70, 14], ["lizardWarrior", 72, 17],
+          // ROOM 4 隠し要素: 沼の守護神 (封印。祭壇接近3択 → 破壊/供物強奪で覚醒。未覚醒なら inactive+passiveNpc でクリア非ブロック)
+          ["hydra", 68, 13],
           // ROOM 5 族長の謁見の間
           ["lizardChieftain", 86, 13],   // ボス: リザードマン族長
         ],
@@ -5951,6 +5981,7 @@
       orc:       "地響きがする。オークの群れだ。力押しには力で対抗しろ。",
       undead:    "空気が冷えた。アンデッドだ。聖なる力が頼りになるぞ。",
       beast:     "獣の気配が近い。警戒しろ。",
+      hydra:     "沼の水面が大きく波打つ。何か巨大なものが、底から這い上がってくる…",
       generic:   "敵が迫る。構えよ。",
     };
     function detectEnemyFamily(engagedIdxs) {
@@ -5965,6 +5996,7 @@
                  || t === "skeletonArcher" || t === "lich" || t === "caelum") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ + 霊カエルム(敵対時)
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
+        else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
         else if (t === "minotaur") fam = "orc";  // Sce6 ファラクサス暫定 (専用 family 未定義のため据置)
         counts[fam] = (counts[fam] || 0) + 1;
       }
@@ -7439,6 +7471,37 @@
 
     function defeatEnemy(index) {
       const enemy = enemies[index];
+      // ── 多頭ハイドラ: hp→0 は「頭が落ちた」イベント。炎/酸=永久切除、物理=完全再生 ──
+      if (enemy.def && enemy.def.multiHead && (enemy.hydraHeads || 0) > 0) {
+        const burned = !!enemy.__tookFireAcid;   // この頭の生存中に炎/酸を浴びたか
+        enemy.__tookFireAcid = false;            // 次の頭へ持ち越さない (sever ごとリセット)
+        if (burned) {
+          enemy.hydraHeads -= 1;
+          if (enemy.hydraHeads <= 0) {
+            // 最後の頭を焼き切った → 下の通常死亡処理へフォールスルー (撃破確定)
+          } else {
+            enemy.hp = enemy.headHpMax;
+            triggerEnemyDamageFlash(index);
+            showRollAtEnemy(index, `<span class="label">🔥 SEVERED</span>頭を焼き切った! 残り ${enemy.hydraHeads} 頭`, "crit");
+            updateInfo(`古代ハイドラ: 1つの頭を永久に焼き切った! (残り ${enemy.hydraHeads} 頭)`);
+            maybeHydraDragRoar(enemy, index);
+            return;   // 撃破ではない
+          }
+        } else {
+          // 炎/酸を浴びていない頭は物理で落としても完全再生 (+1本・HP全回復、上限 cap)
+          const cap = enemy.def.maxHeadsCap || 8;
+          if (enemy.hydraHeads < cap) enemy.hydraHeads += 1;
+          enemy.hp = enemy.headHpMax;
+          triggerEnemyDamageFlash(index);
+          showRollAtEnemy(index, `<span class="label">REGROW</span>頭が再生! ${enemy.hydraHeads} 頭`, "miss");
+          if (!enemy.__regrowNarrated && typeof showDMMessage === "function") {
+            enemy.__regrowNarrated = true;   // 「焼け!」のヒントは初回のみ (スパム防止)
+            showDMMessage("「斬り落とした首から、二本の新たな頭が生えた。このままでは終わらない…焼け!」", 3600);
+          }
+          maybeHydraDragRoar(enemy, index);
+          return;   // 撃破ではない (物理では死なない)
+        }
+      }
       enemy.alive = false;
       enemy.__diagDead = true;   // 自動デバッグ: 死亡反転検出マーカー
       // コインドロップは廃止 (報酬は宝箱とクリア報酬に集約)
@@ -7465,6 +7528,18 @@
           "巨人は瓦礫へと崩れ落ちた。砕けた胸甲の奥に、古代王国の紋章と…\n" +
           "炎竜の鱗が一片、埋め込まれている。なぜ、この古の砦に竜の鱗が…?", 4600), 700);
       }
+      // Sce3 隠し要素: 古代ハイドラ撃破 → 撃破ナレ + 報酬列挙 + ファラクサス伏線文書 (実アイテム化は後追い)
+      if (enemy.def && enemy.def.multiHead && typeof showDMMessage === "function") {
+        if (typeof showBanner === "function") showBanner("🐲 沼の守護神・古代ハイドラを討伐!", 2800);
+        setTimeout(() => showDMMessage(
+          "「最後の頭が地に落ちた。沼の水面に、かすかな波紋が広がり…そして静寂が戻った。\n" +
+          "リザードマンたちは、まるで魂が抜けたように地に伏している。」", 5200), 700);
+        setTimeout(() => updateInfo("入手: 多頭の鱗 / ハイドラの牙 / 古代の聖印 / 守護神のオベリスク片"), 1600);
+        setTimeout(() => showDMMessage(
+          "守護神の亡骸の傍ら、苔むした石板にこう刻まれていた —\n" +
+          "『我らの祖は蛇神に仕えし蜥蜴の民。龍と蛇は争い、蛇は封じられ、龍は今も眠る…\n" +
+          "その龍の名は、ファラクサス。』", 5600), 3400);
+      }
       if (enemy.weaponVisible && enemy.armorVisible) {
         updateInfo(`${nm}を倒した！ 宝箱2つが落ちた`);
       } else if (enemy.weaponVisible || enemy.armorVisible) {
@@ -7475,6 +7550,23 @@
       // XP 加算
       if (typeof gainXP === "function") {
         gainXP(enemy.def.xp || 0, nm);
+      }
+    }
+
+    // ハイドラ: 頭数しきい値で 沼の引き込み / 激怒の咆哮 を各1回発火 (頭は炎でしか減らない=しきい値は確定1回通過)
+    function maybeHydraDragRoar(enemy, index) {
+      const def = enemy.def;
+      if (!enemy.dragDone && enemy.hydraHeads <= (def.dragHeadsThreshold || 2)) {
+        enemy.dragDone = true;
+        if (typeof showBanner === "function") showBanner("🌊 沼の引き込み 🌊", 1600);
+        updateInfo("古代ハイドラ: 沼の引き込み! 次の一撃で単体を強く捕える");
+        enemy.__forceSmashNext = true;   // 次の噛撃を smash 相当 (強打) へ
+      }
+      if (!enemy.roarDone && enemy.hydraHeads <= (def.roarHeadsThreshold || 1)) {
+        enemy.roarDone = true;
+        if (typeof showBanner === "function") showBanner("🗣 激怒の咆哮 🗣", 1600);
+        updateInfo(`古代ハイドラ: 激怒の咆哮! 全員 WIS セーヴ (DC ${def.fearDC || 15})`);
+        if (def.fearDC && typeof partyWillSave === "function") partyWillSave(def.fearDC);
       }
     }
 
@@ -11077,6 +11169,8 @@
         const bd = parseDiceDD(bonusDice);
         const br = rollDiceDD(bd.n, bd.sides);
         const extra = Math.max(1, br.total);
+        // ハイドラ: 炎/酸の追撃属性は「火で焼き切った」扱い (首の永久切除を許可)
+        if (bonusType === "fire" || bonusType === "acid") target.__tookFireAcid = true;
         target.hp = Math.max(0, target.hp - extra);
         triggerEnemyDamageFlash(targetIdx);
         // 属性エフェクト (suppressFx 指定時はスキップ)
@@ -12039,6 +12133,90 @@
         el.style.opacity = "1";
         el.style.filter = "brightness(1.6) saturate(1.3)";
         setTimeout(() => { if (el) el.style.filter = ""; }, 700);
+      }
+    }
+
+    // ── Sce3 隠し要素: 沼の守護神・古代ハイドラ (swamp-hydra.md) ──
+    // 封印中は inactive+passiveNpc (クリア非ブロック)。祭壇 (=ハイドラ位置) 接近で3択 →
+    // 破壊/供物強奪で覚醒、立ち去れば封印維持で回避可能。initCaelum と同方針。
+    let hydraIdx = -1, hydraResolved = false, hydraAwakened = false;
+    const ALTAR_APPROACH_RADIUS = 160;
+
+    function initHydra() {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.def || !e.def.isHydra) continue;
+        e.inactive = true;
+        e.passiveNpc = true;                       // 封印中はクリア判定からも除外
+        e.hydraHeads = e.def.maxHeads || 5;
+        e.headHpMax = e.def.headHp || e.def.hp || 34;
+        e.hp = e.headHpMax; e.maxHp = e.headHpMax;  // HPバー=現在の頭ぶん
+        e.dragDone = false; e.roarDone = false;
+        e.__tookFireAcid = false; e.__regrowNarrated = false;
+        hydraIdx = ei;
+        const el = enemyElements[ei];
+        if (el) {                                  // 封印=水没した暗い影
+          el.classList.add("hydra-sealed");
+          el.style.filter = "grayscale(0.5) brightness(0.6) saturate(0.7) drop-shadow(0 0 16px rgba(40,90,70,0.85))";
+          el.style.opacity = "0.7";
+        }
+      }
+    }
+
+    // 接近tick: 祭壇 (=ハイドラ) に近づいたら3択を1回だけ起動 (戦闘外・封印中のみ)。
+    async function tryApproachAltar() {
+      if (!gameStarted || gameOver || hydraResolved || hydraIdx < 0) return;
+      if (encounterActive || encounterRunning) return;
+      if (hp <= 0) return;
+      const e = enemies[hydraIdx];
+      if (!e || !e.alive || !e.inactive) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      const ds = e.def.displaySize || TILE_SIZE;
+      const ecx = e.x + ds / 2, ecy = e.y + ds / 2;
+      if (Math.hypot(pCX - ecx, pCY - ecy) > ALTAR_APPROACH_RADIUS) return;
+      hydraResolved = true;                        // 多重起動防止 (async 前に確定)
+      await runAltarDialog();
+    }
+    setInterval(tryApproachAltar, 400);
+
+    // 祭壇対話: 発見ナレ → 3択 → 破壊/供物強奪で覚醒、立ち去りで封印維持 (回避ルート)。
+    async function runAltarDialog() {
+      showDMMessage("沼の最深部、水没した遺跡の中央に、苔むした巨大な祭壇がある。周囲には新鮮な供物 — 魚、宝石、磨かれた骨が並べられている。リザードマンたちが、ここで何かを敬っているのは間違いない。", 5200);
+      await sleepMs(1300);
+      // 先頭=立ち去る: showCharChoice は autoplay 時 index 0 を自動選択するため、巡回検証は
+      // 封印維持 (戦闘なし) で安全に完走できる。
+      const c = await showCharChoice(
+        "苔むした祭壇。供物が捧げられている。どうする?",
+        [{ label: "立ち去る(封印を保つ)" }, { label: "祭壇を破壊する" }, { label: "供物を奪う" }],
+        "そっとしておく (Esc)");
+      if (c === 1 || c === 2) {
+        await awakenHydra(c);
+      } else {
+        // c === 0 または null: 封印維持 (passiveNpc のままクリア非ブロック、報酬なし)
+        showDMMessage("供物に手を触れず、静かにその場を後にした。守護神は、眠ったままだ…", 3000);
+      }
+    }
+
+    // 覚醒: 砕け散る祭壇ナレ → passiveNpc/inactive 解除で戦闘化 (tryStartEncounter が単体戦を開始)。
+    async function awakenHydra(choice) {
+      if (hydraAwakened || hydraIdx < 0) return;
+      hydraAwakened = true;
+      const e = enemies[hydraIdx];
+      showDMMessage(choice === 1
+        ? "祭壇に刃を振り下ろした。古き石が砕け散った瞬間、沼の水が爆ぜた…!"
+        : "供物の宝石を奪い取った。封印の均衡が崩れ、沼の水が音を立てて渦巻きはじめる…!", 4200);
+      await sleepMs(1500);
+      showBanner("🐲 守護神、覚醒! 🐲", 2000);
+      showDMMessage("巨大な影が、五つの頭をもたげながら、闇から這い上がってくる。リザードマンたちが一斉に叫んだ — 『守護神よ!守護神よ!』", 5200);
+      try { if (typeof sfx === "function") sfx("bossDeath"); } catch (err) {}
+      await sleepMs(1400);
+      if (e) { e.passiveNpc = false; e.inactive = false; }   // 戦闘化 (Caelum hostile と同方針)
+      const el = enemyElements[hydraIdx];
+      if (el) {
+        el.classList.remove("hydra-sealed");
+        el.style.opacity = "1";
+        el.style.filter = "brightness(1.7) saturate(1.4) drop-shadow(0 0 18px rgba(80,200,140,0.9))";
+        setTimeout(() => { if (el) el.style.filter = ""; }, 900);
       }
     }
 
@@ -13144,6 +13322,7 @@
       const fxY = target.y + (tgtDef.displaySize || 64) / 2;
       playFlameTongueImpactFx(ex, fxY, enemyIdx, isCrit);
 
+      target.__tookFireAcid = true;   // ハイドラ: ファイアボルトの炎で首切除可
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
       noteDisplacementHit(enemyIdx);
@@ -13395,6 +13574,7 @@
         dmg = Math.max(1, dmg);
         // 残影回避判定 (Phase 2-A)
         if (tryDisplacement(idx)) continue;
+        t.__tookFireAcid = true;   // ハイドラ: ファイアボールの炎で首切除可 (per-target)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -13711,6 +13891,7 @@
         if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
         dmg = Math.max(1, dmg);
         if (tryDisplacement(idx)) continue;
+        t.__tookFireAcid = true;   // ハイドラ: バーニングハンズの炎で首切除可 (per-target)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -16349,7 +16530,8 @@
       }
 
       // ── ボス: 第二フェーズへの移行チェック (一度だけ) ──
-      if (def.isBoss && !enemy.ragePhaseEntered &&
+      // ハイドラ (multiHead) は汎用激怒を使わず、頭数しきい値で drag/roar を駆動する (除外)
+      if (def.isBoss && !def.multiHead && !enemy.ragePhaseEntered &&
           enemy.hp <= enemy.maxHp * (def.ragePhaseHpRatio || 0.5)) {
         enemy.ragePhaseEntered = true;
         enemy.phase = 1;
@@ -16376,14 +16558,22 @@
 
       // ── ボス: 行動選択 (normal / smash / summon) ──
       let bossAction = "normal";
-      if (def.isBoss) {
+      if (def.isBoss && !def.multiHead) {   // ハイドラは召喚/smash抽選せず頭数ぶん噛撃
         bossAction = pickBossAction(enemy);
         if (bossAction === "summon") {
           await bossTurnSummon(idx);
           return;  // このターンは召喚で終了 (攻撃なし=隙あり)
         }
       }
+      // ハイドラ: 沼の引き込み発動時、このターンの初撃を smash 相当 (強打) にする
+      if (def.multiHead && enemy.__forceSmashNext) {
+        bossAction = "smash";
+        enemy.__forceSmashNext = false;
+      }
 
+      // ── 多頭ハイドラ: 1噛撃の解決を内部関数化し頭数ぶんループ (各噛撃で再ターゲット=隊長/仲間へ分散) ──
+      // 内部の return は「その噛撃の終了」を意味する (out-of-range前進/ミス/回避/撃破委譲など)。
+      async function resolveOneBite() {
       // ── ターゲット選択: 最寄りの生存パーティーメンバー (または第三勢力時は他の敵も) ──
       const pick = pickEnemyTarget(idx);
       if (!pick) return;
@@ -16625,6 +16815,16 @@
 
       // オートガード解除 (次のターン用にリセット)
       if (autoGuardActive) isGuarding = false;
+      }   // ← resolveOneBite 終端
+
+      // 頭数ぶん噛撃 (multiHead 以外は 1 回 = 従来挙動と同一)。死のスパイラル上限は maxHeadsCap で有界。
+      const biteCount = def.multiHead ? Math.max(1, enemy.hydraHeads || 1) : 1;
+      for (let b = 0; b < biteCount; b++) {
+        if (gameOver || hp <= 0 || !enemy.alive) break;
+        await resolveOneBite();
+        if (b === 0) bossAction = "normal";          // smash (沼の引き込み) は初撃のみ
+        if (b < biteCount - 1) await sleepMs(260);    // 連続噛撃のテンポ
+      }
     }
 
     // 敵が仲間キャラを攻撃する (DR/回避/不屈/ドワーフの意地/カウンター 対応)
@@ -17097,6 +17297,7 @@
     linkCagedBeasts();
     initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
     initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
+    initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 

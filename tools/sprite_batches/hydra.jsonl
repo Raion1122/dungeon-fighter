@@ -1,0 +1,5 @@
+# 古代ハイドラ (hydra) — 3 ターン構成 (テンプレ把握 → walk → attack)
+# 蛇体・非人型ミニボス。lizardChieftain.jsonl のシンプル路線に準拠。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",  "expect_image": false}
+{"prompt_file": "source_images/enemy_hydra/_prompt_walk.txt",   "output": "source_images/enemy_hydra/ハイドラ歩き.png"}
+{"prompt_file": "source_images/enemy_hydra/_prompt_attack.txt", "output": "source_images/enemy_hydra/ハイドラ攻撃.png"}
