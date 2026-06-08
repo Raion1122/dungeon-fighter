@@ -2655,6 +2655,25 @@
     }
     const mapData = buildMap();
 
+    // ── フォグオブウォー強化: 職業別視界レンジ + 探索記憶 ──────────────
+    // tiles=視界半径(タイル数、視界/エンカウント判定用)、inner/outer=放射光半径(px、drawLight用)
+    // 仕様: ドワーフ広い(インフラビジョン)→エルフやや広い→戦士/僧侶/盗賊 標準→魔法使いやや狭い
+    const CLASS_SIGHT = {
+      mage:    { tiles: 3, inner: 120, outer: 260 },
+      warrior: { tiles: 4, inner: 150, outer: 330 },
+      cleric:  { tiles: 4, inner: 150, outer: 330 },
+      rogue:   { tiles: 4, inner: 150, outer: 330 },
+      elf:     { tiles: 5, inner: 180, outer: 400 },
+      dwarf:   { tiles: 6, inner: 210, outer: 470 },
+    };
+    const DEFAULT_SIGHT = CLASS_SIGHT.warrior;
+    function getSight(classKey) { return CLASS_SIGHT[classKey] || DEFAULT_SIGHT; }
+    // 探索記憶(ロード毎に0初期化、シナリオ跨ぎリセット不要)。
+    //   exploredTiles: 一度視認したタイル=1(累積)。visibleTiles: 現在視界内=1(毎更新クリア)。
+    const exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    const visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    let lastVisSignature = "";
+
     // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
     // シナリオ別に、特定の部屋を 1枚絵 (PNG) でレンダリング。
     // tileBounds = [r1, c1, r2, c2] (両端含む、画像はこの矩形ぴったりを覆う)
@@ -3211,9 +3230,27 @@
       lctx.fillStyle = "rgba(3, 5, 10, 1.0)";
       lctx.fillRect(0, 0, W, H);
 
-      // (旧) 探索済みタイルの薄表示は撤去 — 明かりの範囲外は再び暗闇に戻す
       // 明かりは destination-out で暗闇を削って描画する
       lctx.globalCompositeOperation = "destination-out";
+
+      // 探索記憶レイヤー(3状態フォグ): 一度視認したタイルを薄明で「記憶」表示する。
+      // destination-out なので暗幕の α を 0.30 だけ削る = 薄明(dst≈0.70)。
+      // 現在視界はこの後の放射 drawLight 群が高 α で更に削り「明るい(dst≈0)」状態にする。
+      // タイル 1 回ずつ塗る(同タイル重複塗りでの削りすぎを防止)。
+      {
+        const exStartTX = Math.max(0, Math.floor(camX / TILE_SIZE));
+        const exStartTY = Math.max(0, Math.floor(camY / TILE_SIZE));
+        const exEndTX = Math.min(MAP_W - 1, Math.ceil((camX + W) / TILE_SIZE));
+        const exEndTY = Math.min(MAP_H - 1, Math.ceil((camY + H) / TILE_SIZE));
+        lctx.fillStyle = "rgba(255,255,255,0.30)";
+        for (let ty = exStartTY; ty <= exEndTY; ty++) {
+          const exRow = exploredTiles[ty];
+          for (let tx = exStartTX; tx <= exEndTX; tx++) {
+            if (!exRow[tx]) continue;          // 未探索 → 塗らない → 暗黒のまま
+            lctx.fillRect(tx * TILE_SIZE - camX, ty * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE);
+          }
+        }
+      }
 
       function drawLight(cx, cy, inner, outer, strongAlpha = 1, midAlpha = 0.55, rgb = "255,255,255") {
         const grad = lctx.createRadialGradient(cx, cy, 0, cx, cy, outer);
@@ -3231,7 +3268,8 @@
       const pScreenY = playerY + 48 - camY;
       // ちらつき(tickで微変動)
       const flicker = 1 + Math.sin(Date.now() / 120) * 0.04 + Math.cos(Date.now() / 83) * 0.03;
-      drawLight(pScreenX, pScreenY, 140 * flicker, 300 * flicker, 1, 0.65);
+      const pSight = getSight(leaderClassKey);
+      drawLight(pScreenX, pScreenY, pSight.inner * flicker, pSight.outer * flicker, 1, 0.65);
 
       // 各仲間の視界 (クラスごとに色味を変えて差別化、プレイヤーより一回り小さい)
       const ALLY_LIGHT_RGB = {
@@ -3246,12 +3284,13 @@
           if (!ally.alive) continue;
           const cx = ally.x + ally.def.displaySize / 2 - camX;
           const cy = ally.y + ally.def.displaySize / 2 - camY;
-          if (cx < -260 || cx > W + 260 || cy < -260 || cy > H + 260) continue;
+          if (cx < -500 || cx > W + 500 || cy < -500 || cy > H + 500) continue;
           // 仲間ごとに位相をずらしたちらつき
           const af = 1 + Math.sin(Date.now() / 135 + i * 1.7) * 0.04
                        + Math.cos(Date.now() / 91  + i * 2.3) * 0.03;
           const rgb = ALLY_LIGHT_RGB[ally.classKey] || "255,255,255";
-          drawLight(cx, cy, 100 * af, 220 * af, 0.9, 0.55, rgb);
+          const aSight = getSight(ally.classKey);
+          drawLight(cx, cy, aSight.inner * af, aSight.outer * af, 0.9, 0.55, rgb);
         }
       }
 
@@ -6641,6 +6680,7 @@
     function updatePositions() {
       updateCamera();
       renderMap();
+      computeVisibleTiles();
       renderLighting();
       updateGroundFx();
 
@@ -6700,6 +6740,23 @@
         const weaponEl = weaponDropElements[index];
         const armorEl  = armorDropElements[index];
         const alertEl  = alertMarkElements[index];
+
+        // 伏兵化(フォグ): 通常の idle 敵で未視認のものは隠す。視認したら everSeen で永続表示(ちらつき防止)。
+        //   inactive(檻)/passiveNpc/isNpcSpirit(カエルム霊)は演出保護のため常時表示で除外。
+        //   動き出した敵(alert/chase/search/returning)は隠さない(突進の不自然さ回避)。
+        if (enemy.alive && !enemy.everSeen && isEnemyVisibleToParty(enemy)) enemy.everSeen = true;
+        const protectedNpc = enemy.inactive || enemy.passiveNpc || (enemy.def && enemy.def.isNpcSpirit);
+        if (enemy.alive && !protectedNpc && !enemy.everSeen && enemy.state === "idle") {
+          enemyEl.style.display = "none";
+          hpBarEl.style.display = "none";
+          coinEl.style.display = "none";
+          weaponEl.style.display = "none";
+          armorEl.style.display = "none";
+          alertEl.style.display = "none";
+          const _badgeEl = enemyBadgeElements[index];
+          if (_badgeEl) _badgeEl.style.display = "none";
+          return;   // 描画スキップ(forEach 次の敵へ)
+        }
 
         if (enemy.alive) {
           enemyEl.style.display = "block";
@@ -7942,6 +7999,51 @@
       return false;
     }
     // ─────────────────────────────────────────────────────────────
+
+    // ── フォグオブウォー: 視界タイル計算 + 敵可視判定 ──────────────
+    // パーティ(主人公+生存仲間)の視界から visibleTiles/exploredTiles を更新。
+    // タイル座標シグネチャが前回と同じ(誰も別タイルへ移動していない)ならスキップ。
+    function computeVisibleTiles() {
+      const members = [];
+      members.push({ cx: playerX + 48, cy: playerY + 58, s: getSight(leaderClassKey) });
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a.alive) continue;
+          members.push({ cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2, s: getSight(a.classKey) });
+        }
+      }
+      let sig = "";
+      for (const m of members) sig += Math.floor(m.cx / TILE_SIZE) + "," + Math.floor(m.cy / TILE_SIZE) + "|";
+      if (sig === lastVisSignature) return;   // 移動なし → 再計算不要
+      lastVisSignature = sig;
+
+      for (let r = 0; r < MAP_H; r++) visibleTiles[r].fill(0);
+      for (const m of members) {
+        const cTX = Math.floor(m.cx / TILE_SIZE), cTY = Math.floor(m.cy / TILE_SIZE);
+        const R = m.s.tiles;
+        for (let dr = -R; dr <= R; dr++) {
+          const ty = cTY + dr; if (ty < 0 || ty >= MAP_H) continue;
+          for (let dc = -R; dc <= R; dc++) {
+            const tx = cTX + dc; if (tx < 0 || tx >= MAP_W) continue;
+            if (dr * dr + dc * dc > R * R) continue;     // 円形視界
+            if (visibleTiles[ty][tx]) continue;          // 既可視なら LOS 省略
+            const tcx = tx * TILE_SIZE + TILE_SIZE / 2, tcy = ty * TILE_SIZE + TILE_SIZE / 2;
+            if (hasLineOfSight(m.cx, m.cy, tcx, tcy)) {
+              visibleTiles[ty][tx] = 1;
+              exploredTiles[ty][tx] = 1;
+            }
+          }
+        }
+      }
+    }
+    // 敵中心タイルが現在パーティ視界内か(伏兵/エンカウント判定用)
+    function isEnemyVisibleToParty(enemy) {
+      const ds = (enemy.def && enemy.def.displaySize) || TILE_SIZE;
+      const tx = Math.floor((enemy.x + ds / 2) / TILE_SIZE);
+      const ty = Math.floor((enemy.y + ds / 2) / TILE_SIZE);
+      if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
+      return visibleTiles[ty][tx] === 1;
+    }
 
     // ── A* パスファインディング ──────────────────────────────────
     // aStar: avoidTiles (Set<string> "tx,ty") に含まれるタイルは壁扱い
@@ -9732,7 +9834,8 @@
         const d = Math.hypot(pCX - ex, pCY - ey);
         const enemyRange = getRange(e.def.range || "melee");
         const engageDist = enemyRange.engagePx + (extraPx || 0);
-        if (d < engageDist && hasLineOfSight(pCX, pCY, ex, ey)) {
+        // フォグ視界 gating: 敵がパーティ視界内に入るまで戦闘開始/増援しない(伏兵化)
+        if (d < engageDist && hasLineOfSight(pCX, pCY, ex, ey) && isEnemyVisibleToParty(e)) {
           list.push(i);
         }
       }
