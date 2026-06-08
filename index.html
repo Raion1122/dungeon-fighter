@@ -11898,6 +11898,23 @@
     }
 
     // ── カウンター (被弾後の自動反撃) ──
+    // バランス: 被弾ごと 50% 発動 + 近接間合いの敵にのみ反撃 (プレイヤー/仲間 共通)
+    const COUNTER_CHANCE = 0.5;
+    // 指定座標 (cx,cy) から見て enemyIdx が近接間合い (1タイル) にいるか
+    function isEnemyInMeleeReach(originCX, originCY, enemyIdx) {
+      const e = enemies[enemyIdx];
+      if (!e) return false;
+      const eCX = e.x + e.def.displaySize / 2;
+      const eCY = e.y + e.def.displaySize / 2;
+      return tileChebyshev(originCX, originCY, eCX, eCY) <= getRange("melee").tiles;
+    }
+    // 被弾後カウンターを発動すべきか (生存後に呼ぶ)。dmg>0 / 敵生存 / 近接 / 50% を満たす
+    function shouldCounter(hasCounterSkill, dmg, enemyIdx, originCX, originCY) {
+      return hasCounterSkill && dmg > 0 && enemies[enemyIdx] && enemies[enemyIdx].alive
+        && isEnemyInMeleeReach(originCX, originCY, enemyIdx)
+        && Math.random() < COUNTER_CHANCE;
+    }
+
     async function performCounter(enemyIdx) {
       if (!enemies[enemyIdx].alive) return;
       sfx("counter");
@@ -11910,6 +11927,79 @@
         dmgBonus: playerStats.str,
         range: "melee",
       });
+    }
+
+    // ── 仲間カウンター (被弾後の自動反撃、1d8+STR、近接) ──
+    async function performAllyCounter(ally, enemyIdx) {
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      if (Math.abs(ex - aCX) > 2) ally.facing = ex > aCX ? "right" : "left";
+
+      sfx("counter");
+      showRollAtAlly(ally, `<span class="label">カウンター</span>反撃!`, "crit");
+      flashAction(ally.el, "skill");
+      startAllyAttackAnim(ally);
+      await sleepMs(400);
+
+      const helpless = target.stunned > 0;
+      const natD20 = d20();
+      const aAtk = ally.atkBonus + allyAtkBuff(ally);
+      const atkTotal = natD20 + aAtk;
+      const isFumble = !helpless && natD20 === 1;
+      const isThreat = natD20 >= effectiveCritRange(ally) && !isFumble;
+      const ac = effectiveEnemyAc(target);
+
+      if (isFumble) {
+        showRollAtAlly(ally, `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`, "fumble");
+        await sleepMs(700);
+        return;
+      }
+      const hit = helpless || isThreat || atkTotal >= ac;
+      let isCrit = helpless;
+      if (!hit) {
+        showRollAtAlly(ally,
+          `<span class="label">カウンター MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${ac}`,
+          "miss");
+        await sleepMs(450);
+        return;
+      }
+      if (!helpless && isThreat) {
+        const cn = d20(), ct = cn + aAtk;
+        if (ct >= ac) isCrit = true;
+      }
+      showRollAtAlly(ally,
+        `<span class="label">${isCrit ? "カウンター CRIT!" : "カウンター HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = <span class="big">${atkTotal}</span><br>vs AC ${ac}`,
+        isCrit ? "crit" : "hit");
+      await sleepMs(300);
+
+      // ダメージ: 1d8 + STR (crit で 1d8 とボーナス両方を倍化)
+      const times = isCrit ? ally.critMult : 1;
+      let rolls = [];
+      for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(1, 8).rolls);
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + ally.str * times);
+
+      // 残影回避 / ゴーレム非魔法物理免疫 はカウンターでも尊重
+      if (tryDisplacement(enemyIdx)) { await sleepMs(420); return; }
+      if (golemPhysImmune(enemyIdx, ally.weaponEnhancement || 0)) {
+        showRollAtEnemy(enemyIdx, `<span class="label">IMMUNE</span>通用しない!`, "miss");
+        updateInfo(`${ally.def.name}: 非魔法のカウンターは ${tgtDef.name} に通用しない!`);
+        noteDisplacementHit(enemyIdx);
+        await sleepMs(380);
+        return;
+      }
+      target.hp -= dmg;
+      if (target.hp < 0) target.hp = 0;
+      triggerEnemyDamageFlash(enemyIdx);
+      noteDisplacementHit(enemyIdx);
+      showHitSpark(enemyIdx, isCrit);
+      showDmgAt(ex, target.y, dmg, isCrit);
+      updateInfo(`${ally.def.name}: カウンター! ${tgtDef.name} に ${dmg} ダメージ`);
+      await sleepMs(400);
+      if (target.hp <= 0) { defeatEnemy(enemyIdx); await sleepMs(400); }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -16105,8 +16195,8 @@
         return;
       }
 
-      // カウンター: 被弾後の自動反撃 (生存 & ダメージ>0 & 敵生存 のときだけ)
-      if (dmg > 0 && equippedSkills.includes("counter") && enemies[idx].alive) {
+      // カウンター: 被弾後の自動反撃 (生存 & ダメージ>0 & 敵生存 & 近接 & 50%)
+      if (shouldCounter(equippedSkills.includes("counter"), dmg, idx, playerX + 48, playerY + 58)) {
         await sleepMs(200);
         await performCounter(idx);
       }
@@ -16115,7 +16205,7 @@
       if (autoGuardActive) isGuarding = false;
     }
 
-    // 敵が仲間キャラを攻撃する (DR/回避/不屈/ドワーフの意地 対応。カウンターのみ未対応)
+    // 敵が仲間キャラを攻撃する (DR/回避/不屈/ドワーフの意地/カウンター 対応)
     async function enemyAttackAllyTarget(enemyIdx, allyIdx, bossAction) {
       const enemy = enemies[enemyIdx];
       const def = enemy.def;
@@ -16279,6 +16369,14 @@
       } else {
         // ドワーフの意地: HP が閾値以下まで落ちたら自動発動
         await checkDwarvenGritTrigger(ally);
+        // カウンター: 被弾後の自動反撃 (ダメージ>0 & 敵生存 & 近接 & 50%)。戦士系の "counter" 装備仲間のみ
+        const aCX = ally.x + ally.def.displaySize / 2;
+        const aCY = ally.y + ally.def.displaySize / 2;
+        if (ally.equippedSkills
+            && shouldCounter(ally.equippedSkills.includes("counter"), finalDmg, enemyIdx, aCX, aCY)) {
+          await sleepMs(200);
+          await performAllyCounter(ally, enemyIdx);
+        }
       }
     }
 

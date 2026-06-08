@@ -61,7 +61,7 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 
 ## 既に実装済の機能(2026-04 時点)
 
-- 戦士の通常攻撃・盾構えカウンター(カウンター強すぎ調整待ち)
+- 戦士の通常攻撃・盾構えカウンター(2026-06-08 バランス調整済: 被弾ごと50%発動+近接間合い限定。プレイヤー/NPC仲間 共通)
 - 盗賊の Hide in Shadows + Sneak Attack コンボ
 - 魔法使いの Magic Missile + Sleep
 - 上から見下ろし 2D アクション部分(基本動作)
