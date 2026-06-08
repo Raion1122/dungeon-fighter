@@ -1,0 +1,3 @@
+# caelum (神官の霊) — walk のみ (attack 無し: def に hasAttackAnim 無し)。テンプレ把握 → 右歩き
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_caelum/_prompt_walk.txt", "output": "source_images/enemy_caelum/カエルム歩き.png"}

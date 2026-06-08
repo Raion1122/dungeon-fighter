@@ -3748,6 +3748,30 @@
         undead: true,
         xp: 1200,
       },
+      // ── Sce5 隠し要素: 神殿の高位神官の霊カエルム (temple-ghost.md) ──
+      // 接近で対話ポップアップ (弔い=友好で永続「神官の祝福」/無視=中立/攻撃=霊戦)。
+      // 友好・無視ルートでは戦わず passiveNpc のまま (勝利判定から除外)。
+      // 敵対ルートで Horrifying Visage (partyWillSave DC13) → 単体戦。D&D 5e Ghost ベース。
+      caelum: {
+        name: "カエルム",
+        flavor: "100年この地に縛られた高位神官の霊",
+        badge: "🕯",
+        sprite: "assets/caelum_anim.png?v=1",
+        sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 120,
+        hp: 45, ac: 11,
+        str: 7, dex: 13, con: 10, int: 14, wis: 16, cha: 17,
+        atkBonus: 5,                  // Ethereal Touch 命中+5
+        dmgDice: "4d6", dmgBonus: 3,  // 4d6+3 ネクロティック
+        critRange: 20, critMult: 2,
+        range: "melee",
+        fearDC: 13,                   // Horrifying Visage (caelumHostileRoute で手動発火)
+        undead: true,
+        isNpcSpirit: true,            // 初期 inactive + 接近で対話 (initCaelum/tryApproachCaelum)
+        deathLine: "100年の未練が…君たちの剣で、終わった……それが、救い、だったのか…",
+        clearReward: "古代の聖印",
+        xp: 600,
+      },
       orc: {
         name: "オーク",
         flavor: "屈強な戦士族",
@@ -4277,6 +4301,8 @@
           ["skeletonArcher", 65, 10], ["wraith", 70, 14], ["zombie", 72, 17],
           // ROOM 5 召喚の儀の間
           ["lich", 86, 13],   // ボス: リッチ (Frightful Presence DC16、スケルトン召喚)
+          // 隠し要素: 神官の霊カエルム (リッチ手前の聖域。接近で対話、初期 inactive)
+          ["caelum", 81, 18],
         ],
       },
       "dragon-lair": {
@@ -5897,7 +5923,7 @@
         if (t.startsWith("goblin")) fam = "goblinoid";
         else if (t.startsWith("bandit") || t === "scar") fam = "bandit";
         else if (t === "skeleton" || t === "zombie" || t === "wraith"
-                 || t === "skeletonArcher" || t === "lich") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ
+                 || t === "skeletonArcher" || t === "lich" || t === "caelum") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ + 霊カエルム(敵対時)
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
         else if (t === "minotaur") fam = "orc";  // Sce6 ファラクサス暫定 (専用 family 未定義のため据置)
@@ -8884,7 +8910,9 @@
     let dungeonCleared = false;
     function checkDungeonClear() {
       if (dungeonCleared || gameOver) return;
-      if (enemies.every(e => !e.alive) && visitedRooms.size >= ROOMS.length - 2) {
+      // passiveNpc (未対話/友好/無視のカエルム霊) は撃破対象ではないのでクリア判定から除外。
+      // 敵対化すると passiveNpc=false になり、通常敵同様に撃破が必要。
+      if (enemies.every(e => !e.alive || e.passiveNpc) && visitedRooms.size >= ROOMS.length - 2) {
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
         for (const a of allies) {
@@ -9585,11 +9613,20 @@
     // 現状 false 固定、カエルム「神官の祝福」が後で fearImmuneRemaining を立てる。
     const FRIGHTENED_DURATION = 3;   // 恐怖は3ターン継続
     const FRIGHTENED_PENALTY  = 2;   // frightened: 攻撃ロール -2
+    // Sce5 隠し要素「神官の祝福」(カエルム友好ルート): 全パーティ恐怖免疫。
+    // 永続 + シナリオ跨ぎ (localStorage)。Sce5 リッチ・Sce6 ファラクサスの Frightful Presence を無効化。
+    let templeBlessing = false;
+    try { templeBlessing = (localStorage.getItem("dragonfighters.templeBlessing") === "1"); } catch (e) {}
+    function grantTempleBlessing() {
+      templeBlessing = true;
+      try { localStorage.setItem("dragonfighters.templeBlessing", "1"); } catch (e) {}
+      try { sfx("levelup"); } catch (e) {}
+    }
     function playerFearImmune() {
-      return !!(window.__fearImmune || (playerBuffs && playerBuffs.fearImmuneRemaining > 0));
+      return !!(window.__fearImmune || templeBlessing || (playerBuffs && playerBuffs.fearImmuneRemaining > 0));
     }
     function allyFearImmune(a) {
-      return !!(window.__fearImmune || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
+      return !!(window.__fearImmune || templeBlessing || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
     }
     // dc に対しパーティ全員 (頭 + 生存仲間) が d20+WIS を振り、失敗者に frightened を付与。
     // 結果配列 [{kind, ally?, saved, immune?}] を返す (検証ドライバ用)。
@@ -11809,6 +11846,98 @@
     }
 
     setInterval(tryAwakenGuardian, 400);
+
+    // ── Sce5 隠し要素: 神殿の高位神官の霊カエルム (temple-ghost.md) ──
+    // 接近で対話ポップアップ → 弔い(友好=神官の祝福)/無視(中立)/攻撃(霊戦)。
+    // tryAwakenGuardian と同方針 (400ms tick + 距離判定、戦闘外でのみ起動)。
+    let caelumIdx = -1, caelumResolved = false;
+    const CAELUM_TALK_RADIUS = 150;
+
+    // isNpcSpirit を初期 inactive + passiveNpc 化 (勝利判定除外) + 聖域の発光ビジュアル。
+    // spawnCages/linkCagedBeasts/initGuardians と並んでセットアップ末尾で呼ぶ。
+    function initCaelum() {
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.def || !e.def.isNpcSpirit) continue;
+        e.inactive = true;
+        e.passiveNpc = true;            // 戦わない間はクリア判定からも除外
+        caelumIdx = ei;
+        const el = enemyElements[ei];
+        if (el) {
+          el.classList.add("caelum-spirit");
+          el.style.filter = "brightness(1.25) saturate(0.6) drop-shadow(0 0 14px rgba(160,200,255,0.85))";
+          el.style.opacity = "0.82";
+        }
+      }
+    }
+
+    // 接近tick: カエルムに十分近づいたら対話を1回だけ起動 (戦闘外でのみ)。
+    async function tryApproachCaelum() {
+      if (!gameStarted || gameOver || caelumResolved || caelumIdx < 0) return;
+      if (encounterActive || encounterRunning) return;
+      if (hp <= 0) return;
+      const e = enemies[caelumIdx];
+      if (!e || !e.alive || !e.inactive) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      const ds = e.def.displaySize || TILE_SIZE;
+      const ecx = e.x + ds / 2, ecy = e.y + ds / 2;
+      if (Math.hypot(pCX - ecx, pCY - ecy) > CAELUM_TALK_RADIUS) return;
+      caelumResolved = true;            // 多重起動防止 (async 前に確定)
+      await runCaelumDialog();
+    }
+    setInterval(tryApproachCaelum, 400);
+
+    // 対話本体: 第一遭遇ナレ → 3択 → 分岐。
+    async function runCaelumDialog() {
+      showDMMessage("神殿の最奥、青白い光の小部屋。墓碑の前に、儚げな人影が漂っていた…", 3200);
+      await sleepMs(900);
+      showDMMessage("「……人が来たのは、何年ぶりか。君らは、ファラクサスを討つ者か?」", 3200);
+      await sleepMs(700);
+      // 先頭=弔い: showCharChoice は autoplay 時 index 0 を自動選択するため、巡回検証が
+      // 友好ルート(戦闘なし)で安全に完走できる。
+      const c = await showCharChoice(
+        "墓碑の前の霊が、こちらを見つめている。",
+        [{ label: "弔いの言葉を述べる" }, { label: "無視して通り過ぎる" }, { label: "剣を抜く(霊と戦う)" }],
+        "そっとしておく (Esc)");
+      if (c === 2) await caelumHostileRoute();
+      else if (c === 0) await caelumFriendlyRoute();
+      // c === 1 または null (無視/Esc): passiveNpc のまま放置 (クリア非ブロック、報酬なし)
+      else showDMMessage("霊は何も言わず、ただ静かにこちらを見送った…", 2600);
+    }
+
+    // 友好ルート: lore ナレ → 神官の祝福(永続恐怖免疫) → 安らかに薄れて消える。
+    async function caelumFriendlyRoute() {
+      showDMMessage("「私はカエルム。この神殿の高位神官だった。ファラクサスは100年前、人の姿で訪れ、地下に儀式の祭壇を築いた…」", 4400);
+      await sleepMs(2100);
+      showDMMessage("「私はそれを見抜き止めようとした。だが奴の手下に殺され、神殿はアンデッドの巣に堕ちた…」", 4400);
+      await sleepMs(2100);
+      showDMMessage("「ファラクサスの真名は『ファラクスス』 — 古代語で炎の支配者。強大だが不死ではない。呪われし剣を恐れる…」", 4400);
+      await sleepMs(2100);
+      showBanner("✝ 神官の祝福 ✝", 1800);
+      showDMMessage("「私の祝福を受けよ。君らの心は龍の咆哮に屈さぬ。行け勇者たちよ — 私の遺志を、果たせ。」", 4400);
+      grantTempleBlessing();
+      await sleepMs(1600);
+      const el = enemyElements[caelumIdx];   // passiveNpc は維持 (クリア非ブロック)、視覚だけ消す
+      if (el) { el.style.transition = "opacity 1.4s"; el.style.opacity = "0"; }
+    }
+
+    // 敵対ルート: Horrifying Visage (恐怖セーヴ DC13 流用) → 戦闘化 (tryStartEncounter が単体戦を開始)。
+    async function caelumHostileRoute() {
+      showDMMessage("霊の表情が一瞬で歪む。神官の慈悲は消え、死者の怨嗟だけが残った…!", 3600);
+      showBanner("👁 HORRIFYING VISAGE 👁", 1600);
+      await sleepMs(700);
+      partyWillSave(13);                     // 仕込み済の恐怖セーヴを流用
+      await sleepMs(900);
+      const e = enemies[caelumIdx];
+      if (e) { e.passiveNpc = false; e.inactive = false; }
+      const el = enemyElements[caelumIdx];
+      if (el) {
+        el.classList.remove("caelum-spirit");
+        el.style.opacity = "1";
+        el.style.filter = "brightness(1.6) saturate(1.3)";
+        setTimeout(() => { if (el) el.style.filter = ""; }, 700);
+      }
+    }
 
     // ── Phase 2-B: 確率脱走 (檻近くで戦闘 → 5秒ごとに 20% で自動解放) ──
     // 戦闘開始から 5 秒経過したら、5 秒ごとに、戦闘地点 (player) と檻の距離が 800px 以内の
@@ -16864,6 +16993,7 @@
     spawnCages();
     linkCagedBeasts();
     initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
+    initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 
