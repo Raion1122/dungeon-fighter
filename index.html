@@ -4286,6 +4286,30 @@
         deathLine: "…守護…神は…眠りに…還る……",
         xp: 1100,
       },
+      // ── 最終シナリオ 隠し要素: 偽宝箱 (ミミック / final-mimic.md) ──
+      // 宝箱に擬態 (roomChests の特殊エントリで描画) → 接近 or 盗賊察知で起動して敵スポーン。
+      // MVP スプライト: chest_open.png (1024² 単フレーム) を staticSprite で流用 (専用6Fは後追い)。
+      mimic: {
+        name: "偽宝箱(ミミック)",
+        flavor: "宝箱に擬態する古典の罠。触れた者を粘液で捉える",
+        badge: "🧰",
+        sprite: "assets/chest_open.png",
+        sheetW: 1024, sheetH: 1024,
+        frameW: 1024, frameH: 1024, cols: 1, rowOffset: 0,
+        staticSprite: true,                  // 単フレーム流用: updateEnemyAnim で frame0/row0 固定
+        displaySize: 84,
+        hp: 58, speed: 0.6,
+        hasAttackAnim: false,
+        meleeRange: 150, hitRange: 170,
+        attackDuration: 36, attackHitFrame: 18, attackCooldown: 60,
+        str: 3, dex: 1, atkBonus: 5, ac: 12,
+        dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 2,  // 偽足/噛みつき 1d8+3
+        range: "melee",
+        adhesive: true,                      // 粘着: 不意打ち時に触れた者を1ターン拘束 (STR脱出)
+        isMimicMonster: true,
+        deathLine: "ぐちゅ……ぢゅるるるっ……",
+        xp: 450,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -5169,6 +5193,14 @@
     // 敵の汎用スプライト描画
     function updateEnemyAnim(enemy, el) {
       const def = enemy.def;
+      // 単フレーム流用スプライト (ミミックの chest_open.png 等): 状態に依らず frame0/row0 を表示。
+      // (多行シート前提の row 計算だと chase/alert/death 状態で背景が画像外→透明になるのを防ぐ)
+      if (def.staticSprite) {
+        el.style.backgroundPosition = "0 0";
+        const pCXs = playerX + 48, eCXs = enemy.x + el.offsetWidth / 2;
+        el.style.transform = (pCXs < eCXs) ? "scaleX(-1)" : "";
+        return;
+      }
       enemy.animTick = (enemy.animTick || 0) + 1;
       let row, framesPerStep, frameCount, frame;
       if (!enemy.alive) {
@@ -5789,7 +5821,7 @@
       if (!enemy || !enemy.def) return;
       const def = enemy.def;
       const hidden = !!def.multiHead || enemy.type === "stoneGolem" || enemy.type === "shadowBeast" ||
-                     enemy.type === "caelum" || !!def.isNpcSpirit;
+                     enemy.type === "caelum" || enemy.type === "mimic" || !!def.isNpcSpirit;
       if (hidden) { addScroll(pickScrollId({ common: 0, uncommon: 30, rare: 70 })); return; }
       if (def.isBoss || def.boss) { addScroll(pickScrollId({ common: 15, uncommon: 50, rare: 35 })); }
     }
@@ -7807,6 +7839,20 @@
           "守護神の亡骸の傍ら、苔むした石板にこう刻まれていた —\n" +
           "『我らの祖は蛇神に仕えし蜥蜴の民。龍と蛇は争い、蛇は封じられ、龍は今も眠る…\n" +
           "その龍の名は、ファラクサス。』", 5600), 3400);
+      }
+      // 最終シナリオ 隠し要素: 偽宝箱 (ミミック) 撃破 → 崩壊ナレ + 金貨大量 + 鱗/遺品の伏線 (軽量・実アイテム化なし)
+      if (enemy.type === "mimic" && typeof showDMMessage === "function") {
+        playerBuffs.stuck = false;   // 粘着の安全クリア (撃破でソフトロック解消)
+        if (typeof showBanner === "function") showBanner("🧰 偽宝箱を打ち倒した!", 2600);
+        const hoardGold = 200 + Math.floor(Math.random() * 101);  // 200-300
+        coins += hoardGold;
+        setTimeout(() => showDMMessage(
+          "偽宝箱が、最後に大きな粘液の塊となって崩れた。\n" +
+          "周囲の本物の宝箱は、何事もなかったかのように静かに鎮座している。", 4200), 600);
+        setTimeout(() => updateInfo(`崩れた粘液から金貨 +${hoardGold} — そして『ファラクサスの鱗』と古い『ドラゴンスレイヤーの遺品』`), 1600);
+        setTimeout(() => showDMMessage(
+          "粘液の奥から、金貨の山 — そして炎竜の鱗が一片と、錆びついた『ドラゴンスレイヤーの遺品』が転がり出た。\n" +
+          "いつかの英雄が、ここで竜に挑み、敗れたのか…? 次なる旅へ続く、何かを示すように。", 5200), 3000);
       }
       if (enemy.weaponVisible && enemy.armorVisible) {
         updateInfo(`${nm}を倒した！ 宝箱2つが落ちた`);
@@ -11276,6 +11322,7 @@
       luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張)
       frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
       fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
+      stuck: false,                                   // 粘着 (ミミック Adhesive): リーダーが1ターン拘束、STR脱出
     };
     function resetPlayerBuffs() {
       playerBuffs.atkBonusRemaining = 0;
@@ -11298,6 +11345,7 @@
       playerBuffs.frightenedRemaining = 0;
       playerBuffs.frightenedPenalty = 0;
       playerBuffs.fearImmuneRemaining = 0;
+      playerBuffs.stuck = false;
     }
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
@@ -11936,6 +11984,7 @@
 
       for (const chest of roomChests) {
         if (chest.opened) continue;  // 開封済みは無視
+        if (chest.isMimic) continue; // ミミックは専用トリガ (tryApproachMimic / 盗賊察知) で処理
         // 隠された宝箱 (知覚チェック待ち) は非表示のまま
         if (chest.hidden && !chest.found) continue;
         const cx = chest.tx * TILE_SIZE + TILE_SIZE / 2;
@@ -12077,6 +12126,105 @@
     }
 
     setInterval(tryDiscoverChest, 400);
+
+    // ═════════════════════════════════════════════════════════
+    // 最終シナリオ 隠し要素: 偽宝箱 (ミミック) — final-mimic.md
+    //   ボス部屋に「財宝の山」(ダミー宝箱 + ミミック1個) を擬態配置。普通の宝箱として描画され、
+    //   接近で不意打ち起動 (粘着) / 盗賊の知覚で事前察知 (粘着なし先制)。起動で宝箱 DOM を敵スポーンに置換。
+    // ═════════════════════════════════════════════════════════
+    let mimicChest = null;
+    const MIMIC_APPROACH_RADIUS = 200;   // 接近=「触れた」と見なす半径 (発火率はヘッドレス実測で調整可)
+    const MIMIC_ADHESIVE_DC = 13;        // 粘着脱出の STR 判定 DC (5e Mimic 準拠)
+
+    // ボス部屋に財宝の山を配置 (既定スポナーはボス部屋を除外するので専用配置)。dragon-lair 限定。
+    function spawnDragonHoard() {
+      if (scenarioId !== "dragon-lair") return;
+      if (!Array.isArray(ROOMS) || ROOMS.length === 0) return;
+      const [r1, c1, r2, c2] = ROOMS[ROOMS.length - 1];   // ボス部屋
+      const isOccupied = (c, r) =>
+        roomChests.some(ch => ch.tx === c && ch.ty === r) ||
+        (typeof traps !== "undefined" && traps.some(t => t.tx === c && t.ty === r)) ||
+        enemies.some(e => {
+          const eTX = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
+          const eTY = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
+          return eTX === c && eTY === r;
+        });
+      // 入口寄り (西〜中央) の床タイルを集める。ボス/他ユニット/既存宝箱/罠と非重複。
+      const westLimit = c1 + Math.floor((c2 - c1) * 0.45);
+      const tiles = [];
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= westLimit; c++) {
+          if (mapData[r][c] !== 0) continue;
+          if (isTileWall(c, r)) continue;
+          if (isOccupied(c, r)) continue;
+          tiles.push([c, r]);
+        }
+      }
+      if (tiles.length === 0) return;
+      for (let i = tiles.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+      }
+      // ダミー宝箱 (最大3個) — 「並んだ宝箱」の絵作り。残り1枠をミミックに使う。
+      const dummyN = Math.min(3, Math.max(0, tiles.length - 1));
+      for (let i = 0; i < dummyN; i++) {
+        const [tx, ty] = tiles[i];
+        const chest = { tx, ty, opened: false, found: false, hidden: false, loot: pickChestLoot(), el: null };
+        roomChests.push(chest);
+        createRoomChestDom(chest, roomChests.length - 1);
+      }
+      // ミミック宝箱 1個 (擬態。接近/察知で awakenMimic)。本物と同じ .roomChest として描画される。
+      const [mtx, mty] = tiles[dummyN];
+      mimicChest = { tx: mtx, ty: mty, opened: false, found: true, hidden: false,
+                     isMimic: true, awakened: false, _percRolled: false, loot: null, el: null };
+      roomChests.push(mimicChest);
+      createRoomChestDom(mimicChest, roomChests.length - 1);
+    }
+
+    // 接近tick: ミミック宝箱に近づいたら不意打ち起動 (戦闘状態を問わない=「触れた瞬間に襲う」)。
+    function tryApproachMimic() {
+      if (!gameStarted || gameOver || !mimicChest || mimicChest.awakened || hp <= 0) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      const cx = mimicChest.tx * TILE_SIZE + TILE_SIZE / 2;
+      const cy = mimicChest.ty * TILE_SIZE + TILE_SIZE / 2;
+      if (Math.hypot(pCX - cx, pCY - cy) > MIMIC_APPROACH_RADIUS) return;
+      if (!hasLineOfSight(pCX, pCY, cx, cy)) return;
+      awakenMimic(mimicChest, { forewarned: false });
+    }
+    setInterval(tryApproachMimic, 400);
+
+    // ミミック起動: ナレ → 宝箱タイルに敵スポーン → 宝箱 DOM 除去。不意打ちはリーダーを粘着拘束。
+    // (spawnMinionNearBoss と同じ動的スポーン手順。await 不要なので同期関数)
+    function awakenMimic(chest, opts = {}) {
+      if (!chest || chest.awakened) return;
+      chest.awakened = true;
+      const forewarned = !!opts.forewarned;
+      if (typeof sfx === "function") sfx("chestOpen");
+      if (typeof showBanner === "function") showBanner("🧰 ミミック! 🧰", 1800);
+      if (typeof showDMMessage === "function") {
+        showDMMessage(forewarned
+          ? "盗賊の目が、宝箱の1つを見据えた。『……これ、宝箱じゃない』\n警戒した瞬間、その箱がぬるりと身を捻らせ、牙を剥いた!"
+          : "箱に手を伸ばした瞬間、蓋が大きく開いた! 内側は全て舌と歯だった。\nしまった — ミミックだ!", 4200);
+      }
+      // 敵スポーン
+      const mi = createEnemy("mimic", chest.tx, chest.ty);
+      mi.everSeen = true;       // フォグで隠れない (目の前で起動)
+      mi.inactive = false;
+      enemies.push(mi);
+      const idx = enemies.length - 1;
+      createEnemyDom(idx, mi.def, mi.type);
+      snapEnemyToTile(mi, chest.tx, chest.ty);
+      // 宝箱 DOM を除去 (敵に化けた)
+      chest.opened = true;
+      if (chest.el) { try { chest.el.remove(); } catch (e) {} chest.el = null; }
+      // 粘着 (不意打ちのみ): リーダー=最初に触れた者を拘束
+      if (!forewarned) {
+        playerBuffs.stuck = true;
+        if (typeof showDMMessage === "function") {
+          setTimeout(() => showDMMessage(`粘着質の舌が ${getLeaderName()} に絡みつく! 引き剥がさねば動けない (STR判定)`, 2600), 900);
+        }
+      }
+    }
 
     // ═════════════════════════════════════════════════════════
     // 檻オブジェクト (Sce2 隠し要素「残影の獣」を閉じ込めている)
@@ -12717,6 +12865,17 @@
             chest.found = true;
             showBanner("🎁 隠された宝箱を見つけた!", 1400);
             updateInfo(`${finder.name} が隠された宝箱を発見! (発見率 ${pct}%)`);
+          }
+        }
+      }
+
+      // ミミック (偽宝箱) の事前察知: 罠と同じ職業別確率で1回判定。見抜くと粘着なしで先制起動。
+      if (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened && !mimicChest._percRolled) {
+        if (Math.abs(mimicChest.tx - pTX) <= TRAP_PERCEPTION_RADIUS && Math.abs(mimicChest.ty - pTY) <= TRAP_PERCEPTION_RADIUS) {
+          mimicChest._percRolled = true;
+          if (Math.random() < finder.chance) {
+            updateInfo(`${finder.name} が偽宝箱を見抜いた! (発見率 ${pct}%)`);
+            if (typeof awakenMimic === "function") awakenMimic(mimicChest, { forewarned: true });
           }
         }
       }
@@ -16645,6 +16804,22 @@
         return;
       }
 
+      // 粘着 (ミミック Adhesive): 拘束中は STR 判定で脱出を試みる。成功で解放、失敗で行動消費 (撃破でも自動解除)
+      if (playerBuffs.stuck) {
+        const escRoll = d20();
+        const escTotal = escRoll + playerStats.str;
+        if (escTotal >= MIMIC_ADHESIVE_DC) {
+          playerBuffs.stuck = false;
+          if (typeof showBuffPop === "function") showBuffPop(`<span class="label">脱出!</span>粘液を引き剥がした (STR 1d20(<span class="big">${escRoll}</span>)+${playerStats.str} = ${escTotal})`);
+          updateInfo(`${getLeaderName()} は粘液を引き剥がして自由になった!`);
+        } else {
+          showRollAtPlayer(`<span class="label">STUCK</span>粘液で動けない`, "miss");
+          updateInfo(`${getLeaderName()} はミミックの粘液に拘束されている (STR 1d20(${escRoll})+${playerStats.str} = ${escTotal} < ${MIMIC_ADHESIVE_DC})`);
+          await sleepMs(1100);
+          return;
+        }
+      }
+
       // ── 事前射程判定: 武器射程内の敵がいなければ
       //    スキル発動せず即座に前進 (敵に詰める) ──
       const weaponRangeTiles = getRange(playerStats.weaponRange || "melee").tiles;
@@ -17779,6 +17954,7 @@
     initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
     initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
     initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
+    spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 
