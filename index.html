@@ -4275,6 +4275,13 @@
         dragHeadsThreshold: 2,               // 頭が初めて≤2 → 「沼の引き込み」
         roarHeadsThreshold: 1,               // 頭が初めて≤1 (最後の頭) → 「激怒の咆哮」
         fearDC: 15,                          // 咆哮の WIS 恐怖セーヴ
+        // 火炎ブレス (火球) — 龍の血脈の片鱗。頭=火腺で、頭が多いほど高確率 (enemyAttackTurn で抽選)。
+        // 着弾 3x3 のパーティ全員に火ダメージ、各自 DEX セーヴで半減 (敵→PT 初の AoE)。全パラメータ調整可。
+        breathDice: "3d6",                   // 火ダメージ (全体ヒットのため fireball 5d6 より控えめ)
+        breathDC: 14,                        // DEX セーヴ DC (ハイドラは INT 非依存の固定値)
+        breathChancePerHead: 0.10,           // 頭1つあたりの発動確率寄与 (頭5≈0.50 / 頭1≈0.10)
+        breathChanceCap: 0.55,               // 上限 (物理再生で頭が増えても撃ちすぎない)
+        breathBlast: 3,                      // 着弾の正方範囲 (タイル) 3x3
         // ragePhaseHpRatio / maxSummons は意図的に未設定 (汎用激怒・召喚は使わず頭数で駆動)
         deathLine: "…守護…神は…眠りに…還る……",
         xp: 1100,
@@ -12442,6 +12449,7 @@
         e.hp = e.headHpMax; e.maxHp = e.headHpMax;  // HPバー=現在の頭ぶん
         e.dragDone = false; e.roarDone = false;
         e.__tookFireAcid = false; e.__regrowNarrated = false;
+        e.breathCooldown = 0; e.__breathNarrated = false;   // 火炎ブレス: 連続抑止 + 初回ナレ
         hydraIdx = ei;
         // 封印中はハイドラ本体を完全非表示。背景画 (room_lizard-swamp_4) の蛇祭壇だけを見せる。
         // (描画ループの isHydra && inactive ガードでも隠すが、初フレーム前から確実に隠す)
@@ -16806,6 +16814,145 @@
       await sleepMs(400);
     }
 
+    // ── Sce3 ハイドラ: 火炎ブレス (火球) ──
+    // 龍の血脈の片鱗。着弾点周辺 3x3 のパーティ全員 (頭+生存仲間) に火ダメージ、各自 DEX セーヴで半減。
+    // 「敵→パーティ」方向の AoE はこれが初。partyWillSave の反復 × allyFireball のセーヴ半減を合成。
+    // 発動抽選 (頭数連動確率) と「噛みつきの代わり」判定は enemyAttackTurn 側。VFX は既存をそのまま再利用。
+    async function hydraFireBreath(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+
+      // ── 着弾中心の決定: 最も狙われるパーティメンバー (前衛バイアス込み) を中心に据える ──
+      const pick = pickEnemyTarget(enemyIdx);
+      let centerWX, centerWY;
+      if (pick && (pick.kind === "leader" || pick.kind === "ally")) {
+        centerWX = pick.cx; centerWY = pick.cy;             // party 標的をそのまま中心に
+      } else if (hp > 0 && !gameOver) {
+        centerWX = playerX + 48; centerWY = playerY + 58;    // 主人公中心にフォールバック
+      } else {
+        const a0 = allies.find(a => a.alive);                // 頭が倒れていれば生存仲間中心
+        if (!a0) return;
+        centerWX = a0.x + a0.def.displaySize / 2; centerWY = a0.y + a0.def.displaySize / 2;
+      }
+      const blast = def.breathBlast || 3;
+      const half = Math.floor(blast / 2);
+      const tx0 = Math.floor(centerWX / TILE_SIZE) - half;   // 3x3 の左上タイル
+      const ty0 = Math.floor(centerWY / TILE_SIZE) - half;
+      const dc = def.breathDC || 14;
+      enemy.breathCooldown = 1;                              // 連続ブレス防止 (次ターンは噛む)
+
+      // ── 発動宣言 + 演出 ──
+      showBanner("🔥 火炎のブレス 🔥", 1600);
+      updateInfo(`古代ハイドラ: 喉の奥から灼熱の火球を吐き出す! (DEX セーヴ DC ${dc})`);
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+      if (!enemy.__breathNarrated && typeof showDMMessage === "function") {
+        enemy.__breathNarrated = true;
+        showDMMessage("「複数の喉が同時に脈打ち、業火が膨れ上がる。— 蛇神の裡に、龍の血が燻っている。」", 3600);
+      }
+      await sleepMs(450);
+
+      // ── 飛翔 → 着弾 VFX (既存をそのまま再利用) ──
+      const mouthWX = enemy.x + def.displaySize / 2;
+      const mouthWY = enemy.y + def.displaySize * 0.32;      // 頭やや上を口元に見立てる
+      const blastCWX = (tx0 + blast / 2) * TILE_SIZE;
+      const blastCWY = (ty0 + blast / 2) * TILE_SIZE;
+      await spawnFireballProjectile(mouthWX, mouthWY, blastCWX, blastCWY, 420);
+      spawnFireballExplosion(blastCWX, blastCWY);
+      spawnGroundFx(tx0, ty0, blast, blast, "fireball-scorch", 1500);
+      await sleepMs(250);
+
+      // ── 着弾 3x3 内のメンバー判定 + DEX セーヴ + 火ダメージ ──
+      const inBlast = (wx, wy) => {
+        const mtx = Math.floor(wx / TILE_SIZE), mty = Math.floor(wy / TILE_SIZE);
+        return mtx >= tx0 && mtx < tx0 + blast && mty >= ty0 && mty < ty0 + blast;
+      };
+      const rollBreath = () => {
+        const dd = parseDiceDD(def.breathDice || "3d6");
+        return Math.max(1, rollDiceDD(dd.n, dd.sides).total);
+      };
+      let hitCount = 0, savedCount = 0;
+
+      // 仲間を先に解決 (頭の委譲で allies が再編される前に確定させる)
+      for (const a of allies) {
+        if (!a.alive || gameOver) continue;
+        const acx = a.x + a.def.displaySize / 2, acy = a.y + a.def.displaySize / 2;
+        if (!inBlast(acx, acy)) continue;
+        const roll = d20();
+        const saved = (roll + (a.dex || 0)) >= dc;
+        let dmg = rollBreath();
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        hitCount++;
+        showRollAtAlly(a,
+          `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(a.dex || 0)} = ${roll + (a.dex || 0)}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        applyFireBreathToAlly(a, dmg);
+      }
+
+      // 頭 (player) を最後に解決
+      if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) {
+        const roll = d20();
+        const saved = (roll + (playerStats.dex || 0)) >= dc;
+        let dmg = rollBreath();
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        hitCount++;
+        showRollAtPlayer(
+          `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(playerStats.dex || 0)} = ${roll + (playerStats.dex || 0)}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        // 不屈 (resilient): 致命傷を 1d4 HP で耐える (1戦1回・戦士系)
+        const wouldDie = (hp - dmg) <= 0;
+        if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired && wouldDie && dmg > 0) {
+          playerBuffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(playerX + 48, playerY, dmg, false);
+          hp = sRoll.total;
+          showBuffPop(`<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`);
+        } else {
+          hp -= dmg; if (hp < 0) hp = 0;
+          showDmgAt(playerX + 48, playerY, dmg, false);
+          updateInfo(`${getLeaderName()} は火球で ${dmg} ダメージ! HP ${hp}/${maxHp}`);
+        }
+        await sleepMs(500);
+        if (hp <= 0 && !onHeadDowned("battle")) {
+          gameOver = true;
+          invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
+          stopDamageBlink();
+          player.style.opacity = "1"; player.style.filter = "none";
+          updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+        }
+      }
+
+      if (hitCount === 0) updateInfo("古代ハイドラの火球は誰も捉えられなかった");
+      else updateInfo(`古代ハイドラの火炎ブレス: ${hitCount}体に着弾 (${savedCount}体セーヴ半減)`);
+      await sleepMs(600);
+    }
+
+    // ブレスの仲間ダメージ適用 (不屈/死亡/主人公=仲間枠の死亡を enemyAttackAllyTarget と整合)
+    function applyFireBreathToAlly(a, dmg) {
+      const tCX = a.x + a.def.displaySize / 2;
+      // 不屈 (resilient): 致命傷を 1d4 HP で耐える (1戦1回・戦士系仲間のみ)
+      if (a.equippedSkills && a.equippedSkills.includes("resilient")
+          && !a.buffs.resilientFired && (a.hp - dmg) <= 0 && dmg > 0) {
+        a.buffs.resilientFired = true;
+        const sRoll = rollDiceDD(1, 4);
+        showDmgAt(tCX, a.y, dmg, false);
+        a.hp = sRoll.total;
+        showRollAtAlly(a,
+          `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+        return;
+      }
+      a.hp -= dmg; if (a.hp < 0) a.hp = 0;
+      showDmgAt(tCX, a.y, dmg, false);
+      updateInfo(`${a.def.name} は火球で ${dmg} ダメージ! HP ${a.hp}/${a.maxHp}`);
+      if (a.hp <= 0) {
+        a.alive = false;
+        updateInfo(`${a.npcName || a.def.name} は倒れた…`);
+        if (a.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+      }
+    }
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -16882,6 +17029,21 @@
           return;  // このターンは召喚で終了 (攻撃なし=隙あり)
         }
       }
+      // ── ハイドラ: 火炎ブレス抽選 (頭が多いほど高確率 / 火球ターンは噛みつきの代わり) ──
+      // 沼の引き込み (__forceSmashNext) 保留中は噛みつき(smash)優先 → ブレス抑止し smash を温存。
+      if (def.multiHead && def.breathDice && !enemy.__forceSmashNext) {
+        if (enemy.breathCooldown > 0) {
+          enemy.breathCooldown--;                 // クールダウン中は噛む (連続ブレス防止)
+        } else {
+          const heads = Math.max(1, enemy.hydraHeads || 1);
+          const breathChance = Math.min(def.breathChanceCap || 0.55, (def.breathChancePerHead || 0.10) * heads);
+          if (Math.random() < breathChance) {
+            await hydraFireBreath(idx);
+            return;                                // このターンは噛まない (ブレスで消費)
+          }
+        }
+      }
+
       // ハイドラ: 沼の引き込み発動時、このターンの初撃を smash 相当 (強打) にする
       if (def.multiHead && enemy.__forceSmashNext) {
         bossAction = "smash";
