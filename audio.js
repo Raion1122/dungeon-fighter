@@ -155,6 +155,26 @@
     }
   }
 
+  // ----- メタル化: ディストーションカーブ + パワーコード/ツインリード -----
+  // 有理 soft-clip カーブ (ctx 非依存・キャッシュ付き)。amount が大きいほど歪む。
+  var _distCache = {};
+  function makeDistortionCurve(amount) {
+    var a = amount > 0 ? amount : 0, key = a.toFixed(2);
+    if (_distCache[key]) return _distCache[key];
+    var n = 1024, curve = new Float32Array(n), k = a * 100;
+    for (var i = 0; i < n; i++) { var x = (i / (n - 1)) * 2 - 1; curve[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+    _distCache[key] = curve; return curve;
+  }
+  // 周波数比でパワーコード/ハモリを構成 (tone 自体は無改造のまま重ねる)
+  var FIFTH = Math.pow(2, 7 / 12), MIN3 = Math.pow(2, 3 / 12), MAJ3 = Math.pow(2, 4 / 12);
+  function emitChord(c, dest, when, f, type, dur, gain, power, harmony) {
+    if (!f) return;
+    tone(c, dest, when, { type: type, freq: f, dur: dur, peak: gain });                                       // root
+    if (power >= 1) tone(c, dest, when, { type: type, freq: f * FIFTH, dur: dur, peak: gain * 0.85 });          // 5度
+    if (power >= 2) tone(c, dest, when, { type: type, freq: f * 2, dur: dur, peak: gain * 0.7 });               // oct
+    if (harmony) tone(c, dest, when, { type: type, freq: f * (harmony === 2 ? MAJ3 : MIN3), dur: dur, peak: gain * 0.65 }); // ツインリード
+  }
+
   // ===== Section E: SFX ライブラリ ==========================================
   var SFX = {
     hit: function (c, d, t) { noise(c, d, t, { dur: 0.09, peak: 0.28, cutoff: 1400, cutoffTo: 500 }); tone(c, d, t, { freq: 150, glideTo: 90, dur: 0.08, peak: 0.18 }); },
@@ -204,24 +224,31 @@
 
   // ===== Section F: BGM スケジューラ + トラック ==============================
   var TRACKS = {
-    tavern: { bpm: 100, stepsPerBeat: 2, leadType: "triangle", bassType: "triangle", leadGain: 0.16, bassGain: 0.18, drumGain: 0,
-      lead: ["E4", "-", "G4", "A4", "B4", "-", "A4", "G4", "E4", "-", "D4", "E4", "G4", "-", "-", "-"],
-      bass: ["C2", "-", "-", "-", "G2", "-", "-", "-", "A2", "-", "-", "-", "E2", "-", "-", "-"], drum: [] },
-    explore: { bpm: 84, stepsPerBeat: 2, leadType: "square", bassType: "triangle", leadGain: 0.12, bassGain: 0.2, drumGain: 0.08,
-      lead: ["A4", "-", "-", "E4", "-", "-", "G4", "-", "A4", "-", "-", "-", "E4", "-", "D4", "-"],
-      bass: ["A1", "-", "-", "-", "-", "-", "-", "-", "E2", "-", "-", "-", "-", "-", "-", "-"],
-      drum: ["k", "-", "-", "-", "h", "-", "-", "-", "k", "-", "-", "-", "h", "-", "-", "-"] },
-    combat: { bpm: 140, stepsPerBeat: 2, leadType: "square", bassType: "sawtooth", leadGain: 0.14, bassGain: 0.18, drumGain: 0.12,
-      lead: ["A4", "A4", "C5", "A4", "E4", "-", "A4", "-", "A4", "A4", "C5", "E5", "D5", "-", "C5", "-"],
-      bass: ["A1", "A1", "-", "A1", "E2", "-", "E2", "-", "F2", "F2", "-", "F2", "E2", "-", "E2", "-"],
-      drum: ["k", "h", "s", "h", "k", "h", "s", "h", "k", "h", "s", "h", "k", "s", "s", "h"] },
-    boss: { bpm: 120, stepsPerBeat: 2, leadType: "square", bassType: "sawtooth", leadGain: 0.13, bassGain: 0.2, drumGain: 0.14,
-      lead: ["D4", "-", "D4", "Eb4", "D4", "-", "Bb3", "-", "C4", "-", "C4", "Db4", "C4", "-", "A3", "-"],
-      bass: ["D1", "D1", "-", "D1", "D1", "D1", "-", "D1", "Bb1", "Bb1", "-", "Bb1", "A1", "A1", "-", "A1"],
-      drum: ["k", "-", "s", "-", "k", "k", "s", "-", "k", "-", "s", "-", "k", "s", "s", "s"] },
-    rest: { bpm: 72, stepsPerBeat: 2, leadType: "sine", bassType: "sine", leadGain: 0.12, bassGain: 0.12, drumGain: 0,
-      lead: ["C5", "-", "-", "E5", "-", "-", "G5", "-", "-", "E5", "-", "-", "C5", "-", "-", "-"],
-      bass: ["C3", "-", "-", "-", "-", "-", "-", "-", "G2", "-", "-", "-", "-", "-", "-", "-"], drum: [] },
+    // 酒場バラード (Em・低速・歪みギターのロングトーン・短3度の哀愁ハモリ・控えめビート)
+    tavern: { bpm: 80, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.38, power: 1, harmony: 1, makeup: 0.34, leadGain: 0.12, bassGain: 0.13, drumGain: 0.07,
+      lead: ["B4","-","-","-","G4","-","-","-","A4","-","-","B4","A4","-","G4","-","E4","-","-","-","G4","-","-","A4","-","-","-","B4","-","-","-","-"],
+      bass: ["E1","-","-","-","C2","-","-","-","G1","-","-","-","D2","-","-","-","E1","-","-","-","C2","-","-","-","G1","-","-","-","B1","-","-","-"],
+      drum: ["k","-","-","-","-","-","h","-","s","-","-","-","-","-","h","-","k","-","-","-","-","-","h","-","s","-","-","-","h","-","-","-"] },
+    // 叙事詩ギャロップ (Am・前進感・単線リードで広がり)
+    explore: { bpm: 124, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.5, power: 1, harmony: 0, makeup: 0.3, leadGain: 0.12, bassGain: 0.16, drumGain: 0.12,
+      lead: ["A4","-","-","E4","-","-","A4","-","C5","-","B4","A4","E4","-","G4","-","A4","-","-","E4","-","-","A4","-","D5","-","C5","B4","A4","-","-","-"],
+      bass: ["A1","-","A1","-","A1","-","A1","-","A1","-","A1","-","G1","-","G1","-","F1","-","F1","-","F1","-","F1","-","E1","-","E1","-","E1","-","E1","-"],
+      drum: ["k","-","k","h","s","-","k","h","k","-","k","h","s","-","o","-","k","-","k","h","s","-","k","h","k","-","k","h","s","-","s","c"] },
+    // 高速パワーメタル (Am疾走・ダブルバスギャロップ・ツインリード)
+    combat: { bpm: 168, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.62, power: 2, harmony: 1, makeup: 0.24, leadGain: 0.12, bassGain: 0.16, drumGain: 0.13,
+      lead: ["A4","-","A4","E4","A4","-","C5","A4","A4","-","A4","E4","F4","-","E4","D4","A4","-","A4","E4","A4","-","C5","A4","E5","-","D5","C5","B4","-","C5","E5"],
+      bass: ["A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","A1","F1","F1","F1","F1","F1","F1","F1","F1","E1","E1","E1","E1","E1","E1","E1","E1"],
+      drum: ["k","-","k","k","s","-","k","k","k","-","k","k","s","-","k","k","k","-","k","k","s","-","k","k","k","-","k","k","s","k","s","c"] },
+    // ダーク&エピック (Dm・重厚・半音上行の不穏・長3度ハモリ)
+    boss: { bpm: 144, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.66, cabCut: 2800, power: 2, harmony: 2, makeup: 0.22, leadGain: 0.12, bassGain: 0.18, drumGain: 0.14,
+      lead: ["D4","-","D4","Eb4","D4","-","Bb3","-","C4","-","C4","Db4","C4","-","A3","-","D4","-","D4","Eb4","F4","-","E4","-","D4","-","C4","Bb3","A3","-","A3","-"],
+      bass: ["D1","D1","-","D1","D1","D1","-","D1","D1","D1","-","D1","D1","D1","-","D1","Bb1","Bb1","-","Bb1","Bb1","Bb1","-","Bb1","A1","A1","-","A1","A1","A1","-","A1"],
+      drum: ["k","-","-","k","s","-","k","-","k","k","-","k","s","-","s","-","k","-","-","k","s","-","k","-","k","k","k","k","s","k","s","c"] },
+    // メタルバラード (Am/C・低速・歪みギターのロングトーン泣き・控えめビート)
+    rest: { bpm: 76, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.35, power: 1, harmony: 1, makeup: 0.32, leadGain: 0.12, bassGain: 0.12, drumGain: 0.06,
+      lead: ["A4","-","-","-","C5","-","-","E5","-","-","-","D5","C5","-","-","-","G4","-","-","-","A4","-","-","C5","-","-","-","B4","A4","-","-","-"],
+      bass: ["A1","-","-","-","-","-","-","-","F1","-","-","-","-","-","-","-","C2","-","-","-","-","-","-","-","E1","-","-","-","-","-","-","-"],
+      drum: ["k","-","-","-","-","-","h","-","s","-","-","-","-","-","h","-","k","-","-","-","-","-","h","-","s","-","-","-","h","-","h","-"] },
   };
 
   var LOOKAHEAD = 25, SCHEDULE_AHEAD = 0.12, CROSSFADE = 0.6;
@@ -229,16 +256,20 @@
   var crossfading = false, pendingTrack = null, bgmRunning = false;
 
   function stepDurOf(tr) { return 60 / tr.bpm / tr.stepsPerBeat; }
-  function scheduleStep(vs, when) {
-    var tr = vs.track, i = vs.stepIndex % tr.loop, vg = vs.gain, sd = stepDurOf(tr);
+  function scheduleStep(vs, when, c) {
+    c = c || ctx;                                  // ライブ=ctx / オフライン=oac
+    var tr = vs.track, i = vs.stepIndex % tr.loop, sd = stepDurOf(tr);
+    var gtr = vs.guitar || vs.gain, drm = vs.gain;   // ギター(歪み経路) / ドラム(素通り)
     var ln = tr.lead && tr.lead[i];
-    if (ln && ln !== "-" && ln !== "_") tone(ctx, vg, when, { type: tr.leadType, freq: noteToFreq(ln), dur: sd * 0.9, peak: tr.leadGain });
+    if (ln && ln !== "-" && ln !== "_") emitChord(c, gtr, when, noteToFreq(ln), tr.leadType, sd * 0.95, tr.leadGain, tr.power, tr.harmony);
     var bn = tr.bass && tr.bass[i];
-    if (bn && bn !== "-" && bn !== "_") tone(ctx, vg, when, { type: tr.bassType, freq: noteToFreq(bn), dur: sd * 1.5, peak: tr.bassGain });
+    if (bn && bn !== "-" && bn !== "_") emitChord(c, gtr, when, noteToFreq(bn), tr.bassType, sd * 1.4, tr.bassGain, tr.bassPower, 0);
     var dn = tr.drum && tr.drum[i];
-    if (dn === "k") noise(ctx, vg, when, { dur: 0.12, peak: tr.drumGain, cutoff: 160, cutoffTo: 60 });
-    else if (dn === "h") noise(ctx, vg, when, { dur: 0.04, peak: tr.drumGain * 0.8, filter: "highpass", cutoff: 7000 });
-    else if (dn === "s") noise(ctx, vg, when, { dur: 0.12, peak: tr.drumGain, filter: "bandpass", cutoff: 1800, q: 1 });
+    if (dn === "k") noise(c, drm, when, { dur: 0.12, peak: tr.drumGain, cutoff: 160, cutoffTo: 60 });
+    else if (dn === "h") noise(c, drm, when, { dur: 0.04, peak: tr.drumGain * 0.8, filter: "highpass", cutoff: 7000 });
+    else if (dn === "s") noise(c, drm, when, { dur: 0.12, peak: tr.drumGain, filter: "bandpass", cutoff: 1800, q: 1 });
+    else if (dn === "o") noise(c, drm, when, { dur: 0.14, peak: tr.drumGain * 0.7, filter: "highpass", cutoff: 6000 });   // open hat
+    else if (dn === "c") noise(c, drm, when, { dur: 0.5, peak: tr.drumGain * 0.9, filter: "highpass", cutoff: 5000, a: 0.001 }); // crash
   }
   function pump(vs) {
     if (!ctx) return;
@@ -248,11 +279,24 @@
       scheduleStep(vs, vs.nextTime); vs.stepIndex++; vs.nextTime += sd;
     }
   }
+  // 歪みチェーン構築 (ライブ ctx / オフライン oac 共用)。dest=vg(クロスフェード段)。
+  // 戻り値=ギター系 tone の出力先 (歪みON なら shaperIn、OFF なら vg 直結)。
+  function buildGuitarChain(c, tr, vg) {
+    if (!(tr.dist && tr.dist > 0)) return vg;
+    var shaperIn = c.createGain(); shaperIn.gain.value = (tr.preGain == null ? 1.6 : tr.preGain);
+    var shaper = c.createWaveShaper(); shaper.curve = makeDistortionCurve(tr.dist);
+    try { shaper.oversample = "4x"; } catch (e) {}
+    var cab = c.createBiquadFilter(); cab.type = "lowpass";
+    cab.frequency.value = (tr.cabCut == null ? 3200 : tr.cabCut); cab.Q.value = 0.7;
+    var makeup = c.createGain(); makeup.gain.value = (tr.makeup == null ? 0.6 : tr.makeup);
+    shaperIn.connect(shaper); shaper.connect(cab); cab.connect(makeup); makeup.connect(vg);
+    return shaperIn;
+  }
   function startVoice(name) {
     var tr = TRACKS[name]; if (!tr) return null;
     tr.loop = (tr.lead && tr.lead.length) || 16;
     var vg = ctx.createGain(); vg.gain.value = 0; vg.connect(buses.bgm);
-    var vs = { track: tr, gain: vg, stepIndex: 0, nextTime: ctx.currentTime + 0.06, timer: null, name: name };
+    var vs = { track: tr, gain: vg, guitar: buildGuitarChain(ctx, tr, vg), stepIndex: 0, nextTime: ctx.currentTime + 0.06, timer: null, name: name };
     vs.timer = setInterval(function () { pump(vs); }, LOOKAHEAD);
     pump(vs);
     return vs;
@@ -315,6 +359,23 @@
     var oac = new OAC(1, Math.ceil(sr * sec), sr);
     var g = oac.createGain(); g.gain.value = 1; g.connect(oac.destination);
     try { recipe(oac, g, 0, opts || {}); } catch (e) { return Promise.reject(e); }
+    return oac.startRendering().then(function (buf) { return buf.getChannelData(0); });
+  }
+  // BGM トラックをオフラインレンダー (メタル歪み検証用)。opts.dist で歪み量を上書き可 (ON/OFF 比較)。
+  function renderBgmOffline(name, seconds, opts) {
+    var OAC = global.OfflineAudioContext || global.webkitOfflineAudioContext;
+    if (!OAC) return Promise.reject(new Error("no OfflineAudioContext"));
+    var tr = TRACKS[name]; if (!tr) return Promise.reject(new Error("unknown track: " + name));
+    opts = opts || {};
+    if (opts.dist != null) { var o = {}; for (var k in tr) o[k] = tr[k]; o.dist = opts.dist; tr = o; } // 非破壊オーバーライド
+    tr.loop = (tr.lead && tr.lead.length) || 16;
+    var sr = 44100, sec = seconds || 4.0;
+    var oac = new OAC(1, Math.ceil(sr * sec), sr);
+    var out = oac.createGain(); out.gain.value = 1.0; out.connect(oac.destination);
+    var vs = { track: tr, gain: out, guitar: buildGuitarChain(oac, tr, out), stepIndex: 0 };
+    var sd = 60 / tr.bpm / tr.stepsPerBeat;
+    var n = Math.ceil(sec / sd) + 1;
+    for (var s = 0; s < n; s++) { scheduleStep(vs, s * sd, oac); vs.stepIndex++; }
     return oac.startRendering().then(function (buf) { return buf.getChannelData(0); });
   }
 
@@ -415,6 +476,7 @@
     sfxNames: function () { var a = []; for (var k in SFX) a.push(k); return a; },
     textSpeed: GameSettings.get().textSpeed,
     __renderSfxOffline: renderOffline,
+    __renderBgmOffline: renderBgmOffline,
     __bgmRunning: function () { return bgmRunning; },
   };
 
