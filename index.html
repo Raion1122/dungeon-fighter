@@ -1545,7 +1545,16 @@
       100% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
     }
 
-    /* 着弾爆発リング (3 連) */
+    /* 着弾爆発スプライト (6F シート再生・フォグ暗幕の上) */
+    .fxExplosionSprite {
+      position: absolute;
+      pointer-events: none;
+      z-index: 10;                       /* lightingCanvas(フォグ=9) の上 = 暗所でも沈まない */
+      transform: translate(-50%, -50%);  /* centerWX/WY を要素中心に合わせる */
+      background-repeat: no-repeat;
+    }
+
+    /* 着弾爆発リング (3 連) — フォールバック用に存置 */
     .fxFireballRing {
       position: absolute;
       pointer-events: none;
@@ -4687,9 +4696,69 @@
       });
     }
 
-    // 着弾の 3 連リング展開 + 火柱 + 衝撃光 (Fireball)
+    // 着弾爆発スプライトシート (単一行 6 フレーム横ストリップ)
+    const EXPLOSION_SHEET = {
+      src: "assets/explosion_anim.png?v=1",
+      img: new Image(), loaded: false,
+      frameW: 192, frameH: 192, cols: 6,
+    };
+    EXPLOSION_SHEET.img.onload  = () => { EXPLOSION_SHEET.loaded = true; };
+    EXPLOSION_SHEET.img.onerror = () => {};   // loaded=false のまま → フォールバック
+    EXPLOSION_SHEET.img.src = EXPLOSION_SHEET.src;
+
+    // 爆発スプライト再生 (単発: 0→N フレームを 1 巡して消える / カメラ追従 / フォグ上)
+    function spawnExplosionSprite(centerWX, centerWY, opts = {}) {
+      const sheet = EXPLOSION_SHEET;
+      // 検証補助 (本番無害): 直近の着弾点を露出
+      window.__fxProbe = { lastExplosion: { wx: centerWX, wy: centerWY, t: performance.now() } };
+      // シート未ロード → 旧リング+火柱に退避 (演出を絶対消さない)
+      if (!sheet.loaded) { spawnFireballExplosionFallback(centerWX, centerWY); return; }
+
+      const size    = opts.size    || 320;          // 画面表示の一辺 px (3タイル≈288 よりやや大)
+      const frames  = opts.frames  || sheet.cols;   // 6
+      const frameMs = opts.frameMs || 90;           // 1 フレーム
+      const fadeMs  = opts.fadeMs  || 120;          // 最終フレーム後の余韻フェード
+      const playMs  = frameMs * frames;             // 再生尺 (~540ms)
+
+      const el = document.createElement("div");
+      el.className = "fxExplosionSprite";
+      el.style.width  = size + "px";
+      el.style.height = size + "px";
+      el.style.backgroundImage = `url("${sheet.src}")`;
+      el.style.backgroundSize  = `${size * sheet.cols}px ${size}px`;  // 横6枚を size 単位に換算
+      document.body.appendChild(el);
+
+      const start = performance.now();
+      function step(now) {
+        const t = now - start;
+        // (a) 経過時間 → フレーム index (最終フレームで頭打ち)
+        const frame = Math.min(frames - 1, Math.floor(t / frameMs));
+        // (b) フレーム切り出し (横ストリップなので row=0。updateEnemyAnim と同方式)
+        el.style.backgroundPosition = `${-frame * size}px 0px`;
+        // (c) カメラ追従 (spawnFireballProjectile / updateGroundFx と同式)
+        el.style.left = (centerWX - camX) + "px";
+        el.style.top  = (centerWY - camY) + "px";
+        // (d) 再生終了 → フェード → remove (フェード中もカメラ追従)
+        if (t >= playMs) {
+          el.style.transition = `opacity ${fadeMs}ms linear`;
+          el.style.opacity = "0";
+          const fadeStart = now;
+          (function fadeStep(n2) {
+            el.style.left = (centerWX - camX) + "px";
+            el.style.top  = (centerWY - camY) + "px";
+            if (n2 - fadeStart < fadeMs) requestAnimationFrame(fadeStep);
+            else { try { el.remove(); } catch {} }
+          })(now);
+          return;
+        }
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    // 着弾: 爆発スプライト + 動的光源 + 画面フラッシュ (Fireball)
     function spawnFireballExplosion(centerWX, centerWY) {
-      // 動的光源 (大きく明るく、800ms フェード)
+      // 動的光源 (大きく明るく、800ms フェード) — 発光の主役、残す
       addSpellLight({
         worldX: centerWX, worldY: centerWY,
         inner: 180, outer: 460,
@@ -4697,6 +4766,17 @@
         rgb: "255,200,100",
         duration: 800, fadeMs: 800,
       });
+      // 爆発スプライト (旧 3連リング+火柱を置換)
+      spawnExplosionSprite(centerWX, centerWY);
+      // 画面フラッシュ — 衝撃感、残す
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch {} }, 350);
+    }
+
+    // フォールバック: シート未ロード時の旧描画 (3 連リング + 火柱)
+    function spawnFireballExplosionFallback(centerWX, centerWY) {
       // 3 連リング
       for (let i = 1; i <= 3; i++) {
         const ring = document.createElement("div");
@@ -4713,11 +4793,6 @@
       pillar.style.top  = (centerWY - camY) + "px";
       document.body.appendChild(pillar);
       setTimeout(() => { try { pillar.remove(); } catch {} }, 850);
-      // 画面フラッシュ
-      const flash = document.createElement("div");
-      flash.className = "fxScreenFlash";
-      document.body.appendChild(flash);
-      setTimeout(() => { try { flash.remove(); } catch {} }, 350);
     }
 
     // 稲妻 SVG ライン (jagged path) — Phase 2-I 派手版: メイン稲妻 5 本 + 分岐 6 本 + 余韻線
