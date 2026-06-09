@@ -1035,10 +1035,13 @@
             <div class="equipLabel">魔法 <span id="magicHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
             <div class="skillList" id="magicList"></div>
           </div>
-          <div class="equipGroup" id="scrollLibrarySection" style="display:none;">
-            <div class="equipLabel">📜 スクロール書庫 <span id="scrollLibraryHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
-            <div class="skillList" id="scrollLibraryList"></div>
+        </div>
+        <!-- スクロール書庫: キャラタブと独立 (聖典→僧侶/巻物→魔法使い/森の書→エルフ を一ヶ所で習得) -->
+        <div class="prepPanel" id="scrollLibrarySection" style="display:none;">
+          <div class="ph">📜 スクロール書庫
+            <span id="scrollLibraryHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span>
           </div>
+          <div class="skillList" id="scrollLibraryList"></div>
         </div>
         <div class="prepPanel">
           <div class="ph">敵情報</div>
@@ -1066,10 +1069,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>スクロール書庫を独立パネル化</b> — 聖典・巻物・森の書を、どのキャラのタブを見ていても同じ書庫から「読む」で習得できるよう導線を改善。</li>
         <li><b>未習得の魔法をリストから非表示に</b> — スクロールで習得した呪文だけが酒場の魔法欄に並ぶようになった。</li>
         <li><b>酒場の依頼人を一枚絵に刷新</b> — 6クエストの依頼人がテーブルに座る手描きイラストになりました(画面も整理)。</li>
         <li><b>古代ハイドラに火炎ブレスを追加</b> — 沼の守護神が、頭が多いほど高確率で全体に炎を吐く。</li>
-        <li><b>BGMを全曲メタル基調に刷新</b> — 中ボスは「重圧ドゥーム」、酒場・休憩はメタルバラード。</li>
       </ul>
     </div>
 
@@ -2288,6 +2291,7 @@
     renderPartyPreview();
     renderCharTabs();
     renderCharLoadout();
+    renderScrollLibrary();   // タブ非依存の独立パネルとして描画
     dialogEl.style.display = "none";
     prepEl.style.display = "flex";
   }
@@ -2649,7 +2653,8 @@
         if (res.learned) showScrollToastTV(`📖 「${spellNm}」を習得した!`);
         else if (res.already) showScrollToastTV(`「${spellNm}」は既に習得済み (スクロールは消費)`);
         renderCharTabs();
-        renderCharLoadout();
+        renderCharLoadout();     // アクティブタブが該当職なら習得呪文を魔法欄へ即時反映
+        renderScrollLibrary();   // 独立パネル側の在庫減/[習得済み]表示を更新
       });
       listEl.appendChild(item);
     }
@@ -2799,8 +2804,7 @@
     } else {
       renderSkillSubsection(magicListEl, magicSection, magics, equippedSet, full, slot.classKey);
     }
-    // スクロール書庫 (未読在庫があれば表示・「読む」で永続習得)
-    renderScrollLibrary();
+    // (スクロール書庫はタブ非依存の独立パネルへ分離 — openPrep / 読むハンドラで描画)
     // カウンタ更新
     const counter = document.getElementById("skillSlotCounter");
     if (counter) {
