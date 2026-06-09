@@ -1052,6 +1052,10 @@
             <div class="equipLabel">魔法 <span id="magicHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
             <div class="skillList" id="magicList"></div>
           </div>
+          <div class="equipGroup" id="scrollLibrarySection" style="display:none;">
+            <div class="equipLabel">📜 スクロール書庫 <span id="scrollLibraryHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
+            <div class="skillList" id="scrollLibraryList"></div>
+          </div>
         </div>
         <div class="prepPanel">
           <div class="ph">敵情報</div>
@@ -1928,6 +1932,79 @@
     }
     return 0;
   }
+
+  // ════════════ スクロール拾得→永続習得システム (index.html SCROLL_CATALOG と同期) ════════════
+  const SCROLL_CATALOG_TV = {
+    "scroll-sleep":          { name: "巻物・スリープ",            spellId: "sleep",                classKey: "mage",   rarity: "common"   },
+    "scroll-burning-hands":  { name: "巻物・バーニングハンズ",    spellId: "burning-hands",        classKey: "mage",   rarity: "common"   },
+    "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
+    "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
+    "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+    "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
+    "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
+    "tome-striking":         { name: "聖典・ストライキング",      spellId: "striking",             classKey: "cleric", rarity: "uncommon" },
+    "tome-cure-serious":     { name: "聖典・キュアシリアス",      spellId: "cure-serious-wounds",  classKey: "cleric", rarity: "rare"     },
+    "tome-cure-critical":    { name: "聖典・キュアクリティカル",  spellId: "cure-critical-wounds", classKey: "cleric", rarity: "rare"     },
+    "grimoire-hail-of-thorns":   { name: "森の書・ヘイルオブソーン",   spellId: "hail-of-thorns",   classKey: "elf", rarity: "common"   },
+    "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
+    "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
+    "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
+  };
+  // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (index.html DEFAULT_KNOWN と同期)。
+  const DEFAULT_KNOWN_TV = {
+    mage:   ["magic-missile", "fire-bolt", "arcane-shield"],
+    cleric: ["cure-light-wounds", "shield-of-faith", "turn-undead"],   // turn-undead は地下神殿の要のため初期習得
+    elf:    ["aimed-shot", "magic-arrow", "hunters-mark", "cure-minor"],
+  };
+  const SCROLL_KIND_LABEL_TV = { mage: "巻物", cleric: "聖典", elf: "森の書" };
+
+  function loadKnownSpellsTV() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem("dragonfighters.knownSpells") || "null"); } catch (e) {}
+    const out = {};
+    for (const cls of Object.keys(DEFAULT_KNOWN_TV)) {
+      const stored = (raw && Array.isArray(raw[cls])) ? raw[cls] : [];
+      out[cls] = Array.from(new Set([...DEFAULT_KNOWN_TV[cls], ...stored]));
+    }
+    return out;
+  }
+  let knownSpellsTV = loadKnownSpellsTV();
+  function saveKnownSpellsTV() {
+    try { localStorage.setItem("dragonfighters.knownSpells", JSON.stringify(knownSpellsTV)); } catch (e) {}
+  }
+  function isSpellKnownTV(classKey, spellId) {
+    const ks = knownSpellsTV[classKey];
+    if (!ks) return true;            // 非キャスター職はゲート対象外
+    return ks.includes(spellId);
+  }
+  let scrollStockTV = (function () {
+    try { return JSON.parse(localStorage.getItem("dragonfighters.scrollStock") || "null") || {}; }
+    catch (e) { return {}; }
+  })();
+  function saveScrollStockTV() {
+    try { localStorage.setItem("dragonfighters.scrollStock", JSON.stringify(scrollStockTV)); } catch (e) {}
+  }
+  // *_SKILLS_UI (PARTY_SLOTS の skillPool) から呪文 def を引く
+  function getSkillTV(id) {
+    for (const slot of PARTY_SLOTS) {
+      const hit = (slot.skillPool || []).find(sk => sk.id === id);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  // スクロールを「読む」: 在庫-1 + 該当呪文を永続習得。戻り値 {learned, already, scroll}
+  function learnScroll(scrollId) {
+    const c = SCROLL_CATALOG_TV[scrollId];
+    if (!c || (scrollStockTV[scrollId] || 0) <= 0) return { learned: false, already: false, scroll: c || null };
+    scrollStockTV[scrollId] -= 1;
+    if (scrollStockTV[scrollId] <= 0) delete scrollStockTV[scrollId];
+    saveScrollStockTV();
+    const ks = knownSpellsTV[c.classKey] || (knownSpellsTV[c.classKey] = []);
+    const already = ks.includes(c.spellId);
+    if (!already) { ks.push(c.spellId); saveKnownSpellsTV(); }
+    return { learned: !already, already, scroll: c };
+  }
+  // ════════════ スクロールシステム ここまで ════════════
   // 旧形式 (ID 配列) → 新形式 ({id: 個数}) に正規化、新形式ならそのまま返す
   function normalizeSpellSkills(raw) {
     if (Array.isArray(raw)) {
@@ -2542,26 +2619,30 @@
     const autoFromTable = isAuto ? (CLERIC_SLOTS_TABLE[sk.id] || [])[Math.max(0, Math.min(10, currentLv))] || 0 : 0;
     const lvReq = sk.levelReq || 1;
     const lvOk = currentLv >= lvReq;
+    const known = isSpellKnownTV(classKey, sk.id);   // 完全ゲート: スクロール未習得は選択不可
+    const usable = lvOk && known;
+    const autoShown = (isAuto && known) ? autoFromTable : 0;
     const item = document.createElement("div");
-    item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!lvOk ? " full" : "");
+    item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!usable ? " full" : "");
     const rangeTag = RANGE_LABEL[sk.range] || "";
     const lvLock = !lvOk ? ` <span class="sCat" style="color:#8b2010">[Lv${lvReq} 必要]</span>` : "";
+    const scrollLock = (lvOk && !known) ? ` <span class="sCat" style="color:#8b2010">[🔒 スクロール未習得]</span>` : "";
     const mpTag = sk.mpCost ? ` <span class="sCat" style="color:#2b5d8e">[1 スロット]</span>` : "";
     item.innerHTML =
       `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">` +
         `<div style="flex:1;">` +
           `<span class="sName"><span class="sCat">[${sk.category}]</span>${sk.name}` +
           (rangeTag ? ` <span class="sCat" style="color:#5a2085">[${rangeTag}]</span>` : "") +
-          mpTag + lvLock +
+          mpTag + lvLock + scrollLock +
           `</span>` +
           `<span class="sFlavor">${sk.flavor}</span>` +
         `</div>` +
         (isAuto
-          ? `<div class="spellAuto">自動 <b>${autoFromTable}</b></div>`
+          ? `<div class="spellAuto">自動 <b>${autoShown}</b></div>`
           : `<div class="spellCountCtrl">` +
               `<button type="button" class="spcBtn spcMinus" ${cnt <= 0 ? "disabled" : ""}>−</button>` +
               `<span class="spcNum">${cnt}</span>` +
-              `<button type="button" class="spcBtn spcPlus" ${(!lvOk || totalUsed >= totalMax) ? "disabled" : ""}>＋</button>` +
+              `<button type="button" class="spcBtn spcPlus" ${(!usable || totalUsed >= totalMax) ? "disabled" : ""}>＋</button>` +
             `</div>`) +
       `</div>`;
     if (!isAuto) {
@@ -2580,7 +2661,7 @@
       });
       if (btnPlus) btnPlus.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        if (!lvOk) return;
+        if (!usable) return;
         if (totalUsed >= totalMax) return;
         const list2 = selection.partySkills[classKey] || (selection.partySkills[classKey] = []);
         list2.push(sk.id);
@@ -2590,6 +2671,71 @@
       });
     }
     return item;
+  }
+
+  // ── 📜 スクロール書庫: 未読スクロールを一覧し「読む」で永続習得 ──
+  function renderScrollLibrary() {
+    const section = document.getElementById("scrollLibrarySection");
+    const listEl  = document.getElementById("scrollLibraryList");
+    const hint    = document.getElementById("scrollLibraryHint");
+    if (!section || !listEl) return;
+    const ids = Object.keys(scrollStockTV).filter(id => SCROLL_CATALOG_TV[id] && scrollStockTV[id] > 0);
+    if (ids.length === 0) { section.style.display = "none"; return; }
+    section.style.display = "";
+    if (hint) hint.textContent = "(「読む」で対応呪文を永続習得・スクロールは消滅)";
+    // rarity (rare→common) → ID 順
+    const rarOrder = { rare: 0, uncommon: 1, common: 2 };
+    ids.sort((a, b) => (rarOrder[SCROLL_CATALOG_TV[a].rarity] - rarOrder[SCROLL_CATALOG_TV[b].rarity]) || a.localeCompare(b));
+    listEl.innerHTML = "";
+    for (const id of ids) {
+      const c = SCROLL_CATALOG_TV[id];
+      const sk = getSkillTV(c.spellId);
+      const spellNm = sk ? sk.name : c.spellId;
+      const alreadyKnown = isSpellKnownTV(c.classKey, c.spellId);
+      const count = scrollStockTV[id];
+      const item = document.createElement("div");
+      item.className = "skillItem spellCountItem" + (alreadyKnown ? " full" : "");
+      item.innerHTML =
+        `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">` +
+          `<div style="flex:1;">` +
+            `<span class="sName">${c.name} <span class="sCat">×${count}</span>` +
+              (alreadyKnown ? ` <span class="sCat" style="color:#2b7a2b">[習得済み]</span>` : "") +
+            `</span>` +
+            `<span class="sFlavor">習得呪文: ${spellNm} 〔${SCROLL_KIND_LABEL_TV[c.classKey] || c.classKey}〕</span>` +
+          `</div>` +
+          `<div class="spellCountCtrl">` +
+            `<button type="button" class="spcBtn scrollReadBtn">読む</button>` +
+          `</div>` +
+        `</div>`;
+      const btn = item.querySelector(".scrollReadBtn");
+      if (btn) btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const res = learnScroll(id);
+        if (res.learned) showScrollToastTV(`📖 「${spellNm}」を習得した!`);
+        else if (res.already) showScrollToastTV(`「${spellNm}」は既に習得済み (スクロールは消費)`);
+        renderCharTabs();
+        renderCharLoadout();
+      });
+      listEl.appendChild(item);
+    }
+  }
+
+  // 軽量トースト (tavern には既存通知がないため最小実装)
+  function showScrollToastTV(msg) {
+    let t = document.getElementById("scrollToastTV");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "scrollToastTV";
+      t.style.cssText = "position:fixed;left:50%;top:14%;transform:translateX(-50%);z-index:9999;" +
+        "background:rgba(20,16,10,0.92);color:#f0e0b0;border:1px solid #b08020;border-radius:8px;" +
+        "padding:10px 18px;font-size:15px;font-family:'Noto Serif JP',serif;box-shadow:0 4px 16px rgba(0,0,0,0.5);" +
+        "pointer-events:none;opacity:0;transition:opacity 0.25s;";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = "1";
+    clearTimeout(t.__hideTimer);
+    t.__hideTimer = setTimeout(() => { t.style.opacity = "0"; }, 1800);
   }
 
   // ── スキル/魔法 共通レンダ (mpCost で自動分類) ──
@@ -2718,6 +2864,8 @@
     } else {
       renderSkillSubsection(magicListEl, magicSection, magics, equippedSet, full, slot.classKey);
     }
+    // スクロール書庫 (未読在庫があれば表示・「読む」で永続習得)
+    renderScrollLibrary();
     // カウンタ更新
     const counter = document.getElementById("skillSlotCounter");
     if (counter) {

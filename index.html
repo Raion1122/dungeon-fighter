@@ -5599,6 +5599,105 @@
       saveAccessoryStock();
     }
 
+    // ════════════ スクロール拾得→永続習得システム ════════════
+    // 巻物(mage)/聖典(cleric)/森の書(elf) を拾い、酒場で「読む」と該当呪文を永続習得。
+    // 完全ゲート: DEFAULT_KNOWN(初期呪文)以外のキャスター呪文は習得するまで使用不可。
+    const SCROLL_CATALOG = {
+      // 📜 巻物 (mage)
+      "scroll-sleep":          { name: "巻物・スリープ",            spellId: "sleep",                classKey: "mage",   rarity: "common"   },
+      "scroll-burning-hands":  { name: "巻物・バーニングハンズ",    spellId: "burning-hands",        classKey: "mage",   rarity: "common"   },
+      "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
+      "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
+      "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+      // 📖 聖典 (cleric)
+      "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
+      "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
+      "tome-striking":         { name: "聖典・ストライキング",      spellId: "striking",             classKey: "cleric", rarity: "uncommon" },
+      "tome-cure-serious":     { name: "聖典・キュアシリアス",      spellId: "cure-serious-wounds",  classKey: "cleric", rarity: "rare"     },
+      "tome-cure-critical":    { name: "聖典・キュアクリティカル",  spellId: "cure-critical-wounds", classKey: "cleric", rarity: "rare"     },
+      // 🍃 森の書 (elf)
+      "grimoire-hail-of-thorns":   { name: "森の書・ヘイルオブソーン",   spellId: "hail-of-thorns",   classKey: "elf", rarity: "common"   },
+      "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
+      "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
+      "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
+    };
+    // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (どちらの起動経路でも初期呪文がロックされないように)。
+    const DEFAULT_KNOWN = {
+      mage:   ["magic-missile", "fire-bolt", "arcane-shield"],
+      cleric: ["cure-light-wounds", "shield-of-faith", "turn-undead"],   // turn-undead は地下神殿の要のため初期習得
+      elf:    ["aimed-shot", "magic-arrow", "hunters-mark", "cure-minor"],
+    };
+
+    // 習得済み呪文コーデックス { mage:[...], cleric:[...], elf:[...] }。defaults を毎ロード和集合 (自己修復)。
+    function loadKnownSpells() {
+      let raw = null;
+      try { raw = JSON.parse(localStorage.getItem("dragonfighters.knownSpells") || "null"); } catch (e) {}
+      const out = {};
+      for (const cls of Object.keys(DEFAULT_KNOWN)) {
+        const stored = (raw && Array.isArray(raw[cls])) ? raw[cls] : [];
+        out[cls] = Array.from(new Set([...DEFAULT_KNOWN[cls], ...stored]));
+      }
+      return out;
+    }
+    let knownSpells = loadKnownSpells();
+    function saveKnownSpells() {
+      try { localStorage.setItem("dragonfighters.knownSpells", JSON.stringify(knownSpells)); } catch (e) {}
+    }
+    // キャスター呪文の習得判定。非キャスター職 (DEFAULT_KNOWN に無い) はゲート対象外で常に true。
+    function isSpellKnown(classKey, spellId) {
+      const ks = knownSpells[classKey];
+      if (!ks) return true;
+      return ks.includes(spellId);
+    }
+
+    // 未読スクロール在庫: { scrollId: 個数 }
+    let scrollStock = (function loadScrollStock() {
+      try { return JSON.parse(localStorage.getItem("dragonfighters.scrollStock") || "null") || {}; }
+      catch (e) { return {}; }
+    })();
+    function saveScrollStock() {
+      try { localStorage.setItem("dragonfighters.scrollStock", JSON.stringify(scrollStock)); } catch (e) {}
+    }
+    function addScroll(scrollId, opts) {
+      const c = SCROLL_CATALOG[scrollId];
+      if (!c) return null;
+      scrollStock[scrollId] = (scrollStock[scrollId] || 0) + 1;
+      saveScrollStock();
+      if (!(opts && opts.silent)) {
+        const sk = (typeof getSkill === "function") ? getSkill(c.spellId) : null;
+        const spellNm = sk ? sk.name : c.spellId;
+        if (typeof showBanner === "function") showBanner(`📜 ${c.name} を手に入れた!`, 1800);
+        if (typeof updateInfo === "function") updateInfo(`入手: ${c.name} — 酒場で「読む」と「${spellNm}」を永続習得`);
+        if (typeof sfx === "function") sfx("chestFound");
+      }
+      return c;
+    }
+
+    // rarity 重み付きで scrollId を1つ抽選 (weights = {common, uncommon, rare})
+    function pickScrollId(weights) {
+      const w = weights || { common: 55, uncommon: 35, rare: 10 };
+      const total = (w.common || 0) + (w.uncommon || 0) + (w.rare || 0);
+      let roll = Math.random() * total;
+      let rarity;
+      if (roll < (w.common || 0)) rarity = "common";
+      else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
+      else rarity = "rare";
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity);
+      if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    // ボス/隠し要素撃破時のスクロール確定ドロップ (defeatEnemy から呼ばれる)
+    function maybeGrantScrollDrop(enemy) {
+      if (!enemy || !enemy.def) return;
+      const def = enemy.def;
+      const hidden = !!def.multiHead || enemy.type === "stoneGolem" || enemy.type === "shadowBeast" ||
+                     enemy.type === "caelum" || !!def.isNpcSpirit;
+      if (hidden) { addScroll(pickScrollId({ common: 0, uncommon: 30, rare: 70 })); return; }
+      if (def.isBoss || def.boss) { addScroll(pickScrollId({ common: 15, uncommon: 50, rare: 35 })); }
+    }
+    // ════════════ スクロールシステム ここまで ════════════
+
     const enemyMaxHp = 3;
     const ironSwordDropChance = 0.15;
     const leatherArmorDropChance = 0.12;
@@ -5719,6 +5818,8 @@
       if (isAutoSlotClass(classKey)) {
         // 僧侶: Lv 別自動配分
         allocMap = getClericSlots(lv);
+        // 完全ゲート: 未習得(聖典未読)の呪文は配分から除外
+        Object.keys(allocMap).forEach(id => { if (!isSpellKnown(classKey, id)) delete allocMap[id]; });
       } else {
         // 魔法使い / エルフ: 酒場でセットされた配分を採用
         const fromTavern = (partySkillsMap && partySkillsMap[classKey]) || {};
@@ -5731,6 +5832,7 @@
             const skill = (typeof getSkill === "function") ? getSkill(id) : null;
             const lvReq = (skill && skill.levelReq) || 1;
             if (lv < lvReq) continue;
+            if (!isSpellKnown(classKey, id)) continue;   // 完全ゲート: 未習得(巻物/森の書未読)は不可
             // 上限超えない範囲で割り当て
             const take = Math.min(n, upperCap - used);
             if (take > 0) { allocMap[id] = take; used += take; }
@@ -5751,6 +5853,7 @@
       if (isAutoSlotClass(classKey)) {
         // 僧侶: Lv に応じて再配分
         const fresh = getClericSlots(newLv);
+        Object.keys(fresh).forEach(id => { if (!isSpellKnown(classKey, id)) delete fresh[id]; });   // 完全ゲート
         ally.maxSpellSlots = { ...fresh };
         // 残スロットを上限内で保ち、差分は補充 (上限が増えた呪文だけ満タンに)
         const newSlots = {};
@@ -7568,6 +7671,7 @@
       maybeDropIronSword(index);
       maybeDropLeatherArmor(index);
       maybeDropShadowAmulet(index);   // Phase 2-G: shadowBeast 撃破で残影の首飾り入手
+      maybeGrantScrollDrop(enemy);    // ボス/隠し要素撃破でスクロール確定ドロップ
 
       const nm = (enemy.def && enemy.def.name) || "敵";
       // ボス死亡セリフ (deathLine 定義時のみ)
@@ -9557,6 +9661,7 @@
       let allocMap = {};
       if (isAutoSlotClass(classKey)) {
         allocMap = getClericSlots(lv);
+        Object.keys(allocMap).forEach(id => { if (!isSpellKnown(classKey, id)) delete allocMap[id]; });   // 完全ゲート
       } else {
         const fromTavern = (partySkillsMap && partySkillsMap[classKey]) || {};
         const upperCap = getMaxSpellSlotsForClass(classKey, lv);
@@ -9566,6 +9671,7 @@
             const skill = (typeof getSkill === "function") ? getSkill(id) : null;
             const lvReq = (skill && skill.levelReq) || 1;
             if (lv < lvReq) continue;
+            if (!isSpellKnown(classKey, id)) continue;   // 完全ゲート: 未習得は不可
             const take = Math.min(n, upperCap - used);
             if (take > 0) { allocMap[id] = take; used += take; }
           }
@@ -9582,6 +9688,7 @@
       const oldMax = { ...currentMaxSpellSlots };
       if (isAutoSlotClass(classKey)) {
         const fresh = getClericSlots(newLv);
+        Object.keys(fresh).forEach(id => { if (!isSpellKnown(classKey, id)) delete fresh[id]; });   // 完全ゲート
         currentMaxSpellSlots = { ...fresh };
         const newSlots = {};
         for (const id of Object.keys(fresh)) {
@@ -11583,16 +11690,18 @@
 
     function pickChestLoot() {
       const r = Math.random();
-      if (r < 0.35) {
+      if (r < 0.33) {
         return { kind: "goldSmall", amount: 10 + Math.floor(Math.random() * 11) };      // 10-20
-      } else if (r < 0.55) {
+      } else if (r < 0.50) {
         return { kind: "goldLarge", amount: 30 + Math.floor(Math.random() * 21) };      // 30-50
-      } else if (r < 0.70) {
+      } else if (r < 0.62) {
         return { kind: "weapon" };
-      } else if (r < 0.85) {
+      } else if (r < 0.74) {
         return { kind: "armor" };
-      } else if (r < 0.95) {
+      } else if (r < 0.84) {
         return { kind: "shield" };
+      } else if (r < 0.96) {
+        return { kind: "scroll" };                                                      // 呪文学習スクロール (12%)
       } else {
         return { kind: "empty" };
       }
@@ -11745,7 +11854,7 @@
         showBanner("🎁 宝箱をみつけた!", 1500);
         appendLog("宝箱を発見！", "sys");
         // レア判定: loot 種別で differentiate (武器/防具/大金貨=レア的扱い)
-        const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge");
+        const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
         if (isRare) {
           showDMMessage("おや…これはただの箱ではない。紋章が刻まれた鉄製の箱だ。中に何が入っている？", 2400);
         } else {
@@ -11822,6 +11931,19 @@
         updateInfo("宝箱の中身: 盗賊の鍵束 — 何かを開けられそうだ");
         showBanner("🗝 盗賊の鍵束を手に入れた!", 1800);
         showDMMessage("古い革の束に錆びた鉄鍵が数本。盗賊たちが何か危険なものを閉じ込めているのかもしれない…", 2800);
+      } else if (loot.kind === "scroll") {
+        // スクロール (呪文学習アイテム)。rarity 重みで1種抽選 → 在庫へ (酒場で「読む」と永続習得)
+        const sid = (typeof pickScrollId === "function") ? pickScrollId({ common: 55, uncommon: 35, rare: 10 }) : null;
+        const c = (sid && typeof addScroll === "function") ? addScroll(sid, { silent: true }) : null;
+        if (c) {
+          const sk = (typeof getSkill === "function") ? getSkill(c.spellId) : null;
+          updateInfo(`宝箱の中身: ${c.name} — 酒場で「読む」と「${sk ? sk.name : c.spellId}」を永続習得`);
+          showBanner(`📜 ${c.name} を手に入れた!`, 1800);
+          showDMMessage("色褪せた羊皮紙に、忘れられた呪文が記されている。読み解けば、新たな力となるだろう。", 2800);
+        } else {
+          updateInfo("宝箱の中身: 空っぽだった…");
+          showBanner("空っぽだった…", 1300);
+        }
       } else {
         // empty
         updateInfo("宝箱の中身: 空っぽだった…");
