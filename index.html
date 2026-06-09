@@ -1335,6 +1335,35 @@
     /* 隠された宝箱: 発見前は非表示、発見後は通常の roomChest と同じ表示 */
     .roomChest.hidden-unfound { display: none; }
 
+    /* Sce3 隠し要素: 蛇祭壇の微光オーラ (封印中の「何かある」サイン)。覚醒で消去。 */
+    .altarGlow {
+      position: absolute;
+      width: 180px;
+      height: 120px;
+      z-index: 2;
+      pointer-events: none;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center,
+        rgba(120,255,200,0.42) 0%,
+        rgba(60,200,150,0.26) 38%,
+        rgba(30,120,90,0.12) 64%,
+        rgba(0,0,0,0) 78%);
+      filter: blur(2px) drop-shadow(0 0 14px rgba(80,220,160,0.6));
+      animation: altarPulse 2.6s ease-in-out infinite;
+      transition: opacity 0.6s ease-out;
+    }
+    @keyframes altarPulse {
+      0%, 100% { opacity: 0.40; transform: scale(0.92); }
+      50%      { opacity: 0.72; transform: scale(1.06); }
+    }
+    /* ハイドラ出現: 沼の底からせり上がる (下部だけ→全身)。transform 不使用=左右反転と非競合。 */
+    @keyframes hydraEmerge {
+      0%   { clip-path: inset(85% 0 0 0); opacity: 0; }
+      40%  { opacity: 1; }
+      100% { clip-path: inset(0 0 0 0);  opacity: 1; }
+    }
+    .hydra-emerge { animation: hydraEmerge 0.85s ease-out; }
+
     /* Sce2 隠し要素: 鉄檻オブジェクト (残影の獣を閉じ込めている、2タイル分=192px) */
     .roomCage {
       width: 192px;
@@ -4223,7 +4252,7 @@
         sprite: "assets/hydra_anim.png?v=1",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
-        displaySize: 150,
+        displaySize: 360,                    // 巨大ボス (約2.4倍。原寸192px→アップスケール)
         hp: 34, speed: 0.6,                  // hp = 1頭ぶん (headHp)。HPバー=現在の頭
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -6773,6 +6802,17 @@
         const armorEl  = armorDropElements[index];
         const alertEl  = alertMarkElements[index];
 
+        // 封印中のハイドラは完全非表示。背景画の蛇祭壇が「祭壇だけ」の見た目を担い、
+        // 覚醒 (awakenHydra が inactive 解除) すると下の通常描画でせり上がり出現する。
+        if (enemy.def && enemy.def.isHydra && enemy.inactive) {
+          enemyEl.style.display = "none";
+          hpBarEl.style.display = "none";
+          coinEl.style.display = "none"; weaponEl.style.display = "none";
+          armorEl.style.display = "none"; alertEl.style.display = "none";
+          const _hb = enemyBadgeElements[index]; if (_hb) _hb.style.display = "none";
+          return;
+        }
+
         // 伏兵化(フォグ): 通常の idle 敵で未視認のものは隠す。視認したら everSeen で永続表示(ちらつき防止)。
         //   inactive(檻)/passiveNpc/isNpcSpirit(カエルム霊)は演出保護のため常時表示で除外。
         //   動き出した敵(alert/chase/search/returning)は隠さない(突進の不自然さ回避)。
@@ -6922,6 +6962,19 @@
           const wy = trap.ty * TILE_SIZE + TILE_SIZE / 2 - 26;
           trap.el.style.left = (wx - camX) + "px";
           trap.el.style.top  = (wy - camY) + "px";
+        }
+      }
+      // Sce3 蛇祭壇の微光オーラ: 封印中のみ、ハイドラ位置 (=祭壇中心) にカメラ追従で配置
+      if (altarGlowEl) {
+        const he = (hydraIdx >= 0) ? enemies[hydraIdx] : null;
+        if (he && he.alive && he.inactive) {
+          const ds = he.def.displaySize || TILE_SIZE;
+          const cx = he.x + ds / 2, cy = he.y + ds / 2;
+          altarGlowEl.style.display = "block";
+          altarGlowEl.style.left = (cx - 90 - camX) + "px";   // glow 幅180px → 中央寄せ
+          altarGlowEl.style.top  = (cy - 60 - camY) + "px";   // glow 高120px
+        } else {
+          altarGlowEl.style.display = "none";
         }
       }
     }
@@ -12140,7 +12193,8 @@
     // 封印中は inactive+passiveNpc (クリア非ブロック)。祭壇 (=ハイドラ位置) 接近で3択 →
     // 破壊/供物強奪で覚醒、立ち去れば封印維持で回避可能。initCaelum と同方針。
     let hydraIdx = -1, hydraResolved = false, hydraAwakened = false;
-    const ALTAR_APPROACH_RADIUS = 160;
+    let altarGlowEl = null;                        // 封印中に祭壇中央へ置く微光オーラ (覚醒で消去)
+    const ALTAR_APPROACH_RADIUS = 220;   // 祭壇3択の接近半径。実測でnear-miss(182px)を拾うため160→220に拡大
 
     function initHydra() {
       for (let ei = 0; ei < enemies.length; ei++) {
@@ -12154,12 +12208,18 @@
         e.dragDone = false; e.roarDone = false;
         e.__tookFireAcid = false; e.__regrowNarrated = false;
         hydraIdx = ei;
+        // 封印中はハイドラ本体を完全非表示。背景画 (room_lizard-swamp_4) の蛇祭壇だけを見せる。
+        // (描画ループの isHydra && inactive ガードでも隠すが、初フレーム前から確実に隠す)
         const el = enemyElements[ei];
-        if (el) {                                  // 封印=水没した暗い影
-          el.classList.add("hydra-sealed");
-          el.style.filter = "grayscale(0.5) brightness(0.6) saturate(0.7) drop-shadow(0 0 16px rgba(40,90,70,0.85))";
-          el.style.opacity = "0.7";
-        }
+        if (el) el.style.display = "none";
+      }
+      // 祭壇 (=ハイドラ位置) に微光オーラ+ゆらめきを置き「何かある」と静かに示す。
+      // 宝箱/罠と同じ body 直下 position:absolute、カメラ追従は描画ループで毎フレーム配置。
+      if (hydraIdx >= 0 && !altarGlowEl) {
+        altarGlowEl = document.createElement("div");
+        altarGlowEl.className = "altarGlow";
+        altarGlowEl.id = "altarGlow";
+        document.body.appendChild(altarGlowEl);
       }
     }
 
@@ -12210,13 +12270,26 @@
       showDMMessage("巨大な影が、五つの頭をもたげながら、闇から這い上がってくる。リザードマンたちが一斉に叫んだ — 『守護神よ!守護神よ!』", 5200);
       try { if (typeof sfx === "function") sfx("bossDeath"); } catch (err) {}
       await sleepMs(1400);
-      if (e) { e.passiveNpc = false; e.inactive = false; }   // 戦闘化 (Caelum hostile と同方針)
+      // 祭壇の微光を消す (脈動アニメを止めてフェード → 除去)
+      if (altarGlowEl) {
+        const g = altarGlowEl;
+        g.style.animation = "none";
+        g.style.opacity = "0";
+        setTimeout(() => { try { g.remove(); } catch (e2) {} }, 600);
+        altarGlowEl = null;
+      }
+      if (e) { e.passiveNpc = false; e.inactive = false; e.everSeen = true; }  // 戦闘化 (描画ガードを抜け display:block へ。everSeen でフォグ消失を防止)
       const el = enemyElements[hydraIdx];
       if (el) {
-        el.classList.remove("hydra-sealed");
+        el.style.display = "block";
         el.style.opacity = "1";
+        // 沼の底からせり上がる出現: clip-path で下→全身リビール
+        // (transform はスプライト左右反転 scaleX(-1) と競合するため不使用)
+        el.classList.add("hydra-emerge");
         el.style.filter = "brightness(1.7) saturate(1.4) drop-shadow(0 0 18px rgba(80,200,140,0.9))";
-        setTimeout(() => { if (el) el.style.filter = ""; }, 900);
+        setTimeout(() => {
+          if (el) { el.style.filter = ""; el.classList.remove("hydra-emerge"); el.style.clipPath = ""; }
+        }, 1000);
       }
     }
 
