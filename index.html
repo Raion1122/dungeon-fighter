@@ -6225,12 +6225,26 @@
       // combat は敵種族別メッセージが個別に出るのでここでは省略
     };
     let currentPhase = "explore";
+    // 中ボス (隠し要素ミニボス) 判定: faction="beast"(残影の獣/石ゴーレム/動く鎧) + isHydra + isNpcSpirit(敵対カエルム)
+    function isMidBossEnemy(e) {
+      return !!(e && e.def && (e.def.isHydra || e.def.faction === "beast" || e.def.isNpcSpirit));
+    }
+    // 覚醒済みで活性 (inactive/passiveNpc でない) な中ボスが場にいるか
+    function isMidBossActive() {
+      return enemies.some(e => e && e.alive && !e.inactive && !e.passiveNpc && isMidBossEnemy(e));
+    }
+    // 戦闘BGM優先順位: 中ボス > メインボス部屋 > 通常戦闘
+    function combatBgmTrack() {
+      if (window.__inMidBoss) return "midboss";
+      if (window.__inBossRoom) return "boss";
+      return "combat";
+    }
     function setPhase(kind) {
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
       currentPhase = kind;
-      // BGM: フェーズに応じてクロスフェード (ボス部屋の戦闘は boss トラック)
-      bgm((kind === "combat" && window.__inBossRoom) ? "boss" : kind);
+      // BGM: フェーズに応じてクロスフェード (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)
+      bgm(kind === "combat" ? combatBgmTrack() : kind);
       const el = document.getElementById("phaseIndicator");
       if (el) {
         el.classList.remove("phase-explore", "phase-combat", "phase-rest");
@@ -10250,6 +10264,7 @@
       if (window.__diag) window.__diag.beat("combat", true);   // 自動デバッグ: 戦闘開始
       encounterStartedAt = (typeof performance !== "undefined" && performance.now)
         ? performance.now() : Date.now();   // Phase 2-B: 確率脱走の経過時間基準
+      window.__inMidBoss = isMidBossActive();   // 既に解き放たれた中ボスが居れば midboss 曲を選ばせる
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
       // DM ナレーション: ボスがいればボス戦前メッセージ、そうでなければ敵種族別
@@ -10520,6 +10535,7 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        window.__inMidBoss = isMidBossActive();   // 中ボス撃破済なら false (撃破済は alive=false)。逃げて生存中なら true 維持
         clearCordonZones();   // 設置ゾーンを次エンカへ持ち越さない
         if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
         // エンカウンター終了でセカンドウィンドの使用権を回復 (次戦の立て直し用)
@@ -12216,6 +12232,8 @@
             beast.y = target.y;
           }
           beast.inactive = false;
+          window.__inMidBoss = true;
+          if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
           const el = enemyElements[cage.beastIdx];
           if (el) {
             el.classList.remove("beast-caged");
@@ -12270,6 +12288,8 @@
           setTimeout(() => { el.style.filter = ""; }, 700);
         }
       }
+      window.__inMidBoss = true;
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の守護者覚醒なら即座に midboss 曲へ
       await sleepMs(900);
     }
 
@@ -12377,6 +12397,8 @@
       await sleepMs(900);
       const e = enemies[caelumIdx];
       if (e) { e.passiveNpc = false; e.inactive = false; }
+      window.__inMidBoss = true;
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のカエルム敵対化なら即座に midboss 曲へ
       const el = enemyElements[caelumIdx];
       if (el) {
         el.classList.remove("caelum-spirit");
@@ -12476,6 +12498,8 @@
         altarGlowEl = null;
       }
       if (e) { e.passiveNpc = false; e.inactive = false; e.everSeen = true; }  // 戦闘化 (描画ガードを抜け display:block へ。everSeen でフォグ消失を防止)
+      window.__inMidBoss = true;
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のハイドラ覚醒なら即座に midboss 曲へ
       const el = enemyElements[hydraIdx];
       if (el) {
         el.style.display = "block";
@@ -17562,6 +17586,8 @@
     spawnTraps();
     // 隠された宝箱を初期化 (知覚チェックで発見)
     spawnHiddenChests();
+    // 中ボス専用 BGM フラグをシナリオ開始時にリセット (シナリオ跨ぎの持ち越し防止)
+    window.__inMidBoss = false;
     // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
     spawnCages();
     linkCagedBeasts();
@@ -17594,6 +17620,7 @@
       resultShown = true;
       if (window.GameAudio) { GameAudio.stopBgm(); GameAudio.playJingle(win ? "victory" : "defeat"); }
       window.__inBossRoom = false;
+      window.__inMidBoss = false;
       resultOverlayEl.classList.remove("defeat");
       // クリア/全滅時の DM ナレーション
       if (win) {
