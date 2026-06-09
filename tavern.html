@@ -1066,10 +1066,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>未習得の魔法をリストから非表示に</b> — スクロールで習得した呪文だけが酒場の魔法欄に並ぶようになった。</li>
         <li><b>酒場の依頼人を一枚絵に刷新</b> — 6クエストの依頼人がテーブルに座る手描きイラストになりました(画面も整理)。</li>
         <li><b>古代ハイドラに火炎ブレスを追加</b> — 沼の守護神が、頭が多いほど高確率で全体に炎を吐く。</li>
         <li><b>BGMを全曲メタル基調に刷新</b> — 中ボスは「重圧ドゥーム」、酒場・休憩はメタルバラード。</li>
-        <li>炎の魔法・火の武器の着弾を爆発エフェクトに(ファイアーボール ほか)。</li>
       </ul>
     </div>
 
@@ -2562,14 +2562,13 @@
     item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!usable ? " full" : "");
     const rangeTag = RANGE_LABEL[sk.range] || "";
     const lvLock = !lvOk ? ` <span class="sCat" style="color:#8b2010">[Lv${lvReq} 必要]</span>` : "";
-    const scrollLock = (lvOk && !known) ? ` <span class="sCat" style="color:#8b2010">[🔒 スクロール未習得]</span>` : "";
     const mpTag = sk.mpCost ? ` <span class="sCat" style="color:#2b5d8e">[1 スロット]</span>` : "";
     item.innerHTML =
       `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">` +
         `<div style="flex:1;">` +
           `<span class="sName"><span class="sCat">[${sk.category}]</span>${sk.name}` +
           (rangeTag ? ` <span class="sCat" style="color:#5a2085">[${rangeTag}]</span>` : "") +
-          mpTag + lvLock + scrollLock +
+          mpTag + lvLock +
           `</span>` +
           `<span class="sFlavor">${sk.flavor}</span>` +
         `</div>` +
@@ -2768,7 +2767,7 @@
     const full = equippedSet.size >= skillLimitForClass(slot.classKey);
     // mpCost が無い (or 0) → スキル、ある (>0) → 魔法
     const skills = slot.skillPool.filter(sk => !sk.mpCost);
-    const magics = slot.skillPool.filter(sk =>  sk.mpCost > 0);
+    const magics = slot.skillPool.filter(sk => sk.mpCost > 0 && isSpellKnownTV(slot.classKey, sk.id));
     const skillListEl = document.getElementById("skillList");
     const magicListEl = document.getElementById("magicList");
     const skillSection = document.getElementById("skillSection");
