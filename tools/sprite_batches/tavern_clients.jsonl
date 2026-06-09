@@ -1,0 +1,7 @@
+{"prompt_file": "source_images/tavern_clients/_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/tavern_clients/_prompt_goblin-mine.txt", "output": "source_images/tavern_clients/01_goblin-mine.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_bandits-forest.txt", "output": "source_images/tavern_clients/02_bandits-forest.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_lizard-swamp.txt", "output": "source_images/tavern_clients/03_lizard-swamp.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_orc-fort.txt", "output": "source_images/tavern_clients/04_orc-fort.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_undead-temple.txt", "output": "source_images/tavern_clients/05_undead-temple.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_dragon-lair.txt", "output": "source_images/tavern_clients/06_dragon-lair.png"}

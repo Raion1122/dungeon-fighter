@@ -113,6 +113,29 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 - 本ゲームプロジェクトのコード変更は本 PC で完結
 - ボールトと本プロジェクトの双方向参照: ボールト = 設計、本プロジェクト = 実装
 
+## 更新情報(changelog)の運用 ⚠️ コミット時必須
+
+銀の鹿亭(`tavern.html`)右上の「📜 更新情報」(`#changelogBox` の `changelogList`)は、
+**コミット/プッシュの度に必ず最新化する**(ユーザー要望: 毎回必ず更新)。仕組みは
+A(Claude 手順)+ B(チェックフック)の二重化(方式 D)。
+
+- **書く内容**: *プレイヤー向けに整えた日本語要約*。コミット件名(開発者語彙)のコピペは禁止。
+  先頭 = 最新、既定 4 件維持(古いものを 1 件落とす)。例:
+  `<li><b>古代ハイドラに火炎ブレスを追加</b> — 頭が多いほど高確率で全体に炎を吐く。</li>`
+- **手順(A)**: `index.html` / `tavern.html` / `audio.js` のロジックを変更したコミットでは、
+  コミット前に必ず 1 行追記する。ヘルパー:
+  ```bash
+  py tools/add_changelog.py "<b>見出し</b> — 説明文"
+  ```
+- **機械強制(B)**: `scripts/hooks/pre-commit`(`core.hooksPath=scripts/hooks` 経由)が、
+  上記3ファイルを変更したのに `changelogList` が未更新のコミットを**中止**する。
+  検査本体は `scripts/hooks/check_changelog.py`。
+- **`--no-verify` での迂回は原則禁止**(どうしても必要な時のみ、理由を添えてユーザーに確認)。
+- **初回セットアップ(済)**: `git config core.hooksPath scripts/hooks`。
+  別マシンで開発する場合は各クローンで一度だけ実行する。
+- **トリガー範囲**: `index.html` / `tavern.html` / `audio.js` のみ。`assets/*.png` 追加のみ・
+  `tools/*`・`scripts/*`・CLAUDE.md・検証ドライバの変更では強制しない(過剰検知の回避)。
+
 ## ChatGPT 画像生成の自動化フロー
 
 部屋画 / スプライト / 装飾アセットは、`tools/chatgpt_generate.py` を経由して

@@ -86,28 +86,6 @@
       margin-top: 2px;
     }
 
-    /* プレイヤー情報カード(左上) */
-    #playerCard {
-      position: absolute;
-      top: 22px; left: 22px;
-      padding: 10px 16px 10px 14px;
-      background: var(--parchment-bg);
-      border: 2px solid var(--parchment-border);
-      box-shadow: var(--parchment-shadow);
-      color: var(--parchment-ink);
-      font-family: 'MedievalSharp', serif;
-      font-size: 14px;
-      min-width: 180px;
-      z-index: 10;
-    }
-    #playerCard .name {
-      font-size: 18px;
-      color: var(--parchment-gold);
-      letter-spacing: 2px;
-      margin-bottom: 4px;
-    }
-    #playerCard .stat { font-size: 12px; color: var(--parchment-ink-soft); }
-
     /* NPCテーブルエリア */
     #tableArea {
       position: absolute;
@@ -200,11 +178,29 @@
       opacity: 0.5;
     }
 
+    /* 依頼人イラスト(.npc 図形の代替。アートが用意できた依頼人のみ表示) */
+    .clientArt {
+      position: absolute;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      width: 92px; height: 120px;
+      object-fit: contain;
+      object-position: bottom center;
+      z-index: 3;                /* 円卓(tableTop)の手前に座る */
+      pointer-events: none;      /* クリックは .table が拾う(openDialog) */
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.55));
+    }
+    .table.locked .clientArt {
+      filter: grayscale(0.9) brightness(0.4) drop-shadow(0 4px 6px rgba(0,0,0,0.55));
+    }
+
     /* NPC の上に漂う看板(依頼プレビュー) */
     .sign {
       position: absolute;
-      left: 50%; top: -4px;
+      left: 50%; top: -40px;
       transform: translateX(-50%);
+      z-index: 6;             /* 依頼人ポートレイトの前面に出して地名ラベルを可読に */
       min-width: 150px;
       padding: 6px 10px;
       background: var(--parchment-bg);
@@ -832,7 +828,7 @@
       box-shadow: var(--parchment-shadow);
       color: var(--parchment-ink);
       font-family: 'Noto Serif JP', serif;
-      z-index: 15;            /* title/playerCard(10) より上、モーダル(90/100) より下 */
+      z-index: 15;            /* title(10) より上、モーダル(90/100) より下 */
       pointer-events: auto;   /* スクロール可 */
     }
     #changelogBox .changelogHeader {
@@ -956,19 +952,6 @@
       <small>Silver Stag Tavern — プランの町</small>
     </div>
 
-    <div id="playerCard">
-      <div class="name">戦士</div>
-      <div class="stat" id="playerLvHp">Lv 1 ・ HP 30 / 30</div>
-      <div class="stat" id="playerCoreStats">STR+3 DEX+1 CON+2</div>
-      <div class="stat" id="playerCombat">AC 16 ・ 攻撃 +4</div>
-      <div class="stat" style="margin-top:6px;border-top:1px dashed rgba(90,60,20,0.35);padding-top:5px;">
-        <span id="playerGold">金貨 0</span>
-      </div>
-      <div class="stat" id="playerWeapon">武器: ―</div>
-      <div class="stat" id="playerShield">盾: ―</div>
-      <div class="stat" id="playerArmor">防具: ―</div>
-    </div>
-
     <div id="tableArea"></div>
 
     <div id="dialog">
@@ -1083,10 +1066,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>エルフに弓の魔法 5種を追加</b> — ハンターズ・マーク / 棘の雨 / 設置矢 / 雷の矢 / 矢の雨(奥義)。6職すべての呪文・スキルが出揃いました。</li>
-        <li>残影の獣を第三勢力化 + 檻の多択(逃がす/誘導/無視)</li>
-        <li>盗賊スキルを6種追加 / 罠探知を職業別の確率に</li>
-        <li>廃坑シーンの情景(瓦礫・トロッコ)と床/壁を刷新</li>
+        <li><b>酒場の依頼人を一枚絵に刷新</b> — 6クエストの依頼人がテーブルに座る手描きイラストになりました(画面も整理)。</li>
+        <li><b>古代ハイドラに火炎ブレスを追加</b> — 沼の守護神が、頭が多いほど高確率で全体に炎を吐く。</li>
+        <li><b>BGMを全曲メタル基調に刷新</b> — 中ボスは「重圧ドゥーム」、酒場・休憩はメタルバラード。</li>
+        <li>炎の魔法・火の武器の着弾を爆発エフェクトに(ファイアーボール ほか)。</li>
       </ul>
     </div>
 
@@ -2108,80 +2091,7 @@
       localStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
     } catch (e) { /* ignore */ }
   }
-  // 戦士の実戦闘ステ (index.html の playerStats と同期)
-  const PLAYER_DMG_DICE = "1d8";
-  const PLAYER_DMG_BONUS = 3;
-  const PLAYER_WEAPON_RANGE = "melee";
-  function formatWeaponLine(name, dmgDice, dmgBonus, rangeKey, rarity, bonusDice, bonusType) {
-    const rLabel = RANGE_LABEL[rangeKey] || "近距離";
-    const bonusStr = (dmgBonus > 0) ? `+${dmgBonus}`
-                  : (dmgBonus < 0) ? `${dmgBonus}` : "";
-    const cls = getItemColorClass(name, rarity);
-    const ELEM = { fire: "炎", cold: "氷", lightning: "雷", holy: "聖" };
-    const extraStr = bonusDice
-      ? ` <span style="color:#7a30c0;font-weight:700">+${bonusDice}${ELEM[bonusType] || ""}</span>`
-      : "";
-    return `武器: <span class="${cls}">${name || "—"}</span> (${dmgDice || "—"}${bonusStr}${extraStr}, ${rLabel})`;
-  }
-  function formatArmorLine(name, rarity) {
-    const cls = getItemColorClass(name, rarity);
-    return `防具: <span class="${cls}">${name || "—"}</span>`;
-  }
-  function formatShieldLine(name, rarity, enhancement) {
-    const cls = getItemColorClass(name, rarity);
-    const acStr = (enhancement > 0) ? ` (AC +${enhancement})` : "";
-    return `盾: <span class="${cls}">${name || "—"}</span>${acStr}`;
-  }
-  function renderPlayerCard() {
-    const lv = getLevelFromXP(inventory.xp);
-    const nextXp = getNextLevelXP(inventory.xp);
-    document.getElementById("playerGold").textContent =
-      `金貨 ${inventory.gold} ・ Lv${lv} (XP ${inventory.xp}/${nextXp})`;
-
-    // 装備 (実際に装備中の選択値を使う。inventory.*Idx は所持最上位なので表示には不適切)
-    const wIdx = Math.min(selection.equipWeapon, WEAPONS.length - 1);
-    const aIdx = Math.min(selection.equipArmor,  ARMORS.length  - 1);
-    const sIdx = Math.min(selection.equipShield, SHIELDS.length - 1);
-    const w = WEAPONS[wIdx];
-    const a = ARMORS[aIdx];
-    const s = SHIELDS[sIdx];
-
-    // 戦士のレベル別ステ計算 (index.html の LEVEL_PROGRESSION.warrior と同期)
-    // hitDieMax=10, babFn=lv (full BAB), statBoost="str" (4Lv ごとに STR+1)
-    const BASE = { hp: 30, str: 3, dex: 1, con: 2, ac: 16, atk: 4 };
-    const hpGain    = (lv - 1) * 10;
-    const babGain   = (lv - 1);
-    const strBoost  = Math.floor(lv / 4);
-    const curMaxHp  = BASE.hp + hpGain;
-    const curStr    = BASE.str + strBoost;
-
-    // 戦闘ステ (装備エンハ込み)
-    const weaponEnh = w.enhancement || 0;
-    const armorEnh  = a.enhancement || 0;
-    const shieldEnh = s.enhancement || 0;
-    const curAtk    = BASE.atk + babGain + strBoost + weaponEnh;
-    const curAc     = BASE.ac  + armorEnh + shieldEnh;
-
-    // 上3行 (Lv/HP, STR/DEX/CON, AC/攻撃) 反映
-    document.getElementById("playerLvHp").textContent =
-      `Lv ${lv} ・ HP ${curMaxHp} / ${curMaxHp}`;
-    document.getElementById("playerCoreStats").textContent =
-      `STR+${curStr} DEX+${BASE.dex} CON+${BASE.con}`;
-    document.getElementById("playerCombat").textContent =
-      `AC ${curAc} ・ 攻撃 +${curAtk}`;
-
-    // 装備エンハンスメントをダメージにも反映、ダメダイスは武器固有
-    const dmgDice    = w.dmgDice || PLAYER_DMG_DICE;
-    const effDmgBonus = PLAYER_DMG_BONUS + strBoost + weaponEnh;
-    document.getElementById("playerWeapon").innerHTML =
-      formatWeaponLine(w.name, dmgDice, effDmgBonus, PLAYER_WEAPON_RANGE, w.rarity, w.bonusDmgDice, w.bonusDmgType);
-    document.getElementById("playerArmor").innerHTML =
-      formatArmorLine(a.name, a.rarity);
-    const shieldEl = document.getElementById("playerShield");
-    if (shieldEl) {
-      shieldEl.innerHTML = formatShieldLine(s.name, s.rarity, s.enhancement);
-    }
-  }
+  // (左上プレイヤーカードは廃止: renderPlayerCard と専用ヘルパーを削除)
 
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
@@ -2250,6 +2160,26 @@
     { left: "60%", top: "58%" },
   ];
 
+  // ── 依頼人ポートレイト(段階導入)──────────────────────────
+  // アートが用意できた scenarioId のみ <img> 表示。未用意は従来 CSS 人形(.npc)で
+  // 描画し 404 を出さない。画像投入後に該当 id を true へ。読込失敗時は人形へ自動退避。
+  const CLIENT_ART = {
+    "goblin-mine":    true,
+    "bandits-forest": true,
+    "lizard-swamp":   true,
+    "orc-fort":       true,
+    "undead-temple":  true,
+    "dragon-lair":    true,
+  };
+  function onClientArtError(img, type) {
+    if (img.dataset.fellBack === "1") return;   // 二重発火防止(壊れた src の再ループを断つ)
+    img.dataset.fellBack = "1";
+    const npc = document.createElement("div");
+    npc.className = "npc " + (type || "");
+    npc.innerHTML = '<div class="cap"></div><div class="head"></div><div class="body"></div>';
+    img.replaceWith(npc);
+  }
+
   function renderTables() {
     const area = document.getElementById("tableArea");
     area.innerHTML = "";
@@ -2260,16 +2190,22 @@
       table.className = "table" + (unlocked ? "" : " locked");
       table.style.left = slot.left;
       table.style.top  = slot.top;
+      // 依頼人ビジュアル: アート用意済みは <img>、未用意は従来 CSS 人形(段階導入・404回避)
+      const portrait = CLIENT_ART[sc.id]
+        ? `<img class="clientArt ${sc.client.type}" src="assets/client_${sc.id}.png"
+               alt="${unlocked ? sc.client.name : "???"}" draggable="false"
+               onerror="onClientArtError(this, '${sc.client.type}')">`
+        : `<div class="npc ${sc.client.type}">
+            <div class="cap"></div>
+            <div class="head"></div>
+            <div class="body"></div>
+          </div>`;
       table.innerHTML = `
         <div class="sign">
           <div class="place">${unlocked ? sc.place : "???"}</div>
           <div class="diff">${unlocked ? sc.difficulty : "— 未解放 —"}</div>
         </div>
-        <div class="npc ${sc.client.type}">
-          <div class="cap"></div>
-          <div class="head"></div>
-          <div class="body"></div>
-        </div>
+        ${portrait}
         <div class="tableTop"></div>
         <div class="floorTag">TABLE ${String(i + 1).padStart(2, "0")}</div>
       `;
@@ -3042,7 +2978,6 @@
   })();
   if (window.GameAudio) GameAudio.applySettings();
 
-  renderPlayerCard();
   renderTables();
 
   // ── 酒場の掲示板: クエスト自動生成 (ティアの幅つき 3 件提示 → 選択 → 出発) ──

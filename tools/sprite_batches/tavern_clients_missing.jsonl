@@ -1,0 +1,3 @@
+{"prompt_file": "source_images/tavern_clients/_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/tavern_clients/_prompt_lizard-swamp.txt", "output": "source_images/tavern_clients/03_lizard-swamp.png"}
+{"prompt_file": "source_images/tavern_clients/_prompt_dragon-lair.txt", "output": "source_images/tavern_clients/06_dragon-lair.png"}

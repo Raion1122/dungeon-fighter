@@ -1,0 +1,13 @@
+#!/bin/sh
+# 更新情報(changelog)ガード — core.hooksPath=scripts/hooks 経由で git が起動。
+# index.html / tavern.html / audio.js を変更したのに銀の鹿亭の更新情報が未更新なら commit を止める。
+# 詳細ロジックは scripts/hooks/check_changelog.py を参照。
+PY=""
+for c in py python python3; do
+  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then
+  echo "⚠ changelog フック: Python が見つからず検査をスキップしました" >&2
+  exit 0
+fi
+"$PY" scripts/hooks/check_changelog.py
