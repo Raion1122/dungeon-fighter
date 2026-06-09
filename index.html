@@ -4775,6 +4775,21 @@
       setTimeout(() => { try { flash.remove(); } catch {} }, 350);
     }
 
+    // 炎着弾バースト (横展開用): フォグ貫通の爆発スプライト + 小型動的光源。
+    // Fireball ほど大げさにしない可変サイズ版。既存VFX (火柱/敵燃焼) に加算する想定。
+    function spawnFireImpactBurst(centerWX, centerWY, opts = {}) {
+      const size = opts.size || 160;
+      spawnExplosionSprite(centerWX, centerWY, { size, frameMs: opts.frameMs || 75 });
+      if (opts.light !== false) {
+        addSpellLight({
+          worldX: centerWX, worldY: centerWY,
+          inner: size * 0.55, outer: size * 1.4,
+          strongAlpha: 0.9, midAlpha: 0.6,
+          rgb: "255,185,85", duration: 480, fadeMs: 480,
+        });
+      }
+    }
+
     // フォールバック: シート未ロード時の旧描画 (3 連リング + 火柱)
     function spawnFireballExplosionFallback(centerWX, centerWY) {
       // 3 連リング
@@ -11431,6 +11446,7 @@
             // 炎: 中央フラッシュ + 炎柱 → 敵に火が燃え移る粒子継続
             playFlameTongueImpactFx(ex, fxY, targetIdx, isCrit);
             spawnFireBurnOnEnemy(targetIdx, isCrit ? 1800 : 1400);
+            spawnFireImpactBurst(ex, fxY, { size: 120, light: true });   // フォグ貫通の爆発 (剣撃・小)
           } else if (bonusType === "cold") {
             // 冷気: 青白閃光 + 放射状氷晶 → 敵から落ちる氷の粒
             playFrostbiteImpactFx(ex, fxY, targetIdx, isCrit);
@@ -13615,6 +13631,7 @@
       // Phase 2-I: 着弾はフレイムタンインパクト fx (中央フラッシュ + 炎柱)
       const fxY = target.y + (tgtDef.displaySize || 64) / 2;
       playFlameTongueImpactFx(ex, fxY, enemyIdx, isCrit);
+      spawnFireImpactBurst(ex, fxY, { size: 170, light: true });   // フォグ貫通の爆発 (単発)
 
       target.__tookFireAcid = true;   // ハイドラ: ファイアボルトの炎で首切除可
       target.hp = Math.max(0, target.hp - dmg);
@@ -14162,6 +14179,12 @@
 
       // 炎散布 + 動的光源
       spawnConeFlames(aCX, aCY, best.d.dx, best.d.dy);
+      // 円錐3段にフォグ貫通の小バースト (光源はspawnConeFlamesが既に付与済み → light:false)
+      for (let step = 1; step <= 3; step++) {
+        const bx = aCX + best.d.dx * step * TILE_SIZE;
+        const by = aCY + best.d.dy * step * TILE_SIZE;
+        spawnFireImpactBurst(bx, by, { size: 140, light: false });
+      }
       // 焼夷地面 (1.5 秒)
       for (const t of best.tiles) {
         spawnGroundFx(t.tx, t.ty, 1, 1, "fireball-scorch", 1500);
