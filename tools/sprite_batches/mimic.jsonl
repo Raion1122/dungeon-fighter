@@ -1,0 +1,6 @@
+# 偽宝箱ミミック (mimic) — 3 ターン構成 (厚塗り仕様把握 → walk → attack)
+# 非人型・箱型ボス級。stoneGolem.jsonl 構成準拠だが spec は厚塗り版を使用。
+# 画風はユーザー確定「厚塗りで宝箱に忠実」(休眠 chest.png と同系統)。
+{"prompt_file": "source_images/enemy_mimic/_painterly_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_mimic/_prompt_walk.txt",   "output": "source_images/enemy_mimic/ミミック歩き.png"}
+{"prompt_file": "source_images/enemy_mimic/_prompt_attack.txt", "output": "source_images/enemy_mimic/ミミック攻撃.png"}

@@ -4288,18 +4288,17 @@
       },
       // ── 最終シナリオ 隠し要素: 偽宝箱 (ミミック / final-mimic.md) ──
       // 宝箱に擬態 (roomChests の特殊エントリで描画) → 接近 or 盗賊察知で起動して敵スポーン。
-      // MVP スプライト: chest_open.png (1024² 単フレーム) を staticSprite で流用 (専用6Fは後追い)。
+      // 専用6Fシート: 厚塗りで chest.png と同系統の宝箱が牙を剥く (mimic_anim.png 1152×960, 192px×6col×5row)。
       mimic: {
         name: "偽宝箱(ミミック)",
         flavor: "宝箱に擬態する古典の罠。触れた者を粘液で捉える",
         badge: "🧰",
-        sprite: "assets/chest_open.png",
-        sheetW: 1024, sheetH: 1024,
-        frameW: 1024, frameH: 1024, cols: 1, rowOffset: 0,
-        staticSprite: true,                  // 単フレーム流用: updateEnemyAnim で frame0/row0 固定
-        displaySize: 84,
+        sprite: "assets/mimic_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 100,
         hp: 58, speed: 0.6,
-        hasAttackAnim: false,
+        hasAttackAnim: true,
         meleeRange: 150, hitRange: 170,
         attackDuration: 36, attackHitFrame: 18, attackCooldown: 60,
         str: 3, dex: 1, atkBonus: 5, ac: 12,
