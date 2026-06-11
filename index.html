@@ -2415,7 +2415,10 @@
     // ── オーディオ薄ラッパ (audio.js 未読込でも安全に no-op) ──
     function sfx(n, o) { try { if (window.GameAudio) GameAudio.playSfx(n, o); } catch (e) {} }
     function bgm(n) { try { if (window.GameAudio) GameAudio.playBgm(n); } catch (e) {} }
+    function voice(id) { try { if (window.GameAudio) GameAudio.playVoice(id); } catch (e) {} }
     if (window.GameAudio) GameAudio.applySettings();
+    // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
+    try { if (window.GameAudio && GameAudio.loadVoiceManifest) GameAudio.loadVoiceManifest("assets/voice/manifest.json", "assets/voice/"); } catch (e) {}
     (function wireSettingsBtn() {
       var sb = document.getElementById("settingsBtn");
       if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
@@ -6101,9 +6104,11 @@
     })();
 
     // ── DM イベントメッセージ (羊皮紙ミニバナー) ──
-    function showDMMessage(text, ms = 2500) {
+    function showDMMessage(text, ms = 2500, voiceId) {
       const el = document.getElementById("dmMessage");
       if (!el) return;
+      // 任意: 対応するナレーション音声を再生 (将来のフルボイス用。未指定/未生成なら no-op)
+      if (voiceId) voice(voiceId);
       el.textContent = text;
       el.classList.remove("show");
       void el.offsetWidth;  // リフロー強制 (同じメッセージでもアニメ再生)
@@ -6387,13 +6392,16 @@
       }
     }
 
-    async function playNarration(paragraphs) {
+    async function playNarration(paragraphs, voiceIdPrefix) {
       narrationPlaying = true;
       const bodyEl = document.getElementById("dmBody");
       const hintEl = document.getElementById("dmHint");
       try {
-        for (const paragraph of paragraphs) {
+        for (let pi = 0; pi < paragraphs.length; pi++) {
+          const paragraph = paragraphs[pi];
           hintEl.classList.remove("show");
+          // 段落頭でナレーション音声を再生 (タイピングと並行。未生成/未読込なら no-op)
+          if (voiceIdPrefix) voice(voiceIdPrefix + "_" + pi);
           await typeNarrationParagraph(paragraph, bodyEl);
           // 段落終了時のカーソル表示
           bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
@@ -18533,7 +18541,7 @@
         narrationSkipRequested = true;
       }
 
-      await playNarration(paragraphs);
+      await playNarration(paragraphs, "dungeon_intro_" + scenarioId);
 
       // フェードアウト
       narrEl.classList.add("fading");

@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# VOICEVOX 中間生成物の wav はコミットしない (mp3 のみ配信。assets/voice/*.mp3 と manifest.json はコミット対象)
+*.wav
+
 # OS junk
 Thumbs.db
 .DS_Store

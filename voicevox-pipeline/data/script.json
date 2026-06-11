@@ -1,0 +1,48 @@
+{
+  "speakers": {
+    "narrator": 13,
+    "dungeon_master": 84,
+    "dungeon_master_whisper": 86
+  },
+  "defaults": {
+    "speedScale": 1.0,
+    "pitchScale": 0.0,
+    "intonationScale": 1.0,
+    "volumeScale": 1.0
+  },
+  "lines": [
+    { "id": "quest_accept_001", "category": "quest", "speaker": "narrator", "text": "新たなる依頼を引き受けた。" },
+    { "id": "quest_accept_002", "category": "quest", "speaker": "narrator", "text": "冒険者たちよ、準備を整えよ。報酬と栄光が、君たちを待っている。" },
+    { "id": "quest_accept_003", "category": "quest", "speaker": "narrator", "text": "新たな冒険の幕開けだ。気を引き締めて行け。" },
+
+    { "id": "dungeon_intro_goblin-mine_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、街道沿いの廃坑へとたどり着いた。" },
+    { "id": "dungeon_intro_goblin-mine_1", "category": "dungeon", "speaker": "dungeon_master", "text": "入口付近には、砕け散った荷車の残骸と、干からびた血の跡が残っている。奥からは、くぐもったゴブリンの声と、揺れる松明の明かりが漏れていた。" },
+    { "id": "dungeon_intro_goblin-mine_2", "category": "dungeon", "speaker": "dungeon_master", "text": "ゴブリンどもの巣は、確かにここだ。そして囚われた御者も、まだ生きているかもしれない。" },
+    { "id": "dungeon_intro_goblin-mine_3", "category": "dungeon", "speaker": "dungeon_master", "text": "さあ、踏み込め。暗闇の先に、何が待ち受けているかは…神のみぞ知る。" },
+
+    { "id": "dungeon_intro_bandits-forest_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、町外れの森へと足を踏み入れた。" },
+    { "id": "dungeon_intro_bandits-forest_1", "category": "dungeon", "speaker": "dungeon_master", "text": "昼間だというのに、鬱蒼と茂る木々が光を遮り、辺りは薄暗い。折れた矢や、捨てられた荷物が点在している。盗賊どもの縄張りだ。" },
+    { "id": "dungeon_intro_bandits-forest_2", "category": "dungeon", "speaker": "dungeon_master", "text": "森の奥に、砦がある。そこにスカーがいる。奴が持つ謎の指令書…それが、この町を蝕む闇への手がかりになるはずだ。" },
+    { "id": "dungeon_intro_bandits-forest_3", "category": "dungeon", "speaker": "dungeon_master", "text": "気を抜くな。木陰のどこかに、奴らの目が光っているかもしれない。" },
+
+    { "id": "dungeon_intro_lizard-swamp_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、悪臭漂う沼地の畔に立っていた。" },
+    { "id": "dungeon_intro_lizard-swamp_1", "category": "dungeon", "speaker": "dungeon_master", "text": "水面は濁り、足元はぬかるんでいる。葦の茂みの奥から、爬虫類特有の低い唸り声が聞こえてくる。リザードマンどもの縄張りだ。" },
+    { "id": "dungeon_intro_lizard-swamp_2", "category": "dungeon", "speaker": "dungeon_master", "text": "しかし奇妙なことに、奴らの動きはまるで統制が取れている。まるで、誰かの命令に従うかのように…" },
+    { "id": "dungeon_intro_lizard-swamp_3", "category": "dungeon", "speaker": "dungeon_master", "text": "沼の奥へ進め。答えは、そこにある。" },
+
+    { "id": "dungeon_intro_orc-fort_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、崩れかけた石造りの砦の前に立っていた。" },
+    { "id": "dungeon_intro_orc-fort_1", "category": "dungeon", "speaker": "dungeon_master", "text": "かつては誰かが守っていたであろうその砦は、今やオークどもに占拠されている。城壁には松明が灯され、見張りの影が揺れていた。" },
+    { "id": "dungeon_intro_orc-fort_2", "category": "dungeon", "speaker": "dungeon_master", "text": "砦の内部からは、ドラゴンの鱗に似た異臭が漂っている。ファラクサスの影が、ここにも及んでいるのか。" },
+    { "id": "dungeon_intro_orc-fort_3", "category": "dungeon", "speaker": "dungeon_master", "text": "突破するしかない。将軍ガロックの首を取れ。" },
+
+    { "id": "dungeon_intro_undead-temple_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、地の底へと続く石段を降りきった。" },
+    { "id": "dungeon_intro_undead-temple_1", "category": "dungeon", "speaker": "dungeon_master", "text": "古びた神殿が、闇の中に広がっている。空気は冷たく、死の気配が漂っていた。アンデッドの巣だ。" },
+    { "id": "dungeon_intro_undead-temple_2", "category": "dungeon", "speaker": "dungeon_master", "text": "壁には奇妙な紋章と、儀式の痕跡が残されている。ファラクサスを呼び覚ますための、邪悪な儀式が行われていたのだ。" },
+    { "id": "dungeon_intro_undead-temple_3", "category": "dungeon", "speaker": "dungeon_master", "text": "急げ。まだ間に合うかもしれない。" },
+
+    { "id": "dungeon_intro_dragon-lair_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、灼熱の岩窟へとたどり着いた。" },
+    { "id": "dungeon_intro_dragon-lair_1", "category": "dungeon", "speaker": "dungeon_master", "text": "天井は高く、溶岩の光が洞窟全体を赤く照らしている。足元には焼け焦げた骨が散乱し、空気は焦げた硫黄の臭いに満ちていた。" },
+    { "id": "dungeon_intro_dragon-lair_2", "category": "dungeon", "speaker": "dungeon_master", "text": "奥から、地鳴りのような息遣いが聞こえる。ファラクサスだ。" },
+    { "id": "dungeon_intro_dragon-lair_3", "category": "dungeon", "speaker": "dungeon_master", "text": "これが最後の戦いだ。プランの町の命運は、君たちの双肩にかかっている。" }
+  ]
+}

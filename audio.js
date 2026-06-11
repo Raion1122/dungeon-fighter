@@ -10,7 +10,7 @@
 
   // ===== Section A: 設定ストア (GameSettings) =================================
   var SETTINGS_KEY = "dragonfighters.settings";
-  var DEFAULTS = { master: 0.8, bgm: 0.6, sfx: 0.9, muted: false, textSpeed: 70 };
+  var DEFAULTS = { master: 0.8, bgm: 0.6, sfx: 0.9, voice: 0.95, muted: false, textSpeed: 70 };
   var _cache = null;
 
   function clamp(v, lo, hi) { v = +v; if (isNaN(v)) return lo; return v < lo ? lo : (v > hi ? hi : v); }
@@ -20,6 +20,7 @@
       master: clamp(s.master, 0, 1),
       bgm: clamp(s.bgm, 0, 1),
       sfx: clamp(s.sfx, 0, 1),
+      voice: clamp(s.voice, 0, 1),
       muted: !!s.muted,
       textSpeed: clamp(s.textSpeed, 0, 200),
     };
@@ -60,10 +61,10 @@
     catch (e) { initFailed = true; return null; }
   }
   function buildBuses() {
-    var master = ctx.createGain(), bgm = ctx.createGain(), sfx = ctx.createGain(), ui = ctx.createGain();
+    var master = ctx.createGain(), bgm = ctx.createGain(), sfx = ctx.createGain(), ui = ctx.createGain(), voice = ctx.createGain();
     master.connect(ctx.destination);
-    bgm.connect(master); sfx.connect(master); ui.connect(master);
-    buses = { master: master, bgm: bgm, sfx: sfx, ui: ui };
+    bgm.connect(master); sfx.connect(master); ui.connect(master); voice.connect(master);
+    buses = { master: master, bgm: bgm, sfx: sfx, ui: ui, voice: voice };
     applyVolumes();
   }
   function setGain(node, v, t) {
@@ -77,6 +78,7 @@
     setGain(buses.bgm, s.bgm, t);
     setGain(buses.sfx, s.sfx, t);
     setGain(buses.ui, s.sfx * 0.9, t);
+    setGain(buses.voice, s.voice, t);
   }
   function unlock() {
     if (!ensureContext()) return;
@@ -338,6 +340,66 @@
     bgmState.voice = null; bgmState.name = null; bgmRunning = false; pendingTrack = null;
   }
 
+  // ===== Section F2: ナレーション・ボイス (事前生成 mp3 の再生) ==============
+  //   VOICEVOX で事前生成した mp3 を fetch→decode→buses.voice で再生。
+  //   manifest 未ロード/未生成/file:///未 unlock では全 API が無音 no-op。
+  //   ※ 上の BGM 内部関数 stopVoice(vs) とは別物 (playVoiceClip/stopVoiceClip)。
+  var voiceManifest = null;   // id -> { category, file, text, speaker, durationSec, hash }
+  var voiceBaseDir = "";       // manifest の file に前置するパス (例 "assets/voice/")
+  var voiceBufCache = {};      // id -> AudioBuffer (decode 済キャッシュ)
+  var voiceFetching = {};      // id -> true (多重 fetch 抑止)
+  var currentVoiceSrc = null;  // 再生中の BufferSource (新ナレ開始時に停止)
+
+  function loadVoiceManifest(url, baseDir) {
+    if (typeof fetch !== "function" || !url) return;
+    voiceBaseDir = baseDir || "";
+    try {
+      fetch(url)
+        .then(function (r) { return (r && r.ok) ? r.json() : null; })
+        .then(function (j) { if (j && typeof j === "object") voiceManifest = j; })
+        .catch(function () {});   // file:// や未生成は握り潰し → ボイス無効のまま続行
+    } catch (e) {}
+  }
+
+  function stopVoiceClip() {
+    if (currentVoiceSrc) {
+      try { currentVoiceSrc.stop(); } catch (e) {}
+      try { currentVoiceSrc.disconnect(); } catch (e2) {}
+      currentVoiceSrc = null;
+    }
+  }
+
+  function startVoiceBuffer(buf) {
+    if (!buf || !ensureContext() || !buses) return;
+    stopVoiceClip();
+    try {
+      var src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(buses.voice);
+      src.onended = function () { if (currentVoiceSrc === src) currentVoiceSrc = null; };
+      src.start(0);
+      currentVoiceSrc = src;
+    } catch (e) {}
+  }
+
+  function playVoiceClip(id) {
+    if (!id || !voiceManifest) return;
+    if (!ensureContext() || !unlocked) return;
+    var entry = voiceManifest[id];
+    if (!entry || !entry.file) return;
+    if (voiceBufCache[id]) { startVoiceBuffer(voiceBufCache[id]); return; }
+    if (voiceFetching[id] || typeof fetch !== "function") return;
+    voiceFetching[id] = true;
+    var url = voiceBaseDir + entry.file;
+    try {
+      fetch(url)
+        .then(function (r) { if (!r || !r.ok) throw new Error("voice 404: " + url); return r.arrayBuffer(); })
+        .then(function (ab) { return ctx.decodeAudioData(ab); })
+        .then(function (buf) { voiceBufCache[id] = buf; voiceFetching[id] = false; startVoiceBuffer(buf); })
+        .catch(function () { voiceFetching[id] = false; });
+    } catch (e) { voiceFetching[id] = false; }
+  }
+
   // ===== Section G: Public API ==============================================
   function playSfx(name, opts) {
     if (!ensureContext() || !unlocked) return;
@@ -429,6 +491,7 @@
     box.appendChild(volRow("マスター音量", function () { return GameSettings.get().master; }, function (v) { GameAudio.setMasterVolume(v); }));
     box.appendChild(volRow("BGM 音量", function () { return GameSettings.get().bgm; }, function (v) { GameAudio.setBgmVolume(v); }));
     box.appendChild(volRow("効果音 音量", function () { return GameSettings.get().sfx; }, function (v) { GameAudio.setSfxVolume(v); }));
+    box.appendChild(volRow("ボイス音量", function () { return GameSettings.get().voice; }, function (v) { GameAudio.setVoiceVolume(v); }));
     // ミュート
     var mk = document.createElement("label"); mk.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;";
     var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.muted;
@@ -472,7 +535,11 @@
     setMasterVolume: function (v) { GameSettings.patch({ master: v }); applyVolumes(); },
     setBgmVolume: function (v) { GameSettings.patch({ bgm: v }); applyVolumes(); },
     setSfxVolume: function (v) { GameSettings.patch({ sfx: v }); applyVolumes(); },
+    setVoiceVolume: function (v) { GameSettings.patch({ voice: v }); applyVolumes(); },
     setMute: function (b) { GameSettings.patch({ muted: !!b }); applyVolumes(); },
+    playVoice: playVoiceClip,
+    stopVoice: stopVoiceClip,
+    loadVoiceManifest: loadVoiceManifest,
     applySettings: function () { GameSettings.reload(); if (buses) applyVolumes(); GameAudio.textSpeed = GameSettings.get().textSpeed; },
     openSettings: openSettings,
     closeSettings: closeSettings,

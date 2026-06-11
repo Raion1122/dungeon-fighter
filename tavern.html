@@ -1069,10 +1069,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>設定に「ボイス音量」を追加</b> — DMの語り・クエスト受注の音声ナレーションに対応(声量を個別に調整可能。音声は順次追加)。</li>
         <li><b>偽宝箱(ミミック)が専用の姿に</b> — 牙を剥いて襲いかかる宝箱が、ちゃんと動いて見えるようになった。</li>
         <li><b>ボスの巣に偽宝箱(ミミック)を追加</b> — 財宝に紛れた箱が牙を剥く。触れると粘着で1人拘束、盗賊なら見破れる。</li>
         <li><b>スクロール書庫を独立パネル化</b> — 聖典・巻物・森の書を、どのキャラのタブを見ていても同じ書庫から「読む」で習得できるよう導線を改善。</li>
-        <li><b>未習得の魔法をリストから非表示に</b> — スクロールで習得した呪文だけが酒場の魔法欄に並ぶようになった。</li>
       </ul>
     </div>
 
@@ -2294,6 +2294,8 @@
     renderScrollLibrary();   // タブ非依存の独立パネルとして描画
     dialogEl.style.display = "none";
     prepEl.style.display = "flex";
+    // クエスト受注ナレーション音声 (青山龍星 ノーマル)。準備画面は遷移しないので最後まで再生可。未生成/未読込なら no-op
+    try { if (window.GameAudio) GameAudio.playVoice("quest_accept_00" + (1 + Math.floor(Math.random() * 3))); } catch (e) {}
   }
 
   // ── 統合キャラパネル: タブ + 装備 + スキル + 魔法 ──
@@ -2980,6 +2982,8 @@
     if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
   })();
   if (window.GameAudio) GameAudio.applySettings();
+  // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
+  try { if (window.GameAudio && GameAudio.loadVoiceManifest) GameAudio.loadVoiceManifest("assets/voice/manifest.json", "assets/voice/"); } catch (e) {}
 
   renderTables();
 
