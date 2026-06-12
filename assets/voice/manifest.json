@@ -210,10 +210,10 @@
   "dungeon_intro_dragon-lair_3": {
     "category": "dungeon",
     "file": "dungeon/dungeon_intro_dragon-lair_3.mp3",
-    "text": "これが最後の戦いだ。プランの町の命運は、君たちの双肩にかかっている。",
+    "text": "これが最後の戦いだ。ようやく立ち直りかけたフランの町の命運は、君たちの双肩にかかっている。",
     "speaker": 84,
-    "durationSec": 5.525,
-    "hash": "f9e78a8ac3c5825b"
+    "durationSec": 6.891,
+    "hash": "288e8277da6f2718"
   },
   "nar_boss_room_enter": {
     "category": "event",
@@ -326,5 +326,61 @@
     "speaker": 84,
     "durationSec": 7.829,
     "hash": "5656ea81c5d013b0"
+  },
+  "dungeon_intro_prologue_0": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_0.mp3",
+    "text": "ムーンシー湖の畔に、フランという交易都市がある。",
+    "speaker": 84,
+    "durationSec": 4.043,
+    "hash": "67d9622f006b1973"
+  },
+  "dungeon_intro_prologue_1": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_1.mp3",
+    "text": "かつてこの街は魔物の群れに占拠され、瓦礫と灰に沈んだ。だが名もなき冒険者たちが現れ、闇を払い、街を取り戻した。その者たちの名は、もう誰も覚えてはいない。",
+    "speaker": 84,
+    "durationSec": 13.387,
+    "hash": "4e7ec37b868886d7"
+  },
+  "dungeon_intro_prologue_2": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_2.mp3",
+    "text": "あれから十数年。フランは、いまだ復興の半ばにある。再建された区画のかたわらに崩れた瓦礫が残り、再建の景気を嗅ぎつけた無法者たちが流れ込む。",
+    "speaker": 84,
+    "durationSec": 11.669,
+    "hash": "42112d5161cadebd"
+  },
+  "dungeon_intro_prologue_3": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_3.mp3",
+    "text": "解放を知らぬ新たな世代が、いま冒険者として立つ。君も、その一人だ。",
+    "speaker": 84,
+    "durationSec": 5.803,
+    "hash": "1b415c4b3c2f65cd"
+  },
+  "dungeon_intro_prologue_4": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_4.mp3",
+    "text": "そして——立ち直りかけたこの街を狙うように、新たな災厄が空からやってきた。復興に乗じて現れた赤き竜、ファラクサス。一夜にして、すべてを焼き払いかねない脅威。",
+    "speaker": 84,
+    "durationSec": 12.8,
+    "hash": "e9c25ef36f144db4"
+  },
+  "dungeon_intro_prologue_5": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_5.mp3",
+    "text": "冒険者が集う数少ない溜まり場、銀の鹿亭。ここから、君の物語が始まる。",
+    "speaker": 84,
+    "durationSec": 6.283,
+    "hash": "fcb2189b589fb8ea"
+  },
+  "dungeon_intro_prologue_6": {
+    "category": "dungeon",
+    "file": "dungeon/dungeon_intro_prologue_6.mp3",
+    "text": "——遠く西の剣の海岸、地の底に広がるアンダーダーク。まだ見ぬ地の物語は、いつかまた。",
+    "speaker": 84,
+    "durationSec": 6.88,
+    "hash": "9668a15d758cdc69"
   }
 }
