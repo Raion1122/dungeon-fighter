@@ -6114,7 +6114,12 @@
       void el.offsetWidth;  // リフロー強制 (同じメッセージでもアニメ再生)
       el.classList.add("show");
       if (el._hideTimer) clearTimeout(el._hideTimer);
-      el._hideTimer = setTimeout(() => el.classList.remove("show"), ms);
+      // ナレ表示中はゲーム時間を停止 (autoplay=ヘッドレス検証は除外して完走させる)
+      if (!window.__autoplay) narrationHold = true;
+      el._hideTimer = setTimeout(() => {
+        el.classList.remove("show");
+        narrationHold = false;
+      }, ms);
     }
 
     // ── showChoice ダイアログ (Yes/No 選択、Promise<boolean> 返却) ──
@@ -6449,6 +6454,7 @@
 
     let narrationSkipRequested = false;
     let narrationPlaying = false;
+    let narrationHold = false;          // DMナレ字幕/音声 表示中はゲーム時間を停止 (autoplayは立てない)
     let narrationAwaitingBegin = false; // Begin-gate: 最初の操作で音声解錠してから朗読開始するまで true
     const NARRATION_CHAR_MS = 70;     // 1文字あたりの表示間隔 (設計書0.15→実プレイ向けに短縮)
     const NARRATION_PARA_GAP_MS = 2500; // 段落送り前の自動待機
@@ -8696,7 +8702,7 @@
     function moveEnemies() {
       if (window.__diag) window.__diag.beat("tick");   // 自動デバッグ: フレーム落ち計測
       if (!gameStarted || gameOver) return;
-      if (dialogPaused) return;   // showChoice 表示中はゲーム時間停止
+      if (dialogPaused || narrationHold || narrationPlaying) return;   // 対話/ナレ表示中はゲーム時間停止
 
       // エンカウンター発動検出(ターン制戦闘へ移行)
       tryStartEncounter();
@@ -10184,6 +10190,15 @@
       const actual = speed > 1 ? Math.max(8, Math.floor(ms / speed)) : ms;
       return new Promise(r => setTimeout(r, actual));
     }
+    // ナレ表示中はゲーム時間を進めない: フラグが下りるまで待機。
+    // autoplay は narrationHold を立てないので即抜け (ヘッドレス検証を完走させる)。
+    async function awaitNarrationClear() {
+      let guard = 0;
+      while ((narrationHold || narrationPlaying) && !gameOver && guard < 400) {
+        await sleepMs(50);   // guard<400 = 最大~20秒のデッドロック保険
+        guard++;
+      }
+    }
 
     // ── 行動点滅エフェクト (non-blocking) ──
     // kind: "move" (青) / "attack" (赤) / "skill" (黄)
@@ -10656,6 +10671,8 @@
             if (actor.kind === "enemy" && !enemies[actor.idx].alive) continue;
             if (actor.kind === "ally" && !actor.ally.alive) continue;
 
+            await awaitNarrationClear();   // ナレ表示中は次の行動を保留 (ボス出現/覚醒ナレ等が鳴り終わるまで)
+
             if (actor.kind === "player") {
               const tgtIdx = pickAliveEngagedIdx();
               if (tgtIdx < 0) break;
@@ -10722,6 +10739,7 @@
           showBanner("行軍再開", 1100);
           updateInfo("探索再開");
           await sleepMs(700);
+          await awaitNarrationClear();   // 休憩ナレ(nar_phase_rest)が鳴り終わるまで探索復帰を保留
         }
       } catch (err) {
         console.error("encounter error", err);
