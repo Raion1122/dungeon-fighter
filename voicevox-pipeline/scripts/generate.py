@@ -54,7 +54,7 @@ def main(argv=None):
     ap.add_argument("--engine-url", default="http://127.0.0.1:50021")
     ap.add_argument("--script", default=str(DEFAULT_SCRIPT))
     ap.add_argument("--out", default=str(DEFAULT_OUT))
-    ap.add_argument("--category", choices=["quest", "dungeon", "all"], default="all")
+    ap.add_argument("--category", choices=["quest", "dungeon", "event", "all"], default="all")
     ap.add_argument("--only", default=None, help="特定 id だけ再生成")
     ap.add_argument("--format", choices=["mp3", "ogg", "wav"], default="mp3")
     ap.add_argument("--keep-wav", action="store_true", help="中間 wav を残す (通常は付けない)")

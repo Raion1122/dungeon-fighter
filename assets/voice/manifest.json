@@ -214,5 +214,117 @@
     "speaker": 84,
     "durationSec": 5.525,
     "hash": "f9e78a8ac3c5825b"
+  },
+  "nar_boss_room_enter": {
+    "category": "event",
+    "file": "event/nar_boss_room_enter.mp3",
+    "text": "この先に、君たちを待つものがいる。引き返すなら、今をおいて他にない。…だが、君たちは引き返さないのだろう。",
+    "speaker": 86,
+    "durationSec": 8.981,
+    "hash": "b7a8adf12df1ca4f"
+  },
+  "nar_boss_appear": {
+    "category": "event",
+    "file": "event/nar_boss_appear.mp3",
+    "text": "君たちの前に、それは立ちはだかった。これまでの敵とは、纏う気配が違う。気を引き締めろ。",
+    "speaker": 86,
+    "durationSec": 7.125,
+    "hash": "afbe974723d10c0d"
+  },
+  "nar_phase_rest": {
+    "category": "event",
+    "file": "event/nar_phase_rest.mp3",
+    "text": "君たちは、わずかな安全地帯に腰を下ろした。傷を癒やし、息を整えるがいい。深淵は、まだ続いている。",
+    "speaker": 84,
+    "durationSec": 8.608,
+    "hash": "3f52d63104df3afa"
+  },
+  "nar_boss_defeat_goblinKing": {
+    "category": "event",
+    "file": "event/nar_boss_defeat_goblinKing.mp3",
+    "text": "君たちは、廃坑に君臨した暴君グリクスを打ち倒した。緑の王の時代は、ここで終わる。囚われた者たちに、ようやく光が戻るだろう。",
+    "speaker": 84,
+    "durationSec": 10.197,
+    "hash": "7322eb6a9209681f"
+  },
+  "nar_boss_defeat_scar": {
+    "category": "event",
+    "file": "event/nar_boss_defeat_scar.mp3",
+    "text": "…ファラクサスの…手下には…なりたく…なかった…",
+    "speaker": 84,
+    "durationSec": 3.989,
+    "hash": "ba6e94da704a80c6"
+  },
+  "nar_boss_defeat_lizardChieftain": {
+    "category": "event",
+    "file": "event/nar_boss_defeat_lizardChieftain.mp3",
+    "text": "…炎の…御方よ…我が血を…捧げ…ます…",
+    "speaker": 84,
+    "durationSec": 4.608,
+    "hash": "a02ade3f4bcc1a5b"
+  },
+  "nar_boss_defeat_garrock": {
+    "category": "event",
+    "file": "event/nar_boss_defeat_garrock.mp3",
+    "text": "…炎の…御方よ…砦は…燃え尽きた…",
+    "speaker": 84,
+    "durationSec": 3.381,
+    "hash": "e714e4218e675563"
+  },
+  "nar_boss_defeat_lich": {
+    "category": "event",
+    "file": "event/nar_boss_defeat_lich.mp3",
+    "text": "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…",
+    "speaker": 84,
+    "durationSec": 7.125,
+    "hash": "b3a1e47511d352a5"
+  },
+  "nar_hard_beast": {
+    "category": "event",
+    "file": "event/nar_hard_beast.mp3",
+    "text": "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた。獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…!",
+    "speaker": 84,
+    "durationSec": 9.301,
+    "hash": "9514d54b167bc507"
+  },
+  "nar_hard_caelum": {
+    "category": "event",
+    "file": "event/nar_hard_caelum.mp3",
+    "text": "霊の表情が、一瞬で歪んだ。神官の慈悲は消え、死者の怨嗟だけが残った…!",
+    "speaker": 86,
+    "durationSec": 6.581,
+    "hash": "6acc3b5682652a04"
+  },
+  "nar_branch_hydra_awaken": {
+    "category": "event",
+    "file": "event/nar_branch_hydra_awaken.mp3",
+    "text": "君たちが祭壇を侵したことで、まつりがみの逆鱗に触れたようだ。封じられていたハイドラが、いま目を覚ます。",
+    "speaker": 86,
+    "durationSec": 7.872,
+    "hash": "8db0385c79985d33"
+  },
+  "nar_branch_altar_leave": {
+    "category": "event",
+    "file": "event/nar_branch_altar_leave.mp3",
+    "text": "君たちは供物に手を触れず、静かにその場を後にした。守護神は、眠ったままだ…。",
+    "speaker": 86,
+    "durationSec": 6.464,
+    "hash": "8241f637037a139c"
+  },
+  "nar_quest_complete": {
+    "category": "event",
+    "file": "event/nar_quest_complete.mp3",
+    "text": "見事だ。君たちはボスを討ち、ダンジョンは静寂を取り戻した。これが、君たちの選んだ道だ。",
+    "speaker": 84,
+    "durationSec": 7.264,
+    "hash": "82692f4f26c23f18"
+  },
+  "nar_quest_defeat": {
+    "category": "event",
+    "file": "event/nar_quest_defeat.mp3",
+    "text": "君たちは、ここで力尽きた。だが、物語はまだ終わってはいない。再び、立ち上がるがいい。",
+    "speaker": 84,
+    "durationSec": 7.829,
+    "hash": "5656ea81c5d013b0"
   }
 }

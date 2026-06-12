@@ -43,6 +43,24 @@
     { "id": "dungeon_intro_dragon-lair_0", "category": "dungeon", "speaker": "dungeon_master", "text": "君たちは、灼熱の岩窟へとたどり着いた。" },
     { "id": "dungeon_intro_dragon-lair_1", "category": "dungeon", "speaker": "dungeon_master", "text": "天井は高く、溶岩の光が洞窟全体を赤く照らしている。足元には焼け焦げた骨が散乱し、空気は焦げた硫黄の臭いに満ちていた。" },
     { "id": "dungeon_intro_dragon-lair_2", "category": "dungeon", "speaker": "dungeon_master", "text": "奥から、地鳴りのような息遣いが聞こえる。ファラクサスだ。" },
-    { "id": "dungeon_intro_dragon-lair_3", "category": "dungeon", "speaker": "dungeon_master", "text": "これが最後の戦いだ。プランの町の命運は、君たちの双肩にかかっている。" }
+    { "id": "dungeon_intro_dragon-lair_3", "category": "dungeon", "speaker": "dungeon_master", "text": "これが最後の戦いだ。プランの町の命運は、君たちの双肩にかかっている。" },
+
+    { "id": "nar_boss_room_enter", "category": "event", "speaker": "dungeon_master_whisper", "text": "この先に、君たちを待つものがいる。引き返すなら、今をおいて他にない。…だが、君たちは引き返さないのだろう。" },
+    { "id": "nar_boss_appear", "category": "event", "speaker": "dungeon_master_whisper", "text": "君たちの前に、それは立ちはだかった。これまでの敵とは、纏う気配が違う。気を引き締めろ。" },
+    { "id": "nar_phase_rest", "category": "event", "speaker": "dungeon_master", "text": "君たちは、わずかな安全地帯に腰を下ろした。傷を癒やし、息を整えるがいい。深淵は、まだ続いている。" },
+
+    { "id": "nar_boss_defeat_goblinKing", "category": "event", "speaker": "dungeon_master", "text": "君たちは、廃坑に君臨した暴君グリクスを打ち倒した。緑の王の時代は、ここで終わる。囚われた者たちに、ようやく光が戻るだろう。" },
+    { "id": "nar_boss_defeat_scar", "category": "event", "speaker": "dungeon_master", "text": "…ファラクサスの…手下には…なりたく…なかった…" },
+    { "id": "nar_boss_defeat_lizardChieftain", "category": "event", "speaker": "dungeon_master", "text": "…炎の…御方よ…我が血を…捧げ…ます…" },
+    { "id": "nar_boss_defeat_garrock", "category": "event", "speaker": "dungeon_master", "text": "…炎の…御方よ…砦は…燃え尽きた…" },
+    { "id": "nar_boss_defeat_lich", "category": "event", "speaker": "dungeon_master", "text": "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…" },
+
+    { "id": "nar_hard_beast", "category": "event", "speaker": "dungeon_master", "text": "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた。獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…!" },
+    { "id": "nar_hard_caelum", "category": "event", "speaker": "dungeon_master_whisper", "text": "霊の表情が、一瞬で歪んだ。神官の慈悲は消え、死者の怨嗟だけが残った…!" },
+    { "id": "nar_branch_hydra_awaken", "category": "event", "speaker": "dungeon_master_whisper", "text": "君たちが祭壇を侵したことで、まつりがみの逆鱗に触れたようだ。封じられていたハイドラが、いま目を覚ます。" },
+    { "id": "nar_branch_altar_leave", "category": "event", "speaker": "dungeon_master_whisper", "text": "君たちは供物に手を触れず、静かにその場を後にした。守護神は、眠ったままだ…。" },
+
+    { "id": "nar_quest_complete", "category": "event", "speaker": "dungeon_master", "text": "見事だ。君たちはボスを討ち、ダンジョンは静寂を取り戻した。これが、君たちの選んだ道だ。" },
+    { "id": "nar_quest_defeat", "category": "event", "speaker": "dungeon_master", "text": "君たちは、ここで力尽きた。だが、物語はまだ終わってはいない。再び、立ち上がるがいい。" }
   ]
 }

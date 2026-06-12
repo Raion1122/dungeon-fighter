@@ -6282,6 +6282,90 @@
       "rest":    "戦いが終わった。束の間の休息を取れ。だが、油断するな。",
       // combat は敵種族別メッセージが個別に出るのでここでは省略
     };
+
+    // ── トリガー方式 DM ナレーション (dm-narration-spec.md) ──
+    // 非ブロッキングな羊皮紙バナー showDMMessage(...,voiceId) に薄く乗せる。voiceId を持つ行は
+    // 固定文で、voicevox-pipeline/data/script.json に同 id で mirror して音声化する
+    // (検証 driver_narration_triggers でドリフト突合)。字幕に {boss}/{monster} を差し込む行は
+    // 音声を固定の voiceText で鳴らす (企画書 A案: 動的部分は字幕のみ・固定部分だけ音声化)。
+    const NARRATION_LINES = [
+      // ボス部屋初入室 (囁き)
+      { triggerId: "boss_room_enter", speaker: "dungeon_master_whisper", voiceId: "nar_boss_room_enter",
+        subtitle: "この先に、君たちを待つものがいる。引き返すなら、今をおいて他にない。…だが、君たちは引き返さないのだろう。" },
+      // ボス出現 (字幕に boss 名、音声は固定文)
+      { triggerId: "boss_appear", speaker: "dungeon_master_whisper", voiceId: "nar_boss_appear",
+        subtitle: "君たちの前に、{boss}が立ちはだかる。これまでの敵とは、纏う気配が違う。気を引き締めろ。",
+        voiceText: "君たちの前に、それは立ちはだかった。これまでの敵とは、纏う気配が違う。気を引き締めろ。" },
+      // 休憩フェーズ (しっとり)
+      { triggerId: "phase_rest", speaker: "dungeon_master", voiceId: "nar_phase_rest",
+        subtitle: "君たちは、わずかな安全地帯に腰を下ろした。傷を癒やし、息を整えるがいい。深淵は、まだ続いている。" },
+      // ボス撃破 (eventKey = enemy.type。deathLine ボスは台詞を字幕、音声は voiceText)
+      { triggerId: "boss_defeat", eventKey: "goblinKing", speaker: "dungeon_master", voiceId: "nar_boss_defeat_goblinKing",
+        subtitle: "君たちは、廃坑に君臨した暴君グリクスを打ち倒した。緑の王の時代は、ここで終わる。囚われた者たちに、ようやく光が戻るだろう。" },
+      { triggerId: "boss_defeat", eventKey: "scar", speaker: "dungeon_master", voiceId: "nar_boss_defeat_scar",
+        subtitle: "「…ファラクサスの…手下には…なりたく…なかった…」 — 盗賊頭「スカー」",
+        voiceText: "…ファラクサスの…手下には…なりたく…なかった…" },
+      { triggerId: "boss_defeat", eventKey: "lizardChieftain", speaker: "dungeon_master", voiceId: "nar_boss_defeat_lizardChieftain",
+        subtitle: "「…炎の…御方よ…我が血を…捧げ…ます…」 — リザードマン族長",
+        voiceText: "…炎の…御方よ…我が血を…捧げ…ます…" },
+      { triggerId: "boss_defeat", eventKey: "garrock", speaker: "dungeon_master", voiceId: "nar_boss_defeat_garrock",
+        subtitle: "「…炎の…御方よ…砦は…燃え尽きた…」 — オーク将軍ガロック",
+        voiceText: "…炎の…御方よ…砦は…燃え尽きた…" },
+      { triggerId: "boss_defeat", eventKey: "lich", speaker: "dungeon_master", voiceId: "nar_boss_defeat_lich",
+        subtitle: "「馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…」 — リッチ",
+        voiceText: "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…" },
+      // 中ボス覚醒: 残影の獣 (DM)
+      { triggerId: "combat_hard_start", eventKey: "beast", speaker: "dungeon_master", voiceId: "nar_hard_beast",
+        subtitle: "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた。獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…!" },
+      // 中ボス覚醒: 敵対カエルム霊 (囁き)
+      { triggerId: "combat_hard_start", eventKey: "caelum", speaker: "dungeon_master_whisper", voiceId: "nar_hard_caelum",
+        subtitle: "霊の表情が、一瞬で歪んだ。神官の慈悲は消え、死者の怨嗟だけが残った…!" },
+      // 分岐結果: ハイドラ覚醒 (囁き)
+      { triggerId: "branch_consequence", eventKey: "hydra_awaken", speaker: "dungeon_master_whisper", voiceId: "nar_branch_hydra_awaken",
+        subtitle: "君たちが祭壇を侵したことで、まつりがみの逆鱗に触れたようだ。封じられていたハイドラが、いま目を覚ます。" },
+      // 分岐結果: 祭壇を立ち去る (囁き)
+      { triggerId: "branch_consequence", eventKey: "altar_leave", speaker: "dungeon_master_whisper", voiceId: "nar_branch_altar_leave",
+        subtitle: "君たちは供物に手を触れず、静かにその場を後にした。守護神は、眠ったままだ…。" },
+      // クエスト達成 / 敗北 (しっとり)
+      { triggerId: "quest_complete", speaker: "dungeon_master", voiceId: "nar_quest_complete",
+        subtitle: "見事だ。君たちはボスを討ち、ダンジョンは静寂を取り戻した。これが、君たちの選んだ道だ。" },
+      { triggerId: "quest_defeat", speaker: "dungeon_master", voiceId: "nar_quest_defeat",
+        subtitle: "君たちは、ここで力尽きた。だが、物語はまだ終わってはいない。再び、立ち上がるがいい。" },
+    ];
+    // triggerId(+ctx.eventKey) から再生するラインを解決。eventKey 完全一致 > 汎用(eventKey無)複数ランダム > 無音。
+    function resolveNarrationLine(triggerId, ctx = {}) {
+      const lines = NARRATION_LINES.filter(l => l.triggerId === triggerId);
+      if (!lines.length) return null;
+      if (ctx.eventKey) {
+        const byEvent = lines.find(l => l.eventKey === ctx.eventKey);
+        if (byEvent) return byEvent;
+      }
+      const generic = lines.filter(l => !l.eventKey);
+      if (!generic.length) return null;
+      return generic[Math.floor(Math.random() * generic.length)];
+    }
+    function applyPlaceholders(text, ctx = {}) {
+      return String(text)
+        .replace(/\{monster\}/g, ctx.monster != null ? ctx.monster : "敵")
+        .replace(/\{boss\}/g, ctx.boss != null ? ctx.boss : "奴");
+    }
+    // ナレーション発火: 字幕(=subtitle に placeholder 差込) + 音声(voiceId)。非ブロッキング。
+    function narrate(triggerId, ctx = {}) {
+      if (narrationPlaying) return;            // 導入ナレ window 表示中はバナーを抑止
+      const line = resolveNarrationLine(triggerId, ctx);
+      if (!line) return;
+      const text = applyPlaceholders(line.subtitle, ctx);
+      let ms = line.ms || 2600;
+      // autoplay(自動巡回検証)は実尺で hold せず既定 ms 固定 (導入ナレ playNarration と同思想)
+      if (!window.__autoplay && line.voiceId && window.GameAudio && GameAudio.getVoiceDuration) {
+        const sec = GameAudio.getVoiceDuration(line.voiceId);
+        if (sec > 0) ms = Math.round(sec * 1000) + 600;   // 音声尺 + 余韻
+      }
+      showDMMessage(text, ms, line.voiceId);
+    }
+    // ヘッドレス検証用: 解決ロジック/台本をクロージャ外へ公開 (driver_narration_triggers)
+    window.__narr = { lines: NARRATION_LINES, resolve: resolveNarrationLine, apply: applyPlaceholders, fire: narrate };
+
     let currentPhase = "explore";
     // 中ボス (隠し要素ミニボス) 判定: faction="beast"(残影の獣/石ゴーレム/動く鎧) + isHydra + isNpcSpirit(敵対カエルム)
     function isMidBossEnemy(e) {
@@ -6316,6 +6400,8 @@
       // 休憩→探索 は別メッセージ
       if (prev === "rest" && kind === "explore") {
         showDMMessage("英気を養った。再び前へ。", 2000);
+      } else if (kind === "rest" && prev !== kind) {
+        narrate("phase_rest");                       // 休憩フェーズ: 音声付き DM 語り (置換)
       } else if (PHASE_NARRATION[kind] && prev !== kind) {
         showDMMessage(PHASE_NARRATION[kind], 2200);
       }
@@ -7848,8 +7934,11 @@
       maybeGrantScrollDrop(enemy);    // ボス/隠し要素撃破でスクロール確定ドロップ
 
       const nm = (enemy.def && enemy.def.name) || "敵";
-      // ボス死亡セリフ (deathLine 定義時のみ)
-      if (enemy.def && enemy.def.deathLine && typeof showDMMessage === "function") {
+      // ボス撃破ナレーション: isBoss は eventKey=type で音声付き (置換)、
+      // 非ボスの deathLine (カエルム霊・ミミック等) は従来どおり字幕のみ。
+      if (enemy.def && enemy.def.isBoss && typeof narrate === "function") {
+        setTimeout(() => narrate("boss_defeat", { eventKey: enemy.type, boss: nm }), 600);
+      } else if (enemy.def && enemy.def.deathLine && typeof showDMMessage === "function") {
         setTimeout(() => showDMMessage(`「${enemy.def.deathLine}」 — ${nm}`, 3600), 600);
       }
       // Sce4 隠し要素: ストーンゴーレム撃破 → 伏線ナレ + バナー (実アイテム化は後追い)
@@ -9318,7 +9407,7 @@
             bossRoomNarrationShown = true;
             window.__inBossRoom = true;
             bgm("boss");
-            showDMMessage("…この先に、奴がいる。準備はいいか。", 2400);
+            narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
           }
         }
       }
@@ -10375,7 +10464,7 @@
       const bossIdx = initialEngaged.find(i => enemies[i].def.maxSummons > 0);
       if (bossIdx !== undefined) {
         const bossName = enemies[bossIdx].def.name;
-        showDMMessage(`…部屋の奥から、重い足音が近づいてくる。これが${bossName}か。覚悟はいいか。`, 2800);
+        narrate("boss_appear", { boss: bossName });   // ボス戦前: 字幕にボス名 / 音声は固定 (置換・A案)
       } else {
         const fam = detectEnemyFamily(initialEngaged);
         showDMMessage(ENEMY_FAMILY_MSG[fam] || ENEMY_FAMILY_MSG.generic, 2200);
@@ -12406,9 +12495,7 @@
       const beastEl0 = (cage.beastIdx >= 0) ? enemyElements[cage.beastIdx] : null;
       if (beastEl0) beastEl0.classList.add("beast-roaring");
       showBanner("💢 残影の獣 解き放たれた! 💢", 1500);
-      showDMMessage(
-        "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた…!\n" +
-        "獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…", 4400);
+      narrate("combat_hard_start", { eventKey: "beast" });   // 中ボス覚醒: 音声付き DM 語り (置換)
       await sleepMs(1500);
       // 咆哮終了 → 檻は床に倒れる、ビーストは活性化
       if (cage.el) {
@@ -12597,7 +12684,7 @@
 
     // 敵対ルート: Horrifying Visage (恐怖セーヴ DC13 流用) → 戦闘化 (tryStartEncounter が単体戦を開始)。
     async function caelumHostileRoute() {
-      showDMMessage("霊の表情が一瞬で歪む。神官の慈悲は消え、死者の怨嗟だけが残った…!", 3600);
+      narrate("combat_hard_start", { eventKey: "caelum" });   // カエルム敵対化: 音声付き DM 語り (置換)
       showBanner("👁 HORRIFYING VISAGE 👁", 1600);
       await sleepMs(700);
       partyWillSave(13);                     // 仕込み済の恐怖セーヴを流用
@@ -12680,7 +12767,7 @@
         await awakenHydra(c);
       } else {
         // c === 0 または null: 封印維持 (passiveNpc のままクリア非ブロック、報酬なし)
-        showDMMessage("供物に手を触れず、静かにその場を後にした。守護神は、眠ったままだ…", 3000);
+        narrate("branch_consequence", { eventKey: "altar_leave" });   // 祭壇を立ち去る: 音声付き DM 語り (置換)
       }
     }
 
@@ -12694,7 +12781,7 @@
         : "供物の宝石を奪い取った。封印の均衡が崩れ、沼の水が音を立てて渦巻きはじめる…!", 4200);
       await sleepMs(1500);
       showBanner("🐲 守護神、覚醒! 🐲", 2000);
-      showDMMessage("巨大な影が、五つの頭をもたげながら、闇から這い上がってくる。リザードマンたちが一斉に叫んだ — 『守護神よ!守護神よ!』", 5200);
+      narrate("branch_consequence", { eventKey: "hydra_awaken" });   // ハイドラ覚醒: 音声付き DM 語り (置換)
       try { if (typeof sfx === "function") sfx("bossDeath"); } catch (err) {}
       await sleepMs(1400);
       // 祭壇の微光を消す (脈動アニメを止めてフェード → 除去)
@@ -18019,11 +18106,11 @@
       window.__inBossRoom = false;
       window.__inMidBoss = false;
       resultOverlayEl.classList.remove("defeat");
-      // クリア/全滅時の DM ナレーション
+      // クリア/全滅時の DM ナレーション (音声付き・置換)
       if (win) {
-        showDMMessage("見事だ。ボスを倒し、ダンジョンは静寂を取り戻した。君たちの勝利だ。", 3200);
+        narrate("quest_complete");
       } else {
-        showDMMessage("…力尽きた。だが、冒険はまだ終わっていない。再び立ち上がれ。", 3200);
+        narrate("quest_defeat");
       }
 
       let reward = null;
