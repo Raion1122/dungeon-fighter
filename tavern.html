@@ -938,11 +938,85 @@
     #questBoardBody .qcardComp { font-size: 11px; color: var(--parchment-ink); opacity: 0.75; margin-top: 2px; }
     #questBoardBody .qdetailWrap { margin-top: 9px; }
     #questBoardBody .qdetail .qsentence { margin-bottom: 0; }
+
+    /* オープニング前口上 (初回来訪時・全画面暗幕 + 羊皮紙ナレ窓) */
+    #prologueOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(4,6,10,0.88);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 40px;
+      cursor: pointer;
+      transition: opacity 0.6s ease-out;
+    }
+    #prologueOverlay.fading { opacity: 0; }
+    #dmNarration {
+      width: 760px;
+      max-width: 92vw;
+      background: linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
+      border: 6px solid #6a4010;
+      border-radius: 6px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.7), inset 0 0 30px rgba(130,80,30,0.3);
+      padding: 18px 26px 16px;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      color: #3a2010;
+    }
+    .dmHeader {
+      font-size: 14px;
+      letter-spacing: 4px;
+      color: #6a3a10;
+      border-bottom: 1px solid rgba(106,64,16,0.4);
+      padding-bottom: 7px;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .dmBody {
+      font-size: 17px;
+      line-height: 1.85;
+      min-height: 100px;
+      white-space: pre-wrap;
+      letter-spacing: 1px;
+    }
+    .dmBody .dmCursor {
+      display: inline-block;
+      width: 8px;
+      height: 20px;
+      background: #3a2010;
+      margin-left: 3px;
+      animation: dmCursorBlink 0.55s infinite;
+      vertical-align: text-bottom;
+    }
+    @keyframes dmCursorBlink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+    .dmHint {
+      font-size: 12px;
+      color: #8a5030;
+      text-align: right;
+      letter-spacing: 2px;
+      margin-top: 8px;
+      opacity: 0;
+      transition: opacity 0.3s ease-out;
+    }
+    .dmHint.show { opacity: 1; }
   </style>
   <script src="audio.js"></script>
 </head>
 <body>
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
+  <!-- オープニング前口上オーバーレイ (初回来訪時のみ表示) -->
+  <div id="prologueOverlay">
+    <div id="dmNarration">
+      <div class="dmHeader">📜 フランの記録</div>
+      <div class="dmBody" id="dmBody"></div>
+      <div class="dmHint" id="dmHint">クリックで続ける</div>
+    </div>
+  </div>
+
   <div id="tavern">
     <div id="wallTop"></div>
     <div id="fireplace"></div>
@@ -1069,10 +1143,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>オープニングの語りを銀の鹿亭へ移動</b> — フラン編の前口上が、廃坑に入った時ではなく最初に酒場へ来た時に流れるようになった。</li>
         <li><b>ファラクサスが本来の姿に</b> — 最終ボスが専用スプライトの荘厳な赤竜になった。火を噴き、牙を剥いて襲いかかる。</li>
         <li><b>最終ボス「ファラクサス」が登場</b> — ドラゴンの巣の最奥に赤竜が出現。恐怖の咆哮・全体火炎ブレス・配下召喚で立ちはだかる、プラン編の黒幕。</li>
         <li><b>舞台が交易都市フランに</b> — 荒廃から名もなき冒険者に解放され復興半ばの街、という歴史を語るオープニングを追加。</li>
-        <li><b>語りを最後まで聞ける</b> — DMの語りが鳴っている間は行軍も戦闘も止まり、語り終えてから探索を再開するようにした。</li>
       </ul>
     </div>
 
@@ -2967,6 +3041,84 @@
   if (btnAutoDebug) btnAutoDebug.addEventListener("click", () => departAutoDebug(6));
 
   // ─────────────────────────────────────────────────────────────
+  // オープニング前口上ナレーション (index.html のナレ表示エンジンを移植)
+  // ─────────────────────────────────────────────────────────────
+  const PROLOGUE_NARRATION = [
+    "ムーンシー湖の畔に、フランという交易都市がある。",
+    "かつてこの街は魔物の群れに占拠され、瓦礫と灰に沈んだ。だが名もなき冒険者たちが現れ、闇を払い、街を取り戻した。その者たちの名は、もう誰も覚えてはいない。",
+    "あれから十数年。フランは、いまだ復興の半ばにある。再建された区画のかたわらに崩れた瓦礫が残り、再建の景気を嗅ぎつけた無法者たちが流れ込む。",
+    "解放を知らぬ新たな世代が、いま冒険者として立つ。君も、その一人だ。",
+    "そして——立ち直りかけたこの街を狙うように、新たな災厄が空からやってきた。復興に乗じて現れた赤き竜、ファラクサス。一夜にして、すべてを焼き払いかねない脅威。",
+    "冒険者が集う数少ない溜まり場、銀の鹿亭。ここから、君の物語が始まる。",
+    "——遠く西の剣の海岸、地の底に広がるアンダーダーク。まだ見ぬ地の物語は、いつかまた。",
+  ];
+
+  function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function voice(id) { try { if (window.GameAudio && GameAudio.playVoice) GameAudio.playVoice(id); } catch (e) {} }
+  function sfx(name) { try { if (window.GameAudio && GameAudio.playSfx) GameAudio.playSfx(name); } catch (e) {} }
+
+  let narrationSkipRequested = false;
+  let narrationPlaying = false;
+  const NARRATION_CHAR_MS = 70;       // 1文字あたりの表示間隔
+  const NARRATION_PARA_GAP_MS = 2500; // 段落送り前の自動待機 (音声無し時のみ)
+
+  async function typeNarrationParagraph(text, bodyEl, charMs) {
+    bodyEl.textContent = "";
+    narrationSkipRequested = false;
+    const interval = charMs || (window.GameAudio && GameAudio.textSpeed) || NARRATION_CHAR_MS;
+    for (let i = 0; i < text.length; i++) {
+      if (narrationSkipRequested) { bodyEl.textContent = text; narrationSkipRequested = false; return; }
+      bodyEl.textContent = text.substring(0, i + 1);
+      if (i % 3 === 0) sfx("narration");
+      await sleepMs(interval);
+    }
+  }
+
+  async function waitForNarrationAdvance(maxMs) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      if (narrationSkipRequested) { narrationSkipRequested = false; return; }
+      await sleepMs(50);
+    }
+  }
+
+  async function playNarration(paragraphs, voiceIdPrefix) {
+    narrationPlaying = true;
+    const bodyEl = document.getElementById("dmBody");
+    const hintEl = document.getElementById("dmHint");
+    try {
+      for (let pi = 0; pi < paragraphs.length; pi++) {
+        const paragraph = paragraphs[pi];
+        hintEl.classList.remove("show");
+        const voiceId = voiceIdPrefix ? voiceIdPrefix + "_" + pi : null;
+        let durMs = (voiceId && window.GameAudio && GameAudio.getVoiceDuration)
+          ? Math.round(GameAudio.getVoiceDuration(voiceId) * 1000) : 0;
+        if (durMs > 0) {
+          // ── 音声ペース: 声を主時計にし、テキストをスキップしても最後まで鳴らす ──
+          if (voiceId) voice(voiceId);
+          const startMs = Date.now();
+          const charMs = Math.max(30, Math.min(200, Math.floor(durMs * 0.85 / Math.max(1, paragraph.length))));
+          await typeNarrationParagraph(paragraph, bodyEl, charMs);
+          bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
+          hintEl.textContent = "♪ 語りに耳をかたむけよう…";
+          hintEl.classList.add("show");
+          while (Date.now() - startMs < durMs) await sleepMs(40);
+        } else {
+          // ── テキストペース: 音声無し/ミュート時の従来挙動 ──
+          if (voiceId) voice(voiceId);
+          await typeNarrationParagraph(paragraph, bodyEl);
+          bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
+          hintEl.textContent = "クリックで続ける";
+          hintEl.classList.add("show");
+          await waitForNarrationAdvance(NARRATION_PARA_GAP_MS);
+        }
+      }
+    } finally {
+      narrationPlaying = false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // 初期化
   // ─────────────────────────────────────────────────────────────
   // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM、UIクリックで効果音、⚙で設定 ──
@@ -2987,6 +3139,39 @@
   try { if (window.GameAudio && GameAudio.loadVoiceManifest) GameAudio.loadVoiceManifest("assets/voice/manifest.json", "assets/voice/"); } catch (e) {}
 
   renderTables();
+
+  // ── オープニング前口上: 初回来訪時のみ、クリックで開始して1度だけ語る ──
+  (function initTavernPrologue() {
+    const KEY = "dragonfighters.prologueSeen";
+    let seen = false;
+    try { seen = !!(window.localStorage && localStorage.getItem(KEY)); } catch (e) {}
+    if (seen) return;  // 既視聴 (旧 index フローで見た人を含む) はスキップ
+    const overlay = document.getElementById("prologueOverlay");
+    if (!overlay) return;
+    const headerEl = overlay.querySelector(".dmHeader");
+    const hintEl = document.getElementById("dmHint");
+    if (headerEl) headerEl.textContent = "📜 フランの記録";
+    if (hintEl) { hintEl.textContent = "▶ クリックして物語を始める"; hintEl.classList.add("show"); }
+    overlay.style.display = "flex";
+    overlay.addEventListener("click", async function begin() {
+      overlay.removeEventListener("click", begin);  // 二重発火防止
+      if (hintEl) { hintEl.classList.remove("show"); hintEl.textContent = "クリックで続ける"; }
+      // 既存の pointerdown(once) も音声解錠 + 酒場BGM を行う。ここでも保険で解錠。
+      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+      // 前口上クリップを事前 decode → 遅延ゼロ化 (低速/未生成時も4秒で打ち切り)
+      try {
+        const ids = PROLOGUE_NARRATION.map((_, i) => "dungeon_intro_prologue_" + i);
+        if (window.GameAudio && GameAudio.preloadVoice) {
+          await Promise.race([GameAudio.preloadVoice(ids), sleepMs(4000)]);
+        }
+      } catch (e) {}
+      await playNarration(PROLOGUE_NARRATION, "dungeon_intro_prologue");
+      try { if (window.localStorage) localStorage.setItem(KEY, "1"); } catch (e) {}
+      overlay.classList.add("fading");
+      await sleepMs(650);
+      overlay.style.display = "none";
+    });
+  })();
 
   // ── 酒場の掲示板: クエスト自動生成 (ティアの幅つき 3 件提示 → 選択 → 出発) ──
   (function setupQuestBoard() {

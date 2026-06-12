@@ -6449,15 +6449,6 @@
     }
 
     // ── オープニング前口上 (初回のみ・フラン編の世界観導入。voiceId = dungeon_intro_prologue_<i>) ──
-    const PROLOGUE_NARRATION = [
-      "ムーンシー湖の畔に、フランという交易都市がある。",
-      "かつてこの街は魔物の群れに占拠され、瓦礫と灰に沈んだ。だが名もなき冒険者たちが現れ、闇を払い、街を取り戻した。その者たちの名は、もう誰も覚えてはいない。",
-      "あれから十数年。フランは、いまだ復興の半ばにある。再建された区画のかたわらに崩れた瓦礫が残り、再建の景気を嗅ぎつけた無法者たちが流れ込む。",
-      "解放を知らぬ新たな世代が、いま冒険者として立つ。君も、その一人だ。",
-      "そして——立ち直りかけたこの街を狙うように、新たな災厄が空からやってきた。復興に乗じて現れた赤き竜、ファラクサス。一夜にして、すべてを焼き払いかねない脅威。",
-      "冒険者が集う数少ない溜まり場、銀の鹿亭。ここから、君の物語が始まる。",
-      "——遠く西の剣の海岸、地の底に広がるアンダーダーク。まだ見ぬ地の物語は、いつかまた。",
-    ];
 
     // ── DM ナレーション (シナリオ開始時の語り・タイピング演出) ──
     const SCENARIO_NARRATIONS = {
@@ -18749,11 +18740,6 @@
       const voicePrefix = "dungeon_intro_" + scenarioId;
       const hintElInit = document.getElementById("dmHint");
 
-      // 初回のみ・最初のシナリオ(廃坑)入場時にフラン編の前口上を語る
-      const PROLOGUE_SEEN_KEY = "dragonfighters.prologueSeen";
-      const showPrologue = !window.__autoplay && scenarioId === "goblin-mine" &&
-        !(window.localStorage && localStorage.getItem(PROLOGUE_SEEN_KEY));
-
       if (window.__autoplay) {
         // Phase 2-K: autoplay 時はゲートもナレーションも即スキップ
         narrationSkipRequested = true;
@@ -18770,21 +18756,10 @@
         // file:// や低速時に固まらないよう 4 秒で打ち切り (尺は manifest 値にフォールバック)。
         try {
           const ids = paragraphs.map((_, i) => voicePrefix + "_" + i);
-          if (showPrologue) {
-            PROLOGUE_NARRATION.forEach((_, i) => ids.push("dungeon_intro_prologue_" + i));
-          }
           if (window.GameAudio && GameAudio.preloadVoice) {
             await Promise.race([GameAudio.preloadVoice(ids), sleepMs(4000)]);
           }
         } catch (e) {}
-      }
-
-      // ── 前口上 (初回のみ): begin-gate 解除後・シナリオ導入ナレの前に再生 ──
-      if (showPrologue) {
-        headerEl.textContent = "📜 フランの記録";
-        await playNarration(PROLOGUE_NARRATION, "dungeon_intro_prologue");
-        try { if (window.localStorage) localStorage.setItem(PROLOGUE_SEEN_KEY, "1"); } catch (e) {}
-        headerEl.textContent = `📜 ダンジョンマスターの語り ― ${currentScenario.title}`;
       }
 
       await playNarration(paragraphs, voicePrefix);
