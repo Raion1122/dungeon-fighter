@@ -3982,6 +3982,36 @@
         clearReward: "ガロックの戦斧",
         xp: 1000,
       },
+      // ── 最終ボス: レッドドラゴン「ファラクサス」 (Sce6 dragon-lair、プラン編の黒幕) ──
+      // garrock をミラー + 竜の威容 (恐怖オーラ DC18 / 全体火炎ブレス / 2回攻撃 / 配下総動員)。
+      // 恐怖(partyWillSave)・激怒・ボスBGM・カエルム祝福免疫は既存フックで自動発火。
+      // ⚠暫定スプライト: 専用 assets/pharaxus_anim.png (192px 厚塗りセミリアル) 生成までミノタウロス流用。
+      pharaxus: {
+        name: "レッドドラゴン「ファラクサス」",
+        flavor: "復興に乗じてフランを再び灰に帰さんとする赤竜。プラン編の黒幕",
+        badge: "🐉",
+        sprite: "assets/minotaur_anim.png",
+        sheetW: 480, sheetH: 260, frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
+        displaySize: 150,
+        hp: 180, speed: 0.66,
+        hasAttackAnim: true,
+        meleeRange: 210, hitRange: 300,
+        attackDuration: 48, attackHitFrame: 22, attackCooldown: 68,
+        str: 6, dex: 1, atkBonus: 13, ac: 20,
+        dmgDice: "2d8", dmgBonus: 8, critRange: 19, critMult: 2,
+        range: "melee",
+        isBoss: true,
+        attacksPerTurn: 2,            // 爪・噛みつき 2回/ターン
+        ragePhaseHpRatio: 0.5,        // HP50%以下で激怒 (+2atk +2dmg + 速度UP) + 恐怖再セーヴ
+        fearDC: 18,                   // Frightful Presence (戦闘開始/激怒時に自動発火)
+        maxSummons: 3,
+        summonType: "orc",            // 配下総動員ハイブリッド
+        // 全体火炎ブレス (hydraFireBreath を流用。単頭ボス用トリガーで発火、breathCooldown で連発抑止)
+        breathDice: "10d6", breathDC: 18, breathBlast: 3, breathChance: 0.40,
+        deathLine: "おのれ…定命の者ども…が……フランは……再び……",
+        clearReward: "ファラクサスの心臓",
+        xp: 1800,
+      },
       // ── シナリオ4 隠し要素: 古代王国の守護者 (fort-golems.md) ──
       // 非魔法物理免疫 (physicalImmunity): +1以上の魔法武器か呪文でないと通用しない。
       // faction:"beast" = 第三勢力 (オークも PT も無差別)。象徴アイテムでの味方化は後追い。
@@ -4457,7 +4487,7 @@
           ["orc", 34, 11], ["skeleton", 40, 12], ["orc", 38, 17],
           ["minotaur", 50, 11], ["orc", 55, 15],
           ["orc", 65, 10], ["minotaur", 70, 14], ["orc", 72, 17],
-          ["minotaur", 86, 13],   // ボス: ファラクサス
+          ["pharaxus", 86, 13],   // 最終ボス: レッドドラゴン「ファラクサス」(中盤の minotaur は雑魚で据置)
         ],
       },
     };
@@ -6252,6 +6282,7 @@
       undead:    "空気が冷えた。アンデッドだ。聖なる力が頼りになるぞ。",
       beast:     "獣の気配が近い。警戒しろ。",
       hydra:     "沼の水面が大きく波打つ。何か巨大なものが、底から這い上がってくる…",
+      dragon:    "業火の気配。赤竜だ。これが最後の戦い — 怯むな。",
       generic:   "敵が迫る。構えよ。",
     };
     function detectEnemyFamily(engagedIdxs) {
@@ -6267,7 +6298,8 @@
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
         else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
-        else if (t === "minotaur") fam = "orc";  // Sce6 ファラクサス暫定 (専用 family 未定義のため据置)
+        else if (t === "pharaxus") fam = "dragon"; // Sce6 最終ボス: レッドドラゴン・ファラクサス
+        else if (t === "minotaur") fam = "orc";  // Sce6 中盤の雑魚 (ボスは pharaxus)
         counts[fam] = (counts[fam] || 0) + 1;
       }
       let best = "generic", max = 0;
@@ -6319,6 +6351,10 @@
       { triggerId: "boss_defeat", eventKey: "lich", speaker: "dungeon_master", voiceId: "nar_boss_defeat_lich",
         subtitle: "「馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…」 — リッチ",
         voiceText: "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…" },
+      // 最終ボス: レッドドラゴン・ファラクサス (音声 mp3 は次セッションで生成。未生成のうちは字幕のみ no-op)
+      { triggerId: "boss_defeat", eventKey: "pharaxus", speaker: "dungeon_master", voiceId: "nar_boss_defeat_pharaxus",
+        subtitle: "「おのれ…定命の者ども…が……フランは……再び……」 — レッドドラゴン「ファラクサス」",
+        voiceText: "おのれ…定命の者ども…が……フランは……再び……" },
       // 中ボス覚醒: 残影の獣 (DM)
       { triggerId: "combat_hard_start", eventKey: "beast", speaker: "dungeon_master", voiceId: "nar_hard_beast",
         subtitle: "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた。獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…!" },
@@ -7990,6 +8026,20 @@
         setTimeout(() => showDMMessage(
           "粘液の奥から、金貨の山 — そして炎竜の鱗が一片と、錆びついた『ドラゴンスレイヤーの遺品』が転がり出た。\n" +
           "いつかの英雄が、ここで竜に挑み、敗れたのか…? 次なる旅へ続く、何かを示すように。", 5200), 3000);
+      }
+      // ── 最終ボス: ファラクサス撃破 → 祝クリアバナー + 討伐ナレ + プラン編 完結 + 第2章への引き ──
+      // エンディングは軽量MVP: 専用画面は作らず、既存クリア結果画面へそのまま接続する。
+      if (enemy.type === "pharaxus" && typeof showDMMessage === "function") {
+        if (typeof showBanner === "function") showBanner("🐉 レッドドラゴン・ファラクサスを討伐!", 3200);
+        setTimeout(() => showDMMessage(
+          "巨大な赤竜が、断末魔の咆哮とともに崩れ落ちた。洞窟を焦がしていた業火が、\n" +
+          "ゆっくりと鎮まっていく。— フランの町を再び灰に帰そうとした黒幕は、ここに潰えた。", 5200), 700);
+        setTimeout(() => showDMMessage(
+          "「よくやった、冒険者よ。復興途上の町は、これでようやく未来を取り戻す。\n" +
+          "君たちの名は、新しい時代のフランに刻まれるだろう。— プラン編、完結。」", 5600), 4200);
+        setTimeout(() => showDMMessage(
+          "だが — 竜の亡骸の奥、まだ熱を帯びた鱗の山に、見覚えのない紋章が刻まれている。\n" +
+          "ファラクサスは、誰かに『遣わされた』のかもしれない。物語は、まだ終わらない…。", 5200), 9200);
       }
       if (enemy.weaponVisible && enemy.armorVisible) {
         updateInfo(`${nm}を倒した！ 宝箱2つが落ちた`);
@@ -17171,11 +17221,15 @@
 
       // ── 発動宣言 + 演出 ──
       showBanner("🔥 火炎のブレス 🔥", 1600);
-      updateInfo(`古代ハイドラ: 喉の奥から灼熱の火球を吐き出す! (DEX セーヴ DC ${dc})`);
+      updateInfo(`${def.name}: 喉の奥から灼熱の火球を吐き出す! (DEX セーヴ DC ${dc})`);
       if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
       if (!enemy.__breathNarrated && typeof showDMMessage === "function") {
         enemy.__breathNarrated = true;
-        showDMMessage("「複数の喉が同時に脈打ち、業火が膨れ上がる。— 蛇神の裡に、龍の血が燻っている。」", 3600);
+        if (def.multiHead) {
+          showDMMessage("「複数の喉が同時に脈打ち、業火が膨れ上がる。— 蛇神の裡に、龍の血が燻っている。」", 3600);
+        } else {
+          showDMMessage("「赤竜が大きく息を吸い込む。喉の奥で炎が渦巻き、業火が洞窟全体を舐めようとしている。」", 3600);
+        }
       }
       await sleepMs(450);
 
@@ -17251,8 +17305,8 @@
         }
       }
 
-      if (hitCount === 0) updateInfo("古代ハイドラの火球は誰も捉えられなかった");
-      else updateInfo(`古代ハイドラの火炎ブレス: ${hitCount}体に着弾 (${savedCount}体セーヴ半減)`);
+      if (hitCount === 0) updateInfo(`${def.name}の火球は誰も捉えられなかった`);
+      else updateInfo(`${def.name}の火炎ブレス: ${hitCount}体に着弾 (${savedCount}体セーヴ半減)`);
       await sleepMs(600);
     }
 
@@ -17354,6 +17408,16 @@
         if (bossAction === "summon") {
           await bossTurnSummon(idx);
           return;  // このターンは召喚で終了 (攻撃なし=隙あり)
+        }
+      }
+      // ── 単頭ボスのブレス (ファラクサス等): クールダウン式で全体火炎 (hydraFireBreath を流用) ──
+      // smash (強打) ターンはブレス抑止 (近接の見せ場を温存)。召喚は上で return 済み。
+      if (def.isBoss && !def.multiHead && def.breathDice && bossAction === "normal") {
+        if (enemy.breathCooldown > 0) {
+          enemy.breathCooldown--;                 // クールダウン中は噛む (連続ブレス防止)
+        } else if (Math.random() < (def.breathChance || 0.4)) {
+          await hydraFireBreath(idx);
+          return;                                 // このターンはブレスで消費 (噛まない)
         }
       }
       // ── ハイドラ: 火炎ブレス抽選 (頭が多いほど高確率 / 火球ターンは噛みつきの代わり) ──
@@ -17623,8 +17687,9 @@
       if (autoGuardActive) isGuarding = false;
       }   // ← resolveOneBite 終端
 
-      // 頭数ぶん噛撃 (multiHead 以外は 1 回 = 従来挙動と同一)。死のスパイラル上限は maxHeadsCap で有界。
-      const biteCount = def.multiHead ? Math.max(1, enemy.hydraHeads || 1) : 1;
+      // 頭数ぶん噛撃 (multiHead 以外は attacksPerTurn 回 = 単頭ボスの多段攻撃に対応、既定1で従来挙動)。
+      // 死のスパイラル上限は maxHeadsCap で有界。
+      const biteCount = def.multiHead ? Math.max(1, enemy.hydraHeads || 1) : (def.attacksPerTurn || 1);
       for (let b = 0; b < biteCount; b++) {
         if (gameOver || hp <= 0 || !enemy.alive) break;
         await resolveOneBite();
