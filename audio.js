@@ -400,6 +400,43 @@
     } catch (e) { voiceFetching[id] = false; }
   }
 
+  // 指定 id 群を事前に fetch+decode して voiceBufCache に載せる (再生遅延ゼロ化)。
+  // 成功/失敗どちらでも resolve するので呼び元は固まらない。decode は suspended でも可。
+  function preloadVoiceClips(ids) {
+    if (!ids || !ids.length || !voiceManifest || !ensureContext() || typeof fetch !== "function") {
+      return Promise.resolve();
+    }
+    return Promise.all(ids.map(function (id) {
+      return new Promise(function (resolve) {
+        if (!id || voiceBufCache[id]) return resolve();
+        var entry = voiceManifest[id];
+        if (!entry || !entry.file) return resolve();
+        if (voiceFetching[id]) return resolve();   // playVoiceClip と多重 fetch 抑止を共有
+        voiceFetching[id] = true;
+        try {
+          fetch(voiceBaseDir + entry.file)
+            .then(function (r) { if (!r || !r.ok) throw new Error("voice 404"); return r.arrayBuffer(); })
+            .then(function (ab) { return ctx.decodeAudioData(ab); })
+            .then(function (buf) { voiceBufCache[id] = buf; voiceFetching[id] = false; resolve(); })
+            .catch(function () { voiceFetching[id] = false; resolve(); });
+        } catch (e) { voiceFetching[id] = false; resolve(); }
+      });
+    })).then(function () {});
+  }
+
+  // クリップ尺(秒)。ミュート/音量0 のときは 0 を返し、呼び元をテキストペースへ落とす。
+  // decode 済なら正確な buffer.duration、未 decode なら manifest の durationSec を返す。
+  function getVoiceDuration(id) {
+    if (!id) return 0;
+    try {
+      var s = GameSettings.get();
+      if (s.muted || s.voice === 0) return 0;
+    } catch (e) {}
+    if (voiceBufCache[id] && typeof voiceBufCache[id].duration === "number") return voiceBufCache[id].duration;
+    var entry = voiceManifest && voiceManifest[id];
+    return (entry && typeof entry.durationSec === "number") ? entry.durationSec : 0;
+  }
+
   // ===== Section G: Public API ==============================================
   function playSfx(name, opts) {
     if (!ensureContext() || !unlocked) return;
@@ -544,6 +581,8 @@
     setMute: function (b) { GameSettings.patch({ muted: !!b }); applyVolumes(); },
     playVoice: playVoiceClip,
     stopVoice: stopVoiceClip,
+    preloadVoice: preloadVoiceClips,
+    getVoiceDuration: getVoiceDuration,
     loadVoiceManifest: loadVoiceManifest,
     applySettings: function () { GameSettings.reload(); if (buses) applyVolumes(); GameAudio.textSpeed = GameSettings.get().textSpeed; },
     openSettings: openSettings,

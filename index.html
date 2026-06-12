@@ -6363,12 +6363,15 @@
 
     let narrationSkipRequested = false;
     let narrationPlaying = false;
+    let narrationAwaitingBegin = false; // Begin-gate: 最初の操作で音声解錠してから朗読開始するまで true
     const NARRATION_CHAR_MS = 70;     // 1文字あたりの表示間隔 (設計書0.15→実プレイ向けに短縮)
     const NARRATION_PARA_GAP_MS = 2500; // 段落送り前の自動待機
 
-    async function typeNarrationParagraph(text, bodyEl) {
+    async function typeNarrationParagraph(text, bodyEl, charMs) {
       bodyEl.textContent = "";
       narrationSkipRequested = false;
+      // charMs 指定時はそれを優先 (音声尺同期)。未指定は従来の textSpeed / 既定。
+      const interval = charMs || (window.GameAudio && GameAudio.textSpeed) || NARRATION_CHAR_MS;
       for (let i = 0; i < text.length; i++) {
         if (narrationSkipRequested) {
           bodyEl.textContent = text;
@@ -6377,7 +6380,7 @@
         }
         bodyEl.textContent = text.substring(0, i + 1);
         if (i % 3 === 0) sfx("narration");   // タイプ音 (3文字に1回・極小)
-        await sleepMs((window.GameAudio && GameAudio.textSpeed) || NARRATION_CHAR_MS);
+        await sleepMs(interval);
       }
     }
 
@@ -6400,13 +6403,34 @@
         for (let pi = 0; pi < paragraphs.length; pi++) {
           const paragraph = paragraphs[pi];
           hintEl.classList.remove("show");
-          // 段落頭でナレーション音声を再生 (タイピングと並行。未生成/未読込なら no-op)
-          if (voiceIdPrefix) voice(voiceIdPrefix + "_" + pi);
-          await typeNarrationParagraph(paragraph, bodyEl);
-          // 段落終了時のカーソル表示
-          bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
-          hintEl.classList.add("show");
-          await waitForNarrationAdvance(NARRATION_PARA_GAP_MS);
+          const voiceId = voiceIdPrefix ? voiceIdPrefix + "_" + pi : null;
+          // 音声尺(ms)。0 = クリップ欠落 or ミュート → 従来のテキストペースへ。
+          let durMs = (voiceId && window.GameAudio && GameAudio.getVoiceDuration)
+            ? Math.round(GameAudio.getVoiceDuration(voiceId) * 1000) : 0;
+          // autoplay(自動テスト)は実時間 hold すると完走しないためテキストペース固定
+          if (window.__autoplay) durMs = 0;
+
+          if (durMs > 0) {
+            // ── 音声ペース: 声を主時計にし、テキストをスキップしても最後まで鳴らす ──
+            if (voiceId) voice(voiceId);                  // プリロード済 → 即時再生
+            const startMs = Date.now();
+            // タイプは音声尺の 85% 以内に収め、可読範囲(30〜200ms/字)にクランプ
+            const charMs = Math.max(30, Math.min(200, Math.floor(durMs * 0.85 / Math.max(1, paragraph.length))));
+            await typeNarrationParagraph(paragraph, bodyEl, charMs);
+            bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
+            hintEl.textContent = "♪ 語りに耳をかたむけよう…";
+            hintEl.classList.add("show");
+            // 音声が鳴り終わるまで全文を保持 (クリック/スキップでは送らない = 声を切らない)
+            while (Date.now() - startMs < durMs) await sleepMs(40);
+          } else {
+            // ── テキストペース: 音声無し/ミュート/autoplay の従来挙動 (クリックで送り) ──
+            if (voiceId) voice(voiceId);
+            await typeNarrationParagraph(paragraph, bodyEl);
+            bodyEl.innerHTML = bodyEl.textContent + `<span class="dmCursor"></span>`;
+            hintEl.textContent = "クリックで続ける";
+            hintEl.classList.add("show");
+            await waitForNarrationAdvance(NARRATION_PARA_GAP_MS);
+          }
         }
       } finally {
         narrationPlaying = false;
@@ -8305,7 +8329,10 @@
 
     document.addEventListener("click", (e) => {
       if (window.GameAudio) GameAudio.unlock();
-      if (!gameStarted) {
+      // Begin-gate: 最初の操作で朗読開始。narrationPlaying を即 true にして
+      // mousedown→click の二重発火で startGame に抜けるのを防ぐ。
+      if (narrationAwaitingBegin) { narrationAwaitingBegin = false; narrationPlaying = true; return; }
+      if (!gameStarted && !narrationAwaitingBegin) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
         return;
@@ -8324,7 +8351,8 @@
 
     document.addEventListener("mousedown", (e) => {
       if (window.GameAudio) GameAudio.unlock();
-      if (!gameStarted) {
+      if (narrationAwaitingBegin) { narrationAwaitingBegin = false; narrationPlaying = true; return; }
+      if (!gameStarted && !narrationAwaitingBegin) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
         return;
@@ -8362,7 +8390,8 @@
 
     document.addEventListener("keydown", async (e) => {
       if (window.GameAudio) GameAudio.unlock();
-      if (!gameStarted) {
+      if (narrationAwaitingBegin) { narrationAwaitingBegin = false; narrationPlaying = true; return; }
+      if (!gameStarted && !narrationAwaitingBegin) {
         if (narrationPlaying) { narrationSkipRequested = true; return; }
         startGame();
         return;
@@ -18536,12 +18565,32 @@
       headerEl.textContent = `📜 ダンジョンマスターの語り ― ${currentScenario.title}`;
       narrEl.style.display = "block";
 
-      // Phase 2-K: autoplay 時はナレーションを即スキップ
+      const voicePrefix = "dungeon_intro_" + scenarioId;
+      const hintElInit = document.getElementById("dmHint");
+
       if (window.__autoplay) {
+        // Phase 2-K: autoplay 時はゲートもナレーションも即スキップ
         narrationSkipRequested = true;
+      } else {
+        // ── Begin-gate: 最初のクリック/キーで音声を解錠してから朗読開始 ──
+        // (ブラウザ autoplay ポリシー上、index.html 上で1回の操作が音声に必須。
+        //  これで1段落目の声が確実に鳴り、テキストと音声がズレない)
+        if (hintElInit) { hintElInit.textContent = "▶ クリックして物語を始める"; hintElInit.classList.add("show"); }
+        narrationAwaitingBegin = true;
+        while (narrationAwaitingBegin) await sleepMs(30);
+        narrationPlaying = true;   // ゲート解除を同期確定 (ハンドラ側でも立つが二重で保険)
+        if (hintElInit) { hintElInit.classList.remove("show"); hintElInit.textContent = "クリックで続ける"; }
+        // 当該シナリオの導入クリップを事前 decode → voice() 即時再生で遅延ゼロ化。
+        // file:// や低速時に固まらないよう 4 秒で打ち切り (尺は manifest 値にフォールバック)。
+        try {
+          const ids = paragraphs.map((_, i) => voicePrefix + "_" + i);
+          if (window.GameAudio && GameAudio.preloadVoice) {
+            await Promise.race([GameAudio.preloadVoice(ids), sleepMs(4000)]);
+          }
+        } catch (e) {}
       }
 
-      await playNarration(paragraphs, "dungeon_intro_" + scenarioId);
+      await playNarration(paragraphs, voicePrefix);
 
       // フェードアウト
       narrEl.classList.add("fading");
