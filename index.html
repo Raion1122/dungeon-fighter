@@ -3985,14 +3985,14 @@
       // ── 最終ボス: レッドドラゴン「ファラクサス」 (Sce6 dragon-lair、プラン編の黒幕) ──
       // garrock をミラー + 竜の威容 (恐怖オーラ DC18 / 全体火炎ブレス / 2回攻撃 / 配下総動員)。
       // 恐怖(partyWillSave)・激怒・ボスBGM・カエルム祝福免疫は既存フックで自動発火。
-      // ⚠暫定スプライト: 専用 assets/pharaxus_anim.png (192px 厚塗りセミリアル) 生成までミノタウロス流用。
+      // 専用192pxスプライト (厚塗りセミリアル荘厳・6F walk+attack)。displaySize=180 でガロック(120)より一回り大きい威容。
       pharaxus: {
         name: "レッドドラゴン「ファラクサス」",
         flavor: "復興に乗じてフランを再び灰に帰さんとする赤竜。プラン編の黒幕",
         badge: "🐉",
-        sprite: "assets/minotaur_anim.png",
-        sheetW: 480, sheetH: 260, frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
-        displaySize: 150,
+        sprite: "assets/pharaxus_anim.png?v=1",
+        sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 180,
         hp: 180, speed: 0.66,
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,

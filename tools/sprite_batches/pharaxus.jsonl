@@ -1,0 +1,6 @@
+# レッドドラゴン ファラクサス (pharaxus) — 3 ターン構成 (厚塗り仕様把握 → walk → attack)
+# 非人型・大型ラスボス。mimic.jsonl / hydra.jsonl 構成準拠だが spec は厚塗り版を使用。
+# 画風はユーザー確定「厚塗りセミリアルで荘厳に」(依頼人/ミミックの厚塗り路線、パーティと頭身が異なる特別感)。
+{"prompt_file": "source_images/enemy_pharaxus/_painterly_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/enemy_pharaxus/_prompt_walk.txt",   "output": "source_images/enemy_pharaxus/ファラクサス歩き.png"}
+{"prompt_file": "source_images/enemy_pharaxus/_prompt_attack.txt", "output": "source_images/enemy_pharaxus/ファラクサス攻撃.png"}
