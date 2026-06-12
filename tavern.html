@@ -1254,10 +1254,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>依頼人がセリフを読み上げるように</b> — 主要6シナリオの受注で、依頼人の声が流れるようになった。</li>
         <li><b>闇市の召喚スクロールが使えるように</b> — ゴーレム兵やスケルトン小隊を呼んで冒険に同行させられる(出発時/休憩で召喚・専用スプライト付き)。</li>
         <li><b>スペルターニングリングが機能</b> — 闇市で買える指輪。敵の火炎ブレスを術者へ丸ごと跳ね返す。所持中は自動発動で1回ごとにチャージを消費。</li>
         <li><b>闇市『ポドルプラザ』が登場</b> — 通常クエストを5回こなすと銀の鹿亭に怪しい扉が現れる。変装の杖でモンスターの闇市に潜入し、闇クエストや専用通貨『牙貨』でレア品が買える。</li>
-        <li><b>依頼人の語りを受注時に追加</b> — クエストを受けると、依頼人が語りかけてから出発の準備に入る。</li>
       </ul>
     </div>
 
@@ -3453,6 +3453,7 @@
     const overlay = document.getElementById("prologueOverlay");
     if (!overlay) return;
     let paras = [];
+    let isFixed = false;   // 固定シナリオ (sc.dialog) は事前生成済の読み上げ音声を段落ごとに再生
     if (sc && sc.__generated && sc.__generated.flavor) {
       paras = [sc.__generated.flavor];
     } else if (sc && sc.dialog) {
@@ -3460,6 +3461,7 @@
         ? `${sc.client.name}——${sc.client.role || "依頼人"}が、君たちに歩み寄る。`
         : "一人の依頼人が、君たちに歩み寄る。";
       paras = [intro, sc.dialog];
+      isFixed = !!(sc.id);   // quest_dialog_<id>_<段落> クリップが対応
     }
     if (!paras.length) return;  // 語る内容が無ければ何もしない (即 prep へ)
 
@@ -3472,10 +3474,14 @@
     // tavern にはクリックスキップ配線が無いので一時付与 (1クリックで段落を即時確定/送り)
     const skip = () => { narrationSkipRequested = true; };
     overlay.addEventListener("click", skip);
-    // 受注スティンガー (青山龍星ノーマル)。未生成/未読込なら no-op
-    try { if (window.GameAudio) GameAudio.playVoice("quest_accept_00" + (1 + Math.floor(Math.random() * 3))); } catch (e) {}
+    // 固定シナリオは依頼人セリフを読み上げるので汎用スティンガーは鳴らさない (声が重なるため)。
+    // 生成クエストは読み上げ不可 (ランダム文) なので従来どおり汎用スティンガーを再生。
+    if (!isFixed) {
+      try { if (window.GameAudio) GameAudio.playVoice("quest_accept_00" + (1 + Math.floor(Math.random() * 3))); } catch (e) {}
+    }
     try {
-      await playNarration(paras, null);   // voiceIdPrefix=null → テキストペース (段落ごとの音声は付けない)
+      // 固定シナリオ: quest_dialog_<id>_<段落> を再生 (未生成クリップはテキストペースに優雅にフォールバック)
+      await playNarration(paras, isFixed ? ("quest_dialog_" + sc.id) : null);
     } finally {
       overlay.removeEventListener("click", skip);
     }

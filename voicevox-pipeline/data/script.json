@@ -15,6 +15,24 @@
     { "id": "quest_accept_002", "category": "quest", "speaker": "narrator", "text": "冒険者たちよ、準備を整えよ。報酬と栄光が、君たちを待っている。" },
     { "id": "quest_accept_003", "category": "quest", "speaker": "narrator", "text": "新たな冒険の幕開けだ。気を引き締めて行け。" },
 
+    { "id": "quest_dialog_goblin-mine_0", "category": "quest", "speaker": "dungeon_master", "text": "ボルダック——困り果てた商人が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_goblin-mine_1", "category": "quest", "speaker": "narrator", "text": "「すまねえ、冒険者の旦那方。街道沿いの廃坑にゴブリンの一団が巣食ってて、荷馬車が何度も襲われてるんだ…。御者の奴も連れ去られちまって、もう商売あがったりだ。ゴブリンの首領をぶちのめして、できれば御者も救い出してほしい。頼む！」" },
+
+    { "id": "quest_dialog_bandits-forest_0", "category": "quest", "speaker": "dungeon_master", "text": "ケネット——森の監視員が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_bandits-forest_1", "category": "quest", "speaker": "narrator", "text": "「冒険者の諸君、森の奥に盗賊団が根城を築いた。旅人がたびたび襲われている。奇妙なことに、やつらは誰かから指令を受けている様子…。首領『スカー』を討ち、指令書を押収してほしい。」" },
+
+    { "id": "quest_dialog_lizard-swamp_0", "category": "quest", "speaker": "dungeon_master", "text": "マリア——村の長老が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_lizard-swamp_1", "category": "quest", "speaker": "narrator", "text": "「沼地から何度もリザードマンの襲撃を受け、村人が怯えております…。族長は『炎の支配者』とやらの命を受けているとか。恐ろしい噂です。どうか族長を打ち倒してください。」" },
+
+    { "id": "quest_dialog_orc-fort_0", "category": "quest", "speaker": "dungeon_master", "text": "ロダン隊長——自警団長が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_orc-fort_1", "category": "quest", "speaker": "narrator", "text": "「廃墟となった砦にオークの軍勢が陣取っている。将軍ガロックは腕利きだ、油断すれば命が危うい。砦の跡からはドラゴンの鱗が見つかっておる…不気味な気配だ。討伐を頼む。」" },
+
+    { "id": "quest_dialog_undead-temple_0", "category": "quest", "speaker": "dungeon_master", "text": "マーテル司祭——聖印の司祭が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_undead-temple_1", "category": "quest", "speaker": "narrator", "text": "「地下神殿にアンデッドが蔓延り、不浄な気配が満ちています…。リッチがドラゴン召喚の儀式を進めている様子。阻止できねば、この地は業火に包まれましょう。神の加護をお授けします、どうかお願いします。」" },
+
+    { "id": "quest_dialog_dragon-lair_0", "category": "quest", "speaker": "dungeon_master", "text": "謎の語り部が、君たちに歩み寄る。" },
+    { "id": "quest_dialog_dragon-lair_1", "category": "quest", "speaker": "narrator", "text": "「…ここまで辿り着いたか、冒険者よ。黒幕はレッドドラゴン『ファラクサス』。復興に乗じてこの地に舞い降りた、新たな侵略者だ。魔物どもを操り、ようやく蘇りかけたフランを再び灰に帰そうとしている。奴を討たねば、この地に平穏は戻らぬ…」" },
+
     { "id": "dungeon_intro_prologue_0", "category": "dungeon", "speaker": "dungeon_master", "text": "ムーンシー湖の畔に、フランという交易都市がある。" },
     { "id": "dungeon_intro_prologue_1", "category": "dungeon", "speaker": "dungeon_master", "text": "かつてこの街は魔物の群れに占拠され、瓦礫と灰に沈んだ。だが名もなき冒険者たちが現れ、闇を払い、街を取り戻した。その者たちの名は、もう誰も覚えてはいない。" },
     { "id": "dungeon_intro_prologue_2", "category": "dungeon", "speaker": "dungeon_master", "text": "あれから十数年。フランは、いまだ復興の半ばにある。再建された区画のかたわらに崩れた瓦礫が残り、再建の景気を嗅ぎつけた無法者たちが流れ込む。" },
