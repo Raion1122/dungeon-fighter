@@ -1,0 +1,5 @@
+# 召喚ユニット スケルトン小隊 (undead_squad) — 3 ターン構成 (テンプレ把握 → 右歩き → 攻撃)
+# 闇市スクロール・オブ・アニメイトデッドで召喚。骸骨数体を1ユニットとして描く。96px×6F (walk576×384 / attack480×384)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",       "expect_image": false}
+{"prompt_file": "source_images/enemy_undead_squad/_prompt_walk.txt",    "output": "source_images/enemy_undead_squad/スケルトン小隊歩き.png"}
+{"prompt_file": "source_images/enemy_undead_squad/_prompt_attack.txt",  "output": "source_images/enemy_undead_squad/スケルトン小隊攻撃.png"}

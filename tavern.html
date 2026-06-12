@@ -1221,6 +1221,13 @@
           </div>
           <div class="skillList" id="scrollLibraryList"></div>
         </div>
+        <!-- 闇市 召喚同行 (M8): 召喚スクロール所持時のみ表示。出発時に1体を選んで連れて行く -->
+        <div class="prepPanel" id="summonSection" style="display:none;">
+          <div class="ph">🔮 召喚同行
+            <span style="opacity:0.55;font-size:11px;font-style:italic;">闇市の召喚スクロールでユニットを1体連れて行く</span>
+          </div>
+          <div class="skillList" id="summonList"></div>
+        </div>
         <div class="prepPanel">
           <div class="ph">敵情報</div>
           <div class="stub" id="prepEnemyInfo"></div>
@@ -1247,10 +1254,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の召喚スクロールが使えるように</b> — ゴーレム兵やスケルトン小隊を呼んで冒険に同行させられる(出発時/休憩で召喚・専用スプライト付き)。</li>
         <li><b>スペルターニングリングが機能</b> — 闇市で買える指輪。敵の火炎ブレスを術者へ丸ごと跳ね返す。所持中は自動発動で1回ごとにチャージを消費。</li>
         <li><b>闇市『ポドルプラザ』が登場</b> — 通常クエストを5回こなすと銀の鹿亭に怪しい扉が現れる。変装の杖でモンスターの闇市に潜入し、闇クエストや専用通貨『牙貨』でレア品が買える。</li>
         <li><b>依頼人の語りを受注時に追加</b> — クエストを受けると、依頼人が語りかけてから出発の準備に入る。</li>
-        <li><b>宝箱発見の語りを追加</b> — 宝箱を見つけると「君たちは宝箱を発見した。」の一言が入るように。</li>
       </ul>
     </div>
 
@@ -2315,6 +2322,50 @@
     return list ? list.reduce((a, b) => a + b, 0) : 0;
   }
   function hasChargeItemTV(itemId) { return countChargesTV(itemId) > 0; }
+
+  // ── 闇市 召喚同行 (M8): 出発時メニュー ──
+  // 指定フェーズで使える召喚スクロールを所持分から抽出 (index.html getSummonMenuItems の双子)。
+  function getSummonMenuItemsTV(phase) {
+    const out = [];
+    for (const id of Object.keys(PLAZA_ITEMS_TV)) {
+      const def = PLAZA_ITEMS_TV[id];
+      if (def && def.summon && Array.isArray(def.summonTiming)
+          && def.summonTiming.includes(phase) && hasChargeItemTV(id)) {
+        out.push({ id, def });
+      }
+    }
+    return out;
+  }
+  // 出発時に連れて行く召喚ユニットの選択 (itemId or null)。消費は index 側 (pendingSummon 経由)。
+  let selectedSummonItemId = null;
+  function renderSummonMenu() {
+    const section = document.getElementById("summonSection");
+    const listEl  = document.getElementById("summonList");
+    if (!section || !listEl) return;
+    const items = getSummonMenuItemsTV("dungeonStart");
+    if (items.length === 0) { section.style.display = "none"; selectedSummonItemId = null; return; }
+    // 所持しなくなった選択は無効化
+    if (selectedSummonItemId && !items.some(it => it.id === selectedSummonItemId)) selectedSummonItemId = null;
+    section.style.display = "";
+    listEl.innerHTML = "";
+    // 「連れて行かない」+ 各召喚を排他選択 (ラジオ風)。選択中はハイライト。
+    const rows = [{ id: null, name: "連れて行かない", count: 0 }]
+      .concat(items.map(it => ({ id: it.id, name: it.def.name, count: countChargesTV(it.id) })));
+    for (const r of rows) {
+      const sel = (selectedSummonItemId === r.id);
+      const item = document.createElement("div");
+      item.className = "skillItem" + (sel ? " full" : "");
+      item.style.cursor = "pointer";
+      item.innerHTML =
+        `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">` +
+          `<span class="sName">${sel ? "◉ " : "○ "}${r.name}` +
+            (r.id ? ` <span class="sCat">残 ${r.count}</span>` : "") +
+          `</span>` +
+        `</div>`;
+      item.addEventListener("click", () => { selectedSummonItemId = r.id; renderSummonMenu(); });
+      listEl.appendChild(item);
+    }
+  }
   // 検証用ブリッジ (puppeteer から IIFE 内のチャージ API / 状態へ到達する手段。本番動作には無害)
   try {
     window.__plazaTV = {
@@ -2322,6 +2373,11 @@
       addChargeItem: addChargeItemTV, consumeCharge: consumeChargeTV,
       countCharges: countChargesTV, hasChargeItem: hasChargeItemTV,
       save: savePlazaStateTV, itemDef: plazaItemDefTV,
+      // M8 検証フック: 出発時召喚メニュー
+      getSummonMenuItems: getSummonMenuItemsTV,
+      renderSummonMenu,
+      setSummonSel: (id) => { selectedSummonItemId = id; renderSummonMenu(); },
+      getSummonSel: () => selectedSummonItemId,
     };
   } catch (e) {}
   // ════════════ 闇市 ここまで ════════════
@@ -2633,6 +2689,8 @@
     renderCharTabs();
     renderCharLoadout();
     renderScrollLibrary();   // タブ非依存の独立パネルとして描画
+    selectedSummonItemId = null;   // 出発のたび召喚選択をリセット
+    renderSummonMenu();      // 闇市召喚 (M8): 召喚スクロール所持時のみ表示
     dialogEl.style.display = "none";
     // 受注ナレ (依頼人の語り口調 + セリフ) を全画面で語ってから準備画面へ。受注スティンガー音声はナレ内で再生。
     await playQuestAcceptNarration(sc);
@@ -3258,6 +3316,11 @@
     } catch (e) {}
     sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
+    // 闇市召喚 (M8): 出発時に選んだ召喚スクロールを index へ受け渡す (消費は index 側に一本化)。
+    sessionStorage.removeItem("dragonfighters.pendingSummon");
+    if (selectedSummonItemId && hasChargeItemTV(selectedSummonItemId)) {
+      sessionStorage.setItem("dragonfighters.pendingSummon", selectedSummonItemId);
+    }
     // フォールバックは index.html (本編)。battle.html は単体検証用なので明示指定された時のみ
     let target = prepScenario.target || "index.html";
     const params = [];

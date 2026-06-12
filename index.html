@@ -5976,6 +5976,12 @@
         // M7 検証フック: 火炎ブレス駆動 + 反射チョークポイント直叩き
         fireBreath: (idx) => hydraFireBreath(idx),
         tryReflect: (idx, spell) => tryReflectEnemySpell(idx, spell),
+        // M8 検証フック: 召喚同行
+        executeSummon: (id, opts) => executeSummon(id, opts),
+        getSummonMenuItems: (phase) => getSummonMenuItems(phase),
+        summonSlot: () => summonSlot,
+        allies: () => allies,
+        aliveUnitCount: () => allies.filter(a => a.alive).length,
       };
     } catch (e) {}
     // ════════════ 闇市 ここまで ════════════
@@ -6205,6 +6211,44 @@
       ally.nameLabelEl = label;
       // 主人公 ally は見失い防止に金色グロー
       if (ally.isHero) { el.classList.add("heroAlly"); el.style.filter = "drop-shadow(0 0 6px gold)"; }
+    }
+
+    // ═══════════ 闇市 召喚同行 (M8) ═══════════
+    // 召喚枠は NPC 同行枠と独立 (最大1体)。allies[] に push されるので units 再構築
+    // (allies.filter(alive)) で戦闘 AI / イニシアチブが自動で付く。倒されたら次の休憩で再召喚。
+    let summonSlot = null;
+    // 指定フェーズ ("dungeonStart" / "restPhase") で使用可能な召喚スクロールを所持分から抽出。
+    function getSummonMenuItems(phase) {
+      const out = [];
+      for (const id of Object.keys(PLAZA_ITEMS)) {
+        const def = PLAZA_ITEMS[id];
+        if (def && def.summon && Array.isArray(def.summonTiming)
+            && def.summonTiming.includes(phase) && hasChargeItem(id)) {
+          out.push({ id, def });
+        }
+      }
+      return out;
+    }
+    // 召喚実行: 枠が空 & チャージありなら 1 消費してユニットを allies へ加える。成功で true。
+    function executeSummon(itemId, opts) {
+      opts = opts || {};
+      const def = PLAZA_ITEMS[itemId];
+      if (!def || !def.summon) return false;
+      if (summonSlot && summonSlot.alive) return false;      // 既に召喚ユニットが健在
+      if (!consumeCharge(itemId)) return false;              // チャージ不足
+      const unitId = def.summon.unitId;
+      if (!CLASS_DEFS[unitId]) return false;                 // def 未定義 (保険)
+      // 召喚位置: プレイヤー近傍 (明示指定があればそれを優先)
+      const baseX = (typeof opts.x === "number") ? opts.x : (typeof playerX === "number" ? playerX : 0);
+      const baseY = (typeof opts.y === "number") ? opts.y : (typeof playerY === "number" ? playerY : 0);
+      const a = createAlly(unitId, baseX - 40, baseY + 40);
+      a.isSummon = true;
+      a.zone = (def.summon.zone === "rear") ? "rear" : (def.summon.zone === "mid") ? "mid" : "front";
+      a.summonItemId = itemId;
+      allies.push(a);
+      createAllyDom(a, allies.length - 1);   // applyAllyEquipment / initAllySpellSlots は呼ばない (def 値・非キャスター)
+      summonSlot = a;
+      return true;
     }
 
     // (注意) 初期パーティーの push は CLASS_DEFS 定義後に実行する必要があるので
@@ -7541,7 +7585,7 @@
       ally.el.style.backgroundSize = size;
     }
     // 専用シートを持つクラス (歩き 6F、576×384)。warrior も正規シート(warrior_walk)で統一。
-    const CUSTOM_SHEET_CLASSES = new Set(["warrior", "dwarf", "cleric", "mage", "elf", "rogue"]);
+    const CUSTOM_SHEET_CLASSES = new Set(["warrior", "dwarf", "cleric", "mage", "elf", "rogue", "golem_soldier", "undead_squad"]);
 
     // ── スプライト変種レジストリ (NPC冒険者の見た目バリエーション) ──
     // 各職業は変種シートの配列。index 0 = 正規 (主人公/既定)、1 以降が NPC 用バリアント。
@@ -7573,6 +7617,9 @@
         { walk: 'url("assets/elf_shadow_walk.png")',   walkSize: "576px 384px", attack: 'url("assets/elf_shadow_attack.png")',   attackSize: "480px 384px", label: "闇森の影射手" },
       ],
       rogue:  [ { walk: ROGUE_WALK_URL,  walkSize: ROGUE_WALK_SIZE,  attack: ROGUE_ATTACK_URL,  attackSize: ROGUE_ATTACK_SIZE } ],
+      // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
+      golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
+      undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],
     };
     // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。
     function getSpriteSet(classKey, variant) {
@@ -10915,6 +10962,21 @@
           // 2. セカンドウィンド (装備していて HP 減っていれば発動)
           await triggerSecondWind();
 
+          // 2.5 闇市召喚 (M8): 召喚枠が空 (or 召喚が倒れた) & 休憩で使える召喚スクロール所持時のみ提案。
+          //     オートプレイ中は勝手にチャージを食わないようプロンプト自体を出さない。
+          if (!window.__autoplay && (!summonSlot || !summonSlot.alive)) {
+            const summonable = getSummonMenuItems("restPhase");
+            if (summonable.length > 0) {
+              const cands = summonable.map(it => ({ label: `${it.def.name} を使う (残 ${countCharges(it.id)})` }));
+              const pick = await showCharChoice("召喚スクロールを使うか?", cands, "召喚しない (Esc)");
+              if (pick !== null && summonable[pick] && executeSummon(summonable[pick].id)) {
+                const uId = PLAZA_ITEMS[summonable[pick].id].summon.unitId;
+                showBanner(`${(CLASS_DEFS[uId] && CLASS_DEFS[uId].name) || "援軍"} を召喚!`, 1400);
+                await sleepMs(700);
+              }
+            }
+          }
+
           // 3. 行軍再開
           showBanner("行軍再開", 1100);
           updateInfo("探索再開");
@@ -11050,6 +11112,46 @@
         perceptionBonus: 2,  // エルフ: 知覚 +2 (鋭敏感覚)
         spellAtkBonus: 1,  // 半キャスター (魔法使いの 2 より低め)
         defaultSkills: ["aimed-shot", "magic-arrow", "cure-minor"],
+      },
+      // ── 闇市 召喚ユニット (M8) ──────────────────────────────────────
+      // createAlly(classKey) で mint され allies[] に push される。ALL_CLASS_KEYS には
+      // 含めない (line 5626) ので募集 NPC / 酒場タブ / PARTY_ZONES には漏れない。
+      // 非キャスター (defaultSkills:[])。スプライトは専用 96px×6F (SPRITE_VARIANTS 登録)。
+      golem_soldier: {
+        name: "ゴーレム兵",
+        flavor: "術式で動く石鉄の巨兵。なかなか壊れぬ盾役",
+        sprite: "assets/golem_soldier_walk.png",
+        displaySize: 96,
+        hpMax: 64,
+        mpMax: 0,
+        str: 5, dex: 0, con: 5, wis: 0, int: 0,
+        atkBonus: 6, ac: 17,
+        dmgDice: "1d10", dmgBonus: 4,
+        critRange: 20, critMult: 2,
+        weaponRange: "melee",
+        weaponName: "石の拳",
+        armorName: "石鉄の体躯",
+        role: "frontline",
+        perceptionBonus: 0,
+        defaultSkills: [],
+      },
+      undead_squad: {
+        name: "アンデッド小隊",
+        flavor: "甦りし骨と屍の群れ。脆いが数で押す",
+        sprite: "assets/undead_squad_walk.png",
+        displaySize: 96,
+        hpMax: 30,
+        mpMax: 0,
+        str: 2, dex: 1, con: 2, wis: 0, int: 0,
+        atkBonus: 4, ac: 13,
+        dmgDice: "1d6", dmgBonus: 1,
+        critRange: 20, critMult: 2,
+        weaponRange: "melee",
+        weaponName: "錆びた得物",
+        armorName: "朽ちた装具",
+        role: "frontline",
+        perceptionBonus: 0,
+        defaultSkills: [],
       },
     };
 
@@ -18339,6 +18441,18 @@
       }
     })();
 
+    // ── 闇市 召喚 (M8): 出発時に酒場で選んだ召喚スクロールを消費してユニットを編成へ ──
+    // チャージ消費は index 側に一本化 (酒場は選択を pendingSummon へ載せるだけ)。allies 構築・
+    // レベル適用が済んだ後に追加するので、召喚ユニットは装備/呪文/レベル処理に巻き込まれない。
+    (function consumePendingSummon() {
+      let pending = null;
+      try { pending = sessionStorage.getItem("dragonfighters.pendingSummon"); } catch (e) {}
+      if (!pending) return;
+      try { sessionStorage.removeItem("dragonfighters.pendingSummon"); } catch (e) {}
+      const items = getSummonMenuItems("dungeonStart");
+      if (items.some(it => it.id === pending)) executeSummon(pending);
+    })();
+
     // 部屋配置の宝箱を初期化 (マップデータ利用)
     spawnRoomChests();
     // ダンジョン罠を初期化
@@ -18378,6 +18492,7 @@
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
       resultShown = true;
+      summonSlot = null;   // 闇市召喚 (M8): クエスト終了で召喚枠をクリア (同行 ally は酒場復帰のリロードで自然消滅)
       if (window.GameAudio) { GameAudio.stopBgm(); GameAudio.playJingle(win ? "victory" : "defeat"); }
       window.__inBossRoom = false;
       window.__inMidBoss = false;

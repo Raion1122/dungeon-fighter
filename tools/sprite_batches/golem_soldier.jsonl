@@ -1,0 +1,5 @@
+# 召喚ユニット ゴーレム兵 (golem_soldier) — 3 ターン構成 (テンプレ把握 → 右歩き → 攻撃)
+# 闇市スクロール・オブ・クリエイトゴーレムで召喚する盾役。96px×6F (walk576×384 / attack480×384)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_golem_soldier/_prompt_walk.txt",    "output": "source_images/enemy_golem_soldier/ゴーレム兵歩き.png"}
+{"prompt_file": "source_images/enemy_golem_soldier/_prompt_attack.txt",  "output": "source_images/enemy_golem_soldier/ゴーレム兵攻撃.png"}
