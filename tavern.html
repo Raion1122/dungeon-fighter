@@ -213,6 +213,10 @@
       line-height: 1.3;
       pointer-events: none;
     }
+    /* 実画像ポートレイト(.clientArt)は背が高く頭がテーブル上端より上に出るため、
+       看板を頭上まで持ち上げて顔・上半身が隠れないようにする。
+       CSS人形(.npc)へフォールバックしたテーブルは既定の -40px を維持。 */
+    .table:has(.clientArt) .sign { top: -66px; }
     .sign .place { color: var(--parchment-gold); font-size: 14px; letter-spacing: 1px; }
     .sign .diff  { font-size: 11px; color: #8b3020; margin-top: 2px; letter-spacing: 1px; }
     .table.locked .sign {
@@ -1254,10 +1258,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>依頼人の看板を頭上へ移動</b> — 地名ラベルが依頼人の顔に重なっていたのを解消。</li>
         <li><b>依頼人ごとに声が変わった</b> — 商人・長老・隊長・司祭がそれぞれ別の声で語りかけるようになった。</li>
         <li><b>依頼人がセリフを読み上げるように</b> — 主要6シナリオの受注で、依頼人の声が流れるようになった。</li>
         <li><b>闇市の召喚スクロールが使えるように</b> — ゴーレム兵やスケルトン小隊を呼んで冒険に同行させられる(出発時/休憩で召喚・専用スプライト付き)。</li>
-        <li><b>スペルターニングリングが機能</b> — 闇市で買える指輪。敵の火炎ブレスを術者へ丸ごと跳ね返す。所持中は自動発動で1回ごとにチャージを消費。</li>
       </ul>
     </div>
 
