@@ -435,9 +435,9 @@
     "category": "quest",
     "file": "quest/quest_dialog_goblin-mine_1.mp3",
     "text": "「すまねえ、冒険者の旦那方。街道沿いの廃坑にゴブリンの一団が巣食ってて、荷馬車が何度も襲われてるんだ…。御者の奴も連れ去られちまって、もう商売あがったりだ。ゴブリンの首領をぶちのめして、できれば御者も救い出してほしい。頼む！」",
-    "speaker": 13,
-    "durationSec": 17.408,
-    "hash": "3507bd656d1da693"
+    "speaker": 11,
+    "durationSec": 16.309,
+    "hash": "3a6773ce1943c956"
   },
   "quest_dialog_bandits-forest_0": {
     "category": "quest",
@@ -451,9 +451,9 @@
     "category": "quest",
     "file": "quest/quest_dialog_bandits-forest_1.mp3",
     "text": "「冒険者の諸君、森の奥に盗賊団が根城を築いた。旅人がたびたび襲われている。奇妙なことに、やつらは誰かから指令を受けている様子…。首領『スカー』を討ち、指令書を押収してほしい。」",
-    "speaker": 13,
-    "durationSec": 14.955,
-    "hash": "05502549db5940c1"
+    "speaker": 11,
+    "durationSec": 14.571,
+    "hash": "d373628bf4f8e5a2"
   },
   "quest_dialog_lizard-swamp_0": {
     "category": "quest",
@@ -467,9 +467,9 @@
     "category": "quest",
     "file": "quest/quest_dialog_lizard-swamp_1.mp3",
     "text": "「沼地から何度もリザードマンの襲撃を受け、村人が怯えております…。族長は『炎の支配者』とやらの命を受けているとか。恐ろしい噂です。どうか族長を打ち倒してください。」",
-    "speaker": 13,
-    "durationSec": 13.333,
-    "hash": "9d93373915b009ae"
+    "speaker": 16,
+    "durationSec": 24.565,
+    "hash": "d0dd2ba99c9f2094"
   },
   "quest_dialog_orc-fort_0": {
     "category": "quest",
@@ -483,9 +483,9 @@
     "category": "quest",
     "file": "quest/quest_dialog_orc-fort_1.mp3",
     "text": "「廃墟となった砦にオークの軍勢が陣取っている。将軍ガロックは腕利きだ、油断すれば命が危うい。砦の跡からはドラゴンの鱗が見つかっておる…不気味な気配だ。討伐を頼む。」",
-    "speaker": 13,
-    "durationSec": 12.853,
-    "hash": "4e31667a46b80cee"
+    "speaker": 21,
+    "durationSec": 13.333,
+    "hash": "b8357a9c24c88844"
   },
   "quest_dialog_undead-temple_0": {
     "category": "quest",
@@ -499,9 +499,9 @@
     "category": "quest",
     "file": "quest/quest_dialog_undead-temple_1.mp3",
     "text": "「地下神殿にアンデッドが蔓延り、不浄な気配が満ちています…。リッチがドラゴン召喚の儀式を進めている様子。阻止できねば、この地は業火に包まれましょう。神の加護をお授けします、どうかお願いします。」",
-    "speaker": 13,
-    "durationSec": 14.645,
-    "hash": "0dee7cd032da3bbc"
+    "speaker": 53,
+    "durationSec": 13.472,
+    "hash": "9a7c818bc4421d8e"
   },
   "quest_dialog_dragon-lair_0": {
     "category": "quest",

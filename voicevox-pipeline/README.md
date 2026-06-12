@@ -41,12 +41,19 @@ py voicevox-pipeline/scripts/generate.py --only dungeon_intro_goblin-mine_0
 | `--format` | `mp3` | `mp3` / `ogg` / `wav`(iOS 対応で mp3 既定)|
 | `--keep-wav` | off | 中間 wav を残す(通常は付けない)|
 | `--list-speakers` | — | 青山龍星のスタイル ID 一覧表示 |
+| `--list-all-speakers` | — | ENGINE の全話者(キャラ名 / スタイル / ID)一覧表示。複数話者の採用検討・ID 確認用 |
 
 ## 台本 (`data/script.json`)
-- `speakers`: 用途エイリアス → VOICEVOX スタイル ID(すべて青山龍星)
-  - `narrator: 13`(ノーマル / クエスト受注ナレ)
-  - `dungeon_master: 84`(しっとり / 道中の語り・既定)
-  - `dungeon_master_whisper: 86`(囁き / 警告・予約)
+- `speakers`: 用途エイリアス → VOICEVOX スタイル ID(複数キャラを使用)
+  - DM・ナレーション系(青山龍星):
+    - `narrator: 13`(ノーマル / 受注汎用・語り部依頼)
+    - `dungeon_master: 84`(しっとり / 道中の語り・依頼人紹介ナレ・既定)
+    - `dungeon_master_whisper: 86`(囁き / 警告・予約)
+  - 依頼人ボイス(別キャラで声を使い分け):
+    - `client_merchant: 11`(玄野武宏 ノーマル / 商人ボルダック・監視員ケネット)
+    - `client_captain: 21`(剣崎雌雄 ノーマル / 自警団長ロダン)
+    - `client_elder: 16`(九州そら ノーマル / 村の長老マリア。行 `overrides` で速度・音高を下げ老女寄せ)
+    - `client_priest: 53`(麒ヶ島宗麟 ノーマル / 司祭マーテル)
 - `defaults`: `speedScale` / `pitchScale` / `intonationScale` / `volumeScale`
 - `lines[]`: `{ id, category, speaker, text, overrides? }`
   - id 規則: ダンジョン導入 = `dungeon_intro_<scenarioId>_<段落index>`、受注 = `quest_accept_00N`

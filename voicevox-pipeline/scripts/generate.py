@@ -2,10 +2,11 @@
 
 実行時 API 呼び出しはしない。ビルド前に静的 mp3 を書き出すツール。使い方は README.md 参照。
 
-  py voicevox-pipeline/scripts/generate.py --list-speakers   # 青山龍星のスタイルID確認
-  py voicevox-pipeline/scripts/generate.py                    # 全生成 (mp3, assets/voice/)
-  py voicevox-pipeline/scripts/generate.py --category dungeon # dungeon だけ
-  py voicevox-pipeline/scripts/generate.py --only <id>        # 特定行だけ
+  py voicevox-pipeline/scripts/generate.py --list-speakers       # 青山龍星のスタイルID確認
+  py voicevox-pipeline/scripts/generate.py --list-all-speakers   # 全話者のスタイルID一覧 (複数話者の採用検討用)
+  py voicevox-pipeline/scripts/generate.py                       # 全生成 (mp3, assets/voice/)
+  py voicevox-pipeline/scripts/generate.py --category dungeon    # dungeon だけ
+  py voicevox-pipeline/scripts/generate.py --only <id>           # 特定行だけ
 """
 from __future__ import annotations
 
@@ -49,6 +50,16 @@ def resolve_speaker_id(line, speakers_map):
     return sp
 
 
+def build_style_index(speakers):
+    """ENGINE の話者一覧から {style_id: (キャラ名, スタイル名)} を構築 (全話者対象)。"""
+    index = {}
+    for sp in speakers:
+        cname = sp.get("name")
+        for st in sp.get("styles", []):
+            index[st.get("id")] = (cname, st.get("name"))
+    return index
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="VOICEVOX ナレーション事前生成")
     ap.add_argument("--engine-url", default="http://127.0.0.1:50021")
@@ -59,7 +70,23 @@ def main(argv=None):
     ap.add_argument("--format", choices=["mp3", "ogg", "wav"], default="mp3")
     ap.add_argument("--keep-wav", action="store_true", help="中間 wav を残す (通常は付けない)")
     ap.add_argument("--list-speakers", action="store_true", help="青山龍星のスタイルID一覧を表示")
+    ap.add_argument("--list-all-speakers", action="store_true",
+                    help="ENGINE の全話者 (キャラ名 / スタイル名 / ID) を列挙 (複数話者の採用検討用)")
     args = ap.parse_args(argv)
+
+    # --- 全話者一覧表示 ---
+    if args.list_all_speakers:
+        try:
+            speakers = vc.list_speakers(args.engine_url)
+        except vc.EngineError as e:
+            print(f"[FATAL] {e}", file=sys.stderr)
+            return 2
+        print("=== ENGINE の全話者 (キャラ名 / スタイル / id) ===")
+        for sp in sorted(speakers, key=lambda s: s.get("name") or ""):
+            cname = sp.get("name")
+            for st in sorted(sp.get("styles", []), key=lambda x: (x.get("id") is None, x.get("id"))):
+                print(f"  {st.get('id'):>4}  {cname} / {st.get('name')}")
+        return 0
 
     # --- 話者一覧表示 ---
     if args.list_speakers:
@@ -92,21 +119,24 @@ def main(argv=None):
         except Exception:
             manifest = {}
 
-    # --- ENGINE 起動 + スタイルID検証 (警告のみ) ---
+    # --- ENGINE 起動 + スタイルID検証 (全話者対象・警告のみ) ---
     try:
-        actual = vc.find_style_ids(vc.list_speakers(args.engine_url), SPEAKER_NAME)
+        style_index = build_style_index(vc.list_speakers(args.engine_url))
     except vc.EngineError as e:
         print(f"[FATAL] {e}", file=sys.stderr)
         return 2
-    actual_ids = set(actual.values())
     for alias, sid in speakers_map.items():
-        if sid not in actual_ids:
-            print(f"[WARN] speaker '{alias}'={sid} が現 ENGINE の {SPEAKER_NAME} スタイルに見当たりません "
-                  f"(バージョンで ID 変動の可能性)。", file=sys.stderr)
+        if sid not in style_index:
+            print(f"[WARN] speaker '{alias}'={sid} が現 ENGINE のどの話者スタイルにも見当たりません "
+                  f"(バージョンで ID 変動 / 話者未同梱の可能性)。", file=sys.stderr)
+        else:
+            cname, sname = style_index[sid]
+            print(f"[speaker] '{alias}'={sid} -> {cname} / {sname}")
 
     ext = args.format
     ok = skip = fail = 0
     errors = []
+    used_speaker_ids = set()
     for ln in lines:
         lid = ln["id"]
         cat = ln.get("category", "dungeon")
@@ -116,6 +146,7 @@ def main(argv=None):
             continue
 
         speaker_id = resolve_speaker_id(ln, speakers_map)
+        used_speaker_ids.add(speaker_id)
         params = merge_params(defaults, ln.get("overrides"))
         h = line_hash(ln["text"], speaker_id, params)
         rel = f"{cat}/{lid}.{ext}"
@@ -158,6 +189,12 @@ def main(argv=None):
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"\n=== 完了: 生成 {ok} / スキップ {skip} / 失敗 {fail} ===")
     print(f"manifest: {manifest_path}")
+
+    # --- クレジット用: 今回対象に含まれた話者キャラ名の集合 (CREDITS.md 更新の備忘) ---
+    used_names = sorted({style_index[sid][0] for sid in used_speaker_ids
+                         if sid in style_index and style_index[sid][0]})
+    if used_names:
+        print("使用話者 (クレジット表記を CREDITS.md / 設定画面に反映): VOICEVOX:" + " / ".join(used_names))
     if errors:
         print("失敗一覧:")
         for lid, msg in errors:
