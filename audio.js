@@ -519,6 +519,11 @@
     closeB.addEventListener("click", closeSettings);
     bar.appendChild(test); bar.appendChild(closeB);
     box.appendChild(bar);
+    // クレジット表記 (VOICEVOX 利用規約: キャラクター名のクレジット表示が必須)
+    var cred = document.createElement("div");
+    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星";
+    cred.style.cssText = "margin-top:14px;padding-top:8px;border-top:1px solid rgba(139,105,20,0.3);font-size:11px;color:#6a5418;text-align:center;letter-spacing:0.02em;";
+    box.appendChild(cred);
     ov.appendChild(box);
     (document.body || document.documentElement).appendChild(ov);
     _settingsEl = ov;
