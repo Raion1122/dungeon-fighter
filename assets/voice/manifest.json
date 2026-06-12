@@ -382,5 +382,45 @@
     "speaker": 84,
     "durationSec": 6.88,
     "hash": "9668a15d758cdc69"
+  },
+  "plaza_gatekeeper_reject": {
+    "category": "plaza",
+    "file": "plaza/plaza_gatekeeper_reject.mp3",
+    "text": "……人間の、匂いだ。失せな……姿を変える術も、持たねえくせに……",
+    "speaker": 86,
+    "durationSec": 5.941,
+    "hash": "06425c43db06c1fb"
+  },
+  "plaza_enter_innate": {
+    "category": "plaza",
+    "file": "plaza/plaza_enter_innate.mp3",
+    "text": "……ほう。本物の、術師か……通りな……",
+    "speaker": 86,
+    "durationSec": 3.477,
+    "hash": "1006776570bcaf84"
+  },
+  "plaza_enter_first": {
+    "category": "plaza",
+    "file": "plaza/plaza_enter_first.mp3",
+    "text": "ようこそ……ここは、ポドルプラザ。表の世界には、ない品が揃う場所……",
+    "speaker": 86,
+    "durationSec": 5.845,
+    "hash": "6587336197181306"
+  },
+  "plaza_quest_accept": {
+    "category": "plaza",
+    "file": "plaza/plaza_quest_accept.mp3",
+    "text": "報酬は、牙貨……約束は、守ってもらうぞ……",
+    "speaker": 86,
+    "durationSec": 4.171,
+    "hash": "1081773cbdde83ba"
+  },
+  "plaza_buy_highvalue": {
+    "category": "plaza",
+    "file": "plaza/plaza_buy_highvalue.mp3",
+    "text": "いい買い物だ……後悔は、しないことだ……",
+    "speaker": 86,
+    "durationSec": 3.157,
+    "hash": "1a246c0eb2846889"
   }
 }

@@ -1003,6 +1003,110 @@
       transition: opacity 0.3s ease-out;
     }
     .dmHint.show { opacity: 1; }
+
+    /* ════════ 闇市 ポドルプラザ ════════ */
+    /* テーマ差し替え: 配下で CSS 変数を闇市カラーに上書き (背後の銀の鹿亭は羊皮紙のまま) */
+    .theme-plaza {
+      --parchment-bg: linear-gradient(135deg, #221636 0%, #1a1226 50%, #120c1c 100%);
+      --parchment-ink: #d8c8f0;
+      --parchment-ink-soft: #a892c8;
+      --parchment-gold: #45e0a8;       /* 怪しい燐光 */
+      --parchment-border: #6b3fa0;
+      --parchment-shadow: 0 0 14px rgba(20,4,40,0.7), inset 0 0 22px rgba(90,40,150,0.30);
+    }
+    /* 隠し扉 (アンロック後に常設出現) */
+    #plazaDoor {
+      position: absolute;
+      right: 2.4%; top: 44%;
+      width: 66px; height: 122px;
+      cursor: pointer; z-index: 12;
+      background: linear-gradient(180deg, #1a0f28 0%, #0c0716 100%);
+      border: 2px solid #3a2456;
+      border-radius: 33px 33px 4px 4px;
+      box-shadow: 0 0 18px rgba(69,224,168,0.25), inset 0 0 18px rgba(0,0,0,0.85);
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+      padding-bottom: 8px;
+    }
+    #plazaDoor .plazaDoorGlow {
+      position: absolute; inset: 0; border-radius: 33px 33px 4px 4px; pointer-events: none;
+      background: radial-gradient(ellipse at 50% 38%, rgba(69,224,168,0.35) 0%, rgba(107,63,160,0.18) 45%, transparent 72%);
+      animation: plazaGlow 2.4s ease-in-out infinite;
+    }
+    @keyframes plazaGlow { 0%,100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+    #plazaDoor .plazaDoorLabel {
+      position: relative; z-index: 1;
+      font-family: 'MedievalSharp', serif; font-size: 11px; letter-spacing: 1px;
+      color: #9fe9c8; text-shadow: 0 0 6px rgba(69,224,168,0.7);
+    }
+    #plazaDoor:hover { box-shadow: 0 0 26px rgba(69,224,168,0.5), inset 0 0 18px rgba(0,0,0,0.85); }
+
+    /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
+    #plazaScreen {
+      position: fixed; inset: 0; z-index: 150; display: none;
+      align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 28%, rgba(60,30,100,0.5) 0%, rgba(8,5,14,0.97) 70%), #0c0716;
+      color: var(--parchment-ink); font-family: 'Cinzel', serif;
+    }
+    #plazaInner { width: 940px; max-width: 94vw; max-height: 92vh; overflow-y: auto; padding: 18px 22px 22px; }
+    #plazaSign {
+      text-align: center; font-family: 'MedievalSharp', serif;
+      font-size: 34px; letter-spacing: 6px; color: var(--parchment-gold);
+      text-shadow: 0 0 14px rgba(69,224,168,0.6);
+      animation: plazaSignFlicker 3.6s steps(1) infinite;
+    }
+    #plazaSign small { display: block; font-size: 12px; letter-spacing: 2px; color: var(--parchment-ink-soft); margin-top: 5px; }
+    @keyframes plazaSignFlicker { 0%,19%,21%,55%,57%,100% { opacity: 1; } 20%,56% { opacity: 0.5; } }
+    .plazaCols { display: flex; gap: 16px; margin-top: 18px; flex-wrap: wrap; }
+    .plazaPanel {
+      flex: 1 1 380px; min-width: 280px;
+      background: var(--parchment-bg);
+      border: 2px solid var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      border-radius: 6px; padding: 12px 14px;
+    }
+    .plazaPanelHead {
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 2px;
+      color: var(--parchment-gold); border-bottom: 1px solid var(--parchment-border);
+      padding-bottom: 6px; margin-bottom: 10px;
+    }
+    .plazaFang { float: right; font-size: 13px; color: var(--parchment-ink); letter-spacing: 0; }
+    .plazaStub { font-size: 13px; color: var(--parchment-ink-soft); opacity: 0.85; padding: 14px 4px; text-align: center; font-style: italic; }
+    .plazaActions { text-align: center; margin-top: 18px; }
+    .plazaBtn {
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink); background: rgba(40,20,60,0.6);
+      border: 2px solid var(--parchment-border); border-radius: 6px;
+      padding: 9px 22px; cursor: pointer;
+    }
+    .plazaBtn:hover { background: rgba(80,40,120,0.5); box-shadow: 0 0 10px rgba(69,224,168,0.4); }
+    .plazaBtn.small { font-size: 13px; padding: 6px 14px; }
+    .plazaBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* 闇クエストカード */
+    #plazaQuestBoard .pqcardList { display: flex; flex-direction: column; gap: 8px; }
+    #plazaQuestBoard .pqcard {
+      border: 1px solid var(--parchment-border); border-radius: 5px; padding: 8px 10px;
+      cursor: pointer; background: rgba(80,40,140,0.10); transition: background .12s, border-color .12s;
+    }
+    #plazaQuestBoard .pqcard:hover { background: rgba(80,40,140,0.22); }
+    #plazaQuestBoard .pqcard.selected { border-color: var(--parchment-gold); background: rgba(69,224,168,0.14); box-shadow: 0 0 8px rgba(69,224,168,0.3); }
+    #plazaQuestBoard .pqcardHead { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; margin-bottom: 3px; }
+    #plazaQuestBoard .pqtier { color: var(--parchment-gold); font-family: 'MedievalSharp', serif; font-weight: bold; }
+    #plazaQuestBoard .pqtarget { color: var(--parchment-ink); text-align: right; }
+    #plazaQuestBoard .pqcardMeta { font-size: 11px; color: var(--parchment-ink); opacity: 0.88; }
+    #plazaQuestBoard .pqfang { color: var(--parchment-gold); }
+    #plazaQuestBoard .pqdetail { font-size: 12px; line-height: 1.7; color: var(--parchment-ink); opacity: 0.9; margin-top: 10px; min-height: 34px; font-style: italic; }
+    #plazaQuestBoard .pqactions { text-align: right; margin-top: 10px; }
+    /* 闇市商店 */
+    #plazaShop .pshopList { display: flex; flex-direction: column; gap: 9px; }
+    #plazaShop .pshopItem { border: 1px solid var(--parchment-border); border-radius: 5px; padding: 8px 10px; background: rgba(80,40,140,0.08); }
+    #plazaShop .pshopMain { display: flex; align-items: baseline; gap: 7px; }
+    #plazaShop .pshopName { font-family: 'MedievalSharp', serif; font-size: 13.5px; color: var(--parchment-ink); }
+    #plazaShop .pshopMax { font-size: 10.5px; color: var(--parchment-gold); }
+    #plazaShop .pshopTag { font-size: 10px; color: #0c0716; background: var(--parchment-gold); border-radius: 3px; padding: 1px 5px; margin-left: auto; }
+    #plazaShop .pshopEffect { font-size: 11px; color: var(--parchment-ink); opacity: 0.8; margin: 3px 0; line-height: 1.5; }
+    #plazaShop .pshopOwned { font-size: 11px; color: var(--parchment-gold); }
+    #plazaShop .pshopBuy { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; }
+    #plazaShop .pshopPrice { font-family: 'MedievalSharp', serif; font-size: 13px; color: var(--parchment-gold); }
   </style>
   <script src="audio.js"></script>
 </head>
@@ -1143,10 +1247,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市『ポドルプラザ』が登場</b> — 通常クエストを5回こなすと銀の鹿亭に怪しい扉が現れる。変装の杖でモンスターの闇市に潜入し、闇クエストや専用通貨『牙貨』でレア品が買える。</li>
         <li><b>依頼人の語りを受注時に追加</b> — クエストを受けると、依頼人が語りかけてから出発の準備に入る。</li>
         <li><b>宝箱発見の語りを追加</b> — 宝箱を見つけると「君たちは宝箱を発見した。」の一言が入るように。</li>
         <li><b>僧侶ブレスを強化</b> — 味方全員に10ターン持続し、効果中は1ターンに2マス前進できる。</li>
-        <li><b>オープニングの語りを銀の鹿亭へ移動</b> — フラン編の前口上が、廃坑に入った時ではなく最初に酒場へ来た時に流れるようになった。</li>
       </ul>
     </div>
 
@@ -1158,6 +1262,32 @@
       <div id="questBoardActions" style="display:none;">
         <button type="button" id="btnQuestRedraw" class="questBoardBtn small">🎲 引き直す</button>
         <button type="button" id="btnQuestDepart" class="questBoardBtn accept">この依頼で出発</button>
+      </div>
+    </div>
+
+    <!-- 闇市 ポドルプラザ: 隠し扉 (通常クエスト5回クリアでアンロック後に常設表示) -->
+    <div id="plazaDoor" style="display:none;" title="怪しい扉">
+      <div class="plazaDoorGlow"></div>
+      <div class="plazaDoorLabel">怪しい扉</div>
+    </div>
+
+    <!-- 闇市 ポドルプラザ 画面 (theme-plaza) -->
+    <div id="plazaScreen" class="theme-plaza">
+      <div id="plazaInner">
+        <div id="plazaSign">ポドルプラザ<small>闇市 — 表の世界には無い品が揃う場所</small></div>
+        <div class="plazaCols">
+          <div class="plazaPanel">
+            <div class="plazaPanelHead">闇クエスト掲示板</div>
+            <div id="plazaQuestBoard"><div class="plazaStub">闇の依頼は、追って掲示される……</div></div>
+          </div>
+          <div class="plazaPanel">
+            <div class="plazaPanelHead">闇市商店 <span id="plazaFangCount" class="plazaFang"></span></div>
+            <div id="plazaShop"><div class="plazaStub">品揃えは、追って並ぶ……</div></div>
+          </div>
+        </div>
+        <div class="plazaActions">
+          <button type="button" id="btnLeavePlaza" class="plazaBtn">← 銀の鹿亭に戻る</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1381,6 +1511,23 @@
         "依頼者は{c}。{m}の脅威が迫る{p}へ赴き、{t}ことが求められている。達成の暁には{r}が与えられる。",
         "「頼みがある」と{c}。{p}に潜む{m}を討ち、{t}ほしい。見返りは{r}だ。",
       ],
+      // ── 闇市(ポドルプラザ) 専用データ ──
+      plazaCompanionChance: 0.50,   // 闇クエストの同行率 (モンスター同行者は P7。M4 では未配線)
+      plazaClients: [
+        { id: "goblin_broker",  name: "仲買ゴブリンのジグ",            speciesId: "goblin",     speechStyle: "〜だぜ、ヒヒッ" },
+        { id: "orc_merchant",   name: "オーク行商のガルブ",            speciesId: "orc-undead", speechStyle: "〜だ、ガッハッハ" },
+        { id: "lich_collector", name: "蒐集家リッチのモルデン",        speciesId: "orc-undead", speechStyle: "〜ですとも、クックック" },
+        { id: "kobold_scout",   name: "コボルト斥候のピキ",            speciesId: "goblin",     speechStyle: "〜なの、キュイ…" },
+        { id: "medusa_madam",   name: "闇市の女主人メドゥーサのセリア", speciesId: null,         speechStyle: "〜かしらね、ふふ" },
+      ],
+      plazaTemplates: [
+        "{c}が声を潜める。「{p}に{m}が巣食っていてな…{t}くれりゃ、{r}は弾むぜ。それと牙貨もな」",
+        "「{p}の奥に眠る品を{t}ほしい。表の連中には頼めない仕事さ」と{c}は牙を見せて笑った。礼は{r}と牙貨だ。",
+        "{c}が囁く。「{m}が邪魔でね…{p}で{t}くれれば{r}を渡そう。手荒な真似は得意だろう?」",
+        "闇市の片隅、{c}が用件を切り出す。「{p}の{m}を退け、{t}こと。成せば{r}。約束は守る——こちらもな」",
+        "「{p}には{m}がうろついている」と{c}。「{t}くれたら{r}だ。…裏の仕事に、口の堅さは必須だぜ」",
+        "{c}が爪先で卓を叩く。「{m}が縄張りを荒らしていてね。{p}で{t}くれるなら、{r}を弾むわ」",
+      ],
     };
 
     // ── 敵系統 (ハイブリッド戦闘の中核): place タグで選び、tier で規模を決める ──
@@ -1455,27 +1602,46 @@
     }
 
     // place の環境タグと共通タグを持つ系統に絞り、直近除外で 1 つ引く (整合性フィルタ)
-    function selectFamily(place) {
+    function selectFamily(place, avoidSpecies) {
       if (typeof window !== "undefined" && window.__forceFamily) {
         const forced = FAMILIES.find(f => f.id === window.__forceFamily);
         if (forced) return forced;
       }
       const tags = (place && place.tags) || [];
       let cand = FAMILIES.filter(f => f.placeTags.some(t => tags.indexOf(t) !== -1));
+      if (avoidSpecies) cand = cand.filter(f => f.id !== avoidSpecies);   // 闇市: 依頼主と同種族は討伐対象にしない
+      if (!cand.length) cand = FAMILIES.filter(f => !avoidSpecies || f.id !== avoidSpecies);
       if (!cand.length) cand = FAMILIES.slice();   // フォールバック (仕様書 §3-5)
       return qPick("family", cand, 3);
     }
 
-    function generateQuest(level) {
+    // 闇市の牙貨報酬を tier から抽選 (仕様書 §6.1)
+    function rollFang(tierKey) {
+      const ranges = { tier1: [3, 5], tier2: [6, 10], tier3: [12, 18], tier4: [20, 30] };
+      const r = ranges[tierKey] || ranges.tier1;
+      return r[0] + Math.floor(Math.random() * (r[1] - r[0] + 1));
+    }
+
+    // opts.source === "plaza" で闇クエスト化 (依頼主=モンスター・テンプレ差替・同種族除外・牙貨報酬・branchSlot 予約)。
+    // 達成判定メカニクスは通常クエストと完全に同一 (皮だけ差し替え)。
+    function generateQuest(level, opts) {
+      opts = opts || {};
+      const isPlaza = opts.source === "plaza";
       const tierKey = qGetTier(level);
       const tier = DATA.tiers[tierKey];
       const isHigh = (tierKey === "tier3" || tierKey === "tier4");
-      const clientPool = isHigh ? DATA.clients.concat(DATA.clientsHigh) : DATA.clients;
-      const placePool  = isHigh ? DATA.places.concat(DATA.placesHigh)  : DATA.places;
 
-      const client = qPick("client", clientPool, 3);
+      let client, clientSpecies = null;
+      if (isPlaza) {
+        const c = qPick("plazaClient", DATA.plazaClients, 2);
+        client = c.name; clientSpecies = c.speciesId || null;
+      } else {
+        const clientPool = isHigh ? DATA.clients.concat(DATA.clientsHigh) : DATA.clients;
+        client = qPick("client", clientPool, 3);
+      }
+      const placePool = isHigh ? DATA.places.concat(DATA.placesHigh) : DATA.places;
       const place  = qPick("place", placePool, 3);
-      const family = selectFamily(place);
+      const family = selectFamily(place, isPlaza ? clientSpecies : null);
       const target = qPick(family.id + "_target", family.targetNames, 3);
       const task   = qPick(tierKey + "_task",   tier.tasks, 3);
       const reward = qPick(tierKey + "_reward", tier.rewards, 3);
@@ -1486,10 +1652,16 @@
         familyId: family.id, family,
         target, task, reward,
         companion: null,
+        source: isPlaza ? "plaza" : "tavern",
+        branchSlot: null,                       // 将来の変装分岐用予約 (仕様書 §9。今は常に null)
       };
+      if (isPlaza) {
+        quest.clientSpecies = clientSpecies;
+        quest.fangReward = rollFang(tierKey);
+      }
 
-      // 随行人 (companionChance で付与。client_self のみ依頼者本人を流用)
-      if (Math.random() < DATA.companionChance) {
+      // 随行人 (通常クエストのみ。闇市のモンスター同行者は P7 で実装)
+      if (!isPlaza && Math.random() < DATA.companionChance) {
         const roleKey = qPick("compRole", ["client_self", "guard", "guide", "watcher", "tagalong"], 2);
         let companionName = null;
         if (roleKey === "client_self") {
@@ -1505,7 +1677,9 @@
     }
 
     function buildSentence(quest) {
-      const tpl = qPick("template", DATA.templates, 2);
+      const isPlaza = quest.source === "plaza";
+      const pool = isPlaza ? DATA.plazaTemplates : DATA.templates;
+      const tpl = qPick(isPlaza ? "plazaTemplate" : "template", pool, 2);
       let s = tpl
         .replace(/\{c\}/g, quest.client)
         .replace(/\{p\}/g, quest.place)
@@ -1560,7 +1734,9 @@
       };
     }
 
-    return { generateQuest, buildSentence, buildSpawns, combatParams, qGetTier };
+    return { generateQuest, buildSentence, buildSpawns, combatParams, qGetTier, rollFang,
+             plazaClientNames: () => DATA.plazaClients.map(c => c.name),
+             plazaClients: () => DATA.plazaClients.map(c => ({ ...c })) };
   })();
   // ════════════ クエスト自動生成システム ここまで ════════════
 
@@ -2001,6 +2177,7 @@
     "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
     "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
     "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+    "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。hasInnateDisguise 判定に使う
     "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
     "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
     "tome-striking":         { name: "聖典・ストライキング",      spellId: "striking",             classKey: "cleric", rarity: "uncommon" },
@@ -2066,6 +2243,89 @@
     return { learned: !already, already, scroll: c };
   }
   // ════════════ スクロールシステム ここまで ════════════
+
+  // ════════════ 闇市(ポドルプラザ) 状態 + チャージ品インベントリ ════════════
+  // ⚠ 同等の定義が index.html にもある (二重定義・同期必須)。片方を変えたら両方変える。
+  const PLAZA_UNLOCK_QUEST_COUNT = 5;   // 通常クエスト累計クリア数で「怪しい扉」が常設出現
+
+  // 闇市状態。tavern が権威ライター (アンロック/門番/在庫はすべてハブで起きる)。
+  function loadPlazaStateTV() {
+    const def = { unlocked: false, gatekeeperEventSeen: false, wandDropEnabled: false,
+                  everEntered: false, totalQuestsCleared: 0, currentStock: [], stockRefreshCount: 0 };
+    try {
+      const raw = JSON.parse(localStorage.getItem("dragonfighters.plazaState") || "null");
+      return (raw && typeof raw === "object") ? Object.assign(def, raw) : def;
+    } catch (e) { return def; }
+  }
+  let plazaStateTV = loadPlazaStateTV();
+  function savePlazaStateTV() {
+    try { localStorage.setItem("dragonfighters.plazaState", JSON.stringify(plazaStateTV)); } catch (e) {}
+  }
+
+  // 闇市アイテムカタログ。⚠ index.html PLAZA_ITEMS / PLAZA_ITEMS_COMMON と二重定義・同期必須。
+  const PLAZA_ITEMS_TV = {
+    ring_spell_turning: { name: "スペルターニングリング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
+      consumeTrigger: "onEnemySpellAuto",
+      effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
+    wand_polymorph: { name: "ポリモーフ(変装)の杖", type: "key_item", maxCharges: 3, tier: 1, price: 6,
+      consumeTrigger: "onPlazaEnter", alwaysInStock: true,
+      effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
+    scroll_create_golem: { name: "スクロール・オブ・クリエイトゴーレム", type: "consumable", maxCharges: 1, tier: 3, price: 20,
+      consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
+      summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },
+      effect: "なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
+    scroll_animate_dead: { name: "スクロール・オブ・アニメイトデッド", type: "consumable", maxCharges: 2, tier: 2, price: 10,
+      consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
+      summon: { unitId: "undead_squad", zone: "front", duration: "untilQuestEnd" },
+      effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
+  };
+  const PLAZA_ITEMS_COMMON_TV = {
+    potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  effect: "1戦闘の間、盗賊系の回避率上昇。" },
+    fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  effect: "モンスターからの先制攻撃を1回無効。" },
+    cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+    medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+  };
+  function plazaItemDefTV(id) { return PLAZA_ITEMS_TV[id] || PLAZA_ITEMS_COMMON_TV[id] || null; }
+
+  // チャージ品インベントリ: { itemId: [残チャージ, ...] } (個体別・[0]=最古)。run を跨いで永続。
+  let plazaInventoryTV = (function () {
+    try { return JSON.parse(localStorage.getItem("dragonfighters.plazaInventory") || "null") || {}; }
+    catch (e) { return {}; }
+  })();
+  function savePlazaInventoryTV() {
+    try { localStorage.setItem("dragonfighters.plazaInventory", JSON.stringify(plazaInventoryTV)); } catch (e) {}
+  }
+  function addChargeItemTV(itemId) {
+    const def = plazaItemDefTV(itemId);
+    const max = (def && def.maxCharges) || 1;
+    (plazaInventoryTV[itemId] || (plazaInventoryTV[itemId] = [])).push(max);
+    savePlazaInventoryTV();
+  }
+  function consumeChargeTV(itemId) {
+    const list = plazaInventoryTV[itemId];
+    if (!list || !list.length || list[0] <= 0) return false;
+    list[0]--;
+    if (list[0] <= 0) list.shift();
+    if (!list.length) delete plazaInventoryTV[itemId];
+    savePlazaInventoryTV();
+    return true;
+  }
+  function countChargesTV(itemId) {
+    const list = plazaInventoryTV[itemId];
+    return list ? list.reduce((a, b) => a + b, 0) : 0;
+  }
+  function hasChargeItemTV(itemId) { return countChargesTV(itemId) > 0; }
+  // 検証用ブリッジ (puppeteer から IIFE 内のチャージ API / 状態へ到達する手段。本番動作には無害)
+  try {
+    window.__plazaTV = {
+      state: () => plazaStateTV, inv: () => plazaInventoryTV,
+      addChargeItem: addChargeItemTV, consumeCharge: consumeChargeTV,
+      countCharges: countChargesTV, hasChargeItem: hasChargeItemTV,
+      save: savePlazaStateTV, itemDef: plazaItemDefTV,
+    };
+  } catch (e) {}
+  // ════════════ 闇市 ここまで ════════════
+
   // 旧形式 (ID 配列) → 新形式 ({id: 個数}) に正規化、新形式ならそのまま返す
   function normalizeSpellSkills(raw) {
     if (Array.isArray(raw)) {
@@ -2179,6 +2439,12 @@
     try {
       const r = JSON.parse(resultRaw);
       if (r && r.cleared && r.scenarioId) {
+        // 闇市アンロック: クリア累計を計数し、閾値で「怪しい扉」を常設化 (生成/固定どちらのクリアも計上)
+        plazaStateTV.totalQuestsCleared = (plazaStateTV.totalQuestsCleared || 0) + 1;
+        if (!plazaStateTV.unlocked && plazaStateTV.totalQuestsCleared >= PLAZA_UNLOCK_QUEST_COUNT) {
+          plazaStateTV.unlocked = true;
+        }
+        savePlazaStateTV();
         // 生成クエスト (酒場の掲示板) はシナリオ進行 (unlock) に混ぜない。報酬(gold/xp)は index 側で加算済
         if (r.scenarioId !== "generated-quest") {
           progress.cleared.add(r.scenarioId);
@@ -3209,6 +3475,249 @@
       await sleepMs(650);
       overlay.style.display = "none";
     });
+  })();
+
+  // ── 闇市 ポドルプラザ: 隠し扉 + 門番 + 入場 (theme-plaza 画面) ──
+  function getHeroClass() {
+    try { return (selection.partyComposition && selection.partyComposition[0]) || "warrior"; }
+    catch (e) { return "warrior"; }
+  }
+  // 裏技ルート: 主人公が高レベル術者(魔法使い/エルフ)でポリモーフを習得済みなら杖不要
+  function hasInnateDisguise() {
+    const hc = getHeroClass();
+    if (hc !== "mage" && hc !== "elf") return false;
+    const m = knownSpellsTV.mage || [], e = knownSpellsTV.elf || [];
+    return m.includes("polymorph") || e.includes("polymorph");
+  }
+  function updatePlazaDoor() {
+    const d = document.getElementById("plazaDoor");
+    if (d) d.style.display = plazaStateTV.unlocked ? "flex" : "none";
+  }
+  // 闇市ナレ: prologueOverlay(全画面暗幕 + 羊皮紙ナレ窓)を流用して語る
+  async function playPlazaOverlayNarration(header, paras, voiceId) {
+    const overlay = document.getElementById("prologueOverlay");
+    if (!overlay || !paras || !paras.length) return;
+    const headerEl = overlay.querySelector(".dmHeader");
+    const hintEl = document.getElementById("dmHint");
+    if (headerEl) headerEl.textContent = header;
+    if (hintEl) hintEl.classList.remove("show");
+    overlay.classList.remove("fading");
+    overlay.style.display = "flex";
+    const skip = () => { narrationSkipRequested = true; };
+    overlay.addEventListener("click", skip);
+    try { if (voiceId) voice(voiceId); } catch (e) {}
+    try { await playNarration(paras, null); }
+    finally { overlay.removeEventListener("click", skip); }
+    overlay.classList.add("fading");
+    await sleepMs(500);
+    overlay.style.display = "none";
+    overlay.classList.remove("fading");
+  }
+  async function playGatekeeperRejection(firstReject) {
+    const paras = ["……人間の匂いだ。失せな。\n『姿を変える術』も持たねえくせに、用はねえ。"];
+    if (firstReject) paras.push("(変装の手段が要るらしい。低位のダンジョンで『ポリモーフの杖』が見つかるという噂だ——)");
+    await playPlazaOverlayNarration("📜 ポドルプラザ — 門番", paras, "plaza_gatekeeper_reject");
+  }
+  function updatePlazaFangCount() {
+    const el = document.getElementById("plazaFangCount");
+    if (el) el.textContent = "牙貨 " + (Number(localStorage.getItem("dragonfighters.fang")) || 0);
+  }
+  function openPlazaScreen() {
+    const s = document.getElementById("plazaScreen");
+    if (!s) return;
+    try { rollPlazaQuests(); } catch (e) {}      // 来訪のたびに闇クエストを再抽選 (レア感)
+    try { renderPlazaBoard(); } catch (e) {}
+    try { refreshPlazaStockIfNeeded(); } catch (e) {}   // 在庫が空なら遅延初期化 (enterPlaza は force 済)
+    try { renderPlazaShop(); } catch (e) {}
+    try { updatePlazaFangCount(); } catch (e) {}
+    s.style.display = "flex";
+  }
+  function closePlaza() {
+    const s = document.getElementById("plazaScreen");
+    if (s) s.style.display = "none";
+  }
+  async function enterPlaza(opts) {
+    try { refreshPlazaStock(); } catch (e) {}      // 来訪ごとに在庫を再抽選
+    const firstVisit = !plazaStateTV.everEntered;
+    if (firstVisit) {
+      plazaStateTV.everEntered = true; savePlazaStateTV();
+      await playPlazaOverlayNarration("📜 ポドルプラザ",
+        ["ようこそ……ここはポドルプラザ。", "表の世界には無い品が、ここには揃っている……。"], "plaza_enter_first");
+    } else if (opts && opts.innate) {
+      await playPlazaOverlayNarration("📜 ポドルプラザ — 門番",
+        ["……ほう。本物の術師か。通りな……。"], "plaza_enter_innate");
+    }
+    openPlazaScreen();
+  }
+  async function onTapPlazaDoor() {
+    try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+    if (hasInnateDisguise()) { await enterPlaza({ chargeConsumed: false, innate: true }); return; }
+    if (consumeChargeTV("wand_polymorph")) { await enterPlaza({ chargeConsumed: true, innate: false }); return; }
+    // 変装手段なし → 門番に追い返される (初回は杖の低Tierドロップを解放 = チュートリアル)
+    const firstReject = !plazaStateTV.gatekeeperEventSeen;
+    if (firstReject) {
+      plazaStateTV.gatekeeperEventSeen = true;
+      plazaStateTV.wandDropEnabled = true;
+      savePlazaStateTV();
+    }
+    await playGatekeeperRejection(firstReject);
+  }
+  // ── 闇クエスト掲示 (M4): 1〜2件のレア依頼 → 受注で既存 prep/戦闘フローへ ──
+  let plazaQuests = [];
+  let plazaSelectedIdx = -1;
+  function rollPlazaQuests() {
+    let L = 1; try { L = getLevelFromXP(inventory.xp); } catch (e) {}
+    const n = 1 + Math.floor(Math.random() * 2);   // 1〜2件 (レア感)
+    plazaQuests = [];
+    for (let i = 0; i < n; i++) {
+      const lv = Math.max(1, Math.min(20, L + (i === 0 ? 0 : Math.floor(Math.random() * 4))));  // 現在Tier +0〜
+      const q = QuestGen.generateQuest(lv, { source: "plaza" });
+      q._sentence = QuestGen.buildSentence(q);
+      plazaQuests.push(q);
+    }
+    plazaSelectedIdx = -1;
+  }
+  // 闇クエスト → 既存 prep/departToScenario が解する合成シナリオ (source/fangReward を __generated に載せる)
+  function buildPlazaSynthetic(q) {
+    const cp = QuestGen.combatParams(q);
+    return {
+      id: "generated-quest", place: q.place, title: q.target, source: "plaza",
+      enemies: [{ name: q.family.minionLabel, boss: false }, { name: q.target, boss: true }],
+      target: "index.html", recommendedLevel: q.level,
+      __generated: {
+        title: q.place + " — " + q.target, flavor: q._sentence,
+        spawns: QuestGen.buildSpawns(q), clearXp: cp.clearXp, trapCount: cp.trapCount,
+        hiddenChestCount: cp.hiddenChestCount, perceptionDC: cp.perceptionDC, themeId: cp.themeId,
+        questLevel: q.level, tierKey: q.tierKey,
+        source: "plaza", fangReward: q.fangReward,
+      },
+    };
+  }
+  function onPlazaDepart() {
+    if (plazaSelectedIdx < 0 || !plazaQuests[plazaSelectedIdx]) return;
+    const q = plazaQuests[plazaSelectedIdx];
+    try { voice("plaza_quest_accept"); } catch (e) {}
+    const synthetic = buildPlazaSynthetic(q);
+    closePlaza();
+    openPrep(synthetic);
+  }
+  function renderPlazaBoard() {
+    const board = document.getElementById("plazaQuestBoard");
+    if (!board) return;
+    if (!plazaQuests.length) {
+      board.innerHTML = '<div class="plazaStub">今は出ている闇仕事が無い……出直しな。</div>';
+      return;
+    }
+    let html = '<div class="pqcardList">';
+    plazaQuests.forEach((q, i) => {
+      const sel = i === plazaSelectedIdx ? " selected" : "";
+      html += '<div class="pqcard' + sel + '" data-idx="' + i + '">' +
+        '<div class="pqcardHead"><span class="pqtier">' + q.tierLabel + '・Lv' + q.level + '</span>' +
+        '<span class="pqtarget">' + q.target + '</span></div>' +
+        '<div class="pqcardMeta">依頼主: ' + q.client + ' ／ 場所: ' + q.place + '</div>' +
+        '<div class="pqcardMeta">報酬: ' + q.reward + ' ＋ <b class="pqfang">牙貨 ' + q.fangReward + '</b></div>' +
+        '</div>';
+    });
+    html += '</div>';
+    const detail = plazaSelectedIdx >= 0 ? plazaQuests[plazaSelectedIdx]._sentence : "依頼を選ぶと、依頼主の言葉が聞ける……";
+    html += '<div class="pqdetail">' + detail + '</div>';
+    html += '<div class="pqactions"><button type="button" id="btnPlazaDepart" class="plazaBtn small"' + (plazaSelectedIdx < 0 ? ' disabled' : '') + '>この闇仕事で出発</button></div>';
+    board.innerHTML = html;
+    board.querySelectorAll(".pqcard").forEach(c => c.addEventListener("click", () => {
+      plazaSelectedIdx = Number(c.getAttribute("data-idx"));
+      renderPlazaBoard();
+    }));
+    const dep = document.getElementById("btnPlazaDepart");
+    if (dep) dep.addEventListener("click", onPlazaDepart);
+  }
+  // ── 闇市商店 (M5): 牙貨で買うレア品。一般枠 3〜5 + 目玉ローテ + 杖常設 ──
+  function getFang() { return Number(localStorage.getItem("dragonfighters.fang")) || 0; }
+  function setFang(v) { try { localStorage.setItem("dragonfighters.fang", String(Math.max(0, v | 0))); } catch (e) {} }
+  function shuffled(arr) { return arr.slice().sort(() => Math.random() - 0.5); }
+  function refreshPlazaStock() {
+    const stock = [];
+    const commonIds = shuffled(Object.keys(PLAZA_ITEMS_COMMON_TV));
+    const n = 3 + Math.floor(Math.random() * 3);   // 一般枠 3〜5 品
+    for (let i = 0; i < Math.min(n, commonIds.length); i++) {
+      const id = commonIds[i]; stock.push({ itemId: id, price: PLAZA_ITEMS_COMMON_TV[id].price, kind: "common" });
+    }
+    // 目玉商品ローテ (リング/ゴーレム/アンデッド から 1〜2)
+    const featured = shuffled(["ring_spell_turning", "scroll_create_golem", "scroll_animate_dead"]);
+    const fn = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < fn; i++) { const id = featured[i]; stock.push({ itemId: id, price: PLAZA_ITEMS_TV[id].price, kind: "featured" }); }
+    // ポリモーフの杖は常設在庫 (供給ループ維持・仕様書 §3.3)
+    stock.push({ itemId: "wand_polymorph", price: PLAZA_ITEMS_TV.wand_polymorph.price, kind: "always" });
+    plazaStateTV.currentStock = stock;
+    plazaStateTV.stockRefreshCount = (plazaStateTV.stockRefreshCount || 0) + 1;
+    savePlazaStateTV();
+  }
+  function refreshPlazaStockIfNeeded() {
+    if (!plazaStateTV.currentStock || !plazaStateTV.currentStock.length) refreshPlazaStock();
+  }
+  function onPlazaBuy(idx) {
+    const stock = plazaStateTV.currentStock || [];
+    const s = stock[idx]; if (!s) return;
+    let fang = getFang();
+    if (fang < s.price) return;                   // 残高不足
+    setFang(fang - s.price);
+    addChargeItemTV(s.itemId);
+    if (s.price >= 12) { try { voice("plaza_buy_highvalue"); } catch (e) {} }
+    if (s.kind !== "always") stock.splice(idx, 1); // 杖以外は売り切れ (杖は常設)
+    plazaStateTV.currentStock = stock;
+    savePlazaStateTV();
+    updatePlazaFangCount();
+    renderPlazaShop();
+  }
+  function renderPlazaShop() {
+    const shop = document.getElementById("plazaShop");
+    if (!shop) return;
+    const stock = plazaStateTV.currentStock || [];
+    if (!stock.length) { shop.innerHTML = '<div class="plazaStub">品揃えは、追って並ぶ……</div>'; return; }
+    const fang = getFang();
+    let html = '<div class="pshopList">';
+    stock.forEach((s, i) => {
+      const def = plazaItemDefTV(s.itemId); if (!def) return;
+      const inst = plazaInventoryTV[s.itemId] || [];
+      const chips = def.maxCharges ? inst.map(ch => ch + '/' + def.maxCharges).join('  ') : ('×' + inst.length);
+      const canBuy = fang >= s.price;
+      html += '<div class="pshopItem">' +
+        '<div class="pshopMain"><span class="pshopName">' + def.name + '</span>' +
+        (def.maxCharges ? '<span class="pshopMax">' + def.maxCharges + 'チャージ</span>' : '') +
+        (s.kind === 'always' ? '<span class="pshopTag">常設</span>' : '') + '</div>' +
+        '<div class="pshopEffect">' + (def.effect || '') + '</div>' +
+        (inst.length ? '<div class="pshopOwned">所持: ' + chips + '</div>' : '') +
+        '<div class="pshopBuy"><span class="pshopPrice">牙貨 ' + s.price + '</span>' +
+        '<button type="button" class="plazaBtn small pbuy" data-idx="' + i + '"' + (canBuy ? '' : ' disabled') + '>購入</button></div>' +
+        '</div>';
+    });
+    html += '</div>';
+    shop.innerHTML = html;
+    shop.querySelectorAll('.pbuy').forEach(b => b.addEventListener('click', () => onPlazaBuy(Number(b.getAttribute('data-idx')))));
+  }
+  (function initPlaza() {
+    const door = document.getElementById("plazaDoor");
+    if (door) door.addEventListener("click", onTapPlazaDoor);
+    const leave = document.getElementById("btnLeavePlaza");
+    if (leave) leave.addEventListener("click", closePlaza);
+    updatePlazaDoor();
+    // 検証用ブリッジ拡張 (puppeteer から扉/入場フローを駆動)
+    try {
+      Object.assign(window.__plazaTV, {
+        onTapPlazaDoor, enterPlaza, hasInnateDisguise, updatePlazaDoor, openPlazaScreen, closePlaza,
+        heroClass: getHeroClass,
+        doorVisible: () => { const d = document.getElementById("plazaDoor"); return !!d && getComputedStyle(d).display !== "none"; },
+        plazaOpen: () => { const s = document.getElementById("plazaScreen"); return !!s && getComputedStyle(s).display !== "none"; },
+        themed: () => { const s = document.getElementById("plazaScreen"); return !!s && s.classList.contains("theme-plaza"); },
+        // M4 検証フック
+        genPlazaQuest: (lv) => { const q = QuestGen.generateQuest(lv, { source: "plaza" }); q._sentence = QuestGen.buildSentence(q); return q; },
+        plazaClientNames: QuestGen.plazaClientNames,
+        rollPlazaQuests, getPlazaQuests: () => plazaQuests, buildPlazaSynthetic,
+        // M5 検証フック
+        refreshPlazaStock, renderPlazaShop, onPlazaBuy,
+        getStock: () => plazaStateTV.currentStock, getFang, setFang,
+        departPlaza: () => { plazaSelectedIdx = 0; onPlazaDepart(); },
+      });
+    } catch (e) {}
   })();
 
   // ── 酒場の掲示板: クエスト自動生成 (ティアの幅つき 3 件提示 → 選択 → 出発) ──

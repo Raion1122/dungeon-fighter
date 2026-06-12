@@ -4511,6 +4511,8 @@
         hiddenChestCount: _genScenario.hiddenChestCount || 2,
         clearXp: _genScenario.clearXp || 0,
         spawns: _safeSpawns.length ? _safeSpawns : SCENARIOS["goblin-mine"].spawns,
+        source: _genScenario.source || null,          // 闇市: 結果画面の牙貨付与判定に使う
+        fangReward: _genScenario.fangReward || 0,
       };
     } else {
       scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
@@ -5770,6 +5772,7 @@
       "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
       "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
       "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+      "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。戦闘呪文ではなく hasInnateDisguise 判定に使う
       // 📖 聖典 (cleric)
       "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
       "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
@@ -5858,6 +5861,121 @@
       if (def.isBoss || def.boss) { addScroll(pickScrollId({ common: 15, uncommon: 50, rare: 35 })); }
     }
     // ════════════ スクロールシステム ここまで ════════════
+
+    // ── 闇市: ポリモーフの杖 低Tier ドロップ ──
+    // 現在の run が低Tier (I〜II) か。生成クエストは tierKey/questLevel、固定は名前集合で判定。
+    function isLowTierRun() {
+      if (_genScenario) {
+        const tk = _genScenario.tierKey;
+        if (tk) return tk === "tier1" || tk === "tier2";
+        const ql = Number(_genScenario.questLevel) || 0;
+        return ql > 0 && ql <= 10;
+      }
+      return scenarioId === "goblin-mine" || scenarioId === "bandits-forest";
+    }
+    const POLYMORPH_WAND_DROP_CHANCE = 0.15;
+    // 門番拒絶イベント解放後、低Tierボス撃破で稀に「ポリモーフの杖」をドロップ (闇市入場の供給ループ)
+    function maybeGrantPolymorphWand(enemy) {
+      if (!enemy || !enemy.def) return;
+      if (!plazaState.wandDropEnabled) return;            // 門番拒絶イベントで解放されるまで出ない
+      if (!isLowTierRun()) return;                        // 低Tier (I〜II) 限定
+      if (!(enemy.def.isBoss || enemy.def.boss)) return;  // ボス撃破のみ
+      if (Math.random() >= POLYMORPH_WAND_DROP_CHANCE) return;
+      addChargeItem("wand_polymorph");
+      if (typeof showBanner === "function") showBanner("🪄 ポリモーフの杖 を手に入れた!", 1900);
+      if (typeof updateInfo === "function") updateInfo("入手: ポリモーフの杖 — 闇市『ポドルプラザ』への入場に使える");
+      if (typeof sfx === "function") sfx("chestFound");
+    }
+
+    // ════════════ 闇市(ポドルプラザ) 状態 + チャージ品インベントリ ════════════
+    // ⚠ 同等の定義が tavern.html にもある (二重定義・同期必須)。片方を変えたら両方変える。
+    const PLAZA_UNLOCK_QUEST_COUNT = 5;   // 通常クエスト累計クリア数で「怪しい扉」が常設出現
+
+    // 闇市状態 (扉アンロック/門番イベント/杖ドロップ解放/在庫)。tavern が権威ライター、index は主に読み手。
+    function loadPlazaState() {
+      const def = { unlocked: false, gatekeeperEventSeen: false, wandDropEnabled: false,
+                    everEntered: false, totalQuestsCleared: 0, currentStock: [], stockRefreshCount: 0 };
+      try {
+        const raw = JSON.parse(localStorage.getItem("dragonfighters.plazaState") || "null");
+        return (raw && typeof raw === "object") ? Object.assign(def, raw) : def;
+      } catch (e) { return def; }
+    }
+    let plazaState = loadPlazaState();
+    function savePlazaState() {
+      try { localStorage.setItem("dragonfighters.plazaState", JSON.stringify(plazaState)); } catch (e) {}
+    }
+
+    // 闇市アイテムカタログ (目玉 + 一般)。⚠ tavern.html と二重定義・同期必須。
+    const PLAZA_ITEMS = {
+      ring_spell_turning: { name: "スペルターニングリング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
+        consumeTrigger: "onEnemySpellAuto",
+        effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
+      wand_polymorph: { name: "ポリモーフ(変装)の杖", type: "key_item", maxCharges: 3, tier: 1, price: 6,
+        consumeTrigger: "onPlazaEnter", alwaysInStock: true,
+        effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
+      scroll_create_golem: { name: "スクロール・オブ・クリエイトゴーレム", type: "consumable", maxCharges: 1, tier: 3, price: 20,
+        consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
+        summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },
+        effect: "なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
+      scroll_animate_dead: { name: "スクロール・オブ・アニメイトデッド", type: "consumable", maxCharges: 2, tier: 2, price: 10,
+        consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
+        summon: { unitId: "undead_squad", zone: "front", duration: "untilQuestEnd" },
+        effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
+    };
+    const PLAZA_ITEMS_COMMON = {
+      potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  effect: "1戦闘の間、盗賊系の回避率上昇。" },
+      fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  effect: "モンスターからの先制攻撃を1回無効。" },
+      cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+      medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+    };
+    function plazaItemDef(id) { return PLAZA_ITEMS[id] || PLAZA_ITEMS_COMMON[id] || null; }
+
+    // チャージ品インベントリ: { itemId: [残チャージ, ...] } (個体別・[0]=最古)。run を跨いで永続。
+    // run 途中(リング自動反射/召喚)で消費するため、起動時に localStorage から実ロードし、消費で即時書込する。
+    let plazaInventory = (function loadPlazaInventory() {
+      try { return JSON.parse(localStorage.getItem("dragonfighters.plazaInventory") || "null") || {}; }
+      catch (e) { return {}; }
+    })();
+    function savePlazaInventory() {
+      try { localStorage.setItem("dragonfighters.plazaInventory", JSON.stringify(plazaInventory)); } catch (e) {}
+    }
+    function addChargeItem(itemId) {
+      const def = plazaItemDef(itemId);
+      const max = (def && def.maxCharges) || 1;
+      (plazaInventory[itemId] || (plazaInventory[itemId] = [])).push(max);   // 新しい個体は末尾
+      savePlazaInventory();
+    }
+    function consumeCharge(itemId) {
+      const list = plazaInventory[itemId];
+      if (!list || !list.length || list[0] <= 0) return false;
+      list[0]--;                               // 最古個体 ([0]) から消費
+      if (list[0] <= 0) list.shift();          // 0 で壊れて消滅
+      if (!list.length) delete plazaInventory[itemId];
+      savePlazaInventory();
+      return true;
+    }
+    function countCharges(itemId) {
+      const list = plazaInventory[itemId];
+      return list ? list.reduce((a, b) => a + b, 0) : 0;
+    }
+    function hasChargeItem(itemId) { return countCharges(itemId) > 0; }
+    // 検証用ブリッジ (puppeteer から IIFE 内のチャージ API / 状態へ到達する手段。本番動作には無害)
+    try {
+      window.__plaza = {
+        state: () => plazaState, inv: () => plazaInventory,
+        addChargeItem, consumeCharge, countCharges, hasChargeItem,
+        reloadState() { plazaState = loadPlazaState(); return plazaState; },
+        itemDef: plazaItemDef,
+        isLowTierRun, maybeGrantPolymorphWand,
+        // M5 検証フック: 結果画面の牙貨付与を直接駆動
+        awardResult: (win) => { try { return showResult(win); } catch (e) { return String(e && e.message || e); } },
+        getFang: () => Number(localStorage.getItem("dragonfighters.fang")) || 0,
+        getLastResult: () => { try { return JSON.parse(sessionStorage.getItem("dragonfighters.lastResult")); } catch (e) { return null; } },
+        resultRewardHtml: () => { const el = document.getElementById("resultReward"); return el ? el.innerHTML : ""; },
+        scenarioSrc: () => ({ source: currentScenario && currentScenario.source, fangReward: currentScenario && currentScenario.fangReward }),
+      };
+    } catch (e) {}
+    // ════════════ 闇市 ここまで ════════════
 
     const enemyMaxHp = 3;
     const ironSwordDropChance = 0.15;
@@ -7977,6 +8095,7 @@
       maybeDropLeatherArmor(index);
       maybeDropShadowAmulet(index);   // Phase 2-G: shadowBeast 撃破で残影の首飾り入手
       maybeGrantScrollDrop(enemy);    // ボス/隠し要素撃破でスクロール確定ドロップ
+      maybeGrantPolymorphWand(enemy); // 闇市: 低Tierボスから稀にポリモーフの杖 (wandDropEnabled 時のみ)
 
       const nm = (enemy.def && enemy.def.name) || "敵";
       // ボス撃破ナレーション: isBoss は eventKey=type で音声付き (置換)、
@@ -18263,6 +18382,14 @@
           if (typeof recomputeAccessoryStock === "function") recomputeAccessoryStock();
         } catch (e) { /* localStorage 失敗は無視 */ }
 
+        // 闇市: 闇クエスト(source=plaza) なら牙貨を加算・永続化
+        let fangEarned = 0, fangTotal = Number(localStorage.getItem("dragonfighters.fang")) || 0;
+        if (currentScenario && currentScenario.source === "plaza" && currentScenario.fangReward > 0) {
+          fangEarned = currentScenario.fangReward;
+          fangTotal += fangEarned;
+          try { localStorage.setItem("dragonfighters.fang", String(fangTotal)); } catch (e) {}
+        }
+
         reward = {
           gold: earnedGold,
           totalGold: newTotalGold,
@@ -18271,11 +18398,14 @@
           earnedXp: earnedXpThisRun,
           totalXp:  currentTotalXp,
           level:    getLevelFromXP(currentTotalXp),
+          fang:      fangEarned,
+          totalFang: fangTotal,
         };
 
         resultTitleEl.textContent = "VICTORY";
         resultSubEl.textContent = `「${currentScenario.title}」を達成！`;
         let html = `金貨 <b>+${earnedGold}</b> 獲得 (累計 <b>${newTotalGold}</b>)`;
+        if (fangEarned > 0) html += `<br>🦷 牙貨 <b>+${fangEarned}</b> (累計 <b>${fangTotal}</b>)`;
         if (earnedXpThisRun > 0) {
           const lv = getLevelFromXP(currentTotalXp);
           const next = getNextLevelXP(currentTotalXp);
