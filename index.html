@@ -5901,6 +5901,7 @@
         equippedSkills: [...cd.defaultSkills],
         buffs: {
           atkBonusRemaining: 0, atkBonusAmount: 0,
+          blessMoveRemaining: 0,                   // ブレス: 効果中は前進が 1→2 タイル
           dmgReductionRemaining: 0, dmgReductionDice: null,
           dmgReductionFlat: 0, dmgReductionFlatRemaining: 0,  // 岩肌の皮膚 (固定 -3 など)
           statusImmunityCharges: 0,                            // 鋼の意志 (状態異常を消費式で無効化)
@@ -10134,37 +10135,42 @@
       return path[0];
     }
 
-    // プレイヤーを1タイル前進 (対象に向かって)
+    // プレイヤーを前進 (対象に向かって)。ブレス中は 2 タイル進む (移動速度UP)
     async function playerAdvanceOneTile(targetWX, targetWY) {
-      const pTX = Math.floor((playerX + 48) / TILE_SIZE);
-      const pTY = Math.floor((playerY + 58) / TILE_SIZE);
-      const gTX = Math.floor(targetWX / TILE_SIZE);
-      const gTY = Math.floor(targetWY / TILE_SIZE);
-      // 仲間・他敵のタイルを避けるパスを探す
-      const avoidSet = getUnitOccupiedTiles("player");
-      const next = firstTileStep(pTX, pTY, gTX, gTY, avoidSet);
-      if (!next) {
-        showRollAtPlayer(`<span class="label">CAN'T ADVANCE</span>経路なし`, "miss");
-        updateInfo("進めない…");
-        await sleepMs(700);
-        return;
+      const steps = (typeof playerBuffs !== "undefined" && playerBuffs.blessMoveRemaining > 0) ? 2 : 1;
+      for (let s = 0; s < steps; s++) {
+        const pTX = Math.floor((playerX + 48) / TILE_SIZE);
+        const pTY = Math.floor((playerY + 58) / TILE_SIZE);
+        const gTX = Math.floor(targetWX / TILE_SIZE);
+        const gTY = Math.floor(targetWY / TILE_SIZE);
+        // 仲間・他敵のタイルを避けるパスを探す
+        const avoidSet = getUnitOccupiedTiles("player");
+        const next = firstTileStep(pTX, pTY, gTX, gTY, avoidSet);
+        if (!next) {
+          if (s === 0) {
+            showRollAtPlayer(`<span class="label">CAN'T ADVANCE</span>経路なし`, "miss");
+            updateInfo("進めない…");
+            await sleepMs(700);
+          }
+          return;  // これ以上進めない (目標隣接 等)
+        }
+        // 向き更新 (右向きのみ運用: 水平方向のみ facing 更新、上下は維持)
+        if (next.tx < pTX) facing = "left";
+        else if (next.tx > pTX) facing = "right";
+
+        if (s === 0) showRollAtPlayer(`<span class="label">ADVANCE</span>前進 ${steps === 2 ? "2タイル(BLESS)" : "1タイル"}`, "init");
+        flashAction(player, "move");
+
+        const fromX = playerX, fromY = playerY;
+        const toX = next.tx * TILE_SIZE + SNAP_X_OFFSET;
+        const toY = next.ty * TILE_SIZE + SNAP_Y_OFFSET;
+        playerMovingThisFrame = true;
+        await slideAnim((x, y) => {
+          playerX = x; playerY = y; playerMovingThisFrame = true;
+        }, fromX, fromY, toX, toY, 380);
+        playerMovingThisFrame = false;
+        await sleepMs(120);
       }
-      // 向き更新 (右向きのみ運用: 水平方向のみ facing 更新、上下は維持)
-      if (next.tx < pTX) facing = "left";
-      else if (next.tx > pTX) facing = "right";
-
-      showRollAtPlayer(`<span class="label">ADVANCE</span>前進 1タイル`, "init");
-      flashAction(player, "move");
-
-      const fromX = playerX, fromY = playerY;
-      const toX = next.tx * TILE_SIZE + SNAP_X_OFFSET;
-      const toY = next.ty * TILE_SIZE + SNAP_Y_OFFSET;
-      playerMovingThisFrame = true;
-      await slideAnim((x, y) => {
-        playerX = x; playerY = y; playerMovingThisFrame = true;
-      }, fromX, fromY, toX, toY, 380);
-      playerMovingThisFrame = false;
-      await sleepMs(120);
     }
 
     // 敵を1タイル前進 (targetCX/CY 省略時はプレイヤーへ)
@@ -10962,9 +10968,9 @@
       // ── ブレス (味方全体の攻撃ロール +1d4) ──
       "bless": {
         name: "ブレス", category: "バフ", target: "party",
-        blessDie: 4, duration: 3, range: "medium",
+        blessDie: 4, duration: 10, range: "medium",
         mpCost: 4, levelReq: 1,
-        flavor: "味方全体の攻撃ロールに +1d4 (3ターン)",
+        flavor: "味方全体の攻撃ロールに +1d4 + 移動速度UP(2マス) (10ターン)",
       },
       // ── ストライキング (単体の武器に +1d6 ダメージ) ──
       "striking": {
@@ -11502,6 +11508,7 @@
     const playerBuffs = {
       atkBonusRemaining: 0,
       atkBonusAmount: 0,
+      blessMoveRemaining: 0,   // ブレス: 効果中は戦闘の前進が 1→2 タイル
       dmgReductionRemaining: 0,
       dmgReductionDice: null,
       dmgReductionFlat: 0,
@@ -11522,6 +11529,7 @@
     function resetPlayerBuffs() {
       playerBuffs.atkBonusRemaining = 0;
       playerBuffs.atkBonusAmount = 0;
+      playerBuffs.blessMoveRemaining = 0;
       playerBuffs.dmgReductionRemaining = 0;
       playerBuffs.dmgReductionDice = null;
       playerBuffs.dmgReductionFlat = 0;
@@ -11544,6 +11552,7 @@
     }
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
+      if (playerBuffs.blessMoveRemaining > 0) playerBuffs.blessMoveRemaining--;
       if (playerBuffs.dmgReductionRemaining > 0) {
         playerBuffs.dmgReductionRemaining--;
         if (playerBuffs.dmgReductionRemaining <= 0) playerBuffs.dmgReductionDice = null;
@@ -12179,6 +12188,7 @@
 
       for (const chest of roomChests) {
         if (chest.opened) continue;  // 開封済みは無視
+        if (chest.opening) continue; // 開封演出の進行中は再入しない (2段ナレ中の二重発火防止)
         if (chest.isMimic) continue; // ミミックは専用トリガ (tryApproachMimic / 盗賊察知) で処理
         // 隠された宝箱 (知覚チェック待ち) は非表示のまま
         if (chest.hidden && !chest.found) continue;
@@ -12207,11 +12217,15 @@
     }
 
     async function discoverChest(chest, opts = {}) {
+      chest.opening = true;   // 開封演出の進行中フラグ (tryDiscoverChest の再入=二重ルート防止)
       if (!opts.skipBanner) {
         sfx("chestFound");
         showBanner("🎁 宝箱をみつけた!", 1500);
         appendLog("宝箱を発見！", "sys");
-        // レア判定: loot 種別で differentiate (武器/防具/大金貨=レア的扱い)
+        // 第1段: 発見ナレ。表示が消えてから第2段のフレーバーへ (auto-battle は narrationHold で自動停止)
+        showDMMessage("君たちは宝箱を発見した。", 2000);
+        await awaitNarrationClear();
+        // 第2段: レア判定で differentiate したフレーバー (武器/防具/大金貨/巻物=レア的扱い)
         const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
         if (isRare) {
           showDMMessage("おや…これはただの箱ではない。紋章が刻まれた鉄製の箱だ。中に何が入っている？", 2400);
@@ -13378,40 +13392,45 @@
       const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : 380;
       const postSleep = (opts.postSleep != null) ? opts.postSleep : 120;
       const silent    = !!opts.silent;  // ログ/ロール表示を抑制 (探索中向け)
-      const aCX = ally.x + ally.def.displaySize / 2;
-      const aCY = ally.y + ally.def.displaySize / 2;
-      const aTX = Math.floor(aCX / TILE_SIZE);
-      const aTY = Math.floor(aCY / TILE_SIZE);
-      const gTX = Math.floor(targetWX / TILE_SIZE);
-      const gTY = Math.floor(targetWY / TILE_SIZE);
-      // 他ユニット (戦士・他仲間・敵) を避ける
-      const avoidSet = getUnitOccupiedTiles(ally);
-      const next = firstTileStep(aTX, aTY, gTX, gTY, avoidSet);
-      if (!next) {
-        if (!silent) showRollAtAlly(ally, `<span class="label">CAN'T ADVANCE</span>経路なし`, "miss");
-        await sleepMs(silent ? 100 : 600);
-        return;
-      }
-      // 右向きのみ運用: 水平移動時のみ facing 更新、上下は維持
-      if (next.tx < aTX) ally.facing = "left";
-      else if (next.tx > aTX) ally.facing = "right";
+      const steps = (ally.buffs && ally.buffs.blessMoveRemaining > 0) ? 2 : 1;  // ブレス中は 2 タイル前進
+      for (let s = 0; s < steps; s++) {
+        const aCX = ally.x + ally.def.displaySize / 2;
+        const aCY = ally.y + ally.def.displaySize / 2;
+        const aTX = Math.floor(aCX / TILE_SIZE);
+        const aTY = Math.floor(aCY / TILE_SIZE);
+        const gTX = Math.floor(targetWX / TILE_SIZE);
+        const gTY = Math.floor(targetWY / TILE_SIZE);
+        // 他ユニット (戦士・他仲間・敵) を避ける
+        const avoidSet = getUnitOccupiedTiles(ally);
+        const next = firstTileStep(aTX, aTY, gTX, gTY, avoidSet);
+        if (!next) {
+          if (s === 0) {
+            if (!silent) showRollAtAlly(ally, `<span class="label">CAN'T ADVANCE</span>経路なし`, "miss");
+            await sleepMs(silent ? 100 : 600);
+          }
+          return;  // これ以上進めない (目標隣接 等)
+        }
+        // 右向きのみ運用: 水平移動時のみ facing 更新、上下は維持
+        if (next.tx < aTX) ally.facing = "left";
+        else if (next.tx > aTX) ally.facing = "right";
 
-      if (!silent) showRollAtAlly(ally, `<span class="label">ADVANCE</span>前進 1タイル`, "init");
-      flashAction(ally.el, "move");
-      const fromX = ally.x, fromY = ally.y;
-      const toX = next.tx * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
-      const toY = next.ty * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
-      ally.slideTargetTile = { tx: next.tx, ty: next.ty };  // 他ユニットの侵入防止
-      ally.playerMovingThisFrame = true;
-      try {
-        await slideAnim((x, y) => {
-          ally.x = x; ally.y = y; ally.playerMovingThisFrame = true;
-        }, fromX, fromY, toX, toY, slideMs);
-      } finally {
-        ally.slideTargetTile = null;
-        ally.playerMovingThisFrame = false;
+        if (s === 0 && !silent) showRollAtAlly(ally, `<span class="label">ADVANCE</span>前進 ${steps === 2 ? "2タイル(BLESS)" : "1タイル"}`, "init");
+        flashAction(ally.el, "move");
+        const fromX = ally.x, fromY = ally.y;
+        const toX = next.tx * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
+        const toY = next.ty * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
+        ally.slideTargetTile = { tx: next.tx, ty: next.ty };  // 他ユニットの侵入防止
+        ally.playerMovingThisFrame = true;
+        try {
+          await slideAnim((x, y) => {
+            ally.x = x; ally.y = y; ally.playerMovingThisFrame = true;
+          }, fromX, fromY, toX, toY, slideMs);
+        } finally {
+          ally.slideTargetTile = null;
+          ally.playerMovingThisFrame = false;
+        }
+        await sleepMs(postSleep);
       }
-      await sleepMs(postSleep);
     }
 
     // 仲間の通常攻撃
@@ -13740,6 +13759,7 @@
       if (hp > 0 && !gameOver) {
         playerBuffs.atkBonusRemaining = Math.max(playerBuffs.atkBonusRemaining || 0, dur);
         playerBuffs.atkBonusAmount = Math.max(playerBuffs.atkBonusAmount || 0, roll);
+        playerBuffs.blessMoveRemaining = Math.max(playerBuffs.blessMoveRemaining || 0, dur);  // 移動速度UP (2マス前進)
         n++;
       }
       // 全生存仲間 (allyAtkBuff が攻撃ロールに反映)
@@ -13747,11 +13767,12 @@
         if (!a.alive) continue;
         a.buffs.atkBonusRemaining = Math.max(a.buffs.atkBonusRemaining || 0, dur);
         a.buffs.atkBonusAmount = Math.max(a.buffs.atkBonusAmount || 0, roll);
+        a.buffs.blessMoveRemaining = Math.max(a.buffs.blessMoveRemaining || 0, dur);  // 移動速度UP (2マス前進)
         n++;
       }
       spawnCureFx(playerX + 48, playerY + 58);
-      showBuffPop(`<span class="label">BLESS</span>味方${n}人: 攻撃 <span class="big">+${roll}</span> (${skill.duration}T)`);
-      updateInfo(`${ally.def.name}: ブレス! 味方${n}人の攻撃ロール +${roll} (1d${skill.blessDie || 4})`);
+      showBuffPop(`<span class="label">BLESS</span>味方${n}人: 攻撃 <span class="big">+${roll}</span> ＋移動2マス (${skill.duration}T)`);
+      updateInfo(`${ally.def.name}: ブレス! 味方${n}人の攻撃ロール +${roll} (1d${skill.blessDie || 4}) + 移動速度UP (10T)`);
       await sleepMs(700);
     }
 
@@ -15112,6 +15133,7 @@
     async function allyAttackTurn(ally) {
       // バフ tick
       if (ally.buffs.atkBonusRemaining > 0) ally.buffs.atkBonusRemaining--;
+      if (ally.buffs.blessMoveRemaining > 0) ally.buffs.blessMoveRemaining--;
       if (ally.buffs.strikingRemaining > 0) ally.buffs.strikingRemaining--;
       if (ally.buffs.dmgReductionRemaining > 0) {
         ally.buffs.dmgReductionRemaining--;

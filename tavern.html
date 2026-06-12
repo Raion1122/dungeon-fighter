@@ -1143,10 +1143,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>依頼人の語りを受注時に追加</b> — クエストを受けると、依頼人が語りかけてから出発の準備に入る。</li>
+        <li><b>宝箱発見の語りを追加</b> — 宝箱を見つけると「君たちは宝箱を発見した。」の一言が入るように。</li>
+        <li><b>僧侶ブレスを強化</b> — 味方全員に10ターン持続し、効果中は1ターンに2マス前進できる。</li>
         <li><b>オープニングの語りを銀の鹿亭へ移動</b> — フラン編の前口上が、廃坑に入った時ではなく最初に酒場へ来た時に流れるようになった。</li>
-        <li><b>ファラクサスが本来の姿に</b> — 最終ボスが専用スプライトの荘厳な赤竜になった。火を噴き、牙を剥いて襲いかかる。</li>
-        <li><b>最終ボス「ファラクサス」が登場</b> — ドラゴンの巣の最奥に赤竜が出現。恐怖の咆哮・全体火炎ブレス・配下召喚で立ちはだかる、プラン編の黒幕。</li>
-        <li><b>舞台が交易都市フランに</b> — 荒廃から名もなき冒険者に解放され復興半ばの街、という歴史を語るオープニングを追加。</li>
       </ul>
     </div>
 
@@ -1741,7 +1741,7 @@
     { id: "cure-moderate-wounds", name: "キュア・モデレート・ウーンズ", category: "回復", range: "medium", mpCost: 6, levelReq: 3, flavor: "味方1人 2d8+WIS 回復" },
     { id: "cure-serious-wounds", name: "キュア・シリアス・ウーンズ", category: "回復", range: "medium", mpCost: 8, levelReq: 5, flavor: "味方1人 3d8+WIS 回復" },
     { id: "cure-critical-wounds", name: "キュア・クリティカル・ウーンズ", category: "回復", range: "medium", mpCost: 10, levelReq: 7, flavor: "味方1人 4d8+WIS 大回復" },
-    { id: "bless", name: "ブレス", category: "バフ", range: "medium", mpCost: 4, levelReq: 1, flavor: "味方全体の攻撃ロール +1d4 (3ターン)" },
+    { id: "bless", name: "ブレス", category: "バフ", range: "medium", mpCost: 4, levelReq: 1, flavor: "味方全体の攻撃ロール +1d4 + 移動速度UP(2マス) (10ターン)" },
     { id: "shield-of-faith",   name: "シールド・オブ・フェイス", category: "防御", range: "medium", mpCost: 3, flavor: "味方1人 AC +2 (3ターン)" },
     { id: "striking", name: "ストライキング", category: "バフ", range: "medium", mpCost: 5, levelReq: 3, flavor: "味方1人の武器に +1d6 ダメージ (3ターン)" },
     { id: "turn-undead", name: "ターンアンデッド", category: "神聖", range: "medium", mpCost: 6, levelReq: 3, flavor: "アンデッドを畏怖行動不能 + 低HP浄化" },
@@ -2353,7 +2353,7 @@
   const prepEl = document.getElementById("prep");
   let prepScenario = null;
 
-  function openPrep(sc) {
+  async function openPrep(sc) {
     prepScenario = sc;
     document.getElementById("prepTitle").textContent = `出発の準備 — ${sc.place}`;
     document.getElementById("prepSub").textContent = `「${sc.title}」に挑む`;
@@ -2368,9 +2368,9 @@
     renderCharLoadout();
     renderScrollLibrary();   // タブ非依存の独立パネルとして描画
     dialogEl.style.display = "none";
+    // 受注ナレ (依頼人の語り口調 + セリフ) を全画面で語ってから準備画面へ。受注スティンガー音声はナレ内で再生。
+    await playQuestAcceptNarration(sc);
     prepEl.style.display = "flex";
-    // クエスト受注ナレーション音声 (青山龍星 ノーマル)。準備画面は遷移しないので最後まで再生可。未生成/未読込なら no-op
-    try { if (window.GameAudio) GameAudio.playVoice("quest_accept_00" + (1 + Math.floor(Math.random() * 3))); } catch (e) {}
   }
 
   // ── 統合キャラパネル: タブ + 装備 + スキル + 魔法 ──
@@ -3116,6 +3116,44 @@
     } finally {
       narrationPlaying = false;
     }
+  }
+
+  // クエスト受注ナレ: 依頼人の語り (語り口調 + セリフ) を全画面オーバーレイで出してから準備画面へ。
+  // 固定シナリオは「前置き + sc.dialog」、自動生成クエストは生成された依頼文 (sc.__generated.flavor) を使う。
+  async function playQuestAcceptNarration(sc) {
+    const overlay = document.getElementById("prologueOverlay");
+    if (!overlay) return;
+    let paras = [];
+    if (sc && sc.__generated && sc.__generated.flavor) {
+      paras = [sc.__generated.flavor];
+    } else if (sc && sc.dialog) {
+      const intro = (sc.client && sc.client.name)
+        ? `${sc.client.name}——${sc.client.role || "依頼人"}が、君たちに歩み寄る。`
+        : "一人の依頼人が、君たちに歩み寄る。";
+      paras = [intro, sc.dialog];
+    }
+    if (!paras.length) return;  // 語る内容が無ければ何もしない (即 prep へ)
+
+    const headerEl = overlay.querySelector(".dmHeader");
+    const hintEl = document.getElementById("dmHint");
+    if (headerEl) headerEl.textContent = (sc.client && sc.client.name) ? `📜 ${sc.client.name}の依頼` : "📜 依頼";
+    if (hintEl) { hintEl.classList.remove("show"); }
+    overlay.classList.remove("fading");
+    overlay.style.display = "flex";
+    // tavern にはクリックスキップ配線が無いので一時付与 (1クリックで段落を即時確定/送り)
+    const skip = () => { narrationSkipRequested = true; };
+    overlay.addEventListener("click", skip);
+    // 受注スティンガー (青山龍星ノーマル)。未生成/未読込なら no-op
+    try { if (window.GameAudio) GameAudio.playVoice("quest_accept_00" + (1 + Math.floor(Math.random() * 3))); } catch (e) {}
+    try {
+      await playNarration(paras, null);   // voiceIdPrefix=null → テキストペース (段落ごとの音声は付けない)
+    } finally {
+      overlay.removeEventListener("click", skip);
+    }
+    overlay.classList.add("fading");
+    await sleepMs(500);
+    overlay.style.display = "none";
+    overlay.classList.remove("fading");
   }
 
   // ─────────────────────────────────────────────────────────────
