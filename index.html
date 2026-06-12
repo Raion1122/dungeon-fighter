@@ -5973,6 +5973,9 @@
         getLastResult: () => { try { return JSON.parse(sessionStorage.getItem("dragonfighters.lastResult")); } catch (e) { return null; } },
         resultRewardHtml: () => { const el = document.getElementById("resultReward"); return el ? el.innerHTML : ""; },
         scenarioSrc: () => ({ source: currentScenario && currentScenario.source, fangReward: currentScenario && currentScenario.fangReward }),
+        // M7 検証フック: 火炎ブレス駆動 + 反射チョークポイント直叩き
+        fireBreath: (idx) => hydraFireBreath(idx),
+        tryReflect: (idx, spell) => tryReflectEnemySpell(idx, spell),
       };
     } catch (e) {}
     // ════════════ 闇市 ここまで ════════════
@@ -17323,6 +17326,44 @@
       await sleepMs(400);
     }
 
+    // ── スペルターニングリング: 敵がPTに放つセーヴ式呪文を術者へ丸ごと反射する単一チョークポイント ──
+    // 闇市の目玉アイテム (PLAZA_ITEMS.ring_spell_turning)。所持しているだけで自動発動。
+    // 反射したら true を返す (呼出側は PT 被弾解決を早期 return でスキップ)。将来の敵呪文も同口を通す。
+    // spell = { name, rollDamage:()=>number, fireAcid?:bool }
+    async function tryReflectEnemySpell(enemyIdx, spell) {
+      if (gameOver || !hasChargeItem("ring_spell_turning")) return false;
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive) return false;
+
+      consumeCharge("ring_spell_turning");                 // 1詠唱=1消費・最古[0]優先・0で消滅・即save
+      const left = countCharges("ring_spell_turning");
+
+      // 演出: 青白閃光 + SFX + バナー (残数を必ず可視化 = 「勝手に減った」が見える)
+      const flash = document.createElement("div");
+      flash.className = "fxScreenFlash lightning";
+      document.body.appendChild(flash);
+      setTimeout(() => { try { flash.remove(); } catch (e) {} }, 350);
+      sfx("counter");                                      // 反射音 (既存SE流用。専用SEは任意で後日)
+      showBanner(`✨ スペルターニング! 呪文反射 — リング残 ${left} ✨`, 1700);
+      if (typeof showDMMessage === "function") {
+        showDMMessage("「放たれた術が宙で捻じれ、術者自身へ牙を剥く。スペルターニングの指輪が燐光を放った。」", 3200);
+      }
+      await sleepMs(450);
+
+      // 反射ダメージを術者へ (術の本来威力を1体=術者に集約。セーヴなしで丸ごと反射)
+      const ecx = enemy.x + enemy.def.displaySize / 2;
+      spawnFireballExplosion(ecx, enemy.y + enemy.def.displaySize / 2);
+      const dmg = Math.max(1, spell.rollDamage());
+      if (spell.fireAcid) enemy.__tookFireAcid = true;     // 火/酸はハイドラ首切除フラグを尊重
+      enemy.hp = Math.max(0, enemy.hp - dmg);
+      triggerEnemyDamageFlash(enemyIdx);
+      showDmgAt(ecx, enemy.y, dmg, true);
+      updateInfo(`反射! ${enemy.def.name} は自らの${spell.name}で ${dmg} ダメージ (リング残 ${left})`);
+      await sleepMs(500);
+      if (enemy.hp <= 0) { defeatEnemy(enemyIdx); await sleepMs(400); }
+      return true;
+    }
+
     // ── Sce3 ハイドラ: 火炎ブレス (火球) ──
     // 龍の血脈の片鱗。着弾点周辺 3x3 のパーティ全員 (頭+生存仲間) に火ダメージ、各自 DEX セーヴで半減。
     // 「敵→パーティ」方向の AoE はこれが初。partyWillSave の反復 × allyFireball のセーヴ半減を合成。
@@ -17364,6 +17405,15 @@
         }
       }
       await sleepMs(450);
+
+      // スペルターニングリング: 反射成功なら PT 被弾 (飛翔/着弾/セーヴ解決) を丸ごとスキップして術者へ跳ね返す
+      if (await tryReflectEnemySpell(enemyIdx, {
+        name: "火炎のブレス",
+        fireAcid: true,
+        rollDamage: () => { const dd = parseDiceDD(def.breathDice || "3d6"); return rollDiceDD(dd.n, dd.sides).total; },
+      })) {
+        return;
+      }
 
       // ── 飛翔 → 着弾 VFX (既存をそのまま再利用) ──
       const mouthWX = enemy.x + def.displaySize / 2;
