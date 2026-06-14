@@ -229,7 +229,7 @@
     button: function (c, d, t) { tone(c, d, t, { freq: 660, dur: 0.03, peak: 0.12, a: 0.001 }); },
     narration: function (c, d, t) { tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 }); },
     // 素材別ヒット音 + スイング (レイヤリング playLayered 用)。tone/noise 経由でゆらぎ自動適用。
-    sword_swing: function (c, d, t) { noise(c, d, t, { dur: 0.22, peak: 0.40, filter: "bandpass", cutoff: 420, cutoffTo: 3600, q: 1.4 }); noise(c, d, t + 0.04, { dur: 0.12, peak: 0.20, filter: "highpass", cutoff: 3200 }); },
+    sword_swing: function (c, d, t) { noise(c, d, t, { dur: 0.12, peak: 0.15, filter: "bandpass", cutoff: 600, cutoffTo: 2400, q: 0.8 }); noise(c, d, t + 0.01, { dur: 0.20, peak: 0.30, filter: "bandpass", cutoff: 2900, cutoffTo: 6400, q: 10 }); tone(c, d, t + 0.01, { type: "square", freq: 2500, glideTo: 3800, dur: 0.13, peak: 0.12, a: 0.001, r: 0.09 }); tone(c, d, t + 0.02, { type: "triangle", freq: 3300, dur: 0.18, peak: 0.08, a: 0.001 }); },
     hit_flesh: function (c, d, t) { noise(c, d, t, { dur: 0.09, peak: 0.26, cutoff: 1200, cutoffTo: 420 }); tone(c, d, t, { freq: 140, glideTo: 80, dur: 0.08, peak: 0.16 }); },
     hit_bone: function (c, d, t) { noise(c, d, t, { dur: 0.06, peak: 0.22, filter: "highpass", cutoff: 2400 }); tone(c, d, t, { type: "square", freq: mtof(84), glideTo: mtof(72), dur: 0.07, peak: 0.14 }); tone(c, d, t + 0.005, { freq: 320, glideTo: 180, dur: 0.05, peak: 0.1 }); },
     hit_slime: function (c, d, t) { noise(c, d, t, { dur: 0.16, peak: 0.2, filter: "lowpass", cutoff: 700, cutoffTo: 240, q: 0.6 }); tone(c, d, t, { type: "sine", freq: 180, glideTo: 70, dur: 0.14, peak: 0.12 }); },
