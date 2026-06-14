@@ -6583,6 +6583,24 @@
       return enemies.some(e => e && e.alive && !e.inactive && !e.passiveNpc && isMidBossEnemy(e));
     }
     // 戦闘BGM優先順位: 中ボス > メインボス部屋 > 通常戦闘
+    // ── シーン別ファイルBGM (mp3) マッピング: シナリオ単位で 1 曲を通しでループ ──
+    //   該当シナリオでは探索/戦闘/ボスを問わず同一 ID を渡す → playBgm の dedup で
+    //   途切れず継続 (Pharaxus の道中→ボス戦「通し」要件もこれで満たす)。
+    const SCENE_BGM = {
+      "goblin-mine": "dungeon_normal", "bandits-forest": "dungeon_normal", "lizard-swamp": "dungeon_normal",
+      "orc-fort": "dungeon_climax", "undead-temple": "dungeon_climax",
+      "dragon-lair": "pharaxus_stage",
+    };
+    function sceneBgmId() {
+      if (_genScenario) {                                  // 生成クエストは tier で割当 (pharaxus_stage は dragon-lair 専用に予約)
+        const tk = _genScenario.tierKey;
+        if (tk === "tier1" || tk === "tier2") return "dungeon_normal";
+        if (tk === "tier3" || tk === "tier4") return "dungeon_climax";
+        const ql = Number(_genScenario.questLevel) || 0;
+        return (ql > 0 && ql <= 10) ? "dungeon_normal" : "dungeon_climax";
+      }
+      return SCENE_BGM[scenarioId] || null;
+    }
     function combatBgmTrack() {
       if (window.__inMidBoss) return "midboss";
       if (window.__inBossRoom) return "boss";
@@ -6592,8 +6610,9 @@
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
       currentPhase = kind;
-      // BGM: フェーズに応じてクロスフェード (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)
-      bgm(kind === "combat" ? combatBgmTrack() : kind);
+      // BGM: シーンBGM(mp3)があれば通しで継続。無ければ従来の合成 (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)。
+      const sb = sceneBgmId();
+      bgm(sb ? sb : (kind === "combat" ? combatBgmTrack() : kind));
       const el = document.getElementById("phaseIndicator");
       if (el) {
         el.classList.remove("phase-explore", "phase-combat", "phase-rest");
@@ -9634,7 +9653,7 @@
               !encounterActive && !gameOver && !dungeonCleared) {
             bossRoomNarrationShown = true;
             window.__inBossRoom = true;
-            bgm("boss");
+            bgm(sceneBgmId() || "boss");   // シーンBGMがあれば通しで継続 (dragon-lair=Pharaxus通し)
             narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
           }
         }
@@ -12835,7 +12854,7 @@
           }
           beast.inactive = false;
           window.__inMidBoss = true;
-          if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
+          if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
           const el = enemyElements[cage.beastIdx];
           if (el) {
             el.classList.remove("beast-caged");
@@ -12891,7 +12910,7 @@
         }
       }
       window.__inMidBoss = true;
-      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の守護者覚醒なら即座に midboss 曲へ
+      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中の守護者覚醒なら即座に midboss 曲へ
       await sleepMs(900);
     }
 
@@ -13000,7 +13019,7 @@
       const e = enemies[caelumIdx];
       if (e) { e.passiveNpc = false; e.inactive = false; }
       window.__inMidBoss = true;
-      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のカエルム敵対化なら即座に midboss 曲へ
+      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中のカエルム敵対化なら即座に midboss 曲へ
       const el = enemyElements[caelumIdx];
       if (el) {
         el.classList.remove("caelum-spirit");
@@ -13102,7 +13121,7 @@
       }
       if (e) { e.passiveNpc = false; e.inactive = false; e.everSeen = true; }  // 戦闘化 (描画ガードを抜け display:block へ。everSeen でフォグ消失を防止)
       window.__inMidBoss = true;
-      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のハイドラ覚醒なら即座に midboss 曲へ
+      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中のハイドラ覚醒なら即座に midboss 曲へ
       const el = enemyElements[hydraIdx];
       if (el) {
         el.style.display = "block";

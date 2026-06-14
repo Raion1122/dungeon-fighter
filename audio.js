@@ -79,6 +79,7 @@
     setGain(buses.sfx, s.sfx, t);
     setGain(buses.ui, s.sfx * 0.9, t);
     setGain(buses.voice, s.voice, t);
+    applyFileBgmVolume();                                     // ファイルBGM(mp3)の音量/ミュートも同期
   }
   function unlock() {
     if (!ensureContext()) return;
@@ -90,6 +91,7 @@
       } catch (e) {}
       unlocked = true;
     }
+    ensureBgmEl();   // ファイルBGM用 <audio>+MediaElementSource をジェスチャ内で用意 (iOS で後続 play() を許可)
     if (pendingBgm) { var p = pendingBgm; pendingBgm = null; playBgm(p); }
   }
 
@@ -262,6 +264,64 @@
   var bgmState = { name: null, voice: null };
   var crossfading = false, pendingTrack = null, bgmRunning = false;
 
+  // ===== Section F1: ファイルBGM (mp3) レイヤー — シーン連続再生 =============
+  //   合成 BGM (上の TRACKS) とは別系統。市販/フリー素材の mp3 を <audio> で
+  //   ループ再生し、MediaElementSource 経由で buses.bgm に繋ぐ → 既存の BGM
+  //   音量スライダー/ミュート/AudioContext アンロックにそのまま相乗りさせる。
+  //   合成 BGM とは相互排他 (playBgm/stopBgm 側で一方を必ず止める)。
+  //   入口は playBgm(name) に統合 — 呼び元は ID を渡すだけ。
+  var BGM_FILES = {
+    dungeon_normal: { src: "assets/bgm/maou_game_dangeon22.mp3",  loop: true, volume: 0.60, credit: "魔王魂" },
+    dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
+    pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
+  };
+  var bgmEl = null, bgmElNode = null, bgmFileId = null, bgmElSrcId = null;
+
+  function ensureBgmEl() {
+    if (typeof Audio !== "function") return null;
+    if (!bgmEl) {
+      try { bgmEl = new Audio(); bgmEl.loop = true; bgmEl.preload = "auto"; bgmEl.crossOrigin = "anonymous"; }
+      catch (e) { bgmEl = null; return null; }
+    }
+    // MediaElementSource は ctx/buses 準備後に一度だけ接続。失敗時は要素直 volume にフォールバック。
+    if (bgmEl && !bgmElNode && ctx && buses) {
+      try { bgmElNode = ctx.createMediaElementSource(bgmEl); bgmElNode.connect(buses.bgm); }
+      catch (e) { bgmElNode = null; }
+    }
+    return bgmEl;
+  }
+  function applyFileBgmVolume() {
+    if (!bgmEl) return;
+    var def = bgmFileId && BGM_FILES[bgmFileId];
+    var tv = def ? def.volume : 1;
+    var v;
+    if (bgmElNode) {
+      v = tv;                                   // master*bgm*mute はバス側で乗算 → 要素は per-track のみ
+    } else {
+      var s = GameSettings.get();               // フォールバック: バス未接続なら要素 volume に全部合成
+      v = (s.muted ? 0 : 1) * s.master * s.bgm * tv;
+    }
+    try { bgmEl.volume = Math.max(0, Math.min(1, v)); } catch (e) {}
+  }
+  function stopBgmFile() {
+    if (bgmEl) { try { bgmEl.pause(); bgmEl.currentTime = 0; } catch (e) {} }
+    bgmFileId = null;
+  }
+  function playBgmFile(id) {
+    var def = BGM_FILES[id]; if (!def) return;
+    if (!ensureContext()) { pendingBgm = id; return; }
+    if (!unlocked) { pendingBgm = id; return; }
+    if (bgmFileId === id && bgmEl && !bgmEl.paused) return;   // dedup: 同曲は途切れさせない (Pharaxus 道中→ボス戦の通し)
+    // 合成 BGM が鳴っていれば停止 (相互排他)
+    if (bgmState.voice) { stopVoice(bgmState.voice, 0.4); bgmState.voice = null; bgmState.name = null; }
+    if (!ensureBgmEl()) return;
+    if (bgmElSrcId !== id) { try { bgmEl.src = def.src; } catch (e) {} bgmElSrcId = id; }
+    bgmEl.loop = def.loop !== false;
+    bgmFileId = id; bgmRunning = true;
+    applyFileBgmVolume();
+    try { var p = bgmEl.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  }
+
   function stepDurOf(tr) { return 60 / tr.bpm / tr.stepsPerBeat; }
   function scheduleStep(vs, when, c) {
     c = c || ctx;                                  // ライブ=ctx / オフライン=oac
@@ -318,7 +378,9 @@
   function playBgm(name) {
     if (!ensureContext()) { pendingBgm = name; return; }
     if (!unlocked) { pendingBgm = name; return; }
+    if (BGM_FILES[name]) { playBgmFile(name); return; }       // ファイルBGM(mp3)は別レイヤーへ
     if (!TRACKS[name]) return;
+    if (bgmFileId) stopBgmFile();                             // 合成 BGM へ移る時はファイルBGMを停止 (相互排他)
     if (bgmState.name === name && bgmState.voice) return;     // dedup: 同トラックは再起動しない
     if (crossfading) { pendingTrack = name; return; }
     var old = bgmState.voice;
@@ -336,6 +398,7 @@
     }
   }
   function stopBgm() {
+    stopBgmFile();                                            // ファイルBGM(mp3)も停止 (結果画面の stopBgm→jingle 経路を流用)
     if (bgmState.voice) stopVoice(bgmState.voice, 0.4);
     bgmState.voice = null; bgmState.name = null; bgmRunning = false; pendingTrack = null;
   }
@@ -558,7 +621,7 @@
     box.appendChild(bar);
     // クレジット表記 (VOICEVOX 利用規約: キャラクター名のクレジット表示が必須)
     var cred = document.createElement("div");
-    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟";
+    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  魔王魂 / ユーフルカ";
     cred.style.cssText = "margin-top:14px;padding-top:8px;border-top:1px solid rgba(139,105,20,0.3);font-size:11px;color:#6a5418;text-align:center;letter-spacing:0.02em;";
     box.appendChild(cred);
     ov.appendChild(box);
@@ -594,6 +657,8 @@
     __renderSfxOffline: renderOffline,
     __renderBgmOffline: renderBgmOffline,
     __bgmRunning: function () { return bgmRunning; },
+    __bgmFileState: function () { return { id: bgmFileId, srcId: bgmElSrcId, hasEl: !!bgmEl, paused: bgmEl ? bgmEl.paused : null, node: !!bgmElNode }; },
+    __bgmFileIds: function () { var a = []; for (var k in BGM_FILES) a.push(k); return a; },
   };
 
   global.GameSettings = GameSettings;
