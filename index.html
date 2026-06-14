@@ -2426,7 +2426,7 @@
           var swing = (withSwing !== false);
           var steps = [];
           if (swing) steps.push({ id: "sword_swing", delay: 0 });
-          steps.push({ id: isCrit ? "crit" : ("hit_" + mat), delay: swing ? 0.08 : 0 });
+          steps.push({ id: isCrit ? "crit" : ("hit_" + mat), delay: swing ? 0.16 : 0 });
           GameAudio.playLayered(steps);
         } else { sfx(isCrit ? "crit" : "hit"); }
       } catch (e) {}
