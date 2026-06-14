@@ -11962,10 +11962,9 @@
         if (!suppressFx) {
           const fxY = target.y + (target.def.displaySize || 64) / 2;
           if (bonusType === "fire") {
-            // 炎: 中央フラッシュ + 炎柱 → 敵に火が燃え移る粒子継続
+            // 炎: 中央フラッシュ + 炎柱 → 敵に火が燃え移る粒子継続 (爆発バーストは大げさだったので撤去・前回演出)
             playFlameTongueImpactFx(ex, fxY, targetIdx, isCrit);
             spawnFireBurnOnEnemy(targetIdx, isCrit ? 1800 : 1400);
-            spawnFireImpactBurst(ex, fxY, { size: 120, light: true });   // フォグ貫通の爆発 (剣撃・小)
           } else if (bonusType === "cold") {
             // 冷気: 青白閃光 + 放射状氷晶 → 敵から落ちる氷の粒
             playFrostbiteImpactFx(ex, fxY, targetIdx, isCrit);
