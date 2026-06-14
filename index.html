@@ -2416,9 +2416,26 @@
     function sfx(n, o) { try { if (window.GameAudio) GameAudio.playSfx(n, o); } catch (e) {} }
     function bgm(n) { try { if (window.GameAudio) GameAudio.playBgm(n); } catch (e) {} }
     function voice(id) { try { if (window.GameAudio) GameAudio.playVoice(id); } catch (e) {} }
+    // 命中音: スイング→素材別ヒットの2層 (敵 def.hitSound: flesh/bone/slime、既定 flesh)。
+    // withSwing=false で風切りを省く (遠隔攻撃の着弾音など)。
+    function playMeleeHit(tgtDef, isCrit, withSwing) {
+      try {
+        if (window.GameAudio && GameAudio.playLayered) {
+          // 素材: 明示 def.hitSound 優先 → undead は骨質 → 既定は肉質。slime は将来の粘体敵用に予約。
+          var mat = (tgtDef && tgtDef.hitSound) || ((tgtDef && tgtDef.undead) ? "bone" : "flesh");
+          var swing = (withSwing !== false);
+          var steps = [];
+          if (swing) steps.push({ id: "sword_swing", delay: 0 });
+          steps.push({ id: isCrit ? "crit" : ("hit_" + mat), delay: swing ? 0.08 : 0 });
+          GameAudio.playLayered(steps);
+        } else { sfx(isCrit ? "crit" : "hit"); }
+      } catch (e) {}
+    }
     if (window.GameAudio) GameAudio.applySettings();
     // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
     try { if (window.GameAudio && GameAudio.loadVoiceManifest) GameAudio.loadVoiceManifest("assets/voice/manifest.json", "assets/voice/"); } catch (e) {}
+    // 効果音サンプル素材の manifest を読込 (未生成なら合成音にフォールバック)
+    try { if (window.GameAudio && GameAudio.loadSfxManifest) GameAudio.loadSfxManifest("assets/sfx/sfx-manifest.json", "assets/sfx/"); } catch (e) {}
     (function wireSettingsBtn() {
       var sb = document.getElementById("settingsBtn");
       if (sb) sb.addEventListener("click", function (ev) { ev.stopPropagation(); if (window.GameAudio) GameAudio.openSettings(); });
@@ -12103,7 +12120,7 @@
         showRollAtPlayer(`<span class="label">${labelPrefix}HIT</span>${atkText}`, "hit");
       }
       await sleepMs(550);
-      sfx(isCrit ? "crit" : "hit");
+      playMeleeHit(tgtDef, isCrit);
 
       const angle = Math.atan2(ey - (playerY + 58), ex - (playerX + 48));
       await runSwingNoHit(angle);
@@ -13788,6 +13805,7 @@
       triggerEnemyDamageFlash(enemyIdx);
       noteDisplacementHit(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
+      playMeleeHit(tgtDef, isCrit, (ally.weaponRange || "melee") === "melee");   // 仲間も命中音 (近接=スイング付/遠隔=着弾のみ)
       showDmgAt(ex, target.y, dmg, isCrit);
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} ダメージ`);
       await sleepMs(400);

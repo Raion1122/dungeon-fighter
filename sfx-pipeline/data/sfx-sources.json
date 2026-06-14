@@ -1,0 +1,64 @@
+{
+  "_comment": "効果音の取得定義 (spec C-2)。packs=CC0自動DL候補(URLは実行時に検証・確定)、mapping=ID→素材ファイル対応表。raw/inbox/<id>/ が候補にあればパック素材より優先される。volume/pitchVar/loop 等はそのまま sfx-manifest.json へ初期値として書き出される。",
+  "packs": [
+    {
+      "name": "kenney_impact_sounds",
+      "license": "CC0",
+      "credit": "Kenney (kenney.nl)",
+      "url": "https://kenney.nl/assets/impact-sounds",
+      "url_note": "公式アセットページ。実行時に fetch_sfx.py が直リンク zip を検証・取得する。404 なら inbox 待ちとして report。",
+      "type": "zip"
+    },
+    {
+      "name": "kenney_rpg_audio",
+      "license": "CC0",
+      "credit": "Kenney (kenney.nl)",
+      "url": "https://kenney.nl/assets/rpg-audio",
+      "type": "zip"
+    },
+    {
+      "name": "kenney_ui_audio",
+      "license": "CC0",
+      "credit": "Kenney (kenney.nl)",
+      "url": "https://kenney.nl/assets/ui-audio",
+      "type": "zip"
+    },
+    {
+      "name": "kenney_interface_sounds",
+      "license": "CC0",
+      "credit": "Kenney (kenney.nl)",
+      "url": "https://kenney.nl/assets/interface-sounds",
+      "type": "zip"
+    }
+  ],
+  "mapping": {
+    "sword_swing":    { "category": "combat", "takes": 3, "volume": 0.9, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/sword_swing/*", "kenney_rpg_audio/**/knifeSlice*", "kenney_impact_sounds/**/swoosh*"] },
+    "hit_flesh":      { "category": "combat", "takes": 3, "volume": 1.0, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/hit_flesh/*", "kenney_impact_sounds/**/impactPunch*", "kenney_impact_sounds/**/impactSoft*"] },
+    "hit_bone":       { "category": "combat", "takes": 2, "volume": 1.0, "pitchVar": 0.08, "bus": "sfx", "candidates": ["raw/inbox/hit_bone/*", "kenney_impact_sounds/**/impactWood*", "kenney_impact_sounds/**/impactPlate*"] },
+    "hit_slime":      { "category": "combat", "takes": 2, "volume": 1.0, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/hit_slime/*"] },
+    "hit_blocked":    { "category": "combat", "takes": 2, "volume": 0.9, "pitchVar": 0.06, "bus": "sfx", "candidates": ["raw/inbox/hit_blocked/*", "kenney_impact_sounds/**/impactMetal*"] },
+    "explosion_big":  { "category": "combat", "takes": 2, "volume": 1.0, "pitchVar": 0.06, "bus": "sfx", "candidates": ["raw/inbox/explosion_big/*"] },
+    "explosion_small":{ "category": "combat", "takes": 2, "volume": 0.9, "pitchVar": 0.08, "bus": "sfx", "candidates": ["raw/inbox/explosion_small/*"] },
+    "fire_ignite":    { "category": "combat", "takes": 2, "volume": 0.8, "pitchVar": 0.06, "bus": "sfx", "candidates": ["raw/inbox/fire_ignite/*"] },
+    "magic_cast":     { "category": "combat", "takes": 2, "volume": 0.85, "pitchVar": 0.06, "bus": "sfx", "candidates": ["raw/inbox/magic_cast/*"] },
+    "heal":           { "category": "combat", "takes": 1, "volume": 0.85, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/heal/*"] },
+    "turn_undead":    { "category": "combat", "takes": 1, "volume": 0.9, "pitchVar": 0.0,  "bus": "sfx", "candidates": ["raw/inbox/turn_undead/*"] },
+    "arrow_shot":     { "category": "combat", "takes": 2, "volume": 0.85, "pitchVar": 0.08, "bus": "sfx", "candidates": ["raw/inbox/arrow_shot/*", "kenney_rpg_audio/**/bow*"] },
+    "monster_growl":  { "category": "combat", "takes": 2, "volume": 0.85, "pitchVar": 0.08, "bus": "sfx", "candidates": ["raw/inbox/monster_growl/*"] },
+    "monster_death":  { "category": "combat", "takes": 2, "volume": 0.9, "pitchVar": 0.07, "bus": "sfx", "candidates": ["raw/inbox/monster_death/*"] },
+
+    "ui_tap":         { "category": "ui", "takes": 1, "volume": 0.7, "pitchVar": 0.0, "bus": "ui", "preload": "eager", "candidates": ["raw/inbox/ui_tap/*", "kenney_ui_audio/**/click1*", "kenney_interface_sounds/**/click*"] },
+    "ui_confirm":     { "category": "ui", "takes": 1, "volume": 0.75, "pitchVar": 0.0, "bus": "ui", "candidates": ["raw/inbox/ui_confirm/*", "kenney_interface_sounds/**/confirmation*"] },
+    "ui_cancel":      { "category": "ui", "takes": 1, "volume": 0.7, "pitchVar": 0.0, "bus": "ui", "candidates": ["raw/inbox/ui_cancel/*", "kenney_interface_sounds/**/back*"] },
+    "coin":           { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.05, "bus": "sfx", "candidates": ["raw/inbox/coin/*", "kenney_rpg_audio/**/coin*"] },
+    "levelup":        { "category": "ui", "takes": 1, "volume": 0.9, "pitchVar": 0.0, "bus": "sfx", "candidates": ["raw/inbox/levelup/*"] },
+    "quest_accept":   { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.0, "bus": "sfx", "candidates": ["raw/inbox/quest_accept/*"] },
+    "door_open":      { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/door_open/*", "kenney_rpg_audio/**/door*"] },
+    "item_get":       { "category": "ui", "takes": 1, "volume": 0.85, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/item_get/*", "kenney_rpg_audio/**/handleCoins*"] },
+
+    "fire_loop":      { "category": "ambient", "takes": 1, "loop": true, "volume": 0.6, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.1, "loopEndOffset": 0.1, "flicker": { "min": 0.7, "max": 1.0, "period": 2.5 }, "candidates": ["raw/inbox/fire_loop/*"] },
+    "tavern_amb":     { "category": "ambient", "takes": 1, "loop": true, "volume": 0.35, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.2, "loopEndOffset": 0.2, "candidates": ["raw/inbox/tavern_amb/*"] },
+    "plaza_amb":      { "category": "ambient", "takes": 1, "loop": true, "volume": 0.35, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.2, "loopEndOffset": 0.2, "candidates": ["raw/inbox/plaza_amb/*"] },
+    "torch_loop":     { "category": "ambient", "takes": 1, "loop": true, "volume": 0.4, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.1, "loopEndOffset": 0.1, "flicker": { "min": 0.75, "max": 1.0, "period": 2.0 }, "candidates": ["raw/inbox/torch_loop/*"] }
+  }
+}

@@ -4,6 +4,10 @@
 # ChatGPT 1536x1024 raw source PNGs (regenerable, ~91MB)
 source_images/
 
+# 効果音の元素材 (DL/手動投入)。コミットは整形後 assets/sfx/*.mp3 のみ
+sfx-pipeline/raw/
+sfx-pipeline/sfx-report.md
+
 # Debug preview images generated during sprite extraction
 assets/_debug_*.png
 assets/_preview_*.png

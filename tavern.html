@@ -1258,10 +1258,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>効果音の質感を向上</b> — 攻撃音が毎回わずかに変化し、斬撃が「振り＋ヒット」の2段で鳴るように。アンデッドは骨を打つ硬い音に。ナレーション中は効果音が自動で控えめになる。</li>
         <li><b>ダンジョンに専用BGMが流れるようになった</b> — 廃坑〜沼地は探索曲、砦・地下神殿は壮大なオーケストラ、ドラゴンの巣はラスボス曲を道中から決戦まで途切れず。</li>
         <li><b>依頼人の看板を頭上へ移動</b> — 地名ラベルが依頼人の顔に重なっていたのを解消。</li>
         <li><b>依頼人ごとに声が変わった</b> — 商人・長老・隊長・司祭がそれぞれ別の声で語りかけるようになった。</li>
-        <li><b>依頼人がセリフを読み上げるように</b> — 主要6シナリオの受注で、依頼人の声が流れるようになった。</li>
       </ul>
     </div>
 
@@ -3514,6 +3514,8 @@
   if (window.GameAudio) GameAudio.applySettings();
   // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
   try { if (window.GameAudio && GameAudio.loadVoiceManifest) GameAudio.loadVoiceManifest("assets/voice/manifest.json", "assets/voice/"); } catch (e) {}
+  // 効果音サンプル素材の manifest を読込 (未生成なら合成音にフォールバック)
+  try { if (window.GameAudio && GameAudio.loadSfxManifest) GameAudio.loadSfxManifest("assets/sfx/sfx-manifest.json", "assets/sfx/"); } catch (e) {}
 
   renderTables();
 

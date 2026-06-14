@@ -53,6 +53,10 @@
   var ctx = null, initFailed = false, unlocked = false, buses = null;
   var pendingBgm = null;
   var noiseBufRef = null, noiseBufCtx = null;
+  // 合成SFXの再生ごとゆらぎ係数。playSfx が再生直前に乱数を入れ、直後に1へ戻す(同期実行)。
+  // 待機時は常に1なので、同じ tone/noise を使う合成BGM(setInterval駆動)には干渉しない。
+  var _sfxPitch = 1, _sfxGain = 1;
+  var duckSfx = null, duckUi = null;   // ナレ音声中に SFX/UI を下げるダッキング係数 (user音量とは独立)
 
   function ensureContext() {
     if (ctx) return ctx;
@@ -62,11 +66,30 @@
   }
   function buildBuses() {
     var master = ctx.createGain(), bgm = ctx.createGain(), sfx = ctx.createGain(), ui = ctx.createGain(), voice = ctx.createGain();
+    duckSfx = ctx.createGain(); duckUi = ctx.createGain();
+    duckSfx.gain.value = 1; duckUi.gain.value = 1;
     master.connect(ctx.destination);
-    bgm.connect(master); sfx.connect(master); ui.connect(master); voice.connect(master);
+    bgm.connect(master); voice.connect(master);
+    sfx.connect(duckSfx); duckSfx.connect(master);   // sfx → duckSfx → master (ダッキング用の中間段)
+    ui.connect(duckUi); duckUi.connect(master);       // ui  → duckUi  → master
     buses = { master: master, bgm: bgm, sfx: sfx, ui: ui, voice: voice };
     applyVolumes();
   }
+  // ナレ音声中は SFX/UI を -6dB(0.5)へ下げ、終了で戻す。user音量(buses.sfx/ui)とは独立した係数。
+  var _duckLevel = 1;   // 現在の duck 目標値 (検証用シャドウ。0.5=発話中, 1.0=通常)
+  function setDuck(target, tc) {
+    _duckLevel = target;
+    if (!ctx) return;
+    var now = ctx.currentTime;
+    var nodes = [duckSfx, duckUi];
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]; if (!n) continue;
+      try { n.gain.cancelScheduledValues(now); n.gain.setTargetAtTime(target, now, tc); }
+      catch (e) { try { n.gain.value = target; } catch (e2) {} }
+    }
+  }
+  function duckForVoice() { setDuck(0.5, 0.05); }   // ≈ -6dB、~0.15s で収束
+  function unduck() { setDuck(1.0, 0.13); }          // ~0.4s で復帰
   function setGain(node, v, t) {
     try { node.gain.setTargetAtTime(v, t, 0.015); } catch (e) { try { node.gain.value = v; } catch (e2) {} }
   }
@@ -118,11 +141,11 @@
     o = o || {};
     var osc = c.createOscillator(), g = c.createGain();
     osc.type = o.type || "square";
-    var f = Math.max(1, o.freq || 440);
+    var f = Math.max(1, (o.freq || 440) * _sfxPitch);
     osc.frequency.setValueAtTime(f, t0);
-    if (o.glideTo) { try { osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.glideTo), t0 + (o.dur || 0.2)); } catch (e) {} }
+    if (o.glideTo) { try { osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.glideTo * _sfxPitch), t0 + (o.dur || 0.2)); } catch (e) {} }
     if (o.detune) { try { osc.detune.setValueAtTime(o.detune, t0); } catch (e) {} }
-    var peak = (o.peak == null ? 0.25 : o.peak);
+    var peak = (o.peak == null ? 0.25 : o.peak) * _sfxGain;
     var a = (o.a == null ? 0.005 : o.a);
     var dur = o.dur || 0.2;
     var rel = (o.r == null ? 0.05 : o.r);
@@ -138,11 +161,11 @@
     var dur = o.dur || 0.15;
     var filt = c.createBiquadFilter();
     filt.type = o.filter || "lowpass";
-    filt.frequency.setValueAtTime(o.cutoff || 1000, t0);
-    if (o.cutoffTo) { try { filt.frequency.exponentialRampToValueAtTime(Math.max(40, o.cutoffTo), t0 + dur); } catch (e) {} }
+    filt.frequency.setValueAtTime((o.cutoff || 1000) * _sfxPitch, t0);
+    if (o.cutoffTo) { try { filt.frequency.exponentialRampToValueAtTime(Math.max(40, o.cutoffTo * _sfxPitch), t0 + dur); } catch (e) {} }
     if (o.q) { try { filt.Q.setValueAtTime(o.q, t0); } catch (e) {} }
     var g = c.createGain();
-    var peak = (o.peak == null ? 0.2 : o.peak);
+    var peak = (o.peak == null ? 0.2 : o.peak) * _sfxGain;
     var a = (o.a == null ? 0.002 : o.a);
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.linearRampToValueAtTime(peak, t0 + a);
@@ -205,7 +228,22 @@
     coin: function (c, d, t) { tone(c, d, t, { freq: mtof(83), dur: 0.06, peak: 0.18 }); tone(c, d, t + 0.06, { freq: mtof(88), dur: 0.12, peak: 0.18 }); },
     button: function (c, d, t) { tone(c, d, t, { freq: 660, dur: 0.03, peak: 0.12, a: 0.001 }); },
     narration: function (c, d, t) { tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 }); },
+    // 素材別ヒット音 + スイング (レイヤリング playLayered 用)。tone/noise 経由でゆらぎ自動適用。
+    sword_swing: function (c, d, t) { noise(c, d, t, { dur: 0.16, peak: 0.16, filter: "bandpass", cutoff: 700, cutoffTo: 2600, q: 0.7 }); },
+    hit_flesh: function (c, d, t) { noise(c, d, t, { dur: 0.09, peak: 0.26, cutoff: 1200, cutoffTo: 420 }); tone(c, d, t, { freq: 140, glideTo: 80, dur: 0.08, peak: 0.16 }); },
+    hit_bone: function (c, d, t) { noise(c, d, t, { dur: 0.06, peak: 0.22, filter: "highpass", cutoff: 2400 }); tone(c, d, t, { type: "square", freq: mtof(84), glideTo: mtof(72), dur: 0.07, peak: 0.14 }); tone(c, d, t + 0.005, { freq: 320, glideTo: 180, dur: 0.05, peak: 0.1 }); },
+    hit_slime: function (c, d, t) { noise(c, d, t, { dur: 0.16, peak: 0.2, filter: "lowpass", cutoff: 700, cutoffTo: 240, q: 0.6 }); tone(c, d, t, { type: "sine", freq: 180, glideTo: 70, dur: 0.14, peak: 0.12 }); },
+    hit_blocked: function (c, d, t) { noise(c, d, t, { dur: 0.1, peak: 0.24, filter: "bandpass", cutoff: 3200, q: 4 }); tone(c, d, t + 0.01, { type: "square", freq: mtof(88), glideTo: mtof(81), dur: 0.12, peak: 0.16 }); },
   };
+  // ID別ピッチゆらぎ幅。UI音=0、戦闘音=0.06〜0.10。未指定は既定値(非UI 0.04)。
+  var SFX_VAR = {
+    hit: 0.08, crit: 0.08, miss: 0.07, fumble: 0.06, allyHit: 0.08, enemyHit: 0.08,
+    sword_swing: 0.10, hit_flesh: 0.10, hit_bone: 0.08, hit_slime: 0.10, hit_blocked: 0.06,
+    spellDamage: 0.06, enemyDeath: 0.07, bossDeath: 0.05, counter: 0.07, trap: 0.07,
+    playerDamage: 0.07, allyDamage: 0.07, coin: 0.05, chestFound: 0, chestOpen: 0.05,
+    button: 0, narration: 0,
+  };
+  var SFX_ALIAS = { levelup: "levelUp" };   // 呼び出し名の表記ゆれ吸収 (index.html に levelup/levelUp 両方あり)
 
   // ワンショット ジングル (bgm バス経由)
   var JINGLES = {
@@ -439,9 +477,10 @@
       var src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(buses.voice);
-      src.onended = function () { if (currentVoiceSrc === src) currentVoiceSrc = null; };
+      src.onended = function () { if (currentVoiceSrc === src) { currentVoiceSrc = null; unduck(); } };
       src.start(0);
       currentVoiceSrc = src;
+      duckForVoice();                 // 発話中は SFX/UI を控えめに (整音感)
     } catch (e) {}
   }
 
@@ -500,14 +539,134 @@
     return (entry && typeof entry.durationSec === "number") ? entry.durationSec : 0;
   }
 
+  // ===== Section F2: ファイルSFX (サンプル素材。manifest 未生成時は合成へフォールバック) =====
+  //   voice 実装をミラー。assets/sfx/sfx-manifest.json が無ければ全 API が合成音にフォールバック。
+  var sfxManifest = null;      // id -> { files:[rel...], volume, pitchVar, bus, loop, loopStart, loopEndOffset, flicker, preload }
+  var sfxBaseDir = "";
+  var sfxBufCache = {};        // (baseDir+file) -> AudioBuffer
+  var sfxFetching = {};        // (baseDir+file) -> true (多重 fetch 抑止)
+  var sfxLoops = {};           // id -> { src, gain, base, timer } (再生中ループ)
+
+  function loadSfxManifest(url, baseDir) {
+    if (typeof fetch !== "function" || !url) return;
+    sfxBaseDir = baseDir || "";
+    try {
+      fetch(url)
+        .then(function (r) { return (r && r.ok) ? r.json() : null; })
+        .then(function (j) { if (j && typeof j === "object") { sfxManifest = j; eagerPreloadSfx(); } })
+        .catch(function () {});   // 未生成/file:// は握り潰し → 合成音のまま続行
+    } catch (e) {}
+  }
+  function sfxFetchBuf(file) {   // decode 済 buffer を resolve (失敗/未 unlock は null)
+    var url = sfxBaseDir + file;
+    if (sfxBufCache[url]) return Promise.resolve(sfxBufCache[url]);
+    if (typeof fetch !== "function" || !ensureContext()) return Promise.resolve(null);
+    if (sfxFetching[url]) return Promise.resolve(null);
+    sfxFetching[url] = true;
+    return fetch(url)
+      .then(function (r) { if (!r || !r.ok) throw new Error("sfx 404: " + url); return r.arrayBuffer(); })
+      .then(function (ab) { return ctx.decodeAudioData(ab); })
+      .then(function (buf) { sfxBufCache[url] = buf; sfxFetching[url] = false; return buf; })
+      .catch(function () { sfxFetching[url] = false; return null; });
+  }
+  function eagerPreloadSfx() {
+    if (!sfxManifest) return;
+    for (var id in sfxManifest) {
+      var def = sfxManifest[id];
+      if (def && def.preload === "eager" && def.files) for (var i = 0; i < def.files.length; i++) sfxFetchBuf(def.files[i]);
+    }
+  }
+  function preloadSfx(ids) {
+    if (!sfxManifest || !ids || !ids.length) return Promise.resolve();
+    var jobs = [];
+    for (var i = 0; i < ids.length; i++) {
+      var def = sfxManifest[ids[i]];
+      if (def && def.files) for (var j = 0; j < def.files.length; j++) jobs.push(sfxFetchBuf(def.files[j]));
+    }
+    return Promise.all(jobs).then(function () {});
+  }
+  // サンプル素材で1発再生。未ロード/未存在/ループ定義は false を返し、呼び元が合成へ落ちる。
+  function playSampled(name, opts) {
+    if (!sfxManifest || !buses) return false;
+    var def = sfxManifest[name];
+    if (!def || !def.files || !def.files.length || def.loop) return false;
+    var file = def.files[(Math.random() * def.files.length) | 0];
+    var buf = sfxBufCache[sfxBaseDir + file];
+    if (!buf) { sfxFetchBuf(file); return false; }   // 初回は fetch だけ→今回は合成へ(遅延ゼロ)。次回からサンプル
+    try {
+      var src = ctx.createBufferSource(); src.buffer = buf;
+      var pv = (def.pitchVar != null) ? def.pitchVar : 0;
+      src.playbackRate.value = 1 + (Math.random() * 2 - 1) * pv;
+      var g = ctx.createGain();
+      g.gain.value = (def.volume != null ? def.volume : 1) * (1 + (Math.random() * 2 - 1) * 0.08);
+      var route = (def.bus === "ui" || name === "button" || name === "narration") ? buses.ui : buses.sfx;
+      src.connect(g); g.connect(route);
+      src.onended = function () { try { src.disconnect(); g.disconnect(); } catch (e) {} };
+      src.start(0);
+    } catch (e) { return false; }
+    return true;
+  }
+  function playLoop(name) {       // 火/環境音などのシームレスループ (B-4)
+    if (!sfxManifest || !ensureContext() || !unlocked || !buses) return;
+    var def = sfxManifest[name];
+    if (!def || !def.files || !def.files.length || !def.loop || sfxLoops[name]) return;
+    sfxLoops[name] = { pending: true };   // 二重起動防止
+    sfxFetchBuf(def.files[0]).then(function (buf) {
+      if (!buf || !sfxLoops[name]) { delete sfxLoops[name]; return; }
+      try {
+        var src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+        if (def.loopStart != null) src.loopStart = def.loopStart;
+        src.loopEnd = buf.duration - (def.loopEndOffset != null ? def.loopEndOffset : 0);
+        var g = ctx.createGain(); var base = (def.volume != null ? def.volume : 0.6);
+        g.gain.value = 0.0001; g.connect(buses.sfx); src.connect(g); src.start(0);
+        g.gain.linearRampToValueAtTime(base, ctx.currentTime + 0.6);   // フェードイン
+        var rec = { src: src, gain: g, base: base, timer: null };
+        if (def.flicker) {                                              // メラメラ感 (gainをゆっくり揺らす)
+          var f = def.flicker, lo = (f.min != null ? f.min : 0.7), hi = (f.max != null ? f.max : 1.0), per = (f.period != null ? f.period : 2.5);
+          rec.timer = setInterval(function () {
+            try { g.gain.setTargetAtTime(base * (lo + Math.random() * (hi - lo)), ctx.currentTime, per * 0.4); } catch (e) {}
+          }, per * 1000);
+        }
+        sfxLoops[name] = rec;
+      } catch (e) { delete sfxLoops[name]; }
+    });
+  }
+  function stopLoop(name) {
+    var L = sfxLoops[name]; if (!L) return;
+    delete sfxLoops[name];
+    if (L.pending) return;
+    try { if (L.timer) clearInterval(L.timer); } catch (e) {}
+    try { L.gain.gain.cancelScheduledValues(ctx.currentTime); L.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.15); } catch (e) {}
+    var s = L.src; setTimeout(function () { try { s.stop(); s.disconnect(); } catch (e) {} }, 500);
+  }
+
   // ===== Section G: Public API ==============================================
+  // サンプル素材があれば優先、無ければ合成 recipe を再生ごとゆらぎ付きで発音。
   function playSfx(name, opts) {
     if (!ensureContext() || !unlocked) return;
-    var recipe = SFX[name]; if (!recipe) return;
-    try {
-      var route = (name === "button" || name === "narration") ? buses.ui : buses.sfx;
-      recipe(ctx, route, ctx.currentTime, opts || {});
-    } catch (e) {}
+    opts = opts || {};
+    if (playSampled(name, opts)) return;                       // サンプル素材があれば優先
+    var recipe = SFX[name] || SFX[SFX_ALIAS[name]]; if (!recipe) return;
+    var isUi = (name === "button" || name === "narration");
+    var route = isUi ? buses.ui : buses.sfx;
+    var pv = (SFX_VAR[name] != null) ? SFX_VAR[name] : (isUi ? 0 : 0.04);
+    var pp = _sfxPitch, pg = _sfxGain;
+    _sfxPitch = 1 + (Math.random() * 2 - 1) * pv;              // ピッチ ±pv
+    _sfxGain = isUi ? 1 : (1 + (Math.random() * 2 - 1) * 0.08); // 音量 ±8% (UIは固定)
+    try { recipe(ctx, route, ctx.currentTime, opts); } catch (e) {}
+    _sfxPitch = pp; _sfxGain = pg;
+  }
+  // 時間差レイヤリング (例: スイング→ヒットの2層)。steps = [{id, delay(秒), opts}]
+  function playLayered(steps) {
+    if (!steps || !steps.length) return;
+    for (var i = 0; i < steps.length; i++) {
+      (function (s) {
+        if (!s || !s.id) return;
+        var dly = s.delay || 0;
+        if (dly <= 0) playSfx(s.id, s.opts);
+        else setTimeout(function () { playSfx(s.id, s.opts); }, dly * 1000);
+      })(steps[i]);
+    }
   }
   function playJingle(name) {
     if (!ensureContext() || !unlocked) return;
@@ -520,12 +679,17 @@
   function renderOffline(name, opts, seconds) {
     var OAC = global.OfflineAudioContext || global.webkitOfflineAudioContext;
     if (!OAC) return Promise.reject(new Error("no OfflineAudioContext"));
-    var recipe = SFX[name] || JINGLES[name];
+    var recipe = SFX[name] || SFX[SFX_ALIAS[name]] || JINGLES[name];
     if (!recipe) return Promise.reject(new Error("unknown sound: " + name));
+    opts = opts || {};
     var sr = 44100, sec = seconds || 1.2;
     var oac = new OAC(1, Math.ceil(sr * sec), sr);
     var g = oac.createGain(); g.gain.value = 1; g.connect(oac.destination);
-    try { recipe(oac, g, 0, opts || {}); } catch (e) { return Promise.reject(e); }
+    var pp = _sfxPitch, pg = _sfxGain;                          // opts.pitch/opts.gain でゆらぎを再現可能に(検証用)
+    if (opts.pitch != null) _sfxPitch = opts.pitch;
+    if (opts.gain != null) _sfxGain = opts.gain;
+    try { recipe(oac, g, 0, opts); } catch (e) { _sfxPitch = pp; _sfxGain = pg; return Promise.reject(e); }
+    _sfxPitch = pp; _sfxGain = pg;
     return oac.startRendering().then(function (buf) { return buf.getChannelData(0); });
   }
   // BGM トラックをオフラインレンダー (メタル歪み検証用)。opts.dist で歪み量を上書き可 (ON/OFF 比較)。
@@ -634,6 +798,12 @@
   var GameAudio = {
     unlock: unlock,
     playSfx: playSfx,
+    play: playSfx,                 // playSfx のエイリアス (spec の play(id) 命名)
+    playLayered: playLayered,      // 時間差レイヤリング ([{id,delay}])
+    playLoop: playLoop,            // ループ音 (火/環境音)
+    stopLoop: stopLoop,
+    loadSfxManifest: loadSfxManifest,
+    preloadSfx: preloadSfx,
     playBgm: playBgm,
     stopBgm: stopBgm,
     playJingle: playJingle,
@@ -659,6 +829,11 @@
     __bgmRunning: function () { return bgmRunning; },
     __bgmFileState: function () { return { id: bgmFileId, srcId: bgmElSrcId, hasEl: !!bgmEl, paused: bgmEl ? bgmEl.paused : null, node: !!bgmElNode }; },
     __bgmFileIds: function () { var a = []; for (var k in BGM_FILES) a.push(k); return a; },
+    __duckLevel: function () { return _duckLevel; },                 // 検証: 現在の duck 目標値
+    __voiceDuckTest: function () { duckForVoice(); return _duckLevel; },  // startVoiceBuffer が呼ぶ duck 経路
+    __voiceUnduckTest: function () { unduck(); return _duckLevel; },      // voice onended が呼ぶ unduck 経路
+    __sfxManifestLoaded: function () { return !!sfxManifest; },       // 検証: サンプル manifest ロード済か
+    __sfxNames: function () { var a = []; for (var k in SFX) a.push(k); return a; },
   };
 
   global.GameSettings = GameSettings;
