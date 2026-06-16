@@ -5896,14 +5896,16 @@
       }
       return scenarioId === "goblin-mine" || scenarioId === "bandits-forest";
     }
-    const POLYMORPH_WAND_DROP_CHANCE = 0.15;
-    // 門番拒絶イベント解放後、低Tierボス撃破で稀に「ポリモーフの杖」をドロップ (闇市入場の供給ループ)
+    const POLYMORPH_WAND_DROP_CHANCE = 0.15;       // 低Tier (I〜II)：門番台詞の伏線どおり見つかりやすい
+    const POLYMORPH_WAND_DROP_CHANCE_HIGH = 0.06;  // 高Tier (III〜IV)：低確率の救済路 (高Tier専門でも詰まないように)
+    // 門番拒絶イベント解放後、ボス撃破で稀に「ポリモーフの杖」をドロップ (闇市入場の供給ループ)
+    // 低Tier優遇だが全Tierで出る → 高Tierしか周回しない非キャスターでも入場不能にならない
     function maybeGrantPolymorphWand(enemy) {
       if (!enemy || !enemy.def) return;
       if (!plazaState.wandDropEnabled) return;            // 門番拒絶イベントで解放されるまで出ない
-      if (!isLowTierRun()) return;                        // 低Tier (I〜II) 限定
       if (!(enemy.def.isBoss || enemy.def.boss)) return;  // ボス撃破のみ
-      if (Math.random() >= POLYMORPH_WAND_DROP_CHANCE) return;
+      const chance = isLowTierRun() ? POLYMORPH_WAND_DROP_CHANCE : POLYMORPH_WAND_DROP_CHANCE_HIGH;
+      if (Math.random() >= chance) return;
       addChargeItem("wand_polymorph");
       if (typeof showBanner === "function") showBanner("🪄 ポリモーフの杖 を手に入れた!", 1900);
       if (typeof updateInfo === "function") updateInfo("入手: ポリモーフの杖 — 闇市『ポドルプラザ』への入場に使える");

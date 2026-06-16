@@ -8,7 +8,8 @@
  *  - chest scroll 重み common55/uncommon35/rare10  pickScrollId index.html:5865
  *  - boss scroll 確定・重み common15/uncommon50/rare35  maybeGrantScrollDrop index.html:5884
  *  - レア巻物 5 種 → P(polymorph|rare)=1/5   SCROLL_CATALOG index.html:5791-5810
- *  - POLYMORPH_WAND_DROP_CHANCE = 0.15 (低Tierボスのみ・wandDropEnabled後) index.html:5899-5906
+ *  - POLYMORPH_WAND_DROP_CHANCE = 0.15 (低Tierボス) / _HIGH = 0.06 (高Tierボス) ・wandDropEnabled後 index.html:5899-5907
+ *    ※ 2026-06-17 詰み回避調整: 旧仕様は低Tier限定だったが全Tierでドロップ(低Tier優遇)に変更
  *  - 部屋宝箱: 4 部屋 × CHEST_SPAWN_CHANCE 0.5 = 期待2  spawnRoomChests index.html:12343
  *  - 隠し宝箱(確定): Tier I=2/II=3/III=4/IV=5  tavern.html:1486+
  *  - 生成クエストのボスは isBoss:true (例 goblinKing index.html:3749)
@@ -32,7 +33,8 @@ const RARE_POLYMORPH_P = 1 / 5; // レア巻物 5 種中 polymorph 1 種
 const CHEST_RARE_P = 10 / (55 + 35 + 10); // = 0.10
 const BOSS_RARE_P = 35 / (15 + 50 + 35);  // = 0.35
 
-const WAND_DROP_P = 0.15;
+const WAND_DROP_P = 0.15;        // 低Tier (I/II)
+const WAND_DROP_P_HIGH = 0.06;   // 高Tier (III/IV) 救済路 (2026-06-17 追加)
 
 // 1 クエストの宝箱個数 (期待値ではなく実抽選): 部屋宝箱(Bernoulli) + 隠し宝箱(確定)
 function rollChestCount(tier) {
@@ -74,9 +76,10 @@ function simulateOnce(opts) {
     if (opts.scrollRoute && opts.caster && !polymorphKnown) {
       if (questYieldsPolymorphScroll(opts.tier)) polymorphKnown = true;
     }
-    // 杖ドロップ (低Tier・wandDropEnabled・ボス15%)
-    if (opts.wandRoute && wandDropEnabled && lowTier && !wandHeld) {
-      if (Math.random() < WAND_DROP_P) wandHeld = true;
+    // 杖ドロップ (全Tier・wandDropEnabled・ボス): 低Tier 15% / 高Tier 6% (低Tier優遇)
+    if (opts.wandRoute && wandDropEnabled && !wandHeld) {
+      const wp = lowTier ? WAND_DROP_P : WAND_DROP_P_HIGH;
+      if (Math.random() < wp) wandHeld = true;
     }
 
     const doorUnlocked = clears >= UNLOCK_CLEARS;
@@ -163,5 +166,6 @@ console.log("\n--- 解析チェック値 (低Tier I) ---");
 console.log(`  P(ボス→polymorph)        = ${pBossPoly.toFixed(4)}`);
 console.log(`  P(宝箱1個→polymorph)     = ${pChestPoly.toFixed(4)}`);
 console.log(`  P(1クエストで巻物入手)   ≈ ${pQuestPolyT1.toFixed(4)}  → 平均 ≈ ${(1 / pQuestPolyT1).toFixed(2)} 回 (巻物単独)`);
-console.log(`  杖: 解放後 P=0.15/q      → 5 + 1/0.15 ≈ ${(5 + 1 / WAND_DROP_P).toFixed(2)} 回 (非キャスター期待値)`);
+console.log(`  杖: 解放後 P=0.15/q      → 5 + 1/0.15 ≈ ${(5 + 1 / WAND_DROP_P).toFixed(2)} 回 (非キャスター期待値・低Tier)`);
+  console.log(`  杖(高Tier): 解放後 P=0.06/q → 5 + 1/0.06 ≈ ${(5 + 1 / WAND_DROP_P_HIGH).toFixed(2)} 回 (高Tier専門でも詰まない)`);
 console.log("");
