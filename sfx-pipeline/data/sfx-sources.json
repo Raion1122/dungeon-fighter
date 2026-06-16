@@ -5,34 +5,34 @@
       "name": "kenney_impact_sounds",
       "license": "CC0",
       "credit": "Kenney (kenney.nl)",
-      "url": "https://kenney.nl/assets/impact-sounds",
-      "url_note": "公式アセットページ。実行時に fetch_sfx.py が直リンク zip を検証・取得する。404 なら inbox 待ちとして report。",
+      "url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "url_note": "kenney.nl の直リンク zip(2026-06-16 解決)。CC0。",
       "type": "zip"
     },
     {
       "name": "kenney_rpg_audio",
       "license": "CC0",
       "credit": "Kenney (kenney.nl)",
-      "url": "https://kenney.nl/assets/rpg-audio",
+      "url": "https://kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip",
       "type": "zip"
     },
     {
       "name": "kenney_ui_audio",
       "license": "CC0",
       "credit": "Kenney (kenney.nl)",
-      "url": "https://kenney.nl/assets/ui-audio",
+      "url": "https://kenney.nl/media/pages/assets/ui-audio/490d233f68-1677590494/kenney_ui-audio.zip",
       "type": "zip"
     },
     {
       "name": "kenney_interface_sounds",
       "license": "CC0",
       "credit": "Kenney (kenney.nl)",
-      "url": "https://kenney.nl/assets/interface-sounds",
+      "url": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
       "type": "zip"
     }
   ],
   "mapping": {
-    "sword_swing":    { "category": "combat", "takes": 3, "volume": 0.9, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/sword_swing/*", "kenney_rpg_audio/**/knifeSlice*", "kenney_impact_sounds/**/swoosh*"] },
+    "sword_swing":    { "category": "combat", "takes": 3, "volume": 0.9, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/sword_swing/*"], "_note": "Phase A の合成「金属シャキン」を温存(a91b44b)。Kenney swoosh では上書きしない。差し替えたくなれば inbox に素材を置く。" },
     "hit_flesh":      { "category": "combat", "takes": 3, "volume": 1.0, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/hit_flesh/*", "kenney_impact_sounds/**/impactPunch*", "kenney_impact_sounds/**/impactSoft*"] },
     "hit_bone":       { "category": "combat", "takes": 2, "volume": 1.0, "pitchVar": 0.08, "bus": "sfx", "candidates": ["raw/inbox/hit_bone/*", "kenney_impact_sounds/**/impactWood*", "kenney_impact_sounds/**/impactPlate*"] },
     "hit_slime":      { "category": "combat", "takes": 2, "volume": 1.0, "pitchVar": 0.10, "bus": "sfx", "candidates": ["raw/inbox/hit_slime/*"] },
@@ -53,7 +53,7 @@
     "coin":           { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.05, "bus": "sfx", "candidates": ["raw/inbox/coin/*", "kenney_rpg_audio/**/coin*"] },
     "levelup":        { "category": "ui", "takes": 1, "volume": 0.9, "pitchVar": 0.0, "bus": "sfx", "candidates": ["raw/inbox/levelup/*"] },
     "quest_accept":   { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.0, "bus": "sfx", "candidates": ["raw/inbox/quest_accept/*"] },
-    "door_open":      { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/door_open/*", "kenney_rpg_audio/**/door*"] },
+    "door_open":      { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/door_open/*", "kenney_rpg_audio/**/doorOpen*"] },
     "item_get":       { "category": "ui", "takes": 1, "volume": 0.85, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/item_get/*", "kenney_rpg_audio/**/handleCoins*"] },
 
     "fire_loop":      { "category": "ambient", "takes": 1, "loop": true, "volume": 0.6, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.1, "loopEndOffset": 0.1, "flicker": { "min": 0.7, "max": 1.0, "period": 2.5 }, "candidates": ["raw/inbox/fire_loop/*"] },

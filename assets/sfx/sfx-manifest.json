@@ -1,1 +1,111 @@
-{}
+{
+  "hit_flesh": {
+    "files": [
+      "combat/hit_flesh_1.mp3",
+      "combat/hit_flesh_2.mp3",
+      "combat/hit_flesh_3.mp3"
+    ],
+    "volume": 1.0,
+    "pitchVar": 0.1,
+    "bus": "sfx",
+    "source": "kenney_impact_sounds",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "11f941e0b23758946920c6826fd15ad3214c46c3",
+    "durationSec": 0.648
+  },
+  "hit_bone": {
+    "files": [
+      "combat/hit_bone_1.mp3",
+      "combat/hit_bone_2.mp3"
+    ],
+    "volume": 1.0,
+    "pitchVar": 0.08,
+    "bus": "sfx",
+    "source": "kenney_impact_sounds",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "c1bf8e3ec4e217fb19cfd07b539b666d020bce1c",
+    "durationSec": 0.31
+  },
+  "hit_blocked": {
+    "files": [
+      "combat/hit_blocked_1.mp3",
+      "combat/hit_blocked_2.mp3"
+    ],
+    "volume": 0.9,
+    "pitchVar": 0.06,
+    "bus": "sfx",
+    "source": "kenney_impact_sounds",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "6c64a609cfa23dd8930d127a1be5abcae1f837f8",
+    "durationSec": 0.165
+  },
+  "ui_tap": {
+    "files": [
+      "ui/ui_tap_1.mp3"
+    ],
+    "volume": 0.7,
+    "pitchVar": 0.0,
+    "bus": "ui",
+    "source": "kenney_ui_audio",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "c02315e4c17ea0ee91c2afe7460b417fd0dd9e39",
+    "preload": "eager",
+    "durationSec": 0.091
+  },
+  "ui_confirm": {
+    "files": [
+      "ui/ui_confirm_1.mp3"
+    ],
+    "volume": 0.75,
+    "pitchVar": 0.0,
+    "bus": "ui",
+    "source": "kenney_interface_sounds",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "75f80b66155a9de84b5908c9f8856ba7833d97e6",
+    "durationSec": 0.29
+  },
+  "ui_cancel": {
+    "files": [
+      "ui/ui_cancel_1.mp3"
+    ],
+    "volume": 0.7,
+    "pitchVar": 0.0,
+    "bus": "ui",
+    "source": "kenney_interface_sounds",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "5740f52ab32ec57e9c211acf65a2590c6b0866ed",
+    "durationSec": 0.061
+  },
+  "door_open": {
+    "files": [
+      "ui/door_open_1.mp3"
+    ],
+    "volume": 0.8,
+    "pitchVar": 0.04,
+    "bus": "sfx",
+    "source": "kenney_rpg_audio",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "c78d212e363b072bbfc382208d37c24c3ea25f89",
+    "durationSec": 0.911
+  },
+  "item_get": {
+    "files": [
+      "ui/item_get_1.mp3"
+    ],
+    "volume": 0.85,
+    "pitchVar": 0.04,
+    "bus": "sfx",
+    "source": "kenney_rpg_audio",
+    "license": "CC0",
+    "credit": "Kenney (kenney.nl)",
+    "hash": "b8ec23148f0ffa211f8ef4b552ab9c47994435b4",
+    "durationSec": 0.791
+  }
+}
