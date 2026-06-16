@@ -2416,20 +2416,26 @@
     function sfx(n, o) { try { if (window.GameAudio) GameAudio.playSfx(n, o); } catch (e) {} }
     function bgm(n) { try { if (window.GameAudio) GameAudio.playBgm(n); } catch (e) {} }
     function voice(id) { try { if (window.GameAudio) GameAudio.playVoice(id); } catch (e) {} }
-    // 命中音: スイング→素材別ヒットの2層 (敵 def.hitSound: flesh/bone/slime、既定 flesh)。
-    // withSwing=false で風切りを省く (遠隔攻撃の着弾音など)。
-    function playMeleeHit(tgtDef, isCrit, withSwing) {
+    // ── 近接戦闘音: 「スイング(風切り)」と「命中(着弾)」を独立管理 ──
+    // 斬撃の風切り音。武器を振った瞬間に鳴らす — 命中/ミス/ファンブルを問わず近接スイング毎に。
+    function playMeleeSwing() {
+      try { if (window.GameAudio && GameAudio.playSfx) GameAudio.playSfx("sword_swing"); } catch (e) {}
+    }
+    // 命中音のみ (素材別: 明示 def.hitSound 優先 → undead は骨質 → 既定は肉質。slime は粘体敵用に予約)。
+    // delaySec で着弾を遅延発音できる (スイング→着弾のタメ用)。スイング音は含まない。
+    function playMeleeImpact(tgtDef, isCrit, delaySec) {
       try {
-        if (window.GameAudio && GameAudio.playLayered) {
-          // 素材: 明示 def.hitSound 優先 → undead は骨質 → 既定は肉質。slime は将来の粘体敵用に予約。
-          var mat = (tgtDef && tgtDef.hitSound) || ((tgtDef && tgtDef.undead) ? "bone" : "flesh");
-          var swing = (withSwing !== false);
-          var steps = [];
-          if (swing) steps.push({ id: "sword_swing", delay: 0 });
-          steps.push({ id: isCrit ? "crit" : ("hit_" + mat), delay: swing ? 0.16 : 0 });
-          GameAudio.playLayered(steps);
-        } else { sfx(isCrit ? "crit" : "hit"); }
+        var id = isCrit ? "crit"
+          : ("hit_" + ((tgtDef && tgtDef.hitSound) || ((tgtDef && tgtDef.undead) ? "bone" : "flesh")));
+        if (window.GameAudio && GameAudio.playLayered) GameAudio.playLayered([{ id: id, delay: delaySec || 0 }]);
+        else sfx(id);
       } catch (e) {}
+    }
+    // 近接が命中した時の複合音 (スイング → 0.16s後に着弾)。withSwing=false で着弾のみ (遠隔の着弾音)。
+    function playMeleeHit(tgtDef, isCrit, withSwing) {
+      var swing = (withSwing !== false);
+      if (swing) playMeleeSwing();
+      playMeleeImpact(tgtDef, isCrit, swing ? 0.16 : 0);
     }
     if (window.GameAudio) GameAudio.applySettings();
     // 事前生成ナレーション音声 (VOICEVOX) の manifest を読込 (未生成なら no-op)
@@ -12047,6 +12053,7 @@
 
       // 射程チェック: opts.range (スキル側) が優先、なければ武器射程
       const rangeKey = opts.range || playerStats.weaponRange || "melee";
+      const isMelee = rangeKey === "melee";   // 斬撃音(スイング)は近接時のみ
       const rangeTiles = getRange(rangeKey).tiles;
       const dist = tileChebyshev(playerX + 48, playerY + 58, ex, ey);
       if (dist > rangeTiles) {
@@ -12072,6 +12079,7 @@
         `<span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`;
 
       if (isFumble) {
+        if (isMelee) playMeleeSwing();   // 振り抜いた末のファンブル
         showRollAtPlayer(
           `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(atkBonus)}`,
           "fumble");
@@ -12085,7 +12093,7 @@
       let isCrit = helpless;  // 無抵抗は確定クリティカル相当
 
       if (!hit) {
-        sfx("miss");
+        if (isMelee) playMeleeSwing(); else sfx("miss");   // 近接=斬撃の風切り(着弾なし=空振り) / 遠隔=従来のミス音
         showRollAtPlayer(`<span class="label">${labelPrefix}MISS</span>${atkText}`, "miss");
         updateInfo(`${getLeaderName()}${opts.skillName ? "の"+opts.skillName : ""}: ${atkTotal} vs AC${effectiveEnemyAc(target)} → ミス`);
         const angle = Math.atan2(ey - (playerY + 58), ex - (playerX + 48));
@@ -12119,7 +12127,7 @@
         showRollAtPlayer(`<span class="label">${labelPrefix}HIT</span>${atkText}`, "hit");
       }
       await sleepMs(550);
-      playMeleeHit(tgtDef, isCrit);
+      playMeleeHit(tgtDef, isCrit, isMelee);   // 近接=スイング+着弾 / 遠隔=着弾のみ
 
       const angle = Math.atan2(ey - (playerY + 58), ex - (playerX + 48));
       await runSwingNoHit(angle);
@@ -13735,7 +13743,9 @@
         await spawnArrow(launchX, launchY, ex, ey, 320);
       };
 
+      const allyMelee = (ally.weaponRange || "melee") === "melee";   // 斬撃音は近接の仲間のみ
       if (isFumble) {
+        if (allyMelee) playMeleeSwing();
         showRollAtAlly(ally,
           `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`,
           "fumble");
@@ -13746,6 +13756,7 @@
       const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
       let isCrit = helpless;
       if (!hit) {
+        if (allyMelee) playMeleeSwing();   // 近接=空振りの風切り / 遠隔=従来通り矢の発射音
         showRollAtAlly(ally,
           `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
           "miss");
@@ -13804,7 +13815,7 @@
       triggerEnemyDamageFlash(enemyIdx);
       noteDisplacementHit(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
-      playMeleeHit(tgtDef, isCrit, (ally.weaponRange || "melee") === "melee");   // 仲間も命中音 (近接=スイング付/遠隔=着弾のみ)
+      playMeleeHit(tgtDef, isCrit, allyMelee);   // 仲間も命中音 (近接=スイング付/遠隔=着弾のみ)
       showDmgAt(ex, target.y, dmg, isCrit);
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} ダメージ`);
       await sleepMs(400);
