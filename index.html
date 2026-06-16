@@ -14031,17 +14031,18 @@
         playerBuffs.atkBonusRemaining = Math.max(playerBuffs.atkBonusRemaining || 0, dur);
         playerBuffs.atkBonusAmount = Math.max(playerBuffs.atkBonusAmount || 0, roll);
         playerBuffs.blessMoveRemaining = Math.max(playerBuffs.blessMoveRemaining || 0, dur);  // 移動速度UP (2マス前進)
+        spawnCureFx(playerX + 48, playerY + 58);   // 祝福エフェクト (リーダー)
         n++;
       }
-      // 全生存仲間 (allyAtkBuff が攻撃ロールに反映)
+      // 全生存仲間 (allyAtkBuff が攻撃ロールに反映)。エフェクトも各員に出す (バフ対象=演出対象)
       for (const a of allies) {
         if (!a.alive) continue;
         a.buffs.atkBonusRemaining = Math.max(a.buffs.atkBonusRemaining || 0, dur);
         a.buffs.atkBonusAmount = Math.max(a.buffs.atkBonusAmount || 0, roll);
         a.buffs.blessMoveRemaining = Math.max(a.buffs.blessMoveRemaining || 0, dur);  // 移動速度UP (2マス前進)
+        spawnCureFx(a.x + a.def.displaySize / 2, a.y + a.def.displaySize / 2);   // 祝福エフェクト (各仲間)
         n++;
       }
-      spawnCureFx(playerX + 48, playerY + 58);
       showBuffPop(`<span class="label">BLESS</span>味方${n}人: 攻撃 <span class="big">+${roll}</span> ＋移動2マス (${skill.duration}T)`);
       updateInfo(`${ally.def.name}: ブレス! 味方${n}人の攻撃ロール +${roll} (1d${skill.blessDie || 4}) + 移動速度UP (10T)`);
       await sleepMs(700);
