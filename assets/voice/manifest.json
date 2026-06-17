@@ -518,5 +518,37 @@
     "speaker": 13,
     "durationSec": 18.24,
     "hash": "33aa87e67cb96828"
+  },
+  "skillcheck_success": {
+    "category": "event",
+    "file": "event/skillcheck_success.mp3",
+    "text": "見事だ。君たちは、隠されていたものを見抜いた。",
+    "speaker": 13,
+    "durationSec": 3.669,
+    "hash": "f5c7c8954e4b3d10"
+  },
+  "skillcheck_fail": {
+    "category": "event",
+    "file": "event/skillcheck_fail.mp3",
+    "text": "……何かを、見落としたかもしれん。気をつけて、進むがいい。",
+    "speaker": 86,
+    "durationSec": 4.384,
+    "hash": "79fda7f1424f2045"
+  },
+  "skillcheck_crit": {
+    "category": "event",
+    "file": "event/skillcheck_crit.mp3",
+    "text": "完璧な洞察だ。何ひとつ、君たちの目を逃れはしない。",
+    "speaker": 13,
+    "durationSec": 4.395,
+    "hash": "5ec3861d4bdda50d"
+  },
+  "skillcheck_fumble": {
+    "category": "event",
+    "file": "event/skillcheck_fumble.mp3",
+    "text": "……油断したな。その先に何が潜んでいるか、神のみぞ知る……",
+    "speaker": 86,
+    "durationSec": 4.459,
+    "hash": "9d567b7447d7f0e1"
   }
 }
