@@ -1008,6 +1008,42 @@
     }
     .dmHint.show { opacity: 1; }
 
+    /* 受注ナレ演出ステージ (映画風): 風景帯 + 依頼人を文字箱の上に重ねる。受注ナレ時のみ表示 */
+    #prologueOverlay.quest-accept { flex-direction: column; align-items: center; }
+    #questAcceptArt {
+      width: 760px;
+      max-width: 92vw;
+      position: relative;
+      display: none;
+    }
+    #prologueOverlay.quest-accept #questAcceptArt { display: block; }
+    #questAcceptScene {
+      width: 100%;
+      height: 220px;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+      border: 6px solid #6a4010;
+      border-bottom: none;
+      border-radius: 6px 6px 0 0;
+      box-shadow: inset 0 -40px 60px rgba(20,12,4,0.55);
+      /* 風景画未生成シナリオはこの暗いアトモス帯にフォールバック (broken アイコン回避は onerror で src 除去) */
+      background: linear-gradient(180deg, #2a1d10 0%, #170e06 100%);
+    }
+    #questAcceptPortrait {
+      position: absolute;
+      left: 22px;
+      bottom: -26px;
+      height: 210px;
+      width: auto;
+      z-index: 2;
+      filter: drop-shadow(0 6px 12px rgba(0,0,0,0.75));
+      pointer-events: none;
+    }
+    #questAcceptPortrait.hidden { display: none; }
+    /* 文字箱の上角を直角化し、風景帯 (下角直角) と継ぎ目なく一枚の額縁に見せる (受注時のみ) */
+    #prologueOverlay.quest-accept #dmNarration { border-radius: 0 0 6px 6px; }
+
     /* ════════ 闇市 ポドルプラザ ════════ */
     /* テーマ差し替え: 配下で CSS 変数を闇市カラーに上書き (背後の銀の鹿亭は羊皮紙のまま) */
     .theme-plaza {
@@ -1120,6 +1156,10 @@
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
   <!-- オープニング前口上オーバーレイ (初回来訪時のみ表示) -->
   <div id="prologueOverlay">
+    <div id="questAcceptArt">
+      <img id="questAcceptScene" alt="" draggable="false">
+      <img id="questAcceptPortrait" alt="" draggable="false">
+    </div>
     <div id="dmNarration">
       <div class="dmHeader">📜 フランの記録</div>
       <div class="dmBody" id="dmBody"></div>
@@ -1260,10 +1300,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>受注画面に依頼人と風景の絵を追加</b> — 依頼の読み上げ時、依頼人の姿と舞台の風景(廃坑)が映画のように映し出されるように。</li>
         <li><b>技能判定に音声を追加</b> — 知覚判定の成否で語り部の声が流れるようになった。</li>
         <li><b>技能判定システム</b> — 罠や隠し宝箱は知覚判定(d20)に勝たないと見つからない。出目とDCが見える化。</li>
         <li><b>闇市の杖が高難度でも手に入るように</b> — 高難度クエストのボスからも稀にポリモーフの杖が出るようになり、闇市の入場手段に詰まりにくく。</li>
-        <li><b>剣を振る音を風切り音に</b> — 金属の「シャキン」から、刃が空気を裂く「ヒュッ」という音に変更。</li>
       </ul>
     </div>
 
@@ -3453,6 +3493,17 @@
     }
   }
 
+  // 受注ナレ演出ステージを中立状態へ戻す。共有オーバーレイ #prologueOverlay は前口上/受注/闇市の3用途で
+  // 再利用されるため、受注ナレ終了時に必ず・他用途の入口でも保険で呼び、風景帯/依頼人/quest-accept の漏れを防ぐ。
+  function resetQuestAcceptStage() {
+    const overlay = document.getElementById("prologueOverlay");
+    if (overlay) overlay.classList.remove("quest-accept");
+    const sceneEl = document.getElementById("questAcceptScene");
+    const portraitEl = document.getElementById("questAcceptPortrait");
+    if (sceneEl) { sceneEl.removeAttribute("src"); sceneEl.onerror = null; }
+    if (portraitEl) { portraitEl.removeAttribute("src"); portraitEl.onerror = null; portraitEl.classList.remove("hidden"); }
+  }
+
   // クエスト受注ナレ: 依頼人の語り (語り口調 + セリフ) を全画面オーバーレイで出してから準備画面へ。
   // 固定シナリオは「前置き + sc.dialog」、自動生成クエストは生成された依頼文 (sc.__generated.flavor) を使う。
   async function playQuestAcceptNarration(sc) {
@@ -3475,6 +3526,20 @@
     const hintEl = document.getElementById("dmHint");
     if (headerEl) headerEl.textContent = (sc.client && sc.client.name) ? `📜 ${sc.client.name}の依頼` : "📜 依頼";
     if (hintEl) { hintEl.classList.remove("show"); }
+    // 演出ステージ: 固定シナリオ (sc.id あり) のみ風景帯 + 依頼人を出す。生成クエストはテキストのみ。
+    const sceneEl = document.getElementById("questAcceptScene");
+    const portraitEl = document.getElementById("questAcceptPortrait");
+    if (sc.id && sceneEl && portraitEl) {
+      // 風景画: 未生成シナリオは broken アイコンを消し CSS のアトモス帯にフォールバック
+      sceneEl.onerror = function () { this.removeAttribute("src"); };
+      sceneEl.src = "assets/scene_" + sc.id + ".png";
+      // 依頼人: 全6シナリオ分あり。万一欠落なら隠す (帯 + 文字箱は成立)
+      portraitEl.classList.remove("hidden");
+      portraitEl.onerror = function () { this.classList.add("hidden"); };
+      portraitEl.src = "assets/client_" + sc.id + ".png";
+      portraitEl.alt = (sc.client && sc.client.name) ? sc.client.name : "";
+      overlay.classList.add("quest-accept");
+    }
     overlay.classList.remove("fading");
     overlay.style.display = "flex";
     // tavern にはクリックスキップ配線が無いので一時付与 (1クリックで段落を即時確定/送り)
@@ -3488,13 +3553,16 @@
     try {
       // 固定シナリオ: quest_dialog_<id>_<段落> を再生 (未生成クリップはテキストペースに優雅にフォールバック)
       await playNarration(paras, isFixed ? ("quest_dialog_" + sc.id) : null);
+      overlay.classList.add("fading");
+      await sleepMs(500);
     } finally {
+      // 後始末は finally 内で必ず実行する。外に置くと playNarration が reject した時にスキップされ、
+      // quest-accept クラス/風景帯/依頼人が残って 前口上・闇市ナレ (同じオーバーレイ) に漏れる。
       overlay.removeEventListener("click", skip);
+      overlay.style.display = "none";
+      overlay.classList.remove("fading");
+      resetQuestAcceptStage();
     }
-    overlay.classList.add("fading");
-    await sleepMs(500);
-    overlay.style.display = "none";
-    overlay.classList.remove("fading");
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -3529,6 +3597,7 @@
     if (seen) return;  // 既視聴 (旧 index フローで見た人を含む) はスキップ
     const overlay = document.getElementById("prologueOverlay");
     if (!overlay) return;
+    resetQuestAcceptStage();  // 受注ナレ用の演出ステージが残っていれば消す (共有オーバーレイの保険)
     const headerEl = overlay.querySelector(".dmHeader");
     const hintEl = document.getElementById("dmHint");
     if (headerEl) headerEl.textContent = "📜 フランの記録";
@@ -3574,6 +3643,7 @@
   async function playPlazaOverlayNarration(header, paras, voiceId) {
     const overlay = document.getElementById("prologueOverlay");
     if (!overlay || !paras || !paras.length) return;
+    resetQuestAcceptStage();  // 受注ナレ用の演出ステージが残っていれば消す (共有オーバーレイの保険)
     const headerEl = overlay.querySelector(".dmHeader");
     const hintEl = document.getElementById("dmHint");
     if (headerEl) headerEl.textContent = header;
