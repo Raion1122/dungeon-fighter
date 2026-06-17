@@ -2328,6 +2328,8 @@
     }
   </style>
   <script src="audio.js"></script>
+  <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
+  <script src="js/skill-check.js"></script>
 </head>
 <body>
   <!-- SVG フィルタ定義 (炎オーラの動的歪み用) -->
@@ -13279,81 +13281,116 @@
     }
 
     // 知覚チェック: プレイヤー 1 タイル移動後に呼ばれる
-    //   周辺 TRAP_PERCEPTION_RADIUS 以内の未発見罠 + 隠された宝箱を
-    //   PT 全員で 1d20+WIS+perceptionBonus 判定、1人成功で発見
-    // ── 罠/隠し宝箱 発見: 職業別確率モデル (classes.md 準拠) ──
-    // 旧実装は「移動ごと×全員×d20」で累積発見しほぼ必中=職業差消失。
-    // 1対象につき半径内で1回だけ職業別確率で判定し、職業差を効かせる。
-    const CLASS_TRAP_FIND_CHANCE = {
-      rogue: 0.80, dwarf: 0.40, elf: 0.35, warrior: 0.20, cleric: 0.20, mage: 0.20,
-    };
-    const FIND_TRAPS_CHANCE = 0.95;  // 盗賊が「罠探知強化」装備時
-    function memberTrapChance(classKey, equipped) {
-      if (Array.isArray(equipped) && equipped.includes("find-traps")) return FIND_TRAPS_CHANCE;
-      return CLASS_TRAP_FIND_CHANCE[classKey] != null ? CLASS_TRAP_FIND_CHANCE[classKey] : 0.20;
-    }
-    // 生存メンバー中の最良発見確率 + その担当者名 (最も鋭い者が見つける)
-    function partyBestTrapFinder() {
-      let best = 0, name = "";
+    //   周辺 TRAP_PERCEPTION_RADIUS 以内の未発見罠 + 隠された宝箱 + ミミックを
+    //   共有 SkillCheck エンジン (js/skill-check.js) の「知覚」判定で発見する。
+    // ── 罠/隠し宝箱/ミミックの発見: d20 知覚判定 (skill-check-spec.md v2) ──
+    // 旧来の職業別確率モデル(CLASS_TRAP_FIND_CHANCE)を撤去し d20+DC へ置換。
+    // 接近で自動ポーズ → タップで d20 → 成功時のみ発見 (ユーザー要望
+    // 「判定に勝たないと宝箱は見つからない」)。失敗=見逃し: 罠は踏むまで未発見、
+    // 隠し宝箱は取り逃す、ミミックは看破できず通常起動のリスクが残る。
+    // 半径内の対象は1群1回だけ判定 (毎タイル乱発を防ぐ。_percRolled で済印)。
+    let skillCheckActive = false;  // 知覚判定パネル表示中ガード (多重起動防止)
+
+    // 判定パーティ: 主人公 + 生存仲間を {classKey, name} 配列に (隊列順)。
+    function buildPerceptionParty() {
+      const party = [];
       if (hp > 0 && !gameOver) {
-        const c = memberTrapChance(leaderClassKey, equippedSkills);
-        if (c > best) { best = c; name = getLeaderName(); }
+        party.push({ classKey: leaderClassKey, name: getLeaderName(), isHero: true });
       }
       for (const a of allies) {
         if (!a.alive) continue;
-        const c = memberTrapChance(a.classKey, a.equippedSkills);
-        if (c > best) { best = c; name = a.def.name; }
+        party.push({ classKey: a.classKey, name: a.npcName || (a.def && a.def.name) || "仲間" });
       }
-      return { chance: best, name };
+      return party;
     }
+    // 盗賊スキル「罠探知強化(find-traps)」は知覚に +2 の補助として翻案し温存。
+    function perceptionExtraBonus() {
+      const has = (eq) => Array.isArray(eq) && eq.includes("find-traps");
+      if (has(equippedSkills)) return 2;
+      for (const a of allies) { if (a.alive && has(a.equippedSkills)) return 2; }
+      return 0;
+    }
+    // 知覚判定の結果ボイス (VOICEVOX 青山龍星)。mp3 未生成でも no-op で安全。
+    const PERCEPTION_VOICE = {
+      success: "skillcheck_success", fail: "skillcheck_fail",
+      crit: "skillcheck_crit", fumble: "skillcheck_fumble",
+    };
 
     function runPerceptionCheck() {
       if (encounterActive || encounterRunning) return;
       if (!gameStarted || gameOver) return;
+      if (skillCheckActive) return;
+      if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return;  // エンジン未読込なら何もしない
       const pCX = playerX + 48, pCY = playerY + 58;
       const pTX = Math.floor(pCX / TILE_SIZE);
       const pTY = Math.floor(pCY / TILE_SIZE);
-      const finder = partyBestTrapFinder();   // {chance, name}
-      const pct = Math.round(finder.chance * 100);
+      const inRadius = (tx, ty) =>
+        Math.abs(tx - pTX) <= TRAP_PERCEPTION_RADIUS && Math.abs(ty - pTY) <= TRAP_PERCEPTION_RADIUS;
 
-      // 罠の発見判定 (半径内に入った対象につき1回だけ確率判定)
-      for (const trap of traps) {
-        if (trap.found || trap.triggered || trap._percRolled) continue;
-        if (Math.abs(trap.tx - pTX) > TRAP_PERCEPTION_RADIUS) continue;
-        if (Math.abs(trap.ty - pTY) > TRAP_PERCEPTION_RADIUS) continue;
-        trap._percRolled = true;   // この罠は判定済 (見逃したら踏むまで未発見)
-        if (Math.random() < finder.chance) {
-          trap.found = true;
-          showBanner("⚠ 罠を見つけた!", 1400);
-          showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
-          updateInfo(`${finder.name} が罠を発見! (発見率 ${pct}%)`);
-        }
+      // 半径内の未判定対象を収集 (罠 / 隠し宝箱 / ミミック)
+      const pendingTraps = traps.filter(t =>
+        !t.found && !t.triggered && !t._percRolled && inRadius(t.tx, t.ty));
+      const pendingChests = (typeof roomChests !== "undefined")
+        ? roomChests.filter(c => c.hidden && !c.found && !c._percRolled && inRadius(c.tx, c.ty)) : [];
+      const pendingMimic = (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened
+        && !mimicChest._percRolled && inRadius(mimicChest.tx, mimicChest.ty)) ? mimicChest : null;
+      if (pendingTraps.length === 0 && pendingChests.length === 0 && !pendingMimic) return;
+
+      // この対象群は判定済印を立てる (見逃したら踏む/取り逃すまで再判定しない)
+      pendingTraps.forEach(t => t._percRolled = true);
+      pendingChests.forEach(c => c._percRolled = true);
+      if (pendingMimic) pendingMimic._percRolled = true;
+
+      const party = buildPerceptionParty();
+      if (party.length === 0) return;
+      const dc = (currentScenario && currentScenario.perceptionDC) || 14;
+
+      skillCheckActive = true;
+      dialogPaused = true;  // 判定中は探索を停止 (showChoice と同方針)
+      SkillCheck.resolveSkillCheck("perception", dc, party, {
+        title: "知覚判定",
+        flavor: "あたりに気を配る。罠や隠されたものの気配は…",
+        extraBonus: perceptionExtraBonus(),
+        voiceIds: PERCEPTION_VOICE,
+      }).then((res) => {
+        applyPerceptionResult(res, pendingTraps, pendingChests, pendingMimic);
+      }).catch(() => {}).finally(() => {
+        skillCheckActive = false;
+        dialogPaused = false;
+      });
+    }
+
+    // 知覚判定の結果を反映。成功時のみ発見し、失敗は見逃し (発見ゼロ)。
+    function applyPerceptionResult(res, pendingTraps, pendingChests, pendingMimic) {
+      if (!res) return;
+      const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (!res.success) {
+        updateInfo(`${rep} は周囲を探ったが、何も見つけられなかった… (知覚 ${res.total} < DC ${res.dc})`);
+        return;
       }
-
-      // 隠された宝箱の発見判定
-      if (typeof roomChests !== "undefined") {
-        for (const chest of roomChests) {
-          if (!chest.hidden || chest.found || chest._percRolled) continue;
-          if (Math.abs(chest.tx - pTX) > TRAP_PERCEPTION_RADIUS) continue;
-          if (Math.abs(chest.ty - pTY) > TRAP_PERCEPTION_RADIUS) continue;
-          chest._percRolled = true;
-          if (Math.random() < finder.chance) {
-            chest.found = true;
-            showBanner("🎁 隠された宝箱を見つけた!", 1400);
-            updateInfo(`${finder.name} が隠された宝箱を発見! (発見率 ${pct}%)`);
-          }
-        }
+      let found = 0;
+      for (const trap of pendingTraps) {
+        if (trap.found || trap.triggered) continue;
+        trap.found = true; found++;
       }
-
-      // ミミック (偽宝箱) の事前察知: 罠と同じ職業別確率で1回判定。見抜くと粘着なしで先制起動。
-      if (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened && !mimicChest._percRolled) {
-        if (Math.abs(mimicChest.tx - pTX) <= TRAP_PERCEPTION_RADIUS && Math.abs(mimicChest.ty - pTY) <= TRAP_PERCEPTION_RADIUS) {
-          mimicChest._percRolled = true;
-          if (Math.random() < finder.chance) {
-            updateInfo(`${finder.name} が偽宝箱を見抜いた! (発見率 ${pct}%)`);
-            if (typeof awakenMimic === "function") awakenMimic(mimicChest, { forewarned: true });
-          }
-        }
+      for (const chest of pendingChests) {
+        if (chest.found) continue;
+        chest.found = true; found++;
+      }
+      if (pendingTraps.some(t => t.found)) {
+        showBanner("⚠ 罠を見つけた!", 1400);
+        showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
+      }
+      if (pendingChests.some(c => c.found)) {
+        showBanner("🎁 隠された宝箱を見つけた!", 1400);
+      }
+      if (found > 0) {
+        updateInfo(`${rep} が知覚判定に成功! (${res.total} ≧ DC ${res.dc}) — ${found}件を発見`);
+      }
+      // ミミック (偽宝箱) の看破: 成功で粘着なし先制起動
+      if (pendingMimic && !pendingMimic.awakened) {
+        updateInfo(`${rep} が偽宝箱を見抜いた! (知覚 ${res.total} ≧ DC ${res.dc})`);
+        if (typeof awakenMimic === "function") awakenMimic(pendingMimic, { forewarned: true });
       }
     }
 

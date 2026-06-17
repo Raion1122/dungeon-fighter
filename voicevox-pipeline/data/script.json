@@ -93,6 +93,11 @@
     { "id": "nar_quest_complete", "category": "event", "speaker": "dungeon_master", "text": "見事だ。君たちはボスを討ち、ダンジョンは静寂を取り戻した。これが、君たちの選んだ道だ。" },
     { "id": "nar_quest_defeat", "category": "event", "speaker": "dungeon_master", "text": "君たちは、ここで力尽きた。だが、物語はまだ終わってはいない。再び、立ち上がるがいい。" },
 
+    { "id": "skillcheck_success", "category": "event", "speaker": "narrator", "text": "見事だ。君たちは、隠されていたものを見抜いた。" },
+    { "id": "skillcheck_fail", "category": "event", "speaker": "dungeon_master_whisper", "text": "……何かを、見落としたかもしれん。気をつけて、進むがいい。" },
+    { "id": "skillcheck_crit", "category": "event", "speaker": "narrator", "text": "完璧な洞察だ。何ひとつ、君たちの目を逃れはしない。" },
+    { "id": "skillcheck_fumble", "category": "event", "speaker": "dungeon_master_whisper", "text": "……油断したな。その先に何が潜んでいるか、神のみぞ知る……" },
+
     { "id": "plaza_gatekeeper_reject", "category": "plaza", "speaker": "dungeon_master_whisper", "text": "……人間の、匂いだ。失せな……姿を変える術も、持たねえくせに……" },
     { "id": "plaza_enter_innate", "category": "plaza", "speaker": "dungeon_master_whisper", "text": "……ほう。本物の、術師か……通りな……" },
     { "id": "plaza_enter_first", "category": "plaza", "speaker": "dungeon_master_whisper", "text": "ようこそ……ここは、ポドルプラザ。表の世界には、ない品が揃う場所……" },
