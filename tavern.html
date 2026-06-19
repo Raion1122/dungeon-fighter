@@ -750,6 +750,58 @@
       box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
     }
 
+    /* 事前情報チェック (examine/talk/pray): 準備画面の判定ボタン + 結果表示 */
+    .intelBtnRow {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin: 8px 0 2px;
+    }
+    .intelBtn {
+      padding: 8px 16px;
+      font-size: 13px;
+      letter-spacing: 1px;
+      background: #5a3a20;
+      color: #e8d8bc;
+      text-transform: none;
+    }
+    .intelBtn:disabled {
+      opacity: 0.45;
+      cursor: default;
+      filter: grayscale(0.45);
+    }
+    .intelSkill {
+      font-size: 10px;
+      opacity: 0.7;
+      margin-left: 4px;
+      letter-spacing: 1px;
+    }
+    .intelResult {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--parchment-ink);
+      background: rgba(120, 90, 40, 0.12);
+      border: 1px dashed rgba(90, 60, 20, 0.5);
+      border-radius: 3px;
+      padding: 9px 12px;
+      margin-top: 8px;
+    }
+    .intelResult .intelWho {
+      font-family: 'MedievalSharp', serif;
+      font-size: 12px;
+      opacity: 0.85;
+      margin-bottom: 2px;
+    }
+    .intelResult.success {
+      background: rgba(60, 120, 40, 0.14);
+      border-color: rgba(120, 180, 60, 0.55);
+    }
+    .intelResult.fail {
+      background: rgba(120, 60, 40, 0.13);
+      border-color: rgba(180, 80, 50, 0.5);
+    }
+
     /* Phase 2-J: 呪文記憶スロット ±UI */
     .spellCountCtrl {
       display: inline-flex;
@@ -1278,6 +1330,16 @@
           <div class="ph">敵情報</div>
           <div class="stub" id="prepEnemyInfo"></div>
         </div>
+        <!-- 事前情報チェック (examine/talk/pray): 潜るパーティで判定し、出目しだいで攻略前情報を得る -->
+        <div class="prepPanel" id="prepIntelPanel">
+          <div class="ph">🔮 事前情報 <span style="opacity:0.6;font-size:12px;">(各 1回・出目しだい)</span></div>
+          <div class="intelBtnRow">
+            <button type="button" class="btn intelBtn" id="btnIntelExamine">🔍 依頼を吟味する<span class="intelSkill">捜査</span></button>
+            <button type="button" class="btn intelBtn" id="btnIntelTalk">💬 周囲に聞き込む<span class="intelSkill">説得</span></button>
+            <button type="button" class="btn intelBtn" id="btnIntelPray">🙏 神に祈る<span class="intelSkill">宗教</span></button>
+          </div>
+          <div id="intelResultList"></div>
+        </div>
         <!-- Phase 2-G DEBUG: 残影回避の確認用トグル (出発時に URL ?evade=all を付与) -->
         <div id="debugEvadeRow" style="display:flex;gap:8px;justify-content:center;margin:6px 0 10px;flex-wrap:wrap;">
           <button type="button" id="btnDebugEvadeAll"   class="btn debugEvadeBtn">🛡 必ず回避 (全攻撃) OFF</button>
@@ -1300,10 +1362,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>出発前に"事前情報チェック"を追加</b> — 準備画面で「吟味/聞き込み/祈り」を試すと、出目しだいで敵の弱点や噂、罠の予兆がわかる。</li>
         <li><b>全6シナリオの受注画面に風景画を追加</b> — 依頼を受ける時、舞台となる地(沼地・砦・地下神殿・竜の巣)の情景が大きく映るようになった。</li>
         <li><b>受注画面に「盗賊団の根城」の風景画を追加</b> — 森の奥の盗賊砦が映画風に表示されるようになった。</li>
         <li><b>受注画面に依頼人と風景の絵を追加</b> — 依頼の読み上げ時、依頼人の姿と舞台の風景(廃坑)が映画のように映し出されるように。</li>
-        <li><b>技能判定に音声を追加</b> — 知覚判定の成否で語り部の声が流れるようになった。</li>
       </ul>
     </div>
 
@@ -1475,6 +1537,123 @@
       unlockAfter: "undead-temple",
     },
   ];
+
+  // ════════════ 事前情報チェック (examine/talk/pray) のテキスト ════════════
+  // 準備画面で潜るパーティが判定を宣言 → 成否で攻略前情報を開示。固定6シナリオのみ
+  // (生成クエストは id 不一致でパネル非表示)。dc は控えめ昇順 (代表者ボーナスが
+  // +0〜+3 と小さいため。playtest で調整可)。crit は成功への追加の一文として連結表示。
+  // 素材: examine=敵の弱点/ボスの手口/伏兵の気配、talk=噂/伏線/黒幕の影、
+  //       pray=罠/呪い/アンデッド等の霊的危険。隠し要素の固有名はネタバレせず気配に留める。
+  const SCENARIO_INTEL = {
+    "goblin-mine": {
+      dc: 11,
+      examine: {
+        success: "ゴブリンは数こそ多いが統率は粗い。射手と呪術師を先に潰せば総崩れになる。首領グリクスは怒り狂うと棍棒を振り回す——隙は大きい。",
+        crit:    "さらに、奥に攫われた御者が囚われている気配。グリクスは半死で激昂し攻撃が荒くなる。落ち着いて捌けば勝てる。",
+        fail:    "坑道は入り組み、敵の配置までは読み切れなかった。",
+      },
+      talk: {
+        success: "酒場の噂——「廃坑のゴブリンは“誰か”に焚きつけられて気が大きくなった」とか。妙に組織だっている。",
+        crit:    "酔った鉱夫いわく「奥で“竜の鱗”みたいな赤い欠片を見た」と。ただのゴブリンの巣にしては、きな臭い。",
+        fail:    "めぼしい噂は拾えなかった。",
+      },
+      pray: {
+        success: "神託——坑道には粗末ながら落とし穴の類が仕掛けられている。足元に気を配れ。",
+        crit:    "加護が冴える。罠の在処がうっすら視える。先頭を歩く者が慎重に進めば避けられよう。",
+        fail:    "祈りは届いたが、判然とした警告は得られなかった。",
+      },
+    },
+    "bandits-forest": {
+      dc: 12,
+      examine: {
+        success: "盗賊頭スカーは二刀流で手数が多い。手負いになると煙幕で身を隠し守りを固める——長期戦は不利、一気に削れ。射手とスリング使いは散開して狙ってくる。",
+        crit:    "さらに、森の奥の檻に“何か”が囚われている気配。むやみに近づくな——正面の敵だけが脅威とは限らない。",
+        fail:    "木々が深く、敵の手の内までは掴めなかった。",
+      },
+      talk: {
+        success: "旅人の噂——盗賊団は近頃やけに統率がとれ、誰かの“指令書”で動いているらしい。ただの食い詰め者ではない。",
+        crit:    "噂を辿ると、紋章入りの命令書…その印は遠く“竜”を思わせるという。黒幕の影がちらつく。",
+        fail:    "森の監視員も口が重く、確かな話は得られなかった。",
+      },
+      pray: {
+        success: "神託——森の小道には括り罠や落とし枝が仕込まれている。隊列の足元に警戒を。",
+        crit:    "加護が囁く。罠だけでなく、影そのものが牙を剥く獣の気配…正面の敵以外にも備えよ。",
+        fail:    "梢のざわめきに紛れ、警告は形にならなかった。",
+      },
+    },
+    "lizard-swamp": {
+      dc: 13,
+      examine: {
+        success: "リザードマンは数で押し、呪術師が後方から呪いを飛ばす。沼のワニは水際で待ち伏せる。族長は手強い——呪術師を先に断て。",
+        crit:    "さらに、沼の最奥の古い祠に“多頭の主”が眠る気配。触らぬが賢明だが、戦うなら頭を一度に焼き落とせ。",
+        fail:    "霧と泥濘に阻まれ、敵の布陣は読めなかった。",
+      },
+      talk: {
+        success: "村の古老いわく——族長は「炎の支配者」なる者にひれ伏しているという。沼の民が突然牙を剥いたのも、その差し金か。",
+        crit:    "さらに——「炎の支配者」とは赤き竜の異名では、と囁く者も。点と点が繋がりはじめる。",
+        fail:    "村人は怯えるばかりで、要領を得なかった。",
+      },
+      pray: {
+        success: "神託——沼地は瘴気が濃く、毒と泥の罠が潜む。足を取られれば狙い撃ちにされよう。",
+        crit:    "古き沼神への冒涜が祟りを呼んでいる。深入りすれば“滅びぬ守り手”が目を覚ます——心せよ。",
+        fail:    "瘴気が祈りを濁し、判然とした啓示はなかった。",
+      },
+    },
+    "orc-fort": {
+      dc: 14,
+      examine: {
+        success: "オークは正面からの力押し。将軍ガロックは腕利きで一撃が重い——盾役で受け、手数で崩せ。弓兵が城壁から狙うので遮蔽を使え。",
+        crit:    "さらに、砦の奥にひとりでに動く石の番兵が眠っている。敵か味方かは“振る舞い”で決まるという…挑発は禁物。",
+        fail:    "崩れた城壁が視界を阻み、敵の配置は掴めなかった。",
+      },
+      talk: {
+        success: "自警団の噂——砦の瓦礫から“竜の鱗”が見つかったという。オークがこの地に居座る理由も、それと無縁ではあるまい。",
+        crit:    "鱗は古代王国の遺構の奥から出たとか。砦には王国の“番人”が今も眠る、と古い記録は告げる。",
+        fail:    "兵たちは将軍の武勇に怯え、噂どころではなかった。",
+      },
+      pray: {
+        success: "神託——砦の床には古い圧迫罠と崩落の仕掛けが残る。重い足音は禁物だ。",
+        crit:    "古代王国の守りの意志が満ちている。礼を欠けば石の守護者が立ちはだかる——敬意をもって進め。",
+        fail:    "砦に満ちる怨念が祈りを散らし、警告は得られなかった。",
+      },
+    },
+    "undead-temple": {
+      dc: 15,
+      examine: {
+        success: "アンデッドは痛みを知らず、レイスは壁をすり抜けて忍び寄る。リッチは召喚の儀に没頭している——詠唱を断てば隙が生まれる。",
+        crit:    "さらに、列柱の影に敵でも味方でもない“古き神官の霊”の気配。語りかければ黒幕の核心を明かすかもしれぬ。",
+        fail:    "不浄の気が立ち込め、神殿の内部までは見通せなかった。",
+      },
+      talk: {
+        success: "司祭の話——リッチは竜を呼び寄せる召喚の儀を進めているという。間に合わねば、この地は業火に呑まれる。",
+        crit:    "儀式が呼ぶ竜の名は「ファラクサス」——すべての糸を手繰る黒幕の名だと、司祭は声を潜めた。",
+        fail:    "司祭の祈りは切実だが、儀式の詳細までは分からなかった。",
+      },
+      pray: {
+        success: "神託——神殿はアンデッドの巣。聖なる光は効くが、呪詛の罠と魂を削る瘴気に備えよ。",
+        crit:    "神の加護が冴え渡る。聖印を掲げればアンデッドはひるむ——僧侶を前に、光を絶やすな。",
+        fail:    "不浄が祈りを阻み、加護の手応えは薄かった。",
+      },
+    },
+    "dragon-lair": {
+      dc: 16,
+      examine: {
+        success: "配下は寄せ集めだが数は多い。ファラクサスは灼熱のブレスを薙ぎ払う——散開して同時に焼かれるのを避けよ。激昂すれば手が付けられぬ、好機を逃すな。",
+        crit:    "さらに、竜の鱗にも継ぎ目がある。腹側と古傷を狙えば刃が通る。ブレスの後は大きな隙——そこを叩け。",
+        fail:    "灼熱の陽炎が揺らぎ、竜の動きまでは読み切れなかった。",
+      },
+      talk: {
+        success: "語り部いわく——ファラクサスは復興に乗じて舞い降りた新たな侵略者。これまでの魔物どもは皆、奴の手駒だったのだ。",
+        crit:    "これがすべての元凶。ここで断たねば、フランは再び灰に帰す。退く道はもうない。",
+        fail:    "語り部は多くを語らず、その正体は霧の中だった。",
+      },
+      pray: {
+        success: "神託——巣は灼熱と溶岩、崩落の罠に満ちる。火に焼かれ、足場を失えば命はない。",
+        crit:    "神々が最後の加護を授ける。火に怯むな、信じて踏み込め——お前たちの祈りは、確かに届いている。",
+        fail:    "業火の轟きが祈りをかき消し、確かな啓示は得られなかった。",
+      },
+    },
+  };
 
   // ════════════ クエスト自動生成システム (quest-spec.md 準拠) ════════════
   // 酒場の掲示板で随時クエストを生成。client/place/task/reward/companion を
@@ -2720,6 +2899,8 @@
   // ─────────────────────────────────────────────────────────────
   const prepEl = document.getElementById("prep");
   let prepScenario = null;
+  // 事前情報チェックの「準備ごとに1回」状態 (openPrep でリセット)
+  let prepIntelUsed = { examine: false, talk: false, pray: false };
 
   async function openPrep(sc) {
     prepScenario = sc;
@@ -2727,6 +2908,15 @@
     document.getElementById("prepSub").textContent = `「${sc.title}」に挑む`;
     const info = sc.enemies.map(e => (e.boss ? `【${e.name}】` : e.name)).join(" / ");
     document.getElementById("prepEnemyInfo").textContent = info;
+    // 事前情報チェックを準備ごとにリセット (固定シナリオのみパネル表示)
+    prepIntelUsed = { examine: false, talk: false, pray: false };
+    const intelListEl = document.getElementById("intelResultList");
+    if (intelListEl) intelListEl.innerHTML = "";
+    ["btnIntelExamine", "btnIntelTalk", "btnIntelPray"].forEach((id) => {
+      const b = document.getElementById(id); if (b) b.disabled = false;
+    });
+    const intelPanelEl = document.getElementById("prepIntelPanel");
+    if (intelPanelEl) intelPanelEl.style.display = SCENARIO_INTEL[sc.id] ? "" : "none";
     // 主人公を activeCharTab に固定し、仲間を新規抽選 (Q3=A: 出発のたび再抽選)
     activeCharTab = selection.partyComposition[0] || "warrior";
     regeneratePartyMembers();
@@ -2850,6 +3040,73 @@
     btn.addEventListener("click", () => {
       regeneratePartyMembers();
       renderPartyPreview();
+    });
+  })();
+
+  // ─────────────────────────────────────────────────────────────
+  // 事前情報チェック (examine/talk/pray) — js/skill-check.js に配線
+  // 準備画面で潜るパーティが判定を宣言し、出目しだいで攻略前情報を得る。
+  // 各行動は openPrep ごとに1回 (prepIntelUsed)。失敗=情報なし・罰則なし。
+  // ─────────────────────────────────────────────────────────────
+  function buildPrepParty() {
+    const members = selection.partyMembers || [];
+    const nameOf = (k) => { const s = PARTY_SLOTS.find(x => x && x.classKey === k); return s ? s.name : k; };
+    return members.map((m) => ({
+      classKey: m.classKey,
+      name: m.isHero ? nameOf(m.classKey) : (m.name || nameOf(m.classKey)),
+      isHero: !!m.isHero,
+    }));
+  }
+
+  const PREP_INTEL_ACTIONS = {
+    examine: { check: "investigation", title: "捜査判定", flavor: "敵の備えと弱点を探る…",     btn: "btnIntelExamine" },
+    talk:    { check: "persuasion",    title: "説得判定", flavor: "酒場で噂を集める…",          btn: "btnIntelTalk" },
+    pray:    { check: "religion",      title: "宗教判定", flavor: "神に祈り、危険を感じ取る…", btn: "btnIntelPray" },
+  };
+  const PREP_INTEL_VOICE = { success: "skillcheck_success", fail: "skillcheck_fail", crit: "skillcheck_crit", fumble: "skillcheck_fumble" };
+
+  async function runPrepIntel(kind) {
+    const act = PREP_INTEL_ACTIONS[kind];
+    if (!act || !prepScenario) return;
+    const intel = SCENARIO_INTEL[prepScenario.id];
+    if (!intel || !intel[kind]) return;        // 生成クエスト等は対象外
+    if (prepIntelUsed[kind]) return;           // 準備ごとに1回
+    const party = buildPrepParty();
+    if (!party.length) return;
+    if (!window.SkillCheck || !SkillCheck.resolveSkillCheck) return;
+    // 先にロック (連打防止)。解決不能なら巻き戻す。
+    prepIntelUsed[kind] = true;
+    const btn = document.getElementById(act.btn);
+    if (btn) btn.disabled = true;
+    const res = await SkillCheck.resolveSkillCheck(act.check, intel.dc, party, {
+      title: act.title, flavor: act.flavor, voiceIds: PREP_INTEL_VOICE,
+    });
+    if (!res) { prepIntelUsed[kind] = false; if (btn) btn.disabled = false; return; }
+    const node = intel[kind];
+    let text = res.success ? node.success : node.fail;
+    if (res.success && res.crit && node.crit) text = node.success + " " + node.crit;
+    const repName = (res.rep && res.rep.name) || "誰か";
+    const list = document.getElementById("intelResultList");
+    if (list) {
+      const box = document.createElement("div");
+      box.className = "intelResult " + (res.success ? "success" : "fail");
+      const who = document.createElement("div");
+      who.className = "intelWho";
+      who.textContent = (res.crit ? "★ " : (res.fumble ? "× " : "")) + "代表 " + repName +
+        "（" + act.title.replace("判定", "") + "）";
+      const body = document.createElement("div");
+      body.textContent = text;
+      box.appendChild(who);
+      box.appendChild(body);
+      list.appendChild(box);
+    }
+  }
+
+  (function bindPrepIntelButtons() {
+    const map = { btnIntelExamine: "examine", btnIntelTalk: "talk", btnIntelPray: "pray" };
+    Object.keys(map).forEach((id) => {
+      const b = document.getElementById(id);
+      if (b) b.addEventListener("click", () => runPrepIntel(map[id]));
     });
   })();
 
