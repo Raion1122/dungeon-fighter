@@ -3835,7 +3835,7 @@
         sprite: "assets/lich_anim.png?v=1",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
-        displaySize: 120,
+        displaySize: 240,                    // 通常の2倍 (ボスの威容)
         hp: 92, speed: 0.6,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 540,
@@ -4010,14 +4010,14 @@
       // ── 最終ボス: レッドドラゴン「ファラクサス」 (Sce6 dragon-lair、プラン編の黒幕) ──
       // garrock をミラー + 竜の威容 (恐怖オーラ DC18 / 全体火炎ブレス / 2回攻撃 / 配下総動員)。
       // 恐怖(partyWillSave)・激怒・ボスBGM・カエルム祝福免疫は既存フックで自動発火。
-      // 専用192pxスプライト (厚塗りセミリアル荘厳・6F walk+attack)。displaySize=180 でガロック(120)より一回り大きい威容。
+      // 専用192pxスプライト (厚塗りセミリアル荘厳・6F walk+attack)。displaySize=720 で通常の約4倍、最終ボスの圧倒的威容。
       pharaxus: {
         name: "レッドドラゴン「ファラクサス」",
         flavor: "復興に乗じてフランを再び灰に帰さんとする赤竜。プラン編の黒幕",
         badge: "🐉",
         sprite: "assets/pharaxus_anim.png?v=1",
         sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
-        displaySize: 180,
+        displaySize: 720,
         hp: 180, speed: 0.66,
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -4293,7 +4293,7 @@
         sprite: "assets/lizardChieftain_anim.png?v=1",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
-        displaySize: 124,                    // 戦士 88 より一回り大きく (玉座のボス感)
+        displaySize: 248,                    // 通常の2倍 (玉座のボス感をさらに増大)
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,      // 大斧でリーチ広め
