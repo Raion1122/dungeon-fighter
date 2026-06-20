@@ -1334,6 +1334,8 @@
     }
     /* 隠された宝箱: 発見前は非表示、発見後は通常の roomChest と同じ表示 */
     .roomChest.hidden-unfound { display: none; }
+    /* 開錠に失敗した宝箱: 減光＋退色で「もう開かない箱」を視覚的に区別 */
+    .roomChest.locked-failed { filter: grayscale(0.6) brightness(0.7); opacity: 0.85; }
 
     /* Sce3 隠し要素: 蛇祭壇の微光オーラ (封印中の「何かある」サイン)。覚醒で消去。 */
     .altarGlow {
@@ -12324,6 +12326,13 @@
     const CHEST_SAFE_DIST       = 640;   // 敵がこの距離未満なら発見保留 (戦闘圏内)
     const CHEST_ELIGIBLE_MIN_SIZE = 25;  // 玄室判定: 5×5 以上
     const CHEST_SPAWN_CHANCE    = 0.5;   // 各玄室での出現率
+    const CHEST_LOCK_CHANCE     = 0.8;   // 基本施錠 (鍵のかかった宝箱の割合)
+    // 開錠 DC: 知覚 DC に準拠しつつ 11〜16 にクランプ (盗賊 sleightOfHand +3 で常に勝機)。
+    // ★宝箱まわり唯一の難度チューニング箇所 (プレイテスト後にここだけ触れば調整できる)。
+    function chestLockDC() {
+      const base = (currentScenario && currentScenario.perceptionDC) || 14;
+      return Math.max(11, Math.min(16, base - 1));
+    }
 
     function pickChestLoot() {
       const r = Math.random();
@@ -12370,7 +12379,8 @@
         const [tx, ty] = floorTiles[Math.floor(Math.random() * floorTiles.length)];
         const chest = {
           tx, ty, opened: false, found: false,
-          hidden: false,             // 部屋配置は自動発見 (接近で tryDiscoverChest)
+          hidden: true,              // 知覚チェックで発見するまで非表示 (隠し宝箱と統一・自動発見を廃止)
+          locked: Math.random() < CHEST_LOCK_CHANCE,  // 基本施錠: 発見後に開錠判定が要る
           loot: pickChestLoot(),
           el: null,
         };
@@ -12415,6 +12425,7 @@
         const chest = {
           tx, ty, opened: false, found: false,
           hidden: true,              // 知覚チェックで発見するまで非表示
+          locked: Math.random() < CHEST_LOCK_CHANCE,  // 基本施錠: 発見後に開錠判定が要る
           loot: pickChestLoot(),
           el: null,
         };
@@ -12434,6 +12445,7 @@
           const keyChest = {
             tx, ty, opened: false, found: false,
             hidden: true,
+            locked: false,             // 鍵束は未施錠: 盗賊限定の隠し導線を不運な開錠失敗で潰さない
             loot: { kind: "key" },     // 専用 loot 種別
             el: null,
           };
@@ -12455,6 +12467,7 @@
       if (!gameStarted || gameOver) return;
       if (encounterActive || encounterRunning) return;
       if (hp <= 0) return;
+      if (skillCheckActive) return;   // 知覚/開錠パネル表示中は新たな開錠を起動しない (相互排他)
       const pCX = playerX + 48, pCY = playerY + 58;
 
       for (const chest of roomChests) {
@@ -12479,30 +12492,33 @@
         }
         if (inDanger) continue;
 
-        // 発見演出 (知覚で既に found=true なら発見バナーは省略して開封演出のみ)
-        const skipBanner = chest.found;
+        // ここに到達するのは「安全圏内で開封可能な宝箱」。
+        //  - 通常の宝箱: 知覚判定で found=true になって初めて到達 (上の hidden&&!found ガード)。
+        //  - ドラゴン財宝のダミー (hidden:false): 知覚なしで到達=見える囮として接近開封。
         chest.found = true;
-        discoverChest(chest, { skipBanner });
+        // 施錠されていれば開錠判定を挟む。1回きり (失敗したら lockTried で今周回は諦め)。
+        if (chest.locked && !chest.unlocked) {
+          if (chest.lockTried) continue;   // 開錠失敗済み: もう開けられない
+          tryPickLock(chest);              // async・内部で skillCheckActive/dialogPaused を立てる
+          return;                          // 1回の tick で1個だけ処理
+        }
+        discoverChest(chest, {});          // 未施錠 or 解錠済み → 開封
         return;  // 1回の tick で1個だけ処理
       }
     }
 
     async function discoverChest(chest, opts = {}) {
       chest.opening = true;   // 開封演出の進行中フラグ (tryDiscoverChest の再入=二重ルート防止)
-      if (!opts.skipBanner) {
-        sfx("chestFound");
-        showBanner("🎁 宝箱をみつけた!", 1500);
-        appendLog("宝箱を発見！", "sys");
-        // 第1段: 発見ナレ。表示が消えてから第2段のフレーバーへ (auto-battle は narrationHold で自動停止)
-        showDMMessage("君たちは宝箱を発見した。", 2000);
-        await awaitNarrationClear();
-        // 第2段: レア判定で differentiate したフレーバー (武器/防具/大金貨/巻物=レア的扱い)
-        const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
-        if (isRare) {
-          showDMMessage("おや…これはただの箱ではない。紋章が刻まれた鉄製の箱だ。中に何が入っている？", 2400);
-        } else {
-          showDMMessage("壁際に、古びた木箱が置かれている。埃を被っているが、鍵はかかっていないようだ。", 2400);
-        }
+      // 発見の告知は知覚判定側 (applyPerceptionResult) で、開錠は tryPickLock で済んでいる。
+      // ここは「箱を開ける」演出のみ。施錠状態に応じてフレーバーを差し替える。
+      sfx("chestFound");
+      const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
+      if (opts.justUnlocked) {
+        showDMMessage("錠前がかちりと外れた。ゆっくりと蓋を持ち上げる——", 2200);
+      } else if (isRare) {
+        showDMMessage("鍵はかかっていない。蓋を開けると、紋章の刻まれた何かが収められている。", 2200);
+      } else {
+        showDMMessage("鍵はかかっていない。古びた蓋を持ち上げる。", 2200);
       }
       if (chest.el) chest.el.classList.add("discovering");
       await sleepMs(800);
@@ -12649,7 +12665,8 @@
       const dummyN = Math.min(3, Math.max(0, tiles.length - 1));
       for (let i = 0; i < dummyN; i++) {
         const [tx, ty] = tiles[i];
-        const chest = { tx, ty, opened: false, found: false, hidden: false, loot: pickChestLoot(), el: null };
+        // ミミックへ誘う「見える囮」: 知覚ゲート/施錠の対象外 (hidden:false, locked:false) のまま接近で開封。
+        const chest = { tx, ty, opened: false, found: false, hidden: false, locked: false, loot: pickChestLoot(), el: null };
         roomChests.push(chest);
         createRoomChestDom(chest, roomChests.length - 1);
       }
@@ -12664,6 +12681,7 @@
     // 接近tick: ミミック宝箱に近づいたら不意打ち起動 (戦闘状態を問わない=「触れた瞬間に襲う」)。
     function tryApproachMimic() {
       if (!gameStarted || gameOver || !mimicChest || mimicChest.awakened || hp <= 0) return;
+      if (skillCheckActive) return;   // 知覚/開錠パネル表示中は接近起動を保留 (暴発防止)
       const pCX = playerX + 48, pCY = playerY + 58;
       const cx = mimicChest.tx * TILE_SIZE + TILE_SIZE / 2;
       const cy = mimicChest.ty * TILE_SIZE + TILE_SIZE / 2;
@@ -13382,7 +13400,7 @@
         showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
       }
       if (pendingChests.some(c => c.found)) {
-        showBanner("🎁 隠された宝箱を見つけた!", 1400);
+        showBanner("🎁 宝箱を見つけた!", 1400);
       }
       if (found > 0) {
         updateInfo(`${rep} が知覚判定に成功! (${res.total} ≧ DC ${res.dc}) — ${found}件を発見`);
@@ -13391,6 +13409,56 @@
       if (pendingMimic && !pendingMimic.awakened) {
         updateInfo(`${rep} が偽宝箱を見抜いた! (知覚 ${res.total} ≧ DC ${res.dc})`);
         if (typeof awakenMimic === "function") awakenMimic(pendingMimic, { forewarned: true });
+      }
+    }
+
+    // 開錠判定: 知覚で発見済みの「施錠された宝箱」に接近したら、盗賊が得意な手先の早業
+    //   (sleightOfHand) で開錠を試みる。共有 SkillCheck エンジンを流用 (5e Thieves' Tools 相当)。
+    //   1回きり: 失敗したら lockTried を立て、今周回はもう開けられない (盗賊同行の価値が上がる)。
+    //   クリ20=確実成功 / ファンブル1=固着 (判定確定は SkillCheck 側。ここは結果分岐のみ)。
+    async function tryPickLock(chest) {
+      if (!chest || chest.opened || chest.unlocked) return;
+      chest.opening = true;                 // tryDiscoverChest の再入を止める (開錠演出の進行中フラグ流用)
+      skillCheckActive = true;              // 知覚パネルと相互排他
+      dialogPaused = true;                  // 判定中は探索を停止 (runPerceptionCheck と同方針)
+      const party = buildPerceptionParty();
+      if (party.length === 0 || !(window.SkillCheck && SkillCheck.resolveSkillCheck)) {
+        // パーティ消滅 or エンジン未読込: 素通しで開封 (戦利品を soft-lock しないフォールバック)
+        skillCheckActive = false; dialogPaused = false;
+        discoverChest(chest, { justUnlocked: false });
+        return;
+      }
+      const dc = chestLockDC();
+      showDMMessage("宝箱には錠前がかかっている。開錠を試みる…", 1800);
+      let res = null;
+      try {
+        res = await SkillCheck.resolveSkillCheck("sleightOfHand", dc, party, {
+          title: "開錠判定",
+          flavor: "錠前に細い針を差し込み、慎重に回す…",
+          voiceIds: PERCEPTION_VOICE,
+        });
+      } catch (e) { res = null; }
+      skillCheckActive = false;
+      dialogPaused = false;
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (res && res.success) {
+        chest.unlocked = true;
+        if (res.crit) showBanner("🔓 鮮やかに開錠!", 1400);
+        updateInfo(`${rep} が開錠に成功! (${res.total} ≧ DC ${res.dc})`);
+        discoverChest(chest, { justUnlocked: true });
+      } else {
+        chest.lockTried = true;   // 今周回はもう開けられない (1回きり)
+        chest.opening = false;    // 開封演出は始めない (以後 tryDiscoverChest は lockTried でスキップ)
+        if (res && res.fumble) {
+          showBanner("🔒 錠前が固着…", 1400);
+          updateInfo(`${rep} は針を折ってしまった… 錠前が固着して二度と開かない (ファンブル)`);
+          showDMMessage("ピッキングに失敗、針が折れて錠前の中で固まった。もうこの箱は開かない。", 2600);
+        } else {
+          showBanner("🔒 開かなかった…", 1400);
+          updateInfo(`${rep} は開錠に失敗した… (${res ? res.total : "?"} < DC ${dc})`);
+          showDMMessage("錠前はびくともしない。今回は諦めるしかなさそうだ。", 2400);
+        }
+        if (chest.el) chest.el.classList.add("locked-failed");
       }
     }
 
