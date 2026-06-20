@@ -7662,7 +7662,12 @@
         { walk: 'url("assets/warrior_female_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_female_attack.png")', attackSize: "480px 384px", label: "女戦士" },
         { walk: 'url("assets/warrior_knight_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_knight_attack.png")', attackSize: "480px 384px", label: "騎士" },
       ],
-      dwarf:  [ { walk: DWARF_WALK_URL,  walkSize: DWARF_WALK_SIZE,  attack: DWARF_ATTACK_URL,  attackSize: DWARF_ATTACK_SIZE } ],
+      dwarf: [
+        { walk: DWARF_WALK_URL, walkSize: DWARF_WALK_SIZE, attack: DWARF_ATTACK_URL, attackSize: DWARF_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/dwarf_berserker_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_berserker_attack.png")', attackSize: "480px 384px", label: "バーサーカー" },
+        { walk: 'url("assets/dwarf_shield_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/dwarf_shield_attack.png")',    attackSize: "480px 384px", label: "盾の守り手" },
+        { walk: 'url("assets/dwarf_rune_walk.png")',      walkSize: "576px 384px", attack: 'url("assets/dwarf_rune_attack.png")',      attackSize: "480px 384px", label: "ルーンスミス" },
+      ],
       cleric: [
         { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE, label: "標準" },
         { walk: 'url("assets/cleric_elder_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/cleric_elder_attack.png")',     attackSize: "480px 384px", label: "老神官" },

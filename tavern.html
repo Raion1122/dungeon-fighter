@@ -1362,10 +1362,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ドワーフ仲間に新しい見た目が3種登場</b> — バーサーカー・盾の守り手(女ドワーフ)・ルーンスミス。酒場で雇うたびに違う姿に。</li>
         <li><b>宝箱の発見が「捜査」判定に — 盗賊が探索の主役に</b> — 隠された宝箱とニセ宝箱(ミミック)は、知覚ではなく盗賊の得意な「捜査」で見つける。盗賊不在でも少し見つけやすいよう調整。</li>
         <li><b>闇市の秘薬・呪具が戦闘で効くように</b> — 影渡りの薬(盗賊の回避↑)・牙の護符(敵の先制を無効)・呪われた曲刀(攻撃↑/終了時に代償)・セリアの手鏡(雑魚を石化)が自動で発動。</li>
         <li><b>宝箱に鍵と開錠判定を追加</b> — 宝箱は知覚判定に成功すると見つかり、鍵のかかった箱は盗賊が得意な開錠判定に成功すると開く。</li>
-        <li><b>ボスを大型化</b> — リッチ・リザードマン族長を約2倍、ドラゴンを約4倍の大きさに。ボス戦の迫力が増した。</li>
       </ul>
     </div>
 
@@ -2260,7 +2260,7 @@
   })();
 
   // 職業ごとのスプライト変種数 (index.html の SPRITE_VARIANTS と同期)。1=正規のみ。
-  const VARIANT_COUNT = { warrior: 4, dwarf: 1, cleric: 4, mage: 4, elf: 4, rogue: 1 };
+  const VARIANT_COUNT = { warrior: 4, dwarf: 4, cleric: 4, mage: 4, elf: 4, rogue: 1 };
   // NPC用に変種をランダム選択。変種があれば 1..n-1 (正規0=主人公の見た目は避ける)、無ければ0。
   function pickVariant(classKey) {
     const n = VARIANT_COUNT[classKey] || 1;
