@@ -6746,6 +6746,10 @@
     }
 
     async function waitForNarrationAdvance(maxMs) {
+      // autoplay(自動テスト)は段落間ギャップも待たず即送り (L19424「即スキップ」意図の完全履行)。
+      // narrationSkipRequested は 1回しか立たず初段で消費されるため、これが無いと2段落目以降が
+      // 毎回フル待機し、ナレ中はメインループ凍結(L9002)→探索停滞の誤検知を招く。
+      if (window.__autoplay) return;
       const start = Date.now();
       while (Date.now() - start < maxMs) {
         if (narrationSkipRequested) {
@@ -9529,6 +9533,9 @@
       if (typeof roomChests !== "undefined") {
         for (const chest of roomChests) {
           if (chest.opened) continue;
+          // 開錠失敗で諦めた箱はもう開かない (開錠は1回きり=lockTried 恒久) → ナビ目標から外す。
+          // これが無いと findNearestDrop が開かない箱を返し続け、パーティが箱上で永久停留→探索停滞になる。
+          if (chest.lockTried && !chest.unlocked) continue;
           if (chest.hidden && !chest.found) continue;
           const tx = chest.tx, ty = chest.ty;
           if (isTileWall(tx, ty)) continue;
@@ -19241,6 +19248,9 @@
         const exploring = !(typeof encounterActive !== "undefined" && encounterActive) &&
           !(typeof encounterRunning !== "undefined" && encounterRunning) &&
           !(typeof dialogPaused !== "undefined" && dialogPaused) &&
+          // ナレ表示中はメインループ(moveEnemies L9002)がゲーム時間を止めるので「停滞」ではない
+          !(typeof narrationHold !== "undefined" && narrationHold) &&
+          !(typeof narrationPlaying !== "undefined" && narrationPlaying) &&
           !(typeof gameOver !== "undefined" && gameOver) &&
           !(typeof dungeonCleared !== "undefined" && dungeonCleared);
         if (exploring && finite(playerX) && finite(playerY)) {
