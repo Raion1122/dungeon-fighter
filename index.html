@@ -9599,8 +9599,9 @@
         // 訪問履歴に「離れたタイル」を push (オシレーション抑制)
         // 直後の経路再計算で逆方向 (oldPlayerTile に戻る経路) が重く扱われる
         pushHeroRecentTile(oldPlayerTile.tx, oldPlayerTile.ty);
-        // 探索ターン: 知覚 → 罠 → 仲間 → 敵 → 再罠
+        // 探索ターン: 知覚(罠) → 捜査(宝箱/ミミック) → 罠 → 仲間 → 敵 → 再罠
         if (typeof runPerceptionCheck === "function") runPerceptionCheck();
+        if (typeof runInvestigationCheck === "function") runInvestigationCheck();
         if (typeof checkTrapTrigger === "function") checkTrapTrigger();
         await exploreAllyTurn(oldPlayerTile);
         await exploreEnemyTurn();
@@ -12626,7 +12627,7 @@
 
     async function discoverChest(chest, opts = {}) {
       chest.opening = true;   // 開封演出の進行中フラグ (tryDiscoverChest の再入=二重ルート防止)
-      // 発見の告知は知覚判定側 (applyPerceptionResult) で、開錠は tryPickLock で済んでいる。
+      // 発見の告知は知覚/捜査判定側 (applyPerceptionResult/applyInvestigationResult) で、開錠は tryPickLock で済んでいる。
       // ここは「箱を開ける」演出のみ。施錠状態に応じてフレーバーを差し替える。
       sfx("chestFound");
       const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
@@ -12790,7 +12791,7 @@
       // ミミック宝箱 1個 (擬態。接近/察知で awakenMimic)。本物と同じ .roomChest として描画される。
       const [mtx, mty] = tiles[dummyN];
       mimicChest = { tx: mtx, ty: mty, opened: false, found: true, hidden: false,
-                     isMimic: true, awakened: false, _percRolled: false, loot: null, el: null };
+                     isMimic: true, awakened: false, _invRolled: false, loot: null, el: null };
       roomChests.push(mimicChest);
       createRoomChestDom(mimicChest, roomChests.length - 1);
     }
@@ -13462,19 +13463,13 @@
       const inRadius = (tx, ty) =>
         Math.abs(tx - pTX) <= TRAP_PERCEPTION_RADIUS && Math.abs(ty - pTY) <= TRAP_PERCEPTION_RADIUS;
 
-      // 半径内の未判定対象を収集 (罠 / 隠し宝箱 / ミミック)
+      // 半径内の未判定の罠を収集 (宝箱・ミミックは捜査判定 runInvestigationCheck に分離)
       const pendingTraps = traps.filter(t =>
         !t.found && !t.triggered && !t._percRolled && inRadius(t.tx, t.ty));
-      const pendingChests = (typeof roomChests !== "undefined")
-        ? roomChests.filter(c => c.hidden && !c.found && !c._percRolled && inRadius(c.tx, c.ty)) : [];
-      const pendingMimic = (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened
-        && !mimicChest._percRolled && inRadius(mimicChest.tx, mimicChest.ty)) ? mimicChest : null;
-      if (pendingTraps.length === 0 && pendingChests.length === 0 && !pendingMimic) return;
+      if (pendingTraps.length === 0) return;
 
-      // この対象群は判定済印を立てる (見逃したら踏む/取り逃すまで再判定しない)
+      // この罠群は判定済印を立てる (見逃したら踏むまで再判定しない)
       pendingTraps.forEach(t => t._percRolled = true);
-      pendingChests.forEach(c => c._percRolled = true);
-      if (pendingMimic) pendingMimic._percRolled = true;
 
       const party = buildPerceptionParty();
       if (party.length === 0) return;
@@ -13484,23 +13479,68 @@
       dialogPaused = true;  // 判定中は探索を停止 (showChoice と同方針)
       SkillCheck.resolveSkillCheck("perception", dc, party, {
         title: "知覚判定",
-        flavor: "あたりに気を配る。罠や隠されたものの気配は…",
+        flavor: "あたりに気を配る。罠の気配は…",
         extraBonus: perceptionExtraBonus(),
         voiceIds: PERCEPTION_VOICE,
       }).then((res) => {
-        applyPerceptionResult(res, pendingTraps, pendingChests, pendingMimic);
+        applyPerceptionResult(res, pendingTraps);
       }).catch(() => {}).finally(() => {
         skillCheckActive = false;
         dialogPaused = false;
       });
     }
 
-    // 知覚判定の結果を反映。成功時のみ発見し、失敗は見逃し (発見ゼロ)。
-    function applyPerceptionResult(res, pendingTraps, pendingChests, pendingMimic) {
+    // 捜査判定: 隠し宝箱・ミミック(偽宝箱)は「能動的な探索」= Intelligence(Investigation) で発見する。
+    //   知覚(受動的な罠探知)とは別ロール。盗賊が investigation 習熟(+3)で主役になり、
+    //   探索スペシャリストとしての価値が立つ。DC は perceptionDC−2 で盗賊不在でも救済 (floor 5)。
+    //   罠探知強化(find-traps)の +2 は罠専用なので捜査には乗せない。
+    function runInvestigationCheck() {
+      if (encounterActive || encounterRunning) return;
+      if (!gameStarted || gameOver) return;
+      if (skillCheckActive) return;   // 知覚/開錠パネルと相互排他 (1ターン1パネル)
+      if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      const pTX = Math.floor(pCX / TILE_SIZE);
+      const pTY = Math.floor(pCY / TILE_SIZE);
+      const inRadius = (tx, ty) =>
+        Math.abs(tx - pTX) <= TRAP_PERCEPTION_RADIUS && Math.abs(ty - pTY) <= TRAP_PERCEPTION_RADIUS;
+
+      // 半径内の未判定対象を収集 (隠し宝箱 / ミミック)
+      const pendingChests = (typeof roomChests !== "undefined")
+        ? roomChests.filter(c => c.hidden && !c.found && !c._invRolled && inRadius(c.tx, c.ty)) : [];
+      const pendingMimic = (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened
+        && !mimicChest._invRolled && inRadius(mimicChest.tx, mimicChest.ty)) ? mimicChest : null;
+      if (pendingChests.length === 0 && !pendingMimic) return;
+
+      // 判定済印を立てる (取り逃すまで再判定しない)
+      pendingChests.forEach(c => c._invRolled = true);
+      if (pendingMimic) pendingMimic._invRolled = true;
+
+      const party = buildPerceptionParty();
+      if (party.length === 0) return;
+      const baseDc = (currentScenario && currentScenario.perceptionDC) || 14;
+      const dc = Math.max(5, baseDc - 2);   // 盗賊不在パーティ救済 (perceptionDC−2)
+
+      skillCheckActive = true;
+      dialogPaused = true;
+      SkillCheck.resolveSkillCheck("investigation", dc, party, {
+        title: "捜査判定",
+        flavor: "床や壁を入念に調べる。隠された宝や仕掛けは…",
+        voiceIds: PERCEPTION_VOICE,
+      }).then((res) => {
+        applyInvestigationResult(res, pendingChests, pendingMimic);
+      }).catch(() => {}).finally(() => {
+        skillCheckActive = false;
+        dialogPaused = false;
+      });
+    }
+
+    // 知覚判定の結果を反映。成功時のみ罠を発見し、失敗は見逃し (発見ゼロ)。
+    function applyPerceptionResult(res, pendingTraps) {
       if (!res) return;
       const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       if (!res.success) {
-        updateInfo(`${rep} は周囲を探ったが、何も見つけられなかった… (知覚 ${res.total} < DC ${res.dc})`);
+        updateInfo(`${rep} は周囲を探ったが、罠の気配は掴めなかった… (知覚 ${res.total} < DC ${res.dc})`);
         return;
       }
       let found = 0;
@@ -13508,23 +13548,37 @@
         if (trap.found || trap.triggered) continue;
         trap.found = true; found++;
       }
-      for (const chest of pendingChests) {
-        if (chest.found) continue;
-        chest.found = true; found++;
-      }
       if (pendingTraps.some(t => t.found)) {
         showBanner("⚠ 罠を見つけた!", 1400);
         showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
+      }
+      if (found > 0) {
+        updateInfo(`${rep} が知覚判定に成功! (${res.total} ≧ DC ${res.dc}) — 罠${found}件を発見`);
+      }
+    }
+
+    // 捜査判定の結果を反映。成功時のみ宝箱を発見 / ミミックを看破。失敗は見逃し。
+    function applyInvestigationResult(res, pendingChests, pendingMimic) {
+      if (!res) return;
+      const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (!res.success) {
+        updateInfo(`${rep} は入念に調べたが、隠されたものは見つからなかった… (捜査 ${res.total} < DC ${res.dc})`);
+        return;
+      }
+      let found = 0;
+      for (const chest of pendingChests) {
+        if (chest.found) continue;
+        chest.found = true; found++;
       }
       if (pendingChests.some(c => c.found)) {
         showBanner("🎁 宝箱を見つけた!", 1400);
       }
       if (found > 0) {
-        updateInfo(`${rep} が知覚判定に成功! (${res.total} ≧ DC ${res.dc}) — ${found}件を発見`);
+        updateInfo(`${rep} が捜査判定に成功! (${res.total} ≧ DC ${res.dc}) — ${found}件を発見`);
       }
       // ミミック (偽宝箱) の看破: 成功で粘着なし先制起動
       if (pendingMimic && !pendingMimic.awakened) {
-        updateInfo(`${rep} が偽宝箱を見抜いた! (知覚 ${res.total} ≧ DC ${res.dc})`);
+        updateInfo(`${rep} が偽宝箱を見抜いた! (捜査 ${res.total} ≧ DC ${res.dc})`);
         if (typeof awakenMimic === "function") awakenMimic(pendingMimic, { forewarned: true });
       }
     }
