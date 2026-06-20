@@ -1,0 +1,2 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/rogue_scout/_prompt_walk.txt", "output": "source_images/rogue_scout/影斥候歩き.png"}

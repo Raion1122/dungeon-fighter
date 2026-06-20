@@ -7686,7 +7686,12 @@
         { walk: 'url("assets/elf_huntress_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_huntress_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
         { walk: 'url("assets/elf_shadow_walk.png")',   walkSize: "576px 384px", attack: 'url("assets/elf_shadow_attack.png")',   attackSize: "480px 384px", label: "闇森の影射手" },
       ],
-      rogue:  [ { walk: ROGUE_WALK_URL,  walkSize: ROGUE_WALK_SIZE,  attack: ROGUE_ATTACK_URL,  attackSize: ROGUE_ATTACK_SIZE } ],
+      rogue: [
+        { walk: ROGUE_WALK_URL, walkSize: ROGUE_WALK_SIZE, attack: ROGUE_ATTACK_URL, attackSize: ROGUE_ATTACK_SIZE, label: "標準" },
+        { walk: 'url("assets/rogue_assassin_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_assassin_attack.png")', attackSize: "480px 384px", label: "アサシン" },
+        { walk: 'url("assets/rogue_acrobat_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/rogue_acrobat_attack.png")',  attackSize: "480px 384px", label: "軽業師" },
+        { walk: 'url("assets/rogue_scout_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/rogue_scout_attack.png")',    attackSize: "480px 384px", label: "影の斥候" },
+      ],
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
       golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
       undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],

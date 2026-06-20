@@ -1,0 +1,3 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/rogue_acrobat/_prompt_walk.txt", "output": "source_images/rogue_acrobat/軽業師歩き.png"}
+{"prompt_file": "tools/sprite_batches/_PROMPT_attack_common.txt", "output": "source_images/rogue_acrobat/軽業師攻撃.png"}

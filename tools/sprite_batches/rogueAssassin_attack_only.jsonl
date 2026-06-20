@@ -1,0 +1,2 @@
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt", "expect_image": false}
+{"prompt_file": "source_images/rogue_assassin/_prompt_attack.txt", "output": "source_images/rogue_assassin/アサシン攻撃.png"}
