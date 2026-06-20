@@ -5952,10 +5952,14 @@
         effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
     };
     const PLAZA_ITEMS_COMMON = {
-      potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  effect: "1戦闘の間、盗賊系の回避率上昇。" },
-      fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  effect: "モンスターからの先制攻撃を1回無効。" },
-      cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
-      medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+      potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "1戦闘の間、盗賊系の回避率上昇。" },
+      fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto",
+        effect: "モンスターからの先制攻撃を1回無効。" },
+      cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+      medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
     };
     function plazaItemDef(id) { return PLAZA_ITEMS[id] || PLAZA_ITEMS_COMMON[id] || null; }
 
@@ -6011,6 +6015,18 @@
         summonSlot: () => summonSlot,
         allies: () => allies,
         aliveUnitCount: () => allies.filter(a => a.alive).length,
+        // M9 検証フック: 一般消費アイテムの戦闘効果
+        battleStart: () => applyBattleStartConsumables(),
+        negatePreempt: (units) => tryNegatePreemptive(units),
+        cursedEnd: () => applyCursedBladeEndCost(),
+        pBuffs: () => playerBuffs,
+        getHp: () => hp, setHp: (v) => { hp = v; },
+        setLeaderClass: (k) => { leaderClassKey = k; },
+        enemiesRef: () => enemies,
+        setEncEnemies: (arr) => { encounterEnemyIndices = arr; },
+        pAtk: () => currentPlayerAtkBonus(),
+        pAc: () => currentPlayerAc(),
+        aAc: (a) => currentAllyAc(a),
       };
     } catch (e) {}
     // ════════════ 闇市 ここまで ════════════
@@ -6070,6 +6086,7 @@
           luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張、ターン制)
           frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
           fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
+          shadowAcBonus: 0,                               // 闇市 影渡りの薬 (M9): 盗賊系 AC+ フラット
         },
         stunned: 0,
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
@@ -10618,6 +10635,7 @@
       ally.buffs.frightenedRemaining = 0;
       ally.buffs.frightenedPenalty = 0;
       ally.buffs.fearImmuneRemaining = 0;
+      ally.buffs.shadowAcBonus = 0;   // 闇市 影渡りの薬 (M9)
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
 
@@ -10740,6 +10758,91 @@
         await spawnArrow(eCX, eCY, targetWX, targetWY, 280, { variant: "enemyArrow" });
       }
     }
+
+    // ════════════ M9: 闇市ポドルプラザ 一般消費アイテムの戦闘効果 ════════════
+    // スマート自動発動: 効果が無駄にならない条件下でのみ consumeCharge する。
+    // 影渡りの薬/呪われた曲刀/セリアの手鏡 = 戦闘開始時。牙の護符 = 先制された時のみ。
+    const COMMON_SHADOW_AC_BONUS   = 4;     // 影渡りの薬: 盗賊系 AC(回避値)+ (1戦, フラット)
+    const COMMON_CURSED_ATK_BONUS  = 4;     // 呪われた曲刀: リーダー攻撃ボーナス+ (1戦)
+    const COMMON_CURSED_HP_LOSS    = "1d4"; // 呪われた曲刀: 戦闘終了時のリーダー HP 減少 (小)
+    const COMMON_MEDUSA_TURNS      = 3;     // セリアの手鏡: 非ボス敵の石化ターン数
+    const COMMON_FANG_NEGATE_TURNS = 1;     // 牙の護符: 先制した敵を 1ターン行動不能=先制無効
+
+    // 盗賊系ユニット (影渡りの薬の対象): リーダー(rogue) + 生存 rogue 仲間。
+    function collectRogueUnits() {
+      const out = [];
+      if (leaderClassKey === "rogue") out.push({ kind: "player" });
+      for (const a of allies) {
+        if (a.alive && a.classKey === "rogue") out.push({ kind: "ally", ally: a });
+      }
+      return out;
+    }
+
+    // 戦闘開始時の自動発動 (影渡りの薬 / 呪われた曲刀 / セリアの手鏡)。
+    function applyBattleStartConsumables() {
+      // ── 影渡りの薬: 盗賊系が1人以上いる時のみ消費し、AC ボーナスを付与 ──
+      if (hasChargeItem("potion_shadow")) {
+        const rogues = collectRogueUnits();
+        if (rogues.length > 0 && consumeCharge("potion_shadow")) {
+          for (const r of rogues) {
+            if (r.kind === "player") playerBuffs.shadowAcBonus = COMMON_SHADOW_AC_BONUS;
+            else r.ally.buffs.shadowAcBonus = COMMON_SHADOW_AC_BONUS;
+          }
+          showBanner("🥷 影渡りの薬! 盗賊系の回避率上昇", 1500);
+          updateInfo(`影渡りの薬: 盗賊系 ${rogues.length}人 の AC +${COMMON_SHADOW_AC_BONUS} (1戦)`);
+        }
+      }
+      // ── 呪われた曲刀: リーダーは常にいるので所持していれば消費 ──
+      if (hasChargeItem("cursed_blade") && consumeCharge("cursed_blade")) {
+        playerBuffs.cursedBladeAtkBonus = COMMON_CURSED_ATK_BONUS;
+        playerBuffs.cursedBladeActive = true;
+        showBanner("🗡 呪われた曲刀! 攻撃力上昇", 1500);
+        updateInfo(`呪われた曲刀: リーダーの攻撃 +${COMMON_CURSED_ATK_BONUS} (戦闘終了時に HP 小減少)`);
+      }
+      // ── セリアの手鏡: 非ボス敵が2体以上いる時のみ消費し、全非ボスを石化 ──
+      if (hasChargeItem("medusa_mirror")) {
+        const petrifyIdx = encounterEnemyIndices.filter(i =>
+          enemies[i] && enemies[i].alive && !enemies[i].def.isBoss);
+        if (petrifyIdx.length >= 2 && consumeCharge("medusa_mirror")) {
+          for (const i of petrifyIdx) {
+            enemies[i].stunned = Math.max(enemies[i].stunned || 0, COMMON_MEDUSA_TURNS);
+            showRollAtEnemy(i, `<span class="label">PETRIFIED</span>石化`, "miss");
+          }
+          showBanner("🪞 セリアの手鏡! 敵が石化!", 1600);
+          updateInfo(`セリアの手鏡: 非ボス敵 ${petrifyIdx.length}体 を石化 (${COMMON_MEDUSA_TURNS}ターン)`);
+        }
+      }
+    }
+
+    // 牙の護符: PT全体が敵に先制された (敵の初期値 > PTの最速) 時のみ、先制した敵を行動不能化。
+    // units は sortUnits() 後のイニシアチブ配列。
+    function tryNegatePreemptive(units) {
+      if (!hasChargeItem("fang_charm")) return false;
+      let ptMax = -Infinity;
+      for (const u of units) {
+        if ((u.kind === "player" || u.kind === "ally") && u.initiative > ptMax) ptMax = u.initiative;
+      }
+      const preempt = units.filter(u => u.kind === "enemy" &&
+        u.initiative > ptMax && enemies[u.idx] && enemies[u.idx].alive);
+      if (preempt.length === 0) return false;          // PTが最速 → 無駄打ちしない
+      if (!consumeCharge("fang_charm")) return false;
+      for (const u of preempt) {
+        enemies[u.idx].stunned = Math.max(enemies[u.idx].stunned || 0, COMMON_FANG_NEGATE_TURNS);
+      }
+      showBanner("🦷 牙の護符! 敵の先制を無効化", 1500);
+      updateInfo(`牙の護符: 先制した敵 ${preempt.length}体 の初撃を封じた`);
+      return true;
+    }
+
+    // 呪われた曲刀: 戦闘終了 (勝利) 時にリーダーが HP 小減少 (resetPlayerBuffs より前に呼ぶ)。
+    function applyCursedBladeEndCost() {
+      if (!playerBuffs.cursedBladeActive) return;
+      const dd = parseDiceDD(COMMON_CURSED_HP_LOSS);
+      const loss = Math.max(1, rollDiceDD(dd.n, dd.sides).total);
+      hp = Math.max(1, hp - loss);   // 勝利後に即死はさせない
+      updateInfo(`呪われた曲刀の代償: リーダーが ${loss} HP を失った (残 ${hp})`);
+    }
+    // ════════════ M9 ここまで ════════════
 
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
@@ -10874,6 +10977,10 @@
         updateInfo("行動順: " + units.map(u => `${u.name}(${u.initiative})`).join(" → "));
         await sleepMs(600);
 
+        // ── 闇市 一般消費アイテムの自動発動 (M9) ──
+        applyBattleStartConsumables();   // 影渡りの薬 / 呪われた曲刀 / セリアの手鏡
+        tryNegatePreemptive(units);      // 牙の護符: 先制された時のみ
+
         // ── ボスの恐怖オーラ (リッチ Frightful Presence / Sce6 ファラクサス) ──
         // 戦闘開始時に1回、def.fearDC を持つボスがいればパーティ全員が Will セーヴ。
         const fearBossIdx = encounterEnemyIndices.find(i =>
@@ -10968,6 +11075,8 @@
           showBanner("VICTORY", 1200);
           setPhase("rest");
           updateInfo("敵を撃破!");
+          // 闇市 呪われた曲刀 (M9): バフ消去の前にリーダー HP 減少の代償を適用
+          applyCursedBladeEndCost();
           // 戦闘専用バフ (シールド・オブ・フェイス等の AC バフ、攻撃バフ、ダメ軽減) を消去
           // ターン経過で減算する仕様のため、戦闘終了時は明示的に切る必要がある
           resetPlayerBuffs();
@@ -11796,6 +11905,8 @@
       luckyRemaining: 0, luckyCritWiden: 0,    // 盗賊 幸運 (critRange 拡張)
       frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
       fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
+      cursedBladeAtkBonus: 0, cursedBladeActive: false,  // 闇市 呪われた曲刀 (M9): リーダー攻撃+ / 終了時HP減フラグ
+      shadowAcBonus: 0,                                  // 闇市 影渡りの薬 (M9): 盗賊系(リーダー) AC+ フラット
       stuck: false,                                   // 粘着 (ミミック Adhesive): リーダーが1ターン拘束、STR脱出
     };
     function resetPlayerBuffs() {
@@ -11820,6 +11931,9 @@
       playerBuffs.frightenedRemaining = 0;
       playerBuffs.frightenedPenalty = 0;
       playerBuffs.fearImmuneRemaining = 0;
+      playerBuffs.cursedBladeAtkBonus = 0;   // 闇市 呪われた曲刀 (M9)
+      playerBuffs.cursedBladeActive = false;
+      playerBuffs.shadowAcBonus = 0;         // 闇市 影渡りの薬 (M9)
       playerBuffs.stuck = false;
     }
     function tickPlayerBuffsAtTurnStart() {
@@ -11852,7 +11966,8 @@
       const w = getCurrentWeapon();
       const weaponEnh = (w && w.enhancement) || 0;
       return playerStats.atkBonus + weaponEnh +
-        (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) -
+        (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) +
+        (playerBuffs.cursedBladeAtkBonus || 0) -          // 闇市 呪われた曲刀 (M9)
         playerFearPenalty();
     }
     function currentPlayerDmgBonus() {
@@ -11866,10 +11981,12 @@
       const armorEnh  = (a && a.enhancement) || 0;
       const shieldEnh = (s && s.enhancement) || 0;
       return playerStats.ac + armorEnh + shieldEnh +
-        (playerBuffs.acBonusRemaining > 0 ? playerBuffs.acBonusAmount : 0);
+        (playerBuffs.acBonusRemaining > 0 ? playerBuffs.acBonusAmount : 0) +
+        (playerBuffs.shadowAcBonus || 0);                 // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
     }
     function currentAllyAc(a) {
-      return a.ac + (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0);
+      return a.ac + (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0) +
+        (a.buffs.shadowAcBonus || 0);                     // 闇市 影渡りの薬 (M9): 盗賊系仲間
     }
     function applyDmgReductionToPlayerDmg(dmg) {
       if (playerBuffs.dmgReductionRemaining <= 0 || !playerBuffs.dmgReductionDice) {

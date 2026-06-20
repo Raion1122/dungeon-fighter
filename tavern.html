@@ -1362,10 +1362,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の秘薬・呪具が戦闘で効くように</b> — 影渡りの薬(盗賊の回避↑)・牙の護符(敵の先制を無効)・呪われた曲刀(攻撃↑/終了時に代償)・セリアの手鏡(雑魚を石化)が自動で発動。</li>
         <li><b>宝箱に鍵と開錠判定を追加</b> — 宝箱は知覚判定に成功すると見つかり、鍵のかかった箱は盗賊が得意な開錠判定に成功すると開く。</li>
         <li><b>ボスを大型化</b> — リッチ・リザードマン族長を約2倍、ドラゴンを約4倍の大きさに。ボス戦の迫力が増した。</li>
         <li><b>出発前に"事前情報チェック"を追加</b> — 準備画面で「吟味/聞き込み/祈り」を試すと、出目しだいで敵の弱点や噂、罠の予兆がわかる。</li>
-        <li><b>全6シナリオの受注画面に風景画を追加</b> — 依頼を受ける時、舞台となる地(沼地・砦・地下神殿・竜の巣)の情景が大きく映るようになった。</li>
       </ul>
     </div>
 
@@ -2512,10 +2512,14 @@
       effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
   };
   const PLAZA_ITEMS_COMMON_TV = {
-    potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  effect: "1戦闘の間、盗賊系の回避率上昇。" },
-    fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  effect: "モンスターからの先制攻撃を1回無効。" },
-    cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
-    medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+    potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "1戦闘の間、盗賊系の回避率上昇。" },
+    fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto",
+      effect: "モンスターからの先制攻撃を1回無効。" },
+    cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+    medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
   };
   function plazaItemDefTV(id) { return PLAZA_ITEMS_TV[id] || PLAZA_ITEMS_COMMON_TV[id] || null; }
 
