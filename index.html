@@ -4415,10 +4415,10 @@
         name: "廃墟の大蜘蛛",
         flavor: "崩れた砦に巣を張る大蜘蛛。糸で搦め捕り、毒牙で仕留める",
         badge: "🕷",
-        sprite: "assets/rat_bat_anim.png",       // 暫定流用(獣・拡大) — 専用スプライトは後日生成
-        sheetW: 320, sheetH: 320,
-        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
-        displaySize: 88,
+        sprite: "assets/ruinSpider_anim.png?v=1", // 専用スプライト (2026-06-23 ChatGPT生成→八本脚で地を這う節足動物ゆえ足元揃え抽出)
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 86,                          // 廃墟の主たる中型蜘蛛 (wraith80 より大・direBear ボス未満)
         hp: 22, speed: 0.95,
         contactDamage: true,
         adhesive: true,                          // 糸で拘束(不意打ち時1ターン拘束・STR脱出) ※mimic と同機構

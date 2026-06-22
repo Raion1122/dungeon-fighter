@@ -1,0 +1,5 @@
+# 廃墟の大蜘蛛 (ruinSpider) — 2 ターン構成 (テンプレ把握 → 右移動 walk のみ)
+# 廃墟の主の大蜘蛛。毒牙 + adhesive(糸拘束)。rat_bat_anim(小型獣)流用からの差し替え。contactDamage(体当たり)+ adhesive はステータス機構で attack anim 不要 → walk のみ生成。
+# 多肢(八本脚)で DALL-E が荒れやすいため「人型ではない/二足ではない/地を這う八本脚の蜘蛛・脚は必ず八本」を二重に釘刺し(蜘蛛人間化・脚数バラつきの事故防止)。荒れたら再生成前提。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_ruinSpider/_prompt_walk.txt",      "output": "source_images/enemy_ruinSpider/蜘蛛歩き.png"}
