@@ -1379,10 +1379,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>戦後フランの復興サイドクエストが最初から挑戦可能に</b> — 廃墟に巣食う異形(大蜘蛛・鬼火・瘟疫蛙)と復興を阻む巨熊の依頼が、本筋クリアを待たず酒場へ並ぶようになった。</li>
         <li><b>廃墟の大蜘蛛に専用スプライトを実装</b> — 崩れた砦に巣を張る八本脚の大蜘蛛が、糸を引いて這い寄る本物の姿に(暫定流用の差し替え)。</li>
         <li><b>瘟疫蛙に専用スプライトを実装</b> — 廃墟に湧く四つ足の毒蛙が、跳ねて迫る本物の姿に(暫定流用の差し替え)。</li>
         <li><b>沼の鬼火に専用スプライトを実装</b> — 漂う青い火の玉が冷たい光を放つ姿に一新(暫定流用を差し替え)。</li>
-        <li><b>怒れる巨熊が本来の姿で描かれるように</b> — 四足で迫り、後ろ足で立ち上がって咆哮しながら襲いかかる専用グラフィックを追加した。</li>
       </ul>
     </div>
 
@@ -2026,6 +2026,19 @@
     } catch (e) { /* ignore */ }
   }
   const progress = { cleared: loadClearedSet() };
+
+  // ── 本筋6シナリオを常時クリア扱いにする(戦後フラン復興サイドクエスト=ポストゲームを最初から解放) ──
+  //   ユーザー要望(2026-06-23): セーブを本筋全クリア済みにし、新規モンスター(大蜘蛛/鬼火/瘟疫蛙/巨熊)の
+  //   サイドクエストを待たずに遊べるようにする。冪等(毎ロード未所持分のみ追加→変化時のみ保存)。
+  //   ⚠ 商用配布前にこのブロックを revert すれば本来の段階解放に戻る。
+  const ALL_MAIN_SCENARIOS = ["goblin-mine", "bandits-forest", "lizard-swamp", "orc-fort", "undead-temple", "dragon-lair"];
+  (function forceClearAllMainScenarios() {
+    let changed = false;
+    for (const id of ALL_MAIN_SCENARIOS) {
+      if (!progress.cleared.has(id)) { progress.cleared.add(id); changed = true; }
+    }
+    if (changed) saveClearedSet(progress.cleared);
+  })();
 
   // ── 装備データ (index.html と同期すること) ──
   const WEAPONS = [
