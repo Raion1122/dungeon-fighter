@@ -7486,6 +7486,16 @@
           hpBarEl.style.left = (enemy.x + hpBarOffX - camX) + "px";
           hpBarEl.style.top  = (enemy.y - 10 - camY) + "px";
           hpFillEl.style.width = (enemy.hp / enemy.maxHp * 100) + "%";
+          // ボス/敵がプレイヤー・仲間(z-index:6)と同タイルに重なると、敵(z-index:2)が
+          // 完全に覆われて「見えなくなる」(特に魔法使いリーダー × ボス)。同タイル時のみ
+          // 敵を最前面(7)へ持ち上げ、離れたら CSS 既定へ戻す。getUnitOccupiedTiles は敵の
+          // 中心タイルしか登録しないため、エンカ開始の退避(下)では取りこぼす大型ボスを救う最後の砦。
+          //   ※ inactive(檻の獣)/passiveNpc/霊 は専用レイヤリング(檻バー等)保護のため持ち上げ対象外。
+          const _eTX = Math.floor((enemy.x + enemy.def.displaySize / 2) / TILE_SIZE);
+          const _eTY = Math.floor((enemy.y + enemy.def.displaySize / 2) / TILE_SIZE);
+          const _pTX = Math.floor((playerX + 48) / TILE_SIZE);
+          const _pTY = Math.floor((playerY + 58) / TILE_SIZE);
+          enemyEl.style.zIndex = (!protectedNpc && _eTX === _pTX && _eTY === _pTY) ? "7" : "";
         } else {
           enemyEl.style.display = "none";
           hpBarEl.style.display = "none";
@@ -9334,6 +9344,45 @@
     // 仲間の追従は exploreAllyTurn() が heroAI の 1 タイル到達時にまとめて実行する。
     function updateAllyFollow() { /* no-op (ターン制へ移行) */ }
 
+    // 置き去り仲間 (>MAX_LAG) をプレイヤー近傍の空きタイルへワープさせる最終救済。
+    //   ドア単線で他ユニットに塞がれて rally で進めない仲間がいると、heroAI の backline 待ちが
+    //   最大5秒フリーズする(実機「部屋移動でたまに止まる」の症状)。一定時間 rally しても
+    //   揃わない時にこれを1回呼び、詰んだ仲間だけをプレイヤー周囲の最寄り空きタイルへ瞬間移動して
+    //   待機を即解除する。near 距離の仲間や通常追従中の仲間には触れない。
+    function warpLaggingAlliesToPlayer() {
+      const pTX = Math.floor((playerX + 48) / TILE_SIZE);
+      const pTY = Math.floor((playerY + 58) / TILE_SIZE);
+      const occ = getUnitOccupiedTiles(null);  // プレイヤー含む全ユニット占有タイル
+      for (const ally of allies) {
+        if (!ally.alive) continue;
+        if (Math.hypot(ally.x - playerX, ally.y - playerY) <= 480) continue;  // 置き去りでない
+        // 自分の現在タイルは障害物から除外(自タイルを避けて空き無し誤判定を防ぐ)
+        const curTX = Math.floor((ally.x + ally.def.displaySize / 2) / TILE_SIZE);
+        const curTY = Math.floor((ally.y + ally.def.displaySize / 2) / TILE_SIZE);
+        occ.delete(curTX + "," + curTY);
+        // プレイヤー周囲を内側のリングから探索 (壁/他ユニット/発見済み罠を避ける)。
+        //   r<=3 = 最大 euclidean ≈407px < MAX_LAG(480) → 置けたら必ず backline 待機が解ける。
+        //   (r=4 の角は ≈543px で 480 超 = 置いても揃わない誤救済になるため使わない)
+        let placed = false;
+        for (let r = 1; r <= 3 && !placed; r++) {
+          for (let dy = -r; dy <= r && !placed; dy++) {
+            for (let dx = -r; dx <= r && !placed; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;  // 現半径のリングのみ
+              const ntx = pTX + dx, nty = pTY + dy;
+              if (ntx < 0 || ntx >= MAP_W || nty < 0 || nty >= MAP_H) continue;
+              if (isTileWall(ntx, nty)) continue;
+              if (occ.has(ntx + "," + nty)) continue;
+              ally.x = ntx * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
+              ally.y = nty * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
+              ally.slideTargetTile = null;
+              occ.add(ntx + "," + nty);  // 複数仲間の同時ワープが重ならないよう予約
+              placed = true;
+            }
+          }
+        }
+      }
+    }
+
     // ─────────────────────────────────────────────────────────
     // ヒーローAI(フルオート探索+戦闘)
     // ─────────────────────────────────────────────────────────
@@ -9349,6 +9398,14 @@
     let heroWiggleUntil = 0;
     let heroWiggleDir = null;           // 選ばれた持続方向 [dx, dy]
     let heroWiggleDirStuckTicks = 0;    // 選んだ方向で動けない tick 数
+    // 大回りWAITのエスカレーション: 仲間の探索移動は「ヒーローが1タイルslideした時」だけ
+    //   駆動されるため、WAIT(=slideしない)が続くと仲間が動けず WAIT 条件が永久に解消しない
+    //   循環デッドロックになる(砦 orc-fort で多発)。連続WAITが上限を超えたら仲間を押しのける
+    //   経路(pathIgnoreAllies)に切替えて前進を強制し、slide で仲間ターンを回してジャムを解く。
+    let heroDetourWaitTicks = 0;
+    const DETOUR_WAIT_LIMIT = 18;        // 連続WAITがこの数(≈0.54s)を超えたら押し通し。
+                                         //   20tick のウィグル発火前に発火させ、ウィグルの微小移動で
+                                         //   遅延/不発になるのを避ける(WAIT中は仲間が凍結=長く待つ利点なし)。
     // ターン間休止(1タイル到着するごとに小休止)
     let heroTurnPause = 0;
     const TURN_PAUSE_TICKS = 12;         // 約360ms(1ターン間隔)
@@ -9613,6 +9670,9 @@
         if (heroPath.length > 0 && heroPath[0].tx === wp.tx && heroPath[0].ty === wp.ty) {
           heroPath.shift();
         }
+        // 実 slide で前進した = 大回りWAITは解消 → エスカレーションカウンタをリセット。
+        //   (これにより「WAITが連続して続いた時だけ」押し通しが発火する)
+        heroDetourWaitTicks = 0;
         // 訪問履歴に「離れたタイル」を push (オシレーション抑制)
         // 直後の経路再計算で逆方向 (oldPlayerTile に戻る経路) が重く扱われる
         pushHeroRecentTile(oldPlayerTile.tx, oldPlayerTile.ty);
@@ -9631,6 +9691,8 @@
     }
 
     let heroWaitForBacklineStartAt = 0;
+    let heroBacklineWarpedThisWait = false;   // この backline 待機サイクル中に置き去り仲間をワープ済みか
+    const WARP_LAGGING_MS = 2500;             // backline 待機がこの実時間を超えたら置き去り仲間をワープ救済
     function heroAI() {
       if (!gameStarted || gameOver) return;
       if (encounterActive) return;  // 観戦フェーズ中は turn loop が制御
@@ -9642,13 +9704,26 @@
       // ただし 5秒経っても揃わないなら詰み回避で強制解除
       if (!isBacklineInPosition()) {
         if (!heroWaitForBacklineStartAt) heroWaitForBacklineStartAt = Date.now();
-        if (Date.now() - heroWaitForBacklineStartAt < 5000) {
+        const backlineWaited = Date.now() - heroWaitForBacklineStartAt;
+        // WARP_LAGGING_MS 経過しても rally で揃わない=ドア単線等で詰んだ置き去り仲間を
+        //   1回だけプレイヤー近傍へワープ救済 → backline 待機の最大5秒フリーズ
+        //   (実機「部屋移動でたまに止まる」の症状)を断つ。
+        if (backlineWaited >= WARP_LAGGING_MS && !heroBacklineWarpedThisWait) {
+          heroBacklineWarpedThisWait = true;
+          warpLaggingAlliesToPlayer();
+        }
+        // ワープしても揃わず、かつ5秒未満なら従来通り rally して待機継続。
+        if (!isBacklineInPosition() && backlineWaited < 5000) {
           // 待機中、遅れてる仲間をプレイヤーの位置へ呼び寄せる
           exploreRallyToPlayer();
           return;
         }
+        // (ワープで揃った or 5秒到達) → フォールスルーして通常進行。
+        //   タイマー/フラグは else(揃った)側でリセット = 5秒到達ケースは保持して
+        //   force-advance を継続し、再待機ループに戻さない(従来挙動を維持)。
       } else {
         heroWaitForBacklineStartAt = 0;
+        heroBacklineWarpedThisWait = false;
       }
 
       // ヒットボックス中心(+58)でタイル座標を計算 — スプライト中心(+48)は1幅廊下でズレる
@@ -9818,11 +9893,22 @@
           heroPathTTL = 20;
         } else if (pathIgnoreAllies.length > 0 &&
                    pathAvoidAllies.length > pathIgnoreAllies.length * DETOUR_RATIO) {
-          // 大回りすぎる → 待機して仲間が動くのを待つ
-          heroPath = [];
-          heroPathGoal = null;
-          heroPathTTL = 6;
-          return;
+          // 大回りすぎる → 通常は待機して仲間が動くのを待つ。
+          //   ただし WAIT 中は slide しない=仲間ターンが回らず仲間が動けないため、WAIT が
+          //   続くと循環デッドロックになる(砦で多発)。連続WAITが上限を超えたら諦めて
+          //   仲間を押しのける経路に切替え、return せず下の slide へ落とす(slide が
+          //   exploreAllyTurn を駆動して仲間が散り、ジャムが解ける)。
+          heroDetourWaitTicks += 1;
+          if (heroDetourWaitTicks >= DETOUR_WAIT_LIMIT) {
+            heroPath = pathIgnoreAllies;
+            heroPathGoal = { tx: goalTX, ty: goalTY };
+            heroPathTTL = 20;
+          } else {
+            heroPath = [];
+            heroPathGoal = null;
+            heroPathTTL = 6;
+            return;
+          }
         } else {
           // 通常: 仲間を避けた経路を採用
           heroPath = pathAvoidAllies;
@@ -10925,6 +11011,33 @@
           snapEnemyToTile(e, eSnapTX, eSnapTY);
         }
 
+        // プレイヤーが敵/他ユニットと同タイルに重なったら隣接空タイルへ退避。
+        //   敵スナップ後・仲間退避(下)前に実行 → 仲間はプレイヤーの最終タイルを避ける。
+        //   これが無いと魔法使いリーダー等がボスと同タイルに乗ったまま戦闘が進み、ボスが
+        //   プレイヤー(z-index:6 > 敵2)に覆われて見えなくなる。仲間の退避処理(下)のミラー。
+        {
+          let pdTX = Math.floor((playerX + 48) / TILE_SIZE);
+          let pdTY = Math.floor((playerY + 58) / TILE_SIZE);
+          const pOccupied = getUnitOccupiedTiles("player");
+          if (pOccupied.has(pdTX + "," + pdTY) || isTileWall(pdTX, pdTY)) {
+            let pFound = false;
+            for (let r = 1; r <= 3 && !pFound; r++) {
+              for (let dy = -r; dy <= r && !pFound; dy++) {
+                for (let dx = -r; dx <= r && !pFound; dx++) {
+                  if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+                  const ntx = pdTX + dx, nty = pdTY + dy;
+                  if (ntx < 0 || ntx >= MAP_W || nty < 0 || nty >= MAP_H) continue;
+                  if (isTileWall(ntx, nty)) continue;
+                  if (pOccupied.has(ntx + "," + nty)) continue;
+                  pdTX = ntx; pdTY = nty;
+                  pFound = true;
+                }
+              }
+            }
+            if (pFound) snapPlayerToTile(pdTX, pdTY);
+          }
+        }
+
         showBanner("⚔  ENCOUNTER  ⚔", 1100);
         updateInfo("敵と遭遇!");
         await sleepMs(1050);
@@ -11163,6 +11276,11 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        // backline 待機状態を戦闘終了でリセット: 戦闘中は heroAI が早期 return するため warp の
+        //   フラグ/タイマーが戦闘を跨いで残り、戦闘直後(仲間が最も散らばる場面)の最初の待機
+        //   サイクルで warp 救済が1回スキップされるのを防ぐ(レビュー指摘の戦闘跨ぎ stale 修正)。
+        heroWaitForBacklineStartAt = 0;
+        heroBacklineWarpedThisWait = false;
         window.__inMidBoss = isMidBossActive();   // 中ボス撃破済なら false (撃破済は alive=false)。逃げて生存中なら true 維持
         clearCordonZones();   // 設置ゾーンを次エンカへ持ち越さない
         if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
