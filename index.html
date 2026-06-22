@@ -4400,12 +4400,12 @@
         name: "瘟疫蛙",
         flavor: "排水の崩れた廃墟に湧く、毒気を帯びた大蛙。一匹ずつは脆いが、群れる",
         badge: "🐸",
-        sprite: "assets/rat_bat_anim.png",       // 暫定流用(小型獣) — 専用スプライトは後日生成
-        sheetW: 320, sheetH: 320,
-        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
-        displaySize: 58,
+        sprite: "assets/plagueFrog_anim.png?v=1", // 専用スプライト (2026-06-23 ChatGPT生成→地を這う四つ足ゆえ足元揃え抽出)
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 70,
         hp: 5, speed: 1.1,
-        contactDamage: true,                     // 体当たり(rat 流用シートに attack 行なし)
+        contactDamage: true,                     // 体当たり(専用シートも attack 行なし=walk のみ生成)
         dex: 1, atkBonus: 3, ac: 13,
         dmgDice: "1d4", dmgBonus: 1, critRange: 20, critMult: 2,
         range: "melee",

@@ -1,0 +1,5 @@
+# 廃墟の瘟疫蛙 (plagueFrog) — 2 ターン構成 (テンプレ把握 → 右移動 walk のみ)
+# 群れで来る低HPの毒蛙。rat_bat_anim(小型獣)流用からの差し替え。contactDamage(体当たり)で attack anim 不要 → walk のみ生成。
+# 四つ足の両生類のため「人型ではない/二足ではない/地を這う四つ足の蛙」を二重に釘刺し(蛙人間化の事故防止)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_plagueFrog/_prompt_walk.txt",      "output": "source_images/enemy_plagueFrog/蛙歩き.png"}
