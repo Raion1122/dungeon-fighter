@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>酒場 — 銀の鹿亭</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -726,6 +727,22 @@
       #changelogBox .changelogList li { font-size: 14px; }
     }
 
+    /* スマホ縦持ち 実機フィット (≤480px): 列折返し・余白圧縮・行折返しのみ。編成ロジック/データは不変 */
+    @media (max-width: 480px) {
+      /* viewport-fit=cover でノッチ/ホームインジケータ下に潜らないよう セーフエリアを尊重 (非ノッチ機は env()=0 → 16px) */
+      #prep { padding: max(16px, env(safe-area-inset-top)) 0 max(16px, env(safe-area-inset-bottom)); }
+      #prepBox { padding: 22px 16px; }
+      #prepBox h2 { font-size: 22px; letter-spacing: 2px; }
+      #prepBox .sub { margin-bottom: 14px; }
+      .prepPanel { padding: 12px 12px; }
+      /* 主人公セレクタ: 6列だと各トグルが潰れるため 3列(2段)に折返してタップ域を確保 */
+      .partyComp { grid-template-columns: repeat(3, 1fr); }
+      /* ヘッダ行 + 引き直す/未所持表示ボタンが横にはみ出さないよう折返し許可 (.ph は inline で display:flex, flex-wrap 未指定) */
+      .prepPanel .ph { flex-wrap: wrap; }
+      /* 出発/戻るボタンが2つ並んで溢れないよう中央寄せ + 折返し */
+      .choices { flex-wrap: wrap; justify-content: center; }
+    }
+
     /* Phase 2-G DEBUG: 残影回避モードのトグルボタン (出発準備画面) */
     .debugEvadeBtn {
       font-family: 'Cinzel', serif;
@@ -1362,10 +1379,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>iPhoneで出発準備が組みやすく</b> — 画面が縦持ちに収まり、初めて開いた時は遊び方を語り部が案内するようにした。</li>
         <li><b>ボスが見えなくなる/部屋移動で止まる不具合を修正</b> — ボスと味方が同じマスに重なってもボスが前面に表示されるように。砦などで仲間が大きく遅れた時にパーティが止まりやすかった挙動も改善した。</li>
         <li><b>宝箱の前でパーティが動かなくなる不具合を修正</b> — 開錠に失敗した鍵付きの宝箱は諦めて、探索を続けるようになった。</li>
         <li><b>盗賊仲間に新しい見た目が3種登場</b> — アサシン・軽業師(女盗賊)・影の斥候。酒場で雇うたびに違う姿に。</li>
-        <li><b>ドワーフ仲間に新しい見た目が3種登場</b> — バーサーカー・盾の守り手(女ドワーフ)・ルーンスミス。酒場で雇うたびに違う姿に。</li>
       </ul>
     </div>
 
@@ -2934,6 +2951,7 @@
     dialogEl.style.display = "none";
     // 受注ナレ (依頼人の語り口調 + セリフ) を全画面で語ってから準備画面へ。受注スティンガー音声はナレ内で再生。
     await playQuestAcceptNarration(sc);
+    await maybePlayPrepOnboarding();   // 初回のみ: 準備画面の遊び方を語り部が案内 (スキップ可)
     prepEl.style.display = "flex";
   }
 
@@ -3689,6 +3707,13 @@
     "——遠く西の剣の海岸、地の底に広がるアンダーダーク。まだ見ぬ地の物語は、いつかまた。",
   ];
 
+  // 準備画面 初回オンボーディング: 準備画面を初めて開いた時のみ、語り部口調で遊び方を短く案内する。
+  // 文面は実UI (主人公えらぶ→仲間→引き直す→出発) に対応。説明書臭くせず2段落に収める。
+  const PREP_ONBOARDING_NARRATION = [
+    "まずは旗頭を選ぶがよい。お主が誰として戦うか——それがこの一行の芯となる。",
+    "残る仲間は、酒場に居合わせた者たちが馳せ参じる。顔ぶれが気に入らねば「仲間を引き直す」がよい。支度が済めば、扉の向こうへ。出発だ。",
+  ];
+
   function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
   function voice(id) { try { if (window.GameAudio && GameAudio.playVoice) GameAudio.playVoice(id); } catch (e) {} }
   function sfx(name) { try { if (window.GameAudio && GameAudio.playSfx) GameAudio.playSfx(name); } catch (e) {} }
@@ -3819,6 +3844,39 @@
     } finally {
       // 後始末は finally 内で必ず実行する。外に置くと playNarration が reject した時にスキップされ、
       // quest-accept クラス/風景帯/依頼人が残って 前口上・闇市ナレ (同じオーバーレイ) に漏れる。
+      overlay.removeEventListener("click", skip);
+      overlay.style.display = "none";
+      overlay.classList.remove("fading");
+      resetQuestAcceptStage();
+    }
+  }
+
+  // 準備画面 初回オンボーディング: 準備画面を「初めて開いた時」のみ、共有オーバーレイ #prologueOverlay を
+  // 再利用して遊び方を語り部口調で案内する。スキップ可 (クリックで段落送り)、二度目以降・戻りプレイヤーには
+  // localStorage フラグで一切出さない。専用ボイスは不要 (voiceIdPrefix=null = テキスト/クリック送り)。
+  async function maybePlayPrepOnboarding() {
+    const KEY = "dragonfighters.prepOnboardingSeen";
+    let seen = false;
+    try { seen = !!(window.localStorage && localStorage.getItem(KEY)); } catch (e) {}
+    if (seen) return;   // 二度目以降・戻りプレイヤーは出さない
+    const overlay = document.getElementById("prologueOverlay");
+    if (!overlay) { try { if (window.localStorage) localStorage.setItem(KEY, "1"); } catch (e) {} return; }
+    resetQuestAcceptStage();   // 共有オーバーレイの受注用 風景帯/依頼人 を保険で消す
+    const headerEl = overlay.querySelector(".dmHeader");
+    const hintEl = document.getElementById("dmHint");
+    if (headerEl) headerEl.textContent = "📜 出発の準備";
+    if (hintEl) hintEl.classList.remove("show");
+    overlay.classList.remove("fading");
+    overlay.style.display = "flex";
+    const skip = () => { narrationSkipRequested = true; };
+    overlay.addEventListener("click", skip);
+    try {
+      await playNarration(PREP_ONBOARDING_NARRATION, null);
+      overlay.classList.add("fading");
+      await sleepMs(500);
+    } finally {
+      // reject/中断されても必ずフラグを立て・オーバーレイを畳む (再発火/他用途への漏れ防止)
+      try { if (window.localStorage) localStorage.setItem(KEY, "1"); } catch (e) {}
       overlay.removeEventListener("click", skip);
       overlay.style.display = "none";
       overlay.classList.remove("fading");
