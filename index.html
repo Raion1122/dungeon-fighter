@@ -4370,6 +4370,84 @@
         deathLine: "ぐちゅ……ぢゅるるるっ……",
         xp: 450,
       },
+      // ════════════════════════════════════════════════════════════
+      // 戦後フラン復興サイドクエスト 新規モンスター (2026-06-22 第2回開発会議)
+      //   方針: 人型の焼き直しを増やさず、欠けたアーキタイプ(漂う/群れる/大型獣)を埋めて飽きを防ぐ。
+      //   ※スプライトは近縁の既存シートを「暫定流用」。本物は ChatGPT 生成パイプラインで後日差し替える。
+      //     幾何(sheetW/H・frameW/H・cols・rowOffset)は流用元と完全一致させること(寸法ズレ=描画破綻)。
+      //     鬼火→wraith(576×480/96px/6col) / 蛙・蜘蛛→rat(320×320/32px/10col) / 巨熊→minotaur(480×260/48×52/10col)。
+      //   contactDamage 系(rat 流用)は attack 行が無いので hasAttackAnim を付けない。
+      // ════════════════════════════════════════════════════════════
+      ghostFlame: {            // 沼の鬼火 (Will-o'-Wisp) — 漂う霊体: 高ACで命中しにくい + 低HP + 冷光の長射程(矢演出なし)
+        name: "沼の鬼火",
+        flavor: "戦没者の未練が青い灯となって彷徨う。掴もうとすれば、ふっと掻き消える",
+        badge: "🔥",
+        sprite: "assets/wraith_anim.png?v=1",   // 暫定流用(霊体) — 専用スプライトは後日生成
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 64,
+        hp: 7, speed: 1.05,
+        hasAttackAnim: true,
+        meleeRange: 130, hitRange: 460,
+        attackDuration: 30, attackHitFrame: 15, attackCooldown: 46,
+        dex: 4, atkBonus: 4, ac: 19,            // 高AC = 命中しにくい(漂う霊体)
+        dmgDice: "1d8", dmgBonus: 1, critRange: 20, critMult: 2,
+        range: "long",                           // 長射程・矢なし(冷たい光) ※goblinShaman と同方式
+        undead: true,                            // ターンアンデッド対象 + family=undead
+        xp: 220,
+      },
+      plagueFrog: {            // 瘟疫蛙 (Giant Frog) — 群れで来る低HPの両生類。数で圧す
+        name: "瘟疫蛙",
+        flavor: "排水の崩れた廃墟に湧く、毒気を帯びた大蛙。一匹ずつは脆いが、群れる",
+        badge: "🐸",
+        sprite: "assets/rat_bat_anim.png",       // 暫定流用(小型獣) — 専用スプライトは後日生成
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 58,
+        hp: 5, speed: 1.1,
+        contactDamage: true,                     // 体当たり(rat 流用シートに attack 行なし)
+        dex: 1, atkBonus: 3, ac: 13,
+        dmgDice: "1d4", dmgBonus: 1, critRange: 20, critMult: 2,
+        range: "melee",
+        xp: 90,
+      },
+      ruinSpider: {            // 廃墟の大蜘蛛 (Giant Spider) — 毒牙 + 粘着(拘束)。廃墟の主
+        name: "廃墟の大蜘蛛",
+        flavor: "崩れた砦に巣を張る大蜘蛛。糸で搦め捕り、毒牙で仕留める",
+        badge: "🕷",
+        sprite: "assets/rat_bat_anim.png",       // 暫定流用(獣・拡大) — 専用スプライトは後日生成
+        sheetW: 320, sheetH: 320,
+        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
+        displaySize: 88,
+        hp: 22, speed: 0.95,
+        contactDamage: true,
+        adhesive: true,                          // 糸で拘束(不意打ち時1ターン拘束・STR脱出) ※mimic と同機構
+        str: 2, dex: 3, atkBonus: 5, ac: 14,
+        dmgDice: "1d8", dmgBonus: 2, critRange: 20, critMult: 2,  // 毒牙
+        range: "melee",
+        xp: 260,
+      },
+      direBear: {              // 怒れる巨熊 (Dire/Brown Bear) — Phase2 目玉獣ボス。突進 + HP半減で激昂(召喚なし)
+        name: "怒れる巨熊",
+        flavor: "戦後の混乱に乗じて人里に下りた巨大な熊。手負いになるほど狂暴に吼える",
+        badge: "🐻",
+        sprite: "assets/minotaur_anim.png",      // 暫定流用(大型獣) — 専用スプライトは後日生成
+        sheetW: 480, sheetH: 260,
+        frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
+        displaySize: 132,
+        hp: 80, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 46, attackHitFrame: 22, attackCooldown: 64,
+        str: 5, dex: 1, atkBonus: 8, ac: 15,
+        dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,  // 噛みつき/爪 2d8+4
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,                   // HP50%以下で激昂(汎用 offensiveRage: +atk/+dmg/+速度)
+        maxSummons: 0,                           // 召喚なし(熊は配下を呼ばない) → summon 抽選を確実に無効化
+        deathLine: "グゥゥ……ォオ……ン……",
+        xp: 700,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -17853,7 +17931,7 @@
     }
 
     function pickBossAction(enemy) {
-      const canSummon = (enemy.summonsUsed || 0) < (enemy.def.maxSummons || 3);
+      const canSummon = (enemy.summonsUsed || 0) < (enemy.def.maxSummons != null ? enemy.def.maxSummons : 3);  // maxSummons:0 を尊重(熊など召喚なしボス)。未定義は従来どおり3
       const rage = enemy.phase === 1;
       // 重み付き選択
       const weights = rage

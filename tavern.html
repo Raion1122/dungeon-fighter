@@ -1379,10 +1379,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>戦後フランに復興サイドクエストと新たな魔物が出現</b> — 本筋クリア後、廃墟の大蜘蛛・沼の鬼火・瘟疫蛙の群れ、そして人里に下りた巨熊が依頼に現れる。</li>
         <li><b>iPhoneで出発準備が組みやすく</b> — 画面が縦持ちに収まり、初めて開いた時は遊び方を語り部が案内するようにした。</li>
         <li><b>ボスが見えなくなる/部屋移動で止まる不具合を修正</b> — ボスと味方が同じマスに重なってもボスが前面に表示されるように。砦などで仲間が大きく遅れた時にパーティが止まりやすかった挙動も改善した。</li>
         <li><b>宝箱の前でパーティが動かなくなる不具合を修正</b> — 開錠に失敗した鍵付きの宝箱は諦めて、探索を続けるようになった。</li>
-        <li><b>盗賊仲間に新しい見た目が3種登場</b> — アサシン・軽業師(女盗賊)・影の斥候。酒場で雇うたびに違う姿に。</li>
       </ul>
     </div>
 
@@ -1811,6 +1811,23 @@
         eliteKeys: ["minotaur"], bossKey: "minotaur", minionLabel: "オークと骸骨の混成",
         targetNames: ["廃墟を占拠したオーク戦士団", "墓所をさまよう骸骨の軍勢", "迷宮に潜む牛頭の魔物", "古き砦に巣食う混成の群れ"],
       },
+      // ── 戦後フラン復興サイドクエスト 専用家系 (postGame:true → 本筋クリア後のみ出現) ──
+      // selectFamily が progress.cleared.has("dragon-lair") のときだけ候補に含める。
+      // 新規モンスター ghostFlame/plagueFrog/ruinSpider/direBear は index.html ENEMY_TYPES に実在(スプライト=暫定流用)。
+      {
+        id: "ruin-beasts", label: "廃墟に巣食う異形", placeTags: ["ruin", "aquatic", "underground", "forest"],
+        themeId: "lizard-swamp", postGame: true,
+        enemyPool: ["rat", "plagueFrog", "ghostFlame", "ruinSpider"],
+        eliteKeys: ["ruinSpider", "ghostFlame"], bossKey: "ruinSpider", minionLabel: "廃墟の獣ども",
+        targetNames: ["廃坑に巣食う大蜘蛛", "戦没者の地に湧く鬼火", "水路跡を埋める瘟疫蛙の群れ", "復興を阻む廃墟の異形"],
+      },
+      {
+        id: "frontier-beast", label: "復興を阻む猛獣", placeTags: ["forest", "ruin", "mountain"],
+        themeId: "bandits-forest", postGame: true,
+        enemyPool: ["rat", "plagueFrog", "ruinSpider"],
+        eliteKeys: ["ruinSpider"], bossKey: "direBear", minionLabel: "森を侵す獣",
+        targetNames: ["人里に下りた巨熊", "開拓地を襲う猛獣", "森の主と化した巨大な熊", "辺境を脅かす獣の長"],
+      },
     ];
 
     // 各部屋(B/C/D/E)の有効スポーン座標 [col, row] (既存シナリオ流用 = 有効性保証)。
@@ -1856,11 +1873,14 @@
         const forced = FAMILIES.find(f => f.id === window.__forceFamily);
         if (forced) return forced;
       }
+      // postGame 家系(戦後フラン復興サイドクエスト)は本筋(dragon-lair)クリア後のみ候補に含める
+      const postGameOK = !!(typeof progress !== "undefined" && progress && progress.cleared && progress.cleared.has("dragon-lair"));
+      const eligible = FAMILIES.filter(f => postGameOK || !f.postGame);
       const tags = (place && place.tags) || [];
-      let cand = FAMILIES.filter(f => f.placeTags.some(t => tags.indexOf(t) !== -1));
+      let cand = eligible.filter(f => f.placeTags.some(t => tags.indexOf(t) !== -1));
       if (avoidSpecies) cand = cand.filter(f => f.id !== avoidSpecies);   // 闇市: 依頼主と同種族は討伐対象にしない
-      if (!cand.length) cand = FAMILIES.filter(f => !avoidSpecies || f.id !== avoidSpecies);
-      if (!cand.length) cand = FAMILIES.slice();   // フォールバック (仕様書 §3-5)
+      if (!cand.length) cand = eligible.filter(f => !avoidSpecies || f.id !== avoidSpecies);
+      if (!cand.length) cand = eligible.slice();   // フォールバック (仕様書 §3-5)
       return qPick("family", cand, 3);
     }
 
