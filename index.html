@@ -4375,17 +4375,17 @@
       //   方針: 人型の焼き直しを増やさず、欠けたアーキタイプ(漂う/群れる/大型獣)を埋めて飽きを防ぐ。
       //   ※スプライトは近縁の既存シートを「暫定流用」。本物は ChatGPT 生成パイプラインで後日差し替える。
       //     幾何(sheetW/H・frameW/H・cols・rowOffset)は流用元と完全一致させること(寸法ズレ=描画破綻)。
-      //     鬼火→wraith(576×480/96px/6col) / 蛙・蜘蛛→rat(320×320/32px/10col) / 巨熊→minotaur(480×260/48×52/10col)。
+      //     ※鬼火(ghostFlame)・巨熊(direBear)は専用スプライト生成済(2026-06-22~23)。残る暫定流用= 蛙・蜘蛛→rat(320×320/32px/10col)。
       //   contactDamage 系(rat 流用)は attack 行が無いので hasAttackAnim を付けない。
       // ════════════════════════════════════════════════════════════
       ghostFlame: {            // 沼の鬼火 (Will-o'-Wisp) — 漂う霊体: 高ACで命中しにくい + 低HP + 冷光の長射程(矢演出なし)
         name: "沼の鬼火",
         flavor: "戦没者の未練が青い灯となって彷徨う。掴もうとすれば、ふっと掻き消える",
         badge: "🔥",
-        sprite: "assets/wraith_anim.png?v=1",   // 暫定流用(霊体) — 専用スプライトは後日生成
+        sprite: "assets/ghostFlame_anim.png?v=1",   // 専用スプライト (2026-06-23 ChatGPT生成→浮遊体ゆえ中心揃え抽出)
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
-        displaySize: 64,
+        displaySize: 72,                         // 漂う小型霊体 (orb 本体 ~47px / 尾を含め ~55px)
         hp: 7, speed: 1.05,
         hasAttackAnim: true,
         meleeRange: 130, hitRange: 460,

@@ -1,0 +1,6 @@
+# 沼の鬼火 (ghostFlame) — 3 ターン構成 (テンプレ把握 → 右漂い → 攻撃)
+# 漂う霊火(人型でも骸骨でもない純粋な青い火の玉)。wraith(亡霊人間)流用からの差し替え。
+# 「人型ではない/腕脚胴体なし/純粋な火の玉」を二重に釘刺し(wraith人間化の事故防止)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_ghostFlame/_prompt_walk.txt",      "output": "source_images/enemy_ghostFlame/鬼火歩き.png"}
+{"prompt_file": "source_images/enemy_ghostFlame/_prompt_attack.txt",    "output": "source_images/enemy_ghostFlame/鬼火攻撃.png"}
