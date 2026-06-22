@@ -1,0 +1,6 @@
+# 怒れる巨熊 (direBear) — 3 ターン構成 (シンプル prompt 路線、ユーザー手動運用準拠)
+# テンプレ把握 → walk (四足の熊 詳細 1 行 + 右歩き 6 コマ) → attack (後ろ足立ち+前足殴り、極短)
+# 四足獣のため「四つ足/二足ではない」を二重に釘刺し(熊男化の事故防止)。attack は動作を1句だけ指定(6F分解はしない)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_common_spec.txt",        "expect_image": false}
+{"prompt_file": "source_images/enemy_direBear/_prompt_walk.txt",         "output": "source_images/enemy_direBear/熊歩き.png"}
+{"prompt_file": "source_images/enemy_direBear/_prompt_attack.txt",       "output": "source_images/enemy_direBear/熊攻撃.png"}

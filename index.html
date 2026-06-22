@@ -4431,10 +4431,10 @@
         name: "怒れる巨熊",
         flavor: "戦後の混乱に乗じて人里に下りた巨大な熊。手負いになるほど狂暴に吼える",
         badge: "🐻",
-        sprite: "assets/minotaur_anim.png",      // 暫定流用(大型獣) — 専用スプライトは後日生成
-        sheetW: 480, sheetH: 260,
-        frameW: 48, frameH: 52, cols: 10, rowOffset: 0,
-        displaySize: 132,
+        sprite: "assets/direBear_anim.png?v=1",   // 専用スプライト (2026-06-22 ChatGPT生成→192px大型ボス規格で抽出)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 220,                         // 大型ボスの威容 (歩行~103px / 立ち上がり咆哮~194px)
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
