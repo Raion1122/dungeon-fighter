@@ -1880,9 +1880,13 @@
       box-sizing: border-box;
     }
 
-    /* ===== スマホUI改善 Phase4: compact時のみ パネルをドロワー化 + 下部HPミニバー =====
-       全て body.ui-compact 子孫 + 新規要素は基底 display:none → デスクトップ(非compact)無改変 */
-    /* B: --ui-menu-w(=0) と分離した実ドロワー幅。translateX で出し入れ (幅を再指定しないと0で消える) */
+    /* ===== UI改善 Phase4: パネル畳み + 下部HPミニバー =====
+       ui-compact  = スマホ(ドロワーUX: オーバーレイ+バックドロップ+☰開閉)。
+       ui-collapsed = レイアウト上パネルを占有させない状態 (= compact || PC畳み) → 全幅+下部HPミニバー。
+       新規要素は基底 display:none → PC展開時(非collapsed)はパネル左表示で無改変 */
+    /* PC畳み時(ui-collapsed かつ非compact)はパネルを完全非表示。HPは下部ミニバーが担保。 */
+    body.ui-collapsed:not(.ui-compact) #partyPanel { display: none; }
+    /* B: --ui-menu-w(=0) と分離した実ドロワー幅。translateX で出し入れ (幅を再指定しないと0で消える)。スマホ専用 */
     body.ui-compact #partyPanel {
       width: min(82vw, 300px); max-width: 300px;
       transform: translateX(-100%); transition: transform 0.26s cubic-bezier(.2,.8,.2,1);
@@ -1892,14 +1896,22 @@
     }
     body.ui-compact #partyPanel.open { transform: translateX(0); }
 
-    /* F: ☰パーティ トグル (settingsBtn の鏡像・top-left) */
+    /* F: ☰パーティ トグル (settingsBtn の鏡像・top-left)。畳み状態(ui-collapsed=スマホ常時 or PC畳み)で表示 */
     #partyToggleBtn { display: none; }
-    body.ui-compact #partyToggleBtn {
+    body.ui-collapsed #partyToggleBtn {
       display: block;
       position: fixed; top: 11px; left: calc(11px + env(safe-area-inset-left)); z-index: 61;
       background: rgba(26,17,8,0.86); color: #e9d7a8; border: 1px solid #8b6914; border-radius: 6px;
       padding: 8px 12px; font-size: 18px; line-height: 1; cursor: pointer; min-width: 44px; min-height: 44px;
     }
+    /* G: パネル内「◀畳む」ボタン — PC展開時(非collapsed)のみ表示。スマホは常に collapsed なので出ない */
+    #panelCollapseBtn { display: none; }
+    body:not(.ui-collapsed) #panelCollapseBtn {
+      display: inline-flex; align-self: flex-end; margin: 0 0 2px; padding: 4px 9px;
+      background: rgba(26,17,8,0.86); color: #e9d7a8; border: 1px solid #8b6914; border-radius: 6px;
+      font: 12px/1 'Cinzel', serif; cursor: pointer;
+    }
+    body:not(.ui-collapsed) #panelCollapseBtn:hover { background: rgba(60,40,16,0.95); }
 
     /* F: バックドロップ (外タップで閉じる / canvas のタップ奪取対策) */
     #drawerBackdrop { display: none; }
@@ -1909,9 +1921,9 @@
     }
     body.ui-compact #drawerBackdrop.open { background: rgba(0,0,0,0.5); pointer-events: auto; }
 
-    /* C: 下部HPミニバー (常設・HP常時可視を死守)。bottom はログ直上、z はログと同値・非重複 */
+    /* C: 下部HPミニバー (畳み状態で常設・HP常時可視を死守)。bottom はログ直上、z はログと同値・非重複 */
     #hpMiniBar { display: none; }
-    body.ui-compact #hpMiniBar {
+    body.ui-collapsed #hpMiniBar {
       display: flex; gap: 6px; position: fixed; left: 0; right: 0;
       bottom: var(--ui-log-h); height: 52px;   /* ※ JS UI_MINIBAR_H=52 と必ず一致 */
       padding: 4px calc(6px + env(safe-area-inset-right)) 4px calc(6px + env(safe-area-inset-left));
@@ -2430,7 +2442,7 @@
   </div>
   <!-- 設定ボタン (右上・フェーズ表示の左) -->
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;top:11px;right:172px;z-index:60;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:4px 9px;font-size:17px;line-height:1;cursor:pointer;">⚙</button>
-  <!-- Phase4: スマホ用 ☰パーティ トグル (compact時のみCSSで表示・基底 display:none) -->
+  <!-- Phase4: ☰パーティ トグル (畳み状態=スマホ常時/PC畳み でCSS表示・基底 display:none) -->
   <button id="partyToggleBtn" type="button" title="パーティ">☰</button>
 
   <!-- DM イベントメッセージ (エンカ・宝箱・罠・フェーズ切替) -->
@@ -2446,10 +2458,11 @@
   <!-- Phase4: ドロワー外タップで閉じるバックドロップ (compact時のみCSSで表示) -->
   <div id="drawerBackdrop"></div>
   <div id="partyPanel">
+    <button id="panelCollapseBtn" type="button" title="パネルを畳む">◀ 畳む</button>
     <div id="partyStatusList"></div>
     <button id="retreatBtn" type="button">🏃 撤退する</button>
   </div>
-  <!-- Phase4: 下部HPミニバー (compact時のみ表示・HP常時可視。renderHpMiniBar が描画) -->
+  <!-- Phase4: 下部HPミニバー (畳み状態=スマホ常時/PC畳み で表示・HP常時可視。renderHpMiniBar が描画) -->
   <div id="hpMiniBar"></div>
   <div id="combatLog"></div>
   <div id="info"></div>
@@ -3309,15 +3322,21 @@
     // 横持ち/縦持ちスマホでは縮小してダンジョン描画を広げる (デスクトップは従来の 280 / 170)。
     let UI_MENU_WIDTH = 280;   // 左側ステータスパネル領域
     let UI_LOG_HEIGHT = 170;   // 下側ログ領域
-    let UI_MINIBAR_H  = 0;     // Phase4: compact時の下部HPミニバー高さ (CSS body.ui-compact #hpMiniBar height:52px と一致)
+    let UI_MINIBAR_H  = 0;     // Phase4: 下部HPミニバー高さ (CSS body.ui-collapsed #hpMiniBar height:52px と一致)
+    // Phase4(desktop拡張): デスクトップでユーザーがパネルを畳んだ状態を永続保持。スマホ(compact)は常に畳み扱い。
+    let desktopCollapsed = false;
+    try { desktopCollapsed = (localStorage.getItem("dragonfighters.panelCollapsed") === "1"); } catch (e) {}
     function computeUiMetrics() {
       const w = window.innerWidth, h = window.innerHeight;
       const compact = (h <= 480) || (w <= 560);   // 横持ち(高さ小) / 縦持ち(幅小) スマホ
-      if (compact) {
-        // Phase4: 左パネルはドロワー化しHUD占有を0に (ダンジョン全幅)。HPは下部ミニバーで常時可視。
+      // collapsed = レイアウト上パネルを占有させない状態 (= スマホ常時 or デスクトップでユーザーが畳んだ)。
+      // ダンジョン全幅化 + 下部HPミニバー表示 はこの collapsed を唯一の真実にする。
+      const collapsed = compact || desktopCollapsed;
+      if (collapsed) {
+        // 左パネルを畳みHUD占有を0に (ダンジョン全幅)。HPは下部ミニバーで常時可視。
         UI_MENU_WIDTH = 0;
-        UI_LOG_HEIGHT = Math.max(96,  Math.min(120, Math.round(h * 0.28)));
-        UI_MINIBAR_H  = 52;   // ※ CSS body.ui-compact #hpMiniBar の height と必ず一致させる (Dのカメラ計算と単一ソース)
+        UI_LOG_HEIGHT = compact ? Math.max(96, Math.min(120, Math.round(h * 0.28))) : 170;
+        UI_MINIBAR_H  = 52;   // ※ CSS body.ui-collapsed #hpMiniBar の height と必ず一致させる (Dのカメラ計算と単一ソース)
       } else {
         UI_MENU_WIDTH = 280;
         UI_LOG_HEIGHT = 170;
@@ -3328,8 +3347,11 @@
         root.style.setProperty("--ui-menu-w", UI_MENU_WIDTH + "px");
         root.style.setProperty("--ui-log-h", UI_LOG_HEIGHT + "px");
       }
-      // A: compact判定の単一ソース化 — ドロワー/ミニバーCSSは body.ui-compact を唯一の真実にする
-      if (document.body) document.body.classList.toggle("ui-compact", compact);
+      // A: 状態クラスの単一ソース化。ui-compact=スマホ(ドロワーUX) / ui-collapsed=全幅+ミニバー(スマホ常時 or PC畳み)
+      if (document.body) {
+        document.body.classList.toggle("ui-compact", compact);
+        document.body.classList.toggle("ui-collapsed", collapsed);
+      }
     }
     computeUiMetrics();   // 初回適用 (UI_MENU_WIDTH/UI_LOG_HEIGHT の let 初期化後に実行)
     // 主人公(hero)のワールド座標を取得。カメラは前衛(隊列先頭)ではなく主人公を中央に据えるため、
@@ -7292,7 +7314,7 @@
     function renderHpMiniBar() {
       const mini = document.getElementById("hpMiniBar");
       if (!mini) return;
-      if (!(document.body && document.body.classList.contains("ui-compact"))) return;   // compact時のみ
+      if (!(document.body && document.body.classList.contains("ui-collapsed"))) return;   // 畳み状態(スマホ常時 or PC畳み)のみ
       let html = "";
       // 頭 (player アバター) — renderPartyStatuses と同じ表示名・low/dead 条件
       {
@@ -19383,14 +19405,36 @@
       if (p) p.classList.remove("open");
       if (b) b.classList.remove("open");
     }
+    // Phase4(desktop拡張): PCでパネルを畳む/展開する。desktopCollapsed を更新→永続化→再レイアウト+カメラ追従。
+    // スマホ(compact)は常に collapsed 扱いなので、この関数はデスクトップ専用の状態切替に使う。
+    function setDesktopCollapsed(v) {
+      desktopCollapsed = !!v;
+      try { localStorage.setItem("dragonfighters.panelCollapsed", v ? "1" : "0"); } catch (e) {}
+      closeDrawer();          // ドロワーが開いていれば閉じる (状態の混在防止)
+      computeUiMetrics();     // --ui-menu-w / ミニバー高さ / body.ui-collapsed を再計算
+      if (typeof gameStarted !== "undefined" && gameStarted) updateCamera();
+      renderPartyStatuses();  // ミニバー(renderHpMiniBar)を即時再描画
+    }
     {
       const toggleBtn = document.getElementById("partyToggleBtn");
       const backdropEl = document.getElementById("drawerBackdrop");
       const miniEl    = document.getElementById("hpMiniBar");
       const panelEl   = document.getElementById("partyPanel");
+      const collapseBtn = document.getElementById("panelCollapseBtn");
       if (toggleBtn) toggleBtn.addEventListener("click", (e) => {
         e.stopPropagation();   // トグル自爆クローズ防止
-        (panelEl && panelEl.classList.contains("open")) ? closeDrawer() : openDrawer();
+        if (document.body.classList.contains("ui-compact")) {
+          // スマホ: ドロワー開閉
+          (panelEl && panelEl.classList.contains("open")) ? closeDrawer() : openDrawer();
+        } else {
+          // PC畳み中の浮遊☰ → パネル展開へ
+          setDesktopCollapsed(false);
+        }
+      });
+      // PC: パネル内「◀畳む」 → 畳み状態へ
+      if (collapseBtn) collapseBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setDesktopCollapsed(true);
       });
       if (backdropEl) backdropEl.addEventListener("click", closeDrawer);
       // ミニバーは毎フレーム innerHTML 再生成 → 親へ1回だけ委譲 (子リスナーは死ぬため必須)
@@ -19401,8 +19445,10 @@
           // 撤退ロジックは二重化せず、既存 #retreatBtn ハンドラを再利用
           const rbtn = document.getElementById("retreatBtn");
           if (rbtn && !rbtn.disabled) rbtn.click();
+        } else if (document.body.classList.contains("ui-compact")) {
+          openDrawer();               // スマホ: HPチップ tap → ドロワーで詳細ステータス
         } else {
-          openDrawer();   // HPチップ tap → ドロワーで詳細ステータス
+          setDesktopCollapsed(false); // PC: 畳み解除でパネル(詳細)復帰
         }
       });
     }
