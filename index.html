@@ -3298,6 +3298,19 @@
           if (a.y + s > maxY) maxY = a.y + s;
         }
       }
+      // 戦闘中は交戦相手も bbox に含め、敵がフレーム外で戦う問題を解消する。
+      // 敵+味方が収まらない狭い画面では、下の「bbox 中央寄せ」が交戦の中点へカメラを寄せる。
+      if (currentPhase === "combat" && typeof enemies !== "undefined" && encounterEnemyIndices) {
+        for (const ei of encounterEnemyIndices) {
+          const e = enemies[ei];
+          if (!e || !e.alive) continue;
+          const s = (e.def && e.def.displaySize) || 96;
+          if (e.x < minX) minX = e.x;
+          if (e.y < minY) minY = e.y;
+          if (e.x + s > maxX) maxX = e.x + s;
+          if (e.y + s > maxY) maxY = e.y + s;
+        }
+      }
       const M = 48;   // 画面端マージン
       const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
       const loCy = maxY - usableH + M,          hiCy = minY - M;
