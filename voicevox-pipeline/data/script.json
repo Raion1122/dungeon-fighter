@@ -84,6 +84,7 @@
     { "id": "nar_boss_defeat_lizardChieftain", "category": "event", "speaker": "dungeon_master", "text": "…炎の…御方よ…我が血を…捧げ…ます…" },
     { "id": "nar_boss_defeat_garrock", "category": "event", "speaker": "dungeon_master", "text": "…炎の…御方よ…砦は…燃え尽きた…" },
     { "id": "nar_boss_defeat_lich", "category": "event", "speaker": "dungeon_master", "text": "馬鹿な…我が不死の…儀式が…ファラクサスよ、あとは…頼ん…だ…" },
+    { "id": "nar_boss_defeat_pharaxus", "category": "event", "speaker": "dungeon_master", "text": "おのれ…定命の者ども…が……フランは……再び……" },
 
     { "id": "nar_hard_beast", "category": "event", "speaker": "dungeon_master", "text": "鉄格子が軋み、二重に揺れる黒い影が咆哮を上げた。獣は砦の奥へ駆け去り、闇から盗賊たちの悲鳴が響き始める…!" },
     { "id": "nar_hard_caelum", "category": "event", "speaker": "dungeon_master_whisper", "text": "霊の表情が、一瞬で歪んだ。神官の慈悲は消え、死者の怨嗟だけが残った…!" },
@@ -92,6 +93,13 @@
 
     { "id": "nar_quest_complete", "category": "event", "speaker": "dungeon_master", "text": "見事だ。君たちはボスを討ち、ダンジョンは静寂を取り戻した。これが、君たちの選んだ道だ。" },
     { "id": "nar_quest_defeat", "category": "event", "speaker": "dungeon_master", "text": "君たちは、ここで力尽きた。だが、物語はまだ終わってはいない。再び、立ち上がるがいい。" },
+
+    { "id": "ending_epilogue_0", "category": "ending", "speaker": "dungeon_master", "text": "赤竜ファラクサスは、討たれた。洞窟を焦がしていた業火は鎮まり、フランの空に、久しく忘れられていた静けさが戻っていく。" },
+    { "id": "ending_epilogue_1", "category": "ending", "speaker": "dungeon_master", "text": "かつて灰に沈み、名もなき冒険者たちの手で取り戻されたこの街。その復興を、再び焼き払おうとした災厄は——いま、解放を知らぬ新しい世代の手で退けられた。" },
+    { "id": "ending_epilogue_2", "category": "ending", "speaker": "dungeon_master", "text": "君たちの名は、銀の鹿亭の片隅から、やがて街じゅうへと語り継がれていくだろう。これは、立ち直りかけたフランに刻まれる、新しい時代の最初の伝説だ。" },
+    { "id": "ending_epilogue_3", "category": "ending", "speaker": "dungeon_master", "text": "だが——竜の亡骸に残された、見覚えのない紋章。ファラクサスは、ただ復興に乗じて現れた災厄では、なかったのかもしれない。もし、誰かの意志によって、この地へ『遣わされた』のだとしたら……。" },
+    { "id": "ending_epilogue_4", "category": "ending", "speaker": "dungeon_master", "text": "その答えは、まだ遠い。遠く西の剣の海岸、地の底に広がるアンダーダーク——まだ見ぬ地のどこかで、糸を引く者が、静かに次の手を伸ばしている。" },
+    { "id": "ending_epilogue_5", "category": "ending", "speaker": "dungeon_master", "text": "だが、それはまた別の物語。——よくやった、冒険者よ。今はただ、勝利を噛みしめ、英気を養うがいい。君たちの物語は、いつかまた続く。" },
 
     { "id": "skillcheck_success", "category": "event", "speaker": "narrator", "text": "見事だ。君たちは、隠されていたものを見抜いた。" },
     { "id": "skillcheck_fail", "category": "event", "speaker": "dungeon_master_whisper", "text": "……何かを、見落としたかもしれん。気をつけて、進むがいい。" },

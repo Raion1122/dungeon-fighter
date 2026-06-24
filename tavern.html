@@ -1408,10 +1408,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>エンディングを追加</b> — 最終ボス・ファラクサスを討つと、エピローグの語りとスタッフロールが流れるようになった。</li>
         <li><b>PCでもパーティ欄を畳める</b> — 「◀畳む」でステータス欄を隠しダンジョンを全幅表示。HPは画面下のバーで常に見え、いつでも展開し直せる(スマホは従来どおり)。</li>
         <li><b>スマホ横持ちのUIを一新</b> — パーティ詳細は左から引き出すドロワーに、HPは画面下のバーで常に確認できるようになり、ダンジョンが画面いっぱいに広がります。</li>
         <li><b>戦闘中のカメラが敵を映すように改善</b> — 戦闘になると味方と交戦相手の両方が画面に収まるようカメラが寄り、敵が見えないまま戦う状態を解消した。</li>
-        <li><b>スマホの戦闘画面を広く表示</b> — 横持ち時にステータス欄と戦闘ログを画面サイズに合わせて縮小し、ダンジョンの描画領域を広げた。</li>
       </ul>
     </div>
     <script>
@@ -2071,12 +2071,20 @@
   }
   const progress = { cleared: loadClearedSet() };
 
-  // ── 本筋6シナリオを常時クリア扱いにする(戦後フラン復興サイドクエスト=ポストゲームを最初から解放) ──
-  //   ユーザー要望(2026-06-23): セーブを本筋全クリア済みにし、新規モンスター(大蜘蛛/鬼火/瘟疫蛙/巨熊)の
-  //   サイドクエストを待たずに遊べるようにする。冪等(毎ロード未所持分のみ追加→変化時のみ保存)。
-  //   ⚠ 商用配布前にこのブロックを revert すれば本来の段階解放に戻る。
+  // ── デバッグ用トグル: 本筋6シナリオを常時クリア扱いにし、ポストゲーム(戦後フラン復興サイドクエスト)を
+  //   最初から解放する。新規モンスター(大蜘蛛/鬼火/瘟疫蛙/巨熊)のサイドクエスト検証用。
+  //   ⚠ 既定 false = 本来の段階解放を維持(初見プレイヤーは本筋を順に遊び、dragon-lair クリア後に
+  //      ポストゲームが解放される=エンディングがその入口になる)。商用/配布ビルドは必ず false のまま。
+  //   ・開発時に全解放したい時のみ FORCE_POSTGAME_UNLOCK を true、または URL に ?unlockall=1
+  //     (既存 ?autoplay / ?evade と同じデバッグURL規約)を付ける。
+  //   冪等(毎ロード未所持分のみ追加→変化時のみ保存)。
   const ALL_MAIN_SCENARIOS = ["goblin-mine", "bandits-forest", "lizard-swamp", "orc-fort", "undead-temple", "dragon-lair"];
+  const FORCE_POSTGAME_UNLOCK = (function () {
+    try { if (new URLSearchParams(location.search).get("unlockall") === "1") return true; } catch (e) {}
+    return false;   // ← 配布時はここを false 固定
+  })();
   (function forceClearAllMainScenarios() {
+    if (!FORCE_POSTGAME_UNLOCK) return;   // 既定: 自動全クリアを無効化(段階解放を維持)
     let changed = false;
     for (const id of ALL_MAIN_SCENARIOS) {
       if (!progress.cleared.has(id)) { progress.cleared.add(id); changed = true; }

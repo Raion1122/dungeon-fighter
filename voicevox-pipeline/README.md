@@ -28,6 +28,9 @@ py voicevox-pipeline/scripts/generate.py
 py voicevox-pipeline/scripts/generate.py --category dungeon
 # 5. 特定行だけ再生成
 py voicevox-pipeline/scripts/generate.py --only dungeon_intro_goblin-mine_0
+# 6. エンディング(エピローグ)だけ再生成 + 最終ボス断末魔の穴埋め
+py voicevox-pipeline/scripts/generate.py --category ending
+py voicevox-pipeline/scripts/generate.py --only nar_boss_defeat_pharaxus
 ```
 
 ## 主な引数
@@ -36,7 +39,7 @@ py voicevox-pipeline/scripts/generate.py --only dungeon_intro_goblin-mine_0
 | `--engine-url` | `http://127.0.0.1:50021` | ENGINE の URL |
 | `--script` | `data/script.json` | 台本 |
 | `--out` | `<repo>/assets/voice` | 出力先(ゲーム配信ディレクトリ)|
-| `--category` | `all` | `quest` / `dungeon` / `all` |
+| `--category` | `all` | `quest` / `dungeon` / `event` / `plaza` / `ending` / `all` |
 | `--only <id>` | — | 特定 id だけ再生成 |
 | `--format` | `mp3` | `mp3` / `ogg` / `wav`(iOS 対応で mp3 既定)|
 | `--keep-wav` | off | 中間 wav を残す(通常は付けない)|

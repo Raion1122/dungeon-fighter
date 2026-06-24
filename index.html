@@ -2375,6 +2375,48 @@
     #resultBtn:hover { filter: brightness(1.15); }
     #resultBtn:active { filter: brightness(0.9); }
 
+    /* ── エンディング (dragon-lair クリア時: エピローグ→スタッフロール) ── */
+    #endingScene {
+      position: fixed; inset: 0; display: none;
+      background: radial-gradient(ellipse at center, #0b0a14 0%, #000 100%);
+      z-index: 205;
+    }
+    #endingScene.show { display: block; animation: resultFade 0.8s ease-out; }
+    #endingRollViewport { position: absolute; inset: 0; overflow: hidden; display: none; }
+    #endingRoll {
+      position: absolute; top: 0; left: 50%;
+      width: 90%; max-width: 680px;
+      transform: translate(-50%, 100%);   /* 初期は画面下。JS が --roll-start/--roll-end を px で設定 */
+      text-align: center;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      color: #f0e6cf; will-change: transform;
+    }
+    @keyframes endingRollUp {
+      from { transform: translate(-50%, var(--roll-start, 100%)); }
+      to   { transform: translate(-50%, var(--roll-end, -100%)); }
+    }
+    #endingRoll .erTitle { font-size: 30px; letter-spacing: 4px; color: #f5d98a; margin: 8px 0 6px; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+    #endingRoll .erSub   { font-size: 16px; color: #cdbf9a; margin-bottom: 40px; letter-spacing: 2px; }
+    #endingRoll .erHead  { font-size: 14px; letter-spacing: 6px; color: #c8a85a; margin: 36px 0 12px; }
+    #endingRoll .erItem  { font-size: 16px; line-height: 1.9; color: #ece2c8; }
+    #endingRoll .erMsg   { font-size: 16px; line-height: 2.0; color: #e6dcc0; margin: 28px 0; }
+    #endingRoll .erGap   { height: 64px; }
+    #endingFin {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', serif;
+      font-size: 72px; letter-spacing: 12px; color: #f5e8c8;
+      text-shadow: 0 0 24px rgba(245,217,138,0.5);
+      opacity: 0; transition: opacity 1.4s ease-in; pointer-events: none;
+    }
+    #endingFin.show { opacity: 1; }
+    #endingSkipBtn {
+      position: fixed; top: 14px; right: 14px; display: none;
+      padding: 8px 16px; font-family: 'Noto Serif JP', serif; font-size: 13px; letter-spacing: 2px;
+      background: rgba(20,20,28,0.7); color: #e8dcc0;
+      border: 1px solid rgba(200,168,90,0.5); border-radius: 4px; cursor: pointer; z-index: 320;
+    }
+    #endingSkipBtn:hover { background: rgba(40,40,52,0.9); }
+
     /* 戦闘バナー(ラウンド/イニシアチブ) */
     #battleBanner {
       position: fixed;
@@ -2477,6 +2519,14 @@
       <button id="resultBtn">酒場に戻る</button>
     </div>
   </div>
+
+  <!-- エンディング: 暗転 + スタッフロール (dragon-lair クリア時のみ。playEnding が制御) -->
+  <div id="endingScene">
+    <div id="endingRollViewport"><div id="endingRoll"></div></div>
+    <div id="endingFin">FIN</div>
+  </div>
+  <button id="endingSkipBtn" type="button">⏭ スキップ</button>
+
   <div id="inventory">
     <h2>インベントリ</h2>
     <div class="invRow"><span class="invLabel">武器</span><span class="invValue" id="invWeapon">―</span></div>
@@ -7017,6 +7067,123 @@
         narrationPlaying = false;
       }
     }
+
+    // ── エンディング (最終ボス dragon-lair クリア時のみ): エピローグ朗読 → スタッフロール ──
+    //   前口上(prologue)の鏡像。playNarration をそのまま流用し、新規実装は最小に抑える。
+    //   テキスト先行: 音声(ending_epilogue_*)が未生成でも字幕ペースで完走する(既存フォールバック)。
+    //   本文は voicevox-pipeline/data/script.json の ending_epilogue_<i> と一致させること。
+    const EPILOGUE_PARAGRAPHS = [
+      "赤竜ファラクサスは、討たれた。洞窟を焦がしていた業火は鎮まり、フランの空に、久しく忘れられていた静けさが戻っていく。",
+      "かつて灰に沈み、名もなき冒険者たちの手で取り戻されたこの街。その復興を、再び焼き払おうとした災厄は——いま、解放を知らぬ新しい世代の手で退けられた。",
+      "君たちの名は、銀の鹿亭の片隅から、やがて街じゅうへと語り継がれていくだろう。これは、立ち直りかけたフランに刻まれる、新しい時代の最初の伝説だ。",
+      "だが——竜の亡骸に残された、見覚えのない紋章。ファラクサスは、ただ復興に乗じて現れた災厄では、なかったのかもしれない。もし、誰かの意志によって、この地へ『遣わされた』のだとしたら……。",
+      "その答えは、まだ遠い。遠く西の剣の海岸、地の底に広がるアンダーダーク——まだ見ぬ地のどこかで、糸を引く者が、静かに次の手を伸ばしている。",
+      "だが、それはまた別の物語。——よくやった、冒険者よ。今はただ、勝利を噛みしめ、英気を養うがいい。君たちの物語は、いつかまた続く。",
+    ];
+    // スタッフロール本文 (音声なし=BGMで運ぶ)。出典は voicevox-pipeline/CREDITS.md + CLAUDE.md「出典・著作権」を正とする。
+    const ENDING_CREDITS_HTML = [
+      '<div class="erGap"></div>',
+      '<div class="erTitle">ダンジョンファイターズ</div>',
+      '<div class="erSub">～ プラン編 完結 ～</div>',
+      '<div class="erHead">語り・ナレーション</div>',
+      '<div class="erItem">ダンジョンマスター／語り部　VOICEVOX：青山龍星</div>',
+      '<div class="erItem">商人ボルダック・監視員ケネット　VOICEVOX：玄野武宏</div>',
+      '<div class="erItem">自警団長ロダン　VOICEVOX：剣崎雌雄</div>',
+      '<div class="erItem">村の長老マリア　VOICEVOX：九州そら</div>',
+      '<div class="erItem">司祭マーテル　VOICEVOX：麒ヶ島宗麟</div>',
+      '<div class="erHead">音楽</div>',
+      '<div class="erItem">魔王魂</div>',
+      '<div class="erItem">Wingless Seraph（ユーフルカ）</div>',
+      '<div class="erHead">効果音</div>',
+      '<div class="erItem">魔王魂 ／ Kenney (CC0)</div>',
+      '<div class="erHead">ゲームルール</div>',
+      '<div class="erItem">Dungeons &amp; Dragons 5.1 SRD (CC-BY 4.0)</div>',
+      '<div class="erItem">OGL 1.0a — SRD v3.5</div>',
+      '<div class="erHead">アートワーク</div>',
+      '<div class="erItem">ChatGPT ／ DALL·E</div>',
+      '<div class="erHead">スペシャルサンクス</div>',
+      '<div class="erItem">開発支援　Claude Code</div>',
+      '<div class="erHead">企画・制作</div>',
+      '<div class="erItem">Raion</div>',
+      '<div class="erGap"></div>',
+      '<div class="erMsg">ここまで導いてくれた、<br>すべての冒険者へ —</div>',
+      '<div class="erMsg">物語は、まだ終わらない。<br>剣の海岸の物語は、いつかまた。</div>',
+      '<div class="erGap"></div>',
+    ].join("");
+
+    async function playStaffroll() {
+      const viewport = document.getElementById("endingRollViewport");
+      const roll = document.getElementById("endingRoll");
+      const fin = document.getElementById("endingFin");
+      if (!viewport || !roll) { await sleepMs(500); return; }
+      roll.innerHTML = ENDING_CREDITS_HTML;
+      viewport.style.display = "block";
+      await sleepMs(60);   // レイアウト確定を待ってから高さを測る
+      const vpH = viewport.clientHeight || window.innerHeight || 600;
+      const rollH = roll.scrollHeight || vpH;
+      const speed = 80;    // px/sec (ゆっくり流す)
+      const durMs = Math.max(9000, Math.round((vpH + rollH) / speed * 1000));
+      roll.style.setProperty("--roll-start", vpH + "px");
+      roll.style.setProperty("--roll-end", (-rollH) + "px");
+      roll.style.animation = "endingRollUp " + durMs + "ms linear forwards";
+      await new Promise((resolve) => {
+        let done = false;
+        const fn = () => { if (!done) { done = true; resolve(); } };
+        roll.addEventListener("animationend", fn, { once: true });
+        setTimeout(fn, durMs + 600);   // animationend を取りこぼした時の保険
+      });
+      if (fin) fin.classList.add("show");   // 「FIN」フェードイン
+      await sleepMs(3000);
+    }
+
+    async function playEnding() {
+      // autoplay / 自動巡回検証 はエンディングを完全スキップ (検証完走のため)
+      if (window.__autoplay) { window.location.href = "tavern.html"; return; }
+      const goTavern = () => { window.location.href = "tavern.html"; };
+
+      const ro = document.getElementById("resultOverlay");
+      if (ro) ro.classList.remove("show");
+
+      // 暗転 + 「⏭ スキップ」(エンディング中いつでもタップで酒場へ)
+      const scene = document.getElementById("endingScene");
+      const skipBtn = document.getElementById("endingSkipBtn");
+      if (scene) scene.classList.add("show");
+      if (skipBtn) { skipBtn.style.display = "block"; skipBtn.addEventListener("click", goTavern, { once: true }); }
+
+      bgm("rest");   // 余韻 BGM (既存の合成 rest トラック。Phase D で専用曲に差替余地)
+
+      // ── 1) エピローグ朗読 (前口上 playNarration を流用) ──
+      const narrEl = document.getElementById("dmNarration");
+      if (narrEl) {
+        const headerEl = narrEl.querySelector(".dmHeader");
+        if (headerEl) headerEl.textContent = "📜 エピローグ ― プラン編 完結";
+        narrEl.classList.remove("fading");
+        narrEl.style.zIndex = "230";        // 暗転バックドロップ(205)より前面に
+        narrEl.style.display = "block";
+      }
+      // 音声プリロード (この時点で AudioContext は解錠済みのはず)。4秒で打ち切り。
+      try {
+        const ids = EPILOGUE_PARAGRAPHS.map((_, i) => "ending_epilogue_" + i);
+        if (window.GameAudio && GameAudio.preloadVoice) {
+          await Promise.race([GameAudio.preloadVoice(ids), sleepMs(4000)]);
+        }
+      } catch (e) {}
+      await playNarration(EPILOGUE_PARAGRAPHS, "ending_epilogue");
+      if (narrEl) {
+        narrEl.classList.add("fading");
+        await sleepMs(650);
+        narrEl.style.display = "none";
+        narrEl.classList.remove("fading");
+        narrEl.style.zIndex = "";
+      }
+
+      // ── 2) スタッフロール ──
+      await playStaffroll();
+
+      goTavern();
+    }
+    // ヘッドレス検証用に公開 (driver_ending)
+    window.__ending = { play: playEnding, epilogue: EPILOGUE_PARAGRAPHS, credits: ENDING_CREDITS_HTML };
 
     // 敵タイプ別CSSクラス付与(初期化時に1回)
 
@@ -19206,6 +19373,7 @@
     const resultRewardEl  = document.getElementById("resultReward");
     const resultBtnEl     = document.getElementById("resultBtn");
     let resultShown = false;
+    let resultEndingPending = false;   // dragon-lair クリア時: 結果ボタンを playEnding へ誘導
     function showResult(win) {
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
@@ -19307,6 +19475,10 @@
         resultSubEl.textContent = `「${currentScenario.title}」に力尽きた…`;
         resultRewardEl.innerHTML = "<i>このランで拾った装備と金貨は失われた</i>";
       }
+      // 最終ボス(dragon-lair)クリア時のみ、結果ボタンをエンディングへ誘導する。
+      // autoplay/自動巡回検証は従来どおり「酒場に戻る」で直行(=検証が完走する)。
+      resultEndingPending = !!(win && scenarioId === "dragon-lair" && !window.__autoplay);
+      if (resultEndingPending) resultBtnEl.textContent = "▶ エンディングへ";
       resultOverlayEl.classList.add("show");
 
       // 酒場に返すリザルト情報を書き込む
@@ -19319,6 +19491,8 @@
       }));
     }
     resultBtnEl.addEventListener("click", () => {
+      // dragon-lair クリア時はエンディング(エピローグ→スタッフロール)へ。それ以外は酒場へ。
+      if (resultEndingPending) { resultEndingPending = false; playEnding(); return; }
       window.location.href = "tavern.html";
     });
 
