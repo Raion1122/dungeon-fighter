@@ -68,6 +68,8 @@
       position: absolute;
       top: 18px; left: 50%;
       transform: translateX(-50%);
+      max-width: min(70vw, 560px);
+      box-sizing: border-box;
       padding: 10px 36px;
       background: var(--parchment-bg);
       border: 2px double var(--parchment-border);
@@ -743,6 +745,22 @@
       .choices { flex-wrap: wrap; justify-content: center; }
     }
 
+    /* スマホ 縦/横: タイトルを左寄せ + 更新情報の重なりを構造的に解消 (横持ち=高さ480px以下も捕捉) */
+    @media (max-width: 560px), (max-height: 480px) {
+      #title {
+        left: 12px; right: auto;
+        transform: none;
+        max-width: calc(100vw - 160px);
+        font-size: 20px;
+        padding: 8px 16px;
+        letter-spacing: 2px;
+      }
+      #title small { display: none; }   /* スマホでは副題を隠してタイトルを1行に保ち、横方向の重なりを断つ */
+      /* 折りたたみ時は右上の小さなボタン、展開時は(1行化した)タイトル帯の下へ降ろして被らせない */
+      #changelogBox { top: 14px; right: 12px; }
+      #changelogBox:not(.collapsed) { top: 60px; max-height: 70vh; }
+    }
+
     /* Phase 2-G DEBUG: 残影回避モードのトグルボタン (出発準備画面) */
     .debugEvadeBtn {
       font-family: 'Cinzel', serif;
@@ -919,6 +937,17 @@
       color: var(--parchment-ink-soft); margin-bottom: 5px;
     }
     #changelogBox .changelogList li b { color: var(--parchment-ink); }
+
+    /* 更新情報: 折りたたみトグル (スマホで重なり回避・ヘッダタップで開閉) */
+    #changelogBox { transition: top 0.2s ease-out; }
+    .changelogHeader { cursor: pointer; user-select: none; }
+    .changelogHeader::after { content: " ▾"; font-size: 12px; opacity: 0.65; }
+    #changelogBox.collapsed .changelogHeader::after { content: " ▸"; }
+    #changelogBox.collapsed { width: auto; max-width: none; max-height: none; }
+    #changelogBox.collapsed .changelogHeader {
+      margin-bottom: 0; border-bottom: none; padding-bottom: 0;
+    }
+    #changelogBox.collapsed .changelogList { display: none; }
 
     /* 酒場の掲示板 (左下) — クエスト自動生成 */
     #questBoard {
@@ -1379,12 +1408,27 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>スマホで酒場の表示の重なりを解消</b> — タイトルと「更新情報」が重ならないよう整え、スマホでは更新情報をタップで開閉できるようにした。</li>
         <li><b>戦後フランの復興サイドクエストが最初から挑戦可能に</b> — 廃墟に巣食う異形(大蜘蛛・鬼火・瘟疫蛙)と復興を阻む巨熊の依頼が、本筋クリアを待たず酒場へ並ぶようになった。</li>
         <li><b>廃墟の大蜘蛛に専用スプライトを実装</b> — 崩れた砦に巣を張る八本脚の大蜘蛛が、糸を引いて這い寄る本物の姿に(暫定流用の差し替え)。</li>
         <li><b>瘟疫蛙に専用スプライトを実装</b> — 廃墟に湧く四つ足の毒蛙が、跳ねて迫る本物の姿に(暫定流用の差し替え)。</li>
-        <li><b>沼の鬼火に専用スプライトを実装</b> — 漂う青い火の玉が冷たい光を放つ姿に一新(暫定流用を差し替え)。</li>
       </ul>
     </div>
+    <script>
+      /* 更新情報パネル: スマホ/横持ち/タッチ端末では既定で折りたたみ、ヘッダタップで開閉 (タイトルとの重なり回避) */
+      (function () {
+        var box = document.getElementById('changelogBox');
+        if (!box) return;
+        var header = box.querySelector('.changelogHeader');
+        var compact = window.matchMedia('(max-width: 560px)').matches
+                   || window.matchMedia('(max-height: 480px)').matches
+                   || window.matchMedia('(hover: none)').matches;
+        if (compact) box.classList.add('collapsed');
+        if (header) header.addEventListener('click', function () {
+          box.classList.toggle('collapsed');
+        });
+      })();
+    </script>
 
     <!-- 酒場の掲示板: クエスト自動生成 (左下) -->
     <div id="questBoard">
