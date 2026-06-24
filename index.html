@@ -742,6 +742,24 @@
     }
 
     /* フェーズインジケータ (画面右上、探索/戦闘/休憩を色分け) */
+    /* 戦闘開始ヴィネット (案A: 軽い演出)。JSで .show を ~0.45s 付与し、画面端を一瞬赤く締める。 */
+    #combatFlash {
+      position: fixed;
+      inset: 0;
+      z-index: 48;            /* phaseIndicator(50)/banner より下・ダンジョン描画より上 */
+      pointer-events: none;
+      opacity: 0;
+      background: radial-gradient(ellipse at center,
+        rgba(0,0,0,0) 45%,
+        rgba(120,20,12,0.28) 80%,
+        rgba(60,8,6,0.55) 100%);
+    }
+    #combatFlash.show { animation: combatFlashPulse 0.45s ease-out; }
+    @keyframes combatFlashPulse {
+      0%   { opacity: 0; }
+      28%  { opacity: 1; }
+      100% { opacity: 0; }
+    }
     #phaseIndicator {
       position: fixed;
       top: 12px;
@@ -2478,6 +2496,9 @@
     </div>
   </div>
 
+  <!-- 戦闘開始ヴィネット (案A: 軽い演出。pointer-events無し・JSで .show 付与) -->
+  <div id="combatFlash" aria-hidden="true"></div>
+
   <!-- フェーズインジケータ (右上) -->
   <div id="phaseIndicator" class="phase-explore">
     <span id="phaseIcon">🔍</span> <span id="phaseText">探索フェーズ</span>
@@ -2716,7 +2737,7 @@
     const tileset = new Image();
     tileset.src = "assets/tileset.png";
     let tilesetLoaded = false;
-    tileset.onload = () => { tilesetLoaded = true; updateCamera(); renderMap(); renderLighting(); };
+    tileset.onload = () => { tilesetLoaded = true; computeCameraTarget(); camX = camTargetX; camY = camTargetY; renderMap(); renderLighting(); };
 
     // ── 統一床テクスチャ (93x93 石畳、回転バリエーションで単調さ防止) ──
     const floorTex = new Image();
@@ -2800,6 +2821,16 @@
 
     let camX = 0;
     let camY = 0;
+    // ── カメラ・イージング層 (案A: pan-only・literal zoomなし) ──
+    // computeCameraTarget() が camTargetX/Y を算出 → cameraFollowTick() が camX/Y を毎フレーム lerp で寄せる。
+    // camFocus = 戦闘時の注視点 (戦闘開始は交戦敵の中点 / 戦闘中は行動ユニット)。null なら主人公センタリング(探索)。
+    let camTargetX = 0, camTargetY = 0;   // 希望カメラ位置 (クランプ後)
+    let camFocus = null;                  // {x,y} ワールド座標 or null
+    let cameraFollowActive = false;       // rAF グライドループ稼働中フラグ
+    let cameraInitialized = false;        // 初回 updatePositions は必ず瞬時スナップ (0,0 からのグライド防止)
+    const CAM_SMOOTH = true;              // false で従来の即スナップ挙動
+    const CAM_LERP = 0.16;                // 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
+    const CAM_SNAP_EPS = 0.5;             // この距離以下で目標にスナップしてループ停止
 
     function resizeCanvas() {
       mapCanvas.width = window.innerWidth;
@@ -2809,14 +2840,14 @@
       lightingCanvas.height = window.innerHeight;
     }
     // viewport 変化 (リサイズ/端末回転) で HUD 寸法を再計算し、カメラも追従させる。
-    // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/updateCamera と UI_MENU_WIDTH(let) は
+    // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/snapCamera と UI_MENU_WIDTH(let) は
     // 既に初期化済み。初回の computeUiMetrics() 呼び出しは let 宣言の後 (関数定義直後) で行う。
     function onViewportResize() {
       resizeCanvas();
       computeUiMetrics();
       // Phase4: 回転等で非compactに復帰したら、開いたままのドロワー(幽霊パネル)を閉じる
       if (!(document.body && document.body.classList.contains("ui-compact"))) closeDrawer();
-      if (typeof gameStarted !== "undefined" && gameStarted) updateCamera();
+      if (typeof gameStarted !== "undefined" && gameStarted) snapCamera();
     }
     resizeCanvas();
     window.addEventListener("resize", onViewportResize);
@@ -3416,17 +3447,24 @@
       return { x: playerX, y: playerY, w: playerWidth, h: playerHeight };   // フォールバック (主人公不在/死亡)
     }
 
-    function updateCamera() {
-      // 主人公を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
+    // 希望カメラ位置 (camTargetX/Y) を算出。実際の camX/Y への反映は updatePositions/cameraFollowTick が担う。
+    function computeCameraTarget() {
+      // 主人公(探索) または camFocus(戦闘の注視点) を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
       const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H;   // Phase4: ログ + 下部HPミニバー(compact時52) を下部占有の単一ソースに
       const usableW = window.innerWidth - UI_MENU_WIDTH;
       const usableH = window.innerHeight - bottomHud;
       const centerScreenX = UI_MENU_WIDTH + usableW / 2;
       const centerScreenY = usableH / 2;
-      // (1) 主人公中央の希望カメラ
-      const hero = getHeroWorldPos();
-      let cx = hero.x + hero.w / 2 - centerScreenX;
-      let cy = hero.y + hero.h / 2 - centerScreenY;
+      // (1) 希望カメラ: camFocus があればその注視点(戦闘) / なければ主人公中央(探索)
+      let cx, cy;
+      if (camFocus) {
+        cx = camFocus.x - centerScreenX;
+        cy = camFocus.y - centerScreenY;
+      } else {
+        const hero = getHeroWorldPos();
+        cx = hero.x + hero.w / 2 - centerScreenX;
+        cy = hero.y + hero.h / 2 - centerScreenY;
+      }
       // (2) 工夫: 隊列(先頭+生存仲間)が画面外に出ないよう、全員が収まる範囲にカメラをクランプ。
       //     可視ワールド矩形 x∈[camX+UI_MENU_WIDTH, camX+innerWidth] / y∈[camY, camY+usableH]。
       //     通常は主人公が中央、隊列が端に達した時だけ最小限ずれて全員を画面内に保つ。
@@ -3465,8 +3503,41 @@
       const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
       const minCamY = 0;
       const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
-      camX = Math.max(minCamX, Math.min(cx, maxCamX));
-      camY = Math.max(minCamY, Math.min(cy, maxCamY));
+      camTargetX = Math.max(minCamX, Math.min(cx, maxCamX));
+      camTargetY = Math.max(minCamY, Math.min(cy, maxCamY));
+    }
+
+    // ── カメラ駆動 (イージング/スナップ/フォーカス) ──
+    function cameraFollowTick() {
+      const dx = camTargetX - camX, dy = camTargetY - camY;
+      if (Math.abs(dx) + Math.abs(dy) <= CAM_SNAP_EPS) {
+        camX = camTargetX; camY = camTargetY;
+        renderWorld();
+        cameraFollowActive = false;
+        return;
+      }
+      camX += dx * CAM_LERP;
+      camY += dy * CAM_LERP;
+      renderWorld();
+      requestAnimationFrame(cameraFollowTick);
+    }
+    // 瞬時スナップ (起動/リサイズ/パネル畳み): グライドさせず即座に目標へ。
+    function snapCamera() {
+      computeCameraTarget();
+      camX = camTargetX; camY = camTargetY;
+      cameraFollowActive = false;
+      cameraInitialized = true;
+      renderWorld();
+    }
+    // 戦闘の注視点を設定して滑らかに寄せる (要望①②)。
+    function focusCameraOn(wx, wy) {
+      camFocus = { x: wx, y: wy };
+      updatePositions();
+    }
+    // 注視点解除 → 主人公センタリング(探索)へ滑らかに戻す。
+    function clearCameraFocus() {
+      camFocus = null;
+      updatePositions();
     }
 
     function isNorthWall(tx, ty) {
@@ -7804,8 +7875,26 @@
       }
     }
 
+    // updatePositions(): カメラ目標を再計算し、グライド(イージング) or 即描画で世界を更新する公開エントリ。
     function updatePositions() {
-      updateCamera();
+      computeCameraTarget();
+      if (!cameraInitialized) {   // セッション最初の1回は瞬時スナップ (起動時のグライド防止)
+        cameraInitialized = true;
+        camX = camTargetX; camY = camTargetY;
+        renderWorld();
+        return;
+      }
+      if (CAM_SMOOTH && (Math.abs(camTargetX - camX) + Math.abs(camTargetY - camY) > CAM_SNAP_EPS)) {
+        // カメラは数フレームかけて寄せる。現フレームは現在位置で即描画し、HP/スプライト等の変化を遅延させない。
+        if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
+        renderWorld();
+      } else {
+        camX = camTargetX; camY = camTargetY;
+        renderWorld();
+      }
+    }
+    // renderWorld(): 現在の camX/camY でマップ(canvas)と全DOMスプライトを再描画/再配置する (旧 updatePositions 本体)。
+    function renderWorld() {
       renderMap();
       computeVisibleTiles();
       renderLighting();
@@ -11186,6 +11275,45 @@
       setTimeout(() => battleBannerEl.classList.remove("show"), ms);
     }
 
+    // 戦闘開始ヴィネット (要望①の軽い演出)。クラス再付与+reflow で毎戦リトリガー。
+    const combatFlashEl = document.getElementById("combatFlash");
+    function triggerCombatFlash() {
+      if (!combatFlashEl) return;
+      combatFlashEl.classList.remove("show");
+      void combatFlashEl.offsetWidth;   // reflow で animation を確実に再生
+      combatFlashEl.classList.add("show");
+      setTimeout(() => combatFlashEl.classList.remove("show"), 480);
+    }
+    // 指定した敵インデックス群の生存個体の中点(ワールド座標)。カメラ注視点(camFocus)に使う。
+    function enemyGroupCenter(indices) {
+      let sx = 0, sy = 0, n = 0;
+      for (const i of indices) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        const s = (e.def && e.def.displaySize) || 96;
+        sx += e.x + s / 2; sy += e.y + s / 2; n++;
+      }
+      return n ? { x: sx / n, y: sy / n } : null;
+    }
+    // actor (player/ally/enemy) のワールド中心。戦闘中の毎ターン追従(要望②)に使う。
+    function actorWorldCenter(actor) {
+      if (!actor) return null;
+      if (actor.kind === "player") {
+        return { x: playerX + playerWidth / 2, y: playerY + playerHeight / 2 };
+      } else if (actor.kind === "ally") {
+        const a = actor.ally;
+        if (!a || !a.alive) return null;
+        const s = (a.def && a.def.displaySize) || 96;
+        return { x: a.x + s / 2, y: a.y + s / 2 };
+      } else if (actor.kind === "enemy") {
+        const e = enemies[actor.idx];
+        if (!e || !e.alive) return null;
+        const s = (e.def && e.def.displaySize) || 96;
+        return { x: e.x + s / 2, y: e.y + s / 2 };
+      }
+      return null;
+    }
+
     // ── エンカウンター検出 ──
     // 初期検知: 各敵の射程 (engagePx) に基づいて判定
     // 増援検知: 同じく各敵の射程 + 少し余裕 (同室の敵を拾う)
@@ -11381,6 +11509,10 @@
       window.__inMidBoss = isMidBossActive();   // 既に解き放たれた中ボスが居れば midboss 曲を選ばせる
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
+      // 要望①: 戦闘開始で交戦敵の中点へカメラを寄せ、軽いヴィネット演出で開戦感を出す (pan-only)。
+      const encCenter = enemyGroupCenter(encounterEnemyIndices);
+      if (encCenter) focusCameraOn(encCenter.x, encCenter.y);
+      triggerCombatFlash();
       // DM ナレーション: ボスがいればボス戦前メッセージ、そうでなければ敵種族別
       const bossIdx = initialEngaged.find(i => enemies[i].def.maxSummons > 0);
       if (bossIdx !== undefined) {
@@ -11610,6 +11742,11 @@
 
             await awaitNarrationClear();   // ナレ表示中は次の行動を保留 (ボス出現/覚醒ナレ等が鳴り終わるまで)
 
+            // 要望②: 行動するユニットへカメラを寄せる (全ユニット毎ターン追従・pan-only・イージング)。
+            // 追加の待機は入れず、後続の行動アニメ + sleepMs(220) でグライドを着地させテンポを維持。
+            const actorFocus = actorWorldCenter(actor);
+            if (actorFocus) focusCameraOn(actorFocus.x, actorFocus.y);
+
             if (actor.kind === "player") {
               const tgtIdx = pickAliveEngagedIdx();
               if (tgtIdx < 0) break;
@@ -11700,6 +11837,8 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        camFocus = null;            // 要望②終了処理: 戦闘注視点を解除 → 探索の主人公センタリングへ滑らかに復帰
+        updatePositions();          // 解除を即反映してカメラを主人公へグライドさせ始める
         // backline 待機状態を戦闘終了でリセット: 戦闘中は heroAI が早期 return するため warp の
         //   フラグ/タイマーが戦闘を跨いで残り、戦闘直後(仲間が最も散らばる場面)の最初の待機
         //   サイクルで warp 救済が1回スキップされるのを防ぐ(レビュー指摘の戦闘跨ぎ stale 修正)。
@@ -19586,7 +19725,7 @@
       try { localStorage.setItem("dragonfighters.panelCollapsed", v ? "1" : "0"); } catch (e) {}
       closeDrawer();          // ドロワーが開いていれば閉じる (状態の混在防止)
       computeUiMetrics();     // --ui-menu-w / ミニバー高さ / body.ui-collapsed を再計算
-      if (typeof gameStarted !== "undefined" && gameStarted) updateCamera();
+      if (typeof gameStarted !== "undefined" && gameStarted) snapCamera();
       renderPartyStatuses();  // ミニバー(renderHpMiniBar)を即時再描画
     }
     {
