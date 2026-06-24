@@ -1972,25 +1972,26 @@
     #hpMiniBar { display: none; }
     body.ui-collapsed #hpMiniBar {
       display: flex; gap: 6px; position: fixed; left: 0; right: 0;
-      bottom: var(--ui-log-h); height: 52px;   /* ※ JS UI_MINIBAR_H=52 と必ず一致 */
+      bottom: var(--ui-log-h); height: 64px;   /* ※ JS UI_MINIBAR_H=64 と必ず一致 */
       padding: 4px calc(6px + env(safe-area-inset-right)) 4px calc(6px + env(safe-area-inset-left));
       background: linear-gradient(180deg, #241a10, #15100a);
       border-top: 2px solid var(--parchment-gold); z-index: 10; overflow-x: auto;
     }
     .hpChip {
-      flex: 1 1 0; min-width: 52px; max-width: 140px; min-height: 44px;
+      flex: 1 1 0; min-width: 52px; max-width: 140px; min-height: 56px;
       display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 4px 6px;
       background: linear-gradient(135deg, #f1e2bb, #d8bc7e);
       border: 2px solid var(--parchment-border); border-radius: 3px; cursor: pointer; box-sizing: border-box;
     }
     .hpChip .chipName { font: 700 10px 'MedievalSharp', serif; color: var(--parchment-ink);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* HPバーは細すぎ・低コントラストだと見えない → 太く(11px)・濃いトラック・フチで視認性を確保 */
-    .hpChip .chipBar { height: 11px; border-radius: 5px; background: #2a1d0e; overflow: hidden;
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45), inset 0 1px 2px rgba(0,0,0,0.5); }
+    /* HPバーは細すぎ・低コントラストだと見えない → 太く(17px)・濃いトラック・明るい外フチ+鮮やかな緑で視認性を確保 */
+    .hpChip .chipBar { height: 17px; border-radius: 6px; background: #2a1d0e; overflow: hidden;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 2px rgba(0,0,0,0.55); }
     .hpChip .chipFill { height: 100%; width: 100%;
-      background: linear-gradient(180deg, #6ad06a 0%, #3aa03a 55%, #2f8a2f 100%); transition: width 0.25s; }
-    .hpChip.lowhp .chipFill { background: linear-gradient(180deg, #e05858 0%, #c02828 55%, #a02020 100%); }
+      background: linear-gradient(180deg, #7dee5a 0%, #4cc63f 55%, #38a82f 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25); transition: width 0.25s; }
+    .hpChip.lowhp .chipFill { background: linear-gradient(180deg, #ff6b5e 0%, #e23a30 55%, #c0241c 100%); }
     .hpChip.dead { filter: grayscale(0.8) brightness(0.55); }
     .hpChip.retreatChip { flex: 0 0 auto; min-width: 48px; background: linear-gradient(180deg, #8a3010, #5a1008); }
     .hpChip.retreatChip .chipName { color: #f5e8c8; }
@@ -3448,7 +3449,7 @@
         // 左パネルを畳みHUD占有を0に (ダンジョン全幅)。HPは下部ミニバーで常時可視。
         UI_MENU_WIDTH = 0;
         UI_LOG_HEIGHT = compact ? Math.max(96, Math.min(120, Math.round(h * 0.28))) : 170;
-        UI_MINIBAR_H  = 52;   // ※ CSS body.ui-collapsed #hpMiniBar の height と必ず一致させる (Dのカメラ計算と単一ソース)
+        UI_MINIBAR_H  = 64;   // ※ CSS body.ui-collapsed #hpMiniBar の height と必ず一致させる (Dのカメラ計算と単一ソース)
       } else {
         UI_MENU_WIDTH = 280;
         UI_LOG_HEIGHT = 170;
