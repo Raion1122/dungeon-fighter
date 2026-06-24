@@ -761,6 +761,52 @@
       #changelogBox:not(.collapsed) { top: 60px; max-height: 70vh; }
     }
 
+    /* ④ スマホ縦持ち(≤560px): 銀の鹿亭の卓を「横長前提の絶対%配置」から2列スクロールグリッドへ。
+       横持ち(幅>560)は非発動=既存の円卓レイアウトを温存。縦画面のカード/依頼人/扉の重なりを根治。 */
+    @media (max-width: 560px) {
+      #tableArea {
+        inset: auto;
+        position: absolute;
+        top: 46%; left: 4%; right: 4%;
+        bottom: calc(78px + env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        overflow-y: auto;
+        z-index: 5;
+      }
+      /* renderTables が style.left/top をインライン設定 → !important で無効化しグリッドセル化 */
+      .table {
+        position: relative !important;
+        left: auto !important; top: auto !important;
+        width: auto; height: auto; min-height: 150px;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      }
+      .table:hover { transform: none; }
+      /* 看板を浮かせず(上段カードへの突き刺さり防止)カード見出しに落とす */
+      .sign, .table:has(.clientArt) .sign {
+        position: static !important; transform: none !important;
+        top: auto !important; left: auto !important;
+        min-width: 0; width: 100%; margin: 0 0 4px; box-sizing: border-box;
+      }
+      /* 依頼人ポートレイトをセル内中央の小型に */
+      .clientArt {
+        position: relative !important;
+        left: auto; bottom: auto; transform: none !important;
+        width: 64px; height: 84px; margin: 0 auto;
+      }
+      .npc { position: relative; left: auto; bottom: auto; transform: none; margin: 0 auto; }
+      /* 円卓・床タグは縦では省き、カードを素直な[見出し][依頼人]の縦積みに */
+      .tableTop, .floorTag { display: none; }
+      /* 怪しい扉をカードグリッドの外(タイトル直下の右上)へ退避・縮小。
+         基底 #plazaDoor 定義(後方の行)に勝つよう body 接頭で詳細度を上げる */
+      body #plazaDoor {
+        top: calc(80px + env(safe-area-inset-top));
+        right: 6px;
+        width: 54px; height: 96px;
+      }
+    }
+
     /* Phase 2-G DEBUG: 残影回避モードのトグルボタン (出発準備画面) */
     .debugEvadeBtn {
       font-family: 'Cinzel', serif;
@@ -1408,10 +1454,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>スマホ表示を改善</b> — 戦闘のHPバーを太く見やすく＋全員分が画面に収まるよう調整。銀の鹿亭も縦画面で依頼の卓が重ならない並びに整理。</li>
         <li><b>戦闘カメラが滑らかに</b> — 戦闘開始で交戦相手にすっと寄り、行動中の味方・敵を順に映すようになった。カメラの切り替えも全体に滑らかに。</li>
         <li><b>エンディングを追加</b> — 最終ボス・ファラクサスを討つと、エピローグの語りとスタッフロールが流れるようになった。</li>
         <li><b>PCでもパーティ欄を畳める</b> — 「◀畳む」でステータス欄を隠しダンジョンを全幅表示。HPは画面下のバーで常に見え、いつでも展開し直せる(スマホは従来どおり)。</li>
-        <li><b>スマホ横持ちのUIを一新</b> — パーティ詳細は左から引き出すドロワーに、HPは画面下のバーで常に確認できるようになり、ダンジョンが画面いっぱいに広がります。</li>
       </ul>
     </div>
     <script>
