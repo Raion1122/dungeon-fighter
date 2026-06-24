@@ -1879,6 +1879,62 @@
       box-shadow: 4px 0 16px rgba(0,0,0,0.85);
       box-sizing: border-box;
     }
+
+    /* ===== スマホUI改善 Phase4: compact時のみ パネルをドロワー化 + 下部HPミニバー =====
+       全て body.ui-compact 子孫 + 新規要素は基底 display:none → デスクトップ(非compact)無改変 */
+    /* B: --ui-menu-w(=0) と分離した実ドロワー幅。translateX で出し入れ (幅を再指定しないと0で消える) */
+    body.ui-compact #partyPanel {
+      width: min(82vw, 300px); max-width: 300px;
+      transform: translateX(-100%); transition: transform 0.26s cubic-bezier(.2,.8,.2,1);
+      z-index: 41; will-change: transform;
+      padding-top: calc(8px + env(safe-area-inset-top));
+      padding-left: calc(8px + env(safe-area-inset-left));
+    }
+    body.ui-compact #partyPanel.open { transform: translateX(0); }
+
+    /* F: ☰パーティ トグル (settingsBtn の鏡像・top-left) */
+    #partyToggleBtn { display: none; }
+    body.ui-compact #partyToggleBtn {
+      display: block;
+      position: fixed; top: 11px; left: calc(11px + env(safe-area-inset-left)); z-index: 61;
+      background: rgba(26,17,8,0.86); color: #e9d7a8; border: 1px solid #8b6914; border-radius: 6px;
+      padding: 8px 12px; font-size: 18px; line-height: 1; cursor: pointer; min-width: 44px; min-height: 44px;
+    }
+
+    /* F: バックドロップ (外タップで閉じる / canvas のタップ奪取対策) */
+    #drawerBackdrop { display: none; }
+    body.ui-compact #drawerBackdrop {
+      display: block; position: fixed; inset: 0; z-index: 40;
+      background: rgba(0,0,0,0); pointer-events: none; transition: background 0.26s;
+    }
+    body.ui-compact #drawerBackdrop.open { background: rgba(0,0,0,0.5); pointer-events: auto; }
+
+    /* C: 下部HPミニバー (常設・HP常時可視を死守)。bottom はログ直上、z はログと同値・非重複 */
+    #hpMiniBar { display: none; }
+    body.ui-compact #hpMiniBar {
+      display: flex; gap: 6px; position: fixed; left: 0; right: 0;
+      bottom: var(--ui-log-h); height: 52px;   /* ※ JS UI_MINIBAR_H=52 と必ず一致 */
+      padding: 4px calc(6px + env(safe-area-inset-right)) 4px calc(6px + env(safe-area-inset-left));
+      background: linear-gradient(180deg, #241a10, #15100a);
+      border-top: 2px solid var(--parchment-gold); z-index: 10; overflow-x: auto;
+    }
+    .hpChip {
+      flex: 1 1 0; min-width: 64px; max-width: 140px; min-height: 44px;
+      display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 4px 6px;
+      background: linear-gradient(135deg, #f1e2bb, #d8bc7e);
+      border: 2px solid var(--parchment-border); border-radius: 3px; cursor: pointer; box-sizing: border-box;
+    }
+    .hpChip .chipName { font: 700 11px 'MedievalSharp', serif; color: var(--parchment-ink);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hpChip .chipBar { height: 8px; border-radius: 4px; background: #5a4323; overflow: hidden; }
+    .hpChip .chipFill { height: 100%; width: 100%;
+      background: linear-gradient(90deg, #3aa03a, #6ad06a); transition: width 0.25s; }
+    .hpChip.lowhp .chipFill { background: linear-gradient(90deg, #a02020, #d04040); }
+    .hpChip.dead { filter: grayscale(0.8) brightness(0.55); }
+    .hpChip.retreatChip { flex: 0 0 auto; min-width: 60px; background: linear-gradient(180deg, #8a3010, #5a1008); }
+    .hpChip.retreatChip .chipName { color: #f5e8c8; }
+    .hpChip.retreatChip.disabled { opacity: 0.35; pointer-events: none; }
+
     /* 実パーティと1対1で並ぶ動的ステータス枠 (頭+仲間, 隊列順) */
     #partyStatusList {
       flex: 1 1 auto;
@@ -2374,6 +2430,8 @@
   </div>
   <!-- 設定ボタン (右上・フェーズ表示の左) -->
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;top:11px;right:172px;z-index:60;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:4px 9px;font-size:17px;line-height:1;cursor:pointer;">⚙</button>
+  <!-- Phase4: スマホ用 ☰パーティ トグル (compact時のみCSSで表示・基底 display:none) -->
+  <button id="partyToggleBtn" type="button" title="パーティ">☰</button>
 
   <!-- DM イベントメッセージ (エンカ・宝箱・罠・フェーズ切替) -->
   <div id="dmMessage"></div>
@@ -2385,10 +2443,14 @@
     <div class="dmHint" id="dmHint">クリックで続ける</div>
   </div>
 
+  <!-- Phase4: ドロワー外タップで閉じるバックドロップ (compact時のみCSSで表示) -->
+  <div id="drawerBackdrop"></div>
   <div id="partyPanel">
     <div id="partyStatusList"></div>
     <button id="retreatBtn" type="button">🏃 撤退する</button>
   </div>
+  <!-- Phase4: 下部HPミニバー (compact時のみ表示・HP常時可視。renderHpMiniBar が描画) -->
+  <div id="hpMiniBar"></div>
   <div id="combatLog"></div>
   <div id="info"></div>
   <div id="battleBanner"></div>
@@ -2689,6 +2751,8 @@
     function onViewportResize() {
       resizeCanvas();
       computeUiMetrics();
+      // Phase4: 回転等で非compactに復帰したら、開いたままのドロワー(幽霊パネル)を閉じる
+      if (!(document.body && document.body.classList.contains("ui-compact"))) closeDrawer();
       if (typeof gameStarted !== "undefined" && gameStarted) updateCamera();
     }
     resizeCanvas();
@@ -3245,21 +3309,27 @@
     // 横持ち/縦持ちスマホでは縮小してダンジョン描画を広げる (デスクトップは従来の 280 / 170)。
     let UI_MENU_WIDTH = 280;   // 左側ステータスパネル領域
     let UI_LOG_HEIGHT = 170;   // 下側ログ領域
+    let UI_MINIBAR_H  = 0;     // Phase4: compact時の下部HPミニバー高さ (CSS body.ui-compact #hpMiniBar height:52px と一致)
     function computeUiMetrics() {
       const w = window.innerWidth, h = window.innerHeight;
       const compact = (h <= 480) || (w <= 560);   // 横持ち(高さ小) / 縦持ち(幅小) スマホ
       if (compact) {
-        UI_MENU_WIDTH = Math.max(150, Math.min(200, Math.round(w * 0.26)));
+        // Phase4: 左パネルはドロワー化しHUD占有を0に (ダンジョン全幅)。HPは下部ミニバーで常時可視。
+        UI_MENU_WIDTH = 0;
         UI_LOG_HEIGHT = Math.max(96,  Math.min(120, Math.round(h * 0.28)));
+        UI_MINIBAR_H  = 52;   // ※ CSS body.ui-compact #hpMiniBar の height と必ず一致させる (Dのカメラ計算と単一ソース)
       } else {
         UI_MENU_WIDTH = 280;
         UI_LOG_HEIGHT = 170;
+        UI_MINIBAR_H  = 0;
       }
       const root = document.documentElement;
       if (root) {
         root.style.setProperty("--ui-menu-w", UI_MENU_WIDTH + "px");
         root.style.setProperty("--ui-log-h", UI_LOG_HEIGHT + "px");
       }
+      // A: compact判定の単一ソース化 — ドロワー/ミニバーCSSは body.ui-compact を唯一の真実にする
+      if (document.body) document.body.classList.toggle("ui-compact", compact);
     }
     computeUiMetrics();   // 初回適用 (UI_MENU_WIDTH/UI_LOG_HEIGHT の let 初期化後に実行)
     // 主人公(hero)のワールド座標を取得。カメラは前衛(隊列先頭)ではなく主人公を中央に据えるため、
@@ -3276,8 +3346,9 @@
 
     function updateCamera() {
       // 主人公を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
+      const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H;   // Phase4: ログ + 下部HPミニバー(compact時52) を下部占有の単一ソースに
       const usableW = window.innerWidth - UI_MENU_WIDTH;
-      const usableH = window.innerHeight - UI_LOG_HEIGHT;
+      const usableH = window.innerHeight - bottomHud;
       const centerScreenX = UI_MENU_WIDTH + usableW / 2;
       const centerScreenY = usableH / 2;
       // (1) 主人公中央の希望カメラ
@@ -3321,7 +3392,7 @@
       const minCamX = -UI_MENU_WIDTH;
       const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
       const minCamY = 0;
-      const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - UI_LOG_HEIGHT));
+      const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
       camX = Math.max(minCamX, Math.min(cx, maxCamX));
       camY = Math.max(minCamY, Math.min(cy, maxCamY));
     }
@@ -7203,6 +7274,47 @@
           listEl.appendChild(box);
         }
       }
+
+      // Phase4: compact時のみ 下部HPミニバー(常設)を描画。上と同じ hp/maxHp・allies ソースを再利用。
+      renderHpMiniBar();
+    }
+
+    // Phase4: HPチップ生成ヘルパ (名前 + HPバー縦積み)。タップ域確保は CSS .hpChip。
+    function chipHTML(name, hp, maxHp, alive, low, kind, idx) {
+      const pct = (alive && maxHp > 0) ? Math.max(0, Math.min(100, Math.round(hp / maxHp * 100))) : 0;
+      const cls = "hpChip" + (alive ? "" : " dead") + (low ? " lowhp" : "");
+      const txt = alive ? (hp + "/" + maxHp) : "倒";
+      return '<div class="' + cls + '" data-kind="' + kind + '" data-idx="' + idx + '">'
+           + '<div class="chipName">' + name + " " + txt + '</div>'
+           + '<div class="chipBar"><div class="chipFill" style="width:' + pct + '%"></div></div></div>';
+    }
+    // Phase4: 下部HPミニバー描画 (隊列順: 頭→仲間、末尾に撤退チップ)。renderPartyStatuses から毎回呼ぶ。
+    function renderHpMiniBar() {
+      const mini = document.getElementById("hpMiniBar");
+      if (!mini) return;
+      if (!(document.body && document.body.classList.contains("ui-compact"))) return;   // compact時のみ
+      let html = "";
+      // 頭 (player アバター) — renderPartyStatuses と同じ表示名・low/dead 条件
+      {
+        const name = heroIsHead ? "あなた" : getLeaderName();
+        const alive = !gameOver;
+        const low = alive && hp <= maxHp * 0.25;
+        html += chipHTML(name, hp, maxHp, alive, low, "head", -1);
+      }
+      // 仲間 (allies は隊列順)
+      if (typeof allies !== "undefined") {
+        allies.forEach((a, i) => {
+          const name = a.isHero ? "あなた" : (a.npcName || (a.def && a.def.name) || "仲間");
+          const low = a.alive && a.hp <= a.maxHp * 0.25;
+          html += chipHTML(name, a.hp, a.maxHp, a.alive, low, "ally", i);
+        });
+      }
+      // E: 撤退チップ — 既存 #retreatBtn ハンドラへ委譲(ロジック二重化禁止)。disabled はライブ状態を反映。
+      const rbtn = document.getElementById("retreatBtn");
+      const rd = (rbtn && rbtn.disabled) ? " disabled" : "";
+      html += '<div class="hpChip retreatChip' + rd + '" data-kind="retreat" data-idx="-1">'
+            + '<div class="chipName">🏃 撤退</div></div>';
+      mini.innerHTML = html;
     }
 
     function updateInfo(message) {
@@ -19250,9 +19362,50 @@
         || encounterActive || encounterRunning
         || retreatInProgress;
       retreatBtnEl.disabled = blocked;
+      // E: 下部ミニバーの撤退チップにも disabled を同期 (毎フレーム再描画の合間を埋める belt-and-suspenders)
+      const rchip = document.querySelector("#hpMiniBar .retreatChip");
+      if (rchip) rchip.classList.toggle("disabled", blocked);
     }
     setInterval(updateRetreatBtnState, 250);
     updateRetreatBtnState();
+
+    // ── Phase4: スマホ ドロワー開閉 + 下部HPミニバーのタップ委譲 (F/E) ──
+    // openDrawer/closeDrawer は関数宣言 → onViewportResize から先行参照されてもホイスティングで安全。
+    function openDrawer() {
+      const p = document.getElementById("partyPanel");
+      const b = document.getElementById("drawerBackdrop");
+      if (p) p.classList.add("open");
+      if (b) b.classList.add("open");
+    }
+    function closeDrawer() {
+      const p = document.getElementById("partyPanel");
+      const b = document.getElementById("drawerBackdrop");
+      if (p) p.classList.remove("open");
+      if (b) b.classList.remove("open");
+    }
+    {
+      const toggleBtn = document.getElementById("partyToggleBtn");
+      const backdropEl = document.getElementById("drawerBackdrop");
+      const miniEl    = document.getElementById("hpMiniBar");
+      const panelEl   = document.getElementById("partyPanel");
+      if (toggleBtn) toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();   // トグル自爆クローズ防止
+        (panelEl && panelEl.classList.contains("open")) ? closeDrawer() : openDrawer();
+      });
+      if (backdropEl) backdropEl.addEventListener("click", closeDrawer);
+      // ミニバーは毎フレーム innerHTML 再生成 → 親へ1回だけ委譲 (子リスナーは死ぬため必須)
+      if (miniEl) miniEl.addEventListener("click", (e) => {
+        const chip = e.target.closest(".hpChip");
+        if (!chip) return;
+        if (chip.dataset.kind === "retreat") {
+          // 撤退ロジックは二重化せず、既存 #retreatBtn ハンドラを再利用
+          const rbtn = document.getElementById("retreatBtn");
+          if (rbtn && !rbtn.disabled) rbtn.click();
+        } else {
+          openDrawer();   // HPチップ tap → ドロワーで詳細ステータス
+        }
+      });
+    }
 
     // dungeonCleared / gameOver を監視してオーバーレイ表示
     setInterval(() => {
