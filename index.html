@@ -16,6 +16,9 @@
       --parchment-gold-bright: #d4a84b;
       --parchment-border: #8b6914;
       --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
+      /* 戦闘HUDの占有領域 (JS computeUiMetrics が viewport に応じて上書き; カメラ計算と同一ソース) */
+      --ui-menu-w: 280px;
+      --ui-log-h: 170px;
       --rarity-common: #e8e4d8;
       --rarity-uncommon: #5eb85e;
       --rarity-rare: #5a9fdd;
@@ -1865,7 +1868,7 @@
       top: 0;
       left: 0;
       bottom: 0;       /* 画面下端まで */
-      width: 280px;
+      width: var(--ui-menu-w);
       z-index: 10;
       display: flex;
       flex-direction: column;
@@ -1945,9 +1948,9 @@
     #combatLog {
       position: fixed;
       bottom: 0;
-      left: 280px;     /* メニュー右隣から */
+      left: var(--ui-menu-w);     /* メニュー右隣から (単一ソース) */
       right: 0;
-      height: 170px;
+      height: var(--ui-log-h);
       padding: 10px 24px;
       background: linear-gradient(180deg, #231b11 0%, #181210 60%, #0d0a08 100%);
       border-top: 3px double var(--parchment-gold);
@@ -2680,8 +2683,17 @@
       lightingCanvas.width = window.innerWidth;
       lightingCanvas.height = window.innerHeight;
     }
+    // viewport 変化 (リサイズ/端末回転) で HUD 寸法を再計算し、カメラも追従させる。
+    // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/updateCamera と UI_MENU_WIDTH(let) は
+    // 既に初期化済み。初回の computeUiMetrics() 呼び出しは let 宣言の後 (関数定義直後) で行う。
+    function onViewportResize() {
+      resizeCanvas();
+      computeUiMetrics();
+      if (typeof gameStarted !== "undefined" && gameStarted) updateCamera();
+    }
     resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", onViewportResize);
+    window.addEventListener("orientationchange", onViewportResize);
 
     // 部屋定義: [r1, c1, r2, c2](ワールド共通)
     // 廃坑シナリオ: 6部屋の横一本道構成
@@ -3228,9 +3240,28 @@
       return false;
     }
 
-    // UI 領域サイズ (ダンジョン描画を避ける領域)
-    const UI_MENU_WIDTH = 280;   // 左側ステータスパネル領域
-    const UI_LOG_HEIGHT = 170;   // 下側ログ領域
+    // UI 領域サイズ (ダンジョン描画を避ける領域)。
+    // CSS変数 --ui-menu-w / --ui-log-h と JS 変数の両方を computeUiMetrics() が単一ソースとして更新する。
+    // 横持ち/縦持ちスマホでは縮小してダンジョン描画を広げる (デスクトップは従来の 280 / 170)。
+    let UI_MENU_WIDTH = 280;   // 左側ステータスパネル領域
+    let UI_LOG_HEIGHT = 170;   // 下側ログ領域
+    function computeUiMetrics() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const compact = (h <= 480) || (w <= 560);   // 横持ち(高さ小) / 縦持ち(幅小) スマホ
+      if (compact) {
+        UI_MENU_WIDTH = Math.max(150, Math.min(200, Math.round(w * 0.26)));
+        UI_LOG_HEIGHT = Math.max(96,  Math.min(120, Math.round(h * 0.28)));
+      } else {
+        UI_MENU_WIDTH = 280;
+        UI_LOG_HEIGHT = 170;
+      }
+      const root = document.documentElement;
+      if (root) {
+        root.style.setProperty("--ui-menu-w", UI_MENU_WIDTH + "px");
+        root.style.setProperty("--ui-log-h", UI_LOG_HEIGHT + "px");
+      }
+    }
+    computeUiMetrics();   // 初回適用 (UI_MENU_WIDTH/UI_LOG_HEIGHT の let 初期化後に実行)
     // 主人公(hero)のワールド座標を取得。カメラは前衛(隊列先頭)ではなく主人公を中央に据えるため、
     // heroIsHead なら先頭 playerX/Y、主人公が ally なら heroRef(無ければ allies 内の hero) を返す。
     function getHeroWorldPos() {
