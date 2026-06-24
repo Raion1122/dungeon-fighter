@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 本番(index.html 5行目)と同一の viewport: viewport-fit=cover で safe-area が効く -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>フェーズ4 UIモック — ダンジョンファイターズ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&family=Noto+Serif+JP:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    /* ===== index.html :root(11-26) からコピー: 配色を本番一致に ===== */
+    :root {
+      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      --parchment-ink: #3a2912;
+      --parchment-ink-soft: #5a4323;
+      --parchment-gold: #8b6914;
+      --parchment-gold-bright: #d4a84b;
+      --parchment-border: #8b6914;
+      --ui-menu-w: 280px;   /* JS(applyCompact)が compact 時 0px に上書き */
+      --ui-log-h: 170px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      overflow: hidden;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      background: #1a1a1a;
+      -webkit-user-select: none; user-select: none;
+    }
+
+    /* ===== ダンジョン描画領域のプレースホルダ (本番は canvas) ===== */
+    #dungeon {
+      position: fixed; inset: 0; z-index: 1;
+      background: radial-gradient(circle at 50% 38%, #2a2418 0%, #15110a 68%, #0a0806 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #dungeon .tileGrid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(120,90,40,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(120,90,40,0.08) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+    #dungeon .hint {
+      position: relative; z-index: 1; text-align: center;
+      color: #6a5a3a; font-family: 'MedievalSharp', serif; font-size: 18px; letter-spacing: 2px; line-height: 1.9;
+    }
+    #dungeon .hint small { color: #4f4330; font-size: 12px; letter-spacing: 1px; }
+
+    /* ===== 右上HUD (装飾・本番の見た目を再現) ===== */
+    #phaseIndicator {
+      position: fixed; top: 12px; right: 14px; padding: 8px 18px;
+      border: 2px solid #6aa058; border-radius: 4px;
+      font-family: 'Noto Serif JP', serif; font-size: 14px; letter-spacing: 3px; z-index: 50;
+      background: linear-gradient(180deg, #1a4a2a 0%, #0a2a10 100%); color: #a8e0a8;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.6);
+    }
+    #settingsBtn {
+      position: fixed; top: 11px; right: 172px; z-index: 60;
+      background: rgba(26,17,8,0.86); color: #e9d7a8; border: 1px solid #8b6914; border-radius: 6px;
+      padding: 8px 11px; font-size: 17px; line-height: 1; cursor: pointer; min-width: 44px; min-height: 44px;
+    }
+
+    /* ===== ☰パーティ トグル (top-left, settingsBtn の鏡像) — F ===== */
+    #partyToggleBtn {
+      display: none;
+      position: fixed; top: 11px; left: calc(11px + env(safe-area-inset-left)); z-index: 61;
+      background: rgba(26,17,8,0.86); color: #e9d7a8; border: 1px solid #8b6914; border-radius: 6px;
+      padding: 8px 12px; font-size: 18px; line-height: 1; cursor: pointer; min-width: 44px; min-height: 44px;
+    }
+    body.ui-compact #partyToggleBtn { display: block; }
+
+    /* ===== バックドロップ (tap-outside-to-close) — F ===== */
+    #drawerBackdrop { display: none; }
+    body.ui-compact #drawerBackdrop {
+      display: block; position: fixed; inset: 0; z-index: 40;
+      background: rgba(0,0,0,0); pointer-events: none; transition: background 0.26s;
+    }
+    body.ui-compact #drawerBackdrop.open { background: rgba(0,0,0,0.5); pointer-events: auto; }
+
+    /* ===== パーティパネル (= ドロワー) — index.html 1866- を踏襲 + B のドロワー化 ===== */
+    #partyPanel {
+      position: fixed; top: 0; left: 0; bottom: 0; width: var(--ui-menu-w); z-index: 10;
+      display: flex; flex-direction: column; gap: 6px; padding: 8px;
+      background: linear-gradient(180deg, #1a1108 0%, #0d0805 100%);
+      border-right: 3px double var(--parchment-gold); box-shadow: 4px 0 16px rgba(0,0,0,0.85);
+    }
+    #partyStatusList { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    /* compact: 変数と分離した実幅 + translateX で出し入れ (B の核心) */
+    body.ui-compact #partyPanel {
+      width: min(82vw, 300px); max-width: 300px;
+      transform: translateX(-100%); transition: transform 0.26s cubic-bezier(.2,.8,.2,1);
+      z-index: 41; will-change: transform;
+      padding-top: calc(8px + env(safe-area-inset-top));
+      padding-left: calc(8px + env(safe-area-inset-left));
+    }
+    body.ui-compact #partyPanel.open { transform: translateX(0); }
+
+    /* statusBox (簡略) — index.html 1891- を踏襲 */
+    .statusBox {
+      font-family: 'MedievalSharp', 'Cinzel', serif; padding: 8px 14px;
+      background: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      border: 3px double var(--parchment-border); border-radius: 3px;
+      box-shadow: 0 0 12px rgba(40,20,0,0.7), inset 0 0 20px rgba(120,80,30,0.25);
+      color: var(--parchment-ink); font-size: 14px; line-height: 1.5;
+    }
+    .statusBox .sbName { font-size: 18px; color: var(--parchment-gold); letter-spacing: 2px;
+      border-bottom: 1px solid rgba(139,105,20,0.4); margin-bottom: 4px; padding-bottom: 2px; }
+    .statusBox .sbStat { font-size: 13px; color: var(--parchment-ink-soft); }
+    .statusBox .sbStat b { color: var(--parchment-ink); font-weight: 700; }
+    .statusBox.dead { filter: grayscale(0.8) brightness(0.6); }
+    .statusBox.lowhp .sbStat b { color: #a02020; }
+    .statusBox.heroBox { border-color: var(--parchment-gold);
+      box-shadow: 0 0 16px rgba(220,180,60,0.6), inset 0 0 20px rgba(120,80,30,0.3); }
+
+    /* 撤退ボタン (ドロワー内・本体) — index.html 808- を踏襲 (タッチ拡大版) */
+    #retreatBtn {
+      margin: 10px 4px 0; padding: 14px; min-height: 56px;
+      background: linear-gradient(180deg, #8a3010 0%, #5a1008 100%); color: #f5e8c8;
+      border: 2px solid #c8a046; border-radius: 6px;
+      font-family: 'Noto Serif JP', serif; font-size: 18px; letter-spacing: 3px; cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    }
+
+    /* ===== 戦闘ログ — index.html 1948- を踏襲 ===== */
+    #combatLog {
+      position: fixed; bottom: 0; left: var(--ui-menu-w); right: 0; height: var(--ui-log-h);
+      padding: 10px 24px; background: linear-gradient(180deg, #231b11 0%, #181210 60%, #0d0a08 100%);
+      border-top: 3px double var(--parchment-gold); color: #e8d8b8;
+      font-family: 'Times New Roman', serif; font-size: 13px; line-height: 1.5; overflow-y: auto; z-index: 10;
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.85);
+    }
+    #combatLog::before {
+      content: "戦闘ログ"; display: block; font-family: 'MedievalSharp', serif; font-size: 11px;
+      color: #c8a046; letter-spacing: 3px; border-bottom: 1px dashed rgba(140,110,60,0.5);
+      padding-bottom: 3px; margin-bottom: 4px;
+    }
+    #combatLog .logLine { padding: 1px 0; }
+
+    /* ===== 下部HPミニバー (常設) — C ===== */
+    #hpMiniBar { display: none; }
+    body.ui-compact #hpMiniBar {
+      display: flex; gap: 6px; position: fixed; left: 0; right: 0;
+      bottom: var(--ui-log-h); height: 52px;   /* 本番 JS: UI_MINIBAR_H=52 と一致させること */
+      padding: 4px calc(6px + env(safe-area-inset-right)) 4px calc(6px + env(safe-area-inset-left));
+      background: linear-gradient(180deg, #241a10, #15100a);
+      border-top: 2px solid var(--parchment-gold); z-index: 10; overflow-x: auto;
+    }
+    .hpChip {
+      flex: 1 1 0; min-width: 64px; max-width: 140px; min-height: 44px;
+      display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 4px 6px;
+      background: linear-gradient(135deg, #f1e2bb, #d8bc7e);
+      border: 2px solid var(--parchment-border); border-radius: 3px; cursor: pointer;
+    }
+    .hpChip .chipName { font: 700 11px 'MedievalSharp', serif; color: var(--parchment-ink);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hpChip .chipBar { height: 8px; border-radius: 4px; background: #5a4323; overflow: hidden; }
+    .hpChip .chipFill { height: 100%; width: 100%;
+      background: linear-gradient(90deg, #3aa03a, #6ad06a); transition: width 0.25s; }
+    .hpChip.lowhp .chipFill { background: linear-gradient(90deg, #a02020, #d04040); }
+    .hpChip.dead { filter: grayscale(0.8) brightness(0.55); }
+    .hpChip.retreatChip { flex: 0 0 auto; min-width: 60px; background: linear-gradient(180deg, #8a3010, #5a1008); }
+    .hpChip.retreatChip .chipName { color: #f5e8c8; }
+    .hpChip.retreatChip.disabled { opacity: 0.35; pointer-events: none; }
+
+    /* モック専用ラベル */
+    #mockTag {
+      position: fixed; top: 11px; left: 50%; transform: translateX(-50%); z-index: 70;
+      background: rgba(60,30,10,0.82); color: #e8c060; font: 700 11px 'Noto Serif JP', serif;
+      letter-spacing: 2px; padding: 5px 12px; border: 1px solid #8b6914; border-radius: 4px; pointer-events: none;
+    }
+
+    /* 縦持ち時の案内 */
+    #rotateNote { display: none; }
+    @media (orientation: portrait) {
+      #rotateNote {
+        display: flex; position: fixed; inset: 0; z-index: 200; background: rgba(10,8,6,0.95);
+        color: #e8d8b8; align-items: center; justify-content: center; text-align: center;
+        font-family: 'Noto Serif JP', serif; font-size: 20px; line-height: 1.9; padding: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="dungeon">
+    <div class="tileGrid"></div>
+    <div class="hint">⚔ ダンジョン描画領域<br>(モックではプレースホルダ)<br><small>左上の ☰ / 下の HP チップをタップ</small></div>
+  </div>
+
+  <div id="phaseIndicator">🔍 探索フェーズ</div>
+  <button id="settingsBtn" type="button" title="設定">⚙</button>
+  <button id="partyToggleBtn" type="button" title="パーティ">☰</button>
+  <div id="mockTag">Phase4 UIモック</div>
+
+  <div id="drawerBackdrop"></div>
+
+  <div id="partyPanel">
+    <div id="partyStatusList"></div>
+    <button id="retreatBtn" type="button">🏃 撤退する</button>
+  </div>
+
+  <div id="hpMiniBar"></div>
+
+  <div id="combatLog">
+    <div class="logLine">ゴブリンが暗がりから飛び出した！</div>
+    <div class="logLine">あなたの斬撃 — 命中、7 ダメージ。</div>
+    <div class="logLine">僧侶ミラが《キュア・ライト・ウーンズ》を唱えた。</div>
+    <div class="logLine">盗賊カイは影に潜んでいる…</div>
+    <div class="logLine">魔導士エラは倒れている。</div>
+  </div>
+
+  <div id="rotateNote">📱 横持ちにしてください<br><small>このモックは横画面での手触り確認用です</small></div>
+
+  <script>
+    // ===== ダミーパーティ (本番: グローバル hp/maxHp と allies[] に対応) =====
+    const members = [
+      { name:'あなた',     hp:38, maxHp:42, hero:true,  alive:true,  ac:17, kind:'head', cls:'戦士' },
+      { name:'僧侶ミラ',   hp:25, maxHp:30, hero:false, alive:true,  ac:15, kind:'ally', cls:'僧侶' },
+      { name:'盗賊カイ',   hp:5,  maxHp:28, hero:false, alive:true,  ac:16, kind:'ally', cls:'盗賊' },   // low(赤)
+      { name:'魔導士エラ', hp:0,  maxHp:22, hero:false, alive:false, ac:12, kind:'ally', cls:'魔法使い' }, // dead(灰)
+    ];
+    const retreatEnabled = true;
+
+    const root    = document.documentElement.style;
+    const panel   = document.getElementById('partyPanel');
+    const backdrop= document.getElementById('drawerBackdrop');
+    const mini    = document.getElementById('hpMiniBar');
+
+    // ===== compact 判定 (本番 computeUiMetrics と同じ式・同じ副作用) =====
+    function applyCompact() {
+      const w = innerWidth, h = innerHeight;
+      const compact = (h <= 480) || (w <= 560);
+      if (compact) {
+        root.setProperty('--ui-menu-w', '0px');                                   // 左HUD占有を消す→ログ全幅
+        root.setProperty('--ui-log-h', Math.max(96, Math.min(120, Math.round(h*0.28))) + 'px');
+      } else {
+        root.setProperty('--ui-menu-w', '280px');
+        root.setProperty('--ui-log-h', '170px');
+      }
+      document.body.classList.toggle('ui-compact', compact);
+      if (!compact) closeDrawer();   // 幽霊ドロワー対策 (回転で非compact復帰)
+    }
+
+    // ===== チップHTML (本番 chipHTML 相当) =====
+    function chipHTML(m, idx) {
+      const pct = m.alive ? Math.max(0, Math.min(100, Math.round(m.hp/m.maxHp*100))) : 0;
+      const low = m.alive && m.hp <= m.maxHp*0.25;
+      const cls = 'hpChip' + (m.alive?'':' dead') + (low?' lowhp':'');
+      const txt = m.alive ? (m.hp + '/' + m.maxHp) : '倒';
+      return '<div class="' + cls + '" data-kind="' + m.kind + '" data-idx="' + idx + '">'
+           + '<div class="chipName">' + m.name + ' ' + txt + '</div>'
+           + '<div class="chipBar"><div class="chipFill" style="width:' + pct + '%"></div></div></div>';
+    }
+
+    // ===== statusBox HTML (ドロワー内・簡略) =====
+    function statusHTML(m) {
+      const low = m.alive && m.hp <= m.maxHp*0.25;
+      const cls = 'statusBox' + (m.hero?' heroBox':'') + (m.alive?'':' dead') + (low?' lowhp':'');
+      const hpTxt = m.alive ? ('<b>' + m.hp + '</b>/' + m.maxHp) : '<b>倒</b>';
+      return '<div class="' + cls + '"><div class="sbName">' + m.name + (m.hero?' ★':'') + '</div>'
+           + '<div class="sbStat">' + m.cls + ' ・ HP ' + hpTxt + ' ・ AC <b>' + m.ac + '</b></div></div>';
+    }
+
+    function render() {
+      if (document.body.classList.contains('ui-compact')) {
+        let html = members.map(chipHTML).join('');
+        html += '<div class="hpChip retreatChip' + (retreatEnabled?'':' disabled') + '" data-kind="retreat" data-idx="-1">'
+              + '<div class="chipName">🏃 撤退</div></div>';
+        mini.innerHTML = html;
+      }
+      document.getElementById('partyStatusList').innerHTML = members.map(statusHTML).join('');
+    }
+
+    // ===== ドロワー開閉 (F) =====
+    function openDrawer(){ panel.classList.add('open'); backdrop.classList.add('open'); }
+    function closeDrawer(){ panel.classList.remove('open'); backdrop.classList.remove('open'); }
+
+    document.getElementById('partyToggleBtn').addEventListener('click', function(e){
+      e.stopPropagation();   // 自爆クローズ防止
+      panel.classList.contains('open') ? closeDrawer() : openDrawer();
+    });
+    backdrop.addEventListener('click', closeDrawer);
+
+    // ミニバー: イベント委譲 (毎フレーム innerHTML でも親リスナーは生存)
+    mini.addEventListener('click', function(e){
+      const chip = e.target.closest('.hpChip');
+      if (!chip) return;
+      if (chip.dataset.kind === 'retreat') {
+        if (retreatEnabled) alert('（本番では撤退ハンドラ retreatBtn.click() を呼びます）');
+      } else {
+        openDrawer();
+      }
+    });
+    document.getElementById('retreatBtn').addEventListener('click', function(){
+      alert('（本番の撤退処理に接続されます）');
+    });
+
+    // ===== HP をゆらして手触りを出す (エラは倒れたまま固定) =====
+    setInterval(function(){
+      for (const m of members) {
+        if (!m.alive) continue;
+        const d = Math.round(Math.random()*8) - 4;
+        m.hp = Math.max(1, Math.min(m.maxHp, m.hp + d));
+      }
+      render();
+    }, 1400);
+
+    addEventListener('resize', applyCompact);
+    addEventListener('orientationchange', applyCompact);
+    applyCompact();
+    render();
+  </script>
+</body>
+</html>
