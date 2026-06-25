@@ -87,6 +87,22 @@
     return mod + prof;
   }
 
+  // 修正値の内訳（パネルの代表行で内訳表示するため）。total（extra=0）は checkScore と一致。
+  var ABILITY_ABBR = { str: "STR", dex: "DEX", con: "CON", int: "INT", wis: "WIS", cha: "CHA" };
+  function checkScoreBreakdown(member, checkDef, extraBonus) {
+    var ab = member ? CLASS_ABILITIES[member.classKey] : null;
+    var abilityMod = (ab && checkDef) ? abilityModifier(ab[checkDef.ability]) : 0;
+    var profs = (member && CLASS_PROFICIENCIES[member.classKey]) || [];
+    var prof = (checkDef && profs.indexOf(checkDef.profKey) >= 0) ? PROFICIENCY_BONUS : 0;
+    var extra = extraBonus || 0;
+    return {
+      abilityKey: checkDef ? checkDef.ability : "",
+      abilityAbbr: (checkDef && ABILITY_ABBR[checkDef.ability]) || "",
+      abilityMod: abilityMod, prof: prof, extra: extra,
+      total: abilityMod + prof + extra,
+    };
+  }
+
   // party: [{classKey, name, isHero?}]（隊列順）。該当能力の最大を自動選出。
   // 同点は配列順（既存 orderFormation の安定ソート挙動に一致）。
   function selectRepresentative(party, checkDef) {
@@ -148,16 +164,27 @@
       "#skillCheckCard .scFlavor{font-size:13px;margin:6px 0 10px;color:#5a3a16;line-height:1.5;}",
       "#skillCheckCard .scMeta{font-size:14px;margin-bottom:12px;color:#4a2c0c;}",
       "#skillCheckCard .scMeta b{font-size:16px;}",
-      "#scDie{width:96px;height:96px;margin:4px auto 8px;border-radius:12px;",
+      // パーティ全員ロール表示のロスター（代表=判定行 / 参考行=非rep・グレー）
+      "#skillCheckCard .scRoster{display:flex;flex-direction:column;gap:6px;margin:8px 0 12px;}",
+      "#skillCheckCard .scRow{display:grid;grid-template-columns:1fr auto 38px 46px;align-items:center;",
+      "  gap:8px;padding:5px 8px;border-radius:6px;background:rgba(106,64,16,.06);}",
+      "#skillCheckCard .scRow.rep{background:rgba(220,180,30,.18);border:1px solid #caa21a;font-weight:700;}",
+      "#skillCheckCard .scRow.ref{opacity:.6;color:#6a5a3a;}",
+      "#skillCheckCard .scName{text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+      "#skillCheckCard .scMod{font-size:11px;color:#5a3a16;white-space:nowrap;}",
+      "#skillCheckCard .scRow.ref .scMod{color:#7a6a4a;}",
+      ".scDie{width:34px;height:34px;border-radius:7px;justify-self:center;",
       "  background:radial-gradient(circle at 38% 32%,#fff 0%,#e9e2cf 55%,#c9bb95 100%);",
-      "  border:4px solid #6a4010;display:flex;align-items:center;justify-content:center;",
-      "  font-size:46px;font-weight:800;color:#3a2208;transform:rotate(0) scale(1);",
+      "  border:3px solid #6a4010;display:flex;align-items:center;justify-content:center;",
+      "  font-size:18px;font-weight:800;color:#3a2208;transform:rotate(0) scale(1);",
       "  transition:transform .18s cubic-bezier(.25,.46,.45,.94);image-rendering:auto;}",
-      "#scDie.spin{transform:rotate(-6deg) scale(1.04);}",
-      "#scDie.win{border-color:#1f7a2e;color:#125b22;box-shadow:0 0 14px rgba(34,160,60,.7);}",
-      "#scDie.lose{border-color:#9a2222;color:#7a1414;box-shadow:0 0 14px rgba(170,40,40,.6);}",
-      "#scDie.crit{border-color:#caa21a;color:#8a6a00;box-shadow:0 0 18px rgba(220,180,30,.9);}",
-      "#scDie.fumble{border-color:#5a5a5a;color:#444;}",
+      ".scDie.spin{transform:rotate(-6deg) scale(1.08);}",
+      ".scDie.win{border-color:#1f7a2e;color:#125b22;box-shadow:0 0 10px rgba(34,160,60,.7);}",
+      ".scDie.lose{border-color:#9a2222;color:#7a1414;box-shadow:0 0 10px rgba(170,40,40,.6);}",
+      ".scDie.crit{border-color:#caa21a;color:#8a6a00;box-shadow:0 0 14px rgba(220,180,30,.9);}",
+      ".scDie.fumble{border-color:#5a5a5a;color:#444;}",
+      "#skillCheckCard .scTotal{font-size:15px;font-weight:700;text-align:right;}",
+      "#skillCheckCard .scRow.ref .scTotal{color:#8a7a5a;font-weight:600;}",
       "#skillCheckCard .scResult{font-size:15px;min-height:22px;font-weight:700;margin-bottom:6px;}",
       "#skillCheckCard .scResult.win{color:#137a26;}",
       "#skillCheckCard .scResult.lose{color:#8a1717;}",
@@ -179,7 +206,7 @@
         '<div class="scTitle"></div>' +
         '<div class="scFlavor"></div>' +
         '<div class="scMeta"></div>' +
-        '<div id="scDie">?</div>' +
+        '<div class="scRoster"></div>' +
         '<div class="scResult"></div>' +
         '<button id="scRollBtn" type="button">ロール (タップ / Enter)</button>' +
         '<div class="scHint"></div>' +
@@ -208,15 +235,34 @@
     });
   }
 
-  function showPanelAndRoll(checkDef, dcNum, rep, bonus, opts) {
+  // 修正値の表示文字列。代表行は内訳（例 WIS+1 習+2 技+2 (+5)）、参考行は (+N) のみ。
+  function fmtMod(bd, isRep) {
+    var sgn = function (n) { return (n >= 0 ? "+" : "") + n; };
+    var totalStr = "(" + sgn(bd.total) + ")";
+    if (!isRep) return totalStr;
+    var parts = [];
+    if (bd.abilityAbbr) parts.push(bd.abilityAbbr + sgn(bd.abilityMod));
+    if (bd.prof) parts.push("習" + sgn(bd.prof));
+    if (bd.extra) parts.push("技" + sgn(bd.extra));
+    return (parts.length ? parts.join(" ") + " " : "") + totalStr;
+  }
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // roster: [{member, name, isRep, breakdown}]（隊列順）。全行が d20 を振る演出を出すが、
+  // 成否は rep（isRep=true）の1ロールのみで決まる。非rep の出目は表示専用で contract 非関与。
+  function showPanelAndRoll(checkDef, dcNum, rep, bonus, roster, opts) {
     return new Promise(function (resolve) {
       ensureStyles();
       var ov = ensurePanel();
       var card = ov.querySelector("#skillCheckCard");
-      var dieEl = ov.querySelector("#scDie");
       var titleEl = card.querySelector(".scTitle");
       var flavorEl = card.querySelector(".scFlavor");
       var metaEl = card.querySelector(".scMeta");
+      var rosterEl = card.querySelector(".scRoster");
       var resultEl = card.querySelector(".scResult");
       var hintEl = card.querySelector(".scHint");
       var btn = ov.querySelector("#scRollBtn");
@@ -226,9 +272,25 @@
       flavorEl.style.display = opts.flavor ? "" : "none";
       var sign = bonus >= 0 ? "+" + bonus : String(bonus);
       metaEl.innerHTML = checkDef.label + " <b>DC " + dcNum + "</b> ／ 代表 " +
-        (rep.name || "—") + " ／ ボーナス " + sign;
-      dieEl.className = "";
-      dieEl.textContent = "?";
+        escHtml(rep.name || "—") + " ／ ボーナス " + sign;
+      // ロスター行を生成（人数可変・隊列順）。空なら代表のみの1行へフォールバック。
+      if (!roster || !roster.length) {
+        roster = [{ member: rep, name: (rep && rep.name) || "—", isRep: true,
+          breakdown: { abilityAbbr: "", abilityMod: 0, prof: 0, extra: 0, total: bonus } }];
+      }
+      rosterEl.innerHTML = "";
+      roster.forEach(function (r) {
+        var row = document.createElement("div");
+        row.className = "scRow " + (r.isRep ? "rep" : "ref");
+        row.innerHTML =
+          '<span class="scName">' + (r.isRep ? "★ " : "") + escHtml(r.name) + "</span>" +
+          '<span class="scMod">' + fmtMod(r.breakdown, r.isRep) + "</span>" +
+          '<span class="scDie">?</span>' +
+          '<span class="scTotal"></span>';
+        rosterEl.appendChild(row);
+        r.dieEl = row.querySelector(".scDie");
+        r.totalEl = row.querySelector(".scTotal");
+      });
       resultEl.textContent = "";
       resultEl.className = "scResult";
       hintEl.textContent = "";
@@ -256,14 +318,26 @@
         phase = 1;
         btn.style.display = "none";
         hintEl.textContent = "";
-        var finalVal = d20();
-        animateD20(dieEl, finalVal).then(function () {
-          var outcome = computeOutcome(finalVal, bonus, dcNum);
+        // ★ 代表の確定値だけが成否を決める。非rep は表示専用に別途 d20 を振る。
+        var repFinal = d20();
+        roster.forEach(function (r) {
+          r.refRoll = r.isRep ? repFinal : d20();
+          r.refTotal = r.refRoll + r.breakdown.total;
+        });
+        // 全行のダイスを一斉アニメ（並列なので尺は行数に依らず一定）。
+        Promise.all(roster.map(function (r) {
+          return animateD20(r.dieEl, r.refRoll);
+        })).then(function () {
+          var outcome = computeOutcome(repFinal, bonus, dcNum);  // ★ 引数は rep のみ
           ov._outcome = outcome;
-          // 出目の色分け
-          if (outcome.crit) dieEl.classList.add("crit", "win");
-          else if (outcome.fumble) dieEl.classList.add("fumble", "lose");
-          else dieEl.classList.add(outcome.success ? "win" : "lose");
+          roster.forEach(function (r) {
+            if (r.totalEl) r.totalEl.textContent = String(r.refTotal);
+            if (!r.isRep || !r.dieEl) return;
+            // 代表行のダイスのみ成否で色分け（参考行は無色）。
+            if (outcome.crit) r.dieEl.classList.add("crit", "win");
+            else if (outcome.fumble) r.dieEl.classList.add("fumble", "lose");
+            else r.dieEl.classList.add(outcome.success ? "win" : "lose");
+          });
           var head = outcome.crit ? "クリティカル成功!" :
                      outcome.fumble ? "ファンブル…" :
                      outcome.success ? "成功" : "失敗";
@@ -297,6 +371,14 @@
     if (!rep) return Promise.resolve(null);
     var bonus = checkScore(rep, checkDef) + (opts.extraBonus || 0);
 
+    // 表示専用ロスター（成否には一切関与しない）。隊列順を保持。
+    // extraBonus（例: 知覚の find-traps +2）は代表行だけに乗せる（参考行に乗せると誤解を生む）。
+    var roster = (party || []).map(function (m) {
+      var isRep = (m === rep);
+      var bd = checkScoreBreakdown(m, checkDef, isRep ? (opts.extraBonus || 0) : 0);
+      return { member: m, name: m.name || "—", isRep: isRep, breakdown: bd };
+    });
+
     // autoplay / headless: UIを出さず即ロールで解決（showChoice と同じ方針）
     if (global.__autoplay || opts.auto) {
       var o = computeOutcome(d20(), bonus, dcNum);
@@ -304,7 +386,7 @@
       try { console.log("[AUTOPLAY] skillCheck", checkKey, "dc", dcNum, "->", o.success ? "成功" : "失敗"); } catch (e) {}
       return Promise.resolve(o);
     }
-    return showPanelAndRoll(checkDef, dcNum, rep, bonus, opts).then(function (o) {
+    return showPanelAndRoll(checkDef, dcNum, rep, bonus, roster, opts).then(function (o) {
       if (o) o.rep = rep;
       return o;
     });
@@ -321,6 +403,8 @@
     selectRepresentative: selectRepresentative,
     resolveSkillCheck: resolveSkillCheck,
     // テスト/内部用
+    checkScoreBreakdown: checkScoreBreakdown,
+    _checkScoreBreakdown: checkScoreBreakdown,
     _computeOutcome: computeOutcome,
     _resolveDc: resolveDc,
     _d20: d20,
