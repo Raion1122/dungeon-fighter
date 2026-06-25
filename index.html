@@ -2864,6 +2864,17 @@
     const CAM_LERP = 0.16;                // 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
     const CAM_SNAP_EPS = 0.5;             // この距離以下で目標にスナップしてループ停止
 
+    // ── 画面シェイク (打撃の重み: crit/ボス撃破/大呪文で一瞬揺らす) ──
+    // renderWorldWithShake() が描画直前に shakeX/Y を camX/Y へ一時加算 → canvas(translate)+全DOMスプライト(left=worldX-camX)が
+    // 揃って揺れる(置き去り防止)。減衰は cameraFollowTick に相乗り(cameraFollowActive を共有)。
+    // __autoplay/headless・prefers-reduced-motion・⚙設定OFF では完全スキップ(決定論/酔い対策)。
+    let shakeX = 0, shakeY = 0;            // 現フレームのシェイクオフセット(px)
+    let shakeMag = 0, shakeDur = 0;        // 振幅(px) / 継続(ms)
+    let shakeEndsAt = 0;                   // performance.now() 基準の終了時刻 (0=非稼働)
+    const SHAKE_CRIT  = { mag: 5,  dur: 180 };   // クリティカル: 控えめ
+    const SHAKE_BOSS  = { mag: 11, dur: 280 };   // ボス撃破: 強め (閃光と同時)
+    const SHAKE_SPELL = { mag: 7,  dur: 220 };   // 大呪文 (ファイアボール等)
+
     function resizeCanvas() {
       mapCanvas.width = window.innerWidth;
       mapCanvas.height = window.innerHeight;
@@ -3542,16 +3553,53 @@
     // ── カメラ駆動 (イージング/スナップ/フォーカス) ──
     function cameraFollowTick() {
       const dx = camTargetX - camX, dy = camTargetY - camY;
-      if (Math.abs(dx) + Math.abs(dy) <= CAM_SNAP_EPS) {
-        camX = camTargetX; camY = camTargetY;
-        renderWorld();
-        cameraFollowActive = false;
+      const gliding = (Math.abs(dx) + Math.abs(dy) > CAM_SNAP_EPS);
+      if (gliding) { camX += dx * CAM_LERP; camY += dy * CAM_LERP; }
+      else { camX = camTargetX; camY = camTargetY; }
+      const shaking = updateShake();
+      renderWorldWithShake();
+      // グライド or シェイクが残る限りループ継続。両方止まったらスナップ済みの状態でループ停止。
+      if (gliding || shaking) { requestAnimationFrame(cameraFollowTick); }
+      else { cameraFollowActive = false; }
+    }
+    // 1フレーム分のシェイクオフセットを更新 (減衰エンベロープ)。稼働中なら true。
+    function updateShake() {
+      if (shakeEndsAt <= 0) { shakeX = 0; shakeY = 0; return false; }
+      const remaining = shakeEndsAt - performance.now();
+      if (remaining <= 0) { shakeEndsAt = 0; shakeX = 0; shakeY = 0; return false; }
+      const k = shakeDur > 0 ? (remaining / shakeDur) : 0;   // 1→0 で減衰
+      const amp = shakeMag * k;
+      shakeX = (Math.random() * 2 - 1) * amp;
+      shakeY = (Math.random() * 2 - 1) * amp;
+      return true;
+    }
+    // renderWorld() を「シェイクオフセットを camX/Y へ一時加算」して呼ぶ薄いラッパー。
+    // shake=0 のとき renderWorld() と完全等価。try/finally で例外時も camX/Y を必ず復元(イージング非破壊)。
+    function renderWorldWithShake() {
+      if (!shakeX && !shakeY) { renderWorld(); return; }
+      const _cx = camX, _cy = camY;
+      camX += shakeX; camY += shakeY;
+      try { renderWorld(); }
+      finally { camX = _cx; camY = _cy; }
+    }
+    // シェイク許可判定: ⚙設定OFF / prefers-reduced-motion では揺らさない (OS設定をライブ尊重)。
+    function shakeEnabled() {
+      try { if (window.GameSettings && window.GameSettings.get().screenShake === false) return false; } catch (e) {}
+      try { if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return false; } catch (e) {}
+      return true;
+    }
+    // 画面シェイクを発火 (mag=振幅px, durMs=継続)。crit/ボス撃破/大呪文から呼ぶ。
+    function triggerScreenShake(mag, durMs) {
+      if (window.__autoplay) return;            // headless/自動巡回は完全スキップ
+      if (!shakeEnabled()) return;
+      const now = performance.now();
+      // 進行中のより強い揺れは弱い揺れで上書きしない (継続だけ延長)。
+      if (shakeEndsAt > now && mag < shakeMag) {
+        shakeEndsAt = Math.max(shakeEndsAt, now + durMs);
         return;
       }
-      camX += dx * CAM_LERP;
-      camY += dy * CAM_LERP;
-      renderWorld();
-      requestAnimationFrame(cameraFollowTick);
+      shakeMag = mag; shakeDur = durMs; shakeEndsAt = now + durMs;
+      if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
     }
     // 瞬時スナップ (起動/リサイズ/パネル畳み): グライドさせず即座に目標へ。
     function snapCamera() {
@@ -3559,7 +3607,7 @@
       camX = camTargetX; camY = camTargetY;
       cameraFollowActive = false;
       cameraInitialized = true;
-      renderWorld();
+      renderWorldWithShake();
     }
     // 戦闘の注視点を設定して滑らかに寄せる (要望①②)。
     function focusCameraOn(wx, wy) {
@@ -7913,16 +7961,16 @@
       if (!cameraInitialized) {   // セッション最初の1回は瞬時スナップ (起動時のグライド防止)
         cameraInitialized = true;
         camX = camTargetX; camY = camTargetY;
-        renderWorld();
+        renderWorldWithShake();
         return;
       }
       if (CAM_SMOOTH && (Math.abs(camTargetX - camX) + Math.abs(camTargetY - camY) > CAM_SNAP_EPS)) {
         // カメラは数フレームかけて寄せる。現フレームは現在位置で即描画し、HP/スプライト等の変化を遅延させない。
         if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
-        renderWorld();
+        renderWorldWithShake();
       } else {
         camX = camTargetX; camY = camTargetY;
-        renderWorld();
+        renderWorldWithShake();
       }
     }
     // renderWorld(): 現在の camX/camY でマップ(canvas)と全DOMスプライトを再描画/再配置する (旧 updatePositions 本体)。
@@ -8774,6 +8822,10 @@
       enemy.hitStun = 0;
       enemy.damageFlashTimer = 0;
       sfx(enemy.def && enemy.def.boss ? "bossDeath" : "enemyDeath");
+      if (enemy.def && enemy.def.boss) {   // ボス撃破: 強シェイク + 既存ヴィネット閃光 を「撃破の衝撃」に束ねる
+        triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
+        if (typeof triggerCombatFlash === "function") triggerCombatFlash();
+      }
 
       maybeDropIronSword(index);
       maybeDropLeatherArmor(index);
@@ -11296,6 +11348,7 @@
       pop.style.top  = (worldY - camY - 4) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), isCrit ? 1200 : 900);
+      if (isCrit) triggerScreenShake(SHAKE_CRIT.mag, SHAKE_CRIT.dur);   // クリティカルだけ揺らす(通常ヒットは静)
     }
 
     const battleBannerEl = document.getElementById("battleBanner");
@@ -15299,6 +15352,7 @@
       triggerEnemyDamageFlash(enemyIdx);
       noteDisplacementHit(enemyIdx);
       showDmgAt(ex, target.y, dmg, isCrit);
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);   // 大呪文(炎)の着弾: 既存フラッシュ+シェイクで衝撃に
       updateInfo(`${ally.def.name}: ${tgtDef.name} に ${dmg} 炎ダメージ`);
       await sleepMs(500);
       if (target.hp <= 0) {

@@ -10,7 +10,7 @@
 
   // ===== Section A: 設定ストア (GameSettings) =================================
   var SETTINGS_KEY = "dragonfighters.settings";
-  var DEFAULTS = { master: 0.8, bgm: 0.6, sfx: 0.9, voice: 0.95, muted: false, textSpeed: 70 };
+  var DEFAULTS = { master: 0.8, bgm: 0.6, sfx: 0.9, voice: 0.95, muted: false, textSpeed: 70, screenShake: true };
   var _cache = null;
 
   function clamp(v, lo, hi) { v = +v; if (isNaN(v)) return lo; return v < lo ? lo : (v > hi ? hi : v); }
@@ -23,6 +23,7 @@
       voice: clamp(s.voice, 0, 1),
       muted: !!s.muted,
       textSpeed: clamp(s.textSpeed, 0, 200),
+      screenShake: (s.screenShake === undefined ? true : !!s.screenShake),
     };
   }
   function loadSettings() {
@@ -763,6 +764,13 @@
     var mt = document.createElement("span"); mt.textContent = "ミュート";
     mk.appendChild(cb); mk.appendChild(mt);
     box.appendChild(rowEl("音を消す", mk));
+    // 画面シェイク (打撃の重み: crit/ボス撃破/大呪文で画面が揺れる)。reduced-motion 環境では index 側が自動でOFF判定。
+    var skk = document.createElement("label"); skk.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;";
+    var cbsk = document.createElement("input"); cbsk.type = "checkbox"; cbsk.checked = (s.screenShake !== false);
+    cbsk.addEventListener("change", function () { GameSettings.patch({ screenShake: cbsk.checked }); });
+    var skt = document.createElement("span"); skt.textContent = "画面シェイク";
+    skk.appendChild(cbsk); skk.appendChild(skt);
+    box.appendChild(rowEl("演出", skk));
     // 文字送り速度 (右=速=低ms)。0..100 ↔ ms 120..10
     var tsVal = document.createElement("span"); tsVal.style.cssText = "min-width:54px;text-align:right;font-size:12px;color:#5a4516;";
     function msToPct(ms) { return Math.round((120 - ms) / 110 * 100); }
