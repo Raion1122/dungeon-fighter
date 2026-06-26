@@ -3125,6 +3125,11 @@
     let headDisplayName = "";    // 頭の表示名 (NPC=個人名 / 主人公="あなた")
     let leaderLevel = 1;         // 頭(player)の実効レベル (主人公=永続Lv / NPC=ティア帯Lv)
     let knightFrameTick = 0;
+    // アニメ進行フレームID: moveEnemies(論理tick=30ms間隔)で1回だけ++。
+    // 描画(renderWorld)はカメラグライド/シェイク中に rAF で複数回走るため、各スプライトの
+    // animTick をこの ID でゲートし「1論理フレーム=1コマ進行」に固定する(2倍速ブルブル防止)。
+    let animFrameId = 0;
+    let knightAnimFrameId = -1;
     let lastSpriteUrl = null;
     function setSpriteSheet(url, size) {
       if (lastSpriteUrl === url) return;
@@ -3133,7 +3138,8 @@
       player.style.backgroundSize = size;
     }
     function updateKnightSprite() {
-      knightFrameTick++;
+      // 1論理フレームにつき1回だけ進める(カメラグライド/シェイクの再描画で加速しない)
+      if (knightAnimFrameId !== animFrameId) { knightFrameTick++; knightAnimFrameId = animFrameId; }
       let framesPerStep, frameCount;
       // FFタクティクス風: 右向きのみ使用、左向きは CSS flip
       // シートの右向き行を基準に使用 (row=3 が右向き)
@@ -5735,7 +5741,8 @@
         el.style.transform = composeSpriteTransform(pCXs < eCXs, stepImpactOffset(enemy));
         return;
       }
-      enemy.animTick = (enemy.animTick || 0) + 1;
+      // 1論理フレームにつき1回だけ進める(カメラグライド/シェイクの再描画で加速しない)
+      if (enemy._animFrameId !== animFrameId) { enemy.animTick = (enemy.animTick || 0) + 1; enemy._animFrameId = animFrameId; }
       let row, framesPerStep, frameCount, frame;
       if (!enemy.alive) {
         row = 4; framesPerStep = 4; frameCount = def.cols;
@@ -8460,7 +8467,8 @@
       }, durationMs);
     }
     function updateAllySprite(ally) {
-      ally.animTick++;
+      // 1論理フレームにつき1回だけ進める(カメラグライド/シェイクの再描画で加速しない=ブルブル防止)
+      if (ally._animFrameId !== animFrameId) { ally.animTick++; ally._animFrameId = animFrameId; }
       const facing = ally.facing || "right";
       // FFタクティクス風: 右向き行固定、左向きは CSS flip + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
       const row = 3;
@@ -9864,6 +9872,8 @@
       if (window.__diag) window.__diag.beat("tick");   // 自動デバッグ: フレーム落ち計測
       if (!gameStarted || gameOver) return;
       if (dialogPaused || narrationHold || narrationPlaying) return;   // 対話/ナレ表示中はゲーム時間停止
+
+      animFrameId++;   // 論理1フレーム進行(描画回数に依らずアニメを等速化: カメラグライド中の2倍速防止)
 
       // エンカウンター発動検出(ターン制戦闘へ移行)
       tryStartEncounter();
