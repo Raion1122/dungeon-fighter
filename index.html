@@ -9750,6 +9750,116 @@
     }
     // ────────────────────────────────────────────────────────────
 
+    // ── ピクセル単位 重なり解消パス ───────────────────────────────
+    // タイル予約(getUnitOccupiedTiles)をすり抜けた「見た目の重なり」を毎フレーム軽く解消する。
+    // 仲間が標的に群がって殴るとき等にスプライトコアが重なるのを防ぐ。攻撃成立(中心間<meleeRange=120)
+    // を壊さないよう半径は十分小さく(係数0.30)。slide中/inactive/hitStun/保護NPC は除外。
+    // プレイヤー・ボスは実質不動(質量大)。探索・戦闘(encounterActive)の両方で毎フレーム走る。
+    const OVERLAP_RADIUS_K   = 0.30;   // 衝突半径 = displaySize * K
+    const OVERLAP_MAX_PUSH   = 6;      // 1フレーム1ユニットあたり最大押し出し px
+    const OVERLAP_HEAVY_MASS = 1e6;    // プレイヤー/ボスを実質不動に
+    const OVERLAP_BOSS_SIZE  = 200;    // displaySize がこれ以上なら不動扱い(240/720 捕捉, 96 は通常)
+    function makeOverlapUnit(obj, size, heavy) {
+      const r = size * OVERLAP_RADIUS_K;
+      return {
+        getCx: () => obj.x + size / 2,
+        getCy: () => obj.y + size / 2,
+        addXY: (dx, dy) => { obj.x += dx; obj.y += dy; },
+        radius: r,
+        mass: heavy ? OVERLAP_HEAVY_MASS : (r * r),   // 質量 ~ radius^2(軽い方が多く動く)
+        wallBox: (cx, cy) => ({ left: cx - size / 2 + 16, top: cy - size / 2 + 18,
+                                right: cx - size / 2 + 56, bottom: cy - size / 2 + 58 }),
+        clamp: () => { if (obj.def) clampEnemyToMap(obj); },
+      };
+    }
+    function resolveUnitOverlaps() {
+      if (!gameStarted || gameOver) return;
+
+      const units = [];
+      // プレイヤー(擬似ユニット・実質不動)
+      if (typeof hp === "undefined" || hp > 0) {
+        units.push({
+          getCx: () => playerX + 48,
+          getCy: () => playerY + 48,
+          addXY: (dx, dy) => { playerX += dx; playerY += dy; },
+          radius: 96 * OVERLAP_RADIUS_K,
+          mass: OVERLAP_HEAVY_MASS,
+          wallBox: (cx, cy) => ({ left: cx - 48 + 28, top: cy - 48 + 34,
+                                  right: cx - 48 + 68, bottom: cy - 48 + 82 }),
+          clamp: clampPlayerToMap,
+        });
+      }
+      // 仲間
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a.alive) continue;
+          if (a.slideTargetTile) continue;            // slideAnim RAF が x,y 書込中 → 触らない
+          units.push(makeOverlapUnit(a, a.def.displaySize, false));
+        }
+      }
+      // 敵
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        if (e.inactive) continue;                     // 檻の獣/封印ハイドラ: 絶対不動
+        if (e.passiveNpc) continue;                   // 友好/未対話 NPC
+        if (e.def && e.def.isNpcSpirit) continue;     // 霊の演出保護
+        if (e.hitStun > 0) continue;                  // ノックバックで自前移動中
+        if (e.slideTargetTile) continue;              // slide 中は RAF に任せる
+        const s = e.def.displaySize;
+        const heavy = (e.def && e.def.isBoss) || s >= OVERLAP_BOSS_SIZE;
+        units.push(makeOverlapUnit(e, s, heavy));
+      }
+
+      const N = units.length;
+      if (N < 2) return;
+
+      const accDX = new Float64Array(N);
+      const accDY = new Float64Array(N);
+
+      // 全ペア O(N^2) 押し出し。今フレームの押し量を累積→最後に一括適用(順序依存ジッタ抑制)
+      for (let i = 0; i < N; i++) {
+        const A = units[i];
+        for (let j = i + 1; j < N; j++) {
+          const B = units[j];
+          const minDist = A.radius + B.radius;
+          let dx = B.getCx() - A.getCx();
+          let dy = B.getCy() - A.getCy();
+          let dist = Math.hypot(dx, dy);
+          const overlap = minDist - dist;
+          if (overlap <= 1) continue;                 // 不感帯1px
+          if (dist < 0.001) {                         // 完全一致: 決定論的退避(0除算回避)
+            const ang = (((i * 73856093) ^ (j * 19349663)) % 628) / 100;
+            dx = Math.cos(ang); dy = Math.sin(ang); dist = 1;
+          }
+          const nx = dx / dist, ny = dy / dist;       // A→B 単位ベクトル
+          const total = A.mass + B.mass;
+          const pushA = Math.min(overlap * (B.mass / total), OVERLAP_MAX_PUSH);
+          const pushB = Math.min(overlap * (A.mass / total), OVERLAP_MAX_PUSH);
+          accDX[i] -= nx * pushA; accDY[i] -= ny * pushA;   // A は B と逆へ
+          accDX[j] += nx * pushB; accDY[j] += ny * pushB;   // B は A と逆へ
+        }
+      }
+
+      // 壁・マップ外チェックして軸別に適用
+      for (let i = 0; i < N; i++) {
+        const U = units[i];
+        if (U.mass >= OVERLAP_HEAVY_MASS) continue;   // 不動ユニットは適用しない
+        let aDX = accDX[i], aDY = accDY[i];
+        if (aDX === 0 && aDY === 0) continue;
+        const cx = U.getCx(), cy = U.getCy();
+        if (aDX !== 0) {
+          const b = U.wallBox(cx + aDX, cy);
+          if (wouldOverlapWall(b.left, b.top, b.right, b.bottom)) aDX = 0;
+        }
+        if (aDY !== 0) {
+          const b = U.wallBox(cx + aDX, cy + aDY);
+          if (wouldOverlapWall(b.left, b.top, b.right, b.bottom)) aDY = 0;
+        }
+        if (aDX !== 0 || aDY !== 0) { U.addXY(aDX, aDY); U.clamp(); }
+      }
+    }
+    // ───────────────────────────────────────────────────────────────
+
     function moveEnemies() {
       if (window.__diag) window.__diag.beat("tick");   // 自動デバッグ: フレーム落ち計測
       if (!gameStarted || gameOver) return;
@@ -9941,6 +10051,7 @@
       moveTowardTarget();
       checkAutoAttack();
       updateAllyFollow();  // 仲間がリーダーに追従 (非戦闘時)
+      resolveUnitOverlaps();   // スプライトの重なりをピクセル単位で解消(探索・戦闘 共通)
       updatePositions();
       checkPlayerCollision();
       checkCoinPickup();
