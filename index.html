@@ -3296,6 +3296,7 @@
         cx = hero.x + hero.w / 2 - centerScreenX;
         cy = hero.y + hero.h / 2 - centerScreenY;
       }
+      const desiredCx = cx, desiredCy = cy;   // CENTER_BIAS 用に希望中央(行動キャラ)を退避
       // (2) 工夫: 隊列(先頭+生存仲間)が画面外に出ないよう、全員が収まる範囲にカメラをクランプ。
       //     可視ワールド矩形 x∈[camX+UI_MENU_WIDTH, camX+innerWidth] / y∈[camY, camY+usableH]。
       //     通常は主人公が中央、隊列が端に達した時だけ最小限ずれて全員を画面内に保つ。
@@ -3324,11 +3325,15 @@
         }
       }
       const M = 48;   // 画面端マージン
+      const CENTER_BIAS = 0.7;   // clamp後に行動キャラ(希望中央)へ引き戻す割合 0..1 (実機調整)
       const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
       const loCy = maxY - usableH + M,          hiCy = minY - M;
       // 区間が成立(隊列が画面に収まる)→希望カメラを範囲にクランプ / 空(隊列が画面より大)→bbox 中央寄せ
-      cx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
-      cy = (loCy <= hiCy) ? Math.max(loCy, Math.min(cy, hiCy)) : (loCy + hiCy) / 2;
+      const clampedCx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
+      const clampedCy = (loCy <= hiCy) ? Math.max(loCy, Math.min(cy, hiCy)) : (loCy + hiCy) / 2;
+      // clamp結果を希望中央へ CENTER_BIAS だけ引き戻し、行動キャラを画面中央寄りに保つ
+      cx = clampedCx + (desiredCx - clampedCx) * CENTER_BIAS;
+      cy = clampedCy + (desiredCy - clampedCy) * CENTER_BIAS;
       // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
       const minCamX = -UI_MENU_WIDTH;
       const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);

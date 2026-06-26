@@ -76,6 +76,9 @@
   // === §6 DC段階表（5e標準・5刻み） ==================================
   var DC_TIERS = { veryEasy: 5, easy: 10, medium: 15, hard: 20, veryHard: 25 };
 
+  // 技能判定パネル表示後、タップ無しで自動ロールするまでの待機(ms)。オートバトルのハンズフリー化用。
+  var AUTO_ROLL_MS = 2000;
+
   // === §7 代表者自動選出（formationソート方針流用・classKey参照） ======
   function checkScore(member, checkDef) {
     if (!member || !checkDef) return 0;
@@ -296,6 +299,10 @@
       hintEl.textContent = "";
       btn.style.display = "";
       ov.classList.add("show");
+      // オートバトル: タップ無しでも一定時間後に自動ロール開始（phase0のままなら）。
+      ov._autoRollTimer = setTimeout(function () {
+        if (phase === 0) { onAct(); }
+      }, AUTO_ROLL_MS);
 
       var phase = 0; // 0=待ロール 1=演出中 2=結果表示
       var keyHandler = function (ev) {
@@ -309,8 +316,10 @@
         document.removeEventListener("keydown", keyHandler, true);
         btn.onclick = null;
         if (ov._dismissTimer) { clearTimeout(ov._dismissTimer); ov._dismissTimer = null; }
+        if (ov._autoRollTimer) { clearTimeout(ov._autoRollTimer); ov._autoRollTimer = null; }
       }
       function onAct() {
+        if (ov._autoRollTimer) { clearTimeout(ov._autoRollTimer); ov._autoRollTimer = null; }
         if (phase === 0) { roll(); }
         else if (phase === 2) { var o = ov._outcome; cleanup(); resolve(o); }
       }
