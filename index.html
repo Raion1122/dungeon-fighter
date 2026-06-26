@@ -2874,6 +2874,13 @@
     const SHAKE_CRIT  = { mag: 5,  dur: 180 };   // クリティカル: 控えめ
     const SHAKE_BOSS  = { mag: 11, dur: 280 };   // ボス撃破: 強め (閃光と同時)
     const SHAKE_SPELL = { mag: 7,  dur: 220 };   // 大呪文 (ファイアボール等)
+    // 攻撃エフェクト Phase1: 踏み込み(lunge)/のけぞり(recoil) の振幅(px)とフレーム数(約16ms/F)。
+    // スプライトの scaleX(-1) 向き反転と毎フレーム競合するため、CSS ではなく per-frame の transform 合成で実現する。
+    // sin(p*π) エンベロープ(p=1-T/Max)で行って戻り、端点で厳密に 0 着地(ドリフト無し)。実機で要微調整。
+    const LUNGE_MAG = 14;      // 踏み込みピーク(px, 対象方向)
+    const LUNGE_FRAMES = 10;
+    const RECOIL_MAG = 10;     // のけぞりピーク(px, 攻撃者と逆方向)
+    const RECOIL_FRAMES = 12;
 
     function resizeCanvas() {
       mapCanvas.width = window.innerWidth;
@@ -3356,8 +3363,8 @@
       // FFタクティクス風: 右向きのみ使用、左向きは CSS flip
       // シートの右向き行を基準に使用 (row=3 が右向き)
       const row = 3;
-      // 左向き時だけ水平反転
-      player.style.transform = facing === "left" ? "scaleX(-1)" : "";
+      // 左向き時だけ水平反転 + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
+      player.style.transform = composeSpriteTransform(facing === "left", stepPlayerImpactOffset());
       // リーダークラス + 変種のスプライトを引く (主人公=0/正規、NPC頭=割当て変種)
       const sprites = getSpriteSet(leaderClassKey, leaderVariant) || LEADER_SPRITES[leaderClassKey] || LEADER_SPRITES.warrior;
       if (attackActive) {
@@ -5651,6 +5658,9 @@
         weaponVisible: false, weaponX: 0, weaponY: 0,
         armorVisible: false, armorX: 0, armorY: 0,
         knockbackVX: 0, knockbackVY: 0, hitStun: 0, damageFlashTimer: 0,
+        // 攻撃エフェクト Phase1: 踏み込み/のけぞり (視覚のみ・論理座標は不変)
+        lungeT: 0, lungeMax: 0, lungeDir: 0,
+        recoilT: 0, recoilMax: 0, recoilDir: 0,
         path: [], pathTimer: 0,
         state: "idle", losTimer: 0, alertTimer: 0,
         originX: cx, originY: cy,
@@ -5676,7 +5686,7 @@
       if (def.staticSprite) {
         el.style.backgroundPosition = "0 0";
         const pCXs = playerX + 48, eCXs = enemy.x + el.offsetWidth / 2;
-        el.style.transform = (pCXs < eCXs) ? "scaleX(-1)" : "";
+        el.style.transform = composeSpriteTransform(pCXs < eCXs, stepImpactOffset(enemy));
         return;
       }
       enemy.animTick = (enemy.animTick || 0) + 1;
@@ -5701,10 +5711,10 @@
       const dsw = el.offsetWidth;
       const dsh = el.offsetHeight;
       el.style.backgroundPosition = `${-frame * dsw}px ${-row * dsh}px`;
-      // プレイヤーへの向きで左右反転
+      // プレイヤーへの向きで左右反転 + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
       const pCX = playerX + 48;
       const eCX = enemy.x + dsw / 2;
-      el.style.transform = (pCX < eCX) ? "scaleX(-1)" : "";
+      el.style.transform = composeSpriteTransform(pCX < eCX, stepImpactOffset(enemy));
     }
 
     let gameStarted = false;
@@ -5748,6 +5758,9 @@
     let playerKnockbackVX = 0;
     let playerKnockbackVY = 0;
     let playerHitStun = 0;
+    // 攻撃エフェクト Phase1: 主人公の踏み込み/のけぞり状態 (per-frame で減衰、updateKnightSprite で transform 合成)
+    let playerLungeT = 0, playerLungeMax = 0, playerLungeDir = 0;
+    let playerRecoilT = 0, playerRecoilMax = 0, playerRecoilDir = 0;
 
     let targetX = null;
     let targetY = null;
@@ -6511,6 +6524,9 @@
         animTick: 0,
         facing: "right",
         state: "idle",
+        // 攻撃エフェクト Phase1: 踏み込み/のけぞり (視覚のみ)
+        lungeT: 0, lungeMax: 0, lungeDir: 0,
+        recoilT: 0, recoilMax: 0, recoilDir: 0,
         playerMovingThisFrame: false,
         // Phase 2-G 拡張: アクセサリースロット (2 枠、accessories[] の index で参照)
         accessoryIndices: [0, 0],
@@ -7943,8 +7959,9 @@
       if (enemy.damageFlashTimer > 0) {
         const on = enemy.damageFlashTimer % 4 < 2;
         if (on) {
-          enemyEl.style.filter = "brightness(1.15) saturate(1.4) sepia(1) hue-rotate(-40deg)";
-          enemyEl.style.opacity = "0.62";
+          // 攻撃エフェクト Phase1: セピア退色ブリンク → 白くカッと光るパンチに強化 (filter/opacity のみ・transform 不可侵)
+          enemyEl.style.filter = "brightness(2.6) drop-shadow(0 0 4px rgba(255,255,255,0.95))";
+          enemyEl.style.opacity = "1";
         } else {
           enemyEl.style.filter = "none";
           enemyEl.style.opacity = "1";
@@ -7953,6 +7970,49 @@
         enemyEl.style.filter = "none";
         enemyEl.style.opacity = "1";
       }
+    }
+
+    // ── 攻撃エフェクト Phase1: 踏み込み/のけぞり の per-frame transform 合成ヘルパ ──
+    // スプライト向きは毎フレーム el.style.transform = "scaleX(-1)"|"" で再設定される。
+    // CSS クラスの transform アニメは1フレームで潰れるため、その向き transform に
+    // lunge/recoil の px オフセットを合成して同居させる(filter/opacity は flash が占有)。
+    // sin(p*π) (p=1-T/Max) は端点で厳密 0 → 行って戻る・ドリフト無し。lunge と recoil は加算。
+    function stepImpactOffset(st) {            // 敵/仲間オブジェクト用 (破壊的に減衰)
+      let off = 0;
+      if (st.lungeT > 0) {
+        const p = st.lungeMax > 0 ? (1 - st.lungeT / st.lungeMax) : 1;
+        off += st.lungeDir * LUNGE_MAG * Math.sin(p * Math.PI);
+        if (--st.lungeT <= 0) { st.lungeT = 0; st.lungeMax = 0; st.lungeDir = 0; }
+      }
+      if (st.recoilT > 0) {
+        const p = st.recoilMax > 0 ? (1 - st.recoilT / st.recoilMax) : 1;
+        off += st.recoilDir * RECOIL_MAG * Math.sin(p * Math.PI);
+        if (--st.recoilT <= 0) { st.recoilT = 0; st.recoilMax = 0; st.recoilDir = 0; }
+      }
+      return off;
+    }
+    function stepPlayerImpactOffset() {        // 主人公(グローバル)用
+      let off = 0;
+      if (playerLungeT > 0) {
+        const p = playerLungeMax > 0 ? (1 - playerLungeT / playerLungeMax) : 1;
+        off += playerLungeDir * LUNGE_MAG * Math.sin(p * Math.PI);
+        if (--playerLungeT <= 0) { playerLungeT = 0; playerLungeMax = 0; playerLungeDir = 0; }
+      }
+      if (playerRecoilT > 0) {
+        const p = playerRecoilMax > 0 ? (1 - playerRecoilT / playerRecoilMax) : 1;
+        off += playerRecoilDir * RECOIL_MAG * Math.sin(p * Math.PI);
+        if (--playerRecoilT <= 0) { playerRecoilT = 0; playerRecoilMax = 0; playerRecoilDir = 0; }
+      }
+      return off;
+    }
+    // 向き(scaleX) と踏み込み/のけぞり(translateX) を1つの transform 文字列に合成。
+    // scaleX(-1) 後はローカル X 軸が反転するため、左向き時は translateX 符号を反転して画面方向を保つ。
+    // offPx が 0 のとき従来(scaleX のみ/空)と完全に等価。
+    function composeSpriteTransform(flip, offPx) {
+      const base = flip ? "scaleX(-1)" : "";
+      if (!offPx) return base;
+      const screenDx = flip ? -offPx : offPx;
+      return base + (base ? " " : "") + "translateX(" + screenDx + "px)";
     }
 
     // updatePositions(): カメラ目標を再計算し、グライド(イージング) or 即描画で世界を更新する公開エントリ。
@@ -8356,9 +8416,9 @@
     function updateAllySprite(ally) {
       ally.animTick++;
       const facing = ally.facing || "right";
-      // FFタクティクス風: 右向き行固定、左向きは CSS flip
+      // FFタクティクス風: 右向き行固定、左向きは CSS flip + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
       const row = 3;
-      ally.el.style.transform = facing === "left" ? "scaleX(-1)" : "";
+      ally.el.style.transform = composeSpriteTransform(facing === "left", stepImpactOffset(ally));
       const ck = ally.classKey;
       const isCustom = CUSTOM_SHEET_CLASSES.has(ck);
 
@@ -8446,8 +8506,43 @@
       }, strong ? 260 : 220);
     }
 
-    function triggerEnemyDamageFlash(index) {
-      enemies[index].damageFlashTimer = 10;
+    // 第2引数 recoilDir(±1, 省略可) を渡したサイトだけ、被弾敵にのけぞりも付ける。
+    // 攻撃者方向が不明なサイト(毒DoT等)は従来どおり呼べば白フラッシュのみ(後方互換)。
+    function triggerEnemyDamageFlash(index, recoilDir) {
+      const e = enemies[index];
+      if (!e) return;
+      e.damageFlashTimer = 10;
+      if (recoilDir !== undefined) triggerRecoilEnemy(index, recoilDir);
+    }
+
+    // ── 攻撃エフェクト Phase1: 踏み込み(lunge)/のけぞり(recoil) トリガ ──
+    // 動き系なので __autoplay と shakeEnabled()(⚙screenShake トグル + prefers-reduced-motion) でスキップ。
+    // 白フラッシュ(色のみ)は別途・非ゲート。dir は ±1(0 は +1 に丸めて必ず一瞬動く)。
+    function triggerLungePlayer(dirSign) {
+      if (window.__autoplay || !shakeEnabled()) return;
+      playerLungeT = LUNGE_FRAMES; playerLungeMax = LUNGE_FRAMES; playerLungeDir = (dirSign >= 0 ? 1 : -1);
+    }
+    function triggerLungeAlly(ally, dirSign) {
+      if (window.__autoplay || !shakeEnabled() || !ally) return;
+      ally.lungeT = LUNGE_FRAMES; ally.lungeMax = LUNGE_FRAMES; ally.lungeDir = (dirSign >= 0 ? 1 : -1);
+    }
+    function triggerLungeEnemy(index, dirSign) {
+      if (window.__autoplay || !shakeEnabled()) return;
+      const e = enemies[index]; if (!e) return;
+      e.lungeT = LUNGE_FRAMES; e.lungeMax = LUNGE_FRAMES; e.lungeDir = (dirSign >= 0 ? 1 : -1);
+    }
+    function triggerRecoilPlayer(dirSign) {
+      if (window.__autoplay || !shakeEnabled()) return;
+      playerRecoilT = RECOIL_FRAMES; playerRecoilMax = RECOIL_FRAMES; playerRecoilDir = (dirSign >= 0 ? 1 : -1);
+    }
+    function triggerRecoilAlly(ally, dirSign) {
+      if (window.__autoplay || !shakeEnabled() || !ally) return;
+      ally.recoilT = RECOIL_FRAMES; ally.recoilMax = RECOIL_FRAMES; ally.recoilDir = (dirSign >= 0 ? 1 : -1);
+    }
+    function triggerRecoilEnemy(index, dirSign) {
+      if (window.__autoplay || !shakeEnabled()) return;
+      const e = enemies[index]; if (!e) return;
+      e.recoilT = RECOIL_FRAMES; e.recoilMax = RECOIL_FRAMES; e.recoilDir = (dirSign >= 0 ? 1 : -1);
     }
 
     // ── Phase 2-A: 残影回避 (Displacement) ヘルパー ──
@@ -9125,6 +9220,7 @@
 
       hp -= 1;
       applyPlayerKnockbackFromEnemy(enemy, false, 2, 2);
+      triggerRecoilPlayer(Math.sign((playerX + 48) - (enemy.x + enemy.def.displaySize / 2)));   // 攻撃エフェクト: 攻撃者と逆へのけぞり
       updateInfo("ダメージを受けた！");
 
       if (hp <= 0) {
@@ -12957,6 +13053,7 @@
 
       mouseX = ex; mouseY = ey;
       updateFacingFromMouse();
+      triggerLungePlayer(Math.sign(ex - (playerX + 48)));   // 攻撃エフェクト: 対象方向へ踏み込み
 
       // 射程チェック: opts.range (スキル側) が優先、なければ武器射程
       const rangeKey = opts.range || playerStats.weaponRange || "melee";
@@ -13081,7 +13178,7 @@
       }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
-      triggerEnemyDamageFlash(targetIdx);
+      triggerEnemyDamageFlash(targetIdx, Math.sign(ex - (playerX + 48)));   // 白フラッシュ + 攻撃者と逆へのけぞり
       noteDisplacementHit(targetIdx);
       showHitSpark(targetIdx, isCrit);
       showDmgAt(ex, target.y, dmg, isCrit);
@@ -14788,6 +14885,7 @@
 
       flashAction(ally.el, "attack");
       startAllyAttackAnim(ally);
+      triggerLungeAlly(ally, Math.sign(dfx));   // 攻撃エフェクト: 対象方向へ踏み込み
 
       const helpless = target.stunned > 0;
       const natD20 = d20();
@@ -14873,7 +14971,7 @@
       }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
-      triggerEnemyDamageFlash(enemyIdx);
+      triggerEnemyDamageFlash(enemyIdx, Math.sign(dfx));   // 白フラッシュ + 攻撃者と逆へのけぞり
       noteDisplacementHit(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
       playMeleeHit(tgtDef, isCrit, allyMelee);   // 仲間も命中音 (近接=スイング付/遠隔=着弾のみ)
@@ -19042,6 +19140,7 @@
       } else {
         hp -= dmg;
         if (hp < 0) hp = 0;
+        triggerRecoilPlayer(Math.sign((playerX + 48) - (enemy.x + def.displaySize / 2)));   // 攻撃エフェクト: 攻撃者と逆へのけぞり
         showDmgAt(playerX + 48, playerY, dmg, isCrit);
         const dmgLabel = (bossAction === "smash") ? "×SMASH" : (isCrit ? "×" + critMult : "");
         updateInfo(`${getLeaderName()}に ${dmg} ダメージ! ` +
@@ -19243,6 +19342,7 @@
 
       ally.hp -= finalDmg;
       if (ally.hp < 0) ally.hp = 0;
+      triggerRecoilAlly(ally, Math.sign(tCX - eCX));   // 攻撃エフェクト: 攻撃者と逆へのけぞり
       showDmgAt(tCX, ally.y, finalDmg, isCrit);
       const drText = drNotes.length > 0 ? ` [軽減: ${drNotes.join(", ")}, 元 ${rawDmg}]` : "";
       updateInfo(`${ally.def.name} に ${finalDmg} ダメージ${drText}! HP ${ally.hp}/${ally.maxHp}`);
