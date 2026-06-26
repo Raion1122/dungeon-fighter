@@ -2510,6 +2510,8 @@
     </defs>
   </svg>
   <canvas id="mapCanvas" style="position:fixed;left:0;top:0;z-index:0;pointer-events:none;image-rendering:pixelated;"></canvas>
+  <!-- 攻撃エフェクト Phase2: 透過パーティクルレイヤー (敵z2/味方z6 より前・lighting z9 より後)。滑らかな発光が主役なので pixelated にしない。 -->
+  <canvas id="fxCanvas" style="position:fixed;left:0;top:0;z-index:8;pointer-events:none;"></canvas>
   <canvas id="lightingCanvas" style="position:fixed;left:0;top:0;z-index:9;pointer-events:none;"></canvas>
   <div id="startScreen">
     <div id="startBox">
@@ -2755,6 +2757,9 @@
     const ctx = mapCanvas.getContext("2d");
     const lightingCanvas = document.getElementById("lightingCanvas");
     const lctx = lightingCanvas.getContext("2d");
+    // 攻撃エフェクト Phase2: パーティクル描画レイヤー
+    const fxCanvas = document.getElementById("fxCanvas");
+    const fxctx = fxCanvas.getContext("2d");
 
     const TILE_SIZE = 96;
     const MAP_W = 95;
@@ -2888,6 +2893,14 @@
       ctx.imageSmoothingEnabled = false;
       lightingCanvas.width = window.innerWidth;
       lightingCanvas.height = window.innerHeight;
+      // FX canvas: DPR 対応 (発光グラデを高密度画面で滲ませない)。上限2で高DPR端末の塗り面積暴発を抑制。
+      // setTransform(dpr,...) 後は CSS px 座標で描けるので draw 側は DPR 非依存。
+      const fxDpr = Math.min(window.devicePixelRatio || 1, 2);
+      fxCanvas.width  = Math.round(window.innerWidth  * fxDpr);
+      fxCanvas.height = Math.round(window.innerHeight * fxDpr);
+      fxCanvas.style.width  = window.innerWidth + "px";
+      fxCanvas.style.height = window.innerHeight + "px";
+      fxctx.setTransform(fxDpr, 0, 0, fxDpr, 0, 0);
     }
     // viewport 変化 (リサイズ/端末回転) で HUD 寸法を再計算し、カメラも追従させる。
     // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/snapCamera と UI_MENU_WIDTH(let) は
@@ -3765,6 +3778,277 @@
       };
       spellLightSources.push(src);
       return src;
+    }
+
+    // ── 攻撃エフェクト Phase2: Canvas パーティクルエンジン ──────────────────────
+    // 既存の DOM 属性FX を置換する統一エンジン。粒子は world 座標で保持し、専用 rAF ループ
+    // (fxTick) で fxCanvas に描画する。renderWorld の呼び出し頻度に非依存。生存粒子が尽きたら
+    // ループ停止 = アイドル時 CPU ゼロ。発光は globalCompositeOperation="lighter" の加算合成。
+    let FX_PARTICLE_CAP = 600;          // 同時上限。compact(スマホ)端末では下で半減。
+    const fxParticles = [];             // 生存パーティクル
+    const fxPool = [];                  // 死亡 obj 再利用プール (GC 抑制)
+    const fxBurners = [];               // 継続エミッタ {enemyIdx, kind, until, acc, rate, crit}
+    let fxLoopActive = false, fxLastT = 0;
+
+    // headless/自動巡回 (window.__autoplay) では演出を完全スキップ (決定論保護、triggerScreenShake と同思想)
+    function fxEnabled() { return !window.__autoplay; }
+    function fxCompact() { return !!(document.body && document.body.classList.contains("ui-compact")); }
+
+    function emitParticle(o) {
+      // 上限ガード (新規を間引く)。compact(スマホ)端末は半減して負荷を抑える。
+      if (fxParticles.length >= (fxCompact() ? (FX_PARTICLE_CAP >> 1) : FX_PARTICLE_CAP)) return null;
+      const p = fxPool.pop() || {};
+      p.x = o.x; p.y = o.y;
+      p.vx = o.vx || 0; p.vy = o.vy || 0;
+      p.ax = o.ax || 0; p.ay = o.ay || 0;
+      p.life = o.life; p.maxLife = o.life;
+      p.size0 = o.size0; p.size1 = (o.size1 != null) ? o.size1 : o.size0;
+      p.r = o.r; p.g = o.g; p.b = o.b;
+      p.a0 = (o.a0 != null) ? o.a0 : 1; p.a1 = (o.a1 != null) ? o.a1 : 0;
+      p.kind = o.kind || "dot";
+      p.blend = (o.blend !== false);    // 既定は加算発光
+      p.rot = o.rot || 0; p.vrot = o.vrot || 0;
+      p.radius = o.radius || 0; p.sweep = o.sweep || 0;   // arc 用
+      p.poly = o.poly || null;          // bolt 用 world 頂点列
+      fxParticles.push(p);
+      ensureFxLoop();
+      return p;
+    }
+
+    function ensureFxLoop() {
+      if (fxLoopActive) return;
+      fxLoopActive = true;
+      fxLastT = performance.now();
+      requestAnimationFrame(fxTick);
+    }
+
+    function updateParticles(dtMs) {
+      const dt = dtMs / 1000;
+      // 継続エミッタ (setInterval 廃止 → フレーム駆動。敵に追従)
+      if (fxBurners.length) {
+        const nowt = performance.now();
+        for (let i = fxBurners.length - 1; i >= 0; i--) {
+          const b = fxBurners[i];
+          const e = enemies && enemies[b.enemyIdx];
+          if (!e || nowt >= b.until) { fxBurners.splice(i, 1); continue; }
+          b.acc += dtMs;
+          while (b.acc >= b.rate) {
+            b.acc -= b.rate;
+            if (b.kind === "fire") spawnFireEmber(e, b.crit);
+            else if (b.kind === "frost") spawnFrostFleck(e);
+            else if (b.kind === "holy") spawnHolyMoteP(e);
+          }
+        }
+      }
+      for (let i = fxParticles.length - 1; i >= 0; i--) {
+        const p = fxParticles[i];
+        p.life -= dtMs;
+        if (p.life <= 0) { fxParticles.splice(i, 1); fxPool.push(p); continue; }
+        p.vx += p.ax * dt; p.vy += p.ay * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        if (p.vrot) p.rot += p.vrot * dt;
+      }
+    }
+
+    function drawParticleOne(p, cx, cy, W, H) {
+      const t = 1 - p.life / p.maxLife;          // 経過率 0→1
+      const sx = p.x - cx, sy = p.y - cy;        // world → screen
+      const size = p.size0 + (p.size1 - p.size0) * t;
+      const M = 80 + size + p.radius;            // 画面外カリング余白
+      if (sx < -M || sx > W + M || sy < -M || sy > H + M) return;
+      let a = p.a0 + (p.a1 - p.a0) * t;
+      if (a <= 0) return; if (a > 1) a = 1;
+      const col = p.r + "," + p.g + "," + p.b;
+      if (p.kind === "bolt") {                    // 折れ線稲妻 (poly: world 頂点)
+        if (!p.poly || p.poly.length < 2) return;
+        fxctx.strokeStyle = "rgba(" + col + "," + a + ")";
+        fxctx.lineWidth = 1.5 + 2.5 * a;
+        fxctx.lineCap = "round"; fxctx.lineJoin = "round";
+        fxctx.shadowBlur = 8; fxctx.shadowColor = "rgba(255,255,190,0.9)";
+        fxctx.beginPath();
+        fxctx.moveTo(p.poly[0].x - cx, p.poly[0].y - cy);
+        for (let k = 1; k < p.poly.length; k++) fxctx.lineTo(p.poly[k].x - cx, p.poly[k].y - cy);
+        fxctx.stroke(); fxctx.shadowBlur = 0;
+        return;
+      }
+      if (p.kind === "arc") {                     // 斬撃の弧
+        fxctx.strokeStyle = "rgba(" + col + "," + a + ")";
+        fxctx.lineWidth = 2 + 9 * a;
+        fxctx.lineCap = "round";
+        fxctx.shadowBlur = 12; fxctx.shadowColor = "rgba(" + col + ",0.85)";
+        fxctx.beginPath();
+        fxctx.arc(sx, sy, p.radius * (1 + 0.25 * t), p.rot - p.sweep / 2, p.rot + p.sweep / 2);
+        fxctx.stroke(); fxctx.shadowBlur = 0;
+        return;
+      }
+      if (p.kind === "flake") {                   // 菱形シャード (rot 回転)
+        fxctx.save(); fxctx.translate(sx, sy); fxctx.rotate(p.rot);
+        fxctx.fillStyle = "rgba(" + col + "," + a + ")";
+        fxctx.beginPath();
+        fxctx.moveTo(0, -size); fxctx.lineTo(size * 0.6, 0); fxctx.lineTo(0, size); fxctx.lineTo(-size * 0.6, 0);
+        fxctx.closePath(); fxctx.fill(); fxctx.restore();
+        return;
+      }
+      if (p.kind === "streak") {                  // 縦長の光条
+        const g = fxctx.createLinearGradient(sx, sy - size, sx, sy + size);
+        g.addColorStop(0, "rgba(" + col + ",0)");
+        g.addColorStop(0.5, "rgba(" + col + "," + a + ")");
+        g.addColorStop(1, "rgba(" + col + ",0)");
+        fxctx.fillStyle = g;
+        fxctx.fillRect(sx - size * 0.18, sy - size, size * 0.36, size * 2);
+        return;
+      }
+      // dot / spark: radial gradient の発光する丸
+      const g = fxctx.createRadialGradient(sx, sy, 0, sx, sy, size);
+      g.addColorStop(0, "rgba(" + col + "," + a + ")");
+      g.addColorStop(0.45, "rgba(" + col + "," + (a * 0.55) + ")");
+      g.addColorStop(1, "rgba(" + col + ",0)");
+      fxctx.fillStyle = g;
+      fxctx.beginPath(); fxctx.arc(sx, sy, size, 0, Math.PI * 2); fxctx.fill();
+    }
+
+    function drawParticles(cx, cy) {
+      const W = window.innerWidth, H = window.innerHeight;   // CSS px (setTransform で論理座標)
+      fxctx.clearRect(0, 0, W, H);
+      if (!fxParticles.length) return;
+      // 加算組 → 通常組 の 2 パスで globalCompositeOperation 切替を 2 回に固定
+      fxctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < fxParticles.length; i++) { const p = fxParticles[i]; if (p.blend) drawParticleOne(p, cx, cy, W, H); }
+      fxctx.globalCompositeOperation = "source-over";
+      for (let i = 0; i < fxParticles.length; i++) { const p = fxParticles[i]; if (!p.blend) drawParticleOne(p, cx, cy, W, H); }
+    }
+
+    function fxTick(now) {
+      const dt = Math.min(now - fxLastT, 50);    // タブ復帰の巨大 dt をクランプ
+      fxLastT = now;
+      updateParticles(dt);
+      // map と同じ shake offset を加算 → 粒子もワールド固定のまま自然に揺れる (二重揺れ無し)
+      drawParticles(camX + shakeX, camY + shakeY);
+      if (!fxParticles.length && !fxBurners.length) {
+        fxctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        fxLoopActive = false;
+        return;
+      }
+      requestAnimationFrame(fxTick);
+    }
+
+    // 継続炎: 敵の体から立ち上る火の粉 1 個 (燃え移り)
+    function spawnFireEmber(e, crit) {
+      const ds = (e.def && e.def.displaySize) || 64;
+      emitParticle({
+        x: e.x + ds * (0.25 + Math.random() * 0.5),
+        y: e.y + ds * (0.45 + Math.random() * 0.4),
+        vx: (Math.random() - 0.5) * 26, vy: -(40 + Math.random() * 35),
+        ay: -55,                                  // 浮力でさらに上昇
+        life: 620 + Math.random() * 220,
+        size0: (crit ? 11 : 8) + Math.random() * 4, size1: 2,
+        r: 255, g: 150 + (Math.random() * 60 | 0), b: 50,
+        a0: 0.95, a1: 0, kind: "dot", blend: true,
+      });
+    }
+
+    // 継続冷気: 敵から落ちる氷の粒 (重力で下降・回転)
+    function spawnFrostFleck(e) {
+      const ds = (e.def && e.def.displaySize) || 64;
+      emitParticle({
+        x: e.x + ds * (0.25 + Math.random() * 0.5),
+        y: e.y + ds * (0.35 + Math.random() * 0.35),
+        vx: (Math.random() - 0.5) * 14, vy: 28 + Math.random() * 36,
+        ay: 60,                                   // 重力で落下
+        life: 700 + Math.random() * 200,
+        size0: 5 + Math.random() * 4, size1: 1.5,
+        r: 200, g: 235, b: 255, a0: 0.9, a1: 0,
+        kind: "flake", blend: true, rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 6,
+      });
+    }
+
+    // 継続聖: 敵から立ち上る金色の光粒
+    function spawnHolyMoteP(e) {
+      const ds = (e.def && e.def.displaySize) || 64;
+      emitParticle({
+        x: e.x + ds * (0.25 + Math.random() * 0.5),
+        y: e.y + ds * (0.5 + Math.random() * 0.35),
+        vx: (Math.random() - 0.5) * 16, vy: -(30 + Math.random() * 30),
+        ay: -45,
+        life: 800 + Math.random() * 250,
+        size0: 6 + Math.random() * 4, size1: 1.5,
+        r: 255, g: 240, b: 180, a0: 0.9, a1: 0, kind: "dot", blend: true,
+      });
+    }
+
+    // 折れ線稲妻の頂点列を world 座標で生成 (始終点を分割し直交ジッタ)
+    function fxMakeBoltPoly(fromX, fromY, toX, toY, segments, jitter) {
+      const pts = [{ x: fromX, y: fromY }];
+      const len = Math.hypot(toX - fromX, toY - fromY) || 1;
+      const nx = -(toY - fromY) / len, ny = (toX - fromX) / len;   // 進行方向の直交
+      for (let i = 1; i < segments; i++) {
+        const tt = i / segments;
+        const j = (Math.random() - 0.5) * jitter;
+        pts.push({ x: fromX + (toX - fromX) * tt + nx * j, y: fromY + (toY - fromY) * tt + ny * j });
+      }
+      pts.push({ x: toX, y: toY });
+      return pts;
+    }
+    function spawnBolt(fromX, fromY, toX, toY, r, g, b, life) {
+      emitParticle({
+        x: fromX, y: fromY, life: life || 280, size0: 0, size1: 0,
+        r, g, b, a0: 1, a1: 0, kind: "bolt", blend: true,
+        poly: fxMakeBoltPoly(fromX, fromY, toX, toY, 7, 16),
+      });
+    }
+
+    // 斬撃の弧: 攻撃者中心(origin) から angle 方向へ円弧を一閃 (踏み込みと同期)。動き系なので lunge と同じゲート。
+    function spawnSlashArc(originWX, originWY, angle, opts) {
+      if (!fxEnabled() || !shakeEnabled()) return;
+      opts = opts || {};
+      const col = (opts.color || "230,240,255").split(",");
+      emitParticle({
+        x: originWX, y: originWY,
+        life: opts.life || 170, size0: 0, size1: 0,
+        r: +col[0], g: +col[1], b: +col[2], a0: 0.95, a1: 0,
+        kind: "arc", blend: true,
+        radius: opts.radius || 56, rot: angle, sweep: opts.sweep || (Math.PI * 0.85),
+      });
+    }
+
+    // ファラクサス/ハイドラのブレス見せ場: 口元から前方へ広がる大規模炎コーン (Canvas)。
+    // 既存の火球飛翔+着弾爆発は保持し、これは上乗せの噴射演出。dirX/dirY は口元→着弾中心ベクトル。
+    function spawnDragonBreathCone(mouthWX, mouthWY, dirX, dirY, opts) {
+      if (!fxEnabled()) return;
+      opts = opts || {};
+      const scale = opts.scale || 1;
+      const len = Math.hypot(dirX, dirY) || 1;
+      const ux = dirX / len, uy = dirY / len;       // 進行方向 単位ベクトル
+      const px = -uy, py = ux;                        // 直交 単位ベクトル (横の広がり)
+      const reach = (opts.reach || 3.2) * TILE_SIZE * scale;
+      let count = Math.round((opts.count || 72) * scale);
+      if (fxCompact()) count = Math.round(count * 0.6);
+      // 口元 + 中間に光源 (周囲を照らす)
+      addSpellLight({ worldX: mouthWX, worldY: mouthWY, inner: 60 * scale, outer: 210 * scale, rgb: "255,150,60", duration: 520, fadeMs: 520 });
+      addSpellLight({ worldX: mouthWX + ux * reach * 0.5, worldY: mouthWY + uy * reach * 0.5, inner: 90 * scale, outer: 330 * scale, rgb: "255,150,60", duration: 620, fadeMs: 620 });
+      // 円錐状に火炎粒を放出 (前方ほど横に開く)
+      for (let i = 0; i < count; i++) {
+        const f = Math.random();                      // 0(口元)〜1(先端)
+        const spread = (Math.random() - 0.5) * (0.25 + f * 0.95);   // 前方ほど広い
+        const spd = (180 + Math.random() * 320) * scale;
+        emitParticle({
+          x: mouthWX + ux * 10, y: mouthWY + uy * 10,
+          vx: ux * spd + px * spread * spd, vy: uy * spd + py * spread * spd,
+          ay: -40,                                     // 末端で浮き上がる
+          life: 380 + Math.random() * 320,
+          size0: (18 + Math.random() * 16) * scale, size1: 3,
+          r: 255, g: 130 + (Math.random() * 70 | 0), b: 40,
+          a0: 0.95, a1: 0, kind: "dot", blend: true,
+        });
+      }
+      // 中心軸の白熱コア (3 段、前方ほど大)
+      for (let s = 1; s <= 3; s++) {
+        emitParticle({
+          x: mouthWX + ux * reach * (s / 3.5), y: mouthWY + uy * reach * (s / 3.5),
+          life: 260, size0: (30 + s * 8) * scale, size1: (42 + s * 10) * scale,
+          r: 255, g: 220, b: 160, a0: 0.85, a1: 0, kind: "dot", blend: true,
+        });
+      }
     }
 
     function renderMap() {
@@ -9081,6 +9365,7 @@
         currentAttackHitSize = options.hitSize;
         currentAttackStage = options.stage;
         hitEnemiesThisSwing = new Set();
+        spawnSlashArc(playerX + 48, playerY + 58, angle, { radius: options.radius || 54 });   // 斬撃の弧 (踏み込みと同期)
 
         const startTime = performance.now();
 
@@ -11551,6 +11836,7 @@
         currentAttackHitSize = 34;
         currentAttackStage = 0;
         hitEnemiesThisSwing = new Set();
+        spawnSlashArc(playerX + 48, playerY + 58, angle, { radius: 54 });   // 斬撃の弧 (空振りでも一閃)
         const duration = 900;
         const startTime = performance.now();
         function anim(now) {
@@ -14886,6 +15172,7 @@
       flashAction(ally.el, "attack");
       startAllyAttackAnim(ally);
       triggerLungeAlly(ally, Math.sign(dfx));   // 攻撃エフェクト: 対象方向へ踏み込み
+      if ((ally.weaponRange || "melee") === "melee") spawnSlashArc(aCX, aCY, Math.atan2(dfy, dfx), { radius: 52 });   // 斬撃の弧 (近接のみ)
 
       const helpless = target.stunned > 0;
       const natD20 = d20();
@@ -17759,109 +18046,93 @@
     // 敵に「炎が燃え移った」演出: 命中位置から durationMs の間パーティクル連続生成
     // 命中時に呼ばれる、戦士のオーラとは独立 (敵だけが燃える)
     function spawnFireBurnOnEnemy(enemyIdx, durationMs = 1400) {
-      const host = enemyElements && enemyElements[enemyIdx];
-      if (!host) return;
-      // 連続生成 (60ms 間隔、確率で +1 個)
-      const interval = setInterval(() => {
-        if (!host.parentNode) {
-          clearInterval(interval);
-          return;
-        }
-        spawnFireParticle(host);
-        if (Math.random() < 0.4) spawnFireParticle(host);
-      }, 60);
-      setTimeout(() => clearInterval(interval), durationMs);
+      // Phase2: setInterval 廃止 → フレーム駆動の継続エミッタ (fxBurners) に登録。敵に追従して火の粉を放出。
+      if (!fxEnabled()) return;
+      if (!enemies || !enemies[enemyIdx]) return;
+      const until = performance.now() + durationMs;
+      for (const b of fxBurners) {   // 同一敵の二重登録は until 延長で吸収
+        if (b.enemyIdx === enemyIdx && b.kind === "fire") { b.until = Math.max(b.until, until); return; }
+      }
+      fxBurners.push({ enemyIdx, kind: "fire", until, acc: 0, rate: fxCompact() ? 90 : 55, crit: durationMs > 1500 });
+      ensureFxLoop();
     }
 
     // ── フレイムタング命中: 中央オレンジ閃光 + 敵から立ち上る短い炎柱 ──
     // 雷鳴の斧の core flash と同型構造、配色は炎系。続けて spawnFireBurnOnEnemy で粒子継続。
     function playFlameTongueImpactFx(wx, wy, enemyIdx, isCrit) {
-      // 中央フラッシュ (世界座標基準、敵中心に配置)
-      const core = document.createElement("div");
-      core.className = "fxFireImpactCore" + (isCrit ? " crit" : "");
-      const half = isCrit ? 42 : 30;
-      core.style.left = (wx - camX - half) + "px";
-      core.style.top  = (wy - camY - half) + "px";
-      document.body.appendChild(core);
-      setTimeout(() => core.remove(), isCrit ? 420 : 320);
-
-      // 炎柱: document.body に配置 + 敵の世界座標を毎フレーム参照
-      // (敵 DOM の子だと defeatEnemy で display:none → 即座に消えるため body 配置)
-      // 敵が生存中なら現在位置に追従、死亡後は最後の e.x/e.y がそのまま残るので位置維持
-      const e = enemies && enemies[enemyIdx];
-      if (e) {
-        const ds = e.def.displaySize || 64;
-        const pillar = document.createElement("div");
-        pillar.className = "fxFirePillar" + (isCrit ? " crit" : "");
-        const pillarW = isCrit ? 50 : 36;
-        const pillarH = isCrit ? 78 : 56;
-        document.body.appendChild(pillar);
-        const totalMs = isCrit ? 1160 : 880;
-        const startTime = performance.now();
-        function updatePillarPos(now) {
-          const elapsed = now - startTime;
-          if (elapsed >= totalMs) return;
-          // 敵中央 X、敵の足元 Y (bottom 6px 相当の余白を残す)
-          const cx = e.x + ds / 2;
-          const cy = e.y + ds - 6;
-          pillar.style.left = (cx - camX - pillarW / 2) + "px";
-          pillar.style.top  = (cy - camY - pillarH) + "px";
-          requestAnimationFrame(updatePillarPos);
-        }
-        requestAnimationFrame(updatePillarPos);
-        setTimeout(() => pillar.remove(), totalMs);
+      // Phase2: DOM コア/炎柱を撤去 → Canvas パーティクル + 周囲を照らす光源 1 発。
+      if (!fxEnabled()) return;
+      // 周囲を照らす光源は lighting canvas (addSpellLight) に委譲 (粒子の輝きとは役割分担で二重発光回避)
+      addSpellLight({ worldX: wx, worldY: wy, inner: isCrit ? 70 : 50, outer: isCrit ? 240 : 190,
+                      rgb: "255,170,70", duration: isCrit ? 360 : 300, fadeMs: isCrit ? 360 : 300 });
+      // 白熱コア (一瞬広がって消える)
+      emitParticle({ x: wx, y: wy, life: 170, size0: isCrit ? 34 : 24, size1: isCrit ? 52 : 38,
+                     r: 255, g: 235, b: 185, a0: 0.95, a1: 0, kind: "dot", blend: true });
+      // 着弾バースト: 明るい大粒を放射状に (やや上向き)
+      const n = isCrit ? 14 : 9;
+      for (let i = 0; i < n; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 40 + Math.random() * (isCrit ? 160 : 115);
+        emitParticle({
+          x: wx, y: wy,
+          vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 45,
+          ay: -30,
+          life: 320 + Math.random() * 260,
+          size0: (isCrit ? 16 : 12) + Math.random() * 6, size1: 2,
+          r: 255, g: 140 + (Math.random() * 70 | 0), b: 40,
+          a0: 1, a1: 0, kind: "dot", blend: true,
+        });
       }
     }
 
     // ── 雷鳴の斧: 衝撃地点に黄色の中心フラッシュのみ ──
     // (拡大リングは廃止。範囲表現は spawnGroundFx の 3x3 マス目ハイライトに任せる)
     function playThunderShockwaveFx(wx, wy) {
-      const core = document.createElement("div");
-      core.className = "fxThunderCore";
-      core.style.left = (wx - camX - 25) + "px";
-      core.style.top  = (wy - camY - 25) + "px";
-      document.body.appendChild(core);
-      setTimeout(() => core.remove(), 320);
+      if (!fxEnabled()) return;
+      addSpellLight({ worldX: wx, worldY: wy, inner: 50, outer: 200, rgb: "255,245,170", duration: 260, fadeMs: 260 });
+      emitParticle({ x: wx, y: wy, life: 150, size0: 30, size1: 46, r: 255, g: 250, b: 200, a0: 0.9, a1: 0, kind: "dot", blend: true });
+      for (let i = 0; i < 10; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 120 + Math.random() * 200;
+        emitParticle({ x: wx, y: wy, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+          life: 220 + Math.random() * 120, size0: 7 + Math.random() * 4, size1: 1,
+          r: 255, g: 245, b: 170, a0: 1, a1: 0, kind: "spark", blend: true });
+      }
     }
 
     // ── 雷鳴の斧: 余波を受けた敵の頭上に ⚡ を一瞬浮上 (saved=true は小さく薄く) ──
     function spawnThunderZapOnEnemy(enemyIdx, saved) {
-      const host = enemyElements && enemyElements[enemyIdx];
-      if (!host) return;
-      const z = document.createElement("div");
-      z.className = "fxThunderZap" + (saved ? " saved" : "");
-      z.textContent = "⚡";
-      host.appendChild(z);
-      setTimeout(() => z.remove(), 740);
+      if (!fxEnabled()) return;
+      const e = enemies && enemies[enemyIdx];
+      if (!e) return;
+      const ds = (e.def && e.def.displaySize) || 64;
+      const wx = e.x + ds / 2, wy = e.y + ds * 0.2;
+      const n = saved ? 4 : 8;
+      for (let i = 0; i < n; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 60 + Math.random() * 120;
+        emitParticle({ x: wx, y: wy, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 30,
+          life: 200 + Math.random() * 120, size0: (saved ? 4 : 6) + Math.random() * 3, size1: 1,
+          r: 255, g: 245, b: 180, a0: saved ? 0.6 : 0.95, a1: 0, kind: "spark", blend: true });
+      }
+      if (!saved) spawnBolt(wx, wy + 8, wx + (Math.random() - 0.5) * 40, wy - 48, 255, 245, 180, 300);
     }
 
     // ── 霜咬みの弓 (cold): 中央青白閃光 + 放射状の氷晶シャード散布 ──
     function playFrostbiteImpactFx(wx, wy, enemyIdx, isCrit) {
-      // 中央コア
-      const core = document.createElement("div");
-      core.className = "fxFrostCore" + (isCrit ? " crit" : "");
-      const half = isCrit ? 42 : 30;
-      core.style.left = (wx - camX - half) + "px";
-      core.style.top  = (wy - camY - half) + "px";
-      document.body.appendChild(core);
-      setTimeout(() => core.remove(), isCrit ? 460 : 360);
-      // 放射状の氷シャード (CRIT時多め)
-      const shardN = isCrit ? 6 : 4;
+      if (!fxEnabled()) return;
+      addSpellLight({ worldX: wx, worldY: wy, inner: isCrit ? 60 : 44, outer: isCrit ? 230 : 180,
+                      rgb: "170,220,255", duration: isCrit ? 420 : 340, fadeMs: isCrit ? 420 : 340 });
+      emitParticle({ x: wx, y: wy, life: 180, size0: isCrit ? 30 : 22, size1: isCrit ? 46 : 34,
+                     r: 210, g: 240, b: 255, a0: 0.9, a1: 0, kind: "dot", blend: true });
+      const shardN = isCrit ? 12 : 8;
       for (let i = 0; i < shardN; i++) {
-        const sh = document.createElement("div");
-        sh.className = "fxFrostShard";
         const angle = (Math.PI * 2 * i / shardN) + (Math.random() - 0.5) * 0.5;
-        const dist = 28 + Math.random() * 18 + (isCrit ? 8 : 0);
-        const tx = Math.cos(angle) * dist;
-        const ty = Math.sin(angle) * dist;
-        const rot = (Math.random() * 720 - 360) + "deg";
-        sh.style.left = (wx - camX - 7) + "px";
-        sh.style.top  = (wy - camY - 7) + "px";
-        sh.style.setProperty("--tx", tx + "px");
-        sh.style.setProperty("--ty", ty + "px");
-        sh.style.setProperty("--rot", rot);
-        document.body.appendChild(sh);
-        setTimeout(() => sh.remove(), 650);
+        const spd = 120 + Math.random() * 120 + (isCrit ? 40 : 0);
+        emitParticle({ x: wx, y: wy, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd,
+          life: 420 + Math.random() * 180, size0: (isCrit ? 9 : 7) + Math.random() * 3, size1: 1.5,
+          r: 200, g: 235, b: 255, a0: 0.95, a1: 0, kind: "flake", blend: true,
+          rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 10 });
       }
     }
     // 凍結残留: 敵から落ちる氷の粒
@@ -17879,73 +18150,57 @@
       setTimeout(() => p.remove(), 800);
     }
     function spawnFrostOnEnemy(enemyIdx, durationMs = 1200) {
-      const host = enemyElements && enemyElements[enemyIdx];
-      if (!host) return;
-      const interval = setInterval(() => {
-        if (!host.parentNode) { clearInterval(interval); return; }
-        spawnFrostFlake(host);
-        if (Math.random() < 0.3) spawnFrostFlake(host);
-      }, 80);
-      setTimeout(() => clearInterval(interval), durationMs);
+      if (!fxEnabled()) return;
+      if (!enemies || !enemies[enemyIdx]) return;
+      const until = performance.now() + durationMs;
+      for (const b of fxBurners) { if (b.enemyIdx === enemyIdx && b.kind === "frost") { b.until = Math.max(b.until, until); return; } }
+      fxBurners.push({ enemyIdx, kind: "frost", until, acc: 0, rate: fxCompact() ? 110 : 75, crit: false });
+      ensureFxLoop();
     }
 
     // ── 嵐のスタッフ等 (lightning): 中央黄色閃光 + 4方向ジグザグ稲光 ──
     // 雷鳴の斧は shockwave 専用 fx (playThunderShockwaveFx) を使うため、こちらの基本属性 fx は呼ばない (重複回避)
     function playLightningImpactFx(wx, wy, isCrit) {
-      const core = document.createElement("div");
-      core.className = "fxLightningCore" + (isCrit ? " crit" : "");
-      const half = isCrit ? 40 : 28;
-      core.style.left = (wx - camX - half) + "px";
-      core.style.top  = (wy - camY - half) + "px";
-      document.body.appendChild(core);
-      setTimeout(() => core.remove(), isCrit ? 360 : 280);
-      // 4方向ジグザグ稲光
-      const length = isCrit ? 70 : 56;
+      if (!fxEnabled()) return;
+      addSpellLight({ worldX: wx, worldY: wy, inner: isCrit ? 60 : 44, outer: isCrit ? 220 : 170,
+                      rgb: "255,245,170", duration: isCrit ? 340 : 280, fadeMs: isCrit ? 340 : 280 });
+      emitParticle({ x: wx, y: wy, life: 150, size0: isCrit ? 30 : 22, size1: isCrit ? 44 : 32,
+                     r: 255, g: 250, b: 200, a0: 0.95, a1: 0, kind: "dot", blend: true });
+      const length = isCrit ? 80 : 62;
       for (let i = 0; i < 4; i++) {
-        const bolt = document.createElement("div");
-        bolt.className = "fxLightningBolt";
-        const ang = (i * 90 + (Math.random() * 30 - 15)) + "deg";
-        bolt.style.width  = "5px";
-        bolt.style.height = length + "px";
-        bolt.style.left = (wx - camX - 2.5) + "px";
-        bolt.style.top  = (wy - camY) + "px";
-        bolt.style.setProperty("--ang", ang);
-        document.body.appendChild(bolt);
-        setTimeout(() => bolt.remove(), 320);
+        const ang = (i * Math.PI / 2) + (Math.random() * 0.5 - 0.25);
+        spawnBolt(wx, wy, wx + Math.cos(ang) * length, wy + Math.sin(ang) * length, 255, 245, 180, isCrit ? 340 : 280);
+      }
+      for (let i = 0; i < (isCrit ? 8 : 5); i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 180 + Math.random() * 120;
+        emitParticle({ x: wx, y: wy, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+          life: 200 + Math.random() * 80, size0: 6, size1: 1, r: 255, g: 245, b: 190, a0: 1, a1: 0, kind: "spark", blend: true });
       }
     }
 
     // ── 聖 (holy、将来武器用): 金色バースト + 上から降りる光柱 + 上昇光粒 ──
     function playHolyImpactFx(wx, wy, enemyIdx, isCrit) {
-      const core = document.createElement("div");
-      core.className = "fxHolyCore" + (isCrit ? " crit" : "");
-      const half = isCrit ? 44 : 30;
-      core.style.left = (wx - camX - half) + "px";
-      core.style.top  = (wy - camY - half) + "px";
-      document.body.appendChild(core);
-      setTimeout(() => core.remove(), isCrit ? 640 : 510);
-      // 上から降りる光柱 (敵に追従)
+      if (!fxEnabled()) return;
+      addSpellLight({ worldX: wx, worldY: wy, inner: isCrit ? 70 : 50, outer: isCrit ? 250 : 200,
+                      rgb: "255,240,180", duration: isCrit ? 640 : 510, fadeMs: isCrit ? 640 : 510 });
+      emitParticle({ x: wx, y: wy, life: 200, size0: isCrit ? 32 : 24, size1: isCrit ? 50 : 38,
+                     r: 255, g: 245, b: 200, a0: 0.95, a1: 0, kind: "dot", blend: true });
+      // 上から降りる光柱 (敵中心、縦の光条)
       const e = enemies && enemies[enemyIdx];
       if (e) {
-        const ds = e.def.displaySize || 64;
-        const beam = document.createElement("div");
-        beam.className = "fxHolyBeam" + (isCrit ? " crit" : "");
-        const beamW = isCrit ? 38 : 28;
-        const beamH = isCrit ? 130 : 100;
-        document.body.appendChild(beam);
-        const totalMs = isCrit ? 920 : 720;
-        const startTime = performance.now();
-        function updateBeamPos(now) {
-          const elapsed = now - startTime;
-          if (elapsed >= totalMs) return;
-          const cx = e.x + ds / 2;
-          const cy = e.y + ds - 6;
-          beam.style.left = (cx - camX - beamW / 2) + "px";
-          beam.style.top  = (cy - camY - beamH) + "px";
-          requestAnimationFrame(updateBeamPos);
-        }
-        requestAnimationFrame(updateBeamPos);
-        setTimeout(() => beam.remove(), totalMs);
+        const ds = (e.def && e.def.displaySize) || 64;
+        emitParticle({ x: e.x + ds / 2, y: e.y + ds * 0.5, life: isCrit ? 620 : 480,
+          size0: isCrit ? 64 : 50, size1: isCrit ? 74 : 58, r: 255, g: 240, b: 180,
+          a0: 0.8, a1: 0, kind: "streak", blend: true });
+      }
+      // 上昇する金色光粒
+      for (let i = 0; i < (isCrit ? 10 : 6); i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 30 + Math.random() * 70;
+        emitParticle({ x: wx, y: wy, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 40, ay: -50,
+          life: 600 + Math.random() * 250, size0: 8, size1: 1.5, r: 255, g: 240, b: 180,
+          a0: 0.95, a1: 0, kind: "dot", blend: true });
       }
     }
     function spawnHolyMote(host) {
@@ -17962,14 +18217,12 @@
       setTimeout(() => p.remove(), 900);
     }
     function spawnHolyAuraOnEnemy(enemyIdx, durationMs = 1200) {
-      const host = enemyElements && enemyElements[enemyIdx];
-      if (!host) return;
-      const interval = setInterval(() => {
-        if (!host.parentNode) { clearInterval(interval); return; }
-        spawnHolyMote(host);
-        if (Math.random() < 0.3) spawnHolyMote(host);
-      }, 90);
-      setTimeout(() => clearInterval(interval), durationMs);
+      if (!fxEnabled()) return;
+      if (!enemies || !enemies[enemyIdx]) return;
+      const until = performance.now() + durationMs;
+      for (const b of fxBurners) { if (b.enemyIdx === enemyIdx && b.kind === "holy") { b.until = Math.max(b.until, until); return; } }
+      fxBurners.push({ enemyIdx, kind: "holy", until, acc: 0, rate: fxCompact() ? 120 : 80, crit: false });
+      ensureFxLoop();
     }
 
     // ── 武器属性エフェクト (レア武器命中時) ──
@@ -18714,6 +18967,20 @@
           showDMMessage("「赤竜が大きく息を吸い込む。喉の奥で炎が渦巻き、業火が洞窟全体を舐めようとしている。」", 3600);
         }
       }
+      // 溜めの吸い込み演出: 口元へ火の粉が収束 (Canvas)
+      if (fxEnabled()) {
+        const mWX0 = enemy.x + def.displaySize / 2, mWY0 = enemy.y + def.displaySize * 0.32;
+        for (let i = 0; i < 18; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const r0 = 60 + Math.random() * 100;
+          const sx = mWX0 + Math.cos(ang) * r0, sy = mWY0 + Math.sin(ang) * r0;
+          emitParticle({
+            x: sx, y: sy, vx: (mWX0 - sx) * 2.6, vy: (mWY0 - sy) * 2.6,
+            life: 380, size0: 4 + Math.random() * 5, size1: 10,
+            r: 255, g: 160, b: 60, a0: 0.0, a1: 0.9, kind: "dot", blend: true,
+          });
+        }
+      }
       await sleepMs(450);
 
       // スペルターニングリング: 反射成功なら PT 被弾 (飛翔/着弾/セーヴ解決) を丸ごとスキップして術者へ跳ね返す
@@ -18730,6 +18997,13 @@
       const mouthWY = enemy.y + def.displaySize * 0.32;      // 頭やや上を口元に見立てる
       const blastCWX = (tx0 + blast / 2) * TILE_SIZE;
       const blastCWY = (ty0 + blast / 2) * TILE_SIZE;
+      // 見せ場: 口元から着弾点へ向けて大規模炎コーンを噴射 (単頭の赤竜=ファラクサスは規模 1.4x)
+      const dcx = blastCWX - mouthWX, dcy = blastCWY - mouthWY;
+      spawnDragonBreathCone(mouthWX, mouthWY, dcx, dcy, {
+        scale: def.multiHead ? 1.1 : 1.4,
+        reach: Math.max(2.4, Math.hypot(dcx, dcy) / TILE_SIZE),
+      });
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);
       await spawnFireballProjectile(mouthWX, mouthWY, blastCWX, blastCWY, 420);
       spawnFireballExplosion(blastCWX, blastCWY);
       spawnGroundFx(tx0, ty0, blast, blast, "fireball-scorch", 1500);
