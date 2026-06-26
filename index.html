@@ -4415,14 +4415,14 @@
       // ── 最終ボス: レッドドラゴン「ファラクサス」 (Sce6 dragon-lair、プラン編の黒幕) ──
       // garrock をミラー + 竜の威容 (恐怖オーラ DC18 / 全体火炎ブレス / 2回攻撃 / 配下総動員)。
       // 恐怖(partyWillSave)・激怒・ボスBGM・カエルム祝福免疫は既存フックで自動発火。
-      // 専用192pxスプライト (厚塗りセミリアル荘厳・6F walk+attack)。displaySize=720 で通常の約4倍、最終ボスの圧倒的威容。
+      // 専用192pxスプライト (厚塗りセミリアル荘厳・6F walk+attack)。displaySize=360 (2026-06-27: 720→半分に縮小。元は大きすぎた)。
       pharaxus: {
         name: "レッドドラゴン「ファラクサス」",
         flavor: "復興に乗じてフランを再び灰に帰さんとする赤竜。プラン編の黒幕",
         badge: "🐉",
         sprite: "assets/pharaxus_anim.png?v=1",
         sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
-        displaySize: 720,
+        displaySize: 360,             // 2026-06-27: 720→360 に縮小(大きすぎたため半分に)。scale 3.75→1.875倍
         hp: 180, speed: 0.66,
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -4781,7 +4781,7 @@
       //   contactDamage 系(rat 流用)は attack 行が無いので hasAttackAnim を付けない。
       // ════════════════════════════════════════════════════════════
       ghostFlame: {            // 沼の鬼火 (Will-o'-Wisp) — 漂う霊体: 高ACで命中しにくい + 低HP + 冷光の長射程(矢演出なし)
-        name: "沼の鬼火",
+        name: "Will-o'-Wisp",   // 2026-06-27: 表示名を英語化(沼の鬼火→Will-o'-Wisp)
         flavor: "戦没者の未練が青い灯となって彷徨う。掴もうとすれば、ふっと掻き消える",
         badge: "🔥",
         sprite: "assets/ghostFlame_anim.png?v=1",   // 専用スプライト (2026-06-23 ChatGPT生成→浮遊体ゆえ中心揃え抽出)
@@ -4799,7 +4799,7 @@
         xp: 220,
       },
       plagueFrog: {            // 瘟疫蛙 (Giant Frog) — 群れで来る低HPの両生類。数で圧す
-        name: "瘟疫蛙",
+        name: "Giant Frog",     // 2026-06-27: 表示名を英語化(瘟疫蛙→Giant Frog)
         flavor: "排水の崩れた廃墟に湧く、毒気を帯びた大蛙。一匹ずつは脆いが、群れる",
         badge: "🐸",
         sprite: "assets/plagueFrog_anim.png?v=1", // 専用スプライト (2026-06-23 ChatGPT生成→地を這う四つ足ゆえ足元揃え抽出)
@@ -4830,7 +4830,7 @@
         xp: 260,
       },
       direBear: {              // 怒れる巨熊 (Dire/Brown Bear) — Phase2 目玉獣ボス。突進 + HP半減で激昂(召喚なし)
-        name: "怒れる巨熊",
+        name: "Dire Bear",      // 2026-06-27: 表示名を英語化(怒れる巨熊→Dire Bear)
         flavor: "戦後の混乱に乗じて人里に下りた巨大な熊。手負いになるほど狂暴に吼える",
         badge: "🐻",
         sprite: "assets/direBear_anim.png?v=1",   // 専用スプライト (2026-06-22 ChatGPT生成→192px大型ボス規格で抽出)
@@ -9766,9 +9766,9 @@
     // ── ピクセル単位 重なり解消パス ───────────────────────────────
     // タイル予約(getUnitOccupiedTiles)をすり抜けた「見た目の重なり」を毎フレーム軽く解消する。
     // 仲間が標的に群がって殴るとき等にスプライトコアが重なるのを防ぐ。攻撃成立(中心間<meleeRange=120)
-    // を壊さないよう半径は十分小さく(係数0.30)。slide中/inactive/hitStun/保護NPC は除外。
+    // を壊さないよう半径は十分小さく(係数0.40)。slide中/inactive/hitStun/保護NPC は除外。
     // プレイヤー・ボスは実質不動(質量大)。探索・戦闘(encounterActive)の両方で毎フレーム走る。
-    const OVERLAP_RADIUS_K   = 0.30;   // 衝突半径 = displaySize * K
+    const OVERLAP_RADIUS_K   = 0.40;   // 衝突半径 = displaySize * K (2026-06-27: 0.30→0.40 近接攻撃時のスプライト重なり防止)
     const OVERLAP_MAX_PUSH   = 6;      // 1フレーム1ユニットあたり最大押し出し px
     const OVERLAP_HEAVY_MASS = 1e6;    // プレイヤー/ボスを実質不動に
     const OVERLAP_BOSS_SIZE  = 200;    // displaySize がこれ以上なら不動扱い(240/720 捕捉, 96 は通常)
