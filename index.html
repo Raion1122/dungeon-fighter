@@ -13808,6 +13808,22 @@
       }
     }
 
+    // ── イベントアイテム（信仰上必要なアイテム）レジストリ ────────────────
+    // 項目3（6.27版修正指示書）: 「探索発見ルート（ロール判定を伴わず接近で開く宝箱）」は、
+    //   イベントアイテムを内包する場合のみ出現させる。イベントアイテムの中身そのものの定義・
+    //   効果実装は本項目スコープ外（別機会に詰める）。現段階では未定義 = 空配列。
+    //   後でここにシナリオ別の信仰アイテムを足せば、探索発見ルートの宝箱が自然に出現する設計。
+    const EVENT_ITEMS = [];   // 例: { id, name, scenarioId, flavor }
+    // 現在のシナリオに対応するイベントアイテムを返す（未定義なら null）。
+    function getEventItemForScenario(sid) {
+      return EVENT_ITEMS.find(it => it.scenarioId === sid) || null;
+    }
+    // 宝箱がイベントアイテムを内包するか（暫定: loot.kind === "eventItem" のみ true。
+    //   EVENT_ITEMS が空の現段階では、そもそも eventItem 宝箱が生成されないため常に false）。
+    function chestHasEventItem(chest) {
+      return !!(chest && chest.loot && chest.loot.kind === "eventItem");
+    }
+
     function spawnRoomChests() {
       // 玄室候補: 5×5以上 & 非スタート(idx=0) & 非ボス部屋(末尾)
       const candidates = [];
@@ -13908,6 +13924,49 @@
           createRoomChestDom(keyChest, roomChests.length - 1);
         }
       }
+    }
+
+    // 探索発見ルートの宝箱: ロール判定（捜査判定）を伴わず、探索中に接近で開封する宝箱。
+    //   項目3（6.27版修正指示書）: この系統はイベントアイテム（信仰上必要なもの）を内包する
+    //   場合のみ出現させる（通常戦利品は探索発見ルートからは出さない）。ロール判定ルート
+    //   （spawnRoomChests / spawnHiddenChests / 捜査判定）には手を入れない。ドラゴン財宝の
+    //   囮ダミー（spawnDragonHoard）はミミック演出のための別系統なので対象外（現状維持）。
+    //   イベントアイテム未定義の現段階では早期 return で 0 個（仕様通り）。後で EVENT_ITEMS を
+    //   定義すれば、ここで hidden:false（接近開封）の宝箱が自然に出現する。
+    function spawnExplorationChests() {
+      const eventItem = getEventItemForScenario(scenarioId);
+      if (!eventItem) return;   // イベントアイテムが無ければ探索発見ルートの宝箱は出さない（0個で許容）
+      // 配置: スタート/ボス部屋を除外した自由床タイルから1個。既存宝箱/罠と非重複。
+      const bossIdx = ROOMS.length - 1;
+      const excludeRooms = new Set([0, bossIdx]);
+      const candidates = [];
+      for (let r = 0; r < MAP_H; r++) {
+        for (let c = 0; c < MAP_W; c++) {
+          if (mapData[r][c] !== 0) continue;
+          if (isTileWall(c, r)) continue;
+          let inExcluded = false;
+          for (const i of excludeRooms) {
+            const [r1, c1, r2, c2] = ROOMS[i];
+            if (r >= r1 && r <= r2 && c >= c1 && c <= c2) { inExcluded = true; break; }
+          }
+          if (inExcluded) continue;
+          const occupied = roomChests.some(ch => ch.tx === c && ch.ty === r)
+            || (typeof traps !== "undefined" && traps.some(t => t.tx === c && t.ty === r));
+          if (occupied) continue;
+          candidates.push([c, r]);
+        }
+      }
+      if (candidates.length === 0) return;
+      const [tx, ty] = candidates[Math.floor(Math.random() * candidates.length)];
+      // hidden:false = ロール判定を伴わず、接近で開封できる「探索発見ルート」。
+      const chest = {
+        tx, ty, opened: false, found: false,
+        hidden: false, locked: false,
+        loot: { kind: "eventItem", item: eventItem },
+        el: null,
+      };
+      roomChests.push(chest);
+      createRoomChestDom(chest, roomChests.length - 1);
     }
 
     function createRoomChestDom(chest, idx) {
@@ -14045,6 +14104,15 @@
         updateInfo("宝箱の中身: 盗賊の鍵束 — 何かを開けられそうだ");
         showBanner("🗝 盗賊の鍵束を手に入れた!", 1800);
         showDMMessage("古い革の束に錆びた鉄鍵が数本。盗賊たちが何か危険なものを閉じ込めているのかもしれない…", 2800);
+      } else if (loot.kind === "eventItem") {
+        // 項目3（6.27版修正指示書）: 探索発見ルートの宝箱が内包するイベントアイテム
+        //   （信仰上必要なもの）。中身の具体的な効果・実装は本項目スコープ外（別機会）。
+        //   ここは end-to-end 配線のためのプレースホルダ。EVENT_ITEMS が空の現段階では
+        //   eventItem 宝箱自体が生成されない（spawnExplorationChests が早期 return）ため到達しない。
+        const it = loot.item || {};
+        updateInfo(`宝箱の中身: ${it.name || "イベントアイテム"} — 信仰上必要なもの`);
+        showBanner(`✨ ${it.name || "イベントアイテム"} を手に入れた!`, 1800);
+        if (it.flavor) showDMMessage(it.flavor, 2800);
       } else if (loot.kind === "scroll") {
         // スクロール (呪文学習アイテム)。rarity 重みで1種抽選 → 在庫へ (酒場で「読む」と永続習得)
         const sid = (typeof pickScrollId === "function") ? pickScrollId({ common: 55, uncommon: 35, rare: 10 }) : null;
@@ -20204,6 +20272,8 @@
     spawnTraps();
     // 隠された宝箱を初期化 (知覚チェックで発見)
     spawnHiddenChests();
+    // 探索発見ルートの宝箱を初期化 (項目3: イベントアイテム入りの時のみ出現・ロール判定なし接近開封)
+    spawnExplorationChests();
     // 中ボス専用 BGM フラグをシナリオ開始時にリセット (シナリオ跨ぎの持ち越し防止)
     window.__inMidBoss = false;
     // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
