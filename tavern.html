@@ -1454,10 +1454,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>エルフがヘイストを習得可能に</b> — 自分を加速させ、戦闘中に1ターンで2マス進めるようになる(6ターン持続)。</li>
         <li><b>アイスストームを習得可能に</b> — 魔法使いの新呪文。広範囲に氷塊が降り注いで冷気ダメージを与え、当たった敵の動きを3ターン鈍らせる。</li>
         <li><b>魔法詠唱に溜め演出を追加</b> — 術者が魔力のオーラをまとい、頭上に呪文名が浮かぶようになった。</li>
         <li><b>戦闘表示の改善</b> — 巨大すぎたドラゴンを半分のサイズに縮小。近接戦で味方と敵が重なって見える問題を解消。一部モンスター名を英語表記(Will-o'-Wisp / Giant Frog / Dire Bear)に統一。</li>
-        <li><b>技能判定が自動でダイスを振るように</b> — 知覚・捜査・開錠の判定が、少し待つとタップ無しで自動進行(すぐ振りたい時はタップでもOK)。</li>
       </ul>
     </div>
     <script>
@@ -2346,6 +2346,8 @@
     { id: "hunters-mark",     name: "ハンターズ・マーク", category: "バフ", range: "long", mpCost: 2, levelReq: 1, flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6" },
     { id: "lightning-arrow",  name: "ライトニング・アロー", category: "攻撃", range: "long", mpCost: 6, levelReq: 3, flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減)" },
     { id: "cordon-of-arrows", name: "コードン・オブ・アロー", category: "攻撃", range: "medium", mpCost: 3, levelReq: 2, flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6" },
+    // ── STEP3: ヘイスト (自己バフ。戦闘移動 +1マス=計2マスを6T。STEP4 で 2回攻撃も付与予定) ──
+    { id: "haste", name: "ヘイスト", category: "バフ", range: "self", mpCost: 5, levelReq: 3, flavor: "自己強化。戦闘移動+1マス(計2マス)を6T" },
   ];
   // 盗賊スキル (index.html ROGUE_SKILLS と同期)
   const ROGUE_SKILLS_UI = [
@@ -2570,6 +2572,7 @@
     "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
     "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
     "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
+    "grimoire-haste":            { name: "森の書・ヘイスト",           spellId: "haste",            classKey: "elf", rarity: "uncommon" },
   };
   // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (index.html DEFAULT_KNOWN と同期)。
   const DEFAULT_KNOWN_TV = {

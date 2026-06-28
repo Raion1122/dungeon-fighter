@@ -6483,6 +6483,7 @@
       "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
       "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
       "grimoire-conjure-volley":   { name: "森の書・コンジュアヴォリー", spellId: "conjure-volley",   classKey: "elf", rarity: "rare"     },
+      "grimoire-haste":            { name: "森の書・ヘイスト",           spellId: "haste",            classKey: "elf", rarity: "uncommon" },
     };
     // 初期習得(常に known)。elf は index/tavern 両 defaults の和集合 (どちらの起動経路でも初期呪文がロックされないように)。
     const DEFAULT_KNOWN = {
@@ -6746,6 +6747,7 @@
         buffs: {
           atkBonusRemaining: 0, atkBonusAmount: 0,
           blessMoveRemaining: 0,                   // ブレス: 効果中は前進が 1→2 タイル
+          hastedRemaining: 0,                      // ヘイスト (エルフ): 効果中は前進 +1マス (計2)。STEP4 で 2回攻撃も付与予定
           dmgReductionRemaining: 0, dmgReductionDice: null,
           dmgReductionFlat: 0, dmgReductionFlatRemaining: 0,  // 岩肌の皮膚 (固定 -3 など)
           statusImmunityCharges: 0,                            // 鋼の意志 (状態異常を消費式で無効化)
@@ -11335,6 +11337,7 @@
           else if (skillId === "hunters-mark")   await allyHuntersMark(actor, targetIdx);
           else if (skillId === "lightning-arrow") await allyLightningArrow(actor, targetIdx);
           else if (skillId === "cordon-of-arrows") await allyCordonOfArrows(actor, targetIdx);
+          else if (skillId === "haste")           await allyHaste(actor);   // STEP3
         }
         // 盗賊 (Step a-3 第4弾) ─ shadow-step は sneak 条件 (helpless or flanking) を要する
         else if (leaderClassKey === "rogue") {
@@ -11526,9 +11529,26 @@
       return path[0];
     }
 
-    // プレイヤーを前進 (対象に向かって)。ブレス中は 2 タイル進む (移動速度UP)
+    // 戦闘移動の上限タイル数を一元管理。base=1 / ヘイスト・ブレスで +1 / 鈍足で -1。
+    // unit: "player"(=リーダー) | ally オブジェクト | enemy オブジェクト
+    // (STEP3) 旧来 playerAdvanceOneTile/allyAdvanceTowardPoint の blessMoveRemaining 判定と
+    //         enemyAdvanceOneTile の __moveBlockedThisTurn 判定をここへ統合。
+    function getMoveLimit(unit) {
+      let limit = 1;
+      const buffs = (unit === "player" || (unit && unit.isLeader))
+        ? (typeof playerBuffs !== "undefined" ? playerBuffs : null)
+        : (unit && unit.buffs);
+      if (buffs && (buffs.hastedRemaining > 0 || buffs.blessMoveRemaining > 0)) limit += 1;  // ヘイスト/ブレス: +1 (非加算=最大2)
+      if (unit && unit.__moveBlockedThisTurn) limit -= 1;   // STEP2 鈍足 (敵アイスストーム) を統合
+      return Math.max(0, limit);
+    }
+
+    // プレイヤーを前進 (対象に向かって)。ヘイスト/ブレス中は 2 タイル進む (移動速度UP)
     async function playerAdvanceOneTile(targetWX, targetWY) {
-      const steps = (typeof playerBuffs !== "undefined" && playerBuffs.blessMoveRemaining > 0) ? 2 : 1;
+      const steps = getMoveLimit("player");
+      const moveTag = (steps >= 2)
+        ? ((typeof playerBuffs !== "undefined" && playerBuffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
+        : "1タイル";
       for (let s = 0; s < steps; s++) {
         const pTX = Math.floor((playerX + 48) / TILE_SIZE);
         const pTY = Math.floor((playerY + 58) / TILE_SIZE);
@@ -11549,7 +11569,7 @@
         if (next.tx < pTX) facing = "left";
         else if (next.tx > pTX) facing = "right";
 
-        if (s === 0) showRollAtPlayer(`<span class="label">ADVANCE</span>前進 ${steps === 2 ? "2タイル(BLESS)" : "1タイル"}`, "init");
+        if (s === 0) showRollAtPlayer(`<span class="label">ADVANCE</span>前進 ${moveTag}`, "init");
         flashAction(player, "move");
 
         const fromX = playerX, fromY = playerY;
@@ -11573,8 +11593,8 @@
       if (targetCY == null) targetCY = playerY + 58;
       const enemy = enemies[idx];
       const def = enemy.def;
-      // 鈍足 (アイスストーム): このターンは移動を封じる (攻撃は可能)
-      if (enemy.__moveBlockedThisTurn) {
+      // 鈍足 (アイスストーム): getMoveLimit が 0 を返す = このターンは移動を封じる (攻撃は可能)
+      if (getMoveLimit(enemy) <= 0) {
         if (!silent) showRollAtEnemy(idx, `<span class="label">SLOWED</span>動きが鈍い`, "miss");
         await sleepMs(silent ? 80 : 450);
         return;
@@ -12736,6 +12756,13 @@
         mpCost: 3, levelReq: 2,
         flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6 (MP 3)",
       },
+      // ── STEP3: ヘイスト (自己バフ。戦闘移動 +1マス=計2マスを6T。STEP4 で 2回攻撃も付与予定) ──
+      "haste": {
+        name: "ヘイスト", category: "バフ", target: "self",
+        moveBonus: 1, duration: 6, element: "arcane",
+        mpCost: 5, levelReq: 3,
+        flavor: "自己強化。戦闘移動 +1マス(計2マス)を6T。将来2回攻撃も付与予定 (MP 5)",
+      },
     };
 
     // 盗賊スキル (Phase 2 第三段)
@@ -13148,6 +13175,7 @@
       atkBonusRemaining: 0,
       atkBonusAmount: 0,
       blessMoveRemaining: 0,   // ブレス: 効果中は戦闘の前進が 1→2 タイル
+      hastedRemaining: 0,      // ヘイスト (エルフ): 効果中は前進 +1マス (計2)。STEP4 で 2回攻撃も付与予定
       dmgReductionRemaining: 0,
       dmgReductionDice: null,
       dmgReductionFlat: 0,
@@ -13171,6 +13199,7 @@
       playerBuffs.atkBonusRemaining = 0;
       playerBuffs.atkBonusAmount = 0;
       playerBuffs.blessMoveRemaining = 0;
+      playerBuffs.hastedRemaining = 0;
       playerBuffs.dmgReductionRemaining = 0;
       playerBuffs.dmgReductionDice = null;
       playerBuffs.dmgReductionFlat = 0;
@@ -13197,6 +13226,7 @@
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
       if (playerBuffs.blessMoveRemaining > 0) playerBuffs.blessMoveRemaining--;
+      if (playerBuffs.hastedRemaining > 0) playerBuffs.hastedRemaining--;
       if (playerBuffs.dmgReductionRemaining > 0) {
         playerBuffs.dmgReductionRemaining--;
         if (playerBuffs.dmgReductionRemaining <= 0) playerBuffs.dmgReductionDice = null;
@@ -15195,7 +15225,10 @@
       const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : 380;
       const postSleep = (opts.postSleep != null) ? opts.postSleep : 120;
       const silent    = !!opts.silent;  // ログ/ロール表示を抑制 (探索中向け)
-      const steps = (ally.buffs && ally.buffs.blessMoveRemaining > 0) ? 2 : 1;  // ブレス中は 2 タイル前進
+      const steps = getMoveLimit(ally);  // ヘイスト/ブレス中は 2 タイル前進
+      const moveTag = (steps >= 2)
+        ? ((ally.buffs && ally.buffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
+        : "1タイル";
       for (let s = 0; s < steps; s++) {
         const aCX = ally.x + ally.def.displaySize / 2;
         const aCY = ally.y + ally.def.displaySize / 2;
@@ -15217,7 +15250,7 @@
         if (next.tx < aTX) ally.facing = "left";
         else if (next.tx > aTX) ally.facing = "right";
 
-        if (s === 0 && !silent) showRollAtAlly(ally, `<span class="label">ADVANCE</span>前進 ${steps === 2 ? "2タイル(BLESS)" : "1タイル"}`, "init");
+        if (s === 0 && !silent) showRollAtAlly(ally, `<span class="label">ADVANCE</span>前進 ${moveTag}`, "init");
         flashAction(ally.el, "move");
         const fromX = ally.x, fromY = ally.y;
         const toX = next.tx * TILE_SIZE + TILE_SIZE / 2 - ally.def.displaySize / 2;
@@ -17041,6 +17074,7 @@
       // バフ tick
       if (ally.buffs.atkBonusRemaining > 0) ally.buffs.atkBonusRemaining--;
       if (ally.buffs.blessMoveRemaining > 0) ally.buffs.blessMoveRemaining--;
+      if (ally.buffs.hastedRemaining > 0) ally.buffs.hastedRemaining--;
       if (ally.buffs.strikingRemaining > 0) ally.buffs.strikingRemaining--;
       if (ally.buffs.dmgReductionRemaining > 0) {
         ally.buffs.dmgReductionRemaining--;
@@ -17651,6 +17685,35 @@
       await sleepMs(700);
     }
 
+    // ─── STEP3: ヘイスト (エルフ自己バフ) ───
+    // 戦闘移動 +1マス(計2マス)を 6T。リーダー/NPC 両対応 (actor.buffs===playerBuffs 参照, allyArcaneShield と同型)。
+    // 効果は getMoveLimit() が hastedRemaining を見て反映。STEP4 で 2回攻撃 (getAttackCount) を追加予定。
+    async function allyHaste(ally) {
+      const skill = ELF_SKILLS["haste"];
+      // self なので射程チェック不要。MP / 呪文スロット消費
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      showRollAtAlly(ally,
+        `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
+        "skill");
+      startAllyAttackAnim(ally);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1700 });
+
+      const dur = (skill.duration || 6) + 1;  // 当ターン tick 分を見越して +1
+      ally.buffs.hastedRemaining = Math.max(ally.buffs.hastedRemaining || 0, dur);
+      spawnCureFx(ally.x + ally.def.displaySize / 2, ally.y + ally.def.displaySize / 2);  // 加速の発光 (流用)
+
+      showBuffPop(
+        `<span class="label">HASTE</span>` +
+        `${ally.def.name}: 移動 <span class="big">+1マス</span> (計2マス・${skill.duration || 6}T)`
+      );
+      updateInfo(`${ally.def.name}: ヘイスト! 戦闘移動 +1マス (計2マス) を ${skill.duration || 6}T`);
+      await sleepMs(700);
+    }
+
     // ─── ヘイル・オブ・ソーン (Phase 2-V): 着弾点周囲 3x3 に棘の雨 1d10 (DEX セーヴ半減) ───
     async function allyHailOfThorns(ally, enemyIdx) {
       const skill = ELF_SKILLS["hail-of-thorns"];
@@ -18182,6 +18245,15 @@
           await allyAimedShot(ally, tgtIdx);
           return true;
         }
+      }
+
+      // 4. ヘイスト (STEP3・低優先 自己バフ): 未ヘイスト & スロット残あり & 敵存命時に 30%
+      //    現状は移動 +1マスのみ (STEP4 で 2回攻撃が乗れば AI 価値が上がる)。
+      if (ally.equippedSkills.includes("haste") && hasSpellSlot(ally, "haste")
+          && (ally.buffs.hastedRemaining || 0) <= 0 && threat.aliveEnemies.length >= 1
+          && Math.random() < 0.3) {
+        await allyHaste(ally);
+        return true;
       }
 
       return false;  // 通常弓攻撃にフォールバック
