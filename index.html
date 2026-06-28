@@ -11543,6 +11543,17 @@
       return Math.max(0, limit);
     }
 
+    // STEP4: 1ターンの通常攻撃回数を集約 (getMoveLimit と対称)。
+    // ヘイスト中は +1 (計2回)。スキル系攻撃には適用しない (呼び出し側=通常攻撃のみループ)。
+    function getAttackCount(unit) {
+      let count = 1;
+      const buffs = (unit === "player" || (unit && unit.isLeader))
+        ? (typeof playerBuffs !== "undefined" ? playerBuffs : null)
+        : (unit && unit.buffs);
+      if (buffs && buffs.hastedRemaining > 0) count += 1;  // ヘイスト: +1 (計2回)。ブレス/鈍足は攻撃回数に非影響
+      return Math.max(1, count);
+    }
+
     // プレイヤーを前進 (対象に向かって)。ヘイスト/ブレス中は 2 タイル進む (移動速度UP)
     async function playerAdvanceOneTile(targetWX, targetWY) {
       const steps = getMoveLimit("player");
@@ -17114,14 +17125,21 @@
         if (await rogueAI(ally)) return;
       }
 
-      // 通常攻撃: 最寄りの交戦敵を狙う
-      const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-      if (tgtIdx < 0) {
-        showRollAtAlly(ally, `<span class="label">待機</span>敵なし`, "miss");
-        await sleepMs(600);
-        return;
+      // 通常攻撃: 最寄りの交戦敵を狙う。ヘイスト中は 2 回 (getAttackCount で集約)
+      const atkCount = getAttackCount(ally);
+      for (let a = 0; a < atkCount; a++) {
+        if (!ally.alive) break;
+        const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);  // 初撃で敵が落ちたら再選択
+        if (tgtIdx < 0) {
+          if (a === 0) {
+            showRollAtAlly(ally, `<span class="label">待機</span>敵なし`, "miss");
+            await sleepMs(600);
+          }
+          break;
+        }
+        await allyBasicAttack(ally, tgtIdx);
+        if (a < atkCount - 1) await sleepMs(260);   // 連続攻撃のテンポ (敵 attacksPerTurn と同値)
       }
-      await allyBasicAttack(ally, tgtIdx);
     }
 
     // ── 脅威度評価 (mageAI / clericAI 共通) ──
@@ -18992,7 +19010,25 @@
 
       if (pick === "normal") {
         flashAction(player, "attack");
-        await playerSingleAttack(targetIdx, {});
+        // ヘイスト中は 2 回 (getAttackCount で集約)。初撃で対象が落ちたら射程内の最低HP生存敵へ再選択
+        const atkCount = getAttackCount("player");
+        for (let a = 0; a < atkCount; a++) {
+          let tIdx = targetIdx;
+          if (a > 0 && (!enemies[tIdx] || !enemies[tIdx].alive)) {
+            tIdx = -1; let lowHp = Infinity;
+            for (const i of encounterEnemyIndices) {
+              if (!enemies[i].alive) continue;
+              const ex = enemies[i].x + enemies[i].def.displaySize / 2;
+              const ey = enemies[i].y + enemies[i].def.displaySize / 2;
+              if (tileChebyshev(playerX + 48, playerY + 58, ex, ey) <= weaponRangeTiles && enemies[i].hp < lowHp) {
+                lowHp = enemies[i].hp; tIdx = i;
+              }
+            }
+          }
+          if (tIdx < 0 || !enemies[tIdx] || !enemies[tIdx].alive) break;
+          await playerSingleAttack(tIdx, {});
+          if (a < atkCount - 1) await sleepMs(260);
+        }
       } else {
         flashAction(player, "skill");
         await executeLeaderSkill(pick, targetIdx);
