@@ -1322,6 +1322,74 @@
       100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
     }
 
+    /* ─── STEP 1: 魔法詠唱演出 (溜めオーラ + 頭上の呪文名) ───
+       術者を包むオーラがチャージ→臨界フラッシュ、頭上に属性色の呪文名。
+       transform/opacity/filter のみ (iOS Safari カクつき防止)。--castDur は JS が設定。 */
+    .fxCastAura {
+      position: absolute;
+      pointer-events: none;
+      z-index: 6;
+      width: 132px; height: 132px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      opacity: 0;
+      mix-blend-mode: screen;
+      will-change: transform, opacity, filter;
+      animation: fxCastCharge var(--castDur, 760ms) ease-in forwards;
+    }
+    @keyframes fxCastCharge {
+      0%   { opacity: 0;    transform: translate(-50%,-50%) scale(0.40); filter: blur(2px) brightness(1); }
+      55%  { opacity: 0.85; transform: translate(-50%,-50%) scale(1.08); filter: blur(1px) brightness(1.35); }
+      78%  { opacity: 0.95; transform: translate(-50%,-50%) scale(0.96); filter: blur(0.5px) brightness(1.55); }
+      100% { opacity: 1;    transform: translate(-50%,-50%) scale(0.84); filter: blur(0) brightness(1.85); }
+    }
+    /* 臨界 (弾けて消える) */
+    .fxCastAura--burst { animation: fxCastBurst 0.16s ease-out forwards; }
+    @keyframes fxCastBurst {
+      0%   { opacity: 1; transform: translate(-50%,-50%) scale(0.84); filter: brightness(2); }
+      100% { opacity: 0; transform: translate(-50%,-50%) scale(1.70); filter: brightness(3.2); }
+    }
+    /* 属性ごとの色 */
+    .fxCastAura--fire   { background: radial-gradient(circle, rgba(255,150,40,0) 34%, rgba(255,90,20,0.78) 68%, rgba(255,40,0,0) 100%); }
+    .fxCastAura--ice    { background: radial-gradient(circle, rgba(170,230,255,0) 34%, rgba(90,180,255,0.78) 68%, rgba(40,120,255,0) 100%); }
+    .fxCastAura--arcane { background: radial-gradient(circle, rgba(210,150,255,0) 34%, rgba(150,80,255,0.78) 68%, rgba(90,40,200,0) 100%); }
+    .fxCastAura--holy   { background: radial-gradient(circle, rgba(255,240,180,0) 34%, rgba(255,220,120,0.80) 68%, rgba(255,200,80,0) 100%); }
+
+    /* 術者頭上の呪文名テキスト */
+    .fxCastLabel {
+      position: absolute;
+      pointer-events: none;
+      z-index: 52;
+      transform: translate(-50%, -100%) translateY(0) scale(0.9);
+      padding: 2px 10px;
+      white-space: nowrap;
+      font-family: 'MS PGothic', 'Times New Roman', serif;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      color: #fff;
+      background: rgba(20,10,40,0.55);
+      border-radius: 10px;
+      text-shadow: 0 0 6px rgba(120,80,255,0.9), 0 1px 2px rgba(0,0,0,0.85);
+      opacity: 0;
+      will-change: transform, opacity;
+      animation: fxCastLabel var(--castDur, 900ms) ease-out forwards;
+    }
+    @keyframes fxCastLabel {
+      0%   { opacity: 0; transform: translate(-50%,-100%) translateY(6px)  scale(0.8); }
+      18%  { opacity: 1; transform: translate(-50%,-100%) translateY(-2px) scale(1.0); }
+      82%  { opacity: 1; transform: translate(-50%,-100%) translateY(-2px) scale(1.0); }
+      100% { opacity: 0; transform: translate(-50%,-100%) translateY(-8px) scale(1.0); }
+    }
+    .fxCastLabel--fire   { text-shadow: 0 0 7px rgba(255,120,40,0.95),  0 1px 2px rgba(0,0,0,0.85); }
+    .fxCastLabel--ice    { text-shadow: 0 0 7px rgba(90,180,255,0.95),  0 1px 2px rgba(0,0,0,0.85); }
+    .fxCastLabel--arcane { text-shadow: 0 0 7px rgba(160,90,255,0.95),  0 1px 2px rgba(0,0,0,0.85); }
+    .fxCastLabel--holy   { text-shadow: 0 0 7px rgba(255,220,120,0.98), 0 1px 2px rgba(0,0,0,0.85); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .fxCastAura, .fxCastLabel { animation-duration: 150ms !important; }
+    }
+
     /* 飛翔火球 (Fireball projectile) */
     .fxFireballProjectile {
       position: absolute;
@@ -5226,6 +5294,85 @@
         try { orb.remove(); } catch {}
       }, durationMs);
       return light;
+    }
+
+    // ─── STEP 1: 統一詠唱演出 dfPlayCast ───
+    // 術者を魔力オーラで包み (チャージ→臨界フラッシュ)、頭上に呪文名を表示する「溜め」演出。
+    // spell = { name:'ファイアボール', element:'fire'|'ice'|'arcane'|'holy' }
+    // opts.duration = 詠唱窓(ms)。既存ターンループが await するので、解決まで他ユニットは
+    // 動かない (= 時間ストップ)。spawnCastOrb と同じ body-append + camX/camY 追従 + addSpellLight 方式。
+    function dfPlayCast(ally, spell, opts = {}) {
+      return new Promise((resolve) => {
+        if (!ally || !ally.el) { resolve(); return; }
+        spell = spell || {};
+        const elem = spell.element || "arcane";
+        const reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        const dur = Math.max(220, opts.duration || 800);
+        // autoplay/ヘッドレスでは sleepMs と同思想で速度倍率短縮 + 視覚省略 (バッチ走行を遅くしない)
+        const __spd = window.__autoplay || 1;
+        if (__spd > 1) { setTimeout(resolve, Math.max(8, Math.floor(dur / __spd))); return; }
+        const size = (ally.def && ally.def.displaySize) || 96;
+        const cx = () => ally.x + size / 2;       // 術者中心X (各呪文の aCX と一致)
+        const cyMid = () => ally.y + size / 2;    // 術者中心Y
+        const cyHead = () => ally.y - 8;          // 頭上 (ラベル用)
+
+        // オーラ
+        const aura = document.createElement("div");
+        aura.className = "fxCastAura fxCastAura--" + elem;
+        aura.style.setProperty("--castDur", (reduced ? 140 : Math.max(120, dur - 140)) + "ms");
+        document.body.appendChild(aura);
+        // 頭上ラベル
+        const label = document.createElement("div");
+        label.className = "fxCastLabel fxCastLabel--" + elem;
+        label.textContent = spell.name || "";
+        label.style.setProperty("--castDur", dur + "ms");
+        document.body.appendChild(label);
+        // 属性色のグロー光源 (詠唱中、術者の周りが明るくなる)
+        const rgb = elem === "fire" ? "255,150,60"
+                  : elem === "ice"  ? "120,200,255"
+                  : elem === "holy" ? "255,225,140"
+                  :                   "180,120,255";
+        let light = null;
+        try {
+          light = addSpellLight({
+            worldX: cx(), worldY: cyMid(),
+            inner: 40, outer: 170,
+            strongAlpha: 0.85, midAlpha: 0.5,
+            rgb, duration: dur, fadeMs: Math.min(dur, 300),
+          });
+        } catch (e) {}
+
+        // カメラ追従 (毎フレーム再配置 → カメラがイージングしてもユニットに密着)
+        let rafId = 0, done = false;
+        const place = () => {
+          aura.style.left  = (cx() - camX) + "px";
+          aura.style.top   = (cyMid() - camY) + "px";
+          label.style.left = (cx() - camX) + "px";
+          label.style.top  = (cyHead() - camY) + "px";
+          if (light) { light.worldX = cx(); light.worldY = cyMid(); }
+          if (!done) rafId = requestAnimationFrame(place);
+        };
+        place();
+
+        const cleanup = () => {
+          if (done) return;
+          done = true;
+          if (rafId) { try { cancelAnimationFrame(rafId); } catch (e) {} }
+          try { aura.remove(); } catch (e) {}
+          try { label.remove(); } catch (e) {}
+        };
+
+        if (reduced) {
+          aura.classList.add("fxCastAura--burst");
+          setTimeout(() => { cleanup(); resolve(); }, 150);
+          return;
+        }
+        // チャージ → 臨界フラッシュ
+        setTimeout(() => { try { aura.classList.add("fxCastAura--burst"); } catch (e) {} }, Math.max(80, dur - 140));
+        const fin = setTimeout(() => { cleanup(); resolve(); }, dur);
+        // 取りこぼし対策フォールバック
+        setTimeout(() => { clearTimeout(fin); cleanup(); resolve(); }, dur + 500);
+      });
     }
 
     // 飛翔火球: from → to を duration で移動、軌跡に光源と火粉
@@ -15224,7 +15371,7 @@
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2400);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2400 });
 
       // 回復ロール (skill.healDice 可変、useWis なら WIS 加算)
       const { n, sides } = parseDiceDD(skill.healDice || "1d8");
@@ -15283,7 +15430,7 @@
         `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
         "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2700);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2700 });
 
       // AC バフ適用 (持続 = duration + 1、次ターンの tick 分を見越して)
       const dur = skill.duration + 1;
@@ -15326,7 +15473,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2500);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2500 });
 
       const dur = (skill.duration || 3) + 1;   // 次ターン tick 分を見越す
       const die = skill.strikingDie || 6;
@@ -15355,7 +15502,7 @@
       flashAction(ally.el, "skill");
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2200);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2200 });
 
       const roll = rollDiceDD(1, skill.blessDie || 4).total;
       const dur = (skill.duration || 3) + 1;   // 次ターン tick 分を見越す
@@ -15408,7 +15555,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2600);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2600 });
 
       if (targets.length === 0) {
         updateInfo(`${ally.def.name}: ターンアンデッド — 範囲内にアンデッドはいない`);
@@ -15477,7 +15624,7 @@
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(1700);  // 詠唱 (短縮、続けて光弾飛翔へ)
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1700 });  // 詠唱: 溜めオーラ→光弾飛翔へ
 
       // 3発の光弾を弧軌道で発射 (約 600 + 2*130 = 860ms)
       // 詠唱位置をやや手前に補正 (杖から放たれる感)
@@ -15557,7 +15704,7 @@
       startAllyAttackAnim(ally);
       // Phase 2-I: 詠唱オーブ (手元に火球が膨張、動的光源で暗闇を照らす)
       spawnCastOrb(ally, "rgba(255,200,90,1)", 700);
-      await sleepMs(2400);
+      await dfPlayCast(ally, { name: skill.name, element: 'fire' }, { duration: 2400 });
 
       // 命中判定
       const helpless = target.stunned > 0;
@@ -15695,7 +15842,7 @@
         `<span class="label">SKILL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
         "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2400);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 2400 });
 
       // 地面の霧: スタン継続中ずっと見えるように
       const mistDurationMs = Math.max(2800, skill.stunTarget * 2200);
@@ -15741,7 +15888,7 @@
         `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
         "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2700);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 2700 });
 
       const dur = skill.duration + 1;  // tick 分を見越して+1
       ally.buffs.acBonusRemaining = dur;
@@ -15840,7 +15987,7 @@
       startAllyAttackAnim(ally);
       // 詠唱: 火球が手元で膨張 (700ms)
       spawnCastOrb(ally, "rgba(255,200,90,1)", 700);
-      await sleepMs(750);
+      await dfPlayCast(ally, { name: skill.name, element: 'fire' }, { duration: 750 });
 
       // 飛翔: 火球が中心へ
       const centerWX = best.tx * TILE_SIZE + 1.5 * TILE_SIZE;
@@ -15951,7 +16098,7 @@
         "skill");
       startAllyAttackAnim(ally);
       spawnCastOrb(ally, "rgba(180,220,255,1)", 600);
-      await sleepMs(620);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 620 });
 
       // 稲妻発射: ally から 3 タイル先までライン描画 + 全敵にダメージ
       const endWX = aCX + best.dx * 3 * TILE_SIZE;
@@ -16054,7 +16201,7 @@
         "skill");
       startAllyAttackAnim(ally);
       spawnCastOrb(ally, "rgba(200,230,255,1)", 600);
-      await sleepMs(620);
+      await dfPlayCast(ally, { name: skill.name, element: 'ice' }, { duration: 620 });
 
       // 結晶散布 + 動的光源
       spawnConeCrystals(aCX, aCY, best.d.dx, best.d.dy);
@@ -16163,7 +16310,7 @@
         "skill");
       startAllyAttackAnim(ally);
       spawnCastOrb(ally, "rgba(255,180,80,1)", 600);
-      await sleepMs(620);
+      await dfPlayCast(ally, { name: skill.name, element: 'fire' }, { duration: 620 });
 
       // 炎散布 + 動的光源
       spawnConeFlames(aCX, aCY, best.d.dx, best.d.dy);
@@ -17284,7 +17431,7 @@
 
       showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally, 1700);  // 詠唱 sleep と同期 (デフォ 500ms だと残り棒立ちになる)
-      await sleepMs(1700);  // 詠唱 (短縮、続けて魔力の矢飛翔へ)
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1700 });  // 詠唱: 溜めオーラ→魔力の矢飛翔へ
 
       // 弓の発射点
       const launchX = aCX + (ally.facing === "right" ? 22 : -22);
@@ -17330,7 +17477,7 @@
         `<span class="label">SKILL</span><span class="big">${skill.name}</span>`,
         "skill");
       startAllyAttackAnim(ally);
-      await sleepMs(2400);
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2400 });
 
       const r = rollDiceDD(1, 6);
       const heal = Math.max(1, r.total + (ally.wis || 0));
@@ -17490,7 +17637,7 @@
         `<span class="label">奥義</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
         "skill");
       startAllyAttackAnim(ally, 1700);
-      await sleepMs(1500);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1500 });
 
       // 空から矢の雨: 5x5 範囲のランダム着弾点へ複数の矢を降らせる
       const centerWX = best.tx * TILE_SIZE + 2.5 * TILE_SIZE;
@@ -17609,7 +17756,7 @@
 
       showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span>`, "skill");
       startAllyAttackAnim(ally, 1500);
-      await sleepMs(1300);
+      await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1300 });
 
       // 雷の矢を放つ → 命中点に稲妻
       const launchX = aCX + (ally.facing === "right" ? 22 : -22);
