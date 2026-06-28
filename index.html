@@ -2749,6 +2749,7 @@
     // sin(p*π) エンベロープ(p=1-T/Max)で行って戻り、端点で厳密に 0 着地(ドリフト無し)。実機で要微調整。
     const LUNGE_MAG = 14;      // 踏み込みピーク(px, 対象方向)
     const LUNGE_FRAMES = 10;
+    const LUNGE_SAFETY = 4;    // 大型ターゲット時のランジ・クランプ安全マージン(px, 縁手前で停止)
     const RECOIL_MAG = 10;     // のけぞりピーク(px, 攻撃者と逆方向)
     const RECOIL_FRAMES = 12;
 
@@ -6000,7 +6001,7 @@
     let playerKnockbackVY = 0;
     let playerHitStun = 0;
     // 攻撃エフェクト Phase1: 主人公の踏み込み/のけぞり状態 (per-frame で減衰、updateKnightSprite で transform 合成)
-    let playerLungeT = 0, playerLungeMax = 0, playerLungeDir = 0;
+    let playerLungeT = 0, playerLungeMax = 0, playerLungeDir = 0, playerLungeMag = LUNGE_MAG;
     let playerRecoilT = 0, playerRecoilMax = 0, playerRecoilDir = 0;
 
     let targetX = null;
@@ -8236,7 +8237,7 @@
       let off = 0;
       if (st.lungeT > 0) {
         const p = st.lungeMax > 0 ? (1 - st.lungeT / st.lungeMax) : 1;
-        off += st.lungeDir * LUNGE_MAG * Math.sin(p * Math.PI);
+        off += st.lungeDir * (st.lungeMag != null ? st.lungeMag : LUNGE_MAG) * Math.sin(p * Math.PI);
         if (--st.lungeT <= 0) { st.lungeT = 0; st.lungeMax = 0; st.lungeDir = 0; }
       }
       if (st.recoilT > 0) {
@@ -8250,7 +8251,7 @@
       let off = 0;
       if (playerLungeT > 0) {
         const p = playerLungeMax > 0 ? (1 - playerLungeT / playerLungeMax) : 1;
-        off += playerLungeDir * LUNGE_MAG * Math.sin(p * Math.PI);
+        off += playerLungeDir * playerLungeMag * Math.sin(p * Math.PI);
         if (--playerLungeT <= 0) { playerLungeT = 0; playerLungeMax = 0; playerLungeDir = 0; }
       }
       if (playerRecoilT > 0) {
@@ -8260,6 +8261,7 @@
       }
       return off;
     }
+    if (typeof window !== "undefined") window.__stepImpactOffset = stepImpactOffset;   // ヘッドレス・プラミング検証用シーム
     // 向き(scaleX) と踏み込み/のけぞり(translateX) を1つの transform 文字列に合成。
     // scaleX(-1) 後はローカル X 軸が反転するため、左向き時は translateX 符号を反転して画面方向を保つ。
     // offPx が 0 のとき従来(scaleX のみ/空)と完全に等価。
@@ -8776,18 +8778,21 @@
     // ── 攻撃エフェクト Phase1: 踏み込み(lunge)/のけぞり(recoil) トリガ ──
     // 動き系なので __autoplay と shakeEnabled()(⚙screenShake トグル + prefers-reduced-motion) でスキップ。
     // 白フラッシュ(色のみ)は別途・非ゲート。dir は ±1(0 は +1 に丸めて必ず一瞬動く)。
-    function triggerLungePlayer(dirSign) {
+    function triggerLungePlayer(dirSign, mag = LUNGE_MAG) {
       if (window.__autoplay || !shakeEnabled()) return;
       playerLungeT = LUNGE_FRAMES; playerLungeMax = LUNGE_FRAMES; playerLungeDir = (dirSign >= 0 ? 1 : -1);
+      playerLungeMag = mag;   // 大型ターゲットでクランプ済の前進量(既定=LUNGE_MAG)。毎回代入で前回値の漏れを防ぐ
     }
-    function triggerLungeAlly(ally, dirSign) {
+    function triggerLungeAlly(ally, dirSign, mag = LUNGE_MAG) {
       if (window.__autoplay || !shakeEnabled() || !ally) return;
       ally.lungeT = LUNGE_FRAMES; ally.lungeMax = LUNGE_FRAMES; ally.lungeDir = (dirSign >= 0 ? 1 : -1);
+      ally.lungeMag = mag;
     }
-    function triggerLungeEnemy(index, dirSign) {
+    function triggerLungeEnemy(index, dirSign, mag = LUNGE_MAG) {
       if (window.__autoplay || !shakeEnabled()) return;
       const e = enemies[index]; if (!e) return;
       e.lungeT = LUNGE_FRAMES; e.lungeMax = LUNGE_FRAMES; e.lungeDir = (dirSign >= 0 ? 1 : -1);
+      e.lungeMag = mag;
     }
     function triggerRecoilPlayer(dirSign) {
       if (window.__autoplay || !shakeEnabled()) return;
@@ -9971,6 +9976,26 @@
     const OVERLAP_MAX_PUSH   = 6;      // 1フレーム1ユニットあたり最大押し出し px
     const OVERLAP_HEAVY_MASS = 1e6;    // プレイヤー/ボスを実質不動に
     const OVERLAP_BOSS_SIZE  = 200;    // displaySize がこれ以上なら不動扱い(240/720 捕捉, 96 は通常)
+    // 大型/ボス判定の共有述語: overlap 押し出しの heavy(不動)扱いと、近接ランジのクランプ対象を
+    // 同一ドメインに保つ(乖離防止)。shadowBeast(192,isBoss無)はここでは非heavy=本件スコープ外。
+    function isHeavyOverlapUnit(def) {
+      return !!(def && (def.isBoss || def.displaySize >= OVERLAP_BOSS_SIZE));
+    }
+    // 近接攻撃の踏み込み(lunge, translateX 視覚のみ)が大型スプライトにめり込むのを防ぐ。
+    // 大型ターゲット時のみ、攻撃者の可視縁(=overlap 休止距離 r=displaySize*K の和)手前へ前進量をクランプ。
+    // 通常サイズ敵は LUNGE_MAG のまま=従来挙動(ゼロ回帰)。ランジは水平移動なので X 方向の実スラックで判定。
+    function clampLungeMag(attackerCx, attackerCy, attackerSize, target) {
+      if (!target || !target.def || !isHeavyOverlapUnit(target.def)) return LUNGE_MAG;
+      const tgtSize = target.def.displaySize;
+      const tgtCx = target.x + tgtSize / 2;
+      const tgtCy = target.y + tgtSize / 2;
+      const minDist = (tgtSize + attackerSize) * OVERLAP_RADIUS_K;   // 休止時の中心間距離(ユークリッド)
+      const dy = tgtCy - attackerCy;
+      const restGapX = Math.sqrt(Math.max(0, minDist * minDist - dy * dy));   // 縁までの実 X 距離
+      const centerGapX = Math.abs(tgtCx - attackerCx);
+      return Math.max(0, Math.min(LUNGE_MAG, centerGapX - restGapX - LUNGE_SAFETY));
+    }
+    if (typeof window !== "undefined") window.clampLungeMag = clampLungeMag;   // ヘッドレス単体テスト用シーム
     function makeOverlapUnit(obj, size, heavy) {
       const r = size * OVERLAP_RADIUS_K;
       return {
@@ -10018,7 +10043,7 @@
         if (e.hitStun > 0) continue;                  // ノックバックで自前移動中
         if (e.slideTargetTile) continue;              // slide 中は RAF に任せる
         const s = e.def.displaySize;
-        const heavy = (e.def && e.def.isBoss) || s >= OVERLAP_BOSS_SIZE;
+        const heavy = isHeavyOverlapUnit(e.def);
         units.push(makeOverlapUnit(e, s, heavy));
       }
 
@@ -13485,7 +13510,7 @@
 
       mouseX = ex; mouseY = ey;
       updateFacingFromMouse();
-      triggerLungePlayer(Math.sign(ex - (playerX + 48)));   // 攻撃エフェクト: 対象方向へ踏み込み
+      triggerLungePlayer(Math.sign(ex - (playerX + 48)), clampLungeMag(playerX + 48, playerY + 48, 96, target));   // 攻撃エフェクト: 対象方向へ踏み込み(大型はめり込み防止クランプ)
 
       // 射程チェック: opts.range (スキル側) が優先、なければ武器射程
       const rangeKey = opts.range || playerStats.weaponRange || "melee";
@@ -15320,7 +15345,7 @@
 
       flashAction(ally.el, "attack");
       startAllyAttackAnim(ally);
-      triggerLungeAlly(ally, Math.sign(dfx));   // 攻撃エフェクト: 対象方向へ踏み込み
+      triggerLungeAlly(ally, Math.sign(dfx), clampLungeMag(aCX, aCY, ally.def.displaySize, target));   // 攻撃エフェクト: 対象方向へ踏み込み(大型はめり込み防止クランプ)
       if ((ally.weaponRange || "melee") === "melee") spawnSlashArc(aCX, aCY, Math.atan2(dfy, dfx), { radius: 52 });   // 斬撃の弧 (近接のみ)
 
       const helpless = target.stunned > 0;
