@@ -7098,7 +7098,9 @@
 
     // Phase 2-G 拡張: 多択ダイアログ (各候補にボタン、Esc で null)
     // candidates: [{label: string, ...}, ...] / 返り値: 選択された index (0..N-1) または null
-    function showCharChoice(message, candidates, cancelLabel = "持ち帰る (Esc)") {
+    // opts.autoSkipMs > 0: 一定時間タップが無ければ自動でキャンセル(null)へスキップする。
+    //   ロール判定の自動ロール(js/skill-check.js AUTO_ROLL_MS)と同一パターン。既定(0)は無効=従来通り無期限待ち。
+    function showCharChoice(message, candidates, cancelLabel = "持ち帰る (Esc)", opts = {}) {
       // Phase 2-K: autoplay 時は 1 番目の候補を自動選択
       if (window.__autoplay && candidates && candidates.length > 0) {
         try { console.log("[AUTOPLAY] showCharChoice:", message, "→ 1 番目:", candidates[0].label); } catch {}
@@ -7120,7 +7122,9 @@
         dlg.classList.add("show");
         dialogPaused = true;
 
+        let autoTimer = null;   // opts.autoSkipMs 用の自動スキップタイマー
         const cleanup = () => {
+          if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
           dlg.classList.remove("show");
           dialogPaused = false;
           document.removeEventListener("keydown", onKey, true);
@@ -7159,6 +7163,13 @@
           const first = btnArea.querySelector("button");
           if (first) first.focus();
         }, 50);
+
+        // 一定時間タップが無ければ自動でキャンセル(=null)へスキップ。
+        // ロール判定の自動ロールと同じ start→cancel(cleanup)→default パターン。入力時は cleanup() でタイマー解除。
+        const autoSkipMs = (opts && opts.autoSkipMs > 0) ? opts.autoSkipMs : 0;
+        if (autoSkipMs > 0) {
+          autoTimer = setTimeout(() => { cleanup(); resolve(null); }, autoSkipMs);
+        }
       });
     }
 
@@ -12398,7 +12409,9 @@
             const summonable = getSummonMenuItems("restPhase");
             if (summonable.length > 0) {
               const cands = summonable.map(it => ({ label: `${it.def.name} を使う (残 ${countCharges(it.id)})` }));
-              const pick = await showCharChoice("召喚スクロールを使うか?", cands, "召喚しない (Esc)");
+              // 一定時間タップが無ければ自動で「召喚しない」へスキップ(ロール判定の自動ロールと同一の待機: AUTO_ROLL_MS)。
+              const pick = await showCharChoice("召喚スクロールを使うか?", cands, "召喚しない (Esc)",
+                { autoSkipMs: (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0 });
               if (pick !== null && summonable[pick] && executeSummon(summonable[pick].id)) {
                 const uId = PLAZA_ITEMS[summonable[pick].id].summon.unitId;
                 showBanner(`${(CLASS_DEFS[uId] && CLASS_DEFS[uId].name) || "援軍"} を召喚!`, 1400);

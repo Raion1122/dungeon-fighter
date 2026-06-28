@@ -408,6 +408,7 @@
     PROFICIENCY_BONUS: PROFICIENCY_BONUS,
     CHECKS: CHECKS,
     DC_TIERS: DC_TIERS,
+    AUTO_ROLL_MS: AUTO_ROLL_MS,   // 自動ロール待機(ms)。休憩スクロールプロンプトの自動スキップ等が共有参照する。
     checkScore: checkScore,
     selectRepresentative: selectRepresentative,
     resolveSkillCheck: resolveSkillCheck,
