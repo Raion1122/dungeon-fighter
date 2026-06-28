@@ -14,11 +14,12 @@
  * 公開API: window.SkillCheck
  *   - resolveSkillCheck(checkKey, dc, party, opts) -> Promise<outcome|null>
  *   - selectRepresentative(party, checkDef) -> member|null
+ *   - selectHelper(party, checkDef, rep) -> member|null   （代表者を除く補助役1名・Help用）
  *   - checkScore(member, checkDef) -> number
  *   - abilityModifier(score) -> number
- *   - CLASS_ABILITIES / CLASS_PROFICIENCIES / CHECKS / DC_TIERS / PROFICIENCY_BONUS
+ *   - CLASS_ABILITIES / CLASS_PROFICIENCIES / CHECKS / DC_TIERS / PROFICIENCY_BONUS / HELP_BONUS
  *
- * outcome = { success, roll, total, dc, bonus, rep, crit, fumble }
+ * outcome = { success, roll, total, dc, bonus, rep, helper, crit, fumble }
  */
 (function (global) {
   "use strict";
@@ -48,6 +49,9 @@
 
   // === §4 クラス別習熟（race = class）・習熟ボーナス一律 +2 ============
   var PROFICIENCY_BONUS = 2;
+  // Help（手伝い）固定加算。5e Help アクション翻案。代表者以外から最大1名分のみ付与し、
+  // 人数が何人いても1名分で頭打ち（クランプ）＝人数インフレ防止。値は習熟ボーナスと同スケール。
+  var HELP_BONUS = 2;
   var CLASS_PROFICIENCIES = {
     warrior: ["athletics", "intimidation"],
     dwarf:   ["perception", "constitution"],
@@ -90,19 +94,21 @@
     return mod + prof;
   }
 
-  // 修正値の内訳（パネルの代表行で内訳表示するため）。total（extra=0）は checkScore と一致。
+  // 修正値の内訳（パネルの代表行で内訳表示するため）。total（extra=0,help=0）は checkScore と一致。
+  // 第4引数 helpBonus は省略可（既存3引数呼び出しは help=0 で従来通り＝後方互換）。
   var ABILITY_ABBR = { str: "STR", dex: "DEX", con: "CON", int: "INT", wis: "WIS", cha: "CHA" };
-  function checkScoreBreakdown(member, checkDef, extraBonus) {
+  function checkScoreBreakdown(member, checkDef, extraBonus, helpBonus) {
     var ab = member ? CLASS_ABILITIES[member.classKey] : null;
     var abilityMod = (ab && checkDef) ? abilityModifier(ab[checkDef.ability]) : 0;
     var profs = (member && CLASS_PROFICIENCIES[member.classKey]) || [];
     var prof = (checkDef && profs.indexOf(checkDef.profKey) >= 0) ? PROFICIENCY_BONUS : 0;
     var extra = extraBonus || 0;
+    var help = helpBonus || 0;
     return {
       abilityKey: checkDef ? checkDef.ability : "",
       abilityAbbr: (checkDef && ABILITY_ABBR[checkDef.ability]) || "",
-      abilityMod: abilityMod, prof: prof, extra: extra,
-      total: abilityMod + prof + extra,
+      abilityMod: abilityMod, prof: prof, extra: extra, help: help,
+      total: abilityMod + prof + extra + help,
     };
   }
 
@@ -116,6 +122,21 @@
         var diff = checkScore(b.m, checkDef) - checkScore(a.m, checkDef);
         return diff !== 0 ? diff : a.i - b.i;
       })[0].m;
+  }
+
+  // 代表者(rep)を除く最良メンバー1名を補助役(Help)に選ぶ。該当能力の checkScore 最大、
+  // 同点は配列順（> 比較で先頭優先＝selectRepresentative のタイブレークに一致）。party 2名未満なら null。
+  // ★ ここで1名だけ返すことが「Help は最大1名分でクランプ」の構造的担保（人数が増えても加算は1回）。
+  function selectHelper(party, checkDef, rep) {
+    if (!party || party.length < 2) return null;
+    var best = null, bestScore = -Infinity;
+    for (var k = 0; k < party.length; k++) {
+      var m = party[k];
+      if (m === rep) continue;
+      var s = checkScore(m, checkDef);
+      if (s > bestScore) { bestScore = s; best = m; }
+    }
+    return best;
   }
 
   // === §8 判定フロー =================================================
@@ -173,6 +194,8 @@
       "  gap:8px;padding:5px 8px;border-radius:6px;background:rgba(106,64,16,.06);}",
       "#skillCheckCard .scRow.rep{background:rgba(220,180,30,.18);border:1px solid #caa21a;font-weight:700;}",
       "#skillCheckCard .scRow.ref{opacity:.6;color:#6a5a3a;}",
+      // 補助役（Help）行: 参考行よりやや明るく、緑系でわずかに強調（.ref より後に置き opacity/色を上書き）
+      "#skillCheckCard .scRow.helper{opacity:.88;color:#3a4a32;background:rgba(40,120,80,.12);border:1px solid rgba(40,120,80,.35);}",
       "#skillCheckCard .scName{text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
       "#skillCheckCard .scMod{font-size:11px;color:#5a3a16;white-space:nowrap;}",
       "#skillCheckCard .scRow.ref .scMod{color:#7a6a4a;}",
@@ -238,7 +261,7 @@
     });
   }
 
-  // 修正値の表示文字列。代表行は内訳（例 WIS+1 習+2 技+2 (+5)）、参考行は (+N) のみ。
+  // 修正値の表示文字列。代表行は内訳（例 WIS+1 習+2 助+2 技+2 (+7)）、参考行は (+N) のみ。
   function fmtMod(bd, isRep) {
     var sgn = function (n) { return (n >= 0 ? "+" : "") + n; };
     var totalStr = "(" + sgn(bd.total) + ")";
@@ -246,6 +269,7 @@
     var parts = [];
     if (bd.abilityAbbr) parts.push(bd.abilityAbbr + sgn(bd.abilityMod));
     if (bd.prof) parts.push("習" + sgn(bd.prof));
+    if (bd.help) parts.push("助" + sgn(bd.help));   // 補助役からの Help ボーナス
     if (bd.extra) parts.push("技" + sgn(bd.extra));
     return (parts.length ? parts.join(" ") + " " : "") + totalStr;
   }
@@ -255,8 +279,9 @@
     });
   }
 
-  // roster: [{member, name, isRep, breakdown}]（隊列順）。全行が d20 を振る演出を出すが、
+  // roster: [{member, name, isRep, isHelper, breakdown}]（隊列順）。全行が d20 を振る演出を出すが、
   // 成否は rep（isRep=true）の1ロールのみで決まる。非rep の出目は表示専用で contract 非関与。
+  // isHelper=true は補助役（Help・最大1名）。バッジ表示のみで、Help ボーナスは rep の breakdown に乗る。
   function showPanelAndRoll(checkDef, dcNum, rep, bonus, roster, opts) {
     return new Promise(function (resolve) {
       ensureStyles();
@@ -274,19 +299,21 @@
       flavorEl.textContent = opts.flavor || "";
       flavorEl.style.display = opts.flavor ? "" : "none";
       var sign = bonus >= 0 ? "+" + bonus : String(bonus);
+      var helperRow = (roster || []).filter(function (r) { return r.isHelper; })[0];
+      var helperPart = helperRow ? " ／ 補助 " + escHtml(helperRow.name) : "";
       metaEl.innerHTML = checkDef.label + " <b>DC " + dcNum + "</b> ／ 代表 " +
-        escHtml(rep.name || "—") + " ／ ボーナス " + sign;
+        escHtml(rep.name || "—") + helperPart + " ／ ボーナス " + sign;
       // ロスター行を生成（人数可変・隊列順）。空なら代表のみの1行へフォールバック。
       if (!roster || !roster.length) {
-        roster = [{ member: rep, name: (rep && rep.name) || "—", isRep: true,
-          breakdown: { abilityAbbr: "", abilityMod: 0, prof: 0, extra: 0, total: bonus } }];
+        roster = [{ member: rep, name: (rep && rep.name) || "—", isRep: true, isHelper: false,
+          breakdown: { abilityAbbr: "", abilityMod: 0, prof: 0, extra: 0, help: 0, total: bonus } }];
       }
       rosterEl.innerHTML = "";
       roster.forEach(function (r) {
         var row = document.createElement("div");
-        row.className = "scRow " + (r.isRep ? "rep" : "ref");
+        row.className = "scRow " + (r.isRep ? "rep" : (r.isHelper ? "ref helper" : "ref"));
         row.innerHTML =
-          '<span class="scName">' + (r.isRep ? "★ " : "") + escHtml(r.name) + "</span>" +
+          '<span class="scName">' + (r.isRep ? "★ " : (r.isHelper ? "🤝 " : "")) + escHtml(r.name) + "</span>" +
           '<span class="scMod">' + fmtMod(r.breakdown, r.isRep) + "</span>" +
           '<span class="scDie">?</span>' +
           '<span class="scTotal"></span>';
@@ -378,25 +405,31 @@
     var dcNum = resolveDc(dc);
     var rep = selectRepresentative(party, checkDef);
     if (!rep) return Promise.resolve(null);
-    var bonus = checkScore(rep, checkDef) + (opts.extraBonus || 0);
+    // 代表者以外から最大1名の補助役（Help）を選び、いれば固定 +HELP_BONUS を代表の判定へ加算。
+    // selectHelper が1名しか返さないため、人数が何人いても Help は1名分で頭打ち（クランプ）。
+    var helper = selectHelper(party, checkDef, rep);
+    var helpBonus = helper ? HELP_BONUS : 0;
+    var bonus = checkScore(rep, checkDef) + (opts.extraBonus || 0) + helpBonus;
 
     // 表示専用ロスター（成否には一切関与しない）。隊列順を保持。
-    // extraBonus（例: 知覚の find-traps +2）は代表行だけに乗せる（参考行に乗せると誤解を生む）。
+    // extraBonus（例: 知覚の find-traps +2）と helpBonus は代表行だけに乗せる（参考行に乗せると誤解を生む）。
     var roster = (party || []).map(function (m) {
       var isRep = (m === rep);
-      var bd = checkScoreBreakdown(m, checkDef, isRep ? (opts.extraBonus || 0) : 0);
-      return { member: m, name: m.name || "—", isRep: isRep, breakdown: bd };
+      var isHelper = (m === helper);
+      var bd = checkScoreBreakdown(m, checkDef, isRep ? (opts.extraBonus || 0) : 0, isRep ? helpBonus : 0);
+      return { member: m, name: m.name || "—", isRep: isRep, isHelper: isHelper, breakdown: bd };
     });
 
     // autoplay / headless: UIを出さず即ロールで解決（showChoice と同じ方針）
     if (global.__autoplay || opts.auto) {
       var o = computeOutcome(d20(), bonus, dcNum);
       o.rep = rep;
+      o.helper = helper || null;
       try { console.log("[AUTOPLAY] skillCheck", checkKey, "dc", dcNum, "->", o.success ? "成功" : "失敗"); } catch (e) {}
       return Promise.resolve(o);
     }
     return showPanelAndRoll(checkDef, dcNum, rep, bonus, roster, opts).then(function (o) {
-      if (o) o.rep = rep;
+      if (o) { o.rep = rep; o.helper = helper || null; }
       return o;
     });
   }
@@ -406,11 +439,13 @@
     CLASS_ABILITIES: CLASS_ABILITIES,
     CLASS_PROFICIENCIES: CLASS_PROFICIENCIES,
     PROFICIENCY_BONUS: PROFICIENCY_BONUS,
+    HELP_BONUS: HELP_BONUS,
     CHECKS: CHECKS,
     DC_TIERS: DC_TIERS,
     AUTO_ROLL_MS: AUTO_ROLL_MS,   // 自動ロール待機(ms)。休憩スクロールプロンプトの自動スキップ等が共有参照する。
     checkScore: checkScore,
     selectRepresentative: selectRepresentative,
+    selectHelper: selectHelper,
     resolveSkillCheck: resolveSkillCheck,
     // テスト/内部用
     checkScoreBreakdown: checkScoreBreakdown,
