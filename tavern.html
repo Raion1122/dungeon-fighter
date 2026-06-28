@@ -1454,10 +1454,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>アイスストームを習得可能に</b> — 魔法使いの新呪文。広範囲に氷塊が降り注いで冷気ダメージを与え、当たった敵の動きを3ターン鈍らせる。</li>
         <li><b>魔法詠唱に溜め演出を追加</b> — 術者が魔力のオーラをまとい、頭上に呪文名が浮かぶようになった。</li>
         <li><b>戦闘表示の改善</b> — 巨大すぎたドラゴンを半分のサイズに縮小。近接戦で味方と敵が重なって見える問題を解消。一部モンスター名を英語表記(Will-o'-Wisp / Giant Frog / Dire Bear)に統一。</li>
         <li><b>技能判定が自動でダイスを振るように</b> — 知覚・捜査・開錠の判定が、少し待つとタップ無しで自動進行(すぐ振りたい時はタップでもOK)。</li>
-        <li><b>戦闘カメラが行動中のキャラにより寄るように</b> — 今動いている味方や敵が画面の中央寄りに映り、戦況が見やすくなった。</li>
       </ul>
     </div>
     <script>
@@ -2313,6 +2313,8 @@
     { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "long",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
     { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
     { id: "burning-hands",  name: "バーニングハンズ", category: "攻撃", range: "medium", mpCost: 4, levelReq: 1, flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
+    // STEP2: アイスストーム (5x5 範囲 + 鈍足)
+    { id: "ice-storm",      name: "アイスストーム",   category: "攻撃", range: "long",   mpCost: 9, levelReq: 7, flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減)、PT 巻き込みなし" },
   ];
   // ドワーフスキル (index.html DWARF_SKILLS と同期)
   const DWARF_SKILLS_UI = [
@@ -2557,6 +2559,7 @@
     "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
     "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
     "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+    "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
     "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。hasInnateDisguise 判定に使う
     "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
     "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },

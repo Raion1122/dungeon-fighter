@@ -351,6 +351,41 @@
       100% { transform: translateY(-22px) scale(1.15); opacity: 0; }
     }
 
+    /* ── ステータスエフェクト: 鈍足 (アイスストーム。敵に青白い霜オーラ + ❄) ── */
+    .enemy.fx-frost::before {
+      content: "";
+      position: absolute;
+      left: -12%; top: -12%;
+      width: 124%; height: 124%;
+      background: radial-gradient(circle,
+        rgba(150,220,255,0.50) 18%,
+        rgba(110,190,255,0.28) 50%,
+        rgba(90,170,255,0)     82%);
+      border-radius: 50%;
+      animation: fxFrostPulse 2.0s ease-in-out infinite;
+      pointer-events: none;
+      z-index: -1;
+    }
+    .enemy.fx-frost::after {
+      content: "❄";
+      position: absolute;
+      top: -20px; left: -4px;
+      font-size: 20px;
+      color: #bfe9ff;
+      animation: fxFrostDrift 2.4s ease-in-out infinite;
+      pointer-events: none;
+      filter: drop-shadow(0 0 4px rgba(140,210,255,0.9));
+    }
+    @keyframes fxFrostPulse {
+      0%, 100% { opacity: 0.8; transform: scale(0.98); }
+      50%      { opacity: 0.5; transform: scale(1.06); }
+    }
+    @keyframes fxFrostDrift {
+      0%   { transform: translateY(0)    rotate(0deg);  opacity: 0.5; }
+      50%  { transform: translateY(-3px) rotate(15deg); opacity: 1; }
+      100% { transform: translateY(0)    rotate(0deg);  opacity: 0.5; }
+    }
+
     /* ── マジックミサイル: 飛翔する青白い光弾 ── */
     .fxMissile {
       position: absolute;
@@ -5872,6 +5907,7 @@
         animTick: 0,
         attackTimer: 0, attackCooldown: 0, attackHitDealt: false,
         stunned: 0,  // D&D スキル(盾バッシュ等)のデバフ残ターン
+        slowedRemaining: 0, __moveBlockedThisTurn: false,  // アイスストーム 鈍足 (移動封じ。攻撃は可)
         poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
         huntMarkRemaining: 0, huntMarkDie: 0,        // エルフ ハンターズ・マーク (PT の武器命中に +1dX)
         atkPenaltyRemaining: 0, atkPenaltyAmount: 0, // 盗賊 煙幕 (命中ペナルティ)
@@ -6434,6 +6470,7 @@
       "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
       "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
       "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
+      "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
       "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。戦闘呪文ではなく hasInnateDisguise 判定に使う
       // 📖 聖典 (cleric)
       "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
@@ -8338,6 +8375,8 @@
           updateEnemyAnim(enemy, enemyEl);
           // ステータスエフェクト連動: スリープ (stunned > 0)
           enemyEl.classList.toggle("fx-sleep", (enemy.stunned || 0) > 0);
+          // ステータスエフェクト連動: 鈍足 (アイスストーム slowedRemaining > 0)
+          enemyEl.classList.toggle("fx-frost", (enemy.slowedRemaining || 0) > 0);
 
           hpBarEl.style.display = "block";
           const hpBarOffX = (enemy.def.displaySize - 52) / 2;
@@ -11283,6 +11322,7 @@
           else if (skillId === "lightning-bolt")  await allyLightningBolt(actor, targetIdx);
           else if (skillId === "cone-of-cold")    await allyConeOfCold(actor, targetIdx);
           else if (skillId === "burning-hands")   await allyBurningHands(actor, targetIdx);
+          else if (skillId === "ice-storm")       await allyIceStorm(actor, targetIdx);
         }
         // エルフ (Step a-3 第3弾)
         else if (leaderClassKey === "elf") {
@@ -11533,6 +11573,12 @@
       if (targetCY == null) targetCY = playerY + 58;
       const enemy = enemies[idx];
       const def = enemy.def;
+      // 鈍足 (アイスストーム): このターンは移動を封じる (攻撃は可能)
+      if (enemy.__moveBlockedThisTurn) {
+        if (!silent) showRollAtEnemy(idx, `<span class="label">SLOWED</span>動きが鈍い`, "miss");
+        await sleepMs(silent ? 80 : 450);
+        return;
+      }
       const eCX = enemy.x + def.displaySize / 2;
       const eCY = enemy.y + def.displaySize / 2;
       const eTX = Math.floor(eCX / TILE_SIZE);
@@ -12040,6 +12086,7 @@
           e.path = [];
           e.pathTimer = 0;
           e.stunned = 0;
+          e.slowedRemaining = 0; e.__moveBlockedThisTurn = false;
           e.poisonRemaining = 0; e.poisonDie = null;
           e.huntMarkRemaining = 0; e.huntMarkDie = 0;
           e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
@@ -12205,6 +12252,7 @@
                 e.path = [];
                 e.pathTimer = 0;
                 e.stunned = 0;
+                e.slowedRemaining = 0; e.__moveBlockedThisTurn = false;
                 e.poisonRemaining = 0; e.poisonDie = null;
                 e.huntMarkRemaining = 0; e.huntMarkDie = 0;
                 e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
@@ -12625,6 +12673,15 @@
         mpCost: 4, levelReq: 1,
         saveAbility: "dex",
         flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減、MP 4)",
+      },
+      // ── STEP2: アイスストーム (5x5 範囲、2d8+INT 冷気、DEX セーヴ半減、命中全敵に鈍足3T) ──
+      "ice-storm": {
+        name: "アイスストーム", category: "attack", target: "area5x5",
+        dmgDice: "2d8", useInt: true, range: "long",
+        mpCost: 9, levelReq: 7,
+        saveAbility: "dex",
+        slowTarget: 3,
+        flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減、MP 9)",
       },
     };
 
@@ -16245,6 +16302,102 @@
       await sleepMs(700);
     }
 
+    // ─── アイスストーム (STEP2: 5x5 範囲、2d8+INT 冷気、DEX セーヴ半減、命中全敵に鈍足3T) ───
+    // allyFireball の 5x5 版。氷塊が降り注ぎ冷気ダメージ + 地面が氷結し敵の動きを鈍らせる。
+    async function allyIceStorm(ally, enemyIdx) {
+      const skill = MAGE_SKILLS["ice-storm"];
+      const target = enemies[enemyIdx];
+      if (!target || !target.alive) return;
+      const tgtDef = target.def;
+      const ex = target.x + tgtDef.displaySize / 2;
+      const ey = target.y + tgtDef.displaySize / 2;
+
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+
+      // 5x5 候補生成: ターゲットを含む 25 通りの origin。PT 不在 + 敵密集を最大化
+      const targetTX = Math.floor(ex / TILE_SIZE);
+      const targetTY = Math.floor(ey / TILE_SIZE);
+      const candidates = [];
+      for (let dy = -4; dy <= 0; dy++) {
+        for (let dx = -4; dx <= 0; dx++) {
+          candidates.push({ tx: targetTX + dx, ty: targetTY + dy });
+        }
+      }
+      let best = null, bestCount = 0;
+      for (const c of candidates) {
+        if (partyInArea(c.tx, c.ty, 5, 5)) continue;   // PT 巻き込み回避
+        const cnt = enemiesInArea(c.tx, c.ty, 5, 5).length;
+        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      }
+      if (!best || bestCount === 0) {
+        // 発動できる安全な範囲なし → 通常基本攻撃にフォールバック
+        await allyBasicAttack(ally, enemyIdx);
+        return;
+      }
+      const affectedIdxs = enemiesInArea(best.tx, best.ty, 5, 5);
+
+      // MP / 呪文スロット消費 + 詠唱
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+
+      showRollAtAlly(ally,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        "skill");
+      startAllyAttackAnim(ally);
+      // 詠唱: 氷塊が手元で凝結 (650ms)
+      spawnCastOrb(ally, "rgba(160,220,255,1)", 650);
+      await dfPlayCast(ally, { name: skill.name, element: 'ice' }, { duration: 680 });
+
+      // 着弾: 5x5 に氷結地面 (2 秒)
+      spawnGroundFx(best.tx, best.ty, 5, 5, "cold-frost", 2000);
+      await sleepMs(250);
+
+      // 全敵に DEX セーヴ + ダメージ。鈍足はセーヴ成否に関わらず命中全敵へ (氷結地形は全員に効く)
+      const intMod = ally.int || 4;
+      const spellDC = 12 + intMod;
+      let totalHits = 0, halved = 0, slowed = 0;
+      const killedNames = [];
+      for (const idx of affectedIdxs) {
+        const t = enemies[idx];
+        if (!t.alive) continue;
+        const tDef = t.def;
+        const saveRoll = d20() + (tDef.dex || 0);
+        const halvedSave = saveRoll >= spellDC;
+        const { n, sides } = parseDiceDD(skill.dmgDice);
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        dmg += intMod;
+        if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
+        dmg = Math.max(1, dmg);
+        // 残影回避判定 (Phase 2-A)
+        if (tryDisplacement(idx)) continue;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        const tex = t.x + tDef.displaySize / 2;
+        showDmgAt(tex, t.y, dmg, false);
+        // 鈍足: 氷結地形で動きが鈍る (命中した全敵に付与)
+        t.slowedRemaining = Math.max(t.slowedRemaining || 0, skill.slowTarget || 3);
+        slowed++;
+        totalHits++;
+        if (t.hp <= 0) { defeatEnemy(idx); killedNames.push(tDef.name); }
+      }
+      updateInfo(`${ally.def.name}: アイスストーム ${affectedIdxs.length}体に着弾 (${halved}体セーヴ半減 / ${slowed}体鈍足)`);
+      if (killedNames.length > 0) updateInfo(`${killedNames.join(", ")} を撃破!`);
+      await sleepMs(700);
+    }
+
     // ─── バーニングハンズ (前方円錐 3 タイル、3d6+INT 火炎、DEX セーヴ半減) ───
     async function allyBurningHands(ally, enemyIdx) {
       const skill = MAGE_SKILLS["burning-hands"];
@@ -17105,6 +17258,9 @@
         if (ally.equippedSkills.includes("burning-hands") && hasSpellSlot(ally, "burning-hands")) {
           attackSpells.push("burning-hands");
         }
+        if (ally.equippedSkills.includes("ice-storm") && hasSpellSlot(ally, "ice-storm")) {
+          attackSpells.push("ice-storm");
+        }
         if (attackSpells.length > 0) {
           const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
           if (tgtIdx < 0) return false;
@@ -17113,13 +17269,14 @@
           //   - threatScore ≥ 25 + Lightning Bolt or Cone of Cold → 優先
           //   - その他: Lightning Bolt / Cone of Cold → Fireball → Magic Missile → Fire Bolt の順
           let spellId = null;
-          if (threatScore >= 30 && attackSpells.includes("fireball")) spellId = "fireball";
+          if (threatScore >= 32 && attackSpells.includes("ice-storm")) spellId = "ice-storm";
+          else if (threatScore >= 30 && attackSpells.includes("fireball")) spellId = "fireball";
           else if (threatScore >= 25 && attackSpells.includes("lightning-bolt")) spellId = "lightning-bolt";
           else if (threatScore >= 25 && attackSpells.includes("cone-of-cold")) spellId = "cone-of-cold";
           else if (threatScore >= 20 && attackSpells.includes("burning-hands")) spellId = "burning-hands";
           else {
             // 装備されている強力なものから順に選ぶ (低 threatScore でも使う)
-            const fallbackOrder = ["lightning-bolt", "cone-of-cold", "fireball", "burning-hands", "magic-missile", "fire-bolt"];
+            const fallbackOrder = ["ice-storm", "lightning-bolt", "cone-of-cold", "fireball", "burning-hands", "magic-missile", "fire-bolt"];
             for (const p of fallbackOrder) {
               if (attackSpells.includes(p)) { spellId = p; break; }
             }
@@ -17131,6 +17288,7 @@
           else if (spellId === "lightning-bolt")  await allyLightningBolt(ally, tgtIdx);
           else if (spellId === "cone-of-cold")    await allyConeOfCold(ally, tgtIdx);
           else if (spellId === "burning-hands")   await allyBurningHands(ally, tgtIdx);
+          else if (spellId === "ice-storm")       await allyIceStorm(ally, tgtIdx);
           else                                    await allyFireBolt(ally, tgtIdx);
           return true;
         }
@@ -19065,6 +19223,9 @@
       if (enemy.atkPenaltyRemaining > 0) enemy.atkPenaltyRemaining--;
       // ハンターズ・マーク (狩りの標的) を1ターン分減衰
       if (enemy.huntMarkRemaining > 0) enemy.huntMarkRemaining--;
+      // 鈍足 (アイスストーム): このターンの移動を封じる (スタンと違い攻撃は可能)。残ターンを1減衰。
+      enemy.__moveBlockedThisTurn = (enemy.slowedRemaining > 0);
+      if (enemy.slowedRemaining > 0) enemy.slowedRemaining--;
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
