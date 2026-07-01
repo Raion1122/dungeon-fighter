@@ -1454,10 +1454,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>装備の整理・売買システムを準備中</b> — 弱くなった武具を「所持品」にまとめ、酒場で売り買いできる仕組みを追加しています。</li>
         <li><b>召喚した仲間が隊列の最前列に</b> — ゴーレムやアンデッドが盾役として前に出て戦うようになった。</li>
         <li><b>探索中に見つかる宝箱を物語の品専用に</b> — 判定で見つける宝箱はそのまま。何気ない探索でふと見つかる宝箱は、物語上意味のある品が入っている時だけ現れるよう土台を整えた。</li>
         <li><b>ドラゴンへの近接攻撃のめり込みを修正</b> — レッドドラゴンなど大型の敵に前衛が斬りかかっても、踏み込みが体を突き抜けないよう調整しました。</li>
-        <li><b>休憩中のスクロール確認を自動見送りに</b> — 放っておくと約2秒で「使わない」を選んで先へ進む。</li>
       </ul>
     </div>
     <script>
@@ -2517,6 +2517,99 @@
   // クラス別スキルスロット上限 (Lv 連動)
   function skillLimitForClass(classKey) { return skillSlotsForLevel(memberLevelOf(classKey)); }
   const inventory = loadInventory();
+
+  // ══════════════════════════════════════════════════════════════
+  // v7.1 装備・インベントリ再設計 — 基盤ヘルパー (equipment-spec-0701.md)
+  // ⚠ dfBuyPrice / dfSellPrice / dfIsTwoHanded は装備データのプロパティ系ヘルパー。
+  //    index.html にも同一定義あり (二重定義・同期必須)。owned overlay は prep/武器防具屋 専用のため
+  //    tavern.html のみ (index.html は装備選択を sessionStorage 経由で受け取るため overlay 不要)。
+  // ── 売買価格 (rarity 既定 + item 個別上書き可) ──
+  const DF_PRICE_BY_RARITY = { common: 40, uncommon: 120, rare: 320, special: 640, epic: 900, legendary: 1500 };
+  function dfBuyPrice(item) {
+    if (!item) return 0;
+    if (item.buyPrice != null) return item.buyPrice;               // 明示単価
+    const base = DF_PRICE_BY_RARITY[item.rarity] || 40;
+    return base + (item.enhancement || 0) * 60;                    // 既定 = rarity + 強化値
+  }
+  function dfSellPrice(item) {
+    if (!item) return 0;
+    if (item.sellPrice != null) return item.sellPrice;            // レア個別単価
+    return Math.floor(dfBuyPrice(item) * 0.5);                    // 既定 = 購入額の 50%
+  }
+  // 両手武器判定 (盾スロットと排他)。明示 twoHanded 優先 → 弓(range==="long") → flavor「両手」。
+  function dfIsTwoHanded(item) {
+    if (!item) return false;
+    if (item.twoHanded != null) return !!item.twoHanded;
+    if (item.range === "long") return true;
+    return /両手/.test(item.flavor || "");
+  }
+
+  // ── 所持ティア overlay (v7.1) ──
+  // 実ゲームの所持は「スロット別の共有ティア」= inventory.weaponIdx 等 (全職業プールへ一律適用)。
+  // 売却で任意ティアを外せるよう明示 owned セットへ拡張。旧セーブは [0..maxIdx] で後方互換初期化。
+  //  ownedEquip = { weapons:[t...], armors:[t...], shields:[t...], _hwm:{weapons,armors,shields} }
+  //  _hwm = 最後に反映した maxIdx。戦利品で maxIdx が上がった分だけ owned に追加し、売却済みは復活させない。
+  const DF_OWNED_KEY = "dragonfighters.ownedEquip";
+  function dfRange0(n) { const a = []; for (let i = 0; i <= (n | 0); i++) a.push(i); return a; }
+  function dfPersistOwned(data) {
+    try { localStorage.setItem(DF_OWNED_KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+  }
+  function loadOwnedEquip() {
+    const maxes = { weapons: inventory.weaponIdx | 0, armors: inventory.armorIdx | 0, shields: inventory.shieldIdx | 0 };
+    let data;
+    try { data = JSON.parse(localStorage.getItem(DF_OWNED_KEY) || "null"); } catch (e) { data = null; }
+    if (!data || typeof data !== "object") {
+      // 初回: 旧セーブの maxIdx から [0..max] を所持とみなす (後方互換)
+      data = { weapons: dfRange0(maxes.weapons), armors: dfRange0(maxes.armors), shields: dfRange0(maxes.shields),
+               _hwm: { weapons: maxes.weapons, armors: maxes.armors, shields: maxes.shields } };
+      dfPersistOwned(data);
+      return data;
+    }
+    if (!data._hwm) data._hwm = { weapons: -1, armors: -1, shields: -1 };
+    let changed = false;
+    for (const slot of ["weapons", "armors", "shields"]) {
+      if (!Array.isArray(data[slot])) { data[slot] = dfRange0(maxes[slot]); changed = true; }
+      if (data._hwm[slot] == null) data._hwm[slot] = -1;
+      // 戦利品で maxIdx が前回反映 hwm より上がった分を所持へ追加。売却済み低ティアは復活しない。
+      for (let t = (data._hwm[slot] | 0) + 1; t <= maxes[slot]; t++) {
+        if (!data[slot].includes(t)) { data[slot].push(t); changed = true; }
+      }
+      if ((data._hwm[slot] | 0) < maxes[slot]) { data._hwm[slot] = maxes[slot]; changed = true; }
+      data[slot].sort((a, b) => a - b);
+    }
+    if (changed) dfPersistOwned(data);
+    return data;
+  }
+  let ownedEquip = loadOwnedEquip();
+  const DF_SLOT_KEY = { weapon: "weapons", armor: "armors", shield: "shields" };   // 単数→複数キー
+  function dfOwnedTiers(kind) { return ownedEquip[DF_SLOT_KEY[kind] || kind] || []; }
+  function dfIsOwnedTier(kind, tier) { return dfOwnedTiers(kind).includes(tier | 0); }
+  function dfAddOwnedTier(kind, tier) {
+    const key = DF_SLOT_KEY[kind] || kind; tier = tier | 0;
+    if (!ownedEquip[key].includes(tier)) { ownedEquip[key].push(tier); ownedEquip[key].sort((a, b) => a - b); }
+    // 戦闘/クランプ用 maxIdx も追随 (index.html が min(sel, maxIdx) するため)
+    const mk = kind === "weapon" ? "weaponIdx" : kind === "armor" ? "armorIdx" : "shieldIdx";
+    if (tier > (inventory[mk] | 0)) { inventory[mk] = tier; try { localStorage.setItem("dragonfighters." + mk, String(tier)); } catch (e) {} }
+    if (tier > (ownedEquip._hwm[key] | 0)) ownedEquip._hwm[key] = tier;
+    dfPersistOwned(ownedEquip);
+  }
+  function dfRemoveOwnedTier(kind, tier) {
+    const key = DF_SLOT_KEY[kind] || kind; tier = tier | 0;
+    const i = ownedEquip[key].indexOf(tier);
+    if (i >= 0) ownedEquip[key].splice(i, 1);
+    dfPersistOwned(ownedEquip);   // maxIdx(hwm) は下げない = 売却済みは reconcile で復活しない
+  }
+  // 検証用ブリッジ (v7.1 装備。puppeteer から IIFE 内 API へ到達する手段。本番動作には無害)
+  try {
+    window.__equipTV = {
+      buyPrice: dfBuyPrice, sellPrice: dfSellPrice, isTwoHanded: dfIsTwoHanded,
+      ownedTiers: dfOwnedTiers, isOwned: dfIsOwnedTier,
+      addOwned: dfAddOwnedTier, removeOwned: dfRemoveOwnedTier,
+      reload: () => { ownedEquip = loadOwnedEquip(); return ownedEquip; },
+      getOwned: () => ownedEquip, getInv: () => inventory,
+      charEquip: () => CHAR_EQUIP,
+    };
+  } catch (e) { /* ignore */ }
 
   // ── Phase 2-J: 呪文記憶スロット用ヘルパー (index.html と同期) ──
   const SPELL_SLOT_CURVE_MAGE = [0, 3, 4, 5, 6, 8, 9, 10, 12, 13, 15];

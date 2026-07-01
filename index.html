@@ -6319,6 +6319,28 @@
       currentAccessoryIndices[1] = 0;
     }
 
+    // ── v7.1: 装備データのプロパティ系ヘルパー (⚠ tavern.html と二重定義・同期必須) ──
+    //   売買価格・両手判定は装備データの属性。武器防具屋/prep UI は tavern.html だが、
+    //   ここでも同期定義しておく (将来の in-game 装備変更/表示に備える)。
+    const DF_PRICE_BY_RARITY = { common: 40, uncommon: 120, rare: 320, special: 640, epic: 900, legendary: 1500 };
+    function dfBuyPrice(item) {
+      if (!item) return 0;
+      if (item.buyPrice != null) return item.buyPrice;
+      const base = DF_PRICE_BY_RARITY[item.rarity] || 40;
+      return base + (item.enhancement || 0) * 60;
+    }
+    function dfSellPrice(item) {
+      if (!item) return 0;
+      if (item.sellPrice != null) return item.sellPrice;
+      return Math.floor(dfBuyPrice(item) * 0.5);
+    }
+    function dfIsTwoHanded(item) {
+      if (!item) return false;
+      if (item.twoHanded != null) return !!item.twoHanded;
+      if (item.range === "long") return true;
+      return /両手/.test(item.flavor || "");
+    }
+
     // ── Phase 2-H: 道具袋 (PT 内に装備可能職業がいないアイテムを保管) ──
     // 構造: { warrior:{weapons:[idx,...], armors:[...], shields:[...]}, dwarf:{...}, ... }
     // ダブり (同じ idx 既保管) → 換金、新規 → 追加保管
