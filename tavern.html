@@ -1454,7 +1454,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>装備の整理・売買システムを準備中</b> — 弱くなった武具を「所持品」にまとめ、酒場で売り買いできる仕組みを追加しています。</li>
+        <li><b>両手武器を持つと盾を自動で外すように</b> — 戦斧などの両手武器を装備すると盾スロットがロックされ、片手武器に戻すと再び盾を装備できます（装備の整理・売買システムを順次追加中）。</li>
         <li><b>召喚した仲間が隊列の最前列に</b> — ゴーレムやアンデッドが盾役として前に出て戦うようになった。</li>
         <li><b>探索中に見つかる宝箱を物語の品専用に</b> — 判定で見つける宝箱はそのまま。何気ない探索でふと見つかる宝箱は、物語上意味のある品が入っている時だけ現れるよう土台を整えた。</li>
         <li><b>ドラゴンへの近接攻撃のめり込みを修正</b> — レッドドラゴンなど大型の敵に前衛が斬りかかっても、踏み込みが体を突き抜けないよう調整しました。</li>
@@ -2536,11 +2536,19 @@
     if (item.sellPrice != null) return item.sellPrice;            // レア個別単価
     return Math.floor(dfBuyPrice(item) * 0.5);                    // 既定 = 購入額の 50%
   }
-  // 両手武器判定 (盾スロットと排他)。明示 twoHanded 優先 → 弓(range==="long") → flavor「両手」。
+  // 両手武器判定 (グリップ概念)。明示 twoHanded 優先 → 弓(range==="long") → flavor「両手」。
   function dfIsTwoHanded(item) {
     if (!item) return false;
     if (item.twoHanded != null) return !!item.twoHanded;
     if (item.range === "long") return true;
+    return /両手/.test(item.flavor || "");
+  }
+  // 盾スロットをロックするか (= 物理盾と排他)。弓(range==="long")は off-hand が腕鎧で両立するため
+  // ロックしない(エルフの腕守り等)。両手"近接"武器 (戦斧など flavor「両手」/明示 twoHanded) のみロック。
+  function dfWeaponLocksShield(item) {
+    if (!item) return false;
+    if (item.range === "long") return false;                 // 弓 → 盾スロット非ロック
+    if (item.twoHanded != null) return !!item.twoHanded;     // 明示フラグ (近接)
     return /両手/.test(item.flavor || "");
   }
 
@@ -2608,6 +2616,11 @@
       reload: () => { ownedEquip = loadOwnedEquip(); return ownedEquip; },
       getOwned: () => ownedEquip, getInv: () => inventory,
       charEquip: () => CHAR_EQUIP,
+      // STEP2: 両手⇔盾排他
+      equip: (ck, kind, idx) => dfEquip(ck, kind, idx),
+      shieldLocked: (ck) => dfShieldLocked(ck),
+      locksShield: (it) => dfWeaponLocksShield(it),
+      getSel: (ck) => getEquipSelection(ck),
     };
   } catch (e) { /* ignore */ }
 
@@ -3212,6 +3225,31 @@
     }
   }
 
+  // ── v7.1: 両手武器 ⇔ 盾 の排他制御 ──
+  // 現在の武器が盾ロック対象 (両手近接) なら盾スロットはロック。盾"なし" = 各プール index 0。
+  function dfShieldLocked(charKey) {
+    const pool = CHAR_EQUIP[charKey];
+    if (!pool || !pool.weapons) return false;
+    const sel = getEquipSelection(charKey);
+    return dfWeaponLocksShield(pool.weapons[sel.weapon]);
+  }
+  // 装備適用ラッパ。両手武器選択 → 盾を強制「なし」(0)。ロック中に非「なし」盾は弾く。
+  // 戻り値: 装備を反映したら true / 弾いたら false。
+  function dfEquip(charKey, kind, idx) {
+    const pool = CHAR_EQUIP[charKey];
+    if (kind === "shield") {
+      if (idx !== 0 && dfShieldLocked(charKey)) return false;   // 両手武器装備中は盾不可
+      setEquipSelection(charKey, "shield", idx);
+      return true;
+    }
+    setEquipSelection(charKey, kind, idx);
+    if (kind === "weapon" && pool && dfWeaponLocksShield(pool.weapons[idx])) {
+      // 両手武器 → 盾を強制解除 (なし=0)
+      if (getEquipSelection(charKey).shield !== 0) setEquipSelection(charKey, "shield", 0);
+    }
+    return true;
+  }
+
   // ── 主人公セレクタ (6職から1人だけ選ぶ。残りはNPC冒険者で自動編成) ──
   // Q1=B: 隊列は front→mid→rear に並び、先頭(前衛)が移動の先頭=蛇の頭=盾役。主人公が後衛なら後方に下がる。
   function renderPartyComposition() {
@@ -3415,7 +3453,7 @@
         `<span class="eSpec">${owned ? rangeTag + it.spec : "未所持"}</span>`;
       if (owned) {
         item.addEventListener("click", () => {
-          setEquipSelection(activeCharTab, kind, i);
+          if (!dfEquip(activeCharTab, kind, i)) return;   // 両手武器装備中の盾など → 弾く
           saveSelections();
           renderCharLoadout();
         });

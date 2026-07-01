@@ -6340,6 +6340,13 @@
       if (item.range === "long") return true;
       return /両手/.test(item.flavor || "");
     }
+    // 盾スロットをロックするか (= 物理盾と排他)。弓は off-hand が腕鎧で両立するため非ロック。
+    function dfWeaponLocksShield(item) {
+      if (!item) return false;
+      if (item.range === "long") return false;
+      if (item.twoHanded != null) return !!item.twoHanded;
+      return /両手/.test(item.flavor || "");
+    }
 
     // ── Phase 2-H: 道具袋 (PT 内に装備可能職業がいないアイテムを保管) ──
     // 構造: { warrior:{weapons:[idx,...], armors:[...], shields:[...]}, dwarf:{...}, ... }
