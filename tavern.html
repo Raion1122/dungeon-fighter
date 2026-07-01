@@ -491,6 +491,47 @@
     .equipItem.selected .eName,
     .equipItem.selected .eSpec { color: #3a2010; }
 
+    /* v7.1: 2段構成 装備画面 (上段=装備中サマリ / 下段=所持品) */
+    .equipTierLabel {
+      font-family: 'MedievalSharp', serif;
+      font-size: 12px; letter-spacing: 2px;
+      color: var(--parchment-ink-soft);
+      margin: 6px 0 4px;
+    }
+    .equipTierLabel.ownedLabel {
+      margin-top: 10px; padding-top: 8px;
+      border-top: 1px dashed rgba(139,105,20,0.35);
+    }
+    .equippedSummaryWrap { margin-bottom: 4px; }
+    .equippedSummary { display: flex; flex-wrap: wrap; gap: 6px; }
+    .equipSlotChip {
+      flex: 1 1 118px; min-width: 106px;
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 6px 9px;
+      background: linear-gradient(180deg, #f3e2b4, #e6d1a0);
+      border: 2px solid var(--parchment-gold);
+      border-radius: 4px;
+      box-shadow: inset 0 0 6px rgba(139,105,20,0.18);
+    }
+    .equipSlotChip.locked {
+      background: rgba(120,110,90,0.22);
+      border-color: rgba(120,110,90,0.5);
+      box-shadow: none;
+    }
+    .equipSlotChip.placeholder {
+      background: repeating-linear-gradient(45deg, rgba(160,150,130,0.16), rgba(160,150,130,0.16) 6px, rgba(160,150,130,0.28) 6px, rgba(160,150,130,0.28) 12px);
+      border-color: rgba(120,110,90,0.4);
+      opacity: 0.72; box-shadow: none;
+    }
+    .equipSlotChip .slotLabel {
+      font-size: 10px; letter-spacing: 1px;
+      color: var(--parchment-ink-soft);
+    }
+    .equipSlotChip .slotVal {
+      font-size: 13px; font-weight: 700;
+      color: var(--parchment-ink); line-height: 1.25;
+    }
+
     /* 装備の色分類 (白=通常 / 青=+Nエンハンスメント / 紫=特殊効果) */
     .item-normal  { color: var(--parchment-ink); }
     .item-magic   { color: #1a5ac0; font-weight: 700; }
@@ -1369,6 +1410,13 @@
           </div>
           <div class="partyTabs" id="charTabs"></div>
 
+          <!-- v7.1: 装備中サマリ (2段構成の上段) -->
+          <div class="equippedSummaryWrap">
+            <div class="equipTierLabel">装備中</div>
+            <div class="equippedSummary" id="equipEquippedSummary"></div>
+          </div>
+          <div class="equipTierLabel ownedLabel">所持品 <span style="opacity:0.6;font-size:11px;font-style:italic;">（タップで装備 ／ 売却は酒場の武器防具屋）</span></div>
+
           <div class="equipGroup">
             <div class="equipLabel">武器</div>
             <div class="equipList" id="equipWeaponList"></div>
@@ -1454,7 +1502,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>両手武器を持つと盾を自動で外すように</b> — 戦斧などの両手武器を装備すると盾スロットがロックされ、片手武器に戻すと再び盾を装備できます（装備の整理・売買システムを順次追加中）。</li>
+        <li><b>装備画面を「装備中／所持品」の2段構成に刷新</b> — 装備中の装備が上段にまとまり、弱い武器は下段の所持品へ。両手武器を持つと盾は自動で外れ、アクセサリー2枠も選べるようになりました。</li>
         <li><b>召喚した仲間が隊列の最前列に</b> — ゴーレムやアンデッドが盾役として前に出て戦うようになった。</li>
         <li><b>探索中に見つかる宝箱を物語の品専用に</b> — 判定で見つける宝箱はそのまま。何気ない探索でふと見つかる宝箱は、物語上意味のある品が入っている時だけ現れるよう土台を整えた。</li>
         <li><b>ドラゴンへの近接攻撃のめり込みを修正</b> — レッドドラゴンなど大型の敵に前衛が斬りかかっても、踏み込みが体を突き抜けないよう調整しました。</li>
@@ -2621,6 +2669,15 @@
       shieldLocked: (ck) => dfShieldLocked(ck),
       locksShield: (it) => dfWeaponLocksShield(it),
       getSel: (ck) => getEquipSelection(ck),
+      // STEP3: 2段UI + アクセサリー
+      heroAccIds: () => heroAccessoryIds(),
+      cycleAcc: (s) => cycleAccessoryTV(s),
+      unlockedAccs: () => unlockedAccessoriesTV().map(a => a.id),
+      setTab: (ck) => { activeCharTab = ck; renderCharLoadout(); },
+      render: () => renderCharLoadout(),
+      summaryHtml: () => { const e = document.getElementById("equipEquippedSummary"); return e ? e.innerHTML : null; },
+      summaryLabels: () => Array.from(document.querySelectorAll("#equipEquippedSummary .slotLabel")).map(x => x.textContent),
+      ownedListText: (id) => { const e = document.getElementById(id); return e ? e.textContent : null; },
     };
   } catch (e) { /* ignore */ }
 
@@ -2886,6 +2943,9 @@
     let equipWeapon = inventory.weaponIdx;
     let equipArmor  = inventory.armorIdx;
     let equipShield = inventory.shieldIdx;
+    // v7.1: 主人公のアクセサリー×2 (id。index.html の equipAccessory1/2 と共有)
+    let equipAccessory1 = "none";
+    let equipAccessory2 = "none";
     // キャラ別スキル: { warrior: [...], cleric: [...], ... }
     const partySkills = {};
     for (const slot of PARTY_SLOTS) {
@@ -2908,6 +2968,10 @@
       if (w !== null) equipWeapon = Math.min(Number(w), inventory.weaponIdx);
       if (a !== null) equipArmor  = Math.min(Number(a), inventory.armorIdx);
       if (s !== null) equipShield = Math.min(Number(s), inventory.shieldIdx);
+      const ac1 = localStorage.getItem("dragonfighters.equipAccessory1");
+      const ac2 = localStorage.getItem("dragonfighters.equipAccessory2");
+      if (ac1) equipAccessory1 = ac1;
+      if (ac2) equipAccessory2 = ac2;
       // 仲間装備の選択 (キャラ別、所持上限は warrior の inventory と同じカウンタを共有)
       const aeRaw = localStorage.getItem("dragonfighters.allyEquip");
       if (aeRaw) {
@@ -2960,7 +3024,7 @@
         }
       }
     } catch (e) { /* ignore */ }
-    return { equipWeapon, equipArmor, equipShield, partySkills, allyEquip, partyComposition, partyMembers };
+    return { equipWeapon, equipArmor, equipShield, equipAccessory1, equipAccessory2, partySkills, allyEquip, partyComposition, partyMembers };
   }
   const selection = loadSelections();
 
@@ -2972,6 +3036,9 @@
       localStorage.setItem("dragonfighters.partySkills", JSON.stringify(selection.partySkills));
       localStorage.setItem("dragonfighters.allyEquip",  JSON.stringify(selection.allyEquip));
       localStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
+      // v7.1: 主人公アクセサリー (index.html が読む)
+      localStorage.setItem("dragonfighters.equipAccessory1", selection.equipAccessory1 || "none");
+      localStorage.setItem("dragonfighters.equipAccessory2", selection.equipAccessory2 || "none");
     } catch (e) { /* ignore */ }
   }
   // (左上プレイヤーカードは廃止: renderPlayerCard と専用ヘルパーを削除)
@@ -3250,6 +3317,39 @@
     return true;
   }
 
+  // ── v7.1: アクセサリー×2 (主人公のみ。index.html accessories[] と同期) ──
+  // ⚠ index.html の accessories[] とカタログ同期必須。効果は index.html 側で発動 (ここは選択のみ)。
+  const ACCESSORIES_TV = [
+    { id: "none",          name: "なし",         rarity: "common" },
+    { id: "shadow-amulet", name: "残影の首飾り", rarity: "special" },
+  ];
+  function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
+  // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds)
+  function unlockedAccessoriesTV() {
+    const set = new Set(["none"]);
+    try {
+      const raw = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
+      if (Array.isArray(raw)) raw.forEach(id => set.add(id));
+    } catch (e) { /* ignore */ }
+    return ACCESSORIES_TV.filter(a => set.has(a.id));
+  }
+  function heroAccessoryIds() {
+    return [selection.equipAccessory1 || "none", selection.equipAccessory2 || "none"];
+  }
+  // スロットのアクセサリーを次候補へ巡回 (もう片方が使用中の非none id は除外 = 同一不可)
+  function cycleAccessoryTV(slotIdx) {
+    const ids = heroAccessoryIds();
+    const other = ids[slotIdx === 0 ? 1 : 0];
+    const cand = unlockedAccessoriesTV().filter(a => a.id === "none" || a.id !== other);
+    if (cand.length <= 1) return;                          // なし以外に候補がなければ何もしない
+    const cur = cand.findIndex(a => a.id === ids[slotIdx]);
+    const next = cand[((cur < 0 ? 0 : cur) + 1) % cand.length];
+    if (slotIdx === 0) selection.equipAccessory1 = next.id;
+    else               selection.equipAccessory2 = next.id;
+    saveSelections();
+    renderCharLoadout();
+  }
+
   // ── 主人公セレクタ (6職から1人だけ選ぶ。残りはNPC冒険者で自動編成) ──
   // Q1=B: 隊列は front→mid→rear に並び、先頭(前衛)が移動の先頭=蛇の頭=盾役。主人公が後衛なら後方に下がる。
   function renderPartyComposition() {
@@ -3431,21 +3531,26 @@
   }
 
   // ── 装備セクション 共通レンダ (filter 対応・未所持カウント表示) ──
-  function renderEquipSlot(listEl, items, ownedMax, currentSel, kind) {
+  // v7.1: 所持品リスト (2段構成の下段)。装備中(currentSel)は上段サマリに出すので除外。
+  //   owned = 所持セット(dfIsOwnedTier)。盾ロック中はロック表示のみ。未所持は「未所持も表示」時のみ。
+  function renderEquipSlot(listEl, items, kind, currentSel, opts) {
+    opts = opts || {};
     if (!listEl) return;
     listEl.innerHTML = "";
-    let hiddenCount = 0;
+    if (kind === "shield" && opts.shieldLocked) {
+      const note = document.createElement("div");
+      note.className = "equipItem locked";
+      note.innerHTML = `<span class="eName">🔒 両手武器装備中</span><span class="eSpec">盾は外れます</span>`;
+      listEl.appendChild(note);
+      return;
+    }
+    let shopHint = 0;
     items.forEach((it, i) => {
-      const owned = i <= ownedMax;
-      // 未所持 & 「所持のみ」モード & 選択中ではない → スキップ
-      if (!owned && !showAllEquip && i !== currentSel) {
-        hiddenCount++;
-        return;
-      }
+      if (i === currentSel) return;                       // 装備中は上段 → 所持品から除外
+      const owned = dfIsOwnedTier(kind, i);
+      if (!owned && !showAllEquip) { shopHint++; return; }
       const item = document.createElement("div");
-      item.className = "equipItem" +
-        (i === currentSel ? " selected" : "") +
-        (owned ? "" : " locked");
+      item.className = "equipItem" + (owned ? "" : " locked");
       const colorCls = getItemColorClass(it.name, it.rarity);
       const rangeTag = (kind === "weapon" && it.range) ? `[${RANGE_LABEL[it.range] || ""}] ` : "";
       item.innerHTML =
@@ -3460,16 +3565,62 @@
       }
       listEl.appendChild(item);
     });
-    if (hiddenCount > 0) {
+    if (listEl.children.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "equipItem locked";
+      empty.style.cssText = "opacity:0.5;font-style:italic;font-size:11px;";
+      empty.innerHTML = `<span class="eName">（他に所持なし）</span>`;
+      listEl.appendChild(empty);
+    }
+    if (shopHint > 0 && !showAllEquip) {
       const hint = document.createElement("div");
       hint.className = "equipItem locked";
-      hint.style.opacity = "0.55";
-      hint.style.fontStyle = "italic";
-      hint.style.fontSize = "11px";
-      hint.style.padding = "4px 8px";
-      hint.innerHTML = `<span class="eName">…未所持 ${hiddenCount} 個</span>`;
+      hint.style.cssText = "opacity:0.55;font-style:italic;font-size:11px;padding:4px 8px;";
+      hint.innerHTML = `<span class="eName">…武器防具屋で購入可 ${shopHint} 個</span>`;
       listEl.appendChild(hint);
     }
+  }
+
+  // ── v7.1: 装備中サマリ (2段構成の上段。武器/盾or🔒/鎧/装身具×2(主人公)/道具placeholder) ──
+  function renderEquippedSummary(charKey) {
+    const el = document.getElementById("equipEquippedSummary");
+    if (!el) return;
+    const pool = CHAR_EQUIP[charKey];
+    if (!pool) { el.style.display = "none"; el.innerHTML = ""; return; }
+    el.style.display = "";
+    el.innerHTML = "";
+    const sel = getEquipSelection(charKey);
+    const locked = dfShieldLocked(charKey);
+    const isHero = (selection.partyComposition[0] === charKey);
+    const clampGet = (arr, i) => arr[Math.min(Math.max(0, i | 0), arr.length - 1)] || arr[0];
+    const wp = clampGet(pool.weapons, sel.weapon);
+    const sh = clampGet(pool.shields, sel.shield);
+    const ar = clampGet(pool.armors, sel.armor);
+    const chip = (label, name, colorCls, opt) => {
+      opt = opt || {};
+      const d = document.createElement("div");
+      d.className = "equipSlotChip" + (opt.locked ? " locked" : "") + (opt.placeholder ? " placeholder" : "");
+      d.innerHTML = `<div class="slotLabel">${label}</div>` +
+                    `<div class="slotVal ${colorCls || ""}">${name}</div>`;
+      if (opt.onClick && !opt.locked && !opt.placeholder) {
+        d.style.cursor = "pointer";
+        d.title = "タップで変更";
+        d.addEventListener("click", opt.onClick);
+      }
+      el.appendChild(d);
+    };
+    chip("武器", wp.name, getItemColorClass(wp.name, wp.rarity));
+    chip("盾", locked ? "🔒 両手武器装備中" : sh.name, locked ? "" : getItemColorClass(sh.name, sh.rarity),
+      { locked, onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); renderCharLoadout(); } } });
+    chip("鎧", ar.name, getItemColorClass(ar.name, ar.rarity));
+    if (isHero) {
+      const ids = heroAccessoryIds();
+      for (let s = 0; s < 2; s++) {
+        const def = accDefTV(ids[s]);
+        chip("装身具" + (s + 1), def.name, def.id !== "none" ? "item-special" : "", { onClick: () => cycleAccessoryTV(s) });
+      }
+    }
+    chip("道具", "準備中", "", { placeholder: true });
   }
 
   // ── Phase 2-H: 道具袋 (inventoryBag) ロード/セーブ + 描画 ──
@@ -3736,9 +3887,14 @@
       weaponSection.style.display = "";
       armorSection.style.display  = "";
       if (shieldSection) shieldSection.style.display = "";
-      renderEquipSlot(weaponListEl, pool.weapons, inventory.weaponIdx, sel.weapon, "weapon");
-      renderEquipSlot(armorListEl,  pool.armors,  inventory.armorIdx,  sel.armor,  "armor");
-      renderEquipSlot(shieldListEl, pool.shields, inventory.shieldIdx, sel.shield, "shield");
+      renderEquippedSummary(activeCharTab);                       // 上段: 装備中サマリ
+      const shieldLocked = dfShieldLocked(activeCharTab);
+      // 装備indexはプール長でクランプ (共有ティア counter がプール長を超える場合に一致させる。
+      //  戦闘側 getCurrentArmor 等も同じクランプ。所持品からの装備中除外を正しく行うため)
+      const clampSel = (i, arr) => Math.min(Math.max(0, i | 0), arr.length - 1);
+      renderEquipSlot(weaponListEl, pool.weapons, "weapon", clampSel(sel.weapon, pool.weapons), {});
+      renderEquipSlot(armorListEl,  pool.armors,  "armor",  clampSel(sel.armor,  pool.armors),  {});
+      renderEquipSlot(shieldListEl, pool.shields, "shield", clampSel(sel.shield, pool.shields), { shieldLocked });
       // Phase 2-H: 道具袋セクション (このキャラ向けの保管装備)
       renderBagSlot(document.getElementById("bagWeaponList"),
                     document.getElementById("bagWeaponSection"),
@@ -3753,6 +3909,8 @@
       weaponSection.style.display = "none";
       armorSection.style.display  = "none";
       if (shieldSection) shieldSection.style.display = "none";
+      const sumEl = document.getElementById("equipEquippedSummary");
+      if (sumEl) sumEl.style.display = "none";
       // Phase 2-H: 道具袋セクションも非表示
       ["bagWeaponSection","bagArmorSection","bagShieldSection"].forEach(id => {
         const el = document.getElementById(id);
