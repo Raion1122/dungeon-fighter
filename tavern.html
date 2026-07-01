@@ -1265,6 +1265,83 @@
     }
     #plazaDoor:hover { box-shadow: 0 0 26px rgba(69,224,168,0.5), inset 0 0 18px rgba(0,0,0,0.85); }
 
+    /* v7.1: 武器防具屋 入口 (酒場・右下) */
+    #shopEntry {
+      position: absolute; right: 18px; bottom: 18px; z-index: 12;
+      padding: 10px 16px; cursor: pointer;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px;
+      box-shadow: var(--parchment-shadow);
+      transition: background 0.12s, box-shadow 0.12s;
+    }
+    #shopEntry:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+    /* 武器防具屋 画面 (全画面オーバーレイ) */
+    #shopScreen {
+      position: fixed; inset: 0; z-index: 160; display: none;
+      align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 24%, rgba(90,60,20,0.35) 0%, rgba(30,20,8,0.9) 72%), #201509;
+    }
+    #shopInner {
+      width: min(640px, 94vw); max-height: 90vh; overflow-y: auto;
+      padding: 20px 22px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-gold);
+      border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+      color: var(--parchment-ink);
+    }
+    #shopSign {
+      font-family: 'MedievalSharp', serif; font-size: 24px; letter-spacing: 2px;
+      text-align: center; margin-bottom: 12px;
+    }
+    #shopSign small { display: block; font-size: 12px; opacity: 0.7; letter-spacing: 0; margin-top: 3px; }
+    .shopHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .shopTabs { display: flex; gap: 6px; }
+    .shopTab {
+      padding: 7px 18px; cursor: pointer; font-size: 14px; font-family: 'Cinzel', serif;
+      background: rgba(160,140,100,0.18); color: var(--parchment-ink-soft);
+      border: 2px solid var(--parchment-border); border-radius: 5px 5px 0 0;
+    }
+    .shopTab.active { background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010; border-color: var(--parchment-gold); font-weight: 700; }
+    .shopGold { font-family: 'Cinzel', serif; font-size: 14px; font-weight: 700; color: #7a5a10; }
+    #shopList { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .shopGroupHead {
+      font-family: 'MedievalSharp', serif; font-size: 13px; letter-spacing: 2px;
+      color: var(--parchment-ink-soft); margin: 8px 0 2px; border-bottom: 1px dashed rgba(139,105,20,0.35);
+    }
+    .shopItem {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 10px; background: rgba(255,245,210,0.55);
+      border: 1px solid rgba(139,105,20,0.2); border-radius: 4px;
+    }
+    .shopName { font-weight: 700; flex: 0 0 auto; }
+    .shopSpec { flex: 1 1 auto; font-size: 12px; font-style: italic; color: var(--parchment-ink-soft); }
+    .shopBtn {
+      padding: 7px 16px; cursor: pointer; font-size: 13px; font-family: 'Cinzel', serif;
+      background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
+      border: 2px solid var(--parchment-gold); border-radius: 5px; white-space: nowrap;
+    }
+    .shopBtn:hover:not(:disabled) { filter: brightness(1.06); }
+    .shopBtn:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(0.6); }
+    .shopBtn.sell { background: linear-gradient(180deg, #e6b98a, #cf9a63); }
+    .shopBtn.leave { background: rgba(160,140,100,0.25); color: var(--parchment-ink); }
+    .shopEquipped { font-size: 12px; font-style: italic; color: #8b2010; white-space: nowrap; padding: 7px 10px; }
+    .shopEmpty { padding: 16px; text-align: center; opacity: 0.7; font-style: italic; }
+    .shopActions { text-align: center; }
+    #shopConfirm {
+      position: absolute; inset: 0; z-index: 5; display: none;
+      align-items: center; justify-content: center; background: rgba(0,0,0,0.5);
+    }
+    .shopConfirmBox {
+      background: var(--parchment-bg); border: 3px double var(--parchment-gold); border-radius: 8px;
+      padding: 22px 26px; text-align: center; max-width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    #shopConfirmText { font-size: 15px; margin-bottom: 16px; }
+    .shopConfirmBtns { display: flex; gap: 12px; justify-content: center; }
+
     /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
     #plazaScreen {
       position: fixed; inset: 0; z-index: 150; display: none;
@@ -1502,7 +1579,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>装備画面を「装備中／所持品」の2段構成に刷新</b> — 装備中の装備が上段にまとまり、弱い武器は下段の所持品へ。両手武器を持つと盾は自動で外れ、アクセサリー2枠も選べるようになりました。</li>
+        <li><b>酒場に「武器防具屋」がオープン</b> — 武具を購入・売却（売値は購入額の50%）できるように。あわせて装備画面を「装備中／所持品」の2段構成に刷新し、両手武器を持つと盾は自動で外れ、アクセサリー2枠も選べるようになりました。</li>
         <li><b>召喚した仲間が隊列の最前列に</b> — ゴーレムやアンデッドが盾役として前に出て戦うようになった。</li>
         <li><b>探索中に見つかる宝箱を物語の品専用に</b> — 判定で見つける宝箱はそのまま。何気ない探索でふと見つかる宝箱は、物語上意味のある品が入っている時だけ現れるよう土台を整えた。</li>
         <li><b>ドラゴンへの近接攻撃のめり込みを修正</b> — レッドドラゴンなど大型の敵に前衛が斬りかかっても、踏み込みが体を突き抜けないよう調整しました。</li>
@@ -1557,6 +1634,36 @@
         </div>
         <div class="plazaActions">
           <button type="button" id="btnLeavePlaza" class="plazaBtn">← 銀の鹿亭に戻る</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v7.1: 武器防具屋 入口 (酒場内・右下) -->
+    <div id="shopEntry" title="武器防具屋">🛡️ 武器防具屋</div>
+
+    <!-- v7.1: 武器防具屋 画面 -->
+    <div id="shopScreen">
+      <div id="shopInner">
+        <div id="shopSign">武器防具屋<small>鍛冶と革の匂いが漂う、銀の鹿亭併設の店</small></div>
+        <div class="shopHead">
+          <div class="shopTabs">
+            <button type="button" id="shopTabBuy" class="shopTab active">購入</button>
+            <button type="button" id="shopTabSell" class="shopTab">売却</button>
+          </div>
+          <span id="shopGoldCount" class="shopGold">所持金 0 G</span>
+        </div>
+        <div id="shopList"></div>
+        <div class="shopActions">
+          <button type="button" id="btnLeaveShop" class="shopBtn leave">← 銀の鹿亭に戻る</button>
+        </div>
+      </div>
+      <div id="shopConfirm">
+        <div class="shopConfirmBox">
+          <div id="shopConfirmText">売却しますか？</div>
+          <div class="shopConfirmBtns">
+            <button type="button" id="shopConfirmYes" class="shopBtn sell">はい</button>
+            <button type="button" id="shopConfirmNo" class="shopBtn">いいえ</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2678,6 +2785,14 @@
       summaryHtml: () => { const e = document.getElementById("equipEquippedSummary"); return e ? e.innerHTML : null; },
       summaryLabels: () => Array.from(document.querySelectorAll("#equipEquippedSummary .slotLabel")).map(x => x.textContent),
       ownedListText: (id) => { const e = document.getElementById(id); return e ? e.textContent : null; },
+      // STEP4: 武器防具屋
+      gold: () => dfGold(), setGold: (v) => dfSetGold(v),
+      shopBuy: (k, t) => dfShopBuy(k, t), shopSell: (k, t) => dfShopSell(k, t),
+      shopEquippedTiers: (k) => Array.from(shopEquippedTiers(k)),
+      openShop: () => openShop(), closeShop: () => closeShop(), renderShop: () => renderShop(),
+      setShopTab: (t) => { shopTab = t; renderShop(); },
+      shopListText: () => { const e = document.getElementById("shopList"); return e ? e.textContent : null; },
+      shopScreenVisible: () => { const e = document.getElementById("shopScreen"); return !!e && getComputedStyle(e).display !== "none"; },
     };
   } catch (e) { /* ignore */ }
 
@@ -3349,6 +3464,160 @@
     saveSelections();
     renderCharLoadout();
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // v7.1: 武器防具屋 (酒場併設・通常通貨 gold。牙貨経済とは分離)
+  // 所持は「共有ティア」= ownedEquip。購入=ティア追加(gold消費) / 売却=ティア除去(gold加算・50%)。
+  // 誰か(いずれかの職の設定ロードアウト)が装備中のティアは売却不可 (誤売却+戦闘不整合の防止)。
+  function dfGold() { return inventory.gold | 0; }
+  function dfSetGold(v) {
+    inventory.gold = Math.max(0, v | 0);
+    try { localStorage.setItem("dragonfighters.gold", String(inventory.gold)); } catch (e) {}
+  }
+  function shopHeroKey() { return selection.partyComposition[0] || "warrior"; }
+  function shopPool(kind) {
+    const p = CHAR_EQUIP[shopHeroKey()] || CHAR_EQUIP.warrior;
+    return kind === "weapon" ? p.weapons : kind === "armor" ? p.armors : p.shields;
+  }
+  function shopEquippedTiers(kind) {
+    const set = new Set();
+    for (const ck of Object.keys(CHAR_EQUIP)) {
+      const pool = CHAR_EQUIP[ck]; if (!pool) continue;
+      const arr = kind === "weapon" ? pool.weapons : kind === "armor" ? pool.armors : pool.shields;
+      const sel = getEquipSelection(ck);
+      const raw = kind === "weapon" ? sel.weapon : kind === "armor" ? sel.armor : sel.shield;
+      set.add(Math.min(Math.max(0, raw | 0), arr.length - 1));
+    }
+    return set;
+  }
+  function dfShopBuy(kind, tier) {
+    tier = tier | 0;
+    if (dfIsOwnedTier(kind, tier)) return { ok: false, reason: "already" };
+    const item = shopPool(kind)[tier];
+    if (!item) return { ok: false, reason: "noitem" };
+    const price = dfBuyPrice(item);
+    if (dfGold() < price) return { ok: false, reason: "gold" };
+    dfSetGold(dfGold() - price);
+    dfAddOwnedTier(kind, tier);
+    return { ok: true, price, name: item.name, gold: dfGold() };
+  }
+  function dfShopSell(kind, tier) {
+    tier = tier | 0;
+    if (!dfIsOwnedTier(kind, tier)) return { ok: false, reason: "notowned" };
+    if (shopEquippedTiers(kind).has(tier)) return { ok: false, reason: "equipped" };
+    const item = shopPool(kind)[tier];
+    if (!item) return { ok: false, reason: "noitem" };
+    const price = dfSellPrice(item);
+    dfRemoveOwnedTier(kind, tier);
+    dfSetGold(dfGold() + price);
+    return { ok: true, price, name: item.name, gold: dfGold() };
+  }
+
+  let shopTab = "buy";   // "buy" | "sell"
+  const SHOP_KIND_LABEL = { weapon: "武器", armor: "防具", shield: "盾" };
+  function renderShop() {
+    const goldEl = document.getElementById("shopGoldCount");
+    if (goldEl) goldEl.textContent = "所持金 " + dfGold() + " G";
+    const buyTab = document.getElementById("shopTabBuy");
+    const sellTab = document.getElementById("shopTabSell");
+    if (buyTab) buyTab.classList.toggle("active", shopTab === "buy");
+    if (sellTab) sellTab.classList.toggle("active", shopTab === "sell");
+    const listEl = document.getElementById("shopList");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    let any = false;
+    for (const kind of ["weapon", "armor", "shield"]) {
+      const pool = shopPool(kind);
+      const equippedSet = shopEquippedTiers(kind);
+      const rows = [];
+      pool.forEach((item, tier) => {
+        const owned = dfIsOwnedTier(kind, tier);
+        if (shopTab === "buy" && owned) return;          // 購入=未所持のみ
+        if (shopTab === "sell" && !owned) return;        // 売却=所持のみ
+        rows.push({ kind, tier, item, equipped: equippedSet.has(tier) });
+      });
+      if (!rows.length) continue;
+      any = true;
+      const head = document.createElement("div");
+      head.className = "shopGroupHead";
+      head.textContent = SHOP_KIND_LABEL[kind];
+      listEl.appendChild(head);
+      for (const r of rows) {
+        const price = shopTab === "buy" ? dfBuyPrice(r.item) : dfSellPrice(r.item);
+        const colorCls = getItemColorClass(r.item.name, r.item.rarity);
+        const row = document.createElement("div");
+        row.className = "shopItem";
+        let btnHtml;
+        if (shopTab === "buy") {
+          const canBuy = dfGold() >= price;
+          btnHtml = `<button type="button" class="shopBtn buy"${canBuy ? "" : " disabled"}>購入 ${price}G</button>`;
+        } else if (r.equipped) {
+          btnHtml = `<span class="shopEquipped">装備中</span>`;
+        } else {
+          btnHtml = `<button type="button" class="shopBtn sell">売却 ${price}G</button>`;
+        }
+        row.innerHTML =
+          `<span class="shopName ${colorCls}">${r.item.name}</span>` +
+          `<span class="shopSpec">${r.item.spec || ""}</span>` +
+          btnHtml;
+        const btn = row.querySelector("button.shopBtn");
+        if (btn) {
+          btn.addEventListener("click", () => {
+            if (shopTab === "buy") {
+              if (dfShopBuy(r.kind, r.tier).ok) { renderShop(); renderCharLoadout(); }
+            } else {
+              shopConfirm(`${r.item.name} を ${price}G で売却しますか？`, () => {
+                dfShopSell(r.kind, r.tier);
+                renderShop(); renderCharLoadout();
+              });
+            }
+          });
+        }
+        listEl.appendChild(row);
+      }
+    }
+    if (!any) {
+      const empty = document.createElement("div");
+      empty.className = "shopEmpty";
+      empty.textContent = shopTab === "buy" ? "買える品はもうありません。" : "売れる品がありません（装備中は売れません）。";
+      listEl.appendChild(empty);
+    }
+  }
+  function openShop() {
+    const s = document.getElementById("shopScreen");
+    if (!s) return;
+    shopTab = "buy";
+    renderShop();
+    s.style.display = "flex";
+  }
+  function closeShop() {
+    const s = document.getElementById("shopScreen");
+    if (s) s.style.display = "none";
+  }
+  // 売却確認ダイアログ (誤タップ事故防止)。DOM 未整備なら即実行フォールバック。
+  function shopConfirm(msg, onYes) {
+    const m = document.getElementById("shopConfirm");
+    const t = document.getElementById("shopConfirmText");
+    if (!m || !t) { if (onYes) onYes(); return; }
+    t.textContent = msg;
+    m.__onYes = onYes;
+    m.style.display = "flex";
+  }
+  (function bindShop() {
+    const entry = document.getElementById("shopEntry");
+    if (entry) entry.addEventListener("click", openShop);
+    const close = document.getElementById("btnLeaveShop");
+    if (close) close.addEventListener("click", closeShop);
+    const buyTab = document.getElementById("shopTabBuy");
+    if (buyTab) buyTab.addEventListener("click", () => { shopTab = "buy"; renderShop(); });
+    const sellTab = document.getElementById("shopTabSell");
+    if (sellTab) sellTab.addEventListener("click", () => { shopTab = "sell"; renderShop(); });
+    const m = document.getElementById("shopConfirm");
+    const cYes = document.getElementById("shopConfirmYes");
+    const cNo = document.getElementById("shopConfirmNo");
+    if (cYes) cYes.addEventListener("click", () => { const f = m && m.__onYes; if (m) { m.style.display = "none"; m.__onYes = null; } if (f) f(); });
+    if (cNo) cNo.addEventListener("click", () => { if (m) { m.style.display = "none"; m.__onYes = null; } });
+  })();
 
   // ── 主人公セレクタ (6職から1人だけ選ぶ。残りはNPC冒険者で自動編成) ──
   // Q1=B: 隊列は front→mid→rear に並び、先頭(前衛)が移動の先頭=蛇の頭=盾役。主人公が後衛なら後方に下がる。
