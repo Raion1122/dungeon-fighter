@@ -6688,6 +6688,7 @@
         getSummonMenuItems: (phase) => getSummonMenuItems(phase),
         summonSlot: () => summonSlot,
         allies: () => allies,
+        pickNextHeadIndex: () => pickNextHeadIndex(),   // 項目5 検証: 召喚は頭昇格対象外
         aliveUnitCount: () => allies.filter(a => a.alive).length,
         // M9 検証フック: 一般消費アイテムの戦闘効果
         battleStart: () => applyBattleStartConsumables(),
@@ -6953,6 +6954,11 @@
       }
       return out;
     }
+    // 召喚ユニットの隊列ランク: 召喚は前衛タンク役 → 最前 (-1)。以降 front<mid<rear。
+    // orderFormation と同じ zone ランク概念を再利用 (allies[] の並び順=歩行順)。
+    function summonRank(u) {
+      return u.isSummon ? -1 : (({ front: 0, mid: 1, rear: 2 })[u.zone] ?? 1);
+    }
     // 召喚実行: 枠が空 & チャージありなら 1 消費してユニットを allies へ加える。成功で true。
     function executeSummon(itemId, opts) {
       opts = opts || {};
@@ -6971,6 +6977,11 @@
       a.summonItemId = itemId;
       allies.push(a);
       createAllyDom(a, allies.length - 1);   // applyAllyEquipment / initAllySpellSlots は呼ばない (def 値・非キャスター)
+      // 召喚を隊列最前へ (exploreAllyTurn は allies[] の並び順=歩行順 → 主人公直後を歩く)。
+      // ネイティブ sort は安定 = 既存コンパニオンの front→mid→rear 相対順は保持される。
+      // ⚠不変条件: executeSummon は非戦闘中 (consumePendingSummon=ダンジョン開始 / rest フェーズ) のみ
+      //   呼ばれる前提。戦闘中に並べ替えると pickEnemyTarget の idx や initiative と齟齬する。
+      allies.sort((x, y) => summonRank(x) - summonRank(y));
       summonSlot = a;
       return true;
     }
@@ -11148,7 +11159,9 @@
 
     // 隊列順(前→後)で最初の生存 ally の index。委譲先。なければ -1 (=全滅)
     function pickNextHeadIndex() {
-      for (let i = 0; i < allies.length; i++) if (allies[i].alive) return i;
+      // 召喚ユニット (isSummon) は頭 (主人公アバター) に昇格させない。召喚は前列ソートで常に
+      // allies[0] に来るため、このガードが無いと頭委譲時に召喚(ゴーレム/アンデッド)が頭化する。
+      for (let i = 0; i < allies.length; i++) if (allies[i].alive && !allies[i].isSummon) return i;
       return -1;
     }
 
