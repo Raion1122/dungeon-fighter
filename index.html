@@ -302,6 +302,8 @@
     }
     /* 基本オーク: orcGrunt シート流用中のため軽く緑寄せして砦オーク兵と差別化 (暫定) */
     .enemy-orc          { filter: hue-rotate(18deg) saturate(1.05) brightness(1.03); }
+    /* ホブゴブリン: goblin シート流用中。赤茶寄せ + 高コントラストで重装兵らしく差別化 (暫定) */
+    .enemy-hobgoblin    { filter: hue-rotate(-32deg) saturate(1.35) brightness(0.9) contrast(1.12); }
     /* シナリオ2 盗賊団 */
     /* bandit / banditArcher / banditMage / banditHeavy / scar は専用シートに切替済み */
     /* scar はボス用の赤いオーラ (drop-shadow) のみ残す */
@@ -4264,6 +4266,26 @@
         maxSummons: 3,           // 召喚回数上限
         xp: 500,                 // ボス撃破 XP
       },
+      hobgoblin: {
+        name: "ホブゴブリン",
+        flavor: "規律ある大型ゴブリノイドの重装兵",
+        badge: "🛡",
+        // 暫定スプライトは goblin_anim.png (96px×5cols, 480×480) を流用。専用シート確定後に差替。
+        sprite: "assets/goblin_anim.png?v=2",
+        sheetW: 480, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 5, rowOffset: 0,
+        displaySize: 74,
+        hp: 14, speed: 0.8,
+        hasAttackAnim: true,
+        meleeRange: 140, hitRange: 210,
+        attackDuration: 36, attackHitFrame: 16, attackCooldown: 45,
+        dex: 1, atkBonus: 4, ac: 16,
+        dmgDice: "1d8", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        disciplined: true,   // 隊列バフ: 近くに味方の敵が居ると +1命中 / +1AC
+        packTactics: true,   // 群れ戦術: 対象の隣に味方の敵が居ると +2命中
+        xp: 180,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -4982,6 +5004,7 @@
           ["goblinShaman", 55, 15],
           // E 大広間: 重戦車 + 機動 (中心 col 68, row 13)
           ["goblinArcher", 65, 10],
+          ["hobgoblin",    68, 16],   // 規律ある重装兵 (隊列トレイト: pack/disciplined)
           ["goblinBrute",  70, 14],
           ["goblinRider",  72, 17],
           // F ボス部屋 (中心 col 86, row 13)
@@ -13535,6 +13558,17 @@
     function effectiveEnemyAc(target) {
       let ac = target.def.ac || 10;
       if (target.def.ragePhaseDefensive && target.phase === 1) ac += 4;
+      // disciplined (隊列バフ): ≤2タイルに同陣営の敵が居ると隊列を組み AC+1
+      if (target.def.disciplined) {
+        const idx = enemies.indexOf(target);
+        if (idx >= 0) {
+          const cx = target.x + target.def.displaySize / 2;
+          const cy = target.y + target.def.displaySize / 2;
+          if (nearbyAlliedEnemies(idx, cx, cy, 2) > 0) ac += 1;
+        }
+        // dev プローブ: disciplined 敵の実効AC を記録 (seed 時のみ・本番挙動は不変)
+        if (window.__acProbe) window.__acProbe.push({ name: target.def.name, ac });
+      }
       return ac;
     }
 
@@ -15265,6 +15299,27 @@
     // ═══════════════════════════════════════════════════════════
     // パーティー戦闘: 敵ターゲット選択 + 仲間のターン
     // ═══════════════════════════════════════════════════════════
+
+    // ── 隊列トレイト共有ヘルパー ──────────────────────────────
+    // selfIdx を除く、生存・非inactive・同陣営 (beast同士/非beast同士) の敵のうち、
+    // その中心が (cx,cy) から Chebyshev タイル距離 <= tiles のものを数えて返す。
+    // pack_tactics (対象隣接) / disciplined (自身近傍) の両方から呼ぶ。
+    function nearbyAlliedEnemies(selfIdx, cx, cy, tiles) {
+      const self = enemies[selfIdx];
+      if (!self) return 0;
+      const selfBeast = self.def.faction === "beast";
+      let n = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        if (i === selfIdx) continue;
+        const o = enemies[i];
+        if (!o || !o.alive || o.inactive) continue;
+        if ((o.def.faction === "beast") !== selfBeast) continue;   // 異陣営は除外
+        const oCX = o.x + o.def.displaySize / 2;
+        const oCY = o.y + o.def.displaySize / 2;
+        if (tileChebyshev(cx, cy, oCX, oCY) <= tiles) n++;
+      }
+      return n;
+    }
 
     // 敵がパーティーの誰を狙うか (最寄りの生存メンバー)
     function pickEnemyTarget(enemyIdx) {
@@ -19647,7 +19702,11 @@
 
       const natD20  = d20();
       const smokePen = (enemy.atkPenaltyRemaining > 0) ? (enemy.atkPenaltyAmount || 0) : 0;  // 盗賊 煙幕
-      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen;
+      // 隊列トレイト: pack_tactics=対象(隊長)隣接に味方の敵→+2 / disciplined=自身≤2タイルに味方の敵→+1命中
+      const packBonus = (def.packTactics && nearbyAlliedEnemies(idx, playerX + 48, playerY + 58, 1) > 0) ? 2 : 0;
+      const discBonus = (def.disciplined && nearbyAlliedEnemies(idx, eCX, eCY, 2) > 0) ? 1 : 0;
+      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen + packBonus + discBonus;
+      if (window.__traitProbe) window.__traitProbe.push({ site: "leader", name: def.name, pack: packBonus, disc: discBonus, total: atkBonus });
       const atkTotal = natD20 + atkBonus;
       const isFumble = natD20 === 1;
       const isThreat = natD20 >= (def.critRange || 20) && !isFumble;
@@ -19874,7 +19933,11 @@
       const phaseDmgBonus = offensiveRage2 ? 2 : 0;
       const natD20 = d20();
       const smokePen = (enemy.atkPenaltyRemaining > 0) ? (enemy.atkPenaltyAmount || 0) : 0;  // 盗賊 煙幕
-      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen;
+      // 隊列トレイト: pack_tactics=対象(仲間)隣接に味方の敵→+2 / disciplined=自身≤2タイルに味方の敵→+1命中
+      const packBonus = (def.packTactics && nearbyAlliedEnemies(enemyIdx, tCX, tCY, 1) > 0) ? 2 : 0;
+      const discBonus = (def.disciplined && nearbyAlliedEnemies(enemyIdx, eCX, eCY, 2) > 0) ? 1 : 0;
+      const atkBonus = (def.atkBonus || 0) + phaseAtkBonus - smokePen + packBonus + discBonus;
+      if (window.__traitProbe) window.__traitProbe.push({ site: "ally", name: def.name, pack: packBonus, disc: discBonus, total: atkBonus });
       const atkTotal = natD20 + atkBonus;
       const isFumble = natD20 === 1;
       const isThreat = natD20 >= (def.critRange || 20) && !isFumble;

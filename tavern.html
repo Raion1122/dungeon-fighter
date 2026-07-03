@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ホブゴブリンが登場</b> — 規律高く隊列を組む上位ゴブリン。仲間と固まると強い。</li>
         <li><b>オークの見た目を調整</b> — より大きく鮮明な表示に更新。</li>
         <li><b>酒場に「武器防具屋」がオープン</b> — 武具を購入・売却（売値は購入額の50%）できるように。あわせて装備画面を「装備中／所持品」の2段構成に刷新し、両手武器を持つと盾は自動で外れ、アクセサリー2枠も選べるようになりました。</li>
         <li><b>召喚した仲間が隊列の最前列に</b> — ゴーレムやアンデッドが盾役として前に出て戦うようになった。</li>
-        <li><b>探索中に見つかる宝箱を物語の品専用に</b> — 判定で見つける宝箱はそのまま。何気ない探索でふと見つかる宝箱は、物語上意味のある品が入っている時だけ現れるよう土台を整えた。</li>
       </ul>
     </div>
     <script>
@@ -2031,8 +2031,8 @@
       {
         id: "goblin", label: "ゴブリン勢", placeTags: ["underground", "ruin", "forest"],
         themeId: "goblin-mine",
-        enemyPool: ["rat", "goblin", "goblinArcher", "goblinShaman", "goblinRider", "goblinBrute"],
-        eliteKeys: ["goblinBrute"], bossKey: "goblinKing", minionLabel: "ゴブリンの群れ",
+        enemyPool: ["rat", "goblin", "goblinArcher", "goblinShaman", "goblinRider", "goblinBrute", "hobgoblin"],
+        eliteKeys: ["goblinBrute", "hobgoblin"], bossKey: "goblinKing", minionLabel: "ゴブリンの群れ",
         targetNames: ["ゴブリンの一団", "コボルドまがいの群れ", "洞窟に巣くうゴブリンの首領", "略奪を繰り返すゴブリン部族"],
       },
       {
