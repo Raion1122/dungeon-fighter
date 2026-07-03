@@ -326,6 +326,10 @@
     .enemy-chimera {
       filter: hue-rotate(-18deg) saturate(1.3) brightness(1.02) drop-shadow(0 0 11px rgba(220,90,40,0.82));
     }
+    /* ポドルプラザ・ボス: グリフォン (direBear シート流用・2倍サイズ)。鷲翼+獅子胴の猛禽 → 淡黄褐色寄せ + 空色オーラで差別化 (暫定) */
+    .enemy-griffon {
+      filter: hue-rotate(28deg) saturate(1.15) brightness(1.08) drop-shadow(0 0 11px rgba(120,180,235,0.78));
+    }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
     .enemy.fx-sleep::before {
@@ -5033,6 +5037,35 @@
         flight: true,                           // 飛行: 前列バイアス無効 (zonePullFor)
         deathLine: "三つの喉が…同時に…途絶えた…",
         xp: 1000,
+      },
+      // ── ポドルプラザ・ボス: グリフォン (flight + swoop + attacksPerTurn:2 / 2倍サイズ) ──
+      //   鷲の翼と獅子の胴を持つ猛禽。direBear シート/幾何を暫定流用 (192px・完全一致)。
+      //   attacksPerTurn:2 = 嘴+爪の2連撃 → 既存の多攻撃ループがそのまま拾う。
+      //   flight + swoop = 急降下 → zonePullFor が swoop 分岐 (前列を飛び越え後衛/中衛優先) を返す。
+      //   ブレスは無し (breath 系フィールドを付けない = 単頭ボスのブレスブロックは発火しない)。
+      griffon: {
+        name: "グリフォン",
+        flavor: "鷲の翼と獅子の胴を持つ猛禽。空から急降下し鉤爪で獲物を引き裂く",
+        badge: "🦅",
+        sprite: "assets/direBear_anim.png?v=1",  // 暫定流用 (direBear シート・幾何完全一致)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,                        // 2倍サイズ (192px原寸→アップスケール)
+        hp: 70, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 44, attackHitFrame: 21, attackCooldown: 66,
+        str: 5, dex: 3, atkBonus: 8, ac: 16,
+        dmgDice: "1d8", dmgBonus: 4, critRange: 20, critMult: 2,   // 嘴/爪 1d8+4 ×2
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,                   // HP50%以下で激昂 (汎用 offensiveRage)
+        maxSummons: 0,                           // 召喚なし (summon 抽選を無効化)
+        attacksPerTurn: 2,                       // 嘴+爪: 1ターン2連撃
+        flight: true,                            // 飛行: 前列バイアス無効 (zonePullFor)
+        swoop: true,                             // 急降下: 前列を飛び越え後衛/中衛を優先 (zonePullFor が swoop 分岐)
+        deathLine: "…翼が…墜ちる……",
+        xp: 850,
       },
     };
 
@@ -15385,7 +15418,10 @@
     //   flight = 飛行で前列の壁を無視 → 全ゾーン等倍の「真の最近接」を狙う。
     // ※既定値は従来リテラルと完全一致 (flight 以外の敵は挙動不変)。
     function zonePullFor(def) {
-      if (def && def.flight) return { front: 1.0, mid: 1.0, rear: 1.0 };
+      // 急降下 (swoop): 前列を飛び越え後衛/中衛を優先。flight より先に評価 (両持ち時に swoop を勝たせる)。
+      if (def && def.swoop)  return { front: 1.25, mid: 1.0, rear: 0.75 };
+      // 飛行 (flight): 前列バイアス無効 = 真の最近接を狙う。
+      if (def && def.flight) return { front: 1.0,  mid: 1.0, rear: 1.0  };
       return { front: 0.75, mid: 1.0, rear: 1.25 };
     }
 
@@ -15435,6 +15471,9 @@
         const d = base * (c.kind === "enemy" ? 1.0 : (ZONE_PULL[c.zone] || 1.0));
         if (d < bestDist) { bestDist = d; best = c; }
       }
+      // dev プローブ (seed 時のみ・本番 undefined で no-op): 選ばれた対象の kind/zone を記録。
+      // swoop (急降下) が後衛/中衛を優先して前列を飛び越えることの実証に用いる。
+      if (window.__pickProbe && best) window.__pickProbe.push({ name: e.def.name, kind: best.kind, zone: best.zone || null });
       return best;
     }
 

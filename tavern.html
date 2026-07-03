@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>グリフォンがポドルプラザに出現</b> — 空から急降下し、前衛を飛び越えて後衛を狙う有翼のボス。</li>
         <li><b>キマイラがポドルプラザに出現</b> — 三つ首で連続攻撃し、竜頭が炎を吐く有翼のボス。</li>
         <li><b>コボルドが登場</b> — 弱いが群れで押し寄せる小型の敵。数が揃うと手強い。</li>
         <li><b>ホブゴブリンが登場</b> — 規律高く隊列を組む上位ゴブリン。仲間と固まると強い。</li>
-        <li><b>オークの見た目を調整</b> — より大きく鮮明な表示に更新。</li>
       </ul>
     </div>
     <script>
@@ -2064,6 +2064,15 @@
         enemyPool: ["rat", "plagueFrog", "ruinSpider", "kobold"],
         eliteKeys: ["ruinSpider"], bossKey: "chimera", minionLabel: "眷属の獣",
         targetNames: ["山嶺の三頭獣", "翼ある異形の主", "炎を吐く有翼獣", "古き実験の産物"],
+      },
+      // ── ポドルプラザ・ボス系統: 猛禽の営巣地 (ゲートなし = 勝敗問わずクエストリストに掲載) ──
+      // bossKey=griffon は index.html ENEMY_TYPES 実在。enemyPool は既存下位キーを流用。
+      {
+        id: "griffon-aerie", label: "猛禽の営巣地", placeTags: ["mountain", "forest"],
+        themeId: "bandits-forest",
+        enemyPool: ["rat", "kobold", "goblinArcher"],
+        eliteKeys: ["goblinArcher"], bossKey: "griffon", minionLabel: "営巣地の獣",
+        targetNames: ["尾根に営巣する猛禽", "急降下する有翼の狩人", "獅鷲の主", "空の捕食者"],
       },
       // ── 戦後フラン復興サイドクエスト 専用家系 (postGame:true → 本筋クリア後のみ出現) ──
       // selectFamily が progress.cleared.has("dragon-lair") のときだけ候補に含める。
