@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>キマイラがポドルプラザに出現</b> — 三つ首で連続攻撃し、竜頭が炎を吐く有翼のボス。</li>
         <li><b>コボルドが登場</b> — 弱いが群れで押し寄せる小型の敵。数が揃うと手強い。</li>
         <li><b>ホブゴブリンが登場</b> — 規律高く隊列を組む上位ゴブリン。仲間と固まると強い。</li>
         <li><b>オークの見た目を調整</b> — より大きく鮮明な表示に更新。</li>
-        <li><b>酒場に「武器防具屋」がオープン</b> — 武具を購入・売却（売値は購入額の50%）できるように。あわせて装備画面を「装備中／所持品」の2段構成に刷新し、両手武器を持つと盾は自動で外れ、アクセサリー2枠も選べるようになりました。</li>
       </ul>
     </div>
     <script>
@@ -2055,6 +2055,15 @@
         enemyPool: ["skeleton", "orc", "minotaur"],
         eliteKeys: ["minotaur"], bossKey: "minotaur", minionLabel: "オークと骸骨の混成",
         targetNames: ["廃墟を占拠したオーク戦士団", "墓所をさまよう骸骨の軍勢", "迷宮に潜む牛頭の魔物", "古き砦に巣食う混成の群れ"],
+      },
+      // ── ポドルプラザ・ボス系統: 合成獣の巣 (ゲートなし = 勝敗問わずクエストリストに掲載) ──
+      // bossKey=chimera は index.html ENEMY_TYPES 実在。enemyPool は既存下位キーを流用。
+      {
+        id: "chimera-beast", label: "合成獣の巣", placeTags: ["mountain", "ruin"],
+        themeId: "bandits-forest",
+        enemyPool: ["rat", "plagueFrog", "ruinSpider", "kobold"],
+        eliteKeys: ["ruinSpider"], bossKey: "chimera", minionLabel: "眷属の獣",
+        targetNames: ["山嶺の三頭獣", "翼ある異形の主", "炎を吐く有翼獣", "古き実験の産物"],
       },
       // ── 戦後フラン復興サイドクエスト 専用家系 (postGame:true → 本筋クリア後のみ出現) ──
       // selectFamily が progress.cleared.has("dragon-lair") のときだけ候補に含める。

@@ -322,6 +322,10 @@
     .enemy-lizardChieftain {
       filter: drop-shadow(0 0 9px rgba(180,30,70,0.85));
     }
+    /* ポドルプラザ・ボス: キマイラ (hydra シート流用・2倍サイズ)。獅子/山羊/竜の合成獣 → 温色寄せ + 赤金オーラで差別化 (暫定) */
+    .enemy-chimera {
+      filter: hue-rotate(-18deg) saturate(1.3) brightness(1.02) drop-shadow(0 0 11px rgba(220,90,40,0.82));
+    }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
     .enemy.fx-sleep::before {
@@ -4999,6 +5003,36 @@
         maxSummons: 0,                           // 召喚なし(熊は配下を呼ばない) → summon 抽選を確実に無効化
         deathLine: "グゥゥ……ォオ……ン……",
         xp: 700,
+      },
+      // ── ポドルプラザ・ボス: キマイラ (three_heads + fire_breath + flight / 2倍サイズ) ──
+      //   獅子・山羊・竜の三つ首を持つ有翼の合成獣。hydra シート/幾何を暫定流用 (192px・完全一致)。
+      //   three_heads = attacksPerTurn:3 → 既存の多攻撃ループがそのまま3連撃。
+      //   fire_breath = 竜頭のブレス → 単頭ボスのブレスブロックが isBoss+breath 系フィールドで発火。
+      //   flight      = 飛行 → 前列バイアス無効 (zonePullFor が真の最近接に分岐)。
+      chimera: {
+        name: "キマイラ",
+        flavor: "獅子・山羊・竜の三つ首を持つ有翼の合成獣",
+        badge: "🦁",
+        sprite: "assets/hydra_anim.png?v=1",   // 暫定流用 (hydra シート・幾何完全一致)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 260,                       // 2倍サイズ (192px原寸→アップスケール)
+        hp: 85, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 210, hitRange: 300,
+        attackDuration: 40, attackHitFrame: 20, attackCooldown: 70,
+        str: 5, dex: 2, atkBonus: 8, ac: 16,
+        dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 2,   // 三つ首の噛撃 1d8+3 ×3
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,                  // HP50%以下で激昂 (汎用 offensiveRage)
+        maxSummons: 0,                          // 召喚なし (summon 抽選を無効化)
+        attacksPerTurn: 3,                      // three_heads: 1ターン3連撃 (獅子/山羊/竜)
+        // fire_breath (竜頭): 単頭ボスのブレスブロックが発火。着弾3x3・各自 DEX セーヴで半減。
+        breathDice: "6d6", breathDC: 15, breathBlast: 3, breathChance: 0.35,
+        flight: true,                           // 飛行: 前列バイアス無効 (zonePullFor)
+        deathLine: "三つの喉が…同時に…途絶えた…",
+        xp: 1000,
       },
     };
 
@@ -15346,6 +15380,15 @@
       return n;
     }
 
+    // 前衛バイアス係数を敵の性質で決める (拡張ポイント: flight/swoop/burrow がここに分岐追加される)。
+    //   既定 = 前衛ほど狙われやすい (front を短く / rear を長く扱う)。
+    //   flight = 飛行で前列の壁を無視 → 全ゾーン等倍の「真の最近接」を狙う。
+    // ※既定値は従来リテラルと完全一致 (flight 以外の敵は挙動不変)。
+    function zonePullFor(def) {
+      if (def && def.flight) return { front: 1.0, mid: 1.0, rear: 1.0 };
+      return { front: 0.75, mid: 1.0, rear: 1.25 };
+    }
+
     // 敵がパーティーの誰を狙うか (最寄りの生存メンバー)
     function pickEnemyTarget(enemyIdx) {
       const e = enemies[enemyIdx];
@@ -15383,7 +15426,9 @@
       }
       if (candidates.length === 0) return null;
       // 前衛バイアス (Q1=B/§7): 前衛ほど実効距離を短く扱い「最も狙われる」。第三勢力(enemy)は等倍。
-      const ZONE_PULL = { front: 0.75, mid: 1.0, rear: 1.25 };
+      // 飛行 (flight) の敵は前列の壁を飛び越え、真の最近接を狙う (zonePullFor が分岐)。
+      const ZONE_PULL = zonePullFor(e.def);
+      if (window.__zoneProbe) window.__zoneProbe.push({ name: e.def.name, flight: !!e.def.flight, front: ZONE_PULL.front, mid: ZONE_PULL.mid, rear: ZONE_PULL.rear });
       let best = null, bestDist = Infinity;
       for (const c of candidates) {
         const base = Math.hypot(eCX - c.cx, eCY - c.cy);
@@ -19524,6 +19569,7 @@
 
       if (hitCount === 0) updateInfo(`${def.name}の火球は誰も捉えられなかった`);
       else updateInfo(`${def.name}の火炎ブレス: ${hitCount}体に着弾 (${savedCount}体セーヴ半減)`);
+      if (window.__breathProbe) window.__breathProbe.push({ name: def.name, hitCount, savedCount, dc });
       await sleepMs(600);
     }
 
@@ -19915,6 +19961,7 @@
       // 頭数ぶん噛撃 (multiHead 以外は attacksPerTurn 回 = 単頭ボスの多段攻撃に対応、既定1で従来挙動)。
       // 死のスパイラル上限は maxHeadsCap で有界。
       const biteCount = def.multiHead ? Math.max(1, enemy.hydraHeads || 1) : (def.attacksPerTurn || 1);
+      if (window.__turnProbe) window.__turnProbe.push({ name: def.name, biteCount, attacksPerTurn: def.attacksPerTurn || 1 });
       for (let b = 0; b < biteCount; b++) {
         if (gameOver || hp <= 0 || !enemy.alive) break;
         await resolveOneBite();
