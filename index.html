@@ -300,6 +300,8 @@
       filter: hue-rotate(-55deg) saturate(1.7) brightness(0.9) contrast(1.2)
               drop-shadow(0 0 8px rgba(220,40,60,0.75));
     }
+    /* 基本オーク: orcGrunt シート流用中のため軽く緑寄せして砦オーク兵と差別化 (暫定) */
+    .enemy-orc          { filter: hue-rotate(18deg) saturate(1.05) brightness(1.03); }
     /* シナリオ2 盗賊団 */
     /* bandit / banditArcher / banditMage / banditHeavy / scar は専用シートに切替済み */
     /* scar はボス用の赤いオーラ (drop-shadow) のみ残す */
@@ -4389,10 +4391,11 @@
       orc: {
         name: "オーク",
         flavor: "屈強な戦士族",
-        sprite: "assets/orc_anim.png",
-        sheetW: 320, sheetH: 320,
-        frameW: 32, frameH: 32, cols: 10, rowOffset: 0,
-        displaySize: 78,
+        // 暫定スプライトは orcGrunt_anim.png (96px×6cols, 576×480) を流用。専用シート確定後に差替。
+        sprite: "assets/orcGrunt_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 82,
         hp: 18, speed: 0.75,
         hasAttackAnim: true,
         meleeRange: 160, hitRange: 240,
