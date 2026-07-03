@@ -330,6 +330,10 @@
     .enemy-griffon {
       filter: hue-rotate(28deg) saturate(1.15) brightness(1.08) drop-shadow(0 0 11px rgba(120,180,235,0.78));
     }
+    /* ポドルプラザ・ボス: アンバーハルク (direBear シート流用・2倍サイズ)。岩を掘る甲殻の巨獣 → 琥珀/土色寄せ + 紫の眩惑オーラで差別化 (暫定) */
+    .enemy-umber_hulk {
+      filter: hue-rotate(-32deg) saturate(1.25) brightness(0.96) drop-shadow(0 0 12px rgba(150,90,210,0.80));
+    }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
     .enemy.fx-sleep::before {
@@ -5067,6 +5071,35 @@
         deathLine: "…翼が…墜ちる……",
         xp: 850,
       },
+      // ── ポドルプラザ・ボス: アンバーハルク (burrow + confusion_gaze / 2倍サイズ・3ボス中で最硬) ──
+      //   岩を掘り進む甲殻の巨獣。direBear シート/幾何を暫定流用 (192px・完全一致)。
+      //   burrow      = 地中奇襲 → zonePullFor が burrow 分岐 (swoop と同じ前列を飛び越え後衛/中衛優先) を返す。
+      //   confuseGaze = 四つの眼の眩惑 → 単頭ボスの gaze ブロックが gazeCooldown 式でパーティ全体 WIS セーヴを起こし、
+      //                 失敗者に confused=1 (次ターン行動不能でスキップ)。ブレスは無し (breath 系フィールドを付けない)。
+      umber_hulk: {
+        name: "アンバーハルク",
+        flavor: "岩を掘り進む甲殻の巨獣。四つの目が放つ眩惑の視線が正気を惑わす",
+        badge: "🪲",
+        sprite: "assets/direBear_anim.png?v=1",   // 暫定流用 (direBear シート・幾何完全一致)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,                          // 2倍サイズ (192px原寸→アップスケール)
+        hp: 90, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 46, attackHitFrame: 22, attackCooldown: 64,
+        str: 6, dex: 0, atkBonus: 9, ac: 17,
+        dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,   // 掘削爪 2d8+4 (3ボス中で最重)
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.5,                     // HP50%以下で激昂 (汎用 offensiveRage)
+        maxSummons: 0,                             // 召喚なし (summon 抽選を無効化)
+        burrow: true,                              // 地中奇襲: 前列を飛び越え後衛/中衛を優先 (zonePullFor が burrow 分岐)
+        confuseGaze: true,                         // 眩惑の視線: パーティ全体 WIS セーヴ → 混乱 (gaze ブロックが発火)
+        gazeDC: 14, gazeDurationTurns: 1, gazeCooldownTurns: 2,
+        deathLine: "…掘り…進む…先は…無く……",
+        xp: 950,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -6912,6 +6945,7 @@
           shadowAcBonus: 0,                               // 闇市 影渡りの薬 (M9): 盗賊系 AC+ フラット
         },
         stunned: 0,
+        confused: 0,   // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
         skillCooldowns: {},                // {skillId: turnsLeft} クールダウン管理
         animTick: 0,
@@ -12004,6 +12038,49 @@
       return results;
     }
 
+    // ── アンバーハルク 眩惑の視線 (confusion_gaze): partyWillSave と同型のパーティ全体 WIS セーヴ ──
+    //   セーヴ失敗した各メンバー (player/ally) に confused=gazeDurationTurns をセット。
+    //   confused>0 のメンバーは自分のターン開始時に1ターン行動不能でスキップする (allyAttackTurn/playerAttackTurn のゲート)。
+    //   恐怖 (partyWillSave) と違い「混乱=行動不能」なので frightened バフには触れない。
+    function umberGaze(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc = def.gazeDC || 14;
+      const dur = def.gazeDurationTurns || 1;
+      showBanner("🪲 眩惑の視線 🪲", 1500);
+      updateInfo(`${def.name} の四つの眼が眩い光を放つ! (WIS セーヴ DC ${dc})`);
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+      const rec = { enemyIdx, dc, failed: [], saved: [] };
+      // ── 頭 (player) ──
+      if (hp > 0 && !gameOver) {
+        const roll = d20();
+        const total = roll + (playerStats.wis || 0);
+        const saved = total >= dc;
+        if (!saved) playerBuffs.confused = dur;
+        showRollAtPlayer(
+          `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        (saved ? rec.saved : rec.failed).push("P");
+      }
+      // ── 仲間 ──
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a || !a.alive) continue;
+        const roll = d20();
+        const total = roll + (a.wis || 0);
+        const saved = total >= dc;
+        if (!saved) a.confused = dur;
+        showRollAtAlly(a,
+          `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(a.wis || 0)} = ${total}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        (saved ? rec.saved : rec.failed).push("A" + i);
+      }
+      if (window.__gazeProbe) window.__gazeProbe.gazes.push(rec);
+    }
+
     function resetAllyBuffs(ally) {
       ally.buffs.atkBonusRemaining = 0;
       ally.buffs.atkBonusAmount = 0;
@@ -13392,6 +13469,7 @@
       statusImmunityCharges: 0,
       antiKnockbackRemaining: 0,
       skipNextTurn: false,
+      confused: 0,             // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
       resilientFired: false,   // 不屈 (エンカウンター1回)
       acBonusRemaining: 0,     // シールド・オブ・フェイス等 の AC バフ
       acBonusAmount: 0,
@@ -13416,6 +13494,7 @@
       playerBuffs.statusImmunityCharges = 0;
       playerBuffs.antiKnockbackRemaining = 0;
       playerBuffs.skipNextTurn = false;
+      playerBuffs.confused = 0;
       playerBuffs.resilientFired = false;
       playerBuffs.acBonusRemaining = 0;
       playerBuffs.acBonusAmount = 0;
@@ -15420,6 +15499,8 @@
     function zonePullFor(def) {
       // 急降下 (swoop): 前列を飛び越え後衛/中衛を優先。flight より先に評価 (両持ち時に swoop を勝たせる)。
       if (def && def.swoop)  return { front: 1.25, mid: 1.0, rear: 0.75 };
+      // 地中奇襲 (burrow): 地面から中衛/後衛へ直接奇襲 → swoop と同じ後列優先 (swoop/flight 非併用なので順序影響なし)。
+      if (def && def.burrow) return { front: 1.25, mid: 1.0, rear: 0.75 };
       // 飛行 (flight): 前列バイアス無効 = 真の最近接を狙う。
       if (def && def.flight) return { front: 1.0,  mid: 1.0, rear: 1.0  };
       return { front: 0.75, mid: 1.0, rear: 1.25 };
@@ -15464,7 +15545,7 @@
       // 前衛バイアス (Q1=B/§7): 前衛ほど実効距離を短く扱い「最も狙われる」。第三勢力(enemy)は等倍。
       // 飛行 (flight) の敵は前列の壁を飛び越え、真の最近接を狙う (zonePullFor が分岐)。
       const ZONE_PULL = zonePullFor(e.def);
-      if (window.__zoneProbe) window.__zoneProbe.push({ name: e.def.name, flight: !!e.def.flight, front: ZONE_PULL.front, mid: ZONE_PULL.mid, rear: ZONE_PULL.rear });
+      if (window.__zoneProbe) window.__zoneProbe.push({ name: e.def.name, flight: !!e.def.flight, swoop: !!e.def.swoop, burrow: !!e.def.burrow, front: ZONE_PULL.front, mid: ZONE_PULL.mid, rear: ZONE_PULL.rear });
       let best = null, bestDist = Infinity;
       for (const c of candidates) {
         const base = Math.hypot(eCX - c.cx, eCY - c.cy);
@@ -17426,6 +17507,14 @@
         await sleepMs(900);
         return;
       }
+      // 混乱 (アンバーハルクの眩惑の視線): 1ターン行動不能でスキップ (stunned のスキップ処理を鏡写し)
+      if (ally.confused > 0) {
+        ally.confused--;
+        showRollAtAlly(ally, `<span class="label">CONFUSED</span>混乱: 行動不能`, "miss");
+        if (window.__gazeProbe) window.__gazeProbe.skips.push("A" + allies.indexOf(ally));
+        await sleepMs(900);
+        return;
+      }
 
       // クラス別 AI 分岐
       if (ally.classKey === "cleric") {
@@ -19220,6 +19309,15 @@
         await sleepMs(1100);
         return;
       }
+      // 混乱 (アンバーハルクの眩惑の視線): 1ターン行動不能でスキップ (セルフスタンのスキップ処理を鏡写し)
+      if (playerBuffs.confused > 0) {
+        playerBuffs.confused--;
+        showRollAtPlayer(`<span class="label">CONFUSED</span>混乱で行動不能`, "miss");
+        updateInfo(`${getLeaderName()} は眩惑の視線で混乱し、行動できない`);
+        if (window.__gazeProbe) window.__gazeProbe.skips.push("P");
+        await sleepMs(1000);
+        return;
+      }
 
       // 粘着 (ミミック Adhesive): 拘束中は STR 判定で脱出を試みる。成功で解放、失敗で行動消費 (撃破でも自動解除)
       if (playerBuffs.stuck) {
@@ -19723,6 +19821,18 @@
         } else if (Math.random() < (def.breathChance || 0.4)) {
           await hydraFireBreath(idx);
           return;                                 // このターンはブレスで消費 (噛まない)
+        }
+      }
+      // ── 単頭ボスの眩惑の視線 (アンバーハルク): クールダウン式でパーティ全体 WIS セーヴ → 混乱 ──
+      // smash (強打) ターンは視線を抑止 (近接の見せ場を温存)。breath と同じ gazeCooldown 方式で連発を防ぐ。
+      if (def.isBoss && !def.multiHead && def.confuseGaze && bossAction === "normal") {
+        if (enemy.gazeCooldown > 0) {
+          enemy.gazeCooldown--;                   // クールダウン中は噛む (連続視線を抑止)
+        } else {
+          umberGaze(idx);
+          enemy.gazeCooldown = (def.gazeCooldownTurns || 2) + 1;  // 次の視線まで数ターン噛む
+          await sleepMs(1100);
+          return;                                 // このターンは視線で消費 (噛まない)
         }
       }
       // ── ハイドラ: 火炎ブレス抽選 (頭が多いほど高確率 / 火球ターンは噛みつきの代わり) ──

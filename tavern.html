@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>アンバーハルクがポドルプラザに出現</b> — 地中から奇襲し、眩惑の視線で味方を混乱させる甲殻のボス。</li>
         <li><b>グリフォンがポドルプラザに出現</b> — 空から急降下し、前衛を飛び越えて後衛を狙う有翼のボス。</li>
         <li><b>キマイラがポドルプラザに出現</b> — 三つ首で連続攻撃し、竜頭が炎を吐く有翼のボス。</li>
         <li><b>コボルドが登場</b> — 弱いが群れで押し寄せる小型の敵。数が揃うと手強い。</li>
-        <li><b>ホブゴブリンが登場</b> — 規律高く隊列を組む上位ゴブリン。仲間と固まると強い。</li>
       </ul>
     </div>
     <script>
@@ -2073,6 +2073,15 @@
         enemyPool: ["rat", "kobold", "goblinArcher"],
         eliteKeys: ["goblinArcher"], bossKey: "griffon", minionLabel: "営巣地の獣",
         targetNames: ["尾根に営巣する猛禽", "急降下する有翼の狩人", "獅鷲の主", "空の捕食者"],
+      },
+      // ── ポドルプラザ・ボス系統: 地中の掘削者 (ゲートなし = 勝敗問わずクエストリストに掲載) ──
+      // bossKey=umber_hulk は index.html ENEMY_TYPES 実在。enemyPool は既存下位キーを流用。
+      {
+        id: "umber-delve", label: "地中の掘削者", placeTags: ["underground", "mountain"],
+        themeId: "goblin-mine",
+        enemyPool: ["rat", "kobold", "goblin", "goblinBrute"],
+        eliteKeys: ["goblinBrute", "hobgoblin"], bossKey: "umber_hulk", minionLabel: "坑道の群れ",
+        targetNames: ["坑道を穿つ甲殻の巨獣", "地を掘る惑わしの眼", "崩落を呼ぶ掘削者", "岩を食む巨躯"],
       },
       // ── 戦後フラン復興サイドクエスト 専用家系 (postGame:true → 本筋クリア後のみ出現) ──
       // selectFamily が progress.cleared.has("dragon-lair") のときだけ候補に含める。
