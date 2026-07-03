@@ -2,7 +2,7 @@
 /*
  * driver_monsters_umberhulk.js — 6.27版 新規モンスター 項目6「アンバーハルク」検証ドライバ
  * ────────────────────────────────────────────────────────────────────────────
- * ENEMY_TYPES.umber_hulk (direBear シート流用・2倍サイズ・ポドルプラザ ボス・3ボス中で最硬) と2特性:
+ * ENEMY_TYPES.umber_hulk (専用スプライト・2倍サイズ・ポドルプラザ ボス・3ボス中で最硬) と2特性:
  *   burrow        = 地中奇襲: 前列を飛び越え後衛/中衛を優先 (zonePullFor の burrow 分岐・swoop と同値)
  *   confuse_gaze  = 眩惑の視線: 単頭ボスの gaze ブロックが gazeCooldown 式でパーティ全体 WIS セーヴを起こし、
  *                   失敗者に confused=1 (次ターン行動不能でスキップ)。allyAttackTurn/playerAttackTurn のゲートで消費。
@@ -17,7 +17,7 @@
  *
  * 検証項目:
  *   (1) umber_hulk 単体 seed で .enemy-umber_hulk DOM 生成 + 192px幾何 displaySize240 の描画健全
- *       (backgroundImage=direBear_anim.png?v= / bgSize=1440×1200 > 単一フレーム幅) + pageerror ゼロ + diag critical ゼロ
+ *       (backgroundImage=umber_hulk_anim.png?v= / bgSize=1440×1200 > 単一フレーム幅) + pageerror ゼロ + diag critical ゼロ
  *   (2) burrow: __zoneProbe で アンバーハルク が front=1.25/mid=1.0/rear=0.75 (burrow 分岐) + burrow===true。
  *       かつ __pickProbe で アンバーハルク の rear/mid 率 > 同一パーティを見る非burrow敵(ミノタウロス)
  *       (=前列を飛び越えて後衛/中衛を狙う実証)。
@@ -235,8 +235,8 @@ function seedInit(spawns) {
   const geo = acc.geo || { count: 0 };
   check('(1) 戦闘ページ群で pageerror ゼロ', pageErrors.length === combatErrBase, pageErrors.slice(combatErrBase).join(' | '));
   check('(1) .enemy-umber_hulk 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(1) backgroundImage が direBear_anim.png (?v=付き・借用)',
-    /direBear_anim\.png\?v=/.test(geo.bgImg || ''), 'bgImg=' + geo.bgImg);
+  check('(1) backgroundImage が umber_hulk_anim.png (?v=付き・専用)',
+    /umber_hulk_anim\.png\?v=/.test(geo.bgImg || ''), 'bgImg=' + geo.bgImg);
   check('(1) 表示寸法 ≈240px (displaySize=240・2倍)',
     Math.abs((geo.w || 0) - 240) <= 2 && Math.abs((geo.h || 0) - 240) <= 2, 'w=' + geo.w + ' h=' + geo.h);
   check('(1) backgroundSize ≈1440×1200 (192px幾何式通り・描画健全)',

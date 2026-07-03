@@ -330,9 +330,9 @@
     .enemy-griffon {
       filter: drop-shadow(0 0 11px rgba(120,180,235,0.78));
     }
-    /* ポドルプラザ・ボス: アンバーハルク (direBear シート流用・2倍サイズ)。岩を掘る甲殻の巨獣 → 琥珀/土色寄せ + 紫の眩惑オーラで差別化 (暫定) */
+    /* ポドルプラザ・ボス: アンバーハルク (専用スプライト・2倍サイズ)。素材が既に琥珀/土色なので色補正は撤去し、紫の眩惑オーラのみで識別 */
     .enemy-umber_hulk {
-      filter: hue-rotate(-32deg) saturate(1.25) brightness(0.96) drop-shadow(0 0 12px rgba(150,90,210,0.80));
+      filter: drop-shadow(0 0 12px rgba(150,90,210,0.80));
     }
 
     /* ── ステータスエフェクト: スリープ (敵に紫の霧オーラ + 💤) ── */
@@ -5080,7 +5080,7 @@
         name: "アンバーハルク",
         flavor: "岩を掘り進む甲殻の巨獣。四つの目が放つ眩惑の視線が正気を惑わす",
         badge: "🪲",
-        sprite: "assets/direBear_anim.png?v=1",   // 暫定流用 (direBear シート・幾何完全一致)
+        sprite: "assets/umber_hulk_anim.png?v=1",   // 専用スプライト (2026-07-03 生成・direBear と幾何完全一致)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                          // 2倍サイズ (192px原寸→アップスケール)
