@@ -302,8 +302,8 @@
     }
     /* 基本オーク: orcGrunt シート流用中のため軽く緑寄せして砦オーク兵と差別化 (暫定) */
     .enemy-orc          { filter: hue-rotate(18deg) saturate(1.05) brightness(1.03); }
-    /* ホブゴブリン: goblin シート流用中。赤茶寄せ + 高コントラストで重装兵らしく差別化 (暫定) */
-    .enemy-hobgoblin    { filter: hue-rotate(-32deg) saturate(1.35) brightness(0.9) contrast(1.12); }
+    /* ホブゴブリン: 専用シート hobgoblin_anim.png。素で赤茶の重装兵ゆえ色補正フィルタ不要 */
+    .enemy-hobgoblin    { }
     /* コボルド: goblin シート流用中。橙茶寄せ + 高明度で小型の竜系人型らしく差別化 (暫定) */
     .enemy-kobold       { filter: hue-rotate(-58deg) saturate(1.5) brightness(1.1) contrast(1.05); }
     /* シナリオ2 盗賊団 */
@@ -4284,10 +4284,10 @@
         name: "ホブゴブリン",
         flavor: "規律ある大型ゴブリノイドの重装兵",
         badge: "🛡",
-        // 暫定スプライトは goblin_anim.png (96px×5cols, 480×480) を流用。専用シート確定後に差替。
-        sprite: "assets/goblin_anim.png?v=2",
-        sheetW: 480, sheetH: 480,
-        frameW: 96, frameH: 96, cols: 5, rowOffset: 0,
+        // 専用スプライト hobgoblin_anim.png (96px×6cols, 576×480)。6.27版シナリオ1 ChatGPT生成→透過抽出。
+        sprite: "assets/hobgoblin_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 74,
         hp: 14, speed: 0.8,
         hasAttackAnim: true,
