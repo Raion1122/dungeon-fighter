@@ -1,0 +1,3 @@
+# オーク (orc) 刷新 — 2ターン構成 (右歩き → 攻撃 / GPT-5.5世代=テンプレ行なし・短文1行)
+{"prompt_file": "source_images/enemy_orc/_prompt_walk.txt",   "output": "source_images/enemy_orc/オーク歩き.png"}
+{"prompt_file": "source_images/enemy_orc/_prompt_attack.txt", "output": "source_images/enemy_orc/オーク攻撃.png"}
