@@ -19,7 +19,7 @@
  *
  * 検証項目:
  *   (1) griffon 単体 seed で .enemy-griffon DOM 生成 + 192px幾何 displaySize240 の描画健全
- *       (backgroundImage=direBear_anim.png?v= / bgSize=1440×1200) + pageerror ゼロ + diag critical ゼロ
+ *       (backgroundImage=griffon_anim.png?v= / bgSize=1440×1200) + pageerror ゼロ + diag critical ゼロ
  *   (2) attacksPerTurn:2: __turnProbe に グリフォン biteCount===2 (多攻撃ループが2回発火)
  *   (3) swoop: __zoneProbe で グリフォン が front=1.25/mid=1.0/rear=0.75 を返す
  *       (=swoop 分岐が flight より先に評価され勝つ実証)。かつ __pickProbe で グリフォン の
@@ -167,8 +167,8 @@ function seedInit(spawns) {
     return { count: els.length, bgImg, bgSize, w, h, bgW: m ? parseFloat(m[1]) : 0, bgH: m ? parseFloat(m[2]) : 0 };
   });
   check('(1) .enemy-griffon 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(1) backgroundImage が direBear_anim.png (?v=付き・借用)',
-    /direBear_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
+  check('(1) backgroundImage が griffon_anim.png (?v=付き・専用スプライト)',
+    /griffon_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
   const wOk = Math.abs(geo.w - 240) <= 2 && Math.abs(geo.h - 240) <= 2;
   check('(1) 表示寸法 ≈240px (displaySize=240・2倍)', wOk, 'w=' + geo.w + ' h=' + geo.h);
   const bgOk = Math.abs(geo.bgW - 1440) <= 2 && Math.abs(geo.bgH - 1200) <= 2 && geo.bgW > geo.w;

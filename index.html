@@ -326,9 +326,9 @@
     .enemy-chimera {
       filter: hue-rotate(-18deg) saturate(1.3) brightness(1.02) drop-shadow(0 0 11px rgba(220,90,40,0.82));
     }
-    /* ポドルプラザ・ボス: グリフォン (direBear シート流用・2倍サイズ)。鷲翼+獅子胴の猛禽 → 淡黄褐色寄せ + 空色オーラで差別化 (暫定) */
+    /* ポドルプラザ・ボス: グリフォン (専用スプライト)。金褐色の猛禽 → 色補正は中和し空色オーラのみで威容を差別化 */
     .enemy-griffon {
-      filter: hue-rotate(28deg) saturate(1.15) brightness(1.08) drop-shadow(0 0 11px rgba(120,180,235,0.78));
+      filter: drop-shadow(0 0 11px rgba(120,180,235,0.78));
     }
     /* ポドルプラザ・ボス: アンバーハルク (direBear シート流用・2倍サイズ)。岩を掘る甲殻の巨獣 → 琥珀/土色寄せ + 紫の眩惑オーラで差別化 (暫定) */
     .enemy-umber_hulk {
@@ -5051,7 +5051,7 @@
         name: "グリフォン",
         flavor: "鷲の翼と獅子の胴を持つ猛禽。空から急降下し鉤爪で獲物を引き裂く",
         badge: "🦅",
-        sprite: "assets/direBear_anim.png?v=1",  // 暫定流用 (direBear シート・幾何完全一致)
+        sprite: "assets/griffon_anim.png?v=1",  // 専用スプライト (2026-07-03 ChatGPT生成→192px大型ボス規格で抽出)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                        // 2倍サイズ (192px原寸→アップスケール)
