@@ -304,6 +304,8 @@
     .enemy-orc          { filter: hue-rotate(18deg) saturate(1.05) brightness(1.03); }
     /* ホブゴブリン: goblin シート流用中。赤茶寄せ + 高コントラストで重装兵らしく差別化 (暫定) */
     .enemy-hobgoblin    { filter: hue-rotate(-32deg) saturate(1.35) brightness(0.9) contrast(1.12); }
+    /* コボルド: goblin シート流用中。橙茶寄せ + 高明度で小型の竜系人型らしく差別化 (暫定) */
+    .enemy-kobold       { filter: hue-rotate(-58deg) saturate(1.5) brightness(1.1) contrast(1.05); }
     /* シナリオ2 盗賊団 */
     /* bandit / banditArcher / banditMage / banditHeavy / scar は専用シートに切替済み */
     /* scar はボス用の赤いオーラ (drop-shadow) のみ残す */
@@ -4286,6 +4288,25 @@
         packTactics: true,   // 群れ戦術: 対象の隣に味方の敵が居ると +2命中
         xp: 180,
       },
+      kobold: {
+        name: "コボルド",
+        flavor: "数を頼みに群れる小型の竜系人型。罠を好む狡知",
+        // 暫定スプライトは goblin_anim.png (96px×5cols, 480×480) を流用。専用シート確定後に差替。
+        // trap_master は未実装 (フレーバーのみ)。群れ戦術 pack_tactics だけを持つ下位ミニオン。
+        sprite: "assets/goblin_anim.png?v=2",
+        sheetW: 480, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 5, rowOffset: 0,
+        displaySize: 56,
+        hp: 5, speed: 1.1,
+        hasAttackAnim: true,
+        meleeRange: 110, hitRange: 180,
+        attackDuration: 26, attackHitFrame: 11, attackCooldown: 32,
+        dex: 2, atkBonus: 3, ac: 13,
+        dmgDice: "1d4", dmgBonus: 1, critRange: 20, critMult: 2,
+        range: "melee",
+        packTactics: true,   // 群れ戦術: 対象の隣に味方の敵が居ると +2命中
+        xp: 70,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -4995,6 +5016,10 @@
           // B 部屋: 雑魚前哨 (中心 col 21, row 13)
           ["rat",          19, 11],
           ["goblin",       23, 15],
+          // 群れで押し寄せるコボルド (密集配置で pack_tactics 発火)
+          ["kobold",       20, 13],
+          ["kobold",       22, 13],
+          ["kobold",       21, 14],
           // C 大広間: 射手混じりの本隊 (中心 col 36, row 13)
           ["goblin",       34, 11],
           ["rat",          40, 12],
