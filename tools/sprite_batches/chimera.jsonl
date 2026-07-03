@@ -1,0 +1,3 @@
+# キメラ (chimera) 大型ボス2倍 — 2ターン構成 (右歩き → 攻撃 / GPT-5.5世代=テンプレ行なし・短文1行)
+{"prompt_file": "source_images/enemy_chimera/_prompt_walk.txt",   "output": "source_images/enemy_chimera/キメラ歩き.png"}
+{"prompt_file": "source_images/enemy_chimera/_prompt_attack.txt", "output": "source_images/enemy_chimera/キメラ攻撃.png"}

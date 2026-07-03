@@ -322,9 +322,9 @@
     .enemy-lizardChieftain {
       filter: drop-shadow(0 0 9px rgba(180,30,70,0.85));
     }
-    /* ポドルプラザ・ボス: キマイラ (hydra シート流用・2倍サイズ)。獅子/山羊/竜の合成獣 → 温色寄せ + 赤金オーラで差別化 (暫定) */
+    /* ポドルプラザ・ボス: キマイラ (専用スプライト・2倍サイズ)。素材が既に温色 (獅子金/竜紫) なので色補正は撤去し、赤金オーラのみで威容を差別化 */
     .enemy-chimera {
-      filter: hue-rotate(-18deg) saturate(1.3) brightness(1.02) drop-shadow(0 0 11px rgba(220,90,40,0.82));
+      filter: drop-shadow(0 0 11px rgba(220,90,40,0.82));
     }
     /* ポドルプラザ・ボス: グリフォン (専用スプライト)。金褐色の猛禽 → 色補正は中和し空色オーラのみで威容を差別化 */
     .enemy-griffon {
@@ -5021,7 +5021,7 @@
         name: "キマイラ",
         flavor: "獅子・山羊・竜の三つ首を持つ有翼の合成獣",
         badge: "🦁",
-        sprite: "assets/hydra_anim.png?v=1",   // 暫定流用 (hydra シート・幾何完全一致)
+        sprite: "assets/chimera_anim.png?v=1",  // 専用スプライト (獅子・山羊・竜の三つ首)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 260,                       // 2倍サイズ (192px原寸→アップスケール)

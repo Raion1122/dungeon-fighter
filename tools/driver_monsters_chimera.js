@@ -15,7 +15,7 @@
  *
  * 検証項目:
  *   (1) chimera 単体 seed で .enemy-chimera DOM 生成 + 192px幾何 displaySize260 の描画健全
- *       (backgroundImage=hydra_anim.png?v= / bgSize=1560×1300) + pageerror ゼロ + diag critical ゼロ
+ *       (backgroundImage=chimera_anim.png?v= / bgSize=1560×1300) + pageerror ゼロ + diag critical ゼロ
  *   (2) three_heads: __turnProbe に キマイラ biteCount===3 (多攻撃ループが3回発火)
  *   (3) fire_breath: __breathProbe に キマイラ の 🔥ブレスが記録され、hitCount>=2 (複数の味方に
  *       AoE) かつ savedCount>=0 (DEX セーヴ半減の解決) が起きる。isBoss+breath で発火することを実証。
@@ -159,8 +159,8 @@ function seedInit(spawns) {
     return { count: els.length, bgImg, bgSize, w, h, bgW: m ? parseFloat(m[1]) : 0, bgH: m ? parseFloat(m[2]) : 0 };
   });
   check('(1) .enemy-chimera 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(1) backgroundImage が hydra_anim.png (?v=付き・借用)',
-    /hydra_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
+  check('(1) backgroundImage が chimera_anim.png (?v=付き・専用)',
+    /chimera_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
   const wOk = Math.abs(geo.w - 260) <= 2 && Math.abs(geo.h - 260) <= 2;
   check('(1) 表示寸法 ≈260px (displaySize=260・2倍)', wOk, 'w=' + geo.w + ' h=' + geo.h);
   const bgOk = Math.abs(geo.bgW - 1560) <= 2 && Math.abs(geo.bgH - 1300) <= 2 && geo.bgW > geo.w;
