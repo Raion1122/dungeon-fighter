@@ -1579,6 +1579,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>【開発中】新装備のお試し機能</b> — 動作確認のため、新しい魔法装備を試せる一時機能を用意しています(正式版では削除予定)。</li>
         <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
         <li><b>対竜の魔剣「フロストブランド」を追加</b> — 斬るたびに冷気を上乗せし、竜の炎ブレスのダメージを半減してくれる対竜の剣。</li>
         <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
@@ -2806,6 +2807,17 @@
     if (i >= 0) ownedEquip[key].splice(i, 1);
     dfPersistOwned(ownedEquip);   // maxIdx(hwm) は下げない = 売却済みは reconcile で復活しない
   }
+  // ── 【開発用・一時】URL に ?givemagic を付けて酒場を開くと gated(マジックアイテム=通常ドロップ限定)
+  //    装備を全て所持化する。実プレイ確認用のチート。パラメータ無しの通常プレイには一切影響しない。
+  //    ⚠ 商用配布前に必ず削除すること。
+  try {
+    if (/[?&]givemagic\b/i.test(location.search)) {
+      for (let t = 0; t < WEAPONS.length; t++) {
+        if (WEAPONS[t] && WEAPONS[t].gated) dfAddOwnedTier("weapon", t);
+      }
+      console.log("[dev] gated マジックアイテムを所持化しました (?givemagic)");
+    }
+  } catch (e) { /* ignore */ }
   // 検証用ブリッジ (v7.1 装備。puppeteer から IIFE 内 API へ到達する手段。本番動作には無害)
   try {
     window.__equipTV = {
