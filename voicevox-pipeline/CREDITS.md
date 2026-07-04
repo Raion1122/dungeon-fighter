@@ -38,7 +38,7 @@ README に上記を表示してください。
 
 ### 必須/推奨クレジット(BGM)
 
-- **魔王魂**(通常ダンジョン探索 `maou_game_dangeon22.mp3` / 終盤の山場 `maou_bgm_orchestra25.mp3`)
+- **魔王魂**(通常ダンジョン探索 `maou_game_dangeon22.mp3` / 終盤の山場 `maou_bgm_orchestra25.mp3` / ボス戦 `maou_bgm_fantasy12.mp3`)
 - **ユーフルカ**(最終決戦・ドラゴンの巣 `Ariadne-LastBoss.mp3`、原題「The Song Of The End」)
 
 ゲーム内では ⚙ 設定メニュー下部に「BGM 魔王魂 / ユーフルカ」を表示(`audio.js` openSettings)。

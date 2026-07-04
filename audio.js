@@ -312,6 +312,7 @@
   var BGM_FILES = {
     dungeon_normal: { src: "assets/bgm/maou_game_dangeon22.mp3",  loop: true, volume: 0.60, credit: "魔王魂" },
     dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
+    boss_battle:    { src: "assets/bgm/maou_bgm_fantasy12.mp3",   loop: true, volume: 0.65, credit: "魔王魂" },
     pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
   };
   var bgmEl = null, bgmElNode = null, bgmFileId = null, bgmElSrcId = null;

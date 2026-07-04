@@ -7490,13 +7490,23 @@
       if (window.__inBossRoom) return "boss";
       return "combat";
     }
+    // ── 現在鳴らすべきファイルBGM の決定 (シーン連続 + ボス部屋のみ専用曲へ切替) ──
+    //   通常のボス部屋 → 専用ボス曲 boss_battle (fantasy12)。
+    //   最終ボス pharaxus (dragon-lair = pharaxus_stage) → 既存エピック曲を「通し」で継続 (切替なし)。
+    //   探索/通常戦闘/中ボス(隠し要素) → シーン曲のまま (ユーザー確定「シーン連続」を維持)。
+    function currentBgmId() {
+      const sb = sceneBgmId();
+      if (window.__inBossRoom && sb && sb !== "pharaxus_stage") return "boss_battle";
+      return sb;
+    }
     function setPhase(kind) {
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
       currentPhase = kind;
-      // BGM: シーンBGM(mp3)があれば通しで継続。無ければ従来の合成 (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)。
-      const sb = sceneBgmId();
-      bgm(sb ? sb : (kind === "combat" ? combatBgmTrack() : kind));
+      // BGM: シーンBGM(mp3)があれば通しで継続。ボス部屋では専用ボス曲へ切替 (currentBgmId)。
+      //   無ければ従来の合成 (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)。
+      const cb = currentBgmId();
+      bgm(cb ? cb : (kind === "combat" ? combatBgmTrack() : kind));
       const el = document.getElementById("phaseIndicator");
       if (el) {
         el.classList.remove("phase-explore", "phase-combat", "phase-rest");
@@ -11031,7 +11041,7 @@
               !encounterActive && !gameOver && !dungeonCleared) {
             bossRoomNarrationShown = true;
             window.__inBossRoom = true;
-            bgm(sceneBgmId() || "boss");   // シーンBGMがあれば通しで継続 (dragon-lair=Pharaxus通し)
+            bgm(currentBgmId() || "boss");   // ボス部屋: 専用ボス曲 (fantasy12=boss_battle)。dragon-lair は Pharaxus 曲を通しで継続
             narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
           }
         }
