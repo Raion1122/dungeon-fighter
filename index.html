@@ -6367,7 +6367,7 @@
       // 中級 (Lv3-6): 標準ロングソード
       { name: "ロングソード", flavor: "冒険者の標準装備、均整の取れた長剣", dmgDice: "1d8", power: 2, knockback: 20, rarity: "common", enhancement: 0 },
       // 上級 (Lv6-10): 魔法の剣
-      { name: "鍛えし鋼の長剣 +1", flavor: "ドワーフの鍛冶に打たれし業物", dmgDice: "1d8", power: 3, knockback: 24, rarity: "rare", enhancement: 1 },
+      { name: "ロングソード +1", flavor: "瓦礫の下から出土した往時の魔法剣", dmgDice: "1d8", power: 3, knockback: 24, rarity: "rare", enhancement: 1 },
       // レア: フレームタング (+1d6 fire)
       { name: "フレームタング", flavor: "刃に永遠の炎を宿す業物", dmgDice: "1d8", power: 4, knockback: 22, rarity: "special", enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "fire" },
@@ -6383,7 +6383,7 @@
       // 初期: 服
       { name: "粗布の服", flavor: "村人が纏う平服", blockChance: 0.00, knockbackReduce: 0, rarity: "common", enhancement: 0 },
       // 中級: 魔法革鎧
-      { name: "鋲打ち革鎧 +1", flavor: "熟練の革匠の手による逸品", blockChance: 0.50, knockbackReduce: 6, rarity: "uncommon", enhancement: 1 },
+      { name: "レザーアーマー +1", flavor: "熟練の革匠の手による逸品", blockChance: 0.50, knockbackReduce: 6, rarity: "uncommon", enhancement: 1 },
       // 上級: 非魔法の重装鎧 (enh=2 で AC+2)
       { name: "チェインメイル", flavor: "鋼鎖を編み込んだ堅牢な鎧", blockChance: 0.60, knockbackReduce: 10, rarity: "common", enhancement: 2 },
     ];
@@ -6392,6 +6392,7 @@
       { name: "木の盾",     flavor: "楢材を切り出した素朴な盾",   rarity: "common", enhancement: 1 },
       { name: "革の盾",     flavor: "鋲打ちされた丈夫な革盾",     rarity: "common", enhancement: 2 },
       { name: "鋼鉄の盾",   flavor: "重いが堅牢な金属盾",         rarity: "common", enhancement: 3 },
+      { name: "シールド +1", flavor: "遺跡に眠っていた魔力を帯びた盾", rarity: "uncommon", enhancement: 1 },
     ];
     const chosenShieldIdx = persistent.equipShield != null
       ? Math.min(Number(persistent.equipShield), persistent.shieldIdx || 0)
@@ -9689,7 +9690,7 @@
 
     // ── Phase 2-H: ドロップ装備のディスパッチ ──
     // PT 内に装備可能職業がいれば該当キャラに装備変更、いなければ道具袋へ (ダブったら換金)。
-    // 現状の敵ドロップは戦士用ロングソード (weapons[1]) と 鋲打ち革鎧 (armors[1]) のみ。
+    // 現状の敵ドロップは戦士用ロングソード (weapons[1]) と レザーアーマー (armors[1]) のみ。
     function partyHasClass(classKey) {
       if (leaderClassKey === classKey) return true;
       if (typeof allies !== "undefined") {
@@ -9780,8 +9781,8 @@
             worldX >= enemy.armorX && worldX <= enemy.armorX + 36 &&
             worldY >= enemy.armorY && worldY <= enemy.armorY + 30) {
           enemy.armorVisible = false;
-          // 敵ドロップ防具は戦士用鋲打ち革鎧 (armors[1])
-          handleDroppedEquipment("warrior", "armors", 1, "鋲打ち革鎧");
+          // 敵ドロップ防具は戦士用レザーアーマー (armors[1])
+          handleDroppedEquipment("warrior", "armors", 1, "レザーアーマー");
           return true;
         }
       }
@@ -12700,7 +12701,7 @@
         critRange: 19, critMult: 2,
         weaponRange: "melee",
         weaponName: "ロングソード",
-        armorName: "鋲打ち革鎧 +1",
+        armorName: "レザーアーマー +1",
         role: "frontline",
         perceptionBonus: 0,
         defaultSkills: ["strong-cleave", "iron-guard", "morale"],
@@ -13306,13 +13307,13 @@
     const WARRIOR_ALLY_WEAPONS = [
       { name: "錆びた木の剣",       dmgDice: "1d6", range: "melee", enhancement: 0 },
       { name: "ロングソード",       dmgDice: "1d8", range: "melee", enhancement: 0 },
-      { name: "鍛えし鋼の長剣 +1",  dmgDice: "1d8", range: "melee", enhancement: 1, rarity: "rare" },
+      { name: "ロングソード +1",   dmgDice: "1d8", range: "melee", enhancement: 1, rarity: "rare" },
       { name: "フレームタング",     dmgDice: "1d8", range: "melee", enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "fire", rarity: "special" },
     ];
     const WARRIOR_ALLY_ARMORS = [
       { name: "粗布の服",        enhancement: 0 },
-      { name: "鋲打ち革鎧 +1",   enhancement: 1 },
+      { name: "レザーアーマー +1", enhancement: 1 },
       { name: "チェインメイル",   enhancement: 2 },
     ];
     const WARRIOR_ALLY_SHIELDS = [
@@ -13320,6 +13321,7 @@
       { name: "木の盾",     enhancement: 1 },
       { name: "革の盾",     enhancement: 2 },
       { name: "鋼鉄の盾",   enhancement: 3 },
+      { name: "シールド +1", enhancement: 1, rarity: "uncommon" },
     ];
     // クラス別装備プール (キーは ally.classKey)
     const ALLY_EQUIP_POOLS = {

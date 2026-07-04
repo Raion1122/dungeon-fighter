@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
         <li><b>ボス戦に専用BGMを追加</b> — シナリオのボス部屋に踏み込むと、緊張感のある専用の戦闘曲に切り替わる。最終ボスの決戦曲は従来どおり。</li>
         <li><b>ダンジョンが4部屋構成に</b> — 1回の探索が短くなり、各部屋は前衛と後衛が入り混じった手応えのある戦いに再編された。</li>
         <li><b>部屋を制圧するたび小回復</b> — 部屋の敵を一掃すると、パーティのHPと呪文スロットが少しだけ回復する(ボスの間を除く)。</li>
-        <li><b>キマイラが専用の姿で登場</b> — 獅子・山羊・竜の三つ首を持つ有翼の合成獣が、借り物ではない固有スプライトで牙をむく。</li>
       </ul>
     </div>
     <script>
@@ -2324,13 +2324,13 @@
   const WEAPONS = [
     { name: "錆びた木の剣",        dmgDice: "1d6", spec: "1d6",       range: "melee", flavor: "朽ちかけた見習い用の剣", enhancement: 0, rarity: "common" },
     { name: "ロングソード",        dmgDice: "1d8", spec: "1d8",       range: "melee", flavor: "冒険者の標準装備、均整の取れた長剣", enhancement: 0, rarity: "common" },
-    { name: "鍛えし鋼の長剣 +1",   dmgDice: "1d8", spec: "1d8 +1",    range: "melee", flavor: "ドワーフの鍛冶に打たれし業物", enhancement: 1, rarity: "rare" },
+    { name: "ロングソード +1",     dmgDice: "1d8", spec: "1d8 +1",    range: "melee", flavor: "瓦礫の下から出土した往時の魔法剣", enhancement: 1, rarity: "rare" },
     { name: "フレームタング",      dmgDice: "1d8", spec: "1d8 +1d6炎", range: "melee", flavor: "刃に永遠の炎を宿す業物 (+1d6 fire)", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "fire" },
   ];
   const ARMORS = [
     { name: "粗布の服",            spec: "AC +0",     flavor: "村人が纏う平服", enhancement: 0, rarity: "common" },
-    { name: "鋲打ち革鎧 +1",       spec: "AC +1",     flavor: "熟練の革匠の手による逸品", enhancement: 1, rarity: "uncommon" },
+    { name: "レザーアーマー +1",   spec: "AC +1",     flavor: "熟練の革匠の手による逸品", enhancement: 1, rarity: "uncommon" },
     { name: "チェインメイル",      spec: "AC +2",     flavor: "鋼鎖を編み込んだ堅牢な鎧", enhancement: 2, rarity: "common" },
   ];
   const SHIELDS = [
@@ -2338,6 +2338,7 @@
     { name: "木の盾",              spec: "AC +1",      flavor: "楢材を切り出した素朴な盾", enhancement: 1, rarity: "common" },
     { name: "革の盾",              spec: "AC +2",      flavor: "鋲打ちされた丈夫な革盾", enhancement: 2, rarity: "common" },
     { name: "鋼鉄の盾",            spec: "AC +3",      flavor: "重いが堅牢な金属盾", enhancement: 3, rarity: "common" },
+    { name: "シールド +1",         spec: "AC +1",      flavor: "遺跡に眠っていた魔力を帯びた盾", enhancement: 1, rarity: "uncommon" },
   ];
   const WEAPON_NAMES = WEAPONS.map(w => w.name);
   const ARMOR_NAMES  = ARMORS.map(a => a.name);
