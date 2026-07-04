@@ -6369,8 +6369,12 @@
       // 上級 (Lv6-10): 魔法の剣
       { name: "ロングソード +1", flavor: "瓦礫の下から出土した往時の魔法剣", dmgDice: "1d8", power: 3, knockback: 24, rarity: "rare", enhancement: 1 },
       // レア: フレームタング (+1d6 fire)
+      // フレームタング: マジックアイテム抽選プール専用 (gated=決定的入手[ラダー/ショップ]から除外)
       { name: "フレームタング", flavor: "刃に永遠の炎を宿す業物", dmgDice: "1d8", power: 4, knockback: 22, rarity: "special", enhancement: 0,
-        bonusDmgDice: "1d6", bonusDmgType: "fire" },
+        bonusDmgDice: "1d6", bonusDmgType: "fire", gated: true },
+      // 対竜装備「斬る柱」: フロストブランド (命中/ダメージ+1 + 冷気1d6 + 火ダメージ半減)。gated=ドロップ限定
+      { name: "フロストブランド", flavor: "凍気を宿す刃。竜の業火をも刃で殺ぎ落とす対竜の剣", dmgDice: "1d8", power: 4, knockback: 20, rarity: "special", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, gated: true },
     ];
     // 酒場の準備画面で選んだ装備があればそれを使う(なければ所持最上位)
     const chosenWeaponIdx = persistent.equipWeapon != null
@@ -7847,6 +7851,21 @@
     }
     // 互換: 後方互換のために PT 全体に展開された関数 (旧コードが渡してない引数を補完)
     function getUnitAvoidance(unit, kind) { return getTotalAvoidance(kind, unit); }
+
+    // 火ダメージ耐性倍率: 装備アクセ (火耐性の指輪) / 装備武器 (フロストブランド) の fireResist を
+    // 走査し最小倍率を返す (無ければ 1.0)。複数持ちでも最小倍率のみ適用 = 二重半減しない (仕様意図)。
+    // unit: "player" (リーダー) | ally オブジェクト。火源 hydraFireBreath から呼ぶ。
+    function getFireResistMult(unit) {
+      let mult = 1.0;
+      for (const acc of getEquippedAccessories(unit)) {
+        if (typeof acc.fireResist === "number") mult = Math.min(mult, acc.fireResist);
+      }
+      let wFR = null;
+      if (unit === "player") { const w = getCurrentWeapon(); wFR = w && w.fireResist; }
+      else if (unit) { wFR = unit.weaponFireResist; }
+      if (typeof wFR === "number") mult = Math.min(mult, wFR);
+      return mult;
+    }
 
     function hasIronSword() {
       return currentWeaponIndex === 1;
@@ -13310,6 +13329,8 @@
       { name: "ロングソード +1",   dmgDice: "1d8", range: "melee", enhancement: 1, rarity: "rare" },
       { name: "フレームタング",     dmgDice: "1d8", range: "melee", enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "fire", rarity: "special" },
+      { name: "フロストブランド",   dmgDice: "1d8", range: "melee", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, rarity: "special" },
     ];
     const WARRIOR_ALLY_ARMORS = [
       { name: "粗布の服",        enhancement: 0 },
@@ -13399,6 +13420,7 @@
       // レア武器の特殊効果をコピー (未定義は null クリア)
       ally.weaponBonusDmgDice = w.bonusDmgDice || null;
       ally.weaponBonusDmgType = w.bonusDmgType || null;
+      ally.weaponFireResist   = (typeof w.fireResist === "number") ? w.fireResist : null;  // フロストブランド: 火ダメージ半減
       ally.weaponCritStun     = w.critStun     || 0;
       ally.weaponLifeStealDice = w.lifeStealDice || null;
       // 雷鳴の斧の余波 (周囲1マス追加ダメージ + STR セーブで半減)
@@ -14013,9 +14035,48 @@
       return Math.max(11, Math.min(16, base - 1));
     }
 
+    // ── ✨ マジックアイテム抽選プール (超低確率ドロップ・拡張前提) ──────────────
+    // gated フラグ付きの稀少装備を「抽選プール」として扱い、宝箱/クリア報酬で超低確率の抽選に
+    // 当たるとプールからランダムで1つ付与する。プールに gated を足すほど各アイテムは自然に激レア化
+    // =「何が出るか楽しみ」体験。決定的な入手経路 (武器チェストのランク上げラダー・酒場ショップ)
+    // からは gated を除外している。v1 の対象は gated 武器 (フレームタング/フロストブランド)。将来
+    // STEP3/4 の指輪 (accessories) や防具の gated を rollMagicItemDrop の候補に足せば抽選対象が広がる。
+    const MAGIC_DROP_CHEST_CHANCE = 0.005;   // 通常宝箱: マジックアイテムが出る確率 (超低)
+    const MAGIC_DROP_CLEAR_CHANCE = 0.01;    // シナリオクリア報酬: 同上 (やや高め)
+    // 決定的な武器ラダー (通常武器チェスト) の上限 = gated を除いた最上位 index。
+    function ladderMaxWeaponIdx() {
+      let m = 0;
+      for (let i = 0; i < weapons.length; i++) if (!weapons[i].gated) m = i;
+      return m;
+    }
+    // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
+    function rollMagicItemDrop() {
+      const pool = [];
+      // v1: gated 武器のうち現在装備より上位 (=アップグレード) のもの (リーダーが戦士の時のみ)。
+      //     将来はここに指輪 (accessories) / 防具の gated 候補を足す。
+      if (leaderClassKey === "warrior") {
+        for (let i = 0; i < weapons.length; i++) {
+          if (weapons[i].gated && i > currentWeaponIndex) pool.push({ kind: "weapon", idx: i });
+        }
+      }
+      if (pool.length === 0) return null;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      if (pick.kind === "weapon") {
+        currentWeaponIndex = pick.idx;
+        try {
+          localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
+        } catch (e) { /* silent */ }
+        return { name: weapons[pick.idx].name, kind: "weapon" };
+      }
+      return null;
+    }
+
     function pickChestLoot() {
       const r = Math.random();
-      if (r < 0.33) {
+      if (r < MAGIC_DROP_CHEST_CHANCE) {
+        return { kind: "magicItem" };                                                   // ✨ マジックアイテム抽選 (超低確率・拡張プール)
+      } else if (r < 0.33) {
         return { kind: "goldSmall", amount: 10 + Math.floor(Math.random() * 11) };      // 10-20
       } else if (r < 0.50) {
         return { kind: "goldLarge", amount: 30 + Math.floor(Math.random() * 21) };      // 30-50
@@ -14250,7 +14311,7 @@
       // 発見の告知は知覚/捜査判定側 (applyPerceptionResult/applyInvestigationResult) で、開錠は tryPickLock で済んでいる。
       // ここは「箱を開ける」演出のみ。施錠状態に応じてフレーバーを差し替える。
       sfx("chestFound");
-      const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll");
+      const isRare = chest.loot && (chest.loot.kind === "weapon" || chest.loot.kind === "armor" || chest.loot.kind === "goldLarge" || chest.loot.kind === "scroll" || chest.loot.kind === "magicItem");
       if (opts.justUnlocked) {
         showDMMessage("錠前がかちりと外れた。ゆっくりと蓋を持ち上げる——", 2200);
       } else if (isRare) {
@@ -14270,7 +14331,7 @@
         showBanner(`金貨 +${loot.amount}`, 1400);
       } else if (loot.kind === "weapon") {
         // 次ランクの武器を所持 (既存の index=1 体系)
-        const nextIdx = Math.min(weapons.length - 1, currentWeaponIndex + 1);
+        const nextIdx = Math.min(ladderMaxWeaponIdx(), currentWeaponIndex + 1);   // gated(特殊)はラダーで出ない=ドロップ限定
         if (nextIdx > currentWeaponIndex) {
           currentWeaponIndex = nextIdx;
           const w = weapons[nextIdx];
@@ -14287,6 +14348,19 @@
           coins += bonus;
           updateInfo(`宝箱の中身: 予備の武器 (既に上位所持) → 金貨 +${bonus}`);
           showBanner(`予備の武器を換金 金貨 +${bonus}`, 1400);
+        }
+      } else if (loot.kind === "magicItem") {
+        // ✨ マジックアイテム抽選 (超低確率・拡張プール)。付与できなければ魔力の残滓=金貨。
+        const got = rollMagicItemDrop();
+        if (got) {
+          updateInfo(`宝箱の中身: ✨マジックアイテム『${got.name}』を手に入れた！`);
+          showBanner(`✨ "${got.name}" を手に入れた!`, 2200);
+          if (typeof showDMMessage === "function") showDMMessage("——匣の底で、何かが淡い魔力の燐光を放っている。", 2400);
+        } else {
+          const bonus = 40;
+          coins += bonus;
+          updateInfo(`宝箱の中身: 魔力の残滓 (既に上位を所持) → 金貨 +${bonus}`);
+          showBanner(`魔力の残滓を換金 金貨 +${bonus}`, 1400);
         }
       } else if (loot.kind === "armor") {
         const nextIdx = Math.min(armors.length - 1, currentArmorIndex + 1);
@@ -19710,6 +19784,7 @@
         const saved = (roll + (a.dex || 0)) >= dc;
         let dmg = rollBreath();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        dmg = Math.max(1, Math.round(dmg * getFireResistMult(a)));   // フロストブランド/火耐性の指輪: 火半減 (セーヴ半減の後)
         hitCount++;
         showRollAtAlly(a,
           `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
@@ -19724,6 +19799,7 @@
         const saved = (roll + (playerStats.dex || 0)) >= dc;
         let dmg = rollBreath();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        dmg = Math.max(1, Math.round(dmg * getFireResistMult("player")));   // フロストブランド/火耐性の指輪: 火半減 (セーヴ半減の後・致死判定の前)
         hitCount++;
         showRollAtPlayer(
           `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
@@ -20702,6 +20778,8 @@
         // 勝利: このランで拾った金貨と装備を永続化
         const earnedGold = coins;
         const newTotalGold = persistent.gold + earnedGold;
+        // ✨ クリア報酬: 1% でマジックアイテム抽選 (「クリア報酬の宝箱」)。付与は currentWeaponIndex に反映。
+        const clearMagicItem = (Math.random() < MAGIC_DROP_CLEAR_CHANCE) ? rollMagicItemDrop() : null;
         const newWeapon = currentWeaponIndex > startedWithWeaponIdx ? weapons[currentWeaponIndex] : null;
         const newArmor  = currentArmorIndex  > startedWithArmorIdx  ? armors[currentArmorIndex]   : null;
 
@@ -20769,7 +20847,8 @@
           const next = getNextLevelXP(currentTotalXp);
           html += `<br>XP <b>+${earnedXpThisRun}</b> (累計 ${currentTotalXp}/${next}) ・ Lv <b>${lv}</b>`;
         }
-        if (newWeapon) html += `<br>新装備: <b>${newWeapon.name}</b>`;
+        if (clearMagicItem) html += `<br>✨ 宝物発見: <b>${clearMagicItem.name}</b>`;
+        else if (newWeapon) html += `<br>新装備: <b>${newWeapon.name}</b>`;
         if (newArmor)  html += `<br>新装備: <b>${newArmor.name}</b>`;
         if (currentScenario.clearReward) {
           html += `<br>📜 入手: <b>${currentScenario.clearReward}</b>`;

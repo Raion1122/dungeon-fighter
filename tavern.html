@@ -1579,10 +1579,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
+        <li><b>対竜の魔剣「フロストブランド」を追加</b> — 斬るたびに冷気を上乗せし、竜の炎ブレスのダメージを半減してくれる対竜の剣。</li>
         <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
         <li><b>ボス戦に専用BGMを追加</b> — シナリオのボス部屋に踏み込むと、緊張感のある専用の戦闘曲に切り替わる。最終ボスの決戦曲は従来どおり。</li>
-        <li><b>ダンジョンが4部屋構成に</b> — 1回の探索が短くなり、各部屋は前衛と後衛が入り混じった手応えのある戦いに再編された。</li>
-        <li><b>部屋を制圧するたび小回復</b> — 部屋の敵を一掃すると、パーティのHPと呪文スロットが少しだけ回復する(ボスの間を除く)。</li>
       </ul>
     </div>
     <script>
@@ -2326,7 +2326,9 @@
     { name: "ロングソード",        dmgDice: "1d8", spec: "1d8",       range: "melee", flavor: "冒険者の標準装備、均整の取れた長剣", enhancement: 0, rarity: "common" },
     { name: "ロングソード +1",     dmgDice: "1d8", spec: "1d8 +1",    range: "melee", flavor: "瓦礫の下から出土した往時の魔法剣", enhancement: 1, rarity: "rare" },
     { name: "フレームタング",      dmgDice: "1d8", spec: "1d8 +1d6炎", range: "melee", flavor: "刃に永遠の炎を宿す業物 (+1d6 fire)", enhancement: 0, rarity: "special",
-      bonusDmgDice: "1d6", bonusDmgType: "fire" },
+      bonusDmgDice: "1d6", bonusDmgType: "fire", gated: true },
+    { name: "フロストブランド",    dmgDice: "1d8", spec: "1d8 +1 +1d6氷 / 火半減", range: "melee", flavor: "凍気を宿す刃。竜の業火をも刃で殺ぎ落とす対竜の剣 (+1d6 cold)", enhancement: 1, rarity: "special",
+      bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, gated: true },
   ];
   const ARMORS = [
     { name: "粗布の服",            spec: "AC +0",     flavor: "村人が纏う平服", enhancement: 0, rarity: "common" },
@@ -2742,6 +2744,19 @@
   //  _hwm = 最後に反映した maxIdx。戦利品で maxIdx が上がった分だけ owned に追加し、売却済みは復活させない。
   const DF_OWNED_KEY = "dragonfighters.ownedEquip";
   function dfRange0(n) { const a = []; for (let i = 0; i <= (n | 0); i++) a.push(i); return a; }
+  // gated(マジックアイテム=ドロップ限定)武器ティア判定。所持再構成で「実際に到達した最上位
+  // (=maxIdx=ドロップして装備中の1本)」以外の gated を芋づるで自動所持化しないためのガード。
+  // ラダーは非gatedで打ち止めのため weaponIdx が gated ティアに達するのはドロップ時のみ。
+  function dfWeaponTierGated(t) { return !!(typeof WEAPONS !== "undefined" && WEAPONS[t] && WEAPONS[t].gated); }
+  // slot の [0..maxIdx] の所持レンジ。weapons では「gated かつ maxIdx 未満」のティアを除外する。
+  function dfOwnedInitRange(slot, maxIdx) {
+    const a = [];
+    for (let i = 0; i <= (maxIdx | 0); i++) {
+      if (slot === "weapons" && i < maxIdx && dfWeaponTierGated(i)) continue;
+      a.push(i);
+    }
+    return a;
+  }
   function dfPersistOwned(data) {
     try { localStorage.setItem(DF_OWNED_KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
   }
@@ -2750,8 +2765,8 @@
     let data;
     try { data = JSON.parse(localStorage.getItem(DF_OWNED_KEY) || "null"); } catch (e) { data = null; }
     if (!data || typeof data !== "object") {
-      // 初回: 旧セーブの maxIdx から [0..max] を所持とみなす (後方互換)
-      data = { weapons: dfRange0(maxes.weapons), armors: dfRange0(maxes.armors), shields: dfRange0(maxes.shields),
+      // 初回: 旧セーブの maxIdx から [0..max] を所持とみなす (後方互換)。weapons は gated<max を除外。
+      data = { weapons: dfOwnedInitRange("weapons", maxes.weapons), armors: dfRange0(maxes.armors), shields: dfRange0(maxes.shields),
                _hwm: { weapons: maxes.weapons, armors: maxes.armors, shields: maxes.shields } };
       dfPersistOwned(data);
       return data;
@@ -2759,10 +2774,11 @@
     if (!data._hwm) data._hwm = { weapons: -1, armors: -1, shields: -1 };
     let changed = false;
     for (const slot of ["weapons", "armors", "shields"]) {
-      if (!Array.isArray(data[slot])) { data[slot] = dfRange0(maxes[slot]); changed = true; }
+      if (!Array.isArray(data[slot])) { data[slot] = dfOwnedInitRange(slot, maxes[slot]); changed = true; }
       if (data._hwm[slot] == null) data._hwm[slot] = -1;
       // 戦利品で maxIdx が前回反映 hwm より上がった分を所持へ追加。売却済み低ティアは復活しない。
       for (let t = (data._hwm[slot] | 0) + 1; t <= maxes[slot]; t++) {
+        if (slot === "weapons" && t < maxes[slot] && dfWeaponTierGated(t)) continue;   // 下位 gated は芋づる所持化しない
         if (!data[slot].includes(t)) { data[slot].push(t); changed = true; }
       }
       if ((data._hwm[slot] | 0) < maxes[slot]) { data._hwm[slot] = maxes[slot]; changed = true; }
@@ -3560,6 +3576,7 @@
       const rows = [];
       pool.forEach((item, tier) => {
         const owned = dfIsOwnedTier(kind, tier);
+        if (shopTab === "buy" && item.gated) return;     // gated(マジックアイテム)は購入不可=ドロップ限定
         if (shopTab === "buy" && owned) return;          // 購入=未所持のみ
         if (shopTab === "sell" && !owned) return;        // 売却=所持のみ
         rows.push({ kind, tier, item, equipped: equippedSet.has(tier) });
@@ -3845,6 +3862,7 @@
     items.forEach((it, i) => {
       if (i === currentSel) return;                       // 装備中は上段 → 所持品から除外
       const owned = dfIsOwnedTier(kind, i);
+      if (it.gated && !owned) return;                     // gated(マジックアイテム)は未所持なら非表示 (ドロップで所持したら出る)
       if (!owned && !showAllEquip) { shopHint++; return; }
       const item = document.createElement("div");
       item.className = "equipItem" + (owned ? "" : " locked");
