@@ -1580,7 +1580,7 @@
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
         <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
-        <li><b>【開発中】新装備のお試し機能</b> — 動作確認のため、新しい魔法装備を試せる一時機能を用意しています(正式版では削除予定)。</li>
+        <li><b>【開発中】新装備のお試し機能</b> — 動作確認用に、魔法装備を武器防具屋で 1G で購入できます(正式版では削除予定)。</li>
         <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
         <li><b>対竜の魔剣「フロストブランド」を追加</b> — 斬るたびに冷気を上乗せし、竜の炎ブレスのダメージを半減してくれる対竜の剣。</li>
         <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
@@ -2722,6 +2722,13 @@
     if (item.sellPrice != null) return item.sellPrice;            // レア個別単価
     return Math.floor(dfBuyPrice(item) * 0.5);                    // 既定 = 購入額の 50%
   }
+  // ⚠【開発用・一時】gated マジックアイテム(通常はドロップ限定)を武器防具屋に 1G で陳列し、
+  //    URLチート無しで実機テストできるようにする。新規追加の gated 武器/防具/盾は自動でここに並ぶ。
+  //    ★商用配布前に必ず false(または本行削除) + ?givemagic チートも削除すること。
+  //    ここで早期に宣言するのは、後方の ?givemagic/指輪付与ブロックが参照するため(TDZ 回避)。
+  const DF_DEV_MAGIC_SHOP = true;
+  function dfShopBuyPrice(item)  { return (DF_DEV_MAGIC_SHOP && item && item.gated) ? 1 : dfBuyPrice(item); }
+  function dfShopSellPrice(item) { return (DF_DEV_MAGIC_SHOP && item && item.gated) ? 1 : dfSellPrice(item); }  // 1G買い→高額売りの金策事故を防止
   // 両手武器判定 (グリップ概念)。明示 twoHanded 優先 → 弓(range==="long") → flavor「両手」。
   function dfIsTwoHanded(item) {
     if (!item) return false;
@@ -2811,19 +2818,24 @@
   //    装備を全て所持化する。実プレイ確認用のチート。パラメータ無しの通常プレイには一切影響しない。
   //    ⚠ 商用配布前に必ず削除すること。
   try {
-    if (/[?&]givemagic\b/i.test(location.search)) {
+    const GIVEMAGIC = /[?&]givemagic\b/i.test(location.search);
+    if (GIVEMAGIC) {
+      // gated 武器を一括所持化(後方互換)。DF_DEV_MAGIC_SHOP 有効時は武器防具屋に 1G で並ぶため本来は不要。
       for (let t = 0; t < WEAPONS.length; t++) {
         if (WEAPONS[t] && WEAPONS[t].gated) dfAddOwnedTier("weapon", t);
       }
-      // gated アクセ (指輪) も所持化: accessoryIds に追記 → unlockedAccessoriesTV に出る (index.html と共有)。
-      //   ⚠ ここは ACCESSORIES_TV(後方で const 宣言) より前に走るため id を直書きする (TDZ 回避)。
+      console.log("[dev] gated 武器を所持化しました (?givemagic)");
+    }
+    // gated アクセ (指輪) の所持化: ?givemagic か DF_DEV_MAGIC_SHOP で accessoryIds に追記(index.html と共有)。
+    //   武器/防具/盾は dev shop に 1G で並ぶが、アクセサリはショップ非対応のため dev フラグで自動付与する。
+    //   ⚠ ここは ACCESSORIES_TV(後方で const 宣言) より前に走るため id を直書きする (TDZ 回避)。
+    if (GIVEMAGIC || DF_DEV_MAGIC_SHOP) {
       try {
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
         ["ring-free-action", "ring-fire-resist"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
-      console.log("[dev] gated マジックアイテムを所持化しました (?givemagic)");
     }
   } catch (e) { /* ignore */ }
   // 検証用ブリッジ (v7.1 装備。puppeteer から IIFE 内 API へ到達する手段。本番動作には無害)
@@ -3563,7 +3575,7 @@
     if (dfIsOwnedTier(kind, tier)) return { ok: false, reason: "already" };
     const item = shopPool(kind)[tier];
     if (!item) return { ok: false, reason: "noitem" };
-    const price = dfBuyPrice(item);
+    const price = dfShopBuyPrice(item);
     if (dfGold() < price) return { ok: false, reason: "gold" };
     dfSetGold(dfGold() - price);
     dfAddOwnedTier(kind, tier);
@@ -3575,7 +3587,7 @@
     if (shopEquippedTiers(kind).has(tier)) return { ok: false, reason: "equipped" };
     const item = shopPool(kind)[tier];
     if (!item) return { ok: false, reason: "noitem" };
-    const price = dfSellPrice(item);
+    const price = dfShopSellPrice(item);
     dfRemoveOwnedTier(kind, tier);
     dfSetGold(dfGold() + price);
     return { ok: true, price, name: item.name, gold: dfGold() };
@@ -3600,7 +3612,7 @@
       const rows = [];
       pool.forEach((item, tier) => {
         const owned = dfIsOwnedTier(kind, tier);
-        if (shopTab === "buy" && item.gated) return;     // gated(マジックアイテム)は購入不可=ドロップ限定
+        if (shopTab === "buy" && item.gated && !DF_DEV_MAGIC_SHOP) return;  // gated=ドロップ限定(dev陳列時のみ購入可)
         if (shopTab === "buy" && owned) return;          // 購入=未所持のみ
         if (shopTab === "sell" && !owned) return;        // 売却=所持のみ
         rows.push({ kind, tier, item, equipped: equippedSet.has(tier) });
@@ -3612,7 +3624,7 @@
       head.textContent = SHOP_KIND_LABEL[kind];
       listEl.appendChild(head);
       for (const r of rows) {
-        const price = shopTab === "buy" ? dfBuyPrice(r.item) : dfSellPrice(r.item);
+        const price = shopTab === "buy" ? dfShopBuyPrice(r.item) : dfShopSellPrice(r.item);
         const colorCls = getItemColorClass(r.item.name, r.item.rarity);
         const row = document.createElement("div");
         row.className = "shopItem";
