@@ -6416,6 +6416,12 @@
       { id: "none",          name: "なし",         flavor: "",                                                                rarity: "common" },
       { id: "shadow-amulet", name: "残影の首飾り", flavor: "残影の獣の毛皮から織られた首飾り、攻撃を時折逸らす",
         avoidAll: 0.05, avoidArrow: 0.50, rarity: "special" },
+      // ── v7.4 対竜マジックアイテム (STEP3/4): gated=通常入手不可・マジックアイテム抽選プール限定。
+      //    効果は装備中のみ発動 (getFireResistMult / hasFreeAction が装備アクセを走査)。
+      { id: "ring-free-action", name: "自由の指輪",   flavor: "身も心も縛らせぬ古の指輪。竜の威圧も粘つく縛めも通じない",
+        freeAction: true, gated: true, rarity: "special" },
+      { id: "ring-fire-resist", name: "火耐性の指輪", flavor: "赤竜の鱗を鋳込んだ護りの指輪。浴びる炎のダメージを半分に和らげる",
+        fireResist: 0.5, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -7867,6 +7873,12 @@
       return mult;
     }
 
+    // 自由の指輪 (Ring of Free Action): 装備中なら「縛り」系状態 (frightened / confused / stuck) を無効化。
+    // unit: "player" (リーダー) | ally オブジェクト。恐怖セーヴ・眩惑の視線・粘着の各適用箇所で参照。
+    function hasFreeAction(unit) {
+      return getEquippedAccessories(unit).some(a => a && a.freeAction);
+    }
+
     function hasIronSword() {
       return currentWeaponIndex === 1;
     }
@@ -9299,6 +9311,12 @@
         ...((typeof allies !== "undefined") ? allies.flatMap(a => a.accessoryIndices) : []),
       ].filter(i => accessories[i] && accessories[i].id !== "none");
       for (const i of allEquipped) stock.push(accessories[i].id);
+      // 所持台帳 (accessoryIds) は単調: 一度手に入れた装身具は装備を外しても所持のまま残す。
+      // 装備スロット由来だけで再計算すると、未装備の所持指輪・頭昇格/召喚消滅で外れた指輪・
+      // ?givemagic で付与した指輪が酒場一覧から消えて二度と再装備できなくなる (所持は失わせない設計)。
+      // equipped は多重集合を保持しつつ、過去所持で欠けた id のみ 1 つ足す (shadow-amulet の個数は不変)。
+      const priorIds = Array.isArray(persistent.accessoryIds) ? persistent.accessoryIds : [];
+      for (const id of priorIds) if (id && id !== "none" && !stock.includes(id)) stock.push(id);
       persistent.accessoryIds = stock;
       persistent.accessoryStateJson = JSON.stringify(snap);
       try {
@@ -11977,10 +11995,10 @@
       try { sfx("levelup"); } catch (e) {}
     }
     function playerFearImmune() {
-      return !!(window.__fearImmune || templeBlessing || (playerBuffs && playerBuffs.fearImmuneRemaining > 0));
+      return !!(window.__fearImmune || templeBlessing || hasFreeAction("player") || (playerBuffs && playerBuffs.fearImmuneRemaining > 0));
     }
     function allyFearImmune(a) {
-      return !!(window.__fearImmune || templeBlessing || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
+      return !!(window.__fearImmune || templeBlessing || hasFreeAction(a) || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
     }
     // dc に対しパーティ全員 (頭 + 生存仲間) が d20+WIS を振り、失敗者に frightened を付与。
     // 結果配列 [{kind, ally?, saved, immune?}] を返す (検証ドライバ用)。
@@ -12041,20 +12059,32 @@
       const rec = { enemyIdx, dc, failed: [], saved: [] };
       // ── 頭 (player) ──
       if (hp > 0 && !gameOver) {
-        const roll = d20();
-        const total = roll + (playerStats.wis || 0);
-        const saved = total >= dc;
-        if (!saved) playerBuffs.confused = dur;
-        showRollAtPlayer(
-          `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
-          saved ? "hit" : "miss");
-        (saved ? rec.saved : rec.failed).push("P");
+        if (hasFreeAction("player")) {
+          // 自由の指輪: 混乱 (行動不能) を無効化
+          showRollAtPlayer(`<span class="label">FREE ACTION</span>自由の指輪が眩惑を退けた`, "hit");
+          rec.saved.push("P");
+        } else {
+          const roll = d20();
+          const total = roll + (playerStats.wis || 0);
+          const saved = total >= dc;
+          if (!saved) playerBuffs.confused = dur;
+          showRollAtPlayer(
+            `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
+            `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
+            saved ? "hit" : "miss");
+          (saved ? rec.saved : rec.failed).push("P");
+        }
       }
       // ── 仲間 ──
       for (let i = 0; i < allies.length; i++) {
         const a = allies[i];
         if (!a || !a.alive) continue;
+        if (hasFreeAction(a)) {
+          // 自由の指輪: 混乱 (行動不能) を無効化
+          showRollAtAlly(a, `<span class="label">FREE ACTION</span>自由の指輪が眩惑を退けた`, "hit");
+          rec.saved.push("A" + i);
+          continue;
+        }
         const roll = d20();
         const total = roll + (a.wis || 0);
         const saved = total >= dc;
@@ -14049,15 +14079,44 @@
       for (let i = 0; i < weapons.length; i++) if (!weapons[i].gated) m = i;
       return m;
     }
+    // gated アクセ (指輪) を装備できる PT メンバー (未所持 + 空きスロット) を1人探す。leader 優先→仲間。
+    // 見つかれば装着先 { kind:"player", slot } / { kind:"ally", ally, slot } を返し、無ければ null。
+    function findAccessoryRecipient(accId) {
+      // リーダー (currentAccessoryIndices)
+      if (!hasAccessoryId(accId, "player")) {
+        const slot = currentAccessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
+        if (slot >= 0) return { kind: "player", slot };
+      }
+      // 仲間 (accessoryIndices を持つ全員。撃破済みでも loadout に残るので alive 不問)
+      //   classKey 無し = 召喚ユニット等の一時ユニット (savePersistentAccessoryStock も classKey で
+      //   スナップするため永続化されない) → 指輪の付与先から除外し、消滅で失うのを防ぐ。
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.classKey || !Array.isArray(a.accessoryIndices)) continue;
+          if (hasAccessoryId(accId, a)) continue;
+          const slot = a.accessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
+          if (slot >= 0) return { kind: "ally", ally: a, slot };
+        }
+      }
+      return null;
+    }
+
     // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
     function rollMagicItemDrop() {
       const pool = [];
       // v1: gated 武器のうち現在装備より上位 (=アップグレード) のもの (リーダーが戦士の時のみ)。
-      //     将来はここに指輪 (accessories) / 防具の gated 候補を足す。
       if (leaderClassKey === "warrior") {
         for (let i = 0; i < weapons.length; i++) {
           if (weapons[i].gated && i > currentWeaponIndex) pool.push({ kind: "weapon", idx: i });
         }
+      }
+      // v7.4 STEP3/4: gated アクセ (指輪) のうち、装着できる PT メンバーが居るもの (職業非依存)。
+      //   pool に足すほど各アイテムは自然に激レア化 =「何が出るか楽しみ」体験。
+      for (let i = 0; i < accessories.length; i++) {
+        const acc = accessories[i];
+        if (!acc || !acc.gated) continue;
+        const recipient = findAccessoryRecipient(acc.id);
+        if (recipient) pool.push({ kind: "accessory", idx: i, recipient });
       }
       if (pool.length === 0) return null;
       const pick = pool[Math.floor(Math.random() * pool.length)];
@@ -14068,6 +14127,16 @@
           localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
         } catch (e) { /* silent */ }
         return { name: weapons[pick.idx].name, kind: "weapon" };
+      }
+      if (pick.kind === "accessory") {
+        const r = pick.recipient;
+        if (r.kind === "player") currentAccessoryIndices[r.slot] = pick.idx;
+        else                     r.ally.accessoryIndices[r.slot] = pick.idx;
+        // 装着状態を永続化 (accessoryIds / accessoryState) → 酒場でも所持が反映され再装備可。
+        try { savePersistentAccessoryStock(); } catch (e) { /* silent */ }
+        try { recomputeAccessoryStock(); } catch (e) { /* silent */ }
+        if (typeof renderPartyStatuses === "function") { try { renderPartyStatuses(); } catch (e) {} }
+        return { name: accessories[pick.idx].name, kind: "accessory" };
       }
       return null;
     }
@@ -14536,11 +14605,17 @@
       // 宝箱 DOM を除去 (敵に化けた)
       chest.opened = true;
       if (chest.el) { try { chest.el.remove(); } catch (e) {} chest.el = null; }
-      // 粘着 (不意打ちのみ): リーダー=最初に触れた者を拘束
+      // 粘着 (不意打ちのみ): リーダー=最初に触れた者を拘束。自由の指輪装備時は無効。
       if (!forewarned) {
-        playerBuffs.stuck = true;
-        if (typeof showDMMessage === "function") {
-          setTimeout(() => showDMMessage(`粘着質の舌が ${getLeaderName()} に絡みつく! 引き剥がさねば動けない (STR判定)`, 2600), 900);
+        if (hasFreeAction("player")) {
+          if (typeof showDMMessage === "function") {
+            setTimeout(() => showDMMessage(`粘着質の舌が ${getLeaderName()} に絡みつくが、自由の指輪の力で難なく振りほどいた!`, 2600), 900);
+          }
+        } else {
+          playerBuffs.stuck = true;
+          if (typeof showDMMessage === "function") {
+            setTimeout(() => showDMMessage(`粘着質の舌が ${getLeaderName()} に絡みつく! 引き剥がさねば動けない (STR判定)`, 2600), 900);
+          }
         }
       }
     }
@@ -20662,16 +20737,10 @@
       if (!persistent.accessoryStateJson) return;
       try {
         const snap = JSON.parse(persistent.accessoryStateJson);
-        if (snap && snap.player && Array.isArray(snap.player)) {
-          currentAccessoryIndices = [
-            accessoryIdxFromId(snap.player[0] || "none"),
-            accessoryIdxFromId(snap.player[1] || "none"),
-          ];
-          if (currentAccessoryIndices[0] !== 0 &&
-              currentAccessoryIndices[0] === currentAccessoryIndices[1]) {
-            currentAccessoryIndices[1] = 0;
-          }
-        }
+        // リーダーの装身具は酒場の equipAccessory1/2 が権威 (上部 6425 付近で適用済み)。ここで
+        // snap.player を上書きしない — in-dungeon 付与も savePersistentAccessoryStock が
+        // equipAccessory1/2 を必ず書くため equipAccessory1/2 は常に最新で、snap.player は古くなり得る。
+        // (上書きすると酒場で装備し直した指輪/首飾りが古いスナップに巻き戻る不具合になる)
         if (snap && snap.allies) {
           for (const a of allies) {
             const ids = snap.allies[a.classKey];

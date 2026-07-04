@@ -1579,11 +1579,11 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
         <li><b>【開発中】新装備のお試し機能</b> — 動作確認のため、新しい魔法装備を試せる一時機能を用意しています(正式版では削除予定)。</li>
         <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
         <li><b>対竜の魔剣「フロストブランド」を追加</b> — 斬るたびに冷気を上乗せし、竜の炎ブレスのダメージを半減してくれる対竜の剣。</li>
         <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
-        <li><b>ボス戦に専用BGMを追加</b> — シナリオのボス部屋に踏み込むと、緊張感のある専用の戦闘曲に切り替わる。最終ボスの決戦曲は従来どおり。</li>
       </ul>
     </div>
     <script>
@@ -2815,6 +2815,14 @@
       for (let t = 0; t < WEAPONS.length; t++) {
         if (WEAPONS[t] && WEAPONS[t].gated) dfAddOwnedTier("weapon", t);
       }
+      // gated アクセ (指輪) も所持化: accessoryIds に追記 → unlockedAccessoriesTV に出る (index.html と共有)。
+      //   ⚠ ここは ACCESSORIES_TV(後方で const 宣言) より前に走るため id を直書きする (TDZ 回避)。
+      try {
+        const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
+        const set = new Set(Array.isArray(cur) ? cur : []);
+        ["ring-free-action", "ring-fire-resist"].forEach(id => set.add(id));
+        localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
+      } catch (e) { /* ignore */ }
       console.log("[dev] gated マジックアイテムを所持化しました (?givemagic)");
     }
   } catch (e) { /* ignore */ }
@@ -3493,6 +3501,10 @@
   const ACCESSORIES_TV = [
     { id: "none",          name: "なし",         rarity: "common" },
     { id: "shadow-amulet", name: "残影の首飾り", rarity: "special" },
+    // v7.4 対竜マジックアイテム (STEP3/4)。unlockedAccessoriesTV が accessoryIds で所持ゲートするため
+    // 未所持の指輪は選択肢に出ない (= gated 相当)。効果は index.html 側で発動。
+    { id: "ring-free-action", name: "自由の指輪",   rarity: "special", gated: true },
+    { id: "ring-fire-resist", name: "火耐性の指輪", rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds)
