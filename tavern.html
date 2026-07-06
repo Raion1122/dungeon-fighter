@@ -1343,10 +1343,15 @@
     .shopConfirmBtns { display: flex; gap: 12px; justify-content: center; }
 
     /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
+    /* 背景 = 夜の地下闇市 一枚絵 (assets/plaza_bg.png)。暗色 radial-gradient を可読性ヴェールとして上に薄く重ね、
+       中央は絵を透かし、周縁を締めて UI パネルの可読性を確保する。銀の鹿亭(暖色酒場)との対比トーン。 */
     #plazaScreen {
       position: fixed; inset: 0; z-index: 150; display: none;
       align-items: center; justify-content: center;
-      background: radial-gradient(ellipse at 50% 28%, rgba(60,30,100,0.5) 0%, rgba(8,5,14,0.97) 70%), #0c0716;
+      background:
+        radial-gradient(ellipse at 50% 32%, rgba(18,8,38,0.32) 0%, rgba(8,5,14,0.80) 78%),
+        url('assets/plaza_bg.png') center center / cover no-repeat,
+        #0c0716;
       color: var(--parchment-ink); font-family: 'Cinzel', serif;
     }
     #plazaInner { width: 940px; max-width: 94vw; max-height: 92vh; overflow-y: auto; padding: 18px 22px 22px; }
@@ -1579,11 +1584,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市ポドルプラザに背景画を追加</b> — 夜の地下市場らしい松明とランタンの一枚絵で、銀の鹿亭とは違う怪しい雰囲気に。</li>
         <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
         <li><b>【開発中】新装備のお試し機能</b> — 動作確認用に、魔法装備を武器防具屋で 1G で購入できます(正式版では削除予定)。</li>
         <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
-        <li><b>対竜の魔剣「フロストブランド」を追加</b> — 斬るたびに冷気を上乗せし、竜の炎ブレスのダメージを半減してくれる対竜の剣。</li>
-        <li><b>魔法の盾「シールド +1」が登場</b> — 遺跡で見つかる、防御(AC)が上がる魔法の盾。武器・防具の +1 装備も分かりやすい名前に整理。</li>
       </ul>
     </div>
     <script>
