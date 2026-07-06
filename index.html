@@ -2645,7 +2645,7 @@
     const fxctx = fxCanvas.getContext("2d");
 
     const TILE_SIZE = 96;
-    const MAP_W = 86;
+    const MAP_W = 72;   // v7.7: 3部屋化でボス部屋を左シフト(col68終端)→マップ横幅を86から縮小
     const MAP_H = 28;
     // スプライト中心(96px)→タイル中心の整合オフセット
     // playerWidth=playerHeight=96 = TILE_SIZE なので両軸ゼロ
@@ -2808,19 +2808,18 @@
     window.addEventListener("orientationchange", onViewportResize);
 
     // 部屋定義: [r1, c1, r2, c2](ワールド共通)
-    // v7.4: 4部屋構成の横一本道(旧6部屋を短縮・部屋2=山場の混成大広間)
+    // v7.7: 3部屋構成の横一本道(導入→山場→ボス)。旧4部屋の「ボス直前」を削除し、
+    //       ボス部屋を左シフト([5,68,22,85]→[5,47,22,68])して中央の空隙を詰めた。
     const ROOMS = [
       [ 8,  2, 19, 20],   // 0 部屋1 導入+前哨(スタート統合・プレイヤー起点(6,13)を内包)
-      [ 7, 24, 20, 43],   // 1 部屋2 山場・大広間(旧C+E合流の前衛/後衛混成クライマックス)
-      [ 8, 47, 19, 64],   // 2 部屋3 ボス直前
-      [ 5, 68, 22, 85],   // 3 ボス部屋
+      [ 7, 24, 20, 43],   // 1 部屋2 山場・大広間(混成クライマックス・旧room3の2体を吸収して厚めに)
+      [ 5, 47, 22, 68],   // 2 ボス部屋(旧room3の位置へ左シフト)
     ];
     // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
     // (scenery 配置の auto-reserve でも参照するためグローバル化)
     const CORRIDORS = [
-      [13, 20, 15, 24],   // 部屋1→部屋2
-      [13, 43, 15, 47],   // 部屋2→部屋3
-      [13, 64, 15, 68],   // 部屋3→ボス部屋
+      [13, 20, 15, 24],   // 部屋1→部屋2(山場)
+      [13, 43, 15, 47],   // 部屋2(山場)→ボス部屋
     ];
 
     function buildMap() {
@@ -2831,7 +2830,7 @@
             map[r][c] = t;
       }
 
-      // 13 部屋(大/中/小ミックス) + 不規則な廊下
+      // 3 部屋(導入/山場/ボス) + 横一本道の廊下
       for (const [r1, c1, r2, c2] of ROOMS) {
         fill(r1, c1, r2, c2, 0);
         for (let r = r1; r <= r2; r++)
@@ -2867,9 +2866,16 @@
     // シナリオ別に、特定の部屋を 1枚絵 (PNG) でレンダリング。
     // tileBounds = [r1, c1, r2, c2] (両端含む、画像はこの矩形ぴったりを覆う)
     // 画像が無ければ自動でタイルベース描画にフォールバック。
-    // v7.4: lizard-swamp の painting 定義を撤去し、タイル+情景フォールバックに統一
-    //   (旧6部屋比率の PNG が新4部屋幾何に歪むため。後日 新4部屋比率で4枚を再オーサリング予定)
-    const ROOM_PAINTINGS_DEF = {};
+    // v7.4: lizard-swamp の painting 定義を撤去(旧6部屋比率の PNG が新幾何で歪むため)。
+    // v7.7: 3部屋化で幾何をロックした上で painterly パイロットを再開。
+    //   まず goblin-mine の山場(部屋1 = ROOMS[1] [7,24,20,43] = 20×14タイル)を1枚絵化。
+    //   tileBounds は現行 ROOMS[1] と一致させること(不一致だと drawImage 伸縮で歪む)。
+    //   PNG が無ければ img.onerror で自動的にタイル描画へフォールバックする。
+    const ROOM_PAINTINGS_DEF = {
+      "goblin-mine": {
+        1: { src: "assets/room_goblin-mine_1.png", tileBounds: [7, 24, 20, 43] },
+      },
+    };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
     const paintedTileMask = new Uint8Array(MAP_W * MAP_H);
@@ -3013,22 +3019,20 @@
       s.img.src = s.src;
     }
 
-    // シナリオ × 部屋ごとの配置レシピ (v7.4: 全 4 部屋)
+    // シナリオ × 部屋ごとの配置レシピ (v7.7: 全 3 部屋 = 0導入/1山場/2ボス)
     // floorBounds = ROOMS[idx] と同値 (部屋床範囲)
     // 障害物配置禁止帯は CORRIDORS + ENEMY_SPAWNS + プレイヤー起点 から自動導出
     const SCENERY_RECIPES = {
       "lizard-swamp": {
         0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 48, reed: 17, log: 4, detail: 30 } },
         1: { floorBounds: [ 7, 24, 20, 43], counts: { grass: 78, reed: 27, log: 5, detail: 48 } },
-        2: { floorBounds: [ 8, 47, 19, 64], counts: { grass: 56, reed: 20, log: 4, detail: 35 } },
-        3: { floorBounds: [ 5, 68, 22, 85], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
+        2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
       },
-      // 廃坑: 入口(部屋1)は瓦礫(壊れた場所)中心、奥(部屋2/3)に線路+トロッコ、ボス部屋は控えめ
+      // 廃坑: 入口(部屋1)は瓦礫(壊れた場所)中心、奥(山場)に線路+トロッコ、ボス部屋は控えめ
       "goblin-mine": {
         0: { floorBounds: [ 8,  2, 19, 20], counts: { rubble: 14, rail: 3, cart: 2 } },
         1: { floorBounds: [ 7, 24, 20, 43], counts: { rubble: 18, rail: 7, cart: 4 } },
-        2: { floorBounds: [ 8, 47, 19, 64], counts: { rubble: 12, rail: 4, cart: 2 } },
-        3: { floorBounds: [ 5, 68, 22, 85], counts: { rubble: 8,  rail: 3, cart: 1 } },
+        2: { floorBounds: [ 5, 47, 22, 68], counts: { rubble: 8,  rail: 3, cart: 1 } },
       },
     };
 
@@ -4067,6 +4071,7 @@
       for (let ty = startTY; ty <= endTY; ty++) {
         for (let tx = startTX; tx <= endTX; tx++) {
           if (mapData[ty][tx] === 2) continue;
+          if (isPaintedAndLoaded(tx, ty)) continue;   // v7.7: 1枚絵の上にはグリッド線を引かない
           const screenX = Math.round(tx * TILE_SIZE - camX) + 0.5;
           const screenY = Math.round(ty * TILE_SIZE - camY) + 0.5;
           ctx.moveTo(screenX, screenY);
@@ -5139,10 +5144,10 @@
           // 部屋2 山場・本隊(重装3 + 射手2 + 露払い1)
           ["hobgoblin", 27, 13], ["goblinBrute", 28, 13], ["goblinRider", 28, 14],
           ["goblinArcher", 39, 13], ["goblinArcher", 40, 13], ["goblin", 39, 14],
-          // 部屋3 ボス直前: 呪文敵 + 随伴
-          ["goblin", 51, 13], ["goblinShaman", 59, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): 呪文敵 + 随伴
+          ["goblin", 41, 14], ["goblinShaman", 42, 13],
           // ボス部屋: グリクス
-          ["goblinKing", 79, 13],
+          ["goblinKing", 57, 13],
         ],
       },
       "bandits-forest": {
@@ -5159,10 +5164,10 @@
           // 部屋2 山場・本隊(重装 + 射手2 + 露払い)
           ["banditHeavy", 27, 13], ["bandit", 28, 13], ["bandit", 28, 14],
           ["banditArcher", 39, 13], ["banditArcher", 40, 13], ["bandit", 39, 14],
-          // 部屋3 呪文敵 + 随伴
-          ["bandit", 51, 13], ["banditMage", 59, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): 呪文敵 + 随伴
+          ["bandit", 41, 14], ["banditMage", 42, 13],
           // ボス: スカー
-          ["scar", 79, 13],
+          ["scar", 57, 13],
           // Sce2 隠し要素: 残影の獣(startsCaged=true で初期inactive)。cageSpawnsと同一タイル(41,17)
           ["shadowBeast", 41, 17],
         ],
@@ -5184,10 +5189,10 @@
           // 部屋2 山場・祭壇広場(戦士3 + 司祭2 混成)
           ["lizardWarrior", 27, 13], ["lizardRaider", 28, 13], ["lizardRaider", 28, 14],
           ["lizardPriest", 39, 13], ["lizardPriest", 40, 13], ["lizardWarrior", 39, 14],
-          // 部屋3 見張り野営(戦士 + 狩人)
-          ["lizardWarrior", 51, 13], ["lizardHunter", 59, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): 戦士 + 狩人
+          ["lizardWarrior", 41, 14], ["lizardHunter", 42, 13],
           // ボス: リザードマン族長
-          ["lizardChieftain", 79, 13],
+          ["lizardChieftain", 57, 13],
           // ROOM2 隠し要素: 沼の守護神(封印・接近3択で覚醒。未覚醒はinactive+passiveNpc)
           ["hydra", 35, 13],
         ],
@@ -5205,10 +5210,10 @@
           // 部屋2 山場・中庭(狂戦士2 + 兵 + 呪術師2)
           ["orcBerserker", 27, 13], ["orcBerserker", 28, 13], ["orcGrunt", 28, 14],
           ["orcShaman", 39, 13], ["orcShaman", 40, 13], ["orcGrunt", 39, 14],
-          // 部屋3 兵舎・巡回兵(兵 + 弓兵)
-          ["orcGrunt", 51, 13], ["orcArcher", 59, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): 兵 + 弓兵
+          ["orcGrunt", 41, 14], ["orcArcher", 42, 13],
           // ボス: オーク将軍ガロック
-          ["garrock", 79, 13],
+          ["garrock", 57, 13],
           // ROOM2 隠し要素: 古代王国の守護者(休眠・接近で一斉覚醒→第三勢力)
           ["stoneGolem", 33, 9],
           ["animatedArmor", 29, 11], ["animatedArmor", 37, 11],
@@ -5228,12 +5233,12 @@
           // 部屋2 山場・納骨堂(近接3 + 射手2 + 幽鬼)
           ["skeleton", 27, 13], ["zombie", 28, 13], ["zombie", 28, 14],
           ["skeletonArcher", 39, 13], ["skeletonArcher", 40, 13], ["wraith", 39, 14],
-          // 部屋3 腐肉の回廊(壁役 + 機動)
-          ["zombie", 51, 13], ["wraith", 59, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): 壁役 + 機動
+          ["zombie", 41, 14], ["wraith", 42, 13],
           // ボス: リッチ (Frightful Presence DC16、スケルトン召喚)
-          ["lich", 79, 13],
-          // 隠し要素: 神官の霊カエルム(ボス手前の聖域・接近で対話・初期inactive)
-          ["caelum", 71, 18],
+          ["lich", 57, 13],
+          // 隠し要素: 神官の霊カエルム(ボス部屋入口の聖域・接近で対話・初期inactive)
+          ["caelum", 50, 18],
         ],
       },
       "dragon-lair": {
@@ -5249,10 +5254,10 @@
           // 部屋2 山場・混成(オーク + 骨兵 + ミノタウロス)
           ["orc", 27, 13], ["skeleton", 28, 13], ["orc", 28, 14],
           ["orc", 39, 13], ["minotaur", 40, 13], ["orc", 39, 14],
-          // 部屋3 ボス直前(ミノタウロス + オーク)
-          ["minotaur", 51, 13], ["orc", 52, 13],
+          // 山場後衛(v7.7: 旧room3の2体を吸収): ミノタウロス + オーク
+          ["minotaur", 41, 14], ["orc", 42, 13],
           // 最終ボス: レッドドラゴン「ファラクサス」(中盤の minotaur は雑魚で据置)
-          ["pharaxus", 79, 13],
+          ["pharaxus", 57, 13],
         ],
       },
     };
@@ -11322,7 +11327,7 @@
       if (dungeonCleared || gameOver) return;
       // passiveNpc (未対話/友好/無視のカエルム霊) は撃破対象ではないのでクリア判定から除外。
       // 敵対化すると passiveNpc=false になり、通常敵同様に撃破が必要。
-      if (enemies.every(e => !e.alive || e.passiveNpc) && visitedRooms.size >= ROOMS.length - 2) {
+      if (enemies.every(e => !e.alive || e.passiveNpc) && visitedRooms.size >= ROOMS.length - 1) {
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
         for (const a of allies) {
@@ -21365,7 +21370,7 @@
 
       function inBounds(x, y) {
         const T = (typeof TILE_SIZE !== "undefined") ? TILE_SIZE : 96;
-        const W = ((typeof MAP_W !== "undefined") ? MAP_W : 95) * T;
+        const W = ((typeof MAP_W !== "undefined") ? MAP_W : 72) * T;
         const H = ((typeof MAP_H !== "undefined") ? MAP_H : 28) * T;
         return x >= -T && x <= W + T && y >= -T && y <= H + T;
       }

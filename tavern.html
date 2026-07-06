@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>廃坑の大広間を手描きの1枚絵に＋ダンジョンを3部屋構成へ</b> — ゴブリンの巣窟の山場が坑道のペインティングになり、各ダンジョンが導入→山場→ボスの締まった3部屋に。</li>
         <li><b>不浄を退ける聖印を追加</b> — 装備するとアンデッドから受けるダメージを軽減する対アンデッドの護り。</li>
         <li><b>護符「生命の護符」を追加</b> — 身につけると最大HPが上がり、消耗戦に強くなる。誰でも装備でき、ごく低確率のドロップ限定。</li>
         <li><b>聖なる魔法の剣「聖別された剣」を追加</b> — 金色の光を放ち、アンデッド（骸骨・亡霊など）に特効。ごく低確率のドロップ限定。</li>
-        <li><b>遠距離攻撃でカメラが弾を追う</b> — 矢やファイアボールなどを放つと、着弾までカメラが弾道を追いかけるようになった(2マス以上離れた相手が対象)。攻撃の迫力と緊張感が増す。</li>
       </ul>
     </div>
     <script>
@@ -2120,16 +2120,16 @@
       },
     ];
 
-    // 各部屋の有効スポーン座標 [col, row] (v7.4 新4部屋幾何・各群 front3+rear3 の混成)。
+    // 各部屋の有効スポーン座標 [col, row] (v7.7 新3部屋幾何・各群 front→rear の混成)。
     // room ごとに最低1体置き、パーティが全部屋を踏破してボス部屋まで自動進行できるようにする
     // (後方部屋を空にするとオート進行がボス手前で停滞するため)。
     // 各群は front(低col密集)→rear(高col密集)の順。先頭から詰めると自然に前寄り集中になる。
+    // v7.7: 「ボス直前」部屋を廃止し、その分の枠を山場(部屋2)へ吸収=2部屋+ボス。
     const ROOM_SLOTS = [
-      [[12, 13], [13, 13], [13, 14], [17, 13], [18, 13], [18, 14]],   // 部屋1 (front3+rear3)
-      [[27, 13], [28, 13], [28, 14], [39, 13], [40, 13], [39, 14]],   // 部屋2 (山場・最多 / front3+rear3)
-      [[51, 13], [52, 13], [51, 14], [59, 13], [60, 13], [59, 14]],   // 部屋3 (front3+rear3)
+      [[12, 13], [13, 13], [13, 14], [17, 13], [18, 13], [18, 14]],                       // 部屋1 導入 (front3+rear3)
+      [[27, 13], [28, 13], [28, 14], [39, 13], [40, 13], [39, 14], [41, 14], [42, 13]],   // 部屋2 山場・最多(旧room3吸収)
     ];
-    const BOSS_SLOT = [79, 13];   // ボス部屋
+    const BOSS_SLOT = [57, 13];   // ボス部屋(v7.7: 左シフト [79,13]→[57,13])
 
     // ── 値ベース・N可変の直近除外抽選 (key ごとに直近 maxAvoid 件を除外) ──
     const qHist = {};
@@ -2255,24 +2255,26 @@
       return s;
     }
 
-    // 系統 + tier から spawn ロスターを動的生成。各部屋(1/2/3)に最低1体置き、tier で密度を増やす。
-    // ボス部屋は系統ボス。後方部屋ほど強キー + 高 tier でエリート混入。
+    // 系統 + tier から spawn ロスターを動的生成。各部屋(導入/山場)に最低1体置き、tier で密度を増やす。
+    // ボス部屋は系統ボス。後方部屋(山場)ほど強キー + 高 tier でエリート混入。
+    // v7.7: 3部屋→2部屋化。山場は旧「ボス直前」枠を吸収するため密度を上げる。
     function buildSpawns(quest) {
       const fam = familyOf(quest);
       const tn = tierNumOf(quest.tierKey);
-      const perRoom = ({ 1: [2, 3, 2], 2: [3, 4, 3], 3: [4, 5, 4], 4: [5, 6, 5] })[tn] || [2, 3, 2];
+      const perRoom = ({ 1: [2, 4], 2: [3, 5], 3: [4, 7], 4: [5, 8] })[tn] || [2, 4];
       const pool = fam.enemyPool;
       const elites = fam.eliteKeys || [];
+      const lastRoom = ROOM_SLOTS.length - 1;   // 後方部屋(山場)= エリート/強キー枠
       const spawns = [];
       ROOM_SLOTS.forEach((slots, roomIdx) => {
         const n = Math.min(perRoom[roomIdx], slots.length);
         for (let i = 0; i < n; i++) {
           const slot = slots[i];
-          let strength = ((tn - 1) / 3) * 0.55 + (roomIdx / 3) * 0.35 + (Math.random() - 0.5) * 0.2;
+          let strength = ((tn - 1) / 3) * 0.55 + (roomIdx / lastRoom) * 0.35 + (Math.random() - 0.5) * 0.2;
           strength = Math.max(0, Math.min(0.999, strength));
           let key;
-          if (tn >= 3 && roomIdx >= 2 && elites.length && Math.random() < 0.45) {
-            key = elites[Math.floor(Math.random() * elites.length)];   // 後方部屋にエリート
+          if (tn >= 3 && roomIdx >= lastRoom && elites.length && Math.random() < 0.45) {
+            key = elites[Math.floor(Math.random() * elites.length)];   // 後方部屋(山場)にエリート
           } else {
             key = pool[Math.floor(strength * pool.length)];
           }
