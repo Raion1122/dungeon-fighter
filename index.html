@@ -6437,6 +6437,9 @@
       // 対竜装備「斬る柱」: フロストブランド (命中/ダメージ+1 + 冷気1d6 + 火ダメージ半減)。gated=ドロップ限定
       { name: "フロストブランド", flavor: "凍気を宿す刃。竜の業火をも刃で殺ぎ落とす対竜の剣", dmgDice: "1d8", power: 4, knockback: 20, rarity: "special", enhancement: 1,
         bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, gated: true },
+      // 第2弾 対アンデッド装備「灼く柱」: 聖別された剣 (命中/ダメージ+1 + 聖1d6 + 対アンデッド特効=不死には聖ダメージ2倍相当)。gated=ドロップ限定
+      { name: "聖別された剣", flavor: "神殿の祭壇で清められた刃。振るえば金色の光を放ち、死せる者を灼き浄める", dmgDice: "1d8", power: 4, knockback: 20, rarity: "special", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "holy", vsUndead: true, gated: true },
     ];
     // 酒場の準備画面で選んだ装備があればそれを使う(なければ所持最上位)
     const chosenWeaponIdx = persistent.equipWeapon != null
@@ -6484,6 +6487,9 @@
         freeAction: true, gated: true, rarity: "special" },
       { id: "ring-fire-resist", name: "火耐性の指輪", flavor: "赤竜の鱗を鋳込んだ護りの指輪。浴びる炎のダメージを半分に和らげる",
         fireResist: 0.5, gated: true, rarity: "special" },
+      // ── 第2弾 対アンデッド装備「耐える柱」: 生命の護符 (最大HP+8)。gated=ドロップ限定・職業非依存
+      { id: "amulet-health", name: "生命の護符", flavor: "神殿の聖水に浸された護符。宿す者の生命力を底上げし、死者の消耗をも撥ね返す",
+        hpBonus: 8, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -7939,6 +7945,16 @@
     // unit: "player" (リーダー) | ally オブジェクト。恐怖セーヴ・眩惑の視線・粘着の各適用箇所で参照。
     function hasFreeAction(unit) {
       return getEquippedAccessories(unit).some(a => a && a.freeAction);
+    }
+
+    // 生命の護符 (Amulet of Health): 装備中のアクセの hpBonus を合算し最大HPへ加算する量を返す。
+    // unit: "player" (リーダー) | ally オブジェクト。戦闘開始時 (applyInitialLevels 直後) に一度だけ反映。
+    function getAccessoryHpBonus(unit) {
+      let bonus = 0;
+      for (const acc of getEquippedAccessories(unit)) {
+        if (typeof acc.hpBonus === "number") bonus += acc.hpBonus;
+      }
+      return bonus;
     }
 
     function hasIronSword() {
@@ -13423,6 +13439,8 @@
         bonusDmgDice: "1d6", bonusDmgType: "fire", rarity: "special" },
       { name: "フロストブランド",   dmgDice: "1d8", range: "melee", enhancement: 1,
         bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, rarity: "special" },
+      { name: "聖別された剣",       dmgDice: "1d8", range: "melee", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "holy", vsUndead: true, rarity: "special" },
     ];
     const WARRIOR_ALLY_ARMORS = [
       { name: "粗布の服",        enhancement: 0 },
@@ -13512,6 +13530,7 @@
       // レア武器の特殊効果をコピー (未定義は null クリア)
       ally.weaponBonusDmgDice = w.bonusDmgDice || null;
       ally.weaponBonusDmgType = w.bonusDmgType || null;
+      ally.weaponVsUndead     = w.vsUndead || false;  // 聖別された剣: 対アンデッド特効
       ally.weaponFireResist   = (typeof w.fireResist === "number") ? w.fireResist : null;  // フロストブランド: 火ダメージ半減
       ally.weaponCritStun     = w.critStun     || 0;
       ally.weaponLifeStealDice = w.lifeStealDice || null;
@@ -13746,7 +13765,14 @@
       if (bonusDice) {
         const bd = parseDiceDD(bonusDice);
         const br = rollDiceDD(bd.n, bd.sides);
-        const extra = Math.max(1, br.total);
+        let extra = Math.max(1, br.total);
+        // 対アンデッド特効 (聖別された剣): アンデッド相手には聖ダメージをもう1ロールぶん上乗せ (計2倍相当)
+        let vsUndeadRolls = null;
+        if (weaponLike.vsUndead && target.def && target.def.undead) {
+          const br2 = rollDiceDD(bd.n, bd.sides);
+          extra += Math.max(1, br2.total);
+          vsUndeadRolls = br2.rolls;
+        }
         // ハイドラ: 炎/酸の追撃属性は「火で焼き切った」扱い (首の永久切除を許可)
         if (bonusType === "fire" || bonusType === "acid") target.__tookFireAcid = true;
         target.hp = Math.max(0, target.hp - extra);
@@ -13776,7 +13802,8 @@
         }
         showDmgAt(ex, target.y - 22, extra, false);
         const tname = ELEM_NAME[bonusType] || "魔法";
-        updateInfo(`${attackerName}: +${extra} ${tname}属性ダメージ (${bonusDice}[${br.rolls.join("+")}])`);
+        const undeadTag = vsUndeadRolls ? ` +対アンデッド特効[${vsUndeadRolls.join("+")}]` : "";
+        updateInfo(`${attackerName}: +${extra} ${tname}属性ダメージ (${bonusDice}[${br.rolls.join("+")}]${undeadTag})`);
         await sleepMs(350);
       }
 
@@ -16061,6 +16088,7 @@
       const allyWeaponLike = {
         bonusDmgDice:  ally.weaponBonusDmgDice,
         bonusDmgType:  ally.weaponBonusDmgType,
+        vsUndead:      ally.weaponVsUndead,
         critStun:      ally.weaponCritStun,
         lifeStealDice: ally.weaponLifeStealDice,
         shockwaveDice:   ally.weaponShockwaveDice,
@@ -20838,6 +20866,18 @@
         if (!a.classKey) continue;
         const lv = (typeof a.level === "number" && a.level > 0) ? a.level : currentLv;
         if (lv > 1) applyLevelUpToUnit(a, a.classKey, 1, lv);
+      }
+    })();
+
+    // ── 第2弾 生命の護符: 装備中の最大HP加算をレベル確定後に一度だけ反映 ──
+    // player + 仲間に適用。召喚は下の consumePendingSummon で後から編成へ入るので対象外
+    // (アクセ枠を持たず、装備/レベル処理にも巻き込まれない設計)。
+    (function applyAccessoryHpBonus() {
+      const pb = getAccessoryHpBonus("player");
+      if (pb > 0) { maxHp += pb; hp = maxHp; }
+      for (const a of allies) {
+        const ab = getAccessoryHpBonus(a);
+        if (ab > 0) { a.maxHp = (a.maxHp || 0) + ab; a.hp = a.maxHp; }
       }
     })();
 

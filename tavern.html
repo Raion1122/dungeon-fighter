@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>護符「生命の護符」を追加</b> — 身につけると最大HPが上がり、消耗戦に強くなる。誰でも装備でき、ごく低確率のドロップ限定。</li>
+        <li><b>聖なる魔法の剣「聖別された剣」を追加</b> — 金色の光を放ち、アンデッド（骸骨・亡霊など）に特効。ごく低確率のドロップ限定。</li>
         <li><b>遠距離攻撃でカメラが弾を追う</b> — 矢やファイアボールなどを放つと、着弾までカメラが弾道を追いかけるようになった(2マス以上離れた相手が対象)。攻撃の迫力と緊張感が増す。</li>
         <li><b>闇市のメニューをタップで開閉できるようにした</b> — ポドルプラザは最初たたまれ、掲示板や商店の見出しをタップすると開く。夜市の背景をゆったり眺められる。</li>
-        <li><b>闇市の背景がくっきり見えるようになった</b> — ポドルプラザの夜市の灯りが掲示板や商店の奥に透けて、地下闇市の雰囲気が強まった。</li>
-        <li><b>闇市の依頼主に立ち絵が付いた</b> — ポドルプラザで裏の仕事を持ちかけてくるのが、仲買ゴブリン・ホブゴブリンの傭兵隊長・沼のリザードの3人になり、受注画面に姿を現すようになった。</li>
       </ul>
     </div>
     <script>
@@ -2348,6 +2348,8 @@
       bonusDmgDice: "1d6", bonusDmgType: "fire", gated: true },
     { name: "フロストブランド",    dmgDice: "1d8", spec: "1d8 +1 +1d6氷 / 火半減", range: "melee", flavor: "凍気を宿す刃。竜の業火をも刃で殺ぎ落とす対竜の剣 (+1d6 cold)", enhancement: 1, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, gated: true },
+    { name: "聖別された剣",        dmgDice: "1d8", spec: "1d8 +1 +1d6聖 / 対アンデッド特効", range: "melee", flavor: "神殿の祭壇で清められた刃。振るえば金色の光を放ち、死せる者を灼き浄める (+1d6 holy)", enhancement: 1, rarity: "special",
+      bonusDmgDice: "1d6", bonusDmgType: "holy", vsUndead: true, gated: true },
   ];
   const ARMORS = [
     { name: "粗布の服",            spec: "AC +0",     flavor: "村人が纏う平服", enhancement: 0, rarity: "common" },
@@ -2851,7 +2853,7 @@
       try {
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
-        ["ring-free-action", "ring-fire-resist"].forEach(id => set.add(id));
+        ["ring-free-action", "ring-fire-resist", "amulet-health"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -3535,6 +3537,8 @@
     // 未所持の指輪は選択肢に出ない (= gated 相当)。効果は index.html 側で発動。
     { id: "ring-free-action", name: "自由の指輪",   rarity: "special", gated: true },
     { id: "ring-fire-resist", name: "火耐性の指輪", rarity: "special", gated: true },
+    // 第2弾 対アンデッド: 生命の護符 (最大HP+8)。効果は index.html 側で発動。
+    { id: "amulet-health",    name: "生命の護符",   rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds)
