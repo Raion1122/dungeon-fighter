@@ -1378,7 +1378,16 @@
       font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 2px;
       color: var(--parchment-gold); border-bottom: 1px solid var(--parchment-border);
       padding-bottom: 6px; margin-bottom: 10px;
+      cursor: pointer; user-select: none; -webkit-user-select: none;
     }
+    /* タップで開閉するトグル: 先頭に ▸(閉)/▾(開) を出す。牙貨カウントは float:right のまま */
+    .plazaPanelHead::before {
+      content: "▾ "; display: inline-block; width: 1em; color: var(--parchment-gold); font-size: 12px;
+    }
+    .plazaPanel.collapsed .plazaPanelHead::before { content: "▸ "; }
+    .plazaPanel.collapsed .plazaPanelHead { margin-bottom: 0; padding-bottom: 0; border-bottom-color: transparent; }
+    .plazaPanel.collapsed #plazaQuestBoard,
+    .plazaPanel.collapsed #plazaShop { display: none; }
     .plazaFang { float: right; font-size: 13px; color: var(--parchment-ink); letter-spacing: 0; }
     .plazaStub { font-size: 13px; color: var(--parchment-ink-soft); opacity: 0.85; padding: 14px 4px; text-align: center; font-style: italic; }
     .plazaActions { text-align: center; margin-top: 18px; }
@@ -1587,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市のメニューをタップで開閉できるようにした</b> — ポドルプラザは最初たたまれ、掲示板や商店の見出しをタップすると開く。夜市の背景をゆったり眺められる。</li>
         <li><b>闇市の背景がくっきり見えるようになった</b> — ポドルプラザの夜市の灯りが掲示板や商店の奥に透けて、地下闇市の雰囲気が強まった。</li>
         <li><b>闇市の依頼主に立ち絵が付いた</b> — ポドルプラザで裏の仕事を持ちかけてくるのが、仲買ゴブリン・ホブゴブリンの傭兵隊長・沼のリザードの3人になり、受注画面に姿を現すようになった。</li>
         <li><b>闇市ポドルプラザに背景画を追加</b> — 夜の地下市場らしい松明とランタンの一枚絵で、銀の鹿亭とは違う怪しい雰囲気に。</li>
-        <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
       </ul>
     </div>
     <script>
@@ -1631,12 +1640,12 @@
       <div id="plazaInner">
         <div id="plazaSign">ポドルプラザ<small>闇市 — 表の世界には無い品が揃う場所</small></div>
         <div class="plazaCols">
-          <div class="plazaPanel">
-            <div class="plazaPanelHead">闇クエスト掲示板</div>
+          <div class="plazaPanel collapsed">
+            <div class="plazaPanelHead" id="plazaQuestHead" role="button" tabindex="0" aria-expanded="false" aria-controls="plazaQuestBoard">闇クエスト掲示板</div>
             <div id="plazaQuestBoard"><div class="plazaStub">闇の依頼は、追って掲示される……</div></div>
           </div>
-          <div class="plazaPanel">
-            <div class="plazaPanelHead">闇市商店 <span id="plazaFangCount" class="plazaFang"></span></div>
+          <div class="plazaPanel collapsed">
+            <div class="plazaPanelHead" id="plazaShopHead" role="button" tabindex="0" aria-expanded="false" aria-controls="plazaShop">闇市商店 <span id="plazaFangCount" class="plazaFang"></span></div>
             <div id="plazaShop"><div class="plazaStub">品揃えは、追って並ぶ……</div></div>
           </div>
         </div>
@@ -4776,9 +4785,39 @@
     const el = document.getElementById("plazaFangCount");
     if (el) el.textContent = "牙貨 " + (Number(localStorage.getItem("dragonfighters.fang")) || 0);
   }
+  // 闇市パネルのタップ開閉 (両パネル独立トグル)。ヘッダーをタップ/Enter で本体を開閉。二重配線は __toggleWired で防止。
+  function wirePlazaPanelToggles() {
+    ["plazaQuestHead", "plazaShopHead"].forEach((hid) => {
+      const head = document.getElementById(hid);
+      if (!head || head.__toggleWired) return;
+      head.__toggleWired = true;
+      const panel = head.closest(".plazaPanel");
+      const toggle = () => {
+        if (!panel) return;
+        const collapsed = panel.classList.toggle("collapsed");
+        head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      };
+      head.addEventListener("click", toggle);
+      head.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); toggle(); }
+      });
+    });
+  }
+  // 入場のたびに両パネルをたたんだ状態へリセット (背景の夜市を見せる初期状態)
+  function resetPlazaPanelsCollapsed() {
+    ["plazaQuestHead", "plazaShopHead"].forEach((hid) => {
+      const head = document.getElementById(hid);
+      if (!head) return;
+      const panel = head.closest(".plazaPanel");
+      if (panel) panel.classList.add("collapsed");
+      head.setAttribute("aria-expanded", "false");
+    });
+  }
   function openPlazaScreen() {
     const s = document.getElementById("plazaScreen");
     if (!s) return;
+    wirePlazaPanelToggles();
+    resetPlazaPanelsCollapsed();
     try { rollPlazaQuests(); } catch (e) {}      // 来訪のたびに闇クエストを再抽選 (レア感)
     try { renderPlazaBoard(); } catch (e) {}
     try { refreshPlazaStockIfNeeded(); } catch (e) {}   // 在庫が空なら遅延初期化 (enterPlaza は force 済)
