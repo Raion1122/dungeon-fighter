@@ -2881,6 +2881,12 @@
       "bandits-forest": {
         1: { src: "assets/room_bandits-forest_1.png", tileBounds: [7, 24, 20, 43] },
       },
+      // Sce3 沼: 山場(部屋1)をリザードマンの祭壇広場として1枚絵化。
+      //   中央 (35,13) には封印の守護神(hydra, 未覚醒は inactive)が鎮座するので、
+      //   広場中央は開けた地面のまま(絵側の配慮)。
+      "lizard-swamp": {
+        1: { src: "assets/room_lizard-swamp_1.png", tileBounds: [7, 24, 20, 43] },
+      },
     };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
@@ -3029,9 +3035,9 @@
     // floorBounds = ROOMS[idx] と同値 (部屋床範囲)
     // 障害物配置禁止帯は CORRIDORS + ENEMY_SPAWNS + プレイヤー起点 から自動導出
     const SCENERY_RECIPES = {
+      // 沼: 導入とボス部屋に沼草+葦+倒木+下草。山場(部屋1)は1枚絵で覆うので scenery 無し(bandits-forest と同様)。
       "lizard-swamp": {
         0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 48, reed: 17, log: 4, detail: 30 } },
-        1: { floorBounds: [ 7, 24, 20, 43], counts: { grass: 78, reed: 27, log: 5, detail: 48 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
       },
       // 廃坑: 入口(部屋1)は瓦礫(壊れた場所)中心、奥(山場)に線路+トロッコ、ボス部屋は控えめ
