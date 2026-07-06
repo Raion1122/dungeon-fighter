@@ -2875,6 +2875,12 @@
       "goblin-mine": {
         1: { src: "assets/room_goblin-mine_1.png", tileBounds: [7, 24, 20, 43] },
       },
+      // Sce2 森: 山場(部屋1)を盗賊アジトの森の空き地として1枚絵化。
+      //   下側中央 (41,17) には残影の獣の檻(DOMオーバーレイ)が乗るので、
+      //   その辺りは大木で塞がず開けた地面にする(絵側の配慮)。
+      "bandits-forest": {
+        1: { src: "assets/room_bandits-forest_1.png", tileBounds: [7, 24, 20, 43] },
+      },
     };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
@@ -3033,6 +3039,12 @@
         0: { floorBounds: [ 8,  2, 19, 20], counts: { rubble: 14, rail: 3, cart: 2 } },
         1: { floorBounds: [ 7, 24, 20, 43], counts: { rubble: 18, rail: 7, cart: 4 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { rubble: 8,  rail: 3, cart: 1 } },
+      },
+      // 森(盗賊アジト): 導入とボス部屋に草むら+倒木+下草。山場(部屋1)は1枚絵で覆うので scenery 無し。
+      // reed(沼の葦)は森だと違和感が出るため不採用、grass/log/detail の既存スプライトを流用。
+      "bandits-forest": {
+        0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 40, log: 4, detail: 24 } },
+        2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 70, log: 5, detail: 40 } },
       },
     };
 
