@@ -1584,10 +1584,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の依頼主に立ち絵が付いた</b> — ポドルプラザで裏の仕事を持ちかけてくるのが、仲買ゴブリン・ホブゴブリンの傭兵隊長・沼のリザードの3人になり、受注画面に姿を現すようになった。</li>
         <li><b>闇市ポドルプラザに背景画を追加</b> — 夜の地下市場らしい松明とランタンの一枚絵で、銀の鹿亭とは違う怪しい雰囲気に。</li>
         <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
         <li><b>【開発中】新装備のお試し機能</b> — 動作確認用に、魔法装備を武器防具屋で 1G で購入できます(正式版では削除予定)。</li>
-        <li><b>マジックアイテムが宝箱から見つかるように</b> — ごく稀に、フロストブランドのような魔法装備が探索の宝箱やクリア報酬から手に入る。何が出るかはお楽しみ。</li>
       </ul>
     </div>
     <script>
@@ -2012,12 +2012,13 @@
       ],
       // ── 闇市(ポドルプラザ) 専用データ ──
       plazaCompanionChance: 0.50,   // 闇クエストの同行率 (モンスター同行者は P7。M4 では未配線)
+      // v7.6 STEP2: 依頼主を立ち絵ありの3体に厳選 (portrait = 厚塗り bust-up の相対パス)。
+      // speciesId は敵FAMILIES の id に一致させ「同種族を討伐対象にしない」(hobgoblin は goblin 系統/lizard は lizard 系統)。
+      // medusa は IP 懸念で除外、orc/kobold/lich は立ち絵未整備のため保留。
       plazaClients: [
-        { id: "goblin_broker",  name: "仲買ゴブリンのジグ",            speciesId: "goblin",     speechStyle: "〜だぜ、ヒヒッ" },
-        { id: "orc_merchant",   name: "オーク行商のガルブ",            speciesId: "orc-undead", speechStyle: "〜だ、ガッハッハ" },
-        { id: "lich_collector", name: "蒐集家リッチのモルデン",        speciesId: "orc-undead", speechStyle: "〜ですとも、クックック" },
-        { id: "kobold_scout",   name: "コボルト斥候のピキ",            speciesId: "goblin",     speechStyle: "〜なの、キュイ…" },
-        { id: "medusa_madam",   name: "闇市の女主人メドゥーサのセリア", speciesId: null,         speechStyle: "〜かしらね、ふふ" },
+        { id: "goblin_broker",    name: "仲買ゴブリンのジグ",          speciesId: "goblin", speechStyle: "〜だぜ、ヒヒッ",  portrait: "assets/plaza_client_goblin.png" },
+        { id: "hobgoblin_captain", name: "傭兵隊長ホブゴブリンのグラーグ", speciesId: "goblin", speechStyle: "〜だ、フン",     portrait: "assets/plaza_client_hobgoblin.png" },
+        { id: "lizardfolk_dealer", name: "沼の商人リザードのシャザ",     speciesId: "lizard", speechStyle: "〜だ、シャァ…", portrait: "assets/plaza_client_lizardfolk.png" },
       ],
       plazaTemplates: [
         "{c}が声を潜める。「{p}に{m}が巣食っていてな…{t}くれりゃ、{r}は弾むぜ。それと牙貨もな」",
@@ -2177,10 +2178,10 @@
       const tier = DATA.tiers[tierKey];
       const isHigh = (tierKey === "tier3" || tierKey === "tier4");
 
-      let client, clientSpecies = null;
+      let client, clientSpecies = null, clientPortrait = null;
       if (isPlaza) {
         const c = qPick("plazaClient", DATA.plazaClients, 2);
-        client = c.name; clientSpecies = c.speciesId || null;
+        client = c.name; clientSpecies = c.speciesId || null; clientPortrait = c.portrait || null;
       } else {
         const clientPool = isHigh ? DATA.clients.concat(DATA.clientsHigh) : DATA.clients;
         client = qPick("client", clientPool, 3);
@@ -2203,6 +2204,7 @@
       };
       if (isPlaza) {
         quest.clientSpecies = clientSpecies;
+        quest.clientPortrait = clientPortrait;   // 受注ナレの依頼人立ち絵 (STEP2)
         quest.fangReward = rollFang(tierKey);
       }
 
@@ -4591,7 +4593,8 @@
 
     const headerEl = overlay.querySelector(".dmHeader");
     const hintEl = document.getElementById("dmHint");
-    if (headerEl) headerEl.textContent = (sc.client && sc.client.name) ? `📜 ${sc.client.name}の依頼` : "📜 依頼";
+    const clientName = sc.clientName || (sc.client && sc.client.name) || null;   // 闇市 synthetic は clientName 文字列で持つ
+    if (headerEl) headerEl.textContent = clientName ? `📜 ${clientName}の依頼` : "📜 依頼";
     if (hintEl) { hintEl.classList.remove("show"); }
     // 演出ステージ: 固定シナリオ (sc.id あり) のみ風景帯 + 依頼人を出す。生成クエストはテキストのみ。
     const sceneEl = document.getElementById("questAcceptScene");
@@ -4603,8 +4606,9 @@
       // 依頼人: 全6シナリオ分あり。万一欠落なら隠す (帯 + 文字箱は成立)
       portraitEl.classList.remove("hidden");
       portraitEl.onerror = function () { this.classList.add("hidden"); };
-      portraitEl.src = "assets/client_" + sc.id + ".png";
-      portraitEl.alt = (sc.client && sc.client.name) ? sc.client.name : "";
+      // 闇市 synthetic は clientPortrait を優先 (無ければ従来の固定シナリオ client_<id>.png)
+      portraitEl.src = sc.clientPortrait || ("assets/client_" + sc.id + ".png");
+      portraitEl.alt = clientName || "";
       overlay.classList.add("quest-accept");
     }
     overlay.classList.remove("fading");
@@ -4829,6 +4833,7 @@
     const cp = QuestGen.combatParams(q);
     return {
       id: "generated-quest", place: q.place, title: q.target, source: "plaza",
+      clientName: q.client || null, clientPortrait: q.clientPortrait || null,   // 受注ナレの依頼人立ち絵 (STEP2)
       enemies: [{ name: q.family.minionLabel, boss: false }, { name: q.target, boss: true }],
       target: "index.html", recommendedLevel: q.level,
       __generated: {
