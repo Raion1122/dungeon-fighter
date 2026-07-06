@@ -1349,7 +1349,7 @@
       position: fixed; inset: 0; z-index: 150; display: none;
       align-items: center; justify-content: center;
       background:
-        radial-gradient(ellipse at 50% 32%, rgba(18,8,38,0.32) 0%, rgba(8,5,14,0.80) 78%),
+        radial-gradient(ellipse at 50% 34%, rgba(18,8,38,0.14) 0%, rgba(8,5,14,0.52) 80%),
         url('assets/plaza_bg.png') center center / cover no-repeat,
         #0c0716;
       color: var(--parchment-ink); font-family: 'Cinzel', serif;
@@ -1364,9 +1364,12 @@
     #plazaSign small { display: block; font-size: 12px; letter-spacing: 2px; color: var(--parchment-ink-soft); margin-top: 5px; }
     @keyframes plazaSignFlicker { 0%,19%,21%,55%,57%,100% { opacity: 1; } 20%,56% { opacity: 0.5; } }
     .plazaCols { display: flex; gap: 16px; margin-top: 18px; flex-wrap: wrap; }
+    /* パネルは半透明 + 背景ぼかし: 奥の夜市の灯りを透かしつつ、frosted-glass で文字可読性を確保 */
     .plazaPanel {
       flex: 1 1 380px; min-width: 280px;
-      background: var(--parchment-bg);
+      background: linear-gradient(135deg, rgba(34,22,54,0.64) 0%, rgba(26,18,38,0.70) 50%, rgba(18,12,28,0.76) 100%);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
       border: 2px solid var(--parchment-border);
       box-shadow: var(--parchment-shadow);
       border-radius: 6px; padding: 12px 14px;
@@ -1584,10 +1587,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の背景がくっきり見えるようになった</b> — ポドルプラザの夜市の灯りが掲示板や商店の奥に透けて、地下闇市の雰囲気が強まった。</li>
         <li><b>闇市の依頼主に立ち絵が付いた</b> — ポドルプラザで裏の仕事を持ちかけてくるのが、仲買ゴブリン・ホブゴブリンの傭兵隊長・沼のリザードの3人になり、受注画面に姿を現すようになった。</li>
         <li><b>闇市ポドルプラザに背景画を追加</b> — 夜の地下市場らしい松明とランタンの一枚絵で、銀の鹿亭とは違う怪しい雰囲気に。</li>
         <li><b>対竜の指輪が魔法アイテムに加わった</b> — 竜の威圧や絡めとりを受けつけない『自由の指輪』と、炎のダメージを半分にする『火耐性の指輪』。宝箱やクリア報酬からごく稀に見つかる。</li>
-        <li><b>【開発中】新装備のお試し機能</b> — 動作確認用に、魔法装備を武器防具屋で 1G で購入できます(正式版では削除予定)。</li>
       </ul>
     </div>
     <script>
