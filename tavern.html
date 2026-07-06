@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>不浄を退ける聖印を追加</b> — 装備するとアンデッドから受けるダメージを軽減する対アンデッドの護り。</li>
         <li><b>護符「生命の護符」を追加</b> — 身につけると最大HPが上がり、消耗戦に強くなる。誰でも装備でき、ごく低確率のドロップ限定。</li>
         <li><b>聖なる魔法の剣「聖別された剣」を追加</b> — 金色の光を放ち、アンデッド（骸骨・亡霊など）に特効。ごく低確率のドロップ限定。</li>
         <li><b>遠距離攻撃でカメラが弾を追う</b> — 矢やファイアボールなどを放つと、着弾までカメラが弾道を追いかけるようになった(2マス以上離れた相手が対象)。攻撃の迫力と緊張感が増す。</li>
-        <li><b>闇市のメニューをタップで開閉できるようにした</b> — ポドルプラザは最初たたまれ、掲示板や商店の見出しをタップすると開く。夜市の背景をゆったり眺められる。</li>
       </ul>
     </div>
     <script>
@@ -2853,7 +2853,7 @@
       try {
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
-        ["ring-free-action", "ring-fire-resist", "amulet-health"].forEach(id => set.add(id));
+        ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -3539,6 +3539,8 @@
     { id: "ring-fire-resist", name: "火耐性の指輪", rarity: "special", gated: true },
     // 第2弾 対アンデッド: 生命の護符 (最大HP+8)。効果は index.html 側で発動。
     { id: "amulet-health",    name: "生命の護符",   rarity: "special", gated: true },
+    // 第2弾 対アンデッド (3系統目): 不浄を退ける聖印 (アンデッド被ダメ固定軽減)。効果は index.html 側で発動。
+    { id: "amulet-undead-ward", name: "不浄を退ける聖印", rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds)

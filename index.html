@@ -6490,6 +6490,10 @@
       // ── 第2弾 対アンデッド装備「耐える柱」: 生命の護符 (最大HP+8)。gated=ドロップ限定・職業非依存
       { id: "amulet-health", name: "生命の護符", flavor: "神殿の聖水に浸された護符。宿す者の生命力を底上げし、死者の消耗をも撥ね返す",
         hpBonus: 8, gated: true, rarity: "special" },
+      // ── 第2弾 対アンデッド (3系統目): 不浄を退ける聖印。アンデッドからの被ダメージを固定軽減 (getUndeadDamageReduction)。
+      //    職業非依存・gated=ドロップ限定。対竜の「火耐性の指輪」の対アンデッド版 (防御・生存アイテム)。
+      { id: "amulet-undead-ward", name: "不浄を退ける聖印", flavor: "神殿の高位神官が遺した聖印。掲げる者を蝕む死者の触れを、聖なる光が押し留める",
+        undeadDR: 3, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -7955,6 +7959,17 @@
         if (typeof acc.hpBonus === "number") bonus += acc.hpBonus;
       }
       return bonus;
+    }
+
+    // 不浄を退ける聖印 (Amulet of Undead Warding): 装備中アクセの undeadDR (固定軽減) の最大値を返す。
+    // 攻撃者が undead:true の敵の時のみ、被ダメージ算出でこの値だけ差し引く (最低1は通す)。
+    // 二重所持でも最大値のみ = 二重軽減しない (火耐性の指輪と同じ思想)。unit: "player" | ally オブジェクト。
+    function getUndeadDamageReduction(unit) {
+      let dr = 0;
+      for (const acc of getEquippedAccessories(unit)) {
+        if (typeof acc.undeadDR === "number") dr = Math.max(dr, acc.undeadDR);
+      }
+      return dr;
     }
 
     function hasIronSword() {
@@ -20328,6 +20343,16 @@
       const dr = applyDmgReductionToPlayerDmg(rawDmg - autoGuardReduction);
       let dmg = dr.final;
 
+      // 不浄を退ける聖印: 攻撃者がアンデッドなら被ダメージを固定軽減 (最低1は通す)
+      if (def.undead) {
+        const uReduce = getUndeadDamageReduction("player");
+        if (uReduce > 0) {
+          const before = dmg;
+          dmg = Math.max(1, dmg - uReduce);
+          if (before !== dmg) showBuffPop(`<span class="label">聖印!</span>不浄を退け -${before - dmg}`);
+        }
+      }
+
       // 盗賊 回避: 被ダメージを半減 (最低1)
       if (playerBuffs.evasionRemaining > 0) {
         const before = dmg;
@@ -20533,6 +20558,15 @@
         const before = finalDmg;
         finalDmg = Math.max(1, finalDmg - flat);
         drNotes.push(`岩肌-${before - finalDmg}`);
+      }
+      // 不浄を退ける聖印: 攻撃者がアンデッドなら被ダメージを固定軽減 (最低1は通す)
+      if (def.undead) {
+        const uReduce = getUndeadDamageReduction(ally);
+        if (uReduce > 0) {
+          const before = finalDmg;
+          finalDmg = Math.max(1, finalDmg - uReduce);
+          if (before !== finalDmg) drNotes.push(`聖印-${before - finalDmg}`);
+        }
       }
       if (ally.buffs.dmgReductionRemaining > 0 && ally.buffs.dmgReductionDice) {
         const drDice = parseDiceDD(ally.buffs.dmgReductionDice);
