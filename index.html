@@ -2751,6 +2751,13 @@
     const CAM_SMOOTH = true;              // false で従来の即スナップ挙動
     const CAM_LERP = 0.16;                // 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
     const CAM_SNAP_EPS = 0.5;             // この距離以下で目標にスナップしてループ停止
+    // === [camera-focus-v7.4] 遠距離攻撃 弾道追従 ===
+    // 遠距離攻撃中、投射体(矢/呪文弾)を camFocus に毎フレーム据えてカメラを追従させる。
+    // 既存の camFocus→computeCameraTarget→cameraFollowTick(lerp) 経路をそのまま流用 (方式A + lerp遅延)。
+    let cameraTrackActive = false;        // 投射体がカメラを占有中 (single-tracker guard: ボレー/バレッジの多重占有防止)
+    let cameraTightFocus  = false;        // 追従中は party 収納クランプを外し弾に密着させる (「強め」設定)
+    let cameraTrackSafety = 0;            // setTimeout ハンドル: rAF 中断時に占有を 0.6s で強制解放 (wedge 防止)
+    let cameraTrackClaims = 0;            // テスト専用: beginProjectileTrack 成功回数 (__camProbe で露出)
 
     // ── 画面シェイク (打撃の重み: crit/ボス撃破/大呪文で一瞬揺らす) ──
     // renderWorldWithShake() が描画直前に shakeX/Y を camX/Y へ一時加算 → canvas(translate)+全DOMスプライト(left=worldX-camX)が
@@ -3413,16 +3420,21 @@
           if (e.y + s > maxY) maxY = e.y + s;
         }
       }
-      const M = 48;   // 画面端マージン
-      const CENTER_BIAS = 0.7;   // clamp後に行動キャラ(希望中央)へ引き戻す割合 0..1 (実機調整)
-      const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
-      const loCy = maxY - usableH + M,          hiCy = minY - M;
-      // 区間が成立(隊列が画面に収まる)→希望カメラを範囲にクランプ / 空(隊列が画面より大)→bbox 中央寄せ
-      const clampedCx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
-      const clampedCy = (loCy <= hiCy) ? Math.max(loCy, Math.min(cy, hiCy)) : (loCy + hiCy) / 2;
-      // clamp結果を希望中央へ CENTER_BIAS だけ引き戻し、行動キャラを画面中央寄りに保つ
-      cx = clampedCx + (desiredCx - clampedCx) * CENTER_BIAS;
-      cy = clampedCy + (desiredCy - clampedCy) * CENTER_BIAS;
+      // [camera-focus-v7.4] 弾追従中(cameraTightFocus)はこの隊列クランプ節を丸ごとスキップし、
+      //   camFocus(=弾の実座標)へ密着させる (味方が一時的に画面端/外に寄るのは許容=「強め」設定)。
+      //   下のマップ境界クランプ + cameraFollowTick の lerp 遅延は維持されるので酔い対策は効いたまま。
+      if (!cameraTightFocus) {
+        const M = 48;   // 画面端マージン
+        const CENTER_BIAS = 0.7;   // clamp後に行動キャラ(希望中央)へ引き戻す割合 0..1 (実機調整)
+        const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
+        const loCy = maxY - usableH + M,          hiCy = minY - M;
+        // 区間が成立(隊列が画面に収まる)→希望カメラを範囲にクランプ / 空(隊列が画面より大)→bbox 中央寄せ
+        const clampedCx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
+        const clampedCy = (loCy <= hiCy) ? Math.max(loCy, Math.min(cy, hiCy)) : (loCy + hiCy) / 2;
+        // clamp結果を希望中央へ CENTER_BIAS だけ引き戻し、行動キャラを画面中央寄りに保つ
+        cx = clampedCx + (desiredCx - clampedCx) * CENTER_BIAS;
+        cy = clampedCy + (desiredCy - clampedCy) * CENTER_BIAS;
+      }
       // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
       const minCamX = -UI_MENU_WIDTH;
       const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
@@ -3493,14 +3505,55 @@
     }
     // 戦闘の注視点を設定して滑らかに寄せる (要望①②)。
     function focusCameraOn(wx, wy) {
+      endProjectileTrack();          // [camera-focus-v7.4] 明示フォーカス = 弾追従の RELEASE (占有/tight を確実解除)
       camFocus = { x: wx, y: wy };
       updatePositions();
     }
     // 注視点解除 → 主人公センタリング(探索)へ滑らかに戻す。
     function clearCameraFocus() {
+      endProjectileTrack();          // [camera-focus-v7.4] 追従状態を確実にリセット
       camFocus = null;
       updatePositions();
     }
+
+    // === [camera-focus-v7.4] 投射体追従ヘルパー (遠距離攻撃で弾を camFocus に据えて追う) ===
+    // 追従を「クレーム」する。2マス以上・戦闘中・非autoplay・reduce-motion外 かつ 未占有時のみ true。
+    // from/to はワールドpx。距離は Chebyshev(|Δ|)/TILE_SIZE で判定。
+    function beginProjectileTrack(fromWX, fromWY, toWX, toWY, durMs) {
+      if (window.__autoplay) return false;                 // headless/自動巡回は決定論維持のため追従しない
+      if (currentPhase !== "combat") return false;         // 遠距離「戦闘」カメラのみが対象
+      if (cameraTrackActive) return false;                 // single-tracker guard (ボレー/バレッジは最初の1発だけ claim)
+      try { if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return false; } catch (e) {}
+      const distTiles = Math.max(Math.abs(toWX - fromWX), Math.abs(toWY - fromWY)) / TILE_SIZE;
+      if (distTiles < 2) return false;                     // 隣接(1マス)は追従せず現状維持
+      cameraTrackActive = true; cameraTightFocus = true; cameraTrackClaims++;
+      clearTimeout(cameraTrackSafety);
+      cameraTrackSafety = setTimeout(() => {               // ~0.6s セーフティ: rAF 中断(要素除去/タブblur/例外)でも占有を必ず解放
+        cameraTrackActive = false; cameraTightFocus = false; cameraTrackSafety = 0;
+      }, (durMs || 400) + 600);
+      return true;
+    }
+    // 追従中のみ camFocus を弾の現在位置へ更新し、グライドループを起動する (描画は cameraFollowTick 一本に集約)。
+    function trackProjectileTo(wx, wy) {
+      if (!cameraTrackActive) return;                      // 占有者のみ (解放/セーフティ後は no-op)
+      camFocus = { x: wx, y: wy };
+      computeCameraTarget();                               // tick は target を再算出しないので自前で更新
+      if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
+    }
+    // 着弾で占有を解放。camFocus は着弾点に残す (IMPACT 保持 → 次アクターの focusCameraOn が RELEASE)。
+    function endProjectileTrack() {
+      cameraTrackActive = false; cameraTightFocus = false;
+      clearTimeout(cameraTrackSafety); cameraTrackSafety = 0;
+    }
+    // [camera-focus-v7.4] ヘッドレス検証用シーム (read-only・本番無害)。
+    //   spawnArrow 等は関数宣言でホイスティングされるため、この top-level 代入時点で参照可能。
+    try {
+      window.__camProbe = () => ({ camFocus, camTargetX, camTargetY, camX, camY,
+                                   cameraTrackActive, cameraTightFocus, cameraTrackClaims });
+      window.__rangedFx = { arrow: spawnArrow, fireball: spawnFireballProjectile,
+                            missileBarrage: castMagicMissileBarrage,
+                            setPhase: (p) => { currentPhase = p; } };
+    } catch (e) {}
 
     function isNorthWall(tx, ty) {
       // 「床の北側にある壁」= 壁立て描画の対象
@@ -5255,6 +5308,7 @@
       const curveSign = (Math.random() < 0.5) ? 1 : -1;
       const curveAmp  = 26 + Math.random() * 36;  // 26〜62px
       const startTime = performance.now();
+      const _tracking = beginProjectileTrack(fromX, fromY, toX, toY, durationMs);   // [camera-focus-v7.4] 弾追従をクレーム
       // Phase 2-I: 飛翔中の動的光源 (青紫の魔力光が暗闇を照らす)
       const light = (typeof addSpellLight === "function") ? addSpellLight({
         worldX: fromX, worldY: fromY,
@@ -5276,8 +5330,10 @@
           el.style.left = (cx - camX) + "px";
           el.style.top  = (cy - camY) + "px";
           if (light) { light.worldX = cx; light.worldY = cy; }
+          if (_tracking) trackProjectileTo(cx, cy);   // [camera-focus-v7.4] 弾を追う
           if (t < 1) requestAnimationFrame(step);
           else {
+            if (_tracking) { trackProjectileTo(cx, cy); endProjectileTrack(); }   // [camera-focus-v7.4] 着弾点で保持→占有解放
             el.classList.add("burst");
             setTimeout(() => el.remove(), 280);
             resolve();
@@ -5331,6 +5387,7 @@
       const startTime = performance.now();
       // spinning=true: 進行方向回転を JS でセットせず CSS アニメに委ねる (投げ斧用)
       const spinning = !!opts.spinning;
+      const _tracking = beginProjectileTrack(fromX, fromY, toX, toY, durationMs);   // [camera-focus-v7.4] 弾追従をクレーム
       return new Promise(resolve => {
         function step(now) {
           const t = Math.min((now - startTime) / durationMs, 1);
@@ -5339,8 +5396,10 @@
           el.style.left = (cx - camX) + "px";
           el.style.top  = (cy - camY) + "px";
           if (!spinning) el.style.transform = `rotate(${angle}rad)`;
+          if (_tracking) trackProjectileTo(cx, cy);   // [camera-focus-v7.4] 弾を追う
           if (t < 1) requestAnimationFrame(step);
           else {
+            if (_tracking) { trackProjectileTo(cx, cy); endProjectileTrack(); }   // [camera-focus-v7.4] 着弾点で保持→占有解放
             // 着弾後、一瞬刺さって見えるようにフェードアウト
             el.classList.add("embed");
             setTimeout(() => el.remove(), 340);
@@ -5534,6 +5593,7 @@
           duration: durationMs + 50, fadeMs: 0,
         });
         const start = performance.now();
+        const _tracking = beginProjectileTrack(fromWX, fromWY, toWX, toWY, durationMs);   // [camera-focus-v7.4] 弾追従をクレーム
         function step(now) {
           const t = Math.min(1, (now - start) / durationMs);
           const wx = fromWX + (toWX - fromWX) * t;
@@ -5541,6 +5601,7 @@
           ball.style.left = (wx - camX) + "px";
           ball.style.top  = (wy - camY) + "px";
           light.worldX = wx; light.worldY = wy;
+          if (_tracking) trackProjectileTo(wx, wy);   // [camera-focus-v7.4] 弾を追う
           // 火粉軌跡 (5 フレームに 1 回)
           if (Math.random() < 0.5) {
             const spark = document.createElement("div");
@@ -5552,6 +5613,7 @@
           }
           if (t < 1) requestAnimationFrame(step);
           else {
+            if (_tracking) { trackProjectileTo(wx, wy); endProjectileTrack(); }   // [camera-focus-v7.4] 着弾点で保持→占有解放
             try { ball.remove(); } catch {}
             resolve();
           }
@@ -19158,6 +19220,9 @@
       const toCX = ally.x + ally.def.displaySize / 2;
       const toCY = ally.y + ally.def.displaySize / 2;
       spawnShadowPuff(toCX, toCY);
+      // [camera-focus-v7.4] シャドウステップは投射体なしのワープ → 再出現位置(=着弾点)へカメラを寄せる。
+      //   「移動する盗賊本体を追う」の代替。focusCameraOn は通常グライド(tightでない)で lerp 追従、酔い対策済。
+      if (!window.__autoplay) focusCameraOn(toCX, toCY);
       // 向きをターゲットへ
       const ex = target.x + tgtDef.displaySize / 2;
       const ey = target.y + tgtDef.displaySize / 2;
