@@ -4254,7 +4254,7 @@
         attackDuration: 30, attackHitFrame: 14, attackCooldown: 40,
         dex: 2, atkBonus: 3, ac: 14,
         dmgDice: "1d8", dmgBonus: 0, critRange: 20, critMult: 3,
-        range: "long",
+        range: "bow",
         projectile: "arrow",
         xp: 150,
       },
@@ -4272,7 +4272,7 @@
         attackDuration: 34, attackHitFrame: 16, attackCooldown: 50,
         dex: 0, atkBonus: 2, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
-        range: "long",
+        range: "spellSingle",
         xp: 150,
       },
       goblinBrute: {
@@ -4419,7 +4419,7 @@
         attackDuration: 24, attackHitFrame: 12, attackCooldown: 45,
         str: 0, dex: 2, atkBonus: 4, ac: 14,
         dmgDice: "1d8", dmgBonus: 2, critRange: 19, critMult: 3,
-        range: "long",
+        range: "bow",
         projectile: "arrow",
         xp: 170,
         undead: true,
@@ -4457,7 +4457,7 @@
         attackDuration: 44, attackHitFrame: 20, attackCooldown: 64,
         str: 0, dex: 1, atkBonus: 9, ac: 17,
         dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,
-        range: "long",
+        range: "spellSingle",
         isBoss: true,
         ragePhaseHpRatio: 0.5,    // HP50%以下で激怒 + 恐怖オーラ再発
         maxSummons: 3,
@@ -4559,7 +4559,7 @@
         attackDuration: 24, attackHitFrame: 12, attackCooldown: 45,
         str: 1, dex: 2, atkBonus: 4, ac: 13,
         dmgDice: "1d8", dmgBonus: 2, critRange: 19, critMult: 3,
-        range: "long",
+        range: "bow",
         projectile: "arrow",
         xp: 180,
       },
@@ -4578,7 +4578,7 @@
         attackDuration: 30, attackHitFrame: 15, attackCooldown: 55,
         str: 0, dex: 1, atkBonus: 4, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
-        range: "long",
+        range: "spellSingle",
         xp: 200,
       },
       // オーク狂戦士 (痛みを忘れ突進する高速近接、lizardRaider 同型)
@@ -4730,7 +4730,7 @@
         attackDuration: 24, attackHitFrame: 12, attackCooldown: 45,
         dex: 3, atkBonus: 4, ac: 13,
         dmgDice: "1d8", dmgBonus: 1, critRange: 19, critMult: 3,
-        range: "long",
+        range: "bow",
         projectile: "arrow",
         xp: 180,
       },
@@ -4748,7 +4748,7 @@
         attackDuration: 24, attackHitFrame: 12, attackCooldown: 55,
         dex: 1, atkBonus: 2, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
-        range: "long",
+        range: "spellSingle",
         xp: 200,
       },
       banditHeavy: {
@@ -4859,7 +4859,7 @@
         attackDuration: 28, attackHitFrame: 14, attackCooldown: 45,
         str: 1, dex: 3, atkBonus: 5, ac: 14,
         dmgDice: "1d8", dmgBonus: 3, critRange: 20, critMult: 3,
-        range: "long",
+        range: "bow",
         projectile: "arrow",                      // 矢演出 (既存 playEnemyAttackVisual)
         xp: 180,
       },
@@ -4896,7 +4896,7 @@
         attackDuration: 36, attackHitFrame: 18, attackCooldown: 55,
         str: 0, dex: 1, atkBonus: 4, ac: 13,
         dmgDice: "2d6", dmgBonus: 1, critRange: 20, critMult: 2,
-        range: "long",
+        range: "spellSingle",
         xp: 200,
       },
       // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
@@ -5005,7 +5005,7 @@
         attackDuration: 30, attackHitFrame: 15, attackCooldown: 46,
         dex: 4, atkBonus: 4, ac: 19,            // 高AC = 命中しにくい(漂う霊体)
         dmgDice: "1d8", dmgBonus: 1, critRange: 20, critMult: 2,
-        range: "long",                           // 長射程・矢なし(冷たい光) ※goblinShaman と同方式
+        range: "spellSingle",                           // 長射程・矢なし(冷たい光) ※goblinShaman と同方式
         undead: true,                            // ターンアンデッド対象 + family=undead
         xp: 220,
       },
@@ -6557,13 +6557,13 @@
     function dfIsTwoHanded(item) {
       if (!item) return false;
       if (item.twoHanded != null) return !!item.twoHanded;
-      if (item.range === "long") return true;
+      if (item.range === "long" || item.range === "bow") return true;   // [SYNC df-ranged-7.9] 弓キー追加
       return /両手/.test(item.flavor || "");
     }
     // 盾スロットをロックするか (= 物理盾と排他)。弓は off-hand が腕鎧で両立するため非ロック。
     function dfWeaponLocksShield(item) {
       if (!item) return false;
-      if (item.range === "long") return false;
+      if (item.range === "long" || item.range === "bow") return false;  // [SYNC df-ranged-7.9] 弓キー追加
       if (item.twoHanded != null) return !!item.twoHanded;
       return /両手/.test(item.flavor || "");
     }
@@ -10517,7 +10517,13 @@
           if (!enemy.attackHitDealt && enemy.attackTimer >= def.attackHitFrame) {
             enemy.attackHitDealt = true;
             const distNow = Math.hypot(pCX - eCX, pCY - eCY);
-            if (distNow < def.hitRange) {
+            // [SYNC df-ranged-7.9] 探索ヒット射程を種別タイル表で上限クランプ (遠距離キーのみ。近接は不変=副作用ゼロ)
+            const _rk = def.range;
+            const _isRangedKey = _rk === "bow" || _rk === "spellSingle" || _rk === "spellAoE" || _rk === "long";
+            const effHitRange = _isRangedKey
+              ? Math.min(def.hitRange, getRange(_rk).tiles * TILE_SIZE)
+              : def.hitRange;
+            if (distNow < effHitRange) {
               damagePlayer(enemy, index);
             }
           }
@@ -11845,7 +11851,12 @@
     const RANGE = {
       melee:  { tiles: 1,  label: "近距離", engagePx: 400 },
       medium: { tiles: 3,  label: "中距離", engagePx: 520 },
-      long:   { tiles: 99, label: "遠距離", engagePx: 840 },
+      long:   { tiles: 6,  label: "遠距離", engagePx: 576 },   // 旧 99 → 6 (安全網。再割当漏れがあっても完封しない)
+      // [SYNC df-ranged-7.9] 射程種別キー — 完封解消のため長射程を種別ごとに再設計 (tavern.html RANGE_LABEL と同期)
+      bow:         { tiles: 6, label: "弓",     engagePx: 576 },
+      spellSingle: { tiles: 5, label: "術(単)", engagePx: 480 },
+      spellAoE:    { tiles: 5, label: "術(範)", engagePx: 480 },
+      spellBuff:   { tiles: 3, label: "術(援)", engagePx: 288 },
     };
     function getRange(key) { return RANGE[key] || RANGE.melee; }
     function tileChebyshev(ax, ay, bx, by) {
@@ -12961,7 +12972,7 @@
         atkBonus: 3, ac: 13,
         dmgDice: "1d8", dmgBonus: 0,  // ロングボウ (DEX修正は spellAtk と別、命中側で加算)
         critRange: 19, critMult: 3,  // ロングボウ準拠
-        weaponRange: "long",
+        weaponRange: "bow",
         weaponName: "ロングボウ",
         armorName: "森エルフの軽装",
         role: "backline",
@@ -13072,19 +13083,19 @@
     const MAGE_SKILLS = {
       "magic-missile": {
         name: "マジックミサイル", category: "attack", target: "single",
-        dmgDice: "3d4", dmgBonusFlat: 1, autoHit: true, range: "long",
+        dmgDice: "3d4", dmgBonusFlat: 1, autoHit: true, range: "spellSingle",
         mpCost: 3,
         flavor: "必中の魔力矢 3d4+1 (MP 3)",
       },
       "fire-bolt": {
         name: "ファイアボルト", category: "attack", target: "single",
-        dmgDice: "2d6", useInt: true, range: "long",
+        dmgDice: "2d6", useInt: true, range: "spellSingle",
         mpCost: 4,
         flavor: "火球 2d6+INT (命中判定、MP 4)",
       },
       "sleep": {
         name: "スリープ", category: "debuff", target: "area2x2",
-        stunTarget: 2, useInt: true, range: "long",
+        stunTarget: 2, useInt: true, range: "spellAoE",
         mpCost: 6,
         flavor: "2x2 範囲を 2ターン眠らせる (各個別判定、MP 6)",
       },
@@ -13097,14 +13108,14 @@
       // ── Phase 2-I: 新規呪文 3 種 (派手 fx + 動的光源) ──
       "fireball": {
         name: "ファイアボール", category: "attack", target: "area3x3",
-        dmgDice: "5d6", useInt: true, range: "long",
+        dmgDice: "5d6", useInt: true, range: "spellAoE",
         mpCost: 7, levelReq: 3,
         saveAbility: "dex",
         flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減、MP 7)",
       },
       "lightning-bolt": {
         name: "ライトニングボルト", category: "attack", target: "line3",
-        dmgDice: "5d6", useInt: false, range: "long",
+        dmgDice: "5d6", useInt: false, range: "spellAoE",
         mpCost: 6, levelReq: 3,
         saveAbility: "dex",
         flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減、MP 6)",
@@ -13127,7 +13138,7 @@
       // ── STEP2: アイスストーム (5x5 範囲、2d8+INT 冷気、DEX セーヴ半減、命中全敵に鈍足3T) ──
       "ice-storm": {
         name: "アイスストーム", category: "attack", target: "area5x5",
-        dmgDice: "2d8", useInt: true, range: "long",
+        dmgDice: "2d8", useInt: true, range: "spellAoE",
         mpCost: 9, levelReq: 7,
         saveAbility: "dex",
         slowTarget: 3,
@@ -13139,13 +13150,13 @@
     const ELF_SKILLS = {
       "aimed-shot": {
         name: "エイムドショット", category: "attack", target: "single",
-        dmgDice: "1d8", extraDmgDice: "1d6", atkBonusAmount: 3, useDex: true, range: "long",
+        dmgDice: "1d8", extraDmgDice: "1d6", atkBonusAmount: 3, useDex: true, range: "bow",
         mpCost: 3,
         flavor: "命中+3 / 弓ダメージ+1d6 の精密射撃 (MP 3)",
       },
       "magic-arrow": {
         name: "マジック・アロー", category: "attack", target: "single",
-        dmgDice: "1d6", dmgBonusFlat: 0, useInt: true, autoHit: true, range: "long",
+        dmgDice: "1d6", dmgBonusFlat: 0, useInt: true, autoHit: true, range: "bow",
         mpCost: 4,
         flavor: "必中の魔法矢 1d6+INT (MP 4)",
       },
@@ -13158,25 +13169,25 @@
       // ── spells.md エルフ Ranger 5呪文 (Phase 2-V) ──
       "hail-of-thorns": {
         name: "ヘイル・オブ・ソーン", category: "attack", target: "area3",
-        dmgDice: "1d10", useDex: true, range: "long",
+        dmgDice: "1d10", useDex: true, range: "spellAoE",
         mpCost: 4, levelReq: 1,
         flavor: "着弾点周囲に棘の雨 1d10 (DEX セーヴ半減・MP 4)",
       },
       "conjure-volley": {
         name: "コンジュア・ヴォリー", category: "attack", target: "area5",
-        dmgDice: "8d8", useDex: true, range: "long",
+        dmgDice: "8d8", useDex: true, range: "spellAoE",
         mpCost: 8, levelReq: 5,
         flavor: "広範囲に矢の雨 8d8 (DEX セーヴ半減・MP 8) — 奥義",
       },
       "hunters-mark": {
         name: "ハンターズ・マーク", category: "バフ", target: "single",
-        huntMarkDie: 6, duration: 5, useDex: true, range: "long",
+        huntMarkDie: 6, duration: 5, useDex: true, range: "bow",
         mpCost: 2, levelReq: 1,
         flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6 (MP 2)",
       },
       "lightning-arrow": {
         name: "ライトニング・アロー", category: "attack", target: "single",
-        dmgDice: "4d8", splashDice: "2d8", useDex: true, range: "long",
+        dmgDice: "4d8", splashDice: "2d8", useDex: true, range: "bow",
         mpCost: 6, levelReq: 3,
         flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減・MP 6)",
       },
@@ -13439,10 +13450,10 @@
       { name: "守護の指輪 +2",     enhancement: 2 },
     ];
     const ELF_WEAPONS = [
-      { name: "ロングボウ",         dmgDice: "1d8", range: "long", enhancement: 0 },
-      { name: "複合弓",             dmgDice: "1d8", range: "long", enhancement: 0 },
-      { name: "エルフの精霊弓 +1",  dmgDice: "1d8", range: "long", enhancement: 1, rarity: "rare" },
-      { name: "霜咬みの弓",         dmgDice: "1d8", range: "long", enhancement: 0,
+      { name: "ロングボウ",         dmgDice: "1d8", range: "bow", enhancement: 0 },
+      { name: "複合弓",             dmgDice: "1d8", range: "bow", enhancement: 0 },
+      { name: "エルフの精霊弓 +1",  dmgDice: "1d8", range: "bow", enhancement: 1, rarity: "rare" },
+      { name: "霜咬みの弓",         dmgDice: "1d8", range: "bow", enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "cold", critStun: 1, rarity: "special" },
     ];
     const ELF_ARMORS = [

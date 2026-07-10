@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>弓と魔法の射程を再設計</b> — 遠距離攻撃が画面端まで一方的に届く完封を廃止。敵の弓兵・魔法使いも間合いを詰めて挑んでくる。</li>
         <li><b>盗賊頭「スカー」のスプライトを刷新</b> — 森の中ボスを高精細な二刀流の盗賊頭の姿に描き直した。</li>
         <li><b>沼の狩人スプライトを刷新</b> — 葦の茂みから骨弓を引き絞るリザードマン弓手が、より精悍で立体感のある姿に。</li>
         <li><b>リザードマン族長の見た目を刷新</b> — 沼の玉座のボスを、骨冠と両手大斧をまとった高精細スプライトへ差し替え。</li>
-        <li><b>盗賊魔術師とリザードマン戦士の見た目を刷新</b> — より精巧で迫力ある姿に描き直した。</li>
       </ul>
     </div>
     <script>
@@ -2429,10 +2429,10 @@
 
   // ── エルフ装備プール (アーケイン・アーチャー: 弓 + 軽装) ──
   const ELF_WEAPONS = [
-    { name: "ロングボウ",          dmgDice: "1d8", spec: "1d8",      range: "long", flavor: "森エルフ伝統の長弓、遠距離精密射撃用", enhancement: 0, rarity: "common" },
-    { name: "複合弓",              dmgDice: "1d8", spec: "1d8",      range: "long", flavor: "層状に貼り合わせた強化弓、貫通力に優れる", enhancement: 0, rarity: "uncommon" },
-    { name: "エルフの精霊弓 +1",   dmgDice: "1d8", spec: "1d8 +1",   range: "long", flavor: "森の精霊が祝福した銀の弓", enhancement: 1, rarity: "rare" },
-    { name: "霜咬みの弓",          dmgDice: "1d8", spec: "1d8 +1d6氷 / クリ時 1Tスタン", range: "long", flavor: "凍てつく矢を放つ氷雪魔法弓 (+1d6 cold)", enhancement: 0, rarity: "special",
+    { name: "ロングボウ",          dmgDice: "1d8", spec: "1d8",      range: "bow", flavor: "森エルフ伝統の長弓、遠距離精密射撃用", enhancement: 0, rarity: "common" },
+    { name: "複合弓",              dmgDice: "1d8", spec: "1d8",      range: "bow", flavor: "層状に貼り合わせた強化弓、貫通力に優れる", enhancement: 0, rarity: "uncommon" },
+    { name: "エルフの精霊弓 +1",   dmgDice: "1d8", spec: "1d8 +1",   range: "bow", flavor: "森の精霊が祝福した銀の弓", enhancement: 1, rarity: "rare" },
+    { name: "霜咬みの弓",          dmgDice: "1d8", spec: "1d8 +1d6氷 / クリ時 1Tスタン", range: "bow", flavor: "凍てつく矢を放つ氷雪魔法弓 (+1d6 cold)", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "cold", critStun: 1 },
   ];
   const ELF_ARMORS = [
@@ -2476,7 +2476,9 @@
 
   // ── 射程ラベル ──
   const RANGE_LABEL = {
+    // [SYNC df-ranged-7.9] index.html RANGE と同期 (弓/術の種別ラベル)
     melee: "近距離", medium: "中距離", long: "遠距離", self: "自己",
+    bow: "弓", spellSingle: "術(単)", spellAoE: "術(範)", spellBuff: "術(援)",
   };
 
   // 装備の色分類 (白=通常 / 青=+Nエンハンスメント / 紫=特殊効果)
@@ -2512,17 +2514,17 @@
   ];
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
   const MAGE_SKILLS_UI = [
-    { id: "magic-missile",  name: "マジックミサイル", category: "攻撃", range: "long", mpCost: 3, flavor: "必中の魔力矢 3d4+1" },
-    { id: "fire-bolt",      name: "ファイアボルト", category: "攻撃", range: "long", mpCost: 4, flavor: "火球 2d6+INT (命中判定)" },
-    { id: "sleep",          name: "スリープ",       category: "妨害", range: "long", mpCost: 6, flavor: "命中で敵を 2T 眠らせる" },
+    { id: "magic-missile",  name: "マジックミサイル", category: "攻撃", range: "spellSingle", mpCost: 3, flavor: "必中の魔力矢 3d4+1" },
+    { id: "fire-bolt",      name: "ファイアボルト", category: "攻撃", range: "spellSingle", mpCost: 4, flavor: "火球 2d6+INT (命中判定)" },
+    { id: "sleep",          name: "スリープ",       category: "妨害", range: "spellAoE", mpCost: 6, flavor: "命中で敵を 2T 眠らせる" },
     { id: "arcane-shield",  name: "アーケイン・シールド", category: "防御", range: "self", mpCost: 3, flavor: "自分に AC +4 (3T)" },
     // Phase 2-I: 新規 3 呪文 (派手 fx + 動的光源、PT 巻き込みなし)
-    { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "long",   mpCost: 7, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
-    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "long",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "spellAoE",   mpCost: 7, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
     { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
     { id: "burning-hands",  name: "バーニングハンズ", category: "攻撃", range: "medium", mpCost: 4, levelReq: 1, flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
     // STEP2: アイスストーム (5x5 範囲 + 鈍足)
-    { id: "ice-storm",      name: "アイスストーム",   category: "攻撃", range: "long",   mpCost: 9, levelReq: 7, flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "ice-storm",      name: "アイスストーム",   category: "攻撃", range: "spellAoE",   mpCost: 9, levelReq: 7, flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減)、PT 巻き込みなし" },
   ];
   // ドワーフスキル (index.html DWARF_SKILLS と同期)
   const DWARF_SKILLS_UI = [
@@ -2545,14 +2547,14 @@
   ];
   // エルフスキル (index.html ELF_SKILLS と同期)
   const ELF_SKILLS_UI = [
-    { id: "aimed-shot",   name: "エイムドショット", category: "攻撃", range: "long", mpCost: 3, flavor: "命中+3 / 弓ダメ+1d6 の精密射撃" },
-    { id: "magic-arrow",  name: "マジック・アロー", category: "攻撃", range: "long", mpCost: 4, flavor: "必中の魔法矢 1d6+INT" },
+    { id: "aimed-shot",   name: "エイムドショット", category: "攻撃", range: "bow", mpCost: 3, flavor: "命中+3 / 弓ダメ+1d6 の精密射撃" },
+    { id: "magic-arrow",  name: "マジック・アロー", category: "攻撃", range: "bow", mpCost: 4, flavor: "必中の魔法矢 1d6+INT" },
     { id: "cure-minor",   name: "キュア・マイナー", category: "回復", range: "self", mpCost: 3, flavor: "自分に 1d6+WIS HP 回復" },
     // ── spells.md エルフ Ranger 5呪文 (Phase 2-V) ──
-    { id: "hail-of-thorns",   name: "ヘイル・オブ・ソーン", category: "攻撃", range: "long", mpCost: 4, levelReq: 1, flavor: "着弾点周囲に棘の雨 1d10 (DEX セーヴ半減)" },
-    { id: "conjure-volley",   name: "コンジュア・ヴォリー", category: "攻撃", range: "long", mpCost: 8, levelReq: 5, flavor: "広範囲に矢の雨 8d8 (DEX セーヴ半減) — 奥義" },
-    { id: "hunters-mark",     name: "ハンターズ・マーク", category: "バフ", range: "long", mpCost: 2, levelReq: 1, flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6" },
-    { id: "lightning-arrow",  name: "ライトニング・アロー", category: "攻撃", range: "long", mpCost: 6, levelReq: 3, flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減)" },
+    { id: "hail-of-thorns",   name: "ヘイル・オブ・ソーン", category: "攻撃", range: "spellAoE", mpCost: 4, levelReq: 1, flavor: "着弾点周囲に棘の雨 1d10 (DEX セーヴ半減)" },
+    { id: "conjure-volley",   name: "コンジュア・ヴォリー", category: "攻撃", range: "spellAoE", mpCost: 8, levelReq: 5, flavor: "広範囲に矢の雨 8d8 (DEX セーヴ半減) — 奥義" },
+    { id: "hunters-mark",     name: "ハンターズ・マーク", category: "バフ", range: "bow", mpCost: 2, levelReq: 1, flavor: "敵に烙印。PT 全員のその敵への武器命中に +1d6" },
+    { id: "lightning-arrow",  name: "ライトニング・アロー", category: "攻撃", range: "bow", mpCost: 6, levelReq: 3, flavor: "単体に 4d8 雷 + 周囲 2d8 (周囲のみ DEX セーヴ半減)" },
     { id: "cordon-of-arrows", name: "コードン・オブ・アロー", category: "攻撃", range: "medium", mpCost: 3, levelReq: 2, flavor: "地帯に矢を仕込む。3R 間、範囲内の敵に毎R 1d6" },
     // ── STEP3: ヘイスト (自己バフ。戦闘移動 +1マス=計2マスを6T。STEP4 で 2回攻撃も付与予定) ──
     { id: "haste", name: "ヘイスト", category: "バフ", range: "self", mpCost: 5, levelReq: 3, flavor: "自己強化。戦闘移動+1マス(計2マス)を6T" },
@@ -2755,14 +2757,14 @@
   function dfIsTwoHanded(item) {
     if (!item) return false;
     if (item.twoHanded != null) return !!item.twoHanded;
-    if (item.range === "long") return true;
+    if (item.range === "long" || item.range === "bow") return true;   // [SYNC df-ranged-7.9] 弓キー追加
     return /両手/.test(item.flavor || "");
   }
   // 盾スロットをロックするか (= 物理盾と排他)。弓(range==="long")は off-hand が腕鎧で両立するため
   // ロックしない(エルフの腕守り等)。両手"近接"武器 (戦斧など flavor「両手」/明示 twoHanded) のみロック。
   function dfWeaponLocksShield(item) {
     if (!item) return false;
-    if (item.range === "long") return false;                 // 弓 → 盾スロット非ロック
+    if (item.range === "long" || item.range === "bow") return false; // [SYNC df-ranged-7.9] 弓 → 盾スロット非ロック
     if (item.twoHanded != null) return !!item.twoHanded;     // 明示フラグ (近接)
     return /両手/.test(item.flavor || "");
   }
