@@ -4273,6 +4273,9 @@
         dex: 0, atkBonus: 2, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
         range: "spellSingle",
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2)
+        spellcaster: true, spells: ["fireBolt"], projectile: "fireBolt",
+        spellDC: 12, spellCooldownTurns: 2,
         xp: 150,
       },
       goblinBrute: {
@@ -4458,6 +4461,9 @@
         str: 0, dex: 1, atkBonus: 9, ac: 17,
         dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,
         range: "spellSingle",
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2・Fireball はリッチのみ = ボス級)
+        spellcaster: true, spells: ["magicMissile", "fireBolt", "fireball"], projectile: "magicMissile",
+        spellDC: 16, spellCooldownTurns: 2,
         isBoss: true,
         ragePhaseHpRatio: 0.5,    // HP50%以下で激怒 + 恐怖オーラ再発
         maxSummons: 3,
@@ -4579,6 +4585,9 @@
         str: 0, dex: 1, atkBonus: 4, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
         range: "spellSingle",
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2)
+        spellcaster: true, spells: ["fireBolt", "magicMissile", "scorchingRay"], projectile: "fireBolt",
+        spellDC: 13, spellCooldownTurns: 2,
         xp: 200,
       },
       // オーク狂戦士 (痛みを忘れ突進する高速近接、lizardRaider 同型)
@@ -4749,6 +4758,9 @@
         dex: 1, atkBonus: 2, ac: 12,
         dmgDice: "2d6", dmgBonus: 0, critRange: 20, critMult: 2,
         range: "spellSingle",
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2)
+        spellcaster: true, spells: ["fireBolt", "magicMissile", "scorchingRay"], projectile: "fireBolt",
+        spellDC: 13, spellCooldownTurns: 2,
         xp: 200,
       },
       banditHeavy: {
@@ -4897,6 +4909,9 @@
         str: 0, dex: 1, atkBonus: 4, ac: 13,
         dmgDice: "2d6", dmgBonus: 1, critRange: 20, critMult: 2,
         range: "spellSingle",
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2・蛇神司祭は轟音波 shatter も撃つ)
+        spellcaster: true, spells: ["fireBolt", "magicMissile", "scorchingRay", "shatter"], projectile: "fireBolt",
+        spellDC: 14, spellCooldownTurns: 2,
         xp: 200,
       },
       // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
@@ -5006,6 +5021,9 @@
         dex: 4, atkBonus: 4, ac: 19,            // 高AC = 命中しにくい(漂う霊体)
         dmgDice: "1d8", dmgBonus: 1, critRange: 20, critMult: 2,
         range: "spellSingle",                           // 長射程・矢なし(冷たい光) ※goblinShaman と同方式
+        // [SYNC df-ranged-7.9] 敵キャスター実スペル化 (STEP2・冷光=青白い演出)
+        spellcaster: true, spells: ["fireBolt"], projectile: "cold",
+        spellDC: 13, spellCooldownTurns: 2,
         undead: true,                            // ターンアンデッド対象 + family=undead
         xp: 220,
       },
@@ -5651,6 +5669,15 @@
       });
     }
 
+    // [SYNC df-ranged-7.9] 敵キャスターの飛翔体演出 (ダイス/探索 両フェーズ共用・STEP2)。
+    // projEl: "magicMissile"=魔力矢バラージュ / "cold"=青白い稲妻(冷光) / それ以外(fire)=火球+着弾バースト。
+    async function spawnEnemySpellBolt(projEl, fromX, fromY, toX, toY) {
+      if (projEl === "magicMissile") { await castMagicMissileBarrage(fromX, fromY, toX, toY, 3, 110); return; }
+      if (projEl === "cold") { spawnLightningBolt(fromX, fromY, toX, toY); await sleepMs(220); return; }
+      await spawnFireballProjectile(fromX, fromY, toX, toY, 320);
+      spawnFireImpactBurst(toX, toY, { size: 140 });
+    }
+
     // 着弾爆発スプライトシート (単一行 6 フレーム横ストリップ)
     const EXPLOSION_SHEET = {
       src: "assets/explosion_anim.png?v=1",
@@ -6111,6 +6138,7 @@
         poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
         huntMarkRemaining: 0, huntMarkDie: 0,        // エルフ ハンターズ・マーク (PT の武器命中に +1dX)
         atkPenaltyRemaining: 0, atkPenaltyAmount: 0, // 盗賊 煙幕 (命中ペナルティ)
+        spellCooldown: 0,          // [SYNC df-ranged-7.9] 敵キャスター 呪文クールダウン (ダイス相制。STEP2)
         // ボス専用(ボス以外では未使用)
         phase: 0,                 // 0=通常, 1=激怒
         ragePhaseEntered: false,  // 激怒フェーズ演出を一度だけ
@@ -10525,6 +10553,12 @@
               : def.hitRange;
             if (distNow < effHitRange) {
               damagePlayer(enemy, index);
+              // [SYNC df-ranged-7.9] 敵キャスターは探索でも属性弾を飛ばす (ダメージは flat -1 のまま=演出のみ・STEP2)
+              if (def.spellcaster) {
+                const _pj = def.projectile === "cold" ? "cold"
+                          : def.projectile === "magicMissile" ? "magicMissile" : "fire";
+                spawnEnemySpellBolt(_pj, eCX, eCY - 6, pCX, pCY);   // fire-and-forget (探索はリアルタイム)
+              }
             }
           }
           if (enemy.attackTimer >= def.attackDuration) {
@@ -12409,11 +12443,17 @@
           await sleepMs(350);
         }
       }
-      // 遠距離 (def.projectile = "arrow"): 矢を発射演出
-      if (def.projectile === "arrow" && targetWX != null && targetWY != null) {
+      // 遠距離: 矢 / 敵キャスターの属性弾を発射演出
+      if (def.projectile && targetWX != null && targetWY != null) {
         const eCX = enemy.x + def.displaySize / 2;
-        const eCY = enemy.y + def.displaySize / 2 - 6;  // 弓の高さ補正
-        await spawnArrow(eCX, eCY, targetWX, targetWY, 280, { variant: "enemyArrow" });
+        const eCY = enemy.y + def.displaySize / 2 - 6;  // 弓/杖の高さ補正
+        if (def.projectile === "arrow") {
+          await spawnArrow(eCX, eCY, targetWX, targetWY, 280, { variant: "enemyArrow" });
+        } else {
+          // [SYNC df-ranged-7.9] 敵キャスターの通常遠隔攻撃 (クールダウン中の噛撃) にも属性弾を表示。
+          //   本命の呪文詠唱は enemyCastSpell 側が自前で飛翔体を出す (ここは基本攻撃のフォールバック演出)。
+          await spawnEnemySpellBolt(def.projectile, eCX, eCY, targetWX, targetWY);
+        }
       }
     }
 
@@ -20081,6 +20121,225 @@
       }
     }
 
+    // ══════════ 敵キャスターの実スペル (SRD 5.1準拠) ══════════
+    // [SYNC df-ranged-7.9] STEP2 = 敵の魔法使いを「謎の遠距離攻撃」から実際の呪文へ。
+    //   単体系 (Fire Bolt / Magic Missile / Scorching Ray): 命中判定 (MM は必中)。
+    //   AoE 系 (Fireball=DEXセーヴ / Shatter=CONセーヴ): 3x3 セーヴ (hydraFireBreath 流儀)。
+    //   Fireball はボス級 (lich) のみ。詠唱前に必ず tryReflectEnemySpell (スペルターニングリング) を通す。
+    const ENEMY_SPELLS = {
+      fireBolt:     { jp: "ファイアボルト",     kind: "single", mode: "attack",  dmgDice: "2d6", el: "fire"   },
+      magicMissile: { jp: "マジックミサイル",   kind: "single", mode: "autohit", dmgDice: "3d4", flat: 1, el: "arcane" },
+      scorchingRay: { jp: "スコーチングレイ",   kind: "single", mode: "attack",  dmgDice: "2d6", el: "fire", rays: 2 },
+      shatter:      { jp: "轟音波(シャター)",   kind: "aoe",    save: "con",     dmgDice: "3d8", el: "arcane" },
+      fireball:     { jp: "ファイアボール",     kind: "aoe",    save: "dex",     dmgDice: "6d6", el: "fire", bossOnly: true },
+    };
+
+    // 敵スペルの単体ダメージを対象 (leader/ally/enemy) へ適用。致死処理は既存経路 (hydraFireBreath / applyFireBreathToAlly) と整合。
+    async function applyEnemySpellDamage(pick, dmg, isCrit, spellName) {
+      if (pick.kind === "ally") {
+        const a = allies[pick.idx];
+        if (a && a.alive) applyFireBreathToAlly(a, dmg);
+        return;
+      }
+      if (pick.kind === "enemy") {   // 第三勢力 (beast↔非beast) 相手にキャスターが撃つ稀ケース
+        const t = enemies[pick.idx];
+        if (!t || !t.alive) return;
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(pick.idx);
+        showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, isCrit);
+        if (t.hp <= 0) { defeatEnemy(pick.idx); await sleepMs(300); }
+        return;
+      }
+      // leader (player) — 不屈 / 頭委譲 / ゲームオーバー を hydraFireBreath と整合
+      const wouldDie = (hp - dmg) <= 0;
+      if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired && wouldDie && dmg > 0) {
+        playerBuffs.resilientFired = true;
+        const sRoll = rollDiceDD(1, 4);
+        showDmgAt(playerX + 48, playerY, dmg, false);
+        hp = sRoll.total;
+        showBuffPop(`<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`);
+        updateInfo(`不屈発動! 致命傷を ${hp}/${maxHp} HP で耐えた`);
+        return;
+      }
+      hp -= dmg; if (hp < 0) hp = 0;
+      showDmgAt(playerX + 48, playerY, dmg, isCrit);
+      updateInfo(`${getLeaderName()} は${spellName}で ${dmg} ダメージ! HP ${hp}/${maxHp}`);
+      await sleepMs(400);
+      if (hp <= 0 && !onHeadDowned("battle")) {
+        gameOver = true;
+        invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
+        stopDamageBlink();
+        player.style.opacity = "1"; player.style.filter = "none";
+        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+      }
+    }
+
+    // AoE 呪文 (Fireball / Shatter): 着弾中心 3x3 の PT 全員にセーヴ付きダメージ (hydraFireBreath のセーヴループを一般化)。
+    async function enemyCastAoE(idx, spellId, meta, dc, projEl) {
+      const enemy = enemies[idx];
+      const def = enemy.def;
+      const pick = pickEnemyTarget(idx);
+      let centerWX, centerWY;
+      if (pick && (pick.kind === "leader" || pick.kind === "ally")) { centerWX = pick.cx; centerWY = pick.cy; }
+      else if (hp > 0 && !gameOver) { centerWX = playerX + 48; centerWY = playerY + 58; }
+      else { const a0 = allies.find(a => a.alive); if (!a0) return; centerWX = a0.x + a0.def.displaySize / 2; centerWY = a0.y + a0.def.displaySize / 2; }
+
+      const blast = 3, half = 1;
+      const tx0 = Math.floor(centerWX / TILE_SIZE) - half;
+      const ty0 = Math.floor(centerWY / TILE_SIZE) - half;
+      const saveAbility = meta.save || "dex";
+      const saveLabel = saveAbility.toUpperCase();
+
+      showBanner(`${projEl === "cold" ? "❄" : "🔥"} ${meta.jp} ${projEl === "cold" ? "❄" : "🔥"}`, 1500);
+      updateInfo(`${def.name}: ${meta.jp}! (${saveLabel} セーヴ DC ${dc})`);
+
+      // 飛翔 → 着弾 VFX
+      const mouthWX = enemy.x + def.displaySize / 2, mouthWY = enemy.y + def.displaySize * 0.32;
+      const cWX = (tx0 + blast / 2) * TILE_SIZE, cWY = (ty0 + blast / 2) * TILE_SIZE;
+      await spawnFireballProjectile(mouthWX, mouthWY, cWX, cWY, 380);
+      spawnFireballExplosion(cWX, cWY);
+      if (typeof spawnGroundFx === "function" && meta.el === "fire") spawnGroundFx(tx0, ty0, blast, blast, "fireball-scorch", 1400);
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);
+      await sleepMs(240);
+
+      const inBlast = (wx, wy) => {
+        const mtx = Math.floor(wx / TILE_SIZE), mty = Math.floor(wy / TILE_SIZE);
+        return mtx >= tx0 && mtx < tx0 + blast && mty >= ty0 && mty < ty0 + blast;
+      };
+      const rollDmg = () => { const dd = parseDiceDD(meta.dmgDice); return Math.max(1, rollDiceDD(dd.n, dd.sides).total); };
+      let hitCount = 0, savedCount = 0;
+
+      // 仲間を先に解決 (頭の委譲で allies が再編される前に確定)
+      for (const a of allies) {
+        if (!a.alive || gameOver) continue;
+        const acx = a.x + a.def.displaySize / 2, acy = a.y + a.def.displaySize / 2;
+        if (!inBlast(acx, acy)) continue;
+        const roll = d20();
+        const mod = a[saveAbility] || 0;
+        const saved = (roll + mod) >= dc;
+        let dmg = rollDmg();
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        if (meta.el === "fire") dmg = Math.max(1, Math.round(dmg * getFireResistMult(a)));
+        hitCount++;
+        showRollAtAlly(a,
+          `<span class="label">${saved ? saveLabel + " SAVE" : "HIT"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(mod)} = ${roll + mod}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        applyFireBreathToAlly(a, dmg);
+      }
+
+      // 頭 (player) を最後に解決
+      if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) {
+        const roll = d20();
+        const mod = playerStats[saveAbility] || 0;
+        const saved = (roll + mod) >= dc;
+        let dmg = rollDmg();
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        if (meta.el === "fire") dmg = Math.max(1, Math.round(dmg * getFireResistMult("player")));
+        hitCount++;
+        showRollAtPlayer(
+          `<span class="label">${saved ? saveLabel + " SAVE" : "HIT"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(mod)} = ${roll + mod}<br>vs DC ${dc}`,
+          saved ? "hit" : "miss");
+        await applyEnemySpellDamage({ kind: "leader" }, dmg, false, meta.jp);
+      }
+
+      if (hitCount === 0) updateInfo(`${def.name}の${meta.jp}は誰も捉えられなかった`);
+      else updateInfo(`${def.name}の${meta.jp}: ${hitCount}体に着弾 (${savedCount}体セーヴ半減)`);
+      if (window.__enemySpellProbe) window.__enemySpellProbe.push({ name: def.name, spell: spellId, kind: "aoe", dc, hitCount, savedCount });
+      await sleepMs(400);
+    }
+
+    // 敵キャスターの呪文詠唱 (発火ゲートは enemyAttackTurn 側)。単体系は命中判定、AoE は enemyCastAoE へ委譲。
+    async function enemyCastSpell(idx) {
+      const enemy = enemies[idx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const list = (def.spells && def.spells.length) ? def.spells : ["fireBolt"];
+
+      // 唱える呪文を選択 (Fireball は isBoss=lich のみ・二重ガードで非ボスは fireBolt へ置換)
+      let spellId = list[Math.floor(Math.random() * list.length)];
+      if ((ENEMY_SPELLS[spellId] || {}).bossOnly && !def.isBoss) spellId = "fireBolt";
+      const meta = ENEMY_SPELLS[spellId] || ENEMY_SPELLS.fireBolt;
+
+      const eCX = enemy.x + def.displaySize / 2;
+      const eMouthY = enemy.y + def.displaySize * 0.32;
+      const spellAtk = def.atkBonus || 0;                 // 命中補正 = 各敵の攻撃ボーナスを流用 (格に比例)
+      const dc = def.spellDC || 14;
+      const projEl = (spellId === "magicMissile") ? "magicMissile"
+                   : (def.projectile === "cold") ? "cold" : "fire";
+      const castEl = projEl === "cold" ? "ice" : (meta.el === "arcane" ? "arcane" : "fire");
+
+      // ── 発動宣言 + 詠唱演出 (敵には .el が無いのでシムを渡す) ──
+      showRollAtEnemy(idx, `<span class="label">SPELL</span><span class="big">${meta.jp}</span>`, "skill");
+      if (enemyElements[idx]) flashAction(enemyElements[idx], "skill");
+      updateInfo(`${def.name} は ${meta.jp} を詠唱!`);
+      await dfPlayCast({ el: enemyElements[idx], x: enemy.x, y: enemy.y, def }, { name: meta.jp, element: castEl }, { duration: 1100 });
+
+      // ── スペルターニングリング: 反射成功なら PT 被弾を丸ごとスキップして術者へ跳ね返す ──
+      if (await tryReflectEnemySpell(idx, {
+        name: meta.jp,
+        fireAcid: meta.el === "fire",
+        rollDamage: () => {
+          const dd = parseDiceDD(meta.dmgDice);
+          let total = rollDiceDD(dd.n, dd.sides).total + (meta.flat || 0);
+          if (meta.rays) total *= meta.rays;
+          return Math.max(1, total);
+        },
+      })) return;
+
+      // ── AoE 系 (Fireball=DEX / Shatter=CON) ──
+      if (meta.kind === "aoe") { await enemyCastAoE(idx, spellId, meta, dc, projEl); return; }
+
+      // ── 単体系: ターゲット決定 ──
+      const pick = pickEnemyTarget(idx);
+      if (!pick) return;
+      const targetAc = pick.kind === "ally" ? currentAllyAc(allies[pick.idx])
+                     : pick.kind === "enemy" ? ((enemies[pick.idx].def.ac) || 12)
+                     : currentPlayerAc();
+
+      const rays = meta.rays || 1;   // Scorching Ray = 複数光線を同一対象へ集中
+      for (let r = 0; r < rays; r++) {
+        let hit = true, isCrit = false, natD20 = 0;
+        if (meta.mode === "attack") {
+          natD20 = d20();
+          isCrit = natD20 >= 20;
+          hit = isCrit || (natD20 + spellAtk) >= targetAc;
+        }
+        await spawnEnemySpellBolt(projEl, eCX, eMouthY, pick.cx, pick.cy);
+        if (!hit) {
+          showRollAtEnemy(idx,
+            `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(spellAtk)} = ${natD20 + spellAtk}<br>vs AC ${targetAc}`,
+            "miss");
+          await sleepMs(220);
+          continue;
+        }
+        const dd = parseDiceDD(meta.dmgDice);
+        const times = isCrit ? 2 : 1;
+        let rolls = [];
+        for (let k = 0; k < times; k++) rolls = rolls.concat(rollDiceDD(dd.n, dd.sides).rolls);
+        const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + (meta.flat || 0) * times);
+        if (meta.mode === "autohit") {
+          showRollAtEnemy(idx,
+            `<span class="label">AUTO HIT</span>${meta.dmgDice}${meta.flat ? "+" + meta.flat : ""}(${rolls.join("+")}) = <span class="big">${dmg}</span>`,
+            "crit");
+        } else {
+          showRollAtEnemy(idx,
+            `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(spellAtk)} = ${natD20 + spellAtk}<br>vs AC ${targetAc}`,
+            isCrit ? "crit" : "hit");
+        }
+        await applyEnemySpellDamage(pick, dmg, isCrit, meta.jp);
+        if (gameOver) return;
+        // 対象が倒れたら残りの光線は撃たない
+        if (pick.kind === "ally" && (!allies[pick.idx] || !allies[pick.idx].alive)) break;
+        if (pick.kind === "enemy" && (!enemies[pick.idx] || !enemies[pick.idx].alive)) break;
+        if (pick.kind === "leader" && hp <= 0) break;
+        if (r < rays - 1) await sleepMs(200);
+      }
+      if (window.__enemySpellProbe) window.__enemySpellProbe.push({ name: def.name, spell: spellId, kind: "single" });
+      await sleepMs(300);
+    }
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -20201,6 +20460,29 @@
       if (def.multiHead && enemy.__forceSmashNext) {
         bossAction = "smash";
         enemy.__forceSmashNext = false;
+      }
+
+      // ── 敵キャスターの実スペル詠唱ゲート (STEP2) ──
+      // [SYNC df-ranged-7.9] isBoss 非依存 (goblinShaman 等は非ボス)。クールダウン式。
+      //   射程/LOS OK なら通常攻撃 (噛撃) の代わりに呪文を撃つ。smash ターン (ボス近接の見せ場) は抑止。
+      //   lich は上の summon/fear ゲートと共存 (summon は既に return 済み・smash はここで除外)。
+      if (def.spellcaster && bossAction !== "smash") {
+        if (enemy.spellCooldown > 0) {
+          enemy.spellCooldown--;                       // クールダウン中は通常攻撃 (下の噛撃へフォールスルー)
+        } else {
+          const sPick = pickEnemyTarget(idx);
+          if (sPick) {
+            const seCX = enemy.x + def.displaySize / 2, seCY = enemy.y + def.displaySize / 2;
+            const inRange = tileChebyshev(seCX, seCY, sPick.cx, sPick.cy) <= getRange(def.range || "spellSingle").tiles;
+            const losOk = (typeof hasLineOfSight !== "function") || hasLineOfSight(seCX, seCY, sPick.cx, sPick.cy);
+            if (inRange && losOk) {
+              await enemyCastSpell(idx);
+              enemy.spellCooldown = (def.spellCooldownTurns || 2) + 1;
+              return;                                   // このターンは呪文で消費
+            }
+            // 射程外/LOS無し: cooldown 据置 (次ターン再挑戦)、通常前進処理へフォールスルー
+          }
+        }
       }
 
       // ── 多頭ハイドラ: 1噛撃の解決を内部関数化し頭数ぶんループ (各噛撃で再ターゲット=隊長/仲間へ分散) ──
