@@ -87,8 +87,15 @@ def _feet_centroid_x(img):
     return float((np.arange(len(col)) * col).sum() / col.sum())
 
 
-def _pack_frame(img, scale, cell, target_feet):
-    """1 フレームを scale 倍して cell×cell へ配置 (足元 target_feet・水平中央)。"""
+def _pack_frame(img, scale, cell, target_feet, center_mode="feet"):
+    """1 フレームを scale 倍して cell×cell へ配置 (足元 target_feet・水平中央)。
+
+    center_mode:
+      "feet" — 足元 25% の alpha 加重 X 重心を cell 中央に置く (人型の既定)。
+      "bbox" — 外接矩形の中心を cell 中央に置く。車両など、足元(車輪)の重心が
+               全体の中心から大きくずれる横広アセット向け。feet だと本体が
+               セル外へはみ出してクリップされる。
+    """
     nw = max(1, int(round(img.width * scale)))
     nh = max(1, int(round(img.height * scale)))
     scaled = img.resize((nw, nh), Image.LANCZOS)
@@ -98,11 +105,49 @@ def _pack_frame(img, scale, cell, target_feet):
     if bb is None:
         return canvas
     feet_y = bb[3]                       # スケール後キャラ最下端
-    cx = _feet_centroid_x(scaled)
+    cx = (bb[0] + bb[2]) / 2.0 if center_mode == "bbox" else _feet_centroid_x(scaled)
     off_y = target_feet - feet_y
     off_x = int(round(cell / 2.0 - cx))
     canvas.paste(scaled, (off_x, off_y), scaled)
     return canvas
+
+
+def _warn_if_clipped(frames, scale, cell, center_mode):
+    """パック後にキャラがセル外へはみ出す (= 無言で切れる) フレームを検出して警告。
+
+    スケールは「高さ」だけで決まるので、横広アセット (車両など) では幅がセルを
+    はみ出しうる。さらに feet 中央寄せは重心が偏ると片側だけ切れる。どちらも
+    出力画像を目視するまで気付けないため、ここで数値的に検出する。
+    """
+    worst_l, worst_r = cell, 0
+    for img in frames:
+        nw = max(1, int(round(img.width * scale)))
+        nh = max(1, int(round(img.height * scale)))
+        scaled = img.resize((nw, nh), Image.LANCZOS)
+        bb = _content_bbox(scaled)
+        if bb is None:
+            continue
+        cx = (bb[0] + bb[2]) / 2.0 if center_mode == "bbox" else _feet_centroid_x(scaled)
+        off_x = int(round(cell / 2.0 - cx))
+        worst_l = min(worst_l, bb[0] + off_x)
+        worst_r = max(worst_r, bb[2] + off_x)
+    if worst_l < 0 or worst_r > cell:
+        over_l = max(0, -worst_l)
+        over_r = max(0, worst_r - cell)
+        fit = char_ratio_to_fit(worst_l, worst_r, cell)
+        print(f"  ! CLIP WARNING: {over_l}px off left / {over_r}px off right "
+              f"(left={worst_l} right={worst_r} cell={cell})", file=sys.stderr)
+        print(f"  ! shrink --char-ratio to about x{fit:.2f}, or try --center bbox",
+              file=sys.stderr)
+    else:
+        print(f"  fit: left={worst_l} right={worst_r} (cell={cell}) OK")
+
+
+def char_ratio_to_fit(worst_l, worst_r, cell):
+    """現在の char_ratio に掛けるべき縮小係数 (1.0 なら縮小不要)。"""
+    half = cell / 2.0
+    need = max(half - worst_l, worst_r - half)   # 中心からの最大片側距離
+    return 1.0 if need <= half else half / need
 
 
 def build_sheet(walk_frames, attack_frames, cols, cell, out_path):
@@ -125,13 +170,33 @@ def build_sheet(walk_frames, attack_frames, cols, cell, out_path):
     print(f"  -> {out_path}  ({W}x{H})")
 
 
-def pack_monster(monster, out_path, codex1_root, cols, cell, char_ratio, bottom_pad_ratio):
+def _prescale(frames, factor):
+    """attack シートだけを事前縮小する (codex1 が walk と別ズームで描いた場合の補正)。"""
+    if not frames or abs(factor - 1.0) < 1e-6:
+        return frames
+    out = []
+    for f in frames:
+        nw = max(1, int(round(f.width * factor)))
+        nh = max(1, int(round(f.height * factor)))
+        out.append(f.resize((nw, nh), Image.LANCZOS))
+    return out
+
+
+def pack_monster(monster, out_path, codex1_root, cols, cell, char_ratio, bottom_pad_ratio,
+                 center_mode="feet", attack_scale=1.0):
     mono_dir = os.path.join(codex1_root, monster, "final")
     walk = _load_frames(os.path.join(mono_dir, "walk"), cols)
     attack = _load_frames(os.path.join(mono_dir, "attack"), cols)
     if not walk:
         print(f"  ! walk frames not found under {mono_dir}/walk", file=sys.stderr)
         return False
+
+    # codex1 が walk と attack を別チャットで描くと、同じキャラでもズーム倍率が食い違う
+    # ことがある (goblin-war-cart: attack のゴブリンが walk の約1.5倍)。共通スケールは
+    # 「高さ」しか見ないので、この食い違いは攻撃モーション開始時のサイズ跳ねになる。
+    # attack_scale で attack 側だけ先に揃えてから共通スケールへ乗せる。
+    if attack:
+        attack = _prescale(attack, attack_scale)
 
     # 共通スケール: walk+attack 全フレームのキャラ最大高が cell*char_ratio を占める
     all_frames = walk + (attack or [])
@@ -142,10 +207,13 @@ def pack_monster(monster, out_path, codex1_root, cols, cell, char_ratio, bottom_
     scale = (cell * char_ratio) / h_max
     target_feet = cell - max(1, int(round(cell * bottom_pad_ratio)))
     print(f"  {monster}: frames walk={len(walk)} attack={len(attack)} "
-          f"H_max={h_max}px scale={scale:.4f} char_ratio={char_ratio} target_feet={target_feet}")
+          f"H_max={h_max}px scale={scale:.4f} char_ratio={char_ratio} "
+          f"target_feet={target_feet} center={center_mode} attack_scale={attack_scale}")
 
-    walk_p = [_pack_frame(f, scale, cell, target_feet) for f in walk]
-    attack_p = [_pack_frame(f, scale, cell, target_feet) for f in attack] if attack else None
+    _warn_if_clipped(all_frames, scale, cell, center_mode)
+
+    walk_p = [_pack_frame(f, scale, cell, target_feet, center_mode) for f in walk]
+    attack_p = [_pack_frame(f, scale, cell, target_feet, center_mode) for f in attack] if attack else None
     if not attack_p:
         print("  (attack frames not found - row3 uses walk[0] placeholder)")
 
@@ -166,12 +234,16 @@ def main():
     ap.add_argument("--char-ratio", type=float, default=0.86,
                     help="最も背の高いフレームがセル高に占める割合 (既定 0.86)")
     ap.add_argument("--bottom-pad-ratio", type=float, default=0.05)
+    ap.add_argument("--center", choices=("feet", "bbox"), default="feet",
+                    help="水平中央寄せの基準。人型=feet(既定)、車両など横広=bbox")
+    ap.add_argument("--attack-scale", type=float, default=1.0,
+                    help="attack シートだけを事前縮小する倍率 (walk と別ズームで描かれた場合の補正)")
     args = ap.parse_args()
 
     monster = args.monster or args.key
     print(f"--- pack codex1 {monster} -> {args.out} ---")
     ok = pack_monster(monster, args.out, args.codex1_root, args.cols, args.cell,
-                      args.char_ratio, args.bottom_pad_ratio)
+                      args.char_ratio, args.bottom_pad_ratio, args.center, args.attack_scale)
     sys.exit(0 if ok else 1)
 
 

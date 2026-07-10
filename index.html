@@ -4338,6 +4338,33 @@
         maxSummons: 3,           // 召喚回数上限
         xp: 500,                 // ボス撃破 XP
       },
+      // === [chariot-7.9-2] ゴブリン戦車 (乱入型ミニボス・廃坑ボス戦のみ) ===
+      // グリクスがトロッコを鉄と骨で組み直した対人間兵器。「移動そのものが攻撃」の轢きユニットで、
+      // 通常の近接ロジック (resolveOneBite) には乗せない → enemyAttackTurn の def.trample ゲートで分岐。
+      // isBoss を付けない: 激怒/召喚/恐怖オーラのゲートに乗せたくないため。
+      // displaySize >= OVERLAP_BOSS_SIZE(200) なので isHeavyOverlapUnit=true = 押し出されず突進できる。
+      goblinChariot: {
+        name: "ゴブリン戦車",
+        flavor: "鉄輪と骨で組み直された、坑道の暴走兵器",
+        badge: "🛞",
+        sprite: "assets/goblinChariot_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,
+        hp: 65, speed: 0.8,
+        hasAttackAnim: true,
+        meleeRange: 190, hitRange: 260,
+        attackDuration: 36, attackHitFrame: 16, attackCooldown: 55,
+        str: 4, dex: 1, atkBonus: 6, ac: 15,
+        dmgDice: "2d8", dmgBonus: 3, critRange: 20, critMult: 2,
+        range: "melee",
+        // 轢き (Trample) 専用パラメータ
+        trample: true,           // このフラグが敵ターンの特殊ゲートの目印
+        trampleTiles: 4,         // 1突進で直進するタイル数
+        trampleDice: "2d8", trampleBonus: 3,
+        trampleDC: 14,           // DEX セーヴ: 成功でダメージ半減 + 転倒なし
+        xp: 600,
+      },
       hobgoblin: {
         name: "ホブゴブリン",
         flavor: "規律ある大型ゴブリノイドの重装兵",
@@ -11586,6 +11613,11 @@
       currentMaxSpellSlots = { ...(nh.maxSpellSlots || {}) };
       currentMaxSpellSlotsTotal = nh.maxSpellSlotsTotal || 0;
       copyBuffsInto(playerBuffs, nh.buffs);
+      // status-effect v1.1: 状態異常は「体」に付くので、死んだ旧頭のものを引き継がせない。
+      // 新しい頭が仲間として負っていた効果 (転倒など) だけを頭の配列へ移す。
+      // (buffs と違い playerStatusEffects は参照を保つ必要があるため in-place で入れ替える)
+      playerStatusEffects.length = 0;
+      if (Array.isArray(nh.statusEffects)) playerStatusEffects.push(...nh.statusEffects);
       if (leaderSkillsUsedInEncounter && leaderSkillsUsedInEncounter.clear) {
         leaderSkillsUsedInEncounter.clear();
         if (nh.skillsUsedInEncounter && nh.skillsUsedInEncounter.forEach)
@@ -12799,6 +12831,7 @@
 
         // ── ラウンドループ ──
         let round = 1;
+        let chariotSpawned = false;   // [chariot-7.9-2] 1 戦闘 1 回だけ乱入させる
         while (!gameOver && hp > 0 &&
                encounterEnemyIndices.some(i => enemies[i].alive)) {
           // 2ラウンド目以降: 近くに未参戦の敵がいれば増援として合流
@@ -12850,6 +12883,13 @@
 
           // エルフ コードン・オブ・アロー: 設置ゾーンをラウンド開始時に発動
           await tickCordonZones();
+
+          // [chariot-7.9-2] ゴブリン戦車の乱入 (廃坑ボス戦・噂を掴んだ回のみ)。
+          // actor ループの前に units へ参戦させるので、この場での units 変更は安全。
+          if (!chariotSpawned && shouldSpawnChariot()) {
+            chariotSpawned = true;                    // 二重発動防止
+            await spawnGoblinChariot(units, sortUnits);
+          }
 
           for (const actor of units) {
             if (gameOver || hp <= 0) break;
@@ -20549,6 +20589,270 @@
       await sleepMs(300);
     }
 
+    // ══════════ [chariot-7.9-2] ゴブリン戦車 (乱入型ミニボス) ══════════
+    // 廃坑のボス戦だけの特殊演出。酒場で噂 (mine_chariot_intel) を掴んだ回に限り、グリクスが
+    // 追い詰められると坑道の奥から戦車が突っ込んでくる。この乱入機構は戦車固有で共通化しない。
+    //
+    // 企画の「ボス背後16マス」はマップに収まらない: ボス部屋の床は ROOMS[2]=[5,47,22,68] で
+    // グリクスは col57 なので背後に取れる床は 11 マス (MAP_W=72 なので 57+16=73 は盤外)。
+    // 床端 col68 から 4マス/ターンで約 3 ターン = 企画の「猶予 3〜4 ターン」を満たす。
+    const CHARIOT_SCENARIO_ID  = "goblin-mine";
+    const CHARIOT_INTEL_FLAG   = "mine_chariot_intel";
+    const CHARIOT_KING_TYPE    = "goblinKing";
+    const CHARIOT_HP_TRIGGER   = 0.70;   // グリクスの HP がこの割合以下になったら乱入
+    const CHARIOT_SPAWN_TX     = 68;     // ボス部屋の床の右端 = ボス背後 11 タイル
+    const CHARIOT_SPAWN_SEARCH = 6;      // 壁/占有だった場合に手前へ探す最大タイル数
+
+    function findGoblinKingIdx() {
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (e && e.alive && e.type === CHARIOT_KING_TYPE) return i;
+      }
+      return -1;
+    }
+
+    // 乱入条件: 廃坑 + 噂あり + グリクス生存 + HP しきい値以下。
+    // 企画の「前面の雑魚が全滅」節は採らない: 廃坑のボス部屋はグリクス単騎 (spawns 参照) なので
+    // 1 ラウンド目で自明に真になり即発火してしまう。実効トリガーは HP しきい値の一本。
+    // ラウンド開始時に評価するので、満 HP の 1 ラウンド目に発火することはない。
+    function shouldSpawnChariot() {
+      if (scenarioId !== CHARIOT_SCENARIO_ID) return false;   // 生成クエストは scenarioId が別
+      if (!questFlagOn(CHARIOT_INTEL_FLAG)) return false;     // 噂を掴めなかった回は戦車が出ない
+      const kingIdx = findGoblinKingIdx();
+      if (kingIdx < 0) return false;
+      const king = enemies[kingIdx];
+      return king.hp <= king.maxHp * CHARIOT_HP_TRIGGER;
+    }
+
+    function isTileTakenByEnemy(tx, ty) {
+      return enemies.some(e => {
+        if (!e.alive) return false;
+        const s = e.def.displaySize;
+        return Math.floor((e.x + s / 2) / TILE_SIZE) === tx &&
+               Math.floor((e.y + s / 2) / TILE_SIZE) === ty;
+      });
+    }
+
+    // 床端から手前へ、壁でも占有でもないタイルを探す (buildMap の装飾ピラー対策)
+    function findChariotSpawnTile(ty) {
+      for (let tx = CHARIOT_SPAWN_TX; tx > CHARIOT_SPAWN_TX - CHARIOT_SPAWN_SEARCH; tx--) {
+        for (const dy of [0, -1, 1, -2, 2]) {
+          const y = ty + dy;
+          if (y < 0 || y >= MAP_H) continue;
+          if (isTileWall(tx, y)) continue;
+          if (isTileTakenByEnemy(tx, y)) continue;
+          return { tx, ty: y };
+        }
+      }
+      return { tx: CHARIOT_SPAWN_TX, ty };
+    }
+
+    // 乱入本体。units / sortUnits は runEncounter のローカルなので引数で受ける。
+    async function spawnGoblinChariot(units, sortUnits) {
+      const kingIdx = findGoblinKingIdx();
+      const king = kingIdx >= 0 ? enemies[kingIdx] : null;
+      const kingTY = king ? Math.floor((king.y + king.def.displaySize / 2) / TILE_SIZE) : 13;
+      const spot = findChariotSpawnTile(kingTY);
+
+      const cart = createEnemy("goblinChariot", spot.tx, spot.ty);
+      cart.everSeen = true;      // 目の前で乱入する = フォグの未視認 cull にかけない
+      cart.inactive = false;
+      cart.state = "chase";      // idle だと未視認 cull の対象条件に入る
+      cart.trampleCooldown = 0;
+      snapEnemyToTile(cart, spot.tx, spot.ty);
+      enemies.push(cart);
+      const idx = enemies.length - 1;
+      createEnemyDom(idx, cart.def, cart.type);   // ★ push の直後に 1 回だけ (全 enemyElements が添字並列)
+      encounterEnemyIndices.push(idx);
+
+      // ── 登場演出 ──
+      if (kingIdx >= 0) {
+        showRollAtEnemy(kingIdx, `<span class="label">GRIX</span>こうなったら……<br>戦車を出せッ!`, "crit");
+      }
+      showBanner("🛞 ゴブリン戦車 乱入! 🛞", 1800);
+      updateInfo(`${king ? king.def.name : "ゴブリンキング"}: 「こうなったら……戦車を出せッ!」`);
+      // focusCameraOn は内部で updatePositions を呼ぶ。ナレ表示中は moveEnemies が止まり
+      // 描画も止まるので、ナレの前にここで一度描かないと戦車が未配置のまま数秒放置される。
+      const c = actorWorldCenter({ kind: "enemy", idx });
+      if (c) focusCameraOn(c.x, c.y);            // camFocus + cameraFollowTick の lerp で寄る
+      triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
+      await sleepMs(700);
+
+      showDMMessage("坑道の奥で車輪が軋み、鉄と骨で組み上げた戦車が土煙を上げて突っ込んでくる。\n一列に並ぶな — 轢かれるぞ!", 3400);
+      await sleepMs(900);
+
+      // ── イニシアチブを振って参戦 (増援ブロックと同じ手順) ──
+      const dexV = cart.def.dex || 0;
+      const n = d20();
+      const init = n + dexV;
+      units.push({ kind: "enemy", idx, name: cart.def.name, dex: dexV, initiative: init });
+      showRollAtEnemy(idx,
+        `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
+      sortUnits();
+      await sleepMs(500);
+    }
+
+    // ── 轢き (Trample): 移動そのものが攻撃 ──
+    // 突進ターン = 支配方向へ最大 trampleTiles マス直進し、通過タイル上のパーティ全員に
+    //   DEX セーヴ付きのダメージ (成功=半減・転倒なし)。失敗した者は転倒 (prone)。
+    // 誰かを轢いたターンの直後だけ「停止ターン」を挟む (向き直し・再加速の隙)。
+    //   → 誰も轢いていない接近中は毎ターン進めるので、床端から約 3 ターンで戦場に届く。
+    const CHARIOT_DIRS8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+    // 目標に最も向いた方向から順に試し、1 マス以上進める直線経路を返す (壁の手前で停止)。
+    // 味方ゴブリンのタイルは素通りする (轢く直前に飛び退く扱い)。ここで止めるとグリクスが
+    // 壁になって戦車が永久に足止めされる (グリクス col57 が経路上に居るため)。
+    function chariotChargePath(fromTX, fromTY, toTX, toTY, maxTiles) {
+      const vx = toTX - fromTX, vy = toTY - fromTY;
+      const len = Math.hypot(vx, vy) || 1;
+      const ranked = CHARIOT_DIRS8
+        .map(d => ({ d, dot: (vx * d[0] + vy * d[1]) / (len * Math.hypot(d[0], d[1])) }))
+        .sort((a, b) => b.dot - a.dot);
+      for (const { d } of ranked) {
+        const tiles = [];
+        let tx = fromTX, ty = fromTY;
+        for (let i = 0; i < maxTiles; i++) {
+          tx += d[0]; ty += d[1];
+          if (isTileWall(tx, ty)) break;
+          tiles.push({ tx, ty });
+        }
+        if (tiles.length > 0) return tiles;
+      }
+      return [];
+    }
+
+    // 経路タイル上にいる生存パーティ (頭 + 仲間) を列挙。敵 (グリクス等) は轢かない。
+    // 仲間を先に積む: 頭の委譲で allies が再編される前に確定させる (hydraFireBreath と同じ理由)。
+    function partyOnChariotPath(tiles) {
+      const lane = new Set(tiles.map(t => t.tx + "," + t.ty));
+      const victims = [];
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a.alive) continue;
+        const atx = Math.floor((a.x + a.def.displaySize / 2) / TILE_SIZE);
+        const aty = Math.floor((a.y + a.def.displaySize / 2) / TILE_SIZE);
+        if (lane.has(atx + "," + aty)) victims.push({ kind: "ally", idx: i, ally: a });
+      }
+      if (hp > 0 && !gameOver) {
+        const ptx = Math.floor((playerX + 48) / TILE_SIZE);
+        const pty = Math.floor((playerY + 58) / TILE_SIZE);
+        if (lane.has(ptx + "," + pty)) victims.push({ kind: "leader" });
+      }
+      return victims;
+    }
+
+    async function goblinCartTrample(idx) {
+      const enemy = enemies[idx];
+      if (!enemy || !enemy.alive || gameOver) return;
+      const def = enemy.def;
+
+      // 停止ターン: 前のターンに誰かを轢いた反動。無防備 = プレイヤーの集中攻撃の窓。
+      if ((enemy.trampleCooldown || 0) > 0) {
+        enemy.trampleCooldown--;
+        showRollAtEnemy(idx, `<span class="label">STOPPED</span>車輪が空転して停止<br>(次のターンに再突進)`, "miss");
+        updateInfo(`${def.name} は勢いを殺しきれず停止した — 叩くなら今だ!`);
+        await sleepMs(950);
+        return;
+      }
+      // 鈍足 (アイスストーム) / 転倒: 移動を封じられたターンは突進できない
+      if (getMoveLimit(enemy) <= 0) {
+        showRollAtEnemy(idx, `<span class="label">SLOWED</span>車輪が回らない`, "miss");
+        await sleepMs(750);
+        return;
+      }
+
+      const pick = pickEnemyTarget(idx);
+      if (!pick) return;
+      const size = def.displaySize;
+      const fromTX = Math.floor((enemy.x + size / 2) / TILE_SIZE);
+      const fromTY = Math.floor((enemy.y + size / 2) / TILE_SIZE);
+      const path = chariotChargePath(
+        fromTX, fromTY,
+        Math.floor(pick.cx / TILE_SIZE), Math.floor(pick.cy / TILE_SIZE),
+        def.trampleTiles || 4);
+      if (path.length === 0) {
+        showRollAtEnemy(idx, `<span class="label">BLOCKED</span>進路がふさがれている`, "miss");
+        await sleepMs(750);
+        return;
+      }
+
+      const victims = partyOnChariotPath(path);   // スライド前に確定 (通過前の経路で判定する)
+      const end = path[path.length - 1];
+
+      // ── 突進 (攻撃アニメ + スライド) ──
+      showRollAtEnemy(idx, `<span class="label">TRAMPLE</span>${path.length}マス突進!`, "crit");
+      updateInfo(`${def.name} が土煙を上げて突進してくる!`);
+      enemy.state = "attack"; enemy.attackTimer = 0; enemy.attackHitDealt = true;
+      triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);
+      await slideAnim((x, y) => { enemy.x = x; enemy.y = y; },
+        enemy.x, enemy.y,
+        end.tx * TILE_SIZE + TILE_SIZE / 2 - size / 2,
+        end.ty * TILE_SIZE + TILE_SIZE / 2 - size / 2,
+        130 * path.length);
+      enemy.state = "idle"; enemy.attackTimer = 0; enemy.attackHitDealt = false;
+
+      if (victims.length === 0) {
+        updateInfo(`${def.name} は誰も捉えられず走り抜けた (${path.length}マス前進)`);
+        if (window.__trampleProbe) window.__trampleProbe.push({ tiles: path.length, victims: 0, prone: 0 });
+        await sleepMs(400);
+        return;                                   // 空振り = 停止ターンなし (接近ターン)
+      }
+
+      // ── 轢かれた者の解決: DEX セーヴ (成功=半減・転倒なし) ──
+      const dc = def.trampleDC || 14;
+      const rollTrample = () => {
+        const dd = parseDiceDD(def.trampleDice || "2d8");
+        return Math.max(1, rollDiceDD(dd.n, dd.sides).total + (def.trampleBonus || 0));
+      };
+      let proneCount = 0, savedCount = 0;
+      for (const v of victims) {
+        if (gameOver) break;
+        if (v.kind === "ally" && !v.ally.alive) continue;
+        if (v.kind === "leader" && hp <= 0) continue;
+        const dexMod = v.kind === "leader" ? (playerStats.dex || 0) : (v.ally.dex || 0);
+        const roll = d20();
+        const saved = (roll + dexMod) >= dc;
+        let dmg = rollTrample();
+        if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
+        const html =
+          `<span class="label">${saved ? "DEX SAVE" : "RUN OVER"}</span>` +
+          `1d20(<b>${roll}</b>)${signedDD(dexMod)} = ${roll + dexMod}<br>vs DC ${dc}`;
+        if (v.kind === "leader") showRollAtPlayer(html, saved ? "hit" : "miss");
+        else showRollAtAlly(v.ally, html, saved ? "hit" : "miss");
+
+        // 転倒はセーヴ失敗時のみ。自由の指輪は「付与前」にガードする (免疫)。
+        // ★ダメージ適用より前に付与する: applyEnemySpellDamage は頭が死ぬと onHeadDowned で
+        //   仲間を新しい頭へ昇格させ、hp を復元して gameOver=false のまま返す。適用後だと
+        //   「轢かれていない新しい頭」に転倒が付いてしまう (轢かれたのは死んだ旧頭)。
+        //   ここで付ければ転倒するのは常に「今まさに轢かれた本人」。旧頭の転倒は
+        //   tryPromoteNewHead が playerStatusEffects を入れ替えるので新しい頭へ漏れない。
+        if (!saved) {
+          const unit = v.kind === "leader" ? "player" : v.ally;   // ★頭は文字列 "player" (statusArrayOf の規約)
+          if (hasFreeAction(unit)) {
+            updateInfo(`${v.kind === "leader" ? getLeaderName() : v.ally.def.name} は自由の指輪の力で踏みとどまった`);
+          } else {
+            applyStatus(unit, "prone", 1);
+            proneCount++;
+          }
+        }
+
+        // 不屈 / 頭の委譲 / ゲームオーバー を既存経路と整合させる唯一の口
+        await applyEnemySpellDamage(
+          v.kind === "leader" ? { kind: "leader" } : { kind: "ally", idx: v.idx },
+          dmg, false, "戦車の突進");
+
+        await sleepMs(320);
+      }
+
+      enemy.trampleCooldown = 1;                  // 轢いたターンの後だけ停止ターンを挟む
+      updateInfo(`${def.name}の轢き: ${victims.length}名を巻き込んだ` +
+        (savedCount ? ` (${savedCount}名 回避)` : "") + (proneCount ? ` / ${proneCount}名 転倒` : ""));
+      if (window.__trampleProbe) {
+        window.__trampleProbe.push({ tiles: path.length, victims: victims.length, prone: proneCount, saved: savedCount, dc });
+      }
+      await sleepMs(500);
+    }
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -20594,6 +20898,11 @@
         await sleepMs(900);
         return;
       }
+
+      // ── [chariot-7.9-2] 轢きユニット: 移動そのものが攻撃 ──
+      // ここで丸ごと分岐し、以降のボスゲート・呪文ゲート・噛撃ループには一切乗せない。
+      // 既存の敵は def.trample を持たないので素通りする (純粋加算)。
+      if (def.trample) { await goblinCartTrample(idx); return; }
 
       // ── ボス: 第二フェーズへの移行チェック (一度だけ) ──
       // ハイドラ (multiHead) は汎用激怒を使わず、頭数しきい値で drag/roar を駆動する (除外)
