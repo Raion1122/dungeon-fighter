@@ -350,23 +350,10 @@
       pointer-events: none;
       z-index: -1;
     }
-    .enemy.fx-sleep::after {
-      content: "💤";
-      position: absolute;
-      top: -22px; right: -4px;
-      font-size: 22px;
-      animation: fxSleepZ 1.8s ease-in-out infinite;
-      pointer-events: none;
-      filter: drop-shadow(0 0 4px rgba(180,90,220,0.8));
-    }
+    /* status-effect v1.1: 💤 の角アイコンはステータスアイコン列 (💫) に一本化した。オーラは演出として残す */
     @keyframes fxSleepPulse {
       0%, 100% { opacity: 0.85; transform: scale(1); }
       50%      { opacity: 0.55; transform: scale(1.10); }
-    }
-    @keyframes fxSleepZ {
-      0%   { transform: translateY(4px) scale(0.9); opacity: 0; }
-      25%  { opacity: 1; }
-      100% { transform: translateY(-22px) scale(1.15); opacity: 0; }
     }
 
     /* ── ステータスエフェクト: 鈍足 (アイスストーム。敵に青白い霜オーラ + ❄) ── */
@@ -384,24 +371,43 @@
       pointer-events: none;
       z-index: -1;
     }
-    .enemy.fx-frost::after {
-      content: "❄";
-      position: absolute;
-      top: -20px; left: -4px;
-      font-size: 20px;
-      color: #bfe9ff;
-      animation: fxFrostDrift 2.4s ease-in-out infinite;
-      pointer-events: none;
-      filter: drop-shadow(0 0 4px rgba(140,210,255,0.9));
-    }
+    /* status-effect v1.1: ❄ の角アイコンはステータスアイコン列 (🐌) に一本化した。オーラは演出として残す */
     @keyframes fxFrostPulse {
       0%, 100% { opacity: 0.8; transform: scale(0.98); }
       50%      { opacity: 0.5; transform: scale(1.06); }
     }
-    @keyframes fxFrostDrift {
-      0%   { transform: translateY(0)    rotate(0deg);  opacity: 0.5; }
-      50%  { transform: translateY(-3px) rotate(15deg); opacity: 1; }
-      100% { transform: translateY(0)    rotate(0deg);  opacity: 0.5; }
+
+    /* ── status-effect v1.1: ステータスアイコン列 (名前の横 / 敵は HP バーの上) ── */
+    .status-slot {
+      display: inline-flex;
+      gap: 2px;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .enemy-status-slot {
+      position: absolute;
+      display: flex;
+      gap: 2px;
+      z-index: 7;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0 2px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.3;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    .status-buff   { background: rgba(80,200,120,0.25); }
+    .status-debuff { background: rgba(220,80,80,0.25); }
+    .status-more {
+      margin-left: 2px;
+      opacity: 0.75;
+      font-size: 10px;
+      color: #e0f0ff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
 
     /* ── マジックミサイル: 飛翔する青白い光弾 ── */
@@ -2474,7 +2480,7 @@
   </div>
   <div id="player"></div>
   <div id="warriorHpBar" class="allyHpBar warrior"><div class="allyHpFill" id="warriorHpFill"></div></div>
-  <div id="warriorLabel" class="allyLabel warrior">戦士</div>
+  <div id="warriorLabel" class="allyLabel warrior"><span id="warriorName">戦士</span><span id="warriorStatusSlot" class="status-slot"></span></div>
   <div id="guardEffect"></div>
   <div id="counterAura"></div>
   <div id="moveMarker"></div>
@@ -6070,6 +6076,7 @@
     const armorDropElements  = [];
     const alertMarkElements  = [];
     const enemyBadgeElements = [];
+    const enemyStatusElements = [];   // status-effect v1.1: 敵は名前ラベルが無いので HP バーの上に列を置く
 
     function createEnemyDom(index, def, typeKey) {
       // 敵本体
@@ -6104,6 +6111,9 @@
       // アラートマーク
       const am = document.createElement("div"); am.className = "alertMark"; am.id = "alertMark" + index;
       am.textContent = "!"; enemyLayer.appendChild(am); alertMarkElements.push(am);
+      // status-effect v1.1: 状態アイコン列 (HPバーの直上)
+      const st = document.createElement("div"); st.className = "enemy-status-slot"; st.id = "enemyStatus" + index;
+      enemyLayer.appendChild(st); enemyStatusElements.push(st);
       // 装備バッジ(種別が一目で分かるようにする)
       const bd = document.createElement("div"); bd.className = "enemyBadge"; bd.id = "enemyBadge" + index;
       if (def.badge) bd.textContent = def.badge;
@@ -6134,6 +6144,7 @@
         animTick: 0,
         attackTimer: 0, attackCooldown: 0, attackHitDealt: false,
         stunned: 0,  // D&D スキル(盾バッシュ等)のデバフ残ターン
+        statusEffects: [],  // status-effect v1.1: prone 等の新規効果 (既存デバフはフラット変数から派生)
         slowedRemaining: 0, __moveBlockedThisTurn: false,  // アイスストーム 鈍足 (移動封じ。攻撃は可)
         poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
         huntMarkRemaining: 0, huntMarkDie: 0,        // エルフ ハンターズ・マーク (PT の武器命中に +1dX)
@@ -7043,6 +7054,7 @@
         },
         stunned: 0,
         confused: 0,   // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
+        statusEffects: [],  // status-effect v1.1: prone 等の新規効果 (既存デバフはフラット変数から派生)
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
         skillCooldowns: {},                // {skillId: turnsLeft} クールダウン管理
         animTick: 0,
@@ -7208,10 +7220,17 @@
       // 名前ラベル (NPC は個人名、主人公は職業名+「あなた」で金色ハイライト)
       const label = document.createElement("div");
       label.className = "allyLabel" + (ally.isHero ? " heroLabel" : "");
-      label.textContent = ally.isHero ? (cd.name + "（あなた）") : (ally.npcName || cd.name);
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = ally.isHero ? (cd.name + "（あなた）") : (ally.npcName || cd.name);
+      label.appendChild(nameSpan);
+      // status-effect v1.1: 名前の右に状態アイコン列
+      const statusSlot = document.createElement("span");
+      statusSlot.className = "status-slot";
+      label.appendChild(statusSlot);
       if (ally.isHero) label.style.color = "#e0b43c";
       document.body.appendChild(label);
       ally.nameLabelEl = label;
+      ally.statusSlotEl = statusSlot;
       // 主人公 ally は見失い防止に金色グロー
       if (ally.isHero) { el.classList.add("heroAlly"); el.style.filter = "drop-shadow(0 0 6px gold)"; }
     }
@@ -8660,6 +8679,7 @@
           warriorHpFill.style.width = (hp / maxHp * 100) + "%";
           warriorLabel.style.left = (playerX + 20 - camX) + "px";
           warriorLabel.style.top  = (playerY - 28 - camY) + "px";
+          updateStatusSlot("player", document.getElementById("warriorStatusSlot"));   // status-effect v1.1
         }
       }
 
@@ -8703,6 +8723,7 @@
           coinEl.style.display = "none"; weaponEl.style.display = "none";
           armorEl.style.display = "none"; alertEl.style.display = "none";
           const _hb = enemyBadgeElements[index]; if (_hb) _hb.style.display = "none";
+          const _hs = enemyStatusElements[index]; if (_hs) _hs.style.display = "none";
           return;
         }
 
@@ -8720,6 +8741,8 @@
           alertEl.style.display = "none";
           const _badgeEl = enemyBadgeElements[index];
           if (_badgeEl) _badgeEl.style.display = "none";
+          const _statusEl = enemyStatusElements[index];
+          if (_statusEl) _statusEl.style.display = "none";
           return;   // 描画スキップ(forEach 次の敵へ)
         }
 
@@ -8739,6 +8762,14 @@
           hpBarEl.style.left = (enemy.x + hpBarOffX - camX) + "px";
           hpBarEl.style.top  = (enemy.y - 10 - camY) + "px";
           hpFillEl.style.width = (enemy.hp / enemy.maxHp * 100) + "%";
+          // status-effect v1.1: 状態アイコン列を HP バーの直上へ
+          const statusEl = enemyStatusElements[index];
+          if (statusEl) {
+            statusEl.style.display = "flex";
+            statusEl.style.left = (enemy.x + hpBarOffX - camX) + "px";
+            statusEl.style.top  = (enemy.y - 27 - camY) + "px";
+            updateStatusSlot(enemy, statusEl);
+          }
           // ボス/敵がプレイヤー・仲間(z-index:6)と同タイルに重なると、敵(z-index:2)が
           // 完全に覆われて「見えなくなる」(特に魔法使いリーダー × ボス)。同タイル時のみ
           // 敵を最前面(7)へ持ち上げ、離れたら CSS 既定へ戻す。getUnitOccupiedTiles は敵の
@@ -8752,6 +8783,8 @@
         } else {
           enemyEl.style.display = "none";
           hpBarEl.style.display = "none";
+          const _deadStatusEl = enemyStatusElements[index];
+          if (_deadStatusEl) _deadStatusEl.style.display = "none";
         }
 
         coinEl.style.display = enemy.coinVisible ? "block" : "none";
@@ -8786,10 +8819,10 @@
         if (badgeEl) {
           if (enemy.alive && enemy.def.badge) {
             badgeEl.style.display = "block";
-            // 敵サイズの中央に合わせて少し上
+            // 敵サイズの中央に合わせて少し上 (status-effect v1.1 の状態アイコン列 -27px の更に上へ)
             const offX = enemy.def.displaySize / 2 - 18;
             badgeEl.style.left = (enemy.x + offX - camX) + "px";
-            badgeEl.style.top  = (enemy.y - 28 - camY) + "px";
+            badgeEl.style.top  = (enemy.y - 46 - camY) + "px";
           } else {
             badgeEl.style.display = "none";
           }
@@ -8819,6 +8852,7 @@
             ally.nameLabelEl.style.display = "block";
             ally.nameLabelEl.style.left = (ally.x + 20 - camX) + "px";
             ally.nameLabelEl.style.top  = (ally.y - 28 - camY) + "px";
+            updateStatusSlot(ally, ally.statusSlotEl);   // status-effect v1.1
           }
         } else {
           ally.el.style.display = "none";
@@ -11541,7 +11575,7 @@
       if (heroIsHead) heroRef = null;
       headDisplayName = nh.isHero ? "あなた"
         : (nh.npcName || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
-      const lbl = document.getElementById("warriorLabel");
+      const lbl = document.getElementById("warriorName");
       if (lbl) lbl.textContent = headDisplayName;
       // 旧頭(player)の見た目をリセット
       if (typeof player !== "undefined" && player) { player.style.opacity = "1"; player.style.filter = "none"; }
@@ -11874,8 +11908,8 @@
       // Phase 2-J: 呪文記憶スロット初期化 (リーダー Lv は applyInitialLevels 後に再計算可能)
       const curLv = (typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp || 0) : 1;
       initLeaderSpellSlots(leaderKey, curLv, partySkillsMap);
-      // 頭上ラベル (#warriorLabel) のテキストもリーダー名に
-      const lbl = document.getElementById("warriorLabel");
+      // 頭上ラベル (#warriorLabel 内の名前 span) のテキストもリーダー名に
+      const lbl = document.getElementById("warriorName");
       if (lbl) lbl.textContent = def.name || "戦士";
     }
 
@@ -11942,6 +11976,7 @@
         : (unit && unit.buffs);
       if (buffs && (buffs.hastedRemaining > 0 || buffs.blessMoveRemaining > 0)) limit += 1;  // ヘイスト/ブレス: +1 (非加算=最大2)
       if (unit && unit.__moveBlockedThisTurn) limit -= 1;   // STEP2 鈍足 (敵アイスストーム) を統合
+      if (hasStatus(unit, "prone")) limit = 0;              // 転倒: そのターンは起き上がりに費やす
       return Math.max(0, limit);
     }
 
@@ -12152,6 +12187,10 @@
     // 現状 false 固定、カエルム「神官の祝福」が後で fearImmuneRemaining を立てる。
     const FRIGHTENED_DURATION = 3;   // 恐怖は3ターン継続
     const FRIGHTENED_PENALTY  = 2;   // frightened: 攻撃ロール -2
+    // prone (転倒): SRD の有利/不利はこのコードベースに機構が無いため、恐怖と同じフラット補正で近似する。
+    // 転倒側は攻撃が当てづらく (-2)、狙われると当たりやすい (被AC -2)。移動はターン開始時に封じる。
+    const PRONE_ATK_PENALTY = 2;
+    const PRONE_AC_PENALTY  = 2;
     // Sce5 隠し要素「神官の祝福」(カエルム友好ルート): 全パーティ恐怖免疫。
     // 永続 + シナリオ跨ぎ (localStorage)。Sce5 リッチ・Sce6 ファラクサスの Frightful Presence を無効化。
     let templeBlessing = false;
@@ -12287,6 +12326,14 @@
       ally.buffs.frightenedPenalty = 0;
       ally.buffs.fearImmuneRemaining = 0;
       ally.buffs.shadowAcBonus = 0;   // 闇市 影渡りの薬 (M9)
+      // status-effect v1.1: 頭側 resetPlayerBuffs にはあったのにここだけ抜けていた初期化を補う。
+      // 通常は戦闘中に tick で 0 まで落ちるが、落ちきる前に決着すると次のエンカに持ち越され、
+      // 状態アイコンが「幽霊」として残る (表示を入れて初めて露呈する初期化漏れ)。
+      ally.buffs.blessMoveRemaining = 0;
+      ally.buffs.hastedRemaining = 0;
+      ally.stunned = 0;
+      ally.confused = 0;
+      if (ally.statusEffects) ally.statusEffects.length = 0;
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
 
@@ -12750,6 +12797,7 @@
                 e.poisonRemaining = 0; e.poisonDie = null;
                 e.huntMarkRemaining = 0; e.huntMarkDie = 0;
                 e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
+                if (e.statusEffects) e.statusEffects.length = 0;   // status-effect v1.1
 
                 const dexVal = e.def.dex || 0;
                 const n = d20();
@@ -13712,7 +13760,133 @@
       playerBuffs.cursedBladeActive = false;
       playerBuffs.shadowAcBonus = 0;         // 闇市 影渡りの薬 (M9)
       playerBuffs.stuck = false;
+      playerStatusEffects.length = 0;        // status-effect v1.1
     }
+    // === status-effect v1.1 (index.html 専用: tavern.html は戦闘ランタイムを持たないため同期しない) ===
+    // 既存の状態(バフ3種/デバフ6種)は各系統のフラット変数が単一の真実の源。表示層は computeDisplayList で
+    // それを毎フレーム派生する。新規効果 (prone 以降) だけがこの statusEffects 配列を真実の源とする。
+    const STATUS_EFFECT_DEFS = {
+      // --- 新規デバフ (配列が真実の源) ---
+      prone:      { icon: "⬇",  label: "転倒",           type: "debuff", defaultDuration: 1 },
+      // --- 既存デバフ (フラット変数から派生。ここは表示定義のみ) ---
+      stun:       { icon: "💫", label: "スタン",         type: "debuff" },
+      confused:   { icon: "😵", label: "混乱",           type: "debuff" },
+      frightened: { icon: "😱", label: "恐怖",           type: "debuff" },
+      stuck:      { icon: "🕸", label: "粘着",           type: "debuff" },
+      slow:       { icon: "🐌", label: "鈍足",           type: "debuff" },
+      poison:     { icon: "☠",  label: "毒",             type: "debuff" },
+      // --- 既存バフ (フラット変数から派生) ---
+      striking:   { icon: "⚔",  label: "ストライキング", type: "buff" },
+      bless:      { icon: "✨", label: "ブレス",         type: "buff" },
+      haste:      { icon: "💨", label: "ヘイスト",       type: "buff" },
+    };
+
+    // 頭(リーダー)の statusEffects。仲間/敵は各オブジェクト直下の statusEffects を使う。
+    const playerStatusEffects = [];
+
+    // unit は "player" (頭) か ally/enemy オブジェクト。getMoveLimit と同じ規約。
+    function statusArrayOf(unit) {
+      if (unit === "player") return playerStatusEffects;
+      return (unit && unit.statusEffects) || [];
+    }
+    function hasStatus(unit, id) {
+      return statusArrayOf(unit).some(s => s.id === id);
+    }
+    // visibleTurns = プレイヤーから見た「効くターン数」。内部では +1 して保持する
+    // (既存バフと同様、対象の次のターン開始 tick で即 1 減るため。allyBless 16387 等と同じ規約)
+    function applyStatus(unit, id, visibleTurns) {
+      const def = STATUS_EFFECT_DEFS[id];
+      if (!def) return;
+      const base = (visibleTurns == null) ? (def.defaultDuration == null ? -1 : def.defaultDuration) : visibleTurns;
+      const dur = base < 0 ? -1 : base + 1;
+      const arr = statusArrayOf(unit);
+      const existing = arr.find(s => s.id === id);
+      if (existing) { existing.duration = Math.max(existing.duration, dur); return; }
+      arr.push({ id, icon: def.icon, label: def.label, type: def.type, duration: dur });
+    }
+    function removeStatus(unit, id) {
+      const arr = statusArrayOf(unit);
+      const i = arr.findIndex(s => s.id === id);
+      if (i >= 0) arr.splice(i, 1);
+    }
+    // 自分のターン開始時に 1 減らし、0 で自動解除 (-1 は永続)。配列は in-place 変更 (参照を保つ)
+    function tickStatusEffects(unit) {
+      const arr = statusArrayOf(unit);
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (arr[i].duration === -1) continue;
+        if (--arr[i].duration <= 0) arr.splice(i, 1);
+      }
+    }
+    // ── 表示 ──
+    // 既存9種はフラット変数から派生し、statusEffects 配列 (prone 等) をマージして返す。
+    // 効果の実体を移し替えないので、既存のバフ/デバフのロジック・tick・免疫処理は一切変更しない。
+    function computeDisplayList(unit) {
+      const out = [];
+      const isPlayer = (unit === "player");
+      const B = isPlayer ? playerBuffs : ((unit && unit.buffs) || {});
+      const push = (id) => { const d = STATUS_EFFECT_DEFS[id]; if (d) out.push({ id, icon: d.icon, label: d.label, type: d.type }); };
+
+      // デバフ (既存・フラット変数から派生)
+      // 頭はスタンを数値ではなく skipNextTurn(bool) で表す (渾身の一撃のセルフスタン)
+      if (isPlayer ? B.skipNextTurn : ((unit.stunned || 0) > 0)) push("stun");
+      if (isPlayer ? ((B.confused || 0) > 0) : ((unit.confused || 0) > 0)) push("confused");
+      if ((B.frightenedRemaining || 0) > 0) push("frightened");
+      if (isPlayer && B.stuck) push("stuck");                         // 粘着 (ミミック) はリーダーのみ
+      if (!isPlayer && (unit.slowedRemaining || 0) > 0) push("slow"); // 鈍足 (アイスストーム) は敵のみ
+      if (!isPlayer && (unit.poisonRemaining || 0) > 0) push("poison");
+      // バフ (既存・フラット変数から派生)。ブレスは汎用の atkBonusRemaining も使うので専用の
+      // blessMoveRemaining で判定する (allyBless 16393)。
+      if ((B.strikingRemaining || 0) > 0) push("striking");
+      if ((B.blessMoveRemaining || 0) > 0) push("bless");
+      if ((B.hastedRemaining || 0) > 0) push("haste");
+      // 新規効果 (配列が真実の源)
+      for (const s of statusArrayOf(unit)) out.push(s);
+      return out;
+    }
+
+    // デバフ優先で最大3個 + 余りは "+N"。危険 (デバフ) を必ず見せる。
+    function refreshStatusIcons(list, slotEl) {
+      const sorted = list.slice().sort((a, b) => {
+        if (a.type === b.type) return 0;
+        return a.type === "debuff" ? -1 : 1;
+      });
+      slotEl.textContent = "";
+      for (const s of sorted.slice(0, 3)) {
+        const badge = document.createElement("span");
+        badge.className = "status-badge status-" + s.type;
+        badge.textContent = s.icon;
+        badge.title = s.label;
+        slotEl.appendChild(badge);
+      }
+      if (sorted.length > 3) {
+        const more = document.createElement("span");
+        more.className = "status-more";
+        more.textContent = "+" + (sorted.length - 3);
+        slotEl.appendChild(more);
+      }
+    }
+
+    // 毎フレーム呼ばれる。状態の署名が前フレームと同じなら DOM に触らない (再構築は変化した瞬間だけ)。
+    function updateStatusSlot(unit, slotEl) {
+      if (!slotEl) return;
+      const list = computeDisplayList(unit);
+      let sig = "";
+      for (const s of list) sig += s.id + ",";
+      if (slotEl._statusSig === sig) return;
+      slotEl._statusSig = sig;
+      refreshStatusIcons(list, slotEl);
+    }
+
+    // 検証用フック (?diag=1 / autoplay 時のみ)。prone の付与元 (ゴブリン戦車) はまだ実装されていないため、
+    // ヘッドレスドライバから直接付与して効果と表示を検証する。setupDiagnostics 21645 と同じ休眠方針。
+    if (window.__diagEnabled) {
+      window.__statusApi = {
+        apply: applyStatus, remove: removeStatus, tick: tickStatusEffects, has: hasStatus,
+        list: (u) => statusArrayOf(u).map(s => ({ id: s.id, duration: s.duration, type: s.type })),
+        display: (u) => computeDisplayList(u).map(s => s.id),
+      };
+    }
+
     function tickPlayerBuffsAtTurnStart() {
       if (playerBuffs.atkBonusRemaining > 0) playerBuffs.atkBonusRemaining--;
       if (playerBuffs.blessMoveRemaining > 0) playerBuffs.blessMoveRemaining--;
@@ -13746,7 +13920,7 @@
       return playerStats.atkBonus + weaponEnh +
         (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) +
         (playerBuffs.cursedBladeAtkBonus || 0) -          // 闇市 呪われた曲刀 (M9)
-        playerFearPenalty();
+        playerAtkStatusPenalty();
     }
     function currentPlayerDmgBonus() {
       // 武器エンハンスメントをダメージにも加算
@@ -13760,11 +13934,13 @@
       const shieldEnh = (s && s.enhancement) || 0;
       return playerStats.ac + armorEnh + shieldEnh +
         (playerBuffs.acBonusRemaining > 0 ? playerBuffs.acBonusAmount : 0) +
-        (playerBuffs.shadowAcBonus || 0);                 // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
+        (playerBuffs.shadowAcBonus || 0) -                // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
+        (hasStatus("player", "prone") ? PRONE_AC_PENALTY : 0);
     }
     function currentAllyAc(a) {
       return a.ac + (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0) +
-        (a.buffs.shadowAcBonus || 0);                     // 闇市 影渡りの薬 (M9): 盗賊系仲間
+        (a.buffs.shadowAcBonus || 0) -                    // 闇市 影渡りの薬 (M9): 盗賊系仲間
+        (hasStatus(a, "prone") ? PRONE_AC_PENALTY : 0);
     }
     function applyDmgReductionToPlayerDmg(dmg) {
       if (playerBuffs.dmgReductionRemaining <= 0 || !playerBuffs.dmgReductionDice) {
@@ -13950,6 +14126,7 @@
         // dev プローブ: disciplined 敵の実効AC を記録 (seed 時のみ・本番挙動は不変)
         if (window.__acProbe) window.__acProbe.push({ name: target.def.name, ac });
       }
+      if (hasStatus(target, "prone")) ac -= PRONE_AC_PENALTY;   // 転倒中の敵は狙いやすい
       return ac;
     }
 
@@ -16203,17 +16380,20 @@
       return !!(e && ((e.def && e.def.undead) || e.type === "skeleton"));
     }
     // frightened (-2) ペナルティ。allyAtkBuff/currentPlayerAtkBonus に内包して to-hit へ反映。
-    function allyFearPenalty(ally) {
-      return (ally && ally.buffs && ally.buffs.frightenedRemaining > 0) ? (ally.buffs.frightenedPenalty || 0) : 0;
+    // 攻撃ロールから引く状態異常ペナルティの合計 (恐怖 + 転倒)。全攻撃サイトがこの2関数を経由する。
+    function allyAtkStatusPenalty(ally) {
+      const fear = (ally && ally.buffs && ally.buffs.frightenedRemaining > 0) ? (ally.buffs.frightenedPenalty || 0) : 0;
+      return fear + (hasStatus(ally, "prone") ? PRONE_ATK_PENALTY : 0);
     }
-    function playerFearPenalty() {
-      return (playerBuffs.frightenedRemaining > 0) ? (playerBuffs.frightenedPenalty || 0) : 0;
+    function playerAtkStatusPenalty() {
+      const fear = (playerBuffs.frightenedRemaining > 0) ? (playerBuffs.frightenedPenalty || 0) : 0;
+      return fear + (hasStatus("player", "prone") ? PRONE_ATK_PENALTY : 0);
     }
     // 仲間の攻撃バフ (atkBonusRemaining) − frightened ペナルティ。リーダーは currentPlayerAtkBonus が別途反映。
     // 主要近接 (allyBasicAttack/performAllyCounter) は本関数経由で恐怖が自動反映される。
     function allyAtkBuff(ally) {
       const buff = (ally && ally.buffs && ally.buffs.atkBonusRemaining > 0) ? (ally.buffs.atkBonusAmount || 0) : 0;
-      return buff - allyFearPenalty(ally);
+      return buff - allyAtkStatusPenalty(ally);
     }
     // スロットのある最良(emergency=true)/最小(温存)の回復呪文 id を返す。無ければ null
     function bestAffordableHeal(ally, emergency) {
@@ -16468,7 +16648,7 @@
     // ══════════ 魔法使いスキル (Phase 2) ══════════
     // 呪文の命中補正 = atkBonus + INT (BAB + 能力値)
     function spellAtkBonus(ally) {
-      return ally.atkBonus + (ally.int || 0) + (ally.def.spellAtkBonus || 0) - allyFearPenalty(ally);
+      return ally.atkBonus + (ally.int || 0) + (ally.def.spellAtkBonus || 0) - allyAtkStatusPenalty(ally);
     }
 
     // 必中ダメージ演出を含む魔法単体攻撃 (マジックミサイル)
@@ -17365,7 +17545,7 @@
 
       // 命中判定 (penalty 適用)
       const helpless = target.stunned > 0;
-      const atkBonus = ally.atkBonus - (skill.atkPenalty || 0) - allyFearPenalty(ally);
+      const atkBonus = ally.atkBonus - (skill.atkPenalty || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
@@ -17529,7 +17709,7 @@
 
       // 命中判定
       const helpless = target.stunned > 0;
-      const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
+      const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
       const natD20 = d20();
       const atkTotal = natD20 + aAtk;
       const isFumble = !helpless && natD20 === 1;
@@ -17623,7 +17803,7 @@
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
         const helpless = t.stunned > 0;
-        const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
+        const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
         const atkTotal = natD20 + aAtk;
         const isFumble = !helpless && natD20 === 1;
@@ -17686,7 +17866,7 @@
         const tx = t.x + tDef.displaySize / 2;
         const ty = t.y + tDef.displaySize / 2;
         const helpless = t.stunned > 0;
-        const aAtk = ally.atkBonus - allyFearPenalty(ally);   // frightened (-2) 反映
+        const aAtk = ally.atkBonus - allyAtkStatusPenalty(ally);   // frightened (-2) 反映
         const natD20 = d20();
         const atkTotal = natD20 + aAtk;
         const isFumble = !helpless && natD20 === 1;
@@ -17882,6 +18062,7 @@
       }
       if (ally.buffs.frightenedRemaining > 0) ally.buffs.frightenedRemaining--;
       if (ally.buffs.fearImmuneRemaining > 0) ally.buffs.fearImmuneRemaining--;
+      tickStatusEffects(ally);   // status-effect v1.1: prone 等の残ターン
       // スタン
       if (ally.stunned > 0) {
         ally.stunned--;
@@ -18344,7 +18525,7 @@
       await spawnArrow(launchX, launchY, ex, ey, 380);
 
       // 命中: 通常 atkBonus + DEX + skill.atkBonusAmount
-      const atkBonus = ally.atkBonus + (ally.dex || 0) + (skill.atkBonusAmount || 0) - allyFearPenalty(ally);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) + (skill.atkBonusAmount || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -18795,7 +18976,7 @@
       const dexMod = ally.dex || 4;
 
       // ── 主弾: 命中判定 (エイムドショット式)、4d8 + DEX、CRIT でダイス倍化 ──
-      const atkBonus = ally.atkBonus + dexMod - allyFearPenalty(ally);
+      const atkBonus = ally.atkBonus + dexMod - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -19363,7 +19544,7 @@
       await sleepMs(420);
 
       // 命中判定 (helpless=スタン中の敵は automatic crit 扱い、D&D 3.5 RAW 寄り)
-      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const helpless = target.stunned > 0;
@@ -19443,7 +19624,7 @@
         const launchY = aCY - 4;
         await spawnArrow(launchX, launchY, ex, ey, 320, { variant: "thrownAxe", spinning: true });
         const helpless = target.stunned > 0;
-        const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
+        const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
         const natD20 = d20();
         const atkTotal = natD20 + atkBonus;
         const isFumble = !helpless && natD20 === 1;
@@ -19498,7 +19679,7 @@
       await sleepMs(500);
 
       const helpless = target.stunned > 0;
-      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyFearPenalty(ally);
+      const atkBonus = ally.atkBonus + (ally.dex || 0) - allyAtkStatusPenalty(ally);
       const natD20 = d20();
       const atkTotal = natD20 + atkBonus;
       const isFumble = !helpless && natD20 === 1;
@@ -19685,6 +19866,7 @@
     async function playerAttackTurn(targetIdx) {
       // バフ残りターンを減らす(ターン開始時)
       tickPlayerBuffsAtTurnStart();
+      tickStatusEffects("player");   // status-effect v1.1: prone 等の残ターン
 
       // セルフスタン: 1ターン行動不能
       if (playerBuffs.skipNextTurn) {
@@ -20354,6 +20536,9 @@
       // 鈍足 (アイスストーム): このターンの移動を封じる (スタンと違い攻撃は可能)。残ターンを1減衰。
       enemy.__moveBlockedThisTurn = (enemy.slowedRemaining > 0);
       if (enemy.slowedRemaining > 0) enemy.slowedRemaining--;
+      // status-effect v1.1: prone 等の残ターン。転倒中は起き上がりに費やすので移動できない (鈍足と同じ扱い)
+      tickStatusEffects(enemy);
+      if (hasStatus(enemy, "prone")) enemy.__moveBlockedThisTurn = true;
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
@@ -21092,7 +21277,7 @@
     applyLeaderStats(leaderClassKey);
     headDisplayName = headMember.isHero ? "あなた"
       : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
-    { const lbl = document.getElementById("warriorLabel"); if (lbl) lbl.textContent = headDisplayName; }
+    { const lbl = document.getElementById("warriorName"); if (lbl) lbl.textContent = headDisplayName; }
 
     // 頭のレベル (主人公=永続XP由来 / NPC=ティア帯Lv)。スキルスロット算定に使用 (仲間のフォールバックも兼ねる)
     const headLevel = headMember.isHero
