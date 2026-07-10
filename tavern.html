@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場の噂が隠しボスを呼ぶ</b> — 出発前の情報収集に成功すると、その地に潜む強敵の在り処が掴める。掴めなければ見つけられない。</li>
         <li><b>状態異常アイコンを追加</b> — 転倒・スタン・混乱・恐怖・毒などの状態が、キャラ名の横にアイコンで表示されるようになった。味方の不調も一目で分かる。</li>
         <li><b>敵の魔法使いが本物の呪文を唱える</b> — シャーマンや司祭が火の矢・魔力の矢・連続火線を放ち、リッチは火球、蛇神司祭は轟音波で範囲攻撃してくる。</li>
         <li><b>弓と魔法の射程を再設計</b> — 遠距離攻撃が画面端まで一方的に届く完封を廃止。敵の弓兵・魔法使いも間合いを詰めて挑んでくる。</li>
-        <li><b>盗賊頭「スカー」のスプライトを刷新</b> — 森の中ボスを高精細な二刀流の盗賊頭の姿に描き直した。</li>
       </ul>
     </div>
     <script>
@@ -1844,6 +1844,9 @@
     },
     "bandits-forest": {
       dc: 12,
+      // tavern-intel v1.0: 噂を掴むと森の檻 (残影の獣) が開放される。掴めなければ檻ごと現れない。
+      unlocksFlag: "s2_beast_intel",
+      unlockNarration: "『盗賊どもが妙な獣を檻に飼っていてな……夜な夜な影がうごめくと聞く。檻の脇に開錠レバーがあるらしいが、触れるかどうかはお前さん次第だ』",
       examine: {
         success: "盗賊頭スカーは二刀流で手数が多い。手負いになると煙幕で身を隠し守りを固める——長期戦は不利、一気に削れ。射手とスリング使いは散開して狙ってくる。",
         crit:    "さらに、森の奥の檻に“何か”が囚われている気配。むやみに近づくな——正面の敵だけが脅威とは限らない。",
@@ -1862,6 +1865,9 @@
     },
     "lizard-swamp": {
       dc: 13,
+      // tavern-intel v1.0: 噂を掴むと沼の奥の祭壇 (古代ハイドラ) が開放される。
+      unlocksFlag: "s3_hydra_intel",
+      unlockNarration: "『沼の奥にゃ、首の多い化け物が棲むって噂だ。こちらから近づかにゃ襲っちゃこねえが、討ち取りゃ相当な代物が手に入るらしいぜ』",
       examine: {
         success: "リザードマンは数で押し、呪術師が後方から呪いを飛ばす。沼のワニは水際で待ち伏せる。族長は手強い——呪術師を先に断て。",
         crit:    "さらに、沼の最奥の古い祠に“多頭の主”が眠る気配。触らぬが賢明だが、戦うなら頭を一度に焼き落とせ。",
@@ -3447,6 +3453,10 @@
   let prepScenario = null;
   // 事前情報チェックの「準備ごとに1回」状態 (openPrep でリセット)
   let prepIntelUsed = { examine: false, talk: false, pray: false };
+  // === tavern-intel v1.0 (tavern.html / index.html) ===
+  // 3アクション (調べる/聞き込む/祈る) のどれか1つでも成功すれば「噂を掴んだ」= 隠し中ボスが開放される。
+  // 出発時に sessionStorage 経由で index.html へ渡す (departToScenario)。
+  let prepIntelSuccess = false;
 
   async function openPrep(sc) {
     prepScenario = sc;
@@ -3456,6 +3466,7 @@
     document.getElementById("prepEnemyInfo").textContent = info;
     // 事前情報チェックを準備ごとにリセット (固定シナリオのみパネル表示)
     prepIntelUsed = { examine: false, talk: false, pray: false };
+    prepIntelSuccess = false;   // tavern-intel v1.0: クエストごとに一発勝負 (再挑戦不可)
     const intelListEl = document.getElementById("intelResultList");
     if (intelListEl) intelListEl.innerHTML = "";
     ["btnIntelExamine", "btnIntelTalk", "btnIntelPray"].forEach((id) => {
@@ -3867,6 +3878,22 @@
       box.appendChild(who);
       box.appendChild(body);
       list.appendChild(box);
+    }
+    // tavern-intel v1.0: 初めて成功した時だけ「噂」を1本足す。この噂がフィールドの隠し中ボスを開放する。
+    if (res.success && !prepIntelSuccess) {
+      prepIntelSuccess = true;
+      if (intel.unlockNarration && list) {
+        const rumor = document.createElement("div");
+        rumor.className = "intelResult success";
+        const head = document.createElement("div");
+        head.className = "intelWho";
+        head.textContent = "🍺 酒場の噂";
+        const body = document.createElement("div");
+        body.textContent = intel.unlockNarration;
+        rumor.appendChild(head);
+        rumor.appendChild(body);
+        list.appendChild(rumor);
+      }
     }
   }
 
@@ -4446,6 +4473,13 @@
     } catch (e) {}
     sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
+    // === tavern-intel v1.0 (tavern.html / index.html) ===
+    // 情報収集の成否をクエストフラグとして index.html へ渡す。中ボスの無いクエストでも {} を必ず書き、
+    // 「キーが存在する = 酒場を経由した」ことを index 側の目印にする (直起動の検証は全開放で走らせたい)。
+    const questFlags = {};
+    const intelDef = SCENARIO_INTEL[prepScenario.id];
+    if (intelDef && intelDef.unlocksFlag) questFlags[intelDef.unlocksFlag] = !!prepIntelSuccess;
+    try { sessionStorage.setItem("dragonfighters.questFlags", JSON.stringify(questFlags)); } catch (e) {}
     // 闇市召喚 (M8): 出発時に選んだ召喚スクロールを index へ受け渡す (消費は index 側に一本化)。
     sessionStorage.removeItem("dragonfighters.pendingSummon");
     if (selectedSummonItemId && hasChargeItemTV(selectedSummonItemId)) {

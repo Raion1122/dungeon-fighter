@@ -5217,10 +5217,11 @@
           // ボス: スカー
           ["scar", 57, 13],
           // Sce2 隠し要素: 残影の獣(startsCaged=true で初期inactive)。cageSpawnsと同一タイル(41,17)
-          ["shadowBeast", 41, 17],
+          // 第4要素 = tavern-intel のフラグ。酒場で噂を掴めなければ獣も檻も現れない。
+          ["shadowBeast", 41, 17, "s2_beast_intel"],
         ],
         cageSpawns: [
-          { tx: 41, ty: 17 },   // 部屋2の壁際、残影の獣を閉じ込める檻 (shadowBeast spawnと同一タイル)
+          { tx: 41, ty: 17, flag: "s2_beast_intel" },   // 部屋2の壁際、残影の獣を閉じ込める檻 (shadowBeast spawnと同一タイル)
         ],
       },
       "lizard-swamp": {
@@ -5242,7 +5243,8 @@
           // ボス: リザードマン族長
           ["lizardChieftain", 57, 13],
           // ROOM2 隠し要素: 沼の守護神(封印・接近3択で覚醒。未覚醒はinactive+passiveNpc)
-          ["hydra", 35, 13],
+          // 第4要素 = tavern-intel のフラグ。酒場で噂を掴めなければ祭壇ごと現れない。
+          ["hydra", 35, 13, "s3_hydra_intel"],
         ],
       },
       "orc-fort": {
@@ -5336,7 +5338,30 @@
       scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
       currentScenario = SCENARIOS[scenarioId] || SCENARIOS["goblin-mine"];
     }
-    const ENEMY_SPAWNS = currentScenario.spawns;
+
+    // === tavern-intel v1.0 (tavern.html / index.html) ===
+    // 酒場の情報収集ロールの成否。成功したフラグの隠し中ボスだけがフィールドに現れる。
+    let questFlags = {};
+    let questFlagsPresent = false;   // キーの有無 = 酒場を経由したか
+    try {
+      const _qfRaw = sessionStorage.getItem("dragonfighters.questFlags");
+      if (_qfRaw != null) { questFlags = JSON.parse(_qfRaw) || {}; questFlagsPresent = true; }
+    } catch (e) { questFlags = {}; }
+    // dev/検証用の強制上書き: ?intel=1 で全開放、?intel=0 で全封鎖 (酒場 ?givemagic と同じ発想)
+    let __intelOverride = null;
+    try {
+      const _p = new URLSearchParams(window.location.search);
+      if (_p.has("intel")) __intelOverride = (_p.get("intel") === "1");
+    } catch (e) {}
+    function questFlagOn(flagName) {
+      if (!flagName) return true;                  // ゲート指定の無いスポーンは常に出る
+      if (__intelOverride !== null) return __intelOverride;
+      if (!questFlagsPresent) return true;         // 酒場を経由しない直起動 (ヘッドレス検証/dev) は開放
+      return !!questFlags[flagName];
+    }
+
+    // 隠し中ボスのスポーンは 4 番目の要素にフラグ名を持つ。噂を掴めなかった回では敵ごと現れない。
+    const ENEMY_SPAWNS = currentScenario.spawns.filter(sp => questFlagOn(sp[3]));
 
     // v7.4: 敵スポーンタイルが buildMap の装飾壁ピラー (((r*7+c*13)^(r*3-c))%5===0) に
     //   当たると敵が壁に埋まり、A* の始点が壁で挙動不定になる。各スポーンタイルの壁(1)を
@@ -14620,9 +14645,11 @@
       }
 
       // Sce2 隠し要素: rogue がパーティに居る場合のみ、鍵束を別の hidden chest として配置。
-      // この chest は通常 hidden chest と同じ知覚チェックで発見可能だが、rogue 不在なら
-      // そもそも spawn しない (= 隠し要素「残影の獣」が封印される)。
-      if (scenarioId === "bandits-forest" && partyComposition.includes("rogue")) {
+      // この chest は通常 hidden chest と同じ知覚チェックで発見可能。
+      // tavern-intel v1.0 以降、檻の開錠自体は噂で聞いたレバーでも行えるので、鍵束は「静かに開けて
+      // 獣を誘導できる」盗賊専用の上位ルートになる。噂を掴めず檻が現れない回では鍵束も置かない
+      // (使い道のない鍵を拾わせない)。
+      if (scenarioId === "bandits-forest" && partyComposition.includes("rogue") && questFlagOn("s2_beast_intel")) {
         // 残りの candidates (まだ chest を置いていないタイル) から 1 つ追加配置
         const usedTiles = new Set(roomChests.map(ch => `${ch.tx},${ch.ty}`));
         const freeTiles = candidates.filter(([c, r]) => !usedTiles.has(`${c},${r}`));
@@ -14988,13 +15015,13 @@
     const CAGE_INTERACT_RADIUS = 240;   // この距離以内に入ると接近判定発火
 
     function spawnCages() {
-      const spawns = currentScenario.cageSpawns;
-      if (!spawns || spawns.length === 0) return;
+      // tavern-intel v1.0: 噂を掴めなかった回は檻ごと現れない (中の獣も ENEMY_SPAWNS で除外済み)
+      const spawns = (currentScenario.cageSpawns || []).filter(sp => questFlagOn(sp.flag));
+      if (spawns.length === 0) return;
       for (const sp of spawns) {
         const cage = {
           tx: sp.tx, ty: sp.ty,
           opened: false,
-          warningShown: false,    // 鍵なしで接近した時の警告は 1 戦闘あたり 1 回だけ
           dialogActive: false,    // showChoice 表示中フラグ (重複起動防止)
           lured: false,           // 「誘導」選択で誘発状態 → 盗賊近接で確定脱走 (餅になる脱走)
           beastIdx: -1,           // linkCagedBeasts() で紐付け
@@ -15069,33 +15096,33 @@
         }
         if (d > CAGE_INTERACT_RADIUS) continue;
 
-        if (!hasKey) {
-          if (!cage.warningShown) {
-            cage.warningShown = true;
-            showDMMessage(
-              "鉄檻の奥で、黒い獣の輪郭が二重に揺れている…触手が鉄格子を叩いている。" +
-              "この檻を開けるのは危険そうだ。だが、開ける鍵は持っていない。", 3800);
-          }
-          continue;
-        }
-
-        // 鍵あり: 逃がす / 誘導 / 無視 の3択
+        // tavern-intel v1.0: 檻がここに在る時点で、酒場で噂を掴んでいる (掴めなければ spawnCages が檻を作らない)。
+        //   鍵束あり (盗賊が隠し宝箱から入手) → 静かに開けられるので「誘導」の妙技まで選べる。
+        //   鍵束なし                         → 噂に聞いた開錠レバーを倒して開け放つ (荒っぽいが開く)。
         cage.dialogActive = true;
-        const choice = await showCharChoice(
-          "盗賊の鍵束を取り出した。この鉄檻をどうする?\n" +
-          "(中の獣は敵味方の区別なく襲う)",
-          [
-            { label: "逃がす — 今すぐ解き放つ" },
-            { label: "誘導 — 獣を煽り、盗賊を誘い込む" },
-          ],
-          "無視する (Esc)"
-        );
+        const choice = hasKey
+          ? await showCharChoice(
+              "盗賊の鍵束を取り出した。この鉄檻をどうする?\n" +
+              "(中の獣は敵味方の区別なく襲う)",
+              [
+                { label: "逃がす — 今すぐ解き放つ" },
+                { label: "誘導 — 獣を煽り、盗賊を誘い込む" },
+              ],
+              "無視する (Esc)")
+          : await showCharChoice(
+              "鉄檻の奥で、黒い獣の輪郭が二重に揺れている…触手が鉄格子を叩いている。\n" +
+              "酒場で聞いた通り、檻の脇に錆びた開錠レバーがある。\n" +
+              "(中の獣は敵味方の区別なく襲う)",
+              [
+                { label: "開錠レバーを倒す — 檻を開け放つ" },
+              ],
+              "無視する (Esc)");
         cage.dialogActive = false;
         if (choice === 0) {
-          // 逃がす: その場で即解放 (獣は最寄りの盗賊へワープ、プレイヤーも近いのでリスク)
+          // 逃がす / レバー: その場で即解放 (獣は最寄りの盗賊へワープ、プレイヤーも近いのでリスク)
           await openCage(cage);
           break;   // 1 tick で複数檻を扱わない
-        } else if (choice === 1) {
+        } else if (hasKey && choice === 1) {
           // 誘導: 檻を煽って誘発状態に。戦闘中に盗賊が近づいた瞬間に確定で弾ける (餅になる脱走)
           cage.lured = true;
           if (cage.el) cage.el.classList.add("agitated");
