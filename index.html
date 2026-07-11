@@ -291,17 +291,15 @@
       /* ラベル色も仲間と揃える (.allyLabel を継承、差分なし) */
     }
 
-    /* ゴブリン亜種: 同一スプライトを色替えで差別化 */
-    .enemy-goblinArcher { filter: hue-rotate(-20deg) saturate(1.1) brightness(0.95); }
+    /* ゴブリン亜種: 共有 goblin_anim.png を色替えで差別化 (Shaman/Brute/Rider の3体のみ) */
     .enemy-goblinShaman { filter: hue-rotate(110deg) saturate(1.4) brightness(0.85); }
     .enemy-goblinBrute  { filter: hue-rotate(-40deg) saturate(1.6) brightness(0.75); }
     .enemy-goblinRider  { filter: hue-rotate(200deg) saturate(1.2) brightness(0.9); }
-    .enemy-goblinKing   {
-      filter: hue-rotate(-55deg) saturate(1.7) brightness(0.9) contrast(1.2)
-              drop-shadow(0 0 8px rgba(220,40,60,0.75));
-    }
-    /* 基本オーク: orcGrunt シート流用中のため軽く緑寄せして砦オーク兵と差別化 (暫定) */
-    .enemy-orc          { filter: hue-rotate(18deg) saturate(1.05) brightness(1.03); }
+    /* goblinArcher / goblinKing / orc は専用シートへ独立済み。色替えフィルタは新アートを
+       色ズレさせるだけなので除去した。goblinKing のオーラ (drop-shadow) は演出なので残す。 */
+    .enemy-goblinArcher { }
+    .enemy-goblinKing   { filter: drop-shadow(0 0 8px rgba(220,40,60,0.75)); }
+    .enemy-orc          { }
     /* ホブゴブリン: 専用シート hobgoblin_anim.png。素で赤茶の重装兵ゆえ色補正フィルタ不要 */
     .enemy-hobgoblin    { }
     /* コボルド: 専用シート kobold_anim.png。素で赤錆色の鱗ゆえ色補正フィルタ不要 */
@@ -3219,22 +3217,27 @@
     let playerMovingThisFrame = false;
     let wasGuardingVisual = false;
 
-    // ── 戦士スプライト (流浪の傭兵 painterly、他キャラと同規格) ─────
+    // ── 戦士スプライト (アイアンヴェイルの先兵、他キャラと同規格) ─────
     // 歩行: warrior_walk.png (576×384, 4行×6列、row 3 のみ実データ)
     // 攻撃: warrior_attack.png (480×384, 4行×5列、row 3 のみ実データ)
-    // 待機/ガード: 旧 simple_knight.png (480×1152, 12行) を一部流用
+    // ガード: 攻撃シートの col 4 (= 盾を前に構え剣を下ろした構え。WARRIOR_GUARD 参照)
+    // 待機/詠唱: 旧 simple_knight.png (480×1152, 12行) を一部流用
     const KNIGHT_CAST_ROW   = { down: 8, up: 9, left: 10, right: 11 };
     const KNIGHT_SHEET_URL  = 'url("assets/simple_knight.png")';
     const KNIGHT_SHEET_SIZE = "480px 1152px";
-    const WARRIOR_WALK_URL  = 'url("assets/warrior_walk.png?v=7")';
+    const WARRIOR_WALK_URL  = 'url("assets/warrior_walk.png?v=8")';
     const WARRIOR_WALK_SIZE = "576px 384px";
-    const WARRIOR_ATTACK_URL  = 'url("assets/warrior_attack.png?v=10")';
+    const WARRIOR_ATTACK_URL  = 'url("assets/warrior_attack.png?v=11")';
     const WARRIOR_ATTACK_SIZE = "480px 384px";
+    // 攻撃 6F を 5F へ間引く際 (キー [0,1,2,3,5])、6 コマ目の「構え」姿勢が col 4 に載る。
+    // 専用のガード絵を用意せずここを指すだけでよい。専用絵が要るようになったら url/size を持たせる。
+    const WARRIOR_GUARD = { sheet: "attack", col: 4, row: 3 };
     // ── Phase 3 第2段階: リーダークラス別スプライト (見た目だけ動的化) ──
     // 全キャラ 6F walk + 5F attack 規格、サイズ統一 (576×384 walk / 480×384 attack)
     const LEADER_SPRITES = {
       warrior: { walk: WARRIOR_WALK_URL, attack: WARRIOR_ATTACK_URL,
-                 walkSize: WARRIOR_WALK_SIZE, attackSize: WARRIOR_ATTACK_SIZE },
+                 walkSize: WARRIOR_WALK_SIZE, attackSize: WARRIOR_ATTACK_SIZE,
+                 guard: WARRIOR_GUARD },
       dwarf:   { walk: 'url("assets/dwarf_walk.png")',   attack: 'url("assets/dwarf_attack.png")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       cleric:  { walk: 'url("assets/cleric_walk.png")',  attack: 'url("assets/cleric_attack.png")',
@@ -3279,7 +3282,10 @@
       // リーダークラス + 変種のスプライトを引く (主人公=0/正規、NPC頭=割当て変種)
       const sprites = getSpriteSet(leaderClassKey, leaderVariant) || LEADER_SPRITES[leaderClassKey] || LEADER_SPRITES.warrior;
       if (attackActive) {
-        const atkFrame = Math.min(4, Math.floor(currentSwingProgress * 5));
+        // 下限クランプ必須: runSwing の elapsed は rAF のタイムスタンプ基準なので初回だけ
+        // 負になりうる (now < startTime)。クランプが無いと atkFrame=-1 → 背景位置が +96px =
+        // シート外を指し、スイング開始の 1 フレームだけプレイヤーが消える。
+        const atkFrame = Math.max(0, Math.min(4, Math.floor(currentSwingProgress * 5)));
         setSpriteSheet(sprites.attack, sprites.attackSize);
         player.style.backgroundPosition = `${-atkFrame * 96}px ${-row * 96}px`;
         return;
@@ -3298,12 +3304,20 @@
         }
       }
       if (isGuarding) {
-        // 戦士のみ simple_knight のガードフレームを使う (他クラスは walk 静止で代用)
-        if (leaderClassKey === "warrior") {
+        const g = sprites.guard;
+        if (g) {
+          // 専用のガードコマを持つスプライト (主人公戦士 = 攻撃シートの「構え」コマ)
+          const url  = g.url  || (g.sheet === "walk" ? sprites.walk     : sprites.attack);
+          const size = g.size || (g.sheet === "walk" ? sprites.walkSize : sprites.attackSize);
+          setSpriteSheet(url, size);
+          player.style.backgroundPosition = `${-(g.col | 0) * 96}px ${-(g.row | 0) * 96}px`;
+        } else if (leaderClassKey === "warrior") {
+          // ガードコマを持たない戦士変種 (重戦士/女戦士/騎士) は旧 simple_knight を流用
           setSpriteSheet(KNIGHT_SHEET_URL, KNIGHT_SHEET_SIZE);
           const guardFrame = 3;
           player.style.backgroundPosition = `${-guardFrame * 96}px ${-11 * 96}px`;
         } else {
+          // 他クラスは walk 静止で代用
           setSpriteSheet(sprites.walk, sprites.walkSize);
           player.style.backgroundPosition = `0 ${-row * 96}px`;
         }
@@ -4673,7 +4687,7 @@
         name: "レッドドラゴン「ファラクサス」",
         flavor: "復興に乗じてフランを再び灰に帰さんとする赤竜。プラン編の黒幕",
         badge: "🐉",
-        sprite: "assets/pharaxus_anim.png?v=1",
+        sprite: "assets/pharaxus_anim.png?v=2",
         sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 360,             // 2026-06-27: 720→360 に縮小(大きすぎたため半分に)。scale 3.75→1.875倍
         hp: 180, speed: 0.66,
@@ -4698,12 +4712,12 @@
       // ── シナリオ4 隠し要素: 古代王国の守護者 (fort-golems.md) ──
       // 非魔法物理免疫 (physicalImmunity): +1以上の魔法武器か呪文でないと通用しない。
       // faction:"beast" = 第三勢力 (オークも PT も無差別)。象徴アイテムでの味方化は後追い。
-      // minotaur_anim.png / skeleton_anim.png を暫定流用 → 確定後に専用シートへ。
+      // 専用 192px シート (codex1 stone-golem。青いルーンが走る石巨人)。
       stoneGolem: {
         name: "ストーンゴーレム",
         flavor: "古代王国の術式で動く石の巨人、非魔法の武器を弾く",
         badge: "🗿",
-        sprite: "assets/stoneGolem_anim.png?v=1",
+        sprite: "assets/stoneGolem_anim.png?v=2",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 132,
@@ -4931,7 +4945,7 @@
         name: "蛇神司祭",
         flavor: "ファラクサスを蛇神として崇める異教の祭祀",
         badge: "🐍",
-        sprite: "assets/lizardPriest_anim.png?v=1",
+        sprite: "assets/lizardPriest_anim.png?v=2",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 84,
@@ -8630,6 +8644,16 @@
     }
 
     function updateEnemyDamageFlash(enemyEl, enemy) {
+      // リセットは "none" ではなく "" (インライン宣言そのものを消す)。"none" を書くと
+      // インラインがスタイルシートより強いため、毎フレームここでクラス側の filter
+      // (ボスのオーラ drop-shadow / ゴブリン亜種の色替え hue-rotate) を潰してしまい、
+      // それらが一切画面に出なくなる。
+      //
+      // ⚠️ 未解決: この関数は敵要素の style.filter を毎フレーム上書きする = 事実上その
+      // 独占所有者になっている。よって他所から el.style.filter に書く一時 VFX
+      // (休眠守護者のグレースケール :15290 / 覚醒の閃光 :15310 / ハイドラ出現 :15534 ほか)
+      // は次フレームで消え、一度も表示されていない。恒久対応にはそれらを CSS クラス化し、
+      // ここはフラッシュだけを扱うようにする必要がある。
       if (enemy.damageFlashTimer > 0) {
         const on = enemy.damageFlashTimer % 4 < 2;
         if (on) {
@@ -8637,11 +8661,11 @@
           enemyEl.style.filter = "brightness(2.6) drop-shadow(0 0 4px rgba(255,255,255,0.95))";
           enemyEl.style.opacity = "1";
         } else {
-          enemyEl.style.filter = "none";
+          enemyEl.style.filter = "";
           enemyEl.style.opacity = "1";
         }
       } else {
-        enemyEl.style.filter = "none";
+        enemyEl.style.filter = "";
         enemyEl.style.opacity = "1";
       }
     }
@@ -9016,7 +9040,7 @@
     // 新バリアント追加はここに1行足すだけ。サイズ規格は walk 576×384 / attack 480×384 で統一。
     const SPRITE_VARIANTS = {
       warrior: [
-        { walk: WARRIOR_WALK_URL, walkSize: WARRIOR_WALK_SIZE, attack: WARRIOR_ATTACK_URL, attackSize: WARRIOR_ATTACK_SIZE, label: "標準" },
+        { walk: WARRIOR_WALK_URL, walkSize: WARRIOR_WALK_SIZE, attack: WARRIOR_ATTACK_URL, attackSize: WARRIOR_ATTACK_SIZE, guard: WARRIOR_GUARD, label: "標準" },
         { walk: 'url("assets/warrior_heavy_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/warrior_heavy_attack.png")',  attackSize: "480px 384px", label: "重戦士" },
         { walk: 'url("assets/warrior_female_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_female_attack.png")', attackSize: "480px 384px", label: "女戦士" },
         { walk: 'url("assets/warrior_knight_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_knight_attack.png")', attackSize: "480px 384px", label: "騎士" },
@@ -13032,7 +13056,7 @@
       warrior: {
         name: "戦士",
         flavor: "鋼の意志と剣で道を切り開く前衛",
-        sprite: "assets/warrior_walk.png?v=7",
+        sprite: "assets/warrior_walk.png?v=8",
         displaySize: 96,
         hpMax: 30,
         mpMax: 0,

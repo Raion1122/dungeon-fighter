@@ -1,0 +1,164 @@
+{
+  "_doc": [
+    "codex1 素材 → assets/*.png の台帳。どのフォルダのどの版を、どのパラメータでパックしたか。",
+    "`py tools/pack_codex1_sprites.py --all` で敵シート、`py tools/pack_codex1_player.py --all` で",
+    "プレイヤーシートを台帳どおり再生成できる (出力は決定論的・冪等)。",
+    "",
+    "char_ratio = 『最も背の高い基準フレームがセル高に占める割合』。画面上のキャラ身長 =",
+    "char_ratio * displaySize なので、displaySize (= 当たり判定 getEnemyHitbox / OVERLAP_RADIUS_K /",
+    "OVERLAP_BOSS_SIZE の導出元) を触らずに絵だけ差し替えるには、現行シートの実測比をそのまま",
+    "char_ratio にする。実測は `--match-current <現行シート>` で行い、得た値をここへ焼き込む。",
+    "",
+    "scale_from: both = walk+attack 全フレームの最大高が基準 (第1陣。既定)。",
+    "            walk = walk のみが基準 (第2陣の -matched 素材。武器の振り上げで本体が縮むのを防ぐ)。",
+    "walk_dir / attack_dir が null なら第1陣規約 <key>/final/{walk,attack} にフォールバックする。"
+  ],
+  "sheets": [
+    {
+      "key": "skeleton", "out": "assets/skeleton_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.1 パイロット"
+    },
+    {
+      "key": "orc", "out": "assets/orc_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.1 パイロット"
+    },
+    {
+      "key": "goblin", "out": "assets/goblin_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null,
+      "note": "v8.2。goblin / Shaman / Brute / Rider の4体で共有 (Archer と King は専用シートへ分離済)"
+    },
+    {
+      "key": "hobgoblin", "out": "assets/hobgoblin_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.2"
+    },
+    {
+      "key": "kobold", "out": "assets/kobold_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.2"
+    },
+    {
+      "key": "zombie", "out": "assets/zombie_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.2"
+    },
+    {
+      "key": "minotaur", "out": "assets/minotaur_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.9, "scale_from": "both", "center": "feet",
+      "walk_dir": null, "attack_dir": null, "note": "v8.2。displaySize 104"
+    },
+    {
+      "key": "goblinChariot", "out": "assets/goblinChariot_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.72, "scale_from": "both", "center": "feet",
+      "attack_scale": 0.67,
+      "walk_dir": "goblin-war-cart/final/walk", "attack_dir": "goblin-war-cart/final/attack",
+      "note": "7.9-2 で新規敵として採用。attack のゴブリンが walk の約1.5倍で描かれていたので attack_scale で補正"
+    },
+
+    {
+      "key": "bandit", "out": "assets/bandit_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "enemy-thief/enemy-thief-walk-right-6",
+      "attack_dir": "enemy-thief/enemy-thief-attack-right-6-matched",
+      "note": "v8.3"
+    },
+    {
+      "key": "banditArcher", "out": "assets/banditArcher_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "enemy-thief-archer/enemy-thief-archer-walk-right-6",
+      "attack_dir": "enemy-thief-archer/enemy-thief-archer-attack-right-6-matched",
+      "note": "v8.3"
+    },
+    {
+      "key": "goblinArcher", "out": "assets/goblinArcher_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "goblin-archer/goblin-archer-walk-right-6",
+      "attack_dir": "goblin-archer/goblin-archer-attack-right-6-matched",
+      "note": "v8.4。共有 goblin_anim から分離"
+    },
+    {
+      "key": "goblinKing", "out": "assets/goblinKing_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "goblin-king/goblin-king-walk-right-6",
+      "attack_dir": "goblin-king/goblin-king-attack-right-6-matched",
+      "note": "v8.5。S1 ボス。共有 goblin_anim から分離"
+    },
+    {
+      "key": "skeletonArcher", "out": "assets/skeletonArcher_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "skeleton-archer/skeleton-archer-walk-right-6",
+      "attack_dir": "skeleton-archer/skeleton-archer-attack-right-6-matched",
+      "note": "v8.5"
+    },
+    {
+      "key": "banditMage", "out": "assets/banditMage_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "bandit-mage/bandit-mage-walk-right-6",
+      "attack_dir": "bandit-mage/bandit-mage-attack-right-6-matched",
+      "note": "v8.6"
+    },
+    {
+      "key": "lizardWarrior", "out": "assets/lizardWarrior_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "lizardman/lizardman-walk-right-6",
+      "attack_dir": "lizardman/lizardman-attack-right-6-v2-matched",
+      "note": "v8.6。汎用 lizardman 素材は lizardWarrior のみに適用 (Hunter / Priest / Chieftain の役割差は温存)"
+    },
+    {
+      "key": "lizardChieftain", "out": "assets/lizardChieftain_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "lizardman-chief/lizardman-chief-walk-right-6",
+      "attack_dir": "lizardman-chief/lizardman-chief-attack-right-6-v2-matched",
+      "note": "v8.7。ボス displaySize 248 (= 2.58倍拡大)。-6-matched は空だったので v2 を採用"
+    },
+    {
+      "key": "lizardHunter", "out": "assets/lizardHunter_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "lizardman-archer/lizardman-archer-walk-right-6",
+      "attack_dir": "lizardman-archer/lizardman-archer-attack-right-6-matched",
+      "note": "v8.8"
+    },
+    {
+      "key": "scar", "out": "assets/scar_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "walk_dir": "bandit-chief/bandit-chief-walk-right-6",
+      "attack_dir": "bandit-chief/bandit-chief-attack-right-6-v2-matched",
+      "note": "v8.9。S2 中ボス。-6-matched はパレットが walk と不一致だったので v2 を採用"
+    },
+
+    {
+      "key": "stoneGolem", "out": "assets/stoneGolem_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.604167, "scale_from": "walk", "center": "feet",
+      "attack_tint": "match",
+      "walk_dir": "stone-golem/stone-golem-walk-right-6",
+      "attack_dir": "stone-golem/stone-golem-attack-right-6-matched",
+      "note": "char_ratio = 現行シート実測 (walk H_max 116px / cell 192)。displaySize 132 据置。⚠️ 素材のパレットドリフト: codex1 が walk (青みグレー + 鮮やかなシアンのルーン) と attack (オリーブ、ルーンがくすむ) を別チャットで描いており色が揃っていない。attack_tint=match で平均色を寄せているが、ルーンの発光量までは戻らない。完全に直すには codex1 側で attack を walk 参照つきで描き直す必要がある"
+    },
+    {
+      "key": "lizardPriest", "out": "assets/lizardPriest_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.604167, "scale_from": "walk", "center": "feet",
+      "walk_dir": "lizardman-priest/lizardman-priest-walk-right-6",
+      "attack_dir": "lizardman-priest/lizardman-priest-cast-right-6-matched",
+      "note": "攻撃モーションは attack でなく cast (呪文詠唱)。char_ratio = 現行実測 (58px / 96)。displaySize 84 据置"
+    },
+    {
+      "key": "pharaxus", "out": "assets/pharaxus_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.531667, "scale_from": "walk", "center": "feet-fit",
+      "walk_dir": "red-dragon/red-dragon-walk-right-6-large",
+      "attack_dir": "red-dragon/red-dragon-attack-right-6-large-matched",
+      "note": "ラスボス。-large 系を使う。displaySize 360 据置。この竜は突進と火炎ブレスで前方へ大きく伸び、コンテンツ幅が最大 209px (セル 192px) に達するので、現行実測の char_ratio 0.604167 では収まらない。0.604167 x0.88 = 0.531667 まで縮め、center=feet-fit で足元基準のまま一律オフセット (anchor_x 70.7) を掛けて詰める。画面上の竜は現行比で高さ -12% / 幅 +8%。bbox 中央寄せは炎のコマで胴体が 33px 横滑りするので不可"
+    },
+
+    {
+      "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.604167, "scale_from": "walk", "center": "feet",
+      "walk_dir": "ironvale-vanguard/ironvale-vanguard-walk-right-6",
+      "attack_dir": "ironvale-vanguard/ironvale-vanguard-attack-right-6-v2-matched",
+      "note": "主人公戦士。プレイヤー規格 = 4行 (row3 のみ実データ) / walk 6F / attack 6F→5F 間引き [0,1,2,3,5]。char_ratio = 現行実測 (58px / 96)。attack v1 は黒いゴミ画素があるので v2 を使う。5F 間引きの結果、attack col=4 に『盾を前に構えた姿勢』が載る → ガードポーズに流用"
+    }
+  ]
+}
