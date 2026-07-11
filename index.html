@@ -5234,15 +5234,21 @@
         clearXp: 500,
         clearReward: "謎の紋章入り指令書 (ファラクサスの伏線)",
         spawns: [
-          // 部屋1 前哨(見張り)
-          ["bandit", 12, 13], ["bandit", 13, 13],
-          // 部屋2 山場・本隊(重装 + 射手2 + 露払い)
-          ["banditHeavy", 27, 13], ["bandit", 28, 13], ["bandit", 28, 14],
-          ["banditArcher", 39, 13], ["banditArcher", 40, 13], ["bandit", 39, 14],
-          // 山場後衛(v7.7: 旧room3の2体を吸収): 呪文敵 + 随伴
-          ["bandit", 41, 14], ["banditMage", 42, 13],
-          // ボス: スカー
-          ["scar", 57, 13],
+          // 部屋1 前哨: 中央(13,13)に密集。旧2体では前哨として機能していなかったため 10体へ
+          ["bandit", 10, 12], ["bandit", 10, 14], ["bandit", 11, 13],
+          ["bandit", 12, 11], ["bandit", 12, 15], ["bandit", 13, 13], ["bandit", 14, 14],
+          ["banditHeavy", 14, 12],
+          ["banditArcher", 17, 12], ["banditArcher", 17, 14],
+          // 部屋2 山場・本隊: 中央(col 30-39)に集約。旧版は col 27-28 / col 39-42 の2クラスタに
+          //   分断され「各個撃破」に崩れていたので一回の大乱戦にまとめる。前衛=西 / 射手・呪文=東
+          ["banditHeavy", 30, 11], ["banditHeavy", 30, 13], ["banditHeavy", 30, 15],
+          ["banditHeavy", 31, 12], ["banditHeavy", 31, 14],
+          ["bandit", 32, 13], ["bandit", 33, 10], ["bandit", 33, 12], ["bandit", 33, 14], ["bandit", 33, 16],
+          ["banditArcher", 37, 11], ["banditArcher", 37, 13], ["banditArcher", 37, 15],
+          ["banditMage", 39, 13],
+          // ボス: スカー + 護衛4 (旧版は単騎だった)
+          ["scar", 57, 13], ["banditHeavy", 55, 13],
+          ["banditArcher", 53, 10], ["banditArcher", 53, 16], ["banditMage", 52, 13],
           // Sce2 隠し要素: 残影の獣(startsCaged=true で初期inactive)。cageSpawnsと同一タイル(41,17)
           // 第4要素 = tavern-intel のフラグ。酒場で噂を掴めなければ獣も檻も現れない。
           ["shadowBeast", 41, 17, "s2_beast_intel"],
@@ -15096,6 +15102,7 @@
         if (bestCage >= 0) {
           cages[bestCage].beastIdx = ei;
           e.inactive = true;
+          e.passiveNpc = true;   // 檻の中は「無視」ルートを選べるようクリア判定から除外 (openCage で解除)
           const el = enemyElements[ei];
           if (el) {
             el.classList.add("beast-caged");
@@ -15223,6 +15230,7 @@
             beast.y = target.y;
           }
           beast.inactive = false;
+          beast.passiveNpc = false;   // 解放したらクリア判定の対象に戻す
           window.__inMidBoss = true;
           if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
           const el = enemyElements[cage.beastIdx];
