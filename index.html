@@ -130,7 +130,9 @@
       image-rendering: pixelated;
       z-index: 6;
       filter: none;
-      transition: filter 0.12s ease-out;
+      /* transition: filter は入れないこと。被弾ブリンクは JS が 80ms 間隔で style.filter を
+         直接トグルしており (startDamageBlinkInvincibility)、120ms のトランジションと競合して
+         ブリンクが目標値に到達しないまま次のトグルに移ってしまう。 */
     }
 
     /* ガード中: 全身に青いグロウ */
@@ -2808,12 +2810,16 @@
     // viewport 変化 (リサイズ/端末回転) で HUD 寸法を再計算し、カメラも追従させる。
     // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/snapCamera と UI_MENU_WIDTH(let) は
     // 既に初期化済み。初回の computeUiMetrics() 呼び出しは let 宣言の後 (関数定義直後) で行う。
+    // ⚠️ resize/orientationchange のリスナは「この1本だけ」。増やすと回転やアドレスバーの
+    // 伸縮のたびに canvas を複数回リサイズし世界を複数回描き直す (モバイルで頻発する)。
     function onViewportResize() {
       resizeCanvas();
       computeUiMetrics();
       // Phase4: 回転等で非compactに復帰したら、開いたままのドロワー(幽霊パネル)を閉じる
       if (!(document.body && document.body.classList.contains("ui-compact"))) closeDrawer();
+      clampPlayerToMap();   // 画面が広がってマップ外が見えた場合に主人公を戻す (関数宣言=ホイスティング済)
       if (typeof gameStarted !== "undefined" && gameStarted) snapCamera();
+      else updatePositions();
     }
     resizeCanvas();
     window.addEventListener("resize", onViewportResize);
@@ -9025,7 +9031,13 @@
             ally.hpWrapEl.style.display = "block";
             ally.hpWrapEl.style.left = (ally.x + 18 - camX) + "px";
             ally.hpWrapEl.style.top  = (ally.y - 10 - camY) + "px";
-            ally.hpFillEl.style.width = (ally.hp / ally.maxHp * 100) + "%";
+            // .allyHpFill は transition: width 0.3s を持つ。毎フレーム同じ値を書くと
+            // そのたびにトランジションが再起動して永久に走り続けるので、変化時だけ書く。
+            const hpW = (ally.hp / ally.maxHp * 100) + "%";
+            if (ally._hpWidthApplied !== hpW) {
+              ally.hpFillEl.style.width = hpW;
+              ally._hpWidthApplied = hpW;
+            }
           }
           // 名前ラベル (HPバーの上)
           if (ally.nameLabelEl) {
@@ -21918,12 +21930,6 @@
     spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
-
-    window.addEventListener("resize", () => {
-      resizeCanvas();
-      clampPlayerToMap();
-      updatePositions();
-    });
 
     // シナリオに応じてスタート画面のタイトル・フレーバーを差し替え
     document.getElementById("startTitle").textContent = currentScenario.title;
