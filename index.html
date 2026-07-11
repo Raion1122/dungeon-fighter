@@ -2753,7 +2753,8 @@
     let cameraFollowActive = false;       // rAF グライドループ稼働中フラグ
     let cameraInitialized = false;        // 初回 updatePositions は必ず瞬時スナップ (0,0 からのグライド防止)
     const CAM_SMOOTH = true;              // false で従来の即スナップ挙動
-    const CAM_LERP = 0.16;                // 60fps 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
+    const CAM_LERP = 0.11;                // 60fps 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
+    // ↑ コンフォートゾーン導入でグライド回数が減ったぶん、残ったグライドはゆっくり映画的にする (0.16 → 0.11 = TAU 96ms → 140ms)
     // 積分は dt 補正した指数平滑で行う。フレーム落ち時に「止まる→進む」の脈動が出ず、
     // 120Hz (ProMotion) でも 60Hz と同じ速さで着地する。
     // dt=16.6667ms のとき k は CAM_LERP と厳密に一致するので、チューニングは CAM_LERP だけでよい。
@@ -3571,10 +3572,68 @@
       cameraInitialized = true;
       renderWorldWithShake();
     }
+    // コンフォートゾーン: 画面の内側 22% (端から最低80px/最大220px) を「もう十分見えている」領域とみなす。
+    // 判定は camTargetX/Y (カメラの着地予定地) 基準。移動中の camX 基準にすると結果が非決定的になる。
+    // iPhone 縦 (390x844) で padX≈86px (0.9タイル) / padY≈150px (1.6タイル)。
+    function isInComfortZone(wx, wy) {
+      const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H;
+      const usableW = window.innerWidth - UI_MENU_WIDTH;
+      const usableH = window.innerHeight - bottomHud;
+      const padX = Math.max(80, Math.min(usableW * 0.22, 220));
+      const padY = Math.max(80, Math.min(usableH * 0.22, 220));
+      const sx = wx - camTargetX, sy = wy - camTargetY;   // 着地後の画面座標
+      return sx >= UI_MENU_WIDTH + padX && sx <= window.innerWidth - padX
+          && sy >= padY               && sy <= usableH - padY;
+    }
+    // 与えたカメラ位置で、生存PTメンバー + 交戦中の生存敵の中心が可視矩形から
+    // はみ出す量の合計(px)。0 なら全員が画面内。据え置きの可否を「悪化させないか」で決めるために使う。
+    // (computeCameraTarget の CENTER_BIAS=0.7 は bbox クランプを 30% しか効かせないので、
+    //  はみ出しは元々ゼロではない。ゆえに絶対値ではなく据え置き前後の比較で判断する)
+    function offscreenAmountAt(cx, cy) {
+      const usableH = window.innerHeight - (UI_LOG_HEIGHT + UI_MINIBAR_H);
+      const loX = cx + UI_MENU_WIDTH, hiX = cx + window.innerWidth;
+      const loY = cy,                 hiY = cy + usableH;
+      let total = 0;
+      const add = (ax, ay, s) => {
+        const mx = ax + s / 2, my = ay + s / 2;
+        total += Math.max(loX - mx, mx - hiX, 0) + Math.max(loY - my, my - hiY, 0);
+      };
+      add(playerX, playerY, playerWidth);
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          add(a.x, a.y, (a.def && a.def.displaySize) || 96);
+        }
+      }
+      if (currentPhase === "combat" && typeof enemies !== "undefined" && encounterEnemyIndices) {
+        for (const ei of encounterEnemyIndices) {
+          const e = enemies[ei];
+          if (!e || !e.alive) continue;
+          add(e.x, e.y, (e.def && e.def.displaySize) || 96);
+        }
+      }
+      return total;
+    }
     // 戦闘の注視点を設定して滑らかに寄せる (要望①②)。
+    // 戦闘ラウンドは全アクター毎ターンここを撃つため、敵が増えるほどカメラが振られる。
+    // 行動キャラが既に画面の内側 (コンフォートゾーン) にいるなら再センタリングしない。
+    // ただし据え置きが「全員を画面内に収める」保証を悪化させるなら、諦めて普通にフォーカスする。
+    // computeCameraTarget() は camTargetX/Y を書くだけの純粋計算なので、試算のため複数回呼んでよい。
     function focusCameraOn(wx, wy) {
       endProjectileTrack();          // [camera-focus-v7.4] 明示フォーカス = 弾追従の RELEASE (占有/tight を確実解除)
-      camFocus = { x: wx, y: wy };
+      if (camFocus && isInComfortZone(wx, wy)) {
+        const stale = camFocus;
+        computeCameraTarget();                                       // 据え置いた場合の着地点
+        const keepCost = offscreenAmountAt(camTargetX, camTargetY);
+        if (keepCost > 0) {
+          camFocus = { x: wx, y: wy };
+          computeCameraTarget();                                     // 振った場合の着地点
+          const moveCost = offscreenAmountAt(camTargetX, camTargetY);
+          if (keepCost <= moveCost) camFocus = stale;                // 振っても改善しないなら据え置く
+        }
+      } else {
+        camFocus = { x: wx, y: wy };
+      }
       updatePositions();
     }
     // 注視点解除 → 主人公センタリング(探索)へ滑らかに戻す。
