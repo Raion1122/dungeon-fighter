@@ -2779,14 +2779,15 @@
     const SHAKE_CRIT  = { mag: 5,  dur: 180 };   // クリティカル: 控えめ
     const SHAKE_BOSS  = { mag: 11, dur: 280 };   // ボス撃破: 強め (閃光と同時)
     const SHAKE_SPELL = { mag: 7,  dur: 220 };   // 大呪文 (ファイアボール等)
-    // 攻撃エフェクト Phase1: 踏み込み(lunge)/のけぞり(recoil) の振幅(px)とフレーム数(約16ms/F)。
+    // 攻撃エフェクト Phase1: 踏み込み(lunge)/のけぞり(recoil) の振幅(px)とフレーム数。
+    // 単位は「論理フレーム」= moveEnemies の 30ms 刻み (描画回数ではない。stepImpactOffset の animFrameId ガード参照)。
     // スプライトの scaleX(-1) 向き反転と毎フレーム競合するため、CSS ではなく per-frame の transform 合成で実現する。
     // sin(p*π) エンベロープ(p=1-T/Max)で行って戻り、端点で厳密に 0 着地(ドリフト無し)。実機で要微調整。
     const LUNGE_MAG = 14;      // 踏み込みピーク(px, 対象方向)
-    const LUNGE_FRAMES = 10;
+    const LUNGE_FRAMES = 5;    // 5 × 30ms = 150ms
     const LUNGE_SAFETY = 4;    // 大型ターゲット時のランジ・クランプ安全マージン(px, 縁手前で停止)
     const RECOIL_MAG = 10;     // のけぞりピーク(px, 攻撃者と逆方向)
-    const RECOIL_FRAMES = 12;
+    const RECOIL_FRAMES = 6;   // 6 × 30ms = 180ms
 
     function resizeCanvas() {
       mapCanvas.width = window.innerWidth;
@@ -3269,6 +3270,7 @@
     // animTick をこの ID でゲートし「1論理フレーム=1コマ進行」に固定する(2倍速ブルブル防止)。
     let animFrameId = 0;
     let knightAnimFrameId = -1;
+    let playerImpactFrameId = -1;   // stepPlayerImpactOffset の減衰を1論理フレーム1回に固定するガード
     let lastSpriteUrl = null;
     function setSpriteSheet(url, size) {
       if (lastSpriteUrl === url) return;
@@ -8696,31 +8698,39 @@
     // CSS クラスの transform アニメは1フレームで潰れるため、その向き transform に
     // lunge/recoil の px オフセットを合成して同居させる(filter/opacity は flash が占有)。
     // sin(p*π) (p=1-T/Max) は端点で厳密 0 → 行って戻る・ドリフト無し。lunge と recoil は加算。
+    // T の減衰は「1論理フレームにつき1回」に固定する(animFrameId ガード)。renderWorld はカメラ
+    // グライド/シェイク中に1論理フレーム内で複数回走るため、ガードが無いと描画回数ぶん速く減衰し、
+    // 「描画頻度を変えると打撃モーションの速さが勝手に変わる」ことになる。
+    // (updateEnemyAnim/updateAllySprite の animTick ガードは _animFrameId を消費済みなので別フィールドを使う)
     function stepImpactOffset(st) {            // 敵/仲間オブジェクト用 (破壊的に減衰)
+      const advance = (st._impactFrameId !== animFrameId);
+      if (advance) st._impactFrameId = animFrameId;
       let off = 0;
       if (st.lungeT > 0) {
         const p = st.lungeMax > 0 ? (1 - st.lungeT / st.lungeMax) : 1;
         off += st.lungeDir * (st.lungeMag != null ? st.lungeMag : LUNGE_MAG) * Math.sin(p * Math.PI);
-        if (--st.lungeT <= 0) { st.lungeT = 0; st.lungeMax = 0; st.lungeDir = 0; }
+        if (advance && --st.lungeT <= 0) { st.lungeT = 0; st.lungeMax = 0; st.lungeDir = 0; }
       }
       if (st.recoilT > 0) {
         const p = st.recoilMax > 0 ? (1 - st.recoilT / st.recoilMax) : 1;
         off += st.recoilDir * RECOIL_MAG * Math.sin(p * Math.PI);
-        if (--st.recoilT <= 0) { st.recoilT = 0; st.recoilMax = 0; st.recoilDir = 0; }
+        if (advance && --st.recoilT <= 0) { st.recoilT = 0; st.recoilMax = 0; st.recoilDir = 0; }
       }
       return off;
     }
     function stepPlayerImpactOffset() {        // 主人公(グローバル)用
+      const advance = (playerImpactFrameId !== animFrameId);
+      if (advance) playerImpactFrameId = animFrameId;
       let off = 0;
       if (playerLungeT > 0) {
         const p = playerLungeMax > 0 ? (1 - playerLungeT / playerLungeMax) : 1;
         off += playerLungeDir * playerLungeMag * Math.sin(p * Math.PI);
-        if (--playerLungeT <= 0) { playerLungeT = 0; playerLungeMax = 0; playerLungeDir = 0; }
+        if (advance && --playerLungeT <= 0) { playerLungeT = 0; playerLungeMax = 0; playerLungeDir = 0; }
       }
       if (playerRecoilT > 0) {
         const p = playerRecoilMax > 0 ? (1 - playerRecoilT / playerRecoilMax) : 1;
         off += playerRecoilDir * RECOIL_MAG * Math.sin(p * Math.PI);
-        if (--playerRecoilT <= 0) { playerRecoilT = 0; playerRecoilMax = 0; playerRecoilDir = 0; }
+        if (advance && --playerRecoilT <= 0) { playerRecoilT = 0; playerRecoilMax = 0; playerRecoilDir = 0; }
       }
       return off;
     }
@@ -8745,10 +8755,15 @@
         return;
       }
       if (CAM_SMOOTH && (Math.abs(camTargetX - camX) + Math.abs(camTargetY - camY) > CAM_SNAP_EPS)) {
-        // カメラは数フレームかけて寄せる。現フレームは現在位置で即描画し、HP/スプライト等の変化を遅延させない。
-        startCameraFollow();
-        renderWorldWithShake();
+        // グライド中の描画は cameraFollowTick (rAF) 一本に集約する。
+        // すでにグライド中なら、ここで描くと同一フレームの二重描画になる
+        // (setInterval 33Hz + rAF 60Hz = 93回/秒)。rAF が 16ms 以内に必ず描くので何もしない。
+        if (!cameraFollowActive) {
+          startCameraFollow();
+          renderWorldWithShake();   // グライド開始フレームだけは即描画 (rAF を待たず反応させる)
+        }
       } else {
+        // 非グライド時は従来どおり同期描画 (snapCamera / 起動 / resize と同じ経路。1フレーム古い世界を映さない)
         camX = camTargetX; camY = camTargetY;
         renderWorldWithShake();
       }
