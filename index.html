@@ -2753,7 +2753,13 @@
     let cameraFollowActive = false;       // rAF グライドループ稼働中フラグ
     let cameraInitialized = false;        // 初回 updatePositions は必ず瞬時スナップ (0,0 からのグライド防止)
     const CAM_SMOOTH = true;              // false で従来の即スナップ挙動
-    const CAM_LERP = 0.16;                // 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
+    const CAM_LERP = 0.16;                // 60fps 1フレームあたりの寄せ率 (小さいほど緩やか・酔いにくい)
+    // 積分は dt 補正した指数平滑で行う。フレーム落ち時に「止まる→進む」の脈動が出ず、
+    // 120Hz (ProMotion) でも 60Hz と同じ速さで着地する。
+    // dt=16.6667ms のとき k は CAM_LERP と厳密に一致するので、チューニングは CAM_LERP だけでよい。
+    const CAM_TAU_MS = -16.6667 / Math.log(1 - CAM_LERP);   // 0.16 → ≈95.6ms
+    const CAM_DT_MAX = 50;                // タブ復帰等の巨大 dt をクランプ (カメラのワープ防止)
+    let camLastT = 0;                     // 前回 cameraFollowTick の時刻 (performance.now 基準)
     const CAM_SNAP_EPS = 0.5;             // この距離以下で目標にスナップしてループ停止
     // === [camera-focus-v7.4] 遠距離攻撃 弾道追従 ===
     // 遠距離攻撃中、投射体(矢/呪文弾)を camFocus に毎フレーム据えてカメラを追従させる。
@@ -3493,10 +3499,22 @@
     }
 
     // ── カメラ駆動 (イージング/スナップ/フォーカス) ──
+    // グライドループを起動する唯一の入口。camLastT の初期化を伴うので、
+    // cameraFollowActive を直に立てないこと (初期化漏れは復帰時に巨大 dt でカメラがワープする)。
+    function startCameraFollow() {
+      if (cameraFollowActive) return;
+      cameraFollowActive = true;
+      camLastT = performance.now();
+      requestAnimationFrame(cameraFollowTick);
+    }
     function cameraFollowTick() {
+      const now = performance.now();
+      const dt = Math.min(Math.max(now - camLastT, 0), CAM_DT_MAX);
+      camLastT = now;
+      const k = 1 - Math.exp(-dt / CAM_TAU_MS);   // dt=16.6667ms → k = CAM_LERP
       const dx = camTargetX - camX, dy = camTargetY - camY;
       const gliding = (Math.abs(dx) + Math.abs(dy) > CAM_SNAP_EPS);
-      if (gliding) { camX += dx * CAM_LERP; camY += dy * CAM_LERP; }
+      if (gliding) { camX += dx * k; camY += dy * k; }
       else { camX = camTargetX; camY = camTargetY; }
       const shaking = updateShake();
       renderWorldWithShake();
@@ -3541,7 +3559,7 @@
         return;
       }
       shakeMag = mag; shakeDur = durMs; shakeEndsAt = now + durMs;
-      if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
+      startCameraFollow();
     }
     // 瞬時スナップ (起動/リサイズ/パネル畳み): グライドさせず即座に目標へ。
     function snapCamera() {
@@ -3586,7 +3604,7 @@
       if (!cameraTrackActive) return;                      // 占有者のみ (解放/セーフティ後は no-op)
       camFocus = { x: wx, y: wy };
       computeCameraTarget();                               // tick は target を再算出しないので自前で更新
-      if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
+      startCameraFollow();
     }
     // 着弾で占有を解放。camFocus は着弾点に残す (IMPACT 保持 → 次アクターの focusCameraOn が RELEASE)。
     function endProjectileTrack() {
@@ -8728,7 +8746,7 @@
       }
       if (CAM_SMOOTH && (Math.abs(camTargetX - camX) + Math.abs(camTargetY - camY) > CAM_SNAP_EPS)) {
         // カメラは数フレームかけて寄せる。現フレームは現在位置で即描画し、HP/スプライト等の変化を遅延させない。
-        if (!cameraFollowActive) { cameraFollowActive = true; requestAnimationFrame(cameraFollowTick); }
+        startCameraFollow();
         renderWorldWithShake();
       } else {
         camX = camTargetX; camY = camTargetY;
