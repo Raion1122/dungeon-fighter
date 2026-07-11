@@ -5213,16 +5213,17 @@
         hiddenChestCount: 2,
         clearXp: 300,
         spawns: [
-          // 部屋1 前哨: コボルドの群れ(密集pack) + 露払い
-          ["kobold", 12, 13], ["kobold", 13, 13], ["kobold", 13, 14],
-          ["rat", 17, 13], ["goblin", 18, 13],
-          // 部屋2 山場・本隊(重装3 + 射手2 + 露払い1)
-          ["hobgoblin", 27, 13], ["goblinBrute", 28, 13], ["goblinRider", 28, 14],
-          ["goblinArcher", 39, 13], ["goblinArcher", 40, 13], ["goblin", 39, 14],
-          // 山場後衛(v7.7: 旧room3の2体を吸収): 呪文敵 + 随伴
-          ["goblin", 41, 14], ["goblinShaman", 42, 13],
-          // ボス部屋: グリクス
-          ["goblinKing", 57, 13],
+          // 部屋1 前哨: 中央(11,13)に密集(バランステスト: 5→10体, 2倍)
+          ["kobold", 10, 12], ["kobold", 11, 12], ["kobold", 12, 12],
+          ["rat", 10, 13], ["goblin", 11, 13], ["goblin", 12, 13], ["kobold", 9, 13], ["kobold", 13, 13],
+          ["kobold", 10, 14], ["rat", 11, 14],
+          // 部屋2 山場・本隊: 中央(33,13)に密集(バランステスト: 8→16体, 2倍)。前衛=西(低col) / 射手・呪文=中央〜東
+          ["goblinRider", 32, 11], ["goblin", 33, 11], ["goblin", 34, 11],
+          ["hobgoblin", 31, 12], ["goblinBrute", 32, 12], ["goblinShaman", 33, 12], ["goblinArcher", 34, 12], ["goblinArcher", 35, 12],
+          ["hobgoblin", 31, 13], ["goblinBrute", 32, 13], ["goblinShaman", 33, 13], ["goblinArcher", 34, 13], ["goblinArcher", 35, 13],
+          ["goblinRider", 32, 14], ["goblin", 33, 14], ["goblin", 34, 14],
+          // ボス部屋: グリクス + 護衛ホブゴブリン2体(中央57,13)
+          ["goblinKing", 57, 13], ["hobgoblin", 56, 13], ["hobgoblin", 56, 14],
         ],
       },
       "bandits-forest": {
