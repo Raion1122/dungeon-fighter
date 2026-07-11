@@ -8725,30 +8725,33 @@
       counterAura.style.top  = (playerY - camY - 26) + "px";
     }
 
+    // 敵の style.filter / style.opacity は「この関数だけ」が書く。renderWorld から毎フレーム
+    // 呼ばれるため、他所からインラインで書いても次フレームで潰されるからである。
+    // VFX 側は setEnemyVfx() で敵オブジェクトに預け、ここが優先順位をつけて1本にまとめる:
+    //   被弾フラッシュ > VFX (休眠グレースケール / 覚醒閃光 / 霊の半透明 など) > "" (=クラス由来)
+    // リセットに "none" ではなく "" を使うのは必須。"none" はインライン宣言として残り、
+    // クラス側の filter (ボスのオーラ drop-shadow / ゴブリン亜種の hue-rotate) を潰してしまう。
+    function setEnemyVfx(idx, filterStr, opacityStr) {
+      const e = enemies[idx];
+      if (!e) return;
+      if (filterStr  !== undefined) e.vfxFilter  = filterStr  || "";
+      if (opacityStr !== undefined) e.vfxOpacity = opacityStr || "";
+    }
     function updateEnemyDamageFlash(enemyEl, enemy) {
-      // リセットは "none" ではなく "" (インライン宣言そのものを消す)。"none" を書くと
-      // インラインがスタイルシートより強いため、毎フレームここでクラス側の filter
-      // (ボスのオーラ drop-shadow / ゴブリン亜種の色替え hue-rotate) を潰してしまい、
-      // それらが一切画面に出なくなる。
-      //
-      // ⚠️ 未解決: この関数は敵要素の style.filter を毎フレーム上書きする = 事実上その
-      // 独占所有者になっている。よって他所から el.style.filter に書く一時 VFX
-      // (休眠守護者のグレースケール :15290 / 覚醒の閃光 :15310 / ハイドラ出現 :15534 ほか)
-      // は次フレームで消え、一度も表示されていない。恒久対応にはそれらを CSS クラス化し、
-      // ここはフラッシュだけを扱うようにする必要がある。
-      if (enemy.damageFlashTimer > 0) {
-        const on = enemy.damageFlashTimer % 4 < 2;
-        if (on) {
-          // 攻撃エフェクト Phase1: セピア退色ブリンク → 白くカッと光るパンチに強化 (filter/opacity のみ・transform 不可侵)
-          enemyEl.style.filter = "brightness(2.6) drop-shadow(0 0 4px rgba(255,255,255,0.95))";
-          enemyEl.style.opacity = "1";
-        } else {
-          enemyEl.style.filter = "";
-          enemyEl.style.opacity = "1";
-        }
-      } else {
-        enemyEl.style.filter = "";
-        enemyEl.style.opacity = "1";
+      const flashOn = enemy.damageFlashTimer > 0 && (enemy.damageFlashTimer % 4 < 2);
+      const nextFilter = flashOn
+        ? "brightness(2.6) drop-shadow(0 0 4px rgba(255,255,255,0.95))"   // 白くカッと光るパンチ
+        : (enemy.vfxFilter || "");
+      const nextOpacity = flashOn ? "1" : (enemy.vfxOpacity || "1");
+      // dirty-check: 変わっていないなら書かない。無条件に書くと敵30体 × 60fps = 3,600回/秒の
+      // スタイル無効化になり、クラス側 filter の再解決とスプライト再ペイントを毎フレーム誘発する。
+      if (enemy._filterApplied !== nextFilter) {
+        enemyEl.style.filter = nextFilter;
+        enemy._filterApplied = nextFilter;
+      }
+      if (enemy._opacityApplied !== nextOpacity) {
+        enemyEl.style.opacity = nextOpacity;
+        enemy._opacityApplied = nextOpacity;
       }
     }
 
@@ -12665,9 +12668,9 @@
       } else {
         const el = enemyElements[idx];
         if (el) {
-          el.style.filter = "brightness(2.4) saturate(3)";
+          setEnemyVfx(idx, "brightness(2.4) saturate(3)");
           await sleepMs(280);
-          el.style.filter = "";
+          setEnemyVfx(idx, "");
         } else {
           await sleepMs(350);
         }
@@ -15356,8 +15359,8 @@
           if (el) {
             el.classList.remove("beast-caged");
             // ワープ後の出現演出 (見えない場所だが念のため)
-            el.style.filter = "brightness(1.6) saturate(1.4)";
-            setTimeout(() => { el.style.filter = ""; }, 600);
+            setEnemyVfx(cage.beastIdx, "brightness(1.6) saturate(1.4)");
+            setTimeout(() => { setEnemyVfx(cage.beastIdx, ""); }, 600);
           }
         }
       }
@@ -15382,7 +15385,7 @@
         const el = enemyElements[ei];
         if (el) {
           el.classList.add("guardian-dormant");
-          el.style.filter = "grayscale(0.85) brightness(0.78) contrast(0.9)";
+          setEnemyVfx(ei, "grayscale(0.85) brightness(0.78) contrast(0.9)");   // 覚醒するまで恒常
         }
       }
     }
@@ -15402,8 +15405,8 @@
         const el = enemyElements[i];
         if (el) {
           el.classList.remove("guardian-dormant");
-          el.style.filter = "brightness(1.8) saturate(1.3) drop-shadow(0 0 12px rgba(180,200,255,0.9))";
-          setTimeout(() => { el.style.filter = ""; }, 700);
+          setEnemyVfx(i, "brightness(1.8) saturate(1.3) drop-shadow(0 0 12px rgba(180,200,255,0.9))");
+          setTimeout(() => { setEnemyVfx(i, ""); }, 700);   // 石化フィルタもここで解除される
         }
       }
       window.__inMidBoss = true;
@@ -15450,8 +15453,8 @@
         const el = enemyElements[ei];
         if (el) {
           el.classList.add("caelum-spirit");
-          el.style.filter = "brightness(1.25) saturate(0.6) drop-shadow(0 0 14px rgba(160,200,255,0.85))";
-          el.style.opacity = "0.82";
+          // 霊の半透明は恒常 (対話が終わるまで)
+          setEnemyVfx(ei, "brightness(1.25) saturate(0.6) drop-shadow(0 0 14px rgba(160,200,255,0.85))", "0.82");
         }
       }
     }
@@ -15503,7 +15506,7 @@
       grantTempleBlessing();
       await sleepMs(1600);
       const el = enemyElements[caelumIdx];   // passiveNpc は維持 (クリア非ブロック)、視覚だけ消す
-      if (el) { el.style.transition = "opacity 1.4s"; el.style.opacity = "0"; }
+      if (el) { el.style.transition = "opacity 1.4s"; setEnemyVfx(caelumIdx, undefined, "0"); }
     }
 
     // 敵対ルート: Horrifying Visage (恐怖セーヴ DC13 流用) → 戦闘化 (tryStartEncounter が単体戦を開始)。
@@ -15520,9 +15523,8 @@
       const el = enemyElements[caelumIdx];
       if (el) {
         el.classList.remove("caelum-spirit");
-        el.style.opacity = "1";
-        el.style.filter = "brightness(1.6) saturate(1.3)";
-        setTimeout(() => { if (el) el.style.filter = ""; }, 700);
+        setEnemyVfx(caelumIdx, "brightness(1.6) saturate(1.3)", "1");   // 半透明を解いて実体化
+        setTimeout(() => { setEnemyVfx(caelumIdx, ""); }, 700);
       }
     }
 
@@ -15622,13 +15624,13 @@
       const el = enemyElements[hydraIdx];
       if (el) {
         el.style.display = "block";
-        el.style.opacity = "1";
         // 沼の底からせり上がる出現: clip-path で下→全身リビール
         // (transform はスプライト左右反転 scaleX(-1) と競合するため不使用)
         el.classList.add("hydra-emerge");
-        el.style.filter = "brightness(1.7) saturate(1.4) drop-shadow(0 0 18px rgba(80,200,140,0.9))";
+        setEnemyVfx(hydraIdx, "brightness(1.7) saturate(1.4) drop-shadow(0 0 18px rgba(80,200,140,0.9))", "1");
         setTimeout(() => {
-          if (el) { el.style.filter = ""; el.classList.remove("hydra-emerge"); el.style.clipPath = ""; }
+          setEnemyVfx(hydraIdx, "");
+          if (el) { el.classList.remove("hydra-emerge"); el.style.clipPath = ""; }
         }, 1000);
       }
     }
@@ -20275,8 +20277,8 @@
         // 出現演出: 一瞬ブライトネス上昇
         const el = enemyElements[newIdx];
         if (el) {
-          el.style.filter = "brightness(2.8) saturate(2) drop-shadow(0 0 10px rgba(200,255,200,0.9))";
-          setTimeout(() => { el.style.filter = ""; }, 450);
+          setEnemyVfx(newIdx, "brightness(2.8) saturate(2) drop-shadow(0 0 10px rgba(200,255,200,0.9))");
+          setTimeout(() => { setEnemyVfx(newIdx, ""); }, 450);
         }
         await sleepMs(400);
       }
