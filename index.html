@@ -6232,11 +6232,16 @@
     // 敵の汎用スプライト描画
     function updateEnemyAnim(enemy, el) {
       const def = enemy.def;
+      // 表示サイズは createEnemyDom が def から算出して固定した定数。
+      // el.offsetWidth/offsetHeight を読むと style 書込み直後に強制同期レイアウトが敵の数だけ走るので、def から再計算する。
+      const dsScale = def.displaySize / def.frameW;
+      const dsw = Math.round(def.frameW * dsScale);
+      const dsh = Math.round(def.frameH * dsScale);
       // 単フレーム流用スプライト (ミミックの chest_open.png 等): 状態に依らず frame0/row0 を表示。
       // (多行シート前提の row 計算だと chase/alert/death 状態で背景が画像外→透明になるのを防ぐ)
       if (def.staticSprite) {
         el.style.backgroundPosition = "0 0";
-        const pCXs = playerX + 48, eCXs = enemy.x + el.offsetWidth / 2;
+        const pCXs = playerX + 48, eCXs = enemy.x + dsw / 2;
         el.style.transform = composeSpriteTransform(pCXs < eCXs, stepImpactOffset(enemy));
         return;
       }
@@ -6260,8 +6265,6 @@
         frame = Math.floor(enemy.animTick / framesPerStep) % frameCount;
       }
       row += (def.rowOffset || 0);
-      const dsw = el.offsetWidth;
-      const dsh = el.offsetHeight;
       el.style.backgroundPosition = `${-frame * dsw}px ${-row * dsh}px`;
       // プレイヤーへの向きで左右反転 + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
       const pCX = playerX + 48;
