@@ -2650,6 +2650,14 @@
     const fxCanvas = document.getElementById("fxCanvas");
     const fxctx = fxCanvas.getContext("2d");
 
+    // [camera-perf STEP7] lightingCanvas の backing/CSS 比。スマホ(ui-compact)では 0.5 に落とし、
+    // フォグの塗り面積を 1/4 にする。renderLighting のコストの 89% は「放射グラデを destination-out で
+    // ラスタする画素数」で、効くレバーは解像度だけ (グラデのキャッシュ化は実測 0.000ms 削減だった)。
+    // renderLighting 側は CSS px 座標で描き続ける — lctx の CTM が lightScale を掛けて吸収する。
+    // lightCssW/H を持つのは、renderLighting が毎フレーム innerWidth を読んで layout を flush しないため。
+    let lightScale = 1;
+    let lightCssW = 0, lightCssH = 0;
+
     const TILE_SIZE = 96;
     const MAP_W = 72;   // v7.7: 3部屋化でボス部屋を左シフト(col68終端)→マップ横幅を86から縮小
     const MAP_H = 28;
@@ -2796,8 +2804,19 @@
       mapCanvas.width = window.innerWidth;
       mapCanvas.height = window.innerHeight;
       ctx.imageSmoothingEnabled = false;
-      lightingCanvas.width = window.innerWidth;
-      lightingCanvas.height = window.innerHeight;
+      // [camera-perf STEP7] フォグ: スマホでは backing を半解像度に (塗り面積 1/4)。表示サイズは等倍のまま。
+      // ⚠️ style.width/height は必須。lightingCanvas は CSS に寸法を持たず属性値がそのままレイアウト幅に
+      //    なるため、書かないと要素が半分に縮み、画面の右下 3/4 がフォグ無しで露出する (= フォグオブウォーが死ぬ)。
+      // ⚠️ canvas.width への代入は CTM/合成モード/fillStyle を全リセットするので、setTransform を毎回張り直す。
+      // ⚠️ fxCompact() の結果はキャッシュしない (回転で compact ⇄ 非compact を跨ぐため毎回読む)。
+      lightScale = fxCompact() ? 0.5 : 1;
+      lightCssW = window.innerWidth;
+      lightCssH = window.innerHeight;
+      lightingCanvas.width  = Math.max(1, Math.ceil(lightCssW * lightScale));
+      lightingCanvas.height = Math.max(1, Math.ceil(lightCssH * lightScale));
+      lightingCanvas.style.width  = lightCssW + "px";
+      lightingCanvas.style.height = lightCssH + "px";
+      lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
       // FX canvas: DPR 対応 (発光グラデを高密度画面で滲ませない)。上限2で高DPR端末の塗り面積暴発を抑制。
       // setTransform(dpr,...) 後は CSS px 座標で描けるので draw 側は DPR 非依存。
       const fxDpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2813,8 +2832,11 @@
     // ⚠️ resize/orientationchange のリスナは「この1本だけ」。増やすと回転やアドレスバーの
     // 伸縮のたびに canvas を複数回リサイズし世界を複数回描き直す (モバイルで頻発する)。
     function onViewportResize() {
-      resizeCanvas();
+      // ⚠️ 順序厳守: computeUiMetrics() が body.ui-compact を付け外しし、resizeCanvas() がそれを
+      //    fxCompact() 経由で読んで lightScale を決める。逆順だと回転時に 1 フレーム古い compact 判定で
+      //    フォグの解像度が決まる。resizeCanvas は UI_MENU_WIDTH 等を一切読まないのでこの順序で安全。
       computeUiMetrics();
+      resizeCanvas();
       // Phase4: 回転等で非compactに復帰したら、開いたままのドロワー(幽霊パネル)を閉じる
       if (!(document.body && document.body.classList.contains("ui-compact"))) closeDrawer();
       clampPlayerToMap();   // 画面が広がってマップ外が見えた場合に主人公を戻す (関数宣言=ホイスティング済)
@@ -3425,6 +3447,10 @@
       }
     }
     computeUiMetrics();   // 初回適用 (UI_MENU_WIDTH/UI_LOG_HEIGHT の let 初期化後に実行)
+    // [camera-perf STEP7] ui-compact が確定した「後」にフォグ解像度を再確定する。
+    // 初回の resizeCanvas() は上の computeUiMetrics() より前(定義直後)に走るので、これが無いと
+    // スマホでも lightScale=1 のまま焼かれ、施策が丸ごと無効化される (機能バグにならないので気付けない)。
+    resizeCanvas();
     // 主人公(hero)のワールド座標を取得。カメラは前衛(隊列先頭)ではなく主人公を中央に据えるため、
     // heroIsHead なら先頭 playerX/Y、主人公が ally なら heroRef(無ければ allies 内の hero) を返す。
     function getHeroWorldPos() {
@@ -3686,6 +3712,19 @@
       window.__rangedFx = { arrow: spawnArrow, fireball: spawnFireballProjectile,
                             missileBarrage: castMagicMissileBarrage,
                             setPhase: (p) => { currentPhase = p; } };
+      // [camera-perf STEP7] フォグ画素サンプリングの単一窓口 (read-only・本番からは呼ばない)。
+      // lightingCanvas の backing はスマホで半解像度になるので、ドライバは CSS px でここへ問い合わせる。
+      // 返す α は backing store の値なので lightScale に依存しない (暗黒=255 / 記憶=178 / 現在視界≈0)。
+      window.__fogProbe = {
+        get scale() { return lightScale; },
+        get cssW() { return lightCssW; },
+        get cssH() { return lightCssH; },
+        alphaAt(cssX, cssY) {
+          const x = Math.min(lightingCanvas.width  - 1, Math.max(0, Math.floor(cssX * lightScale)));
+          const y = Math.min(lightingCanvas.height - 1, Math.max(0, Math.floor(cssY * lightScale)));
+          return lctx.getImageData(x, y, 1, 1).data[3];
+        },
+      };
     } catch (e) {}
 
     function isNorthWall(tx, ty) {
@@ -3698,12 +3737,20 @@
 
     // ── 動的ライティング(フォグオブウォー + 松明 + プレイヤー視野) ──
     function renderLighting() {
-      const W = lightingCanvas.width;
-      const H = lightingCanvas.height;
-      // 未探索タイル用: ほぼ完全な暗闇
+      // [camera-perf STEP7] W/H は CSS px (backing ではない)。lctx の CTM が lightScale を掛けるので、
+      // 以下の描画・カリング判定は全て CSS px 座標のままでよい。ここを backing px にすると二重スケールで
+      // 全画面 fill・探索タイルのカリング・光源の画面外判定が一斉に壊れる。
+      const W = lightCssW;
+      const H = lightCssH;
+      // 未探索タイル用: ほぼ完全な暗闇。
+      // ⚠️ 背景だけは CTM を外して backing 実寸で塗る。CSS px で (0,0,W,H) を塗ると、cssW が奇数のとき
+      //    backing の最右列/最下行が半分しか塗られず、「未探索なのに明るい筋」が画面端に走る
+      //    (3状態フォグの「暗黒=255」契約が端で破れる)。
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
       lctx.globalCompositeOperation = "source-over";
       lctx.fillStyle = "rgba(3, 5, 10, 1.0)";
-      lctx.fillRect(0, 0, W, H);
+      lctx.fillRect(0, 0, lightingCanvas.width, lightingCanvas.height);
+      lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
 
       // 明かりは destination-out で暗闇を削って描画する
       lctx.globalCompositeOperation = "destination-out";
@@ -3717,13 +3764,23 @@
         const exStartTY = Math.max(0, Math.floor(camY / TILE_SIZE));
         const exEndTX = Math.min(MAP_W - 1, Math.ceil((camX + W) / TILE_SIZE));
         const exEndTY = Math.min(MAP_H - 1, Math.ceil((camY + H) / TILE_SIZE));
-        lctx.fillStyle = "rgba(255,255,255,0.30)";
+        // [camera-perf STEP7] タイルを1枚ずつ fillRect すると、camX がカメラ lerp で常に小数のため
+        // 各矩形の四辺がアンチエイリアスされ、destination-out の継ぎ目が僅かに暗く残る
+        // (96px 間隔の格子ノイズが記憶フォグに焼き付いていた)。Path2D に積んで1回で fill すると
+        // 非ゼロ回転規則で内部が自己ユニオンされ、継ぎ目が縦横とも消える。オペ数も 約49回 → 1回。
+        const memoryPath = new Path2D();
+        let hasMemory = false;
         for (let ty = exStartTY; ty <= exEndTY; ty++) {
           const exRow = exploredTiles[ty];
           for (let tx = exStartTX; tx <= exEndTX; tx++) {
             if (!exRow[tx]) continue;          // 未探索 → 塗らない → 暗黒のまま
-            lctx.fillRect(tx * TILE_SIZE - camX, ty * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE);
+            memoryPath.rect(tx * TILE_SIZE - camX, ty * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE);
+            hasMemory = true;
           }
+        }
+        if (hasMemory) {
+          lctx.fillStyle = "rgba(255,255,255,0.30)";
+          lctx.fill(memoryPath);
         }
       }
 
