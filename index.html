@@ -2188,6 +2188,39 @@
       background: linear-gradient(180deg, rgba(40,110,70,0.95), rgba(20,60,40,0.95));
       border: 2px solid #70d8a0;
     }
+    /* ─── セリフ吹き出し (speech-bubble v1) ─── */
+    .speechBubble {
+      position: absolute;
+      z-index: 45;                        /* lightingCanvas(9) より上 / rollPop(50)・HUD より下 */
+      pointer-events: none;
+      transform: translate(-50%, -100%);  /* 横中央寄せ。JS 側で offsetWidth を測らない (強制同期レイアウト禁止) */
+      max-width: 260px;
+      padding: 6px 11px;
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(250,246,232,0.97), rgba(226,218,196,0.97));
+      border: 2px solid #6b5836;
+      color: #241c10;
+      font-family: 'Times New Roman', "Yu Mincho", serif;
+      font-size: 13px; line-height: 1.35; text-align: center;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.55);
+      animation: speechPop 180ms ease-out;   /* forwards を付けない → JS の opacity フェードが素直に効く */
+    }
+    .speechBubble::after {                /* 下向きのしっぽ */
+      content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -6px;
+      border-left: 6px solid transparent; border-right: 6px solid transparent;
+      border-top: 8px solid #6b5836;
+    }
+    .speechBubble.enemySpeech {           /* ボスの台詞: 血赤 */
+      background: linear-gradient(180deg, rgba(74,26,26,0.96), rgba(40,14,14,0.96));
+      border-color: #b03a3a; color: #ffe0d8; text-shadow: 0 1px 2px #000;
+    }
+    .speechBubble.enemySpeech::after { border-top-color: #b03a3a; }
+    @keyframes speechPop {
+      0%   { opacity: 0; transform: translate(-50%, -100%) scale(0.7); }
+      60%  { opacity: 1; transform: translate(-50%, -100%) scale(1.06); }
+      100% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+    }
+    body.ui-compact .speechBubble { font-size: 12px; padding: 5px 9px; max-width: 200px; }
     @keyframes rollRise {
       0%   { opacity: 0; transform: translate(-50%, 0) scale(0.5); }
       15%  { opacity: 1; transform: translate(-50%, -6px) scale(1.1); }
@@ -6281,6 +6314,161 @@
         fx.el.style.top  = (fx.ty * TILE_SIZE - camY) + "px";
       }
     }
+
+    // ══════════ セリフ吹き出し (speech-bubble v1: index.html 専用) ══════════
+    // tavern.html には同期しない (戦闘ランタイムを持たない。status-effect v1.1 と同じ方針)。
+    // 表示は groundFx と同じ「レジストリ + 毎フレーム再配置」方式 →
+    // カメラ lerp / 画面シェイク / グライドに自動追従する (showRollAt* の座標固定は使わない)。
+    const SPEECH_LINES = {
+      // ── 遭遇 (detectEnemyFamily の種族キー。話者=生存パーティ) ──
+      "encounter.goblinoid": ["ゴブリンめ、数だけは一人前だ!", "耳障りな鳴き声だ…来るぞ!", "小物と侮るな、囲まれるぞ!", "背中は任せた!"],
+      "encounter.bandit":    ["盗賊か。金なら渡さんぞ!", "囲まれる前に崩せ!", "汚い手口だ…叩き潰す!", "命が惜しけりゃ失せろ!"],
+      "encounter.lizardman": ["沼から来るぞ、足元を見ろ!", "水辺は奴らの庭だ、気を抜くな!", "鱗は硬い、急所を狙え!", "泥に足を取られるな!"],
+      "encounter.orc":       ["オークだ! 正面から来るぞ!", "力比べは望むところだ!", "その斧、受け止めてやる!", "隊列を崩すな、押し返せ!"],
+      "encounter.undead":    ["死者が歩いている…聖なる光を!", "冷たい…アンデッドだ!", "安らかに眠らせてやる!", "骨など砕けばいい!"],
+      "encounter.beast":     ["獣だ! 動きが速いぞ!", "牙に気をつけろ!", "背を向けるな!"],
+      "encounter.hydra":     ["水が…何かが浮き上がってくる!", "首が…何本あるんだ!?", "首を落とせ! 焼き潰せ!", "こいつは物語の怪物だ…!"],
+      "encounter.dragon":    ["赤竜…! これが最後の戦いだ!", "息を吐かせるな、散開しろ!", "怯むな! ここまで来たんだ!", "竜殺しになるぞ!"],
+      "encounter.generic":   ["敵だ! 構えろ!", "来るぞ、備えろ!", "ここが正念場だ!"],
+      // ── 発見系 (話者=生存パーティ) ──
+      "find.trap":  ["待て! 床が怪しい…罠だ。", "見つけたぞ。踏むなよ?", "危ない、足を止めろ!", "こういうのは大抵、痛い。"],
+      "find.chest": ["宝箱だ! 開けようぜ!", "お宝の匂いがするぞ。", "中身は山分けだからな?", "報酬は正当な取り分だ。"],
+      // ── フェーズ系 (話者=生存パーティ) ──
+      "phase.rest":  ["ふう…少し休ませてくれ。", "傷を見せろ、手当てする。", "携行食はまだ残ってるか?", "少しだけだぞ。気を抜くな。"],
+      "quest.clear": ["終わったな…帰ろう。", "俺たちの勝ちだ!", "酒場で祝杯だ!", "生きて帰れた。それが一番だ。"],
+      // ── ボス系 (話者=ボス本人固定) ──
+      "boss.appear": ["よく来た。ここが貴様らの墓場だ。", "定命の者が…身の程を知れ!", "跪け。慈悲はくれてやる。", "面白い。楽しませてみせろ。"],
+      "boss.rage":   ["この程度で終わると思うな!", "遊びは終わりだ!", "貴様ら…許さん!", "ならば、本気を出すまで!"],
+      // ── ボス撃破 (話者=生存パーティ。ボスは死んでいるので喋れない) ──
+      "boss.defeat": ["やったぞ! 討ち取った!", "ボスは落ちた! 残りを片付けろ!", "これで終わりだ…!", "見たか、これが冒険者だ!"],
+      // ── 戦闘系: 文言だけ用意し、v1 ではフックを差さない (頻度が高く煩いため。後で有効化判断) ──
+      "combat.crit":     ["会心だ!", "見たか、今の一撃!", "これで決まりだ!"],
+      "combat.lowhp":    ["まずい…もう保たん!", "誰か、回復を!", "まだ…立てる…!"],
+      "combat.allydown": ["倒れたぞ! 助け起こせ!", "くそっ、下がれ!", "無駄死にはさせん!"],
+    };
+    // ボス個別の台詞は "boss.rage.pharaxus" のようなキーを後から足すだけで効く (resolver が個別 > 汎用)。
+
+    const SPEECH_MS        = 2000;  // 1件の表示時間
+    const SPEECH_GAP_MS    = 260;   // 次の吹き出しまでの間
+    const SPEECH_STALE_MS  = 6000;  // 予約の賞味期限 (今と合わない台詞を喋らない)
+    const SPEECH_MAX_QUEUE = 3;     // 溢れたら古い順に捨てる
+    const SPEECH_LIFT      = 20;    // rollPop(頭上 -24) / 名前ラベル(-28) との被り回避
+    const SPEECH_EDGE_M    = 140;   // 画面内判定の余白 (吹き出し半幅ぶん)
+
+    const speechQueue   = [];   // 未表示の予約 { key, text, speaker, dropAfter }
+    const speechBubbles = [];   // 表示中 { el, unit, expireAt }  ← groundFxElements と同じ規約
+    const speechLog     = [];   // 検証用リングバッファ (実際に表示されたものだけ、最新50件)
+    let speechBusyUntil = 0;
+
+    function resolveSpeechLines(key, eventKey) {   // 個別 > 汎用 > 無音 (resolveNarrationLine と同じ)
+      if (eventKey && Array.isArray(SPEECH_LINES[key + "." + eventKey])) return SPEECH_LINES[key + "." + eventKey];
+      return Array.isArray(SPEECH_LINES[key]) ? SPEECH_LINES[key] : null;
+    }
+    // unit は "player" (リーダー) か ally/enemy オブジェクト (statusArrayOf と同じ規約)
+    function speechKind(u) {
+      if (u === "player") return "player";
+      if (!u || typeof u !== "object") return null;
+      return (u.classKey !== undefined) ? "ally" : "enemy";   // ally は classKey / enemy は type を持つ
+    }
+    function speechAlive(u) {
+      if (u === "player") return hp > 0 && !gameOver;
+      return !!(u && u.alive);
+    }
+    function speechAnchor(u) {   // 頭上アンカー(ワールド座標)。既存 showRollAt* の実測値 + SPEECH_LIFT
+      const k = speechKind(u);
+      if (k === "player") return { x: playerX + 48, y: playerY - 24 - SPEECH_LIFT };
+      if (!u) return null;
+      const size = (u.def && u.def.displaySize) || 96;
+      if (k === "ally") return { x: u.x + size / 2, y: u.y - 24 - SPEECH_LIFT };
+      return { x: u.x + size / 2, y: u.y - 32 - SPEECH_LIFT };
+    }
+    // 画面内か。lightCssW/H は resize 時のみ更新されるキャッシュ → 強制同期レイアウトを起こさない
+    function speechOnScreen(u) {
+      const a = speechAnchor(u);
+      if (!a) return false;
+      const vw = lightCssW || window.innerWidth, vh = lightCssH || window.innerHeight;
+      const sx = a.x - camX, sy = a.y - camY;
+      return sx > UI_MENU_WIDTH + SPEECH_EDGE_M && sx < vw - SPEECH_EDGE_M
+          && sy > SPEECH_EDGE_M * 0.4 && sy < vh - UI_LOG_HEIGHT;
+    }
+    function pickPartySpeaker() {   // 生存パーティからランダム。画面内を優先、全員画面外なら妥協
+      const alive = [];
+      if (hp > 0 && !gameOver) alive.push("player");
+      if (typeof allies !== "undefined") for (const a of allies) if (a && a.alive) alive.push(a);
+      if (!alive.length) return null;
+      const vis = alive.filter(speechOnScreen);
+      const pool = vis.length ? vis : alive;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+    // 台詞を1件キューに積む。speaker 省略 = "party" (表示直前に選出 → 滞留中の死亡に強い)
+    function sayLine(triggerKey, speaker, opts) {
+      opts = opts || {};
+      const lines = resolveSpeechLines(triggerKey, opts.eventKey);
+      if (!lines || !lines.length) return false;
+      if (speechQueue.length >= SPEECH_MAX_QUEUE) speechQueue.shift();
+      speechQueue.push({
+        key: triggerKey,
+        text: lines[Math.floor(Math.random() * lines.length)],
+        speaker: speaker || "party",
+        dropAfter: Date.now() + SPEECH_STALE_MS,
+      });
+      return true;
+    }
+    function _renderBubble(entry) {
+      let unit = entry.speaker;
+      if (unit === "party") unit = pickPartySpeaker();   // ★ 表示の瞬間に選ぶ
+      if (!unit || !speechAlive(unit)) return false;     // 話者不在/死亡 → この予約は捨てる
+      const kind = speechKind(unit);
+      const el = document.createElement("div");
+      el.className = "speechBubble" + (kind === "enemy" ? " enemySpeech" : "");
+      el.textContent = entry.text;                      // textContent: HTML 混入なし
+      const a = speechAnchor(unit);
+      el.style.left = (a.x - camX) + "px";
+      el.style.top  = (a.y - camY) + "px";
+      enemyLayer.appendChild(el);                       // enemyLayer は stacking context を作らない → z-index は大域で効く
+      speechBubbles.push({ el, unit, expireAt: Date.now() + SPEECH_MS });
+      speechBusyUntil = Date.now() + SPEECH_MS + SPEECH_GAP_MS;
+      speechLog.push({ key: entry.key, text: entry.text, kind, at: Date.now() });
+      if (speechLog.length > 50) speechLog.shift();
+      return true;
+    }
+    // renderWorld から毎フレーム。読み取り(offsetWidth 等)は一切しない — 書き込みのみ
+    function updateSpeechBubbles() {
+      const now = Date.now();
+      for (let i = speechBubbles.length - 1; i >= 0; i--) {
+        const b = speechBubbles[i];
+        if (now >= b.expireAt || !speechAlive(b.unit)) {   // 期限切れ / 話者が死んだ → 即撤去
+          b.el.remove(); speechBubbles.splice(i, 1); continue;
+        }
+        const remain = b.expireAt - now;
+        if (remain < 300) b.el.style.opacity = String(remain / 300);
+        const a = speechAnchor(b.unit);
+        b.el.style.left = (a.x - camX) + "px";   // ← カメラ lerp / シェイク / グライドに追従
+        b.el.style.top  = (a.y - camY) + "px";
+      }
+      if (speechBubbles.length || now < speechBusyUntil) return;   // 単一キュー: 1件ずつ
+      while (speechQueue.length) {
+        const entry = speechQueue.shift();
+        if (now > entry.dropAfter) continue;   // 賞味期限切れは黙って捨てる
+        if (_renderBubble(entry)) break;       // 話者不在なら次の予約へ
+      }
+    }
+    function pruneSpeechQueue(keep) {   // 未表示の予約だけ絞る (表示中には触らない)
+      for (let i = speechQueue.length - 1; i >= 0; i--) if (!keep(speechQueue[i].key)) speechQueue.splice(i, 1);
+    }
+    function clearSpeech() {            // リザルト/ゲームオーバー: 全消し (resultOverlay は z=200)
+      speechQueue.length = 0;
+      for (const b of speechBubbles) { try { b.el.remove(); } catch (e) {} }
+      speechBubbles.length = 0;
+      speechBusyUntil = 0;
+    }
+    // ヘッドレス検証用 (window.__narr と同じ思想)
+    window.__speech = {
+      lines: SPEECH_LINES, say: sayLine, resolve: resolveSpeechLines, anchor: speechAnchor,
+      pick: pickPartySpeaker, clear: clearSpeech, log: speechLog,
+      queue: speechQueue, active: speechBubbles, update: updateSpeechBubbles,
+    };
+
     const enemyElements   = [];
     const hpBarElements   = [];
     const hpFillElements  = [];
@@ -7723,6 +7911,7 @@
                  || t === "skeletonArcher" || t === "lich" || t === "caelum") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ + 霊カエルム(敵対時)
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat") fam = "beast";
+        else if (t.startsWith("lizard")) fam = "lizardman";   // Sce3 沼の敵 (Warrior/Hunter/Raider/Priest/Chieftain)。従来 generic に落ちていた
         else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
         else if (t === "pharaxus") fam = "dragon"; // Sce6 最終ボス: レッドドラゴン・ファラクサス
         else if (t === "minotaur") fam = "orc";  // Sce6 中盤の雑魚 (ボスは pharaxus)
@@ -7898,6 +8087,7 @@
         showDMMessage("英気を養った。再び前へ。", 2000);
       } else if (kind === "rest" && prev !== kind) {
         narrate("phase_rest");                       // 休憩フェーズ: 音声付き DM 語り (置換)
+        sayLine("phase.rest");   // ★ speech
       } else if (PHASE_NARRATION[kind] && prev !== kind) {
         showDMMessage(PHASE_NARRATION[kind], 2200);
       }
@@ -8899,6 +9089,7 @@
       computeVisibleTiles();
       renderLighting();
       updateGroundFx();
+      updateSpeechBubbles();   // ★ speech-bubble: カメラ追従のため毎フレーム再配置
 
       player.style.left = (playerX - camX) + "px";
       player.style.top  = (playerY - camY) + "px";
@@ -9826,6 +10017,7 @@
       // 非ボスの deathLine (カエルム霊・ミミック等) は従来どおり字幕のみ。
       if (enemy.def && enemy.def.isBoss && typeof narrate === "function") {
         setTimeout(() => narrate("boss_defeat", { eventKey: enemy.type, boss: nm }), 600);
+        sayLine("boss.defeat");   // ★ speech: 生存味方が歓声 (ボスは死んでいるので喋れない)
       } else if (enemy.def && enemy.def.deathLine && typeof showDMMessage === "function") {
         setTimeout(() => showDMMessage(`「${enemy.def.deathLine}」 — ${nm}`, 3600), 600);
       }
@@ -11686,6 +11878,7 @@
           currentSpellSlots = { ...currentMaxSpellSlots };
         }
         updateInfo("ダンジョン制覇！\n全ての敵を倒した");
+        sayLine("quest.clear");   // ★ speech: showResult(z=200 のオーバーレイ)ではなく、世界がまだ映っている制覇の瞬間に出す
       }
     }
 
@@ -12861,9 +13054,11 @@
       if (bossIdx !== undefined) {
         const bossName = enemies[bossIdx].def.name;
         narrate("boss_appear", { boss: bossName });   // ボス戦前: 字幕にボス名 / 音声は固定 (置換・A案)
+        sayLine("boss.appear", enemies[bossIdx], { eventKey: enemies[bossIdx].type });   // ★ speech: ボス本人が喋る
       } else {
         const fam = detectEnemyFamily(initialEngaged);
         showDMMessage(ENEMY_FAMILY_MSG[fam] || ENEMY_FAMILY_MSG.generic, 2200);
+        sayLine("encounter." + fam);   // ★ speech: 生存パーティの誰かが反応
       }
 
       try {
@@ -13207,6 +13402,7 @@
         heroBacklineWarpedThisWait = false;
         window.__inMidBoss = isMidBossActive();   // 中ボス撃破済なら false (撃破済は alive=false)。逃げて生存中なら true 維持
         clearCordonZones();   // 設置ゾーンを次エンカへ持ち越さない
+        pruneSpeechQueue(k => k === "boss.defeat" || k === "quest.clear");   // ★ speech: 戦闘スコープの未表示台詞は破棄 (歓声は残す)
         if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
         // エンカウンター終了でセカンドウィンドの使用権を回復 (次戦の立て直し用)
         secondWindUsed = false;
@@ -15955,6 +16151,7 @@
       if (pendingTraps.some(t => t.found)) {
         showBanner("⚠ 罠を見つけた!", 1400);
         showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
+        sayLine("find.trap");   // ★ speech
       }
       if (found > 0) {
         updateInfo(`${rep} が知覚判定に成功! (${res.total} ≧ DC ${res.dc}) — 罠${found}件を発見`);
@@ -15976,6 +16173,7 @@
       }
       if (pendingChests.some(c => c.found)) {
         showBanner("🎁 宝箱を見つけた!", 1400);
+        sayLine("find.chest");   // ★ speech
       }
       if (found > 0) {
         updateInfo(`${rep} が捜査判定に成功! (${res.total} ≧ DC ${res.dc}) — ${found}件を発見`);
@@ -21108,6 +21306,7 @@
           enemy.hp <= enemy.maxHp * (def.ragePhaseHpRatio || 0.5)) {
         enemy.ragePhaseEntered = true;
         enemy.phase = 1;
+        sayLine("boss.rage", enemy, { eventKey: enemy.type });   // ★ speech: HP50% = 既存の激怒ラッチを流用 (新フラグ不要)
         if (def.ragePhaseDefensive) {
           // 防御特化フェーズ (スカーの煙幕): AC+4, 攻撃強化なし
           showBanner(`💨 ${def.name} 煙幕! 💨`, 1500);
@@ -22004,6 +22203,7 @@
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
       resultShown = true;
+      clearSpeech();   // ★ speech: リザルト(z=200)で吹き出しを一掃
       summonSlot = null;   // 闇市召喚 (M8): クエスト終了で召喚枠をクリア (同行 ally は酒場復帰のリロードで自然消滅)
       if (window.GameAudio) { GameAudio.stopBgm(); GameAudio.playJingle(win ? "victory" : "defeat"); }
       window.__inBossRoom = false;
