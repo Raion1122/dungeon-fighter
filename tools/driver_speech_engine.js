@@ -226,13 +226,21 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     layoutRead === null, layoutRead ? ('禁止 API を検出: ' + layoutRead) : 'クリーン');
 
   // ── (6) 死亡した話者では出ない / 生存した話者では出る ──
-  await page.evaluate(() => {
-    window.__speech.clear();
-    window.__speech.say('find.chest', { alive: false, x: 300, y: 300, classKey: 'warrior', def: { displaySize: 96 } });
+  // ⚠ 全体件数で数えてはいけない: autoplay 中はゲーム自身が喋る (v2 の敵の鳴き声で更に増えた)。
+  // 「我々が渡したスタブ話者の吹き出しが出ていないこと」を identity (b.unit === stub) で見る。
+  const dead6 = await page.evaluate(async () => {
+    const s = window.__speech;
+    s.clear();
+    const stub = { alive: false, x: 300, y: 300, classKey: 'warrior', def: { displaySize: 96 } };
+    s.say('find.chest', stub);
+    await new Promise(r => setTimeout(r, 400));
+    return {
+      mine: s.active.filter(b => b.unit === stub).length,   // ← 本命: 0 でなければならない
+      strays: s.active.filter(b => b.unit !== stub).map(b => b.el.textContent),   // 背景のゲーム発話 (無罪)
+    };
   });
-  await sleep(400);
-  const nDead = await page.evaluate(() => document.querySelectorAll('.speechBubble').length);
-  check('(6) 死亡した話者では吹き出しが出ない', nDead === 0, 'n=' + nDead);
+  check('(6) 死亡した話者では吹き出しが出ない', dead6.mine === 0,
+    'mine=' + dead6.mine + (dead6.strays.length ? ' / 背景の発話(無罪): ' + dead6.strays.join(',') : ''));
 
   await page.evaluate(() => {
     window.__speech.clear();

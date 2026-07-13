@@ -2215,6 +2215,16 @@
       border-color: #b03a3a; color: #ffe0d8; text-shadow: 0 1px 2px #000;
     }
     .speechBubble.enemySpeech::after { border-top-color: #b03a3a; }
+    /* v2: 敵の鳴き声。血赤(enemySpeech)はボスの「意志ある台詞」専用に温存し、
+       雑魚の唸り声はくすんだ灰褐色・小さめ・斜体で一段下の存在感にする。 */
+    .speechBubble.crySpeech {
+      background: linear-gradient(180deg, rgba(58,52,46,0.92), rgba(32,28,24,0.92));
+      border-color: #7a6b58; color: #ded3c2; text-shadow: 0 1px 2px #000;
+      font-size: 12px; font-style: italic;
+      padding: 4px 9px; max-width: 200px;
+      box-shadow: 0 2px 7px rgba(0,0,0,0.45);
+    }
+    .speechBubble.crySpeech::after { border-top-color: #7a6b58; }
     @keyframes speechPop {
       0%   { opacity: 0; transform: translate(-50%, -100%) scale(0.7); }
       60%  { opacity: 1; transform: translate(-50%, -100%) scale(1.06); }
@@ -6322,6 +6332,7 @@
     const SPEECH_LINES = {
       // ── 遭遇 (detectEnemyFamily の種族キー。話者=生存パーティ) ──
       "encounter.goblinoid": ["ゴブリンめ、数だけは一人前だ!", "耳障りな鳴き声だ…来るぞ!", "小物と侮るな、囲まれるぞ!", "背中は任せた!"],
+      "encounter.kobold":    ["コボルドだ! 数が多いぞ!", "キャンキャンうるさい奴らめ!", "小さいが、群れると厄介だ!", "狡猾だぞ、足元に気をつけろ!"],
       "encounter.bandit":    ["盗賊か。金なら渡さんぞ!", "囲まれる前に崩せ!", "汚い手口だ…叩き潰す!", "命が惜しけりゃ失せろ!"],
       "encounter.lizardman": ["沼から来るぞ、足元を見ろ!", "水辺は奴らの庭だ、気を抜くな!", "鱗は硬い、急所を狙え!", "泥に足を取られるな!"],
       "encounter.orc":       ["オークだ! 正面から来るぞ!", "力比べは望むところだ!", "その斧、受け止めてやる!", "隊列を崩すな、押し返せ!"],
@@ -6341,24 +6352,94 @@
       "boss.rage":   ["この程度で終わると思うな!", "遊びは終わりだ!", "貴様ら…許さん!", "ならば、本気を出すまで!"],
       // ── ボス撃破 (話者=生存パーティ。ボスは死んでいるので喋れない) ──
       "boss.defeat": ["やったぞ! 討ち取った!", "ボスは落ちた! 残りを片付けろ!", "これで終わりだ…!", "見たか、これが冒険者だ!"],
-      // ── 戦闘系: 文言だけ用意し、v1 ではフックを差さない (頻度が高く煩いため。後で有効化判断) ──
+      // ── 戦闘系 (v2 で有効化。頻度は sayCritLine / checkPartySpeech 側のクールダウンとラッチで絞る) ──
       "combat.crit":     ["会心だ!", "見たか、今の一撃!", "これで決まりだ!"],
       "combat.lowhp":    ["まずい…もう保たん!", "誰か、回復を!", "まだ…立てる…!"],
       "combat.allydown": ["倒れたぞ! 助け起こせ!", "くそっ、下がれ!", "無駄死にはさせん!"],
+      // ── 敵の鳴き声 (v2。話者=敵本人。resolver が "enemy.cry.<e.type>" を個別解決し、無ければ汎用へ) ──
+      // 環境音あつかい (優先度 0): 誰も喋っていない時だけ鳴くので、遭遇・罠・ボスの台詞を押し出さない。
+      "enemy.cry":                ["グアアッ!", "ウガアッ!", "シャアアッ!"],
+      "enemy.cry.rat":            ["キシャアッ!", "チュウウ…ッ!", "キィーッ!"],
+      "enemy.cry.goblin":         ["キー! キー!", "ギャギャッ!", "ケケケッ!"],
+      "enemy.cry.goblinArcher":   ["キーッ! 射て射てェ!", "ギャッ! 当たれェ!"],
+      "enemy.cry.goblinShaman":   ["グギャギャ…ゴブ・ラーッ!", "呪ってやるゥ…!"],
+      "enemy.cry.goblinBrute":    ["グォォォッ!", "ブチ殺すゥ!"],
+      "enemy.cry.goblinRider":    ["キーッ! 走れェ!", "轢いてやらァ!"],
+      "enemy.cry.goblinKing":     ["ギャギャギャッ! 殺せェ!", "キィーッ! 跪けェ!"],
+      "enemy.cry.goblinChariot":  ["ガラガラガラッ!", "どけどけェーッ!"],
+      "enemy.cry.hobgoblin":      ["ゴブッ! 隊列を組めェ!", "押し潰せェ!"],
+      "enemy.cry.kobold":         ["キャンキャン!", "クゥーン…キャンッ!", "キャウッ!"],
+      "enemy.cry.bandit":         ["金を置いていきなァ!", "命が惜しけりゃなァ!"],
+      "enemy.cry.banditArcher":   ["動くんじゃねえ!", "射抜いてやらァ!"],
+      "enemy.cry.banditMage":     ["燃えちまいな!", "小癪な…!"],
+      "enemy.cry.banditHeavy":    ["ドケェッ!", "潰してやらァ!"],
+      "enemy.cry.scar":           ["フン、いい面構えだ。", "ここは俺の縄張りだぜ?"],
+      "enemy.cry.shadowBeast":    ["シャアアアッ…!", "…グルルルル", "…ズ…ズズ…"],
+      "enemy.cry.lizardWarrior":  ["シャアッ!", "シャーッ!"],
+      "enemy.cry.lizardHunter":   ["シューッ…", "シャッ! シャッ!"],
+      "enemy.cry.lizardRaider":   ["シャギャアッ!", "シャアアッ!"],
+      "enemy.cry.lizardPriest":   ["シャ・ス・スゥ…蛇神よ!", "スゥゥ…贄を…"],
+      "enemy.cry.lizardChieftain":["シャアアアッ! 沼を汚す者め!", "シャッ! 我が牙を受けよ!"],
+      "enemy.cry.hydra":          ["シャアアアアアッ!!", "ゴアアアアッ!"],
+      "enemy.cry.orcGrunt":       ["ウォラァッ!", "グォッ!"],
+      "enemy.cry.orcArcher":      ["射てェッ!", "グァッ!"],
+      "enemy.cry.orcShaman":      ["グォル・ガーッ!", "呪いを受けろォ!"],
+      "enemy.cry.orcBerserker":   ["ウォオオオッ!", "血だァ! 血をよこせェ!"],
+      "enemy.cry.garrock":        ["グォォラァッ!", "踏み潰してくれる!"],
+      "enemy.cry.stoneGolem":     ["ゴ… ゴ… ゴ…", "ズシン…ッ!"],
+      "enemy.cry.animatedArmor":  ["ガシャン! ガシャン!", "カチャ…カチャ…"],
+      "enemy.cry.skeleton":       ["カタカタ…カタッ", "ガチャ…ガチャ…"],
+      "enemy.cry.skeletonArcher": ["カタッ…カタカタッ!", "キシッ…"],
+      "enemy.cry.zombie":         ["ウゥゥ…アァァ…", "ゥゥ…肉…ィ…"],
+      "enemy.cry.wraith":         ["ヒュゥゥゥ…", "…冷たかろう…"],
+      "enemy.cry.lich":           ["カカカ…笑わせる。", "塵に還れ。"],
+      "enemy.cry.caelum":         ["…去れ…ここは墓所だ…", "…安らぎを…乱すな…"],
+      "enemy.cry.orc":            ["ウォラァッ!", "グォォッ!"],
+      "enemy.cry.minotaur":       ["ブモー! ブモー!", "ブモオオオッ!", "フンガアッ!"],
+      "enemy.cry.pharaxus":       ["グオオオオオッ!!", "ゴアアアッ! 灰にしてくれる!"],
+      "enemy.cry.mimic":          ["ガチンッ! ガチンッ!", "…ニタァ…"],
+      "enemy.cry.ghostFlame":     ["ヒヒヒ…", "フワ…フワ…"],
+      "enemy.cry.plagueFrog":     ["ゲコォッ!", "ゲロ…ゲロ…"],
+      "enemy.cry.ruinSpider":     ["シャカシャカ…", "キチキチキチ…"],
+      "enemy.cry.direBear":       ["ガアアアッ!", "グオオオッ!"],
+      "enemy.cry.chimera":        ["ガアアッ! メエエエッ!", "シャアアッ! ガルルッ!"],
+      "enemy.cry.griffon":        ["ピギャアアッ!", "キエエエッ!"],
+      "enemy.cry.umber_hulk":     ["ギチギチギチ…", "ゴリッ… ゴリッ…"],
     };
     // ボス個別の台詞は "boss.rage.pharaxus" のようなキーを後から足すだけで効く (resolver が個別 > 汎用)。
 
     const SPEECH_MS        = 2000;  // 1件の表示時間
     const SPEECH_GAP_MS    = 260;   // 次の吹き出しまでの間
     const SPEECH_STALE_MS  = 6000;  // 予約の賞味期限 (今と合わない台詞を喋らない)
-    const SPEECH_MAX_QUEUE = 3;     // 溢れたら古い順に捨てる
+    const SPEECH_MAX_QUEUE = 3;     // 溢れたら「優先度が最も低いもの」から捨てる (v2)
     const SPEECH_LIFT      = 20;    // rollPop(頭上 -24) / 名前ラベル(-28) との被り回避
     const SPEECH_EDGE_M    = 140;   // 画面内判定の余白 (吹き出し半幅ぶん)
 
-    const speechQueue   = [];   // 未表示の予約 { key, text, speaker, dropAfter }
+    // ── v2 の頻度制御 ────────────────────────────────────────────────
+    // 吹き出しは単一キュー (1件2秒ずつ) なので、頻度の高い台詞を素直に積むと
+    // 遭遇・罠・ボスといった「一度きりの大事な台詞」が押し出されて出なくなる。
+    // 対策は 2 段構え: ①優先度 (低いものから捨てる) ②発話側のクールダウン。
+    const SPEECH_CRY_CHANCE   = 0.25;   // 敵1ターンあたり鳴く確率
+    const SPEECH_CRY_CD       = 5200;   // 鳴き声どうしの最短間隔 (全体)
+    const SPEECH_CRY_UNIT_CD  = 12000;  // 同じ個体が続けざまに鳴かない
+    const SPEECH_CRIT_CHANCE  = 0.5;    // クリティカルの半分は黙って殴る
+    const SPEECH_CRIT_CD      = 6000;   // AoE の複数クリ / 同ラウンドの連発を1件に潰す
+    const SPEECH_LOWHP_RATIO  = 0.25;   // これを下回った「瞬間」に1回だけ喋る
+    const SPEECH_LOWHP_REARM  = 0.40;   // 回復でここを超えたらラッチを解除 (閾値付近の連呼を防ぐ)
+
+    const speechQueue   = [];   // 未表示の予約 { key, text, speaker, dropAfter, prio }
     const speechBubbles = [];   // 表示中 { el, unit, expireAt }  ← groundFxElements と同じ規約
     const speechLog     = [];   // 検証用リングバッファ (実際に表示されたものだけ、最新50件)
     let speechBusyUntil = 0;
+    let speechCryCdUntil  = 0;
+    let speechCritCdUntil = 0;
+
+    // 優先度: 2 = 一度きりの重要イベント / 1 = 通常 / 0 = 環境音 (敵の鳴き声)
+    function speechPrio(key) {
+      if (key === "enemy.cry") return 0;
+      if (key === "combat.crit" || key === "combat.lowhp" || key === "phase.rest") return 1;
+      return 2;   // encounter.* / find.* / boss.* / quest.clear / combat.allydown
+    }
 
     function resolveSpeechLines(key, eventKey) {   // 個別 > 汎用 > 無音 (resolveNarrationLine と同じ)
       if (eventKey && Array.isArray(SPEECH_LINES[key + "." + eventKey])) return SPEECH_LINES[key + "." + eventKey];
@@ -6401,16 +6482,28 @@
       return pool[Math.floor(Math.random() * pool.length)];
     }
     // 台詞を1件キューに積む。speaker 省略 = "party" (表示直前に選出 → 滞留中の死亡に強い)
+    // opts.prio    : 優先度を明示上書き (省略時は speechPrio(triggerKey))
+    // opts.ambient : 環境音。「キューが空 & 誰も喋っていない」時だけ積む = 重要な台詞を絶対に押し出さない
     function sayLine(triggerKey, speaker, opts) {
       opts = opts || {};
       const lines = resolveSpeechLines(triggerKey, opts.eventKey);
       if (!lines || !lines.length) return false;
-      if (speechQueue.length >= SPEECH_MAX_QUEUE) speechQueue.shift();
+      const prio = (opts.prio !== undefined) ? opts.prio : speechPrio(triggerKey);
+      if (opts.ambient && (speechQueue.length || speechBubbles.length || Date.now() < speechBusyUntil)) return false;
+      if (speechQueue.length >= SPEECH_MAX_QUEUE) {
+        // 最も優先度の低い予約 (同率なら最も古いもの) を1件捨てる。
+        // 自分がそれより軽いなら、割り込まずに諦める (重要な台詞を守る)。
+        let w = 0;
+        for (let i = 1; i < speechQueue.length; i++) if (speechQueue[i].prio < speechQueue[w].prio) w = i;
+        if (speechQueue[w].prio > prio) return false;
+        speechQueue.splice(w, 1);
+      }
       speechQueue.push({
         key: triggerKey,
         text: lines[Math.floor(Math.random() * lines.length)],
         speaker: speaker || "party",
         dropAfter: Date.now() + SPEECH_STALE_MS,
+        prio,
       });
       return true;
     }
@@ -6419,8 +6512,9 @@
       if (unit === "party") unit = pickPartySpeaker();   // ★ 表示の瞬間に選ぶ
       if (!unit || !speechAlive(unit)) return false;     // 話者不在/死亡 → この予約は捨てる
       const kind = speechKind(unit);
+      const isCry = (entry.key === "enemy.cry");         // v2: 鳴き声は血赤(ボス専用)ではなく専用の地味なスタイル
       const el = document.createElement("div");
-      el.className = "speechBubble" + (kind === "enemy" ? " enemySpeech" : "");
+      el.className = "speechBubble" + (isCry ? " crySpeech" : (kind === "enemy" ? " enemySpeech" : ""));
       el.textContent = entry.text;                      // textContent: HTML 混入なし
       const a = speechAnchor(unit);
       el.style.left = (a.x - camX) + "px";
@@ -6428,7 +6522,7 @@
       enemyLayer.appendChild(el);                       // enemyLayer は stacking context を作らない → z-index は大域で効く
       speechBubbles.push({ el, unit, expireAt: Date.now() + SPEECH_MS });
       speechBusyUntil = Date.now() + SPEECH_MS + SPEECH_GAP_MS;
-      speechLog.push({ key: entry.key, text: entry.text, kind, at: Date.now() });
+      speechLog.push({ key: entry.key, text: entry.text, kind, cry: isCry, at: Date.now() });
       if (speechLog.length > 50) speechLog.shift();
       return true;
     }
@@ -6461,12 +6555,80 @@
       for (const b of speechBubbles) { try { b.el.remove(); } catch (e) {} }
       speechBubbles.length = 0;
       speechBusyUntil = 0;
+      speechCryCdUntil = 0; speechCritCdUntil = 0;
     }
+
+    // ══════════ v2: 発話トリガー (フックはここだけを呼ぶ) ══════════
+
+    // 敵の鳴き声。既定は環境音 (優先度0・沈黙時のみ・確率とクールダウンで間引く)。
+    // opts.force = true で確定発話 (遭遇の第一声。優先度2で party の反応より先に鳴かせる)。
+    function sayEnemyCry(enemy, opts) {
+      opts = opts || {};
+      if (!enemy || !enemy.alive) return false;
+      const now = Date.now();
+      if (!opts.force) {
+        if (now < speechCryCdUntil) return false;                       // 鳴き声どうしの間隔
+        if (now - (enemy.crySpokeAt || 0) < SPEECH_CRY_UNIT_CD) return false;   // 同一個体の連呼
+        if (Math.random() >= SPEECH_CRY_CHANCE) return false;
+      }
+      const ok = sayLine("enemy.cry", enemy, {
+        eventKey: enemy.type,
+        ambient: !opts.force,
+        prio: opts.force ? 2 : 0,
+      });
+      if (ok) { enemy.crySpokeAt = now; speechCryCdUntil = now + SPEECH_CRY_CD; }
+      return ok;
+    }
+
+    // 味方のクリティカル。呼び出し側は「確認ロール成功」の分岐内からのみ呼ぶこと
+    // (helpless の自動クリは threat 分岐に入らないので、ここには来ない = Sleep 中の敵を殴り続けても喋らない)。
+    // クールダウンが AoE の複数ヒット・同ラウンド複数クリを自動的に1件へ潰す。
+    function sayCritLine(unit) {
+      const now = Date.now();
+      if (now < speechCritCdUntil) return false;
+      if (Math.random() >= SPEECH_CRIT_CHANCE) return false;
+      const ok = sayLine("combat.crit", unit);
+      if (ok) speechCritCdUntil = now + SPEECH_CRIT_CD;
+      return ok;
+    }
+
+    // 低HP / 仲間ダウンの検知。updateInfo (全ダメージ経路の合流点) から毎回呼ばれる。
+    // イベント地点ではなく「現在値のポーリング + ラッチ」にしてあるのは、HP を減らす経路が
+    // 8本 (罠/ブレス/敵呪文/轢き/噛撃 …) に散っていて、しかも「不屈」の分岐が early-return するため。
+    // ここで見れば、どの経路を通っても取りこぼさない。
+    function checkPartySpeech() {
+      if (!gameStarted || gameOver) return;
+      // 頭 (グローバル hp/maxHp。ラッチは playerBuffs に置く → 頭の交代時 copyBuffsInto が面倒を見る)
+      if (typeof playerBuffs !== "undefined" && playerBuffs) {
+        if (hp > maxHp * SPEECH_LOWHP_REARM) playerBuffs.lowHpSpoken = false;
+        else if (hp > 0 && hp <= maxHp * SPEECH_LOWHP_RATIO && !playerBuffs.lowHpSpoken) {
+          playerBuffs.lowHpSpoken = true;
+          sayLine("combat.lowhp", "player");
+        }
+      }
+      if (typeof allies === "undefined") return;
+      for (const a of allies) {
+        if (!a) continue;
+        if (!a.alive) {
+          if (!a.downSpoken) { a.downSpoken = true; sayLine("combat.allydown"); }   // 話者=生存パーティ
+          continue;
+        }
+        a.downSpoken = false;   // 蘇生されたら再武装
+        if (!a.buffs) continue;
+        if (a.hp > a.maxHp * SPEECH_LOWHP_REARM) a.buffs.lowHpSpoken = false;
+        else if (a.hp > 0 && a.hp <= a.maxHp * SPEECH_LOWHP_RATIO && !a.buffs.lowHpSpoken) {
+          a.buffs.lowHpSpoken = true;
+          sayLine("combat.lowhp", a);
+        }
+      }
+    }
+
     // ヘッドレス検証用 (window.__narr と同じ思想)
     window.__speech = {
       lines: SPEECH_LINES, say: sayLine, resolve: resolveSpeechLines, anchor: speechAnchor,
       pick: pickPartySpeaker, clear: clearSpeech, log: speechLog,
       queue: speechQueue, active: speechBubbles, update: updateSpeechBubbles,
+      prio: speechPrio, cry: sayEnemyCry, crit: sayCritLine, checkParty: checkPartySpeech,
     };
 
     const enemyElements   = [];
@@ -7895,6 +8057,7 @@
       orc:       "地響きがする。オークの群れだ。力押しには力で対抗しろ。",
       undead:    "空気が冷えた。アンデッドだ。聖なる力が頼りになるぞ。",
       beast:     "獣の気配が近い。警戒しろ。",
+      kobold:    "甲高い鳴き声が反響している。コボルドの群れだ。数と狡猾さに気をつけろ。",
       hydra:     "沼の水面が大きく波打つ。何か巨大なものが、底から這い上がってくる…",
       dragon:    "業火の気配。赤竜だ。これが最後の戦い — 怯むな。",
       generic:   "敵が迫る。構えよ。",
@@ -7910,7 +8073,9 @@
         else if (t === "skeleton" || t === "zombie" || t === "wraith"
                  || t === "skeletonArcher" || t === "lich" || t === "caelum") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ + 霊カエルム(敵対時)
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
-        else if (t === "rat") fam = "beast";
+        else if (t === "rat" || t === "direBear" || t === "plagueFrog" || t === "ruinSpider") fam = "beast";  // v2: 生成クエストの獣も beast へ (従来 generic)
+        else if (t === "kobold") fam = "kobold";   // v2: 廃坑の主力雑魚なのに generic に落ちていた
+        else if (t === "ghostFlame") fam = "undead";   // v2: def.undead を持つのに generic に落ちていた
         else if (t.startsWith("lizard")) fam = "lizardman";   // Sce3 沼の敵 (Warrior/Hunter/Raider/Priest/Chieftain)。従来 generic に落ちていた
         else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
         else if (t === "pharaxus") fam = "dragon"; // Sce6 最終ボス: レッドドラゴン・ファラクサス
@@ -8703,6 +8868,7 @@
       info.textContent = "[AUTO PILOT]  [ I ] でインベントリ";
       // 両キャラのステータス枠を更新
       renderPartyStatuses();
+      checkPartySpeech();   // ★ speech v2: 低HP / 仲間ダウンの検知 (全ダメージ経路がここに合流する)
     }
 
     function getPlayerCenter() {
@@ -13058,6 +13224,12 @@
       } else {
         const fam = detectEnemyFamily(initialEngaged);
         showDMMessage(ENEMY_FAMILY_MSG[fam] || ENEMY_FAMILY_MSG.generic, 2200);
+        // ★ speech v2: 敵が先に吠え、パーティがそれに応える (呼びかけ → 応答の 2 連発)。
+        // 代表は雑魚を優先する (ボスの第一声は上の boss.appear が受け持つため)。
+        const criers = initialEngaged.filter(i => enemies[i] && enemies[i].alive);
+        const zako   = criers.filter(i => !enemies[i].def.isBoss);
+        const pool   = zako.length ? zako : criers;
+        if (pool.length) sayEnemyCry(enemies[pool[Math.floor(Math.random() * pool.length)]], { force: true });
         sayLine("encounter." + fam);   // ★ speech: 生存パーティの誰かが反応
       }
 
@@ -14675,6 +14847,7 @@
             `確認: 1d20(${cn})${signedDD(atkBonus)} = <span class="big">${ct}</span>`,
             "crit");
           updateInfo(`${getLeaderName()}: クリティカル成功! ×${critMult}`);
+          sayCritLine("player");   // ★ speech v2: 確定クリのみ (helpless の自動命中は上の分岐なので来ない)
         } else {
           showRollAtPlayer(
             `<span class="label">CRIT FAILED</span>確認 ${ct} → 通常命中`, "hit");
@@ -16381,7 +16554,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + aAtk;
-        if (ct >= ac) isCrit = true;
+        if (ct >= ac) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       showRollAtAlly(ally,
         `<span class="label">${isCrit ? "カウンター CRIT!" : "カウンター HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = <span class="big">${atkTotal}</span><br>vs AC ${ac}`,
@@ -16766,7 +16939,7 @@
 
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + aAtk;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       if (helpless) {
         showRollAtAlly(ally,
@@ -17261,7 +17434,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + atkBonus;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       if (helpless) {
         showRollAtAlly(ally,
@@ -18032,7 +18205,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + atkBonus;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       if (helpless) {
         showRollAtAlly(ally,
@@ -18196,7 +18369,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + aAtk;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
 
       // ダメージ
@@ -18279,7 +18452,7 @@
         let isCrit = helpless;
         if (!helpless && isThreat) {
           const cn = d20(), ct = cn + aAtk;
-          if (ct >= effectiveEnemyAc(t)) isCrit = true;
+          if (ct >= effectiveEnemyAc(t)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2 (AoE の複数クリはクールダウンが1件に潰す)
         }
         const critMult = ally.critMult || 2;
         const { n, sides } = parseDiceDD(skill.dmgDice);
@@ -18342,7 +18515,7 @@
         let isCrit = helpless;
         if (!helpless && isThreat) {
           const cn = d20(), ct = cn + aAtk;
-          if (ct >= effectiveEnemyAc(t)) isCrit = true;
+          if (ct >= effectiveEnemyAc(t)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2 (AoE の複数クリはクールダウンが1件に潰す)
         }
         const critMult = ally.critMult || 2;
         const { n, sides } = parseDiceDD(skill.dmgDice);
@@ -19013,7 +19186,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + atkBonus;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       showRollAtAlly(ally,
         `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
@@ -19450,7 +19623,7 @@
         primaryHit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
         if (!helpless && isThreat && primaryHit) {
           const cn = d20(), ct = cn + atkBonus;
-          if (ct >= effectiveEnemyAc(target)) isCrit = true;
+          if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
         }
       }
       if (primaryHit) {
@@ -20029,7 +20202,7 @@
       }
       if (!helpless && isThreat) {
         const cn = d20(), ct = cn + atkBonus;
-        if (ct >= effectiveEnemyAc(target)) isCrit = true;
+        if (ct >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); }   // ★ speech v2
       }
       const baseDice = parseDiceDD(skill.dmgDice);
       const extraDice = parseDiceDD(skill.extraDmgDice);
@@ -20099,7 +20272,7 @@
           continue;
         }
         let isCrit = helpless;
-        if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) isCrit = true; }
+        if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); } }   // ★ speech v2
         const critMult = ally.critMult || 2;
         const { n, sides } = parseDiceDD(skill.dmgDice);
         const times = isCrit ? critMult : 1;
@@ -20157,7 +20330,7 @@
         await sleepMs(700); return;
       }
       let isCrit = helpless;
-      if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) isCrit = true; }
+      if (!helpless && isThreat) { const cn = d20(); if (cn + atkBonus >= effectiveEnemyAc(target)) { isCrit = true; sayCritLine(ally); } }   // ★ speech v2
       const critMult = ally.critMult || 2;
       const { n, sides } = parseDiceDD(skill.dmgDice);
       const times = isCrit ? critMult : 1;
@@ -21294,6 +21467,11 @@
         await sleepMs(900);
         return;
       }
+
+      // ★ speech v2: 敵の鳴き声。敵の全攻撃形態 (轢き/ブレス/視線/呪文/噛撃) の唯一の入口がここなので、
+      // 1箇所で全網羅できる。環境音あつかい (沈黙時のみ・確率とクールダウンで間引く) なので、
+      // 遭遇・罠・ボスの台詞を押し出すことはない。
+      sayEnemyCry(enemy);
 
       // ── [chariot-7.9-2] 轢きユニット: 移動そのものが攻撃 ──
       // ここで丸ごと分岐し、以降のボスゲート・呪文ゲート・噛撃ループには一切乗せない。
