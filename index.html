@@ -6755,6 +6755,8 @@
         ragePhaseEntered: false,  // 激怒フェーズ演出を一度だけ
         summonsUsed: 0,           // 召喚回数
         hasteBonusRemaining: 0,   // 単眼の暴君 ヘイストの目 (C5): >0 の間は今ターンの眼柄が +1本 (追加行動)。手番tickで減衰
+        shellFired: false,        // 単眼の暴君 アンチマジック・シェル (C6): HP50%割れで一度だけ展開するラッチ
+        shellActiveRemaining: 0,  // 単眼の暴君 アンチマジック・シェル (C6): >0 の間は敵味方とも全魔法無効。手番tickで減衰
       };
     }
 
@@ -19035,6 +19037,9 @@
 
     // 僧侶 AI: ヒール/シールド判断。スキル発動したら true を返す
     async function clericAI(ally) {
+      // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → 僧侶も呪文を撃てず
+      // 通常攻撃へフォールスルー (false 返し = 呪文で手番を消費しない)。回復・ターンも封じられる。
+      if (isSovereignShellActive()) return false;
       const threat = evaluateThreat();
       const aCX = ally.x + ally.def.displaySize / 2;
       const aCY = ally.y + ally.def.displaySize / 2;
@@ -19125,6 +19130,9 @@
 
     // 魔法使い AI: 脅威度評価 → 自己シールド(緊急/通常) → スリープ → 攻撃呪文 → スリングの優先順
     async function mageAI(ally) {
+      // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → 魔法使いも呪文を撃てず
+      // 通常攻撃へフォールスルー (false 返し = 呪文で手番を消費しない)。シールド等の自己バフも封じられる。
+      if (isSovereignShellActive()) return false;
       const threat = evaluateThreat();
       const unstunnedEnemies = threat.aliveEnemies.filter(i => (enemies[i].stunned || 0) <= 0);
       const threatScore = threat.score;
@@ -20050,6 +20058,9 @@
 
     // エルフ AI: 自己ヒール優先 → 強敵に必中 → エイムドショット汎用 → 通常弓
     async function elfAI(ally) {
+      // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → エルフも呪文を撃てず
+      // 通常攻撃 (弓) へフォールスルー (false 返し = 呪文で手番を消費しない)。
+      if (isSovereignShellActive()) return false;
       const threat = evaluateThreat();
 
       // 1. 自己ヒール: HP 35%以下 & スロット残あり (Phase 2-J: MP → spellSlots)
@@ -20863,6 +20874,9 @@
           activeEquipped = equippedSkills.filter(id => {
             const sk = dict[id];
             if (!sk || sk.reactive || sk.outOfCombat) return false;
+            // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中はリーダーの呪文 (mpCost 持ち) を候補から除外
+            // → "normal" (通常攻撃) だけが残り物理で殴る。既存の hasSpellSlot 判定と同じく mpCost=呪文の目印。
+            if (isSovereignShellActive() && sk.mpCost) return false;
             // Phase 2-J: MP 廃止 → 呪文スロット残数で判定（スロット切れの呪文のみ除外）
             if (sk.mpCost && !hasSpellSlot("player", id)) return false;
             if (sk.oncePerEncounter && leaderSkillsUsedInEncounter.has(id)) return false;
@@ -21785,6 +21799,15 @@
       return base + ((enemy.hasteBonusRemaining || 0) > 0 ? 1 : 0);
     }
 
+    // ── 単眼の暴君「アンチマジック・シェル」が今この戦場で展開中か (C6・諸刃) ─────────
+    // シェルは全魔法無効 = 敵味方双方の呪文を止める。暴君側の眼柄封印は enemyAttackTurn の
+    // 眼柄ゲートが enemy.shellActiveRemaining>0 で処理済 (C2)。相手側 (味方/プレイヤーの呪文)
+    // はこのヘルパを各キャスター AI 入口で見て「呪文を撃たず通常攻撃へフォールスルー」させる。
+    // shellActiveRemaining は暴君しか立てないので、暴君不在/シェル未展開時は常に false = 無影響。
+    function isSovereignShellActive() {
+      return enemies.some(e => e && e.alive && (e.shellActiveRemaining || 0) > 0);
+    }
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -21811,6 +21834,14 @@
       // +1本 (sovereignEyeStalksThisTurn)。hasteBonusRemaining=0 の敵 (umber_hulk 等) は常に no-op。
       if (enemy.hasteBonusRemaining > 0) enemy.hasteBonusRemaining--;
       if (window.__sovereignProbe && def.eyeStalks) window.__sovereignProbe.push({ site: "hasteTick", remaining: enemy.hasteBonusRemaining });
+      // アンチマジック・シェル (単眼の暴君・C6): 展開中は毎手番1減衰し、0 で自然解除 (全魔法無効を解く)。
+      // シェル展開の手番 (下の発動ゲート) では tick 時点ではまだ 0 なので減らない → 発動ターンを含め
+      // shellDurationTurns 手番ぶん眼柄が封印され、味方も呪文を撃てない。shellActiveRemaining=0 の敵は no-op。
+      if (enemy.shellActiveRemaining > 0) {
+        enemy.shellActiveRemaining--;
+        if (window.__sovereignProbe && def.eyeStalks) window.__sovereignProbe.push({ site: "shellTick", remaining: enemy.shellActiveRemaining });
+        if (enemy.shellActiveRemaining === 0 && typeof updateInfo === "function") updateInfo(`${def.name} のアンチマジック・シェルが消えた`);
+      }
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
@@ -21850,9 +21881,28 @@
       // 既存の敵は def.trample を持たないので素通りする (純粋加算)。
       if (def.trample) { await goblinCartTrample(idx); return; }
 
+      // ── 単眼の暴君: アンチマジック・シェル (C6・HP50%で1回ラッチ・諸刃) ──
+      // 手負い (HP<=maxHp*shellHpPct) になった最初の手番に一度だけ展開する。shellDurationTurns 手番の
+      // 「全魔法無効バリア」= ①暴君自身の眼柄を封印 (眼柄ゲートが shellActiveRemaining>0 を見て素通り→通常近接へ)
+      // ②味方/プレイヤーの呪文も無効 (isSovereignShellActive を各キャスター AI 入口で参照) = 物理で殴り合う好機。
+      // 汎用激怒 (下) は暴君を除外 (!def.eyeStalks) しシェルに置き換える。この手番は turn を消費せず続行し、
+      // eyeStalks ゲートが shellActiveRemaining>0 を見て眼柄を封印 → 暴君は通常近接へフォールスルーする。
+      if (def.eyeStalks && def.shellHpPct && !enemy.shellFired &&
+          enemy.hp <= enemy.maxHp * def.shellHpPct) {
+        enemy.shellFired = true;
+        enemy.shellActiveRemaining = def.shellDurationTurns || 2;
+        if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "shell", remaining: enemy.shellActiveRemaining });
+        showBanner("🛡 アンチマジック・シェル 🛡", 1600);
+        showRollAtEnemy(idx,
+          `<span class="label">SHELL!</span>アンチマジック・シェル<br>${enemy.shellActiveRemaining}ターン 全魔法無効`, "crit");
+        updateInfo(`${def.name} が魔法を殺す殻を展開! 敵味方とも呪文が効かなくなった (残${enemy.shellActiveRemaining}T)`);
+        await sleepMs(1300);
+      }
+
       // ── ボス: 第二フェーズへの移行チェック (一度だけ) ──
-      // ハイドラ (multiHead) は汎用激怒を使わず、頭数しきい値で drag/roar を駆動する (除外)
-      if (def.isBoss && !def.multiHead && !enemy.ragePhaseEntered &&
+      // ハイドラ (multiHead) は汎用激怒を使わず、頭数しきい値で drag/roar を駆動する (除外)。
+      // 単眼の暴君 (eyeStalks) は HP50%割れで上のアンチマジック・シェルに置き換わるので汎用激怒からも除外。
+      if (def.isBoss && !def.multiHead && !def.eyeStalks && !enemy.ragePhaseEntered &&
           enemy.hp <= enemy.maxHp * (def.ragePhaseHpRatio || 0.5)) {
         enemy.ragePhaseEntered = true;
         enemy.phase = 1;
