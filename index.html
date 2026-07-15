@@ -16256,6 +16256,7 @@
         flavor: "あたりに気を配る。罠の気配は…",
         extraBonus: perceptionExtraBonus(),
         voiceIds: PERCEPTION_VOICE,
+        iconContext: "trap",   // 罠探知のロール中であることを一目で示す
       }).then((res) => {
         applyPerceptionResult(res, pendingTraps);
       }).catch(() => {}).finally(() => {
@@ -16383,6 +16384,7 @@
           title: "開錠判定",
           flavor: "錠前に細い針を差し込み、慎重に回す…",
           voiceIds: PERCEPTION_VOICE,
+          iconContext: "treasure",   // 宝箱の開錠中であることを一目で示す
         });
       } catch (e) { res = null; }
       skillCheckActive = false;

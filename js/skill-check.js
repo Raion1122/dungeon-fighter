@@ -170,6 +170,19 @@
     } catch (e) {}
   }
 
+  // === §8.5 コンテキストアイコン・マスタ（表示層のみ・判定ロジック非関与） ====
+  // opts.iconContext（"treasure"/"trap" 等）で引き、パネル上部に対象物のサムネを出す。
+  // mechanics（checkKey）ではなく「何を相手にしているか」で分離する設計＝相手が宝箱なら
+  // 開錠でも捜査でも同じ treasure を再利用できる。ただし v1 の配線は開錠(→treasure)と
+  // 知覚/罠探知(→trap)の2箇所のみで、捜査判定には意図的に出さない（ユーザー決定）。
+  // 未登録・未指定・ロード失敗 → アイコン領域ごと非表示（判定は必ず進行）。
+  // 既存アセット（背景不透明）を枠付きサムネ化して肖像として見せる。将来 door/perception 等は
+  // ここへエントリ追加＋画像を置くだけで拡張可（呼び出し側は iconContext を1つ渡すのみ）。
+  var SKILL_CHECK_ICONS = {
+    treasure: { src: "assets/chest.png", alt: "宝箱" },
+    trap:     { src: "assets/trap.png",  alt: "罠" },
+  };
+
   // === §9 出目アニメ + パネルUI（CSS/Canvas 2D・iOS Safari配慮・3D不使用） ==
   var STYLE_ID = "skillCheckStyles";
   function ensureStyles() {
@@ -184,6 +197,11 @@
       "#skillCheckCard{width:min(420px,90vw);background:linear-gradient(180deg,#f5e8c8 0%,#e8d4a0 55%,#dcc68e 100%);",
       "  border:6px solid #6a4010;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.6);",
       "  padding:18px 20px 16px;text-align:center;color:#3a2208;}",
+      // コンテキストアイコン（対象物のサムネ・上部中央）。既定 display:none、
+      //   iconContext があれば showPanelAndRoll が block 表示。.scDie と同系の茶枠+角丸でトンマナ統一。
+      "#skillCheckCard .scIcon{display:none;width:56px;height:56px;margin:2px auto 10px;",
+      "  border:3px solid #6a4010;border-radius:8px;object-fit:contain;",
+      "  background:rgba(106,64,16,.10);box-shadow:0 2px 6px rgba(0,0,0,.35);}",
       "#skillCheckCard .scTitle{font-size:18px;font-weight:700;letter-spacing:.04em;}",
       "#skillCheckCard .scFlavor{font-size:13px;margin:6px 0 10px;color:#5a3a16;line-height:1.5;}",
       "#skillCheckCard .scMeta{font-size:14px;margin-bottom:12px;color:#4a2c0c;}",
@@ -229,6 +247,7 @@
     ov.id = "skillCheckOverlay";
     ov.innerHTML =
       '<div id="skillCheckCard">' +
+        '<img class="scIcon" alt="">' +
         '<div class="scTitle"></div>' +
         '<div class="scFlavor"></div>' +
         '<div class="scMeta"></div>' +
@@ -287,6 +306,7 @@
       ensureStyles();
       var ov = ensurePanel();
       var card = ov.querySelector("#skillCheckCard");
+      var iconEl = card.querySelector(".scIcon");
       var titleEl = card.querySelector(".scTitle");
       var flavorEl = card.querySelector(".scFlavor");
       var metaEl = card.querySelector(".scMeta");
@@ -295,6 +315,23 @@
       var hintEl = card.querySelector(".scHint");
       var btn = ov.querySelector("#scRollBtn");
 
+      // コンテキストアイコン（表示層のみ）。iconContext がマスタにあれば上部に肖像を出し、
+      //   無指定・未登録・ロード失敗（onerror）は領域ごと非表示。判定進行は絶対にブロックしない。
+      //   パネルは使い回されるため、毎回 display を明示リセットして前回の残像を防ぐ。
+      if (iconEl) {
+        var iconDef = (opts.iconContext && SKILL_CHECK_ICONS[opts.iconContext]) || null;
+        if (iconDef && iconDef.src) {
+          iconEl.onerror = function () { iconEl.style.display = "none"; };
+          iconEl.alt = iconDef.alt || "";
+          iconEl.src = iconDef.src;
+          iconEl.style.display = "block";
+        } else {
+          iconEl.onerror = null;
+          iconEl.removeAttribute("src");
+          iconEl.alt = "";
+          iconEl.style.display = "none";
+        }
+      }
       titleEl.textContent = opts.title || (checkDef.label + "判定");
       flavorEl.textContent = opts.flavor || "";
       flavorEl.style.display = opts.flavor ? "" : "none";
