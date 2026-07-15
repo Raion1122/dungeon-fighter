@@ -21972,21 +21972,40 @@
       up:    { dx:  0, dy: -1 },
       down:  { dx:  0, dy:  1 },
     };
-    // 暴君の中心タイルから facing 方向へ 1 マスずつ延ばし、通過タイル列 [{tx,ty},...] を返す
-    // (暴君自身のタイルは含めない)。壁とマップ範囲外で停止。4 方向なので Bresenham 不要=単純加算。
+    // コーン(扇)チューニング定数。RANGE=正面到達距離(タイル)、SPREAD=距離あたりの半幅成長率
+    // (0=直線, 0.5≒緩い扇, 1≒45°扇)。sovereignRayTiles が伝播式コーンの生成に使用。
+    const SOVEREIGN_RAY_RANGE  = 6;    // コーン到達距離(タイル)
+    const SOVEREIGN_RAY_SPREAD = 0.5;  // 距離あたりの半幅成長(0=直線, 1≒45°扇)
+    // 暴君の中心タイルを起点に facing 方向(dir)へ距離 d=1..RANGE、垂直(perp)方向へ
+    // 半幅 halfW=round(d*SPREAD) の「扇(コーン)」を張り、通過タイル列 [{tx,ty},...] を返す
+    // (暴君自身のタイルは含めない)。壁遮蔽は伝播式=距離 d のオフセット k は、非壁 かつ
+    // 距離 d-1 の k-1/k/k+1 のいずれかが点灯していれば点灯(d=1 は k=0 を非壁時のみ無条件シード)。
+    // isTileWall だけで算出でき hypot/LOS 不要=毎フレーム安価。返り値は現状互換([{tx,ty},...])。
+    // facing は左右2値のみ使用(dir は水平、perp は垂直)。描画/isOnSovereignRay は無改変で追従。
     function sovereignRayTiles(enemy) {
       if (!enemy || !enemy.def || !enemy.facing) return [];
       const dir = SOVEREIGN_FACING_VECTORS[enemy.facing];
       if (!dir) return [];
+      const perp = { dx: -dir.dy, dy: dir.dx };   // dir を 90° 回した単位ベクトル(水平 dir → 垂直 perp)
       const ds = enemy.def.displaySize || TILE_SIZE;
-      let cx = Math.floor((enemy.x + ds / 2) / TILE_SIZE);
-      let cy = Math.floor((enemy.y + ds / 2) / TILE_SIZE);
+      const cx = Math.floor((enemy.x + ds / 2) / TILE_SIZE);
+      const cy = Math.floor((enemy.y + ds / 2) / TILE_SIZE);
       const tiles = [];
-      for (let step = 0; step < MAP_W + MAP_H; step++) {
-        cx += dir.dx; cy += dir.dy;
-        if (cx < 0 || cx >= MAP_W || cy < 0 || cy >= MAP_H) break;   // マップ範囲外で停止
-        if (isTileWall(cx, cy)) break;                                // 壁で停止
-        tiles.push({ tx: cx, ty: cy });
+      let prevLit = null;                          // 距離 d-1 で点灯したオフセット k の集合
+      for (let d = 1; d <= SOVEREIGN_RAY_RANGE; d++) {
+        const halfW = Math.round(d * SOVEREIGN_RAY_SPREAD);
+        const curLit = new Set();
+        for (let k = -halfW; k <= halfW; k++) {
+          const tx = cx + dir.dx * d + perp.dx * k;
+          const ty = cy + dir.dy * d + perp.dy * k;
+          if (isTileWall(tx, ty)) continue;        // 壁(またはマップ外)は非点灯=伝播を遮蔽
+          const lit = (d === 1)
+            ? (k === 0)                            // 起点シードは正面隣接(k=0)のみ
+            : (prevLit.has(k - 1) || prevLit.has(k) || prevLit.has(k + 1));
+          if (lit) { curLit.add(k); tiles.push({ tx, ty }); }
+        }
+        if (curLit.size === 0) break;              // これ以上伝播しない(全遮蔽)なら打ち止め
+        prevLit = curLit;
       }
       return tiles;
     }
