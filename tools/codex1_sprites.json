@@ -151,6 +151,13 @@
       "attack_dir": "red-dragon/red-dragon-attack-right-6-large-matched",
       "note": "ラスボス。-large 系を使う。displaySize 360 据置。この竜は突進と火炎ブレスで前方へ大きく伸び、コンテンツ幅が最大 209px (セル 192px) に達するので、現行実測の char_ratio 0.604167 では収まらない。0.604167 x0.88 = 0.531667 まで縮め、center=feet-fit で足元基準のまま一律オフセット (anchor_x 70.7) を掛けて詰める。画面上の竜は現行比で高さ -12% / 幅 +8%。bbox 中央寄せは炎のコマで胴体が 33px 横滑りするので不可"
     },
+    {
+      "key": "sovereignEye", "out": "assets/sovereignEye_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.875, "scale_from": "walk", "center": "feet",
+      "walk_dir": "eye-tyrant/eye-tyrant-walk-right-6",
+      "attack_dir": "eye-tyrant/eye-tyrant-attack-right-6-matched",
+      "note": "単眼の暴君。codex1 eye-tyrant(PI:Beholder系・ユーザー承知で採用)。char_ratio=umber_hulk暫定シートの--match-current実測。displaySize240据置=当たり判定不変。"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
