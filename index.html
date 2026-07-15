@@ -5399,6 +5399,40 @@
         deathLine: "…掘り…進む…先は…無く……",
         xp: 950,
       },
+      // ── ポドルプラザ・稀少ボス: 単眼の暴君 (sovereignEye) ──
+      //   オリジナル異形。毎ターン眼柄が MM/FB/混乱/ヘイストを撃ち、正面直線はアンチマジック・レイ。
+      //   HP70%で混乱雑魚が乱入、HP50%でアンチマジック・シェル(諸刃)。暫定スプライトは umber_hulk 流用。
+      sovereignEye: {
+        name: "単眼の暴君",
+        flavor: "地の底から復興を見張る単眼の異形。無数の眼柄が魔を放ち、正面には魔法を殺す光の帯を敷く",
+        badge: "👁",
+        sprite: "assets/umber_hulk_anim.png?v=1",   // 暫定流用(正式単眼スプライトは別タスク)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,
+        hp: 150, speed: 0.6,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 46, attackHitFrame: 22, attackCooldown: 64,
+        str: 4, dex: 2, atkBonus: 11, ac: 19,
+        dmgDice: "2d8", dmgBonus: 6, critRange: 20, critMult: 2,
+        range: "melee",
+        isBoss: true,
+        maxSummons: 0,                    // 汎用召喚は無効(乱入は専用ラッチ C7)
+        // — 眼柄(C2 が駆動)—
+        eyeStalks: ["magicMissileEye", "fireballEye", "confusionEye", "hasteEye"],
+        eyeStalksPerTurn: 2,
+        spellDC: 17,                      // fireball(DEX) / confusion(WIS) セーヴ DC
+        facing: "left",                   // レイ用(C4)。敵は通常 facing 永続保持しないので新設
+        // — 混乱の目(C3)—
+        confusionEyeDC: 17, confusionEyeDurationTurns: 2,
+        // — シェル(C6)—
+        shellHpPct: 0.5, shellDurationTurns: 2,
+        // — 乱入(C7)—
+        addWaveHpPct: 0.7, addWaveCount: 2, addWavePool: ["goblin", "hobgoblin", "kobold"],
+        deathLine: "…見て…いた…すべてを……",
+        xp: 1050,
+      },
     };
 
     // スポーン定義: [type, tx, ty]
