@@ -3907,6 +3907,30 @@
         drawLight(sx, sy, ls.inner, ls.outer, alpha, midA, ls.rgb || "255,200,120");
       }
 
+      // ── 単眼の暴君「アンチマジック・レイ」の帯 (C4) ──
+      // 暴君が戦場に生存しているときだけ、正面直線を「魔を殺す」紫光でティントする (位置取りパズルの可視化)。
+      // lightingCanvas は最後に map の上へ合成されるので source-over で半透明紫を積めば帯のティントになる。
+      // 座標系は記憶フォグと同じ CSS px (CTM が lightScale を掛ける)。既に探索済みのタイルだけ塗り、
+      // 未探索を照らして地形をネタバレしない (fog の暗黒契約を保つ)。
+      {
+        const ray = getSovereignRay();
+        if (ray && ray.tiles.length) {
+          lctx.globalCompositeOperation = "source-over";
+          const pulse = 0.20 + Math.sin(Date.now() / 240) * 0.07;   // ゆるく明滅する「魔法殺しの帯」
+          const rayPath = new Path2D();
+          let hasRay = false;
+          for (const t of ray.tiles) {
+            if (!exploredTiles[t.ty] || !exploredTiles[t.ty][t.tx]) continue;   // 未探索は塗らない
+            rayPath.rect(t.tx * TILE_SIZE - camX, t.ty * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE);
+            hasRay = true;
+          }
+          if (hasRay) {
+            lctx.fillStyle = `rgba(150,90,235,${pulse})`;
+            lctx.fill(rayPath);
+          }
+        }
+      }
+
       lctx.globalCompositeOperation = "source-over";
     }
 
@@ -6766,6 +6790,7 @@
         shellFired: false,        // 単眼の暴君 アンチマジック・シェル (C6): HP50%割れで一度だけ展開するラッチ
         shellActiveRemaining: 0,  // 単眼の暴君 アンチマジック・シェル (C6): >0 の間は敵味方とも全魔法無効。手番tickで減衰
         addWaveFired: false,      // 単眼の暴君 混乱モンスター乱入 (C7): HP70%割れで一度だけ雑魚を呼ぶラッチ
+        facing: def.facing || null,  // 単眼の暴君 アンチマジック・レイ (C4): 正面直線の向き ("left"/"right"/"up"/"down")。updateSovereignFacing が手番ごとに更新
       };
     }
 
@@ -14738,6 +14763,18 @@
     // attacker: "player" or { kind:"ally", ally }
     async function applyWeaponSpecialEffects(weaponLike, target, targetIdx, ex, isCrit, attackerName, attackerRef, suppressFx) {
       if (!weaponLike) return;
+      // アンチマジック・レイ (単眼の暴君・C4): 攻撃者が魔を殺す帯の上に立っているなら、武器の"魔法効果"
+      // (追加属性ダメージ/余波/クリスタン/HP吸収) は全て死ぬ。物理ダメージは既に別処理で通っているのでそのまま。
+      if (typeof isOnSovereignRay === "function" && attackerRef) {
+        const atkUnit = attackerRef === "player" ? "player"
+                      : (attackerRef.kind === "ally" && attackerRef.ally) ? attackerRef.ally : null;
+        if (atkUnit && isOnSovereignRay(atkUnit)) {
+          if (window.__sovereignRayProbe) {
+            window.__sovereignRayProbe.push({ site: "weaponNullified", attacker: atkUnit === "player" ? "player" : atkUnit.classKey });
+          }
+          return;
+        }
+      }
       const ELEM_NAME = { fire: "炎", cold: "冷気", lightning: "雷", holy: "聖" };
 
       // 0. 周囲1マス余波 (雷鳴の斧): ヒット瞬間に発動 - 視覚演出 → 余波ダメージ → 続けて主対象の追加属性
@@ -19056,6 +19093,8 @@
       // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → 僧侶も呪文を撃てず
       // 通常攻撃へフォールスルー (false 返し = 呪文で手番を消費しない)。回復・ターンも封じられる。
       if (isSovereignShellActive()) return false;
+      // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つ僧侶は呪文を撃てない → 通常攻撃へフォールスルー。
+      if (isOnSovereignRay(ally)) return false;
       const threat = evaluateThreat();
       const aCX = ally.x + ally.def.displaySize / 2;
       const aCY = ally.y + ally.def.displaySize / 2;
@@ -19149,6 +19188,8 @@
       // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → 魔法使いも呪文を撃てず
       // 通常攻撃へフォールスルー (false 返し = 呪文で手番を消費しない)。シールド等の自己バフも封じられる。
       if (isSovereignShellActive()) return false;
+      // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つ魔法使いは呪文を撃てない → 通常攻撃 (スリング) へフォールスルー。
+      if (isOnSovereignRay(ally)) return false;
       const threat = evaluateThreat();
       const unstunnedEnemies = threat.aliveEnemies.filter(i => (enemies[i].stunned || 0) <= 0);
       const threatScore = threat.score;
@@ -20077,6 +20118,8 @@
       // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中は全魔法無効 → エルフも呪文を撃てず
       // 通常攻撃 (弓) へフォールスルー (false 返し = 呪文で手番を消費しない)。
       if (isSovereignShellActive()) return false;
+      // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つエルフは呪文を撃てない → 通常攻撃 (弓) へフォールスルー。
+      if (isOnSovereignRay(ally)) return false;
       const threat = evaluateThreat();
 
       // 1. 自己ヒール: HP 35%以下 & スロット残あり (Phase 2-J: MP → spellSlots)
@@ -20893,6 +20936,8 @@
             // アンチマジック・シェル (単眼の暴君・C6・諸刃): 展開中はリーダーの呪文 (mpCost 持ち) を候補から除外
             // → "normal" (通常攻撃) だけが残り物理で殴る。既存の hasSpellSlot 判定と同じく mpCost=呪文の目印。
             if (isSovereignShellActive() && sk.mpCost) return false;
+            // アンチマジック・レイ (単眼の暴君・C4): リーダーがレイ帯の上に立っていれば呪文 (mpCost 持ち) を封じ物理で殴る。
+            if (isOnSovereignRay("player") && sk.mpCost) return false;
             // Phase 2-J: MP 廃止 → 呪文スロット残数で判定（スロット切れの呪文のみ除外）
             if (sk.mpCost && !hasSpellSlot("player", id)) return false;
             if (sk.oncePerEncounter && leaderSkillsUsedInEncounter.has(id)) return false;
@@ -21913,6 +21958,89 @@
       return enemies.some(e => e && e.alive && (e.shellActiveRemaining || 0) > 0);
     }
 
+    // ══ 単眼の暴君「アンチマジック・レイ」(C4・正面一直線ゾーン) ═══════════════════════
+    // 暴君の facing 方向へ壁 (isTileWall) / マップ端まで伸びる 1 タイル幅の直線帯。帯の上に
+    // 立つ味方/プレイヤーは呪文を撃てず、魔法武器の追加効果も死ぬ (物理は通る)。位置取りパズル。
+    const SOVEREIGN_FACING_VECTORS = {
+      left:  { dx: -1, dy:  0 },
+      right: { dx:  1, dy:  0 },
+      up:    { dx:  0, dy: -1 },
+      down:  { dx:  0, dy:  1 },
+    };
+    // 暴君の中心タイルから facing 方向へ 1 マスずつ延ばし、通過タイル列 [{tx,ty},...] を返す
+    // (暴君自身のタイルは含めない)。壁とマップ範囲外で停止。4 方向なので Bresenham 不要=単純加算。
+    function sovereignRayTiles(enemy) {
+      if (!enemy || !enemy.def || !enemy.facing) return [];
+      const dir = SOVEREIGN_FACING_VECTORS[enemy.facing];
+      if (!dir) return [];
+      const ds = enemy.def.displaySize || TILE_SIZE;
+      let cx = Math.floor((enemy.x + ds / 2) / TILE_SIZE);
+      let cy = Math.floor((enemy.y + ds / 2) / TILE_SIZE);
+      const tiles = [];
+      for (let step = 0; step < MAP_W + MAP_H; step++) {
+        cx += dir.dx; cy += dir.dy;
+        if (cx < 0 || cx >= MAP_W || cy < 0 || cy >= MAP_H) break;   // マップ範囲外で停止
+        if (isTileWall(cx, cy)) break;                                // 壁で停止
+        tiles.push({ tx: cx, ty: cy });
+      }
+      return tiles;
+    }
+    // 今この戦場に生存する暴君 (eyeStalks 持ち・facing 有効・活動中) とそのレイ帯を返す。不在なら null。
+    // shellActiveRemaining は無関係 (シェル中も帯は張る)。inactive (檻内/未起動) の暴君は帯を張らない。
+    function getSovereignRay() {
+      if (typeof enemies === "undefined" || !enemies) return null;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e && e.alive && !e.inactive && e.def && e.def.eyeStalks && e.facing) {
+          return { enemy: e, idx: i, tiles: sovereignRayTiles(e) };
+        }
+      }
+      return null;
+    }
+    // unit ("player" | ally オブジェクト) がレイ帯の上に立っているか。暴君不在時は常に false = 無影響。
+    function isOnSovereignRay(unit) {
+      const ray = getSovereignRay();
+      if (!ray || !ray.tiles.length) return false;
+      let cx, cy;
+      if (unit === "player" || unit == null) { cx = playerX + 48; cy = playerY + 58; }
+      else if (unit.def) { cx = unit.x + unit.def.displaySize / 2; cy = unit.y + unit.def.displaySize / 2; }
+      else return false;
+      const tx = Math.floor(cx / TILE_SIZE), ty = Math.floor(cy / TILE_SIZE);
+      return ray.tiles.some(t => t.tx === tx && t.ty === ty);
+    }
+    // 暫定 facing AI: 手番ごとに 1 回、最も呪文依存度の高い相手 (魔法使い>僧侶>エルフ>その他) の
+    // 方向へ facing を 4 方向量子化して向け直す。キャスター不在なら最寄り PT 員へ。呪文で戦う相手を
+    // 帯で狙い撃ちして「立ち位置を変えろ」と強いる。眼柄の照準 (C2) とは無関係。
+    function updateSovereignFacing(enemy) {
+      if (!enemy || !enemy.def) return;
+      const ds = enemy.def.displaySize || TILE_SIZE;
+      const bcx = enemy.x + ds / 2, bcy = enemy.y + ds / 2;
+      const CASTER_WEIGHT = { mage: 3, cleric: 3, elf: 2 };
+      let best = null, bestScore = -Infinity;
+      const consider = (cx, cy, classKey) => {
+        const w = CASTER_WEIGHT[classKey] || 0.5;
+        const dist = Math.hypot(cx - bcx, cy - bcy);
+        const score = w * 1e6 - dist;   // まずキャスター優先、同格なら近い方
+        if (score > bestScore) { bestScore = score; best = { cx, cy }; }
+      };
+      if (typeof hp !== "undefined" && hp > 0 && !gameOver) consider(playerX + 48, playerY + 58, leaderClassKey);
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a.alive) continue;
+          consider(a.x + a.def.displaySize / 2, a.y + a.def.displaySize / 2, a.classKey);
+        }
+      }
+      if (!best) return;   // 対象皆無 (全滅間際) なら現在の向きを維持
+      const dx = best.cx - bcx, dy = best.cy - bcy;
+      enemy.facing = (Math.abs(dx) >= Math.abs(dy))
+        ? (dx < 0 ? "left" : "right")
+        : (dy < 0 ? "up" : "down");
+      if (window.__sovereignRayProbe) {
+        window.__sovereignRayProbe.push({ site: "facing", facing: enemy.facing, tiles: sovereignRayTiles(enemy).slice() });
+      }
+    }
+    // ═══════════════════════════════════════════════════════════════════════════════════
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -21948,6 +22076,12 @@
         if (enemy.shellActiveRemaining === 0 && typeof updateInfo === "function") updateInfo(`${def.name} のアンチマジック・シェルが消えた`);
         if (enemy.shellActiveRemaining === 0 && def.eyeStalks) sayLine("sovereign_shell_off", enemy);   // ★ speech (C8): 殻が砕けた瞬間の暴君の一言
       }
+
+      // ── 単眼の暴君「アンチマジック・レイ」照準更新 (C4・簡易AI) ──
+      // この暴君の手番ごとに 1 回だけ facing を再計算し、最も呪文依存度の高い相手へ帯を向け直す。
+      // renderLighting がこの facing から正面直線の帯を毎フレーム描画し、帯の上の味方/プレイヤーは
+      // 呪文を撃てず魔法武器効果も死ぬ (isOnSovereignRay)。眼柄の抽選・照準 (C2) には影響しない。
+      if (def.eyeStalks && enemy.facing !== undefined) updateSovereignFacing(enemy);
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
