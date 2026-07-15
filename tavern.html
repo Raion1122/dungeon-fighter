@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>単眼の暴君は稀に宝を落とす</b> — 単眼の暴君を退けると金貨・経験値に加え、通常より高い確率(約1/4)でマジックアイテムを入手できる。</li>
         <li><b>ポドルプラザに稀少クエストが現れる</b> — ポドルプラザを訪れると、ごく稀に「アイ・オブ・ザ・ビホルダー」= 単眼の暴君との遭遇クエストが出るようになった。</li>
         <li><b>暴君の正面に魔法を殺す光の帯</b> — 単眼の暴君の正面一直線には、魔法が通じないアンチマジック・レイが走る。その帯の上では味方は呪文を唱えられない。立ち位置が鍵。</li>
         <li><b>単眼の暴君が言葉を発する</b> — 登場・手負い・撃破・手下召喚のたびに、単眼の暴君が不気味なセリフを頭上に浮かべる。</li>
-        <li><b>操られた手下が乱入してくる</b> — 単眼の暴君は手負いになると、混乱した地下の手下(ゴブリン等)を呼び寄せる。彼らは味方も暴君も見境なく襲う。</li>
       </ul>
     </div>
     <script>
@@ -4916,6 +4916,13 @@
     await playGatekeeperRejection(firstReject);
   }
   // ── 闇クエスト掲示 (M4): 1〜2件のレア依頼 → 受注で既存 prep/戦闘フローへ ──
+  // 稀少ボス「単眼の暴君」専用フレーバー。正体を明かさない導入 + その場限りで閉じる締め
+  // (恒久変化を残さない = 生成クエストの非永続・再抽選整合を壊さない)。
+  const SOVEREIGN_QUEST_FLAVOR =
+    "地下水路が崩れ、封じられていた古い区画が口を開けた。……そこへ入った作業員が、一人また一人と様子をおかしくして戻ってくる。" +
+    "「いくつもの目に、見られている気がする」——そう言い残して。誰か、あの奥を検めてきてはくれないか。";
+  const SOVEREIGN_CLOSING_FLAVOR =
+    "あの目は、また地の底へ引いていった。……次にいつ現れるかは、誰にも分からない。";
   let plazaQuests = [];
   let plazaSelectedIdx = -1;
   function rollPlazaQuests() {
@@ -4935,7 +4942,7 @@
     if (Math.random() < RARE_SOVEREIGN_CHANCE) {
       const lv = Math.max(1, Math.min(20, L));
       const rq = QuestGen.generateQuest(lv, { source: "plaza", forceFamilyId: "sovereign-eye" });
-      rq._sentence = QuestGen.buildSentence(rq);
+      rq._sentence = SOVEREIGN_QUEST_FLAVOR;   // 機械生成文を上書き=掲示板/受注ナレとも正体を伏せる
       plazaQuests.push(rq);
     }
     plazaSelectedIdx = -1;
@@ -4943,17 +4950,23 @@
   // 闇クエスト → 既存 prep/departToScenario が解する合成シナリオ (source/fangReward を __generated に載せる)
   function buildPlazaSynthetic(q) {
     const cp = QuestGen.combatParams(q);
+    // 稀少ボス「単眼の暴君」判定 (familyId or bossKey)。報酬オーバーライドと導入/締めフレーバーに使う。
+    const isSovereign = (q.familyId === "sovereign-eye" || (q.family && q.family.bossKey === "sovereignEye"));
     return {
       id: "generated-quest", place: q.place, title: q.target, source: "plaza",
       clientName: q.client || null, clientPortrait: q.clientPortrait || null,   // 受注ナレの依頼人立ち絵 (STEP2)
       enemies: [{ name: q.family.minionLabel, boss: false }, { name: q.target, boss: true }],
       target: "index.html", recommendedLevel: q.level,
       __generated: {
-        title: q.place + " — " + q.target, flavor: q._sentence,
+        title: q.place + " — " + q.target,
+        flavor: isSovereign ? SOVEREIGN_QUEST_FLAVOR : q._sentence,   // 暴君は正体を明かさない専用導入
         spawns: QuestGen.buildSpawns(q), clearXp: cp.clearXp, trapCount: cp.trapCount,
         hiddenChestCount: cp.hiddenChestCount, perceptionDC: cp.perceptionDC, themeId: cp.themeId,
         questLevel: q.level, tierKey: q.tierKey,
         source: "plaza", fangReward: q.fangReward,
+        // 暴君戦のみ: マジックアイテム抽選確率を 0.25 に上書き (index showResult が読む)。他は未設定=既定 0.01。
+        magicItemChance: isSovereign ? 0.25 : undefined,
+        closingFlavor: isSovereign ? SOVEREIGN_CLOSING_FLAVOR : undefined,   // 勝利後の締め (その場限り・非永続)
       },
     };
   }

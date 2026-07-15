@@ -5624,6 +5624,8 @@
         spawns: _safeSpawns.length ? _safeSpawns : SCENARIOS["goblin-mine"].spawns,
         source: _genScenario.source || null,          // 闇市: 結果画面の牙貨付与判定に使う
         fangReward: _genScenario.fangReward || 0,
+        magicItemChance: _genScenario.magicItemChance || null,   // 稀少ボス(単眼の暴君)のみ >0。既定は null=通常確率。
+        closingFlavor: _genScenario.closingFlavor || null,       // 勝利後の締めフレーバー (暴君のみ)。
       };
     } else {
       scenarioId = sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine";
@@ -23071,8 +23073,12 @@
         // 勝利: このランで拾った金貨と装備を永続化
         const earnedGold = coins;
         const newTotalGold = persistent.gold + earnedGold;
-        // ✨ クリア報酬: 1% でマジックアイテム抽選 (「クリア報酬の宝箱」)。付与は currentWeaponIndex に反映。
-        const clearMagicItem = (Math.random() < MAGIC_DROP_CLEAR_CHANCE) ? rollMagicItemDrop() : null;
+        // ✨ クリア報酬: 既定 1% でマジックアイテム抽選 (「クリア報酬の宝箱」)。付与は currentWeaponIndex に反映。
+        //    闇市・稀少ボス「単眼の暴君」戦のみ currentScenario.magicItemChance(=0.25) で確率を上書き。
+        //    未設定(通常シナリオ / 他の生成クエスト)は既定 MAGIC_DROP_CLEAR_CHANCE(0.01) を温存。
+        const clearChance = (currentScenario && currentScenario.magicItemChance > 0)
+          ? currentScenario.magicItemChance : MAGIC_DROP_CLEAR_CHANCE;
+        const clearMagicItem = (Math.random() < clearChance) ? rollMagicItemDrop() : null;
         const newWeapon = currentWeaponIndex > startedWithWeaponIdx ? weapons[currentWeaponIndex] : null;
         const newArmor  = currentArmorIndex  > startedWithArmorIdx  ? armors[currentArmorIndex]   : null;
 
@@ -23145,6 +23151,10 @@
         if (newArmor)  html += `<br>新装備: <b>${newArmor.name}</b>`;
         if (currentScenario.clearReward) {
           html += `<br>📜 入手: <b>${currentScenario.clearReward}</b>`;
+        }
+        // 稀少ボス「単眼の暴君」の締めフレーバー (その場限り・恒久変化を残さない)。
+        if (currentScenario.closingFlavor) {
+          html += `<br><span style="opacity:.75;font-style:italic">${currentScenario.closingFlavor}</span>`;
         }
         resultRewardEl.innerHTML = html;
       } else {
