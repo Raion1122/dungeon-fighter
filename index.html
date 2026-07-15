@@ -6754,6 +6754,7 @@
         phase: 0,                 // 0=通常, 1=激怒
         ragePhaseEntered: false,  // 激怒フェーズ演出を一度だけ
         summonsUsed: 0,           // 召喚回数
+        hasteBonusRemaining: 0,   // 単眼の暴君 ヘイストの目 (C5): >0 の間は今ターンの眼柄が +1本 (追加行動)。手番tickで減衰
       };
     }
 
@@ -21696,6 +21697,34 @@
       await sleepMs(500);
     }
 
+    // ── 単眼の暴君「ヘイストの目」自己バフ (C5) ─────────────────────────────
+    // hasteEye 発火で暴君に「その手番の追加行動 = 眼柄+1本」を付与する。
+    // enemy.hasteBonusRemaining は「ヘイストが有効な残り手番数」。sovereignHaste で
+    // duration ぶんセットし、enemyAttackTurn 冒頭の tick 群で毎手番 -1 して 0 で止める。
+    // C2 の眼柄ディスパッチャは sovereignEyeStalksThisTurn(enemy) を読んで「今ターン撃つ
+    // 眼柄本数」を決める (ヘイスト中は +1本 = 追加行動)。発火配線は C2 が行う。
+    function sovereignHaste(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.def) return;
+      const dur = enemy.def.hasteEyeDurationTurns || 2;   // 仕様 duration 1〜2 → 既定2
+      enemy.hasteBonusRemaining = dur;
+      // 演出: 敵アンカーのポップ + 中央バナー + 💨 ステータス表示 (既存演出関数を流用)
+      showRollAtEnemy(enemyIdx,
+        `<span class="label">HASTE!</span>ヘイストの目<br>加速 (眼柄 +1本 / ${dur}T)`, "crit");
+      showBanner(`💨 ${enemy.def.name} 加速! 💨`, 1400);
+      if (typeof applyStatus === "function") applyStatus(enemy, "haste", dur);
+      if (typeof updateInfo === "function") updateInfo(`${enemy.def.name} がヘイストで加速した! 眼柄が増える`);
+      if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "haste", remaining: enemy.hasteBonusRemaining });
+    }
+
+    // 今ターンに暴君が撃つ眼柄本数。ヘイスト有効中は +1本 (= 追加行動)。C2 の眼柄
+    // ディスパッチャがこれを本数として使う。eyeStalks を持たない敵には意味を持たない (0)。
+    function sovereignEyeStalksThisTurn(enemy) {
+      if (!enemy || !enemy.def || !enemy.def.eyeStalks) return 0;
+      const base = enemy.def.eyeStalksPerTurn || 2;
+      return base + ((enemy.hasteBonusRemaining || 0) > 0 ? 1 : 0);
+    }
+
     async function enemyAttackTurn(idx) {
       const enemy = enemies[idx];
       const def = enemy.def;
@@ -21718,6 +21747,10 @@
       // (pickEnemyTarget がこのターンの対象選択で参照 → 敵味方かまわず無差別に噛みつく)。
       enemy.__wildActiveTurn = (enemy.wildConfused > 0);
       if (enemy.wildConfused > 0) enemy.wildConfused--;
+      // ヘイストの目 (単眼の暴君・C5): 加速の残り手番を1減衰し 0 で止める。>0 の間だけ眼柄が
+      // +1本 (sovereignEyeStalksThisTurn)。hasteBonusRemaining=0 の敵 (umber_hulk 等) は常に no-op。
+      if (enemy.hasteBonusRemaining > 0) enemy.hasteBonusRemaining--;
+      if (window.__sovereignProbe && def.eyeStalks) window.__sovereignProbe.push({ site: "hasteTick", remaining: enemy.hasteBonusRemaining });
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
