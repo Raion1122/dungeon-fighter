@@ -6743,6 +6743,7 @@
         animTick: 0,
         attackTimer: 0, attackCooldown: 0, attackHitDealt: false,
         stunned: 0,  // D&D スキル(盾バッシュ等)のデバフ残ターン
+        wildConfused: 0, __wildActiveTurn: false,  // 単眼の暴君 混乱の目 (C3): >0 で敵味方無差別攻撃。手番tickで減衰
         statusEffects: [],  // status-effect v1.1: prone 等の新規効果 (既存デバフはフラット変数から派生)
         slowedRemaining: 0, __moveBlockedThisTurn: false,  // アイスストーム 鈍足 (移動封じ。攻撃は可)
         poisonRemaining: 0, poisonDie: null,        // 盗賊 毒塗り短剣 (DoT)
@@ -7656,6 +7657,7 @@
         },
         stunned: 0,
         confused: 0,   // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
+        wildConfused: 0,   // 混乱(暴走) (単眼の暴君 混乱の目・C3): >0 の間は敵味方かまわず無差別攻撃
         statusEffects: [],  // status-effect v1.1: prone 等の新規効果 (既存デバフはフラット変数から派生)
         skillsUsedInEncounter: new Set(),  // oncePerEncounter スキルの使用記録
         skillCooldowns: {},                // {skillId: turnsLeft} クールダウン管理
@@ -12952,6 +12954,66 @@
       if (window.__gazeProbe) window.__gazeProbe.gazes.push(rec);
     }
 
+    // ── 単眼の暴君「混乱の目」(C3): 眼柄が1体を狙い WIS セーヴ、失敗で完全ランダム混乱 wildConfused を付与 ──
+    // umberGaze を手本にした単体版。PT全体ではなく pickEnemyTarget で1体だけ狙う。
+    // 対象は leader / ally / enemy いずれでも付与可 (playerBuffs.wildConfused / ally.wildConfused / enemy.wildConfused)。
+    // 自由の指輪 (hasFreeAction) は混乱を無効化 (umberGaze 準拠)。C2 の眼柄駆動から呼ばれる (本タスクでは定義のみ・発火配線はしない)。
+    function sovereignConfusionEye(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc  = def.confusionEyeDC || 17;
+      const dur = def.confusionEyeDurationTurns || 2;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      // 対象の WIS 修正 / 表示ヘルパー / 付与 を kind 別に解決
+      let wisMod = 0, showAtTarget = null, applyWild = null, targetName = "", hasFree = false;
+      if (pick.kind === "leader") {
+        wisMod = playerStats.wis || 0;
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+        applyWild = () => { playerBuffs.wildConfused = dur; };
+        hasFree = hasFreeAction("player");
+      } else if (pick.kind === "ally") {
+        const a = allies[pick.idx];
+        if (!a || !a.alive) return;
+        wisMod = a.wis || 0;
+        targetName = a.npcName || a.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(a, t, c);
+        applyWild = () => { a.wildConfused = dur; };
+        hasFree = hasFreeAction(a);
+      } else {  // enemy (第三勢力の乱入個体など)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        wisMod = (o.def.wis != null) ? o.def.wis : 0;
+        targetName = o.def.name;
+        showAtTarget = (t, c) => showRollAtEnemy(pick.idx, t, c);
+        applyWild = () => { o.wildConfused = dur; };
+      }
+
+      showBanner("👁 混乱の目 👁", 1400);
+      updateInfo(`${def.name} の眼柄が ${targetName} を睨む! (WIS セーヴ DC ${dc})`);
+
+      const rec = { site: "eye", enemyIdx, dc, kind: pick.kind, idx: (pick.idx != null ? pick.idx : null), applied: false, saved: false, free: false };
+      if (hasFree) {
+        showAtTarget(`<span class="label">FREE ACTION</span>自由の指輪が混乱を退けた`, "hit");
+        rec.saved = true; rec.free = true;
+        if (window.__wildConfusedProbe) window.__wildConfusedProbe.push(rec);
+        return;
+      }
+      const roll = d20();
+      const total = roll + wisMod;
+      const saved = total >= dc;
+      if (!saved) { applyWild(); rec.applied = true; } else { rec.saved = true; }
+      showAtTarget(
+        `<span class="label">${saved ? "SAVE" : "CONFUSED"}</span>` +
+        `1d20(<b>${roll}</b>)${signedDD(wisMod)} = ${total}<br>vs DC ${dc}`,
+        saved ? "hit" : "miss");
+      if (window.__wildConfusedProbe) window.__wildConfusedProbe.push(rec);
+    }
+
     function resetAllyBuffs(ally) {
       ally.buffs.atkBonusRemaining = 0;
       ally.buffs.atkBonusAmount = 0;
@@ -12981,6 +13043,7 @@
       ally.buffs.hastedRemaining = 0;
       ally.stunned = 0;
       ally.confused = 0;
+      ally.wildConfused = 0;   // C3: 混乱(暴走) のエンカ跨ぎゴースト防止
       if (ally.statusEffects) ally.statusEffects.length = 0;
       ally.gritThreshold = null;  // ドワーフの意地: エンカウンターごとに 2d4 を再ロール
     }
@@ -14385,6 +14448,7 @@
       antiKnockbackRemaining: 0,
       skipNextTurn: false,
       confused: 0,             // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
+      wildConfused: 0,         // 混乱(暴走) (単眼の暴君 混乱の目・C3): >0 の間は敵味方かまわず無差別攻撃
       resilientFired: false,   // 不屈 (エンカウンター1回)
       acBonusRemaining: 0,     // シールド・オブ・フェイス等 の AC バフ
       acBonusAmount: 0,
@@ -14410,6 +14474,7 @@
       playerBuffs.antiKnockbackRemaining = 0;
       playerBuffs.skipNextTurn = false;
       playerBuffs.confused = 0;
+      playerBuffs.wildConfused = 0;   // C3: 混乱(暴走) のエンカ跨ぎゴースト防止
       playerBuffs.resilientFired = false;
       playerBuffs.acBonusRemaining = 0;
       playerBuffs.acBonusAmount = 0;
@@ -14436,6 +14501,7 @@
       // --- 既存デバフ (フラット変数から派生。ここは表示定義のみ) ---
       stun:       { icon: "💫", label: "スタン",         type: "debuff" },
       confused:   { icon: "😵", label: "混乱",           type: "debuff" },
+      wildConfused:{ icon: "🌀", label: "混乱(暴走)",     type: "debuff" },  // 単眼の暴君 混乱の目 (C3): 敵味方無差別
       frightened: { icon: "😱", label: "恐怖",           type: "debuff" },
       stuck:      { icon: "🕸", label: "粘着",           type: "debuff" },
       slow:       { icon: "🐌", label: "鈍足",           type: "debuff" },
@@ -14495,6 +14561,7 @@
       // 頭はスタンを数値ではなく skipNextTurn(bool) で表す (渾身の一撃のセルフスタン)
       if (isPlayer ? B.skipNextTurn : ((unit.stunned || 0) > 0)) push("stun");
       if (isPlayer ? ((B.confused || 0) > 0) : ((unit.confused || 0) > 0)) push("confused");
+      if (isPlayer ? ((B.wildConfused || 0) > 0) : ((unit.wildConfused || 0) > 0)) push("wildConfused");  // C3: 混乱(暴走)
       if ((B.frightenedRemaining || 0) > 0) push("frightened");
       if (isPlayer && B.stuck) push("stuck");                         // 粘着 (ミミック) はリーダーのみ
       if (!isPlayer && (unit.slowedRemaining || 0) > 0) push("slow"); // 鈍足 (アイスストーム) は敵のみ
@@ -16668,6 +16735,29 @@
       const e = enemies[enemyIdx];
       const eCX = e.x + e.def.displaySize / 2;
       const eCY = e.y + e.def.displaySize / 2;
+      // 混乱(暴走) wildConfused (単眼の暴君 混乱の目・C3): 距離バイアス無しで、自分以外の
+      // 全陣営 (他の敵を含む) + PT (頭/仲間) からランダムに1体を返す。敵→敵 / 敵→PT を無差別に。
+      // __wildActiveTurn は enemyAttackTurn 冒頭の tick で「この手番は暴走」に立てられる (減衰しても当該手番は有効)。
+      if (e.wildConfused > 0 || e.__wildActiveTurn) {
+        const wild = [];
+        if (hp > 0 && !gameOver) wild.push({ kind: "leader", zone: PARTY_ZONES[leaderClassKey] || "front", cx: playerX + 48, cy: playerY + 58 });
+        for (let i = 0; i < allies.length; i++) {
+          if (!allies[i].alive) continue;
+          const a = allies[i];
+          wild.push({ kind: "ally", idx: i, zone: a.zone || PARTY_ZONES[a.classKey] || "mid", cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+        }
+        for (let i = 0; i < enemies.length; i++) {
+          if (i === enemyIdx) continue;
+          const o = enemies[i];
+          if (!o.alive || o.inactive) continue;
+          wild.push({ kind: "enemy", idx: i, cx: o.x + o.def.displaySize / 2, cy: o.y + o.def.displaySize / 2 });
+        }
+        if (wild.length === 0) return null;
+        const w = wild[Math.floor(Math.random() * wild.length)];
+        if (window.__wildConfusedProbe) window.__wildConfusedProbe.push({ site: "pick", enemy: e.def.name, targetKind: w.kind, targetIdx: (w.idx != null ? w.idx : null) });
+        if (window.__pickProbe) window.__pickProbe.push({ name: e.def.name, kind: w.kind, zone: w.zone || null, wild: true });
+        return w;
+      }
       const candidates = [];
       if (hp > 0 && !gameOver) {
         candidates.push({ kind: "leader", zone: PARTY_ZONES[leaderClassKey] || "front", cx: playerX + 48, cy: playerY + 58 });
@@ -18712,6 +18802,138 @@
     }
 
     // 仲間のターン
+    // ── 混乱(暴走) wildConfused の無差別攻撃 (C3) ──
+    // 単眼の暴君「混乱の目」で暴走した者は敵味方の区別を失い、生存する全ユニット (自分以外の
+    // 頭/仲間/敵) からランダムに1体を選び通常攻撃を1回行う。attacker = "player"(頭) | ally オブジェクト。
+    // 対象選択だけ差し替え、攻撃解決は最小の自前経路 (攻撃ロール→ダメージ適用) を1回通す。
+    async function wildConfusedStrike(attacker) {
+      const isPlayerAtk = (attacker === "player");
+      // 攻撃者プロフィール
+      let aName, aCX, aCY, atkBonus, dmgDice, dmgBonus, critMult, critThreshold, showRoll;
+      if (isPlayerAtk) {
+        const w = getCurrentWeapon();
+        aName = getLeaderName();
+        aCX = playerX + 48; aCY = playerY + 58;
+        atkBonus = currentPlayerAtkBonus();
+        dmgDice = (w && w.dmgDice) || playerStats.dmgDice || "1d6";
+        dmgBonus = currentPlayerDmgBonus();
+        critMult = playerStats.critMult || 2;
+        critThreshold = playerStats.critRange || 20;
+        showRoll = (t, c) => showRollAtPlayer(t, c);
+      } else {
+        aName = attacker.npcName || attacker.def.name;
+        aCX = attacker.x + attacker.def.displaySize / 2;
+        aCY = attacker.y + attacker.def.displaySize / 2;
+        atkBonus = attacker.atkBonus + allyAtkBuff(attacker);
+        dmgDice = attacker.dmgDice || "1d6";
+        dmgBonus = attacker.dmgBonus || 0;
+        critMult = attacker.critMult || 2;
+        critThreshold = effectiveCritRange(attacker);
+        showRoll = (t, c) => showRollAtAlly(attacker, t, c);
+      }
+
+      // 対象候補: 自分以外の生存ユニット (頭 + 仲間 + 交戦中の敵)。距離バイアス無し・完全ランダム。
+      const cands = [];
+      if (!isPlayerAtk && hp > 0 && !gameOver) cands.push({ kind: "leader" });
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a || !a.alive || a === attacker) continue;
+        cands.push({ kind: "ally", idx: i });
+      }
+      for (const i of encounterEnemyIndices) {
+        const en = enemies[i];
+        if (!en || !en.alive || en.inactive) continue;
+        cands.push({ kind: "enemy", idx: i });
+      }
+      if (cands.length === 0) {
+        showRoll(`<span class="label">CONFUSED</span>暴走: 標的なし`, "miss");
+        await sleepMs(700);
+        return;
+      }
+      const tgt = cands[Math.floor(Math.random() * cands.length)];
+
+      // 対象プロフィール
+      let tName, tCX, tCY, tAc;
+      if (tgt.kind === "leader") {
+        tName = getLeaderName(); tCX = playerX + 48; tCY = playerY + 58; tAc = currentPlayerAc();
+      } else if (tgt.kind === "ally") {
+        const a = allies[tgt.idx];
+        tName = a.npcName || a.def.name; tCX = a.x + a.def.displaySize / 2; tCY = a.y + a.def.displaySize / 2; tAc = currentAllyAc(a);
+      } else {
+        const en = enemies[tgt.idx];
+        tName = en.def.name; tCX = en.x + en.def.displaySize / 2; tCY = en.y + en.def.displaySize / 2; tAc = effectiveEnemyAc(en);
+      }
+
+      if (window.__wildConfusedProbe) window.__wildConfusedProbe.push({ site: "strike", attacker: aName, targetKind: tgt.kind, targetIdx: (tgt.idx != null ? tgt.idx : null), target: tName });
+
+      // 向き更新 (右向き運用)
+      if (isPlayerAtk) {
+        mouseX = tCX; mouseY = tCY;
+        if (typeof updateFacingFromMouse === "function") updateFacingFromMouse();
+        flashAction(player, "attack");
+      } else {
+        if (Math.abs(tCX - aCX) > 2) attacker.facing = tCX > aCX ? "right" : "left";
+        flashAction(attacker.el, "attack");
+        startAllyAttackAnim(attacker);
+      }
+
+      // 攻撃ロール (対象の実効AC vs 攻撃者の命中)
+      const natD20 = d20();
+      const atkTotal = natD20 + atkBonus;
+      const isFumble = natD20 === 1;
+      const isThreat = natD20 >= critThreshold && !isFumble;
+      showRoll(
+        `<span class="label">CONFUSED → ${tName}</span>暴走の一撃<br>` +
+        `1d20(<b>${natD20}</b>)${signedDD(atkBonus)} = ${atkTotal} vs AC ${tAc}`,
+        (isFumble || (!isThreat && atkTotal < tAc)) ? "miss" : "hit");
+      await sleepMs(500);
+      if (isFumble || (!isThreat && atkTotal < tAc)) return;   // 空振り
+
+      let isCrit = isThreat;
+      if (isThreat) { const cn = d20(); if (cn + atkBonus < tAc) isCrit = false; }
+
+      // ダメージロール
+      const { n, sides } = parseDiceDD(dmgDice);
+      const times = isCrit ? critMult : 1;
+      let rolls = [];
+      for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(n, sides).rolls);
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dmgBonus * times);
+
+      // ダメージ適用 (kind 別・既存の死亡処理へ合流)
+      if (tgt.kind === "enemy") {
+        const en = enemies[tgt.idx];
+        en.hp -= dmg; if (en.hp < 0) en.hp = 0;
+        triggerEnemyDamageFlash(tgt.idx, Math.sign(tCX - aCX));
+        showDmgAt(tCX, en.y, dmg, isCrit);
+        updateInfo(`${aName} は暴走し、${tName} に ${dmg} ダメージ!`);
+        await sleepMs(450);
+        if (en.hp <= 0) { defeatEnemy(tgt.idx); await sleepMs(300); }
+      } else if (tgt.kind === "ally") {
+        const a = allies[tgt.idx];
+        a.hp -= dmg; if (a.hp < 0) a.hp = 0;
+        triggerRecoilAlly(a, Math.sign(tCX - aCX));
+        showDmgAt(tCX, a.y, dmg, isCrit);
+        updateInfo(`${aName} は暴走し、味方の ${tName} に ${dmg} ダメージ! HP ${a.hp}/${a.maxHp}`);
+        await sleepMs(450);
+        if (a.hp <= 0) {
+          a.alive = false;
+          updateInfo(`${a.npcName || a.def.name} は同士討ちで倒れた…`);
+          if (a.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+          await sleepMs(300);
+        }
+      } else {  // leader (頭)
+        hp -= dmg; if (hp < 0) hp = 0;
+        triggerRecoilPlayer(Math.sign(tCX - aCX));
+        showDmgAt(tCX, playerY, dmg, isCrit);
+        updateInfo(`${aName} は暴走し、頭の ${tName} に ${dmg} ダメージ! HP ${hp}/${maxHp}`);
+        await sleepMs(450);
+        if (hp <= 0) {
+          gameOver = true;
+          updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+        }
+      }
+    }
+
     async function allyAttackTurn(ally) {
       // バフ tick
       if (ally.buffs.atkBonusRemaining > 0) ally.buffs.atkBonusRemaining--;
@@ -18749,6 +18971,13 @@
         showRollAtAlly(ally, `<span class="label">CONFUSED</span>混乱: 行動不能`, "miss");
         if (window.__gazeProbe) window.__gazeProbe.skips.push("A" + allies.indexOf(ally));
         await sleepMs(900);
+        return;
+      }
+      // 混乱(暴走) (単眼の暴君 混乱の目・C3): 敵味方かまわず無差別に1体を殴る (行動不能スキップ型の confused とは別物)
+      if (ally.wildConfused > 0) {
+        ally.wildConfused--;
+        showRollAtAlly(ally, `<span class="label">CONFUSED</span>混乱: 敵味方かまわず暴れる`, "miss");
+        await wildConfusedStrike(ally);
         return;
       }
 
@@ -20558,6 +20787,14 @@
         await sleepMs(1000);
         return;
       }
+      // 混乱(暴走) (単眼の暴君 混乱の目・C3): 敵味方かまわず無差別に1体を殴る (行動不能スキップ型の confused とは別物)
+      if (playerBuffs.wildConfused > 0) {
+        playerBuffs.wildConfused--;
+        showRollAtPlayer(`<span class="label">CONFUSED</span>混乱: 敵味方かまわず暴れる`, "miss");
+        updateInfo(`${getLeaderName()} は混乱し、敵味方かまわず暴れ出す!`);
+        await wildConfusedStrike("player");
+        return;
+      }
 
       // 粘着 (ミミック Adhesive): 拘束中は STR 判定で脱出を試みる。成功で解放、失敗で行動消費 (撃破でも自動解除)
       if (playerBuffs.stuck) {
@@ -21476,6 +21713,11 @@
       // status-effect v1.1: prone 等の残ターン。転倒中は起き上がりに費やすので移動できない (鈍足と同じ扱い)
       tickStatusEffects(enemy);
       if (hasStatus(enemy, "prone")) enemy.__moveBlockedThisTurn = true;
+      // 混乱(暴走) wildConfused (単眼の暴君 混乱の目・C3): 敵の手番ごとに残ターンを1減衰。
+      // 味方 confused と同じく「0 になる手番も暴走扱い」なので、減衰前の状態を __wildActiveTurn に控える
+      // (pickEnemyTarget がこのターンの対象選択で参照 → 敵味方かまわず無差別に噛みつく)。
+      enemy.__wildActiveTurn = (enemy.wildConfused > 0);
+      if (enemy.wildConfused > 0) enemy.wildConfused--;
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
