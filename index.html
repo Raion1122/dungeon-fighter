@@ -21433,6 +21433,66 @@
       await sleepMs(300);
     }
 
+    // ── 単眼の暴君「眼柄斉射」(C2): 毎手番、複数の眼柄がランダムに魔を撃ち分ける ────────────
+    // enemyAttackTurn の眼柄ゲートから駆動される。撃つ本数 = sovereignEyeStalksThisTurn(enemy)
+    // (基本 eyeStalksPerTurn=2、ヘイスト有効中は +1本)。眼柄は def.eyeStalks から毎発ランダム抽選
+    // (重複可) して順に解決する:
+    //   magicMissileEye → 必中の単体マジックミサイル (3d4+1・enemyCastSpell の autohit 経路を踏襲)
+    //   fireballEye     → 3x3 AoE ファイアボール (enemyCastAoE・DEX セーヴ DC=spellDC)
+    //   confusionEye    → 混乱の目 (C3・WIS セーヴ→失敗で wildConfused)
+    //   hasteEye        → ヘイストの目 (C5・自己バフ・次手番以降に眼柄+1本)
+    // シェル中 (C6) の封印はゲート側 (enemy.shellActiveRemaining) で行うのでここでは判定しない。
+    async function sovereignEyeStalkTurn(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const eyes = def.eyeStalks || [];
+      if (!eyes.length) return;
+      const shots = sovereignEyeStalksThisTurn(enemy);   // ヘイスト中は +1本
+
+      showBanner("👁 単眼の暴君 眼柄斉射 👁", 1400);
+      updateInfo(`${def.name} の無数の眼柄が一斉に魔を放つ! (${shots}本)`);
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+      await sleepMs(320);
+
+      for (let s = 0; s < shots; s++) {
+        // 各発火の前に安全確認 (発火の途中で暴君が倒れる/檻に入る/決着した場合は打ち切り)
+        if (!enemy.alive || enemy.inactive || gameOver) break;
+        const eyeKey = eyes[Math.floor(Math.random() * eyes.length)];
+        if (window.__enemySpellProbe) window.__enemySpellProbe.push({ name: def.name, spell: eyeKey, kind: "eye" });
+        if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "eyeStalk", eye: eyeKey });
+
+        if (eyeKey === "magicMissileEye") {
+          // 必中の単体マジックミサイル (enemyCastSpell の autohit 経路を踏襲)
+          const pick = pickEnemyTarget(enemyIdx);
+          if (pick) {
+            const meta = ENEMY_SPELLS.magicMissile;
+            const eCX = enemy.x + def.displaySize / 2;
+            const eMouthY = enemy.y + def.displaySize * 0.32;
+            await dfPlayCast({ el: enemyElements[enemyIdx], x: enemy.x, y: enemy.y, def }, { name: meta.jp, element: "arcane" }, { duration: 480 });
+            await spawnEnemySpellBolt("magicMissile", eCX, eMouthY, pick.cx, pick.cy);
+            const dd = parseDiceDD(meta.dmgDice);
+            const r = rollDiceDD(dd.n, dd.sides);
+            const dmg = Math.max(1, r.total + (meta.flat || 0));
+            showRollAtEnemy(enemyIdx,
+              `<span class="label">AUTO HIT</span>${meta.jp}<br>${meta.dmgDice}+${meta.flat || 0}(${r.rolls.join("+")}) = <span class="big">${dmg}</span>`,
+              "crit");
+            await applyEnemySpellDamage(pick, dmg, false, meta.jp);
+          }
+        } else if (eyeKey === "fireballEye") {
+          // 3x3 AoE ファイアボール (bossOnly だが暴君は isBoss なので enemyCastAoE を直接呼ぶ)
+          await enemyCastAoE(enemyIdx, "fireball", ENEMY_SPELLS.fireball, def.spellDC || 17, "fire");
+        } else if (eyeKey === "confusionEye") {
+          await sovereignConfusionEye(enemyIdx);      // C3: WIS セーヴ → wildConfused
+        } else if (eyeKey === "hasteEye") {
+          sovereignHaste(enemyIdx);                    // C5: 自己バフ (本数は関数冒頭で確定済 → +1は次手番以降)
+        }
+        if (gameOver) break;
+        await sleepMs(260);
+      }
+      await sleepMs(200);
+    }
+
     // ══════════ [chariot-7.9-2] ゴブリン戦車 (乱入型ミニボス) ══════════
     // 廃坑のボス戦だけの特殊演出。酒場で噂 (mine_chariot_intel) を掴んだ回に限り、グリクスが
     // 追い詰められると坑道の奥から戦車が突っ込んでくる。この乱入機構は戦車固有で共通化しない。
@@ -21826,6 +21886,15 @@
           await bossTurnSummon(idx);
           return;  // このターンは召喚で終了 (攻撃なし=隙あり)
         }
+      }
+      // ── 単眼の暴君の眼柄斉射 (C2): 毎手番、複数の眼柄が MM/FB/混乱/ヘイストを抽選発火 ──
+      // 暴君の主行動。smash (強打) ターンは近接の見せ場を温存して抑止 (spellcaster ゲート準拠)。
+      // シェル中 (C6・enemy.shellActiveRemaining>0) は眼柄を封印し通常近接へフォールスルー
+      // (C6 未実装のうちは shellActiveRemaining=undefined なので常に眼柄発火)。暴君は breathDice/
+      // confuseGaze/spellcaster を持たないので下の既存ゲートは全て素通りする。
+      if (def.eyeStalks && bossAction !== "smash" && !(enemy.shellActiveRemaining > 0)) {
+        await sovereignEyeStalkTurn(idx);
+        return;   // このターンは眼柄で消費 (噛撃しない)
       }
       // ── 単頭ボスのブレス (ファラクサス等): クールダウン式で全体火炎 (hydraFireBreath を流用) ──
       // smash (強打) ターンはブレス抑止 (近接の見せ場を温存)。召喚は上で return 済み。
