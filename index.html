@@ -6387,6 +6387,13 @@
       "boss.rage":   ["この程度で終わると思うな!", "遊びは終わりだ!", "貴様ら…許さん!", "ならば、本気を出すまで!"],
       // ── ボス撃破 (話者=生存パーティ。ボスは死んでいるので喋れない) ──
       "boss.defeat": ["やったぞ! 討ち取った!", "ボスは落ちた! 残りを片付けろ!", "これで終わりだ…!", "見たか、これが冒険者だ!"],
+      // ── 単眼の暴君 (sovereignEye) 固有台詞 (C8)。resolver が個別 > 汎用で拾う。話者はボス本人 (defeat のみ生存パーティ) ──
+      "boss.appear.sovereignEye": ["…また、覗きに来たか。地の底の光を。", "無数の眼が、貴様らを見ている。逃げ場は無い。", "定命の分際で…この眼の前に立つとはな。", "見せてやろう。魔を殺す、真の闇を。"],
+      "boss.rage.sovereignEye":   ["…光を、殺す。魔法など児戯に過ぎん。", "見える…貴様らの、恐れも。呪文も。", "殻を張れ。ここより先、魔法は死ぬ。", "ならば…眼を閉じてやろう。すべての魔を。"],
+      "boss.defeat.sovereignEye": ["討ち取ったぞ…! あの眼が、閉じた。", "見ろ、単眼が砕けた! 俺たちの勝ちだ!", "もう誰も、見張ってはいない…終わったんだ。", "地の底の異形を討った…! 帰ろう。"],
+      // 乱入 (手下召喚・話者=ボス) / シェル解除 (話者=ボス)。sovereign 専用トリガー = 平キーで直接解決 (eventKey 不要)。
+      "sovereign_add_wave":  ["来い…わが眼下の者どもよ。", "下僕どもよ、地を這い出よ。喰らい尽くせ。", "見えるだろう? 貴様らを囲む、無数の影が。"],
+      "sovereign_shell_off": ["…殻が、砕けたか。だが眼は、まだ開いている。", "光が、戻る…忌々しい。", "ふん…魔法の時間だ。だが、遅い。"],
       // ── 戦闘系 (v2 で有効化。頻度は sayCritLine / checkPartySpeech 側のクールダウンとラッチで絞る) ──
       "combat.crit":     ["会心だ!", "見たか、今の一撃!", "これで決まりだ!"],
       "combat.lowhp":    ["まずい…もう保たん!", "誰か、回復を!", "まだ…立てる…!"],
@@ -6440,6 +6447,7 @@
       "enemy.cry.chimera":        ["ガアアッ! メエエエッ!", "シャアアッ! ガルルッ!"],
       "enemy.cry.griffon":        ["ピギャアアッ!", "キエエエッ!"],
       "enemy.cry.umber_hulk":     ["ギチギチギチ…", "ゴリッ… ゴリッ…"],
+      "enemy.cry.sovereignEye":   ["ゴゴ…ゴゴゴ…(無数の眼が蠢く)", "ズ…ズズ…(眼柄が身をよじる)", "……(単眼が、ぎょろりと動く)"],
     };
     // ボス個別の台詞は "boss.rage.pharaxus" のようなキーを後から足すだけで効く (resolver が個別 > 汎用)。
 
@@ -10224,7 +10232,7 @@
       // 非ボスの deathLine (カエルム霊・ミミック等) は従来どおり字幕のみ。
       if (enemy.def && enemy.def.isBoss && typeof narrate === "function") {
         setTimeout(() => narrate("boss_defeat", { eventKey: enemy.type, boss: nm }), 600);
-        sayLine("boss.defeat");   // ★ speech: 生存味方が歓声 (ボスは死んでいるので喋れない)
+        sayLine("boss.defeat", "party", { eventKey: enemy.type });   // ★ speech: 生存味方が歓声 (ボスは死んでいるので喋れない)。eventKey で暴君固有の歓声を拾う (C8)
       } else if (enemy.def && enemy.def.deathLine && typeof showDMMessage === "function") {
         setTimeout(() => showDMMessage(`「${enemy.def.deathLine}」 — ${nm}`, 3600), 600);
       }
@@ -13318,7 +13326,7 @@
       if (encCenter) focusCameraOn(encCenter.x, encCenter.y);
       triggerCombatFlash();
       // DM ナレーション: ボスがいればボス戦前メッセージ、そうでなければ敵種族別
-      const bossIdx = initialEngaged.find(i => enemies[i].def.maxSummons > 0);
+      const bossIdx = initialEngaged.find(i => enemies[i].def.maxSummons > 0 || enemies[i].def.eyeStalks);   // 単眼の暴君 (C8): maxSummons:0 だが eyeStalks で「ボス登場」扱い
       if (bossIdx !== undefined) {
         const bossName = enemies[bossIdx].def.name;
         narrate("boss_appear", { boss: bossName });   // ボス戦前: 字幕にボス名 / 音声は固定 (置換・A案)
@@ -21672,6 +21680,7 @@
       showBanner("👁 操られた手下が這い出る 👁", 1800);
       showRollAtEnemy(bi, `<span class="label">CALL!</span>混乱した手下を呼び寄せる`, "crit");
       updateInfo(`${def.name} が地下の手下を呼び寄せた! 操りは不完全で、彼らは味方も暴君も見境なく襲う`);
+      sayLine("sovereign_add_wave", boss);   // ★ speech (C8): 手下召喚の号令 (話者=暴君本人)
       triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
       await sleepMs(700);
 
@@ -21937,6 +21946,7 @@
         enemy.shellActiveRemaining--;
         if (window.__sovereignProbe && def.eyeStalks) window.__sovereignProbe.push({ site: "shellTick", remaining: enemy.shellActiveRemaining });
         if (enemy.shellActiveRemaining === 0 && typeof updateInfo === "function") updateInfo(`${def.name} のアンチマジック・シェルが消えた`);
+        if (enemy.shellActiveRemaining === 0 && def.eyeStalks) sayLine("sovereign_shell_off", enemy);   // ★ speech (C8): 殻が砕けた瞬間の暴君の一言
       }
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
@@ -21992,6 +22002,7 @@
         showRollAtEnemy(idx,
           `<span class="label">SHELL!</span>アンチマジック・シェル<br>${enemy.shellActiveRemaining}ターン 全魔法無効`, "crit");
         updateInfo(`${def.name} が魔法を殺す殻を展開! 敵味方とも呪文が効かなくなった (残${enemy.shellActiveRemaining}T)`);
+        sayLine("boss.rage", enemy, { eventKey: enemy.type });   // ★ speech (C8): 汎用激怒からは除外済なので、手負い=シェル展開の瞬間に暴君の激怒台詞を出す
         await sleepMs(1300);
       }
 
