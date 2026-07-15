@@ -6757,6 +6757,7 @@
         hasteBonusRemaining: 0,   // 単眼の暴君 ヘイストの目 (C5): >0 の間は今ターンの眼柄が +1本 (追加行動)。手番tickで減衰
         shellFired: false,        // 単眼の暴君 アンチマジック・シェル (C6): HP50%割れで一度だけ展開するラッチ
         shellActiveRemaining: 0,  // 単眼の暴君 アンチマジック・シェル (C6): >0 の間は敵味方とも全魔法無効。手番tickで減衰
+        addWaveFired: false,      // 単眼の暴君 混乱モンスター乱入 (C7): HP70%割れで一度だけ雑魚を呼ぶラッチ
       };
     }
 
@@ -13554,6 +13555,13 @@
           if (!chariotSpawned && shouldSpawnChariot()) {
             chariotSpawned = true;                    // 二重発動防止
             await spawnGoblinChariot(units, sortUnits);
+          }
+
+          // [sovereign C7] 単眼の暴君の混乱モンスター乱入 (HP70%割れで1回)。
+          // 二重発火防止はローカル bool ではなくボスオブジェクトの addWaveFired ラッチが真実の源
+          // (chariot と違い、稀少ボスは生成クエストごとに個体が変わるため)。
+          if (shouldSpawnSovereignAddWave()) {
+            await spawnSovereignAddWave(units, sortUnits);
           }
 
           for (const actor of units) {
@@ -21607,6 +21615,94 @@
       showRollAtEnemy(idx,
         `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
       sortUnits();
+      await sleepMs(500);
+    }
+
+    // ── 単眼の暴君: 混乱モンスター乱入ウェーブ (C7・HP70%で1回ラッチ) ──
+    // chariot と同じくラウンドループ先頭 (units/sortUnits にアクセスできる場所) から駆動する。
+    // 発火閾値 70% はシェル 50% (C6) より先に到達するので、乱入 → シェルの順で発動する。
+    function findSovereignBossIdx() {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e && e.alive && e.def && e.def.eyeStalks && e.def.addWaveHpPct) return i;
+      }
+      return -1;
+    }
+
+    function shouldSpawnSovereignAddWave() {
+      const bi = findSovereignBossIdx();
+      if (bi < 0) return false;                       // 暴君不在の戦闘では常に false
+      const boss = enemies[bi];
+      if (boss.addWaveFired) return false;            // 二重発火はボスオブジェクトのラッチが真実の源
+      return boss.hp <= boss.maxHp * (boss.def.addWaveHpPct || 0.7);
+    }
+
+    // ボス近傍のリングを外側へ探索し、壁でも占有でもないタイルを返す (chariot の壁/占有回避を流用)。
+    function findSovereignAddWaveTile(bx, by) {
+      for (let r = 1; r <= 6; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;  // リング周のみ (内側は既に探索済)
+            const tx = bx + dx, ty = by + dy;
+            if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+            if (isTileWall(tx, ty)) continue;
+            if (isTileTakenByEnemy(tx, ty)) continue;
+            return { tx, ty };
+          }
+        }
+      }
+      return { tx: bx, ty: by };   // フォールバック (通常は届かない)
+    }
+
+    // 乱入本体。units / sortUnits は runEncounter のローカルなので引数で受ける (spawnGoblinChariot と同型)。
+    // addWaveCount 体を addWavePool からスポーンし、各体に wildConfused (C3) を即付与して
+    // 「操りきれず暴走した手下 = 敵味方・暴君すらも見境なく襲う」を表現する。
+    async function spawnSovereignAddWave(units, sortUnits) {
+      const bi = findSovereignBossIdx();
+      if (bi < 0) return;
+      const boss = enemies[bi];
+      if (boss.addWaveFired) return;                   // 既に乱入済み (直接二度呼びされても再発火しない)
+      boss.addWaveFired = true;                        // ★ 二重発火防止 (ラッチはボスオブジェクトに立てる)
+      const def = boss.def;
+      const pool = def.addWavePool || ["goblin", "hobgoblin", "kobold"];
+      const count = def.addWaveCount || 2;
+      const bx = Math.floor((boss.x + def.displaySize / 2) / TILE_SIZE);
+      const by = Math.floor((boss.y + def.displaySize / 2) / TILE_SIZE);
+
+      showBanner("👁 操られた手下が這い出る 👁", 1800);
+      showRollAtEnemy(bi, `<span class="label">CALL!</span>混乱した手下を呼び寄せる`, "crit");
+      updateInfo(`${def.name} が地下の手下を呼び寄せた! 操りは不完全で、彼らは味方も暴君も見境なく襲う`);
+      triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
+      await sleepMs(700);
+
+      const spawnedTypes = [];
+      for (let k = 0; k < count; k++) {
+        const typeKey = pool[Math.floor(Math.random() * pool.length)];
+        const spot = findSovereignAddWaveTile(bx, by);
+
+        const e = createEnemy(typeKey, spot.tx, spot.ty);
+        e.everSeen = true;         // 目の前で這い出す = フォグの未視認 cull にかけない
+        e.inactive = false;
+        e.state = "chase";         // idle だと未視認 cull の対象条件に入る
+        snapEnemyToTile(e, spot.tx, spot.ty);
+        enemies.push(e);
+        const idx = enemies.length - 1;
+        createEnemyDom(idx, e.def, e.type);   // ★ push の直後に 1 回だけ (全 enemyElements が添字並列)
+        encounterEnemyIndices.push(idx);
+        enemies[idx].wildConfused = 2;         // ★ 即 wildConfused 付与 (C3): 全陣営無差別攻撃
+        spawnedTypes.push(typeKey);
+
+        // ── イニシアチブを振って参戦 (増援ブロックと同じ手順) ──
+        const dexV = e.def.dex || 0;
+        const n = d20();
+        const init = n + dexV;
+        units.push({ kind: "enemy", idx, name: e.def.name, dex: dexV, initiative: init });
+        showRollAtEnemy(idx,
+          `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
+        await sleepMs(400);
+      }
+      sortUnits();
+      if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "addWave", spawned: spawnedTypes.slice() });
       await sleepMs(500);
     }
 
