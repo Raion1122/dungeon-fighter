@@ -1596,10 +1596,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ポドルプラザの稀少クエストが必ず出現(調整中)</b> — 動作確認のため、ポドルプラザを訪れると単眼の暴君の遭遇クエストが毎回並ぶよう一時的に調整。後日「ごく稀」に戻す。</li>
         <li><b>単眼の暴君に専用スプライトを追加</b> — 眼柄と単眼が動く新スプライトに差し替え(暫定のアンバーハルク流用を解消)。</li>
         <li><b>単眼の暴君は稀に宝を落とす</b> — 単眼の暴君を退けると金貨・経験値に加え、通常より高い確率(約1/4)でマジックアイテムを入手できる。</li>
         <li><b>ポドルプラザに稀少クエストが現れる</b> — ポドルプラザを訪れると、ごく稀に「アイ・オブ・ザ・ビホルダー」= 単眼の暴君との遭遇クエストが出るようになった。</li>
-        <li><b>暴君の正面に魔法を殺す光の帯</b> — 単眼の暴君の正面一直線には、魔法が通じないアンチマジック・レイが走る。その帯の上では味方は呪文を唱えられない。立ち位置が鍵。</li>
       </ul>
     </div>
     <script>
@@ -4938,7 +4938,7 @@
     // ── 稀少枠: ごく稀に「アイ・オブ・ザ・ビホルダー」= 単眼の暴君 (sovereignEye) 遭遇クエストを1件追加 ──
     //   通常抽選 (rareOnly で除外) には出さず、この来訪ごとの低確率注入だけで現れる。生成クエストは
     //   progress.cleared に載らない = 非永続・繰り返し可なので、外したら次の来訪でまた巡り合える。
-    const RARE_SOVEREIGN_CHANCE = 0.08;
+    const RARE_SOVEREIGN_CHANCE = 1.0; // ⚠TEST(一時): 100%出現。体感テスト後 0.08 へ戻す(商用前削除対象)
     if (Math.random() < RARE_SOVEREIGN_CHANCE) {
       const lv = Math.max(1, Math.min(20, L));
       const rq = QuestGen.generateQuest(lv, { source: "plaza", forceFamilyId: "sovereign-eye" });
