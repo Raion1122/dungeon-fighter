@@ -5465,15 +5465,16 @@
         clearXp: 700,
         clearReward: "蛇神の鱗 (ファラクサスの伏線)",
         spawns: [
-          // 部屋1 前哨(戦士 + 狩人)
-          ["lizardWarrior", 12, 13], ["lizardHunter", 17, 13],
-          // 部屋2 山場・祭壇広場(戦士3 + 司祭2 混成)
-          ["lizardWarrior", 27, 13], ["lizardRaider", 28, 13], ["lizardRaider", 28, 14],
-          ["lizardPriest", 39, 13], ["lizardPriest", 40, 13], ["lizardWarrior", 39, 14],
-          // 山場後衛(v7.7: 旧room3の2体を吸収): 戦士 + 狩人
-          ["lizardWarrior", 41, 14], ["lizardHunter", 42, 13],
-          // ボス: リザードマン族長
-          ["lizardChieftain", 57, 13],
+          // 部屋1 前哨(戦士3 + 襲撃者 + 狩人) — 中央col11-16に集約 (v7.10 リバランス)
+          ["lizardWarrior", 11, 12], ["lizardWarrior", 11, 14], ["lizardWarrior", 12, 13],
+          ["lizardRaider", 13, 13], ["lizardHunter", 16, 13],
+          // 部屋2 山場・祭壇広場: 近接壁 col30-33 + 後衛狩人3 + 司祭1 (祭壇35,13は空ける)
+          ["lizardWarrior", 30, 12], ["lizardWarrior", 30, 14], ["lizardRaider", 31, 13],
+          ["lizardWarrior", 32, 11], ["lizardWarrior", 32, 15], ["lizardRaider", 33, 13],
+          ["lizardHunter", 38, 11], ["lizardHunter", 38, 13], ["lizardHunter", 38, 15],
+          ["lizardPriest", 39, 13],
+          // ボス: リザードマン族長 + 護衛(戦士1 + 司祭1)
+          ["lizardChieftain", 57, 13], ["lizardWarrior", 55, 13], ["lizardPriest", 53, 13],
           // ROOM2 隠し要素: 沼の守護神(封印・接近3択で覚醒。未覚醒はinactive+passiveNpc)
           // 第4要素 = tavern-intel のフラグ。酒場で噂を掴めなければ祭壇ごと現れない。
           ["hydra", 35, 13, "s3_hydra_intel"],
