@@ -6836,7 +6836,10 @@
       // プレイヤーへの向きで左右反転 + 攻撃エフェクト(踏み込み/のけぞり)の transform 合成
       const pCX = playerX + 48;
       const eCX = enemy.x + dsw / 2;
-      el.style.transform = composeSpriteTransform(pCX < eCX, stepImpactOffset(enemy));
+      // 単眼の暴君 (eyeStalks) は enemy.facing がコーンとスプライト共通の唯一の向き。
+      // それ以外の敵は従来どおりプレイヤーが左にいるか (pCX < eCX) で反転する。
+      const flip = (def.eyeStalks && enemy.facing) ? (enemy.facing === "left") : (pCX < eCX);
+      el.style.transform = composeSpriteTransform(flip, stepImpactOffset(enemy));
     }
 
     let gameStarted = false;
@@ -21993,7 +21996,7 @@
       if (typeof enemies === "undefined" || !enemies) return null;
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
-        if (e && e.alive && !e.inactive && e.def && e.def.eyeStalks && e.facing) {
+        if (e && e.alive && !e.inactive && e.def && e.def.eyeStalks && e.facing && e.everSeen) {
           return { enemy: e, idx: i, tiles: sovereignRayTiles(e) };
         }
       }
@@ -22033,10 +22036,10 @@
         }
       }
       if (!best) return;   // 対象皆無 (全滅間際) なら現在の向きを維持
-      const dx = best.cx - bcx, dy = best.cy - bcy;
-      enemy.facing = (Math.abs(dx) >= Math.abs(dy))
-        ? (dx < 0 ? "left" : "right")
-        : (dy < 0 ? "up" : "down");
+      // レイ向きは左右2値のみ (スプライト反転と単一の真実に統一)。dy 量子化 (up/down) は廃止し、
+      // best キャスターへの dx の符号だけで向く。best 選定ロジック自体は温存。
+      const dx = best.cx - bcx;
+      enemy.facing = dx < 0 ? "left" : "right";
       if (window.__sovereignRayProbe) {
         window.__sovereignRayProbe.push({ site: "facing", facing: enemy.facing, tiles: sovereignRayTiles(enemy).slice() });
       }
