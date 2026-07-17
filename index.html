@@ -5454,6 +5454,8 @@
         facing: "left",                   // レイ用(C4)。敵は通常 facing 永続保持しないので新設
         // — 混乱の目(C3)—
         confusionEyeDC: 17, confusionEyeDurationTurns: 2,
+        // — 眠りの目(3a)— セーヴは CON (混乱の目の WIS と差別化)。ダメージで覚醒するので実効は 2ターン未満
+        sleepEyeDC: 17, sleepEyeDurationTurns: 2,
         // — シェル(C6)—
         shellHpPct: 0.5, shellDurationTurns: 2,
         // — 乱入(C7)—
@@ -7702,6 +7704,9 @@
           frightenedRemaining: 0, frightenedPenalty: 0,  // 恐怖 (攻撃 -2)
           fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
           shadowAcBonus: 0,                               // 闇市 影渡りの薬 (M9): 盗賊系 AC+ フラット
+          sleepWatchHp: null,                             // 眠り (単眼の暴君 眠りの目・柱3a) の覚醒監視の基準HP。
+                                                          // ⚠ null 以外 = 「下の stunned は眠り由来」の唯一のマーカ。
+                                                          //   盾バッシュ等の一般スタンと区別するために使う (checkSleepWake)
         },
         stunned: 0,
         confused: 0,   // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
@@ -8950,6 +8955,42 @@
       mini.innerHTML = html;
     }
 
+    // ── 眠りの覚醒監視 (単眼の暴君「眠りの目」・柱3a) ─────────────────────────────────
+    // 「ダメージを受けたら眠りから覚める」を updateInfo (全ダメージ経路の合流点) のポーリングで実現する。
+    // checkPartySpeech @6672 と同じ思想: HP を減らす経路は8本に散っていて、しかも early-return する
+    // 分岐があるため、個別のダメージ関数にフックを散らすと必ず取りこぼす。ここで現在値を見れば漏れない。
+    // ⚠ ally.stunned は盾バッシュ等の一般スタンとも共有される。buffs.sleepWatchHp != null を
+    //   「この stunned は眠り由来」の唯一のマーカとし、一般スタンを誤って覚まさない。
+    // ⚠ 回復では起きない。HP が基準を上回ったら基準を上げ直す (lowHpSpoken の REARM @6676 と同じ再武装)。
+    // 設計上の妙: 味方AIは敵しか殴らないので、PT の攻撃で眠った仲間が起きることはない。覚醒させ得るのは
+    //   (a) 暴君自身の業火の目/近接、(b) 混乱(暴走) の同士討ち のみ = ダメージ覚醒は純粋に暴君の自己制限。
+    function checkSleepWake() {
+      // ── 頭 (playerBuffs.sleepRemaining が真実の源) ──
+      if (typeof playerBuffs !== "undefined" && playerBuffs && (playerBuffs.sleepRemaining || 0) > 0) {
+        const base = playerBuffs.sleepWatchHp;
+        if (base == null) playerBuffs.sleepWatchHp = hp;         // 基準が無い = 直前に付いた。今のHPで武装
+        else if (hp < base) {
+          playerBuffs.sleepRemaining = 0;
+          playerBuffs.sleepWatchHp = null;
+          if (window.__sleepEyeProbe) window.__sleepEyeProbe.push({ site: "wake", kind: "leader" });
+        } else if (hp > base) playerBuffs.sleepWatchHp = hp;     // 回復したら基準を上げ直す (再武装)
+      }
+      // ── 仲間 (ally.stunned が真実の源。眠り由来かは buffs.sleepWatchHp で判別) ──
+      if (typeof allies === "undefined") return;
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a || !a.buffs) continue;
+        if (a.buffs.sleepWatchHp == null) continue;              // 眠り由来でない (一般スタン) = 触らない
+        if (!a.alive || (a.stunned || 0) <= 0) { a.buffs.sleepWatchHp = null; continue; }  // 自然に覚めた/死亡 → 監視を畳む
+        const base = a.buffs.sleepWatchHp;
+        if (a.hp < base) {
+          a.stunned = 0;
+          a.buffs.sleepWatchHp = null;
+          if (window.__sleepEyeProbe) window.__sleepEyeProbe.push({ site: "wake", kind: "ally", idx: i });
+        } else if (a.hp > base) a.buffs.sleepWatchHp = a.hp;     // 回復したら基準を上げ直す (再武装)
+      }
+    }
+
     function updateInfo(message) {
       // ログには動的なメッセージだけ積む
       if (message) appendLog(message);
@@ -8958,6 +8999,7 @@
       // 両キャラのステータス枠を更新
       renderPartyStatuses();
       checkPartySpeech();   // ★ speech v2: 低HP / 仲間ダウンの検知 (全ダメージ経路がここに合流する)
+      checkSleepWake();     // ★ 柱3a: 眠りのダメージ覚醒 (同上・合流点でのポーリングが取りこぼしゼロの唯一解)
     }
 
     function getPlayerCenter() {
@@ -12290,6 +12332,13 @@
       currentMaxSpellSlots = { ...(nh.maxSpellSlots || {}) };
       currentMaxSpellSlotsTotal = nh.maxSpellSlotsTotal || 0;
       copyBuffsInto(playerBuffs, nh.buffs);
+      // 柱3a: 眠りは頭の交代を跨がない。別人が起きて指揮を執っているのだから当然。
+      // ⚠ copyBuffsInto は dst を一旦ゼロ化してから src の全キーを写す。sleepRemaining は ally 側に
+      //   存在しないキーなのでゼロのままだが、sleepWatchHp は ally.buffs に在る = 新頭が仲間として
+      //   眠っていた場合その基準HP だけが playerBuffs へ流れ込み「監視だけの幽霊」になる。明示的に畳む。
+      //   (lowHpSpoken を playerBuffs に置いた理由 @6674 と同じ配慮 = 頭の交代はこの関数が面倒を見る)
+      playerBuffs.sleepRemaining = 0;
+      playerBuffs.sleepWatchHp = null;
       // status-effect v1.1: 状態異常は「体」に付くので、死んだ旧頭のものを引き継がせない。
       // 新しい頭が仲間として負っていた効果 (転倒など) だけを頭の配列へ移す。
       // (buffs と違い playerStatusEffects は参照を保つ必要があるため in-place で入れ替える)
@@ -12940,6 +12989,19 @@
     function allyFearImmune(a) {
       return !!(window.__fearImmune || templeBlessing || hasFreeAction(a) || (a && a.buffs && a.buffs.fearImmuneRemaining > 0));
     }
+    // ── 眠り免疫 (単眼の暴君「眠りの目」・柱3a) ─────────────────────────────────────
+    // unit: "player" (頭) | ally オブジェクト。playerFearImmune/allyFearImmune と同型の免疫フック。
+    // ⚠ 二重の免疫の「非対称」は意図的 (種族特性 vs マジックアイテム):
+    //   エルフ  = 種族特性としての睡眠免疫。sovereignSuppressed を一切通さない
+    //             = アンチマジック・レイの帯の上でも死なない (種族は魔法ではないから)。
+    //   自由の指輪 = アイテム由来なので hasFreeAction() 経由。同関数は冒頭で sovereignSuppressed を
+    //             通るため、帯の上では無効化される (混乱の目 @13022 と同じ扱い)。
+    // 敵 (第三勢力の乱入個体) には使わない: 眠りの目の敵分岐は免疫判定なし (混乱の目の敵分岐と同じ)。
+    function sleepImmune(unit) {
+      const classKey = (unit === "player") ? leaderClassKey : (unit && unit.classKey);
+      if (classKey === "elf") return true;   // 種族免疫: 帯でも抑制されない
+      return hasFreeAction(unit);            // アイテム免疫: 帯の上では剥がれる
+    }
     // dc に対しパーティ全員 (頭 + 生存仲間) が d20+WIS を振り、失敗者に frightened を付与。
     // 結果配列 [{kind, ally?, saved, immune?}] を返す (検証ドライバ用)。
     function partyWillSave(dc) {
@@ -13098,6 +13160,87 @@
       if (window.__wildConfusedProbe) window.__wildConfusedProbe.push(rec);
     }
 
+    // ── 単眼の暴君「眠りの目」(柱3a): 眼柄が1体を狙い CON セーヴ、失敗で数ターン行動不能 ──────
+    // sovereignConfusionEye (上) と同骨格の単体版。セーヴは CON (混乱の目の WIS と差別化)。
+    // 「眠り」は既存概念なので新しい状態配列は作らず、既存の真実の源をそのまま再利用する
+    // (allySleep が enemy.stunned に書き、fx-sleep が読む。1つの概念に2つの真実の源を作らない):
+    //   頭   = playerBuffs.sleepRemaining (数値・柱3a で新設。頭にはスタンの数値枠が無く
+    //          skipNextTurn(bool) しかない = 「頭だけ1手番固定」の非対称を避けるため専用の数値を持つ)
+    //   仲間 = ally.stunned (既存。allyAttackTurn の既存スタンゲートがそのまま効く = 追加コード 0 行)
+    //   敵   = enemy.stunned (既存。第三勢力の乱入個体など)
+    // 付与時に覚醒監視の基準HP (sleepWatchHp) を焼く → checkSleepWake が updateInfo 合流点で見張る。
+    // ⚠ 敵に付けた眠りだけは sleepWatchHp を焼かない = 覚醒監視しない (PT が積み上げてきた
+    //   「スタン中の敵は helpless = 自動クリ」の旨味を、暴君の乱入がある回だけ削らないため)。
+    // ⚠ PT 側 (頭/仲間) に helpless (自動クリ) を波及させてはいけない。現状 enemyAttackAllyTarget は
+    //   helpless を一切参照しない (helpless = target.stunned > 0 は PT→敵 の攻撃経路にしか存在しない)。
+    //   ここに enemy→ally の helpless を足すと「眠らされた仲間が確定クリで即死」= 過酷すぎる。足さないこと。
+    // ⚠ バナー/ログ/詠唱はディスパッチャ (sovereignEyeStalkTurn) のループ先頭が表から自動生成する。
+    //   ここで showBanner の「総称」や dfPlayCast を書くと二重詠唱/二重バナーになる。個別バナーは
+    //   混乱の目に倣って「誰を睨んだか」を名指しする1本だけに留める。
+    function sovereignSleepEye(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc  = def.sleepEyeDC || 17;
+      const dur = def.sleepEyeDurationTurns || 2;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      // 対象の CON 修正 / 表示ヘルパー / 付与 を kind 別に解決 (混乱の目の解決ブロックの鏡写し)
+      let conMod = 0, showAtTarget = null, applySleep = null, targetName = "", immuneKind = null;
+      if (pick.kind === "leader") {
+        conMod = playerStats.con || 0;
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+        applySleep = () => {
+          playerBuffs.sleepRemaining = Math.max(playerBuffs.sleepRemaining || 0, dur);
+          playerBuffs.sleepWatchHp = hp;      // 覚醒監視の基準HP を焼く
+        };
+        if (sleepImmune("player")) immuneKind = (leaderClassKey === "elf") ? "elf" : "ring";
+      } else if (pick.kind === "ally") {
+        const a = allies[pick.idx];
+        if (!a || !a.alive) return;
+        conMod = a.con || 0;
+        targetName = a.npcName || a.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(a, t, c);
+        applySleep = () => {
+          a.stunned = Math.max(a.stunned || 0, dur);
+          a.buffs.sleepWatchHp = a.hp;        // 「この stunned は眠り由来」の唯一のマーカを兼ねる
+        };
+        if (sleepImmune(a)) immuneKind = (a.classKey === "elf") ? "elf" : "ring";
+      } else {  // enemy (第三勢力の乱入個体など)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        conMod = (o.def.con != null) ? o.def.con : 0;
+        targetName = o.def.name;
+        showAtTarget = (t, c) => showRollAtEnemy(pick.idx, t, c);
+        applySleep = () => { o.stunned = Math.max(o.stunned || 0, dur); };   // 覚醒監視しない (helpless を残す)
+      }
+
+      updateInfo(`${def.name} の眼柄が ${targetName} を睨む! (CON セーヴ DC ${dc})`);
+
+      const rec = { site: "eye", eye: "sleepEye", enemyIdx, dc, kind: pick.kind,
+                    idx: (pick.idx != null ? pick.idx : null), applied: false, saved: false, immune: false, reason: null };
+      if (immuneKind) {
+        const elf = (immuneKind === "elf");
+        showAtTarget(`<span class="label">${elf ? "IMMUNE" : "FREE ACTION"}</span>` +
+                     `${elf ? "エルフは眠りに落ちない" : "自由の指輪が眠りを退けた"}`, "hit");
+        rec.saved = true; rec.immune = true; rec.reason = immuneKind;
+        if (window.__sleepEyeProbe) window.__sleepEyeProbe.push(rec);
+        return;
+      }
+      const roll = d20();
+      const total = roll + conMod;
+      const saved = total >= dc;
+      if (!saved) { applySleep(); rec.applied = true; } else { rec.saved = true; }
+      showAtTarget(
+        `<span class="label">${saved ? "SAVE" : "SLEEP"}</span>` +
+        `1d20(<b>${roll}</b>)${signedDD(conMod)} = ${total}<br>vs DC ${dc}`,
+        saved ? "hit" : "miss");
+      if (window.__sleepEyeProbe) window.__sleepEyeProbe.push(rec);
+    }
+
     function resetAllyBuffs(ally) {
       ally.buffs.atkBonusRemaining = 0;
       ally.buffs.atkBonusAmount = 0;
@@ -13125,6 +13268,7 @@
       // 状態アイコンが「幽霊」として残る (表示を入れて初めて露呈する初期化漏れ)。
       ally.buffs.blessMoveRemaining = 0;
       ally.buffs.hastedRemaining = 0;
+      ally.buffs.sleepWatchHp = null;   // 柱3a: 眠り覚醒監視のマーカも畳む (下の stunned=0 と対で幽霊化を防ぐ)
       ally.stunned = 0;
       ally.confused = 0;
       ally.wildConfused = 0;   // C3: 混乱(暴走) のエンカ跨ぎゴースト防止
@@ -14546,6 +14690,9 @@
       skipNextTurn: false,
       confused: 0,             // 混乱 (アンバーハルクの眩惑の視線): >0 の間は1ターン行動不能でスキップ
       wildConfused: 0,         // 混乱(暴走) (単眼の暴君 混乱の目・C3): >0 の間は敵味方かまわず無差別攻撃
+      sleepRemaining: 0,       // 眠り (単眼の暴君 眠りの目・柱3a): >0 の間は行動不能。ダメージで覚醒する。
+                               // 頭にはスタンの数値枠が無い (skipNextTurn は bool) ので専用に持つ。仲間/敵は既存の stunned。
+      sleepWatchHp: null,      // 眠り覚醒監視の基準HP。null = 眠っていない。checkSleepWake がポーリングする
       resilientFired: false,   // 不屈 (エンカウンター1回)
       acBonusRemaining: 0,     // シールド・オブ・フェイス等 の AC バフ
       acBonusAmount: 0,
@@ -14572,6 +14719,8 @@
       playerBuffs.skipNextTurn = false;
       playerBuffs.confused = 0;
       playerBuffs.wildConfused = 0;   // C3: 混乱(暴走) のエンカ跨ぎゴースト防止
+      playerBuffs.sleepRemaining = 0; // 柱3a: 眠りのエンカ跨ぎゴースト防止
+      playerBuffs.sleepWatchHp = null;
       playerBuffs.resilientFired = false;
       playerBuffs.acBonusRemaining = 0;
       playerBuffs.acBonusAmount = 0;
@@ -14655,8 +14804,10 @@
       const push = (id) => { const d = STATUS_EFFECT_DEFS[id]; if (d) out.push({ id, icon: d.icon, label: d.label, type: d.type }); };
 
       // デバフ (既存・フラット変数から派生)
-      // 頭はスタンを数値ではなく skipNextTurn(bool) で表す (渾身の一撃のセルフスタン)
-      if (isPlayer ? B.skipNextTurn : ((unit.stunned || 0) > 0)) push("stun");
+      // 頭はスタンを数値ではなく skipNextTurn(bool) で表す (渾身の一撃のセルフスタン)。
+      // 柱3a: 眠り (眠りの目) も「行動不能」= 同じ 💫 で見せる。頭は専用の sleepRemaining、
+      // 仲間/敵は眠りが既存の stunned に同居するので右辺は変更不要。
+      if (isPlayer ? (B.skipNextTurn || (B.sleepRemaining || 0) > 0) : ((unit.stunned || 0) > 0)) push("stun");
       if (isPlayer ? ((B.confused || 0) > 0) : ((unit.confused || 0) > 0)) push("confused");
       if (isPlayer ? ((B.wildConfused || 0) > 0) : ((unit.wildConfused || 0) > 0)) push("wildConfused");  // C3: 混乱(暴走)
       if ((B.frightenedRemaining || 0) > 0) push("frightened");
@@ -19109,9 +19260,14 @@
       tickStatusEffects(ally);   // status-effect v1.1: prone 等の残ターン
       // アンチマジック・レイ (C4・④a): 帯の上で手番を迎えたら呪文/スキル由来の有益バフが焼き切れる (恒久)
       if (isOnSovereignRay(ally)) dispelMagicalBuffs(ally);
-      // スタン
+      // スタン (盾バッシュ等の一般スタン + 単眼の暴君「眠りの目」の眠り・柱3a が共有する既存ゲート)。
+      // 柱3a が仲間側で追加コード 0 行なのはこのゲートのおかげ。眠り由来かは buffs.sleepWatchHp で判別する
+      // (checkSleepWake が「眠りだけをダメージで覚ます」ために使うマーカ。ここでは区別する必要がない)。
+      // ⚠ ここに helpless (自動クリ) を enemy→ally 方向へ足してはいけない。眠らされた仲間が確定クリで即死する。
+      //   helpless = target.stunned > 0 は PT→敵 の攻撃経路にしか存在しない (enemyAttackAllyTarget は非参照)。
       if (ally.stunned > 0) {
         ally.stunned--;
+        if (ally.stunned <= 0) ally.buffs.sleepWatchHp = null;   // 自然に覚めたら眠りの監視も畳む (無害な no-op が既定)
         showRollAtAlly(ally, `<span class="label">STUNNED</span>行動不能`, "miss");
         await sleepMs(900);
         return;
@@ -20955,6 +21111,20 @@
         await sleepMs(1000);
         return;
       }
+      // 眠り (単眼の暴君 眠りの目・柱3a): sleepRemaining ターン行動不能 (confused のスキップ処理を鏡写し)。
+      // ダメージを受けると checkSleepWake が sleepRemaining を 0 にして叩き起こす。
+      // ⚠ tickPlayerBuffsAtTurnStart では減らさない。confused/wildConfused と同じくこのゲートで減らす
+      //   (両方で減らすと 1 手番で 2 減って duration が半分になる)。
+      // ⚠ この位置 (confused の後・wildConfused の前) には意味がある = 眠っているなら暴れもしない。
+      if ((playerBuffs.sleepRemaining || 0) > 0) {
+        playerBuffs.sleepRemaining--;
+        if (playerBuffs.sleepRemaining <= 0) playerBuffs.sleepWatchHp = null;   // 自然に覚めたら監視も畳む
+        showRollAtPlayer(`<span class="label">SLEEP</span>眠りで行動不能`, "miss");
+        updateInfo(`${getLeaderName()} は眠りの目に落とされ、動けない`);
+        if (window.__sleepEyeProbe) window.__sleepEyeProbe.push({ site: "skip", kind: "leader" });
+        await sleepMs(1000);
+        return;
+      }
       // 混乱(暴走) (単眼の暴君 混乱の目・C3): 敵味方かまわず無差別に1体を殴る (行動不能スキップ型の confused とは別物)
       if (playerBuffs.wildConfused > 0) {
         playerBuffs.wildConfused--;
@@ -21712,6 +21882,8 @@
           await enemyCastAoE(enemyIdx, "fireball", ENEMY_SPELLS.fireball, def.spellDC || 17, "fire");
         } else if (eyeKey === "confusionEye") {
           await sovereignConfusionEye(enemyIdx);      // C3: WIS セーヴ → wildConfused
+        } else if (eyeKey === "sleepEye") {
+          sovereignSleepEye(enemyIdx);                 // 柱3a: CON セーヴ → 眠り (行動不能・ダメージで覚醒)
         } else if (eyeKey === "hasteEye") {
           sovereignHaste(enemyIdx);                    // C5: 自己バフ (本数は関数冒頭で確定済 → +1は次手番以降)
         }
@@ -22185,7 +22357,10 @@
     // 恒久 = 帯から出ても戻らない。装備の常時ボーナスと違い、術者が掛け直せるものだから焼き切ってよい。
     // gate = duration を持つ `*Remaining`。clear = それが死んだとき道連れにする効果量フィールド (宣言時の既定値へ戻す)。
     // ここに載せないもの:
-    //   デバフ (frightened/confused/wildConfused/stuck/skipNextTurn) … 剥がすと敵を利するので絶対に触らない
+    //   デバフ (frightened/confused/wildConfused/stuck/skipNextTurn/sleepRemaining) … 剥がすと敵を利するので絶対に触らない
+    //     ⚠ とりわけ sleepRemaining (眠りの目・柱3a) は絶対に載せてはいけない。載せると暴君が自分のレイで
+    //       自分が掛けた眠りを解除してしまう = 自滅する。この表は明示収録方式なので黙っていれば安全だが、
+    //       「*Remaining だから」という理由で機械的に足す人が出ないようここに固定しておく。
     //   ラッチ/内部状態 (resilientFired/gritThreshold/lowHpSpoken/statusImmunityCharges) … 1回限りの権利や進行状態
     //   アイテム由来 (shadowAcBonus/cursedBlade*) … ④b で「帯の上にいる間だけ抑制」する (恒久消去してはいけない)
     const SOVEREIGN_DISPEL_GROUPS = [
