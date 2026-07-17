@@ -5747,6 +5747,20 @@
       if (_pd.has("daylight")) __daylight = (_pd.get("daylight") === "1");
     } catch (e) {}
 
+    // ── [7.9-3 STEP5] 敵が PC ではなく護衛対象 (馬車) を狙う確率 ──
+    //   pickEnemyTarget の early-return が読む唯一のレバー。0.0 = 従来通り PC のみを狙う。
+    //   ⚠️ 暫定値: STEP8 でウェーブ実測のうえ確定する。企画書の「30%」は実コード未確認の根拠なき数値。
+    //   ⚠️ falsy-zero 注意: 0.0 を有効値として扱うので `chance || 0.3` の既定値パターンは使わない
+    //      (0.0 が 0.3 に化ける)。上書きは has() + 明示 parse のみ (__daylight と同じ作法)。
+    let WAGON_TARGET_CHANCE = 0.30;
+    try {
+      const _pw = new URLSearchParams(window.location.search);
+      if (_pw.has("wagonchance")) {
+        const _v = parseFloat(_pw.get("wagonchance"));
+        if (Number.isFinite(_v)) WAGON_TARGET_CHANCE = Math.max(0, Math.min(1, _v));
+      }
+    } catch (e) {}
+
     function questFlagOn(flagName) {
       if (!flagName) return true;                  // ゲート指定の無いスポーンは常に出る
       if (__intelOverride !== null) return __intelOverride;
@@ -10181,6 +10195,16 @@
       targetY = null;
     }
 
+    // ── [7.9-3 STEP5] 護衛対象 (馬車) を PT の攻撃対象から除外するための述語 ──
+    //   非対称性が肝: 「敵が馬車を燃やす」= 仕様 / 「PT が馬車を壊す」= バグ。
+    //   よってこの述語は PT 側の経路にのみ入れる。敵→馬車の経路
+    //   (pickEnemyTarget → resolveOneBite → enemyAttackEnemyTarget) には絶対に入れない。
+    //   ⚠️ enemies[] に居るユニットは全て「敵」だと仮定している選択/AoE が多数あるため、
+    //      isObjective は 1 箇所ではなく PT 経路それぞれで弾く必要がある (実測で洗い出し済)。
+    function isEscortObjective(e) {
+      return !!(e && e.def && e.def.isObjective);
+    }
+
     function getNearestAliveEnemy() {
       const center = getPlayerCenter();
       let bestIndex = -1;
@@ -10188,6 +10212,7 @@
 
       enemies.forEach((enemy, index) => {
         if (!enemy.alive) return;
+        if (isEscortObjective(enemy)) return;   // [7.9-3 STEP5] 護衛対象は PT の狙う敵ではない
         const ex = (enemy.x + enemy.def.displaySize / 2);
         const ey = (enemy.y + enemy.def.displaySize / 2);
         const dist = Math.hypot(ex - center.x, ey - center.y);
@@ -10216,6 +10241,11 @@
     function damageEnemy(index, stage = 0, angle = currentAttackAngle) {
       const enemy = enemies[index];
       if (!enemy.alive) return;
+      // [7.9-3 STEP5] 護衛対象 (馬車) は PT の探索フェーズの斬撃を受けない。
+      //   damageEnemy の呼び出し元は checkAttackHit 1 箇所のみ = PT 専用のダメージ経路なので、
+      //   ここで弾いても「敵が馬車を攻撃する」(enemyAttackEnemyTarget) には影響しない。
+      //   ★ STEP4 実測の「PT が 5 秒で 3 回・hp 60→56」はこの経路 (weapon.power 分) が真因。
+      if (isEscortObjective(enemy)) return;
 
       // 攻撃を受けたら必ず追跡状態に
       //   [7.9-3 STEP4] ただし護衛対象 (馬車) は追跡しない = state を idle のまま据え置く。
@@ -10575,6 +10605,7 @@
         if (hitEnemiesThisSwing.has(i)) continue;
         if (!enemies[i].alive) continue;
         if (enemies[i].inactive) continue;   // 檻内のビースト等は探索フェーズの当たり判定から除外
+        if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 護衛対象は PT の斬撃の当たり判定から除外
 
         const enemyHitbox = getEnemyHitbox(enemies[i]);
         if (isOverlapping(attackHitbox, enemyHitbox)) {
@@ -11923,6 +11954,7 @@
       for (const e of enemies) {
         if (!e.alive) continue;
         if (e.inactive) continue;   // 檻内のビースト等は感知対象外 (檻を開けるまで非敵扱い)
+        if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象に向かって歩き出さない
         const size = e.def.displaySize;
         const eCX = e.x + size / 2;
         const eCY = e.y + size / 2;
@@ -12346,6 +12378,7 @@
       for (let i = 0; i < enemies.length; i++) {
         if (!enemies[i].alive) continue;
         if (enemies[i].inactive) continue;   // 檻内のビースト等は auto-target から除外
+        if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 護衛対象は PT の auto-target から除外
         const ex = enemies[i].x + enemies[i].def.displaySize / 2;
         const ey = enemies[i].y + enemies[i].def.displaySize / 2;
         const dx = ex - center.x;
@@ -12681,6 +12714,7 @@
             const candidates = [];
             for (let i = 0; i < enemies.length; i++) {
               if (!enemies[i].alive) continue;
+              if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 護衛対象に shadow-step しない
               if (canSneakOnTarget(actor, enemies[i])) candidates.push(i);
             }
             // HP 残量低い順 (確実にトドメを刺せる相手優先)
@@ -15288,6 +15322,9 @@
       let best = -1, bestHp = Infinity;
       for (const i of encounterEnemyIndices) {
         if (!enemies[i].alive) continue;
+        // [7.9-3 STEP5] 護衛対象は狙わない。馬車は encounterEnemyIndices に居ないので現状は到達しないが、
+        //   STEP6 (ウェーブ) が roster を触った時に「PT が馬車を殴る」が再発しないための防壁。
+        if (isEscortObjective(enemies[i])) continue;
         if (enemies[i].hp < bestHp) { best = i; bestHp = enemies[i].hp; }
       }
       return best;
@@ -15332,6 +15369,7 @@
           if (i === targetIdx) continue;
           const e = enemies[i];
           if (!e || !e.alive) continue;
+          if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は雷斧の衝撃波に巻き込まない
           const eds = e.def.displaySize || 64;
           const ecx = e.x + eds / 2;
           const ecy = e.y + eds / 2;
@@ -17387,6 +17425,26 @@
         if (window.__pickProbe) window.__pickProbe.push({ name: e.def.name, kind: w.kind, zone: w.zone || null, wild: true });
         return w;
       }
+      // ── [7.9-3 STEP5] 護衛対象 (馬車) 狙い ──
+      //   ⚠️ 位置の正典: wildConfused ブロックの「直後」かつ candidates 構築の「直前」。
+      //      これより前に置くと混乱(暴走)を上書きして壊す (混乱は全陣営無差別が仕様なので馬車狙いより優先)。
+      //      逆に下の best ループより後だと candidates 構築が無駄になる。
+      //   攻撃解決は新規 0 行: {kind:"enemy"} は resolveOneBite が既に処理する
+      //      (射程外 → enemyAdvanceOneTile / 射程内 → enemyAttackEnemyTarget)。beast 第三勢力と同じ経路。
+      //   ⚠️ faction は使わない (beast/非beast の二値でしか読まれず新しい値は無効)。
+      //   馬車自身は encounterEnemyIndices に居らず手番が回らないが、防御的に自分は除外する。
+      //   ⚠️ 判定順が重要: 生存馬車の存在を確かめてから Math.random() を引く。先に引くと、馬車の
+      //      居ない既存シナリオでも毎手番 RNG ストリームを1つ消費して従来の乱数列がズレる
+      //      (「既存シナリオへの影響ゼロ」が崩れる)。馬車ゼロなら乱数に一切触れないのが正。
+      if (WAGON_TARGET_CHANCE > 0 && wagonIndices.length > 0 && !e.def.isObjective) {
+        const liveWagons = wagonIndices.filter(i => i !== enemyIdx && enemies[i] && enemies[i].alive);
+        if (liveWagons.length > 0 && Math.random() < WAGON_TARGET_CHANCE) {
+          const wIdx = liveWagons[Math.floor(Math.random() * liveWagons.length)];
+          const w = enemies[wIdx];
+          if (window.__pickProbe) window.__pickProbe.push({ name: e.def.name, kind: "enemy", zone: null, wagon: true });
+          return { kind: "enemy", idx: wIdx, cx: w.x + w.def.displaySize / 2, cy: w.y + w.def.displaySize / 2 };
+        }
+      }
       const candidates = [];
       if (hp > 0 && !gameOver) {
         candidates.push({ kind: "leader", zone: PARTY_ZONES[leaderClassKey] || "front", cx: playerX + 48, cy: playerY + 58 });
@@ -17569,6 +17627,7 @@
       let best = -1, bestDist = Infinity;
       for (const i of encounterEnemyIndices) {
         if (!enemies[i].alive) continue;
+        if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 仲間も護衛対象は狙わない (STEP6 への防壁)
         const eCX = enemies[i].x + enemies[i].def.displaySize / 2;
         const eCY = enemies[i].y + enemies[i].def.displaySize / 2;
         const d = Math.hypot(aCX - eCX, aCY - eCY);
@@ -17998,6 +18057,7 @@
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         if (!e.alive || !isUndeadEnemy(e)) continue;
+        if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は hp=0 にされない (馬車は非アンデッドなので現状は到達しないが二重防護)
         const ecx = e.x + e.def.displaySize / 2;
         const ecy = e.y + e.def.displaySize / 2;
         if (tileChebyshev(aCX, aCY, ecx, ecy) > rangeTiles) continue;
@@ -18260,11 +18320,14 @@
       // 範囲(2x2)選定: ターゲットを含む 4通りの origin から最多敵を含むものを採用
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
+      // ⚠️ これはモジュール直下の enemiesInArea を shadow する allySleep 専用のローカル版 (2x2 固定)。
+      //    グローバル版の inactive 除外を持たないので、除外はここにも個別に必要。
       const enemiesInArea = (originTX, originTY) => {
         const out = [];
         for (let i = 0; i < enemies.length; i++) {
           const e = enemies[i];
           if (!e.alive) continue;
+          if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は PT のスリープの対象外
           const eTX = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
           const eTY = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
           if (eTX >= originTX && eTX < originTX + 2 &&
@@ -18379,11 +18442,16 @@
       }
       return false;
     }
+    // ⚠️ この関数は PT の AoE 専用の被害者列挙 (ally* 呪文 9 種 + tickCordonZones が唯一の呼び出し元)。
+    //    敵の AoE は enemyCastAoE が別に持っており、こちらは通らない。
+    //    → ここに isObjective 除外を入れると「PT の AoE は馬車を巻き込まない / 敵の AoE は巻き込む」が
+    //      同時に成立する (仕様どおりの非対称性)。
     function enemiesInArea(originTX, originTY, sizeTilesX, sizeTilesY) {
       const out = [];
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         if (!e.alive || e.inactive) continue;
+        if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は PT の AoE に巻き込まない
         const eTX = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
         const eTY = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
         if (eTX >= originTX && eTX < originTX + sizeTilesX &&
@@ -19173,6 +19241,7 @@
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         if (!e || !e.alive) continue;
+        if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は PT の AoE に巻き込まない
         const eCX = e.x + e.def.displaySize / 2;
         const eCY = e.y + e.def.displaySize / 2;
         if (tileChebyshev(aCX, aCY, eCX, eCY) > 1) continue;
@@ -21355,6 +21424,7 @@
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         if (!e || !e.alive || e.inactive) continue;
+        if (isEscortObjective(e)) continue;   // [7.9-3 STEP5] 護衛対象は盗賊AI (毒刃/影歩/投擲) の対象外
         const eCX = e.x + e.def.displaySize / 2;
         const eCY = e.y + e.def.displaySize / 2;
         live.push({ idx: i, e, dist: tileChebyshev(aCX, aCY, eCX, eCY) });
