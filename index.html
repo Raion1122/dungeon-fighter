@@ -5456,6 +5456,11 @@
         confusionEyeDC: 17, confusionEyeDurationTurns: 2,
         // — 眠りの目(3a)— セーヴは CON (混乱の目の WIS と差別化)。ダメージで覚醒するので実効は 2ターン未満
         sleepEyeDC: 17, sleepEyeDurationTurns: 2,
+        // — 畏怖の目(3b)— セーヴは WIS (恐怖は WIS が正。混乱の目と同じ能力値だが効果が別: 行動不能 vs 命中-2)
+        //   持続の既定は FRIGHTENED_DURATION、ペナルティ量は FRIGHTENED_PENALTY (partyWillSave と同じ源)
+        fearEyeDC: 17, fearEyeDurationTurns: 3,
+        // — 重圧の目(3b)— セーヴは DEX (かわす)。既存の prone をそのまま付与 (移動封じ・攻撃は可)
+        pressEyeDC: 17, pressEyeDurationTurns: 1,
         // — シェル(C6)—
         shellHpPct: 0.5, shellDurationTurns: 2,
         // — 乱入(C7)—
@@ -12777,6 +12782,16 @@
     // プレイヤーを前進 (対象に向かって)。ヘイスト/ブレス中は 2 タイル進む (移動速度UP)
     async function playerAdvanceOneTile(targetWX, targetWY) {
       const steps = getMoveLimit("player");
+      // steps=0 (転倒 / 鈍足) だと下の for が一度も回らず「無言で前進しない」= 何が起きたか伝わらない。
+      // 「進めない」表示は !next かつ s===0 の枝にしかないので、ここで塞ぐ。enemyAdvanceOneTile 12827 の PT 版。
+      if (steps <= 0) {
+        const prone = hasStatus("player", "prone");
+        showRollAtPlayer(`<span class="label">${prone ? "PRONE" : "SLOWED"}</span>` +
+                         `${prone ? "倒れていて動けない" : "動きが鈍い"}`, "miss");
+        updateInfo(`${getLeaderName()} は${prone ? "倒れていて動けない" : "動きが鈍い"}…`);
+        await sleepMs(450);
+        return;
+      }
       const moveTag = (steps >= 2)
         ? ((typeof playerBuffs !== "undefined" && playerBuffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
         : "1タイル";
@@ -13239,6 +13254,167 @@
         `1d20(<b>${roll}</b>)${signedDD(conMod)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__sleepEyeProbe) window.__sleepEyeProbe.push(rec);
+    }
+
+    // ── 単眼の暴君「畏怖の目」(柱3b): 眼柄が1体を狙い WIS セーヴ、失敗で恐怖 (命中 -2) ────────
+    // sovereignConfusionEye / sovereignSleepEye と同骨格の単体版。
+    // ⚠ partyWillSave (13007) は PT 全員版なので使わない。この光線は単体 = pickEnemyTarget で1体だけ狙う。
+    //   ただし書き込むフィールドと値は partyWillSave と完全に同じ (frightenedRemaining / frightenedPenalty)。
+    //   恐怖は1つの概念なので、既存の tick (14890 頭 / 19258 仲間)・命中減算 (17448/17452)・表示 (14813) が
+    //   そのまま効く = 追加コード 0 行。持続だけ def の調整レバーを持たせ、既定を FRIGHTENED_DURATION にする。
+    // セーヴは WIS (恐怖は WIS が正)。混乱の目も WIS だが効果が違う (行動不能 vs 命中-2) ので差別化は足りている。
+    // 免疫は既存の playerFearImmune() / allyFearImmune(a) をそのまま使う (新規免疫関数は作らない)。
+    // ⚠ sleepImmune の「種族免疫は sovereignSuppressed を通さない」の非対称は眠り固有の意図なのでコピーしない。
+    //   恐怖は templeBlessing (神官の祝福) という別の免疫軸を既に持っている。
+    // ⚠ 敵 (第三勢力の乱入個体) には効かない = no-op。createEnemy (6763) は .buffs を持たず
+    //   frightenedRemaining の置き場所が無い (computeDisplayList 14803 も敵では B={} にフォールバックする)。
+    //   atkPenaltyRemaining (盗賊 煙幕) へマップすれば「動く」が、それは別ルールの混入なので断じてしない。
+    //   眠りの目 (敵に効く) との差は「敵の器に枠が有るか」の差であって、恣意的な線引きではない。
+    // ⚠ バナー/詠唱はディスパッチャ (sovereignEyeStalkTurn) のループ先頭が表から自動生成する。
+    //   ここで showBanner の「総称」や dfPlayCast を書くと二重詠唱/二重バナーになる。
+    function sovereignFearEye(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc  = def.fearEyeDC || 17;
+      const dur = def.fearEyeDurationTurns || FRIGHTENED_DURATION;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      // 対象の WIS 修正 / 表示ヘルパー / 付与 を kind 別に解決 (混乱の目・眠りの目の解決ブロックの鏡写し)
+      let wisMod = 0, showAtTarget = null, applyFear = null, targetName = "", immune = false, immuneWhy = null;
+      if (pick.kind === "leader") {
+        wisMod = playerStats.wis || 0;
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+        applyFear = () => {
+          playerBuffs.frightenedRemaining = Math.max(playerBuffs.frightenedRemaining || 0, dur);
+          playerBuffs.frightenedPenalty = FRIGHTENED_PENALTY;   // partyWillSave 13019 と同値
+        };
+        immune = playerFearImmune();
+        // 表示用の理由ラベルだけを別に判定する (可否の判断は上の playerFearImmune が唯一の権威。
+        // ここで条件を組み直すと免疫の判定が二重定義になり、いずれ食い違う)
+        if (immune) immuneWhy = templeBlessing ? "blessing"
+                              : ((playerBuffs && playerBuffs.fearImmuneRemaining > 0) ? "buff"
+                              : (hasFreeAction("player") ? "ring" : "hook"));
+      } else if (pick.kind === "ally") {
+        const a = allies[pick.idx];
+        if (!a || !a.alive) return;
+        wisMod = a.wis || 0;
+        targetName = a.npcName || a.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(a, t, c);
+        applyFear = () => {
+          a.buffs.frightenedRemaining = Math.max(a.buffs.frightenedRemaining || 0, dur);
+          a.buffs.frightenedPenalty = FRIGHTENED_PENALTY;       // partyWillSave 13037 と同値
+        };
+        immune = allyFearImmune(a);
+        if (immune) immuneWhy = templeBlessing ? "blessing"
+                              : ((a.buffs && a.buffs.fearImmuneRemaining > 0) ? "buff"
+                              : (hasFreeAction(a) ? "ring" : "hook"));
+      } else {  // enemy (第三勢力の乱入個体など): 恐怖の器が無い = 無効 (上の ⚠ 参照)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        updateInfo(`${def.name} の眼柄が ${o.def.name} を睨んだが、効果がなかった`);
+        showRollAtEnemy(pick.idx, `<span class="label">NO EFFECT</span>恐怖に怯む心がない`, "hit");
+        if (window.__fearEyeProbe) {
+          window.__fearEyeProbe.push({ site: "eye", eye: "fearEye", enemyIdx, dc, kind: "enemy",
+                                       idx: pick.idx, applied: false, saved: true, immune: false, reason: "noEffect" });
+        }
+        return;
+      }
+
+      updateInfo(`${def.name} の眼柄が ${targetName} を睨む! (WIS セーヴ DC ${dc})`);
+
+      const rec = { site: "eye", eye: "fearEye", enemyIdx, dc, kind: pick.kind,
+                    idx: (pick.idx != null ? pick.idx : null), applied: false, saved: false, immune: false, reason: null };
+      if (immune) {
+        const RY = { blessing: "神官の祝福が恐怖を退けた", buff: "恐怖免疫が効いている",
+                     ring: "自由の指輪が恐怖を退けた", hook: "恐怖を感じない" };
+        showAtTarget(`<span class="label">FEAR IMMUNE</span>${RY[immuneWhy] || RY.hook}`, "hit");
+        rec.saved = true; rec.immune = true; rec.reason = immuneWhy;
+        if (window.__fearEyeProbe) window.__fearEyeProbe.push(rec);
+        return;
+      }
+      const roll = d20();
+      const total = roll + wisMod;
+      const saved = total >= dc;
+      if (!saved) { applyFear(); rec.applied = true; } else { rec.saved = true; }
+      showAtTarget(
+        `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
+        `1d20(<b>${roll}</b>)${signedDD(wisMod)} = ${total}<br>vs DC ${dc}`,
+        saved ? "hit" : "miss");
+      if (window.__fearEyeProbe) window.__fearEyeProbe.push(rec);
+    }
+
+    // ── 単眼の暴君「重圧の目」(柱3b): 眼柄が1体を狙い DEX セーヴ、失敗で転倒 (prone) ──────────
+    // 見えない重圧で押し潰して膝を突かせる。効果は既存の prone をそのまま借りる = 付与は applyStatus 1行:
+    //   移動封じ  = getMoveLimit 12755 が prone で limit=0 (攻撃は可。敵の鈍足と機械的に同一)
+    //   AC/命中   = 14952/14959/15157 (AC-2) と 17449/17453 (命中-2) が既存
+    //   tick     = playerAttackTurn / allyAttackTurn / enemyAttackTurn の冒頭で既に回っている
+    //   表示     = computeDisplayList 14823 が statusEffects 配列をマージするので自動
+    // → 新規ゲート・新規 tick・新規表示コードは一切不要。
+    // ⚠ applyStatus (14774) の visibleTurns は内部で +1 される規約 → 1 を渡せば「1手番効く」。
+    // セーヴは DEX (かわす)。免疫は hasFreeAction (拘束系なので自由の指輪が効くのは自然。
+    // ゴブリン戦車の轢殺 22224 が既に同じ判断をしている = prone の免疫は自由の指輪、で一貫する)。
+    // ⚠ 敵にも効く (眠りの目と同じく敵分岐あり)。createEnemy 6787 は statusEffects を持ち、
+    //   tick (22452) も AC ペナルティ (15157) も既に配線済 = 敵の prone は完全に生きている。
+    //   敵分岐で免疫を見ないのは混乱の目/眠りの目の敵分岐と同じ (自由の指輪は PT の装備概念)。
+    function sovereignPressEye(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc  = def.pressEyeDC || 17;
+      const dur = def.pressEyeDurationTurns || 1;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      // 対象の DEX 修正 / 表示ヘルパー / 付与先 を kind 別に解決。
+      // ⚠ 付与先は applyStatus に渡す unit そのもの: 頭は文字列 "player" (statusArrayOf 14766 の規約)。
+      let dexMod = 0, showAtTarget = null, unit = null, targetName = "", hasFree = false;
+      if (pick.kind === "leader") {
+        dexMod = playerStats.dex || 0;
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+        unit = "player";
+        hasFree = hasFreeAction("player");
+      } else if (pick.kind === "ally") {
+        const a = allies[pick.idx];
+        if (!a || !a.alive) return;
+        dexMod = a.dex || 0;
+        targetName = a.npcName || a.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(a, t, c);
+        unit = a;
+        hasFree = hasFreeAction(a);
+      } else {  // enemy (第三勢力の乱入個体など)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        dexMod = (o.def.dex != null) ? o.def.dex : 0;
+        targetName = o.def.name;
+        showAtTarget = (t, c) => showRollAtEnemy(pick.idx, t, c);
+        unit = o;
+      }
+
+      updateInfo(`${def.name} の眼柄が ${targetName} を押し潰す! (DEX セーヴ DC ${dc})`);
+
+      const rec = { site: "eye", eye: "pressEye", enemyIdx, dc, kind: pick.kind,
+                    idx: (pick.idx != null ? pick.idx : null), applied: false, saved: false, immune: false, reason: null };
+      if (hasFree) {
+        showAtTarget(`<span class="label">FREE ACTION</span>自由の指輪の力で踏みとどまった`, "hit");
+        rec.saved = true; rec.immune = true; rec.reason = "ring";
+        if (window.__pressEyeProbe) window.__pressEyeProbe.push(rec);
+        return;
+      }
+      const roll = d20();
+      const total = roll + dexMod;
+      const saved = total >= dc;
+      if (!saved) { applyStatus(unit, "prone", dur); rec.applied = true; } else { rec.saved = true; }
+      showAtTarget(
+        `<span class="label">${saved ? "SAVE" : "PRONE"}</span>` +
+        `1d20(<b>${roll}</b>)${signedDD(dexMod)} = ${total}<br>vs DC ${dc}`,
+        saved ? "hit" : "miss");
+      if (window.__pressEyeProbe) window.__pressEyeProbe.push(rec);
     }
 
     function resetAllyBuffs(ally) {
@@ -14857,8 +15033,9 @@
       refreshStatusIcons(list, slotEl);
     }
 
-    // 検証用フック (?diag=1 / autoplay 時のみ)。prone の付与元 (ゴブリン戦車) はまだ実装されていないため、
-    // ヘッドレスドライバから直接付与して効果と表示を検証する。setupDiagnostics 21645 と同じ休眠方針。
+    // 検証用フック (?diag=1 / autoplay 時のみ)。prone の付与元は実装済 (ゴブリン戦車の轢殺 22227 /
+    // 単眼の暴君「重圧の目」sovereignPressEye・柱3b) だが、いずれも戦闘の流れの中でしか撃てないので、
+    // ヘッドレスドライバから直接付与して効果と表示を検証する口を残す。setupDiagnostics 21645 と同じ休眠方針。
     if (window.__diagEnabled) {
       window.__statusApi = {
         apply: applyStatus, remove: removeStatus, tick: tickStatusEffects, has: hasStatus,
@@ -17254,6 +17431,14 @@
       const postSleep = (opts.postSleep != null) ? opts.postSleep : 120;
       const silent    = !!opts.silent;  // ログ/ロール表示を抑制 (探索中向け)
       const steps = getMoveLimit(ally);  // ヘイスト/ブレス中は 2 タイル前進
+      // playerAdvanceOneTile 12779 と同じ穴: steps=0 (転倒/鈍足) だと下の for が回らず無言で return する
+      if (steps <= 0) {
+        const prone = hasStatus(ally, "prone");
+        if (!silent) showRollAtAlly(ally, `<span class="label">${prone ? "PRONE" : "SLOWED"}</span>` +
+                                          `${prone ? "倒れていて動けない" : "動きが鈍い"}`, "miss");
+        await sleepMs(silent ? 80 : 450);
+        return;
+      }
       const moveTag = (steps >= 2)
         ? ((ally.buffs && ally.buffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
         : "1タイル";
@@ -21884,6 +22069,10 @@
           await sovereignConfusionEye(enemyIdx);      // C3: WIS セーヴ → wildConfused
         } else if (eyeKey === "sleepEye") {
           sovereignSleepEye(enemyIdx);                 // 柱3a: CON セーヴ → 眠り (行動不能・ダメージで覚醒)
+        } else if (eyeKey === "fearEye") {
+          sovereignFearEye(enemyIdx);                  // 柱3b: WIS セーヴ → 恐怖 (命中 -2)。敵には効かない
+        } else if (eyeKey === "pressEye") {
+          sovereignPressEye(enemyIdx);                 // 柱3b: DEX セーヴ → 転倒 (移動封じ・AC-2。攻撃は可)
         } else if (eyeKey === "hasteEye") {
           sovereignHaste(enemyIdx);                    // C5: 自己バフ (本数は関数冒頭で確定済 → +1は次手番以降)
         }
