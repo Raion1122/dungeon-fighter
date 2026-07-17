@@ -5499,6 +5499,51 @@
         deathLine: "…見て…いた…すべてを……",
         xp: 1050,
       },
+      // ── [7.9-3 STEP4] 隊商の馬車 (護衛対象・敵ではない) ──
+      //   「動かないが敵に狙われる標的」= 既存フラグの組み合わせでは作れないので新フラグ isObjective を導入する。
+      //   ⚠️ inactive を流用してはいけない: inactive は pickEnemyTarget の候補列挙 (index.html:17274) や
+      //      detectEnemiesEngagedByRange (:13571) から除外される = 「狙われない」= 護衛対象として機能が死ぬ。
+      //   ⚠️ faction は触らない: faction は beast/非beast の二値でしか読まれず新しい値は無効。
+      //      さらに faction:"beast" にすると isMidBossEnemy が馬車を中ボス扱いする。
+      //   isObjective が効く場所は 5 箇所 (いずれも「敵として振る舞わせない」ための除外):
+      //      exploreEnemyTurn      = ★不動化の本体。探索中の1タイル slide を止める
+      //      moveEnemies           = ステートマシンを止める (※ここは x/y を書かないので単独では不動化にならない)
+      //      damageEnemy           = 殴られても chase に飛ばさない (歩行アニメ暴発 + 上記 state ゲート対策)
+      //      detectEnemiesEngagedByRange = 単独でエンカ誘発/増援合流しない
+      //      checkPlayerCollision  = 接触ダメージを与えない (下記の通り必須)
+      //   ⚠️ 移動系は2つある: 実際に x/y を書くのは exploreEnemyTurn →
+      //      exploreMoveEnemyOneTile → enemyAdvanceOneTile → slideAnim の系統。
+      //      moveEnemies はノックバック以外 x/y を書かない。片方だけ塞ぐと馬車は歩く (実測済み)。
+      //   ⚠️ enemyAdvanceOneTile はタイル単位で def.speed を見ない → speed:0 は移動の防壁にならない。
+      //   ⚠️ hasAttackAnim を付けない場合の意味 = 「接触ダメ」(:4466 のコメント)。実際の gate は
+      //      checkPlayerCollision の `if (def.hasAttackAnim) continue;` で、inactive/passiveNpc を
+      //      見ていない。つまり馬車に触れたプレイヤーが damagePlayer される。
+      //      → hasAttackAnim を偽装せず (馬車は攻撃モーションを持たないのが真実)、
+      //        checkPlayerCollision 側に isObjective の除外を足して解決する。
+      //      (def.contactDamage は 3 箇所で定義されているがコード上どこからも読まれていない飾り)
+      //   幾何は STEP1 実測値 = goblinChariot と完全一致 (192px 大型規格)。
+      //   row3(attack)/row4(death) は walk[0] のプレースホルダ (馬車は攻撃しないので row3 は未使用。
+      //   row4 は破壊時に updateEnemyAnim が参照するが、STEP7 の敗北判定までは到達しない)。
+      caravanWagon: {
+        name: "隊商の馬車",
+        flavor: "積荷を満載した幌馬車。これを守り抜くのが此度の依頼だ",
+        badge: "🛒",
+        sprite: "assets/caravan_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        // ⚠️ displaySize は当たり判定に直結する。馬車の絵は横長 (コンテンツ 337:208) でセル高の
+        //    51% しか使わないため「幅基準」で決める。240 → 見かけ 幅≈204px(≈2.1タイル) / 高さ≈125px。
+        //    上げると縦の当たり判定だけが無駄に広がるので上げない。※暫定値: STEP8 で実測して確定する。
+        displaySize: 240,
+        // ⚠️ 暫定値: STEP8 でウェーブ実測のうえ確定する (企画書の「40」は実コード未確認の根拠なき数値)。
+        //    同じ 240px 車体の goblinChariot(hp:65) を目安に、1ウェーブでは落ちない程度から始める。
+        hp: 60, speed: 0,
+        isObjective: true,            // ★ 護衛対象: 動かない / 攻撃しない / それでも狙われる (狙わせるのは STEP5)
+        // 攻撃しないので atkBonus/dmgDice は持たない。AC は「動かない大きな的」= 低め (D&D 3.5 の物体相当)。
+        dex: 0, ac: 10,
+        range: "melee",
+        xp: 0,                        // 護衛対象なので撃破 XP は無い
+      },
     };
 
     // スポーン定義: [type, tx, ty]
@@ -5666,6 +5711,11 @@
         spawns: _safeSpawns.length ? _safeSpawns : SCENARIOS["goblin-mine"].spawns,
         source: _genScenario.source || null,          // 闇市: 結果画面の牙貨付与判定に使う
         fangReward: _genScenario.fangReward || 0,
+        // [7.9-3 STEP4] 隊商護衛: 護衛対象の馬車の配置 [{tx,ty},...]。cageSpawns と同型のシナリオ属性。
+        //   隊商護衛は生成クエスト (酒場/闇市の掲示板) 経由で来るため、ここで素通しする。
+        //   ⚠️ 配列以外が入ると spawnWagon の for-of が落ちるので Array.isArray で検疫する
+        //      (spawns が _safeSpawns で未知敵キーを弾いているのと同じ防御)。
+        wagonSpawns: Array.isArray(_genScenario.wagonSpawns) ? _genScenario.wagonSpawns : null,
         magicItemChance: _genScenario.magicItemChance || null,   // 稀少ボス(単眼の暴君)のみ >0。既定は null=通常確率。
         closingFlavor: _genScenario.closingFlavor || null,       // 勝利後の締めフレーバー (暴君のみ)。
       };
@@ -10168,7 +10218,10 @@
       if (!enemy.alive) return;
 
       // 攻撃を受けたら必ず追跡状態に
-      if (enemy.state !== "chase") {
+      //   [7.9-3 STEP4] ただし護衛対象 (馬車) は追跡しない = state を idle のまま据え置く。
+      //   chase に飛ぶと (1) 歩行アニメ(row2)がその場で再生される「走らない馬車が車輪だけ回す」絵になり、
+      //   (2) exploreEnemyTurn の state ゲートに載ってしまう (そちらは def フラグでも塞いであるが二重防護)。
+      if (enemy.state !== "chase" && !enemy.def.isObjective) {
         enemy.state = "chase";
         enemy.alertTimer = 0;
         enemy.path = [];
@@ -10712,6 +10765,10 @@
         // 攻撃モーション持ちタイプは接触ダメージなし(モーション中のヒットフレームでのみ判定)
         // 攻撃モーション持ちタイプは接触ダメージなし
         if (enemies[i].def && enemies[i].def.hasAttackAnim) continue;
+        // [7.9-3 STEP4] 護衛対象 (馬車) は攻撃モーションを持たない = このループ的には「接触ダメ持ち」に
+        // 見えてしまうため、明示的に除外する。⚠️この行が無いと馬車に触れただけで damagePlayer される
+        // (この関数は inactive/passiveNpc を見ないので、それらのフラグでは防げない)。
+        if (enemies[i].def && enemies[i].def.isObjective) continue;
 
         const enemyHitbox = getEnemyHitbox(enemies[i]);
         if (isOverlapping(playerHitbox, enemyHitbox)) {
@@ -11317,6 +11374,12 @@
           enemy.damageFlashTimer -= 1;
         }
 
+        // [7.9-3 STEP4] 護衛対象 (馬車) は不動: AI・移動・攻撃を一切走らせない。
+        //   ⚠️ inactive は使わない (狙われなくなる = 護衛対象として機能しない)。
+        //   ⚠️ この return は damageFlashTimer の減衰より「後」に置くこと。前に置くと STEP5 で
+        //      馬車が殴られた時にフラッシュが減衰せず赤く点いたままになる。
+        if (enemy.def.isObjective) return;
+
         // 観戦フェーズ中: 交戦対象は state=attack のときだけアニメを進め、
         // 他の敵は完全凍結(意思決定・移動・攻撃判定はスキップ)
         if (encounterActive) {
@@ -11586,6 +11649,14 @@
         for (let i = 0; i < enemies.length; i++) {
           const enemy = enemies[i];
           if (!enemy.alive) continue;
+          // [7.9-3 STEP4] 護衛対象 (馬車) は不動。
+          //   ⚠️ ここは moveEnemies とは独立した「第二の移動系」。moveEnemies に isObjective の
+          //      early return を置いただけでは馬車は止まらない (実測: 探索中に1タイル slide した)。
+          //   ⚠️ このループが inactive を見ていないのは「inactive な敵は state が idle のままなので
+          //      下の state ゲートで弾かれる」という間接的な前提に乗っているだけ。馬車は damageEnemy
+          //      (パーティに殴られる) で state=chase に飛ばされるため、その前提が崩れる。
+          //      よって state ではなく def のフラグで明示的に弾く。
+          if (enemy.def.isObjective) continue;
           if (enemy.state !== "chase" &&
               enemy.state !== "search" &&
               enemy.state !== "returning") continue;
@@ -13569,6 +13640,10 @@
         const e = enemies[i];
         if (!e.alive) continue;
         if (e.inactive) continue;   // 檻内のビーストはエンカ発生に絡まない
+        // [7.9-3 STEP4] 護衛対象 (馬車) はエンカ発生/増援合流に絡まない。
+        //   この関数は inactive しか除外しないため、この行が無いと「馬車に近づいただけで戦闘開始」
+        //   「戦闘中に馬車が増援として合流」が起きる (馬車は敵ではないので両方とも誤り)。
+        if (e.def.isObjective) continue;
         const ex = e.x + e.def.displaySize / 2;
         const ey = e.y + e.def.displaySize / 2;
         const d = Math.hypot(pCX - ex, pCY - ey);
@@ -16259,6 +16334,38 @@
         };
         cages.push(cage);
         createCageDom(cage, cages.length - 1);
+      }
+    }
+
+    // ── [7.9-3 STEP4] 隊商の馬車 (護衛対象) の配置 ──
+    // 配置順序の正典は spawnSovereignAddWave (単眼の暴君のウェーブ湧き):
+    //   createEnemy → everSeen → inactive=false → snapEnemyToTile → enemies.push → createEnemyDom
+    // ⚠️ createEnemyDom は enemies.push の「直後に1回だけ」。enemyElements/hpBarElements/... の
+    //    全 element 配列が enemies と添字並列であり、順序を崩すと全敵の DOM が1つずつズレる。
+    // ⚠️ encounterEnemyIndices には入れない。units は encounterEnemyIndices からのみ構築されるため、
+    //    入れなければ手番が回らない = 馬車は攻撃しない (「攻撃してこない標的」が無料で手に入る)。
+    // ⚠️ HPバーは新規コード 0 行。createEnemyDom が生成し、描画ループが毎フレーム自動追従する。
+    // spawnCages/linkCagedBeasts/initGuardians と並んでセットアップ末尾で呼ぶ (initCaelum のコメントの作法)。
+    let wagonIndices = [];   // 馬車の enemies[] 添字 (STEP5 の狙い先 / STEP7 の敗北判定が使う)
+    function spawnWagon() {
+      const spawns = currentScenario.wagonSpawns || [];
+      for (const sp of spawns) {
+        const e = createEnemy("caravanWagon", sp.tx, sp.ty);
+        e.everSeen = true;      // 護衛対象は最初から見えている (フォグの未視認 cull にかけない)
+        e.inactive = false;     // ★ inactive にしない: 不動化は exploreEnemyTurn / moveEnemies の
+                                //    isObjective 分岐が担う。inactive にすると「狙われない」=
+                                //    護衛対象として機能が死ぬ (pickEnemyTarget / detectEnemies... が除外するため)。
+        e.state = "idle";       // 馬車は chase しない → updateEnemyAnim の row0 (idle) を使う。
+                                //   正典は state="chase" だが、それは未視認 cull (state==="idle" が条件) を
+                                //   避けるための細工。馬車は下の passiveNpc により protectedNpc 扱いとなり
+                                //   cull ブロックごとスキップされるので、idle のままで可視性は担保される。
+        e.passiveNpc = true;    // クリア判定 (checkDungeonClear) から除外 + 押し退け (resolveUnitOverlaps) から除外
+                                //   + 描画側で protectedNpc 扱い = 伏兵化 cull の対象外
+        snapEnemyToTile(e, sp.tx, sp.ty);
+        enemies.push(e);
+        const idx = enemies.length - 1;
+        createEnemyDom(idx, e.def, e.type);   // ★ push の直後に 1 回だけ
+        wagonIndices.push(idx);
       }
     }
 
@@ -23684,6 +23791,9 @@
     // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
     spawnCages();
     linkCagedBeasts();
+    spawnWagon();      // [7.9-3 STEP4] 隊商護衛: 護衛対象の馬車 (isObjective) を配置。
+                       //   ⚠️ spawnCages/linkCagedBeasts は 1 対のため間に挟まない (檻紐付けの直後に置く)。
+                       //   wagonSpawns を持たないシナリオでは何もしない = 既存シナリオへの影響ゼロ。
     initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
     initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
     initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
