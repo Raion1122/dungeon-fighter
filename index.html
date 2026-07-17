@@ -5716,6 +5716,11 @@
         //   ⚠️ 配列以外が入ると spawnWagon の for-of が落ちるので Array.isArray で検疫する
         //      (spawns が _safeSpawns で未知敵キーを弾いているのと同じ防御)。
         wagonSpawns: Array.isArray(_genScenario.wagonSpawns) ? _genScenario.wagonSpawns : null,
+        // [7.9-3 STEP6] 隊商護衛: ウェーブ定義 [{count, pool}, ...]。runEncounter のウェーブ状態機械が読む。
+        //   wagonSpawns と同じく生成クエスト (酒場/闇市の掲示板) 経由で来るのでここで素通しする。
+        //   ⚠️ 配列以外が入ると escortWaveList / spawnWave が落ちるので Array.isArray で検疫する
+        //      (spawns の _safeSpawns・wagonSpawns と同じ防御)。個々の count/pool の検疫は spawnWave 側。
+        waves: Array.isArray(_genScenario.waves) ? _genScenario.waves : null,
         magicItemChance: _genScenario.magicItemChance || null,   // 稀少ボス(単眼の暴君)のみ >0。既定は null=通常確率。
         closingFlavor: _genScenario.closingFlavor || null,       // 勝利後の締めフレーバー (暴君のみ)。
       };
@@ -14052,8 +14057,21 @@
         // ── ラウンドループ ──
         let round = 1;
         let chariotSpawned = false;   // [chariot-7.9-2] 1 戦闘 1 回だけ乱入させる
-        while (!gameOver && hp > 0 &&
-               encounterEnemyIndices.some(i => enemies[i].alive)) {
+        // ── [7.9-3 STEP6] 隊商護衛のウェーブ状態機械 (戦闘ローカル) ──
+        //   進行状態は戦闘ローカルに置く (spec: 戦車の chariotSpawned 型)。
+        //   waveList が空 = ウェーブ無しのシナリオ = 下の while 条件も従来と完全に等価になる。
+        const waveList = escortWaveList();
+        let waveNext = 0;                                   // 次に湧かせるウェーブの添字
+        const wavesRemaining = () => waveNext < waveList.length;
+        // ⚠️ このSTEP最大の地雷: `encounterEnemyIndices.some(alive)` だけだと「ウェーブN殲滅の瞬間」に
+        //    ループを抜けてしまい、下のウェーブ湧きフックに永久に到達しない (= 第2波が始まらない)。
+        //    → `|| wavesRemaining()` で「まだ湧かせる波がある間は戦闘を続ける」を足す。
+        //    ⚠️ ハング防止: フックは湧かせる前に waveNext を進めるので、この条件は高々 waveList.length
+        //       ラウンドで必ず false 化する (加えて round>40 の安全ブレーキが最終防壁)。
+        // ⚠️ 敗北条件 (護衛対象の全損) も同じ while 条件で抜けるのが最も安全。
+        //    ただし gameOver を立てるのは STEP7 の担当 (ここで抜けると現状は下の VICTORY 分岐に落ちる)。
+        while (!gameOver && hp > 0 && !escortWagonLost() &&
+               (encounterEnemyIndices.some(i => enemies[i].alive) || wavesRemaining())) {
           // 2ラウンド目以降: 近くに未参戦の敵がいれば増援として合流
           if (round > 1) {
             const reinforce = detectReinforcements();
@@ -14116,6 +14134,19 @@
           // (chariot と違い、稀少ボスは生成クエストごとに個体が変わるため)。
           if (shouldSpawnSovereignAddWave()) {
             await spawnSovereignAddWave(units, sortUnits);
+          }
+
+          // [7.9-3 STEP6] 隊商護衛のウェーブ湧き (区間制: 1ウェーブ殲滅 → 次ウェーブ)。
+          //   ⚠️ 位置の正典: 上の chariot のコメントが明言する「actor ループの前に units へ参戦させるので
+          //      この場での units 変更は安全」= units をイテレート中に push しない唯一の正しい場所。
+          //   ゲート = 「まだ波が残っている」かつ「今の敵が全滅している」。よって最初の1波は
+          //   エンカを起こした初期スポーン (= 待ち伏せ) を殲滅した次のラウンドから始まる。
+          //   ⚠️ 二重発火防止はローカル bool ではなく waveNext の単調増加そのもの (spawn の前に進める)。
+          //      spawn 前に進めるので、万一 spawnWave が投げても同じ波を無限に湧かせ続けることはない。
+          if (wavesRemaining() && !encounterEnemyIndices.some(i => enemies[i].alive)) {
+            const wd = waveList[waveNext];
+            waveNext++;                                     // ★ 湧かせる前に進める (無限ループ防止)
+            await spawnWave(units, sortUnits, wd, waveNext, waveList.length);
           }
 
           for (const actor of units) {
@@ -22507,6 +22538,116 @@
       }
       sortUnits();
       if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "addWave", spawned: spawnedTypes.slice() });
+      await sleepMs(500);
+    }
+
+    // ══ [7.9-3 STEP6] 隊商護衛: ウェーブ状態機械 ══════════════════════════════
+    // 設計 (区間制): 1ウェーブ殲滅 → 次ウェーブ。戦闘中は馬車静止・盤面固定・カメラ固定。
+    //   ⚠️ 盤面固定は新規コード 0 行 = 既定挙動。ただし機構は「moveEnemies 冒頭の早期 return」ではない
+    //      (仕様書の記述は誤り)。実体は moveEnemies 内の enemies.forEach の中にある
+    //      `if (encounterActive) { ...attack anim only...; clampEnemyToMap(enemy); return; }` という
+    //      「敵1体ごとの early return」= 戦闘中は意思決定・移動が丸ごと凍る。効果は同じだが、
+    //      moveEnemies 全体が止まるわけではない (tryStartEncounter や damageFlash の減衰は動き続ける)。
+    //   ⚠️ ウェーブ湧きにナレーション (showDMMessage) を使わないこと。moveEnemies 冒頭の
+    //      `if (dialogPaused || narrationHold || narrationPlaying) return;` でゲーム時間が止まり、
+    //      戦車が「未描画のまま数秒放置」される事故が記録されている。banner + updateInfo だけで演出する
+    //      (spawnSovereignAddWave と同じ選択)。
+    //
+    // 「ウェーブ間で applyRoomClearHeal を呼ぶか」= 呼ばない (判断根拠):
+    //   1. ウェーブ防衛の緊張は「消耗が累積すること」そのもの。毎ウェーブ maxHp 33% 回復では
+    //      ウェーブ数が難易度に効かなくなり、この機能の設計目的が消える。
+    //   2. applyRoomClearHeal は HP だけでなく「最低位スロット +1」も配る = 呪文スロットの
+    //      「1戦闘 = 1予算」という既存の経済を壊す (ウェーブごとに撃ち放題になる)。
+    //   3. あれは rest フェーズの関数。戦闘の途中で呼ぶと体感が「戦闘が終わった」になり、
+    //      区間制 (=1本の連続した防衛戦) という設計と矛盾する。
+    //   4. 隊商護衛も「1エンカウンター」なので、既存の呼び出し (勝利後の rest フェーズ) が
+    //      最終ウェーブ後に従来どおり 1 回発火する = PT の取り分は他の戦闘と同じ。追加は不要。
+    //   → 「ウェーブ間回復」は STEP8 のバランスレバーとして残す (難しすぎたら足せばよい)。
+
+    // ウェーブ定義。未指定/不正 = 空配列 = 既存シナリオは一切影響を受けない。
+    // ⚠️ falsy 注意: `currentScenario.waves || []` ではなく Array.isArray。waves: [] (0本) を
+    //    そのまま 0本として扱う必要がある (|| だと [] は truthy なので実害は無いが、非配列を
+    //    確実に空へ落とすため厳密判定にする)。
+    function escortWaveList() {
+      return Array.isArray(currentScenario.waves) ? currentScenario.waves : [];
+    }
+
+    // 護衛対象が全て失われたか (= 敗北条件)。馬車の居ないシナリオでは wagonIndices が空なので常に false
+    // = 既存の全戦闘へ影響ゼロ。
+    // ⚠️ gameOver は立てない (STEP7 の担当)。このSTEPの責務は「ラウンドループを抜ける」まで。
+    function escortWagonLost() {
+      if (wagonIndices.length === 0) return false;
+      return wagonIndices.every(i => !enemies[i] || !enemies[i].alive);
+    }
+
+    // pool 未指定時の既定。⚠️ 企画書の 4 種のうち Wolf / Worg は ENEMY_TYPES に存在しない (実検索で 0 ヒット。
+    //   唯一の「狼」は goblinRider の flavor 文「狼にまたがる突撃槍兵」)。実在キーのみで構成する。
+    const WAVE_DEFAULT_POOL = ["goblin", "goblinArcher", "hobgoblin", "goblinRider"];
+
+    // ウェーブ湧き本体。spawnSovereignAddWave の複製 (createEnemy → everSeen → inactive=false →
+    //   state="chase" → snapEnemyToTile → enemies.push → createEnemyDom → encounterEnemyIndices.push
+    //   という配置順序の正典をそのまま踏襲)。
+    // ⚠️ units / sortUnits は runEncounter のローカルなので引数で受ける (chariot / 暴君と同型)。
+    // ⚠️ waveDef / waveNo / waveTotal も引数で受ける: 進行状態と二重発火防止は runEncounter の
+    //    戦闘ローカルに置くのが正 (spec: 戦車の chariotSpawned 型)。暴君がボス個体にラッチを立てるのは
+    //    「稀少ボスは生成クエストごとに個体が変わる」ためで、ウェーブはボス個体を持たないので該当しない。
+    // ⚠️ enemies[] から要素は削除しない (末尾 push のみ)。wagonIndices が添字で馬車を持っているため。
+    async function spawnWave(units, sortUnits, waveDef, waveNo, waveTotal) {
+      const wd = waveDef || {};
+      // ⚠️ falsy-zero: count:0 を「未指定」と混同しない (`wd.count || 2` は 0 を 2 に化けさせる)。
+      //    count:0 は「何も湧かないウェーブ」として合法に通し、状態機械は次のウェーブへ進む (ハングしない)。
+      const count = Number.isFinite(wd.count) ? Math.max(0, Math.floor(wd.count)) : 2;
+      // 未知の敵キーは除外 (_safeSpawns と同じ検疫)。全滅したら既定プールへフォールバック。
+      const safePool = (Array.isArray(wd.pool) ? wd.pool : []).filter(k => ENEMY_TYPES[k]);
+      const pool = safePool.length ? safePool : WAVE_DEFAULT_POOL;
+
+      // 湧き中心: 生存する護衛対象 (馬車) の中心タイル。馬車不在/全損時は主人公の足元へ退避
+      //   (waves だけを持つ検証用シナリオでも湧きが死なないための防御)。
+      // ⚠️ 戦闘中も敵は手番で enemyAdvanceOneTile により1マスずつ寄れる (enemyAttackTurn の射程外分岐)
+      //    ので、湧き位置が多少ズレても敵が置物になることはない。湧き距離は STEP8 のバランスレバー。
+      let bx, by;
+      const liveWagons = wagonIndices.filter(i => enemies[i] && enemies[i].alive);
+      if (liveWagons.length > 0) {
+        const w = enemies[liveWagons[0]];
+        bx = Math.floor((w.x + w.def.displaySize / 2) / TILE_SIZE);
+        by = Math.floor((w.y + w.def.displaySize / 2) / TILE_SIZE);
+      } else {
+        bx = Math.floor((playerX + 48) / TILE_SIZE);
+        by = Math.floor((playerY + 58) / TILE_SIZE);
+      }
+
+      showBanner(`⚔ 第 ${waveNo} 波 / 全 ${waveTotal} 波 ⚔`, 1800);
+      updateInfo(`街道の先から新手が現れた! (第 ${waveNo} 波 / 全 ${waveTotal} 波)`);
+      triggerScreenShake(SHAKE_BOSS.mag, SHAKE_BOSS.dur);
+      await sleepMs(700);
+
+      const spawnedTypes = [];
+      for (let k = 0; k < count; k++) {
+        const typeKey = pool[Math.floor(Math.random() * pool.length)];
+        const spot = findSovereignAddWaveTile(bx, by);   // 中心からリング状に外へ (壁/占有回避) を流用
+
+        const e = createEnemy(typeKey, spot.tx, spot.ty);
+        e.everSeen = true;         // ★ 目の前で湧く = フォグの未視認 cull にかけない
+        e.inactive = false;
+        e.state = "chase";         // ★ idle だと未視認 cull の対象条件に入る (= 敵が不可視になる)
+        snapEnemyToTile(e, spot.tx, spot.ty);
+        enemies.push(e);
+        const idx = enemies.length - 1;
+        createEnemyDom(idx, e.def, e.type);   // ★ push の直後に 1 回だけ (全 enemyElements が添字並列)
+        encounterEnemyIndices.push(idx);
+        spawnedTypes.push(typeKey);
+
+        // ── イニシアチブを振って参戦 (増援ブロックと同じ手順) ──
+        const dexV = e.def.dex || 0;
+        const n = d20();
+        const init = n + dexV;
+        units.push({ kind: "enemy", idx, name: e.def.name, dex: dexV, initiative: init });
+        showRollAtEnemy(idx,
+          `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
+        await sleepMs(400);
+      }
+      sortUnits();
+      if (window.__waveProbe) window.__waveProbe.push({ site: "spawnWave", waveNo, waveTotal, count, spawned: spawnedTypes.slice() });
       await sleepMs(500);
     }
 
