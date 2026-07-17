@@ -8645,6 +8645,7 @@
     }
     // 装備中のアクセサリーから kind ("all" | "arrow") の回避率を合算
     function getTotalAvoidance(kind, unit) {
+      if (sovereignSuppressed(unit || "player")) return 0;   // C4 ④b: 帯の上では回避のマジックアイテムは死ぬ
       let total = 0;
       for (const i of getUnitAccessoryIndices(unit || "player")) {
         const a = accessories[i];
@@ -8661,6 +8662,7 @@
     // 走査し最小倍率を返す (無ければ 1.0)。複数持ちでも最小倍率のみ適用 = 二重半減しない (仕様意図)。
     // unit: "player" (リーダー) | ally オブジェクト。火源 hydraFireBreath から呼ぶ。
     function getFireResistMult(unit) {
+      if (sovereignSuppressed(unit)) return 1.0;             // C4 ④b: 帯の上では火耐性は効かない (等倍)
       let mult = 1.0;
       for (const acc of getEquippedAccessories(unit)) {
         if (typeof acc.fireResist === "number") mult = Math.min(mult, acc.fireResist);
@@ -8675,6 +8677,7 @@
     // 自由の指輪 (Ring of Free Action): 装備中なら「縛り」系状態 (frightened / confused / stuck) を無効化。
     // unit: "player" (リーダー) | ally オブジェクト。恐怖セーヴ・眩惑の視線・粘着の各適用箇所で参照。
     function hasFreeAction(unit) {
+      if (sovereignSuppressed(unit)) return false;           // C4 ④b: 帯の上では自由の指輪は縛りを防げない
       return getEquippedAccessories(unit).some(a => a && a.freeAction);
     }
 
@@ -8692,6 +8695,7 @@
     // 攻撃者が undead:true の敵の時のみ、被ダメージ算出でこの値だけ差し引く (最低1は通す)。
     // 二重所持でも最大値のみ = 二重軽減しない (火耐性の指輪と同じ思想)。unit: "player" | ally オブジェクト。
     function getUndeadDamageReduction(unit) {
+      if (sovereignSuppressed(unit)) return 0;               // C4 ④b: 帯の上では聖印の軽減は効かない
       let dr = 0;
       for (const acc of getEquippedAccessories(unit)) {
         if (typeof acc.undeadDR === "number") dr = Math.max(dr, acc.undeadDR);
@@ -12301,8 +12305,8 @@
       const weapon = getCurrentWeapon();
       const armor  = getCurrentArmor();
       const shield = getCurrentShield();
-      // ステ枠と整合した攻撃ボーナス (武器エンハ込み)
-      const weaponEnh = (weapon && weapon.enhancement) || 0;
+      // ステ枠と整合した攻撃ボーナス (武器エンハ込み。C4 ④b: アンチマジック・レイ上では 0 に抑制)
+      const weaponEnh = effectiveWeaponEnh("player");
       const actor = {
         isLeader: true,
         classKey: leaderClassKey,
@@ -14435,10 +14439,16 @@
       const a = pool.armors[sel.armor];
       const s = pool.shields[sel.shield];
       const baseW = pool.weapons[0], baseA = pool.armors[0], baseS = pool.shields[0];
+      // C4 ④c: 装備エンハンスメントの「素装備との差分」= マジックアイテム由来の下駄。
+      // ally.ac / ally.dmgBonus へ焼き込む値と同じものを退避しておき、アンチマジック・レイの上では
+      // currentAllyAc / effectiveAllyDmgBonus が読み出し時にこの分だけ引く (焼込み値自体は無改変)。
+      const dmgEnhDelta = (w.enhancement - baseW.enhancement);
+      const acEnhDelta  = (a.enhancement - baseA.enhancement) + (s.enhancement - baseS.enhancement);
+      ally._dmgEnhDelta = dmgEnhDelta;
+      ally._acEnhDelta  = acEnhDelta;
       ally.dmgDice  = w.dmgDice;
-      ally.dmgBonus = (ally.dmgBonus || 0) + (w.enhancement - baseW.enhancement);
-      ally.ac       = (ally.ac       || 10) + (a.enhancement - baseA.enhancement)
-                                            + (s.enhancement - baseS.enhancement);
+      ally.dmgBonus = (ally.dmgBonus || 0) + dmgEnhDelta;
+      ally.ac       = (ally.ac       || 10) + acEnhDelta;
       ally.weaponName = w.name;
       ally.armorName  = a.name;
       ally.shieldName = s.name;
@@ -14695,33 +14705,69 @@
         if (leaderSkillCooldowns[k] > 0) leaderSkillCooldowns[k]--;
       }
     }
-    function currentPlayerAtkBonus() {
+    // ── アンチマジック・レイ「マジックアイテムの抑制」(C4・④b/④c) ────────────────────
+    // 設計モデル: 呪文バフ = 焼き切る (④a・恒久。術者が掛け直せるから)。
+    //             マジックアイテムの静的+/受動 = 帯の上にいる間だけ「抑制」(離れれば即復帰)。
+    //             装備は着けたままなので恒久消去は不自然 = 読み出し時に 0 扱いにするだけ。
+    // ⚠ 絶対規約: buffs / 装備 / 仲間の焼込み値 (ally.ac / ally.dmgBonus) を書き換えてはいけない。
+    //   書き換えると帯を出ても戻らない = 恒久化して ④a (dispelMagicalBuffs) と衝突する。
+    //   抑制は必ず「読み出し側に三項を足す」形で行う (非破壊)。
+    // unit: "player" (省略時も) | ally オブジェクト。暴君不在なら常に false = 無影響。
+    function sovereignSuppressed(unit) {
+      return typeof isOnSovereignRay === "function" && isOnSovereignRay(unit || "player");
+    }
+    // リーダーの武器エンハンスメント (+N) の実効値。帯の上では 0 = 魔法の刃が死ぬ。
+    // ⚠ golemPhysImmune (石ゴーレムの非魔法物理免疫バイパス判定) には *真値* を渡すこと。
+    //   ここを通した値を渡すと「帯の上ではゴーレムに通用しない」という別ルールが混入する。
+    function effectiveWeaponEnh(unit) {
       const w = getCurrentWeapon();
-      const weaponEnh = (w && w.enhancement) || 0;
+      const enh = (w && w.enhancement) || 0;
+      if (enh && sovereignSuppressed(unit || "player")) {
+        if (window.__sovereignRayProbe) {
+          window.__sovereignRayProbe.push({ site: "weaponEnhSuppressed", enh });
+        }
+        return 0;
+      }
+      return enh;
+    }
+    // 仲間のダメージボーナスの実効値 (④c)。仲間は装備+が spawn 時に ally.dmgBonus へ焼込み済みで
+    // 生フックが無いため、applyAllyEquipment が退避した差分 _dmgEnhDelta を帯の上でだけ引く。
+    // Math.max(0,...) = 抑制が逆に強化になる事故を防ぐ (差分が負でも下駄を履かせない)。
+    function effectiveAllyDmgBonus(ally) {
+      if (!ally) return 0;
+      const base = ally.dmgBonus || 0;
+      if (!sovereignSuppressed(ally)) return base;
+      return base - Math.max(0, ally._dmgEnhDelta || 0);
+    }
+    function currentPlayerAtkBonus() {
+      const weaponEnh = effectiveWeaponEnh("player");     // C4 ④b: 帯の上では魔法武器の +N は死ぬ
+      const onRay = sovereignSuppressed("player");
       return playerStats.atkBonus + weaponEnh +
         (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) +
-        (playerBuffs.cursedBladeAtkBonus || 0) -          // 闇市 呪われた曲刀 (M9)
+        (onRay ? 0 : (playerBuffs.cursedBladeAtkBonus || 0)) -   // 闇市 呪われた曲刀 (M9): C4 ④b で抑制
         playerAtkStatusPenalty();
     }
     function currentPlayerDmgBonus() {
-      // 武器エンハンスメントをダメージにも加算
-      const w = getCurrentWeapon();
-      return playerStats.dmgBonus + ((w && w.enhancement) || 0);
+      // 武器エンハンスメントをダメージにも加算 (C4 ④b: 帯の上では 0)
+      return playerStats.dmgBonus + effectiveWeaponEnh("player");
     }
     function currentPlayerAc() {
       const a = getCurrentArmor();
       const s = getCurrentShield();
-      const armorEnh  = (a && a.enhancement) || 0;
-      const shieldEnh = (s && s.enhancement) || 0;
+      const onRay = sovereignSuppressed("player");        // C4 ④b: 防具/盾の +N と影渡りの薬を抑制
+      const armorEnh  = onRay ? 0 : ((a && a.enhancement) || 0);
+      const shieldEnh = onRay ? 0 : ((s && s.enhancement) || 0);
       return playerStats.ac + armorEnh + shieldEnh +
         (playerBuffs.acBonusRemaining > 0 ? playerBuffs.acBonusAmount : 0) +
-        (playerBuffs.shadowAcBonus || 0) -                // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
-        (hasStatus("player", "prone") ? PRONE_AC_PENALTY : 0);
+        (onRay ? 0 : (playerBuffs.shadowAcBonus || 0)) -  // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
+        (hasStatus("player", "prone") ? PRONE_AC_PENALTY : 0);   // prone はデバフ = 抑制しない
     }
     function currentAllyAc(a) {
-      return a.ac + (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0) +
-        (a.buffs.shadowAcBonus || 0) -                    // 闇市 影渡りの薬 (M9): 盗賊系仲間
-        (hasStatus(a, "prone") ? PRONE_AC_PENALTY : 0);
+      const onRay = sovereignSuppressed(a);               // C4 ④c: 焼込み済み装備+ の差分を引いて戻す
+      return a.ac - (onRay ? Math.max(0, a._acEnhDelta || 0) : 0) +
+        (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0) +
+        (onRay ? 0 : (a.buffs.shadowAcBonus || 0)) -      // 闇市 影渡りの薬 (M9): 盗賊系仲間
+        (hasStatus(a, "prone") ? PRONE_AC_PENALTY : 0);   // prone はデバフ = 抑制しない
     }
     function applyDmgReductionToPlayerDmg(dmg) {
       if (playerBuffs.dmgReductionRemaining <= 0 || !playerBuffs.dmgReductionDice) {
@@ -15026,7 +15072,11 @@
 
       // 武器エンハンスメント (+N) はダメージにも加算、ダメダイスは武器から
       const curWeapon = getCurrentWeapon();
-      const weaponEnh = (curWeapon && curWeapon.enhancement) || 0;
+      // weaponEnhTrue = 装備の真値。golemPhysImmune (非魔法物理免疫のバイパス判定) 専用。
+      // weaponEnh     = 実効値。アンチマジック・レイ (C4 ④b) の上では 0 = ダメージの下駄が消える。
+      // ⚠ 両者を混ぜないこと: 免疫判定に実効値を渡すと「帯の上ではゴーレムに通用しない」別ルールになる。
+      const weaponEnhTrue = (curWeapon && curWeapon.enhancement) || 0;
+      const weaponEnh = effectiveWeaponEnh("player");
       const weaponDice = (curWeapon && curWeapon.dmgDice) || playerStats.dmgDice;
       const dmgBonus = (opts.dmgBonus != null ? opts.dmgBonus : playerStats.dmgBonus) + weaponEnh;
       const { n, sides } = parseDiceDD(opts.dmgDice || weaponDice);
@@ -15056,7 +15106,7 @@
         return { missed: true, displaced: true };
       }
       // 非魔法物理免疫 (ストーンゴーレム等): +1以上の魔法武器でなければ通用しない
-      if (golemPhysImmune(targetIdx, weaponEnh)) {
+      if (golemPhysImmune(targetIdx, weaponEnhTrue)) {
         showRollAtEnemy(targetIdx, `<span class="label">IMMUNE</span>通用しない!`, "miss");
         showHitSpark(targetIdx, false);
         updateInfo(`${tgtDef.name}: 非魔法の武器は通用しない! (魔法武器か呪文が必要)`);
@@ -17146,7 +17196,7 @@
       const times = isCrit ? ally.critMult : 1;
       let allRolls = [];
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
-      const bonusTotal = ally.dmgBonus * times;
+      const bonusTotal = effectiveAllyDmgBonus(ally) * times;   // C4 ④c: 帯の上では装備+ の下駄を抑制
       let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
       // ストライキング: 命中ごとに +1dX (crit 非倍化)
       if (ally.buffs.strikingRemaining > 0 && ally.buffs.strikingDie > 0) {
@@ -18887,7 +18937,7 @@
         aCY = attacker.y + attacker.def.displaySize / 2;
         atkBonus = attacker.atkBonus + allyAtkBuff(attacker);
         dmgDice = attacker.dmgDice || "1d6";
-        dmgBonus = attacker.dmgBonus || 0;
+        dmgBonus = effectiveAllyDmgBonus(attacker);   // C4 ④c: 頭側 (currentPlayerDmgBonus) と対称に抑制
         critMult = attacker.critMult || 2;
         critThreshold = effectiveCritRange(attacker);
         showRoll = (t, c) => showRollAtAlly(attacker, t, c);
@@ -21090,6 +21140,12 @@
     // spell = { name, rollDamage:()=>number, fireAcid?:bool }
     async function tryReflectEnemySpell(enemyIdx, spell) {
       if (gameOver || !hasChargeItem("ring_spell_turning")) return false;
+      // C4 ④b: リング所持者 (頭) がアンチマジック・レイの上にいる間は反射しない = 呪文がそのまま通る。
+      // consumeCharge より前に抜けるのでチャージは減らない (抑制であって破壊ではない = 帯を出れば復帰)。
+      if (sovereignSuppressed("player")) {
+        if (window.__sovereignRayProbe) window.__sovereignRayProbe.push({ site: "reflectSuppressed" });
+        return false;
+      }
       const enemy = enemies[enemyIdx];
       if (!enemy || !enemy.alive) return false;
 
