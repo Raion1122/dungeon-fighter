@@ -3794,6 +3794,19 @@
 
     // ── 動的ライティング(フォグオブウォー + 松明 + プレイヤー視野) ──
     function renderLighting() {
+      // [7.9-3 STEP3] 屋外(daylight): 暗幕を一切張らない。
+      // ⚠️ 素の `return` は禁止。canvas をクリアせずに抜けると「最後に描いた暗幕フレーム」が
+      //    そのまま残り続ける (canvas は明示的に消すまで前フレームを保持する)。resizeCanvas() の
+      //    `lightingCanvas.width = ...` 代入が持つ透明クリア副作用でだけ消えるため、
+      //    「画面を回転させたら直る」= 再現性の低いバグになる。必ずクリアしてから返す。
+      // CTM も張り直す: clearRect は backing 実寸で行うので一旦 CTM を外し、他の描画経路が
+      //    lightScale 前提で lctx を使えるよう元に戻してから抜ける。
+      if (__daylight) {
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+        lctx.clearRect(0, 0, lightingCanvas.width, lightingCanvas.height);
+        lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
+        return;
+      }
       // [camera-perf STEP7] W/H は CSS px (backing ではない)。lctx の CTM が lightScale を掛けるので、
       // 以下の描画・カリング判定は全て CSS px 座標のままでよい。ここを backing px にすると二重スケールで
       // 全画面 fill・探索タイルのカリング・光源の画面外判定が一斉に壊れる。
@@ -5675,6 +5688,15 @@
       const _p = new URLSearchParams(window.location.search);
       if (_p.has("intel")) __intelOverride = (_p.get("intel") === "1");
     } catch (e) {}
+    // [7.9-3 STEP3] 屋外(隊商護衛の街道)用: ?daylight=1 で視界制限を全面オフにする。
+    //   「青空感」の正体はテクスチャではなく視界制限の有無 = フォグ暗幕 + 伏兵化 + エンカウント gating。
+    //   ⚠️ 0/1 を扱うので `||` の既定値パターンは使わない (?daylight=0 が 1 に化ける)。厳密比較のみ。
+    let __daylight = false;
+    try {
+      const _pd = new URLSearchParams(window.location.search);
+      if (_pd.has("daylight")) __daylight = (_pd.get("daylight") === "1");
+    } catch (e) {}
+
     function questFlagOn(flagName) {
       if (!flagName) return true;                  // ゲート指定の無いスポーンは常に出る
       if (__intelOverride !== null) return __intelOverride;
@@ -11017,6 +11039,11 @@
     }
     // 敵中心タイルが現在パーティ視界内か(伏兵/エンカウント判定用)
     function isEnemyVisibleToParty(enemy) {
+      // [7.9-3 STEP3] 屋外(daylight)は見晴らしが利く = 伏兵無し。ここ 1 箇所で
+      //   (a) 敵スプライトの display:none 伏兵化 と (b) エンカウント開始 gating が同時に開く。
+      //   暗幕は canvas と DOM の 2 レイヤーあるので、renderLighting だけ止めると
+      //   「明るい地面に敵だけ透明」「見えているのに戦闘が始まらない」になる。
+      if (__daylight) return true;
       const ds = (enemy.def && enemy.def.displaySize) || TILE_SIZE;
       const tx = Math.floor((enemy.x + ds / 2) / TILE_SIZE);
       const ty = Math.floor((enemy.y + ds / 2) / TILE_SIZE);
