@@ -5434,6 +5434,10 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,
+        // 浮遊感(フワフワ・視覚のみ/論理座標は不変)。ampY 8px = peak-to-peak 16px ≒ 表示高の 6.7% で
+        // 「明確に浮いている」がタイル接地の錯覚は壊さない上限帯。ampX は Y の4割弱にして主従を付ける
+        // (等振幅だと円運動=別物に見える)。periodY 2400ms は人が「呼吸」と認識する帯。ここ1行で調整可。
+        floating: { ampY: 8, periodYMs: 2400, ampX: 3, periodXMs: 3700 },
         hp: 150, speed: 0.6,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -6839,7 +6843,9 @@
       // 単眼の暴君 (eyeStalks) は enemy.facing がコーンとスプライト共通の唯一の向き。
       // それ以外の敵は従来どおりプレイヤーが左にいるか (pCX < eCX) で反転する。
       const flip = (def.eyeStalks && enemy.facing) ? (enemy.facing === "left") : (pCX < eCX);
-      el.style.transform = composeSpriteTransform(flip, stepImpactOffset(enemy));
+      // 浮遊(def.floating を持つ敵のみ・非対象は 0 で従来と完全に等価)。sway は踏み込みと同じ X 軸なので加算。
+      // (sway は offPx と同じ符号反転を受けるが、対称な正弦なので位相がずれるだけで見た目は等価)
+      el.style.transform = composeSpriteTransform(flip, stepImpactOffset(enemy) + floatSwayX(enemy), floatBobY(enemy));
     }
 
     let gameStarted = false;
@@ -9299,15 +9305,47 @@
       return off;
     }
     if (typeof window !== "undefined") window.__stepImpactOffset = stepImpactOffset;   // ヘッドレス・プラミング検証用シーム
-    // 向き(scaleX) と踏み込み/のけぞり(translateX) を1つの transform 文字列に合成。
-    // scaleX(-1) 後はローカル X 軸が反転するため、左向き時は translateX 符号を反転して画面方向を保つ。
-    // offPx が 0 のとき従来(scaleX のみ/空)と完全に等価。
-    function composeSpriteTransform(flip, offPx) {
-      const base = flip ? "scaleX(-1)" : "";
-      if (!offPx) return base;
-      const screenDx = flip ? -offPx : offPx;
-      return base + (base ? " " : "") + "translateX(" + screenDx + "px)";
+
+    // ── 浮遊感(フワフワ): def.floating を持つ敵を常時ゆっくり上下+左右に揺らす ──
+    // ⚠ 動かすのは CSS transform だけで enemy.x / enemy.y は絶対に書き換えない。よって当たり判定・
+    //    AI・射程・タイル占有・レイ判定には一切影響しない(座標を揺らすと全部が毎フレーム揺れる)。
+    // Date.now() 基準 (renderLighting のちらつきと同流儀)。浮遊は減衰しない定常運動なので
+    // stepImpactOffset のような animFrameId ガードは不要 — 1論理フレーム内にカメラグライドで
+    // 2回描画されても Date.now() は同値なので二重加速しない。animTick 基準だと FPS で速度が変わる。
+    let floatPhaseSeq = 0;
+    function floatPhaseOf(enemy) {   // 個体ごとに位相をずらす(生成順の連番を一度だけ焼く)
+      // enemy.x/y を種にすると移動のたびに位相が飛ぶので、初回呼出時の連番を固定して持たせる。
+      if (enemy._floatPhase == null) enemy._floatPhase = (floatPhaseSeq++) * 1.7;  // 既存の i*1.7 イディオム
+      return enemy._floatPhase;
     }
+    function floatBobY(enemy) {      // 上下の主運動 (px)。死亡時は 0 = 落ちる
+      const f = enemy.def && enemy.def.floating;
+      if (!f || !enemy.alive) return 0;
+      return Math.sin((Date.now() / f.periodYMs) * 2 * Math.PI + floatPhaseOf(enemy)) * f.ampY;
+    }
+    function floatSwayX(enemy) {     // 左右の従運動 (px)。Y と非整数比の周期にしてリサージュ軌跡を閉じさせない
+      const f = enemy.def && enemy.def.floating;
+      if (!f || !enemy.alive) return 0;
+      return Math.sin((Date.now() / f.periodXMs) * 2 * Math.PI + floatPhaseOf(enemy) * 1.3) * f.ampX;
+    }
+    if (typeof window !== "undefined") { window.__floatBobY = floatBobY; window.__floatSwayX = floatSwayX; }  // ヘッドレス検証用シーム
+    // 向き(scaleX) と踏み込み/のけぞり(translateX) と浮遊(translateY) を1つの transform 文字列に合成。
+    // scaleX(-1) 後はローカル X 軸が反転するため、左向き時は translateX 符号を反転して画面方向を保つ。
+    // translateY は scaleX(-1) の影響を受けない(反転するのは X 軸だけ)ので符号反転しない。
+    // offPx / offYPx が 0(省略含む)のとき従来(scaleX のみ/空)と完全に等価。
+    // ※ 呼出4箇所 (敵通常/敵staticSprite/仲間/主人公) の共有関数なので後方互換は厳守。
+    function composeSpriteTransform(flip, offPx, offYPx) {
+      let out = flip ? "scaleX(-1)" : "";
+      if (offPx) {
+        const screenDx = flip ? -offPx : offPx;
+        out += (out ? " " : "") + "translateX(" + screenDx + "px)";
+      }
+      if (offYPx) {
+        out += (out ? " " : "") + "translateY(" + offYPx + "px)";
+      }
+      return out;
+    }
+    if (typeof window !== "undefined") window.__composeSpriteTransform = composeSpriteTransform;  // ヘッドレス検証用シーム
 
     // updatePositions(): カメラ目標を再計算し、グライド(イージング) or 即描画で世界を更新する公開エントリ。
     function updatePositions() {
