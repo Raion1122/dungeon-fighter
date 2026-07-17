@@ -21611,10 +21611,49 @@
       await sleepMs(300);
     }
 
+    // ── 単眼の暴君 眼柄テーブル ────────────────────────────────────────────────────────────
+    // 「今どの目が光ったか」をプレイヤーに名指しで見せるための表 (和名 / アイコン / 属性) と、
+    // 眼柄の抽選重み。SOVEREIGN_DISPEL_GROUPS と同じ「テーブル収録が唯一の分類」方式。
+    //
+    // ⚠ def.eyeStalks (文字列配列) の shape は変えない。「暴君が実際に撃てる目」は def.eyeStalks
+    //    が唯一の真実で、この表は「目の辞書」= 表示と重みだけを持つ。したがって
+    //    「表にあるが配列に無い目」= まだディスパッチャに配線されていない目、という状態は正常。
+    //    (逆に「配列にあるが表に無い目」は孤児 = バグ。pickSovereignEye が弾く)
+    // ⚠ element は dfPlayCast の CSS に実在する 4 種のみ (fire/ice/arcane/holy @1412-1415)。
+    //    ここに無い値を書くと .fxCastAura--<elem> が存在せずオーラが透明になる。
+    // cls: dmg=ダメージ / ccHard=行動を奪う / ccSoft=行動を弱める / buff=自己強化
+    const SOVEREIGN_EYE_DEFS = {
+      magicMissileEye: { jp: "魔弾の目", icon: "✨", element: "arcane", weight: 5, cls: "dmg"    },
+      fireballEye:     { jp: "業火の目", icon: "🔥", element: "fire",   weight: 4, cls: "dmg"    },
+      pressEye:        { jp: "重圧の目", icon: "⬇",  element: "arcane", weight: 3, cls: "ccSoft" },
+      hasteEye:        { jp: "加速の目", icon: "💨", element: "arcane", weight: 2, cls: "buff"   },
+      confusionEye:    { jp: "混乱の目", icon: "🌀", element: "arcane", weight: 2, cls: "ccHard" },
+      sleepEye:        { jp: "眠りの目", icon: "💤", element: "arcane", weight: 2, cls: "ccHard" },
+      fearEye:         { jp: "畏怖の目", icon: "😱", element: "arcane", weight: 2, cls: "ccSoft" },
+    };
+    // const はグローバル束縛でも window に生えないので、ヘッドレス検証用のシームを明示的に公開する
+    // (先例: window.__stepImpactOffset @9307)
+    if (typeof window !== "undefined") window.__SOVEREIGN_EYE_DEFS = SOVEREIGN_EYE_DEFS;
+
+    // 眼柄の重み付き抽選 (pickBossAction @21137 のイディオムを踏襲)。
+    // ⚠ 重みは「渡された eyes に載っている目だけ」で正規化する (表の全種の総和ではない)。
+    //    表に無いキーは孤児として除外する = 未定義の目を撃って無言で落ちるのを防ぐ。
+    function pickSovereignEye(eyes) {
+      const list = (eyes || []).filter(k => SOVEREIGN_EYE_DEFS[k]);
+      if (!list.length) return null;
+      let total = 0;
+      for (const k of list) total += (SOVEREIGN_EYE_DEFS[k].weight || 0);
+      if (total <= 0) return list[0];
+      let r = Math.random() * total;
+      for (const k of list) { if ((r -= (SOVEREIGN_EYE_DEFS[k].weight || 0)) < 0) return k; }
+      return list[list.length - 1];   // 浮動小数の丸めで r が総和に届かなかった時の保険
+    }
+
     // ── 単眼の暴君「眼柄斉射」(C2): 毎手番、複数の眼柄がランダムに魔を撃ち分ける ────────────
     // enemyAttackTurn の眼柄ゲートから駆動される。撃つ本数 = sovereignEyeStalksThisTurn(enemy)
-    // (基本 eyeStalksPerTurn=2、ヘイスト有効中は +1本)。眼柄は def.eyeStalks から毎発ランダム抽選
-    // (重複可) して順に解決する:
+    // (基本 eyeStalksPerTurn=2、ヘイスト有効中は +1本)。眼柄は def.eyeStalks から毎発
+    // pickSovereignEye で重み付き抽選 (重複可) して順に解決する。各発ごとに和名バナー + 詠唱を
+    // 出すので、プレイヤーには「総称の斉射予告 → どの目が光ったか」の順で伝わる:
     //   magicMissileEye → 必中の単体マジックミサイル (3d4+1・enemyCastSpell の autohit 経路を踏襲)
     //   fireballEye     → 3x3 AoE ファイアボール (enemyCastAoE・DEX セーヴ DC=spellDC)
     //   confusionEye    → 混乱の目 (C3・WIS セーヴ→失敗で wildConfused)
@@ -21636,9 +21675,20 @@
       for (let s = 0; s < shots; s++) {
         // 各発火の前に安全確認 (発火の途中で暴君が倒れる/檻に入る/決着した場合は打ち切り)
         if (!enemy.alive || enemy.inactive || gameOver) break;
-        const eyeKey = eyes[Math.floor(Math.random() * eyes.length)];
+        const eyeKey = pickSovereignEye(eyes);
+        const eyeDef = eyeKey && SOVEREIGN_EYE_DEFS[eyeKey];
+        if (!eyeDef) break;   // 表に無い目 = 未配線。無言で撃つより打ち切る
         if (window.__enemySpellProbe) window.__enemySpellProbe.push({ name: def.name, spell: eyeKey, kind: "eye" });
-        if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "eyeStalk", eye: eyeKey });
+        if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "eyeStalk", eye: eyeKey, jp: eyeDef.jp });
+
+        // 可視化: 全眼柄共通で「どの目が光ったか」を名指しする。総称バナー (斉射予告) を
+        // この個別バナーが上書きする = 「無数の眼柄が動いた → その中のこの目」の情報遷移。
+        showBanner(`👁 ${eyeDef.icon} ${eyeDef.jp} 👁`, 1100);
+        updateInfo(`${def.name}: ${eyeDef.icon} ${eyeDef.jp} が光る! (${s + 1}/${shots})`);
+        // 詠唱も全眼柄共通 (旧: magicMissileEye 分岐内にだけあった dfPlayCast をここへ引き上げ)。
+        // ⚠ 分岐側に残すと同じ 1 発で 2 回詠唱する。属性は表の element を使う。
+        await dfPlayCast({ el: enemyElements[enemyIdx], x: enemy.x, y: enemy.y, def },
+                         { name: eyeDef.jp, element: eyeDef.element }, { duration: 480 });
 
         if (eyeKey === "magicMissileEye") {
           // 必中の単体マジックミサイル (enemyCastSpell の autohit 経路を踏襲)
@@ -21647,7 +21697,7 @@
             const meta = ENEMY_SPELLS.magicMissile;
             const eCX = enemy.x + def.displaySize / 2;
             const eMouthY = enemy.y + def.displaySize * 0.32;
-            await dfPlayCast({ el: enemyElements[enemyIdx], x: enemy.x, y: enemy.y, def }, { name: meta.jp, element: "arcane" }, { duration: 480 });
+            // (詠唱はループ先頭で全眼柄共通に済ませてある — ここで再度 dfPlayCast すると二重詠唱)
             await spawnEnemySpellBolt("magicMissile", eCX, eMouthY, pick.cx, pick.cy);
             const dd = parseDiceDD(meta.dmgDice);
             const r = rollDiceDD(dd.n, dd.sides);
