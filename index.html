@@ -2740,6 +2740,9 @@
       "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png" },
       "undead-temple":  { floor: "シナリオ5床.png", wall: "シナリオ5壁.png" },
       "dragon-lair":    { floor: "シナリオ6床.png", wall: "シナリオ6壁.png" },
+      // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャは後段 STEP8 で生成予定、
+      // それまで森(Sce2)を流用する(街道が森を抜ける画で辻褄が合う)。
+      "caravan-road":   { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
       // 未登録 scenarioId は廃坑テクスチャにフォールバック (素材追加時にここへ)
     };
     const _texSet = SCENARIO_TEX[_scenIdForTex] || SCENARIO_TEX["goblin-mine"];
@@ -3139,6 +3142,17 @@
       // reed(沼の葦)は森だと違和感が出るため不採用、grass/log/detail の既存スプライトを流用。
       "bandits-forest": {
         0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 40, log: 4, detail: 24 } },
+        2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 70, log: 5, detail: 40 } },
+      },
+      // 街道(隊商護衛 7.9-3): 屋外。テクスチャを森(Sce2)から流用しているので情景も森の面子で揃える
+      // (reed=沼の葦 / rail・cart=廃坑のトロッコ類は街道だと浮くため不採用)。
+      // bandits-forest と違い ROOM_PAINTINGS_DEF に caravan-road が無い = 部屋1も1枚絵で覆われず
+      // タイル描画になるため、部屋1にも scenery を置かないと山場だけ寒くなる。
+      // 密度は bandits-forest 準拠 (草 ≒ 床タイル数 × 0.18)。街道自体は CORRIDORS の
+      // auto-reserve (+2タイル膨張) で自動的に空くので、ここで避ける必要はない。
+      "caravan-road": {
+        0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 40, log: 4, detail: 24 } },
+        1: { floorBounds: [ 7, 24, 20, 43], counts: { grass: 50, log: 4, detail: 30 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 70, log: 5, detail: 40 } },
       },
     };
