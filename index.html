@@ -2740,9 +2740,9 @@
       "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png" },
       "undead-temple":  { floor: "シナリオ5床.png", wall: "シナリオ5壁.png" },
       "dragon-lair":    { floor: "シナリオ6床.png", wall: "シナリオ6壁.png" },
-      // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャは後段 STEP8 で生成予定、
-      // それまで森(Sce2)を流用する(街道が森を抜ける画で辻褄が合う)。
-      "caravan-road":   { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
+      // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の生垣(茨)。
+      // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
+      "caravan-road":   { floor: "caravan_road_floor.png", wall: "caravan_road_wall.png" },
       // 未登録 scenarioId は廃坑テクスチャにフォールバック (素材追加時にここへ)
     };
     const _texSet = SCENARIO_TEX[_scenIdForTex] || SCENARIO_TEX["goblin-mine"];
@@ -3144,8 +3144,8 @@
         0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 40, log: 4, detail: 24 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 70, log: 5, detail: 40 } },
       },
-      // 街道(隊商護衛 7.9-3): 屋外。テクスチャを森(Sce2)から流用しているので情景も森の面子で揃える
-      // (reed=沼の葦 / rail・cart=廃坑のトロッコ類は街道だと浮くため不採用)。
+      // 街道(隊商護衛 7.9-3): 屋外。専用テクスチャ(土の道+生垣)だが情景は森系の面子(草/丸太/detail)で揃える
+      // — 街道脇の草地・倒れた枝として自然になじむ (reed=沼の葦 / rail・cart=廃坑のトロッコ類は街道だと浮くため不採用)。
       // bandits-forest と違い ROOM_PAINTINGS_DEF に caravan-road が無い = 部屋1も1枚絵で覆われず
       // タイル描画になるため、部屋1にも scenery を置かないと山場だけ寒くなる。
       // 密度は bandits-forest 準拠 (草 ≒ 床タイル数 × 0.18)。街道自体は CORRIDORS の
