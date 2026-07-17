@@ -1596,7 +1596,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>新クエスト「隊商護衛」を追加中</b> — 街道を行く積荷満載の幌馬車を、次々と押し寄せる敵の波状攻撃から守り抜く新しい依頼。陽の差す屋外が舞台で伏兵の心配はないが、一つの波を退けても休む間もなく次の波が現れる。敵の一部は君たちを無視して馬車に襲いかかり、馬車が燃え尽きれば君たちが生きていても任務は失敗だ。味方の攻撃や範囲呪文が馬車を傷つけることはない。</li>
+        <li><b>新クエスト「隊商護衛」が掲示板に登場</b> — 街道を行く積荷満載の幌馬車を、次々と押し寄せる敵の波状攻撃から守り抜く新しい依頼。陽の差す屋外が舞台で伏兵の心配はないが、一つの波を退けても休む間もなく次の波が現れる。敵の一部は君たちを無視して馬車に襲いかかり、馬車が燃え尽きれば君たちが生きていても任務は失敗だ。全ての波を退けて馬車を守り切れば勝利となる。</li>
         <li><b>単眼の暴君が宙を漂い、7つの目で襲いかかる</b> — 巨体がゆっくりと揺らめくように。眠り・畏怖・重圧の光線が加わり、毎ターン3本(加速中は4本)を撃ってくる。どの目が光ったかも「魔弾の目」「業火の目」と名指しで表示され、何をされたのかが分かる。エルフは眠らされない。転倒中に無言で動けなくなる不具合も修正。</li>
         <li><b>単眼の暴君の「魔法を打ち消す光」を強化</b> — 光が前方へ扇状に広がるようになった。触れている間は加護(祝福・加速・護り)が焼き切られ、魔法の武具や指輪の力も打ち消される。光から離れて戦え。遭遇前に光が漏れる/向きに追従しない不具合も修正。</li>
         <li><b>ポドルプラザの稀少クエストが必ず出現(調整中)</b> — 動作確認のため、ポドルプラザを訪れると単眼の暴君の遭遇クエストが毎回並ぶよう一時的に調整。後日「ごく稀」に戻す。</li>
@@ -2119,6 +2119,19 @@
         enemyPool: ["rat", "kobold", "goblin", "hobgoblin"],
         eliteKeys: ["hobgoblin"], bossKey: "sovereignEye", minionLabel: "操られた地下の手下",
         targetNames: ["地の底の監視者", "単眼の暴君", "地下に潜む見張り", "復興を蝕む眼"],
+      },
+      // ── ポドルプラザ・稀少クエスト系統: 隊商護衛 (rareOnly:true / 屋外の街道ウェーブ防衛) ──
+      //   [7.9-3] 単眼の暴君と同じ手口: 通常の selectFamily 抽選には乗せず (rareOnly)、
+      //   rollPlazaQuests の RARE_CARAVAN_CHANCE 枠 (forceFamilyId 経由) だけで注入する。
+      //   themeId:"caravan-road" = 屋外テーマ (index.html SCENARIO_TEX / SCENERY_RECIPES に実在)。
+      //   ⚠️ enemyPool/eliteKeys/bossKey は index.html ENEMY_TYPES 実在キーのみ (buildPlazaSynthetic は
+      //      隊商護衛では専用 spawns を組むため buildSpawns は使わないが、familyOf 経由の参照に備え整合させる)。
+      {
+        id: "caravan-escort", label: "隊商護衛", placeTags: ["forest", "ruin", "mountain"],
+        themeId: "caravan-road", rareOnly: true,
+        enemyPool: ["goblin", "goblinArcher", "hobgoblin", "goblinRider"],
+        eliteKeys: ["hobgoblin"], bossKey: "goblinRider", minionLabel: "街道を襲う略奪者",
+        targetNames: ["隊商を狙う略奪者の群れ", "街道の待ち伏せ", "積荷を狙う野盗団", "護送を阻む襲撃者"],
       },
       // ── 戦後フラン復興サイドクエスト 専用家系 (postGame:true → 本筋クリア後のみ出現) ──
       // selectFamily が progress.cleared.has("dragon-lair") のときだけ候補に含める。
@@ -4945,6 +4958,17 @@
       rq._sentence = SOVEREIGN_QUEST_FLAVOR;   // 機械生成文を上書き=掲示板/受注ナレとも正体を伏せる
       plazaQuests.push(rq);
     }
+    // ── 稀少枠: 隊商護衛 (隊商の馬車を守り抜くウェーブ防衛クエスト) を1件追加 ──
+    //   [7.9-3] 単眼の暴君と同じ「来訪ごとの低確率注入」。⚠️ 暴君枠 (RARE_SOVEREIGN_CHANCE) とは
+    //   独立の定数にして枠を競合させない = 暴君の出現率を一切変えない (ユーザー明示禁止事項の厳守)。
+    //   ⚠TEST(一時): 100%出現。体感テスト後 0.08 へ戻す (STEP8 で確定・商用前削除対象。暴君と同じ運用)。
+    const RARE_CARAVAN_CHANCE = 1.0;
+    if (Math.random() < RARE_CARAVAN_CHANCE) {
+      const lv = Math.max(1, Math.min(20, L));
+      const cq = QuestGen.generateQuest(lv, { source: "plaza", forceFamilyId: "caravan-escort" });
+      cq._sentence = QuestGen.buildSentence(cq);   // 隊商護衛は正体を伏せない = 通常フレーバー
+      plazaQuests.push(cq);
+    }
     plazaSelectedIdx = -1;
   }
   // 闇クエスト → 既存 prep/departToScenario が解する合成シナリオ (source/fangReward を __generated に載せる)
@@ -4952,22 +4976,49 @@
     const cp = QuestGen.combatParams(q);
     // 稀少ボス「単眼の暴君」判定 (familyId or bossKey)。報酬オーバーライドと導入/締めフレーバーに使う。
     const isSovereign = (q.familyId === "sovereign-eye" || (q.family && q.family.bossKey === "sovereignEye"));
+    const isCaravan = (q.familyId === "caravan-escort");   // [7.9-3] 隊商護衛 (屋外・ウェーブ防衛)
+
+    // index.html へ渡す ad-hoc シナリオ本体。生成クエストのどの系統も同じ __generated 形式で受け渡す。
+    const gen = {
+      title: q.place + " — " + q.target,
+      flavor: isSovereign ? SOVEREIGN_QUEST_FLAVOR : q._sentence,   // 暴君は正体を明かさない専用導入
+      spawns: QuestGen.buildSpawns(q), clearXp: cp.clearXp, trapCount: cp.trapCount,
+      hiddenChestCount: cp.hiddenChestCount, perceptionDC: cp.perceptionDC, themeId: cp.themeId,
+      questLevel: q.level, tierKey: q.tierKey,
+      source: "plaza", fangReward: q.fangReward,
+      // 暴君戦のみ: マジックアイテム抽選確率を 0.25 に上書き (index showResult が読む)。他は未設定=既定 0.01。
+      magicItemChance: isSovereign ? 0.25 : undefined,
+      closingFlavor: isSovereign ? SOVEREIGN_CLOSING_FLAVOR : undefined,   // 勝利後の締め (その場限り・非永続)
+    };
+
+    // [7.9-3 STEP7] 隊商護衛: index.html が実際に読むフィールド (waves / wagonSpawns) を載せ、
+    //   spawns を街道防衛用に組み替える。⚠️ waves と wagonSpawns は必ずセットで載せる
+    //   (waves だけだと湧き中心が主人公足元へ退避するフォールバックになる — STEP6 の注意)。
+    //   ⚠️ waves の実形は [{count, pool}]、wagonSpawns は [{tx,ty}] (index.html の whitelist が読む形)。
+    //   ⚠️ 敵キーは index.html ENEMY_TYPES 実在の goblin/goblinArcher/hobgoblin/goblinRider のみ。
+    //      未知キーは _safeSpawns / spawnWave の検疫で無言消去され、spawns が空になると goblin-mine へ
+    //      フォールバックする (ゴブリン鉱山の敵が湧く化けバグ) ので厳守する。
+    //   ⚠️ 暫定バランス (STEP8 で確定): 3 ウェーブ / 各 count 3。馬車 hp は caravanWagon def 側の 60 (STEP4 暫定)。
+    if (isCaravan) {
+      gen.waves = [
+        { count: 3, pool: ["goblin", "goblinArcher"] },
+        { count: 3, pool: ["goblin", "hobgoblin"] },
+        { count: 3, pool: ["hobgoblin", "goblinRider"] },
+      ];
+      gen.wagonSpawns = [{ tx: 12, ty: 13 }];   // 主人公起点 tile(6,13) の前方・部屋1広間 (index.html ROOMS[0] 内)
+      // 初期スポーン = 馬車の少し先の待ち伏せ (エンカウンターを起こす種火)。ROOM_SLOTS / buildSpawns の
+      //   遠方ボス配置は使わない (防衛は馬車周辺 1 箇所で戦う設計) ので街道用に手置きする。
+      gen.spawns = [["goblin", 14, 13], ["goblinArcher", 15, 13], ["goblin", 14, 14]];
+      // 街道防衛は部屋を踏破しない = 罠/隠し宝箱は停滞要因なので 0 にする (暫定・STEP8 で調整)。
+      gen.trapCount = 0; gen.hiddenChestCount = 0;
+    }
+
     return {
       id: "generated-quest", place: q.place, title: q.target, source: "plaza",
       clientName: q.client || null, clientPortrait: q.clientPortrait || null,   // 受注ナレの依頼人立ち絵 (STEP2)
       enemies: [{ name: q.family.minionLabel, boss: false }, { name: q.target, boss: true }],
       target: "index.html", recommendedLevel: q.level,
-      __generated: {
-        title: q.place + " — " + q.target,
-        flavor: isSovereign ? SOVEREIGN_QUEST_FLAVOR : q._sentence,   // 暴君は正体を明かさない専用導入
-        spawns: QuestGen.buildSpawns(q), clearXp: cp.clearXp, trapCount: cp.trapCount,
-        hiddenChestCount: cp.hiddenChestCount, perceptionDC: cp.perceptionDC, themeId: cp.themeId,
-        questLevel: q.level, tierKey: q.tierKey,
-        source: "plaza", fangReward: q.fangReward,
-        // 暴君戦のみ: マジックアイテム抽選確率を 0.25 に上書き (index showResult が読む)。他は未設定=既定 0.01。
-        magicItemChance: isSovereign ? 0.25 : undefined,
-        closingFlavor: isSovereign ? SOVEREIGN_CLOSING_FLAVOR : undefined,   // 勝利後の締め (その場限り・非永続)
-      },
+      __generated: gen,
     };
   }
   function onPlazaDepart() {

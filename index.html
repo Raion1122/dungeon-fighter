@@ -5747,10 +5747,16 @@
     //   「青空感」の正体はテクスチャではなく視界制限の有無 = フォグ暗幕 + 伏兵化 + エンカウント gating。
     //   ⚠️ 0/1 を扱うので `||` の既定値パターンは使わない (?daylight=0 が 1 に化ける)。厳密比較のみ。
     let __daylight = false;
+    let __daylightExplicit = false;   // URL に daylight= が明示されたか (明示があれば自動 ON より優先)
     try {
       const _pd = new URLSearchParams(window.location.search);
-      if (_pd.has("daylight")) __daylight = (_pd.get("daylight") === "1");
+      if (_pd.has("daylight")) { __daylight = (_pd.get("daylight") === "1"); __daylightExplicit = true; }
     } catch (e) {}
+    // [7.9-3 STEP7] 隊商護衛の街道 (屋外) は URL 指定が無いとき自動で視界制限をオフにする
+    //   (URLパラメータ無しでも屋外の見晴らしが出るように)。themeId は _scenIdForTex
+    //   (上部 index.html:2733 で sessionStorage を再parse済みの module-scope const) が保持している。
+    //   ⚠️ ?daylight=0 を明示した場合は尊重する (自動 ON で上書きしない) ため __daylightExplicit で守る。
+    if (!__daylightExplicit && _scenIdForTex === "caravan-road") __daylight = true;
 
     // ── [7.9-3 STEP5] 敵が PC ではなく護衛対象 (馬車) を狙う確率 ──
     //   pickEnemyTarget の early-return が読む唯一のレバー。0.0 = 従来通り PC のみを狙う。
@@ -12351,9 +12357,17 @@
     let dungeonCleared = false;
     function checkDungeonClear() {
       if (dungeonCleared || gameOver) return;
-      // passiveNpc (未対話/友好/無視のカエルム霊) は撃破対象ではないのでクリア判定から除外。
+      // passiveNpc (未対話/友好/無視のカエルム霊・護衛対象の馬車) は撃破対象ではないのでクリア判定から除外。
       // 敵対化すると passiveNpc=false になり、通常敵同様に撃破が必要。
-      if (enemies.every(e => !e.alive || e.passiveNpc) && visitedRooms.size >= ROOMS.length - 1) {
+      // [7.9-3 STEP7] 隊商護衛 (防衛戦: waves を持つ) は「部屋踏破」ではなく「全ウェーブ殲滅 + 馬車生存」で
+      //   クリアする (街道防衛では部屋を踏破しないので visitedRooms 条件は満たせない)。
+      //   ⚠️ ウェーブの隙間 (前波殲滅〜次波湧きの間) は敵が一時的に全滅するため、その瞬間にクリアさせない:
+      //      防衛戦の全ウェーブは 1 回の runEncounter 内で消化され、encounterActive が false へ落ちるのは
+      //      while が「全ウェーブ消化 + 馬車生存」で抜けて finally に至った時だけ = そこが唯一の安全な
+      //      クリア確定点。馬車全損時は STEP7 が gameOver を立てるので上の early-return で弾かれる。
+      const isWaveDefense = Array.isArray(currentScenario.waves) && currentScenario.waves.length > 0;
+      const objectiveDone = isWaveDefense ? !encounterActive : (visitedRooms.size >= ROOMS.length - 1);
+      if (enemies.every(e => !e.alive || e.passiveNpc) && objectiveDone) {
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
         for (const a of allies) {
@@ -14175,6 +14189,16 @@
           }
           round++;
           if (round > 40) break;  // 安全ブレーキ
+        }
+
+        // [7.9-3 STEP7] 隊商護衛の敗北確定: while を抜けた時点で護衛対象 (馬車) が全損なら敗北。
+        //   STEP6 の while は escortWagonLost() で抜けるが gameOver は立てない (STEP7 の担当と明記)。
+        //   ここで gameOver を立てると下の VICTORY 分岐 (!(hp<=0||gameOver)) はスキップされ、
+        //   index.html の setInterval 監視 (dungeonCleared/gameOver) が showResult(false) を発火する。
+        //   ⚠️ PC 全員生存 (hp>0) でも馬車全損なら敗北 = escortWagonLost() を単独の敗北条件にする。
+        if (!gameOver && hp > 0 && escortWagonLost()) {
+          updateInfo("隊商は失われた…");
+          gameOver = true;
         }
 
         if (!(hp <= 0 || gameOver)) {
