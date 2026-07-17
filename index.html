@@ -3178,6 +3178,9 @@
 
     const obstacleTileMask = new Uint8Array(MAP_W * MAP_H);
     const sceneryPlacements = [];  // { kind, variant, tx, ty, jx, jy, blocking }
+    // [7.9-3 STEP8] 隊商キャンプの焚火位置 { tx, ty } or null。街道クエスト (caravan-road) のセットアップ時に
+    //   のみ代入する (下部 generateScenery 呼び出し後)。描画は非衝突の純演出 (obstacleTileMask には積まない)。
+    let campfireSpot = null;
 
     // ENEMY_SPAWNS / プレイヤー起点情報がそろってから呼ぶ (currentScenario 確定後)
     function generateScenery(enemySpawns, playerStartTx, playerStartTy) {
@@ -3910,6 +3913,16 @@
         drawLight(sx, sy, 80 * f, 200 * f, 0.95, 0.6, "255,180,90");
       }
 
+      // [7.9-3 STEP8] 隊商キャンプの焚火の暖色光 (部屋トーチと同じ drawLight テンプレ)。
+      //   ⚠️ caravan-road は昼マップ (フォグ無効) なので暗闇を切る効果は弱いが、?daylight=0 プレイや
+      //      加算ブルーム (drawMap 側) と併せて「火」感を出す。位相をずらしたちらつき付き。
+      if (campfireSpot) {
+        const cfx = campfireSpot.tx * TILE_SIZE + TILE_SIZE / 2 - camX;
+        const cfy = campfireSpot.ty * TILE_SIZE + TILE_SIZE / 2 - camY - 6;
+        const cf = 1 + Math.sin(Date.now() / 125) * 0.08 + Math.cos(Date.now() / 91) * 0.05;
+        drawLight(cfx, cfy, 95 * cf, 235 * cf, 0.98, 0.62, "255,170,80");
+      }
+
       // Phase 2-I: 呪文の動的光源 (飛翔中の弾道 + 着弾フラッシュ)
       // spellLightSources は配列 [{worldX, worldY, inner, outer, strongAlpha, midAlpha, rgb, expireAt}, ...]
       const nowMs = Date.now();
@@ -4342,6 +4355,51 @@
         if (dx + dw < 0 || dx > mapCanvas.width)  continue;
         if (dy + dh < 0 || dy > mapCanvas.height) continue;
         ctx.drawImage(sheet.img, fr.x, fr.y, fr.w, fr.h, dx, dy, dw, dh);
+      }
+
+      // ── Pass 1b.7: 隊商キャンプの焚火 (街道クエスト限定・非衝突の純演出) ──
+      //   薪 = 既存 log スプライト variant0 を小さめ(幅130px)に描画し、その上に加算ブルーム + 立ち昇る火の粉。
+      //   スプライト+ブルームは床の上・スプライト(PT/敵)より下の層に置く (ここは Pass1b 帯 = キャラより背後)。
+      //   火の粉は fx キャンバス (最前面) に emitParticle で乗るので薪の背後には潜らない。
+      if (campfireSpot) {
+        const cxw = campfireSpot.tx * TILE_SIZE + TILE_SIZE / 2;
+        const cyw = campfireSpot.ty * TILE_SIZE + TILE_SIZE / 2;
+        const logSheet = SCENERY_SHEETS.log;
+        if (logSheet && logSheet.loaded) {
+          const fr = SCENERY_FRAMES.log[0];
+          const CW = 130, CH = fr.h * (CW / fr.w);   // 幅130pxへ縮小 (log 既定 displayMax200 より小さめ)
+          const ldx = Math.round(cxw - CW / 2 - camX);
+          const ldy = Math.round(cyw - CH / 2 - camY + 12);   // やや下 = 足元に薪を置く
+          if (!(ldx + CW < 0 || ldx > mapCanvas.width || ldy + CH < 0 || ldy > mapCanvas.height)) {
+            ctx.drawImage(logSheet.img, fr.x, fr.y, fr.w, fr.h, ldx, ldy, CW, CH);
+          }
+        }
+        // 炎の加算ブルーム (壁トーチ Pass2.5 と同じ手法・ゆらぎ付き)
+        const flameCX = cxw - camX;
+        const flameCY = cyw - camY - 4;
+        const bf = 1 + Math.sin(Date.now() / 118) * 0.10 + Math.cos(Date.now() / 89) * 0.05;
+        const bloomR = 62 * bf;
+        const grad = ctx.createRadialGradient(flameCX, flameCY, 0, flameCX, flameCY, bloomR);
+        grad.addColorStop(0,    "rgba(255, 225, 150, 0.90)");
+        grad.addColorStop(0.35, "rgba(255, 165,  55, 0.50)");
+        grad.addColorStop(1,    "rgba(255, 130,  40, 0)");
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(flameCX, flameCY, bloomR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // 立ち昇る火の粉 (時間スロットル ~110ms/1個・emitParticle が fx ループを ensureFxLoop で再始動)
+        if (!campfireSpot._emberT || Date.now() - campfireSpot._emberT > 110) {
+          campfireSpot._emberT = Date.now();
+          emitParticle({
+            x: cxw + (Math.random() - 0.5) * 26, y: cyw - 4,
+            vx: (Math.random() - 0.5) * 18, vy: -(38 + Math.random() * 30), ay: -50,
+            life: 600 + Math.random() * 220, size0: 7 + Math.random() * 4, size1: 2,
+            r: 255, g: 155 + (Math.random() * 55 | 0), b: 55, a0: 0.92, a1: 0, kind: "dot", blend: true,
+          });
+        }
       }
 
       // ── Pass 1.2: 床にグリッド線 (床セルのみ、天井=2 にはひかない) ──
@@ -5793,6 +5851,11 @@
     // 情景スプライト生成 (敵スポーンとプレイヤー起点を avoid して配置)
     // プレイヤー起点 tile(6,13) は L3346 playerX = 6 * TILE_SIZE の前提
     generateScenery(ENEMY_SPAWNS, 6, 13);
+
+    // [7.9-3 STEP8] 隊商キャンプの焚火: PC起点(6,13)と馬車(tx:9)の間 tile(7,13) に演出用の焚火を置く。
+    //   街道クエスト (caravan-road) 限定。非衝突 (obstacleTileMask に積まない) なので PC の東進を妨げない。
+    //   実体はスプライト(既存 log)+ 加算ブルーム + 立ち昇る火の粉 で drawMap 内に手続き描画する。
+    if (_scenIdForTex === "caravan-road") campfireSpot = { tx: 7, ty: 13 };
 
     const enemyLayer = document.getElementById("enemyLayer");
 
@@ -22629,16 +22692,22 @@
       //   (waves だけを持つ検証用シナリオでも湧きが死なないための防御)。
       // ⚠️ 戦闘中も敵は手番で enemyAdvanceOneTile により1マスずつ寄れる (enemyAttackTurn の射程外分岐)
       //    ので、湧き位置が多少ズレても敵が置物になることはない。湧き距離は STEP8 のバランスレバー。
+      // [7.9-3 STEP8 体感調整] 湧きは「街道の先」(東=+x) から。旧実装は馬車の真上/後ろ (findSovereignAddWaveTile
+      //   の西バイアス) に湧いて演出文「街道の先から新手が現れた」と矛盾していた。中心 bx を東へずらして解消する。
+      //   ⚠️ 難易度レバー: 値が大きいほど敵の到達が遅れ易化する。iOS 実機体感で最終確定 (暫定 5)。
+      //   ⚠️ 共有関数 findSovereignAddWaveTile (暴君の増援と共用) は触らない — ここで中心だけをオフセットする。
+      const WAVE_SPAWN_AHEAD_TILES = 5;
       let bx, by;
       const liveWagons = wagonIndices.filter(i => enemies[i] && enemies[i].alive);
       if (liveWagons.length > 0) {
         const w = enemies[liveWagons[0]];
-        bx = Math.floor((w.x + w.def.displaySize / 2) / TILE_SIZE);
+        bx = Math.floor((w.x + w.def.displaySize / 2) / TILE_SIZE) + WAVE_SPAWN_AHEAD_TILES;
         by = Math.floor((w.y + w.def.displaySize / 2) / TILE_SIZE);
       } else {
-        bx = Math.floor((playerX + 48) / TILE_SIZE);
+        bx = Math.floor((playerX + 48) / TILE_SIZE) + WAVE_SPAWN_AHEAD_TILES;
         by = Math.floor((playerY + 58) / TILE_SIZE);
       }
+      bx = Math.max(1, Math.min(bx, MAP_W - 2));   // 念のため場外防御 (findSovereignAddWaveTile が壁は避ける)
 
       showBanner(`⚔ 第 ${waveNo} 波 / 全 ${waveTotal} 波 ⚔`, 1800);
       updateInfo(`街道の先から新手が現れた! (第 ${waveNo} 波 / 全 ${waveTotal} 波)`);
