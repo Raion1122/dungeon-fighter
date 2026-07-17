@@ -19019,6 +19019,8 @@
       if (ally.buffs.frightenedRemaining > 0) ally.buffs.frightenedRemaining--;
       if (ally.buffs.fearImmuneRemaining > 0) ally.buffs.fearImmuneRemaining--;
       tickStatusEffects(ally);   // status-effect v1.1: prone 等の残ターン
+      // アンチマジック・レイ (C4・④a): 帯の上で手番を迎えたら呪文/スキル由来の有益バフが焼き切れる (恒久)
+      if (isOnSovereignRay(ally)) dispelMagicalBuffs(ally);
       // スタン
       if (ally.stunned > 0) {
         ally.stunned--;
@@ -20845,6 +20847,8 @@
       // バフ残りターンを減らす(ターン開始時)
       tickPlayerBuffsAtTurnStart();
       tickStatusEffects("player");   // status-effect v1.1: prone 等の残ターン
+      // アンチマジック・レイ (C4・④a): 帯の上で手番を迎えたら呪文/スキル由来の有益バフが焼き切れる (恒久)
+      if (isOnSovereignRay("player")) dispelMagicalBuffs("player");
 
       // セルフスタン: 1ターン行動不能
       if (playerBuffs.skipNextTurn) {
@@ -22032,6 +22036,52 @@
       const tx = Math.floor(cx / TILE_SIZE), ty = Math.floor(cy / TILE_SIZE);
       return ray.tiles.some(t => t.tx === tx && t.ty === ty);
     }
+    // ── アンチマジック・レイ「呪文バフの焼き切り」(C4・④a) ─────────────────────────
+    // 帯の上のユニットが持つ「掛け直しの効く一時バフ」(呪文・クラススキル由来の有益効果) を恒久消去する。
+    // 恒久 = 帯から出ても戻らない。装備の常時ボーナスと違い、術者が掛け直せるものだから焼き切ってよい。
+    // gate = duration を持つ `*Remaining`。clear = それが死んだとき道連れにする効果量フィールド (宣言時の既定値へ戻す)。
+    // ここに載せないもの:
+    //   デバフ (frightened/confused/wildConfused/stuck/skipNextTurn) … 剥がすと敵を利するので絶対に触らない
+    //   ラッチ/内部状態 (resilientFired/gritThreshold/lowHpSpoken/statusImmunityCharges) … 1回限りの権利や進行状態
+    //   アイテム由来 (shadowAcBonus/cursedBlade*) … ④b で「帯の上にいる間だけ抑制」する (恒久消去してはいけない)
+    const SOVEREIGN_DISPEL_GROUPS = [
+      { gate: "atkBonusRemaining",         clear: { atkBonusAmount: 0 } },          // ブレス等の命中バフ
+      { gate: "blessMoveRemaining",        clear: {} },                             // ブレス (前進 2タイル)
+      { gate: "hastedRemaining",           clear: {} },                             // ヘイスト
+      { gate: "dmgReductionRemaining",     clear: { dmgReductionDice: null } },     // DR (ダイス: 踏ん張り等)
+      { gate: "dmgReductionFlatRemaining", clear: { dmgReductionFlat: 0 } },        // DR (固定: 岩肌の皮膚)
+      { gate: "antiKnockbackRemaining",    clear: {} },                             // 踏ん張りのノックバック無効 (DR と対)
+      { gate: "acBonusRemaining",          clear: { acBonusAmount: 0 } },           // シールド・オブ・フェイス等
+      { gate: "strikingRemaining",         clear: { strikingDie: 0 } },             // ストライキング
+      { gate: "evasionRemaining",          clear: {} },                             // 盗賊 回避
+      { gate: "luckyRemaining",            clear: { luckyCritWiden: 0 } },          // 盗賊 幸運
+      { gate: "fearImmuneRemaining",       clear: {} },                             // 恐怖免疫
+    ];
+    // unit ("player" | ally オブジェクト) の有益バフを焼き切る。剥がしたフィールド名の配列を返す。
+    // 何も剥がれなければ無音 (毎手番の空撃ちで光らせない)。
+    function dispelMagicalBuffs(unit) {
+      const isPlayer = (unit === "player" || unit == null);
+      const B = isPlayer ? playerBuffs : (unit && unit.buffs);
+      if (!B) return [];
+      const cleared = [];
+      for (const g of SOVEREIGN_DISPEL_GROUPS) {
+        if (!((B[g.gate] || 0) > 0)) continue;
+        B[g.gate] = 0;
+        cleared.push(g.gate);
+        for (const k of Object.keys(g.clear)) B[k] = g.clear[k];
+      }
+      if (!cleared.length) return cleared;
+      if (isPlayer) showBuffPop(`<span class="label">DISPEL</span>魔法が焼き切れた`);
+      else showRollAtAlly(unit, `<span class="label">DISPEL</span>魔法が焼き切れた`, "buff");
+      if (window.__sovereignRayProbe) {
+        window.__sovereignRayProbe.push({
+          site: "dispel",
+          unit: isPlayer ? "player" : (unit.classKey || (unit.def && unit.def.name) || "ally"),
+          cleared: cleared.slice(),
+        });
+      }
+      return cleared;
+    }
     // 暫定 facing AI: 手番ごとに 1 回、最も呪文依存度の高い相手 (魔法使い>僧侶>エルフ>その他) の
     // 方向へ facing を 4 方向量子化して向け直す。キャスター不在なら最寄り PT 員へ。呪文で戦う相手を
     // 帯で狙い撃ちして「立ち位置を変えろ」と強いる。眼柄の照準 (C2) とは無関係。
@@ -22106,6 +22156,17 @@
       // renderLighting がこの facing から正面直線の帯を毎フレーム描画し、帯の上の味方/プレイヤーは
       // 呪文を撃てず魔法武器効果も死ぬ (isOnSovereignRay)。眼柄の抽選・照準 (C2) には影響しない。
       if (def.eyeStalks && enemy.facing !== undefined) updateSovereignFacing(enemy);
+      // 再照準の直後に帯を掃く (C4・④a): 向き直った先に居合わせた者は、自分の手番 tick を待たずに
+      // 「掃かれた瞬間」に魔法が焼き切れる。帯が自分に向いた瞬間の体感を出すためのスイープ。
+      // everSeen/facing のゲートは isOnSovereignRay → getSovereignRay 側にあるので追加ガードは不要。
+      if (def.eyeStalks) {
+        if (typeof hp !== "undefined" && hp > 0 && !gameOver && isOnSovereignRay("player")) dispelMagicalBuffs("player");
+        if (typeof allies !== "undefined") {
+          for (const a of allies) {
+            if (a.alive && isOnSovereignRay(a)) dispelMagicalBuffs(a);
+          }
+        }
+      }
 
       // ── 毒 (DoT) ティック: 行動前に毒ダメージを適用 (スタン中でも継続) ──
       if (enemy.poisonRemaining > 0 && enemy.poisonDie) {
