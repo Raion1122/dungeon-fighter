@@ -5448,8 +5448,12 @@
         isBoss: true,
         maxSummons: 0,                    // 汎用召喚は無効(乱入は専用ラッチ C7)
         // — 眼柄(C2 が駆動)—
-        eyeStalks: ["magicMissileEye", "fireballEye", "confusionEye", "hasteEye"],
-        eyeStalksPerTurn: 2,
+        // 柱4: 全7種を配線 (孤児キーは pickSovereignEye が弾くので順序は自由)。重みは
+        // SOVEREIGN_EYE_DEFS 側の weight (5+4+3+2+2+2+2 = 総和20) で正規化される。
+        eyeStalks: ["magicMissileEye", "fireballEye", "confusionEye", "hasteEye",
+                    "sleepEye", "fearEye", "pressEye"],
+        eyeStalksPerTurn: 3,
+        eyeStalksMaxPerTurn: 4,           // ヘイスト中の +1 を許す上限 (= 本数の暴走止め)
         spellDC: 17,                      // fireball(DEX) / confusion(WIS) セーヴ DC
         facing: "left",                   // レイ用(C4)。敵は通常 facing 永続保持しないので新設
         // — 混乱の目(C3)—
@@ -22004,11 +22008,25 @@
       return list[list.length - 1];   // 浮動小数の丸めで r が総和に届かなかった時の保険
     }
 
+    // 柱4 ペーシング: 本数が増えても手番が間延びしないよう「間合いは総予算を本数で割る」方式。
+    // ⚠ iOS 実機の体感調整はこの 2 定数だけを触ればよい (テンポ全体が連動する)。
+    //   ・SOVEREIGN_EYE_CAST_MS       … 1発あたりの詠唱長 (旧 magicMissileEye 単独の 480 から短縮)
+    //   ・SOVEREIGN_EYE_GAP_BUDGET_MS … 1手番の「発と発の間」の総予算。本数で割って 1発分にする
+    // 2本 = 260ms は現行 (柱3b まで) の固定 260 と厳密一致 = ペーシング回帰なし。
+    const SOVEREIGN_EYE_CAST_MS       = 380;
+    const SOVEREIGN_EYE_GAP_BUDGET_MS = 520;
+    // 下限 110ms は「間合いが消えて斉射が 1 つの塊に見える」のを防ぐクランプ。
+    function sovereignEyeGapMs(shots) {
+      return Math.max(110, Math.round(SOVEREIGN_EYE_GAP_BUDGET_MS / Math.max(1, shots)));
+    }
+    if (typeof window !== "undefined") window.sovereignEyeGapMs = sovereignEyeGapMs;
+
     // ── 単眼の暴君「眼柄斉射」(C2): 毎手番、複数の眼柄がランダムに魔を撃ち分ける ────────────
     // enemyAttackTurn の眼柄ゲートから駆動される。撃つ本数 = sovereignEyeStalksThisTurn(enemy)
-    // (基本 eyeStalksPerTurn=2、ヘイスト有効中は +1本)。眼柄は def.eyeStalks から毎発
-    // pickSovereignEye で重み付き抽選 (重複可) して順に解決する。各発ごとに和名バナー + 詠唱を
-    // 出すので、プレイヤーには「総称の斉射予告 → どの目が光ったか」の順で伝わる:
+    // (基本 eyeStalksPerTurn=3、ヘイスト有効中は +1本 = eyeStalksMaxPerTurn:4 で頭打ち)。眼柄は
+    // def.eyeStalks (柱4 で全7種) から毎発 pickSovereignEye で重み付き抽選 (重複可) して順に
+    // 解決する。各発ごとに和名バナー + 詠唱を出すので、プレイヤーには「総称の斉射予告 → どの目が
+    // 光ったか」の順で伝わる:
     //   magicMissileEye → 必中の単体マジックミサイル (3d4+1・enemyCastSpell の autohit 経路を踏襲)
     //   fireballEye     → 3x3 AoE ファイアボール (enemyCastAoE・DEX セーヴ DC=spellDC)
     //   confusionEye    → 混乱の目 (C3・WIS セーヴ→失敗で wildConfused)
@@ -22043,7 +22061,7 @@
         // 詠唱も全眼柄共通 (旧: magicMissileEye 分岐内にだけあった dfPlayCast をここへ引き上げ)。
         // ⚠ 分岐側に残すと同じ 1 発で 2 回詠唱する。属性は表の element を使う。
         await dfPlayCast({ el: enemyElements[enemyIdx], x: enemy.x, y: enemy.y, def },
-                         { name: eyeDef.jp, element: eyeDef.element }, { duration: 480 });
+                         { name: eyeDef.jp, element: eyeDef.element }, { duration: SOVEREIGN_EYE_CAST_MS });
 
         if (eyeKey === "magicMissileEye") {
           // 必中の単体マジックミサイル (enemyCastSpell の autohit 経路を踏襲)
@@ -22077,7 +22095,7 @@
           sovereignHaste(enemyIdx);                    // C5: 自己バフ (本数は関数冒頭で確定済 → +1は次手番以降)
         }
         if (gameOver) break;
-        await sleepMs(260);
+        await sleepMs(sovereignEyeGapMs(shots));   // 柱4: 総予算 / 本数 (2本=260 で現行と一致)
       }
       await sleepMs(200);
     }
@@ -22457,10 +22475,12 @@
 
     // 今ターンに暴君が撃つ眼柄本数。ヘイスト有効中は +1本 (= 追加行動)。C2 の眼柄
     // ディスパッチャがこれを本数として使う。eyeStalks を持たない敵には意味を持たない (0)。
+    // 柱4: eyeStalksMaxPerTurn で上限クランプ。未設定の敵は 99 = 実質無制限 (従来挙動を保つ)。
     function sovereignEyeStalksThisTurn(enemy) {
       if (!enemy || !enemy.def || !enemy.def.eyeStalks) return 0;
       const base = enemy.def.eyeStalksPerTurn || 2;
-      return base + ((enemy.hasteBonusRemaining || 0) > 0 ? 1 : 0);
+      const n = base + ((enemy.hasteBonusRemaining || 0) > 0 ? 1 : 0);
+      return Math.min(n, enemy.def.eyeStalksMaxPerTurn || 99);
     }
 
     // ── 単眼の暴君「アンチマジック・シェル」が今この戦場で展開中か (C6・諸刃) ─────────
