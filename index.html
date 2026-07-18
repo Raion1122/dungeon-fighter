@@ -1178,6 +1178,12 @@
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8)) grayscale(0.4);
       animation: none;
     }
+    /* 解除済みの罠: 緑寄りに退色させて「無害化された」感を出す (新規PNGなし・trap.png への filter のみ) */
+    .trap.disarmed {
+      opacity: 0.55;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6)) grayscale(0.55) hue-rotate(75deg) brightness(1.1);
+      animation: none;
+    }
     @keyframes trapPulse {
       0%, 100% { transform: translateY(0); }
       50%      { transform: translateY(-3px); }
@@ -12156,9 +12162,10 @@
         // 訪問履歴に「離れたタイル」を push (オシレーション抑制)
         // 直後の経路再計算で逆方向 (oldPlayerTile に戻る経路) が重く扱われる
         pushHeroRecentTile(oldPlayerTile.tx, oldPlayerTile.ty);
-        // 探索ターン: 知覚(罠) → 捜査(宝箱/ミミック) → 罠 → 仲間 → 敵 → 再罠
+        // 探索ターン: 知覚(罠) → 捜査(宝箱/ミミック) → 罠解除 → 罠 → 仲間 → 敵 → 再罠
         if (typeof runPerceptionCheck === "function") runPerceptionCheck();
         if (typeof runInvestigationCheck === "function") runInvestigationCheck();
+        if (typeof runTrapDisarmCheck === "function") runTrapDisarmCheck();
         if (typeof checkTrapTrigger === "function") checkTrapTrigger();
         await exploreAllyTurn(oldPlayerTile);
         await exploreEnemyTurn();
@@ -15911,6 +15918,13 @@
       const base = (currentScenario && currentScenario.perceptionDC) || 14;
       return Math.max(11, Math.min(16, base - 1));
     }
+    // 罠解除 DC: chestLockDC の鏡写し。解除失敗は被弾リスクがある(ファンブルで起動)ため
+    //   開錠より更に −1 (知覚DC−2) 救済寄りにし 11〜16 にクランプ。
+    //   ★罠解除まわり唯一の難度チューニング箇所 (プレイテスト後にここだけ触れば調整できる)。
+    function disarmDC() {
+      const base = (currentScenario && currentScenario.perceptionDC) || 14;
+      return Math.max(11, Math.min(16, base - 2));
+    }
 
     // ── ✨ マジックアイテム抽選プール (超低確率ドロップ・拡張前提) ──────────────
     // gated フラグ付きの稀少装備を「抽選プール」として扱い、宝箱/クリア報酬で超低確率の抽選に
@@ -17061,6 +17075,10 @@
           damageDice: "1d6",
           found: false,
           triggered: false,
+          disarmed: false,       // Phase 1: 解除で無害化 (終端状態: found→disarmed)
+          rearmed: false,        // Phase 2 (武器化) 前方互換欄。今は常に false
+          owner: null,           // Phase 2 (武器化) 前方互換欄。今は常に null
+          _disarmRolled: false,  // 解除判定は罠ごと1回きり (毎フレーム再提示を防ぐガード)
           el: null,
         };
         traps.push(trap);
@@ -17149,6 +17167,91 @@
         skillCheckActive = false;
         dialogPaused = false;
       });
+    }
+
+    // 罠解除判定: 知覚で発見済み(found)の罠に隣接(chebyshev 1タイル)したら、盗賊が得意な
+    //   手先の早業(sleightOfHand)で「解除」を試みる。tryPickLock(宝箱開錠) の鏡写し。
+    //   ⚠移動タップの誤ロールを防ぐため、ロール前に必ず showChoice(解除する/迂回する) を挟む。
+    //   結果 (dev-meeting 2026-07-18 確定):
+    //     成功/クリ → disarmed=true で無害化 + 小額XP。
+    //     通常失敗 → 起爆させない(found 維持で避けられる)。二重処罰を避ける (3.5「差5で起動」に倣う)。
+    //     ファンブル(ナチュラル1) → 唯一の被弾ケース。triggerTrapOnPlayer で起動。
+    //   1回きり: 対象罠に _disarmRolled を立て、解除でも迂回でも同ターンは再提示しない (テンポ維持)。
+    async function runTrapDisarmCheck() {
+      if (encounterActive || encounterRunning) return;
+      if (!gameStarted || gameOver) return;
+      if (skillCheckActive) return;   // 知覚/捜査/開錠パネルと相互排他 (1ターン1パネル)
+      if (dialogPaused) return;       // 他モーダル(showChoice/DM)表示中は入らない
+      if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return;
+      const pTX = Math.floor((playerX + 48) / TILE_SIZE);
+      const pTY = Math.floor((playerY + 58) / TILE_SIZE);
+      // 発見済み・未解除・未起動・未判定の罠を隣接1タイル(chebyshev<=1)から1件収集。
+      const target = traps.find(t =>
+        t.found && !t.disarmed && !t.rearmed && !t.triggered && !t._disarmRolled
+        && Math.max(Math.abs(t.tx - pTX), Math.abs(t.ty - pTY)) <= 1);
+      if (!target) return;   // ★対象ゼロなら即 return: RNG も showChoice も一切引かない(決定論保護)
+
+      const party = buildPerceptionParty();
+      if (party.length === 0) return;
+
+      // まず意思決定モーダル (必須: 全画面タップ判定のため移動タップの誤ロールを防ぐ)。
+      skillCheckActive = true;   // choice 中も相互排他を張る (二重発火防止)
+      let goDisarm = false;
+      try {
+        goDisarm = await showChoice("見つけた罠を解除しますか?", "解除する", "迂回する");
+      } catch (e) { goDisarm = false; }
+      // 解除でも迂回でも「判定済」印を立てる (同ターンの毎フレーム再提示を防ぐ=テンポ維持)。
+      target._disarmRolled = true;
+
+      if (!goDisarm) {
+        skillCheckActive = false;   // dialogPaused は showChoice が既に解除済み
+        updateInfo(`${getLeaderName()} は罠に触れず、迂回して進むことにした。`);
+        return;
+      }
+
+      // 解除判定 (tryPickLock を鏡写し: sleightOfHand / disarmDC)。
+      dialogPaused = true;
+      showDMMessage("罠の機構に手を伸ばす。起爆装置を見極め、慎重に無力化を試みる…", 1800);
+      let res = null;
+      try {
+        res = await SkillCheck.resolveSkillCheck("sleightOfHand", disarmDC(), party, {
+          title: "罠解除判定",
+          flavor: "細い針と糸で起爆機構を探り、慎重に殺す…",
+          voiceIds: PERCEPTION_VOICE,
+          iconContext: "trap",   // 罠のサムネを判定パネル上部に表示
+        });
+      } catch (e) { res = null; }
+      skillCheckActive = false;
+      dialogPaused = false;
+      applyDisarmResult(res, target);
+    }
+
+    // 罠解除判定の結果を反映。成功=無害化+XP / 通常失敗=起爆させず温存 / ファンブル=起動。
+    function applyDisarmResult(res, trap) {
+      if (!trap) return;
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (res && res.success) {
+        // 成功 (通常成功・クリティカル): 罠を無害化 (終端)。
+        trap.disarmed = true;
+        if (trap.el) trap.el.classList.add("disarmed");
+        showBanner(res.crit ? "🛠 鮮やかに罠を解除!" : "🛠 罠を解除!", 1400);
+        updateInfo(`${rep} が罠の解除に成功! (${res.total} ≧ DC ${res.dc}) — 無害化した`);
+        showDMMessage("見事だ。起爆機構を殺した。この罠はもう作動しない。", 2200);
+        showDisarmFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
+        sfx("cageOpen");
+        if (typeof gainXP === "function") gainXP(25, "罠解除");
+      } else if (res && res.fumble) {
+        // ファンブル(ナチュラル1): 唯一の被弾ケース。罠をプレイヤーに起動。
+        showBanner("💥 手が滑った!", 1400);
+        updateInfo(`${rep} は解除に失敗、罠を起動させてしまった! (ファンブル)`);
+        triggerTrapOnPlayer(trap);   // trap.triggered=true / ダメージ処理はこの中で完結
+      } else {
+        // 通常失敗 (DC 未達): 起爆させない。found 維持で避けられる。再挑戦は1回制限(_disarmRolled)。
+        showBanner("🔧 解除できず…", 1200);
+        updateInfo(`${rep} は罠の解除に失敗した… だが起動は免れた (${res ? res.total : "?"} < DC ${disarmDC()})`);
+        showDMMessage("うまくいかない。無理に触れば危険だ。今回は避けて進もう。", 2200);
+        sfx("trap");
+      }
     }
 
     // 捜査判定: 隠し宝箱・ミミック(偽宝箱)は「能動的な探索」= Intelligence(Investigation) で発見する。
@@ -17305,6 +17408,7 @@
       const pTY = Math.floor((playerY + 58) / TILE_SIZE);
       for (const trap of traps) {
         if (trap.triggered) continue;
+        if (trap.disarmed) continue;   // 解除済みの罠は踏んでも無害 (終端状態)
         // プレイヤー
         if (trap.tx === pTX && trap.ty === pTY && !trap.found) {
           triggerTrapOnPlayer(trap);
@@ -17618,6 +17722,20 @@
       pop.style.textShadow =
         "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(140,255,160,0.85)";
       pop.textContent = "+" + heal;
+      pop.style.left = (worldX - camX) + "px";
+      pop.style.top  = (worldY - camY - 4) + "px";
+      document.body.appendChild(pop);
+      setTimeout(() => pop.remove(), 900);
+    }
+
+    // 罠解除の成功フロート (緑・showHealAt を流用)
+    function showDisarmFloat(worldX, worldY) {
+      const pop = document.createElement("div");
+      pop.className = "dmgPop";
+      pop.style.color = "#8effa0";
+      pop.style.textShadow =
+        "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(140,255,160,0.85)";
+      pop.textContent = "解除!";
       pop.style.left = (worldX - camX) + "px";
       pop.style.top  = (worldY - camY - 4) + "px";
       document.body.appendChild(pop);
