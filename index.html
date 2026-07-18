@@ -17282,7 +17282,7 @@
           if (trap.el) trap.el.classList.add("rearmed");
           showBanner(res.crit ? "🎯 罠を鮮やかに武器化!" : "🎯 罠を敵側へ武器化!", 1500);
           updateInfo(`${rep} が罠を掌握! (${res.total} ≧ DC ${res.dc}+5) — 踏んだ敵を喰らう罠へ反転させた`);
-          showDMMessage("見事な手際だ。起爆機構を殺すどころか、その牙の向きを変えた。この罠は今や敵を喰らう。", 2400);
+          showDMMessage("驚くべき手際だ——罠を眠らせるどころか、その牙の向きを敵へ変えた。この仕掛けはもはや、踏み込む者を喰らう。", 2600);
           showWeaponizeFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
           sfx("buff");
           triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);   // 武器化はこの1点だけが見せ場 (1発)
@@ -17294,7 +17294,7 @@
         if (trap.el) trap.el.classList.add("disarmed");
         showBanner("🛠 罠を解除!", 1400);
         updateInfo(`${rep} が罠の解除に成功! (${res.total} ≧ DC ${res.dc}) — 無害化した`);
-        showDMMessage("見事だ。起爆機構を殺した。この罠はもう作動しない。", 2200);
+        showDMMessage("見えざる指先が、死の機構をそっと眠らせた。この罠は、もう誰も傷つけない。", 2400);
         showDisarmFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
         sfx("cageOpen");
         if (typeof gainXP === "function") gainXP(spec.disarmXP, "罠解除");
@@ -17302,7 +17302,8 @@
         // ファンブル(ナチュラル1): 唯一の被弾ケース。罠をプレイヤーに起動。
         showBanner("💥 手が滑った!", 1400);
         updateInfo(`${rep} は解除に失敗、罠を起動させてしまった! (ファンブル)`);
-        triggerTrapOnPlayer(trap);   // trap.triggered=true / ダメージ処理はこの中で完結
+        // 解除中のファンブル専用の語り (通常の踏み抜きとは文脈が違う=手元が狂った)。過度に罰しない救済トーン。
+        triggerTrapOnPlayer(trap, "針先が狂った。罠が牙を剥く——だが、この程度で歩みは止まらない。");   // trap.triggered=true / ダメージ処理はこの中で完結
       } else {
         // 通常失敗 (DC 未達): 起爆させない。found 維持で避けられる。再挑戦は1回制限(_disarmRolled)。
         showBanner("🔧 解除できず…", 1200);
@@ -17500,7 +17501,7 @@
       }
     }
 
-    function triggerTrapOnPlayer(trap) {
+    function triggerTrapOnPlayer(trap, dmText) {
       trap.triggered = true;
       trap.found = true;
       sfx("trap");
@@ -17517,7 +17518,7 @@
         hp = Math.max(0, hp - dmg);
       }
       showBanner("罠発動!", 1200);
-      showDMMessage("しまった! 罠だ!", 1800);
+      showDMMessage(dmText || "しまった! 罠だ!", 1800);   // 既定=不意の踏み抜き / 引数=ファンブル等の文脈別の語り
       updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
       showDmgAt(playerX + 48, playerY + 48, dmg, false);
       if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }
@@ -17587,6 +17588,8 @@
       showDmgAt(eCX, eCY, dmg, false);
       const enm = (enemy.def && enemy.def.name) || "敵";
       showBanner("💥 罠が敵を捉えた!", 1200);
+      // Phase 2 の見せ場の到達点。踏み抜き(player/ally)と同様にここでも DM が一言添える(voiceId なし=無音 no-op)。
+      showDMMessage("反転した罠が牙を剥いた——今度は、敵が喰らわれる番だ。", 1800);
       updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg} ダメージ`);
       if (enemy.hp <= 0) {
         enemy.hp = 0;
