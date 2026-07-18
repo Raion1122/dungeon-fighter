@@ -2777,6 +2777,26 @@
     };
     const _texSet = SCENARIO_TEX[_scenIdForTex] || SCENARIO_TEX["goblin-mine"];
 
+    // ── [屋外フィールド景観 STEP1] 屋外テーマ判定 ────────────────────────
+    // 「屋外シナリオが天井のある地下室に見える」問題の解消。
+    // ⚠️ 背骨: マップ幾何・戦闘エンジン・タイルデータ構造は1バイトも変えない。
+    //    変えるのは renderMap() の描画パスだけ (Pass 1.2 の床グリッド線をスキップ + 末尾に雲の影)。
+    //    分岐条件が屋外テーマのみなので、既存6シナリオへの影響は構造的にゼロ。
+    // ⚠️ 空 + 遠景パララックスも一度実装したが、実測で「通常プレイのカメラに一度も入らない」
+    //    ことが判明したため撤去した。理由は drawCloudShadows のコメントに残してある。同じ設計を
+    //    再提案する前に必ずそれを読むこと。
+    // FIELD_THEMES  = 「その土地が屋外である」というテーマ属性。?field では変わらない。
+    //                 ゲーム側の判定 (__daylight 等) はこちらを見る。屋外シナリオを増やすときは
+    //                 SCENARIO_TEX に1行足すのと同じ要領でここへ themeId を1つ足す。
+    // FIELD_MODE    = 実際に屋外描画を行うか。?field=0 で従来描画に戻せる (比較検証・撤退用)。
+    //                 ⚠️ ?field=0 は「描画だけ」を戻す。__daylight まで巻き込むと従来との比較にならない。
+    const FIELD_THEMES = new Set(["caravan-road"]);
+    const IS_FIELD_THEME = FIELD_THEMES.has(_scenIdForTex);
+    let FIELD_MODE = IS_FIELD_THEME;
+    try {
+      if (new URLSearchParams(window.location.search).get("field") === "0") FIELD_MODE = false;
+    } catch (e) {}
+
     let floorPattern = null;
     const floorTex1 = new Image();
     floorTex1.src = "assets/" + _texSet.floor;
@@ -4293,6 +4313,104 @@
       }
     }
 
+    // ── [屋外] 雲の影 (屋外テーマのみ・アセット0枚) ────────────────────────
+    // ⚠️ なぜ「空」ではなく「床に落ちる影」なのか (実測に基づく設計判断・恒久メモ):
+    //    空 + 遠景パララックスを実装して計測したところ、**通常プレイのカメラでは一度も画面に
+    //    入らなかった** (全67列で空の可視高さを実測: iPhone横持ち 844x390 で 0/67列・最大 0px、
+    //    縦持ちと desktop でも 6/67列)。道の帯は 18タイル=1728px あるのにビューポートは 2〜9
+    //    タイルしか映さず、カメラはパーティを追うのでマップ北端に到達しないため。
+    //    さらに見えたとしても Pass 2 の壁が 192px を不透明 (caravan_road_wall.png は RGB=α無し)
+    //    で塗るので、地平線際の描画は 100% 隠れる。よって空・遠景は撤去した。
+    //    **床は常に画面いっぱいにあるので、屋外であることを伝えるなら床に効く演出でなければ
+    //    ならない。** 雲の影はその条件を満たす唯一の安い手。
+    // 影1枚をオフスクリーンに焼いて drawImage で使い回す (毎フレーム createRadialGradient すると
+    // モバイルで塗り面積の割にコストが高い。ラスタコストは JS 時間に現れないので油断しないこと)。
+    const CLOUD_TILE_PX   = 256;                          // 焼き込み解像度 (描画時に拡大する)
+    const CLOUD_ALPHA     = 0.26;                         // 影の濃さ (multiply 合成)
+    const CLOUD_DRIFT_PXS = 11;                           // 流れる速さ px/秒 (体感の主レバー)
+    // 巻き戻し周期はマップ幅ぴったり。+2048 のような余白を付けると、そこに居る雲は
+    // どのカメラ位置からも見えない「死角」になり、実効の雲密度がそのぶん落ちる。
+    const CLOUD_PERIOD_X  = MAP_W * TILE_SIZE;            // = 6912
+    // 雲の初期配置。乱数を使わず literal で持つ = RNG ストリームの順序契約を汚さない。
+    // ⚠️ プレイヤーはマップ西端 (tx≈6 → x≈576) から出発する。west 側を空けると
+    //    「第一印象は雲なし」になり、空を撤去したのと同じ失敗を繰り返すので必ず埋める。
+    // s は控えめ (1.6〜2.8 → 直径 410〜717px)。大きすぎると iPhone 横持ちの可視域
+    //    (HUD 差引後 約844×200px) を影が覆い切り、「通り過ぎる」ではなく「全体がうっすら暗い」
+    //    としか読めなくなる。影は縁が横切って初めて雲だと分かる。
+    const CLOUDS = [
+      { x:  -60, y:  980, s: 2.2, v: 1.00 },
+      { x:  430, y: 1820, s: 1.8, v: 0.88 },
+      { x:  940, y:  460, s: 2.6, v: 1.10 },
+      { x: 1470, y: 1340, s: 1.7, v: 0.95 },
+      { x: 1980, y: 2160, s: 2.4, v: 1.06 },
+      { x: 2480, y:  720, s: 1.9, v: 0.82 },
+      { x: 2990, y: 1600, s: 2.8, v: 1.14 },
+      { x: 3510, y:  380, s: 1.6, v: 0.91 },
+      { x: 4020, y: 2040, s: 2.3, v: 1.03 },
+      { x: 4530, y: 1120, s: 2.0, v: 0.86 },
+      { x: 5040, y: 1900, s: 2.5, v: 1.12 },
+      { x: 5560, y:  620, s: 1.8, v: 0.98 },
+      { x: 6070, y: 1440, s: 2.7, v: 0.79 },
+      { x: 6580, y: 2260, s: 2.1, v: 1.08 },
+    ];
+    let _cloudTile = null;
+    function getCloudTile() {
+      if (_cloudTile) return _cloudTile;
+      const c = document.createElement("canvas");
+      c.width = c.height = CLOUD_TILE_PX;
+      const cc = c.getContext("2d");
+      // 真円1枚だと「丸い影」に見えてしまうので、円を重ねて輪郭を崩す。
+      // ⚠️ 副円は必ず主円の**外へ張り出させる**こと。中心寄りに置くと主円のシルエットに
+      //    飲まれ、濃さだけ増えて輪郭は真円のまま = 狙いと逆の結果になる (一度これをやった)。
+      //    下の値は「主円 0.50,0.50,r0.40 の縁を各副円が越える」ように選んである。
+      // ⚠️ タイル端に alpha を残すと drawImage の矩形の切り口が見えるので、
+      //    どの副円も中心±半径がタイル [0,1] の内側に収まっていること。
+      const LOBES = [
+        [0.50, 0.50, 0.40],   // 主
+        [0.26, 0.40, 0.24],   // 左上へ張り出す
+        [0.74, 0.58, 0.26],   // 右下へ張り出す
+        [0.42, 0.74, 0.22],   // 下へ張り出す
+        [0.62, 0.28, 0.20],   // 上へ張り出す
+        [0.20, 0.62, 0.17],   // 左下の小さいコブ
+      ];
+      // 重ね塗りで中心の α が積み上がるので、1枚あたりは薄めにしておく
+      for (const [cxN, cyN, rN] of LOBES) {
+        const cx = cxN * CLOUD_TILE_PX, cy = cyN * CLOUD_TILE_PX, r = rN * CLOUD_TILE_PX;
+        const gr = cc.createRadialGradient(cx, cy, 0, cx, cy, r);
+        gr.addColorStop(0,    "rgba(0,0,0,0.42)");
+        gr.addColorStop(0.55, "rgba(0,0,0,0.22)");
+        gr.addColorStop(1,    "rgba(0,0,0,0)");
+        cc.fillStyle = gr;
+        cc.fillRect(0, 0, CLOUD_TILE_PX, CLOUD_TILE_PX);
+      }
+      _cloudTile = c;
+      return c;
+    }
+    // renderMap の最後 (壁・松明の後) に呼ぶ。地面にも生垣にも同じ影が落ちるのが正しい。
+    // ⚠️ キャラは DOM (z2/z6) で mapCanvas(z0) より上なので影を受けない。今はそれで許容する。
+    function drawCloudShadows() {
+      const tile = getCloudTile();
+      const t = Date.now() * 0.001;
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      ctx.globalAlpha = CLOUD_ALPHA;
+      for (const c of CLOUDS) {
+        const size = CLOUD_TILE_PX * c.s;
+        let wx = (c.x + t * CLOUD_DRIFT_PXS * c.v) % CLOUD_PERIOD_X;
+        if (wx < 0) wx += CLOUD_PERIOD_X;
+        // 巻き戻しの継ぎ目をまたぐ雲は前後の複製も描く。周期 = マップ幅ちょうどなので、
+        // カメラが東端に居るとき西端に巻き戻った雲が要る (逆も同じ)。画面外はカリングで消える。
+        for (const dupe of [-CLOUD_PERIOD_X, 0, CLOUD_PERIOD_X]) {
+          const sx = wx + dupe - camX - size / 2;
+          const sy = c.y - camY - size / 2;
+          if (sx + size < 0 || sx > mapCanvas.width)  continue;
+          if (sy + size < 0 || sy > mapCanvas.height) continue;
+          ctx.drawImage(tile, sx, sy, size, size);
+        }
+      }
+      ctx.restore();
+    }
+
     function renderMap() {
       ctx.fillStyle = "#0a0a0a";
       ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
@@ -4326,11 +4444,22 @@
         ctx.save();
         ctx.translate(-camX, -camY);
         ctx.fillStyle = floorPattern;
+        // [屋外] セルを 0.5px ずつ膨張させて隣と重ねる。
+        // ⚠️ これが無いと Pass 1.2 のグリッド線を消しても 96px 格子は消えない。camX/camY は
+        //    cameraFollowTick が小数を渡すので、隣接 fillRect の境界画素はどちらも被覆率が 100%
+        //    未満になり、source-over で合成しても 100% に届かず、renderMap 冒頭の背景 #0a0a0a が
+        //    1px の筋として透ける。実測 ΔL 10.7〜25.4 = 消したグリッド線の寄与 (ΔL 24.4) と同等で、
+        //    「線を消したのに格子が残る」という分かりにくい形で出る (整数カメラでは 0 本 = 原因確定)。
+        //    floorPattern はワールド座標アンカーなので、重なった画素は同じ値で二度塗られるだけ。
+        // 屋内はグリッド線が同じ位置を上書きして筋を隠すため、既存6シナリオは従来どおり無膨張に保つ
+        // (= toDataURL ハッシュの非退行を維持する)。
+        const INF = FIELD_MODE ? 0.5 : 0;
+        const INF2 = INF * 2;
         for (let ty = startTY; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (mapData[ty][tx] === 2) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
-            ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            ctx.fillRect(tx * TILE_SIZE - INF, ty * TILE_SIZE - INF, TILE_SIZE + INF2, TILE_SIZE + INF2);
           }
         }
         ctx.restore();
@@ -4433,31 +4562,35 @@
       }
 
       // ── Pass 1.2: 床にグリッド線 (床セルのみ、天井=2 にはひかない) ──
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.22)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let ty = startTY; ty <= endTY; ty++) {
-        for (let tx = startTX; tx <= endTX; tx++) {
-          if (mapData[ty][tx] === 2) continue;
-          if (isPaintedAndLoaded(tx, ty)) continue;   // v7.7: 1枚絵の上にはグリッド線を引かない
-          const screenX = Math.round(tx * TILE_SIZE - camX) + 0.5;
-          const screenY = Math.round(ty * TILE_SIZE - camY) + 0.5;
-          ctx.moveTo(screenX, screenY);
-          ctx.lineTo(screenX + TILE_SIZE, screenY);
-          ctx.moveTo(screenX, screenY);
-          ctx.lineTo(screenX, screenY + TILE_SIZE);
-          // 右端・下端のセルはマップ端の線も引く
-          if (tx === endTX || mapData[ty][tx + 1] === 2) {
-            ctx.moveTo(screenX + TILE_SIZE, screenY);
-            ctx.lineTo(screenX + TILE_SIZE, screenY + TILE_SIZE);
-          }
-          if (ty === endTY || mapData[ty + 1] && mapData[ty + 1][tx] === 2) {
-            ctx.moveTo(screenX, screenY + TILE_SIZE);
-            ctx.lineTo(screenX + TILE_SIZE, screenY + TILE_SIZE);
+      // [屋外 STEP1] 屋外では引かない。96px の軸並行格子は「見下ろしタイルゲーム」の最も
+      //   明白な signature で、これが残っていると空を描いても地下室感が抜けない。
+      if (!FIELD_MODE) {
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.22)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let ty = startTY; ty <= endTY; ty++) {
+          for (let tx = startTX; tx <= endTX; tx++) {
+            if (mapData[ty][tx] === 2) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;   // v7.7: 1枚絵の上にはグリッド線を引かない
+            const screenX = Math.round(tx * TILE_SIZE - camX) + 0.5;
+            const screenY = Math.round(ty * TILE_SIZE - camY) + 0.5;
+            ctx.moveTo(screenX, screenY);
+            ctx.lineTo(screenX + TILE_SIZE, screenY);
+            ctx.moveTo(screenX, screenY);
+            ctx.lineTo(screenX, screenY + TILE_SIZE);
+            // 右端・下端のセルはマップ端の線も引く
+            if (tx === endTX || mapData[ty][tx + 1] === 2) {
+              ctx.moveTo(screenX + TILE_SIZE, screenY);
+              ctx.lineTo(screenX + TILE_SIZE, screenY + TILE_SIZE);
+            }
+            if (ty === endTY || mapData[ty + 1] && mapData[ty + 1][tx] === 2) {
+              ctx.moveTo(screenX, screenY + TILE_SIZE);
+              ctx.lineTo(screenX + TILE_SIZE, screenY + TILE_SIZE);
+            }
           }
         }
+        ctx.stroke();
       }
-      ctx.stroke();
 
       // ── Pass 1.5: 装飾(床の上に置く小物、タイル中央に半分サイズで) ──
       // 壁掛け松明は壁の上に重ねるため Pass 2.5 で別途描画 (ここではスキップ)
@@ -4543,6 +4676,10 @@
           ctx.restore();
         }
       }
+
+      // ── [屋外] Pass 3: 雲の影 ──
+      // 地面・生垣・壁の全部に落とすので最後に置く。屋外テーマ以外は1命令も実行しない。
+      if (FIELD_MODE) drawCloudShadows();
       ctx.restore();
     }
     // ─────────────────────────────────────────────────────────────
@@ -5844,7 +5981,11 @@
     //   (URLパラメータ無しでも屋外の見晴らしが出るように)。themeId は _scenIdForTex
     //   (上部 index.html:2733 で sessionStorage を再parse済みの module-scope const) が保持している。
     //   ⚠️ ?daylight=0 を明示した場合は尊重する (自動 ON で上書きしない) ため __daylightExplicit で守る。
-    if (!__daylightExplicit && _scenIdForTex === "caravan-road") __daylight = true;
+    //   [屋外 STEP1] 判定を FIELD_THEMES 連動に変更。屋外テーマを増やすと視界制限オフも自動で追従する。
+    //   ⚠️ ここは FIELD_MODE ではなく IS_FIELD_THEME を見る。?field=0 は「描画だけ従来に戻す」比較用の
+    //      スイッチであって、屋外か否かというゲーム側の事実まで巻き戻すものではない
+    //      (巻き戻すとフォグと伏兵化が復活し、屋外描画の有無を比べているつもりが別ゲームの比較になる)。
+    if (!__daylightExplicit && IS_FIELD_THEME) __daylight = true;
 
     // ── [7.9-3 STEP5] 敵が PC ではなく護衛対象 (馬車) を狙う確率 ──
     //   pickEnemyTarget の early-return が読む唯一のレバー。0.0 = 従来通り PC のみを狙う。
