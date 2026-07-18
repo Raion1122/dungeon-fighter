@@ -201,7 +201,8 @@ function mark(msg) { console.log('[drv] ' + (++step) + ' ' + msg); }
       window.__autoplay = false;
 
       return {
-        disarmed: t.disarmed, triggered: t.triggered, found: t.found, rolled: t._disarmRolled,
+        disarmed: t.disarmed, rearmed: t.rearmed, owner: t.owner,
+        triggered: t.triggered, found: t.found, rolled: t._disarmRolled,
         cls: el.classList.contains('disarmed'),
         xpDelta: currentTotalXp - xpBefore, hpDelta: hp - hpBefore,
         scCalls: window.__scCalls, ttp: window.__ttp, ttpSpyable, choiceInterceptable,
@@ -220,19 +221,23 @@ function mark(msg) { console.log('[drv] ' + (++step) + ' ' + msg); }
   check('(4-対照) 隣接found罠あり: resolveSkillCheck を呼ぶ', hasTarget.scCalls === 1, 'calls=' + hasTarget.scCalls);
   mark('determinism (no-RNG-when-no-target) verified');
 
-  // (5) 成功
-  const succ = await runDisarm({ success: true, crit: false, total: 18, dc: 11, rep: { name: 'リーザ' } });
-  check('(5) 成功: disarmed=true', succ.disarmed === true, JSON.stringify(succ));
-  check('(5) 成功: .disarmed クラス付与', succ.cls === true);
-  check('(5) 成功: triggered のまま false (起爆しない)', succ.triggered === false);
-  check('(5) 成功: XP +25', succ.xpDelta === 25, 'delta=' + succ.xpDelta);
-  check('(5) 成功: _disarmRolled=true', succ.rolled === true);
+  // (5) 通常成功 (total∈[DC,DC+4]: 特大成功 DC+5 未満 → 無害化 disarmed)。
+  //     ⚠Phase 2 で total≧DC+5 は「武器化(rearmed)」に分岐するため、通常成功は total=13(=DC+2) を使う。
+  const succ = await runDisarm({ success: true, crit: false, total: 13, dc: 11, rep: { name: 'リーザ' } });
+  check('(5) 通常成功: disarmed=true', succ.disarmed === true, JSON.stringify(succ));
+  check('(5) 通常成功: .disarmed クラス付与', succ.cls === true);
+  check('(5) 通常成功: rearmed=false (武器化しない)', succ.rearmed === false);
+  check('(5) 通常成功: triggered のまま false (起爆しない)', succ.triggered === false);
+  check('(5) 通常成功: XP +25', succ.xpDelta === 25, 'delta=' + succ.xpDelta);
+  check('(5) 通常成功: _disarmRolled=true', succ.rolled === true);
 
-  // (6) クリ成功
+  // (6) クリ成功 → Phase 2: 特大成功なので「無害化」ではなく敵側へ武器化(rearmed, owner='party')。
   const crit = await runDisarm({ success: true, crit: true, total: 20, dc: 11, rep: { name: 'リーザ' } });
-  check('(6) クリ成功: disarmed=true', crit.disarmed === true, JSON.stringify(crit));
-  check('(6) クリ成功: 起爆しない', crit.triggered === false);
-  mark('success / crit branches verified');
+  check('(6) クリ成功: rearmed=true (敵側へ武器化)', crit.rearmed === true, JSON.stringify(crit));
+  check('(6) クリ成功: owner="party" (敵専用)', crit.owner === 'party');
+  check('(6) クリ成功: disarmed=false (別終端状態)', crit.disarmed === false);
+  check('(6) クリ成功: 起爆しない (triggered=false)', crit.triggered === false);
+  mark('success (disarm) / crit (weaponize) branches verified');
 
   // (7) 通常失敗 → 起爆させない
   const nfail = await runDisarm({ success: false, crit: false, fumble: false, total: 5, dc: 11, rep: { name: 'リーザ' } });

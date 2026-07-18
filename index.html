@@ -1188,6 +1188,30 @@
       0%, 100% { transform: translateY(0); }
       50%      { transform: translateY(-3px); }
     }
+    /* ── Phase 2 (罠武器化): rearmed = 敵側へ付け替えた罠。橙のパルスオーラで「牙を剥いた罠」を示す ── */
+    /*   fx-sleep::before (敵の状態異常オーラ) の鏡写し。新規PNG不要・CSSのみ。rearmed の罠だけに付与。 */
+    .trap.rearmed {
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8)) drop-shadow(0 0 9px rgba(255,140,40,0.95));
+      animation: trapPulse 1.0s ease-in-out infinite;
+    }
+    .trap.rearmed::before {
+      content: "";
+      position: absolute;
+      left: -18%; top: -18%;
+      width: 136%; height: 136%;
+      background: radial-gradient(circle,
+        rgba(255,150,45,0.55) 15%,
+        rgba(255,120,30,0.30) 45%,
+        rgba(255,120,30,0)    80%);
+      border-radius: 50%;
+      animation: trapRearmPulse 1.2s ease-in-out infinite;
+      pointer-events: none;
+      z-index: -1;
+    }
+    @keyframes trapRearmPulse {
+      0%, 100% { opacity: 0.85; transform: scale(1); }
+      50%      { opacity: 0.5;  transform: scale(1.12); }
+    }
 
     /* 部屋配置の宝箱 (トレハン要素・painterly 画像) */
     .roomChest {
@@ -17226,20 +17250,54 @@
       applyDisarmResult(res, target);
     }
 
-    // 罠解除判定の結果を反映。成功=無害化+XP / 通常失敗=起爆させず温存 / ファンブル=起動。
+    // ── Phase 2 (罠武器化) の器 ──
+    // 罠タイプ表。将来 poison/alarm を行追加で拡張できる。trap.type ("damage") で引く。
+    // damageDice = 味方が踏んだ時 (Phase 1) / weaponizeDice = 敵に付け替えた時 (Phase 2, 強化) / disarmXP = 解除成功XP。
+    const TRAP_TYPES = {
+      damage: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25 },
+    };
+    // "NdX" を解析して即振り (rollDiceDD/parseDiceDD の薄いラッパ)。戻り値 { rolls, total }。
+    // ⚠決定論: この関数 (=Math.random 消費) は「敵が実際に武器化罠に乗った瞬間」だけ呼ぶ (triggerTrapOnEnemy 内)。
+    function parseDice(notation) {
+      const { n, sides } = parseDiceDD(notation);
+      return rollDiceDD(n, sides);
+    }
+
+    // 罠解除判定の結果を反映。
+    //   特大成功 (crit または total≧DC+5) → Phase 2: 罠を敵側へ武器化 (rearmed, owner='party')。
+    //   通常成功 → 無害化 (disarmed) +XP / 通常失敗 → 起爆させず温存 / ファンブル → 起動。
     function applyDisarmResult(res, trap) {
       if (!trap) return;
       const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      const type = trap.type || "damage";
+      const spec = TRAP_TYPES[type] || TRAP_TYPES.damage;
       if (res && res.success) {
-        // 成功 (通常成功・クリティカル): 罠を無害化 (終端)。
+        // ── Phase 2: 特大成功 (crit または total ≧ DC+5) は「無害化」ではなく敵側へ武器化 ──
+        //   分岐は排他 (return) なので gainXP は1回だけ。rearmed は disarmed とは別の終端状態。
+        const overwhelming = !!res.crit || (typeof res.total === "number" && res.total >= res.dc + 5);
+        if (overwhelming) {
+          trap.rearmed = true;      // 終端状態 (found のままなので player/ally ゲート !found に弾かれ味方には当たらない)
+          trap.owner = "party";     // 敵専用 = フレンドリーファイア無し
+          trap._disarmRolled = true;
+          if (trap.el) trap.el.classList.add("rearmed");
+          showBanner(res.crit ? "🎯 罠を鮮やかに武器化!" : "🎯 罠を敵側へ武器化!", 1500);
+          updateInfo(`${rep} が罠を掌握! (${res.total} ≧ DC ${res.dc}+5) — 踏んだ敵を喰らう罠へ反転させた`);
+          showDMMessage("見事な手際だ。起爆機構を殺すどころか、その牙の向きを変えた。この罠は今や敵を喰らう。", 2400);
+          showWeaponizeFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
+          sfx("buff");
+          triggerScreenShake(SHAKE_SPELL.mag, SHAKE_SPELL.dur);   // 武器化はこの1点だけが見せ場 (1発)
+          if (typeof gainXP === "function") gainXP(spec.disarmXP, "罠解除");
+          return;
+        }
+        // 通常成功: 罠を無害化 (終端)。
         trap.disarmed = true;
         if (trap.el) trap.el.classList.add("disarmed");
-        showBanner(res.crit ? "🛠 鮮やかに罠を解除!" : "🛠 罠を解除!", 1400);
+        showBanner("🛠 罠を解除!", 1400);
         updateInfo(`${rep} が罠の解除に成功! (${res.total} ≧ DC ${res.dc}) — 無害化した`);
         showDMMessage("見事だ。起爆機構を殺した。この罠はもう作動しない。", 2200);
         showDisarmFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
         sfx("cageOpen");
-        if (typeof gainXP === "function") gainXP(25, "罠解除");
+        if (typeof gainXP === "function") gainXP(spec.disarmXP, "罠解除");
       } else if (res && res.fumble) {
         // ファンブル(ナチュラル1): 唯一の被弾ケース。罠をプレイヤーに起動。
         showBanner("💥 手が滑った!", 1400);
@@ -17422,6 +17480,23 @@
             triggerTrapOnAlly(trap, ally);
           }
         }
+        // ── Phase 2 (罠武器化): 敵専用の武器化罠 (rearmed, owner='party') ──
+        //   rearmed 罠は found=true のままなので上の player/ally ゲート (!trap.found) には掛からず、味方には当たらない。
+        //   ここで「敵が実際にそのタイルに乗った時だけ」triggerTrapOnEnemy (=parseDice の RNG) に到達する。
+        //   ⚠決定論: 乗っている敵が居ないフレームでは parseDice を一切呼ばない (Math.random 消費ゼロ)。
+        if (trap.rearmed && trap.owner === "party" && !trap.triggered) {
+          for (let ei = 0; ei < enemies.length; ei++) {
+            if (trap.triggered) break;
+            const en = enemies[ei];
+            if (!en || !en.alive) continue;
+            const eSize = (en.def && en.def.displaySize) || 96;
+            const eTX = Math.floor((en.x + eSize / 2) / TILE_SIZE);
+            const eTY = Math.floor((en.y + eSize / 2) / TILE_SIZE);
+            if (trap.tx === eTX && trap.ty === eTY) {
+              triggerTrapOnEnemy(trap, en, ei);
+            }
+          }
+        }
       }
     }
 
@@ -17472,6 +17547,50 @@
         ally.alive = false;
         updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
         if (ally.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+      }
+    }
+
+    // ── Phase 2 (罠武器化): 武器化した罠が敵を捉えた時の演出 (橙フロート。showDisarmFloat の橙版) ──
+    function showWeaponizeFloat(worldX, worldY) {
+      const pop = document.createElement("div");
+      pop.className = "dmgPop";
+      pop.style.color = "#ffb14a";
+      pop.style.textShadow =
+        "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(255,150,50,0.9)";
+      pop.textContent = "武器化!";
+      pop.style.left = (worldX - camX) + "px";
+      pop.style.top  = (worldY - camY - 4) + "px";
+      document.body.appendChild(pop);
+      setTimeout(() => pop.remove(), 1000);
+    }
+
+    // ── Phase 2 (罠武器化): 敵が武器化罠 (rearmed, owner='party') に乗った時の被弾処理 ──
+    //   triggerTrapOnAlly を敵に反転したもの。⚠damageEnemy は使わない (weapon.power/chase 等の斬撃専用副作用を巻き込むため)。
+    //   ⚠決定論の核心: parseDice (=Math.random) はこの関数内でのみ引く = 敵が実際にタイルに乗った瞬間だけ。
+    function triggerTrapOnEnemy(trap, enemy, idx) {
+      if (!enemy || !enemy.alive) return;
+      const type = trap.type || "damage";
+      const spec = TRAP_TYPES[type] || TRAP_TYPES.damage;
+      const r = parseDice(spec.weaponizeDice);   // ★2d6: 敵が実際に乗った瞬間にのみ RNG を引く
+      const dmg = r.total;
+      enemy.hp -= dmg;
+      trap.triggered = true;                     // 1回で消費
+      if (trap.el) {
+        trap.el.classList.remove("rearmed");     // 起動したらオーラを消す
+        trap.el.classList.add("triggered");
+      }
+      sfx("trap");
+      if (typeof triggerEnemyDamageFlash === "function") triggerEnemyDamageFlash(idx);
+      const eSize = (enemy.def && enemy.def.displaySize) || 96;
+      const eCX = enemy.x + eSize / 2;
+      const eCY = enemy.y + eSize / 2;
+      showDmgAt(eCX, eCY, dmg, false);
+      const enm = (enemy.def && enemy.def.name) || "敵";
+      showBanner("💥 罠が敵を捉えた!", 1200);
+      updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg} ダメージ`);
+      if (enemy.hp <= 0) {
+        enemy.hp = 0;
+        if (typeof defeatEnemy === "function") defeatEnemy(idx);   // XP/ドロップ/クエスト進行を回す
       }
     }
 
