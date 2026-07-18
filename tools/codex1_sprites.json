@@ -26,9 +26,11 @@
     },
     {
       "key": "goblin", "out": "assets/goblin_anim.png", "format": "enemy",
-      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
-      "walk_dir": null, "attack_dir": null,
-      "note": "v8.2。goblin / Shaman / Brute / Rider の4体で共有 (Archer と King は専用シートへ分離済)"
+      "cell": 96, "cols": 6, "char_ratio": 0.84375, "scale_from": "walk", "center": "feet-fit",
+      "attack_scale": 0.85,
+      "walk_dir": "goblin/final/walk",
+      "attack_dir": "goblin/goblin-attack-right-6-v3-matched",
+      "note": "v8.10。attack を v3-matched へ差替 (攻撃時に本体が縮む不具合を解消: 旧 attack row H_max 48px→約74px)。char_ratio=現行 goblin_anim の walk 行実測 (81/96) で displaySize 66 不変=当たり判定不変。attack が前方へ大きく踏み込み枠を越えるため scale_from=walk + center=feet-fit + attack_scale=0.85 (歩き中央維持と両立せず攻撃完全表示を優先)。goblin / Shaman / Brute / Rider の4体で共有 (Archer と King は専用シートへ分離済)"
     },
     {
       "key": "hobgoblin", "out": "assets/hobgoblin_anim.png", "format": "enemy",
