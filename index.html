@@ -13649,11 +13649,39 @@
     }
 
     // A* で1タイル分だけ前進(次のウェイポイント返却)。到達不可は null
+    //
+    // ── [地平線ビュー STEP6] 移動デッドロック救済 ────────────────────────────
+    // 屋外の街道帯は row 13-15 の3行しかない [FIELD_BAND_ROWS]。ユニットが1列に並ぶだけで
+    // 街道が「切断」され、avoidTiles を尊重する経路が消える (STEP0 実測の切断率 0.13〜5.68%)。
+    // heroAI [pathIgnoreAllies の分岐] は既に同型の第2候補 aStar(..., null) を持っていたが、
+    // 戦闘移動の3経路 — playerAdvanceOneTile / allyAdvanceTowardPoint / enemyAdvanceOneTile —
+    // は**すべてこの firstTileStep 1本に合流している**のに、そこだけ救済が無かった。
+    //   → 第1候補が null のときだけ avoidTiles を捨てて再探索し、押しのけて通る。
+    //
+    // ⚠️ RNG 非依存。aStar は Math.random を1度も引かない完全決定論なので、この分岐が
+    //    走っても乱数の消費回数・順序は1つも変わらない (STEP7 の範囲魔法とはここが違う)。
+    // ⚠️ 第1候補が通る限り第2の探索は走らない = 正常系は1命令も変わらない上位互換。
+    // ⚠️ 屋外ゲート (IS_FIELD_THEME) は**あえて掛けていない**。「詰んで棒立ち」はダンジョン側でも
+    //    等しくバグなので同じ救済を効かせる。既存6シナリオでの発火率は driver_field_step6.js が実測する。
+    // ⚠️ avoidTiles には「発見済み未発動の罠」も入っている [getUnitOccupiedTiles]。第2候補は
+    //    それも無視するので、完全に詰んだユニットは既知の罠を踏んででも動く。heroAI の
+    //    pathIgnoreAllies と同じ割り切り(棒立ちより踏む方がマシ)。踏む挙動は罠側が演出とログを出す。
+    // ⚠️ オートバトルは失敗が静かに起きるので、発火を観測可能にしておく。
+    //    window.__pathRescue が未定義なら完全な no-op (既定 undefined)。
     function firstTileStep(startTX, startTY, goalTX, goalTY, avoidTiles) {
       if (startTX === goalTX && startTY === goalTY) return null;
+      if (window.__pathRescue) { try { window.__pathRescue.calls++; } catch (e) {} }
       const path = aStar(startTX, startTY, goalTX, goalTY, avoidTiles);
-      if (!path || path.length === 0) return null;
-      return path[0];
+      if (path && path.length > 0) return path[0];
+      if (avoidTiles) {
+        const push = aStar(startTX, startTY, goalTX, goalTY, null);
+        if (push && push.length > 0) {
+          if (window.__pathRescue) { try { window.__pathRescue.n++; } catch (e) {} }
+          return push[0];
+        }
+      }
+      if (window.__pathRescue) { try { window.__pathRescue.hardFail++; } catch (e) {} }
+      return null;   // 壁だけを見ても届かない = 本当に進めない (ここで初めて CAN'T ADVANCE)
     }
 
     // 戦闘移動の上限タイル数を一元管理。base=1 / ヘイスト・ブレスで +1 / 鈍足で -1。
