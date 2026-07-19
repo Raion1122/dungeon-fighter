@@ -56,38 +56,57 @@ MAX_BYTES = 500 * 1024
 # ---- hills (遠景の丘) の確定パラメータ ---------------------------------------
 # 幅 1536 は index.html の FIELD_FAR_PERIOD (index.html:4581) と**一致必須**。
 # 高さ 128 は空タイルの高さ。
-HILLS_SRC = os.path.join(SRC_DIR, "field_far_hills_raw.png")
+HILLS_SRC = os.path.join(SRC_DIR, "field_far_hills_raw2.png")
 HILLS_OUT = os.path.join(ASSETS, "field_far_hills.png")
 HILLS_W, HILLS_H = 1536, 128
 
-# 空モデルを当てる行数。源画 y=0..420 は雲を含むが丘は 1 画素も無い (実測: 丘の
-# 立ち上がりは y=424)。ここを 437 以上にすると丘が「空」として学習され破綻する。
-HILLS_SKY_FIT_ROWS = 421
+# 空モデルを当てる行数。源画 raw2 (1983x793) は y=0..380 が無地の曇り空 (行内 std=2〜3)、
+# y=385 から地面が立ち上がる。ここを 385 以上にすると地面が「空」として学習され破綻する。
+HILLS_SKY_FIT_ROWS = 375
 
-# 帯の上端 (源画 y)。⚠ **この 3 定数 (BAND_Y0 / XFADE / DELTA_LO) は独立に決められない。**
-#   出力側の要求は「全列の最上部不透明画素 y が 16..66」= わずか 50px の窓しかなく、
-#   稜線の実測スパンがほぼそれを埋めてしまうため。効き方:
-#     - 縮小率 s = (1536+XFADE)/2172 が稜線スパンを直接決める (出力スパン = 源スパン x s)。
-#       **XFADE を広げるほど s が上がり、スパンが窓を食い潰す**。96 では span=49/50 で
-#       max=67 となり実際に FAIL した。64 に落として span=44 まで下げてある。
-#     - DELTA_LO を下げると遠くの淡い丘が早く拾われて稜線の谷が浅くなり、スパンが縮む
-#       (実測 delta 10 -> 62px / 8 -> 60px / 6 -> 58px。いずれも y>=400 に限った値)。
-#     - BAND_Y0 は窓の中で上下に平行移動させるだけ。
-#   採用値は 3 定数の総当たり (16 通り x 3 x 3) で **上下の余裕が最大 (どちらも 3px)** に
-#   なる組み合わせ。実測 min=19 / max=63。
-#   ⚠ 源画を差し替えたら必ずこの総当たりからやり直すこと。1 つだけ動かしても入らない。
-HILLS_BAND_Y0 = 399
+# ---- 横シームレス化の方式: **鏡像 (A ++ 左右反転A, A=768)** ------------------
+# 第 1 候補だった「全幅ユニーク + 端クロスフェード」は **高さ制約で破綻する**ため不採用。
+# 理由 (raw2 での実測。ここが今回いちばんの勘所):
+#   出力幅が 1536 に固定されている以上、縮小率 s = 出力幅 / 源画幅 は一意に決まり、
+#   **出力の稜線スパン = 源画の稜線スパン x s も一意に決まる = 調整の自由度が無い**。
+#     raw2 の稜線スパン = 62px (源画 1983 幅、delta 8〜12 でほぼ下限)
+#     全幅ユニークだと s = (1536+XFADE)/1983 >= 0.7746 なので出力スパン >= 48.0px
+#     一方 window は「top y が 16..66」= わずか 50px。リサンプルで実測 +2〜3px 乗る
+#     (raw1 で予測 46.6 -> 実測 49 の前例) ので、**XFADE=0 でも入らない**。
+#   左右を削っても改善しない: 稜線の最高 (x=1130) と最低 (x=780) が画像中央にあり、
+#   端を削ると幅が減って s が上がり **かえって悪化**する (実測 L120R120 で出力 56.9px)。
+#   -> 源画 1 枚ぶんを 768px に畳んで鏡像で 1536 にすると s=0.3873、出力スパン 24px。
+#      窓 50px に対して余裕が生まれ、かつ継ぎ目は構造的にゼロになる。
+# ⚠ 代償: 稜線が左右対称になる。低コントラストで霞んだ丘なので実用上は目立たないが、
+#   **項目5 の並木 (mid) でこれを真似しないこと** — 並木は濃くて輪郭が立つので対称性が
+#   露骨に出る。並木は幅 1024 で源画 1983 なら s=0.516 と余裕があるため wrap_blend で足りる。
+HILLS_MIRROR = True
+HILLS_HALF_W = HILLS_W // 2        # 鏡像の片側 = 768
 
-# 横クロスフェード幅。全幅ユニークな絵を活かすため鏡像 (mirror_strip) は使わない。
-# ⚠ 上記の通り**広げるほど稜線スパンが窓を食い潰す**ので、シームの綺麗さと高さ制約の
-#   トレードオフになっている。64px は低コントラストな霞んだ丘なら継ぎ目が見えない幅。
+# 鏡像の**折り返し軸をどこに置くか**。ここが対称性の見え方を決める決定的な要素。
+#   mirror_strip(A) の折り返し軸は A の左端と右端の 2 本 (中央の継ぎ目 = A の右端、
+#   巻き戻し端 = A の左端)。**稜線の傾きが 0 でない点で折り返すと、そこに稜線の
+#   V 字 / Λ 字の折れが立って「鏡だ」と一目で分かる**。逆に傾き 0 の点 (丘の頂・谷底) で
+#   折り返すと、稜線はそのまま滑らかに続いて見え、対称性がほとんど気付かれない。
+#   源画の稜線を 81px 移動平均で均して |傾き| を測り、左右それぞれで 0 の点を選んだ:
+#     x= 88  稜線 y=393 (丘の頂、傾き 0.000)
+#     x=1880 稜線 y=421 (平坦、傾き 0.000)
+#   ⚠ 素の端 (x=0, x=1982) は傾きが -0.074 / +0.086 あり、実際に巻き戻し端へ Λ 字の
+#     折れが出た。**源画を差し替えたらこの 2 点を測り直すこと。**
+HILLS_SRC_X0, HILLS_SRC_X1 = 88, 1880
+
+# 帯の上端 (源画 y)。既定では auto_band_y0() が**シルエットを窓 16..66 の中央へ**
+# 自動で置く (手で合わせると源画差替のたびに総当たりが要るため)。--band-y0 で上書き可。
+HILLS_BAND_Y0 = None
+
+# 全幅ユニーク方式のクロスフェード幅 (HILLS_MIRROR=False のときだけ使う)。
+# 項目5 の並木はこちらを使う想定なので経路ごと残してある。
 HILLS_XFADE = 64
 
 # α のしきい (空モデルからの輝度差)。delta_lo 未満は完全透過、delta_hi 以上で不透明。
-# ⚠ delta_lo=6 は画像全体で見ると**雲**を丘として拾う値 (実測: y=35 に誤検出)。
-#   ここで安全なのは帯が y>=399 に限られているからで、その範囲の空は行内 std=1.2 と
-#   極めて均一 (6 = 5 sigma 相当)。**帯を上へ広げるならこの値も上げ直すこと。**
-HILLS_DELTA_LO, HILLS_DELTA_HI = 6.0, 26.0
+# ⚠ raw2 では delta 8〜12 が稜線スパンの下限 (62px)。6 まで下げると空のムラを拾って
+#   スパンが 66px へ**広がる** (低いほど良いわけではない)。9 は下限帯の中央。
+HILLS_DELTA_LO, HILLS_DELTA_HI = 9.0, 26.0
 
 # これ未満の α は 0 に落とす。中途半端な α が散ると「最上部の不透明画素」の計測が
 # 曖昧になり、driver_field_step3 の視差相関 C の前提 (丘の最小高 > 並木の最大高 53px)
@@ -277,6 +296,41 @@ def fit_sky_gradient(arr: np.ndarray, fit_rows: int, deg: int = 2) -> np.ndarray
     print(f"  sky model (deg={deg}, fit rows 0..{fit_rows}): "
           f"L(0)={sky[0]:.1f} L({fit_rows})={sky[fit_rows]:.1f} L(-1)={sky[-1]:.1f}")
     return sky
+
+
+def measure_ridge(arr: np.ndarray, sky: np.ndarray, delta_lo: float,
+                  search_top: int) -> np.ndarray:
+    """列ごとの「空モデルより delta_lo 以上暗くなる最初の y」= 稜線を返す (源画座標)。
+
+    search_top より上は無視する。空のムラや雲を稜線と誤認させないため。
+    """
+    L = arr.mean(axis=2)
+    m = L < (sky[:, None] - delta_lo)
+    m[:search_top] = False
+    return np.argmax(m, axis=0)
+
+
+def auto_band_y0(ridge: np.ndarray, scale: float, out_h: int,
+                 min_top: int, max_top: int) -> int:
+    """シルエットが窓 [min_top, max_top] の**中央**に来る帯上端 y を計算する。
+
+    手で band_y0 を合わせると源画を差し替えるたびに総当たりが要る (raw1 では実際に
+    16 通り x 3 x 3 を回した)。稜線さえ測れば一意に決まるので自動化する。
+    """
+    r_min, r_max = int(ridge.min()), int(ridge.max())
+    span_out = (r_max - r_min) * scale
+    target_top = (min_top + max_top) / 2.0 - span_out / 2.0
+    y0 = int(round(r_min - target_top / scale))
+    slack = (max_top - min_top) - span_out
+    print(f"  auto band_y0: ridge src y={r_min}..{r_max} (span {r_max-r_min}px) "
+          f"x s={scale:.4f} -> 出力 span={span_out:.1f}px, 窓 {max_top-min_top}px, "
+          f"余裕={slack:.1f}px -> band_y0={y0}")
+    if slack < 0:
+        raise ValueError(
+            f"稜線スパン {span_out:.1f}px が窓 {max_top-min_top}px に入らない。"
+            f"鏡像 (--mirror) で縮小率を上げるか、より平坦な稜線の源画が要る"
+        )
+    return y0
 
 
 def build_sky_keyed_rgba(arr: np.ndarray, sky: np.ndarray, band: tuple[int, int],
@@ -472,18 +526,34 @@ def cmd_hills(args: argparse.Namespace) -> int:
 
     arr = np.asarray(src, dtype=np.float64)
 
+    # 0) 横方向の切り出し。**鏡像の折り返し軸を稜線の傾き 0 の点に置く**ため
+    #    (HILLS_SRC_X0/X1 のコメント参照)。ここを素の端のままにすると巻き戻し端に
+    #    Λ 字の折れが立ち、対称であることが一目で分かってしまう。
+    x0, x1 = args.src_x0, args.src_x1 if args.src_x1 > 0 else src.width
+    arr = arr[:, x0:x1]
+    print(f"  src crop x={x0}..{x1} (width {arr.shape[1]}) = 折り返し軸を稜線の平坦点へ")
+
     # 1) 空のモデル。行ごとの中央値を 2 次で当てる (空は上から下へ滑らかに明るくなる)。
     #    ⚠ 中央値を使うのは、雲があっても行の代表値がずれないため。
-    sky = fit_sky_gradient(arr, HILLS_SKY_FIT_ROWS)
+    sky = fit_sky_gradient(arr, args.sky_fit_rows)
 
-    # 2) 帯を切る。出力 1536x128 に横クロスフェード分 N を足した (1536+N)x128 へ
-    #    **均等スケール**するので、源画側の帯高は width*128/(1536+N) で一意に決まる。
-    inter_w = HILLS_W + args.xfade
-    band_h = int(round(src.width * HILLS_H / inter_w))
-    band = (args.band_y0, args.band_y0 + band_h)
-    print(f"  band = {band} (h={band_h}, xfade={args.xfade} -> intermediate {inter_w}x{HILLS_H})")
+    # 2) 帯を切る。**均等スケール**なので、源画側の帯高は中間画像の幅から一意に決まる。
+    #    鏡像方式は源画 1 枚を片側 768px に畳むため縮小率が倍になり、稜線スパンが半分になる
+    #    (= 高さ制約が通る唯一の道。上の HILLS_MIRROR のコメント参照)。
+    inter_w = HILLS_HALF_W if args.mirror else HILLS_W + args.xfade
+    src_w = arr.shape[1]
+    band_h = int(round(src_w * HILLS_H / inter_w))
+    scale = inter_w / src_w
 
-    # 3) α を「空モデルからの暗さ」で起こす (帯の中だけ。帯の上の雲は無関係)。
+    ridge = measure_ridge(arr, sky, args.delta_lo, args.sky_fit_rows)
+    y0 = args.band_y0 if args.band_y0 is not None else \
+        auto_band_y0(ridge, scale, HILLS_H, args.min_top, args.max_top)
+    band = (y0, y0 + band_h)
+    mode = f"mirror half={inter_w}" if args.mirror else f"unique+xfade{args.xfade}"
+    print(f"  band = {band} (h={band_h}, {mode} -> intermediate {inter_w}x{HILLS_H}, "
+          f"s={scale:.4f})")
+
+    # 3) α を「空モデルからの暗さ」で起こす (帯の中だけ。帯の外の空のムラは無関係)。
     rgba = build_sky_keyed_rgba(arr, sky, band, args.delta_lo, args.delta_hi)
 
     # 4) 均等スケール。⚠ α のある画像を素の RGBA で縮小すると、稜線で
@@ -493,9 +563,15 @@ def cmd_hills(args: argparse.Namespace) -> int:
     inter = crop_and_scale(rgba, (0, band_h), inter_w, HILLS_H)
     inter = unpremultiply(inter)
 
-    # 5) 横シームレス化。**全幅ユニーク + 端のクロスフェード**を採る (鏡像は使わない)。
-    strip = wrap_blend(inter, args.xfade, HILLS_W)
-    print(f"  wrap-blend {inter_w} -> {strip.width}x{strip.height} (fade {args.xfade}px)")
+    # 5) 横シームレス化。
+    if args.mirror:
+        # A ++ 左右反転A。中央も巻き戻し端も構造的に連続なので**クロスフェードは不要**
+        # (mirror_strip の docstring 参照。かけると絵が濁るだけ)。
+        strip = mirror_strip(inter)
+        print(f"  mirror {inter_w} -> {strip.width}x{strip.height} (継ぎ目は構造的にゼロ)")
+    else:
+        strip = wrap_blend(inter, args.xfade, HILLS_W)
+        print(f"  wrap-blend {inter_w} -> {strip.width}x{strip.height} (fade {args.xfade}px)")
 
     # 6) 色を FIELD_FAR_GRAD へ寄せる (空気遠近)。
     if not args.no_color_match:
@@ -538,9 +614,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--src", default=HILLS_SRC)
     p.add_argument("--out", default=HILLS_OUT)
     p.add_argument("--band-y0", type=int, default=HILLS_BAND_Y0,
-                   help="源画から切り出す帯の上端 y (可動域は 398..403 と狭い)")
+                   help="源画から切り出す帯の上端 y (既定 = 窓の中央へ自動配置)")
+    p.add_argument("--src-x0", type=int, default=HILLS_SRC_X0,
+                   help="源画の横切り出し左端 (鏡像の折り返し軸。稜線の傾き 0 の点に置く)")
+    p.add_argument("--src-x1", type=int, default=HILLS_SRC_X1,
+                   help="源画の横切り出し右端 (0 = 画像の右端まで)")
     p.add_argument("--xfade", type=int, default=HILLS_XFADE,
-                   help="横シームレス化のクロスフェード幅")
+                   help="横シームレス化のクロスフェード幅 (--no-mirror のときだけ有効)")
+    p.add_argument("--mirror", action="store_true", default=HILLS_MIRROR,
+                   help="鏡像 (A ++ 反転A, A=768) で継ぎ目ゼロにする。既定 ON")
+    p.add_argument("--no-mirror", dest="mirror", action="store_false",
+                   help="全幅ユニーク + 端クロスフェードにする (raw2 では高さ制約で破綻する)")
+    p.add_argument("--sky-fit-rows", type=int, default=HILLS_SKY_FIT_ROWS,
+                   help="空モデルを当てる行数 (地面が 1 画素も無い行数を渡すこと)")
     p.add_argument("--delta-lo", type=float, default=HILLS_DELTA_LO)
     p.add_argument("--delta-hi", type=float, default=HILLS_DELTA_HI)
     p.add_argument("--min-gain", type=float, default=HILLS_MIN_GAIN)
