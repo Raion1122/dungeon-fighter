@@ -16714,10 +16714,137 @@
     // ⚠️ HPバーは新規コード 0 行。createEnemyDom が生成し、描画ループが毎フレーム自動追従する。
     // spawnCages/linkCagedBeasts/initGuardians と並んでセットアップ末尾で呼ぶ (initCaelum のコメントの作法)。
     let wagonIndices = [];   // 馬車の enemies[] 添字 (STEP5 の狙い先 / STEP7 の敗北判定が使う)
+
+    // ── [地平線ビュー STEP5-P0] 大型ユニットの「フットプリント」安全配置 ──────────────
+    // wagonSpawns は生成クエスト (酒場/闇市の掲示板) 経由の**外部ペイロード**であり、これまで
+    // tx/ty を一切クランプも isTileWall 検査もせず createEnemy / snapEnemyToTile へ素通ししていた。
+    // 受け側 [L5962] も Array.isArray の検疫しか行わないため、壁内/場外の座標がそのまま通る。
+    //
+    // ⚠️ 検査は「中心タイルが walkable か」では足りない。馬車は displaySize=240 なので
+    //    snapEnemyToTile の結果 (x = tx*96 + 48 - 120 = tx*96 - 72) から当たり判定は
+    //    **3列 x 3行**に及ぶ (中心 (9,13) なら tx 8..10 / ty 12..14。STEP0 の実測で確定)。
+    //    一方 getUnitOccupiedTiles [L11487-11523] は displaySize を無視して中心1タイルしか
+    //    積まないので、経路探索の上では1タイルしか塞がない ← この非対称が本バグの本体。
+    //    中心だけを見るクランプでは、絵と当たり判定が隣接行の壁へめり込む。
+    //
+    // ⚠️ 正常系 (フットプリント全体が既に非壁) では入力座標を**そのまま**返す = 挙動完全不変。
+    // ⚠️ Math.random を一切使わない = RNG 消費順は不変 (リプレイ再現性とバランス実測を壊さない)。
+    // ⚠️ 既存6シナリオは wagonSpawns を持たない (null → spawns=[]) ので到達しない。
+    function unitFootprintTiles(displaySize, tx, ty) {
+      // snapEnemyToTile [L13166-13169] と同じ式でワールド座標を出し、覆うタイル範囲へ落とす
+      const px = tx * TILE_SIZE + TILE_SIZE / 2 - displaySize / 2;
+      const py = ty * TILE_SIZE + TILE_SIZE / 2 - displaySize / 2;
+      return {
+        tx0: Math.floor(px / TILE_SIZE),
+        tx1: Math.floor((px + displaySize - 1) / TILE_SIZE),
+        ty0: Math.floor(py / TILE_SIZE),
+        ty1: Math.floor((py + displaySize - 1) / TILE_SIZE),
+      };
+    }
+    // ⚠️ ここで見るのは **構造壁 (mapData===2) と場外だけ**。isTileWall [L3356-3361] は
+    //    obstacleTileMask (情景スプライトの倒木/大型葦) も壁扱いにするが、それは使わない:
+    //    ・倒木の配置は buildMap の乱数依存 = 同じ (9,13) が seed 次第で移設されたりされなかったり
+    //      する「非決定な馬車配置」になる。地形めり込みより悪い。
+    //    ・実測 (driver_field_step5) では現行 caravan-road の既定 seed で倒木が (10,13) に落ち、
+    //      馬車の 3x3 フットプリントへ掛かる。これを移設対象にすると出荷中クエストの馬車位置が動く。
+    //    ・そもそも「屋外は帯行を予約して倒木を積ませない」は計画書 §6 の P1 = STEP1 の担当。
+    //    重なりは黙殺せず footprintSceneryTiles() で観測だけして __wagonProbe に残す。
+    function isTileStructuralWall(x, y) {
+      if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return true;
+      return mapData[y][x] === 2;
+    }
+    function isFootprintClear(displaySize, tx, ty) {
+      const f = unitFootprintTiles(displaySize, tx, ty);
+      for (let y = f.ty0; y <= f.ty1; y++) {
+        for (let x = f.tx0; x <= f.tx1; x++) {
+          if (isTileStructuralWall(x, y)) return false;
+        }
+      }
+      return true;
+    }
+    // 情景スプライト由来の重なり (移設はしない = STEP1 の担当。観測のみ)
+    function footprintSceneryTiles(displaySize, tx, ty) {
+      const f = unitFootprintTiles(displaySize, tx, ty), hits = [];
+      for (let y = Math.max(0, f.ty0); y <= Math.min(MAP_H - 1, f.ty1); y++) {
+        for (let x = Math.max(0, f.tx0); x <= Math.min(MAP_W - 1, f.tx1); x++) {
+          if (obstacleTileMask[y * MAP_W + x] === 1) hits.push([x, y]);
+        }
+      }
+      return hits;
+    }
+    // フットプリント全体が収まる最寄りタイルを同心リング探索で返す (決定論・RNG不使用)。
+    // 見つからなければ null (呼び出し側が段階的フォールバックを決める)。
+    function findSafeFootprintTile(displaySize, tx, ty) {
+      if (isFootprintClear(displaySize, tx, ty)) return { tx, ty, moved: false, r: 0 };
+      const R = Math.max(MAP_W, MAP_H);
+      for (let r = 1; r <= R; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;   // リング周のみ
+            if (isFootprintClear(displaySize, tx + dx, ty + dy)) {
+              return { tx: tx + dx, ty: ty + dy, moved: true, r };
+            }
+          }
+        }
+      }
+      return null;
+    }
+
     function spawnWagon() {
       const spawns = currentScenario.wagonSpawns || [];
+      const wagonDS = (ENEMY_TYPES.caravanWagon && ENEMY_TYPES.caravanWagon.displaySize) || TILE_SIZE;
       for (const sp of spawns) {
-        const e = createEnemy("caravanWagon", sp.tx, sp.ty);
+        // ── 座標の検疫とフットプリントクランプ (STEP5-P0) ──
+        // ⚠️ 黙って失敗させない: どの段で救済したかを必ず console.warn と __wagonProbe に残す。
+        // ⚠️ sp 自体の null/非オブジェクトを先に弾く。Number(null) は 0 なので
+        //    `sp && sp.tx` 経由だと null が (0,0) に化けて左上隅へ馬車が湧く。
+        const rawTX = (sp && typeof sp === "object") ? Math.floor(Number(sp.tx)) : NaN;
+        const rawTY = (sp && typeof sp === "object") ? Math.floor(Number(sp.ty)) : NaN;
+        if (!Number.isFinite(rawTX) || !Number.isFinite(rawTY)) {
+          console.warn("[spawnWagon] wagonSpawns の座標が数値でないため無視: " + JSON.stringify(sp));
+          if (window.__wagonProbe) window.__wagonProbe.push({ raw: sp, outcome: "rejected" });
+          continue;
+        }
+        // 場外は先に盤内へ寄せる (極端な値だとリング探索の半径が足りず null に落ちるため)
+        const clTX = Math.max(0, Math.min(rawTX, MAP_W - 1));
+        const clTY = Math.max(0, Math.min(rawTY, MAP_H - 1));
+        const safe = findSafeFootprintTile(wagonDS, clTX, clTY);
+        let useTX, useTY, outcome;
+        if (safe && !safe.moved) {
+          useTX = safe.tx; useTY = safe.ty; outcome = "asis";        // ★正常系: 完全に従来どおり
+        } else if (safe) {
+          useTX = safe.tx; useTY = safe.ty; outcome = "footprint";
+          console.warn("[spawnWagon] 馬車のフットプリント(" + wagonDS + "px)が壁/場外に掛かるため移設: (" +
+            rawTX + "," + rawTY + ") → (" + useTX + "," + useTY + ")  r=" + safe.r);
+        } else {
+          // フットプリントが収まる位置がマップ上に1枚も無い。中心タイルだけでも非壁の場所へ。
+          let alt = null;
+          for (let r = 0; r <= Math.max(MAP_W, MAP_H) && !alt; r++) {
+            for (let dx = -r; dx <= r && !alt; dx++) {
+              for (let dy = -r; dy <= r && !alt; dy++) {
+                if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+                if (!isTileStructuralWall(clTX + dx, clTY + dy)) alt = { tx: clTX + dx, ty: clTY + dy };
+              }
+            }
+          }
+          if (alt) {
+            useTX = alt.tx; useTY = alt.ty; outcome = "center-only";
+            console.warn("[spawnWagon] 馬車のフットプリント全体が収まる位置が無い。中心のみ非壁の位置へ退避: (" +
+              rawTX + "," + rawTY + ") → (" + useTX + "," + useTY + ")");
+          } else {
+            useTX = clTX; useTY = clTY; outcome = "unsafe";
+            console.warn("[spawnWagon] 非壁タイルが1枚も無いマップ。従来どおり素の座標へ配置する: (" +
+              useTX + "," + useTY + ")");
+          }
+        }
+        if (window.__wagonProbe) {
+          window.__wagonProbe.push({ raw: { tx: sp.tx, ty: sp.ty }, tx: useTX, ty: useTY,
+                                     outcome, displaySize: wagonDS,
+                                     footprint: unitFootprintTiles(wagonDS, useTX, useTY),
+                                     // 情景 (倒木) との重なりは移設せず記録だけする ← STEP1 の担当
+                                     sceneryOverlap: footprintSceneryTiles(wagonDS, useTX, useTY) });
+        }
+        const e = createEnemy("caravanWagon", useTX, useTY);
         e.everSeen = true;      // 護衛対象は最初から見えている (フォグの未視認 cull にかけない)
         e.inactive = false;     // ★ inactive にしない: 不動化は exploreEnemyTurn / moveEnemies の
                                 //    isObjective 分岐が担う。inactive にすると「狙われない」=
@@ -16728,7 +16855,7 @@
                                 //   cull ブロックごとスキップされるので、idle のままで可視性は担保される。
         e.passiveNpc = true;    // クリア判定 (checkDungeonClear) から除外 + 押し退け (resolveUnitOverlaps) から除外
                                 //   + 描画側で protectedNpc 扱い = 伏兵化 cull の対象外
-        snapEnemyToTile(e, sp.tx, sp.ty);
+        snapEnemyToTile(e, useTX, useTY);
         enemies.push(e);
         const idx = enemies.length - 1;
         createEnemyDom(idx, e.def, e.type);   // ★ push の直後に 1 回だけ
@@ -22985,7 +23112,22 @@
           }
         }
       }
-      return { tx: bx, ty: by };   // フォールバック (通常は届かない)
+      // ── フォールバック (通常は届かない: r=1..6 のリング全てが壁 or 占有だった場合のみ) ──
+      // [地平線ビュー STEP5-P3 / 防御的] 旧実装は bx,by を無条件で返していたので、中心が壁だと
+      // 壁の中へ湧いていた。中心が非壁なら**従来と完全に同じ値**を返す = 正常系は 1 バイト不変。
+      // ⚠️ シグネチャは変えない (spawnWave / spawnSovereignAddWave が共有している)。
+      // ⚠️ 占有は許容する (壁の中に湧くよりマシ。resolveUnitOverlaps が押し退ける)。
+      if (!isTileWall(bx, by)) return { tx: bx, ty: by };
+      for (let r = 1; r <= Math.max(MAP_W, MAP_H); r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dy = -r; dy <= r; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            if (!isTileWall(bx + dx, by + dy)) return { tx: bx + dx, ty: by + dy };
+          }
+        }
+      }
+      console.warn("[findSovereignAddWaveTile] 非壁タイルが1枚も無い。素の中心へ退避: (" + bx + "," + by + ")");
+      return { tx: bx, ty: by };
     }
 
     // 乱入本体。units / sortUnits は runEncounter のローカルなので引数で受ける (spawnGoblinChariot と同型)。
@@ -23121,6 +23263,11 @@
         by = Math.floor((playerY + 58) / TILE_SIZE);
       }
       bx = Math.max(1, Math.min(bx, MAP_W - 2));   // 念のため場外防御 (findSovereignAddWaveTile が壁は避ける)
+      // [地平線ビュー STEP5-P3 / 防御的] 縦も同様にクランプする。旧実装は bx だけを守っており、
+      // by は馬車/主人公の中心タイルをそのまま使っていた。現行28行マップでは馬車も主人公も
+      // row13 に居るので**正常系では値が変わらない** (1..MAP_H-2 の内側) = 挙動不変。
+      // ⚠️ WAVE_SPAWN_AHEAD_TILES (難易度レバー) には触らない。
+      by = Math.max(1, Math.min(by, MAP_H - 2));
 
       showBanner(`⚔ 第 ${waveNo} 波 / 全 ${waveTotal} 波 ⚔`, 1800);
       updateInfo(`街道の先から新手が現れた! (第 ${waveNo} 波 / 全 ${waveTotal} 波)`);
