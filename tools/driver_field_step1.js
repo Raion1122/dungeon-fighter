@@ -660,8 +660,23 @@ async function installProbe(page) {
         return wx;
       };
       const rej = { needW: 0, band: 0, rectH: 0, rectW: 0, notIn: 0, dirty: 0, dark: 0, tried: 0 };
+      // ⚠️ [地平線ビュー STEP2 で追加] カメラ x を帯の中で振る。
+      //    以前は cX を bandX0 に**固定**していたため、探索空間は dt × 雲 = 56 通りしかなかった。
+      //    cX を固定すると t0 (雲 i を測定矩形へ持ってくる時刻) も1つに決まり、その時刻に
+      //    他の雲がどこに居るかは選べない = 「単独」が運任せになる。
+      //    STEP2 で CLOUDS の y 帯を地平線 clip に合わせて 800→470px に詰めた結果、
+      //    その運任せが 56/56 とも外れて (dirty) 流速を測る構図が見つからなくなった。
+      //    cX を振れば t0 が変わり、他の雲の配置も変わる。**測っている量は一切変えていない**
+      //    (測定矩形の作り方・重心法・予測式は同じ)。探索の幅だけを広げる。
+      const cXCands = [];
+      {
+        const lo = bandX0, hi = Math.min(bandX1 - W, MAPW - W);
+        const N = 12;
+        if (hi >= lo) for (let k = 0; k < N; k++) cXCands.push(Math.round(lo + (hi - lo) * (N === 1 ? 0 : k / (N - 1))));
+      }
       for (const dtSec of dtSecList) {
         for (let i = 0; i < CLOUDS.length; i++) {
+        for (const cXTry of cXCands) {
           rej.tried++;
           const c = CLOUDS[i], size = CLOUD_TILE_PX * c.s, half = size / 2;
           const shift = dtSec * CLOUD_DRIFT_PXS * c.v;
@@ -674,7 +689,7 @@ async function installProbe(page) {
           // さらに測定矩形は **雲1つぶんの帯** に絞る。画面いっぱいの矩形にすると
           // 雲が 14 枚もあるので他の雲が必ず侵入し、単独性が永久に成立しない (dirty 8件)。
           if (bandX1 - bandX0 < W || bandY1 - bandY0 < H) { rej.band++; continue; }
-          const cX = Math.max(0, Math.min(MAPW - W, Math.min(bandX1 - W, Math.max(bandX0, bandX0))));
+          const cX = Math.max(0, Math.min(MAPW - W, Math.min(bandX1 - W, Math.max(bandX0, cXTry))));
           if (cX < bandX0 || cX + W > bandX1) { rej.band++; continue; }
           // 縦: 対象の雲の中心を画面中央に。画面全体が帯の内側に収まる範囲でクランプ。
           const cY = Math.max(bandY0, Math.min(bandY1 - H, Math.max(0, Math.min(MAPH - H, c.y - H / 2))));
@@ -726,6 +741,7 @@ async function installProbe(page) {
                    t0Sec: t0, dtSec: dtSec, predictedShiftPx: shift, reject: rej,
                    rect: [rx0, ry0, rx1, ry1], brightFrac: +brightFrac.toFixed(5),
                    bandTilesY: [top, bot], bandTilesX: [ix0, ix1] };
+        }
         }
       }
       return { fail: 'どの dt でも「道の帯に水平収容 + 単独 + 全面明るい」構図が無い', reject: rej,

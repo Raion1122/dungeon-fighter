@@ -756,11 +756,23 @@ async function replayVisibility(browser, base, vp, samples, label) {
       const outside = bs.rowsWalkable.filter((n, r) => (r < 13 || r > 15) && n > 0).length;
       check('(7c) 帯マスクが掛かっていない (帯外にも walkable 行がある)', outside > 0,
         'walkable な帯外行=' + outside);
+      // ⚠️ [地平線ビュー STEP2 で更新] 雲の影レイヤは**スタブして**比べる。
+      //    (7e) が証明したいのは「横持ちでは帯マスクもカメラ固定も掛からず従来の幾何で描かれる」
+      //    こと。ところが CLOUDS の y 帯は STEP2 で意図的に移設され (地平線 clip に合わせて
+      //    920〜1720 → 1130〜1600)、雲は FIELD_MODE 側の描画なので横持ちにも出る。
+      //    素で SHA を取ると「幾何は正しいのに雲の位置が違う」だけで FAIL し、
+      //    このドライバが**幾何の退行を検出できなくなる** (実際 34.6% diff で落ちた)。
+      //    baseline 側にも同じスタブを当てるので、比較対象は雲を除いた地形そのものになる。
       const snap = (pg) => pg.evaluate(() => {
         window.requestAnimationFrame = function () { return 0; };
+        const hadCloud = typeof window.drawCloudShadows === 'function';
+        const realCloud = window.drawCloudShadows;
+        if (hadCloud) window.drawCloudShadows = function () {};
         computeCameraTarget(); camX = camTargetX; camY = camTargetY;
         renderMap();
-        return { url: mapCanvas.toDataURL('image/png'), camX, camY };
+        const url = mapCanvas.toDataURL('image/png');
+        if (hadCloud) window.drawCloudShadows = realCloud;
+        return { url: url, camX, camY, cloudStubbed: hadCloud };
       });
       const sc = await snap(cur.page), sb = await snap(base.page);
       check('(7d) 横持ちのカメラが baseline と bit 一致 (カメラ固定が適用されていない)',
@@ -772,7 +784,8 @@ async function replayVisibility(browser, base, vp, samples, label) {
         const d = await diffRect(cur.page, sc.url, sb.url, { x0: 0, x1: LAND_VIEWPORT.width - 1, y0: 0, y1: LAND_VIEWPORT.height - 1 });
         det = 'cur=' + hc.slice(0, 16) + ' base=' + hb.slice(0, 16) + ' diff=' + JSON.stringify(d);
       }
-      check('(7e) 横持ちの描画が baseline (' + BASELINE_REV + ') と SHA-256 一致 = 従来の絵', hc === hb, det);
+      check('(7e) 横持ちの描画が baseline (' + BASELINE_REV + ') と SHA-256 一致 = 従来の絵 (雲レイヤは両側スタブ)',
+        hc === hb && sc.cloudStubbed === true, det + ' cloudStubbed=' + sc.cloudStubbed + '/' + sb.cloudStubbed);
       await cur.page.close(); await base.page.close();
     }
 
