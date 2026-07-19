@@ -4687,6 +4687,69 @@
     const FIELD_FAR_OPTS = { nodes: 7, base: 62, amp: 50 };
     const FIELD_MID_OPTS = { nodes: 11, base: 16, amp: 22, trees: 34, treeR0: 5, treeR1: 23 };
 
+    // ── 遠景 PNG (painterly) ────────────────────────────────────────────────
+    // 手続き描画 (paintFieldRidge) は**消さない**。ここの load が失敗したときのフォールバックが
+    // それであり、onerror は「無音で何もしない」= 手続き版のまま走り続けるのが正しい挙動
+    // (ROOM_PAINTINGS_DEF の loadRoomPaintings と同じ作法)。
+    // ⚠️ **?v=1 を最初から付ける。** 背景系アセットは差し替え時にブラウザキャッシュで古い絵が
+    //    出る事故があり、路肩 (caravan_road_verge.png?v=1) で既に踏んでいる。
+    // ⚠️ 幅は far 1536 / mid 1024 の **3:2**。揃えると 3072px ごとにしか継ぎ目が同期せず
+    //    「同じ景色の繰り返し」に見える。揃えないこと。
+    const FIELD_FAR_IMG_H = 128;                       // 丘 PNG の実寸高さ (幅 = FIELD_FAR_PERIOD)
+    let _fieldFarImg = null, _fieldMidImg = null;      // load 済みなら Image / 未 load・失敗なら null
+    // 薄暮 (?daylight=0) 用の暗幕。PNG は昼 (FIELD_*_GRAD_DAY) の色で焼いてあるので、薄暮では
+    // タイルの**焼き込み時に 1 回だけ**掛ける (タイルはキャッシュされるので実行時コストはゼロ)。
+    // ⚠️ 屋外テーマは常に昼 (IS_FIELD_THEME なら __daylight = true を無条件で立てている) なので、
+    //    ここは実質デバッグ経路であり出荷構図ではない。完璧な色一致は不要 = 凝らないこと。
+    // 係数は既存 DUSK/DAY グラデの比の平均: far #6c7674→#414653 / #55605e→#2e3239 ≒ (0.57,0.56,0.66)、
+    //                                        mid #47533f→#282f28 / #35402f→#1b211c ≒ (0.54,0.55,0.62)。
+    const FIELD_DUSK_MULTIPLY = "rgb(142,141,163)";    // ≒ ×(0.56,0.55,0.64)
+    // ⚠️ canvas の blend mode は**合成側が source-over のまま**なので、multiply で全面を塗ると
+    //    透明域が塗り色でベタ塗りされて α が消える (並木が「空に浮く長方形」になる)。
+    //    元画像の α で必ず切り直すこと。
+    function tintFieldTileDusk(c, srcImg) {
+      const cc = c.getContext("2d");
+      cc.globalCompositeOperation = "multiply";
+      cc.fillStyle = FIELD_DUSK_MULTIPLY;
+      cc.fillRect(0, 0, c.width, c.height);
+      cc.globalCompositeOperation = "destination-in";
+      cc.drawImage(srcImg, 0, 0);
+      cc.globalCompositeOperation = "source-over";
+    }
+    // 丘は不透明な空タイルへ焼き込むので、暗幕は**丘だけ**に掛ける必要がある
+    // (空タイル全面へ掛けると、既に DUSK 停止で塗ってある空まで二重に暗くなる)。
+    // PNG にしか依存しないので 1 枚だけ作って使い回す。
+    let _fieldFarDuskImg = null;
+    function getFieldFarDuskImg() {
+      if (_fieldFarDuskImg) return _fieldFarDuskImg;
+      const c = document.createElement("canvas");
+      c.width = FIELD_FAR_PERIOD; c.height = FIELD_FAR_IMG_H;
+      c.getContext("2d").drawImage(_fieldFarImg, 0, 0);
+      tintFieldTileDusk(c, _fieldFarImg);
+      _fieldFarDuskImg = c;
+      return c;
+    }
+    (function loadFieldFarImages() {
+      if (!FIELD_MODE) return;                         // 屋外テーマ以外では 1 バイトも読まない
+      const mk = (src, w, h, assign) => {
+        const img = new Image();
+        img.onload = () => {
+          // 寸法が想定と違う PNG は使わない (視差の周期そのものなので、ずれると継ぎ目が出る)
+          if (img.naturalWidth !== w || img.naturalHeight !== h) return;
+          assign(img);
+          // ⚠️ タイルはキャッシュされ毎フレーム作らない設計なので、**到着時にキャッシュを捨てる**。
+          //    ここを忘れると decode 前に焼いたフォールバックの絵が永続する。
+          _fieldSkyTile = null; _fieldSkyKey = "";
+          _fieldMidTile = null; _fieldMidKey = "";
+          try { renderMap(); } catch (e) { /* まだマップ未生成: 次の描画で反映される */ }
+        };
+        img.onerror = () => { /* フォールバック: paintFieldRidge の手続き描画のまま */ };
+        img.src = src;
+      };
+      mk("assets/field_far_hills.png?v=1", FIELD_FAR_PERIOD, FIELD_FAR_IMG_H, (i) => { _fieldFarImg = i; });
+      mk("assets/field_mid_trees.png?v=1", FIELD_MID_PERIOD, FIELD_MID_H,     (i) => { _fieldMidImg = i; });
+    })();
+
     // ── 空グラデ + 遠い丘を「1 枚の不透明タイル」に焼く ──────────────────────
     // ⚠️ **丘を別レイヤの α 付きタイルにしないこと。** 最初そう実装したところ desktop 1440x900 で
     //    flush 込みフレーム時間が 2.4 → 5.4ms へ倍増した (実測)。空の不透明塗り 1 枚に加えて
@@ -4699,7 +4762,10 @@
     //    パイプラインを流してから測ること (driver_field_step3 の E がその測り方をしている)。
     let _fieldSkyTile = null, _fieldSkyKey = "";
     function getFieldSkyTile(h) {
-      const key = h + "|" + (__daylight ? 1 : 0);
+      // ⚠️ キー に **PNG の load 済みフラグを含める**。含めないと、非同期で PNG が届いたあとも
+      //    手続き版で焼いたタイルが同じキーで居座り、遠景が永久にプロシージャルのままになる。
+      //    (onload 側でもキャッシュを潰しているので二重の保険だが、両方入れておくこと。)
+      const key = h + "|" + (__daylight ? 1 : 0) + "|" + (_fieldFarImg ? 1 : 0);
       if (_fieldSkyTile && _fieldSkyKey === key) return _fieldSkyTile;
       const c = document.createElement("canvas");
       c.width = FIELD_FAR_PERIOD; c.height = h;
@@ -4708,23 +4774,46 @@
       for (const [p, col] of (__daylight ? FIELD_SKY_STOPS_DAY : FIELD_SKY_STOPS_DUSK)) g.addColorStop(p, col);
       cc.fillStyle = g;
       cc.fillRect(0, 0, FIELD_FAR_PERIOD, h);
-      paintFieldRidge(cc, FIELD_FAR_PERIOD, h, 0x51f3,
-        Object.assign({ grad: __daylight ? FIELD_FAR_GRAD_DAY : FIELD_FAR_GRAD_DUSK }, FIELD_FAR_OPTS));
+      if (_fieldFarImg) {
+        // ⚠️ ここが「焼き込み」であることが本設計の要。実行時に別 α レイヤとして重ねると
+        //    desktop 1440x900 で flush 込み 2.4 → 5.4ms へ倍増する (上のコメントの実測)。
+        //    PNG になっても drawImage 回数・α 合成回数は手続き版と**完全に同じ**に保つ。
+        // ⚠️ h (= horizonScreenY) は可変で 128 を下回りうる。負の y を drawImage へ渡さないよう、
+        //    PNG の**下端 sh 行だけ**を切り出して y = h - sh へ置く (1:1・拡縮なし)。
+        //    丘は下端を地平線として描いてあるので、切るのは常に上側で正しい。
+        const sh = Math.min(FIELD_FAR_IMG_H, h);
+        const src = __daylight ? _fieldFarImg : getFieldFarDuskImg();
+        cc.drawImage(src, 0, FIELD_FAR_IMG_H - sh, FIELD_FAR_PERIOD, sh,
+                          0, h - sh,               FIELD_FAR_PERIOD, sh);
+      } else {
+        paintFieldRidge(cc, FIELD_FAR_PERIOD, h, 0x51f3,
+          Object.assign({ grad: __daylight ? FIELD_FAR_GRAD_DAY : FIELD_FAR_GRAD_DUSK }, FIELD_FAR_OPTS));
+      }
       _fieldSkyTile = c; _fieldSkyKey = key;
       return c;
     }
     // 並木だけは α 付きの独立タイル (丘とは違う速度で動くので焼き込めない)。
     let _fieldMidTile = null, _fieldMidKey = "";
     function getFieldMidTile() {
-      const key = __daylight ? "day" : "dusk";
+      const key = (__daylight ? "day" : "dusk") + "|" + (_fieldMidImg ? 1 : 0);
       if (_fieldMidTile && _fieldMidKey === key) return _fieldMidTile;
       const c = document.createElement("canvas");
       c.width = FIELD_MID_PERIOD; c.height = FIELD_MID_H;
-      paintFieldRidge(c.getContext("2d"), FIELD_MID_PERIOD, FIELD_MID_H, 0x2b97,
-        Object.assign({ grad: __daylight ? FIELD_MID_GRAD_DAY : FIELD_MID_GRAD_DUSK }, FIELD_MID_OPTS));
+      if (_fieldMidImg) {
+        // PNG は幅 = FIELD_MID_PERIOD / 高さ = FIELD_MID_H でぴったり焼いてあるので等倍で置くだけ。
+        // 描画側 (drawFieldSky) は下端が地平線に接する y へ差すので、y オフセットも要らない。
+        c.getContext("2d").drawImage(_fieldMidImg, 0, 0);
+        // ⚠️ 暗幕は **PNG 経路だけ**。手続き版 (下の else) は FIELD_MID_GRAD_DUSK を直接持っているので、
+        //    ここで一律に掛けると薄暮のときだけ二重に暗くなる。
+        if (!__daylight) tintFieldTileDusk(c, _fieldMidImg);
+      } else {
+        paintFieldRidge(c.getContext("2d"), FIELD_MID_PERIOD, FIELD_MID_H, 0x2b97,
+          Object.assign({ grad: __daylight ? FIELD_MID_GRAD_DAY : FIELD_MID_GRAD_DUSK }, FIELD_MID_OPTS));
+      }
       _fieldMidTile = c; _fieldMidKey = key;
       return c;
     }
+
 
     // 地平線際 16px の霞。生垣色の α ランプ。空グラデと同じ理由で**画面幅で焼く** (1px 引き伸ばし禁止)。
     let _fieldHazeTile = null, _fieldHazeKey = "";

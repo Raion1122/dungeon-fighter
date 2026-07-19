@@ -301,6 +301,20 @@ async function installProbe(page) {
     //   far (灰緑グラデ #6c7674→#55605e) … G-R ≥ 8 かつ G-B が **+1..+8** (わずかに緑>青)
     //   mid (緑グラデ   #47533f→#35402f) … G-R ≥ 6 かつ G-B ≥ 12 (はっきり緑)
     //   空 (#39485c…#8e8a7c)             … 上半分は B>G (G-B が負)、下半分は R>G (G-R が負)
+    // ── [遠景 PNG 化] mid の判定に **b < 80 (暗さ)** を OR で足した ────────────────────
+    //    理由: 上の mid 窓は**手続き版の緑グラデ #47533f→#35402f 専用**に起こしたもので、
+    //    painterly PNG (field_mid_trees.png) には青緑寄りの樹冠が混ざっており **1024 列中 20 列が
+    //    この窓から外れる** (実測: 列カバー 1004/1024) → C0 が FAIL する。
+    //    b (青チャネル) は 2 層を**完全に**分離する。実測 (PIL / α 問わず全画素):
+    //      field_far_hills.png : b < 80 の画素が **0 個** (不透明画素の b 最小 = 81。遠い丘は
+    //                            空気遠近で青く明るいので構造的に暗くならない)
+    //      field_mid_trees.png : b < 80 の画素が **全 1024 列に存在** (列カバー 1024/1024)
+    //    手続き版フォールバックでも同じ不等式が成り立つので、PNG 前後どちらでも正しい:
+    //      mid grad #47533f(b=63) / #35402f(b=47) < 80 ≤ far grad #55605e(b=94) / #6c7674(b=116)、
+    //      空の停止も DAY 最小が #766e5a(b=90) ≥ 80。
+    //    ⚠️ 旧窓は **OR で残してある**。消すと「暗くはないが青い」樹冠を取りこぼす余地が戻る。
+    //    ⚠️ この不等式は **昼のみ**の保証。薄暮 (?daylight=0) では far も暗幕で b が 80 を割り
+    //       mid へ誤分類される。C は昼でしか回さない (屋外テーマは __daylight を無条件で true にする)。
     // ⚠️ **G-B の下限 (+1) を外すと far の判定が壊れる。** 空の停止 0.55(#6a747c) → 0.76(#87857b)
     //    の補間の途中に「G-R≈5, G-B≈0」の帯が現れ、そこが far に誤分類される。空は動かないので
     //    相関のピークが 0 側へ引っ張られ、視差の実測値が -120px ではなく -65px に化ける
@@ -327,7 +341,7 @@ async function installProbe(page) {
         for (let x = 0; x < W; x++) {
           const i = (y * W + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
           const gr = g - r, gb = g - b;
-          if (gr >= 6 && gb >= 12) { midPx++; if (mid[x] === 0) mid[x] = y1 - y; }
+          if (b < 80 || (gr >= 6 && gb >= 12)) { midPx++; if (mid[x] === 0) mid[x] = y1 - y; }
           else if (gr >= 8 && gb >= 1 && gb <= 8 && g >= 85 && g <= 125) { farPx++; if (far[x] === 0) far[x] = y1 - y; }
         }
       }
@@ -562,10 +576,26 @@ function bestShift(a, b, maxShift) {
       const p0 = await prof(X0), p1 = await prof(X0 + D);
       // 稜線が全列で検出できていること = far が並木に隠し切られていないことの確認でもある
       const cols = (a) => a.filter(v => v > 0).length;
-      check('(C0) 両層の稜線が**全列**で検出できている (far が並木に隠されていない)',
-        !!p0 && cols(p0.far) === p0.W && cols(p0.mid) === p0.W,
-        p0 ? 'far稜線列=' + cols(p0.far) + '/' + p0.W + ' mid稜線列=' + cols(p0.mid) + '/' + p0.W
-             + ' farPx=' + p0.farPx + ' midPx=' + p0.midPx + ' skyPx=' + p0.H : 'null');
+      // ⚠️ C0 の本来の目的は「**far** が並木に隠されていないこと」。ここは全列を厳格に要求する。
+      check('(C0a) far の稜線が**全列**で検出できている (丘が並木に隠されていない)',
+        !!p0 && cols(p0.far) === p0.W,
+        p0 ? 'far稜線列=' + cols(p0.far) + '/' + p0.W + ' farPx=' + p0.farPx + ' skyPx=' + p0.H : 'null');
+      // ── [遠景 PNG 化] mid は「全列」ではなく**帯**で見る ────────────────────────────
+      //    走査窓は地平線際 16px (霞タイル) を除外している。painterly PNG の並木は樹高が
+      //    **8〜49px** と幅があり、**17.1% の列は樹高 ≤16px = 霞帯の中に完全に沈む** (実測:
+      //    field_mid_trees.png の列別最上部不透明画素。走査窓 (下端 16px 除外) での列カバーは
+      //    1024 列中 844 = 82.4%)。これは「並木の稜線が霞へ沈む」という**絵の性質**であって
+      //    実装の欠陥ではない。手続き版は ridge base=16 で下限が霞帯にちょうど接していたため
+      //    全列で出ていた、という違いに過ぎない。
+      //    ⚠️ **上限 95% も必ず課すこと。** これが本 assert の主な歯である: もし mid の判定が
+      //       丘 (far) まで拾い始めるとカバー率は 100% へ跳ね上がる。上限が無いと、その
+      //       「2 層が混ざった」状態を PASS と誤読してしまう (C1/C2 の相関は混ざっても
+      //       そこそこ立つので、混入は相関だけでは検出できない)。
+      const midRatio = p0 ? cols(p0.mid) / p0.W : 0;
+      check('(C0b) mid の稜線が 75〜95% の列で検出できている (下限=絵が消えていない / 上限=far の混入なし)',
+        !!p0 && midRatio >= 0.75 && midRatio <= 0.95,
+        p0 ? 'mid稜線列=' + cols(p0.mid) + '/' + p0.W + ' = ' + (midRatio * 100).toFixed(1)
+             + '% (PNG 実測 82.4%) midPx=' + p0.midPx : 'null');
       const expFar = -Math.round(D * FAR_PARALLAX);   // 内容は camX と逆方向へ動く
       const expMid = -Math.round(D * MID_PARALLAX);
       const sFar = bestShift(p0.far, p1.far, 420);
