@@ -503,6 +503,79 @@ def match_vertical_gradient(img: Image.Image, top_rgb: tuple[int, int, int],
     return Image.fromarray(out.astype(np.uint8), "RGBA")
 
 
+def decontaminate_edges(img: Image.Image, opaque_thr: float = 0.95,
+                        probe: int = 4, smooth: int = 15) -> Image.Image:
+    """半透明の縁に残った**空の色を取り除き**、近傍の樹冠の色へ置き換える。
+
+    なぜ必要か (ここを飛ばすと切り抜き画像の典型的な安っぽさになる):
+      α を「空との輝度差」で起こす方式では、稜線の半透明画素の RGB に
+      **源画の空の明るい色がそのまま残る**。空 (輝度 133) の上に置く分には
+      同系色なので見えないが、**ゲーム内で並木の背後にあるのは空ではなく丘
+      (輝度 ~100)** なので、そこへ重ねると縁だけが明るく浮いて光輪になる。
+      実測 (修正前): 縁の合成後輝度 112.8 vs 丘 99.5 = +13.3、丘より明るい縁が
+      75.8%、最大 +46.1。木の本体が 64.9 なので **縁が本体より 48 も明るい**。
+
+    ⚠ **縁の検査を空の上でやってはいけない。** 空は汚染色とほぼ同じ明るさなので
+      汚染が完全に隠れる (実際にそれで一度見落とした)。必ず実際の背景 = 丘の上で測る。
+
+    やること: 各列で「最初に不透明 (α>=opaque_thr) になる画素」の少し下から樹冠の
+    色を採り、その列の半透明画素の RGB をその色で置き換える。**α は一切触らない**ので
+    シルエットの形も高さも変わらない。結果、縁は「半透明の木の色」になり、背後が
+    空でも丘でも自然に沈む。
+
+    α は build_sky_keyed_rgba の縦累積 max により**列ごとに単調非減少**なので、
+    透過→不透明の遷移は各列に 1 回だけ = 列ごとに参照色 1 つで過不足なく足りる。
+
+    ⚠ 参照色の横平滑化は **wrap (巻き戻し) で畳む**こと。端を複製で埋めると
+      col0 と col1023 の参照色がずれて、せっかくの継ぎ目のなさが壊れる。
+    """
+    a = np.asarray(img, dtype=np.float64)
+    h, w = a.shape[:2]
+    al = a[..., 3] / 255.0
+    op = al >= opaque_thr
+
+    has = op.any(axis=0)
+    top = np.argmax(op, axis=0)                       # 列ごとの最初の不透明行
+
+    # 参照色 = 不透明境界の 1 行下から probe 行ぶんの平均 (境界そのものは避ける)
+    ref = np.zeros((w, 3))
+    for x in range(w):
+        if has[x]:
+            y0 = min(top[x] + 1, h - 1)
+            ref[x] = a[y0:min(y0 + probe, h), x, :3].mean(axis=0)
+    if not has.all():
+        # 不透明画素が 1 つも無い列は最近傍の有効列から借りる (谷が極端に深い場合の保険)
+        idx = np.where(has)[0]
+        if idx.size == 0:
+            raise ValueError("不透明な画素が 1 つも無い (α しきい値が高すぎる)")
+        for x in np.where(~has)[0]:
+            ref[x] = ref[idx[np.argmin(np.abs(idx - x))]]
+        print(f"  decontaminate: 不透明画素の無い列 {int((~has).sum())} 件を近傍で補間")
+
+    # 横平滑化 (wrap)。列ごとの参照色がばらつくと縁がちらつくため。
+    if smooth > 1:
+        pad = smooth // 2
+        ext = np.concatenate([ref[-pad:], ref, ref[:pad]], axis=0)
+        k = np.ones(smooth) / smooth
+        ref = np.stack([np.convolve(ext[:, c], k, mode="valid") for c in range(3)],
+                       axis=1)[:w]
+
+    edge = al < opaque_thr
+    out = a.copy()
+    out[..., :3] = np.where(edge[..., None], ref[None, :, :], a[..., :3])
+    out[..., 3] = a[..., 3]                            # α は不変
+
+    band = edge & (al > 0.05)
+    if band.any():
+        before = a[..., :3][band]
+        after = out[..., :3][band]
+        bl = before @ [0.299, 0.587, 0.114]
+        al_ = after @ [0.299, 0.587, 0.114]
+        print(f"  decontaminate: 縁 {int(band.sum())}px の RGB 輝度 "
+              f"{bl.mean():.1f} -> {al_.mean():.1f} (空の色を樹冠色へ置換)")
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
+
+
 def clamp_alpha(img: Image.Image, floor: float) -> Image.Image:
     """floor 未満の α を 0 に落とす (輪郭を確定させ、計測の曖昧さを消す)。"""
     a = np.asarray(img).copy()
@@ -713,6 +786,13 @@ def cmd_trees(args: argparse.Namespace) -> int:
     strip = wrap_blend(inter, args.xfade, TREES_W)
     print(f"  wrap-blend {inter_w} -> {strip.width}x{strip.height} (fade {args.xfade}px)")
 
+    # 5.5) **縁の色の汚染除去**。ここを飛ばすと樹冠の輪郭に明るい光輪が立つ。
+    #      色寄せ (6) の**前**に置くこと: match_vertical_gradient は「最初の不透明画素の
+    #      すぐ下」を稜線側の代表色として測るので、汚染された明るい色のまま測ると
+    #      ゲイン/オフセットがその分ずれる。
+    if not args.no_decontaminate:
+        strip = decontaminate_edges(strip, opaque_thr=args.opaque_thr)
+
     # 6) 色を FIELD_MID_GRAD へ寄せる (丘より暗く・緑に = 空気遠近)
     if not args.no_color_match:
         strip = match_vertical_gradient(strip, TREES_TOP_TARGET, TREES_BOT_TARGET,
@@ -805,6 +885,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-gain", type=float, default=TREES_MIN_GAIN)
     p.add_argument("--no-color-match", action="store_true",
                    help="FIELD_MID_GRAD への色寄せをしない (源画の色を確認したいとき)")
+    p.add_argument("--no-decontaminate", action="store_true",
+                   help="縁の色の汚染除去をしない (光輪が出るので比較検証のときだけ)")
+    p.add_argument("--opaque-thr", type=float, default=0.95,
+                   help="これ以上の α を「樹冠本体」とみなす (汚染除去の参照色の採取元)")
     p.add_argument("--min-top", type=int, default=TREES_MIN_TOP,
                    help="全列の最上部不透明画素 y の下限 (driver_field_step3 C の前提)")
     p.add_argument("--max-top", type=int, default=TREES_MAX_TOP)
