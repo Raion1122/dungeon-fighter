@@ -9787,6 +9787,19 @@
     }
     // renderWorld(): 現在の camX/camY でマップ(canvas)と全DOMスプライトを再描画/再配置する (旧 updatePositions 本体)。
     function renderWorld() {
+      // ── [地平線ビュー STEP0] 受動カメラレコーダ用の検証シーム (既定は完全な no-op) ──
+      //   window.__camTrace を配列にした時だけ「実際に描画へ使われた最終カメラ値」を1件記録する。
+      //   ⚠️ 必ず renderWorld 側に置くこと。renderWorldWithShake [L3683] は shake=0 のとき
+      //      renderWorld() を早期に直呼びするので、あちらに置くと無シェイクのフレームを丸ごと落とす。
+      //   ⚠️ camX/camY はここでは shake 加算後の値 = 実際に translate に使われる値。
+      //   万一 TDZ 等で失敗しても本編を止めないよう try で包み、失敗数だけ観測可能に残す
+      //   (ドライバ側で __camTraceErr === 0 を assert している)。
+      if (window.__camTrace) {
+        try {
+          window.__camTrace.push({ camX, camY, focus: !!camFocus,
+                                   tight: cameraTightFocus, phase: currentPhase });
+        } catch (e) { window.__camTraceErr = (window.__camTraceErr || 0) + 1; }
+      }
       renderMap();
       computeVisibleTiles();
       renderLighting();
