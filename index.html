@@ -5269,6 +5269,30 @@
       // ⚠️ 屋内では FIELD_DRAW=false → 値が literal と bit 一致するので既存6シナリオは 1バイト不変。
       const wallRectY = (ty) => FIELD_DRAW ? (ty * TILE_SIZE + TILE_SIZE - FIELD_VERGE_H) : (ty - 1) * TILE_SIZE;
       const wallRectH = FIELD_DRAW ? FIELD_VERGE_H : TILE_SIZE * 2;
+      // ── [屋外] 路肩は「北壁のある列」ではなく **地平線の行そのもの** ────────────
+      // ⚠️ 実測で確定したバグの修正 (2026-07-20)。ROOMS[0] が col 2 始まり (ROOMS 定義) なので
+      //    row 13 の tx=0,1 と tx=69-71 は床が掘られず 2 のまま残る。すると
+      //    isNorthWall(tx,12) = mapData[12][tx]===2 && mapData[13][tx]!==2 が**その5列だけ false** になり、
+      //    Pass 2 が路肩を敷かない。そこに残るのが Pass 1a の SPR_CEILING で、これは
+      //    assets/tileset.png の (160,16) 16x16 を実測すると **全画素 rgba(0,0,0,255) の純黒**。
+      //    結果、地平線直下に 192x96 (西端) / 288x96 (東端) の**真っ黒な矩形**が出る。
+      //    デスクトップは minCamX = -UI_MENU_WIDTH (=-280) までカメラが寄るので、
+      //    ワールド x=0 が遊技領域の左端に一致し**起動直後から必ず露出する**
+      //    (幅 430px 級のスマホ縦持ちでは camX=+409 で tx=0,1 が画面外 = 実機だけ見ると直ったと誤判定する)。
+      // ⚠️ 直し方の選択理由:
+      //    ・Pass 1a で row12 の天井をスキップするだけでは canvas 背景 #0a0a0a が出るだけで直らない。
+      //    ・mapData[13][0..1] を床にするのは禁止 (歩行判定・aStar・切断率の実測値が全部無効になる)。
+      //    ・ROOMS を広げるのも禁止 (敵スポーン・scenery auto-reserve・painting が同じ矩形を共有)。
+      //    → **描画側だけで閉じる**のが正しい。路肩矩形は wallRectY(12)=1152 / h=96 で
+      //      Pass 1a の天井と完全同一矩形、かつ verge PNG は RGB (α無し) なので確実に潰せる。
+      // ⚠️ isNorthWall を捨てず **OR で残す**こと。屋外で isNorthWall が真なのは今のところ row12 だけ
+      //    だが、将来 ROOMS の形が変わったときに黙って壁が消えるのを防ぐ。
+      // ⚠️ FIELD_DRAW は renderMap のローカル const なので、この述語も**必ず renderMap 内**に置くこと。
+      //    トップレベル関数にすると ReferenceError で屋内6シナリオごと全損する。
+      // ⚠️ 屋内では isNorthWall そのものへ恒等的に落ちる = 既存6シナリオは 1命令も変わらない。
+      const isVergeCell = FIELD_DRAW
+        ? (tx, ty) => (ty === FIELD_HORIZON_ROW) || isNorthWall(tx, ty)
+        : isNorthWall;
       if (wallPattern) {
         ctx.save();
         ctx.translate(-camX, -camY);
@@ -5279,7 +5303,7 @@
         const WINF = FIELD_DRAW ? 0.5 : 0;
         for (let ty = ty0; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
-            if (!isNorthWall(tx, ty)) continue;
+            if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
             // 屋内: 1セル上から 2セル分塗る (壁の「立体感」) / 屋外: 路肩 96px
             ctx.fillRect(tx * TILE_SIZE - WINF, wallRectY(ty), TILE_SIZE + WINF * 2, wallRectH);
@@ -5290,10 +5314,13 @@
         // フォールバック: 旧 tileset 壁スプライト
         for (let ty = ty0; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
-            if (!isNorthWall(tx, ty)) continue;
+            if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
-            const westIsWall = isNorthWall(tx - 1, ty);
-            const eastIsWall = isNorthWall(tx + 1, ty);
+            // ⚠️ 端キャップ判定も **同じ述語**に揃える。ここだけ isNorthWall のままだと
+            //    wallPattern 未ロード/404 の初回フレームで、連続した路肩帯の途中に
+            //    SPR_WALL_LEND (左端の壁) が出る。症状が初回フレームだけなので目視で取りこぼす。
+            const westIsWall = isVergeCell(tx - 1, ty);
+            const eastIsWall = isVergeCell(tx + 1, ty);
             let spr;
             if (!westIsWall && !eastIsWall)      spr = SPR_WALL_MID;
             else if (!westIsWall)                spr = SPR_WALL_LEND;
