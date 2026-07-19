@@ -2811,6 +2811,19 @@
       if (new URLSearchParams(window.location.search).get("fieldgeo") === "0") FIELD_GEO = false;
     } catch (e) {}
 
+    // [地平線ビュー STEP3] 空 (グラデ + 遠景シルエット) だけを落とす撤退スイッチ。
+    // ⚠️ 撤退スイッチは 3 つある。取り違えると A/B 比較が「別ゲーム同士の比較」に化ける:
+    //      ?sky=0      … **空描画のみ**無効 (drawFieldSky が no-op)。幾何もカメラも地面も残る。
+    //                    地平線より上は背景の #0a0a0a が出る = 「空を描いていない」ことが目で分かる状態。
+    //      ?fieldgeo=0 … **幾何のみ**無効 (帯マスク + カメラ固定)。描画パスは屋外のまま。
+    //      ?field=0    … **描画のみ**無効 (FIELD_MODE 側 = 雲の影・床膨張・空)。幾何は残る。
+    // ⚠️ ?sky=0 は ?field=0 の部分集合である。空だけを疑うときに使い、屋外描画そのものを疑う
+    //    ときは ?field=0 を使うこと。
+    let FIELD_SKY_ON = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("sky") === "0") FIELD_SKY_ON = false;
+    } catch (e) {}
+
     // 帯の定義。⚠️ MAP_H / ROOMS / CORRIDORS の定数は1バイトも変えない (マスクは buildMap 末尾で掛ける)。
     //   row 13-15 は ROOMS[0](8-19) / ROOMS[1](7-20) / ROOMS[2](5-22) 全ての内側かつ CORRIDORS と一致し、
     //   列 2-68 が連続する = 帯化しても街道が途切れない唯一の3行。
@@ -4460,18 +4473,217 @@
       }
     }
 
-    // ── [屋外] 空 (地平線ビュー STEP1: 単色プレースホルダ) ──────────────────
-    // ⚠️ 「単色でいい」のは STEP1 が可視性の証明だけを担うから。景色として成立させるのは STEP3
-    //    (createLinearGradient をオフスクリーンに焼く + 決定論 hash の丘/並木シルエット 2速パララックス)。
-    // ⚠️ Math.random も Date.now も引かない = RNG ストリームも決定論スナップショットも汚さない。
-    // ⚠️ window.drawFieldSky としてスタブ可能であること自体が検証手段 (ドライバは
-    //    「空描画を潰したフレーム」との差分で可視性を測る。色の絶対値では測らない)。
-    const FIELD_SKY_PLACEHOLDER = "#6d8fb4";
+    // ── [屋外] 空と遠景 (地平線ビュー STEP3) ────────────────────────────────
+    // STEP1/2 の単色プレースホルダ (#6d8fb4) を本実装へ差し替えたもの。層は上から:
+    //    空グラデ (天頂→地平霞)  →  遠い丘 (パララックス 0.15)  →  並木 (0.35)  →  地平線際の霞 16px
+    //
+    // ⚠️ **Math.random も Date.now も一切引かない。** 遠景の起伏は整数インデックスの決定論 hash から
+    //    作る。ここで RNG を引くと、マップ生成・情景配置・戦闘ロールが乗っている**同じ 1 本の
+    //    Math.random ストリームの消費順**がフレームレート依存でずれ、リプレイ再現性と
+    //    バランス実測 (driver_scenario3 系の勝率) が同時に壊れる。パララックスは camX の関数であって
+    //    時間の関数ではないので、時計も要らない。
+    //
+    // ⚠️ **毎フレーム createLinearGradient / createRadialGradient を呼ばないこと。** 空は
+    //    「画面幅 × 約 270px」= 常に最大級の塗り面積を持つ唯一のレイヤであり、ここのラスタコストは
+    //    JS 時間にほとんど現れない (雲の影で同じ罠を踏んでいる)。グラデも遠景シルエットも
+    //    オフスクリーンへ 1 回だけ焼き、以降は drawImage で使い回す。1 フレームあたりの実描画は
+    //    「空+丘」2 + 並木 2 + 霞 1 = 5 回の drawImage だけ (うち α 合成は 3 回)。
+    //    実測: desktop 1440x900 で flush 込み 2.5 → 2.4ms = 単色 fillRect 時代と**差なし**。
+    //
+    // ⚠️ **トンマナ: painterly (厚塗り・暗く彩度低め)。** 本プロジェクトの部屋 1 枚絵の基準がこれで、
+    //    空だけ「16-bit vibrant」にすると画面から浮く (元仕様書 §7 のスタイル指定は破棄済み)。
+    //    空は本質的に明るく彩度の高い領域なので、下の 3 つで既存の暗い画面へ繋いでいる:
+    //      (a) 彩度上限   … 最も彩度が高い天頂でも約 38%、地平霞は 15% 未満
+    //      (b) 明度差     … 空の平均輝度を床テクスチャと同オーダーに揃えた (どちらも約 100〜110。
+    //                       caravan_road_floor.png の平均は (142,96,54) ≒ 104)。
+    //                       ここを上げると「空だけ明るい板」になる
+    //      (c) 地平線際の霞 … 生垣 (caravan_road_wall.png 平均 (30,48,16) = 暗い緑) へ 16px で沈める
+    //    遠景の色も同じ理由で「遠いほど霞の色に寄せる」(空気遠近)。丘 > 並木 > 生垣 の順に濃くなる。
+    //
+    // ⚠️ window.drawFieldSky としてスタブ可能であること自体が検証手段である。ドライバは
+    //    「空描画を潰したフレーム」との差分で可視性を測り、色の絶対値では測らない。よって
+    //    **空の描画は必ずこの関数の中に閉じること**。renderMap 側へ 1 行でも漏らすと
+    //    driver_field_step2 の A2 (「空スタブ下で y < HORIZON_Y を塗る描画が 0 件」) が落ちる。
+    // ⚠️ この関数の中で setTransform / scale / rotate / transform を使わないこと。
+    //    driver_field_step2 の spy がそれらを badTransform として記録し FAIL する。
+    //    clip を張るときも beginPath → rect(1 回) → clip の形を守る。
+    const FIELD_SKY_FADE_H  = 16;     // 地平線際で生垣へ沈める霞の高さ
+    const FIELD_FAR_PARALLAX = 0.15;  // 遠い丘。camX に対する追従率 (0 = 無限遠)
+    const FIELD_MID_PARALLAX = 0.35;  // 並木。丘の 2.33 倍速で流れる = 2 速の視差で奥行きが出る
+    // ⚠️ 周期は**互いに素にしない**とタイルの継ぎ目が周期的に揃って「同じ景色の繰り返し」に見える。
+    //    1536 と 1024 は比 3:2 なので 3072px ごとにしか揃わない (画面幅 1440 の倍以上)。
+    const FIELD_FAR_PERIOD  = 1536;                      // 丘: なだらか・高い (高さは空タイルと同じ)
+    const FIELD_MID_PERIOD  = 1024, FIELD_MID_H = 72;    // 並木: 細かい・低い
+    // 空グラデの色停止 (0 = 天頂 / 1 = 地平線)。__daylight 連動。
+    // ⚠️ 末尾 2 停止で既に生垣側へ降り始めている。ここを明るいまま放置して 16px の霞だけで
+    //    繋ごうとすると、地平線に濃い横帯が 1 本出る (16px で 148→30 は落差が大きすぎる)。
+    const FIELD_SKY_STOPS_DAY = [
+      [0.00, "#39485c"], [0.28, "#4e5c6c"], [0.55, "#6a747c"],
+      [0.76, "#87857b"], [0.90, "#8e8a7c"], [1.00, "#6e7263"],
+    ];
+    const FIELD_SKY_STOPS_DUSK = [
+      [0.00, "#1b2230"], [0.30, "#2b3040"], [0.60, "#453f4c"],
+      [0.82, "#5a4a48"], [0.93, "#63504a"], [1.00, "#3d3a34"],
+    ];
+    // 遠景の色は**単色ではなく縦グラデ**にする (空気遠近)。稜線の上ほど空の霞に近く、
+    // 裾ほど濃い。単色で塗ると「切り絵を貼った板」に見え、painterly から一番遠い絵になる。
+    // ⚠️ このグラデはタイルを焼くときに 1 回だけ作る。毎フレームではない。
+    const FIELD_FAR_GRAD_DAY   = ["#6c7674", "#55605e"], FIELD_FAR_GRAD_DUSK  = ["#414653", "#2e3239"];
+    const FIELD_MID_GRAD_DAY   = ["#47533f", "#35402f"], FIELD_MID_GRAD_DUSK  = ["#282f28", "#1b211c"];
+    const FIELD_HAZE_RGB_DAY   = "28,42,20", FIELD_HAZE_RGB_DUSK   = "16,20,18";
+
+    // 決定論 hash (整数 → [0,1))。Math.imul で 32bit に閉じる。
+    // ⚠️ 素の `*` だと 2^53 を超えて float に化け、端末やビルドで値がぶれる = 決定論でなくなる。
+    function fieldHash(i, salt) {
+      let h = Math.imul(i | 0, 374761393) ^ Math.imul(salt | 0, 668265263);
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      h ^= h >>> 16;
+      return (h >>> 0) / 4294967296;
+    }
+
+    // 稜線プロファイル: 整数インデックスの決定論 hash を smoothstep で補間する。
+    // ⚠️ 継ぎ目を消すため、制御点は index を **N で剰余** して読む = 末尾の点が先頭の点と一致する。
+    //    ここを [0..N] の独立な hash にすると、タイルの境目に必ず段差が出て「壁紙の継ぎ目」になる。
+    function fieldRidgeProfile(period, salt, o) {
+      const N = o.nodes, step = period / N, prof = [];
+      for (let i = 0; i < N; i++) prof.push(fieldHash(i, salt));
+      return function (x) {
+        const t = x / step, i0 = Math.floor(t);
+        const a = prof[((i0 % N) + N) % N], b = prof[((i0 + 1) % N + N) % N];
+        const f = t - i0, s = f * f * (3 - 2 * f);          // smoothstep = 尾根が尖らない
+        return o.base + (a * (1 - s) + b * s) * o.amp;
+      };
+    }
+    // 稜線を「cc の baseY を地平線として」塗る。cc は呼び出し側が用意する
+    // (空グラデの上へ直接塗るためにキャンバス生成と分離してある — 下の getFieldSkyTile 参照)。
+    function paintFieldRidge(cc, period, baseY, salt, o) {
+      const at = fieldRidgeProfile(period, salt, o);
+      const g = cc.createLinearGradient(0, baseY - (o.base + o.amp), 0, baseY);
+      g.addColorStop(0, o.grad[0]);
+      g.addColorStop(1, o.grad[1]);
+      cc.fillStyle = g;
+      // 稜線を塗り潰す。4px 刻みで十分 (遠景なので 1px 刻みにしても見た目は変わらず焼き時間だけ増える)。
+      cc.beginPath();
+      cc.moveTo(0, baseY);
+      for (let x = 0; x <= period; x += 4) cc.lineTo(x, baseY - at(x));
+      cc.lineTo(period, baseY);
+      cc.closePath();
+      cc.fill();
+      // 並木は稜線の上へ樹冠の塊を重ねる。円を重ねた塊 = 遠目の森のシルエット。
+      // ⚠️ 円は必ず稜線より下まで食い込ませる (中心を稜線の少し上に置く)。浮かせると
+      //    「空に浮く点々」になる。数が少なく半径が揃っていても**泡が並んだ絵**になる。
+      if (o.trees) {
+        for (let i = 0; i < o.trees; i++) {
+          const tx = (i + fieldHash(i, salt + 91) * 0.9) * (period / o.trees);
+          const r  = o.treeR0 + fieldHash(i, salt + 173) * (o.treeR1 - o.treeR0);
+          const ty = baseY - at(tx) - r * 0.35;
+          cc.beginPath();
+          cc.arc(tx, ty, r, 0, Math.PI * 2);
+          cc.fill();
+          // 周期をまたぐ樹冠は反対側にも複製する (継ぎ目で木が半分に切れるのを防ぐ)
+          if (tx - r < 0)      { cc.beginPath(); cc.arc(tx + period, ty, r, 0, Math.PI * 2); cc.fill(); }
+          if (tx + r > period) { cc.beginPath(); cc.arc(tx - period, ty, r, 0, Math.PI * 2); cc.fill(); }
+        }
+      }
+    }
+    // ⚠️ **far の最小高 (base) は mid の最大高より必ず大きくすること。** そうでないと丘の稜線が
+    //    並木に完全に隠れる列ができ、「丘がどこにあるか分からない絵」になるうえ、
+    //    driver_field_step3 の C が far の視差を測れなくなる (丘の輪郭が並木の 0.35 で
+    //    変調され、相関のピークが 0.15 と 0.35 の間の偽の値に落ちる。実際に -65px で FAIL した)。
+    //    現在: far 62..112 / mid の最大 ≒ ridge 38 + treeR1 23×0.65 ≒ 53。
+    const FIELD_FAR_OPTS = { nodes: 7, base: 62, amp: 50 };
+    const FIELD_MID_OPTS = { nodes: 11, base: 16, amp: 22, trees: 34, treeR0: 5, treeR1: 23 };
+
+    // ── 空グラデ + 遠い丘を「1 枚の不透明タイル」に焼く ──────────────────────
+    // ⚠️ **丘を別レイヤの α 付きタイルにしないこと。** 最初そう実装したところ desktop 1440x900 で
+    //    flush 込みフレーム時間が 2.4 → 5.4ms へ倍増した (実測)。空の不透明塗り 1 枚に加えて
+    //    画面幅ぶんの α 合成がもう 1 枚乗るため。丘は空の**すぐ手前**にあり間に何も挟まらないので、
+    //    焼き込み時に合成してしまえば実行時は不透明 blit 1 枚で済む。
+    // ⚠️ タイル幅は far の周期 (= 横スクロールの単位)。空グラデは横方向に一様なので、
+    //    このタイルを 0.15 でスクロールさせても空が動いて見えることはない。
+    // ⚠️ 1px 幅に焼いて横へ引き伸ばす実装も禁止 (極端な異方性スケールは補間パスへ落ちて遅い)。
+    // ⚠️ ラスタコストは JS 時間にほとんど現れない。ここを触ったら必ず getImageData で
+    //    パイプラインを流してから測ること (driver_field_step3 の E がその測り方をしている)。
+    let _fieldSkyTile = null, _fieldSkyKey = "";
+    function getFieldSkyTile(h) {
+      const key = h + "|" + (__daylight ? 1 : 0);
+      if (_fieldSkyTile && _fieldSkyKey === key) return _fieldSkyTile;
+      const c = document.createElement("canvas");
+      c.width = FIELD_FAR_PERIOD; c.height = h;
+      const cc = c.getContext("2d");
+      const g = cc.createLinearGradient(0, 0, 0, h);
+      for (const [p, col] of (__daylight ? FIELD_SKY_STOPS_DAY : FIELD_SKY_STOPS_DUSK)) g.addColorStop(p, col);
+      cc.fillStyle = g;
+      cc.fillRect(0, 0, FIELD_FAR_PERIOD, h);
+      paintFieldRidge(cc, FIELD_FAR_PERIOD, h, 0x51f3,
+        Object.assign({ grad: __daylight ? FIELD_FAR_GRAD_DAY : FIELD_FAR_GRAD_DUSK }, FIELD_FAR_OPTS));
+      _fieldSkyTile = c; _fieldSkyKey = key;
+      return c;
+    }
+    // 並木だけは α 付きの独立タイル (丘とは違う速度で動くので焼き込めない)。
+    let _fieldMidTile = null, _fieldMidKey = "";
+    function getFieldMidTile() {
+      const key = __daylight ? "day" : "dusk";
+      if (_fieldMidTile && _fieldMidKey === key) return _fieldMidTile;
+      const c = document.createElement("canvas");
+      c.width = FIELD_MID_PERIOD; c.height = FIELD_MID_H;
+      paintFieldRidge(c.getContext("2d"), FIELD_MID_PERIOD, FIELD_MID_H, 0x2b97,
+        Object.assign({ grad: __daylight ? FIELD_MID_GRAD_DAY : FIELD_MID_GRAD_DUSK }, FIELD_MID_OPTS));
+      _fieldMidTile = c; _fieldMidKey = key;
+      return c;
+    }
+
+    // 地平線際 16px の霞。生垣色の α ランプ。空グラデと同じ理由で**画面幅で焼く** (1px 引き伸ばし禁止)。
+    let _fieldHazeTile = null, _fieldHazeKey = "";
+    function getFieldHazeTile(w) {
+      const key = w + "|" + (__daylight ? "day" : "dusk");
+      if (_fieldHazeTile && _fieldHazeKey === key) return _fieldHazeTile;
+      const c = document.createElement("canvas");
+      c.width = w; c.height = FIELD_SKY_FADE_H;
+      const cc = c.getContext("2d");
+      const rgb = __daylight ? FIELD_HAZE_RGB_DAY : FIELD_HAZE_RGB_DUSK;
+      const g = cc.createLinearGradient(0, 0, 0, FIELD_SKY_FADE_H);
+      g.addColorStop(0, "rgba(" + rgb + ",0)");
+      g.addColorStop(1, "rgba(" + rgb + ",0.55)");
+      cc.fillStyle = g;
+      cc.fillRect(0, 0, w, FIELD_SKY_FADE_H);
+      _fieldHazeTile = c; _fieldHazeKey = key;
+      return c;
+    }
+
     function drawFieldSky() {
+      if (!FIELD_SKY_ON) return;                       // ?sky=0 (幾何とカメラは残る)
       const horizonScreenY = Math.round(FIELD_HORIZON_Y - camY);
-      if (horizonScreenY <= 0) return;
-      ctx.fillStyle = FIELD_SKY_PLACEHOLDER;
-      ctx.fillRect(0, 0, mapCanvas.width, Math.min(horizonScreenY, mapCanvas.height));
+      const W = mapCanvas.width;
+      if (horizonScreenY <= 0 || W <= 0) return;
+      // ⚠️ 空タイルの高さは clamp した H ではなく **horizonScreenY そのもの**。丘はタイルの
+      //    下端を地平線として焼いてあるので、ここで縮めると丘だけが浮き上がる。画面外へ
+      //    はみ出したぶんは下の clip が捨てる。
+      // ⚠️ タイルの確保サイズは 1536 × horizonScreenY。屋外では camY = fieldCamY(usableH) に
+      //    固定されているので horizonScreenY = skyPx ≤ 0.32×usableH ≦ 約 400px、つまり
+      //    最大でも 1536×400×4 ≒ 2.4MB で**上限が閉じている**。ここを外部から任意の camY で
+      //    叩ける経路 (ドライバの setCam 等) を作ると青天井になるので注意。
+      const H = Math.min(horizonScreenY, mapCanvas.height);
+      ctx.save();
+      // 地平線より下へ 1px も漏らさない (drawImage の縁の補間対策)。renderMap 側の clip は
+      // canvas 全域なので、ここで張らないと効かない。
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.clip();
+      // ── 空 + 遠い丘 (1 枚の不透明タイル・パララックス 0.15) ──
+      drawFieldLayer(getFieldSkyTile(horizonScreenY), FIELD_FAR_PARALLAX, 0, W);
+      // ── 並木 (α タイル・パララックス 0.35) ──
+      drawFieldLayer(getFieldMidTile(), FIELD_MID_PARALLAX, horizonScreenY - FIELD_MID_H, W);
+      // ── 地平線際の霞 ──
+      ctx.drawImage(getFieldHazeTile(W), 0, horizonScreenY - FIELD_SKY_FADE_H);
+      ctx.restore();
+    }
+    // 焼いたタイルを横に敷き詰める。オフセットは camX の関数のみ = 決定論かつ時間非依存。
+    function drawFieldLayer(tile, parallax, y, W) {
+      const period = tile.width;
+      let off = (camX * parallax) % period;
+      if (off < 0) off += period;
+      for (let x = -off; x < W; x += period) ctx.drawImage(tile, Math.round(x), y);
     }
 
     // ── [屋外] 雲の影 (屋外テーマのみ・アセット0枚) ────────────────────────
@@ -4645,7 +4857,7 @@
       // 地平線のスクリーン y。drawFieldSky と**同じ丸め**を使うこと (片方だけ Math.round すると
       // 1px の隙間が空いて背景の #0a0a0a が地平線に黒い筋として出る)。
       const horizonSY = Math.round(FIELD_HORIZON_Y - camY);
-      // ── [屋外] Pass 0: 空 (STEP2 = 単色プレースホルダのまま。STEP3 でグラデ + 遠景に差し替え) ──
+      // ── [屋外] Pass 0: 空 (STEP3 = グラデ + 遠景シルエット 2速パララックス + 地平線際の霞) ──
       // ⚠️ STEP1 では renderMap の**最後**に置いて「上から塗り潰して」いた。STEP2 で下の層
       //    (Pass1a の天井 / Pass2 の 192px 壁 / 松明) を全部片付けたので、本来あるべき**最背面**へ移した。
       //    この移動自体が検証になっている: 塗り潰しをやめた以上、地平線より上に何か残っていれば
