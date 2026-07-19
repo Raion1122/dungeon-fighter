@@ -15,13 +15,19 @@
   ピクセル単位に整列する。
 
 サブコマンド:
-  verge  路肩ストリップ 1024x96 (実装済み)
-  hills  遠景の丘シルエット      (項目 4 で実装。現在は TODO スタブ)
-  trees  中景の並木シルエット    (項目 5 で実装。現在は TODO スタブ)
+  verge  路肩ストリップ   1024x96  (不透明)
+  hills  遠景の丘シルエット 1536x128 (α 付き。鏡像でシームレス化)
+  trees  中景の並木シルエット 1024x72 (α 付き。wrap_blend でシームレス化)
+
+⚠ 遠景 2 枚の幅は **far=1536 / mid=1024** で、揃えてはいけない。比 3:2 なので
+  3072px ごとにしか継ぎ目が揃わない (画面幅 1440 の 2 倍以上) = 継ぎ目が同期して
+  「同じ景色の繰り返し」に見えるのを防いでいる。
 
 使い方:
   py tools/make_field_layers.py verge
   py tools/make_field_layers.py verge --src <path> --out <path> --auto-band
+  py tools/make_field_layers.py hills --preview <scratchpad>/hills_tiled.png
+  py tools/make_field_layers.py trees --preview <scratchpad>/trees_tiled.png
 """
 from __future__ import annotations
 
@@ -52,6 +58,58 @@ VERGE_HALF_W = 512        # A の幅。最終ストリップは A ++ mirror(A) =
 VERGE_H = 96              # 路肩帯の高さ (index.html 側の描画ワールド y=1152..1248)
 
 MAX_BYTES = 500 * 1024
+
+# ---- trees (中景の並木) の確定パラメータ -------------------------------------
+# 幅 1024 は index.html の FIELD_MID_PERIOD、高さ 72 は FIELD_MID_H (index.html:4569)
+# と**一致必須**。⚠ far=1536 / mid=1024 の比 3:2 は意図的 — 3072px ごとにしか両レイヤの
+# 継ぎ目が揃わない。ここを 1536 に「揃える」と毎タイル継ぎ目が同期して
+# 「同じ景色の繰り返し」に見えるので、1024 を動かさないこと。
+TREES_SRC = os.path.join(SRC_DIR, "field_mid_trees_raw2.png")
+TREES_OUT = os.path.join(ASSETS, "field_mid_trees.png")
+TREES_W, TREES_H = 1024, 72
+
+# 源画 raw2 (2172x724) の実測構造:
+#   y=  0..~240  空 (淡い灰。ただし**雲がある** — 行内 std 6〜13)
+#   y=243..~640  並木 (丸い樹冠のドームが連なる)
+#   y=645..724   手前の草地 … **出力には入れない**
+# 空モデルは「樹冠が 1 画素も無い行数」で当てる。243 未満で余裕を見て 215。
+TREES_SKY_FIT_ROWS = 215
+
+# ---- 横シームレス化の方式: **全幅ユニーク + 端クロスフェード (wrap_blend)** ----
+# hills と違って**鏡像を使わない**。並木は濃くて輪郭が立つので、左右対称が露骨に出る
+# (hills は低コントラストな霞なので鏡像が許容できた)。
+# 幅 1024 に対し源画 1900 なら s≒0.55 で、稜線スパンが窓に収まるため鏡像は不要。
+TREES_XFADE = 24
+
+# 源画の横切り出し。**右端の深い谷 (x>1900 で稜線 y=324〜329) を落とすため** x1=1900。
+# ⚠ ここは「稜線スパン x 縮小率」を最小化する窓を総当たりで求めた結果 (out=41.4px)。
+#   全幅 2172 だと out=47、W を 1400 まで詰めると縮小率が上がって**かえって悪化**する。
+#   源画を差し替えたらこの探索をやり直すこと。
+TREES_SRC_X0, TREES_SRC_X1 = 0, 1900
+
+# α のしきい。⚠ hills (9.0) よりずっと高い 24.0 なのには理由がある:
+#   raw2 の空には**雲がある**。delta 10〜18 では雲の暗部を樹冠と誤認し、稜線の
+#   「最上部」が空のほうへ 90px も飛ぶ (実測: dlo=14 で 172 列が探索上限に張り付いた)。
+#   dlo=24 で張り付きは 0 になり、稜線 y=243..342 = 実体のある値に落ち着く。
+#   **雲のある源画では delta を上げる**のが定石。下げれば良いわけではない (hills と同じ教訓)。
+TREES_DELTA_LO, TREES_DELTA_HI = 24.0, 46.0
+
+TREES_ALPHA_FLOOR = 0.15
+
+# 色合わせの目標 = index.html:4607 の FIELD_MID_GRAD_DAY ["#47533f", "#35402f"]。
+# ⚠ 丘 (完成品の実測平均 (95.9,106.4,104.1)) より**明確に暗く・緑に**寄せること。
+#   ここが甘いと丘と並木の前後関係 (空気遠近) が読めず、2 速の視差だけが浮いて見える。
+TREES_TOP_TARGET = (0x47, 0x53, 0x3f)   # 樹冠側 (淡い)
+TREES_BOT_TARGET = (0x35, 0x40, 0x2f)   # 裾側 (濃い)
+TREES_MIN_GAIN = 0.62
+
+# 高さの窓。**min_top=19 は driver_field_step3 の C (視差相関) の前提から来る硬い制約**:
+#   「丘の最小高 > 並木の最大高」で、完成した丘の最小高は 74px (実測)。
+#   よって並木の最大高は 53px = 上端 y >= 19。**破ると実際に -65px で FAIL した記録がある。**
+# max_top=68 は「稜線スパン 41.4px を窓 49px の中央に置く」ための上限。
+# 結果は上端 y≒22..64 (樹冠高 50..8px) で、19 まで 3px 弱の余裕がある
+# (リサンプルで実測 +2〜3px 乗る前例があるため、この余裕は意図的)。
+TREES_MIN_TOP, TREES_MAX_TOP = 19, 68
 
 # ---- hills (遠景の丘) の確定パラメータ ---------------------------------------
 # 幅 1536 は index.html の FIELD_FAR_PERIOD (index.html:4581) と**一致必須**。
@@ -452,12 +510,17 @@ def clamp_alpha(img: Image.Image, floor: float) -> Image.Image:
     return Image.fromarray(a, "RGBA")
 
 
-def verify_hills(img: Image.Image, min_top: int, max_top: int) -> None:
+def verify_silhouette(img: Image.Image, min_top: int, max_top: int,
+                      bottom_solid: int, band_var: str = "HILLS_BAND_Y0") -> None:
     """全列の「最上部の不透明画素の y」を実測し、要求窓に入っているか検査する。
 
     ⚠ この検査は driver_field_step3 の C (視差相関) の成立条件
-      「丘の最小高 > 並木の最大高 (53px)」から来ている。**破ると実際に -65px で FAIL した
-      記録がある**ので、緩めたり握り潰したりしないこと。
+      「丘の最小高 (実測 74px) > 並木の最大高 (53px)」から来ている。**破ると実際に
+      -65px で FAIL した記録がある**ので、緩めたり握り潰したりしないこと。
+
+    bottom_solid は「下端から何 px を全列不透明として要求するか」。
+    ⚠ hills は 62 固定だったが、**並木は樹冠の谷が深いぶん必然的に小さくなる**ので
+      層ごとに渡す (hills の 62 をそのまま並木へ当てると必ず落ちる)。
     """
     a = np.asarray(img)
     op = a[..., 3] > 0
@@ -470,18 +533,24 @@ def verify_hills(img: Image.Image, min_top: int, max_top: int) -> None:
     print(f"  [verify] => 下端からの高さ {img.height - hi}..{img.height - lo}px "
           f"(要求 {img.height - max_top}..{img.height - min_top}px)")
 
-    # 下端 62px が全列不透明であること (並木より必ず高い = 視差相関の前提)
-    bottom = a[img.height - 62:, :, 3]
+    bottom = a[img.height - bottom_solid:, :, 3]
     if (bottom == 0).any():
-        raise ValueError(f"下端 62px に透過画素が {int((bottom == 0).sum())} 個ある")
-    print("  [verify] 下端 62px = 全列不透明 OK")
+        raise ValueError(
+            f"下端 {bottom_solid}px に透過画素が {int((bottom == 0).sum())} 個ある")
+    print(f"  [verify] 下端 {bottom_solid}px = 全列不透明 OK")
 
     if lo < min_top or hi > max_top:
         raise ValueError(
             f"シルエット高さが窓外: top y min={lo} max={hi} (要求 {min_top}..{max_top})。"
-            f"HILLS_BAND_Y0 を調整してください (下げると丘が低くなる)"
+            f"{band_var} を調整してください (下げるとシルエットが低くなる)"
         )
     print("  [verify] PASS")
+
+
+def verify_hills(img: Image.Image, min_top: int, max_top: int) -> None:
+    """hills 用の薄いラッパ (下端 62px 固定)。既存の呼び出しを壊さないため残す。"""
+    verify_silhouette(img, min_top, max_top, bottom_solid=62,
+                      band_var="HILLS_BAND_Y0")
 
 def cmd_verge(args: argparse.Namespace) -> int:
     print("--- verge (路肩ストリップ) ---")
@@ -590,9 +659,87 @@ def cmd_hills(args: argparse.Namespace) -> int:
 
 
 def cmd_trees(args: argparse.Namespace) -> int:
-    # TODO (項目 5): 中景の並木。hills と同じ流れだが幅 1024 (far=1536 / mid=1024。
-    # 「両方 1024」だと継ぎ目が揃ってしまうので不採用)。
-    print("trees: TODO (項目 5 で実装)")
+    """中景の並木シルエット 1024x72 (α 付き) を焼く。
+
+    流れは hills と同じ (空との輝度差で α を起こす) だが、**3 点だけ意図的に違う**:
+
+      1. **鏡像を使わない** (wrap_blend で全幅ユニーク)。並木は濃くて輪郭が立つので
+         左右対称が露骨に出る。hills の鏡像は「低コントラストな霞」だから許容できた。
+      2. **delta_lo が 24.0 と高い** (hills は 9.0)。源画の空に雲があるため。
+         低い delta では雲の暗部を樹冠と誤認する (TREES_DELTA_LO のコメント参照)。
+      3. **源画を x=0..1900 に切る**。右端の深い谷を落とすと稜線スパンが 47->41px に縮み、
+         高さの窓に余裕が生まれる。
+
+    ⚠ 源画 raw (1 回目) は**針葉樹の尖った林冠 + 分厚い雲**で却下した。DALL-E は
+      否定語をまとめて無視するので、raw2 では「丸いドーム / ブロッコリーの列」
+      「のっぺりした灰色の壁のような空」と**肯定形で形を名指し**して通した。
+      源画を作り直すときはこの言い回しを崩さないこと (source_images/field/_prompt_mid_trees.txt)。
+    """
+    print("--- trees (中景の並木シルエット) ---")
+    src = Image.open(args.src).convert("RGB")
+    print(f"  src {os.path.basename(args.src)}: {src.width}x{src.height} {src.mode}")
+
+    arr = np.asarray(src, dtype=np.float64)
+
+    # 0) 横の切り出し (深い谷を落として稜線スパンを縮める)
+    x0c, x1c = args.src_x0, args.src_x1 if args.src_x1 > 0 else src.width
+    arr = arr[:, x0c:x1c]
+    print(f"  src crop x={x0c}..{x1c} (width {arr.shape[1]}) = 稜線スパンの最小窓")
+
+    # 1) 空のモデル (行ごとの中央値を 2 次で当てる)
+    sky = fit_sky_gradient(arr, args.sky_fit_rows)
+
+    # 2) 帯を切る。**均等スケール**なので源画側の帯高は中間画像の幅から一意に決まる。
+    inter_w = TREES_W + args.xfade
+    src_w = arr.shape[1]
+    band_h = int(round(src_w * TREES_H / inter_w))
+    scale = inter_w / src_w
+
+    ridge = measure_ridge(arr, sky, args.delta_lo, args.sky_fit_rows)
+    y0 = args.band_y0 if args.band_y0 is not None else \
+        auto_band_y0(ridge, scale, TREES_H, args.min_top, args.max_top)
+    band = (y0, y0 + band_h)
+    print(f"  band = {band} (h={band_h}, unique+xfade{args.xfade} -> "
+          f"intermediate {inter_w}x{TREES_H}, s={scale:.4f})")
+
+    # 3) α を「空モデルからの暗さ」で起こす (縦の累積 max で下端まで中身が詰まる)
+    rgba = build_sky_keyed_rgba(arr, sky, band, args.delta_lo, args.delta_hi)
+
+    # 4) 均等スケール (color bleed 済み + プリマルチプライのまま縮小して光る縁を防ぐ)
+    inter = crop_and_scale(rgba, (0, band_h), inter_w, TREES_H)
+    inter = unpremultiply(inter)
+
+    # 5) 横シームレス化 = wrap_blend (鏡像は使わない。冒頭 docstring の 1. 参照)
+    strip = wrap_blend(inter, args.xfade, TREES_W)
+    print(f"  wrap-blend {inter_w} -> {strip.width}x{strip.height} (fade {args.xfade}px)")
+
+    # 6) 色を FIELD_MID_GRAD へ寄せる (丘より暗く・緑に = 空気遠近)
+    if not args.no_color_match:
+        strip = match_vertical_gradient(strip, TREES_TOP_TARGET, TREES_BOT_TARGET,
+                                        min_gain=args.min_gain)
+
+    # 7) 微小 α を落として輪郭を確定させる
+    strip = clamp_alpha(strip, TREES_ALPHA_FLOOR)
+
+    save_optimized(strip, args.out)
+
+    out = Image.open(args.out)
+    # 下端の全列不透明チェックは「樹冠の最も低い列」まで = height - max_top。
+    verify_silhouette(out, args.min_top, args.max_top,
+                      bottom_solid=TREES_H - args.max_top,
+                      band_var="TREES_BAND_Y0")
+
+    # 丘との前後関係 (空気遠近) を数値で確認する。目視だけだと必ず見落とす。
+    a = np.asarray(out.convert("RGBA"), dtype=np.float64)
+    op = a[..., 3] > 127
+    mean = a[..., :3][op].mean(axis=0)
+    print(f"  [verify] 不透明部 平均 RGB = {mean.round(1)} "
+          f"(丘 = (95.9, 106.4, 104.1))")
+    print(f"  [verify] 丘との差 = {(mean - np.array([95.9, 106.4, 104.1])).round(1)} "
+          f"(全チャネル負 = 並木のほうが暗い = 手前に見える)")
+
+    if args.preview:
+        tile_preview(out, args.preview, times=3)
     return 0
 
 
@@ -639,7 +786,30 @@ def main(argv: list[str] | None = None) -> int:
                    help="横 3 タイルの目視確認画像の出力先 (assets/ には置かないこと)")
     p.set_defaults(func=cmd_hills)
 
-    p = sub.add_parser("trees", help="中景の並木シルエット (項目 5 / TODO)")
+    p = sub.add_parser("trees", help="中景の並木シルエット 1024x72 (α 付き) を生成")
+    p.add_argument("--src", default=TREES_SRC)
+    p.add_argument("--out", default=TREES_OUT)
+    p.add_argument("--band-y0", type=int, default=None,
+                   help="源画から切り出す帯の上端 y (既定 = 窓の中央へ自動配置)")
+    p.add_argument("--src-x0", type=int, default=TREES_SRC_X0,
+                   help="源画の横切り出し左端")
+    p.add_argument("--src-x1", type=int, default=TREES_SRC_X1,
+                   help="源画の横切り出し右端 (0 = 画像の右端まで。既定は深い谷を落とす 1900)")
+    p.add_argument("--xfade", type=int, default=TREES_XFADE,
+                   help="横シームレス化のクロスフェード幅 (並木は鏡像を使わない)")
+    p.add_argument("--sky-fit-rows", type=int, default=TREES_SKY_FIT_ROWS,
+                   help="空モデルを当てる行数 (樹冠が 1 画素も無い行数を渡すこと)")
+    p.add_argument("--delta-lo", type=float, default=TREES_DELTA_LO,
+                   help="雲のある源画なので hills より高い (下げると雲を樹冠と誤認する)")
+    p.add_argument("--delta-hi", type=float, default=TREES_DELTA_HI)
+    p.add_argument("--min-gain", type=float, default=TREES_MIN_GAIN)
+    p.add_argument("--no-color-match", action="store_true",
+                   help="FIELD_MID_GRAD への色寄せをしない (源画の色を確認したいとき)")
+    p.add_argument("--min-top", type=int, default=TREES_MIN_TOP,
+                   help="全列の最上部不透明画素 y の下限 (driver_field_step3 C の前提)")
+    p.add_argument("--max-top", type=int, default=TREES_MAX_TOP)
+    p.add_argument("--preview", default=None,
+                   help="横 3 タイルの目視確認画像の出力先 (assets/ には置かないこと)")
     p.set_defaults(func=cmd_trees)
 
     args = ap.parse_args(argv)
