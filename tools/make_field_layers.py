@@ -504,7 +504,8 @@ def match_vertical_gradient(img: Image.Image, top_rgb: tuple[int, int, int],
 
 
 def decontaminate_edges(img: Image.Image, opaque_thr: float = 0.95,
-                        probe: int = 4, smooth: int = 15) -> Image.Image:
+                        probe: int = 4, smooth: int = 15,
+                        mirror: bool = False) -> Image.Image:
     """半透明の縁に残った**空の色を取り除き**、近傍の樹冠の色へ置き換える。
 
     なぜ必要か (ここを飛ばすと切り抜き画像の典型的な安っぽさになる):
@@ -528,6 +529,13 @@ def decontaminate_edges(img: Image.Image, opaque_thr: float = 0.95,
 
     ⚠ 参照色の横平滑化は **wrap (巻き戻し) で畳む**こと。端を複製で埋めると
       col0 と col1023 の参照色がずれて、せっかくの継ぎ目のなさが壊れる。
+
+    ⚠ mirror=True (hills の鏡像構成) では、平滑化後に参照色を**明示的に左右対称化**する。
+      理屈の上では円環上の対称カーネル畳み込みは反射 x -> W-1-x と可換なので不要だが、
+      np.convolve の加算順序が x と W-1-x で異なるため float の最下位ビットがずれ、
+      uint8 へ丸めるときに ±1 の非対称が出る (実測: |strip - flip(strip)| max = 1.0)。
+      見た目には影響しないが、鏡像の対称性は継ぎ目ゼロの根拠そのものなので
+      **数値的にも厳密に保つ**。0.5*(ref + ref[::-1]) は同じ 2 数の和なので完全一致する。
     """
     a = np.asarray(img, dtype=np.float64)
     h, w = a.shape[:2]
@@ -559,6 +567,10 @@ def decontaminate_edges(img: Image.Image, opaque_thr: float = 0.95,
         k = np.ones(smooth) / smooth
         ref = np.stack([np.convolve(ext[:, c], k, mode="valid") for c in range(3)],
                        axis=1)[:w]
+
+    if mirror:
+        # 丸め由来の ±1 の非対称を潰す (docstring の ⚠ 参照)
+        ref = 0.5 * (ref + ref[::-1])
 
     edge = al < opaque_thr
     out = a.copy()
@@ -715,6 +727,17 @@ def cmd_hills(args: argparse.Namespace) -> int:
         strip = wrap_blend(inter, args.xfade, HILLS_W)
         print(f"  wrap-blend {inter_w} -> {strip.width}x{strip.height} (fade {args.xfade}px)")
 
+    # 5.5) **縁の色の汚染除去**。並木と同じ理由 (decontaminate_edges の docstring 参照)。
+    #      丘の汚染は並木より軽い (背景が空そのものなので同系色) が、稜線の鋭い区間に
+    #      細い白線として実際に見えていた: 空 (124,120,116) 背景で +10 以上明るい縁が
+    #      2.1% (縁 13314px のうち約 280px)、最大 +28.5。
+    # ⚠ 鏡像構成でも対称性は壊れない。参照色の横平滑化は wrap (円環) で畳んでおり、
+    #   円環上の対称カーネル畳み込みは反射 x -> W-1-x と可換だから
+    #   (strip[x] == strip[W-1-x] が保たれる)。下の verify で実測して確認している。
+    if not args.no_decontaminate:
+        strip = decontaminate_edges(strip, opaque_thr=args.opaque_thr,
+                                    mirror=args.mirror)
+
     # 6) 色を FIELD_FAR_GRAD へ寄せる (空気遠近)。
     if not args.no_color_match:
         strip = match_vertical_gradient(strip, HILLS_TOP_TARGET, HILLS_BOT_TARGET,
@@ -859,6 +882,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-gain", type=float, default=HILLS_MIN_GAIN)
     p.add_argument("--no-color-match", action="store_true",
                    help="FIELD_FAR_GRAD への色寄せをしない (源画の色を確認したいとき)")
+    p.add_argument("--no-decontaminate", action="store_true",
+                   help="縁の色の汚染除去をしない (稜線に白線が出るので比較検証のときだけ)")
+    p.add_argument("--opaque-thr", type=float, default=0.95,
+                   help="これ以上の α を「丘本体」とみなす (汚染除去の参照色の採取元)")
     p.add_argument("--min-top", type=int, default=16,
                    help="全列の最上部不透明画素 y の下限 (driver_field_step3 C の前提)")
     p.add_argument("--max-top", type=int, default=66)
