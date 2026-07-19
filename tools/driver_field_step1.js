@@ -98,6 +98,18 @@ const SHOT_DIR = arg('shots',
 const LEGACY_SCENARIOS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
 const FIELD_SCENARIO = 'caravan-road';
 
+// ── [地平線ビュー STEP1] caravan-road は常に「従来の幾何」で開く ──────────────
+// 本ドライバの検証対象は屋外の**描画パス** (雲の影 / 96px シーム / 床グリッド線) であり、
+// baseline は屋外実装が入る前のコミット。STEP1 で入った帯幾何 (row 13-15 マスク +
+// カメラ地平線ロック) はそれとは別の層で、baseline 側には存在しない。幾何を有効にしたまま
+// 比べると、雲でもシームでもなく「マップの形が違う」ことを検出して軒並み FAIL する
+// (実測: STEP1 前 91/91 PASS → STEP1 後 80/89)。よって caravan-road のページは
+// ?fieldgeo=0 で幾何だけを止め、描画だけを比較する。
+// ⚠️ ?fieldgeo=0 (幾何のみ無効) と ?field=0 (描画のみ無効) は**独立**。取り違えると
+//    A/B 比較が「別ゲーム同士の比較」に化けて検証全体が無意味になる。
+// ⚠️ 幾何そのものの検証は tools/driver_field_step1_geo.js の担当 (計画書 §4 STEP1 assert 1-7)。
+const GEO0 = 'fieldgeo=0';
+
 const HASH_VIEWPORT = { width: 1440, height: 900, deviceScaleFactor: 1 };
 const SHOT_VIEWPORTS = [
   { name: 'iphone_land', width: 844, height: 390 },
@@ -913,7 +925,10 @@ async function sampleLiveCamera(browser, base, scen) {
   page.on('pageerror', e => errs.push(e.message));
   await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, { scen: scen, freeze: false, t0: null });
-  await page.goto(base + '/index.html?autoplay=15', { waitUntil: 'domcontentloaded', timeout: 40000 });
+  // ⚠️ ?fieldgeo=0: この関数は「実プレイのカメラが小数か」を測るためだけのもの。STEP1 の
+  //    カメラ地平線ロックが効くと camY が定数になり、小数カメラの前提そのものが消える。
+  //    本ドライバは従来の幾何での描画パスを見る契約なので幾何は止める (GEO0 の解説を参照)。
+  await page.goto(base + '/index.html?autoplay=15&' + GEO0, { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => { try { return typeof startGame === 'function'; } catch (e) { return false; } }, { timeout: 30000, polling: 100 });
   await waitImages(page, 'livecam');
   await page.evaluate(() => { try { startGame(); } catch (e) {} });
@@ -1121,7 +1136,7 @@ async function dumpCanvas(page, outPath) {
     // これが崩れていると (7)(8) の全ての数値が無意味になるので最初に確かめる。
     mark('測定基盤の健全性チェック');
     {
-      const p = await bootPage(browser, BASE + '/index.html', FIELD_SCENARIO, HASH_VIEWPORT);
+      const p = await bootPage(browser, BASE + '/index.html?' + GEO0, FIELD_SCENARIO, HASH_VIEWPORT);
       // ⚠️ (0c) は「雲が画面に入っている時刻」で測らないと必ず false FAIL する。
       //    既定のプレイヤー初期位置 (マップ西端) には雲が1枚も掛かっておらず、
       //    そこでは雲あり/なしの描画が本当に一致してしまう (下の可視率表を参照)。
@@ -1189,9 +1204,9 @@ async function dumpCanvas(page, outPath) {
 
     // ── (3)(4)(5) caravan-road ─────────────────────────────────────────────
     mark('field: ' + FIELD_SCENARIO);
-    const fOn = await bootPage(browser, BASE + '/index.html', FIELD_SCENARIO, HASH_VIEWPORT);
-    const fOff = await bootPage(browser, BASE + '/index.html?field=0', FIELD_SCENARIO, HASH_VIEWPORT);
-    const fBase = await bootPage(browser, BASE + '/' + BASELINE_NAME, FIELD_SCENARIO, HASH_VIEWPORT);
+    const fOn = await bootPage(browser, BASE + '/index.html?' + GEO0, FIELD_SCENARIO, HASH_VIEWPORT);
+    const fOff = await bootPage(browser, BASE + '/index.html?field=0&' + GEO0, FIELD_SCENARIO, HASH_VIEWPORT);
+    const fBase = await bootPage(browser, BASE + '/' + BASELINE_NAME + '?' + GEO0, FIELD_SCENARIO, HASH_VIEWPORT);
 
     const sOn = await snapMap(fOn.page), sOff = await snapMap(fOff.page), sBase = await snapMap(fBase.page);
     check('(3) caravan-road: FIELD_MODE === true', sOn.fieldMode === true, 'FIELD_MODE=' + sOn.fieldMode);
@@ -1391,7 +1406,7 @@ async function dumpCanvas(page, outPath) {
       ];
 
       // 対照群ページを起こす (現行と同一シナリオ・同一ビューポート・同一プレリュード)
-      const fInf0 = await bootPage(browser, BASE + '/' + INF0_NAME, FIELD_SCENARIO, HASH_VIEWPORT);
+      const fInf0 = await bootPage(browser, BASE + '/' + INF0_NAME + '?' + GEO0, FIELD_SCENARIO, HASH_VIEWPORT);
       allPageErrors.push(...fInf0.pageErrors.map(m => 'caravan-road(inf0): ' + m));
 
       // 比較の正当性: 3ページが同じ地形を見ていること
@@ -1639,7 +1654,7 @@ async function dumpCanvas(page, outPath) {
     mark('自然カメラでの雲の可視率');
     const visRows = [];
     for (const vp of SHOT_VIEWPORTS) {
-      const p = await bootPage(browser, BASE + '/index.html', FIELD_SCENARIO, vp);
+      const p = await bootPage(browser, BASE + '/index.html?' + GEO0, FIELD_SCENARIO, vp);
       const v = await p.page.evaluate(() => {
         const P = window.__probe; P.freeze();
         const W = mapCanvas.width, H = mapCanvas.height;
@@ -1705,7 +1720,7 @@ async function dumpCanvas(page, outPath) {
 
     for (const vp of SHOT_VIEWPORTS) {
       // 先に field ON 側で「雲が中央に来る時刻」と natural カメラを決める
-      const on = await bootPage(browser, BASE + '/index.html', FIELD_SCENARIO, vp);
+      const on = await bootPage(browser, BASE + '/index.html?' + GEO0, FIELD_SCENARIO, vp);
       await on.page.evaluate(() => { try { startGame(); } catch (e) {} });
       await new Promise(r => setTimeout(r, 1500));
       // ★ quiesce → 保留中の rAF が1回発火して自滅するのを待つ → それから構図を作る
@@ -1747,7 +1762,7 @@ async function dumpCanvas(page, outPath) {
       await on.page.close();
 
       // OFF 側を同じ座標・同じ時刻で
-      const off = await bootPage(browser, BASE + '/index.html?field=0', FIELD_SCENARIO, vp);
+      const off = await bootPage(browser, BASE + '/index.html?field=0&' + GEO0, FIELD_SCENARIO, vp);
       await off.page.evaluate(() => { try { startGame(); } catch (e) {} });
       await new Promise(r => setTimeout(r, 1500));
       await off.page.evaluate(() => window.__probe.quiesce());
@@ -1770,7 +1785,7 @@ async function dumpCanvas(page, outPath) {
     // showcase: 一番大きい雲を画面中央に置いて canvas を直接書き出す (HUD 無し)
     mark('showcase 撮影');
     {
-      const p = await bootPage(browser, BASE + '/index.html', FIELD_SCENARIO, { width: 1440, height: 900 });
+      const p = await bootPage(browser, BASE + '/index.html?' + GEO0, FIELD_SCENARIO, { width: 1440, height: 900 });
       await p.page.evaluate(() => { try { startGame(); } catch (e) {} });
       await new Promise(r => setTimeout(r, 1500));
       await p.page.evaluate(() => window.__probe.quiesce());

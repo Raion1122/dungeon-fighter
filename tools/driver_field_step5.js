@@ -270,7 +270,18 @@ async function loadCase(browser, base, spawns) {
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, { payload: payload(spawns) });
   // ⚠️ ?intel=0 : 隠し中ボスの fail-open を封じて母集団を隊商護衛だけに保つ
-  await page.goto(base + '/index.html?intel=0', { waitUntil: 'domcontentloaded', timeout: 40000 });
+  // ── [地平線ビュー STEP1] ?fieldgeo=0 で「従来の幾何」に固定する ──────────────
+  // 本ドライバの検証対象は spawnWagon / findSovereignAddWaveTile / spawnWave の**座標安全化**で
+  // あり、baseline は 68b7ec9 (帯幾何が入る前)。STEP1 の帯マスク (row 13-15 以外を tile=2) を
+  // 効かせたまま比べると、比較しているのは座標クランプではなく「マップの形が違うこと」になり
+  // 全面 FAIL する (実測 48/48 → 35/48)。内訳はすべてマップ由来:
+  //   ・(9,13) の 3x3 フットプリントが row12 (帯外=壁) を踏むので "asis" が "footprint" に化ける
+  //   ・帯行の情景予約で tryPlace の再試行回数が変わり Math.random 消費数が 499 → 149 になる
+  //   ・findSovereignAddWaveTile / spawnWave の候補が帯の 3 行しか無くなる
+  // ⚠️ ?fieldgeo=0 (幾何のみ無効) と ?field=0 (描画のみ無効) は独立。取り違え厳禁。
+  // ⚠️ 帯幾何を有効にした状態での馬車配置は driver_field_step1_geo.js の (G5) が見ている
+  //    (中心 (9,14) → ty13..15 が帯に収まる = 出荷ペイロード tavern.html は ty:14)。
+  await page.goto(base + '/index.html?intel=0&fieldgeo=0', { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => {
     try { return !!mapData && typeof findSovereignAddWaveTile === 'function' && typeof wagonIndices !== 'undefined'; }
     catch (e) { return false; }

@@ -502,17 +502,27 @@ async function installStep0Probe(page, cfg) {
     //     isInComfortZone      … const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H
     //     offscreenAmountAt    … innerHeight - (UI_LOG_HEIGHT + UI_MINIBAR_H)
     //     speechOnScreen       … sy < vh - UI_LOG_HEIGHT     ★ UI_MINIBAR_H が入っていない
+    //
+    // ⚠️ [地平線ビュー STEP1 で修正済み] 4箇所すべてが cameraBottomHud() を通るようになった。
+    //    以前ここは speechOnScreen を **リテラル UI_LOG_HEIGHT で固定**していたため、本体を直しても
+    //    永久に FINDING のままになる「腐った鏡」だった。実体を読むように変える:
+    //      ・cameraBottomHud() があればそれが単一ソース → 4箇所とも同値
+    //      ・無ければ (STEP1 前のリビジョン) 従来どおり UI_LOG_HEIGHT のみ = 欠陥を検出する
+    //    静的スキャン側 (scanHudSites) の 'log-only(LEAK)' 0 件と合わせて二重で見る。
     const hudSites = function () {
+      const hasHelper = (typeof cameraBottomHud === 'function');
+      const bottom = hasHelper ? cameraBottomHud() : (UI_LOG_HEIGHT + UI_MINIBAR_H);
       return {
         UI_LOG_HEIGHT: UI_LOG_HEIGHT,
         UI_MINIBAR_H: UI_MINIBAR_H,
         UI_MENU_WIDTH: UI_MENU_WIDTH,
+        hasCameraBottomHud: hasHelper,
         innerW: window.innerWidth, innerH: window.innerHeight,
-        computeCameraTarget: UI_LOG_HEIGHT + UI_MINIBAR_H,
-        isInComfortZone: UI_LOG_HEIGHT + UI_MINIBAR_H,
-        offscreenAmountAt: UI_LOG_HEIGHT + UI_MINIBAR_H,
-        speechOnScreen: UI_LOG_HEIGHT,
-        usableH_keep: window.innerHeight - (UI_LOG_HEIGHT + UI_MINIBAR_H),
+        computeCameraTarget: bottom,
+        isInComfortZone: bottom,
+        offscreenAmountAt: bottom,
+        speechOnScreen: hasHelper ? bottom : UI_LOG_HEIGHT,
+        usableH_keep: window.innerHeight - bottom,
         usableH_reclaim: window.innerHeight,
       };
     };
@@ -812,10 +822,15 @@ function printSummary(report) {
       // ★ 測定項目6の本体。speechOnScreen [index.html:6921] だけ UI_MINIBAR_H を足し忘れている。
       //   compact (モバイル) でのみ顕在化し、desktop では UI_MINIBAR_H=0 なので沈黙する。
       //   計画書 STEP1 が cameraBottomHud() へ通す5箇所のうち、ここが唯一の実在する漏れ。
-      finding('(6b-' + vp.name + ') speechOnScreen の下端が他3箇所と同値か [STEP1 で修正予定]',
-        H.speechOnScreen === H.computeCameraTarget,
-        'speechOnScreen=' + H.speechOnScreen + ' (UI_LOG_HEIGHT のみ) vs 他=' + H.computeCameraTarget +
-        ' → 差 ' + (H.computeCameraTarget - H.speechOnScreen) + 'px (= UI_MINIBAR_H)');
+      // 静的スキャンの 'log-only(LEAK)' 0 件 (= ソース上に生の vh - UI_LOG_HEIGHT が無い) と
+      // 実行時の同値、両方が揃って初めて CLEAN にする。片方だけでは腐った鏡を見抜けない。
+      const leakLines = (report.hudSitesStatic || []).filter(s => s.kind === 'log-only(LEAK)');
+      finding('(6b-' + vp.name + ') speechOnScreen の下端が他3箇所と同値か [STEP1 で修正済み]',
+        H.speechOnScreen === H.computeCameraTarget && leakLines.length === 0,
+        'speechOnScreen=' + H.speechOnScreen + ' vs 他=' + H.computeCameraTarget +
+        ' / cameraBottomHud()=' + (H.hasCameraBottomHud ? 'あり' : 'なし') +
+        ' / ソース上の log-only 漏れ=' + leakLines.length + '件' +
+        (leakLines.length ? ' (L' + leakLines.map(s => s.line).join(',L') + ')' : ''));
     }
 
     // ── レポート出力 ────────────────────────────────────────────────────

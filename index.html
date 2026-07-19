@@ -2797,6 +2797,69 @@
       if (new URLSearchParams(window.location.search).get("field") === "0") FIELD_MODE = false;
     } catch (e) {}
 
+    // ── [地平線ビュー STEP1] 帯幾何 + カメラ地平線ロック ────────────────────
+    // 目的: 「空が入る器」を作る。歩行可能行を row 13-15 の3行に絞り、カメラの縦を
+    //       usableH だけの関数で無条件固定する = 空の可視性が確率ではなく**恒等式**になる。
+    //
+    // ⚠️ 撤退スイッチの取り違え厳禁 (A/B 比較が「別ゲーム同士の比較」に化ける):
+    //      ?fieldgeo=0 … **幾何のみ**無効 (帯マスク + カメラ固定 + 空プレースホルダ)。描画パスは屋外のまま。
+    //      ?field=0    … **描画のみ**無効 (FIELD_MODE 側 = 雲の影・床膨張)。幾何は残る。
+    // ⚠️ カメラ固定を FIELD_MODE ではなく FIELD_GEO で切るのは意図的。カメラは「幾何」であって
+    //    「描画」ではない。?field=0 は描画だけを従来へ戻す契約なのでカメラを巻き込ませない。
+    let FIELD_GEO = IS_FIELD_THEME;
+    try {
+      if (new URLSearchParams(window.location.search).get("fieldgeo") === "0") FIELD_GEO = false;
+    } catch (e) {}
+
+    // 帯の定義。⚠️ MAP_H / ROOMS / CORRIDORS の定数は1バイトも変えない (マスクは buildMap 末尾で掛ける)。
+    //   row 13-15 は ROOMS[0](8-19) / ROOMS[1](7-20) / ROOMS[2](5-22) 全ての内側かつ CORRIDORS と一致し、
+    //   列 2-68 が連続する = 帯化しても街道が途切れない唯一の3行。
+    // ⚠️ 帯行数は STEP0 の実測で決めた。切断率 帯2行=46.4〜72.5% / 帯3行=0.13〜5.68% / 帯5行=0.00%。
+    //    5行なら救済不要だが空が縦持ち 270→164px に落ちて「景色を見せる」目的を潰すため3行を採用。
+    //    残る切断率は STEP6 (移動デッドロック救済) で潰す。ここを触る前に必ず両方を測り直すこと。
+    const FIELD_BAND_TOP_ROW    = 13;
+    const FIELD_BAND_ROWS       = 3;
+    const FIELD_BAND_BOTTOM_ROW = FIELD_BAND_TOP_ROW + FIELD_BAND_ROWS - 1;   // 15
+    const FIELD_BAND_H          = FIELD_BAND_ROWS * TILE_SIZE;                // 288
+    // 路肩 (verge): 帯の上端と地平線の間に残す帯外の高さ。STEP2 で 192px 壁をここへ縮める。
+    // ⚠️ 縦持ち/desktop は 96。STEP0/STEP0.5 の横持ち試算に出てくる 16 は**横持ち専用の別値**であり、
+    //    取り違えると camY が 80px ずれて別構図を測ることになる。横持ちは下の fieldHasSkyRoom() で
+    //    まるごとフォールバックするので、出荷経路で 16 が使われることは無い。
+    const FIELD_VERGE_H  = 96;
+    const FIELD_SKY_MIN  = 56;      // これだけの空も取れないなら景観の意味が無い = フォールバック閾値
+    const FIELD_SKY_RATIO = 0.32;   // 望ましい空の比率 (usableH に対する)
+    const FIELD_HORIZON_Y = FIELD_BAND_TOP_ROW * TILE_SIZE - FIELD_VERGE_H;   // = 1152 (ワールド y)
+    // 空の可視高。usableH **だけ**の関数 (PT座標・camFocus・隊列bbox・cameraTightFocus に非依存)。
+    function fieldSkyPx(usableH) {
+      const want = Math.max(FIELD_SKY_MIN, FIELD_SKY_RATIO * usableH);
+      const room = usableH - FIELD_VERGE_H - FIELD_BAND_H;
+      return Math.max(0, Math.min(want, room));
+    }
+    function fieldCamY(usableH) { return FIELD_HORIZON_Y - fieldSkyPx(usableH); }
+    // 空を置く余地があるか。false = 横持ち相当 → 幾何もカメラも適用せず従来描画へフォールバックする。
+    // ⚠️ STEP0.5 で確定: iPhone 横持ち 844x390 は sky(86)+verge(16)+band(288)=usableH(390) が恒等式で
+    //    帯最下行が画面下端に密着し、HUD を 64px まで削っても最下行の 66.7% が沈む。7案すべてで
+    //    「ログ文字が読める」と「帯下端のキャラが見える」が背反 = 両立解が存在しないことを実測で確定した。
+    //    よって横持ちは**出荷しない**。ここを緩めるなら先に STEP0.5 を測り直すこと。
+    function fieldHasSkyRoom(usableH) {
+      return usableH >= FIELD_BAND_H + FIELD_VERGE_H + FIELD_SKY_MIN;   // = 440
+    }
+    // buildMap() は computeUiMetrics() より前に走るので UI_LOG_HEIGHT/UI_MINIBAR_H が TDZ で読めない。
+    // 帯マスクを掛けるか否かの**ロード時1回だけ**の判定に使う、computeUiMetrics [下部] の写し。
+    // ⚠️ 二重定義なので必ずズレ検出を入れてある (computeUiMetrics() 直後の自己点検 + ドライバ assert)。
+    // ⚠️ マスクは mapData を1回作るきりなので回転で作り直せない。よって「ロード時が横持ちなら幾何ごと不採用」
+    //    とし、ロード後の回転にはカメラ側 (fieldHasSkyRoom を毎フレーム見る) が追従して劣化を吸収する。
+    function fieldBootBottomHud() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const compact = (h <= 480) || (w <= 560);
+      let collapsed = compact;
+      if (!compact) { try { collapsed = (localStorage.getItem("dragonfighters.panelCollapsed") === "1"); } catch (e) {} }
+      if (!collapsed) return 170 + 0;
+      return (compact ? Math.max(96, Math.min(120, Math.round(h * 0.28))) : 170) + 64;
+    }
+    // 帯マスクとカメラ固定を実際に適用するか (ロード時に確定)。
+    const FIELD_GEO_ACTIVE = FIELD_GEO && fieldHasSkyRoom(window.innerHeight - fieldBootBottomHud());
+
     let floorPattern = null;
     const floorTex1 = new Image();
     floorTex1.src = "assets/" + _texSet.floor;
@@ -2974,6 +3037,20 @@
             if (((r * 7 + c * 13) ^ (r * 3 - c)) % 5 === 0) map[r][c] = 1;
       }
       for (const [r1, c1, r2, c2] of CORRIDORS) fill(r1, c1, r2, c2, 0);
+
+      // ── [地平線ビュー STEP1] 屋外の帯マスク ────────────────────────────
+      // 歩行可能行を row 13-15 の3行だけに絞る。ROOMS/CORRIDORS/MAP_H の定数は不変で、
+      // ここで「作った後に潰す」ことだけで帯を得る (幾何の唯一の変更点)。
+      // ⚠️ 既存6シナリオは IS_FIELD_THEME=false なので1命令も実行されない。
+      // ⚠️ プレイヤー起点(6,13) / campfireSpot(7,13) / 初期スポーン(14,13)(15,13)(14,14) は
+      //    既に帯内。馬車だけは displaySize=240 でフットプリントが 3列x3行あるため、
+      //    中心を row14 にして ty13..15 を帯へ収める (tavern.html wagonSpawns で ty:14)。
+      if (IS_FIELD_THEME && FIELD_GEO_ACTIVE) {
+        for (let r = 0; r < MAP_H; r++) {
+          if (r >= FIELD_BAND_TOP_ROW && r <= FIELD_BAND_BOTTOM_ROW) continue;
+          for (let c = 0; c < MAP_W; c++) map[r][c] = 2;
+        }
+      }
 
       return map;
     }
@@ -3250,6 +3327,17 @@
       for (const [cr1, cc1, cr2, cc2] of CORRIDORS) {
         for (let r = cr1; r <= cr2; r++) {
           for (let c = cc1; c <= cc2; c++) reserveAround(r, c, 2);
+        }
+      }
+      // ── [地平線ビュー STEP1] 屋外の帯行はブロッキング情景を1つも積ませない ──
+      // ⚠️ 任意ではなく**必須**。CORRIDORS 由来の auto-reserve は列 20-24 / 43-47 しか覆わないため、
+      //    既定 seed では倒木が (10,13) に落ちて馬車の 3x3 フットプリントを踏んでいた (STEP5 で実測)。
+      //    帯は3行しかないので**倒木1本で帯の1/3、2本で完全遮断**になる。
+      // ⚠️ 非ブロッキング (草/detail) は tryPlace 側で reserved を見ないので従来どおり帯にも生える。
+      //    塞ぐのは obstacleTileMask に積まれる種だけでよい。
+      if (IS_FIELD_THEME && FIELD_GEO_ACTIVE) {
+        for (let r = FIELD_BAND_TOP_ROW; r <= FIELD_BAND_BOTTOM_ROW; r++) {
+          for (let c = 0; c < MAP_W; c++) globalReserved.add(r * MAP_W + c);
         }
       }
       for (const sp of (enemySpawns || [])) {
@@ -3556,7 +3644,22 @@
         document.body.classList.toggle("ui-collapsed", collapsed);
       }
     }
+    // 画面下部を HUD が占有する高さ (ログ + 下部HPミニバー) の**単一ソース**。
+    // ⚠️ UI_LOG_HEIGHT / UI_MINIBAR_H / CSS変数 --ui-log-h の値は絶対に変えない
+    //    (0 にするとログが消えミニバーが重なる)。ここは「同じ式を4箇所で書き直していた」のを
+    //    1本に畳むだけの関数であり、値の意味は一切変えていない。
+    // ⚠️ 呼び出し側を1箇所でも漏らすと、カメラの据え置き判定 (isInComfortZone/offscreenAmountAt) と
+    //    吹き出しの画面内判定 (speechOnScreen) が食い違う。実際 speechOnScreen だけ UI_MINIBAR_H を
+    //    足し忘れており、compact (モバイル) で 64px ズレていた (desktop は UI_MINIBAR_H=0 なので
+    //    沈黙する = デスクトップ検証だけでは絶対に見つからない種類のバグ)。STEP1 でここへ集約して修正。
+    function cameraBottomHud() { return UI_LOG_HEIGHT + UI_MINIBAR_H; }
     computeUiMetrics();   // 初回適用 (UI_MENU_WIDTH/UI_LOG_HEIGHT の let 初期化後に実行)
+    // [地平線ビュー STEP1] fieldBootBottomHud() は computeUiMetrics() の写し (buildMap 時点では
+    // UI_LOG_HEIGHT が TDZ で読めないため)。二重定義のドリフトをここで機械的に検出する。
+    if (fieldBootBottomHud() !== cameraBottomHud()) {
+      console.warn("[field] fieldBootBottomHud() が computeUiMetrics() とズレている: " +
+        fieldBootBottomHud() + " vs " + cameraBottomHud() + " — 帯マスクの採否判定が誤る");
+    }
     // [camera-perf STEP7] ui-compact が確定した「後」にフォグ解像度を再確定する。
     // 初回の resizeCanvas() は上の computeUiMetrics() より前(定義直後)に走るので、これが無いと
     // スマホでも lightScale=1 のまま焼かれ、施策が丸ごと無効化される (機能バグにならないので気付けない)。
@@ -3576,7 +3679,7 @@
     // 希望カメラ位置 (camTargetX/Y) を算出。実際の camX/Y への反映は updatePositions/cameraFollowTick が担う。
     function computeCameraTarget() {
       // 主人公(探索) または camFocus(戦闘の注視点) を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
-      const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H;   // Phase4: ログ + 下部HPミニバー(compact時52) を下部占有の単一ソースに
+      const bottomHud = cameraBottomHud();   // Phase4: ログ + 下部HPミニバー を下部占有の単一ソースに
       const usableW = window.innerWidth - UI_MENU_WIDTH;
       const usableH = window.innerHeight - bottomHud;
       const centerScreenX = UI_MENU_WIDTH + usableW / 2;
@@ -3641,6 +3744,18 @@
       const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
       camTargetX = Math.max(minCamX, Math.min(cx, maxCamX));
       camTargetY = Math.max(minCamY, Math.min(cy, maxCamY));
+      // ── [地平線ビュー STEP1] 屋外: カメラの縦を地平線へ無条件ロック ──────────
+      // camTargetY の代入は上の1箇所しかないので、直後に無条件で上書きすれば
+      // 隊列bbox クランプ / CENTER_BIAS / cameraTightFocus をすべて無効化できる。
+      // → 「空が見えるか」が確率ではなく **usableH だけで決まる恒等式** になる。
+      // ⚠️ 過去2回の全損 (1849dd6 / f8a89ec) の第1要因は「カメラが北端へ行かない」だった。
+      //    ここを条件付きにした瞬間にその失敗が再発する。分散 0 を assert できる形を保つこと。
+      // ⚠️ maxCamY クランプの**後**に置くのが正しい。fieldCamY は MAP_H=28 を保つ前提で
+      //    どの解像度でも world 下端 (最大 1818 < 2688) を割らないので黒帯は出ない。
+      // ⚠️ FIELD_MODE ではなく FIELD_GEO_ACTIVE で切る (?field=0 は描画だけを戻す契約)。
+      // ⚠️ fieldHasSkyRoom は毎フレーム見る。ロード後に横持ちへ回転した場合はここが false になり、
+      //    帯は残るがカメラは従来追従へ戻る (帯最下行が HUD に沈んだまま固定される事故を避ける)。
+      if (FIELD_GEO_ACTIVE && fieldHasSkyRoom(usableH)) camTargetY = fieldCamY(usableH);
     }
 
     // ── カメラ駆動 (イージング/スナップ/フォーカス) ──
@@ -3718,7 +3833,7 @@
     // 判定は camTargetX/Y (カメラの着地予定地) 基準。移動中の camX 基準にすると結果が非決定的になる。
     // iPhone 縦 (390x844) で padX≈86px (0.9タイル) / padY≈150px (1.6タイル)。
     function isInComfortZone(wx, wy) {
-      const bottomHud = UI_LOG_HEIGHT + UI_MINIBAR_H;
+      const bottomHud = cameraBottomHud();
       const usableW = window.innerWidth - UI_MENU_WIDTH;
       const usableH = window.innerHeight - bottomHud;
       const padX = Math.max(80, Math.min(usableW * 0.22, 220));
@@ -3732,7 +3847,7 @@
     // (computeCameraTarget の CENTER_BIAS=0.7 は bbox クランプを 30% しか効かせないので、
     //  はみ出しは元々ゼロではない。ゆえに絶対値ではなく据え置き前後の比較で判断する)
     function offscreenAmountAt(cx, cy) {
-      const usableH = window.innerHeight - (UI_LOG_HEIGHT + UI_MINIBAR_H);
+      const usableH = window.innerHeight - cameraBottomHud();
       const loX = cx + UI_MENU_WIDTH, hiX = cx + window.innerWidth;
       const loY = cy,                 hiY = cy + usableH;
       let total = 0;
@@ -4313,6 +4428,20 @@
       }
     }
 
+    // ── [屋外] 空 (地平線ビュー STEP1: 単色プレースホルダ) ──────────────────
+    // ⚠️ 「単色でいい」のは STEP1 が可視性の証明だけを担うから。景色として成立させるのは STEP3
+    //    (createLinearGradient をオフスクリーンに焼く + 決定論 hash の丘/並木シルエット 2速パララックス)。
+    // ⚠️ Math.random も Date.now も引かない = RNG ストリームも決定論スナップショットも汚さない。
+    // ⚠️ window.drawFieldSky としてスタブ可能であること自体が検証手段 (ドライバは
+    //    「空描画を潰したフレーム」との差分で可視性を測る。色の絶対値では測らない)。
+    const FIELD_SKY_PLACEHOLDER = "#6d8fb4";
+    function drawFieldSky() {
+      const horizonScreenY = Math.round(FIELD_HORIZON_Y - camY);
+      if (horizonScreenY <= 0) return;
+      ctx.fillStyle = FIELD_SKY_PLACEHOLDER;
+      ctx.fillRect(0, 0, mapCanvas.width, Math.min(horizonScreenY, mapCanvas.height));
+    }
+
     // ── [屋外] 雲の影 (屋外テーマのみ・アセット0枚) ────────────────────────
     // ⚠️ なぜ「空」ではなく「床に落ちる影」なのか (実測に基づく設計判断・恒久メモ):
     //    空 + 遠景パララックスを実装して計測したところ、**通常プレイのカメラでは一度も画面に
@@ -4699,6 +4828,15 @@
       // ── [屋外] Pass 3: 雲の影 ──
       // 地面・生垣・壁の全部に落とすので最後に置く。屋外テーマ以外は1命令も実行しない。
       if (FIELD_MODE) drawCloudShadows();
+      // ── [屋外] Pass 4: 空 (STEP1 = 単色プレースホルダ) ──
+      // ⚠️ STEP1 の目的は「空が入る器を作り、可視性を 100% assert すること」だけ。
+      //    実際の空グラデ + 遠景パララックスは STEP3、192px 壁の低背化と天井潰しの解除は STEP2。
+      // ⚠️ 意図的に renderMap の**最後**に置く。この時点ではまだ Pass1a が row 0-12 に
+      //    SPR_CEILING を敷き詰めており (= 過去の全損の第3要因)、Pass2 の壁も 192px 不透明なので、
+      //    上から塗り潰さないと「空が描かれず暗い帯が出る」だけで終わる。STEP2 で下の層を
+      //    片付けたら、この Pass は STEP3 の drawFieldSky() へそのまま置き換わる。
+      // ⚠️ 世界座標アンカー (FIELD_HORIZON_Y) なので、カメラが固定されていなくても常に正しい位置に出る。
+      if (FIELD_MODE && FIELD_GEO_ACTIVE) drawFieldSky();
       ctx.restore();
     }
     // ─────────────────────────────────────────────────────────────
@@ -6917,8 +7055,11 @@
       if (!a) return false;
       const vw = lightCssW || window.innerWidth, vh = lightCssH || window.innerHeight;
       const sx = a.x - camX, sy = a.y - camY;
+      // ⚠️ 下端は cameraBottomHud() (= ログ + 下部HPミニバー)。ここは長らく UI_LOG_HEIGHT だけを
+      //    引いており、compact (モバイル) で UI_MINIBAR_H=64px ぶん「ミニバーの下も画面内」と
+      //    誤判定していた (desktop は UI_MINIBAR_H=0 なので沈黙する実バグ)。STEP1 で集約して修正。
       return sx > UI_MENU_WIDTH + SPEECH_EDGE_M && sx < vw - SPEECH_EDGE_M
-          && sy > SPEECH_EDGE_M * 0.4 && sy < vh - UI_LOG_HEIGHT;
+          && sy > SPEECH_EDGE_M * 0.4 && sy < vh - cameraBottomHud();
     }
     function pickPartySpeaker() {   // 生存パーティからランダム。画面内を優先、全員画面外なら妥協
       const alive = [];
