@@ -819,6 +819,54 @@
       28%  { opacity: 1; }
       100% { opacity: 0; }
     }
+
+    /* ── [隊商護衛] 護衛対象マーカー ──────────────────────────────────────────
+       馬車が画面外へ出たとき、画面端に「方向・距離・残HP」を出す。
+       ⚠️ z-index 47 = DOMスプライト(1-7) / fxCanvas(8) / lightingCanvas(9) / combatLog(10) より上、
+          combatFlash(48) / phaseIndicator(50) / banner より下。z1-7 は満杯なのでそこへは入れない。
+       ⚠️ 既存6シナリオは wagonSpawns を持たない (= wagonIndices が空) ので .show が一度も付かない。 */
+    #escortMarker {
+      position: fixed;
+      z-index: 47;
+      display: none;
+      pointer-events: none;
+      padding: 4px 8px 5px;
+      border: 2px solid #c8a046;
+      border-radius: 4px;
+      background: linear-gradient(180deg, rgba(34,25,12,0.94) 0%, rgba(14,10,6,0.94) 100%);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.7);
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 12px;
+      line-height: 1.15;
+      color: #e8d8a8;
+      white-space: nowrap;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    #escortMarker.show { display: block; }
+    /* 左端に出すときは左上基準、右端に出すときは右上基準 = JS で幅を測らずに端へ張り付けられる */
+    #escortMarker.side-left  { transform: translate(0, -50%); }
+    #escortMarker.side-right { transform: translate(-100%, -50%); }
+    #escortMarkerBar {
+      margin-top: 3px;
+      height: 4px;
+      background: #2a1c10;
+      border: 1px solid #6b5426;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #escortMarkerFill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(180deg, #7fd07f 0%, #3f8f3f 100%);
+      transition: width 0.25s ease-out;
+    }
+    /* 被弾直後だけ縁を赤く明滅させる (画面外で削られていることに気付けるように) */
+    #escortMarker.hit { border-color: #e05a3a; animation: escortMarkerHit 0.5s ease-out infinite; }
+    @keyframes escortMarkerHit {
+      0%, 100% { box-shadow: 0 2px 10px rgba(0,0,0,0.7); }
+      50%      { box-shadow: 0 0 14px 3px rgba(224,90,58,0.85); }
+    }
+
     #phaseIndicator {
       position: fixed;
       top: 12px;
@@ -2475,6 +2523,13 @@
   <!-- 攻撃エフェクト Phase2: 透過パーティクルレイヤー (敵z2/味方z6 より前・lighting z9 より後)。滑らかな発光が主役なので pixelated にしない。 -->
   <canvas id="fxCanvas" style="position:fixed;left:0;top:0;z-index:8;pointer-events:none;"></canvas>
   <canvas id="lightingCanvas" style="position:fixed;left:0;top:0;z-index:9;pointer-events:none;"></canvas>
+  <!-- [隊商護衛] 護衛対象マーカー: 馬車が画面外のとき、画面端に方向/距離/残HP を出す。
+       ⚠️ 既存6シナリオは wagonSpawns を持たない (= wagonIndices が空) ため一度も表示されない。
+       位置とテキストは updateEscortMarker() が renderWorld() から毎フレーム更新する。 -->
+  <div id="escortMarker">
+    <div id="escortMarkerText">馬車</div>
+    <div id="escortMarkerBar"><div id="escortMarkerFill"></div></div>
+  </div>
   <div id="startScreen">
     <div id="startBox">
       <div id="startTitle">廃坑のゴブリンの巣窟</div>
@@ -10252,6 +10307,96 @@
         renderWorldWithShake();
       }
     }
+    // ── [隊商護衛] 護衛対象マーカー (画面外の馬車を画面端で知らせる) ─────────────
+    // 問題: 隊商護衛は湧きが街道の先 (東) へ WAVE_SPAWN_AHEAD_TILES=5 タイルぶんオフセットされる
+    //   [spawnWave] ため、PT がそれを追って東進し、x=792 固定の馬車をカメラが置き去りにする。
+    //   実測 (tools/driver_field_wagon.js --tag before --speed 1 / 実プレイ・カメラ強制なし):
+    //     iphone_port 390x844 … 馬車の中心が画面外 68.9% (517/750) / 完全に不可視 29.7% / 可視面積 32.8%
+    //     iphone_land 844x390 … 38.6% / 0.0% / 52.0%
+    //     desktop    1440x900 … 0.0% / 0.0% / 100%
+    //   PT と馬車の距離は p50=p95=max=4 タイル (=384px) に張り付く。
+    //
+    // ⚠️ camX のクランプでは解けない (数値で棄却済み): 縦持ちの可視幅は 390px = 4.06 タイルしかない。
+    //    馬車を 96px 見せるには camX <= 936 が必要だが、主人公を画面内へ 48px マージンで保つには
+    //    camX >= 954 が必要で **18px 足りない**。ズーム機構は存在しない [renderMap の pan-only 注記] ため、
+    //    縦持ちでは「交戦点」と「馬車」は物理的に両立しない。
+    //    → カメラ層 (既存6シナリオと共有) は1バイトも触らず、画面端に情報を出す方式を採る。
+    //    オートバトルはプレイヤーが介入できないので、必要なのは馬車の画素そのものではなく
+    //    「護衛対象がまだ無事か」という情報である。
+    // ⚠️ ゲートは wagonIndices.length === 0 (データ由来)。既存6シナリオは wagonSpawns を持たないので
+    //    構造的に到達不能 = テーマ判定に依存せず非退行が保証される。RNG も一切引かない。
+    // ⚠️ 撤退スイッチは ?escort=0。?field=0 (描画) / ?fieldgeo=0 (幾何) / ?sky=0 (空) とは**独立**。
+    //    取り違えると A/B 比較が「別ゲーム同士の比較」に化ける。
+    let ESCORT_MARKER_ON = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("escort") === "0") ESCORT_MARKER_ON = false;
+    } catch (e) {}
+    // これ未満しか可視矩形と重なっていなければ「画面外」とみなす。0 にすると画面端で 1px 出入りする
+    // たびにマーカーが点滅するのでヒステリシス代わりの閾値を持たせる。
+    const ESCORT_MARKER_MIN_VIS = 64;
+    let _escortLastHp = null, _escortHitUntil = 0, _escortEls = null;
+    // 観測シーム: オートバトルは失敗が静かに起きるので状態を必ず外から読めるようにする。
+    // ⚠️ 毎フレーム新しいオブジェクトを作らない (GC を踏まない)。同一オブジェクトを書き換える。
+    const _escortProbe = { shown: false, side: null, gapTiles: 0, hpPct: 100 };
+    window.__fieldOffscreenMarker = _escortProbe;
+
+    function updateEscortMarker() {
+      // getElementById を毎フレーム3回引かないよう1度だけ解決してキャッシュする (要素が無ければ false)
+      if (_escortEls === null) {
+        const box = document.getElementById("escortMarker");
+        _escortEls = box ? { box, text: document.getElementById("escortMarkerText"),
+                             fill: document.getElementById("escortMarkerFill") } : false;
+      }
+      if (_escortEls === false) return;
+      const box = _escortEls.box;
+
+      if (!ESCORT_MARKER_ON) { box.classList.remove("show"); _escortProbe.shown = false; return; }
+
+      // ⚠️ wagonIndices は spawnWagon 側で宣言される let。renderWorld は resize イベント経由で
+      //    その行より前に呼ばれ得るので、そこでは **TDZ** に入っている。`typeof` も TDZ では
+      //    例外を投げる = typeof ガードでは防げない。try/catch が唯一の正しい書き方。
+      let w = null;
+      try {
+        for (let i = 0; i < wagonIndices.length; i++) {
+          const cand = enemies[wagonIndices[i]];
+          if (cand && cand.alive) { w = cand; break; }
+        }
+      } catch (e) { w = null; }
+      if (!w || gameOver) { box.classList.remove("show"); _escortProbe.shown = false; return; }
+
+      // 被弾検出は可視/不可視によらず先に行う (見えていない間に削られたことを知らせるのが目的)
+      if (_escortLastHp !== null && w.hp < _escortLastHp) _escortHitUntil = performance.now() + 1200;
+      _escortLastHp = w.hp;
+
+      const ds = (w.def && w.def.displaySize) || 96;
+      const sx0 = w.x - camX, sy0 = w.y - camY;
+      const vx0 = UI_MENU_WIDTH, vx1 = window.innerWidth;
+      const vy1 = window.innerHeight - cameraBottomHud();
+      const ix = Math.min(sx0 + ds, vx1) - Math.max(sx0, vx0);
+      const iy = Math.min(sy0 + ds, vy1) - Math.max(sy0, 0);
+      if (ix >= ESCORT_MARKER_MIN_VIS && iy >= ESCORT_MARKER_MIN_VIS) {
+        box.classList.remove("show"); _escortProbe.shown = false; return;   // 十分見えている
+      }
+
+      const toLeft = (sx0 + ds / 2) < (vx0 + vx1) / 2;
+      const gapTiles = Math.round(Math.abs((playerX + 48) - (w.x + ds / 2)) / TILE_SIZE);
+      const pct = Math.max(0, Math.min(100, Math.round(w.hp / (w.maxHp || w.def.hp || 1) * 100)));
+
+      // DOM への書き込みは値が変わったときだけ (毎フレーム呼ばれるのでレイアウトを揺らさない)
+      const label = (toLeft ? "◀ " : "▶ ") + "馬車 " + gapTiles;
+      if (box.__label !== label) { box.__label = label; if (_escortEls.text) _escortEls.text.textContent = label; }
+      if (box.__pct !== pct) { box.__pct = pct; if (_escortEls.fill) _escortEls.fill.style.width = pct + "%"; }
+
+      box.style.top = Math.max(30, Math.min(sy0 + ds / 2, vy1 - 30)) + "px";
+      box.style.left = (toLeft ? vx0 + 6 : vx1 - 6) + "px";
+      box.classList.toggle("side-left", toLeft);
+      box.classList.toggle("side-right", !toLeft);
+      box.classList.toggle("hit", performance.now() < _escortHitUntil);
+      box.classList.add("show");
+      _escortProbe.shown = true; _escortProbe.side = toLeft ? "left" : "right";
+      _escortProbe.gapTiles = gapTiles; _escortProbe.hpPct = pct;
+    }
+
     // renderWorld(): 現在の camX/camY でマップ(canvas)と全DOMスプライトを再描画/再配置する (旧 updatePositions 本体)。
     function renderWorld() {
       // ── [地平線ビュー STEP0] 受動カメラレコーダ用の検証シーム (既定は完全な no-op) ──
@@ -10272,6 +10417,12 @@
       renderLighting();
       updateGroundFx();
       updateSpeechBubbles();   // ★ speech-bubble: カメラ追従のため毎フレーム再配置
+      // [隊商護衛] 護衛対象マーカーもカメラ追従なので毎フレーム更新する。
+      // ⚠️ renderWorld は resize イベント経由で ESCORT_MARKER_ON 等の let 宣言より前に呼ばれ得る
+      //    (TDZ)。起動中の数フレームだけ静かに skip されるのが正しい挙動だが、「静かに失敗し続ける」
+      //    ことがないよう回数を必ず観測可能に残す (上の __camTraceErr と同じ作法)。
+      try { updateEscortMarker(); }
+      catch (e) { window.__escortMarkerErr = (window.__escortMarkerErr || 0) + 1; }
 
       player.style.left = (playerX - camX) + "px";
       player.style.top  = (playerY - camY) + "px";
