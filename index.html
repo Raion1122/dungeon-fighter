@@ -2085,6 +2085,9 @@
     #combatLog .logLine.crit { color: #ff8060; font-weight: 700; }
     #combatLog .logLine.heal { color: #8effa0; }
     #combatLog .logLine.miss { color: #9098a0; font-style: italic; }
+    /* [英雄の眼] リーダーが「なぜその技を撃ったか」を語る1行。sys(金)/crit(赤)/heal(緑)/miss(灰)の
+       どれとも衝突しない冷たい青。cls='reason' を明示指定するので autoClassifyLog は通らない。 */
+    #combatLog .logLine.reason { color: #8fb8ff; font-style: italic; }
     #combatLog .logLine b { color: #ffe0a0; }
 
     /* フッターヒント(旧 info) - 右上に小さく */
@@ -9795,7 +9798,10 @@
 
     // 戦闘ログ (独立枠)
     const combatLogLines = [];
-    const COMBAT_LOG_MAX = 14;
+    // 14→18: [英雄の眼] リーダーの「選択理由」行 (cls='reason') が 1 ラウンドに最大1行 入るため、
+    // 理由行が既存の戦闘ログを押し流さないよう固定バッファを4行広げる。⚠ この定数は UI_LOG_HEIGHT /
+    // --ui-log-h / computeUiMetrics と完全に独立で、地平線ビューの usableH>=440 判定に一切寄与しない。
+    const COMBAT_LOG_MAX = 18;
 
     // ── 敗北文言 (player-facing・「頭/主人公の死」を告げる 9 サイト 14 出現の唯一の出所) ──
     // ⚠️ 文言を変えるときは autoClassifyLog(下) が拾い続けることを必ず確認する。外れると敗北行が
@@ -14234,6 +14240,12 @@
     const cordonZones = [];   // エルフ コードン・オブ・アロー: 設置型ゾーン (ラウンド開始時に発動)
     let encounterEnemyIndices = [];
     let encounterStartedAt = 0;   // Phase 2-B: 戦闘開始時刻 (確率脱走の経過時間基準)
+    // [英雄の眼] リーダー AI が「今が開幕か」を見るためのラウンド数ミラー。
+    // ⚠ runEncounter のローカル `round` は 1 文字も改名しないこと。改名すると増援判定の参照が
+    //    ReferenceError になり、runEncounter は async で呼び出し元が catch を持たないため
+    //    unhandled rejection として静かに飲まれ、finally で encounterRunning が戻って再突入し
+    //    「全戦闘が無言で即死」を繰り返す。ここへ代入を足すだけのミラーに留める。
+    let encounterRound = 1;
 
     // ── ポップアップ(ワールド座標→スクリーン座標) ──
     function showRollAtPlayer(html, type) {
@@ -15187,6 +15199,7 @@
 
         // ── ラウンドループ ──
         let round = 1;
+        encounterRound = 1;           // [英雄の眼] ミラー (ローカル round 自体は不変)
         let chariotSpawned = false;   // [chariot-7.9-2] 1 戦闘 1 回だけ乱入させる
         // ── [7.9-3 STEP6] 隊商護衛のウェーブ状態機械 (戦闘ローカル) ──
         //   進行状態は戦闘ローカルに置く (spec: 戦車の chariotSpawned 型)。
@@ -15305,6 +15318,7 @@
             await sleepMs(220);
           }
           round++;
+          encounterRound = round;  // [英雄の眼] ミラー (ローカル round 自体は不変)
           if (round > 40) break;  // 安全ブレーキ
         }
 
@@ -23087,6 +23101,179 @@
       }
     }
 
+    // ── [英雄の眼] リーダー行動の重み付き抽選 ───────────────────────────────────
+    // 主人公だけが一様ランダム (Math.random) で手を選び、仲間や敵より愚かに戦っていた逆転を正す。
+    // 抽選そのものは pickSovereignEye の「重み配列 → 累積和 → Math.random ちょうど1回 → 末尾に
+    // 丸め保険」イディオムを逐語で踏襲する。これで RNG 消費回数が旧実装
+    // (Math.floor(Math.random() * choices.length)) と厳密に一致し、既存ドライバの乱数順序が動かない。
+    //
+    // ⚠ iOS 実機の体感調整は下の定数ブロックだけを触ればよい。
+    //   ・LEADER_PICK_T  … 温度。大きいほど平坦 (運任せ)、小さいほど鋭い (最善手一辺倒)
+    //   ・W_*            … 族係数。攻撃は「通常攻撃 = 1.0」に正規化した上で掛かる
+    const LEADER_PICK_T  = 1.0;
+    const LEADER_W_ATK   = 1.0;   // 単体攻撃
+    const LEADER_W_HEAL  = 2.5;   // 回復
+    // バフは開幕ラウンドのみ加点。1.5 に留めているのは、効いている間は上流のフィルタが候補から
+    // 落とすので「一度張れば数ターン卓から消える」= 単発シェアが見た目より効くため。
+    const LEADER_W_BUFF  = 1.5;
+    const LEADER_W_BASE  = 1.0;   // その他 (AoE / 自傷付き / デバフ / 辞書に無い ID)
+    const LEADER_W_BOSS  = 1.3;   // 対象がボス格なら攻撃に上乗せ
+    const LEADER_W_FLOOR = 0.05;  // 重みの下限。0 にしないのは「候補が完全に死ぬ」のを避けるため
+    const LEADER_W_MAX   = 3;     // 上限クランプ。無いと 3d10 級が回復を常に押し潰す
+    // 理由1行を出す閾値。勝った手の重みが通常攻撃 (choices[0]) の WHY_RATIO 倍以上のときだけ「なぜ」を語る。
+    // 攻撃系は HP帯・ボス格が通常攻撃と共通因子で約分されるので、実質「通常の一撃の何倍効くか」の閾値になる。
+    // 下げるほど理由行が増える (饒舌)、上げるほど「よほどの時だけ喋る」。⚠ ここも iOS 実機の調整レバー。
+    const LEADER_WHY_RATIO = 1.5;
+
+    // ボス格判定。⚠ この関数を runEncounter の body 内に置くとローカルスコープに閉じ、
+    //    ここから呼ぶと ReferenceError → async の unhandled rejection でリーダーの手番が
+    //    毎ターン無言で死ぬ。playerAttackTurn と同じ兄弟スコープに置くこと。
+    // ⚠ index.html には既にボス判定式が別途3本ある (増援フィルタ / evaluateThreat / 雑魚判定)。
+    //    それらは意味論が違うので統合しない (既知の重複・別案件)。
+    function isBossLikeDef(def) {
+      return !!(def && (def.isBoss || def.eyeStalks || (def.maxSummons || 0) > 0));
+    }
+
+    // ダイス表記の期待値。⚠ parseDiceDD は m===null のガードが無いので必ずこのラッパ越しに使う。
+    //    parseDice の方は rollDiceDD を呼んで RNG を消費するので絶対に使わないこと。
+    function leaderDiceEV(notation) {
+      if (typeof notation !== "string" || !/^\d+d\d+$/.test(notation)) return 0;
+      const p = parseDiceDD(notation);
+      return p.n * (p.sides + 1) / 2;
+    }
+
+    // choices = ["normal", ...装備スキルID]。返りは {id, why}。why は「なぜその技を撃つか」の1行
+    // (◇ 技名 ── 一言) か null。通常攻撃・僅差の勝ち・語れない手 (その他/バフ非開幕) では null。
+    function pickLeaderAction(choices, ctx) {
+      if (!choices || choices.length === 0) return { id: "normal", why: null };
+
+      const dict = ((typeof CLASS_SKILL_DICTS !== "undefined") && CLASS_SKILL_DICTS[leaderClassKey]) || WARRIOR_SKILLS;
+      const tgt = (ctx && ctx.target) || null;
+      const tgtMax = (tgt && tgt.maxHp) || (tgt && tgt.def && tgt.def.hp) || 0;
+      const tgtRatio = (tgt && tgtMax > 0) ? Math.max(0, Math.min(1, tgt.hp / tgtMax)) : 1;
+      const tgtHp = tgt ? tgt.hp : Infinity;
+      const bossMul = (tgt && isBossLikeDef(tgt.def)) ? LEADER_W_BOSS : 1;
+
+      // 「弱った敵ほど狙う」を 0.6〜1.4 の帯に写像する。
+      // ⚠ 素の (1 - HP比) にすると、敵は hp===maxHp で生成されるので開幕の攻撃重みが厳密に 0 になり、
+      //    構造的にバフ偏重＝一様ランダムより退行する。しかも targetIdx はこの時点で単一値に
+      //    確定済みなので、HP項は全攻撃候補にかかる定数倍＝順位に対して完全に約分される。
+      //    順位を実際に動かすのは下の「撃破判定 (期待値 >= 残HP なら ×1.8)」の方。
+      const hpBand = 0.6 + 0.8 * (1 - tgtRatio);
+
+      // 回復の対象は PT の最弱者 (リーダー自身とは限らない)。sort のみで RNG 非消費。
+      const weakest = (typeof findLowestHpPartyMember === "function") ? findLowestHpPartyMember() : null;
+      const healRatio = (weakest && isFinite(weakest.ratio)) ? Math.max(0, Math.min(1, weakest.ratio)) : 1;
+
+      // 通常攻撃の期待値を 1.0 とする基準。これが無いと攻撃 (4.5〜16.5) と回復 (0〜1) の
+      // 桁違いを温度が吸収しきれず、僧侶リーダーの回復シェアが現行より落ちる。
+      const curWeapon = (typeof getCurrentWeapon === "function") ? getCurrentWeapon() : null;
+      const baseEV = Math.max(1, leaderDiceEV((curWeapon && curWeapon.dmgDice) || playerStats.dmgDice));
+
+      // ⚠ 適用順は固定: 生重み → 非有限/0以下を床に → クランプ → 最後に pow。
+      //    pow を先に置くと NaN が素通りし、末尾の丸め保険 return と組んで
+      //    「静かに常に最後の候補を返す」壊れ方をする。
+      const T = Math.min(4, Math.max(0.2, LEADER_PICK_T));
+      let nonFinite = 0;
+      const weights = [];
+      const meta = [];   // 各候補の理由メタ {name, phrase}。normal / その他(d) / バフ非開幕 / 辞書欠けは null (無言)。
+      const tgtName = (tgt && tgt.def && tgt.def.name) || "敵";
+      for (const id of choices) {
+        let w, m = null;
+        if (id === "normal") {
+          w = hpBand * bossMul * (baseEV >= tgtHp ? 1.8 : 1) * LEADER_W_ATK;
+        } else {
+          const sk = dict[id] || (typeof getSkill === "function" ? getSkill(id) : null);
+          if (!sk) {
+            w = LEADER_W_BASE;
+          } else if (sk.dmgDice && sk.target === "single" && !sk.selfStun) {
+            // (a) 単体攻撃。AoE と自傷付き (渾身の一撃) はここに含めず (d) 扱いのまま据え置く。
+            const ev = leaderDiceEV(sk.dmgDice) + leaderDiceEV(sk.extraDmgDice)
+                     + (sk.dmgBonusFlat || 0) + (sk.extraDmg || 0);
+            w = (ev / baseEV) * hpBand * bossMul * (ev >= tgtHp ? 1.8 : 1) * LEADER_W_ATK;
+            // 卓のプレイヤーが口にする一言。撃破圏 > 手負い > ボス格 > 素、の優先で選ぶ。
+            const phrase = (ev >= tgtHp)      ? `${tgtName}を 仕留める`
+                         : (tgtRatio <= 0.4)  ? `${tgtName}は もう長くない`
+                         : (bossMul > 1)      ? `${tgtName}は 手強い`
+                         :                      `${tgtName}に 狙いを定める`;
+            m = { name: sk.name || id, phrase };
+          } else if (sk.healDice) {
+            // (b) 回復。満タン時は上流のフィルタで候補から落ちているので、ここは常に傷がある状態。
+            // ⚠ 自己回復 (target:"self" = cure-minor / big-eater / battle-rest / fighting-spirit) は
+            //    executeLeaderSkill が allyCureMinor(actor) 等で「リーダー本人」しか癒さない。よって
+            //    最弱の仲間ではなく "リーダー自身" のHPで重み付けし、理由も「あなた」を名指す。
+            //    cleric の cure-*-wounds だけが target:"ally" で findLowestHpPartyMember に再ターゲット
+            //    するので (13748-13751)、そちらは従来どおり最弱者で重み付け・最弱者を名指す。
+            const selfHeal = (sk.target === "self");
+            const subjRatio = selfHeal
+              ? Math.max(0, Math.min(1, (maxHp > 0 ? hp / maxHp : 1)))
+              : healRatio;
+            w = (1 - subjRatio) * LEADER_W_HEAL;
+            // ⚠ findLowestHpPartyMember の返りは {kind, ally?} で、名前はトップレベルに無い。
+            let healName = "あなた";
+            if (!selfHeal && weakest && weakest.kind === "ally" && weakest.ally) {
+              healName = weakest.ally.npcName || (weakest.ally.def && weakest.ally.def.name) || "仲間";
+            }
+            m = { name: sk.name || id, phrase: (subjRatio <= 0.25) ? `${healName}が 危うい` : `${healName}を 癒す` };
+          } else if (sk.acBonusAmount || sk.atkBonusAmount || sk.category === "buff" || sk.category === "バフ") {
+            // (c) バフ。開幕に張るのが最も価値が高く、殴り合いの最中に張り直すのは無駄打ち。
+            w = (encounterRound === 1) ? LEADER_W_BUFF : LEADER_W_BASE;
+            // 理由を語るのは加点が乗る開幕のみ。途中の張り直し (=W_BASE) は無言。
+            if (encounterRound === 1) {
+              const phrase = sk.acBonusAmount  ? "先手で 守りを固める"
+                           : sk.atkBonusAmount ? "先手で 士気を高める"
+                           :                     "先手で 態勢を整える";
+              m = { name: sk.name || id, phrase };
+            }
+          } else {
+            w = LEADER_W_BASE;   // (d) その他
+          }
+        }
+        if (!isFinite(w)) { nonFinite++; w = LEADER_W_FLOOR; }
+        w = Math.min(LEADER_W_MAX, Math.max(LEADER_W_FLOOR, w));
+        w = Math.pow(w, 1 / T);
+        if (!isFinite(w) || w <= 0) { nonFinite++; w = LEADER_W_FLOOR; }
+        weights.push(w);
+        meta.push(m);
+      }
+      if (nonFinite > 0) {
+        if (typeof window !== "undefined") window.__leaderPickWarns = (window.__leaderPickWarns || 0) + nonFinite;
+        console.warn("[英雄の眼] 非有限の重みを検出", { count: nonFinite, choices: choices, cls: leaderClassKey });
+      }
+
+      let total = 0;
+      for (const w of weights) total += w;
+      // ⚠ 抽選ドローは必ずちょうど1回消費する (旧実装との RNG パリティ)。ガードより前に引く。
+      const draw = Math.random();
+      // ⚠ 否定形で書く。`total <= 0` だと NaN<=0 が false なので NaN を素通しする。
+      if (!(total > 0)) return { id: choices[0], why: null };
+      let r = draw * total;
+      let idx = weights.length - 1;   // 浮動小数の丸めで r が総和に届かなかった時の保険
+      for (let i = 0; i < weights.length; i++) {
+        if ((r -= weights[i]) < 0) { idx = i; break; }
+      }
+      // [フェーズ5] 選んだ手が「なぜ選ばれたか」を語れる手 (meta あり) で、かつ通常攻撃 (choices の normal) の
+      // LEADER_WHY_RATIO 倍以上の重みで勝っているときだけ理由1行を作る。通常攻撃・その他(d)・僅差の勝ちは無言。
+      // これで「1ラウンドあたり理由行は最大1行」に抑える (通常攻撃ターンは pick==='normal' で無言)。
+      let why = null;
+      const chosen = choices[idx];
+      if (chosen !== "normal" && meta[idx]) {
+        const nIdx = choices.indexOf("normal");
+        const wBase = (nIdx >= 0) ? weights[nIdx] : 0;
+        if (wBase > 0 && isFinite(wBase) && weights[idx] >= LEADER_WHY_RATIO * wBase) {
+          why = `◇ ${meta[idx].name} ── ${meta[idx].phrase}`;
+        }
+      }
+      return { id: chosen, why };
+    }
+    // const/function はこのスクリプトでは window に自動で載らないので、検証用のシームを明示公開する
+    // (先例: window.sovereignEyeGapMs / window.__SOVEREIGN_EYE_DEFS)
+    if (typeof window !== "undefined") {
+      window.pickLeaderAction = pickLeaderAction;
+      window.isBossLikeDef = isBossLikeDef;
+      window.__leaderPickWarns = 0;
+    }
+
     // ── プレイヤーのターン ──
     async function playerAttackTurn(targetIdx) {
       // バフ残りターンを減らす(ターン開始時)
@@ -23220,8 +23407,11 @@
           });
         }
       }
+      // [英雄の眼] 一様ランダムをやめ、状況 (対象HP・ボス格・PT最弱者・開幕かどうか) で重み付けして引く。
+      // RNG 消費は旧実装と同じくちょうど1回なので、既存ドライバの乱数順序は動かない。
       const choices = ["normal", ...activeEquipped];
-      const pick = choices[Math.floor(Math.random() * choices.length)];
+      const picked = pickLeaderAction(choices, { target: enemies[targetIdx] });
+      const pick = picked.id;
 
       // 選んだスキルが target 用の射程スキル (sweep など) の場合、
       // 念のため個別に射程チェック (target が遠い場合は前進)
@@ -23265,6 +23455,9 @@
         }
       } else {
         flashAction(player, "skill");
+        // [英雄の眼・フェーズ5] 技を撃つ「理由」を1行。⚠ 必ず await の前 (後だと結果の後に理由が出て破綻)。
+        // cls='reason' を明示して autoClassifyLog を迂回。pick!=='normal' 枝なので通常攻撃ターンは無言。
+        if (picked.why) appendLog(picked.why, "reason");
         await executeLeaderSkill(pick, targetIdx);
       }
     }
