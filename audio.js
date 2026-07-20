@@ -734,7 +734,17 @@
     wrap.appendChild(sl); wrap.appendChild(valEl);
     return rowEl(label, wrap);
   }
+  // 設定モーダルの追加セクション。ページ側 (tavern.html 等) が registerSettingsExtra で差し込む。
+  // 登録しないページ (index.html = 潜行中) には出ないので、「潜行中に記録消去 UI が出る」事故が構造的に起きない。
+  var _settingsExtras = [];
+  var _settingsCleanup = [];   // モーダルを閉じる時に必ず走らせる後始末 (追加セクションが握るタイマー等)
+  function registerSettingsExtra(fn) {
+    if (typeof fn === "function" && _settingsExtras.indexOf(fn) < 0) _settingsExtras.push(fn);
+  }
   function closeSettings() {
+    // ⚠ 先に後始末。追加セクションの setTimeout が残ると detached ノードを掴み続ける。
+    for (var i = 0; i < _settingsCleanup.length; i++) { try { _settingsCleanup[i](); } catch (e) {} }
+    _settingsCleanup.length = 0;
     if (_settingsEl && _settingsEl.parentNode) _settingsEl.parentNode.removeChild(_settingsEl);
     _settingsEl = null;
   }
@@ -792,6 +802,19 @@
     closeB.addEventListener("click", closeSettings);
     bar.appendChild(test); bar.appendChild(closeB);
     box.appendChild(bar);
+    // ページ側が登録した追加セクション (例: 酒場の『冒険の記録を消す』)。返り値の要素だけを差し込む。
+    // ctx.onClose に渡した後始末は closeSettings で必ず実行される。
+    for (var xi = 0; xi < _settingsExtras.length; xi++) {
+      try {
+        var node = _settingsExtras[xi]({
+          close:   closeSettings,
+          onClose: function (fn) { if (typeof fn === "function") _settingsCleanup.push(fn); },
+          btnCss:  btnCss,
+          rowEl:   rowEl,
+        });
+        if (node && node.nodeType === 1) box.appendChild(node);
+      } catch (e) {}
+    }
     // クレジット表記 (VOICEVOX 利用規約: キャラクター名のクレジット表示が必須)
     var cred = document.createElement("div");
     cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  魔王魂 / ユーフルカ";
@@ -829,6 +852,7 @@
     applySettings: function () { GameSettings.reload(); if (buses) applyVolumes(); GameAudio.textSpeed = GameSettings.get().textSpeed; },
     openSettings: openSettings,
     closeSettings: closeSettings,
+    registerSettingsExtra: registerSettingsExtra,   // 設定モーダルへページ固有セクションを追加 (追加専用 API)
     isReady: function () { return !!(supported && ctx && unlocked); },
     isSupported: function () { return supported; },
     sfxNames: function () { var a = []; for (var k in SFX) a.push(k); return a; },

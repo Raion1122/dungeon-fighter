@@ -2061,6 +2061,26 @@
     #combatLog .logLine {
       padding: 1px 0;
     }
+    /* スマホ(ui-compact)だけログを詰めて可視行を稼ぐ。片手縦持ちでは内容高が 120px しか無く、
+       1.5 のままだと 5 行 (120 / 21.5) しか映らずラウンドの前半が読む前に流れていく。
+       1.3 で 1 行が 18.9px になり **6 行** へ (iPhone SE 実測 / tools/driver_log_compact.js)。
+       ⚠️ 稼ぎ方は **行間のみ**。枠高 (--ui-log-h / UI_LOG_HEIGHT) と #combatLog の padding、
+          .logLine の padding は絶対に触らないこと:
+          - 枠を広げると cameraFollowTick が毎フレーム評価する fieldHasSkyRoom(usableH >= 440) を割り、
+            屋外フィールドの地平線ビューがプレイ中に黙って崩壊する (iPhone SE は 483 でギリギリ通過)。
+            desktop では UI_MINIBAR_H=0 のため絶対に再現せず、目視では一生気づけない。
+          - #combatLog は content-box なので padding を削っても可視行は 1 行も増えない。
+          - .logLine の padding:1px→0 は稼ぎが高々 0.35 行で、13px の日本語が上下で融着する。
+       ::before の見出しは消さずに圧縮する (定常状態では既にスクロールアウトしており、
+       消しても可視行は 1 行も増えない。羊皮紙の意匠がスマホからだけ消える方が損)。 */
+    body.ui-compact #combatLog { line-height: 1.3; }
+    body.ui-compact #combatLog::before {
+      font-size: 10px;
+      letter-spacing: 2px;
+      padding-bottom: 2px;
+      margin-bottom: 3px;
+    }
+
     #combatLog .logLine.sys { color: #e8c060; font-weight: 700; }
     #combatLog .logLine.crit { color: #ff8060; font-weight: 700; }
     #combatLog .logLine.heal { color: #8effa0; }
@@ -9776,9 +9796,24 @@
     // 戦闘ログ (独立枠)
     const combatLogLines = [];
     const COMBAT_LOG_MAX = 14;
+
+    // ── 敗北文言 (player-facing・「頭/主人公の死」を告げる 9 サイト 14 出現の唯一の出所) ──
+    // ⚠️ 文言を変えるときは autoClassifyLog(下) が拾い続けることを必ず確認する。外れると敗北行が
+    //    金色 .sys から素の本文色へ**静かに**退行する。updateInfo は cls を渡す口を持たないので
+    //    呼び出し側では直せない → 「全滅」または「倒れた」を必ず含めること。
+    // ⚠️ ここに集約できていない敗北経路が 2 本ある (別案件・本定数の管轄外):
+    //    ・15285「隊商は失われた…」= 馬車全損での敗北。上記トークンを含まないため金色にならない
+    //    ・18642 探索中の罠で頭が死ぬ経路 = 敗北ログを 1 行も出さずに gameOver が立つ
+    // ⚠️ 旧文言にあった「リロードして再挑戦せよ」という趣旨の注記は事実として誤りなので削除済み。
+    //    結果画面の「酒場に戻る」(下部) で復帰できるため、ページの再読み込みは不要。
+    // 主人公が「頭」ではなく仲間枠で倒れた 4 サイト (18668/21218/23530/25231) も MSG_DEFEAT_YOU を
+    // 共用する。isHero の player-facing な呼称は既に「あなた」で統一されているため (8932/10012/13589)。
+    const MSG_DEFEAT_PARTY = "パーティは全滅した… 冒険はここで潰えた";
+    const MSG_DEFEAT_YOU   = "あなたは倒れた… 冒険はここで潰えた";
+
     function autoClassifyLog(msg) {
-      if (/(クリティカル|CRIT|激怒|RAGE|召喚|SUMMON|敵と遭遇|勝利|倒れた|ゲームオーバー|VICTORY|DEFEAT|REINFORCE|ENCOUNTER)/i.test(msg)) {
-        if (/(倒れた|ゲームオーバー|DEFEAT)/i.test(msg)) return "sys";
+      if (/(クリティカル|CRIT|激怒|RAGE|召喚|SUMMON|敵と遭遇|勝利|倒れた|全滅|ゲームオーバー|VICTORY|DEFEAT|REINFORCE|ENCOUNTER)/i.test(msg)) {
+        if (/(倒れた|全滅|ゲームオーバー|DEFEAT)/i.test(msg)) return "sys";
         if (/(クリティカル|CRIT)/i.test(msg)) return "crit";
         return "sys";
       }
@@ -9793,10 +9828,23 @@
       if (combatLogLines.length > COMBAT_LOG_MAX) combatLogLines.shift();
       const el = document.getElementById("combatLog");
       if (!el) return;
+      // 追従は「最下部から 10px 以内に居るとき」だけ。遡り読み中はスクロール位置を奪わない。
+      // しきい値は line-height より小さく取る。desktop は 13px x 1.5 = 19.5px、
+      // スマホ (body.ui-compact) は 13px x 1.3 = 16.9px なので、10px は両方の内側に居る。
+      // line-height 以上にすると「1 行だけ上へスクロール」が最下部扱いになり、
+      // 遡り読みが 2 行分スクロールするまで始まらない (狭い compact 側の方が先に破綻する)。
+      // ⚠️ prev / stick は innerHTML 代入の**前**に読むこと。代入後に測ると、行の折り返しで
+      //    scrollHeight が縮んだ場合 (長文が上から溢れて2行→1行に入れ替わる) に scrollTop が
+      //    clamp 済みの値になり、「最下部に居ない」と誤判定して追従が効かなくなる。
+      //    初回 (scrollHeight <= clientHeight) は差が 0 以下 → stick=true = 従来どおりの挙動。
+      const prev  = el.scrollTop;
+      const stick = (el.scrollHeight - el.scrollTop - el.clientHeight) <= 10;
       el.innerHTML = combatLogLines.map(l =>
         `<div class="logLine ${l.cls}">${l.msg}</div>`
       ).join("");
-      el.scrollTop = el.scrollHeight;
+      // 遡り読み中は代入前の位置へ明示的に戻す。子要素の総入れ替えで scrollTop が保たれるかは
+      // 実装依存なので、暗黙の保存に頼らず必ず書き戻す (書き戻し先が範囲外ならブラウザが clamp する)。
+      el.scrollTop = stick ? el.scrollHeight : prev;
     }
 
     // 装備の色分類 (白=通常 / 青=+Nエンハンスメント / 紫=特殊効果)
@@ -11828,7 +11876,7 @@
         stopDamageBlink();
         player.style.opacity = "1";
         player.style.filter = "none";
-        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+        updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
         return;
       }
 
@@ -18649,7 +18697,7 @@
       if (ally.hp <= 0) {
         ally.alive = false;
         updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
-        if (ally.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+        if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
       }
     }
 
@@ -21199,7 +21247,7 @@
         if (a.hp <= 0) {
           a.alive = false;
           updateInfo(`${a.npcName || a.def.name} は同士討ちで倒れた…`);
-          if (a.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+          if (a.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
           await sleepMs(300);
         }
       } else {  // leader (頭)
@@ -21210,7 +21258,7 @@
         await sleepMs(450);
         if (hp <= 0) {
           gameOver = true;
-          updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+          updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
         }
       }
     }
@@ -23481,7 +23529,7 @@
           invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
           stopDamageBlink();
           player.style.opacity = "1"; player.style.filter = "none";
-          updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+          updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
         }
       }
 
@@ -23511,7 +23559,7 @@
       if (a.hp <= 0) {
         a.alive = false;
         updateInfo(`${a.npcName || a.def.name} は倒れた…`);
-        if (a.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+        if (a.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
       }
     }
 
@@ -23564,7 +23612,7 @@
         invincible = false; guardInvincible = false; counterInvincible = false; counterVisualActive = false;
         stopDamageBlink();
         player.style.opacity = "1"; player.style.filter = "none";
-        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+        updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
       }
     }
 
@@ -25013,7 +25061,7 @@
         stopDamageBlink();
         player.style.opacity = "1";
         player.style.filter = "none";
-        updateInfo(isPartyWiped() ? "パーティは全滅した… ゲームオーバー(更新でやり直し)" : "あなたは倒れた… ゲームオーバー(更新でやり直し)");
+        updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
         return;
       }
 
@@ -25212,7 +25260,7 @@
       if (ally.hp <= 0) {
         ally.alive = false;
         updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
-        if (ally.isHero) { gameOver = true; updateInfo("主人公が倒れた… ゲームオーバー(更新でやり直し)"); }
+        if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
         await sleepMs(400);
       } else {
         // ドワーフの意地: HP が閾値以下まで落ちたら自動発動
@@ -25672,11 +25720,11 @@
         }
         resultRewardEl.innerHTML = html;
       } else {
-        // 敗北: このランで拾った物は失われる(永続データは既存のまま)
+        // 敗北: この道中で拾った物は失われる(永続データは既存のまま)
         resultOverlayEl.classList.add("defeat");
         resultTitleEl.textContent = "DEFEAT";
         resultSubEl.textContent = `「${currentScenario.title}」に力尽きた…`;
-        resultRewardEl.innerHTML = "<i>このランで拾った装備と金貨は失われた</i>";
+        resultRewardEl.innerHTML = "<i>この道中で得た宝は、すべて失われた</i>";
       }
       // 最終ボス(dragon-lair)クリア時のみ、結果ボタンをエンディングへ誘導する。
       // autoplay/自動巡回検証は従来どおり「酒場に戻る」で直行(=検証が完走する)。

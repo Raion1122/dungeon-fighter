@@ -872,6 +872,15 @@
       box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
     }
 
+    /* 出荷前の大掃除: デバッグ操作行は既定で非表示。localStorage['df.devMode'] === "1" のときだけ
+       body に dev-mode が付いて現れる (判定は <body> 直後の IIFE)。
+       ⚠ 対象 div のインライン style から display:flex を必ず外しておくこと。
+          インライン指定はこの規則に無条件で勝つため、残っていると「CSS は書いたのに何も起きない」静かな失敗になる。 */
+    #debugEvadeRow,
+    #debugAutoplayRow { display: none; }
+    body.dev-mode #debugEvadeRow,
+    body.dev-mode #debugAutoplayRow { display: flex; }
+
     /* 事前情報チェック (examine/talk/pray): 準備画面の判定ボタン + 結果表示 */
     .intelBtnRow {
       display: flex;
@@ -1432,6 +1441,24 @@
   <script src="js/skill-check.js"></script>
 </head>
 <body>
+  <script>
+  /* 開発モード判定 (出荷前の大掃除)。デバッグ操作行は既定で CSS により非表示で、ここで body.dev-mode を
+     付けたときだけ現れる。?dev=1 で ON を焼き込み / ?dev=0 で OFF (URL を毎回付ける必要はない)。
+     ⚠ キーは "df.devMode" = "dragonfighters." prefix の【外】。設定モーダルの『冒険の記録を消す』は
+        dragonfighters.* を一括削除するため、prefix の内側に置くと記録消去のたびに dev モードが落ちる。 */
+  (function () {
+    var KEY = "df.devMode";
+    try {
+      var q = new URLSearchParams(location.search).get("dev");
+      if (q === "1" || q === "on") localStorage.setItem(KEY, "1");
+      else if (q === "0" || q === "off") localStorage.removeItem(KEY);
+    } catch (e) {}
+    var on = false;
+    try { on = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    window.__dfDevMode = on;
+    if (on) document.body.classList.add("dev-mode");
+  })();
+  </script>
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
   <!-- オープニング前口上オーバーレイ (初回来訪時のみ表示) -->
   <div id="prologueOverlay">
@@ -1575,7 +1602,7 @@
           <div id="intelResultList"></div>
         </div>
         <!-- Phase 2-G DEBUG: 残影回避の確認用トグル (出発時に URL ?evade=all を付与) -->
-        <div id="debugEvadeRow" style="display:flex;gap:8px;justify-content:center;margin:6px 0 10px;flex-wrap:wrap;">
+        <div id="debugEvadeRow" style="gap:8px;justify-content:center;margin:6px 0 10px;flex-wrap:wrap;">
           <button type="button" id="btnDebugEvadeAll"   class="btn debugEvadeBtn">🛡 必ず回避 (全攻撃) OFF</button>
           <button type="button" id="btnDebugEvadeArrow" class="btn debugEvadeBtn">🏹 必ず回避 (矢のみ) OFF</button>
         </div>
@@ -1584,10 +1611,12 @@
           <button class="btn accept"  id="btnDepart">出発する</button>
         </div>
         <!-- Phase 2-K DEBUG: オートプレイ出発 (?autoplay=N で高速自動進行 + バグ検出) -->
-        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+        <div id="debugAutoplayRow" style="gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
           <button type="button" id="btnDepartAutoplay" class="btn debugEvadeBtn">⚡ オートプレイ出発 (x10)</button>
           <button type="button" id="btnDepartAutoplayFast" class="btn debugEvadeBtn">⚡⚡ 高速 (x30)</button>
           <button type="button" id="btnDepartAutoDebug" class="btn debugEvadeBtn">🐞 自動デバッグ巡回 (全6シナリオ)</button>
+          <!-- 開発モードから抜ける導線。dev 行の内側にあるので出荷版プレイヤーには到達不能 (新規サーフェスは増えない)。 -->
+          <button type="button" id="btnExitDevMode" class="btn debugEvadeBtn">🚪 開発モードを終了</button>
         </div>
       </div>
     </div>
@@ -1596,10 +1625,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>冒険を最初からやり直せるように</b> — 設定に『冒険の記録を消す』を追加。所持金・装備・習得した呪文が消えて初回からになる(音量設定は残る)。押し間違い防止に2段確認つき。</li>
+        <li><b>戦闘ログが読みやすくなった</b> — さかのぼって読んでいる最中に勝手に一番下へ飛ばなくなり、一度に見える行数も増えた。</li>
         <li><b>街道の石垣が途切れていた不具合を修正</b> — 道の東西の端で石垣が黒く抜けて見えていたのを直した。</li>
         <li><b>街道の地平線が描き込みの風景画に</b> — 遠くの丘と並木が、絵筆で描いた景色になった。奥行きも2段階でゆっくり流れる。</li>
-        <li><b>街道わきの景色を作り直した</b> — 隊商護衛の路肩が低い石積みになり、遠くまで自然に続いて見える。地平線の霞の色も合わせ直した。</li>
-        <li><b>護衛対象の馬車を見失わなくなった</b> — 隊商護衛で馬車が画面の外に出ると、画面端に方向・距離・残りHPの目印が出る。姿が見えないまま馬車が襲われている時は目印が赤く明滅する。</li>
       </ul>
     </div>
     <script>
@@ -4561,6 +4590,75 @@
   }
   const btnAutoDebug = document.getElementById("btnDepartAutoDebug");
   if (btnAutoDebug) btnAutoDebug.addEventListener("click", () => departAutoDebug(6));
+
+  // 開発モードを抜ける (dev 行の内側にあるボタン = 出荷版プレイヤーからは到達不能)
+  const btnExitDev = document.getElementById("btnExitDevMode");
+  if (btnExitDev) btnExitDev.addEventListener("click", () => {
+    try { localStorage.removeItem("df.devMode"); } catch (e) {}
+    location.replace(location.pathname);
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 設定モーダル『冒険の記録を消す』(出荷前の大掃除)
+  // 本体を酒場側に置き GameAudio へ登録する。index.html は登録しない = 潜行中に消去 UI が出ることが構造的に不可能。
+  // ─────────────────────────────────────────────────────────────
+  const WIPE_KEEP = { "dragonfighters.settings": 1, "dragonfighters.panelCollapsed": 1 };
+  function wipeAdventureRecord() {
+    // ⚠ 消すキーをハードコード列挙しない。今後キーが増えるたびに列挙は必ず腐るので prefix 走査する。
+    [localStorage, sessionStorage].forEach((store) => {
+      try {
+        Object.keys(store)
+          .filter((k) => k.indexOf("dragonfighters.") === 0 && !WIPE_KEEP[k])
+          .forEach((k) => { try { store.removeItem(k); } catch (e) {} });
+      } catch (e) {}
+    });
+    // ⚠ 両ストレージが失敗してもここへ必ず到達させる (再読込しないと消えた状態が画面に反映されない)。
+    location.replace(location.pathname);
+  }
+  if (window.GameAudio && GameAudio.registerSettingsExtra) {
+    GameAudio.registerSettingsExtra((ctx) => {
+      const wrap = document.createElement("div");
+      wrap.id = "wipeSaveSection";
+      wrap.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid rgba(139,105,20,0.3);";
+      let timer = null;
+      const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+      ctx.onClose(clear);   // ⚠ 8秒タイマーが detached ノードを掴み続けないよう、閉じる時に必ず解除
+
+      // 2段タップ: 1回目で確認行を出し、8秒 無操作なら安全側 (未確認) へ自動復帰
+      const render = (armed) => {
+        clear();
+        wrap.textContent = "";
+        if (!armed) {
+          const b = document.createElement("button");
+          b.type = "button"; b.id = "btnWipeSave"; b.textContent = "🗑 冒険の記録を消す";
+          b.style.cssText = ctx.btnCss() + "width:100%;background:#6a4a2a;";
+          b.addEventListener("click", () => render(true));
+          wrap.appendChild(b);
+          return;
+        }
+        const msg = document.createElement("div");
+        msg.textContent = "所持金・装備・習得した呪文・進行状況がすべて消え、最初からになります。音量設定は残ります。";
+        msg.style.cssText = "font-size:12px;color:#6a4418;line-height:1.55;margin-bottom:8px;";
+        wrap.appendChild(msg);
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:10px;";
+        // ⚠ 『やめる』を左に置く。iOS のゴーストクリックは直前のタップ位置に落ちるため、非破壊側を当てる。
+        const no = document.createElement("button");
+        no.type = "button"; no.id = "btnWipeCancel"; no.textContent = "やめる";
+        no.style.cssText = ctx.btnCss() + "flex:1;";
+        no.addEventListener("click", () => render(false));
+        const yes = document.createElement("button");
+        yes.type = "button"; yes.id = "btnWipeConfirm"; yes.textContent = "消す";
+        yes.style.cssText = ctx.btnCss() + "flex:1;background:#8b2020;border-color:#c04040;";
+        yes.addEventListener("click", wipeAdventureRecord);
+        row.appendChild(no); row.appendChild(yes);
+        wrap.appendChild(row);
+        timer = setTimeout(() => render(false), 8000);
+      };
+      render(false);
+      return wrap;
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────
   // オープニング前口上ナレーション (index.html のナレ表示エンジンを移植)
