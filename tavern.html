@@ -1439,6 +1439,10 @@
       --pq-ribbon-a: #5b2230;        /* リボン (乾いた血の赤) */
       --pq-ribbon-b: #3a1420;
       --pq-glow: var(--parchment-gold);       /* 燐光 = 選択枠と牙貨だけ */
+      /* 挿絵 (討伐対象のペン画)。--pq-art-display: none の 1 行で丸ごと撤退できる。 */
+      --pq-art-display: block;
+      --pq-art-sepia:  0.55;         /* 白地を古紙色へ寄せる量。0 で白いまま浮く */
+      --pq-art-bright: 0.86;         /* 札の暗さへ合わせて落とす。上げるほど紙片が前に出る */
     }
     /* iPhone 縦持ちで依頼文が読めるよう 1 列縦積みを基本にする (3列グリッドは実機で破綻する) */
     #plazaQuestBoard .pqcardList { display: flex; flex-direction: column; gap: 14px; }
@@ -1494,6 +1498,32 @@
       margin: 8px 2px 10px; text-align: center;
       font-family: 'MedievalSharp', serif; font-size: 17px; line-height: 1.3;
       color: #f2e5c8; text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    }
+    /* ②' 挿絵 = 討伐対象のペン画 (タイトル直下の帯)。1980年代の英国ゲームブック風の白黒線画を
+       「札に古い刷り物を貼り付けた」見立てで置く。絵の左右余白ごと 1 枚の紙片として扱う。
+       ⚠ 原画は正方形、帯は 5:4 の横長。assets 側で【左右に白パディング】して 5:4 にしてある
+          (高さを削るクロップだと立ち姿の熊やグリフォンの頭と足から先に消えるため)。
+          よって object-fit:cover は実質 no-op で、比率が変わっても絵は歪まない。
+       ⚠ 白地のままだと闇市の暗い札から浮くので、sepia+brightness で古紙色へ落とし、
+          ::after の焼け縁で四辺を札へ馴染ませる (画像は素のまま = 調整は CSS 側だけで完結)。
+       ⚠ 単眼の暴君 (sovereign-eye) だけは挿絵を持たない。掲示板がボスの正体を伏せる仕様なので、
+          素直な挿絵はネタバレになる (JS 側 PQ_ART_FAMILIES から意図的に外してある)。 */
+    #plazaQuestBoard .pqArt {
+      display: var(--pq-art-display);
+      position: relative; margin: 0 2px 11px; border-radius: 2px; overflow: hidden;
+      border: 1px solid var(--pq-edge); background: #0f0a08;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.5);
+    }
+    #plazaQuestBoard .pqArt img {
+      display: block; width: 100%; aspect-ratio: 5 / 4; object-fit: cover;
+      filter: sepia(var(--pq-art-sepia)) brightness(var(--pq-art-bright)) contrast(1.04);
+    }
+    /* 焼け縁 = 紙片の四辺を暗く落として「貼ってある」ように見せる */
+    #plazaQuestBoard .pqArt::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at 50% 48%,
+        rgba(0,0,0,0) 46%, rgba(23,15,12,0.30) 78%, rgba(23,15,12,0.62) 100%);
+      box-shadow: inset 0 0 14px rgba(23,15,12,0.75);
     }
     /* ③ 依頼主ブロック + ④ 依頼文 (⚠ 全札に常時表示 = 並べて読み比べられるのが札方式の本体)。
        ⚠ 顔サムネは flex で横並びにせず【float で回り込ませる】。iPhone 縦持ち (390px) では札の
@@ -1731,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の依頼札に討伐対象の挿絵を追加</b> — 札の見出しの下に、狙う相手を描いた古い刷り物が貼られるようになった。</li>
         <li><b>依頼文の日本語を修正</b> — 目的語や語尾が重なって崩れていた依頼文が、すべて自然な文章で出るようになった。</li>
         <li><b>闇市の依頼札が本物の羊皮紙に</b> — ポドルプラザの闇仕事が、血と煤で汚れた古い羊皮紙の札で貼り出されるようになった。</li>
         <li><b>闇市の掲示板が依頼札になった</b> — 血と煤で汚れた札に依頼主の顔・依頼文・牙貨が並び、読み比べて選べる。</li>
-        <li><b>ドワーフの見た目を一新</b> — 全身板金鎧に有翼兜、赤い三つ編み髭の重戦士に。戦斧を振るう攻撃モーションも描き直し。</li>
       </ul>
     </div>
     <script>
@@ -5256,6 +5286,22 @@
     return '<img class="pqFace" src="' + card + '" data-pqfull="' + full + '" alt="" loading="lazy"' +
            ' onerror="' + PQ_FACE_ONERROR + '">';
   }
+  // 討伐対象の挿絵 (STEP2): familyId → assets/quest_foe_<familyId>.jpg。
+  //   原画は source_images/quest_foe_art/ (push 対象外)、焼き込みは tools/build_quest_foe_art.py。
+  // ⚠ ここに載っている id だけが挿絵を持つ。sovereign-eye (単眼の暴君) は掲示板がボスの正体を
+  //    伏せる仕様のため【意図的に不在】。素材を作って足すのではなく、この判断ごと残す。
+  const PQ_ART_FAMILIES = new Set([
+    "goblin", "caravan-escort", "bandit", "lizard", "orc-undead",
+    "chimera-beast", "griffon-aerie", "umber-delve", "ruin-beasts", "frontier-beast",
+  ]);
+  // 読めなかった時は帯ごと畳む (壊れアイコンで札を汚さない。顔サムネの段階退避と同じ方針)。
+  const PQ_ART_ONERROR = "var a=this.parentNode; if(a){a.style.display='none';}";
+  function plazaCardArtHtml(q) {
+    const id = q && q.family && q.family.id;
+    if (!id || !PQ_ART_FAMILIES.has(id)) return "";
+    return '<div class="pqArt"><img src="assets/quest_foe_' + id + '.jpg" alt="" loading="lazy"' +
+           ' onerror="' + PQ_ART_ONERROR + '"></div>';
+  }
   function renderPlazaBoard() {
     const board = document.getElementById("plazaQuestBoard");
     if (!board) return;
@@ -5264,7 +5310,7 @@
       return;
     }
     // 依頼札 (羊皮紙カード)。構成は docs/quest_card_mockup.md の 8 要素を闇市向けに読み替えたもの:
-    //   ①リボン「闇 仕 事」+ Tier/Lv バッジ ②タイトル=討伐対象 ③依頼主 (顔+名前) ④依頼文
+    //   ①リボン「闇 仕 事」+ Tier/Lv バッジ ②タイトル=討伐対象 ②'挿絵 ③依頼主 (顔+名前) ④依頼文
     //   ⑤罫線 ⑥主な討伐対象+場所 ⑦罫線 ⑧報酬 (フレーバー + 牙貨バッジ)
     // ⚠ 依頼文 (_sentence) は【全札に常時表示】する。旧実装は選択中の 1 件しか出さなかったが、
     //    札方式の本体は「並べて読み比べられる」ことなので、1 件だけの表示に戻してはいけない。
@@ -5277,6 +5323,7 @@
         '<div class="pqBadges"><span class="pqtier">' + q.tierLabel + '</span>' +
           '<span class="pqlv">Lv' + q.level + '</span></div>' +
         '<div class="pqtarget">' + q.target + '</div>' +
+        plazaCardArtHtml(q) +
         '<div class="pqClientRow">' + plazaCardFaceHtml(q) +
           '<div class="pqClientName">依頼主: ' + q.client + '</div>' +
           '<div class="pqSentence">' + (q._sentence || "") + '</div>' +
