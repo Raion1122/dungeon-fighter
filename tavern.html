@@ -1409,21 +1409,111 @@
     .plazaBtn:hover { background: rgba(80,40,120,0.5); box-shadow: 0 0 10px rgba(69,224,168,0.4); }
     .plazaBtn.small { font-size: 13px; padding: 6px 14px; }
     .plazaBtn:disabled { opacity: 0.4; cursor: not-allowed; }
-    /* 闇クエストカード */
-    #plazaQuestBoard .pqcardList { display: flex; flex-direction: column; gap: 8px; }
-    #plazaQuestBoard .pqcard {
-      border: 1px solid var(--parchment-border); border-radius: 5px; padding: 8px 10px;
-      cursor: pointer; background: rgba(80,40,140,0.10); transition: background .12s, border-color .12s;
+    /* ════════ 闇クエスト掲示板 = 依頼札 (羊皮紙カード) ════════
+       紙の質感は【直下の #plazaQuestBoard 変数ブロック】だけで決まる。羊皮紙テクスチャ PNG が
+       用意できたら --pq-paper-img を url(assets/parchment_plaza.png) に変えるだけで差替完了
+       (他のルールは一切触らない)。将来 酒場側へ同じ札を展開する時も、変数の上書きだけで色が変わる。
+       闇市は燐光グリーン (--parchment-gold: #45e0a8) がテーマなので、紙は明るいセピアにせず
+       「血と煤で汚れた」暗色にし、燐光は【選択枠と牙貨バッジ】にだけ残す (会議での決定)。 */
+    #plazaQuestBoard {
+      --pq-paper-img: none;          /* ⇦ 差替 1 行: none → url(assets/parchment_plaza.png) */
+      --pq-paper-hi:  #3d2c20;       /* 紙の明部 (中央) */
+      --pq-paper-mid: #2c2018;       /* 紙の地 */
+      --pq-paper-lo:  #170f0c;       /* 紙の暗部 (焼けた縁) */
+      --pq-grime: 0.55;              /* 汚れ (血・煤・シミ) の強度 0=清潔 〜 1=泥まみれ */
+      --pq-ink:      #e2d3b8;        /* 本文インク */
+      --pq-ink-soft: #a89377;        /* 小見出し・ラベル */
+      --pq-edge:     rgba(150,110,70,0.60);   /* 紙の縁と罫線 */
+      --pq-ribbon-a: #5b2230;        /* リボン (乾いた血の赤) */
+      --pq-ribbon-b: #3a1420;
+      --pq-glow: var(--parchment-gold);       /* 燐光 = 選択枠と牙貨だけ */
     }
-    #plazaQuestBoard .pqcard:hover { background: rgba(80,40,140,0.22); }
-    #plazaQuestBoard .pqcard.selected { border-color: var(--parchment-gold); background: rgba(69,224,168,0.14); box-shadow: 0 0 8px rgba(69,224,168,0.3); }
-    #plazaQuestBoard .pqcardHead { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; margin-bottom: 3px; }
-    #plazaQuestBoard .pqtier { color: var(--parchment-gold); font-family: 'MedievalSharp', serif; font-weight: bold; }
-    #plazaQuestBoard .pqtarget { color: var(--parchment-ink); text-align: right; }
-    #plazaQuestBoard .pqcardMeta { font-size: 11px; color: var(--parchment-ink); opacity: 0.88; }
-    #plazaQuestBoard .pqfang { color: var(--parchment-gold); }
-    #plazaQuestBoard .pqdetail { font-size: 12px; line-height: 1.7; color: var(--parchment-ink); opacity: 0.9; margin-top: 10px; min-height: 34px; font-style: italic; }
-    #plazaQuestBoard .pqactions { text-align: right; margin-top: 10px; }
+    /* iPhone 縦持ちで依頼文が読めるよう 1 列縦積みを基本にする (3列グリッドは実機で破綻する) */
+    #plazaQuestBoard .pqcardList { display: flex; flex-direction: column; gap: 14px; }
+    #plazaQuestBoard .pqcard {
+      position: relative; cursor: pointer;
+      padding: 27px 13px 12px; border-radius: 3px;
+      border: 1px solid var(--pq-edge); color: var(--pq-ink);
+      background-image:
+        var(--pq-paper-img),
+        radial-gradient(ellipse at 26% 16%, rgba(0,0,0,var(--pq-grime)) 0%, rgba(0,0,0,0) 46%),
+        radial-gradient(ellipse at 82% 78%, rgba(0,0,0,var(--pq-grime)) 0%, rgba(0,0,0,0) 42%),
+        radial-gradient(ellipse at 50% 46%, var(--pq-paper-hi) 0%, var(--pq-paper-mid) 58%, var(--pq-paper-lo) 100%);
+      background-size: cover, auto, auto, auto;
+      background-position: center center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.55), inset 0 0 26px rgba(0,0,0,0.55);
+      transition: box-shadow .12s, border-color .12s;
+    }
+    /* 紙の繊維ノイズ (テクスチャ PNG が入るまでのプレースホルダ。PNG 採用後は不要なら opacity 0 で殺せる) */
+    #plazaQuestBoard .pqcard::after {
+      content: ""; position: absolute; inset: 0; border-radius: 3px; pointer-events: none;
+      opacity: calc(var(--pq-grime) * 0.5); mix-blend-mode: overlay;
+      background:
+        repeating-linear-gradient(115deg, rgba(255,240,210,0.030) 0 2px, rgba(0,0,0,0) 2px 5px),
+        repeating-linear-gradient(22deg,  rgba(0,0,0,0.045) 0 3px, rgba(0,0,0,0) 3px 7px);
+    }
+    #plazaQuestBoard .pqcard:hover { border-color: rgba(190,150,100,0.9); }
+    #plazaQuestBoard .pqcard.selected {
+      border-color: var(--pq-glow);
+      box-shadow: 0 0 14px rgba(69,224,168,0.45), 0 2px 10px rgba(0,0,0,0.55), inset 0 0 26px rgba(0,0,0,0.50);
+    }
+    /* ① リボン見出し (札の上端。闇市なので「クエスト」ではなく「闇 仕 事」) */
+    #plazaQuestBoard .pqRibbon {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      padding: 3px 20px 4px; white-space: nowrap;
+      font-family: 'MedievalSharp', serif; font-size: 11px; letter-spacing: 4px;
+      color: #f0e2c4; background: linear-gradient(180deg, var(--pq-ribbon-a) 0%, var(--pq-ribbon-b) 100%);
+      border: 1px solid var(--pq-edge); border-top: none; border-radius: 0 0 4px 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+    #plazaQuestBoard .pqcard.selected .pqRibbon { border-color: var(--pq-glow); box-shadow: 0 0 10px rgba(69,224,168,0.4); }
+    #plazaQuestBoard .pqBadges { text-align: center; margin-top: 3px; }
+    #plazaQuestBoard .pqtier, #plazaQuestBoard .pqlv {
+      display: inline-block; margin: 0 3px; padding: 1px 7px; border-radius: 2px;
+      font-family: 'MedievalSharp', serif; font-size: 10.5px; letter-spacing: 1px;
+      color: var(--pq-ink-soft); border: 1px solid var(--pq-edge); background: rgba(0,0,0,0.28);
+    }
+    /* ② タイトル = 討伐対象 */
+    #plazaQuestBoard .pqtarget {
+      margin: 8px 2px 10px; text-align: center;
+      font-family: 'MedievalSharp', serif; font-size: 17px; line-height: 1.3;
+      color: #f2e5c8; text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    }
+    /* ③ 依頼主ブロック + ④ 依頼文 (⚠ 全札に常時表示 = 並べて読み比べられるのが札方式の本体)。
+       ⚠ 顔サムネは flex で横並びにせず【float で回り込ませる】。iPhone 縦持ち (390px) では札の
+          内寸が約 263px しか無く、flex にすると依頼文が 191px まで痩せて 1 行 15 文字を切る
+          (実測)。float なら顔の下の行が全幅 263px を使えるので読み幅が戻る。 */
+    #plazaQuestBoard .pqClientRow { display: block; }
+    #plazaQuestBoard .pqClientRow::after { content: ""; display: block; clear: both; }
+    /* サムネは元画像の縦横比がバラつく (200x251〜260) ので object-fit:cover で切り抜く
+       (cover なので高さを固定しても歪まない)。顔が上部にあるため object-position を上寄りに。 */
+    #plazaQuestBoard .pqFace {
+      float: left; margin: 1px 10px 5px 0;
+      width: 62px; aspect-ratio: 1 / 1;
+      object-fit: cover; object-position: 50% 14%;
+      border: 1px solid var(--pq-edge); border-radius: 3px; background: rgba(0,0,0,0.35);
+      filter: sepia(0.30) contrast(1.05) brightness(0.95);
+    }
+    #plazaQuestBoard .pqClientName { font-size: 12px; color: var(--pq-ink-soft); margin-bottom: 4px; }
+    #plazaQuestBoard .pqSentence { font-size: 12.5px; line-height: 1.65; color: var(--pq-ink); }
+    /* ⑤⑦ 罫線 */
+    #plazaQuestBoard .pqRule {
+      height: 1px; margin: 10px 2px;
+      background: linear-gradient(90deg, rgba(0,0,0,0) 0%, var(--pq-edge) 14%, var(--pq-edge) 86%, rgba(0,0,0,0) 100%);
+    }
+    /* ⑥ 討伐対象ブロック */
+    #plazaQuestBoard .pqLabel { font-size: 10px; letter-spacing: 2px; color: var(--pq-ink-soft); }
+    #plazaQuestBoard .pqFamily { margin-top: 2px; font-family: 'MedievalSharp', serif; font-size: 14px; color: #f0dfbe; }
+    #plazaQuestBoard .pqPlace { margin-top: 2px; font-size: 11.5px; color: var(--pq-ink); opacity: 0.85; }
+    /* ⑧ 報酬行 (牙貨だけ燐光で光らせる) */
+    #plazaQuestBoard .pqRewardRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #plazaQuestBoard .pqReward { flex: 1 1 auto; font-size: 12.5px; color: var(--pq-ink); }
+    #plazaQuestBoard .pqfang {
+      font-family: 'MedievalSharp', serif; font-size: 13px; color: #0c1a14;
+      background: var(--pq-glow); border-radius: 3px; padding: 2px 8px;
+      box-shadow: 0 0 10px rgba(69,224,168,0.45);
+    }
+    #plazaQuestBoard .pqactions { text-align: right; margin-top: 12px; }
     /* 闇市商店 */
     #plazaShop .pshopList { display: flex; flex-direction: column; gap: 9px; }
     #plazaShop .pshopItem { border: 1px solid var(--parchment-border); border-radius: 5px; padding: 8px 10px; background: rgba(80,40,140,0.08); }
@@ -1625,10 +1715,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の掲示板が依頼札になった</b> — 血と煤で汚れた札に依頼主の顔・依頼文・牙貨が並び、読み比べて選べる。</li>
         <li><b>ドワーフの見た目を一新</b> — 全身板金鎧に有翼兜、赤い三つ編み髭の重戦士に。戦斧を振るう攻撃モーションも描き直し。</li>
         <li><b>魔法使いの姿を「紅髪の魔道士」に一新</b> — 杖の先に光を集めて呪文弾を放つ、新しい詠唱モーション付き。</li>
         <li><b>ゴブリンライダーの姿を一新</b> — 狼にまたがる槍兵の専用グラフィックになり、他のゴブリンの色違いではなくなった。</li>
-        <li><b>主人公が状況を読んで技を選び、狙いを一言つぶやくように</b> — とどめ・仲間の危機・開幕の構えなど、際立つ選択の時だけ理由が戦闘ログに一行流れる。</li>
       </ul>
     </div>
     <script>
@@ -5138,6 +5228,18 @@
     closePlaza();
     openPrep(synthetic);
   }
+  // 依頼主の顔サムネ: 元 portrait の "…​.png" → "…_card.png" (札用の 200px 幅・RGBA 透過版) を
+  //   命名規則だけで導出する。⚠ QuestGen 側のデータテーブル (DATA.plazaClients) は触らない。
+  //   読めなかった時は onerror で 元 portrait → それでも駄目なら非表示、と段階的に退避して札を壊さない。
+  const PQ_FACE_ONERROR =
+    "if(this.dataset.pqfb){this.style.display='none';}else{this.dataset.pqfb='1';this.src=this.dataset.pqfull;}";
+  function plazaCardFaceHtml(q) {
+    const full = (q && q.clientPortrait) || "";
+    if (!full) return "";
+    const card = full.replace(/\.png$/i, "_card.png");
+    return '<img class="pqFace" src="' + card + '" data-pqfull="' + full + '" alt="" loading="lazy"' +
+           ' onerror="' + PQ_FACE_ONERROR + '">';
+  }
   function renderPlazaBoard() {
     const board = document.getElementById("plazaQuestBoard");
     if (!board) return;
@@ -5145,19 +5247,35 @@
       board.innerHTML = '<div class="plazaStub">今は出ている闇仕事が無い……出直しな。</div>';
       return;
     }
+    // 依頼札 (羊皮紙カード)。構成は docs/quest_card_mockup.md の 8 要素を闇市向けに読み替えたもの:
+    //   ①リボン「闇 仕 事」+ Tier/Lv バッジ ②タイトル=討伐対象 ③依頼主 (顔+名前) ④依頼文
+    //   ⑤罫線 ⑥主な討伐対象+場所 ⑦罫線 ⑧報酬 (フレーバー + 牙貨バッジ)
+    // ⚠ 依頼文 (_sentence) は【全札に常時表示】する。旧実装は選択中の 1 件しか出さなかったが、
+    //    札方式の本体は「並べて読み比べられる」ことなので、1 件だけの表示に戻してはいけない。
     let html = '<div class="pqcardList">';
     plazaQuests.forEach((q, i) => {
       const sel = i === plazaSelectedIdx ? " selected" : "";
+      const foe = (q.family && (q.family.label || q.family.minionLabel)) || q.target;
       html += '<div class="pqcard' + sel + '" data-idx="' + i + '">' +
-        '<div class="pqcardHead"><span class="pqtier">' + q.tierLabel + '・Lv' + q.level + '</span>' +
-        '<span class="pqtarget">' + q.target + '</span></div>' +
-        '<div class="pqcardMeta">依頼主: ' + q.client + ' ／ 場所: ' + q.place + '</div>' +
-        '<div class="pqcardMeta">報酬: ' + q.reward + ' ＋ <b class="pqfang">牙貨 ' + q.fangReward + '</b></div>' +
+        '<div class="pqRibbon">闇 仕 事</div>' +
+        '<div class="pqBadges"><span class="pqtier">' + q.tierLabel + '</span>' +
+          '<span class="pqlv">Lv' + q.level + '</span></div>' +
+        '<div class="pqtarget">' + q.target + '</div>' +
+        '<div class="pqClientRow">' + plazaCardFaceHtml(q) +
+          '<div class="pqClientName">依頼主: ' + q.client + '</div>' +
+          '<div class="pqSentence">' + (q._sentence || "") + '</div>' +
+        '</div>' +
+        '<div class="pqRule"></div>' +
+        '<div class="pqFoe"><div class="pqLabel">主な討伐対象</div>' +
+          '<div class="pqFamily">' + foe + '</div>' +
+          '<div class="pqPlace">場所: ' + q.place + '</div></div>' +
+        '<div class="pqRule"></div>' +
+        '<div class="pqRewardRow"><span class="pqLabel">報酬</span>' +
+          '<span class="pqReward">' + q.reward + '</span>' +
+          '<b class="pqfang">牙貨 ' + q.fangReward + '</b></div>' +
         '</div>';
     });
     html += '</div>';
-    const detail = plazaSelectedIdx >= 0 ? plazaQuests[plazaSelectedIdx]._sentence : "依頼を選ぶと、依頼主の言葉が聞ける……";
-    html += '<div class="pqdetail">' + detail + '</div>';
     html += '<div class="pqactions"><button type="button" id="btnPlazaDepart" class="plazaBtn small"' + (plazaSelectedIdx < 0 ? ' disabled' : '') + '>この闇仕事で出発</button></div>';
     board.innerHTML = html;
     board.querySelectorAll(".pqcard").forEach(c => c.addEventListener("click", () => {
