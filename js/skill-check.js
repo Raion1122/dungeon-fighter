@@ -84,6 +84,15 @@
   var AUTO_ROLL_MS = 2000;
 
   // === §7 代表者自動選出（formationソート方針流用・classKey参照） ======
+  // 装備由来の技能ボーナス。member.skillBonus = { <checkKey>: N }（呼び出し側が装備から合算して渡す）。
+  // ★ opts.extraBonus と違い「持ち主にしか乗らない」。これが重要で、extraBonus は代表者へ無条件に
+  //   加算されるため「装備していない者が代表になると、その人にボーナスが乗る」嘘が起きる。
+  //   個人に持たせることで ①持ち主だけ上がる ②代表者の選出そのものが装備で変わる の両方が成立する。
+  function itemBonus(member, checkDef) {
+    if (!member || !checkDef || !member.skillBonus) return 0;
+    var v = member.skillBonus[checkDef.profKey];
+    return (typeof v === "number" && isFinite(v)) ? v : 0;
+  }
   function checkScore(member, checkDef) {
     if (!member || !checkDef) return 0;
     var ab = CLASS_ABILITIES[member.classKey];
@@ -91,7 +100,7 @@
     var mod = abilityModifier(ab[checkDef.ability]);
     var profs = CLASS_PROFICIENCIES[member.classKey] || [];
     var prof = profs.indexOf(checkDef.profKey) >= 0 ? PROFICIENCY_BONUS : 0;
-    return mod + prof;
+    return mod + prof + itemBonus(member, checkDef);
   }
 
   // 修正値の内訳（パネルの代表行で内訳表示するため）。total（extra=0,help=0）は checkScore と一致。
@@ -102,13 +111,14 @@
     var abilityMod = (ab && checkDef) ? abilityModifier(ab[checkDef.ability]) : 0;
     var profs = (member && CLASS_PROFICIENCIES[member.classKey]) || [];
     var prof = (checkDef && profs.indexOf(checkDef.profKey) >= 0) ? PROFICIENCY_BONUS : 0;
+    var item = ab ? itemBonus(member, checkDef) : 0;   // checkScore と同じく未知クラスは 0 で揃える
     var extra = extraBonus || 0;
     var help = helpBonus || 0;
     return {
       abilityKey: checkDef ? checkDef.ability : "",
       abilityAbbr: (checkDef && ABILITY_ABBR[checkDef.ability]) || "",
-      abilityMod: abilityMod, prof: prof, extra: extra, help: help,
-      total: abilityMod + prof + extra + help,
+      abilityMod: abilityMod, prof: prof, item: item, extra: extra, help: help,
+      total: abilityMod + prof + item + extra + help,
     };
   }
 
@@ -288,6 +298,7 @@
     var parts = [];
     if (bd.abilityAbbr) parts.push(bd.abilityAbbr + sgn(bd.abilityMod));
     if (bd.prof) parts.push("習" + sgn(bd.prof));
+    if (bd.item) parts.push("装" + sgn(bd.item));   // 装備由来 (軽業師の革装束など)
     if (bd.help) parts.push("助" + sgn(bd.help));   // 補助役からの Help ボーナス
     if (bd.extra) parts.push("技" + sgn(bd.extra));
     return (parts.length ? parts.join(" ") + " " : "") + totalStr;
@@ -343,7 +354,7 @@
       // ロスター行を生成（人数可変・隊列順）。空なら代表のみの1行へフォールバック。
       if (!roster || !roster.length) {
         roster = [{ member: rep, name: (rep && rep.name) || "—", isRep: true, isHelper: false,
-          breakdown: { abilityAbbr: "", abilityMod: 0, prof: 0, extra: 0, help: 0, total: bonus } }];
+          breakdown: { abilityAbbr: "", abilityMod: 0, prof: 0, item: 0, extra: 0, help: 0, total: bonus } }];
       }
       rosterEl.innerHTML = "";
       roster.forEach(function (r) {
@@ -487,6 +498,7 @@
     // テスト/内部用
     checkScoreBreakdown: checkScoreBreakdown,
     _checkScoreBreakdown: checkScoreBreakdown,
+    _itemBonus: itemBonus,
     _computeOutcome: computeOutcome,
     _resolveDc: resolveDc,
     _d20: d20,

@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>盗賊の新しい魔法の革鎧</b> — 「軽業師の革装束」を着た盗賊は、罠の解除と鍵開けのロールに強くなる。</li>
         <li><b>闇市の依頼札に討伐対象の挿絵を追加</b> — 札の見出しの下に、狙う相手を描いた古い刷り物が貼られるようになった。</li>
         <li><b>依頼文の日本語を修正</b> — 目的語や語尾が重なって崩れていた依頼文が、すべて自然な文章で出るようになった。</li>
         <li><b>闇市の依頼札が本物の羊皮紙に</b> — ポドルプラザの闇仕事が、血と煤で汚れた古い羊皮紙の札で貼り出されるようになった。</li>
-        <li><b>闇市の掲示板が依頼札になった</b> — 血と煤で汚れた札に依頼主の顔・依頼文・牙貨が並び、読み比べて選べる。</li>
       </ul>
     </div>
     <script>
@@ -2658,6 +2658,11 @@
     { name: "盗賊の革装束",      spec: "AC +0",    flavor: "黒く染め抜かれた軽量の革装、足音を吸収する", enhancement: 0, rarity: "common" },
     { name: "革紐鎧 +1",         spec: "AC +1",    flavor: "革紐で編み上げた強化軽鎧、関節を縛らない", enhancement: 1, rarity: "uncommon" },
     { name: "影紋のレザー +2",   spec: "AC +2",    flavor: "暗紋を刻んだ高級革鎧、闇に溶け込む紋様入り", enhancement: 2, rarity: "rare" },
+    // 第3弾「生き延びる者の遺品」: 軽業師の革装束。AC は最上位と同値のまま、罠解除/開錠
+    //   (どちらも sleightOfHand 判定) に +2。効果は js/skill-check.js の checkScore が skillBonus を読む。
+    //   ⚠ index.html の ROGUE_ARMORS と name / enhancement / skillBonus を完全一致させること。
+    { name: "軽業師の革装束",    spec: "AC +2 / 罠・鍵 +2", flavor: "軽業師が誂えた革装。指先の感覚を殺さぬよう薄く鞣され、錠前と罠の気配をよく拾う", enhancement: 2, rarity: "special", gated: true,
+      skillBonus: { sleightOfHand: 2 } },
   ];
   const ROGUE_SHIELDS = [
     { name: "なし",              spec: "—",        flavor: "両手を空ける標準スタイル (二刀流向き)", enhancement: 0, rarity: "common" },
@@ -4021,6 +4026,36 @@
   // 準備画面で潜るパーティが判定を宣言し、出目しだいで攻略前情報を得る。
   // 各行動は openPrep ごとに1回 (prepIntelUsed)。失敗=情報なし・罰則なし。
   // ─────────────────────────────────────────────────────────────
+  // 装備由来の技能判定ボーナス (index.html の getUnitSkillBonus と対になる酒場側)。
+  // js/skill-check.js の checkScore がメンバー個人の値として読むので、持ち主にしか乗らず、
+  // 代表者の選出 (selectRepresentative) もこの値込みで決まる。
+  function tvSkillBonusFor(classKey, isHero) {
+    const out = {};
+    const add = (it) => {
+      if (!it || !it.skillBonus) return;
+      for (const k of Object.keys(it.skillBonus)) {
+        const v = Number(it.skillBonus[k]);
+        if (isFinite(v) && v !== 0) out[k] = (out[k] || 0) + v;
+      }
+    };
+    const pool = CHAR_EQUIP[classKey];
+    const sel = getEquipSelection(classKey);
+    if (pool && sel) {
+      const at = (arr, i) => (arr && arr.length) ? arr[Math.max(0, Math.min(i | 0, arr.length - 1))] : null;
+      add(at(pool.weapons, sel.weapon));
+      add(at(pool.armors,  sel.armor));
+      add(at(pool.shields, sel.shield));
+    }
+    // アクセサリー2枠は主人公のみ。第3弾 Phase 2 の魔法使い専用アクセはここに乗る
+    // (現状 ACCESSORIES_TV に skillBonus を持つ項目は無いので実質 no-op)。
+    if (isHero) {
+      [selection.equipAccessory1, selection.equipAccessory2].forEach((id) => {
+        if (!id || id === "none") return;
+        add(ACCESSORIES_TV.find((a) => a && a.id === id));
+      });
+    }
+    return out;
+  }
   function buildPrepParty() {
     const members = selection.partyMembers || [];
     const nameOf = (k) => { const s = PARTY_SLOTS.find(x => x && x.classKey === k); return s ? s.name : k; };
@@ -4028,6 +4063,7 @@
       classKey: m.classKey,
       name: m.isHero ? nameOf(m.classKey) : (m.name || nameOf(m.classKey)),
       isHero: !!m.isHero,
+      skillBonus: tvSkillBonusFor(m.classKey, !!m.isHero),
     }));
   }
 

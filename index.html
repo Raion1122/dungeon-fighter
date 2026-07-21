@@ -9728,6 +9728,39 @@
       return getUnitAccessoryIndices(unit || "player")
         .some(i => accessories[i] && accessories[i].id === id);
     }
+    // ── 第3弾「生き延びる者の遺品」: 装備由来の技能判定ボーナス ──────────────
+    // 装備の skillBonus = { <SkillCheck.CHECKS のキー>: N }。js/skill-check.js の checkScore が
+    // メンバー個人の値として読む (= 持ち主にしか乗らず、代表者の選出そのものが装備で変わる)。
+    // ★ opts.extraBonus は使わない: あれは代表者へ無条件に乗るため、装備していない者が得をする。
+    function mergeSkillBonusInto(dst, item) {
+      if (!item || !item.skillBonus) return dst;
+      for (const k of Object.keys(item.skillBonus)) {
+        const v = Number(item.skillBonus[k]);
+        if (isFinite(v) && v !== 0) dst[k] = (dst[k] || 0) + v;
+      }
+      return dst;
+    }
+    // unit: "player" (リーダー) | ally オブジェクト。hasFreeAction と同じ引数規約。
+    // 武器/防具/盾 + 装備中アクセの skillBonus を合算して返す (無ければ空オブジェクト)。
+    function getUnitSkillBonus(unit) {
+      const out = {};
+      if (unit === "player") {
+        mergeSkillBonusInto(out, getCurrentWeapon());
+        mergeSkillBonusInto(out, getCurrentArmor());
+        mergeSkillBonusInto(out, getCurrentShield());
+      } else if (unit && unit.classKey) {
+        const pool = (typeof ALLY_EQUIP_POOLS !== "undefined") ? ALLY_EQUIP_POOLS[unit.classKey] : null;
+        const sel  = (typeof allyEquipSelection !== "undefined") ? allyEquipSelection[unit.classKey] : null;
+        if (pool && sel) {
+          const at = (arr, i) => (arr && arr.length) ? arr[Math.max(0, Math.min(i | 0, arr.length - 1))] : null;
+          mergeSkillBonusInto(out, at(pool.weapons, sel.weapon));
+          mergeSkillBonusInto(out, at(pool.armors,  sel.armor));
+          mergeSkillBonusInto(out, at(pool.shields, sel.shield));
+        }
+      }
+      for (const acc of getEquippedAccessories(unit || "player")) mergeSkillBonusInto(out, acc);
+      return out;
+    }
     // 装備中のアクセサリーから kind ("all" | "arrow") の回避率を合算
     function getTotalAvoidance(kind, unit) {
       if (sovereignSuppressed(unit || "player")) return 0;   // C4 ④b: 帯の上では回避のマジックアイテムは死ぬ
@@ -16044,6 +16077,12 @@
       { name: "盗賊の革装束",      enhancement: 0 },
       { name: "革紐鎧 +1",         enhancement: 1 },
       { name: "影紋のレザー +2",   enhancement: 2 },
+      // 第3弾「生き延びる者の遺品」: 軽業師の革装束。AC は最上位と同値 (enh 2) のまま、
+      //   罠解除/開錠 (どちらも sleightOfHand 判定) に +2。デメリットは持たせない。
+      //   gated=通常入手不可 (ラダー/ショップから除外・マジックアイテム抽選プール限定)。
+      //   ⚠ tavern.html の ROGUE_ARMORS と name を完全一致させること (所持ティアが index 共有のため)。
+      { name: "軽業師の革装束",    enhancement: 2, rarity: "special", gated: true,
+        skillBonus: { sleightOfHand: 2 } },
     ];
     const ROGUE_SHIELDS = [
       { name: "なし",              enhancement: 0 },
@@ -17023,6 +17062,29 @@
       return null;
     }
 
+    // ── 第3弾: 非戦士リーダーの装備ドロップを永続化するための小道具 ──────────
+    // 非戦士リーダーの装備選択は allyEquip[職] が権威 (酒場もここを読む)。index はこれまで
+    // 書き出していなかったので、拾った gated 装備を持ち帰れるように writer を用意する。
+    function persistAllyEquipSelection() {
+      try {
+        const out = {};
+        for (const key of Object.keys(allyEquipSelection)) {
+          if (key === "warrior") continue;               // 戦士は equip*Idx 側が権威 (酒場も別枠で持つ)
+          const s = allyEquipSelection[key];
+          if (s) out[key] = { weapon: s.weapon | 0, armor: s.armor | 0, shield: s.shield | 0 };
+        }
+        localStorage.setItem("dragonfighters.allyEquip", JSON.stringify(out));
+      } catch (e) { /* silent */ }
+    }
+    function readStoredIdx(key) {
+      try { const v = Number(localStorage.getItem(key)); return isFinite(v) ? (v | 0) : 0; } catch (e) { return 0; }
+    }
+    // 高水位 (*Idx) は引き上げるだけ。酒場の loadOwnedEquip がこれを見て所持ティアを再構成するため、
+    // 下げると「拾ったのに酒場で選べない」になる。
+    function bumpStoredIdx(key, idx) {
+      try { if ((idx | 0) > readStoredIdx(key)) localStorage.setItem(key, String(idx | 0)); } catch (e) { /* silent */ }
+    }
+
     // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
     function rollMagicItemDrop() {
       const pool = [];
@@ -17031,6 +17093,14 @@
         for (let i = 0; i < weapons.length; i++) {
           if (weapons[i].gated && i > currentWeaponIndex) pool.push({ kind: "weapon", idx: i });
         }
+      }
+      // 第3弾: gated 防具 (リーダーの職業プール限定)。現在の防具より上位 = アップグレードのみ。
+      //   getLeaderArmors/getLeaderArmorIdx は戦士なら armors/currentArmorIndex、非戦士なら
+      //   ALLY_EQUIP_POOLS[職].armors と allyEquipSelection[職].armor を返す (既存ヘルパー)。
+      const leaderArmors = getLeaderArmors();
+      const leaderArmorIdx = getLeaderArmorIdx();
+      for (let i = 0; i < leaderArmors.length; i++) {
+        if (leaderArmors[i] && leaderArmors[i].gated && i > leaderArmorIdx) pool.push({ kind: "armor", idx: i });
       }
       // v7.4 STEP3/4: gated アクセ (指輪) のうち、装着できる PT メンバーが居るもの (職業非依存)。
       //   pool に足すほど各アイテムは自然に激レア化 =「何が出るか楽しみ」体験。
@@ -17049,6 +17119,23 @@
           localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
         } catch (e) { /* silent */ }
         return { name: weapons[pick.idx].name, kind: "weapon" };
+      }
+      if (pick.kind === "armor") {
+        const gotName = leaderArmors[pick.idx].name;
+        if (leaderClassKey === "warrior") {
+          currentArmorIndex = pick.idx;
+          try {
+            localStorage.setItem("dragonfighters.armorIdx",      String(currentArmorIndex));
+            localStorage.setItem("dragonfighters.equipArmorIdx", String(currentArmorIndex));
+          } catch (e) { /* silent */ }
+        } else {
+          // 非戦士リーダー: 装備選択は allyEquip[職] が権威。armorIdx は所持の高水位なので引き上げる
+          //   (酒場の loadOwnedEquip がこれを読んで所持ティアへ追加する = 拾った実感がショップにも出る)。
+          if (allyEquipSelection[leaderClassKey]) allyEquipSelection[leaderClassKey].armor = pick.idx;
+          persistAllyEquipSelection();
+          bumpStoredIdx("dragonfighters.armorIdx", pick.idx);
+        }
+        return { name: gotName, kind: "armor" };
       }
       if (pick.kind === "accessory") {
         const r = pick.recipient;
@@ -18297,11 +18384,15 @@
     function buildPerceptionParty() {
       const party = [];
       if (hp > 0 && !gameOver) {
-        party.push({ classKey: leaderClassKey, name: getLeaderName(), isHero: true });
+        party.push({ classKey: leaderClassKey, name: getLeaderName(), isHero: true,
+                     skillBonus: getUnitSkillBonus("player") });
       }
       for (const a of allies) {
         if (!a.alive) continue;
-        party.push({ classKey: a.classKey, name: a.npcName || (a.def && a.def.name) || "仲間" });
+        // skillBonus = 装備由来の判定ボーナス (軽業師の革装束など)。持ち主のスコアだけが上がり、
+        //   代表者の選出 (selectRepresentative) にもそのまま効く。
+        party.push({ classKey: a.classKey, name: a.npcName || (a.def && a.def.name) || "仲間",
+                     skillBonus: getUnitSkillBonus(a) });
       }
       return party;
     }
@@ -25849,7 +25940,10 @@
         try {
           localStorage.setItem("dragonfighters.gold",      String(newTotalGold));
           localStorage.setItem("dragonfighters.weaponIdx", String(winSafeWeaponIdx));
-          localStorage.setItem("dragonfighters.armorIdx",  String(winSafeArmorIdx));
+          // armorIdx は「所持の高水位」。非戦士リーダーが拾った gated 防具の水位を、戦士配列由来の
+          //   winSafeArmorIdx で下げてしまわないよう max を取る (equipArmorIdx は"選択"なので従来通り)。
+          localStorage.setItem("dragonfighters.armorIdx",
+            String(Math.max(winSafeArmorIdx, readStoredIdx("dragonfighters.armorIdx"))));
           localStorage.setItem("dragonfighters.shieldIdx", String(winSafeShieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
           // 装備選択も同様に保護 (拾った上位装備があれば反映、ランで下がっても出発時を維持)
@@ -25967,7 +26061,9 @@
         try {
           localStorage.setItem("dragonfighters.gold",      String(retreatTotalGold));
           localStorage.setItem("dragonfighters.weaponIdx", String(safeWeaponIdx));
-          localStorage.setItem("dragonfighters.armorIdx",  String(safeArmorIdx));
+          // 勝利時と同じく armorIdx (所持の高水位) は下げない。
+          localStorage.setItem("dragonfighters.armorIdx",
+            String(Math.max(safeArmorIdx, readStoredIdx("dragonfighters.armorIdx"))));
           localStorage.setItem("dragonfighters.shieldIdx", String(safeShieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
           // 装備選択は「出発時より下がらない」を保証しつつ、ランで拾った装備があれば反映
