@@ -183,6 +183,15 @@
       "walk_dir": "sorceress/sorceress-walk-right-6-v1",
       "attack_dir": "sorceress/sorceress-cast-right-6-v1-matched",
       "note": "魔法使い (プレイヤー/NPC 共通の正規シート)。攻撃モーションは attack でなく cast (杖から呪文弾)。⚠️ char_ratio に --match-current の実測値 0.7604 を使ってはいけない: 現行 chibi 魔法使いは『とんがり帽子』で 14px かさ上げされており、bbox 73px のうち体は 59px しかない。帽子の無いソーサレスを 0.7604 で焼くと全身 73px = 戦士 57px より 28% 高い巨人になる。0.6146 = 59/96 = 現行の『体』の高さ実測 (僧侶 59 / ドワーフ 58 / 戦士 57 と同格。ユーザー選択『A: パーティと同格』)。displaySize 96 据置=当たり判定不変"
+    },
+    {
+      "key": "dwarf-fullplate-warrior", "out": "assets/dwarf_walk.png",
+      "attack_out": "assets/dwarf_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.604167, "scale_from": "walk", "center": "feet",
+      "walk_dir": "dwarf-fullplate-warrior/dwarf-fullplate-warrior-walk-right-6",
+      "attack_dir": "dwarf-fullplate-warrior/dwarf-fullplate-warrior-attack-right-6-matched",
+      "note": "ドワーフ (プレイヤー/NPC 共通の正規シート)。フルプレート + 有翼兜 + 赤い三つ編み髭 + 戦斧 + 背中の丸盾。char_ratio = --match-current の実測 (58px / 96) をそのまま採用してよい稀なケース: 現行 chibi ドワーフも角付き兜で bbox がかさ上げされており (col3 の y=34 は w=19 なのに実画素 4 = 角の先端2点)、素材側も有翼兜なので『兜込み同士』で揃う。出力実測で検証済み = 体の高さ NEW 55px / CUR 55px と一致、bbox 57 vs 58 は LANCZOS 丸めの ±1px。⚠️ 素の -attack-right-6 は walk の 81% しかなく攻撃時に縮むので必ず -matched を使う。-matched は walk(408) より 9% 高い(445)ので scale_from=walk が必須。⚠️ walk のフレーム名だけ -6 が入らない (…-walk-right-safe-frame-0N.png) ので glob 必須。素材の生画素にはマゼンタ縁が 0.778% 残っているが pack 後の出力では 0.000% (恒久教訓: 生画素でなく出力を測る)。displaySize 96 据置=当たり判定不変"
     }
   ]
 }

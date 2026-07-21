@@ -3602,7 +3602,7 @@
       warrior: { walk: WARRIOR_WALK_URL, attack: WARRIOR_ATTACK_URL,
                  walkSize: WARRIOR_WALK_SIZE, attackSize: WARRIOR_ATTACK_SIZE,
                  guard: WARRIOR_GUARD },
-      dwarf:   { walk: 'url("assets/dwarf_walk.png")',   attack: 'url("assets/dwarf_attack.png")',
+      dwarf:   { walk: 'url("assets/dwarf_walk.png?v=5")',   attack: 'url("assets/dwarf_attack.png?v=5")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       cleric:  { walk: 'url("assets/cleric_walk.png")',  attack: 'url("assets/cleric_attack.png")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
@@ -10903,9 +10903,9 @@
 
     // 仲間用アニメーション (knight_simple.png 流用)
     // 行: walk[down=0, up=1, left=2, right=3], attack[4-7], cast[8-11]
-    const DWARF_WALK_URL   = 'url("assets/dwarf_walk.png?v=3")';
+    const DWARF_WALK_URL   = 'url("assets/dwarf_walk.png?v=5")';
     const DWARF_WALK_SIZE  = "576px 384px";
-    const DWARF_ATTACK_URL = 'url("assets/dwarf_attack.png?v=4")';
+    const DWARF_ATTACK_URL = 'url("assets/dwarf_attack.png?v=5")';
     const DWARF_ATTACK_SIZE = "480px 384px";
     const CLERIC_WALK_URL   = 'url("assets/cleric_walk.png?v=2")';
     const CLERIC_WALK_SIZE  = "576px 384px";
@@ -15494,7 +15494,7 @@
       dwarf: {
         name: "ドワーフ",
         flavor: "岩のような頑強さを誇る前衛",
-        sprite: "assets/dwarf_walk.png?v=2",  // 専用歩行シート (4方向×6F)
+        sprite: "assets/dwarf_walk.png?v=5",  // 専用歩行シート (4方向×6F)
         displaySize: 96,
         hpMax: 36,
         mpMax: 0,
