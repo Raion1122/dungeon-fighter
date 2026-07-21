@@ -30,7 +30,14 @@
       "attack_scale": 0.85,
       "walk_dir": "goblin/final/walk",
       "attack_dir": "goblin/goblin-attack-right-6-v3-matched",
-      "note": "v8.10。attack を v3-matched へ差替 (攻撃時に本体が縮む不具合を解消: 旧 attack row H_max 48px→約74px)。char_ratio=現行 goblin_anim の walk 行実測 (81/96) で displaySize 66 不変=当たり判定不変。attack が前方へ大きく踏み込み枠を越えるため scale_from=walk + center=feet-fit + attack_scale=0.85 (歩き中央維持と両立せず攻撃完全表示を優先)。goblin / Shaman / Brute / Rider の4体で共有 (Archer と King は専用シートへ分離済)"
+      "note": "v8.10。attack を v3-matched へ差替 (攻撃時に本体が縮む不具合を解消: 旧 attack row H_max 48px→約74px)。char_ratio=現行 goblin_anim の walk 行実測 (81/96) で displaySize 66 不変=当たり判定不変。attack が前方へ大きく踏み込み枠を越えるため scale_from=walk + center=feet-fit + attack_scale=0.85 (歩き中央維持と両立せず攻撃完全表示を優先)。goblin / Shaman / Brute の3体で共有 (Archer / King / Rider は専用シートへ分離済)"
+    },
+    {
+      "key": "goblinRider", "out": "assets/goblinRider_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.8333, "scale_from": "walk", "center": "feet",
+      "walk_dir": "goblin-rider/goblin-rider-walk-right-6",
+      "attack_dir": "goblin-rider/goblin-rider-attack-right-6-matched",
+      "note": "v8.11。共有 goblin_anim から分離 (狼にまたがる槍兵の専用アート)。char_ratio = 現行 goblin_anim の walk 行実測 (80/96 = 0.8333) を焼き込み → displaySize 74 据置=当たり判定不変。騎乗ユニットだがアスペクトほぼ 1.0 (walk W344/H337) なので正方セルに収まる (fit left=7 right=95 top=10)。attack の -matched が高さをよく揃えている (walk H_max 337 / attack 340) ため center=feet のままで walk⇄attack の横滑りは 3.4px (画面上 2.6px)。分離に伴い .enemy-goblinRider の hue-rotate 色替えフィルタを index.html から除去"
     },
     {
       "key": "hobgoblin", "out": "assets/hobgoblin_anim.png", "format": "enemy",

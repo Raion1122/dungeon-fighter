@@ -293,14 +293,14 @@
       /* ラベル色も仲間と揃える (.allyLabel を継承、差分なし) */
     }
 
-    /* ゴブリン亜種: 共有 goblin_anim.png を色替えで差別化 (Shaman/Brute/Rider の3体のみ) */
+    /* ゴブリン亜種: 共有 goblin_anim.png を色替えで差別化 (Shaman/Brute の2体のみ) */
     .enemy-goblinShaman { filter: hue-rotate(110deg) saturate(1.4) brightness(0.85); }
     .enemy-goblinBrute  { filter: hue-rotate(-40deg) saturate(1.6) brightness(0.75); }
-    .enemy-goblinRider  { filter: hue-rotate(200deg) saturate(1.2) brightness(0.9); }
-    /* goblinArcher / goblinKing / orc は専用シートへ独立済み。色替えフィルタは新アートを
+    /* goblinArcher / goblinKing / goblinRider / orc は専用シートへ独立済み。色替えフィルタは新アートを
        色ズレさせるだけなので除去した。goblinKing のオーラ (drop-shadow) は演出なので残す。 */
     .enemy-goblinArcher { }
     .enemy-goblinKing   { filter: drop-shadow(0 0 8px rgba(220,40,60,0.75)); }
+    .enemy-goblinRider  { }
     .enemy-orc          { }
     /* ホブゴブリン: 専用シート hobgoblin_anim.png。素で赤茶の重装兵ゆえ色補正フィルタ不要 */
     .enemy-hobgoblin    { }
@@ -5497,7 +5497,7 @@
         name: "ゴブリンライダー",
         flavor: "狼にまたがる突撃槍兵",
         badge: "🐺",
-        sprite: "assets/goblin_anim.png?v=4",
+        sprite: "assets/goblinRider_anim.png?v=1",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 74,
