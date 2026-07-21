@@ -1410,17 +1410,29 @@
     .plazaBtn.small { font-size: 13px; padding: 6px 14px; }
     .plazaBtn:disabled { opacity: 0.4; cursor: not-allowed; }
     /* ════════ 闇クエスト掲示板 = 依頼札 (羊皮紙カード) ════════
-       紙の質感は【直下の #plazaQuestBoard 変数ブロック】だけで決まる。羊皮紙テクスチャ PNG が
-       用意できたら --pq-paper-img を url(assets/parchment_plaza.png) に変えるだけで差替完了
-       (他のルールは一切触らない)。将来 酒場側へ同じ札を展開する時も、変数の上書きだけで色が変わる。
+       紙の質感は【直下の #plazaQuestBoard 変数ブロック】だけで決まる (他のルールは触らない)。
+       将来 酒場側へ同じ札を展開する時も、変数の上書きだけで色が変わる。
        闇市は燐光グリーン (--parchment-gold: #45e0a8) がテーマなので、紙は明るいセピアにせず
-       「血と煤で汚れた」暗色にし、燐光は【選択枠と牙貨バッジ】にだけ残す (会議での決定)。 */
+       「血と煤で汚れた」暗色にし、燐光は【選択枠と牙貨バッジ】にだけ残す (会議での決定)。
+
+       ⚠ テクスチャは assets/parchment_plaza.jpg (700x851 / 130KB / JPEG)。
+         ・この画面には既に plaza_bg.png (2.1MB) が居るため容量が最優先。原本 3.0MB の PNG は
+           source_images/parchment_plaza/ へ退避 (push 対象外)。紙は不透明でアルファ不要なので
+           JPEG を選択 (同解像度の PNG は 24bit 1.1MB / 64 色でも 419KB で予算 250KB に入らない)。
+         ・原本は「黒地の上に紙が 1 枚」の構図。background-size:cover では札の縦横比によって
+           四辺の黒が漏れるため、前処理で【紙の内側だけ】を切り出してある (四隅から flood fill で
+           外側の黒を同定 → 紙マスクの最大内接矩形 → さらに 10px 内側)。実測で「暗い かつ 無彩色」
+           な画素は 0 件 (最暗部は (21,0,0) の血染み = 有彩色)。縁の焦げ・破れの表現は
+           --pq-edge と inset box-shadow が担当するので、テクスチャは中央の紙質だけを提供する。 */
     #plazaQuestBoard {
-      --pq-paper-img: none;          /* ⇦ 差替 1 行: none → url(assets/parchment_plaza.png) */
-      --pq-paper-hi:  #3d2c20;       /* 紙の明部 (中央) */
+      --pq-paper-img: url("assets/parchment_plaza.jpg");   /* 紙テクスチャ。none にすると下のグラデだけの姿に戻る */
+      --pq-veil: 0.62;               /* テクスチャに被せる暗幕の濃さ。上げるほど紙が闇市に沈む (明るさ調整はここ) */
+      --pq-paper-hi:  #3d2c20;       /* 紙の明部 (中央)  ※テクスチャ無しで使う時のフォールバック */
       --pq-paper-mid: #2c2018;       /* 紙の地 */
       --pq-paper-lo:  #170f0c;       /* 紙の暗部 (焼けた縁) */
-      --pq-grime: 0.55;              /* 汚れ (血・煤・シミ) の強度 0=清潔 〜 1=泥まみれ */
+      --pq-grime: 0.22;              /* 汚れ (血・煤・シミ) の強度 0=清潔 〜 1=泥まみれ。
+                                        ⚠ テクスチャ自体がシミを持つので二重掛けにならないよう低め (元 0.55) */
+      --pq-fiber: 0;                 /* 繊維ノイズ (.pqcard::after)。テクスチャ採用で不要なので 0。無し運用に戻すなら 0.5 */
       --pq-ink:      #e2d3b8;        /* 本文インク */
       --pq-ink-soft: #a89377;        /* 小見出し・ラベル */
       --pq-edge:     rgba(150,110,70,0.60);   /* 紙の縁と罫線 */
@@ -1434,20 +1446,24 @@
       position: relative; cursor: pointer;
       padding: 27px 13px 12px; border-radius: 3px;
       border: 1px solid var(--pq-edge); color: var(--pq-ink);
+      /* レイヤは上から順。①暗幕 ②③煤のシミ ④紙テクスチャ ⑤テクスチャ無しのフォールバック地。
+         ⚠ 暗幕は【純黒】の一様ヴェール = 各画素の単純な定数倍。色相を一切ずらさずに明るさだけ落とせる
+            (有色の幕にすると黒背景の漏れまで色づいてしまい、漏れの検出も見た目の調整も濁る)。 */
       background-image:
-        var(--pq-paper-img),
+        linear-gradient(rgba(0,0,0,var(--pq-veil)), rgba(0,0,0,var(--pq-veil))),
         radial-gradient(ellipse at 26% 16%, rgba(0,0,0,var(--pq-grime)) 0%, rgba(0,0,0,0) 46%),
         radial-gradient(ellipse at 82% 78%, rgba(0,0,0,var(--pq-grime)) 0%, rgba(0,0,0,0) 42%),
+        var(--pq-paper-img),
         radial-gradient(ellipse at 50% 46%, var(--pq-paper-hi) 0%, var(--pq-paper-mid) 58%, var(--pq-paper-lo) 100%);
-      background-size: cover, auto, auto, auto;
+      background-size: auto, auto, auto, cover, auto;
       background-position: center center;
       box-shadow: 0 2px 10px rgba(0,0,0,0.55), inset 0 0 26px rgba(0,0,0,0.55);
       transition: box-shadow .12s, border-color .12s;
     }
-    /* 紙の繊維ノイズ (テクスチャ PNG が入るまでのプレースホルダ。PNG 採用後は不要なら opacity 0 で殺せる) */
+    /* 紙の繊維ノイズ (テクスチャが無い時だけの代用品。--pq-fiber: 0 で殺してある) */
     #plazaQuestBoard .pqcard::after {
       content: ""; position: absolute; inset: 0; border-radius: 3px; pointer-events: none;
-      opacity: calc(var(--pq-grime) * 0.5); mix-blend-mode: overlay;
+      opacity: calc(var(--pq-grime) * var(--pq-fiber)); mix-blend-mode: overlay;
       background:
         repeating-linear-gradient(115deg, rgba(255,240,210,0.030) 0 2px, rgba(0,0,0,0) 2px 5px),
         repeating-linear-gradient(22deg,  rgba(0,0,0,0.045) 0 3px, rgba(0,0,0,0) 3px 7px);
@@ -1715,10 +1731,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の依頼札が本物の羊皮紙に</b> — ポドルプラザの闇仕事が、血と煤で汚れた古い羊皮紙の札で貼り出されるようになった。</li>
         <li><b>闇市の掲示板が依頼札になった</b> — 血と煤で汚れた札に依頼主の顔・依頼文・牙貨が並び、読み比べて選べる。</li>
         <li><b>ドワーフの見た目を一新</b> — 全身板金鎧に有翼兜、赤い三つ編み髭の重戦士に。戦斧を振るう攻撃モーションも描き直し。</li>
         <li><b>魔法使いの姿を「紅髪の魔道士」に一新</b> — 杖の先に光を集めて呪文弾を放つ、新しい詠唱モーション付き。</li>
-        <li><b>ゴブリンライダーの姿を一新</b> — 狼にまたがる槍兵の専用グラフィックになり、他のゴブリンの色違いではなくなった。</li>
       </ul>
     </div>
     <script>
