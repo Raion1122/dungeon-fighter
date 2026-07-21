@@ -175,6 +175,14 @@
       "walk_dir": "ironvale-vanguard/ironvale-vanguard-walk-right-6",
       "attack_dir": "ironvale-vanguard/ironvale-vanguard-attack-right-6-v2-matched",
       "note": "主人公戦士。プレイヤー規格 = 4行 (row3 のみ実データ) / walk 6F / attack 6F→5F 間引き [0,1,2,3,5]。char_ratio = 現行実測 (58px / 96)。attack v1 は黒いゴミ画素があるので v2 を使う。5F 間引きの結果、attack col=4 に『盾を前に構えた姿勢』が載る → ガードポーズに流用"
+    },
+    {
+      "key": "sorceress", "out": "assets/mage_walk.png", "attack_out": "assets/mage_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6146, "scale_from": "walk", "center": "feet",
+      "walk_dir": "sorceress/sorceress-walk-right-6-v1",
+      "attack_dir": "sorceress/sorceress-cast-right-6-v1-matched",
+      "note": "魔法使い (プレイヤー/NPC 共通の正規シート)。攻撃モーションは attack でなく cast (杖から呪文弾)。⚠️ char_ratio に --match-current の実測値 0.7604 を使ってはいけない: 現行 chibi 魔法使いは『とんがり帽子』で 14px かさ上げされており、bbox 73px のうち体は 59px しかない。帽子の無いソーサレスを 0.7604 で焼くと全身 73px = 戦士 57px より 28% 高い巨人になる。0.6146 = 59/96 = 現行の『体』の高さ実測 (僧侶 59 / ドワーフ 58 / 戦士 57 と同格。ユーザー選択『A: パーティと同格』)。displaySize 96 据置=当たり判定不変"
     }
   ]
 }
