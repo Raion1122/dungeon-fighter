@@ -1,0 +1,10 @@
+# 闇市の依頼札 STEP2 — 討伐対象の挿絵 (1980年代英国ゲームブック風の白黒ペン画) の試作3枚。
+# ⚠ スプライトの 2 段階フロー (仕様把握ターン → 極短指示) は【使わない】。2026-07-21 に試したら
+#    把握ターンの後の 63 文字の指示で画像生成が始まらず停止した。挿絵は 1 枚絵なのでモデルシート化
+#    事故が起きず、テンプレ把握の利点が無い → 【1 プロンプト完結・短文】が正解。
+# 画風統一のため 1 起動 = 1 チャットで 3 枚連投するのは維持する。
+# 試作の狙い: goblin=基準の画風 / caravan-escort=怪物でない例外(護衛=幌馬車) / sovereign-eye=
+#   正体を伏せるシルエット指定 (掲示板はボスの正体を伏せる仕様なので素直な挿絵はネタバレになる)。
+{"prompt_file": "source_images/quest_foe_art/_prompt_goblin.txt",         "output": "source_images/quest_foe_art/01_goblin.png"}
+{"prompt_file": "source_images/quest_foe_art/_prompt_caravan-escort.txt", "output": "source_images/quest_foe_art/02_caravan-escort.png"}
+{"prompt_file": "source_images/quest_foe_art/_prompt_sovereign-eye.txt",  "output": "source_images/quest_foe_art/03_sovereign-eye.png"}

@@ -78,10 +78,14 @@ SELECTORS = {
     # CAPTCHA iframe
     "captcha":               'iframe[src*="captcha"], iframe[src*="hcaptcha"], iframe[title*="captcha" i]',
     # 失敗テキストパターン
+    # ⚠ UI 言語が日本語だと英語パターンに一切引っかからず、失敗を検知できないまま
+    #    タイムアウトまで待ち続ける (2026-07-21 に 300s×2 を空費)。日本語も必ず併記する。
     "rate_limit_text":       ["rate limit", "usage limit", "hit the limit", "limit reached",
-                              "you've reached", "try again later"],
+                              "you've reached", "try again later",
+                              "上限に達し", "制限に達し", "しばらくしてから", "時間をおいて"],
     "generation_error_text": ["couldn't generate", "couldn't create", "can't generate", "can't create",
-                              "unable to generate", "unable to create", "failed to generate"],
+                              "unable to generate", "unable to create", "failed to generate",
+                              "画像を作成できません", "画像を生成できません", "画像生成中にエラー"],
     # ログイン URL
     "login_url_match":       "/auth/login",
 }
