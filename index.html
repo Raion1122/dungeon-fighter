@@ -8289,6 +8289,11 @@
       //    職業非依存・gated=ドロップ限定。対竜の「火耐性の指輪」の対アンデッド版 (防御・生存アイテム)。
       { id: "amulet-undead-ward", name: "不浄を退ける聖印", flavor: "神殿の高位神官が遺した聖印。掲げる者を蝕む死者の触れを、聖なる光が押し留める",
         undeadDR: 3, gated: true, rarity: "special" },
+      // ── 第3弾 Phase 2「囁きの護符」: 酒場の情報収集 (💬周囲に聞き込む=説得 / 🔍依頼を吟味=捜査) に +2。
+      //    ⚠ 初の職業専用アクセ (classReq)。魔法使い以外が着けても効果ゼロ = getEquippedAccessories が弾く。
+      //    戦闘力は一切上がらない。効くのは「隠し中ボスの開放判定」= 強くなるのではなく行ける場所が増える。
+      { id: "amulet-silver-tongue", name: "囁きの護符", flavor: "宮廷魔術師が肌身離さず提げていた銀の護符。持つ者の言葉に人は耳を傾け、綴られた文の綻びもよく見えるという",
+        classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 }, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -9719,10 +9724,22 @@
       if (unit && Array.isArray(unit.accessoryIndices)) return unit.accessoryIndices;
       return [0, 0];
     }
+    // 第3弾 Phase 2: 職業専用アクセ (classReq)。指定職以外が装備しても効果を一切発揮しない。
+    //   ⚠ 効果の読み取りは全て getEquippedAccessories に集約されているので、ここ1箇所で弾けば
+    //     skillBonus / fireResist / freeAction / undeadDR / hpBonus の全てが同時に無効化される。
+    //     (所持 hasAccessoryId は「持っているか」なので職業で弾かない = 別概念)
+    function unitClassKeyOf(unit) {
+      if (unit === "player" || !unit) return leaderClassKey;
+      return unit.classKey || null;
+    }
+    function accessoryAllowedFor(acc, classKey) {
+      return !acc || !acc.classReq || acc.classReq === classKey;
+    }
     function getEquippedAccessories(unit) {
+      const cls = unitClassKeyOf(unit || "player");
       return getUnitAccessoryIndices(unit || "player")
         .map(i => accessories[i])
-        .filter(a => a && a.id !== "none");
+        .filter(a => a && a.id !== "none" && accessoryAllowedFor(a, cls));
     }
     function hasAccessoryId(id, unit) {
       return getUnitAccessoryIndices(unit || "player")
@@ -9765,9 +9782,8 @@
     function getTotalAvoidance(kind, unit) {
       if (sovereignSuppressed(unit || "player")) return 0;   // C4 ④b: 帯の上では回避のマジックアイテムは死ぬ
       let total = 0;
-      for (const i of getUnitAccessoryIndices(unit || "player")) {
-        const a = accessories[i];
-        if (!a || a.id === "none") continue;
+      // getEquippedAccessories 経由 = 職業専用アクセ (classReq) の除外をここでも通す (バイパス防止)
+      for (const a of getEquippedAccessories(unit || "player")) {
         if (kind === "all"   && a.avoidAll)   total += a.avoidAll;
         if (kind === "arrow" && a.avoidArrow) total += a.avoidArrow;
       }
@@ -17043,8 +17059,11 @@
     // gated アクセ (指輪) を装備できる PT メンバー (未所持 + 空きスロット) を1人探す。leader 優先→仲間。
     // 見つかれば装着先 { kind:"player", slot } / { kind:"ally", ally, slot } を返し、無ければ null。
     function findAccessoryRecipient(accId) {
+      // 第3弾 Phase 2: 職業専用アクセ (classReq) は、着けても効果ゼロの職に配らない。
+      //   ここで弾かないと「拾ったのに何も起きない」死蔵アイテムが生まれる (無報告バグの温床)。
+      const accDef = accessories[accessoryIdxFromId(accId)];
       // リーダー (currentAccessoryIndices)
-      if (!hasAccessoryId(accId, "player")) {
+      if (accessoryAllowedFor(accDef, leaderClassKey) && !hasAccessoryId(accId, "player")) {
         const slot = currentAccessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
         if (slot >= 0) return { kind: "player", slot };
       }
@@ -17054,6 +17073,7 @@
       if (typeof allies !== "undefined") {
         for (const a of allies) {
           if (!a || !a.classKey || !Array.isArray(a.accessoryIndices)) continue;
+          if (!accessoryAllowedFor(accDef, a.classKey)) continue;   // 職業専用アクセ
           if (hasAccessoryId(accId, a)) continue;
           const slot = a.accessoryIndices.findIndex(i => accessories[i] && accessories[i].id === "none");
           if (slot >= 0) return { kind: "ally", ally: a, slot };

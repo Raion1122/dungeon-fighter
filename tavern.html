@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>魔法使いの新しい護符</b> — 「囁きの護符」を提げた魔法使いは、出発前の聞き込みと下調べで手がかりを掴みやすくなる。</li>
         <li><b>盗賊の新しい魔法の革鎧</b> — 「軽業師の革装束」を着た盗賊は、罠の解除と鍵開けのロールに強くなる。</li>
         <li><b>闇市の依頼札に討伐対象の挿絵を追加</b> — 札の見出しの下に、狙う相手を描いた古い刷り物が貼られるようになった。</li>
         <li><b>依頼文の日本語を修正</b> — 目的語や語尾が重なって崩れていた依頼文が、すべて自然な文章で出るようになった。</li>
-        <li><b>闇市の依頼札が本物の羊皮紙に</b> — ポドルプラザの闇仕事が、血と煤で汚れた古い羊皮紙の札で貼り出されるようになった。</li>
       </ul>
     </div>
     <script>
@@ -3062,7 +3062,8 @@
       try {
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
-        ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward"].forEach(id => set.add(id));
+        ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward",
+         "amulet-silver-tongue"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -3098,6 +3099,16 @@
       setShopTab: (t) => { shopTab = t; renderShop(); },
       shopListText: () => { const e = document.getElementById("shopList"); return e ? e.textContent : null; },
       shopScreenVisible: () => { const e = document.getElementById("shopScreen"); return !!e && getComputedStyle(e).display !== "none"; },
+      // 第3弾: 装備由来の技能判定ボーナス (Phase 1 基盤 / Phase 2 職業専用アクセ)
+      skillBonusFor: (ck, hero) => tvSkillBonusFor(ck, !!hero),
+      prepParty: () => buildPrepParty(),
+      accDef: (id) => accDefTV(id),
+      accAllowed: (id, ck) => accAllowedTV(accDefTV(id), ck),
+      setHeroAcc: (s, id) => {
+        if (s === 0) selection.equipAccessory1 = id; else selection.equipAccessory2 = id;
+        saveSelections();
+      },
+      normalizeAcc: () => normalizeHeroAccessories(),
     };
   } catch (e) { /* ignore */ }
 
@@ -3755,16 +3766,37 @@
     { id: "amulet-health",    name: "生命の護符",   rarity: "special", gated: true },
     // 第2弾 対アンデッド (3系統目): 不浄を退ける聖印 (アンデッド被ダメ固定軽減)。効果は index.html 側で発動。
     { id: "amulet-undead-ward", name: "不浄を退ける聖印", rarity: "special", gated: true },
+    // 第3弾 Phase 2: 囁きの護符 (魔法使い専用)。準備画面の情報収集 (説得/捜査) に +2。
+    //   ⚠ この効果は index ではなく酒場側 (tvSkillBonusFor) で読むので skillBonus をこちらにも持たせる。
+    //   ⚠ index.html の accessories[] と id / classReq / skillBonus を完全一致させること。
+    { id: "amulet-silver-tongue", name: "囁きの護符", rarity: "special", gated: true,
+      classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 } },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
-  // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds)
+  // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。
+  function accAllowedTV(acc, classKey) {
+    return !acc || !acc.classReq || acc.classReq === classKey;
+  }
+  // 解禁済みアクセサリー (常に「なし」+ dragonfighters.accessoryIds、かつ主人公の職業で装備可能なもの)
   function unlockedAccessoriesTV() {
     const set = new Set(["none"]);
     try {
       const raw = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
       if (Array.isArray(raw)) raw.forEach(id => set.add(id));
     } catch (e) { /* ignore */ }
-    return ACCESSORIES_TV.filter(a => set.has(a.id));
+    const heroKey = shopHeroKey();
+    return ACCESSORIES_TV.filter(a => set.has(a.id) && accAllowedTV(a, heroKey));
+  }
+  // 仲間 (非主人公) の装備アクセ id。index が savePersistentAccessoryStock で書く
+  //   dragonfighters.accessoryState = { player:[id,id], allies:{ <classKey>:[id,id] } } を読む。
+  //   ⚠ これが無いと「仲間の魔法使いが拾った護符はダンジョン内の判定にだけ効いて、
+  //     酒場の情報収集には黙って効かない」という報告されないバグになる。
+  function tvAllyAccessoryIds(classKey) {
+    try {
+      const snap = JSON.parse(localStorage.getItem("dragonfighters.accessoryState") || "null");
+      const ids = snap && snap.allies && snap.allies[classKey];
+      return Array.isArray(ids) ? ids : [];
+    } catch (e) { return []; }
   }
   function heroAccessoryIds() {
     return [selection.equipAccessory1 || "none", selection.equipAccessory2 || "none"];
@@ -3781,6 +3813,22 @@
     else               selection.equipAccessory2 = next.id;
     saveSelections();
     renderCharLoadout();
+  }
+  // 主人公の職業を変えると classReq 付きアクセ (囁きの護符など) が装備不能になる。
+  //   所持台帳 accessoryIds は単調なので外しても失われない。放置すると装身具チップに
+  //   「着いているのに効かない」名前が残るため、描画のたびに正規化する。
+  function normalizeHeroAccessories() {
+    const heroKey = shopHeroKey();
+    let changed = false;
+    ["equipAccessory1", "equipAccessory2"].forEach((k) => {
+      const id = selection[k];
+      if (!id || id === "none") return;
+      if (accAllowedTV(accDefTV(id), heroKey)) return;
+      selection[k] = "none";
+      changed = true;
+    });
+    if (changed) saveSelections();
+    return changed;
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -4046,14 +4094,18 @@
       add(at(pool.armors,  sel.armor));
       add(at(pool.shields, sel.shield));
     }
-    // アクセサリー2枠は主人公のみ。第3弾 Phase 2 の魔法使い専用アクセはここに乗る
-    // (現状 ACCESSORIES_TV に skillBonus を持つ項目は無いので実質 no-op)。
-    if (isHero) {
-      [selection.equipAccessory1, selection.equipAccessory2].forEach((id) => {
-        if (!id || id === "none") return;
-        add(ACCESSORIES_TV.find((a) => a && a.id === id));
-      });
-    }
+    // アクセサリー2枠: 主人公は酒場の選択 (equipAccessory1/2)、仲間は index が書き出した
+    //   accessoryState のスナップショットが権威 (仲間の枠は酒場に UI が無く、拾得で自動装着される)。
+    //   classReq 不一致 (例: 戦士が囁きの護符) は着けていても効果ゼロ。
+    const accIds = isHero
+      ? [selection.equipAccessory1, selection.equipAccessory2]
+      : tvAllyAccessoryIds(classKey);
+    accIds.forEach((id) => {
+      if (!id || id === "none") return;
+      const acc = ACCESSORIES_TV.find((a) => a && a.id === id);
+      if (!accAllowedTV(acc, classKey)) return;
+      add(acc);
+    });
     return out;
   }
   function buildPrepParty() {
@@ -4250,6 +4302,7 @@
       { locked, onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); renderCharLoadout(); } } });
     chip("鎧", ar.name, getItemColorClass(ar.name, ar.rarity));
     if (isHero) {
+      normalizeHeroAccessories();          // 職業変更で装備不能になった classReq アクセを外す
       const ids = heroAccessoryIds();
       for (let s = 0; s < 2; s++) {
         const def = accDefTV(ids[s]);
