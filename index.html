@@ -8294,6 +8294,13 @@
       //    戦闘力は一切上がらない。効くのは「隠し中ボスの開放判定」= 強くなるのではなく行ける場所が増える。
       { id: "amulet-silver-tongue", name: "囁きの護符", flavor: "宮廷魔術師が肌身離さず提げていた銀の護符。持つ者の言葉に人は耳を傾け、綴られた文の綻びもよく見えるという",
         classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 }, gated: true, rarity: "special" },
+      // ── 第5弾 実在の D&D マジックアイテム「豪傑の武具」(SRD 5.1: Gauntlets of Ogre Power / Belt of Giant Strength)。
+      //    装備中、近接ダメージへ固定 + (getAccessoryDmgBonus が currentPlayerDmgBonus / effectiveAllyDmgBonus 経由で読む)。
+      //    職業非依存・gated=ドロップ限定。⚠ to-hit は付けない (仲間の atkBonus は spawn 焼込みで非対称になるため=ダメージのみ)。
+      { id: "gauntlets-ogre-power", name: "大鬼の力の籠手", flavor: "巨鬼(オーガ)の膂力を封じた鉄の籠手。嵌める者の一撃は、人の腕とは思えぬ重さを帯びる",
+        dmgBonus: 2, gated: true, rarity: "special" },
+      { id: "belt-giant-strength", name: "丘巨人の力の帯", flavor: "丘の巨人の腱を編み込んだ帯。腰に締めた者へ、山をも砕く膂力の一端を分け与えるという",
+        dmgBonus: 3, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -9849,6 +9856,19 @@
       return bonus;
     }
 
+    // ── 第5弾「豪傑の武具」: 装備アクセの dmgBonus (大鬼の力の籠手 +2 / 丘巨人の力の帯 +3) を合算し、
+    //    近接ダメージへの加算量を返す。to-hit には乗せない (ダメージのみ)。二刀・多段でも1回分の加算。
+    //    ⚠ 他の魔法アイテムと同様、単眼の暴君のレイ上 (sovereignSuppressed) では 0 = 効果が死ぬ。
+    //    unit: "player" (リーダー) | ally オブジェクト。currentPlayerDmgBonus / effectiveAllyDmgBonus が呼ぶ。
+    function getAccessoryDmgBonus(unit) {
+      if (sovereignSuppressed(unit)) return 0;
+      let bonus = 0;
+      for (const acc of getEquippedAccessories(unit)) {
+        if (typeof acc.dmgBonus === "number") bonus += acc.dmgBonus;
+      }
+      return bonus;
+    }
+
     // 不浄を退ける聖印 (Amulet of Undead Warding): 装備中アクセの undeadDR (固定軽減) の最大値を返す。
     // 攻撃者が undead:true の敵の時のみ、被ダメージ算出でこの値だけ差し引く (最低1は通す)。
     // 二重所持でも最大値のみ = 二重軽減しない (火耐性の指輪と同じ思想)。unit: "player" | ally オブジェクト。
@@ -9980,7 +10000,8 @@
           + ((shield && shield.enhancement) || 0);
         const baseAtk = playerStats.atkBonus + ((weapon && weapon.enhancement) || 0);
         // 武器表記の +N は STR + 武器エンハ込みの総ダメージボーナス (酒場の表示と統一)
-        const weaponDisplayBonus = playerStats.dmgBonus + ((weapon && weapon.enhancement) || 0);
+        const weaponDisplayBonus = playerStats.dmgBonus + ((weapon && weapon.enhancement) || 0)
+          + getAccessoryDmgBonus("player");   // 第5弾 豪傑の武具: 装備アクセの近接ダメージ + を武器行に映して「効いてるのが見える」ように
         // 頭の実効レベル: leaderLevel (主人公=永続Lv / NPC頭=ティア帯Lv)。未設定時は XP 由来
         const headLv = leaderLevel || ((typeof getLevelFromXP === "function") ? getLevelFromXP(currentTotalXp) : 1);
         const nextXp = (typeof getNextLevelXP === "function") ? getNextLevelXP(currentTotalXp) : 1000;
@@ -16573,7 +16594,8 @@
     // Math.max(0,...) = 抑制が逆に強化になる事故を防ぐ (差分が負でも下駄を履かせない)。
     function effectiveAllyDmgBonus(ally) {
       if (!ally) return 0;
-      const base = ally.dmgBonus || 0;
+      const acc = getAccessoryDmgBonus(ally);           // 第5弾 豪傑の武具: 装備アクセの近接ダメージ + (帯の上では関数が 0 を返す)
+      const base = (ally.dmgBonus || 0) + acc;
       if (!sovereignSuppressed(ally)) return base;
       return base - Math.max(0, ally._dmgEnhDelta || 0);
     }
@@ -16586,8 +16608,8 @@
         playerAtkStatusPenalty();
     }
     function currentPlayerDmgBonus() {
-      // 武器エンハンスメントをダメージにも加算 (C4 ④b: 帯の上では 0)
-      return playerStats.dmgBonus + effectiveWeaponEnh("player");
+      // 武器エンハンスメントをダメージにも加算 (C4 ④b: 帯の上では 0)。第5弾 豪傑の武具の近接ダメージ + も加算。
+      return playerStats.dmgBonus + effectiveWeaponEnh("player") + getAccessoryDmgBonus("player");
     }
     function currentPlayerAc() {
       const a = getCurrentArmor();

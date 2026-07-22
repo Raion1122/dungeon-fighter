@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>力を宿す新たな秘宝を追加</b> — 「大鬼の力の籠手」と「丘巨人の力の帯」。装備すると近接攻撃の一撃が重くなる、古き英雄の武具。ごく稀に手に入る。</li>
         <li><b>盗賊にも専用のマジック武器</b> — 「吸命の短剣」で斬った相手からは生命が流れ出し、盗賊自身の傷が癒える。これで五職すべてに専用の魔法武器が揃った。</li>
         <li><b>五職に専用のマジック武器を追加</b> — ドワーフの熔鉄の戦鎚・僧侶の贖罪のメイス・エルフの風斬りの弓・魔法使いの星詠みの杖。ごく稀に手に入る。</li>
         <li><b>ドワーフの新しい魔法の鎧</b> — 「山守りの板金鎧」を着たドワーフは、恐怖・眠り・ブレスなどに耐えるロールが強くなる。</li>
-        <li><b>魔法使いの新しい護符</b> — 「囁きの護符」を提げた魔法使いは、出発前の聞き込みと下調べで手がかりを掴みやすくなる。</li>
       </ul>
     </div>
     <script>
@@ -3154,7 +3154,7 @@
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
         ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward",
-         "amulet-silver-tongue"].forEach(id => set.add(id));
+         "amulet-silver-tongue", "gauntlets-ogre-power", "belt-giant-strength"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -3872,6 +3872,10 @@
     //   ⚠ index.html の accessories[] と id / classReq / skillBonus を完全一致させること。
     { id: "amulet-silver-tongue", name: "囁きの護符", rarity: "special", gated: true,
       classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 } },
+    // 第5弾 豪傑の武具 (SRD 5.1: Gauntlets of Ogre Power / Belt of Giant Strength)。近接ダメージ +。効果は index.html 側で発動。
+    //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (dmgBonus は index 側だけが戦闘で読む)。
+    { id: "gauntlets-ogre-power", name: "大鬼の力の籠手", rarity: "special", gated: true },
+    { id: "belt-giant-strength", name: "丘巨人の力の帯", rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。
