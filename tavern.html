@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>五職に専用のマジック武器を追加</b> — ドワーフの熔鉄の戦鎚・僧侶の贖罪のメイス・エルフの風斬りの弓・魔法使いの星詠みの杖。ごく稀に手に入る。</li>
         <li><b>ドワーフの新しい魔法の鎧</b> — 「山守りの板金鎧」を着たドワーフは、恐怖・眠り・ブレスなどに耐えるロールが強くなる。</li>
         <li><b>魔法使いの新しい護符</b> — 「囁きの護符」を提げた魔法使いは、出発前の聞き込みと下調べで手がかりを掴みやすくなる。</li>
         <li><b>盗賊の新しい魔法の革鎧</b> — 「軽業師の革装束」を着た盗賊は、罠の解除と鍵開けのロールに強くなる。</li>
-        <li><b>闇市の依頼札に討伐対象の挿絵を追加</b> — 札の見出しの下に、狙う相手を描いた古い刷り物が貼られるようになった。</li>
       </ul>
     </div>
     <script>
@@ -2576,6 +2576,11 @@
     { name: "雷鳴の斧",               dmgDice: "1d8", spec: "1d8 +1d8雷 / 周囲1マス余波 1d4雷 (STR DC13 半減)", range: "melee", flavor: "命中時に雷鳴を放ち、衝撃波で周囲1マスの敵にも追撃する", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d8", bonusDmgType: "lightning",
       shockwaveDice: "1d4", shockwaveType: "lightning", shockwaveSaveDC: 13 },
+    // 第4弾「五職のマジック武器」: 熔鉄の戦鎚。⚠ index.html の DWARF_WEAPONS と
+    //   name / enhancement / bonus* / shockwave* を完全一致させること (所持は名前キー)。
+    { name: "熔鉄の戦鎚",             dmgDice: "1d8", spec: "1d8 +1 +1d6炎 / 周囲1マス熱波 1d6炎 (STR DC14)", range: "melee", flavor: "地の底の溶鉄溜まりで鍛えられた戦鎚。打ち下ろすたび赤熱し、砕けた床から熱波が周囲へ噴き上がる", enhancement: 1, rarity: "special", gated: true,
+      bonusDmgDice: "1d6", bonusDmgType: "fire",
+      shockwaveDice: "1d6", shockwaveType: "fire", shockwaveSaveDC: 14 },
   ];
   const DWARF_ARMORS = [
     { name: "チェインメイル",      spec: "AC +2",     flavor: "ドワーフが好む鎖編みの鎧", enhancement: 2, rarity: "common" },
@@ -2600,6 +2605,9 @@
     { name: "聖印のメイス +1",     dmgDice: "1d10", spec: "1d10 +1",  range: "melee", flavor: "神官の聖印が刻まれた祝福の武器", enhancement: 1, rarity: "rare" },
     { name: "吸命のメイス",        dmgDice: "1d8",  spec: "1d8 / 命中時 1d4回復", range: "melee", flavor: "命中時に敵の生命力を1d4 HP吸収", enhancement: 0, rarity: "special",
       lifeStealDice: "1d4" },
+    // 第4弾「五職のマジック武器」: 贖罪のメイス。⚠ index.html の CLERIC_WEAPONS と完全一致させること。
+    { name: "贖罪のメイス",        dmgDice: "1d10", spec: "1d10 +1 +1d6聖 / 命中時 1d6回復", range: "melee", flavor: "罪を購う者に授けられた鈍器。打ち据えた不浄を聖なる光に変え、その熱を振るい手の傷へ返す", enhancement: 1, rarity: "special", gated: true,
+      bonusDmgDice: "1d6", bonusDmgType: "holy", lifeStealDice: "1d6" },
   ];
   const CLERIC_ARMORS = [
     { name: "神官の法衣",          spec: "AC +0",     flavor: "祈りに集中するための白い法衣", enhancement: 0, rarity: "common" },
@@ -2620,6 +2628,10 @@
     { name: "鉄鋲のクォータースタッフ +1", dmgDice: "1d6", spec: "1d6 +1", range: "melee", flavor: "鉄鋲を打ち込んだ強化スタッフ", enhancement: 1, rarity: "rare" },
     { name: "嵐のスタッフ",            dmgDice: "1d6", spec: "1d6 +1d6雷", range: "melee", flavor: "命中時に雷の力を放つ秘術の杖 (+1d6 lightning)", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "lightning" },
+    // 第4弾「五職のマジック武器」: 星詠みの杖。射程が中距離になり、仲間の魔法使いが近接へ出なくなる。
+    //   ⚠ index.html の MAGE_WEAPONS と name / range / enhancement / bonus* を完全一致させること。
+    { name: "星詠みの杖",              dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 中距離", range: "medium", flavor: "先端に星の欠片を戴く長杖。詠み手は間合いの外から凍える光を落とし、埃ひとつ被らずに戦を終える", enhancement: 1, rarity: "special", gated: true,
+      bonusDmgDice: "1d6", bonusDmgType: "cold" },
   ];
   const MAGE_ARMORS = [
     { name: "魔術師のローブ",      spec: "AC +0",    flavor: "詠唱を妨げない軽い装束", enhancement: 0, rarity: "common" },
@@ -2639,6 +2651,9 @@
     { name: "エルフの精霊弓 +1",   dmgDice: "1d8", spec: "1d8 +1",   range: "bow", flavor: "森の精霊が祝福した銀の弓", enhancement: 1, rarity: "rare" },
     { name: "霜咬みの弓",          dmgDice: "1d8", spec: "1d8 +1d6氷 / クリ時 1Tスタン", range: "bow", flavor: "凍てつく矢を放つ氷雪魔法弓 (+1d6 cold)", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "cold", critStun: 1 },
+    // 第4弾「五職のマジック武器」: 風斬りの弓。⚠ index.html の ELF_WEAPONS と完全一致させること。
+    { name: "風斬りの弓",          dmgDice: "1d8", spec: "1d8 +1 +1d6雷 / クリ時 1Tスタン", range: "bow", flavor: "弦を引くと大気が鳴く長弓。放たれた矢は風を裂いて雷を纏い、貫かれた者は一瞬だけ痺れて立ち尽くす", enhancement: 1, rarity: "special", gated: true,
+      bonusDmgDice: "1d6", bonusDmgType: "lightning", critStun: 1 },
   ];
   const ELF_ARMORS = [
     { name: "森エルフの軽装",      spec: "AC +0",    flavor: "動きやすさを重視した革の軽装", enhancement: 0, rarity: "common" },

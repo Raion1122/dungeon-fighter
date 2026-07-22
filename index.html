@@ -16062,6 +16062,13 @@
         bonusDmgDice: "1d8", bonusDmgType: "lightning",
         shockwaveDice: "1d4", shockwaveType: "lightning", shockwaveSaveDC: 13,
         rarity: "special" },
+      // 第4弾「五職のマジック武器」: 熔鉄の戦鎚。命中ごとに炎の追撃 + 周囲1マスを熱波で焼く。
+      //   gated=通常入手不可 (ラダー/ショップから除外・マジックアイテム抽選プール限定)。
+      //   ⚠ tavern.html の DWARF_WEAPONS と name を完全一致させること (gated 所持が名前キーのため)。
+      { name: "熔鉄の戦鎚",             dmgDice: "1d8", range: "melee", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "fire",
+        shockwaveDice: "1d6", shockwaveType: "fire", shockwaveSaveDC: 14,
+        rarity: "special", gated: true },
     ];
     const DWARF_ARMORS = [
       { name: "チェインメイル",      enhancement: 2 },
@@ -16084,6 +16091,11 @@
       { name: "モーニングスター",   dmgDice: "1d10", range: "melee", enhancement: 0 },
       { name: "聖印のメイス +1",    dmgDice: "1d10", range: "melee", enhancement: 1, rarity: "rare" },
       { name: "吸命のメイス",       dmgDice: "1d8",  range: "melee", enhancement: 0, lifeStealDice: "1d4", rarity: "special" },
+      // 第4弾「五職のマジック武器」: 贖罪のメイス。殴った分だけ自分が癒える聖なる鈍器。
+      //   ⚠ tavern.html の CLERIC_WEAPONS と name を完全一致させること (gated 所持が名前キーのため)。
+      { name: "贖罪のメイス",       dmgDice: "1d10", range: "melee", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "holy", lifeStealDice: "1d6",
+        rarity: "special", gated: true },
     ];
     const CLERIC_ARMORS = [
       { name: "神官の法衣",         enhancement: 0 },
@@ -16101,6 +16113,12 @@
       { name: "鉄鋲のクォータースタッフ +1",    dmgDice: "1d6", range: "melee",  enhancement: 1, rarity: "rare" },
       { name: "嵐のスタッフ",                   dmgDice: "1d6", range: "melee",  enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "lightning", rarity: "special" },
+      // 第4弾「五職のマジック武器」: 星詠みの杖。射程が melee → medium (3タイル) になり、
+      //   仲間の魔法使いが素の杖のように近接へ突っ込まなくなる (applyAllyEquipment が w.range を反映)。
+      //   ※リーダーの魔法使いは CLASS_DEFS.mage.weaponRange が元から "medium" なので射程は変わらない。
+      //   ⚠ tavern.html の MAGE_WEAPONS と name を完全一致させること (gated 所持が名前キーのため)。
+      { name: "星詠みの杖",                     dmgDice: "1d6", range: "medium", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "cold", rarity: "special", gated: true },
     ];
     const MAGE_ARMORS = [
       { name: "魔術師のローブ",    enhancement: 0 },
@@ -16118,6 +16136,11 @@
       { name: "エルフの精霊弓 +1",  dmgDice: "1d8", range: "bow", enhancement: 1, rarity: "rare" },
       { name: "霜咬みの弓",         dmgDice: "1d8", range: "bow", enhancement: 0,
         bonusDmgDice: "1d6", bonusDmgType: "cold", critStun: 1, rarity: "special" },
+      // 第4弾「五職のマジック武器」: 風斬りの弓。雷の矢で射抜き、会心なら1ターン痺れさせる。
+      //   ⚠ tavern.html の ELF_WEAPONS と name を完全一致させること (gated 所持が名前キーのため)。
+      { name: "風斬りの弓",         dmgDice: "1d8", range: "bow", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "lightning", critStun: 1,
+        rarity: "special", gated: true },
     ];
     const ELF_ARMORS = [
       { name: "森エルフの軽装",     enhancement: 0 },
@@ -16647,10 +16670,17 @@
         const dc  = weaponLike.shockwaveSaveDC || 13;
         const targetTX = Math.floor(tcx / TILE_SIZE);
         const targetTY = Math.floor(tcy / TILE_SIZE);
+        // 余波の属性 (既定 = 雷鳴の斧の lightning)。⚠ shockwaveType は長らく「定義されるが誰も読まない」
+        //   死にフィールドで、炎の余波を持つ武器 (熔鉄の戦鎚) を足した瞬間に黄色い稲妻 +「雷鳴の余波」
+        //   と表示される嘘になる。既存 FX ヘルパーの使い分けだけで属性を反映する (新規 VFX なし)。
+        const swType  = weaponLike.shockwaveType || "lightning";
+        const swIsFire = swType === "fire";
+        const swLabel = swIsFire ? "熱波の余波" : "雷鳴の余波";
         if (!suppressFx) {
-          // 3x3 黄色ハイライト (中心マス基準で -1,-1 から 3x3、〜600ms フラッシュ)
-          spawnGroundFx(targetTX - 1, targetTY - 1, 3, 3, "thunder", 600);
-          playThunderShockwaveFx(tcx, tcy);
+          // 3x3 ハイライト (中心マス基準で -1,-1 から 3x3、〜600ms フラッシュ)
+          spawnGroundFx(targetTX - 1, targetTY - 1, 3, 3, swIsFire ? "fireball-scorch" : "thunder", 600);
+          if (swIsFire) playFlameTongueImpactFx(tcx, tcy, targetIdx, isCrit);
+          else          playThunderShockwaveFx(tcx, tcy);
         }
         let hitN = 0;
         for (let i = 0; i < enemies.length; i++) {
@@ -16670,13 +16700,18 @@
           let sdmg = Math.max(1, sr.total);
           if (saved) sdmg = Math.max(1, Math.floor(sdmg / 2));
           e.hp = Math.max(0, e.hp - sdmg);
+          // ハイドラ: 炎の余波も「火で焼き切った」扱い (首の永久切除を許可。主対象の追加属性と同じ規則)
+          if (swIsFire) e.__tookFireAcid = true;
           triggerEnemyDamageFlash(i);
           showDmgAt(ecx, e.y - 22, sdmg, false);
-          if (!suppressFx) spawnThunderZapOnEnemy(i, saved);
+          if (!suppressFx) {
+            if (swIsFire) spawnFireBurnOnEnemy(i, saved ? 700 : 1100);
+            else          spawnThunderZapOnEnemy(i, saved);
+          }
           hitN++;
         }
         if (hitN > 0) {
-          updateInfo(`${attackerName}: 雷鳴の余波 → 周囲 ${hitN} 体に追撃 (${weaponLike.shockwaveDice}, STR DC${dc})`);
+          updateInfo(`${attackerName}: ${swLabel} → 周囲 ${hitN} 体に追撃 (${weaponLike.shockwaveDice}, STR DC${dc})`);
         }
         await sleepMs(380);
       }
@@ -17171,11 +17206,15 @@
     // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
     function rollMagicItemDrop() {
       const pool = [];
-      // v1: gated 武器のうち現在装備より上位 (=アップグレード) のもの (リーダーが戦士の時のみ)。
-      if (leaderClassKey === "warrior") {
-        for (let i = 0; i < weapons.length; i++) {
-          if (weapons[i].gated && i > currentWeaponIndex) pool.push({ kind: "weapon", idx: i });
-        }
+      // gated 武器のうち現在装備より上位 (=アップグレード) のもの。
+      //   ⚠ v1 は `leaderClassKey === "warrior"` で囲われており、非戦士リーダーは戦士配列 weapons しか
+      //     見ないため **五職のマジック武器が一生ドロップしなかった**。防具と同じく getLeaderWeapons/
+      //     getLeaderWeaponIdx (戦士なら weapons/currentWeaponIndex、非戦士なら ALLY_EQUIP_POOLS[職].weapons
+      //     と allyEquipSelection[職].weapon) 経由へ一般化した。
+      const leaderWeapons   = getLeaderWeapons();
+      const leaderWeaponIdx = getLeaderWeaponIdx();
+      for (let i = 0; i < leaderWeapons.length; i++) {
+        if (leaderWeapons[i] && leaderWeapons[i].gated && i > leaderWeaponIdx) pool.push({ kind: "weapon", idx: i });
       }
       // 第3弾: gated 防具 (リーダーの職業プール限定)。現在の防具より上位 = アップグレードのみ。
       //   getLeaderArmors/getLeaderArmorIdx は戦士なら armors/currentArmorIndex、非戦士なら
@@ -17196,13 +17235,27 @@
       if (pool.length === 0) return null;
       const pick = pool[Math.floor(Math.random() * pool.length)];
       if (pick.kind === "weapon") {
-        currentWeaponIndex = pick.idx;
-        try {
-          localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
-          localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
-        } catch (e) { /* silent */ }
-        markGatedOwned(weapons[pick.idx].name);   // gated 所持は名前キー (共有ティアの漏れを塞ぐ)
-        return { name: weapons[pick.idx].name, kind: "weapon" };
+        const gotName = leaderWeapons[pick.idx].name;
+        markGatedOwned(gotName);                  // gated 所持は名前キー (共有ティアの漏れを塞ぐ)
+        if (leaderClassKey === "warrior") {
+          currentWeaponIndex = pick.idx;
+          try {
+            localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
+            localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
+          } catch (e) { /* silent */ }
+        } else {
+          // 非戦士リーダー: 装備選択は allyEquip[職] が権威 (防具と同じ構造)。
+          //   ⚠ 防具と違い **高水位 dragonfighters.weaponIdx は引き上げない**。gated の所持は
+          //     名前キー (ownedGatedNames) が権威で、酒場の loadOwnedEquip は gated ティアを
+          //     明示的に飛ばすので高水位を上げても本人には何も増えない。にもかかわらず上げると
+          //     「equipWeapon 未設定のセーブでは weaponIdx が装備 index にフォールバックする」
+          //     (index.html の chosenWeaponIdx / 戦士プリセット) 経路を通って、
+          //     **魔法使いが拾った杖 (idx 4) で戦士がフロストブランド (同 idx 4) を只で装備する**。
+          //     防具側は WARRIOR_ALLY_ARMORS が 3 要素しかなく clamp で偶然助かっているだけ。
+          if (allyEquipSelection[leaderClassKey]) allyEquipSelection[leaderClassKey].weapon = pick.idx;
+          persistAllyEquipSelection();
+        }
+        return { name: gotName, kind: "weapon" };
       }
       if (pick.kind === "armor") {
         const gotName = leaderArmors[pick.idx].name;
