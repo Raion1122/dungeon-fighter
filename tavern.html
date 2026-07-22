@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>盗賊にも専用のマジック武器</b> — 「吸命の短剣」で斬った相手からは生命が流れ出し、盗賊自身の傷が癒える。これで五職すべてに専用の魔法武器が揃った。</li>
         <li><b>五職に専用のマジック武器を追加</b> — ドワーフの熔鉄の戦鎚・僧侶の贖罪のメイス・エルフの風斬りの弓・魔法使いの星詠みの杖。ごく稀に手に入る。</li>
         <li><b>ドワーフの新しい魔法の鎧</b> — 「山守りの板金鎧」を着たドワーフは、恐怖・眠り・ブレスなどに耐えるロールが強くなる。</li>
         <li><b>魔法使いの新しい護符</b> — 「囁きの護符」を提げた魔法使いは、出発前の聞き込みと下調べで手がかりを掴みやすくなる。</li>
-        <li><b>盗賊の新しい魔法の革鎧</b> — 「軽業師の革装束」を着た盗賊は、罠の解除と鍵開けのロールに強くなる。</li>
       </ul>
     </div>
     <script>
@@ -2673,6 +2673,9 @@
     { name: "暗殺者の刃 +1",     dmgDice: "1d4", spec: "1d4 +1",   range: "melee", flavor: "影の組合に伝わる細工の短剣", enhancement: 1, rarity: "rare" },
     { name: "影縫の刃",          dmgDice: "1d6", spec: "1d6 / クリ時 1Tスタン", range: "melee", flavor: "クリティカル時に対象の影を縫い 1ターン拘束する妖刀", enhancement: 0, rarity: "special",
       critStun: 1 },
+    // 第4弾「五職のマジック武器」: 吸命の短剣。⚠ index.html の ROGUE_WEAPONS と完全一致させること。
+    { name: "吸命の短剣",        dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 命中時 1d6回復", range: "melee", flavor: "獲物の急所を貫くと同時に、傷口から生命をひそかに啜り取る暗殺者の刃。凍てつく刀身が奪った温もりは、振るう者の傷を静かに塞いでゆく", enhancement: 1, rarity: "special", gated: true,
+      bonusDmgDice: "1d6", bonusDmgType: "cold", lifeStealDice: "1d6" },
   ];
   const ROGUE_ARMORS = [
     { name: "盗賊の革装束",      spec: "AC +0",    flavor: "黒く染め抜かれた軽量の革装、足音を吸収する", enhancement: 0, rarity: "common" },

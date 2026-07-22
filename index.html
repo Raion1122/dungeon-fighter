@@ -16158,6 +16158,13 @@
       { name: "暗殺者の刃 +1",     dmgDice: "1d4", range: "melee", enhancement: 1, rarity: "rare" },
       { name: "影縫の刃",          dmgDice: "1d6", range: "melee", enhancement: 0,
         critStun: 1, rarity: "special" },
+      // 第4弾「五職のマジック武器」: 吸命の短剣。斬りつけた相手から生命を啜り、盗賊自身が回復する。
+      //   脆い盗賊の生存力を底上げする吸血の刃 (冷気1d6 + lifeSteal1d6)。
+      //   ⚠ tavern.html の ROGUE_WEAPONS と name を完全一致させること (gated 所持が名前キーのため)。
+      //   ⚠ range は "melee" のまま (bow/long にすると dfIsTwoHanded が真になり盾がロックされる)。
+      { name: "吸命の短剣",        dmgDice: "1d6", range: "melee", enhancement: 1,
+        bonusDmgDice: "1d6", bonusDmgType: "cold", lifeStealDice: "1d6",
+        rarity: "special", gated: true },
     ];
     const ROGUE_ARMORS = [
       { name: "盗賊の革装束",      enhancement: 0 },
