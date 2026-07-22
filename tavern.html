@@ -1761,10 +1761,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ドワーフの新しい魔法の鎧</b> — 「山守りの板金鎧」を着たドワーフは、恐怖・眠り・ブレスなどに耐えるロールが強くなる。</li>
         <li><b>魔法使いの新しい護符</b> — 「囁きの護符」を提げた魔法使いは、出発前の聞き込みと下調べで手がかりを掴みやすくなる。</li>
         <li><b>盗賊の新しい魔法の革鎧</b> — 「軽業師の革装束」を着た盗賊は、罠の解除と鍵開けのロールに強くなる。</li>
         <li><b>闇市の依頼札に討伐対象の挿絵を追加</b> — 札の見出しの下に、狙う相手を描いた古い刷り物が貼られるようになった。</li>
-        <li><b>依頼文の日本語を修正</b> — 目的語や語尾が重なって崩れていた依頼文が、すべて自然な文章で出るようになった。</li>
       </ul>
     </div>
     <script>
@@ -2581,6 +2581,11 @@
     { name: "チェインメイル",      spec: "AC +2",     flavor: "ドワーフが好む鎖編みの鎧", enhancement: 2, rarity: "common" },
     { name: "スケイルメイル +1",   spec: "AC +3",     flavor: "鱗状の金属片を縫い込んだ鎧", enhancement: 3, rarity: "uncommon" },
     { name: "ドワーフの板金鎧",     spec: "AC +4",     flavor: "氏族伝統の鎧、重いが頑丈", enhancement: 4, rarity: "common" },
+    // 第3弾「生き延びる者の遺品」: 山守りの板金鎧。AC は最上位と同値のまま、セービングスロー
+    //   全般 (恐怖・眩惑・眠り・畏怖・重圧・ブレス・轢殺) に +2。効果は index.html の getSaveBonus が読む。
+    //   ⚠ index.html の DWARF_ARMORS と name / enhancement / saveBonus を完全一致させること。
+    { name: "山守りの板金鎧",      spec: "AC +4 / セーヴ +2", flavor: "山の民が坑道の毒と落盤を生き延びるために誂えた板金鎧。鉄に山の芯が編み込まれ、纏う者の心胆を揺るがせない", enhancement: 4, rarity: "special", gated: true,
+      saveBonus: 2 },
   ];
   const DWARF_SHIELDS = [
     { name: "なし",                spec: "—",          flavor: "盾を持たない両手持ち", enhancement: 0, rarity: "common" },
@@ -2980,16 +2985,25 @@
   //  ownedEquip = { weapons:[t...], armors:[t...], shields:[t...], _hwm:{weapons,armors,shields} }
   //  _hwm = 最後に反映した maxIdx。戦利品で maxIdx が上がった分だけ owned に追加し、売却済みは復活させない。
   const DF_OWNED_KEY = "dragonfighters.ownedEquip";
-  function dfRange0(n) { const a = []; for (let i = 0; i <= (n | 0); i++) a.push(i); return a; }
-  // gated(マジックアイテム=ドロップ限定)武器ティア判定。所持再構成で「実際に到達した最上位
-  // (=maxIdx=ドロップして装備中の1本)」以外の gated を芋づるで自動所持化しないためのガード。
-  // ラダーは非gatedで打ち止めのため weaponIdx が gated ティアに達するのはドロップ時のみ。
-  function dfWeaponTierGated(t) { return !!(typeof WEAPONS !== "undefined" && WEAPONS[t] && WEAPONS[t].gated); }
-  // slot の [0..maxIdx] の所持レンジ。weapons では「gated かつ maxIdx 未満」のティアを除外する。
+  // ── gated (マジックアイテム=ドロップ限定) の所持は「名前キー」(第3弾 Phase 3) ──────────
+  // 所持ティアは職業を持たない共有インデックスなので、gated をティアで持つと
+  // 「盗賊が拾った tier3 の革装束」で「ドワーフの tier3 の鎧」まで所持扱いになる
+  // (= 1回の激レアドロップで複数職ぶんが付き、レアである意味が消える)。そこで gated だけは
+  // **名前の集合**を権威にし、ティア配列は非 gated 専用にする。index.html の markGatedOwned と共有。
+  // slot の tier t が「いずれかの職業プールで gated」なら true (weapon/armor/shield 共通)。
+  function dfSlotTierGated(slot, t) {
+    for (const ck of Object.keys(CHAR_EQUIP)) {
+      const p = CHAR_EQUIP[ck]; if (!p) continue;
+      const arr = slot === "weapons" ? p.weapons : slot === "armors" ? p.armors : p.shields;
+      if (arr && arr[t] && arr[t].gated) return true;
+    }
+    return false;
+  }
+  // slot の [0..maxIdx] の所持レンジ。gated ティアは一切入れない (所持は名前集合が権威)。
   function dfOwnedInitRange(slot, maxIdx) {
     const a = [];
     for (let i = 0; i <= (maxIdx | 0); i++) {
-      if (slot === "weapons" && i < maxIdx && dfWeaponTierGated(i)) continue;
+      if (dfSlotTierGated(slot, i)) continue;
       a.push(i);
     }
     return a;
@@ -3002,8 +3016,13 @@
     let data;
     try { data = JSON.parse(localStorage.getItem(DF_OWNED_KEY) || "null"); } catch (e) { data = null; }
     if (!data || typeof data !== "object") {
-      // 初回: 旧セーブの maxIdx から [0..max] を所持とみなす (後方互換)。weapons は gated<max を除外。
-      data = { weapons: dfOwnedInitRange("weapons", maxes.weapons), armors: dfRange0(maxes.armors), shields: dfRange0(maxes.shields),
+      // 初回: 旧セーブの maxIdx から [0..max] を所持とみなす (後方互換)。
+      // ⚠ 3スロットとも dfOwnedInitRange を通す。armors/shields を素の [0..max] にすると、
+      //   index がドロップで引き上げた armorIdx=3 が **全職の tier3 を所持** にしてしまう
+      //   (= gated を共有ティアで配る = 名前キー化の目的が初回ロードだけ破れる)。
+      data = { weapons: dfOwnedInitRange("weapons", maxes.weapons),
+               armors:  dfOwnedInitRange("armors",  maxes.armors),
+               shields: dfOwnedInitRange("shields", maxes.shields),
                _hwm: { weapons: maxes.weapons, armors: maxes.armors, shields: maxes.shields } };
       dfPersistOwned(data);
       return data;
@@ -3015,7 +3034,7 @@
       if (data._hwm[slot] == null) data._hwm[slot] = -1;
       // 戦利品で maxIdx が前回反映 hwm より上がった分を所持へ追加。売却済み低ティアは復活しない。
       for (let t = (data._hwm[slot] | 0) + 1; t <= maxes[slot]; t++) {
-        if (slot === "weapons" && t < maxes[slot] && dfWeaponTierGated(t)) continue;   // 下位 gated は芋づる所持化しない
+        if (dfSlotTierGated(slot, t)) continue;   // gated は名前集合が権威 = 共有ティアで配らない
         if (!data[slot].includes(t)) { data[slot].push(t); changed = true; }
       }
       if ((data._hwm[slot] | 0) < maxes[slot]) { data._hwm[slot] = maxes[slot]; changed = true; }
@@ -3026,19 +3045,69 @@
   }
   let ownedEquip = loadOwnedEquip();
   const DF_SLOT_KEY = { weapon: "weapons", armor: "armors", shield: "shields" };   // 単数→複数キー
+
+  // ── gated 所持の名前集合 (index.html の DF_GATED_OWNED_KEY と共有) ──────────────
+  const DF_GATED_OWNED_KEY = "dragonfighters.ownedGatedNames";
+  // 旧セーブ互換の**一度きりの**種まき対象。名前キー化より前に出荷済みの gated だけを並べる。
+  // ⚠ 新しい gated をここに足してはいけない。足すと「共有ティアで持っていたことにする」= 漏れの復活。
+  const DF_GATED_LEGACY = ["フレームタング", "フロストブランド", "聖別された剣", "軽業師の革装束"];
+  function dfPersistGatedOwned(set) {
+    try { localStorage.setItem(DF_GATED_OWNED_KEY, JSON.stringify([...set])); } catch (e) { /* ignore */ }
+  }
+  function dfLoadGatedOwned() {
+    let arr = null;
+    try { arr = JSON.parse(localStorage.getItem(DF_GATED_OWNED_KEY) || "null"); } catch (e) { arr = null; }
+    if (Array.isArray(arr)) return new Set(arr);
+    // 初回のみ: 旧セーブが共有ティアで持っていた legacy gated を名前へ移し替える (失わせない)。
+    // 旧セーブが所持を記録していた場所は 2 つある。両方見ないと拾った激レアを黙って没収する:
+    //   ① 所持ティア配列 ownedEquip[slot]
+    //   ② 高水位 inventory.*Idx — index がドロップで引き上げた直後、酒場がまだ
+    //      所持へ反映していない状態 (旧 loadOwnedEquip はこの reconcile で所持化していた)
+    const seeded = new Set();
+    const hw = { weapons: inventory.weaponIdx | 0, armors: inventory.armorIdx | 0, shields: inventory.shieldIdx | 0 };
+    for (const ck of Object.keys(CHAR_EQUIP)) {
+      const p = CHAR_EQUIP[ck]; if (!p) continue;
+      for (const [slot, pool] of [["weapons", p.weapons], ["armors", p.armors], ["shields", p.shields]]) {
+        for (const t of new Set([...(ownedEquip[slot] || []), hw[slot]])) {
+          const it = pool && pool[t];
+          if (it && it.gated && DF_GATED_LEGACY.includes(it.name)) seeded.add(it.name);
+        }
+      }
+    }
+    dfPersistGatedOwned(seeded);
+    return seeded;
+  }
+  let dfGatedOwned = dfLoadGatedOwned();
+  function dfIsGatedOwned(name) { return dfGatedOwned.has(name); }
+  function dfAddGatedOwned(name) { if (!name || dfGatedOwned.has(name)) return; dfGatedOwned.add(name); dfPersistGatedOwned(dfGatedOwned); }
+  function dfRemoveGatedOwned(name) { if (!dfGatedOwned.delete(name)) return; dfPersistGatedOwned(dfGatedOwned); }
+
   function dfOwnedTiers(kind) { return ownedEquip[DF_SLOT_KEY[kind] || kind] || []; }
-  function dfIsOwnedTier(kind, tier) { return dfOwnedTiers(kind).includes(tier | 0); }
-  function dfAddOwnedTier(kind, tier) {
+  // item 省略時はリーダー職のプールから引く (旧シグネチャの呼び出し・検証ブリッジ向けの後方互換)。
+  function dfResolveItem(kind, tier, item) {
+    if (item !== undefined) return item;
+    try { return shopPool(kind)[tier | 0] || null; } catch (e) { return null; }
+  }
+  function dfIsOwnedTier(kind, tier, item) {
+    const it = dfResolveItem(kind, tier, item);
+    if (it && it.gated) return dfIsGatedOwned(it.name);       // gated は名前キー (共有ティアの漏れを塞ぐ)
+    return dfOwnedTiers(kind).includes(tier | 0);
+  }
+  function dfAddOwnedTier(kind, tier, item) {
     const key = DF_SLOT_KEY[kind] || kind; tier = tier | 0;
-    if (!ownedEquip[key].includes(tier)) { ownedEquip[key].push(tier); ownedEquip[key].sort((a, b) => a - b); }
-    // 戦闘/クランプ用 maxIdx も追随 (index.html が min(sel, maxIdx) するため)
+    const it = dfResolveItem(kind, tier, item);
+    if (it && it.gated) dfAddGatedOwned(it.name);             // gated はティア配列に入れない
+    else if (!ownedEquip[key].includes(tier)) { ownedEquip[key].push(tier); ownedEquip[key].sort((a, b) => a - b); }
+    // 戦闘/クランプ用 maxIdx も追随 (index.html が min(sel, maxIdx) するため)。gated でも必要。
     const mk = kind === "weapon" ? "weaponIdx" : kind === "armor" ? "armorIdx" : "shieldIdx";
     if (tier > (inventory[mk] | 0)) { inventory[mk] = tier; try { localStorage.setItem("dragonfighters." + mk, String(tier)); } catch (e) {} }
     if (tier > (ownedEquip._hwm[key] | 0)) ownedEquip._hwm[key] = tier;
     dfPersistOwned(ownedEquip);
   }
-  function dfRemoveOwnedTier(kind, tier) {
+  function dfRemoveOwnedTier(kind, tier, item) {
     const key = DF_SLOT_KEY[kind] || kind; tier = tier | 0;
+    const it = dfResolveItem(kind, tier, item);
+    if (it && it.gated) { dfRemoveGatedOwned(it.name); return; }   // 他職の同ティアを巻き添えにしない
     const i = ownedEquip[key].indexOf(tier);
     if (i >= 0) ownedEquip[key].splice(i, 1);
     dfPersistOwned(ownedEquip);   // maxIdx(hwm) は下げない = 売却済みは reconcile で復活しない
@@ -3049,11 +3118,15 @@
   try {
     const GIVEMAGIC = /[?&]givemagic\b/i.test(location.search);
     if (GIVEMAGIC) {
-      // gated 武器を一括所持化(後方互換)。DF_DEV_MAGIC_SHOP 有効時は武器防具屋に 1G で並ぶため本来は不要。
-      for (let t = 0; t < WEAPONS.length; t++) {
-        if (WEAPONS[t] && WEAPONS[t].gated) dfAddOwnedTier("weapon", t);
+      // gated 装備を全職ぶん一括所持化(後方互換)。DF_DEV_MAGIC_SHOP 有効時は武器防具屋に 1G で
+      // 並ぶため本来は不要。⚠ 所持は名前キーなので、職業プールを全部舐めて item ごと渡す。
+      for (const ck of Object.keys(CHAR_EQUIP)) {
+        const p = CHAR_EQUIP[ck]; if (!p) continue;
+        for (const [kind, pool] of [["weapon", p.weapons], ["armor", p.armors], ["shield", p.shields]]) {
+          (pool || []).forEach((it, t) => { if (it && it.gated) dfAddOwnedTier(kind, t, it); });
+        }
       }
-      console.log("[dev] gated 武器を所持化しました (?givemagic)");
+      console.log("[dev] gated 装備を所持化しました (?givemagic)");
     }
     // gated アクセ (指輪) の所持化: ?givemagic か DF_DEV_MAGIC_SHOP で accessoryIds に追記(index.html と共有)。
     //   武器/防具/盾は dev shop に 1G で並ぶが、アクセサリはショップ非対応のため dev フラグで自動付与する。
@@ -3074,7 +3147,17 @@
       buyPrice: dfBuyPrice, sellPrice: dfSellPrice, isTwoHanded: dfIsTwoHanded,
       ownedTiers: dfOwnedTiers, isOwned: dfIsOwnedTier,
       addOwned: dfAddOwnedTier, removeOwned: dfRemoveOwnedTier,
-      reload: () => { ownedEquip = loadOwnedEquip(); return ownedEquip; },
+      // 第3弾 Phase 3: gated 所持の名前キー。isOwnedFor は「職業を明示した所持判定」
+      // (負のコントロール『盗賊で所持 → ドワーフでは未所持』を assert するための口)。
+      gatedOwned: () => [...dfGatedOwned], isGatedOwned: dfIsGatedOwned,
+      addGatedOwned: dfAddGatedOwned, removeGatedOwned: dfRemoveGatedOwned,
+      isOwnedFor: (ck, kind, tier) => {
+        const p = CHAR_EQUIP[ck]; if (!p) return false;
+        const arr = kind === "weapon" ? p.weapons : kind === "armor" ? p.armors : p.shields;
+        return dfIsOwnedTier(kind, tier, (arr && arr[tier | 0]) || null);
+      },
+      slotTierGated: dfSlotTierGated,
+      reload: () => { ownedEquip = loadOwnedEquip(); dfGatedOwned = dfLoadGatedOwned(); return ownedEquip; },
       getOwned: () => ownedEquip, getInv: () => inventory,
       charEquip: () => CHAR_EQUIP,
       // STEP2: 両手⇔盾排他
@@ -3858,23 +3941,23 @@
   }
   function dfShopBuy(kind, tier) {
     tier = tier | 0;
-    if (dfIsOwnedTier(kind, tier)) return { ok: false, reason: "already" };
-    const item = shopPool(kind)[tier];
+    const item = shopPool(kind)[tier];                          // gated 判定に item が要るので先に解決
     if (!item) return { ok: false, reason: "noitem" };
+    if (dfIsOwnedTier(kind, tier, item)) return { ok: false, reason: "already" };
     const price = dfShopBuyPrice(item);
     if (dfGold() < price) return { ok: false, reason: "gold" };
     dfSetGold(dfGold() - price);
-    dfAddOwnedTier(kind, tier);
+    dfAddOwnedTier(kind, tier, item);
     return { ok: true, price, name: item.name, gold: dfGold() };
   }
   function dfShopSell(kind, tier) {
     tier = tier | 0;
-    if (!dfIsOwnedTier(kind, tier)) return { ok: false, reason: "notowned" };
-    if (shopEquippedTiers(kind).has(tier)) return { ok: false, reason: "equipped" };
     const item = shopPool(kind)[tier];
     if (!item) return { ok: false, reason: "noitem" };
+    if (!dfIsOwnedTier(kind, tier, item)) return { ok: false, reason: "notowned" };
+    if (shopEquippedTiers(kind).has(tier)) return { ok: false, reason: "equipped" };
     const price = dfShopSellPrice(item);
-    dfRemoveOwnedTier(kind, tier);
+    dfRemoveOwnedTier(kind, tier, item);
     dfSetGold(dfGold() + price);
     return { ok: true, price, name: item.name, gold: dfGold() };
   }
@@ -3897,7 +3980,7 @@
       const equippedSet = shopEquippedTiers(kind);
       const rows = [];
       pool.forEach((item, tier) => {
-        const owned = dfIsOwnedTier(kind, tier);
+        const owned = dfIsOwnedTier(kind, tier, item);   // gated は名前キーで所持判定
         if (shopTab === "buy" && item.gated && !DF_DEV_MAGIC_SHOP) return;  // gated=ドロップ限定(dev陳列時のみ購入可)
         if (shopTab === "buy" && owned) return;          // 購入=未所持のみ
         if (shopTab === "sell" && !owned) return;        // 売却=所持のみ
@@ -4234,7 +4317,9 @@
     let shopHint = 0;
     items.forEach((it, i) => {
       if (i === currentSel) return;                       // 装備中は上段 → 所持品から除外
-      const owned = dfIsOwnedTier(kind, i);
+      // ⚠ 必ず it を渡す。渡さないと gated 判定がリーダー職のプールへフォールバックし、
+      //   「盗賊の tier3 を持っていればドワーフの tier3 も所持」に戻る (共有ティアの漏れ)。
+      const owned = dfIsOwnedTier(kind, i, it);
       if (it.gated && !owned) return;                     // gated(マジックアイテム)は未所持なら非表示 (ドロップで所持したら出る)
       if (!owned && !showAllEquip) { shopHint++; return; }
       const item = document.createElement("div");

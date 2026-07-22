@@ -9757,27 +9757,51 @@
       }
       return dst;
     }
+    // unit の装備 3 点 [武器, 防具, 盾] を返す。装備由来の効果 (skillBonus / saveBonus) を
+    // 読む関数はすべてここを通す = 「リーダーと仲間で読む場所が違う」を1箇所に閉じ込める。
+    //   "player"  → リーダーの実装備 (戦士なら armors/currentArmorIndex、非戦士なら職プール)
+    //   ally      → ALLY_EQUIP_POOLS[職] を allyEquipSelection[職] で引く (酒場の選択が権威)
     // unit: "player" (リーダー) | ally オブジェクト。hasFreeAction と同じ引数規約。
-    // 武器/防具/盾 + 装備中アクセの skillBonus を合算して返す (無ければ空オブジェクト)。
-    function getUnitSkillBonus(unit) {
-      const out = {};
-      if (unit === "player") {
-        mergeSkillBonusInto(out, getCurrentWeapon());
-        mergeSkillBonusInto(out, getCurrentArmor());
-        mergeSkillBonusInto(out, getCurrentShield());
-      } else if (unit && unit.classKey) {
+    function getUnitEquipItems(unit) {
+      if (unit === "player") return [getCurrentWeapon(), getCurrentArmor(), getCurrentShield()];
+      if (unit && unit.classKey) {
         const pool = (typeof ALLY_EQUIP_POOLS !== "undefined") ? ALLY_EQUIP_POOLS[unit.classKey] : null;
         const sel  = (typeof allyEquipSelection !== "undefined") ? allyEquipSelection[unit.classKey] : null;
         if (pool && sel) {
           const at = (arr, i) => (arr && arr.length) ? arr[Math.max(0, Math.min(i | 0, arr.length - 1))] : null;
-          mergeSkillBonusInto(out, at(pool.weapons, sel.weapon));
-          mergeSkillBonusInto(out, at(pool.armors,  sel.armor));
-          mergeSkillBonusInto(out, at(pool.shields, sel.shield));
+          return [at(pool.weapons, sel.weapon), at(pool.armors, sel.armor), at(pool.shields, sel.shield)];
         }
       }
+      return [];
+    }
+    // 武器/防具/盾 + 装備中アクセの skillBonus を合算して返す (無ければ空オブジェクト)。
+    function getUnitSkillBonus(unit) {
+      const out = {};
+      for (const it of getUnitEquipItems(unit)) mergeSkillBonusInto(out, it);
       for (const acc of getEquippedAccessories(unit || "player")) mergeSkillBonusInto(out, acc);
       return out;
     }
+    // ── 第3弾 Phase 3: 装備由来のセービングスロー・ボーナス (山守りの板金鎧 = 全セーヴ +2) ──
+    // ⚠ セーヴには中央関数が存在せず、PT 側の判定が **13 箇所** に散っている:
+    //     恐怖 partyWillSave (頭/仲間) / 眩惑の視線 umberGaze (頭/仲間) /
+    //     単眼の暴君 4種 (混乱・眠り・畏怖・重圧。各関数内で kind 別に解決) /
+    //     ハイドラのブレス (頭/仲間) / 汎用ブレス enemyCastAoE (頭/仲間) / 戦車の轢殺 trample。
+    //   新しいセーヴ経路を足す時は必ずここを通すこと。**挿し忘れは「その経路だけ黙って効かない」**
+    //   = プレイヤーには「たまたま失敗した」としか見えず、バグとして報告されない。
+    // ⚠ 敵側のセーヴ (雷斧の衝撃波 = `d20() + strMod`) には絶対に足さない。あれは
+    //   こちらの放った効果に敵が抵抗するロールで、味方の装備とは無関係。
+    // unit: "player" (リーダー) | ally オブジェクト。hasFreeAction と同じ引数規約。
+    function getSaveBonus(unit) {
+      if (sovereignSuppressed(unit)) return 0;               // C4 ④b: 帯の上では鎧の加護も死ぬ
+      let bonus = 0;
+      const add = (it) => { if (it && typeof it.saveBonus === "number") bonus += it.saveBonus; };
+      for (const it of getUnitEquipItems(unit)) add(it);
+      for (const acc of getEquippedAccessories(unit || "player")) add(acc);
+      return bonus;
+    }
+    // セーヴ表示の修正値部分。装備由来があれば「装+N」を併記して、効いている理由を画面に出す
+    // (第3弾の思想 = 受動・戦闘外の効果は「効いているのが見える」ことまで含めて実装)。
+    function saveModDD(mod, sb) { return signedDD(mod) + (sb ? `装${signedDD(sb)}` : ""); }
     // 装備中のアクセサリーから kind ("all" | "arrow") の回避率を合算
     function getTotalAvoidance(kind, unit) {
       if (sovereignSuppressed(unit || "player")) return 0;   // C4 ④b: 帯の上では回避のマジックアイテムは死ぬ
@@ -14374,7 +14398,8 @@
           results.push({ kind: "player", saved: true, immune: true });
         } else {
           const roll = d20();
-          const total = roll + (playerStats.wis || 0);
+          const sb = getSaveBonus("player");                 // 第3弾: 山守りの板金鎧などの装備ボーナス
+          const total = roll + (playerStats.wis || 0) + sb;
           const saved = total >= dc;
           if (!saved) {
             playerBuffs.frightenedRemaining = Math.max(playerBuffs.frightenedRemaining || 0, FRIGHTENED_DURATION);
@@ -14382,7 +14407,7 @@
           }
           showRollAtPlayer(
             `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
-            `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
+            `1d20(<b>${roll}</b>)${saveModDD(playerStats.wis || 0, sb)} = ${total}<br>vs DC ${dc}`,
             saved ? "hit" : "miss");
           results.push({ kind: "player", saved });
         }
@@ -14392,7 +14417,8 @@
         if (!a.alive) continue;
         if (allyFearImmune(a)) { results.push({ kind: "ally", ally: a, saved: true, immune: true }); continue; }
         const roll = d20();
-        const total = roll + (a.wis || 0);
+        const sb = getSaveBonus(a);                          // ⚠ 頭側と別行 = 片方だけ挿すと仲間だけ効かない
+        const total = roll + (a.wis || 0) + sb;
         const saved = total >= dc;
         if (!saved) {
           a.buffs.frightenedRemaining = Math.max(a.buffs.frightenedRemaining || 0, FRIGHTENED_DURATION);
@@ -14400,7 +14426,7 @@
         }
         showRollAtAlly(a,
           `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(a.wis || 0)} = ${total}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(a.wis || 0, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         results.push({ kind: "ally", ally: a, saved });
       }
@@ -14429,12 +14455,13 @@
           rec.saved.push("P");
         } else {
           const roll = d20();
-          const total = roll + (playerStats.wis || 0);
+          const sb = getSaveBonus("player");                 // 第3弾: 装備由来のセーヴボーナス
+          const total = roll + (playerStats.wis || 0) + sb;
           const saved = total >= dc;
           if (!saved) playerBuffs.confused = dur;
           showRollAtPlayer(
             `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
-            `1d20(<b>${roll}</b>)${signedDD(playerStats.wis || 0)} = ${total}<br>vs DC ${dc}`,
+            `1d20(<b>${roll}</b>)${saveModDD(playerStats.wis || 0, sb)} = ${total}<br>vs DC ${dc}`,
             saved ? "hit" : "miss");
           (saved ? rec.saved : rec.failed).push("P");
         }
@@ -14450,12 +14477,13 @@
           continue;
         }
         const roll = d20();
-        const total = roll + (a.wis || 0);
+        const sb = getSaveBonus(a);                          // ⚠ 頭側と別行 = 片方だけ挿すと仲間だけ効かない
+        const total = roll + (a.wis || 0) + sb;
         const saved = total >= dc;
         if (!saved) a.confused = dur;
         showRollAtAlly(a,
           `<span class="label">${saved ? "GAZE RESIST" : "CONFUSED"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(a.wis || 0)} = ${total}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(a.wis || 0, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         (saved ? rec.saved : rec.failed).push("A" + i);
       }
@@ -14477,13 +14505,15 @@
       if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
 
       // 対象の WIS 修正 / 表示ヘルパー / 付与 を kind 別に解決
-      let wisMod = 0, showAtTarget = null, applyWild = null, targetName = "", hasFree = false;
+      // ⚠ saveB (第3弾の装備ボーナス) は PT 側だけ。enemy 分岐では 0 のまま = 敵の抵抗に味方の鎧は乗らない。
+      let wisMod = 0, showAtTarget = null, applyWild = null, targetName = "", hasFree = false, saveB = 0;
       if (pick.kind === "leader") {
         wisMod = playerStats.wis || 0;
         targetName = getLeaderName();
         showAtTarget = (t, c) => showRollAtPlayer(t, c);
         applyWild = () => { playerBuffs.wildConfused = dur; };
         hasFree = hasFreeAction("player");
+        saveB = getSaveBonus("player");
       } else if (pick.kind === "ally") {
         const a = allies[pick.idx];
         if (!a || !a.alive) return;
@@ -14492,6 +14522,7 @@
         showAtTarget = (t, c) => showRollAtAlly(a, t, c);
         applyWild = () => { a.wildConfused = dur; };
         hasFree = hasFreeAction(a);
+        saveB = getSaveBonus(a);
       } else {  // enemy (第三勢力の乱入個体など)
         const o = enemies[pick.idx];
         if (!o || !o.alive) return;
@@ -14512,12 +14543,12 @@
         return;
       }
       const roll = d20();
-      const total = roll + wisMod;
+      const total = roll + wisMod + saveB;
       const saved = total >= dc;
       if (!saved) { applyWild(); rec.applied = true; } else { rec.saved = true; }
       showAtTarget(
         `<span class="label">${saved ? "SAVE" : "CONFUSED"}</span>` +
-        `1d20(<b>${roll}</b>)${signedDD(wisMod)} = ${total}<br>vs DC ${dc}`,
+        `1d20(<b>${roll}</b>)${saveModDD(wisMod, saveB)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__wildConfusedProbe) window.__wildConfusedProbe.push(rec);
     }
@@ -14550,7 +14581,9 @@
       if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
 
       // 対象の CON 修正 / 表示ヘルパー / 付与 を kind 別に解決 (混乱の目の解決ブロックの鏡写し)
-      let conMod = 0, showAtTarget = null, applySleep = null, targetName = "", immuneKind = null;
+      // ⚠ この目は変数名こそ conMod だが CON セーヴで正しい (混乱の目の WIS と差別化した仕様)。
+      // ⚠ saveB (第3弾の装備ボーナス) は PT 側だけ。enemy 分岐では 0 のまま。
+      let conMod = 0, showAtTarget = null, applySleep = null, targetName = "", immuneKind = null, saveB = 0;
       if (pick.kind === "leader") {
         conMod = playerStats.con || 0;
         targetName = getLeaderName();
@@ -14560,6 +14593,7 @@
           playerBuffs.sleepWatchHp = hp;      // 覚醒監視の基準HP を焼く
         };
         if (sleepImmune("player")) immuneKind = (leaderClassKey === "elf") ? "elf" : "ring";
+        saveB = getSaveBonus("player");
       } else if (pick.kind === "ally") {
         const a = allies[pick.idx];
         if (!a || !a.alive) return;
@@ -14571,6 +14605,7 @@
           a.buffs.sleepWatchHp = a.hp;        // 「この stunned は眠り由来」の唯一のマーカを兼ねる
         };
         if (sleepImmune(a)) immuneKind = (a.classKey === "elf") ? "elf" : "ring";
+        saveB = getSaveBonus(a);
       } else {  // enemy (第三勢力の乱入個体など)
         const o = enemies[pick.idx];
         if (!o || !o.alive) return;
@@ -14593,12 +14628,12 @@
         return;
       }
       const roll = d20();
-      const total = roll + conMod;
+      const total = roll + conMod + saveB;
       const saved = total >= dc;
       if (!saved) { applySleep(); rec.applied = true; } else { rec.saved = true; }
       showAtTarget(
         `<span class="label">${saved ? "SAVE" : "SLEEP"}</span>` +
-        `1d20(<b>${roll}</b>)${signedDD(conMod)} = ${total}<br>vs DC ${dc}`,
+        `1d20(<b>${roll}</b>)${saveModDD(conMod, saveB)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__sleepEyeProbe) window.__sleepEyeProbe.push(rec);
     }
@@ -14630,9 +14665,11 @@
       if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
 
       // 対象の WIS 修正 / 表示ヘルパー / 付与 を kind 別に解決 (混乱の目・眠りの目の解決ブロックの鏡写し)
-      let wisMod = 0, showAtTarget = null, applyFear = null, targetName = "", immune = false, immuneWhy = null;
+      // ⚠ saveB (第3弾の装備ボーナス) は PT 側だけ。enemy 分岐は早期 return なので設定不要。
+      let wisMod = 0, showAtTarget = null, applyFear = null, targetName = "", immune = false, immuneWhy = null, saveB = 0;
       if (pick.kind === "leader") {
         wisMod = playerStats.wis || 0;
+        saveB = getSaveBonus("player");
         targetName = getLeaderName();
         showAtTarget = (t, c) => showRollAtPlayer(t, c);
         applyFear = () => {
@@ -14649,6 +14686,7 @@
         const a = allies[pick.idx];
         if (!a || !a.alive) return;
         wisMod = a.wis || 0;
+        saveB = getSaveBonus(a);
         targetName = a.npcName || a.def.name;
         showAtTarget = (t, c) => showRollAtAlly(a, t, c);
         applyFear = () => {
@@ -14684,12 +14722,12 @@
         return;
       }
       const roll = d20();
-      const total = roll + wisMod;
+      const total = roll + wisMod + saveB;
       const saved = total >= dc;
       if (!saved) { applyFear(); rec.applied = true; } else { rec.saved = true; }
       showAtTarget(
         `<span class="label">${saved ? "FEAR RESIST" : "FRIGHTENED"}</span>` +
-        `1d20(<b>${roll}</b>)${signedDD(wisMod)} = ${total}<br>vs DC ${dc}`,
+        `1d20(<b>${roll}</b>)${saveModDD(wisMod, saveB)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__fearEyeProbe) window.__fearEyeProbe.push(rec);
     }
@@ -14719,13 +14757,15 @@
 
       // 対象の DEX 修正 / 表示ヘルパー / 付与先 を kind 別に解決。
       // ⚠ 付与先は applyStatus に渡す unit そのもの: 頭は文字列 "player" (statusArrayOf 14766 の規約)。
-      let dexMod = 0, showAtTarget = null, unit = null, targetName = "", hasFree = false;
+      // ⚠ saveB (第3弾の装備ボーナス) は PT 側だけ。enemy 分岐では 0 のまま。
+      let dexMod = 0, showAtTarget = null, unit = null, targetName = "", hasFree = false, saveB = 0;
       if (pick.kind === "leader") {
         dexMod = playerStats.dex || 0;
         targetName = getLeaderName();
         showAtTarget = (t, c) => showRollAtPlayer(t, c);
         unit = "player";
         hasFree = hasFreeAction("player");
+        saveB = getSaveBonus("player");
       } else if (pick.kind === "ally") {
         const a = allies[pick.idx];
         if (!a || !a.alive) return;
@@ -14734,6 +14774,7 @@
         showAtTarget = (t, c) => showRollAtAlly(a, t, c);
         unit = a;
         hasFree = hasFreeAction(a);
+        saveB = getSaveBonus(a);
       } else {  // enemy (第三勢力の乱入個体など)
         const o = enemies[pick.idx];
         if (!o || !o.alive) return;
@@ -14754,12 +14795,12 @@
         return;
       }
       const roll = d20();
-      const total = roll + dexMod;
+      const total = roll + dexMod + saveB;
       const saved = total >= dc;
       if (!saved) { applyStatus(unit, "prone", dur); rec.applied = true; } else { rec.saved = true; }
       showAtTarget(
         `<span class="label">${saved ? "SAVE" : "PRONE"}</span>` +
-        `1d20(<b>${roll}</b>)${signedDD(dexMod)} = ${total}<br>vs DC ${dc}`,
+        `1d20(<b>${roll}</b>)${saveModDD(dexMod, saveB)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__pressEyeProbe) window.__pressEyeProbe.push(rec);
     }
@@ -16026,6 +16067,12 @@
       { name: "チェインメイル",      enhancement: 2 },
       { name: "スケイルメイル +1",   enhancement: 3 },
       { name: "ドワーフの板金鎧",     enhancement: 4 },
+      // 第3弾「生き延びる者の遺品」: 山守りの板金鎧。AC は最上位と同値 (enh 4) のまま、
+      //   セービングスロー全般に +2 (getSaveBonus が読む)。デメリットは持たせない。
+      //   gated=通常入手不可 (ラダー/ショップから除外・マジックアイテム抽選プール限定)。
+      //   ⚠ tavern.html の DWARF_ARMORS と name を完全一致させること (gated 所持が名前キーのため)。
+      { name: "山守りの板金鎧",      enhancement: 4, rarity: "special", gated: true,
+        saveBonus: 2 },
     ];
     const DWARF_SHIELDS = [
       { name: "なし",                enhancement: 0 },
@@ -17104,6 +17151,22 @@
     function bumpStoredIdx(key, idx) {
       try { if ((idx | 0) > readStoredIdx(key)) localStorage.setItem(key, String(idx | 0)); } catch (e) { /* silent */ }
     }
+    // ── 第3弾 Phase 3: gated (マジックアイテム) の所持は「名前キー」で持つ ──────────
+    // 装備の所持ティア (dragonfighters.ownedEquip) は **職業を持たない共有インデックス** なので、
+    // gated をティア番号で持つと「盗賊が拾った tier3 の革装束」で「ドワーフの tier3 の鎧」まで
+    // 所持扱いになる = 1回の激レアドロップで複数職ぶんのレアが付き、レアの意味が消える。
+    // そこで gated だけは名前の集合を別キーで持ち、酒場の dfIsOwnedTier がそれを読む。
+    // ⚠ 名前は index / tavern の装備プールで完全一致させること (誤字 = 拾っても酒場に出ない)。
+    const DF_GATED_OWNED_KEY = "dragonfighters.ownedGatedNames";
+    function markGatedOwned(name) {
+      if (!name) return;
+      try {
+        const cur = JSON.parse(localStorage.getItem(DF_GATED_OWNED_KEY) || "[]");
+        const set = new Set(Array.isArray(cur) ? cur : []);
+        set.add(name);
+        localStorage.setItem(DF_GATED_OWNED_KEY, JSON.stringify([...set]));
+      } catch (e) { /* silent */ }
+    }
 
     // マジックアイテムを1つ抽選して付与。付与できたら { name, kind } を返し、無ければ null。
     function rollMagicItemDrop() {
@@ -17138,10 +17201,12 @@
           localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
           localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
         } catch (e) { /* silent */ }
+        markGatedOwned(weapons[pick.idx].name);   // gated 所持は名前キー (共有ティアの漏れを塞ぐ)
         return { name: weapons[pick.idx].name, kind: "weapon" };
       }
       if (pick.kind === "armor") {
         const gotName = leaderArmors[pick.idx].name;
+        markGatedOwned(gotName);                  // 同上。ここが無いと拾っても酒場の装備欄に出ない
         if (leaderClassKey === "warrior") {
           currentArmorIndex = pick.idx;
           try {
@@ -23790,14 +23855,16 @@
         const acx = a.x + a.def.displaySize / 2, acy = a.y + a.def.displaySize / 2;
         if (!inBlast(acx, acy)) continue;
         const roll = d20();
-        const saved = (roll + (a.dex || 0)) >= dc;
+        const sb = getSaveBonus(a);                                  // 第3弾: 装備由来のセーヴボーナス
+        const total = roll + (a.dex || 0) + sb;
+        const saved = total >= dc;
         let dmg = rollBreath();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
         dmg = Math.max(1, Math.round(dmg * getFireResistMult(a)));   // フロストブランド/火耐性の指輪: 火半減 (セーヴ半減の後)
         hitCount++;
         showRollAtAlly(a,
           `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(a.dex || 0)} = ${roll + (a.dex || 0)}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(a.dex || 0, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         applyFireBreathToAlly(a, dmg);
       }
@@ -23805,14 +23872,16 @@
       // 頭 (player) を最後に解決
       if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) {
         const roll = d20();
-        const saved = (roll + (playerStats.dex || 0)) >= dc;
+        const sb = getSaveBonus("player");                                  // ⚠ 仲間側と別行 = 片方だけ挿すと頭だけ効かない
+        const total = roll + (playerStats.dex || 0) + sb;
+        const saved = total >= dc;
         let dmg = rollBreath();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
         dmg = Math.max(1, Math.round(dmg * getFireResistMult("player")));   // フロストブランド/火耐性の指輪: 火半減 (セーヴ半減の後・致死判定の前)
         hitCount++;
         showRollAtPlayer(
           `<span class="label">${saved ? "DEX SAVE" : "BURNED"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(playerStats.dex || 0)} = ${roll + (playerStats.dex || 0)}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(playerStats.dex || 0, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         // 不屈 (resilient): 致命傷を 1d4 HP で耐える (1戦1回・戦士系)
         const wouldDie = (hp - dmg) <= 0;
@@ -23962,14 +24031,16 @@
         if (!inBlast(acx, acy)) continue;
         const roll = d20();
         const mod = a[saveAbility] || 0;
-        const saved = (roll + mod) >= dc;
+        const sb = getSaveBonus(a);                          // 第3弾: 装備由来のセーヴボーナス (能力値は saveAbility 可変)
+        const total = roll + mod + sb;
+        const saved = total >= dc;
         let dmg = rollDmg();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
         if (meta.el === "fire") dmg = Math.max(1, Math.round(dmg * getFireResistMult(a)));
         hitCount++;
         showRollAtAlly(a,
           `<span class="label">${saved ? saveLabel + " SAVE" : "HIT"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(mod)} = ${roll + mod}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(mod, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         applyFireBreathToAlly(a, dmg);
       }
@@ -23978,14 +24049,16 @@
       if (hp > 0 && !gameOver && inBlast(playerX + 48, playerY + 58)) {
         const roll = d20();
         const mod = playerStats[saveAbility] || 0;
-        const saved = (roll + mod) >= dc;
+        const sb = getSaveBonus("player");                   // ⚠ 仲間側と別行 = 片方だけ挿すと頭だけ効かない
+        const total = roll + mod + sb;
+        const saved = total >= dc;
         let dmg = rollDmg();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
         if (meta.el === "fire") dmg = Math.max(1, Math.round(dmg * getFireResistMult("player")));
         hitCount++;
         showRollAtPlayer(
           `<span class="label">${saved ? saveLabel + " SAVE" : "HIT"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(mod)} = ${roll + mod}<br>vs DC ${dc}`,
+          `1d20(<b>${roll}</b>)${saveModDD(mod, sb)} = ${total}<br>vs DC ${dc}`,
           saved ? "hit" : "miss");
         await applyEnemySpellDamage({ kind: "leader" }, dmg, false, meta.jp);
       }
@@ -24662,13 +24735,17 @@
         if (v.kind === "ally" && !v.ally.alive) continue;
         if (v.kind === "leader" && hp <= 0) continue;
         const dexMod = v.kind === "leader" ? (playerStats.dex || 0) : (v.ally.dex || 0);
+        // 第3弾: 装備由来のセーヴボーナス。この経路だけは leader/ally が同じ行に統合されている
+        //   (v.kind で分岐) ので、挿すのも 1 行で足りる。
+        const sb = getSaveBonus(v.kind === "leader" ? "player" : v.ally);
         const roll = d20();
-        const saved = (roll + dexMod) >= dc;
+        const total = roll + dexMod + sb;
+        const saved = total >= dc;
         let dmg = rollTrample();
         if (saved) { dmg = Math.max(1, Math.floor(dmg / 2)); savedCount++; }
         const html =
           `<span class="label">${saved ? "DEX SAVE" : "RUN OVER"}</span>` +
-          `1d20(<b>${roll}</b>)${signedDD(dexMod)} = ${roll + dexMod}<br>vs DC ${dc}`;
+          `1d20(<b>${roll}</b>)${saveModDD(dexMod, sb)} = ${total}<br>vs DC ${dc}`;
         if (v.kind === "leader") showRollAtPlayer(html, saved ? "hit" : "miss");
         else showRollAtAlly(v.ally, html, saved ? "hit" : "miss");
 
