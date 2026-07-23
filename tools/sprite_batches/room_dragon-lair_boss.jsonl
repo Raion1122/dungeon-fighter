@@ -1,0 +1,5 @@
+# 部屋1枚絵: 竜の巣(dragon-lair)のボス部屋=赤竜の巣そのもの。テンプレ把握 → 1枚生成 の2段階
+# 山場(room_dragon-lair.jsonl)と同型だが、テンプレはボス部屋用の 11:9 版を使う。
+# ボス部屋は ROOMS[2]=[5,47,22,68]=22x18=11:9。PNG は 1496x1224 へ正規化して配置する。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_battlemap_boss.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_dragon-lair_2.txt", "output": "assets/room_dragon-lair_2.png"}
