@@ -1571,6 +1571,133 @@
     #plazaShop .pshopOwned { font-size: 11px; color: var(--parchment-gold); }
     #plazaShop .pshopBuy { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; }
     #plazaShop .pshopPrice { font-family: 'MedievalSharp', serif; font-size: 13px; color: var(--parchment-gold); }
+
+    /* ════════ パーティ・マッチング演出 (4カラム編成ビュー) ════════ */
+    /* クエスト受注直後の全画面シネマ。確定済みの仲間を 2→3→4 人目と順に開示するだけ (乱数・編成は非改変)。 */
+    #partyMatchOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 210;
+      background: radial-gradient(ellipse at 50% 28%, rgba(34,26,12,0.90) 0%, rgba(4,6,10,0.95) 72%);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      cursor: pointer;
+      transition: opacity 0.5s ease-out;
+      --pm-gold: #e0b43c;
+      --pm-gold-soft: rgba(224,180,60,0.55);
+      --pm-panel: rgba(20,16,26,0.72);
+      --pm-border: rgba(224,180,60,0.32);
+    }
+    #partyMatchOverlay.fading { opacity: 0; }
+    #pmInner {
+      width: min(1040px, 96vw);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+    #pmHeader { text-align: center; font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif; }
+    #pmPlace {
+      font-size: 22px;
+      letter-spacing: 4px;
+      color: var(--pm-gold);
+      text-shadow: 0 0 14px rgba(224,180,60,0.5);
+    }
+    #pmSub { font-size: 13px; letter-spacing: 3px; color: #cbb98a; margin-top: 5px; opacity: 0.85; }
+    #pmColumns {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      width: 100%;
+    }
+    .pmColumn {
+      background: var(--pm-panel);
+      border: 1px solid var(--pm-border);
+      border-radius: 10px;
+      padding: 16px 12px 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 296px;
+      box-shadow: inset 0 0 22px rgba(0,0,0,0.4);
+      transition: opacity 0.35s ease-out;
+    }
+    .pmColumn[data-state="empty"] { opacity: 0.45; }
+    .pmColumn.pmHeroCol {
+      border-color: var(--pm-gold);
+      box-shadow: 0 0 22px rgba(224,180,60,0.22), inset 0 0 22px rgba(60,44,10,0.5);
+      background: linear-gradient(180deg, rgba(52,40,14,0.55), rgba(20,16,26,0.72));
+    }
+    .pmPortraitWrap { position: relative; width: 88px; height: 88px; margin-bottom: 12px; }
+    .pmPortrait {
+      --pm-d: 88px;
+      width: var(--pm-d);
+      height: var(--pm-d);
+      border-radius: 50%;
+      border: 3px solid var(--pm-gold-soft);
+      background-repeat: no-repeat;
+      /* 歩行シート 576×384 (6列×4行 96px) を D 倍率で拡縮。col0・row3 (右向き静止) を円形に切り抜く。 */
+      background-size: calc(var(--pm-d) * 6) calc(var(--pm-d) * 4);
+      background-position: 0 calc(var(--pm-d) * -3);
+      image-rendering: pixelated;
+      background-color: rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    .pmColumn.pmHeroCol .pmPortrait { border-color: var(--pm-gold); }
+    .pmColumn[data-state="empty"] .pmPortrait { filter: brightness(0.3) grayscale(1); }
+    .pmBadge {
+      position: absolute;
+      left: -6px;
+      top: -6px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--pm-gold);
+      color: #201400;
+      font-weight: 800;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    }
+    .pmName { font-size: 15px; font-weight: 700; color: #f0e6cc; text-align: center; line-height: 1.3; }
+    .pmName.pmHeroName { color: var(--pm-gold); }
+    .pmClass { font-size: 12px; color: #b8a878; margin-top: 3px; }
+    .pmZone { font-size: 11px; color: #8a7c5a; margin-top: 2px; letter-spacing: 1px; }
+    .pmEquip { margin-top: 12px; width: 100%; display: flex; flex-direction: column; gap: 5px; }
+    .pmEquipRow { display: flex; gap: 7px; font-size: 11.5px; align-items: baseline; line-height: 1.35; }
+    .pmEquipLabel { flex: 0 0 30px; color: #7a6e52; }
+    .pmEquipVal { flex: 1 1 auto; word-break: break-word; }
+    /* 暗背景用に装備色を明るめへ上書き (白/青/紫の意味は維持) */
+    #partyMatchOverlay .item-normal { color: #e8dcc0; font-weight: 600; }
+    #partyMatchOverlay .item-magic { color: #6db3ff; font-weight: 700; }
+    #partyMatchOverlay .item-special { color: #d08cff; font-weight: 700; text-shadow: 0 0 6px rgba(200,120,255,0.4); }
+    #pmHint { font-size: 12px; letter-spacing: 3px; color: #8a7c5a; opacity: 0; transition: opacity 0.4s ease-out; }
+    #pmHint.show { opacity: 0.85; }
+    @keyframes pmRevealPop {
+      0% { opacity: 0; transform: translateY(14px) scale(0.92); }
+      60% { transform: translateY(-2px) scale(1.03); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .pmColumn.pmReveal { animation: pmRevealPop 0.42s cubic-bezier(0.2,0.9,0.3,1.2) both; }
+    /* 縦持ちスマホ: 4カラムが潰れるので 2×2 グリッドへ (確定順 1→2→3→4 は不変) */
+    @media (max-width: 720px) {
+      #pmColumns { grid-template-columns: repeat(2, 1fr); }
+      .pmColumn { min-height: 0; padding: 12px 10px; }
+      #pmPlace { font-size: 18px; letter-spacing: 2px; }
+    }
+    @media (max-width: 380px) {
+      #pmColumns { gap: 9px; }
+      .pmPortraitWrap, .pmPortrait { --pm-d: 72px; width: 72px; height: 72px; }
+    }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -1606,6 +1733,18 @@
       <div class="dmHeader">📜 フランの記録</div>
       <div class="dmBody" id="dmBody"></div>
       <div class="dmHint" id="dmHint">クリックで続ける</div>
+    </div>
+  </div>
+
+  <!-- パーティ・マッチング演出 (4カラム編成ビュー)。受注直後に仲間を順に開示する全画面シネマ。 -->
+  <div id="partyMatchOverlay" aria-hidden="true">
+    <div id="pmInner">
+      <div id="pmHeader">
+        <div id="pmPlace"></div>
+        <div id="pmSub">共に挑む仲間が集う……</div>
+      </div>
+      <div id="pmColumns"></div>
+      <div id="pmHint">タップでスキップ</div>
     </div>
   </div>
 
@@ -1761,10 +1900,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>出撃前に仲間が集うマッチング演出</b> — クエスト受注後、仲間が一人ずつ確定していく編成ビューを追加。</li>
         <li><b>力を宿す新たな秘宝を追加</b> — 「ガントレットオブオーガパワー」と「ベルトオブジャイアントストレングス」。装備すると近接攻撃の一撃が重くなる、古き英雄の武具。ごく稀に手に入る。</li>
         <li><b>盗賊にも専用のマジック武器</b> — 「吸命の短剣」で斬った相手からは生命が流れ出し、盗賊自身の傷が癒える。これで五職すべてに専用の魔法武器が揃った。</li>
         <li><b>五職に専用のマジック武器を追加</b> — ドワーフの熔鉄の戦鎚・僧侶の贖罪のメイス・エルフの風斬りの弓・魔法使いの星詠みの杖。ごく稀に手に入る。</li>
-        <li><b>ドワーフの新しい魔法の鎧</b> — 「山守りの板金鎧」を着たドワーフは、恐怖・眠り・ブレスなどに耐えるロールが強くなる。</li>
       </ul>
     </div>
     <script>
@@ -3798,6 +3937,7 @@
     dialogEl.style.display = "none";
     // 受注ナレ (依頼人の語り口調 + セリフ) を全画面で語ってから準備画面へ。受注スティンガー音声はナレ内で再生。
     await playQuestAcceptNarration(sc);
+    await playPartyMatchCinematic(sc);  // 仲間が集うマッチング演出 (確定済みの仲間を順に開示・タップでスキップ)
     await maybePlayPrepOnboarding();   // 初回のみ: 準備画面の遊び方を語り部が案内 (スキップ可)
     prepEl.style.display = "flex";
   }
@@ -5149,6 +5289,211 @@
       overlay.classList.remove("fading");
       resetQuestAcceptStage();
     }
+  }
+
+  // ════════ パーティ・マッチング演出 (4カラム編成ビュー) ════════
+  // クエスト受注直後、確定済みの仲間 (selection.partyMembers) を「主人公→2→3→4人目」と順に開示する全画面シネマ。
+  // ⚠ 乱数・編成ロジックは一切触らない (開示専用)。カラムの並びも表示上のみ [主人公, 仲間…] に整える。
+  //
+  // ⚠ PARTY_PORTRAIT_SPRITES は index.html の SPRITE_VARIANTS (歩行シート url) と二重定義=要同期。
+  //   歩行シート 576×384 (6列×4行 96px)・row3=右向き・col0=静止 を円形に切り抜く (CSS .pmPortrait)。
+  //   ?v= キャッシュバスタは付けない (素パスで解決 → バージョン取り違えによる 404 を回避)。
+  const PARTY_PORTRAIT_SPRITES = {
+    warrior: ["assets/warrior_walk.png", "assets/warrior_heavy_walk.png", "assets/warrior_female_walk.png", "assets/warrior_knight_walk.png"],
+    dwarf:   ["assets/dwarf_walk.png",   "assets/dwarf_berserker_walk.png", "assets/dwarf_shield_walk.png",  "assets/dwarf_rune_walk.png"],
+    cleric:  ["assets/cleric_walk.png",  "assets/cleric_elder_walk.png",    "assets/cleric_priestess_walk.png", "assets/cleric_war_walk.png"],
+    mage:    ["assets/mage_walk.png",    "assets/mage_old_walk.png",        "assets/mage_crimson_walk.png",  "assets/mage_dark_walk.png"],
+    elf:     ["assets/elf_walk.png",     "assets/elf_high_walk.png",        "assets/elf_huntress_walk.png",  "assets/elf_shadow_walk.png"],
+    rogue:   ["assets/rogue_walk.png",   "assets/rogue_assassin_walk.png",  "assets/rogue_acrobat_walk.png", "assets/rogue_scout_walk.png"],
+  };
+  const PM_ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
+  const PM_CLASS_EMOJI = { warrior: "🗡️", dwarf: "⛏️", cleric: "✨", mage: "🔮", elf: "🏹", rogue: "🗝️" };
+  const PM_REVEAL_INTERVAL = 720;   // 各カラム確定の間隔 (ms)。テンポ調整レバー。
+  const PM_HOLD_AFTER = 2600;       // 全確定後、自動で閉じるまでの猶予 (ms)。タップで即閉じ。
+
+  function pmClassNameJa(classKey) {
+    const s = PARTY_SLOTS.find(x => x && x.classKey === classKey);
+    return s ? s.name : classKey;
+  }
+  // 装備インデックス → アイテムオブジェクト (renderCharLoadout の clampSel と同じプール長クランプ)。
+  function pmEquipItems(classKey) {
+    const pool = CHAR_EQUIP[classKey];
+    const sel = getEquipSelection(classKey);
+    if (!pool) return { weapon: null, armor: null, shield: null };
+    const at = (arr, i) => (arr && arr.length) ? arr[Math.min(Math.max(0, i | 0), arr.length - 1)] : null;
+    return {
+      weapon: at(pool.weapons, sel && sel.weapon),
+      armor:  at(pool.armors,  sel && sel.armor),
+      shield: at(pool.shields, sel && sel.shield),
+    };
+  }
+  // ポートレート背景を設定 (変種URL → 変種0 → 職業絵文字 の3段フォールバック)。背景画像なので Image() で存在確認。
+  function pmTryPortrait(el, urls, idx, emoji) {
+    if (idx >= urls.length) {
+      el.style.backgroundImage = "none";
+      el.textContent = emoji;
+      return;
+    }
+    const url = urls[idx];
+    const img = new Image();
+    img.onload = () => { el.style.backgroundImage = 'url("' + url + '")'; el.textContent = ""; };
+    img.onerror = () => { pmTryPortrait(el, urls, idx + 1, emoji); };
+    img.src = url;
+  }
+  function pmApplyPortrait(el, m) {
+    const list = PARTY_PORTRAIT_SPRITES[m.classKey] || [];
+    const v = m.variant | 0;
+    const urls = [];
+    if (list[v]) urls.push(list[v]);
+    if (list[0] && list[0] !== list[v]) urls.push(list[0]);
+    pmTryPortrait(el, urls, 0, PM_CLASS_EMOJI[m.classKey] || "🗡️");
+  }
+
+  // 1カラムを生成。fill(animate) を呼ぶまでは空スロット (シルエット + ？？？)。
+  function buildPmColumn(m, i) {
+    const el = document.createElement("div");
+    el.className = "pmColumn";
+    el.dataset.state = "empty";
+    const wrap = document.createElement("div");
+    wrap.className = "pmPortraitWrap";
+    const portrait = document.createElement("div");
+    portrait.className = "pmPortrait";
+    const badge = document.createElement("div");
+    badge.className = "pmBadge";
+    badge.textContent = String(i + 1);
+    wrap.appendChild(portrait);
+    wrap.appendChild(badge);
+    const nameEl = document.createElement("div"); nameEl.className = "pmName"; nameEl.textContent = "？？？";
+    const classEl = document.createElement("div"); classEl.className = "pmClass";
+    const zoneEl = document.createElement("div"); zoneEl.className = "pmZone";
+    const equipEl = document.createElement("div"); equipEl.className = "pmEquip";
+    el.appendChild(wrap);
+    el.appendChild(nameEl);
+    el.appendChild(classEl);
+    el.appendChild(zoneEl);
+    el.appendChild(equipEl);
+
+    let filled = false;
+    function fill(animate) {
+      if (filled) return;
+      filled = true;
+      el.dataset.state = "filled";
+      if (animate) { el.classList.remove("pmReveal"); void el.offsetWidth; el.classList.add("pmReveal"); }
+      pmApplyPortrait(portrait, m);
+      const classJa = pmClassNameJa(m.classKey);
+      if (m.isHero) {
+        nameEl.textContent = classJa + "（あなた）";
+        nameEl.classList.add("pmHeroName");
+        el.classList.add("pmHeroCol");
+      } else {
+        nameEl.textContent = m.name || classJa;
+      }
+      classEl.textContent = classJa;
+      zoneEl.textContent = PM_ZONE_LABEL[m.zone] || m.zone;
+      equipEl.innerHTML = "";
+      const eq = pmEquipItems(m.classKey);
+      [["武器", eq.weapon], ["防具", eq.armor], ["盾", eq.shield]].forEach(([label, item]) => {
+        const row = document.createElement("div"); row.className = "pmEquipRow";
+        const lab = document.createElement("span"); lab.className = "pmEquipLabel"; lab.textContent = label;
+        const val = document.createElement("span");
+        val.className = "pmEquipVal " + (item ? getItemColorClass(item.name, item.rarity) : "item-normal");
+        val.textContent = item ? item.name : "—";
+        row.appendChild(lab); row.appendChild(val);
+        equipEl.appendChild(row);
+      });
+    }
+    return { el, fill };
+  }
+
+  // 演出本体。Promise を返し、閉じ切ってから resolve (openPrep の await チェーンを止めない)。
+  function playPartyMatchCinematic(sc) {
+    const overlay = document.getElementById("partyMatchOverlay");
+    const colsEl = document.getElementById("pmColumns");
+    const placeEl = document.getElementById("pmPlace");
+    const hintEl = document.getElementById("pmHint");
+    if (!overlay || !colsEl) return Promise.resolve();
+    const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
+    if (!raw.length) return Promise.resolve();
+    // 表示上のみ [主人公, 仲間…] に整える (乱数・戦闘隊列は非改変)。主人公=即確定、以降を順に開示。
+    const hero = raw.find(m => m && m.isHero);
+    const others = raw.filter(m => m && !m.isHero);
+    const ordered = hero ? [hero].concat(others) : raw.slice();
+
+    if (placeEl) placeEl.textContent = (sc && sc.place) ? sc.place : "";
+    colsEl.innerHTML = "";
+    const cols = ordered.map((m, i) => buildPmColumn(m, i));
+    cols.forEach(c => colsEl.appendChild(c.el));
+    // 主人公カラムは即・確定 (アニメ無し。開示対象は残りの仲間)。
+    const revealQueue = [];
+    ordered.forEach((m, i) => { if (m.isHero) cols[i].fill(false); else revealQueue.push(i); });
+
+    overlay.classList.remove("fading");
+    overlay.style.display = "flex";
+    overlay.setAttribute("aria-hidden", "false");
+    if (hintEl) { hintEl.classList.remove("show"); hintEl.textContent = "タップでスキップ"; }
+    setTimeout(() => { if (hintEl) hintEl.classList.add("show"); }, 400);
+
+    return new Promise((resolve) => {
+      const timers = [];
+      let qi = 0;         // revealQueue の次インデックス
+      let phase = "reveal";
+      let closed = false;
+      const clearTimers = () => { timers.forEach(t => clearTimeout(t)); timers.length = 0; };
+      const finishReveal = () => {
+        phase = "done";
+        if (hintEl) hintEl.textContent = "タップで出発の準備へ";
+        timers.push(setTimeout(close, PM_HOLD_AFTER));
+      };
+      const step = () => {
+        if (qi >= revealQueue.length) { finishReveal(); return; }
+        const colIdx = revealQueue[qi++];
+        const isLast = qi >= revealQueue.length;
+        cols[colIdx].fill(true);
+        sfx("button");
+        if (isLast) sfx("levelUp");
+        timers.push(setTimeout(step, PM_REVEAL_INTERVAL));
+      };
+      const skipRest = () => {
+        clearTimers();
+        let any = false;
+        while (qi < revealQueue.length) { cols[revealQueue[qi++]].fill(true); any = true; }
+        if (any) sfx("levelUp");
+        finishReveal();
+      };
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearTimers();
+        overlay.removeEventListener("click", onClick);
+        overlay.classList.add("fading");
+        setTimeout(() => {
+          overlay.style.display = "none";
+          overlay.classList.remove("fading");
+          overlay.setAttribute("aria-hidden", "true");
+          resolve();
+        }, 520);
+      };
+      const onClick = () => {
+        if (phase === "reveal") skipRest();
+        else close();
+      };
+      overlay.addEventListener("click", onClick);
+      timers.push(setTimeout(step, PM_REVEAL_INTERVAL));
+    });
+  }
+
+  // 検証シーム (dev/ヘッドレス専用・製品挙動に影響なし)。演出関数は script スコープに閉じるため、
+  // ドライバから駆動できるよう最小限を window に露出する (window.__diag / __speech 等と同じ慣行)。
+  if (typeof window !== "undefined") {
+    window.__pmTest = {
+      ensureParty: function () {
+        if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
+        return (selection.partyMembers || []).map(function (m) {
+          return { classKey: m.classKey, isHero: !!m.isHero, name: m.name, zone: m.zone, variant: m.variant };
+        });
+      },
+      play: function (sc) { return playPartyMatchCinematic(sc); },
+    };
   }
 
   // 準備画面 初回オンボーディング: 準備画面を「初めて開いた時」のみ、共有オーバーレイ #prologueOverlay を
