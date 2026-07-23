@@ -15324,6 +15324,7 @@
         // ── 闇市 一般消費アイテムの自動発動 (M9) ──
         applyBattleStartConsumables();   // 影渡りの薬 / 呪われた曲刀 / セリアの手鏡
         tryNegatePreemptive(units);      // 牙の護符: 先制された時のみ
+        await tryStealthSurprise();       // 第7弾: 隠密の接近（不意打ち）。stealth 得意PTのみ・非ボス敵の初手を封じる
 
         // ── ボスの恐怖オーラ (リッチ Frightful Presence / Sce6 ファラクサス) ──
         // 戦闘開始時に1回、def.fearDC を持つボスがいればパーティ全員が Will セーヴ。
@@ -18646,6 +18647,47 @@
         skillCheckActive = false;
         dialogPaused = false;
       });
+    }
+
+    // 第7弾「妖精郷の装い」: 隠密の接近（不意打ち）。stealth が得意なPT（盗賊 or エルフの外套）だけが
+    //   戦闘開始時に隠密判定を試み、成功で非ボス敵に stunned=1 を付与 → enemyAttackTurn が初手を飛ばす。
+    //   ボスは油断しない＝対象外（ボスのみ遭遇は判定自体を出さない＝無駄パネル回避）。
+    async function tryStealthSurprise() {
+      if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return false;
+      const targets = encounterEnemyIndices.filter(i =>
+        enemies[i] && enemies[i].alive && !(enemies[i].def && enemies[i].def.isBoss));
+      if (targets.length === 0) return false;               // 非ボスの生存敵ゼロ（ボスのみ等）→ 忍ぶ意味なし
+      const party = buildPerceptionParty();
+      if (!party.length) return false;
+      // 忍べるのは stealth 習熟（盗賊）か stealth 装備ボーナス（エルフの外套）を持つ者が居る時だけ
+      const profs = (window.SkillCheck && SkillCheck.CLASS_PROFICIENCIES) || {};
+      const canSneak = party.some(m =>
+        ((profs[m.classKey] || []).indexOf("stealth") >= 0) ||
+        (m.skillBonus && m.skillBonus.stealth > 0));
+      if (!canSneak) return false;                          // 隠密無縁のPT（重装戦士等）は判定を出さない＝低摩擦
+      const dc = (currentScenario && currentScenario.perceptionDC) || 14;
+      let res = null;
+      try {
+        res = await SkillCheck.resolveSkillCheck("stealth", dc, party, {
+          title: "隠密判定",
+          flavor: "足音を殺し、敵の死角へ忍び寄る…",
+          voiceIds: PERCEPTION_VOICE,
+        });
+      } catch (e) { res = null; }
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (res && res.success) {
+        let n = 0;
+        for (const i of targets) {
+          if (enemies[i] && enemies[i].alive) { enemies[i].stunned = Math.max(enemies[i].stunned || 0, 1); n++; }
+        }
+        showBanner("🥷 不意打ち成功!", 1500);
+        updateInfo(`${rep} が気配を殺して接近! 敵 ${n}体 の隙を突いた (隠密 ${res.total} ≧ DC ${res.dc}) — 初撃はこちらのもの`);
+        showDMMessage("息を殺し、影から忍び寄る。敵はまだ、こちらに気づいていない——最初の一手は、完全に我らのものだ。", 2600);
+        return true;
+      } else if (res) {
+        updateInfo(`${rep} は忍び寄ろうとしたが、足音を悟られた… (隠密 ${res.total} < DC ${res.dc})`);
+      }
+      return false;
     }
 
     // 罠解除判定: 知覚で発見済み(found)の罠に隣接(chebyshev 1タイル)したら、盗賊が得意な
