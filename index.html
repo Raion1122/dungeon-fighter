@@ -3227,6 +3227,13 @@
       "orc-fort": {
         1: { src: "assets/room_orc-fort_1.png", tileBounds: [7, 24, 20, 43] },
       },
+      // Sce5 神殿: 山場(部屋2)を荒らされた納骨堂として1枚絵化。
+      //   隠し要素の神官の霊カエルムは (50,18) = ボス部屋なので、この部屋には居ない
+      //   (沼のハイドラ・砦の守護者と違い、地面を空ける配慮は不要)。中央は骨兵/幽鬼が
+      //   湧く戦闘地面なので素の石畳のまま。
+      "undead-temple": {
+        1: { src: "assets/room_undead-temple_1.png", tileBounds: [7, 24, 20, 43] },
+      },
     };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }

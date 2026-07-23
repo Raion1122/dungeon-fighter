@@ -1,0 +1,5 @@
+# 部屋1枚絵: 神殿(undead-temple)の山場=納骨堂。テンプレ把握 → 1枚生成 の2段階
+# 単発モードで4回失敗(中央が塞がる/45度回転/目線カメラ)したため、スプライトで実証済みの
+# 「1ターン目にルールだけ把握させ、2ターン目に短い指示で描かせる」バッチ方式に切替。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_battlemap.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_undead-temple_1.txt", "output": "assets/room_undead-temple_1.png"}
