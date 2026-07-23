@@ -1682,6 +1682,12 @@
     #partyMatchOverlay .item-special { color: #d08cff; font-weight: 700; text-shadow: 0 0 6px rgba(200,120,255,0.4); }
     #pmHint { font-size: 12px; letter-spacing: 3px; color: #8a7c5a; opacity: 0; transition: opacity 0.4s ease-out; }
     #pmHint.show { opacity: 0.85; }
+    /* 全員確定後は自動で進まない = タップが必須操作になるので、ヒントを金色で脈打たせて気づかせる */
+    #pmHint.pmWait { color: var(--pm-gold); font-size: 13.5px; animation: pmHintPulse 1.5s ease-in-out infinite; }
+    @keyframes pmHintPulse {
+      0%, 100% { opacity: 0.55; text-shadow: none; }
+      50% { opacity: 1; text-shadow: 0 0 10px rgba(224,180,60,0.55); }
+    }
     @keyframes pmRevealPop {
       0% { opacity: 0; transform: translateY(14px) scale(0.92); }
       60% { transform: translateY(-2px) scale(1.03); }
@@ -1900,10 +1906,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間が揃うと演出が待ってくれる</b> — マッチング画面が勝手に進まなくなり、4人の装備をゆっくり見てからタップで出発できる。</li>
         <li><b>忍び寄って不意打ち</b> — 隠密が得意な仲間がいると、戦闘開始時に敵へ気づかれず忍び寄り、成功すると敵の最初の一手を封じられる。</li>
         <li><b>妖精郷の装いを追加</b> — 鷲の目と妖精の外套。知覚が冴え、罠や隠された宝を見逃さなくなる。</li>
         <li><b>守りの装身具を追加</b> — 身を守る指輪と外套。装備すると防御と抵抗が少し上がる。</li>
-        <li><b>出撃前に仲間が集うマッチング演出</b> — クエスト受注後、仲間が一人ずつ確定していく編成ビューを追加。</li>
       </ul>
     </div>
     <script>
@@ -5322,7 +5328,10 @@
   const PM_ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
   const PM_CLASS_EMOJI = { warrior: "🗡️", dwarf: "⛏️", cleric: "✨", mage: "🔮", elf: "🏹", rogue: "🗝️" };
   const PM_REVEAL_INTERVAL = 720;   // 各カラム確定の間隔 (ms)。テンポ調整レバー。
-  const PM_HOLD_AFTER = 2600;       // 全確定後、自動で閉じるまでの猶予 (ms)。タップで即閉じ。
+  // 全員が揃った後は【自動で閉じない】= 明示タップ待ち (4人のステータスをじっくり確認できるように)。
+  // 確定した瞬間だけ短く入力を殺すのは、スキップ用の連打で読み飛ばす事故と、iOS の touch→click
+  // 二重発火で即閉じする事故の両方を防ぐため。
+  const PM_TAP_GATE = 500;          // 全確定〜タップ受付開始までの猶予 (ms)。
 
   function pmClassNameJa(classKey) {
     const s = PARTY_SLOTS.find(x => x && x.classKey === classKey);
@@ -5443,7 +5452,7 @@
     overlay.classList.remove("fading");
     overlay.style.display = "flex";
     overlay.setAttribute("aria-hidden", "false");
-    if (hintEl) { hintEl.classList.remove("show"); hintEl.textContent = "タップでスキップ"; }
+    if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = "タップでスキップ"; }
     setTimeout(() => { if (hintEl) hintEl.classList.add("show"); }, 400);
 
     return new Promise((resolve) => {
@@ -5451,11 +5460,15 @@
       let qi = 0;         // revealQueue の次インデックス
       let phase = "reveal";
       let closed = false;
+      let gateOpen = false;   // 全確定後、タップで閉じられる状態か (PM_TAP_GATE 経過で true)
       const clearTimers = () => { timers.forEach(t => clearTimeout(t)); timers.length = 0; };
+      // 全員確定 = ここで【止まる】。タイマーでは二度と閉じない (閉じる唯一の経路は onTap)。
       const finishReveal = () => {
+        if (phase === "done") return;   // 二重呼び出し (touch→click の連鎖など) は無視
         phase = "done";
-        if (hintEl) hintEl.textContent = "タップで出発の準備へ";
-        timers.push(setTimeout(close, PM_HOLD_AFTER));
+        if (hintEl) { hintEl.textContent = "タップして出発"; hintEl.classList.add("pmWait"); }
+        gateOpen = false;
+        timers.push(setTimeout(() => { gateOpen = true; }, PM_TAP_GATE));
       };
       const step = () => {
         if (qi >= revealQueue.length) { finishReveal(); return; }
@@ -5477,7 +5490,7 @@
         if (closed) return;
         closed = true;
         clearTimers();
-        overlay.removeEventListener("click", onClick);
+        unbindTaps();
         overlay.classList.add("fading");
         setTimeout(() => {
           overlay.style.display = "none";
@@ -5486,11 +5499,18 @@
           resolve();
         }, 520);
       };
-      const onClick = () => {
-        if (phase === "reveal") skipRest();
-        else close();
+      // 開示中のタップ = 残りを即確定 (従来どおり)。全確定後のタップ = 閉じる。
+      // ⚠ 確定していない間は絶対に閉じない ("確定を見ずに飛ばす" を作らないため)。
+      const onTap = () => {
+        if (closed) return;
+        if (phase === "reveal") { skipRest(); return; }
+        if (gateOpen) close();
       };
-      overlay.addEventListener("click", onClick);
+      // iOS Safari 対策で touchend も拾う (click 非発火の端末があると、自動クローズが無い今は詰む)。
+      // touch→click の二重発火は PM_TAP_GATE と closed ガードが吸収する。
+      const bindTaps = () => { overlay.addEventListener("click", onTap); overlay.addEventListener("touchend", onTap); };
+      const unbindTaps = () => { overlay.removeEventListener("click", onTap); overlay.removeEventListener("touchend", onTap); };
+      bindTaps();
       timers.push(setTimeout(step, PM_REVEAL_INTERVAL));
     });
   }
