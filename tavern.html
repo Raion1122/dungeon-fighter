@@ -1900,10 +1900,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>妖精郷の装いを追加</b> — 鷲の目と妖精の外套。知覚が冴え、罠や隠された宝を見逃さなくなる。</li>
         <li><b>守りの装身具を追加</b> — 身を守る指輪と外套。装備すると防御と抵抗が少し上がる。</li>
         <li><b>出撃前に仲間が集うマッチング演出</b> — クエスト受注後、仲間が一人ずつ確定していく編成ビューを追加。</li>
         <li><b>力を宿す新たな秘宝を追加</b> — 「ガントレットオブオーガパワー」と「ベルトオブジャイアントストレングス」。装備すると近接攻撃の一撃が重くなる、古き英雄の武具。ごく稀に手に入る。</li>
-        <li><b>盗賊にも専用のマジック武器</b> — 「吸命の短剣」で斬った相手からは生命が流れ出し、盗賊自身の傷が癒える。これで五職すべてに専用の魔法武器が揃った。</li>
       </ul>
     </div>
     <script>
@@ -3294,7 +3294,8 @@
         const set = new Set(Array.isArray(cur) ? cur : []);
         ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward",
          "amulet-silver-tongue", "gauntlets-ogre-power", "belt-giant-strength",
-         "ring-protection", "cloak-protection"].forEach(id => set.add(id));
+         "ring-protection", "cloak-protection",
+         "eyes-eagle", "cloak-elvenkind"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -4021,6 +4022,13 @@
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (acBonus / saveBonus は index 側だけが読む)。
     { id: "ring-protection", name: "リングオブプロテクション", rarity: "special", gated: true },
     { id: "cloak-protection", name: "クロークオブプロテクション", rarity: "special", gated: true },
+    // 第7弾 妖精郷の装い (SRD 5.1: Eyes of the Eagle / Cloak of Elvenkind)。知覚 +2 / 隠密 +2。効果は index.html 側で発動。
+    //   ⚠ 第5/6弾 (dmg/AC/save) と同型で、ここには skillBonus を持たせない。理由=perception/stealth は酒場 prep-intel
+    //     (investigation/persuasion/religion) の対象外で tvSkillBonusFor が読まないため。囁きの護符が tavern 側に
+    //     skillBonus を持つのは酒場が読む persuasion/investigation だから＝今回は読まれる場面が無いので index 側のみ。
+    //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること。
+    { id: "eyes-eagle", name: "アイズオブジイーグル", rarity: "special", gated: true },
+    { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。

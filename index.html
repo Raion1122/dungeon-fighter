@@ -8309,6 +8309,14 @@
         acBonus: 1, saveBonus: 1, gated: true, rarity: "special" },
       { id: "cloak-protection", name: "クロークオブプロテクション", flavor: "護りの紋を織り込んだ外套。羽織る者の身を、風のごとき見えざる庇護がやさしく包む",
         acBonus: 1, saveBonus: 1, gated: true, rarity: "special" },
+      // ── 第7弾 実在の D&D マジックアイテム「妖精郷の装い」(SRD 5.1: Eyes of the Eagle / Cloak of Elvenkind)。
+      //    skillBonus はダンジョン内スキル判定で getUnitSkillBonus が読み buildPerceptionParty 経由で各メンバーに積む。
+      //    eyes=知覚(perception) / cloak=隠密(stealth) に +2。職業非依存・gated=ドロップ限定 (classReq 無し=全職装備可)。
+      //    ⚠ 戦闘力は上がらない。効くのは罠/宝の発見 (perception) と隠密の接近=不意打ち (stealth)。id/name は tavern と完全一致。
+      { id: "eyes-eagle", name: "アイズオブジイーグル", flavor: "鷲の眼を宿した黄金の眼鏡。掛ける者の視力は遥か彼方まで冴え、罠も隠された宝も見逃さない",
+        skillBonus: { perception: 2 }, gated: true, rarity: "special" },
+      { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", flavor: "エルフの織り手が編んだ灰緑の外套。まとう者の足音と気配を森の影に溶かし、敵の隙を突く",
+        skillBonus: { stealth: 2 }, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
