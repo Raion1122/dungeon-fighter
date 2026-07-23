@@ -1,0 +1,5 @@
+# 部屋1枚絵: 竜の巣(dragon-lair)の山場=巣に至る前庭。テンプレ把握 → 1枚生成 の2段階
+# 神殿(room_undead-temple.jsonl)と同型。単発モードは中央に主役物を置く癖が強く4連敗したので、
+# ルール把握ターンを必ず先に挟む。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_battlemap.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_dragon-lair_1.txt", "output": "assets/room_dragon-lair_1.png"}

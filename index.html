@@ -3234,6 +3234,12 @@
       "undead-temple": {
         1: { src: "assets/room_undead-temple_1.png", tileBounds: [7, 24, 20, 43] },
       },
+      // Sce6 竜の巣: 山場(部屋2)を「巣に至る前庭」として1枚絵化 (竜は描かない=次の部屋の驚きを残す)。
+      //   隠し要素の偽宝箱(ミミック)は spawnDragonHoard() がボス部屋の西45%へランダム配置するので、
+      //   この部屋には来ない。中央はオーク/ミノタウロスが湧く戦闘地面なので素の岩肌のまま。
+      "dragon-lair": {
+        1: { src: "assets/room_dragon-lair_1.png", tileBounds: [7, 24, 20, 43] },
+      },
     };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
