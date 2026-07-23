@@ -1900,10 +1900,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>守りの装身具を追加</b> — 身を守る指輪と外套。装備すると防御と抵抗が少し上がる。</li>
         <li><b>出撃前に仲間が集うマッチング演出</b> — クエスト受注後、仲間が一人ずつ確定していく編成ビューを追加。</li>
         <li><b>力を宿す新たな秘宝を追加</b> — 「ガントレットオブオーガパワー」と「ベルトオブジャイアントストレングス」。装備すると近接攻撃の一撃が重くなる、古き英雄の武具。ごく稀に手に入る。</li>
         <li><b>盗賊にも専用のマジック武器</b> — 「吸命の短剣」で斬った相手からは生命が流れ出し、盗賊自身の傷が癒える。これで五職すべてに専用の魔法武器が揃った。</li>
-        <li><b>五職に専用のマジック武器を追加</b> — ドワーフの熔鉄の戦鎚・僧侶の贖罪のメイス・エルフの風斬りの弓・魔法使いの星詠みの杖。ごく稀に手に入る。</li>
       </ul>
     </div>
     <script>
@@ -3293,7 +3293,8 @@
         const cur = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]");
         const set = new Set(Array.isArray(cur) ? cur : []);
         ["ring-free-action", "ring-fire-resist", "amulet-health", "amulet-undead-ward",
-         "amulet-silver-tongue", "gauntlets-ogre-power", "belt-giant-strength"].forEach(id => set.add(id));
+         "amulet-silver-tongue", "gauntlets-ogre-power", "belt-giant-strength",
+         "ring-protection", "cloak-protection"].forEach(id => set.add(id));
         localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
       } catch (e) { /* ignore */ }
     }
@@ -4016,6 +4017,10 @@
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (dmgBonus は index 側だけが戦闘で読む)。
     { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", rarity: "special", gated: true },
     { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", rarity: "special", gated: true },
+    // 第6弾 守りの装身具 (SRD 5.1: Ring of Protection / Cloak of Protection)。AC +1 / 全セーヴ +1。効果は index.html 側で発動。
+    //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (acBonus / saveBonus は index 側だけが読む)。
+    { id: "ring-protection", name: "リングオブプロテクション", rarity: "special", gated: true },
+    { id: "cloak-protection", name: "クロークオブプロテクション", rarity: "special", gated: true },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。

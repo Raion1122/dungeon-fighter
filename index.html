@@ -8301,6 +8301,14 @@
         dmgBonus: 2, gated: true, rarity: "special" },
       { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", flavor: "丘の巨人の腱を編み込んだ帯。腰に締めた者へ、山をも砕く膂力の一端を分け与えるという",
         dmgBonus: 3, gated: true, rarity: "special" },
+      // ── 第6弾 実在の D&D マジックアイテム「守りの装身具」(SRD 5.1: Ring of Protection / Cloak of Protection)。
+      //    装備中、AC と全セービングスローへ +1。acBonus は getAccessoryAcBonus (currentPlayerAc / currentAllyAc 経由)、
+      //    saveBonus は getSaveBonus 経由で読まれる (既に acc.saveBonus を合算済み = 無改修)。
+      //    職業非依存・gated=ドロップ限定。⚠ 単眼の暴君のレイ上 (sovereignSuppressed) では両方 0 = 効果が死ぬ。
+      { id: "ring-protection", name: "リングオブプロテクション", flavor: "祝福の刻まれた守りの指輪。嵌める者を狙う刃も呪いも、目に見えぬ加護がわずかに逸らすという",
+        acBonus: 1, saveBonus: 1, gated: true, rarity: "special" },
+      { id: "cloak-protection", name: "クロークオブプロテクション", flavor: "護りの紋を織り込んだ外套。羽織る者の身を、風のごとき見えざる庇護がやさしく包む",
+        acBonus: 1, saveBonus: 1, gated: true, rarity: "special" },
     ];
     function accessoryIdxFromId(id) {
       const i = accessories.findIndex(a => a.id === id);
@@ -9869,6 +9877,20 @@
       return bonus;
     }
 
+    // ── 第6弾「守りの装身具」: 装備アクセの acBonus (守りの指輪 +1 / 守りの外套 +1) を合算し、
+    //    AC への加算量を返す。currentPlayerAc / currentAllyAc が返り値に足す。二重装備でスタック (+2)。
+    //    ⚠ dmgBonus 版と同じく、単眼の暴君のレイ上 (sovereignSuppressed) では 0 = 効果が死ぬ。
+    //    saveBonus 側は getSaveBonus が既に acc.saveBonus を合算しているので別途配線は不要。
+    //    unit: "player" (リーダー) | ally オブジェクト。
+    function getAccessoryAcBonus(unit) {
+      if (sovereignSuppressed(unit)) return 0;
+      let bonus = 0;
+      for (const acc of getEquippedAccessories(unit)) {
+        if (typeof acc.acBonus === "number") bonus += acc.acBonus;
+      }
+      return bonus;
+    }
+
     // 不浄を退ける聖印 (Amulet of Undead Warding): 装備中アクセの undeadDR (固定軽減) の最大値を返す。
     // 攻撃者が undead:true の敵の時のみ、被ダメージ算出でこの値だけ差し引く (最低1は通す)。
     // 二重所持でも最大値のみ = 二重軽減しない (火耐性の指輪と同じ思想)。unit: "player" | ally オブジェクト。
@@ -9997,7 +10019,8 @@
         // 装備エンハンスメントを含む基本 AC / 攻撃値 (鎧 + 盾 + 武器)
         const baseAc  = playerStats.ac
           + ((armor && armor.enhancement) || 0)
-          + ((shield && shield.enhancement) || 0);
+          + ((shield && shield.enhancement) || 0)
+          + getAccessoryAcBonus("player");   // 第6弾 守りの装身具: 装備アクセの AC + を HUD にも映す (表示==戦闘値)
         const baseAtk = playerStats.atkBonus + ((weapon && weapon.enhancement) || 0);
         // 武器表記の +N は STR + 武器エンハ込みの総ダメージボーナス (酒場の表示と統一)
         const weaponDisplayBonus = playerStats.dmgBonus + ((weapon && weapon.enhancement) || 0)
@@ -10101,7 +10124,7 @@
           box.innerHTML =
             `<div class="sbName">${allyTitle} <span style="font-size:12px;color:#c8a046">Lv${allyLv}</span></div>` +
             `<div class="sbStat">HP ${hpText}` +
-            `  ・ AC ${a.ac}${acBonus} 攻<b>+${a.atkBonus}</b></div>` +
+            `  ・ AC ${a.ac + getAccessoryAcBonus(a)}${acBonus} 攻<b>+${a.atkBonus}</b></div>` +
             mpLine +
             `<div class="sbStat">${formatWeaponLine(a.weaponName || a.def.weaponName, a.dmgDice, 0, a.weaponRange || "melee", a.weaponRarity, a.weaponBonusDmgDice, a.weaponBonusDmgType)}</div>` +
             `<div class="sbStat">${formatArmorLine(a.armorName || a.def.armorName, a.armorRarity)}</div>` +
@@ -16620,14 +16643,16 @@
       return playerStats.ac + armorEnh + shieldEnh +
         (playerBuffs.acBonusRemaining > 0 ? playerBuffs.acBonusAmount : 0) +
         (onRay ? 0 : (playerBuffs.shadowAcBonus || 0)) -  // 闇市 影渡りの薬 (M9): リーダーが盗賊の場合
-        (hasStatus("player", "prone") ? PRONE_AC_PENALTY : 0);   // prone はデバフ = 抑制しない
+        (hasStatus("player", "prone") ? PRONE_AC_PENALTY : 0) +   // prone はデバフ = 抑制しない
+        getAccessoryAcBonus("player");                   // 第6弾 守りの装身具 (レイ上は自己ガードで 0)
     }
     function currentAllyAc(a) {
       const onRay = sovereignSuppressed(a);               // C4 ④c: 焼込み済み装備+ の差分を引いて戻す
       return a.ac - (onRay ? Math.max(0, a._acEnhDelta || 0) : 0) +
         (a.buffs.acBonusRemaining > 0 ? a.buffs.acBonusAmount : 0) +
         (onRay ? 0 : (a.buffs.shadowAcBonus || 0)) -      // 闇市 影渡りの薬 (M9): 盗賊系仲間
-        (hasStatus(a, "prone") ? PRONE_AC_PENALTY : 0);   // prone はデバフ = 抑制しない
+        (hasStatus(a, "prone") ? PRONE_AC_PENALTY : 0) +   // prone はデバフ = 抑制しない
+        getAccessoryAcBonus(a);                           // 第6弾 守りの装身具 (レイ上は自己ガードで 0)
     }
     function applyDmgReductionToPlayerDmg(dmg) {
       if (playerBuffs.dmgReductionRemaining <= 0 || !playerBuffs.dmgReductionDice) {
