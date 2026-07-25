@@ -97,6 +97,13 @@
       box-shadow: 0 0 10px rgba(220, 60, 70, 0.5);
     }
 
+    /* 出荷前の大掃除: デバッグ操作行は既定で非表示。localStorage['df.devMode'] === "1" のときだけ
+       body に dev-mode が付いて現れる (判定は <body> 直後の IIFE。tavern.html と同一キー・同一作法)。
+       ⚠ 対象 div のインライン style から display:flex を必ず外しておくこと。
+          インライン指定はこの規則に無条件で勝つため、残っていると「CSS は書いたのに何も起きない」静かな失敗になる。 */
+    #debugEvadeRow { display: none; }
+    body.dev-mode #debugEvadeRow { display: flex; }
+
     #startTitle {
       font-family: 'MedievalSharp', serif;
       color: var(--parchment-gold);
@@ -2531,6 +2538,55 @@
   <script src="js/skill-check.js"></script>
 </head>
 <body>
+  <script>
+  /* 開発モード判定 (出荷前の大掃除)。tavern.html と同一の仕組み・同一キーで、酒場で焼けば
+     同一オリジンなのでこちら側にも効く。デバッグ操作行は既定で CSS により非表示、dev 用 URL
+     チート (?evade / ?intel / ?wagonchance) は既定で無効で、dev モード時だけ現れる/効く。
+     ?dev=1 で ON を焼き込み / ?dev=0 で OFF (URL を毎回付ける必要はない)。
+     ⚠ キーは "df.devMode" = "dragonfighters." prefix の【外】。設定モーダルの『冒険の記録を消す』は
+        dragonfighters.* を一括削除するため、prefix の内側に置くと記録消去のたびに dev モードが落ちる。 */
+  (function () {
+    var KEY = "df.devMode";
+    try {
+      var q = new URLSearchParams(location.search).get("dev");
+      if (q === "1" || q === "on") localStorage.setItem(KEY, "1");
+      else if (q === "0" || q === "off") localStorage.removeItem(KEY);
+    } catch (e) {}
+    var on = false;
+    try { on = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    window.__dfDevMode = on;
+    if (on) document.body.classList.add("dev-mode");
+
+    /* dev 専用 URL チートの有効条件。
+       ⚠ ?autoplay / ?autodebug / ?diag が付いていれば dev 扱いにする。ヘッドレス検証ドライバ群は URL
+          直指定に依存しており、dev モード必須にすると「チートが黙って効かない」= 測定値が壊れる静かな
+          失敗 (fail-open) になる。例: 勝率計測の ?intel=0 が無効化されると封じたはずの敵が湧く。
+          実際 %TEMP%/df_pptr のドライバには ?diag=1&intel=0 形式 (autoplay 無し) が多数ある。
+       ⚠ ?autoplay / ?autodebug / ?scen / ?diag そのものはゲートしない (検証基盤の動力源であり、
+          ゲームバランスを壊す類でもないため)。 */
+    window.__dfDevUnlocked = function () {
+      if (window.__dfDevMode) return true;
+      try {
+        var s = new URLSearchParams(location.search);
+        return s.has("autoplay") || s.has("autodebug") || s.has("diag");
+      } catch (e) { return false; }
+    };
+
+    /* dev 専用 URL チート 1 件分の判定。⚠ 無視したときは必ず警告を出す。
+       黙って無視すると「チートを付けたつもりで付いていない」まま測定が進み、後から気づけない
+       (fail-open の静かな失敗)。警告を出しておけば Console かドライバのログに必ず痕跡が残る。 */
+    window.__dfDevCheat = function (name) {
+      if (window.__dfDevUnlocked()) return true;
+      try {
+        if (new URLSearchParams(location.search).has(name)) {
+          console.warn("[df] dev 専用パラメータ ?" + name + " は dev モードでないため無視しました。"
+            + " 使う場合は ?dev=1 を一度焼くか、?autoplay / ?autodebug / ?diag を併用してください。");
+        }
+      } catch (e) {}
+      return false;
+    };
+  })();
+  </script>
   <!-- SVG フィルタ定義 (炎オーラの動的歪み用) -->
   <svg width="0" height="0" style="position:absolute;pointer-events:none;">
     <defs>
@@ -2558,8 +2614,10 @@
       <div id="startTitle">廃坑のゴブリンの巣窟</div>
       <div id="startFlavor" style="font-size:14px;opacity:0.8;margin-bottom:12px;letter-spacing:1px;"></div>
       <div id="startText">クリックで開始<br>英雄は自動で探索・戦闘します<br><span style="font-size:14px;opacity:0.75;">[ I ] キーでインベントリ確認</span></div>
-      <!-- Phase 2-G DEBUG: 残影回避モードのトグル (装備中のみ反映) -->
-      <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <!-- Phase 2-G DEBUG: 残影回避モードのトグル (装備中のみ反映)。
+           既定は CSS (#debugEvadeRow) で非表示。body.dev-mode のときだけ display:flex で現れる。
+           ⚠ display:flex をインラインに戻さないこと (CSS ゲートに勝ってしまい常時表示に逆戻りする)。 -->
+      <div id="debugEvadeRow" style="margin-top:14px;gap:8px;justify-content:center;flex-wrap:wrap;">
         <button id="debugEvadeAllBtn" type="button" class="debugBtn">
           🛡 必ず回避 (全攻撃) OFF
         </button>
@@ -6770,10 +6828,14 @@
       if (_qfRaw != null) { questFlags = JSON.parse(_qfRaw) || {}; questFlagsPresent = true; }
     } catch (e) { questFlags = {}; }
     // dev/検証用の強制上書き: ?intel=1 で全開放、?intel=0 で全封鎖 (酒場 ?givemagic と同じ発想)
+    //   ⚠ 出荷前の大掃除: dev モード (または ?autoplay/?autodebug = ヘッドレス検証) のときだけ効く。
+    //      素の配布物で URL に付けても無視される。
     let __intelOverride = null;
     try {
       const _p = new URLSearchParams(window.location.search);
-      if (_p.has("intel")) __intelOverride = (_p.get("intel") === "1");
+      if (_p.has("intel") && window.__dfDevCheat("intel")) {
+        __intelOverride = (_p.get("intel") === "1");
+      }
     } catch (e) {}
     // [7.9-3 STEP3] 屋外(隊商護衛の街道)用: ?daylight=1 で視界制限を全面オフにする。
     //   「青空感」の正体はテクスチャではなく視界制限の有無 = フォグ暗幕 + 伏兵化 + エンカウント gating。
@@ -6802,7 +6864,8 @@
     let WAGON_TARGET_CHANCE = 0.30;
     try {
       const _pw = new URLSearchParams(window.location.search);
-      if (_pw.has("wagonchance")) {
+      //   ⚠ 出荷前の大掃除: dev モード (または ?autoplay/?autodebug) のときだけ上書きを許す。
+      if (_pw.has("wagonchance") && window.__dfDevCheat("wagonchance")) {
         const _v = parseFloat(_pw.get("wagonchance"));
         if (Number.isFinite(_v)) WAGON_TARGET_CHANCE = Math.max(0, Math.min(1, _v));
       }
@@ -8078,8 +8141,11 @@
     // URL に ?evade=arrow → 矢攻撃のみ確定回避
     // ブラウザ Console から `__evadeAlways = true` で動的に切替可
     // ※ 装備中に残影の首飾りがある場合のみ反映 (アクセサリー未装備時は無効)
+    // ⚠ 出荷前の大掃除: dev モード (または ?autoplay/?autodebug = ヘッドレス検証) のときだけ効く。
+    //    素の配布物では URL に付けても無視される (Console からの手動切替は dev の有無を問わず可能)。
     (function() {
       try {
+        if (!window.__dfDevCheat("evade")) return;
         const p = new URLSearchParams(window.location.search);
         const v = (p.get("evade") || "").toLowerCase();
         if (v === "all" || v === "1" || v === "true") {

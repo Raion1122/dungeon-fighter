@@ -1764,6 +1764,32 @@
     try { on = localStorage.getItem(KEY) === "1"; } catch (e) {}
     window.__dfDevMode = on;
     if (on) document.body.classList.add("dev-mode");
+
+    /* dev 専用 URL チートの有効条件 (index.html と同一実装)。
+       ⚠ ?autoplay / ?autodebug / ?diag が付いていれば dev 扱いにする。ヘッドレス検証ドライバ群は URL
+          直指定に依存しており、dev モード必須にすると「チートが黙って効かない」= 測定値が壊れる静かな
+          失敗 (fail-open) になる。 */
+    window.__dfDevUnlocked = function () {
+      if (window.__dfDevMode) return true;
+      try {
+        var s = new URLSearchParams(location.search);
+        return s.has("autoplay") || s.has("autodebug") || s.has("diag");
+      } catch (e) { return false; }
+    };
+
+    /* dev 専用 URL チート 1 件分の判定 (index.html と同一実装)。
+       ⚠ 無視したときは必ず警告を出す。黙って無視すると「チートを付けたつもりで付いていない」まま
+          測定が進み、後から気づけない (fail-open の静かな失敗)。 */
+    window.__dfDevCheat = function (name) {
+      if (window.__dfDevUnlocked()) return true;
+      try {
+        if (new URLSearchParams(location.search).has(name)) {
+          console.warn("[df] dev 専用パラメータ ?" + name + " は dev モードでないため無視しました。"
+            + " 使う場合は ?dev=1 を一度焼くか、?autoplay / ?autodebug / ?diag を併用してください。");
+        }
+      } catch (e) {}
+      return false;
+    };
   })();
   </script>
   <button id="settingsBtn" type="button" title="設定" style="position:fixed;bottom:18px;right:18px;z-index:30;background:rgba(26,17,8,0.86);color:#e9d7a8;border:1px solid #8b6914;border-radius:6px;padding:5px 11px;font-size:18px;line-height:1;cursor:pointer;font-family:'MedievalSharp',serif;">⚙</button>
@@ -1953,10 +1979,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>開発用の表示を片付けました</b> — 冒険の開始画面に出ていた検証用ボタンと、武器防具屋のお試し用 1G 装備を通常プレイでは表示しないようにした。</li>
         <li><b>ボス部屋にも描き下ろしの絵</b> — 残る5つのダンジョンの決戦場が1枚絵に。首領の玉座、盗賊頭の本営、族長の広間などが描き込まれました。</li>
         <li><b>スマホで主人公を見失いにくく</b> — 戦闘中にカメラが敵へ寄っても、自分の主人公が画面内に残りやすくなりました。</li>
         <li><b>スマホの所持品リストを読みやすく</b> — 装備画面で武器名が1文字ずつ縦に並んでしまう表示を直し、名前と性能が1行にすっきり収まるようにしました。</li>
-        <li><b>仲間が壁の中から出発する不具合を修正</b> — ダンジョン開始直後にカメラが暗闇を映してさまよう症状が解消。</li>
       </ul>
     </div>
     <script>
@@ -2721,6 +2747,9 @@
   //   冪等(毎ロード未所持分のみ追加→変化時のみ保存)。
   const ALL_MAIN_SCENARIOS = ["goblin-mine", "bandits-forest", "lizard-swamp", "orc-fort", "undead-temple", "dragon-lair"];
   const FORCE_POSTGAME_UNLOCK = (function () {
+    // ⚠ 出荷前の大掃除: dev モード (または ?autoplay/?autodebug = ヘッドレス検証) のときだけ効く。
+    //    素の配布物で ?unlockall=1 を付けても無視される。
+    if (!window.__dfDevCheat("unlockall")) return false;
     try { if (new URLSearchParams(location.search).get("unlockall") === "1") return true; } catch (e) {}
     return false;   // ← 配布時はここを false 固定
   })();
@@ -3166,11 +3195,12 @@
     if (item.sellPrice != null) return item.sellPrice;            // レア個別単価
     return Math.floor(dfBuyPrice(item) * 0.5);                    // 既定 = 購入額の 50%
   }
-  // ⚠【開発用・一時】gated マジックアイテム(通常はドロップ限定)を武器防具屋に 1G で陳列し、
+  // ⚠【開発用】gated マジックアイテム(通常はドロップ限定)を武器防具屋に 1G で陳列し、
   //    URLチート無しで実機テストできるようにする。新規追加の gated 武器/防具/盾は自動でここに並ぶ。
-  //    ★商用配布前に必ず false(または本行削除) + ?givemagic チートも削除すること。
+  //    ★出荷前の大掃除: 常時 true をやめ dev モード連動にした。素の配布物では並ばず、
+  //      開発時は ?dev=1 を一度焼けば従来どおり 1G で買える (URL を毎回付ける必要はない)。
   //    ここで早期に宣言するのは、後方の ?givemagic/指輪付与ブロックが参照するため(TDZ 回避)。
-  const DF_DEV_MAGIC_SHOP = true;
+  const DF_DEV_MAGIC_SHOP = !!window.__dfDevMode;
   function dfShopBuyPrice(item)  { return (DF_DEV_MAGIC_SHOP && item && item.gated) ? 1 : dfBuyPrice(item); }
   function dfShopSellPrice(item) { return (DF_DEV_MAGIC_SHOP && item && item.gated) ? 1 : dfSellPrice(item); }  // 1G買い→高額売りの金策事故を防止
   // 両手武器判定 (グリップ概念)。明示 twoHanded 優先 → 弓(range==="long") → flavor「両手」。
@@ -3322,11 +3352,12 @@
     if (i >= 0) ownedEquip[key].splice(i, 1);
     dfPersistOwned(ownedEquip);   // maxIdx(hwm) は下げない = 売却済みは reconcile で復活しない
   }
-  // ── 【開発用・一時】URL に ?givemagic を付けて酒場を開くと gated(マジックアイテム=通常ドロップ限定)
+  // ── 【開発用】URL に ?givemagic を付けて酒場を開くと gated(マジックアイテム=通常ドロップ限定)
   //    装備を全て所持化する。実プレイ確認用のチート。パラメータ無しの通常プレイには一切影響しない。
-  //    ⚠ 商用配布前に必ず削除すること。
+  //    ⚠ 出荷前の大掃除: dev モード (または ?autoplay/?autodebug = ヘッドレス検証) のときだけ効く。
+  //       素の配布物で ?givemagic を付けても無視される。
   try {
-    const GIVEMAGIC = /[?&]givemagic\b/i.test(location.search);
+    const GIVEMAGIC = /[?&]givemagic\b/i.test(location.search) && window.__dfDevCheat("givemagic");
     if (GIVEMAGIC) {
       // gated 装備を全職ぶん一括所持化(後方互換)。DF_DEV_MAGIC_SHOP 有効時は武器防具屋に 1G で
       // 並ぶため本来は不要。⚠ 所持は名前キーなので、職業プールを全部舐めて item ごと渡す。
