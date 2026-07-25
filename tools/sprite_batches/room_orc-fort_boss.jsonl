@@ -1,0 +1,4 @@
+# Boss room 1-picture: orc-fort ROOMS[2]=[5,47,22,68]=22x18=11:9 -> normalize PNG to 1496x1224
+# 2-stage batch: template grasp (no image) -> 1 image, in a single fresh chat.
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_battlemap_boss.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_orc-fort_2.txt", "output": "assets/room_orc-fort_2.png"}
