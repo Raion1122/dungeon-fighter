@@ -8890,6 +8890,10 @@
         executeSummon: (id, opts) => executeSummon(id, opts),
         getSummonMenuItems: (phase) => getSummonMenuItems(phase),
         summonSlot: () => summonSlot,
+        // 休憩フェーズの召喚提案 (クエストクリア確定時の抑止を含む) を直接駆動
+        offerRestSummon: () => maybeOfferRestSummon(),
+        questSettled: () => isQuestClearSettled(),
+        setDungeonCleared: (v) => { dungeonCleared = !!v; },
         allies: () => allies,
         pickNextHeadIndex: () => pickNextHeadIndex(),   // 項目5 検証: 召喚は頭昇格対象外
         aliveUnitCount: () => allies.filter(a => a.alive).length,
@@ -9199,6 +9203,33 @@
       //   呼ばれる前提。戦闘中に並べ替えると pickEnemyTarget の idx や initiative と齟齬する。
       allies.sort((x, y) => summonRank(x) - summonRank(y));
       summonSlot = a;
+      return true;
+    }
+
+    // 休憩フェーズ (戦闘勝利後の立て直し) の召喚提案。runEncounter から await で呼ぶ。
+    // 提案を出した場合 true / 出さなかった場合 false を返す (検証用)。
+    // 出さない条件:
+    //   ・オートプレイ中 — 勝手にチャージを食わないようプロンプト自体を出さない
+    //   ・クエストの決着が付いている (ボス撃破でクエストクリア確定) — 以降の戦闘が無いので
+    //     召喚しても意味がなく、チャージを捨てさせるだけになる。1.5 の applyRoomClearHeal が
+    //     ボス部屋で早期 return するのと同じ思想。⚠ 中ボス撃破後はダンジョンが続く
+    //     (ボス部屋の敵が生存) ため isQuestClearSettled() は false = 従来どおり提案する。
+    //   ・召喚枠が既に健在 / 休憩で使える召喚スクロールを持っていない
+    async function maybeOfferRestSummon() {
+      if (window.__autoplay) return false;
+      if (isQuestClearSettled()) return false;
+      if (summonSlot && summonSlot.alive) return false;
+      const summonable = getSummonMenuItems("restPhase");
+      if (summonable.length === 0) return false;
+      const cands = summonable.map(it => ({ label: `${it.def.name} を使う (残 ${countCharges(it.id)})` }));
+      // 一定時間タップが無ければ自動で「召喚しない」へスキップ(ロール判定の自動ロールと同一の待機: AUTO_ROLL_MS)。
+      const pick = await showCharChoice("召喚スクロールを使うか?", cands, "召喚しない (Esc)",
+        { autoSkipMs: (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0 });
+      if (pick !== null && summonable[pick] && executeSummon(summonable[pick].id)) {
+        const uId = PLAZA_ITEMS[summonable[pick].id].summon.unitId;
+        showBanner(`${(CLASS_DEFS[uId] && CLASS_DEFS[uId].name) || "援軍"} を召喚!`, 1400);
+        await sleepMs(700);
+      }
       return true;
     }
 
@@ -13763,6 +13794,22 @@
       }
     }
 
+    // クエストの決着が付いたか (= これ以降の戦闘が無いか)。
+    //   休憩フェーズで「次の戦闘に備える提案」(召喚など) を出す意味があるかの判定に使う。
+    //   ⚠ dungeonCleared の立ち上がりだけを見るのは不可: checkDungeonClear は moveEnemies から
+    //      呼ばれるが、moveEnemies はナレ再生中 (narrationPlaying / narrationHold / dialogPaused) に
+    //      早期 return するため、ボス撃破ナレの最中は dungeonCleared がまだ false になり得る
+    //      (= 勝利直後の rest フェーズでは競合する)。そこで撃破対象の生存を直接見る。
+    //   判定述語は checkDungeonClear と同一 (passiveNpc = 護衛対象の馬車 / 未対話の霊 は撃破対象外)。
+    //   ⚠ 中ボス (window.__inMidBoss) 撃破後はダンジョンが続き、ボス部屋の敵が生存しているので
+    //      false のまま = 道中の提案は従来どおり出る。休眠中の守護者・檻の獣も alive のまま
+    //      なので「まだ戦闘が残っている」と正しく判定される。
+    //   ⚠ window.__inBossRoom は「ボス部屋に入った」= ボス生存中でも true なので決着判定には使えない。
+    function isQuestClearSettled() {
+      if (dungeonCleared) return true;
+      return enemies.every(e => !e.alive || e.passiveNpc);
+    }
+
     function checkAutoAttack() {
       if (encounterActive) return;  // 観戦フェーズ中は turn loop 側が発動を管理
       if (attackActive || isGuarding || counterActive || gameOver || !gameStarted) return;
@@ -15690,21 +15737,9 @@
           await triggerSecondWind();
 
           // 2.5 闇市召喚 (M8): 召喚枠が空 (or 召喚が倒れた) & 休憩で使える召喚スクロール所持時のみ提案。
-          //     オートプレイ中は勝手にチャージを食わないようプロンプト自体を出さない。
-          if (!window.__autoplay && (!summonSlot || !summonSlot.alive)) {
-            const summonable = getSummonMenuItems("restPhase");
-            if (summonable.length > 0) {
-              const cands = summonable.map(it => ({ label: `${it.def.name} を使う (残 ${countCharges(it.id)})` }));
-              // 一定時間タップが無ければ自動で「召喚しない」へスキップ(ロール判定の自動ロールと同一の待機: AUTO_ROLL_MS)。
-              const pick = await showCharChoice("召喚スクロールを使うか?", cands, "召喚しない (Esc)",
-                { autoSkipMs: (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0 });
-              if (pick !== null && summonable[pick] && executeSummon(summonable[pick].id)) {
-                const uId = PLAZA_ITEMS[summonable[pick].id].summon.unitId;
-                showBanner(`${(CLASS_DEFS[uId] && CLASS_DEFS[uId].name) || "援軍"} を召喚!`, 1400);
-                await sleepMs(700);
-              }
-            }
-          }
+          //     ⚠ クエストクリア確定時 (ボス撃破) / オートプレイ中は提案しない。
+          //        判定は maybeOfferRestSummon() 側に集約 (isQuestClearSettled)。
+          await maybeOfferRestSummon();
 
           // 3. 行軍再開
           showBanner("行軍再開", 1100);
