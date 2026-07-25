@@ -3147,6 +3147,22 @@
       ? [ [13, 20, 15, 24], [13, 43, 15, 47] ]   // 導入→山場, 山場→ボス
       : [ [13, 43, 15, 47] ];                     // 山場→ボスのみ
 
+    // ── マップの「使われている」範囲 (カメラ横/縦クランプ用) ───────────────
+    // 部屋にも廊下にも属さない行/列は恒久的に未探索の岩盤 = 画面上は純黒になる。
+    // v7.8 の 2部屋化でダンジョンは西 col 0-23 (24列!) と東 col 69-71 が丸ごとそれに当たり、
+    // 起点 (24,13) がその境目に接しているため、開始直後の画面の大半が黒で埋まっていた。
+    // → カメラのクランプを MAP_W/MAP_H 全域ではなく「使われている範囲」に狭め、黒を画面外へ追い出す。
+    // ⚠ 屋外 (IS_FIELD_THEME) は空/丘/路肩を意図的に壁行・壁列へ描く設計 ([地平線ビュー])。
+    //    ここを適用すると石垣の東西端やスカイ帯の見え方が変わるので**ダンジョン専用**にする。
+    const MAP_USED = (() => {
+      let c0 = MAP_W, c1 = -1, r0 = MAP_H, r1 = -1;
+      for (const [a, b, c, d] of [...ROOMS, ...CORRIDORS]) {
+        if (a < r0) r0 = a;  if (c > r1) r1 = c;
+        if (b < c0) c0 = b;  if (d > c1) c1 = d;
+      }
+      return (c1 >= c0 && r1 >= r0) ? { c0, c1, r0, r1 } : { c0: 0, c1: MAP_W - 1, r0: 0, r1: MAP_H - 1 };
+    })();
+
     function buildMap() {
       const map = Array.from({length: MAP_H}, () => Array(MAP_W).fill(2));
       function fill(r1, c1, r2, c2, t) {
@@ -3895,10 +3911,26 @@
         cy = clampedCy + (desiredCy - clampedCy) * CENTER_BIAS;
       }
       // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
-      const minCamX = -UI_MENU_WIDTH;
-      const maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
-      const minCamY = 0;
-      const maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
+      let minCamX = -UI_MENU_WIDTH;
+      let maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
+      let minCamY = 0;
+      let maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
+      // (3b) [黒帯対策] ダンジョンでは「部屋/廊下が1つも無い外周」をそもそも画面へ入れない。
+      //      MAP_USED の内側だけを可視域に許すよう、上の全域クランプをさらに内側へ絞る。
+      //      使用域が画面より狭い軸 (hi<lo) は中央寄せに落とす (黒を左右/上下へ均等配分)。
+      //      ⚠ 屋外は空/路肩を壁行へ描くので対象外 (従来の全域クランプのまま)。
+      if (!IS_FIELD_THEME) {
+        let loX = MAP_USED.c0 * TILE_SIZE - UI_MENU_WIDTH;
+        let hiX = (MAP_USED.c1 + 1) * TILE_SIZE - window.innerWidth;
+        if (hiX < loX) { const m = (loX + hiX) / 2; loX = m; hiX = m; }
+        minCamX = Math.max(minCamX, Math.min(loX, maxCamX));
+        maxCamX = Math.max(minCamX, Math.min(hiX, maxCamX));
+        let loY = MAP_USED.r0 * TILE_SIZE;
+        let hiY = (MAP_USED.r1 + 1) * TILE_SIZE - usableH;
+        if (hiY < loY) { const m = (loY + hiY) / 2; loY = m; hiY = m; }
+        minCamY = Math.max(minCamY, Math.min(loY, maxCamY));
+        maxCamY = Math.max(minCamY, Math.min(hiY, maxCamY));
+      }
       camTargetX = Math.max(minCamX, Math.min(cx, maxCamX));
       camTargetY = Math.max(minCamY, Math.min(cy, maxCamY));
       // ── [地平線ビュー STEP1] 屋外: カメラの縦を地平線へ無条件ロック ──────────
@@ -25942,13 +25974,49 @@
       return { [classKey]: alloc };
     }
 
-    const ALLY_INIT_POSITIONS = {
-      dwarf:  { tx: 5, ty: 14 },  // 戦士の左下 (前衛タンク)
-      cleric: { tx: 5, ty: 13 },  // 戦士の後ろ (回復)
-      mage:   { tx: 4, ty: 13 },  // さらに後ろ (後衛魔法)
-      elf:    { tx: 4, ty: 14 },  // 後衛 (弓+魔法ハイブリッド)
-      rogue:  { tx: 5, ty: 12 },  // 戦士の右上 (中衛)
+    // ── 仲間の初期配置 ────────────────────────────────────────────────
+    // ⚠ 旧実装は絶対タイル (tx4-5) の直書きだった。v7.8 のダンジョン短縮でプレイヤー起点が
+    //   (6,13) → (24,13) へ動いた際にここが取り残され、6ダンジョン全部で仲間全員が
+    //   「20タイル西の岩盤の中」(mapData=2) に湧いていた。結果:
+    //     ・computeCameraTarget の隊列 bbox が 21タイル幅 → 画面(13タイル)に収まらず
+    //       クランプ区間が空になり「bbox 中央寄せ」へ落ちる → カメラが恒久未探索の黒い岩盤へ振られる
+    //     ・仲間が MAX_LAG 超で置き去り → heroAI が backline 待ちで停止 → 2.5秒後にワープ救済
+    //   → 起点からの**相対オフセット**にし、さらに歩ける床へ解決してから配置する
+    //     (今後 ROOMS や起点を動かしても黙って壁に埋まらない)。
+    const PARTY_START_TX = IS_FIELD_THEME ? 6 : 24;   // playerX の IS_FIELD_THEME 分岐と同一ソース
+    const PARTY_START_TY = 13;
+    // 起点からの希望オフセット [dx, dy] (旧レイアウト起点(6,13)基準の絶対座標と同値)
+    const ALLY_INIT_OFFSETS = {
+      dwarf:  [-1,  1],   // 頭の左下 (前衛タンク)
+      cleric: [-1,  0],   // 頭の後ろ (回復)
+      mage:   [-2,  0],   // さらに後ろ (後衛魔法)
+      elf:    [-2,  1],   // 後衛 (弓+魔法ハイブリッド)
+      rogue:  [-1, -1],   // 頭の右上 (中衛)
     };
+    // 希望オフセットが壁/埋まりの時の代替候補 (Chebyshev 距離順。西→上下→東 の優先で「頭の後ろ」に寄せる)
+    const ALLY_FALLBACK_OFFSETS = [
+      [-1, 0], [-1, -1], [-1, 1], [0, -1], [0, 1], [-2, 0], [-2, -1], [-2, 1],
+      [1, 0], [1, -1], [1, 1], [0, -2], [0, 2], [-1, -2], [-1, 2], [1, -2], [1, 2],
+      [2, 0], [2, -1], [2, 1], [-3, 0], [3, 0], [0, -3], [0, 3],
+    ];
+    const allyInitTakenTiles = new Set([PARTY_START_TY * MAP_W + PARTY_START_TX]);  // 頭の足元は空けておく
+    // 希望位置 → 埋まっていれば代替候補を順に試し、歩けて未使用のタイルを1つ確保して返す。
+    // isTileWall は mapData=2 と情景スプライト (obstacleTileMask) の両方を見る唯一の歩行判定。
+    function resolveAllyInitTile(classKey) {
+      const cands = ALLY_INIT_OFFSETS[classKey]
+        ? [ALLY_INIT_OFFSETS[classKey], ...ALLY_FALLBACK_OFFSETS]
+        : ALLY_FALLBACK_OFFSETS;
+      for (const [dx, dy] of cands) {
+        const tx = PARTY_START_TX + dx, ty = PARTY_START_TY + dy;
+        if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+        if (isTileWall(tx, ty)) continue;
+        const k = ty * MAP_W + tx;
+        if (allyInitTakenTiles.has(k)) continue;
+        allyInitTakenTiles.add(k);
+        return { tx, ty };
+      }
+      return { tx: PARTY_START_TX, ty: PARTY_START_TY };   // 全候補が塞がった時だけ頭に重ねる (最終手段)
+    }
     // ── 新パーティ編成 (Q1=B): rich な partyMembers (隊列順 [0]=頭) を読む ──
     // formation[0] = 頭(player アバター=移動の先頭=蛇の頭)、formation[1:] = allies(隊列順)
     let formation = null;
@@ -26011,7 +26079,7 @@
     // ── allies = formation[1:] を隊列順に生成 (個性情報を付与) ──
     const allyMembers = formation.slice(1);
     allyMembers.forEach((m) => {
-      const pos = ALLY_INIT_POSITIONS[m.classKey] || { tx: 5, ty: 13 };
+      const pos = resolveAllyInitTile(m.classKey);
       const ally = createAlly(m.classKey, pos.tx * TILE_SIZE, pos.ty * TILE_SIZE);
       ally.isHero  = !!m.isHero;
       ally.zone    = m.zone;
