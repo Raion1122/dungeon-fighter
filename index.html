@@ -3128,19 +3128,24 @@
     window.addEventListener("orientationchange", onViewportResize);
 
     // 部屋定義: [r1, c1, r2, c2](ワールド共通)
-    // v7.7: 3部屋構成の横一本道(導入→山場→ボス)。旧4部屋の「ボス直前」を削除し、
-    //       ボス部屋を左シフト([5,68,22,85]→[5,47,22,68])して中央の空隙を詰めた。
-    const ROOMS = [
-      [ 8,  2, 19, 20],   // 0 部屋1 導入+前哨(スタート統合・プレイヤー起点(6,13)を内包)
-      [ 7, 24, 20, 43],   // 1 部屋2 山場・大広間(混成クライマックス・旧room3の2体を吸収して厚めに)
-      [ 5, 47, 22, 68],   // 2 ボス部屋(旧room3の位置へ左シフト)
+    // v7.8: ダンジョンは「山場1部屋 + ボス部屋」の2部屋へ短縮(導入を削り山場を残す)。
+    //       屋外(隊商護衛)だけは IS_FIELD_THEME で従来の3部屋幅を維持し、馬車/焚火/街道長を保つ。
+    //       座標は不変なので山場/ボスの1枚絵・隠し要素spawnは無改修(幾何ロック鉄則)。
+    const ROOMS_DUNGEON = [
+      [ 7, 24, 20, 43],   // 0 道中(山場): 1枚絵+トラップ+混成戦。プレイヤーは西端(24,13)から開始
+      [ 5, 47, 22, 68],   // 1 ボス部屋
     ];
+    const ROOMS_FIELD = [   // 屋外(隊商護衛): 従来3部屋幅を維持(馬車tx9/焚火/街道長を保つ)
+      [ 8,  2, 19, 20],   // 0 部屋1 導入+前哨(スタート統合・プレイヤー起点(6,13)を内包)
+      [ 7, 24, 20, 43],   // 1 部屋2 山場・大広間
+      [ 5, 47, 22, 68],   // 2 ボス部屋
+    ];
+    const ROOMS = IS_FIELD_THEME ? ROOMS_FIELD : ROOMS_DUNGEON;
     // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
     // (scenery 配置の auto-reserve でも参照するためグローバル化)
-    const CORRIDORS = [
-      [13, 20, 15, 24],   // 部屋1→部屋2(山場)
-      [13, 43, 15, 47],   // 部屋2(山場)→ボス部屋
-    ];
+    const CORRIDORS = IS_FIELD_THEME
+      ? [ [13, 20, 15, 24], [13, 43, 15, 47] ]   // 導入→山場, 山場→ボス
+      : [ [13, 43, 15, 47] ];                     // 山場→ボスのみ
 
     function buildMap() {
       const map = Array.from({length: MAP_H}, () => Array(MAP_W).fill(2));
@@ -3150,7 +3155,7 @@
             map[r][c] = t;
       }
 
-      // 3 部屋(導入/山場/ボス) + 横一本道の廊下
+      // 部屋(ダンジョン=山場+ボスの2部屋 / 屋外=導入+山場+ボスの3部屋) + 横一本道の廊下
       for (const [r1, c1, r2, c2] of ROOMS) {
         fill(r1, c1, r2, c2, 0);
         for (let r = r1; r <= r2; r++)
@@ -3201,9 +3206,10 @@
     // tileBounds = [r1, c1, r2, c2] (両端含む、画像はこの矩形ぴったりを覆う)
     // 画像が無ければ自動でタイルベース描画にフォールバック。
     // v7.4: lizard-swamp の painting 定義を撤去(旧6部屋比率の PNG が新幾何で歪むため)。
-    // v7.7: 3部屋化で幾何をロックした上で painterly パイロットを再開。
-    //   まず goblin-mine の山場(部屋1 = ROOMS[1] [7,24,20,43] = 20×14タイル)を1枚絵化。
-    //   tileBounds は現行 ROOMS[1] と一致させること(不一致だと drawImage 伸縮で歪む)。
+    // v7.7: 幾何をロックした上で painterly パイロットを再開。
+    //   まず goblin-mine の山場 [7,24,20,43](20×14タイル)を1枚絵化。v7.8 のダンジョン短縮後は
+    //   山場=ROOMS[0](屋外のみ ROOMS[1])だが、painting は tileBounds 座標で覆うため ROOMS index に
+    //   非依存。tileBounds は山場矩形 [7,24,20,43] と一致させること(不一致だと drawImage 伸縮で歪む)。
     //   PNG が無ければ img.onerror で自動的にタイル描画へフォールバックする。
     const ROOM_PAINTINGS_DEF = {
       "goblin-mine": {
@@ -3392,25 +3398,25 @@
       s.img.src = s.src;
     }
 
-    // シナリオ × 部屋ごとの配置レシピ (v7.7: 全 3 部屋 = 0導入/1山場/2ボス)
-    // floorBounds = ROOMS[idx] と同値 (部屋床範囲)
+    // シナリオ × 部屋ごとの配置レシピ。
+    // ⚠ キー(0/1/2)は RNG seed 用のラベルであって ROOMS の index ではない。配置域は各エントリの
+    //    floorBounds(明示座標)が決める → 部屋短縮で ROOMS を 2 部屋にしてもキー番号の振り直しは不要。
+    // [部屋短縮] ダンジョンは導入(key 0)の散布のみ削除(=void 化で無駄+初期ビュー西端に浮く)。
+    //    山場(goblin-mine key 1)とボス部屋(key 2)は幾何[5,47,22,68]が不変なので従来どおり散布を残置。
+    //    屋外 caravan-road は 3 部屋維持なので 0/1/2 とも据置。
     // 障害物配置禁止帯は CORRIDORS + ENEMY_SPAWNS + プレイヤー起点 から自動導出
     const SCENERY_RECIPES = {
-      // 沼: 導入とボス部屋に沼草+葦+倒木+下草。山場(部屋1)は1枚絵で覆うので scenery 無し(bandits-forest と同様)。
+      // 沼: 山場は1枚絵で覆う。[部屋短縮] 導入(key 0)のみ削除。ボス部屋(key 2)は幾何不変なので従来の散布を残置。
       "lizard-swamp": {
-        0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 48, reed: 17, log: 4, detail: 30 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 90, reed: 28, log: 4, detail: 55 } },
       },
-      // 廃坑: 入口(部屋1)は瓦礫(壊れた場所)中心、奥(山場)に線路+トロッコ、ボス部屋は控えめ
+      // 廃坑: 山場(奥)に線路+トロッコ+瓦礫を併載。[部屋短縮] 導入(key 0)のみ削除、山場(key 1)+ボス部屋(key 2)は残置。
       "goblin-mine": {
-        0: { floorBounds: [ 8,  2, 19, 20], counts: { rubble: 14, rail: 3, cart: 2 } },
         1: { floorBounds: [ 7, 24, 20, 43], counts: { rubble: 18, rail: 7, cart: 4 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { rubble: 8,  rail: 3, cart: 1 } },
       },
-      // 森(盗賊アジト): 導入とボス部屋に草むら+倒木+下草。山場(部屋1)は1枚絵で覆うので scenery 無し。
-      // reed(沼の葦)は森だと違和感が出るため不採用、grass/log/detail の既存スプライトを流用。
+      // 森(盗賊アジト): 山場は1枚絵で覆う。[部屋短縮] 導入(key 0)のみ削除。ボス部屋(key 2)は幾何不変なので従来の散布を残置。
       "bandits-forest": {
-        0: { floorBounds: [ 8,  2, 19, 20], counts: { grass: 40, log: 4, detail: 24 } },
         2: { floorBounds: [ 5, 47, 22, 68], counts: { grass: 70, log: 5, detail: 40 } },
       },
       // 街道(隊商護衛 7.9-3): 屋外。専用テクスチャ(土の道+生垣)だが情景は森系の面子(草/丸太/detail)で揃える
@@ -6520,11 +6526,8 @@
         hiddenChestCount: 2,
         clearXp: 300,
         spawns: [
-          // 部屋1 前哨: 中央(11,13)に密集(バランステスト: 5→10体, 2倍)
-          ["kobold", 10, 12], ["kobold", 11, 12], ["kobold", 12, 12],
-          ["rat", 10, 13], ["goblin", 11, 13], ["goblin", 12, 13], ["kobold", 9, 13], ["kobold", 13, 13],
-          ["kobold", 10, 14], ["rat", 11, 14],
-          // 部屋2 山場・本隊: 中央(33,13)に密集(10体・射手2/呪文1に抑制)。前衛=西(低col) / 射手・呪文=東
+          // [部屋短縮] 導入部屋の前哨(col<24, kobold/rat/goblin 10体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・本隊: 中央(33,13)に密集(10体・射手2/呪文1に抑制)。前衛=西(低col) / 射手・呪文=東
           ["hobgoblin", 31, 13], ["hobgoblin", 32, 12], ["goblinBrute", 32, 13], ["goblinRider", 32, 14],
           ["goblin", 33, 12], ["goblin", 33, 13], ["goblin", 33, 14],
           ["goblinArcher", 34, 12], ["goblinArcher", 34, 13], ["goblinShaman", 35, 13],
@@ -6541,12 +6544,8 @@
         clearXp: 500,
         clearReward: "謎の紋章入り指令書 (ファラクサスの伏線)",
         spawns: [
-          // 部屋1 前哨: 中央(13,13)に密集。旧2体では前哨として機能していなかったため 10体へ
-          ["bandit", 10, 12], ["bandit", 10, 14], ["bandit", 11, 13],
-          ["bandit", 12, 11], ["bandit", 12, 15], ["bandit", 13, 13], ["bandit", 14, 14],
-          ["banditHeavy", 14, 12],
-          ["banditArcher", 17, 12], ["banditArcher", 17, 14],
-          // 部屋2 山場・本隊: 中央(col 30-39)に集約。旧版は col 27-28 / col 39-42 の2クラスタに
+          // [部屋短縮] 導入部屋の前哨(col<24, bandit系 10体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・本隊: 中央(col 30-39)に集約。旧版は col 27-28 / col 39-42 の2クラスタに
           //   分断され「各個撃破」に崩れていたので一回の大乱戦にまとめる。前衛=西 / 射手・呪文=東
           ["banditHeavy", 30, 11], ["banditHeavy", 30, 13], ["banditHeavy", 30, 15],
           ["banditHeavy", 31, 12], ["banditHeavy", 31, 14],
@@ -6573,10 +6572,8 @@
         clearXp: 700,
         clearReward: "蛇神の鱗 (ファラクサスの伏線)",
         spawns: [
-          // 部屋1 前哨(戦士3 + 襲撃者 + 狩人) — 中央col11-16に集約 (v7.10 リバランス)
-          ["lizardWarrior", 11, 12], ["lizardWarrior", 11, 14], ["lizardWarrior", 12, 13],
-          ["lizardRaider", 13, 13], ["lizardHunter", 16, 13],
-          // 部屋2 山場・祭壇広場: 近接壁 col30-33 + 後衛狩人3 + 司祭1 (祭壇35,13は空ける)
+          // [部屋短縮] 導入部屋の前哨(col<24, lizardWarrior3+Raider+Hunter 5体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・祭壇広場: 近接壁 col30-33 + 後衛狩人3 + 司祭1 (祭壇35,13は空ける)
           ["lizardWarrior", 30, 12], ["lizardWarrior", 30, 14], ["lizardRaider", 31, 13],
           ["lizardWarrior", 32, 11], ["lizardWarrior", 32, 15], ["lizardRaider", 33, 13],
           ["lizardHunter", 38, 11], ["lizardHunter", 38, 13], ["lizardHunter", 38, 15],
@@ -6596,9 +6593,8 @@
         hiddenChestCount: 4,
         clearXp: 1000,
         spawns: [
-          // 部屋1 前哨・門番(兵 + 弓兵)
-          ["orcGrunt", 12, 13], ["orcArcher", 17, 13],
-          // 部屋2 山場・中庭(狂戦士2 + 兵 + 呪術師2)
+          // [部屋短縮] 導入部屋の前哨(col<24, orcGrunt+orcArcher 2体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・中庭(狂戦士2 + 兵 + 呪術師2)
           ["orcBerserker", 27, 13], ["orcBerserker", 28, 13], ["orcGrunt", 28, 14],
           ["orcShaman", 39, 13], ["orcShaman", 40, 13], ["orcGrunt", 39, 14],
           // 山場後衛(v7.7: 旧room3の2体を吸収): 兵 + 弓兵
@@ -6619,9 +6615,8 @@
         hiddenChestCount: 4,
         clearXp: 1200,
         spawns: [
-          // 部屋1 前哨・朽ちた前室(骨兵)
-          ["skeleton", 12, 13], ["skeleton", 13, 13],
-          // 部屋2 山場・納骨堂(近接3 + 射手2 + 幽鬼)
+          // [部屋短縮] 導入部屋の前哨(col<24, skeleton 2体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・納骨堂(近接3 + 射手2 + 幽鬼)
           ["skeleton", 27, 13], ["zombie", 28, 13], ["zombie", 28, 14],
           ["skeletonArcher", 39, 13], ["skeletonArcher", 40, 13], ["wraith", 39, 14],
           // 山場後衛(v7.7: 旧room3の2体を吸収): 壁役 + 機動
@@ -6640,9 +6635,8 @@
         hiddenChestCount: 5,
         clearXp: 1500,
         spawns: [
-          // 部屋1 前哨
-          ["orc", 12, 13], ["skeleton", 13, 13],
-          // 部屋2 山場・混成(オーク + 骨兵 + ミノタウロス)
+          // [部屋短縮] 導入部屋の前哨(col<24, orc+skeleton 2体)は削除。山場=部屋0/ボス=部屋1。
+          // 山場・混成(オーク + 骨兵 + ミノタウロス)
           ["orc", 27, 13], ["skeleton", 28, 13], ["orc", 28, 14],
           ["orc", 39, 13], ["minotaur", 40, 13], ["orc", 39, 14],
           // 山場後衛(v7.7: 旧room3の2体を吸収): ミノタウロス + オーク
@@ -6757,9 +6751,13 @@
       if (r >= 0 && r < MAP_H && c >= 0 && c < MAP_W && mapData[r][c] === 1) mapData[r][c] = 0;
     }
 
+    // v7.8: ダンジョン短縮で開始点が山場西端 tile(24,13) へ移動。XOR壁ピラーで塞がれないよう床を保証する
+    //   (屋外は起点(6,13)が従来通り床なので対象外)。mapData[row][col] 順。
+    if (!IS_FIELD_THEME && mapData[13][24] === 1) mapData[13][24] = 0;
+
     // 情景スプライト生成 (敵スポーンとプレイヤー起点を avoid して配置)
-    // プレイヤー起点 tile(6,13) は L3346 playerX = 6 * TILE_SIZE の前提
-    generateScenery(ENEMY_SPAWNS, 6, 13);
+    // プレイヤー起点: 屋外=tile(6,13) / ダンジョン=山場西端tile(24,13)。playerX の IS_FIELD_THEME 分岐と整合。
+    generateScenery(ENEMY_SPAWNS, IS_FIELD_THEME ? 6 : 24, 13);
 
     // [7.9-3 STEP8] 隊商キャンプの焚火: PC起点(6,13)と馬車(tx:9)の間 tile(7,13) に演出用の焚火を置く。
     //   街道クエスト (caravan-road) 限定。非衝突 (obstacleTileMask に積まない) なので PC の東進を妨げない。
@@ -7947,7 +7945,7 @@
 
     let gameStarted = false;
 
-    let playerX = 6 * TILE_SIZE;  // world coord — スタート部屋 A 中央付近 tile(6,13)
+    let playerX = (IS_FIELD_THEME ? 6 : 24) * TILE_SIZE;  // 屋外=6,13 / ダンジョン=山場西端24,13(24,13は床・25,13は壁)
     let playerY = 13 * TILE_SIZE;
 
     const playerWidth = 96;
@@ -17451,7 +17449,7 @@
       const count = currentScenario.hiddenChestCount || 0;
       if (count <= 0) return;
       const bossIdx = ROOMS.length - 1;
-      const excludeRooms = new Set([0, bossIdx]);
+      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
@@ -17525,7 +17523,7 @@
       if (!eventItem) return;   // イベントアイテムが無ければ探索発見ルートの宝箱は出さない（0個で許容）
       // 配置: スタート/ボス部屋を除外した自由床タイルから1個。既存宝箱/罠と非重複。
       const bossIdx = ROOMS.length - 1;
-      const excludeRooms = new Set([0, bossIdx]);
+      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
@@ -18541,7 +18539,7 @@
     function spawnTraps() {
       const count = currentScenario.trapCount || 3;
       const bossIdx = ROOMS.length - 1;
-      const excludeRooms = new Set([0, bossIdx]);  // スタート・ボス部屋は除外
+      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);  // スタート・ボス部屋は除外
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
@@ -18554,6 +18552,8 @@
             if (r >= r1 && r <= r2 && c >= c1 && c <= c2) { inExcluded = true; break; }
           }
           if (inExcluded) continue;
+          // ダンジョンの開始タイル(24,13)近傍(半径1)には罠を置かない(開始直後の直撃防止)
+          if (!IS_FIELD_THEME && Math.abs(c - 24) <= 1 && Math.abs(r - 13) <= 1) continue;
           candidates.push([c, r]);
         }
       }
