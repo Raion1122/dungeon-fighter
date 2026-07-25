@@ -3910,6 +3910,34 @@
         cx = clampedCx + (desiredCx - clampedCx) * CENTER_BIAS;
         cy = clampedCy + (desiredCy - clampedCy) * CENTER_BIAS;
       }
+      // ── [compact-hero-anchor] スマホ(ui-compact)で主人公を画面内に留める ──────────
+      // compact のダンジョン可視幅は約4タイルしかない (390px / TILE_SIZE 96)。上の隊列bbox は
+      // 味方4 + 交戦敵で常にそれより大きいので「区間が空 → bbox中央寄せ」に落ち、さらに
+      // CENTER_BIAS=0.7 で行動キャラへ 70% 引き戻される。結果、敵の手番のたびに主人公が枠外へ出ていた
+      // (実測 iPhone 390x844: 主人公が画面外のフレーム 25.9%(廃坑) / 16.5%(竜の巣)。desktop 1280 は 0%)。
+      // ここでは bbox を「主人公 と 行動キャラ(camFocus)」の2点だけに絞り、CENTER_BIAS 抜きの
+      // ハードクランプを最後に掛ける。2点なら大抵は同時に収まるので、行動キャラは中央付近のまま
+      // 主人公だけが端へ引き戻される。
+      // ⚠️ 順序が肝: 先に「主人公が入る位置」へ寄せ、その後「行動キャラを絶対に外さない区間」で締める。
+      //    逆順や中点フォールバックにすると、両者が離れた時に**行動キャラまで枠外**になり
+      //    「戦っている所が見えない」という新種の劣化になる (主人公優先 ≠ 行動キャラを捨てる)。
+      //    ゆえに AM < HM (行動キャラのマージンを小さく) にして、競合時は主人公を諦める。
+      // ⚠️ desktop は実測 0% なので compact 限定。既存のカメラ回帰 (driver_camera) を動かさないため。
+      // ⚠️ window.__camAnchorOff は検証シーム (同一ゲーム状態で有無を比較する / 緊急時の撤退スイッチ)。
+      //    本番は常に undefined で、この節は無条件に有効。
+      if (!cameraTightFocus && fxCompact() && !window.__camAnchorOff) {
+        const heroPos = getHeroWorldPos();
+        const hxC = heroPos.x + heroPos.w / 2, hyC = heroPos.y + heroPos.h / 2;        // 主人公の中心
+        const axC = camFocus ? camFocus.x : hxC, ayC = camFocus ? camFocus.y : hyC;    // 行動キャラ(注視点)
+        const HM = 56;   // 主人公を画面端から離すマージン(px)
+        const AM = 40;   // 行動キャラを画面端から離すマージン(px)。HM より小さい = 主人公優先
+        // v を [lo,hi] に収める。区間が空 (= 画面が 2*margin より狭い異常系) のときのみ中点へ。
+        const fit = (v, lo, hi) => (lo <= hi) ? Math.max(lo, Math.min(v, hi)) : (lo + hi) / 2;
+        cx = fit(fit(cx, hxC - window.innerWidth + HM, hxC - UI_MENU_WIDTH - HM),
+                 axC - window.innerWidth + AM, axC - UI_MENU_WIDTH - AM);
+        cy = fit(fit(cy, hyC - usableH + HM, hyC - HM),
+                 ayC - usableH + AM, ayC - AM);
+      }
       // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
       let minCamX = -UI_MENU_WIDTH;
       let maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
