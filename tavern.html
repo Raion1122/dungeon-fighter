@@ -448,8 +448,17 @@
       font-size: 13px;
       letter-spacing: 2px;
     }
+    /* 所持品リスト + 道具袋 を縦に積む列。min-width:0 が無いと flex の既定 (min-width:auto) で
+       中身の最小幅に張られ、狭幅端末でリストが押し出される。 */
+    .equipListCol {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
     .equipList {
       flex: 1;
+      min-width: 0;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -458,6 +467,12 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      /* 名前と性能が1行に収まらない時は「性能を丸ごと次の行へ」落とす。
+         nowrap のままだと両方が縮んで1文字ずつの縦書きになる。 */
+      flex-wrap: wrap;
+      column-gap: 8px;
+      row-gap: 1px;
+      min-width: 0;
       padding: 6px 10px;
       background: rgba(255,245,210,0.55);
       border: 2px solid transparent;
@@ -482,11 +497,14 @@
     .equipItem .eName {
       font-weight: 700;
       color: var(--parchment-ink);
+      flex: 1 1 auto;
+      min-width: 0;
     }
     .equipItem .eSpec {
       color: var(--parchment-ink-soft);
       font-size: 12px;
       font-style: italic;
+      flex: 0 1 auto;
     }
     .equipItem.selected .eName,
     .equipItem.selected .eSpec { color: #3a2010; }
@@ -846,6 +864,26 @@
         right: 6px;
         width: 54px; height: 96px;
       }
+    }
+
+    /* スマホ縦持ち(≤560px) 所持品カードのコンパクト化。
+       (hover:none) の 19px/56px はタップ域には良いが、iPhone の狭幅では名前と性能が
+       同時に縮んで1文字ずつの縦書きになるため、この幅では文字を落として1〜2行に収める。
+       ⚠ この規則は (hover:none) ブロックより後ろに置くこと (同詳細度=後勝ち)。
+       min-height 44px は iOS のタップ最小サイズなのでこれ以上は縮めない。 */
+    @media (max-width: 560px) {
+      .equipGroup { gap: 8px; }
+      .equipItem {
+        padding: 7px 10px;
+        font-size: 14px;
+        min-height: 44px;
+        border-width: 2px;
+      }
+      .equipItem .eName { font-size: 14px; line-height: 1.3; }
+      .equipItem .eSpec { font-size: 11px; line-height: 1.3; }
+      /* 道具袋は所持品の下に積まれる従属セクション → 余白と枠を最小限に */
+      .bagSection { margin-top: 5px; padding: 5px 0 0; }
+      .bagList { max-height: 132px; }
     }
 
     /* Phase 2-G DEBUG: 残影回避モードのトグルボタン (出発準備画面) */
@@ -1819,29 +1857,38 @@
           </div>
           <div class="equipTierLabel ownedLabel">所持品 <span style="opacity:0.6;font-size:11px;font-style:italic;">（タップで装備 ／ 売却は酒場の武器防具屋）</span></div>
 
+          <!-- ⚠ 所持品リストと道具袋は必ず .equipListCol(縦積み)で包む。
+               .equipGroup は横並び flex なので直下に並べると道具袋が横幅を奪い、
+               所持品カードが数文字幅まで潰れて1文字ずつの縦書きになる (iPhone で顕著)。 -->
           <div class="equipGroup">
             <div class="equipLabel">武器</div>
-            <div class="equipList" id="equipWeaponList"></div>
-            <!-- Phase 2-H: 道具袋から (このキャラ向けの保管装備) -->
-            <div class="bagSection" id="bagWeaponSection" style="display:none;">
-              <div class="bagLabel">🎒 道具袋</div>
-              <div class="equipList bagList" id="bagWeaponList"></div>
+            <div class="equipListCol">
+              <div class="equipList" id="equipWeaponList"></div>
+              <!-- Phase 2-H: 道具袋から (このキャラ向けの保管装備) -->
+              <div class="bagSection" id="bagWeaponSection" style="display:none;">
+                <div class="bagLabel">🎒 道具袋</div>
+                <div class="equipList bagList" id="bagWeaponList"></div>
+              </div>
             </div>
           </div>
           <div class="equipGroup">
             <div class="equipLabel">盾</div>
-            <div class="equipList" id="equipShieldList"></div>
-            <div class="bagSection" id="bagShieldSection" style="display:none;">
-              <div class="bagLabel">🎒 道具袋</div>
-              <div class="equipList bagList" id="bagShieldList"></div>
+            <div class="equipListCol">
+              <div class="equipList" id="equipShieldList"></div>
+              <div class="bagSection" id="bagShieldSection" style="display:none;">
+                <div class="bagLabel">🎒 道具袋</div>
+                <div class="equipList bagList" id="bagShieldList"></div>
+              </div>
             </div>
           </div>
           <div class="equipGroup">
             <div class="equipLabel">防具</div>
-            <div class="equipList" id="equipArmorList"></div>
-            <div class="bagSection" id="bagArmorSection" style="display:none;">
-              <div class="bagLabel">🎒 道具袋</div>
-              <div class="equipList bagList" id="bagArmorList"></div>
+            <div class="equipListCol">
+              <div class="equipList" id="equipArmorList"></div>
+              <div class="bagSection" id="bagArmorSection" style="display:none;">
+                <div class="bagLabel">🎒 道具袋</div>
+                <div class="equipList bagList" id="bagArmorList"></div>
+              </div>
             </div>
           </div>
 
@@ -1906,10 +1953,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>スマホの所持品リストを読みやすく</b> — 装備画面で武器名が1文字ずつ縦に並んでしまう表示を直し、名前と性能が1行にすっきり収まるようにしました。</li>
         <li><b>仲間が壁の中から出発する不具合を修正</b> — ダンジョン開始直後にカメラが暗闇を映してさまよう症状が解消。</li>
         <li><b>ダンジョンを短縮</b> — 道中が山場1部屋＋ボス部屋に。寄り道を削ってテンポよく決戦へ。</li>
         <li><b>ラスボスの巣にも描き下ろしの絵</b> — 溶岩の亀裂と骨に囲まれた赤竜の巣が、1枚絵になりました。</li>
-        <li><b>竜の巣の前庭にも描き下ろしの絵</b> — 溶岩の走る岩の広間。これで全シナリオの山場に絵が揃いました。</li>
       </ul>
     </div>
     <script>
