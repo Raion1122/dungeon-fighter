@@ -11327,9 +11327,12 @@
       ],
       dwarf: [
         { walk: DWARF_WALK_URL, walkSize: DWARF_WALK_SIZE, attack: DWARF_ATTACK_URL, attackSize: DWARF_ATTACK_SIZE, label: "標準" },
-        { walk: 'url("assets/dwarf_berserker_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_berserker_attack.png")', attackSize: "480px 384px", label: "バーサーカー" },
-        { walk: 'url("assets/dwarf_shield_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/dwarf_shield_attack.png")',    attackSize: "480px 384px", label: "盾の守り手" },
-        { walk: 'url("assets/dwarf_rune_walk.png")',      walkSize: "576px 384px", attack: 'url("assets/dwarf_rune_attack.png")',      attackSize: "480px 384px", label: "ルーンスミス" },
+        // 変種 1-3 は codex1 "ドワーウォリアー" 1 枚を共有する (2026-07-28 差替。旧 chibi 3 種は
+        // assets/dwarf_{berserker,shield,rune}_* に残置)。label はどこからも読まれない内部識別子
+        // なので、将来 codex1 側で別デザインが出たら該当行の url だけ差し替えれば再び 3 種に割れる。
+        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png")', attackSize: "480px 384px", label: "バーサーカー" },
+        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png")', attackSize: "480px 384px", label: "盾の守り手" },
+        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png")', attackSize: "480px 384px", label: "ルーンスミス" },
       ],
       cleric: [
         { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE, label: "標準" },
