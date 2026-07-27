@@ -1,0 +1,10 @@
+# 部屋1枚絵(ベルトスクロール版 4枚目): orc-fort の山場。
+# tileBounds を [7,24,20,43](10:7) から [5,24,20,43](20x16 = 5:4) へ拡張し、
+# 歩けない row5-6 を「正面から見た奥の壁(= 砦の主塔の正面・胸壁と矢狭間・閉ざされた大扉)」として絵に持たせる。
+# 奥壁をボス部屋(ガロック将軍の主塔広間)の正面にすることで、次の部屋への導線が絵として繋がる。
+# 最終は JPEG。既存 assets/room_orc-fort_1.png は壊さない。raw は git 除外の source_images/ へ。
+# 2段階バッチ(把握 -> 1枚)。単発モードは中央に主役物を置く癖が強いので使わない。
+# ⚠ バッチモードに --retries は無い。失敗したら jsonl ごと再実行(無料枠を1枚消費する)。
+# ⚠ 「こちら側のエラーにより…」はサーバ側の一時障害。内容起因ではないのでそのまま再試行する。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_beltscroll.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_orc-fort_1_bs.txt", "output": "source_images/room_beltscroll/room_orc-fort_1_raw.png"}

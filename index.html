@@ -3362,7 +3362,10 @@
       //   中庭には古代王国の守護者(stoneGolem[33,9]+animatedArmor 4体, 休眠は inactive)が
       //   リング状に潜むので、中央は開けた石畳のまま(絵側の配慮=四隅の守護石像で示唆)。
       "orc-fort": {
-        1: { src: "assets/room_orc-fort_1.png", tileBounds: [7, 24, 20, 43] },
+        //   ベルトスクロール版(4枚目)。旧: { src: "assets/room_orc-fort_1.png", tileBounds: [7, 24, 20, 43] }
+        //   奥の壁 = 砦の主塔の正面(胸壁と矢狭間・閉ざされた大扉・右寄りの崩れの裂け目)。
+        //   ボス部屋がその主塔の広間なので、奥壁が次の部屋への導線になる。row5-6 を絵に含める(20×16 = 5:4)。
+        1: { src: "assets/room_orc-fort_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         //   ボス部屋 = ガロック将軍の主塔広間。ボスは単騎なので中央だけ空けてあればよい。
         2: { src: "assets/room_orc-fort_2.png", tileBounds: [5, 47, 22, 68] },
       },
