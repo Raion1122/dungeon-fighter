@@ -648,8 +648,34 @@ def _send_prompt_and_capture(
     page.keyboard.press("Delete")
 
     # プロンプト投入
+    # ⚠ page.keyboard.type() に "\n" を渡すと ChatGPT の入力欄は Enter = 送信 と解釈する。
+    #    2026-07-27、1 行目だけが送信され残りが入力欄に取り残されたまま画像生成が走り、
+    #    テンプレ把握ターンもろとも壊れた (無料枠を 1 枚溶かした)。改行は必ず Shift+Enter。
     log_info("Typing prompt...")
-    page.keyboard.type(prompt, delay=TYPE_DELAY_MS)
+    for i, line in enumerate(prompt.split("\n")):
+        if i:
+            page.keyboard.press("Shift+Enter")
+        if line:
+            page.keyboard.type(line, delay=TYPE_DELAY_MS)
+
+    # 投入後の検算: 本文が丸ごと入力欄に乗っているか (途中送信されていないか)。
+    # 欠けたまま送ると生成枠を無駄に消費するので、送信前に落とす。
+    try:
+        typed = page.eval_on_selector(
+            SELECTORS["prompt_input"], "el => el.innerText || el.value || ''"
+        ) or ""
+    except Exception:
+        typed = ""  # 取得できない UI 変更時は検算をスキップ (従来動作へフォールバック)
+    if typed:
+        want = "".join(prompt.split())
+        got = "".join(typed.split())
+        if len(got) < len(want) * 0.9:
+            log_err(
+                f"Prompt truncated in composer ({len(got)}/{len(want)} chars) "
+                "— aborting before send to avoid wasting a generation."
+            )
+            save_debug(page, "typing-truncated")
+            return 6
 
     # 送信 (ボタンが見つかれば押す、無ければ Enter)
     sent = False

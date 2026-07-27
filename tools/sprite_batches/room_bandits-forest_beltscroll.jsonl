@@ -1,0 +1,9 @@
+# 部屋1枚絵(ベルトスクロール版 2枚目): bandits-forest の山場。
+# tileBounds を [7,24,20,43](10:7) から [5,24,20,43](20x16 = 5:4) へ拡張し、
+# 歩けない row5-6 を「正面から見た奥の壁(= 盗賊の丸太柵と背後の黒い木立)」として絵に持たせる。
+# 最終は JPEG。既存 assets/room_bandits-forest_1.png は壊さない。raw は git 除外の source_images/ へ。
+# 2段階バッチ(把握 -> 1枚)。単発モードは中央に主役物を置く癖が強いので使わない。
+# ⚠ バッチモードに --retries は無い。失敗したら jsonl ごと再実行(無料枠を1枚消費する)。
+# ⚠ raw は wall_base が高めに出る前提(廃坑は 22.5% -> 上端クロップ 134px で 12.1%)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_beltscroll.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_bandits-forest_1_bs.txt", "output": "source_images/room_beltscroll/room_bandits-forest_1_raw.png"}
