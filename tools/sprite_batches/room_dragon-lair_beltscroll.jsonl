@@ -1,0 +1,11 @@
+# 部屋1枚絵(ベルトスクロール版 6枚目・最後の1枚): dragon-lair の山場。
+# tileBounds を [7,24,20,43](10:7) から [5,24,20,43](20x16 = 5:4) へ拡張し、
+# 歩けない row5-6 を「正面から見た奥の壁(= 竜が出入りする洞窟の大口・溶岩の裂け目)」として絵に持たせる。
+# 奥壁をボス部屋(= 赤竜の巣そのもの)へ続く大口にすることで、次の部屋への導線が絵として繋がる。
+# ボス部屋の題材文(room_dragon-lair_2.txt)が「焼き締められた黒い岩・溶岩のオレンジ・赤い照り返し」なので色でも繋がる。
+# 最終は JPEG。既存 assets/room_dragon-lair_1.png は壊さない。raw は git 除外の source_images/ へ。
+# 2段階バッチ(把握 -> 1枚)。単発モードは中央に主役物を置く癖が強いので使わない。
+# ⚠ バッチモードに --retries は無い。失敗したら jsonl ごと再実行(無料枠を1枚消費する)。
+# ⚠ 「こちら側のエラーにより…」はサーバ側の一時障害。内容起因ではないのでそのまま再試行する。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_beltscroll.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_dragon-lair_1_bs.txt", "output": "source_images/room_beltscroll/room_dragon-lair_1_raw.png"}

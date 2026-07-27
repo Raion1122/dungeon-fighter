@@ -3394,7 +3394,10 @@
       //     spawnDragonHoard() のダミー宝箱3+ミミック1は西45% (col 47-56) の任意の床に出るため、
       //     西半分は「竜が寝ていた浅い窪み」= 高さのある物を置かない平らな床にしてある。
       "dragon-lair": {
-        1: { src: "assets/room_dragon-lair_1.png", tileBounds: [7, 24, 20, 43] },
+        //   ベルトスクロール版(6枚目 = 山場は全シナリオ完結)。旧: { src: "assets/room_dragon-lair_1.png", tileBounds: [7, 24, 20, 43] }
+        //   奥の壁 = 焼き締められた黒岩の崖面(竜が出入りする巨大な洞窟の大口・左寄りの崩れの裂け目・三本爪の抉り痕)。
+        //   大口の向こうがボス部屋(赤竜の巣そのもの)なので、奥壁が次の部屋への導線になる。row5-6 を絵に含める(20×16 = 5:4)。
+        1: { src: "assets/room_dragon-lair_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         2: { src: "assets/room_dragon-lair_2.png", tileBounds: [5, 47, 22, 68] },
       },
     };
