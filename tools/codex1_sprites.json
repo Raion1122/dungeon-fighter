@@ -118,10 +118,10 @@
     },
     {
       "key": "lizardChieftain", "out": "assets/lizardChieftain_anim.png", "format": "enemy",
-      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "cell": 96, "cols": 6, "char_ratio": 0.90236, "scale_from": "both", "center": "feet",
       "walk_dir": "lizardman-chief/lizardman-chief-walk-right-6",
-      "attack_dir": "lizardman-chief/lizardman-chief-attack-right-6-v2-matched",
-      "note": "v8.7。ボス displaySize 248 (= 2.58倍拡大)。-6-matched は空だったので v2 を採用"
+      "attack_dir": "lizardman-chief/lizardman-chief-attack-right-6-v3-tightmatch",
+      "note": "v8.7。ボス displaySize 248 (= 2.58倍拡大)。-6-matched は空だったので v2 を採用 → v8.7.1 で attack を v3-tightmatch へ。char_ratio 0.86→0.90236 は 0.86×533/508 (attack 素材の H_max が 508→533 に伸びた分の打ち消し) で、walk 行が v2 時代とバイト完全一致するように校正した値。displaySize 248 を据え置くための不変条件なので、attack 素材を差し替える時は必ず再計算すること"
     },
     {
       "key": "lizardHunter", "out": "assets/lizardHunter_anim.png", "format": "enemy",
