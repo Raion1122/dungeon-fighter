@@ -3350,7 +3350,11 @@
       //   中央 (35,13) には封印の守護神(hydra, 未覚醒は inactive)が鎮座するので、
       //   広場中央は開けた地面のまま(絵側の配慮)。
       "lizard-swamp": {
-        1: { src: "assets/room_lizard-swamp_1.png", tileBounds: [7, 24, 20, 43] },
+        // ── ベルトスクロール版(v7.9・3枚目)。撤退時は下の行を落としてこの行を活かす:
+        // 1: { src: "assets/room_lizard-swamp_1.png", tileBounds: [7, 24, 20, 43] },
+        //   奥の壁 = 泥に沈んだ石造神殿の外壁(大蛇のレリーフ)と背後の黒い沼の木立。
+        //   廃坑・森と同じく row5-6 を絵に含める(20×16 = 5:4)。
+        1: { src: "assets/room_lizard-swamp_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         //   ボス部屋 = 族長の広間(沼に沈んだ石造神殿)。護衛が (55,13)(53,13) に立つので中央左まで開ける。
         2: { src: "assets/room_lizard-swamp_2.png", tileBounds: [5, 47, 22, 68] },
       },
