@@ -6105,6 +6105,8 @@
       },
       // ── シナリオ4 隠し要素: 古代王国の守護者 (fort-golems.md) ──
       // 非魔法物理免疫 (physicalImmunity): +1以上の魔法武器か呪文でないと通用しない。
+      // ⚠ 石の防御は 2種類ある: physicalImmunity = 完全無効 (石巨人だけ) /
+      //   physicalResistance = 半減 (ガーゴイル、5e SRD の Damage Resistances 相当)。混同しないこと。
       // faction:"beast" = 第三勢力 (オークも PT も無差別)。象徴アイテムでの味方化は後追い。
       // 専用 192px シート (codex1 stone-golem。青いルーンが走る石巨人)。
       stoneGolem: {
@@ -6171,9 +6173,13 @@
       },
       // ガーゴイル: 砦の軒に据えられた石の翼獣。動く鎧の後継として中庭の外周を固める。
       // 専用 96px シート (codex1 gargoyle。灰石の肌 + 翼 + 角 + 尾。attack は爪の一閃)。
-      // ⚠ physicalImmunity は付けない — 5e SRD のガーゴイルは非魔法物理耐性を持つが、本作では
-      //   「非魔法免疫は石巨人本体だけの特権」(fort-golems.md) を維持する。取り巻き全員が
-      //   免疫だと魔法武器なしで詰むため、石の軍団兵と同じ扱いにする。
+      // ── 非魔法物理「耐性」(physicalResistance) — 免疫ではない ──
+      // 5e SRD のガーゴイルは Damage Resistances = 非魔法の殴打/刺突/斬撃 → 完全無効ではなく半減。
+      // ⚠ physicalImmunity は付けない: 非魔法「免疫」は石巨人本体だけの特権 (fort-golems.md)。
+      //   取り巻き全員が免疫だと魔法武器なしで詰むが、半減なら詰まず「魔法武器を持ってこい」という
+      //   砦の設計意図だけが残る。判定は golemPhysResist (免疫 golemPhysImmune の直下)。
+      // ⚠ hp:42 は据置 = 非魔法武器に対する実効 HP は 84 相当になる。守護者戦が重すぎたら
+      //   まずこの hp を下げるのが調整レバー (耐性フラグ自体は外さない)。
       gargoyle: {
         name: "ガーゴイル",
         flavor: "砦の軒に潜む石の翼獣、獲物を見つけると軋みながら舞い降りる",
@@ -6191,6 +6197,7 @@
         str: 3, dex: 2, atkBonus: 4, ac: 15,
         dmgDice: "1d8", dmgBonus: 2, critRange: 20, critMult: 2,
         range: "melee",
+        physicalResistance: true, // 非魔法物理耐性 = ダメージ半減 (golemPhysResist)。免疫ではない
         faction: "beast",
         startsDormant: true,      // 巨人・軍団兵と共に休眠 → 接近で一斉覚醒
         xp: 280,
@@ -11648,6 +11655,25 @@
       return (Number(attackerEnh) || 0) < 1;
     }
 
+    // ── 非魔法物理耐性 (ガーゴイル等、5e SRD) ──
+    // physicalResistance を持つ敵は、+1以上の魔法武器でない物理攻撃のダメージを半減する
+    // (端数切り捨て・最低1)。免疫 (golemPhysImmune) と違い完全無効化はしない。
+    // 呪文は別経路 (この関数を呼ばない) なので常に全ダメージが通る。
+    // ⚠ 免疫と同じ規約: attackerEnh には *装備の真値* を渡すこと。effectiveWeaponEnh() の
+    //   実効値を渡すと、アンチマジック・レイ (C4 ④b) の帯の上でだけ耐性が復活する別ルールが混ざる。
+    // 介入点は免疫と同じ3箇所 (リーダー武器攻撃 / 仲間カウンター / 仲間通常攻撃)。免疫チェックを
+    // 通り抜けた直後に挟み、演出を出したあとも return せずダメージ適用へ合流する。
+    function golemPhysResist(enemyIdx, attackerEnh) {
+      const e = enemies[enemyIdx];
+      if (!e || !e.def || !e.def.physicalResistance) return false;
+      return (Number(attackerEnh) || 0) < 1;
+    }
+
+    // 半減の適用 (端数切り捨て・最低1)。3箇所で同じ式を使うためのヘルパー。
+    function applyPhysResistHalving(dmg) {
+      return Math.max(1, Math.floor(dmg / 2));
+    }
+
     // 残像エフェクト DOM を spawn (520ms で自動 fade-out)
     function spawnDisplaceAfterimage(enemyIdx) {
       const e = enemies[enemyIdx];
@@ -16926,8 +16952,9 @@
       return typeof isOnSovereignRay === "function" && isOnSovereignRay(unit || "player");
     }
     // リーダーの武器エンハンスメント (+N) の実効値。帯の上では 0 = 魔法の刃が死ぬ。
-    // ⚠ golemPhysImmune (石ゴーレムの非魔法物理免疫バイパス判定) には *真値* を渡すこと。
-    //   ここを通した値を渡すと「帯の上ではゴーレムに通用しない」という別ルールが混入する。
+    // ⚠ golemPhysImmune (石ゴーレムの非魔法物理免疫) / golemPhysResist (ガーゴイルの非魔法物理
+    //   耐性=半減) のバイパス判定には *真値* を渡すこと。ここを通した値を渡すと
+    //   「帯の上ではゴーレムに通用しない / ガーゴイルが硬くなる」という別ルールが混入する。
     function effectiveWeaponEnh(unit) {
       const w = getCurrentWeapon();
       const enh = (w && w.enhancement) || 0;
@@ -17300,7 +17327,7 @@
 
       // 武器エンハンスメント (+N) はダメージにも加算、ダメダイスは武器から
       const curWeapon = getCurrentWeapon();
-      // weaponEnhTrue = 装備の真値。golemPhysImmune (非魔法物理免疫のバイパス判定) 専用。
+      // weaponEnhTrue = 装備の真値。golemPhysImmune (免疫) / golemPhysResist (耐性=半減) 専用。
       // weaponEnh     = 実効値。アンチマジック・レイ (C4 ④b) の上では 0 = ダメージの下駄が消える。
       // ⚠ 両者を混ぜないこと: 免疫判定に実効値を渡すと「帯の上ではゴーレムに通用しない」別ルールになる。
       const weaponEnhTrue = (curWeapon && curWeapon.enhancement) || 0;
@@ -17341,6 +17368,12 @@
         noteDisplacementHit(targetIdx);
         await sleepMs(420);
         return { missed: true, immune: true };
+      }
+      // 非魔法物理耐性 (ガーゴイル等): 免疫と違い当たってはいるので return せず、半減して続行
+      if (golemPhysResist(targetIdx, weaponEnhTrue)) {
+        dmg = applyPhysResistHalving(dmg);
+        showRollAtEnemy(targetIdx, `<span class="label">RESIST</span>ダメージ半減!`, "hit");
+        updateInfo(`${tgtDef.name}: 石の体が刃を鈍らせる! (ダメージ半減)`);
       }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
@@ -19497,7 +19530,8 @@
       const times = isCrit ? ally.critMult : 1;
       let rolls = [];
       for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(1, 8).rolls);
-      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + ally.str * times);
+      // ⚠ let: 非魔法物理耐性 (golemPhysResist) で下の行から半減されうる
+      let dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + ally.str * times);
 
       // 残影回避 / ゴーレム非魔法物理免疫 はカウンターでも尊重
       if (tryDisplacement(enemyIdx)) { await sleepMs(420); return; }
@@ -19507,6 +19541,12 @@
         noteDisplacementHit(enemyIdx);
         await sleepMs(380);
         return;
+      }
+      // 非魔法物理耐性 (ガーゴイル等): 当たってはいるので return せず、半減して続行
+      if (golemPhysResist(enemyIdx, ally.weaponEnhancement || 0)) {
+        dmg = applyPhysResistHalving(dmg);
+        showRollAtEnemy(enemyIdx, `<span class="label">RESIST</span>ダメージ半減!`, "hit");
+        updateInfo(`${tgtDef.name}: 石の体が刃を鈍らせる! (ダメージ半減)`);
       }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
@@ -19979,6 +20019,12 @@
         noteDisplacementHit(enemyIdx);
         await sleepMs(380);
         return;
+      }
+      // 非魔法物理耐性 (ガーゴイル等): 当たってはいるので return せず、半減して続行
+      if (golemPhysResist(enemyIdx, ally.weaponEnhancement || 0)) {
+        dmg = applyPhysResistHalving(dmg);
+        showRollAtEnemy(enemyIdx, `<span class="label">RESIST</span>ダメージ半減!`, "hit");
+        updateInfo(`${tgtDef.name}: 石の体が刃を鈍らせる! (ダメージ半減)`);
       }
       target.hp -= dmg;
       if (target.hp < 0) target.hp = 0;
