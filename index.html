@@ -11342,9 +11342,11 @@
       ],
       mage: [
         { walk: MAGE_WALK_URL, walkSize: MAGE_WALK_SIZE, attack: MAGE_ATTACK_URL, attackSize: MAGE_ATTACK_SIZE, label: "標準" },
-        { walk: 'url("assets/mage_old_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/mage_old_attack.png")',     attackSize: "480px 384px", label: "老魔術師" },
-        { walk: 'url("assets/mage_crimson_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_crimson_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
-        { walk: 'url("assets/mage_dark_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/mage_dark_attack.png")',    attackSize: "480px 384px", label: "黒衣の魔道士" },
+        // 変種 1-3 は codex1 "ウィザード" 1 枚を共有する (2026-07-28 差替。旧 chibi 3 種は
+        // assets/mage_{old,crimson,dark}_* に残置)。dwarf と同じ扱い = label は内部識別子。
+        { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "老魔術師" },
+        { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "紅の魔道士" },
+        { walk: 'url("assets/mage_wizard_walk.png")', walkSize: "576px 384px", attack: 'url("assets/mage_wizard_attack.png")', attackSize: "480px 384px", label: "黒衣の魔道士" },
       ],
       elf: [
         { walk: ELF_WALK_URL, walkSize: ELF_WALK_SIZE, attack: ELF_ATTACK_URL, attackSize: ELF_ATTACK_SIZE, label: "標準" },

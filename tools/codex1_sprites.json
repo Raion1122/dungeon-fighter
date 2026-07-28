@@ -201,6 +201,15 @@
       "walk_dir": "dwarf-warrior/dwarf-warrior-walk-right-6",
       "attack_dir": "dwarf-warrior/dwarf-warrior-attack-right-6-v2-widematch",
       "note": "仲間 NPC ドワーフの変種 index 1-3 (バーサーカー/盾の守り手/ルーンスミス) が共有する 1 枚 (2026-07-28 差替)。黒い板金鎧 + 丸い鋲付き兜 + 茶の三つ編み髭 + 槍。主人公が使う dwarf-fullplate-warrior (銀のフルプレート + 有翼兜 + 斧) とは別人に見えるので変種として成立する。⚠️ char_ratio に --match-current の実測 (現行 chibi 変種 = 0.6146) を使ってはいけない: この素材は『槍の穂先が頭上に突き出る』ため walk の bbox H_max 457px のうち体は 383px しかない (比 0.838)。0.6146 で焼くと体高 49px = 主人公ドワーフ 54px より 10% 小さい小人になる。0.6836 は目標体高 55px から逆算 = 55 * 457 / (96 * 383)。出力実測で検証済み = 体高 55px (主人公 54 / 旧 chibi 56 と同格)、bbox 65px はすべて槍の穂先ぶん。クリップ警告なし (left=31 right=83 top=25 / cell=96)。⚠️ attack の bbox H_max(438) は walk(457) より低いので scale_from=walk でも攻撃時に縮まない (fullplate とは逆の関係)。⚠️ 既知の素材欠陥: -v2-widematch の attack は walk と別キャラに見える (丸兜→円錐兜 / 寸胴→細身の人間体型 / 彩度低下 / ドット絵→滑らかな塗り)。codex1 自身の QA シート dwarf-warrior-96cell-qa-v2-widematch.png にも同じズレが写っているのでパック処理由来ではなく素材由来。2026-07-28 にユーザーが『歩きの質を優先してこのまま採用』と判断。将来 codex1 側で揃った attack が出たら attack_dir を差し替えて --all するだけで直る。displaySize 96 据置=当たり判定不変"
+    },
+    {
+      "key": "wizard", "out": "assets/mage_wizard_walk.png",
+      "attack_out": "assets/mage_wizard_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6146, "scale_from": "walk", "center": "feet",
+      "walk_dir": "wizard/wizard-walk-right-6-v1",
+      "attack_dir": "wizard/wizard-cast-right-6-v1-matched",
+      "note": "仲間 NPC 魔法使いの変種 index 1-3 (老魔術師/紅の魔道士/黒衣の魔道士) が共有する 1 枚 (2026-07-28 差替)。灰髭 + 青ローブ(赤い裏地) + 青く光る水晶の杖の初老の男性魔術師。変種 0 の sorceress (若い女性) とは明確に別人なので変種として成立する。⚠️ 攻撃は attack でなく cast (sorceress / lizardPriest と同型)。⚠️ walk と cast が同一人物であることを sheet.png 2枚並べて事前確認済み — 同じ日に差し替えた dwarf-warrior の -v2-widematch が別人だったので、以後この目視を必須手順にする。char_ratio は sorceress と同じ 0.6146 をそのまま採用してよい稀なケース: 素材の walk H_max は違う (sorceress 500 / wizard 455) が、出力の体高はどちらも 58px で現行 mage 4枚 (主人公 58 / 老 58 / 紅 58 / 黒衣 58) と一致する。杖の突き出しは bbox 456 に対し体 438 = 4% と軽微 (dwarf-warrior の槍 16% と違い bbox 基準でもほぼ壊れないが、念のため体基準で検算し 0.6183/0.6150/0.6146 のいずれも体 58px になることを確認した)。cast の bbox H_max(460) は walk(455) とよく揃っており scale_from=walk で縮まない。cast は呪文を前へ突き出すコマの幅が 392px と広いが出力 48px で横クリップなし (fit: left=32 right=82 top=31 / cell=96)。displaySize 96 据置=当たり判定不変"
     }
   ]
 }
