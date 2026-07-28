@@ -167,6 +167,13 @@
       "attack_dir": "eye-tyrant/eye-tyrant-attack-right-6-matched",
       "note": "単眼の暴君。codex1 eye-tyrant(PI:Beholder系・ユーザー承知で採用)。char_ratio=umber_hulk暫定シートの--match-current実測。displaySize240据置=当たり判定不変。"
     },
+    {
+      "key": "hydra", "out": "assets/hydra_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.645833, "scale_from": "walk", "center": "feet-fit",
+      "walk_dir": "hydra/hydra-walk-right-6",
+      "attack_dir": "hydra/hydra-attack-right-6-matched",
+      "note": "Sce3 隠しボス 古代ハイドラ (2026-07-28 差替)。旧シートは『暗いオリーブの蛇型がとぐろを巻く』絵で、新素材は『緑鱗の四足竜型 + 尾 + 背びれ + 5本の首』= 生き物の解釈が変わる。ユーザーが2枚を並べて確認のうえ差替を選択。char_ratio 0.645833 = 124/192 = 旧シート walk 行の bbox H_max 実測 (--match-current と同値)。この素材は稀に『体/bbox = 0.994』= 首の突き出しによるかさ上げがほぼ無いので、mage/dwarf-warrior のような体基準の逆算が不要でそのまま焼ける。⚠️ center=feet では attack が右へ 5px はみ出す (蛇→四足竜でアスペクトが W/H 0.66 → walk 1.06 / attack 1.25 の横長になるため) → pharaxus と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 73.9) を掛けて詰める。結果 fit: left=17 right=175 top=58 / cell=192 で右余白 18px。画面上 (displaySize 360 据置=当たり判定不変) は身長 231px = 旧 232px とほぼ同一、横幅は 178→246px (+38%)、絵はセル中心より 26px 左寄り。案B (char_ratio 0.6135 + center=feet) も検討したが身長 -6% かつ右余白 1px なので不採用。⚠️ attack は -matched を使う (素の -attack-right-6 は H_max 305px = walk 346 の 88% で攻撃時に縮む)。-matched は H_max 346 で walk と完全一致するので scale_from はどちらでも同値だが規約どおり walk。⚠️ walk/attack フォルダに try-48/64/96/128/160/192 のサイズ試作サブフォルダが同居するが _load_frames はそのディレクトリだけを glob するので実害なし。walk/attack は同一個体 (背びれ・淡褐色の腹・首の本数が一致) を事前目視で確認済み"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
