@@ -181,6 +181,13 @@
       "attack_dir": "stone-golem-roman-warrior/stone-golem-roman-warrior-attack-right-6-v2-matched",
       "note": "Sce4 隠し要素の新規敵『石の軍団兵』(2026-07-28 新設)。差替ではなく新設なので --match-current の実測対象が無い。char_ratio は『画面上の身長 = char_ratio x displaySize』から逆算した 74px 狙い (0.770833 x displaySize 96)。既存の実測は 動く鎧 51px / オークの兵 66px / ストーンゴーレム 80px / ミノタウロス 87px なので、動く鎧より明確に大きく石巨人より一回り小さい位置に置いた。⚠️ attack は -6-v2-matched を使う: 素の -6-matched はパレットが walk (灰色の石肌 + 赤いクレスト + 金縁) と揃っておらずオリーブ/茶褐色で別チャット描画の色ズレ (scar v8.9 / stone-golem と同じ事故)。v2-matched は walk と完全に同一人物で H_max も 452 対 452 で一致する。⚠️ center=feet では frame3/4 の突き出した剣が右へ 15px はみ出して切れる (attack W_max 533 = walk 266 の 2倍) → pharaxus / hydra と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 48→28) を掛けて詰めた。結果 fit: left=5 right=92 top=17 / cell=96。代償として絵はセル中心より 20px 左寄りになるが、剣がセル右端まで届く構図なので当たり判定中心と剣先の関係としてはむしろ自然。分身チェックは row3 col2/col3 に wide-pose 警告 (w=70/69) が出るが clusters=1 = 突き剣の単一体で正常"
     },
+    {
+      "key": "gargoyle", "out": "assets/gargoyle_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.775, "scale_from": "walk", "center": "feet-fit",
+      "walk_dir": "gargoyle/gargoyle-walk-right-6",
+      "attack_dir": "gargoyle/gargoyle-attack-right-6-matched",
+      "note": "Sce4 隠し要素の新規敵『ガーゴイル』(2026-07-28 新設。守護者の取り巻き animatedArmor 2 体を置換)。stoneLegionary と同じく差替でなく新設なので --match-current の実測対象が無く、char_ratio は『画面上の身長 = char_ratio x displaySize』から逆算した。目標 62px / displaySize 80 → 62/80 = 0.775 をそのまま採用。同一手法の実測 (walk 行 bbox H_max / cell x displaySize) は 動く鎧 47.1 / オーク兵 48.3 / ガーゴイル 61.7 / 石の軍団兵 74.0 / ストーンゴーレム 79.1 / ミノタウロス 85.6 px なので、動く鎧より明確に大きく軍団兵より一回り小さい中間に着地した。⚠️ この素材は bbox 74px に対し体 69px = かさ上げ 7% しかないので (翼と角は『体』に含まれる = hydra の首と同じ扱い)、dwarf-warrior の槍 (16%) のような体基準の逆算は不要で bbox 基準の逆算をそのまま焼ける。⚠️ center=feet では attack frame4 の斬撃エフェクトが右へ 7px はみ出して切れる (CLIP WARNING: right=103 / cell=96) → pharaxus / hydra / stoneLegionary と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 48→36.9) を掛けて詰めた。結果 fit: left=4 right=92 top=12 / cell=96 でクリップ無し。和集合の幅が 88px とセルに収まるので attack_scale による縮小は不要 (= 本体を小人化させずに済んだ)。⚠️ attack は -matched を使う (無印の -attack-right-6 も存在する)。walk / attack が同一個体 (灰色の石肌 + 同じ翼形 + 角 + 尾) であることを sheet.png 目視で事前確認済み = wizard で必須化した手順どおり。分身チェック clean"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
