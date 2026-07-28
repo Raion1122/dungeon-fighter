@@ -6145,6 +6145,29 @@
         startsDormant: true,      // ゴーレムと共に休眠 → 接近で一斉覚醒
         xp: 150,
       },
+      // 石の軍団兵: 古代王国の兵を象った石像。動く鎧(CR1)と石巨人(CR10)の中間を埋める中堅。
+      // 専用 96px シート (codex1 stone-golem-roman-warrior。灰石の肌 + 赤いクレスト + 剣と盾)。
+      // ⚠ physicalImmunity は付けない — 非魔法免疫は巨人本体だけの特権 (fort-golems.md:
+      //   「動く鎧は物理免疫は無し、通常装備で削れる」)。取り巻き全員が免疫だと魔法武器なしで詰む。
+      stoneLegionary: {
+        name: "石の軍団兵",
+        flavor: "古代王国の兵を象った石像、剣と盾で隊列を組む",
+        badge: "🏛",
+        sprite: "assets/stoneLegionary_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 96,
+        hp: 68, speed: 0.62,
+        hasAttackAnim: true,
+        meleeRange: 165, hitRange: 240,
+        attackDuration: 30, attackHitFrame: 15, attackCooldown: 60,
+        str: 4, dex: 0, atkBonus: 6, ac: 17,
+        dmgDice: "2d6", dmgBonus: 4, critRange: 20, critMult: 2,
+        range: "melee",
+        faction: "beast",
+        startsDormant: true,      // 巨人・動く鎧と共に休眠 → 接近で一斉覚醒
+        xp: 420,
+      },
       // ── シナリオ2: 盗賊団 ──
       // 全5役 専用シート (96px×6cols×5rows)。bandit/banditArcher は codex1 セミリアル素材 (v8.3)、
       // banditMage/banditHeavy/scar は ChatGPT chibi 素材ベース
@@ -6790,8 +6813,10 @@
           // ボス: オーク将軍ガロック
           ["garrock", 57, 13],
           // ROOM2 隠し要素: 古代王国の守護者(休眠・接近で一斉覚醒→第三勢力)
+          // 巨人の左右を石の軍団兵が固め、外周を動く鎧が囲む。
+          // (軍団兵2体は動く鎧からの置換。総体数は5体のまま=「敵を増やす」は道中Lvupで相殺されるため)
           ["stoneGolem", 33, 9],
-          ["animatedArmor", 29, 11], ["animatedArmor", 37, 11],
+          ["stoneLegionary", 29, 11], ["stoneLegionary", 37, 11],
           ["animatedArmor", 31, 18], ["animatedArmor", 35, 18],
         ],
       },
@@ -7745,6 +7770,7 @@
       "enemy.cry.garrock":        ["グォォラァッ!", "踏み潰してくれる!"],
       "enemy.cry.stoneGolem":     ["ゴ… ゴ… ゴ…", "ズシン…ッ!"],
       "enemy.cry.animatedArmor":  ["ガシャン! ガシャン!", "カチャ…カチャ…"],
+      "enemy.cry.stoneLegionary": ["主の名を、述べよ。", "排除… 排除…", "ゴリ…ッ(石の足音)"],
       "enemy.cry.skeleton":       ["カタカタ…カタッ", "ガチャ…ガチャ…"],
       "enemy.cry.skeletonArcher": ["カタッ…カタカタッ!", "キシッ…"],
       "enemy.cry.zombie":         ["ウゥゥ…アァァ…", "ゥゥ…肉…ィ…"],
