@@ -11674,6 +11674,35 @@
       return Math.max(1, Math.floor(dmg / 2));
     }
 
+    // ── スキル系の介入点用ヘルパー (免疫/耐性の判定 + 演出をまとめる) ──
+    // 既存3箇所 (リーダー武器攻撃 / 仲間カウンター / 仲間通常攻撃) は個別の演出と戻り値の形を
+    // 持つので据え置き。スキル・探索フェーズの斬り・武器化罠は介入点が 11 箇所と多く、
+    // 同じ 2 分岐を写経すると必ずどこかで抜けるので、判定とポップをこの 1 関数に集約する。
+    // 戻り値 { immune, resisted, dmg }。immune=true のときはダメージを適用してはならない
+    // (呼び出し側で return / continue し、撃破判定にも進まない)。resisted のとき dmg は半減済み。
+    // ⚠ attackerEnh は必ず装備の *真値*。effectiveWeaponEnh() の実効値を渡すと
+    //   「アンチマジック帯の上でだけ石に通用しない」という別ルールが混ざる (恒久規約)。
+    //   仲間は ally.weaponEnhancement (当面どこにも代入されない = 常に 0)、
+    //   リーダーは getCurrentWeapon().enhancement、罠には持ち主の + が乗らないので 0 固定。
+    // label: 「非魔法の◯◯は通用しない!」の ◯◯ (斬撃 / 罠 / 矢 など)。
+    function resolvePhysDefense(enemyIdx, attackerEnh, dmg, label) {
+      const e = enemies[enemyIdx];
+      const nm = (e && e.def && e.def.name) || "敵";
+      if (golemPhysImmune(enemyIdx, attackerEnh)) {
+        showRollAtEnemy(enemyIdx, `<span class="label">IMMUNE</span>通用しない!`, "miss");
+        showHitSpark(enemyIdx, false);
+        updateInfo(`${nm}: 非魔法の${label || "攻撃"}は通用しない! (魔法武器か呪文が必要)`);
+        noteDisplacementHit(enemyIdx);
+        return { immune: true, resisted: false, dmg: 0 };
+      }
+      if (golemPhysResist(enemyIdx, attackerEnh)) {
+        showRollAtEnemy(enemyIdx, `<span class="label">RESIST</span>ダメージ半減!`, "hit");
+        updateInfo(`${nm}: 石の体が刃を鈍らせる! (ダメージ半減)`);
+        return { immune: false, resisted: true, dmg: applyPhysResistHalving(dmg) };
+      }
+      return { immune: false, resisted: false, dmg: dmg };
+    }
+
     // 残像エフェクト DOM を spawn (520ms で自動 fade-out)
     function spawnDisplaceAfterimage(enemyIdx) {
       const e = enemies[enemyIdx];
@@ -11837,6 +11866,13 @@
         knockback *= 2;
         strong = true;
       }
+
+      // 非魔法物理の免疫/耐性 (ストーンゴーレム/ガーゴイル): 探索フェーズの斬りもここを通す。
+      // ⚠ 渡すのは装備の真値 (weapon.enhancement)。effectiveWeaponEnh() の実効値ではない。
+      // 免疫時は「弾かれた」= ダメージもノックバックも起きない (上の chase 化だけは済んでいる)。
+      const physDef = resolvePhysDefense(index, (weapon && weapon.enhancement) || 0, damage, "斬撃");
+      if (physDef.immune) return;
+      damage = physDef.dmg;
 
       triggerEnemyDamageFlash(index);
       showHitSpark(index, strong);
@@ -19423,24 +19459,35 @@
       const type = trap.type || "damage";
       const spec = TRAP_TYPES[type] || TRAP_TYPES.damage;
       const r = parseDice(spec.weaponizeDice);   // ★2d6: 敵が実際に乗った瞬間にのみ RNG を引く
-      const dmg = r.total;
-      enemy.hp -= dmg;
+      // 非魔法物理の免疫/耐性 (fort-golems.md): 罠の刃も非魔法物理なので石の敵には通りにくい。
+      // ⚠ 罠には持ち主の武器 + が乗らない = enh 0 固定 (盗賊が仕掛け直しても魔法にはならない)。
+      // ⚠ parseDice は免疫でも先に引いてある。「敵が乗った瞬間に 1 ドロー」という決定論を崩さないため。
+      // 免疫でも罠そのものは消費する (発動はした = trap.triggered)。
+      const physDef = resolvePhysDefense(idx, 0, r.total, "罠");
+      const dmg = physDef.dmg;
+      if (!physDef.immune) enemy.hp -= dmg;
       trap.triggered = true;                     // 1回で消費
       if (trap.el) {
         trap.el.classList.remove("rearmed");     // 起動したらオーラを消す
         trap.el.classList.add("triggered");
       }
       sfx("trap");
-      if (typeof triggerEnemyDamageFlash === "function") triggerEnemyDamageFlash(idx);
       const eSize = (enemy.def && enemy.def.displaySize) || 96;
       const eCX = enemy.x + eSize / 2;
       const eCY = enemy.y + eSize / 2;
-      showDmgAt(eCX, eCY, dmg, false);
       const enm = (enemy.def && enemy.def.name) || "敵";
+      if (physDef.immune) {
+        // 演出 (IMMUNE ポップ + updateInfo) は resolvePhysDefense 側で出している。
+        // ダメージフラッシュと「喰らわれる番だ」の DM 語りは、0 ダメージでは嘘になるので出さない。
+        showBanner("💥 罠は石の体に弾かれた…", 1200);
+        return;
+      }
+      if (typeof triggerEnemyDamageFlash === "function") triggerEnemyDamageFlash(idx);
+      showDmgAt(eCX, eCY, dmg, false);
       showBanner("💥 罠が敵を捉えた!", 1200);
       // Phase 2 の見せ場の到達点。踏み抜き(player/ally)と同様にここでも DM が一言添える(voiceId なし=無音 no-op)。
       showDMMessage("反転した罠が牙を剥いた——今度は、敵が喰らわれる番だ。", 1800);
-      updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg} ダメージ`);
+      updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg}${physDef.resisted ? " (半減後)" : ""} ダメージ`);
       if (enemy.hp <= 0) {
         enemy.hp = 0;
         if (typeof defeatEnemy === "function") defeatEnemy(idx);   // XP/ドロップ/クエスト進行を回す
@@ -21393,7 +21440,12 @@
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
       const strBonus = (skill.useStr ? ally.str : 0) * times;
       const extra = (skill.extraDmg || 0) * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus + extra);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus + extra);
+
+      // 非魔法物理の免疫/耐性: 仲間のスキルも通常攻撃と同じ壁を受ける (仲間の enh は当面 0)
+      const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "武器");
+      if (physDef.immune) { await sleepMs(500); return; }
+      dmg = physDef.dmg;
 
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
@@ -21547,7 +21599,12 @@
       let allRolls = [];
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
       const strBonus = (skill.useStr ? ally.str : 0) * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+
+      // 非魔法物理の免疫/耐性: 投げ斧も非魔法の鉄塊 (仲間の enh は当面 0)
+      const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "斧");
+      if (physDef.immune) { await sleepMs(500); return; }
+      dmg = physDef.dmg;
 
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
@@ -21629,7 +21686,11 @@
         let allRolls = [];
         for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
         const strBonus = ally.str * times;
-        const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+        let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+        // 非魔法物理の免疫/耐性: AoE でも敵ごとに判定する。免疫は「命中」に数えない (弾かれた)
+        const physDef = resolvePhysDefense(idx, ally.weaponEnhancement || 0, dmg, "斧");
+        if (physDef.immune) continue;
+        dmg = physDef.dmg;
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         showHitSpark(idx, isCrit);
@@ -21692,7 +21753,12 @@
         let allRolls = [];
         for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
         const strBonus = ally.str * times;
-        const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+        let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + strBonus);
+        // 非魔法物理の免疫/耐性: 敵ごとに判定。免疫は衝撃ごと弾かれる扱い = スタンも乗らない
+        // (下のスタン適用まで進まないので continue で抜ける)。耐性は半減だけでスタンは通る。
+        const physDef = resolvePhysDefense(idx, ally.weaponEnhancement || 0, dmg, "衝撃");
+        if (physDef.immune) continue;
+        dmg = physDef.dmg;
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         showHitSpark(idx, isCrit);
@@ -21851,7 +21917,8 @@
     async function wildConfusedStrike(attacker) {
       const isPlayerAtk = (attacker === "player");
       // 攻撃者プロフィール
-      let aName, aCX, aCY, atkBonus, dmgDice, dmgBonus, critMult, critThreshold, showRoll;
+      // physEnhTrue = 武器 + の *真値*。暴走の一撃も非魔法物理なので石の敵の免疫/耐性を受ける。
+      let aName, aCX, aCY, atkBonus, dmgDice, dmgBonus, critMult, critThreshold, showRoll, physEnhTrue;
       if (isPlayerAtk) {
         const w = getCurrentWeapon();
         aName = getLeaderName();
@@ -21862,6 +21929,7 @@
         critMult = playerStats.critMult || 2;
         critThreshold = playerStats.critRange || 20;
         showRoll = (t, c) => showRollAtPlayer(t, c);
+        physEnhTrue = (w && w.enhancement) || 0;
       } else {
         aName = attacker.npcName || attacker.def.name;
         aCX = attacker.x + attacker.def.displaySize / 2;
@@ -21872,6 +21940,7 @@
         critMult = attacker.critMult || 2;
         critThreshold = effectiveCritRange(attacker);
         showRoll = (t, c) => showRollAtAlly(attacker, t, c);
+        physEnhTrue = attacker.weaponEnhancement || 0;
       }
 
       // 対象候補: 自分以外の生存ユニット (頭 + 仲間 + 交戦中の敵)。距離バイアス無し・完全ランダム。
@@ -21944,10 +22013,14 @@
       // ダメージ適用 (kind 別・既存の死亡処理へ合流)
       if (tgt.kind === "enemy") {
         const en = enemies[tgt.idx];
-        en.hp -= dmg; if (en.hp < 0) en.hp = 0;
+        // 非魔法物理の免疫/耐性 (dmg は下の ally/leader 分岐でも使うので再代入しない)
+        const physDef = resolvePhysDefense(tgt.idx, physEnhTrue, dmg, "一撃");
+        if (physDef.immune) { await sleepMs(450); return; }
+        const enDmg = physDef.dmg;
+        en.hp -= enDmg; if (en.hp < 0) en.hp = 0;
         triggerEnemyDamageFlash(tgt.idx, Math.sign(tCX - aCX));
-        showDmgAt(tCX, en.y, dmg, isCrit);
-        updateInfo(`${aName} は暴走し、${tName} に ${dmg} ダメージ!`);
+        showDmgAt(tCX, en.y, enDmg, isCrit);
+        updateInfo(`${aName} は暴走し、${tName} に ${enDmg} ダメージ!`);
         await sleepMs(450);
         if (en.hp <= 0) { defeatEnemy(tgt.idx); await sleepMs(300); }
       } else if (tgt.kind === "ally") {
@@ -22528,7 +22601,12 @@
         allRolls = allRolls.concat(rollDiceDD(extraDice.n, extraDice.sides).rolls);
       }
       const dexBonus = (ally.dex || 0) * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + dexBonus);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + dexBonus);
+
+      // 非魔法物理の免疫/耐性: ただの矢は石を貫けない (魔法の矢 allyMagicArrow は呪文なので対象外)
+      const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "矢");
+      if (physDef.immune) { await sleepMs(500); return; }
+      dmg = physDef.dmg;
 
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
@@ -23514,7 +23592,12 @@
         allRolls = allRolls.concat(rollDiceDD(extraDice.n, extraDice.sides).rolls);
       }
       const dexBonus = (ally.dex || 0) * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + dexBonus);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + dexBonus);
+      // 非魔法物理の免疫/耐性: スニークアタックの追加ダイスも「短剣で刺した」分なので石には効かない。
+      // ⚠ ここが最後まで残っていた穴 — 盗賊 1 人で fort-golems.md の「魔法武器を持ってこい」を破っていた。
+      const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "短剣");
+      if (physDef.immune) { await sleepMs(700); return; }
+      dmg = physDef.dmg;
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
@@ -23580,7 +23663,11 @@
         let rolls = [];
         for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(n, sides).rolls);
         const dexBonus = (ally.dex || 0) * times;
-        const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+        let dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+        // 非魔法物理の免疫/耐性: 投げナイフは 1 投ごとに判定 (免疫の投擲は命中数に数えない)
+        const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "ナイフ");
+        if (physDef.immune) { await sleepMs(380); continue; }
+        dmg = physDef.dmg;
         target.hp = Math.max(0, target.hp - dmg);
         totalDmg += dmg; hitCount++;
         triggerEnemyDamageFlash(enemyIdx);
@@ -23638,7 +23725,12 @@
       let rolls = [];
       for (let i = 0; i < times; i++) rolls = rolls.concat(rollDiceDD(n, sides).rolls);
       const dexBonus = (ally.dex || 0) * times;
-      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+      let dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + dexBonus);
+      // 非魔法物理の免疫/耐性: 刃が弾かれる = 毒も塗り込めないので免疫時は毒付与まで進まない。
+      // 耐性 (ガーゴイル) はダメージ半減のみで、毒は通常どおり乗る。
+      const physDef = resolvePhysDefense(enemyIdx, ally.weaponEnhancement || 0, dmg, "短剣");
+      if (physDef.immune) { await sleepMs(600); return; }
+      dmg = physDef.dmg;
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
       showHitSpark(enemyIdx, isCrit);
