@@ -280,6 +280,16 @@
       "walk_dir": "male-thief/male-thief-walk-right-6",
       "attack_dir": "male-thief/male-thief-attack-right-6-matched",
       "note": "仲間 NPC 盗賊の変種 index 1-3 (アサシン/軽業師/影の斥候) が共有する 1 枚 (2026-07-29 新設)。フード + オリーブ色のボロマント + 革ベルト + 曲刀の男盗賊で、変種 0 の female-thief (黒髪ポニーテール + えんじマント) とは明確に別人なので変種として成立する。dwarf-warrior / wizard と同じ『変種 3 枠を 1 枚で共有』構成。char_ratio 0.5968 = 素材 walk bodyH max=403 / median=401 (max 比 0.995) から目標 median 56px を逆算。出力実測 walk median 56.0px で female-thief と同値。attack_scale は 1.0 のまま: 素材の delta が -1.79% と閾値 (±5%) 内なので auto は不要 (auto を入れると必要のない拡大でクリップ余裕を食う)。walk と attack が同一人物であることを sheet.png 2 枚を並べて事前確認済み。素材フレーム md5 は walk 6/6・attack 6/6 とも全て異なる (重複コマ 0)。⚠️ fit: left=26 right=89 top=33 (cell=96) — 右余白が 7px しかない (frame-04 で曲刀を前へ突き出すコマ)。素材を差し替える時はここが最初に壊れるので right を必ず見ること"
+    },
+    {
+      "key": "npc-female-warrior", "out": "assets/warrior_npcfemale_walk.png",
+      "attack_out": "assets/warrior_npcfemale_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6139, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "npc-female-warrior/npc-female-warrior-walk-right-6",
+      "attack_dir": "npc-female-warrior/npc-female-warrior-attack-right-6-matched",
+      "note": "仲間 NPC 戦士の変種 index 1-3 (重戦士/女戦士/騎士) が共有する 1 枚 (2026-07-29 新設)。深紅のポニーテール + 革鎧と鎖帷子 + 背負った丸盾 + 赤い腰布 + アーミングソードの女戦士で、変種 0 の ironvale-vanguard (フルフェイス兜の重装) とは明確に別人なので変種として成立する。dwarf-warrior / wizard / male-thief と同じ『変種 3 枠を 1 枚で共有』構成。⚠️ 出力名を warrior_female_* にしてはいけない: 旧 chibi の assets/warrior_female_{walk,attack}.png が実在する (旧 chibi 3 枚 heavy/female/knight は dwarf/mage/rogue と同様に残置)。char_ratio 0.6139 = 素材 walk bodyH median=454.5 / bboxH max=474 から目標 median 56px を逆算し、出力実測で 1 回校正した値 (逆算値 0.6084 → 実測 55.5px → 0.6139 で 56.0px に命中)。出力実測 walk median 56.0px は主人公戦士 warrior と完全一致。attack_scale は auto (1.0952) が必要: 1.0 だと delta -9.91% で WARN 圏、auto で +0.00%。walk と attack が同一人物であることを sheet.png 2 枚を並べて事前確認済み。素材フレーム md5 は walk 6/6・attack 6/6 とも全て異なる (重複コマ 0)。⚠️ fit: left=31 right=93 top=26 (cell=96) — 右余白が 3px しかない (frame-03/04 で剣を水平に前へ突き出すコマ。素材 bboxW 439/447px)。この 2 コマは check_pose_alignment の『水平武器 = 6 コマ中 2 コマ以内』ルールぎりぎりで、体高が計測アーティファクトで過小評価される (bodyH 360/329 に対し bboxH 382/403)。median が吸収するので実害はないが、素材を差し替える時は right と水平コマ数を必ず見ること"
     }
   ]
 }

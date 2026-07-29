@@ -11385,9 +11385,17 @@
     const SPRITE_VARIANTS = {
       warrior: [
         { walk: WARRIOR_WALK_URL, walkSize: WARRIOR_WALK_SIZE, attack: WARRIOR_ATTACK_URL, attackSize: WARRIOR_ATTACK_SIZE, guard: WARRIOR_GUARD, label: "標準" },
-        { walk: 'url("assets/warrior_heavy_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/warrior_heavy_attack.png")',  attackSize: "480px 384px", label: "重戦士" },
-        { walk: 'url("assets/warrior_female_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_female_attack.png")', attackSize: "480px 384px", label: "女戦士" },
-        { walk: 'url("assets/warrior_knight_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_knight_attack.png")', attackSize: "480px 384px", label: "騎士" },
+        // 変種 1-3 は codex1 "npc-female-warrior" 1 枚を共有する (2026-07-29 差替。旧 chibi 3 種は
+        // assets/warrior_{heavy,female,knight}_* に残置)。dwarf / mage / rogue と同じ扱い =
+        // label はどこからも読まれない内部識別子なので、将来 codex1 側で別デザインが出たら
+        // 該当行の url だけ差し替えれば再び 3 種に割れる。
+        // ⚠ 出力名が warrior_npcfemale_* なのは、旧 chibi が warrior_female_* を既に使っているため。
+        //   **新規ファイル名なので ?v= キャッシュバスタは不要** (同名上書きではない)。
+        // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
+        //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
+        { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "重戦士" },
+        { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "女戦士" },
+        { walk: 'url("assets/warrior_npcfemale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/warrior_npcfemale_attack.png")', attackSize: "480px 384px", label: "騎士" },
       ],
       dwarf: [
         { walk: DWARF_WALK_URL, walkSize: DWARF_WALK_SIZE, attack: DWARF_ATTACK_URL, attackSize: DWARF_ATTACK_SIZE, label: "標準" },
