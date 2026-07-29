@@ -1979,10 +1979,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の依頼がクリアできない不具合を修正</b> — ボスを倒しても討伐が終わらず、探索フェーズが延々と続いてしまう問題を解消した。</li>
         <li><b>僧侶の姿を一新</b> — 主人公と仲間の僧侶が新しい絵柄に。呪文を唱える姿も一人ひとり別々になった。</li>
         <li><b>仲間の戦士の姿を一新</b> — 酒場で加わる戦士の仲間が、深紅の髪に丸盾と剣を備えた歴戦の女戦士の姿になった。背丈も主人公と揃っている。</li>
         <li><b>盗賊の姿を一新</b> — 主人公も仲間も描き下ろしのスプライトへ。背丈がパーティ全員と揃った。</li>
-        <li><b>仲間ドワーフの槍さばきに「突き」が戻った</b> — これまで振りかぶりが2回続いていた攻撃に、踏み込んで穂先を伸ばす決めの一撃が入るようになった。</li>
       </ul>
     </div>
     <script>
@@ -2535,14 +2535,25 @@
       },
     ];
 
-    // 各部屋の有効スポーン座標 [col, row] (v7.7 新3部屋幾何・各群 front→rear の混成)。
+    // 各部屋の有効スポーン座標 [col, row] (各群 front→rear の混成)。
     // room ごとに最低1体置き、パーティが全部屋を踏破してボス部屋まで自動進行できるようにする
     // (後方部屋を空にするとオート進行がボス手前で停滞するため)。
     // 各群は front(低col密集)→rear(高col密集)の順。先頭から詰めると自然に前寄り集中になる。
     // v7.7: 「ボス直前」部屋を廃止し、その分の枠を山場(部屋2)へ吸収=2部屋+ボス。
+    //
+    // ⚠️⚠️ v7.9 (バグ修正): 「部屋1 導入」の枠を撤去し、山場1部屋だけにした。
+    //   index.html の ROOMS_DUNGEON は cdb081a で **[7,24,20,43](山場) + [5,47,22,68](ボス)** の
+    //   2部屋へ短縮され、buildMap は **その2部屋と廊下しか床に掘らない**。よって旧「部屋1 導入」の
+    //   col 12〜18 は**全面が岩盤 (mapData===2)**。index.html:7004 の救済は `mapData===1`
+    //   (部屋内の装飾ピラー) しか床へ彫らないので値 2 は救われず、そこへ湧いた敵は
+    //   **到達不能なまま alive で residual 化**していた。
+    //   → checkDungeonClear の第1条件 `enemies.every(e=>!e.alive||e.passiveNpc)` が永久に false になり、
+    //     **ボスを倒してもクリアせず探索フェーズが続く**バグの真因 (tier 別に 2〜5 体が埋没)。
+    //   物語6シナリオは cdb081a で導入部屋の前哨を spawns から削除済み = 同じ判断をここへ反映した。
+    //   ⚠️ **ここの col は index.html の ROOMS_DUNGEON の内側 (col 24〜43 / 47〜68) でなければならない。**
+    //      部屋数や座標を動かす時は必ず index.html:3226 の ROOMS_DUNGEON と突き合わせること。
     const ROOM_SLOTS = [
-      [[12, 13], [13, 13], [13, 14], [17, 13], [18, 13], [18, 14]],                       // 部屋1 導入 (front3+rear3)
-      [[27, 13], [28, 13], [28, 14], [39, 13], [40, 13], [39, 14], [41, 14], [42, 13]],   // 部屋2 山場・最多(旧room3吸収)
+      [[27, 13], [28, 13], [28, 14], [39, 13], [40, 13], [39, 14], [41, 14], [42, 13]],   // 山場・唯一の道中部屋(旧room3吸収)
     ];
     const BOSS_SLOT = [57, 13];   // ボス部屋(v7.7: 左シフト [79,13]→[57,13])
 
@@ -2679,16 +2690,24 @@
     function buildSpawns(quest) {
       const fam = familyOf(quest);
       const tn = tierNumOf(quest.tierKey);
-      const perRoom = ({ 1: [2, 4], 2: [3, 5], 3: [4, 7], 4: [5, 8] })[tn] || [2, 4];
+      // v7.9: 道中は「山場」1部屋のみになったので、tier ごとの体数は旧・山場枠の値をそのまま引き継ぐ
+      //   (旧 [導入, 山場] = [2,4]/[3,5]/[4,7]/[5,8] の後者)。導入枠の 2〜5 体は岩盤に埋まっていて
+      //   一度も戦闘に参加していなかったため、これで実際に戦う体数は従来と変わらない。
+      const perRoom = ({ 1: [4], 2: [5], 3: [7], 4: [8] })[tn] || [4];
       const pool = fam.enemyPool;
       const elites = fam.eliteKeys || [];
       const lastRoom = ROOM_SLOTS.length - 1;   // 後方部屋(山場)= エリート/強キー枠
       const spawns = [];
       ROOM_SLOTS.forEach((slots, roomIdx) => {
         const n = Math.min(perRoom[roomIdx], slots.length);
+        // ⚠️ 1部屋構成では lastRoom===0 なので `roomIdx / lastRoom` が 0/0 = NaN になる。
+        //    NaN は strength ごと汚染し pool[Math.floor(NaN * len)] = undefined → 敵キーが undefined →
+        //    index.html の _safeSpawns が未知キーとして**無言で全消し**し「雑魚ゼロのダンジョン」に化ける。
+        //    単独部屋は「最後方部屋」= 係数 1 として扱う (旧2部屋構成の山場と同じ強さ補正)。
+        const roomFrac = lastRoom > 0 ? roomIdx / lastRoom : 1;
         for (let i = 0; i < n; i++) {
           const slot = slots[i];
-          let strength = ((tn - 1) / 3) * 0.55 + (roomIdx / lastRoom) * 0.35 + (Math.random() - 0.5) * 0.2;
+          let strength = ((tn - 1) / 3) * 0.55 + roomFrac * 0.35 + (Math.random() - 0.5) * 0.2;
           strength = Math.max(0, Math.min(0.999, strength));
           let key;
           if (tn >= 3 && roomIdx >= lastRoom && elites.length && Math.random() < 0.45) {
