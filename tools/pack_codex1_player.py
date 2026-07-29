@@ -28,13 +28,16 @@ from PIL import Image
 
 from pack_codex1_sprites import (
     DEFAULT_CODEX1_ROOT,
+    _attack_scale_arg,
     _char_height,
     _load_frames,
     _pack_frame,
     _prescale,
     _warn_if_clipped,
     fit_anchor,
+    layout_attack_scale_for,
     load_ledger,
+    resolve_attack_scale,
     resolve_dirs,
     sheet_char_ratio,
 )
@@ -57,7 +60,8 @@ def build_player_sheet(frames, cell, out_path):
 
 def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
                 bottom_pad_ratio=0.05, center_mode="feet", attack_scale=1.0,
-                walk_dir=None, attack_dir=None, scale_from="walk"):
+                walk_dir=None, attack_dir=None, scale_from="walk",
+                attack_layout_scale=None):
     wdir, adir = resolve_dirs(key, codex1_root, walk_dir, attack_dir)
     walk = _load_frames(wdir, cols)
     attack = _load_frames(adir, cols) if adir else []
@@ -67,11 +71,19 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     if not attack:
         print(f"  ! attack frames not found under {adir}", file=sys.stderr)
         return False
-    attack = _prescale(attack, attack_scale)
+    # attack_scale="auto" の体高比は **出力に載る 5 コマ** で測る (間引いた 6 コマ目を
+    # 混ぜると、検証側 check_attack_scale.py が見る母集団とズレる)。
+    render_scale = resolve_attack_scale(attack_scale, walk,
+                                        [attack[i] for i in ATTACK_KEYS], key)
+    layout_scale = layout_attack_scale_for(attack_scale, render_scale, attack_layout_scale)
+    attack_layout = _prescale(attack, layout_scale)
+    attack = (attack_layout if abs(render_scale - layout_scale) < 1e-9
+              else _prescale(attack, render_scale))
 
     # -matched 素材は「体」の高さだけを揃えており bbox は揃っていない。walk 基準で
     # スケールを決めないと、剣を振り上げるコマに引っ張られて本体が縮む。
-    basis = walk if scale_from == "walk" else walk + attack
+    # 基準・アンカーは常に attack_layout 側で取る (auto の補正を walk へ波及させない)。
+    basis = walk if scale_from == "walk" else walk + attack_layout
     h_max = max((_char_height(f) for f in basis), default=0)
     if h_max <= 0:
         print("  ! no opaque content in frames", file=sys.stderr)
@@ -80,10 +92,14 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     target_feet = cell - max(1, int(round(cell * bottom_pad_ratio)))
     attack_sel = [attack[i] for i in ATTACK_KEYS]
     frames = walk + attack_sel
-    anchor = fit_anchor(frames, scale, cell, center_mode)
+    anchor = fit_anchor(walk + [attack_layout[i] for i in ATTACK_KEYS],
+                        scale, cell, center_mode)
+    scale_note = (f"attack_scale={render_scale:.4f}(auto, layout={layout_scale:g})"
+                  if isinstance(attack_scale, str) else f"attack_scale={render_scale:g}")
     print(f"  {key}: walk={len(walk)}F attack={len(attack)}F -> {len(ATTACK_KEYS)}F "
           f"H_max({scale_from})={h_max}px scale={scale:.4f} char_ratio={char_ratio:.4f} "
-          f"target_feet={target_feet} center={center_mode} anchor_x={anchor:.1f}")
+          f"target_feet={target_feet} center={center_mode} anchor_x={anchor:.1f} "
+          f"{scale_note}")
 
     _warn_if_clipped(frames, scale, cell, center_mode, target_feet, anchor)
 
@@ -108,6 +124,7 @@ def pack_from_ledger(entry, codex1_root, out_dir):
         entry.get("attack_scale", 1.0),
         entry.get("walk_dir"), entry.get("attack_dir"),
         entry.get("scale_from", "walk"),
+        entry.get("attack_layout_scale"),
     )
 
 
@@ -132,7 +149,10 @@ def main():
     ap.add_argument("--scale-from", choices=("both", "walk"), default="walk")
     ap.add_argument("--bottom-pad-ratio", type=float, default=0.05)
     ap.add_argument("--center", choices=("feet", "bbox", "feet-fit"), default="feet")
-    ap.add_argument("--attack-scale", type=float, default=1.0)
+    ap.add_argument("--attack-scale", type=_attack_scale_arg, default=1.0,
+                    help='数値 or "auto" (walk/attack の体高比から自動算出)')
+    ap.add_argument("--attack-layout-scale", type=float, default=None,
+                    help='--attack-scale auto のときのレイアウト凍結倍率 (既定 1.0)')
     args = ap.parse_args()
 
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -161,7 +181,7 @@ def main():
     ok = pack_player(args.key, args.walk_out, args.attack_out, args.codex1_root,
                      args.cell, args.cols, char_ratio, args.bottom_pad_ratio,
                      args.center, args.attack_scale, args.walk_dir, args.attack_dir,
-                     args.scale_from)
+                     args.scale_from, args.attack_layout_scale)
     sys.exit(0 if ok else 1)
 
 

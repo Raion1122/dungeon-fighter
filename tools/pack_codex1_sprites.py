@@ -38,6 +38,18 @@ codex1 の提供形式 (2 世代ある。どちらも --walk-dir / --attack-dir 
     bbox は揃っておらず、武器の振り上げで attack の bbox は walk の最大 1.43 倍まで伸びる。
     both のままだと「剣を振り上げるキャラほど本体が縮む」ため、walk 基準が要る。
 
+攻撃コマのサイズ揃え (attack_scale):
+  数値   … attack シートだけを事前スケールする (従来どおりレイアウトにも効く)。
+  "auto" … walk / attack 素材の **体高中央値の比** から倍率を自動算出する。
+           共通スケールは bbox 高しか見ないので、codex1 が walk と attack を別チャットで
+           描いたことによるズーム差がそのまま「攻撃した瞬間に一回り縮む」として残る。
+           体高で測るのは武器の振り上げで bbox だけが伸びるため (肩幅・胴の対角は
+           攻撃で腕を広げるぶん汚染されるので指標に使わない)。
+           ⚠️ auto は **attack の描画倍率だけ** を動かし、共通スケール h_max と
+           fit_anchor (= walk と共有する幾何) は据え置く。混ぜると walk まで縮む/横滑る。
+           手動倍率から auto へ移行する既存エントリは attack_layout_scale に旧値を書けば
+           walk 行がバイト単位で不変になる。
+
 見た目サイズの不変条件 (--match-current):
   画面上のキャラ身長 = (walk H_max / cell) * displaySize。displaySize は当たり判定
   (getEnemyHitbox / OVERLAP_RADIUS_K / OVERLAP_BOSS_SIZE) の導出元なので動かしてはいけない。
@@ -52,6 +64,10 @@ import sys
 
 import numpy as np
 from PIL import Image
+
+# 体高計測は「攻撃時サイズ変動」チェッカーと **同一実装を共有** する。パック時の補正と
+# 出荷後の検証が別々の物差しだと「直したのに WARN が消えない」が起きるため、複製しない。
+from check_attack_scale import cell_metrics
 
 DEFAULT_CODEX1_ROOT = r"C:\Users\PC_User\Desktop\codex1\assets"
 ALPHA_THR = 64
@@ -83,6 +99,69 @@ def _content_bbox(img):
 def _char_height(img):
     bb = _content_bbox(img)
     return (bb[3] - bb[1]) if bb else 0
+
+
+def _body_height(img):
+    """「体」の高さ (頭頂〜足元)。武器・角・尻尾の細い突起は頭頂に数えない。
+
+    計測は check_attack_scale.cell_metrics に委譲する (alpha>64 / 行の不透明画素数が
+    最大値の 25% 以上を満たす最上行を頭頂 / bbox 下端を足元)。
+    """
+    m = cell_metrics(np.array(img)[:, :, 3])
+    return m["bodyH"] if m else None
+
+
+def median_body_height(frames):
+    """フレーム群の体高中央値。外れコマ (踏み込みで沈む等) に引きずられないため median。"""
+    vals = [h for h in (_body_height(f) for f in frames) if h]
+    return float(np.median(vals)) if vals else 0.0
+
+
+def auto_attack_scale(walk, attack, label=""):
+    """walk / attack 素材の体高比から attack 側 prescale を自動算出する (attack_scale="auto")。
+
+    codex1 は walk と attack を別チャットで描くのでズーム倍率が食い違う。共通スケールは
+    **bbox 高**しか見ないため、この食い違いは「攻撃した瞬間に一回り縮む/膨らむ」として
+    そのまま出荷される (実測 2026-07-29: 母集団 72 シートで体高 median -2.7%、5% 超が 22 件)。
+    比を **体高** で取るのは、武器の振り上げで bbox が伸びても体は伸びないから
+    (肩幅・胴の対角は攻撃で腕を広げるぶん汚染されるので使ってはいけない)。
+    """
+    wb, ab = median_body_height(walk), median_body_height(attack)
+    if wb <= 0 or ab <= 0:
+        print(f"  [auto] {label}: 体高を測れないので attack_scale=1.0 にフォールバック",
+              file=sys.stderr)
+        return 1.0
+    f = wb / ab
+    print(f"  [auto] {label}: walk_bodyH={wb:.1f} attack_bodyH={ab:.1f} "
+          f"-> attack_scale={f:.4f}")
+    return f
+
+
+def resolve_attack_scale(attack_scale, walk, attack, label=""):
+    """台帳/CLI の attack_scale を描画倍率へ解決する ("auto" なら体高比、数値ならそのまま)。"""
+    if isinstance(attack_scale, str):
+        if attack_scale != "auto":
+            raise SystemExit(f'! attack_scale が不正: {attack_scale!r} (数値か "auto")')
+        return auto_attack_scale(walk, attack, label)
+    return float(attack_scale)
+
+
+def layout_attack_scale_for(attack_scale, render_scale, attack_layout_scale):
+    """レイアウト用 (= walk と共有する幾何を決める) の attack prescale を返す。
+
+    ⚠️ auto の補正値をレイアウトへ混ぜてはいけない。共通スケール h_max と fit_anchor は
+    walk と attack が **共有** する量なので、attack を拡大した分だけ walk まで縮み・横滑り
+    してしまう (実測: orc は scale 0.1864→0.1651 = walk が 11% 縮む / hydra は anchor
+    73.9→70.1 = walk が横へ 3.8px ずれる)。displaySize 据置 = 当たり判定不変 の前提が
+    崩れるので、auto は **attack の描画倍率だけ** を動かし、レイアウトは据え置く。
+      数値指定  … 従来どおりレイアウトにも効く (後方互換)
+      "auto"    … attack_layout_scale (既定 1.0) でレイアウトを凍結する。
+                  手動 attack_scale から auto へ移行する既存エントリは、旧値をここへ
+                  書き写せば walk 行がバイト単位で不変になる。
+    """
+    if not isinstance(attack_scale, str):
+        return render_scale
+    return 1.0 if attack_layout_scale is None else float(attack_layout_scale)
 
 
 def _feet_centroid_x(img):
@@ -337,7 +416,7 @@ def resolve_dirs(monster, codex1_root, walk_dir=None, attack_dir=None):
 
 def pack_monster(monster, out_path, codex1_root, cols, cell, char_ratio, bottom_pad_ratio,
                  center_mode="feet", attack_scale=1.0, walk_dir=None, attack_dir=None,
-                 scale_from="both", attack_tint=None):
+                 scale_from="both", attack_tint=None, attack_layout_scale=None):
     wdir, adir = resolve_dirs(monster, codex1_root, walk_dir, attack_dir)
     walk = _load_frames(wdir, cols)
     attack = _load_frames(adir, cols) if adir else []
@@ -349,26 +428,37 @@ def pack_monster(monster, out_path, codex1_root, cols, cell, char_ratio, bottom_
     # ことがある (goblin-war-cart: attack のゴブリンが walk の約1.5倍)。共通スケールは
     # 「高さ」しか見ないので、この食い違いは攻撃モーション開始時のサイズ跳ねになる。
     # attack_scale で attack 側だけ先に揃えてから共通スケールへ乗せる。
+    # レイアウト用 (attack_layout) と描画用 (attack) を分けるのは、"auto" の補正を
+    # walk と共有する幾何へ波及させないため (layout_attack_scale_for の注記を参照)。
+    attack_layout = []
+    render_scale = layout_scale = 1.0
     if attack:
         if attack_tint == "match":
             attack = _match_tint(attack, walk)
-        attack = _prescale(attack, attack_scale)
+        render_scale = resolve_attack_scale(attack_scale, walk, attack, monster)
+        layout_scale = layout_attack_scale_for(attack_scale, render_scale,
+                                               attack_layout_scale)
+        attack_layout = _prescale(attack, layout_scale)
+        attack = (attack_layout if abs(render_scale - layout_scale) < 1e-9
+                  else _prescale(attack, render_scale))
 
-    all_frames = walk + (attack or [])
-    basis = walk if scale_from == "walk" else all_frames
+    layout_frames = walk + attack_layout
+    basis = walk if scale_from == "walk" else layout_frames
     h_max = max((_char_height(f) for f in basis), default=0)
     if h_max <= 0:
         print("  ! no opaque content in frames", file=sys.stderr)
         return False
     scale = (cell * char_ratio) / h_max
     target_feet = cell - max(1, int(round(cell * bottom_pad_ratio)))
-    anchor = fit_anchor(all_frames, scale, cell, center_mode)
+    anchor = fit_anchor(layout_frames, scale, cell, center_mode)
+    scale_note = (f"attack_scale={render_scale:.4f}(auto, layout={layout_scale:g})"
+                  if isinstance(attack_scale, str) else f"attack_scale={render_scale:g}")
     print(f"  {monster}: frames walk={len(walk)} attack={len(attack)} "
           f"H_max({scale_from})={h_max}px scale={scale:.4f} char_ratio={char_ratio:.4f} "
           f"target_feet={target_feet} center={center_mode} anchor_x={anchor:.1f} "
-          f"attack_scale={attack_scale}")
+          f"{scale_note}")
 
-    _warn_if_clipped(all_frames, scale, cell, center_mode, target_feet, anchor)
+    _warn_if_clipped(walk + (attack or []), scale, cell, center_mode, target_feet, anchor)
 
     walk_p = [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in walk]
     attack_p = ([_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in attack]
@@ -404,6 +494,7 @@ def pack_from_ledger(entry, codex1_root, out_dir):
         entry.get("attack_scale", 1.0),
         entry.get("walk_dir"), entry.get("attack_dir"),
         entry.get("scale_from", "both"), entry.get("attack_tint"),
+        entry.get("attack_layout_scale"),
     )
 
 
@@ -415,6 +506,11 @@ def run_all(codex1_root, out_dir, only=None, fmt="enemy"):
     if fails:
         print(f"! failed: {', '.join(fails)}", file=sys.stderr)
     return not fails
+
+
+def _attack_scale_arg(v):
+    """--attack-scale の値パーサ (数値 or "auto")。"""
+    return v if v == "auto" else float(v)
 
 
 def main():
@@ -451,8 +547,12 @@ def main():
                     help="水平の合わせ方。人型=feet(既定・足元重心をセル中央へ)、"
                          "横広の車両=bbox、"
                          "攻撃で前方へ大きく伸びる獣=feet-fit(足元基準のまま一律オフセットで詰める)")
-    ap.add_argument("--attack-scale", type=float, default=1.0,
-                    help="attack シートだけを事前縮小する倍率 (walk と別ズームで描かれた場合の補正)")
+    ap.add_argument("--attack-scale", type=_attack_scale_arg, default=1.0,
+                    help='attack シートだけを事前スケールする倍率 (walk と別ズームで描かれた'
+                         '場合の補正)。"auto" で walk/attack の体高比から自動算出する')
+    ap.add_argument("--attack-layout-scale", type=float, default=None,
+                    help='--attack-scale auto のときのレイアウト凍結倍率 (既定 1.0)。'
+                         '手動倍率から auto へ移行する際に旧値を渡すと walk 行が不変になる')
     ap.add_argument("--attack-tint", choices=("match",), default=None,
                     help="attack のパレットを walk に合わせる (別チャット生成による色ドリフト補正)。"
                          "攻撃コマに明るい VFX が乗るキャラでは平均が汚染されるので使わない")
@@ -478,7 +578,8 @@ def main():
     print(f"--- pack codex1 {monster} -> {args.out} ---")
     ok = pack_monster(monster, args.out, args.codex1_root, args.cols, args.cell,
                       char_ratio, args.bottom_pad_ratio, args.center, args.attack_scale,
-                      args.walk_dir, args.attack_dir, args.scale_from, args.attack_tint)
+                      args.walk_dir, args.attack_dir, args.scale_from, args.attack_tint,
+                      args.attack_layout_scale)
     sys.exit(0 if ok else 1)
 
 

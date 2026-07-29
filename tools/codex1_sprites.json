@@ -11,7 +11,20 @@
     "",
     "scale_from: both = walk+attack 全フレームの最大高が基準 (第1陣。既定)。",
     "            walk = walk のみが基準 (第2陣の -matched 素材。武器の振り上げで本体が縮むのを防ぐ)。",
-    "walk_dir / attack_dir が null なら第1陣規約 <key>/final/{walk,attack} にフォールバックする。"
+    "walk_dir / attack_dir が null なら第1陣規約 <key>/final/{walk,attack} にフォールバックする。",
+    "",
+    "attack_scale: 数値 = attack シートだけの事前スケール (レイアウトにも効く。従来どおり)。",
+    "              \"auto\" = walk / attack 素材の『体高中央値の比』から自動算出する。共通スケールは",
+    "              bbox 高しか見ないので、codex1 が walk と attack を別チャットで描いたズーム差が",
+    "              『攻撃した瞬間に一回り縮む』として残る。これを機械的に打ち消す。",
+    "              計測は tools/check_attack_scale.py の cell_metrics を import 共有 (同じ物差し)。",
+    "attack_layout_scale: \"auto\" のときレイアウト (共通スケール h_max と fit_anchor) を凍結する倍率。",
+    "              ⚠️ auto の補正をレイアウトへ混ぜてはいけない。h_max と anchor は walk と attack が",
+    "              共有する量なので、attack を拡大した分だけ walk まで縮み・横滑りする (実測: orc は",
+    "              scale 0.1864→0.1651 = walk が 11% 縮む / hydra は anchor 73.9→70.1 = walk が横へ",
+    "              3.8px ずれる)。displaySize 据置 = 当たり判定不変 の前提が崩れるので、auto は attack の",
+    "              描画倍率だけを動かす。既定 1.0。手動倍率から auto へ移行したエントリ (goblin /",
+    "              goblinChariot) は旧値をここへ書き写してあり、walk 行がバイト単位で不変になる。"
   ],
   "sheets": [
     {
@@ -22,22 +35,25 @@
     {
       "key": "orc", "out": "assets/orc_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
-      "walk_dir": null, "attack_dir": null, "note": "v8.1 パイロット"
+      "attack_scale": "auto",
+      "walk_dir": null, "attack_dir": null,
+      "note": "v8.1 パイロット。2026-07-29 attack_scale=auto 化 (攻撃時 -11.49% → -0.79%)"
     },
     {
       "key": "goblin", "out": "assets/goblin_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.84375, "scale_from": "walk", "center": "feet-fit",
-      "attack_scale": 0.85,
+      "attack_scale": "auto", "attack_layout_scale": 0.85,
       "walk_dir": "goblin/final/walk",
       "attack_dir": "goblin/goblin-attack-right-6-v3-matched",
-      "note": "v8.10。attack を v3-matched へ差替 (攻撃時に本体が縮む不具合を解消: 旧 attack row H_max 48px→約74px)。char_ratio=現行 goblin_anim の walk 行実測 (81/96) で displaySize 66 不変=当たり判定不変。attack が前方へ大きく踏み込み枠を越えるため scale_from=walk + center=feet-fit + attack_scale=0.85 (歩き中央維持と両立せず攻撃完全表示を優先)。goblin / Shaman / Brute の3体で共有 (Archer / King / Rider は専用シートへ分離済)"
+      "note": "v8.10。attack を v3-matched へ差替 (攻撃時に本体が縮む不具合を解消: 旧 attack row H_max 48px→約74px)。char_ratio=現行 goblin_anim の walk 行実測 (81/96) で displaySize 66 不変=当たり判定不変。attack が前方へ大きく踏み込み枠を越えるため scale_from=walk + center=feet-fit + attack_scale=0.85 (歩き中央維持と両立せず攻撃完全表示を優先)。goblin / Shaman / Brute の3体で共有 (Archer / King / Rider は専用シートへ分離済)。2026-07-29 手打ちの attack_scale=0.85 を auto へ (0.85 は過補正で攻撃時 -13.61% → auto 算出 0.9849 で -0.68%)。attack_layout_scale=0.85 で旧レイアウト (anchor_x 28.2) を凍結してあるので walk 行はバイト不変。⚠️ 代償: 0.85 は『攻撃を枠内に完全表示する』ために選ばれた値だったので、auto で 16% 戻すと frame4 の曲刀の切っ先が右へ 12px はみ出して切れる (CLIP WARNING)。体は完全に枠内。切っ先の欠けが気になるなら attack_scale を 0.93 程度の数値へ戻す (ただし delta が -7% 側へ戻る)"
     },
     {
       "key": "goblinRider", "out": "assets/goblinRider_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.8333, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
       "walk_dir": "goblin-rider/goblin-rider-walk-right-6",
       "attack_dir": "goblin-rider/goblin-rider-attack-right-6-matched",
-      "note": "v8.11。共有 goblin_anim から分離 (狼にまたがる槍兵の専用アート)。char_ratio = 現行 goblin_anim の walk 行実測 (80/96 = 0.8333) を焼き込み → displaySize 74 据置=当たり判定不変。騎乗ユニットだがアスペクトほぼ 1.0 (walk W344/H337) なので正方セルに収まる (fit left=7 right=95 top=10)。attack の -matched が高さをよく揃えている (walk H_max 337 / attack 340) ため center=feet のままで walk⇄attack の横滑りは 3.4px (画面上 2.6px)。分離に伴い .enemy-goblinRider の hue-rotate 色替えフィルタを index.html から除去"
+      "note": "v8.11。共有 goblin_anim から分離 (狼にまたがる槍兵の専用アート)。char_ratio = 現行 goblin_anim の walk 行実測 (80/96 = 0.8333) を焼き込み → displaySize 74 据置=当たり判定不変。騎乗ユニットだがアスペクトほぼ 1.0 (walk W344/H337) なので正方セルに収まる (fit left=7 right=95 top=10)。attack の -matched が高さをよく揃えている (walk H_max 337 / attack 340) ため center=feet のままで walk⇄attack の横滑りは 3.4px (画面上 2.6px)。分離に伴い .enemy-goblinRider の hue-rotate 色替えフィルタを index.html から除去。2026-07-29 attack_scale=auto 化 (-7.04% → -1.41%)。⚠️ bbox H_max は walk 337 / attack 340 とほぼ一致していたのに体高は 301 対 284 = -5.6% ずれていた。『-matched は体を揃えている』という codex1 側の触れ込みは bbox 基準なので当てにならない実例"
     },
     {
       "key": "hobgoblin", "out": "assets/hobgoblin_anim.png", "format": "enemy",
@@ -62,9 +78,9 @@
     {
       "key": "goblinChariot", "out": "assets/goblinChariot_anim.png", "format": "enemy",
       "cell": 192, "cols": 6, "char_ratio": 0.72, "scale_from": "both", "center": "feet",
-      "attack_scale": 0.67,
+      "attack_scale": "auto", "attack_layout_scale": 0.67,
       "walk_dir": "goblin-war-cart/final/walk", "attack_dir": "goblin-war-cart/final/attack",
-      "note": "7.9-2 で新規敵として採用。attack のゴブリンが walk の約1.5倍で描かれていたので attack_scale で補正"
+      "note": "7.9-2 で新規敵として採用。attack のゴブリンが walk の約1.5倍で描かれていたので attack_scale で補正。2026-07-29 手打ちの 0.67 を auto へ (0.67 は過補正で攻撃時 -15.79% = 全 72 シート中ワースト → auto 算出 0.7925 で -0.26%)。attack_layout_scale=0.67 は旧レイアウトの凍結値 (この素材では h_max も anchor も walk 駆動なので実質 no-op だが、素材差替時に walk が動かないよう明示しておく)"
     },
 
     {
@@ -112,16 +128,18 @@
     {
       "key": "lizardWarrior", "out": "assets/lizardWarrior_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "attack_scale": "auto",
       "walk_dir": "lizardman/lizardman-walk-right-6",
       "attack_dir": "lizardman/lizardman-attack-right-6-v2-matched",
-      "note": "v8.6。汎用 lizardman 素材は lizardWarrior のみに適用 (Hunter / Priest / Chieftain の役割差は温存)"
+      "note": "v8.6。汎用 lizardman 素材は lizardWarrior のみに適用 (Hunter / Priest / Chieftain の役割差は温存)。2026-07-29 attack_scale=auto 化 (-9.87% → +0.66%)。⚠️ scale_from=both なので、auto を素直に prescale へ流すと h_max が 366→403 に伸びて walk まで 9% 縮む。auto は描画倍率だけを動かす設計なのでレイアウトは h_max=366 のまま。攻撃コマが右へはみ出す量は 23px→31px に増えるが、はみ出しているのは尾と爪の先で体は枠内"
     },
     {
       "key": "lizardChieftain", "out": "assets/lizardChieftain_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.90236, "scale_from": "both", "center": "feet",
+      "attack_scale": "auto",
       "walk_dir": "lizardman-chief/lizardman-chief-walk-right-6",
       "attack_dir": "lizardman-chief/lizardman-chief-attack-right-6-v3-tightmatch",
-      "note": "v8.7。ボス displaySize 248 (= 2.58倍拡大)。-6-matched は空だったので v2 を採用 → v8.7.1 で attack を v3-tightmatch へ。char_ratio 0.86→0.90236 は 0.86×533/508 (attack 素材の H_max が 508→533 に伸びた分の打ち消し) で、walk 行が v2 時代とバイト完全一致するように校正した値。displaySize 248 を据え置くための不変条件なので、attack 素材を差し替える時は必ず再計算すること"
+      "note": "v8.7。ボス displaySize 248 (= 2.58倍拡大)。-6-matched は空だったので v2 を採用 → v8.7.1 で attack を v3-tightmatch へ。char_ratio 0.86→0.90236 は 0.86×533/508 (attack 素材の H_max が 508→533 に伸びた分の打ち消し) で、walk 行が v2 時代とバイト完全一致するように校正した値。displaySize 248 を据え置くための不変条件なので、attack 素材を差し替える時は必ず再計算すること。2026-07-29 attack_scale=auto 化 (+6.42% → 0.00%)。10 キー中ただ 1 つの『攻撃で膨らむ』側で、auto 倍率も 0.9418 と縮小方向。クリップ余裕も増えた (fit right=96→93)"
     },
     {
       "key": "lizardHunter", "out": "assets/lizardHunter_anim.png", "format": "enemy",
@@ -133,9 +151,10 @@
     {
       "key": "scar", "out": "assets/scar_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "attack_scale": "auto",
       "walk_dir": "bandit-chief/bandit-chief-walk-right-6",
       "attack_dir": "bandit-chief/bandit-chief-attack-right-6-v2-matched",
-      "note": "v8.9。S2 中ボス。-6-matched はパレットが walk と不一致だったので v2 を採用"
+      "note": "v8.9。S2 中ボス。-6-matched はパレットが walk と不一致だったので v2 を採用。2026-07-29 attack_scale=auto 化 (-8.23% → 0.00%)。はみ出しは 7px→10px に増えるが剣先のみ (セル境界に接する画素は 3px で HEAD と同数 = 実害なし)"
     },
 
     {
@@ -170,16 +189,18 @@
     {
       "key": "hydra", "out": "assets/hydra_anim.png", "format": "enemy",
       "cell": 192, "cols": 6, "char_ratio": 0.645833, "scale_from": "walk", "center": "feet-fit",
+      "attack_scale": "auto",
       "walk_dir": "hydra/hydra-walk-right-6",
       "attack_dir": "hydra/hydra-attack-right-6-matched",
-      "note": "Sce3 隠しボス 古代ハイドラ (2026-07-28 差替)。旧シートは『暗いオリーブの蛇型がとぐろを巻く』絵で、新素材は『緑鱗の四足竜型 + 尾 + 背びれ + 5本の首』= 生き物の解釈が変わる。ユーザーが2枚を並べて確認のうえ差替を選択。char_ratio 0.645833 = 124/192 = 旧シート walk 行の bbox H_max 実測 (--match-current と同値)。この素材は稀に『体/bbox = 0.994』= 首の突き出しによるかさ上げがほぼ無いので、mage/dwarf-warrior のような体基準の逆算が不要でそのまま焼ける。⚠️ center=feet では attack が右へ 5px はみ出す (蛇→四足竜でアスペクトが W/H 0.66 → walk 1.06 / attack 1.25 の横長になるため) → pharaxus と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 73.9) を掛けて詰める。結果 fit: left=17 right=175 top=58 / cell=192 で右余白 18px。画面上 (displaySize 360 据置=当たり判定不変) は身長 231px = 旧 232px とほぼ同一、横幅は 178→246px (+38%)、絵はセル中心より 26px 左寄り。案B (char_ratio 0.6135 + center=feet) も検討したが身長 -6% かつ右余白 1px なので不採用。⚠️ attack は -matched を使う (素の -attack-right-6 は H_max 305px = walk 346 の 88% で攻撃時に縮む)。-matched は H_max 346 で walk と完全一致するので scale_from はどちらでも同値だが規約どおり walk。⚠️ walk/attack フォルダに try-48/64/96/128/160/192 のサイズ試作サブフォルダが同居するが _load_frames はそのディレクトリだけを glob するので実害なし。walk/attack は同一個体 (背びれ・淡褐色の腹・首の本数が一致) を事前目視で確認済み"
+      "note": "Sce3 隠しボス 古代ハイドラ (2026-07-28 差替)。旧シートは『暗いオリーブの蛇型がとぐろを巻く』絵で、新素材は『緑鱗の四足竜型 + 尾 + 背びれ + 5本の首』= 生き物の解釈が変わる。ユーザーが2枚を並べて確認のうえ差替を選択。char_ratio 0.645833 = 124/192 = 旧シート walk 行の bbox H_max 実測 (--match-current と同値)。この素材は稀に『体/bbox = 0.994』= 首の突き出しによるかさ上げがほぼ無いので、mage/dwarf-warrior のような体基準の逆算が不要でそのまま焼ける。⚠️ center=feet では attack が右へ 5px はみ出す (蛇→四足竜でアスペクトが W/H 0.66 → walk 1.06 / attack 1.25 の横長になるため) → pharaxus と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 73.9) を掛けて詰める。結果 fit: left=17 right=175 top=58 / cell=192 で右余白 18px。画面上 (displaySize 360 据置=当たり判定不変) は身長 231px = 旧 232px とほぼ同一、横幅は 178→246px (+38%)、絵はセル中心より 26px 左寄り。案B (char_ratio 0.6135 + center=feet) も検討したが身長 -6% かつ右余白 1px なので不採用。⚠️ attack は -matched を使う (素の -attack-right-6 は H_max 305px = walk 346 の 88% で攻撃時に縮む)。-matched は H_max 346 で walk と完全一致するので scale_from はどちらでも同値だが規約どおり walk。⚠️ walk/attack フォルダに try-48/64/96/128/160/192 のサイズ試作サブフォルダが同居するが _load_frames はそのディレクトリだけを glob するので実害なし。walk/attack は同一個体 (背びれ・淡褐色の腹・首の本数が一致) を事前目視で確認済み。⚠️⚠️ 2026-07-29 attack_scale=auto 化 (-11.89% → +0.44%)。上の『-matched は H_max 346 で walk と完全一致するので攻撃時に縮まない』という記述は **bbox の話で、体高は 320 対 283 = -11.6% ずれていた**。首を伸ばすぶん bbox だけが一致していた形で、bbox 一致を『サイズが揃っている』根拠にしてはいけない典型例。クリップ余裕はむしろ増えた (fit right=175→188 だが cell=192 内)"
     },
     {
       "key": "stoneLegionary", "out": "assets/stoneLegionary_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.770833, "scale_from": "walk", "center": "feet-fit",
+      "attack_scale": "auto",
       "walk_dir": "stone-golem-roman-warrior/stone-golem-roman-warrior-walk-right-6",
       "attack_dir": "stone-golem-roman-warrior/stone-golem-roman-warrior-attack-right-6-v2-matched",
-      "note": "Sce4 隠し要素の新規敵『石の軍団兵』(2026-07-28 新設)。差替ではなく新設なので --match-current の実測対象が無い。char_ratio は『画面上の身長 = char_ratio x displaySize』から逆算した 74px 狙い (0.770833 x displaySize 96)。既存の実測は 動く鎧 51px / オークの兵 66px / ストーンゴーレム 80px / ミノタウロス 87px なので、動く鎧より明確に大きく石巨人より一回り小さい位置に置いた。⚠️ attack は -6-v2-matched を使う: 素の -6-matched はパレットが walk (灰色の石肌 + 赤いクレスト + 金縁) と揃っておらずオリーブ/茶褐色で別チャット描画の色ズレ (scar v8.9 / stone-golem と同じ事故)。v2-matched は walk と完全に同一人物で H_max も 452 対 452 で一致する。⚠️ center=feet では frame3/4 の突き出した剣が右へ 15px はみ出して切れる (attack W_max 533 = walk 266 の 2倍) → pharaxus / hydra と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 48→28) を掛けて詰めた。結果 fit: left=5 right=92 top=17 / cell=96。代償として絵はセル中心より 20px 左寄りになるが、剣がセル右端まで届く構図なので当たり判定中心と剣先の関係としてはむしろ自然。分身チェックは row3 col2/col3 に wide-pose 警告 (w=70/69) が出るが clusters=1 = 突き剣の単一体で正常"
+      "note": "Sce4 隠し要素の新規敵『石の軍団兵』(2026-07-28 新設)。差替ではなく新設なので --match-current の実測対象が無い。char_ratio は『画面上の身長 = char_ratio x displaySize』から逆算した 74px 狙い (0.770833 x displaySize 96)。既存の実測は 動く鎧 51px / オークの兵 66px / ストーンゴーレム 80px / ミノタウロス 87px なので、動く鎧より明確に大きく石巨人より一回り小さい位置に置いた。⚠️ attack は -6-v2-matched を使う: 素の -6-matched はパレットが walk (灰色の石肌 + 赤いクレスト + 金縁) と揃っておらずオリーブ/茶褐色で別チャット描画の色ズレ (scar v8.9 / stone-golem と同じ事故)。v2-matched は walk と完全に同一人物で H_max も 452 対 452 で一致する。⚠️ center=feet では frame3/4 の突き出した剣が右へ 15px はみ出して切れる (attack W_max 533 = walk 266 の 2倍) → pharaxus / hydra と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 48→28) を掛けて詰めた。結果 fit: left=5 right=92 top=17 / cell=96。代償として絵はセル中心より 20px 左寄りになるが、剣がセル右端まで届く構図なので当たり判定中心と剣先の関係としてはむしろ自然。分身チェックは row3 col2/col3 に wide-pose 警告 (w=70/69 → auto 化後 74/75) が出るが clusters=1 = 突き剣の単一体で正常。2026-07-29 attack_scale=auto 化 (-7.69% → -0.70%)。⚠️ 上の『v2-matched は H_max も 452 対 452 で一致する』も bbox の話で、体高は 436 対 405 = -7.1% ずれていた (hydra と同型の誤読)"
     },
     {
       "key": "gargoyle", "out": "assets/gargoyle_anim.png", "format": "enemy",
@@ -219,9 +240,10 @@
       "attack_out": "assets/dwarf_warrior_attack.png",
       "format": "player",
       "cell": 96, "cols": 6, "char_ratio": 0.6836, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
       "walk_dir": "dwarf-warrior/dwarf-warrior-walk-right-6",
       "attack_dir": "dwarf-warrior/dwarf-warrior-attack-right-6-v2-widematch",
-      "note": "仲間 NPC ドワーフの変種 index 1-3 (バーサーカー/盾の守り手/ルーンスミス) が共有する 1 枚 (2026-07-28 差替)。黒い板金鎧 + 丸い鋲付き兜 + 茶の三つ編み髭 + 槍。主人公が使う dwarf-fullplate-warrior (銀のフルプレート + 有翼兜 + 斧) とは別人に見えるので変種として成立する。⚠️ char_ratio に --match-current の実測 (現行 chibi 変種 = 0.6146) を使ってはいけない: この素材は『槍の穂先が頭上に突き出る』ため walk の bbox H_max 457px のうち体は 383px しかない (比 0.838)。0.6146 で焼くと体高 49px = 主人公ドワーフ 54px より 10% 小さい小人になる。0.6836 は目標体高 55px から逆算 = 55 * 457 / (96 * 383)。出力実測で検証済み = 体高 55px (主人公 54 / 旧 chibi 56 と同格)、bbox 65px はすべて槍の穂先ぶん。クリップ警告なし (left=31 right=83 top=25 / cell=96)。⚠️ attack の bbox H_max(438) は walk(457) より低いので scale_from=walk でも攻撃時に縮まない (fullplate とは逆の関係)。⚠️ 既知の素材欠陥: -v2-widematch の attack は walk と別キャラに見える (丸兜→円錐兜 / 寸胴→細身の人間体型 / 彩度低下 / ドット絵→滑らかな塗り)。codex1 自身の QA シート dwarf-warrior-96cell-qa-v2-widematch.png にも同じズレが写っているのでパック処理由来ではなく素材由来。2026-07-28 にユーザーが『歩きの質を優先してこのまま採用』と判断。将来 codex1 側で揃った attack が出たら attack_dir を差し替えて --all するだけで直る。displaySize 96 据置=当たり判定不変"
+      "note": "仲間 NPC ドワーフの変種 index 1-3 (バーサーカー/盾の守り手/ルーンスミス) が共有する 1 枚 (2026-07-28 差替)。黒い板金鎧 + 丸い鋲付き兜 + 茶の三つ編み髭 + 槍。主人公が使う dwarf-fullplate-warrior (銀のフルプレート + 有翼兜 + 斧) とは別人に見えるので変種として成立する。⚠️ char_ratio に --match-current の実測 (現行 chibi 変種 = 0.6146) を使ってはいけない: この素材は『槍の穂先が頭上に突き出る』ため walk の bbox H_max 457px のうち体は 383px しかない (比 0.838)。0.6146 で焼くと体高 49px = 主人公ドワーフ 54px より 10% 小さい小人になる。0.6836 は目標体高 55px から逆算 = 55 * 457 / (96 * 383)。出力実測で検証済み = 体高 55px (主人公 54 / 旧 chibi 56 と同格)、bbox 65px はすべて槍の穂先ぶん。クリップ警告なし (left=31 right=83 top=25 / cell=96)。⚠️ attack の bbox H_max(438) は walk(457) より低いので scale_from=walk でも攻撃時に縮まない (fullplate とは逆の関係)。⚠️ 既知の素材欠陥: -v2-widematch の attack は walk と別キャラに見える (丸兜→円錐兜 / 寸胴→細身の人間体型 / 彩度低下 / ドット絵→滑らかな塗り)。codex1 自身の QA シート dwarf-warrior-96cell-qa-v2-widematch.png にも同じズレが写っているのでパック処理由来ではなく素材由来。2026-07-28 にユーザーが『歩きの質を優先してこのまま採用』と判断。将来 codex1 側で揃った attack が出たら attack_dir を差し替えて --all するだけで直る。displaySize 96 据置=当たり判定不変。2026-07-29 attack_scale=auto 化 (+5.66% → -1.89%)。10 キー中唯一の player 種別なので再パックは pack_codex1_player.py --all 側。体高比は **ATTACK_KEYS で間引いた 5 コマ** で測る (出力に載るのがその 5 コマだから)。walk シート assets/dwarf_warrior_walk.png はバイト完全不変で、変わったのは attack シートのみ"
     },
     {
       "key": "wizard", "out": "assets/mage_wizard_walk.png",
