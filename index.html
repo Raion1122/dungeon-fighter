@@ -3780,7 +3780,10 @@
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       mage:    { walk: 'url("assets/mage_walk.png?v=4")',    attack: 'url("assets/mage_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
-      elf:     { walk: 'url("assets/elf_walk.png")',     attack: 'url("assets/elf_attack.png")',
+      // ⚠ 2026-07-30 まで elf だけ ?v= が付いておらず、他 5 職 (dwarf/cleric/mage/rogue…) と不整合だった。
+      //   codex1 の弓素材差替で elf_walk/attack.png を **同名上書き**したため、素パスのままだと主人公が
+      //   エルフのときだけブラウザキャッシュの旧 chibi が出続ける。ELF_WALK_URL 等と同じ版に揃えること。
+      elf:     { walk: 'url("assets/elf_walk.png?v=3")',  attack: 'url("assets/elf_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       rogue:   { walk: 'url("assets/rogue_walk.png?v=3")',   attack: 'url("assets/rogue_attack.png?v=3")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
@@ -11358,9 +11361,12 @@
     const MAGE_WALK_SIZE    = "576px 384px";
     const MAGE_ATTACK_URL   = 'url("assets/mage_attack.png?v=4")';
     const MAGE_ATTACK_SIZE  = "480px 384px";
-    const ELF_WALK_URL      = 'url("assets/elf_walk.png?v=2")';
+    // ⚠ 2026-07-30: codex1 の女エルフ弓素材へ差替 (同名上書き) → walk/attack とも ?v= を bump。
+    //   参照は 4 箇所 (LEADER_SPRITES.elf / ここ 2 本 / CLASS_DEFS.elf.sprite) で **全部同じ版に揃える**。
+    //   tavern.html PARTY_PORTRAIT_SPRITES は素パス参照 (あちらは ?v= を付けない明文ルール)。
+    const ELF_WALK_URL      = 'url("assets/elf_walk.png?v=3")';
     const ELF_WALK_SIZE     = "576px 384px";
-    const ELF_ATTACK_URL    = 'url("assets/elf_attack.png?v=3")';
+    const ELF_ATTACK_URL    = 'url("assets/elf_attack.png?v=4")';
     const ELF_ATTACK_SIZE   = "480px 384px";
     const ROGUE_WALK_URL    = 'url("assets/rogue_walk.png?v=3")';
     const ROGUE_WALK_SIZE   = "576px 384px";
@@ -11446,9 +11452,16 @@
       ],
       elf: [
         { walk: ELF_WALK_URL, walkSize: ELF_WALK_SIZE, attack: ELF_ATTACK_URL, attackSize: ELF_ATTACK_SIZE, label: "標準" },
-        { walk: 'url("assets/elf_high_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/elf_high_attack.png")',     attackSize: "480px 384px", label: "ハイエルフの射手" },
-        { walk: 'url("assets/elf_huntress_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_huntress_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
-        { walk: 'url("assets/elf_shadow_walk.png")',   walkSize: "576px 384px", attack: 'url("assets/elf_shadow_attack.png")',   attackSize: "480px 384px", label: "闇森の影射手" },
+        // 変種 1-3 は codex1 "elf" (男エルフの弓手) 1 枚を共有する (2026-07-30 差替。旧 chibi 3 種は
+        // assets/elf_{high,huntress,shadow}_* に残置)。dwarf / mage / rogue / cleric / warrior と同じ扱い =
+        // label はどこからも読まれない内部識別子なので、将来 codex1 側で別デザインが出たら該当行の
+        // url だけ差し替えれば再び 3 種に割れる (『森の女狩人』枠に男が出るのは表示に影響しない)。
+        // ⭐ エルフだけは変種 0 (女エルフ) と変種 1-3 (男エルフ) で **2 デザイン**ある = 他 5 職より 1 種多い。
+        //   2026-07-30 にユーザーが「標準を女にする」を選択した結果の割り当て。
+        // ⚠ 新規ファイル名 (elf_male_*) なので ?v= は不要。⚠ tavern.html PARTY_PORTRAIT_SPRITES も同期要。
+        { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "ハイエルフの射手" },
+        { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "森の女狩人" },
+        { walk: 'url("assets/elf_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/elf_male_attack.png")', attackSize: "480px 384px", label: "闇森の影射手" },
       ],
       rogue: [
         { walk: ROGUE_WALK_URL, walkSize: ROGUE_WALK_SIZE, attack: ROGUE_ATTACK_URL, attackSize: ROGUE_ATTACK_SIZE, label: "標準" },
@@ -16098,7 +16111,7 @@
         weaponProjectile: "arrow",
         name: "エルフ",
         flavor: "弓と魔法を併せ持つアーケイン・アーチャー",
-        sprite: "assets/elf_walk.png?v=2",  // 歩き/攻撃とも専用スプライト(2026-06-26 刷新)
+        sprite: "assets/elf_walk.png?v=3",  // 歩き/攻撃とも専用スプライト(2026-07-30 codex1 の女エルフ弓素材へ差替)
         displaySize: 96,
         hpMax: 26,
         mpMax: 10,

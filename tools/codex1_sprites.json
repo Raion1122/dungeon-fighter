@@ -314,6 +314,26 @@
       "attack_dir": "npc-male-cleric/npc-male-cleric-melee-right-6-v1/*-melee-right-safe-frame-*.png",
       "cast_dir": "npc-male-cleric/npc-male-cleric-walk-attack-right-6-v1b-cleric-cast-aligned/*attack*frame-*.png",
       "note": "仲間 NPC 僧侶の変種 index 1-3 (老神官/女神官/戦僧) が共有する 1 枚 (2026-07-29 新設)。髭 + 白金の法衣 + ティールのフード付きケープ + 輪十字のクロージャ杖の男性僧侶で、変種 0 の npc-female-cleric (白フード + 盾 + 短い杖の女性) とは明確に別人なので変種として成立する。dwarf-warrior / wizard / male-thief / npc-female-warrior と同じ『変種 3 枠を 1 枚で共有』構成。⭐⭐ 採用版 = v1b。codex1 は v1 と v1b の 2 版を出しており、walk は両版で同一の絵だが **詠唱の演技が別物**: v1 は杖を頭上へ高く掲げ大きな聖光の輪が広がる派手なモーション (bboxH 675px = walk の 1.42 倍)、v1b は杖を立てたまま胸の聖印に手を当てて法衣が淡く光る控えめなモーション (bboxH 477px = walk とほぼ同じ)。2026-07-29 にユーザーが v1b を選択 = 『落ち着き重視』。v1 フォルダは残置しており、切り替えたければ walk_dir/attack_dir の v1b を v1 に変えて --all するだけ。⭐ 2026-07-29 に正規と同時に **近接 attack を melee 素材へ差替** (…-melee-right-6-v1 の -melee-right-safe-frame- 系統。canvas 386x604 / 接地線 539 が walk と一致しており整列済み)。差替前は attack フォルダの中身が全コマ詠唱だった。⚠️⚠️ **cast_dir の明示が必須** (省略すると attack_dir 流用で詠唱がメイス振りに化ける) / **attack_scale に auto を使わない** (render_scale が cast にも掛かる) — 理由は npc-female-cleric の note 参照。この個体は auto の実測値がちょうど 1.0000 なので出力は同一だが、素材を差し替えると壊れるので 1.0 を明示のまま維持する。⚠️ melee の frame-02 と frame-03 は codex1 が同じ raw コマを別縮尺で出したもので、md5 は別だが**絵はほぼ同一**。ATTACK_KEYS=[0,1,2,3,5] が frame-05 (戻り) を落とすため、出力 5 コマは『構え / 振りかぶり / 振りかぶり(ほぼ同じ) / インパクト / 構え戻り』= 溜めが 2 コマ続く形になる。モーションの読みは成立しているので許容したが、気になるなら codex1 へ frame-03 の描き直しを依頼する。char_ratio 0.5946 = 素材 walk bodyH median=466 / bboxH max=475 から目標 median 56px を逆算。素材フレーム md5 は walk 6/6・cast 6/6 とも全て異なる (重複コマ 0)。⚠️ 出力名を cleric_male_* にしていないのは npc-female-warrior と同じ理由の予防 (旧 chibi の cleric_{elder,priestess,war}_* は残置)。**新規ファイル名なので ?v= キャッシュバスタは不要**"
+    },
+    {
+      "key": "elf", "out": "assets/elf_male_walk.png",
+      "attack_out": "assets/elf_male_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5994, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "elf/elf-bow-walk-bow-attack-right-6-v1-aligned/*bow-walk*frame-*.png",
+      "attack_dir": "elf/elf-bow-walk-bow-attack-right-6-v1-aligned/*bow-attack*frame-*.png",
+      "note": "エルフ (弓職) の **変種 index 1-3 (ハイエルフの射手/森の女狩人/闇森の影射手) が共有する 1 枚**。⚠️ 2026-07-30 にユーザーが『標準は女エルフ』を選択したため **男エルフは変種側**に入っている (label はどこからも読まれない内部識別子なので『森の女狩人』枠に男が出ても表示上の不整合は起きない)。⚠️⚠️ **codex1 の elf/ 直下にある walk / attack (v1〜v1d 系) は使ってはいけない** — 中身が長剣＋ラウンドシールドの『エルフ剣士』で、ゲームのエルフは弓職 (ボールト classes.md『素早い・遠距離型 / 武器: 弓+短剣』/ 呪文が全部矢系 / 変種名が射手・女狩人・影射手 / 旧 chibi も walk から弓を手に持つ)。2026-07-30 に依頼文 requests/2026-07-30_elf-bow-motions.md で **bow 系を新規に描いてもらった**のがこの素材。glob に必ず `bow-` を含めること (`*walk*` だと剣士版まで拾う恐れがあるため `*bow-walk*` と書いている)。⭐ 納品品質が非常に高い: walk / attack **全 12 コマで接地線 564 が完全一致**、attack/walk の体高 delta が **+0.00%**、walk bodyH median 437.0 が依頼値ぴったり。そのため attack_scale は 1.0 で確定 (auto も 1.0000 になるが、素材差替時に壊れないよう 1.0 を明示で残す)。char_ratio 0.5994 = 素材 walk bodyH median=437 / bboxH max=449 から出力体高 median 56px (主人公戦士と同値) を逆算。右リーチ最大 218.0px は上限 374.6px に対し余裕大 (弓の矢は水平に伸びるので上限は必ず見る)。**新規ファイル名 (elf_male_*) なので ?v= キャッシュバスタは不要** (⚠️ ただし次に中身を変えた時は必要になる)。参照は index.html の CLASS_VARIANT_SPRITES.elf の変種 1-3 の 3 行のみ。旧 chibi 3 種 (elf_{high,huntress,shadow}_*) は残置してあるので、将来 codex1 が別デザインを出したら該当行の url だけ差し替えれば再び 3 種に割れる"
+    },
+    {
+      "key": "female-elf", "out": "assets/elf_walk.png",
+      "attack_out": "assets/elf_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5940, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "female-elf/female-elf-bow-walk-bow-attack-right-6-v1-aligned/*bow-walk*frame-*.png",
+      "attack_dir": "female-elf/female-elf-bow-walk-bow-attack-right-6-v1-aligned/*bow-attack*frame-*.png",
+      "note": "エルフの **変種 0 = 標準** (2026-07-30 新設。ユーザー選択『標準を女にする』)。銀髪ポニーテール + 緑マント + 鎖帷子の女性エルフ弓手で、変種 1-3 の elf (金髪を束ねた男性) とは明確に別人なので変種として成立する。⚠️ **他職 (dwarf/wizard/male-thief/npc-male-cleric/npc-female-warrior) は変種 3 枠に 1 枚を当てるだけだが、エルフは男女 2 デザインが揃った唯一の職**。⚠️⚠️ elf と同様、**female-elf/ 直下の walk / attack (v1c-s1136-clean2 系) は剣士なので使わない**。bow 系のみ。⭐ bow attack 6F は 2026-07-30 の依頼**より前から存在していた** (female-elf-bow-attack-right-6-v1-s120-aligned) 唯一の弓素材で、そのフォルダの walk が抜き身の長剣＋盾だったため『歩き=剣+盾 → 攻撃=弓+矢筒』と装備が入れ替わっていた。今回 walk だけを弓仕様で描き直してもらって解消した (attack のバイトは s120-aligned 版と同一)。char_ratio 0.5940 = 素材 walk bodyH median=494 / bboxH max=503 から出力体高 median 56px を逆算。attack/walk の体高 delta は -3.54% で ±5% 以内なので attack_scale=1.0 (auto を当てると walk と揃うが、弓を引き絞る前傾姿勢で体高が縮むのは**演技として正しい**縮みなので補正しない。dwarf-warrior のような『素材の縮尺ズレ』とは別物)。右リーチ最大 203.0px / 上限 423.4px。⚠️ 出力は **同名上書き** (elf_walk.png / elf_attack.png = 旧 chibi と同名) なので index.html の ?v= を bump する必要がある。参照は index.html 4 箇所 = LEADER_SPRITES.elf / ELF_WALK_URL / ELF_ATTACK_URL / CLASS_DEFS.elf.sprite ＋ tavern.html PARTY_PORTRAIT_SPRITES は **素パス** で ?v= を付けない (あちらの明文ルール)。旧 chibi は上書きされるので git 履歴からのみ復元可"
     }
   ]
 }
