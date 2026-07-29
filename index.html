@@ -3776,7 +3776,7 @@
                  guard: WARRIOR_GUARD },
       dwarf:   { walk: 'url("assets/dwarf_walk.png?v=5")',   attack: 'url("assets/dwarf_attack.png?v=5")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
-      cleric:  { walk: 'url("assets/cleric_walk.png")',  attack: 'url("assets/cleric_attack.png")',
+      cleric:  { walk: 'url("assets/cleric_walk.png")',  attack: 'url("assets/cleric_attack.png?v=3")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       mage:    { walk: 'url("assets/mage_walk.png?v=4")',    attack: 'url("assets/mage_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
@@ -6264,7 +6264,7 @@
         name: "盗賊重装兵",
         flavor: "略奪した鎧を纏う前衛",
         badge: "🛡",
-        sprite: "assets/banditHeavy_anim.png?v=1",
+        sprite: "assets/banditHeavy_anim.png?v=2",
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 88,
@@ -6310,7 +6310,7 @@
         name: "残影の獣",
         flavor: "盗賊が捕えた六本足の黒豹、檻を破れば敵味方の区別なく襲う",
         badge: "🐾",
-        sprite: "assets/shadowBeast_anim.png?v=3",
+        sprite: "assets/shadowBeast_anim.png?v=4",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 192,                  // 2 タイル分の大型ミニボス
@@ -6479,7 +6479,7 @@
         name: "偽宝箱(ミミック)",
         flavor: "宝箱に擬態する古典の罠。触れた者を粘液で捉える",
         badge: "🧰",
-        sprite: "assets/mimic_anim.png?v=1",
+        sprite: "assets/mimic_anim.png?v=2",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 100,
@@ -6559,7 +6559,7 @@
         name: "Dire Bear",      // 2026-06-27: 表示名を英語化(怒れる巨熊→Dire Bear)
         flavor: "戦後の混乱に乗じて人里に下りた巨大な熊。手負いになるほど狂暴に吼える",
         badge: "🐻",
-        sprite: "assets/direBear_anim.png?v=1",   // 専用スプライト (2026-06-22 ChatGPT生成→192px大型ボス規格で抽出)
+        sprite: "assets/direBear_anim.png?v=2",   // 専用スプライト (2026-06-22 ChatGPT生成→192px大型ボス規格で抽出)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 220,                         // 大型ボスの威容 (歩行~103px / 立ち上がり咆哮~194px)
@@ -6585,7 +6585,7 @@
         name: "キマイラ",
         flavor: "獅子・山羊・竜の三つ首を持つ有翼の合成獣",
         badge: "🦁",
-        sprite: "assets/chimera_anim.png?v=1",  // 専用スプライト (獅子・山羊・竜の三つ首)
+        sprite: "assets/chimera_anim.png?v=2",  // 専用スプライト (獅子・山羊・竜の三つ首)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 260,                       // 2倍サイズ (192px原寸→アップスケール)
@@ -6615,7 +6615,7 @@
         name: "グリフォン",
         flavor: "鷲の翼と獅子の胴を持つ猛禽。空から急降下し鉤爪で獲物を引き裂く",
         badge: "🦅",
-        sprite: "assets/griffon_anim.png?v=1",  // 専用スプライト (2026-07-03 ChatGPT生成→192px大型ボス規格で抽出)
+        sprite: "assets/griffon_anim.png?v=2",  // 専用スプライト (2026-07-03 ChatGPT生成→192px大型ボス規格で抽出)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                        // 2倍サイズ (192px原寸→アップスケール)
@@ -6644,7 +6644,7 @@
         name: "アンバーハルク",
         flavor: "岩を掘り進む甲殻の巨獣。四つの目が放つ眩惑の視線が正気を惑わす",
         badge: "🪲",
-        sprite: "assets/umber_hulk_anim.png?v=1",   // 専用スプライト (2026-07-03 生成・direBear と幾何完全一致)
+        sprite: "assets/umber_hulk_anim.png?v=2",   // 専用スプライト (2026-07-03 生成・direBear と幾何完全一致)
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                          // 2倍サイズ (192px原寸→アップスケール)
@@ -11350,7 +11350,7 @@
     const DWARF_ATTACK_SIZE = "480px 384px";
     const CLERIC_WALK_URL   = 'url("assets/cleric_walk.png?v=2")';
     const CLERIC_WALK_SIZE  = "576px 384px";
-    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=2")';
+    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=3")';
     const CLERIC_ATTACK_SIZE = "480px 384px";
     const MAGE_WALK_URL     = 'url("assets/mage_walk.png?v=4")';
     const MAGE_WALK_SIZE    = "576px 384px";
@@ -11423,8 +11423,8 @@
         { walk: 'url("assets/rogue_scout_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/rogue_scout_attack.png")',    attackSize: "480px 384px", label: "影の斥候" },
       ],
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
-      golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
-      undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],
+      golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png?v=2")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
+      undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png?v=2")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],
     };
     // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。
     function getSpriteSet(classKey, variant) {
