@@ -4,9 +4,18 @@
  *
  *   node tools/driver_cleric_sprites.js [--headful] [--browser <path>] [--port N] [--root <dir>]
  *
- * 対象は index.html + tavern.html。2026-07-29 の差替内容:
+ * 対象は index.html + tavern.html。
+ *
+ * 第1段 (2026-07-29 `c32f785`) = 僧侶 4 種を codex1 素材へ差替:
  *   - 正規 (変種 index 0)  assets/cleric_{walk,attack,cast}.png         <- codex1 npc-female-cleric (**同名上書き**)
  *   - 変種 index 1-3 共有  assets/cleric_npcmale_{walk,attack,cast}.png <- codex1 npc-male-cleric v1b (新規)
+ *
+ * 第2段 (2026-07-29 本コミット) = **近接 attack を melee 素材へ差替**:
+ *   第1段の時点では codex1 素材に近接モーションが無く、attack は cast (詠唱) の 6F を
+ *   [0,1,2,3,5] で間引いた流用だった (= 殴りかかりながら祈っていた)。codex1 へ依頼した
+ *   …-melee-right-6-v1 が届いたので台帳の attack_dir を差し替え、同時に **cast_dir を明示**
+ *   した (省略すると attack_dir 流用で詠唱までメイス振りに化ける仕様のため)。
+ *   変わるのは attack 2 枚だけで、walk / cast はバイト不変。
  *
  *   G1  配線: SPRITE_VARIANTS.cleric / getSpriteSet が期待 URL を返す (変種 1-3 は同一 1 枚)
  *   G2  実体: 6 枚が 200 で読め、規格サイズ (walk/cast 576x384 / attack 480x384) である
@@ -14,15 +23,21 @@
  *   G4  重複コマ: row3 の全コマが互いに異なる (サイズ検査を素通りする軸)
  *   G5  当たり判定不変: CLASS_DEFS.cleric の displaySize / sprite
  *   G6  tavern: PARTY_PORTRAIT_SPRITES.cleric が 4 要素で全部 200
- *   G7  ⭐ cast 流用の証明: attack の 5 コマが cast の [0,1,2,3,5] と **画素シグネチャ一致**
+ *   G7  ⭐ **cast 流用が解消された証明**: attack の 5 コマが cast の [0,1,2,3,5] と画素シグネチャ
+ *          **不一致** (第1段では逆向きの assert = 一致 だった。melee 差替でここが反転する)
  *   G8  ⭐ cast の variant 対応: updateAllySprite が変種ごとに別の cast シートを出す
  *
  * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N5)。
  *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、HEAD と作業ツリーを
  *    同じ物差しで測る。baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故) を検出できない。
  *
- * ⚠️ 今回は正規 (index 0) が **同名上書き** なので、直前の戦士差替 (N4) とは向きが逆になる:
- *      N4 = 「正規シートは HEAD と画素が *異なる*」= 差替が本当に効いた証明 (?v= だけでは足りない)
+ * ⚠️⚠️ N ブロックは **第2段に合わせて書き直してある**。第1段の N (「HEAD の変種は旧 chibi」等) は
+ *    HEAD が c32f785 を含んだ時点で **自己失効** した (盗賊ドライバ driver_rogue_sprites.js と同じ現象)。
+ *    負のコントロールは「今回の差分」を測るものへ毎回更新しないと空振りする。現行の向き:
+ *      N1 = 「attack 2 枚は HEAD と画素が *相違*」 = melee 差替が本当に効いた証明 (?v= だけでは足りない)
+ *      N2 = 「HEAD の attack は HEAD の cast の [0,1,2,3,5] と *一致* していた」= 直した不具合の実在証明
+ *      N3 = 「walk / cast は HEAD と画素が *一致*」 = cast_dir 明示が cast を壊していない証明
+ *      N4 = 「HEAD の index.html は attack が ?v=4 / 変種は ?v= 無し」= bump の差分が実在する証明
  *      N5 = 「戦士シートは HEAD と画素が *一致する*」= 台帳 --all 再パックの巻き添えが無い証明
  *    「変えた」と「変えていない」の両方を正の assert として測る。
  *
@@ -196,15 +211,15 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G1.1) SPRITE_VARIANTS.cleric が 4 変種のまま', wire.len === 4, wire.len);
     check('(G1.2) 変種 0 (正規) の walk = cleric_walk.png?v=3 (同名上書きなので ?v= bump 必須)',
       /assets\/cleric_walk\.png\?v=3/.test(wire.sets[0].walk), wire.sets[0].walk);
-    check('(G1.3) 変種 0 の attack = cleric_attack.png?v=4',
-      /assets\/cleric_attack\.png\?v=4/.test(wire.sets[0].attack), wire.sets[0].attack);
+    check('(G1.3) 変種 0 の attack = cleric_attack.png?v=5 (melee 差替で ?v=4 から bump)',
+      /assets\/cleric_attack\.png\?v=5/.test(wire.sets[0].attack), wire.sets[0].attack);
     check('(G1.4) 変種 0 の cast = cleric_cast.png?v=5',
       /assets\/cleric_cast\.png\?v=5/.test(wire.sets[0].cast || ''), wire.sets[0].cast);
     check('(G1.5) 変種 1-3 が cleric_npcmale_walk.png を共有',
       [1, 2, 3].every(v => /assets\/cleric_npcmale_walk\.png/.test(wire.sets[v].walk)),
       JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
-    check('(G1.6) 変種 1-3 が cleric_npcmale_attack.png を共有',
-      [1, 2, 3].every(v => /assets\/cleric_npcmale_attack\.png/.test(wire.sets[v].attack)),
+    check('(G1.6) 変種 1-3 が cleric_npcmale_attack.png?v=2 を共有 (melee 差替で同名上書きになり ?v= を新規付与)',
+      [1, 2, 3].every(v => /assets\/cleric_npcmale_attack\.png\?v=2/.test(wire.sets[v].attack)),
       JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
     check('(G1.7) ⭐ 変種 1-3 が **自分の** cast (cleric_npcmale_cast.png) を持つ',
       [1, 2, 3].every(v => /assets\/cleric_npcmale_cast\.png/.test(wire.sets[v].cast || '')),
@@ -215,18 +230,22 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G1.9) 変種 1-3 に旧 chibi (elder/priestess/war) が残っていない',
       [1, 2, 3].every(v => !/cleric_(elder|priestess|war)_/.test(wire.sets[v].walk + wire.sets[v].attack + (wire.sets[v].cast || ''))),
       JSON.stringify(wire.sets.slice(1)));
-    check('(G1.10) 新規ファイル名なので ?v= を付けていない (同名上書きではない)',
-      [1, 2, 3].every(v => !/npcmale_[a-z]+\.png\?/.test(wire.sets[v].walk + wire.sets[v].attack + (wire.sets[v].cast || ''))),
-      JSON.stringify(wire.sets.slice(1).map(s => [s.walk, s.attack, s.cast])));
+    // ⚠ ?v= は「同名上書きの時だけ」付ける。機械的に全部へ付けるものではない。
+    //   walk / cast は第1段の新規ファイル名のまま中身も不変 = 付けない。
+    //   attack だけが第2段で同名上書きされたので ?v=2 を新規付与している。
+    check('(G1.10) 変種の walk / cast には ?v= を付けていない (中身が不変なので不要)',
+      [1, 2, 3].every(v => !/npcmale_walk\.png\?/.test(wire.sets[v].walk)
+                        && !/npcmale_cast\.png\?/.test(wire.sets[v].cast || '')),
+      JSON.stringify(wire.sets.slice(1).map(s => [s.walk, s.cast])));
     check('(G1.11) label は 3 種のまま (内部識別子は温存)',
       wire.sets[1].label === '老神官' && wire.sets[2].label === '女神官' && wire.sets[3].label === '戦僧',
       JSON.stringify(wire.sets.map(s => s.label)));
     check('(G1.12) 全変種のシート寸法指定が規格どおり (walk/cast 576x384, attack 480x384)',
       wire.sets.every(s => s.ws === '576px 384px' && s.as === '480px 384px' && s.cs === '576px 384px'),
       JSON.stringify(wire.sets.map(s => [s.ws, s.as, s.cs])));
-    check('(G1.13) 主人公用 LEADER_SPRITES.cleric も ?v=3 / ?v=4 へ bump 済み',
+    check('(G1.13) 主人公用 LEADER_SPRITES.cleric も ?v=3 / ?v=5 へ bump 済み (取り残しなし)',
       !!wire.player && /cleric_walk\.png\?v=3/.test(wire.player.walk)
-        && /cleric_attack\.png\?v=4/.test(wire.player.attack),
+        && /cleric_attack\.png\?v=5/.test(wire.player.attack),
       JSON.stringify(wire.player));
     check('(G1.14) cleric は専用シートクラスのまま', wire.custom === true, wire.custom);
     check('(G1.15) cleric は cast シートクラスのまま', wire.castCls === true, wire.castCls);
@@ -235,10 +254,10 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // ── G2 実体 (404 なし / 規格サイズ) ─────────────────────
     const sheets = [
       ['cleric_walk.png?v=3',        WALK_SIZE, 6],
-      ['cleric_attack.png?v=4',      ATK_SIZE,  5],
+      ['cleric_attack.png?v=5',      ATK_SIZE,  5],
       ['cleric_cast.png?v=5',        WALK_SIZE, 6],
       ['cleric_npcmale_walk.png',    WALK_SIZE, 6],
-      ['cleric_npcmale_attack.png',  ATK_SIZE,  5],
+      ['cleric_npcmale_attack.png?v=2', ATK_SIZE, 5],
       ['cleric_npcmale_cast.png',    WALK_SIZE, 6],
       ['warrior_walk.png?v=8',       WALK_SIZE, 6],
     ];
@@ -315,16 +334,19 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       /cleric_walk\.png\?v=3/.test(hit.sprite || ''), hit.sprite);
     check('(G5.3) 戦士の displaySize も 96 のまま (回帰なし)', hit.wdisp === 96, hit.wdisp);
 
-    // ── G7 ⭐ cast 流用の証明 ────────────────────────────────
-    // codex1 素材に近接モーションが無いため attack は cast の 6F を [0,1,2,3,5] で間引いたもの。
-    // 「そのつもりだった」ではなく画素シグネチャで実際にそうなっていることを測る。
+    // ── G7 ⭐ cast 流用が解消されたことの証明 ────────────────
+    // 第1段では attack が cast の 6F を [0,1,2,3,5] で間引いた流用だったので、この assert は
+    // 「全コマ一致」を PASS 条件にしていた。第2段の melee 差替でその向きが **反転する**。
+    // ⚠️ 「1 コマでも違う」ではなく **全 5 コマとも別画素** を条件にする。melee は独立に描かれた
+    //    別モーションなので、たまたま 1 コマだけ一致することは無い。緩い条件にすると
+    //    「半分だけ差し替わった」ような中途半端な事故を見逃す。
     for (const [tag, a, c] of [['正規', 'cleric_attack.png', 'cleric_cast.png'],
                                ['変種', 'cleric_npcmale_attack.png', 'cleric_npcmale_cast.png']]) {
       const af = measured[a].frames, cf = measured[c].frames;
-      const okAll = af.length === 5 && cf.length === 6 &&
-        ATTACK_KEYS.every((k, i) => af[i] && cf[k] && af[i].sig === cf[k].sig);
-      check('(G7) ' + tag + ': attack 5 コマが cast の [0,1,2,3,5] と画素一致 (cast 流用が実際に効いている)',
-        okAll, JSON.stringify([af.map(f => f && f.sig), cf.map(f => f && f.sig)]));
+      const allDiffer = af.length === 5 && cf.length === 6 &&
+        ATTACK_KEYS.every((k, i) => af[i] && cf[k] && af[i].sig !== cf[k].sig);
+      check('(G7) ⭐ ' + tag + ': attack 5 コマが cast の [0,1,2,3,5] と **全コマ画素相違** (cast 流用の解消)',
+        allDiffer, JSON.stringify([af.map(f => f && f.sig), cf.map(f => f && f.sig)]));
     }
 
     // ── G8 ⭐ cast の variant 対応 (統合検証) ────────────────
@@ -360,47 +382,72 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       !!castApplied.urls[0] && castApplied.urls[0] !== castApplied.urls[1],
       JSON.stringify([castApplied.urls[0], castApplied.urls[1]]));
 
-    // ── N1-N2 負のコントロール (HEAD の生バイトと比較) ──────
-    const headNew = await page.evaluate(async () => {
-      try { await window.__sprMeasure('/__head__/assets/cleric_npcmale_walk.png', 96, 6, 3); return 'loaded'; }
-      catch (e) { return 'missing'; }
-    });
-    check('(N1) HEAD に cleric_npcmale_walk.png は存在しない (新規追加である証明)',
-      headNew === 'missing', headNew);
+    // ── N1 ⭐ 「変えた」ことの正の assert (attack は同名上書き) ──
+    // ⚠️ HEAD は既に第1段 (c32f785) を含むので、第1段を測る N (旧 chibi 参照 / 58px→56px /
+    //    cast が walk より 19% 大きい 等) は **自己失効している**。ここは第2段だけを測る。
+    const headAtkF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_attack.png', 96, 5, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    const headAtkM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_attack.png', 96, 5, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    check('(N1.1) HEAD の cleric_attack.png を配信できている (対照群が空振りでない)',
+      !headAtkF.err && headAtkF.w === 480, JSON.stringify({ w: headAtkF.w, err: headAtkF.err }));
+    check('(N1.2) HEAD の cleric_npcmale_attack.png を配信できている',
+      !headAtkM.err && headAtkM.w === 480, JSON.stringify({ w: headAtkM.w, err: headAtkM.err }));
+    for (const [tag, head, key] of [['正規', headAtkF, 'cleric_attack.png'],
+                                    ['変種', headAtkM, 'cleric_npcmale_attack.png']]) {
+      check('(N1.3) ⭐ ' + tag + ' の attack は HEAD と画素シグネチャが全コマ相違 = melee 差替が本当に効いている',
+        !!head.frames && head.frames.length === 5 &&
+        head.frames.every((f, i) => f && measured[key].frames[i] && f.sig !== measured[key].frames[i].sig),
+        JSON.stringify([head.frames && head.frames.map(f => f && f.sig),
+                        measured[key].frames.map(f => f && f.sig)]));
+    }
 
+    // ── N2 ⭐ 直した不具合が HEAD に実在したことの証明 ───────
+    // G7 の反転前の向き (attack が cast の [0,1,2,3,5] 間引き) を **HEAD 側で** 測る。
+    // これが PASS して初めて「G7 の反転は実際の修正によるもので、assert を緩めただけではない」と言える。
+    const headCastF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_cast.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    const headCastM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_cast.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    for (const [tag, ha, hc] of [['正規', headAtkF, headCastF], ['変種', headAtkM, headCastM]]) {
+      check('(N2) ⭐ ' + tag + ': HEAD では attack が cast の [0,1,2,3,5] と全コマ画素一致だった (cast 流用の実在証明)',
+        !!ha.frames && ha.frames.length === 5 && !!hc.frames && hc.frames.length === 6 &&
+        ATTACK_KEYS.every((k, i) => ha.frames[i] && hc.frames[k] && ha.frames[i].sig === hc.frames[k].sig),
+        JSON.stringify([ha.frames && ha.frames.map(f => f && f.sig), hc.frames && hc.frames.map(f => f && f.sig)]));
+    }
+
+    // ── N3 ⭐ 「変えていない」ことの正の assert (walk / cast) ──
+    // cast_dir を台帳へ明示した副作用で cast が動いていないか、画素で確かめる。
+    // ⚠️ ここが落ちたら cast_dir の指し先を間違えている (= 詠唱がメイス振りに化けている)。
+    const headWalkF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_walk.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    const headWalkM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_walk.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    for (const [tag, head, key] of [['正規 walk', headWalkF, 'cleric_walk.png'],
+                                    ['変種 walk', headWalkM, 'cleric_npcmale_walk.png'],
+                                    ['正規 cast', headCastF, 'cleric_cast.png'],
+                                    ['変種 cast', headCastM, 'cleric_npcmale_cast.png']]) {
+      check('(N3) ⭐ ' + tag + ' は HEAD と画素シグネチャが全コマ一致 = cast_dir 明示で壊していない',
+        !!head.frames && head.frames.length === 6 &&
+        head.frames.every((f, i) => f && measured[key].frames[i] && f.sig === measured[key].frames[i].sig),
+        JSON.stringify([head.frames && head.frames.map(f => f && f.sig),
+                        measured[key].frames.map(f => f && f.sig)]));
+    }
+
+    // ── N4 ⭐ ?v= bump の差分が実在することの証明 ─────────────
     const headIdx = headBytes('index.html');
-    const headVarLines = headIdx
-      ? String(headIdx).split('\n').filter(l => /cleric_(elder|priestess|war)_walk\.png/.test(l))
-      : [];
-    check('(N2.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
-    check('(N2.2) HEAD の僧侶変種 3 行は旧 chibi を指す (差分が実在する)',
-      headVarLines.length === 3, headVarLines.length + ' 行');
-    check('(N2.3) 作業ツリーでは旧 chibi 参照が消えている',
-      !wire.sets.some(s => /cleric_(elder|priestess|war)_/.test(s.walk + s.attack + (s.cast || ''))),
-      JSON.stringify(wire.sets.map(s => s.walk)));
-    const headCastLine = headIdx
-      ? String(headIdx).split('\n').filter(l => /setAllySpriteSheet\(ally,\s*CLERIC_CAST_URL/.test(l)) : [];
-    check('(N2.4) ⭐ HEAD では cast が variant 非対応 (CLERIC_CAST_URL 直参照) だった',
-      headCastLine.length >= 1, headCastLine.length + ' 行');
-
-    // ── N4 ⭐ 「変えた」ことの正の assert (正規は同名上書き) ──
-    const headCleric = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_walk.png', 96, 6, 3))
-      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N4.1) HEAD の cleric_walk.png を配信できている (対照群が空振りでない)',
-      !headCleric.err && headCleric.w === 576, JSON.stringify({ w: headCleric.w, err: headCleric.err }));
-    check('(N4.2) ⭐ 正規シートは HEAD と画素シグネチャが全コマ相違 = 同名上書きが本当に効いている',
-      !!headCleric.frames && headCleric.frames.length === 6 &&
-      headCleric.frames.every((f, i) => f && measured['cleric_walk.png'].frames[i] &&
-                                        f.sig !== measured['cleric_walk.png'].frames[i].sig),
-      JSON.stringify([headCleric.frames && headCleric.frames.map(f => f && f.sig),
-                      measured['cleric_walk.png'].frames.map(f => f && f.sig)]));
-    check('(N4.3) HEAD の僧侶は 58px だった (今回 56px へ揃えた差分が実在する)',
-      med(headCleric) === 58 && fw === 56, 'HEAD=' + med(headCleric) + ' NOW=' + fw);
-    const headCast = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_cast.png', 96, 6, 3))
-      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N4.4) ⭐ HEAD の cast は walk より 15% 以上大きかった (詠唱時に膨らむ既存不揃いの実在証明)',
-      !headCast.err && (med(headCast) - med(headCleric)) / med(headCleric) > 0.15,
-      'HEAD cast=' + med(headCast) + ' HEAD walk=' + med(headCleric));
+    const headTxt = headIdx ? String(headIdx) : '';
+    check('(N4.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
+    check('(N4.2) ⭐ HEAD では正規 attack が ?v=4 だった (bump の差分が実在する)',
+      /cleric_attack\.png\?v=4/.test(headTxt) && !/cleric_attack\.png\?v=5/.test(headTxt),
+      'v4=' + /cleric_attack\.png\?v=4/.test(headTxt) + ' v5=' + /cleric_attack\.png\?v=5/.test(headTxt));
+    check('(N4.3) ⭐ HEAD では変種 attack に ?v= が無かった (新規付与の差分が実在する)',
+      /cleric_npcmale_attack\.png"/.test(headTxt) && !/cleric_npcmale_attack\.png\?v=/.test(headTxt),
+      'bare=' + /cleric_npcmale_attack\.png"/.test(headTxt));
+    check('(N4.4) 作業ツリーには ?v=4 の取り残しが無い',
+      !wire.sets.some(s => /cleric_attack\.png\?v=4/.test(s.attack))
+        && !/cleric_attack\.png\?v=4/.test(wire.player ? wire.player.attack : ''),
+      JSON.stringify([wire.sets.map(s => s.attack), wire.player && wire.player.attack]));
 
     // ── N5 ⭐ 「変えていない」ことの正の assert ──────────────
     // 台帳 --all の再パックで他職 (戦士) が巻き添えになっていないかを画素で見る。
@@ -468,14 +515,22 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G6.7) cleric のポートレート 4 URL がすべて 200 かつ 576x384',
       loaded.every(x => x.ok), JSON.stringify(loaded));
 
-    // ── N3 負のコントロール (HEAD の tavern) ────────────────
+    // ── N6 負のコントロール (HEAD の tavern) ────────────────
+    // ⚠️ 第1段では「HEAD のポートレートは旧 chibi」を測っていたが、HEAD が c32f785 を含んだ時点で
+    //    **自己失効**した (N1 の注記と同じ現象)。第2段が tavern.html で触るのは changelog の
+    //    <li> だけでポートレート配線には無関係なので、ここでの正しい負のコントロールは
+    //    「ポートレート 4 URL が HEAD と **完全一致**」= 配線を巻き添えにしていない証明。
     const headTav = headBytes('tavern.html');
     const headLine = headTav ? String(headTav).split('\n').find(l => /cleric:\s*\["assets\/cleric_walk/.test(l)) : null;
-    check('(N3.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(cleric 行なし)' : '(git show 失敗)');
-    check('(N3.2) HEAD の cleric ポートレートは旧 chibi を指す (差分が実在する)',
-      !!headLine && /cleric_elder_walk\.png/.test(headLine) && /cleric_war_walk\.png/.test(headLine),
-      (headLine || '').trim().slice(0, 140));
-    check('(N3.3) 作業ツリーでは旧 chibi 参照が消えている',
+    check('(N6.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(cleric 行なし)' : '(git show 失敗)');
+    const headPort = headLine ? (headLine.match(/assets\/cleric[a-z_]*\.png/g) || []) : [];
+    check('(N6.2) ⭐ HEAD と作業ツリーで cleric ポートレート 4 URL が完全一致 = 第2段はポートレート配線を触っていない',
+      headPort.length === 4 && port.cleric.length === 4 &&
+      headPort.every((u, i) => port.cleric[i] === u),
+      JSON.stringify([headPort, port.cleric]));
+    check('(N6.3) HEAD 側にも ?v= が付いていない (素パスの明文ルールが第1段から維持されている)',
+      !!headLine && !/cleric[a-z_]*\.png\?v=/.test(headLine), (headLine || '').trim().slice(0, 140));
+    check('(N6.4) 作業ツリーでは旧 chibi 参照が消えている',
       !port.cleric.some(u => /cleric_(elder|priestess|war)_/.test(u)), JSON.stringify(port.cleric));
 
     await page.close();

@@ -3776,7 +3776,7 @@
                  guard: WARRIOR_GUARD },
       dwarf:   { walk: 'url("assets/dwarf_walk.png?v=5")',   attack: 'url("assets/dwarf_attack.png?v=5")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
-      cleric:  { walk: 'url("assets/cleric_walk.png?v=3")',  attack: 'url("assets/cleric_attack.png?v=4")',
+      cleric:  { walk: 'url("assets/cleric_walk.png?v=3")',  attack: 'url("assets/cleric_attack.png?v=5")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       mage:    { walk: 'url("assets/mage_walk.png?v=4")',    attack: 'url("assets/mage_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
@@ -11352,7 +11352,7 @@
     const DWARF_ATTACK_SIZE = "480px 384px";
     const CLERIC_WALK_URL   = 'url("assets/cleric_walk.png?v=3")';
     const CLERIC_WALK_SIZE  = "576px 384px";
-    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=4")';
+    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=5")';
     const CLERIC_ATTACK_SIZE = "480px 384px";
     const MAGE_WALK_URL     = 'url("assets/mage_walk.png?v=4")';
     const MAGE_WALK_SIZE    = "576px 384px";
@@ -11423,15 +11423,17 @@
         // assets/cleric_{elder,priestess,war}_* に残置)。dwarf / mage / rogue / warrior と同じ扱い =
         // label はどこからも読まれない内部識別子なので、将来 codex1 側で別デザインが出たら該当行の
         // url だけ差し替えれば再び 3 種に割れる。
-        // ⚠ codex1 素材に近接攻撃モーションが無いため attack は cast (詠唱) の 5F 間引きで代用中。
-        //   メイスを振る素材が納品されたら台帳の attack_dir を差し替えて --all するだけで直る。
+        // ⚠ attack は 2026-07-29 に codex1 の melee 素材 (杖を振り下ろす物理攻撃) へ差し替えた。
+        //   それ以前は近接素材が無く cast (詠唱) の 5F 間引きで代用しており、殴りかかりながら
+        //   祈っているように見えていた。walk / cast のバイトは差替前後で不変。
+        //   ⚠ 同名上書きになったので attack だけ ?v=2 を新規付与している (walk / cast は不要)。
         // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
         //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
-        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
           cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "老神官" },
-        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
           cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "女神官" },
-        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px",
           cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "戦僧" },
       ],
       mage: [
