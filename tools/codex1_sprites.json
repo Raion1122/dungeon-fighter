@@ -290,6 +290,28 @@
       "walk_dir": "npc-female-warrior/npc-female-warrior-walk-right-6",
       "attack_dir": "npc-female-warrior/npc-female-warrior-attack-right-6-matched",
       "note": "仲間 NPC 戦士の変種 index 1-3 (重戦士/女戦士/騎士) が共有する 1 枚 (2026-07-29 新設)。深紅のポニーテール + 革鎧と鎖帷子 + 背負った丸盾 + 赤い腰布 + アーミングソードの女戦士で、変種 0 の ironvale-vanguard (フルフェイス兜の重装) とは明確に別人なので変種として成立する。dwarf-warrior / wizard / male-thief と同じ『変種 3 枠を 1 枚で共有』構成。⚠️ 出力名を warrior_female_* にしてはいけない: 旧 chibi の assets/warrior_female_{walk,attack}.png が実在する (旧 chibi 3 枚 heavy/female/knight は dwarf/mage/rogue と同様に残置)。char_ratio 0.6139 = 素材 walk bodyH median=454.5 / bboxH max=474 から目標 median 56px を逆算し、出力実測で 1 回校正した値 (逆算値 0.6084 → 実測 55.5px → 0.6139 で 56.0px に命中)。出力実測 walk median 56.0px は主人公戦士 warrior と完全一致。attack_scale は auto (1.0952) が必要: 1.0 だと delta -9.91% で WARN 圏、auto で +0.00%。walk と attack が同一人物であることを sheet.png 2 枚を並べて事前確認済み。素材フレーム md5 は walk 6/6・attack 6/6 とも全て異なる (重複コマ 0)。⚠️ fit: left=31 right=93 top=26 (cell=96) — 右余白が 3px しかない (frame-03/04 で剣を水平に前へ突き出すコマ。素材 bboxW 439/447px)。この 2 コマは check_pose_alignment の『水平武器 = 6 コマ中 2 コマ以内』ルールぎりぎりで、体高が計測アーティファクトで過小評価される (bodyH 360/329 に対し bboxH 382/403)。median が吸収するので実害はないが、素材を差し替える時は right と水平コマ数を必ず見ること"
+    },
+    {
+      "key": "npc-female-cleric", "out": "assets/cleric_walk.png",
+      "attack_out": "assets/cleric_attack.png",
+      "cast_out": "assets/cleric_cast.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5909, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "npc-female-cleric/npc-female-cleric-walk-attack-right-6-v1b-cleric-cast-aligned/*walk*frame-*.png",
+      "attack_dir": "npc-female-cleric/npc-female-cleric-walk-attack-right-6-v1b-cleric-cast-aligned/*attack*frame-*.png",
+      "note": "僧侶 正規シート (主人公 + NPC 変種 index 0)。2026-07-29 差替。白のフード + ティールの法衣 + 十字紋のラウンドシールド + メイス型の短い杖の女性僧侶。⭐ このキーは **3 枚出力** (walk / attack / cast) の初例。⚠️⚠️ codex1 素材に **近接攻撃モーションは存在しない**: フォルダ名 …-walk-attack-right-6-v1b-cleric-cast-aligned の『attack』は中身が全コマ詠唱 (杖を掲げて聖光が灯る) で、メイスを振り下ろすコマは 1 枚も無い。2026-07-29 にユーザー判断で『cast を近接 attack にも流用 (ATTACK_KEYS で 5F 間引き) + 近接モーションは codex1 へ別途依頼』を採用したため、attack_dir と cast_dir が同一素材を指す (cast_dir 省略 = attack_dir 流用)。近接素材が納品されたら attack_dir だけ差し替えて --all すれば直る。⚠️ 差替前の cast シートは体高 median 69px で walk 58px より 19% 大きく、詠唱の瞬間に体が膨らむ既存の不揃いがあった。3 枚を同一 scale/anchor で組む今回の構成でこれが解消する。char_ratio 0.5909 = 素材 walk bodyH median=460 / bboxH max=466 から目標 median 56px を逆算した値 (bodyH/bboxH=0.987 = 杖が頭より少し高いだけなのでかさ上げは小さい)。目標 56px は主人公戦士 warrior と同値 (旧 cleric は 58px だったので 2px 縮む)。attack_scale は 1.0: cast と walk は同一チャットの整列済み素材で体高比が -0.7% しかなく auto は不要。素材フレーム md5 は walk 6/6・cast 6/6 とも全て異なる (重複コマ 0)。⚠️ 同名上書きなので index.html 側の ?v= bump が必須 (CLERIC_WALK_URL / CLERIC_ATTACK_URL / CLERIC_CAST_URL + LEADER_SPRITES.cleric + CLASS_DEFS.cleric.sprite の 5 箇所)。tavern.html PARTY_PORTRAIT_SPRITES は素パス"
+    },
+    {
+      "key": "npc-male-cleric", "out": "assets/cleric_npcmale_walk.png",
+      "attack_out": "assets/cleric_npcmale_attack.png",
+      "cast_out": "assets/cleric_npcmale_cast.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5946, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "npc-male-cleric/npc-male-cleric-walk-attack-right-6-v1b-cleric-cast-aligned/*walk*frame-*.png",
+      "attack_dir": "npc-male-cleric/npc-male-cleric-walk-attack-right-6-v1b-cleric-cast-aligned/*attack*frame-*.png",
+      "note": "仲間 NPC 僧侶の変種 index 1-3 (老神官/女神官/戦僧) が共有する 1 枚 (2026-07-29 新設)。髭 + 白金の法衣 + ティールのフード付きケープ + 輪十字のクロージャ杖の男性僧侶で、変種 0 の npc-female-cleric (白フード + 盾 + 短い杖の女性) とは明確に別人なので変種として成立する。dwarf-warrior / wizard / male-thief / npc-female-warrior と同じ『変種 3 枠を 1 枚で共有』構成。⭐⭐ 採用版 = v1b。codex1 は v1 と v1b の 2 版を出しており、walk は両版で同一の絵だが **詠唱の演技が別物**: v1 は杖を頭上へ高く掲げ大きな聖光の輪が広がる派手なモーション (bboxH 675px = walk の 1.42 倍)、v1b は杖を立てたまま胸の聖印に手を当てて法衣が淡く光る控えめなモーション (bboxH 477px = walk とほぼ同じ)。2026-07-29 にユーザーが v1b を選択 = 『落ち着き重視』。v1 フォルダは残置しており、切り替えたければ walk_dir/attack_dir の v1b を v1 に変えて --all するだけ。⚠️ 正規と同じく **近接攻撃モーションは素材に無い** (attack フォルダの中身は全コマ詠唱)。npc-female-cleric の note 参照。char_ratio 0.5946 = 素材 walk bodyH median=466 / bboxH max=475 から目標 median 56px を逆算。attack_scale は 1.0: cast/walk の体高比が -0.1% で auto 不要。素材フレーム md5 は walk 6/6・cast 6/6 とも全て異なる (重複コマ 0)。⚠️ 出力名を cleric_male_* にしていないのは npc-female-warrior と同じ理由の予防 (旧 chibi の cleric_{elder,priestess,war}_* は残置)。**新規ファイル名なので ?v= キャッシュバスタは不要**"
     }
   ]
 }

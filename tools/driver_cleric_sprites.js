@@ -1,0 +1,497 @@
+#!/usr/bin/env node
+/*
+ * driver_cleric_sprites.js — 僧侶 4 種の codex1 差替 (npc-female-cleric / npc-male-cleric) 検証ドライバ
+ *
+ *   node tools/driver_cleric_sprites.js [--headful] [--browser <path>] [--port N] [--root <dir>]
+ *
+ * 対象は index.html + tavern.html。2026-07-29 の差替内容:
+ *   - 正規 (変種 index 0)  assets/cleric_{walk,attack,cast}.png         <- codex1 npc-female-cleric (**同名上書き**)
+ *   - 変種 index 1-3 共有  assets/cleric_npcmale_{walk,attack,cast}.png <- codex1 npc-male-cleric v1b (新規)
+ *
+ *   G1  配線: SPRITE_VARIANTS.cleric / getSpriteSet が期待 URL を返す (変種 1-3 は同一 1 枚)
+ *   G2  実体: 6 枚が 200 で読め、規格サイズ (walk/cast 576x384 / attack 480x384) である
+ *   G3  体高パリティ: 画面上の体高が主人公戦士と同値。walk<->attack<->cast の変動が閾値内
+ *   G4  重複コマ: row3 の全コマが互いに異なる (サイズ検査を素通りする軸)
+ *   G5  当たり判定不変: CLASS_DEFS.cleric の displaySize / sprite
+ *   G6  tavern: PARTY_PORTRAIT_SPRITES.cleric が 4 要素で全部 200
+ *   G7  ⭐ cast 流用の証明: attack の 5 コマが cast の [0,1,2,3,5] と **画素シグネチャ一致**
+ *   G8  ⭐ cast の variant 対応: updateAllySprite が変種ごとに別の cast シートを出す
+ *
+ * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N5)。
+ *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、HEAD と作業ツリーを
+ *    同じ物差しで測る。baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故) を検出できない。
+ *
+ * ⚠️ 今回は正規 (index 0) が **同名上書き** なので、直前の戦士差替 (N4) とは向きが逆になる:
+ *      N4 = 「正規シートは HEAD と画素が *異なる*」= 差替が本当に効いた証明 (?v= だけでは足りない)
+ *      N5 = 「戦士シートは HEAD と画素が *一致する*」= 台帳 --all 再パックの巻き添えが無い証明
+ *    「変えた」と「変えていない」の両方を正の assert として測る。
+ *
+ * ⚠️ SPRITE_VARIANTS / getSpriteSet / CLASS_DEFS / LEADER_SPRITES / updateAllySprite は
+ *    classic script 直下の const/function なので window に載らない。page.evaluate の中から
+ *    **bare 名** で読む (グローバル字句環境はスコープチェーンで引ける)。
+ */
+const http = require('http');
+const fs   = require('fs');
+const path = require('path');
+const os   = require('os');
+const { execFileSync } = require('child_process');
+
+const argv = process.argv.slice(2);
+const arg  = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv[i + 1]) ? argv[i + 1] : d; };
+const flag = (n) => argv.includes('--' + n);
+const ROOT    = path.resolve(arg('root', path.resolve(__dirname, '..')));
+const HEADFUL = flag('headful');
+const PORT    = parseInt(arg('port', '8883'), 10);
+
+// pack_codex1_player.py の 6F -> 5F 間引き。attack が cast 由来であることの検算に使う。
+const ATTACK_KEYS = [0, 1, 2, 3, 5];
+
+function loadPuppeteer() {
+  const tried = [];
+  try { return require('puppeteer-core'); } catch (e) { tried.push('puppeteer-core'); }
+  const scratch = path.join(os.tmpdir(), 'df_pptr', 'node_modules', 'puppeteer-core');
+  try { return require(scratch); } catch (e) { tried.push(scratch); }
+  console.error('[driver] puppeteer-core が見つかりません。試行: ' + tried.join(' / '));
+  process.exit(2);
+}
+function findBrowser() {
+  const explicit = arg('browser', null);
+  if (explicit) return explicit;
+  const cands = [
+    'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  ];
+  for (const c of cands) if (fs.existsSync(c)) return c;
+  console.error('[driver] Chrome/Edge が見つかりません。--browser <path> で指定してください。');
+  process.exit(2);
+}
+const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+
+// HEAD の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
+function headBytes(rel) {
+  try {
+    return execFileSync('git', ['show', 'HEAD:' + rel.replace(/\\/g, '/')],
+                        { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
+  } catch (e) { return null; }
+}
+
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const srv = http.createServer((req, res) => {
+      try {
+        let u = decodeURIComponent(req.url.split('?')[0]);
+        if (u === '/') u = '/index.html';
+        if (u.startsWith('/__head__/')) {
+          const rel = u.slice('/__head__/'.length);
+          const buf = headBytes(rel);
+          if (!buf) { res.statusCode = 404; res.end('404 (not in HEAD)'); return; }
+          res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
+          res.end(buf);
+          return;
+        }
+        const fp = path.join(ROOT, u);
+        if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.statusCode = 404; res.end('404'); return; }
+        res.setHeader('Content-Type', MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream');
+        fs.createReadStream(fp).pipe(res);
+      } catch (e) { res.statusCode = 500; res.end('500'); }
+    });
+    srv.on('error', reject);
+    srv.listen(PORT, '127.0.0.1', () => resolve(srv));
+  });
+}
+
+const results = [];
+function check(name, ok, detail) {
+  results.push({ name, ok: !!ok });
+  console.log((ok ? '  ok  ' : '  NG  ') + name + (ok ? '' : '   << ' + (detail === undefined ? '' : detail)));
+}
+
+// ページ内で使う計測ヘルパー (check_attack_scale.py と同じ物差し)。
+//   bodyH: alpha>64 の行ごとの画素数 cnt を取り、top = cnt >= max*0.25 の最上行 (細い突起を
+//          頭頂と誤認しない) / bottom = 不透明が 1 個でもある最下行。
+//   sig  : セルの画素シグネチャ。重複コマ検出と HEAD 比較の両方に使う。
+const PAGE_HELPERS = `
+window.__sprMeasure = async function (url, cell, cols, row) {
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i); i.onerror = () => rej(new Error('load fail ' + url));
+    i.src = url;
+  });
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(img, 0, 0);
+  const out = { w: img.naturalWidth, h: img.naturalHeight, frames: [] };
+  for (let c = 0; c < cols; c++) {
+    const d = cx.getImageData(c * cell, row * cell, cell, cell).data;
+    const cnt = new Array(cell).fill(0);
+    let sig = 0, x0 = cell, x1 = -1;
+    for (let y = 0; y < cell; y++) {
+      for (let x = 0; x < cell; x++) {
+        const o = (y * cell + x) * 4;
+        if (d[o + 3] > 64) {
+          cnt[y]++;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          sig = (sig * 31 + (y * cell + x) + d[o] + d[o+1] * 3 + d[o+2] * 7) >>> 0;
+        }
+      }
+    }
+    const peak = Math.max.apply(null, cnt);
+    if (peak <= 0) { out.frames.push(null); continue; }
+    let top = 0; while (cnt[top] < peak * 0.25) top++;
+    let bottom = cell - 1; while (cnt[bottom] === 0) bottom--;
+    out.frames.push({ bodyH: bottom - top + 1, feet: bottom, x0: x0, x1: x1, sig: sig });
+  }
+  return out;
+};
+`;
+
+(async () => {
+  const puppeteer = loadPuppeteer();
+  const srv = await startServer();
+  const base = 'http://127.0.0.1:' + PORT;
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'df_cleric_'));
+  const browser = await puppeteer.launch({
+    executablePath: findBrowser(), headless: !HEADFUL, userDataDir: profile,
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required'],
+  });
+  const allPageErrors = [];
+
+  const WALK_SIZE = { w: 576, h: 384 }, ATK_SIZE = { w: 480, h: 384 };
+  const med = (m) => {
+    const xs = m.frames.filter(Boolean).map(f => f.bodyH).sort((a, b) => a - b);
+    if (!xs.length) return -1;
+    return xs.length % 2 ? xs[(xs.length - 1) / 2] : (xs[xs.length / 2 - 1] + xs[xs.length / 2]) / 2;
+  };
+  const feetOf = (m) => m.frames.filter(Boolean).map(f => f.feet);
+  const maxFeet = (m) => Math.max.apply(null, feetOf(m));
+
+  // ═══════════ index.html ═══════════
+  {
+    const page = await browser.newPage();
+    page.on('pageerror', e => allPageErrors.push(String(e && e.message || e)));
+    await page.evaluateOnNewDocument(PAGE_HELPERS);
+    await page.goto(base + '/index.html?autoplay=1&intel=0', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof SPRITE_VARIANTS !== 'undefined', { timeout: 20000 });
+
+    // ── G1 配線 ─────────────────────────────────────────────
+    const wire = await page.evaluate(() => {
+      const out = { len: SPRITE_VARIANTS.cleric.length, sets: [] };
+      for (let v = 0; v < 4; v++) {
+        const s = getSpriteSet('cleric', v);
+        out.sets.push({ walk: s.walk, attack: s.attack, cast: s.cast || null,
+                        ws: s.walkSize, as: s.attackSize, cs: s.castSize || null, label: s.label });
+      }
+      out.player = (typeof LEADER_SPRITES !== 'undefined') ? LEADER_SPRITES.cleric : null;
+      out.custom = (typeof CUSTOM_SHEET_CLASSES !== 'undefined') && CUSTOM_SHEET_CLASSES.has('cleric');
+      out.castCls = (typeof CAST_SHEET_CLASSES !== 'undefined') && CAST_SHEET_CLASSES.has('cleric');
+      out.wrap = getSpriteSet('cleric', 9).walk === getSpriteSet('cleric', 1).walk;
+      return out;
+    });
+    check('(G1.1) SPRITE_VARIANTS.cleric が 4 変種のまま', wire.len === 4, wire.len);
+    check('(G1.2) 変種 0 (正規) の walk = cleric_walk.png?v=3 (同名上書きなので ?v= bump 必須)',
+      /assets\/cleric_walk\.png\?v=3/.test(wire.sets[0].walk), wire.sets[0].walk);
+    check('(G1.3) 変種 0 の attack = cleric_attack.png?v=4',
+      /assets\/cleric_attack\.png\?v=4/.test(wire.sets[0].attack), wire.sets[0].attack);
+    check('(G1.4) 変種 0 の cast = cleric_cast.png?v=5',
+      /assets\/cleric_cast\.png\?v=5/.test(wire.sets[0].cast || ''), wire.sets[0].cast);
+    check('(G1.5) 変種 1-3 が cleric_npcmale_walk.png を共有',
+      [1, 2, 3].every(v => /assets\/cleric_npcmale_walk\.png/.test(wire.sets[v].walk)),
+      JSON.stringify(wire.sets.slice(1).map(s => s.walk)));
+    check('(G1.6) 変種 1-3 が cleric_npcmale_attack.png を共有',
+      [1, 2, 3].every(v => /assets\/cleric_npcmale_attack\.png/.test(wire.sets[v].attack)),
+      JSON.stringify(wire.sets.slice(1).map(s => s.attack)));
+    check('(G1.7) ⭐ 変種 1-3 が **自分の** cast (cleric_npcmale_cast.png) を持つ',
+      [1, 2, 3].every(v => /assets\/cleric_npcmale_cast\.png/.test(wire.sets[v].cast || '')),
+      JSON.stringify(wire.sets.slice(1).map(s => s.cast)));
+    check('(G1.8) ⭐ 正規と変種の cast が別シート (詠唱の瞬間に正規へ化けない)',
+      !!wire.sets[0].cast && wire.sets[0].cast !== wire.sets[1].cast,
+      JSON.stringify([wire.sets[0].cast, wire.sets[1].cast]));
+    check('(G1.9) 変種 1-3 に旧 chibi (elder/priestess/war) が残っていない',
+      [1, 2, 3].every(v => !/cleric_(elder|priestess|war)_/.test(wire.sets[v].walk + wire.sets[v].attack + (wire.sets[v].cast || ''))),
+      JSON.stringify(wire.sets.slice(1)));
+    check('(G1.10) 新規ファイル名なので ?v= を付けていない (同名上書きではない)',
+      [1, 2, 3].every(v => !/npcmale_[a-z]+\.png\?/.test(wire.sets[v].walk + wire.sets[v].attack + (wire.sets[v].cast || ''))),
+      JSON.stringify(wire.sets.slice(1).map(s => [s.walk, s.attack, s.cast])));
+    check('(G1.11) label は 3 種のまま (内部識別子は温存)',
+      wire.sets[1].label === '老神官' && wire.sets[2].label === '女神官' && wire.sets[3].label === '戦僧',
+      JSON.stringify(wire.sets.map(s => s.label)));
+    check('(G1.12) 全変種のシート寸法指定が規格どおり (walk/cast 576x384, attack 480x384)',
+      wire.sets.every(s => s.ws === '576px 384px' && s.as === '480px 384px' && s.cs === '576px 384px'),
+      JSON.stringify(wire.sets.map(s => [s.ws, s.as, s.cs])));
+    check('(G1.13) 主人公用 LEADER_SPRITES.cleric も ?v=3 / ?v=4 へ bump 済み',
+      !!wire.player && /cleric_walk\.png\?v=3/.test(wire.player.walk)
+        && /cleric_attack\.png\?v=4/.test(wire.player.attack),
+      JSON.stringify(wire.player));
+    check('(G1.14) cleric は専用シートクラスのまま', wire.custom === true, wire.custom);
+    check('(G1.15) cleric は cast シートクラスのまま', wire.castCls === true, wire.castCls);
+    check('(G1.16) 範囲外 index は剰余で丸まる (getSpriteSet の既存契約)', wire.wrap === true, wire.wrap);
+
+    // ── G2 実体 (404 なし / 規格サイズ) ─────────────────────
+    const sheets = [
+      ['cleric_walk.png?v=3',        WALK_SIZE, 6],
+      ['cleric_attack.png?v=4',      ATK_SIZE,  5],
+      ['cleric_cast.png?v=5',        WALK_SIZE, 6],
+      ['cleric_npcmale_walk.png',    WALK_SIZE, 6],
+      ['cleric_npcmale_attack.png',  ATK_SIZE,  5],
+      ['cleric_npcmale_cast.png',    WALK_SIZE, 6],
+      ['warrior_walk.png?v=8',       WALK_SIZE, 6],
+    ];
+    const measured = {};
+    for (const [f, size, cols] of sheets) {
+      const key = f.split('?')[0];
+      const m = await page.evaluate((u, c) => window.__sprMeasure(u, 96, c, 3), '/assets/' + f, cols)
+        .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+      measured[key] = m;
+      check('(G2) ' + key + ' が 200 かつ ' + size.w + 'x' + size.h,
+        !m.err && m.w === size.w && m.h === size.h, JSON.stringify({ w: m.w, h: m.h, err: m.err }));
+    }
+    for (const [f, , cols] of sheets) {
+      const key = f.split('?')[0];
+      const m = measured[key];
+      check('(G2) ' + key + ' の row3 に ' + cols + ' コマ実在 (透明コマなし)',
+        !!m && Array.isArray(m.frames) && m.frames.length === cols && m.frames.every(Boolean),
+        m && m.frames && JSON.stringify(m.frames.map(x => !!x)));
+    }
+
+    // ── G3 体高パリティ ─────────────────────────────────────
+    const ww = med(measured['warrior_walk.png']);
+    const fw = med(measured['cleric_walk.png']);
+    const fa = med(measured['cleric_attack.png']);
+    const fc = med(measured['cleric_cast.png']);
+    const mw = med(measured['cleric_npcmale_walk.png']);
+    const ma = med(measured['cleric_npcmale_attack.png']);
+    const mc = med(measured['cleric_npcmale_cast.png']);
+    check('(G3.1) 主人公戦士の体高を実測できている (56px 前後)', ww >= 50 && ww <= 62, ww);
+    check('(G3.2) 正規僧侶の walk 体高が主人公戦士と同値', fw === ww, 'cleric=' + fw + ' warrior=' + ww);
+    check('(G3.3) 変種僧侶の walk 体高も主人公戦士と同値', mw === ww, 'npcmale=' + mw + ' warrior=' + ww);
+    check('(G3.4) 正規: walk->attack の体高変動が ±5% 以内',
+      Math.abs((fa - fw) / fw) < 0.05, ((fa - fw) / fw * 100).toFixed(2) + '%');
+    check('(G3.5) ⭐ 正規: walk->cast の体高変動が ±5% 以内 (差替前は +19% で詠唱時に膨らんでいた)',
+      Math.abs((fc - fw) / fw) < 0.05, ((fc - fw) / fw * 100).toFixed(2) + '%');
+    check('(G3.6) 変種: walk->attack の体高変動が ±5% 以内',
+      Math.abs((ma - mw) / mw) < 0.05, ((ma - mw) / mw * 100).toFixed(2) + '%');
+    check('(G3.7) 変種: walk->cast の体高変動が ±5% 以内',
+      Math.abs((mc - mw) / mw) < 0.05, ((mc - mw) / mw * 100).toFixed(2) + '%');
+    for (const grp of [['正規', 'cleric_walk.png', 'cleric_attack.png', 'cleric_cast.png'],
+                       ['変種', 'cleric_npcmale_walk.png', 'cleric_npcmale_attack.png', 'cleric_npcmale_cast.png']]) {
+      const [tag, w, a, c] = grp;
+      check('(G3.8) ' + tag + ': walk / attack / cast の接地線が 3 枚とも一致 (足が浮かない/沈まない)',
+        Math.abs(maxFeet(measured[w]) - maxFeet(measured[a])) <= 1 &&
+        Math.abs(maxFeet(measured[w]) - maxFeet(measured[c])) <= 1,
+        JSON.stringify([maxFeet(measured[w]), maxFeet(measured[a]), maxFeet(measured[c])]));
+    }
+    check('(G3.9) 全コマがセル内に収まる (足元がセル底を突き抜けない)',
+      Object.values(measured).every(m => m.frames.filter(Boolean).every(f => f.feet <= 95)),
+      JSON.stringify(Object.entries(measured).map(([k, m]) => [k, maxFeet(m)])));
+    const clericKeys = ['cleric_walk.png', 'cleric_attack.png', 'cleric_cast.png',
+                        'cleric_npcmale_walk.png', 'cleric_npcmale_attack.png', 'cleric_npcmale_cast.png'];
+    const xspan = clericKeys.map(k => measured[k].frames.filter(Boolean).map(f => [f.x0, f.x1]));
+    check('(G3.10) 僧侶 6 シートともセル右端で切れていない (x1 <= 95)',
+      xspan.every(fr => fr.every(([, x1]) => x1 <= 95)), JSON.stringify(xspan));
+    check('(G3.11) 僧侶 6 シートともセル左端で切れていない (x0 >= 1)',
+      xspan.every(fr => fr.every(([x0]) => x0 >= 1)), JSON.stringify(xspan));
+
+    // ── G4 重複コマ ─────────────────────────────────────────
+    for (const key of clericKeys) {
+      const sigs = measured[key].frames.filter(Boolean).map(f => f.sig);
+      check('(G4) ' + key + ' の row3 に重複コマなし',
+        sigs.length > 0 && new Set(sigs).size === sigs.length, JSON.stringify(sigs));
+    }
+
+    // ── G5 当たり判定不変 ───────────────────────────────────
+    const hit = await page.evaluate(() => ({
+      disp: (typeof CLASS_DEFS !== 'undefined') ? CLASS_DEFS.cleric.displaySize : null,
+      sprite: (typeof CLASS_DEFS !== 'undefined') ? CLASS_DEFS.cleric.sprite : null,
+      wdisp: (typeof CLASS_DEFS !== 'undefined') ? CLASS_DEFS.warrior.displaySize : null,
+    }));
+    check('(G5.1) CLASS_DEFS.cleric.displaySize が 96 据置 (当たり判定不変)', hit.disp === 96, hit.disp);
+    check('(G5.2) CLASS_DEFS.cleric.sprite も ?v=3 へ bump 済み (取り残しなし)',
+      /cleric_walk\.png\?v=3/.test(hit.sprite || ''), hit.sprite);
+    check('(G5.3) 戦士の displaySize も 96 のまま (回帰なし)', hit.wdisp === 96, hit.wdisp);
+
+    // ── G7 ⭐ cast 流用の証明 ────────────────────────────────
+    // codex1 素材に近接モーションが無いため attack は cast の 6F を [0,1,2,3,5] で間引いたもの。
+    // 「そのつもりだった」ではなく画素シグネチャで実際にそうなっていることを測る。
+    for (const [tag, a, c] of [['正規', 'cleric_attack.png', 'cleric_cast.png'],
+                               ['変種', 'cleric_npcmale_attack.png', 'cleric_npcmale_cast.png']]) {
+      const af = measured[a].frames, cf = measured[c].frames;
+      const okAll = af.length === 5 && cf.length === 6 &&
+        ATTACK_KEYS.every((k, i) => af[i] && cf[k] && af[i].sig === cf[k].sig);
+      check('(G7) ' + tag + ': attack 5 コマが cast の [0,1,2,3,5] と画素一致 (cast 流用が実際に効いている)',
+        okAll, JSON.stringify([af.map(f => f && f.sig), cf.map(f => f && f.sig)]));
+    }
+
+    // ── G8 ⭐ cast の variant 対応 (統合検証) ────────────────
+    // updateAllySprite を偽 ally で直接叩き、詠唱中に **変種ごとに違う** cast シートが
+    // backgroundImage へ入ることを見る。配線 (G1.7) だけでは詠唱分岐の改修が効いた証拠にならない。
+    const castApplied = await page.evaluate(() => {
+      const out = { err: null, urls: [] };
+      try {
+        for (let v = 0; v < 4; v++) {
+          const el = document.createElement('div');
+          el.style.position = 'absolute'; el.style.left = '-9999px';
+          document.body.appendChild(el);
+          const ally = {
+            el, classKey: 'cleric', variant: v, facing: 'right',
+            animTick: 0, _animFrameId: -1, playerMovingThisFrame: false,
+            castAnimActive: true, castAnimStart: performance.now(), castAnimDuration: 999999,
+            x: 0, y: 0, hp: 10, hpMax: 10,
+          };
+          updateAllySprite(ally);
+          out.urls.push(el.style.backgroundImage);
+          el.remove();
+        }
+      } catch (e) { out.err = String(e && e.message || e); }
+      return out;
+    });
+    check('(G8.1) updateAllySprite を偽 ally で駆動できている', !castApplied.err, castApplied.err);
+    check('(G8.2) ⭐ 正規 (variant 0) の詠唱で cleric_cast.png が適用される',
+      /cleric_cast\.png/.test(castApplied.urls[0] || ''), castApplied.urls[0]);
+    check('(G8.3) ⭐ 変種 1-3 の詠唱で cleric_npcmale_cast.png が適用される (正規へ化けない)',
+      [1, 2, 3].every(v => /cleric_npcmale_cast\.png/.test(castApplied.urls[v] || '')),
+      JSON.stringify(castApplied.urls.slice(1)));
+    check('(G8.4) 正規と変種で実際に別 URL が出ている',
+      !!castApplied.urls[0] && castApplied.urls[0] !== castApplied.urls[1],
+      JSON.stringify([castApplied.urls[0], castApplied.urls[1]]));
+
+    // ── N1-N2 負のコントロール (HEAD の生バイトと比較) ──────
+    const headNew = await page.evaluate(async () => {
+      try { await window.__sprMeasure('/__head__/assets/cleric_npcmale_walk.png', 96, 6, 3); return 'loaded'; }
+      catch (e) { return 'missing'; }
+    });
+    check('(N1) HEAD に cleric_npcmale_walk.png は存在しない (新規追加である証明)',
+      headNew === 'missing', headNew);
+
+    const headIdx = headBytes('index.html');
+    const headVarLines = headIdx
+      ? String(headIdx).split('\n').filter(l => /cleric_(elder|priestess|war)_walk\.png/.test(l))
+      : [];
+    check('(N2.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
+    check('(N2.2) HEAD の僧侶変種 3 行は旧 chibi を指す (差分が実在する)',
+      headVarLines.length === 3, headVarLines.length + ' 行');
+    check('(N2.3) 作業ツリーでは旧 chibi 参照が消えている',
+      !wire.sets.some(s => /cleric_(elder|priestess|war)_/.test(s.walk + s.attack + (s.cast || ''))),
+      JSON.stringify(wire.sets.map(s => s.walk)));
+    const headCastLine = headIdx
+      ? String(headIdx).split('\n').filter(l => /setAllySpriteSheet\(ally,\s*CLERIC_CAST_URL/.test(l)) : [];
+    check('(N2.4) ⭐ HEAD では cast が variant 非対応 (CLERIC_CAST_URL 直参照) だった',
+      headCastLine.length >= 1, headCastLine.length + ' 行');
+
+    // ── N4 ⭐ 「変えた」ことの正の assert (正規は同名上書き) ──
+    const headCleric = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_walk.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    check('(N4.1) HEAD の cleric_walk.png を配信できている (対照群が空振りでない)',
+      !headCleric.err && headCleric.w === 576, JSON.stringify({ w: headCleric.w, err: headCleric.err }));
+    check('(N4.2) ⭐ 正規シートは HEAD と画素シグネチャが全コマ相違 = 同名上書きが本当に効いている',
+      !!headCleric.frames && headCleric.frames.length === 6 &&
+      headCleric.frames.every((f, i) => f && measured['cleric_walk.png'].frames[i] &&
+                                        f.sig !== measured['cleric_walk.png'].frames[i].sig),
+      JSON.stringify([headCleric.frames && headCleric.frames.map(f => f && f.sig),
+                      measured['cleric_walk.png'].frames.map(f => f && f.sig)]));
+    check('(N4.3) HEAD の僧侶は 58px だった (今回 56px へ揃えた差分が実在する)',
+      med(headCleric) === 58 && fw === 56, 'HEAD=' + med(headCleric) + ' NOW=' + fw);
+    const headCast = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_cast.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    check('(N4.4) ⭐ HEAD の cast は walk より 15% 以上大きかった (詠唱時に膨らむ既存不揃いの実在証明)',
+      !headCast.err && (med(headCast) - med(headCleric)) / med(headCleric) > 0.15,
+      'HEAD cast=' + med(headCast) + ' HEAD walk=' + med(headCleric));
+
+    // ── N5 ⭐ 「変えていない」ことの正の assert ──────────────
+    // 台帳 --all の再パックで他職 (戦士) が巻き添えになっていないかを画素で見る。
+    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__head__/assets/warrior_walk.png', 96, 6, 3))
+      .catch(e => ({ err: String(e && e.message || e), frames: [] }));
+    check('(N5.1) HEAD の warrior_walk.png を配信できている', !headWarrior.err && headWarrior.w === 576,
+      JSON.stringify({ w: headWarrior.w, err: headWarrior.err }));
+    check('(N5.2) ⭐ 戦士シートは HEAD と画素シグネチャが全コマ一致 = --all 再パックの巻き添えなし',
+      !!headWarrior.frames && headWarrior.frames.length === 6 &&
+      headWarrior.frames.every((f, i) => f && measured['warrior_walk.png'].frames[i] &&
+                                         f.sig === measured['warrior_walk.png'].frames[i].sig),
+      JSON.stringify([headWarrior.frames && headWarrior.frames.map(f => f && f.sig),
+                      measured['warrior_walk.png'].frames.map(f => f && f.sig)]));
+
+    await page.close();
+  }
+
+  // ═══════════ tavern.html ═══════════
+  {
+    const page = await browser.newPage();
+    page.on('pageerror', e => allPageErrors.push(String(e && e.message || e)));
+    await page.goto(base + '/tavern.html', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof PARTY_PORTRAIT_SPRITES !== 'undefined', { timeout: 20000 });
+
+    const port = await page.evaluate(() => {
+      const lens = {};
+      for (const k of Object.keys(PARTY_PORTRAIT_SPRITES)) lens[k] = PARTY_PORTRAIT_SPRITES[k].length;
+      return {
+        cleric: PARTY_PORTRAIT_SPRITES.cleric.slice(),
+        warrior: PARTY_PORTRAIT_SPRITES.warrior.slice(),
+        rogue: PARTY_PORTRAIT_SPRITES.rogue.slice(),
+        lens,
+        vcount: (typeof VARIANT_COUNT !== 'undefined') ? VARIANT_COUNT.cleric : null,
+      };
+    });
+    check('(G6.1) PARTY_PORTRAIT_SPRITES.cleric が 4 要素 (VARIANT_COUNT と整合)',
+      port.cleric.length === 4 && port.vcount === 4, JSON.stringify([port.cleric.length, port.vcount]));
+    check('(G6.2) 他 5 職の要素数 4 も維持 (回帰なし)',
+      ['warrior', 'dwarf', 'mage', 'elf', 'rogue'].every(k => port.lens[k] === 4), JSON.stringify(port.lens));
+    check('(G6.3) cleric[0] が cleric_walk.png (正規)',
+      port.cleric[0] === 'assets/cleric_walk.png', port.cleric[0]);
+    check('(G6.4) cleric[1..3] が cleric_npcmale_walk.png を共有',
+      port.cleric.slice(1).every(u => u === 'assets/cleric_npcmale_walk.png'),
+      JSON.stringify(port.cleric.slice(1)));
+    check('(G6.5) ポートレートは ?v= を付けない (明文ルール)',
+      port.cleric.every(u => !/\?/.test(u)), JSON.stringify(port.cleric));
+    check('(G6.6) 直前の差替 (戦士 / 盗賊) が回帰していない',
+      port.warrior[0] === 'assets/warrior_walk.png'
+        && port.warrior.slice(1).every(u => u === 'assets/warrior_npcfemale_walk.png')
+        && port.rogue[0] === 'assets/rogue_walk.png'
+        && port.rogue.slice(1).every(u => u === 'assets/rogue_male_walk.png'),
+      JSON.stringify([port.warrior, port.rogue]));
+    const loaded = await page.evaluate(async (urls) => {
+      const r = [];
+      for (const u of urls) {
+        r.push(await new Promise(res => {
+          const i = new Image();
+          i.onload = () => res({ u, ok: i.naturalWidth === 576 && i.naturalHeight === 384 });
+          i.onerror = () => res({ u, ok: false });
+          i.src = '/' + u;
+        }));
+      }
+      return r;
+    }, port.cleric);
+    check('(G6.7) cleric のポートレート 4 URL がすべて 200 かつ 576x384',
+      loaded.every(x => x.ok), JSON.stringify(loaded));
+
+    // ── N3 負のコントロール (HEAD の tavern) ────────────────
+    const headTav = headBytes('tavern.html');
+    const headLine = headTav ? String(headTav).split('\n').find(l => /cleric:\s*\["assets\/cleric_walk/.test(l)) : null;
+    check('(N3.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(cleric 行なし)' : '(git show 失敗)');
+    check('(N3.2) HEAD の cleric ポートレートは旧 chibi を指す (差分が実在する)',
+      !!headLine && /cleric_elder_walk\.png/.test(headLine) && /cleric_war_walk\.png/.test(headLine),
+      (headLine || '').trim().slice(0, 140));
+    check('(N3.3) 作業ツリーでは旧 chibi 参照が消えている',
+      !port.cleric.some(u => /cleric_(elder|priestess|war)_/.test(u)), JSON.stringify(port.cleric));
+
+    await page.close();
+  }
+
+  await browser.close();
+  srv.close();
+  try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) {}
+
+  const realErrs = allPageErrors.filter(m => !/Failed to load resource|favicon|decodeAudioData|Unable to decode/i.test(m));
+  check('(Z) pageerror ゼロ', realErrs.length === 0, realErrs.slice(0, 3).join(' | '));
+
+  const passed = results.filter(r => r.ok).length;
+  const total  = results.length;
+  console.log('\n[driver] ROOT=' + ROOT);
+  console.log('[driver] RESULT: ' + passed + '/' + total + ' passed');
+  if (passed !== total) console.log('[driver] FAILED: ' + results.filter(r => !r.ok).map(r => r.name).join(' | '));
+  process.exit(passed === total ? 0 : 1);
+})().catch(e => { console.error('[driver] FATAL', e); process.exit(3); });

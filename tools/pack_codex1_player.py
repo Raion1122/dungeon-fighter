@@ -12,6 +12,12 @@
 ATTACK_KEYS = [0, 1, 2, 3, 5] は source_images/_extract_warrior_variants.py と同一。
 6 コマ目 (= 出力 col 4) は「構え」に戻ったコマなので、そのままガードポーズに使える。
 
+cast (詠唱) シートは任意の 3 枚目。ジオメトリは **walk と同じ 6F / 576×384** で、
+エンジンは `Math.min(5, Math.floor(progress * 6))` で引く (index.html updateAllySprite)。
+cast_dir を省くと attack_dir を流用する = 「近接モーションが素材に無く、attack 側も詠唱の
+絵で代用している」ケース (僧侶)。スケール・アンカー・接地線は walk/attack と完全に共有
+するので、歩き→詠唱で体の大きさも立ち位置も動かない。
+
 使い方:
   py tools/pack_codex1_player.py --all                        # 台帳の format:"player" 全件
   py tools/pack_codex1_player.py ironvale-vanguard \
@@ -61,7 +67,7 @@ def build_player_sheet(frames, cell, out_path):
 def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
                 bottom_pad_ratio=0.05, center_mode="feet", attack_scale=1.0,
                 walk_dir=None, attack_dir=None, scale_from="walk",
-                attack_layout_scale=None):
+                attack_layout_scale=None, cast_out=None, cast_dir=None):
     wdir, adir = resolve_dirs(key, codex1_root, walk_dir, attack_dir)
     walk = _load_frames(wdir, cols)
     attack = _load_frames(adir, cols) if adir else []
@@ -71,6 +77,14 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     if not attack:
         print(f"  ! attack frames not found under {adir}", file=sys.stderr)
         return False
+    # 詠唱シート (任意)。cast_dir 省略時は attack_dir を流用する。
+    cast, cdir = [], None
+    if cast_out:
+        cdir = resolve_dirs(key, codex1_root, cast_dir or attack_dir, None)[0]
+        cast = _load_frames(cdir, cols)
+        if not cast:
+            print(f"  ! cast frames not found under {cdir}", file=sys.stderr)
+            return False
     # attack_scale="auto" の体高比は **出力に載る 5 コマ** で測る (間引いた 6 コマ目を
     # 混ぜると、検証側 check_attack_scale.py が見る母集団とズレる)。
     render_scale = resolve_attack_scale(attack_scale, walk,
@@ -79,6 +93,9 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     attack_layout = _prescale(attack, layout_scale)
     attack = (attack_layout if abs(render_scale - layout_scale) < 1e-9
               else _prescale(attack, render_scale))
+    # cast は attack と同じ素材由来 (cast_dir 省略時) なので同じ描画倍率を掛ける。
+    # 掛けないと attack だけ auto 補正され、詠唱の瞬間に体が一段跳ねる。
+    cast = _prescale(cast, render_scale)
 
     # -matched 素材は「体」の高さだけを揃えており bbox は揃っていない。walk 基準で
     # スケールを決めないと、剣を振り上げるコマに引っ張られて本体が縮む。
@@ -96,12 +113,13 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
                         scale, cell, center_mode)
     scale_note = (f"attack_scale={render_scale:.4f}(auto, layout={layout_scale:g})"
                   if isinstance(attack_scale, str) else f"attack_scale={render_scale:g}")
-    print(f"  {key}: walk={len(walk)}F attack={len(attack)}F -> {len(ATTACK_KEYS)}F "
+    cast_note = f" cast={len(cast)}F" if cast else ""
+    print(f"  {key}: walk={len(walk)}F attack={len(attack)}F -> {len(ATTACK_KEYS)}F{cast_note} "
           f"H_max({scale_from})={h_max}px scale={scale:.4f} char_ratio={char_ratio:.4f} "
           f"target_feet={target_feet} center={center_mode} anchor_x={anchor:.1f} "
           f"{scale_note}")
 
-    _warn_if_clipped(frames, scale, cell, center_mode, target_feet, anchor)
+    _warn_if_clipped(frames + cast, scale, cell, center_mode, target_feet, anchor)
 
     build_player_sheet(
         [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in walk],
@@ -109,11 +127,17 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     build_player_sheet(
         [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in attack_sel],
         cell, attack_out)
+    if cast_out:
+        build_player_sheet(
+            [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in cast],
+            cell, cast_out)
     return True
 
 
 def pack_from_ledger(entry, codex1_root, out_dir):
-    print(f"--- pack codex1 {entry['key']} -> {entry['out']} + {entry['attack_out']} ---")
+    cast_out = entry.get("cast_out")
+    outs = f"{entry['out']} + {entry['attack_out']}" + (f" + {cast_out}" if cast_out else "")
+    print(f"--- pack codex1 {entry['key']} -> {outs} ---")
     return pack_player(
         entry["key"],
         os.path.join(out_dir, entry["out"]),
@@ -125,6 +149,8 @@ def pack_from_ledger(entry, codex1_root, out_dir):
         entry.get("walk_dir"), entry.get("attack_dir"),
         entry.get("scale_from", "walk"),
         entry.get("attack_layout_scale"),
+        os.path.join(out_dir, cast_out) if cast_out else None,
+        entry.get("cast_dir"),
     )
 
 
@@ -137,9 +163,13 @@ def main():
                     help="--all の出力ルート (既定=リポジトリルート)")
     ap.add_argument("--walk-out", default=None)
     ap.add_argument("--attack-out", default=None)
+    ap.add_argument("--cast-out", default=None,
+                    help="詠唱シート (6F/576×384) の出力先。省略時は出力しない")
     ap.add_argument("--codex1-root", default=DEFAULT_CODEX1_ROOT)
     ap.add_argument("--walk-dir", default=None)
     ap.add_argument("--attack-dir", default=None)
+    ap.add_argument("--cast-dir", default=None,
+                    help="詠唱フレーム置場 (省略時は --attack-dir を流用)")
     ap.add_argument("--cell", type=int, default=96)
     ap.add_argument("--cols", type=int, default=6)
     ap.add_argument("--char-ratio", type=float, default=0.60,
@@ -177,11 +207,13 @@ def main():
         print(f"  match-current: {args.match_current} walk H_max={cur_h}px cell={cur_cell} "
               f"-> char_ratio={ratio:.4f}")
 
-    print(f"--- pack codex1 {args.key} -> {args.walk_out} + {args.attack_out} ---")
+    outs = f"{args.walk_out} + {args.attack_out}" + (f" + {args.cast_out}" if args.cast_out else "")
+    print(f"--- pack codex1 {args.key} -> {outs} ---")
     ok = pack_player(args.key, args.walk_out, args.attack_out, args.codex1_root,
                      args.cell, args.cols, char_ratio, args.bottom_pad_ratio,
                      args.center, args.attack_scale, args.walk_dir, args.attack_dir,
-                     args.scale_from, args.attack_layout_scale)
+                     args.scale_from, args.attack_layout_scale,
+                     args.cast_out, args.cast_dir)
     sys.exit(0 if ok else 1)
 
 

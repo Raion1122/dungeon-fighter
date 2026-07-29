@@ -3776,7 +3776,7 @@
                  guard: WARRIOR_GUARD },
       dwarf:   { walk: 'url("assets/dwarf_walk.png?v=5")',   attack: 'url("assets/dwarf_attack.png?v=5")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
-      cleric:  { walk: 'url("assets/cleric_walk.png")',  attack: 'url("assets/cleric_attack.png?v=3")',
+      cleric:  { walk: 'url("assets/cleric_walk.png?v=3")',  attack: 'url("assets/cleric_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       mage:    { walk: 'url("assets/mage_walk.png?v=4")',    attack: 'url("assets/mage_attack.png?v=4")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
@@ -11350,9 +11350,9 @@
     const DWARF_WALK_SIZE  = "576px 384px";
     const DWARF_ATTACK_URL = 'url("assets/dwarf_attack.png?v=5")';
     const DWARF_ATTACK_SIZE = "480px 384px";
-    const CLERIC_WALK_URL   = 'url("assets/cleric_walk.png?v=2")';
+    const CLERIC_WALK_URL   = 'url("assets/cleric_walk.png?v=3")';
     const CLERIC_WALK_SIZE  = "576px 384px";
-    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=3")';
+    const CLERIC_ATTACK_URL = 'url("assets/cleric_attack.png?v=4")';
     const CLERIC_ATTACK_SIZE = "480px 384px";
     const MAGE_WALK_URL     = 'url("assets/mage_walk.png?v=4")';
     const MAGE_WALK_SIZE    = "576px 384px";
@@ -11366,8 +11366,10 @@
     const ROGUE_WALK_SIZE   = "576px 384px";
     const ROGUE_ATTACK_URL  = 'url("assets/rogue_attack.png?v=3")';
     const ROGUE_ATTACK_SIZE = "480px 384px";
-    const CLERIC_CAST_URL   = 'url("assets/cleric_cast.png?v=4")';
+    const CLERIC_CAST_URL   = 'url("assets/cleric_cast.png?v=5")';
     const CLERIC_CAST_SIZE  = "576px 384px";
+    // 男性僧侶 (NPC 変種 index 1-3 が共有) の詠唱シート。新規ファイル名なので ?v= 不要。
+    const CLERIC_NPCMALE_CAST_URL = 'url("assets/cleric_npcmale_cast.png")';
     // キャストシートを持つクラス (現状は僧侶のみ、魔法使い追加時に拡張)
     const CAST_SHEET_CLASSES = new Set(["cleric"]);
     function setAllySpriteSheet(ally, url, size) {
@@ -11411,10 +11413,26 @@
         { walk: 'url("assets/dwarf_warrior_walk.png?v=4")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=4")', attackSize: "480px 384px", label: "ルーンスミス" },
       ],
       cleric: [
-        { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE, label: "標準" },
-        { walk: 'url("assets/cleric_elder_walk.png")',     walkSize: "576px 384px", attack: 'url("assets/cleric_elder_attack.png")',     attackSize: "480px 384px", label: "老神官" },
-        { walk: 'url("assets/cleric_priestess_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_priestess_attack.png")', attackSize: "480px 384px", label: "女神官" },
-        { walk: 'url("assets/cleric_war_walk.png")',       walkSize: "576px 384px", attack: 'url("assets/cleric_war_attack.png")',       attackSize: "480px 384px", label: "戦僧" },
+        // ⭐ 僧侶だけが 3 枚目 (cast = 詠唱シート 6F/576×384) を持つ。cast は変種ごとに別素材なので
+        //   ここで持たせる (以前は CLERIC_CAST_URL 1 枚を全変種が共有しており、変種の僧侶が呪文を
+        //   唱えた瞬間だけ正規の姿に化けていた)。cast を省いたクラス/変種は従来どおり歩行シートの
+        //   まま = updateAllySprite 側でフォールバックする。
+        { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE,
+          cast: CLERIC_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "標準" },
+        // 変種 1-3 は codex1 "npc-male-cleric" (v1b) 1 枚を共有する (2026-07-29 差替。旧 chibi 3 種は
+        // assets/cleric_{elder,priestess,war}_* に残置)。dwarf / mage / rogue / warrior と同じ扱い =
+        // label はどこからも読まれない内部識別子なので、将来 codex1 側で別デザインが出たら該当行の
+        // url だけ差し替えれば再び 3 種に割れる。
+        // ⚠ codex1 素材に近接攻撃モーションが無いため attack は cast (詠唱) の 5F 間引きで代用中。
+        //   メイスを振る素材が納品されたら台帳の attack_dir を差し替えて --all するだけで直る。
+        // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
+        //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+          cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "老神官" },
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+          cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "女神官" },
+        { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png")', attackSize: "480px 384px",
+          cast: CLERIC_NPCMALE_CAST_URL, castSize: CLERIC_CAST_SIZE, label: "戦僧" },
       ],
       mage: [
         { walk: MAGE_WALK_URL, walkSize: MAGE_WALK_SIZE, attack: MAGE_ATTACK_URL, attackSize: MAGE_ATTACK_SIZE, label: "標準" },
@@ -11515,7 +11533,11 @@
         } else {
           const progress = Math.min(1, elapsed / ally.castAnimDuration);
           const frame = Math.min(5, Math.floor(progress * 6));
-          if (ck === "cleric") setAllySpriteSheet(ally, CLERIC_CAST_URL, CLERIC_CAST_SIZE);
+          // 変種ごとの cast シートを引く。持たない変種は正規の cast へフォールバックする
+          // (= 改修前の挙動)。これを入れる前は変種の僧侶が詠唱した瞬間だけ正規の姿に化けていた。
+          const ssC = getSpriteSet(ck, ally.variant || 0);
+          if (ssC && ssC.cast) setAllySpriteSheet(ally, ssC.cast, ssC.castSize || CLERIC_CAST_SIZE);
+          else if (ck === "cleric") setAllySpriteSheet(ally, CLERIC_CAST_URL, CLERIC_CAST_SIZE);
           ally.el.style.backgroundPosition = `${-frame * 96}px ${-row * 96}px`;
           ally.playerMovingThisFrame = false;
           return;
@@ -16001,7 +16023,7 @@
       cleric: {
         name: "僧侶",
         flavor: "神の加護を授ける聖職者",
-        sprite: "assets/cleric_walk.png?v=1",  // 専用歩行シート (右向き6F)
+        sprite: "assets/cleric_walk.png?v=3",  // 専用歩行シート (右向き6F)
         displaySize: 96,
         hpMax: 25,
         mpMax: 12,
