@@ -11394,9 +11394,13 @@
         // 変種 1-3 は codex1 "ドワーウォリアー" 1 枚を共有する (2026-07-28 差替。旧 chibi 3 種は
         // assets/dwarf_{berserker,shield,rune}_* に残置)。label はどこからも読まれない内部識別子
         // なので、将来 codex1 側で別デザインが出たら該当行の url だけ差し替えれば再び 3 種に割れる。
-        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=2")', attackSize: "480px 384px", label: "バーサーカー" },
-        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=2")', attackSize: "480px 384px", label: "盾の守り手" },
-        { walk: 'url("assets/dwarf_warrior_walk.png")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=2")', attackSize: "480px 384px", label: "ルーンスミス" },
+        // 2026-07-29: black-spiky 系 (walk=v8 / attack=v10b) へ再差替。今回は **walk シートもバイトが
+        // 変わった** ので walk にも ?v= を付けた (前回は walk 不変だったので attack だけ ?v=2 だった)。
+        // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する (あちらは
+        //   「?v= を付けない」が明文ルール = tavern.html の該当コメント参照)。差替時は両方を見ること。
+        { walk: 'url("assets/dwarf_warrior_walk.png?v=3")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=3")', attackSize: "480px 384px", label: "バーサーカー" },
+        { walk: 'url("assets/dwarf_warrior_walk.png?v=3")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=3")', attackSize: "480px 384px", label: "盾の守り手" },
+        { walk: 'url("assets/dwarf_warrior_walk.png?v=3")', walkSize: "576px 384px", attack: 'url("assets/dwarf_warrior_attack.png?v=3")', attackSize: "480px 384px", label: "ルーンスミス" },
       ],
       cleric: [
         { walk: CLERIC_WALK_URL, walkSize: CLERIC_WALK_SIZE, attack: CLERIC_ATTACK_URL, attackSize: CLERIC_ATTACK_SIZE, label: "標準" },
