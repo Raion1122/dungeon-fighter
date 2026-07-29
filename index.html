@@ -3782,7 +3782,7 @@
                  walkSize: "576px 384px", attackSize: "480px 384px" },
       elf:     { walk: 'url("assets/elf_walk.png")',     attack: 'url("assets/elf_attack.png")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
-      rogue:   { walk: 'url("assets/rogue_walk.png")',   attack: 'url("assets/rogue_attack.png")',
+      rogue:   { walk: 'url("assets/rogue_walk.png?v=3")',   attack: 'url("assets/rogue_attack.png?v=3")',
                  walkSize: "576px 384px", attackSize: "480px 384px" },
     };
     // パーティ編成 (sessionStorage 経由) の先頭がリーダー = プレイヤーキャラ
@@ -11362,9 +11362,9 @@
     const ELF_WALK_SIZE     = "576px 384px";
     const ELF_ATTACK_URL    = 'url("assets/elf_attack.png?v=3")';
     const ELF_ATTACK_SIZE   = "480px 384px";
-    const ROGUE_WALK_URL    = 'url("assets/rogue_walk.png?v=2")';
+    const ROGUE_WALK_URL    = 'url("assets/rogue_walk.png?v=3")';
     const ROGUE_WALK_SIZE   = "576px 384px";
-    const ROGUE_ATTACK_URL  = 'url("assets/rogue_attack.png?v=2")';
+    const ROGUE_ATTACK_URL  = 'url("assets/rogue_attack.png?v=3")';
     const ROGUE_ATTACK_SIZE = "480px 384px";
     const CLERIC_CAST_URL   = 'url("assets/cleric_cast.png?v=4")';
     const CLERIC_CAST_SIZE  = "576px 384px";
@@ -11424,9 +11424,15 @@
       ],
       rogue: [
         { walk: ROGUE_WALK_URL, walkSize: ROGUE_WALK_SIZE, attack: ROGUE_ATTACK_URL, attackSize: ROGUE_ATTACK_SIZE, label: "標準" },
-        { walk: 'url("assets/rogue_assassin_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_assassin_attack.png")', attackSize: "480px 384px", label: "アサシン" },
-        { walk: 'url("assets/rogue_acrobat_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/rogue_acrobat_attack.png")',  attackSize: "480px 384px", label: "軽業師" },
-        { walk: 'url("assets/rogue_scout_walk.png")',    walkSize: "576px 384px", attack: 'url("assets/rogue_scout_attack.png")',    attackSize: "480px 384px", label: "影の斥候" },
+        // 変種 1-3 は codex1 "male-thief" 1 枚を共有する (2026-07-29 差替。旧 chibi 3 種は
+        // assets/rogue_{assassin,acrobat,scout}_* に残置)。dwarf / mage と同じ扱い = label は
+        // どこからも読まれない内部識別子なので、将来 codex1 側で別デザインが出たら該当行の
+        // url だけ差し替えれば再び 3 種に割れる。
+        // ⚠ tavern.html の PARTY_PORTRAIT_SPRITES は同じ PNG を **素パス** で参照する
+        //   (あちらは「?v= を付けない」が明文ルール)。差替時は両方を見ること。
+        { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "アサシン" },
+        { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "軽業師" },
+        { walk: 'url("assets/rogue_male_walk.png")', walkSize: "576px 384px", attack: 'url("assets/rogue_male_attack.png")', attackSize: "480px 384px", label: "影の斥候" },
       ],
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
       golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png?v=2")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
@@ -16041,7 +16047,7 @@
       rogue: {
         name: "盗賊",
         flavor: "影と機転を武器にする無頼の徒",
-        sprite: "assets/rogue_walk.png?v=2",
+        sprite: "assets/rogue_walk.png?v=3",
         displaySize: 96,
         hpMax: 22,
         mpMax: 0,

@@ -261,6 +261,25 @@
       "walk_dir": "wizard/wizard-walk-right-6-v1",
       "attack_dir": "wizard/wizard-cast-right-6-v1-matched",
       "note": "仲間 NPC 魔法使いの変種 index 1-3 (老魔術師/紅の魔道士/黒衣の魔道士) が共有する 1 枚 (2026-07-28 差替)。灰髭 + 青ローブ(赤い裏地) + 青く光る水晶の杖の初老の男性魔術師。変種 0 の sorceress (若い女性) とは明確に別人なので変種として成立する。⚠️ 攻撃は attack でなく cast (sorceress / lizardPriest と同型)。⚠️ walk と cast が同一人物であることを sheet.png 2枚並べて事前確認済み — 同じ日に差し替えた dwarf-warrior の -v2-widematch が別人だったので、以後この目視を必須手順にする。char_ratio は sorceress と同じ 0.6146 をそのまま採用してよい稀なケース: 素材の walk H_max は違う (sorceress 500 / wizard 455) が、出力の体高はどちらも 58px で現行 mage 4枚 (主人公 58 / 老 58 / 紅 58 / 黒衣 58) と一致する。杖の突き出しは bbox 456 に対し体 438 = 4% と軽微 (dwarf-warrior の槍 16% と違い bbox 基準でもほぼ壊れないが、念のため体基準で検算し 0.6183/0.6150/0.6146 のいずれも体 58px になることを確認した)。cast の bbox H_max(460) は walk(455) とよく揃っており scale_from=walk で縮まない。cast は呪文を前へ突き出すコマの幅が 392px と広いが出力 48px で横クリップなし (fit: left=32 right=82 top=31 / cell=96)。displaySize 96 据置=当たり判定不変"
+    },
+    {
+      "key": "female-thief", "out": "assets/rogue_walk.png",
+      "attack_out": "assets/rogue_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6026, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "female-thief/female-thief-walk-right-6",
+      "attack_dir": "female-thief/female-thief-attack-right-6-matched",
+      "note": "盗賊 正規シート (主人公 + NPC 変種 index 0)。2026-07-29 差替。黒髪ポニーテール + えんじのマント/スカーフ + 茶革鎧 + 短剣の女盗賊。旧 chibi (赤フード双短剣) と色味が地続きなので置換の違和感が小さい。⚠️ char_ratio に --match-current の実測を使ってはいけない: 現行 chibi rogue は大頭 + 赤フードで体高が水増しされており実測 66.5/96 = 0.6927。そのまま焼くと出力 66px = 主人公戦士 56px より 19% 大きい別頭身になる (sorceress の『とんがり帽子で 14px かさ上げ』と同型の罠)。体基準で逆算した: 素材 walk bodyH max=477 / median=470 (max 比 0.9853) なので目標 median 56px には max 57.85px = char_ratio 0.6026。出力実測は walk median 56.0px で主人公戦士 (warrior 56.0) と一致し、mage 57 / cleric 58 の human 帯に収まる。⚠️ そもそも .ally 要素は createAllyDom が全職 96x96 固定で作るので、char_ratio は当たり判定に一切影響しない純粋な見た目パラメータ。旧 66.5px を保存する義理はなく、パーティの頭身統一を優先してよい (敵シートの displaySize とは前提が違う)。attack_scale=auto: 素材の attack は踏み込みで沈む姿勢のため 1.0 だと delta -7.14% で WARN。auto (1.0645) で -1.79% に収まる。walk と attack が同一人物であることを sheet.png 2 枚を並べて事前確認済み。素材フレーム md5 は walk 6/6・attack 6/6 とも全て異なる (重複コマ 0)。接地線は walk bottom=619 (frame-01 のみ 616) / attack bottom=619 で一致。fit: left=31 right=84 top=28 (cell=96) でクリップなし"
+    },
+    {
+      "key": "male-thief", "out": "assets/rogue_male_walk.png",
+      "attack_out": "assets/rogue_male_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5968, "scale_from": "walk", "center": "feet",
+      "walk_dir": "male-thief/male-thief-walk-right-6",
+      "attack_dir": "male-thief/male-thief-attack-right-6-matched",
+      "note": "仲間 NPC 盗賊の変種 index 1-3 (アサシン/軽業師/影の斥候) が共有する 1 枚 (2026-07-29 新設)。フード + オリーブ色のボロマント + 革ベルト + 曲刀の男盗賊で、変種 0 の female-thief (黒髪ポニーテール + えんじマント) とは明確に別人なので変種として成立する。dwarf-warrior / wizard と同じ『変種 3 枠を 1 枚で共有』構成。char_ratio 0.5968 = 素材 walk bodyH max=403 / median=401 (max 比 0.995) から目標 median 56px を逆算。出力実測 walk median 56.0px で female-thief と同値。attack_scale は 1.0 のまま: 素材の delta が -1.79% と閾値 (±5%) 内なので auto は不要 (auto を入れると必要のない拡大でクリップ余裕を食う)。walk と attack が同一人物であることを sheet.png 2 枚を並べて事前確認済み。素材フレーム md5 は walk 6/6・attack 6/6 とも全て異なる (重複コマ 0)。⚠️ fit: left=26 right=89 top=33 (cell=96) — 右余白が 7px しかない (frame-04 で曲刀を前へ突き出すコマ)。素材を差し替える時はここが最初に壊れるので right を必ず見ること"
     }
   ]
 }
