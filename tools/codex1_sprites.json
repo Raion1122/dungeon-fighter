@@ -209,6 +209,14 @@
       "attack_dir": "gargoyle/gargoyle-attack-right-6-matched",
       "note": "Sce4 隠し要素の新規敵『ガーゴイル』(2026-07-28 新設。守護者の取り巻き animatedArmor 2 体を置換)。stoneLegionary と同じく差替でなく新設なので --match-current の実測対象が無く、char_ratio は『画面上の身長 = char_ratio x displaySize』から逆算した。目標 62px / displaySize 80 → 62/80 = 0.775 をそのまま採用。同一手法の実測 (walk 行 bbox H_max / cell x displaySize) は 動く鎧 47.1 / オーク兵 48.3 / ガーゴイル 61.7 / 石の軍団兵 74.0 / ストーンゴーレム 79.1 / ミノタウロス 85.6 px なので、動く鎧より明確に大きく軍団兵より一回り小さい中間に着地した。⚠️ この素材は bbox 74px に対し体 69px = かさ上げ 7% しかないので (翼と角は『体』に含まれる = hydra の首と同じ扱い)、dwarf-warrior の槍 (16%) のような体基準の逆算は不要で bbox 基準の逆算をそのまま焼ける。⚠️ center=feet では attack frame4 の斬撃エフェクトが右へ 7px はみ出して切れる (CLIP WARNING: right=103 / cell=96) → pharaxus / hydra / stoneLegionary と同じ feet-fit で足元基準のまま一律オフセット (anchor_x 48→36.9) を掛けて詰めた。結果 fit: left=4 right=92 top=12 / cell=96 でクリップ無し。和集合の幅が 88px とセルに収まるので attack_scale による縮小は不要 (= 本体を小人化させずに済んだ)。⚠️ attack は -matched を使う (無印の -attack-right-6 も存在する)。walk / attack が同一個体 (灰色の石肌 + 同じ翼形 + 角 + 尾) であることを sheet.png 目視で事前確認済み = wizard で必須化した手順どおり。分身チェック clean"
     },
+    {
+      "key": "garrock", "out": "assets/garrock_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.58785, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "orc-chieftain/orc-chieftain-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "orc-chieftain/orc-chieftain-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "Sce4 ボス オーク将軍ガロック (2026-07-29 差替)。codex1 が『基準コマ統一 + %フレーミング』の新テンプレ (tools/sprite_batches/README_scale_rules.md) で描き直した第3陣素材の第1号。⚠ 第3陣は walk と attack を同一ディレクトリ (…-walk-attack-right-6-aligned) に出すので walk_dir / attack_dir に **glob パターン** を直接書いて分離する (ディレクトリを渡すと 12 枚拾って弾かれる)。素材段階の実測で既に walk 体高 median 506.5 / attack 492.5 = -2.76% と WARN 閾値内 (旧素材は -33%〜+23%)、接地線も全 12 コマで bbox 下端 626〜627 に一致。残りは attack_scale=auto が打ち消す。char_ratio は bbox 実測 (--match-current 相当 = 116/192 = 0.604167) ではなく **体基準の逆算** を採用: 現行シートのかさ上げ (bbox 116 / 体 103.5 = 1.121) と新素材のかさ上げ (547 / 506.5 = 1.080) が 3.8% ずれており、bbox 実測をそのまま焼くと体が 3.8% 伸びる。解析解 0.58217 = 103.5 x 547 / (506.5 x 192) は出力実測で体 102.5px (目標 103.5 に -1px) だったので、出力実測で 1 回校正して 0.58785 (= 0.58217 x 103.5/102.5) を焼き込んだ。displaySize 120 据置 = 当たり判定不変、画面上の体高も 64.7px で不変。⚠ 現行 garrock は画面上 64.7px とミノタウロス (76.4px) より小さい『ボスなのに小柄』だが差替前からの性質なので据え置いた (大きくするなら char_ratio を上げる)"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",

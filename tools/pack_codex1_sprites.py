@@ -73,14 +73,28 @@ DEFAULT_CODEX1_ROOT = r"C:\Users\PC_User\Desktop\codex1\assets"
 ALPHA_THR = 64
 
 
+def _frame_glob(spec):
+    """フレーム指定 (ディレクトリ or glob パターン) を glob パターンへ正規化する。
+
+    basename に "*" を含めば spec 自体をパターンとして扱い、含まなければ従来どおり
+    <dir>/*frame-*.png を組み立てる。glob の "*" は区切り文字を跨がないので、
+    パターンは basename だけに掛かる。
+    """
+    return spec if "*" in os.path.basename(spec) else os.path.join(spec, "*frame-*.png")
+
+
 def _load_frames(action_dir, n_frames=6):
     """<dir>/*frame-NN.png を RGBA で読み込む。見つからなければ空リスト。
 
     第2陣の素材はフレーム名が 4 通り (-safe- / -v2-safe- / -matched-safe- /
     -large-matched-safe-) あるため、名前を組み立てず glob で拾う。同ディレクトリの
     -source / -transparent / -sheet / -size-check は "frame-" を含まないので除外される。
+
+    第3陣 (…-walk-attack-right-6-aligned) は walk と attack を **同一ディレクトリ** に
+    出すので、ディレクトリを渡すと 12 枚見つかって弾かれる。この形式は台帳側で
+    "<dir>/*walk*frame-*.png" のように glob パターンを直接書いて分離する。
     """
-    paths = sorted(glob.glob(os.path.join(action_dir, "*frame-*.png")))
+    paths = sorted(glob.glob(_frame_glob(action_dir)))
     if len(paths) != n_frames:
         print(f"  ! expected {n_frames} frames under {action_dir}, found {len(paths)}")
         return []
