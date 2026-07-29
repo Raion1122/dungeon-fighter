@@ -2949,7 +2949,24 @@
       // ⚠️ `?v=` は背景系アセットで唯一ここだけ付いている。差し替え時にブラウザキャッシュが古い絵を
       //    返す穴を塞ぐため。_texSet.wall の用途は `"assets/" + _texSet.wall` の src 生成 1 箇所だけ
       //    (index.html:2963) なのでクエリを付けても他所へ波及しない。絵を差し替えたら番号を上げる。
-      "caravan-road":   { floor: "caravan_road_floor.png", wall: "caravan_road_verge.png?v=1" },
+      // ⚠️ [縮尺リデザイン 2026-07-30] floorScale = 床パターンの敷き倍率 (既定 1 = 等倍)。
+      //   ユーザー指摘「地面の葉っぱが大きすぎる」の**真犯人はこの床テクスチャ**だった。
+      //   caravan_road_floor.png (1254x1254) を等倍で敷いていたため、絵の中に描き込まれた
+      //   モチーフがそのまま画面寸法になっていた。Pillow 実測 (1px≒3.0cm / キャラ体高57px):
+      //     ・落ち葉      40px  = **119cm**  (実物 10〜15cm → 8〜12倍)
+      //     ・枯れ草の房  83〜136px = **248〜406cm** (体高比 1.46〜2.39x / 実物 40〜60cm)
+      //     ・明るい岩    最大66px = **197cm**  (7個中2個がキャラより大きい)
+      //   ⚠️⚠️ **この欠陥は素朴な測定では見つからない**。FFT の radial peak は 9.2px を返すが
+      //      それは支配的な「筆致のノイズ」で、疎に散る大きなモチーフを拾わない。緑判定
+      //      (G>R+6 & G>B+18) も 0% を返す — 落ち葉はオレンジ・枯れ草はタンなので原理的に不可。
+      //      → **等倍敷きのテクスチャは「1画面ぶん切り出してキャラを並べて目で見る」しかない。**
+      //   ⚠️ 屋内6シナリオは floorScale を持たない = 等倍のまま (特徴サイズ 4.3〜9.9px で適正、
+      //      かつ toDataURL ハッシュの非退行を維持したいので**絶対に足さない**)。
+      //   ⚠️ 縮小は「読み込み時にオフスクリーン canvas へ焼く」方式。CanvasPattern.setTransform は
+      //      使わない (:5347 の translate(-camX,-camY) と合成順を考える必要が出るうえ、
+      //      パターン源が小さくなる分の性能上の利得も得られない)。周期は 1254→564px に縮む。
+      "caravan-road":   { floor: "caravan_road_floor.png", floorScale: 0.45,
+                          wall: "caravan_road_verge.png?v=1" },
       // 未登録 scenarioId は廃坑テクスチャにフォールバック (素材追加時にここへ)
     };
     const _texSet = SCENARIO_TEX[_scenIdForTex] || SCENARIO_TEX["goblin-mine"];
@@ -3075,9 +3092,33 @@
 
     let floorPattern = null;
     const floorTex1 = new Image();
+    // [縮尺リデザイン 2026-07-30] _texSet.floorScale があれば、その倍率へ焼き直した
+    //   オフスクリーン canvas をパターン源にする (屋外 caravan-road のみ。詳細は SCENARIO_TEX の注記)。
+    //   ⚠️ createPattern はワールド原点アンカーなので、源を縮めても :5347 の translate(-camX,-camY)
+    //      による座標系はそのまま。周期だけが縮む (1254 → round(1254*0.45)=564px)。
+    //   ⚠️ 失敗しても等倍へ落ちるだけ (絵は出る) にしておく。ここで例外を投げると床が丸ごと
+    //      フォールバック枝 (:5369) に落ちて屋外の前景エプロンまで巻き添えになる。
+    function makeFloorPatternSource(img) {
+      const s = _texSet.floorScale;
+      if (!s || s === 1 || !(s > 0)) return img;
+      try {
+        const w = Math.max(1, Math.round(img.naturalWidth  * s));
+        const h = Math.max(1, Math.round(img.naturalHeight * s));
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const g = c.getContext("2d");
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = "high";
+        g.drawImage(img, 0, 0, w, h);
+        return c;
+      } catch (e) {
+        console.warn("[floorScale] 縮小に失敗したので等倍で敷きます: " + e);
+        return img;
+      }
+    }
     floorTex1.src = "assets/" + _texSet.floor;
     floorTex1.onload = () => {
-      floorPattern = ctx.createPattern(floorTex1, "repeat");
+      floorPattern = ctx.createPattern(makeFloorPatternSource(floorTex1), "repeat");
       renderMap();
     };
     let wallPattern = null;
@@ -3522,14 +3563,41 @@
       ],
     };
     // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
+    //
+    // ── ⚠️ [縮尺リデザイン 2026-07-30] displayMax は「キャラ体高」を物差しに決めること ──
+    //   物差し: 味方6職は全員 96px セル / インク体高 **57px**(warrior_walk.png row3 の全6コマで一致)。
+    //           これを身長 1.70m と置くと **1px ≒ 3.0cm**、タイル 96px ≒ 一辺 2.9m。
+    //   直した欠陥: 屋外(caravan-road)の散布物が **キャラ等身大**だった。実測 →
+    //     赤キノコ/シダ/頭骨 = 60px = **179cm 相当 (体高比 1.05x)**、草の房 = 80px = 239cm (1.40x)、
+    //     倒木の太さ = 51〜58px = **174cm (キャラの全身と同じ太さ)**。
+    //     ユーザー指摘「地面の葉っぱ・木がキャラに対して大きすぎる」の正体はここ
+    //     (床テクスチャではない — caravan_road_floor.png は緑画素 0% で特徴サイズ 9.2px = 27cm 相当)。
+    //   ⚠️ **displayMax は当たり判定に一切関与しない**(純粋な描画倍率)。衝突は blocking[variant] が
+    //      obstacleTileMask に立てるタイル単位の旗だけで決まる(:3665-3684)。よって数値変更は
+    //      ゲームプレイに影響しない。**逆に言えば「大きく見えるから当たる」も成立しない。**
+    //   ⚠️ grass / log / detail は **屋外 caravan-road 専用**(森・沼はボス部屋1枚絵化でレシピ削除済、
+    //      廃坑は rubble/rail/cart)。この3つを触っても既存6シナリオは1ドットも変わらない。
+    //   ⚠️ detail は苔石・キノコ・シダ・頭骨・枝束の **混載シート**で、現実の寸法が10倍違う。
+    //      単一の displayMax では原理的に正しくできないので **variant 別の配列**にした
+    //      (機構は既存 — reed / rubble が先に配列を使っている。:5387 が両対応)。
+    //   ⚠️ 変えたら必ず「キャラを隣に置いた比較シート」で目視すること。数値だけでは
+    //      「小さすぎて何の物体か読めない」を検出できない(頭骨 14px は白い粒に近い)。
     const SCENERY_SHEETS = {
-      grass:  { src: "assets/grass_tufts.png",  blocking: [false,false,false,false,false,false], displayMax: 80,
+      // 草の房: 40x17〜26 = 幅119cm x 高51〜78cm (旧 80px = 239cm = キャラの背丈より広い房だった)
+      grass:  { src: "assets/grass_tufts.png",  blocking: [false,false,false,false,false,false], displayMax: 40,
                 img: new Image(), loaded: false },
       reed:   { src: "assets/swamp_reeds.png",  blocking: [false,false,true,true],                displayMax: [88,120,150,160],
                 img: new Image(), loaded: false },
-      log:    { src: "assets/fallen_logs.png",  blocking: [true,true,true],                       displayMax: 200,
+      // 倒木: 130x33〜38 = 長388cm x 太99〜114cm (旧 200px = 長596cm x 太174cm)。
+      //   ⚠️ 原画のアスペクトが 3.9:1 と太いため、太さを実物(直径30〜50cm)まで落とすには
+      //      長さが 60px まで縮んで「丸太に見えない」。素材を作り直さない限りここが下限。
+      log:    { src: "assets/fallen_logs.png",  blocking: [true,true,true],                       displayMax: 130,
                 img: new Image(), loaded: false },
-      detail: { src: "assets/swamp_detail.png", blocking: [false,false,false,false,false,false,false,false], displayMax: 60,
+      // 雑多な小物 (variant 別 = 混載シートなので一律にできない。旧は全部 60px = 179cm だった):
+      //   [0]苔石 26x18(78cm) [1]平石 28x15(84cm) [2]赤キノコ 16x13(48cm) [3]茶キノコ 16x14(48cm)
+      //   [4]シダ 22x21(66cm) [5]平石 28x16(84cm) [6]頭骨 14x9(42cm)    [7]枝束 24x16(72cm)
+      detail: { src: "assets/swamp_detail.png", blocking: [false,false,false,false,false,false,false,false],
+                displayMax: [26, 28, 16, 16, 22, 28, 14, 24],
                 img: new Image(), loaded: false },
       // ── 廃坑 (Sce1): 大型(トロッコ/大崩落/折れ支柱)はブロック、線路/小瓦礫は踏める ──
       rubble: { src: "assets/mine_rubble.png", blocking: [false,false,false,false,true,true], displayMax: [100,120,130,110,170,150],
@@ -5401,7 +5469,7 @@
       if (FIELD_DRAW) ctx.restore();
 
       // ── Pass 1b.7: 隊商キャンプの焚火 (街道クエスト限定・非衝突の純演出) ──
-      //   薪 = 既存 log スプライト variant0 を小さめ(幅130px)に描画し、その上に加算ブルーム + 立ち昇る火の粉。
+      //   薪 = 既存 log スプライト variant0 を小さめ(幅56px)に描画し、その上に加算ブルーム + 立ち昇る火の粉。
       //   スプライト+ブルームは床の上・スプライト(PT/敵)より下の層に置く (ここは Pass1b 帯 = キャラより背後)。
       //   火の粉は fx キャンバス (最前面) に emitParticle で乗るので薪の背後には潜らない。
       if (campfireSpot) {
@@ -5410,7 +5478,13 @@
         const logSheet = SCENERY_SHEETS.log;
         if (logSheet && logSheet.loaded) {
           const fr = SCENERY_FRAMES.log[0];
-          const CW = 130, CH = fr.h * (CW / fr.w);   // 幅130pxへ縮小 (log 既定 displayMax200 より小さめ)
+          // [縮尺リデザイン 2026-07-30] 130 → 56。1px≒3.0cm なので 56x14 = **幅167cm x 高42cm** =
+          //   焚き付けの薪束として妥当な寸法 (旧 130px は幅388cm = 車1台分の薪山だった)。
+          //   ⚠️ log の displayMax(130) と**必ず別の値にする**: 薪は倒木より小さいのが自然で、
+          //      同値にすると「街道に転がる倒木」と「キャンプの薪」が見分けられなくなる。
+          //   ⚠️ ブルーム半径 62px はここと独立 (火の光の広がりは薪の寸法に従わない) ので追随不要。
+          //      むしろ薪(56px)より光(124px径)が大きいのが焚火として正しい。
+          const CW = 56, CH = fr.h * (CW / fr.w);
           const ldx = Math.round(cxw - CW / 2 - camX);
           const ldy = Math.round(cyw - CH / 2 - camY + 12);   // やや下 = 足元に薪を置く
           if (!(ldx + CW < 0 || ldx > mapCanvas.width || ldy + CH < 0 || ldy > mapCanvas.height)) {
