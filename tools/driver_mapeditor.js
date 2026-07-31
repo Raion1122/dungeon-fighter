@@ -289,7 +289,16 @@ function expectedRareSet() {
 
 /* ── §4 用: 実コード (index.html / tavern.html) から現行値を抽出する ─────────
  * ★「エディタのプリセットが現行と一致」を**転記**ではなく実ファイルで検算するため。
- *   見つからなければ null を返し、§0 0-1 で FAIL にする (空振り禁止)。 */
+ *   見つからなければ null を返し、§0 0-1 で FAIL にする (空振り禁止)。
+ *
+ * ⚠ Phase 1 (幾何の一元化) で index.html の抽出先が変わった。
+ *   旧: `const ROOMS_DUNGEON = […]` … index.html が幾何の値を持っていた頃のアンカー
+ *   新: `const FALLBACK_ROOMS_DUNGEON = […]` … js/df-mapdef.js が 404 のときの**救命ボート**
+ *   index.html の ROOMS/CORRIDORS/start は今や MAPDEF (= DFMapDef.resolve) 由来なので、
+ *   index.html 側に残る唯一の座標リテラルがこの救命ボートである。
+ * ⭐ 比較の意味は**強くなっている**: エディタのプリセット (js/df-mapdef.js の DEFAULT_*) と
+ *   救命ボート (index.html) が食い違うと「404 のときだけ別のマップで動く」という Phase 1 で
+ *   いちばん怖い壊れ方をする。ここはその唯一の検出器。 */
 function stripComments(s) { return s.replace(/\/\/[^\n]*/g, ''); }
 function grabPairs4(text) {
   const out = [], re = /\[\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\]/g;
@@ -304,26 +313,23 @@ function grabPairs2(text) {
 function extractLive() {
   const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const tav = fs.readFileSync(path.join(ROOT, 'tavern.html'), 'utf8');
-  const roomsDun = /const\s+ROOMS_DUNGEON\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(idx);
-  const roomsFld = /const\s+ROOMS_FIELD\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(idx);
-  const corr = /const\s+CORRIDORS\s*=\s*IS_FIELD_THEME([\s\S]*?);\n/.exec(idx);
+  const roomsDun = /const\s+FALLBACK_ROOMS_DUNGEON\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(idx);
+  const roomsFld = /const\s+FALLBACK_ROOMS_FIELD\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(idx);
+  const corrDunM = /const\s+FALLBACK_CORRIDORS_DUNGEON\s*=\s*(\[[\s\S]*?\])\s*;/.exec(idx);
+  const corrFldM = /const\s+FALLBACK_CORRIDORS_FIELD\s*=\s*(\[[\s\S]*?\])\s*;/.exec(idx);
   const slots = /const\s+ROOM_SLOTS\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(tav);
   const boss = /const\s+BOSS_SLOT\s*=\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/.exec(tav);
-  const start = /generateScenery\(ENEMY_SPAWNS,\s*IS_FIELD_THEME\s*\?\s*(\d+)\s*:\s*(\d+),\s*(\d+)\)/.exec(idx);
-  let corrField = null, corrDun = null;
-  if (corr) {
-    const body = stripComments(corr[1]);
-    const q = body.indexOf('?'), c = body.indexOf(':', q);
-    if (q >= 0 && c > q) { corrField = grabPairs4(body.slice(q, c)); corrDun = grabPairs4(body.slice(c)); }
-  }
+  const startDunM = /const\s+FALLBACK_START_DUNGEON\s*=\s*\{\s*tx:\s*(\d+)\s*,\s*ty:\s*(\d+)\s*\}/.exec(idx);
+  const startFldM = /const\s+FALLBACK_START_FIELD\s*=\s*\{\s*tx:\s*(\d+)\s*,\s*ty:\s*(\d+)\s*\}/.exec(idx);
   return {
     roomsDungeon: roomsDun ? grabPairs4(stripComments(roomsDun[1])) : null,
     roomsField:   roomsFld ? grabPairs4(stripComments(roomsFld[1])) : null,
-    corrDungeon:  corrDun, corrField: corrField,
+    corrDungeon:  corrDunM ? grabPairs4(stripComments(corrDunM[1])) : null,
+    corrField:    corrFldM ? grabPairs4(stripComments(corrFldM[1])) : null,
     roomSlots:    slots ? grabPairs2(stripComments(slots[1])) : null,
     bossSlot:     boss ? [+boss[1], +boss[2]] : null,
-    startField:   start ? { tx: +start[1], ty: +start[3] } : null,
-    startDungeon: start ? { tx: +start[2], ty: +start[3] } : null,
+    startField:   startFldM ? { tx: +startFldM[1], ty: +startFldM[2] } : null,
+    startDungeon: startDunM ? { tx: +startDunM[1], ty: +startDunM[2] } : null,
   };
 }
 
@@ -331,21 +337,32 @@ function extractLive() {
  * ★転記ではなく index.html の実文字列で裏を取る (空振り禁止)。 */
 function extractLiveRules() {
   const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const mdf = fs.readFileSync(path.join(ROOT, 'js', 'df-mapdef.js'), 'utf8');
   return {
     // 敵スポーン救済が値1しか見ない (計画書 落とし穴② の根拠)
     rescueOnlyRare: /mapData\[r\]\[c\] === 1\) mapData\[r\]\[c\] = 0;/.test(idx),
-    // 罠/宝箱の部屋除外式 (現行式)
-    excludeExpr: (idx.match(/ROOMS\.length >= 3 \? new Set\(\[0, boss(?:Idx)?\]\) : new Set\(\[boss(?:Idx)?\]\)/g) || []).length,
+    /* 罠/宝箱の部屋除外。⚠ Phase 1 で index.html から式そのものが消え、
+     *   `DFMapDef.excludedRoomIdx(MAPDEF)` の戻り値を 3 つのスポナーが**共有**する形になった。
+     *   よって「同じ規則を 3 箇所が使っている」ことは EXCLUDED_ROOMS の消費回数で数える。 */
+    excludeExpr: (idx.match(/for \(const i of EXCLUDED_ROOMS\)/g) || []).length,
+    // 規則そのもの (rooms.length >= 3 ? {0,boss} : {boss}) は js/df-mapdef.js 側にある。
+    // ★lint (lintMapDef の exLegacy) はこれを**自前で再実装**しているので、両者の食い違い検出になる。
+    excludeRule: /\(rooms\.length >= 3\) \? new Set\(\[0, boss\]\) : new Set\(\[boss\]\)/.test(mdf),
+    /* ★「誤り②」の再発検出器: 玄室宝箱 (spawnRoomChests) だけは**部屋数を見ない**別系統
+     *   (常に {0,boss})。index.html で 2 つが**別名で**使われていることを確認する。
+     *   統合されると 2 部屋ダンジョンで玄室宝箱 or 罠のどちらかが必ず壊れる。 */
+    chestRuleSeparate: /if \(ROOM_CHEST_EXCLUDED_ROOMS\.has\(i\)\) continue;/.test(idx) &&
+                       /function chestExcludedRoomIdx\(d\) \{\s*\n\s*return new Set\(\[0, bossRoomIdx\(d\)\]\);/.test(mdf),
     // 候補ゼロで無言 return
     silentReturn: (idx.match(/if \(candidates\.length === 0\) return;/g) || []).length,
     // 候補は値0のみ (レア床1 は候補外)
     onlyFloor0: (idx.match(/if \(mapData\[r\]\[c\] !== 0\) continue;/g) || []).length,
-    // 罠の起点半径1 除外
-    trapStartGuard: /!IS_FIELD_THEME && Math\.abs\(c - 24\) <= 1 && Math\.abs\(r - 13\) <= 1/.test(idx),
+    // 罠の起点半径1 除外 (⚠ 起点は Phase 1 で MAPDEF.start 由来の START_TX/TY になった)
+    trapStartGuard: /!IS_FIELD_THEME && Math\.abs\(c - START_TX\) <= 1 && Math\.abs\(r - START_TY\) <= 1/.test(idx),
     // 歩行判定 = 値2 だけが壁
     wallIsOnly2: /if \(mapData\[tileY\]\[tileX\] === 2\) return true;/.test(idx),
-    // クリア条件
-    clearCond: /visitedRooms\.size >= ROOMS\.length - 1/.test(idx),
+    // クリア条件 (⚠ Phase 1 で ROOMS.length-1 → OBJECTIVE_ROOMS = DFMapDef.objectiveCount)
+    clearCond: /visitedRooms\.size >= OBJECTIVE_ROOMS/.test(idx),
     // 帯マスク行。⚠ BOTTOM_ROW は `TOP_ROW + ROWS - 1` の**計算式**でリテラルではない
     //   (index.html:3029)。リテラルで探すと永久に空振りする → 2 定数から計算して突き合わせる。
     bandTop: (function () { const m = /FIELD_BAND_TOP_ROW\s*=\s*(\d+)/.exec(idx); return m ? +m[1] : null; })(),
@@ -502,13 +519,13 @@ function extractEnemyCatalogNode() {
   // ══════════════════════════════════════════════════════════════════════════
   console.log('\n───── §0 前提 (実コード抽出 + 検証シームの形) ─────');
   const live = extractLive();
-  console.log('[live] ROOMS_DUNGEON = ' + JSON.stringify(live.roomsDungeon));
-  console.log('[live] ROOMS_FIELD   = ' + JSON.stringify(live.roomsField));
-  console.log('[live] CORRIDORS dungeon=' + JSON.stringify(live.corrDungeon) + '  field=' + JSON.stringify(live.corrField));
+  console.log('[live] FALLBACK_ROOMS_DUNGEON = ' + JSON.stringify(live.roomsDungeon));
+  console.log('[live] FALLBACK_ROOMS_FIELD   = ' + JSON.stringify(live.roomsField));
+  console.log('[live] FALLBACK_CORRIDORS dungeon=' + JSON.stringify(live.corrDungeon) + '  field=' + JSON.stringify(live.corrField));
   console.log('[live] ROOM_SLOTS    = ' + JSON.stringify(live.roomSlots));
   console.log('[live] BOSS_SLOT     = ' + JSON.stringify(live.bossSlot));
   console.log('[live] start dungeon=' + JSON.stringify(live.startDungeon) + '  field=' + JSON.stringify(live.startField));
-  check('§0 0-1 実コード(index/tavern)から現行値を抽出できた (抽出失敗を PASS にしない)',
+  check('§0 0-1 実コード(index の救命ボート/tavern)から現行値を抽出できた (抽出失敗を PASS にしない)',
         !!(live.roomsDungeon && live.roomsField && live.corrDungeon && live.corrField &&
            live.roomSlots && live.bossSlot && live.startDungeon && live.startField) &&
         live.roomsDungeon.length === 2 && live.roomsField.length === 3 && live.roomSlots.length === 8,
@@ -517,10 +534,11 @@ function extractEnemyCatalogNode() {
 
   const liveRules = extractLiveRules();
   console.log('[live] lint 前提規則 = ' + JSON.stringify(liveRules));
-  check('§0 0-2 実コードから lint の前提規則を裏取りできた (救済は値1のみ/除外式/無言return/値0のみ候補/罠の起点ガード/壁は値2/クリア条件/帯row)',
+  check('§0 0-2 実コードから lint の前提規則を裏取りできた (救済は値1のみ/除外式2系統/無言return/値0のみ候補/罠の起点ガード/壁は値2/クリア条件/帯row)',
         liveRules.rescueOnlyRare && liveRules.excludeExpr >= 3 && liveRules.silentReturn >= 3 &&
         liveRules.onlyFloor0 >= 3 && liveRules.trapStartGuard && liveRules.wallIsOnly2 &&
-        liveRules.clearCond && liveRules.bandTop !== null && liveRules.bandBottom !== null,
+        liveRules.clearCond && liveRules.bandTop !== null && liveRules.bandBottom !== null &&
+        liveRules.excludeRule && liveRules.chestRuleSeparate,
         JSON.stringify(liveRules));
 
   const browser = await puppeteer.launch({
@@ -1476,7 +1494,7 @@ function extractEnemyCatalogNode() {
   console.log('[driver] dungeon slotsOf=' + JSON.stringify(pre.dungeon.slotsOf));
   console.log('[driver] field   slotsOf=' + JSON.stringify(pre.field.slotsOf));
 
-  check('§4 3a ダンジョン: rooms[].rect が index.html ROOMS_DUNGEON と一致',
+  check('§4 3a ダンジョン: rooms[].rect が index.html FALLBACK_ROOMS_DUNGEON (救命ボート) と一致',
         eq(pre.dungeon.rects, live.roomsDungeon), JSON.stringify(pre.dungeon.rects) + ' vs ' + JSON.stringify(live.roomsDungeon));
   check('§4 3b ダンジョン: corridors が index.html CORRIDORS(非屋外) と一致',
         eq(pre.dungeon.d.corridors, live.corrDungeon), JSON.stringify(pre.dungeon.d.corridors) + ' vs ' + JSON.stringify(live.corrDungeon));
@@ -1495,7 +1513,7 @@ function extractEnemyCatalogNode() {
   check('§4 3g ダンジョン: themeId=goblin-mine / bandMask=false',
         pre.dungeon.d.themeId === 'goblin-mine' && pre.dungeon.d.flags.bandMask === false,
         pre.dungeon.d.themeId + ' / ' + pre.dungeon.d.flags.bandMask);
-  check('§4 3h 屋外: rooms[].rect が index.html ROOMS_FIELD と一致 (3部屋)',
+  check('§4 3h 屋外: rooms[].rect が index.html FALLBACK_ROOMS_FIELD (救命ボート) と一致 (3部屋)',
         eq(pre.field.rects, live.roomsField), JSON.stringify(pre.field.rects) + ' vs ' + JSON.stringify(live.roomsField));
   check('§4 3i 屋外: corridors が index.html CORRIDORS(屋外) と一致 (2本)',
         eq(pre.field.d.corridors, live.corrField), JSON.stringify(pre.field.d.corridors) + ' vs ' + JSON.stringify(live.corrField));

@@ -2570,6 +2570,10 @@
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
   <script src="js/skill-check.js"></script>
+  <!-- マップ定義 df-map/1 の純粋関数群 (幾何の単一の情報源)。map-editor.html と共有。
+       ⚠ 本ファイルが 404 になると幾何が作れずゲーム全損 → index.html 側に
+          MAPDEF_INLINE_FALLBACK (現行値の最小リテラル) を置いてある (「マップ幾何の単一の情報源」節)。 -->
+  <script src="js/df-mapdef.js"></script>
 </head>
 <body>
   <script>
@@ -3260,25 +3264,88 @@
     window.addEventListener("resize", onViewportResize);
     window.addEventListener("orientationchange", onViewportResize);
 
-    // 部屋定義: [r1, c1, r2, c2](ワールド共通)
-    // v7.8: ダンジョンは「山場1部屋 + ボス部屋」の2部屋へ短縮(導入を削り山場を残す)。
-    //       屋外(隊商護衛)だけは IS_FIELD_THEME で従来の3部屋幅を維持し、馬車/焚火/街道長を保つ。
-    //       座標は不変なので山場/ボスの1枚絵・隠し要素spawnは無改修(幾何ロック鉄則)。
-    const ROOMS_DUNGEON = [
+    /* ══════════════════════════════════════════════════════════════════════════
+     * マップ幾何の単一の情報源 (Phase 1「幾何の一元化」)
+     * ══════════════════════════════════════════════════════════════════════════
+     * 部屋 rect / 廊下 / 起点 / ボス部屋 / 除外部屋 の定義は **js/df-mapdef.js 1 本**へ集約した。
+     * 以降 index.html は「値」を持たず、MAPDEF とその派生定数 (mapData の直後で定義) を読むだけ。
+     *
+     * ⚠ 幾何を変えたいときは js/df-mapdef.js の DEFAULT_DUNGEON / DEFAULT_FIELD を編集する。
+     *   下のフォールバックだけを直すと「本番と救命ボートが別のマップ」になる = 最悪の壊れ方。
+     *
+     * ── フォールバック (救命ボート) ──────────────────────────────────────────
+     * js/df-mapdef.js が 404 になると MAPDEF が作れず TypeError で画面が真っ黒になる
+     * (幾何は死ぬとゲーム全損。js/skill-check.js のように「判定だけ死ぬ」では済まない)。
+     * そこで現行値そのままの最小リテラルを内蔵し、DFMapDef 不在時はこちらへ落ちる。
+     * ⚠ **silent fail-open にしない**。落ちたら console.warn を 1 行必ず出す (下の MAPDEF)。
+     * ⚠⚠ 値は js/df-mapdef.js の DEFAULT_DUNGEON / DEFAULT_FIELD と **1bit も違えないこと**。
+     *    違うと「動くが別のマップ」になる。tools/driver_mapeditor.js §4 3a-3i が
+     *    両者の一致を実ファイル読みで機械検査している (転記のドリフト検出器)。
+     *
+     * 座標: rect = [r1, c1, r2, c2](ワールド共通・**行が先**)
+     * v7.8: ダンジョンは「山場1部屋 + ボス部屋」の2部屋へ短縮(導入を削り山場を残す)。
+     *       屋外(隊商護衛)だけは3部屋幅を維持し、馬車/焚火/街道長を保つ。
+     *       座標は不変なので山場/ボスの1枚絵・隠し要素spawnは無改修(幾何ロック鉄則)。
+     * ────────────────────────────────────────────────────────────────────────── */
+    const FALLBACK_ROOMS_DUNGEON = [
       [ 7, 24, 20, 43],   // 0 道中(山場): 1枚絵+トラップ+混成戦。プレイヤーは西端(24,13)から開始
       [ 5, 47, 22, 68],   // 1 ボス部屋
     ];
-    const ROOMS_FIELD = [   // 屋外(隊商護衛): 従来3部屋幅を維持(馬車tx9/焚火/街道長を保つ)
+    const FALLBACK_ROOMS_FIELD = [   // 屋外(隊商護衛): 従来3部屋幅を維持(馬車tx9/焚火/街道長を保つ)
       [ 8,  2, 19, 20],   // 0 部屋1 導入+前哨(スタート統合・プレイヤー起点(6,13)を内包)
       [ 7, 24, 20, 43],   // 1 部屋2 山場・大広間
       [ 5, 47, 22, 68],   // 2 ボス部屋
     ];
-    const ROOMS = IS_FIELD_THEME ? ROOMS_FIELD : ROOMS_DUNGEON;
+    // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
+    const FALLBACK_CORRIDORS_DUNGEON = [ [13, 43, 15, 47] ];                     // 山場→ボスのみ
+    const FALLBACK_CORRIDORS_FIELD   = [ [13, 20, 15, 24], [13, 43, 15, 47] ];   // 導入→山場, 山場→ボス
+    const FALLBACK_START_DUNGEON = { tx: 24, ty: 13 };   // 山場西端 (24,13は床・25,13は壁)
+    const FALLBACK_START_FIELD   = { tx:  6, ty: 13 };   // 屋外・街道の西端
+
+    // rect 配列 → df-map/1 の mapDef。role は先頭=start / 末尾=boss (既定値と同じ割り当て)。
+    function makeFallbackMapDef(rects, corridors, start, bandMask) {
+      const last = rects.length - 1;
+      return {
+        schema: "df-map/1",
+        id: bandMask ? "df-default-field" : "df-default-dungeon",
+        grid: { w: MAP_W, h: MAP_H, tile: TILE_SIZE },
+        rooms: rects.map((rect, i) => ({
+          id: "r" + i,
+          role: (i === last) ? "boss" : (i === 0 ? "start" : null),
+          rect: rect, enemySlots: [], bossSlot: null, painting: null, scenery: null,
+        })),
+        corridors: corridors,
+        start: start,
+        objective: { kind: "visitRooms", count: null },   // null = 従来式 rooms.length-1
+        tiles: null,
+        flags: { bandMask: bandMask },
+      };
+    }
+    const MAPDEF_INLINE_FALLBACK = IS_FIELD_THEME
+      ? makeFallbackMapDef(FALLBACK_ROOMS_FIELD,   FALLBACK_CORRIDORS_FIELD,   FALLBACK_START_FIELD,   true)
+      : makeFallbackMapDef(FALLBACK_ROOMS_DUNGEON, FALLBACK_CORRIDORS_DUNGEON, FALLBACK_START_DUNGEON, false);
+
+    /* MAPDEF = このシナリオの幾何。Phase 1 では DFMapDef.resolve() が常に既定値 (の clone) を
+     * 返すので、既存6シナリオ + 隊商護衛は 1bit も変わらない (genScen.mapDef の採用は Phase 2)。
+     * params (URLSearchParams) を今から渡しておくのは、Phase 2 で撤退スイッチ ?mapdef=0 を
+     * 足すときに index.html 側の呼び出し行を 1 行も書き換えずに済ませるため。 */
+    const MAPDEF = (() => {
+      if (window.DFMapDef) {
+        let params = null;
+        try { params = new URLSearchParams(window.location.search); } catch (e) {}
+        const d = DFMapDef.resolve(_genScenForTex, IS_FIELD_THEME, params);
+        if (d && Array.isArray(d.rooms) && d.rooms.length > 0) return d;
+      }
+      console.warn("[mapdef] js/df-mapdef.js を読み込めませんでした → index.html 内蔵の "
+        + "MAPDEF_INLINE_FALLBACK (現行値と同一) で続行します");
+      return MAPDEF_INLINE_FALLBACK;
+    })();
+
+    // 部屋定義: [r1, c1, r2, c2](ワールド共通)
+    const ROOMS = MAPDEF.rooms.map(r => r.rect);
     // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
     // (scenery 配置の auto-reserve でも参照するためグローバル化)
-    const CORRIDORS = IS_FIELD_THEME
-      ? [ [13, 20, 15, 24], [13, 43, 15, 47] ]   // 導入→山場, 山場→ボス
-      : [ [13, 43, 15, 47] ];                     // 山場→ボスのみ
+    const CORRIDORS = MAPDEF.corridors;
 
     // ── マップの「使われている」範囲 (カメラ横/縦クランプ用) ───────────────
     // 部屋にも廊下にも属さない行/列は恒久的に未探索の岩盤 = 画面上は純黒になる。
@@ -3320,7 +3387,7 @@
       // ⚠️ プレイヤー起点(6,13) / campfireSpot(7,13) / 初期スポーン(14,13)(15,13)(14,14) は
       //    既に帯内。馬車だけは displaySize=240 でフットプリントが 3列x3行あるため、
       //    中心を row14 にして ty13..15 を帯へ収める (tavern.html wagonSpawns で ty:14)。
-      if (IS_FIELD_THEME && FIELD_GEO_ACTIVE) {
+      if (MAPDEF.flags.bandMask && FIELD_GEO_ACTIVE) {
         for (let r = 0; r < MAP_H; r++) {
           if (r >= FIELD_BAND_TOP_ROW && r <= FIELD_BAND_BOTTOM_ROW) continue;
           for (let c = 0; c < MAP_W; c++) map[r][c] = 2;
@@ -3330,6 +3397,28 @@
       return map;
     }
     const mapData = buildMap();
+
+    /* ── MAPDEF からの派生定数 (Phase 1: 「部屋数からの推測」をここ 1 箇所へ集約) ──────
+     * ⚠⚠ EXCLUDED_ROOMS と ROOM_CHEST_EXCLUDED_ROOMS は **別物**。統合するとゲームの結果が変わる:
+     *       部屋数 | EXCLUDED_ROOMS | ROOM_CHEST_EXCLUDED_ROOMS
+     *       2 部屋 |  {1}           |  {0, 1}    ← ★ここが違う
+     *       3 部屋 |  {0, 2}        |  {0, 2}    (たまたま一致するだけ)
+     *    現行6ダンジョンは2部屋 (山場+ボス) なので、統合すると
+     *      ・玄室側へ寄せる → 罠 / 隠し宝箱 / 探索宝箱の候補が消える
+     *      ・罠側へ寄せる   → 山場部屋に玄室宝箱が湧き始める
+     *    のどちらかが必ず起きる。2 系統あるのは設計ではなく**現状の実装事実**。
+     *    詳細は js/df-mapdef.js の excludedRoomIdx / chestExcludedRoomIdx の注記を読むこと。
+     * ⚠ DFMapDef が 404 でも幾何だけは死なせない → 同値のローカル計算へ落とす。 */
+    const START_TX = MAPDEF.start.tx, START_TY = MAPDEF.start.ty;
+    const BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
+    // 罠 (spawnTraps) / 隠し宝箱 (spawnHiddenChests) / 探索宝箱 (spawnExplorationChests) 用
+    const EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.excludedRoomIdx(MAPDEF)
+      : (ROOMS.length >= 3 ? new Set([0, BOSS_ROOM_IDX]) : new Set([BOSS_ROOM_IDX]));
+    // 玄室宝箱 (spawnRoomChests) **専用**。部屋数を見ず常に {0, boss}
+    const ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
+      : new Set([0, BOSS_ROOM_IDX]);
+    // クリア条件の踏破部屋数 (checkDungeonClear)。既定 = rooms.length - 1
+    const OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
 
     // ── フォグオブウォー強化: 職業別視界レンジ + 探索記憶 ──────────────
     // tiles=視界半径(タイル数、視界/エンカウント判定用)、inner/outer=放射光半径(px、drawLight用)
@@ -7085,11 +7174,11 @@
 
     // v7.8: ダンジョン短縮で開始点が山場西端 tile(24,13) へ移動。XOR壁ピラーで塞がれないよう床を保証する
     //   (屋外は起点(6,13)が従来通り床なので対象外)。mapData[row][col] 順。
-    if (!IS_FIELD_THEME && mapData[13][24] === 1) mapData[13][24] = 0;
+    if (!IS_FIELD_THEME && mapData[START_TY][START_TX] === 1) mapData[START_TY][START_TX] = 0;
 
     // 情景スプライト生成 (敵スポーンとプレイヤー起点を avoid して配置)
-    // プレイヤー起点: 屋外=tile(6,13) / ダンジョン=山場西端tile(24,13)。playerX の IS_FIELD_THEME 分岐と整合。
-    generateScenery(ENEMY_SPAWNS, IS_FIELD_THEME ? 6 : 24, 13);
+    // プレイヤー起点: 屋外=tile(6,13) / ダンジョン=山場西端tile(24,13)。MAPDEF.start が唯一の出所。
+    generateScenery(ENEMY_SPAWNS, START_TX, START_TY);
 
     // [7.9-3 STEP8] 隊商キャンプの焚火: PC起点(6,13)と馬車(tx:9)の間 tile(7,13) に演出用の焚火を置く。
     //   街道クエスト (caravan-road) 限定。非衝突 (obstacleTileMask に積まない) なので PC の東進を妨げない。
@@ -8279,8 +8368,8 @@
 
     let gameStarted = false;
 
-    let playerX = (IS_FIELD_THEME ? 6 : 24) * TILE_SIZE;  // 屋外=6,13 / ダンジョン=山場西端24,13(24,13は床・25,13は壁)
-    let playerY = 13 * TILE_SIZE;
+    let playerX = START_TX * TILE_SIZE;  // 屋外=6,13 / ダンジョン=山場西端24,13(24,13は床・25,13は壁)
+    let playerY = START_TY * TILE_SIZE;
 
     const playerWidth = 96;
     const playerHeight = 96;
@@ -13925,7 +14014,7 @@
       }
 
       // 現在位置の部屋を訪問済みにマーク
-      const bossRoomIdx = ROOMS.length - 1;
+      const bossRoomIdx = BOSS_ROOM_IDX;
       for (let i = 0; i < ROOMS.length; i++) {
         if (roomContainsTile(ROOMS[i], pTX, pTY)) {
           const firstEntry = !visitedRooms.has(i);
@@ -14093,7 +14182,7 @@
       //      while が「全ウェーブ消化 + 馬車生存」で抜けて finally に至った時だけ = そこが唯一の安全な
       //      クリア確定点。馬車全損時は STEP7 が gameOver を立てるので上の early-return で弾かれる。
       const isWaveDefense = Array.isArray(currentScenario.waves) && currentScenario.waves.length > 0;
-      const objectiveDone = isWaveDefense ? !encounterActive : (visitedRooms.size >= ROOMS.length - 1);
+      const objectiveDone = isWaveDefense ? !encounterActive : (visitedRooms.size >= OBJECTIVE_ROOMS);
       if (enemies.every(e => !e.alive || e.passiveNpc) && objectiveDone) {
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
@@ -17908,10 +17997,11 @@
 
     function spawnRoomChests() {
       // 玄室候補: 5×5以上 & 非スタート(idx=0) & 非ボス部屋(末尾)
+      // ⚠ ここだけは **部屋数を見ない** 除外集合 (常に {0, boss})。EXCLUDED_ROOMS と混同しないこと
+      //   (2部屋ダンジョンでは {0,1} と {1} に割れる = 統合するとゲームの結果が変わる)。
       const candidates = [];
-      const bossRoomIdx = ROOMS.length - 1;
       for (let i = 0; i < ROOMS.length; i++) {
-        if (i === 0 || i === bossRoomIdx) continue;
+        if (ROOM_CHEST_EXCLUDED_ROOMS.has(i)) continue;
         const [r1, c1, r2, c2] = ROOMS[i];
         const size = (r2 - r1 + 1) * (c2 - c1 + 1);
         if (size >= CHEST_ELIGIBLE_MIN_SIZE) candidates.push(i);
@@ -17947,15 +18037,13 @@
     function spawnHiddenChests() {
       const count = currentScenario.hiddenChestCount || 0;
       if (count <= 0) return;
-      const bossIdx = ROOMS.length - 1;
-      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
           if (mapData[r][c] !== 0) continue;
           if (isTileWall(c, r)) continue;              // 倒木/大型葦の上は避ける
           let inExcluded = false;
-          for (const i of excludeRooms) {
+          for (const i of EXCLUDED_ROOMS) {
             const [r1, c1, r2, c2] = ROOMS[i];
             if (r >= r1 && r <= r2 && c >= c1 && c <= c2) { inExcluded = true; break; }
           }
@@ -18021,15 +18109,13 @@
       const eventItem = getEventItemForScenario(scenarioId);
       if (!eventItem) return;   // イベントアイテムが無ければ探索発見ルートの宝箱は出さない（0個で許容）
       // 配置: スタート/ボス部屋を除外した自由床タイルから1個。既存宝箱/罠と非重複。
-      const bossIdx = ROOMS.length - 1;
-      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
           if (mapData[r][c] !== 0) continue;
           if (isTileWall(c, r)) continue;
           let inExcluded = false;
-          for (const i of excludeRooms) {
+          for (const i of EXCLUDED_ROOMS) {
             const [r1, c1, r2, c2] = ROOMS[i];
             if (r >= r1 && r <= r2 && c >= c1 && c <= c2) { inExcluded = true; break; }
           }
@@ -18256,7 +18342,7 @@
     function spawnDragonHoard() {
       if (scenarioId !== "dragon-lair") return;
       if (!Array.isArray(ROOMS) || ROOMS.length === 0) return;
-      const [r1, c1, r2, c2] = ROOMS[ROOMS.length - 1];   // ボス部屋
+      const [r1, c1, r2, c2] = ROOMS[BOSS_ROOM_IDX];   // ボス部屋
       const isOccupied = (c, r) =>
         roomChests.some(ch => ch.tx === c && ch.ty === r) ||
         (typeof traps !== "undefined" && traps.some(t => t.tx === c && t.ty === r)) ||
@@ -19037,8 +19123,6 @@
 
     function spawnTraps() {
       const count = currentScenario.trapCount || 3;
-      const bossIdx = ROOMS.length - 1;
-      const excludeRooms = ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx]);  // スタート・ボス部屋は除外
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {
@@ -19046,13 +19130,14 @@
           if (isTileWall(c, r)) continue;              // 倒木/大型葦の上は避ける
           // 除外部屋内ならスキップ
           let inExcluded = false;
-          for (const i of excludeRooms) {
+          for (const i of EXCLUDED_ROOMS) {
             const [r1, c1, r2, c2] = ROOMS[i];
             if (r >= r1 && r <= r2 && c >= c1 && c <= c2) { inExcluded = true; break; }
           }
           if (inExcluded) continue;
           // ダンジョンの開始タイル(24,13)近傍(半径1)には罠を置かない(開始直後の直撃防止)
-          if (!IS_FIELD_THEME && Math.abs(c - 24) <= 1 && Math.abs(r - 13) <= 1) continue;
+          // ⚠ !IS_FIELD_THEME は外さないこと。外すと屋外の罠候補集合が変わる (幾何ロック鉄則)。
+          if (!IS_FIELD_THEME && Math.abs(c - START_TX) <= 1 && Math.abs(r - START_TY) <= 1) continue;
           candidates.push([c, r]);
         }
       }
@@ -26519,8 +26604,8 @@
     //     ・仲間が MAX_LAG 超で置き去り → heroAI が backline 待ちで停止 → 2.5秒後にワープ救済
     //   → 起点からの**相対オフセット**にし、さらに歩ける床へ解決してから配置する
     //     (今後 ROOMS や起点を動かしても黙って壁に埋まらない)。
-    const PARTY_START_TX = IS_FIELD_THEME ? 6 : 24;   // playerX の IS_FIELD_THEME 分岐と同一ソース
-    const PARTY_START_TY = 13;
+    const PARTY_START_TX = START_TX;   // playerX と同一ソース (MAPDEF.start)
+    const PARTY_START_TY = START_TY;
     // 起点からの希望オフセット [dx, dy] (旧レイアウト起点(6,13)基準の絶対座標と同値)
     const ALLY_INIT_OFFSETS = {
       dwarf:  [-1,  1],   // 頭の左下 (前衛タンク)
