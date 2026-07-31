@@ -499,6 +499,92 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
+   * Phase 1 — index.html が幾何をここ 1 箇所から受け取るための入口
+   * ══════════════════════════════════════════════════════════════════════════
+   * Phase 1 の契約は「**プレイの結果を 1bit も変えない**」。したがってこの節の関数は
+   * すべて「現行 index.html の式と完全同値」であることが唯一の正しさの基準になる。
+   * 綺麗な式に整えたくなっても、同値でなくなる整理は Phase 2 以降でユーザー判断のもと行う。
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /* resolve(genScen, isFieldTheme, params) -> mapDef
+   *   isFieldTheme が真 → DEFAULT_FIELD、偽 → DEFAULT_DUNGEON の **clone** を返す。
+   *
+   *   ⚠ Phase 1 では **常に既定値**を返す。genScen.mapDef は**読まない**
+   *     (シナリオ定義から mapDef を採用するのは Phase 2 の仕事)。
+   *     引数 genScen / params を今から受け取っておくのは、Phase 2 で採用ロジックを足すときに
+   *     index.html 側の呼び出し行を 1 行も書き換えずに済ませるため。配線を 2 度やると
+   *     その間に「半分だけ直った状態」が生まれる = Phase 1 でいちばん避けたい状態。
+   *
+   *   ⚠ params は URLSearchParams | null | undefined。?mapdef=0 は撤退スイッチで、
+   *     Phase 2 で「genScen.mapDef を無視して既定へ落とす」意味を持つ。Phase 1 は
+   *     採用ロジックがそもそも無いので**どんな URL でも同じ既定**へ落ちる = 振る舞い不変。
+   *     ここで params を引数に取っておくのが「撤退スイッチの口だけ先に開けておく」の実体。
+   *
+   *   ⚠ 戻り値は必ず clone。呼び出し側 (index.html) が返り値を壊しても
+   *     DEFAULT_DUNGEON / DEFAULT_FIELD が汚染されない = 次のシナリオが別のマップにならない。
+   *
+   *   ⚠ flags.bandMask を必ず持たせる (既定 = isFieldTheme)。index.html:3323 の
+   *     帯マスク判定がこれを読むので、欠けると屋外の幾何が丸ごと変わる。
+   *
+   *   引数がすべて undefined/null でも落ちないこと (読み込み順の事故で引数が揃わなくても
+   *   幾何だけは必ず作れる = 画面が真っ黒にならない)。
+   */
+  function resolve(genScen, isFieldTheme, params) {
+    var out = clone(isFieldTheme ? DEFAULT_FIELD : DEFAULT_DUNGEON);
+    // 既定値は元々 bandMask を持っているが、ここで**明示的に保証**しておく
+    // (DEFAULT_* を将来いじったときに index.html:3323 が undefined を読む事故を止める)。
+    if (!out.flags || typeof out.flags !== "object") out.flags = {};
+    if (typeof out.flags.bandMask !== "boolean") out.flags.bandMask = !!isFieldTheme;
+    return out;
+  }
+
+  /* ── 除外部屋は **2 系統ある**。統合しないこと ★★★ ────────────────────────
+   *  ⚠⚠ 次に読む人へ: 下の 2 関数は「同じことを 2 回書いた重複」ではない。
+   *     **2 部屋ダンジョンで戻り値が違い、統合するとゲームの結果が変わる**。
+   *
+   *       部屋数 | excludedRoomIdx | chestExcludedRoomIdx
+   *       -------|-----------------|---------------------
+   *       2 部屋 |  {1}            |  {0, 1}   ← ★ここが違う
+   *       3 部屋 |  {0, 2}         |  {0, 2}   (たまたま一致するだけ)
+   *
+   *     現行 6 ダンジョンは 2 部屋 (山場 + ボス) なので、統合すると
+   *       - chestExcludedRoomIdx 側へ寄せる → 罠 / 隠し宝箱 / 探索宝箱の候補が消える
+   *       - excludedRoomIdx 側へ寄せる     → 山場部屋に玄室宝箱が湧き始める
+   *     のどちらかが必ず起きる。どちらも Phase 1 の「1bit も変えない」契約違反。
+   *
+   *     2 系統あるのは設計というより**現状の実装事実**。role ベースへ揃えるかどうかは
+   *     Phase 2 以降でユーザー判断のもと行う (仕様書の「計画書の誤り②」節を参照)。
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /* excludedRoomIdx(mapDef) -> Set<number>
+   *   罠 (spawnTraps) / 隠し宝箱 (spawnHiddenChests) / 探索宝箱 (spawnExplorationChests) 用。
+   *   現行式 index.html:17950-17951 / 18024-18025 / 19040-19041 と**完全同値**:
+   *       ROOMS.length >= 3 ? new Set([0, bossIdx]) : new Set([bossIdx])
+   *   3 部屋以上なら導入部屋も除外し、2 部屋ならボス部屋だけを除外する
+   *   (2 部屋で 0 も除くと候補タイルが 0 になり、罠も宝箱も**無言で** 1 つも出なくなる)。 */
+  function excludedRoomIdx(d) {
+    var rooms = (d && d.rooms) || [];
+    var boss = bossRoomIdx(d);
+    return (rooms.length >= 3) ? new Set([0, boss]) : new Set([boss]);
+  }
+
+  /* chestExcludedRoomIdx(mapDef) -> Set<number>
+   *   玄室宝箱 (spawnRoomChests / index.html:17912-17914) **専用**。
+   *   現行式 `if (i === 0 || i === bossRoomIdx) continue;` と完全同値 = **常に {0, boss}**。
+   *   部屋数を見ない (= 2 部屋なら候補ゼロ = 玄室宝箱が出ない) のが現行の振る舞い。
+   *   ⚠ excludedRoomIdx と**別物**。上の表を読むこと。 */
+  function chestExcludedRoomIdx(d) {
+    return new Set([0, bossRoomIdx(d)]);
+  }
+
+  /* ⭐ bossRoomIdx(d) は既存 (role:"boss" を探し、無ければ rooms.length - 1)。
+   *    既定値では role 探索と rooms.length - 1 が**一致する**ことを確認済み:
+   *      DEFAULT_DUNGEON … rooms = [r0(start), r1(boss)]     → 1 = 2 - 1 ✓
+   *      DEFAULT_FIELD   … rooms = [r0(start), r1, r2(boss)] → 2 = 3 - 1 ✓
+   *    よって上の 2 関数を既定値に対して呼んだ結果は、現行 index.html の
+   *    `const bossRoomIdx = ROOMS.length - 1;` 由来の式と 1bit も違わない。 */
+
+  /* ══════════════════════════════════════════════════════════════════════════
    * 出発前 lint (項目5) — 「このまま出発したら壊れるか」を事前に検出する
    * ══════════════════════════════════════════════════════════════════════════
    * ★責務の分担 (混ぜないこと):
@@ -868,6 +954,20 @@
     bossRoomIdx: bossRoomIdx,
     slotsOf: slotsOf,
     objectiveCount: objectiveCount,
+
+    /* ── Phase 1: index.html が幾何をここから受け取るための入口 ──────────────
+     *   resolve(genScen, isFieldTheme, params)
+     *        … 既定 mapDef の **clone**。Phase 1 は常に既定 (genScen.mapDef は読まない)。
+     *          flags.bandMask を必ず持つ (既定 = isFieldTheme)。引数が全部 undefined でも落ちない
+     *   excludedRoomIdx(mapDef)      … 罠 / 隠し宝箱 / 探索宝箱 の除外部屋 Set
+     *                                  (rooms.length >= 3 ? {0, boss} : {boss})
+     *   chestExcludedRoomIdx(mapDef) … 玄室宝箱 (spawnRoomChests) 専用の除外部屋 Set
+     *                                  (常に {0, boss})
+     *   ⚠⚠ 下の 2 つは**別物**。2 部屋ダンジョンで {1} と {0,1} に割れる。
+     *      「重複だから片方消そう」は玄室宝箱 or 罠のどちらかを壊す。実装側の表を読むこと。 */
+    resolve: resolve,
+    excludedRoomIdx: excludedRoomIdx,
+    chestExcludedRoomIdx: chestExcludedRoomIdx,
 
     /* ── 敵カタログ (Phase 0.5 項目1) ★項目2 のパレット / 項目3 の描画はここに乗る ──
      *   loadEnemyCatalog([url])  … Promise<{ ok, count, error, url }>。**必ず resolve** する。
