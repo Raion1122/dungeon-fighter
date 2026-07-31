@@ -140,23 +140,34 @@ const MUTATIONS = {
                      '    return null;                                          // ★③ 受け皿 (未分類は必ずここ)']],
   notip: [['    el.slotTip.classList.add("on");', '    el.slotTip.classList.remove("on");']],
 };
-function mutatedHtml() {
-  const src = fs.readFileSync(path.join(ROOT, 'map-editor.html'), 'utf8');
+/* 変異の対象ファイル。Phase 1 で §A (DFMapDef) が map-editor.html から js/df-mapdef.js へ
+ * 移ったため、置換先は **2 ファイルに跨る**。どちらに書いてあるかを呼び出し側が知らずに済むよう
+ * 「両方を読んで from を含む方に当てる」方式にした。
+ * ⚠ 1 つの rule が **どちらにも無い** / **両方にある** ときは exit 3 (空振り = 負のコントロールの死)。 */
+const MUTATE_TARGETS = ['map-editor.html', 'js/df-mapdef.js'];
+let _mutatedCache = null;
+function mutatedSources() {
+  if (_mutatedCache) return _mutatedCache;
   const rules = MUTATIONS[MUTATE];
   if (!rules) {
     console.error('[driver] 未知の --mutate: ' + MUTATE + '  (' + Object.keys(MUTATIONS).join(' / ') + ')');
     process.exit(3);
   }
-  let out = src;
+  const orig = {}, out = {};
+  for (const rel of MUTATE_TARGETS) orig[rel] = out[rel] = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   for (const [from, to] of rules) {
-    if (out.indexOf(from) < 0) {
-      console.error('[driver] ⛔ 変異の置換対象が見つからない → 負のコントロールが空振りする: ' +
-                    JSON.stringify(from.slice(0, 80)));
+    const hits = MUTATE_TARGETS.filter(rel => out[rel].indexOf(from) >= 0);
+    if (hits.length !== 1) {
+      console.error('[driver] ⛔ 変異の置換対象が ' + (hits.length === 0 ? '見つからない' : hits.length + ' ファイルに重複') +
+                    ' → 負のコントロールが空振りする: ' + JSON.stringify(from.slice(0, 80)) +
+                    (hits.length ? '  [' + hits.join(', ') + ']' : ''));
       process.exit(3);
     }
-    out = out.split(from).join(to);
+    out[hits[0]] = out[hits[0]].split(from).join(to);
   }
-  console.log('[driver] ★変異負制御 --mutate ' + MUTATE + ' を注入した map-editor.html を配信します');
+  const touched = MUTATE_TARGETS.filter(rel => out[rel] !== orig[rel]);
+  console.log('[driver] ★変異負制御 --mutate ' + MUTATE + ' を注入 (' + touched.join(' + ') + ') して配信します');
+  _mutatedCache = out;
   return out;
 }
 
@@ -193,10 +204,12 @@ function startServer(port, root) {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
-        if (MUTATE && u === '/map-editor.html') {          // ← 変異負制御の差し替え
-          res.setHeader('Content-Type', MIME['.html']);
+        // ← 変異負制御の差し替え (map-editor.html と js/df-mapdef.js の両方が対象)
+        if (MUTATE && MUTATE_TARGETS.indexOf(u.replace(/^\//, '')) >= 0) {
+          const rel = u.replace(/^\//, '');
+          res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(mutatedHtml());
+          res.end(mutatedSources()[rel]);
           return;
         }
         const fp = path.join(root, u);
