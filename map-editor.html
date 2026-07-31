@@ -150,6 +150,10 @@
   #lintbar .badge.warn.on { color: #ffe9b8; background: #43351a; border-color: #7a6533; }
   #lintbar .badge.ok      { color: #d2ffe2; background: #1c3b2a; border-color: #2f6a49; }
   #lintSummary { color: var(--fg-dim); }
+  /* 敵カタログの取得状況 (項目1)。★失敗を無言にしない = ここに必ず 1 行出る。
+     ⚠ 既存の赤 #hudMsg (拒否) / 緑 #hudInfo (成功通知) / lint バッジ とは別チャネル。 */
+  #catalogNote { margin-left: auto; color: var(--fg-dim); font-size: 12px; }
+  #catalogNote.ng { color: #ffc861; }
 
   #lintPanel {
     display: none;                      /* ★既定は非表示。開くと .open で flex になる */
@@ -305,6 +309,9 @@
     <span id="lintBadgeErr" class="badge err" title="このまま出発すると壊れる (連結性・壁乗り・候補ゼロ・boss個数)">エラー 0</span>
     <span id="lintBadgeWarn" class="badge warn" title="読めるが危ない / 卓用としては正当 (敵0体など)">警告 0</span>
     <span id="lintSummary"></span>
+    <!-- 敵カタログ (項目1): index.html の ENEMY_TYPES を実行時 fetch で取る。
+         ★取得に失敗しても編集は続けられる (おまかせのみに退化) が、**無言にはしない**。 -->
+    <span id="catalogNote" title="敵の種類は index.html の ENEMY_TYPES から実行時に読み込む (エディタ側に写経しない)"></span>
   </div>
 
   <div id="stage">
@@ -382,6 +389,186 @@
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function isNum(v) { return typeof v === "number" && isFinite(v); }
   function clampInt(v, lo, hi) { v = Math.round(isNum(v) ? v : lo); return v < lo ? lo : (v > hi ? hi : v); }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * 敵カタログ (Phase 0.5 項目1) — 「おまかせ」に加えて敵の種類を指定できるようにする土台
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★カタログを**エディタ側に写経しない**。実行時に index.html を fetch して
+   *   ENEMY_TYPES を抽出する = 二重管理ゼロ。ゲーム側で敵が増減してもエディタは
+   *   何もせず追従し、逆に index.html の書式が変わったら**ここ 1 箇所で落ちる**
+   *   (= ドリフト検出器が 1 点に集約される。写経すると必ず腐り、腐っても誰も気づけない)。
+   *
+   * ⚠ 抽出範囲が「純データ」であることは実読で確認済み (2026-07-31):
+   *     index.html 5702-6840 / 49050 bytes / キー 50 個
+   *     関数定義 0 / アロー 0 / テンプレートリテラル 0 / 値の位置の素の識別子 0
+   *   → new Function で安全に評価できる。将来ゲーム側が関数や外部変数を混ぜたら
+   *     eval が ReferenceError で落ち、loadEnemyCatalog() は **silent fail-open せず**
+   *     reason 付きで失敗する (console.warn + UI 1 行)。
+   *
+   * ⚠ caravanWagon は敵ではなく隊商護衛の**護衛対象の馬車** (index.html:6820) → 除外する。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var ENEMY_CATALOG_URL  = "index.html";
+  var ENEMY_CATALOG_MARK = "const ENEMY_TYPES = {";
+  var ENEMY_NON_COMBAT   = { caravanWagon: 1 };      // 敵ではないので除外する
+  var ENEMY_KEY_MAX      = 40;                        // キー文字列の長さ上限 (防御的)
+  // パレット (項目2) が 1 コマ切り出しと表示に必要とする最小フィールド。
+  // ドライバはこれが**全種そろう**ことを assert する (抽出の取りこぼし検出)。
+  var ENEMY_REQUIRED_FIELDS = ["name", "sprite", "frameW", "frameH", "cols", "hp", "xp"];
+
+  /* 系統グループ。パレットの並び順そのもの。
+   * ⚠⚠ **どのグループにも入らないキーは自動的に "other" (その他) へ落ちる**。
+   *    ゲーム側で敵が増えてもパレットから消えないことが不変条件 = 取りこぼしゼロ。
+   *    そのため分類は「明示列挙」だけにせず **接頭辞** を併用する
+   *    (goblinXxx / orcXxx が増えたら勝手に正しいグループへ入る)。
+   * ⚠ "other" は**必ず最後**に置く (受け皿)。 */
+  var ENEMY_GROUPS = [
+    { id: "goblin", label: "ゴブリン系",     prefixes: ["goblin"],   keys: ["hobgoblin", "kobold"] },
+    { id: "bandit", label: "山賊系",         prefixes: ["bandit"],   keys: ["scar"] },
+    { id: "lizard", label: "リザード系",     prefixes: ["lizard"],   keys: [] },
+    { id: "orc",    label: "オーク系",       prefixes: ["orc"],      keys: ["garrock"] },
+    { id: "undead", label: "アンデッド系",   prefixes: ["skeleton"],
+      keys: ["zombie", "wraith", "lich", "caelum", "ghostFlame"] },
+    { id: "large",  label: "ドラゴン・大型", prefixes: [],
+      keys: ["pharaxus", "hydra", "chimera", "griffon", "umber_hulk", "direBear",
+             "minotaur", "shadowBeast", "sovereignEye", "stoneGolem"] },
+    { id: "other",  label: "その他",         prefixes: [], keys: [] },   // ★受け皿。常に最後
+  ];
+
+  // 取得済みカタログ (null = 未取得)。★lint はこれが null のとき未知キー検査を**スキップ**する。
+  var enemyCatalog = null;
+  var enemyCatalogError = null;      // 直近の失敗理由 (null = 失敗していない)
+  var enemyCatalogPromise = null;    // 二重 fetch 防止のメモ
+
+  /* 敵キーの防御的な正規化。
+   * ⚠ **未知のキーは落とさない**。ゲーム側で敵が増えたときに古いエディタが黙って
+   *   種類指定を消してしまうのが最悪の事故 (無言のデータ欠損)。ここは
+   *   「文字種と長さ」だけを見る = カタログとの照合は lint の warning が担当する。
+   * 数値 / null / 空文字 / 記号だけの文字列 → null (= スロットは 2 要素のまま)。 */
+  function normEnemyKey(v) {
+    if (typeof v !== "string") return null;
+    var s = v.replace(/[^A-Za-z0-9_]/g, "");        // trim も記号落としもこれ 1 本で済む
+    if (!s) return null;
+    return (s.length > ENEMY_KEY_MAX) ? s.slice(0, ENEMY_KEY_MAX) : s;
+  }
+  // スロット ([tx,ty] | [tx,ty,key]) の敵種キー。おまかせ (2 要素) なら null。
+  function enemyKindOf(slot) {
+    return (Array.isArray(slot) && slot.length >= 3) ? normEnemyKey(slot[2]) : null;
+  }
+
+  function groupIdOfEnemy(key) {
+    if (typeof key !== "string" || !key) return "other";
+    var i, j;
+    for (i = 0; i < ENEMY_GROUPS.length; i++)            // ① 明示列挙が最優先
+      for (j = 0; j < ENEMY_GROUPS[i].keys.length; j++)
+        if (ENEMY_GROUPS[i].keys[j] === key) return ENEMY_GROUPS[i].id;
+    for (i = 0; i < ENEMY_GROUPS.length; i++)            // ② 接頭辞
+      for (j = 0; j < ENEMY_GROUPS[i].prefixes.length; j++)
+        if (key.indexOf(ENEMY_GROUPS[i].prefixes[j]) === 0) return ENEMY_GROUPS[i].id;
+    return "other";                                       // ★③ 受け皿 (未分類は必ずここ)
+  }
+  /* カタログを系統グループへ振り分ける。パレット (項目2) はこの戻り値をそのまま描く。
+   * ★戻り値の keys の総和 = 入力キー数 (取りこぼしゼロ) をドライバが assert する。 */
+  function groupEnemyCatalog(cat) {
+    var src = (cat === undefined) ? enemyCatalog : cat;
+    var out = [], byId = {}, i;
+    for (i = 0; i < ENEMY_GROUPS.length; i++) {
+      out.push({ id: ENEMY_GROUPS[i].id, label: ENEMY_GROUPS[i].label, keys: [] });
+      byId[ENEMY_GROUPS[i].id] = out[i];
+    }
+    var keys = src ? Object.keys(src) : [];
+    for (i = 0; i < keys.length; i++) (byId[groupIdOfEnemy(keys[i])] || byId.other).keys.push(keys[i]);
+    return out;
+  }
+
+  /* 対応する閉じ括弧まで切り出す。**文字列・行コメント・ブロックコメントの中の { } は数えない**
+   * (index.html の ENEMY_TYPES には日本語コメントが大量に入っており、素朴な括弧数えは必ず壊れる)。 */
+  function sliceBalancedBrace(s, openIdx) {
+    var depth = 0, k = openIdx, n = s.length, ch, q;
+    while (k < n) {
+      ch = s.charAt(k);
+      if (ch === '"' || ch === "'" || ch === "`") {
+        q = ch; k++;
+        while (k < n) {
+          if (s.charAt(k) === "\\") { k += 2; continue; }
+          if (s.charAt(k) === q) { k++; break; }
+          k++;
+        }
+        continue;
+      }
+      if (ch === "/" && s.charAt(k + 1) === "/") { while (k < n && s.charAt(k) !== "\n") k++; continue; }
+      if (ch === "/" && s.charAt(k + 1) === "*") {
+        k += 2;
+        while (k < n && !(s.charAt(k) === "*" && s.charAt(k + 1) === "/")) k++;
+        k += 2; continue;
+      }
+      if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) return s.slice(openIdx, k + 1); }
+      k++;
+    }
+    return null;
+  }
+
+  // index.html のテキストから ENEMY_TYPES を取り出す。失敗は**必ず throw** する
+  // (戻り値 null で握り潰すと silent fail-open になり、カタログ欠損に気づけない)。
+  function parseEnemyCatalog(text) {
+    if (typeof text !== "string" || !text) throw new Error("index.html の中身が空です");
+    var i = text.indexOf(ENEMY_CATALOG_MARK);
+    if (i < 0) throw new Error('index.html に "' + ENEMY_CATALOG_MARK + '" が見つかりません (書式が変わった可能性)');
+    var body = sliceBalancedBrace(text, i + ENEMY_CATALOG_MARK.length - 1);
+    if (!body) throw new Error("ENEMY_TYPES の { } が閉じていません");
+    var obj = new Function("return (" + body + ");")();
+    if (!obj || typeof obj !== "object") throw new Error("ENEMY_TYPES がオブジェクトになりません");
+    var out = {}, keys = Object.keys(obj), n = 0;
+    for (var k = 0; k < keys.length; k++) {
+      if (ENEMY_NON_COMBAT[keys[k]]) continue;      // ★馬車は敵ではないので除外
+      out[keys[k]] = obj[keys[k]]; n++;
+    }
+    if (n === 0) throw new Error("ENEMY_TYPES から敵を 1 種も取り出せませんでした");
+    return out;
+  }
+
+  /* 実行時に取得する。**同一オリジンの index.html を読むだけ**でゲームは 1 行も動かさない。
+   * 戻り Promise は必ず resolve する ({ ok, count, error, url }) = 呼び出し側で握り潰さなくてよい。
+   * ⚠ 失敗しても throw で止めない: カタログ無しでも「おまかせ」だけで通常どおり編集できる
+   *   (= 退化するが壊れない)。ただし **silent fail-open にはしない** (console.warn + UI 1 行)。 */
+  function loadEnemyCatalog(url) {
+    if (enemyCatalogPromise) return enemyCatalogPromise;
+    var u = url || ENEMY_CATALOG_URL;
+    enemyCatalogPromise = Promise.resolve()
+      .then(function () {
+        if (typeof fetch !== "function") throw new Error("この環境に fetch がありません");
+        return fetch(u, { cache: "no-store" });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status + " (" + u + ")");
+        return res.text();
+      })
+      .then(function (text) {
+        enemyCatalog = parseEnemyCatalog(text);
+        enemyCatalogError = null;
+        return { ok: true, count: Object.keys(enemyCatalog).length, error: null, url: u };
+      })
+      .catch(function (e) {
+        enemyCatalog = null;
+        enemyCatalogError = (e && e.message) ? e.message : String(e);
+        try {
+          console.warn("[map-editor] 敵カタログ (index.html の ENEMY_TYPES) を取得できませんでした: " + enemyCatalogError);
+        } catch (_) {}
+        return { ok: false, count: 0, error: enemyCatalogError, url: u };
+      });
+    return enemyCatalogPromise;
+  }
+  function getEnemyCatalog()      { return enemyCatalog; }          // null = 未取得
+  function getEnemyCatalogError() { return enemyCatalogError; }
+  function enemyDef(key)          { return (enemyCatalog && enemyCatalog[key]) || null; }
+  function isKnownEnemyKey(key)   { return !!(enemyCatalog && enemyCatalog[key]); }
+  // 差し替え (検証 / 将来カタログを別経路から与える場合)。null でクリア + 次回 load を再実行させる。
+  function setEnemyCatalog(cat) {
+    enemyCatalog = (cat && typeof cat === "object") ? cat : null;
+    enemyCatalogError = null;
+    enemyCatalogPromise = null;
+    return enemyCatalog;
+  }
 
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
@@ -470,9 +657,19 @@
       if (c2 < c1) { var tc = c1; c1 = c2; c2 = tc; }
       return [r1, c1, r2, c2];
     }
+    /* スロット = [tx, ty] (おまかせ) | [tx, ty, "goblin"] (種類固定) の**両対応**。
+     * ⭐ 3 つ目は **normEnemyKey が非 null を返したときだけ**足す。
+     *    それ以外 (undefined / null / 空文字 / 数値 / 記号だけ) は **2 要素で返す**。
+     *    これにより既存プリセット (2 要素) は sanitize を何度通しても 2 要素のまま =
+     *    §4 2c/2d の往復同一性 deep-equal が 1 バイトも変わらない (最重要の不変条件)。
+     * ⚠ 未知のキー (カタログに無い) は**落とさない**。ゲーム側で敵が増えたとき、
+     *   古いエディタが黙って種類指定を消すのが最悪 → lint の warning で知らせるだけにする。 */
     function fixSlot(s) {
       if (!Array.isArray(s) || s.length < 2) return null;
-      return [clampInt(s[0], 0, W - 1), clampInt(s[1], 0, H - 1)];   // [tx, ty]
+      var out = [clampInt(s[0], 0, W - 1), clampInt(s[1], 0, H - 1)];   // [tx, ty]
+      var kind = normEnemyKey(s[2]);
+      if (kind) out.push(kind);
+      return out;
     }
 
     var srcRooms = Array.isArray(d.rooms) ? d.rooms : base.rooms;
@@ -743,7 +940,9 @@
     return ks.join(",");
   }
 
-  function lintMapDef(src) {
+  /* opt.catalog … 未知キー検査に使う敵カタログ。省略時はモジュールの取得済みカタログ。
+   *   null を**明示的に**渡すと未取得扱い = 検査スキップ (ドライバが両状態を測れる)。 */
+  function lintMapDef(src, opt) {
     var errors = [], warnings = [], i, j;
     function err(code, msg, at, ri) { errors.push(lintIssue(code, "error", msg, at, ri)); }
     function warn(code, msg, at, ri) { warnings.push(lintIssue(code, "warning", msg, at, ri)); }
@@ -964,6 +1163,29 @@
            "ボススロットがありません — ボスが湧かないので、ボス撃破を前提にした進行になりません",
            null, (bIdx >= 0 && bIdx < rooms.length) ? bIdx : null);
 
+    /* ── 敵の種類キーがカタログに無い (★項目1 で追加。**warning** であって error ではない) ──
+     *  ⚠ カタログ未取得 (fetch 失敗 / まだ届いていない) のときは検査そのものを**スキップ**する。
+     *    error にしたり未取得時に走らせたりすると、カタログが取れない環境で正しいマップまで
+     *    全部赤くなり、lint 全体が信用されなくなる (= 装置として死ぬ)。
+     *  ⚠ sanitize は未知キーを**落とさない**ので、ここが唯一の検出器になる。 */
+    var cat = (opt && "catalog" in opt) ? opt.catalog : enemyCatalog;
+    if (cat) {
+      for (i = 0; i < rooms.length; i++) {
+        var esk = rooms[i].enemySlots || [];
+        for (j = 0; j < esk.length; j++) lintEnemyKind(esk[j], "敵スロット " + rooms[i].id + " #" + j, i);
+        lintEnemyKind(rooms[i].bossSlot, "ボススロット (" + rooms[i].id + ")", i);
+      }
+    }
+    function lintEnemyKind(slot, label, ri) {
+      var key = enemyKindOf(slot);
+      if (!key || cat[key]) return;
+      warn("enemy-unknown-key",
+           label + ' の敵の種類 "' + key + '" が index.html の ENEMY_TYPES にありません — ' +
+           "ゲーム側に存在しないキーなので、DF へ書き出してもこの敵は湧きません " +
+           "(綴り違い、またはエディタが古い可能性)",
+           slot, ri);
+    }
+
     return done();
   }
 
@@ -985,6 +1207,36 @@
     bossRoomIdx: bossRoomIdx,
     slotsOf: slotsOf,
     objectiveCount: objectiveCount,
+
+    /* ── 敵カタログ (Phase 0.5 項目1) ★項目2 のパレット / 項目3 の描画はここに乗る ──
+     *   loadEnemyCatalog([url])  … Promise<{ ok, count, error, url }>。**必ず resolve** する。
+     *                              二重呼び出しは同じ Promise を返す (fetch は 1 回だけ)
+     *   getEnemyCatalog()        … { key: def, … } | null (null = 未取得)。caravanWagon は除外済み
+     *   getEnemyCatalogError()   … 直近の失敗理由の文字列 | null
+     *   setEnemyCatalog(cat)     … 差し替え / null でクリア (次回 load は再実行される)
+     *   parseEnemyCatalog(text)  … index.html のテキストから抽出 (**失敗は throw**。純粋)
+     *   enemyDef(key) / isKnownEnemyKey(key)
+     *   normEnemyKey(v)          … 防御的正規化。非文字列/空/記号だけ → null
+     *   enemyKindOf(slot)        … [tx,ty,"goblin"] → "goblin" / [tx,ty] → null
+     *   groupIdOfEnemy(key)      … 系統グループ id。★未分類は必ず "other"
+     *   groupEnemyCatalog([cat]) … [{ id, label, keys[] }, …] (パレットの並び順そのもの)
+     *   ENEMY_GROUPS / ENEMY_NON_COMBAT / ENEMY_REQUIRED_FIELDS / ENEMY_CATALOG_URL */
+    ENEMY_CATALOG_URL: ENEMY_CATALOG_URL,
+    ENEMY_GROUPS: ENEMY_GROUPS,
+    ENEMY_NON_COMBAT: ENEMY_NON_COMBAT,
+    ENEMY_REQUIRED_FIELDS: ENEMY_REQUIRED_FIELDS,
+    ENEMY_KEY_MAX: ENEMY_KEY_MAX,
+    normEnemyKey: normEnemyKey,
+    enemyKindOf: enemyKindOf,
+    groupIdOfEnemy: groupIdOfEnemy,
+    groupEnemyCatalog: groupEnemyCatalog,
+    parseEnemyCatalog: parseEnemyCatalog,
+    loadEnemyCatalog: loadEnemyCatalog,
+    getEnemyCatalog: getEnemyCatalog,
+    getEnemyCatalogError: getEnemyCatalogError,
+    setEnemyCatalog: setEnemyCatalog,
+    enemyDef: enemyDef,
+    isKnownEnemyKey: isKnownEnemyKey,
   };
 })(window);
 </script>
@@ -1080,6 +1332,10 @@
     // ★★ canvas に lint マーカーを重ねるか。exportPNG() は**必ずこれを false にして描く**
     //    (選択リングと同じ扱い)。ここを外すと lint の赤丸が PNG に焼き込まれる。
     lintOverlay: true,
+    // ── 項目1 (Phase 0.5) で追加 ──
+    // 敵カタログの取得状況。null = まだ結果が返っていない / { ok, count, error, url }
+    // ★ok:false でも編集は続けられる (おまかせのみ)。UI (#catalogNote) に必ず 1 行出る。
+    enemyCatalogStatus: null,
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -1130,6 +1386,8 @@
     lintPanelCount: document.getElementById("lintPanelCount"),
     lintList:       document.getElementById("lintList"),
     btnLintClose:   document.getElementById("btnLintClose"),
+    // ── 項目1 (Phase 0.5) ──
+    catalogNote:    document.getElementById("catalogNote"),
   };
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -1868,6 +2126,14 @@
     return slotFail(REASON.notSlotTool);
   }
 
+  /* 移動先の座標へ作り直すときに **敵の種類 (3 要素目) を落とさない** ための小道具 (項目1)。
+   * ⚠ [tx, ty] を素で作り直すと 3 要素目が無言で消える = このスキーマ拡張が防ごうとしている
+   *   まさにその事故 (無言のデータ欠損)。おまかせ (2 要素) のときは従来と 1 バイトも変わらない。 */
+  function reSlot(prev, tx, ty) {
+    var kind = M.enemyKindOf(prev);
+    return kind ? [tx, ty, kind] : [tx, ty];
+  }
+
   // ── 移動 (履歴なし。ドラッグ中は毎タイルこれが走る) ──────────────────────
   function moveSlotInternal(tx, ty) {
     tx = tx | 0; ty = ty | 0;
@@ -1887,7 +2153,7 @@
       if (bi < 0) return slotFail(REASON.noBossRoom);
       if (!inRect(d.rooms[bi].rect, tx, ty)) return slotFail(REASON.bossOutside);
       for (i = 0; i < d.rooms.length; i++) d.rooms[i].bossSlot = null;
-      d.rooms[bi].bossSlot = [tx, ty];
+      d.rooms[bi].bossSlot = reSlot(cur, tx, ty);      // ★敵の種類を落とさない (項目1)
       state.slotSelection = { kind: "boss", roomIndex: bi };
       return slotOk("boss");
     }
@@ -1898,10 +2164,10 @@
     var from = d.rooms[sel.roomIndex];
     if (!from) { state.slotSelection = null; return slotFail(REASON.noSlotSel); }
     if (rj === sel.roomIndex) {
-      from.enemySlots[sel.slotIndex] = [tx, ty];
+      from.enemySlots[sel.slotIndex] = reSlot(cur, tx, ty);   // ★敵の種類を落とさない (項目1)
     } else {
       from.enemySlots.splice(sel.slotIndex, 1);      // ★所属の付け替え = 抜いて push
-      d.rooms[rj].enemySlots.push([tx, ty]);
+      d.rooms[rj].enemySlots.push(reSlot(cur, tx, ty));
       state.slotSelection = { kind: "enemy", roomIndex: rj, slotIndex: d.rooms[rj].enemySlots.length - 1 };
     }
     return slotOk(slotKey(state.slotSelection));
@@ -2588,6 +2854,32 @@
   resetHistory();
   refreshLocalList();      // 保存済み一覧を localStorage から復元 (項目4)
 
+  /* ── 敵カタログの取得 (項目1) ────────────────────────────────────────────
+   * index.html を同一オリジンで fetch して ENEMY_TYPES を読むだけ。ゲームは動かさない。
+   * ★取得できなくてもエディタは通常どおり動く (「おまかせ」だけに退化する)。
+   *   ただし **silent fail-open にしない** = console.warn (§A 側) + ここで UI に 1 行。
+   * ⚠ 取得完了は非同期なので、この時点の lint は未知キー検査を**スキップ**している。
+   *   届いたら computeLint() をやり直して警告を出し直す (バッジが常に最新)。 */
+  function syncCatalogNote() {
+    var st = state.enemyCatalogStatus;
+    if (!st) { el.catalogNote.textContent = "敵カタログ 読込中…"; el.catalogNote.classList.remove("ng"); return; }
+    if (st.ok) {
+      el.catalogNote.textContent = "敵カタログ " + st.count + " 種";
+      el.catalogNote.classList.remove("ng");
+    } else {
+      el.catalogNote.textContent = "⚠ 敵カタログを読めません (" + st.error + ") — 敵は「おまかせ」のみになります";
+      el.catalogNote.classList.add("ng");
+    }
+  }
+  syncCatalogNote();
+  var enemyCatalogReady = M.loadEnemyCatalog().then(function (r) {
+    state.enemyCatalogStatus = r;
+    syncCatalogNote();
+    computeLint();          // 未知キー検査が有効になった状態で計算し直す
+    render();
+    return r;
+  });
+
   /* ══ 検証シーム (★ヘッドレスドライバがここに乗る。名前を変えないこと) ══
    * window.__mapEditor
    *   ── 項目1 で公開済み (★変更しない) ──
@@ -2653,9 +2945,21 @@
    *   state.lintOverlay    … canvas のマーカー表示。★exportPNG() は必ず false にして描く
    *   DOM: #btnLint / #lintBadgeErr / #lintBadgeWarn / #lintPanel / #lintList
    *        #lintList > li[data-code][data-severity]
+   *
+   *   ── Phase 0.5 項目1 で追加した敵カタログのシーム ──
+   *   enemyCatalogReady        … Promise<{ ok, count, error, url }>。**必ず resolve** する。
+   *                              ドライバは await してから件数 / 系統グループを assert する
+   *   state.enemyCatalogStatus … 上と同じ結果 (null = まだ返っていない)
+   *   MapDef.loadEnemyCatalog / getEnemyCatalog / setEnemyCatalog / parseEnemyCatalog /
+   *   MapDef.groupEnemyCatalog / groupIdOfEnemy / normEnemyKey / enemyKindOf /
+   *   MapDef.ENEMY_GROUPS / ENEMY_REQUIRED_FIELDS   … §A のコメント参照
+   *   スロットは [tx,ty] (おまかせ) と [tx,ty,"goblin"] (種類固定) の両対応。
+   *     ★2 要素は sanitize を何度通しても 2 要素のまま (既存プリセットの往復同一性は無傷)
+   *   lint: warning "enemy-unknown-key" … カタログに無いキー。★カタログ未取得なら**出ない**
+   *   DOM: #catalogNote (取得状況の 1 行。失敗時は .ng が付く)
    */
   window.__mapEditor = {
-    version: 5,
+    version: 6,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -2698,9 +3002,11 @@
     exportPNG: exportPNG,
     // ── 項目5 ──
     lint: lint,
-    lintMapDef: function (d) { return M.lintMapDef(d); },   // ★純粋 (state に触らない)
+    lintMapDef: function (d, opt) { return M.lintMapDef(d, opt); },   // ★純粋 (state に触らない)
     focusTile: focusTile,
     setLintPanelOpen: setLintPanelOpen,
+    // ── Phase 0.5 項目1 ──
+    enemyCatalogReady: enemyCatalogReady,
   };
 })();
 </script>
