@@ -12,6 +12,8 @@
  *   §4 入出力   ★往復同一性 (プリセット → exportJSON → validate → importJSON → DEFAULT_* と
  *               deep-equal) / localStorage / 壊れた JSON の拒否 / sanitize クランプ / PNG
  *   §5 lint     ★不正マップ 5 種の検出 / プリセット 2 種はエラー 0 件 / 純粋性 / PNG 非焼込 / 性能
+ *   §6 敵種     ★カタログ抽出のドリフト検出 / 3 要素スロットの往復同一性 / 配置・種類変更・
+ *               実寸描画 (drawImage フック) / ツールチップが DOM / lint の未知キー warning
  *   §9 実行中に pageerror / console.error / 404 が 1 件も出ていないこと
  *
  * ■ ★計画書が名指しで要求している assert
@@ -21,6 +23,11 @@
  *   - 空振り検出        §5 2a/2b/N0 … プリセットそのままなら lint エラー 0 件
  *   - 実コードとの一致  §0 0-1 / §4 3a〜3n … index.html / tavern.html から実読した値と突合。
  *                       ★「抽出できたこと自体」も assert する (抽出失敗を PASS にしない)
+ *   - 敵カタログのドリフト §6 A1〜A8 … ★ドライバ側でも index.html を **node で独立に**読み、
+ *                       **2 通りの方法** (new Function 評価 / eval を使わないトークン走査) で
+ *                       キーを数え、その結果と**エディタの抽出結果**を突き合わせる。
+ *                       ⚠ ハードコードの 49 とエディタの 49 を比べても意味がない
+ *                         (index.html の書式が変わったとき両方が同時に腐る) → 実読で作る。
  *
  * ■ 負のコントロール (--mutate <kind>)  ★「assert が空振りでない」ことの直接証明
  *   map-editor.html にわざと欠陥を注入した写しを配信し、狙った assert だけが赤くなるか見る。
@@ -31,13 +38,29 @@
  *     noroomcheck 敵スロットの部屋内判定を殺す       → §3 4a/4b/4c が FAIL
  *     noreparent  スロット移動時の所属付け替えを殺す → §3 7c が FAIL
  *     nobosscheck ボス部屋を role でなく末尾で推測   → §3 5a/5b が FAIL
- *     dropslots   exportJSON が enemySlots を落とす  → §4 2a/2b/2c/2d (往復同一性) が FAIL
+ *     dropslots   exportJSON が enemySlots を落とす  → §4 2a/2b/2c/2d/N1 + §6 B1/B2 が FAIL
+ *                 (§6 も exportJSON を通る = 同じ欠陥が 2 節から見える。狙い通り)
  *     noschema    読込時の schema 判定を殺す         → §4 7a が FAIL
  *     keepsel     PNG 書き出し前の選択解除を殺す     → §4 9d が FAIL
  *     nofill      lint の flood fill を殺す          → §5 3a/3a2 が FAIL
  *     nowall      lint の壁乗り検査を殺す            → §5 3b/3c が FAIL
  *     nocand      lint の候補ゼロ検査を殺す          → §5 3e が FAIL
  *     lintpng     PNG 書き出し前の overlay OFF を殺す→ §5 6 が FAIL
+ *     ── Phase 0.5 (敵の種類指定) で足した 7 種 ★下表は推測ではなく実測 ────────
+ *     dropkind    makeSlot が 3 要素目を落とす       → §6 C1/C2/C3/C4/C6/C7/C8/D2 が FAIL
+ *                 (★sanitize 側の fixSlot は無傷なので §6 B1 は PASS のまま = 経路が別)
+ *     dropfix     sanitize の fixSlot が 3 要素目を落とす → §6 B1/B3/B4/E1/E3 が FAIL
+ *                 (★makeSlot は無傷なので配置系 C1/C2 は PASS のまま = 経路が別。
+ *                  lintMapDef は入力を sanitize してから見るので E も巻き込まれる)
+ *     nobrush     敵スロット配置が筆を無視する       → §6 C1 だけが FAIL
+ *                 (ボスは brushSlot のままなので C2 は PASS = 「配置 2 経路」の片方だけを殺す)
+ *     nosprite    実寸スプライト描画を殺す           → §6 C7/C8 が FAIL
+ *     nocatalog   カタログ抽出のマーカーを壊す       → §6 A2/A3/A4/A5/A6/A8/C4/C7/C8/D2/E1/E3 が FAIL
+ *                 (★fetch を 404 にする方向はダメ = §9 の console.error 0 件と衝突する)
+ *     nogroupfallback 未分類キーの受け皿 "other" を殺す → §6 A7/A8 が FAIL
+ *                 (⚠ groupEnemyCatalog 側の `|| byId.other` が総和を救うので A6 は PASS)
+ *     notip       ツールチップの表示クラスを付けない → §6 D1/D4 が FAIL
+ *                 (⚠ 文言は textContent に入ったままなので D2/D3 は PASS = 別の物を測っている)
  *
  * ■ 使い方
  *     node tools/driver_mapeditor.js [--headful] [--port N] [--browser <path>]
@@ -93,6 +116,29 @@ const MUTATIONS = {
   nocand:  [['      if (nTrap === 0)', '      if (false)'],
             ['      if (nChest === 0)', '      if (false)']],
   lintpng: [['      state.lintOverlay = false;\n      render();', '      render();']],
+
+  /* ── §6 敵の種類指定 (Phase 0.5) ────────────────────────────────────────────
+   * ⚠ 置換文字列は map-editor.html からの**逐語コピー**。実装を触ると自己失効する
+   *   (空振り = exit 3 で止まるので、黙って負のコントロールが死ぬことはない)。
+   * ⚠ 「3 要素目を落とす」は **makeSlot (配置/移動/種類変更)** と
+   *   **fixSlot (sanitize/往復)** の 2 経路がある。どちらか一方だけを殺すことで
+   *   「§6 B (往復) と §6 C (配置) が本当に別の経路を測っている」ことが証明できる。 */
+  dropkind: [['  function makeSlot(tx, ty, kind) {\n    var k = M.normEnemyKey(kind);',
+              '  function makeSlot(tx, ty, kind) {\n    var k = null;']],
+  dropfix:  [['      var kind = normEnemyKey(s[2]);\n      if (kind) out.push(kind);',
+              '      var kind = null;\n      if (kind) out.push(kind);']],
+  nobrush:  [['      d.rooms[ri].enemySlots.push(brushSlot(tx, ty));',
+              '      d.rooms[ri].enemySlots.push(makeSlot(tx, ty, null));']],
+  nosprite: [['    if (drawSlotSprite(slot, color)) return;', '    if (false) return;']],
+  // ★fetch を 404 にする方向は §9 (console.error 0 件) と衝突するので、抽出マーカーを壊す。
+  //   loadEnemyCatalog は console.warn + reason 付きで失敗する = 想定内の退化パス。
+  nocatalog: [['  var ENEMY_CATALOG_MARK = "const ENEMY_TYPES = {";',
+               '  var ENEMY_CATALOG_MARK = "const ENEMY_TYPES_GONE = {";']],
+  // ⚠ groupEnemyCatalog 側に `|| byId.other` の保険があるので**総和は崩れない**。
+  //   崩れるのは groupIdOfEnemy の戻り値と .palItem[data-group] の方 → A7/A8 が拾う。
+  nogroupfallback: [['    return "other";                                       // ★③ 受け皿 (未分類は必ずここ)',
+                     '    return null;                                          // ★③ 受け皿 (未分類は必ずここ)']],
+  notip: [['    el.slotTip.classList.add("on");', '    el.slotTip.classList.remove("on");']],
 };
 function mutatedHtml() {
   const src = fs.readFileSync(path.join(ROOT, 'map-editor.html'), 'utf8');
@@ -294,6 +340,140 @@ function extractLiveRules() {
       const t = /FIELD_BAND_TOP_ROW\s*=\s*(\d+)/.exec(idx), n = /FIELD_BAND_ROWS\s*=\s*(\d+)/.exec(idx);
       return (t && n) ? (+t[1] + (+n[1]) - 1) : null;
     })(),
+  };
+}
+
+/* ── §6 用: index.html の ENEMY_TYPES を **ドライバ側で独立に**抽出する ───────
+ * ★これが「index.html の書式が変わった」を検知する唯一の器。
+ *   ⚠ 期待値をハードコード (49) してエディタの 49 と比べても意味がない。
+ *     index.html の書式が変われば**両方が同時に**壊れるか、両方が同時に古くなる。
+ *     → node 側で毎回実読して数え、エディタ側の抽出結果と突き合わせる。
+ * ★数え方を **2 通り**用意して互いに検算する:
+ *     ① new Function で評価してキーを取る (= エディタと同じ結論に至るはず)
+ *     ② eval を一切使わないトークン走査で「深さ1 の識別子 + :」を拾う
+ *   ①だけだと「評価はできたが中身が別物」を見逃す。②だけだと三項演算子等で誤検出しうる。
+ * ⚠ 文字列と // /* コメントを飛ばさないと、日本語コメント中の { } で必ず壊れる
+ *   (ENEMY_TYPES は日本語コメントだらけ)。 */
+function enemyTypesBlock() {
+  const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const MARK = 'const ENEMY_TYPES = {';
+  const at = idx.indexOf(MARK);
+  if (at < 0) return null;
+  const open = at + MARK.length - 1;              // '{' の位置
+  let depth = 0, k = open;
+  const n = idx.length;
+  while (k < n) {
+    const ch = idx[k];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const q = ch; k++;
+      while (k < n) { if (idx[k] === '\\') { k += 2; continue; } if (idx[k] === q) { k++; break; } k++; }
+      continue;
+    }
+    if (ch === '/' && idx[k + 1] === '/') { while (k < n && idx[k] !== '\n') k++; continue; }
+    if (ch === '/' && idx[k + 1] === '*') { k += 2; while (k < n && !(idx[k] === '*' && idx[k + 1] === '/')) k++; k += 2; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) return { text: idx.slice(open, k + 1), start: open, end: k + 1 }; }
+    k++;
+  }
+  return null;                                    // 閉じていない = 抽出失敗 (PASS にしない)
+}
+// 文字列とコメントを空白へ潰す (「純データか」を測るための下ごしらえ)
+function stripStringsAndComments(s) {
+  let out = '', k = 0;
+  const n = s.length;
+  while (k < n) {
+    const ch = s[k];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const q = ch; k++;
+      while (k < n) { if (s[k] === '\\') { k += 2; continue; } if (s[k] === q) { k++; break; } k++; }
+      out += '""'; continue;
+    }
+    if (ch === '/' && s[k + 1] === '/') { while (k < n && s[k] !== '\n') k++; continue; }
+    if (ch === '/' && s[k + 1] === '*') { k += 2; while (k < n && !(s[k] === '*' && s[k + 1] === '/')) k++; k += 2; continue; }
+    out += ch; k++;
+  }
+  return out;
+}
+/* コメントだけを潰す (文字列は残す)。
+ * ⚠ テンプレートリテラルの検出にはこちらを使うこと。stripStringsAndComments は
+ *   バッククォートを「文字列の囲み」として消してしまうので、必ず 0 になり検査が死ぬ。
+ * ⚠ ENEMY_TYPES 内には `` ` `` を含む**日本語コメント**が実在する (index.html:6812 付近)
+ *   ので、素朴に生テキストを数えると 2 件の偽陽性が出る (実測で踏んだ)。 */
+function stripCommentsOnly(s) {
+  let out = '', k = 0;
+  const n = s.length;
+  while (k < n) {
+    const ch = s[k];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const q = ch; let j = k + 1;
+      while (j < n) { if (s[j] === '\\') { j += 2; continue; } if (s[j] === q) { j++; break; } j++; }
+      out += s.slice(k, j); k = j; continue;
+    }
+    if (ch === '/' && s[k + 1] === '/') { while (k < n && s[k] !== '\n') k++; continue; }
+    if (ch === '/' && s[k + 1] === '*') { k += 2; while (k < n && !(s[k] === '*' && s[k + 1] === '/')) k++; k += 2; continue; }
+    out += ch; k++;
+  }
+  return out;
+}
+// ② eval を使わない独立実装。深さ1 (= ENEMY_TYPES 直下) の `key:` だけを拾う
+function scanTopLevelEnemyKeys(body) {
+  const keys = [];
+  const idStart = /[A-Za-z_$]/, idPart = /[A-Za-z0-9_$]/;
+  let depth = 0, k = 0;
+  const n = body.length;
+  while (k < n) {
+    const ch = body[k];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const q = ch; k++;
+      while (k < n) { if (body[k] === '\\') { k += 2; continue; } if (body[k] === q) { k++; break; } k++; }
+      continue;
+    }
+    if (ch === '/' && body[k + 1] === '/') { while (k < n && body[k] !== '\n') k++; continue; }
+    if (ch === '/' && body[k + 1] === '*') { k += 2; while (k < n && !(body[k] === '*' && body[k + 1] === '/')) k++; k += 2; continue; }
+    if (ch === '{' || ch === '[' || ch === '(') { depth++; k++; continue; }
+    if (ch === '}' || ch === ']' || ch === ')') { depth--; k++; continue; }
+    if (depth === 1 && idStart.test(ch)) {
+      let j = k; while (j < n && idPart.test(body[j])) j++;
+      const word = body.slice(k, j);
+      let p = j; while (p < n && /\s/.test(body[p])) p++;
+      if (body[p] === ':') keys.push(word);
+      k = j; continue;
+    }
+    k++;
+  }
+  return keys;
+}
+const ENEMY_NON_COMBAT_EXPECT = ['caravanWagon'];      // 敵ではない = カタログから除外されるべき
+const ENEMY_REQUIRED_EXPECT = ['name', 'sprite', 'frameW', 'frameH', 'cols', 'hp', 'xp'];
+function extractEnemyCatalogNode() {
+  const blk = enemyTypesBlock();
+  if (!blk) return { ok: false, error: 'index.html から ENEMY_TYPES ブロックを切り出せない' };
+  let obj = null, evalErr = null;
+  try { obj = new Function('return (' + blk.text + ');')(); }
+  catch (e) { evalErr = String((e && e.message) || e); }
+  const evalKeys = obj ? Object.keys(obj) : [];
+  const scanKeys = scanTopLevelEnemyKeys(blk.text);
+  const bare = stripStringsAndComments(blk.text);
+  const pure = {                                   // new Function で評価してよい根拠 (純データか)
+    fn: (bare.match(/\bfunction\b/g) || []).length,
+    arrow: (bare.match(/=>/g) || []).length,
+    tmpl: (stripCommentsOnly(blk.text).match(/`/g) || []).length,
+  };
+  const combat = evalKeys.filter((k) => ENEMY_NON_COMBAT_EXPECT.indexOf(k) < 0);
+  const missing = [];
+  for (const k of combat)
+    for (const f of ENEMY_REQUIRED_EXPECT)
+      if (!obj[k] || obj[k][f] === undefined || obj[k][f] === null) missing.push(k + '.' + f);
+  return {
+    ok: !evalErr && evalKeys.length > 0,
+    error: evalErr,
+    bytes: blk.text.length,
+    evalKeys, scanKeys, combat, missing, pure,
+    // ★2 方式が一致すること自体が「抽出が正しい」の裏取り
+    sameByBothMethods: evalKeys.length === scanKeys.length &&
+      evalKeys.slice().sort().join(',') === scanKeys.slice().sort().join(','),
+    // caravanWagon が index.html に**実在する**こと (除外 assert の空振り防止)
+    hasNonCombat: ENEMY_NON_COMBAT_EXPECT.every((k) => evalKeys.indexOf(k) >= 0),
   };
 }
 
@@ -1919,6 +2099,531 @@ function extractLiveRules() {
   check('§5 P lint が編集のたび走っても軽い (lintMapDef < 1.0ms / dragTile 1回 < 16ms = 60fps 予算内)',
         perf.lintMs < 1.0 && perf.dragMs < 16,
         'lint=' + perf.lintMs.toFixed(3) + 'ms drag=' + perf.dragMs.toFixed(3) + 'ms');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // §6 敵の種類指定 (Phase 0.5)
+  //    ★カタログ抽出のドリフト検出 / 3 要素スロットの往復同一性 /
+  //      配置・種類変更・実寸描画 (drawImage フック) / ツールチップが DOM /
+  //      lint の未知キー warning
+  // ══════════════════════════════════════════════════════════════════════════
+  console.log('\n───── §6 敵の種類指定 (カタログ / 3要素往復 / 配置・描画 / ツールチップ / lint) ─────');
+
+  // ── A. カタログ抽出のドリフト検出 ────────────────────────────────────────
+  const nodeCat = extractEnemyCatalogNode();
+  console.log('[node] ENEMY_TYPES ブロック = ' + nodeCat.bytes + ' bytes / eval 評価 ' +
+              nodeCat.evalKeys.length + ' キー / トークン走査 ' + nodeCat.scanKeys.length +
+              ' キー / 2方式一致=' + nodeCat.sameByBothMethods);
+  console.log('[node] 敵 (' + ENEMY_NON_COMBAT_EXPECT.join(',') + ' 除外) = ' + nodeCat.combat.length +
+              ' 種 / 必須欠落=' + JSON.stringify(nodeCat.missing) +
+              ' / 純データ度 (function/=>/`) = ' + JSON.stringify(nodeCat.pure));
+  check('§6 A1 ★ドライバ側でも index.html から ENEMY_TYPES を独立抽出できた ' +
+        '(eval 評価とトークン走査の 2 方式が一致 / 中身は純データ / 抽出失敗を PASS にしない)',
+        nodeCat.ok === true && nodeCat.sameByBothMethods === true && nodeCat.evalKeys.length > 0 &&
+        nodeCat.pure.fn === 0 && nodeCat.pure.arrow === 0 && nodeCat.pure.tmpl === 0 &&
+        nodeCat.hasNonCombat === true,
+        'ok=' + nodeCat.ok + ' err=' + nodeCat.error + ' eval=' + nodeCat.evalKeys.length +
+        ' scan=' + nodeCat.scanKeys.length + ' pure=' + JSON.stringify(nodeCat.pure));
+
+  // サムネの読込が落ち着くまで待つ (待たないと thumbs.pending が残って偽 FAIL になる)
+  await page.waitForFunction(
+    () => window.__mapEditor.paletteInfo().thumbs.pending === 0, { timeout: 20000 }).catch(() => {});
+
+  const cat6 = await page.evaluate(async () => {
+    const E = window.__mapEditor, M = E.MapDef;
+    const st = await E.enemyCatalogReady;                 // ★測る前に必ず await
+    const c = M.getEnemyCatalog();
+    const keys = c ? Object.keys(c) : [];
+    const req = M.ENEMY_REQUIRED_FIELDS;
+    const missing = [];
+    for (const k of keys)
+      for (const f of req)
+        if (!c[k] || c[k][f] === undefined || c[k][f] === null) missing.push(k + '.' + f);
+    const groups = M.groupEnemyCatalog(c || {});
+    const gKeys = [];
+    groups.forEach((g) => g.keys.forEach((k) => gKeys.push(k)));
+    const dup = gKeys.filter((k, i) => gKeys.indexOf(k) !== i);
+    const uncovered = keys.filter((k) => gKeys.indexOf(k) < 0);
+    const pal = E.paletteInfo();
+    const items = Array.from(document.querySelectorAll('#palList .palItem'));
+    // ★DOM の data-group が「入っているセクションの系統」と一致するか (受け皿が死ぬと崩れる)
+    const badGroup = items.filter((it) => {
+      const sec = it.closest('.palGroup');
+      return !sec || sec.getAttribute('data-group') !== it.getAttribute('data-group');
+    }).map((it) => it.getAttribute('data-key') + '→' + it.getAttribute('data-group'));
+    return {
+      status: st, statusState: E.state.enemyCatalogStatus,
+      keys, missing, req,
+      groups: groups.map((g) => ({ id: g.id, n: g.keys.length })),
+      gTotal: gKeys.length, dup, uncovered,
+      groupOfUnknown: M.groupIdOfEnemy('zzzBrandNewMonster'),
+      groupOfKnown: M.groupIdOfEnemy('goblin'),
+      pal, badGroup,
+      hasWagon: keys.indexOf('caravanWagon') >= 0,
+      nonCombat: Object.keys(M.ENEMY_NON_COMBAT),
+      itemKeys: items.map((it) => it.getAttribute('data-key')),
+    };
+  });
+  console.log('[driver] エディタのカタログ: status=' + JSON.stringify(cat6.status) +
+              ' キー=' + cat6.keys.length + ' 種 / 必須欠落=' + JSON.stringify(cat6.missing));
+  console.log('[driver] 系統グループ: ' + JSON.stringify(cat6.groups) + ' 総和=' + cat6.gTotal +
+              ' 重複=' + JSON.stringify(cat6.dup) + ' 未収容=' + JSON.stringify(cat6.uncovered));
+  console.log('[driver] パレット DOM: ' + JSON.stringify(cat6.pal));
+
+  const nodeKeysSorted = nodeCat.combat.slice().sort();
+  const edKeysSorted = cat6.keys.slice().sort();
+  check('§6 A2 ★エディタの敵カタログ取得が成功している (silent fail-open にしない / state にも同じ結果が入る)',
+        !!cat6.status && cat6.status.ok === true && cat6.status.error === null &&
+        cat6.status.count === cat6.keys.length && cat6.keys.length > 0 &&
+        !!cat6.statusState && cat6.statusState.ok === true &&
+        cat6.pal.hasCatalog === true && !/⚠/.test(cat6.pal.note || ''),
+        JSON.stringify(cat6.status) + ' note=' + JSON.stringify(cat6.pal.note));
+  check('§6 A3 ★★カタログのキー集合が index.html の実読結果と完全一致 (書式ドリフトの検出器・ハードコードした期待値ではない)',
+        deepEqual(edKeysSorted, nodeKeysSorted) && edKeysSorted.length === nodeCat.combat.length,
+        'エディタ=' + edKeysSorted.length + ' 種 / node 実読=' + nodeKeysSorted.length + ' 種  差分=' +
+        JSON.stringify(edKeysSorted.filter((k) => nodeKeysSorted.indexOf(k) < 0)
+          .concat(nodeKeysSorted.filter((k) => edKeysSorted.indexOf(k) < 0)).slice(0, 6)));
+  check('§6 A4 caravanWagon は index.html に**実在するのに**カタログから除外されている (除外 assert の空振り防止)',
+        nodeCat.hasNonCombat === true && nodeCat.evalKeys.length === nodeCat.combat.length + 1 &&
+        cat6.keys.length > 0 && cat6.hasWagon === false && eq(cat6.nonCombat, ENEMY_NON_COMBAT_EXPECT),
+        'index.html に実在=' + nodeCat.hasNonCombat + ' カタログに混入=' + cat6.hasWagon +
+        ' 除外表=' + JSON.stringify(cat6.nonCombat));
+  check('§6 A5 ★必須フィールド (name/sprite/frameW/frameH/cols/hp/xp) が全種で揃う (エディタ側・node 側の両方で 0 件欠落)',
+        eq(cat6.req, ENEMY_REQUIRED_EXPECT) && cat6.keys.length > 0 &&   // ★空カタログで空振りしない
+        cat6.missing.length === 0 && nodeCat.missing.length === 0,
+        'エディタ欠落=' + JSON.stringify(cat6.missing.slice(0, 6)) +
+        ' node欠落=' + JSON.stringify(nodeCat.missing.slice(0, 6)) + ' 必須=' + JSON.stringify(cat6.req));
+  check('§6 A6 ★系統グループの keys 総和 = 総数 (どのキーも取りこぼされない / 重複もしない)',
+        cat6.gTotal === cat6.keys.length && cat6.dup.length === 0 && cat6.uncovered.length === 0 &&
+        cat6.keys.length > 0,
+        '総和=' + cat6.gTotal + ' / 総数=' + cat6.keys.length +
+        ' 重複=' + JSON.stringify(cat6.dup) + ' 未収容=' + JSON.stringify(cat6.uncovered));
+  check('§6 A7 ★未知のキーは受け皿 "other" へ落ちる (ゲーム側で敵が増えてもパレットから消えない) / 既知は自分の系統へ',
+        cat6.groupOfUnknown === 'other' && cat6.groupOfKnown === 'goblin',
+        '未知→' + cat6.groupOfUnknown + ' / goblin→' + cat6.groupOfKnown);
+  check('§6 A8 パレット DOM のエントリ数 = カタログ件数 / data-group が所属セクションと一致 / サムネが全部決着 (pending 0)',
+        cat6.keys.length > 0 &&                                          // ★空カタログで空振りしない
+        cat6.pal.items === cat6.keys.length && cat6.badGroup.length === 0 &&
+        cat6.pal.thumbs.pending === 0 &&
+        (cat6.pal.thumbs.ok + cat6.pal.thumbs.fallback) === cat6.keys.length &&
+        deepEqual(cat6.itemKeys.slice().sort(), edKeysSorted),
+        'DOM=' + cat6.pal.items + ' / カタログ=' + cat6.keys.length +
+        ' 不整合=' + JSON.stringify(cat6.badGroup.slice(0, 5)) + ' thumbs=' + JSON.stringify(cat6.pal.thumbs));
+
+  // ── B. 往復同一性が 3 要素でも成立する ───────────────────────────────────
+  const rt6 = await page.evaluate(() => {
+    const E = window.__mapEditor, M = E.MapDef;
+    E.loadPreset('dungeon');
+    const d = JSON.parse(E.exportJSON());
+    /* ★スロットは**この場で丸ごと定義する**。export されたスロットを添字で書き換えると、
+     *   enemySlots を落とす変異 (--mutate dropslots) で undefined[0] を踏んで
+     *   ドライバ自体が例外 = exit 3 で死に、負のコントロールの結果が読めなくなる (実測で踏んだ)。
+     * 座標は rooms[0] rect [7,24,20,43] / rooms[1] rect [5,47,22,68] の内側。 */
+    d.rooms[0].enemySlots = [[27, 13, 'goblin'], [28, 13], [28, 14], [39, 13, 'hobgoblin'],
+                             [40, 13], [39, 14], [41, 14], [42, 13]];
+    d.rooms[1].bossSlot = [57, 13, 'pharaxus'];
+    E.setMapDef(d);                                   // ★sanitize を通す
+    const before = E.getMapDef();
+    const json = E.exportJSON();
+    let parsed = null, perr = null;
+    try { parsed = JSON.parse(json); } catch (e) { perr = String((e && e.message) || e); }
+    const v = parsed ? M.validate(parsed) : { ok: false, errors: ['JSON.parse 失敗: ' + perr] };
+    E.loadPreset('field');                            // ★状態を汚してから import する
+    const dirty = JSON.stringify(E.getMapDef()) !== JSON.stringify(before);
+    const r = E.importJSON(json);
+    const after = E.getMapDef();
+    return { before, after, v, r, dirty,
+             lensBefore: before.rooms[0].enemySlots.map((s) => s.length),
+             kindsBefore: before.rooms[0].enemySlots.map((s) => (s.length >= 3 ? s[2] : null)),
+             bossBefore: before.rooms[1].bossSlot,
+             lensAfter: after.rooms[0].enemySlots.map((s) => s.length),
+             bossAfter: after.rooms[1].bossSlot };
+  });
+  const rtDiff = deepDiff(rt6.before, rt6.after);
+  console.log('[driver] 3要素往復: import=' + JSON.stringify(rt6.r) + ' validate=' + rt6.v.ok +
+              ' 汚し=' + rt6.dirty + ' deep-equal=' + (rtDiff === null ? '一致' : ('不一致 ' + rtDiff)));
+  console.log('[driver]   要素数 before=' + JSON.stringify(rt6.lensBefore) + ' after=' + JSON.stringify(rt6.lensAfter) +
+              ' 種類=' + JSON.stringify(rt6.kindsBefore) +
+              ' boss=' + JSON.stringify(rt6.bossBefore) + '→' + JSON.stringify(rt6.bossAfter));
+  /* ⚠⚠ deep-equal だけでは**空振りする**: fixSlot が 3 要素目を落とすと before も after も
+   *    2 要素になって「一致」してしまう。要素数と中身も必ず一緒に見る (--mutate dropfix が守る)。 */
+  check('§6 B1 ★★3要素 enemySlot / bossSlot を含む mapDef が export → validate → import で deep-equal ' +
+        '(かつ 3 要素目が実際に生き残っている = 落として一致したのではない)',
+        rt6.r.ok === true && rt6.v.ok === true && rt6.dirty === true && rtDiff === null &&
+        eq(rt6.lensBefore, [3, 2, 2, 3, 2, 2, 2, 2]) &&
+        rt6.kindsBefore[0] === 'goblin' && rt6.kindsBefore[3] === 'hobgoblin' &&
+        Array.isArray(rt6.bossBefore) && rt6.bossBefore.length === 3 && rt6.bossBefore[2] === 'pharaxus',
+        'deep-equal=' + (rtDiff === null ? 'OK' : rtDiff) + ' 要素数=' + JSON.stringify(rt6.lensBefore) +
+        ' boss=' + JSON.stringify(rt6.bossBefore) + ' validate=' + JSON.stringify(rt6.v.errors));
+
+  const keep2 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    const trip = (key, other) => {
+      E.loadPreset(key);
+      const json = E.exportJSON();
+      E.loadPreset(other);                            // ★汚す
+      E.importJSON(json);
+      const d = E.getMapDef(), lens = [];
+      d.rooms.forEach((r) => {
+        r.enemySlots.forEach((s) => lens.push(s.length));
+        if (r.bossSlot) lens.push(r.bossSlot.length);
+      });
+      return lens;
+    };
+    return { dungeon: trip('dungeon', 'field'), field: trip('field', 'dungeon') };
+  });
+  console.log('[driver] プリセット往復後の要素数: dungeon=' + JSON.stringify(keep2.dungeon) +
+              ' field=' + JSON.stringify(keep2.field));
+  check('§6 B2 ★既存プリセットは往復しても 2 要素のまま (§4 2c/2d の deep-equal を壊さない最重要の不変条件)',
+        keep2.dungeon.length === 9 && keep2.dungeon.every((n) => n === 2) &&
+        keep2.field.length === 9 && keep2.field.every((n) => n === 2),
+        'dungeon=' + JSON.stringify(keep2.dungeon) + ' field=' + JSON.stringify(keep2.field));
+
+  const b3 = await page.evaluate(() => {
+    const E = window.__mapEditor, M = E.MapDef;
+    E.loadPreset('dungeon');
+    const d = JSON.parse(E.exportJSON());
+    d.rooms[0].enemySlots = [
+      [27, 13, 42],                          // 数値        → 落ちて 2 要素
+      [28, 13, ''],                          // 空文字      → 落ちて 2 要素
+      [28, 14, new Array(81).join('x')],     // 80 文字     → 上限 40 文字へ切り詰め
+      [39, 13, 'gob-lin!'],                  // 記号混じり  → "goblin" へ正規化
+      [40, 13, null],                        // null        → 落ちて 2 要素
+      [39, 14, { k: 'goblin' }],             // オブジェクト→ 落ちて 2 要素
+      [41, 14, '   '],                       // 空白のみ    → 落ちて 2 要素
+      [42, 13, 'goblin'],                    // ★正常 (陽性対照。全部落ちる実装では PASS しない)
+    ];
+    E.setMapDef(d);
+    return { got: E.getMapDef().rooms[0].enemySlots, max: M.ENEMY_KEY_MAX };
+  });
+  console.log('[driver] 不正な 3 要素目 → ' + JSON.stringify(b3.got) + ' (キー長上限=' + b3.max + ')');
+  check('§6 B3 ★不正な 3 要素目 (数値/空文字/巨大文字列/記号混じり/null/オブジェクト/空白) が sanitize で落ちる or 正規化される',
+        b3.max === 40 &&
+        eq(b3.got, [[27, 13], [28, 13], [28, 14, new Array(41).join('x')], [39, 13, 'goblin'],
+                    [40, 13], [39, 14], [41, 14], [42, 13, 'goblin']]),
+        JSON.stringify(b3.got));
+
+  const b4 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    const d = JSON.parse(E.exportJSON());
+    d.rooms[0].enemySlots = [[27, 13, 'goblin'], [28, 13]];   // ★添字書き換えを避ける (dropslots で死ぬ)
+    E.setMapDef(d);
+    const a = E.getMapDef();
+    const obj = JSON.parse(E.exportJSON());
+    const arr = obj.rooms[0].enemySlots;
+    if (arr.length) { const t = arr[0]; arr[0] = [t[0], t[1], 'kobold']; }  // ★3 要素目だけを 1 箇所変える
+    E.importJSON(JSON.stringify(obj));
+    return { a: a, b: E.getMapDef() };
+  });
+  check('§6 B4 負のコントロール: 3 要素目だけを 1 箇所変えた JSON は元と deep-equal にならない (B1 が空振りでない)',
+        deepEqual(b4.a, b4.a) === true && deepEqual(b4.a, b4.b) === false,
+        '自分自身=' + deepEqual(b4.a, b4.a) + ' / 1箇所変更=' + deepEqual(b4.a, b4.b));
+
+  // ── C. 配置 / 種類変更 / 実寸描画 ────────────────────────────────────────
+  const place6 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    const lastEnemy = () => { const s = E.getMapDef().rooms[0].enemySlots; return s[s.length - 1]; };
+    E.setTool('enemySlot');
+    E.setEnemyBrush(null);
+    const rAuto = E.placeSlot(30, 10);
+    const auto = lastEnemy();
+    const brush = E.setEnemyBrush('goblin');
+    const rKind = E.placeSlot(31, 10);
+    const kind = lastEnemy();
+    E.setTool('bossSlot');
+    E.setEnemyBrush(null);
+    const rbAuto = E.placeSlot(50, 10);
+    const bossAuto = E.getMapDef().rooms[1].bossSlot;
+    E.setEnemyBrush('pharaxus');
+    const rbKind = E.placeSlot(51, 10);
+    const bossKind = E.getMapDef().rooms[1].bossSlot;
+    return { rAuto, rKind, auto, kind, brush, rbAuto, rbKind, bossAuto, bossKind, tool: E.state.tool };
+  });
+  console.log('[driver] 配置: おまかせ=' + JSON.stringify(place6.auto) + ' / 筆goblin=' + JSON.stringify(place6.kind));
+  console.log('[driver] ボス: おまかせ=' + JSON.stringify(place6.bossAuto) + ' / 筆pharaxus=' + JSON.stringify(place6.bossKind));
+  check('§6 C1 ★enemyBrush=null で置くと 2 要素 (従来と 1 バイトも変わらない) / キーを選んで置くと 3 要素',
+        place6.rAuto.ok === true && place6.rKind.ok === true && place6.brush === 'goblin' &&
+        eq(place6.auto, [30, 10]) && eq(place6.kind, [31, 10, 'goblin']),
+        'おまかせ=' + JSON.stringify(place6.auto) + ' 筆=' + JSON.stringify(place6.kind));
+  check('§6 C2 ★bossSlot も同じ規則 (おまかせ=2 要素 / 筆あり=3 要素。ボスは常に 1 つのまま)',
+        place6.rbAuto.ok === true && place6.rbKind.ok === true &&
+        eq(place6.bossAuto, [50, 10]) && eq(place6.bossKind, [51, 10, 'pharaxus']),
+        'おまかせ=' + JSON.stringify(place6.bossAuto) + ' 筆=' + JSON.stringify(place6.bossKind));
+
+  const chg6 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    E.setTool('select');
+    const ref = E.selectSlotAt(27, 13);
+    const slot = () => E.getMapDef().rooms[0].enemySlots[0].slice();
+    const k0 = E.getSlotEnemyKind(), s0 = slot();
+    const r1 = E.setSlotEnemyKind('hobgoblin');
+    const k1 = E.getSlotEnemyKind(), s1 = slot();
+    const u = E.undo();
+    const k2 = E.getSlotEnemyKind(), s2 = slot();
+    const rd = E.redo();
+    const k3 = E.getSlotEnemyKind(), s3 = slot();
+    const r2 = E.setSlotEnemyKind(null);            // ★おまかせへ戻す = 3 要素目が消える
+    const k4 = E.getSlotEnemyKind(), s4 = slot();
+    // 起点は敵ではないので種類を持てない (無言で失敗しないこと)
+    E.selectSlotAt(24, 13);
+    const rStart = E.setSlotEnemyKind('goblin');
+    return { ref, k0, k1, k2, k3, k4, s0, s1, s2, s3, s4, r1, r2, u, rd, rStart,
+             reason: E.lastReason(), startTile: E.getMapDef().start,
+             line: E.slotTipInfo().slotLine };
+  });
+  console.log('[driver] 種類変更: ' + JSON.stringify(chg6.s0) + ' →hobgoblin ' + JSON.stringify(chg6.s1) +
+              ' →undo ' + JSON.stringify(chg6.s2) + ' →redo ' + JSON.stringify(chg6.s3) +
+              ' →おまかせ ' + JSON.stringify(chg6.s4));
+  check('§6 C3 ★既存スロットの種類変更 → undo で戻る / redo で再適用 / おまかせを選ぶと 2 要素へ戻る',
+        chg6.ref === 'enemy:0:0' && chg6.k0 === null && eq(chg6.s0, [27, 13]) &&
+        chg6.r1.ok === true && chg6.k1 === 'hobgoblin' && eq(chg6.s1, [27, 13, 'hobgoblin']) &&
+        chg6.u === true && chg6.k2 === null && eq(chg6.s2, [27, 13]) &&
+        chg6.rd === true && chg6.k3 === 'hobgoblin' && eq(chg6.s3, [27, 13, 'hobgoblin']) &&
+        chg6.r2.ok === true && chg6.k4 === null && eq(chg6.s4, [27, 13]),
+        JSON.stringify([chg6.s0, chg6.s1, chg6.s2, chg6.s3, chg6.s4]));
+
+  const pick6 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    E.setTool('select');
+    const tool0 = E.state.tool;
+    E.selectSlotAt(28, 13);                                   // enemySlots[1]
+    const b1 = E.pickEnemy('kobold');
+    const s1 = E.getMapDef().rooms[0].enemySlots[1].slice();
+    const selNodes1 = document.querySelectorAll('#palList .palItem.sel');
+    const selKey1 = selNodes1.length === 1 ? selNodes1[0].getAttribute('data-key') : null;
+    const b2 = E.pickEnemy(null);
+    const s2 = E.getMapDef().rooms[0].enemySlots[1].slice();
+    const autoSel = document.getElementById('palAuto').classList.contains('sel');
+    // ★DOM のエントリを**本当にクリック**する経路 (検証シームを迂回しない)
+    E.selectSlotAt(28, 14);                                   // enemySlots[2]
+    const btn = document.querySelector('#palList .palItem[data-key="goblin"]');
+    if (btn) btn.click();
+    const s3 = E.getMapDef().rooms[0].enemySlots[2].slice();
+    return { b1, s1, selKey1, selCount1: selNodes1.length, b2, s2, autoSel, s3,
+             hasBtn: !!btn, tool0, tool: E.state.tool, brush: E.getEnemyBrush(),
+             palBrush: document.getElementById('palBrush').textContent };
+  });
+  console.log('[driver] pickEnemy: kobold→' + JSON.stringify(pick6.s1) + ' / おまかせ→' + JSON.stringify(pick6.s2) +
+              ' / 実クリック goblin→' + JSON.stringify(pick6.s3) + '  筆表示="' + pick6.palBrush + '"');
+  check('§6 C4 ★パレットのクリック経路 (pickEnemy / 実 DOM click) が「筆」と「選択中スロットの敵種」を両方変える ' +
+        '/ ツールは勝手に切り替わらない',
+        pick6.b1 === 'kobold' && eq(pick6.s1, [28, 13, 'kobold']) && pick6.selKey1 === 'kobold' &&
+        pick6.selCount1 === 1 && pick6.b2 === null && eq(pick6.s2, [28, 13]) && pick6.autoSel === true &&
+        pick6.hasBtn === true && eq(pick6.s3, [28, 14, 'goblin']) && pick6.brush === 'goblin' &&
+        pick6.tool0 === 'select' && pick6.tool === 'select',
+        JSON.stringify([pick6.s1, pick6.s2, pick6.s3]) + ' tool=' + pick6.tool0 + '→' + pick6.tool);
+  check('§6 C5 起点 (mapDef.start) は敵ではないので種類を持てない — 拒否理由が必ず残る (無言で失敗しない)',
+        chg6.rStart.ok === false && !!chg6.rStart.reason && chg6.rStart.kind === null &&
+        !!chg6.reason && eq(chg6.startTile, { tx: 24, ty: 13 }) && /起点/.test(chg6.line || ''),
+        JSON.stringify(chg6.rStart) + ' 行=' + JSON.stringify(chg6.line));
+
+  const mv6 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    E.setTool('select');
+    E.selectSlotAt(27, 13);
+    E.setSlotEnemyKind('goblin');
+    const before = E.getMapDef().rooms[0].enemySlots[0].slice();
+    const r = E.moveSlot(30, 11);                    // ★同じ部屋の中で動かす
+    const after = E.getMapDef().rooms[0].enemySlots[0].slice();
+    /* ボス側も同じ規則。⚠ ボス座標は**プリセットから読む** (tavern.html の BOSS_SLOT)。
+     *   ここに数字を直書きすると BOSS_SLOT が動いた瞬間に選択が空振りして
+     *   「3 要素目が保たれない」と誤読する (実際に [58,13] と書いて踏んだ)。 */
+    const b0 = E.getMapDef().rooms[1].bossSlot.slice();
+    E.selectSlotAt(b0[0], b0[1]);
+    const bsel = E.getSlotSelection();
+    E.setSlotEnemyKind('pharaxus');
+    const bBefore = E.getMapDef().rooms[1].bossSlot.slice();
+    const rb = E.moveSlot(b0[0] - 1, b0[1]);
+    const bAfter = E.getMapDef().rooms[1].bossSlot.slice();
+    return { r, before, after, rb, bBefore, bAfter, bsel, b0 };
+  });
+  console.log('[driver] 移動で種類が保たれる: ' + JSON.stringify(mv6.before) + '→' + JSON.stringify(mv6.after) +
+              ' / ボス ' + JSON.stringify(mv6.bBefore) + '→' + JSON.stringify(mv6.bAfter) +
+              ' (プリセットのボス座標=' + JSON.stringify(mv6.b0) + ' / tavern.html=' + JSON.stringify(live.bossSlot) + ')');
+  check('§6 C6 ★スロットを移動しても 3 要素目が保たれる (敵 / ボスの両方。座標だけが変わる)',
+        mv6.r.ok === true && eq(mv6.before, [27, 13, 'goblin']) && eq(mv6.after, [30, 11, 'goblin']) &&
+        !!mv6.bsel && mv6.bsel.kind === 'boss' && eq(mv6.b0, live.bossSlot) &&
+        mv6.rb.ok === true && eq(mv6.bBefore, [mv6.b0[0], mv6.b0[1], 'pharaxus']) &&
+        eq(mv6.bAfter, [mv6.b0[0] - 1, mv6.b0[1], 'pharaxus']),
+        JSON.stringify(mv6.before) + '→' + JSON.stringify(mv6.after) + ' / ' +
+        JSON.stringify(mv6.bBefore) + '→' + JSON.stringify(mv6.bAfter) + ' 選択=' + JSON.stringify(mv6.bsel));
+
+  /* ── 実寸スプライト描画 (★drawImage フックで確定させる) ─────────────────
+   * ⚠⚠ **画像のロードを待ってからフックする**。未ロード中は仕様どおり従来マーカーへ
+   *   落ちるので drawImage は 0 回になり、「実装が壊れている」と誤読する。
+   * ⚠ this.canvas.id === 'editorCanvas' で必ず絞る。パレットのサムネ (49 枚) も
+   *   exportPNG のオフスクリーンも drawImage を使う (どちらも id は空文字)。 */
+  await page.waitForFunction(() => {
+    const def = window.__mapEditor.MapDef.enemyDef('goblin');
+    if (!def) return true;                          // カタログが死んだ変異では待たない (assert で落とす)
+    const im = new Image(); im.src = def.sprite;
+    return im.complete && im.naturalWidth > 0;
+  }, { timeout: 15000 }).catch(() => {});
+
+  const draw6 = await page.evaluate(() => {
+    const E = window.__mapEditor, M = E.MapDef;
+    E.loadPreset('dungeon');
+    E.fitToView();
+    E.setTool('select');
+    E.selectSlotAt(27, 13);
+    E.setSlotEnemyKind('goblin');                   // ★編集の実経路で 3 要素にする
+    const def = M.enemyDef('goblin');
+    const proto = CanvasRenderingContext2D.prototype;
+    const orig = proto.drawImage;
+    let calls = [];
+    proto.drawImage = function () {
+      if (this.canvas && this.canvas.id === 'editorCanvas')
+        calls.push({ n: arguments.length, sw: arguments[3], sh: arguments[4],
+                     dw: arguments[7], dh: arguments[8] });
+      return orig.apply(this, arguments);
+    };
+    let withKind = [], noKind = [], zoom = 0;
+    try {
+      calls = [];
+      E.render();
+      withKind = calls.slice();
+      zoom = E.state.view.zoom;
+      E.setSlotEnemyKind(null);                     // ★負のコントロール: おまかせへ戻す
+      calls = [];
+      E.render();
+      noKind = calls.slice();
+    } finally { proto.drawImage = orig; }
+    return { withKind, noKind, zoom,
+             expDw: def ? def.displaySize * zoom : null,
+             expDh: def ? def.frameH * (def.displaySize / def.frameW) * zoom : null,
+             def: def ? { displaySize: def.displaySize, frameW: def.frameW, frameH: def.frameH,
+                          rowOffset: def.rowOffset || 0, sprite: def.sprite } : null };
+  });
+  console.log('[driver] drawImage フック: 3要素=' + draw6.withKind.length + ' 回 ' +
+              JSON.stringify(draw6.withKind) + ' / おまかせ=' + draw6.noKind.length + ' 回');
+  console.log('[driver]   期待 dw=' + (draw6.expDw === null ? 'カタログ無し' : draw6.expDw.toFixed(4)) +
+              ' dh=' + (draw6.expDh === null ? '-' : draw6.expDh.toFixed(4)) +
+              ' (zoom=' + draw6.zoom.toFixed(4) + ' def=' + JSON.stringify(draw6.def) + ')');
+  check('§6 C7 ★★3 要素スロットで #editorCanvas への drawImage が実際に呼ばれ、実寸 (displaySize×zoom) で描かれる ' +
+        '(スクショ目視ではなくフックで確定)',
+        draw6.withKind.length === 1 && draw6.withKind[0].n === 9 && !!draw6.def &&
+        draw6.withKind[0].sw === draw6.def.frameW && draw6.withKind[0].sh === draw6.def.frameH &&
+        Math.abs(draw6.withKind[0].dw - draw6.expDw) < 0.001 &&
+        Math.abs(draw6.withKind[0].dh - draw6.expDh) < 0.001,
+        '回数=' + draw6.withKind.length + ' 実測=' + JSON.stringify(draw6.withKind[0] || null) +
+        ' 期待dw=' + (draw6.expDw === null ? '-' : draw6.expDw.toFixed(4)));
+  check('§6 C8 負のコントロール: 同じスロットを「おまかせ」へ戻すと #editorCanvas への drawImage は 0 回 (C7 が空振りでない)',
+        draw6.noKind.length === 0 && draw6.withKind.length > 0,
+        'おまかせ=' + draw6.noKind.length + ' 回 / 種類固定=' + draw6.withKind.length + ' 回');
+
+  // ── D. ツールチップ (★canvas ではなく DOM = PNG に焼き込まれない) ────────
+  const tip6 = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    E.setTool('select');
+    E.selectSlotAt(27, 13);
+    E.setSlotEnemyKind('goblin');
+    E.selectSlotAt(0, 0);                           // 岩盤 = スロット選択を外す (ホバーだけで測る)
+    const off0 = E.hoverTile(null);
+    const onKind = E.hoverTile(27, 13);             // 3 要素スロット
+    const onAuto = E.hoverTile(28, 13);             // 2 要素スロット (おまかせ)
+    const off1 = E.hoverTile(null);
+    const node = document.getElementById('slotTip');
+    const def = E.MapDef.enemyDef('goblin');
+    return { off0, onKind, onAuto, off1,
+             tag: node.tagName, parentId: node.parentElement ? node.parentElement.id : null,
+             insideCanvas: !!node.closest('canvas'),
+             def: def ? { name: def.name, hp: def.hp, xp: def.xp, flavor: def.flavor } : null };
+  });
+  console.log('[driver] ツールチップ: 3要素="' + tip6.onKind.text + '"');
+  console.log('[driver]               2要素="' + tip6.onAuto.text + '"  解除時 shown=' + tip6.off1.shown);
+  console.log('[driver]   DOM: <' + tip6.tag + '> 親=#' + tip6.parentId + ' canvas の中=' + tip6.insideCanvas);
+  check('§6 D1 ★ツールチップは canvas ではなく DOM (#stage 直下の DIV) / ホバーで出てホバー解除で消える',
+        tip6.tag === 'DIV' && tip6.parentId === 'stage' && tip6.insideCanvas === false &&
+        tip6.onKind.inDom === true && tip6.onKind.onCanvas === false &&
+        tip6.off0.shown === false && tip6.onKind.shown === true && tip6.onAuto.shown === true &&
+        tip6.off1.shown === false,
+        '<' + tip6.tag + '> 親=#' + tip6.parentId + ' shown ' + tip6.off0.shown + '→' +
+        tip6.onKind.shown + '→' + tip6.off1.shown);
+  check('§6 D2 3 要素スロットのツールチップに 敵の名前 / キー / HP / XP / flavor が出る',
+        !!tip6.def && tip6.onKind.name === (tip6.def.name + ' (goblin)') &&
+        tip6.onKind.stat.indexOf('HP ' + tip6.def.hp) === 0 &&
+        tip6.onKind.stat.indexOf('XP ' + tip6.def.xp) > 0 &&
+        tip6.onKind.stat.indexOf('(tx27, ty13)') > 0 &&
+        tip6.onKind.flavor === (tip6.def.flavor || ''),
+        'name=' + JSON.stringify(tip6.onKind.name) + ' stat=' + JSON.stringify(tip6.onKind.stat));
+  check('§6 D3 2 要素スロットのツールチップは「おまかせ（tier と系統から自動選出）」',
+        tip6.onAuto.name === 'おまかせ' && /tier と系統から自動選出/.test(tip6.onAuto.stat || '') &&
+        tip6.onAuto.stat.indexOf('(tx28, ty13)') > 0,
+        'name=' + JSON.stringify(tip6.onAuto.name) + ' stat=' + JSON.stringify(tip6.onAuto.stat));
+
+  /* ⚠ 3 要素スロットを含むマップで PNG 同一性を測るので、画像ロードは上で待ってある。
+   *   待たないと 1 回目と 2 回目でスプライトの有無が変わって偽 FAIL になる。 */
+  const tipPng = await page.evaluate(() => {
+    const E = window.__mapEditor;
+    E.loadPreset('dungeon');
+    E.setTool('select');
+    E.selectSlotAt(27, 13);
+    E.setSlotEnemyKind('goblin');
+    E.selectSlotAt(0, 0);                           // 選択も外す (測りたいのはツールチップだけ)
+    E.hoverTile(null);
+    const shownOff = E.slotTipInfo().shown;
+    const url1 = E.exportPNG();
+    const on = E.hoverTile(27, 13);
+    const url2 = E.exportPNG();
+    const stillOn = E.slotTipInfo().shown;
+    E.hoverTile(null);
+    return { same: url1 === url2, shownOff, shownOn: on.shown, stillOn, len: url1.length };
+  });
+  console.log('[driver] ツールチップ表示中の PNG: 同一=' + tipPng.same + ' (len ' + tipPng.len +
+              ') shown ' + tipPng.shownOff + '→' + tipPng.shownOn);
+  check('§6 D4 ★ツールチップを出した状態でも exportPNG() が 1 バイトも変わらない (DOM なので焼き込まれない)',
+        tipPng.same === true && tipPng.shownOff === false && tipPng.shownOn === true &&
+        tipPng.stillOn === true && tipPng.len > 1000,
+        '同一=' + tipPng.same + ' shown=' + tipPng.shownOff + '→' + tipPng.shownOn);
+
+  // ── E. lint の未知キー warning ───────────────────────────────────────────
+  const lk6 = await page.evaluate(() => {
+    const E = window.__mapEditor, M = E.MapDef;
+    E.loadPreset('dungeon');
+    const d = JSON.parse(E.exportJSON());
+    // ★ここも添字書き換えを避けて丸ごと定義する (dropslots で undefined[0] を踏まないため)
+    d.rooms[0].enemySlots = [
+      [27, 13, 'goblin'],                                      // ★既知 = 警告が出てはいけない
+      [28, 13, 'zzzNotAnEnemy'],                               // 未知 (敵スロット)
+      [28, 14],                                                // おまかせ = 警告が出てはいけない
+    ];
+    d.rooms[1].bossSlot = [57, 13, 'alsoNotAnEnemy'];          // 未知 (ボススロット)
+    const codes = (r) => ({
+      err: r.errors.map((x) => x.code),
+      warn: r.warnings.map((x) => x.code),
+      unknown: r.warnings.filter((x) => x.code === 'enemy-unknown-key')
+        .map((x) => ({ msg: x.message, at: x.at, roomIndex: x.roomIndex, sev: x.severity })),
+    });
+    return {
+      withCat: codes(M.lintMapDef(d)),
+      noCat: codes(M.lintMapDef(d, { catalog: null })),   // ★"catalog" in opt で「未取得」を再現
+      optNoKey: codes(M.lintMapDef(d, {})),               // opt はあるが catalog キー無し → 現行カタログ
+      hasCat: !!M.getEnemyCatalog(),
+    };
+  });
+  console.log('[driver] lint 未知キー: カタログあり warn=' + JSON.stringify(lk6.withCat.warn));
+  lk6.withCat.unknown.forEach((u) => console.log('[driver]   ' + JSON.stringify(u.at) + ' ' + u.msg));
+  console.log('[driver] lint 未知キー: カタログ未取得 (opt.catalog=null) warn=' + JSON.stringify(lk6.noCat.warn));
+  check('§6 E1 ★未知の敵キーは warning "enemy-unknown-key" になる (error にはしない) / 敵とボスの両方 / 座標付き',
+        lk6.hasCat === true && lk6.withCat.unknown.length === 2 &&
+        lk6.withCat.err.indexOf('enemy-unknown-key') < 0 &&
+        lk6.withCat.unknown.every((u) => u.sev === 'warning' && Array.isArray(u.at) && u.at.length >= 2) &&
+        lk6.withCat.unknown.some((u) => /zzzNotAnEnemy/.test(u.msg)) &&
+        lk6.withCat.unknown.some((u) => /alsoNotAnEnemy/.test(u.msg)),
+        'warn=' + JSON.stringify(lk6.withCat.warn) + ' err=' + JSON.stringify(lk6.withCat.err));
+  check('§6 E2 ★カタログ未取得のときは未知キー検査を**スキップ**する (取れない環境で正しいマップまで赤くしない)',
+        lk6.noCat.unknown.length === 0 && lk6.noCat.warn.indexOf('enemy-unknown-key') < 0 &&
+        eq(lk6.noCat.err, lk6.withCat.err),
+        'warn=' + JSON.stringify(lk6.noCat.warn));
+  check('§6 E3 既知キー (goblin) では 1 件も出ない / opt に catalog キーが無ければ現行カタログを使う (空振り検出)',
+        !lk6.withCat.unknown.some((u) => /"goblin"/.test(u.msg)) &&
+        lk6.optNoKey.unknown.length === 2 && eq(lk6.optNoKey.warn, lk6.withCat.warn),
+        'opt={} の warn=' + JSON.stringify(lk6.optNoKey.warn));
 
   // ══════════════════════════════════════════════════════════════════════════
   // §9 実行中のエラー (全セクションを通しての累計)
