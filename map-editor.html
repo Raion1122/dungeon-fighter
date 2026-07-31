@@ -307,6 +307,29 @@
   }
   #palBrush { color: var(--fg); }
   #palNote.ng { color: #ffc861; }
+  /* 選択中スロットの敵種 (項目3)。★#palBrush (これから置く筆) とは**別の行**。
+     混ぜると「筆を変えた」のか「置いたスロットが変わった」のか読めなくなる。 */
+  #palSlot { color: var(--fg-dim); margin-top: 3px; }
+  #palSlot b { color: var(--fg); font-weight: 600; }
+
+  /* ── スロットのツールチップ (項目3) ────────────────────────────────────
+     ★★ **必ず DOM で出す**。canvas に描くと render() 経由で exportPNG に焼き込まれ、
+        「マウスがどこにあったか」で PNG が変わってしまう (Phase 0 の既知の罠)。
+     ⚠ pointer-events:none = ツールチップ自身がマウスを奪ってホバーが消えるのを防ぐ。 */
+  #slotTip {
+    display: none;
+    position: absolute; z-index: 6; left: 0; top: 0;
+    max-width: 260px; pointer-events: none;
+    background: rgba(18, 20, 26, 0.97);
+    border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.5);
+    padding: 6px 9px; line-height: 1.5;
+  }
+  #slotTip.on { display: block; }
+  #slotTip .tipName { display: block; color: var(--accent); font-weight: 700; }
+  #slotTip .tipStat { display: block; color: var(--fg); font-variant-numeric: tabular-nums; font-size: 12px; }
+  #slotTip .tipFlavor { display: block; color: var(--fg-dim); font-size: 11px; }
+  #slotTip .tipFlavor:empty { display: none; }
 
   /* ファイルをドロップ中の canvas (項目4)。実際の受理は drop ハンドラ */
   #stage.dropping::after {
@@ -415,6 +438,13 @@
       </div>
       <ul id="lintList"></ul>
     </div>
+    <!-- スロットのツールチップ (項目3)。★canvas ではなく **DOM**。
+         canvas に描くと exportPNG に焼き込まれ、ホバー位置で PNG が変わってしまう。 -->
+    <div id="slotTip">
+      <span class="tipName"></span>
+      <span class="tipStat"></span>
+      <span class="tipFlavor"></span>
+    </div>
   </div>
 
   <!-- 敵パレット (Phase 0.5 項目2): おまかせ枠 → 検索 → 系統グループ。
@@ -443,6 +473,8 @@
     </div>
     <div class="palFoot">
       <div id="palBrush">選択中: おまかせ</div>
+      <!-- 選択中スロットの敵種 (項目3)。★上の #palBrush (これから置く筆) とは別の行 -->
+      <div id="palSlot">選択中スロット: —</div>
       <div id="palNote"></div>
     </div>
   </aside>
@@ -1459,8 +1491,8 @@
     enemyCatalogStatus: null,
     // ── 項目2 (敵パレット) で追加 ──
     // 敵パレットで選択中の「筆」。null = おまかせ (種類を指定しない) / それ以外は敵キー。
-    // ★項目2 の時点では**見せるだけ**。実際に配置へ効かせるのは項目3。
-    //   項目3 は placeSlot() でこの値を見て [tx,ty] / [tx,ty,key] を出し分ける。
+    // ★項目3 から実際に配置へ効く: placeSlotInternal() が brushSlot() 経由でこの値を見て
+    //   [tx,ty] (おまかせ) / [tx,ty,key] (種類固定) を出し分ける。
     enemyBrush: null,
   };
 
@@ -1524,6 +1556,12 @@
     palEmpty:       document.getElementById("palEmpty"),
     palBrush:       document.getElementById("palBrush"),
     palNote:        document.getElementById("palNote"),
+    // ── Phase 0.5 項目3 (配置・種類変更・実寸描画・ツールチップ) ──
+    palSlot:        document.getElementById("palSlot"),
+    slotTip:        document.getElementById("slotTip"),
+    tipName:        document.querySelector("#slotTip .tipName"),
+    tipStat:        document.querySelector("#slotTip .tipStat"),
+    tipFlavor:      document.querySelector("#slotTip .tipFlavor"),
   };
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -1697,8 +1735,71 @@
     }
   }
 
-  // 敵スロット / ボススロット。slot = [tx, ty]
+  /* ══════════════════════════════════════════════════════════════════════
+   * 3要素スロットの実スプライトを**実寸**で描く (項目3)
+   * ══════════════════════════════════════════════════════════════════════
+   * ★ゲーム側の配置式を逐語で写す (これを外すと「大きさの感覚」が嘘になる):
+   *     箱の位置  index.html:8193-8194  cx = tx*TILE + TILE/2 - displaySize/2
+   *                                     cy = ty*TILE + TILE/2 - displaySize/2
+   *               = 箱は **displaySize 四方**で**タイル中心**に置かれる
+   *     コマ倍率  index.html:11850      scale = displaySize / frameW
+   *               = 1 コマは 幅 displaySize / 高さ frameH*scale で描かれる
+   *   エディタは world→screen 変換を通すだけなので、displaySize と grid.tile(=96) の比が
+   *   そのまま画面に出る (タイル 1 枚に対して敵がどれだけ大きいかが見える)。
+   *
+   * ⚠ これは **exportPNG に焼き込まれてよい** (マップの中身)。焼き込まれてはいけないのは
+   *   選択ハイライト (drawSlotSelection) と lint マーカー (drawLintMarkers) と
+   *   ツールチップ (DOM) の 3 つだけ。
+   * ⚠ 画像が未ロードなら false を返して**従来マーカーへ落とす**。ロードが終わったら
+   *   render() を 1 回だけ予約して描き直す (無言で敵が消えたままにならない)。
+   * ────────────────────────────────────────────────────────────────────── */
+  var slotImgWaiting = {};    // sprite URL -> 1 (再描画の予約済み。重複予約を作らない)
+
+  /* パレット (項目2) の画像キャッシュを**そのまま再利用**する。
+     ⚠ palLoadImage() は保留中に呼ぶと waiters へ積むので、毎フレーム呼ぶと際限なく積まれる。
+       done を見てから 1 回だけ登録する。 */
+  function slotSpriteImage(def) {
+    var url = def && def.sprite;
+    if (!url) return null;
+    var e = palImgCache[url];
+    if (e && e.done) return e.ok ? e.img : null;
+    if (!slotImgWaiting[url]) {
+      slotImgWaiting[url] = 1;
+      palLoadImage(url, function () { render(); });   // 届いたら描き直す (未ロード中はマーカー)
+    }
+    return null;
+  }
+
+  // 描けたら true / 描けなければ false (= 呼び出し側が従来マーカーを描く)
+  function drawSlotSprite(slot, color) {
+    var key = M.enemyKindOf(slot);
+    if (!key) return false;                            // 2 要素 = おまかせ → 従来マーカー
+    var def = M.enemyDef(key);                         // カタログ未取得 / 未知キーなら null
+    if (!def || !def.frameW || !def.frameH) return false;
+    var img = slotSpriteImage(def);
+    if (!img || !img.width || !img.height) return false;
+    var t = tileSize(), z = state.view.zoom;
+    var ds = def.displaySize || t;
+    var fw = def.frameW, fh = def.frameH;
+    var sy = (def.rowOffset || 0) * fh;
+    if (sy + fh > img.height) sy = 0;                  // シート外を指す素材が来ても落ちない
+    var p = worldToScreen(slot[0] * t + t / 2 - ds / 2, slot[1] * t + t / 2 - ds / 2);
+    var box = ds * z;                                  // 当たり判定の箱 (displaySize 四方)
+    var dw = box, dh = fh * (ds / fw) * z;             // 1 コマ (scale = displaySize / frameW)
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.imageSmoothingEnabled = false;                 // ドット絵を滲ませない
+    ctx.drawImage(img, 0, sy, fw, fh, p.x, p.y, dw, dh);
+    ctx.globalAlpha = 0.42;                            // 箱 = displaySize (当たり判定の広さ)
+    ctx.strokeStyle = color; ctx.lineWidth = 1;
+    ctx.strokeRect(p.x + 0.5, p.y + 0.5, Math.max(1, box - 1), Math.max(1, box - 1));
+    ctx.restore();
+    return true;
+  }
+
+  // 敵スロット / ボススロット。slot = [tx, ty] (おまかせ) | [tx, ty, "goblin"] (種類固定)
   function drawSlot(slot, color, tag) {
+    if (drawSlotSprite(slot, color)) return;           // ★種類固定 + 画像あり = 実寸スプライト
     var t = tileSize();
     var p = worldToScreen(slot[0] * t, slot[1] * t);
     var s = t * state.view.zoom;
@@ -2067,7 +2168,7 @@
     state.selection = sel ? { kind: sel.kind, index: sel.index } : null;
     if (state.selection) state.slotSelection = null;   // 矩形選択とスロット選択は排他 (項目3)
     clampSelection();
-    syncEditUI(); render();
+    syncEditUI(); render(); updateHud();               // updateHud = 敵種の行/ツールチップの追随
     return state.selection;
   }
   function getSelection() {
@@ -2142,6 +2243,7 @@
     noBossRoom:   "ボス部屋がありません (部屋を選び、役割に「ボス」を指定してください)",
     bossOutside:  "ボススロットはボス部屋の中にのみ置けます",
     startFixed:   "起点は削除できません (移動のみ)",
+    startNoKind:  "起点は敵ではないので、敵の種類を指定できません",   // 項目3
     noSlotSel:    "スロットが選択されていません",
     notSlotTool:  "スロットツール (起点 / 敵スロット / ボススロット) を選んでください",
   };
@@ -2243,7 +2345,7 @@
         state.slotSelection = copySlotSel(occ); state.selection = null;
         return slotFail(occupiedBy(occ.kind));
       }
-      d.rooms[ri].enemySlots.push([tx, ty]);                     // ★[tx,ty] = 列が先
+      d.rooms[ri].enemySlots.push(brushSlot(tx, ty));            // ★[tx,ty] = 列が先 / 筆で 3 要素
       state.slotSelection = { kind: "enemy", roomIndex: ri, slotIndex: d.rooms[ri].enemySlots.length - 1 };
       state.selection = null;
       return slotOk(slotKey(state.slotSelection));
@@ -2255,19 +2357,29 @@
       if (!inRect(d.rooms[bi].rect, tx, ty)) return slotFail(REASON.bossOutside);
       if (occ && occ.kind !== "boss") return slotFail(occupiedBy(occ.kind));
       for (i = 0; i < d.rooms.length; i++) d.rooms[i].bossSlot = null;   // ★マップに 1 つ
-      d.rooms[bi].bossSlot = [tx, ty];
+      d.rooms[bi].bossSlot = brushSlot(tx, ty);                          // 筆があれば 3 要素
       state.slotSelection = { kind: "boss", roomIndex: bi }; state.selection = null;
       return slotOk("boss");
     }
     return slotFail(REASON.notSlotTool);
   }
 
-  /* 移動先の座標へ作り直すときに **敵の種類 (3 要素目) を落とさない** ための小道具 (項目1)。
-   * ⚠ [tx, ty] を素で作り直すと 3 要素目が無言で消える = このスキーマ拡張が防ごうとしている
-   *   まさにその事故 (無言のデータ欠損)。おまかせ (2 要素) のときは従来と 1 バイトも変わらない。 */
+  /* ★スロット配列を作る**唯一の場所** (項目3 で makeSlot に一本化)。
+   * ⚠⚠ [tx, ty] を素で作り直している行が 1 本でも残ると、そこだけ 3 要素目が無言で消える
+   *   = このスキーマ拡張が防ごうとしているまさにその事故 (無言のデータ欠損)。
+   *   項目1 で移動系 3 箇所を reSlot に寄せ、項目3 で新規配置と種類変更も makeSlot に寄せた。
+   *   おまかせ (kind=null) のときは従来と 1 バイトも変わらない 2 要素を返す。 */
+  function makeSlot(tx, ty, kind) {
+    var k = M.normEnemyKey(kind);
+    return k ? [tx, ty, k] : [tx, ty];
+  }
+  // 移動先の座標へ作り直す (敵の種類を持ち越す)。項目1 から使われている名前なので変えない。
   function reSlot(prev, tx, ty) {
-    var kind = M.enemyKindOf(prev);
-    return kind ? [tx, ty, kind] : [tx, ty];
+    return makeSlot(tx, ty, M.enemyKindOf(prev));
+  }
+  // 新規配置。★「今のパレットの筆」を 3 要素目に載せる (null = おまかせ = 2 要素)。
+  function brushSlot(tx, ty) {
+    return makeSlot(tx, ty, state.enemyBrush);
   }
 
   // ── 移動 (履歴なし。ドラッグ中は毎タイルこれが走る) ──────────────────────
@@ -2309,6 +2421,23 @@
     return slotOk(slotKey(state.slotSelection));
   }
 
+  /* ── 既存スロットの敵種変更 (項目3。履歴なし。公開版が 1 段だけ積む) ──────────
+   * ★座標は 1 ミリも動かさず 3 要素目だけを差し替える (makeSlot に一本化)。
+   *   key = null / "" / 記号だけ → **2 要素へ戻る** (= おまかせ)。
+   * ⚠ 起点 (mapDef.start) は敵ではないので種類を持てない → 拒否理由を残す (無言にしない)。 */
+  function setSlotKindInternal(key) {
+    var sel = state.slotSelection;
+    if (!sel) return slotFail(REASON.noSlotSel);
+    if (sel.kind === "start") return slotFail(REASON.startNoKind);
+    var room = state.mapDef.rooms[sel.roomIndex];
+    var cur = slotTileOf(sel);
+    if (!room || !cur) { state.slotSelection = null; return slotFail(REASON.noSlotSel); }
+    var next = makeSlot(cur[0], cur[1], key);
+    if (sel.kind === "boss") room.bossSlot = next;
+    else room.enemySlots[sel.slotIndex] = next;
+    return slotOk(slotKey(sel));
+  }
+
   function deleteSlotInternal() {
     var sel = state.slotSelection;
     if (!sel) return slotFail(REASON.noSlotSel);
@@ -2342,6 +2471,21 @@
     if (r.ok) pushHistory(before);
     rebuildAndRender(); syncEditUI();
     return r.ok;
+  }
+  /* 選択中スロットの敵種を変更する (項目3)。★undo / redo は既存の pushHistory に乗るだけ。
+   * ⚠ pushHistory は「変化なしなら積まない」ので、同じ種類を選び直しても履歴は伸びない。 */
+  function setSlotEnemyKind(key) {
+    var before = snapshot();
+    var r = setSlotKindInternal(key);
+    if (r.ok) pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return { ok: r.ok, reason: r.reason, kind: selectedSlotKind() };
+  }
+  // 選択中スロットの敵種 (おまかせ / 未選択 / 起点なら null)
+  function selectedSlotKind() {
+    var s = state.slotSelection;
+    if (!s || s.kind === "start") return null;
+    return M.enemyKindOf(slotTileOf(s));
   }
   function selectSlotAt(tx, ty) {
     var s = slotAt(tx | 0, ty | 0);
@@ -2775,7 +2919,122 @@
     var where = (s.kind === "enemy")
       ? (" " + state.mapDef.rooms[s.roomIndex].id + " の #" + s.slotIndex)
       : (s.kind === "boss" ? (" " + state.mapDef.rooms[s.roomIndex].id) : "");
-    return SLOT_NAME[s.kind] + where + "  (tx" + tile[0] + ", ty" + tile[1] + ")";
+    // 項目3: 敵の種類も 1 行に含める (起点は敵ではないので出さない)
+    var kindTxt = (s.kind === "start") ? "" : ("  種類: " + enemyKindLabel(M.enemyKindOf(tile)));
+    return SLOT_NAME[s.kind] + where + "  (tx" + tile[0] + ", ty" + tile[1] + ")" + kindTxt;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 敵種の可視化 (項目3) — サイドバー 1 行 + ツールチップ
+   * ══════════════════════════════════════════════════════════════════════
+   * ★★ ツールチップは**必ず DOM** で出す。canvas に描くと render() 経由で
+   *    exportPNG に焼き込まれ、「マウスがどこにあったか」で PNG が変わる
+   *    (= §4 9d / §5 6 が守っている境界を、別の入口から破ることになる)。
+   * ⚠ カタログに無いキーは**黙って消さない**。lint の warning "enemy-unknown-key" と
+   *   同じ思想で、画面にも「ENEMY_TYPES にありません」と出す。
+   * ────────────────────────────────────────────────────────────────────── */
+  var AUTO_KIND_LABEL = "おまかせ（tier と系統から自動選出）";
+
+  function enemyKindLabel(key) {
+    if (!key) return "おまかせ";
+    var def = M.enemyDef(key);
+    if (def && def.name) return def.name + " (" + key + ")";
+    return key + (M.getEnemyCatalog() ? "（ENEMY_TYPES にありません）" : "（敵カタログ未取得）");
+  }
+
+  // ツールチップの対象。ホバーが最優先 / ホバーが無ければ選択中スロット。起点は対象外。
+  function slotTipTarget() {
+    var s = null, tile = null;
+    if (state.cursor.inside) {
+      var h = slotAt(state.cursor.tx, state.cursor.ty);
+      if (h && h.kind !== "start") { s = h; tile = slotTileOf(h); }
+    }
+    if (!s && state.slotSelection && state.slotSelection.kind !== "start") {
+      s = state.slotSelection; tile = slotTileOf(s);
+    }
+    return (s && tile) ? { sel: s, tile: tile } : null;
+  }
+
+  var slotTipSig = null;        // 直近に出した内容 (同じなら DOM を書き換えない)
+
+  function syncSlotTip() {
+    // ドラッグ中は出さない: カーソルを追い回して邪魔になるうえ、毎タイル offsetWidth を
+    // 読む = 強制同期レイアウトが 1 ドラッグに何十回も走る (§5 P の予算を食う)。
+    var tgt = drag ? null : slotTipTarget();
+    if (!tgt) {
+      if (slotTipSig !== null) { el.slotTip.classList.remove("on"); slotTipSig = null; }
+      return;
+    }
+    var key = M.enemyKindOf(tgt.tile), def = key ? M.enemyDef(key) : null;
+    var where = (tgt.sel.kind === "boss" ? "ボススロット" : "敵スロット") +
+                " (tx" + tgt.tile[0] + ", ty" + tgt.tile[1] + ")";
+    var name, stat, flavor = "";
+    if (!key) {
+      name = "おまかせ"; stat = AUTO_KIND_LABEL + " ／ " + where;
+    } else if (def) {
+      name = (def.name || key) + " (" + key + ")";
+      stat = "HP " + def.hp + " / XP " + def.xp + " ／ " + where;
+      flavor = def.flavor || "";
+    } else {
+      name = key;
+      stat = (M.getEnemyCatalog() ? "⚠ index.html の ENEMY_TYPES にありません"
+                                  : "⚠ 敵カタログ未取得") + " ／ " + where;
+    }
+    var sig = name + "|" + stat + "|" + flavor;
+    if (sig !== slotTipSig) {
+      el.tipName.textContent = name;
+      el.tipStat.textContent = stat;
+      el.tipFlavor.textContent = flavor;
+      slotTipSig = sig;
+    }
+    el.slotTip.classList.add("on");
+    var t = tileSize();
+    var p = worldToScreen(tgt.tile[0] * t + t, tgt.tile[1] * t);   // タイルの右上に添える
+    var w = el.slotTip.offsetWidth, h = el.slotTip.offsetHeight;
+    el.slotTip.style.left = Math.round(clamp(p.x + 10, 4, Math.max(4, state.css.w - w - 4))) + "px";
+    el.slotTip.style.top  = Math.round(clamp(p.y - 6,  4, Math.max(4, state.css.h - h - 4))) + "px";
+  }
+
+  // サイドバー (敵パレット) の「選択中スロット」1 行。★#palBrush (筆) とは別の行。
+  function syncSlotKindLine() {
+    var s = state.slotSelection;
+    if (!s) { el.palSlot.textContent = "選択中スロット: —"; return; }
+    if (s.kind === "start") { el.palSlot.textContent = "選択中スロット: 起点 (敵ではありません)"; return; }
+    var tile = slotTileOf(s);
+    if (!tile) { el.palSlot.textContent = "選択中スロット: —"; return; }
+    el.palSlot.textContent = "選択中スロット: " + (s.kind === "boss" ? "ボス" : "敵") +
+      " (tx" + tile[0] + ", ty" + tile[1] + ") — " + enemyKindLabel(M.enemyKindOf(tile));
+  }
+
+  // 検証シーム: ツールチップが「canvas ではなく DOM に」出ているかをドライバが直接測る
+  function slotTipInfo() {
+    var on = el.slotTip.classList.contains("on");
+    return {
+      shown: on,
+      inDom: !!el.slotTip && el.slotTip.tagName === "DIV",   // ★canvas ではない
+      onCanvas: false,
+      name: el.tipName.textContent,
+      stat: el.tipStat.textContent,
+      flavor: el.tipFlavor.textContent,
+      text: on ? (el.tipName.textContent + " / " + el.tipStat.textContent +
+                  (el.tipFlavor.textContent ? " / " + el.tipFlavor.textContent : "")) : "",
+      left: el.slotTip.style.left, top: el.slotTip.style.top,
+      slotLine: el.palSlot.textContent,
+    };
+  }
+  // 検証シーム: マウスを使わずにホバー位置を差し込む (実 UI と同じ state.cursor を通る)
+  function hoverTile(tx, ty) {
+    var g = state.mapDef.grid;
+    if (tx === null || tx === undefined) {
+      state.cursor.inside = false; state.cursor.val = null;
+    } else {
+      tx = tx | 0; ty = ty | 0;
+      state.cursor.tx = tx; state.cursor.ty = ty;
+      state.cursor.inside = (tx >= 0 && tx < g.w && ty >= 0 && ty < g.h);
+      state.cursor.val = state.cursor.inside ? state.mapData[ty][tx] : null;
+    }
+    updateHud();
+    return slotTipInfo();
   }
   function updateHud() {
     var d = state.mapDef;
@@ -2798,6 +3057,9 @@
     el.hudMsg.textContent = state.lastReason || "";
     // 成功通知 (項目4)。★エラーとは別要素 = 色で取り違えない
     el.hudInfo.textContent = state.lastNotice || "";
+    // 項目3: サイドバーの敵種 1 行 + ツールチップ (どちらも DOM。canvas には描かない)
+    syncSlotKindLine();
+    syncSlotTip();
   }
 
   // ── 入力: パン + ツールドラッグ ───────────────────────────────────────
@@ -2976,10 +3238,10 @@
    *   (render() に描いた物は何であれ exportPNG に焼き込まれる = Phase 0 の既知の罠)。
    *   サムネ用の <canvas> は**パレットの中の別 canvas** であって #editorCanvas ではない。
    *
-   * ⚠ 項目2 の時点では state.enemyBrush は「見せるだけ」。配置に効かせるのは項目3
-   *   (placeSlot() が enemyBrush を見て [tx,ty] / [tx,ty,key] を出し分ける)。
+   * ⚠ 項目3 から state.enemyBrush は配置に効く (placeSlot() が [tx,ty] / [tx,ty,key] を
+   *   出し分ける) + エントリのクリックは pickEnemy() 経由で**選択中スロットの敵種も変える**。
    *   ここで setTool("enemySlot") を勝手に呼ばないこと = 既存の §3 assert が
-   *   「ツールは明示的に切り替わる」前提で書かれている。
+   *   「ツールは明示的に切り替わる」前提で書かれている (項目3 でも入れないと決めた)。
    * ────────────────────────────────────────────────────────────────────────── */
   var PAL_THUMB = 44;                 // サムネ 1 辺 (px)。CSS の .palThumb と同じ値
   var palItems  = [];                 // [{ key, def, el, thumbBox, hay }] 表示順
@@ -3057,7 +3319,7 @@
     meta.appendChild(nm); meta.appendChild(st);
 
     b.appendChild(th); b.appendChild(meta);
-    b.addEventListener("click", function () { setEnemyBrush(key); });
+    b.addEventListener("click", function () { pickEnemy(key); });   // ★項目3: 筆 + 選択中スロットへ反映
 
     b.setAttribute("data-thumb", "pending");
     // ⚠ キャッシュ命中時この cb は**同期で**呼ばれる (要素はまだ DOM に付いていない)。
@@ -3182,6 +3444,20 @@
     return state.enemyBrush;
   }
 
+  /* ★パレットのエントリを**クリックしたときの実経路** (項目3)。
+   *   ① 筆を変える (次に置くスロットに効く)
+   *   ② スロットを選択中なら**そのスロットの敵種も変える** (undo / redo が効く)
+   * ⚠ ここで setTool("enemySlot") を勝手に呼ばないこと。既存の §3 assert は
+   *   「ツールは明示的に切り替わる」前提で書かれており、自動切替を入れると
+   *   selectAt/placeSlot の期待が丸ごとずれる (項目2 のコメントからの継続方針)。
+   * ⚠ 起点を選択中のときは何もしない (敵ではないので種類を持てない)。
+   *   setSlotEnemyKind が拒否理由を残すので**無言では終わらない**。 */
+  function pickEnemy(v) {
+    var b = setEnemyBrush(v);
+    if (state.slotSelection && state.slotSelection.kind !== "start") setSlotEnemyKind(b);
+    return b;
+  }
+
   /* 検証シーム用のパレット要約 (ドライバが DOM を舐めずに済む)。
      ★DOM から数え直す = 「配列は正しいが画面には出ていない」を検出できる。 */
   function paletteInfo() {
@@ -3214,7 +3490,7 @@
     return el.palSearch.value;
   }
 
-  el.palAuto.addEventListener("click", function () { setEnemyBrush(null); });
+  el.palAuto.addEventListener("click", function () { pickEnemy(null); });   // ★選択中スロットは 2 要素へ戻る
   el.palSearch.addEventListener("input", function () { applyPaletteFilter(); });
   el.palSearchClear.addEventListener("click", function () {
     el.palSearch.value = "";
@@ -3272,6 +3548,7 @@
     renderPalette();        // ★カタログが届いてから初めて系統グループが生える (項目2)
     computeLint();          // 未知キー検査が有効になった状態で計算し直す
     render();
+    updateHud();            // 項目3: 敵種の表示 (名前が引けるようになった) を出し直す
     return r;
   });
 
@@ -3366,10 +3643,29 @@
    *   DOM: #palette / #palAuto (おまかせ枠・常に生き残る) / #palSearch / #palList /
    *        #palList .palGroup[data-group] / .palItem[data-key][data-group][data-thumb] /
    *        #palEmpty (.on = 該当なし) / #palBrush / #palNote (.ng = 取得失敗)
-   *   ★項目2 は「見せるだけ」。enemyBrush を配置に効かせるのは項目3。
+   *
+   *   ── Phase 0.5 項目3 で追加した「置く / 描く / 見せる」のシーム ──
+   *   pickEnemy(v)         … ★パレットのエントリを**クリックしたのと同じ経路**。
+   *                          ① 筆を変える ② スロット選択中ならその敵種も変える (undo 可)。
+   *                          戻りは適用後の筆 (null = おまかせ)
+   *   setSlotEnemyKind(k)  … 選択中スロットの敵種だけを変える (座標は動かさない)。
+   *                          k=null/""/記号だけ → 3 要素目が消えて **2 要素へ戻る**。
+   *                          戻り { ok, reason, kind }。起点は ok:false + reason
+   *   getSlotEnemyKind()   … 選択中スロットの敵種 (おまかせ / 未選択 / 起点 → null)
+   *   hoverTile(tx,ty)     … マウス無しでホバー位置を差し込む (null でホバー解除)。
+   *                          戻りは slotTipInfo() と同じ
+   *   slotTipInfo()        … ツールチップの実測。★{ shown, inDom:true, onCanvas:false, … }
+   *                          = 「canvas ではなく DOM に出ている」ことをドライバが直接測れる
+   *   配置の規則: state.enemyBrush が null なら **[tx,ty] (2 要素・従来と完全に同じ)**、
+   *              敵キーなら **[tx,ty,key] (3 要素)** を push する (enemySlot / bossSlot 共通)。
+   *   描画の規則: 3 要素スロットは実スプライトを**実寸**で描く
+   *              (箱 = displaySize 四方でタイル中心 / コマ倍率 = displaySize / frameW)。
+   *              ★これは exportPNG に**焼き込まれてよい** (マップの中身)。
+   *              焼き込んではいけないのは 選択ハイライト / lint マーカー / ツールチップ。
+   *   DOM: #slotTip (.on = 表示中。★DIV であって canvas ではない) / #palSlot (選択中スロットの敵種)
    */
   window.__mapEditor = {
-    version: 7,
+    version: 8,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -3423,6 +3719,12 @@
     setPaletteQuery: setPaletteQuery,
     refreshPalette: renderPalette,
     paletteInfo: paletteInfo,
+    // ── Phase 0.5 項目3 (配置 / 種類変更 / 実寸描画 / ツールチップ) ──
+    pickEnemy: pickEnemy,
+    setSlotEnemyKind: setSlotEnemyKind,
+    getSlotEnemyKind: selectedSlotKind,
+    hoverTile: hoverTile,
+    slotTipInfo: slotTipInfo,
   };
 })();
 </script>
