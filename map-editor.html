@@ -197,7 +197,12 @@
   #lintList li.none { color: #d2ffe2; justify-content: center; font-weight: 600; }
 
   /* ── canvas ステージ ─────────────────────────────────────────── */
-  #stage { flex: 1 1 auto; position: relative; overflow: hidden; }
+  /* ⚠ #stage は #main (横並び) の中に入っている。#main を挟むだけのラップに留め、
+       #stage 自身の position:relative / overflow:hidden と、その中に絶対配置される
+       #lintPanel の関係は 1 行も変えない (項目5 の DOM を壊さないため)。
+     ⚠ min-width:0 が無いと flex アイテムの最小幅が中身に引っ張られてサイドバーが潰れる。 */
+  #main { flex: 1 1 auto; display: flex; min-height: 0; }
+  #stage { flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; }
   #editorCanvas { display: block; width: 100%; height: 100%; cursor: grab; }
   #editorCanvas.panning { cursor: grabbing; }
 
@@ -223,6 +228,86 @@
     color: #d2ffe2; background: #1c3b2a; border: 1px solid #2f6a49;
     border-radius: 4px; padding: 1px 8px; font-weight: 600;
   }
+  /* ── 敵パレット サイドバー (Phase 0.5 項目2) ───────────────────────────
+     ★「おまかせ」枠 → 検索 → 系統グループ の 3 段。おまかせは**検索でもグループ
+       折り畳みでも絶対に消えない**位置 (#palList の外) に置く = 従来どおりの
+       tier×系統プール任せに 1 クリックで必ず戻れる。
+     ⚠ ここは DOM だけ。canvas には 1 px も描かない (render() に描いた物は何であれ
+       exportPNG に焼き込まれる = Phase 0 の既知の罠)。 */
+  #palette {
+    flex: 0 0 254px; display: flex; flex-direction: column; min-height: 0;
+    background: var(--panel); border-left: 1px solid var(--line);
+  }
+  #palette .palHead {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  }
+  #palette .palHead b { color: var(--accent); }
+  #palCount { margin-left: auto; color: var(--fg-dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .palSearchRow { flex: 0 0 auto; display: flex; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  #palSearch {
+    flex: 1 1 auto; min-width: 0;
+    background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit;
+  }
+  #palSearch:focus { outline: none; border-color: var(--accent); }
+  #palSearchClear {
+    flex: 0 0 auto; background: var(--panel-2); color: var(--fg-dim);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; font: inherit; cursor: pointer;
+  }
+  #palSearchClear:hover { border-color: var(--accent); color: var(--fg); }
+  #palAutoWrap { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  #palAutoWrap .palAutoNote { color: var(--fg-dim); font-size: 11px; line-height: 1.5; margin-top: 5px; }
+
+  #palList { flex: 1 1 auto; overflow-y: auto; padding: 2px 0 10px; }
+  .palGroup { border-bottom: 1px solid rgba(255,255,255,.05); }
+  .palGroup.empty { display: none; }                 /* 検索でヒット 0 のグループは丸ごと消す */
+  .palGroupHead {
+    display: flex; align-items: center; gap: 6px; margin: 0;
+    padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--fg-dim);
+    cursor: pointer; user-select: none;
+  }
+  .palGroupHead:hover { color: var(--fg); }
+  .palGroupHead .caret { flex: 0 0 auto; width: 10px; text-align: center; }
+  .palGroupHead .n { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .palGroup.collapsed .palGroupBody { display: none; }
+  .palGroupBody { padding: 0 6px 5px; }
+  /* ★検索中は「見出しをまたいでヒットだけ」を出す = 見出しを隠し、折り畳みも無視する */
+  #palList.searching .palGroupHead { display: none; }
+  #palList.searching .palGroup.collapsed .palGroupBody { display: block; }
+  #palList.searching .palGroup { border-bottom: 0; }
+
+  .palItem {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    background: transparent; color: var(--fg);
+    border: 1px solid transparent; border-radius: 5px;
+    padding: 4px 7px; font: inherit; cursor: pointer;
+  }
+  .palItem + .palItem { margin-top: 2px; }
+  .palItem:hover { background: rgba(127,215,255,.10); border-color: rgba(127,215,255,.35); }
+  .palItem.sel { background: rgba(127,215,255,.18); border-color: var(--accent); }
+  .palItem.hidden { display: none; }
+  .palThumb {
+    flex: 0 0 auto; width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    background: #0f1116; border: 1px solid var(--line); border-radius: 4px;
+    overflow: hidden; font-size: 19px; line-height: 1;
+  }
+  .palThumb canvas { display: block; }
+  /* 読込失敗のフォールバック。⚠ badge を持たない敵が 6 種いるので**頭文字**まで用意する */
+  .palThumb.fallback { color: var(--fg-dim); font-weight: 700; }
+  .palMeta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .palName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .palStat { color: var(--fg-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+  #palEmpty { display: none; padding: 16px 10px; text-align: center; color: var(--fg-dim); }
+  #palEmpty.on { display: block; }
+  .palFoot {
+    flex: 0 0 auto; padding: 6px 10px; border-top: 1px solid var(--line);
+    color: var(--fg-dim); font-size: 11px; line-height: 1.5;
+  }
+  #palBrush { color: var(--fg); }
+  #palNote.ng { color: #ffc861; }
+
   /* ファイルをドロップ中の canvas (項目4)。実際の受理は drop ハンドラ */
   #stage.dropping::after {
     content: "JSON をここにドロップ";
@@ -314,6 +399,11 @@
     <span id="catalogNote" title="敵の種類は index.html の ENEMY_TYPES から実行時に読み込む (エディタ側に写経しない)"></span>
   </div>
 
+  <!-- ★#stage と敵パレットの横並び (Phase 0.5 項目2)。
+       #stage の中身 (canvas / lintPanel) は 1 文字も変えていない = 既存の
+       絶対配置・座標変換・PNG 書き出しの前提はそのまま。canvas はサイドバーぶん
+       狭くなるだけで、fitToView() が state.css.w/h から毎回計算し直すので追随する。 -->
+  <div id="main">
   <div id="stage">
     <canvas id="editorCanvas"></canvas>
     <!-- lint 一覧 (項目5)。canvas の上に重ねる絶対配置。行クリックで該当座標へビューを飛ばす。 -->
@@ -325,6 +415,37 @@
       </div>
       <ul id="lintList"></ul>
     </div>
+  </div>
+
+  <!-- 敵パレット (Phase 0.5 項目2): おまかせ枠 → 検索 → 系統グループ。
+       中身は index.html の ENEMY_TYPES から実行時に組み立てる (写経しない) ので
+       この HTML には敵の名前が 1 つも出てこない。 -->
+  <aside id="palette">
+    <div class="palHead">
+      <b>敵パレット</b>
+      <span id="palCount" title="表示中の種類数 / 全種類数">—</span>
+    </div>
+    <div class="palSearchRow">
+      <input type="text" id="palSearch" placeholder="名前 / キー / 説明で検索"
+             title="日本語名・キー(goblin など)・説明文の部分一致。検索中は系統の見出しをまたいでヒットだけが並ぶ">
+      <button id="palSearchClear" type="button" title="検索をクリア">×</button>
+    </div>
+    <div id="palAutoWrap">
+      <button id="palAuto" class="palItem palAuto" type="button" data-key=""
+              title="種類を指定しない。従来どおりゲーム側が tier×系統プールから自動で選ぶ">
+        <span class="palThumb fallback">🎲</span>
+        <span class="palMeta"><span class="palName">おまかせ</span><span class="palStat">種類を指定しない</span></span>
+      </button>
+      <div class="palAutoNote">シナリオの tier と系統プールから、ゲーム側が出発時に自動で敵を選びます（従来と同じ挙動）。</div>
+    </div>
+    <div id="palList">
+      <div id="palEmpty">該当なし</div>
+    </div>
+    <div class="palFoot">
+      <div id="palBrush">選択中: おまかせ</div>
+      <div id="palNote"></div>
+    </div>
+  </aside>
   </div>
 
   <div id="hud">
@@ -1336,6 +1457,11 @@
     // 敵カタログの取得状況。null = まだ結果が返っていない / { ok, count, error, url }
     // ★ok:false でも編集は続けられる (おまかせのみ)。UI (#catalogNote) に必ず 1 行出る。
     enemyCatalogStatus: null,
+    // ── 項目2 (敵パレット) で追加 ──
+    // 敵パレットで選択中の「筆」。null = おまかせ (種類を指定しない) / それ以外は敵キー。
+    // ★項目2 の時点では**見せるだけ**。実際に配置へ効かせるのは項目3。
+    //   項目3 は placeSlot() でこの値を見て [tx,ty] / [tx,ty,key] を出し分ける。
+    enemyBrush: null,
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -1388,6 +1514,16 @@
     btnLintClose:   document.getElementById("btnLintClose"),
     // ── 項目1 (Phase 0.5) ──
     catalogNote:    document.getElementById("catalogNote"),
+    // ── 項目2 (Phase 0.5) 敵パレット ──
+    palette:        document.getElementById("palette"),
+    palCount:       document.getElementById("palCount"),
+    palSearch:      document.getElementById("palSearch"),
+    palSearchClear: document.getElementById("palSearchClear"),
+    palAuto:        document.getElementById("palAuto"),
+    palList:        document.getElementById("palList"),
+    palEmpty:       document.getElementById("palEmpty"),
+    palBrush:       document.getElementById("palBrush"),
+    palNote:        document.getElementById("palNote"),
   };
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -2829,6 +2965,263 @@
   el.btnUndo.addEventListener("click", function () { undo(); });
   el.btnRedo.addEventListener("click", function () { redo(); });
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * 敵パレット (Phase 0.5 項目2)
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★中身は index.html の ENEMY_TYPES から実行時に組む (項目1 の
+   *   M.groupEnemyCatalog() の戻り値**そのまま**が並び順)。エディタ側に敵の名前を
+   *   1 つも書かない = 二重管理ゼロ。ゲーム側で敵が増えたら勝手に増える。
+   *
+   * ⚠ ここは DOM だけで完結させる。canvas には 1 px も描かない
+   *   (render() に描いた物は何であれ exportPNG に焼き込まれる = Phase 0 の既知の罠)。
+   *   サムネ用の <canvas> は**パレットの中の別 canvas** であって #editorCanvas ではない。
+   *
+   * ⚠ 項目2 の時点では state.enemyBrush は「見せるだけ」。配置に効かせるのは項目3
+   *   (placeSlot() が enemyBrush を見て [tx,ty] / [tx,ty,key] を出し分ける)。
+   *   ここで setTool("enemySlot") を勝手に呼ばないこと = 既存の §3 assert が
+   *   「ツールは明示的に切り替わる」前提で書かれている。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var PAL_THUMB = 44;                 // サムネ 1 辺 (px)。CSS の .palThumb と同じ値
+  var palItems  = [];                 // [{ key, def, el, thumbBox, hay }] 表示順
+  var palGroups = [];                 // [{ id, el, countEl, items[] }]
+  var palImgCache = {};               // sprite URL -> { img, ok, done, waiters[] } ★URL 単位で 1 回だけ読む
+
+  /* スプライトシートを 1 枚だけ読む。同じ URL の重複読込はしない
+     (49 種 → 実ファイルは 47 枚。2 種が同じシートを共有している)。
+     ⚠ 失敗しても throw しない。壊れた画像アイコンを出さず badge/頭文字へ落とす。 */
+  function palLoadImage(url, cb) {
+    var e = palImgCache[url];
+    if (e && e.done) { cb(e.ok ? e.img : null); return; }
+    if (e) { e.waiters.push(cb); return; }
+    var img = new Image();
+    e = palImgCache[url] = { img: img, ok: false, done: false, waiters: [cb] };
+    function settle(ok) {
+      e.ok = ok; e.done = true;
+      var ws = e.waiters; e.waiters = [];
+      for (var i = 0; i < ws.length; i++) ws[i](ok ? img : null);
+    }
+    img.onload  = function () { settle(true); };
+    img.onerror = function () {
+      // ★無言で消さない。console.warn は残す (console.error はドライバの §9 が拾うので使わない)
+      try { console.warn("[map-editor] 敵スプライトを読めません: " + url); } catch (_) {}
+      settle(false);
+    };
+    img.src = url;
+  }
+
+  /* シートから 1 コマだけ切り出して 44×44 に収める。
+     ⚠ frameW/frameH の比を保ったまま縮める (引き伸ばすと 1枚絵と同じ歪みが起きる)。
+     ⚠ rowOffset*frameH がシート外に出る素材が将来来ても落ちないよう 0 へ丸める。 */
+  function palDrawThumb(cv, img, def) {
+    var fw = def.frameW || img.width, fh = def.frameH || img.height;
+    var sy = (def.rowOffset || 0) * fh;
+    if (sy + fh > img.height) sy = 0;
+    var s = Math.min(cv.width / fw, cv.height / fh);
+    var dw = Math.max(1, Math.round(fw * s)), dh = Math.max(1, Math.round(fh * s));
+    var c = cv.getContext("2d");
+    c.clearRect(0, 0, cv.width, cv.height);
+    c.drawImage(img, 0, sy, fw, fh, Math.round((cv.width - dw) / 2), Math.round((cv.height - dh) / 2), dw, dh);
+  }
+  /* 読込失敗時の代替。⚠ badge を持たない敵が 6 種いる (rat/goblin/kobold/skeleton/orc/minotaur)
+     ので badge だけでは空欄になる → **頭文字**まで用意する。 */
+  function palFallbackThumb(box, def, key) {
+    box.classList.add("fallback");
+    box.textContent = (def && def.badge) ? def.badge
+                    : ((def && def.name) ? def.name.charAt(0) : String(key).charAt(0));
+  }
+
+  function palMakeItem(key, def) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "palItem";
+    b.setAttribute("data-key", key);
+    b.setAttribute("data-group", M.groupIdOfEnemy(key));
+    b.title = (def.name || key) + " (" + key + ")" +
+              (def.flavor ? "\n" + def.flavor : "") +
+              "\nHP " + def.hp + " / XP " + def.xp;
+
+    var th = document.createElement("span");
+    th.className = "palThumb";
+    var cv = document.createElement("canvas");
+    cv.width = PAL_THUMB; cv.height = PAL_THUMB;
+    th.appendChild(cv);
+
+    var meta = document.createElement("span");
+    meta.className = "palMeta";
+    var nm = document.createElement("span");
+    nm.className = "palName";
+    nm.textContent = def.name || key;
+    var st = document.createElement("span");
+    st.className = "palStat";
+    st.textContent = "HP " + def.hp + " / XP " + def.xp;
+    meta.appendChild(nm); meta.appendChild(st);
+
+    b.appendChild(th); b.appendChild(meta);
+    b.addEventListener("click", function () { setEnemyBrush(key); });
+
+    b.setAttribute("data-thumb", "pending");
+    // ⚠ キャッシュ命中時この cb は**同期で**呼ばれる (要素はまだ DOM に付いていない)。
+    //   「DOM に付いているか」で早期 return すると 2 回目以降の描画が全部消える。
+    palLoadImage(def.sprite, function (img) {
+      if (img) { palDrawThumb(cv, img, def); b.setAttribute("data-thumb", "ok"); }
+      else {
+        if (cv.parentNode === th) th.removeChild(cv);
+        palFallbackThumb(th, def, key);
+        b.setAttribute("data-thumb", "fallback");
+      }
+    });
+    return { key: key, def: def, el: b, thumbBox: th,
+             hay: ((def.name || "") + " " + key + " " + (def.flavor || "")).toLowerCase() };
+  }
+
+  /* パレット全体を組み直す。カタログ未取得 / 取得失敗なら**グループを 1 つも作らない**
+     = 「おまかせ」だけが残る (#palAutoWrap は #palList の外なので必ず生き残る)。 */
+  function renderPalette() {
+    var cat = M.getEnemyCatalog();
+    palItems = []; palGroups = [];
+    el.palList.innerHTML = "";
+    var groups = cat ? M.groupEnemyCatalog(cat) : [];
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (!g.keys.length) continue;                     // 空の系統は出さない
+      var sec = document.createElement("section");
+      sec.className = "palGroup";
+      sec.setAttribute("data-group", g.id);
+
+      var head = document.createElement("h4");
+      head.className = "palGroupHead";
+      var caret = document.createElement("span");
+      caret.className = "caret"; caret.textContent = "▾";
+      var label = document.createElement("span");
+      label.textContent = g.label;
+      var cnt = document.createElement("span");
+      cnt.className = "n"; cnt.textContent = String(g.keys.length);
+      head.appendChild(caret); head.appendChild(label); head.appendChild(cnt);
+      head.addEventListener("click", (function (section, car) {
+        return function () {
+          var col = section.classList.toggle("collapsed");
+          car.textContent = col ? "▸" : "▾";
+        };
+      })(sec, caret));
+
+      var body = document.createElement("div");
+      body.className = "palGroupBody";
+      var rec = { id: g.id, el: sec, countEl: cnt, items: [] };
+      for (var j = 0; j < g.keys.length; j++) {
+        var it = palMakeItem(g.keys[j], cat[g.keys[j]]);
+        body.appendChild(it.el);
+        palItems.push(it); rec.items.push(it);
+      }
+      sec.appendChild(head); sec.appendChild(body);
+      el.palList.appendChild(sec);
+      palGroups.push(rec);
+    }
+    el.palList.appendChild(el.palEmpty);                // ★innerHTML="" で外れるので毎回付け直す
+    syncPaletteNote();
+    syncPaletteSelection();
+    applyPaletteFilter();
+  }
+
+  /* 検索。日本語名 / キー / flavor の部分一致。
+     ★ヒットは**系統の見出しをまたいで**並ぶ (検索中は見出しを CSS で隠し、折り畳みも無視)。 */
+  function applyPaletteFilter() {
+    var q = (el.palSearch.value || "").trim().toLowerCase();
+    var i, j, hit = 0;
+    for (i = 0; i < palItems.length; i++) {
+      var m = !q || palItems[i].hay.indexOf(q) >= 0;
+      palItems[i].el.classList.toggle("hidden", !m);
+      if (m) hit++;
+    }
+    for (i = 0; i < palGroups.length; i++) {
+      var g = palGroups[i], n = 0;
+      for (j = 0; j < g.items.length; j++) if (!g.items[j].el.classList.contains("hidden")) n++;
+      g.el.classList.toggle("empty", n === 0);
+      g.countEl.textContent = q ? (n + "/" + g.items.length) : String(g.items.length);
+    }
+    el.palList.classList.toggle("searching", !!q);
+    // 「該当なし」はカタログがある時だけ。カタログ自体が無い時は #palNote が理由を出す。
+    el.palEmpty.classList.toggle("on", palItems.length > 0 && hit === 0);
+    el.palCount.textContent = palItems.length
+      ? (q ? (hit + " / " + palItems.length + " 種") : (palItems.length + " 種"))
+      : "—";
+    return hit;
+  }
+
+  function syncPaletteNote() {
+    var cat = M.getEnemyCatalog(), st = state.enemyCatalogStatus;
+    if (cat) {
+      el.palNote.textContent = "index.html の ENEMY_TYPES から取得 (" + Object.keys(cat).length + " 種)";
+      el.palNote.classList.remove("ng");
+      return;
+    }
+    // ★取得できていない理由を必ず 1 行出す (silent fail-open にしない)。
+    var why = M.getEnemyCatalogError() || (st && st.error) || (st ? "カタログが空です" : null);
+    el.palNote.textContent = why
+      ? ("⚠ 敵カタログを読めません (" + why + ") — 「おまかせ」だけが使えます")
+      : "敵カタログ 読込中…";
+    el.palNote.classList.toggle("ng", !!why);
+  }
+
+  function syncPaletteSelection() {
+    var b = state.enemyBrush, i;
+    el.palAuto.classList.toggle("sel", b === null);
+    for (i = 0; i < palItems.length; i++)
+      palItems[i].el.classList.toggle("sel", palItems[i].key === b);
+    var def = (b !== null) ? M.enemyDef(b) : null;
+    el.palBrush.textContent = "選択中: " + (b === null ? "おまかせ"
+      : ((def && def.name ? def.name : "?") + " (" + b + ")"));
+  }
+
+  /* 敵の筆を選ぶ。null / "" / 不正文字列 → おまかせ (null)。
+     ⚠ カタログに無いキーでも**受け付ける** (項目1 の normEnemyKey と同じ思想 =
+       ゲーム側が先に増えたときにエディタが黙って種類を捨てるのが最悪の事故)。
+       綴り違いは lint の warning "enemy-unknown-key" が拾う。 */
+  function setEnemyBrush(v) {
+    state.enemyBrush = (v === null || v === undefined || v === "") ? null : M.normEnemyKey(v);
+    syncPaletteSelection();
+    return state.enemyBrush;
+  }
+
+  /* 検証シーム用のパレット要約 (ドライバが DOM を舐めずに済む)。
+     ★DOM から数え直す = 「配列は正しいが画面には出ていない」を検出できる。 */
+  function paletteInfo() {
+    var items = el.palList.querySelectorAll(".palItem");
+    var vis = 0, thumbOk = 0, thumbFb = 0, thumbPending = 0, i, t;
+    for (i = 0; i < items.length; i++) {
+      if (!items[i].classList.contains("hidden")) vis++;
+      t = items[i].getAttribute("data-thumb");
+      if (t === "ok") thumbOk++; else if (t === "fallback") thumbFb++; else thumbPending++;
+    }
+    var secs = el.palList.querySelectorAll(".palGroup");
+    var visSecs = 0;
+    for (i = 0; i < secs.length; i++) if (!secs[i].classList.contains("empty")) visSecs++;
+    return {
+      hasCatalog: !!M.getEnemyCatalog(),
+      groups: secs.length, visibleGroups: visSecs,
+      items: items.length, visibleItems: vis,
+      thumbs: { ok: thumbOk, fallback: thumbFb, pending: thumbPending },
+      query: el.palSearch.value,
+      emptyShown: el.palEmpty.classList.contains("on"),
+      brush: state.enemyBrush,
+      note: el.palNote.textContent,
+      count: el.palCount.textContent,
+    };
+  }
+  // 検索欄を検証シームから叩く用 (input イベントを起こして実 UI と同じ経路を通す)
+  function setPaletteQuery(q) {
+    el.palSearch.value = (q === null || q === undefined) ? "" : String(q);
+    applyPaletteFilter();
+    return el.palSearch.value;
+  }
+
+  el.palAuto.addEventListener("click", function () { setEnemyBrush(null); });
+  el.palSearch.addEventListener("input", function () { applyPaletteFilter(); });
+  el.palSearchClear.addEventListener("click", function () {
+    el.palSearch.value = "";
+    applyPaletteFilter();
+    el.palSearch.focus();
+  });
+
   function loadPreset(key) {
     state.presetKey = (key === "field") ? "field" : "dungeon";
     el.presetSel.value = state.presetKey;
@@ -2853,6 +3246,7 @@
   applyMapDef(state.mapDef, { fit: true, history: false });
   resetHistory();
   refreshLocalList();      // 保存済み一覧を localStorage から復元 (項目4)
+  renderPalette();         // 敵パレット (項目2)。この時点ではカタログ未取得 = 「おまかせ」だけ
 
   /* ── 敵カタログの取得 (項目1) ────────────────────────────────────────────
    * index.html を同一オリジンで fetch して ENEMY_TYPES を読むだけ。ゲームは動かさない。
@@ -2875,6 +3269,7 @@
   var enemyCatalogReady = M.loadEnemyCatalog().then(function (r) {
     state.enemyCatalogStatus = r;
     syncCatalogNote();
+    renderPalette();        // ★カタログが届いてから初めて系統グループが生える (項目2)
     computeLint();          // 未知キー検査が有効になった状態で計算し直す
     render();
     return r;
@@ -2957,9 +3352,24 @@
    *     ★2 要素は sanitize を何度通しても 2 要素のまま (既存プリセットの往復同一性は無傷)
    *   lint: warning "enemy-unknown-key" … カタログに無いキー。★カタログ未取得なら**出ない**
    *   DOM: #catalogNote (取得状況の 1 行。失敗時は .ng が付く)
+   *
+   *   ── Phase 0.5 項目2 で追加した敵パレットのシーム ──
+   *   setEnemyBrush(v)     … 敵の筆を選ぶ。null/""/不正 → null (おまかせ)。戻りは適用後の値
+   *   getEnemyBrush()      … state.enemyBrush と同じ (null = おまかせ)
+   *   setPaletteQuery(q)   … 検索欄に文字を入れてフィルタを適用。戻りは適用後の文字列
+   *   refreshPalette()     … パレットを組み直す。★MapDef.setEnemyCatalog(null) の直後に
+   *                          呼ぶと「カタログ取得失敗時の UI」を再現できる
+   *   paletteInfo()        … DOM から数え直した要約 (配列ではなく**画面**を見る):
+   *                          { hasCatalog, groups, visibleGroups, items, visibleItems,
+   *                            thumbs:{ok,fallback,pending}, query, emptyShown, brush, note, count }
+   *   state.enemyBrush     … null = おまかせ / それ以外は敵キー
+   *   DOM: #palette / #palAuto (おまかせ枠・常に生き残る) / #palSearch / #palList /
+   *        #palList .palGroup[data-group] / .palItem[data-key][data-group][data-thumb] /
+   *        #palEmpty (.on = 該当なし) / #palBrush / #palNote (.ng = 取得失敗)
+   *   ★項目2 は「見せるだけ」。enemyBrush を配置に効かせるのは項目3。
    */
   window.__mapEditor = {
-    version: 6,
+    version: 7,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -3007,6 +3417,12 @@
     setLintPanelOpen: setLintPanelOpen,
     // ── Phase 0.5 項目1 ──
     enemyCatalogReady: enemyCatalogReady,
+    // ── Phase 0.5 項目2 (敵パレット) ──
+    setEnemyBrush: setEnemyBrush,
+    getEnemyBrush: function () { return state.enemyBrush; },
+    setPaletteQuery: setPaletteQuery,
+    refreshPalette: renderPalette,
+    paletteInfo: paletteInfo,
   };
 })();
 </script>
