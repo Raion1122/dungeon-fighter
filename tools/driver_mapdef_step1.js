@@ -24,7 +24,7 @@
  *       (Phase 1 の主戦場 = index.html:3323 `IS_FIELD_THEME && FIELD_GEO_ACTIVE` の置換なので、
  *        帯マスクが掛かっていないマップ同士を比べていたら空振り)
  *
- * ■ assert (仕様書「検証」節 1-4 / 6。5 = 新定数の実値は**項目 4** で足す)
+ * ■ assert (仕様書「検証」節 1-6 をすべて実装済み)
  *   1  mapData 全体の SHA-256 が baseline と一致              … 幾何そのものの証明
  *   2  ENEMY_SPAWNS の JSON が一致
  *   3  mapCanvas.toDataURL() の SHA-256 が一致
@@ -34,6 +34,13 @@
  *        roomChests は 4 系統が**同じ配列へ順番に push される**ので、配列の順序込みで比べれば
  *        4 系統すべての差分が 1 本の assert に写る (spawnRoomChests → spawnHiddenChests →
  *        spawnExplorationChests → spawnDragonHoard の順)。
+ *   5  新定数の実値 (START_TX / START_TY / BOSS_ROOM_IDX / EXCLUDED_ROOMS /
+ *      ROOM_CHEST_EXCLUDED_ROOMS / OBJECTIVE_ROOMS) が仕様書の表どおり … (5a)-(5f)
+ *      ⭐ (5f) は「ダンジョンで EXCLUDED_ROOMS ≠ ROOM_CHEST_EXCLUDED_ROOMS ({1} vs {0,1})」の
+ *        専用 assert = **仕様書「計画書の誤り②」を踏んでいないことの静的な証明**。
+ *      ⚠ classic script 直下の const は window に載らないが、page.evaluate は**グローバル
+ *        スコープでコンパイルされる**ので bare 名で到達できる (mapData / ROOMS と同じ経路)。
+ *        よって index.html に検証シームを足す必要は無い (= 触らない = changelog フック非発火)。
  *   6  pageerror / console.error / HTTP 4xx-5xx が 0 件
  *      ← **項目 3 で <script src="js/df-mapdef.js"> を足すので、その 404 の最大の検出器がここ**。
  *
@@ -61,15 +68,27 @@
  *     リビジョン負制御 (baseline に MAPDEF / START_TX が無いことの確認) は
  *     **文字列 indexOf で書く**こと。行をまたぐ正規表現や行数・バイト数の比較は CRLF で壊れる。
  *
- * ■ 変異負制御 (--mutate) は **項目 4 で追加予定**
- *   ここでは受け口 (引数パースと「未知の kind は exit 3」) だけを用意してある。
- *   項目 4 で MUTATIONS の各 kind に page.evaluateOnNewDocument 用の注入関数を書き、
- *   applyMutation() の呼び出し 1 箇所で効くようにする。あわせて項目 4 では
- *     ・リビジョン負制御 (baseline 側に MAPDEF / START_TX が無いことの確認)
- *     ・新定数 (EXCLUDED_ROOMS / ROOM_CHEST_EXCLUDED_ROOMS / BOSS_ROOM_IDX /
- *       OBJECTIVE_ROOMS / START_TX / START_TY) の実値 assert
- *   を足す。**これらは index.html にまだ存在しないので、今書くと必ず落ちる。**
+ * ■ 負のコントロール (2 段構え) — 「assert が空振りでないこと」の直接証明 ★項目 4 で実装
+ *   baseline 比較だけでは、**両側が同じように壊れていても PASS する**。そこで 2 種類:
  *
+ *   (a) リビジョン負制御 … (R1a)(R1b)(R2a)(R2b)
+ *       baseline(@c2ab252) の index.html に Phase 1 の識別子 (MAPDEF / START_TX / …) が
+ *       **無い**こと + 作業ツリーには**在る**こと。さらに旧式 (const bossRoomIdx =
+ *       ROOMS.length - 1; など) が baseline に**在り**作業ツリーに**無い**ことも見る。
+ *       4 本セットで「本当に別物を比べている」証明になる。
+ *       ランタイム版 (R3) = baseline ページ上に START_TX / BOSS_ROOM_IDX が存在しない。
+ *       ⚠⚠ core.autocrlf=true なので baseline は CRLF・作業ツリーは LF。同一リビジョンでも
+ *         27,472B (= 行数) 食い違う → **必ず文字列 indexOf で書く**。行をまたぐ正規表現・
+ *         行数・バイト数の比較は CRLF で無言で壊れる。
+ *
+ *   (b) 変異負制御 … --mutate <kind> (start / exclude / chest / boss)
+ *       page.evaluateOnNewDocument で **cur 側にだけ**欠陥を注入し、必ず exit 1 になることを
+ *       確認する。注入が空振りしていないことは (M1) が毎ターゲットで実測する
+ *       (「注入したつもりで効いていない」= 全 PASS = 偽の安心 を潰すため)。
+ *       ⚠ evaluateOnNewDocument は**リロードのたびに**必要 (過去に踏んだ罠)。本ドライバは
+ *         ターゲットごとに新しい page を作り bootPage 内で毎回 applyMutation() する。
+ *
+
  * ■ プロファイル
  *   ⚠ Chrome プロファイルは必ず require('./_pptr_profile') で作る。自前で --user-data-dir を
  *     作ると消し忘れて滞留する (実測 1710 個・8.0GB の前科あり → tools/_pptr_profile.js 参照)。
@@ -77,8 +96,10 @@
  * 使い方:
  *   node tools/driver_mapdef_step1.js [--headful] [--browser <path>] [--port N]
  *                                     [--baseline-rev c2ab252] [--baseline-dir <dir>]
- *                                     [--mutate <kind>]          ← 項目 4 で実装
+ *                                     [--mutate start|exclude|chest|boss]
  *   ⚠ 並列検証はポート間隔 4 以上 (本ドライバは baseline 用に port+1 も掴む)。
+ *   exit: 0=全 PASS / 1=FAIL あり (変異時は「捕まえた」= 期待どおり) / 2=環境不備 /
+ *         3=装置の故障 (未知の kind・例外・変異が注入できていない) / 4=assert の穴
  */
 'use strict';
 
@@ -102,36 +123,100 @@ const BASELINE_REV = arg('baseline-rev', 'c2ab252');
 const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_mapdef1_baseline'));
 const SEED = parseInt(arg('seed', '20260801'), 10);
 
-// ── 変異負制御の受け口 (中身は dev-loop 項目 4 で追加予定) ──────────────────
-// 各値は「page.evaluateOnNewDocument に渡す関数」になる予定。仕様書の想定は:
-//   start   … DFMapDef.DEFAULT_DUNGEON.start.tx = 25          (起点を 1 タイルずらす)
-//   exclude … excludedRoomIdx を常に {boss} にする             (3 部屋の罠分布が変わる)
-//   chest   … chestExcludedRoomIdx を excludedRoomIdx と同一に (仕様書「誤り②」の再発検出器)
-//   boss    … bossRoomIdx を 0 にする
+// ── 変異負制御 (--mutate) ───────────────────────────────────────────────────
+//   ※ 「捕まえた assert」は 2026-08-01 の実測値 (母集団 190 assert / 8 ターゲット)。
+//   kind    | 注入する欠陥                                     | 実際に落ちた assert (実測)
+//   --------|-------------------------------------------------|------------------------------
+//   start   | DEFAULT_DUNGEON.start.tx = 25 (起点を 1 タイル)  | 24 件 = (1)x6 (4a)x6 (4b)x6 (5a)x6
+//           |                                                 | ※ダンジョン 6 本のみ (屋外は不変)
+//   exclude | excludedRoomIdx を**常に {boss}**                | 8 件 = (4a)x2 (4b)x2 (5c)x2 (5f)x2
+//           |                                                 | ※屋外(3部屋)のみ。2部屋は元々 {boss}
+//   chest   | chestExcludedRoomIdx を excludedRoomIdx と同一式 | 24 件 = (4a)x6 (4b)x6 (5d)x6 (5f)x6
+//           |   ★仕様書「計画書の誤り②」の再発検出器・最重要  | ※ダンジョン 6 本のみ
+//   boss    | bossRoomIdx を**常に 0** (派生 2 関数も 0 で再計算)| 46 件 = (4a)x8 (4b)x8 (5b)x8
+//           |                                                 |         (5c)x8 (5d)x8 (5f)x6
+//
+// ⚠ start は (1) mapData SHA が落ちるのに **(3) canvas SHA は落ちない** (実測)。
+//   起点 (24,13) は通常床だが (25,13) はレア床なので、起点救済 `mapData[ty][tx]===1 → 0` が
+//   効いて床 551→552 / レア床 134→133 と 1 タイルだけ変わる。しかし renderMap 時のカメラは
+//   両側とも cam=[2024,931] で同一・その 1 タイルは絵として差が出ないため canvas は一致する。
+//   → **「mapData が変われば canvas も必ず変わる」は成り立たない**。(1) と (3) は別の検出器
+//     として両方要る (どちらかがあれば十分、と間引くと 1 タイル級の欠陥を取り逃がす)。
+//
 // ⭐ これが可能なのは DFMapDef が**外部 script のグローバル**だから。inline に直書きすると
 //    変異注入ができず負のコントロールが作れない (js/df-mapdef.js を分離する 2 つ目の理由)。
+//
+// ⚠ 注入は evaluateOnNewDocument なので **js/df-mapdef.js より先**に走る = その時点で
+//   window.DFMapDef はまだ無い。よって「DFMapDef を直接書き換える」ことはできない。
+//   → window.DFMapDef に**アクセサを仕掛けて** df-mapdef.js 末尾の `global.DFMapDef = {...}`
+//     (js/df-mapdef.js は `})(window)` で閉じている) という代入を横取りし、その瞬間に
+//     パッチを当てる。効いたかどうかは window.__dfMut.applied に残して (M1) が実測する。
+//
+// ⚠ boss だけ派生 2 関数 (excludedRoomIdx / chestExcludedRoomIdx) も一緒に 0 で再計算する。
+//   これらは df-mapdef.js の**内部**で bossRoomIdx() を呼んでいるので、export だけ差し替えても
+//   内部呼び出しは古いままになる。「bossRoomIdx が壊れた世界」を忠実に再現するには
+//   内部呼び出しの結果も 0 に揃える必要がある (弱めているのではなく、正しく強めている)。
 const MUTATIONS = {
-  start: null,
-  exclude: null,
-  chest: null,
-  boss: null,
+  start:   { desc: 'DEFAULT_DUNGEON.start.tx を 24 → 25 (起点を 1 タイル東へ)' },
+  exclude: { desc: 'excludedRoomIdx を常に {boss} (3部屋の導入部屋が罠候補に入る)' },
+  chest:   { desc: 'chestExcludedRoomIdx を excludedRoomIdx と同一式 (誤り②の再発)' },
+  boss:    { desc: 'bossRoomIdx を常に 0 (派生の除外部屋 Set も 0 基準へ)' },
 };
 const MUTATE = arg('mutate', null);
-if (MUTATE !== null) {
-  if (!Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
-    console.error('[driver] 未知の --mutate: ' + MUTATE + '  (' + Object.keys(MUTATIONS).join(' / ') + ')');
-    process.exit(3);
-  }
-  if (typeof MUTATIONS[MUTATE] !== 'function') {
-    console.error('[driver] --mutate ' + MUTATE + ' は受け口だけで中身が未実装です (dev-loop 項目 4 で追加予定)。'
-      + ' 黙って無変異で走らせると負のコントロールが空振りするので exit 3 で止めます。');
-    process.exit(3);
-  }
+if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
+  console.error('[driver] 未知の --mutate: ' + MUTATE + '  (' + Object.keys(MUTATIONS).join(' / ') + ')');
+  process.exit(3);
 }
-// 項目 4 で MUTATIONS を埋めれば、この 1 箇所だけで作業ツリー側へ欠陥が注入される。
+
+/* installMutation — ページ内で走る (evaluateOnNewDocument)。**index.html より前**。
+ * ⚠ この関数はページへ文字列化して送られる。外側のスコープを一切参照しないこと。 */
+function installMutation(kind) {
+  var box = { v: undefined };
+  window.__dfMut = { kind: kind, applied: false, detail: '<DFMapDef が代入されていない>' };
+  function patch(D) {
+    if (!D) { window.__dfMut.detail = 'DFMapDef が falsy'; return; }
+    if (kind === 'start') {
+      // resolve() は clone(DEFAULT_DUNGEON) を返す = 既定オブジェクトを書けば伝播する
+      D.DEFAULT_DUNGEON.start.tx = 25;
+      window.__dfMut.detail = 'DEFAULT_DUNGEON.start.tx=' + D.DEFAULT_DUNGEON.start.tx;
+    } else if (kind === 'exclude') {
+      D.excludedRoomIdx = function (d) { return new Set([D.bossRoomIdx(d)]); };
+      window.__dfMut.detail = 'excludedRoomIdx -> 常に {boss}';
+    } else if (kind === 'chest') {
+      D.chestExcludedRoomIdx = function (d) {
+        var rooms = (d && d.rooms) || [];
+        var boss = D.bossRoomIdx(d);
+        return (rooms.length >= 3) ? new Set([0, boss]) : new Set([boss]);
+      };
+      window.__dfMut.detail = 'chestExcludedRoomIdx -> excludedRoomIdx と同一式';
+    } else if (kind === 'boss') {
+      D.bossRoomIdx = function () { return 0; };
+      D.excludedRoomIdx = function (d) {
+        var rooms = (d && d.rooms) || [];
+        return (rooms.length >= 3) ? new Set([0, 0]) : new Set([0]);
+      };
+      D.chestExcludedRoomIdx = function () { return new Set([0, 0]); };
+      window.__dfMut.detail = 'bossRoomIdx -> 常に 0 (派生 2 関数も 0 基準)';
+    } else {
+      window.__dfMut.detail = '未知の kind: ' + kind;
+      return;
+    }
+    window.__dfMut.applied = true;
+  }
+  Object.defineProperty(window, 'DFMapDef', {
+    configurable: true,
+    get: function () { return box.v; },
+    set: function (nv) {
+      box.v = nv;
+      try { patch(nv); } catch (e) { window.__dfMut.detail = 'パッチ例外: ' + (e && e.message || e); }
+    },
+  });
+}
+
+// ⚠ evaluateOnNewDocument はリロード/新 page のたびに要る。bootPage から毎回呼ぶこと。
 async function applyMutation(page, side) {
   if (MUTATE === null || side !== 'cur') return;
-  await page.evaluateOnNewDocument(MUTATIONS[MUTATE]);
+  await page.evaluateOnNewDocument(installMutation, MUTATE);
 }
 
 // ── 対象 ────────────────────────────────────────────────────────────────────
@@ -157,19 +242,33 @@ const CARAVAN_PAYLOAD = {
 const VP_DESKTOP = { name: 'desktop', width: 1440, height: 900 };
 const VP_LAND = { name: 'iphone_land', width: 844, height: 390 };
 
+/* ── assert 5 の期待値 (仕様書「検証」節 5 の表。実測で裏取り済み) ──────────────
+ *   定数                        | ダンジョン(2部屋) | 屋外(3部屋)
+ *   START_TX / START_TY         |  24 / 13          |  6 / 13
+ *   BOSS_ROOM_IDX               |  1                |  2
+ *   EXCLUDED_ROOMS              |  {1}              |  {0,2}
+ *   ROOM_CHEST_EXCLUDED_ROOMS   |  {0,1}  ← ★別物  |  {0,2}   (たまたま一致)
+ *   OBJECTIVE_ROOMS             |  1                |  2
+ * ⭐ splitSets = 「この部屋数では 2 つの除外集合が別物になるか」。ダンジョンで true。 */
+const EXPECT_DUNGEON = { rooms: 2, startTx: 24, startTy: 13, boss: 1,
+  excluded: [1], chestExcluded: [0, 1], objective: 1, splitSets: true };
+const EXPECT_FIELD = { rooms: 3, startTx: 6, startTy: 13, boss: 2,
+  excluded: [0, 2], chestExcluded: [0, 2], objective: 2, splitSets: false };
+
 // fieldGeo: 期待する FIELD_GEO_ACTIVE。null = 判定しない (ダンジョンは屋外幾何と無関係)。
 const TARGETS = [].concat(
   DUNGEON_SCENARIOS.map(scen => ({
     label: scen, mode: 'legacy', scen, vp: VP_DESKTOP, field: false, fieldGeo: null,
+    expect: EXPECT_DUNGEON,
   })),
   [
     { label: 'caravan-road(縦持ち相当/帯マスクあり)', mode: 'field', payload: CARAVAN_PAYLOAD,
-      vp: VP_DESKTOP, field: true, fieldGeo: true },
+      vp: VP_DESKTOP, field: true, fieldGeo: true, expect: EXPECT_FIELD },
     // ⚠ 横持ちは usableH が足りず FIELD_GEO_ACTIVE=false = 帯マスクが掛からない別の幾何になる。
     //    index.html:3323 の置換は `MAPDEF.flags.bandMask && FIELD_GEO_ACTIVE` なので、
     //    帯マスクあり / なし の**両方**を母集団に入れておかないと片側しか測れない。
     { label: 'caravan-road(横持ち/帯マスクなし)', mode: 'field', payload: CARAVAN_PAYLOAD,
-      vp: VP_LAND, field: true, fieldGeo: false },
+      vp: VP_LAND, field: true, fieldGeo: false, expect: EXPECT_FIELD },
   ]
 );
 
@@ -357,9 +456,28 @@ async function probe(page) {
     out.fieldMode = g(() => FIELD_MODE, '<none>');
     out.fieldGeoActive = g(() => FIELD_GEO_ACTIVE, '<none>');
     out.rooms = g(() => JSON.parse(JSON.stringify(ROOMS)), '<none>');
+    out.roomsLen = g(() => ROOMS.length, -1);
     out.corridors = g(() => JSON.parse(JSON.stringify(CORRIDORS)), '<none>');
     out.mapW = g(() => MAP_W, -1);
     out.mapH = g(() => MAP_H, -1);
+
+    // ── 5. Phase 1 の新定数 (仕様書「検証」節 5) ──
+    //   ⚠ これらは classic script 直下の const = window には載らない。page.evaluate が
+    //     グローバルスコープでコンパイルされるおかげで bare 名で読める (mapData と同じ経路)。
+    //     baseline (Phase 1 前) には存在しないので '<none>' が返る = (R3) の材料になる。
+    //   ⚠ Set のままだと構造化クローンで {} に化けるので必ず配列へ。順序ゆれを消すためソート。
+    const setArr = (fn) => { const s = fn(); return Array.from(s).sort((a, b) => a - b); };
+    out.startTx = g(() => START_TX, '<none>');
+    out.startTy = g(() => START_TY, '<none>');
+    out.bossRoomIdx = g(() => BOSS_ROOM_IDX, '<none>');
+    out.excludedRooms = g(() => setArr(() => EXCLUDED_ROOMS), '<none>');
+    out.chestExcludedRooms = g(() => setArr(() => ROOM_CHEST_EXCLUDED_ROOMS), '<none>');
+    out.objectiveRooms = g(() => OBJECTIVE_ROOMS, '<none>');
+    out.mapdefStart = g(() => JSON.parse(JSON.stringify(MAPDEF.start)), '<none>');
+    out.mapdefFlags = g(() => JSON.parse(JSON.stringify(MAPDEF.flags)), '<none>');
+
+    // ── 変異負制御が実際に効いたか (M1 の材料) ──
+    out.mut = g(() => (window.__dfMut ? JSON.parse(JSON.stringify(window.__dfMut)) : null), null);
 
     // ── 1. mapData 全体 ──
     const md = g(() => mapData, null);
@@ -506,6 +624,36 @@ async function bootPage(browser, url, viewport, pre, side) {
       check('(0d) 両側の index.html を実ファイルとして読めている (64桁 SHA / 10万バイト超)',
         isHex64(hc) && isHex64(hb) && sc.length > 100000 && sb.length > 100000,
         'cur=' + sc.length + 'B ' + hc.slice(0, 16) + ' / base=' + sb.length + 'B ' + hb.slice(0, 16));
+
+      // ── リビジョン負制御 (静的) ─────────────────────────────────────────
+      // ⚠⚠ core.autocrlf=true。baseline は CRLF・作業ツリーは LF で、同一リビジョンでも
+      //   27,472B (= 行数) 食い違う。よって **必ず文字列 indexOf**。行をまたぐ正規表現・
+      //   行数・バイト数の比較は CRLF で無言で壊れる。下の検索語はすべて 1 行に収まる。
+      // ⚠ 'START_TX' 単体は baseline の PARTY_START_TX に部分一致してしまう
+      //   → 'const START_TX' の形で引く (PARTY_START_TX は 'const PARTY_START_TX' なので当たらない)。
+      const txtCur = sc.toString('utf8'), txtBase = sb.toString('utf8');
+      const NEW_IDS = ['const MAPDEF =', 'js/df-mapdef.js', 'const START_TX', 'const BOSS_ROOM_IDX',
+        'const EXCLUDED_ROOMS', 'const ROOM_CHEST_EXCLUDED_ROOMS', 'const OBJECTIVE_ROOMS',
+        'MAPDEF.flags.bandMask', 'ROOM_CHEST_EXCLUDED_ROOMS.has(i)'];
+      // 置換前の旧式。baseline に**在り**、作業ツリーには**無い**のが正しい。
+      // ⚠ 'IS_FIELD_THEME && FIELD_GEO_ACTIVE' は他用途で作業ツリーにも 2 件残るので使わない
+      //   (「消えているはず」の語を選び間違えると、この assert 自体が永久に落ちる)。
+      const OLD_IDS = ['const bossRoomIdx = ROOMS.length - 1;', 'if (i === 0 || i === bossRoomIdx) continue;',
+        '(IS_FIELD_THEME ? 6 : 24)', 'const excludeRooms = ROOMS.length >= 3', 'mapData[13][24]',
+        'visitedRooms.size >= ROOMS.length - 1'];
+      const newInBase = NEW_IDS.filter(s => txtBase.indexOf(s) >= 0);
+      const newMissCur = NEW_IDS.filter(s => txtCur.indexOf(s) < 0);
+      const oldMissBase = OLD_IDS.filter(s => txtBase.indexOf(s) < 0);
+      const oldInCur = OLD_IDS.filter(s => txtCur.indexOf(s) >= 0);
+      check('(R1a) baseline(@' + BASELINE_REV + ') の index.html に Phase 1 の識別子が 1 つも無い (' +
+        NEW_IDS.length + ' 種)', newInBase.length === 0 && NEW_IDS.length === 9,
+        newInBase.length ? '見つかった: ' + newInBase.join(' / ') : 'なし');
+      check('(R1b) 作業ツリーの index.html には Phase 1 の識別子が ' + NEW_IDS.length + ' 種すべて在る',
+        newMissCur.length === 0, newMissCur.length ? '欠けている: ' + newMissCur.join(' / ') : 'すべて在る');
+      check('(R2a) baseline には置換前の旧式が ' + OLD_IDS.length + ' 種すべて在る (本当に Phase 1 前である証明)',
+        oldMissBase.length === 0, oldMissBase.length ? '欠けている: ' + oldMissBase.join(' / ') : 'すべて在る');
+      check('(R2b) 作業ツリーには置換前の旧式が 1 つも残っていない (半分だけ直した状態でない)',
+        oldInCur.length === 0, oldInCur.length ? '残存: ' + oldInCur.join(' / ') : 'なし');
     }
 
     // ── 1-4 & 6: 全ターゲットの非退行 ────────────────────────────────────────
@@ -600,6 +748,59 @@ async function bootPage(browser, url, viewport, pre, side) {
         'n=' + (Array.isArray(C.chests) ? C.chests.length : -1) +
         (jc === jcb ? ' ' + jc.slice(0, 90) : '\n        cur =' + jc + '\n        base=' + jcb));
 
+      // ── assert 5 (仕様書「検証」節 5): 新定数の実値 ──────────────────────
+      //   ⚠ index.html には検証シームを 1 行も足していない。classic script 直下の const は
+      //     window に載らないが、page.evaluate はグローバルスコープでコンパイルされるので
+      //     bare 名で読める (mapData / ROOMS と同じ経路で実測済み)。
+      const E = t.expect;
+      const jExc = JSON.stringify(C.excludedRooms), jChe = JSON.stringify(C.chestExcludedRooms);
+      check('(5a) ' + L + ': START_TX / START_TY の実値が ' + E.startTx + ' / ' + E.startTy,
+        C.startTx === E.startTx && C.startTy === E.startTy,
+        'START_TX=' + C.startTx + ' START_TY=' + C.startTy +
+        ' MAPDEF.start=' + JSON.stringify(C.mapdefStart));
+      check('(5b) ' + L + ': BOSS_ROOM_IDX の実値が ' + E.boss + ' (= ROOMS.length-1 と一致する既定)',
+        C.bossRoomIdx === E.boss && C.roomsLen === E.rooms && C.bossRoomIdx === C.roomsLen - 1,
+        'BOSS_ROOM_IDX=' + C.bossRoomIdx + ' ROOMS.length=' + C.roomsLen);
+      check('(5c) ' + L + ': EXCLUDED_ROOMS の実値が ' + JSON.stringify(E.excluded) +
+        ' (罠/隠し宝箱/探索宝箱)',
+        jExc === JSON.stringify(E.excluded), 'EXCLUDED_ROOMS=' + jExc);
+      check('(5d) ' + L + ': ROOM_CHEST_EXCLUDED_ROOMS の実値が ' + JSON.stringify(E.chestExcluded) +
+        ' (玄室宝箱専用)',
+        jChe === JSON.stringify(E.chestExcluded), 'ROOM_CHEST_EXCLUDED_ROOMS=' + jChe);
+      check('(5e) ' + L + ': OBJECTIVE_ROOMS の実値が ' + E.objective,
+        C.objectiveRooms === E.objective, 'OBJECTIVE_ROOMS=' + C.objectiveRooms);
+      // ⭐ 仕様書「計画書の誤り②」を踏んでいないことの静的な証明。
+      //    2 部屋では {1} vs {0,1} で**必ず別物**。統合すると山場部屋に玄室宝箱が湧き始める。
+      //    ⚠ 母集団ガード: 両方とも配列で 1 件以上 (両方 '<none>' で「違う」を名乗らせない)。
+      check('(5f) ⭐' + L + ': EXCLUDED_ROOMS と ROOM_CHEST_EXCLUDED_ROOMS が ' +
+        (E.splitSets ? '**別物** ({1} vs {0,1} = 誤り②を踏んでいない証明)'
+                     : '一致 (3部屋ではたまたま同じ値になるだけ)'),
+        Array.isArray(C.excludedRooms) && C.excludedRooms.length > 0 &&
+        Array.isArray(C.chestExcludedRooms) && C.chestExcludedRooms.length > 0 &&
+        (E.splitSets ? jExc !== jChe : jExc === jChe),
+        'EXCLUDED_ROOMS=' + jExc + ' / ROOM_CHEST_EXCLUDED_ROOMS=' + jChe);
+
+      // ── (R3) リビジョン負制御 (ランタイム版) ────────────────────────────
+      //   baseline ページ上に Phase 1 の定数が**存在しない**こと = 本当に別リビジョンを
+      //   読んでいる証拠。⚠ 母集団ガード (baseline の mapData が生きている) を必ず併記する。
+      check('(R3) ' + L + ': baseline 側のページには START_TX / BOSS_ROOM_IDX / EXCLUDED_ROOMS が存在しない',
+        B.startTx === '<none>' && B.startTy === '<none>' && B.bossRoomIdx === '<none>' &&
+        B.excludedRooms === '<none>' && B.chestExcludedRooms === '<none>' &&
+        B.objectiveRooms === '<none>' && B.mapRows === 28,
+        'base: START_TX=' + B.startTx + ' BOSS_ROOM_IDX=' + B.bossRoomIdx +
+        ' EXCLUDED_ROOMS=' + JSON.stringify(B.excludedRooms) +
+        ' (baseline mapData rows=' + B.mapRows + ' = ページは生きている)');
+
+      // ── (M1) 変異負制御が本当に注入されたか ─────────────────────────────
+      //   ⚠ 「注入したつもりで効いていない」= 全 PASS = 偽の安心。ここで必ず実測する。
+      check('(M1) ' + L + ': ' + (MUTATE === null
+          ? '無変異で走っている (cur / base とも欠陥注入なし)'
+          : '--mutate ' + MUTATE + ' が cur 側に実際に注入された (base 側は無変異のまま)'),
+        MUTATE === null
+          ? (C.mut === null && B.mut === null)
+          : !!(C.mut && C.mut.kind === MUTATE && C.mut.applied === true && B.mut === null),
+        'cur=' + JSON.stringify(C.mut) + ' base=' + JSON.stringify(B.mut));
+
       // ── assert 6: pageerror / console.error / 404 ──
       //   ★項目 3 で <script src="js/df-mapdef.js"> を足すので、その 404 はここで必ず出る。
       check('(6a) ' + L + ': 作業ツリー側の pageerror / console.error / 4xx が 0 件',
@@ -649,6 +850,32 @@ async function bootPage(browser, url, viewport, pre, side) {
   console.log('\n=== ' + pass + '/' + results.length + ' PASS ===');
   const failed = results.filter(r => !r.ok);
   if (failed.length) { console.log('--- FAILED ---'); failed.forEach(f => console.log('  ' + f.name + ' — ' + f.detail)); }
+
+  // ── 変異負制御の判定 (exit code の意味を分ける) ────────────────────────────
+  //   exit 1 … 欠陥が assert に捕まった = 負のコントロール成功 (期待どおり)
+  //   exit 3 … 欠陥を注入できていない   = **装置の故障**。FAIL を「捕まえた」と誤読させない
+  //   exit 4 … 注入できたのに 1 つも落ちない = **assert の穴**。
+  //            ⚠ 穴は「変異を弱める」のではなく「assert を足す」で塞ぐこと。
+  if (MUTATE !== null) {
+    const notInjected = failed.filter(f => /^\(M1\)/.test(f.name));
+    const caught = failed.filter(f => !/^\(M1\)/.test(f.name));
+    if (notInjected.length) {
+      console.error('\n[driver] ⚠ --mutate ' + MUTATE + ' が実際には注入できていません (' +
+        notInjected.length + ' ターゲット) = 装置の故障。負のコントロールとして無効なので exit 3。');
+      process.exit(3);
+    }
+    console.log('\n[drv] 変異負制御 --mutate ' + MUTATE + '  (' + MUTATIONS[MUTATE].desc + ')');
+    console.log('[drv]   注入: 全 ' + TARGETS.length + ' ターゲットで確認済み / これを捕まえた assert = ' +
+      caught.length + ' 件');
+    const byName = {};
+    caught.forEach(f => { const k = (f.name.match(/^\([^)]+\)/) || ['(?)'])[0]; byName[k] = (byName[k] || 0) + 1; });
+    console.log('[drv]   内訳: ' + Object.keys(byName).map(k => k + ' x' + byName[k]).join(', '));
+    if (caught.length === 0) {
+      console.error('[driver] ⚠⚠ 欠陥を注入したのに落ちた assert が 0 件 = **assert の穴**。' +
+        ' 変異を弱めて辻褄を合わせるのは禁止。assert を足して塞ぐこと。');
+      process.exit(4);
+    }
+  }
   process.exit(failed.length ? 1 : 0);
 })().catch(e => {
   console.error('[driver] 例外: ' + (e && e.stack || e));
