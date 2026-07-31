@@ -1,0 +1,2708 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>マップエディタ — ダンジョンファイターズ / TRPG</title>
+<!-- favicon を空データで打ち切る。無いとブラウザが /favicon.ico を自動要求して 404 になり、
+     検証ドライバの「console.error 0 件」assert が毎回赤くなる (assert を緩めるのではなく元を絶つ)。 -->
+<link rel="icon" href="data:,">
+<!--
+  map-editor.html — TRPG マップアプリ + DF マップ設計基盤 / Phase 0
+  ══════════════════════════════════════════════════════════════════════════════
+  計画書: ~/.claude/plans/dnd-trpg-map-serialized-quail.md  §Phase 0
+
+  ■ このファイルの立ち位置
+    ゲーム本体 (index.html / tavern.html / audio.js) を **1バイトも触らない**単体ページ。
+    トップレベル別名なので pre-commit の changelog フックは発火しない = いつでも捨てられる。
+    到達は http://localhost:8765/map-editor.html を直打ち。
+    ⚠ tavern.html に導線リンクを足さないこと (足すと tavern.html が変更対象になりフック発火する)。
+
+  ■ Phase 0 項目1 の範囲
+    - 72×28 グリッドの canvas (ワールド座標は TILE_SIZE=96、表示はズーム倍率でスケール)
+    - パン (中ボタン / スペース+ドラッグ / 空き領域の左ドラッグ) + ズーム (ホイール、カーソル位置中心)
+    - df-map/1 データモデルをメモリ上に保持
+    - mapData プレビュー … index.html buildMap() と**同じ手順**で 28×72 を生成して描画
+    - HUD (タイル座標 / タイル値 / ズーム / 部屋数)
+
+  ■ Phase 0 項目2 で足した範囲 — 矩形ツール
+    - ツールモード切替 (選択/移動・部屋を描く・廊下を描く)。TOOLS 配列に 1 行足せば増える
+    - 作成 / 選択 / 移動 / リサイズ(8ハンドル) / 削除 / role 指定 / 1枚絵の比率スナップ
+    - undo / redo (mapDef の JSON スナップショットを 50 段積むだけの素朴実装)
+
+  ■ Phase 0 項目3 で足した範囲 — 点配置ツール
+    - ツール 3種を追加: 起点 / 敵スロット / ボススロット (TOOLS 配列に 3 行足しただけ)
+    - 起点     … mapDef.start = {tx,ty}。単一オブジェクトなので**構造的に 1 つ**。削除不可・移動のみ
+    - 敵スロット … **その部屋の room.enemySlots** へ push (スキーマ df-map/1 で room が持つ)。
+                   部屋の外 (廊下・岩盤) は**拒否して理由を出す**。移動で別部屋に入れば所属も移る
+    - ボススロット … role:"boss" の部屋の bossSlot。ボス部屋が無い / 外なら拒否。マップに 1 つ
+    - 選択 (state.slotSelection) / ドラッグ移動 / Delete 削除 / undo・redo 対応
+    ⚠ 拒否は**必ず理由を残す** (HUD 右側 + 検証シーム lastReason())。計画書が繰り返し警告する
+      「無言の失敗」(落とし穴 ④⑥) をエディタ側で作らないため。
+
+  ■ Phase 0 項目4 (このコミット時点) で足した範囲 — 入出力
+    - プリセット読込 … 「読込」ボタン (同じプリセットを選び直しても再読込できる)。
+                       DEFAULT_DUNGEON / DEFAULT_FIELD は **index.html / tavern.html の実値**と
+                       1 つずつ突き合わせ済み (ROOMS_DUNGEON / ROOMS_FIELD / CORRIDORS /
+                       起点 / tavern.html:2555 ROOM_SLOTS 8個 / BOSS_SLOT [57,13])。
+    - JSON 保存/読込 … localStorage (名前を付けて保存 / 一覧から開く / 削除) +
+                       ファイル DL (Blob) + ファイル選択 + **canvas への drag & drop**
+    - PNG 書き出し   … 画面のズーム/パンに**依存しない**固定倍率のオフスクリーン canvas
+    ★ 読み込みの鉄則 (ここを崩すと Phase 2 で壊れた mapDef がゲームへ流れる):
+      1. schema が "df-map/1" でなければ**拒否**。⚠ この判定は sanitize の**前**でなければ
+         ならない (sanitize は schema を df-map/1 に上書きするので、後で見ると絶対に落ちない)
+      2. sanitize() を必ず通す (座標のクランプ)。3. validate() が NG なら**読み込まない**
+      4. 失敗は必ず理由を出す (HUD + 戻り値 reason)。黙って壊れた mapDef を受け入れない
+    ⚠ sanitize は座標を 0..71 / 0..27 へクランプするが「スロットが部屋の中か」「起点から
+      到達できるか」は**見ない**。それは出発前 lint (項目5) の仕事。
+
+  ■ Phase 0 項目5 (このコミット時点) で足した範囲 — 出発前 lint
+    計画書 §Phase 0 の lint 6 項目を M.lintMapDef() (§A の**純粋関数**) として実装し、
+    lint バー (件数バッジ) + 一覧パネル (行クリックで該当座標へ飛ぶ) で見せる。
+      ① 連結性     起点から 4近傍 flood fill で全部屋・全 enemySlots・bossSlot へ届くか
+      ② 壁乗り     enemySlots / bossSlot / start が値2 に乗っていないか ← **8519138 の再来を止める**
+      ③ 候補ゼロ   罠/宝箱の候補タイルが role 除外後に 0 にならないか (現行式 + role 式の両方)
+      ④ boss 1つ   ★validate() の issues[].code を**再利用**する (二重に判定式を持たない)
+      ⑤ 1枚絵比率  在庫 5:4 / 11:9 と一致するか → **警告** (エラーにすると既存プリセットが常時赤)
+      ⑥ MAP_USED   枠は render() の白破線 + HUD「使用範囲」で可視化 + 危険なら警告
+    ★エラー / 警告の区別: エラー = このまま出発すると壊れる / 警告 = 読めるが危ない。
+      **敵 0 体は警告でエラーにしない** (卓用マップとしては正当。計画書 落とし穴④の明示要求)。
+    ★lint は acceptMapDef() に 1 行も足していない = 「読み込みは通す / 出発前に止める」。
+    ⚠⚠ canvas のマーカーは exportPNG() が state.lintOverlay=false にして描くので
+       **PNG には焼き込まれない**。render() を流用している構造なのでここが最も踏みやすい。
+  　試遊ボタンは Phase 2 で積む。
+
+  ■ 左ドラッグの意味が項目1 から変わっている (意図的)
+    項目1: 左ドラッグ = 常にパン
+    項目2: 左ドラッグ = 現在のツール。**掴む物が無いときだけパンへ委譲**する。
+           → 「選択/移動」ツールで部屋の上から左ドラッグすると、パンではなく部屋が動く。
+             パンしたいときは空き領域から / 中ボタン / スペース+ドラッグ。
+
+  ■ 検証シーム
+    window.__mapEditor = { getMapDef, setMapDef, buildMapData, state, setTool, dragTile, ... }
+    ヘッドレスドライバ (項目6 / tools/driver_mapeditor.js) がここに乗る。**名前を変えないこと**。
+-->
+<style>
+  :root {
+    --bg:        #0e0f13;
+    --panel:     #171a21;
+    --panel-2:   #1f232c;
+    --line:      #2c313c;
+    --fg:        #d8dde6;
+    --fg-dim:    #8d97a8;
+    --accent:    #7fd7ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* ── 上部ツールバー / ファイルバー / 編集バー / lint バー ────────── */
+  #topbar, #editbar, #filebar, #lintbar {
+    flex: 0 0 auto;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 7px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  #editbar { background: var(--panel-2); padding: 6px 12px; }
+  #filebar { padding: 6px 12px; }
+  #topbar .title { font-weight: 700; letter-spacing: .04em; color: var(--accent); margin-right: 6px; }
+  #topbar .sep, #editbar .sep, #filebar .sep { width: 1px; height: 20px; background: var(--line); }
+  #topbar label, #editbar label, #filebar label { color: var(--fg-dim); }
+  #topbar select, #topbar button, #editbar select, #editbar button,
+  #filebar select, #filebar button, #filebar input[type=text] {
+    background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 4px 9px; font: inherit; cursor: pointer;
+  }
+  #filebar input[type=text] { cursor: text; min-width: 150px; }
+  #filebar select { max-width: 220px; }
+  #editbar select, #editbar button { background: var(--panel); }
+  #topbar button:hover, #topbar select:hover,
+  #filebar button:hover:not(:disabled), #filebar select:hover:not(:disabled),
+  #editbar button:hover:not(:disabled), #editbar select:hover { border-color: var(--accent); }
+  #filebar button:disabled, #filebar select:disabled { opacity: .38; cursor: default; }
+  #topbar input[type=checkbox] { accent-color: var(--accent); vertical-align: -2px; }
+  #editbar button:disabled, #editbar select:disabled { opacity: .38; cursor: default; }
+  /* ツールモードボタン (TOOLS 配列から動的生成。項目3 で増える) */
+  #toolBtns { display: flex; gap: 4px; }
+  #editbar button.tool.active {
+    background: var(--accent); color: #0e0f13; border-color: var(--accent); font-weight: 700;
+  }
+  #selInfo { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+  /* ── lint バー / lint 一覧パネル (項目5) ─────────────────────── */
+  #lintbar { background: var(--panel-2); padding: 6px 12px; }
+  #lintbar button { background: var(--panel); }
+  #lintbar .badge {
+    display: inline-block; border-radius: 999px; padding: 1px 11px;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--line); color: var(--fg-dim); background: #14161c;
+  }
+  /* 0 件のときは沈んだ色 / 1 件以上で発色する = 「今なにか出ている」が一目で分かる */
+  #lintbar .badge.err.on  { color: #ffd0d0; background: #4a1f22; border-color: #7a3338; }
+  #lintbar .badge.warn.on { color: #ffe9b8; background: #43351a; border-color: #7a6533; }
+  #lintbar .badge.ok      { color: #d2ffe2; background: #1c3b2a; border-color: #2f6a49; }
+  #lintSummary { color: var(--fg-dim); }
+
+  #lintPanel {
+    display: none;                      /* ★既定は非表示。開くと .open で flex になる */
+    position: absolute; top: 10px; right: 10px; z-index: 5;
+    width: min(560px, calc(100% - 20px)); max-height: calc(100% - 20px);
+    flex-direction: column;
+    background: rgba(18, 20, 26, 0.97);
+    border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.55);
+    overflow: hidden;
+  }
+  #lintPanel.open { display: flex; }
+  #lintPanel .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  }
+  #lintPanel .head b { color: var(--accent); }
+  #lintPanel .head #lintPanelCount { color: var(--fg-dim); }
+  #lintPanel .head button {
+    margin-left: auto; background: transparent; color: var(--fg-dim);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 9px; font: inherit; cursor: pointer; line-height: 1.4;
+  }
+  #lintPanel .head button:hover { border-color: var(--accent); color: var(--fg); }
+  #lintList { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+  #lintList li {
+    display: flex; gap: 9px; align-items: flex-start;
+    padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.05);
+    cursor: default; line-height: 1.5;
+  }
+  #lintList li.jump { cursor: pointer; }
+  #lintList li.jump:hover { background: rgba(127,215,255,.10); }
+  #lintList li .kind {
+    flex: 0 0 auto; border-radius: 4px; padding: 0 7px; font-weight: 700; white-space: nowrap;
+  }
+  #lintList li.error .kind { color: #ffd0d0; background: #4a1f22; border: 1px solid #7a3338; }
+  #lintList li.warning .kind { color: #ffe9b8; background: #43351a; border: 1px solid #7a6533; }
+  #lintList li .body { flex: 1 1 auto; }
+  #lintList li .code { color: var(--fg-dim); font-size: 11px; letter-spacing: .03em; }
+  #lintList li .at { color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #lintList li.none { color: #d2ffe2; justify-content: center; font-weight: 600; }
+
+  /* ── canvas ステージ ─────────────────────────────────────────── */
+  #stage { flex: 1 1 auto; position: relative; overflow: hidden; }
+  #editorCanvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #editorCanvas.panning { cursor: grabbing; }
+
+  /* ── 下部 HUD ────────────────────────────────────────────────── */
+  #hud {
+    flex: 0 0 auto;
+    display: flex; flex-wrap: wrap; gap: 4px 18px;
+    padding: 6px 12px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-dim);
+  }
+  #hud b { color: var(--fg); font-weight: 600; }
+  #hud .hint { margin-left: auto; opacity: .7; }
+  /* 拒否理由 (項目3)。空文字のときは何も出さない = 通常時に赤い枠が居座らない */
+  #hudMsg:not(:empty) {
+    color: #ffd0d0; background: #4a1f22; border: 1px solid #7a3338;
+    border-radius: 4px; padding: 1px 8px; font-weight: 600;
+  }
+  /* 成功通知 (項目4)。★エラー(赤)と別要素にする = 「保存しました」を赤枠で出さない */
+  #hudInfo:not(:empty) {
+    color: #d2ffe2; background: #1c3b2a; border: 1px solid #2f6a49;
+    border-radius: 4px; padding: 1px 8px; font-weight: 600;
+  }
+  /* ファイルをドロップ中の canvas (項目4)。実際の受理は drop ハンドラ */
+  #stage.dropping::after {
+    content: "JSON をここにドロップ";
+    position: absolute; inset: 8px;
+    border: 2px dashed var(--accent); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-size: 18px; font-weight: 700;
+    background: rgba(127,215,255,0.08); pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <span class="title">🗺 マップエディタ</span>
+    <span class="sep"></span>
+    <label for="presetSel">プリセット</label>
+    <select id="presetSel">
+      <option value="dungeon">現行ダンジョン(山場+ボス / 2部屋)</option>
+      <option value="field">屋外街道・隊商護衛(3部屋)</option>
+    </select>
+    <!-- ★選択を変えなくても読み直せるように**ボタンを別に置く** (項目4)。
+         <select> の change だけだと「編集を捨てて現行値に戻す」ができない。 -->
+    <button id="btnLoadPreset" title="選択中のプリセットを読み込む (現在の編集内容は破棄される)">読込</button>
+    <label for="themeSel">テーマ</label>
+    <select id="themeSel"></select>
+    <label><input type="checkbox" id="bandMaskChk"> 屋外の帯マスク</label>
+    <span class="sep"></span>
+    <button id="btnFit" title="マップ全体が収まるようにズームと位置を戻す">全体表示にリセット</button>
+    <button id="btnZoomOut" title="縮小">−</button>
+    <button id="btnZoomIn" title="拡大">＋</button>
+  </div>
+
+  <!-- ファイルバー (項目4): 名前 / localStorage 保存・読込・削除 / JSON DL・読込 / PNG 書出し。
+       ⚠ ファイル選択 <input type=file> は見た目が OS 依存で崩れるので hidden にし、
+         「⬆ JSON を読込」ボタンから click() する (canvas への drag & drop も同じ経路)。 -->
+  <div id="filebar">
+    <label for="mapNameInput">名前</label>
+    <input type="text" id="mapNameInput" placeholder="マップ名" title="mapDef.name / id (ダウンロードのファイル名) になる">
+    <span class="sep"></span>
+    <button id="btnSaveLocal" title="この端末のブラウザ(localStorage)へ名前を付けて保存">💾 保存</button>
+    <select id="localSel" title="保存済みマップ (新しい順)"></select>
+    <button id="btnLoadLocal" title="選択中の保存マップを開く">開く</button>
+    <button id="btnDeleteLocal" title="選択中の保存マップを削除">削除</button>
+    <span class="sep"></span>
+    <button id="btnExportJson" title="現在のマップを .df-map.json としてダウンロード">⬇ JSON</button>
+    <button id="btnImportJson" title="JSON ファイルを読み込む (canvas へのドロップでも可)">⬆ JSON を読込</button>
+    <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    <button id="btnExportPng" title="マップ全域を固定倍率で PNG 化 (画面のズーム/パンに依存しない)">🖼 PNG を書き出す</button>
+  </div>
+
+  <!-- 編集バー: ツールモード / 比率スナップ / role / 削除 / undo・redo。
+       ⚠ ツールボタンは TOOLS 配列から動的生成する (項目3 で「起点」「敵スロット」
+         「ボススロット」が増えても、この HTML は 1 文字も変えなくてよい)。 -->
+  <div id="editbar">
+    <span id="toolBtns"></span>
+    <span class="sep"></span>
+    <label for="aspectSel" title="1枚絵の在庫は 山場20×16(5:4) / ボス22×18(11:9) しかない。ON にするとサイズ固定で位置だけ決まる">比率スナップ</label>
+    <select id="aspectSel">
+      <option value="">なし</option>
+      <option value="climax">山場 20×16 (5:4)</option>
+      <option value="boss">ボス 22×18 (11:9)</option>
+    </select>
+    <span class="sep"></span>
+    <label for="roleSel">役割</label>
+    <select id="roleSel" disabled>
+      <option value="">なし</option>
+      <option value="start">起点 (start)</option>
+      <option value="boss">ボス (boss)</option>
+    </select>
+    <button id="btnDelete" disabled title="Delete / BackSpace">削除</button>
+    <span class="sep"></span>
+    <button id="btnUndo" disabled title="Ctrl+Z">↶ 元に戻す</button>
+    <button id="btnRedo" disabled title="Ctrl+Y / Ctrl+Shift+Z">↷ やり直し</button>
+    <span id="selInfo">選択なし</span>
+  </div>
+
+  <!-- lint バー (項目5): 出発前チェックの件数バッジ + 一覧の開閉。
+       ★既存の赤(#hudMsg = 拒否理由) / 緑(#hudInfo = 成功通知) と**混ぜない 3 本目のチャネル**。
+         lint の「警告」は拒否でも成功でもないので、既存 2 本のどちらに入れても意味が壊れる。 -->
+  <div id="lintbar">
+    <button id="btnLint" title="このマップで出発したら壊れないかを検査して一覧を開く">🔎 出発前チェック</button>
+    <span id="lintBadgeErr" class="badge err" title="このまま出発すると壊れる (連結性・壁乗り・候補ゼロ・boss個数)">エラー 0</span>
+    <span id="lintBadgeWarn" class="badge warn" title="読めるが危ない / 卓用としては正当 (敵0体など)">警告 0</span>
+    <span id="lintSummary"></span>
+  </div>
+
+  <div id="stage">
+    <canvas id="editorCanvas"></canvas>
+    <!-- lint 一覧 (項目5)。canvas の上に重ねる絶対配置。行クリックで該当座標へビューを飛ばす。 -->
+    <div id="lintPanel">
+      <div class="head">
+        <b>出発前チェック</b>
+        <span id="lintPanelCount"></span>
+        <button id="btnLintClose" title="閉じる">×</button>
+      </div>
+      <ul id="lintList"></ul>
+    </div>
+  </div>
+
+  <div id="hud">
+    <span>タイル <b id="hudTile">—</b></span>
+    <span>値 <b id="hudVal">—</b></span>
+    <span>ズーム <b id="hudZoom">—</b></span>
+    <span>部屋 <b id="hudRooms">—</b></span>
+    <span>廊下 <b id="hudCorr">—</b></span>
+    <span>起点 <b id="hudStart">—</b></span>
+    <span>グリッド <b id="hudGrid">—</b></span>
+    <!-- lint 項目⑥ MAP_USED プレビュー: canvas の白破線枠と同じ範囲を数値でも出す (黒帯予防) -->
+    <span title="部屋にも廊下にも属さない行/列は純黒の岩盤。カメラはこの枠までしか寄れない (index.html:3290 MAP_USED)">使用範囲 <b id="hudUsed">—</b></span>
+    <span>選択スロット <b id="hudSlot">—</b></span>
+    <span id="hudInfo"></span>
+    <span id="hudMsg"></span>
+    <span class="hint">枠のタイル=リサイズ / 内側=移動 (Shift+ドラッグでも移動) / 空き領域・中ボタン・スペース+ドラッグ=パン / ホイール=ズーム / スロットツールはクリックで配置・既存スロットはドラッグで移動</span>
+  </div>
+
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+ * §A  DFMapDef — マップ定義スキーマ df-map/1 の純粋関数群
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⚠ このブロックは Phase 1 で **js/df-mapdef.js としてそのまま切り出す**予定。
+ *   DOM・エディタ状態・canvas に一切依存させないこと(依存させた瞬間に切り出せなくなる)。
+ *   公開名も Phase 1 と同じ window.DFMapDef にしてある = 切り出しは
+ *   「この <script> を消して <script src="js/df-mapdef.js"> を書く」だけで済む。
+ *
+ * 座標の約束 (既存コードとコピペで往復できることが最優先):
+ *   rect       = [r1, c1, r2, c2]  ← **行が先**。index.html の ROOMS / CORRIDORS と同一順序
+ *   enemySlots = [tx, ty]          ← **列が先**。tavern.html の ROOM_SLOTS と同一順序
+ *   新しい順序を発明すると必ず事故る。UI 側だけが (x, y) に翻訳する。
+ * ────────────────────────────────────────────────────────────────────────── */
+(function (global) {
+  "use strict";
+
+  var SCHEMA = "df-map/1";
+
+  // index.html:2904-2906 の TILE_SIZE / MAP_W / MAP_H と一致させること。
+  // Phase 3 までは 72/28/96 固定を validate で強制する。
+  var GRID_W = 72, GRID_H = 28, GRID_TILE = 96;
+
+  // タイル値 (index.html buildMap() と同義)。0=床 / 1=レア床 / 2=壁・void
+  var T_FLOOR = 0, T_RARE = 1, T_WALL = 2;
+
+  // 屋外の帯マスク行 (index.html:3027-3029 FIELD_BAND_TOP_ROW / BOTTOM_ROW)
+  var BAND_TOP_ROW = 13, BAND_BOTTOM_ROW = 15;
+
+  // 既存 SCENARIO_TEX のキー。themeId はこの中から選ぶ。
+  var THEMES = [
+    { id: "goblin-mine",    name: "廃坑 (goblin-mine)" },
+    { id: "bandits-forest", name: "森 (bandits-forest)" },
+    { id: "lizard-swamp",   name: "沼地 (lizard-swamp)" },
+    { id: "orc-fort",       name: "砦 (orc-fort)" },
+    { id: "undead-temple",  name: "神殿 (undead-temple)" },
+    { id: "dragon-lair",    name: "竜の巣 (dragon-lair)" },
+    { id: "caravan-road",   name: "屋外・街道 (caravan-road)" },
+  ];
+  var THEME_IDS = THEMES.map(function (t) { return t.id; });
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function clampInt(v, lo, hi) { v = Math.round(isNum(v) ? v : lo); return v < lo ? lo : (v > hi ? hi : v); }
+
+  // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
+  // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
+  // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
+  //   ROOMS_DUNGEON  index.html:3267-3270
+  //   ROOMS_FIELD    index.html:3271-3275
+  //   CORRIDORS      index.html:3279-3281
+  //   ROOM_SLOTS / BOSS_SLOT  tavern.html:2555-2558
+  var ROOM_SLOTS_DEFAULT = [[27,13],[28,13],[28,14],[39,13],[40,13],[39,14],[41,14],[42,13]];
+
+  var DEFAULT_DUNGEON = {
+    schema: SCHEMA,
+    id: "df-default-dungeon",
+    name: "既定ダンジョン (山場 + ボス)",
+    grid: { w: GRID_W, h: GRID_H, tile: GRID_TILE },
+    themeId: "goblin-mine",
+    rooms: [
+      { id: "r0", role: "start", rect: [ 7, 24, 20, 43],   // 道中(山場): 1枚絵+罠+混成戦
+        enemySlots: ROOM_SLOTS_DEFAULT.map(function (s) { return s.slice(); }),
+        bossSlot: null, painting: null, scenery: null },
+      { id: "r1", role: "boss",  rect: [ 5, 47, 22, 68],   // ボス部屋
+        enemySlots: [], bossSlot: [57, 13], painting: null, scenery: null },
+    ],
+    corridors: [ [13, 43, 15, 47] ],                        // 山場→ボスのみ
+    start: { tx: 24, ty: 13 },
+    objective: { kind: "visitRooms", count: null },          // null = 従来式 rooms.length-1
+    tiles: null,                                             // Phase 3: { enc:"rle", data:"..." }
+    flags: { bandMask: false },
+  };
+
+  var DEFAULT_FIELD = {
+    schema: SCHEMA,
+    id: "df-default-field",
+    name: "既定 屋外・隊商護衛 (導入 + 山場 + ボス)",
+    grid: { w: GRID_W, h: GRID_H, tile: GRID_TILE },
+    themeId: "caravan-road",
+    rooms: [
+      { id: "r0", role: "start", rect: [ 8,  2, 19, 20],   // 導入+前哨 (起点 (6,13) を内包)
+        enemySlots: [], bossSlot: null, painting: null, scenery: null },
+      { id: "r1", role: null,    rect: [ 7, 24, 20, 43],   // 山場・大広間
+        enemySlots: ROOM_SLOTS_DEFAULT.map(function (s) { return s.slice(); }),
+        bossSlot: null, painting: null, scenery: null },
+      { id: "r2", role: "boss",  rect: [ 5, 47, 22, 68],   // ボス部屋
+        enemySlots: [], bossSlot: [57, 13], painting: null, scenery: null },
+    ],
+    corridors: [ [13, 20, 15, 24], [13, 43, 15, 47] ],      // 導入→山場, 山場→ボス
+    start: { tx: 6, ty: 13 },
+    objective: { kind: "visitRooms", count: null },
+    tiles: null,
+    // 屋外は row 13-15 以外を潰す帯マスクが掛かる (index.html:3323-3328)。
+    // ⚠ カスタム幾何との相互作用が複雑なので、項目5 の lint で排他にする予定。
+    flags: { bandMask: true },
+  };
+
+  // ── sanitize: 欠損・型崩れを既定値で埋めて df-map/1 の形に整える ─────────
+  // 外から来た JSON (ファイル読込 / sessionStorage) は必ずここを通す。
+  function sanitize(src, fallback) {
+    var base = fallback || DEFAULT_DUNGEON;
+    var d = (src && typeof src === "object") ? src : {};
+    var g = (d.grid && typeof d.grid === "object") ? d.grid : {};
+    var out = {
+      schema: SCHEMA,
+      id: (typeof d.id === "string" && d.id) ? d.id : base.id,
+      name: (typeof d.name === "string" && d.name) ? d.name : base.name,
+      grid: {
+        // Phase 3 までは 72/28/96 固定 (validate で強制)。ここでは既定へ丸める。
+        w: isNum(g.w) ? Math.round(g.w) : GRID_W,
+        h: isNum(g.h) ? Math.round(g.h) : GRID_H,
+        tile: isNum(g.tile) ? Math.round(g.tile) : GRID_TILE,
+      },
+      themeId: (THEME_IDS.indexOf(d.themeId) >= 0) ? d.themeId : base.themeId,
+      rooms: [],
+      corridors: [],
+      start: { tx: 0, ty: 0 },
+      objective: { kind: "visitRooms", count: null },
+      tiles: (d.tiles && typeof d.tiles === "object") ? clone(d.tiles) : null,
+      flags: { bandMask: false },
+    };
+    var W = out.grid.w, H = out.grid.h;
+
+    function fixRect(rect) {
+      if (!Array.isArray(rect) || rect.length < 4) return null;
+      var r1 = clampInt(rect[0], 0, H - 1), c1 = clampInt(rect[1], 0, W - 1);
+      var r2 = clampInt(rect[2], 0, H - 1), c2 = clampInt(rect[3], 0, W - 1);
+      if (r2 < r1) { var tr = r1; r1 = r2; r2 = tr; }      // 逆転していても救う
+      if (c2 < c1) { var tc = c1; c1 = c2; c2 = tc; }
+      return [r1, c1, r2, c2];
+    }
+    function fixSlot(s) {
+      if (!Array.isArray(s) || s.length < 2) return null;
+      return [clampInt(s[0], 0, W - 1), clampInt(s[1], 0, H - 1)];   // [tx, ty]
+    }
+
+    var srcRooms = Array.isArray(d.rooms) ? d.rooms : base.rooms;
+    for (var i = 0; i < srcRooms.length; i++) {
+      var r = srcRooms[i] || {};
+      var rect = fixRect(r.rect);
+      if (!rect) continue;                                  // 矩形が壊れている部屋は捨てる
+      var role = (r.role === "start" || r.role === "boss") ? r.role : null;
+      var slots = [];
+      if (Array.isArray(r.enemySlots)) {
+        for (var j = 0; j < r.enemySlots.length; j++) {
+          var s = fixSlot(r.enemySlots[j]);
+          if (s) slots.push(s);
+        }
+      }
+      out.rooms.push({
+        id: (typeof r.id === "string" && r.id) ? r.id : ("r" + out.rooms.length),
+        role: role,
+        rect: rect,
+        enemySlots: slots,
+        bossSlot: fixSlot(r.bossSlot),
+        painting: (r.painting && typeof r.painting === "object") ? clone(r.painting) : null,
+        scenery: (r.scenery && typeof r.scenery === "object") ? clone(r.scenery) : null,
+      });
+    }
+
+    var srcCorr = Array.isArray(d.corridors) ? d.corridors : base.corridors;
+    for (var k = 0; k < srcCorr.length; k++) {
+      var cr = fixRect(srcCorr[k]);
+      if (cr) out.corridors.push(cr);
+    }
+
+    var st = (d.start && typeof d.start === "object") ? d.start : base.start;
+    out.start = { tx: clampInt(st.tx, 0, W - 1), ty: clampInt(st.ty, 0, H - 1) };
+
+    var ob = (d.objective && typeof d.objective === "object") ? d.objective : base.objective;
+    out.objective = {
+      kind: (typeof ob.kind === "string" && ob.kind) ? ob.kind : "visitRooms",
+      count: isNum(ob.count) ? Math.round(ob.count) : null,
+    };
+
+    var fl = (d.flags && typeof d.flags === "object") ? d.flags : base.flags;
+    out.flags = { bandMask: !!fl.bandMask };
+
+    return out;
+  }
+
+  // ── validate: 構造の妥当性チェック ────────────────────────────────────────
+  // ⚠ ここは「スキーマとして壊れていないか」だけを見る。到達可能性・スロットが壁に乗って
+  //   いないか等は**出発前 lint (lintMapDef)** の担当 (責務を混ぜない)。
+  // ★項目5 での変更: 戻り値に issues[] (= { code, message }) を**足した**。
+  //   ⚠ errors は**文字列配列のまま 1 文字も変えない**。acceptMapDef が join して HUD に出し、
+  //     項目4 のスモークが正規表現で中身を見ているため (構造体に変えると "[object Object]" になる)。
+  //   ⚠ code を足した理由は lint 項目④ (boss ちょうど 1 つ) を**二重に持たないため**。
+  //     lint は自前で boss を数えず、この issues[].code === "boss-count" を再利用する。
+  //     判定式が 2 本あると必ず食い違う (import は通るのに lint は落ちる等)。
+  function validate(d) {
+    var issues = [];
+    function bad(code, msg) { issues.push({ code: code, message: msg }); }
+    function done() {
+      return { ok: issues.length === 0,
+               errors: issues.map(function (x) { return x.message; }),
+               issues: issues };
+    }
+    if (!d || typeof d !== "object") { bad("not-object", "mapDef がオブジェクトではない"); return done(); }
+    if (d.schema !== SCHEMA) bad("schema", "schema が " + SCHEMA + " ではない: " + d.schema);
+    if (!d.grid || d.grid.w !== GRID_W || d.grid.h !== GRID_H || d.grid.tile !== GRID_TILE)
+      bad("grid", "grid は Phase 3 までは " + GRID_W + "x" + GRID_H + "/tile" + GRID_TILE + " 固定");
+    if (THEME_IDS.indexOf(d.themeId) < 0) bad("theme", "themeId が既存テーマに無い: " + d.themeId);
+    if (!Array.isArray(d.rooms) || d.rooms.length === 0) bad("rooms-empty", "rooms が空");
+    if (!Array.isArray(d.corridors)) bad("corridors", "corridors が配列でない");
+    if (!d.start || !isNum(d.start.tx) || !isNum(d.start.ty)) bad("start", "start が不正");
+    var bossCount = (d.rooms || []).filter(function (r) { return r && r.role === "boss"; }).length;
+    if (bossCount !== 1) bad("boss-count", 'role:"boss" はちょうど 1 つ必要 (現在 ' + bossCount + ")");
+    return done();
+  }
+
+  // ── buildMapData: mapDef → 2次元 mapData ────────────────────────────────
+  // ★ index.html:3299-3331 buildMap() と**同じ手順**であること。順序も含めて同じにする:
+  //    ① 全面を 2 (壁/void) で埋める
+  //    ② 部屋を 0 で塗り、同じ走査で ((r*7+c*13)^(r*3-c))%5===0 のタイルを 1 (レア床) に
+  //    ③ 廊下を 0 で塗る (部屋と重なった所はレア床が 0 に戻る ← ②③の順序が意味を持つ)
+  //    ④ flags.bandMask なら row 13-15 以外の全行を 2 に潰す (屋外の帯)
+  //  ⚠ ②の式は index.html:3312 の逐語コピー。JS の % は負値を返しうるので**書き換えない**
+  //    (例: r=7,c=24 → r*3-c = -3 → XOR 結果が負 → %5 も負)。
+  function buildMapData(mapDef) {
+    var d = mapDef || DEFAULT_DUNGEON;
+    var W = (d.grid && d.grid.w) || GRID_W;
+    var H = (d.grid && d.grid.h) || GRID_H;
+    var map = [];
+    for (var r = 0; r < H; r++) {
+      var row = new Array(W);
+      for (var c = 0; c < W; c++) row[c] = T_WALL;
+      map.push(row);
+    }
+    function fill(r1, c1, r2, c2, t) {
+      for (var r = Math.max(0, r1); r <= Math.min(H - 1, r2); r++)
+        for (var c = Math.max(0, c1); c <= Math.min(W - 1, c2); c++)
+          map[r][c] = t;
+    }
+
+    var rooms = Array.isArray(d.rooms) ? d.rooms : [];
+    for (var i = 0; i < rooms.length; i++) {
+      var rect = rooms[i] && rooms[i].rect;
+      if (!rect) continue;
+      var a = rect[0], b = rect[1], cc = rect[2], dd = rect[3];
+      fill(a, b, cc, dd, T_FLOOR);
+      for (var rr = Math.max(0, a); rr <= Math.min(H - 1, cc); rr++)
+        for (var c2 = Math.max(0, b); c2 <= Math.min(W - 1, dd); c2++)
+          if (((rr * 7 + c2 * 13) ^ (rr * 3 - c2)) % 5 === 0) map[rr][c2] = T_RARE;
+    }
+    var corr = Array.isArray(d.corridors) ? d.corridors : [];
+    for (var k = 0; k < corr.length; k++) {
+      var q = corr[k];
+      if (q) fill(q[0], q[1], q[2], q[3], T_FLOOR);
+    }
+
+    // ④ 屋外の帯マスク (index.html:3323-3328 と同義)。
+    //    ⚠ ゲーム側は IS_FIELD_THEME && FIELD_GEO_ACTIVE (画面高さ依存) で発火するが、
+    //      エディタは画面に依存させず flags.bandMask だけで判定する。
+    if (d.flags && d.flags.bandMask) {
+      for (var r3 = 0; r3 < H; r3++) {
+        if (r3 >= BAND_TOP_ROW && r3 <= BAND_BOTTOM_ROW) continue;
+        for (var c3 = 0; c3 < W; c3++) map[r3][c3] = T_WALL;
+      }
+    }
+    return map;
+  }
+
+  // ── MAP_USED: 部屋にも廊下にも属さない行/列を除いた「使われている範囲」 ──
+  // index.html:3290-3297 と同じ導出。画面の黒帯予防プレビュー(項目5 lint ⑥)の土台。
+  function mapUsed(mapDef) {
+    var d = mapDef || DEFAULT_DUNGEON;
+    var W = (d.grid && d.grid.w) || GRID_W, H = (d.grid && d.grid.h) || GRID_H;
+    var c0 = W, c1 = -1, r0 = H, r1 = -1;
+    var all = (d.rooms || []).map(function (r) { return r.rect; }).concat(d.corridors || []);
+    for (var i = 0; i < all.length; i++) {
+      var q = all[i]; if (!q) continue;
+      if (q[0] < r0) r0 = q[0];  if (q[2] > r1) r1 = q[2];
+      if (q[1] < c0) c0 = q[1];  if (q[3] > c1) c1 = q[3];
+    }
+    return (c1 >= c0 && r1 >= r0) ? { c0: c0, c1: c1, r0: r0, r1: r1 }
+                                  : { c0: 0, c1: W - 1, r0: 0, r1: H - 1 };
+  }
+
+  // ── 派生値 (Phase 1 で index.html の「部屋数からの推測」を置き換える先) ──
+  function bossRoomIdx(d) {
+    var rooms = (d && d.rooms) || [];
+    for (var i = 0; i < rooms.length; i++) if (rooms[i].role === "boss") return i;
+    return rooms.length - 1;                                 // 既定: 末尾がボス (現行と同値)
+  }
+  function slotsOf(d) {
+    // tavern.html の ROOM_SLOTS / BOSS_SLOT 相当を mapDef 1 箇所から取り出す。
+    var rooms = (d && d.rooms) || [];
+    var room = [], boss = null;
+    for (var i = 0; i < rooms.length; i++) {
+      var r = rooms[i];
+      for (var j = 0; j < (r.enemySlots || []).length; j++) room.push(r.enemySlots[j].slice());
+      if (r.bossSlot && !boss) boss = r.bossSlot.slice();
+    }
+    return { roomSlots: room, bossSlot: boss };
+  }
+  function objectiveCount(d) {
+    if (d && d.objective && isNum(d.objective.count)) return d.objective.count;
+    return ((d && d.rooms) ? d.rooms.length : 1) - 1;         // 既定: rooms.length - 1
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * 出発前 lint (項目5) — 「このまま出発したら壊れるか」を事前に検出する
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★責務の分担 (混ぜないこと):
+   *     sanitize()    … 座標を 0..71 / 0..27 へクランプし、欠損を既定値で埋める
+   *     validate()    … **スキーマとして**壊れていないか (import の受け入れ判定)
+   *     lintMapDef()  … **ゲームとして**壊れているか (出発前チェック) ← ここ
+   *   計画書 §Phase 0 の lint 6 項目 + 落とし穴 ②③④⑥⑦ の事前検出装置。
+   *
+   * ★純粋関数。DOM・state・canvas に一切触らず、引数 src も**書き換えない**
+   *   (Phase 1 で js/df-mapdef.js へそのまま切り出す)。
+   *
+   * ★エラー / 警告の区別 (計画書の明示要求):
+   *     error   = このまま出発すると壊れる (連結性・壁乗り・候補ゼロ・boss 個数)
+   *     warning = 読めるが危ない / 卓用としては正当
+   *   ⚠ **敵 0 体は警告。エラーにしない** (計画書 落とし穴④の明示要求。卓用マップとして正当)
+   *
+   * ★issue の形 (項目6 のドライバが code で assert する。**code は安定識別子**):
+   *     { code, severity:"error"|"warning", message, at:[tx,ty]|null, roomIndex:int|null }
+   *   codes: schema-invalid / boss-count / slot-on-wall / unreachable-room /
+   *          unreachable-slot / no-trap-candidates          … error
+   *          no-enemies / no-boss-slot / painting-aspect / map-used / band-mask … warning
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  // index.html:2987 FIELD_THEMES の写し。屋外テーマだけ罠の起点ガード条件が変わる (19055)。
+  var FIELD_THEME_IDS = { "caravan-road": 1 };
+
+  // 1枚絵の在庫。計画書 §「1枚絵のアスペクト比ロックへの対処」= 山場 20×16(5:4) / ボス 22×18(11:9)。
+  // ⚠ **比率**で比べる (40×32 も 5:4 なので等倍拡大なら歪まない)。サイズ一致で比べない。
+  var LINT_PAINTING_ASPECTS = [
+    { w: 20, h: 16, label: "山場 20×16 (5:4)" },
+    { w: 22, h: 18, label: "ボス 22×18 (11:9)" },
+  ];
+  // 「1枚絵を貼りうる部屋」とみなす最小面積。これ未満の小部屋は比率を問わない
+  // (painting が明示指定されている部屋は面積に関係なく必ず検査する)。
+  var LINT_PAINTING_MIN_AREA = 150;   // 15×10 相当
+  var LINT_MAP_USED_MIN_ROWS = 6;     // 使用範囲がこれより薄いと画面上下が黒帯になりやすい
+  var LINT_MAP_USED_MIN_FILL = 0.20;  // 使用範囲がグリッド全体のこの割合を切ると黒が目立つ
+
+  function lintIssue(code, severity, message, at, roomIndex) {
+    return {
+      code: code, severity: severity, message: message,
+      at: (at && at.length >= 2) ? [at[0], at[1]] : null,
+      roomIndex: (typeof roomIndex === "number") ? roomIndex : null,
+    };
+  }
+
+  // 起点から 4近傍 flood fill。歩けるのは map[r][c] !== T_WALL のタイル。
+  // ★index.html:3814 isTileWall() と同義 (値 2 だけが壁。**値 1 のレア床は歩ける**)。
+  //   ⚠ isTileWall はさらに情景スプライト (obstacleTileMask) も壁扱いにするが、
+  //     エディタは情景を持たないのでそこは数えない = ここの到達集合はゲームの**上限**。
+  //     「ここで到達不能」なら実ゲームでも確実に到達不能 (偽陽性はあり得ても偽陰性は出にくい)。
+  function reachableFrom(map, W, H, sx, sy) {
+    var seen = new Array(W * H);
+    if (sx < 0 || sx >= W || sy < 0 || sy >= H) return seen;
+    if (map[sy][sx] === T_WALL) return seen;
+    var stack = [sy * W + sx];
+    seen[sy * W + sx] = 1;
+    while (stack.length) {
+      var k = stack.pop(), x = k % W, y = (k - x) / W;
+      // 4近傍のみ (斜めは通さない)。index.html の aStar も 4近傍。
+      if (x + 1 < W && !seen[k + 1]     && map[y][x + 1] !== T_WALL) { seen[k + 1] = 1;     stack.push(k + 1); }
+      if (x - 1 >= 0 && !seen[k - 1]    && map[y][x - 1] !== T_WALL) { seen[k - 1] = 1;     stack.push(k - 1); }
+      if (y + 1 < H && !seen[k + W]     && map[y + 1][x] !== T_WALL) { seen[k + W] = 1;     stack.push(k + W); }
+      if (y - 1 >= 0 && !seen[k - W]    && map[y - 1][x] !== T_WALL) { seen[k - W] = 1;     stack.push(k - W); }
+    }
+    return seen;
+  }
+
+  // 罠 / 隠し宝箱の候補タイル数。
+  // ★index.html の候補走査を**逐語で写した**もの:
+  //     spawnTraps            19038-19058
+  //     spawnHiddenChests     17947-17969
+  //     spawnExplorationChests 18020-18042
+  //   ① map[r][c] !== 0 は除外 … ★**値 1 のレア床は候補にならない** (元仕様。歩けはする)
+  //   ② 除外部屋の中は除外
+  //   ③ 罠だけ: 非屋外テーマなら起点の半径 1 (3×3) を除外 (index.html:19055)
+  //  ⚠ どれも候補 0 のとき `if (candidates.length === 0) return;` で**無言で戻る**
+  //    (計画書 落とし穴⑥)。だからこの数がゼロなら必ずエラーにする。
+  function candidateTileCount(map, W, H, rooms, excludedSet, startTx, startTy, useStartGuard) {
+    var n = 0;
+    for (var r = 0; r < H; r++) {
+      for (var c = 0; c < W; c++) {
+        if (map[r][c] !== T_FLOOR) continue;
+        if (useStartGuard && Math.abs(c - startTx) <= 1 && Math.abs(r - startTy) <= 1) continue;
+        var inExcluded = false;
+        for (var i = 0; i < rooms.length; i++) {
+          if (!excludedSet[i]) continue;
+          var q = rooms[i].rect;
+          if (r >= q[0] && r <= q[2] && c >= q[1] && c <= q[3]) { inExcluded = true; break; }
+        }
+        if (inExcluded) continue;
+        n++;
+      }
+    }
+    return n;
+  }
+  function setKey(s) {                     // 除外集合の同一性比較用 ("0,2" 形式)
+    var ks = []; for (var k in s) if (s[k]) ks.push(+k);
+    ks.sort(function (a, b) { return a - b; });
+    return ks.join(",");
+  }
+
+  function lintMapDef(src) {
+    var errors = [], warnings = [], i, j;
+    function err(code, msg, at, ri) { errors.push(lintIssue(code, "error", msg, at, ri)); }
+    function warn(code, msg, at, ri) { warnings.push(lintIssue(code, "warning", msg, at, ri)); }
+    function done() { return { ok: errors.length === 0, errors: errors, warnings: warnings }; }
+
+    // ── lint 項目④ boss ちょうど 1 つ … validate() の結果を**再利用**する ───────
+    //   ★自前で数え直さない (判定式を 2 本持つと必ず食い違う)。
+    //   validate は**素の src** に掛ける = schema / grid / themeId の異常もここで拾える
+    //   (sanitize 後に掛けると schema と grid は既定へ上書きされ、永久に落ちなくなる)。
+    var v = validate(src);
+    for (i = 0; i < v.issues.length; i++) {
+      err(v.issues[i].code === "boss-count" ? "boss-count" : "schema-invalid",
+          v.issues[i].message, null, null);
+    }
+    // 幾何の検査ができない (rooms が無い) ならここで打ち切る。
+    if (!src || typeof src !== "object" || !Array.isArray(src.rooms) || src.rooms.length === 0) return done();
+
+    // 以降の幾何検査は sanitize したコピーの上で行う。
+    // ⚠ src は 1 バイトも書き換えない (lint は副作用ゼロ = 何度呼んでも mapDef が変わらない)。
+    var d = sanitize(src, DEFAULT_DUNGEON);
+    var W = d.grid.w, H = d.grid.h;
+    var rooms = d.rooms;
+    var map = buildMapData(d);
+    var isField = !!FIELD_THEME_IDS[d.themeId];
+    var startTx = d.start.tx, startTy = d.start.ty;
+
+    // ── 検査対象の点を集める (起点 / 敵スロット / ボススロット) ──────────────
+    var points = [{ tile: [startTx, startTy], label: "起点", kind: "start", roomIndex: null }];
+    for (i = 0; i < rooms.length; i++) {
+      var es = rooms[i].enemySlots || [];
+      for (j = 0; j < es.length; j++)
+        points.push({ tile: es[j], label: "敵スロット " + rooms[i].id + " #" + j, kind: "enemy", roomIndex: i });
+      if (rooms[i].bossSlot)
+        points.push({ tile: rooms[i].bossSlot, label: "ボススロット (" + rooms[i].id + ")", kind: "boss", roomIndex: i });
+    }
+
+    // ── lint 項目② 壁乗り ★これが計画書 落とし穴② = `8519138` の再来を止める装置 ──
+    //   index.html:7083 の救済は `mapData[r][c] === 1` **しか見ない**(実読で確認済み)。
+    //   値 2 に置かれた敵は救われず alive のまま到達不能 →
+    //   checkDungeonClear (14097) の enemies.every(e => !e.alive) が永久に false になり、
+    //   **ボスを倒してもクエストがクリアしない**。
+    var startOnWall = false;
+    for (i = 0; i < points.length; i++) {
+      var p = points[i], tx = p.tile[0], ty = p.tile[1];
+      var outside = (tx < 0 || tx >= W || ty < 0 || ty >= H);
+      if (!outside && map[ty][tx] !== T_WALL) { p.wall = false; continue; }
+      p.wall = true;
+      var where = " (tx" + tx + ", ty" + ty + ")";
+      if (p.kind === "start") {
+        startOnWall = true;
+        err("slot-on-wall",
+            "起点が" + (outside ? "マップの外にあります" : "壁/岩盤 (値2) の上にあります") + where +
+            " — プレイヤーが動けません。起点が壁のため、到達可能性 (flood fill) の検査は打ち切りました",
+            p.tile, null);
+      } else {
+        err("slot-on-wall",
+            p.label + " が" + (outside ? "マップの外にあります" : "壁/岩盤 (値2) の上にあります") + where +
+            " — 敵スポーンの救済 (index.html:7083) は値1しか見ないため、この敵は岩盤に埋まったまま alive で残り、" +
+            "ボスを倒してもクエストがクリアしません (8519138 の再来)",
+            p.tile, p.roomIndex);
+      }
+    }
+
+    // ── lint 項目① 連結性 (起点から 4近傍 flood fill) ────────────────────────
+    //   計画書 落とし穴⑦: findNextRoomGoal (13781) は**距離だけ**で目標を選ぶので、
+    //   孤立部屋があると永久にウロつき visitedRooms が埋まらない (14096)。
+    //   ⚠ 起点自体が壁のときは到達集合が空になり全部が到達不能として溢れるので、
+    //     根本原因 (上の slot-on-wall) だけ報告して**ここは打ち切る**。
+    if (!startOnWall) {
+      var reach = reachableFrom(map, W, H, startTx, startTy);
+      for (i = 0; i < rooms.length; i++) {
+        var rect = rooms[i].rect, hit = false, walkable = 0;
+        for (var r2 = rect[0]; r2 <= rect[2]; r2++) {
+          for (var c2 = rect[1]; c2 <= rect[3]; c2++) {
+            if (map[r2][c2] === T_WALL) continue;
+            walkable++;
+            if (reach[r2 * W + c2]) { hit = true; }
+          }
+        }
+        if (hit) continue;
+        err("unreachable-room",
+            "部屋 " + rooms[i].id + " が起点 (tx" + startTx + ", ty" + startTy + ") から到達できません" +
+            (walkable === 0 ? " — この部屋には歩けるタイルが 1 つもありません (帯マスクで潰れている可能性)"
+                            : " — 廊下でつながっていません") +
+            "。visitedRooms が埋まらず永久にクリアしません (index.html:14096)",
+            [rect[1], rect[0]], i);
+      }
+      for (i = 0; i < points.length; i++) {
+        var q2 = points[i];
+        if (q2.kind === "start" || q2.wall) continue;   // 壁乗りは根本原因を既に報告済み
+        if (reach[q2.tile[1] * W + q2.tile[0]]) continue;
+        err("unreachable-slot",
+            q2.label + " (tx" + q2.tile[0] + ", ty" + q2.tile[1] + ") が起点から到達できません" +
+            " — この敵は倒せず alive のまま残り、クエストがクリアしません",
+            q2.tile, q2.roomIndex);
+      }
+    }
+
+    // ── lint 項目③ 罠・宝箱の候補タイルがゼロ (計画書 落とし穴⑥: **無言の失敗**) ──
+    //   除外規則は 2 通りあり、**両方の観点で**検査する:
+    //     (1) 現行式 index.html:17951 / 18025 / 19041
+    //         `ROOMS.length >= 3 ? {0, boss} : {boss}` … 部屋数からの推測
+    //     (2) role 式 (計画書の移行先) … role:"start" の部屋 と role:"boss" の部屋
+    //   ⚠ 2 部屋の現行ダンジョンでは (1) と (2) の除外集合が**違う**
+    //     ((1)={boss} / (2)={start,boss}) ので、片方だけ見ると Phase 1-2 の移行で事故る。
+    var bIdx = bossRoomIdx(d);
+    var exLegacy = {};
+    if (rooms.length >= 3) exLegacy[0] = 1;
+    if (bIdx >= 0) exLegacy[bIdx] = 1;
+    var exRole = {};
+    for (i = 0; i < rooms.length; i++)
+      if (rooms[i].role === "start" || rooms[i].role === "boss") exRole[i] = 1;
+
+    var rules = [{ key: "legacy", label: "現行式 (部屋数からの推測)", ex: exLegacy }];
+    if (setKey(exRole) !== setKey(exLegacy)) rules.push({ key: "role", label: "role 式 (計画書の移行先)", ex: exRole });
+    else rules[0].label = "現行式 = role 式 (除外部屋が同一)";
+    for (i = 0; i < rules.length; i++) {
+      // 罠は起点半径1を追加除外 (非屋外テーマのみ)。宝箱にはその規則が無い。
+      var nTrap  = candidateTileCount(map, W, H, rooms, rules[i].ex, startTx, startTy, !isField);
+      var nChest = candidateTileCount(map, W, H, rooms, rules[i].ex, startTx, startTy, false);
+      if (nTrap === 0)
+        err("no-trap-candidates",
+            "罠の候補タイルが 0 です [" + rules[i].label + "] — 除外部屋の外に「値0の床」が 1 枚も残っていません。" +
+            "ゲーム側は candidates.length===0 で**無言で return** するので、罠が 1 つも出ないまま気づけません",
+            null, null);
+      if (nChest === 0)
+        err("no-trap-candidates",
+            "隠し宝箱 / 探索宝箱の候補タイルが 0 です [" + rules[i].label + "] — 同上。宝箱も無言で 0 個になります",
+            null, null);
+    }
+
+    // ── lint 項目⑤ 1枚絵の縦横比 (★エラーではなく**警告**) ────────────────────
+    //  判断と理由: 現行プリセットの山場は 20×14 で 5:4 ではない。エラーにすると
+    //  **既存の正しいプリセットが常時赤くなり lint 全体が信用されなくなる**。
+    //  一方「無視 (painting 明示時のみ検査)」だと Phase 4 まで一度も発火せず装置として死ぬ。
+    //  → 折衷: **1枚絵を貼りうる大きさ (面積 >= 150) の部屋は常に比率を見て警告**、
+    //     painting が明示指定されている部屋は面積に関係なく検査する。
+    //     警告なので「出発は止めない」= 卓用マップにも DF の既存プリセットにも邪魔をしない。
+    for (i = 0; i < rooms.length; i++) {
+      var rc = rooms[i].rect;
+      var rw = rc[3] - rc[1] + 1, rh = rc[2] - rc[0] + 1;
+      var explicit = !!rooms[i].painting;
+      if (!explicit && rw * rh < LINT_PAINTING_MIN_AREA) continue;
+      var fit = false, names = [];
+      for (j = 0; j < LINT_PAINTING_ASPECTS.length; j++) {
+        var A = LINT_PAINTING_ASPECTS[j];
+        names.push(A.label);
+        if (rw * A.h === rh * A.w) fit = true;          // ★比率で比較 (等倍拡大は歪まない)
+      }
+      if (fit) continue;
+      warn("painting-aspect",
+           "部屋 " + rooms[i].id + " は 幅" + rw + "×高さ" + rh + " タイルで、1枚絵の在庫 (" + names.join(" / ") +
+           ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で引き伸ばされて歪みます" +
+           (explicit ? " (この部屋は painting が明示指定されています)"
+                     : " (この部屋に1枚絵を貼らないなら無視してよい警告です)"),
+           [rc[1], rc[0]], i);
+    }
+
+    // ── lint 項目⑥ MAP_USED 枠 (画面の黒帯予防) ──────────────────────────────
+    //  index.html:3290 と同じ導出。部屋にも廊下にも属さない行/列は恒久的に未探索の岩盤 =
+    //  画面上は純黒になり、カメラのクランプはこの枠までしか寄れない。
+    //  ⚠ 枠そのものの**可視化**は render() の白破線 (COL.used) + HUD の「使用範囲」で行う。
+    //    ここでは「枠が危ないか」だけを警告する。
+    var mu = mapUsed(d);
+    var usedRows = mu.r1 - mu.r0 + 1, usedCols = mu.c1 - mu.c0 + 1;
+    var fill = (usedRows * usedCols) / (W * H);
+    if (usedRows < LINT_MAP_USED_MIN_ROWS)
+      warn("map-used",
+           "使用範囲 (MAP_USED) の高さが " + usedRows + " 行しかありません (row " + mu.r0 + "-" + mu.r1 + ") — " +
+           "カメラが縦に寄れず、画面の上下が黒帯になります",
+           [mu.c0, mu.r0], null);
+    if (fill < LINT_MAP_USED_MIN_FILL)
+      warn("map-used",
+           "使用範囲 (MAP_USED) がグリッド全体の " + Math.round(fill * 100) + "% しかありません (col " +
+           mu.c0 + "-" + mu.c1 + " / row " + mu.r0 + "-" + mu.r1 + ") — 画面の大半が純黒の岩盤になります",
+           [mu.c0, mu.r0], null);
+    if (!(startTx >= mu.c0 && startTx <= mu.c1 && startTy >= mu.r0 && startTy <= mu.r1))
+      warn("map-used",
+           "起点 (tx" + startTx + ", ty" + startTy + ") が使用範囲 (MAP_USED col " + mu.c0 + "-" + mu.c1 +
+           " / row " + mu.r0 + "-" + mu.r1 + ") の外にあります — カメラのクランプ外なので開始直後の画面が黒帯になります",
+           [startTx, startTy], null);
+
+    // ── 屋外の帯マスク (計画書 落とし穴⑤: 最悪の組合せ) ────────────────────────
+    //  bandMask ON は row 13-15 以外の**全行を壁へ潰す** (index.html:3323-3328)。
+    //  カスタム幾何を描いたのに ON のままだと、描いた部屋が丸ごと消える。
+    //  ⚠ 屋外プリセットは意図してこの状態なので**警告**に留める (エラーにしない)。
+    if (d.flags.bandMask) {
+      var lost = 0, all = [], k2;
+      for (i = 0; i < rooms.length; i++) all.push(rooms[i].rect);
+      for (i = 0; i < d.corridors.length; i++) all.push(d.corridors[i]);
+      for (i = 0; i < all.length; i++) {
+        var a = all[i];
+        for (k2 = a[0]; k2 <= a[2]; k2++)
+          if (k2 < BAND_TOP_ROW || k2 > BAND_BOTTOM_ROW) lost += (a[3] - a[1] + 1);
+      }
+      if (lost > 0)
+        warn("band-mask",
+             "屋外の帯マスクが ON です — row " + BAND_TOP_ROW + "-" + BAND_BOTTOM_ROW +
+             " 以外に描いた約 " + lost + " タイル分は buildMap の最後で壁に潰されます " +
+             "(屋外シナリオの意図した設計。カスタム幾何を活かすなら OFF にしてください)",
+             null, null);
+    }
+
+    // ── 敵 0 体 / ボススロット無し (★どちらも警告。計画書 落とし穴④の明示要求) ──
+    //  「敵 0 体」は卓用マップとしては完全に正当なのでエラーにしない。
+    //  ただし DF 側は spawns 空フォールバックで**廃坑の敵が湧く**化けバグを持つので黙らない。
+    var enemyN = 0;
+    for (i = 0; i < rooms.length; i++) enemyN += (rooms[i].enemySlots || []).length;
+    if (enemyN === 0)
+      warn("no-enemies",
+           "敵スロットが 0 体です — 卓用マップとしては正当ですが、DF へ書き出すと敵が湧きません " +
+           "(index.html:6995 の spawns 空フォールバックに落ちると廃坑の敵が旧座標に湧く危険があります)",
+           null, null);
+    var hasBossSlot = false;
+    for (i = 0; i < rooms.length; i++) if (rooms[i].bossSlot) hasBossSlot = true;
+    if (!hasBossSlot)
+      warn("no-boss-slot",
+           "ボススロットがありません — ボスが湧かないので、ボス撃破を前提にした進行になりません",
+           null, (bIdx >= 0 && bIdx < rooms.length) ? bIdx : null);
+
+    return done();
+  }
+
+  global.DFMapDef = {
+    SCHEMA: SCHEMA,
+    GRID_W: GRID_W, GRID_H: GRID_H, GRID_TILE: GRID_TILE,
+    T_FLOOR: T_FLOOR, T_RARE: T_RARE, T_WALL: T_WALL,
+    BAND_TOP_ROW: BAND_TOP_ROW, BAND_BOTTOM_ROW: BAND_BOTTOM_ROW,
+    THEMES: THEMES,
+    DEFAULT_DUNGEON: DEFAULT_DUNGEON,
+    DEFAULT_FIELD: DEFAULT_FIELD,
+    clone: clone,
+    sanitize: sanitize,
+    validate: validate,
+    buildMapData: buildMapData,
+    mapUsed: mapUsed,
+    lintMapDef: lintMapDef,                 // ★項目5: 出発前 lint (純粋関数・副作用なし)
+    LINT_PAINTING_ASPECTS: LINT_PAINTING_ASPECTS,
+    bossRoomIdx: bossRoomIdx,
+    slotsOf: slotsOf,
+    objectiveCount: objectiveCount,
+  };
+})(window);
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+ * §B  エディタ本体 (canvas / パン・ズーム / 描画 / HUD)
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⚠ classic script 直下の const/function は window に載らない。検証シームは
+ *   末尾で明示的に window.__mapEditor へ代入する。
+ * ────────────────────────────────────────────────────────────────────────── */
+(function () {
+  "use strict";
+  var M = window.DFMapDef;
+
+  // ── 見た目の定数 ──────────────────────────────────────────────────────
+  var ZOOM_MIN = 0.1, ZOOM_MAX = 1.5;      // 全体が見える〜タイルが読める
+  var ZOOM_STEP = 1.15;                     // ホイール1ノッチ / ±ボタン
+  var COL = {
+    void:      "#14151a",   // 壁 / void (値2)
+    floor:     "#5d5142",   // 床 (値0)
+    rare:      "#7b6a4e",   // レア床 (値1) — 描画上は床と同じ扱いだが薄く色分けする
+    grid:      "rgba(255,255,255,0.055)",
+    roomStart: "#7cf6a6",
+    roomBoss:  "#ff8b8b",
+    roomPlain: "#7fd7ff",
+    corridor:  "#ffd479",
+    start:     "#7cf6a6",
+    slot:      "#ff6f6f",
+    bossSlot:  "#e07bff",
+    used:      "rgba(255,255,255,0.28)",
+    outside:   "#0a0b0e",   // マップ外 (canvas の余白)
+    sel:       "#fff2a8",   // 選択中の矩形の輪郭 + 8ハンドル
+  };
+
+  // ── ツールモード定義 (★ここに 1 行足すだけでツールが増やせる) ──────────
+  // 追加時にやること: (1) この配列に { key, label, hint } を足す
+  //                   (2) dragBeginTile() に key の分岐を書く
+  //   HTML・CSS・検証シームは触らなくてよい (ボタンはここから動的生成され、
+  //   数字キー 1..N の割当も並び順から自動で効く)。
+  // ⚠ 後ろ 3 つ = 点配置ツール (項目3)。dragBeginTile() では
+  //   isSlotTool() で 1 まとめに分岐する (増減したらそこも見る)。
+  var TOOLS = [
+    { key: "select",    label: "選択/移動",     hint: "クリックで選択 / 内側ドラッグ=移動 / 枠のタイル=リサイズ / 空き領域=パン" },
+    { key: "room",      label: "部屋を描く",    hint: "ドラッグで部屋 (rooms[]) を追加" },
+    { key: "corridor",  label: "廊下を描く",    hint: "ドラッグで廊下 (corridors[]) を追加" },
+    { key: "start",     label: "起点",          hint: "クリックで起点 (mapDef.start) を置く。マップに 1 つだけ・削除不可" },
+    { key: "enemySlot", label: "敵スロット",    hint: "クリックで敵スロットを置く。**部屋の中にのみ**置ける (room.enemySlots へ入る)" },
+    { key: "bossSlot",  label: "ボススロット",  hint: 'クリックでボススロットを置く。role:"boss" の部屋の中だけ・マップに 1 つ' },
+  ];
+  var SLOT_TOOLS = { start: 1, enemySlot: 1, bossSlot: 1 };
+  function isSlotTool(k) { return !!SLOT_TOOLS[k]; }
+  var TOOL_KEYS = TOOLS.map(function (t) { return t.key; });
+
+  // ── 1枚絵の比率スナップ (計画書 §「1枚絵のアスペクト比ロックへの対処」案B) ──
+  // 歪みの原因は index.html:5440 の 5引数 drawImage ただ1行。在庫は
+  //   山場ベルトスクロール 6枚 = 20×16 = 5:4 / ボス部屋 6枚 = 22×18 = 11:9 の 2種類だけ。
+  // ⚠ w=幅(列数) / h=高さ(行数)。rect は**行が先**なので [r, c, r+h-1, c+w-1] になる。
+  //   幅と高さを取り違えると 20×16 のつもりが 16×20 になる。
+  // ⚠ 現行 index.html の山場部屋 [7,24,20,43] は 幅20×高さ14 で 20×16 ではない。
+  //   既存値は書き換えず、**新規に描くときの選択肢**としてだけ提供する。
+  // スナップ ON のとき、ドラッグで決まるのは**位置だけ**でサイズは固定 (最も事故が少ない)。
+  var ASPECT_SNAPS = {
+    climax: { w: 20, h: 16, label: "山場 20×16 (5:4)" },
+    boss:   { w: 22, h: 18, label: "ボス 22×18 (11:9)" },
+  };
+
+  // ── 状態 (検証シームから読める。★名前を変えないこと) ────────────────
+  var state = {
+    mapDef: null,          // df-map/1 (sanitize 済み)
+    mapData: null,         // buildMapData(mapDef) の結果 (H×W)
+    view: { x: 0, y: 0, zoom: 0.2 },   // x/y = canvas 左上に来るワールド座標(px)
+    cursor: { tx: -1, ty: -1, val: null, inside: false },
+    css: { w: 0, h: 0, dpr: 1 },
+    renderCount: 0,
+    presetKey: "dungeon",
+    // ── 項目2 で追加 ──
+    tool: "select",        // TOOLS[].key のいずれか
+    selection: null,       // { kind:"room"|"corridor", index:int } | null
+    aspectSnap: null,      // null | "climax" | "boss"  (ASPECT_SNAPS のキー)
+    dragMode: null,        // ドラッグ中のみ "create"|"move"|"resize"|"slot" (それ以外 null)
+    // ── 項目3 で追加 ──
+    // ★矩形の selection とは**別**に持つ (index の二重管理を避ける)。両者は排他 =
+    //   Delete がどちらを消すのか曖昧にならない。
+    slotSelection: null,   // { kind:"enemy", roomIndex, slotIndex } | { kind:"boss", roomIndex } | { kind:"start" } | null
+    lastReason: null,      // 直近の拒否理由 (成功したら null)。HUD と lastReason() が読む
+    // ── 項目4 で追加 ──
+    lastNotice: null,      // 直近の成功通知 (保存した/読み込んだ)。lastReason とは**別の器**
+    // ── 項目5 で追加 (出発前 lint) ──
+    // ★lastReason(赤) / lastNotice(緑) とは**別の 3 本目のチャネル**。混ぜない。
+    lintResult: null,      // 直近の lint 結果 { ok, errors[], warnings[] }。編集のたび再計算
+    lintPanelOpen: false,  // 一覧パネルを開いているか
+    // ★★ canvas に lint マーカーを重ねるか。exportPNG() は**必ずこれを false にして描く**
+    //    (選択リングと同じ扱い)。ここを外すと lint の赤丸が PNG に焼き込まれる。
+    lintOverlay: true,
+  };
+
+  var canvas = document.getElementById("editorCanvas");
+  var ctx = canvas.getContext("2d");
+  var stage = document.getElementById("stage");
+
+  var el = {
+    presetSel:  document.getElementById("presetSel"),
+    btnLoadPreset: document.getElementById("btnLoadPreset"),
+    themeSel:   document.getElementById("themeSel"),
+    bandMaskChk:document.getElementById("bandMaskChk"),
+    mapNameInput:   document.getElementById("mapNameInput"),
+    btnSaveLocal:   document.getElementById("btnSaveLocal"),
+    localSel:       document.getElementById("localSel"),
+    btnLoadLocal:   document.getElementById("btnLoadLocal"),
+    btnDeleteLocal: document.getElementById("btnDeleteLocal"),
+    btnExportJson:  document.getElementById("btnExportJson"),
+    btnImportJson:  document.getElementById("btnImportJson"),
+    fileInput:      document.getElementById("fileInput"),
+    btnExportPng:   document.getElementById("btnExportPng"),
+    btnFit:     document.getElementById("btnFit"),
+    btnZoomIn:  document.getElementById("btnZoomIn"),
+    btnZoomOut: document.getElementById("btnZoomOut"),
+    toolBtns:   document.getElementById("toolBtns"),
+    aspectSel:  document.getElementById("aspectSel"),
+    roleSel:    document.getElementById("roleSel"),
+    btnDelete:  document.getElementById("btnDelete"),
+    btnUndo:    document.getElementById("btnUndo"),
+    btnRedo:    document.getElementById("btnRedo"),
+    selInfo:    document.getElementById("selInfo"),
+    hudTile:    document.getElementById("hudTile"),
+    hudVal:     document.getElementById("hudVal"),
+    hudZoom:    document.getElementById("hudZoom"),
+    hudRooms:   document.getElementById("hudRooms"),
+    hudCorr:    document.getElementById("hudCorr"),
+    hudStart:   document.getElementById("hudStart"),
+    hudGrid:    document.getElementById("hudGrid"),
+    hudUsed:    document.getElementById("hudUsed"),
+    hudSlot:    document.getElementById("hudSlot"),
+    hudMsg:     document.getElementById("hudMsg"),
+    hudInfo:    document.getElementById("hudInfo"),
+    // ── 項目5 ──
+    btnLint:        document.getElementById("btnLint"),
+    lintBadgeErr:   document.getElementById("lintBadgeErr"),
+    lintBadgeWarn:  document.getElementById("lintBadgeWarn"),
+    lintSummary:    document.getElementById("lintSummary"),
+    lintPanel:      document.getElementById("lintPanel"),
+    lintPanelCount: document.getElementById("lintPanelCount"),
+    lintList:       document.getElementById("lintList"),
+    btnLintClose:   document.getElementById("btnLintClose"),
+  };
+
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+  function tileSize() { return state.mapDef.grid.tile; }
+
+  // ── 座標変換 ──────────────────────────────────────────────────────────
+  // world(px) → screen(css px): sx = (wx - view.x) * zoom
+  function worldToScreen(wx, wy) {
+    return { x: (wx - state.view.x) * state.view.zoom, y: (wy - state.view.y) * state.view.zoom };
+  }
+  function screenToWorld(sx, sy) {
+    return { x: state.view.x + sx / state.view.zoom, y: state.view.y + sy / state.view.zoom };
+  }
+  function screenToTile(sx, sy) {
+    var w = screenToWorld(sx, sy), t = tileSize();
+    return { tx: Math.floor(w.x / t), ty: Math.floor(w.y / t) };
+  }
+
+  // ── mapDef の差し替え ────────────────────────────────────────────────
+  // ツールバーを状態に追従させる (UI → state の一方通行にしない)
+  function syncToolbar() {
+    el.themeSel.value = state.mapDef.themeId;
+    el.bandMaskChk.checked = !!state.mapDef.flags.bandMask;
+    el.mapNameInput.value = state.mapDef.name || "";     // 項目4
+  }
+  function applyMapDef(def, opt) {
+    opt = opt || {};
+    var before = state.mapDef ? snapshot() : null;
+    state.mapDef = M.sanitize(def, M.DEFAULT_DUNGEON);
+    state.mapData = M.buildMapData(state.mapDef);
+    clampSelection();
+    syncToolbar();
+    // 外から差し替えた分も undo できるようにする (プリセット読込は履歴ごと作り直すので除く)
+    if (before !== null && opt.history !== false) pushHistory(before);
+    computeLint();                 // ★render より前 = マーカーが最初の 1 フレームから正しい
+    if (opt.fit) fitToView(); else render();
+    updateHud(); syncEditUI();
+  }
+  function rebuildAndRender() {
+    state.mapData = M.buildMapData(state.mapDef);
+    computeLint();                 // ★編集のたび lint を再計算 (バッジが常に最新)
+    render();
+    updateHud();
+  }
+
+  // ── リサイズ (devicePixelRatio 対応) ──────────────────────────────────
+  function resizeCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.max(1, stage.clientWidth), h = Math.max(1, stage.clientHeight);
+    state.css.w = w; state.css.h = h; state.css.dpr = dpr;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    render();
+  }
+
+  // ── 全体表示 ─────────────────────────────────────────────────────────
+  function fitToView() {
+    var g = state.mapDef.grid;
+    var worldW = g.w * g.tile, worldH = g.h * g.tile;
+    var z = Math.min(state.css.w / worldW, state.css.h / worldH) * 0.96;
+    state.view.zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
+    state.view.x = worldW / 2 - state.css.w / (2 * state.view.zoom);
+    state.view.y = worldH / 2 - state.css.h / (2 * state.view.zoom);
+    render();
+    updateHud();
+  }
+
+  // ── ズーム (アンカー = 画面上の点。そこが動かないように view を補正する) ──
+  function zoomAt(sx, sy, factor) {
+    var before = screenToWorld(sx, sy);
+    state.view.zoom = clamp(state.view.zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    state.view.x = before.x - sx / state.view.zoom;
+    state.view.y = before.y - sy / state.view.zoom;
+    render();
+    updateHud();
+  }
+
+  // ── 描画 ─────────────────────────────────────────────────────────────
+  function render() {
+    if (!state.mapDef || !state.mapData) return;
+    var dpr = state.css.dpr, z = state.view.zoom, t = tileSize();
+    var g = state.mapDef.grid;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, state.css.w, state.css.h);
+    ctx.fillStyle = COL.outside;
+    ctx.fillRect(0, 0, state.css.w, state.css.h);
+
+    // 画面に入るタイル範囲だけ回す (72x28 でも全域回しは安いが、Phase 3 の自由タイルに備える)
+    var tl = screenToTile(0, 0), br = screenToTile(state.css.w, state.css.h);
+    var c0 = clamp(tl.tx, 0, g.w - 1), c1 = clamp(br.tx, 0, g.w - 1);
+    var r0 = clamp(tl.ty, 0, g.h - 1), r1 = clamp(br.ty, 0, g.h - 1);
+    var px = t * z;
+    // 隙間が出ないよう +1px 大きく塗る (端数の丸めで縦横に黒線が走るのを防ぐ)
+    var cell = Math.ceil(px) + 1;
+
+    for (var r = r0; r <= r1; r++) {
+      for (var c = c0; c <= c1; c++) {
+        var v = state.mapData[r][c];
+        ctx.fillStyle = (v === M.T_WALL) ? COL.void : (v === M.T_RARE ? COL.rare : COL.floor);
+        var p = worldToScreen(c * t, r * t);
+        ctx.fillRect(Math.floor(p.x), Math.floor(p.y), cell, cell);
+      }
+    }
+
+    // グリッド線 (タイルが潰れて見える倍率では描かない)
+    if (px >= 8) {
+      ctx.strokeStyle = COL.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var cc = c0; cc <= c1 + 1; cc++) {
+        var xp = Math.floor(worldToScreen(cc * t, 0).x) + 0.5;
+        ctx.moveTo(xp, Math.floor(worldToScreen(0, r0 * t).y));
+        ctx.lineTo(xp, Math.floor(worldToScreen(0, (r1 + 1) * t).y));
+      }
+      for (var rr = r0; rr <= r1 + 1; rr++) {
+        var yp = Math.floor(worldToScreen(0, rr * t).y) + 0.5;
+        ctx.moveTo(Math.floor(worldToScreen(c0 * t, 0).x), yp);
+        ctx.lineTo(Math.floor(worldToScreen((c1 + 1) * t, 0).x), yp);
+      }
+      ctx.stroke();
+    }
+
+    drawRectOutline(M.mapUsed(state.mapDef), COL.used, [6, 5], 1, null);   // MAP_USED 枠
+
+    // 廊下 (破線)
+    for (var k = 0; k < state.mapDef.corridors.length; k++) {
+      var q = state.mapDef.corridors[k];
+      drawRectOutline({ r0: q[0], c0: q[1], r1: q[2], c1: q[3] }, COL.corridor, [4, 4], 2, null);
+    }
+    // 部屋 (実線 + ラベル)
+    for (var i = 0; i < state.mapDef.rooms.length; i++) {
+      var room = state.mapDef.rooms[i];
+      var col = room.role === "start" ? COL.roomStart : (room.role === "boss" ? COL.roomBoss : COL.roomPlain);
+      var label = room.id + (room.role ? " [" + (room.role === "start" ? "起点" : "ボス") + "]" : "");
+      drawRectOutline({ r0: room.rect[0], c0: room.rect[1], r1: room.rect[2], c1: room.rect[3] },
+                      col, null, 2, label);
+      for (var j = 0; j < room.enemySlots.length; j++) drawSlot(room.enemySlots[j], COL.slot, "敵");
+      if (room.bossSlot) drawSlot(room.bossSlot, COL.bossSlot, "BOSS");
+    }
+    // 起点
+    drawStart(state.mapDef.start);
+    // lint マーカー (項目5)。★state.lintOverlay が false なら 1 つも描かない
+    //   = exportPNG() が焼き込みを避ける唯一のスイッチ (選択リングと同じ扱い)。
+    drawLintMarkers();
+    // 選択中の矩形 (輪郭強調 + 8ハンドル)。★最後に描く = 常に手前
+    drawSelection();
+    // 選択中のスロット / 起点の強調リング (項目3)。★矩形よりさらに手前
+    drawSlotSelection();
+
+    state.renderCount++;
+  }
+
+  // 矩形 [r0,c0,r1,c1] (両端含む) の輪郭。dash=null で実線、label があれば左上に描く。
+  function drawRectOutline(rc, color, dash, width, label) {
+    var t = tileSize();
+    var a = worldToScreen(rc.c0 * t, rc.r0 * t);
+    var b = worldToScreen((rc.c1 + 1) * t, (rc.r1 + 1) * t);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width || 1;
+    ctx.setLineDash(dash || []);
+    ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
+    ctx.restore();
+    if (label && (b.x - a.x) > 60) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = "11px 'Segoe UI', sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(label, a.x + 4, a.y + 3);
+      ctx.restore();
+    }
+  }
+
+  // 敵スロット / ボススロット。slot = [tx, ty]
+  function drawSlot(slot, color, tag) {
+    var t = tileSize();
+    var p = worldToScreen(slot[0] * t, slot[1] * t);
+    var s = t * state.view.zoom;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(p.x + s * 0.22, p.y + s * 0.22, s * 0.56, s * 0.56);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(p.x + s * 0.22, p.y + s * 0.22, s * 0.56, s * 0.56);
+    if (s >= 26) {
+      ctx.fillStyle = "#0e0f13";
+      ctx.font = "bold " + Math.min(11, Math.floor(s * 0.3)) + "px 'Segoe UI', sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(tag, p.x + s / 2, p.y + s / 2);
+    }
+    ctx.restore();
+  }
+
+  // 起点マーカー (◎ + 十字)
+  function drawStart(st) {
+    var t = tileSize();
+    var p = worldToScreen(st.tx * t, st.ty * t);
+    var s = t * state.view.zoom, cx = p.x + s / 2, cy = p.y + s / 2;
+    ctx.save();
+    ctx.strokeStyle = COL.start;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, Math.max(3, s * 0.34), 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.45, cy); ctx.lineTo(cx + s * 0.45, cy);
+    ctx.moveTo(cx, cy - s * 0.45); ctx.lineTo(cx, cy + s * 0.45);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 選択中の矩形: 輪郭を強調 (二重線) し、四隅+四辺中点に 8 ハンドルを描く。
+  // ⚠ ハンドルの**当たり判定は画面 px ではなくタイル単位**で決めている (grabOf 参照)。
+  //   これはズーム 10% でも判定が壊れないため、かつ検証シーム dragTile() が
+  //   タイル座標だけで同じ経路を叩けるようにするため。ここは見た目だけ。
+  function drawSelection() {
+    var sel = state.selection; if (!sel) return;
+    var rect = rectOf(sel); if (!rect) return;
+    var t = tileSize();
+    var a = worldToScreen(rect[1] * t, rect[0] * t);
+    var b = worldToScreen((rect[3] + 1) * t, (rect[2] + 1) * t);
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = COL.sel; ctx.lineWidth = 2;
+    ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(20,21,26,0.9)"; ctx.lineWidth = 1;
+    ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
+    ctx.setLineDash([]);
+    var xs = [a.x, (a.x + b.x) / 2, b.x], ys = [a.y, (a.y + b.y) / 2, b.y], h = 4;
+    for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) {
+      if (i === 1 && j === 1) continue;                 // 中央はハンドルではない
+      ctx.fillStyle = COL.sel;
+      ctx.fillRect(xs[i] - h, ys[j] - h, h * 2, h * 2);
+      ctx.strokeStyle = "#0e0f13"; ctx.lineWidth = 1;
+      ctx.strokeRect(xs[i] - h + 0.5, ys[j] - h + 0.5, h * 2 - 1, h * 2 - 1);
+    }
+    ctx.restore();
+  }
+
+  // 選択中スロット (敵/ボス/起点) の強調 = 二重リング。
+  // ⚠ drawSlot() / drawStart() は**無改修**のまま。強調だけを別関数で後から重ねる
+  //   (マーカー本体の見た目を選択状態で分岐させると、非選択時の見た目まで壊しやすい)。
+  function drawSlotSelection() {
+    var tile = slotTileOf(state.slotSelection);
+    if (!tile) return;
+    var t = tileSize(), p = worldToScreen(tile[0] * t, tile[1] * t), s = t * state.view.zoom;
+    var cx = p.x + s / 2, cy = p.y + s / 2, rad = Math.max(5, s * 0.46);
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "#0e0f13"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, rad + 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, rad - 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = COL.sel; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 出発前 lint の UI (項目5)
+   * ══════════════════════════════════════════════════════════════════════
+   * ★不変条件 (壊すと必ず事故る):
+   *   - 計算そのものは §A の **純粋関数 M.lintMapDef()**。ここは表示だけを担当する
+   *     (Phase 1 で js/df-mapdef.js を切り出すとき、この §B は付いていかない)。
+   *   - 表示チャネルは 3 本目。赤 #hudMsg (拒否) / 緑 #hudInfo (成功) と**混ぜない**。
+   *     lint の警告は「拒否」でも「成功」でもないので、既存 2 本に入れると意味が壊れる。
+   *   - ★★ canvas マーカーは state.lintOverlay で一括 OFF にできること。
+   *     exportPNG() が false にして描くので、lint 表示が PNG に焼き込まれない。
+   *     ここを「render 内で無条件に描く」に変えると項目4 のスモーク 9d が即座に赤くなる。
+   *   - lint は**読み込みを止めない**。acceptMapDef() には 1 行も足さない
+   *     (計画書の設計 = 読み込みは通す / 出発前に止める)。
+   * ────────────────────────────────────────────────────────────────────── */
+
+  var LINT_COL = { error: "#ff6060", warning: "#ffc861" };
+  var lintListSig = null;      // 一覧 DOM を作り直すかの判定 (ドラッグ中の無駄な再構築を避ける)
+
+  // lint を計算して state と HUD を更新する。★render() は呼ばない
+  //   (呼び出し側が render の直前に呼ぶ = 二重描画を作らない)。
+  function computeLint() {
+    state.lintResult = M.lintMapDef(state.mapDef);
+    syncLintUI();
+    return state.lintResult;
+  }
+
+  function lintIssuesAll(res) {
+    return res ? res.errors.concat(res.warnings) : [];
+  }
+
+  function syncLintUI() {
+    var res = state.lintResult;
+    var ne = res ? res.errors.length : 0, nw = res ? res.warnings.length : 0;
+    el.lintBadgeErr.textContent = "エラー " + ne;
+    el.lintBadgeWarn.textContent = "警告 " + nw;
+    el.lintBadgeErr.classList.toggle("on", ne > 0);
+    el.lintBadgeWarn.classList.toggle("on", nw > 0);
+    el.lintBadgeErr.classList.toggle("ok", ne === 0);
+    el.lintSummary.textContent = ne > 0
+      ? "このまま出発すると壊れます"
+      : (nw > 0 ? "出発できます (警告あり)" : "出発できます");
+    el.lintPanelCount.textContent = "エラー " + ne + " / 警告 " + nw;
+
+    // 一覧 DOM は内容が変わったときだけ作り直す (ドラッグ中に毎タイル再構築しない)
+    var sig = JSON.stringify(lintIssuesAll(res).map(function (x) {
+      return [x.code, x.severity, x.message, x.at, x.roomIndex];
+    }));
+    if (sig === lintListSig) return;
+    lintListSig = sig;
+    rebuildLintList();
+  }
+
+  function rebuildLintList() {
+    var items = lintIssuesAll(state.lintResult);
+    el.lintList.innerHTML = "";
+    if (!items.length) {
+      var none = document.createElement("li");
+      none.className = "none";
+      none.textContent = "✔ 問題は見つかりませんでした";
+      el.lintList.appendChild(none);
+      return;
+    }
+    for (var i = 0; i < items.length; i++) {
+      (function (it) {
+        var li = document.createElement("li");
+        li.className = it.severity + (it.at ? " jump" : "");
+        li.setAttribute("data-code", it.code);
+        li.setAttribute("data-severity", it.severity);
+
+        var kind = document.createElement("span");
+        kind.className = "kind";
+        kind.textContent = (it.severity === "error") ? "エラー" : "警告";
+        li.appendChild(kind);
+
+        var body = document.createElement("span");
+        body.className = "body";
+        body.textContent = it.message;
+        var code = document.createElement("div");
+        code.className = "code";
+        code.textContent = it.code + (it.roomIndex !== null ? ("  / rooms[" + it.roomIndex + "]") : "");
+        body.appendChild(code);
+        li.appendChild(body);
+
+        if (it.at) {
+          var at = document.createElement("span");
+          at.className = "at";
+          at.textContent = "▶ tx" + it.at[0] + ", ty" + it.at[1];
+          li.appendChild(at);
+          // 行クリックで該当座標へビューを飛ばす (導線)
+          li.addEventListener("click", function () { focusTile(it.at[0], it.at[1]); });
+        }
+        el.lintList.appendChild(li);
+      })(items[i]);
+    }
+  }
+
+  // 指定タイルを画面中央へ (lint 一覧の行クリック用)。ズームが引きすぎなら少し寄る。
+  function focusTile(tx, ty) {
+    var t = tileSize();
+    state.view.zoom = clamp(Math.max(state.view.zoom, 0.32), ZOOM_MIN, ZOOM_MAX);
+    state.view.x = (tx + 0.5) * t - state.css.w / (2 * state.view.zoom);
+    state.view.y = (ty + 0.5) * t - state.css.h / (2 * state.view.zoom);
+    render(); updateHud();
+    return { tx: tx, ty: ty };
+  }
+
+  function setLintPanelOpen(open) {
+    state.lintPanelOpen = !!open;
+    el.lintPanel.classList.toggle("open", state.lintPanelOpen);
+    return state.lintPanelOpen;
+  }
+
+  // 公開版 lint(): 再計算 → 再描画 → 結果を返す (検証シーム)
+  function lint() {
+    var res = computeLint();
+    render();
+    return res;
+  }
+
+  // canvas 上の lint マーカー。at を持つ issue のタイルに二重リング + 記号を描く。
+  // ⚠ state.lintOverlay が false のときは**何も描かない** (exportPNG がここを塞ぐ)。
+  function drawLintMarkers() {
+    if (!state.lintOverlay) return;
+    var items = lintIssuesAll(state.lintResult);
+    if (!items.length) return;
+    var t = tileSize(), s = t * state.view.zoom;
+    ctx.save();
+    ctx.setLineDash([]);
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it.at) continue;
+      var p = worldToScreen(it.at[0] * t, it.at[1] * t);
+      var cx = p.x + s / 2, cy = p.y + s / 2, rad = Math.max(4, s * 0.42);
+      var col = LINT_COL[it.severity] || LINT_COL.warning;
+      ctx.strokeStyle = "#0e0f13"; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
+      if (it.severity === "error") {           // エラーだけ ✕ を重ねる (色覚に依らず区別できる)
+        var d = rad * 0.52;
+        ctx.beginPath();
+        ctx.moveTo(cx - d, cy - d); ctx.lineTo(cx + d, cy + d);
+        ctx.moveTo(cx + d, cy - d); ctx.lineTo(cx - d, cy + d);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 編集モデル (項目2) — 矩形の作成 / 選択 / 移動 / リサイズ / 削除 / role / undo
+   * ══════════════════════════════════════════════════════════════════════
+   * ★不変条件 (壊すと必ず事故る):
+   *   - rect は [r1,c1,r2,c2] で**行が先**。enemySlots / bossSlot / start は [tx,ty] で**列が先**。
+   *   - どの編集でも r1<=r2 / c1<=c2 を保つ (normRect)。最小サイズは 1×1 タイル。
+   *   - 0..71 / 0..27 の外へ出さない (clampRect / 移動は幅高さを保ったままクランプ)。
+   *   - 編集のたび mapData を作り直して render() する (オンデマンド描画の流儀)。
+   * ────────────────────────────────────────────────────────────────────── */
+
+  // ── 選択対象の rect への読み書き ──────────────────────────────────────
+  function rectOf(sel) {
+    if (!sel) return null;
+    if (sel.kind === "room") { var r = state.mapDef.rooms[sel.index]; return r ? r.rect : null; }
+    return state.mapDef.corridors[sel.index] || null;
+  }
+  function setRectOf(sel, rect) {
+    if (!sel) return;
+    if (sel.kind === "room") { if (state.mapDef.rooms[sel.index]) state.mapDef.rooms[sel.index].rect = rect; }
+    else if (state.mapDef.corridors[sel.index]) state.mapDef.corridors[sel.index] = rect;
+  }
+  function selCount(kind) {
+    return (kind === "room" ? state.mapDef.rooms : state.mapDef.corridors).length;
+  }
+  function clampSelection() {   // 配列が縮んだ後に古い index を握り続けないようにする
+    var s = state.selection;
+    if (s && (s.index < 0 || s.index >= selCount(s.kind))) state.selection = null;
+    // スロット選択も同じ理由で検証する (部屋削除 / undo / setMapDef で参照先が消えうる)。
+    // slotTileOf() が null = 参照が切れている。
+    if (state.slotSelection && !slotTileOf(state.slotSelection)) state.slotSelection = null;
+  }
+
+  // ── 矩形の正規化・クランプ ────────────────────────────────────────────
+  function normRect(rect) {     // 反転ドラッグを救う: 常に r1<=r2, c1<=c2
+    var r1 = rect[0], c1 = rect[1], r2 = rect[2], c2 = rect[3], tmp;
+    if (r2 < r1) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (c2 < c1) { tmp = c1; c1 = c2; c2 = tmp; }
+    return [r1, c1, r2, c2];
+  }
+  function clampRect(rect) {
+    var g = state.mapDef.grid;
+    return [clamp(rect[0], 0, g.h - 1), clamp(rect[1], 0, g.w - 1),
+            clamp(rect[2], 0, g.h - 1), clamp(rect[3], 0, g.w - 1)];
+  }
+  function nextRoomId() {       // "r0","r1",… の重複しない採番 (削除後の穴も埋める)
+    var used = {};
+    for (var i = 0; i < state.mapDef.rooms.length; i++) used[state.mapDef.rooms[i].id] = 1;
+    for (var n = 0; ; n++) { var id = "r" + n; if (!used[id]) return id; }
+  }
+
+  // ── 当たり判定 ────────────────────────────────────────────────────────
+  // 矩形の「掴み方」。{hx,hy} … -1=西/北端, +1=東/南端, 0=内側
+  //   枠のタイル = リサイズハンドル / 内側のタイル = 移動。
+  // ⚠ 幅または高さが 1 だと両端が同じタイルになるので +1 側(東/南)を優先する。
+  //   その結果 1×1 の矩形はドラッグ移動できない → Shift+ドラッグで強制的に移動できる。
+  function grabOf(rect, tx, ty) {
+    if (!rect) return null;
+    var r1 = rect[0], c1 = rect[1], r2 = rect[2], c2 = rect[3];
+    if (tx < c1 || tx > c2 || ty < r1 || ty > r2) return null;
+    var hx = 0, hy = 0;
+    if (tx === c2) hx = 1; else if (tx === c1) hx = -1;
+    if (ty === r2) hy = 1; else if (ty === r1) hy = -1;
+    return { hx: hx, hy: hy };
+  }
+  // 重なりは前面優先。描画順が corridors → rooms なので rooms が手前、
+  // 同じ配列内では後ろの index ほど手前。
+  function hitObjectAt(tx, ty) {
+    var d = state.mapDef, i, q;
+    for (i = d.rooms.length - 1; i >= 0; i--) {
+      q = d.rooms[i].rect;
+      if (ty >= q[0] && ty <= q[2] && tx >= q[1] && tx <= q[3]) return { kind: "room", index: i };
+    }
+    for (i = d.corridors.length - 1; i >= 0; i--) {
+      q = d.corridors[i];
+      if (ty >= q[0] && ty <= q[2] && tx >= q[1] && tx <= q[3]) return { kind: "corridor", index: i };
+    }
+    return null;
+  }
+
+  // ── 比率スナップ ──────────────────────────────────────────────────────
+  function snapSize() {
+    var s = state.aspectSnap && ASPECT_SNAPS[state.aspectSnap];
+    return s ? { w: s.w, h: s.h } : null;
+  }
+  // rect を固定サイズへ整える。hx/hy = 動かした側 (その反対側を固定して伸ばす)。
+  // マップからはみ出したら**サイズを保ったまま**内側へずらす (縮めない = 比率が崩れない)。
+  function applyFixedSize(rect, size, hx, hy) {
+    var g = state.mapDef.grid;
+    var r1 = rect[0], c1 = rect[1], r2 = rect[2], c2 = rect[3];
+    if (hx < 0) c1 = c2 - size.w + 1; else c2 = c1 + size.w - 1;
+    if (hy < 0) r1 = r2 - size.h + 1; else r2 = r1 + size.h - 1;
+    if (c1 < 0) { c2 -= c1; c1 = 0; }
+    if (c2 > g.w - 1) { c1 -= (c2 - (g.w - 1)); c2 = g.w - 1; }
+    if (r1 < 0) { r2 -= r1; r1 = 0; }
+    if (r2 > g.h - 1) { r1 -= (r2 - (g.h - 1)); r2 = g.h - 1; }
+    // マップより大きい固定サイズを指定された場合の保険 (72×28 なら起こらない)
+    return [Math.max(0, r1), Math.max(0, c1), Math.min(g.h - 1, r2), Math.min(g.w - 1, c2)];
+  }
+
+  // ── undo / redo (mapDef の JSON スナップショットを積むだけの素朴実装) ──
+  // 差分は取らない。72×28 の mapDef は数 KB なので 50 段でも十分軽い。
+  var history = { undo: [], redo: [], limit: 50 };
+  function snapshot() { return JSON.stringify(state.mapDef); }
+  function pushHistory(before) {
+    if (typeof before !== "string") before = snapshot();
+    if (before === snapshot()) return false;        // 変化なしなら積まない (空クリック等)
+    history.undo.push(before);
+    while (history.undo.length > history.limit) history.undo.shift();
+    history.redo.length = 0;                        // 新しい編集をしたら redo は捨てる
+    return true;
+  }
+  function resetHistory() { history.undo.length = 0; history.redo.length = 0; }
+  function restore(json) {
+    state.mapDef = JSON.parse(json);                // sanitize 済みの自前スナップショット
+    clampSelection();
+    syncToolbar();
+    rebuildAndRender();
+    syncEditUI();
+  }
+  function undo() {
+    if (!history.undo.length) return false;
+    history.redo.push(snapshot());
+    restore(history.undo.pop());
+    return true;
+  }
+  function redo() {
+    if (!history.redo.length) return false;
+    history.undo.push(snapshot());
+    restore(history.redo.pop());
+    return true;
+  }
+
+  // ── 選択 ──────────────────────────────────────────────────────────────
+  function setSelection(sel) {
+    state.selection = sel ? { kind: sel.kind, index: sel.index } : null;
+    if (state.selection) state.slotSelection = null;   // 矩形選択とスロット選択は排他 (項目3)
+    clampSelection();
+    syncEditUI(); render();
+    return state.selection;
+  }
+  function getSelection() {
+    return state.selection ? { kind: state.selection.kind, index: state.selection.index } : null;
+  }
+  function selectAt(tx, ty) {
+    var hit = hitObjectAt(tx, ty);
+    setSelection(hit);
+    return hit ? (hit.kind + ":" + hit.index) : null;   // 識別子 or null
+  }
+
+  // ── 削除 ──────────────────────────────────────────────────────────────
+  function deleteSelection() {
+    var sel = state.selection;
+    if (!sel) return false;
+    var before = snapshot();
+    if (sel.kind === "room") state.mapDef.rooms.splice(sel.index, 1);
+    else state.mapDef.corridors.splice(sel.index, 1);
+    state.selection = null;
+    // 部屋を消すと roomIndex が丸ごとずれる。ずれた index を握り続けるより捨てる方が安全。
+    state.slotSelection = null;
+    pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return true;
+  }
+
+  // ── role 指定 ─────────────────────────────────────────────────────────
+  // ★ "start" も "boss" もマップ全体でちょうど 1 つ。別の部屋に付けたら前のを外す。
+  //   DFMapDef.validate() が 'role:"boss" はちょうど 1 つ必要' を見ているので整合させる。
+  function setRole(role) {
+    var sel = state.selection;
+    if (!sel || sel.kind !== "room") return false;
+    role = (role === "start" || role === "boss") ? role : null;
+    var before = snapshot();
+    var rooms = state.mapDef.rooms;
+    if (role) {
+      for (var i = 0; i < rooms.length; i++)
+        if (i !== sel.index && rooms[i].role === role) rooms[i].role = null;
+    }
+    rooms[sel.index].role = role;
+    pushHistory(before);
+    rebuildAndRender(); syncEditUI();   // 幾何は変わらないが「編集後は必ず再生成」の流儀を守る
+    return true;
+  }
+  function setAspectSnap(key) {
+    state.aspectSnap = ASPECT_SNAPS[key] ? key : null;
+    syncEditUI();
+    return state.aspectSnap;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * スロット編集モデル (項目3) — 起点 / enemySlots / bossSlot の点配置
+   * ══════════════════════════════════════════════════════════════════════
+   * ★不変条件 (壊すと必ず事故る):
+   *   - start / enemySlots / bossSlot はすべて [tx, ty] = **列が先**。rect だけが行が先。
+   *   - enemySlots は **room が持つ** (スキーマ df-map/1)。マップ直下の配列ではない。
+   *     → 置いた / 動かした先の部屋が変われば、所属する room.enemySlots も付け替える。
+   *       これが tavern.html ROOM_SLOTS 二重化の解消先になる (座標の唯一の在処)。
+   *   - 起点はマップに 1 つ。mapDef.start は単一オブジェクトなので**構造的に**そうなる。
+   *     削除はできない (schema 上必須。sanitize も必ず 1 つ作る) → 移動のみ。
+   *   - ボススロットもマップに 1 つ。置くときに他の部屋の bossSlot を必ず null にする。
+   *   - **拒否は必ず理由を残す** (state.lastReason → HUD + 検証シーム lastReason())。
+   *     黙って無視するのは計画書が繰り返し警告している事故パターン (落とし穴 ④⑥)。
+   *   - 「壁 (値2) に乗っているか」「起点から到達できるか」は**ここでは見ない**。
+   *     それは出発前 lint の仕事 (項目5)。validate() と同じく責務を混ぜない。
+   * ────────────────────────────────────────────────────────────────────── */
+
+  var SLOT_NAME = { start: "起点", enemy: "敵スロット", boss: "ボススロット" };
+  var REASON = {
+    outsideMap:   "マップの外には置けません",
+    enemyOutside: "敵スロットは部屋の中にのみ置けます (廊下・岩盤には置けません)",
+    noBossRoom:   "ボス部屋がありません (部屋を選び、役割に「ボス」を指定してください)",
+    bossOutside:  "ボススロットはボス部屋の中にのみ置けます",
+    startFixed:   "起点は削除できません (移動のみ)",
+    noSlotSel:    "スロットが選択されていません",
+    notSlotTool:  "スロットツール (起点 / 敵スロット / ボススロット) を選んでください",
+  };
+  function occupiedBy(kind) { return "そのタイルには既に" + (SLOT_NAME[kind] || "何か") + "があります"; }
+  function slotFail(msg) { state.lastReason = msg; return { ok: false, reason: msg, ref: null }; }
+  function slotOk(ref)   { state.lastReason = null; return { ok: true,  reason: null, ref: ref }; }
+
+  function inGrid(tx, ty) {
+    var g = state.mapDef.grid;
+    return tx >= 0 && tx < g.w && ty >= 0 && ty < g.h;
+  }
+  function inRect(rect, tx, ty) {   // rect=[r1,c1,r2,c2] は行が先 / 引数は列が先。取り違え厳禁
+    return ty >= rect[0] && ty <= rect[2] && tx >= rect[1] && tx <= rect[3];
+  }
+  // そのタイルを含む部屋。前面優先 (hitObjectAt と同じ走査順)。どの部屋にも属さないなら -1。
+  function roomIndexAt(tx, ty) {
+    var rooms = state.mapDef.rooms;
+    for (var i = rooms.length - 1; i >= 0; i--)
+      if (inRect(rooms[i].rect, tx, ty)) return i;
+    return -1;
+  }
+  // role:"boss" で**明示**された部屋だけを返す。
+  // ⚠ DFMapDef.bossRoomIdx() は既定で末尾の部屋を返す(現行ゲームとの同値性のため)が、
+  //   エディタは「ボス部屋が無い」を拒否理由として出したいので**推測しない**。
+  function bossRoomIndexStrict() {
+    var rooms = state.mapDef.rooms;
+    for (var i = 0; i < rooms.length; i++) if (rooms[i].role === "boss") return i;
+    return -1;                                     // 推測でボス部屋を作らない
+  }
+
+  // そのタイルにあるスロット。優先順 敵 → ボス → 起点 (重複配置は拒否しているので実際は 1 つ)
+  function slotAt(tx, ty) {
+    var rooms = state.mapDef.rooms, i, j;
+    for (i = 0; i < rooms.length; i++) {
+      var es = rooms[i].enemySlots;
+      for (j = 0; j < es.length; j++)
+        if (es[j][0] === tx && es[j][1] === ty) return { kind: "enemy", roomIndex: i, slotIndex: j };
+    }
+    for (i = 0; i < rooms.length; i++) {
+      var bs = rooms[i].bossSlot;
+      if (bs && bs[0] === tx && bs[1] === ty) return { kind: "boss", roomIndex: i };
+    }
+    var st = state.mapDef.start;
+    if (st.tx === tx && st.ty === ty) return { kind: "start" };
+    return null;
+  }
+  function sameSlot(a, b) {
+    if (!a || !b || a.kind !== b.kind) return false;
+    if (a.kind === "start") return true;
+    if (a.kind === "boss") return a.roomIndex === b.roomIndex;
+    return a.roomIndex === b.roomIndex && a.slotIndex === b.slotIndex;
+  }
+  // 識別子文字列: "enemy:<roomIndex>:<slotIndex>" / "boss" / "start" / null
+  function slotKey(s) {
+    if (!s) return null;
+    return s.kind === "enemy" ? ("enemy:" + s.roomIndex + ":" + s.slotIndex) : s.kind;
+  }
+  // 参照先の実座標 [tx,ty]。参照が切れていたら null (= clampSlotSelection の判定にも使う)
+  function slotTileOf(s) {
+    if (!s || !state.mapDef) return null;
+    var d = state.mapDef;
+    if (s.kind === "start") return [d.start.tx, d.start.ty];
+    var room = d.rooms[s.roomIndex];
+    if (!room) return null;
+    if (s.kind === "boss") return room.bossSlot ? room.bossSlot.slice() : null;
+    var e = room.enemySlots[s.slotIndex];
+    return e ? e.slice() : null;
+  }
+  function copySlotSel(s) {
+    if (!s) return null;
+    if (s.kind === "start") return { kind: "start" };
+    if (s.kind === "boss") return { kind: "boss", roomIndex: s.roomIndex };
+    return { kind: "enemy", roomIndex: s.roomIndex, slotIndex: s.slotIndex };
+  }
+  function setSlotSelection(s) {
+    state.slotSelection = copySlotSel(s);
+    if (state.slotSelection) state.selection = null;   // 矩形選択とは排他
+    syncEditUI(); render(); updateHud();
+    return state.slotSelection;
+  }
+
+  // ── 配置 (履歴なし。公開版 placeSlot() が 1 段だけ積む) ───────────────────
+  function placeSlotInternal(tx, ty) {
+    tx = tx | 0; ty = ty | 0;
+    if (!inGrid(tx, ty)) return slotFail(REASON.outsideMap);
+    var d = state.mapDef, occ = slotAt(tx, ty), i;
+
+    if (state.tool === "start") {
+      if (occ && occ.kind !== "start") return slotFail(occupiedBy(occ.kind));
+      d.start = { tx: tx, ty: ty };                  // ★単一オブジェクト = 常に 1 つ
+      state.slotSelection = { kind: "start" }; state.selection = null;
+      return slotOk("start");
+    }
+
+    if (state.tool === "enemySlot") {
+      var ri = roomIndexAt(tx, ty);
+      if (ri < 0) return slotFail(REASON.enemyOutside);          // ★部屋の外は拒否 (無言にしない)
+      if (occ) {                                                 // 重複は拒否 + 既存を選択
+        state.slotSelection = copySlotSel(occ); state.selection = null;
+        return slotFail(occupiedBy(occ.kind));
+      }
+      d.rooms[ri].enemySlots.push([tx, ty]);                     // ★[tx,ty] = 列が先
+      state.slotSelection = { kind: "enemy", roomIndex: ri, slotIndex: d.rooms[ri].enemySlots.length - 1 };
+      state.selection = null;
+      return slotOk(slotKey(state.slotSelection));
+    }
+
+    if (state.tool === "bossSlot") {
+      var bi = bossRoomIndexStrict();
+      if (bi < 0) return slotFail(REASON.noBossRoom);
+      if (!inRect(d.rooms[bi].rect, tx, ty)) return slotFail(REASON.bossOutside);
+      if (occ && occ.kind !== "boss") return slotFail(occupiedBy(occ.kind));
+      for (i = 0; i < d.rooms.length; i++) d.rooms[i].bossSlot = null;   // ★マップに 1 つ
+      d.rooms[bi].bossSlot = [tx, ty];
+      state.slotSelection = { kind: "boss", roomIndex: bi }; state.selection = null;
+      return slotOk("boss");
+    }
+    return slotFail(REASON.notSlotTool);
+  }
+
+  // ── 移動 (履歴なし。ドラッグ中は毎タイルこれが走る) ──────────────────────
+  function moveSlotInternal(tx, ty) {
+    tx = tx | 0; ty = ty | 0;
+    var sel = state.slotSelection, d = state.mapDef, i;
+    if (!sel) return slotFail(REASON.noSlotSel);
+    if (!inGrid(tx, ty)) return slotFail(REASON.outsideMap);
+    var cur = slotTileOf(sel);
+    if (!cur) { state.slotSelection = null; return slotFail(REASON.noSlotSel); }
+    if (cur[0] === tx && cur[1] === ty) return slotOk(slotKey(sel));     // 同じタイル = 何もしない
+    var occ = slotAt(tx, ty);
+    if (occ && !sameSlot(occ, sel)) return slotFail(occupiedBy(occ.kind));
+
+    if (sel.kind === "start") { d.start = { tx: tx, ty: ty }; return slotOk("start"); }
+
+    if (sel.kind === "boss") {
+      var bi = bossRoomIndexStrict();
+      if (bi < 0) return slotFail(REASON.noBossRoom);
+      if (!inRect(d.rooms[bi].rect, tx, ty)) return slotFail(REASON.bossOutside);
+      for (i = 0; i < d.rooms.length; i++) d.rooms[i].bossSlot = null;
+      d.rooms[bi].bossSlot = [tx, ty];
+      state.slotSelection = { kind: "boss", roomIndex: bi };
+      return slotOk("boss");
+    }
+
+    // 敵スロット: 移動先の部屋へ**所属ごと**移し替える (部屋の外へは出せない)
+    var rj = roomIndexAt(tx, ty);                    // 移動先の部屋
+    if (rj < 0) return slotFail(REASON.enemyOutside);
+    var from = d.rooms[sel.roomIndex];
+    if (!from) { state.slotSelection = null; return slotFail(REASON.noSlotSel); }
+    if (rj === sel.roomIndex) {
+      from.enemySlots[sel.slotIndex] = [tx, ty];
+    } else {
+      from.enemySlots.splice(sel.slotIndex, 1);      // ★所属の付け替え = 抜いて push
+      d.rooms[rj].enemySlots.push([tx, ty]);
+      state.slotSelection = { kind: "enemy", roomIndex: rj, slotIndex: d.rooms[rj].enemySlots.length - 1 };
+    }
+    return slotOk(slotKey(state.slotSelection));
+  }
+
+  function deleteSlotInternal() {
+    var sel = state.slotSelection;
+    if (!sel) return slotFail(REASON.noSlotSel);
+    if (sel.kind === "start") return slotFail(REASON.startFixed);   // 起点は消せない
+    var room = state.mapDef.rooms[sel.roomIndex];
+    if (!room) { state.slotSelection = null; return slotFail(REASON.noSlotSel); }
+    if (sel.kind === "boss") room.bossSlot = null;
+    else room.enemySlots.splice(sel.slotIndex, 1);
+    state.slotSelection = null;
+    return slotOk(null);
+  }
+
+  // ── 公開版 (既存の snapshot()/pushHistory() に乗せるだけ。自前の履歴は作らない) ──
+  function placeSlot(tx, ty) {
+    var before = snapshot();
+    var r = placeSlotInternal(tx, ty);
+    if (r.ok) pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return r;
+  }
+  function moveSlot(tx, ty) {
+    var before = snapshot();
+    var r = moveSlotInternal(tx, ty);
+    if (r.ok) pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return { ok: r.ok, reason: r.reason };
+  }
+  function deleteSlot() {
+    var before = snapshot();
+    var r = deleteSlotInternal();
+    if (r.ok) pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return r.ok;
+  }
+  function selectSlotAt(tx, ty) {
+    var s = slotAt(tx | 0, ty | 0);
+    setSlotSelection(s);
+    return slotKey(s);
+  }
+  function getSlotSelection() { return copySlotSel(state.slotSelection); }
+  function lastReason() { return state.lastReason; }
+  // Delete キー / 「削除」ボタンの共通入口。スロット選択が矩形選択より優先 (両者は排他)
+  function deleteAny() {
+    if (state.slotSelection) return deleteSlot();
+    return deleteSelection();
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 入出力モデル (項目4) — JSON / localStorage / PNG
+   * ══════════════════════════════════════════════════════════════════════
+   * ★不変条件 (壊すと Phase 2 で壊れた mapDef がゲームへ流れる):
+   *   - **外から来た mapDef は必ず acceptMapDef() を通す**。直接 state.mapDef へ入れない。
+   *   - acceptMapDef の順序は ①schema 判定 → ②sanitize → ③validate → ④適用 で**固定**。
+   *     ⚠ ①を②の後ろに置くと**永久に落ちない**。sanitize は schema を df-map/1 に
+   *       上書きするので、sanitize 後に schema を見ても常に一致してしまう。
+   *   - 失敗は必ず reason を返し HUD に出す (黙って古い mapDef のままにしない)。
+   *   - 成功通知 (lastNotice) と 拒否理由 (lastReason) は**別の器**。混ぜると
+   *     「保存しました」が赤いエラー枠で出る / 失敗が緑で出る という取り違えが起きる。
+   *   - localStorage は**書いたら必ず読み戻して照合**する (計画書 落とし穴⑧: setItem は
+   *     catch(e){} で黙って失敗しうる。容量超過・プライベートモードで実際に起こる)。
+   *   - PNG は**画面の view に依存させない**。固定倍率のオフスクリーンへ描き、
+   *     終わったら view / 選択を元に戻す (書き出しが編集状態を変えてはいけない)。
+   * ────────────────────────────────────────────────────────────────────── */
+
+  var LS_PREFIX = "dfMapEditor.maps.";     // localStorage の名前空間 (他アプリと衝突しない)
+  var STORE_SCHEMA = "df-map-store/1";     // 保存レコードの器。中身の mapDef は df-map/1 のまま
+  var PNG_TILE_PX = 16;                    // PNG 書き出しの 1 タイル = 16px → 1152×448
+  var IO_REASON = {
+    noStorage: "この環境では localStorage が使えません (保存/読込はできません)",
+  };
+
+  function ioFail(msg) { state.lastReason = msg; state.lastNotice = null; updateHud(); return { ok: false, reason: msg }; }
+  function ioOk(msg)   { state.lastReason = null; state.lastNotice = msg || null; updateHud(); return { ok: true, reason: null }; }
+
+  // localStorage を触る唯一の入口。使えない環境 (プライベートモード等) では null を返す。
+  function lsGet() {
+    try { return window.localStorage || null; } catch (e) { return null; }
+  }
+  // 保存 id / ファイル名に使えない文字を落とす。日本語はそのまま残す (Windows でも扱える)。
+  function slugify(s) {
+    s = String(s == null ? "" : s).trim().replace(/[\s\/\\:*?"<>|.]+/g, "-").replace(/^-+|-+$/g, "");
+    return s || ("map-" + Date.now());
+  }
+  function safeFileName(s) {
+    return String(s == null ? "map" : s).replace(/[\/\\:*?"<>|]+/g, "-").replace(/\s+/g, "_") || "map";
+  }
+
+  // ── 外から来た mapDef の受け入れ (★ここが唯一の入口) ──────────────────────
+  function acceptMapDef(obj, label) {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj))
+      return ioFail(label + ": mapDef がオブジェクトではありません");
+    // ① schema 判定は **sanitize の前**。順序を入れ替えると判定が永久に空振りする。
+    if (obj.schema !== M.SCHEMA)
+      return ioFail(label + ': schema が "' + M.SCHEMA + '" ではありません: ' + JSON.stringify(obj.schema));
+    var def = M.sanitize(obj, M.DEFAULT_DUNGEON);        // ② 座標クランプ・欠損の穴埋め
+    var v = M.validate(def);                             // ③ 構造として壊れていないか
+    if (!v.ok) return ioFail(label + ": 読み込めません — " + v.errors.join(" / "));
+    state.selection = null;
+    state.slotSelection = null;                          // 別の文書 = 選択は引き継がない
+    applyMapDef(def, { fit: false });                    // ④ 適用 (履歴 1 段 = undo で戻せる)
+    return ioOk(label + " を読み込みました");
+  }
+
+  // ── JSON 文字列 ↔ mapDef ────────────────────────────────────────────────
+  function exportJSON() {
+    return JSON.stringify(state.mapDef, null, 2);
+  }
+  function importJSON(text) {
+    var obj;
+    try { obj = JSON.parse(String(text)); }
+    catch (e) { return ioFail("JSON として読めません: " + ((e && e.message) || e)); }
+    return acceptMapDef(obj, "JSON");
+  }
+
+  // ── ファイル DL / 読込 ──────────────────────────────────────────────────
+  function triggerDownload(name, href, revoke) {
+    var a = document.createElement("a");
+    a.href = href; a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (revoke) setTimeout(function () { URL.revokeObjectURL(href); }, 1000);
+  }
+  function downloadJSON() {
+    var name = safeFileName(state.mapDef.id || "map") + ".df-map.json";
+    triggerDownload(name, URL.createObjectURL(new Blob([exportJSON()], { type: "application/json" })), true);
+    ioOk(name + " をダウンロードしました");
+    return name;
+  }
+  function readFileIntoEditor(file) {
+    if (!file) return ioFail("ファイルがありません");
+    var fr = new FileReader();
+    fr.onload = function () { importJSON(String(fr.result)); };
+    fr.onerror = function () { ioFail("ファイルを読めません: " + (file.name || "")); };
+    fr.readAsText(file);
+    return { ok: true, reason: null };                   // 実際の可否は非同期で HUD に出る
+  }
+
+  // ── localStorage ────────────────────────────────────────────────────────
+  // 一覧は**索引キーを持たず毎回列挙する**。索引を別に持つと本体と食い違ったときに
+  // 「一覧に出るのに開けない/消せない」という無言の不整合が生まれる。
+  function listLocal() {
+    var s = lsGet(); if (!s) return [];
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var k = s.key(i);
+      if (!k || k.indexOf(LS_PREFIX) !== 0) continue;
+      var id = k.slice(LS_PREFIX.length), rec = null;
+      try { rec = JSON.parse(s.getItem(k)); } catch (e) { rec = null; }
+      if (!rec || typeof rec !== "object") continue;     // 壊れた記録は一覧に出さない
+      out.push({ id: id,
+                 name: (typeof rec.name === "string" && rec.name) ? rec.name : id,
+                 savedAt: rec.savedAt || null });
+    }
+    out.sort(function (a, b) { return String(b.savedAt || "").localeCompare(String(a.savedAt || "")); });
+    return out;                                          // 新しい順
+  }
+  function saveLocal(name) {
+    var s = lsGet();
+    if (!s) { ioFail(IO_REASON.noStorage); return { ok: false, id: null, reason: IO_REASON.noStorage }; }
+    var nm = (typeof name === "string" && name.trim()) ? name.trim() : (state.mapDef.name || "無題のマップ");
+    var id = slugify(nm), key = LS_PREFIX + id;
+    // ★保存は現在の mapDef の**スナップショット**。live な mapDef は書き換えない
+    //   (保存が編集内容を勝手に変えると、保存前後の比較が誰にもできなくなる)。
+    var rec = { schema: STORE_SCHEMA, id: id, name: nm,
+                savedAt: new Date().toISOString(), mapDef: M.clone(state.mapDef) };
+    var json = JSON.stringify(rec), msg;
+    try { s.setItem(key, json); }
+    catch (e) {
+      msg = "保存できません (localStorage: " + ((e && e.message) || e) + ")";
+      ioFail(msg); return { ok: false, id: null, reason: msg };
+    }
+    // ★読み戻し照合。setItem が例外を投げずに黙って捨てる実装が実在する (落とし穴⑧)。
+    var back = null;
+    try { back = s.getItem(key); } catch (e2) { back = null; }
+    if (back !== json) {
+      msg = "保存を検証できませんでした (書き戻し内容が一致しません: " + key + ")";
+      ioFail(msg); return { ok: false, id: null, reason: msg };
+    }
+    refreshLocalList(id);
+    ioOk("「" + nm + "」を保存しました");
+    return { ok: true, id: id };
+  }
+  function loadLocal(id) {
+    var s = lsGet(); if (!s) return ioFail(IO_REASON.noStorage);
+    var key = LS_PREFIX + String(id), raw = null;
+    try { raw = s.getItem(key); } catch (e) { raw = null; }
+    if (raw === null || raw === undefined) return ioFail("保存されたマップが見つかりません: " + id);
+    var rec;
+    try { rec = JSON.parse(raw); }
+    catch (e) { return ioFail("保存データが壊れています: " + ((e && e.message) || e)); }
+    if (!rec || typeof rec !== "object" || !rec.mapDef) return ioFail("保存データに mapDef がありません: " + id);
+    var r = acceptMapDef(rec.mapDef, "保存データ「" + (rec.name || id) + "」");
+    if (r.ok) refreshLocalList(id);
+    return r;
+  }
+  function deleteLocal(id) {
+    var s = lsGet(); if (!s) { ioFail(IO_REASON.noStorage); return false; }
+    var key = LS_PREFIX + String(id), existed = false;
+    try { existed = s.getItem(key) !== null; s.removeItem(key); }
+    catch (e) { ioFail("削除できません (localStorage: " + ((e && e.message) || e) + ")"); return false; }
+    refreshLocalList();
+    if (existed) ioOk("「" + id + "」を削除しました");
+    else ioFail("削除するマップがありません: " + id);
+    return existed;
+  }
+  function refreshLocalList(selectId) {
+    var items = listLocal(), keep = selectId || el.localSel.value;
+    el.localSel.innerHTML = "";
+    if (!items.length) {
+      var none = document.createElement("option");
+      none.value = ""; none.textContent = "(保存なし)";
+      el.localSel.appendChild(none);
+    }
+    for (var i = 0; i < items.length; i++) {
+      var op = document.createElement("option");
+      op.value = items[i].id;
+      op.textContent = items[i].name + (items[i].savedAt ? ("  " + items[i].savedAt.slice(0, 16).replace("T", " ")) : "");
+      el.localSel.appendChild(op);
+    }
+    if (keep) el.localSel.value = keep;
+    var empty = items.length === 0;
+    el.localSel.disabled = empty;
+    el.btnLoadLocal.disabled = empty;
+    el.btnDeleteLocal.disabled = empty;
+  }
+
+  // ── PNG 書き出し ────────────────────────────────────────────────────────
+  // ★画面のズーム/パンに**依存しない**: マップ全域 (72×28) が必ず収まる固定倍率の
+  //   オフスクリーン canvas へ render() をそのまま流用して描く。
+  // ⚠ 描く前に選択を外す。選択リング/ハンドルが焼き込まれると「選択していたかどうか」で
+  //   出力が変わってしまい、再現性のある出力にならない (項目3 worker の予告どおり)。
+  // ⚠★ 項目5 で足した lint マーカーも**まったく同じ理由で外す** (state.lintOverlay=false)。
+  //    render() をそのまま流用している構造なので、render 内に描いたものは何であれ
+  //    PNG に焼き込まれる。lint のエラー有無で PNG が変わってはいけない。
+  // ⚠ 終わったら ctx / view / css / 選択 / lintOverlay を**必ず**元へ戻して再描画する。
+  function exportPNG() {
+    var g = state.mapDef.grid;
+    var off = document.createElement("canvas");
+    off.width = g.w * PNG_TILE_PX;
+    off.height = g.h * PNG_TILE_PX;
+    var savedCtx = ctx, savedCss = state.css, savedView = state.view;
+    var savedSel = state.selection, savedSlotSel = state.slotSelection;
+    var savedLintOverlay = state.lintOverlay;
+    try {
+      ctx = off.getContext("2d");
+      state.css = { w: off.width, h: off.height, dpr: 1 };
+      state.view = { x: 0, y: 0, zoom: PNG_TILE_PX / g.tile };   // ワールド原点 = 画像左上
+      state.selection = null; state.slotSelection = null;
+      state.lintOverlay = false;
+      render();
+      return off.toDataURL("image/png");
+    } finally {
+      ctx = savedCtx; state.css = savedCss; state.view = savedView;
+      state.selection = savedSel; state.slotSelection = savedSlotSel;
+      state.lintOverlay = savedLintOverlay;
+      render();                                        // 画面を元の見え方へ戻す
+    }
+  }
+  function downloadPNG() {
+    var url = exportPNG();
+    var name = safeFileName(state.mapDef.id || "map") + ".png";
+    triggerDownload(name, url, false);
+    ioOk(name + " を書き出しました");
+    return name;
+  }
+
+  // ── 名前の変更 (mapDef.name と id = ダウンロード名) ──────────────────────
+  function setMapName(name) {
+    var nm = String(name == null ? "" : name).trim();
+    if (!nm) { el.mapNameInput.value = state.mapDef.name || ""; return false; }
+    if (nm === state.mapDef.name) return false;
+    var before = snapshot();
+    state.mapDef.name = nm;
+    state.mapDef.id = slugify(nm);
+    pushHistory(before);
+    syncToolbar(); updateHud(); syncEditUI();
+    return true;
+  }
+
+  // ── ドラッグ (作成 / 移動 / リサイズ) ─────────────────────────────────
+  // マウスも検証シーム dragTile() も**この 3 関数だけ**を通る。
+  //   dragBeginTile → (dragUpdateTile …) → dragEndTile
+  // 戻り false = 掴む物が無かった → 呼び出し側がパンへ委譲する。
+  var drag = null;   // { mode, sel, orig, t0, hx, hy, snapBefore, lastKey }
+
+  function dragBeginTile(t, opts) {
+    opts = opts || {};
+    var g = state.mapDef.grid;
+    if (!t || t.tx < 0 || t.tx >= g.w || t.ty < 0 || t.ty >= g.h) return false;  // マップ外は掴まない
+    var before = snapshot();
+
+    if (state.tool === "room" || state.tool === "corridor") {
+      var sz = (state.tool === "room") ? snapSize() : null;   // 廊下に 1枚絵は貼らないのでスナップ対象外
+      var rect = sz ? applyFixedSize([t.ty, t.tx, t.ty, t.tx], sz, 1, 1) : [t.ty, t.tx, t.ty, t.tx];
+      var sel;
+      if (state.tool === "room") {
+        state.mapDef.rooms.push({ id: nextRoomId(), role: null, rect: rect,
+                                  enemySlots: [], bossSlot: null, painting: null, scenery: null });
+        sel = { kind: "room", index: state.mapDef.rooms.length - 1 };
+      } else {
+        state.mapDef.corridors.push(rect);
+        sel = { kind: "corridor", index: state.mapDef.corridors.length - 1 };
+      }
+      state.selection = sel;
+      drag = { mode: "create", sel: sel, orig: rect.slice(), t0: { tx: t.tx, ty: t.ty },
+               hx: 1, hy: 1, snapBefore: before };
+      state.dragMode = "create";
+      rebuildAndRender(); syncEditUI();
+      return true;
+    }
+
+    // ── 点配置ツール (項目3) ────────────────────────────────────────────
+    //   既存スロットの上 → 掴んで移動 (種別を問わない = ツールを切り替えずに動かせる)
+    //   何も無いタイル   → 現在のツールのスロットを新規配置
+    //   拒否されたら false = パンへ委譲する。**理由は HUD と lastReason() に残る**ので
+    //   「黙って何も起きない」にはならない (無言の失敗を作らないのが項目3 の主眼)。
+    // ⚠ 「選択/移動」ツールは項目2 のまま矩形専用。スロットは掴まない
+    //   (掴むようにすると selectAt(57,13) が矩形でなくボススロットを返し、項目2 が壊れる)。
+    if (isSlotTool(state.tool)) {
+      var hitSlot = slotAt(t.tx, t.ty);
+      if (hitSlot) {
+        setSlotSelection(hitSlot);
+      } else {
+        var placed = placeSlotInternal(t.tx, t.ty);
+        rebuildAndRender(); syncEditUI();
+        if (!placed.ok) return false;                 // 掴む物も置く物も無い → パンへ委譲
+      }
+      drag = { mode: "slot", sel: null, orig: null, t0: { tx: t.tx, ty: t.ty },
+               hx: 0, hy: 0, snapBefore: before };
+      state.dragMode = "slot";
+      return true;
+    }
+
+    // 選択/移動ツール: 選択中ならまずハンドル、次に前面の矩形を拾う
+    var sel2 = state.selection;
+    var grab = sel2 ? grabOf(rectOf(sel2), t.tx, t.ty) : null;
+    if (!grab) {
+      var hit = hitObjectAt(t.tx, t.ty);
+      if (!hit) { setSelection(null); return false; }   // 空き領域 → パンへ委譲 + 選択解除
+      sel2 = setSelection(hit);
+      grab = grabOf(rectOf(sel2), t.tx, t.ty);
+    }
+    var mode = (opts.shift || (grab.hx === 0 && grab.hy === 0)) ? "move" : "resize";
+    drag = { mode: mode, sel: sel2, orig: rectOf(sel2).slice(), t0: { tx: t.tx, ty: t.ty },
+             hx: grab.hx, hy: grab.hy, snapBefore: before };
+    state.dragMode = mode;
+    return true;
+  }
+
+  function dragUpdateTile(t) {
+    if (!drag || !t) return;
+    var key = t.tx + "," + t.ty;
+    if (key === drag.lastKey) return;                  // 同じタイルなら作り直さない
+    drag.lastKey = key;
+
+    // スロットのドラッグ移動 (項目3)。拒否されたら**動かさない**だけ = 直前の位置に留まる。
+    // 履歴はドラッグ全体で 1 段 (dragEndTile の pushHistory)。
+    if (drag.mode === "slot") { moveSlotInternal(t.tx, t.ty); rebuildAndRender(); syncEditUI(); return; }
+
+    var g = state.mapDef.grid, o = drag.orig, rect;
+    var dtx = t.tx - drag.t0.tx, dty = t.ty - drag.t0.ty;
+
+    if (drag.mode === "create") {
+      var sz = (drag.sel.kind === "room") ? snapSize() : null;
+      if (sz) {
+        // スナップ ON: サイズ固定。ドラッグで決まるのは**位置だけ** (左上 = 2点の min 側)
+        var r1 = Math.min(drag.t0.ty, t.ty), c1 = Math.min(drag.t0.tx, t.tx);
+        rect = applyFixedSize([r1, c1, r1, c1], sz, 1, 1);
+      } else {
+        rect = clampRect(normRect([drag.t0.ty, drag.t0.tx, t.ty, t.tx]));
+      }
+    } else if (drag.mode === "move") {
+      // 幅・高さを保ったまま、マップ内に収まる範囲へ移動量そのものをクランプする
+      var ddc = clamp(dtx, -o[1], (g.w - 1) - o[3]);
+      var ddr = clamp(dty, -o[0], (g.h - 1) - o[2]);
+      rect = [o[0] + ddr, o[1] + ddc, o[2] + ddr, o[3] + ddc];
+    } else {                                            // resize
+      var q = o.slice();
+      if (drag.hx < 0) q[1] += dtx; else if (drag.hx > 0) q[3] += dtx;
+      if (drag.hy < 0) q[0] += dty; else if (drag.hy > 0) q[2] += dty;
+      rect = clampRect(normRect(q));                    // 反転しても r1<=r2 / c1<=c2 を保つ
+      // スナップ ON なら掴んだ辺の反対側を固定してサイズを戻す = サイズ固定・位置だけ動く。
+      // ⚠ 動いていない (dtx=dty=0) ときは何もしない。既存の部屋の枠を**クリックしただけ**で
+      //   サイズが黙って書き換わるのを防ぐ (現行の山場部屋は 20×14 で 20×16 ではない)。
+      var sz2 = (drag.sel.kind === "room" && (dtx !== 0 || dty !== 0)) ? snapSize() : null;
+      if (sz2) rect = applyFixedSize(rect, sz2, drag.hx, drag.hy);
+    }
+    setRectOf(drag.sel, rect);
+    rebuildAndRender(); syncEditUI();
+  }
+
+  function dragEndTile(t) {
+    if (!drag) return false;
+    if (t) dragUpdateTile(t);
+    var before = drag.snapBefore;
+    drag = null; state.dragMode = null;
+    pushHistory(before);                                // 1ドラッグ = 履歴 1 段
+    rebuildAndRender(); syncEditUI();
+    return true;
+  }
+  function cancelDrag() {                               // Esc: ドラッグ全体を無かったことにする
+    if (!drag) return false;
+    var before = drag.snapBefore;
+    drag = null; state.dragMode = null;
+    restore(before);
+    return true;
+  }
+
+  // 検証シーム用: タイル座標 2 点で現在ツールのドラッグを 1 回分実行する
+  function asTilePt(p) {
+    if (!p) return null;
+    if (Array.isArray(p)) return { tx: p[0] | 0, ty: p[1] | 0 };   // [tx,ty] も受ける
+    return { tx: p.tx | 0, ty: p.ty | 0 };
+  }
+  function dragTile(t0, t1, opts) {
+    var a = asTilePt(t0), b = asTilePt(t1) || a;
+    if (!dragBeginTile(a, opts)) return false;
+    dragUpdateTile(b);
+    dragEndTile(b);
+    return true;
+  }
+
+  // ── ツール切替 ────────────────────────────────────────────────────────
+  function setTool(name) {
+    if (TOOL_KEYS.indexOf(name) < 0) return state.tool;
+    if (drag) cancelDrag();
+    state.tool = name;
+    state.lastReason = null;      // 前のツールの拒否理由を残さない (項目3)
+    state.lastNotice = null;      // 同じ理由で成功通知も持ち越さない (項目4)
+    syncEditUI(); render(); updateHud();
+    return state.tool;
+  }
+
+  // ── 編集 UI の同期 (ボタンの活性/非活性・選択情報) ────────────────────
+  var toolBtnEls = {};
+  function syncEditUI() {
+    for (var k in toolBtnEls) if (Object.prototype.hasOwnProperty.call(toolBtnEls, k))
+      toolBtnEls[k].classList.toggle("active", k === state.tool);
+    var sel = state.selection;
+    var isRoom = !!(sel && sel.kind === "room");
+    el.roleSel.disabled = !isRoom;
+    el.roleSel.value = isRoom ? (state.mapDef.rooms[sel.index].role || "") : "";
+    // 削除ボタンは矩形選択・スロット選択のどちらでも有効 (項目3)
+    el.btnDelete.disabled = !sel && !state.slotSelection;
+    el.btnUndo.disabled = history.undo.length === 0;
+    el.btnRedo.disabled = history.redo.length === 0;
+    el.aspectSel.value = state.aspectSnap || "";
+    if (!sel) { el.selInfo.textContent = slotInfoText(); return; }
+    var r = rectOf(sel);
+    if (!r) { el.selInfo.textContent = slotInfoText(); return; }
+    el.selInfo.textContent =
+      (sel.kind === "room" ? ("部屋 " + state.mapDef.rooms[sel.index].id) : ("廊下 #" + sel.index)) +
+      "  rect[" + r.join(",") + "]  幅" + (r[3] - r[1] + 1) + "×高さ" + (r[2] - r[0] + 1) + " タイル";
+  }
+
+  // ── HUD ──────────────────────────────────────────────────────────────
+  var VAL_NAME = { 0: "床", 1: "レア床", 2: "壁/void" };
+  // 選択中スロットの日本語表示 (項目3)。敵スロットは**所属部屋の id** も出す
+  //   = enemySlots が room に属していることが画面から読み取れる。
+  function slotInfoText() {
+    var s = state.slotSelection, tile = slotTileOf(s);
+    if (!s || !tile) return "選択なし";
+    var where = (s.kind === "enemy")
+      ? (" " + state.mapDef.rooms[s.roomIndex].id + " の #" + s.slotIndex)
+      : (s.kind === "boss" ? (" " + state.mapDef.rooms[s.roomIndex].id) : "");
+    return SLOT_NAME[s.kind] + where + "  (tx" + tile[0] + ", ty" + tile[1] + ")";
+  }
+  function updateHud() {
+    var d = state.mapDef;
+    el.hudTile.textContent = state.cursor.inside
+      ? "(tx" + state.cursor.tx + ", ty" + state.cursor.ty + ")" : "—";
+    el.hudVal.textContent = (state.cursor.val === null || state.cursor.val === undefined)
+      ? "—" : (state.cursor.val + " " + (VAL_NAME[state.cursor.val] || ""));
+    el.hudZoom.textContent = (state.view.zoom * 100).toFixed(1) + "%";
+    el.hudRooms.textContent = d.rooms.length + " 個";
+    el.hudCorr.textContent = d.corridors.length + " 本";
+    el.hudStart.textContent = "(tx" + d.start.tx + ", ty" + d.start.ty + ")";
+    el.hudGrid.textContent = d.grid.w + "×" + d.grid.h + " / tile " + d.grid.tile + "px";
+    // lint 項目⑥ MAP_USED プレビュー (canvas の白破線枠と同じ範囲を数値でも出す)
+    var mu = M.mapUsed(d);
+    var uw = mu.c1 - mu.c0 + 1, uh = mu.r1 - mu.r0 + 1;
+    el.hudUsed.textContent = "col " + mu.c0 + "-" + mu.c1 + " / row " + mu.r0 + "-" + mu.r1 +
+      " (" + uw + "×" + uh + " = " + Math.round((uw * uh) / (d.grid.w * d.grid.h) * 100) + "%)";
+    el.hudSlot.textContent = slotInfoText();
+    // ★拒否理由の可視化。空文字なら CSS の :not(:empty) で枠ごと消える。
+    el.hudMsg.textContent = state.lastReason || "";
+    // 成功通知 (項目4)。★エラーとは別要素 = 色で取り違えない
+    el.hudInfo.textContent = state.lastNotice || "";
+  }
+
+  // ── 入力: パン + ツールドラッグ ───────────────────────────────────────
+  // ★ここが「左ドラッグ = パン」と「左ドラッグ = 矩形ツール」の分岐点 (項目1 からの変更点)。
+  //   中ボタン / スペース+ドラッグ は**ツールに関わらず常にパン**。
+  //   左ボタンはまずツールへ渡し、ツールが「掴む物が無い」と返したときだけパンへ委譲する。
+  var pan = { active: false, sx: 0, sy: 0, vx: 0, vy: 0 };
+  var spaceDown = false;
+
+  function localPos(e) {
+    var r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function beginPan(p) {
+    pan.active = true; pan.sx = p.x; pan.sy = p.y;
+    pan.vx = state.view.x; pan.vy = state.view.y;
+    canvas.classList.add("panning");
+  }
+
+  canvas.addEventListener("mousedown", function (e) {
+    if (e.button === 1) e.preventDefault();     // 中ボタンのオートスクロールを抑止
+    var p = localPos(e);
+    if (e.button === 1 || spaceDown) { beginPan(p); return; }
+    if (e.button !== 0) return;
+    var t = screenToTile(p.x, p.y);
+    if (!dragBeginTile(t, { shift: e.shiftKey })) beginPan(p);
+  });
+  window.addEventListener("mousemove", function (e) {
+    var p = localPos(e);
+    if (pan.active) {
+      state.view.x = pan.vx - (p.x - pan.sx) / state.view.zoom;
+      state.view.y = pan.vy - (p.y - pan.sy) / state.view.zoom;
+      render();
+    } else if (drag) {
+      dragUpdateTile(screenToTile(p.x, p.y));
+    }
+    updateCursor(p.x, p.y);
+  });
+  window.addEventListener("mouseup", function (e) {
+    if (drag) dragEndTile(screenToTile(localPos(e).x, localPos(e).y));
+    pan.active = false;
+    canvas.classList.remove("panning");
+  });
+  canvas.addEventListener("mouseleave", function () {
+    state.cursor.inside = false; state.cursor.val = null;
+    updateHud();
+  });
+
+  function updateCursor(sx, sy) {
+    var g = state.mapDef.grid;
+    var tp = screenToTile(sx, sy);
+    var inside = (tp.tx >= 0 && tp.tx < g.w && tp.ty >= 0 && tp.ty < g.h);
+    state.cursor.tx = tp.tx; state.cursor.ty = tp.ty; state.cursor.inside = inside;
+    state.cursor.val = inside ? state.mapData[tp.ty][tp.tx] : null;
+    updateHud();
+  }
+
+  // ── 入力: ズーム (ホイール。passive:false でないと preventDefault できない) ──
+  canvas.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var p = localPos(e);
+    zoomAt(p.x, p.y, e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+  }, { passive: false });
+
+  // ── 入力: キーボード ─────────────────────────────────────────────────
+  //   Space   … 押している間パン (ページのスクロールも抑止)
+  //   Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) … undo / redo
+  //   Delete / BackSpace … 選択中の矩形を削除
+  //   Esc     … ドラッグ中なら中止、そうでなければ選択解除
+  //   1/2/3   … ツール切替 (TOOLS の並び順。項目3 で増えたら 4 以降が自動で効く)
+  // ⚠ <select> にフォーカスがある時にキーを奪うと役割の変更ができなくなるので素通しする。
+  window.addEventListener("keydown", function (e) {
+    var tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.code === "Space") { spaceDown = true; e.preventDefault(); return; }
+    var ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && (e.key === "z" || e.key === "Z")) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (ctrl && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); return; }
+    if (ctrl) return;
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteAny(); return; }
+    if (e.key === "Escape") { if (!cancelDrag()) { setSelection(null); setSlotSelection(null); } return; }
+    var n = parseInt(e.key, 10);
+    if (n >= 1 && n <= TOOLS.length) { setTool(TOOLS[n - 1].key); return; }
+  });
+  window.addEventListener("keyup", function (e) {
+    if (e.code === "Space") spaceDown = false;
+  });
+
+  // ── ツールバー配線 ───────────────────────────────────────────────────
+  for (var ti = 0; ti < M.THEMES.length; ti++) {
+    var op = document.createElement("option");
+    op.value = M.THEMES[ti].id; op.textContent = M.THEMES[ti].name;
+    el.themeSel.appendChild(op);
+  }
+  el.presetSel.addEventListener("change", function () { loadPreset(el.presetSel.value); });
+  el.btnLoadPreset.addEventListener("click", function () { loadPreset(el.presetSel.value); });
+  el.themeSel.addEventListener("change", function () {
+    state.mapDef.themeId = el.themeSel.value;
+    render(); updateHud();
+  });
+  el.bandMaskChk.addEventListener("change", function () {
+    state.mapDef.flags.bandMask = el.bandMaskChk.checked;
+    rebuildAndRender();
+  });
+  el.btnFit.addEventListener("click", function () { fitToView(); });
+  el.btnZoomIn.addEventListener("click", function () { zoomAt(state.css.w / 2, state.css.h / 2, ZOOM_STEP); });
+  el.btnZoomOut.addEventListener("click", function () { zoomAt(state.css.w / 2, state.css.h / 2, 1 / ZOOM_STEP); });
+
+  // ── 編集バー配線 ─────────────────────────────────────────────────────
+  // ツールボタンは TOOLS 配列から生成する (項目3 で増やしても HTML を触らなくてよい)
+  for (var tbI = 0; tbI < TOOLS.length; tbI++) {
+    (function (tool, idx) {
+      var b = document.createElement("button");
+      b.className = "tool";
+      b.setAttribute("data-tool", tool.key);
+      b.textContent = tool.label;
+      b.title = tool.hint + "  [" + (idx + 1) + "]";
+      b.addEventListener("click", function () { setTool(tool.key); });
+      el.toolBtns.appendChild(b);
+      toolBtnEls[tool.key] = b;
+    })(TOOLS[tbI], tbI);
+  }
+  // ── ファイルバー配線 (項目4) ─────────────────────────────────────────
+  el.mapNameInput.addEventListener("change", function () { setMapName(el.mapNameInput.value); });
+  el.btnSaveLocal.addEventListener("click", function () { saveLocal(el.mapNameInput.value); });
+  el.btnLoadLocal.addEventListener("click", function () { if (el.localSel.value) loadLocal(el.localSel.value); });
+  el.btnDeleteLocal.addEventListener("click", function () { if (el.localSel.value) deleteLocal(el.localSel.value); });
+  el.btnExportJson.addEventListener("click", function () { downloadJSON(); });
+  el.btnImportJson.addEventListener("click", function () { el.fileInput.click(); });
+  el.fileInput.addEventListener("change", function () {
+    var f = el.fileInput.files && el.fileInput.files[0];
+    if (f) readFileIntoEditor(f);
+    el.fileInput.value = "";        // ★同じファイルを続けて選び直せるようにする (change が出ない)
+  });
+  el.btnExportPng.addEventListener("click", function () { downloadPNG(); });
+
+  // canvas への drag & drop (項目4)。
+  // ⚠ window 側でも既定動作を止める。止めないと**canvas を外した瞬間**にブラウザが
+  //   その JSON ファイルへ遷移してしまい、編集中の内容が消える。
+  window.addEventListener("dragover", function (e) { e.preventDefault(); });
+  window.addEventListener("drop", function (e) { e.preventDefault(); });
+  canvas.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    stage.classList.add("dropping");
+  });
+  canvas.addEventListener("dragleave", function () { stage.classList.remove("dropping"); });
+  canvas.addEventListener("drop", function (e) {
+    e.preventDefault();
+    stage.classList.remove("dropping");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readFileIntoEditor(f);
+    else ioFail("ドロップされたのはファイルではありません");
+  });
+
+  // ── lint バー配線 (項目5) ────────────────────────────────────────────
+  //   ボタンは「再計算 + 一覧を開く」。閉じても lint 自体は編集のたび走り続ける
+  //   (バッジは常に最新 = 「チェックを押し忘れて壊れたまま出発する」が起きない)。
+  el.btnLint.addEventListener("click", function () { lint(); setLintPanelOpen(!state.lintPanelOpen); });
+  el.btnLintClose.addEventListener("click", function () { setLintPanelOpen(false); });
+
+  el.aspectSel.addEventListener("change", function () { setAspectSnap(el.aspectSel.value); });
+  el.roleSel.addEventListener("change", function () { setRole(el.roleSel.value); });
+  el.btnDelete.addEventListener("click", function () { deleteAny(); });
+  el.btnUndo.addEventListener("click", function () { undo(); });
+  el.btnRedo.addEventListener("click", function () { redo(); });
+
+  function loadPreset(key) {
+    state.presetKey = (key === "field") ? "field" : "dungeon";
+    el.presetSel.value = state.presetKey;
+    state.selection = null;
+    state.slotSelection = null;   // 別の文書 = スロット選択も引き継がない (項目3)
+    state.lastReason = null;
+    state.lastNotice = null;      // 項目4
+    resetHistory();          // 別の文書を開いたのと同じ = 履歴は引き継がない
+    applyMapDef(M.clone(state.presetKey === "field" ? M.DEFAULT_FIELD : M.DEFAULT_DUNGEON),
+                { fit: true, history: false });
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+
+  // ── 起動 ─────────────────────────────────────────────────────────────
+  // ?preset=field で屋外プリセットから始める (既定 = ダンジョン 2 部屋)。
+  var qs = new URLSearchParams(location.search);
+  state.mapDef = M.clone(qs.get("preset") === "field" ? M.DEFAULT_FIELD : M.DEFAULT_DUNGEON);
+  state.presetKey = (qs.get("preset") === "field") ? "field" : "dungeon";
+  el.presetSel.value = state.presetKey;
+  resizeCanvas();
+  applyMapDef(state.mapDef, { fit: true, history: false });
+  resetHistory();
+  refreshLocalList();      // 保存済み一覧を localStorage から復元 (項目4)
+
+  /* ══ 検証シーム (★ヘッドレスドライバがここに乗る。名前を変えないこと) ══
+   * window.__mapEditor
+   *   ── 項目1 で公開済み (★変更しない) ──
+   *   getMapDef()          … 現在の mapDef の**ディープコピー**を返す (外から壊せない)
+   *   setMapDef(d)         … sanitize してから差し替え、mapData 再生成 + 再描画
+   *   buildMapData(d)      … d 省略時は現在の mapDef で 2次元配列を生成 (副作用なし)
+   *   state                … ライブ状態 (mapDef / mapData / view / cursor / renderCount /
+   *                          tool / selection / aspectSnap / dragMode)
+   *   MapDef               … §A の純粋関数群 (= window.DFMapDef と同一オブジェクト)
+   *   render / fitToView / zoomAt / loadPreset / worldToScreen / screenToWorld / screenToTile
+   *   canvas               … <canvas id="editorCanvas">
+   *
+   *   ── 項目2 で追加した編集シーム ──
+   *   setTool(name)        … "select" | "room" | "corridor" (TOOL_KEYS のいずれか)。戻りは適用後の tool
+   *   dragTile(t0,t1,opt)  … {tx,ty} または [tx,ty] の 2点で現在ツールのドラッグを 1 回実行。
+   *                          作成/移動/リサイズの分岐は dragBeginTile() が内部で行う。
+   *                          opt = { shift:true } で内側ドラッグを強制的に移動にする。
+   *                          戻り false = 掴む物が無かった (マウスならパンに委譲される場合)
+   *   selectAt(tx,ty)      … 選択。戻りは "room:0" 形式の識別子 or null
+   *   getSelection()       … { kind:"room"|"corridor", index } | null
+   *   deleteSelection()    … 選択中の矩形を削除
+   *   setRole(role)        … 選択中の**部屋**に "start"|"boss"|null を設定 (同じ role は全体で 1 つ)
+   *   setAspectSnap(key)   … null | "climax"(20×16) | "boss"(22×18)
+   *   undo() / redo()      … 戻り true = 実際に 1 段動いた
+   *   TOOLS / ASPECT_SNAPS … 定義そのもの
+   *
+   *   ── 項目3 で追加したスロットシーム ──
+   *   placeSlot(tx,ty)     … **現在のツール**に応じて配置。戻り { ok, reason, ref }
+   *                          ref = "start" | "boss" | "enemy:<roomIndex>:<slotIndex>" | null
+   *                          ok=false のとき reason に日本語の拒否理由が必ず入る
+   *   selectSlotAt(tx,ty)  … そのタイルのスロットを選択。戻り識別子 or null
+   *   getSlotSelection()   … { kind:"enemy",roomIndex,slotIndex } | { kind:"boss",roomIndex }
+   *                          | { kind:"start" } | null   (state.selection とは**別管理**)
+   *   moveSlot(tx,ty)      … 選択中スロットを移動。戻り { ok, reason }。
+   *                          敵スロットが別の部屋へ入ったら enemySlots の所属も移る
+   *   deleteSlot()         … 戻り bool (起点は false = 削除不可。理由は lastReason())
+   *   lastReason()         … 直近の拒否理由 (成功したら null)。
+   *                          ★これがあることで「無言の失敗」をドライバから検出できる
+   *
+   *   ── 項目4 で追加した入出力シーム ──
+   *   exportJSON()         … 現在の mapDef を JSON 文字列で返す (ダウンロードと同じ内容)
+   *   importJSON(text)     … 戻り { ok, reason }。成功時は setMapDef 済み (undo で戻せる)。
+   *                          ★往復同一性: exportJSON → importJSON → getMapDef が元と一致する
+   *   saveLocal(name)      … localStorage へ保存。戻り { ok, id }。id は名前から採る
+   *   listLocal()          … [{ id, name, savedAt }, …] (新しい順)
+   *   loadLocal(id)        … 戻り { ok, reason }
+   *   deleteLocal(id)      … 戻り bool (存在しなければ false + lastReason())
+   *   exportPNG()          … dataURL を返す (実ダウンロードはしない = ドライバ用)。
+   *                          画面の view/選択に依存せず、呼んでも view は変わらない
+   *
+   *   ── 項目5 で追加した出発前 lint シーム ──
+   *   lint()               … 現在の mapDef を lint して再描画。戻り { ok, errors[], warnings[] }
+   *   lintMapDef(d)        … 任意の mapDef を lint。**純粋・副作用なし**
+   *                          (呼んでも getMapDef() は 1 バイトも変わらない)
+   *     issue = { code, severity:"error"|"warning", message, at:[tx,ty]|null, roomIndex:int|null }
+   *     ★code は安定識別子。ドライバはこれで assert する:
+   *        error   … schema-invalid / boss-count / slot-on-wall /
+   *                  unreachable-room / unreachable-slot / no-trap-candidates
+   *        warning … no-enemies / no-boss-slot / painting-aspect / map-used / band-mask
+   *   focusTile(tx,ty)     … そのタイルを画面中央へ (lint 一覧の行クリックと同じ導線)
+   *   setLintPanelOpen(b)  … 一覧パネルの開閉。戻りは適用後の bool
+   *   state.lintResult     … 直近の lint 結果 (編集のたび自動再計算される)
+   *   state.lintOverlay    … canvas のマーカー表示。★exportPNG() は必ず false にして描く
+   *   DOM: #btnLint / #lintBadgeErr / #lintBadgeWarn / #lintPanel / #lintList
+   *        #lintList > li[data-code][data-severity]
+   */
+  window.__mapEditor = {
+    version: 5,
+    getMapDef: function () { return M.clone(state.mapDef); },
+    setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
+    buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
+    state: state,
+    MapDef: M,
+    render: render,
+    fitToView: fitToView,
+    zoomAt: zoomAt,
+    loadPreset: loadPreset,
+    worldToScreen: worldToScreen,
+    screenToWorld: screenToWorld,
+    screenToTile: screenToTile,
+    canvas: canvas,
+    // ── 項目2 ──
+    setTool: setTool,
+    dragTile: dragTile,
+    selectAt: selectAt,
+    getSelection: getSelection,
+    deleteSelection: deleteSelection,
+    setRole: setRole,
+    setAspectSnap: setAspectSnap,
+    undo: undo,
+    redo: redo,
+    TOOLS: TOOLS,
+    ASPECT_SNAPS: ASPECT_SNAPS,
+    // ── 項目3 ──
+    placeSlot: placeSlot,
+    selectSlotAt: selectSlotAt,
+    getSlotSelection: getSlotSelection,
+    moveSlot: moveSlot,
+    deleteSlot: deleteSlot,
+    lastReason: lastReason,
+    // ── 項目4 ──
+    exportJSON: exportJSON,
+    importJSON: importJSON,
+    saveLocal: saveLocal,
+    listLocal: listLocal,
+    loadLocal: loadLocal,
+    deleteLocal: deleteLocal,
+    exportPNG: exportPNG,
+    // ── 項目5 ──
+    lint: lint,
+    lintMapDef: function (d) { return M.lintMapDef(d); },   // ★純粋 (state に触らない)
+    focusTile: focusTile,
+    setLintPanelOpen: setLintPanelOpen,
+  };
+})();
+</script>
+</body>
+</html>
