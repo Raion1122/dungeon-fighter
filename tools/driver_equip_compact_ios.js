@@ -216,7 +216,7 @@ async function openEquipScreen(page, viewport) {
     executablePath: findBrowser(), headless: !HEADFUL,
     args: ['--no-sandbox', '--disable-gpu', '--autoplay-policy=no-user-gesture-required',
            '--no-first-run', '--no-default-browser-check', '--disable-extensions',
-           '--user-data-dir=' + path.join(os.tmpdir(), 'df_pptr_profile_eqcompact_' + Date.now())],
+           '--user-data-dir=' + require('./_pptr_profile')('df_pptr_profile_eqcompact_')],
   });
   const page = await browser.newPage();
   const errs = [];

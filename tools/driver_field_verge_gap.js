@@ -348,7 +348,7 @@ function saveShot(dataUrl, file) {
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
              '--disable-extensions', '--force-device-scale-factor=1', '--mute-audio',
-             '--user-data-dir=' + path.join(os.tmpdir(), 'df_pptr_profile_verge')],
+             '--user-data-dir=' + require('./_pptr_profile')('df_pptr_profile_verge_')],
     });
 
     const fieldCfg = { payload: CARAVAN_PAYLOAD, freeze: false };

@@ -307,7 +307,7 @@ async function loadCase(browser, base, spawns) {
     console.log('[drv] 修正版 : ' + FIX + '  (root=' + ROOT + ')');
     console.log('[drv] baseline: ' + BASE + '  (root=' + BASELINE_DIR + ' @ ' + BASELINE_REV + ')');
 
-    const profile = path.join(os.tmpdir(), 'df_pptr_profile_step5');
+    const profile = require('./_pptr_profile')('df_pptr_profile_step5_');
     browser = await puppeteer.launch({
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

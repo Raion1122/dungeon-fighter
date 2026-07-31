@@ -758,7 +758,7 @@ function printSummary(report) {
     console.log('[drv] http サーバ: ' + BASE + ' (root=' + ROOT + ')');
     console.log('[drv] speed=' + SPEED + (SPEED > 1 ? '  ⚠️ 実尺ではない (数字を出すときは --speed 1)' : ' (実プレイ実尺)'));
 
-    const profile = path.join(os.tmpdir(), 'df_pptr_profile_step0');
+    const profile = require('./_pptr_profile')('df_pptr_profile_step0_');
     browser = await puppeteer.launch({
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

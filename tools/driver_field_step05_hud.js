@@ -797,7 +797,7 @@ async function runViewport(browser, analyzer, base, vp) {
     console.log('[drv] http サーバ: ' + BASE + ' (root=' + ROOT + ')');
     console.log('[drv] 出力: ' + OUT_DIR);
 
-    const profile = path.join(os.tmpdir(), 'df_pptr_profile_step05');
+    const profile = require('./_pptr_profile')('df_pptr_profile_step05_');
     browser = await puppeteer.launch({
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

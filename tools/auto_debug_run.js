@@ -107,7 +107,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   if (SCEN) url += '&scen=' + encodeURIComponent(SCEN);
   if (CYCLE) url += '&cycle=' + encodeURIComponent(CYCLE);
 
-  const profile = path.join(os.tmpdir(), 'df_runner_profile');
+  const profile = require('./_pptr_profile')('df_runner_profile_');
   const browser = await puppeteer.launch({
     executablePath: browserPath, headless: !HEADFUL,
     args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions', '--user-data-dir=' + profile],

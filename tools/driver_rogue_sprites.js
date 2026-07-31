@@ -142,7 +142,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
   const puppeteer = loadPuppeteer();
   const srv = await startServer();
   const base = 'http://127.0.0.1:' + PORT;
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'df_rogue_'));
+  const profile = require('./_pptr_profile')('df_rogue_');
   const browser = await puppeteer.launch({
     executablePath: findBrowser(), headless: !HEADFUL, userDataDir: profile,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required'],

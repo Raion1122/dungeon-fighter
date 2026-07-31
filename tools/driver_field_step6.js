@@ -602,7 +602,7 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
     const BASE = 'http://127.0.0.1:' + PORT;
     console.log('[drv] http サーバ: ' + BASE);
 
-    const profile = path.join(os.tmpdir(), 'df_pptr_profile_step6');
+    const profile = require('./_pptr_profile')('df_pptr_profile_step6_');
     browser = await puppeteer.launch({
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

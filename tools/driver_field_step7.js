@@ -661,7 +661,7 @@ const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : 'n/a';
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
              '--disable-extensions', '--force-device-scale-factor=1', '--mute-audio',
-             '--user-data-dir=' + path.join(os.tmpdir(), 'df_pptr_profile_step7')],
+             '--user-data-dir=' + require('./_pptr_profile')('df_pptr_profile_step7_')],
     });
 
     // ════════════════════════════════════════════════════════════════════

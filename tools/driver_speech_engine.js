@@ -88,7 +88,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const srv = await startServer();
   console.log('[driver] serving ' + ROOT + ' @ http://localhost:' + PORT);
 
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'df_speech_'));
+  const profile = require('./_pptr_profile')('df_speech_');
   const browser = await puppeteer.launch({
     executablePath: browserPath, headless: !HEADFUL,
     args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

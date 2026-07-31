@@ -309,7 +309,7 @@ function probeCampfireSrc() {
   const browser = await puppeteer.launch({
     executablePath: findBrowser(), headless: true,
     args: ['--no-sandbox', '--disable-gpu', '--user-data-dir=' +
-      path.join(os.tmpdir(), 'df_pptr_profile_' + Date.now())],
+      require('./_pptr_profile')('df_pptr_profile_')],
     protocolTimeout: 240000,
   });
   const URL = 'http://localhost:' + PORT + '/index.html';

@@ -424,7 +424,7 @@ function bestShift(a, b, maxShift) {
     console.log('[drv] cur =' + BASE + '  (' + ROOT + ')');
     console.log('[drv] base=' + BBASE + '  (' + BASELINE_DIR + ' @ ' + BASELINE_REV + ')');
 
-    const profile = path.join(os.tmpdir(), 'df_pptr_profile_step3');
+    const profile = require('./_pptr_profile')('df_pptr_profile_step3_');
     browser = await puppeteer.launch({
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',

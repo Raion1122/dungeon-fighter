@@ -380,7 +380,7 @@ async function runViewport(browser, base, vp) {
       executablePath: browserPath, headless: !HEADFUL,
       args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
              '--disable-extensions', '--force-device-scale-factor=1', '--mute-audio',
-             '--user-data-dir=' + path.join(os.tmpdir(), 'df_pptr_profile_wagon')],
+             '--user-data-dir=' + require('./_pptr_profile')('df_pptr_profile_wagon_')],
     });
     for (const vp of VIEWPORTS) {
       console.log('[drv] 実プレイ計測: ' + vp.name + ' (' + vp.width + 'x' + vp.height + ')');
