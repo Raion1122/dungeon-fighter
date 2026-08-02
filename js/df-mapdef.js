@@ -554,6 +554,22 @@
   //    (例: r=7,c=24 → r*3-c = -3 → XOR 結果が負 → %5 も負)。
   function buildMapData(mapDef) {
     var d = mapDef || DEFAULT_DUNGEON;
+
+    /* ★Phase 3 項目2 — 自由タイル (焼き固め方式)。tiles があればそれが**唯一の幾何**。
+     *   rooms は「意味」(role / enemySlots / 除外部屋 / 1枚絵の入れ物) だけを担う。
+     *
+     * ⚠⚠ この早期 return は **map 初期化より前**に置く。位置で結果が変わる:
+     *   後ろに置くと ④ の帯マスク (flags.bandMask) が tiles にも掛かってしまう。
+     *   tiles があるとき帯マスクは**適用しない** (SPEC 項目2-3) = ここが唯一の実装点。
+     *
+     * ⚠⚠ expandTiles ではなく **expandTilesInfo** を使うこと。expandTiles は
+     *   「未指定」と「不正」の**両方**で null を返すので、`if (t) return t;` と書くと
+     *   両者が同じ経路に潰れて console.warn を出し分けられない
+     *   = SPEC が禁じた silent fail-open (「動くが別のマップ」) に逆戻りする。 */
+    var ti = expandTilesInfo(d);
+    if (ti.map) return ti.map;
+    if (ti.present) warnMapDef("tiles を展開できないため矩形生成へ落ちました: " + ti.reason);
+
     var W = (d.grid && d.grid.w) || GRID_W;
     var H = (d.grid && d.grid.h) || GRID_H;
     var map = [];
@@ -602,6 +618,38 @@
     var d = mapDef || DEFAULT_DUNGEON;
     var W = (d.grid && d.grid.w) || GRID_W, H = (d.grid && d.grid.h) || GRID_H;
     var c0 = W, c1 = -1, r0 = H, r1 = -1;
+
+    /* ★Phase 3 項目2 ⚠⚠ **隠れた本丸**。忘れると画面が黒帯になる。
+     *   tiles があるときの「使われている範囲」は rooms/corridors の外接矩形ではなく
+     *   **壁(2)以外のタイルの外接矩形**。rooms は意味しか担わないので、部屋の外に
+     *   描いた床は rooms からは永久に見えない = カメラのクランプが寄れず純黒が出る。
+     *
+     * ⚠ index.html:3371 付近の MAP_USED は **buildMap() より前**に定義されるので
+     *   mapData を待てない → ここで tiles を**もう一度展開する**。2016 タイルなので
+     *   コストは無視できる (計測不能な差)。
+     *
+     * ⚠ 展開できない tiles でも**ここでは console.warn を出さない** (silent ではない):
+     *   ・buildMapData が同じ判定で 1 行だけ警告を出す = 系全体としては黙っていない
+     *   ・validate() は code:"tiles-bad" を積み、lint はそれを error として表示する
+     *   ・mapUsed は map-editor.html:799 の render() から**毎フレーム**呼ばれるため、
+     *     ここで警告すると際限なく積もり、buildMapData の 1 行を埋もれさせる
+     *     (警告のスパムは警告を殺す)。両者は同じ矩形へ落ちるので不整合も起きない。 */
+    var tmap = expandTilesInfo(d).map;
+    if (tmap) {
+      for (var tr = 0; tr < tmap.length; tr++) {
+        var trow = tmap[tr];
+        if (!trow) continue;
+        for (var tc = 0; tc < trow.length; tc++) {
+          if (trow[tc] === T_WALL) continue;              // ★壁(2)以外 = 床(0) と レア床(1)
+          if (tr < r0) r0 = tr;  if (tr > r1) r1 = tr;
+          if (tc < c0) c0 = tc;  if (tc > c1) c1 = tc;
+        }
+      }
+      // ⚠ tiles が全部壁のときは既存の「該当なし」と同じ全面を返す (挙動を揃える)。
+      return (c1 >= c0 && r1 >= r0) ? { c0: c0, c1: c1, r0: r0, r1: r1 }
+                                    : { c0: 0, c1: W - 1, r0: 0, r1: H - 1 };
+    }
+
     var all = (d.rooms || []).map(function (r) { return r.rect; }).concat(d.corridors || []);
     for (var i = 0; i < all.length; i++) {
       var q = all[i]; if (!q) continue;
@@ -855,7 +903,9 @@
    *     { code, severity:"error"|"warning", message, at:[tx,ty]|null, roomIndex:int|null }
    *   codes: schema-invalid / boss-count / slot-on-wall / unreachable-room /
    *          unreachable-slot / no-trap-candidates          … error
-   *          no-enemies / no-boss-slot / painting-aspect / map-used / band-mask … warning
+   *          no-enemies / no-boss-slot / painting-aspect / map-used / band-mask /
+   *          field-theme-custom / enemy-unknown-key /
+   *          tiles-outside-rooms (★Phase 3 項目2)           … warning
    * ────────────────────────────────────────────────────────────────────────── */
 
   // index.html:2987 FIELD_THEMES の写し。屋外テーマだけ罠の起点ガード条件が変わる (19055)。
@@ -963,6 +1013,12 @@
     var W = d.grid.w, H = d.grid.h;
     var rooms = d.rooms;
     var map = buildMapData(d);
+    /* ★Phase 3 項目2: tiles が**実際に幾何として効いているか**。map と別に持つ理由は、
+     *   buildMapData の戻り値だけを見ても「tiles 由来」か「矩形由来」か区別できないため。
+     *   ⚠ sanitize は tiles の中身を検査せず clone するだけ (非オブジェクトは null に潰す) なので、
+     *     壊れた tiles はここで map:null になり、矩形由来の map と組み合わさる = 下の検査は動かない。
+     *     その場合の通知は validate(src) の tiles-bad (上で error 済み) が担当する。 */
+    var tinfo = expandTilesInfo(d);
     var isField = !!FIELD_THEME_IDS[d.themeId];
     var startTx = d.start.tx, startTy = d.start.ty;
 
@@ -1122,11 +1178,66 @@
            " / row " + mu.r0 + "-" + mu.r1 + ") の外にあります — カメラのクランプ外なので開始直後の画面が黒帯になります",
            [startTx, startTy], null);
 
+    /* ── ★Phase 3 項目2: 部屋 (rooms) の外に描いた床 ─────────────────────────────
+     *  「焼き固め方式」では **tiles = 幾何 / rooms = 意味** に分離する。ブラシで部屋の外に
+     *  床を描いても、その床は rooms からは見えない = 部屋に紐づく仕掛けが一切乗らない。
+     *  これは仕様どおりの動作なので **warning** (error ではない。卓用マップとしては正当)。
+     *
+     *  ⚠⚠ 文面は必ず実コードで裏取りしてから書く。「罠も宝箱も湧きません」は**嘘になる**
+     *    (2026-08-02 に index.html を実読して確認):
+     *      spawnRoomChests (18073) … ROOMS だけを走査           → 部屋の外には出ない ✔
+     *      敵 (enemySlots / bossSlot) … 部屋が持つ宣言           → 部屋の外には出ない ✔
+     *      1枚絵 / 情景 / visitedRooms … すべて rooms の矩形基準  → 部屋の外には及ばない ✔
+     *      spawnTraps (19199) / spawnHiddenChests (18112) /
+     *      spawnExplorationChests (18183) … **mapData 全面**を走査して値0の床を拾う
+     *                                        → 部屋の外の床(0)にも普通に湧く ✘
+     *    嘘をつく lint は読まれなくなり装置として死ぬので、ここは事実だけを書く。
+     *  ⚠ 値1のレア床は元仕様 (`mapData[r][c] !== 0` で continue) により罠/宝箱の候補にならない。
+     *    「歩ける ≠ 候補になる」を混同しないよう内訳を出す。 */
+    if (tinfo.map) {
+      var nOut0 = 0, nOut1 = 0, firstOut = null, oRow, oCol, oVal, covered, boxes = [];
+      for (i = 0; i < rooms.length; i++) boxes.push(rooms[i].rect);
+      for (i = 0; i < d.corridors.length; i++) boxes.push(d.corridors[i]);
+      for (oRow = 0; oRow < H; oRow++) {
+        for (oCol = 0; oCol < W; oCol++) {
+          oVal = map[oRow][oCol];
+          if (oVal === T_WALL) continue;                       // 壁は「描いた床」ではない
+          covered = false;
+          for (j = 0; j < boxes.length; j++) {
+            var bx = boxes[j];
+            if (oRow >= bx[0] && oRow <= bx[2] && oCol >= bx[1] && oCol <= bx[3]) { covered = true; break; }
+          }
+          if (covered) continue;
+          if (oVal === T_RARE) nOut1++; else nOut0++;
+          if (!firstOut) firstOut = [oCol, oRow];              // at は [tx, ty] = [列, 行]
+        }
+      }
+      if (nOut0 + nOut1 > 0)
+        warn("tiles-outside-rooms",
+             "部屋 (rooms) にも廊下 (corridors) にも含まれない床を " + (nOut0 + nOut1) +
+             " タイル描いています (床0 = " + nOut0 + " / レア床1 = " + nOut1 + ") — " +
+             "自由タイルでは tiles が幾何、rooms は意味 (敵スロット / 除外部屋 / 1枚絵・情景 / " +
+             "visitedRooms によるクリア判定) を担うため、部屋の矩形の外には " +
+             "**敵も玄室宝箱も1枚絵も置かれず、探索の進捗にも数えられません**。" +
+             "そこを「意味のある場所」にするなら、覆う部屋を足してください " +
+             "(罠と隠し/探索宝箱だけは床の値0を全面走査するので部屋の外にも湧きます。" +
+             "レア床1にすればそれも対象外になります)",
+             firstOut, null);
+    }
+
     // ── 屋外の帯マスク (計画書 落とし穴⑤: 最悪の組合せ) ────────────────────────
     //  bandMask ON は row 13-15 以外の**全行を壁へ潰す** (index.html:3323-3328)。
     //  カスタム幾何を描いたのに ON のままだと、描いた部屋が丸ごと消える。
     //  ⚠ 屋外プリセットは意図してこの状態なので**警告**に留める (エラーにしない)。
-    if (d.flags.bandMask) {
+    //  ★Phase 3 項目2: tiles があるとき buildMapData は帯マスクを**適用しない**ので、
+    //    「潰されます」は嘘になる。分岐して「このフラグは効いていない」と伝える。
+    if (d.flags.bandMask && tinfo.map) {
+      warn("band-mask",
+           "屋外の帯マスク (bandMask) が ON ですが、自由タイル (tiles) があるため**適用されません** — " +
+           "自由タイルでは tiles が唯一の幾何なので、row " + BAND_TOP_ROW + "-" + BAND_BOTTOM_ROW +
+           " 以外の行も壁に潰されません。このフラグは現在なにも効いていないため OFF にして構いません",
+           null, null);
+    } else if (d.flags.bandMask) {
       var lost = 0, all = [], k2;
       for (i = 0; i < rooms.length; i++) all.push(rooms[i].rect);
       for (i = 0; i < d.corridors.length; i++) all.push(d.corridors[i]);
@@ -1211,6 +1322,17 @@
     clone: clone,
     sanitize: sanitize,
     validate: validate,
+    /* ── 幾何の生成 ★Phase 3 項目2 で tiles 対応済み ────────────────────────────
+     *   buildMapData(mapDef) … tiles があればそれを返す (= 唯一の幾何)。無ければ従来どおり
+     *                          rooms/corridors から矩形生成し、最後に flags.bandMask を掛ける。
+     *                          ⚠ tiles があるとき **bandMask は適用されない**
+     *                          ⚠ tiles があるのに展開できないときだけ console.warn を 1 行出す
+     *                             (未指定では出さない = 「常に警告」と区別できる)
+     *   mapUsed(mapDef)      … tiles があれば **壁(2)以外の外接矩形**、無ければ rooms+corridors
+     *                          の外接矩形。⚠⚠ ここを tiles 対応にし忘れると、部屋の外に描いた
+     *                          床がカメラのクランプ外になり**画面が黒帯**になる (隠れた本丸)。
+     *                          ⚠ 展開できない tiles でもここは警告しない (render から毎フレーム
+     *                             呼ばれるため。通知は buildMapData と validate が担当する) */
     buildMapData: buildMapData,
     mapUsed: mapUsed,
 
