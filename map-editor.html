@@ -72,6 +72,19 @@
        **PNG には焼き込まれない**。render() を流用している構造なのでここが最も踏みやすい。
   　試遊ボタンは Phase 2 で積む。
 
+  ■ Phase 3 項目4 で足した範囲 — 自由タイルのブラシ (焼き固め方式)
+    - ツール 2種を追加: 「タイルを塗る」(brush) / 「塗りつぶし」(fill)
+      = TOOLS 配列に 2 行 + dragBeginTile() に分岐 1 つ。HTML/CSS の既存要素は無改修
+    - タイル値パレット 床0 / レア床1 / 壁2 (= 消しゴム) + ブラシ 1×1 / 3×3 / 5×5
+    - 「🟩 自由タイル ON ／[矩形に戻す]」バッジを編集バーに**常設**
+    ★★ 焼き固め方式 (ユーザー決定): ブラシの**一筆目**で現在の矩形から
+      encodeTiles(buildMapData(mapDef)) を作って mapDef.tiles に固定する。
+      以後 **tiles = 幾何 / rooms = 意味** に分離され、部屋を動かしても床は動かない。
+    ⚠⚠ 1 ストローク = undo 1 段 (dragBeginTile の snapshot を dragEndTile が 1 回積む)。
+    ⚠ ドラッグ中は前回位置と今回位置を**線形補間**する (mousemove の間引きで穴が空く罠)。
+    ⚠ ブラシのプレビューを canvas に描かないこと。exportPNG() に焼き込まれるうえ、
+      exportPNG() 自体が --mutate keepsel / lintpng の置換文字列に刺さっていて触れない。
+
   ■ 左ドラッグの意味が項目1 から変わっている (意図的)
     項目1: 左ドラッグ = 常にパン
     項目2: 左ドラッグ = 現在のツール。**掴む物が無いときだけパンへ委譲**する。
@@ -136,6 +149,25 @@
     background: var(--accent); color: #0e0f13; border-color: var(--accent); font-weight: 700;
   }
   #selInfo { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+  /* ── 自由タイルのバッジ + ブラシ設定 (Phase 3 項目4) ─────────────────────
+     ★「床が動かない」ことを画面で明示するのが目的なので**常設**する
+       (tiles が無いときも OFF として出す = 「今どちらのモードか」が常に読める)。
+     ⚠ ここは DOM だけ。canvas には 1px も描かない (render() に描いた物は何であれ
+       exportPNG に焼き込まれる = Phase 0 からの既知の罠)。 */
+  #tileBadge {
+    display: inline-block; border-radius: 999px; padding: 1px 11px; font-weight: 700;
+    border: 1px solid var(--line); color: var(--fg-dim); background: #14161c; white-space: nowrap;
+  }
+  #tileBadge.on  { color: #d2ffe2; background: #1c3b2a; border-color: #2f6a49; }
+  #tileBadge.bad { color: #ffd0d0; background: #4a1f22; border-color: #7a3338; }
+  #tileBrushInfo { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+  #editbar button#btnEraser.on {
+    background: var(--accent); color: #0e0f13; border-color: var(--accent); font-weight: 700;
+  }
+  /* 塗りツールのときはカーソルを変える。★プレビュー枠を canvas に描かない代わりの合図
+     (描くと exportPNG に焼き込まれ、しかも exportPNG は触ってはいけない = 変異文字列が刺さっている)。 */
+  #editorCanvas.painting { cursor: crosshair; }
 
   /* ── lint バー / lint 一覧パネル (項目5) ─────────────────────── */
   #lintbar { background: var(--panel-2); padding: 6px 12px; }
@@ -392,6 +424,26 @@
   <div id="editbar">
     <span id="toolBtns"></span>
     <span class="sep"></span>
+    <!-- ★Phase 3 項目4: 自由タイル (焼き固め方式) のバッジ + ブラシ設定。
+         バッジは **tiles の有無に関わらず常設** = 「今この地図の床は矩形から作られているのか、
+         それとも焼き固め済みで部屋を動かしても動かないのか」が画面から常に読める。 -->
+    <span id="tileBadge" title="ブラシで塗ると、その一筆目で現在の部屋・廊下からタイルが焼き固められます。以後はタイルが唯一の幾何になり、部屋を動かしても床は動きません (部屋は敵スロット・除外部屋・1枚絵などの「意味」を担います)">⬜ 自由タイル OFF</span>
+    <button id="btnUnbake" disabled title="自由タイル (tiles) を捨てて、部屋と廊下の矩形から地形を作り直す。↶ 元に戻す で戻せます">矩形に戻す</button>
+    <label for="tileValSel" title="ブラシで書き込むタイル値。レア床(1)は歩けますが罠/宝箱の候補にはなりません">タイル</label>
+    <select id="tileValSel">
+      <option value="0">床 (0)</option>
+      <option value="1">レア床 (1)</option>
+      <option value="2">壁 (2)</option>
+    </select>
+    <button id="btnEraser" title="消しゴム = 壁(2) を書く筆に切り替える">🧽 消しゴム</button>
+    <label for="tileSizeSel" title="ブラシ 1辺のタイル数 (1×1 / 3×3 / 5×5)">筆の太さ</label>
+    <select id="tileSizeSel">
+      <option value="1">1×1</option>
+      <option value="3">3×3</option>
+      <option value="5">5×5</option>
+    </select>
+    <span id="tileBrushInfo"></span>
+    <span class="sep"></span>
     <label for="aspectSel" title="1枚絵の在庫は 山場20×16(5:4) / ボス22×18(11:9) しかない。ON にするとサイズ固定で位置だけ決まる">比率スナップ</label>
     <select id="aspectSel">
       <option value="">なし</option>
@@ -550,7 +602,13 @@
     { key: "start",     label: "起点",          hint: "クリックで起点 (mapDef.start) を置く。マップに 1 つだけ・削除不可" },
     { key: "enemySlot", label: "敵スロット",    hint: "クリックで敵スロットを置く。**部屋の中にのみ**置ける (room.enemySlots へ入る)" },
     { key: "bossSlot",  label: "ボススロット",  hint: 'クリックでボススロットを置く。role:"boss" の部屋の中だけ・マップに 1 つ' },
+    // ── Phase 3 項目4: 自由タイル (焼き固め方式)。★TOOLS に 2 行 + dragBeginTile に分岐だけ ──
+    { key: "brush",     label: "タイルを塗る",  hint: "ドラッグで 1 マスずつ地形を塗る。**一筆目で現在の部屋・廊下から tiles を焼き固める**ので、以後は部屋を動かしても床は動かない" },
+    { key: "fill",      label: "塗りつぶし",    hint: "クリックした地点と同じ値の連結領域を塗りつぶす (値が違うタイル = 壁は越えない)" },
   ];
+  // 自由タイルを書くツール (dragBeginTile / setTool のカーソルでまとめて分岐する)
+  var PAINT_TOOLS = { brush: 1, fill: 1 };
+  function isPaintTool(k) { return !!PAINT_TOOLS[k]; }
   var SLOT_TOOLS = { start: 1, enemySlot: 1, bossSlot: 1 };
   function isSlotTool(k) { return !!SLOT_TOOLS[k]; }
   var TOOL_KEYS = TOOLS.map(function (t) { return t.key; });
@@ -605,6 +663,10 @@
     // ★項目3 から実際に配置へ効く: placeSlotInternal() が brushSlot() 経由でこの値を見て
     //   [tx,ty] (おまかせ) / [tx,ty,key] (種類固定) を出し分ける。
     enemyBrush: null,
+    // ── Phase 3 項目4 (自由タイル ブラシ) で追加 ──
+    // ★enemyBrush (敵の筆) とは**別の器**。名前が似ているだけで用途が違うので混ぜない。
+    tileValue: 0,          // ブラシで書き込むタイル値 0=床 / 1=レア床 / 2=壁 (=消しゴム)
+    tileSize: 1,           // ブラシ 1辺のタイル数 (1 / 3 / 5)
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -630,6 +692,13 @@
     btnZoomIn:  document.getElementById("btnZoomIn"),
     btnZoomOut: document.getElementById("btnZoomOut"),
     toolBtns:   document.getElementById("toolBtns"),
+    // ── Phase 3 項目4 (自由タイル) ──
+    tileBadge:     document.getElementById("tileBadge"),
+    btnUnbake:     document.getElementById("btnUnbake"),
+    tileValSel:    document.getElementById("tileValSel"),
+    btnEraser:     document.getElementById("btnEraser"),
+    tileSizeSel:   document.getElementById("tileSizeSel"),
+    tileBrushInfo: document.getElementById("tileBrushInfo"),
     aspectSel:  document.getElementById("aspectSel"),
     roleSel:    document.getElementById("roleSel"),
     btnDelete:  document.getElementById("btnDelete"),
@@ -1613,6 +1682,208 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
+   * 自由タイル ブラシ (Phase 3 項目4) — 焼き固め方式
+   * ══════════════════════════════════════════════════════════════════════
+   * ★★ 確定した設計方針 (ユーザー決定・蒸し返さない):
+   *   **ブラシの一筆目で、現在の矩形 (rooms/corridors) から tiles を生成して固定する。**
+   *   以後 tiles が唯一の幾何で、rooms は「意味」だけを担う
+   *   (role / enemySlots / bossSlot / 除外部屋 / 1枚絵・情景 / visitedRooms)。
+   *   → **部屋を動かしても床は動かない。** これが「焼き固め」の定義そのもの。
+   *   却下案① 下地+上書き差分 … 部屋を動かした後に何が残るか予測不能。スキーマからも外れる
+   *   却下案② 焼き固め+矩形ツール封印 … 事故ゼロだが既存の編集感が大きく変わる
+   *
+   * ★不変条件 (壊すと必ず事故る):
+   *   - 焼き固めは **DFMapDef.encodeTiles(DFMapDef.buildMapData(現mapDef))** ただ 1 式。
+   *     ここで自前に地形を作り直すと「エディタで見えている絵」と「焼き固めた床」が
+   *     食い違う (帯マスクの適用有無で実際にズレる)。
+   *   - ⚠⚠ **1 ストローク = 1 undo**。pushHistory は dragBeginTile が取った snapBefore を
+   *     dragEndTile が 1 回だけ積む。1 タイル 1 段にすると **一筆で 50 段の履歴が全部飛ぶ**。
+   *   - ⚠ **ドラッグ中は点を線形補間する** (paintSegment)。pointermove / mousemove は
+   *     間引かれるので、速く動かすと点線状に穴が空く古典的な罠。
+   *   - ⚠ tiles が**あるのに壊れている**ときは塗らずに理由を出す (fail-closed)。
+   *     壊れた tiles を黙って矩形から作り直すと、直したつもりが別の地形になる。
+   *   - ⚠ canvas にブラシのプレビューを描かないこと。render() に描いた物は何であれ
+   *     exportPNG() に焼き込まれ、しかも exportPNG() は**触ってはいけない**
+   *     (tools/driver_mapeditor.js の --mutate keepsel / lintpng の置換文字列が
+   *      あの 2 行に逐語で刺さっており、行を足すと両方が同時に自己失効して exit 3)。
+   *     → 合図は canvas の cursor (CSS) と #tileBrushInfo (DOM) が担当する。
+   * ────────────────────────────────────────────────────────────────────── */
+
+  var TILE_VALUES = [0, 1, 2];              // 床 / レア床 / 壁 (=消しゴム)
+  var TILE_SIZES  = [1, 3, 5];
+  var TILE_VAL_LABEL = { 0: "床(0)", 1: "レア床(1)", 2: "壁(2)＝消しゴム" };
+  var TILE_REASON = {
+    broken:  "自由タイル (tiles) が壊れているため塗れません — ",
+    encode:  "現在の地形を自由タイル (tiles) へ変換できませんでした (grid と地形の大きさが違います)",
+    noTiles: "自由タイル (tiles) はまだありません (「タイルを塗る」で塗ると作られます)",
+    outside: "マップの外は塗れません",
+  };
+
+  /* 現在の mapDef の tiles を **書き換え可能な 2 次元配列**として得る。
+   *   tiles が無い → ここで焼き固める (= 一筆目)。tiles が壊れている → null + 理由。
+   * ⚠ 戻り値は呼び出し側が破壊的に書き換えてよい。expandTilesInfo は毎回新しい配列を作る。 */
+  function beginTilePaint() {
+    var ti = M.expandTilesInfo(state.mapDef);
+    if (ti.map) { state.lastReason = null; return ti.map; }
+    if (ti.present) { state.lastReason = TILE_REASON.broken + ti.reason; return null; }
+    // ★焼き固め: いま画面に見えている地形 (帯マスク込み) をそのまま tiles にする
+    var map = M.buildMapData(state.mapDef);
+    if (!commitTilePaint(map)) return null;
+    state.lastReason = null;
+    return map;
+  }
+
+  /* 2 次元配列を mapDef.tiles へ書き戻す。★履歴は積まない (1 ストローク = 1 undo のため)。 */
+  function commitTilePaint(map) {
+    var enc = M.encodeTiles(map);
+    if (!enc) { state.lastReason = TILE_REASON.encode; return false; }
+    state.mapDef.tiles = enc;
+    return true;
+  }
+
+  /* ブラシ 1 打点。size×size の正方形をマップ内へ**クランプ**して塗る
+     (はみ出した分は塗らないだけ = 反対側へ回り込ませない)。戻りは実際に塗ったタイル数。 */
+  function paintDab(map, tx, ty, val, size) {
+    var g = state.mapDef.grid, half = (size - 1) >> 1, n = 0, dx, dy, x, y;
+    for (dy = -half; dy <= half; dy++) {
+      y = ty + dy;
+      if (y < 0 || y >= g.h) continue;
+      for (dx = -half; dx <= half; dx++) {
+        x = tx + dx;
+        if (x < 0 || x >= g.w) continue;
+        map[y][x] = val; n++;
+      }
+    }
+    return n;
+  }
+
+  /* ⚠ ドラッグの線形補間 (Bresenham)。前回位置と今回位置を**線で結んで**塗る。
+     これが無いと、速いドラッグで mousemove が間引かれた分だけ点線状の穴が空く。 */
+  function paintSegment(map, x0, y0, x1, y1, val, size) {
+    var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    var err = dx + dy, e2, n = 0, guard = 0;
+    for (;;) {
+      n += paintDab(map, x0, y0, val, size);
+      if ((x0 === x1 && y0 === y1) || ++guard > 4096) break;   // guard = 無限ループの保険
+      e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x0 += sx; }
+      if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    return n;
+  }
+
+  /* 塗りつぶし (4近傍 flood fill)。クリックしたタイルと**同じ値**の連結領域だけを塗る。
+     ⚠ 値が違うタイルは越えない = 床(0) を塗りつぶしても壁(2) を突き抜けない。
+     ⚠ レア床(1) は床(0) とは別の値なので境界になる (見た目は床でも値が違う)。 */
+  function floodFillTiles(map, tx, ty, val) {
+    var g = state.mapDef.grid, W = g.w, H = g.h;
+    if (tx < 0 || tx >= W || ty < 0 || ty >= H) { state.lastReason = TILE_REASON.outside; return 0; }
+    var from = map[ty][tx];
+    if (from === val) return 0;                       // 同じ値 = 塗る物がない (無限ループ防止も兼ねる)
+    var seen = new Uint8Array(W * H), stack = [tx, ty], n = 0, x, y;
+    seen[ty * W + tx] = 1;
+    while (stack.length) {
+      y = stack.pop(); x = stack.pop();
+      map[y][x] = val; n++;
+      if (x > 0     && !seen[y * W + x - 1] && map[y][x - 1] === from) { seen[y * W + x - 1] = 1; stack.push(x - 1, y); }
+      if (x < W - 1 && !seen[y * W + x + 1] && map[y][x + 1] === from) { seen[y * W + x + 1] = 1; stack.push(x + 1, y); }
+      if (y > 0     && !seen[(y - 1) * W + x] && map[y - 1][x] === from) { seen[(y - 1) * W + x] = 1; stack.push(x, y - 1); }
+      if (y < H - 1 && !seen[(y + 1) * W + x] && map[y + 1][x] === from) { seen[(y + 1) * W + x] = 1; stack.push(x, y + 1); }
+    }
+    return n;
+  }
+
+  // ── 公開版 (履歴 1 段。ブラシは dragBeginTile/dragEndTile が積むのでここには来ない) ──
+  /* 明示的な焼き固め。ブラシを引かずにモードだけ切り替えたいとき用 (UI からは呼ばないが
+     ドライバと将来のボタンのために公開する)。戻り true = tiles が新しく生えた。 */
+  function bakeTiles() {
+    if (M.hasTiles(state.mapDef)) {
+      var ti = M.expandTilesInfo(state.mapDef);
+      if (!ti.map) { state.lastReason = TILE_REASON.broken + ti.reason; updateHud(); return false; }
+      return false;                                   // 既に焼き固め済み = 何もしない
+    }
+    var before = snapshot();
+    if (!beginTilePaint()) { updateHud(); return false; }
+    pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return true;
+  }
+
+  /* 「矩形に戻す」= tiles を捨てて rooms/corridors からの生成へ戻す。★undo で戻せる。
+     ⚠ rooms は元から生きている (tiles があっても消していない) ので、捨てるだけで戻る。 */
+  function clearTiles() {
+    if (!M.hasTiles(state.mapDef)) {
+      state.lastReason = TILE_REASON.noTiles; updateHud(); return false;
+    }
+    var before = snapshot();
+    state.mapDef.tiles = null;
+    state.lastReason = null;
+    pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return true;
+  }
+
+  // ── ブラシ設定 ────────────────────────────────────────────────────────
+  function setTileBrushValue(v) {
+    var n = (v === null || v === undefined) ? NaN : parseInt(v, 10);
+    if (TILE_VALUES.indexOf(n) >= 0) state.tileValue = n;
+    syncTileBrushUI();
+    return state.tileValue;
+  }
+  function setTileBrushSize(v) {
+    var n = (v === null || v === undefined) ? NaN : parseInt(v, 10);
+    if (TILE_SIZES.indexOf(n) >= 0) state.tileSize = n;
+    syncTileBrushUI();
+    return state.tileSize;
+  }
+
+  /* 検証シーム / バッジ用の要約。★DOM の文言も一緒に返す
+     = 「値は正しいのに画面に出ていない」をドライバが検出できる。 */
+  function tilesInfo() {
+    var ti = M.expandTilesInfo(state.mapDef);
+    var t = state.mapDef.tiles;
+    var data = (t && typeof t.data === "string") ? t.data : null;
+    return {
+      present: ti.present, ok: !!ti.map, reason: ti.reason,
+      enc: (t && typeof t === "object") ? (t.enc || null) : null,
+      chars: data ? data.length : 0,
+      runs: data ? (data ? data.split(",").length : 0) : 0,
+      value: state.tileValue, size: state.tileSize,
+      badge: el.tileBadge.textContent,
+      badgeOn: el.tileBadge.classList.contains("on"),
+      badgeBad: el.tileBadge.classList.contains("bad"),
+      brushInfo: el.tileBrushInfo.textContent,
+      unbakeDisabled: el.btnUnbake.disabled,
+    };
+  }
+
+  // ── UI 同期 (syncEditUI から毎回呼ばれる) ─────────────────────────────
+  function syncTileBadge() {
+    var ti = M.expandTilesInfo(state.mapDef);
+    var t = state.mapDef.tiles;
+    var chars = (t && typeof t.data === "string") ? t.data.length : 0;
+    if (!ti.present) {
+      el.tileBadge.textContent = "⬜ 自由タイル OFF";
+      el.tileBadge.classList.remove("on"); el.tileBadge.classList.remove("bad");
+    } else if (ti.map) {
+      el.tileBadge.textContent = "🟩 自由タイル ON (" + chars + " 文字)";
+      el.tileBadge.classList.add("on"); el.tileBadge.classList.remove("bad");
+    } else {
+      el.tileBadge.textContent = "⚠ 自由タイルが壊れています";
+      el.tileBadge.classList.remove("on"); el.tileBadge.classList.add("bad");
+    }
+    el.btnUnbake.disabled = !ti.present;
+  }
+  function syncTileBrushUI() {
+    el.tileValSel.value = String(state.tileValue);
+    el.tileSizeSel.value = String(state.tileSize);
+    el.btnEraser.classList.toggle("on", state.tileValue === M.T_WALL);
+    el.tileBrushInfo.textContent = "筆: " + (TILE_VAL_LABEL[state.tileValue] || state.tileValue) +
+                                   " / " + state.tileSize + "×" + state.tileSize;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
    * 入出力モデル (項目4) — JSON / localStorage / PNG
    * ══════════════════════════════════════════════════════════════════════
    * ★不変条件 (壊すと Phase 2 で壊れた mapDef がゲームへ流れる):
@@ -1981,6 +2252,26 @@
       return true;
     }
 
+    /* ── 自由タイル ブラシ (Phase 3 項目4) ────────────────────────────────
+     * ⚠⚠ pushHistory はここでは積まない。before は上で 1 回だけ取ってあり、
+     *   dragEndTile が **1 ストローク = 1 段**として積む。1 タイル 1 段にすると
+     *   undo が 50 段しかないので一筆で履歴が全部飛ぶ。
+     * ⚠ 一筆目で beginTilePaint() が現在の矩形から tiles を焼き固める (= 焼き固め方式)。
+     *   tiles が壊れているときは塗らずに false を返す (理由は HUD と lastReason に残る)。 */
+    if (isPaintTool(state.tool)) {
+      var pmap = beginTilePaint();
+      if (!pmap) { rebuildAndRender(); syncEditUI(); return false; }   // 理由付きでパンへ委譲
+      if (state.tool === "fill") floodFillTiles(pmap, t.tx, t.ty, state.tileValue);
+      else paintDab(pmap, t.tx, t.ty, state.tileValue, state.tileSize);
+      commitTilePaint(pmap);
+      drag = { mode: "paint", sel: null, orig: null, t0: { tx: t.tx, ty: t.ty },
+               hx: 0, hy: 0, snapBefore: before, map: pmap,
+               last: { tx: t.tx, ty: t.ty } };
+      state.dragMode = "paint";
+      rebuildAndRender(); syncEditUI();
+      return true;
+    }
+
     // 選択/移動ツール: 選択中ならまずハンドル、次に前面の矩形を拾う
     var sel2 = state.selection;
     var grab = sel2 ? grabOf(rectOf(sel2), t.tx, t.ty) : null;
@@ -2006,6 +2297,25 @@
     // スロットのドラッグ移動 (項目3)。拒否されたら**動かさない**だけ = 直前の位置に留まる。
     // 履歴はドラッグ全体で 1 段 (dragEndTile の pushHistory)。
     if (drag.mode === "slot") { moveSlotInternal(t.tx, t.ty); rebuildAndRender(); syncEditUI(); return; }
+
+    /* 自由タイル ブラシ (Phase 3 項目4)。
+     * ⚠ **前回位置と今回位置を線で結ぶ** (paintSegment)。mousemove は間引かれるので、
+     *   ここを単発の paintDab にすると速いドラッグで点線状の穴が空く。
+     * ⚠ 塗りつぶし (fill) はドラッグしない = 押した 1 点で完結する。 */
+    if (drag.mode === "paint") {
+      if (state.tool !== "fill") {
+        // ⚠ マップ外へ出た座標は端へクランプしてから線を引く。素通しすると
+        //   遠い点まで Bresenham が走って保険 (guard) で線が途中で切れ、
+        //   さらに drag.last が場外に残って戻ってきた時に線が繋がらなくなる。
+        var pg = state.mapDef.grid;
+        var pxx = clamp(t.tx, 0, pg.w - 1), pyy = clamp(t.ty, 0, pg.h - 1);
+        paintSegment(drag.map, drag.last.tx, drag.last.ty, pxx, pyy, state.tileValue, state.tileSize);
+        drag.last = { tx: pxx, ty: pyy };
+        commitTilePaint(drag.map);
+      }
+      rebuildAndRender(); syncEditUI();
+      return;
+    }
 
     var g = state.mapDef.grid, o = drag.orig, rect;
     var dtx = t.tx - drag.t0.tx, dty = t.ty - drag.t0.ty;
@@ -2077,6 +2387,8 @@
     state.tool = name;
     state.lastReason = null;      // 前のツールの拒否理由を残さない (項目3)
     state.lastNotice = null;      // 同じ理由で成功通知も持ち越さない (項目4)
+    // ★Phase 3 項目4: 塗りツールの合図はカーソルだけ (canvas には 1px も描かない)
+    canvas.classList.toggle("painting", isPaintTool(state.tool));
     syncEditUI(); render(); updateHud();
     return state.tool;
   }
@@ -2095,6 +2407,8 @@
     el.btnUndo.disabled = history.undo.length === 0;
     el.btnRedo.disabled = history.redo.length === 0;
     el.aspectSel.value = state.aspectSnap || "";
+    // ★Phase 3 項目4: 自由タイルのバッジは**編集のたび**追随させる (ここが唯一の同期点)
+    syncTileBadge(); syncTileBrushUI();
     if (!sel) { el.selInfo.textContent = slotInfoText(); return; }
     var r = rectOf(sel);
     if (!r) { el.selInfo.textContent = slotInfoText(); return; }
@@ -2415,6 +2729,12 @@
   //   (バッジは常に最新 = 「チェックを押し忘れて壊れたまま出発する」が起きない)。
   el.btnLint.addEventListener("click", function () { lint(); setLintPanelOpen(!state.lintPanelOpen); });
   el.btnLintClose.addEventListener("click", function () { setLintPanelOpen(false); });
+
+  // ── 自由タイル配線 (Phase 3 項目4) ────────────────────────────────────
+  el.btnUnbake.addEventListener("click", function () { clearTiles(); });
+  el.tileValSel.addEventListener("change", function () { setTileBrushValue(el.tileValSel.value); });
+  el.btnEraser.addEventListener("click", function () { setTileBrushValue(M.T_WALL); });
+  el.tileSizeSel.addEventListener("change", function () { setTileBrushSize(el.tileSizeSel.value); });
 
   el.aspectSel.addEventListener("change", function () { setAspectSnap(el.aspectSel.value); });
   el.roleSel.addEventListener("change", function () { setRole(el.roleSel.value); });
@@ -2878,7 +3198,7 @@
    *   DOM: #slotTip (.on = 表示中。★DIV であって canvas ではない) / #palSlot (選択中スロットの敵種)
    */
   window.__mapEditor = {
-    version: 9,
+    version: 10,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -2947,6 +3267,32 @@
     playMap: playMap,
     buildPlayPayload: function (d) { return buildPlayPayload(d); },
     PLAY_SS_KEY: PLAY_SS_KEY,
+    /* ── Phase 3 項目4 (自由タイル ブラシ / 焼き固め方式) ────────────────────────
+     *   ★ツールは TOOLS に "brush" (塗る) と "fill" (塗りつぶし) が増えている。
+     *     どちらも **setTool + dragTile** で叩ける (ハンドル当たり判定と同じタイル単位)。
+     *       E.setTool('brush'); E.dragTile([10,10], [20,10]);   ← 線形補間で間も塗られる
+     *   ★一筆目で **encodeTiles(buildMapData(現mapDef))** が走り mapDef.tiles が生える
+     *     (= 焼き固め)。以後 tiles が唯一の幾何なので、部屋を動かしても床は動かない。
+     *   ⚠⚠ 1 ストローク = **undo 1 段**。dragBeginTile が取った snapshot を
+     *     dragEndTile が 1 回だけ積む (1 タイル 1 段にすると一筆で 50 段が飛ぶ)。
+     *
+     *   setTileBrushValue(v) … 0=床 / 1=レア床 / 2=壁(=消しゴム)。不正値は無視して現状維持
+     *   setTileBrushSize(n)  … 1 | 3 | 5 (一辺のタイル数 = 1/9/25 タイル。境界でクランプ)
+     *   getTileBrush()       … { value, size }
+     *   bakeTiles()          … 明示的な焼き固め (ブラシの一筆目と同じ式)。戻り true=生えた
+     *   clearTiles()         … 「矩形に戻す」= tiles を捨てる。★undo で戻せる
+     *   tilesInfo()          … { present, ok, reason, enc, chars, runs, value, size,
+     *                            badge, badgeOn, badgeBad, brushInfo, unbakeDisabled }
+     *                          ★badge* は **DOM の実測** = 「値は合っているが画面に出ていない」を検出できる
+     *   DOM: #tileBadge (.on = 自由タイル ON / .bad = 壊れている) / #btnUnbake /
+     *        #tileValSel / #btnEraser (.on = 壁を書く筆) / #tileSizeSel / #tileBrushInfo
+     *        #editorCanvas.painting (塗りツール中のカーソル) */
+    setTileBrushValue: setTileBrushValue,
+    setTileBrushSize: setTileBrushSize,
+    getTileBrush: function () { return { value: state.tileValue, size: state.tileSize }; },
+    bakeTiles: bakeTiles,
+    clearTiles: clearTiles,
+    tilesInfo: tilesInfo,
   };
 })();
 </script>

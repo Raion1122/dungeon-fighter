@@ -604,8 +604,11 @@ function extractEnemyCatalogNode() {
         ['SCHEMA', 'DEFAULT_DUNGEON', 'DEFAULT_FIELD', 'clone', 'sanitize', 'validate',
          'buildMapData', 'lintMapDef', 'bossRoomIdx', 'slotsOf', 'objectiveCount'].every(k => seam.mapDefKeys.includes(k)),
         JSON.stringify(seam.mapDefKeys));
-  check('§0 0-5 ツール 6 種 + 比率スナップ 2 種が揃っている',
-        eq(seam.tools, ['select', 'room', 'corridor', 'start', 'enemySlot', 'bossSlot']) &&
+  /* ⚠ アンカー追随 (Phase 3 項目4): TOOLS に自由タイルの brush / fill が増えた。
+   *   ★assert は緩めない = ここは今も**完全一致**であり、並び順も含めて固定する
+   *     (ツールが黙って消える / 順番が入れ替わる = 数字キー 1..N の割当が変わる を検出する)。 */
+  check('§0 0-5 ツール 8 種 (矩形3 + スロット3 + 自由タイル2) + 比率スナップ 2 種が揃っている',
+        eq(seam.tools, ['select', 'room', 'corridor', 'start', 'enemySlot', 'bossSlot', 'brush', 'fill']) &&
         !!seam.snapDims.climax && !!seam.snapDims.boss,
         JSON.stringify(seam.tools) + ' ' + JSON.stringify(seam.snapDims));
   check('§0 0-6 エディタの帯row とタイル値が index.html と一致 (帯 13-15 / 床0 レア1 壁2)',
