@@ -2664,6 +2664,59 @@ function extractEnemyCatalogNode() {
         'opt={} の warn=' + JSON.stringify(lk6.optNoKey.warn));
 
   // ══════════════════════════════════════════════════════════════════════════
+  // §7 file:// で直開きしたときの案内 (2026-08-02 追加)
+  // ══════════════════════════════════════════════════════════════════════════
+  /* ⚠ 実話ベースの節。ユーザーが map-editor.html を file:// で直開きし、
+   *   `⚠ 敵カタログを読めません (Failed to fetch)` だけを見て
+   *   **「試遊版だから敵を配置できないのだろう」と誤解した**。退化した状態を「仕様」と
+   *   思わせるのは無言の失敗と同じくらい悪いので、原因と直し方を名指しする文言に変えた。
+   * ⚠⚠ **専用の新規ページで開く**。file:// ではカタログの fetch が必ず失敗して console.error が
+   *   出るので、共有の errs に混ぜると §9「全セクション通算 0 件」が巻き添えで落ちる。
+   * ⚠ 負のコントロール (7f) を必ず置く: http 側では**この案内が出ない**ことを見ないと、
+   *   「常時表示にしただけ」でも PASS してしまう。 */
+  console.log('\n───── §7 file:// 直開きの案内 ─────');
+  {
+    const fpage = await browser.newPage();
+    const fileUrl = 'file:///' + path.join(ROOT, 'map-editor.html').split(path.sep).join('/');
+    await fpage.goto(fileUrl, { waitUntil: 'domcontentloaded', timeout: 40000 });
+    await fpage.waitForFunction(() => !!window.__mapEditor, { timeout: 30000, polling: 100 });
+    const fi = await fpage.evaluate(async () => {
+      // カタログ取得は必ず resolve する (ok:false で返る)。届くまで待ってから DOM を読む。
+      try { await window.__mapEditor.enemyCatalogReady; } catch (e) {}
+      const q = (id) => { const n = document.getElementById(id); return n ? n.textContent : '<none>'; };
+      return {
+        protocol: location.protocol,
+        catalogNote: q('catalogNote'),
+        palNote: q('palNote'),
+        hasCatalog: !!window.__mapEditor.MapDef.getEnemyCatalog(),
+      };
+    });
+    await fpage.close();
+    // 対照: http 側 (メインの page) の同じ 1 行
+    const hi = await page.evaluate(() => {
+      const q = (id) => { const n = document.getElementById(id); return n ? n.textContent : '<none>'; };
+      return { catalogNote: q('catalogNote'), palNote: q('palNote'),
+               hasCatalog: !!window.__mapEditor.MapDef.getEnemyCatalog() };
+    });
+    console.log('[driver] file:// catalogNote = ' + fi.catalogNote);
+    console.log('[driver] file:// palNote     = ' + fi.palNote);
+    console.log('[driver] http:// catalogNote = ' + hi.catalogNote);
+    const HINT = 'マップエディタを起動.vbs';
+    check('§7 7a file:// で開けている (この節の前提)', fi.protocol === 'file:', 'protocol=' + fi.protocol);
+    check('§7 7b file:// ではカタログが取れない (退化状態が再現している = 母集団が空でない)',
+          fi.hasCatalog === false, 'hasCatalog=' + fi.hasCatalog);
+    check('§7 7c 上部バーが「' + HINT + '」を名指しする',
+          fi.catalogNote.indexOf(HINT) >= 0, fi.catalogNote);
+    check('§7 7d パレット側も同じ案内に揃っている (2 箇所で言うことが違わない)',
+          fi.palNote.indexOf(HINT) >= 0, fi.palNote);
+    check('§7 7e file:// と名指ししている (原因が伝わらない生の Failed to fetch だけに戻っていない)',
+          fi.catalogNote.indexOf('file://') >= 0 && fi.palNote.indexOf('file://') >= 0, fi.catalogNote);
+    check('§7 7f ★負のコントロール: http 側ではカタログが取れ、この案内は出ない',
+          hi.hasCatalog === true && hi.catalogNote.indexOf(HINT) < 0 && hi.palNote.indexOf(HINT) < 0,
+          hi.catalogNote + ' / ' + hi.palNote);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   // §9 実行中のエラー (全セクションを通しての累計)
   // ══════════════════════════════════════════════════════════════════════════
   console.log('\n───── §9 実行中のエラー ─────');

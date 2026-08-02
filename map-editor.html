@@ -2612,10 +2612,9 @@
       return;
     }
     // ★取得できていない理由を必ず 1 行出す (silent fail-open にしない)。
+    //   file:// のときは上部バーと同じ「名指しの案内」に揃える (2 箇所で言うことが違うと混乱する)。
     var why = M.getEnemyCatalogError() || (st && st.error) || (st ? "カタログが空です" : null);
-    el.palNote.textContent = why
-      ? ("⚠ 敵カタログを読めません (" + why + ") — 「おまかせ」だけが使えます")
-      : "敵カタログ 読込中…";
+    el.palNote.textContent = why ? catalogFailText(why) : "敵カタログ 読込中…";
     el.palNote.classList.toggle("ng", !!why);
   }
 
@@ -2725,6 +2724,25 @@
    *   ただし **silent fail-open にしない** = console.warn (§A 側) + ここで UI に 1 行。
    * ⚠ 取得完了は非同期なので、この時点の lint は未知キー検査を**スキップ**している。
    *   届いたら computeLint() をやり直して警告を出し直す (バッジが常に最新)。 */
+  /* ⚠⚠ file:// で直開きされたときは **原因を名指しする**。
+   *   2026-08-02 にユーザーが実際に file:// で開き、`Failed to fetch` だけを見て
+   *   **「試遊版だから敵を配置できないのだろう」と誤解した**。退化した状態を「仕様」と
+   *   思わせるのは無言の失敗と同じくらい悪い (原因も直し方も伝わっていない)。
+   *   → fetch が失敗しうる原因は実質 file:// 一択なので、プロトコルを見て文言を差し替える。
+   *   ⚠ 差し替えるのは **ok:false のときだけ**。http でたまたま失敗したケース
+   *     (index.html が無い / 書式が変わった等) まで file:// のせいにしない。 */
+  function isFileProtocol() {
+    try { return window.location.protocol === "file:"; } catch (e) { return false; }
+  }
+  /* ⚠ 文言は**関数の中に直接**持つ。モジュール先頭の var に置くと、初期化中に
+   *   renderPalette() → syncPaletteNote() が先に走ったとき var がまだ undefined で、
+   *   画面に "undefined" が出る (function 宣言は巻き上がるが var の**値**は巻き上がらない)。 */
+  function catalogFailText(err) {
+    if (isFileProtocol())
+      return "⚠ file:// で開いているため敵カタログを読めません — "
+        + "「マップエディタを起動.vbs」から開き直すと敵の種類を選べます (今は「おまかせ」のみ)";
+    return "⚠ 敵カタログを読めません (" + err + ") — 敵は「おまかせ」のみになります";
+  }
   function syncCatalogNote() {
     var st = state.enemyCatalogStatus;
     if (!st) { el.catalogNote.textContent = "敵カタログ 読込中…"; el.catalogNote.classList.remove("ng"); return; }
@@ -2732,7 +2750,7 @@
       el.catalogNote.textContent = "敵カタログ " + st.count + " 種";
       el.catalogNote.classList.remove("ng");
     } else {
-      el.catalogNote.textContent = "⚠ 敵カタログを読めません (" + st.error + ") — 敵は「おまかせ」のみになります";
+      el.catalogNote.textContent = catalogFailText(st.error);
       el.catalogNote.classList.add("ng");
     }
   }

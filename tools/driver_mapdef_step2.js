@@ -190,19 +190,19 @@ const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.c
  *   404 まで一緒に消えて 404 検出器が黙って死ぬ (step1 で踏んだ罠)。 */
 const IGNORED_URL_RE = /\/favicon\.ico(\?|$)/;
 
-/* ⚠⚠ **Phase 2 と無関係の既存欠陥**。console.error として出るが本ドライバの対象外なので
- *   errs から外し、代わりに preexisting[] へ分けて必ず表示する (無言で消さない)。
+/* ⚠ 「既存欠陥だから判定から外す」枠。**今は空**。
  *
- *   [DIAG][result-double-fire] … index.html:27210 の監視 setInterval が **300ms 周期**なのに、
- *     `if (dungeonCleared) setTimeout(() => showResult(true), 500)` と **500ms 遅らせて**
- *     呼ぶため、resultShown が立つ前に 2 回ぶん予約が積まれる。2 回目は showResult 冒頭の
- *     `if (resultShown) return;` が握り潰すので**プレイには影響しない**が、
- *     beat("result") はガードより前 (26940) にあるので診断だけが "critical" で鳴る。
- *   ★2026-08-02 に **mapDef を一切使わない素の goblin-mine** で dungeonCleared を強制して
- *     再現を確認済み = カスタム幾何とは無関係 (対照実験の結果)。
- *   ⚠ ここに足すのは「別経路で既存だと**実証した**もの」だけ。実証せずに足すと
- *     本ドライバが自分で見つけた欠陥を自分で隠すことになる。 */
-const PREEXISTING_RE = /\[DIAG\]\[result-double-fire\]/;
+ *   ここには一時的に /\[DIAG\]\[result-double-fire\]/ が入っていた。index.html:27210 の監視
+ *   setInterval が 300ms 周期なのに showResult を 500ms 遅らせて呼ぶため予約が 2 回積まれる、
+ *   という Phase 2 と無関係の既存欠陥で、素の goblin-mine でも再現することを対照実験で実証した。
+ *   ★2026-08-02 に `resultPending` フラグで**修正済み**なので除外を解除した
+ *     = 再発したら §7 7f が捕まえる (回帰検出器に戻した)。
+ *
+ *   ⚠⚠ ここに足してよいのは「別経路で既存だと**実証した**もの」だけ。実証せずに足すと、
+ *     本ドライバが自分で見つけた欠陥を自分で隠すことになる。
+ *   ⚠⚠ 直したら**必ずここから外す**。直った欠陥のフィルタを残すと、次に同じ壊れ方をしたとき
+ *     無言で通ってしまう (フィルタは assert を殺す)。 */
+const PREEXISTING_RE = /(?!)/;   // 何にもマッチしない (常に false)
 
 function startServer(port, root) {
   const rec = { notFound: [], ignored404: [] };
@@ -624,7 +624,8 @@ async function runIndex(browser, base, cfg, query) {
       check('§7 7c 生存している敵が 0 (岩盤に埋まった敵が残っていない)', aliveN === 0, 'alive=' + aliveN);
       check('§7 7d 進捗が止まらなかった (時間切れと「詰まり」の区別)', stalled === false, detail);
       check('§7 7e PT が全滅していない (戦闘敗北を幾何の失敗と読み違えないため)', defeated === false, detail);
-      check('§7 7f autoplay 実行中に pageerror が出ていない (既存欠陥は別枠)', apErrs.length === 0,
+      // ★除外枠 (PREEXISTING_RE) は現在**空**なので、これは result-double-fire の回帰検出器でもある。
+      check('§7 7f autoplay 実行中に pageerror / console.error が 1 件も出ていない', apErrs.length === 0,
         apErrs.slice(0, 3).join(' | '));
       if (apPre.length) {
         console.log('     ⚠ Phase 2 と無関係の既存欠陥を ' + apPre.length + ' 件観測 (判定からは除外):');

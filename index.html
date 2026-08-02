@@ -27206,10 +27206,19 @@
       });
     }
 
-    // dungeonCleared / gameOver を監視してオーバーレイ表示
+    /* dungeonCleared / gameOver を監視してオーバーレイ表示
+     * ⚠⚠ resultShown だけでは足りない。勝利側は **500ms 遅らせて** showResult を呼ぶのに
+     *   この監視は **300ms 周期**なので、resultShown が立つ前に次のティックが来て
+     *   予約が 2 回積まれる (2 回目は showResult 冒頭の `if (resultShown) return;` が
+     *   握り潰すのでプレイには影響しないが、beat("result") はそのガードの**前**にあるため
+     *   診断が毎回 `[DIAG][result-double-fire]` を critical で鳴らし、debugReport が汚れる)。
+     *   → **予約した時点で**閉じるフラグを別に持つ。ガードを 2 つ持つのが冗長なのではなく、
+     *     「表示済み」と「予約済み」は**別の状態**である (500ms の隙間が実在する)。
+     * ⚠ 敗北側は同期呼び出しなので隙間が無く、resultShown だけで足りる (遅延を足さないこと)。 */
+    let resultPending = false;
     setInterval(() => {
-      if (resultShown) return;
-      if (dungeonCleared) setTimeout(() => showResult(true), 500);
+      if (resultShown || resultPending) return;
+      if (dungeonCleared) { resultPending = true; setTimeout(() => showResult(true), 500); }
       else if (gameOver)  showResult(false);
     }, 300);
 
