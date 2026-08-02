@@ -3338,7 +3338,9 @@
      *
      * ── 撤退スイッチ ───────────────────────────────────────────────────────
      *   ?mapdef=0   … mapDef を**完全に無視**し従来の既定幾何へ (幾何・起点・ボス・敵スロット全部)
-     *   ?mapdef=raw … tiles だけ無視し rooms/corridors からの矩形生成へ (Phase 3 で実装予定)
+     *   ?mapdef=raw … tiles だけ無視し rooms/corridors からの矩形生成へ (★Phase 3 項目3 で実装済み)
+     *     ⭐ 実装は js/df-mapdef.js の resolve() に 1 箇所だけ (採用後の out.tiles を null にする)。
+     *        buildMap() も MAP_USED も「tiles があるか」しか見ないので index.html 側は無改修で追随する。
      *   ⚠ ?mapdef=0 は ?mapdef=raw の**上位集合**。既存の ?sky=0 ⊂ ?field=0 と同じ関係で、
      *     取り違えると「幾何は戻ったのに tiles だけ残っている」等の中間状態を測ってしまう。
      *   ⚠ これは dev チートではなく「本番を素の状態へ戻す」退避口なので __dfDevCheat で
@@ -3368,7 +3370,17 @@
     // → カメラのクランプを MAP_W/MAP_H 全域ではなく「使われている範囲」に狭め、黒を画面外へ追い出す。
     // ⚠ 屋外 (IS_FIELD_THEME) は空/丘/路肩を意図的に壁行・壁列へ描く設計 ([地平線ビュー])。
     //    ここを適用すると石垣の東西端やスカイ帯の見え方が変わるので**ダンジョン専用**にする。
-    const MAP_USED = (() => {
+    // ★Phase 3 項目3: 導出を js/df-mapdef.js の mapUsed() へ寄せた (BOSS_ROOM_IDX と同じ型)。
+    // ⚠⚠ **自由タイル (MAPDEF.tiles) があるときの使用範囲は rooms/corridors ではなく
+    //    「壁(2) 以外のタイルの外接矩形」**。焼き固め方式では rooms は「意味」しか担わないので、
+    //    部屋の外に描いた床は rooms からは永久に見えない → ここを矩形のままにすると
+    //    カメラのクランプがそこまで寄れず **画面が黒帯になる** (Phase 3 の隠れた本丸)。
+    // ⚠ 下の IIFE は js/df-mapdef.js が 404 したときの救命ボートとして残す。404 時は
+    //    rooms/corridors しか見ないので自由タイルのマップは黒帯になるが、「幾何が作れず全損」より
+    //    軽い退化なので許容する (幾何そのものは MAPDEF_INLINE_FALLBACK が守る)。
+    // ⚠ 定義位置は buildMap() より**前**のまま動かさないこと。mapUsed() は tiles を自前で
+    //    再展開するので mapData を待つ必要が無い (2016 タイルなのでコストは計測不能)。
+    const MAP_USED = window.DFMapDef ? DFMapDef.mapUsed(MAPDEF) : (() => {
       let c0 = MAP_W, c1 = -1, r0 = MAP_H, r1 = -1;
       for (const [a, b, c, d] of [...ROOMS, ...CORRIDORS]) {
         if (a < r0) r0 = a;  if (c > r1) r1 = c;
@@ -3378,6 +3390,24 @@
     })();
 
     function buildMap() {
+      /* ★Phase 3 項目3 — 自由タイル (焼き固め方式)。MAPDEF.tiles があればそれが**唯一の幾何**で、
+       *   rooms は「意味」(role / enemySlots / 除外部屋 / 1枚絵の入れ物) だけを担う。
+       * ⚠⚠ **関数の冒頭**に置くこと。後ろに置くと下の帯マスクが tiles にも掛かる
+       *   (tiles があるとき帯マスクは適用しない = js/df-mapdef.js buildMapData と同じ約束)。
+       * ⚠ DFMapDef.buildMapData(MAPDEF) を丸ごと使わないのは、**矩形生成が同値でない**から:
+       *   あちらの帯マスクは flags.bandMask だけを見るが、ここは FIELD_GEO_ACTIVE (画面高さ)
+       *   も見る (下の 3404 行付近)。丸ごと寄せると屋外・横持ちの幾何が変わる。
+       * ⚠ expandTiles ではなく expandTilesInfo を使う。expandTiles は「未指定」と「不正」の
+       *   両方で null を返すので、`if (t) return t;` だと警告を出し分けられず silent fail-open
+       *   (=「動くが別のマップ」) に逆戻りする。
+       * ⚠ 既定経路 (tiles:null) は present:false で素通りする = 幾何は 1bit も変わらない。
+       * ⚠ 戻り値は expandTilesInfo が毎回作る新品の配列なので、この後 mapData を書き換える
+       *   救済 (レア床救済 / 起点救済) が MAPDEF.tiles を汚さない。 */
+      if (window.DFMapDef && typeof DFMapDef.expandTilesInfo === "function") {
+        const ti = DFMapDef.expandTilesInfo(MAPDEF);
+        if (ti.map) return ti.map;
+        if (ti.present) console.warn("[mapdef] tiles を展開できないため矩形生成へ落ちました: " + ti.reason);
+      }
       const map = Array.from({length: MAP_H}, () => Array(MAP_W).fill(2));
       function fill(r1, c1, r2, c2, t) {
         for (let r = r1; r <= r2; r++)

@@ -770,6 +770,8 @@
    *     ③ validate(raw) が ok でない                 → 既定値 + console.warn。isCustom=false
    *     ④ 屋外テーマ (caravan-road) のカスタム幾何   → 既定値 + console.warn。isCustom=false
    *     ⑤ 上記すべてを通過                            → sanitize(raw) を採用。isCustom=true
+   *   採用が決まった後、★Phase 3 項目3 で **?mapdef=raw なら tiles だけを落とす**
+   *   (幾何は rooms/corridors からの矩形生成へ戻り、rooms の意味も isCustom もそのまま)。
    *
    *   ⚠⚠ ③の validate は **sanitize の「前」**に掛ける。sanitize は schema / grid / themeId を
    *     既定値で埋めてしまうので、後に掛けると壊れた JSON が永久に通ってしまう
@@ -785,7 +787,7 @@
    *
    *   ⚠ params は URLSearchParams | null | undefined。?mapdef=0 は「mapDef を完全に無視し
    *     従来の既定幾何へ戻す」撤退スイッチ (幾何・起点・ボス・敵スロット すべて)。
-   *     ?mapdef=raw (Phase 3 予定: tiles だけ無視) の**上位集合**である
+   *     ?mapdef=raw (★Phase 3 項目3 で実装済み: tiles だけ無視) の**上位集合**である
    *     (既存の ?sky=0 ⊂ ?field=0 と同じ関係)。取り違えないこと。
    *
    *   ⚠ 戻り値は必ず clone / sanitize の新品。呼び出し側 (index.html) が返り値を壊しても
@@ -828,6 +830,20 @@
       }
     }
     if (!out) { out = clone(base); out.isCustom = false; }
+
+    /* ★Phase 3 項目3 — 撤退スイッチ ?mapdef=raw: **tiles だけ**落として rooms/corridors からの
+     *   矩形生成へ戻す。⭐実装をここ 1 箇所に置くのが肝で、buildMapData / mapUsed は
+     *   「tiles があるか」しか見ないので **index.html 側に分岐を 1 つも増やさずに全経路へ効く**
+     *   (幾何・カメラのクランプ・lint・エディタのプレビューが同時に矩形へ戻る)。
+     *
+     * ⚠ ?mapdef=0 (mapDef を丸ごと無視) は raw の**上位集合**。0 は上の分岐で既に既定値へ
+     *   落ちていて tiles:null なので、ここは何もしない = 2 つのスイッチに順序依存を作らない。
+     * ⚠ tiles が元から無いときは警告を出さない (「常に 1 行出る」= 警告のスパムは警告を殺す)。 */
+    if (paramOf(params, "mapdef") === "raw") {
+      if (out.tiles) warnMapDef("?mapdef=raw が指定されたため tiles (自由タイル) を無視し、"
+        + "rooms/corridors からの矩形生成で起動します");
+      out.tiles = null;
+    }
 
     // 既定値は元々 bandMask を持っているが、ここで**明示的に保証**しておく
     // (DEFAULT_* を将来いじったときに index.html:3390 が undefined を読む事故を止める)。
