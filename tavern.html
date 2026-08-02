@@ -1746,6 +1746,11 @@
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
   <script src="js/skill-check.js"></script>
+  <!-- マップ定義 df-map/1 (幾何・敵スロットの唯一の情報源)。index.html / map-editor.html と共有。
+       ここから敵スロット座標を引くことで、部屋を動かしたときに tavern だけ旧座標が取り残される
+       事故 (`8519138` = ボスを倒してもクリアしない) を構造的に封じる。
+       ⚠ 404 でも酒場は死なせない → 下の ROOM_SLOTS に現行値そのままの救命ボートを内蔵してある。 -->
+  <script src="js/df-mapdef.js"></script>
 </head>
 <body>
   <script>
@@ -1979,10 +1984,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>自分で描いた地図で遊べるようになった</b> — マップ作成ツールで部屋と敵を配置し、その場から本編へ出発できます。</li>
         <li><b>マップの内部構造を整理</b> — 見た目も難易度も変わらないが、今後あたらしい地形を追加しやすくなった。</li>
         <li><b>街道の地面と草木を実寸に合わせた</b> — 落ち葉やキノコが人と同じ大きさだった屋外の街道を、キャラの背丈を基準に描き直した。</li>
         <li><b>エルフの見た目を一新</b> — 弓を手に持って歩き、矢をつがえて放つ動きになった。仲間として加わる男エルフも新しい姿に。</li>
-        <li><b>僧侶が杖を振り下ろして殴るようになった</b> — これまで近接攻撃のときも祈りの仕草をしていた僧侶に、武器を振り抜く専用モーションを追加。</li>
       </ul>
     </div>
     <script>
@@ -2552,10 +2557,32 @@
     //   物語6シナリオは cdb081a で導入部屋の前哨を spawns から削除済み = 同じ判断をここへ反映した。
     //   ⚠️ **ここの col は index.html の ROOMS_DUNGEON の内側 (col 24〜43 / 47〜68) でなければならない。**
     //      部屋数や座標を動かす時は必ず index.html:3226 の ROOMS_DUNGEON と突き合わせること。
-    const ROOM_SLOTS = [
+    //
+    // ★Phase 2: 座標のリテラルはここから**消えた**。唯一の出所は js/df-mapdef.js の
+    //   DEFAULT_DUNGEON.rooms[].enemySlots / .bossSlot で、index.html の ROOMS / mapData も
+    //   同じ定義から作られる。部屋を動かしても酒場に旧座標が取り残されない = 上のバグは
+    //   「直した」のではなく**構造的に起こせなくなった**。
+    // ⚠ 下の FALLBACK_* は js/df-mapdef.js が 404 になったときの救命ボート。値は
+    //   DEFAULT_DUNGEON と **1bit も違えないこと** (違うと「動くが別の座標」= 最悪の壊れ方)。
+    //   tools/driver_mapdef_step2.js が両者の一致を実ファイル読みで機械検査している。
+    const FALLBACK_ROOM_SLOTS = [
       [[27, 13], [28, 13], [28, 14], [39, 13], [40, 13], [39, 14], [41, 14], [42, 13]],   // 山場・唯一の道中部屋(旧room3吸収)
     ];
-    const BOSS_SLOT = [57, 13];   // ボス部屋(v7.7: 左シフト [79,13]→[57,13])
+    const FALLBACK_BOSS_SLOT = [57, 13];   // ボス部屋(v7.7: 左シフト [79,13]→[57,13])
+    // 酒場が使うマップ定義。Phase 2 では常に既定ダンジョン (エディタで描いたマップは
+    // map-editor.html から index.html へ直接渡るので酒場を経由しない)。
+    const ACTIVE_MAPDEF = (window.DFMapDef && window.DFMapDef.DEFAULT_DUNGEON) || null;
+    const ROOM_SLOTS = (() => {
+      if (ACTIVE_MAPDEF) {
+        const s = DFMapDef.slotsOf(ACTIVE_MAPDEF);
+        if (s.byRoom.length) return s.byRoom;
+      }
+      console.warn("[mapdef] js/df-mapdef.js を読み込めませんでした → tavern.html 内蔵の "
+        + "FALLBACK_ROOM_SLOTS (現行値と同一) で続行します");
+      return FALLBACK_ROOM_SLOTS;
+    })();
+    const BOSS_SLOT = (ACTIVE_MAPDEF ? DFMapDef.slotsOf(ACTIVE_MAPDEF).bossSlot : null)
+                      || FALLBACK_BOSS_SLOT;
 
     // ── 値ベース・N可変の直近除外抽選 (key ごとに直近 maxAvoid 件を除外) ──
     const qHist = {};
@@ -2697,9 +2724,14 @@
       const pool = fam.enemyPool;
       const elites = fam.eliteKeys || [];
       const lastRoom = ROOM_SLOTS.length - 1;   // 後方部屋(山場)= エリート/強キー枠
+      // ★Phase 2 (ユーザー判断 2026-08-02): 体数は「エディタで置いた数」を優先する。
+      //   ただし**カスタム mapDef のときだけ**。既定プリセットにも 8 スロット置いてあるので
+      //   無条件に切り替えると tier1 が 4 体 → 8 体に化け、既存の生成クエスト全部の
+      //   難易度カーブが変わってしまう (既定経路は現行どおり min(tier体数, スロット数))。
+      const useAllSlots = !!(ACTIVE_MAPDEF && ACTIVE_MAPDEF.isCustom);
       const spawns = [];
       ROOM_SLOTS.forEach((slots, roomIdx) => {
-        const n = Math.min(perRoom[roomIdx], slots.length);
+        const n = useAllSlots ? slots.length : Math.min(perRoom[roomIdx], slots.length);
         // ⚠️ 1部屋構成では lastRoom===0 なので `roomIdx / lastRoom` が 0/0 = NaN になる。
         //    NaN は strength ごと汚染し pool[Math.floor(NaN * len)] = undefined → 敵キーが undefined →
         //    index.html の _safeSpawns が未知キーとして**無言で全消し**し「雑魚ゼロのダンジョン」に化ける。
@@ -2710,7 +2742,17 @@
           let strength = ((tn - 1) / 3) * 0.55 + roomFrac * 0.35 + (Math.random() - 0.5) * 0.2;
           strength = Math.max(0, Math.min(0.999, strength));
           let key;
-          if (tn >= 3 && roomIdx >= lastRoom && elites.length && Math.random() < 0.45) {
+          // ★Phase 2 (ユーザー判断 2026-08-02): スロットの 3 要素目 ([tx,ty,"goblin"]) は
+          //   「種類固定」として**尊重する**。おまかせ (2 要素) だけが下の抽選に落ちる。
+          //   ⚠ 未知キーはカタログを持っている環境でのみ「おまかせ」へ降格する。酒場はカタログを
+          //     取得しない (index.html を丸ごと fetch するコストを毎回払わない) ので通常は素通しで、
+          //     最終的な網は index.html の _safeSpawns (ENEMY_TYPES に無いキーを除外) が張る。
+          //   ⚠ 判定式を自前で書かず DFMapDef.enemyKindOf を使う (エディタ・lint と同じ 1 本の解釈)。
+          let fixed = window.DFMapDef ? DFMapDef.enemyKindOf(slot) : null;
+          if (fixed && DFMapDef.getEnemyCatalog() && !DFMapDef.isKnownEnemyKey(fixed)) fixed = null;
+          if (fixed) {
+            key = fixed;
+          } else if (tn >= 3 && roomIdx >= lastRoom && elites.length && Math.random() < 0.45) {
             key = elites[Math.floor(Math.random() * elites.length)];   // 後方部屋(山場)にエリート
           } else {
             key = pool[Math.floor(strength * pool.length)];
@@ -2718,7 +2760,10 @@
           spawns.push([key, slot[0], slot[1]]);
         }
       });
-      spawns.push([fam.bossKey, BOSS_SLOT[0], BOSS_SLOT[1]]);
+      // ボスも同じ規則: 3 要素目があればそれを、無ければ系統ボスを置く (上の注記と同じ扱い)。
+      let bossFixed = window.DFMapDef ? DFMapDef.enemyKindOf(BOSS_SLOT) : null;
+      if (bossFixed && DFMapDef.getEnemyCatalog() && !DFMapDef.isKnownEnemyKey(bossFixed)) bossFixed = null;
+      spawns.push([bossFixed || fam.bossKey, BOSS_SLOT[0], BOSS_SLOT[1]]);
       return spawns;
     }
 

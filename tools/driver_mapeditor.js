@@ -317,8 +317,15 @@ function extractLive() {
   const roomsFld = /const\s+FALLBACK_ROOMS_FIELD\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(idx);
   const corrDunM = /const\s+FALLBACK_CORRIDORS_DUNGEON\s*=\s*(\[[\s\S]*?\])\s*;/.exec(idx);
   const corrFldM = /const\s+FALLBACK_CORRIDORS_FIELD\s*=\s*(\[[\s\S]*?\])\s*;/.exec(idx);
-  const slots = /const\s+ROOM_SLOTS\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(tav);
-  const boss = /const\s+BOSS_SLOT\s*=\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/.exec(tav);
+  /* ⚠ Phase 2 (2026-08-02) で tavern.html の座標リテラルは **救命ボート**に格下げされ、
+   *   本番の ROOM_SLOTS / BOSS_SLOT は DFMapDef.slotsOf(DEFAULT_DUNGEON) から作られるように
+   *   なった。よってここが読むべきアンカーは FALLBACK_ROOM_SLOTS / FALLBACK_BOSS_SLOT。
+   *   ⚠⚠ 旧名のままだと抽出が null を返し、それを使う §0 0-1 / §4 3e,3f,3l,3m / §6 C6 が
+   *     まとめて FAIL する (2026-08-02 に実際に 6 件落ちた)。**アンカーは実名で追随させる。**
+   *   ⚠ 「本番が救命ボートと同じ値か」= 本番側の検証は tools/driver_mapdef_step2.js §10 が
+   *     df-mapdef.js の ROOM_SLOTS_DEFAULT と突き合わせて担当する (役割を二重に持たない)。 */
+  const slots = /const\s+FALLBACK_ROOM_SLOTS\s*=\s*\[([\s\S]*?)\n\s*\];/.exec(tav);
+  const boss = /const\s+FALLBACK_BOSS_SLOT\s*=\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/.exec(tav);
   const startDunM = /const\s+FALLBACK_START_DUNGEON\s*=\s*\{\s*tx:\s*(\d+)\s*,\s*ty:\s*(\d+)\s*\}/.exec(idx);
   const startFldM = /const\s+FALLBACK_START_FIELD\s*=\s*\{\s*tx:\s*(\d+)\s*,\s*ty:\s*(\d+)\s*\}/.exec(idx);
   return {

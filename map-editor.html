@@ -381,6 +381,9 @@
     <button id="btnImportJson" title="JSON ファイルを読み込む (canvas へのドロップでも可)">⬆ JSON を読込</button>
     <input type="file" id="fileInput" accept=".json,application/json" hidden>
     <button id="btnExportPng" title="マップ全域を固定倍率で PNG 化 (画面のズーム/パンに依存しない)">🖼 PNG を書き出す</button>
+    <span class="sep"></span>
+    <!-- ★Phase 2: ワンクリック試遊。lint エラーがあると出発できない (押しても止まる)。 -->
+    <button id="btnPlay" title="このマップを本編 (index.html) で遊ぶ。出発前チェックのエラーがあると出発できない">▶ このマップで遊ぶ</button>
   </div>
 
   <!-- 編集バー: ツールモード / 比率スナップ / role / 削除 / undo・redo。
@@ -622,6 +625,7 @@
     btnImportJson:  document.getElementById("btnImportJson"),
     fileInput:      document.getElementById("fileInput"),
     btnExportPng:   document.getElementById("btnExportPng"),
+    btnPlay:        document.getElementById("btnPlay"),
     btnFit:     document.getElementById("btnFit"),
     btnZoomIn:  document.getElementById("btnZoomIn"),
     btnZoomOut: document.getElementById("btnZoomOut"),
@@ -1699,6 +1703,88 @@
     return { ok: true, reason: null };                   // 実際の可否は非同期で HUD に出る
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ▶ このマップで遊ぶ (Phase 2) — エディタ → sessionStorage → index.html
+   * ══════════════════════════════════════════════════════════════════════════
+   * 酒場 (tavern.html) を経由せず、生成クエストと**同じ受け皿**へ ad-hoc シナリオを書いて
+   * 本編を開く。index.html 側は `_genScenForTex.mapDef` を DFMapDef.resolve() が拾い、
+   * MAPDEF.isCustom が真になって落とし穴②③④のゲートが開く。
+   *
+   * ⚠ ?autoplay は**付けない**。計画書は「スタート画面のクリックを省ける」ことを理由に
+   *   ?autoplay=5 を指定していたが、実コードの ?autoplay は
+   *     ・fxEnabled() が false になり演出が全部消える (index.html:4701)
+   *     ・DM ナレーションを飛ばす / 選択ダイアログを自動応答する (27599, 9678, 9732)
+   *     ・速度が N 倍になる
+   *   = **ヘッドレス検証モード**であって人の試遊ではない。自分の作ったマップを見に行くのに
+   *   演出と速度を殺すのは目的と逆なので、素の index.html を開く (酒場から出発したときと
+   *   完全に同じ体験になる。スタート画面の 1 クリックも既存クエストと同じ)。
+   *   ヘッドレス検証は driver 側が自分で ?autoplay=N を足す。
+   *
+   * ⚠ 落とし穴⑧: sessionStorage.setItem は tavern.html:5111 のように catch で**黙って失敗**
+   *   しうる (プライベートブラウズ等)。書いたら必ず**読み戻して照合**し、失敗を人に見せる。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var PLAY_SS_KEY  = "dragonfighters.generatedScenario";   // index.html が読む唯一のキー
+  var PLAY_TARGET  = "index.html";
+
+  /* mapDef → index.html の ad-hoc シナリオ payload。
+   * ⚠ spawns は **DFMapDef.spawnsFromMapDef** に一本化する (種類固定を尊重し、おまかせは
+   *   テーマ別プールから引く)。ここで独自に敵を選ぶと解釈が 2 本になり必ず食い違う。
+   * ⚠ clearXp は 0。試遊で経験値が入ると本編のセーブが進んでしまう (非破壊が既定)。 */
+  function buildPlayPayload(def) {
+    var d = def || state.mapDef;
+    return {
+      title: (d.name || d.id || "自作マップ"),
+      flavor: "マップエディタで作った地形の試遊です。",
+      themeId: d.themeId,                    // index.html のテクスチャ選択 (_scenIdForTex) が読む
+      mapDef: M.clone(d),                    // ← Phase 2 の本体。resolve() がこれを採用する
+      spawns: M.spawnsFromMapDef(d),
+      trapCount: 3, hiddenChestCount: 2, perceptionDC: 14,
+      clearXp: 0,                            // 試遊なので経験値は入れない (セーブを汚さない)
+      questLevel: 5, tierKey: "tier2",       // BGM 選択 / 低Tier 判定が読む (index.html:9130, 9961)
+      source: "map-editor",                  // "plaza" ではないので牙貨報酬は付かない
+    };
+  }
+
+  /* opt.navigate === false なら sessionStorage への書き込みだけ行い遷移しない (ドライバ用)。
+   * 戻り { ok, reason, url, payload }。ok:false のときは HUD に理由が出る。 */
+  function playMap(opt) {
+    var o = opt || {};
+    var res = computeLint();                 // ★押した瞬間の状態で測り直す (古い結果で出発しない)
+    render();
+    var errs = (res && res.errors) || [];
+    if (errs.length) {
+      setLintPanelOpen(true);
+      return ioFail("出発前チェックのエラーが " + errs.length + " 件あるため出発できません — "
+        + errs[0].message);
+    }
+    // 屋外テーマ × カスタム幾何は排他 (計画書 落とし穴⑤)。判定は lint の code を再利用し、
+    // 自前で themeId を見ない (DFMapDef.resolve と判定式を 2 本持たないため)。
+    var warns = (res && res.warnings) || [];
+    for (var i = 0; i < warns.length; i++) {
+      if (warns[i].code !== "field-theme-custom") continue;
+      setLintPanelOpen(true);
+      return ioFail("屋外テーマのマップは試遊できません — " + warns[i].message);
+    }
+
+    var payload = buildPlayPayload(state.mapDef);
+    var text;
+    try { text = JSON.stringify(payload); }
+    catch (e) { return ioFail("マップを JSON にできませんでした: " + ((e && e.message) || e)); }
+    try { sessionStorage.setItem(PLAY_SS_KEY, text); }
+    catch (e) { return ioFail("sessionStorage へ書けませんでした: " + ((e && e.message) || e)); }
+    // ★書き込みの読み戻し照合。ここが無いと「黙って失敗 → 本編は既定マップで起動」になる。
+    var back = null;
+    try { back = sessionStorage.getItem(PLAY_SS_KEY); } catch (e) { back = null; }
+    if (back !== text)
+      return ioFail("sessionStorage に書いた内容を読み戻せませんでした "
+        + "(プライベートブラウズ等で保存が無効になっている可能性があります)");
+
+    ioOk("本編を開きます — " + payload.title
+      + " (敵 " + payload.spawns.length + " 体 / 部屋 " + payload.mapDef.rooms.length + " 室)");
+    if (o.navigate !== false) window.location.href = PLAY_TARGET;
+    return { ok: true, reason: null, url: PLAY_TARGET, payload: payload };
+  }
+
   // ── localStorage ────────────────────────────────────────────────────────
   // 一覧は**索引キーを持たず毎回列挙する**。索引を別に持つと本体と食い違ったときに
   // 「一覧に出るのに開けない/消せない」という無言の不整合が生まれる。
@@ -2303,6 +2389,7 @@
     el.fileInput.value = "";        // ★同じファイルを続けて選び直せるようにする (change が出ない)
   });
   el.btnExportPng.addEventListener("click", function () { downloadPNG(); });
+  el.btnPlay.addEventListener("click", function () { playMap(); });   // ★Phase 2: ワンクリック試遊
 
   // canvas への drag & drop (項目4)。
   // ⚠ window 側でも既定動作を止める。止めないと**canvas を外した瞬間**にブラウザが
@@ -2773,7 +2860,7 @@
    *   DOM: #slotTip (.on = 表示中。★DIV であって canvas ではない) / #palSlot (選択中スロットの敵種)
    */
   window.__mapEditor = {
-    version: 8,
+    version: 9,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -2833,6 +2920,15 @@
     getSlotEnemyKind: selectedSlotKind,
     hoverTile: hoverTile,
     slotTipInfo: slotTipInfo,
+    /* ── Phase 2 (ワンクリック試遊) ──────────────────────────────────────────
+     *   playMap([{navigate:false}]) … lint → payload 生成 → sessionStorage 書込 →
+     *        (navigate!==false なら) index.html へ遷移。戻り { ok, reason, url, payload }。
+     *        ★エラーがあると出発しない / 屋外テーマも出発しない (どちらも ok:false + reason)
+     *   buildPlayPayload([def])     … 遷移も書込もせず payload だけ作る (純粋・ドライバ用)
+     *   PLAY_SS_KEY                 … 書き込む sessionStorage キー */
+    playMap: playMap,
+    buildPlayPayload: function (d) { return buildPlayPayload(d); },
+    PLAY_SS_KEY: PLAY_SS_KEY,
   };
 })();
 </script>

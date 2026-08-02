@@ -3325,10 +3325,24 @@
       ? makeFallbackMapDef(FALLBACK_ROOMS_FIELD,   FALLBACK_CORRIDORS_FIELD,   FALLBACK_START_FIELD,   true)
       : makeFallbackMapDef(FALLBACK_ROOMS_DUNGEON, FALLBACK_CORRIDORS_DUNGEON, FALLBACK_START_DUNGEON, false);
 
-    /* MAPDEF = このシナリオの幾何。Phase 1 では DFMapDef.resolve() が常に既定値 (の clone) を
-     * 返すので、既存6シナリオ + 隊商護衛は 1bit も変わらない (genScen.mapDef の採用は Phase 2)。
-     * params (URLSearchParams) を今から渡しておくのは、Phase 2 で撤退スイッチ ?mapdef=0 を
-     * 足すときに index.html 側の呼び出し行を 1 行も書き換えずに済ませるため。 */
+    /* MAPDEF = このシナリオの幾何。★Phase 2: 生成クエストのペイロードが妥当な mapDef を
+     * 持っていれば DFMapDef.resolve() がそれを採用し、**MAPDEF.isCustom が真**になる。
+     * mapDef を持たない既存6シナリオ + 隊商護衛 + 従来の生成クエストは isCustom=false で
+     * 既定値 (の clone) に落ちるので 1bit も変わらない。
+     *
+     * ⚠ MAPDEF.isCustom は「カスタム幾何のときだけ効くゲート」の唯一の出所:
+     *     ・敵の岩盤退避        (rescueCustomSpawns / 落とし穴②)
+     *     ・1枚絵と情景の停止    (loadRoomPaintings / generateScenery / 落とし穴③)
+     *     ・spawns 空フォールバック禁止 (currentScenario.spawns / 落とし穴④)
+     *   足すときは必ずこの 1 つを見る (別のフラグを増やすと必ず片側だけ効く状態が生まれる)。
+     *
+     * ── 撤退スイッチ ───────────────────────────────────────────────────────
+     *   ?mapdef=0   … mapDef を**完全に無視**し従来の既定幾何へ (幾何・起点・ボス・敵スロット全部)
+     *   ?mapdef=raw … tiles だけ無視し rooms/corridors からの矩形生成へ (Phase 3 で実装予定)
+     *   ⚠ ?mapdef=0 は ?mapdef=raw の**上位集合**。既存の ?sky=0 ⊂ ?field=0 と同じ関係で、
+     *     取り違えると「幾何は戻ったのに tiles だけ残っている」等の中間状態を測ってしまう。
+     *   ⚠ これは dev チートではなく「本番を素の状態へ戻す」退避口なので __dfDevCheat で
+     *     ゲートしない (?field=0 / ?sky=0 / ?fieldgeo=0 と同じ扱い)。 */
     const MAPDEF = (() => {
       if (window.DFMapDef) {
         let params = null;
@@ -3539,7 +3553,12 @@
     // (painting と周辺タイル両方を描く帯 → 継ぎ目が溶け込む)
     const PAINTING_FEATHER_TILES = 1;
     (function loadRoomPaintings() {
-      const defs = ROOM_PAINTINGS_DEF[_scenIdForTex];
+      /* ⚠⚠ [Phase 2 落とし穴③] カスタム幾何では 1 枚絵を**必ず**切る。
+       *   ROOM_PAINTINGS_DEF は themeId (_scenIdForTex) で引くので、カスタム幾何の上に
+       *   旧シナリオの部屋絵が**旧座標のまま**浮いてしまう (tileBounds は絵側が持っている)。
+       *   ⚠⚠ 下の SCENERY_RECIPES ゲートと**必ずセットで**有効にすること。片方だけ塞ぐと
+       *      「絵は消えたのに草だけ岩盤に生える」という中途半端な壊れ方をする。 */
+      const defs = MAPDEF.isCustom ? null : ROOM_PAINTINGS_DEF[_scenIdForTex];
       if (!defs) return;
       for (const def of Object.values(defs)) {
         const [r1, c1, r2, c2] = def.tileBounds;
@@ -3761,7 +3780,12 @@
 
     // ENEMY_SPAWNS / プレイヤー起点情報がそろってから呼ぶ (currentScenario 確定後)
     function generateScenery(enemySpawns, playerStartTx, playerStartTy) {
-      const recipes = SCENERY_RECIPES[_scenIdForTex];
+      /* ⚠⚠ [Phase 2 落とし穴③] カスタム幾何では情景 (瓦礫/トロッコ/草…) も**必ず**切る。
+       *   SCENERY_RECIPES も themeId で引き、floorBounds に旧座標を直書きしているので、
+       *   カスタム幾何では岩盤の上に草やトロッコが生える (しかも blocking:true の物は
+       *   obstacleTileMask を汚して通行不能タイルを増やす = 到達不能バグの新しい入口になる)。
+       *   ⚠⚠ 上の loadRoomPaintings ゲートと**必ずセットで**有効にすること (片方だけは中途半端)。 */
+      const recipes = MAPDEF.isCustom ? null : SCENERY_RECIPES[_scenIdForTex];
       if (!recipes) return;
       // 自動 reserved: 廊下 + 2タイル膨張、敵スポーン + 1タイル膨張、プレイヤー起点 + 1タイル膨張
       const globalReserved = new Set();
@@ -7081,7 +7105,13 @@
         trapCount: _genScenario.trapCount || 3,
         hiddenChestCount: _genScenario.hiddenChestCount || 2,
         clearXp: _genScenario.clearXp || 0,
-        spawns: _safeSpawns.length ? _safeSpawns : SCENARIOS["goblin-mine"].spawns,
+        // ⚠⚠ [Phase 2 落とし穴④] カスタム幾何 (MAPDEF.isCustom) のときは**空フォールバックを禁じる**。
+        //   従来どおり廃坑の spawns へ落とすと、敵が旧座標 (27,13)(57,13) に湧く。新しい幾何では
+        //   そこが岩盤 (値2) なので敵が埋まって alive のまま残り、ボスを倒してもクリアしない
+        //   (= `8519138` の再来 → 落とし穴②に直結)。敵 0 体のマップは卓用として正当なので、
+        //   カスタム時は素直に「敵 0 体」で通す (エディタ側は lint の warning `no-enemies` で知らせる)。
+        spawns: _safeSpawns.length ? _safeSpawns
+                                   : (MAPDEF.isCustom ? [] : SCENARIOS["goblin-mine"].spawns),
         source: _genScenario.source || null,          // 闇市: 結果画面の牙貨付与判定に使う
         fangReward: _genScenario.fangReward || 0,
         // [7.9-3 STEP4] 隊商護衛: 護衛対象の馬車の配置 [{tx,ty},...]。cageSpawns と同型のシナリオ属性。
@@ -7161,8 +7191,53 @@
       return !!questFlags[flagName];
     }
 
+    /* ⚠⚠ [Phase 2 落とし穴②] カスタム幾何のときだけ: 岩盤 (値2) に置かれた敵を救う。
+     *   下の v7.4 救済ループは `mapData[r][c] === 1` (部屋内の装飾ピラー) **しか見ない**。
+     *   値 2 に湧いた敵は救われず、到達不能なまま alive で残り、checkDungeonClear の
+     *   `enemies.every(e => !e.alive || e.passiveNpc)` が永久に false になって
+     *   **ボスを倒してもクエストがクリアしない** (`8519138` の真因そのもの)。
+     *   既存6シナリオ + 通常の生成クエストは isCustom=false なので**1 命令も実行されない**
+     *   (buildMap 末尾の帯マスク・spawnWagon と同じ「カスタム時だけ効く」流儀)。
+     *
+     *   退避先は「その敵がいた部屋の中で最も近い非壁タイル」。部屋の外 (廊下/岩盤) にいた敵は
+     *   マップ全域から探す。1 枚も無ければ **spawn を捨てる** — 到達不能な alive を残すより安全。
+     *   ⚠ エディタの lint (`slot-on-wall`) が出発前に同じものを検出する。ここは最後の砦。 */
+    function rescueCustomSpawns(list) {
+      if (!MAPDEF.isCustom) return list;
+      const out = [];
+      for (const sp of list) {
+        const c0 = sp[1], r0 = sp[2];
+        const inside = (r0 >= 0 && r0 < MAP_H && c0 >= 0 && c0 < MAP_W);
+        if (inside && mapData[r0][c0] !== 2) { out.push(sp); continue; }
+        let box = null;
+        if (inside) {
+          for (const [rr1, cc1, rr2, cc2] of ROOMS)
+            if (r0 >= rr1 && r0 <= rr2 && c0 >= cc1 && c0 <= cc2) { box = [rr1, cc1, rr2, cc2]; break; }
+        }
+        if (!box) box = [0, 0, MAP_H - 1, MAP_W - 1];
+        let best = null, bestD = Infinity;
+        for (let r = box[0]; r <= box[2]; r++) {
+          for (let c = box[1]; c <= box[3]; c++) {
+            if (mapData[r][c] === 2) continue;
+            const d = Math.max(Math.abs(r - r0), Math.abs(c - c0));
+            if (d < bestD) { bestD = d; best = [c, r]; }
+          }
+        }
+        if (!best) {
+          console.warn(`[mapdef] 敵 ${sp[0]} (tx${c0}, ty${r0}) は岩盤の中にいて、探索範囲に床が`
+            + " 1 枚も無いため spawn を破棄しました (到達不能な alive を残さないため)");
+          continue;
+        }
+        console.warn(`[mapdef] 敵 ${sp[0]} (tx${c0}, ty${r0}) が岩盤 (値2) の上にいたため`
+          + ` (tx${best[0]}, ty${best[1]}) へ退避しました`);
+        const moved = sp.slice();
+        moved[1] = best[0]; moved[2] = best[1];
+        out.push(moved);
+      }
+      return out;
+    }
     // 隠し中ボスのスポーンは 4 番目の要素にフラグ名を持つ。噂を掴めなかった回では敵ごと現れない。
-    const ENEMY_SPAWNS = currentScenario.spawns.filter(sp => questFlagOn(sp[3]));
+    const ENEMY_SPAWNS = rescueCustomSpawns(currentScenario.spawns.filter(sp => questFlagOn(sp[3])));
 
     // v7.4: 敵スポーンタイルが buildMap の装飾壁ピラー (((r*7+c*13)^(r*3-c))%5===0) に
     //   当たると敵が壁に埋まり、A* の始点が壁で挙動不定になる。各スポーンタイルの壁(1)を

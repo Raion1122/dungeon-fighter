@@ -482,20 +482,89 @@
     for (var i = 0; i < rooms.length; i++) if (rooms[i].role === "boss") return i;
     return rooms.length - 1;                                 // 既定: 末尾がボス (現行と同値)
   }
+  /* slotsOf(d) -> { roomSlots, bossSlot, byRoom }
+   *   tavern.html の ROOM_SLOTS / BOSS_SLOT 相当を mapDef 1 箇所から取り出す。
+   *     roomSlots … 全部屋の敵スロットを**平らに**並べた配列 (Phase 1 からの形。変えない)
+   *     bossSlot  … 最初に見つかった bossSlot | null
+   *     byRoom    … ★Phase 2 で追加。**敵スロットを 1 つ以上持つ部屋だけ**の二次元配列
+   *
+   *   ⚠⚠ byRoom が「空の部屋を積まない」のは**バランスに直結する**。
+   *     tavern.html の buildSpawns は roomIdx / (byRoom.length - 1) を強さ係数 roomFrac に使う。
+   *     既定ダンジョンは [山場(8スロット), ボス部屋(0スロット)] なので、空のボス部屋まで積むと
+   *     byRoom.length が 2 になり、山場の roomFrac が 1 → 0 へ落ちて**敵が一斉に弱くなる**。
+   *     現行 ROOM_SLOTS = [[8スロット]] (1 要素) と同形にするのが唯一の正解。
+   *
+   *   ⚠ roomSlots と byRoom は**別の配列インスタンス**を積む (同じ参照を共有すると、
+   *     片方を書き換えたときにもう片方が黙って変わる)。 */
   function slotsOf(d) {
-    // tavern.html の ROOM_SLOTS / BOSS_SLOT 相当を mapDef 1 箇所から取り出す。
     var rooms = (d && d.rooms) || [];
-    var room = [], boss = null;
+    var room = [], boss = null, byRoom = [];
     for (var i = 0; i < rooms.length; i++) {
       var r = rooms[i];
-      for (var j = 0; j < (r.enemySlots || []).length; j++) room.push(r.enemySlots[j].slice());
+      var es = r.enemySlots || [], group = [];
+      for (var j = 0; j < es.length; j++) {
+        room.push(es[j].slice());
+        group.push(es[j].slice());
+      }
+      if (group.length) byRoom.push(group);       // ★空の部屋は積まない (上の注記)
       if (r.bossSlot && !boss) boss = r.bossSlot.slice();
     }
-    return { roomSlots: room, bossSlot: boss };
+    return { roomSlots: room, bossSlot: boss, byRoom: byRoom };
   }
   function objectiveCount(d) {
     if (d && d.objective && isNum(d.objective.count)) return d.objective.count;
     return ((d && d.rooms) ? d.rooms.length : 1) - 1;         // 既定: rooms.length - 1
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * Phase 2 — エディタの「▶ このマップで遊ぶ」用: mapDef → index.html の spawns
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★これは **map-editor.html 専用の経路**。酒場 (tavern.html) は tier / 系統 (FAMILIES) を
+   *   持っているのでそちらの buildSpawns を使い続ける。ここを酒場から呼ばないこと
+   *   (呼ぶと tier による難易度カーブが消える)。
+   *
+   * ⚠ エディタは tier も系統も持たないので、「おまかせ」スロット ([tx,ty]) を埋める最低限の
+   *   テーマ別プールをここに持つ。**FAMILIES の写しではない** (tier 補正もエリート枠も無い)。
+   * ⚠⚠ ここに書くキーは index.html の ENEMY_TYPES に**実在**していなければならない。
+   *   未知キーは index.html の _safeSpawns が**無言で全消し**し、spawns が空になると
+   *   廃坑の敵が旧座標 (27,13)(57,13) に湧く化けバグへ直結する (計画書 落とし穴④)。
+   *   → 2026-08-02 に全 25 キーを index.html 実読で確認済み。増やすときも必ず実読で裏取りする。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var THEME_DEFAULT_ENEMIES = {
+    "goblin-mine":    { mob: ["goblin", "goblinArcher", "kobold", "hobgoblin"],  boss: "goblinKing" },
+    "bandits-forest": { mob: ["bandit", "banditArcher", "banditMage"],           boss: "scar" },
+    "lizard-swamp":   { mob: ["lizardWarrior", "lizardHunter", "lizardRaider"],  boss: "lizardChieftain" },
+    "orc-fort":       { mob: ["orcGrunt", "orcArcher", "orcBerserker"],          boss: "garrock" },
+    "undead-temple":  { mob: ["skeleton", "zombie", "wraith"],                   boss: "lich" },
+    "dragon-lair":    { mob: ["skeleton", "minotaur", "orcBerserker"],           boss: "pharaxus" },
+    // 屋外は resolve() でカスタム幾何を排他にしているのでこの経路には来ないが、
+    // テーマ表の穴を作らないために置く (穴があると || の既定へ落ちて廃坑の敵が出る)。
+    "caravan-road":   { mob: ["goblin", "goblinArcher", "hobgoblin"],            boss: "goblinRider" },
+  };
+
+  /* 種類固定 ([tx,ty,"goblin"]) はそのまま尊重し、おまかせ ([tx,ty]) はテーマ別プールから引く。
+   * ⚠ **未知キーは「おまかせ」へ降格**する (ユーザー判断 2026-08-02)。落とすと体数が黙って減り、
+   *   そのまま通すと index.html の _safeSpawns が黙って消す — どちらも無言の欠損になる。
+   * ⚠ カタログ未取得のときは既知/未知を判定できないので**指定を尊重する**
+   *   (勝手に書き換えない。最終的な網は index.html の _safeSpawns が張っている)。 */
+  function resolveEnemyKind(slot, pool, rand) {
+    var k = enemyKindOf(slot);
+    if (k && enemyCatalog && !enemyCatalog[k]) k = null;      // 未知 → おまかせへ降格
+    if (k) return k;
+    return pool[Math.floor(rand() * pool.length)] || pool[0];
+  }
+  function spawnsFromMapDef(d, rnd) {
+    var rand = (typeof rnd === "function") ? rnd : Math.random;
+    var theme = THEME_DEFAULT_ENEMIES[d && d.themeId] || THEME_DEFAULT_ENEMIES["goblin-mine"];
+    var rooms = (d && d.rooms) || [], out = [], i, j;
+    for (i = 0; i < rooms.length; i++) {
+      var es = rooms[i].enemySlots || [];
+      for (j = 0; j < es.length; j++)
+        out.push([resolveEnemyKind(es[j], theme.mob, rand), es[j][0], es[j][1]]);
+      var bs = rooms[i].bossSlot;
+      if (bs) out.push([resolveEnemyKind(bs, [theme.boss], rand), bs[0], bs[1]]);
+    }
+    return out;
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -507,32 +576,77 @@
    * ────────────────────────────────────────────────────────────────────────── */
 
   /* resolve(genScen, isFieldTheme, params) -> mapDef
-   *   isFieldTheme が真 → DEFAULT_FIELD、偽 → DEFAULT_DUNGEON の **clone** を返す。
+   *   ★Phase 2: genScen.mapDef が**妥当**なら採用し、それ以外は既定値へ落とす。
+   *     戻り値には必ず **isCustom** (boolean) が乗る。index.html はこれを見て
+   *     落とし穴 ②③④ のカスタム専用ゲートを開閉する (既定経路では 1 命令も走らない)。
    *
-   *   ⚠ Phase 1 では **常に既定値**を返す。genScen.mapDef は**読まない**
-   *     (シナリオ定義から mapDef を採用するのは Phase 2 の仕事)。
-   *     引数 genScen / params を今から受け取っておくのは、Phase 2 で採用ロジックを足すときに
-   *     index.html 側の呼び出し行を 1 行も書き換えずに済ませるため。配線を 2 度やると
-   *     その間に「半分だけ直った状態」が生まれる = Phase 1 でいちばん避けたい状態。
+   *   採用の可否は次の順で決まる:
+   *     ① params に ?mapdef=0 (撤退スイッチ)        → 無条件で既定値。isCustom=false
+   *     ② genScen.mapDef が無い / オブジェクトでない → 既定値。isCustom=false
+   *     ③ validate(raw) が ok でない                 → 既定値 + console.warn。isCustom=false
+   *     ④ 屋外テーマ (caravan-road) のカスタム幾何   → 既定値 + console.warn。isCustom=false
+   *     ⑤ 上記すべてを通過                            → sanitize(raw) を採用。isCustom=true
    *
-   *   ⚠ params は URLSearchParams | null | undefined。?mapdef=0 は撤退スイッチで、
-   *     Phase 2 で「genScen.mapDef を無視して既定へ落とす」意味を持つ。Phase 1 は
-   *     採用ロジックがそもそも無いので**どんな URL でも同じ既定**へ落ちる = 振る舞い不変。
-   *     ここで params を引数に取っておくのが「撤退スイッチの口だけ先に開けておく」の実体。
+   *   ⚠⚠ ③の validate は **sanitize の「前」**に掛ける。sanitize は schema / grid / themeId を
+   *     既定値で埋めてしまうので、後に掛けると壊れた JSON が永久に通ってしまう
+   *     (lintMapDef が素の src に validate を掛けているのと同じ理由)。
    *
-   *   ⚠ 戻り値は必ず clone。呼び出し側 (index.html) が返り値を壊しても
+   *   ⚠⚠ ④ 屋外テーマ × カスタム幾何の排他 (計画書 落とし穴⑤ =「最悪の組合せ」):
+   *     themeId:"caravan-road" は index.html 側で IS_FIELD_THEME を真にし、
+   *     帯マスク・空/丘/路肩の地平線レンダラ・視界制限オフが**まとめて**発火する。
+   *     これらは flags.bandMask ではなく themeId から引かれるので、mapDef 側で
+   *     bandMask を切っても地平線レンダラだけが残り、カスタム幾何の上に空と丘が描かれる。
+   *     相互作用が複雑すぎるため **明示的に禁じる**のが安全 (計画書の判断)。
+   *     エディタ側の lint (field-theme-custom) が ▶ を止めるので、ここは二重の防波堤。
+   *
+   *   ⚠ params は URLSearchParams | null | undefined。?mapdef=0 は「mapDef を完全に無視し
+   *     従来の既定幾何へ戻す」撤退スイッチ (幾何・起点・ボス・敵スロット すべて)。
+   *     ?mapdef=raw (Phase 3 予定: tiles だけ無視) の**上位集合**である
+   *     (既存の ?sky=0 ⊂ ?field=0 と同じ関係)。取り違えないこと。
+   *
+   *   ⚠ 戻り値は必ず clone / sanitize の新品。呼び出し側 (index.html) が返り値を壊しても
    *     DEFAULT_DUNGEON / DEFAULT_FIELD が汚染されない = 次のシナリオが別のマップにならない。
    *
-   *   ⚠ flags.bandMask を必ず持たせる (既定 = isFieldTheme)。index.html:3323 の
+   *   ⚠ flags.bandMask を必ず持たせる (既定 = isFieldTheme)。index.html:3390 の
    *     帯マスク判定がこれを読むので、欠けると屋外の幾何が丸ごと変わる。
    *
    *   引数がすべて undefined/null でも落ちないこと (読み込み順の事故で引数が揃わなくても
    *   幾何だけは必ず作れる = 画面が真っ黒にならない)。
    */
+  function paramOf(params, key) {
+    try {
+      if (params && typeof params.get === "function") return params.get(key);
+    } catch (e) {}
+    return null;
+  }
+  function warnMapDef(msg) {
+    try { console.warn("[mapdef] " + msg); } catch (e) {}
+  }
   function resolve(genScen, isFieldTheme, params) {
-    var out = clone(isFieldTheme ? DEFAULT_FIELD : DEFAULT_DUNGEON);
+    var base = isFieldTheme ? DEFAULT_FIELD : DEFAULT_DUNGEON;
+    var raw = (genScen && typeof genScen === "object") ? genScen.mapDef : null;
+    var out = null;
+
+    if (raw && typeof raw === "object") {
+      if (paramOf(params, "mapdef") === "0") {
+        warnMapDef("?mapdef=0 が指定されたため mapDef を無視し、従来の既定幾何で起動します");
+      } else {
+        var v = validate(raw);                       // ★ sanitize の「前」に判定する
+        if (!v.ok) {
+          warnMapDef("mapDef がスキーマ検査を通らなかったため既定幾何へ落としました: " + v.errors.join(" / "));
+        } else if (FIELD_THEME_IDS[raw.themeId]) {
+          warnMapDef('themeId "' + raw.themeId + '" は屋外テーマです。屋外の地平線レンダラ (空/丘/路肩) と'
+            + "カスタム幾何は相互作用が複雑なため排他にしています → 既定幾何へ落としました");
+        } else {
+          out = sanitize(raw, base);
+          out.isCustom = true;
+        }
+      }
+    }
+    if (!out) { out = clone(base); out.isCustom = false; }
+
     // 既定値は元々 bandMask を持っているが、ここで**明示的に保証**しておく
-    // (DEFAULT_* を将来いじったときに index.html:3323 が undefined を読む事故を止める)。
+    // (DEFAULT_* を将来いじったときに index.html:3390 が undefined を読む事故を止める)。
     if (!out.flags || typeof out.flags !== "object") out.flags = {};
     if (typeof out.flags.bandMask !== "boolean") out.flags.bandMask = !!isFieldTheme;
     return out;
@@ -893,6 +1007,20 @@
              null, null);
     }
 
+    /* ── 屋外テーマ × カスタム幾何の排他 (計画書 落とし穴⑤ =「最悪の組合せ」) ────────
+     *  ★**警告**であって error ではない。既定の屋外プリセット (caravan-road) は正当なマップで、
+     *    error にすると読み込んだ瞬間に赤くなり lint 全体が信用されなくなる。
+     *  ただし「▶ このマップで遊ぶ」は DFMapDef.resolve() が屋外テーマのカスタム幾何を
+     *  受け付けない (既定幾何へ落とす) ので、エディタ側は**この code を見て ▶ を止める**。
+     *  ⚠ 判定を resolve() と 2 本持たない: どちらも FIELD_THEME_IDS を唯一の出所にする。 */
+    if (FIELD_THEME_IDS[d.themeId])
+      warn("field-theme-custom",
+           'themeId "' + d.themeId + '" は屋外テーマです — 屋外は空/丘/路肩の地平線レンダラと' +
+           "視界制限オフが themeId から発火し、カスタム幾何と相互作用が複雑になるため、" +
+           "この設定のマップは「▶ このマップで遊ぶ」で試遊できません " +
+           "(卓用マップとしての編集・保存・PNG 書き出しは通常どおり行えます)",
+           null, null);
+
     // ── 敵 0 体 / ボススロット無し (★どちらも警告。計画書 落とし穴④の明示要求) ──
     //  「敵 0 体」は卓用マップとしては完全に正当なのでエラーにしない。
     //  ただし DF 側は spawns 空フォールバックで**廃坑の敵が湧く**化けバグを持つので黙らない。
@@ -954,6 +1082,16 @@
     bossRoomIdx: bossRoomIdx,
     slotsOf: slotsOf,
     objectiveCount: objectiveCount,
+
+    /* ── Phase 2: エディタの「▶ このマップで遊ぶ」用 ────────────────────────────
+     *   spawnsFromMapDef(mapDef[, rnd]) … mapDef の敵/ボススロット → index.html の
+     *        spawns 形式 [key, tx, ty]。種類固定はそのまま、おまかせは THEME_DEFAULT_ENEMIES
+     *        から抽選、**未知キーはおまかせへ降格**。rnd を渡せば決定論にできる (ドライバ用)。
+     *   isFieldThemeId(id)  … 屋外テーマか (resolve の排他判定と同じ出所)
+     *   ⚠ spawnsFromMapDef は **map-editor 専用**。酒場は tier/系統を持つ buildSpawns を使う。 */
+    THEME_DEFAULT_ENEMIES: THEME_DEFAULT_ENEMIES,
+    spawnsFromMapDef: spawnsFromMapDef,
+    isFieldThemeId: function (id) { return !!FIELD_THEME_IDS[id]; },
 
     /* ── Phase 1: index.html が幾何をここから受け取るための入口 ──────────────
      *   resolve(genScen, isFieldTheme, params)
