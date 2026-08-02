@@ -405,8 +405,144 @@
     if (!d.start || !isNum(d.start.tx) || !isNum(d.start.ty)) bad("start", "start が不正");
     var bossCount = (d.rooms || []).filter(function (r) { return r && r.role === "boss"; }).length;
     if (bossCount !== 1) bad("boss-count", 'role:"boss" はちょうど 1 つ必要 (現在 ' + bossCount + ")");
+
+    /* ★Phase 3 項目1: tiles があるのに展開できない = **silent fail-open の入口**。必ずエラーにする。
+     *   黙って矩形生成へ落ちると「動くが別のマップ」になる = 最悪の壊れ方 (SPEC 項目1)。
+     * ⚠ tiles が**未指定** (null / undefined) はエラーではない。「tiles を使わない = 矩形生成」
+     *   という正常な状態であり、既定プリセット 2 種はどちらも tiles:null なので
+     *   この行を足しても既存のマップは 1 つも赤くならない (= 装置が信用を失わない)。 */
+    var ti = expandTilesInfo(d);
+    if (ti.present && !ti.map) bad("tiles-bad", "tiles を展開できません: " + ti.reason);
+
     return done();
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * Phase 3 項目1 — 自由タイル (tiles) の RLE エンコード / デコード + 妥当性検査
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★「焼き固め方式」(ユーザー決定 2026-08-02) の土台。ブラシの一筆目で矩形 (rooms/corridors)
+   *   から tiles を生成して固定し、以後は **tiles = 幾何 / rooms = 意味** に分離する。
+   *   ⚠ 本項目は**純関数を足すだけ**。buildMapData / mapUsed への配線は**項目2 の担当**なので
+   *     ここでは一切繋がない = ゲームの挙動は 1bit も変わらない。
+   *
+   * 形式:  tiles = { enc:"rle", data:"2x1728,0x20,…" }
+   *   ・**行優先 (row-major)**。data は `<値>x<連長>` をカンマ区切りで並べたもの
+   *   ・値は 0=通常床 / 1=レア床 / 2=壁・岩盤 の 3 種のみ。連長は 1 以上の十進整数
+   *   ・run は**行をまたいで連結する** (幅は mapDef 側が持つので行境界を data に刻む必要がない)
+   *   ・幅・高さは **mapDef.grid.w / grid.h** から取る。tiles 側に w/h を持たせない
+   *     (二重に持つと grid と食い違ったときどちらが正か決まらない = 無言の地形化け)
+   *
+   * ⚠⚠ silent fail-open にしない ★これが本項目の設計の芯
+   *   「不正な tiles を黙って無視して矩形生成へ落ちる」= **動くが別のマップ**になる。
+   *   そこで **「tiles が無い (未指定)」と「tiles はあるが壊れている」を厳密に区別**する:
+   *     expandTiles()      … どちらも null を返す (呼び出し側を単純に書けるようにするため)
+   *     expandTilesInfo()  … { present, map, reason } で区別できる ← **判断はこちらで行う**
+   *     validate()         … **壊れているときだけ** tiles-bad を積む (未指定はエラーにしない)
+   *   項目2 の buildMapData / mapUsed はこの区別に乗って console.warn を出し分ける。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var TILES_ENC = "rle";
+  /* <値>x<連長>。値は 0/1/2 のみ、連長は先頭 0 なしの正の整数。
+   * ⚠ 空白も符号も許さない (encodeTiles は空白を出さない)。ここを緩めると
+   *   「読めたつもりで別の地形」が生まれる = 検査装置として自滅する。 */
+  var TILES_RUN_RE = /^([012])x([1-9][0-9]*)$/;
+
+  function isTileValue(v) { return v === T_FLOOR || v === T_RARE || v === T_WALL; }
+
+  /* hasTiles(d) — tiles が「指定されている」か。★null / undefined **だけ**が未指定。
+   * ⚠ 文字列や数値が入っていたら「未指定」ではなく「不正」として扱う (fail-closed)。
+   *   ここを「オブジェクトでなければ未指定」にすると、壊れた tiles が黙って矩形へ落ちて
+   *   validate も素通りする = まさに避けたかった silent fail-open になる。 */
+  function hasTiles(d) {
+    return !!d && d.tiles !== null && d.tiles !== undefined;
+  }
+
+  /* encodeTiles(map2d) -> { enc:"rle", data:"…" } | null
+   *   2 次元配列 (map[row][col]) を行優先 RLE へ。
+   *   ⚠ 入力が 2 次元配列でない / 行の長さが不揃い / 値が 0,1,2 以外 なら **null を返す**。
+   *     ここで通すと expandTiles が拒否するデータを作れてしまい、
+   *     「保存はできたのに二度と読めない」= 無言のデータ喪失になる。 */
+  function encodeTiles(map2d) {
+    if (!Array.isArray(map2d) || map2d.length === 0) return null;
+    var H = map2d.length, W = -1, parts = [], cur = -1, run = 0, r, c, row, v;
+    for (r = 0; r < H; r++) {
+      row = map2d[r];
+      if (!Array.isArray(row) || row.length === 0) return null;
+      if (W < 0) W = row.length;
+      else if (row.length !== W) return null;            // 行の長さが不揃い = 矩形グリッドでない
+      for (c = 0; c < W; c++) {
+        v = row[c];
+        if (!isTileValue(v)) return null;                // 0,1,2 以外は書き出さない
+        if (run > 0 && v === cur) { run++; continue; }
+        if (run > 0) parts.push(cur + "x" + run);
+        cur = v; run = 1;
+      }
+    }
+    if (run > 0) parts.push(cur + "x" + run);
+    return { enc: TILES_ENC, data: parts.join(",") };
+  }
+
+  /* expandTilesInfo(mapDef) -> { present, map, reason }
+   *   present … tiles が指定されているか (未指定なら present:false / map:null / reason:null)
+   *   map     … 展開できた 2 次元配列 (map[row][col]) | null
+   *   reason  … 展開できなかった理由の日本語 (present && !map のときだけ非 null)
+   *
+   *   ★不正の定義 (SPEC 項目1。すべて map:null):
+   *     ① enc が "rle" でない          ② run の合計が w*h と一致しない (多くても少なくても)
+   *     ③ 値が 0,1,2 以外              ④ data が文字列でない
+   *   ⚠ ③は TILES_RUN_RE が弾く (値 3 は run の書式に合わない扱いになる)。
+   *     「値だけ別に検査」する形にすると書式検査と二重管理になり、必ず食い違う。 */
+  function expandTilesInfo(mapDef) {
+    var d = mapDef;
+    if (!hasTiles(d)) return { present: false, map: null, reason: null };
+    var t = d.tiles;
+    if (typeof t !== "object" || Array.isArray(t))
+      return { present: true, map: null,
+               reason: "tiles がオブジェクトではありません (" + (Array.isArray(t) ? "配列" : typeof t) + ")" };
+    if (t.enc !== TILES_ENC)                                             // ① enc
+      return { present: true, map: null,
+               reason: 'tiles.enc が "' + TILES_ENC + '" ではありません: ' + JSON.stringify(t.enc) };
+    if (typeof t.data !== "string")                                      // ④ data の型
+      return { present: true, map: null,
+               reason: "tiles.data が文字列ではありません (" + (t.data === null ? "null" : typeof t.data) + ")" };
+
+    // 幅・高さは mapDef 側から取る (tiles 側には持たせない = 二重管理を作らない)。
+    var W = (d.grid && isNum(d.grid.w)) ? Math.round(d.grid.w) : GRID_W;
+    var H = (d.grid && isNum(d.grid.h)) ? Math.round(d.grid.h) : GRID_H;
+    if (!(W > 0) || !(H > 0))
+      return { present: true, map: null, reason: "grid が不正です (w=" + W + " / h=" + H + ")" };
+
+    var need = W * H, flat = new Array(need), n = 0;
+    var parts = t.data.split(","), i, m, v, len, k;
+    for (i = 0; i < parts.length; i++) {
+      m = TILES_RUN_RE.exec(parts[i]);
+      if (!m)                                                            // ③ 値が 0,1,2 以外 もここ
+        return { present: true, map: null,
+                 reason: "run #" + i + ' の書式が <値(0|1|2)>x<連長> ではありません: "' + parts[i] + '"' };
+      v = +m[1]; len = +m[2];
+      if (n + len > need)                                                // ② 合計が多い
+        return { present: true, map: null,
+                 reason: "run の合計が grid (" + W + "x" + H + " = " + need + " タイル) を超えました" +
+                         " (run #" + i + " の時点で " + (n + len) + ")" };
+      for (k = 0; k < len; k++) flat[n++] = v;
+    }
+    if (n !== need)                                                      // ② 合計が少ない
+      return { present: true, map: null,
+               reason: "run の合計が " + n + " タイルで、grid の " + W + "x" + H + " = " + need +
+                       " タイルと一致しません" };
+
+    var map = [], r, c, p = 0;
+    for (r = 0; r < H; r++) {
+      var row = new Array(W);
+      for (c = 0; c < W; c++) row[c] = flat[p++];
+      map.push(row);
+    }
+    return { present: true, map: map, reason: null };
+  }
+
+  /* expandTiles(mapDef) -> 2 次元配列 (map[row][col]) | null
+   * ⚠ null は「未指定」と「不正」の**両方**で返る。区別が要る場所では必ず expandTilesInfo を使う
+   *   (項目2 の buildMapData は「不正のときだけ console.warn」= 黙って矩形へ落ちない)。 */
+  function expandTiles(mapDef) { return expandTilesInfo(mapDef).map; }
 
   // ── buildMapData: mapDef → 2次元 mapData ────────────────────────────────
   // ★ index.html:3299-3331 buildMap() と**同じ手順**であること。順序も含めて同じにする:
@@ -1077,6 +1213,25 @@
     validate: validate,
     buildMapData: buildMapData,
     mapUsed: mapUsed,
+
+    /* ── Phase 3 項目1: 自由タイル (tiles) の RLE ────────────────────────────────
+     *   encodeTiles(map2d)       … 2次元配列 → { enc:"rle", data:"…" } | null (**行優先**)
+     *                              null = 2次元配列でない / 行の長さが不揃い / 値が 0,1,2 以外
+     *   expandTiles(mapDef)      … mapDef.tiles → 2次元配列 map[row][col] | null
+     *                              ⚠ null は「未指定」と「不正」の**両方**で返る
+     *   expandTilesInfo(mapDef)  … { present, map, reason } ← ★**区別が要るときは必ずこちら**
+     *   hasTiles(mapDef)         … tiles が指定されているか (null/undefined だけが未指定)
+     *   TILES_ENC                … "rle"
+     *  ⚠⚠ 不正な tiles を黙って矩形生成へ落とすのは **silent fail-open** =「動くが別のマップ」。
+     *    validate() は tiles が**あるのに展開できないときだけ** code:"tiles-bad" を積む
+     *    (未指定はエラーにしない)。項目2 の buildMapData / mapUsed はこの区別に乗る。
+     *  ⚠ 幅・高さの出所は **mapDef.grid.w / grid.h** の 1 箇所。tiles 側に持たせない。 */
+    TILES_ENC: TILES_ENC,
+    encodeTiles: encodeTiles,
+    expandTiles: expandTiles,
+    expandTilesInfo: expandTilesInfo,
+    hasTiles: hasTiles,
+
     lintMapDef: lintMapDef,                 // ★項目5: 出発前 lint (純粋関数・副作用なし)
     LINT_PAINTING_ASPECTS: LINT_PAINTING_ASPECTS,
     bossRoomIdx: bossRoomIdx,
