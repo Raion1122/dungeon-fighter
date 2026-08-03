@@ -123,6 +123,18 @@ const BASELINE_REV = arg('baseline-rev', 'c2ab252');
 const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_mapdef1_baseline'));
 const SEED = parseInt(arg('seed', '20260801'), 10);
 
+/* ★2026-08-04: **描画 (canvas) の非退行だけ golden 方式へ移した**。
+ *   理由 = 幾何 (mapData / spawns / traps / chests) は「二度と変わってはいけない」ので固定コミット
+ *   c2ab252 との比較でよいが、**絵は意図的に変わる**。実際、情景の縮尺修正 (mine_cart の
+ *   displayMax 200→64) で assert (3) が赤くなり、これは正しい検出だが、固定ベースラインのままだと
+ *   「赤いまま安定 = 何も検出しない検出器」になる (driver_field_* 5 本が実際にそうなった)。
+ *   → golden なら「FAIL → --update-golden → git diff に載る → commit でレビュー」という
+ *     **明示的な操作**として陳腐化が可視化される。詳細は tools/_golden.js の冒頭。
+ *   ⚠ ベースライン worktree は (1)(2)(4)(5) のために**そのまま残す**。1 つのベースラインに
+ *     2 役 (負のコントロール / 非退行) を兼務させないこと。 */
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('mapdef_step1', { update: UPDATE_GOLDEN, driver: 'driver_mapdef_step1' });
+
 // ── 変異負制御 (--mutate) ───────────────────────────────────────────────────
 //   ※ 「捕まえた assert」は 2026-08-01 の実測値 (母集団 190 assert / 8 ターゲット)。
 //   kind    | 注入する欠陥                                     | 実際に落ちた assert (実測)
@@ -728,12 +740,19 @@ async function bootPage(browser, url, viewport, pre, side) {
         (C.spawnsJson === B.spawnsJson ? ' ' + String(C.spawnsJson).slice(0, 70)
           : ' cur=' + String(C.spawnsJson).slice(0, 120) + ' base=' + String(B.spawnsJson).slice(0, 120)));
 
-      // ── assert 3: mapCanvas.toDataURL の SHA-256 ──
+      /* ── assert 3: mapCanvas.toDataURL の SHA-256 ★golden 方式 ──────────────
+       * ⚠ baseline (c2ab252) とは**比べない**。絵は意図的に変わるので、固定コミット比較は
+       *   1 度の見た目変更で自己失効して赤いまま安定する。上の UPDATE_GOLDEN の注記を読むこと。
+       * ⚠ 「描いていること」の下支えは assert (3b) と (G1) が担う。SHA が一致するだけでは
+       *   真っ白な canvas を焼き付けても緑になってしまう。 */
       const h3c = sha256(String(C.canvasUrl)), h3b = sha256(String(B.canvasUrl));
-      check('(3) ' + L + ': mapCanvas.toDataURL の SHA-256 が baseline と一致',
-        h3c === h3b && isHex64(h3c) && C.canvasUrl !== '<none>',
-        'cur=' + h3c.slice(0, 16) + ' base=' + h3b.slice(0, 16) +
-        ' size=' + C.canvasW + 'x' + C.canvasH + ' cam=' + JSON.stringify(C.cam) + '/' + JSON.stringify(B.cam));
+      G.check(check, '(3) ' + L + ': mapCanvas.toDataURL の SHA-256 が golden と一致',
+        '3-' + L, h3c);
+      check('(3b) ' + L + ': canvas が実体を持つ (真っ白/未描画を golden に焼き付けない)',
+        isHex64(h3c) && C.canvasUrl !== '<none>' && C.canvasW > 0 && C.canvasH > 0 &&
+        String(C.canvasUrl).length > 5000,
+        'size=' + C.canvasW + 'x' + C.canvasH + ' dataURL長=' + String(C.canvasUrl).length +
+        ' cam=' + JSON.stringify(C.cam) + ' / baselineSHA=' + h3b.slice(0, 16) + ' (参考値)');
 
       // ── assert 4 (★本丸): 除外ロジック 4 箇所の同値性 ──
       const jt = JSON.stringify(C.traps), jtb = JSON.stringify(B.traps);
@@ -846,7 +865,19 @@ async function bootPage(browser, url, viewport, pre, side) {
     if (srvBase) { try { srvBase.close(); } catch (e) {} }
   }
 
+  /* ★golden の空振り防止 2 段 (tools/_golden.js の「危険と封じ方」(1)(2))。
+   *   GC1 = 8 通りの canvas SHA が**相互に異なる**こと。描画が死んで一様になった状態を
+   *         golden に焼き付けても、ここで即座に落ちる。⚠ 件数ではなく identity で測る。
+   *   G0  = golden のキー集合と今回の実行が完全一致すること (assert をこっそり消していない)。
+   * ⚠⚠ **必ず `const pass = …` より前に置くこと**。後ろに置くと results には積まれるのに
+   *   pass に数えられず「198/200 PASS なのに FAILED 一覧が空」という不可解な出方をする
+   *   (2026-08-04 に実際に踏んだ)。
+   * ⚠ ラベルは (GC1)。既存の per-scenario assert が (G1) を使っているので衝突させない。 */
+  G.distinct(check, '(GC1) 8 通りの mapCanvas SHA が相互に異なる (描画が死んで一様になっていない)', '3-');
+  G.finish(check);
+
   const pass = results.filter(r => r.ok).length;
+
   console.log('\n=== ' + pass + '/' + results.length + ' PASS ===');
   const failed = results.filter(r => !r.ok);
   if (failed.length) { console.log('--- FAILED ---'); failed.forEach(f => console.log('  ' + f.name + ' — ' + f.detail)); }

@@ -1,0 +1,18 @@
+{
+  "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
+  "capturedFrom": {
+    "rev": "29758dc",
+    "subject": "map-editor/Phase6: 情景物を1個ずつ置ける(mapDef.props) — 実寸cm駆動 + 通行不能化",
+    "dirty": false
+  },
+  "values": {
+    "3-goblin-mine": "47658d10ecdd8fb4408053015ffb2e006fc60294bd50e5d526f2d52680bf97aa",
+    "3-bandits-forest": "19448f14958f7a46ba7b10c9aba982f06e0b50183ea0e77d3a99e9571e78c844",
+    "3-lizard-swamp": "40ff5c9a9eb1a1645aad8943fab5054286af1ec35a3ef02cb1f4a569065599d3",
+    "3-orc-fort": "5072479a1aa0a5d9bd4597ad0fa04ad8ac75b1ccc5d5ba300453cb1f5352443f",
+    "3-undead-temple": "08c3e612d1c8215652b95e86d5fe581b0deb90960e2631d92be44e321b5da115",
+    "3-dragon-lair": "334aa5546268342fe9133e9a2780a0904d44d99d11f5a5b63291c5495a0ca4e4",
+    "3-caravan-road(縦持ち相当/帯マスクあり)": "83726c4370999e3ee2e4b4036372808fe01d031e1345e553f61cb05bacfa0492",
+    "3-caravan-road(横持ち/帯マスクなし)": "aabf103e46655fe81df483f8d3cd3716a3c7766cbd158cf35b33fee231d748d0"
+  }
+}
