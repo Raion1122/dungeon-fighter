@@ -341,6 +341,323 @@
     return texCatalog;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * 1枚絵カタログ / 情景カタログ (Phase 4 項目1) — 自作マップに本編の絵と情景を乗せる土台
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★敵カタログ・テクスチャカタログと**まったく同じ機構**: index.html を実行時に fetch し、
+   *   ROOM_PAINTINGS_DEF / SCENERY_RECIPES / SCENERY_SHEETS をテキスト抽出する。
+   *
+   * ⚠⚠ **写経しないこと**。エディタ側にテーブルをコピーした瞬間、ゲーム側で絵を差し替えた
+   *   ときに黙って腐り、「エディタでは正しいのに本編では違う絵」という最も気づきにくい
+   *   食い違いになる。ユーザーが望んだのは「エディタで本編の見た目を確かめる」ことなので、
+   *   **食い違いはこの機能の存在意義そのものを壊す**。写経は選択肢にない。
+   *   実例: 山場 6 枚は room_<theme>_1.png → room_<theme>_1_bs.jpg へ実際に差し替わっている
+   *   (ベルトスクロール化)。写経していたらエディタだけ旧 PNG を指し続けていた。
+   *
+   * ⚠ 1枚絵は **src 直書きではなく参照 (theme + key)** で持つ (Phase 4 の設計判断)。
+   *   src を保存済みマップに焼くと、上記の差し替えで黙って 404 → onerror でタイル描画へ
+   *   落ちるため「絵が消えたことに気づけない」。参照方式なら本編の差し替えに自動追従する。
+   *
+   * ⚠⚠ paintingSrcFor の未知参照は **null**。テクスチャ (texSetFor) と違い既定テーマへ
+   *   フォールバックさせない。テクスチャは「何かで塗らないと編集できない」ので既定へ落とすが、
+   *   絵は「無い」が正しい状態。勝手に別テーマの絵を返すと、指定ミスが**別の絵として成立して
+   *   しまい**永久に気づけない (lint の painting-missing = 項目2 が知らせる役)。
+   *
+   * ⚠ 敵カタログ / テクスチャカタログと fetch を共有しない。それぞれ setXxxCatalog(null) で
+   *   再取得できる契約になっており、本文をメモ化して共有するとその契約が壊れる。
+   *   1枚絵と情景も互いに独立した promise を持つ (情景だけは 1 fetch で 2 マーカーを読む)。
+   *
+   * ⚠ SCENERY_SHEETS のリテラルには `img: new Image()` が入っている = **評価にブラウザが要る**。
+   *   エディタは常にブラウザなので実害はないが、Node で parse すると ReferenceError で throw
+   *   する (= silent fail-open せず理由付きで落ちる。これは仕様どおりの挙動)。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var PAINTING_CATALOG_URL  = "index.html";
+  var PAINTING_CATALOG_MARK = "const ROOM_PAINTINGS_DEF = {";
+  var SCENERY_CATALOG_URL   = "index.html";
+  var SCENERY_RECIPE_MARK   = "const SCENERY_RECIPES = {";
+  var SCENERY_SHEET_MARK    = "const SCENERY_SHEETS = {";
+
+  /* 部屋キー → 日本語の呼び名。ROOM_PAINTINGS_DEF / SCENERY_RECIPES のキー (0/1/2) は
+   * ROOMS の index ではなく「導入 / 山場 / ボス」という**ラベル**である (index.html:3755 の注記)。
+   * ⚠ ここは絵の内容ではなく**キーの呼び名**なので写経には当たらない (絵が増減しても腐らない)。
+   *   未知キーは "部屋<key>" へ落ちる = 取りこぼしゼロ。 */
+  var PAINTING_KEY_LABELS = { "0": "導入", "1": "山場", "2": "ボス" };
+
+  /* 情景レシピのフォールバック先。SCENERY_RECIPES は goblin-mine と caravan-road の
+   * **2 テーマしかない**ので、残り 5 テーマは必ずどちらかへ落ちる。
+   * ⚠⚠ この判断を sceneryRecipeFor に閉じ込め、本編 (項目4) とエディタ (項目3) が同じ式を使う。
+   *   2 箇所に式を持つと、エディタのプレビューと実プレイで生える種が変わる。 */
+  var SCENERY_FALLBACK_FIELD   = "caravan-road";     // 屋外テーマ (FIELD_THEME_IDS) の既定
+  var SCENERY_FALLBACK_DUNGEON = "goblin-mine";      // それ以外の既定
+
+  var paintingCatalog = null, paintingCatalogError = null, paintingCatalogPromise = null;
+  var sceneryRecipes  = null, scenerySheets = null;
+  var sceneryCatalogError = null, sceneryCatalogPromise = null;
+
+  // [r1, c1, r2, c2] (行が先) → { tw, th }。tileBounds / floorBounds 共通。
+  function boundsWH(b) {
+    return { tw: b[3] - b[1] + 1, th: b[2] - b[0] + 1 };
+  }
+  function isBounds4(b) {
+    if (!Array.isArray(b) || b.length !== 4) return false;
+    for (var i = 0; i < 4; i++) if (typeof b[i] !== "number" || !isFinite(b[i])) return false;
+    return true;
+  }
+
+  /* index.html のテキストから ROOM_PAINTINGS_DEF を取り出す。失敗は**必ず throw**する
+   * (戻り値 null で握り潰すと silent fail-open になり、書式変更に気づけない)。 */
+  function parsePaintingCatalog(text) {
+    if (typeof text !== "string" || !text) throw new Error("index.html の中身が空です");
+    var i = text.indexOf(PAINTING_CATALOG_MARK);
+    if (i < 0) throw new Error('index.html に "' + PAINTING_CATALOG_MARK + '" が見つかりません (書式が変わった可能性)');
+    var body = sliceBalancedBrace(text, i + PAINTING_CATALOG_MARK.length - 1);
+    if (!body) throw new Error("ROOM_PAINTINGS_DEF の { } が閉じていません");
+    var obj = new Function("return (" + body + ");")();
+    if (!obj || typeof obj !== "object") throw new Error("ROOM_PAINTINGS_DEF がオブジェクトになりません");
+    var themes = Object.keys(obj), t, per, ks, k, e, n = 0, where;
+    if (!themes.length) throw new Error("ROOM_PAINTINGS_DEF が空です");
+    for (t = 0; t < themes.length; t++) {
+      per = obj[themes[t]];
+      if (!per || typeof per !== "object")
+        throw new Error('ROOM_PAINTINGS_DEF["' + themes[t] + '"] がオブジェクトではありません');
+      ks = Object.keys(per);
+      for (k = 0; k < ks.length; k++) {
+        e = per[ks[k]];
+        where = 'ROOM_PAINTINGS_DEF["' + themes[t] + '"][' + ks[k] + ']';
+        if (!e || typeof e.src !== "string" || !e.src)
+          throw new Error(where + " に src (文字列) がありません");
+        if (!isBounds4(e.tileBounds))
+          throw new Error(where + " の tileBounds が [r1,c1,r2,c2] (数値4つ) ではありません");
+        n++;
+      }
+    }
+    if (n === 0) throw new Error("ROOM_PAINTINGS_DEF から 1 枚も取り出せませんでした");
+    return obj;
+  }
+
+  /* index.html のテキストから SCENERY_SHEETS + SCENERY_RECIPES を取り出す。
+   * 戻り = { sheets, recipes }。失敗は**必ず throw**する (理由は上と同じ)。
+   * ⚠ counts に SCENERY_SHEETS 未登録の種が混じっていたら throw する。これはゲーム側でも
+   *   描画不能な壊れた状態なので、黙って通すと「エディタでは置けるのに本編で消える」になる。 */
+  function parseSceneryCatalog(text) {
+    if (typeof text !== "string" || !text) throw new Error("index.html の中身が空です");
+
+    // ① SCENERY_SHEETS (種の一覧)。⚠ リテラルに new Image() を含む = ブラウザ前提。
+    var i = text.indexOf(SCENERY_SHEET_MARK);
+    if (i < 0) throw new Error('index.html に "' + SCENERY_SHEET_MARK + '" が見つかりません (書式が変わった可能性)');
+    var sBody = sliceBalancedBrace(text, i + SCENERY_SHEET_MARK.length - 1);
+    if (!sBody) throw new Error("SCENERY_SHEETS の { } が閉じていません");
+    var sheets = new Function("return (" + sBody + ");")();
+    if (!sheets || typeof sheets !== "object") throw new Error("SCENERY_SHEETS がオブジェクトになりません");
+    var kinds = Object.keys(sheets), k;
+    if (!kinds.length) throw new Error("SCENERY_SHEETS が空です");
+    for (k = 0; k < kinds.length; k++) {
+      if (!sheets[kinds[k]] || typeof sheets[kinds[k]].src !== "string")
+        throw new Error('SCENERY_SHEETS["' + kinds[k] + '"] に src (文字列) がありません');
+    }
+
+    // ② SCENERY_RECIPES (テーマ × 部屋キー ごとの配置レシピ)
+    var j = text.indexOf(SCENERY_RECIPE_MARK);
+    if (j < 0) throw new Error('index.html に "' + SCENERY_RECIPE_MARK + '" が見つかりません (書式が変わった可能性)');
+    var rBody = sliceBalancedBrace(text, j + SCENERY_RECIPE_MARK.length - 1);
+    if (!rBody) throw new Error("SCENERY_RECIPES の { } が閉じていません");
+    var recipes = new Function("return (" + rBody + ");")();
+    if (!recipes || typeof recipes !== "object") throw new Error("SCENERY_RECIPES がオブジェクトになりません");
+    var themes = Object.keys(recipes), t, per, ks, kk, e, ck, c, where, n = 0;
+    if (!themes.length) throw new Error("SCENERY_RECIPES が空です");
+    for (t = 0; t < themes.length; t++) {
+      per = recipes[themes[t]];
+      if (!per || typeof per !== "object")
+        throw new Error('SCENERY_RECIPES["' + themes[t] + '"] がオブジェクトではありません');
+      ks = Object.keys(per);
+      for (kk = 0; kk < ks.length; kk++) {
+        e = per[ks[kk]];
+        where = 'SCENERY_RECIPES["' + themes[t] + '"][' + ks[kk] + ']';
+        if (!e || typeof e !== "object") throw new Error(where + " がオブジェクトではありません");
+        if (!isBounds4(e.floorBounds))
+          throw new Error(where + " の floorBounds が [r1,c1,r2,c2] (数値4つ) ではありません");
+        if (!e.counts || typeof e.counts !== "object") throw new Error(where + " に counts がありません");
+        ck = Object.keys(e.counts);
+        if (!ck.length) throw new Error(where + " の counts が空です");
+        for (c = 0; c < ck.length; c++) {
+          if (typeof e.counts[ck[c]] !== "number" || !isFinite(e.counts[ck[c]]))
+            throw new Error(where + '.counts["' + ck[c] + '"] が数値ではありません');
+          if (!sheets[ck[c]])
+            throw new Error(where + '.counts に SCENERY_SHEETS 未登録の種 "' + ck[c] + '" があります');
+        }
+        n++;
+      }
+    }
+    if (n === 0) throw new Error("SCENERY_RECIPES から 1 件も取り出せませんでした");
+    return { sheets: sheets, recipes: recipes };
+  }
+
+  /* 実行時に取得する。**同一オリジンの index.html を読むだけ**でゲームは 1 行も動かさない。
+   * 戻り Promise は必ず resolve する ({ ok, count, error, url }) = 呼び出し側で握り潰さなくてよい。
+   * ⚠ 失敗しても throw で止めない (絵なしでも編集は続けられる) が、**silent fail-open にはしない**
+   *   (console.warn + 呼び出し側が UI に「取得失敗」を出す)。 */
+  function loadPaintingCatalog(url) {
+    if (paintingCatalogPromise) return paintingCatalogPromise;
+    var u = url || PAINTING_CATALOG_URL;
+    paintingCatalogPromise = Promise.resolve()
+      .then(function () {
+        if (typeof fetch !== "function") throw new Error("この環境に fetch がありません");
+        return fetch(u, { cache: "no-store" });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status + " (" + u + ")");
+        return res.text();
+      })
+      .then(function (text) {
+        paintingCatalog = parsePaintingCatalog(text);
+        paintingCatalogError = null;
+        return { ok: true, count: paintingEntries().length, error: null, url: u };
+      })
+      .catch(function (e) {
+        paintingCatalog = null;
+        paintingCatalogError = (e && e.message) ? e.message : String(e);
+        try {
+          console.warn("[map-editor] 1枚絵カタログ (index.html の ROOM_PAINTINGS_DEF) を取得できませんでした: "
+            + paintingCatalogError);
+        } catch (_) {}
+        return { ok: false, count: 0, error: paintingCatalogError, url: u };
+      });
+    return paintingCatalogPromise;
+  }
+
+  /* 情景 (レシピ + シート) を **1 回の fetch で両方**読む。両者は必ずセットで要る
+   * (レシピの counts が参照する種はシートにしか無い) ので、片方だけ取れた状態を作らない。 */
+  function loadSceneryCatalog(url) {
+    if (sceneryCatalogPromise) return sceneryCatalogPromise;
+    var u = url || SCENERY_CATALOG_URL;
+    sceneryCatalogPromise = Promise.resolve()
+      .then(function () {
+        if (typeof fetch !== "function") throw new Error("この環境に fetch がありません");
+        return fetch(u, { cache: "no-store" });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status + " (" + u + ")");
+        return res.text();
+      })
+      .then(function (text) {
+        var got = parseSceneryCatalog(text);
+        scenerySheets  = got.sheets;
+        sceneryRecipes = got.recipes;
+        sceneryCatalogError = null;
+        return { ok: true, count: Object.keys(scenerySheets).length, error: null, url: u,
+                 themes: Object.keys(sceneryRecipes).length };
+      })
+      .catch(function (e) {
+        scenerySheets = null; sceneryRecipes = null;
+        sceneryCatalogError = (e && e.message) ? e.message : String(e);
+        try {
+          console.warn("[map-editor] 情景カタログ (index.html の SCENERY_SHEETS / SCENERY_RECIPES) を取得できませんでした: "
+            + sceneryCatalogError);
+        } catch (_) {}
+        return { ok: false, count: 0, error: sceneryCatalogError, url: u, themes: 0 };
+      });
+    return sceneryCatalogPromise;
+  }
+
+  function getPaintingCatalog()      { return paintingCatalog; }    // null = 未取得
+  function getPaintingCatalogError() { return paintingCatalogError; }
+  function getSceneryRecipes()       { return sceneryRecipes; }     // null = 未取得
+  function getScenerySheets()        { return scenerySheets; }      // null = 未取得
+  function getSceneryCatalogError()  { return sceneryCatalogError; }
+
+  // 差し替え (検証用)。null でクリア + 次回 load を再実行させる。
+  function setPaintingCatalog(cat) {
+    paintingCatalog = (cat && typeof cat === "object") ? cat : null;
+    paintingCatalogError = null;
+    paintingCatalogPromise = null;
+    return paintingCatalog;
+  }
+  function setSceneryCatalog(recipes, sheets) {
+    sceneryRecipes = (recipes && typeof recipes === "object") ? recipes : null;
+    scenerySheets  = (sheets  && typeof sheets  === "object") ? sheets  : null;
+    sceneryCatalogError = null;
+    sceneryCatalogPromise = null;
+    return sceneryRecipes;
+  }
+
+  /* UI (項目3 の <select>) と lint (項目2) が使う平坦なリスト。
+   *   [{ theme, key, src, tw, th, label }, …]  ★key は必ず文字列に正規化する
+   * ⚠ 未取得なら **空配列** (null を返すと呼び出し側の .map が落ちる)。 */
+  function paintingEntries() {
+    if (!paintingCatalog) return [];
+    var out = [], themes = Object.keys(paintingCatalog), t, per, ks, k, e, wh, key, nm;
+    for (t = 0; t < themes.length; t++) {
+      per = paintingCatalog[themes[t]];
+      if (!per || typeof per !== "object") continue;
+      ks = Object.keys(per);
+      for (k = 0; k < ks.length; k++) {
+        e = per[ks[k]];
+        if (!e || typeof e.src !== "string" || !isBounds4(e.tileBounds)) continue;
+        wh = boundsWH(e.tileBounds);
+        key = String(ks[k]);
+        nm = PAINTING_KEY_LABELS[key] || ("部屋" + key);
+        out.push({ theme: themes[t], key: key, src: e.src, tw: wh.tw, th: wh.th,
+                   label: nm + " " + wh.tw + "×" + wh.th });
+      }
+    }
+    return out;
+  }
+
+  /* rooms[i].painting = { theme, key } → 絵の src。
+   * ⚠⚠ 引けなければ **null**。テクスチャ (texSetFor) と違い既定テーマへ落とさない (節頭の理由)。 */
+  function paintingSrcFor(theme, key) {
+    if (!paintingCatalog) return null;
+    if (typeof theme !== "string" || !theme) return null;
+    var per = paintingCatalog[theme];
+    // ⚠ プロトタイプ由来のプロパティ ("constructor" 等) を拾わないよう型でも弾く
+    if (!per || typeof per !== "object") return null;
+    var e = per[String(key)];
+    if (!e || typeof e !== "object" || typeof e.src !== "string" || !e.src) return null;
+    return e.src;
+  }
+
+  /* テーマ既定の「代表レシピ」= { counts:{kind:n}, area:n } | null。
+   * 呼び出し側 (項目3 のプレビュー / 項目4 の generateScenery) は
+   *     Math.round(counts[kind] * (部屋の床面積 / area) * density)
+   * で任意サイズの部屋へスケールする。
+   *
+   * ★「代表」の作り方 = **そのテーマの全部屋エントリを合算**する (counts は種ごとに総和、
+   *   area は floorBounds の面積の総和)。理由:
+   *     - どのキーを「代表」に選ぶかという恣意的な判断が要らない (キーは 0/1/2 のラベルで、
+   *       ROOMS の index ではないため「1 番目が代表」に意味がない)。
+   *     - goblin-mine は山場 29個/280タイル に対しボス部屋 12個/396タイル と密度が 3.4 倍違う。
+   *       片方だけ採ると「既定」が極端に振れる。合算なら 41/676 = その中間に落ち着く。
+   *     - caravan-road は 3 部屋とも 0.29〜0.30 個/タイルでほぼ同じ = 合算しても値が変わらない。
+   * ⚠ 部屋数が変わると既定密度も変わるが、それは「本編の情景が変わった」のと同義なので正しい
+   *   (写経していたら追従しない部分)。 */
+  function sceneryRecipeFor(themeId) {
+    if (!sceneryRecipes) return null;
+    var id;
+    if (typeof themeId === "string" && Object.prototype.hasOwnProperty.call(sceneryRecipes, themeId)) {
+      id = themeId;                                       // そのテーマ専用のレシピがある
+    } else {                                              // ★無いテーマは屋外/屋内で既定へ落とす
+      id = FIELD_THEME_IDS[themeId] ? SCENERY_FALLBACK_FIELD : SCENERY_FALLBACK_DUNGEON;
+    }
+    var per = sceneryRecipes[id];
+    if (!per || typeof per !== "object") return null;
+    var ks = Object.keys(per), i, e, wh, a, ck, c, counts = {}, area = 0;
+    for (i = 0; i < ks.length; i++) {
+      e = per[ks[i]];
+      if (!e || !isBounds4(e.floorBounds) || !e.counts) continue;
+      wh = boundsWH(e.floorBounds);
+      a = wh.tw * wh.th;
+      if (!(a > 0)) continue;
+      area += a;
+      ck = Object.keys(e.counts);
+      for (c = 0; c < ck.length; c++) counts[ck[c]] = (counts[ck[c]] || 0) + e.counts[ck[c]];
+    }
+    if (!(area > 0)) return null;
+    return { counts: counts, area: area };
+  }
+
+  // SCENERY_SHEETS のキー一覧 (= 置ける情景の種)。⚠ 未取得なら空配列。
+  function sceneryKinds() { return scenerySheets ? Object.keys(scenerySheets) : []; }
+
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
   // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
@@ -1559,5 +1876,46 @@
     getCeilingSprite: getCeilingSprite,
     texSetFor: texSetFor,
     setTextureCatalog: setTextureCatalog,
+
+    /* ── 1枚絵カタログ / 情景カタログ (Phase 4 項目1) ────────────────────────
+     *   loadPaintingCatalog([url]) … index.html の ROOM_PAINTINGS_DEF を実行時に読む。
+     *                                戻り Promise は必ず resolve ({ok,count,error,url})
+     *   paintingEntries()          … [{ theme, key, src, tw, th, label }, …] (未取得なら [])
+     *                                ★tw/th は tileBounds から算出。UI (項目3) と lint (項目2) が使う
+     *   paintingSrcFor(theme, key) … "assets/room_xxx_1_bs.jpg" | null
+     *                                ⚠⚠ 引けなければ **null**。texSetFor と違い既定テーマへ
+     *                                   落とさない (絵は「無い」が正しい状態)
+     *   loadSceneryCatalog([url])  … SCENERY_SHEETS + SCENERY_RECIPES を **1 fetch で両方**読む
+     *   sceneryRecipeFor(themeId)  … { counts:{kind:n}, area:n } | null
+     *                                ★レシピが無いテーマは 屋外→caravan-road / 他→goblin-mine。
+     *                                  この式は**ここ 1 箇所**。本編 (項目4) も同じ関数を使う
+     *   sceneryKinds()             … SCENERY_SHEETS のキー (未取得なら [])
+     *  ⚠⚠ **エディタ側に絵の表 / 情景レシピを写経しないこと**。写経した瞬間に
+     *    「エディタでは正しいのに本編では違う絵」が発生しうる = この機能の存在意義が壊れる。
+     *  ⚠ 敵カタログ / テクスチャカタログとは fetch も promise も共有しない
+     *    (setXxxCatalog(null) → 再取得 の契約が壊れるため)。 */
+    PAINTING_CATALOG_URL: PAINTING_CATALOG_URL,
+    PAINTING_CATALOG_MARK: PAINTING_CATALOG_MARK,
+    PAINTING_KEY_LABELS: PAINTING_KEY_LABELS,
+    SCENERY_CATALOG_URL: SCENERY_CATALOG_URL,
+    SCENERY_RECIPE_MARK: SCENERY_RECIPE_MARK,
+    SCENERY_SHEET_MARK: SCENERY_SHEET_MARK,
+    SCENERY_FALLBACK_FIELD: SCENERY_FALLBACK_FIELD,
+    SCENERY_FALLBACK_DUNGEON: SCENERY_FALLBACK_DUNGEON,
+    parsePaintingCatalog: parsePaintingCatalog,
+    parseSceneryCatalog: parseSceneryCatalog,
+    loadPaintingCatalog: loadPaintingCatalog,
+    loadSceneryCatalog: loadSceneryCatalog,
+    getPaintingCatalog: getPaintingCatalog,
+    getPaintingCatalogError: getPaintingCatalogError,
+    setPaintingCatalog: setPaintingCatalog,
+    getSceneryRecipes: getSceneryRecipes,
+    getScenerySheets: getScenerySheets,
+    getSceneryCatalogError: getSceneryCatalogError,
+    setSceneryCatalog: setSceneryCatalog,
+    paintingEntries: paintingEntries,
+    paintingSrcFor: paintingSrcFor,
+    sceneryRecipeFor: sceneryRecipeFor,
+    sceneryKinds: sceneryKinds,
   };
 })(window);
