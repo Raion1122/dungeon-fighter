@@ -854,29 +854,42 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════════
-   * ★STEP 2.5 — つながる線路 (railKit) の自動接続
+   * ★STEP 2.5 / 3 — つながる情景物 (接続キット) の自動接続
    * ══════════════════════════════════════════════════════════════════════════
-   * ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。置いた線路と、
-   * その周りの線路が、隣り合っていれば自動でつながる形 (縦/横/カーブ) に選び直される。
+   * ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。置いた物と、
+   * その周りの**同じ種**が、隣り合っていれば自動でつながる形 (縦/横/カーブ) に選び直される。
    *
-   * ⭐ 接続規則は**ここが唯一の正**。エディタは railKitRelinkAround() を呼ぶだけで、
+   * ⭐ 接続規則は**ここが唯一の正**。エディタは connectKitRelinkAround() を呼ぶだけで、
    *   規則を 1 行も持たない (テクスチャ表 / 情景レシピと同じ「写経しない」方針)。
+   *
+   * ⭐ 種は kind パラメータで受ける = 「6 ピースを下の並びで用意したシート」でありさえすれば、
+   *   線路でも水路でも**同じ機構 1 つ**で動く。どの種がつながるかは CONNECT_KIT_KINDS が
+   *   唯一の正で、種を足すときはその配列に 1 行足すだけ (規則の写しを作らない)。
+   *
+   * ⚠ **同じ種どうしだけがつながる**。隣に別の種 (別のキット / 石柱 / 散布物) があっても
+   *   mask は立たない。判定は kind の一致のみ (variant は問わない)。
    *
    * ⚠⚠ **読み込み経路では絶対に呼ばないこと** (importJSON / プリセット / 矩形に戻す)。
    *   読み込んだデータが唯一の正で、そこで再計算すると往復同一性
    *   (export → import → export が 1 バイトも変わらない) が壊れる。自動接続は
-   *   「エディタ上でユーザーが置く / 動かす / 消す」経路だけに効かせる。
+   *   「エディタ上でユーザーが置く / 動かす / 消す / 種を差し替える」経路だけに効かせる。
    *
    * ⚠ 既存の散布 rail (縦3変種) とは**別種**。近傍として数えるのは railKit だけで、
    *   rail はタイルに整列していない (hash 散布) ので混ぜると意味が壊れる。 */
 
   var RAIL_KIT_KIND = "railKit";          // ★種キー (index.html の SCENERY_SHEETS と同じ綴り)
+
+  /* ★つながる種の一覧 = **ここが唯一の正**。エディタも純関数もこの配列だけを見る。 */
+  var CONNECT_KIT_KINDS = [RAIL_KIT_KIND];
+
   var RAIL_N = 1, RAIL_E = 2, RAIL_S = 4, RAIL_W = 8;
 
-  /* variant → その絵が接続している辺のマスク。railKit のシート (tools/make_rail_kit.py が
+  /* variant → その絵が接続している辺のマスク。接続キットのシート (tools/ 側のジェネレータが
    *   書き出したコマ順。画像名も枠座標も index.html 側にしか無い) と 1 対 1:
    *     0 = 縦(N+S)  1 = 横(E+W)  2 = 北東  3 = 東南  4 = 南西  5 = 西北
-   * ⚠ T 字 / 十字 / 終端のピースは**作らないと決定済み** (6 種で打ち止め)。 */
+   * ⚠ **並び順は保存値そのもの**なので絶対に変えない (保存済みマップが化ける)。
+   * ⚠ T 字 / 十字 / 終端のピースは**作らないと決定済み** (6 種で打ち止め)。
+   * ⚠ 種が増えても表は 1 つ = すべての接続キットがこの並びを共有する規約。 */
   var RAIL_VARIANT_MASKS = [
     RAIL_N | RAIL_S,   // 0 → 5   ┃
     RAIL_E | RAIL_W,   // 1 → 10  ━
@@ -894,7 +907,17 @@
     { dx: -1, dy:  0, bit: RAIL_W },
   ];
 
-  /* mask (N=1 / E=2 / S=4 / W=8) → variant index。
+  /* kind が「つながる種」か。
+   * ⚠ 辞書オブジェクトの `in` / `[kind]` 参照だと Object.prototype 汚染や "toString" 等の
+   *   継承プロパティで真になりうるので、**配列を舐めて厳密一致**で判定する。 */
+  function isConnectKit(kind) {
+    if (typeof kind !== "string" || !kind) return false;
+    for (var i = 0; i < CONNECT_KIT_KINDS.length; i++)
+      if (CONNECT_KIT_KINDS[i] === kind) return true;
+    return false;
+  }
+
+  /* mask (N=1 / E=2 / S=4 / W=8) → variant index。★全キット共通の規約。
    * ⭐ **孤立 (mask 0) は null** を返す = 「変更しない」の合図。ユーザーがカーブを 1 個だけ
    *   意図して置いたときに、勝手に直線へ化けるのを防ぐ。
    * フォールバック (ピースが 6 種しかないので 6 通り以外は寄せる)。**判定順が仕様**:
@@ -904,7 +927,7 @@
    *   ④1 方向だけ (終端) 北/南 (1/4)  → 0 (縦)
    *   ⑤1 方向だけ (終端) 東/西 (2/8)  → 1 (横)
    *   ⑥mask 0 (孤立)                  → null (今の variant を保つ) */
-  function railVariantForMask(mask) {
+  function connectKitVariantForMask(mask) {
     if (!isNum(mask)) return null;
     var m = Math.round(mask) & 15, i;
     for (i = 0; i < RAIL_VARIANT_MASKS.length; i++)
@@ -916,51 +939,65 @@
     return null;                                                   // ⑥ m === 0 = 孤立
   }
 
-  // その prop が (tx,ty) に居る railKit か。⚠ 種の判定は kind のみ (variant は問わない)。
-  function isRailKitAt(p, tx, ty) {
-    return !!p && p.kind === RAIL_KIT_KIND && (p.tx | 0) === tx && (p.ty | 0) === ty;
+  // その prop が (tx,ty) に居る kind か。⚠ 種の判定は kind のみ (variant は問わない)。
+  function isConnectKitAt(p, tx, ty, kind) {
+    return !!p && p.kind === kind && (p.tx | 0) === tx && (p.ty | 0) === ty;
   }
 
-  /* props 配列の中で (tx,ty) の**上下左右**に railKit があるか → ビットマスク。
-   * ⚠ (tx,ty) 自身は見ない。あくまで「隣に線路があるか」だけを測る。 */
-  function railKitMaskAt(props, tx, ty) {
+  /* props 配列の中で (tx,ty) の**上下左右**に同じ kind が居るか → ビットマスク。
+   * ⚠ (tx,ty) 自身は見ない。あくまで「隣に同種があるか」だけを測る。
+   * ⚠ 別種は 1 つも数えない = 線路と水路が並んでも互いに影響しない。 */
+  function connectKitMaskAt(props, tx, ty, kind) {
     if (!Array.isArray(props)) return 0;
+    if (typeof kind !== "string" || !kind) return 0;
     tx = tx | 0; ty = ty | 0;
     var mask = 0, d, i, nx, ny;
     for (d = 0; d < RAIL_DIRS.length; d++) {
       nx = tx + RAIL_DIRS[d].dx; ny = ty + RAIL_DIRS[d].dy;
       for (i = 0; i < props.length; i++)
-        if (isRailKitAt(props[i], nx, ny)) { mask |= RAIL_DIRS[d].bit; break; }
+        if (isConnectKitAt(props[i], nx, ny, kind)) { mask |= RAIL_DIRS[d].bit; break; }
     }
     return mask;
   }
 
-  /* (tx,ty) にある railKit を近傍に合わせて選び直す。戻り = 書き換えた個数。
-   * ⚠ そのタイルに railKit が無ければ何もしない (= 0)。同じタイルに複数あれば全部そろえる。 */
-  function railKitRelinkAt(props, tx, ty) {
+  /* (tx,ty) にある kind を近傍に合わせて選び直す。戻り = 書き換えた個数。
+   * ⚠ そのタイルに同種が無ければ何もしない (= 0)。同じタイルに複数あれば全部そろえる。
+   * ⚠ つながる種でなければ 1 個も触らない (石柱の variant を勝手に書き換えない)。 */
+  function connectKitRelinkAt(props, tx, ty, kind) {
     if (!Array.isArray(props)) return 0;
+    if (!isConnectKit(kind)) return 0;
     tx = tx | 0; ty = ty | 0;
-    var v = railVariantForMask(railKitMaskAt(props, tx, ty));
+    var v = connectKitVariantForMask(connectKitMaskAt(props, tx, ty, kind));
     if (v === null) return 0;                       // 孤立 = 今の形を保つ
     var n = 0, i;
     for (i = 0; i < props.length; i++) {
-      if (!isRailKitAt(props[i], tx, ty)) continue;
+      if (!isConnectKitAt(props[i], tx, ty, kind)) continue;
       if (props[i].variant !== v) { props[i].variant = v; n++; }
     }
     return n;
   }
 
   /* ★エディタが呼ぶのはこれ 1 本。自分 + 上下左右 4 近傍を選び直す。戻り = 書き換えた個数。
-   * ⚠ 各タイルの結果は「railKit がどこにあるか」だけで決まり、他タイルの variant には
+   * ⚠ 各タイルの結果は「同種がどこにあるか」だけで決まり、他タイルの variant には
    *   依存しない = 何度呼んでも同じ (冪等)。移動は移動元と移動先で 2 回呼べば足りる。 */
-  function railKitRelinkAround(props, tx, ty) {
+  function connectKitRelinkAround(props, tx, ty, kind) {
     if (!Array.isArray(props)) return 0;
+    if (!isConnectKit(kind)) return 0;
     tx = tx | 0; ty = ty | 0;
-    var n = railKitRelinkAt(props, tx, ty), d;
+    var n = connectKitRelinkAt(props, tx, ty, kind), d;
     for (d = 0; d < RAIL_DIRS.length; d++)
-      n += railKitRelinkAt(props, tx + RAIL_DIRS[d].dx, ty + RAIL_DIRS[d].dy);
+      n += connectKitRelinkAt(props, tx + RAIL_DIRS[d].dx, ty + RAIL_DIRS[d].dy, kind);
     return n;
   }
+
+  /* ── railKit 専用の別名 (kind 固定の薄いラッパ) ────────────────────────────
+   * 既存の呼び口と検証ドライバがこの名前を名指ししているので、名前も戻り値もそのまま残す。
+   * 中身は上の汎用版に 1 段渡すだけ = 規則の写しはどこにも無い。 */
+  function railVariantForMask(mask) { return connectKitVariantForMask(mask); }
+  function isRailKitAt(p, tx, ty) { return isConnectKitAt(p, tx, ty, RAIL_KIT_KIND); }
+  function railKitMaskAt(props, tx, ty) { return connectKitMaskAt(props, tx, ty, RAIL_KIT_KIND); }
+  function railKitRelinkAt(props, tx, ty) { return connectKitRelinkAt(props, tx, ty, RAIL_KIT_KIND); }
+  function railKitRelinkAround(props, tx, ty) { return connectKitRelinkAround(props, tx, ty, RAIL_KIT_KIND); }
 
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
@@ -2423,15 +2460,26 @@
     propBlocking: propBlocking,
     propBlockedTiles: propBlockedTiles,
 
-    /* ── ★STEP 2.5: つながる線路 (railKit) の自動接続 ─────────────────────────
+    /* ── ★STEP 2.5 / 3: つながる情景物 (接続キット) の自動接続 ─────────────────
+     * ▼汎用版 (種を kind で受ける。★新しいコードはこちらを使う)
+     *   CONNECT_KIT_KINDS     … つながる種の配列 = **唯一の正**。種を足すならここに 1 行
+     *   isConnectKit(kind)                        … その種がつながるか (真偽)
+     *   connectKitVariantForMask(mask)            … mask → variant | **null (孤立=変更しない)**
+     *   connectKitMaskAt(props, tx, ty, kind)     … 上下左右の**同種**だけ → mask
+     *   connectKitRelinkAt(props, tx, ty, kind)   … そのタイルの同種を選び直す → 変更数
+     *   connectKitRelinkAround(props,tx,ty,kind)  … ★自分 + 4 近傍。エディタが呼ぶのはこれ 1 本
+     * ▼railKit 固定の別名 (既存の呼び口のために残す薄いラッパ。中身は上と同一)
      *   RAIL_KIT_KIND         … "railKit" (種キー)
      *   RAIL_VARIANT_MASKS    … variant → 接続辺のマスク [5,10,3,6,12,9]
-     *                           (N=1 / E=2 / S=4 / W=8)
-     *   railVariantForMask(mask)          … mask → variant | **null (孤立=変更しない)**
-     *   railKitMaskAt(props, tx, ty)      … 上下左右の railKit → mask
-     *   railKitRelinkAt(props, tx, ty)    … そのタイルの railKit を選び直す → 変更数
-     *   railKitRelinkAround(props,tx,ty)  … ★自分 + 4 近傍。エディタが呼ぶのはこれ 1 本
+     *                           (N=1 / E=2 / S=4 / W=8)。★全キット共通の並び
+     *   railVariantForMask / railKitMaskAt / railKitRelinkAt / railKitRelinkAround
      *  ⚠⚠ importJSON / プリセット / 矩形に戻す では**呼ばない**こと (往復同一性が壊れる)。 */
+    CONNECT_KIT_KINDS: CONNECT_KIT_KINDS,
+    isConnectKit: isConnectKit,
+    connectKitVariantForMask: connectKitVariantForMask,
+    connectKitMaskAt: connectKitMaskAt,
+    connectKitRelinkAt: connectKitRelinkAt,
+    connectKitRelinkAround: connectKitRelinkAround,
     RAIL_KIT_KIND: RAIL_KIT_KIND,
     RAIL_VARIANT_MASKS: RAIL_VARIANT_MASKS,
     railVariantForMask: railVariantForMask,

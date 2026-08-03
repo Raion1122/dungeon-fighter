@@ -2324,19 +2324,21 @@
     return state.propBrush ? { kind: state.propBrush.kind, variant: state.propBrush.variant } : null;
   }
 
-  /* ★STEP 2.5: 置いた / 動かした / 消した線路のまわりを「つながる形」に選び直す。
-   *   ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。
-   * ⚠⚠ 接続規則は **df-mapdef.js の railKitRelinkAround が唯一の正**。ここには 1 行も
-   *   写さない (テクスチャ表 / 情景レシピと同じ作法 = 写経した瞬間に本編とズレうる)。
-   * ⚠ 効くのは kind === railKit のときだけ。石柱を隣に置いても線路は変わらない。
+  /* ★STEP 2.5 / 3: 置いた / 動かした / 消した「つながる情景物」のまわりを、つながる形に
+   *   選び直す。ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。
+   * ⚠⚠ 接続規則も**どの種がつながるか**も **df-mapdef.js が唯一の正**
+   *   (connectKitRelinkAround / CONNECT_KIT_KINDS)。ここには 1 行も写さない
+   *   (テクスチャ表 / 情景レシピと同じ作法 = 写経した瞬間に本編とズレうる)。
+   * ⚠ 効くのは「つながる種」のときだけ。石柱を隣に置いても線路は変わらない。
+   *   種が増えても**ここは 1 行も変えなくてよい** (カタログ側に足すだけで効く)。
    * ⚠ 履歴はここでは積まない。呼び出し元 (placeProp / moveProp / deleteProp / pickProp) が積む
    *   **1 段にそのまま乗る**ので、Ctrl+Z 一発で近傍の変化ごと元に戻る。
    * ⚠ チェックが OFF なら 1 個も書き換えない = パレットで選んだ形をそのまま置ける。 */
   function autoLinkRails(tx, ty, kind) {
     if (!state.propAutoLink) return 0;
-    if (kind !== (M.RAIL_KIT_KIND || "railKit")) return 0;
-    if (!M.railKitRelinkAround) return 0;
-    return M.railKitRelinkAround(propList(), tx | 0, ty | 0);
+    if (!M.isConnectKit || !M.isConnectKit(kind)) return 0;
+    if (!M.connectKitRelinkAround) return 0;
+    return M.connectKitRelinkAround(propList(), tx | 0, ty | 0, kind);
   }
 
   /* 配置 (履歴なし。呼び出し側が 1 段だけ積む)。
@@ -4631,7 +4633,7 @@
     setPropScaleRef: setPropScaleRef,
     /* ★STEP 2.5: つながる線路の自動接続 ON/OFF (既定 ON)。
      *   OFF にするとパレットで選んだ形をそのまま置ける (自分も近傍も書き換えない)。
-     *   規則そのものは MapDef.railVariantForMask / railKitRelinkAround が唯一の正。 */
+     *   規則そのものは MapDef.connectKitVariantForMask / connectKitRelinkAround が唯一の正。 */
     setPropAutoLink: setPropAutoLink,
     getPropAutoLink: function () { return !!state.propAutoLink; },
     propInfo: propInfo,
