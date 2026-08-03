@@ -365,9 +365,13 @@ function mkPayload(props) {
       });
       check('§1 1a propEntries() が index.html の実数と一致 (' + EXP.entries.length + ' 件)',
         c1.n === EXP.entries.length, 'n=' + c1.n + ' 期待=' + EXP.entries.length);
-      check('§1 1b 種が 7 (grass/reed/log/detail/rubble/cart/rail)',
-        J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail']), J(c1.kinds));
-      check('§1 1c SCENERY_FRAMES を実行時に読めている (シートと同じ 7 キー)',
+      /* ⚠ ここは**明示リスト**であって件数ではない (恒久教訓: グローバルな件数で assert するな)。
+       *   種を足したらここも直す = カタログの identity をコミットに書き残すための装置。
+       *   pillar/chair/table/wreck は Phase 6 STEP 2 で追加した mapDef.props 専用の 4 種。 */
+      check('§1 1b 種が 11 (grass/reed/log/detail/rubble/cart/rail + pillar/chair/table/wreck)',
+        J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail',
+                           'pillar', 'chair', 'table', 'wreck']), J(c1.kinds));
+      check('§1 1c SCENERY_FRAMES を実行時に読めている (シートと同じキー)',
         J(c1.framesKeys) === J(Object.keys(EXP.sheets)), J(c1.framesKeys));
       /* ★★1d = この節の心臓部。df-mapdef の実装を通さず index.html を独立に計算した
        *   dw/dh と、ブラウザ側 propDrawSize() の戻りが**全件一致**することを見る。 */

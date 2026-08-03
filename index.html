@@ -3734,6 +3734,26 @@
         {x:80,y:94,w:350,h:814}, {x:588,y:95,w:359,h:813},
         {x:1049,y:82,w:410,h:828},
       ],
+      // ── ダンジョン共通の情景物 (マップエディタ Phase 6 STEP 2)。
+      //    frames.json (dungeon_props/_extract.py 出力) の実測値。
+      //    ⚠ 既定6シナリオの SCENERY_RECIPES はこの4種を1つも参照しない = 従来マップは1ドットも
+      //      変わらない。mapDef.props (エディタで1個ずつ置く) 専用の追加。
+      pillar: [
+        {x:107,y:138,w:214,h:742}, {x:512,y:94,w:333,h:804},
+        {x:999,y:63,w:441,h:854},
+      ],
+      chair: [
+        {x:68,y:366,w:338,h:409}, {x:501,y:179,w:435,h:670},
+        {x:1013,y:235,w:501,h:637},
+      ],
+      table: [
+        {x:16,y:209,w:577,h:480}, {x:624,y:205,w:508,h:490},
+        {x:1207,y:229,w:545,h:444},
+      ],
+      wreck: [
+        {x:54,y:162,w:554,h:495}, {x:628,y:124,w:645,h:533},
+        {x:1277,y:126,w:604,h:528},
+      ],
     };
     // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
     //
@@ -3785,6 +3805,24 @@
       cart:   { src: "assets/mine_cart.png",   blocking: [true,true,true],                    displayMax: 64,
                 img: new Image(), loaded: false },
       rail:   { src: "assets/mine_rail.png",   blocking: [false,false,false],                 displayMax: 130, flat: true,
+                img: new Image(), loaded: false },
+      // ── ダンジョン共通の情景物 (Phase 6 STEP 2)。mapDef.props で1個ずつ置く用 ──
+      //   ⭐ displayMax は物差し (1px ≒ 2.98cm) から逆算した実寸で決めてある。塞ぐマス数は
+      //     DFMapDef.propFootprint が描画サイズから導出するので**ここには書かない**。
+      //   石柱: [0]細柱 120x415cm(1x1) [1]太柱 161x388cm(1x1) [2]巨大列柱 296x573cm(1x2)。
+      //     ⚠ 絵のアスペクトが 441:854 なので「一辺5.8mの2x2」は原理的に作れない
+      //       (幅を580cmにすると高さ1123cm=4マスになる)。ユーザー判断で 1x2 の大列柱に決定。
+      pillar: { src: "assets/prop_pillar.png", blocking: [true,true,true],                    displayMax: [139,130,192],
+                img: new Image(), loaded: false },
+      // 椅子: 37x45 / 58x90 / 70x89cm。⚠ blocking は **false**(50cm の椅子が 2.9m 四方の
+      //   1マスを丸ごと塞ぐと絵と当たり判定が釣り合わない — ユーザー判断)。
+      chair:  { src: "assets/prop_chair.png",  blocking: [false,false,false],                 displayMax: [15,30,30],
+                img: new Image(), loaded: false },
+      // テーブル: 119x99 / 119x115 / 119x97cm。3種とも 1x1。
+      table:  { src: "assets/prop_table.png",  blocking: [true,true,true],                    displayMax: 40,
+                img: new Image(), loaded: false },
+      // 壊れた馬車: 全長 388cm(3種とも)。1x1 = トロッコ(191cm)と同じ扱い。
+      wreck:  { src: "assets/prop_wreck.png",  blocking: [true,true,true],                    displayMax: 130,
                 img: new Image(), loaded: false },
     };
     for (const [k, s] of Object.entries(SCENERY_SHEETS)) {

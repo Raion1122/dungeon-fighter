@@ -486,8 +486,11 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
         c1.unknownTheme !== c1.hit, String(c1.unknownTheme));
       check('§1 1h 未知キー / prototype 汚染キーも null',
         c1.unknownKey === null && c1.proto === null, J([c1.unknownKey, c1.proto]));
-      check('§1 1i sceneryKinds() が 7 種 (grass/reed/log/detail/rubble/cart/rail)',
-        J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail']), J(c1.kinds));
+      /* ⚠ **明示リスト**であって件数ではない。種を足したらここも直す = カタログの identity を
+       *   コミットに書き残す装置 (pillar/chair/table/wreck は Phase 6 STEP 2 で追加)。 */
+      check('§1 1i sceneryKinds() が 11 種 (grass/reed/log/detail/rubble/cart/rail + pillar/chair/table/wreck)',
+        J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail',
+                           'pillar', 'chair', 'table', 'wreck']), J(c1.kinds));
       check('§1 1j 代表レシピ goblin-mine = {rubble:26,rail:10,cart:5} / area 676 (全部屋の合算)',
         !!c1.mine && J(c1.mine) === J({ counts: { rubble: 26, rail: 10, cart: 5 }, area: 676 }), J(c1.mine));
       check('§1 1k 代表レシピ caravan-road = {grass:160,log:13,detail:94} / area 904',
@@ -825,8 +828,8 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       await sleep(600);
       const warned = consoleWarns.slice(before);
       console.log('  [ref] 成功時 note="' + D.ok.note + '" / 失敗時 note="' + D.after.note + '"');
-      check('§6 6a 成功時の #paintNote が「1枚絵 12 枚 / 情景 7 種」(.ng なし)',
-        /1枚絵 12 枚/.test(D.ok.note) && /情景 7 種/.test(D.ok.note) && D.ok.noteNg === false, D.ok.note);
+      check('§6 6a 成功時の #paintNote が「1枚絵 12 枚 / 情景 11 種」(.ng なし)',
+        /1枚絵 12 枚/.test(D.ok.note) && /情景 11 種/.test(D.ok.note) && D.ok.noteNg === false, D.ok.note);
       check('§6 6b 取得中は「読込中…」の 1 項目 + disabled (部屋を選んでいても)',
         D.during.options === 1 && D.during.disabled === true && /読込中/.test(D.during.note),
         'options=' + D.during.options + ' note=' + D.during.note);

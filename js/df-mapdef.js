@@ -747,6 +747,7 @@
   var PROP_KIND_LABELS = {
     grass: "草の房", reed: "葦", log: "倒木", detail: "小物",
     rubble: "瓦礫", cart: "トロッコ", rail: "線路",
+    pillar: "石柱", chair: "椅子", table: "テーブル", wreck: "壊れた馬車",
   };
   function propKindLabel(kind) { return PROP_KIND_LABELS[kind] || String(kind); }
 
