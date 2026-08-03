@@ -31,7 +31,7 @@
  *   §4 Undo   ★実キーボード Ctrl+Z 一発で「置いた物」も「近傍の化け」も戻る
  *   §5 往復   export→import で 1 バイトも変わらない / ★矛盾する variant を矯正しない
  *   §6 非退行 ★既定 6 シナリオは railKit を 1 個も持たない (レシピにも本編にも)
- *   §7 Undo ボタン ★ユーザー要望②。#toolBtns の直後・先頭行・前に 0 個 (3 viewport)
+ *   §7 Undo ボタン ★ユーザー要望②。#editbar の先頭・先頭行・前に 0 個 (3 viewport)
  *   §G 絵     ★golden 方式 (tools/_golden.js)。敷いた線路の見た目 5 シーンの SHA-256
  *   §E pageerror / console.error / 意図しない 404 が 0 件
  *
@@ -900,7 +900,7 @@ const SCENES = [
     // §7 — ユーザー要望②「1 個戻るボタンが欲しい」の**画面上の**位置
     //   ⚠ DOM 順だけ見ても駄目。#editbar は flex-wrap なので CSS 1 行で最終行へ沈む。
     // ══════════════════════════════════════════════════════════════════════
-    mark('§7 Undo ボタン — ★編集バーの先頭・ツールの直後に見えていること');
+    mark('§7 Undo ボタン — ★編集バーの先頭 (真の左端・ツールより前) に見えていること');
     {
       /* 物差し: 「↶ より前 (読む順で先) に何個の操作子があるか」。
        *   ツールボタン群 (#toolBtns) は正規の置き場なので勘定に入れない。
@@ -939,8 +939,8 @@ const SCENES = [
                  histKids: Array.prototype.map.call(q('histBtns').children, c => c.id),
                  undoText: q('btnUndo').textContent, redoText: q('btnRedo').textContent };
       });
-      check('§7 7a #histBtns が #toolBtns の直後 (DOM 順)',
-        d7.iTool === 0 && d7.iHist === 1, 'toolBtns=' + d7.iTool + ' histBtns=' + d7.iHist);
+      check('§7 7a #histBtns が #editbar の先頭 (DOM 順) / #toolBtns がその次',
+        d7.iHist === 0 && d7.iTool === 1, 'histBtns=' + d7.iHist + ' toolBtns=' + d7.iTool);
       check('§7 7b btnUndo / btnRedo がこの順で #histBtns の中にある / ラベル据え置き',
         J(d7.histKids) === J(['btnUndo', 'btnRedo']) &&
         d7.undoText === '↶ 元に戻す' && d7.redoText === '↷ やり直し',

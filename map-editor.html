@@ -147,7 +147,9 @@
   #toolBtns { display: flex; gap: 4px; }
   /* ★Phase 6 STEP2.5: 履歴ボタン (↶ 元に戻す / ↷ やり直し) の枠。
      目的は **見つけられること** の 1 点。
-       - #toolBtns の直後に置く   → #editbar が折り返しても常に先頭行の左寄り
+       - #editbar の先頭に置く    → 折り返しても常に先頭行の**真の左端** (x ≒ 0)
+                                    (#toolBtns の直後だとツール群だけで約 730px あり x=731px
+                                     まで押され、「バーの左端」には見えなかった)
        - flex-shrink:0 + nowrap   → 2 つが分断されて別行に散らない
        - 薄い枠 + 少し明るい配色  → 周りのツール群から視覚的に切り離す
                                     (トンマナは既存のダーク UI のまま。彩度は上げない)
@@ -493,16 +495,18 @@
        ⚠ ツールボタンは TOOLS 配列から動的生成する (項目3 で「起点」「敵スロット」
          「ボススロット」が増えても、この HTML は 1 文字も変えなくてよい)。 -->
   <div id="editbar">
-    <span id="toolBtns"></span>
-    <!-- ★Phase 6 STEP2.5: 履歴 (↶/↷) は**編集バーの左端 = ツールボタンの直後**に置く。
+    <!-- ★Phase 6 STEP2.5: 履歴 (↶/↷) は**編集バーの真の左端 = #editbar の先頭**に置く。
          ⚠ 元はバーの末尾 (#btnDelete の後ろ) にあり、#editbar が flex-wrap:wrap なので
            折り返した行の右端に埋もれ、ユーザーが存在に気づけなかった。
+         ⚠ 次に #toolBtns の**直後**へ移したが、ツール群だけで約 730px あるため実測 x=731px で
+           「バーの左端」には見えなかった → ユーザー判断 (2026-08-04) で **#toolBtns の前**へ。
          ⚠⚠ 動かしたのは**位置と見た目だけ**。undo()/redo()・history (50段)・Ctrl+Z/Ctrl+Y は
              1 行も変えていない (id も変えない = 831/3291/3630 行の参照が生きている)。 -->
     <span id="histBtns">
       <button id="btnUndo" disabled title="直前の操作を 1 つ取り消す (Ctrl+Z)。タイル 1 筆・情景物の設置/移動/削除・部屋の作成/移動/リサイズ・敵スロット・JSON 読込・矩形に戻す がすべて対象 (50 段)">↶ 元に戻す</button>
       <button id="btnRedo" disabled title="取り消した操作をやり直す (Ctrl+Y / Ctrl+Shift+Z)">↷ やり直し</button>
     </span>
+    <span id="toolBtns"></span>
     <span class="sep"></span>
     <!-- ★Phase 3 項目4: 自由タイル (焼き固め方式) のバッジ + ブラシ設定。
          バッジは **tiles の有無に関わらず常設** = 「今この地図の床は矩形から作られているのか、
@@ -556,7 +560,7 @@
     <button id="btnDelete" disabled title="Delete / BackSpace">削除</button>
     <span class="sep"></span>
     <!-- ⚠ ↶ 元に戻す / ↷ やり直し は**ここにあった**。バーの末尾 = 折り返しの右端に
-         埋もれるので、Phase 6 STEP2.5 で #toolBtns の直後 (#histBtns) へ移した。 -->
+         埋もれるので、Phase 6 STEP2.5 で #editbar の先頭 (#histBtns) へ移した。 -->
     <span id="selInfo">選択なし</span>
   </div>
 
