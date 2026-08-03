@@ -152,6 +152,30 @@ CHEVRON_PX = 34.0             # V 字の開き。岸で位相が何 px 遅れる
 GLINT_MIX = 0.30              # 波頭のきらめきの強さ (0 で無し)
 COL_GLINT = (146.0, 186.0, 184.0)   # 波頭のきらめき
 
+# ── ⭐⭐ 水際の小石 (2026-08-04 ユーザー要望。1 回目の実機で「まだ管っぽい」を受けて) ──
+#    残っていた「管」の読みの正体は **水際の縁が滑らかで一様な輪になっていること**
+#    ＝ 円柱の縁の描き方そのもの。小石を散らすとその輪が壊れ、「地面に掘れた流れ」に読める。
+#    ⭐ |d| の関数なので **両岸に対で出る**。実際の川も両岸に砂利があるので鏡像でも
+#      自然に見える (チェブロン波紋と同じ「対称でも人工的に見えない」構造)。
+#    ⚠ **α は一切変えない**。色だけで描くので report_edges の実測値 (不透明幅 / 水路幅 /
+#      中心) が 1px も動かない ＝ しきい値の再調整が要らない。
+#    ⚠ 密にしすぎると小石が連なって **また「輪」になる**。1 タイル (表示 96px) に
+#      片側 PEBBLE_N 個 = 6.8 表示px 間隔、石の直径 1.5〜3.4 表示px で隙間が空く量。
+#    ⚠⚠ 6 倍 NEAREST (= 実ピクセル) で見て決めた。**2 倍の滑らか拡大では判定できない**
+#      (初回の設定は 3 倍表示では良さそうに見えたが、実ピクセルでは
+#       「配管のリベット」に見えていた。原因 3 つとも下に潰した)
+#    ⛔ 接地の暗い輪を強くするな (表示 2px の石には解像せず、ただ暗い点になる)
+#    ⛔ offset を岸側 (正) へ伸ばすな (α が薄い岸に乗ると茶床に沈んで灰色の点になる)
+#    ⛔ 水中側に**広く**散らすこと。狭くすると石が縁に一列に並んで
+#      今度は「明るい輪」= やはり円柱のハイライトに見える
+PEBBLE_N = 24                 # 1 セル (= 512 素材px = 表示 96px) あたりの個数
+PEBBLE_R = (3.0, 9.5)         # 半径 (素材px)。3.4〜10.6cm の砂利に相当
+PEBBLE_OFFSET = (-30.0, 3.0)  # 水際 w1 からのずれ。負 = 水中側 / 正 = 岸側
+PEBBLE_MIX = 0.75             # 石の面の混ぜ量
+PEBBLE_SUBMERGED = 0.95       # 水中の石は水を透かすので少しだけ淡くする倍率
+PEBBLE_SHADE = 0.10           # 接地の暗い輪 (⛔ 上げるとリベットになる)
+COL_PEBBLE = (138.0, 128.0, 110.0)  # 濡れた小石 (明るい灰褐色)
+
 # ── 断面プロファイル (d = 芯からの距離 px) ────────────────────────────────
 #    0 .. WATER_HALF          水面   (α=255。**ほぼ平坦** = 管に見せないため)
 #    WATER_HALF               水際の細い暗線 (realism の主役)
@@ -277,6 +301,34 @@ def _wobble(rng: random.Random, s: np.ndarray, octaves) -> np.ndarray:
     for cells, ratio in octaves:
         acc += (WOBBLE_MAX * ratio) * (2.0 * _noise1(rng, s, cells) - 1.0)
     return np.clip(acc, -WOBBLE_MAX, WOBBLE_MAX)
+
+
+def _pebbles(rng: random.Random, s: np.ndarray, u: np.ndarray,
+             w1col: np.ndarray):
+    """水際に小石を散らし (石の面, 接地の暗い輪) のマスクを返す。
+
+    ⭐ u = |d| の関数なので **両岸に対で出る** (PEBBLE_N の注を参照)。
+    ⚠ s 方向は **周期 CELL の最短距離**で測るので、継ぎ目をまたぐ小石も割れない
+      (石の中心が s=0 付近にあっても、前のタイルの末尾と後ろのタイルの先頭に
+       ちゃんと半分ずつ出る)。
+    ⚠ 石は重なりうるので **max で合成**する (加算だと重なった所だけ真っ黒になる)。
+    ⚠ rng はモジュール共通。**必ず最後に引くこと** — 途中に挟むと後続の
+      うねり/波紋の乱数列がずれて絵が丸ごと変わる。
+    """
+    core = np.zeros_like(u)
+    ring = np.zeros_like(u)
+    for _ in range(PEBBLE_N):
+        si = rng.random() * CELL
+        r = PEBBLE_R[0] + rng.random() * (PEBBLE_R[1] - PEBBLE_R[0])
+        off = PEBBLE_OFFSET[0] + rng.random() * (PEBBLE_OFFSET[1] - PEBBLE_OFFSET[0])
+        asp = 0.72 + rng.random() * 0.70          # 沿線方向の伸び (真円にしない)
+        ui = float(w1col[int(si) % CELL]) + off   # その s での水際に乗せる
+        ds = np.abs(s - si)
+        ds = np.minimum(ds, CELL - ds)
+        t = (ds / (r * asp)) ** 2 + ((u - ui) / r) ** 2
+        core = np.maximum(core, np.clip(1.0 - t, 0.0, 1.0) ** 0.55)
+        ring = np.maximum(ring, np.exp(-((np.sqrt(t) - 1.05) / 0.30) ** 2))
+    return core, ring
 
 
 def _lerp3(c0, c1, t: np.ndarray) -> np.ndarray:
@@ -482,6 +534,15 @@ def build_source() -> np.ndarray:
     line = np.exp(-(((u - w1) / WATERLINE_SIG) ** 2))
     rgb = rgb + (np.asarray(COL_WATERLINE, dtype=np.float64) - rgb) \
         * (WATERLINE_DEPTH * line)[:, :, None]
+
+    # ⭐⭐ 水際の小石。**滑らかで一様な縁を壊す** = 残っていた「管」の読みへの直接の対処。
+    #     水際の暗線の**後**に当てて石が縁の上に乗るようにする。α は触らない。
+    #     ⚠ rng を引くのはここが最後 (_pebbles の注を参照)。
+    p_core, p_ring = _pebbles(rng, s, u, w1[:, 0])
+    rgb = rgb * (1.0 - PEBBLE_SHADE * p_ring)[:, :, None]
+    p_mix = PEBBLE_MIX * np.where(u <= w1, PEBBLE_SUBMERGED, 1.0)   # 水中の石は淡く
+    rgb = rgb + (np.asarray(COL_PEBBLE, dtype=np.float64) - rgb) \
+        * (p_mix * p_core)[:, :, None]
 
     rgb = _prefilter_rgb(rgb)          # 見えない高域を落として PNG を小さくする
 
