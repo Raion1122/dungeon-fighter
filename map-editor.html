@@ -189,8 +189,8 @@
   /* 本編テクスチャの取得状況 (2026-08-03)。★成功時は空文字 = バーの高さを変えない。
      ⚠ 文字が生えるとバーが折り返して #stage が縮む。ResizeObserver が canvas を
        追随させるので座標は狂わないが、無駄な再描画は避ける。 */
-  #texNote { color: var(--fg-dim); font-size: 12px; }
-  #texNote.ng { color: #ffc861; }
+  #texNote, #paintNote { color: var(--fg-dim); font-size: 12px; }
+  #texNote.ng, #paintNote.ng { color: #ffc861; }
 
   #lintPanel {
     display: none;                      /* ★既定は非表示。開くと .open で flex になる */
@@ -467,6 +467,22 @@
       <option value="start">起点 (start)</option>
       <option value="boss">ボス (boss)</option>
     </select>
+    <!-- ★Phase 4 項目3: 部屋ごとの 1枚絵 / 情景。roleSel と**まったく同じ追従の仕方**をする
+           (部屋を選んでいる時だけ有効。syncEditUI() の el.roleSel.disabled の隣を見ること)。
+         ⚠ paintSel の中身は index.html の ROOM_PAINTINGS_DEF から実行時に組む (写経しない)
+           = ゲーム側で絵を差し替えても勝手に追従する。この HTML には絵の名前が 1 つも無い。
+         ⚠ scenerySel の value は**文字列**なので、書き込む時に必ず parseFloat する
+           ({density:"1"} は sanitize が null にする = 選んだのに反映されない)。 -->
+    <label for="paintSel">1枚絵</label>
+    <select id="paintSel" disabled title="この部屋に本編の1枚絵を貼ります。貼る矩形は絵側の tileBounds ではなく**この部屋の rect** なので、自分で描いた大きさにそのまま収まります"></select>
+    <label for="scenerySel">情景</label>
+    <select id="scenerySel" disabled title="この部屋に草・瓦礫・倒木などを散らします。種の内訳はテーマ既定のレシピを部屋の床面積へスケールして使います">
+      <option value="">なし</option>
+      <option value="0.5">少なめ</option>
+      <option value="1">既定</option>
+      <option value="1.8">多め</option>
+    </select>
+    <span id="paintNote" title="1枚絵カタログ (index.html の ROOM_PAINTINGS_DEF) と情景カタログ (SCENERY_SHEETS / SCENERY_RECIPES) の取得状況"></span>
     <button id="btnDelete" disabled title="Delete / BackSpace">削除</button>
     <span class="sep"></span>
     <button id="btnUndo" disabled title="Ctrl+Z">↶ 元に戻す</button>
@@ -685,6 +701,15 @@
     texPreview: true,
     texStatus: null,       // { ok, count, error } テクスチャ表の取得結果 (UI 表示用)
     drewTextured: false,   // 直近の render がテクスチャ経路を通ったか (検証シーム)
+    // ── Phase 4 項目3 (部屋ごとの 1枚絵 / 情景) ──
+    // ★カタログの取得結果。null = まだ返っていない。#paintNote に必ず 1 行出る
+    //   (敵カタログ #catalogNote / テクスチャ #texNote と同じ「無言にしない」作法)。
+    paintingStatus: null,  // { ok, count, error, url }
+    sceneryStatus: null,   // { ok, count, error, url, themes }
+    // 直近の render で実際に貼れた 1枚絵 (検証シーム)。要素 = { i, src, x, y, w, h } (screen px)
+    // ★x/y/w/h は **部屋の rect** を worldToScreen した矩形。tileBounds ではないことを
+    //   ドライバがここから直接測れる (SPEC §1-2 が Phase 4 の肝と呼んでいる不変条件)。
+    paintedRects: [],
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -721,6 +746,10 @@
     tileBrushInfo: document.getElementById("tileBrushInfo"),
     aspectSel:  document.getElementById("aspectSel"),
     roleSel:    document.getElementById("roleSel"),
+    // ── Phase 4 項目3 (1枚絵 / 情景) ──
+    paintSel:   document.getElementById("paintSel"),
+    scenerySel: document.getElementById("scenerySel"),
+    paintNote:  document.getElementById("paintNote"),
     btnDelete:  document.getElementById("btnDelete"),
     btnUndo:    document.getElementById("btnUndo"),
     btnRedo:    document.getElementById("btnRedo"),
@@ -1044,6 +1073,59 @@
     return state.texPreview;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+   * 1枚絵のプレビュー (Phase 4 項目3)
+   * ══════════════════════════════════════════════════════════════════════
+   * ★★ 貼る矩形は **部屋の rect**。絵側の tileBounds は使わない (SPEC §1-2 = Phase 4 の肝)。
+   *    自作部屋の矩形にぴったり貼るからこそ「自分で描いた地形に本編の絵が乗る」。
+   *    tileBounds は既存 6 シナリオの従来経路 (index.html) でだけ生き続ける。
+   * ★ src は M.paintingSrcFor(theme, key) で**実行時に**引く。mapDef が持つのは参照
+   *   ({theme,key}) だけなので、本編がベルトスクロール化で絵を差し替えても自動追従する。
+   * ⚠ 「本編の見た目」(#texPreviewChk) が ON のときだけ描く。1枚絵はまさに本編の見た目で、
+   *   OFF は「1マス単位の編集がしたい」意思表示なので絵で塗り潰さないのが一貫する。
+   *   ★副産物として exportPNG() は texPreview=false で焼くので、**非同期に届く画像で
+   *     PNG が変わることが構造的に起きない** (テクスチャを外しているのと同じ理由)。
+   * ⚠ ロード前 / 失敗時は**何も描かない** = 従来のタイル描画のまま (本編の onerror と同じ)。
+   * ⚠ フェザー (四辺 1 タイルのグラデ) は**素貼り**。編集中は境界が見えた方がよい。
+   * ────────────────────────────────────────────────────────────────────── */
+  var paintImgWaiting = {};   // 絵の URL -> 1 (再描画の予約済み。重複予約を作らない)
+
+  /* パレット (敵スプライト) と**同じ画像キャッシュ**を使う。URL 単位で 1 回だけ読み、
+     失敗しても throw しない (console.warn だけ残して従来のタイル描画へ落ちる)。 */
+  function paintingImage(src) {
+    var e = palImgCache[src];
+    if (e && e.done) return e.ok ? e.img : null;
+    if (!paintImgWaiting[src]) {
+      paintImgWaiting[src] = 1;
+      palLoadImage(src, function () { render(); }, "1枚絵");   // 届いたら描き直す
+    }
+    return null;
+  }
+
+  function drawRoomPaintings() {
+    state.paintedRects = [];                      // ★毎回作り直す (前回の残骸を残さない)
+    if (!state.texPreview || !state.mapDef) return;
+    var rooms = state.mapDef.rooms, t = tileSize();
+    for (var i = 0; i < rooms.length; i++) {
+      var pg = rooms[i].painting;
+      if (!pg) continue;
+      var src = M.paintingSrcFor(pg.theme, pg.key);
+      if (!src) continue;                          // カタログ未取得 / 未知参照 → 絵なし
+      var img = paintingImage(src);
+      if (!img || !img.width || !img.height) continue;   // ロード前 / 失敗 → タイル描画のまま
+      var rc = rooms[i].rect;                      // ★★ rect (tileBounds ではない)
+      var a = worldToScreen(rc[1] * t, rc[0] * t);
+      var b = worldToScreen((rc[3] + 1) * t, (rc[2] + 1) * t);
+      var w = b.x - a.x, h = b.y - a.y;
+      if (!(w > 0) || !(h > 0)) continue;
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(img, a.x, a.y, w, h);          // 本編と同じ 5引数 drawImage (比率違いは歪む)
+      ctx.restore();
+      state.paintedRects.push({ i: i, src: src, x: a.x, y: a.y, w: w, h: h });
+    }
+  }
+
   // ── 描画 ─────────────────────────────────────────────────────────────
   function render() {
     if (!state.mapDef || !state.mapData) return;
@@ -1081,6 +1163,10 @@
         }
       }
     }
+
+    /* ★Phase 4 項目3: 部屋の 1枚絵をタイルの上へ貼る。
+     *   グリッド線・部屋枠・スロット・lint マーカーはこの**上**に残す (編集の手掛かりを消さない)。 */
+    drawRoomPaintings();
 
     // グリッド線 (タイルが潰れて見える倍率では描かない)
     if (px >= 8) {
@@ -1633,6 +1719,149 @@
     state.aspectSnap = ASPECT_SNAPS[key] ? key : null;
     syncEditUI();
     return state.aspectSnap;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 部屋ごとの 1枚絵 / 情景 (Phase 4 項目3)
+   * ══════════════════════════════════════════════════════════════════════
+   * ★書き込む形は**厳密に** { theme:"<id>", key:"<文字列>" } と { density:<数値> } の 2 つだけ。
+   *   余計なキー (src など) を UI 側で持ち回らない = getMapDef() と exportJSON() が食い違わない。
+   * ★state に入る値は**必ず sanitize を通ったもの**にする (setRole と同じ流儀)。
+   *   applyMapDef() が M.sanitize → mapData 再生成 → undo 1 段 まで面倒を見るので、
+   *   ここで fixPainting / fixScenery を写経しない (二重管理は必ず腐る)。
+   * ⚠⚠ <select> の value は**文字列**。density は必ず parseFloat してから入れる
+   *   ({density:"1"} は df-mapdef.js の fixScenery が null にする = 選んだのに反映されない)。
+   * ────────────────────────────────────────────────────────────────────── */
+  var PAINT_VALUE_SEP = "|";                    // paintSel の value = theme + "|" + key
+
+  function paintValueOf(p) { return p ? (p.theme + PAINT_VALUE_SEP + p.key) : ""; }
+  function sceneryValueOf(s) { return s ? String(s.density) : ""; }
+
+  // "goblin-mine|1" / { theme, key } → { theme, key } | null。★形の最終判断は sanitize がする
+  function parsePaintValue(v) {
+    if (v && typeof v === "object")
+      return { theme: v.theme, key: (v.key == null ? v.key : String(v.key)) };
+    if (typeof v !== "string" || !v) return null;
+    var ix = v.indexOf(PAINT_VALUE_SEP);
+    if (ix <= 0 || ix >= v.length - 1) return null;
+    return { theme: v.slice(0, ix), key: v.slice(ix + 1) };
+  }
+
+  // 選択中の**部屋**にだけ効く。戻り = 適用後の値 ({theme,key} | null) / 部屋以外なら false
+  function setPainting(v) {
+    var sel = state.selection;
+    if (!sel || sel.kind !== "room") return false;
+    var d = M.clone(state.mapDef);
+    d.rooms[sel.index].painting = parsePaintValue(v);
+    applyMapDef(d);                             // sanitize + mapData 再生成 + undo 1 段
+    var r = state.mapDef.rooms[sel.index];
+    return r ? r.painting : null;
+  }
+  // 戻り = 適用後の値 ({density} | null) / 部屋以外なら false
+  function setScenery(v) {
+    var sel = state.selection;
+    if (!sel || sel.kind !== "room") return false;
+    var n = (typeof v === "number") ? v : parseFloat(v);   // ⚠ ここが parseFloat の唯一の場所
+    var d = M.clone(state.mapDef);
+    d.rooms[sel.index].scenery = (isFinite(n) && n > 0) ? { density: n } : null;
+    applyMapDef(d);
+    var r = state.mapDef.rooms[sel.index];
+    return r ? r.scenery : null;
+  }
+  // 選択中の部屋の現在値 (部屋を選んでいなければ null)
+  function selectedRoom() {
+    var sel = state.selection;
+    return (sel && sel.kind === "room") ? (state.mapDef.rooms[sel.index] || null) : null;
+  }
+
+  /* ── <select> の値を**嘘をつかずに**合わせる ─────────────────────────────────
+   *  mapDef が持っている値に合致する <option> が無いとき (手書き JSON の density 2.5 /
+   *  本編に無い theme|key など)、素朴に value を代入すると <select> は**黙って「なし」を
+   *  選んだように見える**。それを見たユーザーが別の値を選ぶと、気づかないまま元の指定が
+   *  消える。→ 合致が無ければ末尾に 1 つだけ option を作って選ぶ (前回作った分は必ず捨てる)。
+   *  ★sanitize が未知の theme/key を落とさないのと同じ思想 (知らせるが消さない)。 */
+  var STRAY_OPT_CLASS = "strayOpt";
+  function setSelectValueHonest(selEl, want, label) {
+    var old = selEl.querySelectorAll("." + STRAY_OPT_CLASS), i;
+    for (i = old.length - 1; i >= 0; i--) old[i].parentNode.removeChild(old[i]);
+    selEl.value = want || "";
+    if (want && selEl.value !== want) {
+      var op = document.createElement("option");
+      op.className = STRAY_OPT_CLASS;
+      op.value = want;
+      op.textContent = label || want;
+      selEl.appendChild(op);
+      selEl.value = want;
+    }
+    return selEl.value;
+  }
+
+  /* ── paintSel の中身 (★index.html の ROOM_PAINTINGS_DEF から実行時に組む) ──────
+   *  テーマの日本語名は **M.THEMES の name** を使う = themeSel とまったく同じ表記に揃う。
+   *  並びも M.THEMES 順 → 表に無いテーマは後ろ (本編でテーマが増えても取りこぼさない)。
+   *  ⚠ カタログ未取得のあいだは「読込中…」/ 失敗なら「(取得失敗)」の 1 項目だけにする。
+   *    「なし」だけを出して黙るのは silent fail-open (絵が 1 枚も無いのと区別が付かない)。 */
+  function paintingThemeName(id) {
+    for (var i = 0; i < M.THEMES.length; i++) if (M.THEMES[i].id === id) return M.THEMES[i].name;
+    return id;                       // ★本編で増えたテーマは id のまま出す (落とさない)
+  }
+  function paintStrayLabel(v) {
+    var p = parsePaintValue(v);
+    return p ? ("⚠ " + p.theme + " / " + p.key + "（カタログにありません）") : v;
+  }
+  function newOption(value, text) {
+    var op = document.createElement("option");
+    op.value = value; op.textContent = text;
+    return op;
+  }
+  function renderPaintSelect() {
+    if (!el.paintSel) return;
+    var keep = el.paintSel.value;
+    el.paintSel.innerHTML = "";
+    if (!M.getPaintingCatalog()) {
+      var st = state.paintingStatus;
+      el.paintSel.appendChild(newOption("", (st && !st.ok) ? "(取得失敗)" : "読込中…"));
+      return;
+    }
+    el.paintSel.appendChild(newOption("", "なし"));
+    var entries = M.paintingEntries(), byTheme = {}, order = [], i, j, e, t;
+    for (i = 0; i < entries.length; i++) {
+      e = entries[i];
+      if (!byTheme[e.theme]) { byTheme[e.theme] = []; order.push(e.theme); }
+      byTheme[e.theme].push(e);
+    }
+    var seq = [];
+    for (i = 0; i < M.THEMES.length; i++) { t = M.THEMES[i].id; if (byTheme[t]) seq.push(t); }
+    for (i = 0; i < order.length; i++) if (seq.indexOf(order[i]) < 0) seq.push(order[i]);
+    for (i = 0; i < seq.length; i++) {
+      var og = document.createElement("optgroup");
+      og.label = paintingThemeName(seq[i]);
+      var list = byTheme[seq[i]];
+      for (j = 0; j < list.length; j++)
+        og.appendChild(newOption(list[j].theme + PAINT_VALUE_SEP + list[j].key, list[j].label));
+      el.paintSel.appendChild(og);
+    }
+    setSelectValueHonest(el.paintSel, keep, paintStrayLabel(keep));
+  }
+
+  /* 取得状況の 1 行。★#texNote / #catalogNote と同じ「無言にしない」作法。
+     fetch が失敗しうる原因は実質 file:// 一択なので名指しする (生の理由だけを出さない)。 */
+  function syncPaintNote() {
+    if (!el.paintNote) return;
+    var p = state.paintingStatus, s = state.sceneryStatus;
+    if (!p || !s) {
+      el.paintNote.textContent = "1枚絵/情景カタログ 読込中…";
+      el.paintNote.classList.remove("ng"); return;
+    }
+    if (!p.ok || !s.ok) {
+      var which = (!p.ok && !s.ok) ? "1枚絵/情景カタログ" : (p.ok ? "情景カタログ" : "1枚絵カタログ");
+      el.paintNote.textContent = isFileProtocol()
+        ? "⚠ file:// で開いているため" + which + "を読めません — 「マップエディタを起動.vbs」から開き直すと部屋に本編の絵を貼れます"
+        : "⚠ " + which + "を読めません (" + (p.ok ? s.error : p.error) + ") — 1枚絵は選べません";
+      el.paintNote.classList.add("ng"); return;
+    }
+    el.paintNote.textContent = "1枚絵 " + p.count + " 枚 / 情景 " + s.count + " 種";
+    el.paintNote.classList.remove("ng");
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -2646,6 +2875,17 @@
     var isRoom = !!(sel && sel.kind === "room");
     el.roleSel.disabled = !isRoom;
     el.roleSel.value = isRoom ? (state.mapDef.rooms[sel.index].role || "") : "";
+    /* ★Phase 4 項目3: 1枚絵 / 情景も roleSel と**同じ追従の仕方**をする。
+     *  ⚠ paintSel だけはカタログが要る (選択肢を実行時に組むため) ので、部屋を選んでいても
+     *    未取得なら disabled のまま。scenerySel は密度だけなのでカタログ不要 =
+     *    エディタが index.html を読めなくても指定はでき、本編では正しく効く。 */
+    var pRoom = isRoom ? state.mapDef.rooms[sel.index] : null;
+    el.paintSel.disabled = !isRoom || !M.getPaintingCatalog();
+    el.scenerySel.disabled = !isRoom;
+    var pv = pRoom ? paintValueOf(pRoom.painting) : "";
+    setSelectValueHonest(el.paintSel, pv, paintStrayLabel(pv));
+    var sv = pRoom ? sceneryValueOf(pRoom.scenery) : "";
+    setSelectValueHonest(el.scenerySel, sv, "⚠ 密度 " + sv + "（手書きの値）");
     // 削除ボタンは矩形選択・スロット選択のどちらでも有効 (項目3)
     el.btnDelete.disabled = !sel && !state.slotSelection;
     el.btnUndo.disabled = history.undo.length === 0;
@@ -2983,6 +3223,9 @@
 
   el.aspectSel.addEventListener("change", function () { setAspectSnap(el.aspectSel.value); });
   el.roleSel.addEventListener("change", function () { setRole(el.roleSel.value); });
+  // ★Phase 4 項目3。roleSel と同じ 1 行ずつの配線 (change 以外の経路を作らない)
+  el.paintSel.addEventListener("change", function () { setPainting(el.paintSel.value); });
+  el.scenerySel.addEventListener("change", function () { setScenery(el.scenerySel.value); });
   el.btnDelete.addEventListener("click", function () { deleteAny(); });
   el.btnUndo.addEventListener("click", function () { undo(); });
   el.btnRedo.addEventListener("click", function () { redo(); });
@@ -3011,7 +3254,8 @@
   /* スプライトシートを 1 枚だけ読む。同じ URL の重複読込はしない
      (49 種 → 実ファイルは 47 枚。2 種が同じシートを共有している)。
      ⚠ 失敗しても throw しない。壊れた画像アイコンを出さず badge/頭文字へ落とす。 */
-  function palLoadImage(url, cb) {
+  // what = ログに出す種別 (省略時 "敵スプライト")。★Phase 4 項目3 の 1枚絵もこの器を共有する
+  function palLoadImage(url, cb, what) {
     var e = palImgCache[url];
     if (e && e.done) { cb(e.ok ? e.img : null); return; }
     if (e) { e.waiters.push(cb); return; }
@@ -3025,7 +3269,7 @@
     img.onload  = function () { settle(true); };
     img.onerror = function () {
       // ★無言で消さない。console.warn は残す (console.error はドライバの §9 が拾うので使わない)
-      try { console.warn("[map-editor] 敵スプライトを読めません: " + url); } catch (_) {}
+      try { console.warn("[map-editor] " + (what || "敵スプライト") + "を読めません: " + url); } catch (_) {}
       settle(false);
     };
     img.src = url;
@@ -3361,6 +3605,32 @@
     return r;
   });
 
+  /* ── 1枚絵 / 情景カタログの取得 (Phase 4 項目3) ────────────────────────────────
+   * ★敵カタログ・テクスチャ表と**同じ形**。index.html の ROOM_PAINTINGS_DEF /
+   *   SCENERY_SHEETS + SCENERY_RECIPES を実行時に読む (エディタ側に写経しない)。
+   * ⚠ 互いに別 fetch (df-mapdef.js のコメント参照。setXxxCatalog(null) → 再取得の契約)。
+   * ⚠⚠ **ここが lint painting-missing の起動スイッチ**。項目2 までは誰も
+   *   loadPaintingCatalog() を呼んでいなかったので、あの検査は一度も発火していなかった。
+   *   カタログが載ったら computeLint() をやり直さないと、バッジが古いままになる。 */
+  function onPaintingCatalog(r) {
+    state.paintingStatus = r;
+    renderPaintSelect();    // ★カタログが届いてから初めてテーマの optgroup が生える
+    syncPaintNote();
+    computeLint();          // painting-missing が有効になった状態で計算し直す
+    syncEditUI();           // 部屋を選んだままカタログが届いたら disabled を外す
+    render();               // 既に painting 指定のあるマップなら、ここで絵が乗り始める
+    return r;
+  }
+  function onSceneryCatalog(r) {
+    state.sceneryStatus = r;
+    syncPaintNote();
+    return r;
+  }
+  syncPaintNote();
+  renderPaintSelect();
+  var paintingCatalogReady = M.loadPaintingCatalog().then(onPaintingCatalog);
+  var sceneryCatalogReady  = M.loadSceneryCatalog().then(onSceneryCatalog);
+
   /* ══ 検証シーム (★ヘッドレスドライバがここに乗る。名前を変えないこと) ══
    * window.__mapEditor
    *   ── 項目1 で公開済み (★変更しない) ──
@@ -3474,7 +3744,7 @@
    *   DOM: #slotTip (.on = 表示中。★DIV であって canvas ではない) / #palSlot (選択中スロットの敵種)
    */
   window.__mapEditor = {
-    version: 10,
+    version: 11,
     getMapDef: function () { return M.clone(state.mapDef); },
     setMapDef: function (d) { applyMapDef(d, { fit: false }); return M.clone(state.mapDef); },
     buildMapData: function (d) { return M.buildMapData(d || state.mapDef); },
@@ -3587,6 +3857,76 @@
       render();
       return true;
     },
+
+    /* ── Phase 4 項目3: 部屋ごとの 1枚絵 / 情景 ────────────────────────────────
+     *   setPainting(v)   … 選択中の**部屋**へ 1枚絵を設定。v = "" | "theme|key" | {theme,key}。
+     *                      戻り = 適用後の値 ({theme,key} | null) / 部屋を選んでいなければ false。
+     *                      ★undo 1 段。state に入るのは必ず sanitize 済みの形。
+     *   setScenery(v)    … 同上。v = "" | "1.8" | 1.8。⚠ 文字列は parseFloat してから入る。
+     *                      戻り = { density } | null / 部屋以外なら false
+     *   getPainting() / getScenery() … 選択中の部屋の現在値 (部屋以外は null)
+     *   paintingInfo()   … **DOM の実測**。配列ではなく画面を見る (paletteInfo と同じ思想):
+     *                      { ready, status, sceneryStatus, note, noteNg,
+     *                        options, groups, groupLabels, values, value, disabled,
+     *                        sceneryValues, sceneryValue, sceneryDisabled,
+     *                        painting, scenery, painted[] }
+     *                      painted[] = 直近の render で**実際に貼れた**絵
+     *                        { i, src, x, y, w, h } (screen px)。
+     *                      ★★ x/y/w/h は **部屋の rect** を worldToScreen した矩形。
+     *                         絵側の tileBounds ではないことをドライバがここで直接測れる。
+     *   paintingReady / sceneryReady … Promise<{ok,count,error,url}>。**必ず resolve** する
+     *   DOM: #paintSel (optgroup = テーマ / option value = "theme|key") / #scenerySel /
+     *        #paintNote (.ng = 取得失敗)。★カタログ未取得の #paintSel は
+     *        「読込中…」or「(取得失敗)」の 1 項目 + disabled = 無言で「なし」に見せない */
+    setPainting: setPainting,
+    setScenery: setScenery,
+    getPainting: function () { var r = selectedRoom(); return r ? r.painting : null; },
+    getScenery: function () { var r = selectedRoom(); return r ? r.scenery : null; },
+    paintingReady: paintingCatalogReady,
+    sceneryReady: sceneryCatalogReady,
+    /* カタログを捨てて取り直す。★reloadTextures と同じ用途 = **退化の検証**。
+       url を渡せば取得失敗 (404) を再現でき、UI が「(取得失敗)」を出すことを実測できる。 */
+    reloadPaintingCatalog: function (url) {
+      M.setPaintingCatalog(null);
+      state.paintingStatus = null;
+      renderPaintSelect(); syncPaintNote(); computeLint(); syncEditUI(); render();
+      return M.loadPaintingCatalog(url).then(onPaintingCatalog);
+    },
+    reloadSceneryCatalog: function (url) {
+      M.setSceneryCatalog(null, null);
+      state.sceneryStatus = null;
+      syncPaintNote();
+      return M.loadSceneryCatalog(url).then(onSceneryCatalog);
+    },
+    paintingInfo: function () {
+      var r = selectedRoom(), i;
+      var vals = [], opts = el.paintSel.querySelectorAll("option");
+      for (i = 0; i < opts.length; i++) vals.push(opts[i].value);
+      var glabels = [], gs = el.paintSel.querySelectorAll("optgroup");
+      for (i = 0; i < gs.length; i++) glabels.push(gs[i].label);
+      var svals = [], sopts = el.scenerySel.querySelectorAll("option");
+      for (i = 0; i < sopts.length; i++) svals.push(sopts[i].value);
+      return {
+        ready: !!M.getPaintingCatalog(),
+        status: state.paintingStatus,
+        sceneryStatus: state.sceneryStatus,
+        note: el.paintNote.textContent,
+        noteNg: el.paintNote.classList.contains("ng"),
+        options: opts.length,
+        groups: gs.length,
+        groupLabels: glabels,
+        values: vals,
+        value: el.paintSel.value,
+        disabled: !!el.paintSel.disabled,
+        sceneryValues: svals,
+        sceneryValue: el.scenerySel.value,
+        sceneryDisabled: !!el.scenerySel.disabled,
+        painting: r ? r.painting : null,
+        scenery: r ? r.scenery : null,
+        painted: state.paintedRects.slice(),
+      };
+    },
+
     texInfo: function () {
       var set = state.mapDef ? M.texSetFor(state.mapDef.themeId) : null;
       return {
