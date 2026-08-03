@@ -22,13 +22,18 @@
  *   B   **改修前 (--baseline-rev) で A1/A2/A3 が必ず FAIL する** = 空振り assert でないことの実証
  *   C   CLOUDS 14個 × 3ビューポートで可視帯到達 14/14
  *       可視帯は実プレイのカメラ実測 (__camTrace) から出す。地平線 clip も込みで判定する。
- *   D   既存6シナリオ: mapCanvas.toDataURL() SHA-256 一致 **に加えて**
- *       fillRect/drawImage の引数列を順序込みで baseline と完全一致
+ *   D   既存6シナリオ: mapCanvas.toDataURL() SHA-256 が **golden と一致** **に加えて**
+ *       fillRect/drawImage の引数列を順序込みで golden と完全一致
+ *       ⚠️ 以前は baseline (609c9d7) と比較していたが、2 部屋化で起点が動き、1枚絵化で
+ *          描画コマンド列そのものが変わった (fillRect 133 → 26 件) ため原理的に成立しなくなり、
+ *          本ドライバは 50/62 で**赤いまま安定**して何も検出しなくなっていた (2026-08-03)。
+ *          → 経緯と golden 方式の根拠は tools/_golden.js のヘッダを読むこと。
+ *          意図した変更なら `--update-golden` で更新し、git diff をレビューして commit する。
  *   E   撤退スイッチ: ?field=0 / ?fieldgeo=0 で 192px 壁が戻る (取り違え検出)
  *
  * 使い方:
  *   node tools/driver_field_step2.js [--headful] [--browser <path>] [--port N]
- *                                    [--baseline-rev 609c9d7] [--shots <dir>]
+ *                                    [--baseline-rev 609c9d7] [--shots <dir>] [--update-golden]
  */
 const http = require('http');
 const fs = require('fs');
@@ -47,6 +52,10 @@ const PORT = parseInt(arg('port', '8831'), 10);
 const BASELINE_PORT = PORT + 1;
 const BASELINE_REV = arg('baseline-rev', '609c9d7');
 const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_step2_baseline'));
+// ⚠️ baseline は **負のコントロール (B)** にだけ使う。非退行 (D1/D2) は golden へ移した
+//    (固定コミット比較が 2 部屋化 / 1枚絵化で自己失効したため)。根拠は tools/_golden.js のヘッダ。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_step2', { update: UPDATE_GOLDEN, driver: 'driver_field_step2' });
 const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'claude', 'c--Users-PC-User-Desktop------------',
   'd59476b7-452d-4dab-a2e8-62026a9fc308', 'scratchpad', 'step2'));
 
@@ -643,32 +652,31 @@ function fingerprint(spy) {
     }
 
     // ══ D: 既存6シナリオの非退行 ══════════════════════════════════════════
-    mark('D: 既存6シナリオ — ピクセル SHA + 描画コマンド引数列の完全一致');
+    mark('D: 既存6シナリオ — ピクセル SHA + 描画コマンド引数列が golden と一致');
+    // ⚠️ ここで baseline ページを開かないのは意図的。D1/D2 を golden へ移したので比較相手が
+    //    要らなくなった。baseline は B (負のコントロール) では今も使う。
     for (const scen of LEGACY_SCENARIOS) {
       const pre = { mode: 'legacy', scen, freeze: true, t0: T_BASE_MS };
       const A = await bootPage(browser, BASE_HEAD + '/index.html?intel=0', HASH_VIEWPORT, pre);
-      const B = await bootPage(browser, BASE_OLD + '/index.html?intel=0', HASH_VIEWPORT, pre);
-      for (const P of [A, B]) await P.page.evaluate(() => window.__probe.freeze());
+      await A.page.evaluate(() => window.__probe.freeze());
       const patA = await A.page.evaluate(() => window.__probe.patternsReady());
-      const patB = await B.page.evaluate(() => window.__probe.patternsReady());
-      check('D0-' + scen + ' 両側とも wall/floor pattern が非 null',
-        patA.wall && patA.floor && patB.wall && patB.floor,
-        'head=' + JSON.stringify(patA) + ' base=' + JSON.stringify(patB));
+      check('D0-' + scen + ' wall/floor pattern が非 null (描画が死んだ状態を golden に焼かない)',
+        patA.wall && patA.floor, 'head=' + JSON.stringify(patA));
       const spyA = await A.page.evaluate(() => window.__probe.spy({ stubSky: false }));
-      const spyB = await B.page.evaluate(() => window.__probe.spy({ stubSky: false }));
-      const fA = fingerprint(spyA), fB = fingerprint(spyB);
-      check('D1-' + scen + ' 描画コマンドの引数列が順序込みで完全一致',
-        fA.hash === fB.hash && fA.nF === fB.nF && fA.nD === fB.nD,
-        'head F' + fA.nF + '/D' + fA.nD + ' ' + fA.hash.slice(0, 12)
-        + ' vs base F' + fB.nF + '/D' + fB.nD + ' ' + fB.hash.slice(0, 12));
+      const fA = fingerprint(spyA);
+      G.check(check, 'D1-' + scen + ' 描画コマンドの引数列が golden と順序込みで完全一致',
+        'D1-' + scen, { nF: fA.nF, nD: fA.nD, hash: fA.hash.slice(0, 12) });
       const shaA = await A.page.evaluate(() => mapCanvas.toDataURL());
-      const shaB = await B.page.evaluate(() => mapCanvas.toDataURL());
-      check('D2-' + scen + ' mapCanvas SHA-256 一致',
-        sha256(shaA) === sha256(shaB), sha256(shaA).slice(0, 16) + ' vs ' + sha256(shaB).slice(0, 16));
-      check('D3-' + scen + ' ページエラー 0', A.pageErrors.length === 0 && B.pageErrors.length === 0,
-        A.pageErrors.concat(B.pageErrors).join(' | '));
-      await A.page.close(); await B.page.close();
+      G.check(check, 'D2-' + scen + ' mapCanvas SHA-256 が golden と一致',
+        'D2-' + scen, sha256(shaA).slice(0, 16));
+      check('D3-' + scen + ' ページエラー 0', A.pageErrors.length === 0, A.pageErrors.join(' | '));
+      await A.page.close();
     }
+    // 6 シナリオが**相互に異なる**絵であることを要求する。描画が死んで一様になった状態を
+    // golden として焼き付ける事故は、これでしか捕まらない (件数ではなく identity で測る)。
+    // ⚠️ D1 (描画コマンド列) には掛けない。1枚絵化で 6 中 5 シナリオが**同じ命令列**になるのが
+    //    正しい姿 (部屋= drawImage 1 枚 + 共通の枠) で、実測でも 5 本が F26/D37 で一致する。
+    G.distinct(check, 'D2* 6 シナリオの mapCanvas が相互に異なる (一様化の検出)', 'D2-');
 
   } catch (e) {
     console.error('[drv] 例外: ' + (e && e.stack || e));
@@ -677,6 +685,9 @@ function fingerprint(spy) {
     await browser.close();
     srvHead.close(); srvBase.close();
   }
+
+  // golden のキー集合の同一性 (assert をこっそり消した/増やした場合の検出) + 記録モードの書き出し。
+  G.finish(check);
 
   const pass = results.filter(r => r.ok).length;
   console.log('\n════════════════════════════════════════════════════════');

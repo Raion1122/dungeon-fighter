@@ -17,13 +17,22 @@
  *                                実証済みの手法)。合格バーは全サンプル 100%。「67列」概念は捨てる。
  *   2  assert 自体の有効性     … 同じ判定を f8a89ec (git worktree) で走らせて**必ず FAIL** する
  *   3  camY 恒等               … 全フレームで variance === 0 かつ camY === fieldCamY(usableH)
- *   4  非退行 (既存6シナリオ)  … mapCanvas.toDataURL() の SHA-256 が f8a89ec と一致。
+ *   4  非退行 (既存6シナリオ)  … mapCanvas.toDataURL() の SHA-256 が **golden と一致**。
  *                                加えてスナップ直前に wallPattern/floorPattern が非 null であることを
  *                                assert (null 同士だとフォールバック経路の一致を見ているだけになる)
  *   5  カメラ非退行            … 既存6シナリオで playerX/Y/camFocus を固定して computeCameraTarget() を
- *                                直接呼び、camTargetX/Y が baseline と **bit 一致** (SHA では見えない層)
+ *                                直接呼び、camTargetX/Y が **golden と bit 一致** (SHA では見えない層)
  *   6  cameraBottomHud() 集約  … 5 箇所が同値。driver_field_step0.js の (6b-*) FINDING が CLEAN になる
- *   7  横持ちフォールバック    … 844x390 で幾何マスクもカメラ固定も適用されず f8a89ec 相当の絵になる
+ *   7  横持ちフォールバック    … 844x390 で幾何マスクもカメラ固定も適用されない。幾何の主張は
+ *                                (7a)(7c)(7d) が baseline 比較で担保し、(7e) の画素は golden で見る
+ *
+ * ■ ⚠️ 4 / 5 / 7e が baseline 比較から golden へ移った経緯 (2026-08-03)
+ *   これらは元々 f8a89ec との一致で非退行を測っていた。ところが 2 部屋化 (cdb081a 系) で
+ *   マップの起点が動き (camera [-236,931] → [2024,931])、ベルトスクロール化と屋外景観リデザインで
+ *   既存6シナリオの絵そのものを**意図的に変えた**ため、この比較は原理的に成立しなくなり、
+ *   本ドライバは 55/68 で**赤いまま安定**して何も検出しなくなっていた。
+ *   → tools/_golden.js のヘッダに「なぜ張り替えではなく golden なのか」を書いてある。必読。
+ *   意図した変更なら `--update-golden` で更新し、git diff をレビューして commit すること。
  *
  * ■ baseline は必ず git worktree に展開する
  *   「HEAD 固定」は屋外実装がコミットされた瞬間に「現在 vs 現在」へ化けて何も検証しなくなる
@@ -31,7 +40,7 @@
  *
  * 使い方:
  *   node tools/driver_field_step1_geo.js [--headful] [--browser <path>] [--port N]
- *                                        [--baseline-rev f8a89ec] [--shots <dir>]
+ *                                        [--baseline-rev f8a89ec] [--shots <dir>] [--update-golden]
  */
 const http = require('http');
 const fs = require('fs');
@@ -50,6 +59,11 @@ const PORT = parseInt(arg('port', '8811'), 10);
 const BASELINE_PORT = PORT + 1;
 const BASELINE_REV = arg('baseline-rev', 'f8a89ec');
 const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_step1geo_baseline'));
+// ⚠️ baseline は **負のコントロール (assert 2) と (7d) のカメラ比較**にだけ使う。非退行
+//    (4c)(5)(7e) は golden へ移した (固定コミット比較が 2 部屋化で自己失効したため)。
+//    経緯と golden 方式の根拠は tools/_golden.js のヘッダを読むこと。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_step1_geo', { update: UPDATE_GOLDEN, driver: 'driver_field_step1_geo' });
 const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'claude', 'c--Users-PC-User-Desktop------------',
   'd59476b7-452d-4dab-a2e8-62026a9fc308', 'scratchpad'));
 
@@ -701,17 +715,15 @@ async function replayVisibility(browser, base, vp, samples, label) {
       [576, 1248, null, false], [1920, 1248, null, false], [4800, 1000, null, false],
       [576, 1248, [2400, 1400], false], [3000, 900, [3200, 1100], true], [96, 96, null, false],
     ];
+    // ⚠️ ここで baseline ページを開かないのは意図的。(4c)(5) を golden へ移したので比較相手が
+    //    要らなくなった。baseline は assert 2 (負のコントロール) と (7d) では今も使う。
     for (const scen of LEGACY_SCENARIOS) {
       const cur = await bootPage(browser, BASE + '/index.html', HASH_VIEWPORT,
         { mode: 'legacy', scen, freeze: true, t0: T_BASE_MS });
-      const base = await bootPage(browser, BBASE + '/index.html', HASH_VIEWPORT,
-        { mode: 'legacy', scen, freeze: true, t0: T_BASE_MS });
 
       const pc = await cur.page.evaluate(() => window.__probe.patternsReady());
-      const pb = await base.page.evaluate(() => window.__probe.patternsReady());
-      check('(4a) ' + scen + ': wallPattern / floorPattern が両側とも非 null',
-        pc.wall && pc.floor && pb.wall && pb.floor,
-        'cur=' + JSON.stringify(pc) + ' base=' + JSON.stringify(pb));
+      check('(4a) ' + scen + ': wallPattern / floorPattern が非 null (描画が死んだ状態を golden に焼かない)',
+        pc.wall && pc.floor, 'cur=' + JSON.stringify(pc));
 
       const snap = (pg) => pg.evaluate(() => {
         window.requestAnimationFrame = function () { return 0; };
@@ -720,24 +732,22 @@ async function replayVisibility(browser, base, vp, samples, label) {
         return { url: mapCanvas.toDataURL('image/png'), camX, camY, w: mapCanvas.width, h: mapCanvas.height,
                  fieldMode: (function () { try { return FIELD_MODE; } catch (e) { return '<none>'; } })() };
       });
-      const sc = await snap(cur.page), sb = await snap(base.page);
+      const sc = await snap(cur.page);
       check('(4b) ' + scen + ': FIELD_MODE === false (屋外ゲートの外)', sc.fieldMode === false, 'FIELD_MODE=' + sc.fieldMode);
-      const hc = sha256(sc.url), hb = sha256(sb.url);
-      let det = 'sha=' + hc.slice(0, 16) + ' cam=(' + sc.camX + ',' + sc.camY + ')';
-      if (hc !== hb) {
-        const d = await diffRect(cur.page, sc.url, sb.url, { x0: 0, x1: sc.w - 1, y0: 0, y1: sc.h - 1 });
-        det = 'cur=' + hc.slice(0, 16) + ' base=' + hb.slice(0, 16) + ' diff=' + JSON.stringify(d);
-      }
-      check('(4c) ' + scen + ': mapCanvas 描画が baseline と SHA-256 一致', hc === hb, det);
+      G.check(check, '(4c) ' + scen + ': mapCanvas 描画が golden と SHA-256 一致',
+        '4c-' + scen, sha256(sc.url).slice(0, 16));
 
       const cc = await cur.page.evaluate((c) => window.__probe.camProbe(c), CAM_CASES);
-      const cb = await base.page.evaluate((c) => window.__probe.camProbe(c), CAM_CASES);
-      const bit = JSON.stringify(cc) === JSON.stringify(cb);
-      check('(5) ' + scen + ': computeCameraTarget() が baseline と bit 一致 (' + CAM_CASES.length + 'ケース)',
-        bit, bit ? 'cases=' + CAM_CASES.length : 'cur=' + JSON.stringify(cc) + ' base=' + JSON.stringify(cb));
+      G.check(check, '(5) ' + scen + ': computeCameraTarget() が golden と bit 一致 (' + CAM_CASES.length + 'ケース)',
+        'cam5-' + scen, cc);
 
-      await cur.page.close(); await base.page.close();
+      await cur.page.close();
     }
+    // 6 シナリオが**相互に異なる**絵であることを要求する。描画が死んで一様になった状態を
+    // golden として焼き付ける事故は、これでしか捕まらない (件数ではなく identity で測る)。
+    G.distinct(check, '(4c*) 6 シナリオの mapCanvas が相互に異なる (一様化の検出)', '4c-');
+    // ⚠️ cam5-* には distinct を掛けない。computeCameraTarget は幾何定数だけの関数で
+    //    シナリオに依存しないため、6 シナリオで**同じ値になるのが正しい**(実測でも全一致)。
 
     // ── 7. 横持ちフォールバック ─────────────────────────────────────────────
     mark('assert 7: 横持ち (844x390) は幾何もカメラも適用せず従来描画へフォールバック');
@@ -778,14 +788,17 @@ async function replayVisibility(browser, base, vp, samples, label) {
       check('(7d) 横持ちのカメラが baseline と bit 一致 (カメラ固定が適用されていない)',
         sc.camX === sb.camX && sc.camY === sb.camY,
         'cur=(' + sc.camX + ',' + sc.camY + ') base=(' + sb.camX + ',' + sb.camY + ')');
-      const hc = sha256(sc.url), hb = sha256(sb.url);
-      let det = 'sha=' + hc.slice(0, 16);
-      if (hc !== hb) {
-        const d = await diffRect(cur.page, sc.url, sb.url, { x0: 0, x1: LAND_VIEWPORT.width - 1, y0: 0, y1: LAND_VIEWPORT.height - 1 });
-        det = 'cur=' + hc.slice(0, 16) + ' base=' + hb.slice(0, 16) + ' diff=' + JSON.stringify(d);
-      }
-      check('(7e) 横持ちの描画が baseline (' + BASELINE_REV + ') と SHA-256 一致 = 従来の絵 (雲レイヤは両側スタブ)',
-        hc === hb && sc.cloudStubbed === true, det + ' cloudStubbed=' + sc.cloudStubbed + '/' + sb.cloudStubbed);
+      // ⚠️ (7e) は元は baseline (f8a89ec) との SHA 一致で「従来の絵」を主張していたが、
+      //    屋外景観リデザイン (2971b55) で路肩/丘/並木の**絵そのもの**を差し替えたため
+      //    幾何が正しくても永久に FAIL するようになった。→ golden へ移す。
+      //    「横持ちでは帯マスクもカメラ固定も掛からない」という**幾何の主張**は
+      //    (7a) FIELD_GEO_ACTIVE===false / (7c) 帯マスク無し / (7d) カメラ bit 一致 が
+      //    baseline 比較のまま担保している。(7e) は画素の安定性だけを見る役に降りた。
+      check('(7e-stub) 横持ちの雲レイヤが両側でスタブされている (比較対象が地形そのものである前提)',
+        sc.cloudStubbed === true && sb.cloudStubbed === true,
+        'cur=' + sc.cloudStubbed + ' base=' + sb.cloudStubbed);
+      G.check(check, '(7e) 横持ちの描画が golden と SHA-256 一致 (雲レイヤはスタブ)',
+        '7e-landscape', sha256(sc.url).slice(0, 16));
       await cur.page.close(); await base.page.close();
     }
 
@@ -813,6 +826,9 @@ async function replayVisibility(browser, base, vp, samples, label) {
     if (srv) { try { srv.close(); } catch (e) {} }
     if (srvBase) { try { srvBase.close(); } catch (e) {} }
   }
+
+  // golden のキー集合の同一性 (assert をこっそり消した/増やした場合の検出) + 記録モードの書き出し。
+  G.finish(check);
 
   const pass = results.filter(r => r.ok).length;
   console.log('\n=== ' + pass + '/' + results.length + ' PASS ===');

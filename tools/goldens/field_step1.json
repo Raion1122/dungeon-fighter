@@ -1,0 +1,53 @@
+{
+  "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
+  "capturedFrom": {
+    "rev": "b20b632",
+    "subject": "map-editor/Phase4-5: Phase 4 の恒久回帰検出器 driver_mapeditor_painting を新規追加",
+    "dirty": false
+  },
+  "values": {
+    "2-goblin-mine": "8a23ea719a0d89ce",
+    "2b-goblin-mine": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "2-bandits-forest": "19448f14958f7a46",
+    "2b-bandits-forest": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "2-lizard-swamp": "40ff5c9a9eb1a164",
+    "2b-lizard-swamp": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "2-orc-fort": "5072479a1aa0a5d9",
+    "2b-orc-fort": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "2-undead-temple": "08c3e612d1c82156",
+    "2b-undead-temple": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "2-dragon-lair": "334aa5546268342f",
+    "2b-dragon-lair": [
+      2024,
+      931,
+      1440,
+      900
+    ],
+    "5-caravan-field0": "87f44ef953cb307e"
+  }
+}

@@ -23,8 +23,13 @@
  *                      far ≒ D×0.15 / mid ≒ D×0.35 かつ両者が有意に違う速度であること。
  *                      ⚠️ 層の分離は色相で行う (far = 灰緑 G≈B / mid = 緑 G≫B / 空 = 青〜暖色 R≥G)。
  *                         行の高さで切ると木の樹冠が far 帯へ食い込んでいて混ざる。
- *   D  非退行        … 既存6シナリオの mapCanvas SHA-256 が baseline と一致。
- *                      陽性対照として caravan-road は**必ず変わる** (変わらなければ何も描いていない)
+ *   D  非退行        … 既存6シナリオの mapCanvas SHA-256 が **golden (tools/goldens/field_step3.json)**
+ *                      と一致。⚠️ 以前は baseline (543245a) と比較していたが、2 部屋化 /
+ *                      ベルトスクロール化で既存6シナリオの絵を**意図的に変えた**ため原理的に
+ *                      成立しなくなり、赤いまま安定して**何も検出しなくなっていた** (2026-08-03)。
+ *                      → 詳細と golden 方式の根拠は tools/_golden.js のヘッダを読むこと。
+ *                      意図した変更なら `--update-golden` で更新して commit する。
+ *                      陽性対照として caravan-road は baseline と**必ず変わる** (変わらなければ何も描いていない)
  *   E  フレーム時間  … baseline と現行で renderMap の所要時間を比較。
  *                      ⚠️ JS 時間だけでは足りない。ラスタは非同期にキューされるので、
  *                         getImageData で**パイプラインを流して**から測った値も併記する。
@@ -33,7 +38,7 @@
  *
  * 使い方:
  *   node tools/driver_field_step3.js [--headful] [--browser <path>] [--port N]
- *                                    [--baseline-rev 543245a] [--shots <dir>]
+ *                                    [--baseline-rev 543245a] [--shots <dir>] [--update-golden]
  */
 const http = require('http');
 const fs = require('fs');
@@ -54,6 +59,10 @@ const BASELINE_PORT = PORT + 1;
 //    比べることになり、E のフレーム時間が「空のコスト」ではなく「帯幾何のコスト」を測ってしまう。
 const BASELINE_REV = arg('baseline-rev', '543245a');
 const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_step3_baseline'));
+// ⚠️ baseline はここでは **負のコントロールと E のフレーム時間**にだけ使う。非退行 (D2) は
+//    golden へ移した (固定コミット比較が 2 部屋化で自己失効したため)。tools/_golden.js 参照。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_step3', { update: UPDATE_GOLDEN, driver: 'driver_field_step3' });
 const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'claude', 'c--Users-PC-User-Desktop------------',
   'd59476b7-452d-4dab-a2e8-62026a9fc308', 'scratchpad', 'step3_shots'));
 
@@ -615,16 +624,15 @@ function bestShift(a, b, maxShift) {
     }
 
     // ══ D: 非退行 ════════════════════════════════════════════════════════════
-    mark('D: 既存6シナリオの非退行 (SHA-256) + caravan-road は必ず変わる (陽性対照)');
+    mark('D: 既存6シナリオの非退行 (golden と SHA-256 一致) + caravan-road は必ず変わる (陽性対照)');
+    // ⚠️ ここで baseline ページを開かないのは意図的。非退行を golden へ移したので比較相手が
+    //    要らなくなった。baseline は下の D4 (陽性対照) と E (フレーム時間) では今も使う。
     for (const scen of LEGACY_SCENARIOS) {
       const pre = { mode: 'legacy', scen, freeze: true, t0: T_BASE_MS };
       const A = await bootPage(browser, BASE + '/index.html?intel=0', HASH_VIEWPORT, pre);
-      const B = await bootPage(browser, BBASE + '/index.html?intel=0', HASH_VIEWPORT, pre);
       const patA = await A.page.evaluate(() => window.__probe.patternsReady());
-      const patB = await B.page.evaluate(() => window.__probe.patternsReady());
-      check('(D0-' + scen + ') 両側とも wall/floor pattern が非 null',
-        patA.wall && patA.floor && patB.wall && patB.floor,
-        'cur=' + JSON.stringify(patA) + ' base=' + JSON.stringify(patB));
+      check('(D0-' + scen + ') wall/floor pattern が非 null (描画が死んだ状態を golden に焼かない)',
+        patA.wall && patA.floor, 'cur=' + JSON.stringify(patA));
       const snap = (pg) => pg.evaluate(() => {
         window.requestAnimationFrame = function () { return 0; };
         computeCameraTarget(); camX = camTargetX; camY = camTargetY;
@@ -632,15 +640,17 @@ function bestShift(a, b, maxShift) {
         return { url: mapCanvas.toDataURL('image/png'),
                  fieldMode: (function () { try { return FIELD_MODE; } catch (e) { return '<none>'; } })() };
       });
-      const sa = await snap(A.page), sb = await snap(B.page);
+      const sa = await snap(A.page);
       check('(D1-' + scen + ') FIELD_MODE === false (屋外ゲートの外)', sa.fieldMode === false, 'FIELD_MODE=' + sa.fieldMode);
-      check('(D2-' + scen + ') mapCanvas SHA-256 が baseline と一致',
-        sha256(sa.url) === sha256(sb.url),
-        sha256(sa.url).slice(0, 16) + ' vs ' + sha256(sb.url).slice(0, 16));
-      check('(D3-' + scen + ') ページエラー 0', A.pageErrors.length === 0 && B.pageErrors.length === 0,
-        A.pageErrors.concat(B.pageErrors).join(' | ') || 'none');
-      await A.page.close(); await B.page.close();
+      G.check(check, '(D2-' + scen + ') mapCanvas SHA-256 が golden と一致',
+        'D2-' + scen, sha256(sa.url).slice(0, 16));
+      check('(D3-' + scen + ') ページエラー 0', A.pageErrors.length === 0,
+        A.pageErrors.join(' | ') || 'none');
+      await A.page.close();
     }
+    // 6 シナリオが**相互に異なる**絵であることを要求する。描画が死んで一様になった状態を
+    // golden として焼き付ける事故は、これでしか捕まらない (件数ではなく identity で測る)。
+    G.distinct(check, '(D2*) 6 シナリオの mapCanvas が相互に異なる (一様化の検出)', 'D2-');
     {
       const A = await bootPage(browser, BASE + '/index.html?intel=0', HASH_VIEWPORT, fieldPre);
       const B = await bootPage(browser, BBASE + '/index.html?intel=0', HASH_VIEWPORT, fieldPre);
@@ -751,6 +761,9 @@ function bestShift(a, b, maxShift) {
     if (srv) { try { srv.close(); } catch (e) {} }
     if (srvBase) { try { srvBase.close(); } catch (e) {} }
   }
+
+  // golden のキー集合の同一性 (assert をこっそり消した/増やした場合の検出) + 記録モードの書き出し。
+  G.finish(check);
 
   const pass = results.filter(r => r.ok).length;
   console.log('\n════════════════════════════════════════════════════════');

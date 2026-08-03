@@ -1,0 +1,46 @@
+{
+  "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
+  "capturedFrom": {
+    "rev": "b20b632",
+    "subject": "map-editor/Phase4-5: Phase 4 の恒久回帰検出器 driver_mapeditor_painting を新規追加",
+    "dirty": false
+  },
+  "values": {
+    "D1-goblin-mine": {
+      "nF": 26,
+      "nD": 52,
+      "hash": "9fd2cc2c2384"
+    },
+    "D2-goblin-mine": "44b1bde1a2fe1ac0",
+    "D1-bandits-forest": {
+      "nF": 26,
+      "nD": 37,
+      "hash": "c4fd5aa2756a"
+    },
+    "D2-bandits-forest": "d227a84f4ecf69ea",
+    "D1-lizard-swamp": {
+      "nF": 26,
+      "nD": 37,
+      "hash": "c4fd5aa2756a"
+    },
+    "D2-lizard-swamp": "846438f67984a34e",
+    "D1-orc-fort": {
+      "nF": 26,
+      "nD": 37,
+      "hash": "c4fd5aa2756a"
+    },
+    "D2-orc-fort": "d3c4a49eb53899eb",
+    "D1-undead-temple": {
+      "nF": 26,
+      "nD": 37,
+      "hash": "c4fd5aa2756a"
+    },
+    "D2-undead-temple": "b5530bf88bad8417",
+    "D1-dragon-lair": {
+      "nF": 26,
+      "nD": 37,
+      "hash": "c4fd5aa2756a"
+    },
+    "D2-dragon-lair": "c28d16bc0b665d92"
+  }
+}

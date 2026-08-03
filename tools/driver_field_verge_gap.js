@@ -30,13 +30,17 @@
  * ⚠️ camX は直接代入するが **camY は絶対に触らない** (drawFieldSky の空タイル確保サイズが camY 依存で
  *    青天井になる、と index.html が警告している)。
  *
- * 使い方: node tools/driver_field_verge_gap.js [--headful] [--browser <path>] [--port N] [--baseline <dir>]
+ * 使い方: node tools/driver_field_verge_gap.js [--headful] [--browser <path>] [--port N]
+ *                                             [--baseline <dir>] [--baseline-rev c7d18eb]
+ * ⚠️ baseline worktree は**自分で作る**ようになった (2026-08-03)。以前は既存ディレクトリを
+ *    前提にしていて、%TEMP% が掃除されると exit 2 で**起動すらできなくなっていた**。
  */
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 const ROOT_W = path.resolve(__dirname, '..');
 const argv = process.argv.slice(2);
@@ -46,6 +50,15 @@ const HEADFUL = flag('headful');
 const PORT_W = parseInt(arg('port', '8790'), 10);
 const PORT_B = PORT_W + 4;                       // ⚠️ 間隔 4 以上 (ドライバは baseline 用に port+1 も掴む慣習)
 const ROOT_B = arg('baseline', path.join(os.tmpdir(), 'df_verge_baseline'));
+// ⚠️ 以前はこのディレクトリが**既に在ること**を前提にし、無ければ exit 2 で死んでいた。
+//    %TEMP% は掃除されるので、実際 2026-08-03 時点で本ドライバは起動すらできなくなっていた。
+//    → 他の driver_field_* と同じく **rev から worktree を自分で作る**。
+//    c7d18eb = 「地平線ビュー STEP6」= 路肩の穴を直す**直前**のコミット (ヘッダの ■修正 参照)。
+//    これは歴史的事実へのピン留めなので陳腐化しない (負のコントロールとしての baseline)。
+const BASELINE_REV = arg('baseline-rev', 'c7d18eb');
+// 屋内6シナリオの非退行 (E1) は golden で測る。baseline は負のコントロール専用。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_verge_gap', { update: UPDATE_GOLDEN, driver: 'driver_field_verge_gap' });
 const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'claude', 'c--Users-PC-User-Desktop------------',
   '82046c3b-f626-4667-8eba-78e0b40d3a45', 'scratchpad', 'verge_gap_shots'));
 
@@ -305,20 +318,59 @@ function installProbe() {
   P.shot = function () { return mapCanvas.toDataURL('image/png'); };
 
   // 屋内の非退行比較用: カメラを固定して 2 視点を描き、それぞれの画素を dataURL 化
+  // ⚠️⚠️ 視点は **mapData の歩行可能範囲から算出する**。元は camX=0 / 96*45 の直書きだったが、
+  //   2 部屋化でマップの起点が東へ動いた (camera [-236,931] → [2024,931]) ため、camX=0 は
+  //   **岩盤の外＝真っ黒**を映すようになり、6 シナリオとも同じハッシュ (4318e4b0…) を返していた。
+  //   直書き座標は幾何を動かすたびに黙って無意味化する。→ 毎回マップから求めて自己追従させる。
   P.indoorViews = function () {
+    let txMin = 1e9, txMax = -1, tyMin = 1e9, tyMax = -1;
+    for (let r = 0; r < MAP_H; r++) {
+      for (let c = 0; c < MAP_W; c++) {
+        if (mapData[r][c] === 2) continue;          // 2 = wall/岩盤
+        if (c < txMin) txMin = c; if (c > txMax) txMax = c;
+        if (r < tyMin) tyMin = r; if (r > tyMax) tyMax = r;
+      }
+    }
+    const T = TILE_SIZE;
+    const maxX = Math.max(0, MAP_W * T - mapCanvas.width);
+    const maxY = Math.max(0, MAP_H * T - mapCanvas.height);
+    const at = (fr) => {
+      const tx = txMin + (txMax - txMin) * fr, ty = (tyMin + tyMax) / 2;
+      return { x: Math.min(maxX, Math.max(0, Math.round(tx * T - mapCanvas.width / 2))),
+               y: Math.min(maxY, Math.max(0, Math.round(ty * T - mapCanvas.height / 2))) };
+    };
+    const spots = [at(0.25), at(0.75)];
     const views = [];
-    const spots = [{ x: 0, y: 384 }, { x: 96 * 45, y: 384 }];
     for (let k = 0; k < spots.length; k++) {
       camX = spots[k].x; camY = spots[k].y;
       camTargetX = spots[k].x; camTargetY = spots[k].y;
       renderMap();
       views.push(mapCanvas.toDataURL('image/png'));
     }
-    return views;
+    return { views: views, spots: spots, walkable: { txMin: txMin, txMax: txMax, tyMin: tyMin, tyMax: tyMax } };
   };
 
   window.__vp = P;
   return true;
+}
+
+// ── baseline worktree (driver_field_step2/step3/step1_geo と同じ流儀) ────────
+// 「既に在るはず」ではなく **rev から自分で作る**。%TEMP% が掃除されても自己修復する。
+function prepareBaseline() {
+  const marker = path.join(ROOT_B, 'index.html');
+  if (fs.existsSync(marker)) {
+    let head = '';
+    try { head = execFileSync('git', ['-C', ROOT_B, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(); } catch (e) {}
+    if (head && (BASELINE_REV.indexOf(head) === 0 || head.indexOf(BASELINE_REV) === 0)) {
+      console.log('[drv] baseline worktree 再利用: ' + ROOT_B + ' @ ' + head);
+      return;
+    }
+    console.log('[drv] baseline worktree が別リビジョン (' + head + ') なので作り直す');
+    try { execFileSync('git', ['-C', ROOT_W, 'worktree', 'remove', '--force', ROOT_B], { encoding: 'utf8' }); } catch (e) {}
+  }
+  console.log('[drv] baseline worktree を作成: ' + ROOT_B + ' @ ' + BASELINE_REV);
+  execFileSync('git', ['-C', ROOT_W, 'worktree', 'add', '--detach', ROOT_B, BASELINE_REV],
+    { encoding: 'utf8', stdio: 'pipe' });
 }
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -331,9 +383,7 @@ function saveShot(dataUrl, file) {
   const puppeteer = loadPuppeteer();
   const browserPath = findBrowser();
   fs.mkdirSync(SHOT_DIR, { recursive: true });
-  if (!fs.existsSync(path.join(ROOT_B, 'index.html'))) {
-    console.error('[drv] baseline worktree が見つかりません: ' + ROOT_B); process.exit(2);
-  }
+  prepareBaseline();
   let srvW = null, srvB = null, browser = null;
   const shots = [];
   const allPageErrors = [];
@@ -498,26 +548,32 @@ function saveShot(dataUrl, file) {
       + ' 素の黒画素は ' + W.east.all.black + '/' + W.east.all.total + 'px = テクスチャ由来');
 
     // ══ E: 屋内6シナリオの非退行 ═════════════════════════════════════════════
-    mark('E: 屋内6シナリオが baseline と画素完全一致 (Date.now / Math.random を固定)');
+    mark('E: 屋内6シナリオが golden と画素完全一致 (Date.now / Math.random を固定)');
+    // ⚠️ baseline (c7d18eb) との比較はやめた。2 部屋化 / ベルトスクロール化で屋内6シナリオの
+    //    絵と幾何を**意図的に変えた**ので原理的に一致しない。→ golden (tools/_golden.js) へ。
+    //    baseline は上の B/D (負のコントロール = 路肩の穴が実在する証明) では今も使う。
     for (const sid of INDOOR_SCENARIOS) {
       const cfg = { scenarioId: sid, freeze: true };
-      const grab = async (base, tag) => {
-        const p = await boot(browser, base + '/index.html?intel=0', cfg);
-        await p.page.evaluate(installProbe);
-        const facts = await p.page.evaluate(() => window.__vp.facts());
-        const views = await p.page.evaluate(() => window.__vp.indoorViews());
-        await p.page.close();
-        allPageErrors.push.apply(allPageErrors, p.pageErrors.map(m => tag + '/' + sid + ': ' + m));
-        return { views: views, facts: facts };
-      };
-      const w = await grab(BASE_W, 'working');
-      const b = await grab(BASE_B, 'baseline');
-      const same = w.views.length === b.views.length && w.views.every((v, i) => v === b.views[i]);
-      const hw = w.views.map(sha).join('/'), hb = b.views.map(sha).join('/');
-      check('(E1:' + sid + ') mapCanvas が baseline と完全一致 (2視点)',
-        same && w.facts.isFieldTheme === false,
-        'working=' + hw + ' baseline=' + hb + ' isFieldTheme=' + w.facts.isFieldTheme);
+      const p = await boot(browser, BASE_W + '/index.html?intel=0', cfg);
+      await p.page.evaluate(installProbe);
+      const facts = await p.page.evaluate(() => window.__vp.facts());
+      const iv = await p.page.evaluate(() => window.__vp.indoorViews());
+      await p.page.close();
+      allPageErrors.push.apply(allPageErrors, p.pageErrors.map(m => 'working/' + sid + ': ' + m));
+      // 視点が歩行可能範囲の中に居ることを先に固める。ここが崩れると「岩盤の外の真っ黒」を
+      // golden に焼き付けて、以後永久に PASS する「何も検出しない検出器」になる。
+      const inRange = iv.spots.every(s => s.x >= 0 && s.y >= 0)
+        && iv.walkable.txMax >= iv.walkable.txMin && iv.walkable.tyMax >= iv.walkable.tyMin;
+      check('(E0:' + sid + ') 視点が mapData の歩行可能範囲から算出されている',
+        inRange, 'spots=' + JSON.stringify(iv.spots) + ' walkable=' + JSON.stringify(iv.walkable));
+      check('(E1b:' + sid + ') isFieldTheme === false (屋内である)',
+        facts.isFieldTheme === false, 'isFieldTheme=' + facts.isFieldTheme);
+      G.check(check, '(E1:' + sid + ') mapCanvas が golden と完全一致 (2視点)',
+        'E1-' + sid, iv.views.map(sha).join('/'));
     }
+    // 6 シナリオが**相互に異なる**絵であることを要求する。視点が死んで全部黒くなった状態を
+    // golden として焼き付ける事故は、これでしか捕まらない (件数ではなく identity で測る)。
+    G.distinct(check, '(E1*) 6 シナリオの 2 視点が相互に異なる (真っ黒化の検出)', 'E1-');
     check('(E2) pageerror が working / baseline とも 0 件',
       allPageErrors.length === 0, allPageErrors.slice(0, 5).join(' | ') || 'none');
 
@@ -535,6 +591,9 @@ function saveShot(dataUrl, file) {
     if (srvW) { try { srvW.close(); } catch (e) {} }
     if (srvB) { try { srvB.close(); } catch (e) {} }
   }
+  // golden のキー集合の同一性 (assert をこっそり消した/増やした場合の検出) + 記録モードの書き出し。
+  G.finish(check);
+
   const pass = results.filter(r => r.ok).length;
   console.log('\n════════════════════════════════════════════════════════');
   console.log('  RESULT: ' + pass + '/' + results.length + (pass === results.length ? '  ALL PASS' : '  ** FAIL **'));

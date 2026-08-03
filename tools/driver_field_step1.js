@@ -13,10 +13,15 @@
  * 検証項目:
  *   (0) 測定基盤の健全性: 固定時刻で renderMap() が冪等 (描画中に RNG を引いていない)
  *   (1) 既存6シナリオで FIELD_MODE === false
- *   (2) 既存6シナリオの mapCanvas.toDataURL() が HEAD 版と SHA-256 一致       ★本丸
+ *   (2) 既存6シナリオの mapCanvas.toDataURL() が **golden** と SHA-256 一致    ★本丸
+ *       ⚠️ 元は「屋外実装前のコミット」との一致で測っていたが、2 部屋化でマップの起点が
+ *          動き (camera [-236,931] → [2024,931])、絵も意図的に変えたため原理的に成立しなく
+ *          なった。しかも baseline 探索が「直近40コミット」窓を外れて **exit 2 で起動すら
+ *          しなくなっていた** (2026-08-03)。→ ref を 40ad64a へ固定し、非退行は golden へ。
+ *          経緯と根拠は tools/_golden.js のヘッダを読むこと。`--update-golden` で更新。
  *   (3) caravan-road で FIELD_MODE === true / ?field=0 で false
  *   (4) 床グリッド線が消えている (対照群つき)
- *   (5) caravan-road ?field=0 の描画が baseline と SHA-256 一致 (撤退スイッチ)
+ *   (5) caravan-road ?field=0 の描画が golden と SHA-256 一致 (撤退スイッチ)
  *   (6) pageerror 0 / スモーク完走
  *   (7) 雲の影が「実際に描かれている」ことを画素で証明 (大きく柔らかい塊であること)
  *   (8) 雲が流れていること (重心の水平移動量が CLOUD_DRIFT_PXS の予測と一致)
@@ -64,6 +69,7 @@
  *   ・スナップ直前に rAF を凍結し camX/camY を明示代入してから renderMap() を直呼び
  *
  * 使い方:  node tools/driver_field_step1.js [--headful] [--browser <path>] [--port N] [--skip-smoke]
+ *                                          [--baseline-ref 40ad64a] [--update-golden]
  */
 const http = require('http');
 const fs = require('fs');
@@ -91,6 +97,9 @@ const flag = (n) => argv.includes('--' + n);
 const HEADFUL = flag('headful');
 const SKIP_SMOKE = flag('skip-smoke');
 const PORT = parseInt(arg('port', '8796'), 10);
+// 非退行 (2)(2b)(5) は golden で測る。baseline (40ad64a) は負のコントロールと (3c) 専用。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_step1', { update: UPDATE_GOLDEN, driver: 'driver_field_step1' });
 
 const SHOT_DIR = arg('shots',
   'C:/Users/PC_User/AppData/Local/Temp/claude/c--Users-PC-User-Desktop------------/a657825e-7c35-4e51-835e-11566be45066/scratchpad');
@@ -1094,23 +1103,18 @@ async function dumpCanvas(page, outPath) {
   //    HEAD 自身が屋外版になり、比較が「現在 vs 現在」になって **assert が何も検証しなく
   //    なる** (実際にセッション中のコミット 1849dd6 でこれが起き、逆に ?field=0 が HEAD と
   //    食い違って FAIL した)。基準は常に **屋外実装が入る前のコミット** でなければならない。
-  //    index.html を触ったコミットを新しい順に辿り、FIELD_MODE を含まない最初のものを採る。
-  mark('baseline コミットを解決 (屋外実装が入る前の index.html を探す)');
-  const BASELINE_REF = (function () {
-    const explicit = arg('baseline-ref', null);
-    if (explicit) return explicit;
-    const log = execFileSync('git', ['log', '--format=%H', '-40', '--', 'index.html'],
-      { cwd: ROOT, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-    for (const sha of log) {
-      const src = execFileSync('git', ['show', sha + ':index.html'], { cwd: ROOT, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8' });
-      if (src.indexOf('FIELD_MODE') < 0) return sha;
-    }
-    return null;
-  })();
-  if (!BASELINE_REF) {
-    console.error('[driver] FIELD_MODE を含まない index.html のコミットが直近40件に無い。--baseline-ref <sha> で指定してください。');
-    process.exit(2);
-  }
+  //
+  // ⚠️⚠️ 元はここで「index.html を触ったコミットを新しい順に **40 件** 辿り、FIELD_MODE を
+  //    含まない最初のものを採る」という**動的探索**をしていた。これが 2026-08-03 に破綻した。
+  //    FIELD_MODE 導入 (1849dd6) から 40 コミット以上経ったため探索窓から外れ、本ドライバは
+  //    **exit 2 で起動すらしなくなっていた** (しかも「40 件に無い」というメッセージからは
+  //    「賞味期限が切れた」と読み取りにくい)。
+  //    → 「屋外実装が入る直前のコミット」は**歴史的事実**であって探し直す必要が無い。
+  //      40ad64a = 1849dd6 (FIELD_MODE を導入したコミット) の親。ここへ固定する。
+  //      固定してよい理由: この ref は「機能が入る前」を指す**負のコントロール**であり、
+  //      非退行の基準ではない。負のコントロールは陳腐化しない (tools/_golden.js のヘッダ参照)。
+  mark('baseline コミットを解決 (屋外実装が入る前の index.html)');
+  const BASELINE_REF = arg('baseline-ref', '40ad64a');
   const baseSubject = execFileSync('git', ['log', '-1', '--format=%h %s', BASELINE_REF], { cwd: ROOT, encoding: 'utf8' }).trim();
   mark('baseline を書き出し: ' + BASELINE_NAME + '  ← ' + baseSubject);
   const baseBuf = execFileSync('git', ['show', BASELINE_REF + ':index.html'], { cwd: ROOT, maxBuffer: 256 * 1024 * 1024 });
@@ -1196,27 +1200,26 @@ async function dumpCanvas(page, outPath) {
       const calls = await cur.page.evaluate(() => window.__probe.spy());
       check('(9) ' + scen + ': drawCloudShadows が呼ばれない', calls === 0, '呼び出し回数=' + calls);
 
-      const base = await bootPage(browser, BASE + '/' + BASELINE_NAME, scen, HASH_VIEWPORT);
-      const baseSnap = await snapMap(base.page);
+      // ⚠️ ここで baseline ページを開かないのは意図的。(2)(2b) を golden へ移したので比較相手が
+      //    要らなくなった。baseline は (3c) の陽性対照と (B) では今も使う。
+      const hCur = sha256(curSnap.dataUrl);
+      const ok2 = G.check(check, '(2) ' + scen + ': mapCanvas 描画が golden と完全一致',
+        '2-' + scen, hCur.slice(0, 16));
+      hashRows.push({ scen, hCur, same: ok2, cam: [Math.round(curSnap.camX), Math.round(curSnap.camY)] });
 
-      const hCur = sha256(curSnap.dataUrl), hBase = sha256(baseSnap.dataUrl);
-      const same = hCur === hBase;
-      let detail = 'sha=' + hCur.slice(0, 16) + ' cam=(' + Math.round(curSnap.camX) + ',' + Math.round(curSnap.camY) + ') ' + curSnap.w + 'x' + curSnap.h;
-      if (!same) {
-        const d = await diffPixels(cur.page, curSnap.dataUrl, baseSnap.dataUrl);
-        detail = 'cur=' + hCur.slice(0, 16) + ' base=' + hBase.slice(0, 16) + ' diff=' + JSON.stringify(d);
-      }
-      check('(2) ' + scen + ': mapCanvas 描画が HEAD と完全一致', same, detail);
-      hashRows.push({ scen, hCur, hBase, same, cam: [Math.round(curSnap.camX), Math.round(curSnap.camY)] });
-
-      check('(2b) ' + scen + ': 比較カメラ/canvas が同一',
-        curSnap.camX === baseSnap.camX && curSnap.camY === baseSnap.camY && curSnap.w === baseSnap.w && curSnap.h === baseSnap.h,
-        'cur=(' + curSnap.camX + ',' + curSnap.camY + ',' + curSnap.w + 'x' + curSnap.h + ') base=(' + baseSnap.camX + ',' + baseSnap.camY + ',' + baseSnap.w + 'x' + baseSnap.h + ')');
+      // カメラと canvas 寸法を**別キー**で持つ。ピクセルだけを見ていると「カメラがずれた」のか
+      // 「絵が変わった」のかが切り分けられない (元は baseline との同一性でこれを担保していた)。
+      G.check(check, '(2b) ' + scen + ': 比較カメラ/canvas が golden と同一',
+        '2b-' + scen, [curSnap.camX, curSnap.camY, curSnap.w, curSnap.h]);
 
       allPageErrors.push(...cur.pageErrors.map(m => scen + '(cur): ' + m));
-      allPageErrors.push(...base.pageErrors.map(m => scen + '(base): ' + m));
-      await cur.page.close(); await base.page.close();
+      await cur.page.close();
     }
+    // 6 シナリオが**相互に異なる**絵であることを要求する。描画が死んで一様になった状態を
+    // golden として焼き付ける事故は、これでしか捕まらない (件数ではなく identity で測る)。
+    // ⚠️ 2b (カメラ) には掛けない。computeCameraTarget は幾何定数だけの関数なので
+    //    6 シナリオで同じ値になるのが正しい (実測でも全て (2024,931,1440x900))。
+    G.distinct(check, '(2*) 6 シナリオの mapCanvas が相互に異なる (一様化の検出)', '2-');
 
     // ── (3)(4)(5) caravan-road ─────────────────────────────────────────────
     mark('field: ' + FIELD_SCENARIO);
@@ -1234,13 +1237,15 @@ async function dumpCanvas(page, outPath) {
     check('(9c) caravan-road: drawCloudShadows が毎フレーム1回呼ばれる (陽性対照)', onCalls === 1, '呼び出し回数=' + onCalls);
 
     const hOff = sha256(sOff.dataUrl), hFBase = sha256(sBase.dataUrl);
-    let d5 = 'sha=' + hOff.slice(0, 16);
-    if (hOff !== hFBase) {
-      const d = await diffPixels(fOff.page, sOff.dataUrl, sBase.dataUrl);
-      d5 = 'field0=' + hOff.slice(0, 16) + ' base=' + hFBase.slice(0, 16) + ' diff=' + JSON.stringify(d);
-    }
-    check('(5) caravan-road ?field=0 が HEAD と完全一致', hOff === hFBase, d5);
-    hashRows.push({ scen: 'caravan-road(?field=0)', hCur: hOff, hBase: hFBase, same: hOff === hFBase, cam: [Math.round(sOff.camX), Math.round(sOff.camY)] });
+    // ⚠️ 元は「?field=0 の絵が屋外実装前 (baseline) と完全一致する」で撤退スイッチを主張していた。
+    //    しかし 2 部屋化・ベルトスクロール化・屋外景観リデザインで**屋外と無関係な部分**まで
+    //    変わったので、この一致は原理的に成立しなくなった (実測 diff 912380px)。→ golden へ。
+    //    「?field=0 が本当に屋外描画を止めている」という主張自体は
+    //      (3b) FIELD_MODE===false / (9b) drawCloudShadows 0 回 / (4b)(4d) 対照群
+    //    が担保しており、(3c) の「field ON は baseline と異なる」も陽性対照として生きている。
+    const ok5 = G.check(check, '(5) caravan-road ?field=0 の描画が golden と完全一致 (撤退スイッチ)',
+      '5-caravan-field0', hOff.slice(0, 16));
+    hashRows.push({ scen: 'caravan-road(?field=0)', hCur: hOff, same: ok5, cam: [Math.round(sOff.camX), Math.round(sOff.camY)] });
 
     const hOn = sha256(sOn.dataUrl);
     check('(3c) caravan-road field ON は HEAD と異なる (描画が実際に効いている)', hOn !== hFBase,
@@ -1927,7 +1932,7 @@ async function dumpCanvas(page, outPath) {
     console.log('\n─── ハッシュ表 (sha256 先頭16) ───');
     for (const r of hashRows) {
       console.log('  ' + (r.same ? 'MATCH' : 'DIFF ') + '  ' + r.scen.padEnd(24) +
-        ' cur=' + r.hCur.slice(0, 16) + ' base=' + r.hBase.slice(0, 16) + ' cam=' + JSON.stringify(r.cam));
+        ' cur=' + r.hCur.slice(0, 16) + ' (vs golden) cam=' + JSON.stringify(r.cam));
     }
     console.log('\n─── 自然カメラでの雲の可視率 (設計判断の材料) ───');
     for (const r of metrics.visibility) {
@@ -1954,6 +1959,9 @@ async function dumpCanvas(page, outPath) {
       catch (e) { console.error('[drv] ⚠️ 一時ファイル削除に失敗: ' + p); }
     }
   }
+
+  // golden のキー集合の同一性 (assert をこっそり消した/増やした場合の検出) + 記録モードの書き出し。
+  G.finish(check);
 
   const pass = results.filter(r => r.ok).length;
   console.log('\n=== ' + pass + '/' + results.length + ' PASS ===');
