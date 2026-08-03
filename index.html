@@ -3587,11 +3587,20 @@
        *   ROOM_PAINTINGS_DEF は themeId (_scenIdForTex) で引くので、カスタム幾何の上に
        *   旧シナリオの部屋絵が**旧座標のまま**浮いてしまう (tileBounds は絵側が持っている)。
        *   ⚠⚠ 下の SCENERY_RECIPES ゲートと**必ずセットで**有効にすること。片方だけ塞ぐと
-       *      「絵は消えたのに草だけ岩盤に生える」という中途半端な壊れ方をする。 */
-      const defs = MAPDEF.isCustom ? null : ROOM_PAINTINGS_DEF[_scenIdForTex];
-      if (!defs) return;
-      for (const def of Object.values(defs)) {
-        const [r1, c1, r2, c2] = def.tileBounds;
+       *      「絵は消えたのに草だけ岩盤に生える」という中途半端な壊れ方をする。
+       *
+       * ★[Phase 4 項目4] 上の「必ず切る」を **2 経路の併存**へ差し替えた:
+       *   ・従来経路 (非カスタム) … ROOM_PAINTINGS_DEF を **絵側の tileBounds** で貼る。
+       *     既存 6 シナリオの見た目は 1 ピクセルも変えない (この経路は 1 命令も増減していない)。
+       *   ・mapDef 経路 (カスタム)  … MAPDEF.rooms[i].painting = { theme, key } を引き、
+       *     **その部屋の rect** に貼る。自作の矩形にぴったり合うので旧座標の絵が岩盤に浮かない。
+       *   指定が無ければ従来どおり絵なし (= Phase 2 の挙動が既定のまま残る)。 */
+
+      /* 絵 1 枚を roomPaintings + paintedTileMask へ積む。**両経路で共有**する
+       * (フェザー / painted-skip マスク / onerror フォールバックの実装を 2 つ持たない)。
+       * bounds = [r1, c1, r2, c2] (行が先。tileBounds も rooms[i].rect も同じ並び)。 */
+      function addPainting(src, bounds) {
+        const [r1, c1, r2, c2] = bounds;
         const entry = {
           loaded: false,
           canvas: null,
@@ -3635,7 +3644,7 @@
           entry.loaded = true;
         };
         entry.img.onerror = () => { /* フォールバック: 通常タイル描画のまま */ };
-        entry.img.src = def.src;
+        entry.img.src = src;
         roomPaintings.push(entry);
         // painted-skip マスクは内側 (feather 帯を除く) のみ
         // 外側の帯は painting (feather alpha) と下のタイル描画を両方描く
@@ -3646,6 +3655,32 @@
             paintedTileMask[r * MAP_W + c] = 1;
           }
         }
+      }
+
+      // ── 従来経路 (非カスタム): themeId で引いた在庫を絵側の tileBounds で貼る ──────
+      const defs = MAPDEF.isCustom ? null : ROOM_PAINTINGS_DEF[_scenIdForTex];
+      if (defs) {
+        for (const def of Object.values(defs)) addPainting(def.src, def.tileBounds);
+        return;
+      }
+      if (!MAPDEF.isCustom) return;        // 非カスタムで在庫が無いテーマ = 従来どおり絵なし
+
+      /* ── mapDef 経路 (カスタム幾何) ────────────────────────────────────────────
+       * ⚠ 保存されているのは src ではなく **参照 (theme + key)**。ベルトスクロール化で
+       *   room_<theme>_1.png → room_<theme>_1_bs.jpg へ実際に差し替わっているので、src を
+       *   焼き込むと保存済みマップが黙って 404 → onerror でタイル描画へ落ち、
+       *   「絵が消えたこと」に気づけない。参照方式なら本編の差し替えに自動追従する。
+       * ⚠ 引けなければ**何もしない** (別テーマの絵を捏造しない)。この契約の唯一の出所が
+       *   DFMapDef.paintingSrcFor なので、ここで自前に引き直さない
+       *   (エディタの lint painting-missing と判定がずれると気づけない食い違いになる)。 */
+      if (!window.DFMapDef) return;
+      DFMapDef.setPaintingCatalog(ROOM_PAINTINGS_DEF);   // 本編は fetch 不要 = 生の表を直接渡す
+      for (const room of MAPDEF.rooms) {
+        const pg = room && room.painting;
+        if (!pg) continue;
+        const src = DFMapDef.paintingSrcFor(pg.theme, pg.key);
+        if (!src) continue;
+        addPainting(src, room.rect);
       }
     })();
     function isPaintedTile(tx, ty) {
@@ -3814,9 +3849,53 @@
        *   SCENERY_RECIPES も themeId で引き、floorBounds に旧座標を直書きしているので、
        *   カスタム幾何では岩盤の上に草やトロッコが生える (しかも blocking:true の物は
        *   obstacleTileMask を汚して通行不能タイルを増やす = 到達不能バグの新しい入口になる)。
-       *   ⚠⚠ 上の loadRoomPaintings ゲートと**必ずセットで**有効にすること (片方だけは中途半端)。 */
+       *   ⚠⚠ 上の loadRoomPaintings ゲートと**必ずセットで**有効にすること (片方だけは中途半端)。
+       *
+       * ★[Phase 4 項目4] 上の「必ず切る」を **2 経路の併存**へ差し替えた (1枚絵ゲートと同時)。 */
       const recipes = MAPDEF.isCustom ? null : SCENERY_RECIPES[_scenIdForTex];
-      if (!recipes) return;
+
+      /* 散布の単位を { seed, bounds, counts } の配列へ正規化し、従来経路と mapDef 経路の
+       * **両方をこの 1 本のループに流す**。
+       * ⚠ 下の tryPlace (= globalReserved を見る唯一の場所) を必ず再利用すること。
+       *   blocking:true の種は obstacleTileMask を汚して通行可能域を変えるので、自前ループを
+       *   書き直すと廊下 / 敵スポーン / プレイヤー起点の予約が抜け、到達不能バグの入口になる。 */
+      const USE_MAPDEF = !!MAPDEF.isCustom;
+      const sceneryJobs = [];
+      if (recipes) {
+        // ── 従来経路 ── floorBounds 直書き / seed も従来キーのまま = 配置は 1 個も動かない
+        for (const [roomIdx, def] of Object.entries(recipes)) {
+          sceneryJobs.push({ seed: _scenIdForTex + ":" + roomIdx, bounds: def.floorBounds, counts: def.counts });
+        }
+      } else if (USE_MAPDEF && window.DFMapDef) {
+        /* ── mapDef 経路 ── rooms[i].scenery = { density } を持つ部屋だけ散らす。
+         * 種の内訳はテーマ既定の「代表レシピ」を実行時に読み、**その部屋の床面積へスケール**する:
+         *     Math.round(count * (roomArea / recipeArea) * density)      ※ 0 は置かない
+         * ⚠ SCENERY_RECIPES は goblin-mine と caravan-road の **2 テーマしか無い**。残り 5 テーマを
+         *   どちらへ落とすかの判断は DFMapDef.sceneryRecipeFor に閉じ込めてある
+         *   (屋外 → caravan-road / それ以外 → goblin-mine)。ここに式を 2 本目として持つと、
+         *   エディタのプレビューと実プレイで生える種が変わる。 */
+        DFMapDef.setSceneryCatalog(SCENERY_RECIPES, SCENERY_SHEETS);   // 本編は fetch 不要
+        const baseRecipe = DFMapDef.sceneryRecipeFor(_scenIdForTex);
+        if (baseRecipe && baseRecipe.area > 0) {
+          for (let i = 0; i < MAPDEF.rooms.length; i++) {
+            const room = MAPDEF.rooms[i];
+            const sc = room && room.scenery;
+            if (!sc || !(sc.density > 0)) continue;
+            const [br1, bc1, br2, bc2] = room.rect;
+            const roomArea = (br2 - br1 + 1) * (bc2 - bc1 + 1);
+            if (!(roomArea > 0)) continue;
+            const counts = {};
+            for (const [kind, n] of Object.entries(baseRecipe.counts)) {
+              const scaled = Math.round(n * (roomArea / baseRecipe.area) * sc.density);
+              if (scaled > 0) counts[kind] = scaled;
+            }
+            if (!Object.keys(counts).length) continue;
+            // ⚠ seed は従来キー (themeId + ":" + roomIdx) と**衝突させない**。同じ部屋番号でも別ストリーム。
+            sceneryJobs.push({ seed: _scenIdForTex + ":mapdef:" + i, bounds: room.rect, counts: counts });
+          }
+        }
+      }
+      if (!sceneryJobs.length) return;
       // 自動 reserved: 廊下 + 2タイル膨張、敵スポーン + 1タイル膨張、プレイヤー起点 + 1タイル膨張
       const globalReserved = new Set();
       function reserveAround(r, c, buf) {
@@ -3852,9 +3931,9 @@
         reserveAround(playerStartTy, playerStartTx, 1);
       }
 
-      for (const [roomIdx, def] of Object.entries(recipes)) {
-        const rng = mulberry32(hashStr(_scenIdForTex + ":" + roomIdx));
-        let [r1, c1, r2, c2] = def.floorBounds;
+      for (const job of sceneryJobs) {
+        const rng = mulberry32(hashStr(job.seed));
+        let [r1, c1, r2, c2] = job.bounds;
         // ── [地平線ビュー STEP2] 屋外は情景の**行**を帯 + 前景エプロン2行に寄せる ──
         // ⚠️ 上の globalReserved は blocking 種 (倒木) しか止めない。tryPlace は非 blocking
         //    (草/detail) について reserved を一切見ないので、floorBounds のまま置くと
@@ -3863,7 +3942,10 @@
         // ⚠️ 行だけを差し替えて**列と rng() の消費回数は変えない** (mulberry32 はシナリオID+部屋
         //    ごとの独立ストリームだが、消費順を変えると配置が総入れ替えになり見た目の回帰が読めない)。
         // 16-17 = 帯の南の前景エプロン。街道の手前に草と丸太が来るのが Golden Axe 的な絵になる。
-        if (IS_FIELD_THEME && FIELD_GEO_ACTIVE) { r1 = FIELD_BAND_TOP_ROW; r2 = FIELD_BAND_BOTTOM_ROW + 2; }
+        // ⚠ ★[Phase 4 項目4] mapDef 経路には**掛けない**。掛けると自作部屋の rect が帯行へ
+        //    強制的に置き換わり、ユーザーが描いた場所と無関係な行に情景が湧く。
+        //    従来経路では USE_MAPDEF が常に false なので、この判定は 1 度も結果が変わらない。
+        if (!USE_MAPDEF && IS_FIELD_THEME && FIELD_GEO_ACTIVE) { r1 = FIELD_BAND_TOP_ROW; r2 = FIELD_BAND_BOTTOM_ROW + 2; }
         const blockedTiles = new Set();
         function tryPlace(kind, count) {
           const sheet = SCENERY_SHEETS[kind];
@@ -3877,6 +3959,11 @@
             const r = r1 + Math.floor(rng() * (r2 - r1 + 1));
             const c = c1 + Math.floor(rng() * (c2 - c1 + 1));
             const tileKey = r * MAP_W + c;
+            // ★[Phase 4 項目4] mapDef 経路の rect は壁を含みうる (自由タイルで焼いた地形や、
+            //   矩形の一部が岩盤のまま残っている部屋)。「草だけ岩盤に生える」を避けるため
+            //   床タイル (mapData !== 2) にだけ置く。従来経路は floorBounds が床の内側に
+            //   手で置かれているので、この判定は USE_MAPDEF=false で必ず素通りする。
+            if (USE_MAPDEF && mapData[r] && mapData[r][c] === 2) continue;
             if (isBlocking) {
               if (globalReserved.has(tileKey)) continue;
               if (blockedTiles.has(tileKey)) continue;
@@ -3891,7 +3978,7 @@
             placed++;
           }
         }
-        for (const [kind, count] of Object.entries(def.counts)) tryPlace(kind, count);
+        for (const [kind, count] of Object.entries(job.counts)) tryPlace(kind, count);
         for (const k of blockedTiles) obstacleTileMask[k] = 1;
       }
       // 描画 z-order: 上(奥)→下(手前)、同 ty 帯では flat 種(線路)を先(下)に、その後 jy 昇順
