@@ -116,8 +116,8 @@ const MUTATIONS = {
    *    敷いても線がつながって見えない。**数値では例外が 1 つも出ない**種類の欠陥。
    *    ⚠ railKit 側と src の綴りが違うので、両方とも 1 行で一意に狙える。 */
   dispmax: [
-    ['      waterKit: { src: "assets/water_kit.png", displayMax: 96, flat: true,',
-     '      waterKit: { src: "assets/water_kit.png", displayMax: 128, flat: true,   /* ★変異 */'],
+    ['      waterKit: { src: "assets/water_kit.png?v=2", displayMax: 96, flat: true,',
+     '      waterKit: { src: "assets/water_kit.png?v=2", displayMax: 128, flat: true,   /* ★変異 */'],
   ],
   /* ④ ★「つながる種の一覧」から水路だけを外す = STEP 3 の登録を取り消す。
    *    → **水路だけが全滅し、線路は生きたまま**。§6 6f/6h (線路側) が PASS のまま
@@ -619,8 +619,11 @@ async function waitImages(page) {
       check('§1 1c 枠が 512 角セル 6 個 (x = 0/512/1024/1536/2048/2560, y = 0)',
         J(c1.frames) === J([0, 512, 1024, 1536, 2048, 2560].map(x => ({ x: x, y: 0, w: 512, h: 512 }))),
         J((c1.frames || []).map(f => f.x + 'x' + f.w)));
-      check('§1 1d 画像は assets/water_kit.png (線路のシートを使い回していない)',
-        c1.sheet.src === 'assets/water_kit.png' && c1.wk.every(e => e[1] === 'assets/water_kit.png'),
+      /* ⚠ ?v=2 まで含めて見る。2026-08-04 に **同名で中身を差し替えた** ので、
+       *   キャッシュバスターが外れると実機が旧「管」の水を表示し続ける (気づけない欠陥)。 */
+      check('§1 1d 画像は assets/water_kit.png?v=2 (線路の使い回しでなく ?v= も付いている)',
+        c1.sheet.src === 'assets/water_kit.png?v=2' &&
+        c1.wk.every(e => e[1] === 'assets/water_kit.png?v=2'),
         c1.sheet.src);
       check('§1 1e blocking が 6 変種すべて false / flat が true (浅い流れ = 上を渡れる)',
         J(c1.sheet.blocking) === J([false, false, false, false, false, false]) &&

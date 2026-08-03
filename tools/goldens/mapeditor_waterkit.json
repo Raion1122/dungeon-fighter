@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_waterkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "c8e45b6",
-    "subject": "map-editor/Phase6-3: 情景物に waterKit(つながる水路6種)を追加",
-    "dirty": false
+    "rev": "b345d7b",
+    "subject": "verify: STEP3 の恒久回帰検出器 driver_mapeditor_waterkit を新規追加",
+    "dirty": true
   },
   "values": {
     "game-goblin-mine": "72691d0f309cdfab60548d4ff279539b4d7c15fc71c35f3847bffc4d2b87e881",
-    "canvas-V": "7daf1218e38e3ddd10fdfbdad1443817eb37365365602b34f106da9cf5678558",
-    "canvas-L": "bf699365b9efe08a6eb96541128507580d9f0b3281d6eba54d5718c61bd0598a",
-    "canvas-X": "ed74e180fced19823cec477bfaf75ed01bd574116603af1854e166e1ce379cbf",
-    "canvas-T": "fe83817931038811c1f9c8c65f756b7007782986573790d96800833c862c6f40",
-    "canvas-P6": "6e23d7994a0431f25ec6392f5a40ec3dafae228e0de2b15a7d8d10c98d12d882"
+    "canvas-V": "d0b05f196d18c44d08474bbce1b9dfce3af750a94c2f36b38ced980d645db4f7",
+    "canvas-L": "4defe677e10ed7ce3254d94b0e9476e09c094859f7e4a02215a61e67e39ac0aa",
+    "canvas-X": "84ec78165b3832b8febe973e95528b1ea4a1f6af49e3bb1dc1e4762ca7d76ec3",
+    "canvas-T": "ac61d9606ef9834be7da7d986a60281e81f0f3d216dc96cddc3857e096b3c329",
+    "canvas-P6": "dc06315a7d7780d0589d6be6b819440ac5b30a5f991fe0a4f05b5e592804588a"
   }
 }

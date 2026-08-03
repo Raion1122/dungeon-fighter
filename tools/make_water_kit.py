@@ -1,13 +1,31 @@
 """「つながる水路」6 ピースのスプライトシート assets/water_kit.png を焼き込む。
 
-背景 (なぜ手続き生成なのか):
-  接続タイルは「芯 (水路の中心線) がセル辺の中点をきっかり通る」ことが絶対条件。
-  画像生成 AI は **原理的にこれを満たせない** (1px 単位の幾何を指示できない・
-  生成のたびに違う絵が出る = 非決定論)。水は「勾配 + 流れの筋 + 岸のにじみ」で
-  構成できるので、手続き生成と相性が良い。何度走らせてもバイト単位で同じ PNG が出る。
+⭐⭐ ハイブリッド方式 (2026-08-04 の作り直し):
+  **水面の質感だけを ChatGPT に描かせ、水路の形・岸・接続点はこのコードで切り抜く。**
 
-  ⚠ 絵の出来はユーザーが実機で見て判断する。気に入らなければ下のパラメータ
-    (WATER_HALF / EDGE_HALF / COL_* / STREAKS / WOBBLE_MAX) を直して再生成するだけ。
+  なぜ「水路の絵そのもの」を AI に描かせないのか:
+    接続タイルは「芯 (水路の中心線) がセル辺の中点をきっかり通る」ことが絶対条件。
+    画像生成 AI は **原理的にこれを満たせない** (1px 単位の幾何を指示できない・
+    生成のたびに違う絵が出る = 非決定論)。よって **幾何はコード / 質感は AI** に分ける。
+
+  素材の流れ (source_images/ は .gitignore 対象なので 2 段構えにしてある):
+    1. 依頼文        tools/sprite_batches/water_surface.txt
+    2. 生の生成物    source_images/water_surface/01_water.png   … git 管理外
+    3. --prepare-from で焼く  tools/water_surface_src.png       … **commit 対象**
+    4. 通常実行はこの 3 だけを読む ⇒ **リポジトリ単独で決定論的に再生成できる**
+       (生の AI PNG が失われても assets/water_kit.png は同じバイトで再生成される)
+
+⚠ 旧版 (手続き生成のみ) は 2026-08-04 の iOS 実機で「水が管に見える」と却下された。
+  原因は 3 つとも **円柱の陰影そのもの** だった:
+    ① 断面が中央ほど暗く縁ほど明るいなめらかなグラデ = 円柱の塗り方
+    ② 明るい筋が芯から一定距離を **全長にわたって平行に** 走る = 円柱のハイライト線
+    ③ 幅がほぼ一定 (WOBBLE_MAX が 8px しかなかった)
+  今回の対処:
+    ① 断面を **ほぼ平坦** にし、**水際に細い暗線** を入れた (最大の realism 手がかり)
+    ② 平行な筋 (旧 STREAKS) を **全廃** し、AI テクスチャの蛇行する波紋に置き換えた
+    ③ WOBBLE_MAX 8 → 14 + うねりに高周波 octave を追加
+       ⚠ 接続辺は必ず s=0/512 なので **幅は全継ぎ目で同一** になる。低周波だけだと
+         1 タイルに 1 個の膨らみ = 数珠つなぎに見えるので、高周波を足して崩す。
 
 ⭐ なぜ「マス正方形」のセルなのか (make_rail_kit.py と同じ設計):
   本編の情景描画は scale = displayMax / max(fr.w, fr.h) で **フレーム矩形の中心を
@@ -15,18 +33,36 @@
   (= TILE_SIZE) を与えると 1 マスちょうどを占め、隣り合ったピースの境界は必ず一致する。
 
 ⭐⭐ 断面を「芯からの距離の絶対値 |d| だけの関数」にしてある (ミラー対称・これは仕様):
-  6 ピースは「入口 → 出口」の向きを内側に持つが、敷いたときに隣のピースの向きが
-  逆になる組み合わせが必ず存在する (例: 横(東西) は東→西だが、その東隣に来る
-  北→東 は東へ**出て**いく)。つまり「流れの左岸・右岸」を全ピースで一貫させるのは
-  **原理的に不可能**。断面を左右非対称にすると、そういう継ぎ目だけ岸が段差になる。
-  → 断面を |d| の関数にすれば **24 辺すべての継ぎ目が厳密に一致**する。
-     代償は水面の模様が左右対称になること。表示倍率 96/512 = 0.1875 では
-     水面の幅が 30px しかないので、対称性は目で追えない (実測で確認済み)。
+  各辺で「辺に沿った位置 → 素材の列」の向きを + / - で表すと、隣り合うタイルは
+  共有する辺で同じ向きでなければならない。N を持つ駒 {P0,P2,P5} と S を持つ駒
+  {P0,P3,P4} は総当たりで隣接しうるので **横辺は全部同じ向き σ_h**、同様に
+  **縦辺は全部同じ向き σ_v** でなければならない。ところが四分円の半径写像
+  sx = 256 + ε(r-256) を解くと
+      P2 (北→東, 中心 NE): (N,E) = ('-','+') か ('+','-')  ⇒ σ_h ≠ σ_v
+      P3 (東→南, 中心 SE): (E,S) = ('-','-') か ('+','+')  ⇒ σ_h = σ_v
+  となり **両方を満たす解は存在しない**。つまり左岸・右岸を作り分けることは
+  原理的に不可能で、断面を |d| の関数にする (= ミラー対称) しか道がない。
+  → **AI テクスチャも芯について必ずミラーする** (_fold_and_loop がやる)。
+
+⭐⭐⭐ ミラーが必須であることから、絵づくりの制約が 1 つ導かれる (2026-08-04 に実測で判明):
+  **テクスチャは「自分の鏡像と区別がつかない」細かさでなければならない。**
+  原画をそのまま使うと、渦や光の筋が芯で折り返して **蝶ネクタイ形の motif** になり、
+  それが 1 タイル (96px) ごとに反復して「数珠つなぎ」に見える (旧「管」と同じくらい人工的)。
+  縮小してタイリングする案も試したが、ミラー + 2 軸の周期 = 壁紙群になり
+  **レース (魚の鱗) 状の規則格子**になって不採用。
+  → 採った形:
+     ① 原画は **低域 (TEX_LOWPASS_PX より粗い成分) を落として** 筆致だけ使う
+     ② 失われた生気は **手続きの細粒 (GRAIN)** で足す (2〜4 表示px = 鏡像でも判別不能)
+     ③ ⭐ **リアリズムの主役は「s (沿線方向) だけの関数」に置く**。s だけの関数は
+        u に依らないので **ミラーに完全に無害** = motif を一切作らない。
+        淀みと早瀬の明暗 (DEPTH) ・幅のうねり (WOBBLE) がこれに当たる。
 
 ⭐⭐ 沿線方向のノイズは周期 512 (= 1 セル) で **完全にループ**させてある:
   各ピースは「つながる辺で s=0」「もう一方の辺で s=512」になるよう作ってあるので、
-  ノイズが周期 512 なら s の値は継ぎ目をまたいで必ず連続する。ピースの向きが
-  逆でも noise(0) == noise(512) なので段差は出ない。
+  周期 512 なら s の値は継ぎ目をまたいで必ず連続する。ピースの向きが逆でも
+  noise(0) == noise(512) なので段差は出ない。
+  → **AI テクスチャは s 方向にクロスフェードでループ化する** (_fold_and_loop がやる)。
+     AI に完全な seamless は期待しない。
 
 ピース構成 (シート上の並び順 = variant index。⛔ 順番は保存値なので絶対に変えない):
     0 縦    (北+南)      … 断面をそのまま縦に押し出す
@@ -37,10 +73,26 @@
     5 西→北 (西+北)      … 2 を 270° 時計回り (= 90° 反時計回り)
   T 字・十字・終端は作らない (railKit と同じ決定)。
 
+⚠⚠ **同名 PNG の中身を変えたら index.html の `?v=` を必ず上げること**。
+  assets/water_kit.png は初版 (c8e45b6) では `?v=` 無しで参照していたため、
+  ユーザーの iOS Safari は旧「管」の水をキャッシュしたまま新版を取りに行かない
+  ＝ 「直したのに実機で何も変わらない」という気づけない欠陥になる。
+  現在は `src: "assets/water_kit.png?v=2"`。追随先は index.html 1 箇所 +
+  tools/driver_mapeditor_waterkit.js 2 箇所 (変異アンカーと §1 1d)。
+
 使い方:
     py tools/make_water_kit.py
     py tools/make_water_kit.py --out assets/water_kit.png
     py tools/make_water_kit.py --check-only     # 書き込まず 24 辺の被覆表だけ出す
+    # AI 素材を差し替えたとき (これだけは source_images/ を読む。1 回で済む)
+    py tools/make_water_kit.py --prepare-from source_images/water_surface/01_water.png
+
+  絵を意図的に変えたあと (忘れると「赤いまま安定」する):
+    py tools/make_water_kit.py --check-only
+    node tools/driver_mapeditor_waterkit.js --update-golden
+    git diff tools/goldens/ をレビュー → commit
+    ⭐ golden の "game-goblin-mine" が**変わっていないこと**を必ず確認する
+       (= 既定 6 シナリオが 1 ドットも変わっていない証明)
 """
 from __future__ import annotations
 
@@ -66,30 +118,65 @@ NPIECE = 6
 CORE_X = CELL / 2.0           # 芯 = セル辺の中点 (縦セルなら x=256 の縦線)
 S = 1.0                       # 素材空間 = セル空間 (等倍。railKit の S に相当)
 
+# ── AI 水面テクスチャ ─────────────────────────────────────────────────────
+#    tools/water_surface_src.png は「芯の左半分だけ」(256 列) を持つ。右半分は
+#    _fold_and_loop がミラーで作る (上の設計メモを参照)。行は CELL + LOOP_FADE で、
+#    余分な LOOP_FADE 行が s 方向のクロスフェード用の“のりしろ”。
+TEX_SRC_PNG = os.path.join(BASE, "water_surface_src.png")
+LOOP_FADE = 128               # s 方向ループ化のクロスフェード長 (行)
+#    ⛔ TEX_LOWPASS_KEEP を 1.0 に戻すと「蝶ネクタイ motif」が復活する (上の設計メモ③)
+TEX_LOWPASS_PX = 16           # これより粗い成分を「低域」とみなす (素材 px)
+TEX_LOWPASS_KEEP = 0.30       # 低域を何割残すか (0 = 筆致だけ / 1 = 原画そのまま)
+TEX_GAIN = 1.45               # 残した筆致 (高域) の強さ
+
+TEX_SOFT = 10.0               # 筆致の soft-clip。孤立した強いハイライトを圧縮する。
+                              #   ⛔ 大きくすると「目」型 motif が復活する: AI 原画の
+                              #     光の点が芯で対になり、1 タイルごとに同じ位置へ出る
+                              #     (実測。低域カット幅や細粒を振っても消えなかった)
+
+# ── 手続きの細粒と、s だけの明暗 (どちらもミラーに無害) ────────────────────
+GRAIN_CELLS = ((48, 0.60), (96, 0.40))   # (s 方向の格子数, 重み)。48 -> 2 表示px
+GRAIN_AMP = 0.055             # 細粒の振幅 (水面の明るさに対する比)
+DEPTH_CELLS = ((6, 1.00), (17, 0.45))    # 淀み (暗く深い) と早瀬 (明るい) の周期
+DEPTH_AMP = 0.20              # ⭐ s だけの関数なので motif を作らない = 主役にできる
+
+# ── ⭐⭐ 横断方向の波紋 (チェブロン)。ミラー対称なのに人工的に見えない唯一の構造 ──
+#    位相を phase = s + CHEVRON_PX * (|d|/WATER_HALF)^2 にすると、等値線が
+#    **左右対称の V 字** になる。鏡像にしても V 字は V 字なので motif にならない。
+#    しかも _noise1 は引数について周期 CELL なので phase をずらしても継ぎ目は安全
+#    (noise1(0 + k u^2) == noise1(512 + k u^2))。
+#    ＝ 「波紋は横断方向に走る」という物理も同時に満たす (旧版の平行な縦筋は逆だった)。
+RIPPLE_CELLS = ((11, 0.55), (23, 0.30), (43, 0.15))
+RIPPLE_AMP = 0.15             # 波紋の明暗
+CHEVRON_PX = 34.0             # V 字の開き。岸で位相が何 px 遅れるか
+GLINT_MIX = 0.30              # 波頭のきらめきの強さ (0 で無し)
+COL_GLINT = (146.0, 186.0, 184.0)   # 波頭のきらめき
+
 # ── 断面プロファイル (d = 芯からの距離 px) ────────────────────────────────
-#    0 .. WATER_HALF          水面   (α=255。中央ほど暗く深い)
-#    WATER_HALF .. EDGE_HALF  浅瀬 → 濡れた岸へのグラデ (α 1→0)
+#    0 .. WATER_HALF          水面   (α=255。**ほぼ平坦** = 管に見せないため)
+#    WATER_HALF               水際の細い暗線 (realism の主役)
+#    WATER_HALF .. EDGE_HALF  濡れた泥 → 乾いた岸へのグラデ (α 1→0)
 #    EDGE_HALF ..             完全透明
 #    ⚠ ここを動かすと --check-only の期待表 (中点 ±水面幅/2) も一緒に動く。
 WATER_HALF = 80.0
 EDGE_HALF = 110.0
-WOBBLE_MAX = 8.0              # 岸の輪郭のゆらぎ (定規で引いた直線にしないため)
+WOBBLE_MAX = 14.0             # 岸の輪郭のゆらぎ (定規で引いた直線にしないため)
+WATERLINE_SIG = 3.6           # 水際の暗線の幅 (素材 px。表示で約 1.4px)
+WATERLINE_DEPTH = 0.55        # 暗線の濃さ (0 = 無し / 1 = COL_WATERLINE そのもの)
+SHALLOW_FROM = 0.74           # q(=|d|/w1) がこれを超えたら浅瀬の明るみを混ぜる
+SHALLOW_MIX = 0.34            # 浅瀬の混ぜ量 (大きくすると断面が再び「管」に近づく)
 
 PX_CM = 2.982                 # 物差し: キャラ体高 57px = 1.70m → 1px ≒ 2.98cm
 TILE_PX = 96                  # 本編/エディタのタイル (= displayMax)
 
 # ── 色 (沼/坑道の水。既存アセットのトーンに寄せた暗めの青緑) ─────────────
-COL_DEEP = (24.0, 48.0, 58.0)       # 深部
-COL_MID = (38.0, 78.0, 86.0)        # 中間
-COL_SHALLOW = (70.0, 110.0, 105.0)  # 浅瀬
-COL_BANK = (58.0, 52.0, 40.0)       # 岸の泥
-COL_STREAK = (132.0, 176.0, 170.0)  # 流れの筋 (水面より明るい)
+COL_WATER = (36.0, 66.0, 74.0)      # 水面の**平均**色。AI テクスチャをここへ寄せる
+COL_SHALLOW = (62.0, 92.0, 88.0)    # 岸ぎわの浅瀬 (わずかに混ぜるだけ)
+COL_WATERLINE = (12.0, 22.0, 26.0)  # 水際の細い暗線
+COL_WET = (34.0, 40.0, 38.0)        # 水際の濡れた泥
+COL_BANK = (58.0, 52.0, 40.0)       # 乾いた岸の泥
 
-# ── 流れの筋。(芯からの基準距離, 強さ, にじみ幅) ──────────────────────────
-#    |d| の関数なので芯の左右に対を成して出る (上のミラー対称の説明を参照)。
-STREAKS = ((13.0, 0.58, 3.2), (31.0, 0.49, 3.8), (50.0, 0.40, 4.4), (67.0, 0.31, 5.0))
-
-SEED = 20260804               # 決定論の要。ここを変えると絵が丸ごと変わる
+SEED = 20260804               # 決定論の要。うねりのノイズだけがこれを使う
 
 PIECE_NAMES = ["縦(北南)", "横(東西)", "北→東", "東→南", "南→西", "西→北"]
 # 各ピースがインクを持つべき辺。検算 (--check-only) の期待値。
@@ -98,10 +185,26 @@ OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
 # ── 検算のしきい値 ────────────────────────────────────────────────────────
 OPAQUE = 250                  # 「不透明」とみなす α
-PROBE = 70.0                  # 中点 ±PROBE に不透明画素があること
-                              #   = 水面幅/2 (80) からゆらぎ (8) と余裕 (2) を引いた値
+PROBE = 60.0                  # 中点 ±PROBE に不透明画素があること
+                              #   = 水面幅/2 (80) からゆらぎ (14) と余裕 (6) を引いた値
 CENTER_TOL = 2.0              # 不透明帯の中心が辺の中点からずれてよい量 (px)
-SEAM_TOL = 24                 # 継ぎ目をまたいだ RGBA (前乗算) の最大差
+OPAQUE_SHOULDER = 12          # α>=OPAQUE の帯は水面より少しはみ出す。その許容幅。
+                              #   α は w1 の外側で 255*(1-smooth(p)) と落ちるので
+                              #   250 に達するのは w1 + 0.081*(w2-w1) 付近 = 片側最大 5px。
+# ⚠⚠ 継ぎ目は **α (幾何) と RGB (絵) を分けて測る**。旧版は RGBA をまとめた max 1 つで
+#    測っていたが、AI の筆致テクスチャでは **1 行ぶんの絵の変化だけで max が 79** になり、
+#    しかも「ループ化を切る」負のコントロールの方が max 27 と小さくなった (実測)。
+#    ＝ max は判別力を持たない。実測値 (2026-08-04):
+#        現行          α max= 1 / RGB max=79 p99=17
+#        ループ化なし   α max= 1 / RGB max=27 p99=19   ← α では区別できない
+#        うねり非周期   α max=48 / RGB max=79 p99=22   ← α だけがはっきり反応する
+SEAM_ALPHA_TOL = 6            # α の最大差。幅の食い違いは 255 として出るのでここは厳しく
+SEAM_RGB_P99_TOL = 30         # 前乗算 RGB の p99 (= 絵の 1 行ぶんの変化。max は使わない)
+# ⭐ s 方向のループは継ぎ目からは測れない (上表) ので **素材自身で自己校正して測る**。
+#    「行511 → 行0 の差」÷「隣り合う行の差の平均」。連続していれば 1 前後。
+#    実測: ループ化あり 0.93 / ループ化なし 1.76 → 1.30 で確実に分離する。
+#    絵を差し替えても自己校正されるのでしきい値が陳腐化しない。
+LOOP_RATIO_MAX = 1.30
 
 
 # ══ ノイズ (すべて random.Random(SEED) 由来 = 決定論) ═════════════════════
@@ -133,7 +236,11 @@ def _noise1(rng: random.Random, s: np.ndarray, cells: int) -> np.ndarray:
 
 def _noise2(rng: random.Random, s: np.ndarray, u: np.ndarray,
             cells_s: int, cells_u: int) -> np.ndarray:
-    """(沿線 s, 横断 |d|) の格子 value noise。s 方向は周期 CELL でループ。"""
+    """(沿線 s, 横断 |d|) の格子 value noise。s 方向は周期 CELL でループ。
+
+    ⭐ **u = |d| の関数**なので芯についてミラー対称。細粒 (2〜4 表示px) にしか
+       使わないので、鏡像になっていても目では判別できない。
+    """
     lat = _lattice2(rng, cells_s, cells_u + 2)
     ty = s / CELL * cells_s
     tx = u / (CELL / 2.0) * cells_u
@@ -150,10 +257,153 @@ def _noise2(rng: random.Random, s: np.ndarray, u: np.ndarray,
     return top * (1.0 - fy) + bot * fy
 
 
+def _along(rng: random.Random, s: np.ndarray, octaves) -> np.ndarray:
+    """s だけの関数の合成 (-1..+1 目安)。⭐ u に依らないのでミラーに完全に無害。"""
+    acc = np.zeros_like(s)
+    norm = 0.0
+    for cells, ratio in octaves:
+        acc += ratio * (2.0 * _noise1(rng, s, cells) - 1.0)
+        norm += ratio
+    return acc / max(norm, 1e-9)
+
+
+def _wobble(rng: random.Random, s: np.ndarray, octaves) -> np.ndarray:
+    """(格子数, 振幅比) の列から ±WOBBLE_MAX に収まるうねりを合成する。
+
+    ⚠ 高周波の octave が要る。接続辺は必ず s=0/512 なので **幅は全継ぎ目で同一**
+      になり、低周波だけだと 1 タイルに 1 個の膨らみ = 数珠つなぎに見える。
+    """
+    acc = np.zeros_like(s)
+    for cells, ratio in octaves:
+        acc += (WOBBLE_MAX * ratio) * (2.0 * _noise1(rng, s, cells) - 1.0)
+    return np.clip(acc, -WOBBLE_MAX, WOBBLE_MAX)
+
+
 def _lerp3(c0, c1, t: np.ndarray) -> np.ndarray:
     a = np.asarray(c0, dtype=np.float64)
     b = np.asarray(c1, dtype=np.float64)
     return a[None, None, :] + (b - a)[None, None, :] * t[:, :, None]
+
+
+# ══ AI 水面テクスチャの読み込みと下ごしらえ ═══════════════════════════════
+def prepare_source(raw_path: str, out_path: str = TEX_SRC_PNG) -> None:
+    """生の AI PNG から commit 用の素材 tools/water_surface_src.png を焼く。
+
+    正方形へ中央クロップ → (CELL, CELL+LOOP_FADE) へ LANCZOS リサイズ →
+    **左半分 (256 列) だけ**を保存する。右半分はミラーで作るので保存しない。
+    LANCZOS は決定論なので、同じ生 PNG からは常に同じバイトが出る。
+    """
+    im = Image.open(raw_path).convert("RGB")
+    if im.width != im.height:
+        side = min(im.size)
+        left = (im.width - side) // 2
+        top = (im.height - side) // 2
+        im = im.crop((left, top, left + side, top + side))
+    im = im.resize((CELL, CELL + LOOP_FADE), Image.LANCZOS)
+    im = im.crop((0, 0, CELL // 2, CELL + LOOP_FADE))
+    im.save(out_path, "PNG", optimize=True)
+    with open(out_path, "rb") as fp:
+        digest = hashlib.sha256(fp.read()).hexdigest()
+    print(f"[make_water_kit] prepared {os.path.relpath(out_path, PROJ)} "
+          f"{im.width}x{im.height}  sha256={digest}")
+    print(f"  (生素材 {os.path.relpath(raw_path, PROJ)} は git 管理外。"
+          f"上のファイルを commit すること)")
+
+
+def _load_prepared() -> np.ndarray:
+    """tools/water_surface_src.png を (CELL+LOOP_FADE, CELL/2, 3) float64 で返す。"""
+    want = (CELL // 2, CELL + LOOP_FADE)
+    if not os.path.exists(TEX_SRC_PNG):
+        raise SystemExit(
+            f"[make_water_kit] 水面素材が無い: {os.path.relpath(TEX_SRC_PNG, PROJ)}\n"
+            f"  → py tools/make_water_kit.py "
+            f"--prepare-from source_images/water_surface/01_water.png")
+    im = Image.open(TEX_SRC_PNG).convert("RGB")
+    if im.size != want:
+        raise SystemExit(
+            f"[make_water_kit] 水面素材のサイズが {im.size} で期待 {want} と違う "
+            f"(--prepare-from で焼き直すこと)")
+    return np.asarray(im, dtype=np.float64)
+
+
+def _suppress_lowpass(arr: np.ndarray) -> np.ndarray:
+    """原画の低域 (TEX_LOWPASS_PX より粗い成分) を TEX_LOWPASS_KEEP まで薄め、
+    残った筆致 (高域) を TEX_GAIN 倍する。
+
+    ⛔ これを省くと芯の折り返しで「蝶ネクタイ motif」が出て 96px ごとに反復する
+       (モジュール冒頭の設計メモ③)。決定論 (縮小 → 拡大は LANCZOS/BICUBIC 固定)。
+    """
+    h, w = arr.shape[0], arr.shape[1]
+    k = TEX_LOWPASS_PX
+    im = Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8), "RGB")
+    small = im.resize((max(1, w // k), max(1, h // k)), Image.LANCZOS)
+    lp = np.asarray(small.resize((w, h), Image.BICUBIC), dtype=np.float64)
+    mean = arr.reshape(-1, 3).mean(axis=0)[None, None, :]
+    # ⛔ soft-clip は必須。原画の孤立したハイライトをそのまま通すと、芯で対になって
+    #    「目」型 motif になり 1 タイルごとに同じ位置へ反復する (TEX_SOFT の注を参照)。
+    dev = TEX_SOFT * np.tanh((arr - lp) / TEX_SOFT)
+    return mean + TEX_LOWPASS_KEEP * (lp - mean) + TEX_GAIN * dev
+
+
+def _prefilter_rgb(rgb: np.ndarray) -> np.ndarray:
+    """表示 Nyquist より細かい成分を落とす (見えないのに PNG の容量だけ食うため)。
+
+    本編の表示倍率は 96/512 = 0.1875 なので、**5.3 素材px より細かい成分は
+    ブラウザの縮小で平均化されて 1 ドットも見えない**。焼く前に落とすと絵は
+    変わらないまま PNG が小さくなる。SCENERY_SHEETS は eager 読み込み
+    (index.html の `s.img.src = s.src`) なので、既定 6 シナリオが waterKit を
+    使わなくても全プレイヤーがこの PNG を落とす ＝ 容量は素直に効く。
+
+    ⚠ **α には掛けない**。掛けると水際の立ち上がりが鈍って帯の幅が変わり、
+      report_edges の実測値 (不透明幅・水路幅) が動いてしまう。
+    ⚠ x 方向は畳み込みのあと (r + r[:, ::-1]) / 2 で **厳密なミラー対称へ戻す**。
+      IEEE754 の加算は可換 (a+b == b+a が厳密) なので np.array_equal を必ず通る。
+    """
+    k = np.array([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0     # 二項フィルタ σ≈1.0
+    out = rgb
+    for _ in range(2):                                  # 2 回 ≒ σ1.4 ≒ 3px 相当まで落とす
+        acc = np.zeros_like(out)
+        for i, w in enumerate(k):                       # 沿線方向は wrap (周期 CELL)
+            acc += w * np.roll(out, i - 2, axis=0)
+        out = acc
+        acc = np.zeros_like(out)
+        for i, w in enumerate(k):                       # 横断方向は端をクランプ
+            acc += w * out[:, np.clip(np.arange(CELL) + (i - 2), 0, CELL - 1), :]
+        out = 0.5 * (acc + acc[:, ::-1, :])             # ★ 厳密なミラー対称へ戻す
+    return out
+
+
+def _verify_loop(tex: np.ndarray) -> None:
+    """s 方向のループを **素材自身で自己校正して** 実測する (LOOP_RATIO_MAX を参照)。
+
+    ⚠ 継ぎ目 (report_seams) では測れない: 絵が統計的に均質だと「ループ化なし」でも
+      継ぎ目の差はほとんど増えないため (実測済み)。だから素材側で直接測る。
+    """
+    adj = float(np.abs(np.diff(tex, axis=0)).mean())
+    wrap = float(np.abs(tex[0] - tex[CELL - 1]).mean())
+    ratio = wrap / max(adj, 1e-9)
+    if ratio > LOOP_RATIO_MAX:
+        raise SystemExit(
+            f"[make_water_kit] 素材が s 方向にループしていない "
+            f"(wrap {wrap:.3f} / 隣接 {adj:.3f} = {ratio:.3f} > {LOOP_RATIO_MAX})")
+
+
+def _fold_and_loop(half: np.ndarray) -> np.ndarray:
+    """(CELL+LOOP_FADE, CELL/2, 3) → (CELL, CELL, 3)。
+
+    x: 芯 (x=CELL/2) について **厳密に** ミラー (同じ float をそのまま並べるので
+       _verify_source の np.array_equal を必ず通る)。
+    y: 周期 CELL で完全ループ。末尾 LOOP_FADE 行 (のりしろ) を頭へクロスフェード
+       するので、行 CELL-1 の次が行 0 につながる。
+    """
+    L = LOOP_FADE
+    base = half[:CELL]                                  # (CELL, 256, 3)
+    tail = half[CELL:CELL + L]                          # (L,    256, 3)
+    w = (np.arange(L, dtype=np.float64) / L)[:, None, None]
+    head = base[:L] * w + tail * (1.0 - w)
+    left = np.concatenate([head, base[L:]], axis=0)      # (CELL, 256, 3)
+    return np.ascontiguousarray(
+        np.concatenate([left, left[:, ::-1, :]], axis=1))  # (CELL, CELL, 3)
 
 
 # ══ 断面素材 (= まっすぐな水路 1 タイルぶん) の生成 ═══════════════════════
@@ -163,49 +413,78 @@ def build_source() -> np.ndarray:
     列 x の画素中心は素材座標 x+0.5、芯は素材座標 CORE_X(=256.0) なので
     d(x) = x + 0.5 - 256.0 = x - 255.5。列 x と列 511-x の d は符号だけが逆
     ＝ **列の並びは芯について厳密にミラー対称**になる (_verify_source が確認)。
+
+    ⭐ ここが ChatGPT 素材との唯一の接点。**変換の下流** (make_straight /
+       make_curve_ne / build_sheet / report_edges) は素材の作り方に一切依存しない。
+    ⚠ ただし **report_seams のしきい値だけは素材の性質に依存する**。手続きノイズなら
+       RGBA の max 1 つで足りたが、筆致テクスチャでは max が判別力を失った
+       (SEAM_ALPHA_TOL の注に実測値)。素材を差し替えたらここは必ず再校正する。
     """
     rng = random.Random(SEED)
+    tex = _fold_and_loop(_suppress_lowpass(_load_prepared()))
+    _verify_loop(tex)
+
     yy, xx = np.mgrid[0:CELL, 0:CELL]
     s = yy + 0.5
     d = (xx + 0.5) - CORE_X
     u = np.abs(d)
 
-    # 岸の輪郭のゆらぎ。低周波 + 高周波の 2 枚。周期 CELL なので継ぎ目で連続する。
-    wob = (WOBBLE_MAX * 0.72) * (2.0 * _noise1(rng, s, 5) - 1.0) \
-        + (WOBBLE_MAX * 0.33) * (2.0 * _noise1(rng, s, 13) - 1.0)
-    wob = np.clip(wob, -WOBBLE_MAX, WOBBLE_MAX)
-    w1 = WATER_HALF + wob          # 水面の外縁
-    w2 = EDGE_HALF + wob           # 岸の外縁 (ここで α=0)
+    # 岸の輪郭のうねり。水面の縁と岸の外縁で **別のノイズ** を使う (完全な相似形に
+    # すると「一定断面を押し出した管」に見えるため)。どちらも周期 CELL。
+    w1 = WATER_HALF + _wobble(rng, s, ((5, 0.50), (13, 0.32), (29, 0.18)))
+    w2 = EDGE_HALF + _wobble(rng, s, ((7, 0.48), (17, 0.34), (31, 0.18)))
+    w2 = np.maximum(w2, w1 + 6.0)          # 岸が水面へ食い込まないための下限
 
-    # 水面の濃淡 (3 オクターブ)。0..1 に正規化。
-    n = (0.55 * _noise2(rng, s, u, 8, 5)
-         + 0.30 * _noise2(rng, s, u, 17, 9)
-         + 0.15 * _noise2(rng, s, u, 33, 17))
+    # AI テクスチャの平均色を COL_WATER へ寄せる。**偏差はそのまま残す** ので
+    # 筆致 (低域を抜いた後の細かい濃淡) は原画のまま生き、色調だけこちらで握れる。
+    tmean = tex.reshape(-1, 3).mean(axis=0)
+    tex_n = (tex - tmean[None, None, :]) \
+        + np.asarray(COL_WATER, dtype=np.float64)[None, None, :]
+    # 岸の泥を単調な塗りにしないための明暗 (おおむね [-1, 1])。
+    lum = (tex.mean(axis=2) - float(tex.mean())) / 64.0
 
-    # 流れに沿った細い明るい筋。芯からの距離を s に沿って蛇行させ、強さも揺らす。
-    streak = np.zeros_like(u)
-    for k, (off, amp, sig) in enumerate(STREAKS):
-        wander = 7.0 * (2.0 * _noise1(rng, s, 7 + 3 * k) - 1.0)
-        env = np.clip((_noise1(rng, s, 4 + 2 * k) - 0.22) / 0.55, 0.0, 1.0)
-        streak += amp * env * np.exp(-(((u - (off + wander)) / sig) ** 2))
-    q = np.clip(u / w1, 0.0, 1.0)                 # 0=芯 1=水面の外縁
-    streak = np.clip(streak, 0.0, 1.0) * (1.0 - q ** 4)   # 岸際では筋を消す
+    # 水面: **断面はほぼ平坦**。岸ぎわだけわずかに浅瀬を混ぜる。
+    q = np.clip(u / w1, 0.0, 1.0)
+    sh = _smooth((q - SHALLOW_FROM) / (1.0 - SHALLOW_FROM))
+    water = tex_n + (np.asarray(COL_SHALLOW, dtype=np.float64) - tex_n) \
+        * (SHALLOW_MIX * sh)[:, :, None]
 
-    # 水面の色: 深部 → 中間 → 浅瀬。中央ほど暗く深い。
-    water = _lerp3(COL_DEEP, COL_MID, _smooth(q / 0.55))
-    water = water + (np.asarray(COL_SHALLOW, dtype=np.float64) - water) \
-        * _smooth((q - 0.55) / 0.45)[:, :, None]
-    water *= (1.0 + 0.20 * (n - 0.5))[:, :, None]
-    water = water + (np.asarray(COL_STREAK, dtype=np.float64) - water) \
-        * (0.85 * streak)[:, :, None]
+    # ⭐ リアリズムの主役 = **s だけの明暗** (淀みは暗く深く、早瀬は明るい)。
+    #    u に依らないのでミラーに完全に無害 = motif を一切作らない。
+    depth = 1.0 + DEPTH_AMP * _along(rng, s, DEPTH_CELLS)
+    # 手続きの細粒。原画の低域を抜いたぶんの生気をここで足す (1〜2 表示px)。
+    grain = np.zeros_like(u)
+    gnorm = 0.0
+    for cells, ratio in GRAIN_CELLS:
+        grain += ratio * (2.0 * _noise2(rng, s, u, cells, max(3, cells // 2)) - 1.0)
+        gnorm += ratio
+    water = water * (depth * (1.0 + GRAIN_AMP * grain / max(gnorm, 1e-9)))[:, :, None]
 
-    # 岸: 浅瀬 → 泥。α は 1 → 0。
+    # ⭐⭐ 横断方向の波紋 (チェブロン)。位相に |d|^2 を足すと等値線が左右対称の V 字に
+    #     なるので、ミラーでも「V 字のまま」= 人工的に見えない (上の設計メモ参照)。
+    phase = s + CHEVRON_PX * (u / WATER_HALF) ** 2
+    ripple = _along(rng, phase, RIPPLE_CELLS)
+    fade = 1.0 - q ** 4                                   # 岸ぎわでは波紋を消す
+    water = water * (1.0 + RIPPLE_AMP * ripple * fade)[:, :, None]
+    # 波頭のきらめき。V 字の頂点に乗るので鏡像でも「波に当たった光」に見える。
+    crest = np.clip(ripple, 0.0, 1.0) ** 3 * fade
+    water = water + (np.asarray(COL_GLINT, dtype=np.float64) - water) \
+        * (GLINT_MIX * crest)[:, :, None]
+
+    # 岸: 濡れた泥 → 乾いた泥。α は 1 → 0。
     p = np.clip((u - w1) / (w2 - w1), 0.0, 1.0)
-    bank = _lerp3(COL_SHALLOW, COL_BANK, _smooth(p))
-    bank *= (1.0 + 0.18 * (n - 0.5))[:, :, None]
+    bank = _lerp3(COL_WET, COL_BANK, _smooth(p)) * (1.0 + 0.26 * lum)[:, :, None]
 
-    in_water = (u <= w1)[:, :, None]
-    rgb = np.where(in_water, water, bank)
+    rgb = np.where((u <= w1)[:, :, None], water, bank)
+
+    # ⭐ 水際の細い暗線。**リアルに見えるかどうかの主役**なので水側/岸側の
+    #    両方にまたがって当てる (実際の水縁は濡れて暗く落ちる)。
+    line = np.exp(-(((u - w1) / WATERLINE_SIG) ** 2))
+    rgb = rgb + (np.asarray(COL_WATERLINE, dtype=np.float64) - rgb) \
+        * (WATERLINE_DEPTH * line)[:, :, None]
+
+    rgb = _prefilter_rgb(rgb)          # 見えない高域を落として PNG を小さくする
+
     alpha = np.where(u <= w1, 255.0, 255.0 * (1.0 - _smooth(p)))
     alpha = np.where(u <= w2, alpha, 0.0)
     rgb = np.where((alpha > 0.0)[:, :, None], rgb, 0.0)
@@ -299,7 +578,7 @@ def make_curve_ne(src: np.ndarray) -> np.ndarray:
     オフセットそのものなので、水路の幅はカーブでも厳密に一定になる。
 
     沿線方向は θ(0..90°) を素材の y に線形対応させる (railKit と同じ)。
-    弧長 402px を 512 に伸ばすので、流れの筋はカーブで約 21% 詰まる。
+    弧長 402px を 512 に伸ばすので、水面の模様はカーブで約 21% 詰まる。
     """
     px, py = _cell_centers()
     dx = px - CELL                            # 常に < 0 (セル内)
@@ -367,10 +646,10 @@ def report_edges(sheet: np.ndarray) -> bool:
     mid = CELL / 2.0 - 0.5                        # 辺の中点 (画素 index 基準)
     lo_i = int(round(mid - PROBE))
     hi_i = int(round(mid + PROBE))
-    op_lo = 2.0 * (WATER_HALF - WOBBLE_MAX) - 4.0     # 144 - 4 = 140
-    op_hi = 2.0 * (WATER_HALF + WOBBLE_MAX) + 4.0     # 176 + 4 = 180
-    ink_lo = 2.0 * (EDGE_HALF - WOBBLE_MAX) - 4.0     # 204 - 4 = 200
-    ink_hi = 2.0 * (EDGE_HALF + WOBBLE_MAX) + 4.0     # 236 + 4 = 240
+    op_lo = 2.0 * (WATER_HALF - WOBBLE_MAX) - 4.0                    # 132 - 4 = 128
+    op_hi = 2.0 * (WATER_HALF + WOBBLE_MAX) + OPAQUE_SHOULDER        # 188 + 12 = 200
+    ink_lo = 2.0 * (EDGE_HALF - WOBBLE_MAX) - 4.0                    # 192 - 4 = 188
+    ink_hi = 2.0 * (EDGE_HALF + WOBBLE_MAX) + 4.0                    # 248 + 4 = 252
 
     print(f"  期待: 接続辺 = 中点{mid:.1f} ±{PROBE:.0f} が α>={OPAQUE} / "
           f"不透明幅 {op_lo:.0f}..{op_hi:.0f} / 水路幅 {ink_lo:.0f}..{ink_hi:.0f} / "
@@ -407,13 +686,16 @@ def report_edges(sheet: np.ndarray) -> bool:
 
 
 def report_seams(sheet: np.ndarray) -> bool:
-    """つながりうる全ての辺の組で、継ぎ目をまたいだ RGBA の差を測る。
+    """つながりうる全ての辺の組で、継ぎ目をまたいだ差を **α と RGB に分けて** 測る。
 
-    ミラー対称の断面 + 周期 CELL のノイズなので、どの向きの組み合わせでも
-    差は「1 行ぶんのノイズの変化」しか出ないはず。段差が出たら設計が崩れている。
+    ⚠⚠ α と RGB では判別力が正反対なので絶対に合算しない (SEAM_ALPHA_TOL の注を参照)。
+      α  = 幾何。幅が食い違えばそのまま 255 として出るので **これが要石**。
+      RGB = 絵。筆致テクスチャでは 1 行ぶんの変化だけで max が 79 まで出るので
+            **max は使わず p99** で測る。
     RGB は前乗算で比べる (α が小さい領域の RGB は意味を持たないため)。
     """
-    worst, worst_txt = 0, "-"
+    a_worst, a_txt = 0.0, "-"
+    rgb_vals = []
     for i in range(NPIECE):
         for e in PIECE_EDGES[i]:
             for j in range(NPIECE):
@@ -421,15 +703,22 @@ def report_seams(sheet: np.ndarray) -> bool:
                     continue
                 pa = edge_rgba(sheet, i, e).astype(np.float64)
                 pb = edge_rgba(sheet, j, OPPOSITE[e]).astype(np.float64)
-                qa = np.concatenate([pa[:, :3] * pa[:, 3:4] / 255.0, pa[:, 3:4]], axis=1)
-                qb = np.concatenate([pb[:, :3] * pb[:, 3:4] / 255.0, pb[:, 3:4]], axis=1)
-                dmax = int(np.rint(np.abs(qa - qb).max()))
-                if dmax > worst:
-                    worst, worst_txt = dmax, f"{i}{e} | {j}{OPPOSITE[e]}"
-    ok = worst <= SEAM_TOL
-    print(f"  継ぎ目 (18 接合 × 両向き) の最大 RGBA 差 = {worst}  "
-          f"(最悪 {worst_txt} / 許容 {SEAM_TOL})  {'OK' if ok else '*** NG'}")
-    return ok
+                da = float(np.abs(pa[:, 3] - pb[:, 3]).max())
+                if da > a_worst:
+                    a_worst, a_txt = da, f"{i}{e} | {j}{OPPOSITE[e]}"
+                qa = pa[:, :3] * pa[:, 3:4] / 255.0
+                qb = pb[:, :3] * pb[:, 3:4] / 255.0
+                rgb_vals.append(np.abs(qa - qb).ravel())
+    rgb = np.concatenate(rgb_vals)
+    r_p99 = float(np.percentile(rgb, 99))
+    a_ok = a_worst <= SEAM_ALPHA_TOL
+    r_ok = r_p99 <= SEAM_RGB_P99_TOL
+    print(f"  継ぎ目 (18 接合 × 両向き) α 最大差 = {a_worst:.0f} "
+          f"(最悪 {a_txt} / 許容 {SEAM_ALPHA_TOL})  {'OK' if a_ok else '*** NG'}")
+    print(f"                          RGB p99 = {r_p99:.1f} "
+          f"(max {rgb.max():.0f} は参考値 / 許容 {SEAM_RGB_P99_TOL})  "
+          f"{'OK' if r_ok else '*** NG'}")
+    return bool(a_ok and r_ok)
 
 
 def main(argv=None) -> int:
@@ -437,15 +726,29 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=OUT_PNG, help="出力 (既定 assets/water_kit.png)")
     ap.add_argument("--check-only", action="store_true",
                     help="書き込まずに接続点の実測だけ出す")
+    ap.add_argument("--prepare-from", metavar="RAW_PNG",
+                    help="生の AI PNG から tools/water_surface_src.png を焼き直して終了")
     args = ap.parse_args(argv)
+
+    if args.prepare_from:
+        prepare_source(args.prepare_from)
+        return 0
 
     src = build_source()
     _verify_source(src)
     sheet = build_sheet(src)
 
-    print(f"[make_water_kit] 手続き生成 seed={SEED} (画像 AI 不使用・決定論)")
-    print(f"  断面 |d|: 0..{WATER_HALF:.0f} 水面 / {WATER_HALF:.0f}..{EDGE_HALF:.0f} 浅瀬→岸 "
-          f"(α 1→0) / {EDGE_HALF:.0f}.. 透明   岸のゆらぎ ±{WOBBLE_MAX:.0f}px")
+    print(f"[make_water_kit] ハイブリッド (水面 = AI テクスチャ / 幾何 = コード) "
+          f"seed={SEED}")
+    print(f"  素材 {os.path.relpath(TEX_SRC_PNG, PROJ)} "
+          f"(左半分 {CELL // 2}x{CELL + LOOP_FADE}・のりしろ {LOOP_FADE} 行) "
+          f"低域 {TEX_LOWPASS_PX}px を {TEX_LOWPASS_KEEP} 残し筆致 x{TEX_GAIN}")
+    print(f"  細粒 ±{GRAIN_AMP:.3f} / s だけの明暗 ±{DEPTH_AMP:.2f} "
+          f"(どちらもミラーに無害)")
+    print(f"  断面 |d|: 0..{WATER_HALF:.0f} 水面 (ほぼ平坦) / 水際に暗線 "
+          f"σ={WATERLINE_SIG:.1f} 濃さ{WATERLINE_DEPTH:.2f} / "
+          f"{WATER_HALF:.0f}..{EDGE_HALF:.0f} 濡れ泥→岸 (α 1→0) / "
+          f"{EDGE_HALF:.0f}.. 透明   うねり ±{WOBBLE_MAX:.0f}px")
     for label, half in (("水面", WATER_HALF), ("水路", EDGE_HALF)):
         disp = 2 * half * TILE_PX / CELL
         print(f"  {label}幅 {2 * half:.0f}px / セル{CELL} → 本編 {TILE_PX}px タイルで "
