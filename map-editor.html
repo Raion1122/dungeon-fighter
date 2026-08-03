@@ -145,6 +145,26 @@
   #editbar button:disabled, #editbar select:disabled { opacity: .38; cursor: default; }
   /* ツールモードボタン (TOOLS 配列から動的生成。項目3 で増える) */
   #toolBtns { display: flex; gap: 4px; }
+  /* ★Phase 6 STEP2.5: 履歴ボタン (↶ 元に戻す / ↷ やり直し) の枠。
+     目的は **見つけられること** の 1 点。
+       - #toolBtns の直後に置く   → #editbar が折り返しても常に先頭行の左寄り
+       - flex-shrink:0 + nowrap   → 2 つが分断されて別行に散らない
+       - 薄い枠 + 少し明るい配色  → 周りのツール群から視覚的に切り離す
+                                    (トンマナは既存のダーク UI のまま。彩度は上げない)
+     ⚠ disabled 時の見た目 (#editbar button:disabled の opacity:.38) は上書きしない
+       = 「履歴が無いときは押せない」という既存の合図をそのまま残す。 */
+  #histBtns {
+    display: flex; align-items: center; gap: 4px;
+    flex: 0 0 auto; white-space: nowrap;
+    padding: 3px 7px; border-radius: 7px;
+    background: #14161c; border: 1px solid #39414f;
+  }
+  #editbar #histBtns button {
+    background: #262c3a; border-color: #4a5468; color: #eaf1ff; font-weight: 700;
+  }
+  #editbar #histBtns button:hover:not(:disabled) {
+    background: var(--accent); color: #0e0f13; border-color: var(--accent);
+  }
   #editbar button.tool.active {
     background: var(--accent); color: #0e0f13; border-color: var(--accent); font-weight: 700;
   }
@@ -474,6 +494,15 @@
          「ボススロット」が増えても、この HTML は 1 文字も変えなくてよい)。 -->
   <div id="editbar">
     <span id="toolBtns"></span>
+    <!-- ★Phase 6 STEP2.5: 履歴 (↶/↷) は**編集バーの左端 = ツールボタンの直後**に置く。
+         ⚠ 元はバーの末尾 (#btnDelete の後ろ) にあり、#editbar が flex-wrap:wrap なので
+           折り返した行の右端に埋もれ、ユーザーが存在に気づけなかった。
+         ⚠⚠ 動かしたのは**位置と見た目だけ**。undo()/redo()・history (50段)・Ctrl+Z/Ctrl+Y は
+             1 行も変えていない (id も変えない = 831/3291/3630 行の参照が生きている)。 -->
+    <span id="histBtns">
+      <button id="btnUndo" disabled title="直前の操作を 1 つ取り消す (Ctrl+Z)。タイル 1 筆・情景物の設置/移動/削除・部屋の作成/移動/リサイズ・敵スロット・JSON 読込・矩形に戻す がすべて対象 (50 段)">↶ 元に戻す</button>
+      <button id="btnRedo" disabled title="取り消した操作をやり直す (Ctrl+Y / Ctrl+Shift+Z)">↷ やり直し</button>
+    </span>
     <span class="sep"></span>
     <!-- ★Phase 3 項目4: 自由タイル (焼き固め方式) のバッジ + ブラシ設定。
          バッジは **tiles の有無に関わらず常設** = 「今この地図の床は矩形から作られているのか、
@@ -526,8 +555,8 @@
     <span id="paintNote" title="1枚絵カタログ (index.html の ROOM_PAINTINGS_DEF) と情景カタログ (SCENERY_SHEETS / SCENERY_RECIPES) の取得状況"></span>
     <button id="btnDelete" disabled title="Delete / BackSpace">削除</button>
     <span class="sep"></span>
-    <button id="btnUndo" disabled title="Ctrl+Z">↶ 元に戻す</button>
-    <button id="btnRedo" disabled title="Ctrl+Y / Ctrl+Shift+Z">↷ やり直し</button>
+    <!-- ⚠ ↶ 元に戻す / ↷ やり直し は**ここにあった**。バーの末尾 = 折り返しの右端に
+         埋もれるので、Phase 6 STEP2.5 で #toolBtns の直後 (#histBtns) へ移した。 -->
     <span id="selInfo">選択なし</span>
   </div>
 
