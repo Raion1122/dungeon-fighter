@@ -853,6 +853,115 @@
     return out;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★STEP 2.5 — つながる線路 (railKit) の自動接続
+   * ══════════════════════════════════════════════════════════════════════════
+   * ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。置いた線路と、
+   * その周りの線路が、隣り合っていれば自動でつながる形 (縦/横/カーブ) に選び直される。
+   *
+   * ⭐ 接続規則は**ここが唯一の正**。エディタは railKitRelinkAround() を呼ぶだけで、
+   *   規則を 1 行も持たない (テクスチャ表 / 情景レシピと同じ「写経しない」方針)。
+   *
+   * ⚠⚠ **読み込み経路では絶対に呼ばないこと** (importJSON / プリセット / 矩形に戻す)。
+   *   読み込んだデータが唯一の正で、そこで再計算すると往復同一性
+   *   (export → import → export が 1 バイトも変わらない) が壊れる。自動接続は
+   *   「エディタ上でユーザーが置く / 動かす / 消す」経路だけに効かせる。
+   *
+   * ⚠ 既存の散布 rail (縦3変種) とは**別種**。近傍として数えるのは railKit だけで、
+   *   rail はタイルに整列していない (hash 散布) ので混ぜると意味が壊れる。 */
+
+  var RAIL_KIT_KIND = "railKit";          // ★種キー (index.html の SCENERY_SHEETS と同じ綴り)
+  var RAIL_N = 1, RAIL_E = 2, RAIL_S = 4, RAIL_W = 8;
+
+  /* variant → その絵が接続している辺のマスク。railKit のシート (tools/make_rail_kit.py が
+   *   書き出したコマ順。画像名も枠座標も index.html 側にしか無い) と 1 対 1:
+   *     0 = 縦(N+S)  1 = 横(E+W)  2 = 北東  3 = 東南  4 = 南西  5 = 西北
+   * ⚠ T 字 / 十字 / 終端のピースは**作らないと決定済み** (6 種で打ち止め)。 */
+  var RAIL_VARIANT_MASKS = [
+    RAIL_N | RAIL_S,   // 0 → 5   ┃
+    RAIL_E | RAIL_W,   // 1 → 10  ━
+    RAIL_N | RAIL_E,   // 2 → 3   ┗
+    RAIL_E | RAIL_S,   // 3 → 6   ┏
+    RAIL_S | RAIL_W,   // 4 → 12  ┓
+    RAIL_W | RAIL_N,   // 5 → 9   ┛
+  ];
+
+  // 近傍を舐める順 (北→東→南→西)。dx/dy はタイル座標の差分。
+  var RAIL_DIRS = [
+    { dx:  0, dy: -1, bit: RAIL_N },
+    { dx:  1, dy:  0, bit: RAIL_E },
+    { dx:  0, dy:  1, bit: RAIL_S },
+    { dx: -1, dy:  0, bit: RAIL_W },
+  ];
+
+  /* mask (N=1 / E=2 / S=4 / W=8) → variant index。
+   * ⭐ **孤立 (mask 0) は null** を返す = 「変更しない」の合図。ユーザーがカーブを 1 個だけ
+   *   意図して置いたときに、勝手に直線へ化けるのを防ぐ。
+   * フォールバック (ピースが 6 種しかないので 6 通り以外は寄せる)。**判定順が仕様**:
+   *   ①上表の 6 通り (5/10/3/6/12/9)  → その variant
+   *   ②北と南を両方含む (7/13/15)     → 0 (縦)   ← T 字も十字もここへ落ちる
+   *   ③東と西を両方含む (11/14)       → 1 (横)
+   *   ④1 方向だけ (終端) 北/南 (1/4)  → 0 (縦)
+   *   ⑤1 方向だけ (終端) 東/西 (2/8)  → 1 (横)
+   *   ⑥mask 0 (孤立)                  → null (今の variant を保つ) */
+  function railVariantForMask(mask) {
+    if (!isNum(mask)) return null;
+    var m = Math.round(mask) & 15, i;
+    for (i = 0; i < RAIL_VARIANT_MASKS.length; i++)
+      if (RAIL_VARIANT_MASKS[i] === m) return i;                   // ①
+    if ((m & (RAIL_N | RAIL_S)) === (RAIL_N | RAIL_S)) return 0;   // ② 7 / 13 / 15
+    if ((m & (RAIL_E | RAIL_W)) === (RAIL_E | RAIL_W)) return 1;   // ③ 11 / 14
+    if (m === RAIL_N || m === RAIL_S) return 0;                    // ④ 終端 (縦)
+    if (m === RAIL_E || m === RAIL_W) return 1;                    // ⑤ 終端 (横)
+    return null;                                                   // ⑥ m === 0 = 孤立
+  }
+
+  // その prop が (tx,ty) に居る railKit か。⚠ 種の判定は kind のみ (variant は問わない)。
+  function isRailKitAt(p, tx, ty) {
+    return !!p && p.kind === RAIL_KIT_KIND && (p.tx | 0) === tx && (p.ty | 0) === ty;
+  }
+
+  /* props 配列の中で (tx,ty) の**上下左右**に railKit があるか → ビットマスク。
+   * ⚠ (tx,ty) 自身は見ない。あくまで「隣に線路があるか」だけを測る。 */
+  function railKitMaskAt(props, tx, ty) {
+    if (!Array.isArray(props)) return 0;
+    tx = tx | 0; ty = ty | 0;
+    var mask = 0, d, i, nx, ny;
+    for (d = 0; d < RAIL_DIRS.length; d++) {
+      nx = tx + RAIL_DIRS[d].dx; ny = ty + RAIL_DIRS[d].dy;
+      for (i = 0; i < props.length; i++)
+        if (isRailKitAt(props[i], nx, ny)) { mask |= RAIL_DIRS[d].bit; break; }
+    }
+    return mask;
+  }
+
+  /* (tx,ty) にある railKit を近傍に合わせて選び直す。戻り = 書き換えた個数。
+   * ⚠ そのタイルに railKit が無ければ何もしない (= 0)。同じタイルに複数あれば全部そろえる。 */
+  function railKitRelinkAt(props, tx, ty) {
+    if (!Array.isArray(props)) return 0;
+    tx = tx | 0; ty = ty | 0;
+    var v = railVariantForMask(railKitMaskAt(props, tx, ty));
+    if (v === null) return 0;                       // 孤立 = 今の形を保つ
+    var n = 0, i;
+    for (i = 0; i < props.length; i++) {
+      if (!isRailKitAt(props[i], tx, ty)) continue;
+      if (props[i].variant !== v) { props[i].variant = v; n++; }
+    }
+    return n;
+  }
+
+  /* ★エディタが呼ぶのはこれ 1 本。自分 + 上下左右 4 近傍を選び直す。戻り = 書き換えた個数。
+   * ⚠ 各タイルの結果は「railKit がどこにあるか」だけで決まり、他タイルの variant には
+   *   依存しない = 何度呼んでも同じ (冪等)。移動は移動元と移動先で 2 回呼べば足りる。 */
+  function railKitRelinkAround(props, tx, ty) {
+    if (!Array.isArray(props)) return 0;
+    tx = tx | 0; ty = ty | 0;
+    var n = railKitRelinkAt(props, tx, ty), d;
+    for (d = 0; d < RAIL_DIRS.length; d++)
+      n += railKitRelinkAt(props, tx + RAIL_DIRS[d].dx, ty + RAIL_DIRS[d].dy);
+    return n;
+  }
+
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
   // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
@@ -2313,5 +2422,21 @@
     propFootprint: propFootprint,
     propBlocking: propBlocking,
     propBlockedTiles: propBlockedTiles,
+
+    /* ── ★STEP 2.5: つながる線路 (railKit) の自動接続 ─────────────────────────
+     *   RAIL_KIT_KIND         … "railKit" (種キー)
+     *   RAIL_VARIANT_MASKS    … variant → 接続辺のマスク [5,10,3,6,12,9]
+     *                           (N=1 / E=2 / S=4 / W=8)
+     *   railVariantForMask(mask)          … mask → variant | **null (孤立=変更しない)**
+     *   railKitMaskAt(props, tx, ty)      … 上下左右の railKit → mask
+     *   railKitRelinkAt(props, tx, ty)    … そのタイルの railKit を選び直す → 変更数
+     *   railKitRelinkAround(props,tx,ty)  … ★自分 + 4 近傍。エディタが呼ぶのはこれ 1 本
+     *  ⚠⚠ importJSON / プリセット / 矩形に戻す では**呼ばない**こと (往復同一性が壊れる)。 */
+    RAIL_KIT_KIND: RAIL_KIT_KIND,
+    RAIL_VARIANT_MASKS: RAIL_VARIANT_MASKS,
+    railVariantForMask: railVariantForMask,
+    railKitMaskAt: railKitMaskAt,
+    railKitRelinkAt: railKitRelinkAt,
+    railKitRelinkAround: railKitRelinkAround,
   };
 })(window);

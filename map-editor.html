@@ -328,12 +328,12 @@
   #palette.propMode #palAutoWrap,
   #palette.propMode #palList,
   #palette.propMode > .palFoot { display: none; }
-  #propScaleRow {
+  #propScaleRow, #propLinkRow {
     flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
     padding: 7px 10px; border-bottom: 1px solid var(--line);
     font-size: 12px; color: var(--fg-dim); cursor: pointer; user-select: none;
   }
-  #propScaleRow:hover { color: var(--fg); }
+  #propScaleRow:hover, #propLinkRow:hover { color: var(--fg); }
   #propList { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px 10px; }
   .propItem {
     display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
@@ -631,6 +631,11 @@
              title="キャラ (身長1.70m = インク体高57px) のシルエットを同じ縮尺で並べる。数値だけでは縮尺の狂いは見つからないので、これが唯一の確認手段">
         <input type="checkbox" id="propScaleChk" checked> キャラと並べて大きさを確かめる
       </label>
+      <!-- ★STEP 2.5: つながる線路。既定 ON。外すとパレットで選んだ形をそのまま置ける -->
+      <label id="propLinkRow"
+             title="「線路(つなぐ)」を置くと、隣り合った線路どうしが自動で縦/横/カーブに選び直される（プラレール式）。外すと選んだ形をそのまま置ける">
+        <input type="checkbox" id="propLinkChk" checked> 線路を自動でつなぐ
+      </label>
       <div id="propList"></div>
       <div class="palFoot">
         <div id="propBrushLine">選択中: —</div>
@@ -814,6 +819,12 @@
     //   ユーザーが最優先に挙げた「キャラとスケールが合っている」を確認する唯一の手段。
     //   数値 (cm) は誤りを**防ぐ**が、狂いを**見つける**のは並べた絵だけ (恒久教訓13)。
     propScaleRef: true,
+    /* ★STEP 2.5: 「線路を自動でつなぐ」。既定 ON = プラレールのように隣り合った線路が
+     *   自動で縦/横/カーブへ選び直される。OFF にすると**選んだ形をそのまま置ける**
+     *   (自分も近傍も書き換えない) = 意図してカーブだけ置きたいときの逃げ道。
+     * ⚠ 効くのは「置く / 動かす / 消す」だけ。読み込み (importJSON / プリセット) では
+     *   絶対に走らせない — 読み込んだデータが唯一の正で、往復同一性が壊れる。 */
+    propAutoLink: true,
     // 直近の render で実際に描いた情景物 (検証シーム)。要素 = { i, kind, variant, x, y, w, h }
     propRects: [],
   };
@@ -902,6 +913,8 @@
     propWrap:       document.getElementById("propWrap"),
     propCount:      document.getElementById("propCount"),
     propScaleChk:   document.getElementById("propScaleChk"),
+    propLinkRow:    document.getElementById("propLinkRow"),
+    propLinkChk:    document.getElementById("propLinkChk"),
     propList:       document.getElementById("propList"),
     propBrushLine:  document.getElementById("propBrushLine"),
     propSelLine:    document.getElementById("propSelLine"),
@@ -2307,6 +2320,21 @@
     return state.propBrush ? { kind: state.propBrush.kind, variant: state.propBrush.variant } : null;
   }
 
+  /* ★STEP 2.5: 置いた / 動かした / 消した線路のまわりを「つながる形」に選び直す。
+   *   ユーザー要望「プラレールみたいに上下左右つなげれる構造」の本体。
+   * ⚠⚠ 接続規則は **df-mapdef.js の railKitRelinkAround が唯一の正**。ここには 1 行も
+   *   写さない (テクスチャ表 / 情景レシピと同じ作法 = 写経した瞬間に本編とズレうる)。
+   * ⚠ 効くのは kind === railKit のときだけ。石柱を隣に置いても線路は変わらない。
+   * ⚠ 履歴はここでは積まない。呼び出し元 (placeProp / moveProp / deleteProp) が積む
+   *   **1 段にそのまま乗る**ので、Ctrl+Z 一発で近傍の変化ごと元に戻る。
+   * ⚠ チェックが OFF なら 1 個も書き換えない = パレットで選んだ形をそのまま置ける。 */
+  function autoLinkRails(tx, ty, kind) {
+    if (!state.propAutoLink) return 0;
+    if (kind !== (M.RAIL_KIT_KIND || "railKit")) return 0;
+    if (!M.railKitRelinkAround) return 0;
+    return M.railKitRelinkAround(propList(), tx | 0, ty | 0);
+  }
+
   /* 配置 (履歴なし。呼び出し側が 1 段だけ積む)。
    * ⚠ **無言の失敗を作らない**のが項目3 から続く作法。拒否は必ず日本語の理由を
    *   lastReason と HUD の両方へ残す。 */
@@ -2320,6 +2348,7 @@
     arr.push({ kind: b.kind, variant: b.variant, tx: tx, ty: ty });
     state.propSelection = { index: arr.length - 1 };
     state.selection = null; state.slotSelection = null;
+    autoLinkRails(tx, ty, b.kind);                       // ★STEP 2.5: 自分 + 4 近傍を選び直す
     return slotOk("prop:" + (arr.length - 1));
   }
 
@@ -2329,8 +2358,13 @@
     var sel = state.propSelection, ps = propList();
     if (!sel || !ps[sel.index]) { state.propSelection = null; return slotFail(REASON.noPropSel); }
     if (!inGrid(tx, ty)) return slotFail(REASON.outsideMap);
-    ps[sel.index].tx = tx | 0;
-    ps[sel.index].ty = ty | 0;
+    var p = ps[sel.index], ox = p.tx | 0, oy = p.ty | 0;   // ★移動元を控える (下の自動接続で使う)
+    p.tx = tx | 0;
+    p.ty = ty | 0;
+    // ★STEP 2.5: 抜けた穴 (移動元の隣) と入った先 (移動先の隣) の**両方**を選び直す。
+    //   relink は「railKit がどこにあるか」だけで決まる冪等な計算なので 2 回呼んで問題ない。
+    autoLinkRails(ox, oy, p.kind);
+    autoLinkRails(p.tx, p.ty, p.kind);
     return slotOk("prop:" + sel.index);
   }
 
@@ -2338,7 +2372,9 @@
     var sel = state.propSelection, ps = propList();
     if (!sel || !ps[sel.index]) { state.propSelection = null; return slotFail(REASON.noPropSel); }
     var before = snapshot();
+    var gone = ps[sel.index];                     // ★消す前に種と座標を控える (自動接続で使う)
     ps.splice(sel.index, 1);
+    autoLinkRails(gone.tx, gone.ty, gone.kind);   // ★STEP 2.5: 残った両隣は終端の直線へ戻る
     prunePropArray();
     state.propSelection = null;
     pushHistory(before);
@@ -2368,6 +2404,7 @@
       brush: getPropBrush(),
       selection: getPropSelection(),
       scaleRef: !!state.propScaleRef,
+      autoLink: !!state.propAutoLink,          // ★STEP 2.5: 「線路を自動でつなぐ」の現在値
       catalog: (M.propEntries ? M.propEntries().length : 0),
       items: out,
     };
@@ -4001,6 +4038,15 @@
     syncPropFoot();
   }
 
+  /* ★STEP 2.5: 「線路を自動でつなぐ」の ON/OFF。既定 ON。
+   * ⚠ 既に置いてある物には**遡って効かない** (切り替えは mapDef を変えない = 履歴も積まない)。
+   *   次に置く / 動かす / 消すときの振る舞いだけが変わる。 */
+  function setPropAutoLink(on) {
+    state.propAutoLink = !!on;
+    if (el.propLinkChk) el.propLinkChk.checked = state.propAutoLink;
+    return state.propAutoLink;
+  }
+
   /* チェックを切り替えたら**全部のサムネを描き直す** (縮尺の見え方が変わるため)。 */
   function setPropScaleRef(on) {
     state.propScaleRef = !!on;
@@ -4103,6 +4149,9 @@
   // ★Phase 6: キャラのシルエットを並べるか (縮尺の物差しの ON/OFF)
   if (el.propScaleChk)
     el.propScaleChk.addEventListener("change", function () { setPropScaleRef(el.propScaleChk.checked); });
+  // ★STEP 2.5: 「線路を自動でつなぐ」。★実マウス経路もこの 1 本を通る (検証シームと同一)。
+  if (el.propLinkChk)
+    el.propLinkChk.addEventListener("change", function () { setPropAutoLink(el.propLinkChk.checked); });
   el.palSearch.addEventListener("input", function () { applyPaletteFilter(); });
   el.palSearchClear.addEventListener("click", function () {
     el.palSearch.value = "";
@@ -4534,8 +4583,9 @@
      *   selectPropAt(tx,ty) … そのタイルの物を選ぶ。戻り index | null
      *   getPropSelection()  … { index } | null
      *   setPropScaleRef(on) … キャラのシルエットを並べるか (縮尺の物差し)
+     *   setPropAutoLink(on) / getPropAutoLink()  … ★STEP 2.5 線路の自動接続 (既定 ON)
      *   propInfo()          … { count, blocking, blockedTiles, brush, selection,
-     *                           scaleRef, catalog, items[] }
+     *                           scaleRef, autoLink, catalog, items[] }
      *                         items[] = { index, kind, variant, tx, ty, blocking,
      *                                     tw, th, dw, dh, wcm, hcm, known }
      *   propPaletteInfo()   … DOM から数え直したパレットの実態 (配列ではなく画面を測る)
@@ -4564,6 +4614,11 @@
     },
     getPropSelection: getPropSelection,
     setPropScaleRef: setPropScaleRef,
+    /* ★STEP 2.5: つながる線路の自動接続 ON/OFF (既定 ON)。
+     *   OFF にするとパレットで選んだ形をそのまま置ける (自分も近傍も書き換えない)。
+     *   規則そのものは MapDef.railVariantForMask / railKitRelinkAround が唯一の正。 */
+    setPropAutoLink: setPropAutoLink,
+    getPropAutoLink: function () { return !!state.propAutoLink; },
     propInfo: propInfo,
     propPaletteInfo: function () {
       var items = el.propList.querySelectorAll(".propItem");
@@ -4579,6 +4634,9 @@
       return { n: items.length, thumbOk: ok, thumbFallback: fb, thumbPending: pend,
                propMode: !!(el.palette && el.palette.classList.contains("propMode")),
                visible: !!(el.propWrap && el.propWrap.offsetParent !== null),
+               // ★STEP 2.5: 「線路を自動でつなぐ」の**画面上の**実態 (配列ではなく DOM を測る)
+               autoLink: !!(el.propLinkChk && el.propLinkChk.checked),
+               autoLinkRow: !!(el.propLinkRow && el.propLinkRow.offsetParent !== null),
                count: el.propCount.textContent, note: el.propNote.textContent,
                noteNg: el.propNote.classList.contains("ng"),
                brushLine: el.propBrushLine.textContent, selLine: el.propSelLine.textContent,
