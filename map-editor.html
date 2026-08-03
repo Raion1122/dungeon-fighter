@@ -296,6 +296,47 @@
   #palAutoWrap { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   #palAutoWrap .palAutoNote { color: var(--fg-dim); font-size: 11px; line-height: 1.5; margin-top: 5px; }
 
+  /* ── ★Phase 6: 情景物パレット。ツールが「情景物を置く」のときだけ出す ────────────
+     ⚠ 切替は**クラスだけ**で行う (要素に style.display を書かない)。インラインの display は
+       CSS ゲートに無条件で勝つため、後から表示条件を足したときに黙って壊れる。
+     ⚠ 敵パレットの要素は DOM から**消さない**で隠すだけ = paletteInfo() の
+       querySelectorAll('.palItem') は従来どおり数えられる (既存 assert が空振りしない)。 */
+  #propWrap { display: none; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  #palette.propMode #propWrap { display: flex; }
+  #palette.propMode > .palHead,
+  #palette.propMode .palSearchRow,
+  #palette.propMode #palAutoWrap,
+  #palette.propMode #palList,
+  #palette.propMode > .palFoot { display: none; }
+  #propScaleRow {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; border-bottom: 1px solid var(--line);
+    font-size: 12px; color: var(--fg-dim); cursor: pointer; user-select: none;
+  }
+  #propScaleRow:hover { color: var(--fg); }
+  #propList { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px 10px; }
+  .propItem {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    background: transparent; color: var(--fg);
+    border: 1px solid transparent; border-radius: 5px;
+    padding: 4px 6px; font: inherit; cursor: pointer;
+  }
+  .propItem + .propItem { margin-top: 2px; }
+  .propItem:hover { background: rgba(127,215,255,.10); border-color: rgba(127,215,255,.35); }
+  .propItem.sel { background: rgba(127,215,255,.18); border-color: var(--accent); }
+  /* ★サムネは「物 + キャラ」を**同じ縮尺で**並べた絵。ここが縮尺の唯一の発見器なので
+     枠を大きめ (108×62) に取って、小さい物でも隣のキャラと比べられるようにする。 */
+  .propThumb {
+    flex: 0 0 auto; width: 108px; height: 62px;
+    background: #0f1116; border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+  }
+  .propThumb canvas { display: block; }
+  .propMeta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .propName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .propStat { color: var(--fg-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .propStat .blk { color: #ff9c9c; }
+  #propNote.ng { color: #ff9c9c; }
+
   #palList { flex: 1 1 auto; overflow-y: auto; padding: 2px 0 10px; }
   .palGroup { border-bottom: 1px solid rgba(255,255,255,.05); }
   .palGroup.empty { display: none; }                 /* 検索でヒット 0 のグループは丸ごと消す */
@@ -549,6 +590,25 @@
       </button>
       <div class="palAutoNote">シナリオの tier と系統プールから、ゲーム側が出発時に自動で敵を選びます（従来と同じ挙動）。</div>
     </div>
+    <!-- ★Phase 6: 情景物パレット。ツール「情景物を置く」のときだけ出る (#palette.propMode)。
+         中身は index.html の SCENERY_SHEETS / SCENERY_FRAMES から実行時に組み立てるので、
+         この HTML にも物の名前・大きさが 1 つも出てこない (敵パレットと同じ作法)。 -->
+    <div id="propWrap">
+      <div class="palHead">
+        <b>情景物パレット</b>
+        <span id="propCount" title="置ける物の種類数 (index.html の SCENERY_FRAMES から実行時に取得)">—</span>
+      </div>
+      <label id="propScaleRow"
+             title="キャラ (身長1.70m = インク体高57px) のシルエットを同じ縮尺で並べる。数値だけでは縮尺の狂いは見つからないので、これが唯一の確認手段">
+        <input type="checkbox" id="propScaleChk" checked> キャラと並べて大きさを確かめる
+      </label>
+      <div id="propList"></div>
+      <div class="palFoot">
+        <div id="propBrushLine">選択中: —</div>
+        <div id="propSelLine">置いた物: 0 個</div>
+        <div id="propNote"></div>
+      </div>
+    </div>
     <div id="palList">
       <div id="palEmpty">該当なし</div>
     </div>
@@ -631,12 +691,16 @@
     // ── Phase 3 項目4: 自由タイル (焼き固め方式)。★TOOLS に 2 行 + dragBeginTile に分岐だけ ──
     { key: "brush",     label: "タイルを塗る",  hint: "ドラッグで 1 マスずつ地形を塗る。**一筆目で現在の部屋・廊下から tiles を焼き固める**ので、以後は部屋を動かしても床は動かない" },
     { key: "fill",      label: "塗りつぶし",    hint: "クリックした地点と同じ値の連結領域を塗りつぶす (値が違うタイル = 壁は越えない)" },
+    // ── ★Phase 6: 情景物の個別配置。TOOLS に 1 行 + dragBeginTile に分岐だけ ──
+    { key: "prop",      label: "情景物を置く",  hint: "右のパレットで選んだ物を 1 個ずつ置く。既存の物の上をクリック=掴んで移動 / Delete=削除。⛔ の物はキャラが通れなくなる" },
   ];
   // 自由タイルを書くツール (dragBeginTile / setTool のカーソルでまとめて分岐する)
   var PAINT_TOOLS = { brush: 1, fill: 1 };
   function isPaintTool(k) { return !!PAINT_TOOLS[k]; }
   var SLOT_TOOLS = { start: 1, enemySlot: 1, bossSlot: 1 };
   function isSlotTool(k) { return !!SLOT_TOOLS[k]; }
+  var PROP_TOOLS = { prop: 1 };
+  function isPropTool(k) { return !!PROP_TOOLS[k]; }
   var TOOL_KEYS = TOOLS.map(function (t) { return t.key; });
 
   // ── 1枚絵の比率スナップ (計画書 §「1枚絵のアスペクト比ロックへの対処」案B) ──
@@ -710,6 +774,19 @@
     // ★x/y/w/h は **部屋の rect** を worldToScreen した矩形。tileBounds ではないことを
     //   ドライバがここから直接測れる (SPEC §1-2 が Phase 4 の肝と呼んでいる不変条件)。
     paintedRects: [],
+    // ── ★Phase 6 (情景物の個別配置) ───────────────────────────────────────
+    // パレットで選んでいる「筆」。null = 未選択 (置けない)。
+    // ⚠ enemyBrush / tileValue と同じく**別の器**にする (名前が似ているだけで用途が違う)。
+    propBrush: null,       // { kind, variant } | null
+    // 選択中の情景物。★selection (矩形) / slotSelection (スロット) と**三者排他**。
+    //   Delete がどれを消すのか曖昧にしないため (項目3 で確立した作法をそのまま踏襲)。
+    propSelection: null,   // { index:int } | null   ← mapDef.props[] の添字
+    // ★キャラのシルエットをパレットと canvas に重ねるか (= 縮尺を目で確かめる装置)。
+    //   ユーザーが最優先に挙げた「キャラとスケールが合っている」を確認する唯一の手段。
+    //   数値 (cm) は誤りを**防ぐ**が、狂いを**見つける**のは並べた絵だけ (恒久教訓13)。
+    propScaleRef: true,
+    // 直近の render で実際に描いた情景物 (検証シーム)。要素 = { i, kind, variant, x, y, w, h }
+    propRects: [],
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -792,6 +869,14 @@
     tipName:        document.querySelector("#slotTip .tipName"),
     tipStat:        document.querySelector("#slotTip .tipStat"),
     tipFlavor:      document.querySelector("#slotTip .tipFlavor"),
+    // ── ★Phase 6 (情景物パレット) ──
+    propWrap:       document.getElementById("propWrap"),
+    propCount:      document.getElementById("propCount"),
+    propScaleChk:   document.getElementById("propScaleChk"),
+    propList:       document.getElementById("propList"),
+    propBrushLine:  document.getElementById("propBrushLine"),
+    propSelLine:    document.getElementById("propSelLine"),
+    propNote:       document.getElementById("propNote"),
   };
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -1126,6 +1211,121 @@
     }
   }
 
+  /* ⭐ キャラのシルエット (身長 1.70m = インク体高 57px) を「足元 (bx, by)」基準で描く。
+   *  ユーザーが最優先に挙げた「キャラの大きさとスケールが合っている」を**目で確かめる**装置。
+   *  ⚠ 恒久教訓13: 縮尺の狂いは数値では見つからない。並べて見るのが唯一の発見器。
+   *  ⚠ 絵ではなく単純な図形にしてある。スプライトを貼ると「どの職か」「向きは」といった
+   *    無関係な情報が増え、比べたいもの (高さ) が読みにくくなる。 */
+  function drawCharSilhouette(g2, bx, by, hpx, alpha) {
+    if (!(hpx > 2)) return;
+    var w = hpx * 0.38, hd = hpx * 0.16;            // 肩幅 ≒ 身長の 38% / 頭 ≒ 16%
+    g2.save();
+    g2.globalAlpha = (alpha === undefined) ? 0.85 : alpha;
+    g2.fillStyle = "#7fd6ff";
+    g2.strokeStyle = "rgba(0,0,0,.55)";
+    g2.lineWidth = Math.max(1, hpx * 0.03);
+    g2.beginPath();                                  // 頭
+    g2.arc(bx, by - hpx + hd * 0.5, hd * 0.5, 0, Math.PI * 2);
+    g2.fill(); g2.stroke();
+    g2.beginPath();                                  // 胴 + 脚 (下すぼまりの台形)
+    g2.moveTo(bx - w * 0.5, by - hpx + hd);
+    g2.lineTo(bx + w * 0.5, by - hpx + hd);
+    g2.lineTo(bx + w * 0.28, by);
+    g2.lineTo(bx - w * 0.28, by);
+    g2.closePath();
+    g2.fill(); g2.stroke();
+    g2.restore();
+  }
+
+  /* ★Phase 6: 個別配置した情景物を canvas へ描く。
+   *  ⚠ 本編と**同じ絵・同じ大きさ・同じ位置**であることが機能の生命線なので、
+   *    サイズは M.propDrawSize (index.html:5686 と同一式) 以外から取らない。
+   *  ⚠ 選択リング / ⛔ の赤タイル / キャラ影は **編集の手掛かり**なので exportPNG では
+   *    描かない (state.lintOverlay と同じ扱い)。判定は drawProps の引数 marks で行う。 */
+  function drawProps(marks) {
+    state.propRects = [];
+    if (!state.mapDef) return;
+    var ps = propList();
+    if (!ps.length) return;
+    var t = tileSize(), i, p, box, a, b, sz, fr, sheets = M.getScenerySheets && M.getScenerySheets();
+    var frames = M.getSceneryFrames && M.getSceneryFrames();
+
+    // ── ⛔ 通行不能になるマスを先に敷く (物の下に出す = 絵を隠さない) ──
+    if (marks && M.propBlockedTiles) {
+      var blocked = M.propBlockedTiles(state.mapDef), g = state.mapDef.grid;
+      if (blocked.length) {
+        ctx.save();
+        ctx.fillStyle = "rgba(255,90,90,.30)";
+        for (i = 0; i < blocked.length; i++) {
+          var br = Math.floor(blocked[i] / g.w), bc = blocked[i] % g.w;
+          var q = worldToScreen(bc * t, br * t), q2 = worldToScreen((bc + 1) * t, (br + 1) * t);
+          ctx.fillRect(q.x, q.y, q2.x - q.x, q2.y - q.y);
+        }
+        ctx.restore();
+      }
+    }
+
+    for (i = 0; i < ps.length; i++) {
+      p = ps[i];
+      box = propWorldBox(p);
+      a = worldToScreen(box.x, box.y);
+      b = worldToScreen(box.x + box.w, box.y + box.h);
+      var w = b.x - a.x, h = b.y - a.y;
+      var drew = false;
+      fr = (frames && frames[p.kind]) ? frames[p.kind][p.variant] : null;
+      var src = (sheets && sheets[p.kind]) ? sheets[p.kind].src : null;
+      /* ⚠ 絵を貼るのは「本編の見た目」プレビュー中だけ。exportPNG は texPreview=false で
+       *   焼くので、**非同期の画像で PNG が揺れない** (Phase 4 で確立した不変条件)。
+       *   単色モードでは下の破線の箱が出るので、置いた物が消えることはない。 */
+      if (state.texPreview && fr && src && box.known) {
+        var img = propSheetImage(src);
+        if (img && img.width && img.height) {
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(img, fr.x, fr.y, fr.w, fr.h, a.x, a.y, w, h);
+          ctx.restore();
+          drew = true;
+        }
+      }
+      if (!drew) {
+        /* 絵がまだ来ていない / 種が未知。**必ず何か描く** — 何も描かないと
+         * 「置いたのに消えた」に見え、無言の失敗になる。 */
+        ctx.save();
+        ctx.fillStyle = box.known ? "rgba(120,200,255,.25)" : "rgba(255,180,80,.28)";
+        ctx.strokeStyle = box.known ? "rgba(120,200,255,.85)" : "rgba(255,180,80,.95)";
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.fillRect(a.x, a.y, w, h);
+        ctx.strokeRect(a.x + 0.5, a.y + 0.5, w - 1, h - 1);
+        ctx.restore();
+      }
+      state.propRects.push({ i: i, kind: p.kind, variant: p.variant,
+                             x: a.x, y: a.y, w: w, h: h, drew: drew });
+    }
+
+    if (!marks) return;
+
+    // ── 選択リング + キャラのシルエット (縮尺の物差し) ──
+    var sel = state.propSelection;
+    if (sel && state.propRects[sel.index]) {
+      var r = state.propRects[sel.index];
+      ctx.save();
+      ctx.strokeStyle = "#ffd479";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3);
+      ctx.restore();
+      if (state.propScaleRef) {
+        /* 選んだ物の**すぐ右隣・足元をそろえて**立たせる。
+         * ⚠ 体高は M.CHAR_INK_H_PX (57px) を worldToScreen 系のズームで換算する。
+         *   固定 px で描くと拡大縮小した瞬間に嘘の物差しになる。 */
+        var hWorld = (M.CHAR_INK_H_PX || 57) * (t / 96);
+        var pw = worldToScreen(0, 0), ph = worldToScreen(0, hWorld);
+        drawCharSilhouette(ctx, r.x + r.w + Math.max(6, (ph.y - pw.y) * 0.32),
+                           r.y + r.h, ph.y - pw.y, 0.8);
+      }
+    }
+  }
+
   // ── 描画 ─────────────────────────────────────────────────────────────
   function render() {
     if (!state.mapDef || !state.mapData) return;
@@ -1167,6 +1367,14 @@
     /* ★Phase 4 項目3: 部屋の 1枚絵をタイルの上へ貼る。
      *   グリッド線・部屋枠・スロット・lint マーカーはこの**上**に残す (編集の手掛かりを消さない)。 */
     drawRoomPaintings();
+
+    /* ★Phase 6: 個別配置した情景物。1枚絵の**上**・グリッド線の**下**に置く
+     *   (物は床の上にあるが、編集の手掛かりであるグリッド/枠/スロットは隠さない)。
+     * ⚠ 編集の手掛かり (⛔ の赤タイル・選択リング・キャラ影) は state.lintOverlay に
+     *   連動させる。exportPNG は既にこれを false にして焼くので、PNG に赤や影が
+     *   焼き込まれない。**exportPNG には 1 行も足していない** (--mutate keepsel /
+     *   lintpng の置換文字列が逐語で刺さっており、行を挟むと両方が自己失効して exit 3)。 */
+    drawProps(state.lintOverlay);
 
     // グリッド線 (タイルが潰れて見える倍率では描かない)
     if (px >= 8) {
@@ -1563,6 +1771,10 @@
     // スロット選択も同じ理由で検証する (部屋削除 / undo / setMapDef で参照先が消えうる)。
     // slotTileOf() が null = 参照が切れている。
     if (state.slotSelection && !slotTileOf(state.slotSelection)) state.slotSelection = null;
+    // ★Phase 6: 情景物の選択も同じ理由で検証する (削除 / undo / setMapDef で配列が縮む)。
+    if (state.propSelection &&
+        (state.propSelection.index < 0 || state.propSelection.index >= propList().length))
+      state.propSelection = null;
   }
 
   // ── 矩形の正規化・クランプ ────────────────────────────────────────────
@@ -1669,6 +1881,7 @@
   function setSelection(sel) {
     state.selection = sel ? { kind: sel.kind, index: sel.index } : null;
     if (state.selection) state.slotSelection = null;   // 矩形選択とスロット選択は排他 (項目3)
+    if (state.selection) state.propSelection = null;   // ★Phase 6: 情景物とも排他 (三者排他)
     clampSelection();
     syncEditUI(); render(); updateHud();               // updateHud = 敵種の行/ツールチップの追随
     return state.selection;
@@ -1891,6 +2104,10 @@
     startNoKind:  "起点は敵ではないので、敵の種類を指定できません",   // 項目3
     noSlotSel:    "スロットが選択されていません",
     notSlotTool:  "スロットツール (起点 / 敵スロット / ボススロット) を選んでください",
+    // ── ★Phase 6 (情景物) ──
+    noPropBrush:  "置く情景物が選ばれていません (右のパレットから選んでください)",
+    noPropCat:    "情景カタログを取得できていないため、情景物を置けません (マップエディタを起動.vbs から開き直してください)",
+    noPropSel:    "情景物が選択されていません",
   };
   function occupiedBy(kind) { return "そのタイルには既に" + (SLOT_NAME[kind] || "何か") + "があります"; }
   function slotFail(msg) { state.lastReason = msg; return { ok: false, reason: msg, ref: null }; }
@@ -1966,8 +2183,165 @@
   function setSlotSelection(s) {
     state.slotSelection = copySlotSel(s);
     if (state.slotSelection) state.selection = null;   // 矩形選択とは排他
+    if (state.slotSelection) state.propSelection = null;   // ★Phase 6: 情景物とも排他
     syncEditUI(); render(); updateHud();
     return state.slotSelection;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★Phase 6 — 情景物 (mapDef.props) を 1 個ずつ置く
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⭐ 設計の芯は「エディタで見た大きさ・位置が本編とまったく同じであること」。
+   *   ・大きさ  … M.propDrawSize (= index.html:5686 と同一式) 以外を使わない
+   *   ・位置    … タイル中央 (jitter 0)。本編側も props には jx/jy=0 を積む
+   *   ・塞ぐ範囲… M.propBlockedTiles (= 本編の obstacleTileMask と同じ 1 本)
+   *   どれか 1 つでもエディタ側に式を書き直すと「エディタでは通れるのに本編では通れない」
+   *   という最も気づきにくい食い違いが生まれる。 */
+
+  var propImgWaiting = {};   // シート URL -> 1 (再描画の予約済み。重複予約を作らない)
+
+  /* 情景シート画像。1枚絵・敵スプライトと**同じ画像キャッシュ**を共有する。
+     失敗しても throw しない (描かないだけ。理由は palLoadImage が console に残す)。 */
+  function propSheetImage(src) {
+    var e = palImgCache[src];
+    if (e && e.done) return e.ok ? e.img : null;
+    if (!propImgWaiting[src]) {
+      propImgWaiting[src] = 1;
+      palLoadImage(src, function () { render(); }, "情景シート");
+    }
+    return null;
+  }
+
+  function propList() {
+    return (state.mapDef && Array.isArray(state.mapDef.props)) ? state.mapDef.props : [];
+  }
+  /* 置くときに初めて配列を作り、空になったら null へ戻す。
+   * ⚠ 空配列を残さないこと。既定プリセットは props:null なので、空配列のまま書き出すと
+   *   往復同一性の deep-equal (driver_mapeditor §4 2c/2d) が 1 バイトずれる。 */
+  function ensurePropArray() {
+    if (!Array.isArray(state.mapDef.props)) state.mapDef.props = [];
+    return state.mapDef.props;
+  }
+  function prunePropArray() {
+    if (Array.isArray(state.mapDef.props) && !state.mapDef.props.length) state.mapDef.props = null;
+  }
+
+  /* 情景物の**世界座標での占有矩形**。描画とクリック当たり判定がここ 1 本を共有する。
+   * ⚠ カタログ未取得 / 未知の種のときは 1 タイルの箱を返し known:false を立てる
+   *   (掴めなくなるのを防ぐ = 置いた物が消えたように見えるのが最悪)。 */
+  function propWorldBox(p) {
+    var t = tileSize();
+    var cx = (p.tx + 0.5) * t, cy = (p.ty + 0.5) * t;
+    var sz = M.propDrawSize ? M.propDrawSize(p.kind, p.variant) : null;
+    if (!sz) return { x: cx - t / 2, y: cy - t / 2, w: t, h: t, known: false };
+    // grid.tile は validate で 96 固定なので k は常に 1。式に残すのは意図の明示。
+    var k = t / 96;
+    return { x: cx - sz.dw * k / 2, y: cy - sz.dh * k / 2, w: sz.dw * k, h: sz.dh * k, known: true };
+  }
+
+  /* そのタイルにある情景物の添字 (最前面 = 後から置いた物が上)。無ければ -1。
+   * ★2 段構え: ①配置マスの完全一致 → ②描画矩形に入っているか。
+   *   ②だけだと大きな物 (トロッコ 200px) の下に隠れた小さい物を永久に掴めない。
+   *   ①だけだと「見えている絵をクリックしても掴めない」。 */
+  function propIndexAt(tx, ty) {
+    var ps = propList(), i;
+    for (i = ps.length - 1; i >= 0; i--) if (ps[i].tx === tx && ps[i].ty === ty) return i;
+    var t = tileSize(), wx = (tx + 0.5) * t, wy = (ty + 0.5) * t;
+    for (i = ps.length - 1; i >= 0; i--) {
+      var b = propWorldBox(ps[i]);
+      if (!b.known) continue;
+      if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) return i;
+    }
+    return -1;
+  }
+
+  function setPropSelection(idx) {
+    var ps = propList();
+    state.propSelection = (idx >= 0 && idx < ps.length) ? { index: idx } : null;
+    if (state.propSelection) { state.selection = null; state.slotSelection = null; }
+    syncEditUI(); render(); updateHud();
+    return state.propSelection ? { index: state.propSelection.index } : null;
+  }
+  function getPropSelection() {
+    return state.propSelection ? { index: state.propSelection.index } : null;
+  }
+
+  /* パレットの「筆」。null で解除。⚠ カタログに無い種でも受け付ける
+     (normEnemyKey / fixProp と同じ思想 = ゲーム側が先に増えたとき黙って捨てない)。 */
+  function setPropBrush(kind, variant) {
+    if (kind === null || kind === undefined || kind === "") { state.propBrush = null; }
+    else state.propBrush = { kind: String(kind), variant: Math.max(0, Math.round(+variant || 0)) };
+    syncPropPaletteSelection();
+    return state.propBrush ? { kind: state.propBrush.kind, variant: state.propBrush.variant } : null;
+  }
+  function getPropBrush() {
+    return state.propBrush ? { kind: state.propBrush.kind, variant: state.propBrush.variant } : null;
+  }
+
+  /* 配置 (履歴なし。呼び出し側が 1 段だけ積む)。
+   * ⚠ **無言の失敗を作らない**のが項目3 から続く作法。拒否は必ず日本語の理由を
+   *   lastReason と HUD の両方へ残す。 */
+  function placePropInternal(tx, ty) {
+    tx = tx | 0; ty = ty | 0;
+    if (!inGrid(tx, ty)) return slotFail(REASON.outsideMap);
+    if (!M.getScenerySheets || !M.getScenerySheets()) return slotFail(REASON.noPropCat);
+    var b = state.propBrush;
+    if (!b) return slotFail(REASON.noPropBrush);
+    var arr = ensurePropArray();
+    arr.push({ kind: b.kind, variant: b.variant, tx: tx, ty: ty });
+    state.propSelection = { index: arr.length - 1 };
+    state.selection = null; state.slotSelection = null;
+    return slotOk("prop:" + (arr.length - 1));
+  }
+
+  /* 選択中の情景物を動かす (履歴なし)。⚠ 部屋の内外は問わない
+     — 廊下にも、自由タイルで描いた坑道にも置けることが props の存在意義。 */
+  function movePropInternal(tx, ty) {
+    var sel = state.propSelection, ps = propList();
+    if (!sel || !ps[sel.index]) { state.propSelection = null; return slotFail(REASON.noPropSel); }
+    if (!inGrid(tx, ty)) return slotFail(REASON.outsideMap);
+    ps[sel.index].tx = tx | 0;
+    ps[sel.index].ty = ty | 0;
+    return slotOk("prop:" + sel.index);
+  }
+
+  function deleteProp() {
+    var sel = state.propSelection, ps = propList();
+    if (!sel || !ps[sel.index]) { state.propSelection = null; return slotFail(REASON.noPropSel); }
+    var before = snapshot();
+    ps.splice(sel.index, 1);
+    prunePropArray();
+    state.propSelection = null;
+    pushHistory(before);
+    rebuildAndRender(); syncEditUI();
+    return slotOk(null);
+  }
+
+  /* 検証シーム / HUD 用の要約。★DOM や mapDef を舐めずにドライバがここ 1 本を読む。 */
+  function propInfo() {
+    var ps = propList(), i, e, out = [], nBlock = 0;
+    for (i = 0; i < ps.length; i++) {
+      e = ps[i];
+      var blocking = M.propBlocking ? M.propBlocking(e.kind, e.variant) : false;
+      var fp = M.propFootprint ? M.propFootprint(e.kind, e.variant) : { tw: 1, th: 1 };
+      var sz = M.propDrawSize ? M.propDrawSize(e.kind, e.variant) : null;
+      if (blocking) nBlock++;
+      out.push({ index: i, kind: e.kind, variant: e.variant, tx: e.tx, ty: e.ty,
+                 blocking: blocking, tw: fp.tw, th: fp.th,
+                 dw: sz ? sz.dw : null, dh: sz ? sz.dh : null,
+                 wcm: sz ? M.pxToCm(sz.dw) : null, hcm: sz ? M.pxToCm(sz.dh) : null,
+                 known: !!sz });
+    }
+    return {
+      count: ps.length,
+      blocking: nBlock,
+      blockedTiles: (M.propBlockedTiles ? M.propBlockedTiles(state.mapDef).length : 0),
+      brush: getPropBrush(),
+      selection: getPropSelection(),
+      scaleRef: !!state.propScaleRef,
+      catalog: (M.propEntries ? M.propEntries().length : 0),
+      items: out,
+    };
   }
 
   // ── 配置 (履歴なし。公開版 placeSlot() が 1 段だけ積む) ───────────────────
@@ -2142,6 +2516,7 @@
   // Delete キー / 「削除」ボタンの共通入口。スロット選択が矩形選択より優先 (両者は排他)
   function deleteAny() {
     if (state.slotSelection) return deleteSlot();
+    if (state.propSelection) return deleteProp();      // ★Phase 6 (三者排他なので順序は無関係)
     return deleteSelection();
   }
 
@@ -2399,6 +2774,7 @@
     if (!v.ok) return ioFail(label + ": 読み込めません — " + v.errors.join(" / "));
     state.selection = null;
     state.slotSelection = null;                          // 別の文書 = 選択は引き継がない
+    state.propSelection = null;                          // ★Phase 6: 情景物の選択も同じ
     applyMapDef(def, { fit: false });                    // ④ 適用 (履歴 1 段 = undo で戻せる)
     return ioOk(label + " を読み込みました");
   }
@@ -2725,6 +3101,25 @@
       return true;
     }
 
+    /* ── ★Phase 6: 情景物ツール ────────────────────────────────────────────
+     *   既存の物の上 → 掴んで移動 / 何も無い所 → パレットの筆を新規配置
+     *   スロットツールと**同じ形**にしてある (掴む→無ければ置く→拒否ならパンへ委譲)。
+     * ⚠ 拒否理由は lastReason と HUD に残る = 「黙って何も起きない」にはしない。 */
+    if (isPropTool(state.tool)) {
+      var hitProp = propIndexAt(t.tx, t.ty);
+      if (hitProp >= 0) {
+        setPropSelection(hitProp);
+      } else {
+        var placedP = placePropInternal(t.tx, t.ty);
+        rebuildAndRender(); syncEditUI();
+        if (!placedP.ok) return false;                // 掴む物も置く物も無い → パンへ委譲
+      }
+      drag = { mode: "prop", sel: null, orig: null, t0: { tx: t.tx, ty: t.ty },
+               hx: 0, hy: 0, snapBefore: before };
+      state.dragMode = "prop";
+      return true;
+    }
+
     /* ── 自由タイル ブラシ (Phase 3 項目4) ────────────────────────────────
      * ⚠⚠ pushHistory はここでは積まない。before は上で 1 回だけ取ってあり、
      *   dragEndTile が **1 ストローク = 1 段**として積む。1 タイル 1 段にすると
@@ -2770,6 +3165,8 @@
     // スロットのドラッグ移動 (項目3)。拒否されたら**動かさない**だけ = 直前の位置に留まる。
     // 履歴はドラッグ全体で 1 段 (dragEndTile の pushHistory)。
     if (drag.mode === "slot") { moveSlotInternal(t.tx, t.ty); rebuildAndRender(); syncEditUI(); return; }
+    // ★Phase 6: 情景物のドラッグ移動。履歴はドラッグ全体で 1 段 (スロットと同じ)。
+    if (drag.mode === "prop") { movePropInternal(t.tx, t.ty); rebuildAndRender(); syncEditUI(); return; }
 
     /* 自由タイル ブラシ (Phase 3 項目4)。
      * ⚠ **前回位置と今回位置を線で結ぶ** (paintSegment)。mousemove は間引かれるので、
@@ -2862,6 +3259,8 @@
     state.lastNotice = null;      // 同じ理由で成功通知も持ち越さない (項目4)
     // ★Phase 3 項目4: 塗りツールの合図はカーソルだけ (canvas には 1px も描かない)
     canvas.classList.toggle("painting", isPaintTool(state.tool));
+    // ★Phase 6: 右のパレットを「敵」⇄「情景物」で切り替える (クラスのみ)
+    syncPropMode();
     syncEditUI(); render(); updateHud();
     return state.tool;
   }
@@ -2887,7 +3286,8 @@
     var sv = pRoom ? sceneryValueOf(pRoom.scenery) : "";
     setSelectValueHonest(el.scenerySel, sv, "⚠ 密度 " + sv + "（手書きの値）");
     // 削除ボタンは矩形選択・スロット選択のどちらでも有効 (項目3)
-    el.btnDelete.disabled = !sel && !state.slotSelection;
+    el.btnDelete.disabled = !sel && !state.slotSelection && !state.propSelection;
+    syncPropFoot();                                    // ★Phase 6: 個数/通行不可マスの行を追随
     el.btnUndo.disabled = history.undo.length === 0;
     el.btnRedo.disabled = history.redo.length === 0;
     el.aspectSel.value = state.aspectSnap || "";
@@ -3461,6 +3861,183 @@
     return b;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+   * ★Phase 6 — 情景物パレット
+   * ══════════════════════════════════════════════════════════════════════
+   * ⭐ このパレットの本体は**サムネイル**。物とキャラを**同じ縮尺で並べて**描くことが、
+   *   ユーザーが最優先に挙げた「キャラの大きさとスケールが合っている」を確かめる唯一の手段。
+   *   恒久教訓13 (屋外景観): 縮尺の狂いは FFT でも色分布でも見つからず、
+   *   「1 画面ぶん切り出してキャラを並べて目で見る」でしか発見できなかった。
+   *   → その作業を毎回手でやらずに済むよう、パレットに常設した。
+   * ⚠ 物の名前も大きさもこの JS には 1 つも書かない。M.propEntries() が index.html の
+   *   SCENERY_SHEETS / SCENERY_FRAMES から実行時に組み立てる (写経しない)。 */
+  var PROP_THUMB_W = 108, PROP_THUMB_H = 62;
+  var propItems = [];            // [{ e, el, cv }]
+
+  function propEntryOf(kind, variant) {
+    var es = M.propEntries ? M.propEntries() : [];
+    for (var i = 0; i < es.length; i++)
+      if (es[i].kind === kind && es[i].variant === variant) return es[i];
+    return null;
+  }
+
+  /* 物 + キャラを同じ縮尺で、**足元をそろえて**描く。
+   * ⚠ 足元ぞろえが肝。中央ぞろえにすると「背の高い物」と「大きい物」が区別できない。 */
+  function drawPropThumb(cv, e) {
+    var g2 = cv.getContext("2d");
+    g2.clearRect(0, 0, cv.width, cv.height);
+    var charH = M.CHAR_INK_H_PX || 57, charW = charH * 0.38;
+    var showChar = !!state.propScaleRef;
+    var gap = charH * 0.20, pad = 5;
+    var totalW = e.dw + (showChar ? gap + charW : 0);
+    var totalH = Math.max(e.dh, showChar ? charH : 0);
+    var s = Math.min((cv.width - pad * 2) / totalW, (cv.height - pad * 2) / totalH);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    var baseY = cv.height - pad, x0 = (cv.width - totalW * s) / 2;
+    var dw = e.dw * s, dh = e.dh * s;
+
+    g2.strokeStyle = "rgba(255,255,255,.16)";           // 地面線 (足元の基準)
+    g2.lineWidth = 1;
+    g2.beginPath(); g2.moveTo(2, baseY + 0.5); g2.lineTo(cv.width - 2, baseY + 0.5); g2.stroke();
+
+    var img = propSheetImage(e.src);
+    if (img && img.width && img.height) {
+      g2.imageSmoothingEnabled = true;
+      g2.drawImage(img, e.frame.x, e.frame.y, e.frame.w, e.frame.h, x0, baseY - dh, dw, dh);
+    } else {                                            // ★未ロードでも必ず箱を出す (無言にしない)
+      g2.fillStyle = "rgba(120,200,255,.20)";
+      g2.strokeStyle = "rgba(120,200,255,.65)";
+      g2.fillRect(x0, baseY - dh, dw, dh);
+      g2.strokeRect(x0 + 0.5, baseY - dh + 0.5, Math.max(1, dw - 1), Math.max(1, dh - 1));
+    }
+    if (showChar)
+      drawCharSilhouette(g2, x0 + dw + (gap + charW * 0.5) * s, baseY, charH * s, 0.75);
+  }
+
+  function propMakeItem(e) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "propItem";
+    b.setAttribute("data-kind", e.kind);
+    b.setAttribute("data-variant", String(e.variant));
+    b.setAttribute("data-blocking", e.blocking ? "1" : "0");
+    b.title = e.label + "\n実寸 " + e.sizeLabel + " (画面 " + Math.round(e.dw) + "×" + Math.round(e.dh) + "px)" +
+              "\n" + (e.blocking ? "⛔ 通行不可 — " + e.tw + "×" + e.th + " マスを塞ぐ" : "通行できる (踏める)");
+
+    var th = document.createElement("span");
+    th.className = "propThumb";
+    var cv = document.createElement("canvas");
+    cv.width = PROP_THUMB_W; cv.height = PROP_THUMB_H;
+    th.appendChild(cv);
+
+    var meta = document.createElement("span");
+    meta.className = "propMeta";
+    var nm = document.createElement("span");
+    nm.className = "propName"; nm.textContent = e.label;
+    var st = document.createElement("span");
+    st.className = "propStat";
+    st.appendChild(document.createTextNode(e.sizeLabel));
+    if (e.blocking) {
+      var blk = document.createElement("span");
+      blk.className = "blk";
+      blk.textContent = "  ⛔" + e.tw + "×" + e.th;
+      st.appendChild(blk);
+    }
+    meta.appendChild(nm); meta.appendChild(st);
+    b.appendChild(th); b.appendChild(meta);
+    b.addEventListener("click", function () { pickProp(e.kind, e.variant); });
+
+    b.setAttribute("data-thumb", "pending");
+    drawPropThumb(cv, e);                               // 先に箱を出す (届いたら描き直す)
+    // ⚠ キャッシュ命中時この cb は**同期で**呼ばれる (要素はまだ DOM に付いていない)。
+    palLoadImage(e.src, function (img) {
+      drawPropThumb(cv, e);
+      b.setAttribute("data-thumb", img ? "ok" : "fallback");
+    }, "情景シート");
+    return { e: e, el: b, cv: cv };
+  }
+
+  function renderPropPalette() {
+    var es = M.propEntries ? M.propEntries() : [];
+    propItems = [];
+    el.propList.innerHTML = "";
+    for (var i = 0; i < es.length; i++) {
+      var it = propMakeItem(es[i]);
+      el.propList.appendChild(it.el);
+      propItems.push(it);
+    }
+    el.propCount.textContent = es.length ? (es.length + " 種") : "—";
+    syncPropPaletteNote();
+    syncPropPaletteSelection();
+    syncPropFoot();
+  }
+
+  /* チェックを切り替えたら**全部のサムネを描き直す** (縮尺の見え方が変わるため)。 */
+  function setPropScaleRef(on) {
+    state.propScaleRef = !!on;
+    if (el.propScaleChk) el.propScaleChk.checked = state.propScaleRef;
+    for (var i = 0; i < propItems.length; i++) drawPropThumb(propItems[i].cv, propItems[i].e);
+    render();
+    return state.propScaleRef;
+  }
+
+  function syncPropPaletteNote() {
+    if (M.getScenerySheets && M.getScenerySheets()) {
+      el.propNote.textContent = "index.html の SCENERY_SHEETS / SCENERY_FRAMES から取得";
+      el.propNote.classList.remove("ng");
+      return;
+    }
+    // ★取得できていない理由を必ず 1 行出す (silent fail-open にしない)。
+    var st = state.sceneryStatus;
+    var why = (M.getSceneryCatalogError && M.getSceneryCatalogError()) || (st && st.error) || null;
+    el.propNote.textContent = why ? sceneryFailText(why) : "情景カタログ 読込中…";
+    el.propNote.classList.toggle("ng", !!why);
+  }
+
+  function syncPropPaletteSelection() {
+    var b = state.propBrush, i;
+    for (i = 0; i < propItems.length; i++)
+      propItems[i].el.classList.toggle("sel",
+        !!b && propItems[i].e.kind === b.kind && propItems[i].e.variant === b.variant);
+    syncPropFoot();
+  }
+
+  function syncPropFoot() {
+    if (!el.propBrushLine) return;
+    var b = getPropBrush(), lbl = "—";
+    if (b) {
+      var e = propEntryOf(b.kind, b.variant);
+      lbl = e ? (e.label + " / " + e.sizeLabel + (e.blocking ? "  ⛔通行不可" : ""))
+              : ("⚠ " + b.kind + " #" + b.variant + "（カタログに無い種）");
+    }
+    el.propBrushLine.textContent = "選択中: " + lbl;
+    var info = propInfo();
+    el.propSelLine.textContent = "置いた物: " + info.count + " 個" +
+      (info.blocking ? "（通行不可 " + info.blocking + " 個 = " + info.blockedTiles + " マス）" : "");
+  }
+
+  /* ツールに合わせてパレットの中身を切り替える。★クラスだけで行う (インライン style を使わない)。 */
+  function syncPropMode() {
+    if (el.palette) el.palette.classList.toggle("propMode", isPropTool(state.tool));
+  }
+
+  /* パレットのエントリをクリックしたときの実経路。
+   * ⚠ ここで setTool("prop") を勝手に呼ばない (pickEnemy と同じ方針 = ツールは明示的に切り替える)。
+   *   ただしこのパレット自体が prop ツールのときしか見えないので実害はない。
+   * ★選択中の物があれば**その物の種類も差し替える** (undo が効く) = pickEnemy と同じ作法。 */
+  function pickProp(kind, variant) {
+    var b = setPropBrush(kind, variant);
+    var sel = state.propSelection, ps = propList();
+    if (b && sel && ps[sel.index]) {
+      var before = snapshot();
+      ps[sel.index].kind = b.kind;
+      ps[sel.index].variant = b.variant;
+      pushHistory(before);
+      rebuildAndRender(); syncEditUI();
+    }
+    return b;
+  }
+
   /* 検証シーム用のパレット要約 (ドライバが DOM を舐めずに済む)。
      ★DOM から数え直す = 「配列は正しいが画面には出ていない」を検出できる。 */
   function paletteInfo() {
@@ -3494,6 +4071,9 @@
   }
 
   el.palAuto.addEventListener("click", function () { pickEnemy(null); });   // ★選択中スロットは 2 要素へ戻る
+  // ★Phase 6: キャラのシルエットを並べるか (縮尺の物差しの ON/OFF)
+  if (el.propScaleChk)
+    el.propScaleChk.addEventListener("change", function () { setPropScaleRef(el.propScaleChk.checked); });
   el.palSearch.addEventListener("input", function () { applyPaletteFilter(); });
   el.palSearchClear.addEventListener("click", function () {
     el.palSearch.value = "";
@@ -3506,6 +4086,7 @@
     el.presetSel.value = state.presetKey;
     state.selection = null;
     state.slotSelection = null;   // 別の文書 = スロット選択も引き継がない (項目3)
+    state.propSelection = null;   // ★Phase 6: 情景物の選択も同じ
     state.lastReason = null;
     state.lastNotice = null;      // 項目4
     resetHistory();          // 別の文書を開いたのと同じ = 履歴は引き継がない
@@ -3569,6 +4150,15 @@
         + "「マップエディタを起動.vbs」から開き直すと敵の種類を選べます (今は「おまかせ」のみ)";
     return "⚠ 敵カタログを読めません (" + err + ") — 敵は「おまかせ」のみになります";
   }
+  /* ★Phase 6: 情景カタログ用。⚠ catalogFailText (敵用) を**流用しない**。
+   *   流用すると情景が読めないときに「敵は『おまかせ』のみになります」と出て、
+   *   ユーザーが原因をまったく別の場所に探しに行く (実際にドライバが捕まえた)。 */
+  function sceneryFailText(err) {
+    if (isFileProtocol())
+      return "⚠ file:// で開いているため情景カタログを読めません — "
+        + "「マップエディタを起動.vbs」から開き直すと情景物を置けます";
+    return "⚠ 情景カタログを読めません (" + err + ") — 情景物を置けません";
+  }
   function syncCatalogNote() {
     var st = state.enemyCatalogStatus;
     if (!st) { el.catalogNote.textContent = "敵カタログ 読込中…"; el.catalogNote.classList.remove("ng"); return; }
@@ -3624,10 +4214,17 @@
   function onSceneryCatalog(r) {
     state.sceneryStatus = r;
     syncPaintNote();
+    // ★Phase 6: 情景物パレットはカタログが届いてから初めて中身が生える
+    //   (未取得のときは 0 件 + #propNote が理由を出す = 無言で「置ける物が無い」に見せない)。
+    renderPropPalette();
+    computeLint();          // prop-unknown-kind がカタログ有りで有効になる
+    render();               // 既に props を持つマップなら、ここで絵が乗り始める
     return r;
   }
   syncPaintNote();
   renderPaintSelect();
+  renderPropPalette();      // ★カタログ未取得でも枠と理由行だけは先に出す
+  syncPropMode();
   var paintingCatalogReady = M.loadPaintingCatalog().then(onPaintingCatalog);
   var sceneryCatalogReady  = M.loadSceneryCatalog().then(onSceneryCatalog);
 
@@ -3893,11 +4490,72 @@
       return M.loadPaintingCatalog(url).then(onPaintingCatalog);
     },
     reloadSceneryCatalog: function (url) {
-      M.setSceneryCatalog(null, null);
+      M.setSceneryCatalog(null, null, null);
       state.sceneryStatus = null;
       syncPaintNote();
+      renderPropPalette();       // ★Phase 6: 退化 (0 件 + 理由行) を実測できるようにする
+      render();
       return M.loadSceneryCatalog(url).then(onSceneryCatalog);
     },
+    /* ── ★Phase 6: 情景物 (mapDef.props) の検証シーム ────────────────────────
+     *   setPropBrush(kind, variant) / getPropBrush()  … パレットの筆 (null で解除)
+     *   placeProp(tx, ty)   … 履歴 1 段を積んで置く。戻り { ok, reason, ref }
+     *   moveProp(tx, ty)    … 選択中の物を動かす (履歴 1 段)
+     *   deleteProp()        … 選択中の物を消す (履歴 1 段)
+     *   selectPropAt(tx,ty) … そのタイルの物を選ぶ。戻り index | null
+     *   getPropSelection()  … { index } | null
+     *   setPropScaleRef(on) … キャラのシルエットを並べるか (縮尺の物差し)
+     *   propInfo()          … { count, blocking, blockedTiles, brush, selection,
+     *                           scaleRef, catalog, items[] }
+     *                         items[] = { index, kind, variant, tx, ty, blocking,
+     *                                     tw, th, dw, dh, wcm, hcm, known }
+     *   propPaletteInfo()   … DOM から数え直したパレットの実態 (配列ではなく画面を測る)
+     *   ★wcm / hcm が「キャラとスケールが合っているか」の実寸 (1px ≒ 2.98cm)。 */
+    setPropBrush: function (kind, variant) { return setPropBrush(kind, variant); },
+    getPropBrush: getPropBrush,
+    placeProp: function (tx, ty) {
+      var before = snapshot();
+      var r = placePropInternal(tx, ty);
+      if (r.ok) pushHistory(before);
+      rebuildAndRender(); syncEditUI();
+      return r;
+    },
+    moveProp: function (tx, ty) {
+      var before = snapshot();
+      var r = movePropInternal(tx, ty);
+      if (r.ok) pushHistory(before);
+      rebuildAndRender(); syncEditUI();
+      return r;
+    },
+    deleteProp: deleteProp,
+    selectPropAt: function (tx, ty) {
+      var i = propIndexAt(tx | 0, ty | 0);
+      setPropSelection(i);
+      return i >= 0 ? i : null;
+    },
+    getPropSelection: getPropSelection,
+    setPropScaleRef: setPropScaleRef,
+    propInfo: propInfo,
+    propPaletteInfo: function () {
+      var items = el.propList.querySelectorAll(".propItem");
+      var out = [], i, t, ok = 0, fb = 0, pend = 0;
+      for (i = 0; i < items.length; i++) {
+        t = items[i].getAttribute("data-thumb");
+        if (t === "ok") ok++; else if (t === "fallback") fb++; else pend++;
+        out.push({ kind: items[i].getAttribute("data-kind"),
+                   variant: +items[i].getAttribute("data-variant"),
+                   blocking: items[i].getAttribute("data-blocking") === "1",
+                   sel: items[i].classList.contains("sel") });
+      }
+      return { n: items.length, thumbOk: ok, thumbFallback: fb, thumbPending: pend,
+               propMode: !!(el.palette && el.palette.classList.contains("propMode")),
+               visible: !!(el.propWrap && el.propWrap.offsetParent !== null),
+               count: el.propCount.textContent, note: el.propNote.textContent,
+               noteNg: el.propNote.classList.contains("ng"),
+               brushLine: el.propBrushLine.textContent, selLine: el.propSelLine.textContent,
+               items: out };
+    },
+    propRects: function () { return state.propRects.slice(); },
     paintingInfo: function () {
       var r = selectedRoom(), i;
       var vals = [], opts = el.paintSel.querySelectorAll("option");

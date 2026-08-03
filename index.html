@@ -3775,7 +3775,14 @@
       // ── 廃坑 (Sce1): 大型(トロッコ/大崩落/折れ支柱)はブロック、線路/小瓦礫は踏める ──
       rubble: { src: "assets/mine_rubble.png", blocking: [false,false,false,false,true,true], displayMax: [100,120,130,110,170,150],
                 img: new Image(), loaded: false },
-      cart:   { src: "assets/mine_cart.png",   blocking: [true,true,true],                    displayMax: 200,
+      // トロッコ: 64x54 = 全長191cm x 幅161cm。実物の鉱車 (1.5〜2m) に合わせた寸法。
+      //   ⚠ [縮尺リデザイン 第2弾 2026-08-04] 旧 200px は **596cm x 502cm = キャラ体高の3.5倍**で、
+      //     2026-07-30 の屋外リデザインが caravan-road だけを直したときに廃坑側が取り残されていた。
+      //     マップエディタの情景物パレット (キャラを並べて実寸を出す) が検出 → ユーザー判断で修正。
+      //   ⚠ 当たり判定は**変わらない**。散布経路 (generateScenery の tryPlace) は大きさに関係なく
+      //     一律 1 マスを obstacleTileMask に積むため (恒久教訓14)。個別配置 (mapDef.props) だけが
+      //     DFMapDef.propFootprint で大きさからマス数を導出し、この変更で 2x2 → 1x1 になる。
+      cart:   { src: "assets/mine_cart.png",   blocking: [true,true,true],                    displayMax: 64,
                 img: new Image(), loaded: false },
       rail:   { src: "assets/mine_rail.png",   blocking: [false,false,false],                 displayMax: 130, flat: true,
                 img: new Image(), loaded: false },
@@ -3860,6 +3867,12 @@
        *   blocking:true の種は obstacleTileMask を汚して通行可能域を変えるので、自前ループを
        *   書き直すと廊下 / 敵スポーン / プレイヤー起点の予約が抜け、到達不能バグの入口になる。 */
       const USE_MAPDEF = !!MAPDEF.isCustom;
+      /* ★[Phase 6] 情景カタログを DFMapDef へ渡すのを**この 1 箇所**に集約した (旧: 下の
+       *   mapDef 分岐の中)。props (個別配置) は density の指定が無いマップでも使えるので、
+       *   分岐の中に置くと propBlockedTiles がカタログ未設定で常に空を返す = 置いた柱で
+       *   通れなくなるはずが**黙って通れてしまう**。第3引数 SCENERY_FRAMES は Phase 6 で追加。
+       * ⚠ 従来経路 (既定6シナリオ) はこの関数の戻り値を一切使わないので挙動は変わらない。 */
+      if (window.DFMapDef) DFMapDef.setSceneryCatalog(SCENERY_RECIPES, SCENERY_SHEETS, SCENERY_FRAMES);
       const sceneryJobs = [];
       if (recipes) {
         // ── 従来経路 ── floorBounds 直書き / seed も従来キーのまま = 配置は 1 個も動かない
@@ -3874,7 +3887,7 @@
          *   どちらへ落とすかの判断は DFMapDef.sceneryRecipeFor に閉じ込めてある
          *   (屋外 → caravan-road / それ以外 → goblin-mine)。ここに式を 2 本目として持つと、
          *   エディタのプレビューと実プレイで生える種が変わる。 */
-        DFMapDef.setSceneryCatalog(SCENERY_RECIPES, SCENERY_SHEETS);   // 本編は fetch 不要
+        // ★[Phase 6] setSceneryCatalog は関数冒頭へ移動した (props が分岐の外でも要るため)。
         const baseRecipe = DFMapDef.sceneryRecipeFor(_scenIdForTex);
         if (baseRecipe && baseRecipe.area > 0) {
           for (let i = 0; i < MAPDEF.rooms.length; i++) {
@@ -3895,7 +3908,11 @@
           }
         }
       }
-      if (!sceneryJobs.length) return;
+      /* ★[Phase 6] 個別配置 (props) は「撒く」指定が 1 つも無いマップでも使える。
+       *   ここで早期 return すると、density を設定していない自作マップに置いた石柱や
+       *   テーブルが**丸ごと消える**ので、props の有無も見てから打ち切る。 */
+      const mapProps = (MAPDEF && Array.isArray(MAPDEF.props)) ? MAPDEF.props : [];
+      if (!sceneryJobs.length && !mapProps.length) return;
       // 自動 reserved: 廊下 + 2タイル膨張、敵スポーン + 1タイル膨張、プレイヤー起点 + 1タイル膨張
       const globalReserved = new Set();
       function reserveAround(r, c, buf) {
@@ -3980,6 +3997,33 @@
         }
         for (const [kind, count] of Object.entries(job.counts)) tryPlace(kind, count);
         for (const k of blockedTiles) obstacleTileMask[k] = 1;
+      }
+
+      /* ── ★[Phase 6] mapDef.props = マップエディタで 1 個ずつ置いた情景物 ──────────
+       *  「撒く」(rooms[i].scenery.density) とは独立した経路で、両者は併存する。
+       *  ⭐ 形を散布と**同じ** { kind, variant, tx, ty, jx, jy, blocking } に揃えるので、
+       *    描画 (Pass 1b.6) と z-order ソートは **1 行も変えなくてよい**。
+       *  ⚠ jx / jy = 0 にする。散布のジッタは「同じマスに置いても重ならないよう散らす」ための
+       *    もので、置いた物に掛けると**エディタで見た位置と本編がずれる**(最優先条件である
+       *    「キャラとスケールが合う」を、位置の側から壊す)。
+       *  ⚠ 未知の種 / 枠外の variant は**飛ばす**。描けないものを placement に積むと
+       *    Pass 1b.6 の SCENERY_FRAMES[kind][variant] が undefined で落ちる。
+       *    黙って消えるのを防ぐ役はエディタの lint (prop-unknown-kind) が持つ。
+       *  ⚠ 既定 6 シナリオは MAPDEF.props を持たない (props:null) ので、この節は従来経路では
+       *    **一度も実行されない** = 既存の見た目は 1bit も変わらない。 */
+      for (const p of mapProps) {
+        const sheet = SCENERY_SHEETS[p.kind];
+        const frames = SCENERY_FRAMES[p.kind];
+        if (!sheet || !frames || !frames[p.variant]) continue;
+        sceneryPlacements.push({ kind: p.kind, variant: p.variant, tx: p.tx, ty: p.ty,
+                                 jx: 0, jy: 0, blocking: !!(sheet.blocking && sheet.blocking[p.variant]) });
+      }
+      /* ⭐ 通行不能マスは DFMapDef.propBlockedTiles が**唯一の正**。エディタの lint
+       *  (出発前チェック) と本編がこの 1 本を共有する。ここに「中心から tw×th 広げる」式を
+       *  2 本目として書くと、エディタが「通れます」と言ったマップが本編では通れない、という
+       *  最も気づきにくい食い違いになる。 */
+      if (mapProps.length && window.DFMapDef && DFMapDef.propBlockedTiles) {
+        for (const k of DFMapDef.propBlockedTiles(MAPDEF)) obstacleTileMask[k] = 1;
       }
       // 描画 z-order: 上(奥)→下(手前)、同 ty 帯では flat 種(線路)を先(下)に、その後 jy 昇順
       sceneryPlacements.sort((a, b) => {

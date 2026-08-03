@@ -376,6 +376,39 @@
   var SCENERY_CATALOG_URL   = "index.html";
   var SCENERY_RECIPE_MARK   = "const SCENERY_RECIPES = {";
   var SCENERY_SHEET_MARK    = "const SCENERY_SHEETS = {";
+  /* ★Phase 6 (情景物の個別配置): 絵の切り出し枠。SCENERY_SHEETS / SCENERY_RECIPES と
+   *   **同じ 1 fetch** で読む (3 つは常にセットで要る = 片方だけ取れた状態を作らない)。 */
+  var SCENERY_FRAME_MARK    = "const SCENERY_FRAMES = {";
+
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ⭐ 縮尺の物差し (Phase 6) — 「キャラの大きさとスケールが合っている」ための唯一の基準
+   * ══════════════════════════════════════════════════════════════════════════
+   * ユーザーが名指しで最優先に挙げた条件。**推測で px を決めない**ための土台を 1 箇所に置く。
+   *
+   *   ・味方 6 職の walk シートは全員 96px セル / **インク体高 57px** (warrior_walk.png の
+   *     row3 全 6 コマで一致。2026-07-30 の屋外景観リデザインで実測済み)
+   *   ・その体高を人間 1.70m と置く → **1px ≒ 2.98cm**、1 タイル 96px ≒ 一辺 2.9m
+   *
+   * ⚠⚠ **数値だけでは縮尺の狂いは見つからない** (恒久教訓13)。屋外景観のときは FFT の
+   *   支配ピークも緑画素率も的外れな答えを返し、一度「床は問題なし」と誤結論した。
+   *   最終的に効いたのは「1 画面ぶん切り出してキャラを並べて目で見る」ことだけ。
+   *   → だからエディタのパレットは **cm 表示 + キャラのシルエットを実寸で並べて描く**。
+   *   数値 (cm) は誤りを**防ぎ**、並べた絵は誤りを**見つける**。両方要る。
+   *
+   * ⚠ 恒久教訓16: 「数値上の欠陥」と「絵としての欠陥」は別物。ただし今回置く物
+   *   (石柱・椅子・テーブル・馬車) は**キャラと同じ地面に立つ**ので、例外なく実寸が正しい。
+   *   (例外だったのは路肩の石垣・並木・丘のような「立たない物」)
+   * ────────────────────────────────────────────────────────────────────────── */
+  var CHAR_INK_H_PX = 57;                              // 味方6職の walk インク体高 (実測)
+  var CHAR_H_CM     = 170;                             // それを人間 1.70m と置く
+  var CM_PER_PX     = CHAR_H_CM / CHAR_INK_H_PX;       // ≒ 2.982 cm/px
+  function pxToCm(px) { return (isNum(px) ? px : 0) * CM_PER_PX; }
+  function cmToPx(cm) { return (isNum(cm) ? cm : 0) / CM_PER_PX; }
+  /* 実寸を「m 表記の短い文字列」へ。UI に出す唯一の書式 (2 箇所で書き分けない)。 */
+  function cmLabel(cm) {
+    if (!isNum(cm) || cm <= 0) return "?";
+    return (cm >= 100) ? ((cm / 100).toFixed(cm >= 1000 ? 0 : 1) + "m") : (Math.round(cm) + "cm");
+  }
 
   /* 部屋キー → 日本語の呼び名。ROOM_PAINTINGS_DEF / SCENERY_RECIPES のキー (0/1/2) は
    * ROOMS の index ではなく「導入 / 山場 / ボス」という**ラベル**である (index.html:3755 の注記)。
@@ -397,7 +430,7 @@
   var SCENERY_DENSITY_MAX = 4;
 
   var paintingCatalog = null, paintingCatalogError = null, paintingCatalogPromise = null;
-  var sceneryRecipes  = null, scenerySheets = null;
+  var sceneryRecipes  = null, scenerySheets = null, sceneryFrames = null;
   var sceneryCatalogError = null, sceneryCatalogPromise = null;
 
   // [r1, c1, r2, c2] (行が先) → { tw, th }。tileBounds / floorBounds 共通。
@@ -495,7 +528,37 @@
       }
     }
     if (n === 0) throw new Error("SCENERY_RECIPES から 1 件も取り出せませんでした");
-    return { sheets: sheets, recipes: recipes };
+
+    /* ③ ★Phase 6: SCENERY_FRAMES (種ごとの切り出し枠)。個別配置の UI とプレビューに要る。
+     * ⚠ シートに登録が無い種の枠は throw する。エディタで置けるのに本編で描けない状態
+     *   ("エディタでは正しいのに本編では違う" の一形態) を silent に通さない。
+     * ⚠ 逆 (シートにあるのに枠が無い) も throw。描画式が frames[variant] を無条件で引くため。 */
+    var f = text.indexOf(SCENERY_FRAME_MARK);
+    if (f < 0) throw new Error('index.html に "' + SCENERY_FRAME_MARK + '" が見つかりません (書式が変わった可能性)');
+    var fBody = sliceBalancedBrace(text, f + SCENERY_FRAME_MARK.length - 1);
+    if (!fBody) throw new Error("SCENERY_FRAMES の { } が閉じていません");
+    var frames = new Function("return (" + fBody + ");")();
+    if (!frames || typeof frames !== "object") throw new Error("SCENERY_FRAMES がオブジェクトになりません");
+    var fk = Object.keys(frames), fi, arr, ai, fr;
+    if (!fk.length) throw new Error("SCENERY_FRAMES が空です");
+    for (fi = 0; fi < fk.length; fi++) {
+      if (!sheets[fk[fi]])
+        throw new Error('SCENERY_FRAMES["' + fk[fi] + '"] に対応する SCENERY_SHEETS の登録がありません');
+      arr = frames[fk[fi]];
+      if (!Array.isArray(arr) || !arr.length)
+        throw new Error('SCENERY_FRAMES["' + fk[fi] + '"] が空でない配列ではありません');
+      for (ai = 0; ai < arr.length; ai++) {
+        fr = arr[ai];
+        if (!fr || !isNum(fr.x) || !isNum(fr.y) || !(fr.w > 0) || !(fr.h > 0))
+          throw new Error('SCENERY_FRAMES["' + fk[fi] + '"][' + ai + '] が {x,y,w,h} ではありません');
+      }
+    }
+    for (k = 0; k < kinds.length; k++) {
+      if (!frames[kinds[k]])
+        throw new Error('SCENERY_SHEETS["' + kinds[k] + '"] に対応する SCENERY_FRAMES の枠がありません');
+    }
+
+    return { sheets: sheets, recipes: recipes, frames: frames };
   }
 
   /* 実行時に取得する。**同一オリジンの index.html を読むだけ**でゲームは 1 行も動かさない。
@@ -549,18 +612,19 @@
         var got = parseSceneryCatalog(text);
         scenerySheets  = got.sheets;
         sceneryRecipes = got.recipes;
+        sceneryFrames  = got.frames;
         sceneryCatalogError = null;
         return { ok: true, count: Object.keys(scenerySheets).length, error: null, url: u,
-                 themes: Object.keys(sceneryRecipes).length };
+                 themes: Object.keys(sceneryRecipes).length, props: propEntries().length };
       })
       .catch(function (e) {
-        scenerySheets = null; sceneryRecipes = null;
+        scenerySheets = null; sceneryRecipes = null; sceneryFrames = null;
         sceneryCatalogError = (e && e.message) ? e.message : String(e);
         try {
           console.warn("[map-editor] 情景カタログ (index.html の SCENERY_SHEETS / SCENERY_RECIPES) を取得できませんでした: "
             + sceneryCatalogError);
         } catch (_) {}
-        return { ok: false, count: 0, error: sceneryCatalogError, url: u, themes: 0 };
+        return { ok: false, count: 0, error: sceneryCatalogError, url: u, themes: 0, props: 0 };
       });
     return sceneryCatalogPromise;
   }
@@ -569,6 +633,7 @@
   function getPaintingCatalogError() { return paintingCatalogError; }
   function getSceneryRecipes()       { return sceneryRecipes; }     // null = 未取得
   function getScenerySheets()        { return scenerySheets; }      // null = 未取得
+  function getSceneryFrames()        { return sceneryFrames; }      // null = 未取得 (★Phase 6)
   function getSceneryCatalogError()  { return sceneryCatalogError; }
 
   // 差し替え (検証用)。null でクリア + 次回 load を再実行させる。
@@ -578,9 +643,13 @@
     paintingCatalogPromise = null;
     return paintingCatalog;
   }
-  function setSceneryCatalog(recipes, sheets) {
+  /* ⚠ frames は**任意の第3引数**。本編 (index.html) は情景を自前で描くので 2 引数でも
+   *   従来どおり動く = この追加で既存の呼び出しは 1 つも壊れない。ただし props (Phase 6) を
+   *   使う経路は frames が要るので、本編も 3 引数で渡すよう配線してある。 */
+  function setSceneryCatalog(recipes, sheets, frames) {
     sceneryRecipes = (recipes && typeof recipes === "object") ? recipes : null;
     scenerySheets  = (sheets  && typeof sheets  === "object") ? sheets  : null;
+    sceneryFrames  = (frames  && typeof frames  === "object") ? frames  : null;
     sceneryCatalogError = null;
     sceneryCatalogPromise = null;
     return sceneryRecipes;
@@ -664,6 +733,122 @@
   // SCENERY_SHEETS のキー一覧 (= 置ける情景の種)。⚠ 未取得なら空配列。
   function sceneryKinds() { return scenerySheets ? Object.keys(scenerySheets) : []; }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★Phase 6 — 情景物を 1 個ずつ置く (mapDef.props) の土台
+   * ══════════════════════════════════════════════════════════════════════════
+   * rooms[i].scenery = { density } が「撒く」なら、props は「置く」。両者は併存する
+   * (撒いた上に置ける)。⚠ props は **rooms ではなくトップレベル**に持つ:
+   *   ・部屋の外 (廊下・自由タイルで描いた坑道) にも置きたい
+   *   ・tiles と同じ「幾何」側 = 焼き固め方式と一貫し、**部屋を動かしても物は動かない**
+   *   (rooms は意味 = ボス部屋はどこか / 罠を置かない部屋はどこか、を持ち続ける) */
+
+  /* 種の日本語の呼び名。⚠ **キー名の訳語**であって絵の内容ではないので、絵が差し替わっても
+   *   腐らない (PAINTING_KEY_LABELS と同じ判断)。未知の種はキーそのものを出す = 取りこぼしゼロ。 */
+  var PROP_KIND_LABELS = {
+    grass: "草の房", reed: "葦", log: "倒木", detail: "小物",
+    rubble: "瓦礫", cart: "トロッコ", rail: "線路",
+  };
+  function propKindLabel(kind) { return PROP_KIND_LABELS[kind] || String(kind); }
+
+  /* 種 × variant → 画面上の描画サイズ {dw, dh}。
+   * ⭐ 式は index.html:5686-5688 の描画と**同一**:  scale = displayMax / max(fr.w, fr.h)
+   *   ここを別式にすると「エディタで見た大きさと本編の大きさが違う」= 今回の最優先条件
+   *   (キャラとスケールが合っていること) がエディタ上で確かめられなくなる。
+   * ⚠ displayMax は number | number[] の両対応 (混載シートは variant 別の配列 = detail/rubble/reed)。 */
+  function propDrawSize(kind, variant) {
+    if (!scenerySheets || !sceneryFrames) return null;
+    var sheet = scenerySheets[kind], arr = sceneryFrames[kind];
+    if (!sheet || !Array.isArray(arr)) return null;
+    var v = Math.round(isNum(variant) ? variant : 0);
+    var fr = arr[v];
+    if (!fr || !(fr.w > 0) || !(fr.h > 0)) return null;
+    var dm = Array.isArray(sheet.displayMax) ? sheet.displayMax[v] : sheet.displayMax;
+    if (!isNum(dm) || dm <= 0) return null;
+    var scale = dm / Math.max(fr.w, fr.h);
+    return { dw: fr.w * scale, dh: fr.h * scale };
+  }
+
+  /* 種 × variant → 塞ぐマス数 {tw, th}。
+   * ⭐ **描画サイズから導出する**(絵の大きさと当たり判定を別々に手入力しない)。
+   *   恒久教訓14「displayMax は当たり判定に無関係」は**散布経路の話**で、そこではどんな
+   *   大きさの物も一律 1 マスだった。個別配置では「柱やテーブルを置いたらキャラが入れない」
+   *   がユーザー要件なので、**見えている大きさ = 塞ぐ範囲**をここで結び付ける。
+   * ⚠ ceil ではなく round。ceil だと 200px のトロッコが 3 マスを塞ぎ、絵より広く通れなくなる。 */
+  function propFootprint(kind, variant) {
+    var s = propDrawSize(kind, variant);
+    if (!s) return { tw: 1, th: 1 };
+    return { tw: Math.max(1, Math.round(s.dw / GRID_TILE)),
+             th: Math.max(1, Math.round(s.dh / GRID_TILE)) };
+  }
+
+  /* 種 × variant が通行不能か (= 本編の obstacleTileMask に積まれるか)。
+   * ⚠ 判断は**カタログ (SCENERY_SHEETS.blocking) が唯一の正**。prop ごとの上書きは持たない。
+   *   持たせると「エディタでは通れないのに本編では通れる」個体が作れてしまう。 */
+  function propBlocking(kind, variant) {
+    if (!scenerySheets) return false;
+    var sheet = scenerySheets[kind];
+    if (!sheet || !Array.isArray(sheet.blocking)) return false;
+    return !!sheet.blocking[Math.round(isNum(variant) ? variant : 0)];
+  }
+
+  /* UI (パレット) と lint が使う平坦なカタログ。
+   *   [{ kind, variant, label, src, frame, dw, dh, wcm, hcm, sizeLabel, blocking, tw, th }, …]
+   * ★wcm / hcm / sizeLabel が「キャラとスケールが合っているか」を目で確かめるための実寸。
+   * ⚠ 未取得なら **空配列** (null だと呼び出し側の .map が落ちる)。 */
+  function propEntries() {
+    if (!scenerySheets || !sceneryFrames) return [];
+    var out = [], kinds = Object.keys(scenerySheets), i, j, arr, sz, fp, nm;
+    for (i = 0; i < kinds.length; i++) {
+      arr = sceneryFrames[kinds[i]];
+      if (!Array.isArray(arr)) continue;
+      nm = propKindLabel(kinds[i]);
+      for (j = 0; j < arr.length; j++) {
+        sz = propDrawSize(kinds[i], j);
+        if (!sz) continue;
+        fp = propFootprint(kinds[i], j);
+        out.push({
+          kind: kinds[i], variant: j,
+          label: nm + " " + (j + 1),
+          src: scenerySheets[kinds[i]].src,
+          frame: { x: arr[j].x, y: arr[j].y, w: arr[j].w, h: arr[j].h },
+          dw: sz.dw, dh: sz.dh,
+          wcm: pxToCm(sz.dw), hcm: pxToCm(sz.dh),
+          sizeLabel: cmLabel(pxToCm(sz.dw)) + " × " + cmLabel(pxToCm(sz.dh)),
+          blocking: propBlocking(kinds[i], j),
+          tw: fp.tw, th: fp.th,
+        });
+      }
+    }
+    return out;
+  }
+
+  /* mapDef.props → 塞ぐタイルの index 配列。
+   *   本編の obstacleTileMask / エディタの lint / エディタのプレビューが**この 1 本**を共有する。
+   * ⚠ blocking でない種は 1 マスも積まない (草や線路の上は歩ける)。
+   * ⚠ フットプリントは配置タイルを**中心**に広げる (描画も中心合わせのため。左上起点にすると
+   *   絵と塞ぐ範囲が半マスずれる)。奇数幅は左右対称、**偶数幅は右/下へ 1 マス伸びる**
+   *   (例: 幅2 なら tx と tx+1)。この非対称は仕様 — 変えるなら本編とエディタの両方が
+   *   propBlockedTiles を共有しているので**ここ 1 箇所**を直せば足りる。 */
+  function propBlockedTiles(d) {
+    var out = [];
+    if (!d || !Array.isArray(d.props)) return out;
+    var W = (d.grid && isNum(d.grid.w)) ? d.grid.w : GRID_W;
+    var H = (d.grid && isNum(d.grid.h)) ? d.grid.h : GRID_H;
+    for (var i = 0; i < d.props.length; i++) {
+      var p = d.props[i];
+      if (!p || !propBlocking(p.kind, p.variant)) continue;
+      var fp = propFootprint(p.kind, p.variant);
+      var c0 = p.tx - Math.floor((fp.tw - 1) / 2), r0 = p.ty - Math.floor((fp.th - 1) / 2);
+      for (var r = r0; r < r0 + fp.th; r++) {
+        for (var c = c0; c < c0 + fp.tw; c++) {
+          if (r < 0 || r >= H || c < 0 || c >= W) continue;
+          out.push(r * W + c);
+        }
+      }
+    }
+    return out;
+  }
+
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
   // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
@@ -690,6 +875,7 @@
     start: { tx: 24, ty: 13 },
     objective: { kind: "visitRooms", count: null },          // null = 従来式 rooms.length-1
     tiles: null,                                             // Phase 3: { enc:"rle", data:"..." }
+    props: null,                                             // Phase 6: [{kind,variant,tx,ty}, …]
     flags: { bandMask: false },
   };
 
@@ -712,6 +898,7 @@
     start: { tx: 6, ty: 13 },
     objective: { kind: "visitRooms", count: null },
     tiles: null,
+    props: null,
     // 屋外は row 13-15 以外を潰す帯マスクが掛かる (index.html:3323-3328)。
     // ⚠ カスタム幾何との相互作用が複雑なので、項目5 の lint で排他にする予定。
     flags: { bandMask: true },
@@ -739,6 +926,10 @@
       start: { tx: 0, ty: 0 },
       objective: { kind: "visitRooms", count: null },
       tiles: (d.tiles && typeof d.tiles === "object") ? clone(d.tiles) : null,
+      /* ★Phase 6: 空のときは **null** (空配列ではない)。tiles とまったく同じ流儀。
+       *   既定プリセット 2 種も props:null なので、driver_mapeditor §4 2c/2d の
+       *   往復同一性 deep-equal は 1 バイトも変わらない (最重要の不変条件)。 */
+      props: null,
       flags: { bandMask: false },
     };
     var W = out.grid.w, H = out.grid.h;
@@ -796,6 +987,23 @@
       return { density: s.density };
     }
 
+    /* ★Phase 6: 個別に置いた情景物。{ kind, variant, tx, ty } の 4 キーだけを採り、
+     *   それ以外は落とす (新品を組み直すので何度通しても同じ形へ収束する = 冪等)。
+     * ⚠ **未知の kind は落とさない**。fixSlot の未知の敵キー / fixPainting の未知テーマと
+     *   まったく同じ判断で、本編に情景の種が増えたとき古いエディタが黙って消すのが最悪。
+     *   「カタログから引けない」ことは lint の prop-unknown-kind (warning) が知らせる。
+     * ⚠ blocking は**持たない**。カタログ (SCENERY_SHEETS.blocking) が唯一の正で、
+     *   個体ごとの上書きを許すと「エディタでは通れないのに本編では通れる」物が作れる。 */
+    function fixProp(p) {
+      if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+      if (typeof p.kind !== "string" || !p.kind) return null;
+      if (!isNum(p.tx) || !isNum(p.ty)) return null;      // 座標が無い物は救わない (0,0 に湧く)
+      var v = isNum(p.variant) ? Math.round(p.variant) : 0;
+      if (v < 0) v = 0;
+      return { kind: p.kind, variant: v,
+               tx: clampInt(p.tx, 0, W - 1), ty: clampInt(p.ty, 0, H - 1) };
+    }
+
     var srcRooms = Array.isArray(d.rooms) ? d.rooms : base.rooms;
     for (var i = 0; i < srcRooms.length; i++) {
       var r = srcRooms[i] || {};
@@ -824,6 +1032,18 @@
     for (var k = 0; k < srcCorr.length; k++) {
       var cr = fixRect(srcCorr[k]);
       if (cr) out.corridors.push(cr);
+    }
+
+    /* ★Phase 6: props。⚠ **fallback を見ない**。rooms / corridors は「指定が無ければ既定の
+     *   マップ形状を使う」のが正しいが、props は「指定が無い = 何も置いていない」が正しい。
+     *   base から引き継ぐと、新規マップに既定プリセットの物が勝手に湧く。 */
+    if (Array.isArray(d.props)) {
+      var propsOut = [];
+      for (var pi = 0; pi < d.props.length; pi++) {
+        var fp0 = fixProp(d.props[pi]);
+        if (fp0) propsOut.push(fp0);
+      }
+      if (propsOut.length) out.props = propsOut;            // 空なら null のまま (往復同一性)
     }
 
     var st = (d.start && typeof d.start === "object") ? d.start : base.start;
@@ -1544,31 +1764,77 @@
     //   孤立部屋があると永久にウロつき visitedRooms が埋まらない (14096)。
     //   ⚠ 起点自体が壁のときは到達集合が空になり全部が到達不能として溢れるので、
     //     根本原因 (上の slot-on-wall) だけ報告して**ここは打ち切る**。
-    if (!startOnWall) {
-      var reach = reachableFrom(map, W, H, startTx, startTy);
+    /* ── ★Phase 6: 通行判定用の地図 (情景物で塞いだマスを壁にした写し) ──────────
+     *  本編の isTileWall (index.html:4044) は mapData の値2 に加えて obstacleTileMask
+     *  (= blocking な情景) も壁として扱う。よって到達可能性は**両方**で決まる。
+     *  ⚠ map 本体は書き換えない。罠/宝箱の候補タイル (下の項目③) は index.html 側が
+     *    mapData を直接見て情景を無視するので、そちらは map のまま数える必要がある
+     *    (「歩ける ≠ 候補になる」= Phase 0 項目5 で確立した区別)。 */
+    var propBlocked = propBlockedTiles(d);
+    var propBlockedSet = {};
+    var mapWalk = map;
+    if (propBlocked.length) {
+      mapWalk = new Array(H);
+      for (i = 0; i < H; i++) mapWalk[i] = map[i].slice();
+      for (i = 0; i < propBlocked.length; i++) {
+        propBlockedSet[propBlocked[i]] = 1;
+        mapWalk[Math.floor(propBlocked[i] / W)][propBlocked[i] % W] = T_WALL;
+      }
+    }
+    /* 起点そのものを情景物で塞いだ場合。壁乗り (startOnWall) と同じ「全部が到達不能に
+     * 見える」壊れ方をするので、根本原因だけ報告して flood fill は打ち切る。 */
+    var startBlockedByProp = !startOnWall && !!propBlockedSet[startTy * W + startTx];
+    if (startBlockedByProp)
+      err("prop-blocks-start",
+          "起点 (tx" + startTx + ", ty" + startTy + ") が通行不能な情景物で塞がれています" +
+          " — プレイヤーがその場から動けません。到達可能性 (flood fill) の検査は打ち切りました",
+          [startTx, startTy], null);
+
+    if (!startOnWall && !startBlockedByProp) {
+      var reach = reachableFrom(mapWalk, W, H, startTx, startTy);
+      /* ★情景物を無視した到達集合。**両者の差 = 置いた物が原因で行けなくなった場所**。
+       *  これがあると「廊下が繋がっていない」と「柱で塞いだ」を取り違えずに言い分けられる。
+       *  ⚠ props が無いときは同じ配列を指すだけ (flood fill を 2 回走らせない)。 */
+      var reachNoProps = propBlocked.length ? reachableFrom(map, W, H, startTx, startTy) : reach;
       for (i = 0; i < rooms.length; i++) {
-        var rect = rooms[i].rect, hit = false, walkable = 0;
+        var rect = rooms[i].rect, hit = false, walkable = 0, hitNoProps = false;
         for (var r2 = rect[0]; r2 <= rect[2]; r2++) {
           for (var c2 = rect[1]; c2 <= rect[3]; c2++) {
             if (map[r2][c2] === T_WALL) continue;
             walkable++;
             if (reach[r2 * W + c2]) { hit = true; }
+            if (reachNoProps[r2 * W + c2]) { hitNoProps = true; }
           }
         }
         if (hit) continue;
         err("unreachable-room",
             "部屋 " + rooms[i].id + " が起点 (tx" + startTx + ", ty" + startTy + ") から到達できません" +
             (walkable === 0 ? " — この部屋には歩けるタイルが 1 つもありません (帯マスクで潰れている可能性)"
-                            : " — 廊下でつながっていません") +
+             : hitNoProps    ? " — ★通行不能な情景物 (柱・テーブル・倒木など) が通り道を塞いでいます" +
+                               " (情景物が無ければ到達できます)"
+             :                 " — 廊下でつながっていません") +
             "。visitedRooms が埋まらず永久にクリアしません (index.html:14096)",
             [rect[1], rect[0]], i);
       }
       for (i = 0; i < points.length; i++) {
         var q2 = points[i];
         if (q2.kind === "start" || q2.wall) continue;   // 壁乗りは根本原因を既に報告済み
-        if (reach[q2.tile[1] * W + q2.tile[0]]) continue;
+        var qk = q2.tile[1] * W + q2.tile[0];
+        /* ★Phase 6: スロットの真上に通行不能な情景物を置いた場合。本編のスポーン救済
+         *  (index.html:7083) は mapData の値1 しか見ないため情景物では救われず、この敵は
+         *  埋まったまま alive で残る = 8519138 (ボスを倒してもクリアしない) と同じ壊れ方。 */
+        if (propBlockedSet[qk]) {
+          err("prop-on-slot",
+              q2.label + " (tx" + q2.tile[0] + ", ty" + q2.tile[1] + ") が通行不能な情景物の下にあります" +
+              " — スポーン救済 (index.html:7083) は値1しか見ないため救われず、この敵は動けないまま" +
+              "alive で残り、ボスを倒してもクエストがクリアしません",
+              q2.tile, q2.roomIndex);
+          continue;                                     // 到達不能も併発するが根本原因はこちら
+        }
+        if (reach[qk]) continue;
         err("unreachable-slot",
             q2.label + " (tx" + q2.tile[0] + ", ty" + q2.tile[1] + ") が起点から到達できません" +
+            (reachNoProps[qk] ? " — ★通行不能な情景物が通り道を塞いでいます" : "") +
             " — この敵は倒せず alive のまま残り、クエストがクリアしません",
             q2.tile, q2.roomIndex);
       }
@@ -1653,6 +1919,40 @@
              "DF へ書き出してもこの部屋には絵が貼られません (綴り違い、またはエディタが古い可能性)",
              [prc[1], prc[0]], i);
       }
+    }
+
+    /* ── ★Phase 6: 個別に置いた情景物 (props) の検査 ────────────────────────────
+     *  ⚠ 「通り道を塞いだ」は上の項目① (unreachable-room / unreachable-slot /
+     *    prop-on-slot / prop-blocks-start) が既に見ている。ここは**それ以外**だけ。
+     *  ⚠ どちらも warning。壁の上に置くのも、カタログに無い種を持ち続けるのも、
+     *    「出発を止めるほどではないが黙って通してはいけない」性質のため。 */
+    var props = Array.isArray(d.props) ? d.props : [];
+    if (props.length) {
+      var catReady = !!getScenerySheets();               // 未取得なら種の検査はしない
+      var unknownKinds = {}, nOnWall = 0, firstWall = null;
+      for (i = 0; i < props.length; i++) {
+        var pp = props[i];
+        /* ⚠ カタログ未取得 (file:// 直開き / fetch 失敗) のときは検査そのものを**スキップ**。
+         *  「カタログが無い」を「種が無い」と誤報すると、オフラインでは置いた物が全部
+         *  警告になり lint 全体が信用されなくなる (painting-missing と同じ判断)。 */
+        if (catReady && !getScenerySheets()[pp.kind]) unknownKinds[pp.kind] = 1;
+        if (map[pp.ty] && map[pp.ty][pp.tx] === T_WALL) {
+          nOnWall++;
+          if (!firstWall) firstWall = [pp.tx, pp.ty];
+        }
+      }
+      var uk = Object.keys(unknownKinds);
+      if (uk.length)
+        warn("prop-unknown-kind",
+             "情景物に index.html の SCENERY_SHEETS へ未登録の種があります: " + uk.join(" / ") +
+             " — ゲーム側に絵が無いので、DF へ書き出してもこの物は描かれません" +
+             " (綴り違い、またはエディタが古い可能性)",
+             null, null);
+      if (nOnWall)
+        warn("prop-on-wall",
+             "情景物 " + nOnWall + " 個が壁/岩盤 (値2) の上にあります — 天井の上に物が浮いて見えます" +
+             " (通行判定には影響しません。壁は元から通れないため)",
+             firstWall, null);
     }
 
     // ── lint 項目⑥ MAP_USED 枠 (画面の黒帯予防) ──────────────────────────────
@@ -1978,5 +2278,36 @@
     paintingSrcFor: paintingSrcFor,
     sceneryRecipeFor: sceneryRecipeFor,
     sceneryKinds: sceneryKinds,
+
+    /* ── ★Phase 6: 情景物の個別配置 (mapDef.props) ────────────────────────────
+     *   ⭐ 縮尺の物差し — ユーザーが最優先に挙げた「キャラとスケールが合っている」の基準。
+     *   CHAR_INK_H_PX(57) / CHAR_H_CM(170) / CM_PER_PX(≒2.982)
+     *   pxToCm(px) / cmToPx(cm) / cmLabel(cm) … px ⇄ 実寸 の唯一の換算
+     *
+     *   propEntries()                … 置ける物の平坦なカタログ (未取得なら [])
+     *                                  [{kind,variant,label,src,frame,dw,dh,wcm,hcm,
+     *                                    sizeLabel,blocking,tw,th}, …]
+     *   propDrawSize(kind, variant)  … {dw,dh} | null ★式は index.html:5686 の描画と同一
+     *   propFootprint(kind, variant) … {tw,th} ★描画サイズから**導出**する (別入力にしない)
+     *   propBlocking(kind, variant)  … 通行不能か (カタログの blocking[variant] が唯一の正)
+     *   propBlockedTiles(mapDef)     … 塞ぐタイルの index 配列。本編の obstacleTileMask と
+     *                                  lint の flood fill が**この 1 本**を共有する
+     *  ⚠⚠ ここでも写経しないこと。SCENERY_FRAMES / SCENERY_SHEETS は index.html から
+     *    実行時に読む (loadSceneryCatalog が 1 fetch で 3 マーカーとも読む)。 */
+    CHAR_INK_H_PX: CHAR_INK_H_PX,
+    CHAR_H_CM: CHAR_H_CM,
+    CM_PER_PX: CM_PER_PX,
+    SCENERY_FRAME_MARK: SCENERY_FRAME_MARK,
+    PROP_KIND_LABELS: PROP_KIND_LABELS,
+    pxToCm: pxToCm,
+    cmToPx: cmToPx,
+    cmLabel: cmLabel,
+    getSceneryFrames: getSceneryFrames,
+    propKindLabel: propKindLabel,
+    propEntries: propEntries,
+    propDrawSize: propDrawSize,
+    propFootprint: propFootprint,
+    propBlocking: propBlocking,
+    propBlockedTiles: propBlockedTiles,
   };
 })(window);
