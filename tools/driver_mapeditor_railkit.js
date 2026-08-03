@@ -19,8 +19,8 @@
  *                       参照しない = 既定 6 シナリオは 1 ドットも変わらない (§6)
  *   js/df-mapdef.js   … 接続規則の**唯一の正**。railVariantForMask / railKitMaskAt /
  *                       railKitRelinkAt / railKitRelinkAround (すべて純関数)
- *   map-editor.html   … autoLinkRails() が唯一の呼び口 (置く/動かす/消す の 3 経路 4 箇所)、
- *                       「線路を自動でつなぐ」チェック (既定 ON)、#histBtns の位置
+ *   map-editor.html   … autoLinkRails() が唯一の呼び口 (置く/動かす/消す/種を差し替える の
+ *                       4 経路 6 箇所)、「線路を自動でつなぐ」チェック (既定 ON)、#histBtns の位置
  *
  * ■ 何を測るか
  *   §0 装置   公開 API / 検証シーム / DOM / 定数 (assert が空振りしない前提)
@@ -32,6 +32,7 @@
  *   §5 往復   export→import で 1 バイトも変わらない / ★矛盾する variant を矯正しない
  *   §6 非退行 ★既定 6 シナリオは railKit を 1 個も持たない (レシピにも本編にも)
  *   §7 Undo ボタン ★ユーザー要望②。#editbar の先頭・先頭行・前に 0 個 (3 viewport)
+ *   §8 pickProp ★★**パレットの実クリック**で種類を差し替えても自動接続が走る (判断B)
  *   §G 絵     ★golden 方式 (tools/_golden.js)。敷いた線路の見た目 5 シーンの SHA-256
  *   §E pageerror / console.error / 意図しない 404 が 0 件
  *
@@ -43,7 +44,7 @@
  * ■ 変異負制御 (--mutate <kind>) — ★狙う節をずらして 5 種
  *     kind        | 注入する欠陥                                  | 落ちるべき節
  *     ------------|-----------------------------------------------|--------------
- *     nolink      | autoLinkRails() を常に 0 で返す (自動接続を殺す)| §3 (+§4 §G)
+ *     nolink      | autoLinkRails() を常に 0 で返す (自動接続を殺す)| §3 (+§4 §8 §G)
  *     nofallback  | 純関数の②「北南を含む→縦」を消す              | §2 §3 (T字/十字だけ)
  *     dispmax     | railKit の displayMax を 96 → 128             | §1 §G
  *     historder   | #histBtns に CSS order:99 (画面上だけ最後尾へ) | §7
@@ -983,6 +984,173 @@ const SCENES = [
           ' 前=' + m2.beforeCount + J(m2.before));
         await p.close();
       }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // §8 — ★★パレットで**種類を差し替えた**ときも自動接続が走る (判断B・2026-08-04 承認)
+    //   ⚠ pickProp() だけが autoLinkRails を呼んでいなかった = 「石柱 → 線路」に変えても
+    //     **動かすまでつながらない**という取りこぼしがあった。
+    //   ⚠⚠ ここは必ず**パレットの実クリック** (page.click) を通す。setPropBrush シームを
+    //     叩くと pickProp を一度も通らず、既存 4 本と同じ「実経路を踏まない素通し」になる。
+    //   ★旧 kind でも relink を呼ぶ (線路 → 石柱で残った両隣を終端へ戻す) のが判断B の要。
+    // ══════════════════════════════════════════════════════════════════════
+    mark('§8 pickProp — ★パレットの実クリックで種類を差し替えても線路がつながる');
+    {
+      const PAL = (k, v) => '#propList .propItem[data-kind="' + k + '"][data-variant="' + v + '"]';
+      // ── 8-0 装置: パレットが実クリックできる状態か (真空 PASS を防ぐ) ──
+      await page.evaluate(() => { window.__t.reset(true); });
+      await sleep(80);
+      const d8 = await page.evaluate((sR, sP) => {
+        const pi = window.__mapEditor.propPaletteInfo();
+        return { rail: !!document.querySelector(sR), pillar: !!document.querySelector(sP),
+                 visible: pi.visible, propMode: pi.propMode, n: pi.n };
+      }, PAL('railKit', 1), PAL('pillar', 0));
+      check('§8 8a [装置] propMode でパレットが見えており railKit#1 / pillar#0 のボタンが実在する',
+        d8.rail === true && d8.pillar === true && d8.visible === true && d8.propMode === true && d8.n > 0,
+        J(d8));
+
+      // ── 8-1 縦 3 連の中央を選択 → パレットで「横」を実クリック → 自動接続で縦へ戻る ──
+      //   ★下ごしらえは自動接続 OFF で「隣接と矛盾する [2,2,2]」を作る。こうすると差し替えの
+      //     結果 ([0,0,0]) が下ごしらえと**別物**になるので、Ctrl+Z の 1 段が実測できる。
+      //     (ON で作ると最初から [0,0,0] で、差し替えの前後が同一 = pushHistory が
+      //      「変化なしなら積まない」を通り、undo が 1 段手前まで戻ってしまう。)
+      await page.evaluate(() => {
+        const E = window.__mapEditor, T = window.__t;
+        T.reset(false);                                        // 自動接続 OFF で下ごしらえ
+        T.lay([[10, 5], [10, 6], [10, 7]], 2);                 // 縦 3 連だが全部 2 (北東カーブ)
+        E.setPropAutoLink(true);                               // ★ここから ON
+      });
+      const pre81 = await page.evaluate(() => ({ v: window.__t.variants(),
+        link: window.__mapEditor.getPropAutoLink(),
+        snap: JSON.stringify(window.__mapEditor.getMapDef()) }));
+      await mouseClickTile(page, 10, 6);                       // ★実マウスで中央を掴む
+      const sel81 = await page.evaluate(() => window.__mapEditor.getPropSelection());
+      await page.click(PAL('railKit', 1));                     // ★★パレットの実クリック
+      await sleep(80);
+      const post81 = await page.evaluate(() => ({ v: window.__t.variants(), mid: window.__t.at(10, 6),
+        brush: window.__mapEditor.getPropBrush(), n: window.__t.items().length,
+        undoDisabled: document.getElementById('btnUndo').disabled,
+        palSel: window.__mapEditor.propPaletteInfo().items
+                  .filter(i => i.sel).map(i => i.kind + '#' + i.variant) }));
+      check('§8 8b [装置] 隣接と矛盾する [2,2,2] を作り、ON に戻し、実マウスで中央 (添字 1) を掴めた',
+        J(pre81.v) === J([2, 2, 2]) && pre81.link === true &&
+        sel81 !== null && sel81.index === 1, J(pre81.v) + ' sel=' + J(sel81));
+      check('§8 8c ★パレットの実クリックが pickProp を通った (筆が railKit#1 / 見た目も選択状態)',
+        post81.brush && post81.brush.kind === 'railKit' && post81.brush.variant === 1 &&
+        J(post81.palSel) === J(['railKit#1']), J(post81.brush) + ' 画面=' + J(post81.palSel));
+      check('§8 8d ★★横 (1) を選んだのに自動接続で 0 (縦) へ戻り、上下の隣も [0,0,0] へ揃う',
+        post81.mid === 0 && J(post81.v) === J([0, 0, 0]) && post81.n === 3, J(post81.v));
+      check('§8 8e 差し替えで ↶ 元に戻す が有効になった (履歴が 1 段積まれた)',
+        post81.undoDisabled === false, 'disabled=' + post81.undoDisabled);
+      await pressCtrlZ(page);                                   // ★実キーボード
+      const undo81 = await page.evaluate((snap) => ({ v: window.__t.variants(),
+        same: JSON.stringify(window.__mapEditor.getMapDef()) === snap }), pre81.snap);
+      check('§8 8f ★★Ctrl+Z **一発**で差し替え前 ([2,2,2]) と 1 バイトも変わらない状態に戻る',
+        undo81.same === true && J(undo81.v) === J([2, 2, 2]),
+        'deep-equal=' + undo81.same + ' 形=' + J(undo81.v));
+
+      // ── 8-2 線路 → 石柱 (旧 kind 側の relink)。残った角が終端の直線へ戻る ──
+      await page.evaluate(() => { const T = window.__t; T.reset(true);
+        T.lay([[28, 10], [29, 10], [30, 10], [30, 11]], 0); });   // L 字 [1,1,4,0]
+      const pre82 = await page.evaluate(() => ({ v: window.__t.variants(), corner: window.__t.at(30, 10),
+        snap: JSON.stringify(window.__mapEditor.getMapDef()) }));
+      await mouseClickTile(page, 30, 11);                      // ★実マウスで尾を掴む
+      await page.click(PAL('pillar', 0));                      // ★★パレットの実クリックで石柱へ
+      await sleep(80);
+      const post82 = await page.evaluate(() => ({ corner: window.__t.at(30, 10),
+        kinds: window.__t.items().map(i => i.kind), v: window.__t.variants(),
+        tail: window.__t.items()[3] }));
+      check('§8 8g [装置] L 字が [1,1,4,0] で角 (30,10) がカーブ (4)',
+        J(pre82.v) === J([1, 1, 4, 0]) && pre82.corner === 4, J(pre82.v));
+      check('§8 8h ★尾だけが石柱に差し替わった (railKit×3 + pillar×1 / 座標は動かない)',
+        J(post82.kinds) === J(['railKit', 'railKit', 'railKit', 'pillar']) &&
+        post82.tail.tx === 30 && post82.tail.ty === 11, J(post82.kinds));
+      check('§8 8i ★★残った角 (30,10) が 4 (カーブ) → 1 (横の終端) へ戻る = **旧 kind 側**の relink',
+        post82.corner === 1, '4 -> ' + post82.corner + '  ' + J(post82.v));
+      await pressCtrlZ(page);
+      const undo82 = await page.evaluate((snap) => ({ v: window.__t.variants(),
+        kinds: window.__t.items().map(i => i.kind),
+        same: JSON.stringify(window.__mapEditor.getMapDef()) === snap }), pre82.snap);
+      check('§8 8j ★★Ctrl+Z 一発で種も近傍の形も丸ごと戻る (pushHistory が 1 回だけ)',
+        undo82.same === true && J(undo82.v) === J([1, 1, 4, 0]),
+        'deep-equal=' + undo82.same + ' 形=' + J(undo82.v) + ' 種=' + J(undo82.kinds));
+
+      // ── 8-3 石柱 → 線路 (新 kind 側の relink)。★ユーザーが報告した取りこぼしそのもの ──
+      await page.evaluate(() => {
+        const E = window.__mapEditor, T = window.__t;
+        T.reset(true);
+        T.lay([[30, 11], [30, 12]], 0);            // 縦 2 連 [0,0]
+        E.setPropBrush('pillar', 0);
+        E.placeProp(31, 11);                       // その東隣に石柱
+      });
+      const pre83 = await page.evaluate(() => ({ v11: window.__t.at(30, 11),
+        kinds: window.__t.items().map(i => i.kind),
+        snap: JSON.stringify(window.__mapEditor.getMapDef()) }));
+      await mouseClickTile(page, 31, 11);                      // ★実マウスで石柱を掴む
+      await page.click(PAL('railKit', 1));                     // ★★線路へ差し替え
+      await sleep(80);
+      const post83 = await page.evaluate(() => ({ head: window.__t.at(31, 11), v11: window.__t.at(30, 11),
+        kinds: window.__t.items().map(i => i.kind), v: window.__t.variants() }));
+      check('§8 8k [装置] 縦 2 連 [0,0] の東隣に石柱がある',
+        pre83.v11 === 0 && J(pre83.kinds) === J(['railKit', 'railKit', 'pillar']), J(pre83.kinds));
+      check('§8 8l ★石柱が線路になった (railKit×3)',
+        J(post83.kinds) === J(['railKit', 'railKit', 'railKit']), J(post83.kinds));
+      check('§8 8m ★★**動かさずに**隣 (30,11) が 0 (縦) → 3 (東南カーブ) へつながった = 新 kind 側の relink',
+        post83.v11 === 3 && post83.head === 1, '0 -> ' + post83.v11 + '  ' + J(post83.v));
+      await pressCtrlZ(page);
+      const undo83 = await page.evaluate((snap) => ({
+        same: JSON.stringify(window.__mapEditor.getMapDef()) === snap,
+        kinds: window.__t.items().map(i => i.kind), v: window.__t.variants() }), pre83.snap);
+      check('§8 8n ★Ctrl+Z 一発で石柱に戻り、隣の形も 0 (縦) へ巻き戻る',
+        undo83.same === true && J(undo83.kinds) === J(['railKit', 'railKit', 'pillar']),
+        'deep-equal=' + undo83.same + ' 形=' + J(undo83.v));
+
+      // ── 8-4 「自動でつなぐ」OFF (実チェックボックス) では pickProp でも relink しない ──
+      await page.evaluate(() => { const T = window.__t; T.reset(true); T.lay([[10, 5], [10, 6], [10, 7]], 0); });
+      await page.click('#propLinkChk');                        // ★実マウスで OFF
+      await sleep(80);
+      const off8s = await page.evaluate(() => window.__mapEditor.getPropAutoLink());
+      await mouseClickTile(page, 10, 6);
+      await page.click(PAL('railKit', 1));
+      await sleep(80);
+      const off8 = await page.evaluate(() => ({ v: window.__t.variants(), mid: window.__t.at(10, 6) }));
+      await page.click('#propLinkChk');                        // 戻す
+      await sleep(80);
+      const back8 = await page.evaluate(() => window.__mapEditor.getPropAutoLink());
+      check('§8 8o [装置] 実マウスでチェックを外せた', off8s === false, String(off8s));
+      check('§8 8p ★★OFF なら pickProp で選んだ横 (1) がそのまま残り、近傍も書き換わらない',
+        off8.mid === 1 && J(off8.v) === J([0, 1, 0]), J(off8.v));
+      check('§8 8q チェックを戻すと ON へ復帰', back8 === true, String(back8));
+
+      // ── 8-5 孤立 (mask 0) は選んだ形をそのまま保つ (「カーブを 1 個だけ置きたい」を守る) ──
+      await page.evaluate(() => { const T = window.__t; T.reset(true); T.lay([[10, 5]], 0); });
+      await mouseClickTile(page, 10, 5);
+      await page.click(PAL('railKit', 3));                     // 東南カーブ
+      await sleep(80);
+      const s85 = await page.evaluate(() => ({ v: window.__t.at(10, 5), n: window.__t.items().length,
+        mask: window.__mapEditor.MapDef.railKitMaskAt(window.__mapEditor.getMapDef().props, 10, 5),
+        link: window.__mapEditor.getPropAutoLink() }));
+      check('§8 8r ★孤立 (mask 0) の線路は ON でも選んだ 3 (東南カーブ) のまま = 勝手に化けない',
+        s85.link === true && s85.mask === 0 && s85.v === 3 && s85.n === 1,
+        'mask=' + s85.mask + ' variant=' + s85.v + ' autoLink=' + s85.link);
+
+      // ── 8-6 選択が無ければ筆が変わるだけ (履歴も mapDef も動かさない) ──
+      const s86 = await page.evaluate(() => {
+        const E = window.__mapEditor, T = window.__t;
+        T.reset(true); T.lay([[10, 5], [10, 6]], 0);
+        E.selectPropAt(-9, -9);                                 // 選択解除
+        const before = JSON.stringify(E.getMapDef());
+        const sel = E.getPropSelection();
+        return { sel, before };
+      });
+      await page.click(PAL('railKit', 2));
+      await sleep(80);
+      const post86 = await page.evaluate((before) => ({
+        same: JSON.stringify(window.__mapEditor.getMapDef()) === before,
+        brush: window.__mapEditor.getPropBrush(), v: window.__t.variants() }), s86.before);
+      check('§8 8s 選択中の物が無ければ筆が変わるだけで mapDef は 1 バイトも動かない',
+        s86.sel === null && post86.same === true && post86.brush.variant === 2,
+        'deep-equal=' + post86.same + ' 筆=' + J(post86.brush) + ' 形=' + J(post86.v));
     }
 
     // ══════════════════════════════════════════════════════════════════════

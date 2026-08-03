@@ -2329,7 +2329,7 @@
    * ⚠⚠ 接続規則は **df-mapdef.js の railKitRelinkAround が唯一の正**。ここには 1 行も
    *   写さない (テクスチャ表 / 情景レシピと同じ作法 = 写経した瞬間に本編とズレうる)。
    * ⚠ 効くのは kind === railKit のときだけ。石柱を隣に置いても線路は変わらない。
-   * ⚠ 履歴はここでは積まない。呼び出し元 (placeProp / moveProp / deleteProp) が積む
+   * ⚠ 履歴はここでは積まない。呼び出し元 (placeProp / moveProp / deleteProp / pickProp) が積む
    *   **1 段にそのまま乗る**ので、Ctrl+Z 一発で近傍の変化ごと元に戻る。
    * ⚠ チェックが OFF なら 1 個も書き換えない = パレットで選んだ形をそのまま置ける。 */
   function autoLinkRails(tx, ty, kind) {
@@ -4103,14 +4103,25 @@
   /* パレットのエントリをクリックしたときの実経路。
    * ⚠ ここで setTool("prop") を勝手に呼ばない (pickEnemy と同じ方針 = ツールは明示的に切り替える)。
    *   ただしこのパレット自体が prop ツールのときしか見えないので実害はない。
-   * ★選択中の物があれば**その物の種類も差し替える** (undo が効く) = pickEnemy と同じ作法。 */
+   * ★選択中の物があれば**その物の種類も差し替える** (undo が効く) = pickEnemy と同じ作法。
+   * ★STEP 2.5 判断B: 種類の差し替えでも自動接続を走らせる。ここだけ呼んでいなかったので
+   *   「石柱 → 線路」に変えても**動かすまでつながらない**という取りこぼしがあった。
+   * ⚠ **旧 kind でも呼ぶ**のは「線路 → 石柱」に変えたとき**残った両隣**を終端の直線へ
+   *   戻すため (deleteProp が gone.kind で呼ぶのと同じ理由)。relink は冪等なので 2 回
+   *   呼んで問題ない。
+   * ⚠ pushHistory は**1 回だけ** = Ctrl+Z 一発で近傍の化けごと元に戻る。
+   * ⚠ rebuildAndRender() は必ず全変更の**後**。 */
   function pickProp(kind, variant) {
     var b = setPropBrush(kind, variant);
     var sel = state.propSelection, ps = propList();
     if (b && sel && ps[sel.index]) {
       var before = snapshot();
-      ps[sel.index].kind = b.kind;
-      ps[sel.index].variant = b.variant;
+      var p = ps[sel.index];
+      var oldKind = p.kind;                       // ★差し替える前の種を控える
+      p.kind = b.kind;
+      p.variant = b.variant;
+      autoLinkRails(p.tx | 0, p.ty | 0, oldKind);  // 線路を他の種へ変えた → 残った両隣を戻す
+      autoLinkRails(p.tx | 0, p.ty | 0, b.kind);   // 他の種を線路へ変えた → 自分と両隣をつなぐ
       pushHistory(before);
       rebuildAndRender(); syncEditUI();
     }
