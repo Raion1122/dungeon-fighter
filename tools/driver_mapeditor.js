@@ -1917,10 +1917,51 @@ function extractEnemyCatalogNode() {
         presets.field.errors.length === 0 && presets.field.ok === true &&
         presets.field.fromState === 0 && presets.field.badgeErr === 'エラー 0',
         'errors=' + JSON.stringify(presets.field.errors.map(e => e.code)));
-  check('§5 2c ★1枚絵の比率不一致 (山場 20×14) は **警告** であってエラーではない',
-        presets.dungeon.warnings.some(w => w.code === 'painting-aspect') &&
-        !presets.dungeon.errors.some(e => e.code === 'painting-aspect'),
-        '警告=' + JSON.stringify(presets.dungeon.warnings.map(w => w.code)));
+  /* ── ★Phase 4 項目2 で書き直した (旧 2c は「プリセットで painting-aspect が出る」を assert) ──
+   *  Phase 0 の painting-aspect は「面積 >= 150 の部屋なら 1枚絵を貼るだろう」という**推測**で
+   *  発火していた (LINT_PAINTING_MIN_AREA)。Phase 4 で rooms[i].painting に明示されるので
+   *  推測は廃止し、**明示した部屋だけ**比率を見る。既定プリセット (painting:null) では
+   *  出なくなるのが正しい挙動なので、assert を消すのではなく**新しい挙動を測る形へ**書き直す。
+   *  ⚠ 3 通りを対で測る: ①明示なしの大部屋=沈黙 ②明示+比率不一致=警告 ③明示+比率一致=沈黙。
+   *    ①だけだと「検査器が死んでいても PASS」、②だけだと「常に出す作り」を見逃す。 */
+  const paspect = await page.evaluate(() => {
+    const E = window.__mapEditor, M = E.MapDef;
+    E.loadPreset('dungeon');
+    const base = JSON.parse(E.exportJSON());
+    const wh = (r) => [r[3] - r[1] + 1, r[2] - r[0] + 1];      // [幅, 高さ] タイル
+    const aspects = (d) => M.lintMapDef(d).warnings.filter(w => w.code === 'painting-aspect');
+    // ① 明示なし (プリセットそのまま) … 山場 20×14 = 面積 280 の大部屋でも出ない
+    const noneN = aspects(base).length;
+    // ② 比率が合わない部屋 (20×14) に painting を明示 … 出る
+    const mis = JSON.parse(JSON.stringify(base));
+    mis.rooms[0].painting = { theme: 'goblin-mine', key: '1' };
+    const misR = M.lintMapDef(mis);
+    // ③ [対照] 比率が合う部屋 (ボス 22×18 = 11:9) に painting を明示 … 出ない
+    const fit = JSON.parse(JSON.stringify(base));
+    fit.rooms[1].painting = { theme: 'goblin-mine', key: '2' };
+    const fitN = aspects(fit).length;
+    return {
+      wh0: wh(base.rooms[0].rect), wh1: wh(base.rooms[1].rect),
+      area0: wh(base.rooms[0].rect)[0] * wh(base.rooms[0].rect)[1],
+      noneN, fitN,
+      misW: misR.warnings.filter(w => w.code === 'painting-aspect'),
+      misE: misR.errors.filter(e => e.code === 'painting-aspect').length,
+      stateIntact: JSON.parse(E.exportJSON()).rooms[0].painting,   // lint は state を汚さない
+    };
+  });
+  console.log('[driver] painting-aspect: 山場=' + paspect.wh0.join('×') + '(面積' + paspect.area0 + ') ' +
+              'ボス=' + paspect.wh1.join('×') + ' / 明示なし=' + paspect.noneN + '件 ' +
+              '明示+不一致=' + paspect.misW.length + '件 明示+一致=' + paspect.fitN + '件');
+  check('§5 2c ★painting-aspect は painting を**明示した部屋だけ**を見る (20×14 に明示 → 警告 / ボス 22×18 に明示 → 沈黙)',
+        paspect.misW.length === 1 && paspect.misW[0].roomIndex === 0 &&
+        paspect.misE === 0 && paspect.fitN === 0 && paspect.stateIntact === null,
+        '明示+不一致=' + paspect.misW.length + '件 roomIndex=' + (paspect.misW[0] || {}).roomIndex +
+        ' error=' + paspect.misE + ' / 明示+一致(22×18)=' + paspect.fitN + '件');
+  check('§5 2c2 ★painting 未指定の大部屋 (山場 20×14 = 面積 280) では painting-aspect が出ない (面積ヒューリスティックの廃止)',
+        paspect.noneN === 0 && paspect.area0 === 280 &&
+        !presets.dungeon.warnings.some(w => w.code === 'painting-aspect'),
+        '面積=' + paspect.area0 + ' 直接lint=' + paspect.noneN + '件 / プリセット警告=' +
+        JSON.stringify(presets.dungeon.warnings.map(w => w.code)));
   check('§5 2d 屋外プリセットは帯マスク警告が出る (落とし穴⑤ の可視化) / それでもエラーではない',
         presets.field.warnings.some(w => w.code === 'band-mask') && presets.field.errors.length === 0,
         '警告=' + JSON.stringify(presets.field.warnings.map(w => w.code)));

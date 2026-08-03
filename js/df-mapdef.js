@@ -390,6 +390,12 @@
   var SCENERY_FALLBACK_FIELD   = "caravan-road";     // 屋外テーマ (FIELD_THEME_IDS) の既定
   var SCENERY_FALLBACK_DUNGEON = "goblin-mine";      // それ以外の既定
 
+  /* rooms[i].scenery.density の上限 (★Phase 4 項目2 の normalize が使う)。
+   * UI (項目3) は 0.5 / 1 / 1.8 の 3 択だが、手書き JSON も受け入れるので
+   * 「0 < density <= 4」を schema として確定させる。4 を超える密度は面積比スケール
+   * (項目4) と掛け算になって配置が破綻する = 受け取った時点で null へ潰す。 */
+  var SCENERY_DENSITY_MAX = 4;
+
   var paintingCatalog = null, paintingCatalogError = null, paintingCatalogPromise = null;
   var sceneryRecipes  = null, scenerySheets = null;
   var sceneryCatalogError = null, sceneryCatalogPromise = null;
@@ -760,6 +766,36 @@
       return out;
     }
 
+    /* ── ★Phase 4 項目2: painting / scenery の**形**を確定する ─────────────────
+     *  Phase 3 までは「オブジェクトなら素通し (clone)」だったので、{src:"…"} のような
+     *  別方式の指定も density が文字列の壊れた値も、そのまま mapDef に住み続けていた。
+     *  ここで**形が正しいものだけ**を採り、それ以外は null へ潰す。
+     *
+     *  ⚠⚠ 往復同一性 (export → import → export の deep-equal) を壊さないこと。
+     *    既存プリセットは painting / scenery とも null なので **null のまま**通り、
+     *    driver_mapeditor.js §4 2c/2d の deep-equal は 1 バイトも変わらない。
+     *    採る場合も新品の { theme, key } / { density } を**組み直す**ので余計なキーが
+     *    残らない = 何度 sanitize を通しても同じ形へ収束する (冪等)。
+     *
+     *  ⚠ **未知の theme / key は落とさない**。fixSlot の未知の敵キーとまったく同じ判断で、
+     *    本編で絵が増えたときに古いエディタが黙って指定を消すのが最悪。形が正しければ通し、
+     *    「カタログから引けない」ことは lint の painting-missing (warning) が知らせる。 */
+    function fixPainting(p) {
+      if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+      var theme = p.theme, key = p.key;
+      if (typeof theme !== "string" || !theme) return null;
+      // ROOM_PAINTINGS_DEF のキーは 1 / 2 の**数値リテラル**なので数値で来ても文字列へ寄せる
+      // (paintingSrcFor も内部で String(key) するため、揃えないと往復で形が振れる)。
+      if (isNum(key)) key = String(key);
+      if (typeof key !== "string" || !key) return null;
+      return { theme: theme, key: key };
+    }
+    function fixScenery(s) {
+      if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+      if (!isNum(s.density) || s.density <= 0 || s.density > SCENERY_DENSITY_MAX) return null;
+      return { density: s.density };
+    }
+
     var srcRooms = Array.isArray(d.rooms) ? d.rooms : base.rooms;
     for (var i = 0; i < srcRooms.length; i++) {
       var r = srcRooms[i] || {};
@@ -779,8 +815,8 @@
         rect: rect,
         enemySlots: slots,
         bossSlot: fixSlot(r.bossSlot),
-        painting: (r.painting && typeof r.painting === "object") ? clone(r.painting) : null,
-        scenery: (r.scenery && typeof r.scenery === "object") ? clone(r.scenery) : null,
+        painting: fixPainting(r.painting),
+        scenery: fixScenery(r.scenery),
       });
     }
 
@@ -1348,7 +1384,8 @@
    *          unreachable-slot / no-trap-candidates          … error
    *          no-enemies / no-boss-slot / painting-aspect / map-used / band-mask /
    *          field-theme-custom / enemy-unknown-key /
-   *          tiles-outside-rooms (★Phase 3 項目2)           … warning
+   *          tiles-outside-rooms (★Phase 3 項目2) /
+   *          painting-missing    (★Phase 4 項目2)           … warning
    * ────────────────────────────────────────────────────────────────────────── */
 
   // index.html:2987 FIELD_THEMES の写し。屋外テーマだけ罠の起点ガード条件が変わる (19055)。
@@ -1360,9 +1397,9 @@
     { w: 20, h: 16, label: "山場 20×16 (5:4)" },
     { w: 22, h: 18, label: "ボス 22×18 (11:9)" },
   ];
-  // 「1枚絵を貼りうる部屋」とみなす最小面積。これ未満の小部屋は比率を問わない
-  // (painting が明示指定されている部屋は面積に関係なく必ず検査する)。
-  var LINT_PAINTING_MIN_AREA = 150;   // 15×10 相当
+  /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
+   *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、
+   *   面積から推測する必要が無くなった (下の painting-aspect ループを参照)。 */
   var LINT_MAP_USED_MIN_ROWS = 6;     // 使用範囲がこれより薄いと画面上下が黒帯になりやすい
   var LINT_MAP_USED_MIN_FILL = 0.20;  // 使用範囲がグリッド全体のこの割合を切ると黒が目立つ
 
@@ -1570,18 +1607,20 @@
             null, null);
     }
 
-    // ── lint 項目⑤ 1枚絵の縦横比 (★エラーではなく**警告**) ────────────────────
-    //  判断と理由: 現行プリセットの山場は 20×14 で 5:4 ではない。エラーにすると
-    //  **既存の正しいプリセットが常時赤くなり lint 全体が信用されなくなる**。
-    //  一方「無視 (painting 明示時のみ検査)」だと Phase 4 まで一度も発火せず装置として死ぬ。
-    //  → 折衷: **1枚絵を貼りうる大きさ (面積 >= 150) の部屋は常に比率を見て警告**、
-    //     painting が明示指定されている部屋は面積に関係なく検査する。
-    //     警告なので「出発は止めない」= 卓用マップにも DF の既存プリセットにも邪魔をしない。
+    /* ── lint 項目⑤ 1枚絵の縦横比 (★エラーではなく**警告**) ────────────────────
+     *  ★Phase 4 項目2 で「painting を明示した部屋だけ」へ絞った (Phase 0 からの宿題)。
+     *  Phase 0 の折衷は「面積 >= 150 の部屋なら 1枚絵を貼るだろう」という**推測**だった。
+     *  当時は painting を指定する手段が無く、そうしないと装置が一度も発火せず死ぬためで、
+     *  代償として既定プリセットの山場 20×14 が常時警告を出していた (誤検出)。
+     *  Phase 4 で「絵を貼るか」が mapDef に明示されるので推測は不要になり、面積
+     *  ヒューリスティック (LINT_PAINTING_MIN_AREA) は**廃止**した。
+     *  ⚠ これにより既定プリセット (painting:null) では painting-aspect が**出なくなる**。
+     *    それが正しい挙動 = driver_mapeditor.js §5 2c は「明示した部屋でだけ出る」へ書き直した。
+     *  警告のままにする理由は不変: 出発は止めない (歪んで貼るのも卓用としては選択肢)。 */
     for (i = 0; i < rooms.length; i++) {
+      if (!rooms[i].painting) continue;                 // ★明示した部屋だけ比率を見る
       var rc = rooms[i].rect;
       var rw = rc[3] - rc[1] + 1, rh = rc[2] - rc[0] + 1;
-      var explicit = !!rooms[i].painting;
-      if (!explicit && rw * rh < LINT_PAINTING_MIN_AREA) continue;
       var fit = false, names = [];
       for (j = 0; j < LINT_PAINTING_ASPECTS.length; j++) {
         var A = LINT_PAINTING_ASPECTS[j];
@@ -1590,11 +1629,30 @@
       }
       if (fit) continue;
       warn("painting-aspect",
-           "部屋 " + rooms[i].id + " は 幅" + rw + "×高さ" + rh + " タイルで、1枚絵の在庫 (" + names.join(" / ") +
-           ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で引き伸ばされて歪みます" +
-           (explicit ? " (この部屋は painting が明示指定されています)"
-                     : " (この部屋に1枚絵を貼らないなら無視してよい警告です)"),
+           "部屋 " + rooms[i].id + " は 幅" + rw + "×高さ" + rh + " タイルで、指定した1枚絵の在庫 (" +
+           names.join(" / ") + ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で" +
+           "引き伸ばされて歪みます (この部屋は painting が明示指定されています)",
            [rc[1], rc[0]], i);
+    }
+
+    /* ── ★Phase 4 項目2: painting がカタログから引けない (**warning**) ──────────
+     *  ⚠ カタログ未取得 (loadPaintingCatalog の前 / fetch 失敗 / file:// 直開き) のときは
+     *    検査そのものを**スキップ**する。「カタログが無い」を「絵が無い」と誤報すると、
+     *    オフラインでは指定した部屋が全部警告になり lint 全体が信用されなくなる
+     *    (enemy-unknown-key とまったく同じ判断)。
+     *  ⚠ sanitize は未知の theme / key を**落とさない**ので、ここが唯一の検出器になる。 */
+    if (getPaintingCatalog()) {
+      for (i = 0; i < rooms.length; i++) {
+        var pg = rooms[i].painting;
+        if (!pg) continue;
+        if (paintingSrcFor(pg.theme, pg.key)) continue;   // ★引ければ何も言わない
+        var prc = rooms[i].rect;
+        warn("painting-missing",
+             "部屋 " + rooms[i].id + ' の1枚絵 (テーマ "' + pg.theme + '" / 部屋キー "' + pg.key +
+             '") が index.html の ROOM_PAINTINGS_DEF にありません — ゲーム側に存在しない参照なので、' +
+             "DF へ書き出してもこの部屋には絵が貼られません (綴り違い、またはエディタが古い可能性)",
+             [prc[1], prc[0]], i);
+      }
     }
 
     // ── lint 項目⑥ MAP_USED 枠 (画面の黒帯予防) ──────────────────────────────
@@ -1902,6 +1960,9 @@
     SCENERY_SHEET_MARK: SCENERY_SHEET_MARK,
     SCENERY_FALLBACK_FIELD: SCENERY_FALLBACK_FIELD,
     SCENERY_FALLBACK_DUNGEON: SCENERY_FALLBACK_DUNGEON,
+    // ★Phase 4 項目2: rooms[i].scenery.density の上限 (sanitize が 0 < d <= これ で採る)。
+    //   項目3 の UI と項目5 のドライバが同じ値を参照できるよう公開する。
+    SCENERY_DENSITY_MAX: SCENERY_DENSITY_MAX,
     parsePaintingCatalog: parsePaintingCatalog,
     parseSceneryCatalog: parseSceneryCatalog,
     loadPaintingCatalog: loadPaintingCatalog,

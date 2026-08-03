@@ -917,7 +917,19 @@ async function runIndex(browser, base, cfg, query) {
       const lint = (d) => {
         const r = M.lintMapDef(d, { catalog: null });
         return { codes: r.warnings.map(w => w.code), errCodes: r.errors.map(e => e.code),
-                 hit: r.warnings.filter(w => w.code === 'tiles-outside-rooms'), nWarn: r.warnings.length };
+                 hit: r.warnings.filter(w => w.code === 'tiles-outside-rooms'), nWarn: r.warnings.length,
+                 shape: (typeof r.ok === 'boolean' && Array.isArray(r.errors) && Array.isArray(r.warnings)) };
+      };
+      /* ★母集団ガード (G0) 用。「その入力で lint が**終盤まで**走った」ことを入力ごとに証明する。
+       *   全部屋の bossSlot を外すと no-boss-slot が必ず積まれる。この warning は
+       *   tiles-outside-rooms より**後段**で積まれるので、出れば途中で早期 return していない証拠。
+       *  ⚠ 旧 G0 は「3 ケースとも warnings が 1 件以上」だったが、これは Phase 4 項目2 で
+       *    廃止された painting-aspect の**誤検出** (面積 150 以上の部屋に常時警告) へ暗黙に
+       *    依存していた。グローバルな件数で母集団を測ると、機能が増減した瞬間に壊れる。 */
+      const reachedEnd = (d) => {
+        const x = JSON.parse(JSON.stringify(d));
+        x.rooms.forEach(r => { r.bossSlot = null; });
+        return M.lintMapDef(x, { catalog: null }).warnings.filter(w => w.code === 'no-boss-slot').length;
       };
       const inside = window.__withTiles(window.__rectMap());            // 焼き固めそのもの
       const outMap = JSON.parse(JSON.stringify(window.__rectMap()));
@@ -929,6 +941,8 @@ async function runIndex(browser, base, cfg, query) {
       const bandTiles = window.__withTiles(window.__rectMap(), { flags: { bandMask: true } });
       return {
         inside: lint(inside), outside: outsideLint, none: lint(M.clone(M.DEFAULT_DUNGEON)),
+        reached: { inside: reachedEnd(inside), outside: reachedEnd(outsideDef),
+                   none: reachedEnd(M.clone(M.DEFAULT_DUNGEON)) },
         blocked: lint(window.__withTiles(blockedMap)), open: lint(M.clone(M.DEFAULT_DUNGEON)),
         bandMsg: M.lintMapDef(bandTiles, { catalog: null }).warnings
           .filter(w => w.code === 'band-mask').map(w => w.message),
@@ -936,9 +950,16 @@ async function runIndex(browser, base, cfg, query) {
         outAt: (outsideLint.hit[0] || {}).at, outSev: (outsideLint.hit[0] || {}).severity,
       };
     });
-    check('§4 G0 母集団ガード: 3 ケースとも lint が warning を 1 件以上返している (装置が動いている)',
-      s4.inside.nWarn > 0 && s4.outside.nWarn > 0 && s4.none.nWarn > 0,
-      'inside=' + s4.inside.nWarn + ' outside=' + s4.outside.nWarn + ' none=' + s4.none.nWarn);
+    /* ★Phase 4 項目2 で書き直した。旧 G0 は「3 ケースとも warnings が 1 件以上」で、これは
+     *   廃止された painting-aspect の誤検出に暗黙依存していた (グローバルな件数で母集団を
+     *   測る型の脆さ)。ガードの意図 =「lint が早期 return せず最後まで走った」を、
+     *   入力ごとに no-boss-slot (tiles-outside-rooms より後段の warning) で直接測る形にした。 */
+    check('§4 G0 母集団ガード: 3 ケースとも lint が終盤 (no-boss-slot) まで到達し {ok,errors[],warnings[]} を返す (装置が動いている)',
+      s4.reached.inside === 1 && s4.reached.outside === 1 && s4.reached.none === 1 &&
+      s4.inside.shape && s4.outside.shape && s4.none.shape,
+      'no-boss-slot到達 inside=' + s4.reached.inside + ' outside=' + s4.reached.outside +
+      ' none=' + s4.reached.none + ' / warn件数 ' +
+      [s4.inside.nWarn, s4.outside.nWarn, s4.none.nWarn].join('/'));
     check('§4 1a ★部屋の外に床を描いた tiles で tiles-outside-rooms が**出る** / 中だけなら**出ない** / tiles 無しでも出ない',
       s4.outside.hit.length === 1 && s4.inside.hit.length === 0 && s4.none.hit.length === 0,
       'outside=[' + s4.outside.codes.join(',') + '] inside=[' + s4.inside.codes.join(',') + ']');
