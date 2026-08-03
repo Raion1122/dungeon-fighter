@@ -748,6 +748,9 @@
     grass: "草の房", reed: "葦", log: "倒木", detail: "小物",
     rubble: "瓦礫", cart: "トロッコ", rail: "線路",
     pillar: "石柱", chair: "椅子", table: "テーブル", wreck: "壊れた馬車",
+    /* ⚠ rail (散布用の縦3変種) とは**別の種**。呼び名で見分けが付くようにしてある
+     *   — パレットに「線路 1..3」と「線路(つなぐ) 1..6」が並ぶ。 */
+    railKit: "線路(つなぐ)",
   };
   function propKindLabel(kind) { return PROP_KIND_LABELS[kind] || String(kind); }
 

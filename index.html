@@ -3754,6 +3754,19 @@
         {x:54,y:162,w:554,h:495}, {x:628,y:124,w:645,h:533},
         {x:1277,y:126,w:604,h:528},
       ],
+      /* ── ★つながる線路 (マップエディタ Phase 6 STEP 2.5)。tools/make_rail_kit.py の出力。
+       *    並び順 = 0:縦(北南) 1:横(東西) 2:北→東 3:東→南 4:南→西 5:西→北。
+       *    ⭐ **枠はインクの外接矩形ではなく「マス正方形」**(3072x512 の 512 角セル 6 個)。
+       *      描画は「枠の中心をタイル中心に合わせる」(:5771-5775) ので、枠をマスと同じ正方形に
+       *      宣言すると隣り合ったピースの接合部が必ず一致する = 敷いたら必ずつながる。
+       *      インク bbox で切り出すとピースごとに中心がずれて、この保証が消える。
+       *    ⚠ 既存の rail (縦3変種) には**触っていない**。散布は variant = hash % frames.length
+       *      なので rail のフレーム数を増減すると廃坑の既存マップの見た目が変わってしまう。
+       *      これは SCENERY_RECIPES から参照しない = mapDef.props 専用の別種。 */
+      railKit: [
+        {x:0,y:0,w:512,h:512},    {x:512,y:0,w:512,h:512},  {x:1024,y:0,w:512,h:512},
+        {x:1536,y:0,w:512,h:512}, {x:2048,y:0,w:512,h:512}, {x:2560,y:0,w:512,h:512},
+      ],
     };
     // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
     //
@@ -3823,6 +3836,19 @@
                 img: new Image(), loaded: false },
       // 壊れた馬車: 全長 388cm(3種とも)。1x1 = トロッコ(191cm)と同じ扱い。
       wreck:  { src: "assets/prop_wreck.png",  blocking: [true,true,true],                    displayMax: 130,
+                img: new Image(), loaded: false },
+      /* ★つながる線路 (Phase 6 STEP 2.5)。縦/横/カーブ4 を手で敷いて線路網を組む用。
+       *   ⭐ displayMax は **96 = TILE_SIZE ちょうど**(単一値。variant 別の配列にしない)。
+       *     枠が 512 角なので scale = 96/512 → dw = dh = 96px = 1 マス。**この値以外にすると
+       *     ピースがマスからずれ、隣接した接続点が合わなくなって「つながらない」**。
+       *     他の種のように実寸(cm)から逆算する物ではない = 接続タイルなのでマスに合わせるのが正。
+       *     ⚠ 結果としてパレットの実寸ラベルは 2.9m × 2.9m (= 1 マス) と出る。線路そのものの
+       *       幅は絵の中で 1.2m ほど(make_rail_kit.py の実測)で、残りは透明の余白。仕様どおり。
+       *   ⚠ blocking は 6 変種すべて **false**。線路は平置きで上を歩ける (トロッコ cart とは違う)。
+       *   ⚠ flat: true = rail と同じ「床に貼り付く装飾」。同じ ty 帯では他の物より先(下)に描く。
+       *   ⚠ SCENERY_RECIPES からは**参照しない** = 既定 6 シナリオは 1 ドットも変わらない。 */
+      railKit:{ src: "assets/mine_rail_kit.png", blocking: [false,false,false,false,false,false],
+                displayMax: 96, flat: true,
                 img: new Image(), loaded: false },
     };
     for (const [k, s] of Object.entries(SCENERY_SHEETS)) {
