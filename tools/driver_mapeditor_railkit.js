@@ -75,7 +75,12 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv
 const flag = (n) => argv.includes('--' + n);
 const HEADFUL = flag('headful');
 /* ⚠ ポートは既存ドライバと 4 以上空ける (baseline 用に port+1 を掴む本がある)。
- *   使用済み: 8861 / 8901(+8902) / 8911 / 8921 / 8941 / 8951 / 8955 / 8965 / 8985 / 8991 / 8995 */
+ *   ⚠ 2026-08-04 実測で修正: 旧コメントは 8911 / 8941 / 8991 / 8995 を「使用済み」と書いていたが、
+ *     `grep -rn "arg('port'" tools/*.js` で数え上げると**どれも実体が無い**空き番だった。
+ *     空いている番号を「埋まっている」と書くと、新しいドライバが理由もなく遠くへ追いやられる。
+ *   マップエディタ系の実使用: 8861 (mapeditor) / 8901(+8902) (mapdef_step1) / 8921 (mapdef_step2) /
+ *     8931 (本ドライバ) / 8941 (mapeditor_waterkit) / 8951 (mapdef_step3) / 8955 (pointer) /
+ *     8965 (texture) / 8985 (props と painting が**重複**。並列時は片方へ --port を渡すこと) */
 const PORT = parseInt(arg('port', '8931'), 10);
 const MUTATE = arg('mutate', null);
 
