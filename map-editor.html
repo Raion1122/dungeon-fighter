@@ -635,10 +635,10 @@
              title="キャラ (身長1.70m = インク体高57px) のシルエットを同じ縮尺で並べる。数値だけでは縮尺の狂いは見つからないので、これが唯一の確認手段">
         <input type="checkbox" id="propScaleChk" checked> キャラと並べて大きさを確かめる
       </label>
-      <!-- ★STEP 2.5: つながる線路。既定 ON。外すとパレットで選んだ形をそのまま置ける -->
+      <!-- ★STEP 2.5/3: つながる線路・水路。既定 ON。外すとパレットで選んだ形をそのまま置ける -->
       <label id="propLinkRow"
-             title="「線路(つなぐ)」を置くと、隣り合った線路どうしが自動で縦/横/カーブに選び直される（プラレール式）。外すと選んだ形をそのまま置ける">
-        <input type="checkbox" id="propLinkChk" checked> 線路を自動でつなぐ
+             title="「線路(つなぐ)」「水の流れ」を置くと、隣り合った同じ種どうしが自動で縦/横/カーブに選び直される（プラレール式）。外すと選んだ形をそのまま置ける。線路と水路は種が違うので互いにはつながらない">
+        <input type="checkbox" id="propLinkChk" checked> 線路・水路を自動でつなぐ
       </label>
       <div id="propList"></div>
       <div class="palFoot">

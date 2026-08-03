@@ -369,10 +369,11 @@ function mkPayload(props) {
        *   種を足したらここも直す = カタログの identity をコミットに書き残すための装置。
        *   pillar/chair/table/wreck は Phase 6 STEP 2 で追加した mapDef.props 専用の 4 種。
        *   railKit は STEP 2.5 で追加した「つながる線路」(既存 rail とは**別種**。rail に変種を
-       *   足すと散布の variant = hash % frames.length が動いて廃坑の見た目が変わるため)。 */
-      check('§1 1b 種が 12 (grass/reed/log/detail/rubble/cart/rail + pillar/chair/table/wreck + railKit)',
+       *   足すと散布の variant = hash % frames.length が動いて廃坑の見た目が変わるため)。
+       *   waterKit は STEP 3 で追加した「つながる水路」(railKit と同じ 6 ピース規約の別種)。 */
+      check('§1 1b 種が 13 (grass/reed/log/detail/rubble/cart/rail + pillar/chair/table/wreck + railKit/waterKit)',
         J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail',
-                           'pillar', 'chair', 'table', 'wreck', 'railKit']), J(c1.kinds));
+                           'pillar', 'chair', 'table', 'wreck', 'railKit', 'waterKit']), J(c1.kinds));
       check('§1 1c SCENERY_FRAMES を実行時に読めている (シートと同じキー)',
         J(c1.framesKeys) === J(Object.keys(EXP.sheets)), J(c1.framesKeys));
       /* ★★1d = この節の心臓部。df-mapdef の実装を通さず index.html を独立に計算した

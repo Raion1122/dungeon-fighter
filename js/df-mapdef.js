@@ -751,6 +751,8 @@
     /* ⚠ rail (散布用の縦3変種) とは**別の種**。呼び名で見分けが付くようにしてある
      *   — パレットに「線路 1..3」と「線路(つなぐ) 1..6」が並ぶ。 */
     railKit: "線路(つなぐ)",
+    /* ★STEP 3: 線路と同じ 6 ピース規約でつながるもう 1 種。川・水路を手で引く用。 */
+    waterKit: "水の流れ",
   };
   function propKindLabel(kind) { return PROP_KIND_LABELS[kind] || String(kind); }
 
@@ -878,9 +880,12 @@
    *   rail はタイルに整列していない (hash 散布) ので混ぜると意味が壊れる。 */
 
   var RAIL_KIT_KIND = "railKit";          // ★種キー (index.html の SCENERY_SHEETS と同じ綴り)
+  var WATER_KIT_KIND = "waterKit";        // ★STEP 3: 水の流れ。線路と同じ 6 ピース規約
 
-  /* ★つながる種の一覧 = **ここが唯一の正**。エディタも純関数もこの配列だけを見る。 */
-  var CONNECT_KIT_KINDS = [RAIL_KIT_KIND];
+  /* ★つながる種の一覧 = **ここが唯一の正**。エディタも純関数もこの配列だけを見る。
+   * ⚠ 種を足すのはここへ 1 行だけ。規則 (RAIL_VARIANT_MASKS / フォールバック) の写しは作らない。
+   * ⚠ 並んでいても**互いにはつながらない** (mask は同じ kind しか数えない)。 */
+  var CONNECT_KIT_KINDS = [RAIL_KIT_KIND, WATER_KIT_KIND];
 
   var RAIL_N = 1, RAIL_E = 2, RAIL_S = 4, RAIL_W = 8;
 
@@ -2468,8 +2473,9 @@
      *   connectKitMaskAt(props, tx, ty, kind)     … 上下左右の**同種**だけ → mask
      *   connectKitRelinkAt(props, tx, ty, kind)   … そのタイルの同種を選び直す → 変更数
      *   connectKitRelinkAround(props,tx,ty,kind)  … ★自分 + 4 近傍。エディタが呼ぶのはこれ 1 本
+     * ▼種キー (綴りの唯一の正。index.html の SCENERY_SHEETS と同じ)
+     *   RAIL_KIT_KIND  … "railKit" (線路)  /  WATER_KIT_KIND … "waterKit" (水の流れ)
      * ▼railKit 固定の別名 (既存の呼び口のために残す薄いラッパ。中身は上と同一)
-     *   RAIL_KIT_KIND         … "railKit" (種キー)
      *   RAIL_VARIANT_MASKS    … variant → 接続辺のマスク [5,10,3,6,12,9]
      *                           (N=1 / E=2 / S=4 / W=8)。★全キット共通の並び
      *   railVariantForMask / railKitMaskAt / railKitRelinkAt / railKitRelinkAround
@@ -2481,6 +2487,7 @@
     connectKitRelinkAt: connectKitRelinkAt,
     connectKitRelinkAround: connectKitRelinkAround,
     RAIL_KIT_KIND: RAIL_KIT_KIND,
+    WATER_KIT_KIND: WATER_KIT_KIND,
     RAIL_VARIANT_MASKS: RAIL_VARIANT_MASKS,
     railVariantForMask: railVariantForMask,
     railKitMaskAt: railKitMaskAt,

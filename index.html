@@ -3767,6 +3767,15 @@
         {x:0,y:0,w:512,h:512},    {x:512,y:0,w:512,h:512},  {x:1024,y:0,w:512,h:512},
         {x:1536,y:0,w:512,h:512}, {x:2048,y:0,w:512,h:512}, {x:2560,y:0,w:512,h:512},
       ],
+      /* ── ★つながる水路 (マップエディタ Phase 6 STEP 3)。tools/make_water_kit.py の出力。
+       *    並び順も枠の作り方も上の「つながる線路」と**まったく同じ規約**
+       *    (3072x512 の 512 角セル 6 個 = マス正方形)。
+       *    0:縦(北南) 1:横(東西) 2:北→東 3:東→南 4:南→西 5:西→北。
+       *    ⚠ SCENERY_RECIPES からは参照しない = 既定 6 シナリオは 1 ドットも変わらない。 */
+      waterKit: [
+        {x:0,y:0,w:512,h:512},    {x:512,y:0,w:512,h:512},  {x:1024,y:0,w:512,h:512},
+        {x:1536,y:0,w:512,h:512}, {x:2048,y:0,w:512,h:512}, {x:2560,y:0,w:512,h:512},
+      ],
     };
     // シートメタデータ: src, blocking[variant], displayMax (画面上の最大辺 px)
     //
@@ -3847,9 +3856,17 @@
        *   ⚠ blocking は 6 変種すべて **false**。線路は平置きで上を歩ける (トロッコ cart とは違う)。
        *   ⚠ flat: true = rail と同じ「床に貼り付く装飾」。同じ ty 帯では他の物より先(下)に描く。
        *   ⚠ SCENERY_RECIPES からは**参照しない** = 既定 6 シナリオは 1 ドットも変わらない。 */
-      railKit:{ src: "assets/mine_rail_kit.png", blocking: [false,false,false,false,false,false],
-                displayMax: 96, flat: true,
-                img: new Image(), loaded: false },
+      railKit: { src: "assets/mine_rail_kit.png", displayMax: 96, flat: true,
+                 blocking: [false,false,false,false,false,false], img: new Image(), loaded: false },
+      /* ★つながる水路 (Phase 6 STEP 3)。川・水路・坑道の湧き水を手で引く用。線路と**同じ機構**で
+       *   隣り合った水路どうしが自動でつながる (種が違うので線路とは互いにつながらない)。
+       *   ⭐ displayMax は線路と同じ理由で **96 = TILE_SIZE ちょうど**。ここを動かすと絵は出るのに
+       *     接続点がマス境界から外れて「つながらない」= 例外が 1 つも出ない種類の欠陥になる。
+       *   ⚠ blocking は 6 変種すべて **false** (浅い流れ = 上を渡れる)。
+       *   ⚠ flat: true = 床に貼り付く装飾。同じ ty 帯では他の物より先(下)に描く。
+       *   ⚠ SCENERY_RECIPES からは**参照しない** = 既定 6 シナリオは 1 ドットも変わらない。 */
+      waterKit: { src: "assets/water_kit.png", displayMax: 96, flat: true,
+                  blocking: [false,false,false,false,false,false], img: new Image(), loaded: false },
     };
     for (const [k, s] of Object.entries(SCENERY_SHEETS)) {
       s.img.onload  = () => { s.loaded = true; };

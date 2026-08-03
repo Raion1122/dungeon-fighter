@@ -20,7 +20,7 @@
  *   js/df-mapdef.js   … 接続規則の**唯一の正**。railVariantForMask / railKitMaskAt /
  *                       railKitRelinkAt / railKitRelinkAround (すべて純関数)
  *   map-editor.html   … autoLinkRails() が唯一の呼び口 (置く/動かす/消す/種を差し替える の
- *                       4 経路 6 箇所)、「線路を自動でつなぐ」チェック (既定 ON)、#histBtns の位置
+ *                       4 経路 6 箇所)、「線路・水路を自動でつなぐ」チェック (既定 ON)、#histBtns の位置
  *
  * ■ 何を測るか
  *   §0 装置   公開 API / 検証シーム / DOM / 定数 (assert が空振りしない前提)
@@ -102,8 +102,12 @@ const MUTATIONS = {
   ],
   /* ③ 描画サイズをマス (96) からずらす。→ 絵はそのままだが接続点がマスの境界に来なくなり、
    *    敷いても線がつながって見えない。**数値では例外が 1 つも出ない**種類の欠陥。 */
+  /*    ⚠⚠ STEP 3 で waterKit が同じ書式で並んだので、素の 'displayMax: 96, flat: true,' は
+   *      **2 件ヒットして exit 3 (空振り)** になる。→ index.html 側で各キットの displayMax を
+   *      **種キー + src と同じ行**に置いて一意にし、ここは **railKit 限定の 1 行**を狙う。 */
   dispmax: [
-    ['displayMax: 96, flat: true,', 'displayMax: 128, flat: true,   /* ★変異 */'],
+    ['      railKit: { src: "assets/mine_rail_kit.png", displayMax: 96, flat: true,',
+     '      railKit: { src: "assets/mine_rail_kit.png", displayMax: 128, flat: true,   /* ★変異 */'],
   ],
   /* ④ ユーザー要望② の破壊。DOM 順は正しいまま、CSS の order だけで最後尾へ送る。
    *    → 「DOM を見て安心する」assert では捕まらず、**実描画位置**を測る assert だけが落ちる。 */
@@ -471,10 +475,12 @@ const SCENES = [
       check('§0 0d PROP_KIND_LABELS.railKit = "線路(つなぐ)"', d0.label === '線路(つなぐ)', String(d0.label));
       check('§0 0e ツール "prop" が TOOLS の末尾 (数字キーの割当を既存ツールから奪っていない)',
         d0.tools[d0.tools.length - 1] === 'prop' && d0.tools.length === 9, J(d0.tools));
-      check('§0 0f 「線路を自動でつなぐ」の DOM 2 要素 + 履歴/ツール/canvas の DOM がある',
+      check('§0 0f 「線路・水路を自動でつなぐ」の DOM 2 要素 + 履歴/ツール/canvas の DOM がある',
         Object.keys(d0.dom).every(k => d0.dom[k]), J(d0.dom));
-      check('§0 0g チェックボックスの文言が「線路を自動でつなぐ」',
-        /線路を自動でつなぐ/.test(d0.chkLabel), d0.chkLabel);
+      /* ⚠ STEP 3 で waterKit が同じ機構に乗ったので文言が「線路・水路」に広がった。
+       *   ここは**文言そのもの**を見る assert なので、UI を直したらここも直す (2026-08-04)。 */
+      check('§0 0g チェックボックスの文言が「線路・水路を自動でつなぐ」',
+        /線路・水路を自動でつなぐ/.test(d0.chkLabel), d0.chkLabel);
       check('§0 0h lint() は配列ではなく { errors, warnings } を返す (取り違え防止)',
         d0.lintShape[0] === 'object' && d0.lintShape[1] === true && d0.lintShape[2] === true, J(d0.lintShape));
     }
@@ -503,9 +509,9 @@ const SCENES = [
       /* ⚠ 恒久教訓: グローバルな件数でなく **identity** (キーの明示リスト) で測る。
        *   種を 1 つ足すとここも直す = カタログの identity をコミットに書き残す装置。
        *   ⚠ 同じ identity assert が driver_mapeditor_props §1 1b にもある (2 ファイル 3 箇所)。 */
-      check('§1 1a 種が 12 (既存 7 + Phase6 STEP2 の 4 + STEP2.5 の railKit)',
+      check('§1 1a 種が 13 (既存 7 + Phase6 STEP2 の 4 + STEP2.5 の railKit + STEP3 の waterKit)',
         J(c1.kinds) === J(['grass', 'reed', 'log', 'detail', 'rubble', 'cart', 'rail',
-                           'pillar', 'chair', 'table', 'wreck', 'railKit']), J(c1.kinds));
+                           'pillar', 'chair', 'table', 'wreck', 'railKit', 'waterKit']), J(c1.kinds));
       check('§1 1b railKit が 6 ピース / variant が 0..5 で欠番なし',
         c1.rk.length === 6 && J(c1.rk.map(e => e[0])) === J([0, 1, 2, 3, 4, 5]),
         J(c1.rk.map(e => e[0])));
