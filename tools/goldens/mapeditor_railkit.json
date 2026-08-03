@@ -1,0 +1,15 @@
+{
+  "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_railkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
+  "capturedFrom": {
+    "rev": "f150cfa",
+    "subject": "map-editor/Phase6-2.5: 線路を隣接に合わせて自動でつなぐ(プラレール式)",
+    "dirty": false
+  },
+  "values": {
+    "canvas-L": "e62732c5763fef629cab96388324e88a11bdd4d45c17efe47c074df533810ac8",
+    "canvas-S": "cbab5a99fce04bab34e81ad005ad13faff217036dff06760502c3f82deb0724e",
+    "canvas-X": "4ef27537d2b80ca0090e613b092247fcc737e95b807ab4fa9127915545f4d44a",
+    "canvas-T": "055ac4691135e1fdb87f9414f43aaa27810ab2b0c2710821b64bef9f8cb585bc",
+    "canvas-P6": "044ef1ff3032382436f89cff0bb11aa885e52ed8d5b8c9d125bc6fbbaffeb072"
+  }
+}
