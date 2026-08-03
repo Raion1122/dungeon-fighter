@@ -1753,7 +1753,15 @@ function extractEnemyCatalogNode() {
     E.selectAt(0, 0);                              // 岩盤 = 選択解除
     E.selectSlotAt(0, 0);
     const noSel = { rect: E.getSelection(), slot: E.getSlotSelection() };
+    /* ⚠⚠ css は **exportPNG の直前直後**で測る (ブロック全体の前後では測らない)。
+     *   2026-08-03 に #stage へ ResizeObserver を入れて state.css が実寸へ追随するようになったため、
+     *   間に挟まる selectAt() が #selInfo の文字量を変え → #editbar が折り返し → #stage が縮む、
+     *   という**実際に起きているレイアウト変化**が state.css にも現れるようになった。
+     *   それは exportPNG の副作用ではないので、ここで見るべきは exportPNG 単体の前後だけ。
+     *   (「state.css が実寸へ追随する」こと自体は driver_mapeditor_pointer.js §1 が守る) */
+    const cssA = { w: E.state.css.w, h: E.state.css.h };
     const url1 = E.exportPNG();
+    const cssB = { w: E.state.css.w, h: E.state.css.h };
     const view1 = { x: E.state.view.x, y: E.state.view.y, zoom: E.state.view.zoom };
 
     // ② 部屋を選択した状態 / ③ スロットを選択した状態 → ①と**同一**でなければならない
@@ -1762,7 +1770,9 @@ function extractEnemyCatalogNode() {
     const url2 = E.exportPNG();
     E.selectSlotAt(27, 13);                        // ROOM_SLOTS 先頭 = 敵スロット
     const selSlot = E.getSlotSelection();
+    const cssC = { w: E.state.css.w, h: E.state.css.h };
     const url3 = E.exportPNG();
+    const cssD = { w: E.state.css.w, h: E.state.css.h };
     const after = { rect: E.getSelection(), slot: E.getSlotSelection() };
     const view2 = { x: E.state.view.x, y: E.state.view.y, zoom: E.state.view.zoom };
 
@@ -1781,8 +1791,11 @@ function extractEnemyCatalogNode() {
     const top = Object.keys(seen).sort((a, b) => seen[b] - seen[a]).slice(0, 4).map(k => k + '×' + seen[k]);
     return { head: url1.slice(0, 22), len: url1.length, w: img.width, h: img.height, colors, top,
              same12: url1 === url2, same13: url1 === url3, noSel, selRect, selSlot, after,
-             view0, view1, view2, cssW, cssH,
-             cssNow: { w: E.state.css.w, h: E.state.css.h } };
+             view0, view1, view2, cssW, cssH, cssA, cssB, cssC, cssD,
+             cssNow: { w: E.state.css.w, h: E.state.css.h },
+             // ★state.css が #stage の実寸と一致しているか (ズレるとクリック位置と絵が食い違う)
+             stageNow: { w: document.getElementById('stage').clientWidth,
+                         h: document.getElementById('stage').clientHeight } };
   });
   console.log('[driver] PNG: head=' + png4.head + ' len=' + png4.len + ' 画像=' + png4.w + '×' + png4.h +
               ' 色数=' + png4.colors + ' 上位=' + JSON.stringify(png4.top));
@@ -1793,8 +1806,15 @@ function extractEnemyCatalogNode() {
   check('§4 9b 単色でない (実際に地形が描かれている)', png4.colors >= 4, '色数=' + png4.colors + ' 上位=' + JSON.stringify(png4.top));
   check('§4 9c 書き出し前後で画面の view / css が不変 (画面のズーム・パンに影響しない)',
         eq(png4.view0, png4.view1) && eq(png4.view0, png4.view2) &&
-        png4.cssW === png4.cssNow.w && png4.cssH === png4.cssNow.h,
-        JSON.stringify(png4.view0) + ' → ' + JSON.stringify(png4.view2));
+        eq(png4.cssA, png4.cssB) && eq(png4.cssC, png4.cssD),
+        JSON.stringify(png4.view0) + ' → ' + JSON.stringify(png4.view2) +
+        ' / css ' + JSON.stringify(png4.cssA) + '→' + JSON.stringify(png4.cssB));
+  /* ★9c で落とした「ブロック全体で css 不変」の代わりに、より正しい不変条件を置く。
+   *   state.css が #stage の実寸からズレると、canvas は width/height:100% なので表示だけが
+   *   実寸に追随し、クリック座標は古い座標系で解釈される = 見えているマスと違うマスが編集される。 */
+  check('§4 9c2 ★state.css が #stage の実寸と一致している (クリック位置と絵が食い違わない前提)',
+        png4.cssNow.w === png4.stageNow.w && png4.cssNow.h === png4.stageNow.h,
+        'state.css=' + JSON.stringify(png4.cssNow) + ' / #stage=' + JSON.stringify(png4.stageNow));
   check('§4 9d ★選択リングが焼き込まれない (選択ありでも選択なしと同一 PNG) / 選択自体は書き出し後も残る',
         png4.same12 === true && png4.same13 === true &&
         png4.noSel.rect === null && png4.noSel.slot === null &&

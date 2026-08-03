@@ -231,6 +231,116 @@
     return enemyCatalog;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * テクスチャカタログ (2026-08-03) — エディタで「本編と同じ見た目」を出すための土台
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★敵カタログと**まったく同じ思想**: index.html の SCENARIO_TEX を実行時に読む。
+   *   エディタ側へ写経すると、ゲーム側でテクスチャを差し替えたときに黙って腐り、
+   *   「エディタでは正しいのに本編では違う絵」という最も気づきにくい食い違いになる。
+   *   ユーザーが望んだのは「エディタで本編の見た目を確かめる」ことなので、
+   *   **食い違いはこの機能の存在意義そのものを壊す**。写経は選択肢にない。
+   * ⚠⚠ 未登録テーマのフォールバックは index.html:2976 と**同じ式**にすること
+   *       SCENARIO_TEX[themeId] || SCENARIO_TEX["goblin-mine"]
+   *     ここだけ別の式にすると、未登録テーマでエディタと本編が違う絵になる。
+   * ⚠ 壁セル (値2) の天井スプライト座標も同じ理由で実行時に読む (index.html の SPR_CEILING)。
+   *   こちらは**無くても致命ではない** (壁が単色へ退化するだけ) ので null を許す。
+   * ⚠ 敵カタログとは fetch を共有しない。loadEnemyCatalog は setEnemyCatalog(null) で
+   *   再取得できる契約になっており、本文をメモ化して共有するとその契約が壊れる。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var TEX_CATALOG_URL  = "index.html";
+  var TEX_CATALOG_MARK = "const SCENARIO_TEX = {";
+  var TEX_FALLBACK_ID  = "goblin-mine";               // ★index.html:2976 と同じフォールバック先
+  var CEILING_MARK     = "const SPR_CEILING = ";
+  var texCatalog = null, texCeiling = null, texCatalogError = null, texCatalogPromise = null;
+
+  // index.html のテキストから SCENARIO_TEX を取り出す。失敗は**必ず throw**する
+  // (戻り値 null で握り潰すと silent fail-open になり、書式変更に気づけない)。
+  function parseTextureCatalog(text) {
+    if (typeof text !== "string" || !text) throw new Error("index.html の中身が空です");
+    var i = text.indexOf(TEX_CATALOG_MARK);
+    if (i < 0) throw new Error('index.html に "' + TEX_CATALOG_MARK + '" が見つかりません (書式が変わった可能性)');
+    var body = sliceBalancedBrace(text, i + TEX_CATALOG_MARK.length - 1);
+    if (!body) throw new Error("SCENARIO_TEX の { } が閉じていません");
+    var obj = new Function("return (" + body + ");")();
+    if (!obj || typeof obj !== "object") throw new Error("SCENARIO_TEX がオブジェクトになりません");
+    if (!obj[TEX_FALLBACK_ID]) throw new Error('SCENARIO_TEX に既定テーマ "' + TEX_FALLBACK_ID + '" がありません');
+    var keys = Object.keys(obj), k, v;
+    if (!keys.length) throw new Error("SCENARIO_TEX が空です");
+    for (k = 0; k < keys.length; k++) {
+      v = obj[keys[k]];
+      if (!v || typeof v.floor !== "string" || typeof v.wall !== "string")
+        throw new Error('SCENARIO_TEX["' + keys[k] + '"] に floor / wall (文字列) がありません');
+    }
+    return obj;
+  }
+
+  /* SPR_CEILING = [sx, sy, sw, sh] (tileset.png 内のピクセル座標)。
+   * ⚠ 見つからなくても throw しない。壁が単色へ退化するだけで編集は続けられる。 */
+  function parseCeilingSprite(text) {
+    if (typeof text !== "string") return null;
+    var i = text.indexOf(CEILING_MARK);
+    if (i < 0) return null;
+    var j = text.indexOf("]", i);
+    if (j < 0) return null;
+    var arr;
+    try { arr = new Function("return (" + text.slice(i + CEILING_MARK.length, j + 1) + ");")(); }
+    catch (e) { return null; }
+    if (!arr || arr.length !== 4) return null;
+    for (var k = 0; k < 4; k++) if (typeof arr[k] !== "number") return null;
+    return arr;
+  }
+
+  /* 実行時に取得する。**同一オリジンの index.html を読むだけ**でゲームは 1 行も動かさない。
+   * 戻り Promise は必ず resolve する ({ ok, count, error, url, ceiling })。
+   * ⚠ 失敗しても throw で止めない (テクスチャ無しでも単色表示で編集は続けられる) が、
+   *   **silent fail-open にはしない** (console.warn + 呼び出し側が UI に出す)。 */
+  function loadTextureCatalog(url) {
+    if (texCatalogPromise) return texCatalogPromise;
+    var u = url || TEX_CATALOG_URL;
+    texCatalogPromise = Promise.resolve()
+      .then(function () {
+        if (typeof fetch !== "function") throw new Error("この環境に fetch がありません");
+        return fetch(u, { cache: "no-store" });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status + " (" + u + ")");
+        return res.text();
+      })
+      .then(function (text) {
+        texCatalog = parseTextureCatalog(text);
+        texCeiling = parseCeilingSprite(text);        // null 可 (壁が単色へ退化するだけ)
+        texCatalogError = null;
+        return { ok: true, count: Object.keys(texCatalog).length, error: null, url: u,
+                 ceiling: texCeiling };
+      })
+      .catch(function (e) {
+        texCatalog = null; texCeiling = null;
+        texCatalogError = (e && e.message) ? e.message : String(e);
+        try {
+          console.warn("[map-editor] テクスチャ表 (index.html の SCENARIO_TEX) を取得できませんでした: "
+            + texCatalogError);
+        } catch (_) {}
+        return { ok: false, count: 0, error: texCatalogError, url: u, ceiling: null };
+      });
+    return texCatalogPromise;
+  }
+  function getTextureCatalog()      { return texCatalog; }        // null = 未取得
+  function getTextureCatalogError() { return texCatalogError; }
+  function getCeilingSprite()       { return texCeiling; }        // null = 取得できなかった
+  /* ★index.html:2976 と同じ式。未登録テーマは廃坑テクスチャへ落ちる。 */
+  function texSetFor(themeId) {
+    if (!texCatalog) return null;
+    return texCatalog[themeId] || texCatalog[TEX_FALLBACK_ID] || null;
+  }
+  // 差し替え (検証用)。null でクリア + 次回 load を再実行させる。
+  function setTextureCatalog(cat, ceiling) {
+    texCatalog = (cat && typeof cat === "object") ? cat : null;
+    texCeiling = (ceiling && ceiling.length === 4) ? ceiling : null;
+    texCatalogError = null;
+    texCatalogPromise = null;
+    return texCatalog;
+  }
+
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
   // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
@@ -1429,5 +1539,25 @@
     setEnemyCatalog: setEnemyCatalog,
     enemyDef: enemyDef,
     isKnownEnemyKey: isKnownEnemyKey,
+
+    /* ── テクスチャカタログ (2026-08-03) — エディタの「本編の見た目」表示 ────────
+     *   loadTextureCatalog([url]) … index.html の SCENARIO_TEX を実行時に読む。
+     *                               戻り Promise は必ず resolve ({ok,count,error,url,ceiling})
+     *   texSetFor(themeId)        … { floor, wall, floorScale? } | null
+     *                               ★未登録テーマは "goblin-mine" へ落ちる (index.html:2976 と同式)
+     *   getCeilingSprite()        … 壁セルの天井スプライト [sx,sy,sw,sh] | null
+     *  ⚠⚠ **エディタ側にテクスチャ表を写経しないこと**。写経した瞬間に
+     *    「エディタでは正しいのに本編では違う絵」が発生しうる = この機能の存在意義が壊れる。 */
+    TEX_CATALOG_URL: TEX_CATALOG_URL,
+    TEX_CATALOG_MARK: TEX_CATALOG_MARK,
+    TEX_FALLBACK_ID: TEX_FALLBACK_ID,
+    parseTextureCatalog: parseTextureCatalog,
+    parseCeilingSprite: parseCeilingSprite,
+    loadTextureCatalog: loadTextureCatalog,
+    getTextureCatalog: getTextureCatalog,
+    getTextureCatalogError: getTextureCatalogError,
+    getCeilingSprite: getCeilingSprite,
+    texSetFor: texSetFor,
+    setTextureCatalog: setTextureCatalog,
   };
 })(window);

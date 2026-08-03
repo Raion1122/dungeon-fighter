@@ -186,6 +186,11 @@
      ⚠ 既存の赤 #hudMsg (拒否) / 緑 #hudInfo (成功通知) / lint バッジ とは別チャネル。 */
   #catalogNote { margin-left: auto; color: var(--fg-dim); font-size: 12px; }
   #catalogNote.ng { color: #ffc861; }
+  /* 本編テクスチャの取得状況 (2026-08-03)。★成功時は空文字 = バーの高さを変えない。
+     ⚠ 文字が生えるとバーが折り返して #stage が縮む。ResizeObserver が canvas を
+       追随させるので座標は狂わないが、無駄な再描画は避ける。 */
+  #texNote { color: var(--fg-dim); font-size: 12px; }
+  #texNote.ng { color: #ffc861; }
 
   #lintPanel {
     display: none;                      /* ★既定は非表示。開くと .open で flex になる */
@@ -391,6 +396,11 @@
     <label for="themeSel">テーマ</label>
     <select id="themeSel"></select>
     <label><input type="checkbox" id="bandMaskChk"> 屋外の帯マスク</label>
+    <!-- ★2026-08-03: 床/壁を本編と同じテクスチャで描く。テクスチャの選び方は
+         index.html の SCENARIO_TEX を実行時に読む (エディタ側に写経しない)。
+         外すと従来の単色表示に戻る (1マス単位の編集はこちらの方が見やすい)。 -->
+    <label title="床と壁を本編と同じテクスチャで表示します。テーマごとの画像は index.html から実行時に読み込みます。※レア床(1)だけは本編だと床と同じ絵になるため、編集できるよう薄い色を重ねています (本編には出ません)"><input type="checkbox" id="texPreviewChk" checked> 本編の見た目</label>
+    <span id="texNote" title="テクスチャ表 (index.html の SCENARIO_TEX) の取得状況"></span>
     <span class="sep"></span>
     <button id="btnFit" title="マップ全体が収まるようにズームと位置を戻す">全体表示にリセット</button>
     <button id="btnZoomOut" title="縮小">−</button>
@@ -667,6 +677,14 @@
     // ★enemyBrush (敵の筆) とは**別の器**。名前が似ているだけで用途が違うので混ぜない。
     tileValue: 0,          // ブラシで書き込むタイル値 0=床 / 1=レア床 / 2=壁 (=消しゴム)
     tileSize: 1,           // ブラシ 1辺のタイル数 (1 / 3 / 5)
+    // ── 2026-08-03 追加 (本編の見た目プレビュー) ──
+    // ★true = 床/壁を**本編と同じテクスチャ**で描く。false = 従来の単色。
+    //   ユーザー報告「エディタ上は塗れているが、試遊したときにどう変わっているのか分からない」
+    //   への対処。単色は編集の精度が要るときに戻せるよう残す。
+    // ⚠ exportPNG() は必ずこれを false にして焼く (画像の読み込み待ちで出力が変わらないように)。
+    texPreview: true,
+    texStatus: null,       // { ok, count, error } テクスチャ表の取得結果 (UI 表示用)
+    drewTextured: false,   // 直近の render がテクスチャ経路を通ったか (検証シーム)
   };
 
   var canvas = document.getElementById("editorCanvas");
@@ -678,6 +696,8 @@
     btnLoadPreset: document.getElementById("btnLoadPreset"),
     themeSel:   document.getElementById("themeSel"),
     bandMaskChk:document.getElementById("bandMaskChk"),
+    texPreviewChk: document.getElementById("texPreviewChk"),
+    texNote:       document.getElementById("texNote"),
     mapNameInput:   document.getElementById("mapNameInput"),
     btnSaveLocal:   document.getElementById("btnSaveLocal"),
     localSel:       document.getElementById("localSel"),
@@ -788,18 +808,32 @@
     updateHud();
   }
 
-  // ── リサイズ (devicePixelRatio 対応) ──────────────────────────────────
-  function resizeCanvas() {
+  /* ── リサイズ (devicePixelRatio 対応) ──────────────────────────────────
+   * ⚠⚠ **state.css は #stage の実寸と常に一致していなければならない**。ズレると
+   *   canvas は CSS で width/height:100% なので**表示だけ**が実寸へ追随し、
+   *   backing store と state.css は古い寸法のまま = ブラウザが絵を拡大縮小して表示する。
+   *   その結果 **「見えている位置」と「localPos()→screenToTile() が返すタイル」が食い違い、
+   *   クリックしたマスより上のマスが塗られる**。
+   *   2026-08-03 のユーザー報告 (「床を塗るときだけ 1 個下のマスを指定しないといけない」) の真因。 */
+  function syncCanvasSize() {
     var dpr = window.devicePixelRatio || 1;
     var w = Math.max(1, stage.clientWidth), h = Math.max(1, stage.clientHeight);
+    if (w === state.css.w && h === state.css.h && dpr === state.css.dpr) return false;
     state.css.w = w; state.css.h = h; state.css.dpr = dpr;
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
+    return true;                                        // 戻り true = 実際に寸法が変わった
+  }
+  function resizeCanvas() {
+    syncCanvasSize();
     render();
   }
 
   // ── 全体表示 ─────────────────────────────────────────────────────────
   function fitToView() {
+    // ★測ってから合わせる。起動直後は updateHud() / renderPalette() が走る前に
+    //   resizeCanvas() が呼ばれるので、ここで測り直さないと**古い寸法に合わせて**しまう。
+    syncCanvasSize();
     var g = state.mapDef.grid;
     var worldW = g.w * g.tile, worldH = g.h * g.tile;
     var z = Math.min(state.css.w / worldW, state.css.h / worldH) * 0.96;
@@ -820,9 +854,202 @@
     updateHud();
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * 本編の見た目プレビュー (2026-08-03) — 床/壁を index.html と同じテクスチャで描く
+   * ══════════════════════════════════════════════════════════════════════════
+   * ★動機 (ユーザー報告): 「エディタ上は塗れているが、試遊したときにどう変わっているのか
+   *   分からない」。本編のカメラは 72×28 の地図を 14×8 タイルほどの覗き穴で見る
+   *   (index.html:4257 = compact では約 4 タイル) うえパーティを追うので、塗った地形の
+   *   全体は試遊では**原理的に確認できない**。→ エディタ側を本編と同じ絵にするのが確認手段。
+   *
+   * ★不変条件 (壊すと「エディタでは正しいのに本編では違う」= この機能の意義が消える):
+   *   - ⚠⚠ 使う画像も選び方も **index.html の SCENARIO_TEX から実行時に読む** (写経しない)。
+   *     取得は DFMapDef.loadTextureCatalog / texSetFor が担当し、未登録テーマの
+   *     フォールバックも本編 index.html:2976 と同じ式に揃えてある。
+   *   - ⚠ 床は **ワールド座標アンカーの repeat パターン** (本編 index.html:5529-5552 と同型)。
+   *     scale(zoom) → translate(-view) してから fill する。screen 座標で敷くと
+   *     パン/ズームのたびに模様が泳ぎ、本編とは別の絵になる。
+   *   - ⚠ floorScale は本編 makeFloorPatternSource() と**同じ式**でオフスクリーンへ焼いてから
+   *     パターンにする (caravan-road の 0.45 がこれ。掛け忘れると粒が 2 倍以上になる)。
+   *   - ⚠ 壁セル (値2) は本編 Pass 1a と同じ SPR_CEILING を敷く。
+   *     **北壁の 192px 立面 (wallPattern) は対象外**。あれはカメラの遠近が作る絵で、
+   *     真上から見た本編の壁セルは天井テクスチャそのものなので、俯瞰ではこれが忠実。
+   *   - ⚠ 画像が 1 枚でも未ロードなら**テクスチャを一切描かない** (単色へ丸ごと退化)。
+   *     半端に混ざると「どこまでが本編の絵か」が読めなくなる。
+   *   - ⚠ レア床(1) は本編では床(0) と同じ絵になる。編集できなくなるので、
+   *     テクスチャの上に**薄い色**を重ねて区別だけ残す (本編には無い印であることは
+   *     チェックボックスの説明文で明示する)。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var tex = {
+    themeId: null,          // 今ロードしてある画像がどのテーマのものか
+    pendingTheme: null,     // 読み込み中のテーマ (同じテーマを二重に読まない)
+    floorPattern: null,     // ワールド座標アンカー (translate 後に fill する)
+    ceilPattern: null,      // 壁セル用 = SPR_CEILING を 1 タイルへ焼いたもの
+    ready: false,
+    missing: null,          // 読めなかった画像 (無言にしない)
+  };
+  var texLoadSeq = 0;
+
+  function texLoadImage(src) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };     // ★失敗も resolve (呼び出し側で数える)
+      img.src = src;
+    });
+  }
+
+  /* 本編 makeFloorPatternSource() と同じ式。floorScale が無い / 1 ならそのまま返す。 */
+  function texScaleSource(img, s) {
+    if (!s || s === 1 || !(s > 0)) return img;
+    try {
+      var w = Math.max(1, Math.round(img.naturalWidth * s));
+      var h = Math.max(1, Math.round(img.naturalHeight * s));
+      var c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      var g = c.getContext("2d");
+      g.imageSmoothingEnabled = true;
+      g.imageSmoothingQuality = "high";
+      g.drawImage(img, 0, 0, w, h);
+      return c;
+    } catch (e) { return img; }
+  }
+
+  /* 天井スプライト (tileset.png の 16×16) を 1 タイル (96px) へ焼いてパターンにする。
+   * ★こうすると壁も **1 回の fill** で済む (2000 マスぶんの drawImage を毎フレーム走らせない)。
+   * ⚠ 焼くときだけ imageSmoothingEnabled=false = 本編 index.html:3223 と同じドット感。
+   *   画面へ縮小するときは既定 (平滑化あり) に任せる。エディタは 10% まで引くので、
+   *   ここで平滑化を切ると縮小時にジャギる = 本編と違う印象になる。 */
+  function texBakeCeiling(tileset, spr, tilePx) {
+    if (!tileset || !spr) return null;
+    try {
+      var c = document.createElement("canvas");
+      c.width = c.height = Math.max(1, tilePx);
+      var g = c.getContext("2d");
+      g.imageSmoothingEnabled = false;
+      g.drawImage(tileset, spr[0], spr[1], spr[2], spr[3], 0, 0, c.width, c.height);
+      return c;
+    } catch (e) { return null; }
+  }
+
+  /* 現在の themeId 用のテクスチャを読み込む。テーマが変わったときだけ実際に読み直す。 */
+  function ensureTextures() {
+    if (!state.mapDef) return;
+    var themeId = state.mapDef.themeId;
+    var set = M.texSetFor(themeId);
+    if (!set) return;                                   // カタログ未取得 = 単色のまま (退化)
+    if (tex.themeId === themeId && tex.ready) return;   // このテーマは読み込み済み
+    if (tex.pendingTheme === themeId) return;           // 二重読み込み防止
+    tex.pendingTheme = themeId;
+    var seq = ++texLoadSeq;
+    var tilePx = state.mapDef.grid.tile;
+    Promise.all([
+      texLoadImage("assets/" + set.floor),
+      texLoadImage("assets/tileset.png"),
+    ]).then(function (imgs) {
+      if (seq !== texLoadSeq) return;                   // 途中でテーマが変わった = 古い結果は捨てる
+      tex.pendingTheme = null;
+      var missing = [];
+      if (!imgs[0]) missing.push(set.floor);
+      if (!imgs[1]) missing.push("tileset.png");
+      tex.themeId = themeId;
+      tex.floorPattern = imgs[0]
+        ? ctx.createPattern(texScaleSource(imgs[0], set.floorScale), "repeat") : null;
+      var ceilSrc = texBakeCeiling(imgs[1], M.getCeilingSprite(), tilePx);
+      tex.ceilPattern = ceilSrc ? ctx.createPattern(ceilSrc, "repeat") : null;
+      // ★どちらか欠けたら丸ごと退化させる (半端に混ぜない)
+      tex.ready = !!(tex.floorPattern && tex.ceilPattern);
+      tex.missing = missing.length ? missing.join(" / ")
+                  : (tex.ready ? null : "SPR_CEILING (index.html)");
+      if (tex.missing) {
+        try { console.warn("[map-editor] テクスチャを読めません: " + tex.missing); } catch (_) {}
+      }
+      syncTexNote();
+      render();
+    });
+  }
+
+  /* テクスチャで床/壁を敷く。★呼ぶ前に texActive() が true であることを確認すること。 */
+  function drawTexturedTiles(r0, c0, r1, c1, t) {
+    var z = state.view.zoom, r, c, v, hasRare = false;
+    ctx.save();
+    ctx.scale(z, z);
+    ctx.translate(-state.view.x, -state.view.y);
+    // ① 壁 (2) — 本編 Pass 1a と同じ天井。先に敷いてから床を重ねる
+    ctx.fillStyle = tex.ceilPattern;
+    ctx.beginPath();
+    for (r = r0; r <= r1; r++)
+      for (c = c0; c <= c1; c++)
+        if (state.mapData[r][c] === M.T_WALL) ctx.rect(c * t, r * t, t, t);
+    ctx.fill();
+    // ② 床 (0) と レア床 (1) — 本編と同じ画像・同じ倍率・ワールド座標アンカー
+    ctx.fillStyle = tex.floorPattern;
+    ctx.beginPath();
+    for (r = r0; r <= r1; r++)
+      for (c = c0; c <= c1; c++) {
+        v = state.mapData[r][c];
+        if (v === M.T_WALL) continue;
+        if (v === M.T_RARE) hasRare = true;
+        ctx.rect(c * t, r * t, t, t);
+      }
+    ctx.fill();
+    // ③ レア床の目印 (★本編には無い。テクスチャだと床と見分けが付かず編集できなくなるため)
+    if (hasRare) {
+      ctx.globalAlpha = 0.32;
+      ctx.fillStyle = COL.rare;
+      ctx.beginPath();
+      for (r = r0; r <= r1; r++)
+        for (c = c0; c <= c1; c++)
+          if (state.mapData[r][c] === M.T_RARE) ctx.rect(c * t, r * t, t, t);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  // テクスチャで描くべきか。★exportPNG() は state.texPreview を false にして焼く
+  function texActive() { return !!(state.texPreview && tex.ready); }
+
+  /* 取得状況を 1 行出す。★**無言にしない** = 敵カタログ (#catalogNote) と同じ思想。
+   *   「本編の見た目」に必ずできるとは限らない (file:// / 画像 404 / 書式変更) ので、
+   *   なぜ単色のままなのかが画面から読めるようにする。 */
+  function syncTexNote() {
+    if (!el.texNote) return;
+    var st = state.texStatus;
+    if (!state.texPreview) { el.texNote.textContent = ""; el.texNote.classList.remove("ng"); return; }
+    if (!st) { el.texNote.textContent = "テクスチャ 読込中…"; el.texNote.classList.remove("ng"); return; }
+    if (!st.ok) {
+      /* ⚠ 生の "Failed to fetch" だけを出さない。2026-08-02 に敵カタログで
+       *   まったく同じ形の失敗をユーザーが「仕様」と誤解した前科がある (原因も直し方も
+       *   伝わらない)。fetch が失敗しうる原因は実質 file:// 一択なので名指しする。 */
+      el.texNote.textContent = isFileProtocol()
+        ? "⚠ file:// で開いているため本編のテクスチャを読めません — 「マップエディタを起動.vbs」から開き直すと本編と同じ見た目になります"
+        : "⚠ テクスチャ表を読めません (" + st.error + ") — 単色で表示します";
+      el.texNote.classList.add("ng"); return;
+    }
+    if (tex.missing) {
+      el.texNote.textContent = "⚠ 画像を読めません (" + tex.missing + ") — 単色で表示します";
+      el.texNote.classList.add("ng"); return;
+    }
+    el.texNote.textContent = tex.ready ? "" : "テクスチャ 読込中…";
+    el.texNote.classList.remove("ng");
+  }
+
+  function setTexPreview(on) {
+    state.texPreview = !!on;
+    if (el.texPreviewChk) el.texPreviewChk.checked = state.texPreview;
+    ensureTextures();
+    syncTexNote();
+    render();
+    return state.texPreview;
+  }
+
   // ── 描画 ─────────────────────────────────────────────────────────────
   function render() {
     if (!state.mapDef || !state.mapData) return;
+    /* ★テーマが変わったらここで読み直す。render は編集のたび必ず通るので取りこぼしが無い。
+     *   同じテーマ / 読み込み中なら即 return する軽い関数なので毎フレーム呼んでよい。 */
+    ensureTextures();
     var dpr = state.css.dpr, z = state.view.zoom, t = tileSize();
     var g = state.mapDef.grid;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -838,12 +1065,20 @@
     // 隙間が出ないよう +1px 大きく塗る (端数の丸めで縦横に黒線が走るのを防ぐ)
     var cell = Math.ceil(px) + 1;
 
-    for (var r = r0; r <= r1; r++) {
-      for (var c = c0; c <= c1; c++) {
-        var v = state.mapData[r][c];
-        ctx.fillStyle = (v === M.T_WALL) ? COL.void : (v === M.T_RARE ? COL.rare : COL.floor);
-        var p = worldToScreen(c * t, r * t);
-        ctx.fillRect(Math.floor(p.x), Math.floor(p.y), cell, cell);
+    /* ★2026-08-03: テクスチャが揃っていれば本編と同じ絵で敷く。
+     *   揃っていない (カタログ未取得 / 画像 404 / チェックを外した) ときは従来の単色。
+     *   ⚠ どちらか一方だけを通す = 半端に混ぜない (「どこまでが本編の絵か」が読めなくなる)。 */
+    state.drewTextured = texActive();     // ★検証シーム: どちらの経路を通ったかを残す
+    if (state.drewTextured) {
+      drawTexturedTiles(r0, c0, r1, c1, t);
+    } else {
+      for (var r = r0; r <= r1; r++) {
+        for (var c = c0; c <= c1; c++) {
+          var v = state.mapData[r][c];
+          ctx.fillStyle = (v === M.T_WALL) ? COL.void : (v === M.T_RARE ? COL.rare : COL.floor);
+          var p = worldToScreen(c * t, r * t);
+          ctx.fillRect(Math.floor(p.x), Math.floor(p.y), cell, cell);
+        }
       }
     }
 
@@ -2162,10 +2397,18 @@
     var savedCtx = ctx, savedCss = state.css, savedView = state.view;
     var savedSel = state.selection, savedSlotSel = state.slotSelection;
     var savedLintOverlay = state.lintOverlay;
+    var savedTexPreview = state.texPreview;
     try {
       ctx = off.getContext("2d");
       state.css = { w: off.width, h: off.height, dpr: 1 };
       state.view = { x: 0, y: 0, zoom: PNG_TILE_PX / g.tile };   // ワールド原点 = 画像左上
+      /* ⚠★ 2026-08-03: 本編テクスチャも**必ず外す**。選択リング / lint マーカーと同じ理由に加え、
+       *   画像は非同期に届くので、**読み込み前と後で PNG が変わってしまう** (再現性が消える)。
+       *   ⚠ この代入は次の 2 行より**前**に置くこと。
+       *     driver_mapeditor.js の --mutate keepsel / lintpng が
+       *     「selection=null;+lintOverlay=false;」「lintOverlay=false;+render();」を
+       *     逐語で置換しており、間に行を挟むと**両方が同時に自己失効して exit 3** になる。 */
+      state.texPreview = false;
       state.selection = null; state.slotSelection = null;
       state.lintOverlay = false;
       render();
@@ -2174,6 +2417,7 @@
       ctx = savedCtx; state.css = savedCss; state.view = savedView;
       state.selection = savedSel; state.slotSelection = savedSlotSel;
       state.lintOverlay = savedLintOverlay;
+      state.texPreview = savedTexPreview;
       render();                                        // 画面を元の見え方へ戻す
     }
   }
@@ -2672,6 +2916,7 @@
     state.mapDef.flags.bandMask = el.bandMaskChk.checked;
     rebuildAndRender();
   });
+  el.texPreviewChk.addEventListener("change", function () { setTexPreview(el.texPreviewChk.checked); });
   el.btnFit.addEventListener("click", function () { fitToView(); });
   el.btnZoomIn.addEventListener("click", function () { zoomAt(state.css.w / 2, state.css.h / 2, ZOOM_STEP); });
   el.btnZoomOut.addEventListener("click", function () { zoomAt(state.css.w / 2, state.css.h / 2, 1 / ZOOM_STEP); });
@@ -3026,6 +3271,23 @@
 
   window.addEventListener("resize", resizeCanvas);
 
+  /* ⚠⚠ window resize **だけでは足りない**。#editbar / #filebar / #lintbar / 下部 HUD は
+   *   すべて flex-wrap:wrap で、中の文字が伸びると**折り返して 1 行増える**。
+   *   実測 (2026-08-03 / 1024×768):
+   *     ・自由タイルのバッジが「⬜ 自由タイル OFF」→「🟩 自由タイル ON (1156 文字)」
+   *       になった瞬間に #editbar が 81px → 117px (+36px)
+   *     ・#hudMsg / #hudInfo は :not(:empty) で枠ごと出るので、拒否理由が出ると +4px
+   *   → #stage だけが縮み、canvas の CSS 高さは追随するのに state.css / backing store は
+   *     古いまま = **絵が縦に圧縮されて表示され、クリック座標は古い座標系で解釈される**。
+   *     結果、見えているマスより 1 つ上が塗られる (= 一筆塗った後にだけ起きるので
+   *     「塗りツールだけズレる」ように見える。敵スロットはバーの高さを変えないので無事)。
+   *   window resize は 1 度も起きないため、**ResizeObserver でしか捕まえられない**。
+   * ⚠ resizeCanvas() は #stage の寸法を変えないので観測ループにはならない
+   *   (canvas は width/height:100% = 親に従うだけ)。 */
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(function () { resizeCanvas(); }).observe(stage);
+  }
+
   // ── 起動 ─────────────────────────────────────────────────────────────
   // ?preset=field で屋外プリセットから始める (既定 = ダンジョン 2 部屋)。
   var qs = new URLSearchParams(location.search);
@@ -3082,6 +3344,20 @@
     computeLint();          // 未知キー検査が有効になった状態で計算し直す
     render();
     updateHud();            // 項目3: 敵種の表示 (名前が引けるようになった) を出し直す
+    return r;
+  });
+
+  /* ── テクスチャ表の取得 (2026-08-03) ────────────────────────────────────────
+   * 敵カタログと**同じ形**で index.html の SCENARIO_TEX を実行時に読む。
+   * ★読めなくてもエディタは通常どおり動く (従来の単色表示に退化するだけ) が、
+   *   **silent fail-open にしない** = console.warn (§A 側) + #texNote に 1 行。
+   * ⚠ 敵カタログとは別 fetch。共有すると setEnemyCatalog(null) → 再取得 の契約が壊れる。 */
+  syncTexNote();
+  var texCatalogReady = M.loadTextureCatalog().then(function (r) {
+    state.texStatus = r;
+    ensureTextures();       // ★カタログが届いて初めて「どの画像を読むか」が決まる
+    syncTexNote();
+    render();
     return r;
   });
 
@@ -3293,6 +3569,40 @@
     bakeTiles: bakeTiles,
     clearTiles: clearTiles,
     tilesInfo: tilesInfo,
+
+    /* ── 2026-08-03: 本編の見た目プレビュー ────────────────────────────────────
+     *   setTexPreview(on) … 床/壁を本編テクスチャで描くか。戻りは適用後の真偽
+     *   texInfo()         … { on, ready, themeId, missing, status, floorSrc, ceiling,
+     *                         drewTextured } ← drewTextured = 直近の render が
+     *                         テクスチャ経路を通ったか (単色との取り違え検出用)
+     *   texReady          … 起動時のテクスチャ表取得を待つ Promise ({ok,count,error,url})
+     *  ⚠ exportPNG() は必ず texPreview=false で焼く (画像の到着で PNG が変わらないように)。 */
+    setTexPreview: setTexPreview,
+    /* 読み込み済みのテクスチャを捨てて取り直す。テーマが同じでも必ず読み直す。
+     * ★ドライバが M.setTextureCatalog() で別の表を差し込んだ後に使う (退化の検証)。 */
+    reloadTextures: function () {
+      tex.themeId = null; tex.pendingTheme = null; tex.ready = false;
+      tex.floorPattern = null; tex.ceilPattern = null; tex.missing = null;
+      ensureTextures();
+      render();
+      return true;
+    },
+    texInfo: function () {
+      var set = state.mapDef ? M.texSetFor(state.mapDef.themeId) : null;
+      return {
+        on: !!state.texPreview,
+        ready: !!tex.ready,
+        active: texActive(),
+        themeId: tex.themeId,
+        missing: tex.missing,
+        status: state.texStatus,
+        floorSrc: set ? set.floor : null,
+        floorScale: set ? (set.floorScale || 1) : null,
+        ceiling: M.getCeilingSprite(),
+        drewTextured: state.drewTextured,
+      };
+    },
+    texReady: texCatalogReady,
   };
 })();
 </script>
