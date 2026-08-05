@@ -1324,6 +1324,49 @@
     .hydra-emerge { animation: hydraEmerge 0.85s ease-out; }
 
     /* Sce2 隠し要素: 鉄檻オブジェクト (残影の獣を閉じ込めている、2タイル分=192px) */
+    /* ══ [sce1-events] 縛られた従者 (EV-5 の横穴 / EV-9 の玉座) ═════════════════
+     * 檻 (.roomCage) と同型の「タイルに固定された装飾 DOM」。敵でも味方でもないので
+     * 戦闘ロジック・クリア判定・当たり判定には一切載らない (pointer-events も殺す)。
+     * ⚠ 暫定: 専用の「縛られた」素材が届くまで servant_walk.png の row3 col0 を静止で使い、
+     *   縄は CSS (::before = 吊り縄 / ::after = 胴の縛め) で足している。素材が届いたら
+     *   background-image を差し替えて .sce1Captive::before/::after を消すだけで済む。 */
+    .sce1Captive {
+      width: 96px; height: 96px;
+      position: absolute;
+      z-index: 3;
+      background-image: url("assets/servant_walk.png");
+      background-size: 576px 384px;   /* 96px セル 6列 × 4行 */
+      background-position: 0 -288px;  /* row 3 (右向き実データ) の col 0 = 静止コマ */
+      image-rendering: pixelated;
+      pointer-events: none;
+      filter: brightness(0.86) saturate(0.85) drop-shadow(0 0 6px rgba(0,0,0,0.7));
+      transform-origin: 50% 6%;       /* 吊られている前提で頭上を支点に揺らす */
+      animation: sce1CaptiveSway 3.4s ease-in-out infinite;
+    }
+    @keyframes sce1CaptiveSway {
+      0%, 100% { transform: rotate(-1.6deg); }
+      50%      { transform: rotate(1.6deg); }
+    }
+    /* 胴の縛め: 細い縄を 2 本、胴の幅だけに回す (両状態で共通)。
+     * ⚠ 幅と位置は素材の実測に合わせてある — pack 時の fit が left=30 / right=67 なので、
+     *   セル内で身体が占めるのは x=30〜67 の 37px。ここを外すと縄が身体から浮く。 */
+    .sce1Captive::after {
+      content: ""; position: absolute; left: 39px; width: 17px; top: 55px; height: 3px;
+      background: linear-gradient(180deg,
+        rgba(171,142,92,0.95) 0 1px, rgba(96,72,40,0.95) 1px 100%);
+    }
+    /* 玉座の脇: 天井から垂らされた縄で吊るされている。
+     * ⚠ height は頭 (セル内 y≈34) まで届かせる — 途中で切ると縄が宙に浮いて見える。 */
+    .sce1Captive.hanging::before {
+      content: ""; position: absolute; left: 48px; top: -40px; width: 3px; height: 76px;
+      background: linear-gradient(180deg, rgba(150,126,84,0.2), rgba(196,166,110,0.95));
+    }
+    /* 横穴: 縛られて壁際に座らされている (吊られていないので揺れない) */
+    .sce1Captive.bound {
+      animation: none;
+      transform: none;
+      filter: brightness(0.8) saturate(0.8) drop-shadow(0 0 6px rgba(0,0,0,0.75));
+    }
     .roomCage {
       width: 192px;
       height: 192px;
@@ -11827,6 +11870,17 @@
           cage.el.style.top  = (wy - camY) + "px";
         }
       }
+      // [sce1-events] 縛られた従者 (檻と同じくタイル中心へカメラ追従で配置。96px = 1 マス)
+      if (sce1CaptiveEl) {
+        if (sce1CaptiveState === "gone" || sce1CaptiveState === "none") {
+          sce1CaptiveEl.style.display = "none";
+        } else {
+          const cs = sce1CaptiveSpot();
+          sce1CaptiveEl.style.display = "block";
+          sce1CaptiveEl.style.left = (cs.tx * TILE_SIZE + TILE_SIZE / 2 - 48 - camX) + "px";
+          sce1CaptiveEl.style.top  = (cs.ty * TILE_SIZE + TILE_SIZE / 2 - 48 - camY) + "px";
+        }
+      }
       // 罠 (発見済みのみ表示。発動済みは薄暗く残す)
       if (typeof traps !== "undefined") {
         for (const trap of traps) {
@@ -20127,6 +20181,77 @@
       return _sce1ServantSpot;
     }
 
+    // ══ [sce1-events] 「縛られた従者」を盤面に見せる ═══════════════════════════
+    // ★2026-08-06 実機フィードバック:「急にぱっと PT メンバーに入るので、助けた感がなくて。
+    //   つかまっている絵があると、伝わると思うのだけど。」
+    //   → 救出**前**の姿を盤面に置く。器は檻 (spawnCages / createCageDom) と同型の
+    //     **タイル固定の装飾 DOM**。敵でも味方でもないので、戦闘・イニシアチブ・
+    //     クリア判定 (checkDungeonClear)・当たり判定のどれにも 1 つも載らない。
+    // 状態遷移: "tunnel"(横穴で縛られている) → "throne"(見捨てられ玉座へ運ばれた) → "gone"
+    //   ⚠ tunnel → throne は **2 経路**要る:
+    //     ① EV-5 で「迂回する」を選んだ時 (ナレ「坑道の奥へ引きずられていく音」と同期させる)
+    //     ② EV-9 が発火した時 — EV-5 に**一度も近づかずに**ボス部屋へ直行できるため。
+    //        ②が無いと横穴に置き去りの人形が残り、玉座の「縄で吊るされた人影」と矛盾する。
+    //   ⚠ "gone" は救出だけでなく**人質の死亡**でも入る (縄から落ちた = もう吊るされていない)。
+    let sce1CaptiveEl = null;
+    let sce1CaptiveState = "none";   // none / tunnel / throne / gone
+
+    function initSce1Captive() {
+      // ★生成クエストや他シナリオでは 1 要素も作らない。
+      // ⚠ 書式は `{ return; }` で固定 — ドライバの変異N7 が
+      //   `if (!isGoblinMineScenario()) return;` を**部分一致**で探すので、素の書式だと
+      //   2 箇所ヒットして負のコントロールが空振り扱い (exit 3) になる。
+      if (!isGoblinMineScenario()) { return; }
+      if (sce1CaptiveEl) return;
+      const el = document.createElement("div");
+      el.className = "sce1Captive bound";
+      el.id = "sce1Captive";
+      document.body.appendChild(el);
+      sce1CaptiveEl = el;
+      sce1CaptiveState = "tunnel";
+    }
+
+    // 玉座の脇。★ボス個体の実座標から導く (絶対タイルの直書きはマップを動かすと壁に埋まる)。
+    //   候補を北西→北→北東→南西→東 の順に見て、部屋内かつ非壁の最初のタイルを採る。
+    let _sce1ThroneCaptiveSpot = null;
+    function sce1ThroneCaptiveSpot() {
+      if (_sce1ThroneCaptiveSpot) return _sce1ThroneCaptiveSpot;
+      const r = sce1BossRoomRect();
+      let bx = Math.floor((r[1] + r[3]) / 2), by = Math.floor((r[0] + r[2]) / 2);
+      const bi = sce1GrixIdx();
+      if (bi >= 0) {
+        const b = enemies[bi], s = (b.def && b.def.displaySize) || 96;
+        bx = Math.floor((b.x + s / 2) / TILE_SIZE);
+        by = Math.floor((b.y + s / 2) / TILE_SIZE);
+      }
+      const cand = [[bx - 1, by - 1], [bx, by - 1], [bx + 1, by - 1], [bx - 1, by + 1], [bx + 1, by]];
+      for (const [tx, ty] of cand) {
+        if (ty >= r[0] && ty <= r[2] && tx >= r[1] && tx <= r[3] && !isTileWall(tx, ty)) {
+          _sce1ThroneCaptiveSpot = { tx, ty };
+          return _sce1ThroneCaptiveSpot;
+        }
+      }
+      _sce1ThroneCaptiveSpot = { tx: bx, ty: by };   // 全滅時はボス位置 (描画されるだけで無害)
+      return _sce1ThroneCaptiveSpot;
+    }
+
+    // 今どこに居るか。★救出時の湧き位置もここから引く = 「縛られていた場所から走ってくる」。
+    function sce1CaptiveSpot() {
+      return (sce1CaptiveState === "throne") ? sce1ThroneCaptiveSpot() : sce1ServantSpot();
+    }
+    function moveSce1CaptiveToThrone() {
+      if (sce1CaptiveState !== "tunnel") return false;
+      sce1CaptiveState = "throne";
+      if (sce1CaptiveEl) sce1CaptiveEl.className = "sce1Captive hanging";   // 座らされ → 吊るされ
+      return true;
+    }
+    function hideSce1Captive() {
+      if (sce1CaptiveState === "gone" || sce1CaptiveState === "none") return false;
+      sce1CaptiveState = "gone";
+      if (sce1CaptiveEl) sce1CaptiveEl.style.display = "none";
+      return true;
+    }
+
     // 従者の参戦。★手順は executeSummon (9813) の写しだが、決定的に 2 行だけ違う:
     //   ・a.isSummon を立てない  ・summonSlot に代入しない
     //   = 闇市の召喚枠 (1体) を食わない。従者は通常コンパニオン扱い。
@@ -20143,7 +20268,18 @@
       if (gameOver) return false;
       if (!CLASS_DEFS.servant) return false;
       servantJoined = true;
-      const a = createAlly("servant", playerX - 40, playerY + 40);
+      // ★湧き位置は「縛られていた場所」。既存の仲間追従でパーティまで自分の足で走ってくる
+      //   = 助けた実感が絵として出る (2026-08-06 実機フィードバック)。
+      //   ⚠ エンカウンター検出はリーダー (playerX/playerY) からの距離しか見ない
+      //     (detectEnemiesEngagedByRange) ので、玉座の脇に湧かせても戦闘は始まらない。
+      //   ⚠ 盤面に姿が無い状態 (none/gone) ならプレイヤーの真横 = 従来の挙動へフォールバック。
+      let sx = playerX - 40, sy = playerY + 40;
+      if (sce1CaptiveState === "tunnel" || sce1CaptiveState === "throne") {
+        const s = sce1CaptiveSpot(), ds = CLASS_DEFS.servant.displaySize || 96;
+        sx = s.tx * TILE_SIZE + TILE_SIZE / 2 - ds / 2;
+        sy = s.ty * TILE_SIZE + TILE_SIZE / 2 - ds / 2;
+      }
+      const a = createAlly("servant", sx, sy);
       a.zone = "rear";                       // 弱いので前に出さない
       allies.push(a);                        // ★isSummon / summonSlot は触らない = 召喚枠を食わない
       createAllyDom(a, allies.length - 1);
@@ -20154,6 +20290,9 @@
     function rescueServant() {
       sceneFlags.servant_rescued = true;
       const joined = joinServantAlly();
+      // ⚠ 順序厳守: 縛られた姿を消すのは **参戦の後**。joinServantAlly が湧き位置を
+      //   sce1CaptiveState から引くので、先に消すと湧き位置がプレイヤーの真横へ戻る。
+      hideSce1Captive();   // ★救出で縄の姿を消す (行末コメントは変異N28 の一致キー)
       showBanner("🤝 従者を助け出した!", 1800);
       // updateInfo は renderPartyStatuses まで回る = 加入した従者の枠がこの瞬間に描かれる
       updateInfo(joined
@@ -20224,6 +20363,9 @@
       if (!spec) {                    // ★判定なし(確定) = SkillCheck を 1 度も呼ばない
         skillCheckActive = false;
         // servant_rescued は false のまま (代入もしない = 他分岐で立った真を後から潰さない)
+        // ★縛られた姿を玉座の脇へ移す。下のナレ「坑道の奥へ引きずられていく音」と同じ意味を
+        //   盤面でも起こす = 玉座で見つけたときに「あの時の人だ」と分かる。
+        moveSce1CaptiveToThrone();
         showBanner("🚶 横穴を迂回した", 1500);
         updateInfo(`${getLeaderName()} は呻き声に背を向けた。声はやがて途切れ、坑道の奥へ引きずられていく音だけが残った。`);
         showDMMessage("罠かもしれない——その判断は、たぶん間違っていない。だが君たちが去ったあと、あの声は奥の広間へ運ばれていった。", 3200);
@@ -20477,6 +20619,7 @@
         updateInfo(`グリクスは縄ごと ${nm} を引き寄せた! ${dmg} ダメージを肩代わり (人質 ${hostageServantHp}/${SCE1_HOSTAGE_HP_MAX})`);
       } else if (!hostageDownNarrated) {
         hostageDownNarrated = true;
+        hideSce1Captive();                   // ★縄から崩れ落ちた = 吊るされた姿はもう無い
         showBanner("🕯 人質が倒れた…", 1800);
         updateInfo(`${nm} は最後の一撃を肩代わりして崩れ落ちた — グリクスはもう盾を持たない`);
         sayLine("sce1_hostage_down");        // 話者=生存パーティ (従者はユニットではないので喋れない)
@@ -20600,6 +20743,9 @@
 
     async function runGrixEvent(ev) {
       skillCheckActive = true;   // 選択中も知覚/開錠/罠解除パネルと相互排他
+      // ★横穴に置き去りのままボス部屋へ直行した場合の受け皿 (EV-5 に一度も近づかない道がある)。
+      //   救出済なら sce1CaptiveState は既に "gone" なので何も起きない = 空の縄の見出しと整合する。
+      moveSce1CaptiveToThrone();   // ★EV-9 側の受け皿 (行末コメントは変異N30 の一致キー)
       let choice = null;
       try {
         choice = await showCharChoice(
@@ -27969,6 +28115,7 @@
     initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
     initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
     spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
+    initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 

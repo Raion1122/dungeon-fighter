@@ -67,6 +67,11 @@
  *     N25  | 候補0 のラベルを未救出のまま固定する            | G4b
  *     N26  | 判定パネルの一文を未救出のまま固定する          | G4c
  *     N27  | スプライト配線を片方だけ旧流用へ戻す            | S20
+ *     N28  | 救出しても縛られた姿を消さない                  | C3
+ *     N29  | 従者の湧き位置をプレイヤーの真横へ戻す          | C5
+ *     N30  | EV-9 発火時に姿を玉座へ移さない                 | C4
+ *   ⭐ N28/N29/N30 は 2026-08-06 の「急にぱっと PT メンバーに入るので、助けた感がない」への
+ *     対応 (縛られた姿を盤面に置く) を、**消える / 走ってくる / 玉座へ移る** の 3 つに割って測る。
  *   ⭐ N24/N25/N26 は 2026-08-06 の iOS 実機フィードバック (「従者を助けた後なのに、
  *     グリクス戦で人質解放を要求してくる」) の再発防止。破綻は **ラベル / 一文 / 演出と報酬**
  *     の 3 箇所に独立して居たので、検出器も 3 つに割って独立に落ちることを実測する
@@ -219,6 +224,20 @@ const MUTATIONS = [
    *     CLASS_DEFS.servant.sprite は緑のまま (= 別配線) なので、S20 が両方を見ている意味が出る。 */
   ['      servant:       [ { walk: \'url("assets/servant_walk.png")\', walkSize: "576px 384px", attack: \'url("assets/servant_attack.png")\', attackSize: "480px 384px", label: "商人の従者" } ],',
    '      servant:       [ { walk: \'url("assets/cleric_npcmale_walk.png")\', walkSize: "576px 384px", attack: \'url("assets/cleric_npcmale_attack.png?v=2")\', attackSize: "480px 384px", label: "商人の従者" } ],   /* ★変異N27 */'],
+  /* ── 「縛られた従者」の可視化 (2026-08-06 実機フィードバック「助けた感がない」) ─────
+   *   ⭐ 3 つの独立した振る舞い (消える / 走ってくる / 玉座へ移る) を別々に壊す。 */
+  /* N28: 救出しても縛られた姿を消さない。→ C3 が赤くなるはず (助けたのに縄が残る)。
+   *   ⚠ 一致は **部分一致** なので `      hideSce1Captive();` だけだと人質死亡側の
+   *     `        hideSce1Captive();` にも刺さって 2 箇所ヒット (exit 3) になる。行末コメントで割る。 */
+  ['      hideSce1Captive();   // ★救出で縄の姿を消す (行末コメントは変異N28 の一致キー)',
+   '      void 0;   /* ★変異N28 */'],
+  // N29: 湧き位置を旧実装 (プレイヤーの真横) へ戻す。→ C5 が赤くなるはず。
+  ['      if (sce1CaptiveState === "tunnel" || sce1CaptiveState === "throne") {',
+   '      if (false) {   /* ★変異N29 */'],
+  // N30: EV-9 発火時の受け皿を外す。→ C4 が赤くなるはず (横穴に置き去りのまま玉座で語られる)。
+  //   ⚠ N28 と同じ理由で行末コメントで割る (EV-5 迂回側の同名呼び出しに部分一致するため)。
+  ['      moveSce1CaptiveToThrone();   // ★EV-9 側の受け皿 (行末コメントは変異N30 の一致キー)',
+   '      void 0;   /* ★変異N30 */'],
 ];
 let _mutCache = null;
 function mutatedSources() {
@@ -671,6 +690,7 @@ function ev2Detectors(Q) {
  *   ⚠ summonSlot はオブジェクトなので evaluate の戻り値に**そのまま乗せない**
  *     (DOM 参照を含むため構造化クローンで死ぬ)。'null' / 'set' の文字列へ畳んで返す。 */
 async function ev5Prepare(page) {
+  await page.evaluate(CAPTIVE_PROBE_SRC);   // ★観測関数をページへ生やす (ev5/ev9 で共有)
   return page.evaluate(() => {
     gameStarted = true; gameOver = false;
     encounterActive = false; encounterRunning = false;
@@ -762,9 +782,31 @@ async function ev5State(page) {
       // 従者を除いた既存メンバーの HP (罠の代償を測る母集団)
       allyHps: allies.filter(a => a.classKey !== 'servant').map(a => a.hp),
       log: combatLogLines.slice(-16).map(l => l.msg),
+      // ★「縛られた従者」の可視化 (2026-08-06)。装飾 DOM なので敵にも味方にも数えられない
+      ...window.captiveProbe(last),
     };
   });
 }
+/* 縛られた従者の観測。★ev5State / ev9State が同じ物差しを共有する (別々に書くと必ずズレる)。
+ *   ⚠ page.evaluate の中で評価されるので、この関数本体もページへ注入する必要がある
+ *     → ev5Prepare / ev9Prepare で window.captiveProbe として生やす。 */
+const CAPTIVE_PROBE_SRC = `window.captiveProbe = function (last) {
+  var st = (typeof sce1CaptiveState !== 'undefined') ? sce1CaptiveState : null;
+  var el = (typeof sce1CaptiveEl !== 'undefined') ? sce1CaptiveEl : null;
+  var spot = (st === 'tunnel' || st === 'throne') ? sce1CaptiveSpot() : null;
+  var ds = (CLASS_DEFS.servant && CLASS_DEFS.servant.displaySize) || 96;
+  return {
+    captiveState: st,
+    captiveClass: el ? el.className : null,
+    captiveDisplay: el ? el.style.display : null,
+    captiveInDom: !!(el && document.body.contains(el)),
+    captiveSpot: spot,
+    tunnelSpot: sce1ServantSpot(),
+    playerTile: { tx: Math.floor((playerX + 48) / TILE_SIZE), ty: Math.floor((playerY + 58) / TILE_SIZE) },
+    lastTile: last ? { tx: Math.floor((last.x + ds / 2) / TILE_SIZE),
+                       ty: Math.floor((last.y + ds / 2) / TILE_SIZE) } : null,
+  };
+};`;
 /* 従者を取り除き「参戦前」へ戻す (分岐網羅用)。⚠ 製品コードのラッチは触らずに済ませたいが、
  *   servantJoined は 1 潜行に 1 回しか通らない設計なので、driver 側で明示的に解く。 */
 async function ev5Reset(page, force) {
@@ -777,6 +819,12 @@ async function ev5Reset(page, force) {
     }
     servantJoined = false;
     sceneFlags.servant_rescued = false;
+    // ★縛られた従者も「まだ横穴に居る」へ戻す。救出/迂回で状態が進むので、これを戻さないと
+    //   2 本目以降の枝が前の枝の姿勢 (throne / gone) を引きずり、湧き位置の測定が意味を失う。
+    if (typeof sce1CaptiveState !== 'undefined') {
+      sce1CaptiveState = 'tunnel';
+      if (sce1CaptiveEl) { sce1CaptiveEl.className = 'sce1Captive bound'; sce1CaptiveEl.style.display = 'block'; }
+    }
     summonSlot = null;
     gameOver = false;
     hp = maxHp;
@@ -968,6 +1016,28 @@ function ev5Detectors(R) {
      *   片方だけ直すと getSpriteSet がもう片方の旧シートを返し、歩きと攻撃で別人になる。
      *   ⚠ 「専用シートである」ことは **NPC 僧侶シートを参照していない** ことで測る
      *     (旧流用の再発を直接禁じる。ファイル名を焼き込むだけだと改名で自己失効する)。 */
+    /* ── ★「縛られた従者」の可視化 (2026-08-06 実機フィードバック) ─────────────
+     *   C1 は **U1 (Esc = 未決)** の観測を使う = まだどの枝も通っていない初期状態。 */
+    C1: { label: '★EV-5: 潜行開始時から「縛られた従者」が横穴に見えている (装飾 DOM・bound 姿勢)',
+          ok: R.afterCancel.captiveState === 'tunnel' && R.afterCancel.captiveInDom === true
+              && /\bbound\b/.test(String(R.afterCancel.captiveClass))
+              && !!R.afterCancel.captiveSpot
+              && R.afterCancel.captiveSpot.tx === R.afterCancel.tunnelSpot.tx
+              && R.afterCancel.captiveSpot.ty === R.afterCancel.tunnelSpot.ty,
+          got: 'state=' + R.afterCancel.captiveState + ' class=' + R.afterCancel.captiveClass
+               + ' spot=' + JSON.stringify(R.afterCancel.captiveSpot)
+               + ' tunnel=' + JSON.stringify(R.afterCancel.tunnelSpot) },
+    C2: { label: '★EV-5: 迂回すると姿が玉座の脇へ移る (bound → hanging・ナレの「運ばれていった」と同期)',
+          ok: R.afterAvoid.captiveState === 'throne'
+              && /\bhanging\b/.test(String(R.afterAvoid.captiveClass))
+              && !!R.afterAvoid.captiveSpot
+              && !(R.afterAvoid.captiveSpot.tx === R.afterAvoid.tunnelSpot.tx
+                   && R.afterAvoid.captiveSpot.ty === R.afterAvoid.tunnelSpot.ty),
+          got: 'state=' + R.afterAvoid.captiveState + ' class=' + R.afterAvoid.captiveClass
+               + ' spot=' + JSON.stringify(R.afterAvoid.captiveSpot) },
+    C3: { label: '★EV-5: 救出すると縛られた姿は消える (state=gone・display:none)',
+          ok: okState.captiveState === 'gone' && okState.captiveDisplay === 'none',
+          got: 'state=' + okState.captiveState + ' display=' + okState.captiveDisplay },
     S20: { label: '★EV-5: 従者は専用シート (servant_*) を 2 箇所とも参照し、実 DOM にも載っている',
            ok: okState.defSprite === 'assets/servant_walk.png'
                && /servant_walk\.png/.test(String(okState.variantWalk))
@@ -996,6 +1066,7 @@ function ev5Detectors(R) {
  *   ★ダメージは `boss.hp -= n` で与える。これは 40 箇所ある実ダメージ経路が**全て通る**
  *     唯一の合流点 (= hp への代入) そのものなので、この駆動は実戦の経路と等価。 */
 async function ev9Prepare(page) {
+  await page.evaluate(CAPTIVE_PROBE_SRC);   // ★ev5 と同じ物差しを EV-9 側でも使う
   return page.evaluate(() => {
     gameStarted = true; gameOver = false;
     encounterActive = false; encounterRunning = false;
@@ -1086,6 +1157,7 @@ async function ev9State(page) {
       pendingSurprise: sce1PendingSurprise,
       armed: hostageRedirectArmed, hostageHp: hostageServantHp, redirects: hostageRedirectCount,
       log: combatLogLines.slice(-12).map(l => l.msg),
+      ...window.captiveProbe(allies.length ? allies[allies.length - 1] : null),
     };
   });
 }
@@ -1094,6 +1166,15 @@ async function ev9Rearm(page, force) {
     SCE1_EVENTS[2].fired = false; SCE1_EVENTS[2].declined = false;
     window.__ev9.calls.length = 0; window.__ev9.force = !!f;
     sce1GrixOutcome = null;
+    /* ★縛られた従者を「まだ横穴に居る」へ戻す。
+     *   ⚠⚠ これが無いと C4/C5 が測れない: V0 (Redirect の合成シーケンス) は途中で
+     *      **人質を削り切る** ので、製品コードの narrateHostageRedirect が正しく
+     *      hideSce1Captive() を呼び、以降の全枝で state が "gone" のまま固まる。
+     *      「人質が死んだら姿も消える」は仕様どおりなので、壊れているのは driver の順序の方。 */
+    if (typeof sce1CaptiveState !== 'undefined') {
+      sce1CaptiveState = 'tunnel';
+      if (sce1CaptiveEl) { sce1CaptiveEl.className = 'sce1Captive bound'; sce1CaptiveEl.style.display = 'block'; }
+    }
     enemies.forEach(e => { e.inactive = true; });
     dialogPaused = false; skillCheckActive = false;
   }, force);
@@ -1254,6 +1335,8 @@ async function ev9Run(page, tag) {
 
   // V6 選択0 成功 (未救出 DC15) → rescueServant で昇格 + 従者参戦
   await ev9Rearm(page, true);
+  // ★救出の**前**に吊るされていた座標を控える (救出後は state=gone で captiveSpot が null になる)。
+  G.throneSpotAtRescue = await page.evaluate(() => sce1ThroneCaptiveSpot());
   G.dlg6 = await ev2WaitDialog(page, 5000);
   if (G.dlg6) { await ev2Click(page, 0); await ev9Settle(page); }
   G.afterPersuadeOk = await ev9State(page);
@@ -1413,6 +1496,28 @@ function ev9Detectors(G) {
      *     ・ボスの HP は 1 も動かない (直前 V6 の値と一致)
      *     ・従者が二重参戦しない (allies が増えない)
      *   ⚠ 直前の V6 (未救出の説得成功) を「before」として使う = 部屋の敵数を動かさない操作。 */
+    /* ── ★「縛られた従者」の可視化 (EV-9 側) ─────────────────────────────────
+     *   ⚠ このページは EV-5 を fired=true で封じてある = **横穴に一度も近づかない道**。
+     *     それでも玉座で吊るされていなければ「縄で吊るされた人影」の見出しと矛盾する。 */
+    C4: { label: '★EV-9: 横穴に近づかずボス部屋へ直行しても、姿は玉座の脇へ移っている',
+          ok: G.afterCharge.captiveState === 'throne'
+              && /\bhanging\b/.test(String(G.afterCharge.captiveClass))
+              && !!G.afterCharge.captiveSpot,
+          got: 'state=' + G.afterCharge.captiveState + ' class=' + G.afterCharge.captiveClass
+               + ' spot=' + JSON.stringify(G.afterCharge.captiveSpot) },
+    /* ★救出された従者は「縛られていた場所」から湧く = 自分の足でパーティまで走ってくる。
+     *   ⚠ 湧いた直後から仲間追従で動き出すので、タイル一致ではなく **±1 タイルの許容**で見る。
+     *   ⚠ 「プレイヤーの真横に湧いていない」ことを**距離で**も測る (許容だけだと素通りする)。 */
+    C5: { label: '★EV-9: 救出された従者は縛られていた場所 (玉座の脇) に湧く (真横に瞬間発生しない)',
+          ok: !!G.afterPersuadeOk.lastTile && !!G.throneSpotAtRescue
+              && Math.abs(G.afterPersuadeOk.lastTile.tx - G.throneSpotAtRescue.tx) <= 1
+              && Math.abs(G.afterPersuadeOk.lastTile.ty - G.throneSpotAtRescue.ty) <= 1
+              && Math.max(
+                   Math.abs(G.afterPersuadeOk.lastTile.tx - G.afterPersuadeOk.playerTile.tx),
+                   Math.abs(G.afterPersuadeOk.lastTile.ty - G.afterPersuadeOk.playerTile.ty)) >= 4,
+          got: 'servant=' + JSON.stringify(G.afterPersuadeOk.lastTile)
+               + ' throne=' + JSON.stringify(G.throneSpotAtRescue)
+               + ' player=' + JSON.stringify(G.afterPersuadeOk.playerTile) },
     G18: { label: '★EV-9: 救出済の説得成功は「再解放」ではなく護衛が 1 体だけ戦わずに減る',
            ok: G.afterRescuedPersuade.outcome === 'persuade_ok_rescued'
                && G.afterPersuadeOk.roomCount - G.afterRescuedPersuade.roomCount === 1
@@ -1544,6 +1649,16 @@ const GEN_QUEST = {
   check('(4d) 母集団ガード: 生成クエスト側でも土台自体は生きている',
     PG.typeofSceneFlags === 'object' && PG.err === null && eq(PG.flagKeys, ['mine_alerted', 'servant_rescued']),
     'flags=' + JSON.stringify(PG.flagKeys) + ' err=' + PG.err);
+  // ★縛られた従者は goblin-mine 専用。生成クエストでは DOM を **1 要素も作らない**
+  //   (「見えていない」ではなく「作られていない」で測る = 隠しただけの実装を落とす)。
+  const genCaptive = await gen.page.evaluate(() => ({
+    state: (typeof sce1CaptiveState !== 'undefined') ? sce1CaptiveState : '(absent)',
+    el: (typeof sce1CaptiveEl !== 'undefined' && sce1CaptiveEl) ? 'created' : 'null',
+    domCount: document.querySelectorAll('.sce1Captive').length,
+  }));
+  check('(4e) ★生成クエストでは「縛られた従者」の DOM を 1 要素も作らない',
+    genCaptive.state === 'none' && genCaptive.el === 'null' && genCaptive.domCount === 0,
+    JSON.stringify(genCaptive));
   await gen.page.close();
   mark('scenario gate verified (goblin-mine vs generated-quest)');
 
@@ -1829,6 +1944,13 @@ const GEN_QUEST = {
     'allies=' + RM.afterAthlFail.allies + '/' + RM.alliesBefore);
   check('(N11) ★変異N11 (EV-5 の判定なし枠を潰す) で S5「選択2 で SkillCheck 未呼出」が赤くなる',
     SM.S5.ok === false && RM.afterAvoid.calls.length === 1, SM.S5.got);
+  check('(N28) ★変異N28 (救出しても縛られた姿を消さない) で C3 が赤くなる',
+    SM.C3.ok === false && RM.afterPerceptOk.captiveState !== 'gone', SM.C3.got);
+  /* ⚠ 「隣」に C2 (迂回で玉座へ移る) を使ってはいけない。C2 は変異N11 (EV-5 の判定なし枠を
+   *   候補0 の判定へ落とす) と**同じ分岐に同居**しており、N11 側の作用で必ず赤くなる。
+   *   同居する変異を跨いで独立性を主張すると、その assert は嘘になる。 */
+  check('(N28-隣) 変異N28 は外科的: 初期配置 (C1 = 横穴に縛られて見えている) は緑のまま',
+    SM.C1.ok === true, 'C1=' + SM.C1.got);
   check('(N27) ★変異N27 (スプライト配線を片方だけ旧流用へ戻す) で S20 が赤くなる',
     SM.S20.ok === false && /cleric_npcmale_walk/.test(String(RM.afterPerceptOk.variantWalk)),
     SM.S20.got);
@@ -1919,6 +2041,13 @@ const GEN_QUEST = {
     && ((GM.afterRescuedPersuade.calls || [])[0] || {}).flavor
        === ((GM.afterPersuadeOk.calls || [])[0] || {}).flavor,
     GMD.G4c.got);
+  check('(N30) ★変異N30 (EV-9 発火時に玉座へ移さない) で C4 が赤くなる',
+    GMD.C4.ok === false && GM.afterCharge.captiveState === 'tunnel', GMD.C4.got);
+  check('(N29) ★変異N29 (湧き位置をプレイヤーの真横へ戻す) で C5 が赤くなる',
+    GMD.C5.ok === false && !!GM.afterPersuadeOk.lastTile
+    && Math.max(Math.abs(GM.afterPersuadeOk.lastTile.tx - GM.afterPersuadeOk.playerTile.tx),
+                Math.abs(GM.afterPersuadeOk.lastTile.ty - GM.afterPersuadeOk.playerTile.ty)) <= 1,
+    GMD.C5.got);
   check('(N26-母集団) 変異側でも候補0 は実際に押せている (押し損ねで空振りしていない)',
     GM.clicked7 === true && (GM.afterRescuedPersuade.calls || []).length === 1,
     'clicked7=' + GM.clicked7 + ' calls=' + JSON.stringify(GM.afterRescuedPersuade.calls));
