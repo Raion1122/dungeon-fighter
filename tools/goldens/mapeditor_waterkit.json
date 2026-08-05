@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_waterkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "ea3a11c",
-    "subject": "map-editor/Phase6-3: 水路の絵をハイブリッド(AI水面+コード幾何)で作り直し「管」を解消",
+    "rev": "38c53b7",
+    "subject": "map-editor/Phase6-3: 水際に小石を散らして「管」の読みを消す(ユーザー提案)",
     "dirty": true
   },
   "values": {
     "game-goblin-mine": "72691d0f309cdfab60548d4ff279539b4d7c15fc71c35f3847bffc4d2b87e881",
-    "canvas-V": "51fe8bab7d1468603dc544603b194e6b221beeb1d5630301f8d923fa6ee15c6d",
-    "canvas-L": "0358aabce1f50886b8c2e82fd10e2abb6638199e7a25a3f10cc8efe4ddf1d41d",
-    "canvas-X": "185a8ec86d32740c4570ba98b5ca2643095cfb8bd9ad4123708b5852575563b2",
-    "canvas-T": "dcbf8dff9f622a75be7a6b5b66125607560b5d0b62934aeb4a6c08aebc383ca0",
-    "canvas-P6": "2077f614ca5cc9700e3940f989a34b9facc17bf50967d467d0018111802d0922"
+    "canvas-V": "7d6ea1aa2933cd850b08509e9a8761fe6109b892a1464f8ef7cc4ed2cd006792",
+    "canvas-L": "ebe0e219d72b7981e1f9a2b9d49e64625485189eed8ddf1cee12544073f85f38",
+    "canvas-X": "e2796636c2f4e5f5fcbcba0bd5e2eba65ae6a7e3bcf7ea75714687dba2345ec3",
+    "canvas-T": "8628e58baa133f7ac271b3930c8f77ed7e7e054de33a2faad62994365cbb2d49",
+    "canvas-P6": "8b13bd445f48bbb8c47dd895ac2168ce29652c17db081c8cf28f789697bf9053"
   }
 }

@@ -168,9 +168,16 @@ COL_GLINT = (146.0, 186.0, 184.0)   # 波頭のきらめき
 #    ⛔ offset を岸側 (正) へ伸ばすな (α が薄い岸に乗ると茶床に沈んで灰色の点になる)
 #    ⛔ 水中側に**広く**散らすこと。狭くすると石が縁に一列に並んで
 #      今度は「明るい輪」= やはり円柱のハイライトに見える
-PEBBLE_N = 24                 # 1 セル (= 512 素材px = 表示 96px) あたりの個数
-PEBBLE_R = (3.0, 9.5)         # 半径 (素材px)。3.4〜10.6cm の砂利に相当
+PEBBLE_N = 18                 # 1 セル (= 512 素材px = 表示 96px) あたりの個数
+PEBBLE_R = (4.0, 16.0)        # 半径 (素材px)。表示 1.5〜6.0px = 24〜95cm の石
+                              #   ⚠ 2026-08-05 に (3.0, 9.5) から拡大した。旧値は
+                              #     表示 1.1〜3.6px で **縮小に溶けてほとんど見えず**、
+                              #     大きい数個だけが孤立した点 = リベットに見えていた。
+                              #   ⛔ これ以上増やす (N30 R5-13 / N42 R4-11) と石が
+                              #     **連なって「明るい輪」**になり円柱のハイライトへ逆戻り (実測)。
 PEBBLE_OFFSET = (-30.0, 3.0)  # 水際 w1 からのずれ。負 = 水中側 / 正 = 岸側
+                              #   ⛔ 岸側 (正) を 10 以上に伸ばすと石が縁に並んで
+                              #     やはり「輪」になる (2026-08-05 に 10 / 13 で実測)
 PEBBLE_MIX = 0.75             # 石の面の混ぜ量
 PEBBLE_SUBMERGED = 0.95       # 水中の石は水を透かすので少しだけ淡くする倍率
 PEBBLE_SHADE = 0.10           # 接地の暗い輪 (⛔ 上げるとリベットになる)
@@ -184,11 +191,51 @@ COL_PEBBLE = (138.0, 128.0, 110.0)  # 濡れた小石 (明るい灰褐色)
 #    ⚠ ここを動かすと --check-only の期待表 (中点 ±水面幅/2) も一緒に動く。
 WATER_HALF = 80.0
 EDGE_HALF = 110.0
-WOBBLE_MAX = 14.0             # 岸の輪郭のゆらぎ (定規で引いた直線にしないため)
+# ⚠⚠ うねりの振幅は **w1 (水面の縁) と w2 (岸の外縁) で別の定数**にしてある。
+#   w1 は α=255 の帯を決めるので PROBE と連動する (上げたら PROBE を必ず見直す)。
+#   w2 は α が 1→0 に落ちる外側だけを動かすので **PROBE には一切影響しない**
+#   ＝ 岸の輪郭は w1 を触らずに好きなだけ崩せる。動くのは ink_lo/ink_hi だけ。
+WOBBLE_MAX = 14.0             # 水面の縁 w1 のゆらぎ (⚠ PROBE と連動)
+BANK_WOBBLE_MAX = 14.0        # 岸の外縁 w2 のゆらぎ (PROBE に無関係)
+# ⛔⛔ **うねりの振幅を上げてはいけない** (2026-08-05 に 14/20/26/34 を 6倍 NEAREST で実測)。
+#   うねりは s だけの関数なので **左右が同時に太り、同時に括れる** ＝ 幅の変動が
+#   そのまま「膨らみと括れ」になり、**ソーセージ (連結した管) に見えて逆効果**。
+#   振幅に比例して悪化した (34 が最悪)。低周波に寄せる (5,11,23) のも同じ理由で改悪。
+# ⚠⚠ かといって「細かく波打たせる」も効かない。octave の格子数は **表示 Nyquist で
+#   頭打ち**になるため: 表示倍率 96/512=0.1875 なので cells=N の周期は 96/N 表示px。
+#   **cells 24 で 4 表示px** が実用下限、cells 48 以上 (2 表示px 以下) は縮小で
+#   完全に平均化され **1 ドットも効かない**。
+# ⭐ ＝ **ミラー対称の制約下では「輪郭線をうねらせて管を消す」ことは原理的に不可能**。
+#   輪郭を崩すのは下の EDGE_FRAY (α の外縁を 2D 細粒でほつれさせる) が担当する。
+WATER_OCTAVES = ((5, 0.50), (13, 0.32), (29, 0.18))
+BANK_OCTAVES = ((7, 0.48), (17, 0.34), (31, 0.18))
 WATERLINE_SIG = 3.6           # 水際の暗線の幅 (素材 px。表示で約 1.4px)
 WATERLINE_DEPTH = 0.55        # 暗線の濃さ (0 = 無し / 1 = COL_WATERLINE そのもの)
 SHALLOW_FROM = 0.74           # q(=|d|/w1) がこれを超えたら浅瀬の明るみを混ぜる
 SHALLOW_MIX = 0.34            # 浅瀬の混ぜ量 (大きくすると断面が再び「管」に近づく)
+
+# ── ⭐⭐ 岸の外縁の「ほつれ」(2026-08-05)。輪郭線を消すための唯一の手 ──────────
+#    岸を横切る進み p (0=水際 / 1=完全透明) に **2 次元の細粒ノイズ**を足して
+#    α の等値線を崩す。輪郭が「定規で引いた線」でなくなるので管の縁に読めない。
+#    ⭐ うねり (幅の変動) との決定的な違い: うねりは s だけの関数なので左右が
+#      **同時に**太り「ソーセージ」になるが、ほつれは 2〜5 表示px の粒なので
+#      **鏡像であることが目で判別できない** = 同期した膨らみに読めない
+#      (GRAIN・チェブロン波紋と同じ「対称でも人工的に見えない」構造)。
+#    ⚠ p を動かすので **α の外縁位置が動く** = report_edges の水路幅 (ink) が広がる。
+#      ink_lo/ink_hi は EDGE_FRAY から自動で計算してある。不透明幅 (op) と中心は
+#      w1 側だけで決まるので **1px も動かない** = PROBE も CENTER_TOL も無関係。
+#    ⚠ s 方向の格子数は周期 CELL でループするので継ぎ目は安全。u 方向は clamp。
+EDGE_FRAY_OCT = ((14, 12, 0.55), (29, 26, 0.45))  # (s 格子, u 格子, 重み)
+EDGE_FRAY = 0.42              # p に足す振幅。岸幅 30px の 42% = ±12.6 素材px
+# ⭐⭐⭐ **見た目の輪郭は w2 (茶床との境界) ではなく w1 (青と岸の境界 + 水際の暗線)**。
+#    2026-08-05 の実測で判明: w2 だけほつれさせても青い帯は一定幅の直線のままで、
+#    「管」の読みが残った。そこで **色の境界だけを同じほつれで崩す** ことにした。
+#    ⭐ w1e は `np.where(u <= w1e, water, bank)` と水際の暗線にしか使わない。
+#      **α は今までどおり w1 で決まる** ので不透明幅・中心・PROBE・CENTER_TOL は
+#      1px も動かない = 幾何を一切触らずに絵の輪郭だけを壊せる (これが要点)。
+#    ⚠ 水面側に泥が、岸側に水が斑点として食い込むが、これは浅瀬・泥だまりとして
+#      正しく読める (むしろ「掘れた流れ」の手がかりになる)。
+WATERLINE_FRAY = 14.0         # 見た目の水際 w1e のほつれ幅 (素材px。表示 ±2.6px)
 
 PX_CM = 2.982                 # 物差し: キャラ体高 57px = 1.70m → 1px ≒ 2.98cm
 TILE_PX = 96                  # 本編/エディタのタイル (= displayMax)
@@ -210,11 +257,13 @@ OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 # ── 検算のしきい値 ────────────────────────────────────────────────────────
 OPAQUE = 250                  # 「不透明」とみなす α
 PROBE = 60.0                  # 中点 ±PROBE に不透明画素があること
-                              #   = 水面幅/2 (80) からゆらぎ (14) と余裕 (6) を引いた値
+                              #   = 水面幅/2 (80) から **w1 の** ゆらぎ (WOBBLE_MAX 14) と
+                              #     余裕 (6) を引いた値。BANK_WOBBLE_MAX とは無関係。
 CENTER_TOL = 2.0              # 不透明帯の中心が辺の中点からずれてよい量 (px)
-OPAQUE_SHOULDER = 12          # α>=OPAQUE の帯は水面より少しはみ出す。その許容幅。
+OPAQUE_SHOULDER = 16          # α>=OPAQUE の帯は水面より少しはみ出す。その許容幅。
                               #   α は w1 の外側で 255*(1-smooth(p)) と落ちるので
-                              #   250 に達するのは w1 + 0.081*(w2-w1) 付近 = 片側最大 5px。
+                              #   250 に達するのは w1 + 0.082*(w2-w1) 付近。
+                              #   w2-w1 の最大 = (110+26)-(80-14) = 70 → 片側 5.7 = 両側 11.4。
 # ⚠⚠ 継ぎ目は **α (幾何) と RGB (絵) を分けて測る**。旧版は RGBA をまとめた max 1 つで
 #    測っていたが、AI の筆致テクスチャでは **1 行ぶんの絵の変化だけで max が 79** になり、
 #    しかも「ループ化を切る」負のコントロールの方が max 27 と小さくなった (実測)。
@@ -291,16 +340,18 @@ def _along(rng: random.Random, s: np.ndarray, octaves) -> np.ndarray:
     return acc / max(norm, 1e-9)
 
 
-def _wobble(rng: random.Random, s: np.ndarray, octaves) -> np.ndarray:
-    """(格子数, 振幅比) の列から ±WOBBLE_MAX に収まるうねりを合成する。
+def _wobble(rng: random.Random, s: np.ndarray, octaves, wmax: float) -> np.ndarray:
+    """(格子数, 振幅比) の列から ±wmax に収まるうねりを合成する。
 
-    ⚠ 高周波の octave が要る。接続辺は必ず s=0/512 なので **幅は全継ぎ目で同一**
+    ⚠ 中域の octave が要る。接続辺は必ず s=0/512 なので **幅は全継ぎ目で同一**
       になり、低周波だけだと 1 タイルに 1 個の膨らみ = 数珠つなぎに見える。
+    ⚠⚠ ただし cells を上げても表示 Nyquist で頭打ちになる (BANK_OCTAVES の注)。
+      「もっと細かく」は効かないので、崩したいときは wmax を上げること。
     """
     acc = np.zeros_like(s)
     for cells, ratio in octaves:
-        acc += (WOBBLE_MAX * ratio) * (2.0 * _noise1(rng, s, cells) - 1.0)
-    return np.clip(acc, -WOBBLE_MAX, WOBBLE_MAX)
+        acc += (wmax * ratio) * (2.0 * _noise1(rng, s, cells) - 1.0)
+    return np.clip(acc, -wmax, wmax)
 
 
 def _pebbles(rng: random.Random, s: np.ndarray, u: np.ndarray,
@@ -483,8 +534,8 @@ def build_source() -> np.ndarray:
 
     # 岸の輪郭のうねり。水面の縁と岸の外縁で **別のノイズ** を使う (完全な相似形に
     # すると「一定断面を押し出した管」に見えるため)。どちらも周期 CELL。
-    w1 = WATER_HALF + _wobble(rng, s, ((5, 0.50), (13, 0.32), (29, 0.18)))
-    w2 = EDGE_HALF + _wobble(rng, s, ((7, 0.48), (17, 0.34), (31, 0.18)))
+    w1 = WATER_HALF + _wobble(rng, s, WATER_OCTAVES, WOBBLE_MAX)
+    w2 = EDGE_HALF + _wobble(rng, s, BANK_OCTAVES, BANK_WOBBLE_MAX)
     w2 = np.maximum(w2, w1 + 6.0)          # 岸が水面へ食い込まないための下限
 
     # AI テクスチャの平均色を COL_WATER へ寄せる。**偏差はそのまま残す** ので
@@ -523,15 +574,28 @@ def build_source() -> np.ndarray:
     water = water + (np.asarray(COL_GLINT, dtype=np.float64) - water) \
         * (GLINT_MIX * crest)[:, :, None]
 
+    # ⭐⭐ 岸の外縁のほつれ。p を 2D 細粒で崩すと α の等値線がぐにゃぐにゃになり、
+    #     「定規で引いた輪郭」= 管の縁という読みが消える (EDGE_FRAY の設計メモ参照)。
+    #     ⚠ rng の消費はここ。_pebbles より前・波紋より後 (順序を変えると絵が変わる)。
+    fray = np.zeros_like(u)
+    fnorm = 0.0
+    for cs, cu, ratio in EDGE_FRAY_OCT:
+        fray += ratio * (2.0 * _noise2(rng, s, u, cs, cu) - 1.0)
+        fnorm += ratio
+    fray = fray / max(fnorm, 1e-9)              # [-1, +1] 目安
+
     # 岸: 濡れた泥 → 乾いた泥。α は 1 → 0。
-    p = np.clip((u - w1) / (w2 - w1), 0.0, 1.0)
+    p = np.clip((u - w1) / (w2 - w1) + EDGE_FRAY * fray, 0.0, 1.0)
     bank = _lerp3(COL_WET, COL_BANK, _smooth(p)) * (1.0 + 0.26 * lum)[:, :, None]
 
-    rgb = np.where((u <= w1)[:, :, None], water, bank)
+    # ⭐⭐ **見た目の**水際。α は w1 のままなので幾何は 1px も動かない
+    #     (WATERLINE_FRAY の設計メモ参照)。青い帯の縁が直線でなくなるのが要点。
+    w1e = w1 + WATERLINE_FRAY * fray
+    rgb = np.where((u <= w1e)[:, :, None], water, bank)
 
     # ⭐ 水際の細い暗線。**リアルに見えるかどうかの主役**なので水側/岸側の
     #    両方にまたがって当てる (実際の水縁は濡れて暗く落ちる)。
-    line = np.exp(-(((u - w1) / WATERLINE_SIG) ** 2))
+    line = np.exp(-(((u - w1e) / WATERLINE_SIG) ** 2))
     rgb = rgb + (np.asarray(COL_WATERLINE, dtype=np.float64) - rgb) \
         * (WATERLINE_DEPTH * line)[:, :, None]
 
@@ -546,8 +610,11 @@ def build_source() -> np.ndarray:
 
     rgb = _prefilter_rgb(rgb)          # 見えない高域を落として PNG を小さくする
 
+    # ⚠ 旧版にあった `alpha = np.where(u <= w2, alpha, 0.0)` は **削除した**。
+    #   p は u が大きくなれば必ず 1 へクランプされて α=0 になるので冗長なうえ、
+    #   残すと w2 でシャープに切られて **ほつれが外側へ出られない** (無意味になる)。
+    #   セル西端が透明であること (_verify_source の far チェック) は p のクランプが保証する。
     alpha = np.where(u <= w1, 255.0, 255.0 * (1.0 - _smooth(p)))
-    alpha = np.where(u <= w2, alpha, 0.0)
     rgb = np.where((alpha > 0.0)[:, :, None], rgb, 0.0)
 
     out = np.empty((CELL, CELL, 4), dtype=np.float64)
@@ -708,9 +775,12 @@ def report_edges(sheet: np.ndarray) -> bool:
     lo_i = int(round(mid - PROBE))
     hi_i = int(round(mid + PROBE))
     op_lo = 2.0 * (WATER_HALF - WOBBLE_MAX) - 4.0                    # 132 - 4 = 128
-    op_hi = 2.0 * (WATER_HALF + WOBBLE_MAX) + OPAQUE_SHOULDER        # 188 + 12 = 200
-    ink_lo = 2.0 * (EDGE_HALF - WOBBLE_MAX) - 4.0                    # 192 - 4 = 188
-    ink_hi = 2.0 * (EDGE_HALF + WOBBLE_MAX) + 4.0                    # 248 + 4 = 252
+    op_hi = 2.0 * (WATER_HALF + WOBBLE_MAX) + OPAQUE_SHOULDER        # 188 + 16 = 204
+    # ⚠ 水路幅は **BANK_WOBBLE_MAX** と **EDGE_FRAY** で決まる (w1 の WOBBLE_MAX ではない)。
+    #   ほつれは α を外へ広げも内へ引っ込めもするので両側に見込む。
+    fray_px = EDGE_FRAY * (EDGE_HALF - WATER_HALF)                   # 0.42 * 30 = 12.6
+    ink_lo = 2.0 * (EDGE_HALF - BANK_WOBBLE_MAX - fray_px) - 4.0     # 166.8 - 4 = 162.8
+    ink_hi = 2.0 * (EDGE_HALF + BANK_WOBBLE_MAX + fray_px) + 4.0     # 301.2 + 4 = 305.2
 
     print(f"  期待: 接続辺 = 中点{mid:.1f} ±{PROBE:.0f} が α>={OPAQUE} / "
           f"不透明幅 {op_lo:.0f}..{op_hi:.0f} / 水路幅 {ink_lo:.0f}..{ink_hi:.0f} / "
