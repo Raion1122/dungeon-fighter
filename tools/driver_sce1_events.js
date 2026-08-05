@@ -16,6 +16,15 @@
  *   §8 EV-5   接近3択 / 判定なし枠は SkillCheck を呼ばない /
  *             ★成功でも失敗でも救出は成立する (代償は HP のみ) = シナリオ1 の感情的な芯 /
  *             ★召喚枠 (summonSlot) を食わない / 失敗時は既存の罠ダメージ経路を通る
+ * 【項目 4 = EV-9「玉座のグリクス」+ ボス戦への接続】
+ *   §9 EV-9   配置(ボス部屋の入口・全敵の交戦距離の外) / 3択 /
+ *             ★救出済で変わるのは文面と DC だけ・選択肢は 1 つも消えない (§4.1 原則) /
+ *             ★Esc は突撃扱い (declined にしない = 入口で止まると詰むため) /
+ *             選択0 成功で servant_rescued へ昇格 / 失敗でボス初期HP +20% /
+ *             選択1 成功で先制ラウンド (★既存の不意打ち機構 applySurpriseStun を共有) /
+ *             選択1 失敗で配下 +2 /
+ *             ★Redirect (人質の従者を盾にする): 未救出で発動しうる・救出済で 1 回も発動しない・
+ *               人質が死んだら以降は発動しない / エピローグ 3 分岐がリザルトに出る
  *   §E pageerror 0
  *   §N ★負のコントロール (同一 run に内包)
  *
@@ -42,6 +51,22 @@
  *     N9   | 従者参戦で summonSlot も奪う                    | S12 (召喚枠を食わない)
  *     N10  | 罠作動 (applyServantTrapDamage) を no-op に     | S14 (失敗の代償=HP が減る)
  *     N11  | EV-5 の判定なし枠を「候補0の判定」へ落とす      | S5  (選択2 で SkillCheck 未呼出)
+ *     N12  | 肩代わりしてもボスの HP を一緒に減らす          | G12 (ボス HP は 1 も減らない)
+ *     N13  | Esc を declined (何もしない) に戻す             | G7  (Esc が突撃扱い)
+ *     N14  | 不意打ちの唯一の付与点 applySurpriseStun を空に | G10 **と** G10b が同時に
+ *     N15  | arm 側の「救出済なら仕掛けない」を外す          | G13a
+ *     N16  | setter 側の「救出済なら発動しない」を外す       | G13b
+ *     N17  | 「人質が死んだら発動しない」を外す              | G14
+ *     N18  | エピローグの「人質生存」分岐を潰す              | G16 (3分岐の出し分け)
+ *     N19  | DC を救出状況で変えない (常に 15)               | G5  (救出済で DC13)
+ *     N20  | ★救出済のとき選択肢を 1 つ消す (§4.1 違反)     | G4
+ *     N21  | ボス HP の上方修正を消す                        | G9
+ *     N22  | 見抜かれた時の配下 +2 を 0 体に                 | G11
+ *     N23  | EV-9 の判定なし枠を「候補0の判定」へ落とす      | G6
+ *   ⭐ N14 が本項目で最も重要な負のコントロール: **1 つの変異が G10 (EV-9 の奇襲) と
+ *     G10b (第7弾「隠密の接近」) を同時に殺す** = EV-9 が新しい先制機構を作らず、
+ *     既存の付与点をそのまま共有していることの実測 (別配線なら片方しか落ちない)。
+ *   ⭐ N15/N16 も外科的: 「仕掛けるか」と「発動するか」は別のガードなので独立に落ちる。
  *   ⭐ N8/N10 も外科的: 同じ「1 失敗」分岐に同居しているのに、救出成立 (S13) と
  *     HP の代償 (S14) が独立に落ちる = 「救出を判定運で折らない」が本当に別配線であることの実測。
  *   ⭐ N1/N2 は「狙った検出器だけ」が赤くなり、隣の検出器 (D3 servant_rescued / D6 非在籍 0)
@@ -120,6 +145,53 @@ const MUTATIONS = [
   // N11: EV-5 の「判定なし(確定)」枠を候補0の判定へ落とす。→ S5 が赤くなるはず。
   ['      const spec = SCE1_SERVANT_CHECKS[choice] || null;',
    '      const spec = SCE1_SERVANT_CHECKS[choice] || SCE1_SERVANT_CHECKS[0];   /* ★変異N11 */'],
+  // ── 項目4 (EV-9 + ボス戦への接続) ─────────────────────────────────────────
+  /* N12: 肩代わりの**芯**だけを壊す — 人質は削るのにボスの HP も一緒に減らす
+   *      (= 肩代わりになっていない)。→ G12「ボス HP は 1 も減らない」が赤くなるはず。
+   *   ⚠ 当初は SCE1_REDIRECT_CHANCE を 0 にしていたが、それだとページ全体で Redirect が
+   *     一度も走らなくなり、**N16/N17 の負のコントロールまで観測不能になる** (実測で 2 件空振り)。
+   *     負のコントロールは「他の負のコントロールの母集団」を壊さないものを選ぶこと。 */
+  /* ⚠ 置換後の文字列に置換前の文字列を**含めない** (M1 の「変異前が消えたか」検査が
+   *   部分一致で誤検知する)。よって `++` ではなく `+= 1` で書き換える。 */
+  ['          hostageRedirectCount++;',
+   '          shadow = v; hostageRedirectCount += 1;   /* ★変異N12 */'],
+  // N13: Esc を「何もしない (declined)」に戻す。→ G7 (Esc が突撃扱い) が赤くなるはず。
+  ['      if (viaEsc) choice = 2;   // ★Esc = 突撃扱い。declined は立てない (入口で止まれると詰む)',
+   '      if (viaEsc) { ev.declined = true; skillCheckActive = false; return; }   /* ★変異N13 */'],
+  // N14: ★不意打ちの唯一の付与点 applySurpriseStun を no-op に。
+  //      → G10 (EV-9 の奇襲) と G10b (第7弾「隠密の接近」) が **同時に** 赤くなるはず。
+  //      これが「EV-9 が新機構を作らず既存の不意打ち機構を共有している」ことの実測そのもの。
+  ['        if (enemies[i] && enemies[i].alive) { enemies[i].stunned = Math.max(enemies[i].stunned || 0, 1); n++; }',
+   '        if (enemies[i] && enemies[i].alive) { n++; }   /* ★変異N14 */'],
+  // N15: arm 側の「救出済なら仕掛けない」ガードを外す。→ G13a が赤くなるはず。
+  ['      if (sceneFlags.servant_rescued) return false;   // ★救出済 = 人質が居ない = 仕掛けない',
+   '      if (false) return false;   /* ★変異N15 */'],
+  // N16: setter 側の「救出済なら発動しない」ガードを外す。→ G13b が赤くなるはず。
+  //      N15 とは別配線 (仕掛けるか / 発動するか) なので、片方ずつ独立に落ちる。
+  ['          if (sceneFlags.servant_rescued) { shadow = v; return; }                // ★救出済 = 人質が居ない = 一切発動しない',
+   '          if (false) { shadow = v; return; }   /* ★変異N16 */'],
+  // N17: 「人質が死んだら以降は発動しない」ガードを外す。→ G14 が赤くなるはず。
+  ['          if (hostageServantHp <= 0) { shadow = v; return; }                     // ★従者が死んだら以降は発動しない',
+   '          if (false) { shadow = v; return; }   /* ★変異N17 */'],
+  // N18: エピローグの「人質生存」分岐を潰す。→ G16 (3分岐の出し分け) が赤くなるはず。
+  ['      if (hostageServantHp > 0) return `🤝 縄を断たれた ${nm} は、戦いの喧噪に紛れて坑道の外へ逃げ延びた。`;',
+   '      if (false) return null;   /* ★変異N18 */'],
+  // N19: DC を救出状況で変えない (常に 15)。→ G5 (救出済で DC13) が赤くなるはず。
+  ['      return sceneFlags.servant_rescued ? SCE1_GRIX_DC_RESCUED : SCE1_GRIX_DC_HOSTAGE;',
+   '      return SCE1_GRIX_DC_HOSTAGE;   /* ★変異N19 */'],
+  // N20: ★§4.1 原則違反の注入 — 救出済のとき選択肢を 1 つ**消す**。→ G4 が赤くなるはず。
+  //      消すのは候補1 (候補0 は G5 の DC 測定に使うので残す = 検出器を独立に保つ)。
+  ['            { label: "積荷を渡すふりをする" },',
+   '            ...(sceneFlags.servant_rescued ? [] : [{ label: "積荷を渡すふりをする" }]),   /* ★変異N20 */'],
+  // N21: ボス HP の上方修正を消す。→ G9 が赤くなるはず。
+  ['      boss.maxHp = Math.round(before * SCE1_GRIX_ENRAGE_MUL);',
+   '      boss.maxHp = before;   /* ★変異N21 */'],
+  // N22: 見抜かれた時の配下 +2 を 0 体に。→ G11 が赤くなるはず。
+  ['    const SCE1_GRIX_ADD_TYPES    = ["goblin", "goblin"];',
+   '    const SCE1_GRIX_ADD_TYPES    = [];   /* ★変異N22 */'],
+  // N23: EV-9 の「判定なし(確定)」枠を候補0の判定へ落とす。→ G6 が赤くなるはず。
+  ['      const spec = SCE1_GRIX_CHECKS[choice] || null;',
+   '      const spec = SCE1_GRIX_CHECKS[choice] || SCE1_GRIX_CHECKS[0];   /* ★変異N23 */'],
 ];
 let _mutCache = null;
 function mutatedSources() {
@@ -862,6 +934,407 @@ function ev5Detectors(R) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 項目 4 — EV-9「玉座のグリクス」+ ボス戦への接続 の駆動
+// ══════════════════════════════════════════════════════════════════════════════
+/* ■ 実行順が状態依存 (ここを入れ替えると測れなくなる)
+ *   ⚠ V0 (Redirect) を**最初**に置く。runGrixEvent は末尾で必ず armGrixHostageRedirect() を
+ *     呼ぶので、先に選択肢を1つでも通すと「まだ仕掛かっていない状態」が二度と作れない
+ *     (Object.defineProperty の付け外しを driver がやるのは、製品の不変条件を偽装することになる)。
+ *   ⚠ V5 (激昂 = ボス maxHp +20%) と V3 (配下 +2) は冪等ラッチ付きなので各 1 回しか測れない。
+ *   ⚠ V6 (説得成功 = 昇格) は servant_rescued を true にするので、未救出前提の測定より後に置く。
+ *
+ * ■ Redirect の決定論
+ *   肩代わりは Math.random() < 0.5 の抽選。ページ側で Math.random を 0 / 0.6 に差し替えれば
+ *   「必ず発動」「必ず素通し」を両方とも決定論で測れる (製品コードにシームを足さない)。
+ *   ★ダメージは `boss.hp -= n` で与える。これは 40 箇所ある実ダメージ経路が**全て通る**
+ *     唯一の合流点 (= hp への代入) そのものなので、この駆動は実戦の経路と等価。 */
+async function ev9Prepare(page) {
+  return page.evaluate(() => {
+    gameStarted = true; gameOver = false;
+    encounterActive = false; encounterRunning = false;
+    dialogPaused = false; skillCheckActive = false;
+    roomChests.length = 0; traps.length = 0;
+    enemies.forEach(e => { e.inactive = true; });
+    hp = maxHp;
+    sceneFlags.servant_rescued = false;
+    SCE1_EVENTS[0].fired = true; SCE1_EVENTS[1].fired = true;   // このページは EV-9 専用 (同時発火を封じる)
+    const SC = window.SkillCheck;
+    window.__ev9 = { calls: [], force: true };
+    window.__ev9.roomCount = function () { return sce1BossRoomEnemyIndices().length; };
+    SC.resolveSkillCheck = function (checkKey, dc, party, o) {
+      window.__ev9.calls.push({ checkKey: checkKey, dc: dc,
+        extraBonus: (o && o.extraBonus) || 0, title: (o && o.title) || null });
+      const ok = !!window.__ev9.force;
+      return Promise.resolve({ success: ok, roll: 10, total: ok ? dc + 3 : dc - 3, dc: dc,
+        bonus: 0, rep: (party && party[0]) || null, helper: null, crit: false, fumble: false });
+    };
+    const s = sce1GrixSpot(), r = sce1BossRoomRect();
+    const bi = sce1GrixIdx();
+    const boss = bi >= 0 ? enemies[bi] : null;
+    const px = s.tx * TILE_SIZE + TILE_SIZE / 2, py = s.ty * TILE_SIZE + TILE_SIZE / 2;
+    // ★「ボス戦が始まる前に必ず 1 回通る位置か」の実測:
+    //   発火地点からボス部屋の各敵までの距離が、その敵の交戦距離 (engagePx) より遠いこと。
+    const reach = sce1BossRoomEnemyIndices().map(i => {
+      const e = enemies[i], sz = (e.def.displaySize || 96);
+      return { type: e.type,
+               d: Math.round(Math.hypot(px - (e.x + sz / 2), py - (e.y + sz / 2))),
+               engage: getRange(e.def.range || 'melee').engagePx };
+    });
+    return {
+      spot: s, room: r, radius: SCE1_EVENT_RADIUS, reach: reach,
+      spotIsWall: isTileWall(s.tx, s.ty),
+      spotInRoom: s.ty >= r[0] && s.ty <= r[2] && s.tx >= r[1] && s.tx <= r[3],
+      spotIsEntrance: s.tx <= r[1] + 5,
+      bossTx: boss ? Math.floor((boss.x + boss.def.displaySize / 2) / TILE_SIZE) : null,
+      bossMaxHp0: boss ? boss.maxHp : null, bossHp0: boss ? boss.hp : null,
+      roomCountBefore: window.__ev9.roomCount(), totalBefore: enemies.length,
+      clericBonus: sceneClassBonus(["cleric"]), elfBonus: sceneClassBonus(["elf"]),
+      roster: buildPerceptionParty().map(m => m.classKey),
+      ledgerKeys: SCE1_EVENTS.map(e => e.key),
+      hostageMax: SCE1_HOSTAGE_HP_MAX, chance: SCE1_REDIRECT_CHANCE,
+      alliesBefore: allies.length,
+      dcHostage: SCE1_GRIX_DC_HOSTAGE, dcRescued: SCE1_GRIX_DC_RESCUED, dcDeceive: SCE1_GRIX_DECEIVE_DC,
+    };
+  });
+}
+async function ev9Approach(page, where) {
+  await page.evaluate((w) => {
+    const s = sce1GrixSpot();
+    const tx = (w === 'far') ? s.tx - 7 : s.tx;   // 7タイル西 = 672px ≫ 240
+    playerX = tx * TILE_SIZE + TILE_SIZE / 2 - 48;
+    playerY = s.ty * TILE_SIZE + TILE_SIZE / 2 - 58;
+  }, where);
+}
+async function ev9Settle(page) {
+  for (let k = 0; k < 50; k++) {
+    const done = await page.evaluate(() => {
+      const d = document.getElementById('choiceDialog');
+      return !(d && d.classList.contains('show')) && !skillCheckActive && !SCE1_EVENTS[2].busy;
+    });
+    if (done) {
+      await sleep(120);
+      // ⚠ 配下 +2 は inactive=false / state="chase" で湧く (仕様通り)。放置すると 30ms の
+      //   moveEnemies で寄ってきて encounterActive が立ち、以降の観測が全部壊れる → 盤面を凍らせ直す。
+      await page.evaluate(() => { enemies.forEach(e => { e.inactive = true; }); });
+      return true;
+    }
+    await sleep(80);
+  }
+  return false;
+}
+async function ev9State(page) {
+  return page.evaluate(() => {
+    const bi = sce1GrixIdx();
+    const boss = bi >= 0 ? enemies[bi] : null;
+    return {
+      outcome: sce1GrixOutcome,
+      fired: SCE1_EVENTS[2].fired, declined: SCE1_EVENTS[2].declined,
+      calls: window.__ev9.calls.slice(),
+      flag: sceneFlags.servant_rescued,
+      allies: allies.length,
+      lastKey: allies.length ? allies[allies.length - 1].classKey : null,
+      bossHp: boss ? boss.hp : null, bossMaxHp: boss ? boss.maxHp : null,
+      roomCount: window.__ev9.roomCount(), total: enemies.length,
+      pendingSurprise: sce1PendingSurprise,
+      armed: hostageRedirectArmed, hostageHp: hostageServantHp, redirects: hostageRedirectCount,
+      log: combatLogLines.slice(-12).map(l => l.msg),
+    };
+  });
+}
+async function ev9Rearm(page, force) {
+  await page.evaluate((f) => {
+    SCE1_EVENTS[2].fired = false; SCE1_EVENTS[2].declined = false;
+    window.__ev9.calls.length = 0; window.__ev9.force = !!f;
+    sce1GrixOutcome = null;
+    enemies.forEach(e => { e.inactive = true; });
+    dialogPaused = false; skillCheckActive = false;
+  }, force);
+}
+// ラベル文字列でボタンを押す。★救出済ダイアログでは「選択肢が消えていないか」を測りたいので
+//   添字ではなく文字列で押す (消えていれば false が返り、その事実自体が検出器になる)。
+async function ev9ClickLabel(page, needle) {
+  return page.evaluate((n) => {
+    const btns = Array.from(document.querySelectorAll('#choiceDialog .choiceButtons button'));
+    const b = btns.filter(x => x.textContent.indexOf(n) >= 0)[0];
+    if (b) { b.click(); return true; }
+    return false;
+  }, needle);
+}
+
+async function ev9Run(page, tag) {
+  const G = { tag };
+  Object.assign(G, await ev9Prepare(page));
+
+  /* ── V0 ★Redirect (人質の従者を盾にする) の決定論シーケンス ──────────────
+   *   (a) 救出済で arm → 仕掛からない            (b) 未救出にして arm → 仕掛かる
+   *   (c) 仕掛かった後で救出済に戻す → 発動しない (d) 未救出 + rand=0 → 必ず肩代わり
+   *   (e) rand=0.6 → 抽選外れで素通し            (f) 人質を削り切る
+   *   (g) 人質死亡後 → 二度と肩代わりしない
+   *   ★(a)/(c) は「仕掛けるか」と「発動するか」の**別々のガード**を独立に測っている。 */
+  G.redirect = await page.evaluate(() => {
+    const bi = sce1GrixIdx();
+    if (bi < 0) return { err: 'boss not found' };
+    const boss = enemies[bi];
+    const orig = Math.random;
+    const R = { chance: SCE1_REDIRECT_CHANCE };
+    const hit = (n) => { boss.hp = boss.hp - n; };   // ★実ダメージ経路と同じ「hp への代入」
+    let h0;
+    sceneFlags.servant_rescued = true;
+    R.armRescued = armGrixHostageRedirect();
+    Math.random = () => 0;
+    h0 = boss.hp; hit(7);
+    R.a = { hpDelta: h0 - boss.hp, redirects: hostageRedirectCount,
+            hostage: hostageServantHp, armed: hostageRedirectArmed };
+    boss.hp = h0;                                    // 増加は素通し (回復扱い) で元へ戻る
+    sceneFlags.servant_rescued = false;
+    R.armHostage = armGrixHostageRedirect();
+    R.armedAfter = hostageRedirectArmed;
+    sceneFlags.servant_rescued = true;               // 仕掛かった状態のまま救出済へ
+    h0 = boss.hp; hit(7);
+    R.c = { hpDelta: h0 - boss.hp, redirects: hostageRedirectCount, hostage: hostageServantHp };
+    boss.hp = h0;
+    sceneFlags.servant_rescued = false;
+    h0 = boss.hp; const hs0 = hostageServantHp; hit(7);
+    R.d = { hpDelta: h0 - boss.hp, hostDelta: hs0 - hostageServantHp,
+            redirects: hostageRedirectCount, hostage: hostageServantHp };
+    Math.random = () => 0.6;                         // 0.6 >= 0.5 = 抽選に外れる
+    h0 = boss.hp; const hs1 = hostageServantHp; hit(7);
+    R.e = { hpDelta: h0 - boss.hp, hostDelta: hs1 - hostageServantHp, redirects: hostageRedirectCount };
+    Math.random = () => 0;
+    boss.hp = h0;
+    let guard = 0;
+    while (hostageServantHp > 0 && guard++ < 20) hit(6);
+    R.f = { hostage: hostageServantHp, redirects: hostageRedirectCount, hits: guard };
+    const rc = hostageRedirectCount;
+    h0 = boss.hp; hit(7);
+    R.g = { hpDelta: h0 - boss.hp, redirectsDelta: hostageRedirectCount - rc };
+    Math.random = orig;
+    boss.hp = boss.maxHp;                            // 後段のために全快へ戻す (増加=素通し)
+    return R;
+  });
+
+  // V1 接近 → 3択 → Esc (★突撃扱い)
+  await ev9Approach(page, 'near');
+  G.dlg1 = await ev2WaitDialog(page, 5000);
+  if (G.dlg1) { await ev2Click(page, -1); await ev9Settle(page); }
+  G.afterEsc = await ev9State(page);
+
+  // V2 選択2 (突撃) = 判定なし
+  await ev9Rearm(page, true);
+  G.dlg2 = await ev2WaitDialog(page, 5000);
+  if (G.dlg2) { await ev2Click(page, 2); await ev9Settle(page); }
+  G.afterCharge = await ev9State(page);
+
+  // V3 選択1 失敗 = deception DC17 → 配下 +2
+  await ev9Rearm(page, false);
+  G.dlg3 = await ev2WaitDialog(page, 5000);
+  if (G.dlg3) { await ev2Click(page, 1); await ev9Settle(page); }
+  G.afterDeceiveFail = await ev9State(page);
+  G.adds = await page.evaluate((n0) => {
+    const r = sce1BossRoomRect(), out = [];
+    for (let i = n0; i < enemies.length; i++) {
+      const e = enemies[i], s = e.def.displaySize;
+      const tx = Math.floor((e.x + s / 2) / TILE_SIZE), ty = Math.floor((e.y + s / 2) / TILE_SIZE);
+      out.push({ type: e.type, tx: tx, ty: ty, wall: isTileWall(tx, ty),
+                 dom: !!document.getElementById('enemy' + i),
+                 inRoom: ty >= r[0] && ty <= r[2] && tx >= r[1] && tx <= r[3] });
+    }
+    return out;
+  }, G.totalBefore);
+
+  // V4 選択1 成功 = deception DC17 → 先制ラウンドの予約 → consumeSce1Surprise で払い出し
+  await ev9Rearm(page, true);
+  G.dlg4 = await ev2WaitDialog(page, 5000);
+  if (G.dlg4) { await ev2Click(page, 1); await ev9Settle(page); }
+  G.afterDeceiveOk = await ev9State(page);
+  G.surprise = await page.evaluate(() => {
+    const idxs = sce1BossRoomEnemyIndices();
+    idxs.forEach(i => { enemies[i].stunned = 0; });
+    encounterEnemyIndices = idxs.slice();
+    const bi = sce1GrixIdx();
+    const n = consumeSce1Surprise();
+    const out = { n: n, targets: idxs.length, after: idxs.map(i => enemies[i].stunned),
+                  pendingAfter: sce1PendingSurprise,
+                  bossIncluded: idxs.indexOf(bi) >= 0,
+                  bossStunned: bi >= 0 ? enemies[bi].stunned : null };
+    out.again = consumeSce1Surprise();   // 予約は 1 回で消費される
+    encounterEnemyIndices = [];
+    idxs.forEach(i => { enemies[i].stunned = 0; });
+    return out;
+  });
+  /* V4b ★「新機構を作っていない」の実測: 第7弾「隠密の接近」を単独で駆動し、
+   *      EV-9 と同じ付与点 (applySurpriseStun) を通ることを見る。変異N14 は両方を同時に殺す。 */
+  G.stealthShare = await page.evaluate(async () => {
+    const a = createAlly('rogue', playerX - 40, playerY + 40);   // stealth 習熟の在籍を保証
+    a.npcName = 'テスト盗賊'; allies.push(a);
+    const idxs = sce1BossRoomEnemyIndices().filter(i => !(enemies[i].def && enemies[i].def.isBoss));
+    idxs.forEach(i => { enemies[i].stunned = 0; });
+    encounterEnemyIndices = idxs.slice();
+    const SC = window.SkillCheck, keep = SC.resolveSkillCheck;
+    SC.resolveSkillCheck = (k, dc, party) => Promise.resolve({ success: true, roll: 18, total: dc + 5,
+      dc: dc, bonus: 0, rep: (party && party[0]) || null, helper: null, crit: false, fumble: false });
+    let ok = false;
+    try { ok = await tryStealthSurprise(); } catch (e) { ok = 'ERR:' + e.message; }
+    const after = idxs.map(i => enemies[i].stunned);
+    SC.resolveSkillCheck = keep;
+    encounterEnemyIndices = [];
+    idxs.forEach(i => { enemies[i].stunned = 0; });
+    const j = allies.findIndex(x => x.npcName === 'テスト盗賊');
+    if (j >= 0) allies.splice(j, 1);
+    return { ok: ok, targets: idxs.length, after: after };
+  });
+
+  // V5 選択0 失敗 (未救出 DC15) → ボスの初期 HP +20%
+  await ev9Rearm(page, false);
+  G.dlg5 = await ev2WaitDialog(page, 5000);
+  if (G.dlg5) { await ev2Click(page, 0); await ev9Settle(page); }
+  G.afterPersuadeFail = await ev9State(page);
+
+  // V6 選択0 成功 (未救出 DC15) → rescueServant で昇格 + 従者参戦
+  await ev9Rearm(page, true);
+  G.dlg6 = await ev2WaitDialog(page, 5000);
+  if (G.dlg6) { await ev2Click(page, 0); await ev9Settle(page); }
+  G.afterPersuadeOk = await ev9State(page);
+
+  // V7 救出済の見出し / DC13 / ★選択肢は 1 つも消えない
+  await ev9Rearm(page, true);
+  await page.evaluate(() => { sceneFlags.servant_rescued = true; });   // 変異N8 の影響を受けず直接立てる
+  G.dlg7 = await ev2WaitDialog(page, 5000);
+  G.clicked7 = G.dlg7 ? await ev9ClickLabel(page, '従者の解放を要求する') : false;
+  if (G.clicked7) await ev9Settle(page);
+  G.afterRescuedPersuade = await ev9State(page);
+
+  // V8 救出済でも「積荷を渡すふりをする」は DC17 のまま (救出状況で動くのは説得だけ)
+  await ev9Rearm(page, true);
+  G.dlg8 = await ev2WaitDialog(page, 5000);
+  G.clicked8 = G.dlg8 ? await ev9ClickLabel(page, '積荷を渡すふりをする') : false;
+  if (G.clicked8) await ev9Settle(page);
+  G.afterRescuedDeceive = await ev9State(page);
+
+  // V9 エピローグ 3 分岐 (★「死亡」は独立変数を持たず人質 HP から導出される)
+  G.epilogue = await page.evaluate(() => {
+    const save = { f: sceneFlags.servant_rescued, h: hostageServantHp };
+    const out = {};
+    sceneFlags.servant_rescued = true;  hostageServantHp = 0;  out.rescued = sce1EpilogueLine();
+    sceneFlags.servant_rescued = false; hostageServantHp = SCE1_HOSTAGE_HP_MAX; out.alive = sce1EpilogueLine();
+    sceneFlags.servant_rescued = false; hostageServantHp = 0;  out.dead = sce1EpilogueLine();
+    sceneFlags.servant_rescued = save.f; hostageServantHp = save.h;
+    return out;
+  });
+  // V10 ★エピローグがリザルト画面に実際に描かれる (関数が在るだけでは配線の証明にならない)
+  //     ⚠ showResult は localStorage / sessionStorage を書き、オーバーレイを出す = このページの最終操作。
+  G.resultHtml = await page.evaluate(() => {
+    sceneFlags.servant_rescued = false; hostageServantHp = 0;
+    resultShown = false;
+    try { showResult(true); } catch (e) { return 'ERR:' + ((e && e.message) || e); }
+    const el = document.getElementById('resultReward');
+    return el ? el.innerHTML : '(no element)';
+  });
+  return G;
+}
+
+/* ★EV-9 の検出器。無変異で全 true / 変異で狙ったものだけ false になるべき述語群。 */
+function ev9Detectors(G) {
+  const L1 = (G.dlg1 && G.dlg1.labels) || [];
+  const L7 = (G.dlg7 && G.dlg7.labels) || [];
+  const first = (st) => ((st && st.calls) || [])[0] || null;
+  const cDF = first(G.afterDeceiveFail), cDO = first(G.afterDeceiveOk);
+  const cPF = first(G.afterPersuadeFail), cPO = first(G.afterPersuadeOk);
+  const cR = first(G.afterRescuedPersuade), cRD = first(G.afterRescuedDeceive);
+  const R = G.redirect || {};
+  const adds = G.adds || [];
+  const SU = G.surprise || {};
+  const SS = G.stealthShare || {};
+  const EP = G.epilogue || {};
+  return {
+    G1: { label: 'EV-9: ボス部屋の入口で 3択+キャンセル のダイアログが出る',
+          ok: !!G.dlg1 && L1.length === 4, got: JSON.stringify(L1) },
+    G2: { label: 'EV-9: ラベルは 従者の解放を要求する / 積荷を渡すふりをする / 問答無用で突撃する',
+          ok: L1[0] === '1. 従者の解放を要求する' && L1[1] === '2. 積荷を渡すふりをする'
+              && L1[2] === '3. 問答無用で突撃する' && L1[3] === '無言で踏み込む (Esc)',
+          got: JSON.stringify(L1) },
+    G3: { label: 'EV-9: 未救出の見出しは「縄で吊るされた人影」',
+          ok: !!G.dlg1 && G.dlg1.msg.indexOf('縄で吊るされた人影') >= 0, got: (G.dlg1 || {}).msg },
+    G4: { label: '★EV-9: 救出済では見出しだけが変わり、選択肢は 1 つも消えない (§4.1 原則)',
+          ok: !!G.dlg7 && G.dlg7.msg.indexOf('空の縄') >= 0 && eq(L7, L1),
+          got: 'msg=' + ((G.dlg7 || {}).msg) + ' labels=' + JSON.stringify(L7) },
+    G5: { label: '★EV-9: 説得の DC は 未救出15 / 救出済13、欺瞞は救出状況に依らず 17',
+          ok: !!cPO && cPO.checkKey === 'persuasion' && cPO.dc === 15
+              && !!cR && cR.checkKey === 'persuasion' && cR.dc === 13
+              && !!cDO && cDO.checkKey === 'deception' && cDO.dc === 17
+              && !!cRD && cRD.checkKey === 'deception' && cRD.dc === 17,
+          got: '未救出説得=' + JSON.stringify(cPO) + ' 救出済説得=' + JSON.stringify(cR)
+               + ' 未救出欺瞞dc=' + (cDO && cDO.dc) + ' 救出済欺瞞dc=' + (cRD && cRD.dc) },
+    G6: { label: '★EV-9: 選択2(確定) では SkillCheck が 1 度も呼ばれない',
+          ok: G.afterCharge.calls.length === 0 && G.afterCharge.outcome === 'charge',
+          got: 'calls=' + JSON.stringify(G.afterCharge.calls) + ' outcome=' + G.afterCharge.outcome },
+    G7: { label: '★EV-9: Esc は「何もしない」ではなく突撃扱い (declined を立てず fired=true)',
+          ok: G.afterEsc.outcome === 'charge_esc' && G.afterEsc.fired === true
+              && G.afterEsc.declined === false && G.afterEsc.calls.length === 0,
+          got: 'outcome=' + G.afterEsc.outcome + ' fired=' + G.afterEsc.fired
+               + ' declined=' + G.afterEsc.declined + ' calls=' + G.afterEsc.calls.length },
+    G8: { label: '★EV-9: 選択0 成功で servant_rescued が true へ昇格し従者が参戦する',
+          ok: G.afterPersuadeFail.flag === false && G.afterPersuadeOk.flag === true
+              && G.afterPersuadeOk.outcome === 'persuade_ok'
+              && G.afterPersuadeOk.allies === G.afterPersuadeFail.allies + 1
+              && G.afterPersuadeOk.lastKey === 'servant',
+          got: 'flag ' + G.afterPersuadeFail.flag + ' -> ' + G.afterPersuadeOk.flag
+               + ' allies ' + G.afterPersuadeFail.allies + ' -> ' + G.afterPersuadeOk.allies
+               + ' last=' + G.afterPersuadeOk.lastKey },
+    G9: { label: '★EV-9: 選択0 失敗でボスの初期 HP が +20% される (hp も maxHp も上がる)',
+          ok: G.afterPersuadeFail.bossMaxHp === Math.round(G.bossMaxHp0 * 1.2)
+              && G.afterPersuadeFail.bossMaxHp > G.bossMaxHp0
+              && G.afterPersuadeFail.bossHp === G.afterPersuadeFail.bossMaxHp
+              && G.afterPersuadeFail.outcome === 'persuade_fail',
+          got: 'maxHp ' + G.bossMaxHp0 + ' -> ' + G.afterPersuadeFail.bossMaxHp
+               + ' hp=' + G.afterPersuadeFail.bossHp + ' outcome=' + G.afterPersuadeFail.outcome },
+    G10: { label: '★EV-9: 選択1 成功で先制ラウンド (グリクス本人を含め stunned=1・予約は 1 回で消費)',
+           ok: G.afterDeceiveOk.pendingSurprise === true && SU.targets >= 3
+               && SU.n === SU.targets && SU.after.every(v => v === 1)
+               && SU.bossIncluded === true && SU.bossStunned === 1
+               && SU.pendingAfter === false && SU.again === 0,
+           got: JSON.stringify(SU) },
+    G10b: { label: '★EV-9 は新機構を作っていない: 第7弾「隠密の接近」も同じ付与点を通る',
+            ok: SS.ok === true && SS.targets >= 1 && SS.after.every(v => v === 1),
+            got: JSON.stringify(SS) },
+    G11: { label: '★EV-9: 選択1 失敗でゴブリン配下が +2 (ボス部屋の非壁タイル・DOM 付き)',
+           ok: G.afterDeceiveFail.roomCount - G.roomCountBefore === 2
+               && adds.length === 2 && adds.every(a => !a.wall && a.inRoom && a.dom)
+               && new Set(adds.map(a => a.tx + ',' + a.ty)).size === adds.length
+               && G.afterDeceiveFail.outcome === 'deceive_fail',
+           got: G.roomCountBefore + ' -> ' + G.afterDeceiveFail.roomCount + ' ' + JSON.stringify(adds) },
+    G12: { label: '★Redirect: 未救出なら発動しうる (ボス HP は 1 も減らず人質が肩代わりする)',
+           ok: R.d && R.d.hpDelta === 0 && R.d.hostDelta === 7 && R.d.redirects === 1,
+           got: JSON.stringify(R.d) },
+    G13a: { label: '★Redirect: 救出済なら仕掛けない (arm=false・ボス HP は普通に減る)',
+            ok: R.armRescued === false && R.a && R.a.armed === false
+                && R.a.hpDelta === 7 && R.a.redirects === 0 && R.a.hostage === G.hostageMax,
+            got: 'arm=' + R.armRescued + ' ' + JSON.stringify(R.a) },
+    G13b: { label: '★Redirect: 仕掛かった後でも救出済なら 1 回も発動しない',
+            ok: R.armHostage === true && R.c && R.c.hpDelta === 7 && R.c.redirects === 0,
+            got: 'arm=' + R.armHostage + ' ' + JSON.stringify(R.c) },
+    G14: { label: '★Redirect: 人質が死んだら以降は発動しない (ダメージがボスへ通る)',
+           ok: R.f && R.f.hostage === 0 && R.g && R.g.hpDelta === 7 && R.g.redirectsDelta === 0,
+           got: 'f=' + JSON.stringify(R.f) + ' g=' + JSON.stringify(R.g) },
+    /* ⚠ G15 は「肩代わりしない側」の検出器なので、確率定数そのものは条件に入れない
+     *   (入れると変異N12 で G12 と一緒に落ち、"発動する/しない" が独立に測れなくなる)。
+     *   定数値そのものは (9i) が別途見ている。 */
+    G15: { label: 'Redirect: 抽選は確率 (rand=0.6 では肩代わりせずボスへ通る)',
+           ok: !!R.e && R.e.hpDelta === 7 && R.e.hostDelta === 0,
+           got: 'chance=' + R.chance + ' ' + JSON.stringify(R.e) },
+    G16: { label: '★エピローグ 3 分岐が出し分けられる (救出 / 人質生存 / 人質死亡)',
+           ok: typeof EP.rescued === 'string' && typeof EP.alive === 'string' && typeof EP.dead === 'string'
+               && EP.rescued !== EP.alive && EP.alive !== EP.dead && EP.rescued !== EP.dead
+               && EP.rescued.indexOf('ボルダック') >= 0 && EP.dead.indexOf('ボルダック') >= 0
+               && EP.dead.indexOf('息絶え') >= 0,
+           got: JSON.stringify(EP) },
+    G17: { label: '★エピローグがリザルト画面 (VICTORY) に実際に描かれる',
+           ok: typeof G.resultHtml === 'string' && G.resultHtml.indexOf('息絶え') >= 0,
+           got: String(G.resultHtml).slice(-160) },
+  };
+}
+
 const GEN_QUEST = {
   title: '掲示板の依頼 — 生成クエスト',
   flavor: '生成クエストは scenarioId が別 ID になる。',
@@ -1093,6 +1566,18 @@ const GEN_QUEST = {
     && genState5.joined === false,
     'dialog=' + (genDlg5 ? 'ARE' : 'none') + ' fired=' + genState5.fired
     + ' flag=' + genState5.flag + ' allies=' + genState5.allies);
+  // ── EV-9 も同じ生成クエストページで発火せず、エピローグ差分も出ないこと ──
+  await ev9Prepare(genEv.page);
+  await ev9Approach(genEv.page, 'near');
+  const genDlg9 = await ev2WaitDialog(genEv.page, 2500);
+  const genState9 = await genEv.page.evaluate(() => ({
+    fired: SCE1_EVENTS[2].fired, outcome: sce1GrixOutcome,
+    armed: armGrixHostageRedirect(), epilogue: sce1EpilogueLine() }));
+  check('(7h) ★生成クエストでは EV-9 も発火せず Redirect も仕掛からずエピローグも出ない',
+    genDlg9 === null && genState9.fired === false && genState9.outcome === null
+    && genState9.armed === false && genState9.epilogue === null,
+    'dialog=' + (genDlg9 ? 'ARE' : 'none') + ' fired=' + genState9.fired
+    + ' armed=' + genState9.armed + ' epilogue=' + JSON.stringify(genState9.epilogue));
   await genEv.page.close();
   mark('EV-2 verified (3択 / 判定なし枠 / 失敗→増援 / シナリオゲート)');
 
@@ -1129,6 +1614,52 @@ const GEN_QUEST = {
   const SC5 = ev5Detectors(R);
   Object.keys(SC5).forEach(k => check('(8) ' + SC5[k].label, SC5[k].ok, SC5[k].got));
   mark('EV-5 verified (3択 / 判定なし枠 / 救出は判定運で折れない / 召喚枠を食わない)');
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // §9 EV-9「玉座のグリクス」+ ボス戦への接続 (項目 4)
+  // ⚠ 専用ページで駆動する。EV-9 は末尾で必ず armGrixHostageRedirect() を呼ぶので、
+  //   cur.page (EV-2/EV-5 で汚れた盤面) では「まだ仕掛かっていない状態」を測れない。
+  // ════════════════════════════════════════════════════════════════════════════
+  const g9 = await boot(PORT, '?diag=1');
+  const G = await ev9Run(g9.page, 'clean');
+  mark('EV-9 driven (clean)  spot=(' + G.spot.tx + ',' + G.spot.ty + ') boss tx=' + G.bossTx
+    + ' bossMaxHp0=' + G.bossMaxHp0 + ' roomBefore=' + G.roomCountBefore
+    + ' clericBonus=' + G.clericBonus + ' elfBonus=' + G.elfBonus);
+
+  // 母集団ガード + 配置の実測
+  check('(9a) 台帳 SCE1_EVENTS は [mine_watch, captive_servant, grix_parley] の順 (添字を driver が参照)',
+    eq(G.ledgerKeys, ['mine_watch', 'captive_servant', 'grix_parley']), JSON.stringify(G.ledgerKeys));
+  check('(9b) 発火地点はボス部屋の**入口側の床** (壁でも岩盤でもない)',
+    G.spotIsWall === false && G.spotInRoom === true && G.spotIsEntrance === true,
+    '(' + G.spot.tx + ',' + G.spot.ty + ') wall=' + G.spotIsWall + ' inRoom=' + G.spotInRoom
+    + ' entrance=' + G.spotIsEntrance + ' room=' + JSON.stringify(G.room));
+  check('(9c) 発火地点はボスより手前 (西) にある',
+    G.bossTx !== null && G.spot.tx < G.bossTx, 'spot tx=' + G.spot.tx + ' boss tx=' + G.bossTx);
+  check('(9d) ★ボス戦が始まる前に必ず通れる: 発火地点はボス部屋の全敵の交戦距離 (engagePx) の外',
+    Array.isArray(G.reach) && G.reach.length >= 3 && G.reach.every(x => x.d > x.engage),
+    JSON.stringify(G.reach));
+  check('(9e) 母集団ガード: ボス個体が実在し HP が既定値 45',
+    G.bossMaxHp0 === 45 && G.bossHp0 === 45, 'maxHp=' + G.bossMaxHp0 + ' hp=' + G.bossHp0);
+  check('(9f) 人質従者の HP は救出できた時と同じ器 (CLASS_DEFS.servant.hpMax = 18)',
+    G.hostageMax === 18, String(G.hostageMax));
+  check('(9g) DC 定数は 未救出15 / 救出済13 / 欺瞞17',
+    G.dcHostage === 15 && G.dcRescued === 13 && G.dcDeceive === 17,
+    G.dcHostage + '/' + G.dcRescued + '/' + G.dcDeceive);
+  check('(9i) 肩代わり確率の初期値は 50%', G.chance === 0.5, String(G.chance));
+
+  const GC = ev9Detectors(G);
+  Object.keys(GC).forEach(k => check('(9) ' + GC[k].label, GC[k].ok, GC[k].got));
+
+  // 得意クラス (僧侶/エルフ) が extraBonus 側に乗る (DC は動かさない)
+  check('(9h) ★得意クラスは DC ではなく extraBonus に乗る (説得=僧侶 / 欺瞞=エルフ)',
+    ((G.afterPersuadeOk.calls || [])[0] || {}).extraBonus === G.clericBonus
+    && ((G.afterDeceiveOk.calls || [])[0] || {}).extraBonus === G.elfBonus
+    && (G.clericBonus === 0 || G.clericBonus === 2) && (G.elfBonus === 0 || G.elfBonus === 2),
+    'persuade=' + ((G.afterPersuadeOk.calls || [])[0] || {}).extraBonus + '/' + G.clericBonus
+    + ' deceive=' + ((G.afterDeceiveOk.calls || [])[0] || {}).extraBonus + '/' + G.elfBonus
+    + ' roster=' + JSON.stringify(G.roster));
+  await g9.page.close();
+  mark('EV-9 verified (3択 / Esc=突撃 / 昇格 / HP+20% / 先制 / 配下+2 / Redirect / エピローグ)');
 
   // ════════════════════════════════════════════════════════════════════════════
   // §N ★負のコントロール (同一 run 内・:PORT_MUT の変異配信へ同じ検出器を当てる)
@@ -1215,6 +1746,72 @@ const GEN_QUEST = {
     && SM.S8.ok === true && SM.S9.ok === true,
     'S3=' + SM.S3.got + ' S7=' + SM.S7.got + ' S8=' + SM.S8.got);
   await mut.page.close();
+
+  // ── EV-9 の負のコントロール (同じ ev9Run / ev9Detectors を変異ページへ当てる) ──
+  const g9m = await boot(PORT_MUT, '?diag=1');
+  const GM = await ev9Run(g9m.page, 'mutated');
+  const GMD = ev9Detectors(GM);
+  mark('EV-9 driven (mutated)  bossMaxHp0=' + GM.bossMaxHp0 + ' roomBefore=' + GM.roomCountBefore);
+  check('(N-EV9-0) 母集団ガード: 変異側でも EV-9 は未救出時に同じ 3択を出す (壊れているのは結果だけ)',
+    GMD.G1.ok === true && GMD.G2.ok === true && GMD.G3.ok === true,
+    'G1=' + GMD.G1.got + ' G3=' + GMD.G3.got);
+  check('(N12) ★変異N12 (肩代わりしてもボス HP を減らす) で G12「ボス HP は 1 も減らない」が赤くなる',
+    GMD.G12.ok === false && GM.redirect.d && GM.redirect.d.hpDelta === 7
+    && GM.redirect.d.hostDelta > 0, GMD.G12.got);
+  check('(N12-隣) ★変異N12 は外科的: G15「rand=0.6 では素通し」は緑のまま',
+    GMD.G15.ok === true, 'G15=' + GMD.G15.got);
+  check('(N13) ★変異N13 (Esc を declined に戻す) で G7「Esc が突撃扱い」が赤くなる',
+    GMD.G7.ok === false && GM.afterEsc.declined === true && GM.afterEsc.fired === false,
+    GMD.G7.got);
+  check('(N14) ★変異N14 (共有の付与点を no-op に) で G10 と G10b が **同時に** 赤くなる',
+    GMD.G10.ok === false && GMD.G10b.ok === false
+    && (GM.surprise.after || []).every(v => v === 0)
+    && (GM.stealthShare.after || []).every(v => v === 0),
+    'G10=' + GMD.G10.got + ' / G10b=' + GMD.G10b.got);
+  check('(N14-意味) ★1 つの変異が両方を殺した = EV-9 は新しい先制機構を作っていない',
+    GMD.G10.ok === false && GMD.G10b.ok === false
+    && GM.afterDeceiveOk.pendingSurprise === true && GM.surprise.n > 0,
+    '予約は立ち (pending=' + GM.afterDeceiveOk.pendingSurprise + ') 対象も数えている (n='
+    + GM.surprise.n + ') が stunned が付かない = 付与点が 1 つしかない証明');
+  /* ★N15 と N16 は「仕掛けるか (arm)」と「発動するか (setter)」という**別々のガード**を
+   *   壊す。両方とも G13 系を落とすが、落とし方の署名が違うことまで見て初めて独立が言える。 */
+  check('(N15) ★変異N15 (arm の救出済ガード除去) で G13a「救出済なら仕掛けない」が赤くなる',
+    GMD.G13a.ok === false && GM.redirect.armRescued === true && GM.redirect.a.armed === true,
+    GMD.G13a.got);
+  check('(N16) ★変異N16 (setter の救出済ガード除去) で G13b「救出済でも 1 回も発動しない」が赤くなる',
+    GMD.G13b.ok === false && GM.redirect.c && GM.redirect.c.redirects > 0,
+    'c=' + JSON.stringify(GM.redirect.c) + ' (肩代わり回数が増えている = 救出済でも発動した)');
+  check('(N17) ★変異N17 (人質死亡ガード除去) で G14「死んだら発動しない」が赤くなる',
+    GMD.G14.ok === false && GM.redirect.g && GM.redirect.g.redirectsDelta > 0,
+    'g=' + JSON.stringify(GM.redirect.g) + ' (HP0 の人質にもう一度肩代わりさせた)');
+  check('(N18) ★変異N18 (エピローグの生存分岐を潰す) で G16「3分岐の出し分け」が赤くなる',
+    GMD.G16.ok === false && GM.epilogue.alive === GM.epilogue.dead
+    && GM.epilogue.rescued !== GM.epilogue.dead,
+    JSON.stringify(GM.epilogue));
+  check('(N18-隣) 変異N18 は外科的: 死亡分岐はリザルトに出続ける (G17 は緑のまま)',
+    GMD.G17.ok === true, String(GM.resultHtml).slice(-120));
+  check('(N19) ★変異N19 (DC を救出状況で変えない) で G5「救出済で DC13」が赤くなる',
+    GMD.G5.ok === false
+    && (((GM.afterRescuedPersuade.calls || [])[0] || {}).dc === 15), GMD.G5.got);
+  check('(N20) ★変異N20 (§4.1 違反 = 救出済で選択肢を 1 つ消す) で G4 が赤くなる',
+    GMD.G4.ok === false && ((GM.dlg7 && GM.dlg7.labels) || []).length === 3,
+    'labels=' + JSON.stringify((GM.dlg7 || {}).labels));
+  check('(N20-隣) 変異N20 は外科的: 未救出側の 3択は無傷 (状態変数だけが選択肢を殺している)',
+    ((GM.dlg1 && GM.dlg1.labels) || []).length === 4, JSON.stringify((GM.dlg1 || {}).labels));
+  check('(N21) ★変異N21 (ボス HP 上方修正を消す) で G9 が赤くなる',
+    GMD.G9.ok === false && GM.afterPersuadeFail.bossMaxHp === GM.bossMaxHp0, GMD.G9.got);
+  check('(N22) ★変異N22 (配下 +2 を 0 体に) で G11 が赤くなる',
+    GMD.G11.ok === false && GM.afterDeceiveFail.roomCount - GM.roomCountBefore === 0, GMD.G11.got);
+  check('(N23) ★変異N23 (突撃枠を候補0の判定へ落とす) で G6「選択2 で SkillCheck 未呼出」が赤くなる',
+    GMD.G6.ok === false && GM.afterCharge.calls.length === 1,
+    'calls=' + JSON.stringify(GM.afterCharge.calls));
+  /* ★集計: 変異側で赤くなるのは狙った検出器だけで、3択そのもの (G1/G2/G3) と
+   *   「発動しない側」(G15) と「リザルトへの配線」(G17) は緑のまま = 変異群が外科的であることの総括。 */
+  check('(N-EV9集計) 変異側で緑のまま残るのは G1/G2/G3/G15/G17 のちょうど 5 個',
+    eq(Object.keys(GMD).filter(k => GMD[k].ok).sort(), ['G1', 'G15', 'G17', 'G2', 'G3']),
+    'green=' + JSON.stringify(Object.keys(GMD).filter(k => GMD[k].ok).sort())
+    + ' red=' + JSON.stringify(Object.keys(GMD).filter(k => !GMD[k].ok).sort()));
+  await g9m.page.close();
 
   const mutGen = await boot(PORT_MUT, '?diag=1', { generated: true });
   await ev2Prepare(mutGen.page);

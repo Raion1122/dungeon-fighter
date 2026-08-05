@@ -8275,6 +8275,9 @@
       "boss.rage":   ["この程度で終わると思うな!", "遊びは終わりだ!", "貴様ら…許さん!", "ならば、本気を出すまで!"],
       // ── ボス撃破 (話者=生存パーティ。ボスは死んでいるので喋れない) ──
       "boss.defeat": ["やったぞ! 討ち取った!", "ボスは落ちた! 残りを片付けろ!", "これで終わりだ…!", "見たか、これが冒険者だ!"],
+      // ── [sce1-events] EV-9: 人質の従者を盾にされた時 (話者=グリクス) / 従者が倒れた時 (話者=生存パーティ) ──
+      "sce1_hostage_shield": ["ギャハハ! こいつごと撃ってみろォ!", "キィーッ! 前へ出ろ、荷運び!", "痛いのは嫌いでなァ。代わりに痛がれ!"],
+      "sce1_hostage_down":   ["やめろ! その子は関係ない!", "くそっ…間に合わなかった…!", "許さんぞ、グリクス!"],
       // ── 単眼の暴君 (sovereignEye) 固有台詞 (C8)。resolver が個別 > 汎用で拾う。話者はボス本人 (defeat のみ生存パーティ) ──
       "boss.appear.sovereignEye": ["…また、覗きに来たか。地の底の光を。", "無数の眼が、貴様らを見ている。逃げ場は無い。", "定命の分際で…この眼の前に立つとはな。", "見せてやろう。魔を殺す、真の闇を。"],
       "boss.rage.sovereignEye":   ["…光を、殺す。魔法など児戯に過ぎん。", "見える…貴様らの、恐れも。呪文も。", "殻を張れ。ここより先、魔法は死ぬ。", "ならば…眼を閉じてやろう。すべての魔を。"],
@@ -16118,6 +16121,9 @@
       window.__inMidBoss = isMidBossActive();   // 既に解き放たれた中ボスが居れば midboss 曲を選ばせる
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
+      // [sce1-events] EV-9 を踏まずにボス戦へ入った場合の保険 (本線は runGrixEvent の末尾)。
+      //   ⚠ ここが「ダメージが 1 点でも入る前」の最も早い地点。冪等ラッチ付きなので二重発火しない。
+      armGrixHostageRedirect();
       // 要望①: 戦闘開始で交戦敵の中点へカメラを寄せ、軽いヴィネット演出で開戦感を出す (pan-only)。
       const encCenter = enemyGroupCenter(encounterEnemyIndices);
       if (encCenter) focusCameraOn(encCenter.x, encCenter.y);
@@ -16286,6 +16292,7 @@
         applyBattleStartConsumables();   // 影渡りの薬 / 呪われた曲刀 / セリアの手鏡
         tryNegatePreemptive(units);      // 牙の護符: 先制された時のみ
         await tryStealthSurprise();       // 第7弾: 隠密の接近（不意打ち）。stealth 得意PTのみ・非ボス敵の初手を封じる
+        consumeSce1Surprise();            // [sce1-events] EV-9「積荷を渡すふり」成功の先制。★上の stunned=0 リセット(16157)より後でしか払い出せない
 
         // ── ボスの恐怖オーラ (リッチ Frightful Presence / Sce6 ファラクサス) ──
         // 戦闘開始時に1回、def.fearDC を持つボスがいればパーティ全員が Will セーヴ。
@@ -19628,6 +19635,18 @@
       });
     }
 
+    // ★不意打ちの**実体**。stunned=1 を付与 → enemyAttackTurn (26583 のスタン判定) が初手を飛ばす。
+    //   ここが「先制ラウンドを得る」の唯一の付与点で、下の tryStealthSurprise (第7弾「隠密の接近」) と
+    //   [sce1-events] EV-9「積荷を渡すふりをする」の奇襲成功が**この 1 関数を共有**する。
+    //   ⚠ EV-9 のために新しい先制機構を作らないこと。作ると「初手を飛ばす」の真実の源が 2 つになる。
+    function applySurpriseStun(indices) {
+      let n = 0;
+      for (const i of indices) {
+        if (enemies[i] && enemies[i].alive) { enemies[i].stunned = Math.max(enemies[i].stunned || 0, 1); n++; }
+      }
+      return n;
+    }
+
     // 第7弾「妖精郷の装い」: 隠密の接近（不意打ち）。stealth が得意なPT（盗賊 or エルフの外套）だけが
     //   戦闘開始時に隠密判定を試み、成功で非ボス敵に stunned=1 を付与 → enemyAttackTurn が初手を飛ばす。
     //   ボスは油断しない＝対象外（ボスのみ遭遇は判定自体を出さない＝無駄パネル回避）。
@@ -19655,10 +19674,7 @@
       } catch (e) { res = null; }
       const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       if (res && res.success) {
-        let n = 0;
-        for (const i of targets) {
-          if (enemies[i] && enemies[i].alive) { enemies[i].stunned = Math.max(enemies[i].stunned || 0, 1); n++; }
-        }
+        const n = applySurpriseStun(targets);   // ★共有: EV-9 の奇襲成功もこの同じ付与を通る
         showBanner("🥷 不意打ち成功!", 1500);
         updateInfo(`${rep} が気配を殺して接近! 敵 ${n}体 の隙を突いた (隠密 ${res.total} ≧ DC ${res.dc}) — 初撃はこちらのもの`);
         showDMMessage("息を殺し、影から忍び寄る。敵はまだ、こちらに気づいていない——最初の一手は、完全に我らのものだ。", 2600);
@@ -20229,12 +20245,348 @@
       applyServantResult(res, choice);
     }
 
-    // イベント台帳。項目4 (EV-9 グリクス) は行を足すだけで載る。
-    // ⚠ 添字は検証ドライバが参照する (EV-2=0 / EV-5=1)。並べ替えるなら driver も直すこと。
+    // ══ [sce1-events] EV-9 「玉座のグリクス」+ ボス戦への接続 ══════════════════
+    // 器は EV-2 / EV-5 と同型 (接近3択・台帳 SCE1_EVENTS に 1 行足すだけ)。違いは 3 つ:
+    //   ① 見出しと DC が sceneFlags.servant_rescued で変わる。★選択肢は 1 つも消さない
+    //      (§4.1 原則: 状態変数を理由に選択肢を非表示・非活性にしてはならない。
+    //       開くのは**文面と DC だけ**。「選べない選択肢」はプレイヤーから見ると仕様ではなくバグに見える)。
+    //   ② Esc は「何もしない」ではなく **選択2 (突撃) と同じ**。ここはボス部屋の入口で、
+    //      止まれてしまうとボスを倒せず永久にクリアできない = 詰む。declined を使わない唯一のイベント。
+    //   ③ 結果がボス戦そのものを書き換える (HP 上方修正 / 先制 / 増援 / 人質の盾)。
+    const SCE1_GRIX_DC_HOSTAGE   = 15;   // 未救出: 人質を握られている = 交渉が不利
+    const SCE1_GRIX_DC_RESCUED   = 13;   // 救出済: 切り札を失っている = 少しだけ通りやすい
+    const SCE1_GRIX_DECEIVE_DC   = 17;   // 「積荷を渡すふり」は救出状況に依らず難しい
+    const SCE1_GRIX_PERSUADE_CLASSES = ["cleric"];   // 得意クラス = 僧侶 (在籍で +2)
+    const SCE1_GRIX_DECEIVE_CLASSES  = ["elf"];      // 得意クラス = エルフ (在籍で +2)
+    const SCE1_GRIX_OFFSET_TX    = 2;    // ボス部屋の西端 (=坑道からの入口) から東へ 2 タイル
+    const SCE1_GRIX_ENRAGE_MUL   = 1.2;  // 交渉失敗でボスの初期 HP +20%
+    // 見抜かれた時の配下 +2。★固定配列 = Math.random を 1 度も引かない (EV-2 と同じ決定論規約)。
+    const SCE1_GRIX_ADD_TYPES    = ["goblin", "goblin"];
+
+    // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「突撃」) が「判定なし(確定)」。
+    const SCE1_GRIX_CHECKS = {
+      0: { check: "persuasion", title: "説得判定", classes: SCE1_GRIX_PERSUADE_CLASSES,
+           flavor: "縄に吊るされた若者を指し、解放と引き換えの道を説く…" },
+      1: { check: "deception",  title: "欺瞞判定", classes: SCE1_GRIX_DECEIVE_CLASSES,
+           flavor: "空の背嚢を掲げ、荷はすべてここにあると言い切る…" },
+    };
+    // DC は「動かさない」原則の唯一の例外ではない: ★状況が変われば難易度そのものが変わる。
+    //   得意クラスの優位 (+2) は従来どおり extraBonus 側で表す = DC と加算の役割分担は不変。
+    function sce1GrixDc(choice) {
+      if (choice === 1) return SCE1_GRIX_DECEIVE_DC;
+      return sceneFlags.servant_rescued ? SCE1_GRIX_DC_RESCUED : SCE1_GRIX_DC_HOSTAGE;
+    }
+    function sce1GrixHeadline() {
+      return sceneFlags.servant_rescued
+        ? "玉座のグリクスが、空の縄を見て顔色を変えた。"
+        : "玉座の脇に、縄で吊るされた人影。グリクスがこちらを見て笑う。";
+    }
+
+    // ボス部屋の矩形。★添字ではなく **ROOMS の末尾** で取る (ボス部屋 = ROOMS.length-1 が
+    //   このプロジェクトの正典。部屋数を変えても壊れない)。rect = [tyMin, txMin, tyMax, txMax]。
+    function sce1BossRoomRect() {
+      return (typeof ROOMS !== "undefined" && ROOMS.length) ? ROOMS[ROOMS.length - 1] : [5, 47, 22, 68];
+    }
+    // 発火地点はボス部屋の**入口側**。既定ダンジョンでは (tx49, ty13) に落ちる
+    //   = 廊下 [13,43,15,47] を抜けた直後・ボス (tx57) から 8 タイル西。
+    //   ⚠ 最遠の敵射程 engagePx=576 (=6タイル) より遠いので、ボス戦が始まる前に必ずここを通る。
+    let _sce1GrixSpot = null;
+    function sce1GrixSpot() {
+      if (_sce1GrixSpot) return _sce1GrixSpot;
+      const r = sce1BossRoomRect();
+      const ty = Math.floor((r[0] + r[2]) / 2);
+      let tx = r[1] + SCE1_GRIX_OFFSET_TX;
+      for (let k = 0; k < 6 && isTileWall(tx, ty); k++) tx++;   // 情景で塞がっていたら東へ逃がす
+      _sce1GrixSpot = { tx, ty };
+      return _sce1GrixSpot;
+    }
+    function sce1GrixIdx() {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e && e.alive && e.type === "goblinKing") return i;
+      }
+      return -1;
+    }
+    function sce1BossRoomEnemyIndices() {
+      const r = sce1BossRoomRect();
+      const out = [];
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        const s = (e.def && e.def.displaySize) || 96;
+        const tx = Math.floor((e.x + s / 2) / TILE_SIZE);
+        const ty = Math.floor((e.y + s / 2) / TILE_SIZE);
+        if (ty >= r[0] && ty <= r[2] && tx >= r[1] && tx <= r[3]) out.push(i);
+      }
+      return out;
+    }
+
+    // ── 選択0 失敗: グリクス激昂 = ボスの初期 HP を上方修正 ──────────────────
+    // ★新しい強化機構を作らない。ハイドラの initHydra (e.hp/e.maxHp を生成後に同時代入する)
+    //   と同じ「createEnemy 後にその個体の HP を書き換える」既存の作法にそのまま乗せる。
+    //   maxHp も一緒に上げるので、激怒フェーズ (ragePhaseHpRatio 0.5) と戦車乱入 (CHARIOT_HP_TRIGGER)
+    //   の割合トリガーは自動で追随する = 追加の配線が 1 行も要らない。
+    let grixEnrageDone = false;   // 冪等ラッチ
+    function applyGrixEnrage() {
+      if (grixEnrageDone) return 0;
+      const bi = sce1GrixIdx();
+      if (bi < 0) return 0;
+      grixEnrageDone = true;
+      const boss = enemies[bi];
+      const before = boss.maxHp;
+      boss.maxHp = Math.round(before * SCE1_GRIX_ENRAGE_MUL);
+      boss.hp = boss.maxHp;                       // まだ戦闘前なので「初期 HP の上方修正」と等価
+      return boss.maxHp - before;
+    }
+
+    // ── 選択1 失敗: 見抜かれて配下 +2 ────────────────────────────────────────
+    // EV-2 の applyMineAlertedAdds は mineAlertedAddsDone ラッチで**二度目は 0 体**なので流用不可。
+    // 湧かせ方は単眼の暴君の乱入 (spawnSovereignAddWave) の並びに合わせる:
+    //   findSovereignAddWaveTile (壁/占有をリング回避) → createEnemy → everSeen/inactive/state
+    //   → snapEnemyToTile → enemies.push → createEnemyDom(直後に1回だけ)。
+    // ⚠ encounterEnemyIndices には積まない。EV-9 は showCharChoice が dialogPaused を張っている間に
+    //   完結する = **必ず戦闘前**に走る (tryInteractSce1Event の encounterActive ガードと二重防護)。
+    //   仮に戦闘中に湧いても、runEncounter の増援ブロック (detectReinforcements) が
+    //   state/stunned の初期化とイニシアチブ込みで合流させる = 正しい既存経路がある。
+    //   逆に units を持たないここから encounterEnemyIndices だけ積むと「生存判定には入るのに
+    //   手番が回らない敵」になり、戦闘が終わらなくなる。
+    // ⚠ everSeen=true / state="chase": 目の前の横穴から雪崩れ込む演出なのでフォグの未視認 cull に掛けない。
+    let grixAddsDone = false;   // 冪等ラッチ
+    function applyGrixAdds() {
+      if (grixAddsDone) return 0;
+      grixAddsDone = true;
+      const bi = sce1GrixIdx();
+      const r = sce1BossRoomRect();
+      let ax = Math.floor((r[1] + r[3]) / 2), ay = Math.floor((r[0] + r[2]) / 2);
+      if (bi >= 0) {
+        const b = enemies[bi], s = (b.def && b.def.displaySize) || 96;
+        ax = Math.floor((b.x + s / 2) / TILE_SIZE);
+        ay = Math.floor((b.y + s / 2) / TILE_SIZE);
+      }
+      let n = 0;
+      for (const typeKey of SCE1_GRIX_ADD_TYPES) {
+        if (!ENEMY_TYPES[typeKey]) continue;
+        const spot = findSovereignAddWaveTile(ax, ay);
+        const e = createEnemy(typeKey, spot.tx, spot.ty);
+        e.everSeen = true;
+        e.inactive = false;
+        e.state = "chase";
+        snapEnemyToTile(e, spot.tx, spot.ty);
+        enemies.push(e);
+        createEnemyDom(enemies.length - 1, e.def, e.type);
+        n++;
+      }
+      return n;
+    }
+
+    // ── 選択1 成功: 先制ラウンド ────────────────────────────────────────────
+    // ⚠⚠ ここで直接 stunned を立ててはいけない。runEncounter は交戦対象を初期化する時に
+    //   **e.stunned = 0 で全部消す** (16157) ので、戦闘前に立てた不意打ちは必ず失われる。
+    //   第7弾の tryStealthSurprise がそのリセットの**後**で呼ばれているのはこのため。
+    //   よって EV-9 は「予約」だけ立て、同じ地点 (リセット後) で applySurpriseStun を共有して払い出す。
+    // ⚠ tryStealthSurprise はボスを除外する (「ボスは油断しない」) が、EV-9 は**グリクス本人を騙した**
+    //   のだから対象に含める。ここが「奇襲」と「隠密の接近」の唯一の意味的な差。
+    let sce1PendingSurprise = false;
+    function consumeSce1Surprise() {
+      if (!sce1PendingSurprise) return 0;
+      sce1PendingSurprise = false;
+      const targets = encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive);
+      if (!targets.length) return 0;
+      const n = applySurpriseStun(targets);   // ★第7弾「隠密の接近」と同じ唯一の付与点
+      showBanner("🎭 偽りの荷 — 先手はこちらだ!", 1600);
+      updateInfo(`空の背嚢に群がった隙を突いた! ${n}体 の初手を封じ、先制ラウンドを得た`);
+      return n;
+    }
+
+    // ── ボス戦の接続: Redirect (人質の従者を盾にする) ────────────────────────
+    // ★仕様の芯: 救出の報酬は「フラグが立つ」ではなく「**ボスが実際に弱くなる**」こと。
+    //
+    // ⚠⚠ 実装位置の判断根拠 (これを外すと必ず取りこぼす):
+    //   敵の HP を減らす箇所は index.html に**約 40 箇所**ある (damageEnemy / 呪文 / 追加属性 /
+    //   衝撃波 / 毒ティック / 反射 / 罠武器化 / 仲間スキル …)。`resolveOneBite` は
+    //   「敵→PT」の経路なので肩代わりとは無関係で、「PT→敵」側には共通の関数が存在しない。
+    //   唯一すべてが必ず通る合流点は **`enemy.hp` への代入そのもの**。よってボス個体の
+    //   hp を **アクセサプロパティに差し替えて**そこで肩代わりを判断する。
+    //   これなら新しいダメージ経路が将来増えても自動的に覆われ、既存 40 箇所は 1 行も触らない。
+    //   ⚠ 増加 (回復/再生/初期化) は必ず素通しする。減少だけを肩代わりの対象にする。
+    const SCE1_HOSTAGE_HP_MAX  = 18;   // = CLASS_DEFS.servant.hpMax (救出できた時と同じ器の強さ)
+    const SCE1_REDIRECT_CHANCE = 0.5;  // 被弾 1 回あたりの肩代わり確率
+    let hostageServantHp     = SCE1_HOSTAGE_HP_MAX;   // ★「死亡」は独立変数を持たない (これが 0 = 死亡)
+    let hostageRedirectArmed = false;
+    let hostageRedirectCount = 0;
+    let hostageShieldNarrated = false;
+    let hostageDownNarrated   = false;
+
+    function narrateHostageRedirect(boss, bossIdx, dmg) {
+      const nm = (CLASS_DEFS.servant && CLASS_DEFS.servant.name) || "商人の従者";
+      if (hostageServantHp > 0) {
+        if (!hostageShieldNarrated) {
+          hostageShieldNarrated = true;      // 初回だけ大きく見せ、以降はログのみ (吹き出しの独占を防ぐ)
+          showBanner("🪢 人質を盾にされた!", 1500);
+          sayLine("sce1_hostage_shield", boss);
+        }
+        updateInfo(`グリクスは縄ごと ${nm} を引き寄せた! ${dmg} ダメージを肩代わり (人質 ${hostageServantHp}/${SCE1_HOSTAGE_HP_MAX})`);
+      } else if (!hostageDownNarrated) {
+        hostageDownNarrated = true;
+        showBanner("🕯 人質が倒れた…", 1800);
+        updateInfo(`${nm} は最後の一撃を肩代わりして崩れ落ちた — グリクスはもう盾を持たない`);
+        sayLine("sce1_hostage_down");        // 話者=生存パーティ (従者はユニットではないので喋れない)
+      }
+      // ⚠ showDMMessage は使わない。moveEnemies が narrationHold で止まり、戦闘中の描画が固まる
+      //   (spawnSovereignAddWave が banner + updateInfo だけで演出しているのと同じ判断)。
+      try {
+        const s = (boss.def && boss.def.displaySize) || 96;
+        showDmgAt(boss.x + s / 2, boss.y - 18, dmg, false);
+      } catch (e) {}
+    }
+
+    function installHostageRedirect(boss, bossIdx) {
+      if (boss.__sce1RedirectOn) return false;
+      let shadow = boss.hp;                  // 実 HP の唯一の保管場所 (getter が返すのはこれ)
+      Object.defineProperty(boss, "hp", {
+        configurable: true, enumerable: true,
+        get() { return shadow; },
+        set(v) {
+          const dmg = shadow - v;
+          if (dmg <= 0) { shadow = v; return; }                                  // 回復/再生/初期化は素通し
+          if (sceneFlags.servant_rescued) { shadow = v; return; }                // ★救出済 = 人質が居ない = 一切発動しない
+          if (hostageServantHp <= 0) { shadow = v; return; }                     // ★従者が死んだら以降は発動しない
+          if (!(Math.random() < SCE1_REDIRECT_CHANCE)) { shadow = v; return; }   // 抽選に外れた = そのまま通る
+          hostageServantHp = Math.max(0, hostageServantHp - dmg);
+          hostageRedirectCount++;
+          try { narrateHostageRedirect(boss, bossIdx, dmg); } catch (e) {}
+          // ★shadow は据え置き = ボスの HP は 1 も減らない (肩代わり成立)
+        },
+      });
+      boss.__sce1RedirectOn = true;
+      return true;
+    }
+    // 仕掛けるのは「シナリオ1」かつ「未救出」のときだけ。EV-9 の結果確定後と runEncounter の
+    // 冒頭の 2 箇所から呼ぶ (前者が本線・後者は EV-9 を踏まずにボス戦へ入った場合の保険)。
+    function armGrixHostageRedirect() {
+      if (hostageRedirectArmed) return false;
+      if (!isGoblinMineScenario()) return false;
+      if (sceneFlags.servant_rescued) return false;   // ★救出済 = 人質が居ない = 仕掛けない
+      const bi = sce1GrixIdx();
+      if (bi < 0) return false;
+      if (!installHostageRedirect(enemies[bi], bi)) return false;
+      hostageRedirectArmed = true;
+      return true;
+    }
+
+    // ── エピローグ差分 (showResult の勝利側から 1 行足す) ───────────────────
+    // ★「死亡」を独立した状態変数にしない = 人質 HP から導出する。
+    function sce1EpilogueLine() {
+      if (!isGoblinMineScenario()) return null;
+      const nm = (CLASS_DEFS.servant && CLASS_DEFS.servant.name) || "商人の従者";
+      if (sceneFlags.servant_rescued) return `🤝 ${nm} は無事に生還した。ボルダックは約束の礼に、さらに上乗せしてきた。`;
+      if (hostageServantHp > 0) return `🤝 縄を断たれた ${nm} は、戦いの喧噪に紛れて坑道の外へ逃げ延びた。`;
+      return `🕯 ${nm} は玉座の脇で息絶えていた。ボルダックは礼を言い、そのあと何も言わなかった。`;
+    }
+
+    // ── 結果の適用 ──────────────────────────────────────────────────────────
+    let sce1GrixOutcome = null;   // 観測用: 最後に確定した枝。ゲーム進行はこれを 1 度も読まない
+    function applyGrixCharge(viaEsc) {
+      sce1GrixOutcome = viaEsc ? "charge_esc" : "charge";
+      // servant_rescued は**代入しない** (他分岐で立った真を後から潰さない = EV-5 の迂回枝と同じ流儀)
+      showBanner("⚔ 問答無用!", 1500);
+      updateInfo(viaEsc
+        ? `${getLeaderName()} は言葉を捨てた。玉座へ向かって、そのまま踏み込む。`
+        : `${getLeaderName()} は交渉を打ち切った。抜き放った刃が、玉座の緑を映す。`);
+      showDMMessage("言葉は尽きた。あとは鋼が語るだけだ。玉座のグリクスが、ゆっくりと棍棒を持ち上げる。", 2800);
+    }
+
+    function applyGrixResult(res, choice) {
+      // 判定が成立しなかった (エンジン未読込 / PT 消滅) なら突撃扱い。ボス部屋の入口で
+      // 未決のまま止めると詰むので、EV-2/EV-5 の「安全側=無害」とは倒す方向が違う。
+      if (!res) { applyGrixCharge(false); return; }
+      const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (choice === 0) {
+        if (res.success) {
+          sce1GrixOutcome = "persuade_ok";
+          showDMMessage("グリクスは鼻を鳴らし、顎で手下に合図した。縄が切られ、若者が床へ転がる。——玉座の緑は、まだ笑っている。", 3200);
+          rescueServant();   // ★昇格。servant_rescued を立てるのはこの 1 箇所だけ (EV-5 と同じ道を通る)
+          updateInfo(`${rep} の言葉がグリクスの矜持を突いた (${res.total} ≧ DC ${res.dc}) — 人質は解き放たれた`);
+          return;
+        }
+        sce1GrixOutcome = "persuade_fail";
+        const gained = applyGrixEnrage();
+        showBanner("👑 グリクス激昂!", 1800);
+        updateInfo(`${rep} の要求はグリクスを侮辱した… (${res.total} < DC ${res.dc}) 玉座の緑が膨れ上がる (HP +${gained})`);
+        showDMMessage("玉座が軋んだ。緑の暴君は縄を掴んで揺すり、若者の悲鳴を楽しむように吼えた。——交渉は、終わった。", 3200);
+        return;
+      }
+      // choice === 1: 積荷を渡すふりをする
+      if (res.success) {
+        sce1GrixOutcome = "deceive_ok";
+        sce1PendingSurprise = true;   // ★払い出しは runEncounter の stunned リセット後 (consumeSce1Surprise)
+        showBanner("🎭 欺瞞成功 — 先制!", 1700);
+        updateInfo(`${rep} は空の背嚢を差し出した (${res.total} ≧ DC ${res.dc}) — 群がった隙に、こちらが先手を取る`);
+        showDMMessage("「荷はここに」——差し出された袋へ、手下どもが我先にと群がる。中身が無いと気づくころには、もう遅い。", 3000);
+        return;
+      }
+      sce1GrixOutcome = "deceive_fail";
+      const added = applyGrixAdds();
+      showBanner("👁 見抜かれた!", 1700);
+      updateInfo(`${rep} の嘘は見抜かれた… (${res.total} < DC ${res.dc}) 横穴から ${added} 体が湧き出した`);
+      showDMMessage("グリクスは袋を叩き落とし、天井へ向けて吼えた。壁の横穴という横穴から、緑の影が滑り出てくる。", 3200);
+    }
+
+    async function runGrixEvent(ev) {
+      skillCheckActive = true;   // 選択中も知覚/開錠/罠解除パネルと相互排他
+      let choice = null;
+      try {
+        choice = await showCharChoice(
+          sce1GrixHeadline(),
+          [
+            { label: "従者の解放を要求する" },
+            { label: "積荷を渡すふりをする" },
+            { label: "問答無用で突撃する" },
+          ],
+          "無言で踏み込む (Esc)");
+      } catch (e) { choice = null; }
+
+      const viaEsc = (choice === null);
+      if (viaEsc) choice = 2;   // ★Esc = 突撃扱い。declined は立てない (入口で止まれると詰む)
+      ev.fired = true;
+
+      const spec = SCE1_GRIX_CHECKS[choice] || null;
+      if (!spec) {              // ★判定なし(確定) = SkillCheck を 1 度も呼ばない = ダイス演出も出ない
+        skillCheckActive = false;
+        applyGrixCharge(viaEsc);
+        armGrixHostageRedirect();
+        return;
+      }
+
+      const party = buildPerceptionParty();
+      let res = null;
+      if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
+        dialogPaused = true;
+        try {
+          res = await SkillCheck.resolveSkillCheck(spec.check, sce1GrixDc(choice), party, {
+            title: spec.title,
+            flavor: spec.flavor,
+            extraBonus: sceneClassBonus(spec.classes),   // ★DC ではなく加算側に効かせる
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        dialogPaused = false;
+      }
+      skillCheckActive = false;
+      applyGrixResult(res, choice);
+      // ★結果が確定した**後**に仕掛ける。選択0 成功なら servant_rescued=true なので不発になる
+      //   = 「救出できたらボスが実際に弱くなる」がこの 1 行の順序で保証される。
+      armGrixHostageRedirect();
+    }
+
+    // イベント台帳。項目4 (EV-9 グリクス) は行を足すだけで載った。
+    // ⚠ 添字は検証ドライバが参照する (EV-2=0 / EV-5=1 / EV-9=2)。並べ替えるなら driver も直すこと。
     const SCE1_EVENTS = [
       { key: "mine_watch", spot: sce1WatchSpot, run: runMineWatchEvent,
         fired: false, declined: false, busy: false },
       { key: "captive_servant", spot: sce1ServantSpot, run: runServantEvent,
+        fired: false, declined: false, busy: false },
+      { key: "grix_parley", spot: sce1GrixSpot, run: runGrixEvent,
         fired: false, declined: false, busy: false },
     ];
 
@@ -27673,6 +28025,11 @@
         if (currentScenario.closingFlavor) {
           html += `<br><span style="opacity:.75;font-style:italic">${currentScenario.closingFlavor}</span>`;
         }
+        // [sce1-events] シナリオ1 エピローグ差分 (従者の生死)。
+        //   ★「死亡」は独立変数を持たず hostageServantHp から導出する (sce1EpilogueLine 側)。
+        //   他シナリオ / 生成クエストでは null が返るので 1 バイトも増えない。
+        const sce1Epi = (typeof sce1EpilogueLine === "function") ? sce1EpilogueLine() : null;
+        if (sce1Epi) html += `<br><span style="opacity:.85">${sce1Epi}</span>`;
         resultRewardEl.innerHTML = html;
       } else {
         // 敗北: この道中で拾った物は失われる(永続データは既存のまま)
