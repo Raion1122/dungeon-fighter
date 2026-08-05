@@ -13,7 +13,7 @@
  *   §7 EV-2   接近3択 / 判定なし枠は SkillCheck を呼ばない / 失敗で mine_alerted+増援2体 /
  *             Esc は無害で declined / 発火は1回きり / 生成クエストでは発火しない
  * 【項目 3 = EV-5「捕らわれた従者」+ 従者の味方ユニット化】
- *   §8 EV-5   接近3択 / 判定なし枠は SkillCheck を呼ばない /
+ *   §8 EV-5   接近3択 / 判定なし枠は SkillCheck を呼ばない / ★専用スプライト配線 2 箇所 /
  *             ★成功でも失敗でも救出は成立する (代償は HP のみ) = シナリオ1 の感情的な芯 /
  *             ★召喚枠 (summonSlot) を食わない / 失敗時は既存の罠ダメージ経路を通る
  * 【項目 4 = EV-9「玉座のグリクス」+ ボス戦への接続】
@@ -63,6 +63,14 @@
  *     N21  | ボス HP の上方修正を消す                        | G9
  *     N22  | 見抜かれた時の配下 +2 を 0 体に                 | G11
  *     N23  | EV-9 の判定なし枠を「候補0の判定」へ落とす      | G6
+ *     N24  | 救出済の成功枝を旧実装へ戻す (人質を再解放)     | G18
+ *     N25  | 候補0 のラベルを未救出のまま固定する            | G4b
+ *     N26  | 判定パネルの一文を未救出のまま固定する          | G4c
+ *     N27  | スプライト配線を片方だけ旧流用へ戻す            | S20
+ *   ⭐ N24/N25/N26 は 2026-08-06 の iOS 実機フィードバック (「従者を助けた後なのに、
+ *     グリクス戦で人質解放を要求してくる」) の再発防止。破綻は **ラベル / 一文 / 演出と報酬**
+ *     の 3 箇所に独立して居たので、検出器も 3 つに割って独立に落ちることを実測する
+ *     (1 つにまとめると「1 箇所だけ直した」状態を緑のまま見逃す)。
  *   ⭐ N14 が本項目で最も重要な負のコントロール: **1 つの変異が G10 (EV-9 の奇襲) と
  *     G10b (第7弾「隠密の接近」) を同時に殺す** = EV-9 が新しい先制機構を作らず、
  *     既存の付与点をそのまま共有していることの実測 (別配線なら片方しか落ちない)。
@@ -192,6 +200,25 @@ const MUTATIONS = [
   // N23: EV-9 の「判定なし(確定)」枠を候補0の判定へ落とす。→ G6 が赤くなるはず。
   ['      const spec = SCE1_GRIX_CHECKS[choice] || null;',
    '      const spec = SCE1_GRIX_CHECKS[choice] || SCE1_GRIX_CHECKS[0];   /* ★変異N23 */'],
+  /* ── 2026-08-06 iOS 実機フィードバック「救出済なのに人質解放を要求してくる」の再発防止 ───
+   *   ⭐ 破綻は **3 箇所に独立して**居た (ラベル / 判定パネルの一文 / 成否の演出と報酬)。
+   *      1 つの検出器にまとめると「1 箇所だけ直った」状態を緑のまま見逃すので、
+   *      N24/N25/N26 で 3 つとも別々に落ちることを実測する。 */
+  // N24: 救出済の成功枝を旧実装へ戻す (= もう居ない人質を rescueServant で「解放」する)。
+  //      → G18 が赤くなるはず。G4b/G4c (文面) は緑のまま = 演出と文面が別配線であることの証明。
+  ['          if (rescued) {',
+   '          if (false) {   /* ★変異N24 */'],
+  // N25: 候補0 のラベルを未救出のまま固定する (実機で見えた破綻そのもの)。→ G4b が赤くなるはず。
+  ['            { label: sce1GrixPersuadeLabel() },',
+   '            { label: SCE1_GRIX_LABEL_HOSTAGE },   /* ★変異N25 */'],
+  // N26: 判定パネルの一文だけ未救出のまま固定する。→ G4c が赤くなるはず (G4b は緑)。
+  ['            flavor: (spec.flavorRescued && sceneFlags.servant_rescued) ? spec.flavorRescued : spec.flavor,',
+   '            flavor: spec.flavor,   /* ★変異N26 */'],
+  /* N27: スプライト配線を **片方だけ** 旧流用 (NPC 男性僧侶) へ戻す。→ S20 が赤くなるはず。
+   *   ⭐ 直すべき箇所が 2 つある配線の「片方だけ直した/戻した」を検出できることの実測。
+   *     CLASS_DEFS.servant.sprite は緑のまま (= 別配線) なので、S20 が両方を見ている意味が出る。 */
+  ['      servant:       [ { walk: \'url("assets/servant_walk.png")\', walkSize: "576px 384px", attack: \'url("assets/servant_attack.png")\', attackSize: "480px 384px", label: "商人の従者" } ],',
+   '      servant:       [ { walk: \'url("assets/cleric_npcmale_walk.png")\', walkSize: "576px 384px", attack: \'url("assets/cleric_npcmale_attack.png?v=2")\', attackSize: "480px 384px", label: "商人の従者" } ],   /* ★変異N27 */'],
 ];
 let _mutCache = null;
 function mutatedSources() {
@@ -722,6 +749,12 @@ async function ev5State(page) {
       lastMaxHp: last ? last.maxHp : null,
       lastDefName: last ? ((last.def && last.def.name) || null) : null,
       lastDomAttached: last ? !!(last.el && document.body.contains(last.el)) : null,
+      // ★スプライト配線は CLASS_DEFS.servant.sprite と SPRITE_VARIANTS.servant の **2 箇所**
+      //   要る。片方だけだと歩きと攻撃で別人になる (2026-08-06 の差し替えで踏み得た罠)。
+      lastBgImage: last ? ((last.el && last.el.style.backgroundImage) || '') : null,
+      defSprite: (CLASS_DEFS.servant && CLASS_DEFS.servant.sprite) || null,
+      variantWalk: ((SPRITE_VARIANTS.servant || [])[0] || {}).walk || null,
+      variantAttack: ((SPRITE_VARIANTS.servant || [])[0] || {}).attack || null,
       lastStatusBoxes: document.querySelectorAll('#partyStatusList .statusBox').length,
       summonSlot: (summonSlot === null || summonSlot === undefined) ? 'null' : 'set',
       joined: servantJoined,
@@ -931,6 +964,19 @@ function ev5Detectors(R) {
     S19: { label: '★EV-5: 僧侶を 1 人加えると extraBonus が 2 になる (得意クラス +2 が実際に流れる)',
            ok: R.clericBonusWith === 2 && ((R.afterCleric.calls || [])[0] || {}).extraBonus === 2,
            got: 'sceneClassBonus=' + R.clericBonusWith + ' passed=' + JSON.stringify(R.afterCleric.calls) },
+    /* ★スプライト配線は CLASS_DEFS.servant.sprite と SPRITE_VARIANTS.servant の 2 箇所が要る。
+     *   片方だけ直すと getSpriteSet がもう片方の旧シートを返し、歩きと攻撃で別人になる。
+     *   ⚠ 「専用シートである」ことは **NPC 僧侶シートを参照していない** ことで測る
+     *     (旧流用の再発を直接禁じる。ファイル名を焼き込むだけだと改名で自己失効する)。 */
+    S20: { label: '★EV-5: 従者は専用シート (servant_*) を 2 箇所とも参照し、実 DOM にも載っている',
+           ok: okState.defSprite === 'assets/servant_walk.png'
+               && /servant_walk\.png/.test(String(okState.variantWalk))
+               && /servant_attack\.png/.test(String(okState.variantAttack))
+               && /servant_walk\.png/.test(String(okState.lastBgImage))
+               && !/cleric_npcmale/.test(String(okState.defSprite) + String(okState.variantWalk)
+                                         + String(okState.variantAttack) + String(okState.lastBgImage)),
+           got: 'def=' + okState.defSprite + ' walk=' + okState.variantWalk
+                + ' attack=' + okState.variantAttack + ' dom=' + okState.lastBgImage },
   };
 }
 
@@ -964,7 +1010,8 @@ async function ev9Prepare(page) {
     window.__ev9.roomCount = function () { return sce1BossRoomEnemyIndices().length; };
     SC.resolveSkillCheck = function (checkKey, dc, party, o) {
       window.__ev9.calls.push({ checkKey: checkKey, dc: dc,
-        extraBonus: (o && o.extraBonus) || 0, title: (o && o.title) || null });
+        extraBonus: (o && o.extraBonus) || 0, title: (o && o.title) || null,
+        flavor: (o && o.flavor) || null });   // ★救出状況で一文が開くこと (G4c) を測る
       const ok = !!window.__ev9.force;
       return Promise.resolve({ success: ok, roll: 10, total: ok ? dc + 3 : dc - 3, dc: dc,
         bonus: 0, rep: (party && party[0]) || null, helper: null, crit: false, fumble: false });
@@ -1060,6 +1107,20 @@ async function ev9ClickLabel(page, needle) {
     if (b) { b.click(); return true; }
     return false;
   }, needle);
+}
+/* 候補0 (説得) を **どちらの文面でも** 押す。
+ * ⚠ 救出状況でラベルが開くようになった (2026-08-06) ので単一文字列では押せない。しかも
+ *   変異N25 はラベルを未救出のまま固定するため、片方の文面しか受け付けないと**変異側で
+ *   押し損ね**、以降の V8/V9 まで巻き添えで壊れて N25 が外科的でなくなる。
+ * ⚠ 「選択肢が消えていないか」はこのクリックではなく **G4 が labels 配列で**測っている
+ *   (押せた/押せないより、実際に並んでいるラベル列を見る方が直接的)。 */
+async function ev9ClickPersuade(page) {
+  return page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('#choiceDialog .choiceButtons button'));
+    const b = btns.filter(x => /従者の解放を要求する|切り札は無いと突きつける/.test(x.textContent))[0];
+    if (b) { b.click(); return true; }
+    return false;
+  });
 }
 
 async function ev9Run(page, tag) {
@@ -1201,7 +1262,7 @@ async function ev9Run(page, tag) {
   await ev9Rearm(page, true);
   await page.evaluate(() => { sceneFlags.servant_rescued = true; });   // 変異N8 の影響を受けず直接立てる
   G.dlg7 = await ev2WaitDialog(page, 5000);
-  G.clicked7 = G.dlg7 ? await ev9ClickLabel(page, '従者の解放を要求する') : false;
+  G.clicked7 = G.dlg7 ? await ev9ClickPersuade(page) : false;
   if (G.clicked7) await ev9Settle(page);
   G.afterRescuedPersuade = await ev9State(page);
 
@@ -1256,9 +1317,24 @@ function ev9Detectors(G) {
           got: JSON.stringify(L1) },
     G3: { label: 'EV-9: 未救出の見出しは「縄で吊るされた人影」',
           ok: !!G.dlg1 && G.dlg1.msg.indexOf('縄で吊るされた人影') >= 0, got: (G.dlg1 || {}).msg },
-    G4: { label: '★EV-9: 救出済では見出しだけが変わり、選択肢は 1 つも消えない (§4.1 原則)',
-          ok: !!G.dlg7 && G.dlg7.msg.indexOf('空の縄') >= 0 && eq(L7, L1),
+    /* ⚠ G4 は「選択肢が**消えていない**こと」だけを見る (§4.1 原則)。文面が開くかは G4b/G4c の担当。
+     *   以前は eq(L7, L1) = 全ラベル完全一致で測っていたが、それは原則より強すぎる assert で、
+     *   「救出済なのに『従者の解放を要求する』のまま」という実機の破綻を**構造的に固定していた**。
+     *   よって候補1/2/Esc の同一性と件数だけを見る (候補0 は開いてよい = 開くべき)。 */
+    G4: { label: '★EV-9: 救出済でも選択肢は 1 つも消えない (件数と候補1/2/Esc が不変・§4.1 原則)',
+          ok: !!G.dlg7 && G.dlg7.msg.indexOf('空の縄') >= 0
+              && L7.length === 4 && L1.length === 4
+              && L7[1] === L1[1] && L7[2] === L1[2] && L7[3] === L1[3],
           got: 'msg=' + ((G.dlg7 || {}).msg) + ' labels=' + JSON.stringify(L7) },
+    G4b: { label: '★EV-9: 救出済では候補0 の**ラベル**が開く (もう居ない人質の解放を要求しない)',
+           ok: L1[0] === '1. 従者の解放を要求する' && L7[0] === '1. 切り札は無いと突きつける',
+           got: '未救出=' + L1[0] + ' / 救出済=' + L7[0] },
+    G4c: { label: '★EV-9: 救出済では判定パネルの**一文**も開く (「縄に吊るされた男」を指さない)',
+           ok: !!cPO && !!cR && typeof cPO.flavor === 'string' && typeof cR.flavor === 'string'
+               && cPO.flavor !== cR.flavor
+               && cPO.flavor.indexOf('縄に吊るされた男') >= 0
+               && cR.flavor.indexOf('空になった縄') >= 0,
+           got: '未救出=' + (cPO && cPO.flavor) + ' / 救出済=' + (cR && cR.flavor) },
     G5: { label: '★EV-9: 説得の DC は 未救出15 / 救出済13、欺瞞は救出状況に依らず 17',
           ok: !!cPO && cPO.checkKey === 'persuasion' && cPO.dc === 15
               && !!cR && cR.checkKey === 'persuasion' && cR.dc === 13
@@ -1332,6 +1408,21 @@ function ev9Detectors(G) {
     G17: { label: '★エピローグがリザルト画面 (VICTORY) に実際に描かれる',
            ok: typeof G.resultHtml === 'string' && G.resultHtml.indexOf('息絶え') >= 0,
            got: String(G.resultHtml).slice(-160) },
+    /* ★救出済の説得成功は rescueServant を通らない (通ると「助けた従者をもう一度助ける」)。
+     *   代わりに護衛が 1 体だけ戦わずに降りる。**撃破ではない**ので:
+     *     ・ボスの HP は 1 も動かない (直前 V6 の値と一致)
+     *     ・従者が二重参戦しない (allies が増えない)
+     *   ⚠ 直前の V6 (未救出の説得成功) を「before」として使う = 部屋の敵数を動かさない操作。 */
+    G18: { label: '★EV-9: 救出済の説得成功は「再解放」ではなく護衛が 1 体だけ戦わずに減る',
+           ok: G.afterRescuedPersuade.outcome === 'persuade_ok_rescued'
+               && G.afterPersuadeOk.roomCount - G.afterRescuedPersuade.roomCount === 1
+               && G.afterRescuedPersuade.allies === G.afterPersuadeOk.allies
+               && G.afterRescuedPersuade.bossMaxHp === G.afterPersuadeOk.bossMaxHp
+               && G.afterRescuedPersuade.bossHp === G.afterPersuadeOk.bossHp,
+           got: 'outcome=' + G.afterRescuedPersuade.outcome
+                + ' room ' + G.afterPersuadeOk.roomCount + ' -> ' + G.afterRescuedPersuade.roomCount
+                + ' allies ' + G.afterPersuadeOk.allies + ' -> ' + G.afterRescuedPersuade.allies
+                + ' bossHp ' + G.afterPersuadeOk.bossHp + ' -> ' + G.afterRescuedPersuade.bossHp },
   };
 }
 
@@ -1738,6 +1829,12 @@ const GEN_QUEST = {
     'allies=' + RM.afterAthlFail.allies + '/' + RM.alliesBefore);
   check('(N11) ★変異N11 (EV-5 の判定なし枠を潰す) で S5「選択2 で SkillCheck 未呼出」が赤くなる',
     SM.S5.ok === false && RM.afterAvoid.calls.length === 1, SM.S5.got);
+  check('(N27) ★変異N27 (スプライト配線を片方だけ旧流用へ戻す) で S20 が赤くなる',
+    SM.S20.ok === false && /cleric_npcmale_walk/.test(String(RM.afterPerceptOk.variantWalk)),
+    SM.S20.got);
+  check('(N27-隣) 変異N27 は外科的: もう片方 (CLASS_DEFS.servant.sprite) は専用シートのまま',
+    RM.afterPerceptOk.defSprite === 'assets/servant_walk.png',
+    'def=' + RM.afterPerceptOk.defSprite + ' (= 2 箇所が独立配線であることの実測)');
   check('(N2-EV5) ★変異N2 (得意クラス加算 2→0) で S19「僧侶在籍で extraBonus=2」が赤くなる',
     SM.S19.ok === false && RM.clericBonusWith === 0
     && ((RM.afterCleric.calls || [])[0] || {}).extraBonus === 0, SM.S19.got);
@@ -1805,6 +1902,26 @@ const GEN_QUEST = {
   check('(N23) ★変異N23 (突撃枠を候補0の判定へ落とす) で G6「選択2 で SkillCheck 未呼出」が赤くなる',
     GMD.G6.ok === false && GM.afterCharge.calls.length === 1,
     'calls=' + JSON.stringify(GM.afterCharge.calls));
+  /* ── 2026-08-06 iOS 実機フィードバックの再発防止 (破綻していた 3 箇所を独立に測る) ── */
+  check('(N24) ★変異N24 (救出済の成功枝を旧実装へ戻す) で G18「再解放ではなく護衛が減る」が赤くなる',
+    GMD.G18.ok === false && GM.afterRescuedPersuade.outcome === 'persuade_ok'
+    && GM.afterRescuedPersuade.roomCount === GM.afterPersuadeOk.roomCount,
+    GMD.G18.got);
+  check('(N25) ★変異N25 (候補0 のラベルを未救出のまま固定) で G4b が赤くなる',
+    GMD.G4b.ok === false
+    && ((GM.dlg7 && GM.dlg7.labels) || [])[0] === '1. 従者の解放を要求する',
+    GMD.G4b.got);
+  check('(N25-隣) 変異N25 は外科的: G4「選択肢が消えていない」の赤は N20 由来のまま (件数 3)',
+    ((GM.dlg7 && GM.dlg7.labels) || []).length === 3,
+    'labels=' + JSON.stringify((GM.dlg7 || {}).labels));
+  check('(N26) ★変異N26 (判定パネルの一文を未救出のまま固定) で G4c が赤くなる',
+    GMD.G4c.ok === false
+    && ((GM.afterRescuedPersuade.calls || [])[0] || {}).flavor
+       === ((GM.afterPersuadeOk.calls || [])[0] || {}).flavor,
+    GMD.G4c.got);
+  check('(N26-母集団) 変異側でも候補0 は実際に押せている (押し損ねで空振りしていない)',
+    GM.clicked7 === true && (GM.afterRescuedPersuade.calls || []).length === 1,
+    'clicked7=' + GM.clicked7 + ' calls=' + JSON.stringify(GM.afterRescuedPersuade.calls));
   /* ★集計: 変異側で赤くなるのは狙った検出器だけで、3択そのもの (G1/G2/G3) と
    *   「発動しない側」(G15) と「リザルトへの配線」(G17) は緑のまま = 変異群が外科的であることの総括。 */
   check('(N-EV9集計) 変異側で緑のまま残るのは G1/G2/G3/G15/G17 のちょうど 5 個',

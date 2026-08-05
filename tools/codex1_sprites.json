@@ -326,6 +326,16 @@
       "note": "エルフ (弓職) の **変種 index 1-3 (ハイエルフの射手/森の女狩人/闇森の影射手) が共有する 1 枚**。⚠️ 2026-07-30 にユーザーが『標準は女エルフ』を選択したため **男エルフは変種側**に入っている (label はどこからも読まれない内部識別子なので『森の女狩人』枠に男が出ても表示上の不整合は起きない)。⚠️⚠️ **codex1 の elf/ 直下にある walk / attack (v1〜v1d 系) は使ってはいけない** — 中身が長剣＋ラウンドシールドの『エルフ剣士』で、ゲームのエルフは弓職 (ボールト classes.md『素早い・遠距離型 / 武器: 弓+短剣』/ 呪文が全部矢系 / 変種名が射手・女狩人・影射手 / 旧 chibi も walk から弓を手に持つ)。2026-07-30 に依頼文 requests/2026-07-30_elf-bow-motions.md で **bow 系を新規に描いてもらった**のがこの素材。glob に必ず `bow-` を含めること (`*walk*` だと剣士版まで拾う恐れがあるため `*bow-walk*` と書いている)。⭐ 納品品質が非常に高い: walk / attack **全 12 コマで接地線 564 が完全一致**、attack/walk の体高 delta が **+0.00%**、walk bodyH median 437.0 が依頼値ぴったり。そのため attack_scale は 1.0 で確定 (auto も 1.0000 になるが、素材差替時に壊れないよう 1.0 を明示で残す)。char_ratio 0.5994 = 素材 walk bodyH median=437 / bboxH max=449 から出力体高 median 56px (主人公戦士と同値) を逆算。右リーチ最大 218.0px は上限 374.6px に対し余裕大 (弓の矢は水平に伸びるので上限は必ず見る)。**新規ファイル名 (elf_male_*) なので ?v= キャッシュバスタは不要** (⚠️ ただし次に中身を変えた時は必要になる)。参照は index.html の CLASS_VARIANT_SPRITES.elf の変種 1-3 の 3 行のみ。旧 chibi 3 種 (elf_{high,huntress,shadow}_*) は残置してあるので、将来 codex1 が別デザインを出したら該当行の url だけ差し替えれば再び 3 種に割れる"
     },
     {
+      "key": "merchant", "out": "assets/servant_walk.png",
+      "attack_out": "assets/servant_attack.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5938, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "merchant/merchant-walk-right-6-v1",
+      "attack_dir": "merchant/merchant-walk-right-6-v1",
+      "note": "シナリオ1 EV-5 で救出できる **商人の従者** (2026-08-06 新設)。それまでは NPC 男性僧侶 cleric_npcmale_walk.png を流用しており「白金の法衣の神官が商人の従者を名乗る」状態だった。char_ratio 0.5938 = --match-current assets/cleric_npcmale_walk.png の実測値 (walk H_max=57px / cell=96) を焼き込んだもので、**画面上の背丈と接地位置が旧シートと変わらない**。⚠️ **attack_dir は walk と同じ** = 専用の攻撃モーションを持たない (ユーザー判断)。codex1 には merchant-present (薬瓶を差し出す) があるが、**衜装が別デザイン (青マント×緑上着) で攻撃にも見えない**ので採用しない。⚠️ 新規ファイル名なので ?v= キャッシュバスタは不要 (次に同名で中身を変える時は必要)。参照は index.html の CLASS_DEFS.servant.sprite と SPRITE_VARIANTS.servant の 2 箸所だけ。"
+    },
+    {
       "key": "female-elf", "out": "assets/elf_walk.png",
       "attack_out": "assets/elf_attack.png",
       "format": "player",

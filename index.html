@@ -11989,10 +11989,12 @@
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
       golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png?v=2")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
       undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png?v=2")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],
-      // ── [sce1-events] EV-5 の従者: 専用素材が届くまで NPC 男性僧侶シートを流用 ──
+      // ── [sce1-events] EV-5 の従者: codex1 の旅商人素材 (2026-08-06 に専用シート化) ──
       //   ⚠ ここを登録しないと getSpriteSet が null を返し、createAllyDom / updateAllySprite が
       //     4方向12行シート (480×1152) 想定のフォールバックに落ちて絵が崩れる。
-      servant:       [ { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px", label: "商人の従者" } ],
+      //   ⚠ 台帳は tools/codex1_sprites.json の key "merchant"。attack は専用モーションを持たず
+      //     walk と同じ素材から起こしている (`--all` で決定論的に再生成できる)。
+      servant:       [ { walk: 'url("assets/servant_walk.png")', walkSize: "576px 384px", attack: 'url("assets/servant_attack.png")', attackSize: "480px 384px", label: "商人の従者" } ],
     };
     // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。
     function getSpriteSet(classKey, variant) {
@@ -16691,12 +16693,13 @@
       // PARTY_ZONES には一切漏れない。createAlly の def 値だけで動く非キャスター
       // (applyAllyEquipment / initAllySpellSlots は呼ばない)。
       // ⚠ 数値は「弱いが手数にはなる」を狙った暫定値。undead_squad(hp30) より明確に脆くする。
-      // ⚠ スプライトは暫定で NPC 男性僧侶シートを流用 (専用素材は codex1 へ依頼中)。
-      //   差し替え時は SPRITE_VARIANTS.servant (11988 付近) の walk/attack も同時に直すこと。
+      // ⚠ スプライトは codex1 の旅商人素材 (台帳 key "merchant" → assets/servant_walk.png)。
+      //   ⚠⚠ 差し替えは **ここと SPRITE_VARIANTS.servant (11995 付近) の両方**が要る。
+      //      片方だけだと getSpriteSet が旧シートを返し、歩きと攻撃で別人になる。
       servant: {
         name: "商人の従者",
-        flavor: "ボルダックの荷を守って囚われた若者。戦いは素人だが、必死に食らいつく",
-        sprite: "assets/cleric_npcmale_walk.png",
+        flavor: "ボルダックの荷を守って囚われた荷運びの男。戦いは素人だが、必死に食らいつく",
+        sprite: "assets/servant_walk.png",
         displaySize: 96,
         hpMax: 18,
         mpMax: 0,
@@ -20182,7 +20185,7 @@
           : `${rep} は瓦礫をこじ開けて横穴へ潜り込んだ${res ? ` (${res.total} ≧ DC ${res.dc})` : ""} — 仕掛けには触れなかった`);
         showDMMessage(choice === 0
           ? "灯りをかざせば、床板の一枚だけが不自然に新しい。そこを避けて踏み込めば、あとはただ縄を切るだけだ。"
-          : "考えるより先に身体が動いた。瓦礫が崩れ、土煙の向こうに、縛られた若者の目が見開かれる。", 3000);
+          : "考えるより先に身体が動いた。瓦礫が崩れ、土煙の向こうに、縛られた男の目が見開かれる。", 3000);
         rescueServant();
         return;
       }
@@ -20263,10 +20266,23 @@
     // 見抜かれた時の配下 +2。★固定配列 = Math.random を 1 度も引かない (EV-2 と同じ決定論規約)。
     const SCE1_GRIX_ADD_TYPES    = ["goblin", "goblin"];
 
+    // ⭐ [2026-08-06 iOS 実機フィードバック] 救出済のとき「従者の解放を要求する」は矛盾する。
+    //   §4.1 原則が禁じているのは **選択肢を消す/潰すこと** であって、文面を固定することではない。
+    //   ラベル / flavor / 成否ナレ の 3 つを開かないと「自分で助けた従者を、もう一度解放しろと
+    //   グリクスに要求する」という破綻がそのまま画面に出る (実機で報告された不具合の真因)。
+    //   ⚠ 開くのは**候補0 だけ**。候補1/2 のラベルは救出状況に依らず 1 バイトも動かさない
+    //     (ドライバは「選択肢が消えていないこと」を候補1/2 の同一性で測っている)。
+    const SCE1_GRIX_LABEL_HOSTAGE = "従者の解放を要求する";
+    const SCE1_GRIX_LABEL_RESCUED = "切り札は無いと突きつける";
+    function sce1GrixPersuadeLabel() {
+      return sceneFlags.servant_rescued ? SCE1_GRIX_LABEL_RESCUED : SCE1_GRIX_LABEL_HOSTAGE;
+    }
+
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「突撃」) が「判定なし(確定)」。
     const SCE1_GRIX_CHECKS = {
       0: { check: "persuasion", title: "説得判定", classes: SCE1_GRIX_PERSUADE_CLASSES,
-           flavor: "縄に吊るされた若者を指し、解放と引き換えの道を説く…" },
+           flavor: "縄に吊るされた男を指し、解放と引き換えの道を説く…",
+           flavorRescued: "空になった縄を指し、もう脅す手札は無いのだと突きつける…" },
       1: { check: "deception",  title: "欺瞞判定", classes: SCE1_GRIX_DECEIVE_CLASSES,
            flavor: "空の背嚢を掲げ、荷はすべてここにあると言い切る…" },
     };
@@ -20337,6 +20353,39 @@
       boss.maxHp = Math.round(before * SCE1_GRIX_ENRAGE_MUL);
       boss.hp = boss.maxHp;                       // まだ戦闘前なので「初期 HP の上方修正」と等価
       return boss.maxHp - before;
+    }
+
+    // ── 選択0 成功 (★救出済のみ): 護衛が 1 体、戦わずに逃げる ────────────────
+    // 未救出の成功は「人質が解放される」= rescueServant。救出済ではそれが起こり得ないので、
+    // **切り札を失った玉座から手下が離れる**という別の報酬に開く (2026-08-06)。
+    // ★撃破ではないので defeatEnemy を通さない = XP もドロップも 1 も出さない。
+    //   描画ループは alive=false の敵を自動で隠す (11717 の else 枝) ので DOM 操作は要らず、
+    //   checkDungeonClear の `!e.alive` も「片付いた」と数えるのでクリアを塞がない。
+    // ⚠ 戦闘前にしか走らない (runGrixEvent は dialogPaused 下・encounterActive ガードの内側)。
+    //   戦闘中に呼ぶと encounterEnemyIndices と手番管理が齟齬する。
+    const SCE1_GRIX_FLEE_TYPES = ["hobgoblin"];   // 逃げる候補の優先順。居なければ非ボスの先頭
+    let grixGuardFledDone = false;   // 冪等ラッチ
+    function applyGrixGuardFlee() {
+      if (grixGuardFledDone) return null;
+      const bi = sce1GrixIdx();
+      const pool = sce1BossRoomEnemyIndices().filter(i => {
+        if (i === bi) return false;
+        const e = enemies[i];
+        return !!e && !(e.def && (e.def.isBoss || e.def.boss)) && !e.passiveNpc;
+      });
+      if (!pool.length) return null;
+      let pick = -1;
+      for (const t of SCE1_GRIX_FLEE_TYPES) {
+        const hit = pool.filter(i => enemies[i].type === t);
+        if (hit.length) { pick = hit[0]; break; }
+      }
+      if (pick < 0) pick = pool[0];
+      grixGuardFledDone = true;
+      const e = enemies[pick];
+      e.alive = false;          // ★撃破ではない (defeatEnemy を通さない = XP/ドロップ無し)
+      e.coinVisible = false;
+      e.state = "idle";
+      return (e.def && e.def.name) || "手下";
     }
 
     // ── 選択1 失敗: 見抜かれて配下 +2 ────────────────────────────────────────
@@ -20502,9 +20551,24 @@
       if (!res) { applyGrixCharge(false); return; }
       const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       if (choice === 0) {
+        // ★ここから先は「人質が居るか」で語り口も報酬も分かれる。フラグは res の前に読む
+        //   (成功枝で rescueServant() が真を立てるので、後で読むと未救出/救出済が混ざる)。
+        const rescued = sceneFlags.servant_rescued;
         if (res.success) {
+          if (rescued) {
+            // 救出済: 解放させる相手がもう居ない。代わりに**護衛が 1 体、戦わずに降りる**。
+            sce1GrixOutcome = "persuade_ok_rescued";
+            const fled = applyGrixGuardFlee();
+            showBanner(fled ? "🏃 手下が持ち場を捨てた!" : "👑 グリクスが言葉に詰まった", 1800);
+            updateInfo(fled
+              ? `${rep} は空の縄を指して見せた (${res.total} ≧ DC ${res.dc}) — ${fled} が武器を置き、坑道の闇へ消えた`
+              : `${rep} は空の縄を指して見せた (${res.total} ≧ DC ${res.dc}) — 玉座の緑が、初めて言葉に詰まった`);
+            showDMMessage("「人質はもう居ない」——グリクスの笑いが止まった。玉座の脇で、切られた縄が力なく垂れている。\n" +
+                          "その意味を先に理解したのは、玉座の主ではなく、傍らに控えていた手下の方だった。", 3400);
+            return;
+          }
           sce1GrixOutcome = "persuade_ok";
-          showDMMessage("グリクスは鼻を鳴らし、顎で手下に合図した。縄が切られ、若者が床へ転がる。——玉座の緑は、まだ笑っている。", 3200);
+          showDMMessage("グリクスは鼻を鳴らし、顎で手下に合図した。縄が切られ、男が床へ転がる。——玉座の緑は、まだ笑っている。", 3200);
           rescueServant();   // ★昇格。servant_rescued を立てるのはこの 1 箇所だけ (EV-5 と同じ道を通る)
           updateInfo(`${rep} の言葉がグリクスの矜持を突いた (${res.total} ≧ DC ${res.dc}) — 人質は解き放たれた`);
           return;
@@ -20513,7 +20577,9 @@
         const gained = applyGrixEnrage();
         showBanner("👑 グリクス激昂!", 1800);
         updateInfo(`${rep} の要求はグリクスを侮辱した… (${res.total} < DC ${res.dc}) 玉座の緑が膨れ上がる (HP +${gained})`);
-        showDMMessage("玉座が軋んだ。緑の暴君は縄を掴んで揺すり、若者の悲鳴を楽しむように吼えた。——交渉は、終わった。", 3200);
+        showDMMessage(rescued
+          ? "玉座が軋んだ。切り札を失った侮辱を、緑の暴君は棍棒で床に叩きつけて返した。——交渉は、終わった。"
+          : "玉座が軋んだ。緑の暴君は縄を掴んで揺すり、男の悲鳴を楽しむように吼えた。——交渉は、終わった。", 3200);
         return;
       }
       // choice === 1: 積荷を渡すふりをする
@@ -20539,7 +20605,7 @@
         choice = await showCharChoice(
           sce1GrixHeadline(),
           [
-            { label: "従者の解放を要求する" },
+            { label: sce1GrixPersuadeLabel() },
             { label: "積荷を渡すふりをする" },
             { label: "問答無用で突撃する" },
           ],
@@ -20565,7 +20631,8 @@
         try {
           res = await SkillCheck.resolveSkillCheck(spec.check, sce1GrixDc(choice), party, {
             title: spec.title,
-            flavor: spec.flavor,
+            // ★救出済のとき、判定パネルの一文も「縄に吊るされた男」から開く (ラベルと同じ理由)
+            flavor: (spec.flavorRescued && sceneFlags.servant_rescued) ? spec.flavorRescued : spec.flavor,
             extraBonus: sceneClassBonus(spec.classes),   // ★DC ではなく加算側に効かせる
             voiceIds: PERCEPTION_VOICE,
           });

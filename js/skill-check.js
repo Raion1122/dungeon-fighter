@@ -83,6 +83,13 @@
   // 技能判定パネル表示後、タップ無しで自動ロールするまでの待機(ms)。オートバトルのハンズフリー化用。
   var AUTO_ROLL_MS = 2000;
 
+  // 結果 (成否・ダイス目・合計 vs DC) を表示したまま自動で閉じるまでの待機(ms)。
+  // ★2026-08-06 iOS 実機フィードバック「むしろもっと見せていい」を受けて 2200 → 3600。
+  //   伸ばすのは**結果表示だけ**。AUTO_ROLL_MS (ロール前の待ち) は据え置く — 待ち時間は
+  //   情報が増えないが、結果はダイス目と合計と DC を読む時間そのものだから。
+  // ⚠ 全シナリオ・全判定 (知覚/開錠/罠解除/シナリオ1 の 3択) に効く共有レバー。
+  var RESULT_HOLD_MS = 3600;
+
   // === §7 代表者自動選出（formationソート方針流用・classKey参照） ======
   // 装備由来の技能ボーナス。member.skillBonus = { <checkKey>: N }（呼び出し側が装備から合算して渡す）。
   // ★ opts.extraBonus と違い「持ち主にしか乗らない」。これが重要で、extraBonus は代表者へ無条件に
@@ -431,10 +438,10 @@
           playVoice(pickVoiceId(opts.voiceIds, outcome));
           phase = 2;
           hintEl.textContent = "タップで閉じる";
-          // 自動でも閉じる保険（タップ無しでも進む）
+          // 自動でも閉じる保険（タップ無しでも進む）。★尺は RESULT_HOLD_MS が唯一のレバー。
           ov._dismissTimer = setTimeout(function () {
             if (phase === 2) { var o = ov._outcome; cleanup(); resolve(o); }
-          }, 2200);
+          }, RESULT_HOLD_MS);
         });
       }
       ov.addEventListener("click", onAct);
@@ -491,6 +498,7 @@
     CHECKS: CHECKS,
     DC_TIERS: DC_TIERS,
     AUTO_ROLL_MS: AUTO_ROLL_MS,   // 自動ロール待機(ms)。休憩スクロールプロンプトの自動スキップ等が共有参照する。
+    RESULT_HOLD_MS: RESULT_HOLD_MS,   // 結果表示の自動クローズ待機(ms)。テンポ調整の唯一のレバー。
     checkScore: checkScore,
     selectRepresentative: selectRepresentative,
     selectHelper: selectHelper,
