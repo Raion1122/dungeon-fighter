@@ -7433,6 +7433,34 @@
       return !!questFlags[flagName];
     }
 
+    // ══ [sce1-events] 潜行中シナリオ状態 ══════════════════════════════════════
+    // questFlags (酒場で立てて → ダンジョンで読む・sessionStorage 経由の一方通行) とは別物。
+    // こちらは**ダンジョン内のイベントで立てて、同じ潜行の後段 (ボス戦・エピローグ) が読む**。
+    // ⚠ sessionStorage には保存しない = 潜行内で完結し、リロードで消えてよい (次の潜行へ持ち越さない)。
+    let sceneFlags = {
+      mine_alerted: false,      // EV-2 失敗 = 廃坑の入口で骨笛を鳴らされた (後段の敵増援)
+      servant_rescued: false,   // EV-5 成功 = 捕らわれた従者を救出した (ボス戦の Redirect 無効化)
+    };
+    // [sce1-events] シナリオ1 (既定クエスト) でだけイベントを出すゲート。
+    //   生成クエスト (酒場/闇市の掲示板) は scenarioId が別 ID なので false になる。
+    function isGoblinMineScenario() { return scenarioId === "goblin-mine"; }
+    // [sce1-events] 得意クラスがパーティに在籍していれば代表者へ +2。
+    //   ⚠ DC を下げるのではなく SkillCheck の opts.extraBonus へ渡す加算として使うこと
+    //     (js/skill-check.js の contract に沿う唯一の作法。DC を動かすと判定パネルの表示 DC まで
+    //      変わり「同じ判定なのに難易度が違う」嘘になる。知覚の find-traps +2 と同じ流儀)。
+    const SCENE_CLASS_BONUS = 2;
+    function sceneClassBonus(classKeys) {
+      if (!Array.isArray(classKeys) || classKeys.length === 0) return 0;
+      // パーティ配列は罠解除 (runTrapDisarmCheck) / 宝箱開錠と同一の buildPerceptionParty を使う
+      //   = 主人公 + 生存仲間を隊列順の {classKey, name, skillBonus} で得る。
+      const party = buildPerceptionParty();
+      return party.some(m => classKeys.indexOf(m.classKey) >= 0) ? SCENE_CLASS_BONUS : 0;
+    }
+    // [sce1-events] 検証シーム。?diag=1 / ?autoplay / ?autodebug のときだけ生やす
+    //   (出荷前の大掃除の方針 = dev 機能は消さずゲートする。__statusApi 17481 と同じ休眠方針)。
+    //   ⚠ classic script 直下の let/const/function は window に載らないので明示的に生やす。
+    if (window.__diagEnabled) window.__sce1 = { flags: () => sceneFlags, classBonus: sceneClassBonus };
+
     /* ⚠⚠ [Phase 2 落とし穴②] カスタム幾何のときだけ: 岩盤 (値2) に置かれた敵を救う。
      *   下の v7.4 救済ループは `mapData[r][c] === 1` (部屋内の装飾ピラー) **しか見ない**。
      *   値 2 に湧いた敵は救われず、到達不能なまま alive で残り、checkDungeonClear の
@@ -19877,6 +19905,181 @@
         if (chest.el) chest.el.classList.add("locked-failed");
       }
     }
+
+    // ══ [sce1-events] EV-2 「廃坑の入口の見張り」 ══════════════════════════════
+    // 接近発火の 3択 + Esc。器は tryInteractCage (Sce2 の檻) の写し、判定は共有エンジン
+    // SkillCheck へ投げる (罠解除 runTrapDisarmCheck / 開錠 tryPickLock と同じ作法)。
+    // ⚠ index 0 は autoplay が自動選択する枠 (showCharChoice が候補0を即 resolve する)
+    //   = 「判定あり・進行が安全」な選択肢を必ず 0 に置くこと。巡回検証が詰む。
+    // ⚠ DC は動かさない。得意クラス (盗賊) の優位は sceneClassBonus → opts.extraBonus の
+    //   +2 加算で表す (js/skill-check.js の contract。DC を下げると表示 DC まで変わり嘘になる)。
+    const SCE1_WATCH_DC       = 13;
+    const SCE1_WATCH_CLASSES  = ["rogue"];             // 得意クラス = 盗賊 (在籍で +2)
+    const SCE1_EVENT_RADIUS   = CAGE_INTERACT_RADIUS;  // 240。檻の間合いと値を揃える
+    const SCE1_WATCH_OFFSET_TX = 3;                    // 山場の西端 (=坑道の入口) から東へ 3 タイル
+    // mine_alerted (骨笛が鳴った) の効き = 山場の敵が 2 体増える。
+    // ⚠ 種別は固定配列。Math.random を 1 度も引かない = RNG 消費順を動かさない
+    //   (バランス実測とリプレイ再現性を壊さないための既存規約)。
+    const SCE1_ALERT_ADD_TYPES = ["goblin", "goblin"];
+
+    // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「誘い出す」) が「判定なし(確定)」。
+    //   分岐を bool で書かずデータで持つのは、判定なし枠が SkillCheck へ 1 度も到達しないことを
+    //   構造で保証するため (「振らせない」が本項目の芯)。
+    const SCE1_WATCH_CHECKS = {
+      0: { check: "stealth",       title: "隠密判定", flavor: "足音を殺し、舟を漕ぐ見張りの脇を抜ける…" },
+      1: { check: "sleightOfHand", title: "早業判定", flavor: "腰の骨笛だけを狙う。指先の精度がすべてだ…" },
+    };
+
+    // 発火地点は ROOMS[0] (山場) から導出する。絶対タイル座標を直書きすると
+    // マップ定義を動かしたとき壁の中や到達不能域に取り残される (部屋短縮で 3 件踏んだ轍)。
+    // rect = [tyMin, txMin, tyMax, txMax]。既定ダンジョンでは (tx27, ty13) に落ちる。
+    let _sce1WatchSpot = null;
+    function sce1WatchSpot() {
+      if (_sce1WatchSpot) return _sce1WatchSpot;
+      const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
+      const ty = Math.floor((r[0] + r[2]) / 2);
+      let tx = r[1] + SCE1_WATCH_OFFSET_TX;
+      // 情景スプライト (倒木等) で塞がっていたら東へ逃がす。isTileWall は obstacleTileMask も見るので
+      // generateScenery 後の実際の通行可否で判断できる (呼び出しは実行時なので順序は満たされる)。
+      for (let k = 0; k < 6 && isTileWall(tx, ty); k++) tx++;
+      _sce1WatchSpot = { tx, ty };
+      return _sce1WatchSpot;
+    }
+    // 増援のアンカー = 山場の中心 (既定で tx33, ty13 = 本隊の密集点)。ここも ROOMS[0] から導出。
+    function sce1AlertAnchorTile() {
+      const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
+      return { tx: Math.floor((r[1] + r[3]) / 2), ty: Math.floor((r[0] + r[2]) / 2) };
+    }
+
+    // 骨笛が鳴った時の増援。★新規機構を作らず、既存の追加スポーン手段をそのまま流用する:
+    //   findSovereignAddWaveTile (壁/占有をリング探索で回避) → createEnemy → snapEnemyToTile
+    //   → enemies.push → createEnemyDom。単眼の暴君の乱入 (spawnSovereignAddWave) と同じ並び。
+    // ⚠ createEnemyDom は push の**直後に 1 回だけ**。enemyElements/hpBarElements/… の全 element 配列が
+    //   enemies と添字並列で、順序を崩すと全敵の DOM が 1 つずつズレる。
+    // ⚠ encounterEnemyIndices には積まない。この増援は**戦闘前**に湧くので、戦闘開始時に
+    //   detectEngaged が通常の敵として拾う (戦闘中に units/initiative を触る危険を原理的に避ける)。
+    // ⚠ everSeen は立てない。プレイヤーから見えない奥へ湧く = 山場の初期配置と同じフォグ挙動にする。
+    let mineAlertedAddsDone = false;   // 冪等ラッチ (直接二度呼びされても増えない)
+    function applyMineAlertedAdds() {
+      if (mineAlertedAddsDone) return 0;
+      mineAlertedAddsDone = true;
+      const a = sce1AlertAnchorTile();
+      let n = 0;
+      for (const typeKey of SCE1_ALERT_ADD_TYPES) {
+        if (!ENEMY_TYPES[typeKey]) continue;
+        const spot = findSovereignAddWaveTile(a.tx, a.ty);
+        const e = createEnemy(typeKey, spot.tx, spot.ty);
+        snapEnemyToTile(e, spot.tx, spot.ty);
+        enemies.push(e);
+        createEnemyDom(enemies.length - 1, e.def, e.type);
+        n++;
+      }
+      return n;
+    }
+
+    function applyMineWatchResult(res, choice) {
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      // エンジン未読込 / PT 消滅で判定自体が成立しなかった場合は**安全側**に倒す (騒がれない)。
+      // ここで警笛を鳴らすと「判定を受けていないのに罰だけ受ける」不条理になる。
+      if (!res) { updateInfo(`${rep} たちは見張りの脇をすり抜けた。`); return; }
+      if (res.success) {
+        showBanner(choice === 1 ? "🎯 骨笛を射抜いた" : "🥷 見張りに気づかれなかった", 1600);
+        updateInfo(choice === 1
+          ? `${rep} の一射が骨笛を割った (${res.total} ≧ DC ${res.dc}) — 警笛は鳴らない`
+          : `${rep} は足音を殺し、見張りの背後を抜けた (${res.total} ≧ DC ${res.dc}) — 廃坑はまだ静かだ`);
+        showDMMessage(choice === 1
+          ? "乾いた音を立てて骨笛が砕けた。見張りは腰へ手をやり、そこに何も無いことに気づく。もう、奥へ報せる術は無い。"
+          : "息を殺し、舟を漕ぐ見張りの背後を通り過ぎる。坑道の奥は、まだ何も知らない。", 2800);
+        return;
+      }
+      // 失敗: 骨笛が鳴り、山場で待ち構える頭数が増える (同じ潜行の後段が読む sceneFlags の初仕事)
+      sceneFlags.mine_alerted = true;
+      const added = applyMineAlertedAdds();
+      showBanner("📯 骨笛が鳴り響いた!", 1800);
+      updateInfo(`${rep} は見張りに気取られた… (${res.total} < DC ${res.dc}) 骨笛が鳴り、奥から ${added} 体が駆けつけた`);
+      showDMMessage("低く長い音が坑道を駆け上がっていく。奥の広間から、応じる喚声——待ち構える数が、増えた。", 3200);
+    }
+
+    async function runMineWatchEvent(ev) {
+      skillCheckActive = true;   // 選択中も知覚/開錠/罠解除パネルと相互排他 (runTrapDisarmCheck と同方針)
+      let choice = null;
+      try {
+        choice = await showCharChoice(
+          "坑道の入口に見張りが二匹。片方は舟を漕ぎ、もう片方の腰に骨笛が下がっている。",
+          [
+            { label: "静かに近づく" },
+            { label: "骨笛を狙って射る" },
+            { label: "わざと姿を見せて誘い出す" },
+          ],
+          "引き返す (Esc)");
+      } catch (e) { choice = null; }
+
+      if (choice === null) {          // Esc / 「引き返す」: 何も起きない
+        skillCheckActive = false;
+        ev.declined = true;           // 半径外に出るまで再プロンプトしない (檻の declined と同じ)
+        return;
+      }
+      ev.fired = true;                // 一度でも選んだら二度と出さない
+
+      const spec = SCE1_WATCH_CHECKS[choice] || null;
+      if (!spec) {                    // ★判定なし(確定) = SkillCheck を 1 度も呼ばない = ダイス演出も出ない
+        skillCheckActive = false;
+        showBanner("🪤 見張りを誘い出した", 1500);
+        updateInfo(`${getLeaderName()} はわざと姿を晒した。見張り二匹は骨笛に手をかける間もなく、坑道の外へ釣り出された。`);
+        showDMMessage("君は影から一歩踏み出し、わざと足音を立てた。……笛を吹く暇はない。二匹は得物を掴み、こちらへ駆けてくる。", 3000);
+        return;
+      }
+
+      const party = buildPerceptionParty();
+      let res = null;
+      if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
+        dialogPaused = true;          // 判定中は探索を停止 (runPerceptionCheck と同方針)
+        try {
+          res = await SkillCheck.resolveSkillCheck(spec.check, SCE1_WATCH_DC, party, {
+            title: spec.title,
+            flavor: spec.flavor,
+            extraBonus: sceneClassBonus(SCE1_WATCH_CLASSES),   // ★DC ではなく加算側に効かせる
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        dialogPaused = false;
+      }
+      skillCheckActive = false;
+      applyMineWatchResult(res, choice);
+    }
+
+    // イベント台帳。項目3 (EV-5 従者) / 項目4 (EV-9 グリクス) は行を足すだけで載る。
+    const SCE1_EVENTS = [
+      { key: "mine_watch", spot: sce1WatchSpot, run: runMineWatchEvent,
+        fired: false, declined: false, busy: false },
+    ];
+
+    // 接近時インタラクション: 400ms tick。ガードは tryInteractCage と同型 + パネル相互排他。
+    async function tryInteractSce1Event() {
+      if (!gameStarted || gameOver) return;
+      if (encounterActive || encounterRunning) return;   // 戦闘中は出さない
+      if (hp <= 0) return;
+      if (!isGoblinMineScenario()) return;               // ★生成クエスト (別 scenarioId) では一切発火しない
+      if (skillCheckActive || dialogPaused) return;      // 他パネル/モーダル表示中は入らない
+      const pCX = playerX + 48, pCY = playerY + 58;
+      for (const ev of SCE1_EVENTS) {
+        if (ev.fired || ev.busy) continue;
+        const spot = ev.spot();
+        if (!spot) continue;
+        const cx = spot.tx * TILE_SIZE + TILE_SIZE / 2;
+        const cy = spot.ty * TILE_SIZE + TILE_SIZE / 2;
+        const d = Math.hypot(pCX - cx, pCY - cy);
+        if (ev.declined) {
+          if (d > SCE1_EVENT_RADIUS) ev.declined = false;   // 距離を離れたら次の接近で再プロンプト可
+          continue;
+        }
+        if (d > SCE1_EVENT_RADIUS) continue;
+        ev.busy = true;                                     // async 前に確定 (多重起動防止)
+        try { await ev.run(ev); } finally { ev.busy = false; }
+        break;                                              // 1 tick で 1 件だけ扱う
+      }
+    }
+    setInterval(tryInteractSce1Event, 400);
 
     // 罠発動チェック: 誰かが罠タイルに入ったら発動
     function checkTrapTrigger() {
