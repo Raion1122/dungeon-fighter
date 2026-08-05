@@ -11893,7 +11893,7 @@
       ally.el.style.backgroundSize = size;
     }
     // 専用シートを持つクラス (歩き 6F、576×384)。warrior も正規シート(warrior_walk)で統一。
-    const CUSTOM_SHEET_CLASSES = new Set(["warrior", "dwarf", "cleric", "mage", "elf", "rogue", "golem_soldier", "undead_squad"]);
+    const CUSTOM_SHEET_CLASSES = new Set(["warrior", "dwarf", "cleric", "mage", "elf", "rogue", "golem_soldier", "undead_squad", "servant"]);
 
     // ── スプライト変種レジストリ (NPC冒険者の見た目バリエーション) ──
     // 各職業は変種シートの配列。index 0 = 正規 (主人公/既定)、1 以降が NPC 用バリアント。
@@ -11986,6 +11986,10 @@
       // ── 闇市 召喚ユニット (M8): 専用 96px×6F シート (walk 576×384 / attack 480×384) ──
       golem_soldier: [ { walk: 'url("assets/golem_soldier_walk.png")', walkSize: "576px 384px", attack: 'url("assets/golem_soldier_attack.png?v=2")', attackSize: "480px 384px", label: "ゴーレム兵" } ],
       undead_squad:  [ { walk: 'url("assets/undead_squad_walk.png")',  walkSize: "576px 384px", attack: 'url("assets/undead_squad_attack.png?v=2")',  attackSize: "480px 384px", label: "アンデッド小隊" } ],
+      // ── [sce1-events] EV-5 の従者: 専用素材が届くまで NPC 男性僧侶シートを流用 ──
+      //   ⚠ ここを登録しないと getSpriteSet が null を返し、createAllyDom / updateAllySprite が
+      //     4方向12行シート (480×1152) 想定のフォールバックに落ちて絵が崩れる。
+      servant:       [ { walk: 'url("assets/cleric_npcmale_walk.png")', walkSize: "576px 384px", attack: 'url("assets/cleric_npcmale_attack.png?v=2")', attackSize: "480px 384px", label: "商人の従者" } ],
     };
     // 職業 + 変種index → スプライトセット。範囲外indexは正規(0)に丸める。未登録職は null。
     function getSpriteSet(classKey, variant) {
@@ -16675,6 +16679,31 @@
         perceptionBonus: 0,
         defaultSkills: [],
       },
+      // ── [sce1-events] EV-5 で救出できる同行者 (シナリオ1 限定) ────────────
+      // 召喚ユニットと同じ扱い: ALL_CLASS_KEYS (9158) に入れないので募集 NPC / 酒場タブ /
+      // PARTY_ZONES には一切漏れない。createAlly の def 値だけで動く非キャスター
+      // (applyAllyEquipment / initAllySpellSlots は呼ばない)。
+      // ⚠ 数値は「弱いが手数にはなる」を狙った暫定値。undead_squad(hp30) より明確に脆くする。
+      // ⚠ スプライトは暫定で NPC 男性僧侶シートを流用 (専用素材は codex1 へ依頼中)。
+      //   差し替え時は SPRITE_VARIANTS.servant (11988 付近) の walk/attack も同時に直すこと。
+      servant: {
+        name: "商人の従者",
+        flavor: "ボルダックの荷を守って囚われた若者。戦いは素人だが、必死に食らいつく",
+        sprite: "assets/cleric_npcmale_walk.png",
+        displaySize: 96,
+        hpMax: 18,
+        mpMax: 0,
+        str: 1, dex: 1, con: 1, wis: 0, int: 0,
+        atkBonus: 2, ac: 12,
+        dmgDice: "1d4", dmgBonus: 0,
+        critRange: 20, critMult: 2,
+        weaponRange: "melee",
+        weaponName: "荷運びの鉈",
+        armorName: "旅装",
+        role: "frontline",
+        perceptionBonus: 0,
+        defaultSkills: [],
+      },
     };
 
 
@@ -20048,9 +20077,164 @@
       applyMineWatchResult(res, choice);
     }
 
-    // イベント台帳。項目3 (EV-5 従者) / 項目4 (EV-9 グリクス) は行を足すだけで載る。
+    // ══ [sce1-events] EV-5 「捕らわれた従者」 ══════════════════════════════════
+    // 器は EV-2 と同型 (接近発火の 3択 + Esc / 台帳 SCE1_EVENTS に 1 行足すだけ)。違いは結果:
+    // ★このイベントの芯は「救出そのものを判定運で折らない」こと。
+    //   「すぐ助けに向かう」は**失敗しても救出は成立し、代償は HP だけ**になる。
+    //   判定は「無傷で助けられるか」を決めるのであって、「助けられるか」を決めない。
+    //   0 の失敗も 1 の失敗へ**合流**する (見抜けないまま飛び込んだ = 同じ結果) ので、
+    //   分岐は success/fail の 2 本しかなく、choice は文面の出し分けにしか使わない。
+    const SCE1_SERVANT_DC        = 13;
+    const SCE1_SERVANT_CLASSES   = ["cleric"];       // 得意クラス = 僧侶 (在籍で +2)
+    const SCE1_SERVANT_OFFSET_TX = 3;                // 山場の東端 (=坑道の奥) から西へ 3 タイル
+    // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「迂回する」) が「判定なし(確定)」。
+    const SCE1_SERVANT_CHECKS = {
+      0: { check: "perception", title: "知覚判定", flavor: "呻き声の出どころと、その手前の床板を目で追う…" },
+      1: { check: "athletics",  title: "運動判定", flavor: "瓦礫を押しのけ、横穴へ身体をねじ込む…" },
+    };
+
+    // 発火地点は ROOMS[0] (山場) の**奥側**。EV-2 と同じくマップ定義から導出する
+    // (絶対タイル座標の直書きは、マップを動かしたとき壁の中に取り残される)。
+    // 既定ダンジョンでは (tx40, ty13) に落ちる = 本隊 (tx31〜35) より東、EV-2 (tx27) から 13 タイル。
+    let _sce1ServantSpot = null;
+    function sce1ServantSpot() {
+      if (_sce1ServantSpot) return _sce1ServantSpot;
+      const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
+      const ty = Math.floor((r[0] + r[2]) / 2);
+      let tx = r[3] - SCE1_SERVANT_OFFSET_TX;
+      // 情景スプライトで塞がっていたら**西へ**逃がす (東は部屋の縁なので逃げ場が無い)。
+      for (let k = 0; k < 6 && isTileWall(tx, ty); k++) tx--;
+      _sce1ServantSpot = { tx, ty };
+      return _sce1ServantSpot;
+    }
+
+    // 従者の参戦。★手順は executeSummon (9813) の写しだが、決定的に 2 行だけ違う:
+    //   ・a.isSummon を立てない  ・summonSlot に代入しない
+    //   = 闇市の召喚枠 (1体) を食わない。従者は通常コンパニオン扱い。
+    // ⚠ applyAllyEquipment / initAllySpellSlots は呼ばない (def 値のみの非キャスター)。
+    // ⚠ allies.sort は呼ばない。隊列を組み替えると createAllyDom で振った element id と
+    //   添字がズレる (executeSummon は召喚を最前へ出す必要があるので許容している)。
+    // ⚠⚠ 不変条件: **非戦闘中にのみ**呼ぶこと。戦闘中に allies を触ると pickEnemyTarget の
+    //   idx や initiative と齟齬する (executeSummon:9832 のコメントと同じ理由)。発火ガードで
+    //   担保されているが、await をまたいで戦闘が始まる可能性があるのでここでも再確認する。
+    let servantJoined = false;   // 冪等ラッチ (直接二度呼びされても増えない)
+    function joinServantAlly() {
+      if (servantJoined) return false;
+      if (encounterActive || encounterRunning) return false;   // ★不変条件の再確認
+      if (gameOver) return false;
+      if (!CLASS_DEFS.servant) return false;
+      servantJoined = true;
+      const a = createAlly("servant", playerX - 40, playerY + 40);
+      a.zone = "rear";                       // 弱いので前に出さない
+      allies.push(a);                        // ★isSummon / summonSlot は触らない = 召喚枠を食わない
+      createAllyDom(a, allies.length - 1);
+      return true;
+    }
+
+    // 救出の成立。★flag と参戦をこの 1 箇所に閉じ込める = 「どの分岐から来ても救出は同じ」を構造で保証。
+    function rescueServant() {
+      sceneFlags.servant_rescued = true;
+      const joined = joinServantAlly();
+      showBanner("🤝 従者を助け出した!", 1800);
+      // updateInfo は renderPartyStatuses まで回る = 加入した従者の枠がこの瞬間に描かれる
+      updateInfo(joined
+        ? `${CLASS_DEFS.servant.name} が縄を解かれ、震える手で鉈を握った — パーティに加わった`
+        : `${CLASS_DEFS.servant.name} を助け出した。`);
+    }
+
+    // 罠作動時のダメージ。★新しいダメージ式を発明せず、**踏み抜きの既存経路をそのまま流用**する
+    //   (triggerTrapOnPlayer / triggerTrapOnAlly)。1d6・不屈 (resilient) の救済・ダウン処理・
+    //   ログ表記まで通常の罠と完全に同一になる。
+    // ⚠ この罠オブジェクトは traps[] に**登録しない** (checkTrapTrigger の巡回対象にしない)。
+    //   「今この場で作動した仕掛け」の器としてだけ使う使い捨て。
+    function applyServantTrapDamage() {
+      const s = sce1ServantSpot();
+      const trap = { type: "damage", tx: s.tx, ty: s.ty, triggered: false, found: false, el: null };
+      triggerTrapOnPlayer(trap, "縄に手をかけた瞬間、足元の板が沈んだ——落とし穴だ!");
+      for (const a of allies) { if (a.alive) triggerTrapOnAlly(trap, a); }
+    }
+
+    function applyServantResult(res, choice) {
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      // 判定が成立しなかった場合 (エンジン未読込 / PT 消滅) は**安全側** = 無傷で救出。
+      // 「判定を受けていないのに罰だけ受ける」不条理を作らない (EV-2 と同じ方針)。
+      const ok = !res || !!res.success;
+      if (ok) {
+        showBanner(choice === 0 ? "🔦 仕掛けを見抜いた" : "💪 力ずくで押し通った", 1600);
+        updateInfo(choice === 0
+          ? `${rep} は床板の継ぎ目に沈み込む仕掛けを見つけた${res ? ` (${res.total} ≧ DC ${res.dc})` : ""} — 誰も傷つけずに済んだ`
+          : `${rep} は瓦礫をこじ開けて横穴へ潜り込んだ${res ? ` (${res.total} ≧ DC ${res.dc})` : ""} — 仕掛けには触れなかった`);
+        showDMMessage(choice === 0
+          ? "灯りをかざせば、床板の一枚だけが不自然に新しい。そこを避けて踏み込めば、あとはただ縄を切るだけだ。"
+          : "考えるより先に身体が動いた。瓦礫が崩れ、土煙の向こうに、縛られた若者の目が見開かれる。", 3000);
+        rescueServant();
+        return;
+      }
+      // ★失敗 (choice 0 の失敗もここへ合流する = 見抜けないまま飛び込んだ)。
+      //   代償は HP だけ。救出そのものは成立する — ここがシナリオ1 の感情的な芯。
+      showBanner("💥 仕掛けが作動した!", 1800);
+      updateInfo(choice === 0
+        ? `${rep} には仕掛けが見抜けなかった… (${res.total} < DC ${res.dc}) 構わず飛び込んだ一党を、床が飲み込む`
+        : `${rep} は勢い余って仕掛けを踏み抜いた… (${res.total} < DC ${res.dc})`);
+      applyServantTrapDamage();
+      rescueServant();
+    }
+
+    async function runServantEvent(ev) {
+      skillCheckActive = true;   // 選択中も知覚/開錠/罠解除パネルと相互排他
+      let choice = null;
+      try {
+        choice = await showCharChoice(
+          "横穴の奥から、くぐもった呻き声がする。「……誰か、そこにいるのか」",
+          [
+            { label: "声の方向を調べる" },
+            { label: "すぐ助けに向かう" },
+            { label: "敵の罠だと見て迂回する" },
+          ],
+          "引き返す (Esc)");
+      } catch (e) { choice = null; }
+
+      if (choice === null) {          // Esc / 「引き返す」: 未決のまま
+        skillCheckActive = false;
+        ev.declined = true;           // 半径外に出るまで再プロンプトしない
+        return;
+      }
+      ev.fired = true;                // 一度でも選んだら二度と出さない
+
+      const spec = SCE1_SERVANT_CHECKS[choice] || null;
+      if (!spec) {                    // ★判定なし(確定) = SkillCheck を 1 度も呼ばない
+        skillCheckActive = false;
+        // servant_rescued は false のまま (代入もしない = 他分岐で立った真を後から潰さない)
+        showBanner("🚶 横穴を迂回した", 1500);
+        updateInfo(`${getLeaderName()} は呻き声に背を向けた。声はやがて途切れ、坑道の奥へ引きずられていく音だけが残った。`);
+        showDMMessage("罠かもしれない——その判断は、たぶん間違っていない。だが君たちが去ったあと、あの声は奥の広間へ運ばれていった。", 3200);
+        return;
+      }
+
+      const party = buildPerceptionParty();
+      let res = null;
+      if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
+        dialogPaused = true;
+        try {
+          res = await SkillCheck.resolveSkillCheck(spec.check, SCE1_SERVANT_DC, party, {
+            title: spec.title,
+            flavor: spec.flavor,
+            extraBonus: sceneClassBonus(SCE1_SERVANT_CLASSES),   // ★DC ではなく加算側に効かせる
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        dialogPaused = false;
+      }
+      skillCheckActive = false;
+      applyServantResult(res, choice);
+    }
+
+    // イベント台帳。項目4 (EV-9 グリクス) は行を足すだけで載る。
+    // ⚠ 添字は検証ドライバが参照する (EV-2=0 / EV-5=1)。並べ替えるなら driver も直すこと。
     const SCE1_EVENTS = [
       { key: "mine_watch", spot: sce1WatchSpot, run: runMineWatchEvent,
+        fired: false, declined: false, busy: false },
+      { key: "captive_servant", spot: sce1ServantSpot, run: runServantEvent,
         fired: false, declined: false, busy: false },
     ];
 

@@ -12,6 +12,10 @@
  * 【項目 2 = EV-2「廃坑入口の見張り」】
  *   §7 EV-2   接近3択 / 判定なし枠は SkillCheck を呼ばない / 失敗で mine_alerted+増援2体 /
  *             Esc は無害で declined / 発火は1回きり / 生成クエストでは発火しない
+ * 【項目 3 = EV-5「捕らわれた従者」+ 従者の味方ユニット化】
+ *   §8 EV-5   接近3択 / 判定なし枠は SkillCheck を呼ばない /
+ *             ★成功でも失敗でも救出は成立する (代償は HP のみ) = シナリオ1 の感情的な芯 /
+ *             ★召喚枠 (summonSlot) を食わない / 失敗時は既存の罠ダメージ経路を通る
  *   §E pageerror 0
  *   §N ★負のコントロール (同一 run に内包)
  *
@@ -34,6 +38,12 @@
  *     N5   | 失敗時の mine_alerted=true を false に          | E13 (失敗でフラグが立つ)
  *     N6   | 判定なし枠を「候補0の判定」へ落とす            | E6  (選択2 で SkillCheck 未呼出)
  *     N7   | シナリオゲート isGoblinMineScenario を無効化    | E17 (生成クエストで発火しない)
+ *     N8   | 救出フラグ servant_rescued=true を false に     | S11/S13 (救出は判定運で折れない)
+ *     N9   | 従者参戦で summonSlot も奪う                    | S12 (召喚枠を食わない)
+ *     N10  | 罠作動 (applyServantTrapDamage) を no-op に     | S14 (失敗の代償=HP が減る)
+ *     N11  | EV-5 の判定なし枠を「候補0の判定」へ落とす      | S5  (選択2 で SkillCheck 未呼出)
+ *   ⭐ N8/N10 も外科的: 同じ「1 失敗」分岐に同居しているのに、救出成立 (S13) と
+ *     HP の代償 (S14) が独立に落ちる = 「救出を判定運で折らない」が本当に別配線であることの実測。
  *   ⭐ N1/N2 は「狙った検出器だけ」が赤くなり、隣の検出器 (D3 servant_rescued / D6 非在籍 0)
  *     は緑のまま = 変異が外科的で、検出器が互いに独立していることの証明。
  *   ⭐ N4/N5 も同様に外科的: 同じ失敗分岐に同居しているのに、片方 (E13 フラグ) と
@@ -95,6 +105,21 @@ const MUTATIONS = [
   // N7: シナリオゲートを無効化。→ E17 (生成クエストでは発火しない) が赤くなるはず。
   ['      if (!isGoblinMineScenario()) return;',
    '      if (false) return;   /* ★変異N7 */'],
+  // ── 項目3 (EV-5) ──────────────────────────────────────────────────────────
+  // N8: 救出フラグを立てない。→ S11/S13 (救出は必ず成立する) が赤くなるはず。
+  //     ★参戦 (joinServantAlly) は別配線なので S12/S17 は緑のまま = 外科的。
+  ['      sceneFlags.servant_rescued = true;',
+   '      sceneFlags.servant_rescued = false;   /* ★変異N8 */'],
+  // N9: 従者に召喚枠を食わせる。→ S12 (summonSlot が変化しない) が赤くなるはず。
+  ['      allies.push(a);                        // ★isSummon / summonSlot は触らない = 召喚枠を食わない',
+   '      summonSlot = a; allies.push(a);   /* ★変異N9 */'],
+  // N10: 「1 失敗」の代償 (罠ダメージ) を消す。→ S14 (HP が減る) が赤くなるはず。
+  //     S13 (失敗でも救出成立) は緑のまま = 救出と代償が独立していることの証明。
+  ['      applyServantTrapDamage();',
+   '      void 0;   /* ★変異N10 */'],
+  // N11: EV-5 の「判定なし(確定)」枠を候補0の判定へ落とす。→ S5 が赤くなるはず。
+  ['      const spec = SCE1_SERVANT_CHECKS[choice] || null;',
+   '      const spec = SCE1_SERVANT_CHECKS[choice] || SCE1_SERVANT_CHECKS[0];   /* ★変異N11 */'],
 ];
 let _mutCache = null;
 function mutatedSources() {
@@ -535,6 +560,308 @@ function ev2Detectors(Q) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 項目 3 — EV-5「捕らわれた従者」の駆動
+// ══════════════════════════════════════════════════════════════════════════════
+/* ■ 盤面固定は EV-2 と同じ (敵 inactive / 宝箱・罠を空に / rAF 凍結)。追加で:
+ *   ⚠ HP を満タンに戻してから測る。「失敗の代償で HP が減る」を測るのに、EV-2 の
+ *     テストで削れた HP が残っていると差分が読めない。
+ *   ⚠ ★従者は一度参戦すると servantJoined ラッチで二度と増えない (製品仕様)。
+ *     分岐を網羅するには driver 側でラッチを解き、加入済みの従者を allies と DOM から
+ *     取り除いて「参戦前」へ戻す必要がある (ev5Reset)。ラッチ自体は S18 が別途見る。
+ *   ⚠ summonSlot はオブジェクトなので evaluate の戻り値に**そのまま乗せない**
+ *     (DOM 参照を含むため構造化クローンで死ぬ)。'null' / 'set' の文字列へ畳んで返す。 */
+async function ev5Prepare(page) {
+  return page.evaluate(() => {
+    gameStarted = true; gameOver = false;
+    encounterActive = false; encounterRunning = false;
+    dialogPaused = false; skillCheckActive = false;
+    roomChests.length = 0; traps.length = 0;
+    enemies.forEach(e => { e.inactive = true; });
+    hp = maxHp;
+    allies.forEach(a => { a.hp = a.maxHp; a.alive = true; });
+    sceneFlags.servant_rescued = false;   // ★変異N8 は代入側を壊すので初期化は driver 側で担保
+    const SC = window.SkillCheck;
+    window.__ev5 = { calls: [], force: true };
+    SC.resolveSkillCheck = function (checkKey, dc, party, o) {
+      window.__ev5.calls.push({ checkKey: checkKey, dc: dc,
+        extraBonus: (o && o.extraBonus) || 0, title: (o && o.title) || null });
+      const ok = !!window.__ev5.force;
+      return Promise.resolve({ success: ok, roll: 10, total: ok ? dc + 3 : dc - 3, dc: dc,
+        bonus: 0, rep: (party && party[0]) || null, helper: null, crit: false, fumble: false });
+    };
+    const s = sce1ServantSpot(), w = sce1WatchSpot(), r = ROOMS[0];
+    return {
+      spot: s, watch: w, room0: r, radius: SCE1_EVENT_RADIUS, dc: SCE1_SERVANT_DC,
+      spotIsWall: isTileWall(s.tx, s.ty),
+      spotInRoom0: s.ty >= r[0] && s.ty <= r[2] && s.tx >= r[1] && s.tx <= r[3],
+      spotIsDeep: s.tx >= r[3] - 5,                                    // 部屋0 の「奥側」
+      spotFarFromWatch: Math.abs(s.tx - w.tx) * TILE_SIZE > SCE1_EVENT_RADIUS,
+      clericBonus: sceneClassBonus(["cleric"]),
+      roster: buildPerceptionParty().map(m => m.classKey),
+      alliesBefore: allies.length,
+      hpBefore: hp, maxHp: maxHp,
+      allyHpBefore: allies.map(a => a.hp),
+      summonSlotBefore: (summonSlot === null || summonSlot === undefined) ? 'null' : 'set',
+      // CLASS_DEFS.servant の形 (フィールド欠けは renderPartyStatuses / 描画で落ちる)
+      defKeys: Object.keys(CLASS_DEFS.servant).sort(),
+      undeadKeys: Object.keys(CLASS_DEFS.undead_squad).sort(),
+      defHp: CLASS_DEFS.servant.hpMax, undeadHp: CLASS_DEFS.undead_squad.hpMax,
+      spriteRegistered: !!getSpriteSet('servant', 0),
+      spriteIsCustomSheet: CUSTOM_SHEET_CLASSES.has('servant'),
+      inAllClassKeys: ALL_CLASS_KEYS.indexOf('servant') >= 0,          // ★募集 NPC に漏れていないこと
+      eventKey: SCE1_EVENTS[1] ? SCE1_EVENTS[1].key : null,
+    };
+  });
+}
+// プレイヤーを従者の発火地点 / 半径外 (7タイル西 = 672px ≫ 240) へ瞬間移動させる。
+async function ev5Approach(page, where) {
+  await page.evaluate((w) => {
+    const s = sce1ServantSpot();
+    const tx = (w === 'far') ? s.tx - 7 : s.tx;
+    playerX = tx * TILE_SIZE + TILE_SIZE / 2 - 48;
+    playerY = s.ty * TILE_SIZE + TILE_SIZE / 2 - 58;
+  }, where);
+}
+async function ev5Settle(page) {
+  for (let k = 0; k < 50; k++) {
+    const done = await page.evaluate(() => {
+      const d = document.getElementById('choiceDialog');
+      return !(d && d.classList.contains('show')) && !skillCheckActive && !SCE1_EVENTS[1].busy;
+    });
+    if (done) { await sleep(120); return true; }
+    await sleep(80);
+  }
+  return false;
+}
+async function ev5State(page) {
+  return page.evaluate(() => {
+    const last = allies.length ? allies[allies.length - 1] : null;
+    const und = (v) => (v === undefined ? 'undef' : String(v));
+    return {
+      flag: sceneFlags.servant_rescued,
+      fired: SCE1_EVENTS[1].fired, declined: SCE1_EVENTS[1].declined,
+      calls: window.__ev5.calls.slice(),
+      allies: allies.length,
+      lastKey: last ? last.classKey : null,
+      lastZone: last ? last.zone : null,
+      lastIsSummon: last ? und(last.isSummon) : null,
+      lastSummonItemId: last ? und(last.summonItemId) : null,
+      lastMaxHp: last ? last.maxHp : null,
+      lastDefName: last ? ((last.def && last.def.name) || null) : null,
+      lastDomAttached: last ? !!(last.el && document.body.contains(last.el)) : null,
+      lastStatusBoxes: document.querySelectorAll('#partyStatusList .statusBox').length,
+      summonSlot: (summonSlot === null || summonSlot === undefined) ? 'null' : 'set',
+      joined: servantJoined,
+      hp: hp, gameOver: gameOver,
+      // 従者を除いた既存メンバーの HP (罠の代償を測る母集団)
+      allyHps: allies.filter(a => a.classKey !== 'servant').map(a => a.hp),
+      log: combatLogLines.slice(-16).map(l => l.msg),
+    };
+  });
+}
+/* 従者を取り除き「参戦前」へ戻す (分岐網羅用)。⚠ 製品コードのラッチは触らずに済ませたいが、
+ *   servantJoined は 1 潜行に 1 回しか通らない設計なので、driver 側で明示的に解く。 */
+async function ev5Reset(page, force) {
+  await page.evaluate((f) => {
+    for (let i = allies.length - 1; i >= 0; i--) {
+      if (allies[i].classKey !== 'servant') continue;
+      const a = allies[i];
+      [a.el, a.hpWrapEl, a.nameLabelEl].forEach(e => { if (e && e.remove) e.remove(); });
+      allies.splice(i, 1);
+    }
+    servantJoined = false;
+    sceneFlags.servant_rescued = false;
+    summonSlot = null;
+    gameOver = false;
+    hp = maxHp;
+    allies.forEach(a => { a.hp = a.maxHp; a.alive = true; });
+    SCE1_EVENTS[1].fired = false; SCE1_EVENTS[1].declined = false;
+    window.__ev5.calls.length = 0; window.__ev5.force = !!f;
+    enemies.forEach(e => { e.inactive = true; });
+    dialogPaused = false; skillCheckActive = false;
+  }, force);
+}
+
+/* EV-5 の一連の観測。⚠ 無変異ページと変異ページの**両方**にこの同じ手順を当てる。
+ *   ⚠ 実行順は状態依存: 「参戦しない枝 (Esc / 迂回)」→「無傷で救出」→「失敗でも救出」の順。
+ *     先に救出してしまうと以降の枝が servantJoined ラッチに食われる。 */
+async function ev5Run(page, tag) {
+  const R = { tag };
+  Object.assign(R, await ev5Prepare(page));
+
+  // U1 接近 → 3択 → キャンセル (Esc 相当)
+  await ev5Approach(page, 'near');
+  R.dlg1 = await ev5WaitDialog(page, 5000);
+  if (R.dlg1) { await ev2Click(page, -1); await ev5Settle(page); }
+  R.afterCancel = await ev5State(page);
+
+  // U2 半径内に留まる間は再プロンプトしない
+  R.dlg2 = await ev5WaitDialog(page, 1600);
+
+  // U3 半径外へ出て戻れば再プロンプトされる
+  await ev5Approach(page, 'far'); await sleep(900);
+  await ev5Approach(page, 'near');
+  R.dlg3 = await ev5WaitDialog(page, 5000);
+
+  // U4 選択2 (迂回する) = 判定なし・救出なし
+  if (R.dlg3) { await ev2Click(page, 2); await ev5Settle(page); }
+  R.afterAvoid = await ev5State(page);
+
+  // U5 一度選んだら二度と出ない (fired ラッチ)
+  await ev5Approach(page, 'far'); await sleep(900);
+  await ev5Approach(page, 'near');
+  R.dlg4 = await ev5WaitDialog(page, 1600);
+
+  // U6 選択0 成功 = perception DC13 / ★無傷で救出 → 従者参戦
+  await ev5Reset(page, true);
+  R.dlg5 = await ev5WaitDialog(page, 5000);
+  if (R.dlg5) { await ev2Click(page, 0); await ev5Settle(page); }
+  R.afterPerceptOk = await ev5State(page);
+  // 参戦した従者を通常の UI 経路 (updateInfo → renderPartyStatuses) にもう一度通す
+  R.uiRedraw = await page.evaluate(() => {
+    updateInfo('【driver】従者在籍中の再描画');
+    return document.querySelectorAll('#partyStatusList .statusBox').length;
+  });
+  // U7 冪等 (直接二度呼びしても増えない)
+  R.idem = await page.evaluate(() => {
+    const before = allies.length;
+    const r = joinServantAlly();
+    return { ret: r, before: before, after: allies.length };
+  });
+
+  // U8 選択1 成功 = athletics DC13 / 無傷
+  await ev5Reset(page, true);
+  R.dlg6 = await ev5WaitDialog(page, 5000);
+  if (R.dlg6) { await ev2Click(page, 1); await ev5Settle(page); }
+  R.afterAthlOk = await ev5State(page);
+
+  // U9 ★選択1 失敗 = 罠作動で HP は減るが、救出は成立する (本項目の芯)
+  await ev5Reset(page, false);
+  R.dlg7 = await ev5WaitDialog(page, 5000);
+  if (R.dlg7) { await ev2Click(page, 1); await ev5Settle(page); }
+  R.afterAthlFail = await ev5State(page);
+
+  // U10 ★選択0 失敗 = 「すぐ助けに向かう」の失敗へ合流する (同じ結果になる)
+  await ev5Reset(page, false);
+  R.dlg8 = await ev5WaitDialog(page, 5000);
+  if (R.dlg8) { await ev2Click(page, 0); await ev5Settle(page); }
+  R.afterPerceptFail = await ev5State(page);
+
+  /* U11 ★得意クラス(僧侶)の +2 が実際に流れることの決定論的確認。
+   *   ⚠ パーティ編成は起動ごとに乱択されるので、僧侶を 1 人足して再走する
+   *     (手書きモックは renderPartyStatuses が全フィールドを舐めて落ちるので createAlly を使う)。 */
+  await ev5Reset(page, true);
+  await page.evaluate(() => {
+    const a = createAlly('cleric', playerX - 40, playerY + 40);
+    a.npcName = 'テスト僧侶';
+    allies.push(a);
+  });
+  await page.evaluate(() => { window.__ev5.calls.length = 0; });
+  R.dlg9 = await ev5WaitDialog(page, 5000);
+  if (R.dlg9) { await ev2Click(page, 0); await ev5Settle(page); }
+  R.afterCleric = await ev5State(page);
+  R.clericBonusWith = await page.evaluate(() => sceneClassBonus(["cleric"]));
+  await ev5Reset(page, true);
+  await page.evaluate(() => {
+    const i = allies.findIndex(a => a.npcName === 'テスト僧侶');
+    if (i >= 0) allies.splice(i, 1);
+    SCE1_EVENTS[1].fired = true;   // 後片付け: 観測終了後にダイアログが開きっぱなしにならないよう封じる
+  });
+  return R;
+}
+// EV-5 のダイアログ待ち (ev2WaitDialog と同一実装。見出し文の取り違えを防ぐため別名で持つ)
+const ev5WaitDialog = ev2WaitDialog;
+
+/* ★EV-5 の検出器。無変異で全 true / 変異で狙ったものだけ false になるべき述語群。 */
+function ev5Detectors(R) {
+  const L = (R.dlg1 && R.dlg1.labels) || [];
+  const cP = (R.afterPerceptOk.calls || [])[0] || null;
+  const cA = (R.afterAthlOk.calls || [])[0] || null;
+  const okState = R.afterPerceptOk;
+  const failState = R.afterAthlFail;
+  const trapLog = (st) => (st.log || []).some(m => /罠を踏んだ!\s*1d6\(/.test(m));
+  const hpDropped = (st) => st.hp < R.maxHp;
+  const allyHpDropped = (st) => st.allyHps.some((v, i) => v < (R.allyHpBefore[i] !== undefined ? R.allyHpBefore[i] : v));
+  return {
+    S1: { label: 'EV-5: 接近すると 3択+キャンセル のダイアログが出る',
+          ok: !!R.dlg1 && L.length === 4, got: JSON.stringify(L) },
+    S2: { label: 'EV-5: ラベルは 声の方向を調べる / すぐ助けに向かう / 敵の罠だと見て迂回する',
+          ok: L[0] === '1. 声の方向を調べる' && L[1] === '2. すぐ助けに向かう'
+              && L[2] === '3. 敵の罠だと見て迂回する' && L[3] === '引き返す (Esc)',
+          got: JSON.stringify(L) },
+    S3: { label: 'EV-5: キャンセル(Esc) では未決 (救出も参戦も起きず declined が立つ)',
+          ok: R.afterCancel.flag === false && R.afterCancel.fired === false
+              && R.afterCancel.declined === true && R.afterCancel.calls.length === 0
+              && R.afterCancel.allies === R.alliesBefore,
+          got: JSON.stringify({ flag: R.afterCancel.flag, fired: R.afterCancel.fired,
+                                declined: R.afterCancel.declined, allies: R.afterCancel.allies }) },
+    S4: { label: 'EV-5: 断った後は半径内に留まる限り再プロンプトしない',
+          ok: R.dlg2 === null, got: R.dlg2 ? 'ダイアログが再表示された' : 'none' },
+    S5: { label: '★EV-5: 選択2(確定) では SkillCheck が 1 度も呼ばれない',
+          ok: R.afterAvoid.calls.length === 0, got: JSON.stringify(R.afterAvoid.calls) },
+    S6: { label: '★EV-5: 選択2 では servant_rescued=false のまま・allies も増えない',
+          ok: R.afterAvoid.flag === false && R.afterAvoid.allies === R.alliesBefore
+              && R.afterAvoid.joined === false,
+          got: 'flag=' + R.afterAvoid.flag + ' allies=' + R.afterAvoid.allies + '/' + R.alliesBefore },
+    S7: { label: 'EV-5: 発火は 1 回だけ (選択済みなら半径外→内でも出ない)',
+          ok: R.dlg4 === null && R.afterAvoid.fired === true,
+          got: 'fired=' + R.afterAvoid.fired + ' redisplay=' + (R.dlg4 ? 'yes' : 'no') },
+    S8: { label: 'EV-5: 選択0 は perception を DC13 で振る',
+          ok: !!cP && cP.checkKey === 'perception' && cP.dc === 13 && okState.calls.length === 1,
+          got: JSON.stringify(okState.calls) },
+    S9: { label: 'EV-5: 選択1 は athletics を DC13 で振る',
+          ok: !!cA && cA.checkKey === 'athletics' && cA.dc === 13 && R.afterAthlOk.calls.length === 1,
+          got: JSON.stringify(R.afterAthlOk.calls) },
+    S10: { label: 'EV-5: DC は動かさず 得意クラス(僧侶) は extraBonus 側に乗る',
+           ok: !!cP && !!cA && cP.extraBonus === R.clericBonus && cA.extraBonus === R.clericBonus
+               && (R.clericBonus === 0 || R.clericBonus === 2),
+           got: 'extraBonus=' + (cP && cP.extraBonus) + '/' + (cA && cA.extraBonus)
+                + ' sceneClassBonus=' + R.clericBonus + ' roster=' + JSON.stringify(R.roster) },
+    S11: { label: '★EV-5: 選択0 成功で無傷のまま救出成立 (servant_rescued=true・allies +1・末尾が servant)',
+           ok: okState.flag === true && okState.allies === R.alliesBefore + 1
+               && okState.lastKey === 'servant' && okState.hp === R.hpBefore
+               && !allyHpDropped(okState),
+           got: 'flag=' + okState.flag + ' allies=' + okState.allies + '/' + R.alliesBefore
+                + ' last=' + okState.lastKey + ' hp=' + okState.hp + '/' + R.hpBefore
+                + ' allyHps=' + JSON.stringify(okState.allyHps) },
+    S12: { label: '★EV-5: 従者は召喚枠を食わない (summonSlot が変化せず isSummon も立たない)',
+           ok: R.summonSlotBefore === 'null' && okState.summonSlot === 'null'
+               && okState.lastIsSummon === 'undef' && okState.lastSummonItemId === 'undef',
+           got: 'summonSlot ' + R.summonSlotBefore + ' -> ' + okState.summonSlot
+                + ' isSummon=' + okState.lastIsSummon + ' itemId=' + okState.lastSummonItemId },
+    S13: { label: '★EV-5: 選択1 が**失敗**でも servant_rescued=true (救出は判定運で折れない)',
+           ok: failState.flag === true && failState.allies === R.alliesBefore + 1
+               && failState.lastKey === 'servant',
+           got: 'flag=' + failState.flag + ' allies=' + failState.allies + '/' + R.alliesBefore
+                + ' last=' + failState.lastKey },
+    S14: { label: '★EV-5: 選択1 失敗の代償は HP のみ (既存の罠ダメージ経路 1d6 を通る)',
+           ok: hpDropped(failState) && trapLog(failState) && failState.gameOver === false,
+           got: 'hp=' + failState.hp + '/' + R.maxHp + ' gameOver=' + failState.gameOver
+                + ' log=' + JSON.stringify((failState.log || []).filter(m => /罠/.test(m))) },
+    S15: { label: '★EV-5: 選択0 の失敗は選択1 の失敗へ合流する (perception を振り→罠→救出成立)',
+           ok: ((R.afterPerceptFail.calls || [])[0] || {}).checkKey === 'perception'
+               && R.afterPerceptFail.flag === true
+               && R.afterPerceptFail.allies === R.alliesBefore + 1
+               && hpDropped(R.afterPerceptFail) && trapLog(R.afterPerceptFail),
+           got: 'calls=' + JSON.stringify(R.afterPerceptFail.calls) + ' flag=' + R.afterPerceptFail.flag
+                + ' allies=' + R.afterPerceptFail.allies + ' hp=' + R.afterPerceptFail.hp },
+    S16: { label: 'EV-5: 従者は zone=rear の通常コンパニオンとして参戦し DOM も伴う',
+           ok: okState.lastZone === 'rear' && okState.lastDomAttached === true
+               && okState.lastDefName === '商人の従者' && okState.lastMaxHp === 18,
+           got: 'zone=' + okState.lastZone + ' dom=' + okState.lastDomAttached
+                + ' name=' + okState.lastDefName + ' maxHp=' + okState.lastMaxHp },
+    S17: { label: '★EV-5: 従者在籍中に renderPartyStatuses が回り、隊列枠が 1 つ増える',
+           ok: R.uiRedraw === R.alliesBefore + 2, got: 'statusBoxes=' + R.uiRedraw
+                + ' (頭1 + 仲間' + (R.alliesBefore + 1) + ')' },
+    S18: { label: 'EV-5: 参戦は冪等 (二度目の joinServantAlly は false で allies も増えない)',
+           ok: R.idem.ret === false && R.idem.after === R.idem.before, got: JSON.stringify(R.idem) },
+    S19: { label: '★EV-5: 僧侶を 1 人加えると extraBonus が 2 になる (得意クラス +2 が実際に流れる)',
+           ok: R.clericBonusWith === 2 && ((R.afterCleric.calls || [])[0] || {}).extraBonus === 2,
+           got: 'sceneClassBonus=' + R.clericBonusWith + ' passed=' + JSON.stringify(R.afterCleric.calls) },
+  };
+}
+
 const GEN_QUEST = {
   title: '掲示板の依頼 — 生成クエスト',
   flavor: '生成クエストは scenarioId が別 ID になる。',
@@ -754,8 +1081,54 @@ const GEN_QUEST = {
   check('(7f) ★生成クエスト (scenarioId≠goblin-mine) では EV-2 が発火しない',
     genDlg === null && genState.fired === false && genState.isGM === false,
     'scenarioId=' + genState.scenarioId + ' dialog=' + (genDlg ? 'ARE' : 'none') + ' fired=' + genState.fired);
+  // ── EV-5 も同じ生成クエストページで発火しないこと (シナリオゲートは台帳全体に効く) ──
+  await ev5Prepare(genEv.page);
+  await ev5Approach(genEv.page, 'near');
+  const genDlg5 = await ev5WaitDialog(genEv.page, 2500);
+  const genState5 = await genEv.page.evaluate(() => ({
+    fired: SCE1_EVENTS[1].fired, flag: sceneFlags.servant_rescued,
+    allies: allies.length, joined: servantJoined }));
+  check('(7g) ★生成クエストでは EV-5 も発火しない (従者も参戦しない)',
+    genDlg5 === null && genState5.fired === false && genState5.flag === false
+    && genState5.joined === false,
+    'dialog=' + (genDlg5 ? 'ARE' : 'none') + ' fired=' + genState5.fired
+    + ' flag=' + genState5.flag + ' allies=' + genState5.allies);
   await genEv.page.close();
   mark('EV-2 verified (3択 / 判定なし枠 / 失敗→増援 / シナリオゲート)');
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // §8 EV-5「捕らわれた従者」(項目 3)
+  // ════════════════════════════════════════════════════════════════════════════
+  const R = await ev5Run(cur.page, 'clean');
+  mark('EV-5 driven (clean)  spot=(' + R.spot.tx + ',' + R.spot.ty + ') alliesBefore='
+    + R.alliesBefore + ' clericBonus=' + R.clericBonus);
+
+  // 母集団ガード: 盤面と定義が「測れる状態」で始まっていること
+  check('(8a) 発火地点は部屋0 の**奥側の床** (壁でも岩盤でもない)',
+    R.spotIsWall === false && R.spotInRoom0 === true && R.spotIsDeep === true,
+    '(' + R.spot.tx + ',' + R.spot.ty + ') wall=' + R.spotIsWall
+    + ' inRoom0=' + R.spotInRoom0 + ' deep=' + R.spotIsDeep + ' room0=' + JSON.stringify(R.room0));
+  check('(8b) EV-2 と EV-5 は接近半径 (240) より離れており同時発火しない',
+    R.spotFarFromWatch === true,
+    'watch tx=' + R.watch.tx + ' servant tx=' + R.spot.tx + ' radius=' + R.radius);
+  check('(8c) 台帳 SCE1_EVENTS[1] は captive_servant (添字は driver が参照する)',
+    R.eventKey === 'captive_servant', String(R.eventKey));
+  check('(8d) ★CLASS_DEFS.servant のフィールドは既存同行者 (undead_squad) と同じ集合 = 欠けが無い',
+    eq(R.defKeys, R.undeadKeys), 'servant=' + JSON.stringify(R.defKeys));
+  check('(8e) 従者は undead_squad より明確に脆い (hpMax 18 < 30)',
+    R.defHp === 18 && R.defHp < R.undeadHp, R.defHp + ' vs ' + R.undeadHp);
+  check('(8f) 従者のスプライトが SPRITE_VARIANTS / CUSTOM_SHEET_CLASSES に登録済み (絵が崩れない)',
+    R.spriteRegistered === true && R.spriteIsCustomSheet === true,
+    'variants=' + R.spriteRegistered + ' customSheet=' + R.spriteIsCustomSheet);
+  check('(8g) ★servant は ALL_CLASS_KEYS に入っていない (募集 NPC / 酒場タブに漏れない)',
+    R.inAllClassKeys === false, String(R.inAllClassKeys));
+  check('(8h) 母集団ガード: 参戦前の allies が 1 名以上・召喚枠は空',
+    R.alliesBefore >= 1 && R.summonSlotBefore === 'null',
+    'allies=' + R.alliesBefore + ' summonSlot=' + R.summonSlotBefore);
+
+  const SC5 = ev5Detectors(R);
+  Object.keys(SC5).forEach(k => check('(8) ' + SC5[k].label, SC5[k].ok, SC5[k].got));
+  mark('EV-5 verified (3択 / 判定なし枠 / 救出は判定運で折れない / 召喚枠を食わない)');
 
   // ════════════════════════════════════════════════════════════════════════════
   // §N ★負のコントロール (同一 run 内・:PORT_MUT の変異配信へ同じ検出器を当てる)
@@ -809,6 +1182,38 @@ const GEN_QUEST = {
   check('(N-EV隣) 変異群は E3/E4/E8 (Esc・再プロンプト抑制・1回きり) を巻き込まない',
     EM.E3.ok === true && EM.E4.ok === true && EM.E8.ok === true,
     'E3=' + EM.E3.got + ' E4=' + EM.E4.got + ' E8=' + EM.E8.got);
+
+  // ── EV-5 の負のコントロール (同じ ev5Run / ev5Detectors を変異ページへ当てる) ──
+  const RM = await ev5Run(mut.page, 'mutated');
+  const SM = ev5Detectors(RM);
+  mark('EV-5 driven (mutated)  alliesBefore=' + RM.alliesBefore);
+  check('(N-EV5-0) 母集団ガード: 変異側でも EV-5 は同じ 3択を出す (壊れているのは結果だけ)',
+    SM.S1.ok === true && SM.S2.ok === true && SM.S4.ok === true,
+    'S1=' + SM.S1.got + ' S2=' + SM.S2.got);
+  check('(N8) ★変異N8 (救出フラグを立てない) で S11/S13「救出は必ず成立する」が赤くなる',
+    SM.S11.ok === false && SM.S13.ok === false
+    && RM.afterPerceptOk.flag === false && RM.afterAthlFail.flag === false,
+    'ok枝 flag=' + RM.afterPerceptOk.flag + ' 失敗枝 flag=' + RM.afterAthlFail.flag);
+  check('(N8-隣) 変異N8 は外科的: 参戦そのもの (allies +1・末尾 servant) は緑のまま',
+    RM.afterPerceptOk.allies === RM.alliesBefore + 1 && RM.afterPerceptOk.lastKey === 'servant'
+    && RM.afterAthlFail.allies === RM.alliesBefore + 1,
+    'allies=' + RM.afterPerceptOk.allies + '/' + RM.alliesBefore + ' last=' + RM.afterPerceptOk.lastKey);
+  check('(N9) ★変異N9 (従者に召喚枠を食わせる) で S12「summonSlot が変化しない」が赤くなる',
+    SM.S12.ok === false && RM.afterPerceptOk.summonSlot === 'set', SM.S12.got);
+  check('(N10) ★変異N10 (罠作動を no-op に) で S14「失敗の代償=HP が減る」が赤くなる',
+    SM.S14.ok === false && RM.afterAthlFail.hp === RM.maxHp, SM.S14.got);
+  check('(N10-隣) 変異N10 は外科的: 参戦は起きたまま (救出と代償が独立配線であることの実測)',
+    RM.afterAthlFail.allies === RM.alliesBefore + 1 && RM.afterAthlFail.lastKey === 'servant',
+    'allies=' + RM.afterAthlFail.allies + '/' + RM.alliesBefore);
+  check('(N11) ★変異N11 (EV-5 の判定なし枠を潰す) で S5「選択2 で SkillCheck 未呼出」が赤くなる',
+    SM.S5.ok === false && RM.afterAvoid.calls.length === 1, SM.S5.got);
+  check('(N2-EV5) ★変異N2 (得意クラス加算 2→0) で S19「僧侶在籍で extraBonus=2」が赤くなる',
+    SM.S19.ok === false && RM.clericBonusWith === 0
+    && ((RM.afterCleric.calls || [])[0] || {}).extraBonus === 0, SM.S19.got);
+  check('(N-EV5隣) 変異群は S3/S4/S7/S8/S9 (Esc・再プロンプト抑制・1回きり・判定種別) を巻き込まない',
+    SM.S3.ok === true && SM.S4.ok === true && SM.S7.ok === true
+    && SM.S8.ok === true && SM.S9.ok === true,
+    'S3=' + SM.S3.got + ' S7=' + SM.S7.got + ' S8=' + SM.S8.got);
   await mut.page.close();
 
   const mutGen = await boot(PORT_MUT, '?diag=1', { generated: true });
