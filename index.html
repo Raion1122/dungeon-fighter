@@ -3700,8 +3700,49 @@
     // 玄室宝箱 (spawnRoomChests) **専用**。部屋数を見ず常に {0, boss}
     let ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
       : new Set([0, BOSS_ROOM_IDX]);
+    /* ★[P4] 分岐 (RUN) があるときだけ、上の 2 つを **kind 由来**の集合へ差し替える。
+     * ⚠⚠ 「従来の式で必ず一度計算してから上書きする」形にしてあるのは意図的:
+     *   RUN が null の全経路 (既存 6 シナリオ / ?graph=0 / 屋外 / 既存の自作マップ) では
+     *   applyNodeKindExclusions が即 false で返るので、**実行される文が従来と文字どおり同じ**になる。
+     *   三項演算子の中へ混ぜると「従来経路も新しい式を通る」形になり、恒等性が読んで確かめられない。
+     * ⚠ nodeBuildKind の宣言はこの呼び出しより**前**でなければならない (let は巻き上がらない)。 */
+    let nodeBuildKind = null;   // 今ビルド中のノードの kind。spawnRoomChests の当たり保証が読む
+    applyNodeKindExclusions(MAPDEF, RUN ? RUN.graph.entry : null);
     // クリア条件の踏破部屋数 (checkDungeonClear)。既定 = rooms.length - 1
     let OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
+
+    /* ── ★P4: ノード種別 (kind) → 中身の配線 ─────────────────────────────────────
+     * ⚠ 関数宣言なので巻き上げ済み。ここより前の行から呼んでも動くが、**currentNodeId を
+     *   既定値にしてはいけない** (宣言は 28600 行台の `let` なので TDZ に落ちる)。
+     *   ノード id は必ず**呼び出し側が明示**する。 */
+    function graphKindOf(nodeId) {
+      if (!RUN || !nodeId) return null;
+      const nd = RUN.byId[nodeId];
+      return nd ? nd.kind : null;
+    }
+    /* 除外集合を kind 由来へ差し替える。差し替えたら true。
+     * ⚠ 罠 (spawnTraps) / 隠し宝箱 / 探索宝箱 は EXCLUDED_ROOMS を、玄室宝箱 (spawnRoomChests) は
+     *   ROOM_CHEST_EXCLUDED_ROOMS を読む。**2 系統あるのは実装事実**なので、片方だけ差し替えると
+     *   「search なのに玄室宝箱まで湧く」等の中間状態になる → 必ず 2 つ一緒に差し替える。 */
+    function applyNodeKindExclusions(mapDef, nodeId) {
+      nodeBuildKind = graphKindOf(nodeId);
+      if (!nodeBuildKind || !window.DFMapDef ||
+          typeof DFMapDef.excludedRoomIdxForKind !== "function") return false;
+      EXCLUDED_ROOMS = DFMapDef.excludedRoomIdxForKind(mapDef, nodeBuildKind);
+      ROOM_CHEST_EXCLUDED_ROOMS = DFMapDef.chestExcludedRoomIdxForKind(mapDef, nodeBuildKind);
+      return true;
+    }
+    /* 「このノードは玄室宝箱の当たりを保証するか」= kind:"loot"。
+     * ★行き止まりの loot ノードまで歩かせて空振り (CHEST_SPAWN_CHANCE=0.5 の抽選漏れ) が起きると、
+     *   プレイヤーから見て「宝の匂いがしたのに何も無かった」= ヒントが嘘をついたことになる。
+     * ⚠⚠ **現在ノードの kind ではなく nodeBuildKind を読む**。spawnRoomChests は buildNode の
+     *   途中 (currentNodeId を書き換えた後・盤面が組み上がる前) にも走るので、状態の出所を
+     *   1 つに固定しないと「遷移中だけ別のノードの kind を見る」1 フレームの穴ができる。
+     * ⚠ RUN が null なら nodeBuildKind は null のまま = 従来の抽選そのまま
+     *   (Math.random の消費順も 1 回も変わらない)。 */
+    function nodeChestGuaranteed() {
+      return nodeBuildKind === "loot";
+    }
 
     // ── フォグオブウォー強化: 職業別視界レンジ + 探索記憶 ──────────────
     // tiles=視界半径(タイル数、視界/エンカウント判定用)、inner/outer=放射光半径(px、drawLight用)
@@ -18795,7 +18836,11 @@
         if (size >= CHEST_ELIGIBLE_MIN_SIZE) candidates.push(i);
       }
       for (const i of candidates) {
-        if (Math.random() >= CHEST_SPAWN_CHANCE) continue;
+        /* ★[P4] kind:"loot" のノードでは抽選を飛ばして**必ず**湧かせる (行き止まりの「当たり」)。
+         * ⚠ 短絡の順序が肝: nodeChestGuaranteed() が false のときだけ Math.random() を引くので、
+         *   RUN が null の全経路では**乱数の消費順が 1 回も変わらない** (= 既存 6 シナリオの
+         *   宝箱配置が 1bit も動かない)。条件を入れ替えると全シナリオの盤面が変わる。 */
+        if (!nodeChestGuaranteed() && Math.random() >= CHEST_SPAWN_CHANCE) continue;
         const [r1, c1, r2, c2] = ROOMS[i];
         // 部屋内の床タイル (壁・障害物除外) からランダム1個選ぶ
         const floorTiles = [];
@@ -28554,6 +28599,10 @@
         : (ROOMS.length >= 3 ? new Set([0, BOSS_ROOM_IDX]) : new Set([BOSS_ROOM_IDX]));
       ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
         : new Set([0, BOSS_ROOM_IDX]);
+      /* ★[P4] 起動時のブロック (3700 行台) と**同じ 1 行**で kind 由来へ差し替える。
+       * ⚠ nodeId 省略時 (?renode の同一再入場) は currentNodeId で補う。ここを補わないと
+       *   renode のたびに kind を見失い、罠と宝箱が 0 個の盤面が組み上がる。 */
+      applyNodeKindExclusions(MAPDEF, nodeId || currentNodeId);
       OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
       /* ★[P2] ノード別の敵スポーン (P1 が残した穴 #3)。
        * ⚠ **位置が厳密**: rescueCustomSpawns が mapData と ROOMS を読むので mapData より後、
@@ -28622,8 +28671,23 @@
     /* ノード状態の記憶。★添字ではなく **id をキー**にする (並べ替えで壊れない)。
      *   { visited, deadSlots:Set, openedChests:Set, foundChests:Set, sprungTraps:Set,
      *     foundTraps:Set, disarmedTraps:Set, explored:Uint8Array[], seen:Set,
-     *     hintsRevealed:{}, cleared:bool } */
+     *     hintsRevealed:{}, cleared:bool, rested:bool, eventsFired:Set }
+     * ★[P4] 生成を newNodeState() 1 箇所へ寄せた。P2/P3 では同じオブジェクトリテラルが
+     *   **3 箇所** (nodeStateFor / saveNodeState / restoreNodeState) に写経されており、
+     *   欄を 1 つ足すたびに 3 箇所を直す必要があった = 必ず 1 箇所が腐る形だった。 */
     const nodeState     = Object.create(null);
+    function newNodeState() {
+      return {
+        visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
+        sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
+        explored: null, seen: null, hintsRevealed: {}, cleared: false,
+        /* ★[P4] rested … kind:"rest" の回復を**このノードで既に受け取ったか**。
+         *   ⚠⚠ これが無いと、rest ノードと隣のノードを往復するだけで無限に全快できる
+         *     (「行き止まりありの木」= 引き返しが常に可能なので、回数制限が無い回復は必ず悪用される)。
+         *   ★eventsFired … このノードで発火済みのイベント key (P5 が EV-2/5/9 を載せる器)。 */
+        rested: false, eventsFired: new Set(),
+      };
+    }
     let   nodeEnteredVia = null;   // このノードへ「どちらへ向かって」入ったか (引き返す向きの出所)
     let   heroForcedGoal = null;   // {tx,ty} 出口タイル。heroAI の目標決定が読む唯一のレバー
     let   nodeGateReached = false; // heroAI (同期) が立て、400ms tick (async) が消費するフラグ
@@ -28823,7 +28887,14 @@
     }
     /* 出口の先に何体いるか。★著者が書いた enemySlots / bossSlot を数える (スポーン後の実体ではない)。
      *   実体を数えるにはそのノードを実際に build する必要があり、覗きたいだけのために盤面を
-     *   作り直すのは本末転倒。「十ばかり」という言い方自体が概数なので、これで足りる。 */
+     *   作り直すのは本末転倒。「十ばかり」という言い方自体が概数なので、これで足りる。
+     * ⚠⚠ [P4] **この概算が実体とズレうる唯一の経路は rescueCustomSpawns** (index.html:7720)。
+     *   敵スロットが岩盤の中にあり、同じ部屋にも全マップにも床が 1 枚も無いときだけ spawn を
+     *   捨てるので、そのぶん実体が減る。tools/driver_graph_kinds.js の (4a) が
+     *   **全ノードで「著者の数 == enemies.length」**を突き合わせている。
+     *   ⚠ P5 で本番グラフを載せたら、そのグラフに対して (4a) を必ず通し直すこと
+     *     (ズレていても crit のヒントが「N 体ばかり」と嘘をつくだけで、他は何も壊れない
+     *      = **自分では絶対に気づけない**種類の欠陥)。 */
     function exitEnemyCount(toId) {
       const nd = RUN && RUN.byId[toId];
       if (!nd || !nd.mapDef || !Array.isArray(nd.mapDef.rooms)) return 0;
@@ -28889,11 +28960,7 @@
      *   visited が立ち、exitsWithReturn の「未踏の枝を先に並べる」順序が壊れる。 */
     function nodeStateFor(id) {
       if (!id) return null;
-      return nodeState[id] || (nodeState[id] = {
-        visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
-        sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
-        explored: null, seen: null, hintsRevealed: {}, cleared: false,
-      });
+      return nodeState[id] || (nodeState[id] = newNodeState());
     }
     async function revealExitHints(node, forcedTier) {
       if (!RUN || !node) return null;
@@ -29091,11 +29158,7 @@
     //     順序は必ず「保存 → reset → build → 復元」。逆にすると保存した瞬間に消える。
     function saveNodeState(id) {
       if (!id) return;
-      const st = nodeState[id] || (nodeState[id] = {
-        visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
-        sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
-        explored: null, seen: null, hintsRevealed: {}, cleared: false,
-      });
+      const st = nodeState[id] || (nodeState[id] = newNodeState());
       st.visited = true;
       st.deadSlots = new Set();
       for (let i = 0; i < enemies.length; i++) if (!enemies[i].alive) st.deadSlots.add(i);
@@ -29121,11 +29184,7 @@
       const st = nodeState[id];
       if (!st || !st.visited) {
         // 初訪。★ここで nodeState を「訪れた」として作っておく (exitsWithReturn の並べ替えが読む)
-        nodeState[id] = {
-          visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
-          sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
-          explored: null, seen: null, hintsRevealed: {}, cleared: false,
-        };
+        nodeState[id] = newNodeState();
         return false;
       }
       /* 再訪。スポーンは決定論なので**同じ盤面が同じ順序で組み上がっている** → 添字で間引ける。
@@ -29213,6 +29272,90 @@
       boss:   "空気が変わった。この奥に主がいる。",
     };
 
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P4 — ノード種別 (kind) を「中身」へ配線する
+     * ══════════════════════════════════════════════════════════════════════════
+     * P2/P3 では kind は**ヒント文と到着文にしか効いていなかった**。ここで実体へ繋ぐ:
+     *   (a) 除外集合を kind 由来へ … 3700 行台 applyNodeKindExclusions (罠/宝箱の湧く場所)
+     *   (b) kind:"rest" の回復     … 入室で setPhase("rest") + 既存 applyRoomClearHeal
+     *   (c) kind:"event" の台帳    … NODE_EVENTS (器だけ。EV-2/5/9 の移植は P5)
+     *   (d) 行き止まりの当たり/外れ … loot は宝を保証、search は空振りありの賭け
+     *
+     * ⚠⚠ この節も **RUN が null なら 1 命令も走らない**。呼び出し元は enterNode と
+     *   tryInteractNodeEvent の 2 つだけで、どちらも RUN ゲートの内側にある。
+     * ────────────────────────────────────────────────────────────────────────── */
+
+    /* ── (d) 行き止まりの「当たり / 外れ」 ────────────────────────────────────────
+     * 出口が 1 本も無いノード (= 引き返すしかない) に着いたとき、**歩いた甲斐があったか**を
+     * 到着文で言い切る。⚠ ボスノードは行き止まりだが「外れ」ではないので対象外。
+     * ★判定は「未開封の宝箱が実際に盤面にあるか」= **実体で測る**。kind から言葉だけ変えると、
+     *   2 周目 (宝を回収済み) に戻ったとき「宝がある」と嘘をつく。
+     * ⚠ 罠は「当たり」に数えない。罠しか無い行き止まりは、プレイヤーにとっては外れである。 */
+    const NODE_DEADEND_TEXT = {
+      hit:  "行き止まりだ。だが、打ち捨てられた荷の中に何かがある。",
+      miss: "行き止まりだ。めぼしい物は何も無い ── 引き返そう。",
+    };
+    function nodeDeadEndOutcome(node) {
+      if (!node || (node.exits && node.exits.length) || node.kind === "boss") return null;
+      return roomChests.some(c => !c.opened) ? "hit" : "miss";
+    }
+    /* 到着文の唯一の出所 (矢印/ダイアログと同じく「文言は 1 箇所」の方針)。
+     * ⚠ kind:"rest" のノードでは呼ばれない (runNodeRest が休憩ナレを出すため)。行き止まりの
+     *   rest が「行き止まりだ」と言わないのは意図的 = 休憩そのものが目的地なので外れではない。 */
+    function nodeArrivalText(node) {
+      const dead = nodeDeadEndOutcome(node);
+      if (dead) return NODE_DEADEND_TEXT[dead];
+      return NODE_ARRIVAL_TEXT[node.kind] || NODE_ARRIVAL_TEXT.combat;
+    }
+
+    /* ── 到着ナレと出口選択の重なりを防ぐ猶予 ───────────────────────────────────
+     * ⚠⚠ #dmMessage は z80、矢印は z11 / 羊皮紙は z12 で **ナレの方が上**。戦闘のあるノードでは
+     *   到着 → 戦闘 → 片付く の間に 2400ms が過ぎるので問題にならないが、**loot / rest /
+     *   行き止まりのように「到着した瞬間に settled」なノードでは、400ms tick が到着ナレの上に
+     *   羊皮紙を重ねてしまう**。到着直後だけ選択を遅らせて構造的に潰す。
+     * ⚠ 尺は showDMMessage(…, 2400) と**同じ値**にすること (片方だけ変えると隙間か重なりが出る)。
+     * ⚠ ?autoplay では速度倍率で割る (sleepMs と同じ作法)。割らないとノード数 x 2.4 秒が
+     *   そのまま検証の実時間に乗り、既存ドライバの完走タイムアウトを押し上げる。 */
+    const NODE_ARRIVAL_HOLD_MS = 2400;
+    function nodeArrivalHoldMs() {
+      const speed = window.__autoplay || 1;
+      return speed > 1 ? Math.max(8, Math.floor(NODE_ARRIVAL_HOLD_MS / speed)) : NODE_ARRIVAL_HOLD_MS;
+    }
+
+    /* ── (b) kind:"rest" の回復 ────────────────────────────────────────────────
+     * ★**新しい回復機構を発明しない**。戦闘勝利後の立て直しで使っている applyRoomClearHeal
+     *   (生存 PT の HP +33% / キャスターは最低位スロット +1) をそのまま呼ぶ = 回復量の
+     *   出所を 1 本に保つ (2 本あると必ず片方だけ調整されて食い違う)。
+     *
+     * ⚠⚠ **1 ノード 1 回きり** (nodeState.rested)。木構造なので引き返しは常に可能で、
+     *   回数制限が無いと rest ノードと隣を往復するだけで無限に全快できる。
+     * ⚠⚠ applyRoomClearHeal は冒頭で `window.__inBossRoom` を見て早期 return する。この
+     *   フラグは heroAI の入室検出が**一度だけ**立てる (bossRoomNarrationShown が one-shot) ので、
+     *   ボスノードから引き返すと true のまま残り、以後の rest が**無言で効かなくなる**。
+     *   → enterNode で毎回引き直す (下記)。分岐マップでは「今どのノードに居るか」が唯一の正。
+     * ⚠ setPhase("rest") は BGM とナレ (nar_phase_rest) を伴う。戻りの setPhase("explore") が
+     *   「英気を養った。再び前へ。」を出すので、到着文はここでは出さない (2 つ重ねない)。
+     *
+     * 調整レバー: 回復量は applyRoomClearHeal の 0.33 / 尺は下の sleepMs(900)。 */
+    async function runNodeRest(node) {
+      const st = nodeStateFor(node.id);
+      setPhase("rest");
+      if (st && st.rested) {
+        // 再訪。★「もう休んだ」ことを必ず伝える。黙って何も起きないと故障に見える。
+        showDMMessage("ここでは既に十分休んだ。長居は禁物だ。", 2000);
+        await sleepMs(600);
+      } else {
+        if (st) st.rested = true;
+        await sleepMs(500);
+        /* ⚠ 行末コメントは飾りではない。無いとこの行が runEncounter の
+         *   `          await applyRoomClearHeal();` (インデントが 2 つ深い) の**部分文字列**になり、
+         *   検証ドライバの変異アンカーが 2 箇所に刺さって負のコントロールが空振りする。 */
+        await applyRoomClearHeal();   // ★[P4] 休憩ノードの回復 (戦闘勝利後と同じ機構を再利用)
+        await sleepMs(900);
+      }
+      setPhase("explore");           // ← prev==="rest" なので「英気を養った。再び前へ。」が出る
+    }
+
     /* ★遷移の本体。計画書のシーケンスをそのまま 1 関数に閉じる。
      * ⚠ 例外が出ても必ず明転して nodeBusy を下ろすこと。暗転したまま固まるのが最悪の壊れ方
      *   (プレイヤーからは「真っ黒で何も起きない」= 完全な詰みに見える)。 */
@@ -29228,13 +29371,28 @@
         nodeEnteredVia = viaDir || null;
         heroForcedGoal = null; nodeGateReached = false; nodePendingExit = null;
         nodeChoiceCooldownUntil = 0;
+        /* ★[P4] ボス部屋フラグをノードの kind から引き直す。
+         * ⚠⚠ heroAI の入室検出 (:14753) は bossRoomNarrationShown が one-shot なので、
+         *   一度ボスノードへ入って引き返すと __inBossRoom が true のまま残る。すると
+         *   applyRoomClearHeal / maybeOfferRestSummon / currentBgmId が以後ずっと
+         *   「ボス部屋に居る」前提で動く = rest ノードが無言で効かなくなる。
+         *   分岐マップでは「今どのノードに居るか」が唯一の正なので、遷移のたびにここで確定させる。 */
+        window.__inBossRoom = (toId === RUN.bossNodeId);
         buildNode(resolveNodeMapDef(toId), toId);
         const revisit = restoreNodeState(toId);
         placeNodeParty(viaDir);
         snapCamera();
         await nodeFadeTo(false);
-        setPhase("explore");
-        showDMMessage(NODE_ARRIVAL_TEXT[node.kind] || NODE_ARRIVAL_TEXT.combat, 2400);
+        if (node.kind === "rest") {
+          await runNodeRest(node);                 // ★[P4] setPhase("rest") + 既存の休憩回復
+        } else {
+          setPhase("explore");
+          showDMMessage(nodeArrivalText(node), NODE_ARRIVAL_HOLD_MS);
+        }
+        /* ★[P4] 到着直後は出口選択を出さない (到着ナレ z80 と羊皮紙 z12 の重なり対策)。
+         * ⚠ rest の後にも掛ける: setPhase("explore") が「英気を養った。再び前へ。」を出すので、
+         *   ここを飛ばすと休憩明けの一文の上に羊皮紙が重なる (同じ欠陥の別経路)。 */
+        nodeChoiceCooldownUntil = Date.now() + nodeArrivalHoldMs();
         if (window.__diag) window.__diag.beat("node-enter", toId + (revisit ? " (再訪)" : ""));
       } finally {
         nodeBusy = false;
@@ -29298,34 +29456,136 @@
     }
     if (RUN) setInterval(tickNodeChoice, 400);
 
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P4 (c) — ノードに紐づくイベントの台帳 (**器だけ**。中身は P5)
+     * ══════════════════════════════════════════════════════════════════════════
+     * SCE1_EVENTS (:21147) + tryInteractSce1Event (:21157) の骨格を、ノード単位で使える形へ
+     * 一般化したもの。P5 が EV-2 見張り / EV-5 従者 / EV-9 グリクスをここへ載せる。
+     *
+     * ★SCE1_EVENTS を「作り替える」のではなく**隣に器を置く**理由:
+     *   ① SCE1_EVENTS は driver_sce1_events.js の 212 assert が**添字で**参照している
+     *      (EV-2=0 / EV-5=1 / EV-9=2)。器を差し替えると P5 に入る前に 212 件が崩れる。
+     *   ② tryInteractSce1Event は `isGoblinMineScenario()` で守られており、分岐版
+     *      (scenarioId="generated-quest") では 1 件も発火しない = 二重発火が原理的に起きない。
+     *   → P5 は「SCE1_EVENTS の 3 行を registerNodeEvent へ移し、spot をノードの部屋から
+     *     導出し直す」だけで済む。⚠ 文面を触る前に必ず tools/driver_sce1_events.js を grep すること
+     *     (G3/G4c はプレイヤー文面のリテラル一致で書かれている)。
+     *
+     * 登録の形 (どちらか一方は必須):
+     *   registerNodeEvent({ key, nodeId:"n4", spot:()=>({tx,ty}), run: async(ev)=>{…} })
+     *   registerNodeEvent({ key, kind:"event", spot:…, run:… })   ← kind:"event" のノード全部
+     *
+     * ⚠⚠ 発火済みフラグは **nodeState.eventsFired** に持つ (台帳のオブジェクトに持たない)。
+     *   台帳側に `fired` を持たせると、別のノードの同じイベントまで発火済みになる。
+     * ⚠ nodeStateFor は「今居るノード」専用 (まだ入っていないノードに対して呼ぶと visited が
+     *   立ち、exitsWithReturn の DFS 順が壊れて ?autoplay が無限ループになる)。
+     *   ここが呼ぶのは常に currentNodeId なので安全。**この規約を破る呼び出しを足さないこと**。 */
+    const NODE_EVENT_RADIUS = 110;        // SCE1_EVENT_RADIUS と同じ発想の接近半径 (px)
+    const NODE_EVENTS = [];
+    function registerNodeEvent(def) {
+      if (!def || typeof def.key !== "string" || !def.key) return null;
+      if (typeof def.run !== "function") return null;
+      // ⚠ nodeId / kind のどちらも無い登録は**拒否**する。受け入れると「全ノードで発火する
+      //   イベント」になり、著者の意図しない場所で必ず暴発する (fail-closed)。
+      if (!def.nodeId && !def.kind) return null;
+      const ev = {
+        key: def.key, nodeId: def.nodeId || null, kind: def.kind || null,
+        spot: (typeof def.spot === "function") ? def.spot : (() => null),
+        radius: (typeof def.radius === "number") ? def.radius : NODE_EVENT_RADIUS,
+        run: def.run, declined: false, busy: false,
+      };
+      NODE_EVENTS.push(ev);
+      return ev;
+    }
+    // 今のノードに紐づくイベントだけを返す。★id 指定が kind 指定に優先する (より具体的な方が勝つ)。
+    function nodeEventsHere() {
+      if (!RUN || !currentNodeId) return [];
+      const kind = graphKindOf(currentNodeId);
+      return NODE_EVENTS.filter(ev => ev.nodeId ? ev.nodeId === currentNodeId : ev.kind === kind);
+    }
+    function nodeEventFired(key) {
+      const st = nodeState[currentNodeId];
+      return !!(st && st.eventsFired && st.eventsFired.has(key));
+    }
+    function markNodeEventFired(key) {
+      const st = nodeStateFor(currentNodeId);       // ⚠ 常に「今居るノード」(上の注記を参照)
+      if (st) (st.eventsFired || (st.eventsFired = new Set())).add(key);
+    }
+    /* ノードの部屋を基準にした座標を返すヘルパ。★**絶対座標を直書きさせない**ための入口。
+     *   dx = 部屋の西端から東へ何タイル / dy = 部屋の縦中央から下へ何タイル (負なら上)
+     * ⚠⚠ EV-2/5/9 のアンカーは今 "ROOMS[0] の西端から東へ +N" = **西から進入する前提**で
+     *   書かれている (:20033 ほか)。分岐版ではどの縁から入るかがノードごとに変わるので、
+     *   P5 は必ずこの関数を通してノードの部屋から導出し直すこと。 */
+    function nodeEventSpot(dx, dy) {
+      const [r1, c1, r2] = mainRoomRect(MAPDEF);
+      const midR = Math.floor((r1 + r2) / 2);
+      return snapToWalkable({ tx: c1 + (dx || 0), ty: midR + (dy || 0) });
+    }
+    /* 接近時インタラクション: 400ms tick。ガードは tryInteractSce1Event と**同型**。
+     * ⚠ nodeBusy (遷移中 / 選択ダイアログ中) を必ず見る。見ないと暗転の最中にイベントが開く。 */
+    async function tryInteractNodeEvent() {
+      if (!RUN) return;                                  // ★従来経路は 1 命令も走らない
+      if (!gameStarted || gameOver || dungeonCleared) return;
+      if (encounterActive || encounterRunning) return;   // 戦闘中は出さない
+      if (hp <= 0) return;
+      if (skillCheckActive || dialogPaused) return;      // 他パネル/モーダル表示中は入らない
+      if (nodeBusy) return;                              // 遷移中 / 出口選択中
+      const pCX = playerX + 48, pCY = playerY + 58;
+      for (const ev of nodeEventsHere()) {
+        if (ev.busy || nodeEventFired(ev.key)) continue;
+        const spot = ev.spot(ev);
+        if (!spot) continue;
+        const cx = spot.tx * TILE_SIZE + TILE_SIZE / 2;
+        const cy = spot.ty * TILE_SIZE + TILE_SIZE / 2;
+        const d = Math.hypot(pCX - cx, pCY - cy);
+        if (ev.declined) {
+          if (d > ev.radius) ev.declined = false;        // 離れたら次の接近で再プロンプト可
+          continue;
+        }
+        if (d > ev.radius) continue;
+        ev.busy = true;                                  // async 前に確定 (多重起動防止)
+        try {
+          /* ⚠ run() が「発火した」と言った時だけ焼く。断られた (declined) ときに焼くと
+           *   二度と話しかけられなくなる = SCE1_EVENTS の declined/fired の作り分けと同じ理屈。
+           *   ⚠ 戻り値 undefined は「発火した」とみなす (既定を安全側= 一度きり に倒す)。 */
+          const r = await ev.run(ev);
+          if (r === false) ev.declined = true; else markNodeEventFired(ev.key);
+        } finally { ev.busy = false; }
+        break;                                           // 1 tick で 1 件だけ扱う
+      }
+    }
+    if (RUN) setInterval(tryInteractNodeEvent, 400);
+
     /* ── dev シーム: ?graphtest=1 の内蔵テストグラフ ────────────────────────────
-     * start → 分岐 3 本 → うち 1 本が boss、1 本が行き止まり。
      *
-     *   n0 (start)  ├ up    → n1 (combat) ── up → n3 (boss)
-     *               ├ right → n2 (loot)     ← 行き止まり
-     *               └ down  → n4 (search)   ← 行き止まり
+     *   n0 (start)  ├ up    → n1 (combat) ── up    → n3 (boss)
+     *               ├ right → n2 (loot)     ← 行き止まり (当たり: 宝を保証)
+     *               └ down  → n4 (search)  ── right → n5 (rest)  ← 行き止まり
      *
-     * ⚠⚠ **各ノードの部屋は 2 つ**にしてある。1 部屋にすると
-     *     excludedRoomIdx = {boss} = {0} / chestExcludedRoomIdx = {0,boss} = {0} で
-     *     **唯一の部屋が両方の除外集合に入り、罠も宝箱も無言で 0 個になる**
-     *     (js/df-mapdef.js:1717/1728 の表を参照)。それでは「戻った先の宝箱が閉じない」を
-     *     測れない = 検出器が真空 PASS になる。
-     *   そこで **role:"boss" を index 0 の小部屋 (控えの間) に置く**:
-     *     excludedRoomIdx = {0} / chestExcludedRoomIdx = {0,0} = {0} → **index 1 の本間**が
-     *     罠・隠し宝箱・玄室宝箱の全部に対して候補になる。
-     *   ⚠ この「控えの間」は幾何のためではなく **validate の "role:\"boss\" はちょうど 1 つ" と
-     *     "除外集合が部屋 index に依存する" という現行の実装事実を同時に満たすための仮の器**。
-     *     P4 で除外集合を kind 由来にした時点で不要になる (そのとき P5 の本番グラフは
-     *     計画書どおり 1 ノード = 1 部屋になる)。
-     * ⚠ 新規アセットは 0 枚。本間には既存の山場/ボスの 1 枚絵を painting 参照で貼る。 */
+     * ★[P4] **1 ノード = 1 部屋**へ戻した (計画書どおりの形)。
+     *   ⚠⚠ P2/P3 では各ノードに 3x3 の「控えの間」を足し、そこへ role:"boss" を逃がしていた。
+     *     部屋が 1 つだと excludedRoomIdx={boss}={0} / chestExcludedRoomIdx={0,boss}={0} となり、
+     *     **唯一の部屋が両方の除外集合に入って罠も宝箱も無言で 0 個**になるためだった。
+     *     P4 で除外集合を kind 由来 (applyNodeKindExclusions) にしたのでこの仮の器は不要になり、
+     *     ここで撤去した。**P5 の本番グラフが仮の器を引きずらないための撤去**でもある。
+     *
+     * ★kind の配り方も P4 の配線を測れる形にしてある (どれか 1 つでも欠けると検出器が真空になる):
+     *     n1 combat … 罠 0 / 宝箱 0 (敵だけ)
+     *     n2 loot   … 玄室宝箱が**必ず** 1 個 (当たりの保証)・罠 0
+     *     n4 search … 罠と隠し宝箱が湧く**唯一の**ノード種
+     *     n5 rest   … 回復するノード (行き止まり)
+     *   ⚠ n4 に出口 (n5) を持たせているのは意図的。行き止まりの search は
+     *     lintRun の graph-dead-end-empty (warning) を踏み、起動時に警告が出るため。
+     * ⚠ 新規アセットは 0 枚。既存の山場/ボスの 1 枚絵を painting 参照で貼る。 */
     function buildTestRun() {
       const MAIN = [7, 24, 20, 43];        // 山場の部屋 (5:4 の 1 枚絵の在庫と同じ rect)
-      const BOSSR = [5, 47, 22, 68];       // ボス部屋
-      const ANTE_M = [12, 44, 14, 46];     // 本間 (MAIN) の東に接する 3x3 の控えの間
-      const ANTE_B = [12, 44, 14, 46];     // ボス間でも同じ控えの間を使う (col46|47 で接する)
+      const BOSSR = [5, 47, 22, 68];       // ボス部屋 (11:9)
       const TH = "goblin-mine";
-      function room(id, role, rect, opt) {
-        return { id: id, role: role, rect: rect,
+      /* ⚠ role は **必ず "boss"**。validate() が全 mapDef に role:"boss" をちょうど 1 つ要求する
+       *   ので、1 部屋なら選択肢が無い。BOSS_ROOM_IDX は全ノードで 0 になるが、ボス到達ナレは
+       *   部屋の role ではなく **ノードの kind** (isBossNodeNow) で判定しているので誤爆しない。 */
+      function room(id, rect, opt) {
+        return { id: id, role: "boss", rect: rect,
                  enemySlots: (opt && opt.slots) || [], bossSlot: (opt && opt.boss) || null,
                  painting: (opt && opt.paint) ? { theme: TH, key: opt.paint } : null,
                  scenery: (opt && opt.scen) ? { density: opt.scen } : null };
@@ -29337,12 +29597,11 @@
                  objective: { kind: "defeatBoss", count: null },
                  tiles: null, props: null, graph: null, flags: { bandMask: false } };
       }
-      // 道中ノード: 控えの間 (role:"boss" の器) + 本間 (敵 N 体・1枚絵・情景)
+      // 道中ノード: 山場の部屋 1 つだけ (敵 N 体・1枚絵・情景)
       function midNode(slots) {
-        return mapDef([room("ante", "boss", ANTE_M), room("main", null, MAIN, { slots: slots, paint: "1", scen: 1 })],
-                      { tx: 33, ty: 13 });
+        return mapDef([room("main", MAIN, { slots: slots, paint: "1", scen: 1 })], { tx: 33, ty: 13 });
       }
-      const G = [33, 7], D = [33, 20], R = [43, 14], L = [24, 14];   // 本間の縁 (上/下/右/左)
+      const G = [33, 7], D = [33, 20], R = [43, 14];   // 部屋の縁 (上/下/右)
       return {
         entry: "n0",
         nodes: [
@@ -29353,10 +29612,11 @@
           { id: "n1", kind: "combat", mapDef: midNode([[30, 13], [34, 13], [38, 14]]),
             exits: [{ to: "n3", dir: "up", at: G, hint: { text: "地の底から重い足音が響く" } }] },
           { id: "n2", kind: "loot",   mapDef: midNode([]),                exits: [] },
-          { id: "n4", kind: "event",  mapDef: midNode([[36, 13]]),        exits: [] },
+          { id: "n4", kind: "search", mapDef: midNode([[36, 13]]),
+            exits: [{ to: "n5", dir: "right", at: R, hint: { text: "焚き火の匂いが漂ってくる" } }] },
+          { id: "n5", kind: "rest",   mapDef: midNode([]),                exits: [] },
           { id: "n3", kind: "boss",
-            mapDef: mapDef([room("ante", null, ANTE_B),
-                            room("boss", "boss", BOSSR, { boss: [57, 13], paint: "2", scen: 1 })],
+            mapDef: mapDef([room("boss", BOSSR, { boss: [57, 13], paint: "2", scen: 1 })],
                            { tx: 57, ty: 13 }),
             exits: [] },
         ],
@@ -29499,6 +29759,33 @@
                    exploredCount: st.explored ? st.explored.reduce((a, r) => a + r.reduce((b, v) => b + v, 0), 0) : -1,
                    seenCount: st.seen ? st.seen.size : -1 };
         },
+        /* ── ★P4 検証シーム: ノード種別 → 中身の配線 ────────────────────────────
+         * ⚠ 「kind から除外集合を決める判定そのもの」を露出するのが肝。ドライバが自前で
+         *   `kind === "search"` を写すと、実装とドライバが同じ間違いを共有して両方緑になる。 */
+        kindOf: graphKindOf,
+        excluded: () => [...EXCLUDED_ROOMS].sort((a, b) => a - b),
+        chestExcluded: () => [...ROOM_CHEST_EXCLUDED_ROOMS].sort((a, b) => a - b),
+        // 著者が書いた体数 (ヒントの「N 体ばかり」の出所)。実際に湧いた enemies.length と突き合わせる
+        enemyCount: exitEnemyCount,
+        // 行き止まりの当たり/外れ ("hit" | "miss" | null)。⚠ 実体 (未開封の宝箱) で測っている
+        deadEnd: (id) => nodeDeadEndOutcome(RUN ? RUN.byId[id || currentNodeId] : null),
+        arrivalText: (id) => (RUN && RUN.byId[id || currentNodeId])
+          ? nodeArrivalText(RUN.byId[id || currentNodeId]) : null,
+        arrivalHold: nodeArrivalHoldMs,
+        // 到着直後の「選択を出さない猶予」の残り ms。⚠ 実時間で測るとフレークするのでシームで見る
+        cooldownLeft: () => Math.max(0, nodeChoiceCooldownUntil - Date.now()),
+        rested: (id) => { const st = nodeState[id || currentNodeId]; return !!(st && st.rested); },
+        // 「まだ休んでいない rest ノード」へ戻す (回復を 2 通りの前提で測り直すため)
+        clearRested: (id) => { const st = nodeState[id || currentNodeId]; if (st) st.rested = false; },
+        inBossRoom: () => !!window.__inBossRoom,
+        // イベント台帳の器 (P5 が EV-2/5/9 を載せる)。ドライバはここから登録して発火を測る
+        registerEvent: registerNodeEvent,
+        events: () => NODE_EVENTS.map(e => ({ key: e.key, nodeId: e.nodeId, kind: e.kind,
+                                              radius: e.radius, declined: e.declined })),
+        eventsHere: () => nodeEventsHere().map(e => e.key),
+        eventFired: nodeEventFired,
+        eventSpot: nodeEventSpot,
+        tickEvent: tryInteractNodeEvent,
         // 盤面の実測 (復元が効いているかを「今の盤面」で測るための窓)
         board: () => ({
           nodeId: currentNodeId,

@@ -1754,6 +1754,46 @@
     return new Set([0, bossRoomIdx(d)]);
   }
 
+  /* ══ ★P4: 除外集合を「ノード種別 (kind)」から導く ═══════════════════════════════
+   * 上の 2 関数が抱える宿題 ("role ベースへ揃えるかどうかは Phase 2 以降でユーザー判断") を、
+   * **既存経路を 1bit も変えずに**回収するための第 3・第 4 の関数。計画書の決定:
+   *
+   *     kind:"search" … 罠 / 隠し宝箱 / 探索宝箱が湧く **唯一の**ノード種
+   *     kind:"loot"   … 玄室宝箱が湧く **唯一の**ノード種
+   *     それ以外      … 両方とも除外
+   *
+   * ⚠⚠ **上の 2 関数は 1 文字も触っていない**。ここは「部屋 index から推測する」のではなく
+   *   「著者がノードに与えた意味 (kind) から決める」という**別の規則**であり、同じ器に
+   *   まとめると必ずどちらかの経路が黙って変わる (上の表の 2 部屋 {1} vs {0,1} 問題と同根)。
+   *   分岐 (RUN) があるときだけ index.html がこちらへ切り替える。
+   *
+   * ⚠⚠ **なぜ「1 ノード = 1 部屋」でこれが必須なのか**: 部屋が 1 つしかないと
+   *   excludedRoomIdx = {boss} = {0} / chestExcludedRoomIdx = {0, boss} = {0} となり、
+   *   **唯一の部屋が両方の除外集合に入って罠も宝箱も無言で 0 個**になる。P2 は role:"boss" を
+   *   3x3 の「控えの間」へ逃がす仮の器で回避していたが、この 2 関数で不要になった。
+   *
+   * ⚠ 戻り値は **除外する部屋 index の Set**。「湧かせる」kind では**空集合**を返す
+   *   (= どの部屋も除外しない) のが正しく、「湧かせない」kind では**全部屋**を入れる。
+   *   ⚠ 全部屋を入れるのであって bossRoomIdx を返すのではない。ここを部分集合にすると
+   *     道中ノードの隅に罠が湧き「search だけが唯一のノード種」という約束が崩れる。
+   *
+   * ⚠ 未知の kind は「湧かせない」側へ倒す (fail-closed)。graphInfo が未知 kind を落とさない
+   *   設計 (古いデータを黙って壊さない) なので、ここで開いてしまうと
+   *   「typo した kind のノードに罠と宝箱が両方湧く」= 一番気づきにくい壊れ方になる。 */
+  var KIND_SPAWNS_TRAPS = { search: 1 };        // 罠 / 隠し宝箱 / 探索宝箱
+  var KIND_SPAWNS_ROOM_CHESTS = { loot: 1 };    // 玄室宝箱
+  function allRoomIdx(d) {
+    var rooms = (d && d.rooms) || [], s = new Set();
+    for (var i = 0; i < rooms.length; i++) s.add(i);
+    return s;
+  }
+  function excludedRoomIdxForKind(d, kind) {
+    return KIND_SPAWNS_TRAPS[kind] ? new Set() : allRoomIdx(d);
+  }
+  function chestExcludedRoomIdxForKind(d, kind) {
+    return KIND_SPAWNS_ROOM_CHESTS[kind] ? new Set() : allRoomIdx(d);
+  }
+
   /* ⭐ bossRoomIdx(d) は既存 (role:"boss" を探し、無ければ rooms.length - 1)。
    *    既定値では role 探索と rooms.length - 1 が**一致する**ことを確認済み:
    *      DEFAULT_DUNGEON … rooms = [r0(start), r1(boss)]     → 1 = 2 - 1 ✓
@@ -2703,6 +2743,16 @@
     resolve: resolve,
     excludedRoomIdx: excludedRoomIdx,
     chestExcludedRoomIdx: chestExcludedRoomIdx,
+
+    /* ── ★P4: 除外集合の **kind 由来版** (分岐 RUN があるときだけ index.html が使う) ──
+     *   excludedRoomIdxForKind(mapDef, kind)      … kind:"search" だけ空集合 (= 罠が湧く)
+     *   chestExcludedRoomIdxForKind(mapDef, kind) … kind:"loot"   だけ空集合 (= 玄室宝箱が湧く)
+     *   それ以外の kind と未知の kind は **全部屋を除外** (fail-closed)。
+     *  ⚠ 上の 2 つ (部屋 index からの推測) と**併存**させる。統合すると既存 6 シナリオが変わる。
+     *  ⚠ 「湧かせない」= 全部屋を入れる。bossRoomIdx だけを入れる部分集合にしてはいけない
+     *    (道中ノードの隅に罠が湧き「search が唯一のノード種」という約束が崩れる)。 */
+    excludedRoomIdxForKind: excludedRoomIdxForKind,
+    chestExcludedRoomIdxForKind: chestExcludedRoomIdxForKind,
 
     /* ── 敵カタログ (Phase 0.5 項目1) ★項目2 のパレット / 項目3 の描画はここに乗る ──
      *   loadEnemyCatalog([url])  … Promise<{ ok, count, error, url }>。**必ず resolve** する。

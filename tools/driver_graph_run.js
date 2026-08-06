@@ -245,11 +245,16 @@ const QT = '/index.html?diag=1&graphtest=1';
   const mapText0 = await page.evaluate(() => window.__graphRun.board().mapDataText);
   check('(1a) RUN が立っている / 現在ノードが entry', G1.active === true && G1.nodeId === 'n0',
     'active=' + G1.active + ' node=' + G1.nodeId);
-  check('(1b) ノードが 5 件 (start / combat / loot / event / boss)',
-    G1.nodes.join(',') === 'n0:start,n1:combat,n2:loot,n4:event,n3:boss', G1.nodes.join(','));
-  check('(1c) 親の対応が木になっている (n1,n2,n4→n0 / n3→n1 / entry に親なし)',
+  /* ⚠ 2026-08-07 (P4) に更新。内蔵テストグラフを **1 ノード = 1 部屋**へ戻し、
+   *   kind の配り方を「P4 の配線を測れる形」へ変えた (n4 を event → search、n5 rest を追加)。
+   *   ⚠⚠ **assert は 1 つも消していない**。期待値を新しい正しい形へ書き直しただけで、
+   *     ノード数はむしろ 5 → 6 に増えている (検出力は落ちていない)。 */
+  check('(1b) ノードが 6 件 (start / combat / loot / search / rest / boss)',
+    G1.nodes.join(',') === 'n0:start,n1:combat,n2:loot,n4:search,n5:rest,n3:boss', G1.nodes.join(','));
+  check('(1c) 親の対応が木になっている (n1,n2,n4→n0 / n3→n1 / n5→n4 / entry に親なし)',
     G1.parent.n1 === 'n0' && G1.parent.n2 === 'n0' && G1.parent.n4 === 'n0' &&
-    G1.parent.n3 === 'n1' && G1.parent.n0 === undefined, JSON.stringify(G1.parent));
+    G1.parent.n3 === 'n1' && G1.parent.n5 === 'n4' && G1.parent.n0 === undefined,
+    JSON.stringify(G1.parent));
   check('(1d) boss ノードが n3', G1.boss === 'n3', String(G1.boss));
   check('(1e) entry の出口は 3 本 / 親への「引き返す」は生えない (entry に親が無いので)',
     G1.exits.length === 3 && G1.exits.every(e => !e.back),
@@ -269,32 +274,58 @@ const QT = '/index.html?diag=1&graphtest=1';
   mark('母集団ガード');
   check('(G1) entry ノードに敵が 1 体以上いる', G1.board.enemies > 0 && G1.board.alive === G1.board.enemies,
     'enemies=' + G1.board.enemies + ' alive=' + G1.board.alive);
-  check('(G2) entry ノードに罠が 1 個以上ある (除外集合の器が効いている)', G1.board.traps > 0,
-    'traps=' + G1.board.traps);
-  check('(G3) entry ノードに宝箱が 1 個以上ある (「宝箱が閉じない」を測る母集団がある)',
-    G1.board.chests > 0, 'chests=' + G1.board.chests);
-  check('(G4) ノードの部屋は 2 つ (本間 + role:"boss" の控えの間)', G1.board.rooms === 2,
-    'rooms=' + G1.board.rooms);
+  /* ⚠ 2026-08-07 (P4) に書き直した。P2/P3 では **entry ノードにも罠と宝箱が湧いていた**
+   *   (部屋 index からの推測で、控えの間があるおかげで本間が候補に残っていたため)。
+   *   P4 で除外集合が kind 由来になり、罠は search / 玄室宝箱は loot **だけ**になったので、
+   *   kind:"start" の entry は 0 個が正しい。母集団ガード (「本当に湧く場所がある」証明) は
+   *   §2 の (2G1)(2G2) が n4 (search) と n2 (loot) で受け持つ。 */
+  check('(G2) ★entry (kind:"start") には罠が 0 個 (P4: 罠が湧くのは kind:"search" だけ)',
+    G1.board.traps === 0, 'traps=' + G1.board.traps);
+  check('(G3) ★entry (kind:"start") には宝箱が 0 個 (P4: 玄室宝箱は loot / 隠し宝箱は search だけ)',
+    G1.board.chests === 0, 'chests=' + G1.board.chests);
+  check('(G4) ★ノードの部屋は 1 つ (P4 で「控えの間」の仮の器が不要になった = 1ノード=1部屋)',
+    G1.board.rooms === 1 && G1.board.bossRoomIdx === 0,
+    'rooms=' + G1.board.rooms + ' bossRoomIdx=' + G1.board.bossRoomIdx);
   check('(G5) mapData が実体を持つ 72x28 (真っ白を測っていない)',
     await page.evaluate(() => mapData.length === 28 && mapData[0].length === 72 &&
       mapData.some(r => r.some(v => v === 0)) && mapData.some(r => r.some(v => v === 2))),
     'sha=' + sha256(mapText0).slice(0, 16));
 
-  // ══ §2 行き止まりへ入って引き返す (P2 の芯) ════════════════════════════════
-  mark('行き止まり往復 n0 → n2 → n0');
+  /* ══ §2 行き止まりへ入って引き返す (P2 の芯) ════════════════════════════════
+   * ⚠ 2026-08-07 (P4): 往復の**起点を n0 → n4 (kind:"search") へ移した**。P4 以降、罠と
+   *   隠し宝箱が湧くのは search ノードだけなので、n0 を起点にすると roomChests[0] /
+   *   traps[0] が undefined になり「宝箱が閉じない」を測る母集団が消える (= 真空 PASS)。
+   * ⚠ 行き止まり側は n2 (loot) のまま。n2 の親は n0 なので「引き返す」の行き先は n0 で正しい
+   *   (g.enter は生のシームなので、どのノードからでも直接飛べる)。 */
+  mark('行き止まり往復 n4(search) → n2(loot 行き止まり) → n4');
   const T = await page.evaluate(async () => {
     const g = window.__graphRun;
-    // n0 で「敵を 1 体倒し / 宝箱を 1 つ開け / 罠を 1 つ踏み / フォグを広く開ける」
+    await g.enter('n4', 'down');                        // ★罠と隠し宝箱が湧く唯一の kind へ
+    // n4 で「敵を 1 体倒し / 宝箱を 1 つ開け / 罠を 1 つ踏み / フォグを広く開ける」
     const beforeAlive = enemies.filter(e => e.alive).length;
     enemies[0].alive = false; enemies[0].hp = 0;
     roomChests[0].found = true; roomChests[0].hidden = false; roomChests[0].opened = true;
     traps[0].found = true; traps[0].triggered = true;
-    for (let y = 8; y <= 12; y++) for (let x = 26; x <= 36; x++) exploredTiles[y][x] = 1;
+    /* ★フォグは**部屋の南西隅の 3x4 タイル**だけを人工的に開ける (グローバル合計では測らない)。
+     * ⚠⚠ 2026-08-07 (P4) に踏んだ罠: 旧版は y8-12 / x26-36 を開けて「探索済タイルの**総数**」で
+     *   測っていたが、往復の起点を n4 へ移したところ **パーティの入場位置 (33,9) がその矩形の
+     *   真ん中**になり、フォグを復元しなくても視界が自然に開いて総数が増えた
+     *   (負のコントロールが「出発前 84 → 戻り 95」で沈黙した)。
+     *   → **パーティの視界 (半径 4〜6 タイル) が届かない場所を選び、その領域だけを数える**。
+     *     入場位置は下向き入場で (33,9) / 引き返しで (41,13) なので、南西隅は 9〜14 タイル離れている。 */
+    const FOG = { y0: 18, y1: 20, x0: 24, x1: 27 };
+    for (let y = FOG.y0; y <= FOG.y1; y++) for (let x = FOG.x0; x <= FOG.x1; x++) exploredTiles[y][x] = 1;
+    const fogRegion = () => {
+      let n = 0;
+      for (let y = FOG.y0; y <= FOG.y1; y++) for (let x = FOG.x0; x <= FOG.x1; x++) n += exploredTiles[y][x];
+      return n;
+    };
     const snap = () => ({
       alive: enemies.filter(e => e.alive).length, enemies: enemies.length,
       chests: roomChests.length, opened: roomChests.filter(c => c.opened).length,
       found: roomChests.filter(c => c.found).length,
       traps: traps.length, sprung: traps.filter(t => t.triggered).length,
+      fogRegion: fogRegion(),
       explored: exploredTiles.reduce((a, r) => a + r.reduce((b, v) => b + v, 0), 0),
       chestTiles: roomChests.map(c => c.tx + ',' + c.ty).join(' '),
       trapTiles: traps.map(t => t.tx + ',' + t.ty).join(' '),
@@ -306,11 +337,26 @@ const QT = '/index.html?diag=1&graphtest=1';
     const n0Before = snap();
     await g.enter('n2', 'right');                       // 行き止まり (loot) へ
     const atDead = { nodeId: g.nodeId(), enemies: enemies.length,
+                     chests: roomChests.length, traps: traps.length,
+                     deadEnd: g.deadEnd(), arrival: g.arrivalText(),
                      exits: g.exits().map(o => o.to + (o.back ? '(back)' : '')) };
-    await g.enter('n0', 'left');                        // 引き返す
+    await g.enter('n4', 'left');                        // 引き返す
     const n0After = Object.assign({ nodeId: g.nodeId() }, snap());
-    return { beforeAlive, n0Before, atDead, n0After, state: g.stateOf('n0') };
+    return { beforeAlive, n0Before, atDead, n0After, state: g.stateOf('n4'),
+             excluded: g.excluded(), chestExcluded: g.chestExcluded(), kind: g.kindOf('n4') };
   });
+  check('(2G1) ★母集団: n4 (kind:"search") には罠と隠し宝箱が湧く (P4 の唯一のノード種)',
+    T.n0Before.traps > 0 && T.n0Before.chests > 0 && T.kind === 'search',
+    'kind=' + T.kind + ' traps=' + T.n0Before.traps + ' chests=' + T.n0Before.chests);
+  check('(2G2) ★母集団: n2 (kind:"loot") には玄室宝箱が湧き、罠は 0 個',
+    T.atDead.chests > 0 && T.atDead.traps === 0,
+    'chests=' + T.atDead.chests + ' traps=' + T.atDead.traps);
+  check('(2G3) ★search ノードの除外集合は空 / 玄室宝箱側は全部屋除外 (2 系統が別々に効いている)',
+    T.excluded.length === 0 && T.chestExcluded.join(',') === '0',
+    'excluded=[' + T.excluded.join(',') + '] chestExcluded=[' + T.chestExcluded.join(',') + ']');
+  check('(2G4) ★行き止まりの loot は「当たり」の到着文になる (未開封の宝が実際にある)',
+    T.atDead.deadEnd === 'hit' && /打ち捨てられた荷/.test(T.atDead.arrival || ''),
+    'deadEnd=' + T.atDead.deadEnd + ' 到着文="' + T.atDead.arrival + '"');
   check('(2a) 行き止まりノードへ入れた / 親への「引き返す」が自動生成される',
     T.atDead.nodeId === 'n2' && T.atDead.exits.length === 1 && T.atDead.exits[0] === 'n0(back)',
     T.atDead.nodeId + ' exits=' + T.atDead.exits.join(','));
@@ -327,27 +373,30 @@ const QT = '/index.html?diag=1&graphtest=1';
   check('(2f) ★踏んだ罠が戻らない', T.n0After.sprung === T.n0Before.sprung && T.n0After.sprung > 0 &&
     T.n0After.sprungTile === T.n0Before.trapTiles.split(' ')[0],
     '出発前=' + T.n0Before.sprung + ' 戻り=' + T.n0After.sprung + ' tile=' + T.n0After.sprungTile);
-  check('(2g) ★フォグが残る (探索済タイル数が出発前を下回らない)',
-    T.n0After.explored >= T.n0Before.explored,
-    '出発前=' + T.n0Before.explored + ' 戻り=' + T.n0After.explored);
-  check('(2h) nodeState に n0 の記録が残っている (deadSlots / openedChests / sprungTraps)',
+  check('(2g) ★フォグが残る (パーティの視界外に開けた 3x4 領域が戻っても開いたまま)',
+    T.n0After.fogRegion === T.n0Before.fogRegion && T.n0Before.fogRegion === 12,
+    '出発前=' + T.n0Before.fogRegion + '/12 戻り=' + T.n0After.fogRegion +
+    '/12 (総数 ' + T.n0Before.explored + ' → ' + T.n0After.explored + ')');
+  check('(2h) nodeState に n4 の記録が残っている (deadSlots / openedChests / sprungTraps)',
     T.state && T.state.visited === true && T.state.deadSlots.length === 1 &&
     T.state.openedChests.length === 1 && T.state.sprungTraps.length === 1,
     JSON.stringify(T.state && { d: T.state.deadSlots, o: T.state.openedChests, s: T.state.sprungTraps }));
 
   // ══ §3 決定論: 同じノードは同じ盤面になる ══════════════════════════════════
   mark('決定論 (ノード id 由来の種)');
-  check('(3a) 戻った n0 の mapData が出発前と 1 bit も違わない',
+  check('(3a) 戻った n4 の mapData が出発前と 1 bit も違わない',
     sha256(T.n0After.map) === sha256(T.n0Before.map),
     sha256(T.n0After.map).slice(0, 12) + ' vs ' + sha256(T.n0Before.map).slice(0, 12));
-  check('(3b) 戻った n0 の敵スポーン表が出発前と同一', T.n0After.spawns === T.n0Before.spawns,
+  check('(3b) 戻った n4 の敵スポーン表が出発前と同一', T.n0After.spawns === T.n0Before.spawns,
     T.n0After.spawns);
-  check('(3c) ★戻った n0 の宝箱が同じ座標に同じ数だけ湧く (乱数がノード id で固定されている)',
+  check('(3c) ★戻った n4 の宝箱が同じ座標に同じ数だけ湧く (乱数がノード id で固定されている)',
     T.n0After.chestTiles === T.n0Before.chestTiles && T.n0After.chests === T.n0Before.chests,
     '出発前=[' + T.n0Before.chestTiles + '] 戻り=[' + T.n0After.chestTiles + ']');
-  check('(3d) ★戻った n0 の罠が同じ座標に同じ数だけ湧く',
+  check('(3d) ★戻った n4 の罠が同じ座標に同じ数だけ湧く',
     T.n0After.trapTiles === T.n0Before.trapTiles && T.n0After.traps === T.n0Before.traps,
     '出発前=[' + T.n0Before.trapTiles + '] 戻り=[' + T.n0After.trapTiles + ']');
+  /* ⚠ 2026-08-07 (P4): 再入場の決定論を測る「別ノード」を n1 (combat) → n4 (search) へ移した。
+   *   combat ノードは P4 以降 罠 0 / 宝箱 0 なので、(3f) の母集団ガードが原理的に立たない。 */
   const D3 = await page.evaluate(async () => {
     const g = window.__graphRun;
     const snap = () => ({
@@ -355,29 +404,33 @@ const QT = '/index.html?diag=1&graphtest=1';
       traps: traps.map(t => t.tx + ',' + t.ty).join(' '),
       enemies: enemies.map(e => e.type + '@' + Math.round(e.x) + ',' + Math.round(e.y)).join(' '),
     });
-    await g.enter('n1', 'up');
-    const a = snap();
+    const a = snap();                                  // ← 既に n4 に居る (§2 の帰着点)
     await g.enter('n3', 'up');
     const bossBoard = { enemies: enemies.length, types: enemies.map(e => e.type).join(','),
-                        rooms: ROOMS.length, bossRoomIdx: BOSS_ROOM_IDX };
-    await g.enter('n1', 'down');
+                        rooms: ROOMS.length, bossRoomIdx: BOSS_ROOM_IDX,
+                        traps: traps.length, chests: roomChests.length,
+                        excluded: g.excluded(), chestExcluded: g.chestExcluded() };
+    await g.enter('n4', 'down');
     const b = snap();
-    await g.enter('n0', 'down');
+    await g.enter('n0', 'up');
     return { a, b, bossBoard, nodeId: g.nodeId() };
   });
-  check('(3e) 別ノード (n1) も再入場で盤面が完全一致 (宝箱/罠/敵の座標まで)',
+  check('(3e) 別ノードを経由して戻っても盤面が完全一致 (宝箱/罠/敵の座標まで)',
     D3.a.chests === D3.b.chests && D3.a.traps === D3.b.traps && D3.a.enemies === D3.b.enemies,
     'chests一致=' + (D3.a.chests === D3.b.chests) + ' traps一致=' + (D3.a.traps === D3.b.traps) +
     ' enemies一致=' + (D3.a.enemies === D3.b.enemies));
-  check('(3f) 母集団ガード: n1 の宝箱/罠/敵が空でない (真空一致ではない)',
+  check('(3f) 母集団ガード: n4 の宝箱/罠/敵が空でない (真空一致ではない)',
     D3.a.chests.length > 0 && D3.a.traps.length > 0 && D3.a.enemies.length > 0,
     'chests=[' + D3.a.chests + '] enemies=[' + D3.a.enemies + ']');
   check('(3g) boss ノードにはボスが湧く (bossSlot からノード別スポーンが作られている)',
     D3.bossBoard.enemies > 0 && D3.bossBoard.types.indexOf('goblinKing') >= 0,
     'types=' + D3.bossBoard.types);
-  check('(3h) boss ノードの BOSS_ROOM_IDX がボス部屋 (index 1) を指す',
-    D3.bossBoard.bossRoomIdx === 1 && D3.bossBoard.rooms === 2,
-    'idx=' + D3.bossBoard.bossRoomIdx + ' rooms=' + D3.bossBoard.rooms);
+  check('(3h) ★boss ノードは 1 部屋で BOSS_ROOM_IDX=0 / 罠も宝箱も 0 個 (P4: boss は両方除外)',
+    D3.bossBoard.bossRoomIdx === 0 && D3.bossBoard.rooms === 1 &&
+    D3.bossBoard.traps === 0 && D3.bossBoard.chests === 0 &&
+    D3.bossBoard.excluded.join(',') === '0' && D3.bossBoard.chestExcluded.join(',') === '0',
+    'idx=' + D3.bossBoard.bossRoomIdx + ' rooms=' + D3.bossBoard.rooms +
+    ' traps=' + D3.bossBoard.traps + ' chests=' + D3.bossBoard.chests);
   check('(3i) 元のノードへ戻れている (往復 4 回で状態機械が壊れない)', D3.nodeId === 'n0', D3.nodeId);
 
   // ══ §4 クリア条件 defeatBoss ═══════════════════════════════════════════════
@@ -409,20 +462,26 @@ const QT = '/index.html?diag=1&graphtest=1';
   mark('lintRun の codes');
   const L = await page.evaluate(() => {
     const base = () => JSON.parse(JSON.stringify(window.__graphRun.testRun()));
+    /* ⚠⚠ 2026-08-07 (P4): 変異の当て先を**添字から id 引き**へ変えた。旧版は `g.nodes[4]` が
+     *   boss である前提で書かれており、P4 でノードを 1 件足した瞬間に (5f) だけが静かに
+     *   別のノードを壊して赤くなった。**添字は並べ替えで意味が変わる** = run のスキーマが
+     *   「id が安定識別子」と決めているのと同じ理由で、テスト側も id で引くべき。 */
+    const at = (g, id) => g.nodes.find(n => n.id === id);
     const r = (g) => { const x = DFMapDef.lintRun(g);
       return { e: x.errors.map(i => i.code), w: x.warnings.map(i => i.code), ok: x.ok }; };
     const out = {};
     out.pristine = r(base());
     out.unspecified = r(null);
     out.bad = r({ nodes: [] });
-    { const g = base(); g.nodes[2].exits.push({ to: 'n1', dir: 'up', at: [33, 7] }); out.notTree = r(g); }
-    { const g = base(); g.nodes[0].exits = g.nodes[0].exits.filter(e => e.to !== 'n4'); out.unreach = r(g); }
-    { const g = base(); g.nodes[4].kind = 'combat'; out.noBoss = r(g); }
-    { const g = base(); g.nodes[0].exits[0].at = [0, 0]; out.gateWall = r(g); }
-    { const g = base(); g.nodes[0].mapDef.start = { tx: 2, ty: 2 }; out.entryStart = r(g); }
-    { const g = base(); g.nodes[0].exits[0].dir = 'down'; out.dirMismatch = r(g); }
-    { const g = base(); g.nodes[2].kind = 'search'; out.deadEnd = r(g); }
-    { const g = base(); g.nodes[2].kind = 'boss'; out.kindRole = r(g); }
+    { const g = base(); at(g, 'n2').exits.push({ to: 'n1', dir: 'up', at: [33, 7] }); out.notTree = r(g); }
+    { const g = base(); const n0 = at(g, 'n0');
+      n0.exits = n0.exits.filter(e => e.to !== 'n4'); out.unreach = r(g); }
+    { const g = base(); at(g, 'n3').kind = 'combat'; out.noBoss = r(g); }
+    { const g = base(); at(g, 'n0').exits[0].at = [0, 0]; out.gateWall = r(g); }
+    { const g = base(); at(g, 'n0').mapDef.start = { tx: 2, ty: 2 }; out.entryStart = r(g); }
+    { const g = base(); at(g, 'n0').exits[0].dir = 'down'; out.dirMismatch = r(g); }
+    { const g = base(); at(g, 'n2').kind = 'search'; out.deadEnd = r(g); }
+    { const g = base(); at(g, 'n2').kind = 'boss'; out.kindRole = r(g); }
     out.info = {
       none: DFMapDef.graphInfo(null),
       broken: DFMapDef.graphInfo({ entry: 'x', nodes: [{ id: 'a' }] }),
@@ -578,9 +637,24 @@ const QT = '/index.html?diag=1&graphtest=1';
     check('(8a) ★ペイロード (sessionStorage.generatedScenario.run) だけで分岐グラフが立つ',
       rP.active === true && rP.nodeId === 'n0' && rP.boss === 'n3' && rP.exits === 3,
       'active=' + rP.active + ' node=' + rP.nodeId + ' exits=' + rP.exits);
+    /* ⚠ 2026-08-07 (P4): entry は kind:"start" なので罠も宝箱も 0 個が正しい。
+     *   「盤面が組み上がる」の証明は敵で取り、罠/宝箱の母集団は (8b2) が n4/n2 で取る。 */
     check('(8b) 生成クエスト扱い (scenarioId=generated-quest) でも盤面が正しく組み上がる',
-      rP.scen === 'generated-quest' && rP.enemies > 0 && rP.traps > 0 && rP.chests > 0,
+      rP.scen === 'generated-quest' && rP.enemies > 0 && rP.traps === 0 && rP.chests === 0,
       'scen=' + rP.scen + ' e=' + rP.enemies + ' t=' + rP.traps + ' c=' + rP.chests);
+    const rP2 = await pP.evaluate(async () => {
+      const g = window.__graphRun;
+      await g.enter('n4', 'down');
+      const search = { traps: traps.length, chests: roomChests.length, kind: g.kindOf('n4') };
+      await g.enter('n2', 'right');
+      const loot = { traps: traps.length, chests: roomChests.length, kind: g.kindOf('n2') };
+      return { search, loot };
+    });
+    check('(8b2) ★ペイロード経路でも kind 由来の配線が効く (search=罠+隠し宝箱 / loot=玄室宝箱のみ)',
+      rP2.search.traps > 0 && rP2.search.chests > 0 && rP2.search.kind === 'search' &&
+      rP2.loot.traps === 0 && rP2.loot.chests > 0 && rP2.loot.kind === 'loot',
+      'search{t=' + rP2.search.traps + ',c=' + rP2.search.chests + '} ' +
+      'loot{t=' + rP2.loot.traps + ',c=' + rP2.loot.chests + '}');
     check('(8c) ペイロード経路で pageerror / console.error が 0', eP.length === 0, eP.slice(0, 3).join(' | '));
     await pP.close();
   }
@@ -702,21 +776,32 @@ const QT = '/index.html?diag=1&graphtest=1';
   {
     const wM = [], eM = [];
     const pM = await bootPage(browser, 'http://localhost:' + (PORT + 1) + QT, wM, eM);
+    // ⚠ 2026-08-07 (P4): 素の側 (§2) と**同じ往復**にすること。起点を揃えないと
+    //   「素では保たれ、変異では壊れる」という対比が成立しない (別の物を 2 つ測るだけになる)。
     const M = await pM.evaluate(async () => {
       const g = window.__graphRun;
+      await g.enter('n4', 'down');                      // ★罠と隠し宝箱が湧く唯一の kind へ
       enemies[0].alive = false; enemies[0].hp = 0;
       roomChests[0].found = true; roomChests[0].hidden = false; roomChests[0].opened = true;
       traps[0].found = true; traps[0].triggered = true;
-      for (let y = 8; y <= 12; y++) for (let x = 26; x <= 36; x++) exploredTiles[y][x] = 1;
+      // ⚠ §2 と**同じ領域**を開けること (上の注記を参照。総数で測ると負のコントロールが沈黙する)
+      const FOG = { y0: 18, y1: 20, x0: 24, x1: 27 };
+      for (let y = FOG.y0; y <= FOG.y1; y++) for (let x = FOG.x0; x <= FOG.x1; x++) exploredTiles[y][x] = 1;
+      const fogRegion = () => {
+        let n = 0;
+        for (let y = FOG.y0; y <= FOG.y1; y++) for (let x = FOG.x0; x <= FOG.x1; x++) n += exploredTiles[y][x];
+        return n;
+      };
       const snap = () => ({
         alive: enemies.filter(e => e.alive).length, opened: roomChests.filter(c => c.opened).length,
         sprung: traps.filter(t => t.triggered).length,
+        fogRegion: fogRegion(),
         explored: exploredTiles.reduce((a, r) => a + r.reduce((b, v) => b + v, 0), 0),
         chestTiles: roomChests.map(c => c.tx + ',' + c.ty).join(' '),
       });
       const before = snap();
       await g.enter('n2', 'right');
-      await g.enter('n0', 'left');
+      await g.enter('n4', 'left');
       return { before, after: snap() };
     });
     console.log('[drv]   変異側 出発前=' + JSON.stringify(M.before));
@@ -733,10 +818,11 @@ const QT = '/index.html?diag=1&graphtest=1';
       check('(12b) 素の側の同じ指標は保たれる', T.n0After.opened === T.n0Before.opened,
         '素: ' + T.n0Before.opened + ' → ' + T.n0After.opened);
     } else if (MUTATE === 'nofog') {
-      check('(12) 変異側ではフォグが戻る (探索済タイルが減る)', M.after.explored < M.before.explored,
-        '出発前=' + M.before.explored + ' → 戻り=' + M.after.explored);
-      check('(12b) 素の側の同じ指標は保たれる', T.n0After.explored >= T.n0Before.explored,
-        '素: ' + T.n0Before.explored + ' → ' + T.n0After.explored);
+      check('(12) 変異側ではフォグが戻る (視界外に開けた 3x4 領域が閉じる)',
+        M.after.fogRegion < M.before.fogRegion && M.before.fogRegion === 12,
+        '出発前=' + M.before.fogRegion + '/12 → 戻り=' + M.after.fogRegion + '/12');
+      check('(12b) 素の側の同じ指標は保たれる', T.n0After.fogRegion === T.n0Before.fogRegion,
+        '素: ' + T.n0Before.fogRegion + '/12 → ' + T.n0After.fogRegion + '/12');
     } else if (MUTATE === 'noseed') {
       check('(12) 変異側では戻ったノードの宝箱が別の座標に湧く (乱数が固定されていない)',
         M.after.chestTiles !== M.before.chestTiles,
