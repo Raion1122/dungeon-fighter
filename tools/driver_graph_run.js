@@ -519,16 +519,30 @@ const QT = '/index.html?diag=1&graphtest=1';
     check('(7a2) ?graph=auto 経路で pageerror / console.error が 0', eA.length === 0, eA.slice(0, 3).join(' | '));
     await pA.close();
 
+    /* ⚠⚠ **2026-08-07 (P3) に書き直した**。P3 で**広い画面の既定は矢印 UI** になったので、
+     *   旧 (7b)「素の起動では #choiceDialog が開く」は「壊れた」のではなく**陳腐化した**。
+     *   assert を消して緑にするのは規約違反なので、**ダイアログ経路が今も生きている条件**
+     *   (= 狭幅端末) を明示して測る形へ書き換える。矢印 UI 側の詳細は driver_graph_arrows.js。
+     * ⚠ ここで測り続ける価値: ダイアログ経路は「狭幅端末の代替手段」ではなく
+     *   **?autoplay で候補 0 を即返す = 既存ドライバ全部の生命線**。死ぬと全部がタイムアウトする。 */
+    const savedVp = page.viewport() || { width: 800, height: 600 };
+    await page.setViewport({ width: 390, height: 844 });   // iPhone 縦持ち = body.ui-compact
+    await new Promise(r => setTimeout(r, 250));
     const rB = await page.evaluate(() => {
       window.__graphRun.choose().then(o => { window.__chosen = o ? o.to : null; });
       return new Promise(res => setTimeout(() => {
         const dlg = document.getElementById('choiceDialog');
         const btns = dlg ? [...dlg.querySelectorAll('button')].map(b => b.textContent) : [];
-        res({ shown: !!(dlg && dlg.classList.contains('show')), btns });
+        res({ shown: !!(dlg && dlg.classList.contains('show')), btns,
+              compact: document.body.classList.contains('ui-compact'),
+              arrows: document.querySelectorAll('.exitArrow').length });
       }, 250));
     });
-    check('(7b) 素の起動では #choiceDialog が開き、出口 + キャンセルのボタンが並ぶ',
-      rB.shown === true && rB.btns.length >= 2, 'shown=' + rB.shown + ' btns=' + JSON.stringify(rB.btns));
+    check('(7b) 狭幅端末 (390x844) では #choiceDialog が開き、出口 + キャンセルのボタンが並ぶ',
+      rB.shown === true && rB.btns.length >= 2 && rB.compact === true,
+      'shown=' + rB.shown + ' compact=' + rB.compact + ' btns=' + JSON.stringify(rB.btns));
+    check('(7b2) その狭幅では矢印 UI を出さない (経路が二重に開かない)',
+      rB.arrows === 0, 'arrows=' + rB.arrows);
     const rB2 = await page.evaluate(async () => {
       const dlg = document.getElementById('choiceDialog');
       dlg.querySelectorAll('button')[0].click();
@@ -537,6 +551,8 @@ const QT = '/index.html?diag=1&graphtest=1';
     });
     check('(7c) 1 つ目のボタンを押すと chooseExit がその出口を返し、ダイアログが閉じる',
       !!rB2.chosen && rB2.shown === false, 'chosen=' + rB2.chosen + ' shown=' + rB2.shown);
+    await page.setViewport(savedVp);
+    await new Promise(r => setTimeout(r, 250));
   }
 
   // ══ §8 ペイロード経路 (本番と同じ入口: generatedScenario.run) ═════════════

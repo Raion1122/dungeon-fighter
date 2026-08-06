@@ -2487,6 +2487,69 @@
     }
     #nodeFade.on { opacity: 1; }
 
+    /* ══ ★P3 分岐マップ: 出口の矢印 + 羊皮紙のヒント ═══════════════════════════════
+     * 「進める方向に矢印 + 羊皮紙のヒント文が出る」(ユーザー決定 2026-08-06・企画の骨格④)。
+     * DOM の生成先は **#nodeLayer の中**。resetNodeState() の replaceChildren が必ず一掃するので、
+     * 「遷移で消し忘れる」が原理的に起きない (P1 の構造的保証にただ乗りする)。
+     *
+     * ⚠⚠ pointer-events は **auto を明示する**。同じ「タイルに貼りつく DOM」である
+     *   .sce1Captive (:1343) は none なので、書式を写すと**タップが素通りして 1 つも選べない**。
+     *   見た目は完全に正常なまま操作だけが死ぬので、実機で触るまで気づけない類の事故になる。
+     * ⚠ z-index 11/12 は lightingCanvas (フォグ暗幕 = 9) と .fxExplosionSprite (10) より上。
+     *   10 以下にすると**未探索の暗がりにある矢印が暗幕に沈む**。出口は必ず部屋の縁 = 最も暗い
+     *   場所にあるので、これは例外的な状況ではなく既定の状況。
+     *   ⚠ 代償: #nodeLayer は #partyPanel / #combatLog (どちらも z-index 10) より**文書順が後**
+     *     なので、矢印が HUD の上へ重なることがある。羊皮紙側は JS で HUD を避けてクランプするが、
+     *     矢印は避けさせない — 「その扉の真上を指す」ことが矢印の仕事で、ずらすと位置が嘘になる。
+     * ⚠ 配色は #dmMessage (:778) と**同一レシピ**。羊皮紙の色を新しく発明しない。 */
+    .exitArrow {
+      position: absolute;
+      width: 96px; height: 96px;      /* 1 タイル。指で押せる最小 (44px) を余裕で超える */
+      z-index: 11;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 44px; line-height: 1;
+      color: #ffd98a;
+      text-shadow: 0 0 12px rgba(255,190,80,0.95), 0 0 26px rgba(255,150,40,0.55),
+                   0 2px 5px rgba(0,0,0,0.9);
+      cursor: pointer;
+      pointer-events: auto;   /* ★矢印は必ず auto (.sce1Captive を写して none にしない) */
+      user-select: none; -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      animation: exitArrowPulse 1.5s ease-in-out infinite;
+    }
+    /* 「引き返す」= 来た道。進む先より控えめにして、未踏の枝との優劣が一目で付くようにする。 */
+    .exitArrow.back { color: #cbb894; font-size: 34px; opacity: 0.8; }
+    @keyframes exitArrowPulse {
+      0%, 100% { transform: scale(0.92); opacity: 0.82; }
+      50%      { transform: scale(1.10); opacity: 1;    }
+    }
+    /* ⚠ 検証ドライバは rAF を凍結するのでこのパルスは測れない (ライブのスクショで見る)。 */
+    @media (prefers-reduced-motion: reduce) { .exitArrow { animation: none; } }
+
+    .exitHint {
+      position: absolute;
+      z-index: 12;                    /* 矢印より上 (画面端でクランプされた時に重なるため) */
+      max-width: 240px;
+      padding: 7px 12px;
+      background: linear-gradient(180deg, #f5e8c8 0%, #e8d4a0 50%, #dcc68e 100%);
+      border: 3px solid #6a4010;
+      border-radius: 4px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.65), inset 0 0 20px rgba(130,80,30,0.25);
+      color: #3a2010;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 13px;
+      letter-spacing: 1px;
+      line-height: 1.5;
+      text-align: center;
+      cursor: pointer;
+      /* ★羊皮紙も矢印と**同じ選択肢**として押せる。矢印は部屋の縁 (= 画面外になりうる) に
+       *   貼りつくが、羊皮紙は下の clamp で必ず画面内に残るので、これが「常に押せる実体」になる。 */
+      pointer-events: auto;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .exitHint .exitHintIcon { margin-right: 5px; }
+    .exitHint .exitHintDir  { display: block; font-size: 11px; opacity: 0.7; letter-spacing: 2px; }
+
     #resultOverlay {
       position: fixed;
       inset: 0;
@@ -7768,6 +7831,13 @@
     const nodeLayer  = document.getElementById("nodeLayer");
     const enemyLayer = document.getElementById("enemyLayer");
     let   vfxLayer   = null;
+    /* ★[P3] 表示中の出口矢印。要素は [{el, hintEl, exit}] で、実体の生成/破棄は
+     *   showExitArrows / clearExitArrows (28700 行台) が唯一の担当。
+     * ⚠⚠ **宣言だけをここへ前倒ししてある**。カメラ追従は renderWorld (11900 行台) が読むが、
+     *   let は TDZ を持つので P3 節と同じ場所 (28700 行台) で宣言すると、起動途中に
+     *   renderWorld が走った瞬間に ReferenceError で描画が丸ごと死ぬ。function 宣言は
+     *   スクリプト先頭へ巻き上がるので関数側は移さなくてよい (移すのは let だけ)。 */
+    let exitArrowEls = [];
     function vfxHost() {
       if (!vfxLayer) { vfxLayer = document.createElement("div"); vfxLayer.id = "vfxLayer"; }
       // ⚠ CSS を持たせない = stacking context を作らない (nodeLayer と同じ理由)。
@@ -12121,6 +12191,12 @@
           sce1CaptiveEl.style.top  = (cs.ty * TILE_SIZE + TILE_SIZE / 2 - 48 - camY) + "px";
         }
       }
+      /* ★[P3] 出口の矢印 + 羊皮紙 (宝箱 / 檻 / 捕虜 に続く 4 ブロック目。式も同型)。
+       * ⚠ 矢印の表示中は dialogPaused=true で moveEnemies が早期 return するため、
+       *   **この関数は毎フレームは回らない**。位置は showExitArrows が表示直後に 1 回
+       *   直接決めており、ここが担うのはカメラのグライド (cameraFollowTick) と
+       *   リサイズ後の追従だけ。どちらの経路でも renderWorld は必ず通る。 */
+      if (exitArrowEls.length) updateExitArrowPositions();
       // 罠 (発見済みのみ表示。発動済みは薄暗く残す)
       if (typeof traps !== "undefined") {
         for (const trap of traps) {
@@ -28440,6 +28516,10 @@
        * 取りこぼしていた。全ノードが同じ 72×28 の座標系を共有するので、消さないと
        * **次のノードの敵が入室した瞬間から全員見えている**(伏兵が成立しない)。 */
       visitedTiles.clear();
+      /* ★[P3] 出口矢印の台帳。DOM は上の nodeLayer.replaceChildren で既に切り離されているが、
+       * **配列に切り離し済みノードの参照が残る**と、次のノードで updateExitArrowPositions が
+       * 幽霊要素の style を書き続ける (見えないので気づけない)。配列の掃除も 1 箇所で行う。 */
+      clearExitArrows();
     }
 
     /* ★唯一の撤去点。「8 種類の DOM を消し忘れていないか」を人力で担保しない。
@@ -28656,10 +28736,345 @@
       const opts = exitsWithReturn(node);
       if (!opts.length) return null;
       if (RUN.auto) return opts[0];                       // ?graph=auto (矢印もダイアログも出さない)
+      /* ★P3 本命 = マップ上に浮かぶ矢印 + 羊皮紙。
+       * ⚠⚠ ?autoplay と狭幅端末は**必ず**下のダイアログ経路へ落とす。ダイアログは
+       *   「狭幅端末の代替手段」ではなく**検証インフラを守る必須条件**で、showCharChoice が
+       *   ?autoplay で候補 0 を即返す (index.html:10288) ことに既存ドライバ全部が乗っている。
+       *   矢印だけの実装にすると autoplay が選択で止まり、軒並みタイムアウトする。 */
+      if (!window.__autoplay && !useCompactChoice()) return await showExitArrows(node, opts);
       const head = opts.length === 1 ? "道は 1 本きりだ。" : "分かれ道だ。どちらへ進む?";
-      const idx = await showCharChoice(head, opts.map(o => ({ label: o.label })), "留まる (Esc)");
+      const idx = await showCharChoice(head, opts.map(o => ({ label: exitChoiceLabel(node, o) })),
+                                       "留まる (Esc)");
       if (idx === null || idx === undefined) return null;
       return opts[idx] || null;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P3 — 出口の矢印 UI + 羊皮紙のヒント文
+     * ══════════════════════════════════════════════════════════════════════════
+     * P2 が用意した「出口選択の唯一の入口 chooseExit」に、本命の見た目を載せる。
+     *   (a) マップ上に浮かぶ矢印 (.exitArrow) と羊皮紙 (.exitHint)  ← タップで選ぶ
+     *   (b) iOS のために click + touchend を併用し、二重発火と連打貫通を潰す
+     *   (c) ヒント文の台帳 EXIT_HINTS (データは kind = 意味だけを持つ)
+     *   (d) 1 ノード 1 回の知覚判定で、ヒントの信頼度 (crit/成功/失敗/ファンブル) を出し分ける
+     *   (e) 狭幅端末は既存の #choiceDialog へフォールバック
+     *
+     * ⚠⚠ この節も **RUN が null なら 1 命令も走らない**。入口は chooseExit と tickNodeChoice の
+     *   2 つだけで、どちらも RUN ゲートの内側にある。既存 6 シナリオ・屋外・生成クエスト・
+     *   自作マップは従来経路のまま。 */
+
+    /* 狭幅端末では矢印を出さず #choiceDialog へ落とす。
+     * ★判定は **body.ui-compact の有無ただ 1 つ**。computeUiMetrics() (:4530) が
+     *   `(h <= 480) || (w <= 560)` を計算して付け外ししており、CSS 側の
+     *   `@media (max-width:560px), (max-height:480px)` (:928 / :1821) と**同じ語彙**で書かれている。
+     * ⚠ ここで innerWidth/innerHeight を読み直して式を写すと二重定義になり、片方だけ直したときに
+     *   「CSS はダイアログを圧縮しているのに JS は矢印を出す」という食い違いが黙って生まれる
+     *   (fieldBootBottomHud が computeUiMetrics の写しでズレた前例と同型の罠)。
+     * ⚠ 帰結として **iPhone は縦 (390x844 → w<=560) も横 (844x390 → h<=480) もダイアログ**になる。
+     *   矢印が出る iOS 端末は iPad 級だけだが、touchend 対応は依然として必須。 */
+    function useCompactChoice() {
+      return !!(document.body && document.body.classList.contains("ui-compact"));
+    }
+
+    /* ── ヒント文の台帳 ────────────────────────────────────────────────────────
+     * ★ENEMY_FAMILY_MSG (:10360) と同じ「平坦なオブジェクト = 行を足すだけで載る」流儀。
+     *   run のデータは **kind (意味) しか持たず**、表現はここが唯一の出所
+     *   (painting が {theme,key} 参照なのと同じ)。
+     *   ただし `exits[].hint.text` が著者から明示されていれば**それが既定表に勝つ**。
+     * sure  = 判定に通ったときの具体的な文 / vague = 外したときのぼかした文。 */
+    const EXIT_HINTS = {
+      combat: { sure: ["荒々しい声が聞こえる", "武具の擦れる音がする"], vague: ["何かの気配がする"] },
+      rest:   { sure: ["イビキが聞こえている", "焚き火の匂いが漂ってくる"], vague: ["妙に静かだ"] },
+      loot:   { sure: ["金属の匂いがする"],                 vague: ["埃っぽい空気が流れてくる"] },
+      search: { sure: ["扉がある", "風が抜けている"],       vague: ["先は暗くて見えない"] },
+      event:  { sure: ["人の呻き声が聞こえる"],             vague: ["何かの物音がした"] },
+      boss:   { sure: ["地の底から重い足音が響く"],         vague: ["空気が冷たい"] },
+      start:  { sure: ["来た道だ"],                         vague: ["見覚えのある道だ"] },
+    };
+    const EXIT_HINT_ICON = { combat: "⚔", rest: "💤", loot: "💰", search: "🔍",
+                             event: "❔", boss: "☠", start: "🚪" };
+    /* ファンブル時に「別 kind の sure 文」を騙るときの母集団。
+     * ⚠⚠ **boss を入れない**。理由は 2 つあり、どちらも欠かせない:
+     *   ① 嘘の「重い足音」で安全な枝から遠ざけると、プレイヤーはヒントを読む意味を失う。
+     *   ② ボス警告だけは**常に本物**でなければ「聞こえたら備える」という運用が成立しない。
+     *   誤情報が許されるのは「外れても引き返せる」種類の情報だけ。 */
+    const EXIT_HINT_WRONG_KINDS = ["combat", "rest", "loot", "search", "event"];
+
+    /* 文面の抽選。★乱数を引かず id 由来のハッシュで決める = 同じノードへ戻っても同じ文が出る。
+     *   Math.random を使うと再入場のたびに文が揺れ、「さっきと違うことを言っている」= ヒント全体の
+     *   信頼が壊れる (nodeState に焼く設計と同じ目的)。 */
+    function pickHintLine(list, salt) {
+      if (!Array.isArray(list) || !list.length) return "";
+      return list[hashStr(String(salt)) % list.length];
+    }
+    /* DC = シナリオの perceptionDC + 出口の本数ペナルティ (1 本=+0 / 2 本=+2 / 3 本以上=+4)。
+     *   分かれ道が多いほど「どの音がどの方向のものか」を切り分けにくい、という理屈。 */
+    function exitHintDc(nExits) {
+      const base = (currentScenario && currentScenario.perceptionDC) || 14;
+      return base + (nExits <= 1 ? 0 : nExits === 2 ? 2 : 4);
+    }
+    // SkillCheck の outcome ({roll,total,dc,success,crit,fumble}) を 4 段の解像度へ畳む。
+    // ⚠ crit と fumble は d20 の 20/1 で排他 (js/skill-check.js computeOutcome)。
+    function exitHintTier(res) {
+      if (!res) return "fail";
+      if (res.fumble) return "fumble";
+      if (res.crit) return "crit";
+      return res.success ? "success" : "fail";
+    }
+    /* 出口の先に何体いるか。★著者が書いた enemySlots / bossSlot を数える (スポーン後の実体ではない)。
+     *   実体を数えるにはそのノードを実際に build する必要があり、覗きたいだけのために盤面を
+     *   作り直すのは本末転倒。「十ばかり」という言い方自体が概数なので、これで足りる。 */
+    function exitEnemyCount(toId) {
+      const nd = RUN && RUN.byId[toId];
+      if (!nd || !nd.mapDef || !Array.isArray(nd.mapDef.rooms)) return 0;
+      let n = 0;
+      for (const r of nd.mapDef.rooms) {
+        if (Array.isArray(r.enemySlots)) n += r.enemySlots.length;
+        if (r.bossSlot) n += 1;
+      }
+      return n;
+    }
+    function pickWrongKind(trueKind, salt) {
+      const pool = EXIT_HINT_WRONG_KINDS.filter(k => k !== trueKind);
+      if (!pool.length) return trueKind;
+      return pool[hashStr(String(salt) + "/wrong") % pool.length];
+    }
+
+    /* 1 本の出口について、判定結果 (tier) からヒントの解像度を決める純関数。
+     *   crit    … sure 文 + 体数 + アイコン
+     *   success … sure 文 + アイコン
+     *   fail    … vague 文のみ (アイコンも出さない = 「分からなかった」を絵でも示す)
+     *   fumble  … 別 kind の sure 文 (誤情報)
+     * ⚠⚠ **boss への出口には誤情報を出さない**。「金属の匂いがする」に釣られてボス部屋へ
+     *   飛び込むと、準備なしの不意打ちで全滅しうる = 「情報を外した」ではなく「詰んだ」になる。
+     *   boss 出口のファンブルは失敗と同じ vague へ落とす (何も分からない、は安全な結果)。 */
+    function buildExitHint(node, ex, tier) {
+      const target = RUN.byId[ex.to];
+      const kind = (target && target.kind) || "combat";
+      const table = EXIT_HINTS[kind] || EXIT_HINTS.combat;
+      const salt = node.id + ">" + ex.to;
+      const authored = (ex.hint && ex.hint.text) ? ex.hint.text : null;
+      if (tier === "fumble" && kind !== "boss") {
+        const wrong = pickWrongKind(kind, salt);
+        const wt = EXIT_HINTS[wrong] || EXIT_HINTS.combat;
+        return { text: pickHintLine(wt.sure, salt), icon: EXIT_HINT_ICON[wrong] || "",
+                 kind: wrong, wrong: true, count: 0 };
+      }
+      if (tier === "fumble" || tier === "fail") {
+        return { text: pickHintLine(table.vague, salt), icon: "", kind: null, wrong: false, count: 0 };
+      }
+      const sure = authored || pickHintLine(table.sure, salt);
+      const icon = EXIT_HINT_ICON[kind] || "";
+      if (tier === "crit") {
+        const n = exitEnemyCount(ex.to);
+        return { text: sure + (n > 0 ? " — " + n + " 体ばかりの気配だ" : ""),
+                 icon: icon, kind: kind, wrong: false, count: n };
+      }
+      return { text: sure, icon: icon, kind: kind, wrong: false, count: 0 };
+    }
+
+    /* ★ノードが片付いた瞬間に **1 ノード 1 回だけ**知覚判定を振り、結果を nodeState へ焼く。
+     * ⚠⚠ 出口ごとに振らない。3 本あるからと 3 回ロールするとテンポが死ぬ (計画書の明示要求)。
+     * ⚠⚠ 再入場では振り直さない。「戻ったら答えが変わっていた」はヒントの信頼を壊すし、
+     *   引き返して振り直す=実質的な無限リロールになって判定そのものが無意味になる。
+     * ⚠ 出口が 0 本 (行き止まり / ボス) なら**パネルを出さない**。無駄な判定を見せない。
+     * ⚠ ?autoplay では resolveSkillCheck が UI を出さず即決する (js/skill-check.js:479)。
+     *   ?graph=auto は autoplay ではないので opts.auto を明示的に渡して同じ扱いにする。
+     * forcedTier は検証シーム専用 (4 つの結果を決定論的に作るため。本編からは渡さない)。 */
+    /* nodeState のエントリを必ず 1 つ返す (無ければ作る)。
+     * ⚠⚠ P2 は enterNode の中でしか nodeState を作っていなかったので、**entry ノードだけは
+     *   一度も出ないと状態が存在しない**。P3 のヒントは「今そのノードに居る間」に書き込むので、
+     *   ここで遅延生成しないと **entry の 1 周目だけヒントが永久に出ない** (実際に踏んだ)。
+     * ⚠ 作るのは「今居るノード」に対してだけ。まだ入っていないノードに対して呼ぶと
+     *   visited が立ち、exitsWithReturn の「未踏の枝を先に並べる」順序が壊れる。 */
+    function nodeStateFor(id) {
+      if (!id) return null;
+      return nodeState[id] || (nodeState[id] = {
+        visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
+        sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
+        explored: null, seen: null, hintsRevealed: {}, cleared: false,
+      });
+    }
+    async function revealExitHints(node, forcedTier) {
+      if (!RUN || !node) return null;
+      const st = nodeStateFor(node.id);
+      if (!st) return null;
+      if (!forcedTier && st.hintsRevealed && st.hintsRevealed.rolled) return st.hintsRevealed;
+      const outs = node.exits || [];
+      if (!outs.length) { st.hintsRevealed = { rolled: true, tier: "none", byExit: {} }; return st.hintsRevealed; }
+      let tier = forcedTier || null;
+      if (!tier) {
+        const party = (window.SkillCheck && SkillCheck.resolveSkillCheck) ? buildPerceptionParty() : [];
+        if (!party.length) {
+          tier = "fail";                       // エンジン未読込 / 全滅 → 何も分からない (安全側)
+        } else {
+          skillCheckActive = true; dialogPaused = true;   // runPerceptionCheck (:19955) と同じ作法
+          let res = null;
+          try {
+            res = await SkillCheck.resolveSkillCheck("perception", exitHintDc(outs.length), party, {
+              title: "知覚判定",
+              flavor: "この先の気配を探る…",
+              extraBonus: perceptionExtraBonus(),
+              voiceIds: PERCEPTION_VOICE,
+              iconContext: "trap",
+              auto: !!RUN.auto,
+            });
+          } catch (e) { res = null; }
+          finally { skillCheckActive = false; dialogPaused = false; }
+          tier = exitHintTier(res);
+        }
+      }
+      const byExit = Object.create(null);
+      for (const ex of outs) byExit[ex.to] = buildExitHint(node, ex, tier);
+      st.hintsRevealed = { rolled: true, tier: tier, byExit: byExit };
+      return st.hintsRevealed;
+    }
+    // 現在ノードで確定済みのヒント (無ければ null)。矢印/ダイアログの**共通の読み口**。
+    function hintForExit(node, o) {
+      const st = nodeState[node.id];
+      const hr = st && st.hintsRevealed;
+      if (!hr || !hr.byExit) return null;
+      return hr.byExit[o.to] || null;
+    }
+    /* ダイアログ経路 (狭幅端末 / autoplay) のラベル。
+     * ⚠ exitsWithReturn が組む label は**著者の hint 文**をそのまま繋いだもので、知覚判定を
+     *   通っていない。矢印とダイアログで見える情報が食い違わないよう、ここで差し替える。
+     *   親へ引き返す選択肢はヒントの対象外 (来た道は既に知っている) なので素の label のまま。 */
+    function exitChoiceLabel(node, o) {
+      if (o.back) return o.label;
+      const h = hintForExit(node, o);
+      if (!h || !h.text) return o.label;
+      return (DIR_LABELS[o.dir] || o.dir) + " — " + (h.icon ? h.icon + " " : "") + h.text;
+    }
+
+    /* ── 矢印 DOM ──────────────────────────────────────────────────────────────
+     * 生成は initSce1Captive (:20483) と同型 = createElement して **nodeLayer へ append**。
+     * ⚠ 位置は毎フレーム renderWorld の 4 ブロック目が更新する (宝箱/檻/捕虜と同じ式)。 */
+    const ARROW_GLYPH = { up: "▲", down: "▼", left: "◀", right: "▶" };
+    const ARROW_HALF  = 48;    // .exitArrow は 96px 角 = 1 タイル。中心合わせの半分
+    const ARROW_HINT_GAP = 10; // 矢印と羊皮紙の間隔 (px)
+    /* 表示〜タップ受付開始までの猶予 (ms)。★tavern.html の PM_TAP_GATE=500 (:5476) の写し。
+     * ⚠ これが無いと 2 つの事故が同時に起きる:
+     *   ① 直前の操作 (判定パネルの「タップで閉じる」等) の連打が矢印まで貫通して、
+     *      プレイヤーが見てもいない枝が選ばれる
+     *   ② iOS の touchend → click 二重発火で、1 タップが 2 回の選択として走る
+     *      (②は closed フラグでも止まるが、①は gate でしか止まらない) */
+    const ARROW_TAP_GATE = 500;
+
+    function clearExitArrows() {
+      for (const a of exitArrowEls) {
+        if (a.el) a.el.remove();
+        if (a.hintEl) a.hintEl.remove();
+      }
+      exitArrowEls.length = 0;
+    }
+
+    /* カメラ追従。宝箱 (:12097) / 檻 (:12107) / 捕虜 (:12120) と**同じ式**:
+     *     left = tx*TILE_SIZE + TILE_SIZE/2 - <半分> - camX
+     * ⚠ 矢印はクランプしない (タイルの真上を指すのが仕事)。代わりに**羊皮紙をクランプ**して
+     *   必ず画面内に残す。羊皮紙も同じ選択肢として押せるので、矢印が画面外へ出ても詰まない。
+     *   これは「部屋 14 行 × 20 列に対し可視域が 6〜7 タイルしかない」= 上下の出口は
+     *   だいたい画面外にある、という実測上の前提への対処 (updateEscortMarker と同じ発想)。
+     * ⚠ クランプの左端と下端は UI_MENU_WIDTH / cameraBottomHud() を使う。ここを自前の定数で
+     *   書くと、スマホでログ枠の下に羊皮紙が潜る (speechOnScreen が UI_MINIBAR_H を足し忘れて
+     *   compact だけ 64px ズレていた前例と同型)。 */
+    function updateExitArrowPositions() {
+      if (!exitArrowEls.length) return;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const padL = UI_MENU_WIDTH + 8;      // 左のステータスパネル (compact では 0)
+      const padB = cameraBottomHud() + 8;  // ログ枠 + 下部 HP ミニバー
+      for (const a of exitArrowEls) {
+        const t = a.exit.at;
+        const ax = t.tx * TILE_SIZE + TILE_SIZE / 2 - ARROW_HALF - camX;
+        const ay = t.ty * TILE_SIZE + TILE_SIZE / 2 - ARROW_HALF - camY;
+        a.el.style.left = ax + "px";
+        a.el.style.top  = ay + "px";
+        if (!a.hintEl) continue;
+        const hw = a.hintEl.offsetWidth || 200, hh = a.hintEl.offsetHeight || 44;
+        // 矢印の向きの**反対側**へ逃がす = 進む先の扉そのものを羊皮紙で隠さない
+        let hx = ax + ARROW_HALF - hw / 2, hy = ay + ARROW_HALF - hh / 2;
+        if (a.exit.dir === "up")        hy = ay + ARROW_HALF * 2 + ARROW_HINT_GAP;
+        else if (a.exit.dir === "down") hy = ay - hh - ARROW_HINT_GAP;
+        else if (a.exit.dir === "left") hx = ax + ARROW_HALF * 2 + ARROW_HINT_GAP;
+        else                            hx = ax - hw - ARROW_HINT_GAP;
+        a.hintEl.style.left = Math.max(padL, Math.min(hx, vw - hw - 8)) + "px";
+        a.hintEl.style.top  = Math.max(8,    Math.min(hy, vh - padB - hh)) + "px";
+      }
+    }
+
+    /* ★矢印 UI の本体。戻り値は「選ばれた出口」or null (= 留まる)。chooseExit の契約と同じ。
+     * ⚠ dialogPaused を立てる (showCharChoice と同じ約束)。選んでいる間に主人公が
+     *   勝手に歩き回ると「どこから出るのか」が分からなくなる。
+     * ⚠ dialogPaused=true では moveEnemies が早期 return する = renderWorld が毎フレームは
+     *   回らないので、**表示直後に updateExitArrowPositions() を必ず 1 回直接呼ぶ**
+     *   (計画書リスク③への対処。位置未設定の矢印は左上に固まって出る)。 */
+    function showExitArrows(node, opts) {
+      return new Promise((resolve) => {
+        clearExitArrows();
+        let closed = false, gateOpen = false;
+        dialogPaused = true;
+        const finish = (val) => {
+          if (closed) return;                       // ★touch→click 二重発火と連打をここで潰す
+          closed = true;
+          clearExitArrows();
+          document.removeEventListener("keydown", onKey, true);
+          dialogPaused = false;
+          resolve(val);
+        };
+        // 1〜9 で選択 / Esc で「留まる」。ダイアログ経路 (showCharChoice :10315) と同じキー体系。
+        const onKey = (ev) => {
+          if (ev.key === "Escape" || ev.key === "Esc") {
+            ev.preventDefault(); ev.stopPropagation(); finish(null); return;
+          }
+          const n = parseInt(ev.key, 10);
+          if (!isNaN(n) && n >= 1 && n <= opts.length) {
+            ev.preventDefault(); ev.stopPropagation(); finish(opts[n - 1]);
+          }
+        };
+        opts.forEach((o, i) => {
+          const el = document.createElement("div");
+          el.className = "exitArrow" + (o.back ? " back" : "");
+          el.dataset.to = o.to; el.dataset.dir = o.dir;
+          el.textContent = ARROW_GLYPH[o.dir] || "◆";
+          const hintEl = document.createElement("div");
+          hintEl.className = "exitHint";
+          hintEl.dataset.to = o.to;
+          const h = o.back ? null : hintForExit(node, o);
+          const dirLabel = o.back ? "引き返す" : (DIR_LABELS[o.dir] || o.dir);
+          const body = o.back ? "来た道を戻る" : (h && h.text ? h.text : "先は見通せない");
+          const icon = (h && h.icon) ? '<span class="exitHintIcon">' + h.icon + "</span>" : "";
+          /* ⚠ textContent ではなく innerHTML を使うのは、アイコンと方向ラベルを別要素にして
+           *   CSS で大きさを分けるため。差し込むのは**台帳の固定文だけ**で外部入力は入らない。
+           * ★方向グリフを羊皮紙にも入れる。ライブのスクショで判明した実測 (2026-08-07):
+           *   部屋は 14 行 × 20 列 = 1344x1920px あるのに、1280x800 の可視域は約 6.5x13 タイル
+           *   しかない → **パーティが部屋の中央にいる間、4 本の矢印はすべて画面外**になる。
+           *   つまり実際に読まれるのは羊皮紙だけなので、羊皮紙が単独で方向を伝えられないと
+           *   「どっちの道か分からない選択肢」になってしまう。 */
+          hintEl.innerHTML = '<span class="exitHintDir">' + (ARROW_GLYPH[o.dir] || "◆") + " " +
+                             (i + 1) + ". " + dirLabel + "</span>" + icon + body;
+          /* ★click + touchend の併用。片方だけにすると:
+           *   click のみ … click が発火しない端末で**永久に選べない** (自動クローズが無いので詰む)
+           *   touchend のみ … デスクトップのマウスで選べない
+           * preventDefault は「touchend が合成する click」を止める一次防御で、closed が二次防御。 */
+          const onTap = (ev) => {
+            if (closed || !gateOpen) return;
+            if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+            finish(o);
+          };
+          el.addEventListener("click", onTap);
+          el.addEventListener("touchend", onTap);
+          hintEl.addEventListener("click", onTap);
+          hintEl.addEventListener("touchend", onTap);
+          nodeLayer.appendChild(el);          // ★ノード寿命 DOM は #nodeLayer へ (遷移時に一掃)
+          nodeLayer.appendChild(hintEl);
+          exitArrowEls.push({ el: el, hintEl: hintEl, exit: o });
+        });
+        updateExitArrowPositions();           // ★表示直後の 1 回 (上の注記を参照)
+        document.addEventListener("keydown", onKey, true);
+        // ⚠ nodeTimeout に登録しない。ローカルのフラグを 1 つ立てるだけで、層ごと消えた後に
+        //   発火しても何も壊さない (登録するのは「添字で他人を書き戻す」タイマーだけ、の方針)。
+        setTimeout(() => { gateOpen = true; }, ARROW_TAP_GATE);
+      });
     }
 
     // ── 暗転 ────────────────────────────────────────────────────────────────
@@ -28869,7 +29284,13 @@
       if (!node) return;
       nodeBusy = true;                                    // async 前に確定 (多重起動防止)
       let chosen = null;
-      try { chosen = await chooseExit(node); }
+      try {
+        /* ★[P3] 出口を見せる前に **1 ノード 1 回だけ**知覚判定を振る (再入場では振り直さない)。
+         * ⚠ 順序が重要: 判定 → ヒント確定 → 選択肢の提示。逆にすると 1 周目のヒントが
+         *   常に空になり、判定が「次に来たときのため」の意味不明な演出になる。 */
+        await revealExitHints(node);
+        chosen = await chooseExit(node);
+      }
       finally { nodeBusy = false; }
       if (!chosen) { nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS; return; }
       nodePendingExit = chosen;
@@ -29006,6 +29427,47 @@
         exits: () => (RUN && RUN.byId[currentNodeId] ? exitsWithReturn(RUN.byId[currentNodeId]) : []),
         // 出口選択の**本番と同じ入口**を叩く (?graph=auto / ?autoplay / 実ダイアログの 3 経路を測るため)
         choose: () => (RUN ? chooseExit(RUN.byId[currentNodeId]) : Promise.resolve(null)),
+        /* ── ★P3 矢印 UI の検証シーム ────────────────────────────────────────
+         * ⚠ 「矢印を出す/出さない」の判定そのもの (useCompactChoice) を露出するのが肝。
+         *   ドライバが自前で `innerWidth<=560` を写すと、**実装とドライバが同じ間違いを
+         *   共有して両方緑になる**。判定の出所は 1 つに保つ。 */
+        compact: useCompactChoice,
+        // 表示中の矢印の実測。style.left (実装が書いた値) と getBoundingClientRect (実描画位置) の
+        // 両方を返す。前者だけだと CSS の transform 等で実位置がずれていても気づけない。
+        arrows: () => exitArrowEls.map(a => {
+          const cs = getComputedStyle(a.el), hcs = getComputedStyle(a.hintEl);
+          const r = a.el.getBoundingClientRect(), hr = a.hintEl.getBoundingClientRect();
+          return {
+            to: a.exit.to, dir: a.exit.dir, back: !!a.exit.back,
+            at: { tx: a.exit.at.tx, ty: a.exit.at.ty },
+            left: parseFloat(a.el.style.left), top: parseFloat(a.el.style.top),
+            rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+            /* ⚠ rect は CSS animation の transform:scale が乗った**実描画**寸法なので
+             *   フレームごとに 0.92〜1.10 倍に揺れる。当たり判定の大きさを測るなら
+             *   レイアウト寸法 (offsetWidth) の方を見ること。 */
+            box: { w: a.el.offsetWidth, h: a.el.offsetHeight },
+            pe: cs.pointerEvents, z: cs.zIndex,
+            hintText: a.hintEl.textContent,
+            hintRect: { x: hr.left, y: hr.top, w: hr.width, h: hr.height },
+            hintPe: hcs.pointerEvents,
+          };
+        }),
+        // 実描画に使われているカメラ値 (追従の検算に要る)
+        cam: () => ({ camX: camX, camY: camY, tile: TILE_SIZE,
+                      vw: window.innerWidth, vh: window.innerHeight, hud: cameraBottomHud() }),
+        // 知覚判定の 4 結果を決定論的に作る (forcedTier は本編からは絶対に渡さない)
+        reveal: (tier, id) => revealExitHints(RUN ? RUN.byId[id || currentNodeId] : null, tier || null),
+        hints: (id) => { const st = nodeState[id || currentNodeId]; return st ? st.hintsRevealed : null; },
+        clearHints: (id) => { const st = nodeState[id || currentNodeId]; if (st) st.hintsRevealed = {}; },
+        hintDc: exitHintDc,
+        // ダイアログ経路のラベル (矢印とダイアログで見える情報が食い違わないことの検算)
+        choiceLabels: () => {
+          if (!RUN) return [];
+          const nd = RUN.byId[currentNodeId];
+          return exitsWithReturn(nd).map(o => exitChoiceLabel(nd, o));
+        },
+        arrowGate: () => ARROW_TAP_GATE,
+        reposition: updateExitArrowPositions,
         // 「出口を選んだ」だけの状態を作る (歩きと到達検出は本編の heroAI / tick に任せる)
         pick: (toId) => {
           if (!RUN) return null;
