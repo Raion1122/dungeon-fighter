@@ -1,0 +1,16 @@
+{
+  "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step7.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
+  "capturedFrom": {
+    "rev": "08b8b1f",
+    "subject": "sce1-events: 玉座の人質を専用スプライトへ (codex1 納品 post を取り込み)",
+    "dirty": false
+  },
+  "values": {
+    "N-goblin-mine": "49e8ac086b5d12f7/1816",
+    "N-bandits-forest": "7d72a8ce0169ddff/1832",
+    "N-lizard-swamp": "1e792b0717ffeb44/1809",
+    "N-orc-fort": "d8af8024eeaedd1a/1823",
+    "N-undead-temple": "d8af8024eeaedd1a/1823",
+    "N-dragon-lair": "d8af8024eeaedd1a/1823"
+  }
+}

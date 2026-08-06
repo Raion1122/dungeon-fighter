@@ -35,6 +35,7 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const argv = process.argv.slice(2);
@@ -45,6 +46,29 @@ const PORT    = parseInt(arg('port', '8841'), 10);
 // ⚠ path.resolve を通す。生の '/' 区切りのまま持つと path.join が返す '\' 区切りと
 //    startsWith 比較が食い違い、baseline 側が丸ごと 404 になる (負のコントロールが静かに死ぬ)。
 const BASELINE = path.resolve(arg('baseline', path.join(os.tmpdir(), 'df_cleanup2_base')));
+// ⚠⚠ baseline は **cdb43f5^ = 0c06067** (df.devMode ゲートが入る直前)。歴史的事実へのピン留めなので
+//    陳腐化しない = 負のコントロール専用の基準 (_golden.js ヘッダ参照)。
+//    ⚠ 旧実装は「既に在るディレクトリ」を前提に exit 3 していた。%TEMP% 掃除で消えると
+//      **ドライバごと起動しなくなる** (2026-08-06 に実際に EXIT=3)。
+//      → driver_field_step2/step3 と同じく **rev から自分で作る**。
+const BASELINE_REV = arg('baseline-rev', '0c06067');
+
+function prepareBaseline() {
+  const marker = path.join(BASELINE, 'index.html');
+  if (fs.existsSync(marker)) {
+    let head = '';
+    try { head = execFileSync('git', ['-C', BASELINE, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(); } catch (e) {}
+    if (head && (BASELINE_REV.indexOf(head) === 0 || head.indexOf(BASELINE_REV) === 0)) {
+      console.log('[driver] baseline worktree 再利用: ' + BASELINE + ' @ ' + head);
+      return;
+    }
+    console.log('[driver] baseline worktree が別リビジョン (' + head + ') なので作り直す');
+    try { execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', BASELINE], { encoding: 'utf8' }); } catch (e) {}
+  }
+  console.log('[driver] baseline worktree を作成: ' + BASELINE + ' @ ' + BASELINE_REV);
+  execFileSync('git', ['-C', ROOT, 'worktree', 'add', '--detach', BASELINE, BASELINE_REV],
+               { encoding: 'utf8', stdio: 'pipe' });
+}
 
 function loadPuppeteer() {
   const tried = [];
@@ -164,9 +188,9 @@ const has6 = (arr) => MAIN6.every(id => (arr || []).includes(id));
 const hasRing = (arr) => (arr || []).includes('ring-free-action');
 
 (async () => {
-  if (!fs.existsSync(path.join(BASELINE, 'index.html'))) {
-    console.error('[driver] baseline が見つかりません: ' + BASELINE);
-    console.error('         git worktree add "' + BASELINE + '" HEAD  で作成してください。');
+  try { prepareBaseline(); } catch (e) {
+    console.error('[driver] baseline worktree を用意できません: ' + BASELINE + ' @ ' + BASELINE_REV);
+    console.error('         ' + (e && e.message ? e.message : e));
     process.exit(3);
   }
   const puppeteer = loadPuppeteer();

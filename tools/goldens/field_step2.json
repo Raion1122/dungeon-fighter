@@ -1,17 +1,17 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "b20b632",
-    "subject": "map-editor/Phase4-5: Phase 4 の恒久回帰検出器 driver_mapeditor_painting を新規追加",
+    "rev": "08b8b1f",
+    "subject": "sce1-events: 玉座の人質を専用スプライトへ (codex1 納品 post を取り込み)",
     "dirty": false
   },
   "values": {
     "D1-goblin-mine": {
       "nF": 26,
       "nD": 52,
-      "hash": "9fd2cc2c2384"
+      "hash": "583d091f6503"
     },
-    "D2-goblin-mine": "44b1bde1a2fe1ac0",
+    "D2-goblin-mine": "bbd8a9c28c940dd5",
     "D1-bandits-forest": {
       "nF": 26,
       "nD": 37,

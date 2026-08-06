@@ -28,6 +28,7 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const argv = process.argv.slice(2);
@@ -38,6 +39,31 @@ const PORT     = parseInt(arg('port', '8831'), 10);
 // ⚠ path.resolve を通す。生の '/' 区切りのまま持つと path.join が返す '\' 区切りと
 //    startsWith 比較が食い違い、baseline 側が丸ごと 404 になる (負のコントロールが静かに死ぬ)。
 const BASELINE = path.resolve(arg('baseline', 'C:/Users/PC_User/AppData/Local/Temp/df_devgate_baseline'));
+// ⚠⚠ baseline は **96f010d^ = 7bfa00b** (このドライバが検証する dev ゲートが入る直前)。
+//    歴史的事実へのピン留めなので陳腐化しない = 負のコントロール専用の基準 (_golden.js ヘッダ参照)。
+//    ⚠ 旧実装は「既に在るディレクトリ」を前提にし、エラー文で `git worktree add <dir> HEAD --detach`
+//      と案内していた。この案内は **コミット前に走らせたときだけ正しい**。実際 2026-08-06 時点で
+//      df_devgate_baseline が 0c06067 (= driver_dev_gate2 用の rev。本ドライバが測る機能は
+//      **既に入っている**) になっており、(B1)(B2)(B4) が赤いまま安定していた
+//      = 負のコントロールが静かに死んでいた。→ driver_field_step2/step3 と同じく **rev から自分で作る**。
+const BASELINE_REV = arg('baseline-rev', '7bfa00b');
+
+function prepareBaseline() {
+  const marker = path.join(BASELINE, 'tavern.html');
+  if (fs.existsSync(marker)) {
+    let head = '';
+    try { head = execFileSync('git', ['-C', BASELINE, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(); } catch (e) {}
+    if (head && (BASELINE_REV.indexOf(head) === 0 || head.indexOf(BASELINE_REV) === 0)) {
+      console.log('[driver] baseline worktree 再利用: ' + BASELINE + ' @ ' + head);
+      return;
+    }
+    console.log('[driver] baseline worktree が別リビジョン (' + head + ') なので作り直す');
+    try { execFileSync('git', ['-C', ROOT, 'worktree', 'remove', '--force', BASELINE], { encoding: 'utf8' }); } catch (e) {}
+  }
+  console.log('[driver] baseline worktree を作成: ' + BASELINE + ' @ ' + BASELINE_REV);
+  execFileSync('git', ['-C', ROOT, 'worktree', 'add', '--detach', BASELINE, BASELINE_REV],
+               { encoding: 'utf8', stdio: 'pipe' });
+}
 
 function loadPuppeteer() {
   const tried = [];
@@ -146,9 +172,9 @@ const READ_GATE = () => {
 (async () => {
   const puppeteer   = loadPuppeteer();
   const browserPath = findBrowser();
-  if (!fs.existsSync(path.join(BASELINE, 'tavern.html'))) {
-    console.error('[driver] baseline worktree がありません: ' + BASELINE);
-    console.error('[driver]   git worktree add "' + BASELINE + '" HEAD --detach');
+  try { prepareBaseline(); } catch (e) {
+    console.error('[driver] baseline worktree を用意できません: ' + BASELINE + ' @ ' + BASELINE_REV);
+    console.error('[driver]   ' + (e && e.message ? e.message : e));
     process.exit(2);
   }
   const srv = await startServer();

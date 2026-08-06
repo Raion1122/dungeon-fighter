@@ -16,8 +16,15 @@
  *       ・__aoeWideProbe === 0 …「拡張窓のループがそもそも実行されない」の**直接証明**
  *         (STEP6 の「救済発火 0/460」と同じ手。存在しない差分を SHA で追うより強い)
  *       ・全標本で pickAoeOrigin の返り値が **legacy アルゴリズムと完全一致**
- *       ・legacy アルゴリズムの結果が baseline(153667d) ページと**完全一致**
+ *       ・legacy アルゴリズムの結果列が **golden (tools/goldens/field_step7.json)** と完全一致
  *         (= partyInArea / enemiesInArea / マップ / ユニット配置が動いていない)
+ *         ⚠️ 以前は「baseline(153667d) ページと完全一致」で測っていたが、2 部屋化・
+ *            マップ幾何の js/df-mapdef.js 一元化・情景の縮尺リデザインという **意図した**
+ *            幾何変更を挟んだ結果、原理的に成立しなくなり 6 本とも赤いまま安定していた
+ *            (2026-08-06 実測 不一致 1488〜1518/約1820)。根拠は tools/_golden.js のヘッダ。
+ *            意図してマップを動かしたら `--update-golden` で更新し、git diff をレビューして commit する。
+ *            baseline ページは (N) では母集団ガード (標本数が一致する) と参考値だけに降格し、
+ *            負のコントロールとしては (S3)(F)(P) で引き続き使う。
  *   (F) 屋外 (帯 row13-15) で降格率が実際に下がる。改修**前**の降格率を先に測る
  *       (計画書 §5④「100%不発は過大」— 数字で確かめる)。
  *   (G) 射程/LoS ガードが load-bearing である。ガード無しなら射程外へ飛ぶ標本が存在し、
@@ -47,7 +54,9 @@
  *
  * 使い方:
  *   node tools/driver_field_step7.js [--headful] [--browser <path>] [--port N]
- *        [--baseline-rev 153667d] [--samples 400] [--skip-r] [--budget-ms 240000]
+ *        [--baseline-rev 153667d] [--samples 400] [--skip-r] [--budget-ms 240000] [--update-golden]
+ *   ⚠️ --samples を既定 (400) から変えると (N) の指紋が変わる = golden と一致しなくなる。
+ *      golden は既定の標本数で記録すること。
  *   ⚠️ 出力は `| tail` に通さず `> file 2>&1` で直接受けること
  *      (パイプはブロックバッファなので落ちると末尾集計が消える)。
  */
@@ -55,6 +64,7 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -70,6 +80,17 @@ const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_step7_baseli
 const SAMPLES = parseInt(arg('samples', '400'), 10);
 const SKIP_R = flag('skip-r');
 const BUDGET_MS = parseInt(arg('budget-ms', '240000'), 10);
+// ⚠⚠ (N) の「環境不変」だけは **golden** で測る (2026-08-06)。旧実装は
+//    「legacy の結果が baseline(153667d) ページと全標本一致」= 固定コミット比較で、
+//    2 部屋化 / マップ幾何の js/df-mapdef.js 一元化 / 情景の縮尺リデザインなど
+//    **意図した幾何変更を 72 コミット分**挟んだ結果、原理的に成立しなくなり
+//    6 シナリオとも「赤いまま安定」= 何も検出しない検出器になっていた
+//    (実測 不一致 1488〜1518 / 約 1820 標本)。
+//    → tools/_golden.js のルール①どおり、非退行は golden・負のコントロール (S3 等) は
+//      固定コミット、と役割を分ける。baseline ページ自体は S3/F/P で今も使う。
+const UPDATE_GOLDEN = flag('update-golden');
+const G = require('./_golden')('field_step7', { update: UPDATE_GOLDEN });
+const sha16 = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 
 const OUT_DIR = arg('out',
   path.join(os.tmpdir(), 'claude', 'c--Users-PC-User-Desktop------------',
@@ -721,8 +742,12 @@ const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : 'n/a';
       const fixErr = fp.__pageErrors.slice(), baseErr = bp.__pageErrors.slice();
       await fp.close(); await bp.close();
 
-      let neoVsLegacy = 0, cross = 0, tot = 0, castTot = 0;
+      let neoVsLegacy = 0, cross = 0, tot = 0, castTot = 0, baseCast = 0;
       const bad = [];
+      // ★環境 (マップ / ユニット配置 / partyInArea / enemiesInArea) の指紋。
+      //   標本順 × 呪文順に legacy の返り値を連結した列そのものを畳む = 1 標本でも動けば必ず変わる。
+      //   nullParts は「探索が全部空振りした」退化状態の指紋 = golden に焼き付けてはいけない値。
+      const sigParts = [], nullParts = [];
       for (let i = 0; i < Math.min(sFix.length, sBase.length); i++) {
         const A = sFix[i], B = sBase[i];
         if (!A || !B) continue;
@@ -735,12 +760,19 @@ const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : 'n/a';
             neoVsLegacy++;
             if (bad.length < 4) bad.push({ sp: sp.id, i: i, legacy: a.legacy, neo: a.neo });
           }
+          sigParts.push(sp.id + '#' + key(a && a.legacy));
+          nullParts.push(sp.id + '#null');
           if (key(a && a.legacy) !== key(b && b.legacy)) cross++;
+          if (b && b.legacy) baseCast++;
           if (a && a.neo) castTot++;
         }
       }
+      const sigFix = sha16(sigParts.join('|')) + '/' + sigParts.length;
+      const sigNull = sha16(nullParts.join('|')) + '/' + nullParts.length;
+      const nFix = sFix.filter(Boolean).length, nBase = sBase.filter(Boolean).length;
       report.partN.push({ scenarioId: sid, samples: sFix.filter(Boolean).length, comparisons: tot,
         wideProbe: wideProbe, neoVsLegacy: neoVsLegacy, cross: cross, castTot: castTot,
+        legacySig: sigFix,
         isFieldTheme: info.isFieldTheme, wideWindow: info.wideWindow, baselineIsField: binfo.isFieldTheme });
 
       check('(N-' + sid + ') 屋外テーマではない', info.isFieldTheme === false,
@@ -754,8 +786,31 @@ const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : 'n/a';
       check('(N-' + sid + ') ★pickAoeOrigin が legacy と全標本一致',
         neoVsLegacy === 0, '不一致 ' + neoVsLegacy + '/' + tot +
         (bad.length ? '  例: ' + JSON.stringify(bad[0]) : ''));
-      check('(N-' + sid + ') ★legacy の結果が baseline ページと全標本一致 (環境不変)',
-        cross === 0, '不一致 ' + cross + '/' + tot);
+      // ★環境不変。旧: 「baseline(153667d) ページと全標本一致」= 固定コミット比較で自己失効していた
+      //   (2 部屋化 / 幾何の外部化 / 情景の縮尺リデザインは**意図した**変更なので、
+      //    比較相手を歴史に固定した瞬間に永久に赤くなる)。measurement は同じ (legacy の返り値列) まま、
+      //    基準だけを golden へ移した。⚠ 意図してマップを動かしたら --update-golden で更新して commit。
+      G.check(check, '(N-' + sid + ') ★legacy の結果列が golden と一致 (環境不変)',
+        'N-' + sid, sigFix);
+      // ★退化状態ガード: 「探索が全部空振り (全 null)」の指紋と**一致しない**ことを要求する。
+      //   golden 方式の最大の危険は壊れた状態を焼き付けること。ここは identity で測る。
+      //   ⚠️ `G.distinct` を 6 シナリオに掛けるのは**誤り**だった (2026-08-06 に実測して判明):
+      //      6 ダンジョンは js/df-mapdef.js の DEFAULT_DUNGEON を共有していて **幾何が完全に同一**、
+      //      違うのはテーマ画とスポーン表だけ。ロスターが等価な orc-fort / undead-temple /
+      //      dragon-lair は legacy の返り値まで一致するのが**正常**で、6 件中 4 種になる。
+      //      (_golden.js ヘッダの「distinct を掛ける母集団を間違えない」に該当)
+      check('(N-' + sid + ') 指紋が「全 null」の退化状態と異なる (壊れた状態を golden に焼かない)',
+        sigFix !== sigNull && castTot > 0, 'sig=' + sigFix + ' null=' + sigNull);
+      // 母集団ガード: baseline ページ側のハーネスが生きていること。golden 化で baseline は
+      // (N) の判定から外れたので、ここが無いと「baseline が丸ごと 404 でも気づかない」状態になる。
+      // ⚠ 「標本数が作業ツリーと一致」で書くのは**誤り** (2026-08-06 に実測):
+      //   153667d の地形では合成レイアウトが置けない標本が出るので goblin-mine が 399/400 になる。
+      //   地形が違うのは前提なので、**baseline 側が実際に探索結果を返しているか**で測る。
+      //   cross は数字として報告するだけにする (歴史との差は意図した変更ぶんだけ出るのが正しい)。
+      check('(N-' + sid + ') baseline ページ側も実際に探索結果を返している (比較ハーネスが生きている)',
+        baseCast > 0 && nBase > 0, 'baseline 返り値あり ' + baseCast + '/' + tot +
+        ' (標本 ' + nBase + '/' + nFix + ')' +
+        ' (参考: 歴史 ' + BASELINE_REV + ' との返り値差 ' + cross + '/' + tot + ' = 意図したマップ変更ぶん)');
       check('(N-' + sid + ') pageerror 0', fixErr.length === 0 && baseErr.length === 0,
         (fixErr.concat(baseErr).slice(0, 2).join(' | ')) || 'none');
     }
@@ -943,6 +998,10 @@ const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : 'n/a';
   try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
   const outFile = path.join(OUT_DIR, 'field_step7_metrics.json');
   try { fs.writeFileSync(outFile, JSON.stringify(report, null, 1)); console.log('\n[drv] 実測値 JSON: ' + outFile); } catch (e) {}
+
+  // ⚠⚠ golden の finish は **必ず `const pass = …` より前**に置く。後ろに置くと results には
+  //    積まれるのに pass に数えられず「N-1/N PASS なのに FAILED 一覧が空」という出方をする。
+  G.finish(check);
 
   const pass = results.filter(r => r.ok).length;
   console.log('\n=== driver_field_step7  ' + pass + '/' + results.length + ' PASS ===');
