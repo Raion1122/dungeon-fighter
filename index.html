@@ -1327,9 +1327,10 @@
     /* ══ [sce1-events] 縛られた従者 (EV-5 の横穴 / EV-9 の玉座) ═════════════════
      * 檻 (.roomCage) と同型の「タイルに固定された装飾 DOM」。敵でも味方でもないので
      * 戦闘ロジック・クリア判定・当たり判定には一切載らない (pointer-events も殺す)。
-     * ⚠ 2 状態でシートが違う: bound は **専用素材** (縄が絵に描き込まれている)、
-     *   hanging は歩き素材 + CSS の縄という **暫定表現**。吊るされ姿は codex1 の画像生成が
-     *   安全判定で拒否したため未納品 (2026-08-06)。届いたら hanging も bound と同じ形に揃える。
+     * ⚠ 2 状態でシートが違うが、どちらも **専用素材** (縄が絵に描き込まれている)。
+     *   bound = 横穴で縛られて座らされている / hanging = 玉座の脇で柱に縛りつけられて立つ。
+     *   ⚠ クラス名 hanging は絵が「吊るされ」から「柱」に変わっても据え置く — 検出器と
+     *   sce1CaptiveEl.className の 2 系統が見ているため (中身だけ 2026-08-06 に差し替えた)。
      * ⚠ 状態クラス (bound / hanging) が無いと背景画像が付かない = 何も見えない。
      *   className は生成時と玉座移送時の 2 箇所でしか触らないので、そこを崩さないこと。 */
     .sce1Captive {
@@ -1354,28 +1355,15 @@
       from { background-position: 0 -288px; }
       to   { background-position: -576px -288px; }
     }
-    /* 玉座の脇: 天井から垂らされた縄で吊るされている (暫定 = 歩き素材の静止コマ + CSS の縄) */
+    /* 玉座の脇: 地面に立てられた柱に、後ろ手で縛りつけられて立たされている。
+     * bound と同じく **柱・縄・結び目はすべて専用素材に描き込まれている**ので、CSS の線は
+     * 一切足さない (旧 hanging は歩き素材 + CSS の縄だったが、96px では細い矩形が
+     * 「明るい棒」にしか見えず縛めとして読めなかった — bound で 3 回失敗して確定した教訓)。
+     * ⚠ 揺れ (旧 sce1CaptiveSway の rotate) は削除した — 足の裏が地面に着いているので
+     *   揺れると接地が嘘になる。bound と同じ steps(6) の身じろぎだけを回す。 */
     .sce1Captive.hanging {
-      background-image: url("assets/servant_walk.png");
-      transform-origin: 50% 6%;       /* 吊られている前提で頭上を支点に揺らす */
-      animation: sce1CaptiveSway 3.4s ease-in-out infinite;
-    }
-    @keyframes sce1CaptiveSway {
-      0%, 100% { transform: rotate(-1.6deg); }
-      50%      { transform: rotate(1.6deg); }
-    }
-    /* 胴の縛め: 細い縄を胴の幅だけに回す (暫定表現の hanging 専用)。
-     * ⚠ 幅と位置は素材の実測に合わせてある — pack 時の fit が left=30 / right=67 なので、
-     *   セル内で身体が占めるのは x=30〜67 の 37px。ここを外すと縄が身体から浮く。 */
-    .sce1Captive.hanging::after {
-      content: ""; position: absolute; left: 39px; width: 17px; top: 55px; height: 3px;
-      background: linear-gradient(180deg,
-        rgba(171,142,92,0.95) 0 1px, rgba(96,72,40,0.95) 1px 100%);
-    }
-    /* ⚠ height は頭 (セル内 y≈34) まで届かせる — 途中で切ると縄が宙に浮いて見える。 */
-    .sce1Captive.hanging::before {
-      content: ""; position: absolute; left: 48px; top: -40px; width: 3px; height: 76px;
-      background: linear-gradient(180deg, rgba(150,126,84,0.2), rgba(196,166,110,0.95));
+      background-image: url("assets/servant_post.png");
+      animation: sce1CaptiveIdle 1.8s steps(6) infinite;
     }
     .roomCage {
       width: 192px;
@@ -20201,8 +20189,8 @@
     //   ⚠ tunnel → throne は **2 経路**要る:
     //     ① EV-5 で「迂回する」を選んだ時 (ナレ「坑道の奥へ引きずられていく音」と同期させる)
     //     ② EV-9 が発火した時 — EV-5 に**一度も近づかずに**ボス部屋へ直行できるため。
-    //        ②が無いと横穴に置き去りの人形が残り、玉座の「縄で吊るされた人影」と矛盾する。
-    //   ⚠ "gone" は救出だけでなく**人質の死亡**でも入る (縄から落ちた = もう吊るされていない)。
+    //        ②が無いと横穴に置き去りの人形が残り、玉座の「柱に縛りつけられた人影」と矛盾する。
+    //   ⚠ "gone" は救出だけでなく**人質の死亡**でも入る (縄が解け崩れ落ちた = もう柱に立っていない)。
     let sce1CaptiveEl = null;
     let sce1CaptiveState = "none";   // none / tunnel / throne / gone
 
@@ -20252,7 +20240,7 @@
     function moveSce1CaptiveToThrone() {
       if (sce1CaptiveState !== "tunnel") return false;
       sce1CaptiveState = "throne";
-      if (sce1CaptiveEl) sce1CaptiveEl.className = "sce1Captive hanging";   // 座らされ → 吊るされ
+      if (sce1CaptiveEl) sce1CaptiveEl.className = "sce1Captive hanging";   // 座らされ → 柱に縛りつけ
       return true;
     }
     function hideSce1Captive() {
@@ -20433,7 +20421,7 @@
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「突撃」) が「判定なし(確定)」。
     const SCE1_GRIX_CHECKS = {
       0: { check: "persuasion", title: "説得判定", classes: SCE1_GRIX_PERSUADE_CLASSES,
-           flavor: "縄に吊るされた男を指し、解放と引き換えの道を説く…",
+           flavor: "柱に縛りつけられた男を指し、解放と引き換えの道を説く…",
            flavorRescued: "空になった縄を指し、もう脅す手札は無いのだと突きつける…" },
       1: { check: "deception",  title: "欺瞞判定", classes: SCE1_GRIX_DECEIVE_CLASSES,
            flavor: "空の背嚢を掲げ、荷はすべてここにあると言い切る…" },
@@ -20447,7 +20435,7 @@
     function sce1GrixHeadline() {
       return sceneFlags.servant_rescued
         ? "玉座のグリクスが、空の縄を見て顔色を変えた。"
-        : "玉座の脇に、縄で吊るされた人影。グリクスがこちらを見て笑う。";
+        : "玉座の脇に、柱に縛りつけられた人影。グリクスがこちらを見て笑う。";
     }
 
     // ボス部屋の矩形。★添字ではなく **ROOMS の末尾** で取る (ボス部屋 = ROOMS.length-1 が
@@ -20626,10 +20614,10 @@
           showBanner("🪢 人質を盾にされた!", 1500);
           sayLine("sce1_hostage_shield", boss);
         }
-        updateInfo(`グリクスは縄ごと ${nm} を引き寄せた! ${dmg} ダメージを肩代わり (人質 ${hostageServantHp}/${SCE1_HOSTAGE_HP_MAX})`);
+        updateInfo(`グリクスは柱の陰に身を寄せ ${nm} を盾にした! ${dmg} ダメージを肩代わり (人質 ${hostageServantHp}/${SCE1_HOSTAGE_HP_MAX})`);
       } else if (!hostageDownNarrated) {
         hostageDownNarrated = true;
-        hideSce1Captive();                   // ★縄から崩れ落ちた = 吊るされた姿はもう無い
+        hideSce1Captive();                   // ★縄が解け崩れ落ちた = 柱に立つ姿はもう無い
         showBanner("🕯 人質が倒れた…", 1800);
         updateInfo(`${nm} は最後の一撃を肩代わりして崩れ落ちた — グリクスはもう盾を持たない`);
         sayLine("sce1_hostage_down");        // 話者=生存パーティ (従者はユニットではないので喋れない)
