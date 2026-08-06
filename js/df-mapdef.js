@@ -1031,6 +1031,12 @@
     objective: { kind: "visitRooms", count: null },          // null = 従来式 rooms.length-1
     tiles: null,                                             // Phase 3: { enc:"rle", data:"..." }
     props: null,                                             // Phase 6: [{kind,variant,tx,ty}, …]
+    /* ★P2 (分岐マップ): { entry, nodes:[{id,kind,mapDef,exits}] } | null。
+     * ⚠⚠ プリセット literal 側にも**書かなければならない**。sanitize が out に graph:null を
+     *   作るので、ここに無いと driver_mapeditor §4 2c/2d の「往復後の mapDef が
+     *   DEFAULT_DUNGEON と deep-equal」が**キーの有無だけで**落ちる
+     *   (tiles / props とまったく同じ理由でこの 1 行が要る)。 */
+    graph: null,
     flags: { bandMask: false },
   };
 
@@ -1054,6 +1060,9 @@
     objective: { kind: "visitRooms", count: null },
     tiles: null,
     props: null,
+    graph: null,                                             // ★P2 (分岐マップ)。DEFAULT_DUNGEON の注記を参照
+    /* ⚠ 屋外 (caravan-road) は分岐対象外。bandMask が row13-15 以外を全潰しするので上下分岐と
+     *   原理的に非互換 (resolve() が既に屋外×カスタム幾何を排他にしている)。ここは常に null。 */
     // 屋外は row 13-15 以外を潰す帯マスクが掛かる (index.html:3323-3328)。
     // ⚠ カスタム幾何との相互作用が複雑なので、項目5 の lint で排他にする予定。
     flags: { bandMask: true },
@@ -1085,6 +1094,12 @@
        *   既定プリセット 2 種も props:null なので、driver_mapeditor §4 2c/2d の
        *   往復同一性 deep-equal は 1 バイトも変わらない (最重要の不変条件)。 */
       props: null,
+      /* ★P2 (分岐マップ): tiles とまったく同じ流儀。オブジェクトなら clone、それ以外は null。
+       * ⚠ ここで**中身を検査しない**のも tiles と同じ。壊れた graph は null へ潰さず素通しさせ、
+       *   「未指定」と「壊れている」を validate() の graph-bad が区別して知らせる
+       *   (ここで潰すと壊れたデータが黙って矩形進行へ落ちる = silent fail-open)。
+       * ⚠ 既定プリセット 2 種も graph:null なので往復同一性 deep-equal は 1 バイトも変わらない。 */
+      graph: (d.graph && typeof d.graph === "object") ? clone(d.graph) : null,
       flags: { bandMask: false },
     };
     var W = out.grid.w, H = out.grid.h;
@@ -1251,6 +1266,16 @@
      *   この行を足しても既存のマップは 1 つも赤くならない (= 装置が信用を失わない)。 */
     var ti = expandTilesInfo(d);
     if (ti.present && !ti.map) bad("tiles-bad", "tiles を展開できません: " + ti.reason);
+
+    /* ★P2 項目(a): graph があるのに解釈できない = tiles-bad とまったく同じ **silent fail-open の入口**。
+     *   黙って「分岐なしの単一マップ」へ落ちると「動くが別のゲーム」になる。
+     * ⚠ graph が**未指定** (null / undefined / キーごと無い) はエラーではない。既定プリセット 2 種も
+     *   既存 6 シナリオも graph:null なので、この行を足しても既存のマップは 1 つも赤くならない
+     *   (= 検査装置が信用を失わない)。tiles-bad の判断と 1 対 1 に対応している。
+     * ⚠ graphInfo に渡すのは **d.graph** (グラフそのもの) であって d ではない。d を渡すと
+     *   「graph キーを持たない旧 mapDef」を graph だと誤認して全部 graph-bad になる。 */
+    var gr = graphInfo(d && d.graph);
+    if (gr.present && !gr.graph) bad("graph-bad", "graph を解釈できません: " + gr.reason);
 
     return done();
   }
@@ -2267,6 +2292,327 @@
     return done();
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★P2 — ゲームブック風 分岐マップ: グラフ (run) の純関数
+   * ══════════════════════════════════════════════════════════════════════════
+   * 「1 ノード = 独立した 1 マップ / 分岐は**行き止まりありの木** / 枝は合流しない」
+   * という企画の骨格 (ユーザー決定 2026-08-06) を、データとして検査可能にするための層。
+   *
+   * ★ここは**純関数だけ**。DOM・state・乱数に触れず、引数も 1 バイトも書き換えない
+   *   (lintMapDef と同じ契約。何度呼んでも run が変わらない)。
+   *
+   * ★run (潜行 = グラフ全体) の形:
+   *     run = { entry:"n0",
+   *             nodes:[ { id:"n0", kind:"start", mapDef:{…df-map/1…},
+   *                       exits:[ { to:"n1", dir:"up", at:[33,7], hint:{text:"…"} }, … ] }, … ] }
+   *
+   * | フィールド | 意味 | 設計理由 |
+   * |---|---|---|
+   * | id   | 安定識別子 | **添字ではなく id**。並べ替えでノード状態やイベント台帳が壊れない |
+   * | kind | start/combat/search/loot/rest/event/boss | スポーン内容と除外集合を決める |
+   * | at   | 矢印を置き、そこへ歩かせる**床タイル** | 導出にしない (焼き固めマップでは廊下が矩形として存在せず導出が破綻する) |
+   * | dir  | up/down/left/right | 省略可。明示したら幾何と食い違わないか lint が warning |
+   * | hint | { text } | データは「意味」、表現はゲーム側の台帳 (painting が {theme,key} 参照なのと同じ流儀) |
+   *
+   * ⚠⚠ **親への戻り (引き返す) はデータに書かない**。木構造なので親は常に 1 つで、
+   *   ランタイムが parentOf() から自動生成する。手書きすると必ず食い違う。
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  var GRAPH_DIRS = { up: 1, down: 1, left: 1, right: 1 };
+  /* kind の在庫。⚠ **未知の kind は落とさない**。fixSlot の未知の敵キー / fixPainting の未知テーマと
+   *   まったく同じ判断で、ゲーム側に種類が増えたとき古いデータが黙って壊れるのが最悪。
+   *   「在庫に無い」ことは lint の graph-kind-role が知らせるだけにする。 */
+  var GRAPH_KINDS = { start: 1, combat: 1, search: 1, loot: 1, rest: 1, event: 1, boss: 1 };
+
+  /* graphInfo(src) -> { present, graph, reason }
+   *   present … graph が「指定されている」か (未指定なら present:false / graph:null / reason:null)
+   *   graph   … 正規化して clone した run | null
+   *   reason  … 解釈できなかった理由の日本語 (present && !graph のときだけ非 null)
+   *
+   * ⚠⚠ **expandTilesInfo とまったく同じ流儀**。「未指定」と「壊れている」を厳密に区別する。
+   *   expandTiles のように両方 null を返す関数は作らない: 呼び出し側が単純に書けるのと
+   *   引き換えに **silent fail-open** (壊れた分岐を黙って無視して単一マップへ落ちる) が
+   *   復活するため。判断が要る場所は必ずこの 3 つ組を見ること。
+   *
+   * ⚠ 引数は「グラフそのもの」。mapDef を渡してはいけない (validate の注記を参照)。
+   *   null / undefined **だけ**が未指定 = fail-closed (文字列や数値は「壊れている」)。
+   *
+   * ★正規化して clone を返す理由: ランタイムが exits を書き換えても sessionStorage の
+   *   ペイロードが汚れない + 欠けた dir/hint を毎回その場で埋める分岐を書かずに済む。 */
+  function graphInfo(src) {
+    if (src === null || src === undefined) return { present: false, graph: null, reason: null };
+    function bad(reason) { return { present: true, graph: null, reason: reason }; }
+    if (typeof src !== "object" || Array.isArray(src)) return bad("graph がオブジェクトではありません");
+    if (!Array.isArray(src.nodes) || src.nodes.length === 0) return bad("nodes が空です");
+
+    var i, j, ids = {}, n;
+    for (i = 0; i < src.nodes.length; i++) {
+      n = src.nodes[i];
+      if (!n || typeof n !== "object" || Array.isArray(n)) return bad("nodes[" + i + "] がオブジェクトではありません");
+      if (typeof n.id !== "string" || !n.id) return bad("nodes[" + i + "] に id (非空の文字列) がありません");
+      if (ids[n.id] !== undefined) return bad('ノード id "' + n.id + '" が重複しています');
+      ids[n.id] = i;
+    }
+    if (typeof src.entry !== "string" || !src.entry) return bad("entry (非空の文字列) がありません");
+    if (ids[src.entry] === undefined) return bad('entry "' + src.entry + '" が nodes に存在しません');
+
+    var out = { entry: src.entry, nodes: [] };
+    for (i = 0; i < src.nodes.length; i++) {
+      n = src.nodes[i];
+      var raw = Array.isArray(n.exits) ? n.exits : [], exits = [], seenTo = {};
+      for (j = 0; j < raw.length; j++) {
+        var e = raw[j], where = 'ノード "' + n.id + '" の exits[' + j + ']';
+        if (!e || typeof e !== "object" || Array.isArray(e)) return bad(where + " がオブジェクトではありません");
+        if (typeof e.to !== "string" || !e.to) return bad(where + " に to がありません");
+        if (ids[e.to] === undefined) return bad(where + ' の to "' + e.to + '" が nodes に存在しません');
+        if (e.to === n.id) return bad(where + " が自分自身を指しています (自己ループ)");
+        if (seenTo[e.to]) return bad(where + ' が "' + e.to + '" への 2 本目の出口です (多重辺)');
+        seenTo[e.to] = 1;
+        if (!Array.isArray(e.at) || e.at.length < 2 || !isNum(e.at[0]) || !isNum(e.at[1]))
+          return bad(where + " の at が [tx, ty] ではありません");
+        exits.push({
+          to: e.to,
+          dir: GRAPH_DIRS[e.dir] ? e.dir : null,          // 未指定/未知は null = 幾何から導出させる
+          at: [Math.round(e.at[0]), Math.round(e.at[1])],
+          hint: (e.hint && typeof e.hint === "object" && !Array.isArray(e.hint)) ? clone(e.hint) : null,
+        });
+      }
+      out.nodes.push({
+        id: n.id,
+        kind: (typeof n.kind === "string" && n.kind) ? n.kind : "combat",
+        /* ⚠ mapDef は**ここで sanitize しない**。sanitize は「df-map/1 として整える」責務で、
+         *   validate を通さずに整えると壊れた mapDef が黙って通る (resolve() が
+         *   「validate は sanitize の前に掛ける」としているのと同じ理由)。ランタイムは
+         *   このまま DFMapDef.resolve({mapDef: …}) へ渡し、既存の検査経路を再利用する。 */
+        mapDef: (n.mapDef && typeof n.mapDef === "object" && !Array.isArray(n.mapDef)) ? clone(n.mapDef) : null,
+        exits: exits,
+      });
+    }
+    return { present: true, graph: out, reason: null };
+  }
+
+  /* nodeIndexById(graph) -> { id -> index } */
+  function nodeIndexById(graph) {
+    var m = {};
+    if (!graph || !Array.isArray(graph.nodes)) return m;
+    for (var i = 0; i < graph.nodes.length; i++) m[graph.nodes[i].id] = i;
+    return m;
+  }
+
+  /* parentOf(graph) -> { map, multi, reach, order, entryParents, edgeCount }
+   *
+   * ⚠ 計画書の表記は `parentOf(graph) -> { childId -> parentId }` だが、実装は
+   *   **その map を .map に入れた包み**を返す。理由は「木の検査も兼ねる」という要求を
+   *   1 回の走査で満たすため:
+   *     ・素の map だけを返すと「親が 2 つある」を lint 側でもう一度数える羽目になり、
+   *       **判定式が 2 本**になる (この repo が繰り返し禁じている壊れ方。boss-count を
+   *       lintMapDef が validate から再利用しているのと同じ判断)。
+   *   ランタイムの「引き返す」は `parentOf(g).map[childId]` で引く。
+   *
+   *   map          … childId -> parentId (親が複数なら nodes 順で最初の 1 つ = 決定論)
+   *   multi        … [{ id, parents:[…] }] 親が 2 つ以上 = **木でない**
+   *   entryParents … entry を指している親 (1 つでもあれば閉路 = 木でない)
+   *   reach        … entry からの到達集合 { id:true }
+   *   order        … 到達順 (BFS)。⚠ 「親が居る」と「到達できる」は別物 (孤立した輪は親を持つ)
+   *   edgeCount    … 辺の総数 */
+  function parentOf(graph) {
+    var out = { map: {}, multi: [], reach: {}, order: [], entryParents: [], edgeCount: 0 };
+    if (!graph || !Array.isArray(graph.nodes)) return out;
+    var i, j, all = {}, id;
+    for (i = 0; i < graph.nodes.length; i++) all[graph.nodes[i].id] = [];
+    for (i = 0; i < graph.nodes.length; i++) {
+      var n = graph.nodes[i];
+      for (j = 0; j < n.exits.length; j++) {
+        var to = n.exits[j].to;
+        if (!all[to]) continue;                        // graphInfo を通っていれば起きない
+        out.edgeCount++;
+        if (all[to].indexOf(n.id) < 0) all[to].push(n.id);
+      }
+    }
+    for (i = 0; i < graph.nodes.length; i++) {         // ⚠ for-in ではなく nodes 順 = 決定論
+      id = graph.nodes[i].id;
+      if (all[id].length >= 1) out.map[id] = all[id][0];
+      if (all[id].length >= 2) out.multi.push({ id: id, parents: all[id].slice() });
+    }
+    out.entryParents = all[graph.entry] ? all[graph.entry].slice() : [];
+
+    var idx = nodeIndexById(graph), q = [];
+    if (idx[graph.entry] !== undefined) { out.reach[graph.entry] = true; q.push(graph.entry); }
+    while (q.length) {
+      var cur = q.shift();
+      out.order.push(cur);
+      var nd = graph.nodes[idx[cur]];
+      for (j = 0; j < nd.exits.length; j++) {
+        var t = nd.exits[j].to;
+        if (!out.reach[t]) { out.reach[t] = true; q.push(t); }
+      }
+    }
+    return out;
+  }
+
+  /* 出口の向きを**幾何から**導く。rect は [r1,c1,r2,c2]、at は [tx,ty]。
+   * 部屋の中心から見て「横のずれの方が大きければ left/right、縦なら up/down」。 */
+  function dirFromGeometry(rect, at) {
+    var midR = (rect[0] + rect[2]) / 2, midC = (rect[1] + rect[3]) / 2;
+    var dx = at[0] - midC, dy = at[1] - midR;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "right" : "left";
+    return dy >= 0 ? "down" : "up";
+  }
+
+  /* lintRun(run) -> { ok, errors, warnings }
+   *
+   * ⚠ **lintMapDef と同じ器**にする (計画書「lintMapDef と同じ器に足す」)。issue の形は
+   *   lintIssue と共通の { code, severity, message, at, roomIndex } + **nodeId** の 1 本だけ。
+   *   計画書の速記 `[{code, level, msg}]` に合わせて 2 つ目の形を発明すると、ドライバも
+   *   エディタも「どちらの形か」で分岐する羽目になり、必ず片方が腐る。
+   *
+   * codes:
+   *   error   graph-bad / graph-not-tree / graph-unreachable-node / graph-no-boss /
+   *           graph-gate-not-floor / graph-entry-start
+   *   warning graph-dir-mismatch / graph-dead-end-empty / graph-kind-role
+   *
+   * ⚠ **graph が未指定なら何も言わない** (errors:[] / warnings:[])。既存 6 シナリオは
+   *   graph を持たないので、この装置は 1 件も発火しない = 装置が信用を失わない。 */
+  function runIssue(code, severity, message, nodeId, at) {
+    var it = lintIssue(code, severity, message, at, null);
+    it.nodeId = (typeof nodeId === "string" && nodeId) ? nodeId : null;
+    return it;
+  }
+  function lintRun(run) {
+    var errors = [], warnings = [], i, j;
+    function err(code, msg, nodeId, at) { errors.push(runIssue(code, "error", msg, nodeId, at)); }
+    function warn(code, msg, nodeId, at) { warnings.push(runIssue(code, "warning", msg, nodeId, at)); }
+    function done() { return { ok: errors.length === 0, errors: errors, warnings: warnings }; }
+
+    var gi = graphInfo(run);
+    if (!gi.present) return done();                    // 未指定 = 分岐なし。正常
+    if (!gi.graph) { err("graph-bad", "分岐グラフを解釈できません: " + gi.reason, null, null); return done(); }
+
+    var g = gi.graph, po = parentOf(g), idx = nodeIndexById(g);
+
+    // ── ① 木であること (親が 2 つ以上 / entry に戻る辺 / 辺数) ──────────────────
+    //   ★「枝は合流しない」がユーザー決定の骨格。合流すると「引き返す」の行き先が
+    //     一意に決まらず、ランタイムの自動生成 (parentOf) が嘘をつく。
+    for (i = 0; i < po.multi.length; i++)
+      err("graph-not-tree",
+          'ノード "' + po.multi[i].id + '" に親が ' + po.multi[i].parents.length + ' つあります (' +
+          po.multi[i].parents.join(" / ") + ") — 分岐は**行き止まりありの木**なので枝は合流できません。" +
+          "「引き返す」の行き先が一意に決まらず、ランタイムが自動生成する親への出口が嘘になります",
+          po.multi[i].id, null);
+    if (po.entryParents.length)
+      err("graph-not-tree",
+          'entry ノード "' + g.entry + '" を指している出口があります (' + po.entryParents.join(" / ") +
+          ") — 閉路があると木ではありません", g.entry, null);
+
+    // ── ② 到達可能性 ────────────────────────────────────────────────────────
+    for (i = 0; i < g.nodes.length; i++) {
+      if (po.reach[g.nodes[i].id]) continue;
+      err("graph-unreachable-node",
+          'ノード "' + g.nodes[i].id + '" が entry "' + g.entry + '" から到達できません — ' +
+          "このノードの中身 (敵・宝箱・イベント) には一生たどり着けません",
+          g.nodes[i].id, null);
+    }
+
+    // ── ③ boss ノードが到達集合の中にあること ────────────────────────────────
+    //   ★クリア条件 objective.kind:"defeatBoss" の唯一の終着点。到達できないと**永久にクリアしない**。
+    var bossIds = [];
+    for (i = 0; i < g.nodes.length; i++) if (g.nodes[i].kind === "boss") bossIds.push(g.nodes[i].id);
+    if (!bossIds.length)
+      err("graph-no-boss", 'kind:"boss" のノードが 1 つもありません — ' +
+          "ボス撃破でクリアする進行なので、この潜行は永久に終わりません", null, null);
+    else {
+      var reachedBoss = false;
+      for (i = 0; i < bossIds.length; i++) if (po.reach[bossIds[i]]) reachedBoss = true;
+      if (!reachedBoss)
+        err("graph-no-boss", 'kind:"boss" のノード (' + bossIds.join(" / ") +
+            ") が entry から到達できません — ボスに会えないので永久にクリアしません", bossIds[0], null);
+    }
+
+    // ── ④ ノードごとの幾何検査 ───────────────────────────────────────────────
+    for (i = 0; i < g.nodes.length; i++) {
+      var node = g.nodes[i];
+      var d = sanitize(node.mapDef || DEFAULT_DUNGEON, DEFAULT_DUNGEON);
+      var map = buildMapData(d), W = d.grid.w, H = d.grid.h, rooms = d.rooms;
+
+      /* ★entry の起点だけは「部屋の中にあるか」を見る。他のノードは来た方向の反対側の縁へ
+       *   置かれる (start は使われない) ので、ここで見ても嘘になる。 */
+      if (node.id === g.entry) {
+        var inRoom = false;
+        for (j = 0; j < rooms.length; j++) {
+          var rr = rooms[j].rect;
+          if (d.start.ty >= rr[0] && d.start.ty <= rr[2] && d.start.tx >= rr[1] && d.start.tx <= rr[3]) inRoom = true;
+        }
+        if (!inRoom)
+          err("graph-entry-start",
+              'entry ノード "' + node.id + '" の起点 (tx' + d.start.tx + ", ty" + d.start.ty +
+              ") がどの部屋の中にもありません — パーティが部屋の外 (廊下や岩盤の際) から始まり、" +
+              "1 枚絵の外・visitedRooms の外に立つことになります",
+              node.id, [d.start.tx, d.start.ty]);
+      }
+
+      for (j = 0; j < node.exits.length; j++) {
+        var ex = node.exits[j], tx = ex.at[0], ty = ex.at[1];
+        var outside = (tx < 0 || tx >= W || ty < 0 || ty >= H);
+        if (outside || map[ty][tx] === T_WALL) {
+          err("graph-gate-not-floor",
+              'ノード "' + node.id + '" の "' + ex.to + '" への出口 (tx' + tx + ", ty" + ty + ") が" +
+              (outside ? "マップの外にあります" : "壁/岩盤 (値2) の上にあります") +
+              " — heroAI がそこへ歩けず、到達検出が永久に発火しないので分岐が詰みます",
+              node.id, ex.at);
+          continue;                                    // 壁なら向きの検査は無意味
+        }
+        // dir を明示したときだけ、幾何と食い違わないかを見る (warning)
+        //   ★矢印の向きと実際の移動方向がズレる事故を構造的に潰すための装置。
+        if (!ex.dir) continue;
+        var host = null;
+        for (var k = 0; k < rooms.length; k++) {
+          var q = rooms[k].rect;
+          if (ty >= q[0] && ty <= q[2] && tx >= q[1] && tx <= q[3]) { host = q; break; }
+        }
+        if (!host) continue;                           // 部屋の外の出口は基準が無いので黙る
+        var geo = dirFromGeometry(host, ex.at);
+        if (geo !== ex.dir)
+          warn("graph-dir-mismatch",
+               'ノード "' + node.id + '" の "' + ex.to + '" への出口は dir:"' + ex.dir +
+               '" と書かれていますが、部屋の中心から見た幾何は "' + geo + '" です (tx' + tx + ", ty" + ty +
+               ") — 矢印の向きと実際に歩く方向が食い違って見えます", node.id, ex.at);
+      }
+
+      /* ⑤ 行き止まりなのに中身が無い (warning)。kind:"search" の行き止まり = 完全な無駄足。
+       *   ⚠ error にしない: 「外れを引いたら引き返す」は企画の骨格で、無駄足そのものは仕様。
+       *     ここが言うのは「**探索する物が何も無い**探索ノード」という設計ミスだけ。 */
+      if (node.exits.length === 0 && node.kind === "search")
+        warn("graph-dead-end-empty",
+             'ノード "' + node.id + '" は kind:"search" の行き止まりです — 探索の当たりも外れも' +
+             "無いまま引き返すだけになります (loot / event / rest のどれかにするか、出口を足してください)",
+             node.id, null);
+
+      /* ⑥ kind と mapDef の役割の食い違い (warning)。
+       * ⚠ role:"boss" の部屋は validate が**全 mapDef にちょうど 1 つ**要求するので、
+       *   role の有無では区別できない。区別できる唯一の実体は **bossSlot** (= ボスが湧くか)。
+       *   計画書の「kind:"boss" と role:"boss" の不一致」はこの意味に解釈した。 */
+      var hasBossSlot = false;
+      for (j = 0; j < rooms.length; j++) if (rooms[j].bossSlot) hasBossSlot = true;
+      if (node.kind === "boss" && !hasBossSlot)
+        warn("graph-kind-role",
+             'ノード "' + node.id + '" は kind:"boss" ですが、mapDef にボススロットがありません — ' +
+             "ボスが湧かないので、このノードを片付けてもクリア条件 (ボス撃破) が満たされません",
+             node.id, null);
+      if (node.kind !== "boss" && hasBossSlot)
+        warn("graph-kind-role",
+             'ノード "' + node.id + '" は kind:"' + node.kind + '" ですが、mapDef にボススロットがあります — ' +
+             "道中のノードにボスが湧きます (kind を boss にするか、bossSlot を外してください)",
+             node.id, null);
+      if (!GRAPH_KINDS[node.kind])
+        warn("graph-kind-role",
+             'ノード "' + node.id + '" の kind "' + node.kind + '" は在庫にありません (' +
+             Object.keys(GRAPH_KINDS).join(" / ") + ") — ゲーム側は既定の中身で扱います",
+             node.id, null);
+    }
+
+    return done();
+  }
+
   global.DFMapDef = {
     SCHEMA: SCHEMA,
     GRID_W: GRID_W, GRID_H: GRID_H, GRID_TILE: GRID_TILE,
@@ -2312,6 +2658,24 @@
 
     lintMapDef: lintMapDef,                 // ★項目5: 出発前 lint (純粋関数・副作用なし)
     LINT_PAINTING_ASPECTS: LINT_PAINTING_ASPECTS,
+
+    /* ── ★P2: ゲームブック風 分岐マップ (run = 潜行 = グラフ全体) ────────────────
+     *   graphInfo(graph)      … { present, graph, reason } ← ★**判断が要るときは必ずこれ**
+     *                            (expandTilesInfo と同じ流儀。「未指定」と「壊れている」を厳密に区別)
+     *   nodeIndexById(graph)  … { id -> index }
+     *   parentOf(graph)       … { map:{child->parent}, multi, reach, order, entryParents, edgeCount }
+     *                            ⚠ 「引き返す」は map から引く。木の検査もここが**唯一の出所**
+     *   lintRun(run)          … { ok, errors, warnings }。lintMapDef と**同じ器**の issue
+     *   dirFromGeometry(rect, at) … 出口の向きを幾何から導く (lint と本編で式を 2 本持たないため公開)
+     *  ⚠⚠ 壊れた graph を黙って「分岐なし」へ落とすのは silent fail-open =「動くが別のゲーム」。
+     *    validate() は graph が**あるのに解釈できないときだけ** code:"graph-bad" を積む
+     *    (未指定はエラーにしない = 既定プリセットも既存 6 シナリオも赤くならない)。 */
+    graphInfo: graphInfo,
+    nodeIndexById: nodeIndexById,
+    parentOf: parentOf,
+    lintRun: lintRun,
+    dirFromGeometry: dirFromGeometry,
+    GRAPH_KINDS: GRAPH_KINDS,
     bossRoomIdx: bossRoomIdx,
     slotsOf: slotsOf,
     objectiveCount: objectiveCount,

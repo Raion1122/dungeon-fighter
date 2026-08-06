@@ -642,10 +642,17 @@ async function bootPage(browser, url, viewport, pre, side) {
       //   27,472B (= 行数) 食い違う。よって **必ず文字列 indexOf**。行をまたぐ正規表現・
       //   行数・バイト数の比較は CRLF で無言で壊れる。下の検索語はすべて 1 行に収まる。
       // ⚠ 'START_TX' 単体は baseline の PARTY_START_TX に部分一致してしまう
-      //   → 'const START_TX' の形で引く (PARTY_START_TX は 'const PARTY_START_TX' なので当たらない)。
+      //   → 代入の右辺まで含めた形で引く (PARTY_START_TX の代入式とは右辺が違うので当たらない)。
+      // ⚠⚠ 旧版は 'const START_TX' のように**宣言キーワード込み**で引いていたが、
+      //   [P1 再入可能化] で MAPDEF / 派生定数が `const` → `let` になった (buildNode が差し替える)
+      //   ため、そのままだと作業ツリー側で 6 件が見つからず R1b が永久に赤くなる。
+      //   ⭐ 検出力は落とさずに追従させる = **宣言に依存しないアンカー**へ書き換える。
+      //     いずれも baseline (Phase 1 前) には MAPDEF そのものが無いので 0 件のまま
+      //     = (R1a) の「baseline に 1 つも無い」は従来どおり成立する。
       const txtCur = sc.toString('utf8'), txtBase = sb.toString('utf8');
-      const NEW_IDS = ['const MAPDEF =', 'js/df-mapdef.js', 'const START_TX', 'const BOSS_ROOM_IDX',
-        'const EXCLUDED_ROOMS', 'const ROOM_CHEST_EXCLUDED_ROOMS', 'const OBJECTIVE_ROOMS',
+      const NEW_IDS = ['MAPDEF.rooms.map(r => r.rect)', 'js/df-mapdef.js', 'START_TX = MAPDEF.start.tx',
+        'BOSS_ROOM_IDX = window.DFMapDef', 'EXCLUDED_ROOMS = window.DFMapDef',
+        'ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef', 'OBJECTIVE_ROOMS = window.DFMapDef',
         'MAPDEF.flags.bandMask', 'ROOM_CHEST_EXCLUDED_ROOMS.has(i)'];
       // 置換前の旧式。baseline に**在り**、作業ツリーには**無い**のが正しい。
       // ⚠ 'IS_FIELD_THEME && FIELD_GEO_ACTIVE' は他用途で作業ツリーにも 2 件残るので使わない

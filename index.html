@@ -2467,6 +2467,26 @@
     }
 
     /* クリア/敗北オーバーレイ */
+    /* ══ ★P2 分岐マップ: ノード遷移の暗転 ═══════════════════════════════════════
+     * 「1 ノード = 独立した 1 マップ」を**暗転で**切り替える (ユーザー決定 2026-08-06)。
+     * 300ms 暗転 → 盤面を丸ごと作り直す → 300ms 明転。
+     * ⚠ z-index 190 は「世界より上 (最大 100)・resultOverlay(200) と choiceDialog(1000) より下」。
+     *   200 以上にすると勝敗オーバーレイが黒幕の裏に隠れ、1000 以上にすると
+     *   遷移中に出るはずのない選択ダイアログを覆ってしまう (どちらも詰みに見える不具合)。
+     * ⚠ pointer-events は **none**。暗転中でも撤退ボタン等を殺さない (黒幕はあくまで演出)。
+     * ⚠ 実際のフェードは CSS transition なので **rAF を凍結する検証ドライバでは見えない**。
+     *   目視はライブのスクリーンショットで採ること ([[project-headless-verification]])。 */
+    #nodeFade {
+      position: fixed;
+      inset: 0;
+      z-index: 190;
+      background: #000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 300ms ease-in-out;
+    }
+    #nodeFade.on { opacity: 1; }
+
     #resultOverlay {
       position: fixed;
       inset: 0;
@@ -2719,6 +2739,9 @@
   <!-- Phase4: ☰パーティ トグル (畳み状態=スマホ常時/PC畳み でCSS表示・基底 display:none) -->
   <button id="partyToggleBtn" type="button" title="パーティ">☰</button>
 
+  <!-- ★P2 分岐マップ: ノード遷移の暗転幕 (既定 opacity:0 / pointer-events:none = 素の起動では 1px も見えない) -->
+  <div id="nodeFade"></div>
+
   <!-- DM イベントメッセージ (エンカ・宝箱・罠・フェーズ切替) -->
   <div id="dmMessage"></div>
 
@@ -2773,8 +2796,29 @@
   <div id="counterAura"></div>
   <div id="moveMarker"></div>
 
+  <!-- ══ [P1 再入可能化] ノード寿命 DOM の唯一の入れ物 ═══════════════════════════
+       ノード (= 1 マップ) に属する DOM を**全部この中**に入れ、撤去は
+       `nodeLayer.replaceChildren(enemyLayer)` + `enemyLayer.replaceChildren()` の 1 箇所だけで行う。
+       「8 種類の DOM を撤去し忘れていないか」を毎回レビューで担保するのは必ず破綻するので、
+       構造で保証する (敵スプライト / 玄室・隠し・探索 宝箱 / 檻 / 捕虜 / 馬車 / 祭壇グロウ)。
+
+       ⚠⚠ **z-index の積み重ねを壊さないために、この層は「透明なラッパ」でなければならない**。
+         CSS を 1 行も与えない = `position:static` / `z-index:auto` / opacity・transform・filter なし
+         → **stacking context を作らない** ので、子の z-index は従来どおり大域 (root stacking context)
+         で解決される。`#enemyLayer` が元からそうだった (CSS 定義が 1 つも無い) のと同じ流儀。
+       ⚠⚠ **置き場所が決定的に重要**。z-index が同値の要素は「文書順が後の方が上」に描かれるので、
+         層を挟む位置がずれると重なり順が黙って変わる。ここは **旧 `#enemyLayer` の位置そのまま**で、
+         `#enemyLayer` を第 1 子に置いてある。これにより:
+           ・enemyLayer の子 (敵・HPバー・吹き出し・魔法弾…) の文書位置は 1 つも動かない
+           ・旧 body 直下だった宝箱(z4)/罠(z3)/檻(z3)/捕虜(z3)/祭壇グロウ(z2) は
+             enemyLayer の**後ろ**に入る = 旧来の「enemyLayer の後に body へ append」と同じ前後関係
+           ・`#moveMarker`(z3, 静的マークアップ・この上) より後 = 罠が moveMarker の上、も不変
+       ⚠ `#vfxLayer` は**ここに置けない**。VFX (詠唱オーブ z6 等) は仲間スプライト (.ally z6) と
+         z-index が同値で、仲間の DOM は実行時に body へ append される (createAllyDom)。
+         ここへ挟むと VFX が仲間より前 = **仲間の後ろに潜る**。よって #vfxLayer は
+         「仲間 DOM の生成が終わった後の body 直下」へ実行時に挿す (vfxHost() 参照)。 -->
   <!-- 敵関連の要素はJSで動的に生成 -->
-  <div id="enemyLayer"></div>
+  <div id="nodeLayer"><div id="enemyLayer"></div></div>
 
   <script>
     // ── オーディオ薄ラッパ (audio.js 未読込でも安全に no-op) ──
@@ -3386,11 +3430,96 @@
      *     取り違えると「幾何は戻ったのに tiles だけ残っている」等の中間状態を測ってしまう。
      *   ⚠ これは dev チートではなく「本番を素の状態へ戻す」退避口なので __dfDevCheat で
      *     ゲートしない (?field=0 / ?sky=0 / ?fieldgeo=0 と同じ扱い)。 */
-    const MAPDEF = (() => {
+    /* ══ ★P2: RUN = 潜行そのもの (分岐グラフ全体) ══════════════════════════════════
+     * 「1 ノード = 独立した 1 マップ / 分岐は行き止まりありの木」という企画の骨格
+     * (ユーザー決定 2026-08-06) の**唯一の出所**。RUN が null なら分岐は 1 命令も走らず、
+     * 既存 6 シナリオ・屋外・従来の生成クエスト・既存の自作マップは**恒等的に**従来経路へ落ちる。
+     *
+     * ⚠⚠ **MAPDEF.isCustom に相乗りしてはいけない**。isCustom は「カスタム幾何かどうか」で、
+     *   graph を 1 つも持たない既存の自作マップ (map-editor の「▶ このマップで遊ぶ」) でも真になる。
+     *   そこへ分岐の配線を通すと、**既存の自作マップが黙って別のゲームになる**。
+     *   ゲートは 2 つ必要 (幾何がカスタムか / 分岐があるか) で、統合してはいけない。
+     *
+     * ── 撤退スイッチ ───────────────────────────────────────────────────────
+     *   ?graph=0    … run を無視し、従来の単一マップへ**完全に**戻る
+     *   ?graph=auto … 矢印もダイアログも出さず先頭の出口を自動選択 (完全自動進行の検証用)
+     *   ⚠ ?mapdef=0 は ?graph=0 の**上位集合** (mapDef ごと捨てるので run も消える)。
+     *     既存の ?sky=0 ⊂ ?field=0 / ?mapdef=raw ⊂ ?mapdef=0 と同じ関係。取り違えないこと。
+     *   ⚠ これは dev チートではなく「本番を素の状態へ戻す」退避口なので __dfDevCheat では
+     *     ゲートしない (?mapdef=0 / ?field=0 / ?sky=0 と同じ扱い)。
+     *
+     * ⚠ グラフの出所は 2 つだけ:
+     *     ① 生成クエストのペイロード sessionStorage.generatedScenario.run  ← 本番 (P5 が使う)
+     *     ② dev シーム ?graphtest=1 の内蔵テストグラフ (__dfDevCheat ゲート) ← 検証用
+     *   ①が無いときだけ②を見る = 本番のデータが dev シームに上書きされることが原理的に無い。 */
+    const RUN = (() => {
+      let params = null;
+      try { params = new URLSearchParams(window.location.search); } catch (e) {}
+      const gp = params ? params.get("graph") : null;
+      if (gp === "0") {
+        console.warn("[graph] ?graph=0 が指定されたため分岐グラフを無視し、従来の単一マップで起動します");
+        return null;
+      }
+      /* ⚠ DFMapDef が 404 のときは分岐しない。幾何は MAPDEF_INLINE_FALLBACK が守るが、
+       *   graphInfo / parentOf / lintRun はここにしか無いので、自前に写して 2 本目の
+       *   判定式を作るくらいなら「分岐なしで正しく遊べる」方へ倒す。 */
+      if (!window.DFMapDef) return null;
+      let src = (_genScenForTex && _genScenForTex.run) ? _genScenForTex.run : null;
+      let fromSeam = false;
+      if (!src && params && params.has("graphtest") && window.__dfDevCheat("graphtest")) {
+        src = buildTestRun();                    // 関数宣言なので巻き上げ済み (定義は最下部)
+        fromSeam = true;
+      }
+      const gi = DFMapDef.graphInfo(src);
+      if (!gi.present) return null;              // 分岐なし = 従来の単一マップ。正常
+      /* ⚠⚠ ここが silent fail-open を作らない唯一の砦。壊れた graph を黙って捨てて
+       *   単一マップへ落ちると「動くが別のゲーム」になる → 必ず理由つきで警告する。 */
+      if (!gi.graph) {
+        console.warn("[graph] 分岐グラフを解釈できないため単一マップで起動します: " + gi.reason);
+        return null;
+      }
+      /* 屋外 (caravan-road) は分岐対象外。bandMask が row13-15 以外を全潰しするので
+       * 上下分岐と原理的に非互換 (resolve() が既に屋外×カスタム幾何を排他にしている)。 */
+      if (IS_FIELD_THEME) {
+        console.warn("[graph] 屋外テーマ (帯マスク) は分岐対象外のため、単一マップで起動します");
+        return null;
+      }
+      const lint = DFMapDef.lintRun(gi.graph);
+      if (!lint.ok) {
+        console.warn("[graph] 分岐グラフが出発前 lint を通らないため単一マップで起動します: "
+          + lint.errors.map(e => e.code + ": " + e.message).join(" / "));
+        return null;
+      }
+      for (const w of lint.warnings) console.warn("[graph] " + w.code + ": " + w.message);
+      const po = DFMapDef.parentOf(gi.graph);
+      const byId = {};
+      for (const n of gi.graph.nodes) byId[n.id] = n;
+      let bossNodeId = null;
+      for (const n of gi.graph.nodes) if (n.kind === "boss") { bossNodeId = n.id; break; }
+      console.log("[graph] 分岐グラフで起動します: ノード " + gi.graph.nodes.length + " 件 / entry=" +
+        gi.graph.entry + " / boss=" + bossNodeId + (fromSeam ? " (dev シーム ?graphtest)" : "") +
+        (gp === "auto" ? " / ?graph=auto (先頭の出口を自動選択)" : ""));
+      return {
+        graph: gi.graph,
+        byId: byId,
+        parent: po.map,          // childId -> parentId (「引き返す」の唯一の出所。手書きしない)
+        bossNodeId: bossNodeId,
+        auto: gp === "auto",
+      };
+    })();
+
+    /* ★[P1 再入可能化] `const` → `let`。MAPDEF は「潜行全体の定義」ではなく
+     *   **現在ノードの定義**になった。差し替えるのは buildNode(mapDef) の 1 箇所だけ。
+     * ⚠ 初期値・解決手順は 1 文字も変えていない (起動時の値は従来と同一)。
+     * ★[P2] RUN があるときだけ「entry ノードの mapDef」を解決する。resolve() を**そのまま**
+     *   通すのが肝で、validate → sanitize → isCustom → ?mapdef=0/raw の既存経路を 1 本も
+     *   増やさずに再利用できる (ノード 1 件の解決器としてそのまま使う、という計画書の判断)。 */
+    let MAPDEF = (() => {
       if (window.DFMapDef) {
         let params = null;
         try { params = new URLSearchParams(window.location.search); } catch (e) {}
-        const d = DFMapDef.resolve(_genScenForTex, IS_FIELD_THEME, params);
+        const genScen = RUN ? { mapDef: RUN.byId[RUN.graph.entry].mapDef } : _genScenForTex;
+        const d = DFMapDef.resolve(genScen, IS_FIELD_THEME, params);
         if (d && Array.isArray(d.rooms) && d.rooms.length > 0) return d;
       }
       console.warn("[mapdef] js/df-mapdef.js を読み込めませんでした → index.html 内蔵の "
@@ -3399,10 +3528,11 @@
     })();
 
     // 部屋定義: [r1, c1, r2, c2](ワールド共通)
-    const ROOMS = MAPDEF.rooms.map(r => r.rect);
+    // ★[P1] let 化 — buildNode() が MAPDEF ごと差し替えて作り直す (起動時の値は不変)
+    let ROOMS = MAPDEF.rooms.map(r => r.rect);
     // 廊下: [r1, c1, r2, c2] 3幅 (row 13-15)、横一本道
     // (scenery 配置の auto-reserve でも参照するためグローバル化)
-    const CORRIDORS = MAPDEF.corridors;
+    let CORRIDORS = MAPDEF.corridors;   // ★[P1] let 化 (buildNode が差し替える)
 
     // ── マップの「使われている」範囲 (カメラ横/縦クランプ用) ───────────────
     // 部屋にも廊下にも属さない行/列は恒久的に未探索の岩盤 = 画面上は純黒になる。
@@ -3421,7 +3551,7 @@
     //    軽い退化なので許容する (幾何そのものは MAPDEF_INLINE_FALLBACK が守る)。
     // ⚠ 定義位置は buildMap() より**前**のまま動かさないこと。mapUsed() は tiles を自前で
     //    再展開するので mapData を待つ必要が無い (2016 タイルなのでコストは計測不能)。
-    const MAP_USED = window.DFMapDef ? DFMapDef.mapUsed(MAPDEF) : (() => {
+    let MAP_USED = window.DFMapDef ? DFMapDef.mapUsed(MAPDEF) : (() => {   // ★[P1] let 化
       let c0 = MAP_W, c1 = -1, r0 = MAP_H, r1 = -1;
       for (const [a, b, c, d] of [...ROOMS, ...CORRIDORS]) {
         if (a < r0) r0 = a;  if (c > r1) r1 = c;
@@ -3481,7 +3611,7 @@
 
       return map;
     }
-    const mapData = buildMap();
+    let mapData = buildMap();   // ★[P1] let 化 — buildNode() が buildMap() を再実行して差し替える
 
     /* ── MAPDEF からの派生定数 (Phase 1: 「部屋数からの推測」をここ 1 箇所へ集約) ──────
      * ⚠⚠ EXCLUDED_ROOMS と ROOM_CHEST_EXCLUDED_ROOMS は **別物**。統合するとゲームの結果が変わる:
@@ -3493,17 +3623,22 @@
      *      ・罠側へ寄せる   → 山場部屋に玄室宝箱が湧き始める
      *    のどちらかが必ず起きる。2 系統あるのは設計ではなく**現状の実装事実**。
      *    詳細は js/df-mapdef.js の excludedRoomIdx / chestExcludedRoomIdx の注記を読むこと。
-     * ⚠ DFMapDef が 404 でも幾何だけは死なせない → 同値のローカル計算へ落とす。 */
-    const START_TX = MAPDEF.start.tx, START_TY = MAPDEF.start.ty;
-    const BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
+     * ⚠ DFMapDef が 404 でも幾何だけは死なせない → 同値のローカル計算へ落とす。
+     * ★[P1 再入可能化] この 5 本 (6 変数) は `const` → `let`。**式は 1 文字も変えていない**ので
+     *   起動時の値は従来と完全に同一。buildNode() が同じ式を再実行して差し替える。
+     *   ⚠ tools/driver_mapdef_step1.js の (R1a/R1b) は宣言キーワード込みの
+     *     `'const START_TX'` 等でリビジョン負制御を書いていたため、宣言に依存しない
+     *     アンカー (`'START_TX = MAPDEF.start.tx'` 等) へ追従させた (assert は 1 つも消していない)。 */
+    let START_TX = MAPDEF.start.tx, START_TY = MAPDEF.start.ty;
+    let BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
     // 罠 (spawnTraps) / 隠し宝箱 (spawnHiddenChests) / 探索宝箱 (spawnExplorationChests) 用
-    const EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.excludedRoomIdx(MAPDEF)
+    let EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.excludedRoomIdx(MAPDEF)
       : (ROOMS.length >= 3 ? new Set([0, BOSS_ROOM_IDX]) : new Set([BOSS_ROOM_IDX]));
     // 玄室宝箱 (spawnRoomChests) **専用**。部屋数を見ず常に {0, boss}
-    const ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
+    let ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
       : new Set([0, BOSS_ROOM_IDX]);
     // クリア条件の踏破部屋数 (checkDungeonClear)。既定 = rooms.length - 1
-    const OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
+    let OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
 
     // ── フォグオブウォー強化: 職業別視界レンジ + 探索記憶 ──────────────
     // tiles=視界半径(タイル数、視界/エンカウント判定用)、inner/outer=放射光半径(px、drawLight用)
@@ -3520,8 +3655,9 @@
     function getSight(classKey) { return CLASS_SIGHT[classKey] || DEFAULT_SIGHT; }
     // 探索記憶(ロード毎に0初期化、シナリオ跨ぎリセット不要)。
     //   exploredTiles: 一度視認したタイル=1(累積)。visibleTiles: 現在視界内=1(毎更新クリア)。
-    const exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
-    const visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    //   ★[P1] let 化 — buildNode() が作り直す (ノードごとにフォグの記憶は独立)
+    let exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    let visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
     let lastVisSignature = "";
 
     // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
@@ -3619,11 +3755,14 @@
     };
 
     const roomPaintings = [];        // { img, canvas, loaded, tx, ty, tw, th, px, py, pw, ph }
-    const paintedTileMask = new Uint8Array(MAP_W * MAP_H);
+    let paintedTileMask = new Uint8Array(MAP_W * MAP_H);   // ★[P1] let 化 (loadRoomPaintings が再構築)
     // 外周 N タイル分は painting の alpha をフェードし、下のタイル描画と混ぜる
     // (painting と周辺タイル両方を描く帯 → 継ぎ目が溶け込む)
     const PAINTING_FEATHER_TILES = 1;
-    (function loadRoomPaintings() {
+    /* ★[P1 再入可能化] IIFE → 関数宣言 + 直後の呼び出し へ分解した。
+     *   **実行位置も実行回数も従来と同一** (下の loadRoomPaintings(); がこの場で 1 回だけ走る) なので
+     *   起動時の挙動は 1 bit も変わらない。buildNode() から再実行できるようにするための分解。 */
+    function loadRoomPaintings() {
       /* ⚠⚠ [Phase 2 落とし穴③] カスタム幾何では 1 枚絵を**必ず**切る。
        *   ROOM_PAINTINGS_DEF は themeId (_scenIdForTex) で引くので、カスタム幾何の上に
        *   旧シナリオの部屋絵が**旧座標のまま**浮いてしまう (tileBounds は絵側が持っている)。
@@ -3723,7 +3862,8 @@
         if (!src) continue;
         addPainting(src, room.rect);
       }
-    })();
+    }
+    loadRoomPaintings();   // ★[P1] 旧 IIFE と同位置・同回数の実行 (挙動不変)
     function isPaintedTile(tx, ty) {
       if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
       return paintedTileMask[ty * MAP_W + tx] === 1;
@@ -3966,7 +4106,7 @@
       return h >>> 0;
     }
 
-    const obstacleTileMask = new Uint8Array(MAP_W * MAP_H);
+    let obstacleTileMask = new Uint8Array(MAP_W * MAP_H);   // ★[P1] let 化 (generateScenery が再構築)
     const sceneryPlacements = [];  // { kind, variant, tx, ty, jx, jy, blocking }
     // [7.9-3 STEP8] 隊商キャンプの焚火位置 { tx, ty } or null。街道クエスト (caravan-road) のセットアップ時に
     //   のみ代入する (下部 generateScenery 呼び出し後)。描画は非衝突の純演出 (obstacleTileMask には積まない)。
@@ -4205,7 +4345,8 @@
       }
       return decos;
     }
-    const decorations = buildDecorations();
+    // ★[P1] let 化 — buildNode() が buildDecorations() を再実行して差し替える (情景 = ノード寿命)
+    let decorations = buildDecorations();
 
     function isTileWall(tileX, tileY) {
       if (tileX < 0 || tileY < 0 || tileX >= MAP_W || tileY >= MAP_H) return true;
@@ -7547,8 +7688,45 @@
       }
       return out;
     }
+    /* ══ ★P2: ノードごとの決定論 RNG ═══════════════════════════════════════════
+     * 「一度片付けたノードへ戻ったとき、倒した敵が生き返らず、開けた宝箱が閉じていない」を
+     * 成立させるには **再入場のたびに同じ盤面が組み上がる**ことが前提になる (P1 が残した穴 #2)。
+     * そこでノード id を種にした mulberry32 を使い、スポーンの乱数を固定する。
+     * ⚠ 種に混ぜるのは **id と用途だけ**。入場回数や時刻を混ぜた瞬間に「同じ入力 → 同じ盤面」が
+     *   崩れ、復元 (deadSlots / openedChests の添字) が別の敵・別の宝箱を指す。 */
+    function makeNodeRng(seedStr) { return mulberry32(hashStr(String(seedStr))); }
+
+    /* ★[P2] スポーン一式を「ノード種の RNG」の下で回す。
+     * ⚠⚠ Math.random を一時的に差し替える。6 本のスポーン関数 (spawnRoomChests / spawnTraps /
+     *   spawnHiddenChests / spawnExplorationChests / pickChestLoot / …) に rnd 引数を通す改修は
+     *   **既存 6 シナリオのコード経路を全部書き換える**ことになり、「RUN が null なら 1 命令も
+     *   走らない」という本フェーズの契約を守れない。差し替えは RUN があるときだけ・同期実行の間だけ・
+     *   finally で必ず戻す、の 3 点で封じる。
+     * ⚠ RUN が null のときは **Math.random に 1 bit も触らない** (関数呼び出しすら挟まない)。 */
+    function withNodeRng(seedStr, fn) {
+      if (!RUN) return fn();
+      const saved = Math.random;
+      const rnd = makeNodeRng(seedStr);
+      Math.random = rnd;
+      try { return fn(); } finally { Math.random = saved; }
+    }
+
+    /* ★[P2] ノード別の敵スポーン (P1 が残した穴 #3)。
+     * ⚠ MAPDEF が**既にそのノードのもの**であることが前提 (buildNode が差し替えた直後に呼ぶ)。
+     * ⚠ questFlagOn のフィルタは掛けない。酒場の噂フラグはシナリオの spawns 表に付く属性で、
+     *   mapDef の enemySlots にはそもそも 4 要素目が無い。 */
+    function nodeSpawnsFor(nodeId) {
+      if (!RUN || !window.DFMapDef) return [];
+      const rnd = makeNodeRng(nodeId + "/spawns");
+      return rescueCustomSpawns(DFMapDef.spawnsFromMapDef(MAPDEF, rnd));
+    }
+
     // 隠し中ボスのスポーンは 4 番目の要素にフラグ名を持つ。噂を掴めなかった回では敵ごと現れない。
-    const ENEMY_SPAWNS = rescueCustomSpawns(currentScenario.spawns.filter(sp => questFlagOn(sp[3])));
+    // ★[P2] const → let。RUN があるときだけノード別に差し替える (buildNode が唯一の書き換え点)。
+    //   ⚠ RUN が null なら右辺は従来式そのまま = 既存 6 シナリオは 1 bit も変わらない。
+    let ENEMY_SPAWNS = RUN
+      ? nodeSpawnsFor(RUN.graph.entry)
+      : rescueCustomSpawns(currentScenario.spawns.filter(sp => questFlagOn(sp[3])));
 
     // v7.4: 敵スポーンタイルが buildMap の装飾壁ピラー (((r*7+c*13)^(r*3-c))%5===0) に
     //   当たると敵が壁に埋まり、A* の始点が壁で挙動不定になる。各スポーンタイルの壁(1)を
@@ -7571,7 +7749,57 @@
     //   実体はスプライト(既存 log)+ 加算ブルーム + 立ち昇る火の粉 で drawMap 内に手続き描画する。
     if (_scenIdForTex === "caravan-road") campfireSpot = { tx: 7, ty: 13 };
 
+    /* ══ [P1 再入可能化] ノード寿命 DOM の層 ═══════════════════════════════════════
+     *  #nodeLayer … ノード (= 1 マップ) に属する DOM の唯一の入れ物。#enemyLayer をその第 1 子として
+     *               内包する (マークアップの注記に z-index が壊れない理由を全部書いてある)。
+     *  #vfxLayer  … 一過性 VFX (詠唱オーブ / 火球 / 稲妻 / ダメージ数字 / 残像) の入れ物。
+     *               遷移の瞬間に**飛んでいる弾がノードを跨いで残る**のを防ぐため、nodeLayer とは
+     *               別に一掃できるようにする (弾は自前 setTimeout で消えるので寿命はノードより短いが、
+     *               「暗転した瞬間に前のノードの火球が次のノードで着弾する」のは絵として破綻する)。
+     *
+     * ⚠⚠ **#vfxLayer をマークアップに書いてはいけない**。VFX と仲間スプライトは z-index が同値
+     *   (.fxCastOrb / .fxCastAura = 6 と .ally = 6、.fxFireballProjectile / .fxColdCrystal = 7 と
+     *    .allyHpBar / .allyLabel = 7) で、同値なら**文書順が後の方が上**に描かれる。
+     *   仲間 DOM は createAllyDom() が**実行時に body へ append** するので、静的マークアップに
+     *   #vfxLayer を置くと VFX が仲間より前に来て**仲間の後ろへ潜る** (= 見た目が変わる)。
+     *   → 仲間 DOM の生成が終わった後 (起動シーケンス末尾の spawnNodeEntities 直前) に
+     *     vfxHost() を 1 回呼んで body の末尾へ挿す。以後の VFX は必ずそこへ入るので、
+     *     「VFX は仲間より後 = 上」という従来の前後関係がそのまま保たれる。 */
+    const nodeLayer  = document.getElementById("nodeLayer");
     const enemyLayer = document.getElementById("enemyLayer");
+    let   vfxLayer   = null;
+    function vfxHost() {
+      if (!vfxLayer) { vfxLayer = document.createElement("div"); vfxLayer.id = "vfxLayer"; }
+      // ⚠ CSS を持たせない = stacking context を作らない (nodeLayer と同じ理由)。
+      if (!vfxLayer.isConnected) document.body.appendChild(vfxLayer);
+      return vfxLayer;
+    }
+
+    /* ── ノード寿命タイマーの登録簿 ────────────────────────────────────────────
+     * ⚠ index.html には setTimeout が 87 箇所ある。その**大半は `el.remove()` で自分の DOM を
+     *   片付けるだけ**なので、層ごと replaceChildren() された後に発火しても
+     *   「切り離し済みノードの remove()」= 完全な no-op になり、登録する必要がない。
+     * → 登録するのは「**添字で他人 (enemies[i] / enemyElements[i]) を書き戻す**」タイマーだけ。
+     *   これは遷移後に添字が別の敵を指すので、放置すると**別の敵の VFX を勝手に消す**。
+     *   何を登録し何を登録しなかったかは buildNode() の注記にも列挙してある。 */
+    const nodeTimers = { to: new Set(), iv: new Set() };
+    function nodeTimeout(fn, ms) {
+      const id = setTimeout(() => { nodeTimers.to.delete(id); fn(); }, ms);
+      nodeTimers.to.add(id);
+      return id;
+    }
+    function nodeInterval(fn, ms) {
+      const id = setInterval(fn, ms);
+      nodeTimers.iv.add(id);
+      return id;
+    }
+    function clearNodeTimers() {
+      for (const id of nodeTimers.to) clearTimeout(id);
+      for (const id of nodeTimers.iv) clearInterval(id);
+      const n = nodeTimers.to.size + nodeTimers.iv.size;
+      nodeTimers.to.clear(); nodeTimers.iv.clear();
+      return n;
+    }
 
     // ── マジックミサイル: 1発の光弾を弧軌道で飛ばす ──
     function spawnMagicMissile(fromX, fromY, toX, toY, durationMs = 600) {
@@ -7757,7 +7985,7 @@
       const cy = ally.y + (ally.def.displaySize || 96) / 2 - 10;
       orb.style.left = (cx - camX) + "px";
       orb.style.top  = (cy - camY) + "px";
-      document.body.appendChild(orb);
+      vfxHost().appendChild(orb);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       // 動的光源も追加 (詠唱中の手元が明るくなる)
       const light = addSpellLight({
         worldX: cx, worldY: cy,
@@ -7797,13 +8025,13 @@
         const aura = document.createElement("div");
         aura.className = "fxCastAura fxCastAura--" + elem;
         aura.style.setProperty("--castDur", (reduced ? 140 : Math.max(120, dur - 140)) + "ms");
-        document.body.appendChild(aura);
+        vfxHost().appendChild(aura);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         // 頭上ラベル
         const label = document.createElement("div");
         label.className = "fxCastLabel fxCastLabel--" + elem;
         label.textContent = spell.name || "";
         label.style.setProperty("--castDur", dur + "ms");
-        document.body.appendChild(label);
+        vfxHost().appendChild(label);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         // 属性色のグロー光源 (詠唱中、術者の周りが明るくなる)
         const rgb = elem === "fire" ? "255,150,60"
                   : elem === "ice"  ? "120,200,255"
@@ -7857,7 +8085,7 @@
       return new Promise((resolve) => {
         const ball = document.createElement("div");
         ball.className = "fxFireballProjectile";
-        document.body.appendChild(ball);
+        vfxHost().appendChild(ball);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         // 動的光源 (飛翔と一緒に移動)
         const light = addSpellLight({
           worldX: fromWX, worldY: fromWY,
@@ -7882,7 +8110,7 @@
             spark.className = "fxFireSpark";
             spark.style.left = (wx - camX + (Math.random() - 0.5) * 12) + "px";
             spark.style.top  = (wy - camY + (Math.random() - 0.5) * 12) + "px";
-            document.body.appendChild(spark);
+            vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
             setTimeout(() => { try { spark.remove(); } catch {} }, 450);
           }
           if (t < 1) requestAnimationFrame(step);
@@ -7935,7 +8163,7 @@
       el.style.height = size + "px";
       el.style.backgroundImage = `url("${sheet.src}")`;
       el.style.backgroundSize  = `${size * sheet.cols}px ${size}px`;  // 横6枚を size 単位に換算
-      document.body.appendChild(el);
+      vfxHost().appendChild(el);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
 
       const start = performance.now();
       function step(now) {
@@ -7980,7 +8208,7 @@
       // 画面フラッシュ — 衝撃感、残す
       const flash = document.createElement("div");
       flash.className = "fxScreenFlash";
-      document.body.appendChild(flash);
+      vfxHost().appendChild(flash);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { flash.remove(); } catch {} }, 350);
     }
 
@@ -8007,7 +8235,7 @@
         ring.className = "fxFireballRing r" + i;
         ring.style.left = (centerWX - camX) + "px";
         ring.style.top  = (centerWY - camY) + "px";
-        document.body.appendChild(ring);
+        vfxHost().appendChild(ring);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { ring.remove(); } catch {} }, 900);
       }
       // 火柱
@@ -8015,7 +8243,7 @@
       pillar.className = "fxFirePillar";
       pillar.style.left = (centerWX - camX) + "px";
       pillar.style.top  = (centerWY - camY) + "px";
-      document.body.appendChild(pillar);
+      vfxHost().appendChild(pillar);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { pillar.remove(); } catch {} }, 850);
     }
 
@@ -8128,7 +8356,7 @@
         svg.appendChild(core);
       }
 
-      document.body.appendChild(svg);
+      vfxHost().appendChild(svg);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
 
       // 動的光源 (始点 / 中央 / 終点の 3 つ、全体に強烈なフラッシュ)
       const midX = (fromWX + toWX) / 2;
@@ -8165,7 +8393,7 @@
         spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
         spark.style.left = (toWX - camX) + "px";
         spark.style.top  = (toWY - camY) + "px";
-        document.body.appendChild(spark);
+        vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 520);
       }
       // 始点にも軽く火花を散らす (5 個)
@@ -8178,13 +8406,13 @@
         spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
         spark.style.left = (fromWX - camX) + "px";
         spark.style.top  = (fromWY - camY) + "px";
-        document.body.appendChild(spark);
+        vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 460);
       }
       // 画面フラッシュ (青白)
       const flash = document.createElement("div");
       flash.className = "fxScreenFlash lightning";
-      document.body.appendChild(flash);
+      vfxHost().appendChild(flash);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { flash.remove(); } catch {} }, 280);
       // メイン稲妻持続をやや長く (250 → 340ms)
       setTimeout(() => { try { svg.remove(); } catch {} }, 340);
@@ -8216,13 +8444,13 @@
         cr.style.left = (px - camX) + "px";
         cr.style.top  = (py - camY) + "px";
         cr.style.animationDelay = (i * 25) + "ms";
-        document.body.appendChild(cr);
+        vfxHost().appendChild(cr);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { cr.remove(); } catch {} }, 700);
       }
       // 画面フラッシュ (冷気)
       const flash = document.createElement("div");
       flash.className = "fxScreenFlash cold";
-      document.body.appendChild(flash);
+      vfxHost().appendChild(flash);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { flash.remove(); } catch {} }, 340);
     }
 
@@ -8251,7 +8479,7 @@
         spark.style.left = (px - camX) + "px";
         spark.style.top  = (py - camY) + "px";
         spark.style.animationDelay = (i * 12) + "ms";
-        document.body.appendChild(spark);
+        vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 620);
       }
       // 円錐の各距離に火炎コアを立てる (3 段階・前方ほど大きく)
@@ -8263,13 +8491,13 @@
         core.style.left = (px - camX) + "px";
         core.style.top  = (py - camY) + "px";
         core.style.transform = "translate(-50%, -50%)";
-        document.body.appendChild(core);
+        vfxHost().appendChild(core);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { core.remove(); } catch {} }, 420);
       }
       // 画面フラッシュ (火炎・既定の暖色)
       const flash = document.createElement("div");
       flash.className = "fxScreenFlash";
-      document.body.appendChild(flash);
+      vfxHost().appendChild(flash);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { flash.remove(); } catch {} }, 320);
     }
     function updateGroundFx() {
@@ -9598,9 +9826,23 @@
     let currentAttackStage = 0;
     let hitEnemiesThisSwing = new Set();
 
-    const enemies = ENEMY_SPAWNS.map(([type, tx, ty]) => createEnemy(type, tx, ty));
-    // 各敵のDOM要素を動的に作成
-    enemies.forEach((e, i) => createEnemyDom(i, e.def, e.type));
+    /* ★[P1 再入可能化] let 化 + 「配列の作り直し」を spawnNodeEnemies() へ括り出した。
+     * ⚠ **配列そのものは作り替えず `length = 0` + push で中身だけ入れ替える**。
+     *   enemies を新品の配列で置き換えると、起動時に登録済みの `setInterval(moveEnemies, 30)` は
+     *   live binding を読むので平気だが、将来どこかが `const es = enemies` で握った瞬間に
+     *   静かに古い配列を見続ける事故になる。identity を固定しておけばその種の事故が起きない。
+     * ⚠ createEnemyDom は push の**直後に 1 回だけ** (enemyElements/hpBarElements/… が添字並列)。 */
+    let enemies = [];
+    function spawnNodeEnemies() {
+      enemies.length = 0;
+      for (const [type, tx, ty] of ENEMY_SPAWNS) enemies.push(createEnemy(type, tx, ty));
+      // 各敵のDOM要素を動的に作成
+      enemies.forEach((e, i) => createEnemyDom(i, e.def, e.type));
+    }
+    // ★[P1] 旧 2 行 (map + forEach) と同位置・同回数の実行 (挙動不変)
+    // ★[P2] RUN があるときだけノード id の種で回す。buildNode 側と**同じ種**にしないと
+    //   「初回入場」と「再入場」で敵の個体差 (HP ロール等) が食い違う。
+    withNodeRng((RUN ? RUN.graph.entry : "-") + "/enemies", spawnNodeEnemies);
 
     // ═══════════════════════════════════════════════════════════
     // パーティー (仲間キャラ): Phase 1 は僧侶1人固定
@@ -12370,7 +12612,7 @@
       ghost.style.backgroundPosition = player.style.backgroundPosition
         || cs.backgroundPosition || "0 0";
       ghost.style.transform          = player.style.transform || "";
-      document.body.appendChild(ghost);
+      vfxHost().appendChild(ghost);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { ghost.remove(); } catch {} }, 560);
     }
 
@@ -12390,7 +12632,7 @@
       ghost.style.backgroundSize     = el.style.backgroundSize     || cs.backgroundSize     || "";
       ghost.style.backgroundPosition = el.style.backgroundPosition || cs.backgroundPosition || "0 0";
       ghost.style.transform          = el.style.transform || "";
-      document.body.appendChild(ghost);
+      vfxHost().appendChild(ghost);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { ghost.remove(); } catch {} }, 560);
     }
 
@@ -14427,7 +14669,12 @@
           visitedRooms.add(i);
           // ボス部屋に初入室 → 到達ナレーション (戦闘開始前の入室時のみ。
           // 戦闘開始時の「足音」メッセージ runEncounter L9110 とは別タイミング)
-          if (firstEntry && i === bossRoomIdx && !bossRoomNarrationShown &&
+          // ★[P2 注入①: 入室検出] 分岐マップでは **BOSS_ROOM_IDX がノードごとに 0 になり得る**
+          //   (validate が role:"boss" をちょうど 1 つ要求するので、道中ノードにも必ず 1 部屋ある)。
+          //   そのままだと道中ノードへ入るたびにボス到達ナレとボス BGM が鳴る。
+          //   ⚠ 判定の出所はノードの **kind** ただ 1 つ。「部屋の role」ではボスノードを見分けられない。
+          //   ⚠ RUN が null なら isBossNodeNow() は true を返す = 従来式へ恒等的に落ちる。
+          if (firstEntry && i === bossRoomIdx && isBossNodeNow() && !bossRoomNarrationShown &&
               !encounterActive && !gameOver && !dungeonCleared) {
             bossRoomNarrationShown = true;
             window.__inBossRoom = true;
@@ -14467,6 +14714,24 @@
         if (drop) {
           goalTX = Math.floor(drop.x / TILE_SIZE);
           goalTY = Math.floor(drop.y / TILE_SIZE);
+        } else if (RUN && heroForcedGoal) {
+          /* ★[P2 注入②: 目標決定 / 注入③: 到達検出]
+           * 分岐の出口が決まっていれば、未訪問部屋より**優先して**そこへ歩く。
+           * ⚠ 位置は「敵 → ドロップ → **ここ** → 未訪問部屋」。ドロップより後ろに置くのが肝で、
+           *   前に置くと戦闘直後に「今稼いだ金貨と装備を置き去りにして部屋を出る」ようになる
+           *   (tickNodeChoice は落とし物が残っている間は選択を出さないので、実際にはここへ
+           *    来る時点で拾い終わっている。二重の安全網)。
+           * ⚠ findNextRoomGoal() は**1 文字も触っていない**。RUN が null ならこの分岐自体が
+           *   評価されず、従来の ③ へ恒等的に落ちる。 */
+          if (pTX === heroForcedGoal.tx && pTY === heroForcedGoal.ty) {
+            // 到達検出。★実際の遷移 (async) は 400ms tick が拾う = heroAI は同期のまま。
+            //   ここで await すると 30ms の tick が多重に走り、暗転が二重に掛かる。
+            nodeGateReached = true;
+            targetX = null; targetY = null;
+            heroPath = []; heroPathGoal = null;
+            return;
+          }
+          goalTX = heroForcedGoal.tx; goalTY = heroForcedGoal.ty;
         } else {
           // ③ ドロップなし → 未訪問の部屋へ
           const roomIdx = findNextRoomGoal();
@@ -14587,8 +14852,14 @@
       //      防衛戦の全ウェーブは 1 回の runEncounter 内で消化され、encounterActive が false へ落ちるのは
       //      while が「全ウェーブ消化 + 馬車生存」で抜けて finally に至った時だけ = そこが唯一の安全な
       //      クリア確定点。馬車全損時は STEP7 が gameOver を立てるので上の early-return で弾かれる。
+      // ★[P2] 分岐マップのクリア条件 = **ボスノードを片付けたか** (objective.kind:"defeatBoss")。
+      //   ⚠ 分岐では visitedRooms が使えない: 部屋 index はノードごとに意味が変わり、
+      //     しかも「選ばなかった枝」の部屋には一生入らないので条件が永久に満たせない。
+      //   ⚠ 3 項の順序は排他。屋外の防衛戦 (waves) は分岐対象外なので先に判定して構わない。
       const isWaveDefense = Array.isArray(currentScenario.waves) && currentScenario.waves.length > 0;
-      const objectiveDone = isWaveDefense ? !encounterActive : (visitedRooms.size >= OBJECTIVE_ROOMS);
+      const objectiveDone = isWaveDefense ? !encounterActive
+                          : RUN            ? graphBossDefeated()
+                          :                  (visitedRooms.size >= OBJECTIVE_ROOMS);
       if (enemies.every(e => !e.alive || e.passiveNpc) && objectiveDone) {
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
@@ -14616,8 +14887,13 @@
     //      false のまま = 道中の提案は従来どおり出る。休眠中の守護者・檻の獣も alive のまま
     //      なので「まだ戦闘が残っている」と正しく判定される。
     //   ⚠ window.__inBossRoom は「ボス部屋に入った」= ボス生存中でも true なので決着判定には使えない。
+    //   ★[P2] 分岐マップでは enemies に**現在ノードの敵しか入らない**ので、道中のノードを
+    //      片付けただけで「決着が付いた」= 休憩フェーズで召喚提案を出さない、になってしまう。
+    //      → checkDungeonClear と**同じ述語** graphBossDefeated() を足す (判定式を 2 本持たない、
+    //        という既存の明示的な約束)。RUN が null なら 1 命令も走らず従来式へ恒等的に落ちる。
     function isQuestClearSettled() {
       if (dungeonCleared) return true;
+      if (RUN && !graphBossDefeated()) return false;
       return enemies.every(e => !e.alive || e.passiveNpc);
     }
 
@@ -15916,7 +16192,7 @@
       pop.textContent = dmg;
       pop.style.left = (worldX - camX) + "px";
       pop.style.top  = (worldY - camY - 4) + "px";
-      document.body.appendChild(pop);
+      vfxHost().appendChild(pop);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => pop.remove(), isCrit ? 1200 : 900);
       if (isCrit) triggerScreenShake(SHAKE_CRIT.mag, SHAKE_CRIT.dur);   // クリティカルだけ揺らす(通常ヒットは静)
     }
@@ -18210,7 +18486,7 @@
     // ═════════════════════════════════════════════════════════
     // 部屋配置の宝箱 (トレハン要素)
     // ═════════════════════════════════════════════════════════
-    const roomChests = [];
+    let roomChests = [];   // ★[P1] let 化 (中身は clearNodeArrays が length=0 で空にする)
     const CHEST_DISCOVER_RADIUS = 240;   // この距離以内に入ると発見
     const CHEST_SAFE_DIST       = 640;   // 敵がこの距離未満なら発見保留 (戦闘圏内)
     const CHEST_ELIGIBLE_MIN_SIZE = 25;  // 玄室判定: 5×5 以上
@@ -18579,7 +18855,7 @@
       const el = document.createElement("div");
       el.className = "roomChest";
       el.id = "roomChest" + idx;
-      document.body.appendChild(el);
+      nodeLayer.appendChild(el);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       chest.el = el;
     }
 
@@ -18875,7 +19151,7 @@
     // ═════════════════════════════════════════════════════════
     // 檻オブジェクト (Sce2 隠し要素「残影の獣」を閉じ込めている)
     // ═════════════════════════════════════════════════════════
-    const cages = [];
+    let cages = [];   // ★[P1] let 化 (中身は clearNodeArrays が length=0 で空にする)
     const CAGE_INTERACT_RADIUS = 240;   // この距離以内に入ると接近判定発火
 
     function spawnCages() {
@@ -19059,7 +19335,7 @@
       const el = document.createElement("div");
       el.className = "roomCage";
       el.id = "roomCage" + idx;
-      document.body.appendChild(el);
+      nodeLayer.appendChild(el);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       cage.el = el;
     }
 
@@ -19215,7 +19491,7 @@
             el.classList.remove("beast-caged");
             // ワープ後の出現演出 (見えない場所だが念のため)
             setEnemyVfx(cage.beastIdx, "brightness(1.6) saturate(1.4)");
-            setTimeout(() => { setEnemyVfx(cage.beastIdx, ""); }, 600);
+            nodeTimeout(() => { setEnemyVfx(cage.beastIdx, ""); }, 600);   // ★[P1] 添字で他人を書き戻すタイマー = 遷移を跨ぐと別の敵に当たる → nodeTimeout で登録
           }
         }
       }
@@ -19261,7 +19537,7 @@
         if (el) {
           el.classList.remove("guardian-dormant");
           setEnemyVfx(i, "brightness(1.8) saturate(1.3) drop-shadow(0 0 12px rgba(180,200,255,0.9))");
-          setTimeout(() => { setEnemyVfx(i, ""); }, 700);   // 石化フィルタもここで解除される
+          nodeTimeout(() => { setEnemyVfx(i, ""); }, 700);   // 石化フィルタもここで解除される (★[P1] nodeTimeout = 添字書き戻しは遷移を跨がせない)
         }
       }
       window.__inMidBoss = true;
@@ -19379,7 +19655,7 @@
       if (el) {
         el.classList.remove("caelum-spirit");
         setEnemyVfx(caelumIdx, "brightness(1.6) saturate(1.3)", "1");   // 半透明を解いて実体化
-        setTimeout(() => { setEnemyVfx(caelumIdx, ""); }, 700);
+        nodeTimeout(() => { setEnemyVfx(caelumIdx, ""); }, 700);   // ★[P1] 添字で他人を書き戻すタイマー = 遷移を跨ぐと別の敵に当たる → nodeTimeout で登録
       }
     }
 
@@ -19414,7 +19690,7 @@
         altarGlowEl = document.createElement("div");
         altarGlowEl.className = "altarGlow";
         altarGlowEl.id = "altarGlow";
-        document.body.appendChild(altarGlowEl);
+        nodeLayer.appendChild(altarGlowEl);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       }
     }
 
@@ -19554,7 +19830,7 @@
     // ═════════════════════════════════════════════════════════
     // ダンジョン罠 (知覚チェックで発見、未発見で踏むとダメージ)
     // ═════════════════════════════════════════════════════════
-    const traps = [];
+    let traps = [];   // ★[P1] let 化 (中身は clearNodeArrays が length=0 で空にする)
     const TRAP_PERCEPTION_RADIUS = 6;  // このタイル以内の罠を毎ターン判定
 
     function spawnTraps() {
@@ -19607,7 +19883,7 @@
       const el = document.createElement("div");
       el.className = "trap";
       el.id = "trap" + idx;
-      document.body.appendChild(el);
+      nodeLayer.appendChild(el);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       trap.el = el;
     }
 
@@ -20204,7 +20480,7 @@
       const el = document.createElement("div");
       el.className = "sce1Captive bound";
       el.id = "sce1Captive";
-      document.body.appendChild(el);
+      nodeLayer.appendChild(el);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       sce1CaptiveEl = el;
       sce1CaptiveState = "tunnel";
     }
@@ -20930,7 +21206,7 @@
       pop.textContent = "武器化!";
       pop.style.left = (worldX - camX) + "px";
       pop.style.top  = (worldY - camY - 4) + "px";
-      document.body.appendChild(pop);
+      vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 1000);
     }
 
@@ -21233,7 +21509,7 @@
       pop.textContent = "+" + heal;
       pop.style.left = (worldX - camX) + "px";
       pop.style.top  = (worldY - camY - 4) + "px";
-      document.body.appendChild(pop);
+      vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 900);
     }
 
@@ -21247,7 +21523,7 @@
       pop.textContent = "解除!";
       pop.style.left = (worldX - camX) + "px";
       pop.style.top  = (worldY - camY - 4) + "px";
-      document.body.appendChild(pop);
+      vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 900);
     }
 
@@ -21265,7 +21541,7 @@
       const wy = ally.y;
       pop.style.left = (wx - camX) + "px";
       pop.style.top  = (wy - camY - 4) + "px";
-      document.body.appendChild(pop);
+      vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 1000);
     }
 
@@ -24749,7 +25025,7 @@
       el.className = "fxShadowPuff";
       el.style.left = (wx - camX - 48) + "px";
       el.style.top  = (wy - camY - 48) + "px";
-      document.body.appendChild(el);
+      vfxHost().appendChild(el);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => el.remove(), 650);
     }
 
@@ -25803,7 +26079,7 @@
         const el = enemyElements[newIdx];
         if (el) {
           setEnemyVfx(newIdx, "brightness(2.8) saturate(2) drop-shadow(0 0 10px rgba(200,255,200,0.9))");
-          setTimeout(() => { setEnemyVfx(newIdx, ""); }, 450);
+          nodeTimeout(() => { setEnemyVfx(newIdx, ""); }, 450);   // ★[P1] 添字で他人を書き戻すタイマー = 遷移を跨ぐと別の敵に当たる → nodeTimeout で登録
         }
         await sleepMs(400);
       }
@@ -25831,7 +26107,7 @@
       // 演出: 青白閃光 + SFX + バナー (残数を必ず可視化 = 「勝手に減った」が見える)
       const flash = document.createElement("div");
       flash.className = "fxScreenFlash lightning";
-      document.body.appendChild(flash);
+      vfxHost().appendChild(flash);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { flash.remove(); } catch (e) {} }, 350);
       sfx("counter");                                      // 反射音 (既存SE流用。専用SEは任意で後日)
       showBanner(`✨ スペルターニング! 呪文反射 — リング残 ${left} ✨`, 1700);
@@ -28093,27 +28369,694 @@
       if (items.some(it => it.id === pending)) executeSummon(pending);
     })();
 
-    // 部屋配置の宝箱を初期化 (マップデータ利用)
-    spawnRoomChests();
-    // ダンジョン罠を初期化
-    spawnTraps();
-    // 隠された宝箱を初期化 (知覚チェックで発見)
-    spawnHiddenChests();
-    // 探索発見ルートの宝箱を初期化 (項目3: イベントアイテム入りの時のみ出現・ロール判定なし接近開封)
-    spawnExplorationChests();
-    // 中ボス専用 BGM フラグをシナリオ開始時にリセット (シナリオ跨ぎの持ち越し防止)
-    window.__inMidBoss = false;
-    // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
-    spawnCages();
-    linkCagedBeasts();
-    spawnWagon();      // [7.9-3 STEP4] 隊商護衛: 護衛対象の馬車 (isObjective) を配置。
-                       //   ⚠️ spawnCages/linkCagedBeasts は 1 対のため間に挟まない (檻紐付けの直後に置く)。
-                       //   wagonSpawns を持たないシナリオでは何もしない = 既存シナリオへの影響ゼロ。
-    initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
-    initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
-    initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
-    spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
-    initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
+    /* ★[P1 再入可能化] 旧「起動時 1 回だけのスポーン一括」を関数へ括り出した。
+     *   **呼び出し順・呼び出し回数は 1 つも変えていない**ので、起動時の挙動は 1 bit も変わらない。 */
+    function spawnNodeEntities() {
+      // 部屋配置の宝箱を初期化 (マップデータ利用)
+      spawnRoomChests();
+      // ダンジョン罠を初期化
+      spawnTraps();
+      // 隠された宝箱を初期化 (知覚チェックで発見)
+      spawnHiddenChests();
+      // 探索発見ルートの宝箱を初期化 (項目3: イベントアイテム入りの時のみ出現・ロール判定なし接近開封)
+      spawnExplorationChests();
+      // 中ボス専用 BGM フラグをシナリオ開始時にリセット (シナリオ跨ぎの持ち越し防止)
+      window.__inMidBoss = false;
+      // 檻オブジェクト初期化 (Sce2 隠し要素) → ビーストを檻に紐付けて inactive 化
+      spawnCages();
+      linkCagedBeasts();
+      spawnWagon();      // [7.9-3 STEP4] 隊商護衛: 護衛対象の馬車 (isObjective) を配置。
+                         //   ⚠️ spawnCages/linkCagedBeasts は 1 対のため間に挟まない (檻紐付けの直後に置く)。
+                         //   wagonSpawns を持たないシナリオでは何もしない = 既存シナリオへの影響ゼロ。
+      initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
+      initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
+      initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
+      spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
+      initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * [P1 再入可能化] 唯一の撤去点 resetNodeState() と、唯一の構築点 buildNode()
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⚠⚠ **この 2 つは通常プレイでは 1 度も呼ばれない**。呼ぶのは dev シーム `?renode=N` だけで、
+     *   P2 (グラフ + 遷移) が enterNode() から使う予定の土台。つまり P1 の時点で
+     *   ゲームの見た目・挙動は 1 bit も変わらない (変わったら回帰)。
+     *
+     * ⚠ ノードを跨いで**持ち越す**もの (ここでは絶対に触らない):
+     *     allies / coins / hp / maxHp / 装備 / 呪文スロット / currentTotalXp / summonSlot
+     *     MAP_W / MAP_H / TILE_SIZE (v1 は全ノード 72×28 固定)
+     *     セッション寿命の setInterval (moveEnemies / tryDiscoverChest / … / 診断)
+     *       ↑ これらは live binding を読むので、配列を作り直しても正しく次ノードを見る。 */
+
+    /* 配列の中身だけを空にする (identity は保つ)。
+     * ⚠ 新品の配列で置き換えると、どこかが `const es = enemies` で握った瞬間に静かに古い方を
+     *   見続ける事故になる。`length = 0` なら参照が 1 本でも取りこぼしが起きない。 */
+    function clearNodeArrays() {
+      // 敵本体 + 添字並列の DOM 配列 10 本 (createEnemyDom が push する全部)
+      enemies.length = 0;
+      enemyElements.length = 0; hpBarElements.length = 0; hpFillElements.length = 0;
+      hitSparkElements.length = 0; coinElements.length = 0;
+      weaponDropElements.length = 0; armorDropElements.length = 0;
+      alertMarkElements.length = 0; enemyBadgeElements.length = 0; enemyStatusElements.length = 0;
+      // 盤面オブジェクト
+      roomChests.length = 0; traps.length = 0; cages.length = 0;
+      // 幾何から作られる情景・1枚絵
+      decorations.length = 0; sceneryPlacements.length = 0; roomPaintings.length = 0;
+      // 一過性の追従リスト (DOM は #vfxLayer / #enemyLayer 側で一掃済み。ここは記録の方を落とす)
+      groundFxElements.length = 0; speechBubbles.length = 0; spellLightSources.length = 0;
+      // 敵の添字を握っている参照 (遷移後は必ず無効)
+      wagonIndices.length = 0; encounterEnemyIndices.length = 0;
+      // 隠し要素のハンドル (どれも「そのノードにしか居ない」もの)
+      hydraIdx = -1; hydraResolved = false; hydraAwakened = false; altarGlowEl = null;
+      caelumIdx = -1; caelumResolved = false;
+      guardiansAwakened = false;
+      mimicChest = null;
+      sce1CaptiveEl = null; sce1CaptiveState = "none"; _sce1ThroneCaptiveSpot = null;
+      campfireSpot = null;
+      // 部屋踏破の記憶 (部屋 index はノードごとに意味が変わる)
+      visitedRooms.clear();
+      /* ★[P2] フォグ用の「見たタイル」も落とす。exploredTiles (描画用) は buildNode が作り直すが、
+       * visitedTiles (findNearestAliveEnemy が「未発見の敵は無視」に使う Set) は P1 で
+       * 取りこぼしていた。全ノードが同じ 72×28 の座標系を共有するので、消さないと
+       * **次のノードの敵が入室した瞬間から全員見えている**(伏兵が成立しない)。 */
+      visitedTiles.clear();
+    }
+
+    /* ★唯一の撤去点。「8 種類の DOM を消し忘れていないか」を人力で担保しない。
+     * ⚠ nodeLayer.replaceChildren(enemyLayer) は **enemyLayer 自身を残して他を全部捨てる**書き方。
+     *   引数なしにすると enemyLayer ごと切り離され、7600 行台で握った const 参照が死ぬ。 */
+    function resetNodeState() {
+      nodeLayer.replaceChildren(enemyLayer);   // 宝箱 / 罠 / 檻 / 捕虜 / 祭壇グロウ
+      enemyLayer.replaceChildren();            // 敵スプライト / HPバー / 吹き出し / 地面FX
+      if (vfxLayer) vfxLayer.replaceChildren();// 飛翔体 / 詠唱 / ダメージ数字 / 残像
+      clearNodeArrays();
+      clearNodeTimers();
+    }
+
+    /* ★唯一の構築点。起動シーケンス (幾何 → 派生定数 → フォグ → 1枚絵 → 情景 → スポーン) を
+     * **同じ順序で**再実行する。mapDef を省略すると現在ノードを作り直す (= ?renode の同一再入場)。
+     * ⚠ 順序を崩さないこと。実際の依存:
+     *     buildMap()          は MAPDEF.tiles / ROOMS / CORRIDORS を読む
+     *     buildDecorations()  は mapData を読む   → mapData より後
+     *     generateScenery()   は ENEMY_SPAWNS と起点を読み obstacleTileMask を作る
+     *     spawnTraps 等       は mapData / EXCLUDED_ROOMS を読む → 派生定数より後 */
+    function buildNode(mapDef, nodeId) {
+      if (mapDef) MAPDEF = mapDef;
+      // ── 幾何 (index.html 3400〜3510 行台の写し。式は 1 文字も変えていない) ──
+      ROOMS = MAPDEF.rooms.map(r => r.rect);
+      CORRIDORS = MAPDEF.corridors;
+      if (window.DFMapDef) MAP_USED = DFMapDef.mapUsed(MAPDEF);
+      mapData = buildMap();
+      // ── MAPDEF からの派生定数 ──
+      START_TX = MAPDEF.start.tx; START_TY = MAPDEF.start.ty;
+      BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
+      EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.excludedRoomIdx(MAPDEF)
+        : (ROOMS.length >= 3 ? new Set([0, BOSS_ROOM_IDX]) : new Set([BOSS_ROOM_IDX]));
+      ROOM_CHEST_EXCLUDED_ROOMS = window.DFMapDef ? DFMapDef.chestExcludedRoomIdx(MAPDEF)
+        : new Set([0, BOSS_ROOM_IDX]);
+      OBJECTIVE_ROOMS = window.DFMapDef ? DFMapDef.objectiveCount(MAPDEF) : ROOMS.length - 1;
+      /* ★[P2] ノード別の敵スポーン (P1 が残した穴 #3)。
+       * ⚠ **位置が厳密**: rescueCustomSpawns が mapData と ROOMS を読むので mapData より後、
+       *   下の「レア床の彫り直し」と generateScenery が ENEMY_SPAWNS を読むのでそれらより前。
+       * ⚠ nodeId 省略時は触らない = ?renode の同一再入場も既存 6 シナリオも従来どおり。 */
+      if (RUN && nodeId) ENEMY_SPAWNS = nodeSpawnsFor(nodeId);
+      // ── mapData への救済 2 種 (敵スポーンのレア床彫り直し / 起点の床保証) ──
+      for (const sp of ENEMY_SPAWNS) {
+        const c = sp[1], r = sp[2];
+        if (r >= 0 && r < MAP_H && c >= 0 && c < MAP_W && mapData[r][c] === 1) mapData[r][c] = 0;
+      }
+      if (!IS_FIELD_THEME && mapData[START_TY][START_TX] === 1) mapData[START_TY][START_TX] = 0;
+      // ── フォグ (ノードごとに独立。P2 で nodeState から復元する予定) ──
+      exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+      visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+      lastVisSignature = "";
+      /* ── 1枚絵 (paintedTileMask を作り直してから loadRoomPaintings) ──
+       * ⚠ loadRoomPaintings / generateScenery / buildDecorations は「積む」だけで空にしない
+       *   (起動時は空の配列に積むので問題にならない) → **buildNode 側で必ず空にしてから呼ぶ**。
+       *   resetNodeState を経由しない呼び出し (P2 の初回入場など) でも二重に積まれない。 */
+      roomPaintings.length = 0;
+      paintedTileMask = new Uint8Array(MAP_W * MAP_H);
+      loadRoomPaintings();
+      // ── 情景 (obstacleTileMask を作り直してから buildDecorations → generateScenery) ──
+      sceneryPlacements.length = 0;
+      obstacleTileMask = new Uint8Array(MAP_W * MAP_H);
+      decorations.length = 0;
+      for (const d of buildDecorations()) decorations.push(d);
+      generateScenery(ENEMY_SPAWNS, START_TX, START_TY);
+      if (_scenIdForTex === "caravan-road") campfireSpot = { tx: 7, ty: 13 };
+      /* ── スポーン ──
+       * ★[P2] RUN があるときだけノード id 由来の種で回す (P1 が残した穴 #2)。
+       *   これが無いと再入場のたびに宝箱の有無・位置・施錠が振り直され、復元の添字が
+       *   別の宝箱を指す。⚠ generateScenery と buildDecorations は元から決定論
+       *   (mulberry32(hashStr(seed)) / mapData 由来) なので**この外**でよい。
+       * ⚠ RUN が null なら withNodeRng は fn() をそのまま呼ぶ = Math.random に 1 bit も触らない。 */
+      /* ⚠⚠ 敵と盤面オブジェクトで**種を分ける**。1 本の種を共有すると、起動時
+       *   (spawnNodeEnemies は 9700 行台・spawnNodeEntities は最下部と**呼び出し位置が離れている**)
+       *   と buildNode (2 つが隣接) で乱数の消費順が変わり、同じノードなのに宝箱の配置が
+       *   「初回入場」と「再入場」で食い違う。種を分ければ呼び出し順に依存しない。 */
+      withNodeRng((nodeId || "-") + "/enemies",  spawnNodeEnemies);
+      withNodeRng((nodeId || "-") + "/entities", spawnNodeEntities);
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P2 — 分岐マップのランタイム (グラフ + 遷移)
+     * ══════════════════════════════════════════════════════════════════════════
+     * P1 が作った「唯一の撤去点 resetNodeState / 唯一の構築点 buildNode」の上に、
+     *   ① どのノードに居るか (currentNodeId)
+     *   ② そのノードを出るときどこへ行くか (chooseExit → heroForcedGoal → 到達検出)
+     *   ③ 出入りしても盤面が壊れないための状態の保存/復元 (nodeState)
+     * を載せる。
+     *
+     * ⚠⚠ **RUN が null なら、この節の関数は 1 つも呼ばれない**。既存 6 シナリオ・屋外・
+     *   従来の生成クエスト・既存の自作マップは 1 命令も実行せず従来経路のまま動く。
+     *   その保証は「呼び出し元がすべて `if (!RUN) return;` か `RUN && …` で始まる」ことだけで
+     *   成り立っている。新しい呼び出し元を足すときは必ずそこから書くこと。
+     *
+     * 遷移シーケンス (計画書のとおり):
+     *   出口を選ぶ → heroForcedGoal = 出口タイル (歩く姿を見せる) → heroAI が A* で到達
+     *   → 暗転 300ms → saveNodeState → resetNodeState → buildNode → restoreNodeState
+     *   → placeNodeParty → snapCamera → 明転 300ms + setPhase("explore") + 到着文
+     * BGM は同一ページなので**切れない** (ページ遷移案を採らなかった最大の理由)。 */
+
+    let currentNodeId   = RUN ? RUN.graph.entry : null;
+    /* ノード状態の記憶。★添字ではなく **id をキー**にする (並べ替えで壊れない)。
+     *   { visited, deadSlots:Set, openedChests:Set, foundChests:Set, sprungTraps:Set,
+     *     foundTraps:Set, disarmedTraps:Set, explored:Uint8Array[], seen:Set,
+     *     hintsRevealed:{}, cleared:bool } */
+    const nodeState     = Object.create(null);
+    let   nodeEnteredVia = null;   // このノードへ「どちらへ向かって」入ったか (引き返す向きの出所)
+    let   heroForcedGoal = null;   // {tx,ty} 出口タイル。heroAI の目標決定が読む唯一のレバー
+    let   nodeGateReached = false; // heroAI (同期) が立て、400ms tick (async) が消費するフラグ
+    let   nodePendingExit = null;  // 選んだ出口 (到達したら enterNode へ渡す)
+    let   nodeBusy       = false;  // 遷移中 / 選択ダイアログ中の相互排他
+    let   nodeChoiceCooldownUntil = 0;   // 「留まる」を選んだ直後に再提示しないためのクールダウン
+    const NODE_CHOICE_COOLDOWN_MS = 6000;
+    const NODE_FADE_MS = 300;      // CSS #nodeFade の transition と**同じ値**にすること
+
+    const DIR_OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+    // 選択肢の見出し。P3 で矢印 UI になっても**文言はここが唯一の出所**にする。
+    const DIR_LABELS = { up: "奥へ進む", down: "手前へ戻る道", left: "西へ進む", right: "東へ進む" };
+
+    /* 現在ノードが boss か。⚠ RUN が null なら true = 従来式へ恒等的に落ちる
+     *   (既存 6 シナリオの「BOSS_ROOM_IDX の部屋 = ボス部屋」という前提をそのまま維持する)。 */
+    function isBossNodeNow() {
+      if (!RUN) return true;
+      return currentNodeId === RUN.bossNodeId;
+    }
+
+    /* ★クリア条件 objective.kind:"defeatBoss" の**唯一の述語**。
+     *   checkDungeonClear と isQuestClearSettled の両方がこれを呼ぶ (判定式を 2 本持たない)。
+     * ⚠ ボスノードに居る間は live な enemies を見る。ナレ再生中は moveEnemies が早期 return して
+     *   dungeonCleared が遅れるので、saved 側だけを見ると勝利判定が取りこぼされる
+     *   (isQuestClearSettled の既存注記と同じ罠)。 */
+    function graphBossDefeated() {
+      if (!RUN || !RUN.bossNodeId) return false;
+      if (currentNodeId === RUN.bossNodeId) return enemies.every(e => !e.alive || e.passiveNpc);
+      const st = nodeState[RUN.bossNodeId];
+      return !!(st && st.cleared);
+    }
+
+    /* ── 出口タイルの幾何 ────────────────────────────────────────────────────
+     * ⚠⚠ 座標を直書きしない。計画書の [33,7]/[33,20]/[43,14]/[24,14] は
+     *   「山場部屋 [7,24,20,43] の縁」を人手で書き下した値で、幾何を動かした瞬間に黙って
+     *   岩盤を指す ([[project-room-shorten-2rooms]] で実際に 3 件踏んだ罠)。rect から導出する。 */
+    function mainRoomRect(mapDef) {
+      let best = null, bestArea = -1;
+      for (const r of mapDef.rooms) {
+        const [r1, c1, r2, c2] = r.rect;
+        const a = (r2 - r1 + 1) * (c2 - c1 + 1);
+        if (a > bestArea) { bestArea = a; best = r.rect; }
+      }
+      return best || [0, 0, MAP_H - 1, MAP_W - 1];
+    }
+    function nodeGateTile(mapDef, dir) {
+      const [r1, c1, r2, c2] = mainRoomRect(mapDef);
+      const midR = Math.floor((r1 + r2) / 2), midC = Math.floor((c1 + c2) / 2);
+      if (dir === "up")   return { tx: midC, ty: r1 };
+      if (dir === "down") return { tx: midC, ty: r2 };
+      if (dir === "left") return { tx: c1,   ty: midR };
+      return { tx: c2, ty: midR };                       // right
+    }
+    /* 情景スプライト (blocking) が乗ったタイルは歩けない → 近傍の歩けるタイルへ寄せる。
+     * ⚠ isTileWall は mapData の値2 と obstacleTileMask の**両方**を見る唯一の歩行判定。
+     *   自前に写すと「エディタでは通れるのに本編では通れない」食い違いが生まれる。 */
+    function snapToWalkable(t) {
+      if (!isTileWall(t.tx, t.ty)) return t;
+      for (let r = 1; r <= 8; r++) {
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          const tx = t.tx + dx, ty = t.ty + dy;
+          if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+          if (!isTileWall(tx, ty)) return { tx, ty };
+        }
+      }
+      return t;
+    }
+
+    /* ── 出口の一覧 (親への「引き返す」を**自動生成**して足す) ────────────────
+     * ⚠ 親への戻りはデータに書かない。木構造なので親は常に 1 つで、手書きすると必ず食い違う
+     *   (計画書の明示要求)。出所は DFMapDef.parentOf() ただ 1 つ。
+     *
+     * ★並び順そのものが**決定論的な深さ優先探索**になっている:
+     *     ① まだ入っていない子 → ② 親へ引き返す → ③ 既に入った子
+     *   showCharChoice は ?autoplay で必ず候補 0 を返す (index.html:10143) ので、
+     *   この順序だけで「未踏の枝を潜り、行き止まりなら引き返す」DFS が完成し、
+     *   ドライバは必ずボスへ到達して有限手で終わる。②を③より前に置くのが肝で、
+     *   逆にすると全部踏破した後に**入った子へ入り直す無限ループ**になる。 */
+    function exitsWithReturn(node) {
+      const fresh = [], seen = [];
+      for (const ex of node.exits) {
+        const dir = ex.dir || (window.DFMapDef
+          ? DFMapDef.dirFromGeometry(mainRoomRect(MAPDEF), ex.at) : "right");
+        const o = {
+          to: ex.to, dir: dir, at: { tx: ex.at[0], ty: ex.at[1] }, back: false,
+          label: DIR_LABELS[dir] + (ex.hint && ex.hint.text ? " — " + ex.hint.text : ""),
+        };
+        (nodeState[ex.to] && nodeState[ex.to].visited ? seen : fresh).push(o);
+      }
+      const out = fresh;
+      const parentId = RUN.parent[node.id];
+      if (parentId && nodeEnteredVia) {
+        // 来た向きの**逆**が引き返す向き。gate は現在ノードの幾何から導く。
+        const backDir = DIR_OPPOSITE[nodeEnteredVia] || "left";
+        out.push({ to: parentId, dir: backDir, at: nodeGateTile(MAPDEF, backDir), back: true,
+                   label: "引き返す (" + (DIR_LABELS[backDir] || backDir) + ")" });
+      }
+      for (const o of seen) out.push(o);
+      return out;
+    }
+
+    /* ★出口選択の**唯一の入口**。P3 の矢印 UI はこの関数の中に 1 行足すだけで載る:
+     *     if (!RUN.auto && !window.__autoplay && !useCompactChoice())
+     *       return await showExitArrows(node, opts);
+     *   署名は変えないこと (戻り値 = 選ばれた出口 or null)。
+     * ⚠ ダイアログ経路は「狭幅端末の代替手段」ではなく**検証インフラを守る必須条件**。
+     *   showCharChoice は ?autoplay で候補 0 を即返す (index.html:10143) ので、矢印だけの
+     *   実装にすると autoplay が選択で止まり既存ドライバが軒並みタイムアウトする。 */
+    async function chooseExit(node) {
+      const opts = exitsWithReturn(node);
+      if (!opts.length) return null;
+      if (RUN.auto) return opts[0];                       // ?graph=auto (矢印もダイアログも出さない)
+      const head = opts.length === 1 ? "道は 1 本きりだ。" : "分かれ道だ。どちらへ進む?";
+      const idx = await showCharChoice(head, opts.map(o => ({ label: o.label })), "留まる (Esc)");
+      if (idx === null || idx === undefined) return null;
+      return opts[idx] || null;
+    }
+
+    // ── 暗転 ────────────────────────────────────────────────────────────────
+    //   ⚠ CSS transition なので **rAF を凍結する検証ドライバでは見えない**。ドライバは
+    //     「クラスが付いた/外れた」までしか測れない。見え方の確認はライブのスクショで行う。
+    function nodeFadeTo(on) {
+      const el = document.getElementById("nodeFade");
+      if (el) el.classList.toggle("on", !!on);
+      return new Promise(res => setTimeout(res, NODE_FADE_MS));
+    }
+
+    // ── ノード状態のスナップショット / 復元 (P1 が残した穴 #1) ────────────────
+    //   ⚠ resetNodeState は visitedRooms.clear() とフォグ再確保を**無条件**でやるので、
+    //     順序は必ず「保存 → reset → build → 復元」。逆にすると保存した瞬間に消える。
+    function saveNodeState(id) {
+      if (!id) return;
+      const st = nodeState[id] || (nodeState[id] = {
+        visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
+        sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
+        explored: null, seen: null, hintsRevealed: {}, cleared: false,
+      });
+      st.visited = true;
+      st.deadSlots = new Set();
+      for (let i = 0; i < enemies.length; i++) if (!enemies[i].alive) st.deadSlots.add(i);
+      st.openedChests = new Set(); st.foundChests = new Set();
+      for (let i = 0; i < roomChests.length; i++) {
+        if (roomChests[i].opened) st.openedChests.add(i);
+        if (roomChests[i].found)  st.foundChests.add(i);
+      }
+      st.sprungTraps = new Set(); st.foundTraps = new Set(); st.disarmedTraps = new Set();
+      for (let i = 0; i < traps.length; i++) {
+        if (traps[i].triggered) st.sprungTraps.add(i);
+        if (traps[i].found)     st.foundTraps.add(i);
+        if (traps[i].disarmed)  st.disarmedTraps.add(i);
+      }
+      // フォグの記憶。⚠ 参照を持つと buildNode が作り直した配列と共有されるので**必ず複製**する。
+      st.explored = exploredTiles.map(row => Uint8Array.from(row));
+      st.seen = new Set(visitedTiles);
+      // 「片付いた」= 撃破対象が 1 体も残っていない。ボスノードならこれがクリア条件になる。
+      st.cleared = enemies.every(e => !e.alive || e.passiveNpc);
+      return st;
+    }
+    function restoreNodeState(id) {
+      const st = nodeState[id];
+      if (!st || !st.visited) {
+        // 初訪。★ここで nodeState を「訪れた」として作っておく (exitsWithReturn の並べ替えが読む)
+        nodeState[id] = {
+          visited: true, deadSlots: new Set(), openedChests: new Set(), foundChests: new Set(),
+          sprungTraps: new Set(), foundTraps: new Set(), disarmedTraps: new Set(),
+          explored: null, seen: null, hintsRevealed: {}, cleared: false,
+        };
+        return false;
+      }
+      /* 再訪。スポーンは決定論なので**同じ盤面が同じ順序で組み上がっている** → 添字で間引ける。
+       * ⚠ defeatEnemy を呼び直してはいけない。ドロップ・XP・ナレーション・SFX が全部再発火する。
+       *   「死んでいる状態」を作るのに要るのは alive/hp だけで、DOM の非表示は
+       *   updatePositions が !alive を見て毎フレーム自前でやる。 */
+      for (const i of st.deadSlots) {
+        if (!enemies[i]) continue;
+        enemies[i].alive = false; enemies[i].hp = 0;
+        enemies[i].coinVisible = false; enemies[i].weaponVisible = false; enemies[i].armorVisible = false;
+      }
+      for (const i of st.foundChests)  if (roomChests[i]) { roomChests[i].found = true; roomChests[i].hidden = false; }
+      for (const i of st.openedChests) if (roomChests[i]) { roomChests[i].opened = true; roomChests[i].found = true; roomChests[i].hidden = false; }
+      for (const i of st.foundTraps)    if (traps[i]) traps[i].found = true;
+      for (const i of st.sprungTraps)   if (traps[i]) traps[i].triggered = true;
+      for (const i of st.disarmedTraps) if (traps[i]) { traps[i].disarmed = true; traps[i].found = true; }
+      if (st.explored) {
+        for (let y = 0; y < MAP_H && y < st.explored.length; y++) exploredTiles[y].set(st.explored[y]);
+        lastVisSignature = "";     // 視界キャッシュを無効化 (復元した記憶を次フレームで描かせる)
+      }
+      if (st.seen) for (const k of st.seen) visitedTiles.add(k);
+      return true;
+    }
+
+    /* ── パーティの配置 ──────────────────────────────────────────────────────
+     * 来た方向の**反対側**の縁へ置く (上へ抜けたら、次のノードの下の縁から現れる)。
+     * ⚠ HP / 装備 / バフ / 金貨 / XP はノードを跨いで持ち越す = ここでは一切触らない。
+     * ⚠ heroAI の経路状態を捨てるのを忘れないこと。前ノードの heroPath は今のマップでは
+     *   壁を突き抜ける経路になっており、放置すると 20tick スタックしてワープ救済が暴発する。 */
+    const DIR_STEP = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    const NODE_ENTRY_INSET = 2;   // 縁から何タイル内側へ踏み込ませるか (0 にすると下記の不具合が出る)
+    function placeNodeParty(entryDir) {
+      let gate = entryDir ? nodeGateTile(MAPDEF, DIR_OPPOSITE[entryDir]) : { tx: START_TX, ty: START_TY };
+      /* ★縁ちょうどではなく **進行方向へ NODE_ENTRY_INSET タイル踏み込ませる**。
+       * ⚠ 縁ぴったりに置くと 2 つ同時に困る:
+       *   ① カメラは MAP_USED (部屋+廊下の外接矩形) までしか寄れないので、部屋の最下行に立つと
+       *      パーティが画面の最下端に貼りつき、隊列の後ろ半分が戦闘ログ枠の下へ隠れる (実測)
+       *   ② 「扉をくぐって部屋に入った」ではなく「壁にめり込んで現れた」ように見える
+       * ⚠ 踏み込んだ先が壁でも snapToWalkable が拾うので、部屋が薄くても破綻しない。 */
+      if (entryDir && DIR_STEP[entryDir]) {
+        const [sx, sy] = DIR_STEP[entryDir];
+        gate = { tx: gate.tx + sx * NODE_ENTRY_INSET, ty: gate.ty + sy * NODE_ENTRY_INSET };
+      }
+      const t = snapToWalkable(gate);
+      playerX = t.tx * TILE_SIZE + SNAP_X_OFFSET;
+      playerY = t.ty * TILE_SIZE + SNAP_Y_OFFSET;
+      if (entryDir === "left") facing = "left"; else if (entryDir === "right") facing = "right";
+      const taken = new Set([t.ty * MAP_W + t.tx]);
+      const RING = [[-1, 0], [-1, 1], [-1, -1], [0, 1], [0, -1], [-2, 0], [1, 0], [1, 1], [1, -1],
+                    [-2, 1], [-2, -1], [0, 2], [0, -2], [2, 0], [-3, 0], [3, 0]];
+      for (const a of allies) {
+        if (!a) continue;
+        let put = null;
+        for (const [dx, dy] of RING) {
+          const tx = t.tx + dx, ty = t.ty + dy;
+          if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
+          if (isTileWall(tx, ty)) continue;
+          const k = ty * MAP_W + tx;
+          if (taken.has(k)) continue;
+          taken.add(k); put = { tx, ty }; break;
+        }
+        if (!put) put = t;                       // 全候補が塞がった時だけ頭に重ねる (最終手段)
+        a.x = put.tx * TILE_SIZE + TILE_SIZE / 2 - a.def.displaySize / 2;
+        a.y = put.ty * TILE_SIZE + TILE_SIZE / 2 - a.def.displaySize / 2;
+        a.path = []; a.pathGoal = null;
+      }
+      heroPath = []; heroPathGoal = null; heroPathTTL = 0;
+      targetX = null; targetY = null;
+      heroStuckTicks = 0; heroWiggleUntil = 0; heroTurnPause = 0;
+      heroDetourWaitTicks = 0; heroCurrentRoomGoal = -1;
+      heroLastX = playerX; heroLastY = playerY;
+      heroWaitForBacklineStartAt = 0; heroBacklineWarpedThisWait = false;
+      clearHeroRecentTiles();
+      markVisitedAround(t.tx, t.ty, 6);
+    }
+
+    // 到着文。★データは「意味 (kind)」、表現はゲーム側の台帳 (painting が {theme,key} 参照なのと同じ流儀)。
+    const NODE_ARRIVAL_TEXT = {
+      start:  "道はここから始まる。",
+      combat: "新たな広間に出た。何かがこちらを見ている。",
+      search: "埃の積もった一室だ。何か見落としがあるかもしれない。",
+      loot:   "打ち捨てられた荷が積まれている。",
+      rest:   "しばし息をつけそうな場所だ。",
+      event:  "妙な気配のする場所に出た。",
+      boss:   "空気が変わった。この奥に主がいる。",
+    };
+
+    /* ★遷移の本体。計画書のシーケンスをそのまま 1 関数に閉じる。
+     * ⚠ 例外が出ても必ず明転して nodeBusy を下ろすこと。暗転したまま固まるのが最悪の壊れ方
+     *   (プレイヤーからは「真っ黒で何も起きない」= 完全な詰みに見える)。 */
+    async function enterNode(toId, viaDir) {
+      const node = RUN.byId[toId];
+      if (!node) return;
+      nodeBusy = true;
+      try {
+        await nodeFadeTo(true);
+        saveNodeState(currentNodeId);
+        resetNodeState();
+        currentNodeId = toId;
+        nodeEnteredVia = viaDir || null;
+        heroForcedGoal = null; nodeGateReached = false; nodePendingExit = null;
+        nodeChoiceCooldownUntil = 0;
+        buildNode(resolveNodeMapDef(toId), toId);
+        const revisit = restoreNodeState(toId);
+        placeNodeParty(viaDir);
+        snapCamera();
+        await nodeFadeTo(false);
+        setPhase("explore");
+        showDMMessage(NODE_ARRIVAL_TEXT[node.kind] || NODE_ARRIVAL_TEXT.combat, 2400);
+        if (window.__diag) window.__diag.beat("node-enter", toId + (revisit ? " (再訪)" : ""));
+      } finally {
+        nodeBusy = false;
+        const el = document.getElementById("nodeFade");
+        if (el) el.classList.remove("on");        // 例外時の暗転固着を必ず解く
+      }
+    }
+    // ノードの mapDef を解決する。★resolve() を通すのが肝 (validate → sanitize → isCustom →
+    //   ?mapdef=0 / ?mapdef=raw の既存経路をそのまま再利用でき、判定式が 2 本にならない)。
+    function resolveNodeMapDef(nodeId) {
+      let params = null;
+      try { params = new URLSearchParams(location.search); } catch (e) {}
+      return DFMapDef.resolve({ mapDef: RUN.byId[nodeId].mapDef }, false, params);
+    }
+
+    /* 「このノードは片付いたか」= 選択を出してよいか。
+     * ⚠ 落とし物 (findNearestDrop) が残っている間は出さない。ここを緩めると、戦闘直後に
+     *   稼いだ金貨と装備を置き去りにして部屋を出るようになる (heroAI 注入②の注記と対) 。 */
+    function isNodeSettled() {
+      if (!enemies.every(e => !e.alive || e.passiveNpc)) return false;
+      if (typeof findNearestDrop === "function" && findNearestDrop()) return false;
+      return true;
+    }
+
+    /* ── 400ms tick。ガードは tryInteractSce1Event (index.html:20902) と**同型**に揃える ──
+     * ⚠ heroAI (30ms・同期) から async を呼ばないための緩衝でもある。到達フラグをここで
+     *   消費することで、暗転が二重に掛かる事故が原理的に起きない。 */
+    async function tickNodeChoice() {
+      if (!RUN) return;                                   // ★従来経路は 1 命令も走らない
+      if (!gameStarted || gameOver || dungeonCleared) return;
+      if (encounterActive || encounterRunning) return;    // 戦闘中は出さない
+      if (hp <= 0) return;
+      if (skillCheckActive || dialogPaused) return;       // 他パネル/モーダル表示中は入らない
+      if (nodeBusy) return;
+      // ① 出口へ着いた → 遷移
+      if (nodeGateReached && nodePendingExit) {
+        const ex = nodePendingExit;
+        nodeGateReached = false; nodePendingExit = null; heroForcedGoal = null;
+        await enterNode(ex.to, ex.dir);
+        return;
+      }
+      if (heroForcedGoal) return;                         // 既に行き先が決まっている = 歩いている最中
+      if (Date.now() < nodeChoiceCooldownUntil) return;   // 「留まる」の直後は再提示しない
+      if (!isNodeSettled()) return;
+      // ② 出口を選ぶ
+      const node = RUN.byId[currentNodeId];
+      if (!node) return;
+      nodeBusy = true;                                    // async 前に確定 (多重起動防止)
+      let chosen = null;
+      try { chosen = await chooseExit(node); }
+      finally { nodeBusy = false; }
+      if (!chosen) { nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS; return; }
+      nodePendingExit = chosen;
+      heroForcedGoal = snapToWalkable(chosen.at);         // ★heroAI の目標決定が読む唯一のレバー
+    }
+    if (RUN) setInterval(tickNodeChoice, 400);
+
+    /* ── dev シーム: ?graphtest=1 の内蔵テストグラフ ────────────────────────────
+     * start → 分岐 3 本 → うち 1 本が boss、1 本が行き止まり。
+     *
+     *   n0 (start)  ├ up    → n1 (combat) ── up → n3 (boss)
+     *               ├ right → n2 (loot)     ← 行き止まり
+     *               └ down  → n4 (search)   ← 行き止まり
+     *
+     * ⚠⚠ **各ノードの部屋は 2 つ**にしてある。1 部屋にすると
+     *     excludedRoomIdx = {boss} = {0} / chestExcludedRoomIdx = {0,boss} = {0} で
+     *     **唯一の部屋が両方の除外集合に入り、罠も宝箱も無言で 0 個になる**
+     *     (js/df-mapdef.js:1717/1728 の表を参照)。それでは「戻った先の宝箱が閉じない」を
+     *     測れない = 検出器が真空 PASS になる。
+     *   そこで **role:"boss" を index 0 の小部屋 (控えの間) に置く**:
+     *     excludedRoomIdx = {0} / chestExcludedRoomIdx = {0,0} = {0} → **index 1 の本間**が
+     *     罠・隠し宝箱・玄室宝箱の全部に対して候補になる。
+     *   ⚠ この「控えの間」は幾何のためではなく **validate の "role:\"boss\" はちょうど 1 つ" と
+     *     "除外集合が部屋 index に依存する" という現行の実装事実を同時に満たすための仮の器**。
+     *     P4 で除外集合を kind 由来にした時点で不要になる (そのとき P5 の本番グラフは
+     *     計画書どおり 1 ノード = 1 部屋になる)。
+     * ⚠ 新規アセットは 0 枚。本間には既存の山場/ボスの 1 枚絵を painting 参照で貼る。 */
+    function buildTestRun() {
+      const MAIN = [7, 24, 20, 43];        // 山場の部屋 (5:4 の 1 枚絵の在庫と同じ rect)
+      const BOSSR = [5, 47, 22, 68];       // ボス部屋
+      const ANTE_M = [12, 44, 14, 46];     // 本間 (MAIN) の東に接する 3x3 の控えの間
+      const ANTE_B = [12, 44, 14, 46];     // ボス間でも同じ控えの間を使う (col46|47 で接する)
+      const TH = "goblin-mine";
+      function room(id, role, rect, opt) {
+        return { id: id, role: role, rect: rect,
+                 enemySlots: (opt && opt.slots) || [], bossSlot: (opt && opt.boss) || null,
+                 painting: (opt && opt.paint) ? { theme: TH, key: opt.paint } : null,
+                 scenery: (opt && opt.scen) ? { density: opt.scen } : null };
+      }
+      function mapDef(rooms, start) {
+        return { schema: "df-map/1", id: "graphtest", name: "分岐テスト",
+                 grid: { w: MAP_W, h: MAP_H, tile: TILE_SIZE }, themeId: TH,
+                 rooms: rooms, corridors: [], start: start,
+                 objective: { kind: "defeatBoss", count: null },
+                 tiles: null, props: null, graph: null, flags: { bandMask: false } };
+      }
+      // 道中ノード: 控えの間 (role:"boss" の器) + 本間 (敵 N 体・1枚絵・情景)
+      function midNode(slots) {
+        return mapDef([room("ante", "boss", ANTE_M), room("main", null, MAIN, { slots: slots, paint: "1", scen: 1 })],
+                      { tx: 33, ty: 13 });
+      }
+      const G = [33, 7], D = [33, 20], R = [43, 14], L = [24, 14];   // 本間の縁 (上/下/右/左)
+      return {
+        entry: "n0",
+        nodes: [
+          { id: "n0", kind: "start",  mapDef: midNode([[30, 13], [31, 14]]),
+            exits: [{ to: "n1", dir: "up",    at: G, hint: { text: "荒々しい声が聞こえる" } },
+                    { to: "n2", dir: "right", at: R, hint: { text: "金属の匂いがする" } },
+                    { to: "n4", dir: "down",  at: D, hint: { text: "先は暗くて見えない" } }] },
+          { id: "n1", kind: "combat", mapDef: midNode([[30, 13], [34, 13], [38, 14]]),
+            exits: [{ to: "n3", dir: "up", at: G, hint: { text: "地の底から重い足音が響く" } }] },
+          { id: "n2", kind: "loot",   mapDef: midNode([]),                exits: [] },
+          { id: "n4", kind: "event",  mapDef: midNode([[36, 13]]),        exits: [] },
+          { id: "n3", kind: "boss",
+            mapDef: mapDef([room("ante", null, ANTE_B),
+                            room("boss", "boss", BOSSR, { boss: [57, 13], paint: "2", scen: 1 })],
+                           { tx: 57, ty: 13 }),
+            exits: [] },
+        ],
+      };
+    }
+
+    /* ⚠ #vfxLayer は**ここで** body の末尾へ挿す。createAllyDom() が仲間 DOM を body へ
+     *   append し終えた**後**でなければ、z-index 同値 (.ally=6 と .fxCastOrb=6 等) の前後関係が
+     *   逆転して詠唱オーブが仲間の後ろへ潜る。詳細は vfxHost() の注記を参照。 */
+    vfxHost();
+    // ★[P2] buildNode 側と**同じ種**で回す (上の spawnNodeEnemies と同じ理由)。
+    withNodeRng((RUN ? RUN.graph.entry : "-") + "/entities", spawnNodeEntities);
+
+    /* ── dev シーム: ?renode=N ─────────────────────────────────────────────────
+     * 同じノードへ N 回「出て入り直す」を起動直後に叩き、リーク (DOM / 配列 / タイマーの
+     * 単調増加) が無いことを測れるようにする。P2 の enterNode() が来るまでの唯一の入口。
+     * ⚠ dev ゲート必須。__dfDevCheat は「?autoplay / ?autodebug / ?diag 併用」でも通し、
+     *   通らなかった時は必ず console.warn を出す (黙って無視 = silent fail-open を作らない)。 */
+    (function setupRenodeSeam() {
+      let p = null;
+      try { p = new URLSearchParams(location.search); } catch (e) { return; }
+      if (!p || !p.has("renode")) return;
+      if (!window.__dfDevCheat("renode")) return;   // 無視時は __dfDevCheat 側が warn する
+      /* ⚠ `?renode=0` は「シームだけ生やして 1 回も回さない」= 検証ドライバが
+       *   「素の起動直後の姿」を基準として撮るための入口。0 を弾くと基準が取れない。 */
+      const n = Math.max(0, Math.min(20, parseInt(p.get("renode"), 10) || 0));
+      /* 検証シーム: ドライバはこれを叩いて 1 回ずつ再入場し、間の統計を採る。
+       * ⚠ dev ゲートの内側に置く = 素の起動では window に生えない (dev-gate ドライバの流儀)。 */
+      window.__nodeReentry = {
+        reset: resetNodeState,
+        build: buildNode,
+        cycle: () => { resetNodeState(); buildNode(null); },
+        stats: () => ({
+          nodeChildren: nodeLayer.children.length,
+          enemyChildren: enemyLayer.children.length,
+          vfxChildren: vfxLayer ? vfxLayer.children.length : -1,
+          bodyChildren: document.body.children.length,
+          timers: nodeTimers.to.size + nodeTimers.iv.size,
+          enemies: enemies.length, enemyElements: enemyElements.length,
+          roomChests: roomChests.length, traps: traps.length, cages: cages.length,
+          decorations: decorations.length, roomPaintings: roomPaintings.length,
+          sceneryPlacements: sceneryPlacements.length,
+          mapDataText: mapData.map(row => row.join("")).join("\n"),
+        }),
+      };
+      for (let i = 0; i < n; i++) { resetNodeState(); buildNode(null); }
+      console.log("[renode] 同一ノードへ " + n + " 回再入場しました (dev シーム)");
+      window.__renodeCycles = n;
+    })();
+
+    /* ── ★P2 検証シーム: window.__graphRun ────────────────────────────────────
+     * ⚠ dev ゲート (?dev=1 / ?autoplay / ?autodebug / ?diag) の内側にだけ生やす。素の配布物では
+     *   window に載らない (出荷前の大掃除の方針 = dev 機能は消さずゲートする)。
+     * ⚠ **RUN が null でも生やす**。ドライバは「?graph=0 では分岐が死んでいる」ことを
+     *   このシーム越しに測る必要があるので、シームの有無で分岐の有無を判定させない。
+     * ⚠ buildTestRun はここからも取れるようにしてある。ドライバが「生成クエストのペイロード
+     *   (sessionStorage.generatedScenario.run)」経由の**本番と同じ入口**を測れるようにするため。 */
+    if (window.__dfDevUnlocked()) {
+      window.__graphRun = {
+        active: () => !!RUN,
+        auto: () => !!(RUN && RUN.auto),
+        graph: () => (RUN ? RUN.graph : null),
+        parent: () => (RUN ? RUN.parent : null),
+        bossNodeId: () => (RUN ? RUN.bossNodeId : null),
+        nodeId: () => currentNodeId,
+        enteredVia: () => nodeEnteredVia,
+        testRun: buildTestRun,
+        exits: () => (RUN && RUN.byId[currentNodeId] ? exitsWithReturn(RUN.byId[currentNodeId]) : []),
+        // 出口選択の**本番と同じ入口**を叩く (?graph=auto / ?autoplay / 実ダイアログの 3 経路を測るため)
+        choose: () => (RUN ? chooseExit(RUN.byId[currentNodeId]) : Promise.resolve(null)),
+        // 「出口を選んだ」だけの状態を作る (歩きと到達検出は本編の heroAI / tick に任せる)
+        pick: (toId) => {
+          if (!RUN) return null;
+          const o = exitsWithReturn(RUN.byId[currentNodeId]).find(x => x.to === toId);
+          if (!o) return null;
+          nodePendingExit = o; heroForcedGoal = snapToWalkable(o.at);
+          return { to: o.to, dir: o.dir, at: heroForcedGoal };
+        },
+        // 歩きを飛ばして遷移だけ測る (保存/復元の検査用。本編と同じ enterNode を通る)
+        enter: (toId, viaDir) => enterNode(toId, viaDir),
+        forcedGoal: () => heroForcedGoal,
+        gateReached: () => nodeGateReached,
+        busy: () => nodeBusy,
+        settled: isNodeSettled,
+        bossDefeated: graphBossDefeated,
+        questSettled: () => isQuestClearSettled(),
+        fadeOn: () => {
+          const el = document.getElementById("nodeFade");
+          return !!(el && el.classList.contains("on"));
+        },
+        // ノード状態の要約 (Set は JSON にならないので数と中身を配列へ落とす)
+        stateOf: (id) => {
+          const st = nodeState[id];
+          if (!st) return null;
+          return { visited: st.visited, cleared: st.cleared,
+                   deadSlots: [...st.deadSlots], openedChests: [...st.openedChests],
+                   foundChests: [...st.foundChests], sprungTraps: [...st.sprungTraps],
+                   foundTraps: [...st.foundTraps], disarmedTraps: [...st.disarmedTraps],
+                   exploredCount: st.explored ? st.explored.reduce((a, r) => a + r.reduce((b, v) => b + v, 0), 0) : -1,
+                   seenCount: st.seen ? st.seen.size : -1 };
+        },
+        // 盤面の実測 (復元が効いているかを「今の盤面」で測るための窓)
+        board: () => ({
+          nodeId: currentNodeId,
+          enemies: enemies.length,
+          alive: enemies.filter(e => e.alive).length,
+          chests: roomChests.length,
+          opened: roomChests.filter(c => c.opened).length,
+          found: roomChests.filter(c => c.found).length,
+          traps: traps.length,
+          sprung: traps.filter(t => t.triggered).length,
+          explored: exploredTiles.reduce((a, r) => a + r.reduce((b, v) => b + v, 0), 0),
+          seen: visitedTiles.size,
+          rooms: ROOMS.length,
+          bossRoomIdx: BOSS_ROOM_IDX,
+          objectiveRooms: OBJECTIVE_ROOMS,
+          spawns: ENEMY_SPAWNS.length,
+          mapDataText: mapData.map(row => row.join("")).join("\n"),
+        }),
+      };
+    }
     // ═══════════════════════════════════════════════════════════
     setInterval(moveEnemies, 30);
 
