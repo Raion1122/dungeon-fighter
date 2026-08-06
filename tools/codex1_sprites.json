@@ -336,6 +336,15 @@
       "note": "シナリオ1 EV-5 で救出できる **商人の従者** (2026-08-06 新設)。それまでは NPC 男性僧侶 cleric_npcmale_walk.png を流用しており「白金の法衣の神官が商人の従者を名乗る」状態だった。char_ratio 0.5938 = --match-current assets/cleric_npcmale_walk.png の実測値 (walk H_max=57px / cell=96) を焼き込んだもので、**画面上の背丈と接地位置が旧シートと変わらない**。⚠️ **attack_dir は walk と同じ** = 専用の攻撃モーションを持たない (ユーザー判断)。codex1 には merchant-present (薬瓶を差し出す) があるが、**衜装が別デザイン (青マント×緑上着) で攻撃にも見えない**ので採用しない。⚠️ 新規ファイル名なので ?v= キャッシュバスタは不要 (次に同名で中身を変える時は必要)。参照は index.html の CLASS_DEFS.servant.sprite と SPRITE_VARIANTS.servant の 2 箸所だけ。"
     },
     {
+      "key": "merchant-bound", "out": "assets/servant_bound.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.3440, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "merchant/merchant-bound-right-6-v1",
+      "attack_dir": "merchant/merchant-bound-right-6-v1",
+      "note": "シナリオ1 EV-5 で坑道の横穴に**縛られて座らされている従者** (2026-08-06 納品)。merchant walk と同一人物・同一衣装で、**縄は素材に描き込まれている** (それまでは walk の静止コマを暗くして CSS の線で縄を足していたが、96px では明るい細い棒にしか見えなかった)。⚠️⚠️ **char_ratio 0.3440 は歩きの 0.5938 ではない** — パッカの縮尺式は scale = cell×char_ratio÷H_max(walk) で、この素材は座位ゆえ H_max が **285px** しかない (歩きは 492px)。ここに 0.5938 を焼くと scale=0.2000 になり、**座った姿が立ち姿と同じ 57px の背丈まで拡大されて『巨大なしゃがみ』**になる。正しくは歩きと同じ scale 0.11586 を再現する値 = 0.11586×285÷96 ≒ 0.3440。これで出力体高 33px となり立ち姿 57px より頭が 24px 低い = 画面上で『座っている』と読める。⚠️ **attack_out を持たない唯一のエントリ** (盤面装飾なので攻撃しない)。attack_dir が walk と同じ物を指しているのは**フレーム読込がパッカの必須要件**だからで、シートは出力しない (2026-08-06 に pack_codex1_player.py 側を attack_out 省略可へ変更)。⚠️ 新規ファイル名なので ?v= キャッシュバスタは不要 (次に同名で中身を変える時は必要)。参照は index.html の CSS .sce1Captive.bound の 1 箇所だけで、DOM は装飾専用=戦闘ロジック・クリア判定・当たり判定に一切載らない。⚠️ **対になる hanging (縄で吊るされた姿) は codex1 の画像生成が安全判定で拒否したため納品されていない** (2026-08-06)。EV-9 の玉座側は servant_walk.png + CSS の縄という暫定表現のまま据え置き。"
+    },
+    {
       "key": "female-elf", "out": "assets/elf_walk.png",
       "attack_out": "assets/elf_attack.png",
       "format": "player",

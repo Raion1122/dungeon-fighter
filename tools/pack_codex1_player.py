@@ -124,9 +124,12 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
     build_player_sheet(
         [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in walk],
         cell, walk_out)
-    build_player_sheet(
-        [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in attack_sel],
-        cell, attack_out)
+    # attack_out 省略 = 攻撃シートを持たないエントリ (盤面に置くだけの装飾スプライト)。
+    # フレーム自体はスケール/アンカーの算出に使うので読み込みは必須のまま。
+    if attack_out:
+        build_player_sheet(
+            [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in attack_sel],
+            cell, attack_out)
     if cast_out:
         build_player_sheet(
             [_pack_frame(f, scale, cell, target_feet, center_mode, anchor) for f in cast],
@@ -136,12 +139,14 @@ def pack_player(key, walk_out, attack_out, codex1_root, cell, cols, char_ratio,
 
 def pack_from_ledger(entry, codex1_root, out_dir):
     cast_out = entry.get("cast_out")
-    outs = f"{entry['out']} + {entry['attack_out']}" + (f" + {cast_out}" if cast_out else "")
+    attack_out = entry.get("attack_out")
+    outs = (entry["out"] + (f" + {attack_out}" if attack_out else "")
+            + (f" + {cast_out}" if cast_out else ""))
     print(f"--- pack codex1 {entry['key']} -> {outs} ---")
     return pack_player(
         entry["key"],
         os.path.join(out_dir, entry["out"]),
-        os.path.join(out_dir, entry["attack_out"]),
+        os.path.join(out_dir, attack_out) if attack_out else None,
         codex1_root,
         entry.get("cell", 96), entry.get("cols", 6), entry["char_ratio"],
         entry.get("bottom_pad_ratio", 0.05), entry.get("center", "feet"),
