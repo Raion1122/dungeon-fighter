@@ -69,8 +69,12 @@ const MUTATIONS = {
    *   で **TypeError** になり、ドライバが FATAL で落ちて「何も測れない」。負のコントロールは
    *   「壊れているが動く」状態でなければ比較できない → 起点へ歩く形へ差し替える
    *   (欠陥の姿は「出口へ向かわない」であって「例外を投げる」ではない)。 */
+  /* ⚠ 2026-08-07: 差替文字列の**長さ**を 1 文字増やした (「変異nogate」→「変異 nogate」)。
+   *   偶然にも置換前後がどちらも 65 文字ちょうどで、(0e)「2 つの配信のバイト長が違う」が
+   *   `--mutate nogate` のときだけ必ず FAIL していた (HEAD から存在した空振り検出の誤警報)。
+   *   ⚠ 検出力には無関係な見た目の差なので、変異の意味は 1bit も変えていない。 */
   nogate: ['          goalTX = heroForcedGoal.tx; goalTY = heroForcedGoal.ty;',
-           '          goalTX = START_TX; goalTY = START_TY;   /* ★変異nogate */'],
+           '          goalTX = START_TX; goalTY = START_TY;   /* ★変異 nogate */'],
 };
 const MUTATE = arg('mutate', 'nosave');
 if (!Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
@@ -259,8 +263,12 @@ const QT = '/index.html?diag=1&graphtest=1';
   check('(1e) entry の出口は 3 本 / 親への「引き返す」は生えない (entry に親が無いので)',
     G1.exits.length === 3 && G1.exits.every(e => !e.back),
     G1.exits.map(e => e.to + '/' + e.dir).join(' '));
-  check('(1f) 出口タイルが部屋の縁から導出されている (上=[33,7] 右=[43,14] 下=[33,20])',
-    JSON.stringify(G1.exits.map(e => [e.at.tx, e.at.ty])) === '[[33,7],[43,14],[33,20]]',
+  /* ⚠ 2026-08-07 (P5 前段) に期待値を更新。ノードの部屋を**可視域サイズ** (道中 7 列 x 6 行 =
+   *   [11,33,16,39]) へ縮めたので縁のタイルが移動した (midC=36 / midR=13)。
+   *   ⚠⚠ assert は消していない。「出口タイルが部屋の縁から導出されている」という**測る対象は同じ**で、
+   *     期待値を新しい幾何へ書き直しただけ (直書き座標は幾何を動かすたびに黙って無意味化する)。 */
+  check('(1f) 出口タイルが部屋の縁から導出されている (上=[36,11] 右=[39,13] 下=[36,16])',
+    JSON.stringify(G1.exits.map(e => [e.at.tx, e.at.ty])) === '[[36,11],[39,13],[36,16]]',
     JSON.stringify(G1.exits.map(e => [e.at.tx, e.at.ty])));
   check('(1g) 出口ラベルに著者のヒント文が載っている',
     G1.exits[0].label.indexOf('荒々しい声が聞こえる') >= 0, G1.exits[0].label);
@@ -306,13 +314,18 @@ const QT = '/index.html?diag=1&graphtest=1';
     enemies[0].alive = false; enemies[0].hp = 0;
     roomChests[0].found = true; roomChests[0].hidden = false; roomChests[0].opened = true;
     traps[0].found = true; traps[0].triggered = true;
-    /* ★フォグは**部屋の南西隅の 3x4 タイル**だけを人工的に開ける (グローバル合計では測らない)。
+    /* ★フォグは 3x4 タイルの**特定領域**だけを人工的に開ける (グローバル合計では測らない)。
      * ⚠⚠ 2026-08-07 (P4) に踏んだ罠: 旧版は y8-12 / x26-36 を開けて「探索済タイルの**総数**」で
-     *   測っていたが、往復の起点を n4 へ移したところ **パーティの入場位置 (33,9) がその矩形の
-     *   真ん中**になり、フォグを復元しなくても視界が自然に開いて総数が増えた
+     *   測っていたが、往復の起点を n4 へ移したところ **パーティの入場位置がその矩形の真ん中**に
+     *   なり、フォグを復元しなくても視界が自然に開いて総数が増えた
      *   (負のコントロールが「出発前 84 → 戻り 95」で沈黙した)。
      *   → **パーティの視界 (半径 4〜6 タイル) が届かない場所を選び、その領域だけを数える**。
-     *     入場位置は下向き入場で (33,9) / 引き返しで (41,13) なので、南西隅は 9〜14 タイル離れている。 */
+     * ⚠ 2026-08-07 (P5 前段) に**成立の理由が変わった**。部屋が [11,33,16,39] (7 列 x 6 行) へ
+     *   縮み、入場位置 (36,13) から部屋の隅まで 3 タイルしか無い = **部屋の中には視界外が存在しない**。
+     *   この矩形 (row18-20 / col24-27) は今や**部屋の外の岩盤**で、入場位置から 9〜12 タイル離れて
+     *   いるので永久に自然探索されない。saveNodeState / restoreNodeState は exploredTiles を
+     *   **丸ごと**複製・復元するので、岩盤上の記憶でも保存/復元の検出器として正しく働く。
+     *   (矩形を部屋の中へ戻すと、視界が自然に開いて負のコントロールがまた沈黙する) */
     const FOG = { y0: 18, y1: 20, x0: 24, x1: 27 };
     for (let y = FOG.y0; y <= FOG.y1; y++) for (let x = FOG.x0; x <= FOG.x1; x++) exploredTiles[y][x] = 1;
     const fogRegion = () => {
@@ -406,10 +419,20 @@ const QT = '/index.html?diag=1&graphtest=1';
     });
     const a = snap();                                  // ← 既に n4 に居る (§2 の帰着点)
     await g.enter('n3', 'up');
+    /* ★[P5 前段] ゴブリン戦車の乱入位置。旧実装は CHARIOT_SPAWN_TX=68 の**直書き**で、
+     *   ボス部屋を [11,32,16,40] へ縮めた瞬間に **col 63〜68 が全部岩盤**になり、
+     *   探索に失敗したフォールバックが岩盤 (68,13) を返して**到達できない敵が残り、
+     *   潜行が永久にクリアしなくなっていた** (実際に踏んだ)。 */
+    const bossRect = ROOMS[BOSS_ROOM_IDX];
+    const chSpot = findChariotSpawnTile(Math.floor((bossRect[0] + bossRect[2]) / 2));
     const bossBoard = { enemies: enemies.length, types: enemies.map(e => e.type).join(','),
                         rooms: ROOMS.length, bossRoomIdx: BOSS_ROOM_IDX,
                         traps: traps.length, chests: roomChests.length,
-                        excluded: g.excluded(), chestExcluded: g.chestExcluded() };
+                        excluded: g.excluded(), chestExcluded: g.chestExcluded(),
+                        bossRect: bossRect.slice(), chariotBaseTx: chariotSpawnBaseTx(),
+                        chariot: chSpot, chariotWall: isTileWall(chSpot.tx, chSpot.ty),
+                        chariotInRoom: chSpot.ty >= bossRect[0] && chSpot.ty <= bossRect[2] &&
+                                       chSpot.tx >= bossRect[1] && chSpot.tx <= bossRect[3] };
     await g.enter('n4', 'down');
     const b = snap();
     await g.enter('n0', 'up');
@@ -432,6 +455,18 @@ const QT = '/index.html?diag=1&graphtest=1';
     'idx=' + D3.bossBoard.bossRoomIdx + ' rooms=' + D3.bossBoard.rooms +
     ' traps=' + D3.bossBoard.traps + ' chests=' + D3.bossBoard.chests);
   check('(3i) 元のノードへ戻れている (往復 4 回で状態機械が壊れない)', D3.nodeId === 'n0', D3.nodeId);
+  /* ⚠⚠ [P5 前段 2026-08-07] ゴブリン戦車の乱入位置は**ボス部屋の東端から導出**する。
+   *   直書き (旧 CHARIOT_SPAWN_TX=68) のままボス部屋を縮めると、探索が全部岩盤に当たって
+   *   フォールバックが盤外同然の岩盤を返し、**倒せない敵が残って潜行が永久にクリアしない**。
+   *   しかも encounterActive は静かに false へ落ちるので**画面では異常に見えない**
+   *   (?autoplay 完走が 4 分のハード上限で落ちて初めて分かった)。 */
+  check('(3j) ★戦車の乱入起点がボス部屋の東端から導出されている (絶対座標の直書きでない)',
+    D3.bossBoard.chariotBaseTx === D3.bossBoard.bossRect[3],
+    'base=' + D3.bossBoard.chariotBaseTx + ' / ボス部屋=' + JSON.stringify(D3.bossBoard.bossRect));
+  check('(3k) ★戦車の湧き先が歩けるタイルで、しかもボス部屋の中 (岩盤に湧いて倒せなくならない)',
+    D3.bossBoard.chariotWall === false && D3.bossBoard.chariotInRoom === true,
+    '湧き先=' + JSON.stringify(D3.bossBoard.chariot) + ' 壁=' + D3.bossBoard.chariotWall +
+    ' 部屋の中=' + D3.bossBoard.chariotInRoom);
 
   // ══ §4 クリア条件 defeatBoss ═══════════════════════════════════════════════
   mark('クリア条件 (defeatBoss)');
@@ -473,7 +508,13 @@ const QT = '/index.html?diag=1&graphtest=1';
     out.pristine = r(base());
     out.unspecified = r(null);
     out.bad = r({ nodes: [] });
-    { const g = base(); at(g, 'n2').exits.push({ to: 'n1', dir: 'up', at: [33, 7] }); out.notTree = r(g); }
+    /* ⚠ 2026-08-07 (P5 前段): 出口タイルの直書き [33,7] をやめ、**部屋の rect から導出**した。
+     *   部屋を可視域サイズへ縮めた瞬間 [33,7] は岩盤になり、この変異が graph-not-tree に加えて
+     *   graph-gate-not-floor まで出す「2 つの欠陥を混ぜた変異」に化けていた (assert は
+     *   前者しか見ないので**緑のまま静かに濁る**)。 */
+    const topMid = (g) => { const rc = at(g, 'n0').mapDef.rooms[0].rect;
+                            return [Math.floor((rc[1] + rc[3]) / 2), rc[0]]; };
+    { const g = base(); at(g, 'n2').exits.push({ to: 'n1', dir: 'up', at: topMid(g) }); out.notTree = r(g); }
     { const g = base(); const n0 = at(g, 'n0');
       n0.exits = n0.exits.filter(e => e.to !== 'n4'); out.unreach = r(g); }
     { const g = base(); at(g, 'n3').kind = 'combat'; out.noBoss = r(g); }
@@ -482,6 +523,19 @@ const QT = '/index.html?diag=1&graphtest=1';
     { const g = base(); at(g, 'n0').exits[0].dir = 'down'; out.dirMismatch = r(g); }
     { const g = base(); at(g, 'n2').kind = 'search'; out.deadEnd = r(g); }
     { const g = base(); at(g, 'n2').kind = 'boss'; out.kindRole = r(g); }
+    /* ★[P5 前段] ノードの部屋 (7x6 / 9x6) に 1枚絵を指定したら警告する。
+     *   部屋を可視域サイズへ縮めた結果、在庫 12 枚 (20x16 = 5:4 / 22x18 = 11:9) は**もう載らない**。
+     *   ⚠ これを測らないと「装置を足しただけで一度も発火しない」= 無いのと同じになる。
+     *   ⚠ **error にしない** (歪んで貼るのも卓用としては選択肢) ので ok === true も見る。 */
+    { const g = base(); at(g, 'n1').mapDef.rooms[0].painting = { theme: 'goblin-mine', key: '1' };
+      out.paintAspect = r(g); }
+    /* 負のコントロール: 在庫と**同じ比率** (5:4) の部屋なら警告は出ない。
+     *   これが無いと「painting を書けば必ず警告する」だけの装置と区別できない。 */
+    { const g = base(); const rm = at(g, 'n1').mapDef.rooms[0];
+      rm.rect = [4, 26, 19, 45];                       // 20 列 x 16 行 = 5:4
+      rm.painting = { theme: 'goblin-mine', key: '1' };
+      at(g, 'n1').exits[0].at = [36, 4];                // 出口も新しい縁へ (別の error を混ぜない)
+      out.paintAspectOk = r(g); }
     out.info = {
       none: DFMapDef.graphInfo(null),
       broken: DFMapDef.graphInfo({ entry: 'x', nodes: [{ id: 'a' }] }),
@@ -514,6 +568,12 @@ const QT = '/index.html?diag=1&graphtest=1';
   check('(5k) graph-kind-role は warning',
     L.kindRole.w.indexOf('graph-kind-role') >= 0 && L.kindRole.ok === true,
     'w=' + L.kindRole.w.join(',') + ' ok=' + L.kindRole.ok);
+  check('(5m) ★graph-painting-aspect は warning (可視域サイズの部屋に在庫の1枚絵を指定した)',
+    L.paintAspect.w.indexOf('graph-painting-aspect') >= 0 && L.paintAspect.ok === true,
+    'w=' + L.paintAspect.w.join(',') + ' ok=' + L.paintAspect.ok);
+  check('(5m2) 負のコントロール: 在庫と同じ比率 (20x16 = 5:4) の部屋なら警告しない',
+    L.paintAspectOk.w.indexOf('graph-painting-aspect') < 0 && L.paintAspectOk.ok === true,
+    'w=[' + L.paintAspectOk.w.join(',') + '] e=[' + L.paintAspectOk.e.join(',') + ']');
   check('(5l) ★graphInfo が「未指定」と「壊れている」を厳密に区別する (silent fail-open にしない)',
     L.info.none.present === false && L.info.none.graph === null &&
     L.info.broken.present === true && L.info.broken.graph === null && !!L.info.broken.reason &&
@@ -578,12 +638,15 @@ const QT = '/index.html?diag=1&graphtest=1';
     check('(7a2) ?graph=auto 経路で pageerror / console.error が 0', eA.length === 0, eA.slice(0, 3).join(' | '));
     await pA.close();
 
-    /* ⚠⚠ **2026-08-07 (P3) に書き直した**。P3 で**広い画面の既定は矢印 UI** になったので、
-     *   旧 (7b)「素の起動では #choiceDialog が開く」は「壊れた」のではなく**陳腐化した**。
-     *   assert を消して緑にするのは規約違反なので、**ダイアログ経路が今も生きている条件**
-     *   (= 狭幅端末) を明示して測る形へ書き換える。矢印 UI 側の詳細は driver_graph_arrows.js。
-     * ⚠ ここで測り続ける価値: ダイアログ経路は「狭幅端末の代替手段」ではなく
-     *   **?autoplay で候補 0 を即返す = 既存ドライバ全部の生命線**。死ぬと全部がタイムアウトする。 */
+    /* ⚠⚠ **2026-08-07 (P5 前段) に 2 度目の書き直し**。経緯を残す (どちらも陳腐化であって回帰ではない):
+     *   P3 … 広い画面の既定が矢印 UI になり、旧「素の起動では #choiceDialog が開く」が陳腐化
+     *         → **狭幅端末ならダイアログ**を測る形へ
+     *   P5 … iPhone は縦 (390x844) も横 (844x390) も compact 判定に入るため、その条件では
+     *         **実機で矢印が一度も出ない**ことが分かり、狭幅も矢印 (コンパクトレイアウト) へ変更
+     *         → ここも「狭幅でも矢印が出て、しかも**全部が可視域に収まる**」を測る形へ
+     * ⚠⚠ assert は 1 つも消していない (3 本のまま)。測る対象を新しい正しい挙動へ差し替えただけ。
+     * ⚠ ダイアログ経路は死んでいない。今の生存条件は **?autoplay** で、そこは §7 (7a) と
+     *   driver_graph_arrows §7 が測っている (候補 0 即返し = 既存ドライバ全部の生命線)。 */
     const savedVp = page.viewport() || { width: 800, height: 600 };
     await page.setViewport({ width: 390, height: 844 });   // iPhone 縦持ち = body.ui-compact
     await new Promise(r => setTimeout(r, 250));
@@ -592,24 +655,37 @@ const QT = '/index.html?diag=1&graphtest=1';
       return new Promise(res => setTimeout(() => {
         const dlg = document.getElementById('choiceDialog');
         const btns = dlg ? [...dlg.querySelectorAll('button')].map(b => b.textContent) : [];
+        const view = window.__graphRun.viewRect();
+        const arrows = window.__graphRun.arrows();
+        // ★矢印の**レイアウト矩形**で測る (getBoundingClientRect は脈動 transform 込みで揺れる)
+        const outside = arrows.filter(a =>
+          a.left < view.x - 0.6 || a.left + a.box.w > view.x + view.w + 0.6 ||
+          a.top  < view.y - 0.6 || a.top  + a.box.h > view.y + view.h + 0.6);
         res({ shown: !!(dlg && dlg.classList.contains('show')), btns,
               compact: document.body.classList.contains('ui-compact'),
-              arrows: document.querySelectorAll('.exitArrow').length });
+              // ⚠ 本数は直書きしない。ここへ来るまでの遷移でどのノードに居るかが変わるため
+              //   (実際 §4 でボスを倒すので現在ノードは n3 = 出口は「引き返す」1 本だけ)。
+              exits: window.__graphRun.exits().length,
+              arrows: arrows.length, outside: outside.length, view,
+              boxes: arrows.map(a => a.box.w + 'x' + a.box.h).join(' ') });
       }, 250));
     });
-    check('(7b) 狭幅端末 (390x844) では #choiceDialog が開き、出口 + キャンセルのボタンが並ぶ',
-      rB.shown === true && rB.btns.length >= 2 && rB.compact === true,
-      'shown=' + rB.shown + ' compact=' + rB.compact + ' btns=' + JSON.stringify(rB.btns));
-    check('(7b2) その狭幅では矢印 UI を出さない (経路が二重に開かない)',
-      rB.arrows === 0, 'arrows=' + rB.arrows);
+    check('(7b) ★狭幅端末 (390x844) でも矢印が出る (旧: ダイアログへ落としていた = 実機で矢印ゼロ)',
+      rB.compact === true && rB.exits > 0 && rB.arrows === rB.exits && rB.shown === false,
+      'compact=' + rB.compact + ' arrows=' + rB.arrows + '/' + rB.exits + ' dialog=' + rB.shown);
+    check('(7b2) ★その矢印が 1 本残らず「ダンジョンが見えている矩形」の中にある (縁クランプ)',
+      rB.arrows > 0 && rB.outside === 0,
+      '画面外=' + rB.outside + '/' + rB.arrows + ' view=' + JSON.stringify(rB.view) +
+      ' 矢印寸法=' + rB.boxes);
     const rB2 = await page.evaluate(async () => {
-      const dlg = document.getElementById('choiceDialog');
-      dlg.querySelectorAll('button')[0].click();
+      await new Promise(r => setTimeout(r, 500));          // ★ARROW_TAP_GATE を越えてから押す
+      document.querySelector('.exitArrow').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
       await new Promise(r => setTimeout(r, 80));
-      return { chosen: window.__chosen, shown: dlg.classList.contains('show') };
+      return { chosen: window.__chosen, arrows: document.querySelectorAll('.exitArrow').length };
     });
-    check('(7c) 1 つ目のボタンを押すと chooseExit がその出口を返し、ダイアログが閉じる',
-      !!rB2.chosen && rB2.shown === false, 'chosen=' + rB2.chosen + ' shown=' + rB2.shown);
+    check('(7c) 矢印をタップすると chooseExit がその出口を返し、矢印が片付く (狭幅でも選べる)',
+      !!rB2.chosen && rB2.arrows === 0, 'chosen=' + rB2.chosen + ' arrows=' + rB2.arrows);
     await page.setViewport(savedVp);
     await new Promise(r => setTimeout(r, 250));
   }
@@ -683,6 +759,18 @@ const QT = '/index.html?diag=1&graphtest=1';
       'boss=' + r0.bossRoomIdx + ' excluded={' + r0.excluded + '} chest={' + r0.chestExcluded + '}');
     check('(9d) isCustom=false / 起点 24,13 (既定幾何そのもの)',
       r0.isCustom === false && r0.start === '24,13', 'isCustom=' + r0.isCustom + ' start=' + r0.start);
+    /* ★[P5 前段] 戦車の乱入起点を「直書き 68」から「ボス部屋の東端」へ変えた分の**恒等性**。
+     *   既定幾何では ROOMS[1] = [5,47,22,68] なので必ず 68 に戻る = 既存 6 シナリオの
+     *   乱入位置は 1 タイルも動かない。ここが 68 でなくなったら、それは既定幾何を壊した合図。 */
+    const ch0 = await p0.evaluate(() => ({
+      base: chariotSpawnBaseTx(), rect: ROOMS[BOSS_ROOM_IDX].slice(),
+      spot: findChariotSpawnTile(13), wall: (() => { const s = findChariotSpawnTile(13);
+        return isTileWall(s.tx, s.ty); })(),
+    }));
+    check('(9j) ★?graph=0 では戦車の乱入起点が従来どおり col 68 (導出化が恒等な書き換えである証明)',
+      ch0.base === 68 && ch0.rect[3] === 68 && ch0.spot.tx === 68 && ch0.wall === false,
+      'base=' + ch0.base + ' ボス部屋=' + JSON.stringify(ch0.rect) +
+      ' 湧き先=' + JSON.stringify(ch0.spot) + ' 壁=' + ch0.wall);
     check('(9e) 敵が廃坑の spawns 表から湧いている (ノード別スポーンが効いていない)',
       r0.spawns > 8 && r0.enemies === r0.spawns, 'spawns=' + r0.spawns + ' enemies=' + r0.enemies);
     check('(9f) ★負のコントロール: 分岐版の mapData と ?graph=0 の mapData が違う (同じ物を 2 回測っていない)',

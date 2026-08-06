@@ -1843,6 +1843,24 @@
   var LINT_MAP_USED_MIN_ROWS = 6;     // 使用範囲がこれより薄いと画面上下が黒帯になりやすい
   var LINT_MAP_USED_MIN_FILL = 0.20;  // 使用範囲がグリッド全体のこの割合を切ると黒が目立つ
 
+  /* rect (= [r1,c1,r2,c2]) の縦横比が 1枚絵の在庫のどれかと一致するか。
+   * ★lintMapDef (単一マップ) と lintRun (分岐ノード) の**両方から呼ぶ唯一の判定式**。
+   *   ⚠ 片方へ写すと必ず食い違う (在庫を 1 行足したときノード側だけ古い在庫で判定する等)。
+   * ⚠ **比率**で比べる (40×32 も 5:4 なので等倍拡大なら歪まない)。サイズ一致で比べない。 */
+  function paintingAspectFits(rect) {
+    var rw = rect[3] - rect[1] + 1, rh = rect[2] - rect[0] + 1;
+    for (var j = 0; j < LINT_PAINTING_ASPECTS.length; j++) {
+      var A = LINT_PAINTING_ASPECTS[j];
+      if (rw * A.h === rh * A.w) return true;
+    }
+    return false;
+  }
+  function paintingAspectNames() {
+    var names = [];
+    for (var j = 0; j < LINT_PAINTING_ASPECTS.length; j++) names.push(LINT_PAINTING_ASPECTS[j].label);
+    return names;
+  }
+
   function lintIssue(code, severity, message, at, roomIndex) {
     return {
       code: code, severity: severity, message: message,
@@ -2106,17 +2124,12 @@
     for (i = 0; i < rooms.length; i++) {
       if (!rooms[i].painting) continue;                 // ★明示した部屋だけ比率を見る
       var rc = rooms[i].rect;
-      var rw = rc[3] - rc[1] + 1, rh = rc[2] - rc[0] + 1;
-      var fit = false, names = [];
-      for (j = 0; j < LINT_PAINTING_ASPECTS.length; j++) {
-        var A = LINT_PAINTING_ASPECTS[j];
-        names.push(A.label);
-        if (rw * A.h === rh * A.w) fit = true;          // ★比率で比較 (等倍拡大は歪まない)
-      }
-      if (fit) continue;
+      // ★判定式は paintingAspectFits ただ 1 本 (lintRun の graph-painting-aspect と共有)
+      if (paintingAspectFits(rc)) continue;
       warn("painting-aspect",
-           "部屋 " + rooms[i].id + " は 幅" + rw + "×高さ" + rh + " タイルで、指定した1枚絵の在庫 (" +
-           names.join(" / ") + ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で" +
+           "部屋 " + rooms[i].id + " は 幅" + (rc[3] - rc[1] + 1) + "×高さ" + (rc[2] - rc[0] + 1) +
+           " タイルで、指定した1枚絵の在庫 (" + paintingAspectNames().join(" / ") +
+           ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で" +
            "引き伸ばされて歪みます (この部屋は painting が明示指定されています)",
            [rc[1], rc[0]], i);
     }
@@ -2509,7 +2522,8 @@
    * codes:
    *   error   graph-bad / graph-not-tree / graph-unreachable-node / graph-no-boss /
    *           graph-gate-not-floor / graph-entry-start
-   *   warning graph-dir-mismatch / graph-dead-end-empty / graph-kind-role
+   *   warning graph-dir-mismatch / graph-dead-end-empty / graph-kind-role /
+   *           graph-painting-aspect (★P5 前段)
    *
    * ⚠ **graph が未指定なら何も言わない** (errors:[] / warnings:[])。既存 6 シナリオは
    *   graph を持たないので、この装置は 1 件も発火しない = 装置が信用を失わない。 */
@@ -2648,6 +2662,30 @@
              'ノード "' + node.id + '" の kind "' + node.kind + '" は在庫にありません (' +
              Object.keys(GRAPH_KINDS).join(" / ") + ") — ゲーム側は既定の中身で扱います",
              node.id, null);
+
+      /* ⑦ ★[P5 前段 2026-08-07] ノードの部屋に 1枚絵を指定したが、在庫の縦横比に合わない
+       *   (**warning**)。ノードの部屋は可視域サイズ (7x6 / 9x6) へ縮めたので、20x16(5:4) /
+       *   22x18(11:9) の在庫 12 枚は**もう載らない**。それ自体は仕様 (絵の無いノードはタイル
+       *   描画で成立させる = 6 シナリオ中 4 つの元の姿) だが、
+       *   **「指定したのに歪んで貼られる」が無言で起きるのが最悪**なので必ず知らせる。
+       * ⚠⚠ lintRun は lintMapDef を呼ばない (責務が別) ので、ここに書かないとノードの
+       *   1枚絵は**どの検査装置にも一度も掛からない**。
+       * ⚠ 判定式は lintMapDef と共有 (paintingAspectFits)。写して 2 本目を作らないこと。
+       * ⚠ **map-used (黒帯) は意図的に写していない**。ノードの部屋は「可視域より小さく作り、
+       *   カメラのクランプが画面中央へ固定する」のが設計なので、使用範囲が狭いのは正常。
+       *   ここへ写すと全ノードで常時警告が出て、装置全体が信用を失う。 */
+      for (j = 0; j < rooms.length; j++) {
+        if (!rooms[j].painting) continue;
+        var prc = rooms[j].rect;
+        if (paintingAspectFits(prc)) continue;
+        warn("graph-painting-aspect",
+             'ノード "' + node.id + '" の部屋 ' + rooms[j].id + " は 幅" + (prc[3] - prc[1] + 1) +
+             "×高さ" + (prc[2] - prc[0] + 1) + " タイルで、1枚絵の在庫 (" +
+             paintingAspectNames().join(" / ") + ") と縦横比が一致しません — " +
+             "5引数 drawImage で引き伸ばされて歪みます。ノードの部屋は可視域サイズへ縮めてあるので、" +
+             "在庫の絵は載りません (painting を外してタイル描画にするか、Phase 7 で専用の絵を作ってください)",
+             node.id, [prc[1], prc[0]]);
+      }
     }
 
     return done();

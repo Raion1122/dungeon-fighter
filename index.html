@@ -2550,6 +2550,29 @@
     .exitHint .exitHintIcon { margin-right: 5px; }
     .exitHint .exitHintDir  { display: block; font-size: 11px; opacity: 0.7; letter-spacing: 2px; }
 
+    /* ── ★[P5 前段 2026-08-07] 狭幅端末 (iPhone) のコンパクト矢印レイアウト ──────────
+     * 旧仕様は「狭幅では矢印を出さずダイアログへ落とす」だったが、iPhone は縦 (390x844) も
+     * 横 (844x390) も ui-compact に入るため**実機で矢印が一度も出なかった**。矢印は出す方針へ
+     * 変え、代わりに寸法を詰める。
+     *   ⚠ 実測の可視域: iPhone 縦 = 390 x 660px / iPhone 横 = 844 x **217px**。
+     *     横持ちは縦 217px しかないので、96px の矢印 2 本 + 羊皮紙 4 枚は原理的に入らない。
+     *     矢印 64px + 羊皮紙 ~40px にして初めて 4 本ぶんが縦に並ぶ (64*2 + 40*4 = 288 … は
+     *     まだ超えるので、updateExitArrowPositions の重なり解消で上から詰め直す)。
+     *   ⚠ 64px は指で押せる最小 44px を上回る (これ以上は縮めないこと)。
+     *   ⚠ max-width 160px は「左右の羊皮紙が iPhone 縦 (390px) の中央で衝突しない」ための値
+     *     (160*2 = 320 < 390)。上げると左右の選択肢が重なって片方が押せなくなる。 */
+    body.ui-compact .exitArrow { width: 64px; height: 64px; font-size: 32px; }
+    body.ui-compact .exitArrow.back { font-size: 25px; }
+    body.ui-compact .exitHint {
+      max-width: 160px;
+      padding: 4px 8px;
+      border-width: 2px;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      line-height: 1.35;
+    }
+    body.ui-compact .exitHint .exitHintDir { font-size: 9px; letter-spacing: 1px; }
+
     #resultOverlay {
       position: fixed;
       inset: 0;
@@ -26795,8 +26818,23 @@
     const CHARIOT_INTEL_FLAG   = "mine_chariot_intel";
     const CHARIOT_KING_TYPE    = "goblinKing";
     const CHARIOT_HP_TRIGGER   = 0.70;   // グリクスの HP がこの割合以下になったら乱入
-    const CHARIOT_SPAWN_TX     = 68;     // ボス部屋の床の右端 = ボス背後 11 タイル
+    const CHARIOT_SPAWN_TX     = 68;     // 既定幾何のボス部屋の床の右端 = ボス背後 11 タイル
     const CHARIOT_SPAWN_SEARCH = 6;      // 壁/占有だった場合に手前へ探す最大タイル数
+    /* ⚠⚠ [P5 前段 2026-08-07] **CHARIOT_SPAWN_TX の直書きをやめ、ボス部屋の東端から導出する**。
+     *   ⚠ 既定幾何では ROOMS[BOSS_ROOM_IDX] = [5,47,22,68] なので戻り値は **68 = 定数と同値**。
+     *     既存 6 シナリオの乱入位置は 1 タイルも動かない (恒等な書き換え)。
+     *   ⚠⚠ 直さないと何が起きたか (実際に踏んだ): 分岐マップのボスノードは部屋が
+     *     [11,32,16,40] なので col 63〜68 は**全部が岩盤**。findChariotSpawnTile が探索に失敗して
+     *     フォールバックの {tx:68} をそのまま返し、**戦車が部屋の外の岩盤に湧いて誰も到達できず、
+     *     倒せない敵が残って潜行が永久にクリアしない**。しかも戦闘は静かに終わる (encounterActive
+     *     が false へ落ちてパーティは歩き回るだけ) ので、**画面を見ても異常に見えない**。
+     *     ?autoplay 完走テストが 4 分のハード上限で落ちて初めて分かった。
+     *   ⭐ 恒久教訓の再演: **起点や部屋を動かす変更では絶対タイル座標の直書きを全部洗う**
+     *     ([[project-room-shorten-2rooms]] で 3 件踏んだのと同型)。 */
+    function chariotSpawnBaseTx() {
+      const rect = ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1];
+      return (rect && Number.isFinite(rect[3])) ? rect[3] : CHARIOT_SPAWN_TX;
+    }
 
     function findGoblinKingIdx() {
       for (const i of encounterEnemyIndices) {
@@ -26828,18 +26866,25 @@
       });
     }
 
-    // 床端から手前へ、壁でも占有でもないタイルを探す (buildMap の装飾ピラー対策)
+    /* 床端から手前へ、壁でも占有でもないタイルを探す (buildMap の装飾ピラー対策)。
+     * ⚠ 起点は chariotSpawnBaseTx() = **ボス部屋の東端** (上の注記を参照。既定幾何では 68)。
+     * ⚠ フォールバックも「岩盤かもしれない基準列」ではなく **ボス部屋の中央**へ変えてある。
+     *   ここが岩盤を返すと、到達できない敵が残って潜行が永久にクリアしない。 */
     function findChariotSpawnTile(ty) {
-      for (let tx = CHARIOT_SPAWN_TX; tx > CHARIOT_SPAWN_TX - CHARIOT_SPAWN_SEARCH; tx--) {
+      const base = chariotSpawnBaseTx();
+      for (let tx = base; tx > base - CHARIOT_SPAWN_SEARCH; tx--) {
         for (const dy of [0, -1, 1, -2, 2]) {
           const y = ty + dy;
-          if (y < 0 || y >= MAP_H) continue;
+          if (tx < 0 || tx >= MAP_W || y < 0 || y >= MAP_H) continue;
           if (isTileWall(tx, y)) continue;
           if (isTileTakenByEnemy(tx, y)) continue;
           return { tx, ty: y };
         }
       }
-      return { tx: CHARIOT_SPAWN_TX, ty };
+      const rect = ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1];
+      const cx = rect ? Math.floor((rect[1] + rect[3]) / 2) : base;
+      const cy = rect ? Math.floor((rect[0] + rect[2]) / 2) : ty;
+      return snapToWalkable({ tx: cx, ty: cy });
     }
 
     // 乱入本体。units / sortUnits は runEncounter のローカルなので引数で受ける。
@@ -28789,8 +28834,8 @@
       return out;
     }
 
-    /* ★出口選択の**唯一の入口**。P3 の矢印 UI はこの関数の中に 1 行足すだけで載る:
-     *     if (!RUN.auto && !window.__autoplay && !useCompactChoice())
+    /* ★出口選択の**唯一の入口**。P3 の矢印 UI はこの関数の中に 1 行足すだけで載っている:
+     *     if (!RUN.auto && !window.__autoplay)
      *       return await showExitArrows(node, opts);
      *   署名は変えないこと (戻り値 = 選ばれた出口 or null)。
      * ⚠ ダイアログ経路は「狭幅端末の代替手段」ではなく**検証インフラを守る必須条件**。
@@ -28801,11 +28846,16 @@
       if (!opts.length) return null;
       if (RUN.auto) return opts[0];                       // ?graph=auto (矢印もダイアログも出さない)
       /* ★P3 本命 = マップ上に浮かぶ矢印 + 羊皮紙。
-       * ⚠⚠ ?autoplay と狭幅端末は**必ず**下のダイアログ経路へ落とす。ダイアログは
-       *   「狭幅端末の代替手段」ではなく**検証インフラを守る必須条件**で、showCharChoice が
-       *   ?autoplay で候補 0 を即返す (index.html:10288) ことに既存ドライバ全部が乗っている。
-       *   矢印だけの実装にすると autoplay が選択で止まり、軒並みタイムアウトする。 */
-      if (!window.__autoplay && !useCompactChoice()) return await showExitArrows(node, opts);
+       * ⚠⚠ ?autoplay は**必ず**下のダイアログ経路へ落とす。ダイアログは「代替の見た目」ではなく
+       *   **検証インフラを守る必須条件**で、showCharChoice が ?autoplay で候補 0 を即返す
+       *   (index.html:10288) ことに既存ドライバ全部 (49 本) が乗っている。矢印だけの実装に
+       *   すると autoplay が選択で止まり、軒並みタイムアウトする。
+       * ★[P5 前段 2026-08-07] **狭幅端末 (useCompactArrows) をこの条件から外した**。
+       *   ⚠ iPhone は縦 (390x844 → w<=560) も横 (844x390 → h<=480) も compact 判定に入るので、
+       *     旧条件では**実機で矢印が一度も出なかった** (= 企画の本命が iPad 級でしか見られない)。
+       *     狭幅は「矢印を出さない」ではなく **コンパクトな矢印レイアウト**で受ける
+       *     (updateExitArrowPositions の縁クランプ + CSS body.ui-compact の縮小)。 */
+      if (!window.__autoplay) return await showExitArrows(node, opts);
       const head = opts.length === 1 ? "道は 1 本きりだ。" : "分かれ道だ。どちらへ進む?";
       const idx = await showCharChoice(head, opts.map(o => ({ label: exitChoiceLabel(node, o) })),
                                        "留まる (Esc)");
@@ -28827,16 +28877,20 @@
      *   2 つだけで、どちらも RUN ゲートの内側にある。既存 6 シナリオ・屋外・生成クエスト・
      *   自作マップは従来経路のまま。 */
 
-    /* 狭幅端末では矢印を出さず #choiceDialog へ落とす。
-     * ★判定は **body.ui-compact の有無ただ 1 つ**。computeUiMetrics() (:4530) が
+    /* 狭幅端末で**コンパクトな矢印レイアウト**へ切り替えるか。
+     * ★判定は **body.ui-compact の有無ただ 1 つ**。computeUiMetrics() (:4634) が
      *   `(h <= 480) || (w <= 560)` を計算して付け外ししており、CSS 側の
      *   `@media (max-width:560px), (max-height:480px)` (:928 / :1821) と**同じ語彙**で書かれている。
      * ⚠ ここで innerWidth/innerHeight を読み直して式を写すと二重定義になり、片方だけ直したときに
-     *   「CSS はダイアログを圧縮しているのに JS は矢印を出す」という食い違いが黙って生まれる
+     *   「CSS は縮めているのに JS は広幅の配置で置く」という食い違いが黙って生まれる
      *   (fieldBootBottomHud が computeUiMetrics の写しでズレた前例と同型の罠)。
-     * ⚠ 帰結として **iPhone は縦 (390x844 → w<=560) も横 (844x390 → h<=480) もダイアログ**になる。
-     *   矢印が出る iOS 端末は iPad 級だけだが、touchend 対応は依然として必須。 */
-    function useCompactChoice() {
+     * ★[P5 前段 2026-08-07] 旧名 useCompactChoice = 「矢印をやめてダイアログへ落とす」判定。
+     *   iPhone は縦も横も compact に入るため**実機で矢印が一度も出ない**という帰結になっていた。
+     *   ⚠ 今は **矢印は出す。変えるのはレイアウトだけ**:
+     *     ① CSS で矢印 96→64px / 羊皮紙を小さく (body.ui-compact)
+     *     ② updateExitArrowPositions が矢印を可視域の縁でクランプし、羊皮紙を矢印の真下へ縦置き
+     *   ⚠⚠ ダイアログ経路は消していない。`?autoplay` は今も必ずダイアログ (chooseExit の注記)。 */
+    function useCompactArrows() {
       return !!(document.body && document.body.classList.contains("ui-compact"));
     }
 
@@ -29038,10 +29092,16 @@
 
     /* カメラ追従。宝箱 (:12097) / 檻 (:12107) / 捕虜 (:12120) と**同じ式**:
      *     left = tx*TILE_SIZE + TILE_SIZE/2 - <半分> - camX
-     * ⚠ 矢印はクランプしない (タイルの真上を指すのが仕事)。代わりに**羊皮紙をクランプ**して
-     *   必ず画面内に残す。羊皮紙も同じ選択肢として押せるので、矢印が画面外へ出ても詰まない。
-     *   これは「部屋 14 行 × 20 列に対し可視域が 6〜7 タイルしかない」= 上下の出口は
-     *   だいたい画面外にある、という実測上の前提への対処 (updateEscortMarker と同じ発想)。
+     * ★[P5 前段 2026-08-07] **矢印もダンジョン可視域の縁でクランプする**ように変えた。
+     *   ⚠ 「タイルの真上を指すのが矢印の仕事」という P3 の原則は捨てていない。クランプは
+     *     **自然位置が可視域の外へ出るときだけ**効く = 部屋が画面に収まる端末 (desktop / iPad)
+     *     では 1px も動かない恒等操作で、ドライバの (2a)(2c) は従来どおり at タイル一致で通る。
+     *   ⚠ 効くのは狭幅 (iPhone 縦 = 幅 4.06 タイル / iPhone 横 = 高 2.26 タイル) だけ。
+     *     この 2 つは部屋 7x6 が原理的に入らないので、クランプ無しだと矢印が画面外へ消える。
+     *     方向グリフは残るので「その向きの出口が、画面のその側にある」情報は保たれる。
+     * ⚠ 矢印の寸法は CSS 側 (compact で 96 → 64px) に持たせてあるので **offsetWidth を読む**。
+     *   ここに 96 を直書きすると compact で 16px ずれる (ARROW_HALF は要素が無い時の保険)。
+     *   ⚠ offsetWidth は**レイアウト寸法**なので脈動アニメ (transform:scale) の影響を受けない。
      * ⚠ クランプの左端と下端は UI_MENU_WIDTH / cameraBottomHud() を使う。ここを自前の定数で
      *   書くと、スマホでログ枠の下に羊皮紙が潜る (speechOnScreen が UI_MINIBAR_H を足し忘れて
      *   compact だけ 64px ズレていた前例と同型)。 */
@@ -29050,23 +29110,68 @@
       const vw = window.innerWidth, vh = window.innerHeight;
       const padL = UI_MENU_WIDTH + 8;      // 左のステータスパネル (compact では 0)
       const padB = cameraBottomHud() + 8;  // ログ枠 + 下部 HP ミニバー
+      const top = 8, bottom = vh - padB;   // ダンジョンが見えている矩形 (縦)
+      /* v を [lo,hi] へ収める。⚠ 区間が空 (要素が可視域より大きい異常系) のときは**動かさない**。
+       *   中点へ寄せると「収まらないので中央」という別の見え方になり、
+       *   「収まる端末では 1px も動かない」という上の保証が崩れる。 */
+      const fit = (v, lo, hi) => (lo <= hi) ? Math.max(lo, Math.min(v, hi)) : v;
+      const compact = useCompactArrows();
+      const placed = [];                   // 羊皮紙どうしの重なり解消に使う
       for (const a of exitArrowEls) {
         const t = a.exit.at;
-        const ax = t.tx * TILE_SIZE + TILE_SIZE / 2 - ARROW_HALF - camX;
-        const ay = t.ty * TILE_SIZE + TILE_SIZE / 2 - ARROW_HALF - camY;
+        const aw = a.el.offsetWidth || ARROW_HALF * 2, ah = a.el.offsetHeight || ARROW_HALF * 2;
+        const ax = fit(t.tx * TILE_SIZE + TILE_SIZE / 2 - aw / 2 - camX, padL, vw - 8 - aw);
+        const ay = fit(t.ty * TILE_SIZE + TILE_SIZE / 2 - ah / 2 - camY, top, bottom - ah);
         a.el.style.left = ax + "px";
         a.el.style.top  = ay + "px";
         if (!a.hintEl) continue;
         const hw = a.hintEl.offsetWidth || 200, hh = a.hintEl.offsetHeight || 44;
-        // 矢印の向きの**反対側**へ逃がす = 進む先の扉そのものを羊皮紙で隠さない
-        let hx = ax + ARROW_HALF - hw / 2, hy = ay + ARROW_HALF - hh / 2;
-        if (a.exit.dir === "up")        hy = ay + ARROW_HALF * 2 + ARROW_HINT_GAP;
-        else if (a.exit.dir === "down") hy = ay - hh - ARROW_HINT_GAP;
-        else if (a.exit.dir === "left") hx = ax + ARROW_HALF * 2 + ARROW_HINT_GAP;
-        else                            hx = ax - hw - ARROW_HINT_GAP;
-        a.hintEl.style.left = Math.max(padL, Math.min(hx, vw - hw - 8)) + "px";
-        a.hintEl.style.top  = Math.max(8,    Math.min(hy, vh - padB - hh)) + "px";
+        let hx, hy;
+        if (compact) {
+          /* ── 狭幅レイアウト ──────────────────────────────────────────────────
+           * ★羊皮紙は**必ず矢印の真下** (下向きの出口だけ真上) に置く。
+           * ⚠ 広幅と同じ「向きの反対側へ逃がす」を使うと、iPhone 縦 (390px) では
+           *   左の羊皮紙と右の羊皮紙が中央で必ず衝突する (幅 150px でも 126〜264px が重なる)。
+           *   縦に置けば x が矢印に従うので、左右の出口は画面の左右へ自然に分かれる。 */
+          hx = ax + aw / 2 - hw / 2;
+          hy = (a.exit.dir === "down") ? ay - hh - ARROW_HINT_GAP : ay + ah + ARROW_HINT_GAP;
+        } else {
+          // 矢印の向きの**反対側**へ逃がす = 進む先の扉そのものを羊皮紙で隠さない
+          hx = ax + aw / 2 - hw / 2; hy = ay + ah / 2 - hh / 2;
+          if (a.exit.dir === "up")        hy = ay + ah + ARROW_HINT_GAP;
+          else if (a.exit.dir === "down") hy = ay - hh - ARROW_HINT_GAP;
+          else if (a.exit.dir === "left") hx = ax + aw + ARROW_HINT_GAP;
+          else                            hx = ax - hw - ARROW_HINT_GAP;
+        }
+        hx = Math.max(padL, Math.min(hx, vw - hw - 8));
+        hy = Math.max(top, Math.min(hy, bottom - hh));
+        hy = avoidHintOverlap(hx, hy, hw, hh, placed, top, bottom);
+        placed.push({ x: hx, y: hy, w: hw, h: hh });
+        a.hintEl.style.left = hx + "px";
+        a.hintEl.style.top  = hy + "px";
       }
+    }
+
+    /* 羊皮紙どうしの重なりを**縦にずらして**解消する。
+     * ⚠ 要るのは狭幅だけではない: 「前進する出口の dir」と「引き返す dir」はデータ次第で
+     *   一致しうる (下から入ったノードに、さらに下への出口があるなど)。そのとき 2 枚が
+     *   同じ位置に重なり、下敷きになった方が**押せない選択肢**になる。
+     * ⚠ 反復回数を必ず切る。ここで無限ループにすると renderWorld ごと固まる
+     *   (解けなければ重なりを受け入れる = 描画自体は壊さない)。 */
+    function avoidHintOverlap(x, y, w, h, placed, top, bottom) {
+      let ty = y;
+      for (let guard = 0; guard < 12; guard++) {
+        let hit = null;
+        for (const p of placed) {
+          if (x < p.x + p.w && x + w > p.x && ty < p.y + p.h && ty + h > p.y) { hit = p; break; }
+        }
+        if (!hit) break;
+        let ny = hit.y + hit.h + 6;
+        if (ny + h > bottom) ny = top;                  // 下へ入らない → 上から詰め直す
+        if (Math.abs(ny - ty) < 0.5) ny = ty + h + 6;   // 動かない時の保険 (無限ループ防止)
+        ty = Math.max(top, Math.min(ny, bottom - h));
+      }
+      return ty;
     }
 
     /* ★矢印 UI の本体。戻り値は「選ばれた出口」or null (= 留まる)。chooseExit の契約と同じ。
@@ -29576,10 +29681,40 @@
      *     n5 rest   … 回復するノード (行き止まり)
      *   ⚠ n4 に出口 (n5) を持たせているのは意図的。行き止まりの search は
      *     lintRun の graph-dead-end-empty (warning) を踏み、起動時に警告が出るため。
-     * ⚠ 新規アセットは 0 枚。既存の山場/ボスの 1 枚絵を painting 参照で貼る。 */
+     *
+     * ★[P5 前段 2026-08-07] **部屋を可視域サイズまで縮めた**(ユーザー決定・計画書の追補節)。
+     *   P3 のライブ確認で「部屋 20x14 に対し可視域は 10.4x6.6 タイル → パーティが部屋の
+     *   中央にいる間は矢印 4 本とも画面外」だったのが企画の芯を殺していたため。
+     *
+     *   実測 (実効可視域 = HUD を差し引いた後・TILE_SIZE=96):
+     *     desktop 1280x800 … 10.42 x 6.56 タイル
+     *     iPad    1024x768 …  7.75 x 6.23 タイル   ← ★基準端末
+     *     iPhone横 844x390 …  8.79 x **2.26**
+     *     iPhone縦 390x844 …  **4.06** x 6.88
+     *   4 端末の共通部分は **4x2 タイル**しかなく、そこへ収めると戦闘が成立しない
+     *   (PT5 + 敵 10 体が 8 タイルに入らない)。→ **全端末に収めるのは原理的に不可能**なので
+     *   「矢印がタイルの真上に出る本命の体験」を成立させるべき最小の非 compact 端末 =
+     *   **iPad 1024x768 を基準**に採り、道中 7 列 x 6 行 とした (iPad で横 36px/縦 11px の余白)。
+     *   狭幅 (compact) の 2 端末は updateExitArrowPositions の**縁クランプ**で担保する。
+     *
+     *   ⚠ 6 行は `LINT_MAP_USED_MIN_ROWS = 6` の下限ちょうど。これ以上薄くすると
+     *     「カメラが縦に寄れず画面の上下が黒帯」の警告に触れる。
+     *   ⚠ 7x6 = 42 タイル >= `CHEST_ELIGIBLE_MIN_SIZE`(25) なので玄室宝箱の資格は保たれる。
+     *     ここを 5x5 未満へ縮めると **kind:"loot" の当たり保証が無言で死ぬ**。
+     *   ⚠ ボス部屋だけ 9 列にしてある。ボスノードは前進出口が 0 本 (「引き返す」だけ) なので
+     *     矢印要件が緩く、ボス戦の間合いを確保する方が得。中心 (col36 / row11-16) は道中と
+     *     揃えてあるので、遷移でカメラが飛ばない。
+     *
+     * ★1 枚絵は**貼らない** (painting:null)。在庫 12 枚は 20x16(5:4) / 22x18(11:9) 用で、
+     *   7x6 の部屋に貼ると 5 引数 drawImage で引き伸ばされて歪む。絵が無いノードはタイル描画 +
+     *   情景散布で成立させる (6 シナリオ中 4 つの元の姿であり退化ではない)。絵の増産は Phase 7。
+     *   ⚠ 「絵を指定したのに載らない」が無言で起きないよう、`DFMapDef.lintRun` に
+     *     **graph-painting-aspect** (warning) を足してある (起動時に console へ出る)。 */
     function buildTestRun() {
-      const MAIN = [7, 24, 20, 43];        // 山場の部屋 (5:4 の 1 枚絵の在庫と同じ rect)
-      const BOSSR = [5, 47, 22, 68];       // ボス部屋 (11:9)
+      /* ⚠⚠ 部屋の中心を **col 36 / row 11-16** で全ノード揃えること。ずらすと遷移のたびに
+       *   カメラが横っ跳びする (MAP_USED クランプが部屋を画面中央へ固定するため)。 */
+      const MAIN = [11, 33, 16, 39];       // 道中 7 列 x 6 行 (iPad 基準)
+      const BOSSR = [11, 32, 16, 40];      // ボス 9 列 x 6 行 (前進出口 0 本なので少し広い)
       const TH = "goblin-mine";
       /* ⚠ role は **必ず "boss"**。validate() が全 mapDef に role:"boss" をちょうど 1 つ要求する
        *   ので、1 部屋なら選択肢が無い。BOSS_ROOM_IDX は全ノードで 0 になるが、ボス到達ナレは
@@ -29597,27 +29732,30 @@
                  objective: { kind: "defeatBoss", count: null },
                  tiles: null, props: null, graph: null, flags: { bandMask: false } };
       }
-      // 道中ノード: 山場の部屋 1 つだけ (敵 N 体・1枚絵・情景)
+      // 道中ノード: 部屋 1 つだけ (敵 N 体・情景)。★1 枚絵は貼らない (上の注記を参照)
       function midNode(slots) {
-        return mapDef([room("main", MAIN, { slots: slots, paint: "1", scen: 1 })], { tx: 33, ty: 13 });
+        return mapDef([room("main", MAIN, { slots: slots, scen: 1 })], { tx: 36, ty: 13 });
       }
-      const G = [33, 7], D = [33, 20], R = [43, 14];   // 部屋の縁 (上/下/右)
+      /* 部屋の縁 (上/下/右)。★nodeGateTile(MAIN, dir) と**必ず同じ値**にすること
+       * (midC = floor((33+39)/2) = 36 / midR = floor((11+16)/2) = 13)。
+       * ⚠ ズレると lintRun の graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
+      const G = [36, 11], D = [36, 16], R = [39, 13];
       return {
         entry: "n0",
         nodes: [
-          { id: "n0", kind: "start",  mapDef: midNode([[30, 13], [31, 14]]),
+          { id: "n0", kind: "start",  mapDef: midNode([[34, 12], [38, 15]]),
             exits: [{ to: "n1", dir: "up",    at: G, hint: { text: "荒々しい声が聞こえる" } },
                     { to: "n2", dir: "right", at: R, hint: { text: "金属の匂いがする" } },
                     { to: "n4", dir: "down",  at: D, hint: { text: "先は暗くて見えない" } }] },
-          { id: "n1", kind: "combat", mapDef: midNode([[30, 13], [34, 13], [38, 14]]),
+          { id: "n1", kind: "combat", mapDef: midNode([[34, 12], [36, 15], [38, 12]]),
             exits: [{ to: "n3", dir: "up", at: G, hint: { text: "地の底から重い足音が響く" } }] },
           { id: "n2", kind: "loot",   mapDef: midNode([]),                exits: [] },
-          { id: "n4", kind: "search", mapDef: midNode([[36, 13]]),
+          { id: "n4", kind: "search", mapDef: midNode([[37, 12]]),
             exits: [{ to: "n5", dir: "right", at: R, hint: { text: "焚き火の匂いが漂ってくる" } }] },
           { id: "n5", kind: "rest",   mapDef: midNode([]),                exits: [] },
           { id: "n3", kind: "boss",
-            mapDef: mapDef([room("boss", BOSSR, { boss: [57, 13], paint: "2", scen: 1 })],
-                           { tx: 57, ty: 13 }),
+            mapDef: mapDef([room("boss", BOSSR, { boss: [36, 13], scen: 1 })],
+                           { tx: 36, ty: 13 }),
             exits: [] },
         ],
       };
@@ -29688,10 +29826,15 @@
         // 出口選択の**本番と同じ入口**を叩く (?graph=auto / ?autoplay / 実ダイアログの 3 経路を測るため)
         choose: () => (RUN ? chooseExit(RUN.byId[currentNodeId]) : Promise.resolve(null)),
         /* ── ★P3 矢印 UI の検証シーム ────────────────────────────────────────
-         * ⚠ 「矢印を出す/出さない」の判定そのもの (useCompactChoice) を露出するのが肝。
+         * ⚠ 「どちらのレイアウトを使うか」の判定そのもの (useCompactArrows) を露出するのが肝。
          *   ドライバが自前で `innerWidth<=560` を写すと、**実装とドライバが同じ間違いを
          *   共有して両方緑になる**。判定の出所は 1 つに保つ。 */
-        compact: useCompactChoice,
+        compact: useCompactArrows,
+        /* ダンジョンが実際に見えている矩形 (HUD を差し引いた後)。★[P5 前段] 矢印の縁クランプを
+         * 測るための唯一の物差し。ドライバがこの式を写すと二重定義になる。 */
+        viewRect: () => ({ x: UI_MENU_WIDTH, y: 0,
+                           w: window.innerWidth - UI_MENU_WIDTH,
+                           h: window.innerHeight - cameraBottomHud() }),
         // 表示中の矢印の実測。style.left (実装が書いた値) と getBoundingClientRect (実描画位置) の
         // 両方を返す。前者だけだと CSS の transform 等で実位置がずれていても気づけない。
         arrows: () => exitArrowEls.map(a => {

@@ -220,7 +220,13 @@ function lootProbeRun(runJson) {
   const src = JSON.parse(runJson), byId = {};
   for (const n of src.nodes) byId[n.id] = n;
   const cp = (o) => JSON.parse(JSON.stringify(o));
-  const AT = [33, 7];                          // 部屋の最上段 = 床。dir は省略 (幾何から導出させる)
+  /* 部屋の最上段の中央 = 床。dir は省略して幾何から導出させる。
+   * ⚠ 2026-08-07 (P5 前段) に **直書き [33,7] をやめて rect から導出**した。ノードの部屋を
+   *   可視域サイズへ縮めた瞬間その座標は岩盤になり、lintRun が graph-gate-not-floor を出して
+   *   **RUN ごと null に落ち、probe が「RUN.byId の null 参照」で FATAL 死した**。
+   *   直書き座標は幾何を動かすたびに黙って無意味化する ([[project-room-shorten-2rooms]] の罠)。 */
+  const rc0 = byId.n0.mapDef.rooms[0].rect;    // [r1,c1,r2,c2]
+  const AT = [Math.floor((rc0[1] + rc0[3]) / 2), rc0[0]];
   const entry = { id: 'n0', kind: 'start', mapDef: cp(byId.n0.mapDef), exits: [] };
   const nodes = [entry];
   for (let i = 1; i <= LOOT_PROBE_N; i++) {
@@ -531,6 +537,7 @@ const TOUR_SRC = `(async () => {
     await g.enter('n0', 'down'); unpause();
     out.notFiredElsewhere = g.eventFired('ev-node');
     out.eventSpot = g.eventSpot(3, 0);
+    out.roomRect = ROOMS[0].slice();      // ★期待値を幾何から導くため (直書きしない)
     return out;
   });
   check('(6a) 束縛 (nodeId / kind) の無い登録は拒否する (全ノードで暴発しない fail-closed)',
@@ -551,9 +558,18 @@ const TOUR_SRC = `(async () => {
     'run=' + E6.declined.n + ' fired=' + E6.declined.flag + ' declined=' + E6.declined.mark);
   check('(6g) ★発火済みフラグはノード単位 (別ノードへ持ち越さない)',
     E6.notFiredElsewhere === false, String(E6.notFiredElsewhere));
-  check('(6h) nodeEventSpot が部屋の西端基準で歩けるタイルを返す (絶対座標を直書きさせない入口)',
-    E6.eventSpot && E6.eventSpot.tx === 27 && E6.eventSpot.ty === 13,
-    JSON.stringify(E6.eventSpot));
+  /* ⚠ 2026-08-07 (P5 前段): 期待値の直書き (27,13) をやめ、**その場の ROOMS[0] から導出**した。
+   *   部屋を可視域サイズへ縮めた瞬間に 27 は部屋の外になり、この assert が
+   *   「nodeEventSpot が壊れた」ように見えていたが、実際は**期待値の方が幾何に置き去られていた**
+   *   (この assert が防ごうとしている「絶対座標の直書き」を、ドライバ自身がやっていた)。 */
+  {
+    const rc = E6.roomRect || [0, 0, 0, 0];
+    const wantTx = rc[1] + 3, wantTy = Math.floor((rc[0] + rc[2]) / 2);
+    check('(6h) nodeEventSpot が部屋の西端基準で歩けるタイルを返す (絶対座標を直書きさせない入口)',
+      E6.eventSpot && E6.eventSpot.tx === wantTx && E6.eventSpot.ty === wantTy,
+      JSON.stringify(E6.eventSpot) + ' / 期待=' + wantTx + ',' + wantTy +
+      ' (部屋 ' + JSON.stringify(rc) + ' の西端 +3 / 縦中央)');
+  }
 
   // ══ §7 到着ナレと出口選択が重ならない (P3 の穴 #4) ═════════════════════════
   mark('到着ナレと出口選択の重なり回避');
