@@ -1585,7 +1585,18 @@ const GEN_QUEST = {
         else sessionStorage.removeItem('dragonfighters.generatedScenario');
       } catch (e) {}
     }, gen);
-    await page.goto('http://localhost:' + port + '/index.html' + query,
+    /* ⚠⚠ **`&graph=0` は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版に
+     *   なったので、付けないと EV-2/5/9 の**旧 400ms tick が RUN ゲートで完全に止まり**、
+     *   このドライバの 212 assert のうち EV 系がまるごと沈黙する (実測 122/212)。
+     *   本ドライバの主題は「旧単一マップでのイベントの中身」なので、計画書どおり
+     *   `?graph=0` を恒久的な退避口として使い、**負のコントロールとして生かし続ける**。
+     *   ⭐ 分岐版でのアンカーと発火は `tools/driver_graph_sce1.js` が別途測る (役割分担)。
+     *   ⚠ assert は 1 つも消していない。 */
+    /* ⚠ §6f が `boot(PORT, '')` (パラメータ無し) を使うので、**必ず `?` / `&` を出し分ける**。
+     *   素朴に `query + '&graph=0'` と書くと `/index.html&graph=0` になり 404 → 20 秒待って
+     *   FATAL TimeoutError (2026-08-08 に実際に踏んだ)。 */
+    const sep = (query && query.indexOf('?') >= 0) ? '&' : '?';
+    await page.goto('http://localhost:' + port + '/index.html' + query + sep + 'graph=0',
       { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => {
       try {

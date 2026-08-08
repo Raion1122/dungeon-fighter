@@ -610,16 +610,23 @@ const TOUR_SRC = `(async () => {
      *   **同じ run の中で必ず測る**。期待値は js/df-mapdef.js の除外集合の表そのもの:
      *     2 部屋 (既存 6 ダンジョン) … EXCLUDED_ROOMS={1} / ROOM_CHEST_EXCLUDED_ROOMS={0,1}
      *     3 部屋 (屋外 caravan-road) … {0,2} / {0,2} (たまたま一致する)                    */
+    /* ⚠⚠ 2026-08-08 (P5): **廃坑だけ `?graph=0` を付ける**。廃坑は内蔵グラフを持つように
+     *   なったので、素の URL では RUN が立って「既存経路」ではなくなる。計画書どおり
+     *   `?graph=0` が旧単一マップへの恒久的な退避口なので、そこへ固定して測り続ける。
+     *   ⭐ 他の 3 つは**あえて素のまま**にしてある。付けてしまうと「このシナリオはそもそも
+     *     分岐グラフを持たない」ことを誰も測らなくなる (= 内蔵グラフが他所へ漏れても緑のまま)。
+     *   ⚠ assert は 1 つも消していない (4 ケース x 4 件のまま)。 */
     const CASES = [
-      { scen: 'goblin-mine',    rooms: 2, exc: '1',   chest: '0,1' },
+      { scen: 'goblin-mine',    rooms: 2, exc: '1',   chest: '0,1', g0: true },
       { scen: 'bandits-forest', rooms: 2, exc: '1',   chest: '0,1' },
       { scen: 'dragon-lair',    rooms: 2, exc: '1',   chest: '0,1' },
       { scen: 'caravan-road',   rooms: 3, exc: '0,2', chest: '0,2' },
     ];
     for (const c of CASES) {
       const w = [], e = [];
-      // ⚠ ?graphtest は付けない = 分岐は 1 命令も走らない素の経路
-      const p = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1', w, e, c.scen);
+      // ⚠ ?graphtest は付けない = dev シームの内蔵テストグラフは 1 命令も走らない
+      const p = await bootPage(browser,
+        'http://localhost:' + PORT + '/index.html?diag=1' + (c.g0 ? '&graph=0' : ''), w, e, c.scen);
       const r = await p.evaluate(() => ({
         active: window.__graphRun.active(),
         kind: window.__graphRun.kindOf('n0'),

@@ -680,7 +680,14 @@ async function bootPage(browser, url, viewport, pre, side) {
       mark('非退行: ' + t.label + '  [' + t.vp.name + ' ' + t.vp.width + 'x' + t.vp.height + ']');
       // ⚠ ?intel=0 は dev 専用チート。?autoplay=0 を併記しないと __dfDevCheat が黙って無視する
       //   (fail-open)。?autoplay=0 は __autoplay を 0 のままにするので演出/速度は素のまま。
-      const q = '/index.html?intel=0&autoplay=0';
+      /* ⚠⚠ **`&graph=0` は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版に
+       *   なり、付けないと「既定幾何 (山場+ボスの 2 部屋)」ではなく分岐ノード (7x6 の 1 部屋)
+       *   を測ってしまう。本ドライバは**「壊していない」の最終判定装置**なので、計画書どおり
+       *   `?graph=0` を付けて旧幾何へ固定し、負のコントロールとして生かし続ける。
+       *   ⚠ baseline (@BASELINE_REV) は ?graph を知らないが、未知のクエリは単に無視されるので
+       *     両側に同じ URL を投げてよい (対照の条件が揃う)。
+       *   ⚠ assert は 1 つも消していない。 */
+      const q = '/index.html?intel=0&autoplay=0&graph=0';
       const pre = { mode: t.mode, scen: t.scen, payload: t.payload, seed: SEED, t0: T_BASE_MS };
       const cur = await bootPage(browser, BASE + q, t.vp, pre, 'cur');
       const base = await bootPage(browser, BBASE + q, t.vp, pre, 'base');

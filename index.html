@@ -3108,6 +3108,17 @@
     const _scenIdForTex = (_genScenForTex && _genScenForTex.themeId)
       ? _genScenForTex.themeId
       : (sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine");
+    /* ★[P5] **既定 6 シナリオ**の scenarioId (生成クエストのときは null)。
+     * ⚠⚠ _scenIdForTex を分岐グラフの引き当てに流用してはいけない。あれは「どのテクスチャを
+     *   敷くか」= **themeId** で、生成クエストが themeId:"goblin-mine" を持つと "goblin-mine" を
+     *   返す。そのまま使うと**闇市/酒場の生成クエストに廃坑の分岐グラフが勝手に載る**
+     *   (敵も宝も別物なのに廃坑の間取りで遊ばされる)。ここは「生成クエストではない」ことを
+     *   先に確かめてから素の scenarioId を採る。
+     * ⚠ scenarioId 本体 (:7682) はまだ宣言されていない (RUN より下) ので、同じ 1 行を
+     *   ここで引き直す。式は :7682 と**同値**にすること。 */
+    const _builtinScenId = _genScenForTex
+      ? null
+      : (sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine");
     const SCENARIO_TEX = {
       "goblin-mine":    { floor: "床1.png",        wall: "壁1.png" },
       "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
@@ -3534,10 +3545,14 @@
      *   ⚠ これは dev チートではなく「本番を素の状態へ戻す」退避口なので __dfDevCheat では
      *     ゲートしない (?mapdef=0 / ?field=0 / ?sky=0 と同じ扱い)。
      *
-     * ⚠ グラフの出所は 2 つだけ:
-     *     ① 生成クエストのペイロード sessionStorage.generatedScenario.run  ← 本番 (P5 が使う)
+     * ⚠ グラフの出所は 3 つだけ。**この優先順で**上から見て、先に見つかったものを採る:
+     *     ① 生成クエストのペイロード sessionStorage.generatedScenario.run  ← 自作マップ / 将来の生成
      *     ② dev シーム ?graphtest=1 の内蔵テストグラフ (__dfDevCheat ゲート) ← 検証用
-     *   ①が無いときだけ②を見る = 本番のデータが dev シームに上書きされることが原理的に無い。 */
+     *     ③ 既定 6 シナリオの内蔵グラフ buildScenarioRun(scenarioId)       ← ★P5 の本番
+     *   ①が②より上 = 自作マップが dev シームに上書きされない。
+     *   ②が③より上 = `?graphtest=1` が既定シナリオの内蔵グラフに**黙って無視されない**。
+     * ★[P5] ②を足したので、**廃坑 (goblin-mine) は既定で分岐版になる**。旧単一マップは
+     *   `?graph=0` で常に戻せる (幾何依存ドライバはこれを付けて負のコントロールとして生き続ける)。 */
     const RUN = (() => {
       let params = null;
       try { params = new URLSearchParams(window.location.search); } catch (e) {}
@@ -3551,10 +3566,22 @@
        *   判定式を作るくらいなら「分岐なしで正しく遊べる」方へ倒す。 */
       if (!window.DFMapDef) return null;
       let src = (_genScenForTex && _genScenForTex.run) ? _genScenForTex.run : null;
-      let fromSeam = false;
+      let fromSeam = false, fromScenario = null;
+      /* ⚠⚠ **dev シームは内蔵グラフより先に見る**。順序を逆にすると `?graphtest=1` が
+       *   廃坑では黙って無視され (内蔵グラフが先に当たるため)、既存ドライバ 4 本が
+       *   「テストグラフのつもりで本番グラフを測る」状態になる (2026-08-08 に実測)。
+       *   ⚠ 生成クエストのペイロード (①) だけは今も最優先。自作マップを dev シームで
+       *     上書きしない、という P2 からの約束をそのまま守る。 */
       if (!src && params && params.has("graphtest") && window.__dfDevCheat("graphtest")) {
         src = buildTestRun();                    // 関数宣言なので巻き上げ済み (定義は最下部)
         fromSeam = true;
+      }
+      /* ★[P5] ② 既定 6 シナリオの内蔵グラフ。⚠ _builtinScenId は「生成クエストではない」ことを
+       *   確かめてから採った素の scenarioId (上の注記を参照)。未対応シナリオでは null が返り、
+       *   従来の単一マップへ**恒等的に**落ちる = P6 は 1 行足すだけで載る。 */
+      if (!src && _builtinScenId) {
+        src = buildScenarioRun(_builtinScenId);  // 関数宣言なので巻き上げ済み (定義は最下部)
+        if (src) fromScenario = _builtinScenId;
       }
       const gi = DFMapDef.graphInfo(src);
       if (!gi.present) return null;              // 分岐なし = 従来の単一マップ。正常
@@ -3584,6 +3611,7 @@
       for (const n of gi.graph.nodes) if (n.kind === "boss") { bossNodeId = n.id; break; }
       console.log("[graph] 分岐グラフで起動します: ノード " + gi.graph.nodes.length + " 件 / entry=" +
         gi.graph.entry + " / boss=" + bossNodeId + (fromSeam ? " (dev シーム ?graphtest)" : "") +
+        (fromScenario ? " (内蔵グラフ " + fromScenario + ")" : "") +
         (gp === "auto" ? " / ?graph=auto (先頭の出口を自動選択)" : ""));
       return {
         graph: gi.graph,
@@ -20455,6 +20483,10 @@
     // rect = [tyMin, txMin, tyMax, txMax]。既定ダンジョンでは (tx27, ty13) に落ちる。
     let _sce1WatchSpot = null;
     function sce1WatchSpot() {
+      /* ★[P5] 分岐版は**現在ノードの部屋**から導出する。旧アンカーは「ROOMS[0] の西端から東へ
+       *   +N」= 西から進入する前提だが、分岐マップは入場する縁がノードごとに変わるので成立しない。
+       * ⚠ memo しない (ノードを跨ぐと部屋が変わる)。nodeEventSpot は関数宣言なので巻き上げ済み。 */
+      if (RUN) return nodeEventSpot(SCE1_WATCH_OFFSET_TX, 0);
       if (_sce1WatchSpot) return _sce1WatchSpot;
       const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -20578,6 +20610,18 @@
     const SCE1_SERVANT_DC        = 13;
     const SCE1_SERVANT_CLASSES   = ["cleric"];       // 得意クラス = 僧侶 (在籍で +2)
     const SCE1_SERVANT_OFFSET_TX = 3;                // 山場の東端 (=坑道の奥) から西へ 3 タイル
+    // ★[P5] 分岐版のアンカー: ノードの部屋の**西端から東へ** 4 タイル (sce1ServantSpot の注記)
+    const SCE1_SERVANT_NODE_DX   = 4;
+    /* ★[P5] EV-2 / EV-5 をどのノードに置くか。**buildGoblinMineRun() の id と 1 対 1**。
+     * ⚠⚠ グラフの id を変えたらここも直すこと。ここが食い違うと registerNodeEvent の
+     *   nodeId が誰とも一致せず、**イベントが一度も発火しないまま静かに消える**
+     *   (ゲームは普通に遊べてしまうので画面では気づけない)。
+     *   → driver_graph_sce1 の (0x) 群が「id が実在すること」を毎回検算している。
+     * ⚠ EV-9 は RUN.bossNodeId を使う (ボスノードは kind:"boss" から一意に決まるので直書きしない)。
+     * ⚠ ここより下 (startup の spawnNodeEntities) から参照されるので、宣言は必ず**その前**に置く
+     *   (const は巻き上げても TDZ に落ちる)。 */
+    const SCE1_NODE_WATCH   = "n1";   // 見張りの詰所 (EV-2)
+    const SCE1_NODE_SERVANT = "n6";   // 横穴 (EV-5) — 縛られた従者が居るノードでもある
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「迂回する」) が「判定なし(確定)」。
     const SCE1_SERVANT_CHECKS = {
       0: { check: "perception", title: "知覚判定", flavor: "呻き声の出どころと、その手前の床板を目で追う…" },
@@ -20589,6 +20633,11 @@
     // 既定ダンジョンでは (tx40, ty13) に落ちる = 本隊 (tx31〜35) より東、EV-2 (tx27) から 13 タイル。
     let _sce1ServantSpot = null;
     function sce1ServantSpot() {
+      /* ★[P5] 分岐版は現在ノードの部屋から導出する (sce1WatchSpot の注記を参照)。
+       * ⚠ 旧式は「東端から西へ 3」だが、分岐版の部屋は 7 列しかなく東端 -3 = 西端 +3 = 中央で
+       *   入場地点と重なる。**西端から +4** にして、入場地点 (西端 +2) の 2 タイル東に置く
+       *   = 「横穴の奥に人影が見える」という絵になるように寄せてある。 */
+      if (RUN) return nodeEventSpot(SCE1_SERVANT_NODE_DX, 0);
       if (_sce1ServantSpot) return _sce1ServantSpot;
       const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -20620,6 +20669,7 @@
       //   `if (!isGoblinMineScenario()) return;` を**部分一致**で探すので、素の書式だと
       //   2 箇所ヒットして負のコントロールが空振り扱い (exit 3) になる。
       if (!isGoblinMineScenario()) { return; }
+      if (RUN) { initSce1CaptiveForNode(); return; }   // ★[P5] 分岐版は下の関数が持つ
       if (sce1CaptiveEl) return;
       const el = document.createElement("div");
       el.className = "sce1Captive bound";
@@ -20627,6 +20677,34 @@
       nodeLayer.appendChild(el);   // ★[P1] ノード寿命DOMは #nodeLayer へ (遷移時に一掃)
       sce1CaptiveEl = el;
       sce1CaptiveState = "tunnel";
+    }
+
+    /* ★[P5] 分岐版の「縛られた従者」— **状態は潜行を通して持ち越し、DOM はノードごとに作り直す**。
+     *
+     * ⚠⚠ ここが分岐版で一番間違えやすい所: #nodeLayer は遷移のたびに replaceChildren で
+     *   一掃されるので、装飾 DOM は「一度作れば残る」ものではない。一方 sce1CaptiveState
+     *   ("tunnel" → "throne" → "gone") は**シナリオの状態**であって、ノードの状態ではない
+     *   (clearNodeArrays は RUN があるとき state を消さない = 下の注記を参照)。
+     *   → 「今どのノードに居るか」と state から、**この部屋に姿があるべきか**を毎回導出する。
+     *
+     * ⚠ 初訪の横穴を待たずに潜行開始時点で "tunnel" にする。EV-5 の横穴 (n6) は側枝にあり
+     *   **一度も寄らずにボスへ直行できる**が、EV-9 は moveSce1CaptiveToThrone() で
+     *   "tunnel"→"throne" を要求する。ここで初期化しておかないと、横穴を飛ばした周回では
+     *   玉座の見出し (「柱に縛りつけられた人影」) に対して盤面に人影が無い矛盾が出る。 */
+    function sce1CaptiveOwnerNode() {
+      if (!RUN) return null;
+      return (sce1CaptiveState === "throne") ? RUN.bossNodeId : SCE1_NODE_SERVANT;
+    }
+    function initSce1CaptiveForNode() {
+      if (sce1CaptiveState === "none") sce1CaptiveState = "tunnel";   // 潜行開始 = 横穴で縛られている
+      if (sce1CaptiveState === "gone") return;                        // 救出済 / 死亡 = 姿は無い
+      if (currentNodeId !== sce1CaptiveOwnerNode()) return;           // 他のノードには居ない
+      if (sce1CaptiveEl) return;
+      const el = document.createElement("div");
+      el.className = "sce1Captive " + (sce1CaptiveState === "throne" ? "hanging" : "bound");
+      el.id = "sce1Captive";
+      nodeLayer.appendChild(el);
+      sce1CaptiveEl = el;
     }
 
     // 玉座の脇。★ボス個体の実座標から導く (絶対タイルの直書きはマップを動かすと壁に埋まる)。
@@ -20868,6 +20946,12 @@
     //   ⚠ 最遠の敵射程 engagePx=576 (=6タイル) より遠いので、ボス戦が始まる前に必ずここを通る。
     let _sce1GrixSpot = null;
     function sce1GrixSpot() {
+      /* ★[P5] 分岐版は現在ノードの部屋から導出する (sce1WatchSpot の注記を参照)。
+       * ⚠⚠ SCE1_GRIX_OFFSET_TX(=2) は **NODE_ENTRY_INSET(=2) と同値**なので、ボスノードへ
+       *   西から入ったパーティは**この地点にちょうど降り立つ** = 距離 0 で必ず発火する。
+       *   どちらかを動かすと EV-9 が無言で発火しなくなる恐れがあるので、必ず
+       *   driver_graph_sce1 の (9x) 群で検算すること。 */
+      if (RUN) return nodeEventSpot(SCE1_GRIX_OFFSET_TX, 0);
       if (_sce1GrixSpot) return _sce1GrixSpot;
       const r = sce1BossRoomRect();
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -21227,6 +21311,12 @@
       if (encounterActive || encounterRunning) return;   // 戦闘中は出さない
       if (hp <= 0) return;
       if (!isGoblinMineScenario()) return;               // ★生成クエスト (別 scenarioId) では一切発火しない
+      /* ★[P5] 分岐版 (RUN) では**この経路を完全に殺す**。EV-2/5/9 はノード台帳 (NODE_EVENTS) が
+       *   持つので、ここを生かすと同じイベントが 2 つの台帳から発火しうる。
+       * ⚠⚠ 実害は「二重発火」だけではない: 旧アンカーは ROOMS[0] の西端基準なので、分岐版では
+       *   **どのノードでも常にパーティのすぐ傍**に落ちる。すると 400ms tick が入室のたびに
+       *   モーダルを開き、**出口選択が永久に止まって詰む** (P4 の検証中に実際に踏んだ)。 */
+      if (RUN) return;
       if (skillCheckActive || dialogPaused) return;      // 他パネル/モーダル表示中は入らない
       const pCX = playerX + 48, pCY = playerY + 58;
       for (const ev of SCE1_EVENTS) {
@@ -28597,7 +28687,12 @@
       caelumIdx = -1; caelumResolved = false;
       guardiansAwakened = false;
       mimicChest = null;
-      sce1CaptiveEl = null; sce1CaptiveState = "none"; _sce1ThroneCaptiveSpot = null;
+      /* ★[P5] 分岐版では **sce1CaptiveState を落とさない**。DOM (sce1CaptiveEl) はノード寿命だが、
+       *   「横穴で縛られている / 玉座へ運ばれた / もう居ない」は**シナリオの状態**で、ノードを
+       *   跨いで持ち越さないと EV-5 の帰結が EV-9 に届かない (initSce1CaptiveForNode の注記)。
+       *   ⚠ RUN が null の既存経路では従来どおり "none" へ戻す (1 bit も変えない)。 */
+      sce1CaptiveEl = null; _sce1ThroneCaptiveSpot = null;
+      if (!RUN) sce1CaptiveState = "none";
       campfireSpot = null;
       // 部屋踏破の記憶 (部屋 index はノードごとに意味が変わる)
       visitedRooms.clear();
@@ -29504,6 +29599,16 @@
         const el = document.getElementById("nodeFade");
         if (el) el.classList.remove("on");        // 例外時の暗転固着を必ず解く
       }
+      /* ★[P5] 到着直後に **1 回だけ即時**でノードイベントを判定する (400ms tick を待たない)。
+       * ⚠⚠ これが無いと EV-9 が無言で死ぬ。ボス部屋は 9 列しかなく、入場地点 (col34) から
+       *   最寄りの護衛 (col39) まで 5 タイル = 480px に対し近接の交戦距離は 400px しかない。
+       *   400ms の間に heroAI が部屋の中央へ 1〜2 タイル前進すると**先に戦闘が始まり**、
+       *   tryInteractNodeEvent の encounterActive ガードで玉座の交渉が永久に開かなくなる。
+       * ⭐ ここは `await nodeFadeTo(false)` の後の**同期の続き**なので、呼ぶまでに rAF が
+       *   1 フレームも回らない = パーティは 1px も動いていない。競合が原理的に起きない。
+       * ⚠ try の**外**に置くこと。中に置くと nodeBusy が true のままなので
+       *   tryInteractNodeEvent が冒頭で早期 return して何も起きない。 */
+      await tryInteractNodeEvent();
     }
     // ノードの mapDef を解決する。★resolve() を通すのが肝 (validate → sanitize → isCustom →
     //   ?mapdef=0 / ?mapdef=raw の既存経路をそのまま再利用でき、判定式が 2 本にならない)。
@@ -29661,6 +29766,48 @@
     }
     if (RUN) setInterval(tryInteractNodeEvent, 400);
 
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P5 — EV-2 / EV-5 / EV-9 を廃坑の分岐グラフへ**再アンカー**する
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⭐ **イベントの中身 (文面・DC・分岐・結果) は 1 バイトも書き換えていない**。
+     *   run*Event の 3 関数をそのまま呼び、変えたのは「どこで発火するか」だけ:
+     *     旧: ROOMS[0] の西端から東へ +N  = **西から進入する前提の絶対アンカー**
+     *     新: registerNodeEvent(nodeId) + nodeEventSpot(dx,dy) = **そのノードの部屋から導出**
+     *   これは計画書の要求どおりで、driver_sce1_events.js の 212 assert
+     *   (G3/G4c はプレイヤー文面のリテラル一致) を 1 つも壊さないための必須条件でもある。
+     *
+     * ⚠ 発火済みの記録は **nodeState.eventsFired** が持つ (台帳のオブジェクトではない)。
+     *   旧 SCE1_EVENTS は ev.fired を台帳に持っていたが、分岐版でそれをやると
+     *   「別のノードの同じイベントまで発火済み」になる。
+     *
+     * ⚠ 半径は旧 SCE1_EVENT_RADIUS(240) を**そのまま**使う。NODE_EVENT_RADIUS(110) だと
+     *   ちょうど 1 タイル強しかなく、入場地点から 1 タイルずれただけで届かない。
+     *   新しい数字を発明せず、旧イベントが実績のある値を引き継ぐ。 */
+
+    /* 旧イベント関数を NODE_EVENTS の run 契約へ橋渡しする。
+     * ⚠⚠ 契約が違う: 旧 3 関数は「選ばれたら ev.fired=true / 断られたら ev.declined=true」を
+     *   **自分で ev へ書く**が、tryInteractNodeEvent は **戻り値 false** を「断られた」と読む
+     *   (undefined は発火扱い)。橋渡ししないと、Esc で断っただけのイベントが
+     *   nodeState.eventsFired に焼かれて**二度と話しかけられなくなる**。 */
+    function sce1NodeEventRunner(fn) {
+      return async (ev) => {
+        ev.fired = false;               // 旧関数は「選ばれた」ときだけ true を書く
+        await fn(ev);
+        return ev.fired ? true : false;
+      };
+    }
+    if (RUN && isGoblinMineScenario()) {
+      registerNodeEvent({ key: "mine_watch", nodeId: SCE1_NODE_WATCH, radius: SCE1_EVENT_RADIUS,
+                          spot: sce1WatchSpot,   run: sce1NodeEventRunner(runMineWatchEvent) });
+      registerNodeEvent({ key: "captive_servant", nodeId: SCE1_NODE_SERVANT, radius: SCE1_EVENT_RADIUS,
+                          spot: sce1ServantSpot, run: sce1NodeEventRunner(runServantEvent) });
+      /* ⚠ EV-9 だけは nodeId を直書きせず **RUN.bossNodeId** から引く。ボスノードは
+       *   kind:"boss" で一意に決まる (lintRun の graph-no-boss が保証する) ので、
+       *   グラフを組み替えても玉座の交渉が迷子にならない。 */
+      registerNodeEvent({ key: "grix_parley", nodeId: RUN.bossNodeId, radius: SCE1_EVENT_RADIUS,
+                          spot: sce1GrixSpot,    run: sce1NodeEventRunner(runGrixEvent) });
+    }
+
     /* ── dev シーム: ?graphtest=1 の内蔵テストグラフ ────────────────────────────
      *
      *   n0 (start)  ├ up    → n1 (combat) ── up    → n3 (boss)
@@ -29710,6 +29857,121 @@
      *   情景散布で成立させる (6 シナリオ中 4 つの元の姿であり退化ではない)。絵の増産は Phase 7。
      *   ⚠ 「絵を指定したのに載らない」が無言で起きないよう、`DFMapDef.lintRun` に
      *     **graph-painting-aspect** (warning) を足してある (起動時に console へ出る)。 */
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P5 — 既定 6 シナリオの内蔵グラフ (今は廃坑だけ。P6 で 1 行ずつ足す)
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⚠ 未対応のシナリオでは **null** を返す = RUN が null のまま = 従来の単一マップへ
+     *   恒等的に落ちる。「知らない ID を既定のグラフで埋める」ことは絶対にしない
+     *   (別のシナリオが黙って廃坑の間取りになる = 一番気づきにくい壊れ方)。 */
+    function buildScenarioRun(scenId) {
+      if (scenId === "goblin-mine") return buildGoblinMineRun();
+      return null;                         // P6: bandits-forest 以降をここへ足す
+    }
+
+    /* ── シナリオ1「廃坑 — ゴブリンの巣窟」の分岐グラフ ────────────────────────
+     *
+     *   n0 start 坑道の入口
+     *     ├ right → n1 event 見張りの詰所 [EV-2]
+     *     │           ├ right → n4 combat 掘削場 ── right → n7 boss 玉座の間 [EV-9]
+     *     │           └ up    → n5 rest   湧き水の間            (行き止まり)
+     *     ├ up    → n2 search 崩れた側坑 ── right → n6 event 横穴 [EV-5]  (行き止まり)
+     *     └ down  → n3 loot   打ち捨てられた荷置き場            (行き止まり)
+     *
+     * ★設計の根拠 (次に P6 を書く人へ):
+     *   ① **event / rest ノードには敵を 1 体も置かない**。部屋は 7 列しかなく、最も近い近接敵の
+     *      交戦距離 engagePx=400 (≒4.2 タイル) の方が部屋より広いので、敵が居ると**入室した
+     *      瞬間に戦闘が始まり、tryInteractNodeEvent の encounterActive ガードで
+     *      イベントが永久に発火しない**。EV-2/EV-5 を「戦闘前の選択」として成立させる唯一の方法。
+     *   ② **ボスノードだけは敵が居るのに EV-9 が発火する**。理由は 2 つで、どちらも必要:
+     *      ・ボス部屋は 9 列あり、入場地点 (西の縁 + NODE_ENTRY_INSET=2 = col34) から
+     *        最寄りの護衛 (col39) まで 5 タイル = 480px > 400px なので**入室時点では交戦しない**
+     *      ・enterNode の末尾で tryInteractNodeEvent を **1 回だけ即時に回す** (下記) ので、
+     *        400ms tick を待つ間に heroAI が前進して交戦距離へ入る競合が起きない
+     *      ⚠ ボスや護衛をこれ以上西へ寄せると EV-9 が無言で死ぬ。動かすときは必ず
+     *        driver_graph_sce1 の (9x) 群を走らせること。
+     *   ③ **n0 (start) も敵 0**。開幕ナレーションの最中に戦闘が始まるのを避ける
+     *      (旧単一マップでは起点 col24 と本隊 col31 が 7 タイル離れていたので起きなかった)。
+     *   ④ 敵の総数は旧 13 体に対し、全ノードを踏破すると 15 体 / 最短路 (n0→n1→n4→n7) で 10 体。
+     *      道中の取りこぼしぶんは分岐を選ぶ判断の対価として意図的に残してある。
+     *   ⑤ ヒント文は **kind から EXIT_HINTS が引く**ので原則書かない。EV-2 の枝だけ、
+     *      既定の "人の呻き声が聞こえる" (event の sure 文) が見張りに合わないので明示する。
+     *
+     * ⚠ 1 枚絵は全ノード **painting:null** (在庫 12 枚は 20x16 / 22x18 用で 7x6 には載らない)。
+     *   指定すると lintRun の graph-painting-aspect が warning を出す。絵の増産は Phase 7。 */
+    function buildGoblinMineRun() {
+      /* ⚠⚠ 部屋の中心を **col 36 / row 11-16** で全ノード揃えること (buildTestRun と同じ理由)。 */
+      const MID  = [11, 33, 16, 39];       // 道中 7 列 x 6 行 (iPad 1024x768 基準・P4.7 の実測値)
+      const BOSSR = [11, 32, 16, 40];      // ボス 9 列 x 6 行
+      const TH = "goblin-mine";
+      /* 出口タイル。★nodeGateTile(rect, dir) と**必ず同じ値**にすること
+       *   MID:   midC = floor((33+39)/2) = 36 / midR = floor((11+16)/2) = 13
+       *   BOSSR: midC = floor((32+40)/2) = 36 / midR = 13
+       * ⚠ ズレると lintRun の graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
+      const UP = [36, 11], DOWN = [36, 16], RIGHT = [39, 13];
+      function node(id, name, rect, opt) {
+        opt = opt || {};
+        return {
+          schema: "df-map/1", id: "goblin-mine/" + id, name: name,
+          grid: { w: MAP_W, h: MAP_H, tile: TILE_SIZE }, themeId: TH,
+          /* ⚠ role は **必ず "boss"**。validate() が全 mapDef に role:"boss" をちょうど 1 つ
+           *   要求するので 1 部屋なら選択肢が無い。ボス到達ナレは部屋の role ではなく
+           *   ノードの kind (isBossNodeNow) で判定するので誤爆しない (buildTestRun と同じ)。 */
+          rooms: [{ id: id, role: "boss", rect: rect,
+                    enemySlots: opt.slots || [], bossSlot: opt.boss || null,
+                    painting: null, scenery: { density: 1 } }],
+          corridors: [], start: { tx: 36, ty: 13 },
+          objective: { kind: "defeatBoss", count: null },
+          tiles: null, props: null, graph: null, flags: { bandMask: false },
+        };
+      }
+      return {
+        entry: "n0",
+        nodes: [
+          // ── 入口 (敵 0 = 開幕ナレを戦闘で潰さない) ──────────────────────────
+          { id: "n0", kind: "start", mapDef: node("n0", "坑道の入口", MID),
+            exits: [
+              { to: "n1", dir: "right", at: RIGHT, hint: { text: "見張りの鼾が聞こえる" } },
+              { to: "n2", dir: "up",    at: UP,    hint: null },
+              { to: "n3", dir: "down",  at: DOWN,  hint: null },
+            ] },
+          // ── EV-2「廃坑の入口の見張り」の部屋 (敵 0。上記①) ────────────────────
+          { id: "n1", kind: "event", mapDef: node("n1", "見張りの詰所", MID),
+            exits: [
+              { to: "n4", dir: "right", at: RIGHT, hint: null },
+              { to: "n5", dir: "up",    at: UP,    hint: null },
+            ] },
+          // ── 崩れた側坑: kind:"search" = 罠 / 隠し宝箱 / 探索宝箱が湧く唯一のノード種 ──
+          { id: "n2", kind: "search",
+            mapDef: node("n2", "崩れた側坑", MID,
+                         { slots: [[34, 11, "kobold"], [36, 11, "goblin"], [38, 12, "kobold"]] }),
+            exits: [{ to: "n6", dir: "right", at: RIGHT, hint: null }] },
+          // ── 荷置き場: kind:"loot" = 玄室宝箱が湧く唯一のノード種 (行き止まりの「当たり」) ──
+          { id: "n3", kind: "loot",
+            mapDef: node("n3", "打ち捨てられた荷置き場", MID,
+                         { slots: [[34, 15, "goblin"], [38, 15, "goblinArcher"]] }),
+            exits: [] },
+          // ── 掘削場: 旧「山場」に当たる大乱戦 ────────────────────────────────
+          { id: "n4", kind: "combat",
+            mapDef: node("n4", "掘削場", MID,
+                         { slots: [[37, 12, "hobgoblin"], [37, 14, "hobgoblin"],
+                                   [38, 13, "goblinBrute"], [38, 11, "goblinRider"],
+                                   [38, 15, "goblin"], [39, 12, "goblinArcher"],
+                                   [39, 14, "goblinShaman"]] }),
+            exits: [{ to: "n7", dir: "right", at: RIGHT, hint: null }] },
+          // ── 湧き水の間: kind:"rest" = 入室で applyRoomClearHeal (1 ノード 1 回きり) ──
+          { id: "n5", kind: "rest", mapDef: node("n5", "湧き水の間", MID), exits: [] },
+          // ── EV-5「捕らわれた従者」の横穴 (敵 0。上記①) ────────────────────────
+          { id: "n6", kind: "event", mapDef: node("n6", "横穴", MID), exits: [] },
+          // ── 玉座の間: EV-9 + ボス戦。★護衛は col39 以東 (上記②) ────────────────
+          { id: "n7", kind: "boss",
+            mapDef: node("n7", "玉座の間", BOSSR,
+                         { slots: [[39, 12, "hobgoblin"], [39, 14, "hobgoblin"]],
+                           boss: [40, 13, "goblinKing"] }),
+            exits: [] },
+        ],
+      };
+    }
+
     function buildTestRun() {
       /* ⚠⚠ 部屋の中心を **col 36 / row 11-16** で全ノード揃えること。ずらすと遷移のたびに
        *   カメラが横っ跳びする (MAP_USED クランプが部屋を画面中央へ固定するため)。 */

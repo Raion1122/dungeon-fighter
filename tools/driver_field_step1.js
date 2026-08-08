@@ -953,7 +953,7 @@ async function sampleLiveCamera(browser, base, scen) {
   // ⚠️ ?fieldgeo=0: この関数は「実プレイのカメラが小数か」を測るためだけのもの。STEP1 の
   //    カメラ地平線ロックが効くと camY が定数になり、小数カメラの前提そのものが消える。
   //    本ドライバは従来の幾何での描画パスを見る契約なので幾何は止める (GEO0 の解説を参照)。
-  await page.goto(base + '/index.html?autoplay=15&' + GEO0, { waitUntil: 'domcontentloaded', timeout: 40000 });
+  await page.goto(base + '/index.html?autoplay=15&graph=0&' + GEO0, { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => { try { return typeof startGame === 'function'; } catch (e) { return false; } }, { timeout: 30000, polling: 100 });
   await waitImages(page, 'livecam');
   await page.evaluate(() => { try { startGame(); } catch (e) {} });
@@ -985,7 +985,13 @@ async function bootPage(browser, url, scenarioId, viewport, opts) {
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, { scen: scenarioId, freeze: opts.freeze !== false, t0: T_BASE_MS });
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+  /* ⚠⚠ **`graph=0` は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版になり、
+   *   付けないと goblin-mine の mapCanvas golden と computeCameraTarget が「正しく」赤くなる
+   *   (幾何が変わったので当然)。だが本ドライバの主題は**屋外レンダラの非退行**なので、
+   *   計画書どおり `?graph=0` で旧幾何へ固定し、golden はそのまま生かし続ける
+   *   (= `--update-golden` を叩かない。分岐の幾何を屋外ドライバの基準に焼き付けない)。 */
+  await page.goto(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'graph=0',
+    { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => {
     try { return typeof renderMap === 'function' && !!mapData && !!mapCanvas && typeof computeCameraTarget === 'function'; }
     catch (e) { return false; }
@@ -1904,7 +1910,7 @@ async function dumpCanvas(page, outPath) {
       page.on('pageerror', e => errs.push(e.message));
       await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 1 });
       await page.evaluateOnNewDocument(prelude, { scen: FIELD_SCENARIO, freeze: false, t0: null });
-      await page.goto(BASE + '/index.html?autoplay=15&diag=1', { waitUntil: 'domcontentloaded', timeout: 40000 });
+      await page.goto(BASE + '/index.html?autoplay=15&diag=1&graph=0', { waitUntil: 'domcontentloaded', timeout: 40000 });
       await page.waitForFunction(() => { try { return typeof startGame === 'function'; } catch (e) { return false; } }, { timeout: 30000, polling: 100 });
       await waitImages(page, 'smoke');
       const before = await page.evaluate(() => { try { startGame(); } catch (e) {} return { x: playerX, y: playerY }; });

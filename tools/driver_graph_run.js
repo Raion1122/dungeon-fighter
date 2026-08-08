@@ -816,9 +816,16 @@ const QT = '/index.html?diag=1&graphtest=1';
       roomRects: JSON.stringify(ROOMS),
     }));
     check('(10a) dev モードでない素の起動では観測シームが生えない', g.seam === 'undefined', 'typeof=' + g.seam);
-    check('(10b) 同上: ?graphtest は無視され従来の単一マップで立ち上がる',
-      g.rooms === 2 && g.roomRects === '[[7,24,20,43],[5,47,22,68]]' && g.enemies > 0,
-      'rooms=' + g.rooms + ' enemies=' + g.enemies);
+    /* ⚠⚠ 2026-08-08 (P5) に**期待値を書き直した**。廃坑 (goblin-mine) が既定で分岐版になったので、
+     *   dev ゲートで ?graphtest が弾かれた後に立ち上がるのは「従来の単一マップ」ではなく
+     *   **廃坑の内蔵グラフの entry ノード** (7 列 x 6 行 の 1 部屋・敵 0 体) になった。
+     *   ⭐ 測る対象は変えていない =「?graphtest の内蔵テストグラフが載っていないこと」。
+     *     テストグラフの n0 は**敵 2 体**を持つので `enemies === 0` で両者を区別できる
+     *     (部屋 rect は両者とも [11,33,16,39] なので rect だけでは区別できない)。
+     *   ⚠ assert は消していない。「無視したこと」の直接の証拠は (10c) の console.warn。 */
+    check('(10b) 同上: ?graphtest は無視され、廃坑の内蔵グラフ (テストグラフではない) で立ち上がる',
+      g.rooms === 1 && g.roomRects === '[[11,33,16,39]]' && g.enemies === 0,
+      'rooms=' + g.rooms + ' rects=' + g.roomRects + ' enemies=' + g.enemies);
     check('(10c) 無視したことを console.warn で必ず知らせる (silent fail-open にしない)',
       gw.some(w => w.indexOf('?graphtest') >= 0),
       gw.filter(w => w.indexOf('graphtest') >= 0).join(' | ') || '<warn なし>');

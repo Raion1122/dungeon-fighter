@@ -226,7 +226,9 @@ async function bootPage(browser, base, vp, cfg, query) {
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, cfg);
-  await page.goto(base + '/index.html?intel=0' + (query || ''), { waitUntil: 'domcontentloaded', timeout: 45000 });
+  /* ⚠⚠ **`graph=0` は 2026-08-08 (P5) に足した** (driver_field_step3 と同じ理由)。
+   *   本ドライバの legacy 結果列は幾何と配置に直結する = 最も敏感なので旧幾何へ固定する。 */
+  await page.goto(base + '/index.html?intel=0&graph=0' + (query || ''), { waitUntil: 'domcontentloaded', timeout: 45000 });
   await page.waitForFunction(() => {
     try {
       return typeof startGame === 'function' && !!mapData &&

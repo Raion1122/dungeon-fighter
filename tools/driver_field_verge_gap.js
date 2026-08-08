@@ -170,7 +170,9 @@ async function boot(browser, url, cfg) {
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.setViewport({ width: VP.width, height: VP.height, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, cfg);
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+  /* ⚠⚠ **`graph=0` は 2026-08-08 (P5) に足した** (driver_field_step3 と同じ理由)。 */
+  await page.goto(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'graph=0',
+    { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => {
     try { return typeof renderMap === 'function' && !!mapData && !!mapCanvas && tilesetLoaded; } catch (e) { return false; }
   }, { timeout: 30000, polling: 100 });

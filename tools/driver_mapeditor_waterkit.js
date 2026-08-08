@@ -1187,7 +1187,10 @@ async function waitImages(page) {
         gErrs.push('console.error(game): ' + m.text()); });
       await gp.setViewport({ width: 1200, height: 800, deviceScaleFactor: 1 });
       await gp.evaluateOnNewDocument(gamePreload, { scen: 'goblin-mine', t0: GAME_T0, seed: GAME_SEED });
-      await gp.goto(BASE + '/index.html?diag=1', { waitUntil: 'domcontentloaded' });
+      /* ⚠⚠ **`&graph=0` は 2026-08-08 (P5) に足した** (driver_mapeditor_railkit と同じ理由)。
+       *   廃坑が既定で分岐版になったので、付けないと「既定シナリオ」対照が分岐ノードになり、
+       *   散布の種類・props・mapCanvas の golden がすべて別物になる。 */
+      await gp.goto(BASE + '/index.html?diag=1&graph=0', { waitUntil: 'domcontentloaded' });
       await gp.waitForFunction(
         "typeof sceneryPlacements !== 'undefined' && typeof MAPDEF !== 'undefined' && " +
         "typeof SCENERY_RECIPES !== 'undefined' && typeof renderMap === 'function' && " +

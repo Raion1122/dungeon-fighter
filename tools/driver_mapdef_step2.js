@@ -488,7 +488,10 @@ async function runIndex(browser, base, cfg, query) {
 
     // ═══ §3 落とし穴③ 1枚絵・情景 OFF ═════════════════════════════════════
     mark('§3 カスタム幾何では 1枚絵と情景が出ない / 既定経路では出る (対で測る)');
-    const legacy = await runIndex(browser, BASE, { scen: 'goblin-mine' });
+    /* ⚠ `'?graph=0'` は 2026-08-08 (P5) に足した。廃坑が既定で分岐版になったので、
+     *   付けないとこの「既定 goblin-mine」対照が分岐ノード (1枚絵なし・情景のみ) になり、
+     *   (3a)「1枚絵が 1 枚以上出る」が装置の故障ではなく仕様変更で落ちる。 */
+    const legacy = await runIndex(browser, BASE, { scen: 'goblin-mine' }, '?graph=0');
     console.log('     legacy: paintings=' + legacy.paintings + ' scenery=' + legacy.scenery
       + '  /  custom: paintings=' + cust.paintings + ' scenery=' + cust.scenery);
     check('§3 3a [対照] 既定 goblin-mine では 1枚絵が 1 枚以上出る (装置が生きている証明)',

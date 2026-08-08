@@ -885,7 +885,11 @@ const SCENES = [
           sessionStorage.removeItem('dragonfighters.generatedScenario');
         } catch (e) {}
       });
-      await gp.goto(BASE + '/index.html?diag=1', { waitUntil: 'domcontentloaded' });
+      /* ⚠⚠ **`&graph=0` は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版に
+       *   なったので、付けないとこの「既定シナリオ」対照が **isCustom=true の分岐ノード**に
+       *   なり、散布の種類も mapCanvas も別物になる。計画書どおり `?graph=0` を恒久的な
+       *   退避口として使い、旧幾何の対照として生かし続ける。⚠ assert は 1 つも消していない。 */
+      await gp.goto(BASE + '/index.html?diag=1&graph=0', { waitUntil: 'domcontentloaded' });
       await gp.waitForFunction("typeof sceneryPlacements !== 'undefined' && typeof MAPDEF !== 'undefined'",
         { timeout: 30000 });
       const gm = await gp.evaluate(() => {

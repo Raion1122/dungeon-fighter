@@ -384,7 +384,11 @@ async function bootPage(browser, url, viewport, pre) {
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, pre);
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+  /* ⚠⚠ **`graph=0` は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版になったので、
+   *   付けないと goblin-mine の mapCanvas golden が「正しく」赤くなる。本ドライバの主題は
+   *   屋外レンダラの非退行なので旧幾何へ固定する (= --update-golden を叩かない)。 */
+  await page.goto(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'graph=0',
+    { waitUntil: 'domcontentloaded', timeout: 40000 });
   await page.waitForFunction(() => {
     try { return typeof renderMap === 'function' && !!mapData && !!mapCanvas; }
     catch (e) { return false; }

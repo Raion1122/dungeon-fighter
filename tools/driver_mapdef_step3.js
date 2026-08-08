@@ -1027,7 +1027,10 @@ async function runIndex(browser, base, cfg, query) {
     const notiles = await runIndex(browser, BASE,
       { payload: playPayload({ mapDef: playMapDef({ tiles: null }) }) });
     const zero = await runIndex(browser, BASE, { payload: playPayload() }, '?mapdef=0');
-    const def = await runIndex(browser, BASE, { scen: 'goblin-mine' });
+    /* ⚠ `'?graph=0'` は 2026-08-08 (P5) に足した。廃坑が既定で分岐版になったので、
+     *   付けないと「既定経路 (素の goblin-mine) は MAP_USED も ROOMS も既定のまま」を
+     *   測る対照が分岐ノードの幾何になってしまう。 */
+    const def = await runIndex(browser, BASE, { scen: 'goblin-mine' }, '?graph=0');
     console.log('     raw   : MAP_USED=' + raw.mapUsed + ' mapHash=' + sha(raw.mapJson));
     console.log('     tiles を外した同一 payload: mapHash=' + sha(notiles.mapJson));
     console.log('     zero  : rooms=' + zero.roomsJson + ' MAP_USED=' + zero.mapUsed);

@@ -244,7 +244,14 @@ const monotonicUp = (series, k) => {
   });
 
   const warns = [], errs = [];
-  const Q = '/index.html?diag=1&renode=0';   // renode=0 = シームだけ生やして 0 回
+  /* renode=0 = シームだけ生やして 0 回。
+   * ⚠⚠ **?graph=0 は 2026-08-08 (P5) に足した**。廃坑 (goblin-mine) が既定で分岐版になり、
+   *   付けないと entry ノード (kind:"start" / 敵 0 / 罠 0 / 1枚絵なし) を測ってしまい、
+   *   母集団ガード (G1)(G2)(G3) が「敵も罠も 0 個」で落ちる = **リーク検出器が真空になる**。
+   *   P1 の主題は「従来の単一マップで同じノードへ入り直してもリークしない」ことなので、
+   *   計画書どおり `?graph=0` を付けて**負のコントロールとして生かし続ける**のが正しい。
+   *   ⚠ assert は 1 つも消していない (測る対象を元の主題へ固定し直しただけ)。 */
+  const Q = '/index.html?diag=1&renode=0&graph=0';
 
   // ── §0 変異が本当に配信へ載っているか (空振り検出) ────────────────────────
   mark('変異の配信検算');
@@ -361,8 +368,10 @@ const monotonicUp = (series, k) => {
       try { sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine'); } catch (e) {}
       try { localStorage.removeItem('df.devMode'); } catch (e) {}
     });
-    // ⚠ ?diag / ?autoplay / ?autodebug を一切付けない = 素のプレイヤーと同じ条件
-    await gate.goto('http://localhost:' + PORT + '/index.html?renode=5',
+    /* ⚠ ?diag / ?autoplay / ?autodebug を一切付けない = 素のプレイヤーと同じ条件
+     * ⚠ ?graph=0 は上の Q と同じ理由 (P5 で廃坑が既定で分岐版になったため)。
+     *   (6d)「ゲートで止めても盤面は正常に立ち上がる」は敵が湧く盤面でしか意味を持たない。 */
+    await gate.goto('http://localhost:' + PORT + '/index.html?renode=5&graph=0',
       { waitUntil: 'domcontentloaded', timeout: 30000 });
     await gate.waitForFunction("typeof mapData !== 'undefined' && typeof buildNode === 'function'", { timeout: 20000 });
     const g = await gate.evaluate(() => ({
