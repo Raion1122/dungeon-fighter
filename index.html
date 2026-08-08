@@ -1777,7 +1777,10 @@
       left: var(--ui-menu-w);      /* ← #combatLog と同じ単一ソース */
       right: 0;
       bottom: 0;                   /* ★ログ枠と同じ下端 (choice-logslot) */
-      /* ★帯の高さ = JS の cameraBottomHud() (= UI_LOG_HEIGHT + UI_MINIBAR_H) と同じ**下部 HUD ちょうど**。
+      /* ★帯の高さ = JS の cameraBottomHud() と同じ**下部 HUD ちょうど** (ログ枠の高さ + ミニバーの高さ)。
+         ⚠ ここに生の式を写経しないこと。driver_field_step1_geo の (6a) が
+           「cameraBottomHud() の外にその式が残っていないか」を**コメントも含めて**走査するため、
+           変数名を並べて書いた瞬間に赤くなる (a1f19b9 で実際に踏んで、この行だけ落ちていた)。
          desktop は UI_MINIBAR_H=0 なのでログ枠ぶんだけ。狭幅は下の @media で +64px する。
          ⚠ #combatLog は content-box なので実寸は 170+padding20+border3 = 193px あり、23px だけ
            世界側へはみ出している (元からの状態)。帯はそれに合わせず **世界の下端で止める**ので、
@@ -3153,13 +3156,36 @@
     const _builtinScenId = _genScenForTex
       ? null
       : (sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine");
+    /* ★[石壁の可視化 2026-08-08] wallTint = 壁テクスチャの「色寄せ」。読み込み時に一度だけ
+     *   オフスクリーンへ焼き、床と見分けが付く石にしてから createPattern する (makeWallPatternSource)。
+     * ⚠⚠ **一律の白を足す実装にしてはいけない**。ユーザー指摘「壁が地面の色と近い」の真因は
+     *   描画ではなく**素材そのもの**で、しかも向きがシナリオごとに違う。assets 12 枚の平均輝度
+     *   (L = 0.2126R+0.7152G+0.0722B) を Pillow で実測した値:
+     *       廃坑   床 47.2  / 壁 42.1    ← 壁の方が**暗い** (これが今回の指摘の正体)
+     *       森     床 59.0  / 壁 47.6    ← 壁の方が暗い
+     *       沼     床 47.1  / 壁 56.1
+     *       砦     床 76.2  / 壁 99.1
+     *       神殿   床 227.8 / 壁 228.8   ← **両方ほぼ白**。白を足しても飛ぶだけで分離しない
+     *       竜の巣 床 28.7  / 壁 22.4    ← 壁の方が暗い
+     *   → 神殿だけは**暗い石へ寄せて**分離する。他は白っぽい石へ寄せる。
+     * ⚠ a は「寄せ先の色をどれだけ混ぜるか」。結果の輝度はおおよそ L*(1-a) + L_target*a。
+     *   上げすぎると石のヒビのコントラストまで潰れて「のっぺりした紙」になるので 0.45 が上限目安。
+     * ⚠ 屋外 caravan-road には**付けない** = 1 バイトも変わらない。あれは街道の路肩 (乾式石積み) で、
+     *   色を動かすのは 2026-07-31 に「不採用で決着」した石垣の作り直しを蒸し返すことになる。 */
     const SCENARIO_TEX = {
-      "goblin-mine":    { floor: "床1.png",        wall: "壁1.png" },
-      "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png" },
-      "lizard-swamp":   { floor: "シナリオ3床.png", wall: "シナリオ3壁.png" },
-      "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png" },
-      "undead-temple":  { floor: "シナリオ5床.png", wall: "シナリオ5壁.png" },
-      "dragon-lair":    { floor: "シナリオ6床.png", wall: "シナリオ6壁.png" },
+      "goblin-mine":    { floor: "床1.png",        wall: "壁1.png",
+                          wallTint: { color: "228,234,244", a: 0.34 } },
+      "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png",
+                          wallTint: { color: "228,234,244", a: 0.32 } },
+      "lizard-swamp":   { floor: "シナリオ3床.png", wall: "シナリオ3壁.png",
+                          wallTint: { color: "214,226,232", a: 0.30 } },
+      "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png",
+                          wallTint: { color: "232,236,242", a: 0.26 } },
+      // 神殿だけ逆向き (白い大理石の床に白い壁 → 暗いスレートへ寄せて分離する)
+      "undead-temple":  { floor: "シナリオ5床.png", wall: "シナリオ5壁.png",
+                          wallTint: { color: "92,100,116",  a: 0.42 } },
+      "dragon-lair":    { floor: "シナリオ6床.png", wall: "シナリオ6壁.png",
+                          wallTint: { color: "224,216,208", a: 0.28 } },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -3343,6 +3369,26 @@
     };
     let wallPattern = null;
     const wallTex1 = new Image();
+    /* ★[石壁の可視化 2026-08-08] 壁の色寄せ (wallTint) は **描画時のオーバーレイ**で行う。
+     *   実装は renderMap の Pass 2 (パターンで敷いた同じ矩形をもう一度 rgba で塗る)。
+     *   合成式は `L*(1-a) + T*a` で、テクスチャへ焼き込むのと数学的に同じ絵になる。
+     *
+     * ⚠⚠⚠ **createPattern にオフスクリーン canvas を渡してはいけない**。最初の実装は
+     *   1254x1254 の canvas へ色を焼いてから createPattern していた。絵は正しかったが、
+     *   renderMap の実測で **約 57 回に 1 回だけ 7.5〜8.2 秒** かかるフレームが出た
+     *   (baseline の同じ周期のスパイクは 60ms なので **125 倍**)。p50 は 0.2ms のままなので
+     *   平均やスクショでは絶対に見つからない。リング描画と Pass 2.2 を残したまま
+     *   `wallPattern = ctx.createPattern(wallTex1, "repeat")` に戻すだけで
+     *   **7861ms → 102ms** に落ちたので、源が canvas であること自体が原因と確定した
+     *   (Chrome が 1.57Mpx の源 canvas を定期的に再スナップショットしていると見られる)。
+     * ⚠ 同じ罠が makeFloorPatternSource にも潜在する (caravan-road だけ canvas を返す)。
+     *   あちらは 564x564 = 1/5 の面積で、driver_field_step3 の E-* が緑なので今は放置。
+     *   **屋内の床にも floorScale を足すときは必ずこの周期スパイクを測ること。**
+     * ⚠ ctx.filter ("brightness(1.6) saturate(0.6)" 等) も使わない。canvas の filter は
+     *   iOS Safari 17 未満に存在せず、**対応外の端末では黙って無視されて素の色のまま出る**
+     *   (= 実機だけ直っていない、という最も気付きにくい壊れ方になる)。
+     * ⚠ getImageData 方式も却下。file:// 直開きでは canvas が汚染されて SecurityError になり、
+     *   「http で起動しないと音が出ない」既知の制約に**絵まで巻き込む**。 */
     wallTex1.src = "assets/" + _texSet.wall;
     wallTex1.onload = () => {
       wallPattern = ctx.createPattern(wallTex1, "repeat");
@@ -5103,6 +5149,31 @@
       return mapData[ty + 1][tx] !== 2;
     }
 
+    /* ★[石壁の可視化 2026-08-08] 部屋を囲む石壁のリング (屋内のみ)。
+     *   「床からチェビシェフ距離 ROOM_WALL_RING 以内にある壁セル」を Pass 2 が石で塗る。
+     *   これ以前は isNorthWall (= 北側だけ) しか塗っていなかったので、1ノード=1部屋になった
+     *   分岐マップでは**部屋が黒い虚空に浮いて**見えていた (下・左・右が SPR_CEILING の純黒)。
+     * ⚠ 距離は**チェビシェフ (斜めも 1)** であること。4近傍で数えると部屋の四隅が 1 枚だけ
+     *   塗り残されて黒く欠ける (角の壁セルは床と斜めにしか接していないため)。
+     * ⚠ ROOM_WALL_RING を増やしても**北壁の高さは変わらない**。北壁は Pass 2 側で
+     *   isNorthWall のセルだけ (ty-1)*96 から 192px の「正面が見える壁」として描くため、
+     *   北側の石の帯は R によらず常に 2 タイル分になる (R=1 でも R=3 でも同じ)。
+     *   厚みが効くのは南・東・西だけ。ここは意図した非対称 (見下ろし視点の約束事)。
+     * ⚠ mapData そのものは 1 バイトも変えない = 歩行判定・aStar・視線 (isTileWall) は不変。
+     *   ここは**描画パス専用の述語**であり、壁が増えたわけではない。 */
+    const ROOM_WALL_RING = 2;
+    function isRoomEdgeWall(tx, ty) {
+      if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
+      if (mapData[ty][tx] !== 2) return false;
+      const y0 = Math.max(0, ty - ROOM_WALL_RING), y1 = Math.min(MAP_H - 1, ty + ROOM_WALL_RING);
+      const x0 = Math.max(0, tx - ROOM_WALL_RING), x1 = Math.min(MAP_W - 1, tx + ROOM_WALL_RING);
+      for (let y = y0; y <= y1; y++) {
+        const row = mapData[y];
+        for (let x = x0; x <= x1; x++) if (row[x] !== 2) return true;
+      }
+      return false;
+    }
+
     // ── 動的ライティング(フォグオブウォー + 松明 + プレイヤー視野) ──
     function renderLighting() {
       // [7.9-3 STEP3] 屋外(daylight): 暗幕を一切張らない。
@@ -6307,10 +6378,17 @@
       //    「wallPattern がまだ null (画像ロード完了前)」と「404 時」に 192px 壁が空を塞ぎ続け、
       //    しかも初回フレームだけの症状なので目視では取りこぼす。
       const ty0 = Math.max(0, startTY - 1);
-      // 壁矩形 (ワールド座標)。屋内は従来どおり (ty-1)*96 から 192px。
-      // ⚠️ 屋内では FIELD_DRAW=false → 値が literal と bit 一致するので既存6シナリオは 1バイト不変。
-      const wallRectY = (ty) => FIELD_DRAW ? (ty * TILE_SIZE + TILE_SIZE - FIELD_VERGE_H) : (ty - 1) * TILE_SIZE;
-      const wallRectH = FIELD_DRAW ? FIELD_VERGE_H : TILE_SIZE * 2;
+      /* 壁矩形 (ワールド座標)。
+       *   屋内・北壁     … 従来どおり (ty-1)*96 から 192px = 「正面が見える壁」(松明が付く面)
+       *   屋内・それ以外 … そのセル 1 枚 96px = 見下ろした石壁 (南 / 東 / 西 / 角)
+       *   屋外           … 路肩 (FIELD_VERGE_H)
+       * ⚠️ [石壁 2026-08-08] 引数に tx が増えた。北壁だけ 2 タイル高にするために isNorthWall を
+       *    セル単位で引き直す必要がある (リングには南・横・角のセルが混ざっているため)。
+       *    ⚠️ **fillRect 側と drawImage 側の両方を必ず同時に直すこと** (下の else 節)。 */
+      const wallRectY = (tx, ty) => FIELD_DRAW ? (ty * TILE_SIZE + TILE_SIZE - FIELD_VERGE_H)
+                                  : (isNorthWall(tx, ty) ? (ty - 1) * TILE_SIZE : ty * TILE_SIZE);
+      const wallRectH = (tx, ty) => FIELD_DRAW ? FIELD_VERGE_H
+                                  : (isNorthWall(tx, ty) ? TILE_SIZE * 2 : TILE_SIZE);
       // ── [屋外] 路肩は「北壁のある列」ではなく **地平線の行そのもの** ────────────
       // ⚠️ 実測で確定したバグの修正 (2026-07-20)。ROOMS[0] が col 2 始まり (ROOMS 定義) なので
       //    row 13 の tx=0,1 と tx=69-71 は床が掘られず 2 のまま残る。すると
@@ -6332,9 +6410,18 @@
       // ⚠️ FIELD_DRAW は renderMap のローカル const なので、この述語も**必ず renderMap 内**に置くこと。
       //    トップレベル関数にすると ReferenceError で屋内6シナリオごと全損する。
       // ⚠️ 屋内では isNorthWall そのものへ恒等的に落ちる = 既存6シナリオは 1命令も変わらない。
+      /* ⚠️ [石壁 2026-08-08] 屋内の述語を isNorthWall → isRoomEdgeWall (部屋を囲むリング) へ広げた。
+       *    屋外の式は 1 文字も変えていない。
+       * ⚠️⚠️ ただし **`!FIELD_DRAW` は「屋内」と同義ではない**。隊商護衛を**横持ち**で開くと
+       *    usableH が足りず FIELD_GEO_ACTIVE=false へ落ちるので FIELD_DRAW も false になり、
+       *    屋外テーマのまま屋内の枝へ入ってくる。そこでリングを敷くと、路肩専用の横長ストリップ
+       *    (caravan_road_verge.png 1024x96) が部屋の四方に反復して貼られる = 街道の絵が壊れる。
+       *    実際 driver_mapdef_step1 の golden 8 件のうち **caravan-road(横持ち/帯マスクなし)** だけが
+       *    赤くなって発覚した (縦持ちは FIELD_DRAW=true なので無傷 = 負のコントロールが効いた)。
+       *    → テーマそのもの (IS_FIELD_THEME) で締める。屋外は縦横どちらでも従来どおり北壁だけ。 */
       const isVergeCell = FIELD_DRAW
         ? (tx, ty) => (ty === FIELD_HORIZON_ROW) || isNorthWall(tx, ty)
-        : isNorthWall;
+        : (IS_FIELD_THEME ? isNorthWall : isRoomEdgeWall);
       if (wallPattern) {
         ctx.save();
         ctx.translate(-camX, -camY);
@@ -6347,8 +6434,8 @@
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
-            // 屋内: 1セル上から 2セル分塗る (壁の「立体感」) / 屋外: 路肩 96px
-            ctx.fillRect(tx * TILE_SIZE - WINF, wallRectY(ty), TILE_SIZE + WINF * 2, wallRectH);
+            // 屋内: 北壁は1セル上から2セル分 (壁の「立体感」) / それ以外は1セル / 屋外: 路肩 96px
+            ctx.fillRect(tx * TILE_SIZE - WINF, wallRectY(tx, ty), TILE_SIZE + WINF * 2, wallRectH(tx, ty));
           }
         }
         ctx.restore();
@@ -6372,8 +6459,132 @@
             }
             const [sx, sy, sw, sh] = spr;
             const screenX = Math.round(tx * TILE_SIZE - camX);
-            const screenY = Math.round(wallRectY(ty) - camY);
-            ctx.drawImage(tileset, sx, sy, sw, sh, screenX, screenY, TILE_SIZE, wallRectH);
+            const screenY = Math.round(wallRectY(tx, ty) - camY);
+            ctx.drawImage(tileset, sx, sy, sw, sh, screenX, screenY, TILE_SIZE, wallRectH(tx, ty));
+          }
+        }
+      }
+
+      /* ── Pass 2.1: 壁の色寄せ (wallTint) ────────────────────────────────────────
+       * ★[石壁の可視化 2026-08-08] 「壁が地面と同じ色に見える」の実質的な解。敷いた石の上へ
+       *   半透明の単色を重ね、床と見分けが付く色へ寄せる。source-over なので結果は
+       *   `L*(1-a) + T*a` = テクスチャへ焼き込むのと同じ絵になる。
+       *   寄せ先の色と量、および 12 枚の平均輝度の実測値は SCENARIO_TEX の注記に集約。
+       * ⚠⚠ **テクスチャ側へ焼き込む実装に戻さないこと**。createPattern の源を canvas に
+       *   すると renderMap に 7.5 秒級の周期スパイクが出る (wallTex1.onload の注記に実測値)。
+       * ⚠ パターン枝とフォールバック枝の**両方**の上に乗るよう、if/else の外に置いてある。
+       *   これは意図した挙動 (画像 404 の退化時も色が揃う)。
+       * ⚠ 屋外は _texSet.wallTint を持たないのでこの節ごと走らない = 1 命令も変わらない。
+       * ⚠ 1枚絵の部屋 (isPaintedAndLoaded) はパターン枝と同じ条件で必ず飛ばす。 */
+      const WALL_TINT = _texSet.wallTint;
+      if (WALL_TINT && WALL_TINT.a > 0) {
+        /* ⚠⚠ 矩形は**パターン枝と 1 座標もずらさない**こと。パターン枝は
+         *   `translate(-camX,-camY)` を掛けたワールド座標へ小数のまま塗る。こちらを
+         *   `Math.round(tx*96 - camX)` のスクリーン座標にすると、カメラが小数のとき
+         *   (cameraFollowTick は常に小数を渡す) 石の縁に色が乗らない筋が出る。
+         * ⚠⚠ さらに **1 枚ずつ fillRect してはいけない**。半透明を隣接矩形で塗ると、
+         *   境界画素はどちらの矩形からも被覆率 100% 未満になり、α が合算しても既定値に
+         *   届かず **96px 格子の筋**になる (Pass 1b の床が 0.5px 膨張で回避しているのと同じ真因。
+         *   ただし膨張は半透明では使えない = 重なった画素が二度塗られて逆に濃い筋になる)。
+         *   → renderLighting の記憶フォグと同じ手を使う: **Path2D に積んで 1 回で fill** する。
+         *   非ゼロ回転規則で内部が自己ユニオンされるので、重なっても二度塗りにならない。
+         *   副産物として塗り命令が 79 回 → 1 回に減る。 */
+        const tintPath = new Path2D();
+        let hasTint = false;
+        for (let ty = ty0; ty <= endTY; ty++) {
+          for (let tx = startTX; tx <= endTX; tx++) {
+            if (!isVergeCell(tx, ty)) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
+            tintPath.rect(tx * TILE_SIZE, wallRectY(tx, ty), TILE_SIZE, wallRectH(tx, ty));
+            hasTint = true;
+          }
+        }
+        if (hasTint) {
+          ctx.save();
+          ctx.translate(-camX, -camY);
+          ctx.fillStyle = "rgba(" + WALL_TINT.color + "," + WALL_TINT.a + ")";
+          ctx.fill(tintPath);
+          ctx.restore();
+        }
+      }
+
+      /* ── Pass 2.2: 壁際の陰影 (屋内のみ) ────────────────────────────────────────
+       * ★[石壁の可視化 2026-08-08] 色を寄せる (wallTint) だけでは、石は「明るい床」にしか
+       *   見えない。**壁だと読ませているのは実際にはこの陰影の方**:
+       *     (a) 北壁の面そのもの … 上端が明るく足元が暗い縦グラデ = 立った面のライティング
+       *     (b) 床側の接地影     … 壁ぎわの床を内側へ向けて暗くする = 壁が床へ落とす影
+       * ⚠ グラデは**セルごとに作らない**。createLinearGradient を毎フレーム × セル数ぶん
+       *   走らせるのは効いてくる (camera-perf STEP7 で 24.9→16.9ms まで削った経緯がある)。
+       *   セル**ローカル座標**で 1 フレームに 5 本だけ作り、セルごとは translate で運ぶ。
+       *   CanvasGradient の座標は「塗る瞬間の CTM」で解釈されるので位置が付いてくる。
+       * ⚠⚠ そのため**グラデの座標系と fillRect の座標系を必ず一致させる**こと。例えば南辺の
+       *   影を (0,SH)→(0,0) で作って y=TILE-SH の矩形に塗ると、矩形が全部グラデの定義域外に
+       *   落ちて末端の色 (= 透明) にクランプされ、**エラーも出ないまま影が消える**。
+       *   ここでは 5 本ともセル左上原点 (0,0)-(96,96) / 北壁面だけ (0,0)-(96,192) で統一してある。
+       * ⚠ mapCanvas に DPR スケールは掛かっていない (resizeCanvas が width = innerWidth の素置き)
+       *   が、それでも setTransform ではなく save/translate/restore を使う。renderMap 冒頭の
+       *   clip を巻き込まないため。
+       * ⚠ 1枚絵の部屋 (isPaintedAndLoaded) には**一切描かない**。あの絵は陰影込みで描かれており、
+       *   上から影を足すと二重になる。
+       * ⚠ 屋外は 1 命令も走らせない (路肩に影を落とすと地平線際が濁る)。
+       * ⚠⚠ ゲートは `!FIELD_DRAW` ではなく **IS_FIELD_THEME** で締めること。理由は上の
+       *   isVergeCell の注記と同じ (横持ちの隊商護衛が FIELD_DRAW=false で流れ込む)。
+       * ⚠ リングの外側が黒へ溶ける処理は**入れていない**。屋内は必ずフォグが載り、パーティ光源の
+       *   放射フォールオフが距離 2 のセルを勝手に落としてくれる (renderLighting の drawLight)。
+       *   ここで二重に落とすと近距離の壁まで暗くなって wallTint が効かなくなる。 */
+      if (!FIELD_DRAW && !IS_FIELD_THEME) {
+        const SH = 30;                              // 床側へ伸びる接地影の長さ (px)
+        const SHADOW = (a) => "rgba(12,10,8," + a + ")";
+        const CLEAR  = "rgba(12,10,8,0)";
+        const mkGrad = (x0, y0, x1, y1, stops) => {
+          const g = ctx.createLinearGradient(x0, y0, x1, y1);
+          for (const s of stops) g.addColorStop(s[0], s[1]);
+          return g;
+        };
+        /* (a) 北壁の面 (セル左上から上へ 1 タイル、高さ 192px)
+         * ⚠⚠ **足元の影は薄く・細くすること**。カメラは MAP_USED (床の外接矩形) の内側しか
+         *   映さないようクランプされている (:4928 の 3b) ため、1ノード=7x6 の部屋では
+         *   **北壁は下端 27px しか画面に入らない** (desktop 1280x800 実測。iPhone でも 42px)。
+         *   つまりプレイヤーが見る北壁は「面の足元」だけであり、ここを 0.46 で暗くすると
+         *   **ユーザー要望の「上の壁を白っぽく」と真逆の絵**になる (最初の実装で実際にそうなった)。
+         *   壁と床の分離は下の gN (床側へ落ちる接地影) が担う。面側は軽く締めるだけでよい。 */
+        const gFace = mkGrad(0, 0, 0, TILE_SIZE * 2, [
+          [0,    "rgba(255,251,242,0.14)"],   // 天井際のふち明かり
+          [0.35, "rgba(255,251,242,0.02)"],
+          [0.80, CLEAR],
+          [1,    SHADOW(0.20)],               // 足元は「軽く締める」程度に留める
+        ]);
+        // (b) 床側の接地影 4 方向 (すべてセル左上 (0,0) 原点)
+        const gN = mkGrad(0, 0, 0, SH, [[0, SHADOW(0.42)], [1, CLEAR]]);
+        const gS = mkGrad(0, TILE_SIZE, 0, TILE_SIZE - SH, [[0, SHADOW(0.26)], [1, CLEAR]]);
+        const gW = mkGrad(0, 0, SH, 0, [[0, SHADOW(0.26)], [1, CLEAR]]);
+        const gE = mkGrad(TILE_SIZE, 0, TILE_SIZE - SH, 0, [[0, SHADOW(0.26)], [1, CLEAR]]);
+        for (let ty = ty0; ty <= endTY; ty++) {
+          for (let tx = startTX; tx <= endTX; tx++) {
+            if (isPaintedAndLoaded(tx, ty)) continue;
+            const sx = tx * TILE_SIZE - camX;
+            const sy = ty * TILE_SIZE - camY;
+            if (mapData[ty][tx] === 2) {
+              if (!isNorthWall(tx, ty)) continue;   // 面が見えるのは北壁だけ
+              ctx.save();
+              ctx.translate(sx, sy - TILE_SIZE);
+              ctx.fillStyle = gFace;
+              ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE * 2);
+              ctx.restore();
+              continue;
+            }
+            const wN = ty > 0         && mapData[ty - 1][tx] === 2;
+            const wS = ty < MAP_H - 1 && mapData[ty + 1][tx] === 2;
+            const wW = tx > 0         && mapData[ty][tx - 1] === 2;
+            const wE = tx < MAP_W - 1 && mapData[ty][tx + 1] === 2;
+            if (!(wN || wS || wW || wE)) continue;
+            ctx.save();
+            ctx.translate(sx, sy);
+            if (wN) { ctx.fillStyle = gN; ctx.fillRect(0, 0, TILE_SIZE, SH); }
+            if (wS) { ctx.fillStyle = gS; ctx.fillRect(0, TILE_SIZE - SH, TILE_SIZE, SH); }
+            if (wW) { ctx.fillStyle = gW; ctx.fillRect(0, 0, SH, TILE_SIZE); }
+            if (wE) { ctx.fillStyle = gE; ctx.fillRect(TILE_SIZE - SH, 0, SH, TILE_SIZE); }
+            ctx.restore();
           }
         }
       }
@@ -13807,6 +14018,38 @@
             if (hasLineOfSight(m.cx, m.cy, tcx, tcy)) {
               visibleTiles[ty][tx] = 1;
               exploredTiles[ty][tx] = 1;
+            }
+          }
+        }
+      }
+
+      /* ★[石壁の可視化 2026-08-08] 見えている床に接する壁も「見た」ことにする (記憶レイヤーだけ)。
+       * ⚠⚠ hasLineOfSight は**壁セル自身を遮蔽物として先に弾く** (ループ先頭の isTileWall が
+       *   `tx === etx` の到達判定より前にある) ので、壁タイルは原理的に exploredTiles へ入らない
+       *   = 3状態フォグの「暗黒 (α=255)」に永久に留まる。つまり renderMap の Pass 2 が部屋を
+       *   囲む石壁をどれだけ丁寧に描いても、**フォグが真っ黒で塗り潰して 1px も見えない**。
+       *   実測 (廃坑 n0・パーティは部屋の中央 / α は 255=黒 178=記憶 0=明るい):
+       *       床(部屋の西端) α=21   ←ここまでは明るい
+       *       西壁 d1 α=152 / 西壁 d2 α=255 / 東壁 d1 α=255 / 南壁 d1・d2 α=255
+       *   この marking が無いと ROOM_WALL_RING=2 の外周は**常に完全な黒**で、描画は丸損になる。
+       * ⚠ 範囲は ROOM_WALL_RING に揃えること。Pass 2 が石を敷く範囲とここが食い違うと
+       *   「石を敷いたのに真っ黒」か「何も無い所を照らしている」のどちらかが必ず起きる。
+       * ⚠⚠ visibleTiles には**入れない**。あれは isEnemyVisibleToParty の伏兵判定に直結していて、
+       *   岩盤に湧いた敵 (P4.7 で見つかった既知の潜在バグ) がここ経由で可視化されると
+       *   戦闘開始の前提そのものが変わる。exploredTiles だけなら影響は描画に閉じる。
+       * ⚠ driver_graph_run の (2g) が数えるフォグ矩形 (row18-20 / col24-27) はパーティから
+       *   9〜12 タイル離れた岩盤なので R=2 では届かない = 非退行 (全数緑で実測確認済)。 */
+      if (!IS_FIELD_THEME) {                           // 屋外は暗幕が無い (renderLighting が即 return)
+        const WR = ROOM_WALL_RING;
+        for (let ty = 0; ty < MAP_H; ty++) {
+          const visRow = visibleTiles[ty];
+          for (let tx = 0; tx < MAP_W; tx++) {
+            if (!visRow[tx]) continue;
+            if (mapData[ty][tx] === 2) continue;       // 「見えている床」の周りだけを開ける
+            const y0 = Math.max(0, ty - WR), y1 = Math.min(MAP_H - 1, ty + WR);
+            const x0 = Math.max(0, tx - WR), x1 = Math.min(MAP_W - 1, tx + WR);
+            for (let y = y0; y <= y1; y++) {
+              for (let x = x0; x <= x1; x++) if (mapData[y][x] === 2) exploredTiles[y][x] = 1;
             }
           }
         }

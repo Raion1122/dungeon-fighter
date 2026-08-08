@@ -1,46 +1,46 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "08b8b1f",
-    "subject": "sce1-events: 玉座の人質を専用スプライトへ (codex1 納品 post を取り込み)",
-    "dirty": false
+    "rev": "a1f19b9",
+    "subject": "選択肢ダイアログを画面下のログ枠へ移設 + 表示中は下部HUDを伏せる",
+    "dirty": true
   },
   "values": {
     "D1-goblin-mine": {
-      "nF": 26,
+      "nF": 79,
       "nD": 52,
-      "hash": "583d091f6503"
+      "hash": "feba77a09150"
     },
-    "D2-goblin-mine": "bbd8a9c28c940dd5",
+    "D2-goblin-mine": "6e5b7c32a58b3d75",
     "D1-bandits-forest": {
-      "nF": 26,
+      "nF": 79,
       "nD": 37,
-      "hash": "c4fd5aa2756a"
+      "hash": "df007e2245f9"
     },
-    "D2-bandits-forest": "d227a84f4ecf69ea",
+    "D2-bandits-forest": "c6700b8485852728",
     "D1-lizard-swamp": {
-      "nF": 26,
+      "nF": 79,
       "nD": 37,
-      "hash": "c4fd5aa2756a"
+      "hash": "df007e2245f9"
     },
-    "D2-lizard-swamp": "846438f67984a34e",
+    "D2-lizard-swamp": "ec38c0dd6094291b",
     "D1-orc-fort": {
-      "nF": 26,
+      "nF": 79,
       "nD": 37,
-      "hash": "c4fd5aa2756a"
+      "hash": "df007e2245f9"
     },
-    "D2-orc-fort": "d3c4a49eb53899eb",
+    "D2-orc-fort": "72ccfa5205c5b11a",
     "D1-undead-temple": {
-      "nF": 26,
+      "nF": 79,
       "nD": 37,
-      "hash": "c4fd5aa2756a"
+      "hash": "df007e2245f9"
     },
-    "D2-undead-temple": "b5530bf88bad8417",
+    "D2-undead-temple": "402ebe451733d796",
     "D1-dragon-lair": {
-      "nF": 26,
+      "nF": 79,
       "nD": 37,
-      "hash": "c4fd5aa2756a"
+      "hash": "df007e2245f9"
     },
-    "D2-dragon-lair": "c28d16bc0b665d92"
+    "D2-dragon-lair": "facb80c7b4ec834a"
   }
 }

@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step3.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "08b8b1f",
-    "subject": "sce1-events: 玉座の人質を専用スプライトへ (codex1 納品 post を取り込み)",
-    "dirty": false
+    "rev": "a1f19b9",
+    "subject": "選択肢ダイアログを画面下のログ枠へ移設 + 表示中は下部HUDを伏せる",
+    "dirty": true
   },
   "values": {
-    "D2-goblin-mine": "47658d10ecdd8fb4",
-    "D2-bandits-forest": "19448f14958f7a46",
-    "D2-lizard-swamp": "40ff5c9a9eb1a164",
-    "D2-orc-fort": "5072479a1aa0a5d9",
-    "D2-undead-temple": "08c3e612d1c82156",
-    "D2-dragon-lair": "334aa5546268342f"
+    "D2-goblin-mine": "2f9d2e5494233244",
+    "D2-bandits-forest": "589428bc557d48cc",
+    "D2-lizard-swamp": "bb116a2a76c8d48d",
+    "D2-orc-fort": "15e88e1493998196",
+    "D2-undead-temple": "cd8a12dc1f00084c",
+    "D2-dragon-lair": "7782ee954aed22a1"
   }
 }

@@ -1,17 +1,17 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "29758dc",
-    "subject": "map-editor/Phase6: 情景物を1個ずつ置ける(mapDef.props) — 実寸cm駆動 + 通行不能化",
-    "dirty": false
+    "rev": "a1f19b9",
+    "subject": "選択肢ダイアログを画面下のログ枠へ移設 + 表示中は下部HUDを伏せる",
+    "dirty": true
   },
   "values": {
-    "3-goblin-mine": "47658d10ecdd8fb4408053015ffb2e006fc60294bd50e5d526f2d52680bf97aa",
-    "3-bandits-forest": "19448f14958f7a46ba7b10c9aba982f06e0b50183ea0e77d3a99e9571e78c844",
-    "3-lizard-swamp": "40ff5c9a9eb1a1645aad8943fab5054286af1ec35a3ef02cb1f4a569065599d3",
-    "3-orc-fort": "5072479a1aa0a5d9bd4597ad0fa04ad8ac75b1ccc5d5ba300453cb1f5352443f",
-    "3-undead-temple": "08c3e612d1c8215652b95e86d5fe581b0deb90960e2631d92be44e321b5da115",
-    "3-dragon-lair": "334aa5546268342fe9133e9a2780a0904d44d99d11f5a5b63291c5495a0ca4e4",
+    "3-goblin-mine": "2f9d2e5494233244c9e31f99b6cd43f88c3df641ff02993e3110a85cea329aa2",
+    "3-bandits-forest": "589428bc557d48cc515ce4c95bdd97262dcf875ffe129e3389e23474362cbc2c",
+    "3-lizard-swamp": "bb116a2a76c8d48d0b409ce2bb25dd378671b54d8af016092e19188bf7fc6909",
+    "3-orc-fort": "15e88e14939981965e637e1ff9223e0bbe2606db91eafbb34cf7fa63d5c076c6",
+    "3-undead-temple": "cd8a12dc1f00084c82e006b9f31b447346f8257ddbb18f8cfa85edf1abf1da8f",
+    "3-dragon-lair": "7782ee954aed22a19ed6692fed6e5bbc7fd855bfa39b780a70d2844e8f52feff",
     "3-caravan-road(縦持ち相当/帯マスクあり)": "83726c4370999e3ee2e4b4036372808fe01d031e1345e553f61cb05bacfa0492",
     "3-caravan-road(横持ち/帯マスクなし)": "aabf103e46655fe81df483f8d3cd3716a3c7766cbd158cf35b33fee231d748d0"
   }
