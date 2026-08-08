@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1_geo.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "cd0223e",
-    "subject": "部屋の四方に石壁を出す + 壁テクスチャを床と見分けが付く色へ寄せる",
+    "rev": "7d3ea96",
+    "subject": "石壁を専用素材で作り直す (立面/天面を分離) + 壁専用のフォグ削り",
     "dirty": true
   },
   "values": {
-    "4c-goblin-mine": "afff9f4e9f38aa61",
+    "4c-goblin-mine": "7c52137eaaf96697",
     "cam5-goblin-mine": [
       [
         2024,
@@ -33,7 +33,7 @@
         480
       ]
     ],
-    "4c-bandits-forest": "589428bc557d48cc",
+    "4c-bandits-forest": "786c433744501d4d",
     "cam5-bandits-forest": [
       [
         2024,
@@ -60,7 +60,7 @@
         480
       ]
     ],
-    "4c-lizard-swamp": "bb116a2a76c8d48d",
+    "4c-lizard-swamp": "b404f4f312a42fe2",
     "cam5-lizard-swamp": [
       [
         2024,
@@ -87,7 +87,7 @@
         480
       ]
     ],
-    "4c-orc-fort": "15e88e1493998196",
+    "4c-orc-fort": "c95600bb52adeb78",
     "cam5-orc-fort": [
       [
         2024,
@@ -114,7 +114,7 @@
         480
       ]
     ],
-    "4c-undead-temple": "cd8a12dc1f00084c",
+    "4c-undead-temple": "92bd8e8e7dd3c378",
     "cam5-undead-temple": [
       [
         2024,
@@ -141,7 +141,7 @@
         480
       ]
     ],
-    "4c-dragon-lair": "7782ee954aed22a1",
+    "4c-dragon-lair": "3bb9126aacf40cbf",
     "cam5-dragon-lair": [
       [
         2024,

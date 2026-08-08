@@ -3968,6 +3968,19 @@
      *   直結しており、岩盤に湧いた敵が可視化されると戦闘開始の前提が変わる (前回の判断を踏襲)。
      * ⚠ 「今の部屋だけ」なのは意図。累積にすると通り過ぎた部屋の外周だけが光って残る。 */
     let wallLitTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    /* ★[通路の口 2026-08-09] wallOpenTiles: 「行き先の通路が抜けている壁セル」=1 → 石を敷かない。
+     *   ユーザー指摘「行先の選択肢方向の通路が石壁でふさがれている (閉じ込められて見える)」の解。
+     *   分岐マップでは 1 ノード = 1 部屋なので、リングを四方へ回した結果**出口の矢印の先まで
+     *   石で塞がって**しまい、隣のノードへ続く道が絵に出ていなかった。
+     * ⚠ null = 「開口なし」= 既存 6 シナリオ / 屋外 / 自作マップ (RUN が無い経路は 1 命令も走らない)。
+     * ⚠ **mapData は 1 バイトも変えない**。ここは描画パス専用のマスクであり、開口セルは今も壁
+     *   (歩行判定・aStar・視線は不変)。石を敷かないので Pass 1a の暗い天井がそのまま残り、
+     *   「石壁に空いた、闇へ続く口」として読める。床を敷くと歩けそうに見えるので敷かない。
+     * ⚠ 寿命はノード。出口の向きはノードごとに違うので buildNode() で必ず作り直す。 */
+    let wallOpenTiles = null;
+    function isWallOpening(tx, ty) {
+      return !!(wallOpenTiles && wallOpenTiles[ty * MAP_W + tx]);
+    }
     let lastVisSignature = "";
 
     // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
@@ -4650,7 +4663,10 @@
 
           // 北壁の真下 → 松明(壁面に取り付ける) — 他の装飾はいったん廃止
           // 旧 h%11 (1/11) は疎すぎて部屋に1個も入らないことがあった → h%5 (1/5) に
-          if (wallN && (h % 5 === 0)) { place(tx, ty, 'torch', -8); continue; }
+          // ★[通路の口 2026-08-09] 開口の真下には吊るさない。石が無い所に松明だけが浮く。
+          if (wallN && (h % 5 === 0) && !isWallOpening(tx, ty - 1)) {
+            place(tx, ty, 'torch', -8); continue;
+          }
         }
       }
       return decos;
@@ -5225,23 +5241,32 @@
     }
 
     /* ★[石壁の可視化 2026-08-08] 部屋を囲む石壁のリング (屋内のみ)。
-     *   「床からチェビシェフ距離 ROOM_WALL_RING 以内にある壁セル」を Pass 2 が石で塗る。
+     *   「床から X 方向 RX / Y 方向 RY 以内にある壁セル」を Pass 2 が石で塗る。
      *   これ以前は isNorthWall (= 北側だけ) しか塗っていなかったので、1ノード=1部屋になった
      *   分岐マップでは**部屋が黒い虚空に浮いて**見えていた (下・左・右が SPR_CEILING の純黒)。
-     * ⚠ 距離は**チェビシェフ (斜めも 1)** であること。4近傍で数えると部屋の四隅が 1 枚だけ
+     * ⚠ 範囲は**矩形 (斜めも含む)** であること。4近傍で数えると部屋の四隅が 1 枚だけ
      *   塗り残されて黒く欠ける (角の壁セルは床と斜めにしか接していないため)。
-     * ⚠ ROOM_WALL_RING を増やしても**北壁の高さは変わらない**。北壁は Pass 2 側で
-     *   isNorthWall のセルだけ (ty-1)*96 から 192px の「正面が見える壁」として描くため、
-     *   北側の石の帯は R によらず常に 2 タイル分になる (R=1 でも R=3 でも同じ)。
-     *   厚みが効くのは南・東・西だけ。ここは意図した非対称 (見下ろし視点の約束事)。
+     *
+     * ★[2026-08-09] 縦横を分けた。ユーザー指摘「幅がありすぎる。左右の石壁は特に薄く」の解。
+     *   真因は**可視域の恒等式が縦横で非対称**なこと。1 ノード = 7x6 の部屋では
+     *       縦に映る壁 = (usableH - 576) / 2 … 実測 27〜85px = **1 タイルに満たない**
+     *       横に映る壁 = (usableW - 672) / 2 … desktop で 141〜164px = **1.5〜1.7 タイル**
+     *   つまり R を縦横で同じ 2 にすると、南北は 2 枚目が原理的に画面へ入らないのに、
+     *   左右だけ 2 枚とも入って「分厚い石の塊」に見える。RX だけ 1 に落とすと左右の石は
+     *   96px で終わり、その外は未探索の暗黒 = 「壁の向こうは闇」になる (意図した見え方)。
+     * ⚠ RY を 1 に落としてはいけない。北壁の立面は (ty-1) 行まで 192px で覆うので、
+     *   wallLitTiles の範囲が 1 行になると立面の上端が暗幕に沈む。
+     * ⚠ RX を増やしても**北壁の高さは変わらない**。北壁は Pass 2 側で isNorthWall のセルだけ
+     *   (ty-1)*96 から 192px の「正面が見える壁」として描くため、北側の帯は R によらない。
      * ⚠ mapData そのものは 1 バイトも変えない = 歩行判定・aStar・視線 (isTileWall) は不変。
      *   ここは**描画パス専用の述語**であり、壁が増えたわけではない。 */
-    const ROOM_WALL_RING = 2;
+    const ROOM_WALL_RING_X = 1;   // 東西 (左右) の厚み
+    const ROOM_WALL_RING_Y = 2;   // 南北の厚み。★立面の 2 行を賄うので 1 へ落とさないこと
     function isRoomEdgeWall(tx, ty) {
       if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return false;
       if (mapData[ty][tx] !== 2) return false;
-      const y0 = Math.max(0, ty - ROOM_WALL_RING), y1 = Math.min(MAP_H - 1, ty + ROOM_WALL_RING);
-      const x0 = Math.max(0, tx - ROOM_WALL_RING), x1 = Math.min(MAP_W - 1, tx + ROOM_WALL_RING);
+      const y0 = Math.max(0, ty - ROOM_WALL_RING_Y), y1 = Math.min(MAP_H - 1, ty + ROOM_WALL_RING_Y);
+      const x0 = Math.max(0, tx - ROOM_WALL_RING_X), x1 = Math.min(MAP_W - 1, tx + ROOM_WALL_RING_X);
       for (let y = y0; y <= y1; y++) {
         const row = mapData[y];
         for (let x = x0; x <= x1; x++) if (row[x] !== 2) return true;
@@ -5316,7 +5341,7 @@
          *   すぐ隣の現在視界の床 (約 45) と同等〜わずかに明るい = 「たいまつが壁を照らしている」絵。
          *   これを入れないと壁は 28 で床 45 より暗く、作り込んだ天面が黒い縁にしか見えない。
          * ⚠ 上げすぎないこと。壁がフォグより明るくなると「岩盤の向こうまで見えている」絵になる。
-         *   未探索の暗黒契約そのものは wallLitTiles の範囲外 (ROOM_WALL_RING の外) で守られている。
+         *   未探索の暗黒契約そのものは wallLitTiles の範囲外 (リングの外) で守られている。
          * ⚠ 記憶レイヤーとは Path2D を分ける。同じパスに混ぜると記憶だけの床まで明るくなる。
          * ⚠ 塗りは 1 回にまとめる (Path2D)。タイルごとに fillRect すると camX が小数のとき
          *   境界がアンチエイリアスされて 96px 格子の筋が残る (記憶レイヤーと同じ真因)。 */
@@ -6520,9 +6545,16 @@
        *    実際 driver_mapdef_step1 の golden 8 件のうち **caravan-road(横持ち/帯マスクなし)** だけが
        *    赤くなって発覚した (縦持ちは FIELD_DRAW=true なので無傷 = 負のコントロールが効いた)。
        *    → テーマそのもの (IS_FIELD_THEME) で締める。屋外は縦横どちらでも従来どおり北壁だけ。 */
+      /* ★[通路の口 2026-08-09] 屋内のリングから**行き先の通路の口を抜く**。
+       * ⚠ ここ 1 箇所で抜けば、パターン枝・404 のフォールバック枝・端キャップ判定・Pass 2.1 の
+       *   色寄せが**全部同じ穴**になる。片方だけに書くと 404 時や初回フレームだけ石が残る
+       *   (isNorthWall を片方に書き忘れた前例と同型の罠)。立面 (Pass 2b) だけは述語が
+       *   isNorthWall なので、あちらにも 1 行足してある。
+       * ⚠ 屋外の式は 1 文字も変えていない。wallOpenTiles は RUN が無ければ常に null。 */
       const isVergeCell = FIELD_DRAW
         ? (tx, ty) => (ty === FIELD_HORIZON_ROW) || isNorthWall(tx, ty)
-        : (IS_FIELD_THEME ? isNorthWall : isRoomEdgeWall);
+        : (IS_FIELD_THEME ? isNorthWall
+                          : (tx, ty) => isRoomEdgeWall(tx, ty) && !isWallOpening(tx, ty));
       /* ★[石壁の作り込み 2026-08-09] 専用の立面素材を持つシナリオでは、北壁だけ別ループで
        *   drawImage する (Pass 2b)。
        * ⚠ パターン枝とフォールバック枝の**両方**で北壁セルを飛ばすこと。片方だけだと
@@ -6604,6 +6636,7 @@
         for (let ty = ty0; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isNorthWall(tx, ty)) continue;
+            if (isWallOpening(tx, ty)) continue;      // ★通路の口 = 立面も抜く (上へ続く道)
             if (isPaintedAndLoaded(tx, ty)) continue;
             ctx.drawImage(wallFaceImg, (((tx % fCols) + fCols) % fCols) * TILE_SIZE, 0, TILE_SIZE, fH,
                           Math.round(tx * TILE_SIZE - camX), Math.round(wallRectY(tx, ty) - camY),
@@ -14191,8 +14224,8 @@
        *   実測 (廃坑 n0・パーティは部屋の中央 / α は 255=黒 178=記憶 0=明るい):
        *       床(部屋の西端) α=21   ←ここまでは明るい
        *       西壁 d1 α=152 / 西壁 d2 α=255 / 東壁 d1 α=255 / 南壁 d1・d2 α=255
-       *   この marking が無いと ROOM_WALL_RING=2 の外周は**常に完全な黒**で、描画は丸損になる。
-       * ⚠ 範囲は ROOM_WALL_RING に揃えること。Pass 2 が石を敷く範囲とここが食い違うと
+       *   この marking が無いとリングの外周は**常に完全な黒**で、描画は丸損になる。
+       * ⚠ 範囲は isRoomEdgeWall と**同じ RX/RY** に揃えること。石を敷く範囲とここが食い違うと
        *   「石を敷いたのに真っ黒」か「何も無い所を照らしている」のどちらかが必ず起きる。
        * ⚠⚠ visibleTiles には**入れない**。あれは isEnemyVisibleToParty の伏兵判定に直結していて、
        *   岩盤に湧いた敵 (P4.7 で見つかった既知の潜在バグ) がここ経由で可視化されると
@@ -14200,14 +14233,14 @@
        * ⚠ driver_graph_run の (2g) が数えるフォグ矩形 (row18-20 / col24-27) はパーティから
        *   9〜12 タイル離れた岩盤なので R=2 では届かない = 非退行 (全数緑で実測確認済)。 */
       if (!IS_FIELD_THEME) {                           // 屋外は暗幕が無い (renderLighting が即 return)
-        const WR = ROOM_WALL_RING;
+        const WRX = ROOM_WALL_RING_X, WRY = ROOM_WALL_RING_Y;
         for (let ty = 0; ty < MAP_H; ty++) {
           const visRow = visibleTiles[ty];
           for (let tx = 0; tx < MAP_W; tx++) {
             if (!visRow[tx]) continue;
             if (mapData[ty][tx] === 2) continue;       // 「見えている床」の周りだけを開ける
-            const y0 = Math.max(0, ty - WR), y1 = Math.min(MAP_H - 1, ty + WR);
-            const x0 = Math.max(0, tx - WR), x1 = Math.min(MAP_W - 1, tx + WR);
+            const y0 = Math.max(0, ty - WRY), y1 = Math.min(MAP_H - 1, ty + WRY);
+            const x0 = Math.max(0, tx - WRX), x1 = Math.min(MAP_W - 1, tx + WRX);
             for (let y = y0; y <= y1; y++) {
               // ★[2026-08-09] 記憶 (累積) と「今照らされている」(毎回クリア) を同じ範囲で同時に立てる。
               //   範囲が食い違うと「石を敷いたのに黒い」か「何も無い所を照らす」のどちらかが必ず起きる。
@@ -29171,6 +29204,45 @@
       clearNodeTimers();
     }
 
+    /* ★[通路の口 2026-08-09] このノードから道が伸びている向きだけ、リングに穴を開ける。
+     *   口の位置は **nodeGateTile(MAPDEF, dir)** の外側 = 矢印が立つタイルの真正面なので、
+     *   「矢印の指す先に道が抜けている」が絵として一致する。
+     * ⚠ 向きの出所は 2 つあり、**両方**要る:
+     *     ① node.exits[].dir       … 前進する枝
+     *     ② DIR_OPPOSITE[nodeEnteredVia] … 来た道 (親へ引き返す口)。データには書かれていない
+     *        (親は木構造で 1 つしかなく、手書きすると必ず食い違う = exitsWithReturn と同じ理由)
+     *   ②を落とすと「入ってきたはずの道が、振り返ると石で塞がっている」絵になる。
+     * ⚠ 深さは max(RX,RY)+1 まで掘るが、**床に当たったら即やめる** (mapData!==2 で break)。
+     *   部屋どうしが隣接している盤面で、隣の部屋の床まで穴を伸ばさないため。
+     * ⚠ RUN が無い経路 (既存 6 シナリオ / 屋外 / 自作マップ) は wallOpenTiles=null のまま =
+     *   isWallOpening が常に false = 1 命令も変わらない。 */
+    function rebuildWallOpenings(nodeId) {
+      wallOpenTiles = null;
+      if (!RUN) return;
+      const node = RUN.byId[nodeId];
+      if (!node) return;
+      const dirs = new Set();
+      for (const ex of (node.exits || [])) if (ex.dir) dirs.add(ex.dir);
+      if (RUN.parent[node.id] && nodeEnteredVia && DIR_OPPOSITE[nodeEnteredVia]) {
+        dirs.add(DIR_OPPOSITE[nodeEnteredVia]);
+      }
+      if (!dirs.size) return;
+      const mask = new Uint8Array(MAP_W * MAP_H);
+      const DEPTH = Math.max(ROOM_WALL_RING_X, ROOM_WALL_RING_Y) + 1;
+      for (const dir of dirs) {
+        const g = nodeGateTile(MAPDEF, dir);
+        const dx = dir === "left" ? -1 : dir === "right" ? 1 : 0;
+        const dy = dir === "up"   ? -1 : dir === "down"  ? 1 : 0;
+        for (let k = 1; k <= DEPTH; k++) {
+          const tx = g.tx + dx * k, ty = g.ty + dy * k;
+          if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) break;
+          if (mapData[ty][tx] !== 2) break;          // 床に出た = そこは通路ではない
+          mask[ty * MAP_W + tx] = 1;
+        }
+      }
+      wallOpenTiles = mask;
+    }
+
     /* ★唯一の構築点。起動シーケンス (幾何 → 派生定数 → フォグ → 1枚絵 → 情景 → スポーン) を
      * **同じ順序で**再実行する。mapDef を省略すると現在ノードを作り直す (= ?renode の同一再入場)。
      * ⚠ 順序を崩さないこと。実際の依存:
@@ -29178,6 +29250,7 @@
      *     buildDecorations()  は mapData を読む   → mapData より後
      *     generateScenery()   は ENEMY_SPAWNS と起点を読み obstacleTileMask を作る
      *     spawnTraps 等       は mapData / EXCLUDED_ROOMS を読む → 派生定数より後 */
+    /* ※ 直前に定義してある rebuildWallOpenings も、この順序の一部 (mapData の直後に呼ぶ)。 */
     function buildNode(mapDef, nodeId) {
       if (mapDef) MAPDEF = mapDef;
       // ── 幾何 (index.html 3400〜3510 行台の写し。式は 1 文字も変えていない) ──
@@ -29185,6 +29258,9 @@
       CORRIDORS = MAPDEF.corridors;
       if (window.DFMapDef) MAP_USED = DFMapDef.mapUsed(MAPDEF);
       mapData = buildMap();
+      /* ★[通路の口 2026-08-09] mapData の直後・buildDecorations の前に必ず置く。
+       *   ⚠ 前だと mapData を読めない / 後だと松明が開口の真下へ吊るされる。 */
+      rebuildWallOpenings(nodeId || currentNodeId);
       // ── MAPDEF からの派生定数 ──
       START_TX = MAPDEF.start.tx; START_TY = MAPDEF.start.ty;
       BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
@@ -29292,6 +29368,24 @@
     const NODE_FADE_MS = 300;      // CSS #nodeFade の transition と**同じ値**にすること
 
     const DIR_OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+    /* ★[通路の口 2026-08-09] 起動直後の入口ノードは buildNode を通らない (冒頭の boot 経路が
+     *   mapData を直に組む) ので、ここで 1 回だけ開口を作る。
+     * ⚠ 置き場所は **DIR_OPPOSITE と nodeEnteredVia の宣言より後**。rebuildWallOpenings は
+     *   両方を読むので、前に置くと入口ノードだけ TDZ で落ちる (n0 に親が無く短絡するため
+     *   「たまたま動く」形になり、P6 で入口に親を持つグラフを書いた瞬間に壊れる)。
+     * ⚠ 松明 (buildDecorations) は起動シーケンスの中で既に走っている。開口の真下を避ける
+     *   判定はマスクが無いと効かないので、口が開いたときだけ**装飾を組み直す**。
+     *   buildDecorations は mapData 由来の決定論 (tileHash) なので Math.random に触らない。 */
+    if (RUN) {
+      rebuildWallOpenings(currentNodeId);
+      /* ⚠ 差し替えは buildNode と**同じ「中身を入れ替える」書き方**にする。束縛ごと差し替えると
+       *   clearNodeArrays が握っている配列と別物になり、遷移時に古い装飾が消えなくなる。 */
+      if (wallOpenTiles) {
+        const ds = buildDecorations();
+        decorations.length = 0;
+        for (const d of ds) decorations.push(d);
+      }
+    }
     // 選択肢の見出し。P3 で矢印 UI になっても**文言はここが唯一の出所**にする。
     const DIR_LABELS = { up: "奥へ進む", down: "手前へ戻る道", left: "西へ進む", right: "東へ進む" };
 

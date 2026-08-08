@@ -121,6 +121,20 @@ const MEASURE = function () {
     }
   }
 
+  /* 南壁 (リング d1/d2)。★[2026-08-09] リングを縦横で分けた (RX=1 / RY=2) ので、
+   *   「2 枚目まで石が敷かれている」ことを測れるのは**南北だけ**になった。
+   * ⚠ 南のセルは mapCanvas では画面外だが **lightingCanvas は画面いっぱいにある**
+   *   (カメラのクランプは HUD を除いた usable 矩形が基準で、canvas 自体は HUD の下まで
+   *   伸びている) ので α は読める。 */
+  let south = null;
+  {
+    let ty = pick.ty + 1;
+    while (ty + 1 < H && md[ty + 1][pick.tx] !== 2) ty++;   // ty = この列の最下の床行
+    if (ty + 2 < H && md[ty + 1][pick.tx] === 2 && md[ty + 2][pick.tx] === 2) {
+      south = { tx: pick.tx, d1: ty + 1, d2: ty + 2 };
+    }
+  }
+
   const mctx = mc.getContext('2d');
   const stat = function (x, y, w, h) {
     const iw = Math.round(w), ih = Math.round(h);
@@ -158,14 +172,33 @@ const MEASURE = function () {
     return lctx.getImageData(x, y, 1, 1).data[3];
   };
 
+  /* ★[通路の口 2026-08-09] 北向きの出口がある列は、壁帯が**抜けている** (石を敷かない) はず。
+   *   同じ帯の高さで「口の列」と「2 つ隣の列」を比べる = 素材の明るさではなく
+   *   **敷いた / 敷いていない**だけを見る。列は実装 (__graphRun.exits) から借りるので、
+   *   ドライバが midC の式 (floor((c1+c2)/2)) を写経しない。 */
+  let open = null;
+  try {
+    const ups = (g.exits ? g.exits() : []).filter(e => e.dir === 'up' && e.at);
+    if (ups.length && bandH >= 8) {
+      const gx = ups[0].at.tx;
+      const sxO = gx * T - cam.camX, sxW = (gx + 2) * T - cam.camX;
+      const yb = pick.sy - bandH;
+      if (sxO >= 0 && sxO + T <= mc.width && sxW >= 0 && sxW + T <= mc.width && yb >= 0) {
+        open = { gx: gx, hole: stat(sxO, yb, T, bandH), stone: stat(sxW, yb, T, bandH) };
+      }
+    }
+  } catch (e) { open = { err: String(e && e.message) }; }
+
   return {
-    tile: T, pick: pick, west: west, bandH: bandH, wall: wall, floor: floor,
+    tile: T, pick: pick, west: west, bandH: bandH, wall: wall, floor: floor, open: open,
     faceW: window.__wallFaceImg ? window.__wallFaceImg.naturalWidth : null,
     faceH: window.__wallFaceImg ? window.__wallFaceImg.naturalHeight : null,
     topW: window.__wallTopImg ? window.__wallTopImg.naturalWidth : null,
     topH: window.__wallTopImg ? window.__wallTopImg.naturalHeight : null,
     aWallD1: west ? alphaAt(west.tx, west.ty) : null,
     aWallD2: west ? alphaAt(west.tx - 1, west.ty) : null,
+    aSouthD1: south ? alphaAt(south.tx, south.d1) : null,
+    aSouthD2: south ? alphaAt(south.tx, south.d2) : null,
     aFloor: alphaAt(pick.tx, pick.ty + 2),
   };
 };
@@ -255,8 +288,10 @@ async function playShot(page, file) {
     await dumpCanvas(page, path.join(SHOT_DIR, 'desktop_map.png'));
     if (M.err) { check('(0) 北壁が画面に入っている', false, M.err); throw new Error(M.err); }
     console.log('[drv] wall ' + JSON.stringify(M.wall) + '\n[drv] floor ' + JSON.stringify(M.floor));
-    console.log('[drv] α wallD1=' + M.aWallD1 + ' wallD2=' + M.aWallD2 + ' floor=' + M.aFloor
+    console.log('[drv] α wallD1=' + M.aWallD1 + ' wallD2=' + M.aWallD2
+      + ' southD1=' + M.aSouthD1 + ' southD2=' + M.aSouthD2 + ' floor=' + M.aFloor
       + ' / 帯の高さ=' + M.bandH + 'px / pick=' + JSON.stringify(M.pick));
+    console.log('[drv] open ' + JSON.stringify(M.open));
 
     check('(1a) 立面素材が読めている / 幅は tile の整数倍', M.faceW > 0 && M.faceW % M.tile === 0,
       'faceW=' + M.faceW + ' tile=' + M.tile);
@@ -302,12 +337,38 @@ async function playShot(page, file) {
      *   編成が変わっても動かない (負のコントロール実測もぴたり 178 だった)。
      *   壁専用の削りが乗ると 0.70*(1-0.32)*255 = 121 が上限で、実測は 104〜121 に散る
      *   (仲間の職業で光の半径が変わり d2 にも僅かに届くため。**片側だけが散る**のがミソ)。
-     *   → 閾値 170 は「壁専用の削りが本当に走っているか」を 1 ビットで測っている。 */
-    check('(3b) ★西壁 d2 に壁専用の追い削りが乗っている (記憶のみの 178 ではない)',
-      M.aWallD2 != null && M.aWallD2 < 170, 'α=' + M.aWallD2 + ' (記憶のみなら 178)');
+     *   → 閾値 170 は「壁専用の削りが本当に走っているか」を 1 ビットで測っている。
+     * ⚠⚠ [2026-08-09] 測る場所を**西 d2 → 南 d2** へ移した。リングを縦横で分けた
+     *   (RX=1 / RY=2) 結果、西の d2 はもう石を敷く範囲の外なので、ここを西で測ると
+     *   「左右を薄くした」という正しい変更が永久に赤くなる。南は RY=2 のまま = 2 枚目まで
+     *   石があるので、この assert の判別力 (178 に張り付くか否か) はそのまま生きる。 */
+    check('(3b) ★南壁 d2 に壁専用の追い削りが乗っている (記憶のみの 178 ではない)',
+      M.aSouthD2 != null && M.aSouthD2 < 170, 'α=' + M.aSouthD2 + ' (記憶のみなら 178)');
     check('(3c) それでも床より暗い (壁が光源になっていない)',
       M.aWallD1 != null && M.aFloor != null && M.aWallD1 > M.aFloor,
       'wall=' + M.aWallD1 + ' floor=' + M.aFloor);
+    /* ★[2026-08-09] ユーザー要望「左右の石壁は特に幅を薄く」の非退行。
+     *   西 d1 は石 (3a で下限を見ている) / 西 d2 は**石を敷く範囲の外**であることを測る。
+     *   ⚠ ROOM_WALL_RING_X を 2 へ戻すと d2 が 121 前後まで持ち上がってここが赤くなる =
+     *     「左右がまた分厚くなった」を 1 ビットで捕まえられる。南 (3b) と対になっている。 */
+    check('(3d) ★左右のリングが 1 タイルで終わっている (西 d2 は石の範囲外)',
+      M.aWallD2 != null && M.aWallD2 > 170,
+      'westD2 α=' + M.aWallD2 + ' / southD2 α=' + M.aSouthD2 + ' (石なら 104〜121)');
+
+    // ══ §3.5 通路の口が壁に抜けているか ════════════════════════════════════════
+    mark('出口の列で壁帯が抜けているか (通路の口)');
+    /* ★ユーザー指摘「行先の選択肢方向の通路が石壁でふさがれている」の非退行。
+     * ⚠ **明るさの絶対値では測らない**。素材を差し替えるたびに閾値が腐る。同じ帯・同じ高さで
+     *   「口の列」と「2 つ隣の列」を比べ、口の方が**桁で暗い**ことだけを見る
+     *   (口には Pass 1a の暗い天井しか残らない = 石を 1px も敷いていない状態)。 */
+    check('(3e) 出口の列を測れている (__graphRun.exits から借りた列が画面内)',
+      !!(M.open && M.open.hole && M.open.stone), JSON.stringify(M.open));
+    if (M.open && M.open.hole && M.open.stone) {
+      check('(3f) ★通路の口には石が敷かれていない (隣の壁より暗い)',
+        M.open.hole.L <= M.open.stone.L * 0.5,
+        '口 L=' + M.open.hole.L.toFixed(1) + ' / 壁 L=' + M.open.stone.L.toFixed(1)
+        + ' = ' + (M.open.hole.L / Math.max(0.01, M.open.stone.L)).toFixed(2) + '倍');
+    }
 
     // ══ §4 性能: 周期スパイクが出ていないか ════════════════════════════════════
     mark('renderMap の周期スパイク (N=400)');
