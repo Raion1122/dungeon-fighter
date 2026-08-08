@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "a1f19b9",
-    "subject": "選択肢ダイアログを画面下のログ枠へ移設 + 表示中は下部HUDを伏せる",
+    "rev": "cd0223e",
+    "subject": "部屋の四方に石壁を出す + 壁テクスチャを床と見分けが付く色へ寄せる",
     "dirty": true
   },
   "values": {
@@ -11,7 +11,7 @@
       "nD": 52,
       "hash": "feba77a09150"
     },
-    "D2-goblin-mine": "6e5b7c32a58b3d75",
+    "D2-goblin-mine": "475c27cc0663249d",
     "D1-bandits-forest": {
       "nF": 79,
       "nD": 37,

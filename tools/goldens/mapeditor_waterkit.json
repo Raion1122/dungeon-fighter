@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_waterkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "a1f19b9",
-    "subject": "選択肢ダイアログを画面下のログ枠へ移設 + 表示中は下部HUDを伏せる",
+    "rev": "cd0223e",
+    "subject": "部屋の四方に石壁を出す + 壁テクスチャを床と見分けが付く色へ寄せる",
     "dirty": true
   },
   "values": {
-    "game-goblin-mine": "75bb0e4b146c3346501c64fa7eaa563b64a4d95ebb149af7b5a50ed3b4cf0a1d",
+    "game-goblin-mine": "655f3c926507eb8dd7a4f293e67610ac2387c68ea00f6cf28cbd6301eefb8b0d",
     "canvas-V": "7d6ea1aa2933cd850b08509e9a8761fe6109b892a1464f8ef7cc4ed2cd006792",
     "canvas-L": "ebe0e219d72b7981e1f9a2b9d49e64625485189eed8ddf1cee12544073f85f38",
     "canvas-X": "e2796636c2f4e5f5fcbcba0bd5e2eba65ae6a7e3bcf7ea75714687dba2345ec3",

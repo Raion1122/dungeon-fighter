@@ -3173,7 +3173,20 @@
      * ⚠ 屋外 caravan-road には**付けない** = 1 バイトも変わらない。あれは街道の路肩 (乾式石積み) で、
      *   色を動かすのは 2026-07-31 に「不採用で決着」した石垣の作り直しを蒸し返すことになる。 */
     const SCENARIO_TEX = {
+      /* ★[石壁の作り込み 2026-08-09] 廃坑だけ壁の専用素材を 2 枚持つ。他5シナリオはキーが無い =
+       *   従来どおり wall + wallTint の 1 枚使い回しで 1 命令も変わらない。
+       *     wallFace … 北壁の立面 (672x192・横シームレス・縦のライティング焼き込み済み)
+       *     wallTop  … 南/東/西/角の見下ろし天面 (384x384・縦横シームレス・ライティング無し)
+       *   1 枚を全用途へ使い回すのを止めたのが今回の本質。旧実装は正方形のマテリアル見本 1 枚を
+       *   立面にも天面にも貼っていたので、どちらの向きにも見えない平面になっていた。
+       * ⚠⚠ 専用素材が効いているセルには wallTint を**乗せない**。明暗と寒色寄せは素材側
+       *   (tools/make_wall_face.py / make_wall_top.py) で済ませてあり、上から白を足すと
+       *   2026-08-08 の「ただの白い幕」に逆戻りする。
+       * ⚠ それでも wallTint を消さずに残すのは、素材が 404 で落ちたときの**退化先**として要るから。
+       *   壁1.png は平均輝度 42.1 で床 47.2 より暗く、素の色のままだと壁が床に溶けてしまう。 */
       "goblin-mine":    { floor: "床1.png",        wall: "壁1.png",
+                          wallFace: "wall_face_goblin-mine.png",
+                          wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
       "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png",
                           wallTint: { color: "228,234,244", a: 0.32 } },
@@ -3367,7 +3380,9 @@
       floorPattern = ctx.createPattern(makeFloorPatternSource(floorTex1), "repeat");
       renderMap();
     };
-    let wallPattern = null;
+    let wallPattern = null;      // 壁1.png のパターン (= 壁の素材が全部そろった印。下の ⚠⚠ 参照)
+    let wallFaceImg = null;      // 北壁の立面ストリップ (専用素材を持つシナリオだけ非 null)
+    let wallTopPattern = null;   // リングの見下ろし天面 (同上)
     const wallTex1 = new Image();
     /* ★[石壁の可視化 2026-08-08] 壁の色寄せ (wallTint) は **描画時のオーバーレイ**で行う。
      *   実装は renderMap の Pass 2 (パターンで敷いた同じ矩形をもう一度 rgba で塗る)。
@@ -3389,11 +3404,60 @@
      *   (= 実機だけ直っていない、という最も気付きにくい壊れ方になる)。
      * ⚠ getImageData 方式も却下。file:// 直開きでは canvas が汚染されて SecurityError になり、
      *   「http で起動しないと音が出ない」既知の制約に**絵まで巻き込む**。 */
-    wallTex1.src = "assets/" + _texSet.wall;
-    wallTex1.onload = () => {
-      wallPattern = ctx.createPattern(wallTex1, "repeat");
+    /* ★[石壁の作り込み 2026-08-09] 壁の素材 3 枚 (パターン用 / 立面 / 天面) を**そろってから
+     *   まとめて公開**する。
+     * ⚠⚠ これは見た目のためではなく **検証の健全性のため**。golden を撮るドライバ 6 本
+     *   (field_step1 / field_step1_geo / field_step2 / field_step3 / mapdef_step1 /
+     *   mapeditor_waterkit) は、スナップ直前に `wallPattern !== null` だけを確かめている。
+     *   立面と天面を独立した非同期で足すと、その 2 枚が間に合わなかったフレームを golden へ
+     *   焼いてしまい **ハッシュがフレークになる** (実測: field_step2 が 63/64 → 再走で 64/64)。
+     *   「再走すれば緑」を覚えさせるのが最悪なので、ドライバ 6 本を直すのではなく
+     *   **満たすべき条件の側を 1 箇所で正しくする**。以後 `wallPattern !== null` は
+     *   「壁の絵に必要な素材が全部そろった」と同義になる。
+     * ⚠ 遅延は事実上ゼロ。壁1.png が 2.8MB で、立面 90KB / 天面 200KB より必ず遅く着く。
+     * ⚠⚠ **onerror でも必ず数えること**。数え忘れると 1 枚 404 になった瞬間に壁が**永久に**
+     *   旧タイルセットのスプライトへ退化する (例外も警告も出ないので気付けない)。
+     * ⚠ ハンドラは src より**先**に代入する。順序を逆にするとキャッシュ済みの画像で取りこぼす。 */
+    const _wfImg = _texSet.wallFace ? new Image() : null;
+    const _wtImg = _texSet.wallTop  ? new Image() : null;
+    let _wallPend = 1 + (_wfImg ? 1 : 0) + (_wtImg ? 1 : 0);
+    function publishWallAssets() {
+      if (--_wallPend > 0) return;
+      if (wallTex1.naturalWidth) wallPattern = ctx.createPattern(wallTex1, "repeat");
+      if (_wfImg && _wfImg.naturalWidth) {
+        wallFaceImg = _wfImg;
+        window.__wallFaceImg = _wfImg;   // 検証シーム (driver から素材の有無と寸法を見るため)
+      }
+      if (_wtImg && _wtImg.naturalWidth) {
+        wallTopPattern = ctx.createPattern(_wtImg, "repeat");
+        window.__wallTopImg = _wtImg;    // 検証シーム
+      }
       renderMap();
-    };
+    }
+    wallTex1.onload = wallTex1.onerror = publishWallAssets;
+    if (_wfImg) _wfImg.onload = _wfImg.onerror = publishWallAssets;
+    if (_wtImg) _wtImg.onload = _wtImg.onerror = publishWallAssets;
+    wallTex1.src = "assets/" + _texSet.wall;
+    if (_wfImg) _wfImg.src = "assets/" + _texSet.wallFace;
+    if (_wtImg) _wtImg.src = "assets/" + _texSet.wallTop;
+
+    /* ★[石壁の作り込み 2026-08-09] 北壁の立面 (wallFace) 専用の素材。
+     *   wall (正方形のマテリアル見本) との違いは「方向のある光と水平のコースを持つ立面」であること。
+     *   横 672px = 7 タイルの周期で、tx に応じて 96px 幅を切り出して並べる (createPattern ではなく
+     *   drawImage)。理由は 2 つ:
+     *     ・createPattern の縦の反復周期が 192px になるので、壁矩形の上端 (ty-1)*96 が奇数タイルの
+     *       ときに半周期ずれる。drawImage なら矩形の上端に必ず素材の上端が来る。
+     *     ・オフスクリーン canvas を源にしないので、上の ⚠⚠⚠ の周期スパイクとは無縁。
+     * ⚠ 素材の高さは wallRectH の 192px と一致させること。ずれた場合は縦に伸縮して出る
+     *   (エラーは出ないので気付けない)。高さは tools/make_wall_face.py の --height が唯一の正。
+     * ⚠ classic script 直下の let は window に載らないので、ドライバ用のシームを明示で足す
+     *   (代入は publishWallAssets の中。3 枚そろってから同時に公開する理由は上の ⚠⚠ 参照)。
+     *
+     * ★リング (南/東/西/角) 用の見下ろし天面 (wallTop) の方は、向きが等方なので立面と違って
+     *   createPattern の repeat でよい。
+     * ⚠⚠⚠ **源は <img> のまま渡すこと。オフスクリーン canvas を渡してはいけない**
+     *   (上の wallTex1 の ⚠⚠⚠ と同じ罠。約57回に1回 7.5 秒のスパイクが出るが p50 は無傷)。
+     *   そのため縮小は Pillow 側 (tools/make_wall_top.py) で済ませ、384x384 を出荷している。 */
 
     // 壁掛け松明 (painterly・正面ビュー、北壁にぶら下がる)
     let torchWallImgLoaded = false;
@@ -3893,6 +3957,17 @@
     //   ★[P1] let 化 — buildNode() が作り直す (ノードごとにフォグの記憶は独立)
     let exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
     let visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+    /* ★[石壁の作り込み 2026-08-09] wallLitTiles: 「今この瞬間、見えている床に接している壁」=1。
+     *   毎更新クリアするので visibleTiles と同じ寿命 (exploredTiles のような累積ではない)。
+     * ⚠ なぜ要るか: 壁は原理的に exploredTiles の「記憶」止まりで、暗幕の dst が 0.70 残る。
+     *   天面素材の平均輝度 92.5 がそこで 28 まで落ちる一方、同じ場所の床は現在視界なので
+     *   dst≈0.08 = 43 前後。つまり**壁の方が暗い**ままで、天面の絵をどれだけ作り込んでも
+     *   部屋の外周は黒い縁にしか見えない (2026-08-08 の実測がまさにこれだった)。
+     *   → 今いる部屋の壁だけ暗幕を余分に削り、たいまつが壁を照らしている状態にする。
+     * ⚠⚠ visibleTiles を書き換えて済ませてはいけない。あれは isEnemyVisibleToParty の伏兵判定に
+     *   直結しており、岩盤に湧いた敵が可視化されると戦闘開始の前提が変わる (前回の判断を踏襲)。
+     * ⚠ 「今の部屋だけ」なのは意図。累積にすると通り過ぎた部屋の外周だけが光って残る。 */
+    let wallLitTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
     let lastVisSignature = "";
 
     // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
@@ -5234,6 +5309,32 @@
           lctx.fillStyle = "rgba(255,255,255,0.30)";
           lctx.fill(memoryPath);
         }
+
+        /* ★[石壁の作り込み 2026-08-09] 今いる部屋を囲む壁だけ、暗幕を追加で削って石を見せる。
+         * 削りは destination-out なので合成後の暗幕は dst = (1-0.30)*(1-WALL_LIT)。
+         *   WALL_LIT=0.32 で dst=0.476 → 天面素材 (平均輝度 92.5) は画面上 約 50 になり、
+         *   すぐ隣の現在視界の床 (約 45) と同等〜わずかに明るい = 「たいまつが壁を照らしている」絵。
+         *   これを入れないと壁は 28 で床 45 より暗く、作り込んだ天面が黒い縁にしか見えない。
+         * ⚠ 上げすぎないこと。壁がフォグより明るくなると「岩盤の向こうまで見えている」絵になる。
+         *   未探索の暗黒契約そのものは wallLitTiles の範囲外 (ROOM_WALL_RING の外) で守られている。
+         * ⚠ 記憶レイヤーとは Path2D を分ける。同じパスに混ぜると記憶だけの床まで明るくなる。
+         * ⚠ 塗りは 1 回にまとめる (Path2D)。タイルごとに fillRect すると camX が小数のとき
+         *   境界がアンチエイリアスされて 96px 格子の筋が残る (記憶レイヤーと同じ真因)。 */
+        const WALL_LIT = 0.32;
+        const wallLitPath = new Path2D();
+        let hasWallLit = false;
+        for (let ty = exStartTY; ty <= exEndTY; ty++) {
+          const wlRow = wallLitTiles[ty];
+          for (let tx = exStartTX; tx <= exEndTX; tx++) {
+            if (!wlRow[tx]) continue;
+            wallLitPath.rect(tx * TILE_SIZE - camX, ty * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE);
+            hasWallLit = true;
+          }
+        }
+        if (hasWallLit) {
+          lctx.fillStyle = `rgba(255,255,255,${WALL_LIT})`;
+          lctx.fill(wallLitPath);
+        }
       }
 
       function drawLight(cx, cy, inner, outer, strongAlpha = 1, midAlpha = 0.55, rgb = "255,255,255") {
@@ -6422,10 +6523,25 @@
       const isVergeCell = FIELD_DRAW
         ? (tx, ty) => (ty === FIELD_HORIZON_ROW) || isNorthWall(tx, ty)
         : (IS_FIELD_THEME ? isNorthWall : isRoomEdgeWall);
-      if (wallPattern) {
+      /* ★[石壁の作り込み 2026-08-09] 専用の立面素材を持つシナリオでは、北壁だけ別ループで
+       *   drawImage する (Pass 2b)。
+       * ⚠ パターン枝とフォールバック枝の**両方**で北壁セルを飛ばすこと。片方だけだと
+       *   wallPattern 未ロードの初回フレームや 404 時に古い絵が下から覗く。
+       * ⚠ 立面は 192px = 2 行 (ty-1, ty) を覆う。リング外周のセル (ty-1) はここで 96px 敷かれるが、
+       *   Pass 2b は if/else の**後**に走るので必ず上書きされる。順序を入れ替えないこと。
+       * ⚠ ゲートは !FIELD_DRAW ではなく IS_FIELD_THEME でも締める (横持ちの隊商護衛が
+       *   FIELD_DRAW=false のまま屋内の枝へ流れ込む既知の穴。isVergeCell の注記と同じ理由)。 */
+      const useWallFace = !!wallFaceImg && !FIELD_DRAW && !IS_FIELD_THEME;
+      /* ★[石壁の作り込み 2026-08-09] リングを見下ろし天面へ差し替える。
+       * ⚠ fillStyle の代入は**ループの外で 1 回**。ここに来る屋内セルは (useWallFace が真なら)
+       *   すべて非北壁のリングなので、セルごとに素材を選び直す必要がない。
+       * ⚠ 万一 wallFace だけ 404 で落ちた場合、北壁も天面で塗られる。石ではあるし Pass 2.2 の
+       *   面ライティングが従来どおり乗るので絵は成立する = 意図した退化。 */
+      const useWallTop = !!wallTopPattern && !FIELD_DRAW && !IS_FIELD_THEME;
+      if (wallPattern || useWallTop) {
         ctx.save();
         ctx.translate(-camX, -camY);
-        ctx.fillStyle = wallPattern;
+        ctx.fillStyle = useWallTop ? wallTopPattern : wallPattern;
         // [屋外] Pass 1b と同じ 0.5px 膨張。路肩は 67列が横に連なる 1本の帯なので、per-tile
         //   fillRect × 小数カメラのままだと 96px ごとに縦の筋が出る (床グリッド線と同じ真因)。
         // ⚠️ 膨張は**横だけ**。上へ膨らませると地平線 (y=1152) を跨いで空を汚す。
@@ -6434,6 +6550,7 @@
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
+            if (useWallFace && isNorthWall(tx, ty)) continue;   // 立面は Pass 2b が描く
             // 屋内: 北壁は1セル上から2セル分 (壁の「立体感」) / それ以外は1セル / 屋外: 路肩 96px
             ctx.fillRect(tx * TILE_SIZE - WINF, wallRectY(tx, ty), TILE_SIZE + WINF * 2, wallRectH(tx, ty));
           }
@@ -6445,6 +6562,7 @@
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
+            if (useWallFace && isNorthWall(tx, ty)) continue;   // 立面は Pass 2b が描く
             // ⚠️ 端キャップ判定も **同じ述語**に揃える。ここだけ isNorthWall のままだと
             //    wallPattern 未ロード/404 の初回フレームで、連続した路肩帯の途中に
             //    SPR_WALL_LEND (左端の壁) が出る。症状が初回フレームだけなので目視で取りこぼす。
@@ -6465,6 +6583,35 @@
         }
       }
 
+      /* ── Pass 2b: 北壁の立面 (専用素材) ─────────────────────────────────────────
+       * ★[石壁の作り込み 2026-08-09] ユーザー指摘「石壁というよりか、ただの白い幕」の本体の解。
+       *   旧実装は**正方形のマテリアル見本**を 96x192 に切って貼り、上から白を 34% 重ねていた。
+       *   素材に方向のある光も水平のコースも無いので、色をどちらへ寄せても平らな布にしか
+       *   見えない (当時の発注文が逐語で "no strong directional light, no central focal object" =
+       *   意図的に見本として描かせていた。tools/sprite_batches/mine_wall_tex.txt が現物)。
+       * ⚠⚠ **画面に入る立面の高さは 192px ではない**。カメラは MAP_USED の内側しか映さないので
+       *   実測で 27px (1280x800) 〜 85px (958x749) しかなく、素材の上半分は原理的に一度も
+       *   見えない。素材はその前提の絵 (下端に基礎とふち明かり / 上は闇へ落とす) にしてある。
+       *   設計根拠と実測値は tools/make_wall_face.py の docstring が唯一の正。
+       * ⚠ 切り出しは tx を素材の周期で割った剰余。素材幅 672px = 7 タイル = 1 ノードの部屋幅
+       *   ちょうどなので、通常ノードでは横の繰り返しが画面に出ない。
+       * ⚠ 転送先は Math.round する。タイル幅が整数なので隣のセルとの間に隙間は開かない
+       *   (round(tx*96-camX)+96 === round((tx+1)*96-camX) が恒等的に成り立つ)。
+       * ⚠ 1枚絵の部屋 (isPaintedAndLoaded) はパターン枝と同じ条件で必ず飛ばす。 */
+      if (useWallFace) {
+        const fCols = Math.max(1, Math.round(wallFaceImg.width / TILE_SIZE));
+        const fH = wallFaceImg.height;
+        for (let ty = ty0; ty <= endTY; ty++) {
+          for (let tx = startTX; tx <= endTX; tx++) {
+            if (!isNorthWall(tx, ty)) continue;
+            if (isPaintedAndLoaded(tx, ty)) continue;
+            ctx.drawImage(wallFaceImg, (((tx % fCols) + fCols) % fCols) * TILE_SIZE, 0, TILE_SIZE, fH,
+                          Math.round(tx * TILE_SIZE - camX), Math.round(wallRectY(tx, ty) - camY),
+                          TILE_SIZE, wallRectH(tx, ty));
+          }
+        }
+      }
+
       /* ── Pass 2.1: 壁の色寄せ (wallTint) ────────────────────────────────────────
        * ★[石壁の可視化 2026-08-08] 「壁が地面と同じ色に見える」の実質的な解。敷いた石の上へ
        *   半透明の単色を重ね、床と見分けが付く色へ寄せる。source-over なので結果は
@@ -6476,7 +6623,10 @@
        *   これは意図した挙動 (画像 404 の退化時も色が揃う)。
        * ⚠ 屋外は _texSet.wallTint を持たないのでこの節ごと走らない = 1 命令も変わらない。
        * ⚠ 1枚絵の部屋 (isPaintedAndLoaded) はパターン枝と同じ条件で必ず飛ばす。 */
-      const WALL_TINT = _texSet.wallTint;
+      /* ★[2026-08-09] 天面の専用素材が効いているときは色寄せを**一切走らせない**。
+       *   wallTop は既に平均輝度 92.5 (床 47.2 の 1.96 倍) の寒色石なので、白を足す理由がない。
+       *   足すと石の目地が飛んで「白い幕」に戻る。ここが今回の指摘に対する答えの片方。 */
+      const WALL_TINT = useWallTop ? null : _texSet.wallTint;
       if (WALL_TINT && WALL_TINT.a > 0) {
         /* ⚠⚠ 矩形は**パターン枝と 1 座標もずらさない**こと。パターン枝は
          *   `translate(-camX,-camY)` を掛けたワールド座標へ小数のまま塗る。こちらを
@@ -6495,6 +6645,10 @@
           for (let tx = startTX; tx <= endTX; tx++) {
             if (!isVergeCell(tx, ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
+            /* ★[2026-08-09] 立面が覆う 2 行 (北壁の行と、その 1 つ上のリング外周) には色を乗せない。
+             *   ここを飛ばさないと立面の上へ白が重なって階調が潰れ、まさに「白い幕」へ逆戻りする。
+             *   ty+1 側も見るのは、立面の 192px 矩形が (ty-1) 行まで覆っているため。 */
+            if (useWallFace && (isNorthWall(tx, ty) || isNorthWall(tx, ty + 1))) continue;
             tintPath.rect(tx * TILE_SIZE, wallRectY(tx, ty), TILE_SIZE, wallRectH(tx, ty));
             hasTint = true;
           }
@@ -6566,6 +6720,10 @@
             const sy = ty * TILE_SIZE - camY;
             if (mapData[ty][tx] === 2) {
               if (!isNorthWall(tx, ty)) continue;   // 面が見えるのは北壁だけ
+              /* ★[2026-08-09] 専用の立面素材があるときは面のライティングを重ねない。明暗は素材へ
+               *   焼き込み済みで、上から重ねると足元が二重に暗くなって基礎のふち明かりが消える。
+               *   床側の接地影 (下の gN) は素材の外なので**そのまま残す**。 */
+              if (useWallFace) continue;
               ctx.save();
               ctx.translate(sx, sy - TILE_SIZE);
               ctx.fillStyle = gFace;
@@ -14005,6 +14163,8 @@
       lastVisSignature = sig;
 
       for (let r = 0; r < MAP_H; r++) visibleTiles[r].fill(0);
+      // ★[2026-08-09] 壁の照らしは「今の部屋だけ」なので visibleTiles と同時にクリアする。
+      for (let r = 0; r < MAP_H; r++) wallLitTiles[r].fill(0);
       for (const m of members) {
         const cTX = Math.floor(m.cx / TILE_SIZE), cTY = Math.floor(m.cy / TILE_SIZE);
         const R = m.s.tiles;
@@ -14049,7 +14209,12 @@
             const y0 = Math.max(0, ty - WR), y1 = Math.min(MAP_H - 1, ty + WR);
             const x0 = Math.max(0, tx - WR), x1 = Math.min(MAP_W - 1, tx + WR);
             for (let y = y0; y <= y1; y++) {
-              for (let x = x0; x <= x1; x++) if (mapData[y][x] === 2) exploredTiles[y][x] = 1;
+              // ★[2026-08-09] 記憶 (累積) と「今照らされている」(毎回クリア) を同じ範囲で同時に立てる。
+              //   範囲が食い違うと「石を敷いたのに黒い」か「何も無い所を照らす」のどちらかが必ず起きる。
+              for (let x = x0; x <= x1; x++) if (mapData[y][x] === 2) {
+                exploredTiles[y][x] = 1;
+                wallLitTiles[y][x] = 1;
+              }
             }
           }
         }
@@ -29046,6 +29211,7 @@
       // ── フォグ (ノードごとに独立。P2 で nodeState から復元する予定) ──
       exploredTiles = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
       visibleTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
+      wallLitTiles  = Array.from({ length: MAP_H }, () => new Uint8Array(MAP_W));
       lastVisSignature = "";
       /* ── 1枚絵 (paintedTileMask を作り直してから loadRoomPaintings) ──
        * ⚠ loadRoomPaintings / generateScenery / buildDecorations は「積む」だけで空にしない
