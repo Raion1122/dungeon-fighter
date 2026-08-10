@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "7d3ea96",
-    "subject": "石壁を専用素材で作り直す (立面/天面を分離) + 壁専用のフォグ削り",
+    "rev": "509f3c6",
+    "subject": "石壁を細かい石積みへ + 左右のリングを薄く + 行き先の通路の口を開ける",
     "dirty": true
   },
   "values": {
-    "2-goblin-mine": "7c52137eaaf96697",
+    "2-goblin-mine": "e14dd3ccaad8f95a",
     "2b-goblin-mine": [
       2024,
       931,

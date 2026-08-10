@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_waterkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "7d3ea96",
-    "subject": "石壁を専用素材で作り直す (立面/天面を分離) + 壁専用のフォグ削り",
+    "rev": "509f3c6",
+    "subject": "石壁を細かい石積みへ + 左右のリングを薄く + 行き先の通路の口を開ける",
     "dirty": true
   },
   "values": {
-    "game-goblin-mine": "23b5c277d8301e0492892e120847a90320075f0fa3b73ad9adf95e64011e8803",
+    "game-goblin-mine": "fee0bdab84780bf34583feabf09a1b966693c3dbed34b1950b6c5701e4c2bcde",
     "canvas-V": "7d6ea1aa2933cd850b08509e9a8761fe6109b892a1464f8ef7cc4ed2cd006792",
     "canvas-L": "ebe0e219d72b7981e1f9a2b9d49e64625485189eed8ddf1cee12544073f85f38",
     "canvas-X": "e2796636c2f4e5f5fcbcba0bd5e2eba65ae6a7e3bcf7ea75714687dba2345ec3",
