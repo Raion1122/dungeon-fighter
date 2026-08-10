@@ -856,8 +856,9 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
     // ══════════════════════════════════════════════════════════════════════════
     /* payload=null なら素の廃坑 (母集団ガード = 従来経路)。戻りは測定値一式。
      * ⚠ cam は「どこを映して renderMap するか」。**画面外の 1枚絵は drawImage が呼ばれない**
-     *   (カリングがある) ので、絵の実描画を数える節ではその絵が映る位置を渡すこと。 */
-    async function openGame(payload, cam) {
+     *   (カリングがある) ので、絵の実描画を数える節ではその絵が映る位置を渡すこと。
+     * ⚠ extraQS は追加のクエリ (`&graph=0` など)。§7a の母集団ガードだけが使う (下の注記)。 */
+    async function openGame(payload, cam, extraQS) {
       const p = await browser.newPage();
       const errs = [];
       p.on('pageerror', e => errs.push('pageerror: ' + ((e && e.message) || e)));
@@ -885,7 +886,7 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
           return orig.apply(this, arguments);
         };
       }, payload);
-      await p.goto(BASE + '/index.html?diag=1', { waitUntil: 'domcontentloaded' });
+      await p.goto(BASE + '/index.html?diag=1' + (extraQS || ''), { waitUntil: 'domcontentloaded' });
       await p.waitForFunction("typeof PARTY_START_TX !== 'undefined' && typeof sceneryPlacements !== 'undefined'",
         { timeout: 30000 });
       await p.waitForFunction("roomPaintings.length === 0 || roomPaintings.every(p => p.loaded)",
@@ -951,10 +952,23 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
     mark('§7a 母集団ガード — 従来経路 (素の廃坑) は 1 つも変わっていない');
     /* ★カメラは山場の絵の左上 (tileBounds [5,24,…] = px 2304 / py 480) に合わせる。
      *   camera(0,0) だと絵が画面外でカリングされ drawImage が 1 度も呼ばれない
-     *   = 「描かれた」を測れない (実測: draws=0)。 */
-    const base = await openGame(null, { x: 24 * 96, y: 5 * 96 });
+     *   = 「描かれた」を測れない (実測: draws=0)。
+     *
+     * ⚠⚠ **`?graph=0` を必ず付ける** (2026-08-11 に赤くなって判明)。ゲームブック風分岐マップの
+     *   P5 (`a4c6091`) で **廃坑は既定で分岐版**になり、entry ノードの mapDef が採用されて
+     *   `MAPDEF.isCustom=true` になった。つまり「無指定の廃坑」はもう従来経路ではない。
+     *   この節が測りたいのは**従来経路 (非カスタム幾何) が 1 バイトも変わっていないこと**なので、
+     *   母集団の方を `?graph=0` (index.html が持つ恒久の撤退スイッチ) で従来経路へ固定する。
+     *   ⚠ assert を「isCustom=true を期待」へ書き換えて緑にするのは**禁止**。それは母集団ごと
+     *     すり替える行為で、P6 で全シナリオが分岐版になった瞬間に**従来経路の検出器が消える**。
+     *   ⚠ `?graph=0` が効かなくなったら 7a-0 が落ちる = このガードは空振りしない。 */
+    const branchDefault = await openGame(null, { x: 24 * 96, y: 5 * 96 });
+    allErrs.push(...branchDefault.errs);
+    check('§7 7a-0 ★装置: 無指定の廃坑は分岐版 (isCustom=true) = `?graph=0` が実際に効いている',
+      branchDefault.isCustom === true, 'isCustom(無指定)=' + branchDefault.isCustom);
+    const base = await openGame(null, { x: 24 * 96, y: 5 * 96 }, '&graph=0');
     allErrs.push(...base.errs);
-    check('§7 7a-1 素の廃坑は isCustom=false', base.isCustom === false, 'isCustom=' + base.isCustom);
+    check('§7 7a-1 素の廃坑 (?graph=0) は isCustom=false', base.isCustom === false, 'isCustom=' + base.isCustom);
     check('§7 7a-2 1枚絵 2 枚 / 絵側の tileBounds (山場 tx=24,ty=5,20×16)',
       base.paintings.length === 2 && base.paintings[0].tx === 24 && base.paintings[0].ty === 5 &&
       base.paintings[0].tw === 20 && base.paintings[0].th === 16,

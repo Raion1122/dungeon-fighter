@@ -700,7 +700,8 @@ function mkPayload(props) {
     // 本編側 (§7) — ★★ここが「キャラが入れない」の真の合否
     // ══════════════════════════════════════════════════════════════════════
     mark('§7 本編 — ★★置いた物でキャラが通れなくなること');
-    async function openGame(payload) {
+    /* ⚠ extraQS は追加のクエリ (`&graph=0` など)。§7i/§7j の母集団ガードだけが使う (下の注記)。 */
+    async function openGame(payload, extraQS) {
       const p = await browser.newPage();
       const errs = [];
       p.on('pageerror', e => errs.push('pageerror: ' + ((e && e.message) || e)));
@@ -714,7 +715,7 @@ function mkPayload(props) {
           else sessionStorage.removeItem('dragonfighters.generatedScenario');
         } catch (e) {}
       }, payload);
-      await p.goto(BASE + '/index.html?diag=1', { waitUntil: 'domcontentloaded' });
+      await p.goto(BASE + '/index.html?diag=1' + (extraQS || ''), { waitUntil: 'domcontentloaded' });
       await p.waitForFunction("typeof sceneryPlacements !== 'undefined' && typeof obstacleTileMask !== 'undefined'",
         { timeout: 30000 });
       return { p, errs };
@@ -774,8 +775,23 @@ function mkPayload(props) {
       await g.p.close();
     }
     {
-      // ★母集団ガード: 既定の 6 シナリオ (props 無し) は 1 度もこの経路を通らない
-      const g = await openGame(null);
+      /* ★母集団ガード: 既定の 6 シナリオ (props 無し) は 1 度もこの経路を通らない
+       *
+       * ⚠⚠ **`?graph=0` を必ず付ける** (2026-08-11 に赤くなって判明)。ゲームブック風分岐マップの
+       *   P5 (`a4c6091`) で **廃坑は既定で分岐版**になり、entry ノードの mapDef が採用されて
+       *   `MAPDEF.isCustom=true` になった。この節が測りたいのは「**従来経路 (非カスタム幾何) が
+       *   props の配線で 1 バイトも変わっていないこと**」なので、母集団の方を `?graph=0`
+       *   (index.html が持つ恒久の撤退スイッチ) で従来経路へ固定する。
+       *   ⚠ `isCustom=true を期待` へ書き換えて緑にするのは**禁止** — P6 で全シナリオが分岐版に
+       *     なった瞬間に「従来経路の検出器」が消える。⚠ 空振り防止は 7h-2 (下) が担う。 */
+      const gBranch = await openGame(null);
+      const mBranch = await gBranch.p.evaluate(() => ({ isCustom: !!MAPDEF.isCustom }));
+      allErrs.push(...gBranch.errs);
+      await gBranch.p.close();
+      check('§7 7h-2 ★装置: 無指定の廃坑は分岐版 (isCustom=true) = `?graph=0` が実際に効いている',
+        mBranch.isCustom === true, 'isCustom(無指定)=' + mBranch.isCustom);
+
+      const g = await openGame(null, '&graph=0');
       const m = await g.p.evaluate(() => ({
         isCustom: !!MAPDEF.isCustom,
         props: MAPDEF.props === undefined ? null : MAPDEF.props,
@@ -783,7 +799,7 @@ function mkPayload(props) {
         total: sceneryPlacements.length,
       }));
       allErrs.push(...g.errs);
-      check('§7 7i ★既定シナリオは props:null で、この経路を 1 度も通らない (非退行)',
+      check('§7 7i ★既定シナリオ (?graph=0) は props:null で、この経路を 1 度も通らない (非退行)',
         m.isCustom === false && m.props === null && m.total > 0,
         'isCustom=' + m.isCustom + ' props=' + J(m.props) + ' 情景=' + m.total);
       check('§7 7j ★既定シナリオの情景は全件ジッタ付き (props が混ざっていない)',

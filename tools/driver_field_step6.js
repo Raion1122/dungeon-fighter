@@ -95,7 +95,12 @@ const VIEWPORTS = [
   { name: 'iphone_port', width: 390, height: 844 },
   { name: 'desktop', width: 1440, height: 900 },
 ];
-const DUNGEONS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
+/* ⚠ 既定は 6 本すべて。`--scenarios goblin-mine,orc-fort` で絞れる (Part C の切り分け用)。
+ *   ⚠ 絞ったまま合否を語らないこと — (C0) の母集団が変わる。切り分け専用の道具。 */
+const DUNGEONS = (arg('scenarios', '') || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+if (!DUNGEONS.length) DUNGEONS.push('goblin-mine', 'bandits-forest', 'lizard-swamp',
+                                    'orc-fort', 'undead-temple', 'dragon-lair');
 
 // ── 隊商護衛ペイロード (driver_field_step0.js と同一) ────────────────────────
 // ⚠️ waves と wagonSpawns は必ずセット。⚠️ 敵キーは ENEMY_TYPES 実在のもののみ
@@ -233,7 +238,8 @@ async function bootPage(browser, base, vp, cfg) {
   page.on('pageerror', e => pageErrors.push(e.message));
   await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(prelude, cfg);
-  await page.goto(base + '/index.html?intel=0', { waitUntil: 'domcontentloaded', timeout: 45000 });
+  // ⚠ cfg.qs は追加のクエリ (`&graph=auto` など)。Part C だけが使う (runPartC の注記)。
+  await page.goto(base + '/index.html?intel=0' + (cfg.qs || ''), { waitUntil: 'domcontentloaded', timeout: 45000 });
   await page.waitForFunction(() => {
     try {
       return typeof startGame === 'function' && !!mapData &&
@@ -539,26 +545,70 @@ async function runPartB(browser, base, root, rows, vp, label) {
  */
 async function runPartC(browser, base, scenarioId, speed, budgetMs) {
   SERVE.root = ROOT; SERVE.bandRows = 3;
-  const page = await bootPage(browser, base, VIEWPORTS[1], { scenarioId, seed: 20260719 });
+  /* ⚠⚠ **`?graph=auto` を必ず付ける** (2026-08-11 に赤くなって判明)。ゲームブック風分岐マップの
+   *   P5 (`a4c6091`) で廃坑が分岐版になり、**entry ノード n0 は敵 0 体**が設計上の必須条件
+   *   (index.html buildGoblinMineRun の「設計の根拠 ③」= 開幕ナレを戦闘で潰さないため)。
+   *   出口を選ばない限り戦闘が 1 度も起きないので firstTileStep の呼び出しが **0 回**になり、
+   *   「標本が空でない」が落ちていた。`?graph=auto` は index.html が持つ恒久の検証用スイッチで、
+   *   矢印もダイアログも出さず先頭の出口を自動選択する = **実プレイのまま**先へ進む。
+   *   ⚠ 分岐を持たないシナリオ (P6 未対応の 5 本) では RUN が null なので**完全な no-op**。
+   *   ⚠ ここを `?graph=0` (旧単一マップ) で緑にするのは**禁止**。Part C が測りたいのは
+   *     「ダンジョンの**実プレイ**で救済が発火しないこと」なので、プレイヤーが二度と見ない
+   *     マップへ母集団をすり替えると、P6 完了時点で何も検出しない検出器になる。 */
+  const page = await bootPage(browser, base, VIEWPORTS[1],
+    { scenarioId, seed: 20260719, qs: '&graph=auto' });
   await page.evaluate((sp) => {
     if (sp > 1) { const _sl = window.sleepMs; window.sleepMs = function (ms) { return _sl(Math.max(4, Math.floor(ms / sp))); }; }
     window.__live = { dump: () => ({ rescue: Object.assign({}, window.__pathRescue),
                                      title: currentScenario && currentScenario.title,
                                      isFieldTheme: IS_FIELD_THEME, fieldMode: FIELD_MODE,
-                                     phase: currentPhase, gameOver, hp }) };
+                                     phase: currentPhase, gameOver, hp,
+                                     /* ★分岐グラフの状態 (?graph=auto が効いているかの装置)。
+                                      *  ⚠ classic script 直下の let は bare 識別子でしか読めない
+                                      *    (window に載らない) ので typeof ガードで包む。 */
+                                     graphActive: (typeof RUN !== 'undefined' && !!RUN),
+                                     entryId: (typeof RUN !== 'undefined' && RUN) ? RUN.graph.entry : null,
+                                     nodeId: (typeof currentNodeId !== 'undefined' ? currentNodeId : null),
+                                     visitedN: (typeof nodeState !== 'undefined' && nodeState)
+                                       ? Object.keys(nodeState).length : null,
+                                     /* ★選択ダイアログが開きっぱなしだと進行が止まり標本が痩せる。
+                                      *  ⚠ DOM で見る (内部フラグ名に依存しない)。id=choiceDialog は
+                                      *    全選択ダイアログの共用器。判定は driver_graph_sce1 と同じ
+                                      *    `.show` クラスで揃える (display の計算値だと器の実装に依存する)。 */
+                                     dialogUp: (() => {
+                                       const d = document.getElementById('choiceDialog');
+                                       return !!(d && d.classList.contains('show'));
+                                     })() }) };
   }, speed);
   await page.evaluate(() => { try { startGame(); } catch (e) {} });
 
   const t0 = Date.now();
-  let last = null;
+  let last = null, dialogsAnswered = 0;
   while (Date.now() - t0 < budgetMs) {
     await new Promise(r => setTimeout(r, 400));
     try { last = await page.evaluate(() => window.__live.dump()); } catch (e) { break; }
+    /* ★選択イベント (シナリオ1 の EV-2/EV-5/EV-9 など) に答える = プレイヤーの代役。
+     * ⚠⚠ **`?autoplay` で代用しないこと**。autoplay は選択の自動回答だけでなく FX / 画面揺れ /
+     *   カメラ追従 / ナレ停止 / sleepMs 倍率まで一括で切る (index.html の fxEnabled ほか多数)。
+     *   Part C の他 5 シナリオは今それらを**入れたまま**測っているので、autoplay を足すと
+     *   6 本ぶんの母集団がまるごと別物になる (= 非退行の基準がすり替わる)。
+     *   ここは「ダイアログが実際に開いている時だけ」効くので、分岐を持たないシナリオでは
+     *   1 度も発火しない = 従来の測定に 1 バイトも触れない。
+     * ⚠ 押すのは常に先頭の候補。?graph=auto (出口 opts[0]) と方針を揃える。 */
+    if (last.dialogUp) {
+      const clicked = await page.evaluate(() => {
+        const b = document.querySelector('#choiceDialog .choiceButtons button');
+        if (!b) return false;
+        b.click();
+        return true;
+      }).catch(() => false);
+      if (clicked) dialogsAnswered++;
+    }
     if (last.gameOver) break;
   }
   const pageErrors = page.__pageErrors.slice();
   await page.close();
-  return { scenarioId, last, elapsedMs: Date.now() - t0, pageErrors };
+  return { scenarioId, last, elapsedMs: Date.now() - t0, pageErrors, dialogsAnswered };
 }
 
 // ── メイン ──────────────────────────────────────────────────────────────────
@@ -684,13 +734,30 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
         const r = await runPartC(browser, BASE, sid, 8, 90000);
         report.partC.push(r);
         const R = r.last && r.last.rescue;
+        /* ⚠ 「選択に答えた回数」は**全シナリオで**出す。分岐を持たないシナリオでも隠し要素の
+         *   対話 (砦のゴーレムの派閥識別など) でダイアログが開くことが実測で分かっている
+         *   (2026-08-11: orc-fort で 1 回)。ここを分岐シナリオだけに出すと、代役が
+         *   **黙って効いている**状態になり「実プレイのまま測っている」という主張が崩れる。 */
         console.log('    → ' + Math.round(r.elapsedMs / 1000) + 's / title="' + (r.last && r.last.title) +
           '" / firstTileStep 呼び出し ' + (R ? R.calls : '?') +
-          ' / 救済発火 ' + (R ? R.n : '?') + ' / 完全に進めず ' + (R ? R.hardFail : '?'));
+          ' / 救済発火 ' + (R ? R.n : '?') + ' / 完全に進めず ' + (R ? R.hardFail : '?') +
+          ' / 選択に答えた ' + r.dialogsAnswered + ' 回');
         check('(C-' + sid + ') 屋外テーマではない (既存シナリオである確認)',
           !!r.last && r.last.isFieldTheme === false, 'isFieldTheme=' + (r.last && r.last.isFieldTheme));
         check('(C-' + sid + ') 経路探索が実際に走った (標本が空でない)',
           !!R && R.calls > 0, 'firstTileStep 呼び出し=' + (R ? R.calls : 0) + ' 回');
+        /* ★装置: 分岐版のシナリオでは `?graph=auto` が実際に出口を選んで前進していること。
+         *   ⚠ これが無いと「分岐が沈黙して entry に居座り、たまたま別要因で calls>0」を
+         *     見逃す。分岐未対応シナリオ (RUN=null) では**この assert 自体を出さない**
+         *     (母集団に居ないものを緑扱いしない = P6 で 1 本ずつ自然に増える)。 */
+        if (r.last && r.last.graphActive) {
+          console.log('    分岐: entry=' + r.last.entryId + ' → 現在 ' + r.last.nodeId +
+            ' / 訪問ノード ' + r.last.visitedN + ' 件' +
+            ' / 終了時のダイアログ ' + (r.last.dialogUp ? '開いたまま' : 'なし'));
+          check('(C-' + sid + ') ★?graph=auto が出口を自動選択して entry から前進した',
+            r.last.nodeId !== r.last.entryId && r.last.visitedN >= 2,
+            'entry=' + r.last.entryId + ' 現在=' + r.last.nodeId + ' 訪問=' + r.last.visitedN);
+        }
         check('(C-' + sid + ') pageerror 0', r.pageErrors.length === 0,
           r.pageErrors.slice(0, 3).join(' | ') || 'none');
       }
