@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "509f3c6",
-    "subject": "石壁を細かい石積みへ + 左右のリングを薄く + 行き先の通路の口を開ける",
+    "rev": "016c3a3",
+    "subject": "石壁の石をさらに細かく (天面 53->36px / 立面 70x32->50x24px)",
     "dirty": true
   },
   "values": {
@@ -11,7 +11,7 @@
       "nD": 52,
       "hash": "c363bf057e26"
     },
-    "D2-goblin-mine": "b03c5980d74f2b5d",
+    "D2-goblin-mine": "8e464b2b398c9e6f",
     "D1-bandits-forest": {
       "nF": 66,
       "nD": 37,
