@@ -613,13 +613,21 @@ const TOUR_SRC = `(async () => {
     /* ⚠⚠ 2026-08-08 (P5): **廃坑だけ `?graph=0` を付ける**。廃坑は内蔵グラフを持つように
      *   なったので、素の URL では RUN が立って「既存経路」ではなくなる。計画書どおり
      *   `?graph=0` が旧単一マップへの恒久的な退避口なので、そこへ固定して測り続ける。
-     *   ⭐ 他の 3 つは**あえて素のまま**にしてある。付けてしまうと「このシナリオはそもそも
-     *     分岐グラフを持たない」ことを誰も測らなくなる (= 内蔵グラフが他所へ漏れても緑のまま)。
-     *   ⚠ assert は 1 つも消していない (4 ケース x 4 件のまま)。 */
+     *
+     * ⚠⚠ 2026-08-12 (P6): **森と竜巣にも `?graph=0` を足した**。P6 で既定 6 シナリオが
+     *   全部そろって内蔵グラフを持つようになり、「そもそも分岐グラフを持たないダンジョン」と
+     *   いう母集団が**消滅した**ため (実装のバグではなく母集団ガードの陳腐化)。
+     *   ⭐ この 3 件が測りたいのは「**RUN が null の旧コード経路**が 1bit も変わっていないこと」
+     *     なので、張り替え先は撤退スイッチ `?graph=0` の側 (実プレイを測る節ではない)。
+     *   ⭐ **caravan-road だけは素のまま**。屋外テーマは帯マスクと非互換で RUN の側から
+     *     明示的に除外されており、「本当にグラフを持たない」母集団はここに残っている。
+     *   ⭐⭐ 張り替えた分は **(8-*-e) 装置 assert** で「スイッチを外すと分岐が立つ」ことを
+     *     必ず測る。これが無いと `?graph=0` が黙って無効化されても §8 が緑のままになる。
+     *   ⚠ assert は 1 つも消していない (4 ケース x 4 件 + 装置 3 件)。 */
     const CASES = [
       { scen: 'goblin-mine',    rooms: 2, exc: '1',   chest: '0,1', g0: true },
-      { scen: 'bandits-forest', rooms: 2, exc: '1',   chest: '0,1' },
-      { scen: 'dragon-lair',    rooms: 2, exc: '1',   chest: '0,1' },
+      { scen: 'bandits-forest', rooms: 2, exc: '1',   chest: '0,1', g0: true },
+      { scen: 'dragon-lair',    rooms: 2, exc: '1',   chest: '0,1', g0: true },
       { scen: 'caravan-road',   rooms: 3, exc: '0,2', chest: '0,2' },
     ];
     for (const c of CASES) {
@@ -644,6 +652,20 @@ const TOUR_SRC = `(async () => {
         r.traps > 0 && r.enemies > 0, 'traps=' + r.traps + ' chests=' + r.chests + ' enemies=' + r.enemies);
       check('(8-' + c.scen + '-d) pageerror / console.error が 0', e.length === 0, e.slice(0, 2).join(' | '));
       await p.close();
+
+      /* ⭐⭐ 装置 assert: 撤退スイッチで旧経路へ固定したケースは、**スイッチを外すと
+       *   分岐が立つ**ことまで測る。これが無いと `?graph=0` が黙って無効化されたり、
+       *   内蔵グラフが消えたりしても (8-*-a) が緑のまま通ってしまう
+       *   ([[project-headless-verification]]「張り替えたら装置 assert を必ず 1 本足す」)。 */
+      if (c.g0) {
+        const w2 = [], e2 = [];
+        const p2 = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1', w2, e2, c.scen);
+        const r2 = await p2.evaluate(() => ({ active: window.__graphRun.active(),
+                                              nodes: (window.__graphRun.graph() || { nodes: [] }).nodes.length }));
+        check('(8-' + c.scen + '-e) ★装置: ?graph=0 を外すと分岐が立つ (スイッチが効いている証拠)',
+          r2.active === true && r2.nodes >= 2, 'active=' + r2.active + ' nodes=' + r2.nodes);
+        await p2.close();
+      }
     }
   }
 

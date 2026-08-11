@@ -8302,14 +8302,51 @@
       try { return fn(); } finally { Math.random = saved; }
     }
 
+    /* ══ ★[P6] ノードに紐づく「シナリオ固有の追加物」の台帳 ═══════════════════
+     * 隠し要素のうち 2 つは、原理的に mapDef の enemySlots に書けない:
+     *   ① **酒場の噂フラグ (questFlagOn) で出る/出ない**が切り替わる敵。df-map/1 の
+     *      fixSlot は [tx, ty, key] の 3 要素へ切り詰めるので 4 要素目 (フラグ名) が残らない。
+     *   ② **檻** (cageSpawns)。そもそも敵ではなく盤面オブジェクトで、スキーマに席が無い。
+     * → **スキーマは増やさず** index.html 側の台帳で持つ (registerNodeEvent と同じ流儀)。
+     *   ⚠ graphInfo は node を {id, kind, mapDef, exits} で組み直すので、グラフのノードへ
+     *     独自キーを足しても**黙って落ちる**。台帳を別に持つのはその回避でもある。
+     * ⚠ フラグを持たない隠し要素 (砦の守護者 / 神殿のカエルム) は素の enemySlots に書く。
+     *   ここに載るのは「森の残影の獣」と「沼のハイドラ」の 2 つだけ。
+     * ⚠ RUN が null の経路 (既存の単一マップ / ?graph=0) からは 1 度も読まれない。 */
+    const SCENARIO_NODE_EXTRAS = {
+      "bandits-forest": {
+        // 残影の獣は startsCaged。檻と**同一タイル**に置くこと (linkCagedBeasts が最寄りの檻へ吸着する)
+        n6: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],
+              cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] },
+      },
+      "lizard-swamp": {
+        // 封印中のハイドラ (inactive + passiveNpc)。部屋の中心 = 祭壇
+        n6: { spawns: [["hydra", 36, 13, "s3_hydra_intel"]] },
+      },
+    };
+    function nodeExtrasFor(nodeId) {
+      if (!RUN || !_builtinScenId) return null;
+      const t = SCENARIO_NODE_EXTRAS[_builtinScenId];
+      return (t && t[nodeId]) || null;
+    }
+    /* 現在ノードの檻。⚠ spawnCages の三項が**1 行に収まる**ようにここへ切り出してある
+     *   (--mutate は配信を 1 行置換するので、複数行にまたがる式は原理的に殺せない)。 */
+    function nodeCageSpawns() {
+      const ex = nodeExtrasFor(currentNodeId);
+      return (ex && Array.isArray(ex.cages)) ? ex.cages : [];
+    }
+
     /* ★[P2] ノード別の敵スポーン (P1 が残した穴 #3)。
      * ⚠ MAPDEF が**既にそのノードのもの**であることが前提 (buildNode が差し替えた直後に呼ぶ)。
-     * ⚠ questFlagOn のフィルタは掛けない。酒場の噂フラグはシナリオの spawns 表に付く属性で、
-     *   mapDef の enemySlots にはそもそも 4 要素目が無い。 */
+     * ⚠ mapDef 由来のスロットに questFlagOn のフィルタは掛けない (4 要素目が無いので常に通る)。
+     *   噂フラグで出し分ける敵は ★[P6] の台帳から来て、**そこにだけ**フィルタが掛かる。 */
     function nodeSpawnsFor(nodeId) {
       if (!RUN || !window.DFMapDef) return [];
       const rnd = makeNodeRng(nodeId + "/spawns");
-      return rescueCustomSpawns(DFMapDef.spawnsFromMapDef(MAPDEF, rnd));
+      const base = rescueCustomSpawns(DFMapDef.spawnsFromMapDef(MAPDEF, rnd));
+      const ex = nodeExtrasFor(nodeId);
+      if (!ex || !Array.isArray(ex.spawns)) return base;
+      return base.concat(ex.spawns.filter(sp => questFlagOn(sp[3])));
     }
 
     // 隠し中ボスのスポーンは 4 番目の要素にフラグ名を持つ。噂を掴めなかった回では敵ごと現れない。
@@ -19713,6 +19750,10 @@
     // ボス部屋に財宝の山を配置 (既定スポナーはボス部屋を除外するので専用配置)。dragon-lair 限定。
     function spawnDragonHoard() {
       if (scenarioId !== "dragon-lair") return;
+      /* ★[P6] 分岐版では**全ノードの部屋が role:"boss"** (validate がちょうど 1 つ要求するため)
+       *   なので、ゲートしないと財宝の山とミミックが 8 ノード全部に湧く。
+       * ⚠ isBossNodeNow() は RUN が null なら true = 従来経路へ恒等的に落ちる。 */
+      if (!isBossNodeNow()) return;
       if (!Array.isArray(ROOMS) || ROOMS.length === 0) return;
       const [r1, c1, r2, c2] = ROOMS[BOSS_ROOM_IDX];   // ボス部屋
       const isOccupied = (c, r) =>
@@ -19815,8 +19856,13 @@
     const CAGE_INTERACT_RADIUS = 240;   // この距離以内に入ると接近判定発火
 
     function spawnCages() {
+      /* ★[P6] 分岐版では檻も**ノードに紐づく**。currentScenario.cageSpawns は旧単一マップの
+       *   絶対タイル (41,17) で、7x6 のノード部屋の外 = 岩盤の中に湧いてしまう
+       *   ([[project-room-shorten-2rooms]] の「起点を動かすと直書き座標が黙って死ぬ」と同型)。
+       * ⚠ RUN が null の経路は従来どおり currentScenario.cageSpawns を読む (1 bit も変えない)。 */
+      const src = RUN ? nodeCageSpawns() : (currentScenario.cageSpawns || []);
       // tavern-intel v1.0: 噂を掴めなかった回は檻ごと現れない (中の獣も ENEMY_SPAWNS で除外済み)
-      const spawns = (currentScenario.cageSpawns || []).filter(sp => questFlagOn(sp.flag));
+      const spawns = src.filter(sp => questFlagOn(sp.flag));
       if (spawns.length === 0) return;
       for (const sp of spawns) {
         const cage = {
@@ -30479,8 +30525,17 @@
      *   恒等的に落ちる。「知らない ID を既定のグラフで埋める」ことは絶対にしない
      *   (別のシナリオが黙って廃坑の間取りになる = 一番気づきにくい壊れ方)。 */
     function buildScenarioRun(scenId) {
+      /* ⚠⚠ この 6 行は**縦に揃えない**。driver_graph_sce1 の変異 noscen が
+       *   `if (scenId === "goblin-mine") return buildGoblinMineRun();` を 1 行まるごと
+       *   アンカーにしているので、空白を 1 つ足すだけで負のコントロールが exit 3 (空振り) で
+       *   死ぬ (2026-08-12 に実際に踏んだ)。見た目の整列より検出力を優先する。 */
       if (scenId === "goblin-mine") return buildGoblinMineRun();
-      return null;                         // P6: bandits-forest 以降をここへ足す
+      if (scenId === "bandits-forest") return buildBanditsForestRun();
+      if (scenId === "lizard-swamp") return buildLizardSwampRun();
+      if (scenId === "orc-fort") return buildOrcFortRun();
+      if (scenId === "undead-temple") return buildUndeadTempleRun();
+      if (scenId === "dragon-lair") return buildDragonLairRun();
+      return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
     /* ── シナリオ1「廃坑 — ゴブリンの巣窟」の分岐グラフ ────────────────────────
@@ -30585,6 +30640,220 @@
             exits: [] },
         ],
       };
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P6 — 残り 5 シナリオの分岐グラフ (森 / 沼地 / 砦 / 神殿 / ドラゴン巣)
+     * ══════════════════════════════════════════════════════════════════════════
+     * 5 本とも**同じ骨格**を使う。廃坑 (P5) で実測した制約をそのまま満たす形なので、
+     * 骨格を 1 箇所に置いて「シナリオごとに違うもの (名前・kind・敵スロット)」だけを
+     * spec で渡す。⚠ buildGoblinMineRun は**あえて共通化しない** — driver_graph_sce1 の
+     * 88 assert が実測した唯一の本番グラフで、共通化は「動いている物を書き換える」ことになる。
+     *
+     *   n0 start 入口 (敵 0)
+     *     ├ right → n1 combat 前衛戦 ── right → n4 combat 後衛戦 ── right → n7 boss
+     *     │                        └ up    → n5 rest              (行き止まり)
+     *     ├ up    → n2 search 探索   ── right → n6 (隠し要素 / 当たり) (行き止まり)
+     *     └ down  → n3 loot   宝箱   (行き止まり)
+     *
+     * ★P5 の実装制約をそのまま継承する (どれか 1 つでも破ると隠し要素が**無言で**死ぬ):
+     *   ① **n0 / n5 / n6 には敵を 1 体も置かない**。部屋は 7 列しかないのに交戦距離
+     *      engagePx=400 (≒4.2 タイル) の方が広く、敵が居ると入室した瞬間に戦闘が始まって
+     *      各種 tryApproach 系 / tryInteractCage の `encounterActive` ガードが永久に閉じる。
+     *      ⚠ n6 に置く隠し要素 (残影の獣 / ハイドラ / 守護者 / カエルム) は
+     *        **どれも inactive + passiveNpc で湧く**ので交戦相手にならない = ①と両立する。
+     *   ② n0 は開幕ナレの最中に戦闘が始まらないよう敵 0。
+     *   ③ ボスノードだけ 9 列 (BOSSR)。護衛は **col 39 以東**に置き、入場地点 col34 から
+     *      5 タイル = 480px > 400px を確保する (P5 が EV-9 で実測した値をそのまま使う)。
+     *   ④ 1 枚絵は全ノード painting:null (在庫 12 枚は 20x16 / 22x18 用で 7x6 に載らない)。
+     *      絵の増産は Phase 7。 */
+    function p6Node(scenId, themeId, id, name, rect, opt) {
+      opt = opt || {};
+      return {
+        schema: "df-map/1", id: scenId + "/" + id, name: name,
+        grid: { w: MAP_W, h: MAP_H, tile: TILE_SIZE }, themeId: themeId,
+        /* ⚠ role は **必ず "boss"**。validate() が全 mapDef に role:"boss" をちょうど 1 つ
+         *   要求するので 1 部屋なら選択肢が無い。ボス到達ナレは部屋の role ではなく
+         *   ノードの kind (isBossNodeNow) で判定するので誤爆しない (buildGoblinMineRun と同じ)。 */
+        rooms: [{ id: id, role: "boss", rect: rect,
+                  enemySlots: opt.slots || [], bossSlot: opt.boss || null,
+                  painting: null, scenery: { density: 1 } }],
+        corridors: [], start: { tx: 36, ty: 13 },
+        objective: { kind: "defeatBoss", count: null },
+        tiles: null, props: null, graph: null, flags: { bandMask: false },
+      };
+    }
+
+    /* spec = { n0:{name}, n1:{name,slots}, …, n6:{name,kind}, n7:{name,slots,boss} }
+     * ⚠ kind は骨格が既定値を持つ。spec 側で上書きできるのは n6 だけ (シナリオによって
+     *   「隠し要素の間」だったり「純粋な当たり部屋」だったりするため)。 */
+    function buildP6Run(scenId, themeId, spec) {
+      /* ⚠⚠ この 5 つを**関数の外へ出さないこと**。RUN は index.html の :3700 で
+       *   即時評価される const で、そこから buildScenarioRun → 各 build*Run が呼ばれる。
+       *   モジュール直下の const にすると**一時的死角 (TDZ)** に落ちて
+       *   ReferenceError になり、graphInfo が「分岐なし」と読んで**黙って**単一マップへ
+       *   落ちる (buildGoblinMineRun が MID を関数内に置いているのと同じ理由)。 */
+      const P6_MID   = [11, 33, 16, 39];   // 道中 7 列 x 6 行 (iPad 1024x768 基準・P4.7 の実測値)
+      const P6_BOSSR = [11, 32, 16, 40];   // ボス 9 列 x 6 行
+      /* 出口タイル。★nodeGateTile(rect, dir) と**必ず同じ値**にすること
+       *   P6_MID:   midC = floor((33+39)/2) = 36 / midR = floor((11+16)/2) = 13
+       *   P6_BOSSR: midC = floor((32+40)/2) = 36 / midR = 13
+       * ⚠ ズレると lintRun の graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
+      const P6_UP = [36, 11], P6_DOWN = [36, 16], P6_RIGHT = [39, 13];
+      function nd(id, kind, exits) {
+        const d = spec[id] || {};
+        const k = d.kind || kind;
+        return { id: id, kind: k,
+                 mapDef: p6Node(scenId, themeId, id, d.name,
+                                k === "boss" ? P6_BOSSR : P6_MID,
+                                { slots: d.slots || [], boss: d.boss || null }),
+                 exits: exits };
+      }
+      /* ヒント文は原則書かない (kind から EXIT_HINTS が引く = データは意味だけを持つ)。
+       * 例外は spec.<id>.hint を置いたときだけ。 */
+      function ex(to, dir, at, from) {
+        const h = (spec[from] && spec[from].hints && spec[from].hints[to]) || null;
+        return { to: to, dir: dir, at: at, hint: h ? { text: h } : null };
+      }
+      return {
+        entry: "n0",
+        nodes: [
+          nd("n0", "start",  [ex("n1", "right", P6_RIGHT, "n0"),
+                              ex("n2", "up",    P6_UP,    "n0"),
+                              ex("n3", "down",  P6_DOWN,  "n0")]),
+          nd("n1", "combat", [ex("n4", "right", P6_RIGHT, "n1"),
+                              ex("n5", "up",    P6_UP,    "n1")]),
+          nd("n2", "search", [ex("n6", "right", P6_RIGHT, "n2")]),
+          nd("n3", "loot",   []),
+          nd("n4", "combat", [ex("n7", "right", P6_RIGHT, "n4")]),
+          nd("n5", "rest",   []),
+          nd("n6", "event",  []),
+          nd("n7", "boss",   []),
+        ],
+      };
+    }
+
+    /* ── シナリオ2「町外れの森 — 盗賊団の根城」 ────────────────────────────────
+     * 隠し要素 = 残影の獣 (檻つき)。n6 へ SCENARIO_NODE_EXTRAS で置く
+     * (酒場の噂フラグ s2_beast_intel で出す/出さないを切り替えるため。理由は台帳の注記)。 */
+    function buildBanditsForestRun() {
+      return buildP6Run("bandits-forest", "bandits-forest", {
+        n0: { name: "森の入口" },
+        n1: { name: "野営の焚き火跡",
+              slots: [[34, 12, "banditHeavy"], [34, 14, "banditHeavy"], [35, 13, "banditHeavy"],
+                      [37, 12, "bandit"], [37, 14, "bandit"]] },
+        n2: { name: "猟師の廃屋",
+              slots: [[35, 12, "bandit"], [35, 15, "bandit"], [38, 13, "banditArcher"]] },
+        n3: { name: "略奪品の隠し穴",
+              slots: [[35, 13, "banditHeavy"], [38, 14, "bandit"]] },
+        n4: { name: "丸太の砦",
+              slots: [[34, 12, "banditHeavy"], [34, 14, "banditHeavy"],
+                      [38, 11, "banditArcher"], [38, 15, "banditArcher"], [39, 13, "banditMage"]] },
+        n5: { name: "湧き水の泉" },
+        n6: { name: "苔むした檻の前" },
+        n7: { name: "頭目の館",
+              slots: [[39, 12, "banditHeavy"], [39, 14, "banditArcher"],
+                      [39, 16, "banditArcher"], [40, 15, "banditMage"]],
+              boss: [40, 13, "scar"] },
+      });
+    }
+
+    /* ── シナリオ3「沼地 — リザードマン族長の討伐」 ────────────────────────────
+     * 隠し要素 = 沼の守護神 (古代ハイドラ)。封印中は inactive + passiveNpc なので
+     * n6 の「敵 0」制約と両立する (祭壇へ近づくと 3 択が開く)。 */
+    function buildLizardSwampRun() {
+      return buildP6Run("lizard-swamp", "lizard-swamp", {
+        n0: { name: "沼の渡し" },
+        n1: { name: "泥濘の道",
+              slots: [[34, 12, "lizardWarrior"], [34, 14, "lizardWarrior"],
+                      [36, 13, "lizardRaider"]] },
+        n2: { name: "朽ちた桟橋",
+              slots: [[35, 12, "lizardWarrior"], [38, 14, "lizardHunter"]] },
+        n3: { name: "沈んだ小舟",
+              slots: [[35, 14, "lizardWarrior"], [38, 12, "lizardHunter"]] },
+        n4: { name: "蛇神の参道",
+              slots: [[34, 13, "lizardRaider"], [35, 15, "lizardWarrior"],
+                      [38, 12, "lizardHunter"], [39, 14, "lizardPriest"]] },
+        n5: { name: "苔むした岩場" },
+        n6: { name: "蛇神の祭壇" },
+        n7: { name: "族長の巣",
+              slots: [[39, 12, "lizardWarrior"], [39, 15, "lizardPriest"]],
+              boss: [40, 13, "lizardChieftain"] },
+      });
+    }
+
+    /* ── シナリオ4「廃墟の砦 — オーク将軍ガロック」 ────────────────────────────
+     * 隠し要素 = 古代王国の守護者 5 体。def.startsDormant なので initGuardians が
+     * inactive にする → n6 の「敵 0」制約と両立する (接近で一斉覚醒 = 第三勢力)。
+     * ⚠ 噂フラグを持たない素のスポーンなので、**enemySlots にそのまま書ける**
+     *   (SCENARIO_NODE_EXTRAS が要るのは噂フラグ付き / 檻つきの 2 シナリオだけ)。 */
+    function buildOrcFortRun() {
+      return buildP6Run("orc-fort", "orc-fort", {
+        n0: { name: "崩れた城門" },
+        n1: { name: "中庭",
+              slots: [[34, 12, "orcBerserker"], [34, 14, "orcBerserker"], [36, 13, "orcGrunt"]] },
+        n2: { name: "兵舎跡",
+              slots: [[35, 12, "orcGrunt"], [38, 14, "orcArcher"]] },
+        n3: { name: "武器庫",
+              slots: [[35, 14, "orcGrunt"], [38, 12, "orcArcher"]] },
+        n4: { name: "練兵場",
+              slots: [[34, 13, "orcBerserker"], [36, 15, "orcGrunt"],
+                      [38, 12, "orcShaman"], [39, 14, "orcShaman"]] },
+        n5: { name: "井戸端" },
+        n6: { name: "忘れられた廟",
+              slots: [[36, 13, "stoneGolem"],
+                      [34, 12, "stoneLegionary"], [38, 12, "stoneLegionary"],
+                      [34, 15, "gargoyle"], [38, 15, "gargoyle"]] },
+        n7: { name: "将軍の間",
+              slots: [[39, 12, "orcBerserker"], [39, 15, "orcGrunt"]],
+              boss: [40, 13, "garrock"] },
+      });
+    }
+
+    /* ── シナリオ5「地下神殿 — リッチと召喚の儀」 ──────────────────────────────
+     * 隠し要素 = 高位神官の霊カエルム。def.isNpcSpirit で initCaelum が inactive にする。 */
+    function buildUndeadTempleRun() {
+      return buildP6Run("undead-temple", "undead-temple", {
+        n0: { name: "神殿の前庭" },
+        n1: { name: "納骨堂",
+              slots: [[34, 12, "skeleton"], [34, 14, "zombie"], [36, 13, "zombie"]] },
+        n2: { name: "崩れた書庫",
+              slots: [[35, 12, "zombie"], [38, 14, "skeletonArcher"]] },
+        n3: { name: "副葬品の間",
+              slots: [[35, 14, "skeleton"], [38, 12, "skeletonArcher"]] },
+        n4: { name: "儀式の広間",
+              slots: [[34, 13, "zombie"], [36, 15, "wraith"],
+                      [38, 12, "wraith"], [39, 14, "skeletonArcher"]] },
+        n5: { name: "聖水の泉" },
+        n6: { name: "神官の墓所",
+              slots: [[36, 13, "caelum"]] },
+        n7: { name: "召喚の祭壇",
+              slots: [[39, 12, "skeleton"], [39, 15, "skeleton"]],
+              boss: [40, 13, "lich"] },
+      });
+    }
+
+    /* ── 最終シナリオ「ドラゴンの巣 — ファラクサス」 ──────────────────────────
+     * 隠し要素 = 偽宝箱 (ミミック)。spawnDragonHoard が**ボス部屋**へ財宝の山を擬態配置する
+     * ので n6 に置く物は無い → n6 は kind:"loot" の「当たり部屋」にする。
+     * ⚠ n6 を event のままにすると、中身が何も無い行き止まりが 2 つ並ぶ。 */
+    function buildDragonLairRun() {
+      return buildP6Run("dragon-lair", "dragon-lair", {
+        n0: { name: "溶岩洞の入口" },
+        n1: { name: "焼け焦げた坑道",
+              slots: [[34, 12, "orc"], [34, 14, "orc"], [36, 13, "skeleton"]] },
+        n2: { name: "竜の抜け殻",
+              slots: [[35, 12, "orc"], [38, 14, "minotaur"]] },
+        n3: { name: "溶けた財宝溜まり",
+              slots: [[35, 14, "orc"], [38, 12, "skeleton"]] },
+        n4: { name: "骨の谷",
+              slots: [[34, 13, "minotaur"], [36, 15, "orc"], [38, 12, "minotaur"]] },
+        n5: { name: "冷えた溶岩溜まり" },
+        n6: { name: "竜の蓄えた財宝", kind: "loot" },
+        n7: { name: "ファラクサスの巣",
+              slots: [[39, 12, "minotaur"], [39, 15, "minotaur"]],
+              boss: [40, 13, "pharaxus"] },
+      });
     }
 
     function buildTestRun() {

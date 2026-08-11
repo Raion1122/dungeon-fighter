@@ -626,16 +626,41 @@ async function captiveDom(page) {
     Z.scenarioId + ' / ' + Z.objectiveRooms);
   await pg0.close();
 
-  // ══ §9 内蔵グラフが他所へ漏れていない ═════════════════════════════════════
-  mark('他 5 シナリオ / 生成クエストは分岐しない');
+  /* ══ §9 内蔵グラフが他所へ漏れていない ═════════════════════════════════════
+   * ⚠⚠ 2026-08-12 (P6) に**測り方を張り替えた**。旧 §9 は「他 5 シナリオは分岐しない
+   *   = 従来の 2 部屋のまま」を見ていたが、P6 で 5 本とも自分の内蔵グラフを持つように
+   *   なり、**母集団そのものが消滅**した (実装のバグではない)。
+   * ⭐ この節が守りたい不変条件は「他所が分岐しないこと」ではなく
+   *   **「廃坑の間取りとイベントが他のシナリオへ漏れないこと」**。P6 後もそのまま
+   *   意味を持つ形へ書き直す:
+   *     (9a-*) そのシナリオは**自分の**グラフで立つ (ノードの mapDef.id が "<sid>/…")
+   *     (9b-*) 廃坑の EV-2/5/9 (NODE_EVENTS) が**1 件も載らない**
+   *     (9c-*) ★装置: ?graph=0 なら従来の 2 部屋へ戻る ← 旧 assert の中身をここへ保存
+   *   ⚠ assert は 1 つも消していない (5 ケース x 1 件 → 5 ケース x 3 件へ増やした)。 */
+  mark('内蔵グラフが他所へ漏れていない (各シナリオは自分のグラフで立つ)');
   for (const sid of ['bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair']) {
     const p = await bootPage(browser, PORT, '?diag=1&intel=0', errs, { scen: sid });
-    const r = await p.evaluate(() => ({ active: window.__graphRun.active(), scen: scenarioId,
-                                        rooms: ROOMS.length }));
-    check('(9-' + sid + ') 分岐しない = 従来の 2 部屋のまま',
-      r.active === false && r.scen === sid && r.rooms === 2,
-      'active=' + r.active + ' scen=' + r.scen + ' rooms=' + r.rooms);
+    const r = await p.evaluate(() => {
+      const g = window.__graphRun.graph();
+      return { active: window.__graphRun.active(), scen: scenarioId, rooms: ROOMS.length,
+               ids: g ? g.nodes.map(n => (n.mapDef && n.mapDef.id) || '?') : [],
+               nodeEvents: NODE_EVENTS.length };
+    });
+    check('(9a-' + sid + ') 自分の内蔵グラフで立つ (ノードの mapDef.id が "' + sid + '/…")',
+      r.active === true && r.scen === sid && r.ids.length > 0 &&
+      r.ids.every(x => x.indexOf(sid + '/') === 0),
+      'active=' + r.active + ' scen=' + r.scen + ' ids=' + r.ids.slice(0, 3).join(',') + '…');
+    check('(9b-' + sid + ') ★廃坑の EV-2/5/9 が載らない (NODE_EVENTS=0)',
+      r.nodeEvents === 0, 'nodeEvents=' + r.nodeEvents);
     await p.close();
+
+    const p0 = await bootPage(browser, PORT, '?diag=1&intel=0&graph=0', errs, { scen: sid });
+    const r0 = await p0.evaluate(() => ({ active: window.__graphRun.active(), scen: scenarioId,
+                                          rooms: ROOMS.length }));
+    check('(9c-' + sid + ') ★装置: ?graph=0 なら分岐せず従来の 2 部屋のまま',
+      r0.active === false && r0.scen === sid && r0.rooms === 2,
+      'active=' + r0.active + ' scen=' + r0.scen + ' rooms=' + r0.rooms);
+    await p0.close();
   }
   {
     /* ⚠⚠ ここが「themeId で引き当てると壊れる」ことの検出器。生成クエストは themeId に
