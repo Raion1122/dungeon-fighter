@@ -128,7 +128,13 @@ async function aggAc(page) {
   const page1 = await browser.newPage();
   page1.on('pageerror', e => pageErrors.push('[render] ' + e.message));
   const rErrBefore = pageErrors.length;
-  await page1.goto('http://localhost:' + PORT + '/index.html?scen=goblin-mine&autoplay=15&autodebug=1',
+  // ⚠ 母集団は **?graph=0 (従来の単一マップ) へ固定する**。分岐マップ (P5) 以降、廃坑の既定は
+  //   分岐版になり entry ノードにはゴブリン 2 体しか居ない = **ホブゴブリンが 1 体も湧かない**
+  //   (2026-08-11 実測: 旧マップは 13 体でホブゴブリン 4 体を含む)。
+  //   このドライバが測るのは ENEMY_TYPES.hobgoblin の幾何と命中内訳であってマップではないので、
+  //   旧経路へ戻す撤退スイッチで母集団を取り返すのが正しい。
+  //   ⚠ スイッチが黙って無効化されても緑にならないよう、(a-装置) で外した側を対で実測する。
+  await page1.goto('http://localhost:' + PORT + '/index.html?scen=goblin-mine&autoplay=15&autodebug=1&graph=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   let hobSeen = false;
   try { await page1.waitForSelector('.enemy-hobgoblin', { timeout: 15000 }); hobSeen = true; } catch (e) {}
@@ -147,13 +153,36 @@ async function aggAc(page) {
     return { count: els.length, bgImg, bgSize, w, h, bgW: m ? parseFloat(m[1]) : 0, bgH: m ? parseFloat(m[2]) : 0 };
   });
   check('(a) .enemy-hobgoblin 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(b) backgroundImage が goblin_anim.png (?v=付き・借用)',
-    /goblin_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
+  /* ⚠⚠ 旧 assert は `/goblin_anim\.png\?v=/` で「goblin シートを借用している」を測っていたが、
+   *   ホブゴブリンは b3f0eed (2026-07-03) で **専用シートへ移行済み**。そして
+   *   `hobgoblin_anim.png` は `goblin_anim.png` を**部分文字列として含む**ため、
+   *   移行後もこの assert は緑のまま通り続けていた = **1 ヶ月以上、何も検出していなかった**。
+   *   → 先頭を固定して厳格化する (緩めるのではなく締める方向の修正)。 */
+  check('(b) backgroundImage が hobgoblin_anim.png (?v=付き・専用シート)',
+    /(^|\/)hobgoblin_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
   const wOk = Math.abs(geo.w - 74) <= 2 && Math.abs(geo.h - 74) <= 2;
   check('(b) 表示寸法 ≈74px (displaySize=74)', wOk, 'w=' + geo.w + ' h=' + geo.h);
-  const bgOk = Math.abs(geo.bgW - 370) <= 2 && Math.abs(geo.bgH - 370) <= 2 && geo.bgW > geo.w;
-  check('(b) backgroundSize ≈370×370 (借用元幾何に一致・破綻なし)', bgOk,
-    'bgSize=' + geo.bgSize + ' (単一フレーム幅 ' + geo.w + 'px より大)');
+  /* ⚠⚠ 旧 assert は `370×370` の**直書き**だった。これは goblin シートが 480×480 (5列) だった
+   *   頃の値で、6 フレーム統一 (sheetW 576×480) への差し替えで **自己失効**した (実測 444×370)。
+   *   ⭐ 期待値を今の実測へ書き換えるのは母集団のすり替えなので、
+   *     **借用元シートの実寸から算出する自己校正**へ移す。こうすればシートの列数が変わっても
+   *     陳腐化せず、しかも「拡大率が壊れた」欠陥は従来どおり捕まえる。
+   *   ⚠ 空振り防止: シートが読めなかった (nw=0) 場合は FAIL させる。 */
+  const sheet = await page1.evaluate(() => new Promise((resolve) => {
+    const el = document.querySelector('.enemy-hobgoblin');
+    const m = ((el && el.style.backgroundImage) || '').match(/url\(["']?([^"')]+)["']?\)/);
+    if (!m) { resolve({ nw: 0, nh: 0, src: '' }); return; }
+    const img = new Image();
+    img.onload = () => resolve({ nw: img.naturalWidth, nh: img.naturalHeight, src: m[1] });
+    img.onerror = () => resolve({ nw: 0, nh: 0, src: m[1] });
+    img.src = m[1];
+  }));
+  const FRAME = 96;   // 借用元 goblin の 1 コマ (frameW = frameH = 96)
+  const expW = Math.round(sheet.nw * geo.w / FRAME), expH = Math.round(sheet.nh * geo.w / FRAME);
+  const bgOk = sheet.nw > 0 && Math.abs(geo.bgW - expW) <= 2 && Math.abs(geo.bgH - expH) <= 2 && geo.bgW > geo.w;
+  check('(b) backgroundSize が借用元シート実寸から算出した値に一致 (破綻なし)', bgOk,
+    'bgSize=' + geo.bgSize + ' / 期待=' + expW + '×' + expH +
+    ' (シート ' + sheet.nw + '×' + sheet.nh + ' ÷ 1コマ ' + FRAME + 'px × 表示 ' + geo.w + 'px)');
 
   const diag = await page1.evaluate(() => {
     if (!window.__diag || !window.__diag.getReport) return { noDiag: true };
@@ -167,7 +196,18 @@ async function aggAc(page) {
   await page1.close();
 
   // ── (d) 密集配置: 2x2 の hobgoblin 4体 → pack=+2 かつ disc=+1 が出るか ──
-  const CLUSTER = [['hobgoblin', 7, 13], ['hobgoblin', 8, 13], ['hobgoblin', 7, 14], ['hobgoblin', 8, 14]];
+  /* ⚠⚠ **絶対タイル座標の直書きは、部屋の起点を動かす変更のたびに黙って無意味になる。**
+   *   ダンジョン短縮 (cdb081a「山場+ボスの2部屋」) で歩行可能域が x>=24 へ寄り、旧座標
+   *   [7,13][8,13][7,14][8,14] は **全部 tile2 (岩盤)** になっていた (2026-08-11 実測)。
+   *   敵は DOM としては生成されるのでパッと見は動いて見えるが、パーティ (25,13) から
+   *   11〜18 タイル離れた壁の中に湧くだけで **戦闘が一度も起きない** = probe が空のまま。
+   *   → パーティ起点近傍の床へ移す。⚠ 同じ罠の再発は (d-母集団) が即座に FAIL させる。 */
+  /* ⚠ pack_tactics の条件は「**対象(隊長)から 1 タイル以内に自分以外の味方の敵**」であって
+   *   「敵同士が密集していること」ではない (実装:
+   *   `nearbyAlliedEnemies(idx, playerX+48, playerY+58, 1) > 0`)。
+   *   敵を離れた場所で 2x2 に固めても disciplined(+1) しか出ない (実測 maxPack=0)。
+   *   → **隊長 (25,13) の隣接タイルに 2 体**置き、残り 2 体を 1 マス外に置く。 */
+  const CLUSTER = [['hobgoblin', 26, 12], ['hobgoblin', 26, 13], ['hobgoblin', 27, 12], ['hobgoblin', 27, 13]];
   const page2 = await browser.newPage();
   page2.on('pageerror', e => pageErrors.push('[cluster] ' + e.message));
   await page2.evaluateOnNewDocument((spawns) => {
@@ -195,7 +235,7 @@ async function aggAc(page) {
   // ── (e) 孤立配置: 単体 hobgoblin → 味方の敵が皆無なので pack/disc は常に 0、実効AC=16 ──
   //     パーティが敵を攻撃する度に __acProbe が発火 (撃破前=ラウンド1から確実) するため、
   //     敵が反撃前に倒れても負のケースを確定的に観測できる。
-  const ISOLATED = [['hobgoblin', 9, 13]];
+  const ISOLATED = [['hobgoblin', 31, 12]];   // ⚠ 旧 [9,13] は岩盤。上の CLUSTER のコメント参照。
   const page3 = await browser.newPage();
   page3.on('pageerror', e => pageErrors.push('[isolated] ' + e.message));
   await page3.evaluateOnNewDocument((spawns) => {

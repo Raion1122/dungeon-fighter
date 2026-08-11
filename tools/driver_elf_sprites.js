@@ -26,18 +26,18 @@
  *   G8  統合: updateAllySprite が変種ごとに正しいシートを実際に適用する
  *
  * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N7)。
- *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、HEAD と作業ツリーを
+ *    `/__base__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、HEAD と作業ツリーを
  *    同じ物差しで測る。baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故) を検出できない。
  *
  * ⚠️⚠️ N ブロックは **今回の差分に合わせて書いてある**。差替のたびに自己失効する (HEAD が本コミットを
  *    含んだ瞬間に N1-N6 は測れなくなる) ので、次にエルフを触るときは必ず書き直すこと。現行の向き:
  *      N1 = 「正規 2 枚は HEAD と画素が *相違*」 = 差替が本当に効いた証明 (?v= だけでは足りない)
- *      N2 = 「HEAD では正規エルフの体高が戦士より 5px 大きかった (61 vs 56)」= 体高を揃えた証明
- *      N3 = 「HEAD では正規エルフの接地線が 2 値 (90/91) にぶれていた」= 整列した証明
- *      N4 = 「HEAD の index.html は walk が ?v=2 / attack が ?v=3 / **LEADER_SPRITES.elf は素パス**」
+ *      N2 = 「差替前は正規エルフの体高が戦士より 5px 大きかった (61 vs 56)」= 体高を揃えた証明
+ *      N3 = 「差替前は正規エルフの接地線が 2 値 (90/91) にぶれていた」= 整列した証明
+ *      N4 = 「差替前の index.html は walk が ?v=2 / attack が ?v=3 / **LEADER_SPRITES.elf は素パス**」
  *           = bump と、6 職で elf だけ ?v= が抜けていた取り残しを直した証明
- *      N5 = 「HEAD の変種 1-3 は elf_{high,huntress,shadow} を指していた」= 旧 chibi 参照の実在証明
- *      N6 = 「HEAD の tavern.html の elf 行も旧 chibi 3 種だった」= ポートレート同期の差分が実在
+ *      N5 = 「差替前の変種 1-3 は elf_{high,huntress,shadow} を指していた」= 旧 chibi 参照の実在証明
+ *      N6 = 「差替前の tavern.html の elf 行も旧 chibi 3 種だった」= ポートレート同期の差分が実在
  *      N7 = 「戦士シートは HEAD と画素が *一致する*」= 台帳 --all 再パックの巻き添えが無い証明
  *    「変えた」と「変えていない」の両方を正の assert として測る。
  *
@@ -83,10 +83,18 @@ const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.c
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
-// HEAD の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
-function headBytes(rel) {
+/* ⚠⚠ 負のコントロールの基準は **差替前はなく「差替が入る直前のコミット」に固定する**。
+ *   HEAD 基準だと差替をコミットした瞬間に `HEAD === 作業ツリー` になり、N ブロック
+ *   (「差替前は旧 chibi だった」= 差分の実在証明) が **自己失効して赤いまま安定する**。
+ *   ⭐ 「機能が入る直前」は歴史的事実なので、以後どれだけコミットが進んでも陳腐化しない。
+ *   ⚠ N7 の「戦士シートは一致する」(台帳 --all 再パックの巻き添えが無い証明) も同じ基準でよい。
+ *     32789da^ には戦士差替 (1be27b8) も僧侶差替 (5fd3ae1) も既に入っている (祖先関係を実測済み)。 */
+const BASE_REV = '32789da^';   // 32789da = 「エルフ4種を codex1 の弓素材へ差替」。その親 = 差替前。
+
+// 差替前の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
+function baseBytes(rel) {
   try {
-    return execFileSync('git', ['show', 'HEAD:' + rel.replace(/\\/g, '/')],
+    return execFileSync('git', ['show', BASE_REV + ':' + rel.replace(/\\/g, '/')],
                         { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
   } catch (e) { return null; }
 }
@@ -97,9 +105,9 @@ function startServer() {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
-        if (u.startsWith('/__head__/')) {
-          const rel = u.slice('/__head__/'.length);
-          const buf = headBytes(rel);
+        if (u.startsWith('/__base__/')) {
+          const rel = u.slice('/__base__/'.length);
+          const buf = baseBytes(rel);
           if (!buf) { res.statusCode = 404; res.end('404 (not in HEAD)'); return; }
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
           res.end(buf);
@@ -287,7 +295,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     const ma = med(measured['elf_male_attack.png']);
     check('(G3.1) 主人公戦士の体高を実測できている (56px 前後)', ww >= 50 && ww <= 62, ww);
     // ⚠ 「完全同値」ではなく ±1px。char_ratio の逆算は整数丸めが入るので 1px はどうしても出る。
-    //    HEAD の旧 chibi は 61px = 戦士より 5px 大きく、明確に浮いていた (N2 で測る)。
+    //    差替前の旧 chibi は 61px = 戦士より 5px 大きく、明確に浮いていた (N2 で測る)。
     check('(G3.2) 正規エルフ (女) の walk 体高が主人公戦士と ±1px', Math.abs(fw - ww) <= 1,
       'elf=' + fw + ' warrior=' + ww);
     check('(G3.3) 変種エルフ (男) の walk 体高も主人公戦士と ±1px', Math.abs(mw - ww) <= 1,
@@ -302,7 +310,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
         Math.abs(maxFeet(measured[w]) - maxFeet(measured[a])) <= 1,
         JSON.stringify([maxFeet(measured[w]), maxFeet(measured[a])]));
     }
-    // ⭐ HEAD の旧 chibi は 1 シート内で接地線が 2-3 値にぶれていた (N3 で測る)。整列済み素材の要件。
+    // ⭐ 差替前の旧 chibi は 1 シート内で接地線が 2-3 値にぶれていた (N3 で測る)。整列済み素材の要件。
     for (const key of elfKeys) {
       const fset = feetSet(measured[key]);
       check('(G3.7) ⭐ ' + key + ' のシート内 接地線ぶれが 1px 以内 (整列済み素材)',
@@ -412,13 +420,13 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       JSON.stringify([applied.urls[0], applied.urls[1]]));
 
     // ── N1 ⭐ 「変えた」ことの正の assert (正規は同名上書き) ──
-    const headWalk = await page.evaluate(() => window.__sprMeasure('/__head__/assets/elf_walk.png', 96, 6, 3))
+    const headWalk = await page.evaluate(() => window.__sprMeasure('/__base__/assets/elf_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    const headAtk = await page.evaluate(() => window.__sprMeasure('/__head__/assets/elf_attack.png', 96, 5, 3))
+    const headAtk = await page.evaluate(() => window.__sprMeasure('/__base__/assets/elf_attack.png', 96, 5, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N1.1) HEAD の elf_walk.png を配信できている (対照群が空振りでない)',
+    check('(N1.1) 差替前の elf_walk.png を配信できている (対照群が空振りでない)',
       !headWalk.err && headWalk.w === 576, JSON.stringify({ w: headWalk.w, err: headWalk.err }));
-    check('(N1.2) HEAD の elf_attack.png を配信できている',
+    check('(N1.2) 差替前の elf_attack.png を配信できている',
       !headAtk.err && headAtk.w === 480, JSON.stringify({ w: headAtk.w, err: headAtk.err }));
     for (const [tag, head, key, cols] of [['walk', headWalk, 'elf_walk.png', 6],
                                           ['attack', headAtk, 'elf_attack.png', 5]]) {
@@ -430,10 +438,10 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     }
 
     // ── N2 ⭐ 体高を揃えたことの証明 ─────────────────────────
-    // HEAD の旧 chibi は 61px = 戦士 (56px) より 5px 大きく、パーティで明確に浮いていた。
+    // 差替前の旧 chibi は 61px = 戦士 (56px) より 5px 大きく、パーティで明確に浮いていた。
     // これが PASS して初めて「G3.2 の ±1px は実際に縮めた結果」と言える (assert を緩めただけではない)。
     const headWalkMed = med(headWalk);
-    check('(N2) ⭐ HEAD では正規エルフの体高が戦士より 2px 以上大きかった (旧 chibi が浮いていた実在証明)',
+    check('(N2) ⭐ 差替前は正規エルフの体高が戦士より 2px 以上大きかった (旧 chibi が浮いていた実在証明)',
       headWalkMed > 0 && (headWalkMed - ww) >= 2,
       'HEAD elf=' + headWalkMed + ' warrior=' + ww + ' / 作業ツリー elf=' + fw);
 
@@ -441,37 +449,37 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // HEAD は変種 1-3 に **別々の chibi 3 枚** (elf_high / elf_huntress / elf_shadow) を当てていたため、
     // 同じ「エルフ」なのに体高が 3 種で大きくばらついていた。作業ツリーは 1 枚共有なので構造的に同一。
     //
-    // ⚠️⚠️ 教訓: ここは最初「HEAD のシート内 接地線が 2 値にぶれていた」で書いたが **FAIL した**。
+    // ⚠️⚠️ 教訓: ここは最初「差替前のシート内 接地線が 2 値にぶれていた」で書いたが **FAIL した**。
     //    前提の 90/91 は Python 側 (`alpha>16`) で採った値で、本ドライバの物差しは `alpha>64`。
     //    同じ絵でも HEAD は feet=[90] の 1 値になる。**別の物差しで採った数値を負のコントロールの
     //    前提に使うな** — 必ずドライバ自身の metric で測った値を根拠にすること。
     const headVarMeds = [];
     for (const f of ['elf_high_walk.png', 'elf_huntress_walk.png', 'elf_shadow_walk.png']) {
-      const m = await page.evaluate((u) => window.__sprMeasure(u, 96, 6, 3), '/__head__/assets/' + f)
+      const m = await page.evaluate((u) => window.__sprMeasure(u, 96, 6, 3), '/__base__/assets/' + f)
         .catch(e => ({ err: String(e && e.message || e), frames: [] }));
       headVarMeds.push({ f, med: m.frames && m.frames.length ? med(m) : -1, err: m.err });
     }
-    check('(N3.1) HEAD の旧 chibi 変種 3 枚を配信できている (対照群が空振りでない)',
+    check('(N3.1) 差替前の旧 chibi 変種 3 枚を配信できている (対照群が空振りでない)',
       headVarMeds.every(x => x.med > 0), JSON.stringify(headVarMeds));
     const hvs = headVarMeds.map(x => x.med);
-    check('(N3.2) ⭐ HEAD の変種 3 枠は体高が 2px 以上ばらついていた (別々の chibi 3 枚だった実在証明)',
+    check('(N3.2) ⭐ 差替前の変種 3 枠は体高が 2px 以上ばらついていた (別々の chibi 3 枚だった実在証明)',
       hvs.every(v => v > 0) && (Math.max.apply(null, hvs) - Math.min.apply(null, hvs)) >= 2,
       'HEAD 変種体高=' + JSON.stringify(headVarMeds.map(x => [x.f, x.med]))
         + ' / 作業ツリーは elf_male 1 枚共有 = ' + mw + 'px で完全同一');
-    check('(N3.3) ⭐ HEAD の変種はいずれも主人公戦士と体高が不一致だった (パーティで浮いていた)',
+    check('(N3.3) ⭐ 差替前の変種はいずれも主人公戦士と体高が不一致だった (パーティで浮いていた)',
       hvs.every(v => v > 0) && hvs.some(v => Math.abs(v - ww) >= 2),
       'HEAD=' + JSON.stringify(hvs) + ' warrior=' + ww + ' / 作業ツリー elf_male=' + mw);
 
     // ── N4 ⭐ ?v= bump / 取り残し修正の差分が実在することの証明 ─
-    const headIdx = headBytes('index.html');
+    const headIdx = baseBytes('index.html');
     const headTxt = headIdx ? String(headIdx) : '';
-    check('(N4.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
-    check('(N4.2) ⭐ HEAD では walk が ?v=2 / attack が ?v=3 だった (bump の差分が実在する)',
+    check('(N4.1) 差替前の index.html を取得できている', !!headIdx, '(git show 失敗)');
+    check('(N4.2) ⭐ 差替前は walk が ?v=2 / attack が ?v=3 だった (bump の差分が実在する)',
       /elf_walk\.png\?v=2/.test(headTxt) && /elf_attack\.png\?v=3/.test(headTxt)
         && !/elf_walk\.png\?v=3/.test(headTxt),
       'v2=' + /elf_walk\.png\?v=2/.test(headTxt) + ' v3atk=' + /elf_attack\.png\?v=3/.test(headTxt));
     // ⭐ これが今回いちばん価値のある N。LEADER_SPRITES.elf は **素パス** で 6 職中 elf だけ抜けていた。
-    check('(N4.3) ⭐⭐ HEAD の index.html には素パス参照 assets/elf_walk.png") が実在した (LEADER_SPRITES.elf の取り残し)',
+    check('(N4.3) ⭐⭐ 差替前の index.html には素パス参照 assets/elf_walk.png") が実在した (LEADER_SPRITES.elf の取り残し)',
       /assets\/elf_walk\.png"\)/.test(headTxt),
       'bare=' + /assets\/elf_walk\.png"\)/.test(headTxt));
     check('(N4.4) ⭐ 作業ツリーの index.html には素パス参照が残っていない (取り残しを潰した証明)',
@@ -483,7 +491,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       'v2=' + /elf_walk\.png\?v=2/.test(wtIdx) + ' v3=' + /elf_attack\.png\?v=3/.test(wtIdx));
 
     // ── N5 ⭐ 旧 chibi 変種参照の実在証明 ────────────────────
-    check('(N5.1) ⭐ HEAD の index.html は変種 1-3 に elf_{high,huntress,shadow} を指していた',
+    check('(N5.1) ⭐ 差替前の index.html は変種 1-3 に elf_{high,huntress,shadow} を指していた',
       /elf_high_walk\.png/.test(headTxt) && /elf_huntress_walk\.png/.test(headTxt)
         && /elf_shadow_walk\.png/.test(headTxt),
       JSON.stringify([/elf_high_walk/.test(headTxt), /elf_huntress_walk/.test(headTxt), /elf_shadow_walk/.test(headTxt)]));
@@ -494,9 +502,9 @@ window.__sprMeasure = async function (url, cell, cols, row) {
 
     // ── N7 ⭐ 「変えていない」ことの正の assert ──────────────
     // 台帳 --all の再パックで他職 (戦士) が巻き添えになっていないかを画素で見る。
-    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__head__/assets/warrior_walk.png', 96, 6, 3))
+    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__base__/assets/warrior_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N7.1) HEAD の warrior_walk.png を配信できている', !headWarrior.err && headWarrior.w === 576,
+    check('(N7.1) 差替前の warrior_walk.png を配信できている', !headWarrior.err && headWarrior.w === 576,
       JSON.stringify({ w: headWarrior.w, err: headWarrior.err }));
     check('(N7.2) ⭐ 戦士シートは HEAD と画素シグネチャが全コマ一致 = --all 再パックの巻き添えなし',
       !!headWarrior.frames && headWarrior.frames.length === 6 &&
@@ -559,12 +567,12 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G7.8) elf のポートレート 4 URL がすべて 200 かつ 576x384',
       loaded.every(x => x.ok), JSON.stringify(loaded));
 
-    // ── N6 負のコントロール (HEAD の tavern) ────────────────
-    const headTav = headBytes('tavern.html');
+    // ── N6 負のコントロール (差替前の tavern) ────────────────
+    const headTav = baseBytes('tavern.html');
     const headLine = headTav ? String(headTav).split('\n').find(l => /elf:\s*\["assets\/elf_walk/.test(l)) : null;
-    check('(N6.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(elf 行なし)' : '(git show 失敗)');
+    check('(N6.1) 差替前の tavern.html を取得できている', !!headLine, headTav ? '(elf 行なし)' : '(git show 失敗)');
     const headPort = headLine ? (headLine.match(/assets\/elf[a-z_]*\.png/g) || []) : [];
-    check('(N6.2) ⭐ HEAD の elf ポートレートは旧 chibi 3 種 (high/huntress/shadow) を指していた = 同期の差分が実在',
+    check('(N6.2) ⭐ 差替前の elf ポートレートは旧 chibi 3 種 (high/huntress/shadow) を指していた = 同期の差分が実在',
       headPort.length === 4 && /elf_high_walk/.test(headPort[1] || '')
         && /elf_huntress_walk/.test(headPort[2] || '') && /elf_shadow_walk/.test(headPort[3] || ''),
       JSON.stringify(headPort));

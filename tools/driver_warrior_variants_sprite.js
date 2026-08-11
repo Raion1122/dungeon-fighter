@@ -16,13 +16,13 @@
  *   G6  tavern: PARTY_PORTRAIT_SPRITES.warrior が 4 要素で全部 200
  *
  * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N4)。
- *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、
- *    「HEAD に warrior_npcfemale_walk.png は無い」「HEAD の index/tavern は旧 chibi を指す」を
+ *    `/__base__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、
+ *    「差替前に warrior_npcfemale_walk.png は無い」「差替前の index/tavern は旧 chibi を指す」を
  *    *正の assert* として測る。baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故)
  *    を検出できない。
  *
  * ⚠️ 今回は **正規 (index 0) を触らない差替**なので、N4 で
- *    「HEAD の warrior_walk.png と作業ツリーが画素シグネチャまで一致」を *正の assert* にする。
+ *    「差替前の warrior_walk.png と作業ツリーが画素シグネチャまで一致」を *正の assert* にする。
  *    「変えた」だけでなく「変えていない」も測らないと、台帳の --all 再パックで主人公が
  *    巻き添えになった事故を検出できない。
  *
@@ -68,10 +68,18 @@ const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.c
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
-// HEAD の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
-function headBytes(rel) {
+/* ⚠⚠ 負のコントロールの基準は **HEAD ではなく「差替が入る直前のコミット」に固定する**。
+ *   HEAD にすると差替をコミットした瞬間に `HEAD === 作業ツリー` になり、N ブロック
+ *   (「差替前は旧 chibi だった」= 差分の実在証明) が **自己失効して赤いまま安定する**。
+ *   ⭐ 「機能が入る直前」は歴史的事実なので、以後どれだけコミットが進んでも陳腐化しない。
+ *   ⚠ 「一致する」型 (巻き添えが無い証明) も同じ基準でよい: 1be27b8 は変種 3 種だけを
+ *     差し替えており、正規 warrior_walk.png はこの時点から不変であることを測れる。 */
+const BASE_REV = '1be27b8^';   // 1be27b8 = 「戦士の変種3種を codex1 素材へ差替」。その親 = 差替前。
+
+// 差替前の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
+function baseBytes(rel) {
   try {
-    return execFileSync('git', ['show', 'HEAD:' + rel.replace(/\\/g, '/')],
+    return execFileSync('git', ['show', BASE_REV + ':' + rel.replace(/\\/g, '/')],
                         { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
   } catch (e) { return null; }
 }
@@ -82,9 +90,9 @@ function startServer() {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
-        if (u.startsWith('/__head__/')) {
-          const rel = u.slice('/__head__/'.length);
-          const buf = headBytes(rel);
+        if (u.startsWith('/__base__/')) {
+          const rel = u.slice('/__base__/'.length);
+          const buf = baseBytes(rel);
           if (!buf) { res.statusCode = 404; res.end('404 (not in HEAD)'); return; }
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
           res.end(buf);
@@ -285,20 +293,20 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G5.2) CLASS_DEFS.warrior.sprite は無改変 (?v=8 のまま)',
       /warrior_walk\.png\?v=8/.test(hit.sprite || ''), hit.sprite);
 
-    // ── N1-N2 負のコントロール (HEAD の生バイトと比較) ──────
+    // ── N1-N2 負のコントロール (差替前の生バイトと比較) ──────
     const headNew = await page.evaluate(async () => {
-      try { await window.__sprMeasure('/__head__/assets/warrior_npcfemale_walk.png', 96, 6, 3); return 'loaded'; }
+      try { await window.__sprMeasure('/__base__/assets/warrior_npcfemale_walk.png', 96, 6, 3); return 'loaded'; }
       catch (e) { return 'missing'; }
     });
-    check('(N1) HEAD に warrior_npcfemale_walk.png は存在しない (新規追加である証明)',
+    check('(N1) 差替前に warrior_npcfemale_walk.png は存在しない (新規追加である証明)',
       headNew === 'missing', headNew);
 
-    const headIdx = headBytes('index.html');
+    const headIdx = baseBytes('index.html');
     const headVarLines = headIdx
       ? String(headIdx).split('\n').filter(l => /warrior_(heavy|female|knight)_walk\.png/.test(l))
       : [];
-    check('(N2.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
-    check('(N2.2) HEAD の戦士変種 3 行は旧 chibi を指す (差分が実在する)',
+    check('(N2.1) 差替前の index.html を取得できている', !!headIdx, '(git show 失敗)');
+    check('(N2.2) 差替前の戦士変種 3 行は旧 chibi を指す (差分が実在する)',
       headVarLines.length === 3, headVarLines.length + ' 行');
     check('(N2.3) 作業ツリーでは旧 chibi 参照が消えている',
       !wire.sets.some(s => /warrior_(heavy|female|knight)_/.test(s.walk + s.attack)),
@@ -306,9 +314,9 @@ window.__sprMeasure = async function (url, cell, cols, row) {
 
     // ── N4 「触っていない」ことの正の assert ────────────────
     // 台帳の --all 再パックで正規シート (index 0) が巻き添えで変わっていないかを画素で見る。
-    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__head__/assets/warrior_walk.png', 96, 6, 3))
+    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__base__/assets/warrior_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N4.1) HEAD の warrior_walk.png を配信できている (対照群が空振りでない)',
+    check('(N4.1) 差替前の warrior_walk.png を配信できている (対照群が空振りでない)',
       !headWarrior.err && headWarrior.w === 576, JSON.stringify({ w: headWarrior.w, err: headWarrior.err }));
     check('(N4.2) 正規シートは HEAD と画素シグネチャが全コマ一致 = 主人公は巻き添えになっていない',
       !!headWarrior.frames && headWarrior.frames.length === 6 &&
@@ -369,11 +377,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G6.7) warrior のポートレート 4 URL がすべて 200 かつ 576x384',
       loaded.every(x => x.ok), JSON.stringify(loaded));
 
-    // ── N3 負のコントロール (HEAD の tavern) ────────────────
-    const headTav = headBytes('tavern.html');
+    // ── N3 負のコントロール (差替前の tavern) ────────────────
+    const headTav = baseBytes('tavern.html');
     const headLine = headTav ? String(headTav).split('\n').find(l => /warrior:\s*\["assets\/warrior_walk/.test(l)) : null;
-    check('(N3.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(warrior 行なし)' : '(git show 失敗)');
-    check('(N3.2) HEAD の warrior ポートレートは旧 chibi を指す (差分が実在する)',
+    check('(N3.1) 差替前の tavern.html を取得できている', !!headLine, headTav ? '(warrior 行なし)' : '(git show 失敗)');
+    check('(N3.2) 差替前の warrior ポートレートは旧 chibi を指す (差分が実在する)',
       !!headLine && /warrior_heavy_walk\.png/.test(headLine) && /warrior_knight_walk\.png/.test(headLine),
       (headLine || '').trim().slice(0, 140));
     check('(N3.3) 作業ツリーでは旧 chibi 参照が消えている',

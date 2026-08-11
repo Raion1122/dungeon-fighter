@@ -5,7 +5,14 @@
  * ボス戦はオートプレイで到達するのに数分かかるため、各フックを *実関数の直叩き* で
  * 決定論的に踏む (1 テスト = 1 page.goto で state 汚染を避ける)。
  *
+ * ⚠ 母集団は **?graph=0 (従来の単一マップ) へ固定する**。分岐マップ (P5) で廃坑が既定で
+ *   分岐版になり、entry ノードは設計上わざと弱いので **ボスが enemies に居ない**。
+ *   このドライバが測るのは「speech のボスフック」であってマップではないので、旧経路へ戻す
+ *   撤退スイッチで母集団を取り返すのが正しい (期待値を今の実測へ書き換えるのは母集団のすり替え)。
+ *   ⚠ スイッチが黙って無効化されても緑にならないよう、(0-装置) で **外した側**も対で実測する。
+ *
  * 検証項目 (計画書 STOP ゲート 3):
+ *   (0) 母集団ガード (?graph=0 が効いている / ボスが居る / 外すと分岐版になる)
  *   (1) boss.appear が出現し kind === "enemy" (ボス本人が喋る・血赤スタイル)
  *   (2) boss.rage が出現し kind === "enemy" (HP50% = 既存の激怒ラッチを流用)
  *   (3) boss.defeat が出現し kind !== "enemy" (死んだボスは喋らない = 生存味方が歓声)
@@ -77,13 +84,15 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const allPageErrors = [];
 
 // 1 テスト = 1 page.goto (前テストの戦闘 state が次を汚さないように)
-async function freshPage(browser) {
+// opts.graph0 === false のときだけ撤退スイッチを外す ((0-装置) 用の対照)
+async function freshPage(browser, opts) {
   const page = await browser.newPage();
   page.on('pageerror', e => allPageErrors.push(e.message));
   await page.evaluateOnNewDocument((id) => {
     sessionStorage.setItem('dragonfighters.currentScenario', id);
   }, SCEN);
-  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1',
+  const gq = ((opts || {}).graph0 === false) ? '' : '&graph=0';
+  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1' + gq,
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     'window.__speech && typeof gameStarted !== "undefined" && gameStarted && typeof enemies !== "undefined" && enemies.length',
@@ -104,6 +113,33 @@ async function freshPage(browser) {
     args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
            '--disable-extensions', '--user-data-dir=' + profile],
   });
+
+  // ══ (0) 母集団ガード — 「ボスが enemies に居る」こと自体を先に測る ══
+  //   ⚠ 0 件を見たら「機能が壊れた」ではなく「母集団へ到達していない」を先に疑うためのガード。
+  //   これが無いと bossIdx = -1 のまま defeatEnemy(-1) が例外を投げ、exit=3 の不可解な赤になる。
+  const snap = (p) => p.evaluate(() => ({
+    isCustom: (typeof MAPDEF !== 'undefined' && MAPDEF) ? !!MAPDEF.isCustom : null,
+    rooms: (typeof ROOMS !== 'undefined') ? ROOMS.length : -1,
+    n: enemies.length,
+    bossIdx: enemies.findIndex(e => e.def.isBoss),
+    summonIdx: enemies.findIndex(e => e.def.maxSummons > 0),
+  }));
+  {
+    const pOn = await freshPage(browser);
+    const on = await snap(pOn);
+    await pOn.close();
+    // 装置: 撤退スイッチを**外した**側。分岐版になり entry ノードにはボスが居ないはず。
+    const pOff = await freshPage(browser, { graph0: false });
+    const off = await snap(pOff);
+    await pOff.close();
+    check('(0) ?graph=0 で従来の単一マップへ戻る (isCustom=false)', on.isCustom === false,
+      'isCustom=' + on.isCustom + ' rooms=' + on.rooms + ' enemies=' + on.n);
+    check('(0) 従来経路の enemies にボスが居る (標本が空でない)',
+      on.bossIdx >= 0 && on.summonIdx >= 0, 'bossIdx=' + on.bossIdx + ' summonIdx=' + on.summonIdx);
+    check('(0-装置) ?graph=0 を外すと分岐版になり entry にボスが居ない (スイッチが効いている証明)',
+      off.isCustom === true && off.bossIdx < 0,
+      'isCustom=' + off.isCustom + ' rooms=' + off.rooms + ' enemies=' + off.n + ' bossIdx=' + off.bossIdx);
+  }
 
   // ══ (1) boss.appear — runEncounter([bossIdx]) の先頭で同期発火する ══
   {
@@ -189,10 +225,14 @@ async function freshPage(browser) {
   {
     const page = await freshPage(browser);
     // (3) ボスを defeatEnemy で倒す → 生存味方が歓声を上げる
-    await page.evaluate(() => {
+    // ⚠ bi < 0 のまま defeatEnemy(-1) を呼ぶと例外で走行ごと落ちる (exit=3)。
+    //    母集団の欠落は (0) と下の (3) が FAIL として報告するので、ここでは投げずに素通しする。
+    const dbi = await page.evaluate(() => {
       const bi = enemies.findIndex(e => e.def.isBoss);
+      if (bi < 0) return -1;
       window.__speech.clear();
       defeatEnemy(bi);
+      return bi;
     });
     await sleep(700);
     const d = await page.evaluate(() => {
@@ -205,7 +245,8 @@ async function freshPage(browser) {
         inMaster: hit.length ? s.lines['boss.defeat'].includes(hit[0].text) : false,
       };
     });
-    check('(3) boss.defeat が出現する', d.n >= 1 && d.inMaster, 'n=' + d.n + ' text="' + d.text + '"');
+    check('(3) boss.defeat が出現する', d.n >= 1 && d.inMaster,
+      'n=' + d.n + ' text="' + d.text + '" bossIdx=' + dbi);
     check('(3) 死んだボスは喋らない (kind ≠ enemy = 生存味方の歓声)',
       d.n >= 1 && d.kind !== 'enemy', 'kind=' + d.kind);
 

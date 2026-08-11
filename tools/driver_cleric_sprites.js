@@ -28,17 +28,17 @@
  *   G8  ⭐ cast の variant 対応: updateAllySprite が変種ごとに別の cast シートを出す
  *
  * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N5)。
- *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、HEAD と作業ツリーを
+ *    `/__base__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、差替前と作業ツリーを
  *    同じ物差しで測る。baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故) を検出できない。
  *
  * ⚠️⚠️ N ブロックは **第2段に合わせて書き直してある**。第1段の N (「HEAD の変種は旧 chibi」等) は
  *    HEAD が c32f785 を含んだ時点で **自己失効** した (盗賊ドライバ driver_rogue_sprites.js と同じ現象)。
  *    負のコントロールは「今回の差分」を測るものへ毎回更新しないと空振りする。現行の向き:
- *      N1 = 「attack 2 枚は HEAD と画素が *相違*」 = melee 差替が本当に効いた証明 (?v= だけでは足りない)
+ *      N1 = 「attack 2 枚は 差替前と画素が *相違*」 = melee 差替が本当に効いた証明 (?v= だけでは足りない)
  *      N2 = 「HEAD の attack は HEAD の cast の [0,1,2,3,5] と *一致* していた」= 直した不具合の実在証明
- *      N3 = 「walk / cast は HEAD と画素が *一致*」 = cast_dir 明示が cast を壊していない証明
+ *      N3 = 「walk / cast は 差替前と画素が *一致*」 = cast_dir 明示が cast を壊していない証明
  *      N4 = 「HEAD の index.html は attack が ?v=4 / 変種は ?v= 無し」= bump の差分が実在する証明
- *      N5 = 「戦士シートは HEAD と画素が *一致する*」= 台帳 --all 再パックの巻き添えが無い証明
+ *      N5 = 「戦士シートは 差替前と画素が *一致する*」= 台帳 --all 再パックの巻き添えが無い証明
  *    「変えた」と「変えていない」の両方を正の assert として測る。
  *
  * ⚠️ SPRITE_VARIANTS / getSpriteSet / CLASS_DEFS / LEADER_SPRITES / updateAllySprite は
@@ -86,10 +86,20 @@ const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.c
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
-// HEAD の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
-function headBytes(rel) {
+/* ⚠⚠ 負のコントロールの基準は **差替前はなく「差替が入る直前のコミット」に固定する**。
+ *   HEAD 基準だと差替をコミットした瞬間に `HEAD === 作業ツリー` になり、N ブロック
+ *   (「差替前は cast 流用だった」= 差分の実在証明) が **自己失効して赤いまま安定する**。
+ *   実際このドライバは第1段 (c32f785) で一度その壊れ方をし、第2段 (5fd3ae1) でも再発した。
+ *   ⭐ 「機能が入る直前」は歴史的事実なので、以後どれだけコミットが進んでも陳腐化しない
+ *     = 差替のたびに N ブロックを書き直す必要がなくなる。
+ *   ⚠ N5 の「戦士シートは一致する」(台帳 --all 再パックの巻き添えが無い証明) も同じ基準でよい。
+ *     5fd3ae1^ には戦士差替 (1be27b8) が既に入っている (祖先関係を実測済み)。 */
+const BASE_REV = '5fd3ae1^';   // 5fd3ae1 = 「僧侶の近接 attack を melee 素材へ差替」。その親 = 差替前。
+
+// 差替前の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
+function baseBytes(rel) {
   try {
-    return execFileSync('git', ['show', 'HEAD:' + rel.replace(/\\/g, '/')],
+    return execFileSync('git', ['show', BASE_REV + ':' + rel.replace(/\\/g, '/')],
                         { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
   } catch (e) { return null; }
 }
@@ -100,9 +110,9 @@ function startServer() {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
-        if (u.startsWith('/__head__/')) {
-          const rel = u.slice('/__head__/'.length);
-          const buf = headBytes(rel);
+        if (u.startsWith('/__base__/')) {
+          const rel = u.slice('/__base__/'.length);
+          const buf = baseBytes(rel);
           if (!buf) { res.statusCode = 404; res.end('404 (not in HEAD)'); return; }
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
           res.end(buf);
@@ -385,9 +395,9 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // ── N1 ⭐ 「変えた」ことの正の assert (attack は同名上書き) ──
     // ⚠️ HEAD は既に第1段 (c32f785) を含むので、第1段を測る N (旧 chibi 参照 / 58px→56px /
     //    cast が walk より 19% 大きい 等) は **自己失効している**。ここは第2段だけを測る。
-    const headAtkF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_attack.png', 96, 5, 3))
+    const headAtkF = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_attack.png', 96, 5, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    const headAtkM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_attack.png', 96, 5, 3))
+    const headAtkM = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_npcmale_attack.png', 96, 5, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
     check('(N1.1) HEAD の cleric_attack.png を配信できている (対照群が空振りでない)',
       !headAtkF.err && headAtkF.w === 480, JSON.stringify({ w: headAtkF.w, err: headAtkF.err }));
@@ -395,7 +405,7 @@ window.__sprMeasure = async function (url, cell, cols, row) {
       !headAtkM.err && headAtkM.w === 480, JSON.stringify({ w: headAtkM.w, err: headAtkM.err }));
     for (const [tag, head, key] of [['正規', headAtkF, 'cleric_attack.png'],
                                     ['変種', headAtkM, 'cleric_npcmale_attack.png']]) {
-      check('(N1.3) ⭐ ' + tag + ' の attack は HEAD と画素シグネチャが全コマ相違 = melee 差替が本当に効いている',
+      check('(N1.3) ⭐ ' + tag + ' の attack は 差替前と画素シグネチャが全コマ相違 = melee 差替が本当に効いている',
         !!head.frames && head.frames.length === 5 &&
         head.frames.every((f, i) => f && measured[key].frames[i] && f.sig !== measured[key].frames[i].sig),
         JSON.stringify([head.frames && head.frames.map(f => f && f.sig),
@@ -405,12 +415,12 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // ── N2 ⭐ 直した不具合が HEAD に実在したことの証明 ───────
     // G7 の反転前の向き (attack が cast の [0,1,2,3,5] 間引き) を **HEAD 側で** 測る。
     // これが PASS して初めて「G7 の反転は実際の修正によるもので、assert を緩めただけではない」と言える。
-    const headCastF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_cast.png', 96, 6, 3))
+    const headCastF = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_cast.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    const headCastM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_cast.png', 96, 6, 3))
+    const headCastM = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_npcmale_cast.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
     for (const [tag, ha, hc] of [['正規', headAtkF, headCastF], ['変種', headAtkM, headCastM]]) {
-      check('(N2) ⭐ ' + tag + ': HEAD では attack が cast の [0,1,2,3,5] と全コマ画素一致だった (cast 流用の実在証明)',
+      check('(N2) ⭐ ' + tag + ': 差替前は attack が cast の [0,1,2,3,5] と全コマ画素一致だった (cast 流用の実在証明)',
         !!ha.frames && ha.frames.length === 5 && !!hc.frames && hc.frames.length === 6 &&
         ATTACK_KEYS.every((k, i) => ha.frames[i] && hc.frames[k] && ha.frames[i].sig === hc.frames[k].sig),
         JSON.stringify([ha.frames && ha.frames.map(f => f && f.sig), hc.frames && hc.frames.map(f => f && f.sig)]));
@@ -419,15 +429,15 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // ── N3 ⭐ 「変えていない」ことの正の assert (walk / cast) ──
     // cast_dir を台帳へ明示した副作用で cast が動いていないか、画素で確かめる。
     // ⚠️ ここが落ちたら cast_dir の指し先を間違えている (= 詠唱がメイス振りに化けている)。
-    const headWalkF = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_walk.png', 96, 6, 3))
+    const headWalkF = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    const headWalkM = await page.evaluate(() => window.__sprMeasure('/__head__/assets/cleric_npcmale_walk.png', 96, 6, 3))
+    const headWalkM = await page.evaluate(() => window.__sprMeasure('/__base__/assets/cleric_npcmale_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
     for (const [tag, head, key] of [['正規 walk', headWalkF, 'cleric_walk.png'],
                                     ['変種 walk', headWalkM, 'cleric_npcmale_walk.png'],
                                     ['正規 cast', headCastF, 'cleric_cast.png'],
                                     ['変種 cast', headCastM, 'cleric_npcmale_cast.png']]) {
-      check('(N3) ⭐ ' + tag + ' は HEAD と画素シグネチャが全コマ一致 = cast_dir 明示で壊していない',
+      check('(N3) ⭐ ' + tag + ' は 差替前と画素シグネチャが全コマ一致 = cast_dir 明示で壊していない',
         !!head.frames && head.frames.length === 6 &&
         head.frames.every((f, i) => f && measured[key].frames[i] && f.sig === measured[key].frames[i].sig),
         JSON.stringify([head.frames && head.frames.map(f => f && f.sig),
@@ -435,13 +445,13 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     }
 
     // ── N4 ⭐ ?v= bump の差分が実在することの証明 ─────────────
-    const headIdx = headBytes('index.html');
+    const headIdx = baseBytes('index.html');
     const headTxt = headIdx ? String(headIdx) : '';
     check('(N4.1) HEAD の index.html を取得できている', !!headIdx, '(git show 失敗)');
-    check('(N4.2) ⭐ HEAD では正規 attack が ?v=4 だった (bump の差分が実在する)',
+    check('(N4.2) ⭐ 差替前は正規 attack が ?v=4 だった (bump の差分が実在する)',
       /cleric_attack\.png\?v=4/.test(headTxt) && !/cleric_attack\.png\?v=5/.test(headTxt),
       'v4=' + /cleric_attack\.png\?v=4/.test(headTxt) + ' v5=' + /cleric_attack\.png\?v=5/.test(headTxt));
-    check('(N4.3) ⭐ HEAD では変種 attack に ?v= が無かった (新規付与の差分が実在する)',
+    check('(N4.3) ⭐ 差替前は変種 attack に ?v= が無かった (新規付与の差分が実在する)',
       /cleric_npcmale_attack\.png"/.test(headTxt) && !/cleric_npcmale_attack\.png\?v=/.test(headTxt),
       'bare=' + /cleric_npcmale_attack\.png"/.test(headTxt));
     check('(N4.4) 作業ツリーには ?v=4 の取り残しが無い',
@@ -451,11 +461,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
 
     // ── N5 ⭐ 「変えていない」ことの正の assert ──────────────
     // 台帳 --all の再パックで他職 (戦士) が巻き添えになっていないかを画素で見る。
-    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__head__/assets/warrior_walk.png', 96, 6, 3))
+    const headWarrior = await page.evaluate(() => window.__sprMeasure('/__base__/assets/warrior_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
     check('(N5.1) HEAD の warrior_walk.png を配信できている', !headWarrior.err && headWarrior.w === 576,
       JSON.stringify({ w: headWarrior.w, err: headWarrior.err }));
-    check('(N5.2) ⭐ 戦士シートは HEAD と画素シグネチャが全コマ一致 = --all 再パックの巻き添えなし',
+    check('(N5.2) ⭐ 戦士シートは 差替前と画素シグネチャが全コマ一致 = --all 再パックの巻き添えなし',
       !!headWarrior.frames && headWarrior.frames.length === 6 &&
       headWarrior.frames.every((f, i) => f && measured['warrior_walk.png'].frames[i] &&
                                          f.sig === measured['warrior_walk.png'].frames[i].sig),
@@ -519,12 +529,12 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     // ⚠️ 第1段では「HEAD のポートレートは旧 chibi」を測っていたが、HEAD が c32f785 を含んだ時点で
     //    **自己失効**した (N1 の注記と同じ現象)。第2段が tavern.html で触るのは changelog の
     //    <li> だけでポートレート配線には無関係なので、ここでの正しい負のコントロールは
-    //    「ポートレート 4 URL が HEAD と **完全一致**」= 配線を巻き添えにしていない証明。
-    const headTav = headBytes('tavern.html');
+    //    「ポートレート 4 URL が 差替前と **完全一致**」= 配線を巻き添えにしていない証明。
+    const headTav = baseBytes('tavern.html');
     const headLine = headTav ? String(headTav).split('\n').find(l => /cleric:\s*\["assets\/cleric_walk/.test(l)) : null;
     check('(N6.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(cleric 行なし)' : '(git show 失敗)');
     const headPort = headLine ? (headLine.match(/assets\/cleric[a-z_]*\.png/g) || []) : [];
-    check('(N6.2) ⭐ HEAD と作業ツリーで cleric ポートレート 4 URL が完全一致 = 第2段はポートレート配線を触っていない',
+    check('(N6.2) ⭐ 差替前と作業ツリーで cleric ポートレート 4 URL が完全一致 = 第2段はポートレート配線を触っていない',
       headPort.length === 4 && port.cleric.length === 4 &&
       headPort.every((u, i) => port.cleric[i] === u),
       JSON.stringify([headPort, port.cleric]));

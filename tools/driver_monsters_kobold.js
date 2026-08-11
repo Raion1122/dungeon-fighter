@@ -118,7 +118,19 @@ async function aggProbe(page) {
   const page1 = await browser.newPage();
   page1.on('pageerror', e => pageErrors.push('[render] ' + e.message));
   const rErrBefore = pageErrors.length;
-  await page1.goto('http://localhost:' + PORT + '/index.html?scen=goblin-mine&autoplay=15&autodebug=1',
+  /* ⚠⚠ 旧版は `?scen=goblin-mine` の**自然スポーン**にコボルドが混ざっている前提だったが、
+   *   ダンジョン短縮 (cdb081a) で導入部屋が消え、廃坑の通常スポーンからコボルドが居なくなった
+   *   (2026-08-11 実測: ?graph=0 の廃坑 13 体はゴブリン系のみ / 分岐版の entry はゴブリン 2 体)。
+   *   → 母集団を**このドライバの (d)(e) と同じ seed 配置**へ揃える。測る性質
+   *     (ENEMY_TYPES.kobold の幾何が破綻せず描画されること) は変わらない。
+   *   ⚠ 「実シナリオのどこかにコボルドが居ること」は幾何とは別の関心なので、
+   *     (a-母集団) で index.html のスポーン定義を直接数えて担保する。 */
+  const GEO_SEED = [['kobold', 30, 12], ['kobold', 31, 12], ['kobold', 30, 13]];
+  await page1.evaluateOnNewDocument((spawns) => {
+    try { sessionStorage.setItem('dragonfighters.generatedScenario',
+      JSON.stringify({ title: 'kobold geo probe', flavor: '', spawns })); } catch (e) {}
+  }, GEO_SEED);
+  await page1.goto('http://localhost:' + PORT + '/index.html?autoplay=15&autodebug=1',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   let kobSeen = false;
   try { await page1.waitForSelector('.enemy-kobold', { timeout: 15000 }); kobSeen = true; } catch (e) {}
@@ -137,13 +149,33 @@ async function aggProbe(page) {
     return { count: els.length, bgImg, bgSize, w, h, bgW: m ? parseFloat(m[1]) : 0, bgH: m ? parseFloat(m[2]) : 0 };
   });
   check('(a) .enemy-kobold 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(b) backgroundImage が goblin_anim.png (?v=付き・借用)',
-    /goblin_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
+  /* ⚠⚠ 旧 assert は `/goblin_anim\.png\?v=/` で「goblin シートを借用している」を測っていたが、
+   *   コボルドは 52f9036 (2026-07-03) で **専用シートへ移行済み**。そして `kobold_anim.png` は
+   *   `goblin_anim.png` を部分文字列として含まないので、移行後は**赤いまま安定**していた。
+   *   → 現行仕様 (専用シート) を測る形へ書き直す。先頭を固定して取り違えも防ぐ。 */
+  check('(b) backgroundImage が kobold_anim.png (?v=付き・専用シート)',
+    /(^|\/)kobold_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
   const wOk = Math.abs(geo.w - 56) <= 2 && Math.abs(geo.h - 56) <= 2;
   check('(b) 表示寸法 ≈56px (displaySize=56)', wOk, 'w=' + geo.w + ' h=' + geo.h);
-  const bgOk = Math.abs(geo.bgW - 280) <= 2 && Math.abs(geo.bgH - 280) <= 2 && geo.bgW > geo.w;
-  check('(b) backgroundSize ≈280×280 (借用元幾何に一致・破綻なし)', bgOk,
-    'bgSize=' + geo.bgSize + ' (単一フレーム幅 ' + geo.w + 'px より大)');
+  /* ⚠⚠ 旧 assert は `280×280` の**直書き**で、これは 480×480 (5列) シート時代の値。
+   *   6 フレーム統一 (576×480) で自己失効する。⭐ 期待値を今の実測へ書き換えるのではなく、
+   *   **シート実寸から算出する自己校正**へ移す (列数が変わっても陳腐化しない)。
+   *   ⚠ 空振り防止: シートが読めなかった (nw=0) 場合は FAIL させる。 */
+  const sheet = await page1.evaluate(() => new Promise((resolve) => {
+    const el = document.querySelector('.enemy-kobold');
+    const m = ((el && el.style.backgroundImage) || '').match(/url\(["']?([^"')]+)["']?\)/);
+    if (!m) { resolve({ nw: 0, nh: 0, src: '' }); return; }
+    const img = new Image();
+    img.onload = () => resolve({ nw: img.naturalWidth, nh: img.naturalHeight, src: m[1] });
+    img.onerror = () => resolve({ nw: 0, nh: 0, src: m[1] });
+    img.src = m[1];
+  }));
+  const FRAME = 96;   // kobold シートの 1 コマ (frameW = frameH = 96)
+  const expW = Math.round(sheet.nw * geo.w / FRAME), expH = Math.round(sheet.nh * geo.w / FRAME);
+  const bgOk = sheet.nw > 0 && Math.abs(geo.bgW - expW) <= 2 && Math.abs(geo.bgH - expH) <= 2 && geo.bgW > geo.w;
+  check('(b) backgroundSize がシート実寸から算出した値に一致 (破綻なし)', bgOk,
+    'bgSize=' + geo.bgSize + ' / 期待=' + expW + '×' + expH +
+    ' (シート ' + sheet.nw + '×' + sheet.nh + ' ÷ 1コマ ' + FRAME + 'px × 表示 ' + geo.w + 'px)');
 
   const diag = await page1.evaluate(() => {
     if (!window.__diag || !window.__diag.getReport) return { noDiag: true };
@@ -160,8 +192,17 @@ async function aggProbe(page) {
   //     hp5 の下位ミニオンは初期イニシアチブ次第で行動前に倒れるため、密度で「攻撃する
   //     生存者」を担保する (少数だと 1 ラウンドで全滅し probe が空になり得る)。密集ゆえ
   //     生存者が攻撃する時ほぼ必ず対象隣接に味方の敵 → pack=+2。disc は kobold 非規律=0。
-  const CLUSTER = [];
-  for (let cx = 7; cx <= 10; cx++) for (let cy = 12; cy <= 14; cy++) CLUSTER.push(['kobold', cx, cy]);
+  /* ⚠⚠ **絶対タイル座標の直書きは、部屋の起点を動かす変更のたびに黙って無意味になる。**
+   *   ダンジョン短縮 (cdb081a) で歩行可能域が x>=24 へ寄り、旧範囲 (cx 7..10 / cy 12..14) は
+   *   **全て tile2 (岩盤)** になっていた (2026-08-11 実測)。敵は DOM としては生成されるが
+   *   パーティ (25,13) から 15〜18 タイル離れた壁の中に湧くだけで **戦闘が一度も起きない**。
+   *   ⚠ さらに pack_tactics の条件は「**対象(隊長)から 1 タイル以内に自分以外の味方の敵**」
+   *     (`nearbyAlliedEnemies(idx, playerX+48, playerY+58, 1) > 0`) であって「敵同士の密集」ではない。
+   *     離れた場所で固めても +2 は永遠に出ない。→ **隊長 (25,13) の隣接タイルを埋める**。 */
+  const CLUSTER = [
+    ['kobold', 26, 12], ['kobold', 26, 13], ['kobold', 24, 12], ['kobold', 24, 13],
+    ['kobold', 25, 12], ['kobold', 24, 14], ['kobold', 27, 12], ['kobold', 27, 13],
+  ];
   const page2 = await browser.newPage();
   page2.on('pageerror', e => pageErrors.push('[cluster] ' + e.message));
   await page2.evaluateOnNewDocument((spawns) => {
@@ -185,7 +226,12 @@ async function aggProbe(page) {
   //     攻撃しても pack/disc は常に 0 (対比: 密集=+2 / 孤立=0)。hp5 は初期イニシアチブ
   //     次第で行動前に倒れる (単体ゆえ probe が空になり得る) ため、新規ロードを最大8回
   //     リトライし「孤立 kobold が攻撃した回」を1つ捕捉する (各回とも味方皆無=pack不能)。
-  const ISOLATED = [['kobold', 7, 13]];
+  /* ⚠ 旧 [7,13] は岩盤 (上の CLUSTER のコメント参照)。床へ移すだけでは足りず、
+   *   離れた床に置くと **hp:5 のコボルドが接敵する前に倒され** __traitProbe が空のままになる
+   *   (2026-08-11 実測: [31,12] で entries=0)。→ 隊長 (25,13) の**真隣**に置いて初手を取らせる。
+   *   ⚠ 単体スポーンなので「隣接する味方の敵が居ない」= 孤立の条件はそのまま成立する
+   *     (pack/disc が 0 であることを測るという assert の性質は変えていない)。 */
+  const ISOLATED = [['kobold', 26, 13]];
   let iAgg = { n: 0, maxPack: 0, maxDisc: 0, allZero: true };
   let iAttacked = false;
   for (let t = 0; t < 8 && !iAttacked; t++) {
@@ -197,7 +243,10 @@ async function aggProbe(page) {
     }, ISOLATED);
     await page3.goto('http://localhost:' + PORT + '/index.html?autoplay=30', { waitUntil: 'domcontentloaded', timeout: 30000 });
     let a = { n: 0, maxPack: 0, maxDisc: 0, allZero: true };
-    for (let i = 0; i < 24; i++) {   // 1体戦は短い: 最大 ~7.2s/回
+    /* ⚠ 「1 体戦は短い」という理由で 24 (≈7.2s) にしていたが、**接敵前に観測窓が閉じる**。
+     *   密集 (d) が最大 96s 掛けて捕捉しているのに孤立だけ 7.2s では母集団へ届かない
+     *   (2026-08-11 実測: 8 回とも entries=0)。→ 18s/回 へ延ばす (8 回で最大 ~144s)。 */
+    for (let i = 0; i < 60; i++) {   // 最大 ~18s/回
       a = await aggProbe(page3);
       if (a.n >= 1) break;
       await sleep(300);

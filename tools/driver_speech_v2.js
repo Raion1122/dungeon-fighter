@@ -111,11 +111,20 @@ const QUIET = `
     const page = await freshPage(browser);
     const r = await page.evaluate(() => {
       const L = window.__speech.lines;
-      const types = Object.keys(ENEMY_TYPES);
-      const missing = types.filter(t => !Array.isArray(L['enemy.cry.' + t]) || !L['enemy.cry.' + t].length);
+      // ⚠ ENEMY_TYPES には「敵」でないものが間借りしている。7.9-3 隊商護衛の caravanWagon は
+      //   isObjective:true の**護衛対象** (speed:0 / 攻撃しない / xp:0) で、鳴くのはむしろ仕様違反。
+      //   → 母集団を「喋る敵」へ正す。⚠ 狭めた分は (A1b) で必ず数える (除外が黙って広がる事故を防ぐ)。
+      const all = Object.keys(ENEMY_TYPES);
+      const objective = all.filter(t => !!ENEMY_TYPES[t].isObjective);
+      const types = all.filter(t => !ENEMY_TYPES[t].isObjective);
+      const hasCry = (t) => Array.isArray(L['enemy.cry.' + t]) && L['enemy.cry.' + t].length > 0;
+      const missing = types.filter(t => !hasCry(t));
       return {
+        nAll: all.length,
         nTypes: types.length,
         missing,
+        objective,
+        objectiveWithCry: objective.filter(hasCry),
         hasFallback: Array.isArray(L['enemy.cry']) && L['enemy.cry'].length > 0,
         goblin:   window.__speech.resolve('enemy.cry', 'goblin'),
         minotaur: window.__speech.resolve('enemy.cry', 'minotaur'),
@@ -124,7 +133,13 @@ const QUIET = `
         koboldMsg: typeof ENEMY_FAMILY_MSG.kobold === 'string' && ENEMY_FAMILY_MSG.kobold.length > 0,
       };
     });
-    check('(A1) 全 ' + r.nTypes + ' 敵種に enemy.cry.<type> がある', r.missing.length === 0, r.missing.join(','));
+    check('(A1) 全 ' + r.nTypes + ' 敵種に enemy.cry.<type> がある (ENEMY_TYPES ' + r.nAll + ' 件中)',
+      r.missing.length === 0, r.missing.join(','));
+    // ⚠ 母集団から外した護衛対象は「必ず 1 件以上あり、かつ鳴き声を持たない」ことを積極的に測る。
+    //   これが無いと isObjective が誤って広がった時 (= 敵が黙って母集団から消えた時) に気づけない。
+    check('(A1b) 除外した護衛対象は鳴かない (' + (r.objective.join(',') || 'なし') + ')',
+      r.objective.length >= 1 && r.objectiveWithCry.length === 0,
+      '除外=' + r.objective.length + ' 件 / 鳴き声を持つもの=[' + r.objectiveWithCry.join(',') + ']');
     check('(A2) 汎用フォールバック enemy.cry がある', r.hasFallback);
     check('(A3) ゴブリンは「キー! キー!」を持つ', !!r.goblin && r.goblin.includes('キー! キー!'), JSON.stringify(r.goblin));
     check('(A4) ミノタウロスは「ブモー! ブモー!」を持つ', !!r.minotaur && r.minotaur.includes('ブモー! ブモー!'), JSON.stringify(r.minotaur));

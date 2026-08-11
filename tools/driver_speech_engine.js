@@ -98,7 +98,14 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const pageErrors = [];
   page.on('pageerror', e => pageErrors.push(e.message));
 
-  await page.goto('http://localhost:' + PORT + '/index.html?scen=goblin-mine&autoplay=15&autodebug=1',
+  // ⚠ 母集団は **?graph=0 (従来の単一マップ) へ固定する**。(4) はカメラが実際に動くことを前提に
+  //   吹き出しの追従を測るが、分岐マップ (P5) の entry ノードは可視域が狭く
+  //   **カメラ可動域が 152px しかない** (従来マップは 3705px・2026-08-11 実測)。
+  //   オートプレイで端へ寄ると camX が 1px も動かず、(4) が丸ごと空回りする。
+  //   測っているのは「カメラ追従エンジン」でありマップではないので旧経路へ固定するのが正しい。
+  //   ⚠ スイッチが黙って無効化されても緑にならないよう、(4-装置) で外した側を対で実測する。
+  const Q = '/index.html?scen=goblin-mine&autoplay=15&autodebug=1';
+  await page.goto('http://localhost:' + PORT + Q + '&graph=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   // ゲームループ (renderWorld → updateSpeechBubbles) が回り始めるのを待つ
   await page.waitForFunction(
@@ -187,13 +194,20 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   // 吹き出しの style.left が毎フレーム (playerX + 48 - camX) に追従し続けることを見る。
   await page.evaluate(() => { window.__speech.clear(); window.__speech.say('find.chest', 'player'); });
   await sleep(200);
-  const samples = [];
-  for (let i = 0; i < 6; i++) {
+  // ⚠ 向きを右に決め打ちすると、測定開始時点で **カメラ可動域の右端にクランプ**していた場合に
+  //   playerX をいくら足しても camX が 1px も動かず、この節が丸ごと空回りする
+  //   (2026-08-11 実測: 分岐マップの entry ノードは可視域が狭く camX=camTarget=3040 に張り付いた)。
+  //   → 「カメラが動く母集団」へ確実に到達するため、右で動かなければ左でも測る。
+  //     ⚠ assert (camSpan > 20 / ±8px) は緩めない。動く向きを探すだけ。
+  const span = (xs) => xs.length ? Math.max(...xs.map(s => s.camX)) - Math.min(...xs.map(s => s.camX)) : 0;
+  async function collect(dir) {
+    const out = [];
+    for (let i = 0; i < 6; i++) {
     // ★ 世界を動かす操作と測定は必ず別 evaluate に分ける。
     //   同じ evaluate 内で playerX を動かして直後に style.left を読むと、
     //   「1 フレーム前に書かれた left」と「更新後の playerX」を比べることになり、
     //   追従できていてもナッジ量ぶんの誤差 (=45px) が必ず出る (偽陰性)。
-    await page.evaluate(() => { playerX += 45; });   // カメラを確実に動かす
+    await page.evaluate((d) => { playerX += d; }, dir * 45);   // カメラを確実に動かす
     await sleep(220);                                // renderWorld が新しい camX で再配置するのを待つ
     const s = await page.evaluate(() => {
       const el = document.querySelector('.speechBubble');
@@ -202,18 +216,70 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         left: parseFloat(el.style.left),
         expect: playerX + 48 - camX,   // speechAnchor("player").x - camX
         camX: camX,
+        // ⚠ camSpan=0 を見たときに「クランプで端に張り付いた」のか「追従ループが止まっている」のか
+        //   「戦闘でターゲットが別へ移った」のかを *その場で* 切り分けるための実測値。
+        camTargetX: (typeof camTargetX !== 'undefined') ? camTargetX : null,
+        follow: (typeof cameraFollowActive !== 'undefined') ? cameraFollowActive : null,
+        phase: (typeof currentPhase !== 'undefined') ? currentPhase : '',
+        over: (typeof gameOver !== 'undefined') ? gameOver : null,
+        playerX: playerX,
       };
     });
-    if (s) samples.push(s);
+      if (s) out.push(s);
+    }
+    return out;
+  }
+  let dir = +1;
+  let samples = await collect(dir);
+  if (span(samples) <= 20) {                 // 右端クランプ → 逆向きで測り直す
+    await page.evaluate(() => { playerX -= 45 * 6; });   // 元の位置へ戻す
+    await sleep(300);
+    const alt = await collect(-1);
+    if (span(alt) > span(samples)) { samples = alt; dir = -1; }
   }
   const diffs = samples.map(s => Math.abs(s.left - s.expect));
   const maxDiff = diffs.length ? Math.max(...diffs) : 999;
-  const camSpan = samples.length ? Math.max(...samples.map(s => s.camX)) - Math.min(...samples.map(s => s.camX)) : 0;
+  const camSpan = span(samples);
   check('(4) カメラが実際に動いた (テストが空回りしていない)', camSpan > 20,
-    'camXレンジ=' + camSpan.toFixed(1) + 'px / samples=' + samples.length);
+    'dir=' + (dir > 0 ? '右' : '左') + ' camXレンジ=' + camSpan.toFixed(1) + 'px / samples=' + samples.length +
+    ' / camX=[' + samples.map(s => Math.round(s.camX)).join(',') + ']' +
+    ' camTarget=[' + samples.map(s => s.camTargetX === null ? '?' : Math.round(s.camTargetX)).join(',') + ']' +
+    ' playerX=[' + samples.map(s => Math.round(s.playerX)).join(',') + ']' +
+    ' follow=' + samples.map(s => s.follow ? 1 : 0).join('') +
+    ' phase=' + (samples.length ? samples[samples.length - 1].phase : '?') +
+    ' over=' + (samples.length ? samples[samples.length - 1].over : '?'));
   check('(4) カメラ追従: 吹き出しが話者の頭上に張り付き続ける (±8px)',
     samples.length >= 5 && maxDiff <= 8,
     'maxDiff=' + maxDiff.toFixed(1) + 'px (samples=' + samples.length + ')');
+
+  // ── (4-装置) 撤退スイッチ ?graph=0 が本当に効いているか (外した側を対で実測) ──
+  //   これが無いと「スイッチが黙って無効化されても緑」になり、(4) は再び空回りへ戻る。
+  {
+    const camRange = () => `(() => {
+      const W = mapData[0].length * TILE_SIZE, saved = playerX;
+      let lo = Infinity, hi = -Infinity;
+      for (let x = 0; x <= W; x += 48) { playerX = x; computeCameraTarget();
+        if (camTargetX < lo) lo = camTargetX; if (camTargetX > hi) hi = camTargetX; }
+      playerX = saved; computeCameraTarget();
+      return { isCustom: !!(typeof MAPDEF !== 'undefined' && MAPDEF && MAPDEF.isCustom),
+               span: Math.round(hi - lo) };
+    })()`;
+    const onSpan = await page.evaluate(camRange());
+    const p2 = await browser.newPage();
+    await p2.goto('http://localhost:' + PORT + Q, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await p2.waitForFunction(
+      'typeof gameStarted !== "undefined" && gameStarted && typeof camX !== "undefined"', { timeout: 30000 });
+    await sleep(600);
+    const offSpan = await p2.evaluate(camRange());
+    await p2.close();
+    // ⚠ 判定軸は isCustom の対比だけにする。可動域は **測定時のフェーズで大きく振れる**
+    //   (?graph=0 実測: 探索中 3705px / 戦闘中 546px) ので assert に混ぜるとフレークになる。
+    //   → 数値は detail にだけ残し、「(4) が空回りしていないか」は (4) 本体が受け持つ。
+    check('(4-装置) ?graph=0 が効いている (外すと分岐版 isCustom=true になる)',
+      onSpan.isCustom === false && offSpan.isCustom === true,
+      'graph=0: isCustom=' + onSpan.isCustom + ' 可動域=' + onSpan.span + 'px / ' +
+      '既定: isCustom=' + offSpan.isCustom + ' 可動域=' + offSpan.span + 'px');
+  }
   await page.evaluate(() => window.__speech.clear());
 
   // ── (5) updateSpeechBubbles にレイアウト読み取りが無い (camera-perf の禁忌) ──

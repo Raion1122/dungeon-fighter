@@ -145,8 +145,14 @@ function seedInit(spawns) {
   //       増やし 再発火/rear ピックの観測率を上げる。zonePullFor 値そのもの (front1.25/rear0.75) は
   //       決定論で毎戦一致するため、burrow の rear 偏重は値レベルで厳密に、挙動レベルで補助的に実証される。
   // ════════════════════════════════════════════════════════════════════
-  const CLUSTER = [['umber_hulk', 12, 13], ['umber_hulk', 13, 13], ['minotaur', 12, 15],
-    ['kobold', 11, 13], ['kobold', 13, 15], ['kobold', 11, 15], ['kobold', 14, 13], ['kobold', 12, 12]];
+  /* ⚠⚠ **絶対タイル座標の直書きは、部屋の起点を動かす変更のたびに黙って無意味になる。**
+   *   ダンジョン短縮 (cdb081a) で歩行可能域が x>=24 へ寄り、旧座標 (x=11〜14) は
+   *   **全て tile2 (岩盤)** になっていた (2026-08-11 実測)。敵は DOM としては生成されるが
+   *   パーティ (25,13) から 11〜14 タイル離れた壁の中に湧くだけで **戦闘が一度も起きない**
+   *   = __zoneProbe / __pickProbe / __gazeProbe が空 (entries=0 / gazes=0) のまま。
+   *   → パーティ起点近傍の床へ移す。⚠ [30,15] は岩盤なので minotaur だけ [30,16] へ回避。 */
+  const CLUSTER = [['umber_hulk', 30, 13], ['umber_hulk', 31, 13], ['minotaur', 30, 16],
+    ['kobold', 29, 13], ['kobold', 31, 15], ['kobold', 29, 15], ['kobold', 32, 13], ['kobold', 30, 12]];
   const MAX_TRIES = 6;
   const acc = {
     geo: null, umbrSeen: false, diag: null,
@@ -267,7 +273,8 @@ function seedInit(spawns) {
   // (4) 回帰: griffon(swoop) + chimera(flight) を seed し __zoneProbe で
   //     burrow 分岐追加後も swoop/flight が不変であることを確認。
   // ════════════════════════════════════════════════════════════════════
-  const REG = [['griffon', 12, 13], ['chimera', 13, 14], ['goblin', 14, 13]];
+  // ⚠ 旧 [12,13][13,14][14,13] は岩盤。上の CLUSTER のコメント参照 ([31,14] も岩盤なので chimera は [30,14])。
+  const REG = [['griffon', 30, 13], ['chimera', 30, 14], ['goblin', 32, 13]];
   const pageR = await browser.newPage();
   pageR.on('pageerror', e => pageErrors.push('[R] ' + e.message));
   await pageR.evaluateOnNewDocument(seedInit(REG));

@@ -16,9 +16,9 @@
  *   G6  tavern: PARTY_PORTRAIT_SPRITES.rogue が 4 要素で全部 200
  *
  * ⚠️ 本ドライバの肝は **同一 run に内包した負のコントロール** (N1-N3)。
- *    `/__head__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、
- *    「HEAD の rogue_walk.png は体高 60px 超の chibi」「HEAD に rogue_male_walk.png は無い」
- *    「HEAD の tavern は rogue_assassin_walk.png を指す」を *正の assert* として測る。
+ *    `/__base__/<path>` ルートで `git show HEAD:<path>` の生バイトを同時配信し、
+ *    「差替前の rogue_walk.png は体高 60px 超の chibi」「差替前に rogue_male_walk.png は無い」
+ *    「差替前の tavern は rogue_assassin_walk.png を指す」を *正の assert* として測る。
  *    baseline が PASS するだけでは空振り (作業ツリーを 2 回測る事故) を検出できない。
  *    同名上書きの差替では `?v=` を見るだけでは「本当に置き換わったか」を証明できない。
  *
@@ -64,10 +64,20 @@ const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.c
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
-// HEAD の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
-function headBytes(rel) {
+/* ⚠⚠ 負のコントロールの基準は **HEAD ではなく「差替が入る直前のコミット」に固定する**。
+ *   HEAD にすると差替をコミットした瞬間に `HEAD === 作業ツリー` になり、N ブロック全体
+ *   (「差替前は旧 chibi だった」= 差分の実在証明) が **自己失効して赤いまま安定する**。
+ *   赤が常態化した検出器は何も検出していないのと同じ (新しい回帰が来ても区別がつかない)。
+ *   ⭐ ここは「機能が入る直前」という **歴史的事実へのピン留め**なので、以後どれだけ
+ *     コミットが進んでも陳腐化しない (非退行の基準とは役割が違う = 兼務させないこと)。
+ *   ⚠ このドライバの N ブロックは全て「相違を測る」= 差分の実在証明で、
+ *     「差替前と一致する」型の非退行 assert は含まない。だから基準を 1 本に固定してよい。 */
+const BASE_REV = '6b98cdb^';   // 6b98cdb = 「盗賊 4種を codex1 素材へ差替」。その親 = 差替前。
+
+// 差替前の生バイトを取り出す (存在しないパスは null)。差替が「本当に効いたか」を測る唯一の手段。
+function baseBytes(rel) {
   try {
-    return execFileSync('git', ['show', 'HEAD:' + rel.replace(/\\/g, '/')],
+    return execFileSync('git', ['show', BASE_REV + ':' + rel.replace(/\\/g, '/')],
                         { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
   } catch (e) { return null; }
 }
@@ -78,9 +88,9 @@ function startServer() {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
-        if (u.startsWith('/__head__/')) {
-          const rel = u.slice('/__head__/'.length);
-          const buf = headBytes(rel);
+        if (u.startsWith('/__base__/')) {
+          const rel = u.slice('/__base__/'.length);
+          const buf = baseBytes(rel);
           if (!buf) { res.statusCode = 404; res.end('404 (not in HEAD)'); return; }
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
           res.end(buf);
@@ -270,25 +280,25 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G5.2) CLASS_DEFS.rogue.sprite も ?v=3 へ更新済み',
       /rogue_walk\.png\?v=3/.test(hit.sprite || ''), hit.sprite);
 
-    // ── N1-N2 負のコントロール (HEAD の生バイトと比較) ──────
-    const headWalk = await page.evaluate(() => window.__sprMeasure('/__head__/assets/rogue_walk.png', 96, 6, 3))
+    // ── N1-N2 負のコントロール (差替前の生バイトと比較) ──────
+    const headWalk = await page.evaluate(() => window.__sprMeasure('/__base__/assets/rogue_walk.png', 96, 6, 3))
       .catch(e => ({ err: String(e && e.message || e), frames: [] }));
-    check('(N1.1) HEAD の rogue_walk.png を配信できている (負のコントロールが空振りでない)',
+    check('(N1.1) 差替前の rogue_walk.png を配信できている (負のコントロールが空振りでない)',
       !headWalk.err && headWalk.w === 576, JSON.stringify({ w: headWalk.w, err: headWalk.err }));
     const headMed = (headWalk.frames && headWalk.frames.filter(Boolean).length) ? med(headWalk) : -1;
-    check('(N1.2) HEAD の体高は 60px 超の chibi = 実際に差し替わっている',
-      headMed > 60, 'HEAD=' + headMed + ' NEW=' + rw);
-    check('(N1.3) HEAD と作業ツリーで体高が違う (同じ絵を 2 回測っていない)',
-      headMed !== rw, 'HEAD=' + headMed + ' NEW=' + rw);
-    check('(N1.4) HEAD と作業ツリーで 1 コマ目の画素シグネチャが違う (バイト差の直接証明)',
+    check('(N1.2) 差替前の体高は 60px 超の chibi = 実際に差し替わっている',
+      headMed > 60, '差替前=' + headMed + ' NEW=' + rw);
+    check('(N1.3) 差替前と作業ツリーで体高が違う (同じ絵を 2 回測っていない)',
+      headMed !== rw, '差替前=' + headMed + ' NEW=' + rw);
+    check('(N1.4) 差替前と作業ツリーで 1 コマ目の画素シグネチャが違う (バイト差の直接証明)',
       !!(headWalk.frames && headWalk.frames[0] && measured['rogue_walk.png'].frames[0] &&
          headWalk.frames[0].sig !== measured['rogue_walk.png'].frames[0].sig),
       headWalk.frames && headWalk.frames[0] && (headWalk.frames[0].sig + ' vs ' + measured['rogue_walk.png'].frames[0].sig));
     const headMale = await page.evaluate(async () => {
-      try { await window.__sprMeasure('/__head__/assets/rogue_male_walk.png', 96, 6, 3); return 'loaded'; }
+      try { await window.__sprMeasure('/__base__/assets/rogue_male_walk.png', 96, 6, 3); return 'loaded'; }
       catch (e) { return 'missing'; }
     });
-    check('(N2) HEAD に rogue_male_walk.png は存在しない (新規追加である証明)',
+    check('(N2) 差替前に rogue_male_walk.png は存在しない (新規追加である証明)',
       headMale === 'missing', headMale);
 
     await page.close();
@@ -334,11 +344,11 @@ window.__sprMeasure = async function (url, cell, cols, row) {
     check('(G6.6) rogue のポートレート 4 URL がすべて 200 かつ 576x384',
       loaded.every(x => x.ok), JSON.stringify(loaded));
 
-    // ── N3 負のコントロール (HEAD の tavern) ────────────────
-    const headTav = headBytes('tavern.html');
+    // ── N3 負のコントロール (差替前の tavern) ────────────────
+    const headTav = baseBytes('tavern.html');
     const headLine = headTav ? String(headTav).split('\n').find(l => /rogue:\s*\[/.test(l)) : null;
-    check('(N3.1) HEAD の tavern.html を取得できている', !!headLine, headTav ? '(rogue 行なし)' : '(git show 失敗)');
-    check('(N3.2) HEAD の rogue ポートレートは旧 chibi を指す (差分が実在する)',
+    check('(N3.1) 差替前の tavern.html を取得できている', !!headLine, headTav ? '(rogue 行なし)' : '(git show 失敗)');
+    check('(N3.2) 差替前の rogue ポートレートは旧 chibi を指す (差分が実在する)',
       !!headLine && /rogue_assassin_walk\.png/.test(headLine), (headLine || '').trim().slice(0, 120));
     check('(N3.3) 作業ツリーでは旧 chibi 参照が消えている',
       !port.rogue.some(u => /rogue_(assassin|acrobat|scout)/.test(u)), JSON.stringify(port.rogue));

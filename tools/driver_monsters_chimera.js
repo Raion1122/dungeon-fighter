@@ -133,7 +133,14 @@ function seedInit(spawns) {
   //   非flight代表は goblin(hp8=即死)でなく minotaur(hp45=数ラウンド生存) を採用し、
   //   その turn (pickEnemyTarget) が確実に発火 → 既定 ZONE_PULL の回帰を観測する。
   // ════════════════════════════════════════════════════════════════════
-  const NEAR = [['chimera', 12, 13], ['minotaur', 14, 13]];
+  /* ⚠⚠ **絶対タイル座標の直書きは、部屋の起点を動かす変更のたびに黙って無意味になる。**
+   *   ダンジョン短縮 (cdb081a「山場+ボスの2部屋」) で歩行可能域が x>=24 へ寄り、旧座標
+   *   [12,13][14,13] は **tile2 (岩盤)** になっていた (2026-08-11 実測)。
+   *   敵は DOM としては生成されるので `.enemy-chimera` の幾何 assert は緑のままだが、
+   *   パーティ (25,13) から 11〜13 タイル離れた壁の中に湧くだけで **戦闘が一度も起きない**
+   *   = __turnProbe / __zoneProbe が空 (entries=0) のまま全滅する。
+   *   → パーティ起点近傍の床へ移す。 */
+  const NEAR = [['chimera', 30, 13], ['minotaur', 32, 13]];
   const pageA = await browser.newPage();
   pageA.on('pageerror', e => pageErrors.push('[A] ' + e.message));
   const aErrBefore = pageErrors.length;
@@ -213,7 +220,7 @@ function seedInit(spawns) {
   //     ブレスが着弾 (3x3 が複数命中)。Lv8隊列で複数ラウンド生存 → ボスが毎ターン ~0.22 で
   //     ブレス抽選。新規 RNG で最大6回リロード再試行し、hitCount>=2 を確定的に捕捉。
   // ════════════════════════════════════════════════════════════════════
-  const CLOSE = [['chimera', 12, 13], ['goblin', 13, 13]];
+  const CLOSE = [['chimera', 30, 13], ['goblin', 31, 13]];   // ⚠ 旧 [12,13][13,13] は岩盤。上の NEAR のコメント参照。
   let breath = { fired: false, maxHit: 0, entries: 0, sawSaved: false };
   for (let attempt = 0; attempt < 6 && !(breath.fired && breath.maxHit >= 2); attempt++) {
     const pageB = await browser.newPage();

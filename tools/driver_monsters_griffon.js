@@ -141,7 +141,13 @@ function seedInit(spawns) {
   //   __pickProbe の rear/mid 率の差が「swoop が前列を飛び越える」ことを直接実証する。
   //   非flight代表は minotaur(hp45=数ラウンド生存) → その turn が確実に発火し既定 ZONE_PULL を観測。
   // ════════════════════════════════════════════════════════════════════
-  const NEAR = [['griffon', 12, 13], ['minotaur', 13, 13]];
+  /* ⚠⚠ **絶対タイル座標の直書きは、部屋の起点を動かす変更のたびに黙って無意味になる。**
+   *   ダンジョン短縮 (cdb081a) で歩行可能域が x>=24 へ寄り、旧座標 [12,13][13,13] は
+   *   **tile2 (岩盤)** になっていた (2026-08-11 実測)。敵は DOM としては生成されるが
+   *   パーティ (25,13) から 12 タイル離れた壁の中に湧くだけで **戦闘が一度も起きない**
+   *   = __turnProbe / __zoneProbe / __pickProbe が空 (entries=0) のまま。
+   *   → パーティ起点近傍の床へ移す。 */
+  const NEAR = [['griffon', 30, 13], ['minotaur', 31, 13]];
   const pageA = await browser.newPage();
   pageA.on('pageerror', e => pageErrors.push('[A] ' + e.message));
   const aErrBefore = pageErrors.length;
@@ -237,7 +243,7 @@ function seedInit(spawns) {
   // (4) flight-only 回帰: chimera を seed し __zoneProbe で flight 分岐 (1.0/1.0/1.0) が
   //     swoop 分岐追加後も不変であることを確認 (swoop:false → flight が勝つ)。
   // ════════════════════════════════════════════════════════════════════
-  const CHIM = [['chimera', 12, 13], ['goblin', 13, 13]];
+  const CHIM = [['chimera', 30, 13], ['goblin', 31, 13]];   // ⚠ 旧 [12,13][13,13] は岩盤。上の NEAR のコメント参照。
   const pageC = await browser.newPage();
   pageC.on('pageerror', e => pageErrors.push('[C] ' + e.message));
   await pageC.evaluateOnNewDocument(seedInit(CHIM));

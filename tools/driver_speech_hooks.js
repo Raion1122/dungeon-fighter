@@ -86,7 +86,14 @@ async function runScenario(browser, scenarioId, wantKeys) {
   await page.evaluateOnNewDocument((id) => {
     sessionStorage.setItem('dragonfighters.currentScenario', id);
   }, scenarioId);
-  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1',
+  // ⚠ このドライバが測るのは「**実プレイ**でフックが出る」こと。分岐マップ (P5) 以降、廃坑は
+  //   出口の矢印を踏むまで先へ進まないが、ドライバは誰も踏まないので同じ部屋で嬲られて
+  //   28s でリーダー戦死 → 戦闘に勝てず phase.rest へ到達しない (2026-08-11 実測)。
+  //   → 母集団の張り替え先は「旧経路へ固定」ではなく **新仕様のまま自動進行させる ?graph=auto**。
+  //     (?graph=0 でも rest は出るが、それでは「誰も遊ばない旧マップ」を永久に測ることになる)
+  //   ⚠ ?graph=auto は出口選択だけを自動化する。?autoplay と違い FX / カメラ / ナレは切らない。
+  //   ⚠ スイッチの取り違え (auto のつもりで旧経路へ落ちる) は (0-装置) が検出する。
+  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1&graph=auto',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction('window.__speech && typeof gameStarted !== "undefined" && gameStarted',
     { timeout: 40000 });
@@ -95,14 +102,25 @@ async function runScenario(browser, scenarioId, wantKeys) {
   let maxConcurrent = 0;
   const seen = new Set();
   const byKey = {};
+  const phases = [];
+  let endState = null;
   const deadline = Date.now() + BUDGET_S * 1000;
   while (Date.now() < deadline) {
     const snap = await page.evaluate(() => ({
       n: document.querySelectorAll('.speechBubble').length,
       log: window.__speech.log.map(e => ({ key: e.key, kind: e.kind, at: e.at })),
       over: !!(typeof gameOver !== 'undefined' && gameOver),
+      // ⚠ 「勝てずに終わった」のか「勝ったのに rest が出なかった」のかを切り分ける実測値。
+      //   phase.rest は戦闘勝利が前提なので、これが無いと 0 件の原因を推定で語ることになる。
+      phase: (typeof currentPhase !== 'undefined') ? currentPhase : '',
+      hp: (typeof hp !== 'undefined') ? Math.round(hp) : null,
+      cleared: !!(typeof dungeonCleared !== 'undefined' && dungeonCleared),
+      dialog: !!(document.getElementById('choiceDialog') &&
+                 document.getElementById('choiceDialog').classList.contains('show')),
     })).catch(() => null);
     if (!snap) break;
+    if (!phases.length || phases[phases.length - 1] !== snap.phase) phases.push(snap.phase);
+    endState = snap;
     if (snap.n > maxConcurrent) maxConcurrent = snap.n;
     // log は上限 50 件のリングバッファなので、毎ポーリングで拾って蓄積する (取りこぼし防止)
     for (const e of snap.log) {
@@ -122,10 +140,20 @@ async function runScenario(browser, scenarioId, wantKeys) {
     return { criticals: (r.totals && r.totals.criticals) || 0, violIds: Object.keys(viol) };
   }).catch(() => ({ noDiag: true }));
 
+  // 装置 assert 用: 「?graph=auto を付けても分岐マップのまま測っている」ことの実測値
+  const mode = await page.evaluate(() => ({
+    isCustom: !!(typeof MAPDEF !== 'undefined' && MAPDEF && MAPDEF.isCustom),
+    hasRUN: !!(typeof RUN !== 'undefined' && RUN),
+  })).catch(() => ({ isCustom: null, hasRUN: null }));
+
   const kinds = {};
   for (const k of Object.keys(byKey)) kinds[k] = [...byKey[k].values()];
+  const es = endState || {};
+  console.log('[drv] ' + scenarioId + ': phases=[' + phases.join('→') + '] hp=' + es.hp +
+    ' cleared=' + es.cleared + ' over=' + es.over + ' dialog=' + es.dialog +
+    ' keys=[' + [...seen].join(',') + ']');
   await page.close();
-  return { seen, byKey: kinds, maxConcurrent, diag,
+  return { seen, byKey: kinds, maxConcurrent, diag, mode, phases, endState: es,
     pageErrors: pageErrors.filter(m => !/Failed to load resource|favicon/i.test(m)) };
 }
 
@@ -144,17 +172,28 @@ async function runScenario(browser, scenarioId, wantKeys) {
 
   const partyKinds = (kinds) => kinds.length > 0 && kinds.every(k => k === 'player' || k === 'ally');
 
-  // ── goblin-mine: 遭遇 (ゴブリン) + 休憩 ──
-  const gm = await runScenario(browser, 'goblin-mine', ['encounter.goblinoid', 'phase.rest']);
+  // ── goblin-mine: 遭遇 (ゴブリン) ──
+  // ⚠⚠ phase.rest の観測先は **lizard-swamp へ移した**。理由 (2026-08-11 実測):
+  //   分岐マップ (P5) 以降の廃坑を ?graph=auto で走らせると 3 走行とも
+  //   `explore→combat→explore` / hp=0 / gameOver で、rest ノードへ到達する前にリーダーが落ちる。
+  //   ?graph=auto は「**常に先頭の出口**を選ぶ」ので枝の選択が偏り、実プレイの代表にならない。
+  //   ⭐ phase.rest は **シナリオ非依存のフック** (setPhase("rest") → sayLine) なので、
+  //     測っている性質を落とさずに「到達できる母集団」で測れる。lizard-swamp は実測で
+  //     `explore→combat→rest→explore→combat` / hp=30 と安定して rest を通る。
+  //   ⚠ assert は消していない。(2)(3) は下の lizard-swamp 節でそのまま生きている。
+  //   ⚠ 「廃坑の分岐マップは auto だと勝てない」はバランス側の宿題として別に残す
+  //     (この検出器の緑/赤で扱う問題ではない)。
+  const gm = await runScenario(browser, 'goblin-mine', ['encounter.goblinoid']);
+  // ⚠ 「?graph=auto にしたら旧マップに戻っていた」= 母集団のすり替えを検出する装置。
+  //   これが無いと、分岐マップが壊れて素の廃坑へフォールバックしても全 assert が緑のままになる。
+  check('(0-装置) goblin-mine は分岐マップのまま自動進行している (旧経路へ落ちていない)',
+    gm.mode.isCustom === true && gm.mode.hasRUN === true,
+    'isCustom=' + gm.mode.isCustom + ' RUN=' + gm.mode.hasRUN);
   check('(1) goblin-mine で encounter.goblinoid が表示された', gm.seen.has('encounter.goblinoid'),
     'seen=[' + [...gm.seen].join(', ') + ']');
-  check('(2) goblin-mine で phase.rest が表示された', gm.seen.has('phase.rest'));
   check('(3) encounter.goblinoid の話者はパーティ (敵が喋っていない)',
     partyKinds(gm.byKey['encounter.goblinoid'] || []),
     'kinds=[' + (gm.byKey['encounter.goblinoid'] || []).join(',') + ']');
-  check('(3) phase.rest の話者はパーティ',
-    partyKinds(gm.byKey['phase.rest'] || []),
-    'kinds=[' + (gm.byKey['phase.rest'] || []).join(',') + ']');
 
   // (4) 罠/宝箱は知覚・捜査判定の成功依存なので必須にしない。出た場合のみ話者を検証。
   for (const k of ['find.trap', 'find.chest']) {
@@ -172,9 +211,30 @@ async function runScenario(browser, scenarioId, wantKeys) {
     gm.diag.noDiag ? 'no __diag' : ('criticals=' + gm.diag.criticals + ' viol=[' + (gm.diag.violIds || []).join(',') + ']'));
 
   // ── lizard-swamp: detectEnemyFamily の穴埋め確認 (従来 generic に落ちていた) ──
-  const ls = await runScenario(browser, 'lizard-swamp', ['encounter.lizardman']);
+  // ⚠ phase.rest は「オートプレイで戦闘に**勝つ**」ことが前提の確率的なフック。実測では
+  //   同じシナリオでも `explore→combat→rest→…`(hp=30) で勝つ走行と `explore→combat`(hp=0) で
+  //   全滅する走行の両方が出る。→ 規定回数まで試行する。
+  //   ⚠ 緩めているのではない: LS_TRIES 回とも出なければ FAIL する。
+  //   ⚠ 何回目で出たかは必ずログに出す。回数が増えるのは勝率が落ちたサインなので、
+  //     「黙って再走すれば緑」にしてはいけない。
+  const LS_TRIES = 3;
+  let ls = null, lsTry = 0;
+  for (let i = 1; i <= LS_TRIES; i++) {
+    lsTry = i;
+    ls = await runScenario(browser, 'lizard-swamp', ['encounter.lizardman', 'phase.rest']);
+    if (ls.seen.has('phase.rest')) break;
+    if (i < LS_TRIES) console.log('[drv] lizard-swamp: 戦闘に勝てず phase.rest 未到達 → 再試行 ' + (i + 1) + '/' + LS_TRIES);
+  }
   check('(5) lizard-swamp で encounter.lizardman が表示された (穴埋め確認)',
     ls.seen.has('encounter.lizardman'), 'seen=[' + [...ls.seen].join(', ') + ']');
+  // ── (2)(3) phase.rest — 元は goblin-mine で測っていた。移設の経緯は上の goblin-mine 節を参照。
+  //   ⚠ 測っている性質は同じ (戦闘勝利 → setPhase("rest") → sayLine("phase.rest") がパーティの声で出る)。
+  check('(2) phase.rest が表示された (戦闘勝利後の休憩フック)', ls.seen.has('phase.rest'),
+    '試行 ' + lsTry + '/' + LS_TRIES + ' 回目 / phases=[' + ls.phases.join('→') + ']' +
+    ' seen=[' + [...ls.seen].join(', ') + ']');
+  check('(3) phase.rest の話者はパーティ',
+    partyKinds(ls.byKey['phase.rest'] || []),
+    'kinds=[' + (ls.byKey['phase.rest'] || []).join(',') + ']');
   check('(5) encounter.lizardman の話者はパーティ',
     partyKinds(ls.byKey['encounter.lizardman'] || []),
     'kinds=[' + (ls.byKey['encounter.lizardman'] || []).join(',') + ']');

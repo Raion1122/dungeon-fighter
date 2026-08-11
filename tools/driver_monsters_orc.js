@@ -127,8 +127,16 @@ function check(name, cond, detail) {
     };
   });
   check('(b) .enemy-orc 要素が生成される (>=1)', geo.count >= 1, 'count=' + geo.count);
-  check('(c) backgroundImage が orcGrunt_anim.png (?v=付き)',
-    /orcGrunt_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
+  /* ⚠ 旧 assert は「orc が orcGrunt_anim.png を**流用**している」を測っていたが、orc は
+   *   f351840 (2026-07-03) / 1f1f848 (2026-07-08) で **専用シート orc_anim.png へ昇格**した
+   *   (index.html: `orc: { sprite: "assets/orc_anim.png?v=3" }` / 96px×6cols / 576×480。
+   *    orcGrunt は `orcGrunt_anim.png?v=1` を持つ **別の型**)。
+   *   このドライバの主題は「幾何が破綻せず描画できること」なので、流用の有無ではなく
+   *   **orc が自分のシートを指していること**を測る形へ書き直す。
+   *   ⚠ 先頭を固定するのは、`orcGrunt_anim.png` を `orc_anim.png` として
+   *     部分一致で通してしまう事故 (ホブゴブリンで実際に 1 ヶ月見逃した) を防ぐため。 */
+  check('(c) backgroundImage が orc_anim.png (?v=付き・専用シート)',
+    /(^|\/)orc_anim\.png\?v=/.test(geo.bgImg), 'bgImg=' + geo.bgImg);
   // 期待幾何: scale=82/96 → width≈82, backgroundSize=492×410 (シート全体 = 単一フレーム幅の6倍相当)
   const wOk = Math.abs(geo.w - 82) <= 2 && Math.abs(geo.h - 82) <= 2;
   check('(d) 表示寸法 ≈82px (displaySize=82)', wOk, 'w=' + geo.w + ' h=' + geo.h);
