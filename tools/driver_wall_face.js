@@ -412,7 +412,8 @@ async function playShot(page, file) {
     const M3 = await fo.evaluate(MEASURE);
     console.log('[drv] forest ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
       wall: M3.wall ? +M3.wall.L.toFixed(1) : null, floor: M3.floor ? +M3.floor.L.toFixed(1) : null }));
-    check('(6a) 専用素材を持たない = 変更が廃坑だけに閉じている', M3.faceW === null && M3.topW === null,
+    check('(6a) 専用素材を持たない = 変更が廃坑と沼地の 2 つに閉じている',
+      M3.faceW === null && M3.topW === null,
       'faceW=' + M3.faceW + ' topW=' + M3.topW);
     if (!M3.err) {
       check('(6b) それでも壁は床より明るい (従来の wallTint が生きている)',
@@ -420,6 +421,42 @@ async function playShot(page, file) {
     }
     check('(6c) 森でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
     await fo.close();
+
+    // ══ §7 沼地 — 2 テーマ目の専用素材 (2026-08-14) ═════════════════════════════
+    /* ユーザー指摘「壁がまだ不自然。白いスクリーンが掛かっているようにみえるだけ」への対応で、
+     * 沼地も廃坑と同じ 2 枚構成 (立面 + 天面) へ移した。白い幕 (wallTint) は wallTop が効いた
+     * セルには乗らないので、ここが通れば幕は外れている。
+     * ⚠ (2b)「壁が床より無彩色」は**流用しない**。あれは廃坑の寒色花崗岩の前提で、沼地の壁は
+     *   苔むした緑 = 彩度が高い。テーマの画作りごと変わる assert を写経すると、正しい絵で赤くなる。 */
+    mark('沼地 (lizard-swamp) — 2 テーマ目の専用素材');
+    const net4 = { errs: [], bad: [] };
+    const sw = await boot(browser, URL_Q, 'lizard-swamp', 1280, 800, net4);
+    const M4 = await sw.evaluate(MEASURE);
+    await dumpCanvas(sw, path.join(SHOT_DIR, 'swamp_map.png'));
+    console.log('[drv] swamp ' + JSON.stringify({ faceW: M4.faceW, faceH: M4.faceH, topW: M4.topW,
+      wall: M4.wall ? +M4.wall.L.toFixed(1) : null, floor: M4.floor ? +M4.floor.L.toFixed(1) : null,
+      edge: M4.wall ? +M4.wall.edge.toFixed(2) : null }));
+    check('(7a) 沼地の立面素材が読めている / 幅は tile の整数倍・高さ === 壁矩形',
+      M4.faceW > 0 && M4.faceW % M4.tile === 0 && M4.faceH === M4.tile * 2,
+      'face=' + M4.faceW + 'x' + M4.faceH + ' tile=' + M4.tile);
+    check('(7b) 沼地の天面素材が読めている / 正方形で tile の整数倍',
+      M4.topW > 0 && M4.topW === M4.topH && M4.topW % M4.tile === 0, 'top=' + M4.topW + 'x' + M4.topH);
+    const badAsset4 = net4.bad.filter(b => /wall_face|wall_top/.test(b));
+    check('(7c) 沼地で壁素材の 404 が 0 件', badAsset4.length === 0, badAsset4.join(','));
+    if (!M4.err) {
+      /* ★ 白い幕を機械的に捕まえる唯一の assert (廃坑の (2c) と同じ物差し)。幕は明るさを上げる
+       *   代わりに構造を潰すので、行方向の輝度差で落ちる。実測 (2026-08-14): 幕を被せていた頃の
+       *   壁テクスチャはコントラスト SD 10.1、専用素材は SD 26.5〜29.8。 */
+      check('(7d) ★沼地の立面に水平のエッジ (石の層) がある = 幕ではない',
+        M4.wall.edge >= M4.floor.edge * 1.8,
+        '壁 edge=' + M4.wall.edge.toFixed(2) + ' / 床 edge=' + M4.floor.edge.toFixed(2)
+        + ' = ' + (M4.wall.edge / Math.max(0.01, M4.floor.edge)).toFixed(2) + '倍');
+      check('(7e) 沼地の壁帯が床に溶けていない (下限ガード)', M4.wall.L >= M4.floor.L * 1.15,
+        '壁 L=' + M4.wall.L.toFixed(1) + ' / 床 L=' + M4.floor.L.toFixed(1)
+        + ' = ' + (M4.wall.L / M4.floor.L).toFixed(2) + '倍');
+    }
+    check('(7f) 沼地でページエラー 0 件', net4.errs.length === 0, net4.errs.slice(0, 3).join(' | '));
+    await sw.close();
   } catch (e) {
     check('(fatal) ドライバが完走した', false, e.message);
   } finally {

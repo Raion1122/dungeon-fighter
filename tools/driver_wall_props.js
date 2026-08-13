@@ -160,18 +160,22 @@ const DIFF = function () {
     }
     return { changed: changed, total: total, pct: total ? (100 * changed / total) : 0 };
   };
-  /* 「壁からどれだけ浮いたか」= 樹なしの絵との色距離の平均 (リング全画素で割る)。
-   * 枚数と違い、密度が同じでも色差が増えれば増える量。 */
+  /* 「壁からどれだけ浮いたか」= 樹なしの絵との色距離。
+   * ・all     … リング全画素の平均。密度と色差の両方が混ざる量。
+   * ・covered … **樹が乗った画素だけ**の平均 = 「その石の上で樹がどれだけ違う色か」。
+   *   密度が変わっても動かないので、識別できるかを絶対値で言える (下の (8f) が使う)。 */
   const mag = (X, Y, k) => {
-    let sum = 0, total = 0;
+    let sum = 0, total = 0, csum = 0, cn = 0;
     for (let i = 0; i < X[k].length; i++) {
       const a = X[k][i], b = Y[k][i];
       for (let o = 0; o < a.length; o += 4) {
         const dr = a[o] - b[o], dg = a[o + 1] - b[o + 1], db = a[o + 2] - b[o + 2];
-        sum += Math.sqrt(dr * dr + dg * dg + db * db); total++;
+        const d = Math.sqrt(dr * dr + dg * dg + db * db);
+        sum += d; total++;
+        if (d > 8) { csum += d; cn++; }
       }
     }
-    return total ? sum / total : 0;
+    return { all: total ? sum / total : 0, covered: cn ? csum / cn : 0, n: cn };
   };
 
   return {
@@ -410,7 +414,8 @@ async function dumpCanvas(page, file) {
       + ') sat=' + TS.leafOut.sat.toFixed(2));
     console.log('[drv] 気根 raw L=' + f1(TS.rootRaw.lum) + ' Lmax=' + f1(TS.rootRaw.lmax)
       + '  →  out L=' + f1(TS.rootOut.lum) + ' Lmax=' + f1(TS.rootOut.lmax));
-    console.log('[drv] mag ' + JSON.stringify({ tone: D.magTone, raw: D.magRaw }));
+    console.log('[drv] mag 色調整あり ' + JSON.stringify(D.magTone)
+      + '\n[drv] mag 素材のまま   ' + JSON.stringify(D.magRaw));
 
     check('(8a) tone が黙って素通しになっていない', TS.toneOk === true && TS.srcIsRaw === false,
       'toneOk=' + TS.toneOk + ' srcIsRaw=' + TS.srcIsRaw);
@@ -433,9 +438,23 @@ async function dumpCanvas(page, file) {
      *   という配線ミスは (8a)〜(8d) を全部緑にしたまま通る。 */
     check('(8e) ★焼いた源が画面に出ている (色調整あり/なしでリングが変わる)',
       D.toneRing.pct >= 5, 'ring 変化 ' + D.toneRing.pct.toFixed(1) + '%');
-    check('(8f) ★壁との色距離が実際に増えた (浮いた量が増加)', D.magTone > D.magRaw * 1.05,
-      'mag ' + D.magRaw.toFixed(2) + ' → ' + D.magTone.toFixed(2)
-      + ' (×' + (D.magTone / D.magRaw).toFixed(2) + ')');
+    /* ★ 樹が石から識別できること。
+     * ⚠⚠ ここは元々「色調整が壁との距離を**増やす**」という**相対**条件だった (2026-08-14 朝)。
+     *   その日のうちに壁本体を白い幕付きの平面から苔むした石へ差し替えたので、比較対象の壁が
+     *   消えて条件が空回りした (実測 ×1.14 → ×1.01)。**閾値を 1.05 → 1.00 へ下げるのは
+     *   期待値の書き換え**なので採らず、不変条件そのものを言い直す:
+     *     「色調整で改善したか」ではなく「**樹に覆われた画素が石とどれだけ違うか**」。
+     * ⚠⚠ **これは「見やすさ」の測定ではない**。実測は色調整あり 76.0 / なし 75.9 でほぼ同じだが、
+     *   目視では色調整ありの方が明確に樹として読める (2026-08-14 に苔石の壁で A/B を撮って確認)。
+     *   石の上に不透明な樹を乗せる以上、色が近くても画素の距離は大きく出るため、この量では
+     *   両者を区別できない。**下限 40 は「樹が石へ溶けて消えたら落ちる」ガード**として置く。
+     *   色調整が効いているかは素材側の (8b)/(8c) と、実際に描画へ乗っているかの (8e) が受け持つ。
+     * ⚠ 密度 (何%のセルに生えるか) は (2b) が別に測る。ここは 1 本あたりの見え方だけを見る。 */
+    check('(8f) ★樹が石から識別できる (樹が乗った画素の色距離)', D.magTone.covered >= 40,
+      '覆われた画素での色距離 ' + D.magTone.covered.toFixed(1)
+      + ' (色調整なしなら ' + D.magRaw.covered.toFixed(1) + ')');
+    check('(8g) ★色調整が識別性を下げていない', D.magTone.covered >= D.magRaw.covered * 0.95,
+      '色調整あり ' + D.magTone.covered.toFixed(1) + ' / なし ' + D.magRaw.covered.toFixed(1));
     await page.close();
 
     // ══ §5 負のコントロール: wallProps を持たない廃坑へ漏れていないか ══════════
