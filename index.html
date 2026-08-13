@@ -3188,10 +3188,28 @@
                           wallFace: "wall_face_goblin-mine.png",
                           wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
+      /* ★[壁の樹木プロップ 2026-08-13] wallProps = 壁リングの天面へ「上から見た樹冠」を散らす指定。
+       *   ユーザー指摘「沼地の壁が不自然。マングローブと石垣の2種類の併用にしたい」への解。
+       * ⚠⚠ **タイル可能な「樹テクスチャ」を作って塗り分ける実装にしてはいけない**。樹は
+       *   キャラと同じ地面に立つ物なので、繰り返しパターンにすると同じ幹が 96px 間隔で並ぶ
+       *   壁紙になる (屋外景観の石垣で 2026-07-31 に踏んだのと同じ轍)。プロップとして
+       *   1 本ずつ drawImage し、セルより大きく描いて隣と重ねることでグリッドを壊す。
+       * ⚠ 北壁 (立面) には置かない。カメラは MAP_USED の内側しか映さないので立面は下端
+       *   27〜85px しか画面に入らず (make_wall_face.py の docstring が実測の唯一の正)、
+       *   そこへ樹を立てても足元しか見えないうえ壁掛け松明と場所を奪い合う。
+       *   キーは cols=シート内の変種数 / rate=対象セルのうち生やす割合(百分率) / scale=描画倍率。
+       * ⚠⚠ **scale は 1.2 くらいまで**。左右のリングは ROOM_WALL_RING_X=1 = ちょうど 1 タイル
+       *   (96px) しか無いので、それより大きい樹冠は Pass 2.4 のクリップで左右とも切られ、
+       *   縦一列の**生垣**になる (2026-08-13 の 1 回目に scale 1.5/1.6 で実際にそうなった)。
+       *   密度を上げたいときは scale ではなく rate を上げること。 */
       "bandits-forest": { floor: "シナリオ2床.png", wall: "シナリオ2壁.png",
-                          wallTint: { color: "228,234,244", a: 0.32 } },
+                          wallTint: { color: "228,234,244", a: 0.32 },
+                          wallProps: { img: "wall_prop_bandits-forest_top.png",
+                                       cols: 4, rate: 70, scale: 1.12 } },
       "lizard-swamp":   { floor: "シナリオ3床.png", wall: "シナリオ3壁.png",
-                          wallTint: { color: "214,226,232", a: 0.30 } },
+                          wallTint: { color: "214,226,232", a: 0.30 },
+                          wallProps: { img: "wall_prop_lizard-swamp_top.png",
+                                       cols: 4, rate: 62, scale: 1.10 } },
       "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png",
                           wallTint: { color: "232,236,242", a: 0.26 } },
       // 神殿だけ逆向き (白い大理石の床に白い壁 → 暗いスレートへ寄せて分離する)
@@ -3465,6 +3483,42 @@
     torchWallImg.src = "assets/torch_wall.png";
     torchWallImg.onload = () => {
       torchWallImgLoaded = true;
+      renderMap();
+    };
+
+    /* ★[壁の樹木プロップ 2026-08-13] 壁リングに散らす樹冠のシート (横 1 列に cols 個)。
+     * ⚠ 404 のときは naturalWidth === 0 のまま = Pass 2.4 のゲートが偽になり 1 本も描かれない。
+     *   これが意図した退化先で、**アセットを消すだけで従来の石壁へ巻き戻せる**という撤退経路。
+     * ⚠ onerror でも renderMap を呼ぶ。呼ばないと 404 の初回だけ再描画の機会を失う。
+     * ⚠ createPattern には渡さない (プロップは drawImage で 1 個ずつ置く)。オフスクリーン
+     *   canvas をパターン源にすると renderMap に 7.5 秒級のスパイクが出る既知の罠があるが、
+     *   ここは素の Image を drawImage するだけなのでその経路に入らない。 */
+    /* ⚠ ?wallprops=0 で樹を 1 本も置かない従来の石壁へ戻せる (比較検証・撤退用)。?field=0 と同じ役割。
+     *   ドライバはこの 2 状態の**差分**で「樹が実際に描かれたセル」を測る。差分で測るのは、
+     *   どのセルに生えるかの抽選式をドライバ側へ写経すると実装と同じ間違いを共有して
+     *   両方緑になるため (幾何を __graphRun から借りているのと同じ理由)。 */
+    let WALL_PROPS_ON = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("wallprops") === "0") WALL_PROPS_ON = false;
+    } catch (e) {}
+    let wallPropImg = null;
+    if (WALL_PROPS_ON && _texSet.wallProps && _texSet.wallProps.img) {
+      const _wpImg = new Image();
+      _wpImg.onload = () => {
+        if (_wpImg.naturalWidth) {
+          wallPropImg = _wpImg;
+          window.__wallPropImg = _wpImg;   // 検証シーム (driver から素材の有無と寸法を見る)
+        }
+        renderMap();
+      };
+      _wpImg.onerror = () => { renderMap(); };
+      _wpImg.src = "assets/" + _texSet.wallProps.img;
+    }
+    /* 検証シーム: 樹の有無を同一ページで切り替える (driver_wall_props.js が A/B 差分を採る)。
+     * ⚠ これが無いと A/B は 2 回のページロードになり、カメラ位置・敵の湧き・フォグが別物になって
+     *   「樹のせいで変わった画素」と「そもそも別の絵」を切り分けられない。 */
+    window.__setWallProps = function (on) {
+      wallPropImg = on ? (window.__wallPropImg || null) : null;
       renderMap();
     };
 
@@ -6826,6 +6880,71 @@
       // 配置: 床タイル中央に水平センタリング、底面を床線から 12px 下げて壁マウント感
       // 描画後に炎周りに加算ブルーム (光輪) を重ねて燃えてる感を出す
       // [屋外 STEP2] FIELD_DRAW のときは 1本も描かない (理由は Pass 1.5 のコメント参照)。
+      /* ── Pass 2.4: 壁リングの樹木プロップ (屋内・wallProps を持つテーマのみ) ─────────
+       * ★[壁の樹木プロップ 2026-08-13] ユーザー指摘「沼地なのに規則正しい石積みが延々続く」
+       *   への解。石壁はベースとして残したまま、リングの一部セルへ上から見た樹冠を 1 本ずつ置く。
+       *   = 石垣と樹木の併用。どのセルに生やすかは tileHash の決定論なので毎フレーム不変。
+       * ⚠ 位置は **Pass 2.2 の陰影より後・Pass 2.5 の松明より前**。陰影より前に置くと壁ぎわの
+       *   接地影が樹冠の上に乗って葉が黒ずみ、松明より後に置くと北壁の炎ブルームを樹が覆う。
+       * ⚠ 北壁とその 1 つ上の行は除外する。立面の 192px 矩形が覆う 2 行で、そこへ置くと
+       *   「上から見た樹冠」が壁の正面に貼り付いた絵になって向きが破綻する。
+       * ⚠ 走査は可視範囲を 1 セル広げること。scale > 1 かつ位置をジッタさせるので、画面際の
+       *   セルを飛ばすとスクロール中に樹が**画面端でポップイン**する。
+       * ⚠ 抽選に Math.random を使わない。毎フレーム生え変わる。
+       * ⚠ 1 枚絵の部屋 (isPaintedAndLoaded) は他パスと同じ条件で必ず飛ばす。
+       * ⚠ ゲートは !FIELD_DRAW だけでなく IS_FIELD_THEME でも締める (isVergeCell の注記と同じ、
+       *   横持ちの隊商護衛が FIELD_DRAW=false のまま屋内の枝へ流れ込む既知の穴)。 */
+      if (wallPropImg && !FIELD_DRAW && !IS_FIELD_THEME) {
+        const WP = _texSet.wallProps;
+        const wpCols = Math.max(1, WP.cols | 0);
+        const wpFW = Math.floor(wallPropImg.naturalWidth / wpCols);
+        const wpFH = wallPropImg.naturalHeight;
+        const wpSize = TILE_SIZE * (WP.scale || 1);
+        const wpHalf = wpSize / 2;
+        const wpRate = WP.rate | 0;
+        const pTY0 = Math.max(0, ty0 - 1), pTY1 = Math.min(MAP_H - 1, endTY + 1);
+        const pTX0 = Math.max(0, startTX - 1), pTX1 = Math.min(MAP_W - 1, endTX + 1);
+        /* ★ 樹を置ける (= 石が敷いてある) セルかどうか。下のクリップと抽選で**同じ述語**を使う。
+         *   ここを 2 通りに書くとクリップの外へ樹が出るか、逆に出るはずの樹が消える。 */
+        const wpCell = (tx, ty) => isVergeCell(tx, ty)
+          && !isNorthWall(tx, ty) && !isNorthWall(tx, ty + 1)
+          && !isPaintedAndLoaded(tx, ty);
+        /* ⚠⚠ **クリップを外さないこと。** scale=1.5 かつ ±14px ジッタなので、樹冠はセルから
+         *   最大 38px はみ出す。クリップ無しだと歩ける床へ葉が垂れ込み、実測で沼地 1.4% /
+         *   森 4.3% の床画素を覆っていた (driver_wall_props の (3b)/(6c) が検出)。
+         *   キャラはこの後に描かれるので、床へ出た葉の**上**を歩く絵になって接地が壊れる。
+         *   石の領域ちょうどで切ると、葉が途切れた線がそのまま「植生の際」に読める。
+         * ⚠ 矩形は Pass 2 が石を敷いたのと同じ wallRectY/wallRectH を使う。ここで 96 や 192 を
+         *   直書きすると石の縁と樹の縁が 1px ずれて隙間の筋が出る。 */
+        const wpClip = new Path2D();
+        for (let ty = pTY0; ty <= pTY1; ty++) {
+          for (let tx = pTX0; tx <= pTX1; tx++) {
+            if (!wpCell(tx, ty)) continue;
+            wpClip.rect(tx * TILE_SIZE - camX, wallRectY(tx, ty) - camY, TILE_SIZE, wallRectH(tx, ty));
+          }
+        }
+        ctx.save();
+        ctx.clip(wpClip);
+        for (let ty = pTY0; ty <= pTY1; ty++) {
+          for (let tx = pTX0; tx <= pTX1; tx++) {
+            if (!wpCell(tx, ty)) continue;
+            const h = tileHash(tx, ty);
+            if (h % 100 >= wpRate) continue;
+            const v = (h >>> 7) % wpCols;
+            /* ジッタ (±10px)。中心へ揃えると 96px 格子が樹の並びとして透けて見える。
+             * ⚠ 大きくしすぎないこと。scale とジッタの和がタイルを超えた分だけクリップに
+             *   切られるので、揺らしたつもりが「片側だけ切れた樹」を増やす。 */
+            const jx = ((h >>> 13) % 21) - 10;
+            const jy = ((h >>> 19) % 21) - 10;
+            const cx = tx * TILE_SIZE + TILE_SIZE / 2 - camX + jx;
+            const cy = ty * TILE_SIZE + TILE_SIZE / 2 - camY + jy;
+            ctx.drawImage(wallPropImg, v * wpFW, 0, wpFW, wpFH,
+                          Math.round(cx - wpHalf), Math.round(cy - wpHalf), wpSize, wpSize);
+          }
+        }
+        ctx.restore();
+      }
+
       if (torchWallImgLoaded && !FIELD_DRAW) {
         const TORCH_W = 56, TORCH_H = 84, TORCH_FLOOR_OVERLAP = 12;
         const TORCH_X_OFFSET = (TILE_SIZE - TORCH_W) / 2;
