@@ -405,21 +405,31 @@ async function playShot(page, file) {
     await playShot(ip, path.join(SHOT_DIR, 'iphone_play.png'));
     await ip.close();
 
-    // ══ §6 他5シナリオの非退行 (専用素材を持たない側) ══════════════════════════
-    mark('森 (bandits-forest) — 従来経路が生きているか');
+    // ══ §6 まだ専用素材を持たないシナリオの非退行 ══════════════════════════════
+    /* ★これは「今回の変更が他テーマへ漏れていない」ことを測る**負のコントロール**で、
+     *   計測対象は常に「**まだ 2 枚構成へ移行していない次のテーマ**」に置く。
+     * ⚠⚠⚠ テーマを 1 つ移行するたびに母集団が減るので、そのたびに**計測対象を張り替える**
+     *   こと。期待値 (faceW === null) を書き換えて緑にするのは禁止 = 検出器を殺す行為になる。
+     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → **森 (2026-08-14・§8 を新設)** → 砦 → 神殿 → 竜巣。
+     *   ⇒ 森が 2 枚構成へ移ったので、ここの計測対象を **砦 (orc-fort)** へ張り替えた。
+     *   次に砦を移行する項目では、ここを神殿 (undead-temple) へ張り替えること。
+     * ⚠ 最後 (竜巣) では母集団が**空になる**。そのときは期待値を書き換えるのではなく、
+     *   「屋外テーマでは useWallFace / useWallTop が原理的に false」等の**消えない不変条件**へ
+     *   言い直す (SPEC_wall_themes.md の STEP 6 を参照)。 */
+    mark('砦 (orc-fort) — まだ専用素材を持たない側で従来経路が生きているか');
     const net3 = { errs: [], bad: [] };
-    const fo = await boot(browser, URL_Q, 'bandits-forest', 1280, 800, net3);
+    const fo = await boot(browser, URL_Q, 'orc-fort', 1280, 800, net3);
     const M3 = await fo.evaluate(MEASURE);
-    console.log('[drv] forest ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
+    console.log('[drv] fort ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
       wall: M3.wall ? +M3.wall.L.toFixed(1) : null, floor: M3.floor ? +M3.floor.L.toFixed(1) : null }));
-    check('(6a) 専用素材を持たない = 変更が廃坑と沼地の 2 つに閉じている',
+    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森の 3 つに閉じている',
       M3.faceW === null && M3.topW === null,
       'faceW=' + M3.faceW + ' topW=' + M3.topW);
     if (!M3.err) {
       check('(6b) それでも壁は床より明るい (従来の wallTint が生きている)',
         M3.wall.L >= M3.floor.L * 1.15, (M3.wall.L / M3.floor.L).toFixed(2) + '倍');
     }
-    check('(6c) 森でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
+    check('(6c) 砦でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
     await fo.close();
 
     // ══ §7 沼地 — 2 テーマ目の専用素材 (2026-08-14) ═════════════════════════════
@@ -457,6 +467,47 @@ async function playShot(page, file) {
     }
     check('(7f) 沼地でページエラー 0 件', net4.errs.length === 0, net4.errs.slice(0, 3).join(' | '));
     await sw.close();
+
+    // ══ §8 森 — 3 テーマ目の専用素材 (2026-08-14) ═══════════════════════════════
+    /* 森も廃坑・沼地と同じ 2 枚構成 (立面 + 天面) へ移した。白い幕 (wallTint) は wallTop が
+     * 効いたセルには乗らないので、ここが通れば幕は外れている。
+     * ⚠ 題材は**丸太の柵 (パリセード)** で石積みではない。廃坑の花崗岩を流用すると
+     *   「規則正しい石積みが延々続く」という元の不満点をそのまま持ち込むことになる。
+     * ⚠ (2b)「壁が床より無彩色」は**流用しない**。あれは廃坑の寒色花崗岩の前提で、森の壁は
+     *   暖色の木肌 = 彩度が高い。幕を捕まえるのは edge の assert (8d) だけでよい。
+     * ⚠ 立面の水平エッジを作っているのは石の層ではなく**横に走る蔓縄 10 段**。縦材が主役の
+     *   題材でも横構造を数字で発注してあるのはこの assert と find_joint_rows のため。 */
+    mark('森 (bandits-forest) — 3 テーマ目の専用素材');
+    const net5 = { errs: [], bad: [] };
+    const fr = await boot(browser, URL_Q, 'bandits-forest', 1280, 800, net5);
+    const M5 = await fr.evaluate(MEASURE);
+    await dumpCanvas(fr, path.join(SHOT_DIR, 'forest_map.png'));
+    console.log('[drv] forest ' + JSON.stringify({ faceW: M5.faceW, faceH: M5.faceH, topW: M5.topW,
+      wall: M5.wall ? +M5.wall.L.toFixed(1) : null, floor: M5.floor ? +M5.floor.L.toFixed(1) : null,
+      edge: M5.wall ? +M5.wall.edge.toFixed(2) : null }));
+    check('(8a) 森の立面素材が読めている / 幅は tile の整数倍・高さ === 壁矩形',
+      M5.faceW > 0 && M5.faceW % M5.tile === 0 && M5.faceH === M5.tile * 2,
+      'face=' + M5.faceW + 'x' + M5.faceH + ' tile=' + M5.tile);
+    check('(8b) 森の天面素材が読めている / 正方形で tile の整数倍',
+      M5.topW > 0 && M5.topW === M5.topH && M5.topW % M5.tile === 0, 'top=' + M5.topW + 'x' + M5.topH);
+    const badAsset5 = net5.bad.filter(b => /wall_face|wall_top/.test(b));
+    check('(8c) 森で壁素材の 404 が 0 件', badAsset5.length === 0, badAsset5.join(','));
+    if (!M5.err) {
+      /* ★ 白い幕を機械的に捕まえる唯一の assert (廃坑の (2c) / 沼地の (7d) と同じ物差し)。
+       *   幕は明るさを上げる代わりに構造を潰すので、行方向の輝度差で落ちる。 */
+      check('(8d) ★森の立面に水平のエッジ (蔓縄の段) がある = 幕ではない',
+        M5.wall.edge >= M5.floor.edge * 1.8,
+        '壁 edge=' + M5.wall.edge.toFixed(2) + ' / 床 edge=' + M5.floor.edge.toFixed(2)
+        + ' = ' + (M5.wall.edge / Math.max(0.01, M5.floor.edge)).toFixed(2) + '倍');
+      /* ⚠ 森の床 (シナリオ2床.png) は平均 L=59.0 で 6 シナリオ中 2 番目に明るい。既定の
+       *   --gamma 0.85 で焼いた立面は可視域 27px が L=54.3 = **床より暗く**なりここが落ちる。
+       *   出荷版は --gamma 0.70 (可視 27px で L=69.3) で焼いてある。 */
+      check('(8e) 森の壁帯が床に溶けていない (下限ガード)', M5.wall.L >= M5.floor.L * 1.15,
+        '壁 L=' + M5.wall.L.toFixed(1) + ' / 床 L=' + M5.floor.L.toFixed(1)
+        + ' = ' + (M5.wall.L / M5.floor.L).toFixed(2) + '倍');
+    }
+    check('(8f) 森でページエラー 0 件', net5.errs.length === 0, net5.errs.slice(0, 3).join(' | '));
+    await fr.close();
   } catch (e) {
     check('(fatal) ドライバが完走した', false, e.message);
   } finally {

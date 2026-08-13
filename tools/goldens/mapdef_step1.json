@@ -1,13 +1,13 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "c020ac2",
-    "subject": "沼地の壁を専用素材2枚へ移行して白い幕を外す (廃坑に続く2テーマ目)",
+    "rev": "7502fcf",
+    "subject": "詠唱時に術者の足元へマジックサークルを展開する (味方/敵/ボス/竜)",
     "dirty": true
   },
   "values": {
     "3-goblin-mine": "6e3cea610399b0ed8b09c284ba38c12047eb18d0ab9caa235d8b28834cbd9e9b",
-    "3-bandits-forest": "13fc42c6b30c6e69b8726d0c0d2585fe524a4784bdfe0224239e4034177f7c81",
+    "3-bandits-forest": "5c6c45023e66c4dde79ca1d1b0acceabe7b571d6a69872c502f12ce9cf7bda6d",
     "3-lizard-swamp": "dffdec78ff4509fb6c500e3239270aaa3db5b48e8ba25bf982f0ad48d6862170",
     "3-orc-fort": "c95600bb52adeb780a5d1c2f415b7caa6827022e9fb65b43a0bf8a5ce66d69dd",
     "3-undead-temple": "92bd8e8e7dd3c378cabb583e49dbd25e34fa60c64370ff52e8523371026aa5ef",
