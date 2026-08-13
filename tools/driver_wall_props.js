@@ -135,16 +135,24 @@ const DIFF = function () {
     return out;
   };
 
+  /* 3 状態を 1 ページロード内で採る。C を足したのは [樹の色調 2026-08-14] のため:
+   * 色調整は**変化画素の枚数を増やさない** (同じ場所の色が変わるだけ) ので、A/B の枚数だけ
+   * 見ていると「効いていない」と「効いている」が同じ数字になる。C との差で、焼いた源が
+   * 実際に描画へ使われていることを見る。 */
   window.__setWallProps(true);
-  const A = grab();
+  window.__setPropTone(true);
+  const A = grab();              // 樹あり・色調整あり (= 出荷状態)
+  window.__setPropTone(false);
+  const C = grab();              // 樹あり・素材のまま
   window.__setWallProps(false);
-  const B = grab();
-  window.__setWallProps(true);   // 後片付け: 本来の状態へ戻す
+  const B = grab();              // 樹なし
+  window.__setWallProps(true);
+  window.__setPropTone(true);    // 後片付け: 本来の状態へ戻す
 
-  const ratio = (k) => {
+  const ratio = (X, Y, k) => {
     let changed = 0, total = 0;
-    for (let i = 0; i < A[k].length; i++) {
-      const a = A[k][i], b = B[k][i];
+    for (let i = 0; i < X[k].length; i++) {
+      const a = X[k][i], b = Y[k][i];
       for (let o = 0; o < a.length; o += 4) {
         total++;
         if (Math.abs(a[o] - b[o]) > 4 || Math.abs(a[o + 1] - b[o + 1]) > 4 || Math.abs(a[o + 2] - b[o + 2]) > 4) changed++;
@@ -152,14 +160,106 @@ const DIFF = function () {
     }
     return { changed: changed, total: total, pct: total ? (100 * changed / total) : 0 };
   };
+  /* 「壁からどれだけ浮いたか」= 樹なしの絵との色距離の平均 (リング全画素で割る)。
+   * 枚数と違い、密度が同じでも色差が増えれば増える量。 */
+  const mag = (X, Y, k) => {
+    let sum = 0, total = 0;
+    for (let i = 0; i < X[k].length; i++) {
+      const a = X[k][i], b = Y[k][i];
+      for (let o = 0; o < a.length; o += 4) {
+        const dr = a[o] - b[o], dg = a[o + 1] - b[o + 1], db = a[o + 2] - b[o + 2];
+        sum += Math.sqrt(dr * dr + dg * dg + db * db); total++;
+      }
+    }
+    return total ? sum / total : 0;
+  };
 
   return {
     tile: T,
     cells: { ring: ring.length, north: north.length, floor: floor.length },
-    ring: ratio('ring'), north: ratio('north'), floor: ratio('floor'),
+    ring: ratio(A, B, 'ring'), north: ratio(A, B, 'north'), floor: ratio(A, B, 'floor'),
+    toneRing: ratio(A, C, 'ring'),          // 色調整あり vs 素材のまま
+    magTone: mag(A, B, 'ring'), magRaw: mag(C, B, 'ring'),
     propW: window.__wallPropImg ? window.__wallPropImg.naturalWidth : null,
     propH: window.__wallPropImg ? window.__wallPropImg.naturalHeight : null,
   };
+};
+
+/* ★[樹の色調 2026-08-14] 焼いた素材そのものの統計。画面ではなく**素材**を測るのは、
+ * 画面には壁の色・陰影・松明が混ざり「葉がどれだけ黄緑へ寄ったか」を分離できないため。
+ * ⚠ 葉/気根の分類は **raw 側の画素**で行い、同じ画素集合で raw と baked を比べる。
+ *   baked 側で分類すると、彩度を上げた結果として気根が葉に化けて自己言及になる。 */
+const TONE_SHEET = function () {
+  const raw = window.__wallPropRaw, src = window.__wallPropSrc;
+  if (!raw) return null;
+  const W = raw.naturalWidth, H = raw.naturalHeight;
+  const read = (img) => {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    return g.getImageData(0, 0, W, H).data;
+  };
+  const A = read(raw), B = read(src || raw);
+  const lum = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
+  const sat = (r, g, b) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b); return mx ? (mx - mn) / mx : 0; };
+  const acc = () => ({ n: 0, r: 0, g: 0, b: 0, s: 0, l: 0, lmax: 0 });
+  const add = (o, r, g, b) => {
+    o.n++; o.r += r; o.g += g; o.b += b; o.s += sat(r, g, b);
+    const L = lum(r, g, b); o.l += L; if (L > o.lmax) o.lmax = L;
+  };
+  const fin = (o) => o.n ? { n: o.n, r: o.r / o.n, g: o.g / o.n, b: o.b / o.n,
+                             sat: o.s / o.n, lum: o.l / o.n, lmax: o.lmax } : null;
+  const leafA = acc(), leafB = acc(), rootA = acc(), rootB = acc();
+  let alphaDiff = 0;
+  for (let i = 0; i < A.length; i += 4) {
+    if (A[i + 3] !== B[i + 3]) alphaDiff++;
+    if (A[i + 3] <= 32) continue;
+    const s = sat(A[i], A[i + 1], A[i + 2]), L = lum(A[i], A[i + 1], A[i + 2]);
+    if (s >= 0.25) { add(leafA, A[i], A[i + 1], A[i + 2]); add(leafB, B[i], B[i + 1], B[i + 2]); }
+    else if (L > 110) { add(rootA, A[i], A[i + 1], A[i + 2]); add(rootB, B[i], B[i + 1], B[i + 2]); }
+  }
+  return { leafRaw: fin(leafA), leafOut: fin(leafB), rootRaw: fin(rootA), rootOut: fin(rootB),
+           alphaDiff: alphaDiff, toneOk: window.__wallPropToneOk, srcIsRaw: (src || raw) === raw };
+};
+
+/* ?proptone=0 の初期状態が「素材のまま」であることの確認 (撤退経路)。
+ * ⚠ 全画面で比べない。北壁の松明は Date.now() で揺れるので、リングのセルだけを見る。 */
+const TONE_INIT = function () {
+  const mc = document.getElementById('mapCanvas');
+  const mctx = mc.getContext('2d');
+  const g = window.__graphRun;
+  const cam = g.cam();
+  const T = cam.tile;
+  const md = g.board().mapDataText.split('\n').map(r => r.split('').map(Number));
+  const H = md.length, W = md[0].length;
+  const isWall = (tx, ty) => (tx >= 0 && ty >= 0 && tx < W && ty < H && md[ty][tx] === 2);
+  const isNorth = (tx, ty) => isWall(tx, ty) && ty + 1 < H && md[ty + 1][tx] !== 2;
+  const rects = [];
+  const tx0 = Math.max(0, Math.floor(cam.camX / T)), tx1 = Math.min(W - 1, Math.ceil((cam.camX + mc.width) / T));
+  const ty0 = Math.max(0, Math.floor(cam.camY / T)), ty1 = Math.min(H - 1, Math.ceil((cam.camY + mc.height) / T));
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      if (!isWall(tx, ty) || isNorth(tx, ty) || isNorth(tx, ty + 1)) continue;
+      const sx = Math.round(tx * T - cam.camX), sy = Math.round(ty * T - cam.camY);
+      if (sx < 0 || sy < 0 || sx + T > mc.width || sy + T > mc.height) continue;
+      rects.push([sx, sy]);
+    }
+  }
+  const snap = () => rects.map(r => mctx.getImageData(r[0], r[1], T, T).data);
+  const a = snap();
+  window.__setPropTone(false); const b = snap();
+  window.__setPropTone(true);  const c = snap();
+  window.__setPropTone(false);   // 後片付け: ?proptone=0 の本来の状態へ戻す
+  const diff = (x, y) => {
+    let n = 0;
+    for (let i = 0; i < x.length; i++)
+      for (let o = 0; o < x[i].length; o += 4)
+        if (Math.abs(x[i][o] - y[i][o]) > 4 || Math.abs(x[i][o + 1] - y[i][o + 1]) > 4
+            || Math.abs(x[i][o + 2] - y[i][o + 2]) > 4) n++;
+    return n;
+  };
+  return { rects: rects.length, vsRaw: diff(a, b), vsTone: diff(a, c) };
 };
 
 /* 決定論の確認: renderMap を 2 回走らせて mapCanvas が 1 画素も動かないこと。
@@ -300,6 +400,42 @@ async function dumpCanvas(page, file) {
     const P = await page.evaluate(PERF, 40);
     console.log('[drv] renderMap ' + JSON.stringify(P));
     check('(4b) renderMap にスパイクが出ていない', P.max < 400, 'max=' + P.max.toFixed(1) + 'ms');
+
+    // ══ §8 樹の色調 (tone) — 壁から浮いたか / 気根が発光していないか ══════════════
+    mark('沼地: 色調整 (tone) が素材と画面へ効いていること');
+    const TS = await page.evaluate(TONE_SHEET);
+    const f1 = (x) => x.toFixed(1);
+    console.log('[drv] 葉  raw=(' + [TS.leafRaw.r, TS.leafRaw.g, TS.leafRaw.b].map(f1).join(',') + ') sat='
+      + TS.leafRaw.sat.toFixed(2) + '  →  out=(' + [TS.leafOut.r, TS.leafOut.g, TS.leafOut.b].map(f1).join(',')
+      + ') sat=' + TS.leafOut.sat.toFixed(2));
+    console.log('[drv] 気根 raw L=' + f1(TS.rootRaw.lum) + ' Lmax=' + f1(TS.rootRaw.lmax)
+      + '  →  out L=' + f1(TS.rootOut.lum) + ' Lmax=' + f1(TS.rootOut.lmax));
+    console.log('[drv] mag ' + JSON.stringify({ tone: D.magTone, raw: D.magRaw }));
+
+    check('(8a) tone が黙って素通しになっていない', TS.toneOk === true && TS.srcIsRaw === false,
+      'toneOk=' + TS.toneOk + ' srcIsRaw=' + TS.srcIsRaw);
+    /* ★ 森が壁から浮いている理由は明るさではなく**青の量**だった (森の樹 b=31 / 壁 b=97)。
+     *   沼も同じ方向 = 彩度を上げて青を削る、で効いているかを見る。数値を「上がった」ではなく
+     *   **どちらの向きへどれだけ**で縛らないと、明るくしただけでも緑になる。 */
+    check('(8b) ★葉の彩度が上がり青が削れた (壁と同系色から抜けた)',
+      TS.leafOut.sat - TS.leafRaw.sat >= 0.15 && TS.leafRaw.b - TS.leafOut.b >= 15,
+      'sat ' + TS.leafRaw.sat.toFixed(2) + '→' + TS.leafOut.sat.toFixed(2)
+      + ' / b ' + f1(TS.leafRaw.b) + '→' + f1(TS.leafOut.b));
+    /* ★ 気根は葉と**逆向き**へ動かす。一律に鮮やかにすると低彩度・高輝度のここだけが白く光る
+     *   (「気根が白っぽい」という既知の指摘そのもの)。平均輝度が下がり、最大輝度が上がらないこと。 */
+    check('(8c) ★気根が発光していない (平均輝度が下がり、最大輝度が上がっていない)',
+      TS.rootRaw.lum - TS.rootOut.lum >= 15 && TS.rootOut.lmax <= TS.rootRaw.lmax + 1,
+      'L ' + f1(TS.rootRaw.lum) + '→' + f1(TS.rootOut.lum)
+      + ' / Lmax ' + f1(TS.rootRaw.lmax) + '→' + f1(TS.rootOut.lmax));
+    check('(8d) ★アルファが 1 画素も変わっていない (輪郭が太っていない)', TS.alphaDiff === 0,
+      'alpha 差 ' + TS.alphaDiff + ' px');
+    /* ★ 焼いた canvas が**実際に描画へ使われている**こと。素材だけ焼けて描画は raw のまま、
+     *   という配線ミスは (8a)〜(8d) を全部緑にしたまま通る。 */
+    check('(8e) ★焼いた源が画面に出ている (色調整あり/なしでリングが変わる)',
+      D.toneRing.pct >= 5, 'ring 変化 ' + D.toneRing.pct.toFixed(1) + '%');
+    check('(8f) ★壁との色距離が実際に増えた (浮いた量が増加)', D.magTone > D.magRaw * 1.05,
+      'mag ' + D.magRaw.toFixed(2) + ' → ' + D.magTone.toFixed(2)
+      + ' (×' + (D.magTone / D.magRaw).toFixed(2) + ')');
     await page.close();
 
     // ══ §5 負のコントロール: wallProps を持たない廃坑へ漏れていないか ══════════
@@ -331,6 +467,12 @@ async function dumpCanvas(page, file) {
       D3.north.changed === 0 && D3.floor.changed === 0 && D3.north.total > 0 && D3.floor.total > 0,
       'north=' + D3.north.changed + '/' + D3.north.total + ' floor=' + D3.floor.changed + '/' + D3.floor.total);
     check('(6d) 森でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
+    /* ★ 負のコントロール: tone を設定していない森は 1 画素も焼かれないこと。焼き込みが
+     *   テーマ設定を無視して全 wallProps へ掛かると、森の樹まで勝手に色が変わる。 */
+    const TS3 = await page3.evaluate(TONE_SHEET);
+    check('(6e) ★森は色調整の対象外 (tone 未設定のテーマへ漏れていない)',
+      TS3.toneOk === null && TS3.srcIsRaw === true && D3.toneRing.changed === 0,
+      'toneOk=' + TS3.toneOk + ' srcIsRaw=' + TS3.srcIsRaw + ' ring 変化=' + D3.toneRing.changed);
     await page3.close();
 
     // ══ §7 撤退スイッチ (?wallprops=0) が効くこと ══════════════════════════════
@@ -343,6 +485,22 @@ async function dumpCanvas(page, file) {
     check('(7a) ★?wallprops=0 では素材を 1 枚も読まない (撤退経路)',
       D4.propW === null || D4.propW === undefined, 'propW=' + D4.propW);
     await page4.close();
+
+    // ══ §9 色調整だけの撤退スイッチ (?proptone=0) ══════════════════════════════
+    /* 樹は残したいが色が派手、というときの戻り先。?wallprops=0 しかないと判断が全か無かになる。 */
+    mark('?proptone=0 で樹は出るが色は素材のままになること');
+    const net5 = { errs: [], bad: [] };
+    const page5 = await boot(browser, URL_Q + '&proptone=0', 'lizard-swamp', 1280, 800, net5);
+    const TI = await page5.evaluate(TONE_INIT);
+    console.log('[drv] proptone=0 ' + JSON.stringify(TI));
+    check('(9a) ★?proptone=0 の初期状態が素材のまま (色調整が掛かっていない)',
+      TI.vsRaw === 0 && TI.rects >= 8, '素材との差 ' + TI.vsRaw + ' px / セル ' + TI.rects);
+    /* ⚠ 上だけだと「樹が 1 本も出ていない」でも緑になる (どちらの源でも真っ黒なら差 0)。
+     *   色調整を入れれば変わる = 樹が実在することを同時に測る。 */
+    check('(9b) ★樹自体は出ている (色調整を入れると絵が変わる)', TI.vsTone > 0,
+      '色調整との差 ' + TI.vsTone + ' px');
+    check('(9c) ?proptone=0 でページエラー 0 件', net5.errs.length === 0, net5.errs.slice(0, 3).join(' | '));
+    await page5.close();
 
   } catch (e) {
     check('(fatal) 例外なく完走', false, String(e && e.message));

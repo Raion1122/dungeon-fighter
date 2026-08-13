@@ -3206,10 +3206,19 @@
                           wallTint: { color: "228,234,244", a: 0.32 },
                           wallProps: { img: "wall_prop_bandits-forest_top.png",
                                        cols: 4, rate: 70, scale: 1.12 } },
+      /* ★[樹の色調 2026-08-14] tone = 素材をロード後に 1 度だけ焼き直す色補正 (bakeWallPropTone)。
+       *   ユーザー指摘「沼地だけまだ反映されていないように見える」への解。樹は最初から描かれて
+       *   いた (リング画素の 17.3% が変化) が、**壁との色差が足りず沈んでいた**のが真因。
+       *   実測: 沼の葉 (92,94,58) と tint 後の壁 (102,109,90) の RGB 距離は 36。同じ仕組みで
+       *   十分見える森は 75 で、差は明るさではなく**青の量** (森の樹は青 31 / 壁は青 97)。
+       *   → 沼も彩度を上げて青を削り、黄緑側へ寄せる (距離 36 → 62)。密度ではないので rate は
+       *   触らない (rate を上げても同系色の塊が増えるだけ)。 */
       "lizard-swamp":   { floor: "シナリオ3床.png", wall: "シナリオ3壁.png",
                           wallTint: { color: "214,226,232", a: 0.30 },
                           wallProps: { img: "wall_prop_lizard-swamp_top.png",
-                                       cols: 4, rate: 62, scale: 1.10 } },
+                                       cols: 4, rate: 62, scale: 1.10,
+                                       tone: { sat: 1.70, gMul: 1.12, bMul: 0.78,
+                                               rootGain: 0.78 } } },
       "orc-fort":       { floor: "シナリオ4床.png", wall: "シナリオ4壁.png",
                           wallTint: { color: "232,236,242", a: 0.26 } },
       // 神殿だけ逆向き (白い大理石の床に白い壁 → 暗いスレートへ寄せて分離する)
@@ -3501,13 +3510,71 @@
     try {
       if (new URLSearchParams(window.location.search).get("wallprops") === "0") WALL_PROPS_ON = false;
     } catch (e) {}
+    /* ⚠ ?proptone=0 で色調整だけを切って素材そのままの色に戻せる (?wallprops=0 は樹ごと消える。
+     *   「樹は欲しいが色が派手」のときの巻き戻し先がないと、判断が全か無かになる)。 */
+    let PROP_TONE_ON = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("proptone") === "0") PROP_TONE_ON = false;
+    } catch (e) {}
+    /* ★[樹の色調 2026-08-14] 低彩度・高輝度の画素 (= マングローブの気根) を葉と別扱いするための境目。
+     * ⚠⚠ 素材を一律に明るく/鮮やかにしてはいけない。この素材は不透明画素の 12.3% が気根で、
+     *   平均輝度を合わせにいくと気根だけが白く発光する (生成時に 255→183 まで圧縮済みでもまだ白い)。
+     *   葉は彩度を上げ、気根は輝度を落とす、と**逆方向へ動かす**のが要点。
+     * ⚠ 境目は smoothstep で滑らかにする。硬い閾値だと葉と気根の境に段が出る。 */
+    const PROP_TONE_ROOT = { satHi: 0.30, satLo: 0.12, lumLo: 105, lumHi: 150 };
+    window.__wallPropToneOk = null;   // 検証シーム: null=tone 未設定 / true=焼けた / false=焼けずに素通し
+    /* 素材をロード後 1 度だけ焼き直して canvas を返す (262k 画素 = 数 ms、毎フレームではない)。
+     * ⚠ 返り値は drawImage の源にしか使わない。createPattern へ渡すと renderMap に 7.5 秒級の
+     *   スパイクが出る (上のコメントの既知の罠)。 */
+    function bakeWallPropTone(img, tone) {
+      if (!tone) return img;
+      try {
+        const cv = document.createElement("canvas");
+        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        const g2 = cv.getContext("2d", { willReadFrequently: true });
+        g2.drawImage(img, 0, 0);
+        const id = g2.getImageData(0, 0, cv.width, cv.height), d = id.data;
+        const sMul = tone.sat || 1, rMul = tone.rMul || 1, gMul = tone.gMul || 1,
+              bMul = tone.bMul || 1, rootGain = tone.rootGain || 1, K = PROP_TONE_ROOT;
+        const ss = (e0, e1, x) => {
+          let t = (x - e0) / (e1 - e0);
+          t = t < 0 ? 0 : (t > 1 ? 1 : t);
+          return t * t * (3 - 2 * t);
+        };
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] === 0) continue;      // 完全透明はそのまま (輪郭を太らせない)
+          const r = d[i], g = d[i + 1], b = d[i + 2];
+          const L = 0.299 * r + 0.587 * g + 0.114 * b;
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          const s = mx === 0 ? 0 : (mx - mn) / mx;
+          const w = ss(K.satHi, K.satLo, s) * ss(K.lumLo, K.lumHi, L);   // 1 に近いほど気根
+          // Uint8ClampedArray なので代入時に丸め + 0..255 クランプが効く
+          d[i]     = (L + (r - L) * sMul) * rMul * (1 - w) + r * rootGain * w;
+          d[i + 1] = (L + (g - L) * sMul) * gMul * (1 - w) + g * rootGain * w;
+          d[i + 2] = (L + (b - L) * sMul) * bMul * (1 - w) + b * rootGain * w;
+        }
+        g2.putImageData(id, 0, 0);
+        window.__wallPropToneOk = true;
+        return cv;
+      } catch (e) {
+        /* file:// 直開きでは getImageData が SecurityError で落ちる。絵は素材のまま出すが、
+         * 「黙って効いていない」状態を検証から隠さないようシームと警告に残す。 */
+        window.__wallPropToneOk = false;
+        console.warn("[wallProps] tone の焼き込みに失敗 (素材のまま描画):", e);
+        return img;
+      }
+    }
     let wallPropImg = null;
     if (WALL_PROPS_ON && _texSet.wallProps && _texSet.wallProps.img) {
       const _wpImg = new Image();
       _wpImg.onload = () => {
         if (_wpImg.naturalWidth) {
-          wallPropImg = _wpImg;
+          /* ⚠ __wallPropImg には**素の Image を入れたまま**にする。焼いた canvas を入れると
+           *   naturalWidth が undefined になり、素材の有無と寸法を見る既存 assert が落ちる。 */
           window.__wallPropImg = _wpImg;   // 検証シーム (driver から素材の有無と寸法を見る)
+          window.__wallPropRaw = _wpImg;                                  // 色調整なしの源
+          window.__wallPropSrc = bakeWallPropTone(_wpImg, _texSet.wallProps.tone);  // 色調整ありの源
+          wallPropImg = PROP_TONE_ON ? window.__wallPropSrc : _wpImg;
         }
         renderMap();
       };
@@ -3518,7 +3585,14 @@
      * ⚠ これが無いと A/B は 2 回のページロードになり、カメラ位置・敵の湧き・フォグが別物になって
      *   「樹のせいで変わった画素」と「そもそも別の絵」を切り分けられない。 */
     window.__setWallProps = function (on) {
-      wallPropImg = on ? (window.__wallPropImg || null) : null;
+      wallPropImg = on ? (window.__wallPropSrc || window.__wallPropImg || null) : null;
+      renderMap();
+    };
+    /* 検証シーム: 色調整の前後を同一ページで切り替える。ドライバは「樹なし / 樹あり素材のまま /
+     * 樹あり色調整あり」の 3 状態を 1 回のページロードで比べ、**壁からどれだけ浮いたか**を
+     * 変化画素の「数」ではなく「大きさ」で測る (数は密度の指標で、色差では増えない)。 */
+    window.__setPropTone = function (on) {
+      wallPropImg = on ? (window.__wallPropSrc || null) : (window.__wallPropRaw || null);
       renderMap();
     };
 
@@ -6897,8 +6971,12 @@
       if (wallPropImg && !FIELD_DRAW && !IS_FIELD_THEME) {
         const WP = _texSet.wallProps;
         const wpCols = Math.max(1, WP.cols | 0);
-        const wpFW = Math.floor(wallPropImg.naturalWidth / wpCols);
-        const wpFH = wallPropImg.naturalHeight;
+        /* ⚠ 源は素の Image とは限らない (tone を焼いた canvas のことがある)。canvas には
+         *   naturalWidth が無いので width へフォールバックする。ここを直さないと NaN が
+         *   drawImage へ流れて樹が 1 本も出ない (しかも例外は出ない)。 */
+        const wpSrcW = wallPropImg.naturalWidth || wallPropImg.width;
+        const wpFW = Math.floor(wpSrcW / wpCols);
+        const wpFH = wallPropImg.naturalHeight || wallPropImg.height;
         const wpSize = TILE_SIZE * (WP.scale || 1);
         const wpHalf = wpSize / 2;
         const wpRate = WP.rate | 0;

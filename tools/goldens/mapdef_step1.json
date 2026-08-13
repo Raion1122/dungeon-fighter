@@ -1,14 +1,14 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "c88ceaf",
-    "subject": "P7 分岐マップのノードに 1 枚絵を貼る (山場 + ボスの 12 枚)",
+    "rev": "d23a476",
+    "subject": "沼地と森の壁リングに樹木プロップを敷く (石垣と樹の併用)",
     "dirty": true
   },
   "values": {
     "3-goblin-mine": "4d5ea5430e4a186db223547cc462d30e9ba1a0c7a5e53c34a67c090d5db82e55",
     "3-bandits-forest": "13fc42c6b30c6e69b8726d0c0d2585fe524a4784bdfe0224239e4034177f7c81",
-    "3-lizard-swamp": "920a7daa4d41f9fcbb9da990243a6c59401f8944ea94a537396d6ced56600adb",
+    "3-lizard-swamp": "b0808999d06714688659836d66e657dfc64627f2456dbc06ac1a52c088e3b473",
     "3-orc-fort": "c95600bb52adeb780a5d1c2f415b7caa6827022e9fb65b43a0bf8a5ce66d69dd",
     "3-undead-temple": "92bd8e8e7dd3c378cabb583e49dbd25e34fa60c64370ff52e8523371026aa5ef",
     "3-dragon-lair": "3bb9126aacf40cbf5051f34060d34c89beac30ce12ab15d25638fd14a32426b0",
