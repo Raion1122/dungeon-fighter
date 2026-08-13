@@ -107,6 +107,46 @@ JSONL 仕様:
 - 致命的失敗(login_expired / rate_limit / captcha) → 即中断し、残り項目を `[skipped]` でログ出力
 - 部分失敗(gen_error / timeout / その他) → 該当項目だけスキップして次へ、最終 exit code は `3`
 
+⚠ **送信できていないのに「タイムアウト」に見える罠** (2026-08-12 に実測):
+応答が流れている間、ChatGPT は送信ボタンを**停止ボタンに差し替える**。この状態では
+送信がボタンでも Enter でも通らないが、**本文は入力欄に入ってしまう**ので、外からは
+`Timeout: no image appeared` にしか見えず 1 項目あたり `--timeout` を丸ごと空費する
+(廃坑の 2 枚で 480 秒を捨てた)。対策として以下を実装済み:
+
+- 打ち込む**前**に `_wait_idle()` で停止ボタンの消失を待つ
+- 送信の成否は「ボタンを押せたか」ではなく **入力欄が空になったか** (`_try_send()`) で判定し、
+  通らなければ 1 度だけ待ち直して再送、それでも駄目なら**待たずに** exit 6 で落とす
+- テンプレ把握ターン (`expect_image:false`) の応答待ちは 60 秒 → **180 秒**
+  (日本語の長文応答が 60 秒に収まらないのが発端だった)
+- 日本語 UI では `aria-label` が「プロンプトを送信する」「ストリーミングの停止」なので、
+  `SELECTORS` の `send_button` / `generating_indicator` に日本語パターンを併記してある
+
+### 部屋 1 枚絵のテンプレ (4 種。用途で使い分ける)
+
+| テンプレ | 比率 | 用途 | 壁 |
+| --- | --- | --- | --- |
+| `_TEMPLATE_room_battlemap.txt` | 10:7 | 旧単一マップの山場 | 絵に含める |
+| `_TEMPLATE_room_battlemap_boss.txt` | 11:9 | 旧単一マップのボス部屋 | 絵に含める |
+| `_TEMPLATE_room_beltscroll.txt` | 5:4 | ベルトスクロール版の山場 | 奥壁を絵に含める |
+| `_TEMPLATE_room_node.txt` | 7:6 / 3:2 | **★P7 分岐マップのノード** | **描かない** |
+
+★P7 のノード用だけ作法が 2 点**逆**になる (混ぜると使えない絵が出る):
+
+- **壁を描かない**。部屋を囲む石壁はゲーム側がタイルで描くので、絵に描くと二重になる
+- **四隅を暗く落とさない**。部屋が 6 行しかなく feather が 1 タイルずつ食うため、
+  ビネットを入れると部屋がほぼ全部暗くなる (旧 3 種は「四隅を落として奥行き」が正)
+
+バッチは `room_<theme>_node.jsonl` (6 本 = 1 シナリオ 1 起動)。raw は
+`source_images/room_node/` へ受け、**必ず** 仕上げツールを通してから `assets/` へ置く:
+
+```powershell
+py tools/room_node_finish.py --raw source_images/room_node/room_orc-fort_n4_raw.png `
+   --out assets/room_orc-fort_n4.jpg --aspect 7:6
+```
+
+中央クロップ + リサイズで厳密な比率へ揃え (7:6 → 1176x1008 / 3:2 → 1512x1008)、
+**edge/center 比を実測して報告**する (0.88 未満 = ビネット混入 → 再生成)。
+
 ### Exit code
 
 | code | 意味 | 対処 |

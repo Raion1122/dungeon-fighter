@@ -7,7 +7,7 @@
  *   ① 廃坑 (goblin-mine) が **既定で分岐版になる**。出所は index.html 内蔵の
  *      buildGoblinMineRun() で、生成クエストのペイロードにも dev シームにも依存しない。
  *   ② グラフが企画どおりの形をしている = **行き止まりありの木** / boss へ到達可能 /
- *      1枚絵は全ノード painting:null (7x6 の部屋に在庫 20x16 は載らないため) /
+ *      1枚絵は n4/n7 の 2 ノードだけ (★P7 で null → ノード専用の絵へ言い直した) /
  *      lintRun が **error 0 かつ warning 0**。
  *   ③ EV-2 / EV-5 / EV-9 が **ノードへ再アンカー**されている。
  *      旧アンカーは「ROOMS[0] の西端から東へ +N」= 西から進入する前提で、分岐版では成立しない。
@@ -333,7 +333,17 @@ async function captiveDom(page) {
       scenarioId: scenarioId,
       nodes: gr.nodes.map(n => n.id + ':' + n.kind),
       rects: gr.nodes.map(n => n.id + '=' + JSON.stringify(n.mapDef.rooms[0].rect)),
-      paintings: gr.nodes.map(n => n.mapDef.rooms[0].painting),
+      /* ★P7: 「絵を貼るのはどのノードか」と「その絵が伸縮なしで載るか」を分けて採る。
+       *   ⚠ same は tileBounds と部屋 rect の**完全一致**で見る (比率一致より強い条件だが、
+       *     ノード用の絵は部屋ぴったりに作る約束なので、緩めると座標のズレを取り逃がす)。 */
+      paintKeys: gr.nodes.map(n => { const p = n.mapDef.rooms[0].painting;
+                                     return p ? p.key : 'null'; }),
+      paintFit: gr.nodes.filter(n => n.mapDef.rooms[0].painting).map(n => {
+        const rm = n.mapDef.rooms[0], p = rm.painting;
+        const b = DFMapDef.paintingBoundsFor(p.theme, p.key);
+        return { node: n.id, key: p.key, src: DFMapDef.paintingSrcFor(p.theme, p.key),
+                 same: !!b && JSON.stringify(b) === JSON.stringify(rm.rect) };
+      }),
       objectives: gr.nodes.map(n => n.mapDef.objective.kind),
       themes: gr.nodes.map(n => n.mapDef.themeId),
       slotCounts: gr.nodes.map(n => n.id + ':' + (n.mapDef.rooms[0].enemySlots || []).length +
@@ -361,8 +371,17 @@ async function captiveDom(page) {
     G.themes.join(','));
   check('(1g) 全ノードの objective が defeatBoss (クリア条件がボス撃破)',
     G.objectives.every(o => o === 'defeatBoss'), G.objectives.join(','));
-  check('(1h) ★1枚絵は全ノード null (7x6 に在庫 20x16 は載らない = Phase 7 へ切り出し)',
-    G.paintings.every(p => p === null), JSON.stringify(G.paintings));
+  /* ★P7 (2026-08-12) で母集団 (「全ノード painting:null」) が仕様ごと消えたので、
+   *   期待値を書き換えるのではなく**不変条件を言い直した**。P5 が守りたかったのは
+   *   「7x6 の部屋に載らない絵が無言で貼られていないこと」であって null そのものではない。
+   *   新しい言い方 = 絵を貼るノードは n4 (山場) / n7 (ボス) のちょうど 2 つで、
+   *   その参照は必ずカタログから引け、覆う矩形が部屋の rect と**同一**であること
+   *   (同一なら 5引数 drawImage は 1 ピクセルも伸縮しない)。 */
+  check('(1h) ★1枚絵は n4 / n7 のちょうど 2 ノード (残り 6 つは null)',
+    G.paintKeys.join(',') === 'null,null,null,null,n4,null,null,n7', G.paintKeys.join(','));
+  check('(1h2) ★その 2 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
+    G.paintFit.length === 2 && G.paintFit.every(p => p.src && p.same === true),
+    JSON.stringify(G.paintFit));
   check('(1i) 道中 7 ノードは 7 列 x 6 行 [11,33,16,39]',
     G.rects.filter(s => s.indexOf('n7=') !== 0).every(s => s.indexOf('[11,33,16,39]') > 0),
     G.rects.join(' '));

@@ -1,0 +1,8 @@
+# ★P7 分岐マップのノード用 1枚絵: 廃坑 (goblin-mine) の n4 山場 + n7 ボス。
+# テンプレ把握 (画像なし) -> 7:6 -> 3:2 の3段階。1 起動 = 1 チャットで連投し、
+# 同じ坑道の地面として質感を揃える (別テーマは必ず別起動 = 別チャット)。
+# raw は source_images/room_node/ へ受け、tools/room_node_finish.py で
+# 1176x1008 (7:6) / 1512x1008 (3:2) の JPEG へ仕上げて assets/ へ置く。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_node.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_goblin-mine_n4.txt", "output": "source_images/room_node/room_goblin-mine_n4_raw.png"}
+{"prompt_file": "tools/sprite_batches/room_goblin-mine_n7.txt", "output": "source_images/room_node/room_goblin-mine_n7_raw.png"}

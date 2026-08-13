@@ -34,11 +34,22 @@ import argparse
 import base64
 import json
 import os
+# (下の sys import 後に stdout/stderr を UTF-8 化する。理由はそこの注記)
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Optional
+
+# cp932 コンソールでも記号入りの文字列を出せるよう UTF-8 化。
+# ⚠ これが無いと `—`(U+2014) 等を含むログ 1 行で UnicodeEncodeError が上がり、
+#   **その項目が rc=6 で死ぬ** (2026-08-12 に廃坑の 2 枚を落とした)。ログ文は ASCII に
+#   保つのが第一だが、保険としてここでも受ける。出典は scripts/hooks/check_changelog.py。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 try:
     from playwright.sync_api import (
@@ -68,13 +79,20 @@ SELECTORS = {
     # プロンプト入力欄 (textarea or contenteditable div)
     "prompt_input":          '#prompt-textarea, div[contenteditable="true"][data-virtualkeyboard], textarea[placeholder*="Message"]',
     # 送信ボタン
-    "send_button":           'button[data-testid="send-button"], button[aria-label*="Send"]',
+    # ⚠ UI 言語が日本語だと aria-label が「プロンプトを送信する」で英語パターンに当たらない。
+    #   2026-08-12、"Send button not found" → Enter フォールバックへ落ち、しかも直前の応答が
+    #   まだ流れていて Enter も無視され、プロンプトが入力欄に残ったまま 240s 空費した。
+    "send_button":           ('button[data-testid="send-button"], button[aria-label*="Send"], '
+                              'button[id="composer-submit-button"], button[aria-label*="送信"]'),
     # 生成完了画像 (DALL-E 出力の URL パターン)
     # 2026 現行: chatgpt.com/backend-api/estuary/content?id=file_... 形式
     # 旧パターン (oaiusercontent / dalle / files.openai.com) も互換で残す
     "generated_image":       'img[src*="backend-api/estuary"], img[src*="oaiusercontent"], img[src*="dalle"], img[src*="files.openai.com"]',
     # 生成中インジケータ (Stop ボタン)
-    "generating_indicator":  'button[data-testid="stop-button"], button[aria-label*="Stop"]',
+    # ⚠ 送信ボタンと同じ理由で日本語 UI (「ストリーミングの停止」) も併記する。ここが当たらないと
+    #   「まだ流れている」を検知できず、次のプロンプトを流れている最中に打ち込んでしまう。
+    "generating_indicator":  ('button[data-testid="stop-button"], button[aria-label*="Stop"], '
+                              'button[aria-label*="停止"]'),
     # CAPTCHA iframe
     "captcha":               'iframe[src*="captcha"], iframe[src*="hcaptcha"], iframe[title*="captcha" i]',
     # 失敗テキストパターン
@@ -614,6 +632,141 @@ def _navigate_new_chat(page: Page) -> int:
     return 0
 
 
+def _composer_text(page: Page) -> str:
+    """入力欄に今入っている本文。取れない UI 変更時は空文字 (検算をスキップする側へ倒す)。"""
+    try:
+        return (page.eval_on_selector(
+            SELECTORS["prompt_input"], "el => el.innerText || el.value || ''") or "").strip()
+    except Exception:
+        return ""
+
+
+def _body_len(page: Page) -> int:
+    """会話ペインの文字数。応答が流れている間だけ増え続ける。
+
+    ⚠⚠ **完了判定を「停止ボタンの有無」に頼らない**のがこの関数の存在理由 (2026-08-12)。
+      ChatGPT の UI が変わると停止ボタンのセレクタが当たらなくなり、その瞬間
+      「busy でない = 書き終わった」と読んで**送信直後に完了と誤判定**する。実際そうなり、
+      流れている最中に次のプロンプトを打ち込んで 2 枚とも空振りした
+      (この誤判定は「一度も待たずに次へ進む」ので、ログ上は正常に見えるのが最悪)。
+      文字数が伸びなくなったかどうかは DOM 構造に依存しないので、UI 変更に強い。
+    """
+    try:
+        return len(page.inner_text("main") or "")
+    except Exception:
+        try:
+            return len(page.inner_text("body") or "")
+        except Exception:
+            return -1
+
+
+def _wait_idle(page: Page, timeout_s: float, quiet_polls: int = 3) -> bool:
+    """直前の応答が流れ終わる (= 本文が伸びなくなる) まで待つ。戻り: 落ち着いたか。
+
+    停止ボタンが見えている間は無条件で busy 扱いにし、見えなくなった後は
+    **本文の長さが quiet_polls 回連続で変わらないこと**を完了の条件にする。
+    """
+    deadline = time.time() + timeout_s
+    last, quiet = -1, 0
+    while time.time() < deadline:
+        try:
+            busy = page.query_selector(SELECTORS["generating_indicator"])
+        except Exception:
+            busy = None
+        cur = _body_len(page)
+        if busy or cur != last:
+            quiet = 0
+        else:
+            quiet += 1
+            if quiet >= quiet_polls:
+                return True
+        last = cur
+        time.sleep(1.0)
+    log_info(f"Idle wait timed out after {int(timeout_s)}s (previous response may still stream)")
+    return False
+
+
+def _try_send(page: Page, budget_s: float = 120.0) -> bool:
+    """入力欄が空になるまで送信を粘る。戻り: 送れたか。
+
+    ⚠ 「ボタンを押せた」は送信の証拠にならない。応答が流れている間、送信ボタンは停止ボタンへ
+      差し替わり、ボタンも Enter も**黙って無視される**(本文だけが入力欄に残る)。唯一信用
+      できるのは入力欄が空になったかどうか。
+    ⚠ セレクタが当たらない UI 変更に備え、**押し直しを繰り返す**方式にしてある
+      (流れ終われば通るので、停止ボタンの正しいセレクタを知らなくても自力で回復する)。
+    """
+    deadline = time.time() + budget_s
+    attempt = 0
+    logged = False
+    while time.time() < deadline:
+        # ★停止ボタンが見えている = まだ流れている。この間は送信ボタンが disabled
+        #   (opacity 0.35 と実測) なので、押しても Enter でも通らない。試さずに待つ。
+        #   2026-08-13、砦のテンプレ応答が 3 分以上流れ続け、この待ちが無かったため
+        #   「押す → 5 秒待つ」を予算いっぱい繰り返して 2 枚とも落とした。
+        try:
+            if page.query_selector(SELECTORS["generating_indicator"]):
+                if not logged:
+                    log_info("Previous response is still streaming; waiting before sending...")
+                    logged = True
+                time.sleep(2.0)
+                continue
+        except Exception:
+            pass
+        attempt += 1
+        # 手段を 3 つ順に回す。⚠ Enter の前に**入力欄へフォーカスを戻す** (直前に送信ボタンを
+        #   押していると、フォーカスがボタン上にあり Enter がボタンの再押下になってしまう)。
+        way = attempt % 3
+        try:
+            btn = page.query_selector(SELECTORS["send_button"])
+            if way == 1 and btn:
+                btn.click()
+            elif way == 2 and btn:
+                btn.evaluate("b => b.click()")   # actionability を通さない DOM 直 click
+            else:
+                page.click(SELECTORS["prompt_input"])
+                page.keyboard.press("Enter")
+        except Exception:
+            pass
+        for _ in range(10):                      # 5 秒だけ入力欄の消えるのを待つ
+            if not _composer_text(page):
+                return True
+            time.sleep(0.5)
+        if attempt == 1:
+            log_info("Send did not go through (composer still holds the prompt); "
+                     "retrying while the previous response finishes...")
+            _log_send_state(page)
+    return False
+
+
+def _log_send_state(page: Page) -> None:
+    """送信できない瞬間の DOM 状態をログへ出す。
+
+    ⚠ ここが無いと「押したのに送れない」の原因 (無効化されている / そもそも要素が無い /
+      まだ生成中) を**画面写真から推測する**しかなくなる。2026-08-12 に 3 回それをやった。
+    """
+    try:
+        st = page.evaluate(
+            """(sels) => {
+              const b = document.querySelector(sels[0]);
+              const stop = document.querySelector(sels[1]);
+              const cs = b ? getComputedStyle(b) : null;
+              const m = document.querySelector('main');
+              return {
+                sendFound: !!b,
+                sendId: b ? (b.id || null) : null,
+                sendDisabled: b ? (b.disabled === true ||
+                                   b.getAttribute('aria-disabled') === 'true') : null,
+                sendOpacity: cs ? cs.opacity : null,
+                sendPointer: cs ? cs.pointerEvents : null,
+                stopVisible: !!stop,
+                mainLen: m ? m.innerText.length : -1,
+              };
+            }""", [SELECTORS["send_button"], SELECTORS["generating_indicator"]])
+        log_info("  send-state: " + json.dumps(st))
+    except Exception as e:
+        log_info(f"  send-state: unavailable ({e})")
+
+
 def _send_prompt_and_capture(
     page: Page,
     prompt: str,
@@ -636,6 +789,12 @@ def _send_prompt_and_capture(
     """
     if expect_image and output is not None:
         ensure_dir(output.parent)
+
+    # ⚠⚠ 打ち込む前に「前のターンがまだ流れていないか」を必ず確かめる (2026-08-12)。
+    #   流れている間は送信ボタンが停止ボタンに置き換わるので、送信は**ボタンでも Enter でも
+    #   通らない**。それでも本文は入力欄に入るため、症状は「タイムアウト」にしか見えず、
+    #   1 件あたり timeout_s を丸ごと空費する (廃坑の 2 枚で 480s を捨てた)。
+    _wait_idle(page, 180)
 
     # 入力欄の取得 + 既存テキストクリア (再試行時 / バッチ 2 件目以降の残骸対策)
     try:
@@ -672,31 +831,32 @@ def _send_prompt_and_capture(
         if len(got) < len(want) * 0.9:
             log_err(
                 f"Prompt truncated in composer ({len(got)}/{len(want)} chars) "
-                "— aborting before send to avoid wasting a generation."
+                "- aborting before send to avoid wasting a generation."
             )
             save_debug(page, "typing-truncated")
             return 6
 
-    # 送信 (ボタンが見つかれば押す、無ければ Enter)
-    sent = False
-    try:
-        send_btn = page.wait_for_selector(SELECTORS["send_button"], timeout=5_000)
-        if send_btn:
-            send_btn.click()
-            sent = True
-    except PWTimeoutError:
-        pass
-    if not sent:
-        log_info("Send button not found, falling back to Enter key")
-        page.keyboard.press("Enter")
+    # 送信 (ボタンが見つかれば押す、無ければ Enter)。
+    # ⚠ 送信は**押した後に入力欄が空になったか**で確かめる。押せた/押せないは送信の証拠にならない
+    #   (停止ボタンが出ている間はどちらの手段も黙って無視される = 2026-08-12 の空費の原因)。
+    if not _try_send(page, budget_s=timeout_s):
+        log_err("Prompt was never sent (composer still not empty). Aborting this item "
+                "instead of waiting out the generation timeout.")
+        save_debug(page, "send-failed")
+        return 6
 
     if not expect_image:
-        # テキスト応答待ちモード: generating_indicator (Stop ボタン) の出現→消失を待つ。
-        # 出現する前の極早期に return しないよう、送信直後に短時間 sleep してから polling。
+        # テキスト応答待ちモード (テンプレ把握ターン)。
         log_info("Prompt sent. Waiting for text-only response (no image expected)...")
         time.sleep(3)
-        text_deadline = time.time() + min(timeout_s, 60)
+        # ⚠⚠ 旧実装は「停止ボタンが無い = 完了」だった。UI が変わってセレクタが当たらなくなると
+        #   **送信 3 秒後に必ず完了と誤判定**し、流れている最中に次のプロンプトを打ち込む
+        #   (2026-08-12 に発生。ログ上は "complete" と出るので正常に見えるのが最悪)。
+        #   → 完了の条件を **本文が伸びなくなったこと** に変えた (DOM 構造に依存しない)。
+        #   旧値 60s も日本語の長文応答には足りなかったので 180s へ広げてある。
+        text_deadline = time.time() + min(timeout_s, 180)
         last_text_log = 0.0
+        last_len, quiet = -1, 0
         while time.time() < text_deadline:
             err = detect_failure(page)
             if err == "RATE_LIMIT":
@@ -711,10 +871,15 @@ def _send_prompt_and_capture(
                 busy = page.query_selector(SELECTORS["generating_indicator"])
             except Exception:
                 busy = None
-            if not busy:
-                # generating_indicator が無い = 応答が完了している(または受信中ではない)
-                log_info("Text-only response complete (generating indicator absent).")
-                return 0
+            cur = _body_len(page)
+            if busy or cur != last_len or cur <= 0:
+                quiet = 0
+            else:
+                quiet += 1
+                if quiet >= 4:      # 4 回連続 (約 8 秒) 伸びていない = 書き終わった
+                    log_info(f"Text-only response complete (text stable at {cur} chars).")
+                    return 0
+            last_len = cur
             now = time.time()
             if now - last_text_log > 10:
                 remaining = int(text_deadline - now)
@@ -722,7 +887,10 @@ def _send_prompt_and_capture(
                 last_text_log = now
             time.sleep(GENERATION_POLL_INTERVAL_S)
         # 60 秒以内に indicator が消えなかった場合も OK 扱い(次プロンプト送信で上書きされる)
-        log_info("Text-only wait exceeded 60s, proceeding (response may still be incoming).")
+        # ⚠ ここへ来ても**失敗ではない**。下流の _wait_idle と _try_send が
+        #   「流れている間は送らない」で受け止めるので、そのまま次の項目へ進んでよい。
+        log_info(f"Text-only wait exceeded {int(min(timeout_s, 180))}s, proceeding "
+                 "(the send path waits for the stream to finish).")
         return 0
 
     log_info("Prompt sent. Waiting for image generation...")

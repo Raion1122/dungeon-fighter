@@ -1,0 +1,5 @@
+# ★P7 分岐マップのノード用 1枚絵: 森 (bandits-forest) の n4 山場 + n7 ボス。
+# 作法は room_goblin-mine_node.jsonl の注記を参照 (テンプレ把握 -> 7:6 -> 3:2)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_node.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_bandits-forest_n4.txt", "output": "source_images/room_node/room_bandits-forest_n4_raw.png"}
+{"prompt_file": "tools/sprite_batches/room_bandits-forest_n7.txt", "output": "source_images/room_node/room_bandits-forest_n7_raw.png"}

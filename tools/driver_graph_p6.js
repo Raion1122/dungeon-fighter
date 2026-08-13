@@ -228,6 +228,16 @@ const SHAPE_SRC = `(() => {
       painting: n.mapDef.rooms[0].painting,
       exits: n.exits.map(e => e.to + ':' + e.dir).join(','),
     })),
+    /* ★P7: 絵を貼るノードだけを取り出し、「カタログから引けるか」「覆う矩形が部屋と
+     *   同一か」を採る。⚠ same は比率一致ではなく**完全一致**で見る (ノード用の絵は
+     *   部屋ぴったりに作る約束。緩めると座標のズレを取り逃がす)。 */
+    paintFit: gr.nodes.filter(n => n.mapDef.rooms[0].painting).map(n => {
+      const rm = n.mapDef.rooms[0], p = rm.painting;
+      const b = window.DFMapDef.paintingBoundsFor(p.theme, p.key);
+      return { node: n.id, key: p.key, theme: p.theme,
+               src: window.DFMapDef.paintingSrcFor(p.theme, p.key),
+               same: !!b && JSON.stringify(b) === JSON.stringify(rm.rect) };
+    }),
     lint: (() => { const L = window.DFMapDef.lintRun(gr);
                    return { e: L.errors.map(x => x.code), w: L.warnings.map(x => x.code) }; })(),
   };
@@ -348,9 +358,18 @@ const TOUR_SRC = `(async () => {
         names.every(x => x && x.length > 0) && new Set(names).size === 8, names.join(' / '));
     }
     {
-      // ⚠ 1 枚絵は全ノード null (在庫 12 枚は 20x16 / 22x18 用で 7x6 に載らない)
-      check('(1i-' + sid + ') 1 枚絵は全ノード未指定 (Phase 7 まで)',
-        sh.nodes.every(n => n.painting === null), '');
+      /* ★P7 (2026-08-12): 母集団 (「全ノード null」) が仕様ごと消えたので、期待値ではなく
+       *   **不変条件を言い直した**。守りたいのは「載らない絵が無言で貼られていないこと」。
+       *   → 絵は n4 (山場) / n7 (ボス) のちょうど 2 つ、参照はカタログから引け、
+       *     覆う矩形が部屋の rect と完全一致 (= 5引数 drawImage の伸縮ゼロ)。
+       *   ⚠ 5 シナリオ分をこのループが回すので、1 本でもテーマを書き忘れると赤くなる。 */
+      const pk = sh.nodes.map(n => n.painting ? n.painting.key : 'null').join(',');
+      check('(1i-' + sid + ') 1 枚絵は n4 / n7 のちょうど 2 ノード',
+        pk === 'null,null,null,null,n4,null,null,n7', pk);
+      check('(1i2-' + sid + ') その 2 枚は自テーマの絵で、覆う矩形が部屋 rect と完全一致',
+        sh.paintFit.length === 2 &&
+        sh.paintFit.every(p => p.theme === sid && p.src && p.same === true),
+        JSON.stringify(sh.paintFit));
       const midOk = sh.nodes.filter(n => n.id !== 'n7')
         .every(n => n.rect[0] === RECT_R1 && n.rect[1] === MID_C1 && n.rect[2] === RECT_R2 && n.rect[3] === MID_C2);
       const b = sh.nodes.find(n => n.id === 'n7').rect;

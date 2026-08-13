@@ -1,0 +1,7 @@
+# ★P7 分岐マップのノード用 1枚絵: 竜巣 (dragon-lair) の n4 山場 + n7 ボス。
+# 作法は room_goblin-mine_node.jsonl の注記を参照 (テンプレ把握 -> 7:6 -> 3:2)。
+# ⚠ n7 は spawnDragonHoard がボス部屋の西側へ宝箱 4 個を実配置するので、
+#   依頼文で「画面の左半分は平らな窪みのまま」と指定してある (絵の宝と二重にしない)。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_node.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_dragon-lair_n4.txt", "output": "source_images/room_node/room_dragon-lair_n4_raw.png"}
+{"prompt_file": "tools/sprite_batches/room_dragon-lair_n7.txt", "output": "source_images/room_node/room_dragon-lair_n7_raw.png"}

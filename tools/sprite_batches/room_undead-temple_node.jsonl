@@ -1,0 +1,6 @@
+# ★P7 分岐マップのノード用 1枚絵: 神殿 (undead-temple) の n4 山場 + n7 ボス。
+# 作法は room_goblin-mine_node.jsonl の注記を参照 (テンプレ把握 -> 7:6 -> 3:2)。
+# ⚠ 神殿だけは床も壁も白っぽいので「暖色の松明で照らさない」を両方の依頼文に入れてある。
+{"prompt_file": "tools/sprite_batches/_TEMPLATE_room_node.txt", "expect_image": false}
+{"prompt_file": "tools/sprite_batches/room_undead-temple_n4.txt", "output": "source_images/room_node/room_undead-temple_n4_raw.png"}
+{"prompt_file": "tools/sprite_batches/room_undead-temple_n7.txt", "output": "source_images/room_node/room_undead-temple_n7_raw.png"}

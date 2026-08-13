@@ -3993,6 +3993,18 @@
     //   山場=ROOMS[0](屋外のみ ROOMS[1])だが、painting は tileBounds 座標で覆うため ROOMS index に
     //   非依存。tileBounds は山場矩形 [7,24,20,43] と一致させること(不一致だと drawImage 伸縮で歪む)。
     //   PNG が無ければ img.onerror で自動的にタイル描画へフォールバックする。
+    /* ★P7 (2026-08-12) — 分岐マップのノード用に **キー "n4" / "n7"** を各テーマへ足した。
+     *   n4 = 山場ノード (7x6 = 7:6) / n7 = ボスノード (9x6 = 3:2)。
+     *   ⚠⚠ この 2 つは **node:true** を持つ。従来経路 (単一マップ = ?graph=0 / 生成クエスト) の
+     *     ループは Object.values(defs) を**全部**貼るので、印を付けないと [11,33,16,39] が
+     *     旧山場 [5,24,20,43] の**内側**に当たり、単一マップの山場に 7x6 の絵が重なる
+     *     (=「分岐を無効にしたら絵が二重になった」という気づきにくい退化)。
+     *   ⚠ tileBounds は buildGoblinMineRun の MID/BOSSR・buildP6Run の P6_MID/P6_BOSSR と
+     *     **同じ値**でなければならない (ズレると lint の graph-painting-aspect が鳴る)。
+     *     driver_graph_p7.js が両者の一致を実測しているので、片方だけ直すと赤になる。
+     *   ⚠ 絵はノードの部屋 rect ぴったり = **床だけ**。旧ベルトスクロール版のように
+     *     「奥の壁 2 行」を絵へ含めることはできない (mapDef 経路は room.rect へ貼るため)。
+     *     周囲の石壁はタイル描画のまま出るので、絵側に壁を描くと二重の壁になる。 */
     const ROOM_PAINTINGS_DEF = {
       // ⚠ ボス部屋(キー 2 = ROOMS[2] [5,47,22,68])は 22x18 = 11:9 で、山場(20x14 = 10:7)と幾何が違う。
       //   PNG は 1496x1224 が厳密な 11:9 (1496/11=136, 136x9=1224)。山場の 1499x1049 を流用すると
@@ -4007,6 +4019,9 @@
         //   ボス部屋 = グリクスの玉座広間。護衛ホブゴブリン2体が (56,13)(56,14) に立つので
         //   中央〜中央左は素の土と岩のまま(絵側の配慮)。玉座は奥の壁際へ寄せてある。
         2: { src: "assets/room_goblin-mine_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 掘削場 / n7 = 玉座の間。node:true は上の節頭を参照
+        n4: { src: "assets/room_goblin-mine_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_goblin-mine_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
       // Sce2 森: 山場(部屋1)を盗賊アジトの森の空き地として1枚絵化。
       //   下側中央 (41,17) には残影の獣の檻(DOMオーバーレイ)が乗るので、
@@ -4019,6 +4034,9 @@
         //   ボス部屋 = 盗賊頭スカーの本営(夜の森の広場)。護衛4体が col 52-55 に散るので、
         //   中央から左寄りまで踏み固めた土の地面を空けてある。
         2: { src: "assets/room_bandits-forest_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 丸太の砦 / n7 = 頭目の館
+        n4: { src: "assets/room_bandits-forest_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_bandits-forest_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
       // Sce3 沼: 山場(部屋1)をリザードマンの祭壇広場として1枚絵化。
       //   中央 (35,13) には封印の守護神(hydra, 未覚醒は inactive)が鎮座するので、
@@ -4031,6 +4049,9 @@
         1: { src: "assets/room_lizard-swamp_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         //   ボス部屋 = 族長の広間(沼に沈んだ石造神殿)。護衛が (55,13)(53,13) に立つので中央左まで開ける。
         2: { src: "assets/room_lizard-swamp_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 蛇神の参道 / n7 = 族長の巣
+        n4: { src: "assets/room_lizard-swamp_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_lizard-swamp_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
       // Sce4 砦: 山場(部屋2)を廃墟の砦の中庭として1枚絵化。
       //   中庭には古代王国の守護者(stoneGolem[33,9] + stoneLegionary 2体[29,11][37,11]
@@ -4043,6 +4064,9 @@
         1: { src: "assets/room_orc-fort_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         //   ボス部屋 = ガロック将軍の主塔広間。ボスは単騎なので中央だけ空けてあればよい。
         2: { src: "assets/room_orc-fort_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 練兵場 / n7 = 将軍の間
+        n4: { src: "assets/room_orc-fort_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_orc-fort_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
       // Sce5 神殿: 山場(部屋2)を荒らされた納骨堂として1枚絵化。
       //   隠し要素の神官の霊カエルムは (50,18) = ボス部屋なので、この部屋には居ない
@@ -4057,6 +4081,9 @@
         //   (接近で対話する inactive NPC) ので、絵側では左下だけ「荒らされていない小聖域」にして
         //   物を置いていない。中央は召喚の儀の床 = 素の石畳(魔法陣は描かせていない)。
         2: { src: "assets/room_undead-temple_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 儀式の広間 / n7 = 召喚の祭壇
+        n4: { src: "assets/room_undead-temple_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_undead-temple_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
       // Sce6 竜の巣: 山場(部屋2)を「巣に至る前庭」として1枚絵化 (竜は描かない=次の部屋の驚きを残す)。
       //   隠し要素の偽宝箱(ミミック)は spawnDragonHoard() がボス部屋の西45%へランダム配置するので、
@@ -4074,6 +4101,9 @@
         //   大口の向こうがボス部屋(赤竜の巣そのもの)なので、奥壁が次の部屋への導線になる。row5-6 を絵に含める(20×16 = 5:4)。
         1: { src: "assets/room_dragon-lair_1_bs.jpg", tileBounds: [5, 24, 20, 43] },
         2: { src: "assets/room_dragon-lair_2.png", tileBounds: [5, 47, 22, 68] },
+        //   ★P7 ノード用 (床だけ)。n4 = 骨の谷 / n7 = ファラクサスの巣
+        n4: { src: "assets/room_dragon-lair_n4.jpg", tileBounds: [11, 33, 16, 39], node: true },
+        n7: { src: "assets/room_dragon-lair_n7.jpg", tileBounds: [11, 32, 16, 40], node: true },
       },
     };
 
@@ -4160,10 +4190,23 @@
         }
       }
 
-      // ── 従来経路 (非カスタム): themeId で引いた在庫を絵側の tileBounds で貼る ──────
+      /* ★P7: カタログ登録を**経路の外**へ出した (旧: 下の mapDef 経路の中)。
+       *   ⚠⚠ 中に置くと、単一マップ (isCustom=false) のページでは一度も登録されないので
+       *     lint の縦横比判定が「絵そのもの」を引けず在庫一覧へ落ちる = 同じ盤面なのに
+       *     ページの種類で判定が変わる (driver_graph_run (5m) が catalog の有無に依存して
+       *     赤くなったり緑になったりする状態)。登録は参照を持つだけで副作用が無い。 */
+      if (window.DFMapDef) DFMapDef.setPaintingCatalog(ROOM_PAINTINGS_DEF);
+
+      /* ── 従来経路 (非カスタム): themeId で引いた在庫を絵側の tileBounds で貼る ──────
+       * ⚠⚠ ★P7: **node:true のエントリは貼らない**。ノード用 n4/n7 の tileBounds
+       *   [11,33,16,39] は旧山場 [5,24,20,43] の**内側**にあるので、ここで一緒に貼ると
+       *   単一マップ (?graph=0 / 生成クエスト) の山場に 7x6 の絵が重なる。 */
       const defs = MAPDEF.isCustom ? null : ROOM_PAINTINGS_DEF[_scenIdForTex];
       if (defs) {
-        for (const def of Object.values(defs)) addPainting(def.src, def.tileBounds);
+        for (const def of Object.values(defs)) {
+          if (def.node) continue;          // ← 分岐ノード専用の絵 (mapDef 経路でだけ貼る)
+          addPainting(def.src, def.tileBounds);
+        }
         return;
       }
       if (!MAPDEF.isCustom) return;        // 非カスタムで在庫が無いテーマ = 従来どおり絵なし
@@ -4176,8 +4219,7 @@
        * ⚠ 引けなければ**何もしない** (別テーマの絵を捏造しない)。この契約の唯一の出所が
        *   DFMapDef.paintingSrcFor なので、ここで自前に引き直さない
        *   (エディタの lint painting-missing と判定がずれると気づけない食い違いになる)。 */
-      if (!window.DFMapDef) return;
-      DFMapDef.setPaintingCatalog(ROOM_PAINTINGS_DEF);   // 本編は fetch 不要 = 生の表を直接渡す
+      if (!window.DFMapDef) return;        // カタログ登録は上へ移した (★P7 の注記を参照)
       for (const room of MAPDEF.rooms) {
         const pg = room && room.painting;
         if (!pg) continue;
@@ -30513,11 +30555,14 @@
      *     矢印要件が緩く、ボス戦の間合いを確保する方が得。中心 (col36 / row11-16) は道中と
      *     揃えてあるので、遷移でカメラが飛ばない。
      *
-     * ★1 枚絵は**貼らない** (painting:null)。在庫 12 枚は 20x16(5:4) / 22x18(11:9) 用で、
-     *   7x6 の部屋に貼ると 5 引数 drawImage で引き伸ばされて歪む。絵が無いノードはタイル描画 +
-     *   情景散布で成立させる (6 シナリオ中 4 つの元の姿であり退化ではない)。絵の増産は Phase 7。
+     * ★1 枚絵 — 旧単一マップ用の在庫 12 枚は 20x16(5:4) / 22x18(11:9) 用で、7x6 の部屋に貼ると
+     *   5 引数 drawImage で引き伸ばされて歪む。★P7 (2026-08-12) で **7x6 / 9x6 専用の絵**を
+     *   ROOM_PAINTINGS_DEF のキー "n4"/"n7" として足し、山場ノードとボスノードにだけ貼る。
+     *   残り 6 ノードは painting:null のままタイル描画 + 情景散布で成立させる
+     *   (6 シナリオ中 4 つの元の姿であり退化ではない)。
      *   ⚠ 「絵を指定したのに載らない」が無言で起きないよう、`DFMapDef.lintRun` に
-     *     **graph-painting-aspect** (warning) を足してある (起動時に console へ出る)。 */
+     *     **graph-painting-aspect** (warning) を足してある (起動時に console へ出る)。
+     *     判定は在庫一覧ではなく**指定したその絵の tileBounds** と比べる (P7 で精密化)。 */
     /* ══════════════════════════════════════════════════════════════════════════
      * ★P5 — 既定 6 シナリオの内蔵グラフ (今は廃坑だけ。P6 で 1 行ずつ足す)
      * ══════════════════════════════════════════════════════════════════════════
@@ -30566,8 +30611,10 @@
      *   ⑤ ヒント文は **kind から EXIT_HINTS が引く**ので原則書かない。EV-2 の枝だけ、
      *      既定の "人の呻き声が聞こえる" (event の sure 文) が見張りに合わないので明示する。
      *
-     * ⚠ 1 枚絵は全ノード **painting:null** (在庫 12 枚は 20x16 / 22x18 用で 7x6 には載らない)。
-     *   指定すると lintRun の graph-painting-aspect が warning を出す。絵の増産は Phase 7。 */
+     * ★P7 (2026-08-12): 1 枚絵は **n4 (山場) と n7 (ボス) の 2 つだけ**貼る (ROOM_PAINTINGS_DEF の
+     *   キー "n4"/"n7" = 7x6 / 9x6 のノード専用)。旧単一マップ用の在庫 (20x16 / 22x18) は
+     *   縦横比が違うので載らない = 指定すると lintRun の graph-painting-aspect が warning を出す。
+     *   ⚠ 残り 6 ノードは従来どおり painting:null (タイル描画 + 情景散布で成立させる)。 */
     function buildGoblinMineRun() {
       /* ⚠⚠ 部屋の中心を **col 36 / row 11-16** で全ノード揃えること (buildTestRun と同じ理由)。 */
       const MID  = [11, 33, 16, 39];       // 道中 7 列 x 6 行 (iPad 1024x768 基準・P4.7 の実測値)
@@ -30588,7 +30635,11 @@
            *   ノードの kind (isBossNodeNow) で判定するので誤爆しない (buildTestRun と同じ)。 */
           rooms: [{ id: id, role: "boss", rect: rect,
                     enemySlots: opt.slots || [], bossSlot: opt.boss || null,
-                    painting: null, scenery: { density: 1 } }],
+                    /* ★P7: 1 枚絵は山場 (n4) とボス (n7) の 2 ノードだけ。**参照 (theme+key)**
+                     *   で持ち src を焼き込まない (差し替えに自動追従する = Phase 4 の設計判断)。
+                     *   PNG が無い間は img.onerror でタイル描画のまま = 絵の増産前でも壊れない。 */
+                    painting: opt.paint ? { theme: TH, key: opt.paint } : null,
+                    scenery: { density: 1 } }],
           corridors: [], start: { tx: 36, ty: 13 },
           objective: { kind: "defeatBoss", count: null },
           tiles: null, props: null, graph: null, flags: { bandMask: false },
@@ -30623,7 +30674,8 @@
           // ── 掘削場: 旧「山場」に当たる大乱戦 ────────────────────────────────
           { id: "n4", kind: "combat",
             mapDef: node("n4", "掘削場", MID,
-                         { slots: [[37, 12, "hobgoblin"], [37, 14, "hobgoblin"],
+                         { paint: "n4",
+                           slots: [[37, 12, "hobgoblin"], [37, 14, "hobgoblin"],
                                    [38, 13, "goblinBrute"], [38, 11, "goblinRider"],
                                    [38, 15, "goblin"], [39, 12, "goblinArcher"],
                                    [39, 14, "goblinShaman"]] }),
@@ -30635,7 +30687,8 @@
           // ── 玉座の間: EV-9 + ボス戦。★護衛は col39 以東 (上記②) ────────────────
           { id: "n7", kind: "boss",
             mapDef: node("n7", "玉座の間", BOSSR,
-                         { slots: [[39, 12, "hobgoblin"], [39, 14, "hobgoblin"]],
+                         { paint: "n7",
+                           slots: [[39, 12, "hobgoblin"], [39, 14, "hobgoblin"]],
                            boss: [40, 13, "goblinKing"] }),
             exits: [] },
         ],
@@ -30665,8 +30718,8 @@
      *   ② n0 は開幕ナレの最中に戦闘が始まらないよう敵 0。
      *   ③ ボスノードだけ 9 列 (BOSSR)。護衛は **col 39 以東**に置き、入場地点 col34 から
      *      5 タイル = 480px > 400px を確保する (P5 が EV-9 で実測した値をそのまま使う)。
-     *   ④ 1 枚絵は全ノード painting:null (在庫 12 枚は 20x16 / 22x18 用で 7x6 に載らない)。
-     *      絵の増産は Phase 7。 */
+     *   ④ ★P7 (2026-08-12): 1 枚絵は **n4 (山場) と n7 (ボス) の 2 つだけ**。キーはノード id と
+     *      同名 ("n4"/"n7") で、7x6 / 9x6 専用の絵 (旧在庫 20x16 / 22x18 は縦横比が違い載らない)。 */
     function p6Node(scenId, themeId, id, name, rect, opt) {
       opt = opt || {};
       return {
@@ -30677,7 +30730,10 @@
          *   ノードの kind (isBossNodeNow) で判定するので誤爆しない (buildGoblinMineRun と同じ)。 */
         rooms: [{ id: id, role: "boss", rect: rect,
                   enemySlots: opt.slots || [], bossSlot: opt.boss || null,
-                  painting: null, scenery: { density: 1 } }],
+                  /* ★P7: 1 枚絵は山場 (n4) とボス (n7) だけ。理由と作法は buildGoblinMineRun
+                   *   の node() と同じ (参照で持つ / PNG が無くてもタイル描画へ落ちる)。 */
+                  painting: opt.paint ? { theme: themeId, key: opt.paint } : null,
+                  scenery: { density: 1 } }],
         corridors: [], start: { tx: 36, ty: 13 },
         objective: { kind: "defeatBoss", count: null },
         tiles: null, props: null, graph: null, flags: { bandMask: false },
@@ -30703,10 +30759,14 @@
       function nd(id, kind, exits) {
         const d = spec[id] || {};
         const k = d.kind || kind;
+        /* ★P7: 1 枚絵は **n4 (山場) と n7 (ボス) だけ**。キーはノード id と同名なので
+         *   spec 側に書くことは無い (シナリオごとに絵の有無が振れると、絵の増産が
+         *   「どのノードに要るか」を仕様から読めなくなる)。 */
+        const paint = (id === "n4" || id === "n7") ? id : null;
         return { id: id, kind: k,
                  mapDef: p6Node(scenId, themeId, id, d.name,
                                 k === "boss" ? P6_BOSSR : P6_MID,
-                                { slots: d.slots || [], boss: d.boss || null }),
+                                { slots: d.slots || [], boss: d.boss || null, paint: paint }),
                  exits: exits };
       }
       /* ヒント文は原則書かない (kind から EXIT_HINTS が引く = データは意味だけを持つ)。

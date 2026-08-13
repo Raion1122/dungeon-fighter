@@ -414,7 +414,9 @@
    * ROOMS の index ではなく「導入 / 山場 / ボス」という**ラベル**である (index.html:3755 の注記)。
    * ⚠ ここは絵の内容ではなく**キーの呼び名**なので写経には当たらない (絵が増減しても腐らない)。
    *   未知キーは "部屋<key>" へ落ちる = 取りこぼしゼロ。 */
-  var PAINTING_KEY_LABELS = { "0": "導入", "1": "山場", "2": "ボス" };
+  var PAINTING_KEY_LABELS = { "0": "導入", "1": "山場", "2": "ボス",
+                              // ★P7: 分岐マップのノード用 (n4 = 山場ノード / n7 = ボスノード)
+                              "n4": "ノード山場", "n7": "ノードボス" };
 
   /* 情景レシピのフォールバック先。SCENERY_RECIPES は goblin-mine と caravan-road の
    * **2 テーマしかない**ので、残り 5 テーマは必ずどちらかへ落ちる。
@@ -681,6 +683,14 @@
   /* rooms[i].painting = { theme, key } → 絵の src。
    * ⚠⚠ 引けなければ **null**。テクスチャ (texSetFor) と違い既定テーマへ落とさない (節頭の理由)。 */
   function paintingSrcFor(theme, key) {
+    var e = paintingEntryFor(theme, key);
+    return e ? e.src : null;
+  }
+
+  /* rooms[i].painting = { theme, key } → カタログの生エントリ | null。
+   * ⚠ paintingSrcFor と paintingBoundsFor の**唯一の引き手**。2 本に写すと
+   *   「src は引けるのに bounds は引けない」という食い違いが生まれる。 */
+  function paintingEntryFor(theme, key) {
     if (!paintingCatalog) return null;
     if (typeof theme !== "string" || !theme) return null;
     var per = paintingCatalog[theme];
@@ -688,7 +698,15 @@
     if (!per || typeof per !== "object") return null;
     var e = per[String(key)];
     if (!e || typeof e !== "object" || typeof e.src !== "string" || !e.src) return null;
-    return e.src;
+    return e;
+  }
+
+  /* rooms[i].painting = { theme, key } → その絵が覆う想定のタイル矩形 [r1,c1,r2,c2] | null。
+   * ★P7: 縦横比の判定を「在庫一覧のどれかに当たるか」から「**指定したその絵**に当たるか」へ
+   *   精密化するために足した (paintingAspectFits の節を参照)。 */
+  function paintingBoundsFor(theme, key) {
+    var e = paintingEntryFor(theme, key);
+    return (e && isBounds4(e.tileBounds)) ? e.tileBounds : null;
   }
 
   /* テーマ既定の「代表レシピ」= { counts:{kind:n}, area:n } | null。
@@ -1836,6 +1854,9 @@
   var LINT_PAINTING_ASPECTS = [
     { w: 20, h: 16, label: "山場 20×16 (5:4)" },
     { w: 22, h: 18, label: "ボス 22×18 (11:9)" },
+    // ★P7 (2026-08-12): 分岐マップのノード用。道中 7×6 (7:6) / ボス 9×6 (3:2)。
+    { w: 7,  h: 6,  label: "ノード山場 7×6 (7:6)" },
+    { w: 9,  h: 6,  label: "ノードボス 9×6 (3:2)" },
   ];
   /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
    *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、
@@ -1843,17 +1864,43 @@
   var LINT_MAP_USED_MIN_ROWS = 6;     // 使用範囲がこれより薄いと画面上下が黒帯になりやすい
   var LINT_MAP_USED_MIN_FILL = 0.20;  // 使用範囲がグリッド全体のこの割合を切ると黒が目立つ
 
-  /* rect (= [r1,c1,r2,c2]) の縦横比が 1枚絵の在庫のどれかと一致するか。
+  /* rect (= [r1,c1,r2,c2]) に painting を貼ったとき、5引数 drawImage で歪まないか。
    * ★lintMapDef (単一マップ) と lintRun (分岐ノード) の**両方から呼ぶ唯一の判定式**。
    *   ⚠ 片方へ写すと必ず食い違う (在庫を 1 行足したときノード側だけ古い在庫で判定する等)。
-   * ⚠ **比率**で比べる (40×32 も 5:4 なので等倍拡大なら歪まない)。サイズ一致で比べない。 */
-  function paintingAspectFits(rect) {
+   * ⚠ **比率**で比べる (40×32 も 5:4 なので等倍拡大なら歪まない)。サイズ一致で比べない。
+   *
+   * ★P7 (2026-08-12) — 第2引数 painting ({theme,key}) を足して**指定したその絵**と比べる。
+   *   ⚠⚠ 在庫一覧との照合だけだと、在庫のアスペクトが 2 種から 4 種へ増えた瞬間に
+   *     **「9×6 の部屋に 7:6 の絵」が無警告で通る** (部屋の比が一覧のどれかに当たれば緑に
+   *     なるだけで、貼る絵が何かを一度も見ていなかった)。P7 でノード用 7:6 / 3:2 を在庫へ
+   *     足す = その穴が現実になるので、ここで「絵そのもの」を見るように直した。
+   *   ⚠ カタログ未取得のときだけ従来どおり在庫一覧へ落ちる (painting-missing と同じ判断で、
+   *     「カタログが無い」を「歪む」と誤報しない)。 */
+  function paintingAspectFits(rect, painting) {
     var rw = rect[3] - rect[1] + 1, rh = rect[2] - rect[0] + 1;
+    var b = painting ? paintingBoundsFor(painting.theme, painting.key) : null;
+    if (b) {
+      var bw = b[3] - b[1] + 1, bh = b[2] - b[0] + 1;
+      return rw * bh === rh * bw;
+    }
     for (var j = 0; j < LINT_PAINTING_ASPECTS.length; j++) {
       var A = LINT_PAINTING_ASPECTS[j];
       if (rw * A.h === rh * A.w) return true;
     }
     return false;
+  }
+
+  /* 上の警告文に載せる「その絵は何タイル用か」。カタログから引けなければ在庫一覧の名前へ落ちる。 */
+  function paintingAspectWanted(painting) {
+    /* ⚠ ここは判定ではなく**文言**を組むだけ。上の paintingAspectFits の 1 行を
+     *   **部分文字列として含めない**書き方にしてある — 含めると driver_graph_p7 の変異
+     *   oldaspect が「2 箇所ヒット」で空振りする (2026-08-12 に実際に踏んだ)。
+     *   ⚠⚠ 変異は indexOf の部分一致なので、末尾にコメントを足しただけでは分かれない。 */
+    var pg = painting || {};
+    var wb = paintingBoundsFor(pg.theme, pg.key);
+    if (!wb) return "在庫: " + paintingAspectNames().join(" / ");
+    var wh = boundsWH(wb);
+    return '指定した絵 "' + painting.theme + "/" + painting.key + '" は ' + wh.tw + "×" + wh.th + " タイル用";
   }
   function paintingAspectNames() {
     var names = [];
@@ -2125,11 +2172,11 @@
       if (!rooms[i].painting) continue;                 // ★明示した部屋だけ比率を見る
       var rc = rooms[i].rect;
       // ★判定式は paintingAspectFits ただ 1 本 (lintRun の graph-painting-aspect と共有)
-      if (paintingAspectFits(rc)) continue;
+      if (paintingAspectFits(rc, rooms[i].painting)) continue;
       warn("painting-aspect",
            "部屋 " + rooms[i].id + " は 幅" + (rc[3] - rc[1] + 1) + "×高さ" + (rc[2] - rc[0] + 1) +
-           " タイルで、指定した1枚絵の在庫 (" + paintingAspectNames().join(" / ") +
-           ") と縦横比が一致しません — index.html:5440 の 5引数 drawImage で" +
+           " タイルですが、" + paintingAspectWanted(rooms[i].painting) +
+           " で縦横比が一致しません — index.html:5440 の 5引数 drawImage で" +
            "引き伸ばされて歪みます (この部屋は painting が明示指定されています)",
            [rc[1], rc[0]], i);
     }
@@ -2677,13 +2724,14 @@
       for (j = 0; j < rooms.length; j++) {
         if (!rooms[j].painting) continue;
         var prc = rooms[j].rect;
-        if (paintingAspectFits(prc)) continue;
+        if (paintingAspectFits(prc, rooms[j].painting)) continue;
         warn("graph-painting-aspect",
              'ノード "' + node.id + '" の部屋 ' + rooms[j].id + " は 幅" + (prc[3] - prc[1] + 1) +
-             "×高さ" + (prc[2] - prc[0] + 1) + " タイルで、1枚絵の在庫 (" +
-             paintingAspectNames().join(" / ") + ") と縦横比が一致しません — " +
-             "5引数 drawImage で引き伸ばされて歪みます。ノードの部屋は可視域サイズへ縮めてあるので、" +
-             "在庫の絵は載りません (painting を外してタイル描画にするか、Phase 7 で専用の絵を作ってください)",
+             "×高さ" + (prc[2] - prc[0] + 1) + " タイルですが、" +
+             paintingAspectWanted(rooms[j].painting) + " で縦横比が一致しません — " +
+             "5引数 drawImage で引き伸ばされて歪みます。ノードの部屋は可視域サイズ (7×6 / 9×6) なので、" +
+             "旧単一マップ用の在庫 (20×16 / 22×18) は載りません " +
+             "(painting を外してタイル描画にするか、ノード用の絵 n4 / n7 を指定してください)",
              node.id, [prc[1], prc[0]]);
       }
     }
@@ -2883,6 +2931,12 @@
     setSceneryCatalog: setSceneryCatalog,
     paintingEntries: paintingEntries,
     paintingSrcFor: paintingSrcFor,
+    /* ★P7: 絵が覆う想定のタイル矩形 [r1,c1,r2,c2] | null。lint の縦横比判定
+     *   (paintingAspectFits) が「指定したその絵」と比べるために使う唯一の出所。 */
+    paintingBoundsFor: paintingBoundsFor,
+    /* ★P7: 縦横比の判定そのもの。lintMapDef / lintRun と**同じ 1 本**を検証ドライバからも
+     *   直接叩けるようにした (lint 越しの結果と食い違わないことを driver_graph_p7 (2e) が測る)。 */
+    paintingAspectFits: paintingAspectFits,
     sceneryRecipeFor: sceneryRecipeFor,
     sceneryKinds: sceneryKinds,
 
