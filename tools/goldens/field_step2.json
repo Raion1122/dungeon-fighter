@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "016c3a3",
-    "subject": "石壁の石をさらに細かく (天面 53->36px / 立面 70x32->50x24px)",
+    "rev": "c020ac2",
+    "subject": "沼地の壁を専用素材2枚へ移行して白い幕を外す (廃坑に続く2テーマ目)",
     "dirty": true
   },
   "values": {
@@ -11,19 +11,19 @@
       "nD": 52,
       "hash": "c363bf057e26"
     },
-    "D2-goblin-mine": "8e464b2b398c9e6f",
+    "D2-goblin-mine": "eb41667963f68e56",
     "D1-bandits-forest": {
       "nF": 66,
-      "nD": 37,
-      "hash": "8cc4232fd316"
+      "nD": 58,
+      "hash": "d9438089bf60"
     },
-    "D2-bandits-forest": "d864c35d3d74b03f",
+    "D2-bandits-forest": "ff58a2849c70bafc",
     "D1-lizard-swamp": {
       "nF": 66,
-      "nD": 37,
-      "hash": "8cc4232fd316"
+      "nD": 58,
+      "hash": "ab99c7861345"
     },
-    "D2-lizard-swamp": "c227a11616abe964",
+    "D2-lizard-swamp": "f4ed62477971f979",
     "D1-orc-fort": {
       "nF": 66,
       "nD": 37,

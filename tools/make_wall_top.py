@@ -60,6 +60,8 @@ import sys
 import numpy as np
 from PIL import Image
 
+from wall_round import round_blocks
+
 
 def lum(a):
     return 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
@@ -95,6 +97,9 @@ def main():
     p.add_argument("--feather", type=int, default=48, help="継ぎ目ぼかし幅")
     p.add_argument("--block", type=float, default=72.0, help="目標のブロック径(px)")
     p.add_argument("--gamma", type=float, default=1.0)
+    p.add_argument("--round", type=float, default=0.0, help="石の凸角を丸める半径(出力px)。0=無効")
+    p.add_argument("--round-strength", type=float, default=1.0, help="丸めの効き (1.0=そのまま)")
+    p.add_argument("--round-soften", type=int, default=1, help="丸めマスクの箱ぼかし半幅")
     a = p.parse_args()
 
     src = Image.open(a.src).convert("RGB")
@@ -115,6 +120,10 @@ def main():
           % (W_r, W_r, W_r / src.width, period_src * W_r / src.width, a.block))
 
     res = np.asarray(src.resize((W_r, W_r), Image.LANCZOS)).astype(np.float32)
+    # ★[石の角を丸める 2026-08-14] 手法は tools/wall_round.py の docstring。
+    # ⚠ **wrap_feather より前**に掛ける。後ろだと本体とテールで丸めの位相が食い違い、
+    #   せっかく消した継ぎ目が縦横 1 本ずつ戻る。
+    res = round_blocks(res, a.round, a.round_strength, a.round_soften)
     body = wrap_feather(res, W_out, a.feather, axis=1)     # 横
     body = wrap_feather(body, W_out, a.feather, axis=0)    # 縦
     if a.gamma != 1.0:

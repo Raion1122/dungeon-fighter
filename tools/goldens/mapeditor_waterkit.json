@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapeditor_waterkit.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "016c3a3",
-    "subject": "石壁の石をさらに細かく (天面 53->36px / 立面 70x32->50x24px)",
+    "rev": "c020ac2",
+    "subject": "沼地の壁を専用素材2枚へ移行して白い幕を外す (廃坑に続く2テーマ目)",
     "dirty": true
   },
   "values": {
-    "game-goblin-mine": "fcf0aa441fdcdce0df45f4a7731ed3a03ac21fd92808760d5b250666743e0115",
+    "game-goblin-mine": "dc612203c75fdb16e26ba63982a4f3385045c812b8b5add601d2c35652e95653",
     "canvas-V": "7d6ea1aa2933cd850b08509e9a8761fe6109b892a1464f8ef7cc4ed2cd006792",
     "canvas-L": "ebe0e219d72b7981e1f9a2b9d49e64625485189eed8ddf1cee12544073f85f38",
     "canvas-X": "e2796636c2f4e5f5fcbcba0bd5e2eba65ae6a7e3bcf7ea75714687dba2345ec3",

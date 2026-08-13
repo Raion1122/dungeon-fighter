@@ -58,6 +58,8 @@ import sys
 import numpy as np
 from PIL import Image
 
+from wall_round import round_blocks
+
 
 def lum(a):
     return 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
@@ -94,6 +96,9 @@ def main():
     p.add_argument("--plinth", type=int, default=10, help="最下部の基礎(暗い帯)の高さ")
     p.add_argument("--gamma", type=float, default=0.85, help="中間調の持ち上げ (1未満で明るく)")
     p.add_argument("--cool", type=float, default=1.05, help="青へ寄せる倍率 (寒色 = 暖色の床と分離)")
+    p.add_argument("--round", type=float, default=0.0, help="石の凸角を丸める半径(出力px)。0=無効")
+    p.add_argument("--round-strength", type=float, default=1.0, help="丸めの効き (1.0=そのまま)")
+    p.add_argument("--round-soften", type=int, default=1, help="丸めマスクの箱ぼかし半幅")
     a = p.parse_args()
 
     src = Image.open(a.src).convert("RGB")
@@ -121,6 +126,14 @@ def main():
     print("crop y0=%d (下端 y=%d が目地: %s)  内側の目地(相対)=%s"
           % (y0, y0 + a.height, bool(cands), [j - y0 for j in jr if 0 < j - y0 < a.height]))
     img = res[y0:y0 + a.height, :, :].copy()
+
+    # ★[石の角を丸める 2026-08-14] ユーザー指摘「真四角すぎるので、壁のブロックに丸みを
+    #   少しだけ持たせれますか」。詳細と手法は tools/wall_round.py の docstring。
+    # ⚠ **クロスフェードより前**に掛ける。後ろに回すと左端 feather 列だけ丸めが二重に
+    #   掛かった絵と混ざり、横の継ぎ目に縦の筋が出る。
+    # ⚠ **縦のライティングより前**に掛ける。後ろだと基礎の暗い帯 (v[lip:] *= 0.60) が
+    #   「暗い = 目地」と判定され、床際の 1 コースだけ角が過剰に削れる。
+    img = round_blocks(img, a.round, a.round_strength, a.round_soften)
 
     # 横シームレス化: 余りの feather 列を本体の左端へクロスフェード
     body = img[:, :W_out, :].copy()

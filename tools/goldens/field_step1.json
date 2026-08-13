@@ -1,26 +1,26 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "016c3a3",
-    "subject": "石壁の石をさらに細かく (天面 53->36px / 立面 70x32->50x24px)",
+    "rev": "c020ac2",
+    "subject": "沼地の壁を専用素材2枚へ移行して白い幕を外す (廃坑に続く2テーマ目)",
     "dirty": true
   },
   "values": {
-    "2-goblin-mine": "4d5ea5430e4a186d",
+    "2-goblin-mine": "6e3cea610399b0ed",
     "2b-goblin-mine": [
       2024,
       931,
       1440,
       900
     ],
-    "2-bandits-forest": "786c433744501d4d",
+    "2-bandits-forest": "13fc42c6b30c6e69",
     "2b-bandits-forest": [
       2024,
       931,
       1440,
       900
     ],
-    "2-lizard-swamp": "b404f4f312a42fe2",
+    "2-lizard-swamp": "dffdec78ff4509fb",
     "2b-lizard-swamp": [
       2024,
       931,
