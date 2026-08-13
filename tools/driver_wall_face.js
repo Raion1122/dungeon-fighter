@@ -410,26 +410,35 @@ async function playShot(page, file) {
      *   計測対象は常に「**まだ 2 枚構成へ移行していない次のテーマ**」に置く。
      * ⚠⚠⚠ テーマを 1 つ移行するたびに母集団が減るので、そのたびに**計測対象を張り替える**
      *   こと。期待値 (faceW === null) を書き換えて緑にするのは禁止 = 検出器を殺す行為になる。
-     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → **森 (2026-08-14・§8 を新設)** → 砦 → 神殿 → 竜巣。
-     *   ⇒ 森が 2 枚構成へ移ったので、ここの計測対象を **砦 (orc-fort)** へ張り替えた。
-     *   次に砦を移行する項目では、ここを神殿 (undead-temple) へ張り替えること。
+     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → 森 f1f8ea5 → **砦 (2026-08-14・§9 を新設)** → 神殿 → 竜巣。
+     *   ⇒ 砦が 2 枚構成へ移ったので、ここの計測対象を **神殿 (undead-temple)** へ張り替えた。
+     *   次に神殿を移行する項目では、ここを竜巣 (dragon-lair) へ張り替えること。
      * ⚠ 最後 (竜巣) では母集団が**空になる**。そのときは期待値を書き換えるのではなく、
      *   「屋外テーマでは useWallFace / useWallTop が原理的に false」等の**消えない不変条件**へ
      *   言い直す (SPEC_wall_themes.md の STEP 6 を参照)。 */
-    mark('砦 (orc-fort) — まだ専用素材を持たない側で従来経路が生きているか');
+    mark('神殿 (undead-temple) — まだ専用素材を持たない側で従来経路が生きているか');
     const net3 = { errs: [], bad: [] };
-    const fo = await boot(browser, URL_Q, 'orc-fort', 1280, 800, net3);
+    const fo = await boot(browser, URL_Q, 'undead-temple', 1280, 800, net3);
     const M3 = await fo.evaluate(MEASURE);
-    console.log('[drv] fort ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
+    console.log('[drv] temple ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
       wall: M3.wall ? +M3.wall.L.toFixed(1) : null, floor: M3.floor ? +M3.floor.L.toFixed(1) : null }));
-    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森の 3 つに閉じている',
+    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森・砦の 4 つに閉じている',
       M3.faceW === null && M3.topW === null,
       'faceW=' + M3.faceW + ' topW=' + M3.topW);
     if (!M3.err) {
-      check('(6b) それでも壁は床より明るい (従来の wallTint が生きている)',
-        M3.wall.L >= M3.floor.L * 1.15, (M3.wall.L / M3.floor.L).toFixed(2) + '倍');
+      /* ⚠⚠ 神殿だけ **wallTint の寄せる向きが逆**なので、砦までの「壁は床より明るい」を
+       *   そのまま写経すると**正しい絵で赤くなる**。神殿の床は白大理石 (シナリオ5床.png の
+       *   平均 L=227.8) で、壁テクスチャ (シナリオ5壁.png) も L=228.8 と**ほぼ同じ明るさ**。
+       *   だから神殿の tint は 6 テーマで唯一の暗色寄せ (92,100,116 / a=0.42) になっている。
+       * ★ 向きを変えても判別力は落ちない。canvas 実測で tint が乗っていると 149.8/177.5 =
+       *   **0.84**、tint が死ぬと壁テクスチャがそのまま出て床とほぼ同値 = **1.00** へ張り付く
+       *   (床 177.5 に対し無 tint の壁は 0.78*228.8 = 178.2)。閾値はその中間の 0.90 に置く。
+       * ⚠ 0.85 では生きている側の余裕が 1% しかなく、pick の列が変わるだけで揺れる。 */
+      check('(6b) それでも壁が床から分離している (神殿の wallTint は暗色寄せ)',
+        M3.wall.L <= M3.floor.L * 0.90,
+        (M3.wall.L / M3.floor.L).toFixed(2) + '倍 (tint が死ぬと 1.00 へ張り付く)');
     }
-    check('(6c) 砦でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
+    check('(6c) 神殿でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
     await fo.close();
 
     // ══ §7 沼地 — 2 テーマ目の専用素材 (2026-08-14) ═════════════════════════════
@@ -508,6 +517,48 @@ async function playShot(page, file) {
     }
     check('(8f) 森でページエラー 0 件', net5.errs.length === 0, net5.errs.slice(0, 3).join(' | '));
     await fr.close();
+
+    // ══ §9 砦 — 4 テーマ目の専用素材 (2026-08-14) ═══════════════════════════════
+    /* 砦も廃坑・沼地・森と同じ 2 枚構成 (立面 + 天面) へ移した。白い幕 (wallTint) は wallTop が
+     * 効いたセルには乗らないので、ここが通れば幕は外れている。
+     * ⚠ 題材は**崩れかけた砦の切石** (矢傷・欠け・煤・雨垂れ)。廃坑と同じ「四角い石積み」なので
+     *   6 テーマで一番**流用に流れやすい**が、廃坑は寒色の灰色花崗岩で整った積み方、砦は暖色の
+     *   砂岩で崩壊した積み方と、色相でも状態でも分離させてある。
+     * ⚠ (2b)「壁が床より無彩色」は**流用しない**。あれは廃坑の寒色花崗岩の前提で、砦の壁は
+     *   暖色の砂岩 = 彩度が高い。幕を捕まえるのは edge の assert (9d) だけでよい。
+     * ⚠ 砦の立面だけ --gamma 1.05 = 既定より**暗く**焼いてある (他テーマは明るくする側)。源が
+     *   明るいので既定のままだと床の 1.69 倍まで浮き、6 テーマで 1 枚だけ白飛びした壁になる。 */
+    mark('砦 (orc-fort) — 4 テーマ目の専用素材');
+    const net6 = { errs: [], bad: [] };
+    const of = await boot(browser, URL_Q, 'orc-fort', 1280, 800, net6);
+    const M6 = await of.evaluate(MEASURE);
+    await dumpCanvas(of, path.join(SHOT_DIR, 'fort_map.png'));
+    console.log('[drv] fort ' + JSON.stringify({ faceW: M6.faceW, faceH: M6.faceH, topW: M6.topW,
+      wall: M6.wall ? +M6.wall.L.toFixed(1) : null, floor: M6.floor ? +M6.floor.L.toFixed(1) : null,
+      edge: M6.wall ? +M6.wall.edge.toFixed(2) : null }));
+    check('(9a) 砦の立面素材が読めている / 幅は tile の整数倍・高さ === 壁矩形',
+      M6.faceW > 0 && M6.faceW % M6.tile === 0 && M6.faceH === M6.tile * 2,
+      'face=' + M6.faceW + 'x' + M6.faceH + ' tile=' + M6.tile);
+    check('(9b) 砦の天面素材が読めている / 正方形で tile の整数倍',
+      M6.topW > 0 && M6.topW === M6.topH && M6.topW % M6.tile === 0, 'top=' + M6.topW + 'x' + M6.topH);
+    const badAsset6 = net6.bad.filter(b => /wall_face|wall_top/.test(b));
+    check('(9c) 砦で壁素材の 404 が 0 件', badAsset6.length === 0, badAsset6.join(','));
+    if (!M6.err) {
+      /* ★ 白い幕を機械的に捕まえる唯一の assert (廃坑 (2c) / 沼地 (7d) / 森 (8d) と同じ物差し)。
+       *   幕は明るさを上げる代わりに構造を潰すので、行方向の輝度差で落ちる。 */
+      check('(9d) ★砦の立面に水平のエッジ (切石のコース) がある = 幕ではない',
+        M6.wall.edge >= M6.floor.edge * 1.8,
+        '壁 edge=' + M6.wall.edge.toFixed(2) + ' / 床 edge=' + M6.floor.edge.toFixed(2)
+        + ' = ' + (M6.wall.edge / Math.max(0.01, M6.floor.edge)).toFixed(2) + '倍');
+      /* ⚠ 砦の床は 6 シナリオで**最も明るい** (シナリオ4床.png の素の平均 L=76.2 / canvas 63.2)。
+       *   立面を暗く焼きすぎると床へ沈むので、ここが下限のガードになる。出荷版は
+       *   --gamma 1.05 (可視 27px で L=89.2 = 床の 1.41 倍) で、森の 1.43 倍と同じ帯にある。 */
+      check('(9e) 砦の壁帯が床に溶けていない (下限ガード)', M6.wall.L >= M6.floor.L * 1.15,
+        '壁 L=' + M6.wall.L.toFixed(1) + ' / 床 L=' + M6.floor.L.toFixed(1)
+        + ' = ' + (M6.wall.L / M6.floor.L).toFixed(2) + '倍');
+    }
+    check('(9f) 砦でページエラー 0 件', net6.errs.length === 0, net6.errs.slice(0, 3).join(' | '));
+    await of.close();
   } catch (e) {
     check('(fatal) ドライバが完走した', false, e.message);
   } finally {

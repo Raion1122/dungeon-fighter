@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "7502fcf",
-    "subject": "詠唱時に術者の足元へマジックサークルを展開する (味方/敵/ボス/竜)",
+    "rev": "f1f8ea5",
+    "subject": "森の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地に続く3テーマ目)",
     "dirty": true
   },
   "values": {
@@ -29,7 +29,7 @@
       "nD": 37,
       "hash": "8cc4232fd316"
     },
-    "D2-orc-fort": "25aebda1029a387a",
+    "D2-orc-fort": "8a96ac550f97b59d",
     "D1-undead-temple": {
       "nF": 66,
       "nD": 37,
