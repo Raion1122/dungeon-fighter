@@ -673,6 +673,35 @@
       50%      { opacity: 1.0; }
     }
 
+    /* ── 詠唱マジックサークル (術者の足元に展開する魔法陣) ────────────────────
+     * 実体は 6 コマ横ストリップ (assets/magic_circle_anim.png)。位置とコマ送りは
+     * spawnCastCircle() が毎フレーム書く (CSS アニメーションは使わない — カメラ追従と
+     * コマ送りを 1 本の rAF に束ねたいため)。
+     *
+     * ⚠⚠ z-index は **.groundFx と同値の 1** =「床 (mapCanvas z0) より上・敵 (z2) より下」。
+     *   ここを 6 以上にすると陣が術者の脚の上に乗り、「床に描かれた紋様」ではなく
+     *   「体に貼られたシール」に見える。#vfxLayer / #nodeLayer はどちらも stacking context を
+     *   作らない透明ラッパなので、この 1 は大域 (root stacking context) でそのまま解決される。
+     * ⚠ transform-origin は「楕円の中心」= 足元に置きたい点。translate の Y 割合と必ず
+     *   揃えること (揃えないと展開アニメで陣が足元から滑る)。0.64 は make_magic_circle.py が
+     *   焼いた時に出力する anchorFY の実測値。 */
+    .fxCastCircle {
+      position: absolute;
+      pointer-events: none;
+      z-index: 1;
+      background-repeat: no-repeat;
+      transform-origin: 50% 64%;
+      will-change: transform, opacity;
+    }
+    /* 属性色。源は白〜青紫で**彩度が低い** (alpha>96 の画素で平均 sat 0.088) ため、
+     * hue-rotate だけでは色が乗らない。sepia(1) で単色化してから hue-rotate + saturate で着色する。
+     * ⚠ 4 種は dfPlayCast の element と同じ語彙 (fire/ice/arcane/holy)。ここに無い値が来ると
+     *   filter 無しの白い陣になる (.fxCastAura と同じ失敗の仕方)。 */
+    .fxCastCircle--arcane { filter: sepia(1) saturate(3.5) hue-rotate(215deg); }
+    .fxCastCircle--fire   { filter: sepia(1) saturate(7)   hue-rotate(-45deg); }
+    .fxCastCircle--ice    { filter: sepia(1) saturate(5)   hue-rotate(165deg) brightness(1.05); }
+    .fxCastCircle--holy   { filter: sepia(1) saturate(3)   hue-rotate(-6deg)  brightness(1.25); }
+
     .enemyHpBar {
       width: 52px;
       height: 8px;
@@ -8887,6 +8916,135 @@
       return light;
     }
 
+    // ─── 詠唱マジックサークル: 術者の足元に展開する魔法陣 ───────────────────────
+    // 素材は codex1 の arcane-circle-cast-6 (768x724 の 6 枚) を tools/make_magic_circle.py で
+    // 320x200 x 6 の横ストリップへ焼いたもの。コマは 0=淡い霧 → 3=完成形 → 5=消え際。
+    //
+    // ⚠⚠ **「どこから呼ぶか」がこの演出の設計そのもの**。呼ぶのは
+    //   (a) dfPlayCast … 味方 / リーダー / 敵キャスター / ボス / 単眼の暴君の眼柄、の**全詠唱が
+    //       通る唯一の関数**
+    //   (b) hydraFireBreath … 竜 (ファラクサス) とハイドラとキマイラの火炎ブレスの溜め
+    //   の 2 箇所だけ。個々の呪文関数へ足すと必ず抜ける (魔法職 26 呪文 + 敵スペル 6 種 +
+    //   眼柄 7 種で 40 近い入口がある)。(b) が要るのは、**ファラクサスは spells を持たない**ため
+    //   dfPlayCast を一度も通らないから (竜の魔は呪文ではなくブレス)。
+    const MAGIC_CIRCLE_SHEET = {
+      src: "assets/magic_circle_anim.png?v=1",
+      img: new Image(), loaded: false,
+      frameW: 320, frameH: 200, cols: 6,
+      anchorFY: 0.64,   // 楕円中心のフレーム内比。.fxCastCircle の transform-origin と必ず一致させる
+      ringFW: 0.766,    // 輪の幅 / フレーム幅。見かけの直径からフレーム幅を逆算するのに使う
+    };
+    MAGIC_CIRCLE_SHEET.img.onload  = () => { MAGIC_CIRCLE_SHEET.loaded = true; };
+    MAGIC_CIRCLE_SHEET.img.onerror = () => {};   // loaded=false のまま = 陣なしで詠唱は普通に続く
+    MAGIC_CIRCLE_SHEET.img.src = MAGIC_CIRCLE_SHEET.src;
+
+    // 接地点 (displaySize に対する比)。全スプライトの内容下端は実測で frameH の 0.95
+    // (「足元揃え抽出」の副産物・mage/cleric/lich/pharaxus で 0.948〜0.958) なので、
+    // そのわずかに上を楕円の中心に据えると「陣の中に立っている」絵になる。
+    const CAST_CIRCLE_FOOT_FY  = 0.93;
+    const CAST_CIRCLE_MIN_DIAM = 92;    // 小型の敵でも陣が豆粒にならない下限 (px)
+
+    // 陣の見かけ直径。displaySize に**単純比例させてはいけない**: 箱を大きく使う巨躯
+    // (ファラクサス = 内容幅が箱の 0.771) と、箱を小さくしか使わない人型 (僧侶 = 0.240) で
+    // 「体に対する陣の大きさ」が 3 倍ずれる。実測では displaySize が大きいほど箱を埋めるので、
+    // 大きい側だけ伸びを鈍らせて釣り合わせる。
+    function castCircleDiameter(displaySize) {
+      const KNEE = 160;
+      const d = (displaySize <= KNEE) ? displaySize * 1.15
+                                      : KNEE * 1.15 + (displaySize - KNEE) * 0.55;
+      return Math.max(CAST_CIRCLE_MIN_DIAM, d);
+    }
+
+    // 経過 t(ms) における見え方。展開 → 保持 → 霧散 の 3 相。
+    // ⚠ 純関数にしてあるのは検証のため (ドライバが DOM もカメラも無しで相の境界を測れる)。
+    //   ドライバ側へ式を写経すると実装と検証が同じ間違いを共有して両方緑になる。
+    function castCirclePhases(dur) {
+      const grow = Math.min(420, Math.max(90, dur * 0.40));
+      const fade = Math.min(260, Math.max(80, dur * 0.25));
+      return { grow, fade, hold: Math.max(0, dur - grow - fade) };
+    }
+    function castCircleFrameAt(t, dur) {
+      const ph = castCirclePhases(dur);
+      if (t <= 0) return { frame: 0, scale: 0.82, opacity: 0 };
+      if (t < ph.grow) {
+        const p = t / ph.grow;                                   // 0 → 1
+        return {
+          frame: Math.min(3, Math.floor(p * 4)),                  // コマ 0,1,2,3 を順に
+          scale: 0.82 + 0.18 * (1 - (1 - p) * (1 - p)),           // ease-out で床から立ち上がる
+          opacity: Math.min(1, p * 2.2),
+        };
+      }
+      const tAfter = t - ph.grow;
+      if (tAfter < ph.hold) {
+        // 完成形 (3) と最輝 (4) をゆっくり往復 = 陣が脈打って見える
+        return { frame: 3 + (Math.floor(tAfter / 150) % 2), scale: 1, opacity: 1 };
+      }
+      const q = Math.min(1, (tAfter - ph.hold) / Math.max(1, ph.fade));
+      return { frame: 5, scale: 1 + 0.08 * q, opacity: 1 - q };
+    }
+    // classic script 直下の const/function は window に生えないので、検証用シームを明示する
+    // (先例: window.sovereignEyeGapMs)
+    if (typeof window !== "undefined") {
+      window.castCircleDiameter = castCircleDiameter;
+      window.castCirclePhases   = castCirclePhases;
+      window.castCircleFrameAt  = castCircleFrameAt;
+    }
+
+    // 足元へ陣を 1 枚出す。unit は { x, y, def } さえあればよい (味方 ally / リーダーアダプタ /
+    // 敵のシム {el,x,y,def} のどれでも通る)。戻り値の destroy() は冪等。
+    function spawnCastCircle(unit, elem, durMs) {
+      const S = MAGIC_CIRCLE_SHEET;
+      if (!unit || !S.loaded) return null;          // シート未ロード → 陣なしで詠唱は続ける
+      const dur = Math.max(160, durMs || 800);
+      const size = (unit.def && unit.def.displaySize) || 96;
+      const w = castCircleDiameter(size) / S.ringFW;   // 輪を目標径にするためのフレーム幅
+      const h = w * (S.frameH / S.frameW);
+
+      const el = document.createElement("div");
+      el.className = "fxCastCircle fxCastCircle--" + (elem || "arcane");
+      el.style.width  = w + "px";
+      el.style.height = h + "px";
+      el.style.backgroundImage = 'url("' + S.src + '")';
+      el.style.backgroundSize  = (w * S.cols) + "px " + h + "px";
+      vfxHost().appendChild(el);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
+
+      const t0 = performance.now();
+      let rafId = 0, dead = false;
+      const destroy = () => {
+        if (dead) return;
+        dead = true;
+        if (rafId) { try { cancelAnimationFrame(rafId); } catch (e) {} }
+        try { el.remove(); } catch (e) {}
+      };
+      const step = () => {
+        if (dead) return;
+        const t = performance.now() - t0;
+        const f = castCircleFrameAt(t, dur);
+        // 楕円中心 = 術者の足元。x/y はスプライト箱の左上 (味方も敵もこの規約で統一されている)
+        const wx = unit.x + size / 2;
+        const wy = unit.y + size * CAST_CIRCLE_FOOT_FY;
+        el.style.left = (wx - camX) + "px";
+        el.style.top  = (wy - camY) + "px";
+        el.style.backgroundPosition = (-f.frame * w) + "px 0px";
+        el.style.opacity = f.opacity;
+        el.style.transform = "translate(-50%, -" + (S.anchorFY * 100) + "%) scale(" + f.scale + ")";
+        if (t >= dur) { destroy(); return; }
+        rafId = requestAnimationFrame(step);
+      };
+      step();
+      // 取りこぼし対策: タブ非表示などで rAF が止まると陣が残るので、時間でも必ず消す
+      setTimeout(destroy, dur + 600);
+
+      if (window.__castCircleProbe) {
+        window.__castCircleProbe.push({
+          elem: elem || "arcane", name: (unit.def && unit.def.name) || "",
+          displaySize: size, diam: castCircleDiameter(size), w, h, dur,
+          footWX: unit.x + size / 2, footWY: unit.y + size * CAST_CIRCLE_FOOT_FY,
+        });
+      }
+      return { el, destroy };
+    }
+
     // ─── STEP 1: 統一詠唱演出 dfPlayCast ───
     // 術者を魔力オーラで包み (チャージ→臨界フラッシュ)、頭上に呪文名を表示する「溜め」演出。
     // spell = { name:'ファイアボール', element:'fire'|'ice'|'arcane'|'holy' }
@@ -8933,6 +9091,11 @@
           });
         } catch (e) {}
 
+        // 足元の魔法陣。ここが「詠唱する者すべて」が必ず通る唯一の場所なので、味方 / リーダー /
+        // 敵キャスター / ボス / 単眼の暴君の眼柄が、個別の配線なしで全部対象になる。
+        // 陣は自前の rAF でコマ送りするので place() には載せない (destroy だけ cleanup が持つ)。
+        const circle = spawnCastCircle(ally, elem, dur);
+
         // カメラ追従 (毎フレーム再配置 → カメラがイージングしてもユニットに密着)
         let rafId = 0, done = false;
         const place = () => {
@@ -8951,6 +9114,7 @@
           if (rafId) { try { cancelAnimationFrame(rafId); } catch (e) {} }
           try { aura.remove(); } catch (e) {}
           try { label.remove(); } catch (e) {}
+          if (circle) circle.destroy();
         };
 
         if (reduced) {
@@ -27250,6 +27414,12 @@
           showDMMessage("「赤竜が大きく息を吸い込む。喉の奥で炎が渦巻き、業火が洞窟全体を舐めようとしている。」", 3600);
         }
       }
+      // 足元の魔法陣 (ユーザー要望「ボスもドラゴンも」の実体はここ)。
+      // ⚠ ブレスは呪文ではないので **dfPlayCast を通らない**。ファラクサスは spells を 1 つも
+      //   持たない = ここを足さないと最終ボスだけ陣が一度も出ない、という抜け方をする。
+      //   1300ms は「溜め 450 + 飛翔 420 + 着弾 250」を包む長さ (炎が着弾する頃に霧散する)。
+      spawnCastCircle({ x: enemy.x, y: enemy.y, def }, "fire", 1300);
+
       // 溜めの吸い込み演出: 口元へ火の粉が収束 (Canvas)
       if (fxEnabled()) {
         const mWX0 = enemy.x + def.displaySize / 2, mWY0 = enemy.y + def.displaySize * 0.32;
