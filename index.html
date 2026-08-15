@@ -4289,6 +4289,16 @@
       try { return new URLSearchParams(location.search).get("doors") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[P5] 施錠だけを切る退避スイッチ ?locks=0。扉は今までどおり立つが、全部 closed から始まる。
+     * ⚠ ?doors=0 とは別の口にしたのは、?doors=states (5 状態の dev プレビュー) と**同時に
+     *   使える**必要があるため (値を 1 つしか持てない ?doors= には相乗りできない)。
+     * ⚠ これも dev チートではなく退避口なので __dfDevCheat ではゲートしない。
+     * ★P2〜P4 / P8 の検出器 (driver_doors_p2 / driver_doors_p8) はこれを付けて走る。
+     *   あちらの主張は「閉じた扉を選ぶと開く」で、施錠は driver_doors_p5 が測る。 */
+    const DOORS_NOLOCK = (() => {
+      try { return new URLSearchParams(location.search).get("locks") === "0"; }
+      catch (e) { return false; }
+    })();
     /* ⚠⚠ [P8] **ここは実体を作らない**。一覧を組み立てるのは rebuildNodeDoors ただ 1 つで、
      *   この関数は「今の一覧を渡す窓口」に徹する。MAPDEF.doors を条件分岐で直に返していた頃は、
      *   開閉が MAPDEF へ書き戻る経路がこの 1 行から生えていた。 */
@@ -30091,6 +30101,20 @@
      * ⚠ RUN が無いマップ (既存 6 シナリオの ?graph=0 / 屋外 / 生成クエスト / 自作マップ) では
      *   1 枚も立たない = 従来どおり。扉が要るならそのマップの mapDef.doors に書く。 */
     const DOOR_DEMO_STATES = ["closed", "locked", "open", "broken", "hidden"];
+    /* ★[P5] 施錠される扉の割合。⚠ ここが施錠まわり唯一の難度チューニング箇所
+     *   (chestLockDC / disarmDC と同じ扱い。プレイテスト後はここだけ触れば調整できる)。 */
+    const DOOR_LOCK_CHANCE = 0.25;
+    /* ★[P5] この扉が施錠されているか。**node id + door id のハッシュ**で決まる決定論の抽選。
+     * ⚠⚠ **Math.random を 1 度も引かないこと**。ここは buildNode の途中 = 盤面 (宝箱・罠・敵) の
+     *   抽選と同じ流れの中で走るので、グローバル RNG を 1 回でも消費すると以降の湧きが全部ずれ、
+     *   バランスの実測もリプレイの再現性も壊れる (SCE1_ALERT_ADD_TYPES を固定配列にしたのと同じ理由)。
+     *   makeNodeRng は seed 文字列から**新しい PRNG を作る**ので、何度呼んでも共有の RNG を進めない。
+     * ⚠ 盤面と同じく **node id だけで決まる**。どちらから入ったかで施錠が変わってはいけない
+     *   (rebuildNodeDoors が nodeExitDirs を使わないのと同じ不変条件)。 */
+    function doorLockedByRng(nodeId, doorId) {
+      if (DOORS_NOLOCK || !nodeId || !doorId) return false;
+      return makeNodeRng(String(nodeId) + "/lock/" + doorId)() < DOOR_LOCK_CHANCE;
+    }
     function rebuildNodeDoors(nodeId) {
       nodeDoors = null;
       /* ★[P8] mapDef.doors を持つマップ (自作マップ) が最優先。**必ず複製**して持つ。
@@ -30128,12 +30152,18 @@
           const out = [];
           for (const dir of dirs) {
             const g = nodeGateTile(MAPDEF, dir);          // 関数宣言なので巻き上げ済み
+            const doorId = "gate-" + dir;
             out.push({
-              id: "gate-" + dir, tx: g.tx, ty: g.ty,
+              id: doorId, tx: g.tx, ty: g.ty,
               /* 向きの対応: 南北へ抜ける口 (up/down) は板が東西へ伸びる = horizontal。
                *   東西へ抜ける口 (left/right) は vertical。 */
               orientation: (dir === "left" || dir === "right") ? "vertical" : "horizontal",
-              state: states ? states[out.length % states.length] : "closed",
+              /* ★[P5] 既定は closed、抽選に当たった扉だけ locked。どちらも「塞ぐ側」なので
+               *   通行判定 (P3) から見た初期状態は変わらない = fail-safe のまま。
+               * ⚠ 保存があれば下の applySavedDoorStates が上書きする。つまり一度こじ開けた扉は
+               *   再入場で施錠へ戻らない (P8 の器へそのまま乗る)。 */
+              state: states ? states[out.length % states.length]
+                            : (doorLockedByRng(nodeId, doorId) ? "locked" : "closed"),
               requiredKey: null,
             });
           }
@@ -30427,12 +30457,133 @@
       }
       return opened;                        // ⚠ マスク再構築は setDoorState の中で済んでいる
     }
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P5 (扉) — 施錠扉。**判定は 2 段、最後は必ず突破する**
+     * ══════════════════════════════════════════════════════════════════════════
+     *   ① 盗賊の早業 (sleightOfHand) で開錠 → 成功なら open (静かに通る)
+     *   ② 失敗 → 運動 (athletics) で体当たり → 成功なら broken
+     *   ③ それも失敗 → 「時間をかけて力ずくで破った」= broken。代償に代表者へ 1d4
+     *
+     * ⚠⚠ **進行が詰まる経路を 1 本も作らない**。DF は完全オートバトルで「鍵を探しに戻る」操作が
+     *   原理的に無いので、開かない扉は詰みそのものになる。requiredKey は P1 でデータに在るが
+     *   ここでは**読まない** (鍵の入手経路が無いうちに参照すると詰みが生える)。
+     * ⚠⚠ 「騒音で次の部屋の敵が増える」は**採らない** (設計判断・ユーザー報告済)。理由 2 つ:
+     *   ① 「盤面は node id だけで決まる」を壊す (P2〜P4 で実際に踏んだ欠陥と同型)
+     *   ② saveNodeState は敵を deadSlots = **添字**で覚えているので、静かに入った時と壊して
+     *      入った時で添字がずれて復元が壊れる。騒々しさは DM の語りだけで表す。
+     * ⚠ 扉で誰も殺さない (HP 下限 1)。選択の結果ですらない「通り道」で全滅すると理不尽になる。
+     * ★DC は宝箱と同じ chestLockDC()。突破が保証されている以上、扉だけ緩める理由が無い。 */
+    const DOOR_FORCE_HP_FLOOR = 1;   // 力ずくの代償が割り込めない HP。★扉で誰も死なせない
+    const DOOR_FORCE_DMG_DIE  = 4;   // 1d4
+    /* 判定の代表者 (SkillCheck が返す**素のオブジェクト** {classKey,name,isHero,skillBonus}) を
+     * 実体へ戻す。⚠ 主人公は allies に居ないので null を返し、呼び側が hp グローバルを使う。 */
+    function unitForRep(rep) {
+      if (!rep || rep.isHero) return null;
+      for (const a of allies) {
+        if (!a.alive) continue;
+        if ((a.npcName || (a.def && a.def.name) || "") === rep.name) return a;
+      }
+      return null;
+    }
+    /* 3 段目の代償。器は triggerTrapOnAlly (:22711) の写しだが、**倒れる分岐を持たない**
+     * (下限 1 で必ず生き残るので gameOver / alive=false へ落ちる道が無い)。 */
+    function applyDoorForceDamage(rep) {
+      const r = rollDiceDD(1, DOOR_FORCE_DMG_DIE);
+      const dmg = r.total;
+      const unit = unitForRep(rep);
+      if (!unit) {
+        hp = Math.max(DOOR_FORCE_HP_FLOOR, hp - dmg);
+        showDmgAt(playerX + 48, playerY + 48, dmg, false);
+      } else {
+        unit.hp = Math.max(DOOR_FORCE_HP_FLOOR, unit.hp - dmg);
+        showDmgAt(unit.x + ((unit.def && unit.def.displaySize) || 96) / 2, unit.y + 40, dmg, false);
+      }
+      return { dmg: dmg, rolls: r.rolls, name: (rep && rep.name) || getLeaderName() };
+    }
+    /* 施錠扉を突破する。返り値 = {outcome, state, dmg, name} / そもそも施錠でなければ null。
+     * forced は**検証シーム専用**の強制結果 ("pick" | "force" | "break")。
+     * revealExitHints(node, forcedTier) と同じ作法で、**本編からは絶対に渡さない**。 */
+    async function tryUnlockDoor(d, nodeId, forced) {
+      if (!d || d.state !== "locked") return null;
+      const party = (window.SkillCheck && SkillCheck.resolveSkillCheck) ? buildPerceptionParty() : [];
+      /* エンジン未読込 / 全滅 … 判定を出さずに通す。⚠ ここで locked のまま返すと
+       *   「開かない扉」= 詰みになる。扉で fail-open が正しい唯一の場所。 */
+      if (!party.length) {
+        setDoorState(d, "broken", nodeId);
+        return { outcome: "break", state: d.state, dmg: 0, name: getLeaderName() };
+      }
+      const dc = chestLockDC();
+      let outcome = forced || null, rep = null;
+      if (!outcome) {
+        showDMMessage("扉には錠が下りている。……こじ開けるしかない。", 1800);
+        skillCheckActive = true; dialogPaused = true;      // revealExitHints と同じ作法
+        try {
+          /* ⚠⚠ auto: !!RUN.auto を**必ず**渡す。?graph=auto は autoplay ではないので、
+           *   渡さないとパネルが出たまま進まず巡回検証が軒並みタイムアウトする。 */
+          const shared = { voiceIds: PERCEPTION_VOICE, iconContext: "treasure", auto: !!RUN.auto };
+          let res = await SkillCheck.resolveSkillCheck("sleightOfHand", dc, party,
+            Object.assign({ title: "開錠判定", flavor: "扉の錠前に細い針を差し込む…" }, shared));
+          rep = (res && res.rep) || null;
+          if (res && res.success) outcome = "pick";
+          else {
+            res = await SkillCheck.resolveSkillCheck("athletics", dc, party,
+              Object.assign({ title: "体当たり", flavor: "肩から扉へ。蝶番ごと押し破る…" }, shared));
+            rep = (res && res.rep) || rep;
+            outcome = (res && res.success) ? "force" : "break";
+          }
+        } catch (e) { outcome = "break"; }                 // ⚠ 例外でも詰ませない
+        finally { skillCheckActive = false; dialogPaused = false; }
+      }
+      // 強制結果のときも「誰が体当たりしたか」は要る (代償の宛先)。運動の代表者で決める。
+      if (!rep) rep = SkillCheck.selectRepresentative(party, SkillCheck.CHECKS.athletics) || null;
+      const who = (rep && rep.name) || getLeaderName();
+      let hit = null;
+      if (outcome === "pick") {
+        setDoorState(d, "open", nodeId);
+        sfx("chestOpen");
+        showBanner("🔓 錠を外した", 1400);
+        updateInfo(`${who} が扉の錠を外した! (開錠 DC ${dc})`);
+        showDMMessage("かちり、と小さな音。扉は音もなく開いた。", 1800);
+      } else {
+        setDoorState(d, "broken", nodeId);   // ★突破 = 必ず「通れる側」へ倒す (詰みを作らない)
+        sfx("counter");
+      }
+      if (outcome === "force") {
+        showBanner("💥 扉を突き破った!", 1400);
+        updateInfo(`${who} が扉に体当たり! 蝶番ごと弾け飛んだ (運動 DC ${dc})`);
+        showDMMessage("肩から扉へ。木材が悲鳴を上げ、蝶番ごと弾け飛んだ。", 1800);
+      }
+      if (outcome === "break") {
+        hit = applyDoorForceDamage(rep);
+        showBanner("🚪 力ずくでこじ開けた", 1400);
+        updateInfo(`${who} が扉を破った… 1d4(${hit ? hit.rolls.join("+") : "-"}) = ${hit ? hit.dmg : 0} ダメージ`);
+        showDMMessage("時間をかけて扉を破った。派手な物音が、奥の闇へ吸い込まれていく…", 2400);
+      }
+      return { outcome: outcome, state: d.state, dmg: hit ? hit.dmg : 0, name: who };
+    }
+    /* ★扉は**タイルで同定**する (openDoorAt と同じ規則。行き先 to では引かない)。
+     * ⚠ 施錠が 1 枚も無ければ Promise.resolve(null) = 何も待たない (従来と同じ速さ)。 */
+    function resolveDoorLockAt(tx, ty, forced) {
+      const doors = doorsForRender();
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        if (d && d.tx === tx && d.ty === ty && d.state === "locked") {
+          return tryUnlockDoor(d, currentNodeId, forced);
+        }
+      }
+      return Promise.resolve(null);
+    }
+
     /* 出口を確定する**唯一の入口**。本編 (tickNodeChoice) と検証シーム (__probeGraph.pick) が
      * ここを通る。以前は 2 行の写しが両方にあった。
-     * ⚠⚠ 「開ける → 目標を決める」の順序が肝。逆にすると snapToWalkable が閉じた扉を避けて
-     *   **手前のタイル**を目標にしてしまい、到達検出が一生成立しない = 潜行が詰む。 */
-    function commitExit(o) {
+     * ⚠⚠ 「**施錠を解く → 開ける → 目標を決める**」の順序が肝。目標を先に決めると
+     *   snapToWalkable が塞がった扉を避けて**手前のタイル**を目標にしてしまい、到達検出が
+     *   一生成立しない = 潜行が詰む。
+     * ★[P5] このために async になった。呼び側は必ず await すること (tickNodeChoice は
+     *   nodeBusy=true の**内側**で待つ。外へ出すと 400ms tick が多重起動する)。 */
+    async function commitExit(o) {
       nodePendingExit = o;
+      await resolveDoorLockAt(o.at.tx, o.at.ty);
       openDoorAt(o.at.tx, o.at.ty);
       heroForcedGoal = snapToWalkable(o.at);
       return heroForcedGoal;
@@ -31204,10 +31355,14 @@
          *   常に空になり、判定が「次に来たときのため」の意味不明な演出になる。 */
         await revealExitHints(node);
         chosen = await chooseExit(node);
+        /* ★扉を開けてから heroForcedGoal を決める (順序は commitExit の注記)。
+         * ⚠⚠ [P5] commitExit が async になったので **nodeBusy の内側で await する**。
+         *   外に置くと nodeBusy=false の後で施錠判定が走り、400ms tick が多重起動して
+         *   判定パネルが二重に出る。 */
+        if (chosen) await commitExit(chosen);
       }
       finally { nodeBusy = false; }
       if (!chosen) { nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS; return; }
-      commitExit(chosen);   // ★扉を開けてから heroForcedGoal を決める (順序は commitExit の注記)
     }
     if (RUN) setInterval(tickNodeChoice, 400);
 
@@ -31919,14 +32074,21 @@
         },
         arrowGate: () => ARROW_TAP_GATE,
         reposition: updateExitArrowPositions,
-        // 「出口を選んだ」だけの状態を作る (歩きと到達検出は本編の heroAI / tick に任せる)
-        pick: (toId) => {
+        /* 「出口を選んだ」だけの状態を作る (歩きと到達検出は本編の heroAI / tick に任せる)。
+         * ⚠ [P5] commitExit が async になったので**この口も async**。呼び側は必ず await する
+         *   (施錠扉なら判定 2 段ぶん待つ)。 */
+        pick: async (toId) => {
           if (!RUN) return null;
           const o = exitsWithReturn(RUN.byId[currentNodeId]).find(x => x.to === toId);
           if (!o) return null;
-          const g = commitExit(o);   // ★本編とまったく同じ入口を通す (扉も一緒に開く)
+          const g = await commitExit(o);   // ★本編とまったく同じ入口を通す (扉も一緒に開く)
           return { to: o.to, dir: o.dir, at: g };
         },
+        /* ★P5 検証シーム: 施錠扉の突破。forced ("pick"|"force"|"break") は 3 つの結果を
+         *   決定論的に作るための**検証専用**引数で、本編からは絶対に渡さない。 */
+        unlock: (tx, ty, forced) => resolveDoorLockAt(tx, ty, forced || null),
+        lockChance: () => DOOR_LOCK_CHANCE,
+        locksOff: () => DOORS_NOLOCK,
         // 歩きを飛ばして遷移だけ測る (保存/復元の検査用。本編と同じ enterNode を通る)
         enter: (toId, viaDir) => enterNode(toId, viaDir),
         forcedGoal: () => heroForcedGoal,

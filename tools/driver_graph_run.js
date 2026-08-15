@@ -946,7 +946,7 @@ const QT = '/index.html?diag=1&graphtest=1';
         playerY = START_TY * TILE_SIZE + SNAP_Y_OFFSET;
         for (const a of allies) { a.x = playerX; a.y = playerY; }
         const ex = g.exits()[0];
-        g.pick(ex.to);
+        await g.pick(ex.to);        /* ⚠ [P5] pick は async (施錠扉なら判定を挟む) */
         const goal = g.forcedGoal();
         heroPath = []; heroPathGoal = null; heroPathTTL = 0;
         heroSliding = false; heroTurnPause = 0; heroStuckTicks = 0; heroWiggleUntil = 0;

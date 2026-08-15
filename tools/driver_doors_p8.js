@@ -58,6 +58,9 @@ const PORT = parseInt(arg('port', '9020'), 10);
  *   (driver_doors_p2 / driver_graph_p7 と同じ判断)。本ドライバは実際にノードを
  *   往復するので、ここを外すと (1c) がタイムアウトで落ちる。 */
 const STAGE = 'orc-fort';
+/* ★[P5 追随 2026-08-15] 全ブートに **?locks=0** を付けてある。本ドライバの主張は
+ *   「**開けた**扉が開いたまま残る / MAPDEF を汚さない」で、施錠 (locked) の突破は
+ *   driver_doors_p5 が測る。⚠ 期待値は 1 文字も書き換えていない (母集団を旧経路へ固定しただけ)。 */
 const DOOR_STATES = ['closed', 'locked', 'open', 'broken', 'hidden'];
 // 「塞ぐか」の契約。⚠ 実装の doorBlocks を読まず**ここに書き下す** (通すのは open と broken だけ)
 const WANT_BLOCK = { closed: true, locked: true, open: false, broken: false, hidden: true };
@@ -253,7 +256,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 往復しても開いたまま (保存と復元)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
     const R = await page.evaluate(async () => {
       const OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };
       const g = window.__graphRun;
@@ -263,7 +266,7 @@ async function bootPage(browser, url, scen, errs, opts) {
       const before = snap();
       const ex = g.exits().filter(o => !o.back)[0];
       if (!ex) return { ex: null };
-      g.pick(ex.to);                                    // 本編と同じ入口。ここで扉が開く
+      await g.pick(ex.to);                              // 本編と同じ入口。ここで扉が開く (P5 で async 化)
       const openedId = (doorsForRender().find(d => d.tx === ex.at.tx && d.ty === ex.at.ty) || {}).id;
       const afterPick = snap();
       const savedHome = savedOf(home);
@@ -312,7 +315,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 mapDef.doors を汚さない (複製で持つ)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
     const M = await page.evaluate(() => {
       const authored = [{ id: 'a0', tx: 1, ty: 2, orientation: 'vertical',
                           state: 'closed', requiredKey: null }];
@@ -350,7 +353,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3 復元が未訪ノードの nodeState を作らない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
     const N = await page.evaluate(() => {
       const g = window.__graphRun;
       const orderOf = () => g.exits().map(o => o.to + (o.back ? '(back)' : '')).join(' ');
@@ -385,7 +388,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§4 setDoorState = 書き込みの唯一点');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
     const W = await page.evaluate((states) => {
       const home = currentNodeId;
       /* ⚠ 母集団: 情景 (倒木など) が既に塞いでいるタイルの扉を選ぶと、open にしても
