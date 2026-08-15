@@ -18,8 +18,11 @@
  *     (2026-08-08 はまさにこれで「壁を描いたのに 1px も見えない」を取りこぼした)。
  *   ・幾何は実装から借りる (window.__graphRun.cam() / mapData)。ドライバが 96 や 192 を写すと
  *     実装とドライバが同じ間違いを共有して両方緑になる。
- *   ・§6 は他5シナリオの非退行。専用素材を持たないシナリオでは従来の wallTint 経路が
- *     生きていること = 今回の変更が廃坑だけに閉じていることを測る。
+ *   ・§6 は「専用素材が載らない側」の不変条件。元は「まだ移行していないテーマ」を測る負の
+ *     コントロールだったが、2026-08-15 に竜巣で 6 テーマ全部が移行し**母集団が空になった**。
+ *     期待値を書き換えるのではなく、屋外テーマ (caravan-road) では useWallFace / useWallTop が
+ *     ゲートで原理的に false になる、という**消えない不変条件**へ言い直してある (§6 の注記)。
+ *     併せて §12 に「6 テーマの立面素材が相互に異なる」(identity) を置いた。
  *
  * 使い方: node tools/driver_wall_face.js [--headful] [--browser <path>] [--port N] [--shots DIR]
  */
@@ -189,7 +192,29 @@ const MEASURE = function () {
     }
   } catch (e) { open = { err: String(e && e.message) }; }
 
+  /* ★[2026-08-15] 立面素材の**内容**ダイジェスト。§12 の「6 テーマの立面が相互に異なる」で使う。
+   * ⚠ 寸法 (faceW/faceH) は 6 テーマとも 480x192 で**全く同じ**なので identity にならない。
+   *   _golden.js の distinct() と同じ思想で、ページが実際に読んだ画像の画素から採る
+   *   (assets/ のファイルを Node 側で読むと「配線が死んでも緑」になるので、必ずページ側から採る)。 */
+  let faceSig = null;
+  try {
+    const im = window.__wallFaceImg;
+    if (im && im.naturalWidth) {
+      const c = document.createElement('canvas');
+      c.width = 8; c.height = 4;
+      const cx = c.getContext('2d');
+      cx.drawImage(im, 0, 0, 8, 4);
+      const d = cx.getImageData(0, 0, 8, 4).data;
+      let s = '';
+      for (let i = 0; i < d.length; i += 4) {
+        s += (((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]) >>> 0).toString(16).padStart(6, '0');
+      }
+      faceSig = s;
+    }
+  } catch (e) { faceSig = 'ERR:' + String(e && e.message); }
+
   return {
+    faceSig: faceSig,
     tile: T, pick: pick, west: west, bandH: bandH, wall: wall, floor: floor, open: open,
     faceW: window.__wallFaceImg ? window.__wallFaceImg.naturalWidth : null,
     faceH: window.__wallFaceImg ? window.__wallFaceImg.naturalHeight : null,
@@ -405,41 +430,50 @@ async function playShot(page, file) {
     await playShot(ip, path.join(SHOT_DIR, 'iphone_play.png'));
     await ip.close();
 
-    // ══ §6 まだ専用素材を持たないシナリオの非退行 ══════════════════════════════
-    /* ★これは「今回の変更が他テーマへ漏れていない」ことを測る**負のコントロール**で、
-     *   計測対象は常に「**まだ 2 枚構成へ移行していない次のテーマ**」に置く。
-     * ⚠⚠⚠ テーマを 1 つ移行するたびに母集団が減るので、そのたびに**計測対象を張り替える**
-     *   こと。期待値 (faceW === null) を書き換えて緑にするのは禁止 = 検出器を殺す行為になる。
-     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → 森 f1f8ea5 → 砦 615ae90 →
-     *           **神殿 (2026-08-15・§10 を新設)** → 竜巣。
-     *   ⇒ 神殿が 2 枚構成へ移ったので、ここの計測対象を **竜巣 (dragon-lair)** へ張り替えた。
-     *      残る未移行テーマは竜巣ただ 1 つ = これが母集団の最後の 1 件。
-     * ⚠⚠⚠ 次 (竜巣) の項目では母集団が**空になる**。そのときは期待値を書き換えるのではなく、
-     *   「屋外テーマでは useWallFace / useWallTop が原理的に false」等の**消えない不変条件**へ
-     *   言い直す (SPEC_wall_themes.md の STEP 6 を参照)。
-     * ⚠⚠ **寄せる向きはテーマごとに違うので (6b) を写経しない。** 砦の項目では神殿向けに
-     *   「壁 <= 床 * 0.90」(暗色寄せ) にしてあったが、竜巣の tint は明色寄せ
-     *   (224,216,208 / a=0.28) なので**また明るい側へ戻す**。 */
-    mark('竜巣 (dragon-lair) — まだ専用素材を持たない側で従来経路が生きているか');
+    // ══ §6 「専用素材が載らない側」の不変条件 (屋外テーマ) ══════════════════════
+    /* ■ ここは元々「**まだ 2 枚構成へ移行していない次のテーマ**」を測る負のコントロールだった
+     *   (期待値 = faceW / topW が null)。移行順は
+     *     廃坑 cda2647 → 沼地 c020ac2 → 森 f1f8ea5 → 砦 615ae90 → 神殿 d7cd4a0 → **竜巣 (今回)**
+     *   で、竜巣を移した時点で**未移行テーマが 1 つも無くなり母集団が空**になった。
+     * ⚠⚠⚠ 在庫が尽きた検出器は「何も検出していない」のと同じになる。だからといって
+     *   **期待値を書き換えて緑にするのは禁止**。ここでは 2026-08-15 に、消費されて無くなる
+     *   「未移行テーマ」ではなく、**仕様が変わっても消えない不変条件**へ言い直した:
+     *
+     *     屋外テーマ (FIELD_THEMES = caravan-road) では、専用の立面 / 天面は**原理的に載らない**。
+     *     index.html の useWallFace / useWallTop はどちらも `… && !FIELD_DRAW && !IS_FIELD_THEME`
+     *     というゲートを通っており (index.html:6854 / 6860)、屋外テーマは縦持ちでも横持ちでも
+     *     この条件で必ず false になる。屋内テーマを何枚専用素材へ移しても、この事実は減らない。
+     *
+     * ★ 空振りにしないための対 (ペア) が (6b)。屋外は「立面 / 天面を持たない」代わりに
+     *   **路肩ストリップ (caravan_road_verge.png)** を読む枝を通る。両方を並べて測ることで
+     *     ・誰かが caravan-road に wallFace / wallTop を足した → (6a) が落ちる
+     *     ・誰かがこの節を屋内テーマへ向け直した / caravan-road を FIELD_THEMES から外した
+     *       → (6b) が落ちる (路肩ストリップを読まなくなる)
+     *   の両方向を捕まえられる。片側だけだと「屋内テーマを指しても緑」になり得る。
+     * ⚠ 旧 (6b)「wallTint が生きているので壁が床より明るい」は**もう測れない**。6 テーマすべてが
+     *   wallTop を持つようになり、wallTint が実際に効くセルが 1 つも無くなったため。テーマごとの
+     *   明暗の分離は各テーマの節 ((2a)/(7e)/(8e)/(9e)/(10e)/(11e)) が個別に見ている。 */
+    mark('屋外テーマ (caravan-road) — 専用素材が原理的に載らない側の不変条件');
     const net3 = { errs: [], bad: [] };
-    const fo = await boot(browser, URL_Q, 'dragon-lair', 1280, 800, net3);
-    const M3 = await fo.evaluate(MEASURE);
-    console.log('[drv] lair ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
-      wall: M3.wall ? +M3.wall.L.toFixed(1) : null, floor: M3.floor ? +M3.floor.L.toFixed(1) : null }));
-    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森・砦・神殿の 5 つに閉じている',
+    const fo = await boot(browser, URL_Q, 'caravan-road', 1280, 800, net3);
+    const M3 = await fo.evaluate(() => ({
+      faceW: window.__wallFaceImg ? window.__wallFaceImg.naturalWidth : null,
+      topW: window.__wallTopImg ? window.__wallTopImg.naturalWidth : null,
+      // 屋外の壁素材 = 路肩ストリップ。実際に読んだ URL から見る (SCENARIO_TEX を写経しない)
+      verge: performance.getEntriesByType('resource')
+        .map(e => e.name).filter(n => /caravan_road_verge/.test(n)).length,
+      floorTex: performance.getEntriesByType('resource')
+        .map(e => e.name).filter(n => /caravan_road_floor/.test(n)).length,
+    }));
+    console.log('[drv] field ' + JSON.stringify(M3));
+    check('(6a) 屋外テーマには立面/天面の専用素材が載らない (!FIELD_DRAW && !IS_FIELD_THEME のゲート)',
       M3.faceW === null && M3.topW === null,
       'faceW=' + M3.faceW + ' topW=' + M3.topW);
-    if (!M3.err) {
-      /* ★ 竜巣の tint は明色寄せなので、向きは「壁が床より明るい」側へ戻す。
-       *   素の素材は シナリオ6床.png が平均 L=28.7 / シナリオ6壁.png が L=22.4 で**壁の方が暗い**
-       *   = tint が死ぬと壁は床より暗くなり 1.00 未満へ落ちる。tint が生きていると白 (217 相当) を
-       *   28% 被せるぶん一気に持ち上がる。閾値はその間に置く (実測は上の [drv] lair 行に出る)。
-       * ⚠ 神殿の「<= 0.90」をここへ写経すると**正しい絵で赤くなる**。向きは毎回テーマ依存。 */
-      check('(6b) それでも壁が床から分離している (竜巣の wallTint は明色寄せ)',
-        M3.wall.L >= M3.floor.L * 1.60,
-        (M3.wall.L / M3.floor.L).toFixed(2) + '倍 (tint が死ぬと 1.00 未満へ落ちる)');
-    }
-    check('(6c) 竜巣でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
+    check('(6b) ★それでも屋外の壁素材 (路肩ストリップ) は読まれている = 屋外の枝を通っている',
+      M3.verge > 0 && M3.floorTex > 0,
+      'caravan_road_verge=' + M3.verge + ' 件 / caravan_road_floor=' + M3.floorTex + ' 件'
+      + ' (0 件なら屋外テーマを指していない = (6a) が空振りしている)');
+    check('(6c) 屋外テーマでページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
     await fo.close();
 
     // ══ §7 沼地 — 2 テーマ目の専用素材 (2026-08-14) ═════════════════════════════
@@ -610,6 +644,78 @@ async function playShot(page, file) {
     }
     check('(10f) 神殿でページエラー 0 件', net7.errs.length === 0, net7.errs.slice(0, 3).join(' | '));
     await tp.close();
+
+    // ══ §11 竜巣 — 6 テーマ目 = 最後の専用素材 (2026-08-15) ══════════════════════
+    /* 竜巣で 6 テーマすべてが 2 枚構成になった。白い幕 (wallTint) は wallTop が効いたセルには
+     * 乗らないので、ここが通れば**屋内から幕は 1 枚残らず外れている**。
+     * ⚠ 題材は**玄武岩の柱状節理** = 六角柱が密集した天然の岩盤。人工の石積みではないので、
+     *   廃坑の切石を流用すると地形そのものが嘘になる。--round も掛けていない (鋭い稜線が題材)。
+     * ⚠ (2b)「壁が床より無彩色」は**流用しない**。あれは廃坑の寒色花崗岩の前提で、竜巣の壁は
+     *   割れ目に熾火の赤橙が入る = 彩度が高い。幕を捕まえるのは edge の assert (11d) だけでよい。
+     * ⚠ 立面の水平エッジを作っているのは石積みのコースではなく**柱を横切る節理 16 段**。
+     *   縦材が主役の題材でも横構造を数字で発注してあるのは、この assert と
+     *   make_wall_face.py の find_joint_rows (2 本未満で exit 3) のため (森の丸太柵と同じ理由)。 */
+    mark('竜巣 (dragon-lair) — 6 テーマ目 = 最後の専用素材');
+    const net8 = { errs: [], bad: [] };
+    const dl = await boot(browser, URL_Q, 'dragon-lair', 1280, 800, net8);
+    const M8 = await dl.evaluate(MEASURE);
+    await dumpCanvas(dl, path.join(SHOT_DIR, 'lair_map.png'));
+    console.log('[drv] lair ' + JSON.stringify({ faceW: M8.faceW, faceH: M8.faceH, topW: M8.topW,
+      wall: M8.wall ? +M8.wall.L.toFixed(1) : null, floor: M8.floor ? +M8.floor.L.toFixed(1) : null,
+      edge: M8.wall ? +M8.wall.edge.toFixed(2) : null }));
+    check('(11a) 竜巣の立面素材が読めている / 幅は tile の整数倍・高さ === 壁矩形',
+      M8.faceW > 0 && M8.faceW % M8.tile === 0 && M8.faceH === M8.tile * 2,
+      'face=' + M8.faceW + 'x' + M8.faceH + ' tile=' + M8.tile);
+    check('(11b) 竜巣の天面素材が読めている / 正方形で tile の整数倍',
+      M8.topW > 0 && M8.topW === M8.topH && M8.topW % M8.tile === 0, 'top=' + M8.topW + 'x' + M8.topH);
+    const badAsset8 = net8.bad.filter(b => /wall_face|wall_top/.test(b));
+    check('(11c) 竜巣で壁素材の 404 が 0 件', badAsset8.length === 0, badAsset8.join(','));
+    if (!M8.err) {
+      /* ★ 白い幕を機械的に捕まえる唯一の assert (廃坑 (2c) / 沼地 (7d) / 森 (8d) / 砦 (9d) /
+       *   神殿 (10d) と同じ物差し)。幕は明暗を動かす代わりに構造を潰すので、行方向の輝度差で落ちる。 */
+      check('(11d) ★竜巣の立面に水平のエッジ (柱を横切る節理) がある = 幕ではない',
+        M8.wall.edge >= M8.floor.edge * 1.8,
+        '壁 edge=' + M8.wall.edge.toFixed(2) + ' / 床 edge=' + M8.floor.edge.toFixed(2)
+        + ' = ' + (M8.wall.edge / Math.max(0.01, M8.floor.edge)).toFixed(2) + '倍');
+      /* ⚠⚠ **神殿の (10e)「<= 0.90」を写経してはいけない**。不等号が逆なのは神殿だけで、竜巣の
+       *   床 (シナリオ6床.png) は 6 シナリオで**最も暗い** (素の平均 L=28.7 / canvas 実測 24.6)。
+       *   よって竜巣は他 4 テーマと同じ「床より明るい側へ持ち上げて分離」に戻る。
+       * ⚠ 出荷版は立面 --gamma 0.55 (可視 27px で L=51.7 = 床の 2.10 倍)。素の --gamma 0.85 では
+       *   L=23.8 = 床とほぼ同値で、壁が床へ沈む。閾値は他テーマと揃えて 1.15 に置く
+       *   (実測との差は「もっと明るく」を狙う方向へ締め直さないため。廃坑 (2a) の注記と同じ理由)。 */
+      check('(11e) 竜巣の壁帯が床に溶けていない (下限ガード / 神殿と違い床より明るい側)',
+        M8.wall.L >= M8.floor.L * 1.15,
+        '壁 L=' + M8.wall.L.toFixed(1) + ' / 床 L=' + M8.floor.L.toFixed(1)
+        + ' = ' + (M8.wall.L / M8.floor.L).toFixed(2) + '倍');
+    }
+    check('(11f) 竜巣でページエラー 0 件', net8.errs.length === 0, net8.errs.slice(0, 3).join(' | '));
+    await dl.close();
+
+    // ══ §12 6 テーマの立面素材が相互に異なる (母集団が尽きた後の恒久ガード) ══════
+    /* ★[2026-08-15] §6 の負のコントロールが「未移行テーマ」を食い尽くして消えたので、その穴を
+     *   埋める**もう 1 本の不変条件**。_golden.js の distinct() と同じ思想で、
+     *   **描画 (素材の配線) が死んで全テーマ一様になったら落ちる**検出器。
+     * ⚠ 件数や合計では測らない。「6 件読めた」は SCENARIO_TEX が全部同じファイルを指していても
+     *   通る。identity (画素のダイジェスト) で相互に異なることを要求する。
+     * ⚠ 寸法でも測らない。6 テーマとも 480x192 で完全に同じなので判別力がゼロ。
+     * ⚠ 6 テーマすべてが 2 枚構成になった今、この assert が「どのテーマの素材も実在し、かつ
+     *   使い回しでない」ことの唯一の機械的な保証になっている。テーマを増やしたらここへ足す。 */
+    mark('6 テーマの立面素材が相互に異なるか (identity)');
+    const SIGS = [
+      ['goblin-mine', M.faceSig], ['lizard-swamp', M4.faceSig], ['bandits-forest', M5.faceSig],
+      ['orc-fort', M6.faceSig], ['undead-temple', M7.faceSig], ['dragon-lair', M8.faceSig],
+    ];
+    const nullSig = SIGS.filter(([, s]) => !s || /^ERR:/.test(s)).map(([k]) => k);
+    check('(12a) 6 テーマすべてで立面素材の内容を採れている', nullSig.length === 0,
+      SIGS.length + ' テーマ / 採れなかった: ' + (nullSig.join(',') || 'なし'));
+    const seenSig = new Map(); const dupSig = [];
+    for (const [k, s] of SIGS) {
+      if (!s) continue;
+      if (seenSig.has(s)) dupSig.push(seenSig.get(s) + ' == ' + k); else seenSig.set(s, k);
+    }
+    check('(12b) ★6 テーマの立面素材が相互に異なる (使い回し / 一様化を検出)',
+      nullSig.length === 0 && dupSig.length === 0,
+      '相異なる値 ' + seenSig.size + ' / 6 件' + (dupSig.length ? ' / 重複: ' + dupSig.join(', ') : ''));
   } catch (e) {
     check('(fatal) ドライバが完走した', false, e.message);
   } finally {

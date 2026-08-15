@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "615ae90",
-    "subject": "砦の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森に続く4テーマ目)",
+    "rev": "d7cd4a0",
+    "subject": "神殿の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森・砦に続く5テーマ目)",
     "dirty": true
   },
   "values": {
@@ -41,7 +41,7 @@
       1440,
       900
     ],
-    "2-dragon-lair": "3bb9126aacf40cbf",
+    "2-dragon-lair": "149ce3658138f47a",
     "2b-dragon-lair": [
       2024,
       931,
