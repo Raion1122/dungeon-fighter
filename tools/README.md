@@ -304,6 +304,128 @@ Bash で実行(`--list-*` で当たりを付け → `--project`/`--chat` で取�
 
 ---
 
+## `codex_request.py` — codex1 への依頼文を Codex CLI へ自動投下
+
+`codex1/requests/YYYY-MM-DD_<slug>.md` に起草した依頼文を、**ユーザーが Codex の UI へ
+手で貼り付けることなく** `codex exec` へ流し込むツール。依頼文の前に定型ヘッダ
+(納品先 / 命名規則 / 納品前チェック)を自動で差し込み、**stdin** 経由でプロンプトを渡す。
+実行中は `--json` の JSONL を逐次パースして、コマンド実行・ファイル書き込み・最終メッセージを
+人間向け 1 行に整形して流す。
+
+### 初回セットアップは**不要**
+
+`chatgpt_generate.py` / `claude_ai_fetch.py` と違い、**専用プロファイルの用意も
+`--setup` も Playwright も要らない**。理由は、codex CLI が **Codex デスクトップアプリ /
+VS Code 拡張に同梱**されていて、GUI 側と次の 3 つを**そのまま共有**しているため:
+
+| 共有されるもの | 実体 |
+| --- | --- |
+| 認証 | `~/.codex/auth.json` |
+| skills | `~/.codex/skills/`(`dnd-monster-sprites` 等) |
+| 設定(モデル等) | `~/.codex/config.toml` |
+
+つまり **GUI の Codex にログイン済みなら、そのまま本スクリプトが動く**。
+`~/.codex/auth.json` が無い場合だけ exit 1 で「デスクトップアプリでサインイン
+(または `codex login`)してほしい」と案内して止まる(`--dry-run` では認証チェックしない)。
+
+### ⚠️ 安全設計(意図的にこうしてある)
+
+1. **作業根は常に codex1** — `-C` に `C:\Users\PC_User\Desktop\codex1` を渡す(`--cd` の既定値)。
+2. **ダンジョンファイターズ本体には書かせない** — `--add-dir` を**一切付けない**ので、
+   書き込み可能なのは作業根だけ。差し込みヘッダにも「`codex1` の外へは一切書き込まない」
+   「本体リポジトリは読むことも書くことも不要」「台帳更新や `index.html` 差し替えは
+   受け取り側の作業なので実行しない」と明記される。
+3. **サンドボックス破りのフラグは実装していない** — `--sandbox` の選択肢は
+   `read-only` / `workspace-write` の 2 つだけ。`danger-full-access` と
+   `--dangerously-bypass-approvals-and-sandbox` 相当は**フラグごと持たせていない**ので、
+   このスクリプト経由では原理的に指定できない。
+
+### 使い方
+
+```powershell
+# 依頼文をそのまま投下 (本番)
+py tools/codex_request.py --request "C:\Users\PC_User\Desktop\codex1\requests\2026-08-05_servant-npc.md"
+
+# 何を送るか (argv + プロンプト全文) だけ確認する。codex は起動しない
+py tools/codex_request.py --request <md> --dry-run
+
+# 下見: 書き込みを禁じて調査だけさせる
+py tools/codex_request.py --request <md> --sandbox read-only
+
+# 短い指示を直接渡す (疎通確認)
+py tools/codex_request.py --prompt-string "Reply with only the word OK." --sandbox read-only
+```
+
+> **推奨**: 初めて投下する依頼文は、まず `--sandbox read-only` で下見させて
+> 「何を作ろうとしているか」を最終メッセージで確認してから、
+> 既定の `workspace-write` で本番投下する。
+
+### 主要オプション
+
+| オプション | 役割 | デフォルト |
+| --- | --- | --- |
+| `--request <path>` | 依頼文 md のパス | — |
+| `--prompt-string <text>` | 依頼文の代わりに直接渡す文字列 | — |
+| `--dry-run` | 組み立てた argv と送信プロンプト全文を表示して何も実行しない | (off) |
+| `--timeout <sec>` | タイムアウト秒数 | 1800 |
+| `--model <name>` | モデル指定 | 省略時 `~/.codex/config.toml` の設定 |
+| `--sandbox <mode>` | `read-only` / `workspace-write` のみ | `workspace-write` |
+| `--cd <dir>` | Codex の作業根 | `C:\Users\PC_User\Desktop\codex1` |
+
+> `--request` と `--prompt-string` は**ちょうど 1 つだけ**指定する(両方 / どちらも無しは
+> `parser.error` で弾かれる)。
+
+実際に起動するのは
+`codex exec --json --color never -C <作業根> -s <sandbox> -o <last.md> [-m <model>] -`
+で、プロンプトは末尾の `-` により **stdin から**読ませる(長い依頼文がコマンドライン長や
+シェルのエスケープに巻き込まれないため)。作業根が git 管理下でない場合だけ
+`--skip-git-repo-check` が付く。
+
+### 実行ログの出力先
+
+codex1 側の `requests/_runs/` に、1 実行あたり 2 ファイルを残す:
+
+| ファイル | 内容 |
+| --- | --- |
+| `_runs/<YYYYmmdd_HHMMSS>_<slug>.log` | **実際に送ったプロンプト全文** + 整形済み進捗ログ |
+| `_runs/<YYYYmmdd_HHMMSS>_<slug>.last.md` | codex の最終メッセージ(`codex exec -o` の出力) |
+
+`<slug>` は依頼文のファイル名(拡張子なし)由来。`--prompt-string` の時は `prompt-string`。
+どちらも `encoding="utf-8"` 固定で書く(cp932 のままだと日本語ヘッダの時点で落ちるため)。
+
+### codex.exe の解決 — 固定書きしない
+
+アプリ更新のたびに**ハッシュ付きディレクトリ**(`bin\8e8bf206e63ac436\`)や拡張の
+バージョン番号が変わるため、パスは**必ず glob で探索**する。優先順:
+
+1. Codex デスクトップアプリ: `%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe`
+2. VS Code 拡張: `~\.vscode\extensions\openai.chatgpt-*\bin\windows-x86_64\codex.exe`
+3. Microsoft Store 版: `C:\Program Files\WindowsApps\OpenAI.Codex_*\app\resources\codex.exe`
+4. PATH(`shutil.which("codex")`)
+
+**同じ段で複数ヒットしたら更新日時が最も新しいものを採る**(旧ハッシュの残骸や
+複数バージョン同居の拡張を踏まないため)。見つからない場合は探した場所を全部ログに出して
+exit 1 で止まる。
+
+### Exit code
+
+| code | 意味 | 対処 |
+| ---: | --- | --- |
+| 0 | 成功(`--dry-run` も 0) | — |
+| 1 | codex CLI が見つからない / 未ログイン(`~/.codex/auth.json` 無し・認証エラー) | Codex デスクトップアプリでサインイン、または `codex login` |
+| 3 | タスク失敗(codex が非 0 で終了) | `_runs/*.log` と `.last.md` で失敗内容を確認、依頼文を見直す |
+| 4 | タイムアウト | `--timeout` を伸ばす(プロセスツリーごと `taskkill /T` で落とす) |
+| 6 | その他(依頼文が無い/空・作業根が無い・起動失敗・中断) | エラー文のとおり修正 |
+
+### Claude (会話 AI) からの呼び出し
+
+CLAUDE.md の「Codex 自動依頼フロー」セクション参照。
+Claude が `requests/YYYY-MM-DD_<slug>.md` に依頼文を起草 → ユーザー承認 →
+Claude が Bash で本スクリプトを実行 → 納品物を `Read` / `check_sprite_doubling.py` で確認 →
+台帳 `tools/codex1_sprites.json` と `requests/README.md` の一覧表を更新、という流れ。
+
+---
+
 ## `auto_debug_run.js` — 自動デバッグ巡回ランナー
 
 ゲームを**無人で連続自動プレイ**させ、`index.html` 内の不変条件ウォッチドッグが

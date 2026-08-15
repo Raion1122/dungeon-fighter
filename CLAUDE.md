@@ -202,6 +202,68 @@ py tools/chatgpt_generate.py --prompt-batch tools/sprite_batches/lizardChieftain
 レート制限到達時や緊急時は、Claude が起草したプロンプトをユーザーが手動で
 ChatGPT に貼り付けて生成 → 手動で `assets/` に配置するフローも引き続き利用できる。
 
+## Codex 自動依頼フロー
+
+キャラ/モンスターのスプライトは、ChatGPT ではなく **codex1**(別リポジトリの
+アセット工房)へ依頼文を出して作ってもらう。その依頼文を `tools/codex_request.py` 経由で
+**Codex CLI (`codex exec`) へ自動投下**する。詳細は `tools/README.md`。
+
+⚠️ **「依頼文を書いてユーザーが codex1 へ手渡しする」旧運用は、この自動投下に置き換わった。**
+起草→承認 の 2 段階は変わらないが、投下は Claude が自分で実行する
+(「Codex に貼り付けてください」とは依頼しない)。
+
+### Claude (会話 AI) の動作方針
+
+1. **依頼文の起草**: `C:\Users\PC_User\Desktop\codex1\requests\YYYY-MM-DD_<slug>.md` に起草する。
+   作法(命名規則・「書き方の指針」4 項目・納品前チェック)は
+   **同フォルダの `README.md` が唯一の正**。着手前に必ず読むこと。
+2. **ユーザー承認**: 起草した依頼文をユーザーに提示し、OK を取る。
+3. **自動投下**: 承認後、Claude が **自動的に** Bash で実行する。
+
+   ```bash
+   py tools/codex_request.py --request "C:\Users\PC_User\Desktop\codex1\requests\2026-08-05_servant-npc.md"
+   ```
+
+   **推奨**: 初回投下は `--sandbox read-only` で下見(何を作ろうとしているかを
+   最終メッセージで確認)→ 問題なければ既定の `workspace-write` で本番投下。
+   送信内容だけ確かめたい時は `--dry-run`(codex を起動しない)。
+4. **納品物の確認**: 納品されたシート/フレームを `Read` ツールで目視確認し、
+   **必ず** 分身チェックを通す。
+
+   ```bash
+   py tools/check_sprite_doubling.py
+   ```
+
+5. **取り込み**: 台帳 `tools/codex1_sprites.json` へ追記し、
+   `codex1/requests/README.md` の一覧表のステータスを「依頼中」→「完了」に更新する。
+
+### 初回セットアップは不要
+
+`chatgpt_generate.py` と違い、**専用プロファイルも Playwright も `--setup` も要らない**。
+codex CLI は Codex デスクトップアプリ / VS Code 拡張に同梱されており、認証
+`~/.codex/auth.json`・skills `~/.codex/skills/`・設定 `~/.codex/config.toml` を
+**GUI とそのまま共有**しているため、GUI にログイン済みならすぐ動く。
+`~/.codex/auth.json` が無い時だけ exit 1 で止まるので、その時はユーザーに
+Codex アプリへのサインインを依頼する。
+
+### ⚠️ 安全設計(勝手に緩めない)
+
+- 作業根は常に **codex1**(`--cd` の既定 = `C:\Users\PC_User\Desktop\codex1`)。
+- **ダンジョンファイターズ本体には書かせない**(`--add-dir` を付けないので
+  書き込み可能なのは作業根だけ)。納品はアセットを置くところまでで、
+  台帳更新や `index.html` の差し替えは**受け取り側=こちらの作業**。
+- 既定サンドボックスは `workspace-write`。選べるのは `read-only` / `workspace-write` の
+  2 つだけで、`danger-full-access` や `--dangerously-bypass-approvals-and-sandbox` 相当は
+  **フラグごと実装していない**。「サンドボックスを外せば通る」という回避は取らないこと。
+
+### 失敗時
+
+終了コード別に対処(`tools/README.md` の Exit code 表参照)。
+1 = codex CLI 未検出/未ログイン、3 = タスク失敗、4 = タイムアウト、6 = その他。
+実行ログと codex の最終メッセージは `codex1/requests/_runs/` に
+`<timestamp>_<slug>.log` / `<timestamp>_<slug>.last.md` として残るので、
+失敗時はまずこれを `Read` する。
+
 ## 出典・著作権
 
 - D&D 5.1 SRD: CC-BY 4.0
