@@ -4263,6 +4263,61 @@
     }
     let lastVisSignature = "";
 
+    /* ── ★P2 (扉システム) — 描画する扉の一覧 ───────────────────────────────────
+     * P1 (11b22ba) が js/df-mapdef.js へ足した mapDef.doors を、**表示だけ**ゲームへ繋ぐ。
+     * 当たり判定 (isTileWall) には 1 命令も触らない = P3 の仕事。
+     *
+     * ⚠⚠ **扉の一覧の出所はこの関数ただ 1 つ**。P3 の通行判定も P4 の開閉もここを読むこと。
+     *   描画側が別の配列を持った瞬間「見えている扉」と「塞いでいる扉」が食い違い、P1 が
+     *   blocking を落とした理由 (二重の出所を作らない) が描画層でそっくり復活する。
+     * ⚠ doors が null / 空 (既存 6 シナリオ・屋外・生成クエスト・既定プリセット 2 種 = 現状すべて)
+     *   なら空配列を返し、Pass 2.6 は fillRect も drawImage も 1 つも発行しない = 絵は 1 画素も
+     *   変わらない。tiles / props / graph とまったく同じ「既定値で後方互換」の進め方。
+     * ⚠ DFMapDef が無いときも空。扉は mapDef の機能なので器が無ければ存在しない。ここで
+     *   doorBlocks の式を写して代用すると「通行判定の唯一の正」が 2 本になる。 */
+    const DOORS_NONE = [];
+    /* 分岐グラフのノードに立つ扉。⚠ **MAPDEF は 1 バイトも汚さない**。MAPDEF へ書き込むと
+     *   map-editor の書き出しに実行時の扉が混ざって保存される。出所は rebuildNodeDoors。 */
+    let nodeDoors = null;
+    /* ★撤退スイッチ ?doors=0。扉を丸ごと無効化して P2 以前の絵と当たり判定へ**完全に**戻す。
+     * ⚠ これは dev チートではなく「本番を素の状態へ戻す退避口」なので __dfDevCheat では
+     *   ゲートしない (?graph=0 / ?mapdef=0 / ?field=0 / ?sky=0 と同じ扱い)。 */
+    const DOORS_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("doors") === "0"; }
+      catch (e) { return false; }
+    })();
+    function doorsForRender() {
+      if (!window.DFMapDef || DOORS_OFF) return DOORS_NONE;
+      if (MAPDEF && Array.isArray(MAPDEF.doors) && MAPDEF.doors.length) return MAPDEF.doors;
+      return nodeDoors || DOORS_NONE;
+    }
+
+    /* ── ★P3 — 閉じた扉はマスを塞ぐ ──────────────────────────────────────────
+     * ⚠⚠ 塞ぐ/塞がないの規則は **DFMapDef.doorBlocks ただ 1 つ**。ここは毎フレーム何万回も
+     *   呼ばれる isTileWall のためにその結果を**タイルマスクへ焼いただけ**のキャッシュで、
+     *   規則を writes し直してはいない (情景の obstacleTileMask とまったく同じ立て付け)。
+     * ⚠ 作り直す入口は rebuildDoorBlockMask ただ 1 つ。扉の state を書き換えたら**必ず**呼ぶ
+     *   (openDoorAt がそうしている)。呼び忘れると「絵は開いているのに通れない」が生まれる。
+     * ⚠ null = 塞ぐ扉が 1 枚も無い → isTileWall は null チェック 1 回で抜ける。 */
+    let doorBlockTiles = null;
+    function isDoorBlocking(tx, ty) {
+      return !!(doorBlockTiles && doorBlockTiles[ty * MAP_W + tx]);
+    }
+    function rebuildDoorBlockMask() {
+      doorBlockTiles = null;
+      const doors = doorsForRender();
+      if (!doors.length) return;
+      let mask = null;
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        if (!d || !DFMapDef.doorBlocks(d.state)) continue;
+        if (d.tx < 0 || d.tx >= MAP_W || d.ty < 0 || d.ty >= MAP_H) continue;
+        if (!mask) mask = new Uint8Array(MAP_W * MAP_H);
+        mask[d.ty * MAP_W + d.tx] = 1;
+      }
+      doorBlockTiles = mask;
+    }
+
     // ── 部屋ペインティング(painterly オーバーレイ)──────────────────
     // シナリオ別に、特定の部屋を 1枚絵 (PNG) でレンダリング。
     // tileBounds = [r1, c1, r2, c2] (両端含む、画像はこの矩形ぴったりを覆う)
@@ -4999,6 +5054,12 @@
     function isTileWall(tileX, tileY) {
       if (tileX < 0 || tileY < 0 || tileX >= MAP_W || tileY >= MAP_H) return true;
       if (mapData[tileY][tileX] === 2) return true;
+      /* ★P3 (扉): 閉じた/施錠された/隠されたままの扉はマスを塞ぐ。
+       * ⚠ ここに足したので、味方移動・敵AI・aStar・視線・光の伝播・スポーン位置が
+       *   **1 箇所で**揃う (この関数がそのために唯一の歩行判定として置かれている)。
+       * ⚠ 未知の state は塞ぐ側へ倒れる (doorBlocks の既定)。扉で fail-open =
+       *   「閉じた扉をすり抜けた」は提案の完了条件を真正面から破るため。 */
+      if (isDoorBlocking(tileX, tileY)) return true;
       // 情景スプライト (倒木 / 大型葦) もブロック扱い
       return obstacleTileMask[tileY * MAP_W + tileX] === 1;
     }
@@ -7205,6 +7266,18 @@
         }
       }
 
+      /* ── Pass 2.6: 扉 (★P2 = 表示のみ・プレースホルダ) ───────────────────────
+       * 描画順は proposals/door-system.md のとおり
+       *   背景MAP → 固定地形 → **扉** → キャラクター → エフェクト → UI。
+       * DF ではキャラ (z2/z6) / パーティクル (fxCanvas z8) / 暗幕 (lightingCanvas z9) が
+       * mapCanvas (z0) の**上のレイヤ**なので、renderMap の中に置けばこの順序は自動で成立する。
+       * ⚠ 松明 (Pass 2.5) より後・雲の影 (Pass 3) より前。松明より前だと壁の炎ブルームが
+       *   扉に乗って板が白ばみ、雲の影より後だと屋外で扉だけ日向のまま浮く
+       *   (壁の樹木プロップ Pass 2.4 がまったく同じ理由で同じ帯に置かれている)。
+       * ⚠ 扉が 0 枚なら drawDoors を呼ばない = 既存 6 シナリオでは 1 命令も走らない。 */
+      const doorsNow = doorsForRender();
+      if (doorsNow.length) drawDoors(doorsNow);
+
       // ── [屋外] Pass 3: 雲の影 ──
       // 地面・生垣・壁の全部に落とすので最後に置く。屋外テーマ以外は1命令も実行しない。
       if (FIELD_MODE) drawCloudShadows();
@@ -7212,6 +7285,112 @@
       ctx.restore();
     }
     // ─────────────────────────────────────────────────────────────
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P2 (扉システム) — 扉の描画 (プレースホルダ)
+     * ══════════════════════════════════════════════════════════════════════════
+     * **スプライトの到着を待たずに配線を通し切る**ための絵。P7 で codex1 のシートへ
+     * 差し替えるとき触るのが 1 箇所で済むよう、位置決め (drawDoors) と見た目
+     * (drawDoorPlaceholder) を分けてある。
+     *
+     * ⚠⚠ **立面 (北壁と同じ 192px の正面向き) はわざと描かない**。北壁の立面はカメラが
+     *   MAP_USED の内側しか映さないため画面に入るのは実測 27px (1280x800) 〜 85px (958x749)
+     *   しかなく (tools/make_wall_face.py の docstring が唯一の正)、そこへ扉を描くと
+     *   **上端 6 割以上が原理的に見えない**。P2 の狙いは「絵待ちで止まらない配線」なので、
+     *   まず全部が画面に入る**見下ろしの板戸 1 種**だけにする。正面向きの扉が要るかどうかは
+     *   P7 のスプライトと一緒に決める (今決めると見えない絵を作り込むことになる)。
+     * ⚠ 扉のタイルが壁か床かは**ここでは決めない**。data の tx/ty をそのまま使う。どちらで
+     *   塞ぐかは P3 の設計判断でまだ答えが無く、だから位置 lint も未実装のままにしてある。 */
+    function drawDoors(doors) {
+      const W = mapCanvas.width, H = mapCanvas.height;
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        /* ⚠ "hidden" = 壁のふりをしている状態。**1 画素も描かない**のがこの状態の定義で、
+         *   薄くでも描くと「隠し扉がうっすら見える」= P6 の知覚判定が意味を失う。 */
+        if (!d || d.state === "hidden") continue;
+        const sx = Math.round(d.tx * TILE_SIZE - camX);
+        const sy = Math.round(d.ty * TILE_SIZE - camY);
+        if (sx + TILE_SIZE < 0 || sx > W || sy + TILE_SIZE < 0 || sy > H) continue;   // 画面外
+        drawDoorPlaceholder(sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, d);
+      }
+    }
+
+    const DOOR_ART = {
+      wood: "#6d4a2c", woodLite: "#8d6337", woodDark: "#422c18", edge: "#25180c",
+      iron: "#585866", ironLite: "#8f8f9e", shadow: "rgba(0,0,0,0.45)",
+    };
+    /* 扉 1 枚。(cx, cy) = タイル中心のスクリーン座標。
+     * ⚠ 横板 (orientation:"horizontal" = 南北を塞ぐ向き) の絵**だけ**を書き、縦板は 90° 回して
+     *   同じ手順を使い回す。2 通り書くと必ず片方だけ直し忘れる。
+     * ⚠ 未知の orientation は横板へ倒す (sanitize が "horizontal" へ寄せるのと同じ側)。 */
+    function drawDoorPlaceholder(cx, cy, d) {
+      const blocks = DFMapDef.doorBlocks(d.state);     // ★通行判定と同じ述語を絵にも使う
+      const L = TILE_SIZE * 0.94;                      // 長辺 = 扉の幅
+      const TH = TILE_SIZE * 0.30;                     // 短辺 = 見下ろした板の厚み
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (d.orientation === "vertical") ctx.rotate(Math.PI / 2);
+      /* 板の並び。閉/施錠 = 1 枚で口をふさぐ。開/破壊 = 端へ寄せて口を空ける。
+       * ⚠ 分岐の条件は doorBlocks そのもの。「絵は閉じているのに通れる」という組み合わせを
+       *   **描画側から作れなくする** (P1 が blocking を落としたのと同じ理由)。 */
+      if (blocks) {
+        drawDoorLeaf(-L / 2, L, TH, d.state === "locked");
+      } else if (d.state === "broken") {
+        drawDoorLeaf(-L / 2, L * 0.26, TH, false);      // 蝶番側に残った破片
+        drawDoorLeaf(L / 2 - L * 0.22, L * 0.22, TH, false);
+      } else {
+        drawDoorLeaf(-L / 2, L * 0.30, TH, false);      // open = 蝶番側へ畳んだ 1 枚
+      }
+      ctx.restore();
+    }
+    /* 板 1 枚 (ローカル座標・長辺は x 方向)。x0 = 左端 / w = 幅 / th = 厚み */
+    function drawDoorLeaf(x0, w, th, locked) {
+      const y0 = -th / 2;
+      /* 敷居の影。これが無いと床テクスチャに埋もれて「板」に見えない。
+       * ⚠⚠ **板 1 枚ごとに**落とすこと。タイル全体へ 1 枚落とすと開いた扉でも口の幅いっぱいに
+       *   影が残り「開いているのに塞がって見える」= 絵と doorBlocks が食い違う。実測でも
+       *   open と closed の塗り面積が 10% しか違わなくなっていた (driver §2 の (2e) が検出)。 */
+      ctx.fillStyle = DOOR_ART.shadow;
+      ctx.fillRect(x0, y0 + 5, w, th);
+      ctx.fillStyle = DOOR_ART.wood;
+      ctx.fillRect(x0, y0, w, th);
+      ctx.fillStyle = DOOR_ART.woodLite;                // 上端のハイライト (見下ろした面)
+      ctx.fillRect(x0, y0, w, th * 0.30);
+      ctx.fillStyle = DOOR_ART.woodDark;                // 下端の落ち影
+      ctx.fillRect(x0, y0 + th * 0.78, w, th * 0.22);
+      // 板の継ぎ目 (長辺に直交)。両端は外周線と重なるので内側 4 本だけ引く
+      ctx.strokeStyle = DOOR_ART.edge;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let k = 1; k <= 4; k++) {
+        const x = x0 + (w * k) / 5;
+        ctx.moveTo(x, y0 + 1); ctx.lineTo(x, y0 + th - 1);
+      }
+      ctx.stroke();
+      // 鉄の帯 2 本 (長辺に沿う)
+      ctx.fillStyle = DOOR_ART.iron;
+      ctx.fillRect(x0, y0 + th * 0.16, w, th * 0.13);
+      ctx.fillRect(x0, y0 + th * 0.60, w, th * 0.13);
+      ctx.strokeStyle = DOOR_ART.edge;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x0 + 1.5, y0 + 1.5, w - 3, th - 3);
+      // 取っ手 (自由端側)
+      ctx.fillStyle = DOOR_ART.ironLite;
+      ctx.beginPath();
+      ctx.arc(x0 + w * 0.86, 0, Math.max(3, th * 0.13), 0, Math.PI * 2);
+      ctx.fill();
+      if (!locked) return;
+      /* 施錠は**南京錠を 1 つ足す**だけにする。色で表すと、暗幕 (lightingCanvas) が濃く掛かる
+       * 場所で閉と施錠が見分けられなくなる (形なら暗くても残る)。 */
+      const lw = th * 0.34, lh = th * 0.30, ly = -lh / 2 + th * 0.06;
+      ctx.fillStyle = DOOR_ART.iron;
+      ctx.fillRect(-lw / 2, ly, lw, lh);
+      ctx.strokeStyle = DOOR_ART.ironLite;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, ly, lw * 0.34, Math.PI, 0);
+      ctx.stroke();
+    }
 
     // ── 敵タイプ定義 ─────────────────────────────────────────────
     // sheetCols/Rows: スプライトシートの列×行(32×32フレーム基準)
@@ -29857,16 +30036,26 @@
      *   部屋どうしが隣接している盤面で、隣の部屋の床まで穴を伸ばさないため。
      * ⚠ RUN が無い経路 (既存 6 シナリオ / 屋外 / 自作マップ) は wallOpenTiles=null のまま =
      *   isWallOpening が常に false = 1 命令も変わらない。 */
+    /* 現在ノードから**出て行ける向き**の集合 (親への引き返し口を含む) = 壁の開口を抜く向き。
+     * ⚠ 親への引き返しはデータに書かない (exitsWithReturn と同じ約束)。出所は RUN.parent。
+     * ⚠⚠ **扉 (rebuildNodeDoors) はこれを使わない**。引き返し口が nodeEnteredVia 由来なので
+     *   「どちらから入ったか」で集合が変わり、当たり判定に載せると盤面の抽選が入場方向に
+     *   依存してしまう。純粋な描画マスクであるこちらは、それでも問題にならない。 */
+    function nodeExitDirs(node) {
+      const dirs = new Set();
+      if (!RUN || !node) return dirs;
+      for (const ex of (node.exits || [])) if (ex.dir) dirs.add(ex.dir);
+      if (RUN.parent[node.id] && nodeEnteredVia && DIR_OPPOSITE[nodeEnteredVia]) {
+        dirs.add(DIR_OPPOSITE[nodeEnteredVia]);
+      }
+      return dirs;
+    }
     function rebuildWallOpenings(nodeId) {
       wallOpenTiles = null;
       if (!RUN) return;
       const node = RUN.byId[nodeId];
       if (!node) return;
-      const dirs = new Set();
-      for (const ex of (node.exits || [])) if (ex.dir) dirs.add(ex.dir);
-      if (RUN.parent[node.id] && nodeEnteredVia && DIR_OPPOSITE[nodeEnteredVia]) {
-        dirs.add(DIR_OPPOSITE[nodeEnteredVia]);
-      }
+      const dirs = nodeExitDirs(node);
       if (!dirs.size) return;
       const mask = new Uint8Array(MAP_W * MAP_H);
       const DEPTH = Math.max(ROOM_WALL_RING_X, ROOM_WALL_RING_Y) + 1;
@@ -29882,6 +30071,62 @@
         }
       }
       wallOpenTiles = mask;
+    }
+
+    /* ★扉の生成 — 分岐グラフの出口 1 つにつき「閉じた扉」を 1 枚立てる。
+     * ⚠⚠ **扉を手書きしない**のが設計の芯。行き先の出所は exits ただ 1 つで、扉にも書くと
+     *   出所が 2 つになる (P1 が target を落とした理由)。ここは exits から**導出**しているので
+     *   グラフを編集すれば扉が自動で付いてくる = 食い違いが原理的に作れない。
+     * ⚠ 置き場所は nodeGateTile が返す**そのタイル** (= 部屋の縁の床)。1 つ外の壁の開口セルへ
+     *   置くと、北向きだけ立面の 192px 矩形に入って**画面に入るのが下端 27〜85px** になり、
+     *   肝心の扉がほとんど見えない (drawDoors の注記を参照)。床に立てたので
+     *   「閉扉 = その床タイルを塞ぐ」= mapData は 1 バイトも書き換えない、で P3 が閉じる。
+     * ⚠ 寿命はノード。向きはノードごとに違うので rebuildWallOpenings と必ず一緒に呼ぶ。
+     *   ⚠ 再入場では閉じた状態へ戻る (state を nodeState へ持たせるのは P8)。
+     * ⚠ RUN が無いマップ (既存 6 シナリオの ?graph=0 / 屋外 / 生成クエスト / 自作マップ) では
+     *   1 枚も立たない = 従来どおり。扉が要るならそのマップの mapDef.doors に書く。 */
+    const DOOR_DEMO_STATES = ["closed", "locked", "open", "broken", "hidden"];
+    function rebuildNodeDoors(nodeId) {
+      nodeDoors = null;
+      if (RUN) {
+        /* ⚠⚠⚠ **nodeExitDirs を使わないこと**。あれは「親への引き返し口」を nodeEnteredVia から
+         *   足すので、同じノードでも**どちらから入ったかで集合が変わる**。扉は P3 で isTileWall に
+         *   載った = 盤面の一部なので、入った向きがここから漏れると「別ノードを経由して戻ると
+         *   宝箱と罠の座標が変わる」= 盤面は node id だけで決まる、という不変条件が壊れる
+         *   (driver_graph_run の (2e)(2f)(3c)(3d)(3e) が実際に 5 件赤くなって発覚した)。
+         * ⚠ 引き返し口に扉を立てないのは物語としても正しい。そこは**自分が開けて入ってきた扉**で、
+         *   既に開いている。開口 (rebuildWallOpenings) が引き返し口も抜くのは、あちらが
+         *   純粋な描画マスクで盤面に影響しないから = 同じ集合を使ってよい理由が無い。 */
+        const node = RUN.byId[nodeId];
+        const dirs = new Set();
+        for (const ex of ((node && node.exits) || [])) if (ex.dir) dirs.add(ex.dir);
+        if (dirs.size) {
+          /* dev プレビュー ?doors=states … 5 つの state を順に当てて見た目を並べる (絵の確認用)。
+           * ⚠ ゲートは __dfDevCheat。付いているのに効かないときは必ず警告が出る
+           *   (黙って無視する dev シームは「配線したつもり」を作る = fail-open の静かな失敗)。
+           * ⚠ "states" のときだけ __dfDevCheat を呼ぶこと。撤退スイッチ ?doors=0 まで
+           *   ゲートに掛けると、素の状態へ戻したいだけの人へ無関係な警告が出る。 */
+          let states = null;
+          try {
+            if (new URLSearchParams(location.search).get("doors") === "states" &&
+                window.__dfDevCheat && window.__dfDevCheat("doors")) states = DOOR_DEMO_STATES;
+          } catch (e) {}
+          const out = [];
+          for (const dir of dirs) {
+            const g = nodeGateTile(MAPDEF, dir);          // 関数宣言なので巻き上げ済み
+            out.push({
+              id: "gate-" + dir, tx: g.tx, ty: g.ty,
+              /* 向きの対応: 南北へ抜ける口 (up/down) は板が東西へ伸びる = horizontal。
+               *   東西へ抜ける口 (left/right) は vertical。 */
+              orientation: (dir === "left" || dir === "right") ? "vertical" : "horizontal",
+              state: states ? states[out.length % states.length] : "closed",
+              requiredKey: null,
+            });
+          }
+          nodeDoors = out;
+        }
+      }
+      rebuildDoorBlockMask();      // ★一覧を作り直したら通行判定のマスクも必ず作り直す
     }
 
     /* ★唯一の構築点。起動シーケンス (幾何 → 派生定数 → フォグ → 1枚絵 → 情景 → スポーン) を
@@ -29902,6 +30147,9 @@
       /* ★[通路の口 2026-08-09] mapData の直後・buildDecorations の前に必ず置く。
        *   ⚠ 前だと mapData を読めない / 後だと松明が開口の真下へ吊るされる。 */
       rebuildWallOpenings(nodeId || currentNodeId);
+      /* ★P2 (扉)。開口と**同じ寿命・同じ向きの集合**なので必ず隣で呼ぶ。
+       * ⚠ MAPDEF 差し替え後・nodeGateTile が読む rooms が確定した後であること。 */
+      rebuildNodeDoors(nodeId || currentNodeId);
       // ── MAPDEF からの派生定数 ──
       START_TX = MAPDEF.start.tx; START_TY = MAPDEF.start.ty;
       BOSS_ROOM_IDX = window.DFMapDef ? DFMapDef.bossRoomIdx(MAPDEF) : ROOMS.length - 1;
@@ -30019,6 +30267,7 @@
      *   buildDecorations は mapData 由来の決定論 (tileHash) なので Math.random に触らない。 */
     if (RUN) {
       rebuildWallOpenings(currentNodeId);
+      rebuildNodeDoors(currentNodeId);          // ★P2 (扉)。起動ノードは buildNode を通らない
       /* ⚠ 差し替えは buildNode と**同じ「中身を入れ替える」書き方**にする。束縛ごと差し替えると
        *   clearNodeArrays が握っている配列と別物になり、遷移時に古い装飾が消えなくなる。 */
       if (wallOpenTiles) {
@@ -30027,6 +30276,11 @@
         for (const d of ds) decorations.push(d);
       }
     }
+    /* ★P3: 分岐を持たないマップ (既存 6 シナリオの ?graph=0 / 屋外 / 生成クエスト / 自作マップ) でも
+     *   mapDef.doors を通行判定へ反映する。⚠ if (RUN) の**外**に置くこと。中に入れると、
+     *   自作マップに扉を書いても「絵は出るのに通れてしまう」silent fail-open になる。
+     * ⚠ RUN があるときは rebuildNodeDoors が既に呼んでいる。二度呼んでも同じ結果 (冪等)。 */
+    rebuildDoorBlockMask();
     // 選択肢の見出し。P3 で矢印 UI になっても**文言はここが唯一の出所**にする。
     const DIR_LABELS = { up: "奥へ進む", down: "手前へ戻る道", left: "西へ進む", right: "東へ進む" };
 
@@ -30083,6 +30337,43 @@
         }
       }
       return t;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P4 (扉) — 「この方向へ進む」を選ぶ = その扉を開ける
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⚠⚠ DF は完全オートバトルで「扉の前で操作ボタンを押す」入力が**原理的に無い**。
+     *   よって出口選択 (chooseExit / 矢印 UI) が扉を開ける**唯一の入口**になる。これが
+     *   door-system.md (操作ボタン前提) を DF へ翻訳する唯一自然なやり方。
+     * ⚠ 扉は**タイルで同定**する。行き先 (to) では引かない。扉に target を持たせない設計の
+     *   帰結で、出口の at と扉の tx/ty が食い違ったら「開かない扉」になって必ず気づける
+     *   (fail-closed)。to で引くと食い違ったまま黙って開いてしまう。
+     * ⚠ 開けるのは "closed" だけ:
+     *     locked … P5 の技能判定 (sleightOfHand → 失敗なら athletics) がここへ入る
+     *     hidden … P6 の知覚判定で先に closed へ遷移させる
+     *     open / broken … すでに通れる (doorBlocks が false)
+     * ⚠ doorsForRender が mapDef.doors を返している場合、ここは**その mapDef を書き換える**。
+     *   実行時の開閉を保存したくないので、状態を nodeState へ移すのは P8 の仕事。 */
+    function openDoorAt(tx, ty) {
+      const doors = doorsForRender();
+      let opened = 0;
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        if (!d || d.tx !== tx || d.ty !== ty) continue;
+        if (d.state === "closed") { d.state = "open"; opened++; }
+      }
+      if (opened) rebuildDoorBlockMask();   // ⚠ 開けたら必ずマスクを作り直す
+      return opened;
+    }
+    /* 出口を確定する**唯一の入口**。本編 (tickNodeChoice) と検証シーム (__probeGraph.pick) が
+     * ここを通る。以前は 2 行の写しが両方にあった。
+     * ⚠⚠ 「開ける → 目標を決める」の順序が肝。逆にすると snapToWalkable が閉じた扉を避けて
+     *   **手前のタイル**を目標にしてしまい、到達検出が一生成立しない = 潜行が詰む。 */
+    function commitExit(o) {
+      nodePendingExit = o;
+      openDoorAt(o.at.tx, o.at.ty);
+      heroForcedGoal = snapToWalkable(o.at);
+      return heroForcedGoal;
     }
 
     /* ── 出口の一覧 (親への「引き返す」を**自動生成**して足す) ────────────────
@@ -30854,8 +31145,7 @@
       }
       finally { nodeBusy = false; }
       if (!chosen) { nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS; return; }
-      nodePendingExit = chosen;
-      heroForcedGoal = snapToWalkable(chosen.at);         // ★heroAI の目標決定が読む唯一のレバー
+      commitExit(chosen);   // ★扉を開けてから heroForcedGoal を決める (順序は commitExit の注記)
     }
     if (RUN) setInterval(tickNodeChoice, 400);
 
@@ -31572,8 +31862,8 @@
           if (!RUN) return null;
           const o = exitsWithReturn(RUN.byId[currentNodeId]).find(x => x.to === toId);
           if (!o) return null;
-          nodePendingExit = o; heroForcedGoal = snapToWalkable(o.at);
-          return { to: o.to, dir: o.dir, at: heroForcedGoal };
+          const g = commitExit(o);   // ★本編とまったく同じ入口を通す (扉も一緒に開く)
+          return { to: o.to, dir: o.dir, at: g };
         },
         // 歩きを飛ばして遷移だけ測る (保存/復元の検査用。本編と同じ enterNode を通る)
         enter: (toId, viaDir) => enterNode(toId, viaDir),
