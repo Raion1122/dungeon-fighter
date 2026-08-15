@@ -58,6 +58,29 @@ function findBrowser() {
 const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+
+/* ══ 負のコントロール (driver_doors_p6 と同じ「配信をメモリ上で差し替える」方式) ══
+ * ⚠ **index.html は 1 バイトも書き換えない**。ディスクを触ると失敗時に汚れが残る。
+ * ⚠ 置換前後は ①単一行 (index.html は CRLF なので \n を含むと原理的に一致しない)
+ *   ②長さが違う ③置換後が置換前を部分文字列として含まない、の 3 つを満たすこと。
+ *   どれを外しても「変異が載っていないのに緑」= 検出器が死ぬ。
+ * ⚠ アンカーは**末尾コメントまで含めた 1 行**で指定する。素の
+ *   `sayLine("boss.rage", enemy, { eventKey: enemy.type });` は単眼の暴君のシェル側 (C8) にも
+ *   当たり 2 箇所ヒットで空振りする。 */
+const MUTATIONS = {
+  // 激怒の「発話」だけを落とす。ラッチ (ragePhaseEntered) と phase 遷移は残るので、
+  // (2) が測っているのが *発話* であることを問う変異になる ((2) の 3 本目は緑のままが正しい)。
+  norage: [
+    '        sayLine("boss.rage", enemy, { eventKey: enemy.type });   // ★ speech: HP50% = 既存の激怒ラッチを流用 (新フラグ不要)',
+    '        /* ★変異norage: 激怒の発話を落とす */',
+  ],
+};
+const MUTATE = arg('mutate', null);
+if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
+  console.error('[driver] 未知の --mutate: ' + MUTATE + '  (' + Object.keys(MUTATIONS).join(' / ') + ')');
+  process.exit(2);
+}
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
@@ -66,6 +89,18 @@ function startServer() {
         if (u === '/') u = '/index.html';
         const fp = path.join(ROOT, u);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.statusCode = 404; res.end('404'); return; }
+        if (MUTATE && u === '/index.html') {
+          const [from, to] = MUTATIONS[MUTATE];
+          const src = fs.readFileSync(fp, 'utf8');
+          const hits = src.split(from).length - 1;
+          if (hits !== 1) {   // 空振り = 変異が載らないまま「緑」になるのを絶対に許さない
+            console.error('[driver] ⛔ 変異 ' + MUTATE + ' の置換対象が ' + hits + ' 箇所 (1 でない)。exit 3');
+            process.exit(3);
+          }
+          res.setHeader('Content-Type', MIME['.html']);
+          res.end(src.split(from).join(to));
+          return;
+        }
         res.setHeader('Content-Type', MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream');
         fs.createReadStream(fp).pipe(res);
       } catch (e) { res.statusCode = 500; res.end('500'); }
@@ -176,32 +211,66 @@ async function freshPage(browser, opts) {
   // ══ (2) boss.rage — HP を 40% に落として enemyAttackTurn を直叩き ══
   {
     const page = await freshPage(browser);
-    const r = await page.evaluate(() => {
+    /* ⚠⚠⚠ ここは長らく「固定 800ms 窓で覗く」作りで、**約 25% で赤くなるフレーク**だった。
+     *   真因は激怒の実装順にある: enemyAttackTurn は激怒ゲート (index.html の
+     *   `def.isBoss && !def.multiHead && ... !enemy.ragePhaseEntered`) **より前**に
+     *   sayEnemyCry(enemy) を呼ぶ。しかも直前の clearSpeech() が speechCryCdUntil を 0 へ
+     *   戻すため鳴き声のクールダウンが外れ、SPEECH_CRY_CHANCE=0.25 で enemy.cry が**先に**
+     *   キューへ入る。吹き出しは単一キューなので激怒は
+     *   SPEECH_MS(2000) + SPEECH_GAP_MS(260) = 2260ms 後ろへ回り、800ms 窓では取りこぼす。
+     *   → 予測される赤率 25% は実測 (同一コミットで 9 回中 2 回赤) と一致する。
+     *   ⭐ **期待値ではなく測り方が誤っていた**ので、assert は 1 文字も変えず窓だけ直す。
+     *   ⚠ 「発火前にキューが空になるまで待つ」**だけでは直らない**。鳴き声は clear() の
+     *     *後* に enemyAttackTurn 自身が積むため。効くのは下のポーリングで、待機はその補助。 */
+    const r = await page.evaluate(async () => {
       // 激怒ゲートは def.isBoss && !def.multiHead (ハイドラは除外)
       const bi = enemies.findIndex(e => e.def.isBoss && !e.def.multiHead);
       if (bi < 0) return { noBoss: true };
       const b = enemies[bi];
       sleepMs = () => Promise.resolve();          // 演出待ちを潰す (時間短縮)
       b.hp = Math.floor(b.maxHp * 0.4);           // ragePhaseHpRatio (既定 0.5) を下回らせる
+      /* 発火の起点を既知の状態に揃える: 表示中の吹き出しもキューも無く busy も明けている状態。
+       * ⚠ speechBusyUntil は classic script 直下の let で window に載らない。素の識別子なら
+       *   global lexical scope から引けるが、**引けなくなったら黙って甘い測定に倒れる**ので
+       *   読めたかどうかを busyReadable で持ち帰り、下で装置 assert として測る。 */
+      const busyReadable = (typeof speechBusyUntil === 'number');
+      const idle = () => window.__speech.queue.length === 0 && window.__speech.active.length === 0
+                      && (!busyReadable || Date.now() >= speechBusyUntil);
+      const t0 = Date.now();
+      while (!idle() && Date.now() - t0 < 8000) {
+        clearSpeech();                            // 溜まった予約と busy とクールダウンを落とす
+        await new Promise(res => setTimeout(res, 50));
+      }
       window.__speech.clear();
-      enemyAttackTurn(bi);                        // await しない (激怒ゲートは関数先頭近くで同期発火)
-      return { bi, bossName: b.def.name, ratio: b.def.ragePhaseHpRatio || 0.5 };
+      enemyAttackTurn(bi);                        // await しない (激怒ゲートは同期部で踏まれる)
+      return { bi, bossName: b.def.name, ratio: b.def.ragePhaseHpRatio || 0.5,
+               busyReadable, idleWaitMs: Date.now() - t0 };
     });
-    await sleep(800);
-    const got = await page.evaluate(() => {
-      const s = window.__speech;
-      const hit = s.log.filter(e => e.key === 'boss.rage');
-      const bi = enemies.findIndex(e => e.def.isBoss && !e.def.multiHead);
-      return {
-        n: hit.length,
-        kind: hit.length ? hit[0].kind : '',
-        text: hit.length ? hit[0].text : '',
-        inMaster: hit.length ? s.lines['boss.rage'].includes(hit[0].text) : false,
-        latched: bi >= 0 ? !!enemies[bi].ragePhaseEntered : false,
-      };
-    });
+    // 6s = 取りこぼしの上限 2260ms の 2 倍以上。**出るまで待つ**ので鳴き声に割り込まれても拾える
+    let got = { n: 0, kind: '', text: '', inMaster: false, latched: false }, sawAtMs = -1;
+    for (let i = 0; i < 60; i++) {
+      const g = await page.evaluate(() => {
+        const s = window.__speech;
+        const hit = s.log.filter(e => e.key === 'boss.rage');
+        const bi = enemies.findIndex(e => e.def.isBoss && !e.def.multiHead);
+        return {
+          n: hit.length,
+          kind: hit.length ? hit[0].kind : '',
+          text: hit.length ? hit[0].text : '',
+          inMaster: hit.length ? s.lines['boss.rage'].includes(hit[0].text) : false,
+          latched: bi >= 0 ? !!enemies[bi].ragePhaseEntered : false,
+        };
+      }).catch(() => null);
+      if (!g) break;
+      got = g;
+      if (got.n >= 1) { sawAtMs = i * 100; break; }
+      await sleep(100);
+    }
+    check('(2-装置) speechBusyUntil が読める (発火前の idle 判定が空振りしていない)',
+      r.busyReadable === true, 'busyReadable=' + r.busyReadable + ' idleWait=' + r.idleWaitMs + 'ms');
     check('(2) boss.rage が出現する (' + (r.bossName || '?') + ', 閾値 ' + (r.ratio || '?') + ')',
-      got.n >= 1 && got.inMaster, 'n=' + got.n + ' text="' + got.text + '" latched=' + got.latched);
+      got.n >= 1 && got.inMaster,
+      'n=' + got.n + ' text="' + got.text + '" latched=' + got.latched + ' sawAt=' + sawAtMs + 'ms');
     check('(2) boss.rage の話者はボス本人 (kind=enemy)', got.kind === 'enemy', 'kind=' + got.kind);
     // 既存の ragePhaseEntered ラッチを流用しているので 2 回目は鳴らない。
     // ※ clearSpeech() は「表示中の吹き出しとキュー」を消すが speechLog (表示履歴) は残す仕様なので、
@@ -211,12 +280,22 @@ async function freshPage(browser, opts) {
       const before = window.__speech.log.filter(e => e.key === 'boss.rage').length;
       window.__speech.clear();
       enemyAttackTurn(bi);   // 既に ragePhaseEntered=true なので激怒ゲートを通らないはず
-      await new Promise(r => setTimeout(r, 600));
+      /* ⚠ ここは**負の主張**なので「待ちが短くて見逃す」方向へ倒れてはいけない。
+       *   ①非同期に積まれる分を拾う下限 1200ms → ②キューが捌けきるまで待つ、の 2 段。
+       *   もし激怒が積まれていれば必ず表示され speechLog に載るので、増えなければ本当に鳴っていない。 */
+      const t0 = Date.now();
+      await new Promise(res => setTimeout(res, 1200));
+      const busyReadable = (typeof speechBusyUntil === 'number');
+      const idle = () => window.__speech.queue.length === 0 && window.__speech.active.length === 0
+                      && (!busyReadable || Date.now() >= speechBusyUntil);
+      while (!idle() && Date.now() - t0 < 8000) await new Promise(res => setTimeout(res, 50));
+      await new Promise(res => setTimeout(res, 300));
       const after = window.__speech.log.filter(e => e.key === 'boss.rage').length;
-      return { before, after };
+      return { before, after, drainMs: Date.now() - t0 };
     });
     check('(2) 激怒は一度だけ (ragePhaseEntered ラッチ流用・2回目は鳴らない)',
-      twice.after === twice.before, 'before=' + twice.before + ' after=' + twice.after);
+      twice.after === twice.before,
+      'before=' + twice.before + ' after=' + twice.after + ' drain=' + twice.drainMs + 'ms');
     await page.evaluate(() => { gameOver = true; });
     await page.close();
   }
