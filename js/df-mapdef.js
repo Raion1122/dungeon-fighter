@@ -1022,6 +1022,49 @@
   function railKitRelinkAt(props, tx, ty) { return connectKitRelinkAt(props, tx, ty, RAIL_KIT_KIND); }
   function railKitRelinkAround(props, tx, ty) { return connectKitRelinkAround(props, tx, ty, RAIL_KIT_KIND); }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★P1 (扉システム) — データ層のみ
+   * ══════════════════════════════════════════════════════════════════════════
+   * 出所は Codex スキルの proposals/door-system.md。ただし DF は**完全オートバトル**で
+   * 「扉の隣に立って操作ボタンを押す」入力が原理的に無いため、提案のフィールドをそのまま
+   * 写さず**持つ意味があるものだけ**を採る。落としたものと理由:
+   *
+   *   blocking       … state から算出できる (doorBlocks)。二重に持つと「表示は開いているのに
+   *                    通れない」食い違いを**データで表現できてしまう** = 提案自身が禁じている
+   *                    状態そのもの。fixProp が blocking を持たないのとまったく同じ判断。
+   *   locked         … state:"locked" に統一 (提案も「どちらかに統一してよい」と明記)。
+   *                    locked:true かつ state:"open" のような無意味な組を作れなくする。
+   *   interactable   … オートバトルなので「個別の操作対象」という概念が無い。扉を開ける唯一の
+   *                    入口は出口選択 (index.html の chooseExit) で、そこに来ない扉は
+   *                    原理的に触れない。個体フラグにしても誰も読まない。
+   *   openDurationMs … 演出の定数。個体ごとに変える理由が無いので描画側が 1 つ持つ。
+   *   width/height   … 出口の口は nodeGateTile が返す **1 タイル**。大型扉が要るときに
+   *                    ここへ 2 キー足せばよい (sanitize の既定値 1 で後方互換になる)。
+   *   target         … ⚠⚠ **最も重要な不採用**。行き先は分岐グラフの exits が唯一の正で、
+   *                    扉にも書くと出所が 2 つになる。これは exitsWithReturn が
+   *                    「親への戻りはデータに書かない — 手書きすると必ず食い違う」として
+   *                    既に避けている失敗と同型。扉は**タイルで同定**し、行き先は
+   *                    そのタイルに立つ exit から引く。
+   *
+   * ⚠ 本項目は**純粋なデータ層**。buildMapData も isTileWall も 1 命令も触らないので
+   *   ゲームの挙動は 1bit も変わらない (Phase 3 項目1 の tiles と同じ進め方)。
+   * ────────────────────────────────────────────────────────────────────────── */
+  var DOOR_STATES = ["closed", "open", "locked", "broken", "hidden"];
+  var DOOR_ORIENTATIONS = ["horizontal", "vertical"];
+
+  /* 「この状態の扉はマスを塞ぐか」= **唯一の正**。P3 で isTileWall がこれを呼ぶ。
+   * ⚠⚠ 通すのは "open" と "broken" **だけ**で、未知の状態は塞ぐ側へ倒す。扉の判定で
+   *   fail-open (通れてしまう) は「閉じた扉をすり抜けた」= 提案の完了条件を真正面から
+   *   破るため、既定は必ず fail-safe 側にする。sanitize も未知の state を "closed" へ
+   *   寄せるので二重に守られるが、**どちらか片方に頼らない**。
+   * ⚠ "broken" を通行可能に倒したのは設計判断。提案は「完全通行可能または瓦礫による
+   *   一部阻害」の両方を許しているが、一部阻害は「壊したのに通れない」= プレイヤーから
+   *   見て結果が読めないため採らない。瓦礫を残したいときは props の情景物で置く。
+   * ⚠ "hidden" は壁として表示する状態なので当然塞ぐ。発見後に closed / locked へ遷移する。 */
+  function doorBlocks(state) {
+    return !(state === "open" || state === "broken");
+  }
+
   // ── 既定値 (現行 index.html の値そのまま) ────────────────────────────────
   // 後方互換は「分岐」ではなく「既定値」で担保する。Phase 1 の resolve() が
   // mapDef 不在時にこの2つを返す = 既存6シナリオは 1bit も変わらない。
@@ -1055,6 +1098,11 @@
      *   DEFAULT_DUNGEON と deep-equal」が**キーの有無だけで**落ちる
      *   (tiles / props とまったく同じ理由でこの 1 行が要る)。 */
     graph: null,
+    /* ★P1 (扉): tiles / props / graph とまったく同じ流儀。**プリセット literal 側にも
+     *   書かなければならない** — sanitize が out に doors:null を作るので、ここに無いと
+     *   driver_mapeditor §4 2c/2d の「往復後の mapDef が DEFAULT_DUNGEON と deep-equal」が
+     *   **キーの有無だけで**落ちる。 */
+    doors: null,
     flags: { bandMask: false },
   };
 
@@ -1081,6 +1129,7 @@
     graph: null,                                             // ★P2 (分岐マップ)。DEFAULT_DUNGEON の注記を参照
     /* ⚠ 屋外 (caravan-road) は分岐対象外。bandMask が row13-15 以外を全潰しするので上下分岐と
      *   原理的に非互換 (resolve() が既に屋外×カスタム幾何を排他にしている)。ここは常に null。 */
+    doors: null,                                             // ★P1 (扉)。DEFAULT_DUNGEON の注記を参照
     // 屋外は row 13-15 以外を潰す帯マスクが掛かる (index.html:3323-3328)。
     // ⚠ カスタム幾何との相互作用が複雑なので、項目5 の lint で排他にする予定。
     flags: { bandMask: true },
@@ -1118,6 +1167,9 @@
        *   (ここで潰すと壊れたデータが黙って矩形進行へ落ちる = silent fail-open)。
        * ⚠ 既定プリセット 2 種も graph:null なので往復同一性 deep-equal は 1 バイトも変わらない。 */
       graph: (d.graph && typeof d.graph === "object") ? clone(d.graph) : null,
+      /* ★P1 (扉): props とまったく同じ流儀。空のときは **null** (空配列ではない)。
+       *   既定プリセット 2 種も doors:null なので往復同一性 deep-equal は 1 バイトも変わらない。 */
+      doors: null,
       flags: { bandMask: false },
     };
     var W = out.grid.w, H = out.grid.h;
@@ -1192,6 +1244,29 @@
                tx: clampInt(p.tx, 0, W - 1), ty: clampInt(p.ty, 0, H - 1) };
     }
 
+    /* ★P1: 扉。{ id, tx, ty, orientation, state, requiredKey } の **6 キーだけ**を採る。
+     *   fixProp とまったく同じく新品を組み直すので、何度 sanitize を通しても同じ形へ収束する
+     *   (冪等)。採らなかったフィールドと理由は DOOR_STATES の節頭にまとめてある。
+     * ⚠ state / orientation は**閉じた列挙**として扱い、未知の値は既定へ寄せる
+     *   (rooms[].role と同じ)。graph の node.kind のように素通しにはしない — 未知の状態には
+     *   通行判定が定義できず、doorBlocks が「塞ぐ」を返す以上、データ側も塞ぐ側の既定
+     *   ("closed") へ寄せるのが一貫する。
+     * ⚠ id が無い扉は**捨てない**。セーブとイベントの参照キーなので、無ければ通し番号で
+     *   採番する (rooms[].id とまったく同じ扱い)。id の重複は lint の door-duplicate が知らせる。
+     * ⚠ 座標が無い扉だけは救わない (0,0 に湧いて誰も気づけない = fixProp と同じ判断)。 */
+    function fixDoor(dr, idx) {
+      if (!dr || typeof dr !== "object" || Array.isArray(dr)) return null;
+      if (!isNum(dr.tx) || !isNum(dr.ty)) return null;
+      return {
+        id: (typeof dr.id === "string" && dr.id) ? dr.id : ("d" + idx),
+        tx: clampInt(dr.tx, 0, W - 1),
+        ty: clampInt(dr.ty, 0, H - 1),
+        orientation: (DOOR_ORIENTATIONS.indexOf(dr.orientation) >= 0) ? dr.orientation : "vertical",
+        state: (DOOR_STATES.indexOf(dr.state) >= 0) ? dr.state : "closed",
+        requiredKey: (typeof dr.requiredKey === "string" && dr.requiredKey) ? dr.requiredKey : null,
+      };
+    }
+
     var srcRooms = Array.isArray(d.rooms) ? d.rooms : base.rooms;
     for (var i = 0; i < srcRooms.length; i++) {
       var r = srcRooms[i] || {};
@@ -1232,6 +1307,18 @@
         if (fp0) propsOut.push(fp0);
       }
       if (propsOut.length) out.props = propsOut;            // 空なら null のまま (往復同一性)
+    }
+
+    /* ★P1: doors。props とまったく同じ流儀で **fallback を見ない**。rooms / corridors は
+     *   「指定が無ければ既定のマップ形状を使う」のが正しいが、扉は「指定が無い = 扉が無い」が
+     *   正しい。base から引き継ぐと新規マップに既定プリセットの扉が勝手に湧く。 */
+    if (Array.isArray(d.doors)) {
+      var doorsOut = [];
+      for (var di = 0; di < d.doors.length; di++) {
+        var fd0 = fixDoor(d.doors[di], doorsOut.length);
+        if (fd0) doorsOut.push(fd0);
+      }
+      if (doorsOut.length) out.doors = doorsOut;            // 空なら null のまま (往復同一性)
     }
 
     var st = (d.start && typeof d.start === "object") ? d.start : base.start;
@@ -2235,6 +2322,41 @@
              firstWall, null);
     }
 
+    /* ── ★P1 (扉) の lint ──────────────────────────────────────────────────────
+     * ⚠⚠ ここで見るのは「**同じ扉が 2 つある**」だけ。「扉が壁の上か床の上か」は
+     *   **わざと検査しない** — 閉扉をどちらで塞ぐか (mapData の壁のまま扉を重ねるのか、
+     *   タイルを床にして扉が塞ぐのか) は P3 で決める設計判断であり、まだ答えが無い。
+     *   ここで先に片方を正だと決めつけると、P3 が反対を選んだ瞬間に**永久に間違ったまま
+     *   緑を出し続ける検出器**になる (golden が「最初から間違った絵」を緑にしたのと同型)。
+     *   位置の検査は P3 で通行判定の向きが決まってから足す。
+     * ⚠ 一方これは向きに依存しない: タイル重複は「どちらの状態が本物か決まらない」、
+     *   id 重複は「セーブが片方を上書きする」で、P3 の設計がどちらに転んでも不正。 */
+    var doors = Array.isArray(d.doors) ? d.doors : [];
+    if (doors.length) {
+      var seenTile = {}, seenId = {}, dupTile = null, dupId = null;
+      for (i = 0; i < doors.length; i++) {
+        var dd = doors[i];
+        if (!dd) continue;
+        var tk = dd.tx + "," + dd.ty;
+        if (seenTile[tk] && !dupTile) dupTile = [dd.tx, dd.ty];
+        seenTile[tk] = 1;
+        if (dd.id) {
+          if (seenId[dd.id] && !dupId) dupId = dd.id;
+          seenId[dd.id] = 1;
+        }
+      }
+      if (dupTile)
+        warn("door-duplicate",
+             "同じマス (" + dupTile[0] + "," + dupTile[1] + ") に扉が 2 枚以上あります — " +
+             "どちらの開閉状態が本物か決まりません (1 マス 1 枚にしてください)",
+             dupTile, null);
+      if (dupId)
+        warn("door-duplicate",
+             "扉の id が重複しています: " + dupId + " — セーブ時に片方の状態がもう片方を" +
+             "上書きします (id はマップ内で一意にしてください)",
+             null, null);
+    }
+
     // ── lint 項目⑥ MAP_USED 枠 (画面の黒帯予防) ──────────────────────────────
     //  index.html:3290 と同じ導出。部屋にも廊下にも属さない行/列は恒久的に未探索の岩盤 =
     //  画面上は純黒になり、カメラのクランプはこの枠までしか寄れない。
@@ -2781,6 +2903,19 @@
     expandTiles: expandTiles,
     expandTilesInfo: expandTilesInfo,
     hasTiles: hasTiles,
+
+    /* ── ★P1: 扉 (doors) ────────────────────────────────────────────────────────
+     *   DOOR_STATES        … "closed" / "open" / "locked" / "broken" / "hidden"
+     *   DOOR_ORIENTATIONS  … "horizontal" / "vertical"
+     *   doorBlocks(state)  … その状態がマスを塞ぐか = **唯一の正**。P3 で isTileWall が呼ぶ
+     *  mapDef.doors = null | [{ id, tx, ty, orientation, state, requiredKey }]
+     *  ⚠ null = 「扉が無い」。既定プリセット 2 種も既存 6 シナリオも null なので、
+     *    この項目を足してもゲームの挙動は 1bit も変わらない (tiles / props と同じ進め方)。
+     *  ⚠⚠ **行き先 (target) を扉に持たせていない**。出所は分岐グラフの exits ただ 1 つで、
+     *    扉はタイルで同定する。理由は DOOR_STATES の節頭を参照 (二重の出所を作らない)。 */
+    DOOR_STATES: DOOR_STATES,
+    DOOR_ORIENTATIONS: DOOR_ORIENTATIONS,
+    doorBlocks: doorBlocks,
 
     lintMapDef: lintMapDef,                 // ★項目5: 出発前 lint (純粋関数・副作用なし)
     LINT_PAINTING_ASPECTS: LINT_PAINTING_ASPECTS,
