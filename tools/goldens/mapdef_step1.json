@@ -1,8 +1,8 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "f1f8ea5",
-    "subject": "森の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地に続く3テーマ目)",
+    "rev": "615ae90",
+    "subject": "砦の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森に続く4テーマ目)",
     "dirty": true
   },
   "values": {
@@ -10,7 +10,7 @@
     "3-bandits-forest": "5c6c45023e66c4dde79ca1d1b0acceabe7b571d6a69872c502f12ce9cf7bda6d",
     "3-lizard-swamp": "dffdec78ff4509fb6c500e3239270aaa3db5b48e8ba25bf982f0ad48d6862170",
     "3-orc-fort": "c6414e8a9c613226b2a46b53e0e1386dcafd29d73ec9c63ff9dbc8f8c1b52fb1",
-    "3-undead-temple": "92bd8e8e7dd3c378cabb583e49dbd25e34fa60c64370ff52e8523371026aa5ef",
+    "3-undead-temple": "5f31166d0dc332498f8ba7158856ebfecdd1c3af2be3e31f07f505665324540c",
     "3-dragon-lair": "3bb9126aacf40cbf5051f34060d34c89beac30ce12ab15d25638fd14a32426b0",
     "3-caravan-road(縦持ち相当/帯マスクあり)": "83726c4370999e3ee2e4b4036372808fe01d031e1345e553f61cb05bacfa0492",
     "3-caravan-road(横持ち/帯マスクなし)": "aabf103e46655fe81df483f8d3cd3716a3c7766cbd158cf35b33fee231d748d0"

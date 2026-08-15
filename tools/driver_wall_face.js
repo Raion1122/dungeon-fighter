@@ -410,35 +410,36 @@ async function playShot(page, file) {
      *   計測対象は常に「**まだ 2 枚構成へ移行していない次のテーマ**」に置く。
      * ⚠⚠⚠ テーマを 1 つ移行するたびに母集団が減るので、そのたびに**計測対象を張り替える**
      *   こと。期待値 (faceW === null) を書き換えて緑にするのは禁止 = 検出器を殺す行為になる。
-     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → 森 f1f8ea5 → **砦 (2026-08-14・§9 を新設)** → 神殿 → 竜巣。
-     *   ⇒ 砦が 2 枚構成へ移ったので、ここの計測対象を **神殿 (undead-temple)** へ張り替えた。
-     *   次に神殿を移行する項目では、ここを竜巣 (dragon-lair) へ張り替えること。
-     * ⚠ 最後 (竜巣) では母集団が**空になる**。そのときは期待値を書き換えるのではなく、
+     *   移行順: 廃坑 cda2647 → 沼地 c020ac2 → 森 f1f8ea5 → 砦 615ae90 →
+     *           **神殿 (2026-08-15・§10 を新設)** → 竜巣。
+     *   ⇒ 神殿が 2 枚構成へ移ったので、ここの計測対象を **竜巣 (dragon-lair)** へ張り替えた。
+     *      残る未移行テーマは竜巣ただ 1 つ = これが母集団の最後の 1 件。
+     * ⚠⚠⚠ 次 (竜巣) の項目では母集団が**空になる**。そのときは期待値を書き換えるのではなく、
      *   「屋外テーマでは useWallFace / useWallTop が原理的に false」等の**消えない不変条件**へ
-     *   言い直す (SPEC_wall_themes.md の STEP 6 を参照)。 */
-    mark('神殿 (undead-temple) — まだ専用素材を持たない側で従来経路が生きているか');
+     *   言い直す (SPEC_wall_themes.md の STEP 6 を参照)。
+     * ⚠⚠ **寄せる向きはテーマごとに違うので (6b) を写経しない。** 砦の項目では神殿向けに
+     *   「壁 <= 床 * 0.90」(暗色寄せ) にしてあったが、竜巣の tint は明色寄せ
+     *   (224,216,208 / a=0.28) なので**また明るい側へ戻す**。 */
+    mark('竜巣 (dragon-lair) — まだ専用素材を持たない側で従来経路が生きているか');
     const net3 = { errs: [], bad: [] };
-    const fo = await boot(browser, URL_Q, 'undead-temple', 1280, 800, net3);
+    const fo = await boot(browser, URL_Q, 'dragon-lair', 1280, 800, net3);
     const M3 = await fo.evaluate(MEASURE);
-    console.log('[drv] temple ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
+    console.log('[drv] lair ' + JSON.stringify({ faceW: M3.faceW, topW: M3.topW,
       wall: M3.wall ? +M3.wall.L.toFixed(1) : null, floor: M3.floor ? +M3.floor.L.toFixed(1) : null }));
-    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森・砦の 4 つに閉じている',
+    check('(6a) 専用素材を持たない = 変更が廃坑・沼地・森・砦・神殿の 5 つに閉じている',
       M3.faceW === null && M3.topW === null,
       'faceW=' + M3.faceW + ' topW=' + M3.topW);
     if (!M3.err) {
-      /* ⚠⚠ 神殿だけ **wallTint の寄せる向きが逆**なので、砦までの「壁は床より明るい」を
-       *   そのまま写経すると**正しい絵で赤くなる**。神殿の床は白大理石 (シナリオ5床.png の
-       *   平均 L=227.8) で、壁テクスチャ (シナリオ5壁.png) も L=228.8 と**ほぼ同じ明るさ**。
-       *   だから神殿の tint は 6 テーマで唯一の暗色寄せ (92,100,116 / a=0.42) になっている。
-       * ★ 向きを変えても判別力は落ちない。canvas 実測で tint が乗っていると 149.8/177.5 =
-       *   **0.84**、tint が死ぬと壁テクスチャがそのまま出て床とほぼ同値 = **1.00** へ張り付く
-       *   (床 177.5 に対し無 tint の壁は 0.78*228.8 = 178.2)。閾値はその中間の 0.90 に置く。
-       * ⚠ 0.85 では生きている側の余裕が 1% しかなく、pick の列が変わるだけで揺れる。 */
-      check('(6b) それでも壁が床から分離している (神殿の wallTint は暗色寄せ)',
-        M3.wall.L <= M3.floor.L * 0.90,
-        (M3.wall.L / M3.floor.L).toFixed(2) + '倍 (tint が死ぬと 1.00 へ張り付く)');
+      /* ★ 竜巣の tint は明色寄せなので、向きは「壁が床より明るい」側へ戻す。
+       *   素の素材は シナリオ6床.png が平均 L=28.7 / シナリオ6壁.png が L=22.4 で**壁の方が暗い**
+       *   = tint が死ぬと壁は床より暗くなり 1.00 未満へ落ちる。tint が生きていると白 (217 相当) を
+       *   28% 被せるぶん一気に持ち上がる。閾値はその間に置く (実測は上の [drv] lair 行に出る)。
+       * ⚠ 神殿の「<= 0.90」をここへ写経すると**正しい絵で赤くなる**。向きは毎回テーマ依存。 */
+      check('(6b) それでも壁が床から分離している (竜巣の wallTint は明色寄せ)',
+        M3.wall.L >= M3.floor.L * 1.60,
+        (M3.wall.L / M3.floor.L).toFixed(2) + '倍 (tint が死ぬと 1.00 未満へ落ちる)');
     }
-    check('(6c) 神殿でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
+    check('(6c) 竜巣でページエラー 0 件', net3.errs.length === 0, net3.errs.slice(0, 3).join(' | '));
     await fo.close();
 
     // ══ §7 沼地 — 2 テーマ目の専用素材 (2026-08-14) ═════════════════════════════
@@ -559,6 +560,56 @@ async function playShot(page, file) {
     }
     check('(9f) 砦でページエラー 0 件', net6.errs.length === 0, net6.errs.slice(0, 3).join(' | '));
     await of.close();
+
+    // ══ §10 神殿 — 5 テーマ目の専用素材 (2026-08-15) ═════════════════════════════
+    /* 神殿も廃坑・沼地・森・砦と同じ 2 枚構成 (立面 + 天面) へ移した。白い幕 (wallTint) は
+     * wallTop が効いたセルには乗らないので、ここが通れば幕は外れている。
+     * ⚠ 題材は**黒ずんだ大理石 + 壁龕** (納骨堂の龕に骨と燃え尽きた蝋燭・目地に金の象嵌)。
+     *   廃坑の整った灰色花崗岩とは材質でも用途でも分離させてある。
+     * ⚠ (2b)「壁が床より無彩色」は**流用しない**。あれは廃坑の寒色花崗岩の前提。幕を捕まえるのは
+     *   edge の assert (10d) だけでよい。
+     * ⚠⚠⚠ **神殿だけ寄せる向きが逆なので (9e) 系の「壁 >= 床 * 1.15」を写経してはいけない。**
+     *   神殿の床は白大理石 (canvas 実測 177.5) で、壁は**床より暗い方へ落として**分離している。
+     *   明るい側の式で書くと**正しい絵で赤くなる**。下の (10e) は不等号ごと反転させてある。 */
+    mark('神殿 (undead-temple) — 5 テーマ目の専用素材');
+    const net7 = { errs: [], bad: [] };
+    const tp = await boot(browser, URL_Q, 'undead-temple', 1280, 800, net7);
+    const M7 = await tp.evaluate(MEASURE);
+    await dumpCanvas(tp, path.join(SHOT_DIR, 'temple_map.png'));
+    console.log('[drv] temple ' + JSON.stringify({ faceW: M7.faceW, faceH: M7.faceH, topW: M7.topW,
+      wall: M7.wall ? +M7.wall.L.toFixed(1) : null, floor: M7.floor ? +M7.floor.L.toFixed(1) : null,
+      edge: M7.wall ? +M7.wall.edge.toFixed(2) : null }));
+    check('(10a) 神殿の立面素材が読めている / 幅は tile の整数倍・高さ === 壁矩形',
+      M7.faceW > 0 && M7.faceW % M7.tile === 0 && M7.faceH === M7.tile * 2,
+      'face=' + M7.faceW + 'x' + M7.faceH + ' tile=' + M7.tile);
+    check('(10b) 神殿の天面素材が読めている / 正方形で tile の整数倍',
+      M7.topW > 0 && M7.topW === M7.topH && M7.topW % M7.tile === 0, 'top=' + M7.topW + 'x' + M7.topH);
+    const badAsset7 = net7.bad.filter(b => /wall_face|wall_top/.test(b));
+    check('(10c) 神殿で壁素材の 404 が 0 件', badAsset7.length === 0, badAsset7.join(','));
+    if (!M7.err) {
+      /* ★ 白い幕を機械的に捕まえる唯一の assert (廃坑 (2c) / 沼地 (7d) / 森 (8d) / 砦 (9d) と
+       *   同じ物差し)。幕は明暗を動かす代わりに構造を潰すので、行方向の輝度差で落ちる。
+       *   ⭐⭐ 神殿では**この assert だけ**が幕を捕まえられる。(10e) は幕が生きていても 0.84 で
+       *   通ってしまう (幕そのものが暗色寄せなので) = 明暗には判別力が無い。 */
+      check('(10d) ★神殿の立面に水平のエッジ (大理石のコース) がある = 幕ではない',
+        M7.wall.edge >= M7.floor.edge * 1.8,
+        '壁 edge=' + M7.wall.edge.toFixed(2) + ' / 床 edge=' + M7.floor.edge.toFixed(2)
+        + ' = ' + (M7.wall.edge / Math.max(0.01, M7.floor.edge)).toFixed(2) + '倍');
+      /* ⚠⚠ **不等号が他テーマと逆**。神殿の床は 6 シナリオで最も明るい白大理石 (シナリオ5床.png の
+       *   素の平均 L=227.8 / canvas 実測 177.5) なので、壁は暗い側へ落として分離する。
+       *   出荷版は立面 --gamma 0.30 (可視 27px で L=94.3 = 床の 0.53 倍)。
+       *   ⚠ 逆に暗くしすぎると天井の闇へ沈むので、素の --gamma 0.85 (L=18.7) は不可。
+       * ⚠ 上限を 0.90 に置いてあるのは「tint が死んだ状態 (1.00 へ張り付く) を捕まえる」ため
+       *   だった名残で、2 枚構成へ移った今の実測は 0.53。**閾値を実測へ寄せて締め直さない**こと。
+       *   源の目地の彩度ノイズを避けるため gamma には 0.25〜0.35 の幅を持たせてあり、その全域で
+       *   通る必要がある (詳細は index.html の SCENARIO_TEX 神殿ブロックの注記)。 */
+      check('(10e) 神殿の壁帯が床から分離している (★不等号が逆 = 床より暗い側へ落とす)',
+        M7.wall.L <= M7.floor.L * 0.90,
+        '壁 L=' + M7.wall.L.toFixed(1) + ' / 床 L=' + M7.floor.L.toFixed(1)
+        + ' = ' + (M7.wall.L / M7.floor.L).toFixed(2) + '倍');
+    }
+    check('(10f) 神殿でページエラー 0 件', net7.errs.length === 0, net7.errs.slice(0, 3).join(' | '));
+    await tp.close();
   } catch (e) {
     check('(fatal) ドライバが完走した', false, e.message);
   } finally {
