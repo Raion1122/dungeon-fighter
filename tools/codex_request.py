@@ -90,8 +90,21 @@ def log_err(msg: str) -> None:
     sys.stderr.flush()
 
 
+# ⚠ `codex exec --color never` が消せるのは **codex 自身**の装飾だけ。
+#   codex が起動した子プロセス (pwsh 等) が吐くエスケープはそのまま素通りしてくる。
+#   2026-08-15 の実投下では PowerShell のエラー表示が `ESC[31;1m` 塗れで届き、
+#   コンソールも `_runs/*.log` も **sed で落とさないと読めない**状態になった。
+#   → 表示・保存の直前で SGR だけ剥がす (情報量ゼロの装飾なので落として安全)。
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(msg: str) -> str:
+    return _ANSI_RE.sub("", msg)
+
+
 def log_raw(msg: str) -> None:
     """codex の出力をそのまま流す (プレフィクス無し)。"""
+    msg = strip_ansi(msg)
     _LOG_LINES.append(msg)
     print(msg, flush=True)
 
