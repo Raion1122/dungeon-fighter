@@ -71,7 +71,10 @@ const STAGE = 'orc-fort';
  *   「**閉じた**扉が見える / 塞ぐ / 選ぶと開く」で、施錠 (locked) は driver_doors_p5 が測る。
  * ⚠ 期待値は 1 文字も書き換えていない。母集団 (初期状態) を旧経路へ固定しただけ
  *   (?graph=0 で単一マップへ固定するのと同じやり方)。スイッチが効いていること自体は
- *   driver_doors_p5 の (2c) が装置 assert として測る。 */
+ *   driver_doors_p5 の (2c) が装置 assert として測る。
+ * ★[P6 追随 2026-08-15] 同じ理由で **?secret=0** も足した。⚠ ただし `?doors=states` のブート
+ *   (§7 の絵の確認) は**そのまま**にしてある — あちらは 5 状態を強制的に順に当てるので
+ *   hidden の絵 (= 1 画素も描かない) を測る (2d) の母集団はスイッチに影響されない。 */
 // mapDef.doors の 6 キー (P1 で確定。ここが増減したら P1 の driver と一緒に直す)
 const DOOR_KEYS = ['id', 'tx', 'ty', 'orientation', 'state', 'requiredKey'];
 const DOOR_STATES = ['closed', 'locked', 'open', 'broken', 'hidden'];
@@ -117,9 +120,16 @@ const MUTATIONS = {
   noopen: [
       '      openDoorAt(o.at.tx, o.at.ty);',
       '      /* ★変異noopen: 開けない */'],
+  /* ⚠ [P6 追随 2026-08-15] アンカーを張り替えた。rebuildNodeDoors が「向きの集合 (Set)」から
+   *   「向き → 出口の対応表 (Map)」へ変わったため (隠してよい扉かの判定に行き先が要る)。
+   *   **注入する欠陥は 1 ミリも変えていない** = 入場方向 (nodeExitDirs) を扉の集合へ混ぜる。
+   *   ⚠ 値に {to:null} を入れるのは、実在の ex を使うと足した向きまで P6 の隠し扉抽選の
+   *     候補になり、この負のコントロールが別の欠陥まで一緒に注入してしまうから。
+   * ⚠⚠ 置換後の文字列に置換前の 1 行を**部分文字列として含めないこと**。含めると §0 の
+   *   `mut.indexOf(from) < 0` が成立せず、変異は載っているのに (0a) だけ NG になる (実測した)。 */
   usedirsvia: [
-      '        for (const ex of ((node && node.exits) || [])) if (ex.dir) dirs.add(ex.dir);',
-      '        for (const dd of nodeExitDirs(node)) dirs.add(dd);   /* ★変異usedirsvia */'],
+      '          if (ex.dir && !byDir.has(ex.dir)) byDir.set(ex.dir, ex);',
+      '          if (ex.dir) { byDir.set(ex.dir, byDir.get(ex.dir) || ex); for (const dd of nodeExitDirs(node)) if (!byDir.has(dd)) byDir.set(dd, { to: null }); }   /* ★変異usedirsvia */'],
 };
 const MUT_ORDER = ['nodoorsoff', 'showhidden', 'imgafterdoor', 'noblock', 'noopen', 'usedirsvia'];
 const PORT_OF = {};
@@ -298,7 +308,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 扉の一覧の出所');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const S = await page.evaluate(() => {
       const node = RUN.byId[currentNodeId];
       const dirs = [];
@@ -374,7 +384,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 扉タイルの画素 / state ごとの塗り面積');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const P = await page.evaluate((states) => {
       const g = mapCanvas.getContext('2d');
       const W = mapCanvas.width, H = mapCanvas.height;
@@ -458,7 +468,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3 描画順');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const O = await page.evaluate(() => {
       const g = mapCanvas.getContext('2d');
       /* ⚠ 扉の目印は ctx.rotate。index.html で ctx.rotate を呼ぶのは扉の描画だけ
@@ -511,7 +521,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§4 通行判定 (P3)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const R = await page.evaluate((states) => {
       const doors = doorsForRender();
       /* ⚠ 母集団の確認。情景 (倒木など) が既に塞いでいるタイルの扉を選ぶと、開けても
@@ -569,7 +579,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§5 出口選択で開く (P4)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const K = await page.evaluate(async () => {
       const g = window.__graphRun;
       const snapshot = () => doorsForRender().map(d => d.id + ':' + d.state).sort();
@@ -643,7 +653,7 @@ async function bootPage(browser, url, scen, errs, opts) {
     // (6c) 既存 6 シナリオすべてに扉が立ち、mapDef は汚れていない
     const per = [];
     for (const scen of SCENARIOS) {
-      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', scen, errs);
+      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', scen, errs);
       const r = await p.evaluate(() => ({ n: doorsForRender().length, mapdef: MAPDEF.doors }));
       await p.close();
       per.push(scen + ':' + r.n + (r.mapdef === null ? '' : '(汚染!)'));
@@ -661,7 +671,7 @@ async function bootPage(browser, url, scen, errs, opts) {
 
     /* ★(6e) 実際に踏んだ欠陥の検出器。扉は当たり判定に載った = 盤面の一部なので、
      *   「どちらから入ったか」に依存すると別経路で戻ったときに宝箱と罠の抽選まで変わる。 */
-    const p3 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs);
+    const p3 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const det = await p3.evaluate(async () => {
       const OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };
       const g = window.__graphRun;

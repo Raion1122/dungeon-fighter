@@ -4299,6 +4299,16 @@
       try { return new URLSearchParams(location.search).get("locks") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[P6] 隠し扉だけを切る退避スイッチ ?secret=0。扉は今までどおり立つが、hidden が 1 枚も出ない。
+     * ⚠ ?locks=0 と別の口にしたのは ?doors= と同じ理由 (値を 1 つしか持てない)。実際に
+     *   `?doors=states&locks=0&secret=0` を**同時に**使う場面がある。
+     * ⚠ これも dev チートではなく退避口なので __dfDevCheat ではゲートしない。
+     * ★P2〜P4 / P5 / P8 の検出器はこれを付けて走る (あちらの母集団は「閉じた扉」「施錠扉」で、
+     *   隠し扉は driver_doors_p6 が測る)。 */
+    const DOORS_NOSECRET = (() => {
+      try { return new URLSearchParams(location.search).get("secret") === "0"; }
+      catch (e) { return false; }
+    })();
     /* ⚠⚠ [P8] **ここは実体を作らない**。一覧を組み立てるのは rebuildNodeDoors ただ 1 つで、
      *   この関数は「今の一覧を渡す窓口」に徹する。MAPDEF.doors を条件分岐で直に返していた頃は、
      *   開閉が MAPDEF へ書き戻る経路がこの 1 行から生えていた。 */
@@ -21444,12 +21454,22 @@
         ? roomChests.filter(c => c.hidden && !c.found && !c._invRolled && inScope(c.tx, c.ty)) : [];
       const pendingMimic = (typeof mimicChest !== "undefined" && mimicChest && !mimicChest.awakened
         && !mimicChest._invRolled && inScope(mimicChest.tx, mimicChest.ty)) ? mimicChest : null;
+      /* ★[P6] 隠し扉。⚠⚠ **専用のロールを足さない**のが肝。問うている中身が「この部屋に
+       *   隠されているもの」で罠・隠し宝箱とまったく同じなので、ここへ相乗りさせるのが
+       *   「1 部屋 1 ロール」の約束を守る唯一のやり方 (出口ヒストの知覚判定を別に持っているのは
+       *   あちらが「どの道を選ぶか」= 問いが違うから。revealExitHints の注記を参照)。
+       * ⚠ 済印は state そのもの (見つかれば hidden ではなくなる)。扉は入場ごとに作り直される
+       *   オブジェクトなので `_percRolled` のような印は乗せられない。二度振らせない担保は
+       *   roomSearchRolled (ノード + 部屋で永続) が持つ。 */
+      const pendingDoors = doorsForRender().filter(d =>
+        d && d.state === "hidden" && inScope(d.tx, d.ty));
 
       /* ★対象ゼロでも部屋は「検分済み」にする。ここで印を立てないと毎歩この関数が走り続け、
        *   部屋の奥へ入って初めて半径救済に引っかかった対象で「部屋の途中でいきなりパネル」が
        *   出る = 1 部屋 1 ロールの約束が破れる。 */
       roomSearchRolled.add(key);
-      if (pendingTraps.length === 0 && pendingChests.length === 0 && !pendingMimic) return;
+      if (pendingTraps.length === 0 && pendingChests.length === 0 && !pendingMimic
+          && pendingDoors.length === 0) return;
 
       // 対象ごとの済印も残す (救済経路で同じ対象が別部屋から拾われても二度振らない担保)。
       pendingTraps.forEach(t => t._percRolled = true);
@@ -21466,7 +21486,9 @@
 
       skillCheckActive = true;
       dialogPaused = true;  // 判定中は探索を停止 (showChoice と同方針)
-      SkillCheck.resolveSkillCheck(pickSearchCheckKey(party), dc, party, {
+      /* ★[P6] **Promise を返す**ようにした。呼び側 (毎歩の探索ループ) は今までどおり無視するが、
+       *   tickNodeChoice は「出口を見せる前に隠し扉を決着させる」ために await する。 */
+      return SkillCheck.resolveSkillCheck(pickSearchCheckKey(party), dc, party, {
         title: "探索判定",
         flavor: hasTrap
           ? "部屋をひととおり検分する。罠の気配、隠されたものは…"
@@ -21477,7 +21499,7 @@
         // アイコンは罠が絡むときだけ。捜査だけの判定に出さないのは v1 のユーザー決定を踏襲。
         iconContext: hasTrap ? "trap" : undefined,
       }).then((res) => {
-        applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic);
+        applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors);
       }).catch(() => {}).finally(() => {
         skillCheckActive = false;
         dialogPaused = false;
@@ -21658,7 +21680,7 @@
      * ⚠ 告知は成功・失敗とも **1 行だけ**にすること。ロールが 1 本になった以上、
      *   「罠を見落とした」「隠し物も見つからなかった」を 2 行出すと**2 回振ったように見える**
      *   = 画面の上では今回の変更が何も起きていないのと同じになる。 */
-    function applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic) {
+    function applyRoomSearchResult(res, pendingTraps, pendingChests, pendingMimic, pendingDoors) {
       if (!res) return;
       const rep = (res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       if (!res.success) {
@@ -21667,9 +21689,11 @@
       }
       const trapsFound  = applyPerceptionResult(res, pendingTraps);
       const chestsFound = applyInvestigationResult(res, pendingChests, pendingMimic);
+      const doorsFound  = applyRoomSearchDoors(res, pendingDoors);
       const parts = [];
       if (trapsFound  > 0) parts.push(`罠${trapsFound}件`);
       if (chestsFound > 0) parts.push(`隠し${chestsFound}件`);
+      if (doorsFound  > 0) parts.push(`隠し扉${doorsFound}件`);
       if (parts.length) {
         updateInfo(`${rep} が探索判定に成功! (${res.total} ≧ DC ${res.dc}) — ${parts.join(" / ")}を発見`);
       } else if (!pendingMimic) {
@@ -21691,6 +21715,29 @@
         showBanner("⚠ 罠を見つけた!", 1400);
         showDMMessage("足を止めろ。床に不自然な跡がある。罠だ。慎重に進め。", 2400);
         sayLine("find.trap");   // ★ speech
+      }
+      return found;
+    }
+
+    /* ★[P6] 隠し扉の発見を反映し、発見数を返す。★呼び出しは applyRoomSearchResult 経由のみ
+     *   (失敗時はあちらが 1 行告知して return するので、ここは成功枝だけを持つ)。
+     * ⚠⚠ 遷移先は「**隠れていなかったとしたらどの状態だったか**」= 施錠抽選の結果。隠匿と施錠は
+     *   直交する性質なので、発見したからといって錠まで消してはいけない (?locks=0 のときは
+     *   doorLockedByRng が false を返すので closed へ落ちる = あちらの退避スイッチもそのまま効く)。
+     * ⚠ 書き込みは setDoorState ただ 1 つ = nodeState へ write-through されるので、
+     *   **一度見つけた隠し扉は再入場でも隠れ直さない** (P8 の器へそのまま乗る)。
+     * ⚠ 発見に失敗した部屋は roomSearchRolled が二度目を拒むので、往復して振り直すことはできない。 */
+    function applyRoomSearchDoors(res, pendingDoors) {
+      if (!res || !res.success || !pendingDoors || !pendingDoors.length) return 0;
+      let found = 0;
+      for (const d of pendingDoors) {
+        if (!d || d.state !== "hidden") continue;
+        const next = doorLockedByRng(currentNodeId, d.id) ? "locked" : "closed";
+        if (setDoorState(d, next, currentNodeId)) found++;
+      }
+      if (found > 0) {
+        showBanner("🚪 隠し扉を見つけた!", 1400);
+        showDMMessage("壁の継ぎ目に、指がかかるほどの隙間がある。……隠し扉だ。この先に道がある。", 2400);
       }
       return found;
     }
@@ -30115,6 +30162,51 @@
       if (DOORS_NOLOCK || !nodeId || !doorId) return false;
       return makeNodeRng(String(nodeId) + "/lock/" + doorId)() < DOOR_LOCK_CHANCE;
     }
+    /* ★[P6] 隠し扉になる割合。DOOR_LOCK_CHANCE と同じ「難度チューニングはここだけ」の枠。
+     * ⚠ 対象は 1 ノードにせいぜい 1 枚 (下の doorHideableExit) なので、25% では 1 周で
+     *   1 枚も出ない周回が多くなる。50% = 実装した機能が実際に画面へ出る頻度 (ユーザー決定)。 */
+    const DOOR_HIDDEN_CHANCE = 0.5;
+    /* ★[P6] 隠し扉を立てて**はいけない行き先**の台帳 (SCENARIO_NODE_EXTRAS と同じ流儀)。
+     * ⚠⚠ n6 = 各シナリオの**隠し要素の間** (残影の獣 / 沼の守護神 / 古代王国の守護者 /
+     *   高位神官の霊 / 偽宝箱)。行き止まりなので下の条件は満たしてしまうが、ボールトに 5 本の
+     *   設計書があるシナリオの目玉を**知覚判定 1 回で丸ごと失う**のは対価が大きすぎる
+     *   (2026-08-15 ユーザー決定。後半シナリオは探索判定 DC が 16〜20 で失敗が現実的に起きる)。
+     * ⚠⚠ **kind では分けられない**。n6 の kind はシナリオごとに違い (event / search / loot)、
+     *   竜巣では n3 (宝物庫) とまったく同じ "loot" になる。だから id の台帳で持つ。
+     * ⚠ 宣言位置は「起動時の rebuildNodeDoors (:30460 付近) より前」であること。後ろに置くと
+     *   モジュール直下の const が TDZ に落ちて entry ノードだけ ReferenceError になる。 */
+    const DOOR_SECRET_EXCLUDE_NODES = new Set(["n6"]);
+    /* ★[P6] この扉を「隠し扉」にしてよいか = **見逃しても本編が詰まないか**。
+     * ⚠⚠ 条件は「**行き先が行き止まり (exits 0 本) かつ kind が boss でない**」ただ 1 つ。
+     *   行き止まりを切り離しても**他のノードの到達性は 1 つも変わらない**(枝の先に何も無い)ので、
+     *   グラフの形に依らずボスへの道は絶対に塞がらない。これが P5 の「最後は必ず突破する」に
+     *   対応する P6 の芯 = **知覚判定を外しても詰まない**。
+     * ⚠⚠ 「出口が 2 本以上あるノードだけ」は一見安全に見えるが**不変条件ではない**
+     *   (2 本のうち片方が本道なら本道が隠れうる)。逆に出口 1 本のノード (n2 → n6 = 隠し要素の間)
+     *   は行き先が行き止まりなので**安全に隠せる**。
+     * ⚠ ただし entry ノードで最後の 1 本を隠すと「引き返す」も無く操作不能になるので除く
+     *   (現行 6 グラフの entry は 3 出口なので発火しない = 将来グラフを足したときの防御)。 */
+    function doorHideableExit(nodeId, ex, nDirs) {
+      if (!RUN || !ex) return false;
+      const to = RUN.byId[ex.to];
+      if (!to || to.kind === "boss") return false;
+      if (DOOR_SECRET_EXCLUDE_NODES.has(ex.to)) return false;   // ★隠し要素の間は塞がない
+      if ((to.exits || []).length !== 0) return false;   // ★行き止まりでなければ隠さない
+      if (nDirs <= 1 && !(RUN.parent && RUN.parent[nodeId])) return false;   // entry の最後の 1 本
+      return true;
+    }
+    /* ★[P6] この扉が隠されているか。doorLockedByRng と同じ 2 つの約束を守る:
+     *   ① makeNodeRng で**新しい PRNG を作る** = Math.random を 1 度も引かない (盤面の湧きが不変)
+     *   ② どちらから入っても同じ (nodeExitDirs を使わないのと同じ不変条件)
+     * ⚠⚠ seed には **mapDef.id ("orc-fort/n0" 等) を使う**。ノード id は 6 シナリオで "n0".."n7" が
+     *   **共通**なので、id だけで引くと**全シナリオで同じ扉が隠れる**(P5 の施錠は実際にそうなって
+     *   いる。あちらは出荷済みなので P6 では追随しない)。 */
+    function doorHiddenByRng(nodeId, doorId) {
+      if (DOORS_NOSECRET || !nodeId || !doorId) return false;
+      const nd = RUN && RUN.byId[nodeId];
+      const seed = ((nd && nd.mapDef && nd.mapDef.id) || String(nodeId)) + "/hidden/" + doorId;
+      return makeNodeRng(seed)() < DOOR_HIDDEN_CHANCE;
+    }
     function rebuildNodeDoors(nodeId) {
       nodeDoors = null;
       /* ★[P8] mapDef.doors を持つマップ (自作マップ) が最優先。**必ず複製**して持つ。
@@ -30136,9 +30228,14 @@
          *   既に開いている。開口 (rebuildWallOpenings) が引き返し口も抜くのは、あちらが
          *   純粋な描画マスクで盤面に影響しないから = 同じ集合を使ってよい理由が無い。 */
         const node = RUN.byId[nodeId];
-        const dirs = new Set();
-        for (const ex of ((node && node.exits) || [])) if (ex.dir) dirs.add(ex.dir);
-        if (dirs.size) {
+        /* ★[P6] 向きの集合 (Set) から **向き → 出口の対応表 (Map)** へ変えた。隠してよい扉かの
+         *   判定に行き先 (ex.to) が要るため。⚠ Map も挿入順を保つので、扉の並び・id・向きの集合は
+         *   Set のときと 1 バイトも変わらない (同じ向きの 2 本目は先着優先 = add と同じ挙動)。 */
+        const byDir = new Map();
+        for (const ex of ((node && node.exits) || [])) {
+          if (ex.dir && !byDir.has(ex.dir)) byDir.set(ex.dir, ex);
+        }
+        if (byDir.size) {
           /* dev プレビュー ?doors=states … 5 つの state を順に当てて見た目を並べる (絵の確認用)。
            * ⚠ ゲートは __dfDevCheat。付いているのに効かないときは必ず警告が出る
            *   (黙って無視する dev シームは「配線したつもり」を作る = fail-open の静かな失敗)。
@@ -30149,8 +30246,18 @@
             if (new URLSearchParams(location.search).get("doors") === "states" &&
                 window.__dfDevCheat && window.__dfDevCheat("doors")) states = DOOR_DEMO_STATES;
           } catch (e) {}
+          /* ★[P6] 隠す扉を**先に 1 枚だけ**決める。
+           * ⚠⚠ 1 枚に絞るのは「全部隠れて選べる出口が消える」を**原理的に作れなくする**ため。
+           *   下のループの中で 1 枚ずつ判定すると 2 枚目以降も当たりうる。
+           * ⚠ 走査順は byDir の挿入順 = 出口の記述順なので、どちらから入っても同じ扉が隠れる。 */
+          let hiddenDir = null;
+          for (const [dir, ex] of byDir) {
+            if (!doorHideableExit(nodeId, ex, byDir.size)) continue;
+            if (!doorHiddenByRng(nodeId, "gate-" + dir)) continue;
+            hiddenDir = dir; break;
+          }
           const out = [];
-          for (const dir of dirs) {
+          for (const dir of byDir.keys()) {
             const g = nodeGateTile(MAPDEF, dir);          // 関数宣言なので巻き上げ済み
             const doorId = "gate-" + dir;
             out.push({
@@ -30162,8 +30269,11 @@
                *   通行判定 (P3) から見た初期状態は変わらない = fail-safe のまま。
                * ⚠ 保存があれば下の applySavedDoorStates が上書きする。つまり一度こじ開けた扉は
                *   再入場で施錠へ戻らない (P8 の器へそのまま乗る)。 */
+              /* ★[P6] hidden も「塞ぐ側」なので通行判定 (P3) から見た初期状態は closed と同じ
+               *   = fail-safe のまま。違うのは**描かれない**ことと**出口ごと選択肢から消える**こと。 */
               state: states ? states[out.length % states.length]
-                            : (doorLockedByRng(nodeId, doorId) ? "locked" : "closed"),
+                            : (dir === hiddenDir ? "hidden"
+                               : (doorLockedByRng(nodeId, doorId) ? "locked" : "closed")),
               requiredKey: null,
             });
           }
@@ -30443,7 +30553,8 @@
      *   (fail-closed)。to で引くと食い違ったまま黙って開いてしまう。
      * ⚠ 開けるのは "closed" だけ:
      *     locked … P5 の技能判定 (sleightOfHand → 失敗なら athletics) がここへ入る
-     *     hidden … P6 の知覚判定で先に closed へ遷移させる
+     *     hidden … P6 の探索判定 (applyRoomSearchDoors) が先に closed / locked へ遷移させる。
+     *              未発見のうちは exitsWithReturn が**出口ごと落とす**のでここへ来ることも無い
      *     open / broken … すでに通れる (doorBlocks が false)
      * ★[P8] 書き換え先は nodeDoors (= MAPDEF.doors の複製) で、開閉は nodeState へ write-through
      *   される。よって **MAPDEF は汚れず、再入場では開けた扉が開いたまま**。 */
@@ -30561,6 +30672,18 @@
       }
       return { outcome: outcome, state: d.state, dmg: hit ? hit.dmg : 0, name: who };
     }
+    /* ★[P6] このタイルに**未発見の隠し扉**が立っているか。
+     * ⚠ 同定はタイル (openDoorAt / resolveDoorLockAt と同じ規則。行き先 to では引かない)。
+     * ⚠ 扉が 0 枚のマップ (既存 6 シナリオの ?graph=0 / 屋外 / 自作マップ) では
+     *   doorsForRender() が空配列を返すので必ず false = 従来経路は 1 ミリも動かない。 */
+    function doorHiddenAt(tx, ty) {
+      const doors = doorsForRender();
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        if (d && d.tx === tx && d.ty === ty && d.state === "hidden") return true;
+      }
+      return false;
+    }
     /* ★扉は**タイルで同定**する (openDoorAt と同じ規則。行き先 to では引かない)。
      * ⚠ 施錠が 1 枚も無ければ Promise.resolve(null) = 何も待たない (従来と同じ速さ)。 */
     function resolveDoorLockAt(tx, ty, forced) {
@@ -30608,6 +30731,13 @@
           to: ex.to, dir: dir, at: { tx: ex.at[0], ty: ex.at[1] }, back: false,
           label: DIR_LABELS[dir] + (ex.hint && ex.hint.text ? " — " + ex.hint.text : ""),
         };
+        /* ★[P6] 隠し扉は「そこに道があると気づいていない」状態なので、**選択肢に出さない**
+         *   (矢印もダイアログも、DFS 順も、この 1 行の外側は何も知らないままで済む)。
+         * ⚠ 隠せるのは行き止まり行きの扉だけ (doorHideableExit) なので、ここで枝が減っても
+         *   ボスへの道は絶対に残る。⚠ 親への引き返し口は扉を持たないので影響を受けない。
+         * ⚠ revealExitHints は node.exits を**生のまま**使い続ける。あちらの DC は出口の本数で
+         *   決まるので、ここで減らすと隠し扉の有無で知覚判定の難度が動いてしまう。 */
+        if (doorHiddenAt(o.at.tx, o.at.ty)) continue;   // ★[P6] 未発見の隠し扉は出口ごと無いものとして扱う
         (nodeState[ex.to] && nodeState[ex.to].visited ? seen : fresh).push(o);
       }
       const out = fresh;
@@ -31353,6 +31483,15 @@
         /* ★[P3] 出口を見せる前に **1 ノード 1 回だけ**知覚判定を振る (再入場では振り直さない)。
          * ⚠ 順序が重要: 判定 → ヒント確定 → 選択肢の提示。逆にすると 1 周目のヒントが
          *   常に空になり、判定が「次に来たときのため」の意味不明な演出になる。 */
+        /* ★[P6] 隠し扉は**出口を見せる前に**決着させる。
+         * ⚠⚠ 探索判定 (1 部屋 1 ロール) は歩いている間に走るので実際にはほぼ常に済んでいるが、
+         *   戦闘が終わった直後は 400ms tick がこちらへ先に当たりうる。その 1 回で「まだ隠れて
+         *   いる出口」のまま選択肢が組まれると、直後に判定が通っても矢印には出ない =
+         *   **見つけたのに入れない**取りこぼしになる (プレイヤーには原因が見えない種類の欠陥)。
+         * ⚠ 未発見の隠し扉が 1 枚も無ければ 1 命令も走らない (既存の盤面・母集団は 1 ミリも動かない)。
+         * ⚠ runRoomSearchCheck は「振った部屋」を roomSearchRolled で覚えるので、ここで呼んでも
+         *   1 部屋 1 ロールは破れない (済んでいれば即 return)。 */
+        if (doorsForRender().some(d => d && d.state === "hidden")) await runRoomSearchCheck();
         await revealExitHints(node);
         chosen = await chooseExit(node);
         /* ★扉を開けてから heroForcedGoal を決める (順序は commitExit の注記)。
@@ -32089,6 +32228,10 @@
         unlock: (tx, ty, forced) => resolveDoorLockAt(tx, ty, forced || null),
         lockChance: () => DOOR_LOCK_CHANCE,
         locksOff: () => DOORS_NOLOCK,
+        /* ★P6 検証シーム。⚠ ドライバは**期待値をこちらから読まない** (契約はドライバ側に
+         *   書き下してある)。ここは「実装も切れていると答えるか」= silent fail-open の検出用。 */
+        hiddenChance: () => DOOR_HIDDEN_CHANCE,
+        secretsOff: () => DOORS_NOSECRET,
         // 歩きを飛ばして遷移だけ測る (保存/復元の検査用。本編と同じ enterNode を通る)
         enter: (toId, viaDir) => enterNode(toId, viaDir),
         forcedGoal: () => heroForcedGoal,

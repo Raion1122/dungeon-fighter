@@ -12,7 +12,11 @@
  *   ④ **最後は必ず突破する**。両方失敗しても「時間をかけて破る」= broken。施錠で進行が詰まらない。
  *   ⑤ 3 段目の代償は 1d4。ただし **HP 下限 1** = 扉で誰も死なない。
  *
- * ⚠ 隠し扉 (P6) はまだ無い。ここで測ると永久に赤い検出器になる。
+ * ★[P6 追随 2026-08-15] 隠し扉が実装されたので、全ブートに **?secret=0** を付けて母集団を
+ *   旧経路 (closed / locked の 2 値) へ固定してある。⚠ **期待値は 1 文字も変えていない** —
+ *   本ドライバの主張は「施錠は必ず突破される」で、hidden は driver_doors_p6 が測る。
+ *   ⚠ 舞台 orc-fort は現在たまたま隠し扉 0 枚だが、抽選が動いた日に (1b)(1c) が崩れるので
+ *     「偶然の緑」に頼らずスイッチで固定する。
  *
  * ── 負のコントロール (同一 run に内包。配信をメモリ上で差し替える) ──────────────
  *   port   | mutate      | 注入する欠陥                                  | 赤くなるべき節
@@ -279,7 +283,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 施錠の抽選');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const S = await page.evaluate(() => {
       nodeBusy = true;                       // ★本編と同じ「選択処理中」= 400ms tick を止める
       const snap = () => doorsForRender().map(d => d.id + ':' + d.state).sort();
@@ -348,7 +352,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 locked は塞ぐ + 退避スイッチ');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const B = await page.evaluate(() => {
       nodeBusy = true;
       const d = doorsForRender()[0];
@@ -408,7 +412,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3〜§5 突破の 3 経路 (開錠 / 体当たり / 力ずく)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const T = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -472,7 +476,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§6 施錠が進行を止めない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const G = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -506,7 +510,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§7 出口選択 → 施錠判定 → 目標決定 の順序');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const C = await page.evaluate(async () => {
       nodeBusy = true;                       // ★本編も nodeBusy の内側で commitExit を await する
       const g = window.__graphRun;
@@ -541,7 +545,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§8 突破した扉は再入場でも施錠へ戻らない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const R = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;

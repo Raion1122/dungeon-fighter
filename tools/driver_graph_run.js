@@ -190,7 +190,12 @@ async function bootPage(browser, url, warns, errs, pre) {
   return page;
 }
 
-const QT = '/index.html?diag=1&graphtest=1';
+/* ★[P6 追随 2026-08-15] **?secret=0** を付けて母集団を旧経路へ固定する。本ドライバの主張は
+ *   「分岐グラフの配線 (出口の本数 / タイル / 遷移 / 保存)」で、隠し扉はその母集団を変えてしまう
+ *   (テストグラフの entry の右出口が抽選に当たり、出口 3 本 → 2 本になって (1e)(1f)(8a) が
+ *   母集団ごと消えた = 実測)。⚠ **期待値は 1 文字も変えていない**。隠し扉そのものは
+ *   driver_doors_p6 が測る。⚠ ?secret=0 が黙って効かなくなればここが再び赤くなる = 自己検出する。 */
+const QT = '/index.html?diag=1&graphtest=1&secret=0';
 
 (async () => {
   const puppeteer = loadPuppeteer();
@@ -703,7 +708,9 @@ const QT = '/index.html?diag=1&graphtest=1';
         trapCount: 3, hiddenChestCount: 2, clearXp: 0, spawns: [],
         run: JSON.parse(testRunJson),
       })) + ');';
-    const pP = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1', wP, eP, pre);
+    /* ⚠ [P6 追随] ここも ?secret=0 (上の QT と同じ理由 = 出口の本数が母集団)。 */
+    const pP = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&secret=0',
+      wP, eP, pre);
     const rP = await pP.evaluate(() => ({
       active: window.__graphRun.active(), nodeId: window.__graphRun.nodeId(),
       boss: window.__graphRun.bossNodeId(), scen: scenarioId,

@@ -219,7 +219,12 @@ const OPEN_CHOICE = `(() => {
   return true;
 })()`;
 
-const QT = '/index.html?diag=1&graphtest=1';
+/* ★[P6 追随 2026-08-15] **?secret=0** を付けて母集団を旧経路へ固定する。本ドライバの主張は
+ *   「出口の本数ぶん矢印が出て、正しい位置にクランプされる」で、隠し扉は出口を 1 本減らすため
+ *   母集団 (G1「entry に出口が 3 本」) ごと消える (実測: 3 本 → 2 本で §1 が総崩れ)。
+ * ⚠ **期待値は 1 文字も変えていない**。隠し扉そのものは driver_doors_p6 が測る。
+ * ⚠ ?secret=0 が黙って効かなくなればここが再び赤くなる = 自己検出する。 */
+const QT = '/index.html?diag=1&graphtest=1&secret=0';
 
 (async () => {
   const puppeteer = loadPuppeteer();
@@ -777,7 +782,8 @@ const QT = '/index.html?diag=1&graphtest=1';
         trapCount: 3, hiddenChestCount: 2, clearXp: 0, spawns: [], run: four,
       })) + ');';
     // ⚠ ?graphtest を付けない = ペイロードだけで RUN が立つ本番の入口を通す
-    const pQ = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1',
+    // ⚠ [P6 追随] ここも ?secret=0 (上の QT と同じ理由 = 出口の本数が母集団)。
+    const pQ = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&secret=0',
                               wQ, eQ, DESKTOP, pre);
     const measure = async (label) => await pQ.evaluate(() => {
       const g = window.__graphRun;
