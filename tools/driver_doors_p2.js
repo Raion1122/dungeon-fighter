@@ -307,12 +307,19 @@ async function bootPage(browser, url, scen, errs, opts) {
         dirs: dirs,
         mapdefDoors: MAPDEF.doors,          // ★汚していないこと
         /* 権威の優先順: mapDef.doors を入れたらそちらが勝ち、自動生成は無視される。
-         * ⚠ 元に戻してから返す (以降の節が別の状態を見ないように)。 */
+         * ⚠ 元に戻してから返す (以降の節が別の状態を見ないように)。
+         * ⚠⚠ [P8 で測り方だけ直した] **期待値は 1 文字も変えていない**。P4 までは
+         *   doorsForRender が MAPDEF.doors を条件分岐で直に返していたので代入だけで観測できたが、
+         *   P8 で一覧を組むのが rebuildNodeDoors ただ 1 つになり、優先順が決まる**瞬間**が
+         *   そちらへ移った。よって実経路 (= 作り直し) を通して観測する。代入だけで測り続けると
+         *   「実装がどこで優先順を決めているか」を追わない、意味の抜けた assert になる。 */
         priority: (() => {
           MAPDEF.doors = [{ id: 'a0', tx: 1, ty: 2, orientation: 'vertical',
                             state: 'closed', requiredKey: null }];
+          rebuildNodeDoors(currentNodeId);
           const got = doorsForRender();
           MAPDEF.doors = null;
+          rebuildNodeDoors(currentNodeId);
           const back = doorsForRender();
           return { authoredWins: got.length === 1 && got[0].id === 'a0', restored: back.length };
         })(),

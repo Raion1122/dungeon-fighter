@@ -4277,7 +4277,10 @@
      *   doorBlocks の式を写して代用すると「通行判定の唯一の正」が 2 本になる。 */
     const DOORS_NONE = [];
     /* 分岐グラフのノードに立つ扉。⚠ **MAPDEF は 1 バイトも汚さない**。MAPDEF へ書き込むと
-     *   map-editor の書き出しに実行時の扉が混ざって保存される。出所は rebuildNodeDoors。 */
+     *   map-editor の書き出しに実行時の扉が混ざって保存される。出所は rebuildNodeDoors。
+     * ★[P8] mapDef.doors を持つマップ (自作マップ) でも、ここに入るのは **複製**。
+     *   P4 までは doorsForRender が MAPDEF.doors を**そのまま**返していたので、開けた扉が
+     *   MAPDEF へ書き戻り、map-editor の書き出しに実行時の開閉が混ざる穴が開いていた。 */
     let nodeDoors = null;
     /* ★撤退スイッチ ?doors=0。扉を丸ごと無効化して P2 以前の絵と当たり判定へ**完全に**戻す。
      * ⚠ これは dev チートではなく「本番を素の状態へ戻す退避口」なので __dfDevCheat では
@@ -4286,9 +4289,11 @@
       try { return new URLSearchParams(location.search).get("doors") === "0"; }
       catch (e) { return false; }
     })();
+    /* ⚠⚠ [P8] **ここは実体を作らない**。一覧を組み立てるのは rebuildNodeDoors ただ 1 つで、
+     *   この関数は「今の一覧を渡す窓口」に徹する。MAPDEF.doors を条件分岐で直に返していた頃は、
+     *   開閉が MAPDEF へ書き戻る経路がこの 1 行から生えていた。 */
     function doorsForRender() {
       if (!window.DFMapDef || DOORS_OFF) return DOORS_NONE;
-      if (MAPDEF && Array.isArray(MAPDEF.doors) && MAPDEF.doors.length) return MAPDEF.doors;
       return nodeDoors || DOORS_NONE;
     }
 
@@ -30088,6 +30093,15 @@
     const DOOR_DEMO_STATES = ["closed", "locked", "open", "broken", "hidden"];
     function rebuildNodeDoors(nodeId) {
       nodeDoors = null;
+      /* ★[P8] mapDef.doors を持つマップ (自作マップ) が最優先。**必ず複製**して持つ。
+       * ⚠ 参照のまま持つと openDoorAt が MAPDEF を書き換え、map-editor の書き出しに実行時の
+       *   開閉が混ざる (P4 の注記が「P8 の仕事」と書いていた穴はこれ)。 */
+      if (MAPDEF && Array.isArray(MAPDEF.doors) && MAPDEF.doors.length) {
+        nodeDoors = MAPDEF.doors.map(d => Object.assign({}, d));
+        applySavedDoorStates(nodeId);
+        rebuildDoorBlockMask();
+        return;
+      }
       if (RUN) {
         /* ⚠⚠⚠ **nodeExitDirs を使わないこと**。あれは「親への引き返し口」を nodeEnteredVia から
          *   足すので、同じノードでも**どちらから入ったかで集合が変わる**。扉は P3 で isTileWall に
@@ -30126,7 +30140,45 @@
           nodeDoors = out;
         }
       }
+      applySavedDoorStates(nodeId);
       rebuildDoorBlockMask();      // ★一覧を作り直したら通行判定のマスクも必ず作り直す
+    }
+
+    /* ★[P8] 保存してある state を、作り直したばかりの扉へ当て直す (**読み出しの唯一点**)。
+     * ⚠⚠ **nodeStateFor を使わないこと**。あれは無ければ作るので、まだ入っていないノードに
+     *   対して呼ぶと visited が立ち、exitsWithReturn の「未踏の枝を先に並べる」順序が壊れる
+     *   (nodeStateFor の注記そのもの)。ここは buildNode の途中 = 入る**前**に走るので、
+     *   **素の添字で読み、無ければ何もしない**が正しい。
+     * ⚠ 知らない id は黙って捨てる。グラフを編集して出口が消えたとき、居残った保存が
+     *   「どこにも立っていない扉」を生やさないため (扉の出所は exits ただ 1 つ、を保つ)。 */
+    function applySavedDoorStates(nodeId) {
+      if (!nodeDoors || !nodeId || !window.DFMapDef) return;
+      const st = nodeState[nodeId];
+      const saved = st && st.doorStates;
+      if (!saved) return;
+      for (let i = 0; i < nodeDoors.length; i++) {
+        const d = nodeDoors[i];
+        const s = saved[d.id];
+        if (s && DFMapDef.DOOR_STATES.indexOf(s) >= 0) d.state = s;
+      }
+    }
+
+    /* ★[P8] 扉の state を書き換える**唯一の点**。ここを通せば保存とマスク再構築が必ず揃う。
+     * ⚠ P4 までは openDoorAt が d.state を直に書き、rebuildDoorBlockMask を自分で呼んでいた。
+     *   P5 で locked → open / broken の経路が増えるので、「呼び忘れ」が原理的に作れない形へ
+     *   先に畳んでおく (絵は開いているのに通れない、が生まれる唯一の道を塞ぐ)。
+     * ⚠ 保存先は **currentNodeId** ではなく引数で受けたノード。既定は現在ノードだが、
+     *   出口選択は「今居るノードの扉」を開けるので実際には常に現在ノード。 */
+    function setDoorState(d, state, nodeId) {
+      if (!d || d.state === state) return false;
+      d.state = state;
+      const id = nodeId || currentNodeId;
+      if (id && RUN) {
+        const st = nodeStateFor(id);       // ★今居るノード = 既に visited なので作ってよい
+        if (st) (st.doorStates || (st.doorStates = {}))[d.id] = state;
+      }
+      rebuildDoorBlockMask();
+      return true;
     }
 
     /* ★唯一の構築点。起動シーケンス (幾何 → 派生定数 → フォグ → 1枚絵 → 情景 → スポーン) を
@@ -30245,6 +30297,14 @@
          *     (「行き止まりありの木」= 引き返しが常に可能なので、回数制限が無い回復は必ず悪用される)。
          *   ★eventsFired … このノードで発火済みのイベント key (P5 が EV-2/5/9 を載せる器)。 */
         rested: false, eventsFired: new Set(),
+        /* ★[扉 P8] doorStates … このノードの扉の state を id 別に覚える {doorId: state}。
+         *   ⚠⚠ 他のフィールドと違い **saveNodeState では作らない**。扉の一覧は buildNode の中
+         *     (rebuildNodeDoors) で作り直され、それは restoreNodeState **より前**に走るので、
+         *     「保存 → reset → build → 復元」の枠に乗せると復元先がまだ存在しない。
+         *     よって書き込みは setDoorState の write-through、読み出しは rebuildNodeDoors。
+         *   ⚠ Set ではなく素のオブジェクト。持つのは「開けたか」でなく **5 状態のどれか**で、
+         *     P5 の locked → open / broken が同じ器へ乗る (集合だと state を表現できない)。 */
+        doorStates: {},
       };
     }
     let   nodeEnteredVia = null;   // このノードへ「どちらへ向かって」入ったか (引き返す向きの出所)
@@ -30279,8 +30339,11 @@
     /* ★P3: 分岐を持たないマップ (既存 6 シナリオの ?graph=0 / 屋外 / 生成クエスト / 自作マップ) でも
      *   mapDef.doors を通行判定へ反映する。⚠ if (RUN) の**外**に置くこと。中に入れると、
      *   自作マップに扉を書いても「絵は出るのに通れてしまう」silent fail-open になる。
-     * ⚠ RUN があるときは rebuildNodeDoors が既に呼んでいる。二度呼んでも同じ結果 (冪等)。 */
-    rebuildDoorBlockMask();
+     * ⚠ RUN があるときは rebuildNodeDoors が既に呼んでいる。二度呼んでも同じ結果 (冪等)。
+     * ★[P8] 呼ぶ先を rebuildDoorBlockMask から rebuildNodeDoors へ差し替えた。**一覧を組むのが
+     *   rebuildNodeDoors だけになった**ので、ここでマスクだけ作ると mapDef.doors のマップで
+     *   nodeDoors が null のまま = 扉が 1 枚も立たない。 */
+    rebuildNodeDoors(currentNodeId);
     // 選択肢の見出し。P3 で矢印 UI になっても**文言はここが唯一の出所**にする。
     const DIR_LABELS = { up: "奥へ進む", down: "手前へ戻る道", left: "西へ進む", right: "東へ進む" };
 
@@ -30352,18 +30415,17 @@
      *     locked … P5 の技能判定 (sleightOfHand → 失敗なら athletics) がここへ入る
      *     hidden … P6 の知覚判定で先に closed へ遷移させる
      *     open / broken … すでに通れる (doorBlocks が false)
-     * ⚠ doorsForRender が mapDef.doors を返している場合、ここは**その mapDef を書き換える**。
-     *   実行時の開閉を保存したくないので、状態を nodeState へ移すのは P8 の仕事。 */
+     * ★[P8] 書き換え先は nodeDoors (= MAPDEF.doors の複製) で、開閉は nodeState へ write-through
+     *   される。よって **MAPDEF は汚れず、再入場では開けた扉が開いたまま**。 */
     function openDoorAt(tx, ty) {
       const doors = doorsForRender();
       let opened = 0;
       for (let i = 0; i < doors.length; i++) {
         const d = doors[i];
         if (!d || d.tx !== tx || d.ty !== ty) continue;
-        if (d.state === "closed") { d.state = "open"; opened++; }
+        if (d.state === "closed" && setDoorState(d, "open")) opened++;
       }
-      if (opened) rebuildDoorBlockMask();   // ⚠ 開けたら必ずマスクを作り直す
-      return opened;
+      return opened;                        // ⚠ マスク再構築は setDoorState の中で済んでいる
     }
     /* 出口を確定する**唯一の入口**。本編 (tickNodeChoice) と検証シーム (__probeGraph.pick) が
      * ここを通る。以前は 2 行の写しが両方にあった。
