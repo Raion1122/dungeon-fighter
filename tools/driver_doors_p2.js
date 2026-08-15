@@ -475,6 +475,13 @@ async function bootPage(browser, url, scen, errs, opts) {
        *   (パーティクルは fxctx = 別のコンテキスト)。⚠ 横板は回さないので、
        *   **測るときだけ全部 vertical にして**必ず rotate が出る状態にする
        *   (グラフの形に母集団を握らせない)。 */
+      /* ⚠⚠ **順序の基準は「最初の rotate」ではなく「drawDoors が返った時点」**。
+       *   P7 で扉がベクタ描画からスプライトへ変わり、扉自身が drawImage を呼ぶように
+       *   なったため、rotate 基準だと (3c) が「扉より後の drawImage = 扉の枚数」となって
+       *   赤くなる。しかし (3c) の主張は「**扉より後に別の画像レイヤが描かれない**」で、
+       *   扉自身の drawImage は数える対象ではない。measuring point だけを実経路へ直す
+       *   (主張と期待値は 1 文字も変えない)。
+       *   ⭐ drawDoors は classic script 直下の function 宣言なので再代入できる。 */
       const saved = nodeDoors;
       nodeDoors = saved.map(d => Object.assign({}, d, { orientation: 'vertical' }));
       const names = ['drawImage', 'rotate', 'fillRect'];
@@ -483,10 +490,18 @@ async function bootPage(browser, url, scen, errs, opts) {
         orig[n] = g[n];
         g[n] = function () { log.push(n); return orig[n].apply(this, arguments); };
       }
+      const origDrawDoors = drawDoors;
+      drawDoors = function () {
+        log.push('doors:start');
+        try { return origDrawDoors.apply(this, arguments); }
+        finally { log.push('doors:end'); }
+      };
       renderMap();
+      drawDoors = origDrawDoors;
       for (const n of names) g[n] = orig[n];
       nodeDoors = saved; renderMap();
       const first = log.indexOf('rotate');
+      const dEnd = log.lastIndexOf('doors:end');
       const zOf = (sel) => {
         const el = document.querySelector(sel);
         return el ? parseInt(getComputedStyle(el).zIndex || '0', 10) : null;
@@ -494,8 +509,11 @@ async function bootPage(browser, url, scen, errs, opts) {
       return {
         rotates: log.filter(x => x === 'rotate').length,
         doors: saved.length,
+        sawDoorPass: dEnd >= 0,   // ★ラップが効いたか (効いていなければ下は全部空振り)
         imgBefore: first < 0 ? -1 : log.slice(0, first).filter(x => x === 'drawImage').length,
-        imgAfter: first < 0 ? -1 : log.slice(first).filter(x => x === 'drawImage').length,
+        imgAfter: dEnd < 0 ? -1 : log.slice(dEnd).filter(x => x === 'drawImage').length,
+        imgInDoors: dEnd < 0 ? -1
+          : log.slice(log.indexOf('doors:start'), dEnd).filter(x => x === 'drawImage').length,
         z: { map: zOf('#mapCanvas'), fx: zOf('#fxCanvas'), light: zOf('#lightingCanvas') },
       };
     });
@@ -508,6 +526,11 @@ async function bootPage(browser, url, scen, errs, opts) {
      *   「順序が正しい」ではなく「比べる相手が居ない」で緑になってしまう。 */
     check('(3b) 母集団ガード: 扉より前に drawImage が走っている (比べる相手が居る)',
       O.imgBefore > 20, '扉より前の drawImage=' + O.imgBefore);
+    /* ⚠ 装置 assert。drawDoors のラップが効かないと imgAfter が -1 になり、条件式の書き方に
+     *   よっては黙って緑になりうる。「測れたこと」自体を先に 1 本立てる。 */
+    check('(3b-装置) drawDoors の呼び出しを括れている (順序の基準点が取れた)',
+      O.sawDoorPass === true && O.imgInDoors >= 0,
+      'doorPass=' + O.sawDoorPass + ' 扉の中の drawImage=' + O.imgInDoors + ' (扉=' + O.doors + ' 枚)');
     check('(3c) ★扉より後に drawImage が 1 回も無い = 1枚絵/情景/壁立面/壁天面/樹木/松明の**すべて後**',
       O.imgAfter === 0, '扉より後の drawImage=' + O.imgAfter);
     /* ★キャラより下であることは z 順で挟む (扉は mapCanvas にしか描かれない)。 */

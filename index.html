@@ -7312,18 +7312,17 @@
     // ─────────────────────────────────────────────────────────────
 
     /* ══════════════════════════════════════════════════════════════════════════
-     * ★P2 (扉システム) — 扉の描画 (プレースホルダ)
+     * ★P2/P7 (扉システム) — 扉の描画
      * ══════════════════════════════════════════════════════════════════════════
-     * **スプライトの到着を待たずに配線を通し切る**ための絵。P7 で codex1 のシートへ
-     * 差し替えるとき触るのが 1 箇所で済むよう、位置決め (drawDoors) と見た目
-     * (drawDoorPlaceholder) を分けてある。
+     * P2 では**スプライトの到着を待たずに配線を通し切る**ためにベクタで描いていた。
+     * 位置決め (drawDoors) と見た目 (drawDoorArt) を分けてあったので、P7 の差し替えは
+     * **見た目側 1 箇所だけ**で済んでいる。ベクタは drawDoorVector としてフォールバックに残す。
      *
-     * ⚠⚠ **立面 (北壁と同じ 192px の正面向き) はわざと描かない**。北壁の立面はカメラが
+     * ⚠⚠ **立面 (北壁と同じ 192px の正面向き) は持たない**。北壁の立面はカメラが
      *   MAP_USED の内側しか映さないため画面に入るのは実測 27px (1280x800) 〜 85px (958x749)
      *   しかなく (tools/make_wall_face.py の docstring が唯一の正)、そこへ扉を描くと
-     *   **上端 6 割以上が原理的に見えない**。P2 の狙いは「絵待ちで止まらない配線」なので、
-     *   まず全部が画面に入る**見下ろしの板戸 1 種**だけにする。正面向きの扉が要るかどうかは
-     *   P7 のスプライトと一緒に決める (今決めると見えない絵を作り込むことになる)。
+     *   **上端 6 割以上が原理的に見えない**。P7 でも**見下ろしの板戸 1 種**だけを発注し、
+     *   正面向きの扉は作らないと決めた (見えない絵を作り込むことになるため)。
      * ⚠ 扉のタイルが壁か床かは**ここでは決めない**。data の tx/ty をそのまま使う。どちらで
      *   塞ぐかは P3 の設計判断でまだ答えが無く、だから位置 lint も未実装のままにしてある。 */
     function drawDoors(doors) {
@@ -7336,25 +7335,73 @@
         const sx = Math.round(d.tx * TILE_SIZE - camX);
         const sy = Math.round(d.ty * TILE_SIZE - camY);
         if (sx + TILE_SIZE < 0 || sx > W || sy + TILE_SIZE < 0 || sy > H) continue;   // 画面外
-        drawDoorPlaceholder(sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, d);
+        drawDoorArt(sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, d);
       }
+    }
+
+    /* ══ ★P7: 扉スプライト (codex1 納品) ═══════════════════════════════════════
+     * シートは 1536x384 = **384px セル 4 枚**、並びは DOOR_SHEET_STATES のとおり。
+     * ⚠ `hidden` のセルは無い。drawDoors が state==="hidden" で continue するので
+     *   1 画素も描かれず、絵そのものが要らない (P6 の知覚判定が成立する条件)。
+     * ⚠⚠ **読み込み時に 96px へ 1 回だけ高品質縮小して焼く**。mapCanvas の 2D コンテキストは
+     *   resizeCanvas で `imageSmoothingEnabled = false` (NEAREST) に固定されているため、
+     *   384px のまま毎フレーム 96px 枠へ貼ると 16 画素に 1 画素しか採られず、南京錠や
+     *   木口の破片が壊れる。床テクスチャ (_texSet.floorScale の縮小) が同じ手口を使っている。
+     * ⚠ createPattern には渡さない (オフスクリーン canvas を渡すと環境によって崩れる)。
+     *   ここは drawImage の元画像としてのみ使う。 */
+    const DOOR_SHEET_STATES = ["closed", "locked", "open", "broken"];
+    let doorAtlas = null;                      // 96px セル 4 枚を焼いたオフスクリーン (384x96)
+    const doorSheetImg = new Image();
+    doorSheetImg.onload = function () {
+      try {
+        const cellW = doorSheetImg.naturalWidth / DOOR_SHEET_STATES.length;
+        const cellH = doorSheetImg.naturalHeight;
+        const c = document.createElement("canvas");
+        c.width = TILE_SIZE * DOOR_SHEET_STATES.length;
+        c.height = TILE_SIZE;
+        const g = c.getContext("2d");
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = "high";
+        for (let i = 0; i < DOOR_SHEET_STATES.length; i++) {
+          g.drawImage(doorSheetImg, i * cellW, 0, cellW, cellH,
+                      i * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE);
+        }
+        doorAtlas = c;
+      } catch (e) { doorAtlas = null; }        // 焼けなければベクタ描画のまま (fail-safe)
+    };
+    doorSheetImg.src = "assets/door_sheet.png?v=1";
+
+    /* 扉 1 枚。(cx, cy) = タイル中心のスクリーン座標。
+     * ⚠ 横板 (orientation:"horizontal" = 南北を塞ぐ向き) の絵**だけ**を持ち、縦板は 90° 回して
+     *   使い回す。2 通り持つと必ず片方だけ直し忘れる (素材も横板 1 種しか発注していない)。
+     * ⚠ 未知の orientation は横板へ倒す (sanitize が "horizontal" へ寄せるのと同じ側)。
+     * ⚠ 素材が未着 / 未知の state のときは**ベクタ描画へ落ちる**。絵が無いフレームで扉が
+     *   消えると、塞いでいるのに何も見えない = 通行判定と絵が食い違う瞬間が生まれる。 */
+    function drawDoorArt(cx, cy, d) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (d.orientation === "vertical") ctx.rotate(Math.PI / 2);
+      const idx = DOOR_SHEET_STATES.indexOf(d.state);
+      if (doorAtlas && idx >= 0) {
+        ctx.drawImage(doorAtlas, idx * TILE_SIZE, 0, TILE_SIZE, TILE_SIZE,
+                      -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE);
+      } else {
+        drawDoorVector(d);
+      }
+      ctx.restore();
     }
 
     const DOOR_ART = {
       wood: "#6d4a2c", woodLite: "#8d6337", woodDark: "#422c18", edge: "#25180c",
       iron: "#585866", ironLite: "#8f8f9e", shadow: "rgba(0,0,0,0.45)",
     };
-    /* 扉 1 枚。(cx, cy) = タイル中心のスクリーン座標。
-     * ⚠ 横板 (orientation:"horizontal" = 南北を塞ぐ向き) の絵**だけ**を書き、縦板は 90° 回して
-     *   同じ手順を使い回す。2 通り書くと必ず片方だけ直し忘れる。
-     * ⚠ 未知の orientation は横板へ倒す (sanitize が "horizontal" へ寄せるのと同じ側)。 */
-    function drawDoorPlaceholder(cx, cy, d) {
+    /* ★P7 のフォールバック (旧プレースホルダの本体)。ローカル座標系はすでに drawDoorArt が
+     *   translate / rotate 済みなので、ここは板の並びだけを持つ。
+     * ⚠ スプライトが焼けるまでの数フレームと、シートに無い state のための保険。消さないこと。 */
+    function drawDoorVector(d) {
       const blocks = DFMapDef.doorBlocks(d.state);     // ★通行判定と同じ述語を絵にも使う
       const L = TILE_SIZE * 0.94;                      // 長辺 = 扉の幅
       const TH = TILE_SIZE * 0.30;                     // 短辺 = 見下ろした板の厚み
-      ctx.save();
-      ctx.translate(cx, cy);
-      if (d.orientation === "vertical") ctx.rotate(Math.PI / 2);
       /* 板の並び。閉/施錠 = 1 枚で口をふさぐ。開/破壊 = 端へ寄せて口を空ける。
        * ⚠ 分岐の条件は doorBlocks そのもの。「絵は閉じているのに通れる」という組み合わせを
        *   **描画側から作れなくする** (P1 が blocking を落としたのと同じ理由)。 */
@@ -7366,7 +7413,6 @@
       } else {
         drawDoorLeaf(-L / 2, L * 0.30, TH, false);      // open = 蝶番側へ畳んだ 1 枚
       }
-      ctx.restore();
     }
     /* 板 1 枚 (ローカル座標・長辺は x 方向)。x0 = 左端 / w = 幅 / th = 厚み */
     function drawDoorLeaf(x0, w, th, locked) {
