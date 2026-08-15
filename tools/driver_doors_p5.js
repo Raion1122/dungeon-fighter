@@ -60,6 +60,9 @@ const PORT = parseInt(arg('port', '9030'), 10);
 /* 舞台。⚠ 廃坑 (goblin-mine) は n1 が event でダイアログ待ちに入るので使わない
  *   (driver_doors_p2 / driver_doors_p8 / driver_graph_p7 と同じ判断)。 */
 const STAGE = 'orc-fort';
+/* §1x 専用の 2 舞台目。⚠ 廃坑 (goblin-mine) を避ける理由は上と同じ (n1 の event でダイアログ待ち)。
+ *   lizard-swamp は driver_doors_p6 が本舞台として使っており、ブート経路が実測済み。 */
+const STAGE2 = 'lizard-swamp';
 // 「塞ぐか」の契約。⚠ 実装の doorBlocks を読まず**ここに書き下す** (通すのは open と broken だけ)
 const WANT_BLOCK = { closed: true, locked: true, open: false, broken: false, hidden: true };
 // 施錠の抽選率。⚠ 実装の DOOR_LOCK_CHANCE を読まずここに書き下す (実装が 0 になっても気づける)
@@ -69,7 +72,11 @@ const WANT_DMG_MIN = 1, WANT_DMG_MAX = 4;
 
 /* ★施錠の抽選の**契約をドライバ側で書き下す**。実装の doorLockedByRng を呼んで比べると、
  *   実装が「常に closed」に化けても両方同じ答えを返して緑になる。
- *   規則: mulberry32(hashStr(nodeId + "/lock/" + doorId))() < DOOR_LOCK_CHANCE  */
+ *   規則: mulberry32(hashStr(mapDef.id + "/lock/" + doorId))() < DOOR_LOCK_CHANCE
+ * ⚠⚠ seed は **node id ではなく mapDef.id ("orc-fort/n0")**。ノード id は 6 シナリオで
+ *   "n0".."n7" が**共通**なので、素の id で引くと**全シナリオで同じ扉が施錠される**
+ *   (P5 出荷時は実際にそうなっていた。後から P6 の doorHiddenByRng へ揃えて修正)。
+ *   ⚠ 素の node id への退行が黙って緑にならないよう、**§1x が 2 舞台で実測**する。 */
 function mulberry32(seed) {
   return function () {
     seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
@@ -84,8 +91,8 @@ function hashStr(s) {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-function wantLocked(nodeId, doorId) {
-  return mulberry32(hashStr(String(nodeId) + '/lock/' + doorId))() < WANT_LOCK_CHANCE;
+function wantLocked(mapId, doorId) {
+  return mulberry32(hashStr(String(mapId) + '/lock/' + doorId))() < WANT_LOCK_CHANCE;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -93,8 +100,11 @@ function wantLocked(nodeId, doorId) {
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATE_TARGETS = ['index.html', 'js/df-mapdef.js'];
 const MUTATIONS = {
+  /* ⚠ アンカーは施錠 seed を mapDef.id へ揃えた時点で 1 行変わっている。
+   *   `return makeNodeRng(seed)() < DOOR_HIDDEN_CHANCE;` (P6 の隠し扉) と紛れないよう、
+   *   定数名まで含めて指定すること (末尾の定数だけが違う 2 行が存在する)。 */
   nolockroll: [
-      '      return makeNodeRng(String(nodeId) + "/lock/" + doorId)() < DOOR_LOCK_CHANCE;',
+      '      return makeNodeRng(seed)() < DOOR_LOCK_CHANCE;',
       '      return false;   /* ★変異nolockroll */'],
   /* ⚠ 末尾コメントまで含めて 1 行を指定する。素の `setDoorState(d, "broken", nodeId);` だけだと
    *   パーティ全滅時のフォールバック (同じ 1 行) にも当たって 2 箇所ヒット = 空振り扱いになる。 */
@@ -308,15 +318,18 @@ async function bootPage(browser, url, scen, errs, opts) {
        *    ⚠⚠ 現在ノードだけ見ると空回りする。起点 n0 の 3 枚は実測でどれも抽選に当たらず、
        *      「施錠された扉」を 1 枚も観測しないまま緑になる (= nolockroll が空振りする)。
        *    ⚠ tx/ty は現在ノードの幾何で作られるので**読まない**。見るのは id と state だけ
-       *      (施錠は node id + door id だけで決まる、が測りたい主張)。 */
+       *      (施錠は mapDef.id + door id だけで決まる、が測りたい主張)。
+       *    ⚠ 期待値の計算に使う mapDef.id もここで一緒に採る。node 側で RUN を持てないため。 */
       const perNode = {};
+      const mapIds = {};
       for (const id of Object.keys(RUN.byId)) {
         rebuildNodeDoors(id);
+        mapIds[id] = (RUN.byId[id].mapDef && RUN.byId[id].mapDef.id) || null;
         perNode[id] = doorsForRender().map(d => ({ id: d.id, state: d.state }));
       }
       rebuildNodeDoors(nodeId);            // ★現在ノードへ戻す (測定器が盤面を汚さない)
       return { nodeId, built, same: (a.join('|') === b.join('|') && b.join('|') === c.join('|')),
-               snap: a, randomCalls: calls, perNode };
+               snap: a, randomCalls: calls, perNode, mapIds };
     });
     for (const e of errs) errsAll.push('§1: ' + e);
     await page.close();
@@ -325,17 +338,25 @@ async function bootPage(browser, url, scen, errs, opts) {
     // グラフ全体を 1 本の一覧へ潰す (実装が作った state)
     const flat = [];
     for (const nid of Object.keys(S.perNode)) {
-      for (const d of S.perNode[nid]) flat.push({ node: nid, door: d.id, state: d.state });
+      for (const d of S.perNode[nid]) {
+        flat.push({ node: nid, mapId: S.mapIds[nid], door: d.id, state: d.state });
+      }
     }
-    const wrong = flat.filter(x => x.state !== (wantLocked(x.node, x.door) ? 'locked' : 'closed'));
+    const wrong = flat.filter(x => x.state !== (wantLocked(x.mapId, x.door) ? 'locked' : 'closed'));
     const nLocked = flat.filter(x => x.state === 'locked').length;
+    const noMapId = flat.filter(x => !x.mapId).length;
 
     check('(1a) 母集団ガード: このノードに扉が 2 枚以上立っている',
       S.built.length >= 2, '扉=' + gotStates.join(' '));
     check('(1b) ★どの扉も**塞ぐ側**から始まる (closed か locked = fail-safe)',
       flat.length > 0 && flat.every(x => WANT_BLOCK[x.state] === true),
       flat.map(x => x.node + '/' + x.door + ':' + x.state).join(' '));
-    check('(1c) ★★施錠は node id + door id のハッシュで決まる (ドライバ側で書き下した規則と一致)',
+    /* ⚠ 母集団ガード。全ノードで mapDef.id が null だと実装は node id へフォールバックし、
+     *   ドライバ側も "null/lock/…" を引くので (1c) が**両方ずれたまま**になりうる。先に潰す。 */
+    check('(1c0) 母集団ガード: 全ノードで mapDef.id が引けている',
+      flat.length >= 4 && noMapId === 0,
+      '扉 ' + flat.length + ' 枚 / mapDef.id 無し ' + noMapId + ' 枚 / 例=' + (flat[0] && flat[0].mapId));
+    check('(1c) ★★施錠は mapDef.id + door id のハッシュで決まる (ドライバ側で書き下した規則と一致)',
       flat.length >= 4 && wrong.length === 0,
       '扉 ' + flat.length + ' 枚 / 食い違い ' + wrong.length + ' 枚' +
       (wrong.length ? ': ' + wrong.slice(0, 4).map(x => x.node + '/' + x.door + '=' + x.state).join(' ') : ''));
@@ -346,6 +367,69 @@ async function bootPage(browser, url, scen, errs, opts) {
       S.same === true, '3 回の一致=' + S.same);
     check('(1f) ★★抽選は Math.random を 1 度も引かない (RNG 消費順を動かさない)',
       S.randomCalls === 0, 'rebuildNodeDoors 中の Math.random 呼び出し=' + S.randomCalls);
+  }
+
+  /* ── §1x 施錠される扉がシナリオごとに違う ────────────────────────────────────
+   * ⚠⚠ **これが無いと、seed を素の node id へ戻す退行が黙って緑になる。** ノード id は
+   *   6 シナリオで "n0".."n7" が共通なので、素の id だと全シナリオで同じ扉が施錠される。
+   *   §1 の (1c) は「実装とドライバの規則が一致するか」しか見ておらず、両方が素の node id を
+   *   使っていても一致してしまう = **手段でなく目的を測る**ための節。
+   * ⚠ 舞台を 2 つ起こして「同じ (node id, door id) なのに state が違う組が 1 つ以上ある」を測る。
+   *   6 舞台まで広げないのは、扉 20 枚前後で全組が偶然一致する確率が ~1e-4 と十分小さいため。 */
+  mark('§1x 施錠がシナリオごとに違う');
+  {
+    const collect = async (stage) => {
+      const errs = [];
+      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', stage, errs);
+      const R = await p.evaluate(() => {
+        nodeBusy = true;
+        const per = {}, ids = {};
+        for (const id of Object.keys(RUN.byId)) {
+          rebuildNodeDoors(id);
+          ids[id] = (RUN.byId[id].mapDef && RUN.byId[id].mapDef.id) || null;
+          per[id] = doorsForRender().map(d => ({ id: d.id, state: d.state }));
+        }
+        rebuildNodeDoors(currentNodeId);
+        return { per, ids };
+      });
+      for (const e of errs) errsAll.push('§1x(' + stage + '): ' + e);
+      await p.close();
+      return R;
+    };
+    const A = await collect(STAGE);
+    const Z = await collect(STAGE2);
+
+    // ① 2 舞台とも「自分の mapDef.id」で書き下した規則どおりか
+    const mism = [];
+    for (const R of [A, Z]) {
+      for (const nid of Object.keys(R.per)) {
+        for (const d of R.per[nid]) {
+          if (d.state !== (wantLocked(R.ids[nid], d.id) ? 'locked' : 'closed')) {
+            mism.push(R.ids[nid] + '/' + d.id + '=' + d.state);
+          }
+        }
+      }
+    }
+    // ② 同じ (node id, door id) で state が違う組
+    const common = [], diff = [];
+    for (const nid of Object.keys(A.per)) {
+      if (!Z.per[nid]) continue;
+      for (const d of A.per[nid]) {
+        const e = Z.per[nid].find(x => x.id === d.id);
+        if (!e) continue;
+        common.push(nid + '/' + d.id);
+        if (e.state !== d.state) diff.push(nid + '/' + d.id + ':' + d.state + '≠' + e.state);
+      }
+    }
+    check('(1x-a) 母集団ガード: 2 舞台に共通する (node id, door id) が 4 組以上ある',
+      common.length >= 4, STAGE + ' vs ' + STAGE2 + ' で共通 ' + common.length + ' 組');
+    check('(1x-b) ★2 舞台とも「mapDef.id + door id」の規則どおりに施錠されている',
+      mism.length === 0,
+      '食い違い ' + mism.length + ' 枚' + (mism.length ? ': ' + mism.slice(0, 4).join(' ') : ''));
+    check('(1x-c) ★★施錠される扉がシナリオごとに違う (seed に mapDef.id が入っている証明)',
+      diff.length >= 1,
+      '違う組 ' + diff.length + '/' + common.length +
+      (diff.length ? ': ' + diff.slice(0, 3).join(' ') : ' ← 素の node id へ退行している疑い'));
   }
 
   // ── §2 locked は塞ぐ / 退避スイッチ ?locks=0 ──────────────────────────────
@@ -388,21 +472,25 @@ async function bootPage(browser, url, scen, errs, opts) {
       /* ⚠⚠ 現在ノードだけ見ると空振りする (起点 n0 の 3 枚は素でもどれも施錠されない)。
        *   §1 と同じくグラフ全体を作らせて数える。 */
       const perNode = {};
+      const mapIds = {};
       for (const id of Object.keys(RUN.byId)) {
         rebuildNodeDoors(id);
+        mapIds[id] = (RUN.byId[id].mapDef && RUN.byId[id].mapDef.id) || null;
         perNode[id] = doorsForRender().map(d => ({ id: d.id, state: d.state }));
       }
       rebuildNodeDoors(currentNodeId);
-      return { perNode };
+      return { perNode, mapIds };
     });
     for (const e of errs2) errsAll.push('§2b: ' + e);
     await p2.close();
     const offFlat = [];
     for (const nid of Object.keys(L.perNode)) {
-      for (const d of L.perNode[nid]) offFlat.push({ node: nid, door: d.id, state: d.state });
+      for (const d of L.perNode[nid]) {
+        offFlat.push({ node: nid, mapId: L.mapIds[nid], door: d.id, state: d.state });
+      }
     }
     // ⚠ 「素なら施錠されるはずの扉」が 0 枚なら (2c) は空振り。母集団を必ず数えて条件に入れる。
-    const wouldLock = offFlat.filter(x => wantLocked(x.node, x.door)).length;
+    const wouldLock = offFlat.filter(x => wantLocked(x.mapId, x.door)).length;
     check('(2c) ★退避スイッチ ?locks=0 で施錠が 1 枚も立たない (母集団 ' + wouldLock + ' 枚)',
       wouldLock >= 1 && offFlat.length >= 4 && offFlat.every(x => x.state === 'closed'),
       '扉 ' + offFlat.length + ' 枚 / locked ' + offFlat.filter(x => x.state === 'locked').length + ' 枚');

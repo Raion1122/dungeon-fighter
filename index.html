@@ -30156,11 +30156,18 @@
      *   抽選と同じ流れの中で走るので、グローバル RNG を 1 回でも消費すると以降の湧きが全部ずれ、
      *   バランスの実測もリプレイの再現性も壊れる (SCE1_ALERT_ADD_TYPES を固定配列にしたのと同じ理由)。
      *   makeNodeRng は seed 文字列から**新しい PRNG を作る**ので、何度呼んでも共有の RNG を進めない。
-     * ⚠ 盤面と同じく **node id だけで決まる**。どちらから入ったかで施錠が変わってはいけない
-     *   (rebuildNodeDoors が nodeExitDirs を使わないのと同じ不変条件)。 */
+     * ⚠ 盤面と同じく **ノードだけで決まる**。どちらから入ったかで施錠が変わってはいけない
+     *   (rebuildNodeDoors が nodeExitDirs を使わないのと同じ不変条件)。
+     * ⚠⚠ seed には **mapDef.id ("orc-fort/n0" 等) を使う**。ノード id は 6 シナリオで "n0".."n7" が
+     *   **共通**なので、素の node id で引くと**全シナリオで同じ扉が施錠される**。P5 の出荷時は
+     *   これに気づかず素の id を使っており、後から P6 (doorHiddenByRng) が mapDef.id で回避した。
+     *   本修正で P5 を P6 へ揃えた = 施錠される扉はシナリオごとに変わる。
+     *   ⚠ mapDef.id を持たないマップでは node id へフォールバックする (doorHiddenByRng と同じ)。 */
     function doorLockedByRng(nodeId, doorId) {
       if (DOORS_NOLOCK || !nodeId || !doorId) return false;
-      return makeNodeRng(String(nodeId) + "/lock/" + doorId)() < DOOR_LOCK_CHANCE;
+      const nd = RUN && RUN.byId[nodeId];
+      const seed = ((nd && nd.mapDef && nd.mapDef.id) || String(nodeId)) + "/lock/" + doorId;
+      return makeNodeRng(seed)() < DOOR_LOCK_CHANCE;
     }
     /* ★[P6] 隠し扉になる割合。DOOR_LOCK_CHANCE と同じ「難度チューニングはここだけ」の枠。
      * ⚠ 対象は 1 ノードにせいぜい 1 枚 (下の doorHideableExit) なので、25% では 1 周で
@@ -30199,8 +30206,8 @@
      *   ① makeNodeRng で**新しい PRNG を作る** = Math.random を 1 度も引かない (盤面の湧きが不変)
      *   ② どちらから入っても同じ (nodeExitDirs を使わないのと同じ不変条件)
      * ⚠⚠ seed には **mapDef.id ("orc-fort/n0" 等) を使う**。ノード id は 6 シナリオで "n0".."n7" が
-     *   **共通**なので、id だけで引くと**全シナリオで同じ扉が隠れる**(P5 の施錠は実際にそうなって
-     *   いる。あちらは出荷済みなので P6 では追随しない)。 */
+     *   **共通**なので、id だけで引くと**全シナリオで同じ扉が隠れる**(P5 の施錠が出荷時に実際に
+     *   そうなっており、後から doorLockedByRng をこれと同じ形へ揃えた)。 */
     function doorHiddenByRng(nodeId, doorId) {
       if (DOORS_NOSECRET || !nodeId || !doorId) return false;
       const nd = RUN && RUN.byId[nodeId];
