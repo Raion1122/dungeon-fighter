@@ -126,6 +126,14 @@
       "note": "v8.6"
     },
     {
+      "key": "banditHeavy", "out": "assets/banditHeavy_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "bandit-heavy/bandit-heavy-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "bandit-heavy/bandit-heavy-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "盗賊団で最後まで chibi のまま残っていた 1 体。2026-08-15 に codex1 へ新規発注して納品 (依頼文 codex1/requests/2026-08-15_bandit-heavy.md)。⭐ 旧素材は codex1 ではなく ChatGPT 由来の 3 頭身 chibi で、実測 3 欠陥を抱えていた: (1) char_ratio が 0.604 しかなく、displaySize 88 = 一族最大の当たり判定なのに画面上の体高 53.2px = 一族最小だった (bandit 59.2 / orc 65.8 より小さい)。0.86 へ戻して約 75.7px になる (2) attack 行の col0 と col5 が画素完全一致 = 重複コマで動きが 5 コマ分しかなかった (3) 接地線が walk 91 に対し attack 88〜90 でばらつき、攻撃の瞬間に最大 3px 浮いていた。加えて attack col2 が大槌を頭上へ振りかぶって bbox 上端 y=0 に到達 = セル上端で切れていた。⚠️⚠️ attack_scale=auto が必須。納品素材は walk / attack のシート間に一様なズーム差があり、素のままだと skill 側の check_pose_alignment.py が exit 1 で落ちる (基準コマ差 -4.92% / median 差 -5.94% / 沈み込み 0.868 の 2 FAIL + 1 WARN)。attack だけ接地線を軸に一様 x1.0575 したコピーを scratchpad に作って再判定したところ 基準コマ +1.04% / median -0.26% / 沈み込み 0.938 の完全 PASS (exit 0) になったので『ポーズの描き間違いではなくシート間ズーム差』と確定した = auto がまさにこれを打ち消す機構。描き直しは不要と判断した。⚠️ 納品時点で codex1 側は検証スクリプトを 1 本も回せていない (codex の実行環境に Python が無く uv もネットワーク制限で入らなかったと自己申告)。validate_sprite_outputs.py (exit 0・端接触 touches=[] 12/12) と check_pose_alignment.py と依頼文の検算コードは すべて受け取り側で代行実行した。⭐ 素材の実測: canvas 320x864 で 12 コマ完全一致、接地線 740 で spread 0px、12 コマの md5 全相違、最大 bbox 高 / H_w = 1.014 (上限 1.03)、walk/attack の最大幅比とも 0.769 (上限 0.80 / 0.95)。⚠️ 依頼文 3-1 の %フレーミング (接地線 19% / 頭頂 21% / 体高 60%) は守られていない (実際は 14.2% / 40.0% / 45.8%) が、パッカは canvas でなく bbox を基準に縮尺を決めるのでゲーム出力には影響しない。⚠️ 絵としては enemy-thief (6〜7 頭身) より頭身が低くずんぐりしている。依頼文に『背を高くせず幅と厚みで重さを出せ』と書いた結果 codex が背を縮める方向へ寄せたもので、2026-08-15 にユーザーが QA シートを見て『このまま取り込む』と判断した。素材は残してあるので頭身を揃え直したくなったら再発注できる。絵の要素は要求どおり (黒フード + 黒覆面 + 裾の裂けた黒マント + 茶革 + 茶ブーツ を enemy-thief と共有 / 錆びた不揃いの板金 / 木と鉄縁の大盾に半分剥げた紋章と矢の跡 / 右手に片手メイス / 兜なし)。attack は 1 直立 2 踏み込み 3 前方への突き 4 引き 5 戻り 6 直立 で、水平武器コマは 1 コマのみ = 頭上への振りかぶりが無いので旧素材の上端クリップは再発しない"
+    },
+    {
       "key": "lizardWarrior", "out": "assets/lizardWarrior_anim.png", "format": "enemy",
       "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "both", "center": "feet",
       "attack_scale": "auto",
