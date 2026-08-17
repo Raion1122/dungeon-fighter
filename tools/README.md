@@ -480,3 +480,43 @@ node tools/auto_debug_run.js --headful              # ブラウザ画面を表�
 標準出力の要約と `df_auto_debug_report.json` を `Read` → critical を抜き出して報告する。
 MCP ブラウザ拡張ブリッジは環境により弾かれる (ERR_BLOCKED_BY_CLIENT) ため、
 本ランナー (puppeteer-core 直駆動) を一次手段とする。
+
+---
+
+## `paint_blocked_grid.py` — 1 枚絵の障害物マスクを書くための作業用画像
+
+★[卓上グリッド P2] `ROOM_PAINTINGS_DEF[theme][key].blocked`(1 文字 = 1 タイルの行文字列・
+`#` = 通れない)を書くための支援ツール。山場の絵は 20×16 = **320 セル**あり、素の絵を
+眺めて間違えずに拾うのは無理なので、**タイル境界と行/列番号を焼いた画像**を出す。
+
+```bash
+py tools/paint_blocked_grid.py --list                              # 在庫一覧 (寸法と現在の # 数)
+py tools/paint_blocked_grid.py --theme goblin-mine --key 1         # 作業用画像 + 貼り付け雛形
+py tools/paint_blocked_grid.py --theme goblin-mine --key 1 --rows 2-8 --scale 96   # 行を絞って拡大
+py tools/paint_blocked_grid.py --all                               # 24 枚ぶん一気に
+```
+
+出力先は `out/paint_blocked/`(`.gitignore` 済み・再生成できるのでコミットしない):
+
+| ファイル | 中身 |
+|---|---|
+| `<theme>_<key>_grid.png` | 絵 + タイル境界(5 マスごとに濃い線)+ 行/列番号。**既に書いた `#` は半透明の赤**で重ねるので、書いた場所がずれていないか目で確かめられる |
+| `<theme>_<key>_blocked.txt` | `index.html` へそのまま貼れる `blocked: [ … ]` の雛形 |
+
+⚠ 座標系は **絵ローカル**(左上のタイルが 0,0)。絵は 2 経路(絵側の `tileBounds` へ /
+部屋の `rect` へ)で貼られるので、絶対座標で書くと mapDef 経路でずれる。
+⚠ `ROOM_PAINTINGS_DEF` は `index.html` から実行時に読む(表を写経しない)。
+
+### マスクを書くときの約束(`index.html` の節頭が唯一の正)
+
+1. **外周 1 タイルは塞がない** — alpha フェザー帯で下の床と混ざるうえ、廊下が部屋の縁で接する
+2. 地面に**平置き**の物(板・鎖・布・小石)は塞がない。塞ぐのは立っている物だけ
+3. 迷ったら塞がない(すり抜けは見た目の粗、塞ぎすぎは詰み)
+4. **入口レーン(絵ローカルの行 8-10 の両端)は塞がない**
+
+### 検証
+
+`node tools/driver_paint_blocked.js`(65 assert)。マスクの解釈規則・本編への適用・
+**起点からボス/全部屋/全スポーンへ BFS が届くか**(6 シナリオ × `?paintblock=0` とのペア比較)・
+門前ガード・撤退スイッチ・画像ロード非依存・lint・分岐ノードを測る。
+負のコントロールは `--mutate nomask|noapply|offbyone|blockstart|blockstartnoguard`。

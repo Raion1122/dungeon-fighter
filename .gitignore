@@ -18,6 +18,10 @@ assets/_preview_*.png
 # Python cache (from sprite extract scripts)
 __pycache__/
 *.pyc
+
+# 作業用の出力 (tools/paint_blocked_grid.py が出すグリッド焼き込み画像と貼り付け雛形)。
+# index.html と assets/room_*.jpg から実行時に再生成できるのでコミットしない。
+out/
 *.pyo
 
 # VOICEVOX 中間生成物の wav はコミットしない (mp3 のみ配信。assets/voice/*.mp3 と manifest.json はコミット対象)

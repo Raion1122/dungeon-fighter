@@ -686,14 +686,44 @@ async function bootPage(browser, url, viewport, pre, side) {
        *   `?graph=0` を付けて旧幾何へ固定し、負のコントロールとして生かし続ける。
        *   ⚠ baseline (@BASELINE_REV) は ?graph を知らないが、未知のクエリは単に無視されるので
        *     両側に同じ URL を投げてよい (対照の条件が揃う)。
-       *   ⚠ assert は 1 つも消していない。 */
-      const q = '/index.html?intel=0&autoplay=0&graph=0';
+       *   ⚠ assert は 1 つも消していない。
+       * ⚠⚠ **`&paintblock=0` は 2026-08-17 (卓上グリッド P2) に足した**。1 枚絵に描かれた
+       *   障害物 (樽・木箱・柵) を obstacleTileMask へ積むようにした結果、罠と宝箱が
+       *   `isTileWall` を見て**その上を避ける**ようになり、(4a)(4b) の座標列が baseline と
+       *   食い違うようになった (個数は不変・位置だけ移動)。これは**意図した仕様変更**であって
+       *   退行ではないので、`&graph=0` とまったく同じ扱いで**旧経路へ固定**する。
+       *   ⚠ baseline は ?paintblock を知らないが、未知のクエリは無視されるので両側に投げてよい。
+       *   ⚠ 期待値 (baseline との一致) は**1 文字も書き換えていない**。ピンが空振りしていない
+       *     ことは下の (G0) が実測する。障害物そのものの検証は driver_paint_blocked.js の担当。 */
+      const q = '/index.html?intel=0&autoplay=0&graph=0&paintblock=0';
       const pre = { mode: t.mode, scen: t.scen, payload: t.payload, seed: SEED, t0: T_BASE_MS };
       const cur = await bootPage(browser, BASE + q, t.vp, pre, 'cur');
       const base = await bootPage(browser, BBASE + q, t.vp, pre, 'base');
       const C = await probe(cur.page);
       const B = await probe(base.page);
       const L = t.label;
+
+      /* ── ★[卓上グリッド P2] 装置: 旧経路へのピンが空振りしていないこと ──────────
+       * ⚠⚠ `&paintblock=0` を足して赤を消した以上、「スイッチが効いている」だけでなく
+       *   「**そもそも塞ぐものが在る**」ことまで測らないと、将来マスクが全部消えても
+       *   このドライバは緑のまま = ピンが意味を失ったことに気づけない。
+       *   (在庫にマスクが 1 枚も無いテーマは masksInCatalog=0 が正しいので、そこは緩める) */
+      const PB = await cur.page.evaluate(() => {
+        const p = window.__paintBlockProbe ? window.__paintBlockProbe() : null;
+        let masks = 0;
+        try {
+          const cat = DFMapDef.getPaintingCatalog() || {};
+          for (const th of Object.keys(cat)) {
+            for (const k of Object.keys(cat[th])) {
+              if (DFMapDef.paintingBlockedFor(th, k).rows) masks++;
+            }
+          }
+        } catch (e) {}
+        return { off: p ? p.off : null, tiles: p ? p.tiles.length : null, masks: masks };
+      });
+      check('(G0) ' + L + ': ★?paintblock=0 が効き、かつ在庫に障害物マスクが実在する (ピンが空振りしていない)',
+        PB.off === true && PB.tiles === 0 && PB.masks > 0,
+        'off=' + PB.off + ' tiles=' + PB.tiles + ' 在庫のマスク=' + PB.masks + ' 枚');
 
       // ── 母集団ガード (真空 PASS 対策) ──
       check('(G1) ' + L + ': mapData が 28行 x 72列 で値が {0,1,2}、床(0)と岩盤(2)が両方ある',

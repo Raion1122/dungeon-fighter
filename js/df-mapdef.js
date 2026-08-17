@@ -709,6 +709,101 @@
     return (e && isBounds4(e.tileBounds)) ? e.tileBounds : null;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★[卓上グリッド P2] 1 枚絵に描かれた障害物の当たり判定
+   * ══════════════════════════════════════════════════════════════════════════
+   * ROOM_PAINTINGS_DEF[theme][key].blocked = ["..##....", …]
+   *   '#' = 通れない / それ以外の文字 = 通れる。1 文字 = 1 タイル、1 行 = 絵の 1 タイル行。
+   *
+   * ⭐ マスクは **絵に付ける** (部屋に付けない)。障害物は絵に描かれているので、絵を差し替えれば
+   *   障害物の位置も当然変わる。rooms[i] 側に持たせると、絵だけ差し替えたときにマスクが黙って
+   *   古いまま残る — room_<theme>_1.png → _1_bs.jpg の差し替えは実際に起きているので机上の話ではない。
+   * ⭐ 絵は **2 経路**で貼られる (従来経路 = 絵側の tileBounds / mapDef 経路 = 部屋の rect)。
+   *   マスクを**絵の座標系**で持ち、貼り先の rect へ drawImage とまったく同じ比率で写すので、
+   *   どちらの経路でも「絵に見えている場所」と「塞ぐ場所」が一致する。
+   * ⚠⚠ 行数×桁数は tileBounds の th×tw と**厳密に一致**していること。ずれていたら
+   *   **丸ごと捨てて error を返す** (半端に採ると絵と 1 マスずれた所が塞がり、原因を追えない)。
+   *   捨てたことは lint の painting-blocked-broken が知らせる = silent fail にはしない。 */
+  var PAINTING_BLOCK_CHAR = "#";
+
+  /* カタログの生エントリ → { rows, error }。
+   *   rows  … 検査を通った行文字列の配列 | null (blocked 未指定・不正のどちらも null)
+   *   error … 不正だったときの理由 | null (blocked 未指定なら null = 指定しないのは正常)
+   * ⚠ 「採れたか」と「壊れているか」を**1 本の関数**で返す。2 本に割ると
+   *   「本編は捨てたのに lint は通す」という食い違いが生まれる。 */
+  function paintingBlockedRows(entry) {
+    var none = { rows: null, error: null };
+    if (!entry || typeof entry !== "object") return none;
+    if (entry.blocked === undefined || entry.blocked === null) return none;
+    if (!isBounds4(entry.tileBounds))
+      return { rows: null, error: "tileBounds が [r1,c1,r2,c2] ではないのでマスクの寸法を検算できません" };
+    var wh = boundsWH(entry.tileBounds);
+    var rows = entry.blocked;
+    if (!Array.isArray(rows) || !rows.length)
+      return { rows: null, error: "blocked が行文字列の配列ではありません" };
+    if (rows.length !== wh.th)
+      return { rows: null, error: "blocked の行数 " + rows.length + " が tileBounds の高さ " + wh.th + " と違います" };
+    for (var i = 0; i < rows.length; i++) {
+      if (typeof rows[i] !== "string")
+        return { rows: null, error: "blocked[" + i + "] が文字列ではありません" };
+      if (rows[i].length !== wh.tw)
+        return { rows: null, error: "blocked[" + i + "] の桁数 " + rows[i].length + " が tileBounds の幅 " + wh.tw + " と違います" };
+    }
+    return { rows: rows, error: null };
+  }
+
+  /* rooms[i].painting = { theme, key } → { rows, error }。上と同じ 1 本を通す。 */
+  function paintingBlockedFor(theme, key) {
+    return paintingBlockedRows(paintingEntryFor(theme, key));
+  }
+
+  /* 絵のマスク × 貼り先の rect → 塞ぐタイルの index 配列。
+   * ⚠ 貼り先の各マスから**絵の側を引く** (destination → source)。逆向きに回すと拡大時に
+   *   引かれないマスができて縞状の隙間が空く。等倍 (rect が絵と同じ大きさ) なら恒等写像。
+   * ⚠ W/H は貼り先マップの寸法。枠外は捨てる (捏造しない)。 */
+  function paintingBlockedTilesFor(rows, rect, W, H) {
+    var out = [];
+    if (!Array.isArray(rows) || !rows.length || !isBounds4(rect)) return out;
+    var rh = rect[2] - rect[0] + 1, rw = rect[3] - rect[1] + 1;
+    if (rh <= 0 || rw <= 0) return out;
+    var mh = rows.length, mw = rows[0].length;
+    if (mw <= 0) return out;
+    for (var r = 0; r < rh; r++) {
+      var line = rows[Math.min(mh - 1, Math.floor(r * mh / rh))];
+      var rr = rect[0] + r;
+      if (rr < 0 || rr >= H) continue;
+      for (var c = 0; c < rw; c++) {
+        if (line.charAt(Math.min(mw - 1, Math.floor(c * mw / rw))) !== PAINTING_BLOCK_CHAR) continue;
+        var cc = rect[1] + c;
+        if (cc < 0 || cc >= W) continue;
+        out.push(rr * W + cc);
+      }
+    }
+    return out;
+  }
+
+  /* mapDef.rooms[i].painting → 塞ぐタイルの index 配列 (mapDef 経路ぶんだけ)。
+   * ⚠ 既定 6 シナリオ (従来経路) は **絵側の tileBounds** へ貼るので、ここでは 1 マスも出ない。
+   *   本編はそちらも含めて roomPaintings を舐めるので、こちらはエディタの lint 用。
+   * ⚠ propBlockedTiles と**別関数**にしてある。混ぜると driver_mapeditor_props の
+   *   「obstacleTileMask が propBlockedTiles と完全一致」という測り方が意味を失う。 */
+  function paintingBlockedTiles(d) {
+    var out = [];
+    if (!d || !Array.isArray(d.rooms)) return out;
+    var W = (d.grid && isNum(d.grid.w)) ? d.grid.w : GRID_W;
+    var H = (d.grid && isNum(d.grid.h)) ? d.grid.h : GRID_H;
+    for (var i = 0; i < d.rooms.length; i++) {
+      var room = d.rooms[i];
+      var pg = room && room.painting;
+      if (!pg || !isBounds4(room.rect)) continue;
+      var m = paintingBlockedFor(pg.theme, pg.key);
+      if (!m.rows) continue;
+      var t = paintingBlockedTilesFor(m.rows, room.rect, W, H);
+      for (var j = 0; j < t.length; j++) out.push(t[j]);
+    }
+    return out;
+  }
+
   /* テーマ既定の「代表レシピ」= { counts:{kind:n}, area:n } | null。
    * 呼び出し側 (項目3 のプレビュー / 項目4 の generateScenery) は
    *     Math.round(counts[kind] * (部屋の床面積 / area) * density)
@@ -1926,11 +2021,13 @@
    * ★issue の形 (項目6 のドライバが code で assert する。**code は安定識別子**):
    *     { code, severity:"error"|"warning", message, at:[tx,ty]|null, roomIndex:int|null }
    *   codes: schema-invalid / boss-count / slot-on-wall / unreachable-room /
-   *          unreachable-slot / no-trap-candidates          … error
+   *          unreachable-slot / no-trap-candidates /
+   *          painting-blocks-start / painting-on-slot (★卓上グリッド P2)  … error
    *          no-enemies / no-boss-slot / painting-aspect / map-used / band-mask /
    *          field-theme-custom / enemy-unknown-key /
    *          tiles-outside-rooms (★Phase 3 項目2) /
-   *          painting-missing    (★Phase 4 項目2)           … warning
+   *          painting-missing    (★Phase 4 項目2) /
+   *          painting-blocked-broken (★卓上グリッド P2)     … warning
    * ────────────────────────────────────────────────────────────────────────── */
 
   // index.html:2987 FIELD_THEMES の写し。屋外テーマだけ罠の起点ガード条件が変わる (19055)。
@@ -2142,15 +2239,25 @@
      *  ⚠ map 本体は書き換えない。罠/宝箱の候補タイル (下の項目③) は index.html 側が
      *    mapData を直接見て情景を無視するので、そちらは map のまま数える必要がある
      *    (「歩ける ≠ 候補になる」= Phase 0 項目5 で確立した区別)。 */
+    /* ★[卓上グリッド P2] 1 枚絵に描かれた障害物 (樽・木箱・瓦礫) も**同じ扱い**で積む。
+     *  本編は roomPaintings 経由で obstacleTileMask へ焼くので、ここで数えないと
+     *  「エディタは通れると言ったのに本編では通れない」になる (propBlockedTiles と同じ理由)。
+     *  ⚠ 集合は分けて持つ。原因が「置いた柱」か「絵の障害物」かで直し方がまったく違い、
+     *    メッセージを混ぜると利用者はどちらを疑えばよいか分からない。 */
     var propBlocked = propBlockedTiles(d);
-    var propBlockedSet = {};
+    var paintBlocked = paintingBlockedTiles(d);
+    var propBlockedSet = {}, paintBlockedSet = {};
     var mapWalk = map;
-    if (propBlocked.length) {
+    if (propBlocked.length || paintBlocked.length) {
       mapWalk = new Array(H);
       for (i = 0; i < H; i++) mapWalk[i] = map[i].slice();
       for (i = 0; i < propBlocked.length; i++) {
         propBlockedSet[propBlocked[i]] = 1;
         mapWalk[Math.floor(propBlocked[i] / W)][propBlocked[i] % W] = T_WALL;
+      }
+      for (i = 0; i < paintBlocked.length; i++) {
+        paintBlockedSet[paintBlocked[i]] = 1;
+        mapWalk[Math.floor(paintBlocked[i] / W)][paintBlocked[i] % W] = T_WALL;
       }
     }
     /* 起点そのものを情景物で塞いだ場合。壁乗り (startOnWall) と同じ「全部が到達不能に
@@ -2161,13 +2268,34 @@
           "起点 (tx" + startTx + ", ty" + startTy + ") が通行不能な情景物で塞がれています" +
           " — プレイヤーがその場から動けません。到達可能性 (flood fill) の検査は打ち切りました",
           [startTx, startTy], null);
+    /* ★[卓上グリッド P2] 同じ壊れ方を 1 枚絵のマスクでも起こせる (絵の樽の上に起点を置いた)。 */
+    var startBlockedByPaint = !startOnWall && !startBlockedByProp
+                              && !!paintBlockedSet[startTy * W + startTx];
+    if (startBlockedByPaint)
+      err("painting-blocks-start",
+          "起点 (tx" + startTx + ", ty" + startTy + ") が 1枚絵の障害物 (blocked マスクの #) で塞がれています" +
+          " — プレイヤーがその場から動けません。到達可能性 (flood fill) の検査は打ち切りました",
+          [startTx, startTy], null);
 
-    if (!startOnWall && !startBlockedByProp) {
+    if (!startOnWall && !startBlockedByProp && !startBlockedByPaint) {
       var reach = reachableFrom(mapWalk, W, H, startTx, startTy);
       /* ★情景物を無視した到達集合。**両者の差 = 置いた物が原因で行けなくなった場所**。
        *  これがあると「廊下が繋がっていない」と「柱で塞いだ」を取り違えずに言い分けられる。
-       *  ⚠ props が無いときは同じ配列を指すだけ (flood fill を 2 回走らせない)。 */
-      var reachNoProps = propBlocked.length ? reachableFrom(map, W, H, startTx, startTy) : reach;
+       *  ⚠ props が無いときは同じ配列を指すだけ (flood fill を 2 回走らせない)。
+       *  ★[卓上グリッド P2] 1 枚絵のマスクも同じ「無ければ届くか」の対照に含める。 */
+      var reachNoProps = (propBlocked.length || paintBlocked.length)
+        ? reachableFrom(map, W, H, startTx, startTy) : reach;
+      /* ★[卓上グリッド P2] 原因の名指しは**実際に置かれている物**で決める。
+       * ⚠⚠ 「情景物か 1枚絵の障害物」と両論併記にすると、1 枚絵を 1 枚も貼っていない
+       *   マップでも「1枚絵の障害物」を疑わせる = 利用者がどちらを直せばよいか分からない。
+       *   さらに props だけのマップでは**メッセージが 1 バイトも変わらない**ので、
+       *   既存の検出器 (driver_mapeditor_props §6 6d) の測定点を動かさずに済む。 */
+      var blockerLabel = !paintBlocked.length ? "情景物 (柱・テーブル・倒木など)"
+                       : !propBlocked.length  ? "1枚絵の障害物 (blocked マスクの #)"
+                       : "情景物か 1枚絵の障害物";
+      var blockerShort = !paintBlocked.length ? "情景物"
+                       : !propBlocked.length  ? "1枚絵の障害物"
+                       : "情景物か 1枚絵の障害物";
       for (i = 0; i < rooms.length; i++) {
         var rect = rooms[i].rect, hit = false, walkable = 0, hitNoProps = false;
         for (var r2 = rect[0]; r2 <= rect[2]; r2++) {
@@ -2182,8 +2310,8 @@
         err("unreachable-room",
             "部屋 " + rooms[i].id + " が起点 (tx" + startTx + ", ty" + startTy + ") から到達できません" +
             (walkable === 0 ? " — この部屋には歩けるタイルが 1 つもありません (帯マスクで潰れている可能性)"
-             : hitNoProps    ? " — ★通行不能な情景物 (柱・テーブル・倒木など) が通り道を塞いでいます" +
-                               " (情景物が無ければ到達できます)"
+             : hitNoProps    ? " — ★通行不能な" + blockerLabel + " が通り道を塞いでいます" +
+                               " (" + blockerShort + "が無ければ到達できます)"
              :                 " — 廊下でつながっていません") +
             "。visitedRooms が埋まらず永久にクリアしません (index.html:14096)",
             [rect[1], rect[0]], i);
@@ -2203,10 +2331,20 @@
               q2.tile, q2.roomIndex);
           continue;                                     // 到達不能も併発するが根本原因はこちら
         }
+        /* ★[卓上グリッド P2] 1 枚絵の障害物でもまったく同じ壊れ方をする (絵の樽の上に敵)。
+         *  ⚠ 敵スポーンは構造壁しか見ない (index.html:20733) ので obstacleTileMask では救われない。 */
+        if (paintBlockedSet[qk]) {
+          err("painting-on-slot",
+              q2.label + " (tx" + q2.tile[0] + ", ty" + q2.tile[1] + ") が 1枚絵の障害物 (blocked の #) の下にあります" +
+              " — スポーン救済 (index.html:7083) は値1しか見ないため救われず、この敵は動けないまま" +
+              "alive で残り、ボスを倒してもクエストがクリアしません",
+              q2.tile, q2.roomIndex);
+          continue;
+        }
         if (reach[qk]) continue;
         err("unreachable-slot",
             q2.label + " (tx" + q2.tile[0] + ", ty" + q2.tile[1] + ") が起点から到達できません" +
-            (reachNoProps[qk] ? " — ★通行不能な情景物が通り道を塞いでいます" : "") +
+            (reachNoProps[qk] ? " — ★通行不能な" + blockerShort + "が通り道を塞いでいます" : "") +
             " — この敵は倒せず alive のまま残り、クエストがクリアしません",
             q2.tile, q2.roomIndex);
       }
@@ -2285,6 +2423,28 @@
              '") が index.html の ROOM_PAINTINGS_DEF にありません — ゲーム側に存在しない参照なので、' +
              "DF へ書き出してもこの部屋には絵が貼られません (綴り違い、またはエディタが古い可能性)",
              [prc[1], prc[0]], i);
+      }
+    }
+
+    /* ── ★[卓上グリッド P2] 1 枚絵の障害物マスクが壊れている (**warning**) ──────────
+     *  paintingBlockedRows は寸法の合わないマスクを**丸ごと捨てる**。捨てたことを黙っていると
+     *  「障害物を書いたのに全部すり抜ける」を誰も検出できない = silent fail になる。
+     *  ⚠ warning なのは、捨てた結果が「P2 以前とまったく同じ盤面」= 出発を止めるほどではないため。
+     *  ⚠⚠ ここが見るのは **mapDef 経路 (rooms[i].painting) だけ**。既定 6 シナリオは絵側の
+     *    tileBounds へ直接貼るので、そちらのマスク破損はこの lint に**出てこない**
+     *    (本編の __paintBlockProbe と tools/driver_paint_blocked.js が受け持つ)。 */
+    if (getPaintingCatalog()) {
+      for (i = 0; i < rooms.length; i++) {
+        var bpg = rooms[i].painting;
+        if (!bpg) continue;
+        var bm = paintingBlockedFor(bpg.theme, bpg.key);
+        if (!bm.error) continue;
+        var brc = rooms[i].rect;
+        warn("painting-blocked-broken",
+             "部屋 " + rooms[i].id + ' の1枚絵 (テーマ "' + bpg.theme + '" / 部屋キー "' + bpg.key +
+             '") の障害物マスク blocked が壊れています: ' + bm.error +
+             " — マスクは丸ごと捨てられ、絵に描かれた樽や木箱をキャラがすり抜けます",
+             [brc[1], brc[0]], i);
       }
     }
 
@@ -3072,6 +3232,22 @@
     /* ★P7: 縦横比の判定そのもの。lintMapDef / lintRun と**同じ 1 本**を検証ドライバからも
      *   直接叩けるようにした (lint 越しの結果と食い違わないことを driver_graph_p7 (2e) が測る)。 */
     paintingAspectFits: paintingAspectFits,
+    /* ── ★[卓上グリッド P2] 1 枚絵に描かれた障害物の当たり判定 ──────────────────
+     *   PAINTING_BLOCK_CHAR                     … "#" (綴りの唯一の正)
+     *   paintingBlockedRows(entry)              … { rows, error }。**採否と不正理由を 1 本で返す**
+     *   paintingBlockedFor(theme, key)          … 同上をカタログ経由で
+     *   paintingBlockedTilesFor(rows,rect,W,H)  … 絵のマスク × 貼り先 rect → タイル index 配列
+     *                                             ★本編の obstacleTileMask と lint が**この 1 本**を共有
+     *   paintingBlockedTiles(mapDef)            … mapDef 経路 (rooms[i].painting) ぶんだけ
+     *  ⚠⚠ 本編 (index.html) は roomPaintings を舐めて paintingBlockedTilesFor を直に呼ぶ。
+     *    既定 6 シナリオは **絵側の tileBounds** へ貼るため paintingBlockedTiles(mapDef) には
+     *    出てこない — この非対称を忘れて lint 側だけで数えると「本編では塞がるのに
+     *    エディタは 0 と言う」になる。 */
+    PAINTING_BLOCK_CHAR: PAINTING_BLOCK_CHAR,
+    paintingBlockedRows: paintingBlockedRows,
+    paintingBlockedFor: paintingBlockedFor,
+    paintingBlockedTilesFor: paintingBlockedTilesFor,
+    paintingBlockedTiles: paintingBlockedTiles,
     sceneryRecipeFor: sceneryRecipeFor,
     sceneryKinds: sceneryKinds,
 

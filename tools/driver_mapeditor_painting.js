@@ -103,10 +103,12 @@ const MUTATIONS = {
      '    if (!per || typeof per !== "object") per = paintingCatalog[SCENERY_FALLBACK_DUNGEON];\n' +
      '    if (!per || typeof per !== "object") return null;'],
   ],
-  /* ③ mapDef 経路の貼る矩形を「絵側の tileBounds」へ戻す = Phase 4 の肝を無効化。 */
+  /* ③ mapDef 経路の貼る矩形を「絵側の tileBounds」へ戻す = Phase 4 の肝を無効化。
+   *    ⚠ [卓上グリッド P2] addPainting に第3引数 (blocked マスク) が付いたのでアンカーを
+   *      1 行目だけへ張り替えた。**注入する欠陥 (rect → tileBounds) は 1 文字も変えていない**。 */
   tileboundsrect: [
-    ['        addPainting(src, room.rect);',
-     '        addPainting(src, ROOM_PAINTINGS_DEF[pg.theme][pg.key].tileBounds);'],
+    ['        addPainting(src, room.rect,',
+     '        addPainting(src, ROOM_PAINTINGS_DEF[pg.theme][pg.key].tileBounds,'],
   ],
   /* ④ mapDef 経路だけ予約タイル (廊下+2 / 敵スポーン+1 / 起点+1) を無視する。
    *    ★従来経路 (USE_MAPDEF=false) は 1 命令も変わらない = 過剰に効かない負制御。 */
@@ -785,8 +787,15 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
         out.preset = E.lint();
         const set = (mut) => { const d = JSON.parse(JSON.stringify(base)); mut(d); E.setMapDef(d);
                                return E.lint(); };
-        // ① 比率が合わない部屋 (20×14) に**引ける**参照 → painting-aspect だけ 1 件
-        let r = set(d => { d.rooms[0].painting = { theme: 'goblin-mine', key: '1' }; });
+        /* ① 比率が合わない部屋 (20×14) に**引ける**参照 → painting-aspect だけ 1 件
+         * ⚠ [卓上グリッド P2] 参照を key '1' から **'n4' へ変えた**。key '1' には
+         *   障害物マスク (blocked) が付いたので、20×14 の部屋へ貼ると 20 マスが通行不能になり
+         *   painting-on-slot / unreachable-slot が**同時に**出て aspectErr が 0 でなくなる。
+         *   それは lint として正しい報告だが、この assert が測りたいのは
+         *   「比率不一致は error ではなく warning」という 1 点だけ。マスクを持たない
+         *   ノード用の絵 (n4 = 7×6 = 7:6 ≠ 10:7) に替えて性質を切り出す。
+         *   ⚠ **期待値 (['painting-aspect'] / warning / errors 0) は 1 文字も変えていない**。 */
+        let r = set(d => { d.rooms[0].painting = { theme: 'goblin-mine', key: 'n4' }; });
         out.aspect = r.warnings.map(w => w.code);
         out.aspectSev = (r.warnings[0] || {}).severity || null;
         out.aspectErr = r.errors.length;
