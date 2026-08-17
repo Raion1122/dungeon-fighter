@@ -3668,6 +3668,32 @@
     try {
       if (new URLSearchParams(window.location.search).get("proptone") === "0") PROP_TONE_ON = false;
     } catch (e) {}
+    /* ★[卓上グリッド P1 2026-08-17] 1 枚絵の部屋にも 96px グリッドを引く (D&D セッション風味)。
+     *   Pass 1.2 の床グリッドは v7.7 以降 isPaintedAndLoaded のセルを飛ばしていたため、
+     *   山場・ボス・ノードの 1 枚絵だけ「マス目の無い部屋」になっていた。卓上セッションでは
+     *   マス目はマップの一部なので、絵の有無で出たり消えたりするのは筋が通らない。
+     * ⚠ 屋外 (FIELD_MODE) は**引かないまま**。地平線ビューは擬似 3D の帯で、軸並行の 96px 格子を
+     *   乗せると遠近と衝突して「見下ろしタイルゲーム」の signature が戻る (Pass 1.2 の
+     *   !FIELD_MODE ゲートがそのために在る。ここでは触らない)。
+     * ⚠ 撤退は ?paintgrid=0。**これは 1 枚絵の上だけを従来へ戻すスイッチ**で、素の床タイルの
+     *   グリッドは元から出ているので 0 にしてもマス目が全部消えるわけではない。 */
+    let GRID_OVER_PAINTING = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("paintgrid") === "0") GRID_OVER_PAINTING = false;
+    } catch (e) {}
+    /* 検証シーム: 1 枚絵の上のグリッドだけを同一ページで切り替える (driver が A/B 差分を採る)。
+     * ⚠ 2 回のページロードで比べるとカメラ位置・敵の湧き・フォグが別物になり、「グリッドで
+     *   変わった画素」と「そもそも別の絵」を切り分けられない (__setWallProps と同じ理由)。 */
+    window.__setPaintGrid = function (on) {
+      GRID_OVER_PAINTING = !!on;
+      renderMap();
+    };
+    /* 検証シーム: 1 枚絵が占めるタイル矩形 (読み取り専用)。
+     * ⚠ これが無いとドライバが tileBounds を写経することになり、**実装とドライバが同じ
+     *   間違いを共有して両方緑になる**。矩形の出所は roomPaintings 1 箇所に保つ。 */
+    window.__paintRects = function () {
+      return roomPaintings.map(p => ({ tx: p.tx, ty: p.ty, tw: p.tw, th: p.th, loaded: !!p.loaded }));
+    };
     /* ★[樹の色調 2026-08-14] 低彩度・高輝度の画素 (= マングローブの気根) を葉と別扱いするための境目。
      * ⚠⚠ 素材を一律に明るく/鮮やかにしてはいけない。この素材は不透明画素の 12.3% が気根で、
      *   平均輝度を合わせにいくと気根だけが白く発光する (生成時に 255→183 まで圧縮済みでもまだ白い)。
@@ -6854,13 +6880,18 @@
       // [屋外 STEP1] 屋外では引かない。96px の軸並行格子は「見下ろしタイルゲーム」の最も
       //   明白な signature で、これが残っていると空を描いても地下室感が抜けない。
       if (!FIELD_MODE) {
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.22)";
+        /* ★[卓上グリッド P1] 0.22 → 0.34。1 枚絵の上へも引くようになった結果、手描きの絵は
+         * 素の床タイルより情報量が多く、0.22 では線が絵に負けて「マス目のある卓上マット」に
+         * 見えなかった (実測: 境界行の輝度落ちは 11.3 と数値上は出ているのに目には弱い)。
+         * ⚠ 素の床にも同じ値が効く。全 MAP で見え方を揃えるのが目的なので**あえて分けない**。 */
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.34)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let ty = startTY; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             if (mapData[ty][tx] === 2) continue;
-            if (isPaintedAndLoaded(tx, ty)) continue;   // v7.7: 1枚絵の上にはグリッド線を引かない
+            // ★[卓上グリッド P1] 既定で 1 枚絵の上にも引く (旧 v7.7 は無条件 skip)。?paintgrid=0 で従来へ。
+            if (!GRID_OVER_PAINTING && isPaintedAndLoaded(tx, ty)) continue;
             const screenX = Math.round(tx * TILE_SIZE - camX) + 0.5;
             const screenY = Math.round(ty * TILE_SIZE - camY) + 0.5;
             ctx.moveTo(screenX, screenY);
