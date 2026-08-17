@@ -1,9 +1,9 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step2.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "d7cd4a0",
-    "subject": "神殿の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森・砦に続く5テーマ目)",
-    "dirty": true
+    "rev": "d766a20",
+    "subject": "卓上グリッド P1: 1 枚絵の部屋にもマス目を引く (D&D セッション風味)",
+    "dirty": false
   },
   "values": {
     "D1-goblin-mine": {
@@ -11,36 +11,36 @@
       "nD": 52,
       "hash": "c363bf057e26"
     },
-    "D2-goblin-mine": "eb41667963f68e56",
+    "D2-goblin-mine": "8c35f554cf74618c",
     "D1-bandits-forest": {
       "nF": 66,
       "nD": 58,
       "hash": "d9438089bf60"
     },
-    "D2-bandits-forest": "a21e1f2f39c2e696",
+    "D2-bandits-forest": "4908e6dd34f7fc78",
     "D1-lizard-swamp": {
       "nF": 66,
       "nD": 58,
       "hash": "ab99c7861345"
     },
-    "D2-lizard-swamp": "f4ed62477971f979",
+    "D2-lizard-swamp": "f37398e6fd45968b",
     "D1-orc-fort": {
       "nF": 66,
       "nD": 37,
       "hash": "8cc4232fd316"
     },
-    "D2-orc-fort": "8a96ac550f97b59d",
+    "D2-orc-fort": "d46ca567b9511509",
     "D1-undead-temple": {
       "nF": 66,
       "nD": 37,
       "hash": "8cc4232fd316"
     },
-    "D2-undead-temple": "880b0e233470f8ab",
+    "D2-undead-temple": "18ae9c5d08c5665e",
     "D1-dragon-lair": {
       "nF": 66,
       "nD": 37,
       "hash": "8cc4232fd316"
     },
-    "D2-dragon-lair": "c31781236d0fbe81"
+    "D2-dragon-lair": "01b23f482dcdfe2f"
   }
 }

@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step3.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "d7cd4a0",
-    "subject": "神殿の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森・砦に続く5テーマ目)",
-    "dirty": true
+    "rev": "d766a20",
+    "subject": "卓上グリッド P1: 1 枚絵の部屋にもマス目を引く (D&D セッション風味)",
+    "dirty": false
   },
   "values": {
-    "D2-goblin-mine": "6e3cea610399b0ed",
-    "D2-bandits-forest": "5c6c45023e66c4dd",
-    "D2-lizard-swamp": "dffdec78ff4509fb",
-    "D2-orc-fort": "c6414e8a9c613226",
-    "D2-undead-temple": "5f31166d0dc33249",
-    "D2-dragon-lair": "149ce3658138f47a"
+    "D2-goblin-mine": "f5179d8af6e89cad",
+    "D2-bandits-forest": "76f9b66eba1f44ef",
+    "D2-lizard-swamp": "499153127ad1c6dd",
+    "D2-orc-fort": "a7af5c374b3d1df6",
+    "D2-undead-temple": "a5ae01a0c4c5a26d",
+    "D2-dragon-lair": "a895d7bbb3fc5923"
   }
 }

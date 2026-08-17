@@ -1,17 +1,17 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_mapdef_step1.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "d7cd4a0",
-    "subject": "神殿の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森・砦に続く5テーマ目)",
-    "dirty": true
+    "rev": "d766a20",
+    "subject": "卓上グリッド P1: 1 枚絵の部屋にもマス目を引く (D&D セッション風味)",
+    "dirty": false
   },
   "values": {
-    "3-goblin-mine": "6e3cea610399b0ed8b09c284ba38c12047eb18d0ab9caa235d8b28834cbd9e9b",
-    "3-bandits-forest": "5c6c45023e66c4dde79ca1d1b0acceabe7b571d6a69872c502f12ce9cf7bda6d",
-    "3-lizard-swamp": "dffdec78ff4509fb6c500e3239270aaa3db5b48e8ba25bf982f0ad48d6862170",
-    "3-orc-fort": "c6414e8a9c613226b2a46b53e0e1386dcafd29d73ec9c63ff9dbc8f8c1b52fb1",
-    "3-undead-temple": "5f31166d0dc332498f8ba7158856ebfecdd1c3af2be3e31f07f505665324540c",
-    "3-dragon-lair": "149ce3658138f47a273642c295bf618dbe05d777481b714853115fda38c0409f",
+    "3-goblin-mine": "f5179d8af6e89cad6c3946be02c6016f01a549d5f3d62a7f79c123df2092e170",
+    "3-bandits-forest": "76f9b66eba1f44efc28893fd474b5bf8687388de58b0575bf652aa88ea297998",
+    "3-lizard-swamp": "499153127ad1c6ddf7b53552475e8fea3d2e5147de328162f206703c96861dc3",
+    "3-orc-fort": "a7af5c374b3d1df6335b6fc3ee424d40a3bcb8e0b1fd8f443007ee224effa0a3",
+    "3-undead-temple": "a5ae01a0c4c5a26d1503122ac878bda5cfc9b95ce95039d1b11a982f840b9c14",
+    "3-dragon-lair": "a895d7bbb3fc5923a50af795a8d2e770beab1328cf97e0fc9c526021d308732a",
     "3-caravan-road(縦持ち相当/帯マスクあり)": "83726c4370999e3ee2e4b4036372808fe01d031e1345e553f61cb05bacfa0492",
     "3-caravan-road(横持ち/帯マスクなし)": "aabf103e46655fe81df483f8d3cd3716a3c7766cbd158cf35b33fee231d748d0"
   }

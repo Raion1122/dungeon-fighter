@@ -1,12 +1,12 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step1_geo.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "d7cd4a0",
-    "subject": "神殿の壁を専用素材2枚へ移行して白い幕を外す (廃坑・沼地・森・砦に続く5テーマ目)",
-    "dirty": true
+    "rev": "d766a20",
+    "subject": "卓上グリッド P1: 1 枚絵の部屋にもマス目を引く (D&D セッション風味)",
+    "dirty": false
   },
   "values": {
-    "4c-goblin-mine": "6e3cea610399b0ed",
+    "4c-goblin-mine": "f5179d8af6e89cad",
     "cam5-goblin-mine": [
       [
         2024,
@@ -33,7 +33,7 @@
         480
       ]
     ],
-    "4c-bandits-forest": "5c6c45023e66c4dd",
+    "4c-bandits-forest": "76f9b66eba1f44ef",
     "cam5-bandits-forest": [
       [
         2024,
@@ -60,7 +60,7 @@
         480
       ]
     ],
-    "4c-lizard-swamp": "dffdec78ff4509fb",
+    "4c-lizard-swamp": "499153127ad1c6dd",
     "cam5-lizard-swamp": [
       [
         2024,
@@ -87,7 +87,7 @@
         480
       ]
     ],
-    "4c-orc-fort": "c6414e8a9c613226",
+    "4c-orc-fort": "a7af5c374b3d1df6",
     "cam5-orc-fort": [
       [
         2024,
@@ -114,7 +114,7 @@
         480
       ]
     ],
-    "4c-undead-temple": "5f31166d0dc33249",
+    "4c-undead-temple": "a5ae01a0c4c5a26d",
     "cam5-undead-temple": [
       [
         2024,
@@ -141,7 +141,7 @@
         480
       ]
     ],
-    "4c-dragon-lair": "149ce3658138f47a",
+    "4c-dragon-lair": "a895d7bbb3fc5923",
     "cam5-dragon-lair": [
       [
         2024,

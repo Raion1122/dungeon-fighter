@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_verge_gap.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "08b8b1f",
-    "subject": "sce1-events: 玉座の人質を専用スプライトへ (codex1 納品 post を取り込み)",
+    "rev": "d766a20",
+    "subject": "卓上グリッド P1: 1 枚絵の部屋にもマス目を引く (D&D セッション風味)",
     "dirty": false
   },
   "values": {
-    "E1-goblin-mine": "bac6ed3656ee144e/8f801718b200a3eb",
-    "E1-bandits-forest": "1b1e9a2da3220b05/392ee84caa908cf8",
-    "E1-lizard-swamp": "d9af9889cfb80252/74d758df61274700",
-    "E1-orc-fort": "14140626818ff268/bcbf7648b946ae27",
-    "E1-undead-temple": "e5bb44b41ecb24c7/4ac4e91557932c41",
-    "E1-dragon-lair": "a17507f752cf1ddb/8483082b48625f84"
+    "E1-goblin-mine": "017c4f0afe96701b/ef032015b77a7fcb",
+    "E1-bandits-forest": "07b02f546ea6cbcf/255f309a1f7a795b",
+    "E1-lizard-swamp": "e302bd9720a07acf/1d13cb926b53401f",
+    "E1-orc-fort": "372c9f4c3778bb5e/d1891d9fed4850ef",
+    "E1-undead-temple": "02dda9d97b195294/e11524e29fa1a122",
+    "E1-dragon-lair": "0d665158150ceaf0/9d5f09463e933c47"
   }
 }
