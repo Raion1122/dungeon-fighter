@@ -745,7 +745,11 @@ async function bootPage(browser, url, scen, errs, opts) {
         check('(8c) ★全ノードが mapDef 経路 (isCustom) で絵を貼っている',
           W.every(n => n.err || n.isCustom === true),
           JSON.stringify(W.map(n => n.id + ':' + n.isCustom)));
-        check('(8d) ★ノードに貼られた絵はノード用 (n4/n7) だけ (山場/ボスの絵が漏れていない)',
+        /* ⚠ ラベルに具体的なキー名 (n4/n7) を書かないこと。判定式は「ノード用 = /\/n\d+$/」で
+         *   あって列挙ではないので、★P3 で n0 が増えても式は正しいままラベルだけが嘘になる
+         *   (2026-08-17 に実際にそうなった)。測っているのは「旧単一マップ用の在庫
+         *   (キー 1 / 2) がノードへ漏れていないこと」。 */
+        check('(8d) ★ノードに貼られた絵はノード用 (キー n<番号>) だけ (山場/ボスの絵が漏れていない)',
           W.every(n => n.err || (n.paints || []).every(p => p === null || /\/n\d+$/.test(p))),
           JSON.stringify(W.map(n => n.id + ':' + JSON.stringify(n.paints))));
       }

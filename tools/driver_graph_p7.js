@@ -21,6 +21,7 @@
  *   PORT      | (素)         | —                                        | —
  *   PORT+1    | nonodeskip   | 従来経路の node:true スキップを外す        | §3 (単一マップに 4 枚貼られる)
  *   PORT+2    | oldaspect    | 縦横比の判定を旧式 (在庫一覧) へ戻す       | §2 (9x6 に 7:6 が無警告)
+ *   PORT+3    | n0aspect     | n0 の tileBounds を 33x22 → 31x22 へずらす | §5 (5c: 実画素と宣言が不一致)
  *
  * ⚠ 変異の置換文字列は**必ず 1 行**(index.html は CRLF なので \n を含むと原理的に一致しない)。
  * ⚠ 置換前後で**バイト長を必ずずらす** (同じ長さだと (0e) が誤報する)。
@@ -45,8 +46,8 @@ function arg(name, dflt) {
   return dflt;
 }
 const HEADFUL = process.argv.includes('--headful');
-/* ⚠ ポートは既存ドライバと 4 以上空ける。本ドライバは PORT..PORT+2 の **3 本**を掴む
- *   (既存の最大は driver_graph_p6 の 8992..8996)。 */
+/* ⚠ ポートは既存ドライバと 4 以上空ける。本ドライバは PORT..PORT+3 の **4 本**を掴む
+ *   (★P3 で n0aspect を足したので 1 本増えた。既存の最大は driver_graph_p6 の 8992..8996)。 */
 const PORT = parseInt(arg('port', '9000'), 10);
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -73,8 +74,16 @@ const MUTATIONS = {
   oldaspect: [
     '    var b = painting ? paintingBoundsFor(painting.theme, painting.key) : null;',
     '    var b = null;   /* ★変異oldaspect */'],
+  /* ★[卓上グリッド P3] (5c) は「絵の実画素 ÷ その絵の tileBounds」を測るように書き直したので、
+   *   **それが赤くなれること**をここで示す。n0 の宣言を 33x22 → 31x22 へずらすと、
+   *   2112x1408 (3:2) と 31:22 が食い違うので (5c) が噛む。
+   *   ⚠ 旧版はドライバ側に「ファイル名 → タイル数」の表を持っており、表に無いファイルを
+   *     無条件 bad にしていた = **在庫が増えるたびに嘘の赤を出す**状態だった。 */
+  n0aspect: [
+    '        n0: { src: "assets/room_goblin-mine_n0.jpg", tileBounds: [3, 20, 24, 52], node: true,',
+    '        n0: { src: "assets/room_goblin-mine_n0.jpg", tileBounds: [3, 20, 24, 50], node: true,  /* ★変異n0aspect */'],
 };
-const MUT_ORDER = ['nonodeskip', 'oldaspect'];
+const MUT_ORDER = ['nonodeskip', 'oldaspect', 'n0aspect'];
 const PORT_OF = {};
 MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
 
@@ -420,28 +429,48 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
     const errs = [];
     const page = await bootPage(browser, base + '/index.html?graph=0&diag=1&intel=0',
                                 'goblin-mine', errs);
+    /* ★[卓上グリッド P3] src だけでなく **その絵が名乗る tileBounds** も一緒に持ち帰る。
+     *   (5c) が「ファイル名 → 何タイル用か」の表をドライバ側に写経していたため、
+     *   在庫に新しいキー (n0) が 1 つ増えただけで表から漏れ、**正しい絵を NG と報告した**
+     *   (2112x1408 = 3:2 / tileBounds 33x22 = 3:2 で実際は一致していた)。
+     *   ⚠ 在庫の一覧と突き合わせる装置は在庫が変わるたびに腐る。**指定したその物と比べる**。 */
     const SRCS = await page.evaluate((themes) => {
       const o = { old: [], node: [] };
       for (const t of themes) {
         const per = ROOM_PAINTINGS_DEF[t] || {};
-        for (const k of Object.keys(per)) (per[k].node ? o.node : o.old).push(per[k].src);
+        for (const k of Object.keys(per)) {
+          const e = per[k], b = e.tileBounds || [];
+          (e.node ? o.node : o.old).push({
+            src: e.src, theme: t, key: k,
+            tw: (b[3] - b[1] + 1) || 0, th: (b[2] - b[0] + 1) || 0,
+          });
+        }
       }
       return o;
     }, THEMES);
     for (const e of errs) errsAll.push('§5: ' + e);
     await page.close();
     const old = [], node = [];
-    for (const s of SRCS.old)  old.push([s, await httpStatus(basePort, '/' + s)]);
-    for (const s of SRCS.node) node.push([s, await httpStatus(basePort, '/' + s)]);
-    const oldNg = old.filter(x => x[1] !== 200);
+    for (const e of SRCS.old)  old.push(Object.assign({ st: await httpStatus(basePort, '/' + e.src) }, e));
+    for (const e of SRCS.node) node.push(Object.assign({ st: await httpStatus(basePort, '/' + e.src) }, e));
+    const oldNg = old.filter(x => x.st !== 200);
     check('(5a) ★旧在庫 12 枚がすべて HTTP 200 (絵を消した退化の検出)',
       old.length === 12 && oldNg.length === 0,
-      '枚数=' + old.length + ' NG=' + oldNg.map(x => x[0] + ':' + x[1]).join(' '));
-    check('(5b) ノード用の**参照**が 12 件ある (絵の実在ではなく配線の本数)',
-      node.length === 12, '件数=' + node.length);
-    const nodeOk = node.filter(x => x[1] === 200);
-    console.log('[drv]   ▸ ノード用の絵の実在: ' + nodeOk.length + '/12 枚' +
-      (nodeOk.length < 12 ? '  (未作成のぶんはタイル描画へ落ちる = (4f) が担保)' : ''));
+      '枚数=' + old.length + ' NG=' + oldNg.map(x => x.src + ':' + x.st).join(' '));
+    /* ★[卓上グリッド P3] 旧: `node.length === 12` という総数。テーマが 1 つでも
+     *   ノード用の絵を増やすと (goblin-mine に n0 を足した) 総数がずれて赤くなるが、
+     *   守りたいのは「**どのテーマからも n4/n7 の配線が消えていない**」ほう。
+     *   総数で測ると「あるテーマが n4 を失い、別のテーマが 1 枚増えた」を相殺して見逃す。 */
+    const missing = [];
+    for (const t of THEMES) for (const k of ['n4', 'n7'])
+      if (!node.some(x => x.theme === t && x.key === k)) missing.push(t + '/' + k);
+    check('(5b) ★6 テーマすべてに n4 / n7 のノード用参照がある (配線の欠落検出)',
+      missing.length === 0 && node.length >= 12,
+      '欠落=' + (missing.join(' ') || 'なし') + ' / 総数=' + node.length +
+      ' [' + node.map(x => x.theme + '/' + x.key).join(' ') + ']');
+    const nodeOk = node.filter(x => x.st === 200);
+    console.log('[drv]   ▸ ノード用の絵の実在: ' + nodeOk.length + '/' + node.length + ' 枚' +
+      (nodeOk.length < node.length ? '  (未作成のぶんはタイル描画へ落ちる = (4f) が担保)' : ''));
 
     /* ★実画素の縦横比。⚠⚠ lint (graph-painting-aspect) が見ているのは
      *   「tileBounds と部屋 rect」だけで、**JPEG/PNG そのものの寸法は誰も見ていない**。
@@ -463,26 +492,26 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
         out.push({ src: s, dim: d });
       }
       return out;
-    }, old.concat(node).filter(x => x[1] === 200).map(x => x[0]));
+    }, old.concat(node).filter(x => x.st === 200).map(x => x.src));
     for (const e of errs2) errsAll.push('§5: ' + e);
     await page2.close();
-    const wantOf = (src) => {
-      if (/_n4\./.test(src)) return [7, 6];
-      if (/_n7\./.test(src)) return [9, 6];
-      if (/_1(_bs)?\./.test(src)) return [20, 16];
-      if (/_2\./.test(src)) return [22, 18];
-      return null;
-    };
+    /* ⚠⚠ 旧版はここに `wantOf(src)` = ファイル名 → タイル数 の**写経テーブル**があった。
+     *   在庫に n0 が増えた瞬間に表から漏れ、null → 無条件 bad で**正しい絵を赤にした**。
+     *   いまは各エントリが自分で名乗る tileBounds と比べる (表を持たない = 腐らない)。 */
+    const byName = new Map(old.concat(node).map(x => [x.src, x]));
     const bad = DIM.filter(x => {
-      const w = wantOf(x.src);
-      if (!w || !x.dim) return true;
-      return x.dim.w * w[1] !== x.dim.h * w[0];
+      const e = byName.get(x.src);
+      if (!e || !e.tw || !e.th || !x.dim) return true;
+      return x.dim.w * e.th !== x.dim.h * e.tw;
     });
     check('(5c) ★実在する絵の**実画素**が tileBounds と同じ縦横比 (drawImage が伸ばさない)',
       DIM.length > 0 && bad.length === 0,
       '母集団=' + DIM.length + ' 枚 NG=' +
-      (bad.map(x => x.src.split('/').pop() + ':' +
-        (x.dim ? x.dim.w + 'x' + x.dim.h : '読込失敗')).join(' ') || 'なし'));
+      (bad.map(x => {
+        const e = byName.get(x.src) || {};
+        return x.src.split('/').pop() + ':' +
+          (x.dim ? x.dim.w + 'x' + x.dim.h : '読込失敗') + ' vs ' + e.tw + 'x' + e.th;
+      }).join(' ') || 'なし'));
   }
 
   // ── 例外 ────────────────────────────────────────────────────────────────

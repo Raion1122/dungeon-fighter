@@ -377,14 +377,22 @@ async function captiveDom(page) {
    *   新しい言い方 = 絵を貼るノードは n4 (山場) / n7 (ボス) のちょうど 2 つで、
    *   その参照は必ずカタログから引け、覆う矩形が部屋の rect と**同一**であること
    *   (同一なら 5引数 drawImage は 1 ピクセルも伸縮しない)。 */
-  check('(1h) ★1枚絵は n4 / n7 のちょうど 2 ノード (残り 6 つは null)',
-    G.paintKeys.join(',') === 'null,null,null,null,n4,null,null,n7', G.paintKeys.join(','));
-  check('(1h2) ★その 2 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
-    G.paintFit.length === 2 && G.paintFit.every(p => p.src && p.same === true),
+  /* ★[卓上グリッド P3 2026-08-17] 母集団がまた仕様ごと動いた (起点 n0 に卓上バトルマップを
+   *   貼り、部屋を 33x22 の大部屋にした)。P7 のときと同じ扱いで、**期待値を書き換えるのでは
+   *   なく言い直す**: 守りたいのは「部屋に載らない絵が無言で貼られていないこと」なので、
+   *   枚数ではなく (1h2) の same===true が本体。(1h) は「どのノードに貼るか」の配線図。 */
+  check('(1h) ★1枚絵は n0 (起点) / n4 (山場) / n7 (ボス) の 3 ノード (残り 5 つは null)',
+    G.paintKeys.join(',') === 'n0,null,null,null,n4,null,null,n7', G.paintKeys.join(','));
+  check('(1h2) ★その 3 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
+    G.paintFit.length === 3 && G.paintFit.every(p => p.src && p.same === true),
     JSON.stringify(G.paintFit));
-  check('(1i) 道中 7 ノードは 7 列 x 6 行 [11,33,16,39]',
-    G.rects.filter(s => s.indexOf('n7=') !== 0).every(s => s.indexOf('[11,33,16,39]') > 0),
+  check('(1i) 道中 6 ノード (n1..n6) は 7 列 x 6 行 [11,33,16,39]',
+    G.rects.filter(s => s.indexOf('n0=') !== 0 && s.indexOf('n7=') !== 0)
+           .every(s => s.indexOf('[11,33,16,39]') > 0),
     G.rects.join(' '));
+  check('(1i2) ★起点 n0 だけ 33 列 x 22 行 [3,20,24,52] (卓上バトルマップ 1 枚ぶん)',
+    G.rects.filter(s => s.indexOf('n0=') === 0)[0] === 'n0=[3,20,24,52]',
+    G.rects.filter(s => s.indexOf('n0=') === 0)[0]);
   check('(1j) ボスノードだけ 9 列 x 6 行 [11,32,16,40]',
     G.rects.filter(s => s.indexOf('n7=') === 0)[0] === 'n7=[11,32,16,40]',
     G.rects.filter(s => s.indexOf('n7=') === 0)[0]);
@@ -422,8 +430,12 @@ async function captiveDom(page) {
     for (const n of gr.nodes) out[n.id] = n.exits.map(e => e.to + ':' + e.dir + '@' + e.at.join(','));
     return out;
   });
-  check('(2a) n0 の 3 本が 右[39,13] / 上[36,11] / 下[36,16]',
-    EX.n0.join(' ') === 'n1:right@39,13 n2:up@36,11 n3:down@36,16', EX.n0.join(' '));
+  /* ★P3: n0 は 33x22 の大部屋になったので、辺の中点も MID (7x6) とは別の場所になる。
+   *   ENTRY=[3,20,24,52] → midC=floor((20+52)/2)=36 / midR=floor((3+24)/2)=13 なので
+   *   右[52,13] / 上[36,3] / 下[36,24]。⚠ midC/midR が MID と同じ 36/13 なのは意図的
+   *   (ノード遷移でカメラが飛ばないよう中心を揃えてある)。 */
+  check('(2a) n0 の 3 本が 右[52,13] / 上[36,3] / 下[36,24] (大部屋 ENTRY の辺の中点)',
+    EX.n0.join(' ') === 'n1:right@52,13 n2:up@36,3 n3:down@36,24', EX.n0.join(' '));
   check('(2b) 行き止まりは n3 / n5 / n6 / n7 の 4 つ',
     EX.n3.length === 0 && EX.n5.length === 0 && EX.n6.length === 0 && EX.n7.length === 0,
     JSON.stringify({ n3: EX.n3.length, n5: EX.n5.length, n6: EX.n6.length, n7: EX.n7.length }));
@@ -440,6 +452,11 @@ async function captiveDom(page) {
     ids: window.__graphRun.graph().nodes.map(n => n.id),
     boss: window.__graphRun.bossNodeId(),
     watch: sce1WatchSpot(), servant: sce1ServantSpot(), grix: sce1GrixSpot(),
+    /* ★P3: snapToWalkable が効いたかを切り分けるために「その位置が歩けるか」も採る。
+     *   (3e) が ty の不一致だけで赤くなると、原因が「導出式が壊れた」のか
+     *   「絵に描かれた障害物を避けて 1 マスずれた」のかを区別できない。 */
+    spotWalk: [sce1WatchSpot(), sce1ServantSpot(), sce1GrixSpot()]
+      .map(s => !isTileWall(s.tx, s.ty)),
     legacyLen: SCE1_EVENTS.length,
     gateOffsets: [SCE1_WATCH_OFFSET_TX, SCE1_SERVANT_NODE_DX, SCE1_GRIX_OFFSET_TX],
     entryInset: NODE_ENTRY_INSET,
@@ -457,11 +474,47 @@ async function captiveDom(page) {
   check('(3d) 半径は旧 SCE1_EVENT_RADIUS(240) を引き継いでいる (新しい数字を発明していない)',
     A.events.every(e => e.radius === A.radiusConst) && A.radiusConst === 240,
     A.events.map(e => e.radius).join(',') + ' const=' + A.radiusConst);
-  check('(3e) ★spot が「現在ノードの部屋」から導出される (n0 の部屋 c1=33 基準)',
-    A.watch.tx === 33 + A.gateOffsets[0] && A.servant.tx === 33 + A.gateOffsets[1] &&
-    A.grix.tx === 33 + A.gateOffsets[2] &&
-    A.watch.ty === 13 && A.servant.ty === 13 && A.grix.ty === 13,
-    JSON.stringify([A.watch, A.servant, A.grix]));
+  /* ★[卓上グリッド P3] 旧版は基準の c1 を **33 と直書き**していた。n0 の部屋が
+   *   7x6 [11,33,16,39] → 33x22 [3,20,24,52] になった瞬間に赤くなるが、これは
+   *   「導出式が壊れた」のではなく「測り方が旧幾何に固定されていた」だけ。
+   *   ⭐ 期待値を 20 へ書き換えるのではなく、**現在ノードの部屋 rect から導出する**
+   *     (それが (3e) が確かめたい不変条件そのもの = ROOMS[0] 直書きへの退行の検出)。
+   *   ⚠ ty は snapToWalkable が動かしうるので厳密一致では測らない (n0 の絵は西端が
+   *     針葉樹林で、c1+2 の中心行は実際に塞がっている)。代わりに
+   *     「midR の近傍 (snap 半径 8 以内) にあり、かつ**歩ける**」で測る。
+   *     tx は snap が動かしていないので厳密一致のまま = c1 追従の検出力は落ちていない。 */
+  const N0RECT = JSON.parse((G.rects.find(s => s.indexOf('n0=') === 0) || 'n0=[]').slice(3));
+  const N0_C1 = N0RECT[1], N0_MIDR = Math.floor((N0RECT[0] + N0RECT[2]) / 2);
+  const RAW = A.gateOffsets.map(o => ({ tx: N0_C1 + o, ty: N0_MIDR }));
+  /* 素の導出先が歩けるかを**ページに聞く** (塞がっていれば snapToWalkable が動かす)。
+   * ⚠ snap は斜めにも逃げるので tx も動く。「ty だけずれる」と決めつけないこと
+   *   (2026-08-17 に実際に踏んだ: 期待 tx=23 に対し (22,12) へ斜め退避していた)。 */
+  const RAWWALK = await page.evaluate(
+    (pts) => pts.map(p => !isTileWall(p.tx, p.ty)), RAW);
+  const SPOTS = [A.watch, A.servant, A.grix];
+  const okDerive = SPOTS.every((s, i) => RAWWALK[i]
+    /* 素の導出先が空いているなら **厳密一致**でなければならない (snap の言い訳は使えない) */
+    ? (s.tx === RAW[i].tx && s.ty === RAW[i].ty)
+    /* 塞がっているなら snap 半径 8 の中で、かつ実際に歩ける所へ逃げていること */
+    : (Math.abs(s.tx - RAW[i].tx) <= 8 && Math.abs(s.ty - RAW[i].ty) <= 8 && A.spotWalk[i]));
+  check('(3e) ★spot が「現在ノードの部屋」から導出される (基準の c1 は rect から読む)',
+    N0RECT.length === 4 && okDerive && A.spotWalk.every(Boolean),
+    'c1=' + N0_C1 + ' midR=' + N0_MIDR + ' offs=' + A.gateOffsets.join(',') +
+    ' raw=' + JSON.stringify(RAW) + ' rawWalk=' + JSON.stringify(RAWWALK) +
+    ' spots=' + JSON.stringify(SPOTS) + ' walk=' + JSON.stringify(A.spotWalk));
+  /* ⚠ (3e) は snap を許す枝を持つので、**c1 の追従だけを厳密に測る対を別に置く**。
+   *   道中ノードは 7x6 [11,33,16,39] = c1 が 13 マス違うので、ここが動かなければ
+   *   「現在ノードの部屋から導出」が嘘になる (旧 ROOMS[0] 直書きへの退行の検出)。 */
+  const SPOT_N1 = await page.evaluate(() => {
+    const gr = window.__graphRun.graph();
+    const n1 = gr.nodes.find(n => n.id === 'n1');
+    const rc = n1.mapDef.rooms[0].rect;                 // [r1,c1,r2,c2]
+    return { c1: rc[1], midR: Math.floor((rc[0] + rc[2]) / 2) };
+  });
+  check('(3e2) ★装置: n0 と道中ノードで基準の c1 が実際に違う (追従を測れる母集団がある)',
+    SPOT_N1.c1 !== N0_C1 && Math.abs(SPOT_N1.c1 - N0_C1) > 8,
+    'n0.c1=' + N0_C1 + ' vs n1.c1=' + SPOT_N1.c1 +
+    ' (差 ' + Math.abs(SPOT_N1.c1 - N0_C1) + ' > snap 半径 8)');
   check('(3f) ★EV-9 のオフセット(2) と NODE_ENTRY_INSET(2) が同値 = 入場地点にちょうど落ちる',
     A.gateOffsets[2] === A.entryInset, A.gateOffsets[2] + ' vs ' + A.entryInset);
   check('(3g) 旧台帳 SCE1_EVENTS は 3 行のまま残っている (器を作り替えていない)',

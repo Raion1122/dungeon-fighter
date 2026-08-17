@@ -83,6 +83,25 @@ const PORT = parseInt(arg('port', '8985'), 10);
 const ROOT = path.resolve(arg('root', path.resolve(__dirname, '..')));
 const MUTATE = arg('mutate', null);
 
+/* ★[卓上グリッド P3] 1 枚絵カタログの**実数**を index.html から直に数える。
+ *   ⚠⚠ 旧版は「24 件」「25 option」と総数を直書きしていたので、在庫に 1 枚足すたびに
+ *     無関係な assert が 7 件まとめて赤くなった (P7 で 12→24、P3 で 24→25)。
+ *   ⚠⚠ かといって paintingEntries() の戻りを母数にすると、**列挙器が落としたぶんは
+ *     母数からも落ちる**ので何件取りこぼしても永久に緑になる。だから
+ *     「本編のテキストを直に数える」= 実装と別経路の基準を置く。 */
+const CAT_N = (() => {
+  const src = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const i = src.indexOf('const ROOM_PAINTINGS_DEF = {');
+  if (i < 0) return -1;
+  const body = src.slice(i, src.indexOf('\n    };', i));
+  /* ⚠ **コメント行を必ず落とす**。カタログにはベルトスクロール化前の退避用エントリが
+   *   `// 1: { src: "assets/room_<theme>_1.png", … }` の形で 6 行残っており、素朴に
+   *   数えると 25 のところ 31 になる (2026-08-17 に実際に踏んだ)。 */
+  return body.split('\n')
+    .filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .filter(l => /src:\s*"assets\/room_/.test(l)).length;
+})();
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異負制御
 // ══════════════════════════════════════════════════════════════════════════════
@@ -115,6 +134,16 @@ const MUTATIONS = {
   noreserve: [
     ['            if (isBlocking) {\n              if (globalReserved.has(tileKey)) continue;',
      '            if (isBlocking) {\n              if (!USE_MAPDEF && globalReserved.has(tileKey)) continue;'],
+  ],
+  /* ⑥ ★[卓上グリッド P3] paintingEntries() が在庫を **1 件だけ黙って落とす**。
+   *    (1a)/(3e)/(3g)/(6a)/(6g) は総数の直書きをやめて index.html の実数 (CAT_N) と
+   *    比べる形にしたので、「その基準が本当に効いているか」をここで示す。
+   *    ⚠ 落とすのは 1 件だけ = 総数を直書きしていた旧版なら 24→25 と数え直した瞬間に
+   *      この欠陥を**見逃していた**種類の壊れ方。 */
+  dropentry: [
+    ['        if (!e || typeof e.src !== "string" || !isBounds4(e.tileBounds)) continue;',
+     '        if (!e || typeof e.src !== "string" || !isBounds4(e.tileBounds)) continue;\n' +
+     '        if (String(ks[k]) === "n7" && themes[t] === "dragon-lair") continue;'],
   ],
   /* ⑤ lint を Phase 0 の面積ヒューリスティック (LINT_PAINTING_MIN_AREA = 150) へ戻す。 */
   lintarea: [
@@ -464,6 +493,8 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
             return o; })(),
           keysAreStr: es.every(e => typeof e.key === 'string'),
           labels: Array.from(new Set(es.map(e => e.label))).sort(),
+          // ★P3: label の種類数と「tw×th の種類数」が一致するか (1 種でも取り違えたら割れる)
+          sizeKinds: new Set(es.map(e => e.tw + 'x' + e.th)).size,
           hit: M.paintingSrcFor('goblin-mine', '1'),
           hitNum: M.paintingSrcFor('goblin-mine', 1),
           unknownTheme: M.paintingSrcFor('__no_such__', '1'),
@@ -480,10 +511,18 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       /* ★P7 (2026-08-12): 在庫が 12 → **24 枚**へ増えた (6 テーマ × 山場/ボス/ノード山場/ノードボス)。
        *   ⚠ 件数だけを 12→24 へ書き換えると「増えたこと」しか見ない緩い装置になるので、
        *     **構成 (テーマごとのキーの並び)** も併せて測る。 */
-      check('§1 1a paintingEntries() が 24 件 / 6 テーマ (6 テーマ × 4 キー)',
-        c1.n === 24 && c1.themes.length === 6, 'n=' + c1.n + ' themes=' + c1.themes.join(','));
+      /* ★[卓上グリッド P3 2026-08-17] 在庫が 24 → 25 件になった (廃坑の起点へ卓上バトルマップ
+       *   room_goblin-mine_n0 を足した)。⚠ ここで 24→25 と数え直すと**次にマップを 1 枚足した
+       *   日にまた赤くなる**ので、総数は「本編カタログの実数と一致するか」= 列挙で落として
+       *   いないかだけを見る形へ変えた。守りたい構成 (全テーマが中核 4 キーを持つ) は 1a2 が測る。 */
+      check('§1 1a ★paintingEntries() が本編カタログを 1 件も落としていない / 6 テーマ',
+        CAT_N > 0 && c1.n === CAT_N && c1.n >= 24 && c1.themes.length === 6,
+        'n=' + c1.n + ' index.html の実数=' + CAT_N + ' themes=' + c1.themes.join(','));
+      /* ⚠ 完全一致 (=== ['1','2','n4','n7']) だと**キーを 1 つ増やしただけで赤くなる**。
+       *   測りたいのは「取りこぼしゼロ」なので **超集合**で見る (欠けたら赤 / 増えても緑)。 */
       check('§1 1a2 ★全テーマが 1 / 2 / n4 / n7 の 4 キーをそろえている (取りこぼしゼロ)',
-        c1.themes.every(t => J(c1.byTheme[t]) === J(['1', '2', 'n4', 'n7'])), J(c1.byTheme));
+        c1.themes.every(t => ['1', '2', 'n4', 'n7']
+          .every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)), J(c1.byTheme));
       check('§1 1b 山場 (key=1) 6 件がすべて tw=20 / th=16',
         c1.climax.length === 6 && c1.climax.every(e => e.tw === 20 && e.th === 16),
         J(c1.climax.map(e => e.tw + 'x' + e.th)));
@@ -497,9 +536,15 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       check('§1 1c3 ノードボス (key=n7) 6 件がすべて tw=9 / th=6',
         c1.nodeBoss.length === 6 && c1.nodeBoss.every(e => e.tw === 9 && e.th === 6),
         J(c1.nodeBoss.map(e => e.tw + 'x' + e.th)));
-      check('§1 1d key は文字列に正規化 / label は 4 種 (旧在庫 2 + ノード用 2)',
-        c1.keysAreStr && J(c1.labels) === J(['ノードボス 9×6', 'ノード山場 7×6',
-                                             'ボス 22×18', '山場 20×16'].sort()), J(c1.labels));
+      /* ★P3: 中核 4 種の label が**残っていること**を測る (完全一致だと在庫を 1 種
+       *   足した日に赤くなる)。ラベルが空 / 重複していないかは下の 1d2 が別に見る。 */
+      check('§1 1d key は文字列に正規化 / 中核 4 種の label が揃っている',
+        c1.keysAreStr && ['ノードボス 9×6', 'ノード山場 7×6', 'ボス 22×18', '山場 20×16']
+          .every(l => c1.labels.indexOf(l) >= 0), J(c1.labels));
+      check('§1 1d2 ★label は全件が非空で、種類数 = 縦横サイズの種類数 (無言の取り違えの検出)',
+        c1.labels.every(l => typeof l === 'string' && l.length > 0) &&
+        c1.labels.length === c1.sizeKinds,
+        'labels=' + J(c1.labels) + ' サイズ種類数=' + c1.sizeKinds);
       check('§1 1e paintingSrcFor("goblin-mine","1") が本編の実 src (数値キーでも同じ)',
         c1.hit === 'assets/room_goblin-mine_1_bs.jpg' && c1.hitNum === c1.hit, String(c1.hit));
       check('§1 1f ★未知テーマは null (テクスチャと違い既定テーマへ落とさない)',
@@ -587,13 +632,16 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
           resolvable: opts.length > 0 && opts.every(v => !!M.paintingSrcFor(v.split('|')[0], v.split('|')[1])),
           scen: Array.prototype.map.call(ss.options, o => o.value + ':' + o.textContent) };
       });
-      // ★P7: 在庫 12 → 24 枚 (ノード用 n4 / n7 を各テーマへ追加)
-      check('§3 3e paintSel = 「なし」+ 24 件 = 25 option / optgroup 6 (テーマごと)',
-        ui.options === 25 && ui.groups.length === 6, 'options=' + ui.options + ' groups=' + J(ui.groups));
+      /* ★P3: 在庫の総数を直書きしない。UI は「カタログ全件 + 『なし』1 件」であるべきなので、
+       *   基準は上で index.html から数えた CAT_N (別経路なので両方が同じ誤りを共有しない)。 */
+      check('§3 3e ★paintSel = 「なし」+ カタログ全件 / optgroup 6 (テーマごと)',
+        ui.options === CAT_N + 1 && ui.groups.length === 6,
+        'options=' + ui.options + ' 期待=' + (CAT_N + 1) + ' groups=' + J(ui.groups));
       check('§3 3f optgroup の label は M.THEMES の name (themeSel と同じ表記)',
         ui.groups.length > 0 && ui.groups.every(g => ui.themeNames.indexOf(g) >= 0), J(ui.groups));
-      check('§3 3g value は "theme|key" で 24 件すべて paintingSrcFor で引ける (捏造した選択肢が無い)',
-        ui.nOpts === 24 && ui.wellFormed === true && ui.resolvable === true, 'opts=' + ui.nOpts);
+      check('§3 3g value は "theme|key" で全件が paintingSrcFor で引ける (捏造した選択肢が無い)',
+        ui.nOpts === CAT_N && ui.wellFormed === true && ui.resolvable === true,
+        'opts=' + ui.nOpts + ' 期待=' + CAT_N);
       check('§3 3h scenerySel = なし / 少なめ0.5 / 既定1 / 多め1.8 の 4 択',
         J(ui.scen) === J([':なし', '0.5:少なめ', '1:既定', '1.8:多め']), J(ui.scen));
 
@@ -859,8 +907,10 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       await sleep(600);
       const warned = consoleWarns.slice(before);
       console.log('  [ref] 成功時 note="' + D.ok.note + '" / 失敗時 note="' + D.after.note + '"');
-      check('§6 6a 成功時の #paintNote が「1枚絵 24 枚 / 情景 13 種」(.ng なし)',
-        /1枚絵 24 枚/.test(D.ok.note) && /情景 13 種/.test(D.ok.note) && D.ok.noteNg === false, D.ok.note);
+      // ★P3: 枚数は直書きせず CAT_N (index.html の実数) から組む。情景の 13 種は独立なので据置
+      check('§6 6a ★成功時の #paintNote が「1枚絵 <カタログ実数> 枚 / 情景 13 種」(.ng なし)',
+        new RegExp('1枚絵 ' + CAT_N + ' 枚').test(D.ok.note) && /情景 13 種/.test(D.ok.note) &&
+        D.ok.noteNg === false, D.ok.note + '  (期待 1枚絵 ' + CAT_N + ' 枚)');
       check('§6 6b 取得中は「読込中…」の 1 項目 + disabled (部屋を選んでいても)',
         D.during.options === 1 && D.during.disabled === true && /読込中/.test(D.during.note),
         'options=' + D.during.options + ' note=' + D.during.note);
@@ -875,9 +925,10 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       check('§6 6f ★scenerySel は 1枚絵カタログが落ちても有効のまま (密度は本編側で解決する)',
         D.after.sceneryDisabled === false && D.after.sceneryValues.length === 4,
         'disabled=' + D.after.sceneryDisabled);
-      check('§6 6g 再取得で 25 option / 有効 / note が正常へ戻る (再取得の契約)',
-        D.back.ok === true && D.restored.options === 25 && D.restored.disabled === false &&
-        D.restored.noteNg === false, 'options=' + D.restored.options);
+      check('§6 6g ★再取得で「なし」+ カタログ全件 / 有効 / note が正常へ戻る (再取得の契約)',
+        D.back.ok === true && D.restored.options === CAT_N + 1 && D.restored.disabled === false &&
+        D.restored.noteNg === false,
+        'options=' + D.restored.options + ' 期待=' + (CAT_N + 1));
       await page.close();
     }
 

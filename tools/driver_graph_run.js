@@ -827,11 +827,14 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
      *   dev ゲートで ?graphtest が弾かれた後に立ち上がるのは「従来の単一マップ」ではなく
      *   **廃坑の内蔵グラフの entry ノード** (7 列 x 6 行 の 1 部屋・敵 0 体) になった。
      *   ⭐ 測る対象は変えていない =「?graphtest の内蔵テストグラフが載っていないこと」。
-     *     テストグラフの n0 は**敵 2 体**を持つので `enemies === 0` で両者を区別できる
-     *     (部屋 rect は両者とも [11,33,16,39] なので rect だけでは区別できない)。
+     *     テストグラフの n0 は**敵 2 体**を持つので `enemies === 0` で両者を区別できる。
+     *   ★[卓上グリッド P3 2026-08-17] 廃坑の n0 が 33x22 の大部屋 [3,20,24,52] になったので、
+     *     **rect も判別に効くようになった** (テストグラフの n0 は 7x6 [11,33,16,39] のまま)。
+     *     旧コメントの「rect だけでは区別できない」はこの版で解消 = 判別根拠が
+     *     `enemies` の 1 本から 2 本へ増えている (緩めた訳ではない)。
      *   ⚠ assert は消していない。「無視したこと」の直接の証拠は (10c) の console.warn。 */
     check('(10b) 同上: ?graphtest は無視され、廃坑の内蔵グラフ (テストグラフではない) で立ち上がる',
-      g.rooms === 1 && g.roomRects === '[[11,33,16,39]]' && g.enemies === 0,
+      g.rooms === 1 && g.roomRects === '[[3,20,24,52]]' && g.enemies === 0,
       'rooms=' + g.rooms + ' rects=' + g.roomRects + ' enemies=' + g.enemies);
     check('(10c) 無視したことを console.warn で必ず知らせる (silent fail-open にしない)',
       gw.some(w => w.indexOf('?graphtest') >= 0),
