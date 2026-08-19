@@ -1,16 +1,16 @@
 {
   "_note": "非退行 assert の基準値。固定コミット比較の自己失効を避けるための golden。更新は `node tools/driver_field_step7.js --update-golden` のみ。差分は必ず git diff でレビューしてから commit すること。",
   "capturedFrom": {
-    "rev": "db306ab",
-    "subject": "golden 更新漏れの回収: 卓上グリッド P1 が動かした 6 シナリオの描画を記録し直す",
+    "rev": "00b708f",
+    "subject": "ズーム時にフォグが camZ を落とす欠陥を修正 + 廃坑の戦闘を1枚絵の中で完結 (cover)",
     "dirty": true
   },
   "values": {
-    "N-goblin-mine": "cf5f5d377756d77f/1789",
-    "N-bandits-forest": "bb008a72be034929/1776",
-    "N-lizard-swamp": "0c88995f341ec691/1715",
-    "N-orc-fort": "592b8ac8eadae5c4/1782",
-    "N-undead-temple": "0ef32ecbfc39de2d/1810",
-    "N-dragon-lair": "22cc0dbba6d6f360/1827"
+    "N-goblin-mine": "40cc754e27163734/1870",
+    "N-bandits-forest": "fe3cfac4324a107b/1865",
+    "N-lizard-swamp": "168bdcb679d342c4/1805",
+    "N-orc-fort": "98e3d4bf7c86a531/1880",
+    "N-undead-temple": "0a5e4caaa25eaab4/1895",
+    "N-dragon-lair": "a222bda9210ecc8e/1915"
   }
 }

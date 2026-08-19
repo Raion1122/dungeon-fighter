@@ -4400,14 +4400,42 @@
     // ── フォグオブウォー強化: 職業別視界レンジ + 探索記憶 ──────────────
     // tiles=視界半径(タイル数、視界/エンカウント判定用)、inner/outer=放射光半径(px、drawLight用)
     // 仕様: ドワーフ広い(インフラビジョン)→エルフやや広い→戦士/僧侶/盗賊 標準→魔法使いやや狭い
+    /* ★退避スイッチ ?dndrange=0 — 射程・視界・交戦開始距離だけを旧仕様へ戻す。
+     * ⚠ 移動の ?dndmove=0 とは**別の口**にする。P5 (移動) と P6 (射程) の効果を
+     *   切り分けて測るため。既存ドライバの母集団を旧経路へ固定するのにも使う。
+     * ⚠ CLASS_SIGHT より前に置くこと (下の 2 つの表がこれを見る)。 */
+    const RANGE_LEGACY = (() => {
+      try { return new URLSearchParams(location.search).get("dndrange") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* ★[卓上グリッド P6] 視界半径を D&D 準拠へ広げる (旧: 魔3/戦僧盗4/エルフ5/ドワーフ6)。
+     *   魔法使い・戦士・僧侶・盗賊 = 8  … 松明の明域 20ft + 薄暮域 20ft = 40ft
+     *   エルフ                    = 10 … 低光視力 (明かりの半径 x2 の簡略)
+     *   ドワーフ                  = 12 … 暗視 60ft
+     * ⚠⚠ 光半径 (px) は **視界半径に比例** させる (outer ≒ 0.859 x tiles x 96 /
+     *   inner ≒ 0.455 x outer)。旧 6 職の値は一次式 outer=70t+50 にも乗るが、
+     *   t=12 まで外挿すると「描かれる光」と「霧が晴れる範囲」の差が 1.4 → 2.7 タイルへ開き、
+     *   **真っ暗なのに霧だけ晴れる**帯ができる。比を保つ方が見え方の性格を変えない。
+     * ⚠ 視界は交戦開始の門でもある (detectEnemiesEngagedByRange の isEnemyVisibleToParty)。
+     *   ここを広げないと engagePx をいくら伸ばしても交戦距離は伸びない。 */
     const CLASS_SIGHT = {
-      mage:    { tiles: 3, inner: 120, outer: 260 },
-      warrior: { tiles: 4, inner: 150, outer: 330 },
-      cleric:  { tiles: 4, inner: 150, outer: 330 },
-      rogue:   { tiles: 4, inner: 150, outer: 330 },
-      elf:     { tiles: 5, inner: 180, outer: 400 },
-      dwarf:   { tiles: 6, inner: 210, outer: 470 },
+      mage:    { tiles: 8,  inner: 300, outer: 660 },
+      warrior: { tiles: 8,  inner: 300, outer: 660 },
+      cleric:  { tiles: 8,  inner: 300, outer: 660 },
+      rogue:   { tiles: 8,  inner: 300, outer: 660 },
+      elf:     { tiles: 10, inner: 375, outer: 825 },
+      dwarf:   { tiles: 12, inner: 450, outer: 990 },
     };
+    const CLASS_SIGHT_LEGACY = {
+      mage:    [3, 120, 260], warrior: [4, 150, 330], cleric: [4, 150, 330],
+      rogue:   [4, 150, 330], elf:     [5, 180, 400], dwarf:  [6, 210, 470],
+    };
+    if (RANGE_LEGACY) {
+      for (const k of Object.keys(CLASS_SIGHT_LEGACY)) {
+        const v = CLASS_SIGHT_LEGACY[k];
+        CLASS_SIGHT[k].tiles = v[0]; CLASS_SIGHT[k].inner = v[1]; CLASS_SIGHT[k].outer = v[2];
+      }
+    }
     const DEFAULT_SIGHT = CLASS_SIGHT.warrior;
     function getSight(classKey) { return CLASS_SIGHT[classKey] || DEFAULT_SIGHT; }
     // 探索記憶(ロード毎に0初期化、シナリオ跨ぎリセット不要)。
@@ -16370,7 +16398,7 @@
           const wx = targetTile.tx * TILE_SIZE + TILE_SIZE / 2;
           const wy = targetTile.ty * TILE_SIZE + TILE_SIZE / 2;
           await allyAdvanceTowardPoint(ally, wx, wy, {
-            slideMs: 600, postSleep: 40, silent: true,
+            steps: 1, slideMs: 600, postSleep: 40, silent: true,   // ★探索は 1 タイル (P5)
           });
         }
       } finally {
@@ -16441,7 +16469,9 @@
         return;
       }
       await enemyAdvanceOneTile(idx, targetCX, targetCY, {
-        slideMs: 500, postSleep: 40, silent: true,
+        /* ⚠ 探索は戦闘手番ではないので D&D の Speed (6 マス) を適用しない。
+         *   steps を明示しないと、探索中に敵が 1 フレームで 6 マス滑る。 */
+        steps: 1, slideMs: 500, postSleep: 40, silent: true,
       });
     }
 
@@ -16463,7 +16493,7 @@
           const d = Math.hypot(ally.x - playerX, ally.y - playerY);
           if (d < 160) continue;  // 既に近い仲間は動かさない
           await allyAdvanceTowardPoint(ally, wx, wy, {
-            slideMs: 600, postSleep: 30, silent: true,
+            steps: 1, slideMs: 600, postSleep: 30, silent: true,   // ★探索は 1 タイル (P5)
           });
         }
       } finally {
@@ -17640,16 +17670,44 @@
     // ── 射程システム (戦闘はタイル制) ──
     // semantic key → (tiles, label, engagePx)
     // グリッド戦闘化に伴い melee=1 の厳格射程に戻す(接近演出が活きる)
+    /* ★[卓上グリッド P6] 射程を −2 刻みの梯子へ広げる (P5 の移動 6 マスと**対**)。
+     *   弓 12 = D&D 3.5 短弓の射程単位 60ft。以下 2 マス (10ft) 刻みで下がる。
+     * ⚠⚠ D&D の中距離呪文 (100ft + 10ft/Lv = Lv1 で 22 マス) は**採らない**。
+     *   部屋 22 マスより長く「射程の概念が消える」= 過去に実測済みの失敗。
+     *   効くのは絶対値ではなく**段ごとの −2**。
+     * ⚠ 7x6 の小部屋 (他 5 シナリオの全ノード + 廃坑 n4/n5) は対角 9.2 マスなので、
+     *   この梯子は**部屋全体に届いてしまい効かない**。効くのは廃坑 n0 (33x22) と n1 (39x23)。
+     *   承知のうえの設計 (大部屋が増えるほど価値が出る)。
+     *
+     * ── engagePx (交戦開始距離) ─────────────────────────────────────────
+     * ⭐⭐⭐ **melee と spellBuff は据え置く**。ここを一律に伸ばすと:
+     *   ・廃坑 n0 の見張りゴブリンは起点から 7.8 マス (750px) に置かれており、
+     *     engagePx 768px にすると**入場した瞬間に戦闘 = 冒頭の 3 択 (EV-2) が消える**
+     *   ・n7 の護衛は「入場 col34 から 5 マス = 480px > 400px」を前提に置かれている
+     *   近接敵は「見つけたら寄ってくる」ので engage を伸ばす必要が無い —
+     *   その役目は P5 の移動 6 マスが果たす。伸ばすのは**遠距離敵だけ**。
+     * ⚠ 交戦は isEnemyVisibleToParty (フォグ視界) でも門番される。engagePx 単独では伸びない。 */
     const RANGE = {
-      melee:  { tiles: 1,  label: "近距離", engagePx: 400 },
-      medium: { tiles: 3,  label: "中距離", engagePx: 520 },
-      long:   { tiles: 6,  label: "遠距離", engagePx: 576 },   // 旧 99 → 6 (安全網。再割当漏れがあっても完封しない)
+      melee:  { tiles: 1,  label: "近距離", engagePx: 400 },   // 5ft。engagePx は据え置き
+      medium: { tiles: 8,  label: "中距離", engagePx: 768 },   // 40ft (投擲/クロスボウ相当)
+      long:   { tiles: 12, label: "遠距離", engagePx: 1152 },  // 60ft (安全網。再割当漏れがあっても完封しない)
       // [SYNC df-ranged-7.9] 射程種別キー — 完封解消のため長射程を種別ごとに再設計 (tavern.html RANGE_LABEL と同期)
-      bow:         { tiles: 6, label: "弓",     engagePx: 576 },
-      spellSingle: { tiles: 5, label: "術(単)", engagePx: 480 },
-      spellAoE:    { tiles: 5, label: "術(範)", engagePx: 480 },
-      spellBuff:   { tiles: 3, label: "術(援)", engagePx: 288 },
+      bow:         { tiles: 12, label: "弓",     engagePx: 1152 },  // 60ft = D&D 3.5 短弓の射程単位
+      spellSingle: { tiles: 10, label: "術(単)", engagePx: 960 },   // 50ft
+      spellAoE:    { tiles: 10, label: "術(範)", engagePx: 960 },   // 50ft
+      spellBuff:   { tiles: 6,  label: "術(援)", engagePx: 288 },   // 30ft。engagePx は据え置き
     };
+    /* ★退避スイッチ ?dndrange=0 の旧値 (tiles, engagePx)。CLASS_SIGHT_LEGACY と同じ 1 本のスイッチ。 */
+    const RANGE_LEGACY_TABLE = {
+      melee: [1, 400], medium: [3, 520], long: [6, 576], bow: [6, 576],
+      spellSingle: [5, 480], spellAoE: [5, 480], spellBuff: [3, 288],
+    };
+    if (RANGE_LEGACY) {
+      for (const k of Object.keys(RANGE_LEGACY_TABLE)) {
+        RANGE[k].tiles = RANGE_LEGACY_TABLE[k][0];
+        RANGE[k].engagePx = RANGE_LEGACY_TABLE[k][1];
+      }
+    }
     function getRange(key) { return RANGE[key] || RANGE.melee; }
     function tileChebyshev(ax, ay, bx, by) {
       const dx = Math.abs(Math.floor(ax / TILE_SIZE) - Math.floor(bx / TILE_SIZE));
@@ -17667,6 +17725,33 @@
       enemy.x = tx * TILE_SIZE + TILE_SIZE / 2 - enemy.def.displaySize / 2;
       enemy.y = ty * TILE_SIZE + TILE_SIZE / 2 - enemy.def.displaySize / 2;
     }
+    /* ── 戦闘移動の 1 タイルぶんの所要時間 ──────────────────────────────────
+     * ★[卓上グリッド P5 STEP1] 3 経路 (主人公 / 仲間 / 敵) に散っていた 380 / 120 を
+     *   ここへ括り出しただけの**挙動不変**の変更。値は 1 も変えていない。
+     *   合計 500ms/タイル = D&D 準拠の 6 マス移動で 3.0 秒/ユニット。
+     * ⚠ 2026-08-19 のユーザー決定により **経路を 1 本の滑走へ畳まない** (1 マスずつ 500ms)。
+     *   後でテンポを変えたくなったときに 1 箇所で済むよう、名前だけ与えておく。
+     * ⚠ 探索フェーズの主人公は別系統 (HERO_SLIDE_MS)。ここでは触らない。 */
+    const MOVE_SLIDE_MS = 380;   // タイル間のスライド
+    const MOVE_POST_MS  = 120;   // 着地後の間
+
+    /* ── [卓上グリッド P5] D&D 3.5 準拠の移動距離 (1 マス = 5 ft) ──────────────
+     * 旧仕様は **全ユニット 1 マス/手番** = D&D の 6 分の 1 だった。近接射程 1 マス = 5ft も
+     * 近距離呪文 5 マス = 25ft も既に D&D 準拠だったので、ズレていたのは移動だけ。
+     * ⚠⚠ P6 (射程) と**対**で動かすこと。移動だけ 6 倍にすると弓・呪文が「初手 1 発」になる。
+     * ⚠ 鎧の重さによる減速 (D&D の重装 30→20ft) は入れない — この game に armorWeight 相当の
+     *   データが無い。ドワーフだけは種族固有 (鎧・荷でも減速しない 20ft) なので入れる。 */
+    const MOVE_TILES_DEFAULT = 6;   // 30 ft
+    const MOVE_TILES_DWARF   = 4;   // 20 ft (ドワーフ)
+    const MOVE_BONUS_HASTE   = 6;   // Haste = 速度 +30ft (実質 2 倍)
+    const MOVE_BONUS_BLESS   = 2;   // D&D では移動に無影響。現行の「移動速度UP」演出を残す互換値
+    /* ★退避スイッチ ?dndmove=0 — 移動だけを旧仕様 (全員 1 マス / ヘイスト・ブレス +1 / 鈍足 -1) へ戻す。
+     * ⚠ 射程・視界の ?dndrange=0 とは**別の口**にする。P5 と P6 の効果を切り分けて測るため。 */
+    const MOVE_LEGACY = (() => {
+      try { return new URLSearchParams(location.search).get("dndmove") === "0"; }
+      catch (e) { return false; }
+    })();
+
     function slideAnim(setPos, fromX, fromY, toX, toY, durationMs) {
       return new Promise((resolve) => {
         const startTime = performance.now();
@@ -17721,13 +17806,35 @@
     // unit: "player"(=リーダー) | ally オブジェクト | enemy オブジェクト
     // (STEP3) 旧来 playerAdvanceOneTile/allyAdvanceTowardPoint の blessMoveRemaining 判定と
     //         enemyAdvanceOneTile の __moveBlockedThisTurn 判定をここへ統合。
+    /* そのユニットの素の Speed (タイル)。
+     * ⚠ 判別の規則は既存のもの (index.html の getUnitKind) と同じ —
+     *   **ally / 主人公は classKey を持ち、enemy は持たない**。
+     *   enemy の個別速度は def.speedTiles で上書きできる (未指定は既定 6)。 */
+    function moveBaseTiles(unit) {
+      if (unit === "player") {
+        return (typeof leaderClassKey !== "undefined" && leaderClassKey === "dwarf")
+          ? MOVE_TILES_DWARF : MOVE_TILES_DEFAULT;
+      }
+      if (unit && unit.classKey !== undefined) {
+        return unit.classKey === "dwarf" ? MOVE_TILES_DWARF : MOVE_TILES_DEFAULT;
+      }
+      if (unit && unit.def && unit.def.speedTiles != null) return unit.def.speedTiles;
+      return MOVE_TILES_DEFAULT;
+    }
     function getMoveLimit(unit) {
-      let limit = 1;
+      let limit = MOVE_LEGACY ? 1 : moveBaseTiles(unit);
       const buffs = (unit === "player" || (unit && unit.isLeader))
         ? (typeof playerBuffs !== "undefined" ? playerBuffs : null)
         : (unit && unit.buffs);
-      if (buffs && (buffs.hastedRemaining > 0 || buffs.blessMoveRemaining > 0)) limit += 1;  // ヘイスト/ブレス: +1 (非加算=最大2)
-      if (unit && unit.__moveBlockedThisTurn) limit -= 1;   // STEP2 鈍足 (敵アイスストーム) を統合
+      // ヘイスト/ブレスは非加算 (ヘイストが優先)。旧仕様では両方 +1 だった。
+      if (buffs && (buffs.hastedRemaining > 0 || buffs.blessMoveRemaining > 0)) {
+        limit += MOVE_LEGACY ? 1
+               : (buffs.hastedRemaining > 0 ? MOVE_BONUS_HASTE : MOVE_BONUS_BLESS);
+      }
+      // 鈍足 (敵アイスストーム): D&D の Slow は速度半減。旧仕様の -1 は base 6 では無意味になる。
+      if (unit && unit.__moveBlockedThisTurn) {
+        limit = MOVE_LEGACY ? (limit - 1) : Math.floor(limit / 2);
+      }
       if (hasStatus(unit, "prone")) limit = 0;              // 転倒: そのターンは起き上がりに費やす
       return Math.max(0, limit);
     }
@@ -17756,9 +17863,13 @@
         await sleepMs(450);
         return;
       }
-      const moveTag = (steps >= 2)
-        ? ((typeof playerBuffs !== "undefined" && playerBuffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
-        : "1タイル";
+      /* ⚠ 旧実装は「2 タイル = ヘイスト/ブレス」を決め打ちしていた。base が 6 になると
+       *   「6タイル」でも素の移動なので、実歩数とバフ名を分けて出す。
+       *   ?dndmove=0 のときは steps が 1 or 2 に戻るので表示も旧文言と一致する。 */
+      const _pb = (typeof playerBuffs !== "undefined") ? playerBuffs : null;
+      const moveTag = steps + "タイル" +
+        ((_pb && _pb.hastedRemaining > 0) ? "(HASTE)"
+         : ((_pb && _pb.blessMoveRemaining > 0) ? "(BLESS)" : ""));
       for (let s = 0; s < steps; s++) {
         const pTX = Math.floor((playerX + 48) / TILE_SIZE);
         const pTY = Math.floor((playerY + 58) / TILE_SIZE);
@@ -17788,73 +17899,94 @@
         playerMovingThisFrame = true;
         await slideAnim((x, y) => {
           playerX = x; playerY = y; playerMovingThisFrame = true;
-        }, fromX, fromY, toX, toY, 380);
+        }, fromX, fromY, toX, toY, MOVE_SLIDE_MS);
         playerMovingThisFrame = false;
-        await sleepMs(120);
+        await sleepMs(MOVE_POST_MS);
       }
     }
 
     // 敵を1タイル前進 (targetCX/CY 省略時はプレイヤーへ)
     async function enemyAdvanceOneTile(idx, targetCX, targetCY, opts = {}) {
-      const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : 380;
-      const postSleep = (opts.postSleep != null) ? opts.postSleep : 120;
+      const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : MOVE_SLIDE_MS;
+      const postSleep = (opts.postSleep != null) ? opts.postSleep : MOVE_POST_MS;
       const silent    = !!opts.silent;
       if (targetCX == null) targetCX = playerX + 48;
       if (targetCY == null) targetCY = playerY + 58;
       const enemy = enemies[idx];
       const def = enemy.def;
-      // 鈍足 (アイスストーム): getMoveLimit が 0 を返す = このターンは移動を封じる (攻撃は可能)
-      if (getMoveLimit(enemy) <= 0) {
+      /* ★★★[卓上グリッド P5 STEP2] ここには **steps ループが無かった**。
+       *   getMoveLimit を「0 か否か = 動けるか」の門にしか使っておらず、敵は常に 1 タイルしか
+       *   動かなかった (ヘイストの +1 すら効いていなかった)。playerAdvanceOneTile /
+       *   allyAdvanceTowardPoint は最初からループ済みなので、base を 1→6 にした瞬間
+       *   **PT だけ 6 マス・敵は 1 マス**になり、カイティングでゲームが崩壊する。
+       * ⚠ opts.steps は探索フェーズ用の明示指定 (exploreMoveEnemyOneTile が 1 を渡す)。
+       *   探索は戦闘手番ではないので D&D の Speed を適用しない。
+       * 検出器 = tools/driver_grid_p5.js (2d)「敵は主人公より遅くない」。 */
+      const steps = (opts.steps != null) ? opts.steps : getMoveLimit(enemy);
+      // 鈍足 (アイスストーム) / 転倒: 0 になる = このターンは移動を封じる (攻撃は可能)
+      if (steps <= 0) {
         if (!silent) showRollAtEnemy(idx, `<span class="label">SLOWED</span>動きが鈍い`, "miss");
         await sleepMs(silent ? 80 : 450);
         return;
       }
-      const eCX = enemy.x + def.displaySize / 2;
-      const eCY = enemy.y + def.displaySize / 2;
-      const eTX = Math.floor(eCX / TILE_SIZE);
-      const eTY = Math.floor(eCY / TILE_SIZE);
-      const pTX = Math.floor(targetCX / TILE_SIZE);
-      const pTY = Math.floor(targetCY / TILE_SIZE);
-
-      // 対象タイルの隣接4方向で、壁でなく、他ユニットが居ないタイルを候補に
-      const avoidSet = getUnitOccupiedTiles(enemy);
-      let goalTX = pTX, goalTY = pTY;
-      const neighbors = [[1,0],[-1,0],[0,1],[0,-1]];
-      let bestD = Infinity;
-      for (const [dx, dy] of neighbors) {
-        const ntx = pTX + dx, nty = pTY + dy;
-        if (ntx < 0 || ntx >= MAP_W || nty < 0 || nty >= MAP_H) continue;
-        if (isTileWall(ntx, nty)) continue;
-        if (avoidSet.has(ntx + "," + nty)) continue;  // 味方敵含め占有済は避ける
-        const d = Math.abs(ntx - eTX) + Math.abs(nty - eTY);
-        if (d < bestD) { bestD = d; goalTX = ntx; goalTY = nty; }
-      }
-
-      const next = firstTileStep(eTX, eTY, goalTX, goalTY, avoidSet);
-      if (!next) {
-        if (!silent) showRollAtEnemy(idx, `<span class="label">CAN'T ADVANCE</span>進めない`, "miss");
-        await sleepMs(silent ? 100 : 700);
-        return;
-      }
-
-      if (!silent) showRollAtEnemy(idx, `<span class="label">ADVANCE</span>前進 1タイル`, "init");
-      flashAction(enemyElements[idx], "move");
-
-      const fromX = enemy.x, fromY = enemy.y;
-      const toX = next.tx * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
-      const toY = next.ty * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
       const prevState = enemy.state;
-      enemy.state = "chase";  // 歩行アニメを再生
-      enemy.slideTargetTile = { tx: next.tx, ty: next.ty };  // 他ユニットの侵入防止
       try {
-        await slideAnim((x, y) => {
-          enemy.x = x; enemy.y = y;
-        }, fromX, fromY, toX, toY, slideMs);
+        for (let st = 0; st < steps; st++) {
+          const eCX = enemy.x + def.displaySize / 2;
+          const eCY = enemy.y + def.displaySize / 2;
+          const eTX = Math.floor(eCX / TILE_SIZE);
+          const eTY = Math.floor(eCY / TILE_SIZE);
+          const pTX = Math.floor(targetCX / TILE_SIZE);
+          const pTY = Math.floor(targetCY / TILE_SIZE);
+
+          // 対象タイルの隣接4方向で、壁でなく、他ユニットが居ないタイルを候補に
+          const avoidSet = getUnitOccupiedTiles(enemy);
+          let goalTX = pTX, goalTY = pTY;
+          const neighbors = [[1,0],[-1,0],[0,1],[0,-1]];
+          let bestD = Infinity;
+          for (const [dx, dy] of neighbors) {
+            const ntx = pTX + dx, nty = pTY + dy;
+            if (ntx < 0 || ntx >= MAP_W || nty < 0 || nty >= MAP_H) continue;
+            if (isTileWall(ntx, nty)) continue;
+            if (avoidSet.has(ntx + "," + nty)) continue;  // 味方敵含め占有済は避ける
+            const d = Math.abs(ntx - eTX) + Math.abs(nty - eTY);
+            if (d < bestD) { bestD = d; goalTX = ntx; goalTY = nty; }
+          }
+
+          const next = firstTileStep(eTX, eTY, goalTX, goalTY, avoidSet);
+          if (!next) {
+            // 1 歩も動けなかったときだけ「進めない」を出す (目標に隣接して止まった場合は無言)
+            if (st === 0) {
+              if (!silent) showRollAtEnemy(idx, `<span class="label">CAN'T ADVANCE</span>進めない`, "miss");
+              await sleepMs(silent ? 100 : 700);
+            }
+            return;
+          }
+
+          if (st === 0 && !silent) {
+            showRollAtEnemy(idx, `<span class="label">ADVANCE</span>前進 ${steps}タイル`, "init");
+          }
+          flashAction(enemyElements[idx], "move");
+
+          const fromX = enemy.x, fromY = enemy.y;
+          const toX = next.tx * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
+          const toY = next.ty * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
+          enemy.state = "chase";  // 歩行アニメを再生
+          enemy.slideTargetTile = { tx: next.tx, ty: next.ty };  // 他ユニットの侵入防止
+          try {
+            await slideAnim((x, y) => {
+              enemy.x = x; enemy.y = y;
+            }, fromX, fromY, toX, toY, slideMs);
+          } finally {
+            enemy.slideTargetTile = null;
+          }
+          await sleepMs(postSleep);
+        }
       } finally {
-        enemy.slideTargetTile = null;
+        /* ⚠ state の復帰はループの外で 1 回だけ。中で idle へ戻すと 1 歩ごとに
+         *   歩行アニメが途切れる (旧実装は 1 歩しか無かったので中に書かれていた)。 */
+        enemy.state = silent ? prevState : "idle";  // 探索中は元 state を維持
       }
-      enemy.state = silent ? prevState : "idle";  // 探索中は元 state を維持
-      await sleepMs(postSleep);
     }
 
     // ── ダイスユーティリティ ──
@@ -24149,10 +24281,15 @@
 
     // 仲間を1タイル前進 (任意座標へ)。戦士・他仲間・敵のタイルを回避
     async function allyAdvanceTowardPoint(ally, targetWX, targetWY, opts = {}) {
-      const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : 380;
-      const postSleep = (opts.postSleep != null) ? opts.postSleep : 120;
+      const slideMs   = (opts.slideMs   != null) ? opts.slideMs   : MOVE_SLIDE_MS;
+      const postSleep = (opts.postSleep != null) ? opts.postSleep : MOVE_POST_MS;
       const silent    = !!opts.silent;  // ログ/ロール表示を抑制 (探索中向け)
-      const steps = getMoveLimit(ally);  // ヘイスト/ブレス中は 2 タイル前進
+      /* ⚠ opts.steps は探索フェーズ用の明示指定 (exploreAllyTurn / exploreRallyToPlayer が 1 を渡す)。
+       *   探索は戦闘手番ではないので D&D の Speed (6 マス) を適用しない。
+       *   ⚠⚠ enemyAdvanceOneTile 側にだけ steps を足して**ここを忘れると、探索中は
+       *     仲間だけ 6 マス・敵は 1 マス**になり、隊列が崩れて探索が停滞する
+       *     (driver_graph_sce1 の DIAG stall で実測した)。 */
+      const steps = (opts.steps != null) ? opts.steps : getMoveLimit(ally);
       // playerAdvanceOneTile 12779 と同じ穴: steps=0 (転倒/鈍足) だと下の for が回らず無言で return する
       if (steps <= 0) {
         const prone = hasStatus(ally, "prone");
@@ -24161,9 +24298,10 @@
         await sleepMs(silent ? 80 : 450);
         return;
       }
-      const moveTag = (steps >= 2)
-        ? ((ally.buffs && ally.buffs.hastedRemaining > 0) ? "2タイル(HASTE)" : "2タイル(BLESS)")
-        : "1タイル";
+      // 主人公側と同じ理由 (実歩数とバフ名を分ける)。
+      const moveTag = steps + "タイル" +
+        ((ally.buffs && ally.buffs.hastedRemaining > 0) ? "(HASTE)"
+         : ((ally.buffs && ally.buffs.blessMoveRemaining > 0) ? "(BLESS)" : ""));
       for (let s = 0; s < steps; s++) {
         const aCX = ally.x + ally.def.displaySize / 2;
         const aCY = ally.y + ally.def.displaySize / 2;

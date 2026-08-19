@@ -224,6 +224,9 @@ const MEASURE = function () {
     aWallD2: west ? alphaAt(west.tx - 1, west.ty) : null,
     aSouthD1: south ? alphaAt(south.tx, south.d1) : null,
     aSouthD2: south ? alphaAt(south.tx, south.d2) : null,
+    // ★[P6] 射程/光半径ピン (?dndrange=0) が効いているかの実測値。旧値は bow=6 / 戦士 outer=330。
+    pinBow: (typeof RANGE !== 'undefined' && RANGE.bow) ? RANGE.bow.tiles : -1,
+    pinOuter: (typeof CLASS_SIGHT !== 'undefined' && CLASS_SIGHT.warrior) ? CLASS_SIGHT.warrior.outer : -1,
     aFloor: alphaAt(pick.tx, pick.ty + 2),
   };
 };
@@ -301,7 +304,16 @@ async function playShot(page, file) {
     executablePath: findBrowser(), headless: HEADFUL ? false : 'new',
     args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
   });
-  const URL_Q = 'http://localhost:' + PORT + '/index.html?diag=1&graphtest=1';
+  /* ★[卓上グリッド P6] 母集団を旧い光半径へ固定する ?dndrange=0。**期待値は 1 文字も変えていない**。
+   * ⚠⚠ 理由: 下の (3d) は「壁リングが 1 タイルで終わっているか」を
+   *   **lightingCanvas のフォグ α** (255=暗黒 / 小さいほど明るい) を代理指標にして測っており、
+   *   その窓「石なら 104〜121」は**旧い光半径で較正**されている。
+   *   視界 4→8 に伴い光半径 (inner/outer) を広げると同じセルが明るくなり
+   *   (実測 southD2 α=114 → 55 / westD2 α=210 → 29)、代理指標が判別力を失って赤くなる。
+   *   壁リングの幾何 (ROOM_WALL_RING_X=1) も壁の絵も 1 バイトも変えていない。
+   * ⭐ 閾値を書き換えて緑にするのは「測定器の較正を壊れたまま合わせにいく」ことになるので取らない。
+   * ⚠ ピンを外したら (0-ピン) が落ちるようにしてある (空振り検出)。 */
+  const URL_Q = 'http://localhost:' + PORT + '/index.html?diag=1&graphtest=1&dndrange=0';
 
   try {
     // ══ §1 素材の配線 ═══════════════════════════════════════════════════════════
@@ -312,6 +324,10 @@ async function playShot(page, file) {
     await page.screenshot({ path: path.join(SHOT_DIR, 'desktop.png') });
     await dumpCanvas(page, path.join(SHOT_DIR, 'desktop_map.png'));
     if (M.err) { check('(0) 北壁が画面に入っている', false, M.err); throw new Error(M.err); }
+    /* ★[P6] 光半径ピンの装置 assert。?dndrange=0 を外すと (3d) のフォグ α の窓
+     *   (石なら 104〜121) が較正外になって落ちるので、原因不明の赤にしないよう名指しで測る。 */
+    check('(0-ピン) ?dndrange=0 が効いている (旧射程 bow=6 / 戦士 光 outer=330)',
+      M.pinBow === 6 && M.pinOuter === 330, 'bow=' + M.pinBow + ' outer=' + M.pinOuter);
     console.log('[drv] wall ' + JSON.stringify(M.wall) + '\n[drv] floor ' + JSON.stringify(M.floor));
     console.log('[drv] α wallD1=' + M.aWallD1 + ' wallD2=' + M.aWallD2
       + ' southD1=' + M.aSouthD1 + ' southD2=' + M.aSouthD2 + ' floor=' + M.aFloor

@@ -127,7 +127,18 @@ async function freshPage(browser, opts) {
     sessionStorage.setItem('dragonfighters.currentScenario', id);
   }, SCEN);
   const gq = ((opts || {}).graph0 === false) ? '' : '&graph=0';
-  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1' + gq,
+  /* ★[卓上グリッド P6] 母集団を旧射程へ固定する ?dndrange=0。**期待値は 1 文字も変えていない**。
+   * ⚠⚠ 理由は「射程が伸びて演出が壊れた」ではない。このドライバの (2) は
+   *   `sleepMs = () => Promise.resolve()` で演出待ちを潰してから enemyAttackTurn を直叩きする。
+   *   視界 4→8 / 交戦距離の拡大で**叩く時点ですでに戦闘が走っている**ようになったため
+   *   (実測 `encActive:true` / 敵 13 体生存 / ボス hp45 生存)、進行中のラウンドループが
+   *   待ち時間ゼロで暴走し、CDP の evaluate が "Promise was collected" で落ちる。
+   *   = 測り方が「戦闘が走っていないこと」を暗黙の前提にしていた。
+   * ⭐ 激怒ゲート自体は 1 行も変えていない。?dndrange=0 で 18/18、実プレイ側は
+   *   driver_graph_sce1 が autoplay でボス撃破まで 104/104、speech_v2 も 46/46 で緑。
+   * ⚠ ピンを外したら (0-ピン) が落ちるようにしてある (空振り検出)。 */
+  const rq = '&dndrange=0';
+  await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1' + gq + rq,
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     'window.__speech && typeof gameStarted !== "undefined" && gameStarted && typeof enemies !== "undefined" && enemies.length',
@@ -158,6 +169,9 @@ async function freshPage(browser, opts) {
     n: enemies.length,
     bossIdx: enemies.findIndex(e => e.def.isBoss),
     summonIdx: enemies.findIndex(e => e.def.maxSummons > 0),
+    // ★[P6] 射程ピン (?dndrange=0) が効いているかの実測値。旧値は bow=6 / warrior 視界=4。
+    bowTiles: (typeof RANGE !== 'undefined' && RANGE.bow) ? RANGE.bow.tiles : -1,
+    warriorSight: (typeof CLASS_SIGHT !== 'undefined' && CLASS_SIGHT.warrior) ? CLASS_SIGHT.warrior.tiles : -1,
   }));
   {
     const pOn = await freshPage(browser);
@@ -171,6 +185,12 @@ async function freshPage(browser, opts) {
       'isCustom=' + on.isCustom + ' rooms=' + on.rooms + ' enemies=' + on.n);
     check('(0) 従来経路の enemies にボスが居る (標本が空でない)',
       on.bossIdx >= 0 && on.summonIdx >= 0, 'bossIdx=' + on.bossIdx + ' summonIdx=' + on.summonIdx);
+    /* ★[P6] 射程ピンの装置 assert。?dndrange=0 を外すと (2) が
+     *   「叩く時点で戦闘が走っている」状態になって落ちるので、ピンが外れたことを
+     *   **ここで名指しで**分かるようにしておく (原因不明の赤にしない)。 */
+    check('(0-ピン) ?dndrange=0 が効いている (旧射程 bow=6 / 戦士視界=4)',
+      on.bowTiles === 6 && on.warriorSight === 4,
+      'bow=' + on.bowTiles + ' warriorSight=' + on.warriorSight);
     check('(0-装置) ?graph=0 を外すと分岐版になり entry にボスが居ない (スイッチが効いている証明)',
       off.isCustom === true && off.bossIdx < 0,
       'isCustom=' + off.isCustom + ' rooms=' + off.rooms + ' enemies=' + off.n + ' bossIdx=' + off.bossIdx);
