@@ -804,6 +804,105 @@
     return out;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+   * ★[卓上グリッド P3 追補] 絵に描かれた「出入口」と「屋外かどうか」
+   * ══════════════════════════════════════════════════════════════════════════
+   * ROOM_PAINTINGS_DEF[theme][key].gates = { right: [25, 4], up: [16, 0, "up"], … }
+   *   値 = [絵ローカル列, 絵ローカル行] | [絵ローカル列, 絵ローカル行, 実際に向いている向き]
+   *   絵の左上を [0,0] とするタイル座標。3 つ目は省略可 (省略時 = キーの向き自身)。
+   *
+   * ⭐ **なぜ絵に付けるか** — blocked とまったく同じ理由。出入口は絵に描かれている
+   *   (廃坑入口なら木枠の坑口) ので、絵を差し替えれば口の位置も当然変わる。rooms[i] 側や
+   *   ノードの定義に持たせると、絵だけ差し替えたときに口が黙って古い場所に残る。
+   * ⭐ 貼り先の rect へ blocked と**同じ比率**で写すので、絵が 2 経路 (絵側の tileBounds /
+   *   部屋の rect) のどちらで貼られても「絵に見えている場所」と「口」が一致する。
+   *
+   * ⭐⭐ **3 つ目の「向き」が要る理由**: 出口の dir は分岐グラフ上の識別子 (部屋の中心から
+   *   見てどちらへ抜けるか) で、**絵の中でその口がどちらを向いているか**とは別物。廃坑入口の
+   *   坑口は「部屋の中心から見れば右上 = dir:right」だが、口そのものは**北を向いている**
+   *   (南から北へ潜る)。扉の板の向き・壁の開口を掘る向きはこちらで決めないと、坑口の前に
+   *   縦板の扉が立つ。⚠ dir を変えて解決してはいけない — dir は木構造の枝の識別子なので、
+   *   同じノードで 2 本が同じ dir になった瞬間に扉も矢印も 1 本ぶん消える。
+   *
+   * ⚠⚠ 壊れていたら**丸ごと捨てて error を返す** (blocked と同じ流儀)。半端に採ると
+   *   「口が 1 マスずれた所に開く」= 扉が絵と食い違う所に立ち、原因を追えない。
+   *   捨てたことは lint の painting-gate-broken が知らせる = silent fail にはしない。 */
+  var PAINTING_GATE_DIRS = ["up", "down", "left", "right"];
+
+  function isGateDir(v) { return PAINTING_GATE_DIRS.indexOf(v) >= 0; }
+
+  /* カタログの生エントリ → { gates, tw, th, error }。
+   *   gates … 検査を通った { dir: { c, r, face } } | null (未指定・不正のどちらも null)
+   *   tw/th … 絵のタイル寸法 (貼り先へ写すときの分母)。gates が null なら 0
+   *   error … 不正だったときの理由 | null (未指定なら null = 指定しないのは正常)
+   * ⚠ 「採れたか」と「壊れているか」を **1 本の関数**で返す (paintingBlockedRows と同じ)。
+   *   2 本に割ると「本編は捨てたのに lint は通す」という食い違いが生まれる。 */
+  function paintingGates(entry) {
+    var none = { gates: null, tw: 0, th: 0, error: null };
+    function bad(msg) { return { gates: null, tw: 0, th: 0, error: msg }; }
+    if (!entry || typeof entry !== "object") return none;
+    if (entry.gates === undefined || entry.gates === null) return none;
+    if (!isBounds4(entry.tileBounds))
+      return bad("tileBounds が [r1,c1,r2,c2] ではないので口の座標を検算できません");
+    var src = entry.gates;
+    if (typeof src !== "object" || Array.isArray(src))
+      return bad("gates が { 向き: [列, 行] } の形ではありません");
+    var wh = boundsWH(entry.tileBounds);
+    var keys = Object.keys(src), out = {}, i, k, v, face;
+    if (!keys.length) return bad("gates が空です");
+    for (i = 0; i < keys.length; i++) {
+      k = keys[i];
+      if (!isGateDir(k))
+        return bad('gates のキー "' + k + '" は向き (' + PAINTING_GATE_DIRS.join(" / ") + ") ではありません");
+      v = src[k];
+      if (!Array.isArray(v) || v.length < 2 || !isNum(v[0]) || !isNum(v[1]))
+        return bad("gates." + k + " が [列, 行] の数値対ではありません");
+      if (v[0] < 0 || v[0] >= wh.tw || v[1] < 0 || v[1] >= wh.th)
+        return bad("gates." + k + " の [" + v[0] + "," + v[1] + "] が絵の外です (絵は " +
+                   wh.tw + "x" + wh.th + " タイル)");
+      face = (v.length >= 3 && v[2] !== undefined && v[2] !== null) ? v[2] : k;
+      if (!isGateDir(face))
+        return bad("gates." + k + ' の 3 つ目 "' + face + '" は向き (' +
+                   PAINTING_GATE_DIRS.join(" / ") + ") ではありません");
+      out[k] = { c: Math.round(v[0]), r: Math.round(v[1]), face: face };
+    }
+    return { gates: out, tw: wh.tw, th: wh.th, error: null };
+  }
+
+  /* rooms[i].painting = { theme, key } → 上と同じ 1 本を通す。 */
+  function paintingGatesFor(theme, key) {
+    return paintingGates(paintingEntryFor(theme, key));
+  }
+
+  /* 絵ローカルの口 × 貼り先の rect → { tx, ty, face } | null。
+   * ⚠ blocked (貼り先 → 絵) と**逆向き**の写像なので、等倍でない貼り方をすると丸め 1 マス
+   *   ぶん食い違いうる。ノードの絵は rect と tileBounds を一致させる規約
+   *   (paintingAspectFits が縦横比の完全一致を要求する) なので実際には恒等写像。
+   * ⚠ 枠外は null (捏造しない)。 */
+  function paintingGateTileFor(m, dir, rect, W, H) {
+    if (!m || !m.gates || !isBounds4(rect)) return null;
+    var g = m.gates[dir];
+    if (!g) return null;
+    var rh = rect[2] - rect[0] + 1, rw = rect[3] - rect[1] + 1;
+    if (rh <= 0 || rw <= 0 || !(m.tw > 0) || !(m.th > 0)) return null;
+    var tx = rect[1] + Math.min(rw - 1, Math.floor(g.c * rw / m.tw));
+    var ty = rect[0] + Math.min(rh - 1, Math.floor(g.r * rh / m.th));
+    if (tx < 0 || tx >= W || ty < 0 || ty >= H) return null;
+    return { tx: tx, ty: ty, face: g.face };
+  }
+
+  /* ROOM_PAINTINGS_DEF[theme][key].outdoor === true → その絵は空の下の情景。
+   * ⭐ これも**絵に付ける** (部屋やノードに付けない)。屋外かどうかは絵が描いている内容
+   *   そのものなので、屋内の絵へ差し替えたら屋外でなくなるのが正しい。
+   * ⚠ テーマ単位の IS_FIELD_THEME とは別物。あちらは「シナリオまるごと屋外」。こちらは
+   *   「屋内シナリオの中に 1 部屋だけある屋外」(廃坑の入口は坑道の外) を表す。 */
+  function paintingOutdoor(entry) {
+    return !!(entry && typeof entry === "object" && entry.outdoor === true);
+  }
+  function paintingOutdoorFor(theme, key) {
+    return paintingOutdoor(paintingEntryFor(theme, key));
+  }
+
   /* テーマ既定の「代表レシピ」= { counts:{kind:n}, area:n } | null。
    * 呼び出し側 (項目3 のプレビュー / 項目4 の generateScenery) は
    *     Math.round(counts[kind] * (部屋の床面積 / area) * density)
@@ -2027,7 +2126,8 @@
    *          field-theme-custom / enemy-unknown-key /
    *          tiles-outside-rooms (★Phase 3 項目2) /
    *          painting-missing    (★Phase 4 項目2) /
-   *          painting-blocked-broken (★卓上グリッド P2)     … warning
+   *          painting-blocked-broken (★卓上グリッド P2)     /
+   *          painting-gate-broken    (★卓上グリッド P3 追補) … warning
    * ────────────────────────────────────────────────────────────────────────── */
 
   // index.html:2987 FIELD_THEMES の写し。屋外テーマだけ罠の起点ガード条件が変わる (19055)。
@@ -2448,6 +2548,26 @@
       }
     }
 
+    /* ── ★[卓上グリッド P3 追補] 1 枚絵の出入口 gates が壊れている (**warning**) ──────
+     *  paintingGates は形の合わない指定を**丸ごと捨てる**。捨てたことを黙っていると
+     *  「絵の坑口に出口を移したのに、辺の中点のままだった」を誰も検出できない = silent fail。
+     *  ⚠ warning なのは、捨てた結果が「追補以前とまったく同じ盤面 (辺の中点)」= 詰まないため。
+     *  ⚠⚠ ここが見るのは blocked と同じく **mapDef 経路 (rooms[i].painting) だけ**。 */
+    if (getPaintingCatalog()) {
+      for (i = 0; i < rooms.length; i++) {
+        var gpg = rooms[i].painting;
+        if (!gpg) continue;
+        var gm = paintingGatesFor(gpg.theme, gpg.key);
+        if (!gm.error) continue;
+        var grc = rooms[i].rect;
+        warn("painting-gate-broken",
+             "部屋 " + rooms[i].id + ' の1枚絵 (テーマ "' + gpg.theme + '" / 部屋キー "' + gpg.key +
+             '") の出入口 gates が壊れています: ' + gm.error +
+             " — 指定は丸ごと捨てられ、出口・扉・矢印が絵に描かれた口ではなく部屋の辺の中点に立ちます",
+             [grc[1], grc[0]], i);
+      }
+    }
+
     /* ── ★Phase 6: 個別に置いた情景物 (props) の検査 ────────────────────────────
      *  ⚠ 「通り道を塞いだ」は上の項目① (unreachable-room / unreachable-slot /
      *    prop-on-slot / prop-blocks-start) が既に見ている。ここは**それ以外**だけ。
@@ -2852,7 +2972,8 @@
    *   error   graph-bad / graph-not-tree / graph-unreachable-node / graph-no-boss /
    *           graph-gate-not-floor / graph-entry-start
    *   warning graph-dir-mismatch / graph-dead-end-empty / graph-kind-role /
-   *           graph-painting-aspect (★P5 前段)
+   *           graph-painting-aspect (★P5 前段) /
+   *           graph-painting-gate-broken (★卓上グリッド P3 追補)
    *
    * ⚠ **graph が未指定なら何も言わない** (errors:[] / warnings:[])。既存 6 シナリオは
    *   graph を持たないので、この装置は 1 件も発火しない = 装置が信用を失わない。 */
@@ -3015,6 +3136,26 @@
              "旧単一マップ用の在庫 (20×16 / 22×18) は載りません " +
              "(painting を外してタイル描画にするか、ノード用の絵 n4 / n7 を指定してください)",
              node.id, [prc[1], prc[0]]);
+      }
+
+      /* ⑧ ★[卓上グリッド P3 追補] ノードの絵が持つ出入口 gates が壊れている (**warning**)。
+       * ⚠⚠ ⑦ と**まったく同じ理由でここに要る** — lintRun は lintMapDef を呼ばないので、
+       *   lintMapDef 側の painting-gate-broken だけでは**分岐マップのノードは一度も検査に
+       *   掛からない**。実際 2026-08-18 に、絵の gates を絵の外の座標へ壊す変異
+       *   (driver_grid_p3b の gatebroken) で lintMapDef 側の警告が 1 件も出ず、
+       *   「黙って辺の中点へ落ちる」状態を検出できなかった。
+       * ⚠ code は graph- 接頭辞 (graph-painting-aspect と同じ流儀)。lintMapDef 側は
+       *   painting-gate-broken のまま = どちらの検査装置が言ったのかが code で分かる。 */
+      for (j = 0; j < rooms.length; j++) {
+        if (!rooms[j].painting) continue;
+        var gpm = paintingGatesFor(rooms[j].painting.theme, rooms[j].painting.key);
+        if (!gpm.error) continue;
+        var grc2 = rooms[j].rect;
+        warn("graph-painting-gate-broken",
+             'ノード "' + node.id + '" の部屋 ' + rooms[j].id + " の1枚絵が持つ出入口 gates が" +
+             "壊れています: " + gpm.error +
+             " — 指定は丸ごと捨てられ、出口・扉・矢印が絵に描かれた口ではなく部屋の辺の中点に立ちます",
+             node.id, [grc2[1], grc2[0]]);
       }
     }
 
@@ -3248,6 +3389,19 @@
     paintingBlockedFor: paintingBlockedFor,
     paintingBlockedTilesFor: paintingBlockedTilesFor,
     paintingBlockedTiles: paintingBlockedTiles,
+
+    /* ── ★[卓上グリッド P3 追補] 絵に描かれた出入口 / 屋外フラグ ──────────────
+     *   paintingGates(entry) / paintingGatesFor(theme,key) … { gates, tw, th, error }
+     *   paintingGateTileFor(m, dir, rect, W, H)            … { tx, ty, face } | null
+     *   paintingOutdoor(entry) / paintingOutdoorFor(t,k)   … その絵は空の下か
+     *  ⚠ blocked とまったく同じ非対称がある: 本編は roomPaintings 経由でも引くが、lint が
+     *    見るのは mapDef 経路 (rooms[i].painting) だけ。 */
+    PAINTING_GATE_DIRS: PAINTING_GATE_DIRS,
+    paintingGates: paintingGates,
+    paintingGatesFor: paintingGatesFor,
+    paintingGateTileFor: paintingGateTileFor,
+    paintingOutdoor: paintingOutdoor,
+    paintingOutdoorFor: paintingOutdoorFor,
     sceneryRecipeFor: sceneryRecipeFor,
     sceneryKinds: sceneryKinds,
 

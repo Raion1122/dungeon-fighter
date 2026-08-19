@@ -3681,6 +3681,23 @@
     try {
       if (new URLSearchParams(window.location.search).get("paintgrid") === "0") GRID_OVER_PAINTING = false;
     } catch (e) {}
+    /* ★[卓上グリッド P3 追補①] 絵に描かれた出入口 (ROOM_PAINTINGS_DEF の gates) の撤退スイッチ。
+     *   0 にすると出口・扉・矢印が**部屋の辺の中点**という追補前の幾何へ戻る。
+     * ⚠⚠ **置き場所がここなのには理由が 2 つあり、どちらも動かせない**:
+     *   ① RUN (:4006 の即時評価) の中で buildGoblinMineRun が exits[].at を組むので、
+     *      それより前に初期化されていないと一時的死角 (TDZ) で分岐マップが起動時に死ぬ。
+     *   ② 起動直後の入口ノードは buildNode を通らず、31100 行台の
+     *      `if (RUN) { rebuildWallOpenings / rebuildNodeDoors }` が**モジュール直下で**
+     *      nodeGateTile を呼ぶ。ここも同じ理由で「宣言より前」になってはいけない。
+     * ⚠⚠ **データ (exits[].at) と導出 (nodeGateTile) の両方**がこの 1 つのスイッチを見ること。
+     *   片方だけ戻すと「矢印と扉は旧位置・遷移が起きるのは新位置」という食い違いが生まれ、
+     *   openDoorAt はタイルで扉を同定するので**開かない扉**が残る (= 退避したのに壊れる)。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat ではゲートしない
+     *   (?doors=0 / ?locks=0 / ?paintgrid=0 / ?paintblock=0 と同じ扱い)。 */
+    const PAINT_GATE_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("paintgate") === "0"; }
+      catch (e) { return false; }
+    })();
     /* 検証シーム: 1 枚絵の上のグリッドだけを同一ページで切り替える (driver が A/B 差分を採る)。
      * ⚠ 2 回のページロードで比べるとカメラ位置・敵の湧き・フォグが別物になり、「グリッドで
      *   変わった画素」と「そもそも別の絵」を切り分けられない (__setWallProps と同じ理由)。 */
@@ -4474,21 +4491,35 @@
          *   ⚠ 33x22 は他ノード (7x6 / 9x6) より桁違いに広い。rooms[i].rect も同じ 33x22 に
          *     すること (paintingAspectFits は縦横比の完全一致を要求する)。 */
         n0: { src: "assets/room_goblin-mine_n0.jpg", tileBounds: [3, 20, 24, 52], node: true,
+             /* ★[P3 追補②] この絵は**空の下**の情景 (森と崖に囲まれた採掘キャンプ)。
+              *   坑道へ潜る前なので、入った瞬間から地形の全体が見えているのが正しい。
+              * ⚠ シナリオ単位の IS_FIELD_THEME / __daylight とは別物。あちらを立てると
+              *   goblin-mine の**坑内まで**明るくなる ("廃坑内は暗くてもいい" と食い違う)。 */
+             outdoor: true,
+             /* ★[P3 追補①] 坑道への出口は**絵に描かれた坑口**に立てる。
+              *   絵ローカル (25,4) = 木枠の坑口の真下の砂利。3 つ目の "up" は「この口は
+              *   北を向いている」ことで、扉の板が東西に伸びる (= 口を塞ぐ向き) 根拠になる。
+              *   dir 自体は "right" のまま — 部屋の中心 (36,13.5) から見た幾何が right
+              *   (|dx|=9 > |dy|=6.5) なので lint の graph-dir-mismatch も鳴らない。
+              * ⚠ 列 26 ではなく **25**。26 の右側には坑口の支柱の脚が下りていて、扉を立てると
+              *   絵の柱と重なる (tools/make_grid_map.py で焼いた 64px 格子の上で実測)。
+              * ⚠ up/down は絵に口が描かれていないので指定しない = 従来どおり辺の中点。 */
+             gates: { right: [25, 4, "up"] },
              /*  ★障害物: 左と下の針葉樹林 / 右上と右の崖 / 採掘キャンプの天幕・樽・木箱・荷袋。
-              *  ⚠ このノードは出口が 3 本 (up/down/right) あり、どれも **辺の中点**に立つ
-              *    (nodeGateTile)。絵はその接続を知らずに描かれているので、規則④に従って
-              *    ゲートへのレーンを明示的に空けてある — 空けないと絵に忠実なだけで詰む:
+              *  ⚠ このノードは出口が 3 本 (up/down/right) ある。絵はその接続を知らずに
+              *    描かれているので、規則④に従ってゲートへのレーンを明示的に空けてある
+              *    — 空けないと絵に忠実なだけで詰む:
               *      up    (絵ローカル 16,0)  … 行 1-3 の列 14-17 = 岩場の切れ目として空ける
-              *      down  (絵ローカル 16,21) … 行 13 と行 20 の列 15-17 を樹林に空ける
-              *      right (絵ローカル 32,10) … 行 10 は木箱で塞がるので**行 12 が迂回路**
-              *                                 (木箱を回り込む = 絵として自然な経路)
+              *      down  (絵ローカル 16,21) … 行 12/13/20 の列 15-17 を樹林に空ける
+              *      right (絵ローカル 25,4)  … ★上の gates で坑口へ移した。起点 (16,10) から
+              *                                 列 16 を北上 → 行 4 の砂利を東へ = 絵のとおりの道
               *  ⚠ 平置きの物 (板・布・荷車の車輪・倒木・浅い流れ) は規則②で塞がない。 */
              blocked: [
                ".................................",   //  0  外周 (フェザー帯) — 規則①
                ".###.####.####....##############.",   //  1  左:森(col4,9 が小道) 中央:岩場の切れ目 右:崖
                ".###..###.####....##############.",   //  2  右: 崖と坑道の口 (col25-26 が坑口の闇)
                ".###..###.####....##############.",   //  3
-               ".###..########.............#####.",   //  4  坑口の前は砂利で歩ける / col27- 支柱と崖
+               ".###..########.............#####.",   //  4  ★right ゲート = 坑口の真下 (col25)。col27- 支柱と崖
                ".##..#########......####.....###.",   //  5  camp: 木箱と天幕 (20-23)
                ".##...#########.....#####.######.",   //  6  天幕と荷車の残骸 / 右: 樽 3 つ
                ".##....#########....#####.######.",   //  7  大岩 (13-15) / 荷車の残骸 / 樽と荷袋
@@ -4496,7 +4527,7 @@
                ".#.......#######.....##..###.....",   //  9  木箱 2 群 (車輪は平置きなので空ける)
                ".###......####...........###.....",   // 10  ★起点の行 (絵ローカル 16,10)。右は木箱
                ".####.....................#...##.",   // 11  左: 大きな切り株 / 右: 崖の転石
-               ".####....######...............##.",   // 12  ★right ゲートへの迂回路 (列 15-29 が開通)
+               ".####....######...............##.",   // 12  ★down レーン (列 15-17)。列 18-29 も木箱の間の空地
                ".##......######...###.##..##..##.",   // 13  ★down レーン (列 15-17) を樹林に空ける
                ".##.......####.....##.##..##..##.",   // 14  荷袋と木箱 / 右: 崖の転石
                "....###....................#####.",   // 15  開けた草地 (南の広場)
@@ -30634,8 +30665,14 @@
       const DEPTH = Math.max(ROOM_WALL_RING_X, ROOM_WALL_RING_Y) + 1;
       for (const dir of dirs) {
         const g = nodeGateTile(MAPDEF, dir);
-        const dx = dir === "left" ? -1 : dir === "right" ? 1 : 0;
-        const dy = dir === "up"   ? -1 : dir === "down"  ? 1 : 0;
+        /* ★[P3 追補①] 掘る向きは **口が実際に向いている向き** (g.face)。dir は木構造の枝の
+         *   識別子でしかないので、絵の坑口のように「部屋から見れば右、口そのものは北」という
+         *   ノードでは dir で掘ると 90 度違う方向の壁を抜いてしまう。
+         * ⚠ 絵の中に口がある場合 (g が部屋の内側) は 1 歩目で床に当たって break する = 開口を
+         *   1 マスも掘らない。それが正しい — 口は絵に描かれていて、壁リングとは無関係。 */
+        const face = g.face || dir;
+        const dx = face === "left" ? -1 : face === "right" ? 1 : 0;
+        const dy = face === "up"   ? -1 : face === "down"  ? 1 : 0;
         for (let k = 1; k <= DEPTH; k++) {
           const tx = g.tx + dx * k, ty = g.ty + dy * k;
           if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) break;
@@ -30778,11 +30815,15 @@
           for (const dir of byDir.keys()) {
             const g = nodeGateTile(MAPDEF, dir);          // 関数宣言なので巻き上げ済み
             const doorId = "gate-" + dir;
+            /* ★[P3 追補①] 板の向きは **口が実際に向いている向き** (g.face)。既定は dir 自身。
+             * ⚠ 廃坑入口の坑口は dir:"right" だが face:"up" (南から北へ潜る)。dir で決めると
+             *   北向きの穴の前に縦板の扉が立ち、絵と 90 度食い違う。 */
+            const face = g.face || dir;
             out.push({
               id: doorId, tx: g.tx, ty: g.ty,
               /* 向きの対応: 南北へ抜ける口 (up/down) は板が東西へ伸びる = horizontal。
                *   東西へ抜ける口 (left/right) は vertical。 */
-              orientation: (dir === "left" || dir === "right") ? "vertical" : "horizontal",
+              orientation: (face === "left" || face === "right") ? "vertical" : "horizontal",
               /* ★[P5] 既定は closed、抽選に当たった扉だけ locked。どちらも「塞ぐ側」なので
                *   通行判定 (P3) から見た初期状態は変わらない = fail-safe のまま。
                * ⚠ 保存があれば下の applySavedDoorStates が上書きする。つまり一度こじ開けた扉は
@@ -30838,6 +30879,94 @@
       rebuildDoorBlockMask();
       return true;
     }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★[卓上グリッド P3 追補②] 空の下の部屋は、入った瞬間から地形の全体が見えている
+     * ══════════════════════════════════════════════════════════════════════════
+     * ユーザー要望「廃坑入口MAP自体は、外なので、はじめからMAP見えてる感じでいいかな。
+     * 廃坑内は暗くてもいいので」。
+     *
+     * ⭐ **シナリオ単位の __daylight ではやらない**。あちらは IS_FIELD_THEME 連動で
+     *   「暗幕を一切張らない」ので、goblin-mine に付けると**坑内まで**明るくなり、
+     *   「廃坑内は暗くてもいい」と正面から食い違う。ここが要るのは
+     *   「屋内シナリオの中に 1 部屋だけある屋外」という粒度。
+     * ⭐ 屋外かどうかの出所は**絵**(ROOM_PAINTINGS_DEF の outdoor)。屋内の絵へ差し替えたら
+     *   屋外でなくなるのが正しいので、部屋やノードには持たせない (blocked / gates と同じ流儀)。
+     *
+     * ⚠ やることは 3 状態フォグの「記憶」を先に立てるだけ (exploredTiles = 1 → 暗幕 dst≈0.70
+     *   の薄明)。**現在視界 (visibleTiles) は触らない**ので、パーティの周りだけ明るい光源の
+     *   演出はそのまま残る = 「踏破済みの地図を見ている」絵になる。
+     * ⚠⚠ visitedTiles も**一緒に**立てる。あれは findNearestAliveEnemy の
+     *   「未発見の敵は無視」が読む Set なので、片方だけ立てると「画面には見えているのに
+     *   誰も反応しない敵」が生まれる。**逆に言えばこれは索敵の挙動を変える**:
+     *   屋外の部屋では最初から部屋中の敵が索敵対象になる。今の唯一の屋外部屋 (goblin-mine/n0)
+     *   は敵 0 体なので現状は 1 体も動かないが、屋外ノードに敵を置く日には必ず効く。
+     * ⚠ 撤退は ?outdoor=0。dev チートではなく退避口なので __dfDevCheat ではゲートしない。 */
+    const OUTDOOR_REVEAL_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("outdoor") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* 直近の適用結果。★検証シーム __outdoorRevealProbe の唯一の出所 (ドライバに写経させない)。 */
+    let outdoorRevealStat = { off: OUTDOOR_REVEAL_OFF, rooms: 0, tiles: 0, rects: [] };
+    function revealOutdoorRooms() {
+      outdoorRevealStat = { off: OUTDOOR_REVEAL_OFF, rooms: 0, tiles: 0, rects: [] };
+      if (OUTDOOR_REVEAL_OFF || !window.DFMapDef || !MAPDEF || !Array.isArray(MAPDEF.rooms)) return;
+      for (const room of MAPDEF.rooms) {
+        const pg = room && room.painting;
+        if (!pg || !Array.isArray(room.rect)) continue;
+        if (!DFMapDef.paintingOutdoorFor(pg.theme, pg.key)) continue;
+        const [r1, c1, r2, c2] = room.rect;
+        let n = 0;
+        for (let ty = Math.max(0, r1); ty <= Math.min(MAP_H - 1, r2); ty++) {
+          for (let tx = Math.max(0, c1); tx <= Math.min(MAP_W - 1, c2); tx++) {
+            exploredTiles[ty][tx] = 1;
+            visitedTiles.add(ty * 100 + tx);      // ⚠ 鍵の式は markVisitedAround と同じ
+            n++;
+          }
+        }
+        outdoorRevealStat.rooms++;
+        outdoorRevealStat.tiles += n;
+        outdoorRevealStat.rects.push([c1, r1, c2, r2]);
+      }
+      if (outdoorRevealStat.tiles) lastVisSignature = "";   // 視界キャッシュを無効化
+    }
+    /* 検証シーム: 屋外の開放が「どの矩形を何マス」開けたか + 実際のフォグの現状 (読み取り専用)。
+     * ⚠⚠ **explored は stat ではなく exploredTiles を数え直す**。stat から採ると
+     *   「開けたつもりの数」しか測れず、restoreNodeState が後から上書きして消しても緑のまま。
+     *   母数を実装の戻り値から取るな、の一件 ([[project_headless_verification]])。 */
+    window.__outdoorRevealProbe = function () {
+      let explored = 0;
+      for (let ty = 0; ty < MAP_H; ty++) for (let tx = 0; tx < MAP_W; tx++)
+        if (exploredTiles[ty][tx]) explored++;
+      return {
+        off: outdoorRevealStat.off, rooms: outdoorRevealStat.rooms,
+        tiles: outdoorRevealStat.tiles,
+        rects: outdoorRevealStat.rects.map(r => r.slice()),
+        exploredNow: explored, seenNow: visitedTiles.size,
+        mapW: MAP_W, mapH: MAP_H,
+      };
+    };
+    /* 検証シーム: 現在ノードの出口タイルを **実装の 1 本 (nodeGateTile) から**返す。
+     * ⚠⚠ これが無いとドライバが「辺の中点」または「絵ローカル + tileBounds」を写経することに
+     *   なり、実装とドライバが同じ間違いを共有して両方緑になる。ここは exits[].at (データ) と
+     *   nodeGateTile (導出) の**両方**を並べて返すので、ドライバは規則を知らずに一致だけ測れる。 */
+    window.__nodeGateProbe = function () {
+      const dirs = ["up", "down", "left", "right"];
+      const node = (RUN && currentNodeId) ? RUN.byId[currentNodeId] : null;
+      const gates = {};
+      for (const d of dirs) {
+        const g = nodeGateTile(MAPDEF, d);
+        gates[d] = { tx: g.tx, ty: g.ty, face: g.face || d };
+      }
+      return {
+        off: PAINT_GATE_OFF, nodeId: currentNodeId || null, mapId: MAPDEF && MAPDEF.id,
+        mainRect: mainRoomRect(MAPDEF).slice(),
+        gates: gates,
+        exits: ((node && node.exits) || []).map(e => ({ to: e.to, dir: e.dir, at: e.at.slice() })),
+        doors: (typeof doorsForRender === "function" ? doorsForRender() : [])
+                 .map(d => ({ id: d.id, tx: d.tx, ty: d.ty, orientation: d.orientation, state: d.state })),
+      };
+    };
 
     /* ★唯一の構築点。起動シーケンス (幾何 → 派生定数 → フォグ → 1枚絵 → 情景 → スポーン) を
      * **同じ順序で**再実行する。mapDef を省略すると現在ノードを作り直す (= ?renode の同一再入場)。
@@ -30895,6 +31024,10 @@
       roomPaintings.length = 0;
       paintedTileMask = new Uint8Array(MAP_W * MAP_H);
       loadRoomPaintings();
+      /* ★[P3 追補②] 空の下の部屋は最初から全体が見えている。⚠ フォグを作り直した**後**・
+       *   restoreNodeState (保存 → reset → build → 復元) の**前**。復元は st.explored を
+       *   set() で上書きするが、その保存自体がここで開けたぶんを含むので消えない。 */
+      revealOutdoorRooms();
       // ── 情景 (obstacleTileMask を作り直してから buildDecorations → generateScenery) ──
       sceneryPlacements.length = 0;
       obstacleTileMask = new Uint8Array(MAP_W * MAP_H);
@@ -31002,6 +31135,15 @@
      *   rebuildNodeDoors だけになった**ので、ここでマスクだけ作ると mapDef.doors のマップで
      *   nodeDoors が null のまま = 扉が 1 枚も立たない。 */
     rebuildNodeDoors(currentNodeId);
+    /* ★[P3 追補②] 屋外の部屋の開放も、扉と同じ理由でここに 1 回要る — **起動直後の入口ノードは
+     *   buildNode を通らない** (冒頭の boot 経路が mapData を直に組む) ので、buildNode の中の
+     *   呼び出しだけでは廃坑入口 n0 が「入った最初の 1 回だけ暗いまま」になる。
+     * ⚠ `if (RUN)` の**外**に置くこと (上の rebuildNodeDoors と同じ判断)。中に入れると、
+     *   分岐を持たない自作マップに屋外の絵を貼っても黙って効かない silent fail になる。
+     * ⚠ 行末コメントは飾りではない。無いとこの行が buildNode の中の
+     *   `      revealOutdoorRooms();` (インデントが 2 つ深い) の**部分文字列**になり、
+     *   検証ドライバの変異アンカーが 2 箇所に刺さって負のコントロールが空振りする。 */
+    revealOutdoorRooms();   // ★起動ノードは buildNode を通らないので、ここにも 1 回要る
     // 選択肢の見出し。P3 で矢印 UI になっても**文言はここが唯一の出所**にする。
     const DIR_LABELS = { up: "奥へ進む", down: "手前へ戻る道", left: "西へ進む", right: "東へ進む" };
 
@@ -31028,22 +31170,47 @@
      * ⚠⚠ 座標を直書きしない。計画書の [33,7]/[33,20]/[43,14]/[24,14] は
      *   「山場部屋 [7,24,20,43] の縁」を人手で書き下した値で、幾何を動かした瞬間に黙って
      *   岩盤を指す ([[project-room-shorten-2rooms]] で実際に 3 件踏んだ罠)。rect から導出する。 */
-    function mainRoomRect(mapDef) {
+    function mainRoom(mapDef) {
       let best = null, bestArea = -1;
       for (const r of mapDef.rooms) {
         const [r1, c1, r2, c2] = r.rect;
         const a = (r2 - r1 + 1) * (c2 - c1 + 1);
-        if (a > bestArea) { bestArea = a; best = r.rect; }
+        if (a > bestArea) { bestArea = a; best = r; }
       }
-      return best || [0, 0, MAP_H - 1, MAP_W - 1];
+      return best;
     }
+    function mainRoomRect(mapDef) {
+      const r = mainRoom(mapDef);
+      return (r && r.rect) || [0, 0, MAP_H - 1, MAP_W - 1];
+    }
+    /* 絵が持つ口を引く**唯一の口**。⚠ 規則 (絵ローカル → 貼り先へ写す比率・値の検査) は
+     *   DFMapDef.paintingGates / paintingGateTileFor が唯一の正。ここは主部屋を選び、
+     *   壊れていたら黙って捨てるのではなく従来の辺の中点へ落とす係に徹する
+     *   (捨てたことは lint の painting-gate-broken が知らせる)。 */
+    function paintingGateOf(mapDef, dir) {
+      if (PAINT_GATE_OFF || !window.DFMapDef) return null;
+      const room = mainRoom(mapDef);
+      const pg = room && room.painting;
+      if (!pg || !room.rect) return null;
+      const m = DFMapDef.paintingGatesFor(pg.theme, pg.key);
+      if (!m || !m.gates) return null;
+      return DFMapDef.paintingGateTileFor(m, dir, room.rect, MAP_W, MAP_H);
+    }
+    /* 出口 1 本ぶんの「立ち位置」と「その口が向いている向き」。
+     * ⚠⚠ **戻り値の tx/ty は exits[].at と 1 タイルも違ってはいけない**。食い違うと矢印は
+     *   絵の口に立つのに扉は辺の中点に立つ、という「開かない扉」が生まれる (openDoorAt は
+     *   タイルで同定する)。データ側 (buildGoblinMineRun) は同じ定数を両方へ配って揃える。
+     * ★face = 絵の中でその口が向いている向き。既定は dir 自身なので、gates を持たない
+     *   ノード (= 現状 n0 以外の全部) は 1 命令も挙動が変わらない。 */
     function nodeGateTile(mapDef, dir) {
+      const painted = paintingGateOf(mapDef, dir);
+      if (painted) return painted;
       const [r1, c1, r2, c2] = mainRoomRect(mapDef);
       const midR = Math.floor((r1 + r2) / 2), midC = Math.floor((c1 + c2) / 2);
-      if (dir === "up")   return { tx: midC, ty: r1 };
-      if (dir === "down") return { tx: midC, ty: r2 };
-      if (dir === "left") return { tx: c1,   ty: midR };
-      return { tx: c2, ty: midR };                       // right
+      if (dir === "up")   return { tx: midC, ty: r1, face: dir };
+      if (dir === "down") return { tx: midC, ty: r2, face: dir };
+      if (dir === "left") return { tx: c1,   ty: midR, face: dir };
+      return { tx: c2, ty: midR, face: dir };            // right
     }
     /* 情景スプライト (blocking) が乗ったタイルは歩けない → 近傍の歩けるタイルへ寄せる。
      * ⚠ isTileWall は mapData の値2 と obstacleTileMask の**両方**を見る唯一の歩行判定。
@@ -32289,7 +32456,20 @@
        *   ENTRY: midC = floor((20+52)/2) = 36 / midR = floor((3+24)/2)  = 13
        * ⚠ ズレると lintRun の graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
       const UP = [36, 11], DOWN = [36, 16], RIGHT = [39, 13];
-      const E_UP = [36, 3], E_DOWN = [36, 24], E_RIGHT = [52, 13];
+      /* ★[P3 追補①] E_RIGHT だけ **辺の中点ではなく絵に描かれた坑口**。
+       *   ROOM_PAINTINGS_DEF["goblin-mine"].n0.gates.right = 絵ローカル [25, 4] を
+       *   ENTRY [3,20,24,52] へ写した値 = [20+25, 3+4] = [45, 7] (rect と tileBounds が
+       *   同じ 33x22 なので恒等写像)。nodeGateTile も同じ 1 本 (paintingGateOf) を通るので
+       *   矢印・扉・到達検出が必ず同じタイルに揃う。
+       * ⚠⚠ **撤退スイッチをここでも見る**。?paintgate=0 は nodeGateTile を辺の中点へ戻すので、
+       *   データ側を戻し忘れると「矢印と扉は [52,13]・遷移が起きるのは [45,7]」という
+       *   食い違いになり、openDoorAt がタイルで扉を同定する以上**開かない扉**が残る。
+       *   退避口が壊れた状態を作っては意味がないので、必ず同じ 1 つのスイッチに乗せる。
+       * ⚠⚠ **絵側の gates を動かしたらここも動かすこと**。両方が揃っているかを測る装置は
+       *   tools/driver_grid_p3b.js の §1 (exits[].at === nodeGateTile) が持っている
+       *   (両モードで測るので、片方だけ直した日に必ず赤くなる)。 */
+      const E_UP = [36, 3], E_DOWN = [36, 24];
+      const E_RIGHT = PAINT_GATE_OFF ? [52, 13] : [45, 7];
       function node(id, name, rect, opt) {
         opt = opt || {};
         return {
