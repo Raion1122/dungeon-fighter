@@ -3922,6 +3922,24 @@
      * 従来の文字列と完全一致 (golden・検証シームが赤くならない)。
      * ⚠ scale は必ず**先頭**。後ろに置くと rotate/translate の適用順が変わって軌跡がずれる。 */
     function zTf(inner) { return (camZ === 1) ? inner : ("scale(" + camZ + ") " + inner); }
+    /* ══ [卓上グリッド P7] 「縮まない UI」を置く**唯一の関数** ═══════════════════
+     * HP バー / 名前ラベル / 「!」/ 装備バッジ / 状態アイコン列は camZ で縮まない
+     * (縮むのは composeSpriteTransform を通る「絵」だけ = P7 の設計)。よって world 座標へ
+     * 素直に置くと、z<1 でスプライトだけが縮んで **アンカーが取り残される**。
+     *   横 = スプライトの**画面中心**を基準に、z=1 のときの画面 px オフセットを保つ
+     *   縦 = スプライトの**画面上端**を基準に、z=1 のときの画面 px オフセットを保つ
+     * ⚠⚠⚠ camZ=1 では SX(wx+dx) / SY(wy+dy) と**恒等**:
+     *   SX(wx+S/2) + (dx-S/2) = (wx-camX) + dx  /  SY(wy) + dy = (wy-camY) + dy
+     *   → 既存 5 シナリオ (等倍) の見え方は 1px も動かない。
+     * ⚠⚠ 縦を「中心基準」にしてはいけない。z=0.5 でラベルが頭の 52px 上へ浮く。
+     * ⚠ dx/dy は **z=1 のときの値をそのまま**渡す (呼び側で ±W/2 を捏ねない)。
+     *   HP バーが以前から持っていた `SX(x + off + W/2) - W/2` はこの式の特殊形で、
+     *   dx + W/2 === S/2 のとき一致する (実測: 味方 18+30=48 / 敵 (S-52)/2+26=S/2)。 */
+    function placeUnscaledUi(el, wx, wy, size, dx, dy) {
+      const half = size / 2;
+      el.style.left = (SX(wx + half) + (dx - half)) + "px";
+      el.style.top  = (SY(wy) + dy) + "px";
+    }
     function viewPxW() { return mapCanvas.width  / camZ; }
     function viewPxH() { return mapCanvas.height / camZ; }
     // ── カメラ・イージング層 (案A: pan-only・literal zoomなし) ──
@@ -6230,7 +6248,16 @@
       if (w <= ZOOM_LARGE_W && h <= ZOOM_LARGE_H) return 1;   // 既存規格 = 1 ミリも触らない
       const fitW = (window.innerWidth  - UI_MENU_WIDTH)     / (w * TILE_SIZE);
       const fitH = (window.innerHeight - cameraBottomHud()) / (h * TILE_SIZE);
-      return Math.max(ZOOM_MIN, Math.min(1, Math.min(fitW, fitH)));
+      /* ★★★ [2026-08-19 ユーザー決定] **cover** (大きい方) を採る。fit (小さい方) だと
+       *   絵の縦横比 33:22=1.5 と描画領域の比 (最大化 1880x950 で 2.05) が食い違うぶんが
+       *   そのまま黒帯になり、実測で左右に 216px ずつの虚無が出ていた。
+       *   cover なら **どの軸も「部屋 ≧ 描画領域」** が必ず成り立つので、既存の
+       *   (3b) MAP_USED クランプ (computeCameraTarget) が黒を 1px も入れなくなる
+       *   = 「廃坑の戦闘は 1 枚絵の中だけで完結する」。
+       *   代償は絵の一部が画面外へ出ること (最大化時で縦に約 287px)。カメラが追う。
+       * ⚠ min → max はモバイルの引き幅も変える (390x844 で 0.25 → 約 0.30)。
+       *   P7 の「4.06 → 16.25 タイル」は「→ 13.3 タイル」になるが、黒帯ゼロと引き換え。 */
+      return Math.max(ZOOM_MIN, Math.min(1, Math.max(fitW, fitH)));
     }
     /* 倍率を実際に適用する唯一の書き込み点。⚠ ここで描画はしない (buildNode の途中から
      * 呼ばれても安全であること)。呼び出し側が続けて snapCamera() する契約。 */
@@ -6428,7 +6455,7 @@
       if (__daylight) {
         lctx.setTransform(1, 0, 0, 1, 0, 0);
         lctx.clearRect(0, 0, lightingCanvas.width, lightingCanvas.height);
-        lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
+        lctx.setTransform(lightScale * camZ, 0, 0, lightScale * camZ, 0, 0);   /* ★[P7修正] 屋外の早期 return でも camZ を落とさない */
         return;
       }
       // [camera-perf STEP7] W/H は CSS px (backing ではない)。lctx の CTM が lightScale を掛けるので、
@@ -6446,7 +6473,7 @@
       lctx.globalCompositeOperation = "source-over";
       lctx.fillStyle = "rgba(3, 5, 10, 1.0)";
       lctx.fillRect(0, 0, lightingCanvas.width, lightingCanvas.height);
-      lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
+      lctx.setTransform(lightScale * camZ, 0, 0, lightScale * camZ, 0, 0);   /* ★[P7修正] ここは毎フレーム走る = camZ を落とすと暗幕だけ等倍になる */
 
       // 明かりは destination-out で暗闇を削って描画する
       lctx.globalCompositeOperation = "destination-out";
@@ -14076,11 +14103,9 @@
            * 中心がずれる (96px スプライト前提の +18 が、24px 表示だと右へ大きくはみ出す)。
            * `SX(w + W/2) - W/2` は **camZ=1 で恒等** (= 従来と 1px も変わらない) のまま、
            * z<1 では「z=1 のときバーの中心だった世界点」に中心を置き続ける。 */
-          warriorHpBar.style.left = SX(playerX + 18 + 30) - 30 + "px";   // .allyHpBar 幅 60
-          warriorHpBar.style.top  = SY(playerY - 10 + 5) - 5 + "px";     // .allyHpBar 高さ 10
+          placeUnscaledUi(warriorHpBar, playerX, playerY, playerWidth, 18, -10);
           warriorHpFill.style.width = (hp / maxHp * 100) + "%";
-          warriorLabel.style.left = SX(playerX + 20) + "px";
-          warriorLabel.style.top  = SY(playerY - 28) + "px";
+          placeUnscaledUi(warriorLabel, playerX, playerY, playerWidth, 20, -28);
           updateStatusSlot("player", document.getElementById("warriorStatusSlot"));   // status-effect v1.1
         }
       }
@@ -14162,15 +14187,13 @@
           hpBarEl.style.display = "block";
           const hpBarOffX = (enemy.def.displaySize - 52) / 2;
           // ★[P7] 上の warriorHpBar と同じ理由。.enemyHpBar は 52x8。
-          hpBarEl.style.left = SX(enemy.x + hpBarOffX + 26) - 26 + "px";
-          hpBarEl.style.top  = SY(enemy.y - 10 + 4) - 4 + "px";
+          placeUnscaledUi(hpBarEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX, -10);
           hpFillEl.style.width = (enemy.hp / enemy.maxHp * 100) + "%";
           // status-effect v1.1: 状態アイコン列を HP バーの直上へ
           const statusEl = enemyStatusElements[index];
           if (statusEl) {
             statusEl.style.display = "flex";
-            statusEl.style.left = SX(enemy.x + hpBarOffX) + "px";
-            statusEl.style.top  = SY(enemy.y - 27) + "px";
+            placeUnscaledUi(statusEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX, -27);
             updateStatusSlot(enemy, statusEl);
           }
           // ボス/敵がプレイヤー・仲間(z-index:6)と同タイルに重なると、敵(z-index:2)が
@@ -14211,8 +14234,7 @@
         // ！マーク：alert 状態のときだけ表示
         if (enemy.alive && enemy.state === "alert") {
           alertEl.style.display = "block";
-          alertEl.style.left = SX(enemy.x + 22) + "px";
-          alertEl.style.top  = SY(enemy.y - 26) + "px";
+          placeUnscaledUi(alertEl, enemy.x, enemy.y, enemy.def.displaySize, 22, -26);
         } else {
           alertEl.style.display = "none";
         }
@@ -14224,8 +14246,7 @@
             badgeEl.style.display = "block";
             // 敵サイズの中央に合わせて少し上 (status-effect v1.1 の状態アイコン列 -27px の更に上へ)
             const offX = enemy.def.displaySize / 2 - 18;
-            badgeEl.style.left = SX(enemy.x + offX) + "px";
-            badgeEl.style.top  = SY(enemy.y - 46) + "px";
+            placeUnscaledUi(badgeEl, enemy.x, enemy.y, enemy.def.displaySize, offX, -46);
           } else {
             badgeEl.style.display = "none";
           }
@@ -14247,8 +14268,7 @@
           if (ally.hpWrapEl) {
             ally.hpWrapEl.style.display = "block";
             // ★[P7] 上の warriorHpBar と同じ理由。.allyHpBar は 60x10。
-            ally.hpWrapEl.style.left = SX(ally.x + 18 + 30) - 30 + "px";
-            ally.hpWrapEl.style.top  = SY(ally.y - 10 + 5) - 5 + "px";
+            placeUnscaledUi(ally.hpWrapEl, ally.x, ally.y, (ally.def && ally.def.displaySize) || 96, 18, -10);
             // .allyHpFill は transition: width 0.3s を持つ。毎フレーム同じ値を書くと
             // そのたびにトランジションが再起動して永久に走り続けるので、変化時だけ書く。
             const hpW = (ally.hp / ally.maxHp * 100) + "%";
@@ -14260,8 +14280,7 @@
           // 名前ラベル (HPバーの上)
           if (ally.nameLabelEl) {
             ally.nameLabelEl.style.display = "block";
-            ally.nameLabelEl.style.left = SX(ally.x + 20) + "px";
-            ally.nameLabelEl.style.top  = SY(ally.y - 28) + "px";
+            placeUnscaledUi(ally.nameLabelEl, ally.x, ally.y, (ally.def && ally.def.displaySize) || 96, 20, -28);
             updateStatusSlot(ally, ally.statusSlotEl);   // status-effect v1.1
           }
         } else {

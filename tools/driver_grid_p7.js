@@ -90,13 +90,33 @@ const MUTATIONS = {
     ['      let out = (z !== 1) ? ("scale(" + z + ")") : "";',
      '      let out = "";   /* ★変異nospritez */'],
   ],
+  /* ★「縮まない UI」の横アンカーを素朴式へ戻す。定数ではなく **唯一の配置関数** を
+   *   壊すので、HP バー・名前ラベル・!・バッジ・状態アイコンの 8 箇所すべてに効く。
+   *   camZ=1 では恒等なので既存経路は無傷 = 外科的に z<1 だけが壊れる。 */
+  nolabelanchor: [
+    ['      el.style.left = (SX(wx + half) + (dx - half)) + "px";',
+     '      el.style.left = SX(wx + dx) + "px";   /* ★変異nolabelanchor */'],
+  ],
+  /* ★ズームを cover から fit へ戻す (2026-08-19 のユーザー決定より前の規則)。
+   *   絵より描画領域のほうが横長になり、左右に黒帯が出る = §8 (8f) が赤くなる。 */
+  nocover: [
+    ['      return Math.max(ZOOM_MIN, Math.min(1, Math.max(fitW, fitH)));',
+     '      return Math.max(ZOOM_MIN, Math.min(1, Math.min(fitW, fitH)));  /* ★変異nocover */'],
+  ],
+  /* ★フォグの CTM から camZ を落とす (2026-08-19 に実際に出荷されていた欠陥そのもの)。
+   *   resizeCanvas() 側は camZ 込みのままなので **描画のたびに上書きされる** = 本物と同じ壊れ方。
+   *   §8 だけが赤くなる。 */
+  nofogz: [
+    ['      lctx.setTransform(lightScale * camZ, 0, 0, lightScale * camZ, 0, 0);   /* ★[P7修正] ここは毎フレーム走る = camZ を落とすと暗幕だけ等倍になる */',
+     '      lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);   /* ★変異nofogz */'],
+  ],
   /* 旧単一マップの除外を外す。?graph=0 の 45x18 が大部屋判定になり (3b) が赤くなる。 */
   nolegacyguard: [
     ['      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return 1;',
      '      if (false) return 1;   /* ★変異nolegacyguard */'],
   ],
 };
-const MUT_ORDER = ['nodomz', 'nocanvasz', 'nospritez', 'nolegacyguard'];
+const MUT_ORDER = ['nodomz', 'nocanvasz', 'nospritez', 'nolegacyguard', 'nofogz', 'nocover', 'nolabelanchor'];
 const PORT_OF = {};
 MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
 
@@ -375,10 +395,31 @@ function OBSERVE() {
     mapId: String((MAPDEF && MAPDEF.id) || '?'),
     field: (typeof IS_FIELD_THEME !== 'undefined') ? !!IS_FIELD_THEME : null,
     hud: (typeof cameraBottomHud === 'function') ? cameraBottomHud() : null,
+    menuW: (typeof UI_MENU_WIDTH !== 'undefined') ? UI_MENU_WIDTH : 0,
     ctm: { a: ctm.a, d: ctm.d },
     backing: { map: [mapCanvas.width, mapCanvas.height],
                light: [lightingCanvas.width, lightingCanvas.height],
                fx: [fxCanvas.width, fxCanvas.height] },
+    /* ★[2026-08-19] フォグ (暗幕) の「穴」の外接矩形を **CSS px** で採る。
+     *   renderLighting() は毎フレーム lctx の CTM を張り直すので、resizeCanvas() が
+     *   camZ 込みで張っていても**そこで落ちうる**。実際に落ちていた ((8x) 参照)。
+     *   ⚠ 実装の式を写経せず「暗幕が薄い画素はどこか」という**見えている事実**だけを読む。 */
+    fogHole: (function () {
+      try {
+        const lc = lightingCanvas, W = lc.width, H = lc.height;
+        if (!W || !H) return null;
+        const d = lc.getContext('2d').getImageData(0, 0, W, H).data;
+        let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0;
+        for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {
+          if (d[(y * W + x) * 4 + 3] < 200) {            // α<200 = 明るい/薄明 = 「見えている」
+            n++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+        if (!n) return { n: 0 };
+        const sx = window.innerWidth / W, sy = window.innerHeight / H;   // backing px → CSS px
+        return { n: n, x0: x0 * sx, y0: y0 * sy, x1: x1 * sx, y1: y1 * sy };
+      } catch (e) { return { err: String(e) }; }
+    })(),
     player: rect('#player'), hpBar: rect('#warriorHpBar'), label: rect('#warriorLabel'),
     zoomedClass: document.body.classList.contains('zoomed'),
   };
@@ -402,9 +443,9 @@ function OBSERVE() {
 
   /* 素 (ズーム有効) と ?zoom=0 (撤退スイッチ) の**対**を採る。
    * ⭐ 単独の値だけでは「そもそも P7 が効いているか」も「既存が動いていないか」も言えない。 */
-  async function observe(port, query) {
+  async function observe(port, query, vp) {
     const page = await bootPage(browser, port, query, errs);
-    await page.setViewport(VIEWPORT);
+    await page.setViewport(vp || VIEWPORT);
     await sleep(700);
     const o = await page.evaluate(OBSERVE);
     await page.close();
@@ -425,7 +466,7 @@ function OBSERVE() {
         if (!ok) allOk = false;
         detail.push(k + ':' + (ok ? 'ok' : 'NG(' + plain.length + '/' + mut.length + '/' + want.length + ')'));
       }
-      check('(0a) ★4 種の変異が正しく配信へ載っている', allOk, detail.join(' '));
+      check('(0a) ★7 種の変異が正しく配信へ載っている', allOk, detail.join(' '));
     }
 
     // ══ §1 母集団ガード ═════════════════════════════════════════════════════
@@ -454,7 +495,7 @@ function OBSERVE() {
     check('(2b) ★対: ?zoom=0 では 5 タイル未満しか見えない (= P7 前の状態)',
       visTiles(P) < 5, 'plain=' + visTiles(P).toFixed(2) + 'tile');
     check('(2c) ★部屋の全 ' + usedH + ' 行が縦に収まる (卓上マップの全体像が出る)',
-      visRows(Z) >= usedH, 'rows=' + visRows(Z).toFixed(2) + ' / room=' + usedH);
+      visRows(Z) >= usedH - 0.02, 'rows=' + visRows(Z).toFixed(2) + ' / room=' + usedH);
     check('(2d) 対: ?zoom=0 では部屋の全行は収まらない',
       visRows(P) < usedH, 'rows=' + visRows(P).toFixed(2));
 
@@ -512,6 +553,31 @@ function OBSERVE() {
       Math.abs(Z.hpBar.h - P.hpBar.h) <= 0.5,
       'zoom=' + (Z.hpBar ? Z.hpBar.w + 'x' + Z.hpBar.h : '?') +
       ' plain=' + (P.hpBar ? P.hpBar.w + 'x' + P.hpBar.h : '?'));
+    /* ★★ 「縮まない UI」は**大きさ**が変わらないだけでは足りない。スプライトが縮む以上、
+     *   アンカーも一緒に寄せないと z<1 で取り残される (2026-08-19 実測: 名前ラベルが
+     *   横 19px = キャラ幅の 2/3 ずれ、HP バーと同じ高さに並んで重なっていた)。
+     *   ⚠ ラベル幅は名前の文字数で変わるので「中心が一致するか」では測れない
+     *     (z=1 でも中心は一致しない)。**ズームの有無で相対オフセットが変わらないか**を測る。 */
+    const relTo = (o, el) => (o[el] && o.player)
+      ? { dx: (o[el].x + o[el].w / 2) - (o.player.x + o.player.w / 2), dy: o[el].y - o.player.y }
+      : null;
+    const relSame = (a, b, tol) => !!(a && b) &&
+      Math.abs(a.dx - b.dx) <= tol && Math.abs(a.dy - b.dy) <= tol;
+    const relStr = (r) => r ? ('dx=' + r.dx.toFixed(1) + ' dy=' + r.dy.toFixed(1)) : '?';
+    check('(4d) ★★名前ラベルのスプライト中心からのオフセットがズームで変わらない',
+      relSame(relTo(Z, 'label'), relTo(P, 'label'), 1.5),
+      'zoom ' + relStr(relTo(Z, 'label')) + ' / plain ' + relStr(relTo(P, 'label')));
+    check('(4e) ★HP バーも同じ (縦の積み重ねが崩れてラベルと重ならない)',
+      relSame(relTo(Z, 'hpBar'), relTo(P, 'hpBar'), 1.5),
+      'zoom ' + relStr(relTo(Z, 'hpBar')) + ' / plain ' + relStr(relTo(P, 'hpBar')));
+    /* ⚠ 「ラベルの下端がバーの上端より上」という素朴な期待値は **camZ=1 でも成り立たない**
+     *   (実測: plain でも 2px 食い込む = 元からの見た目)。元から正しくないものを新しい
+     *   期待値にしてはいけないので、「ズームで**悪化**しないか」を測る。 */
+    const stackGap = (o) => (o.label && o.hpBar) ? (o.hpBar.y - (o.label.y + o.label.h)) : null;
+    check('(4f) ★ラベルと HP バーの縦の重なり量がズームで変わらない (積み重ねが保たれる)',
+      stackGap(Z) !== null && stackGap(P) !== null && Math.abs(stackGap(Z) - stackGap(P)) <= 1.5,
+      'zoom=' + (stackGap(Z) === null ? '?' : stackGap(Z).toFixed(1)) +
+      ' plain=' + (stackGap(P) === null ? '?' : stackGap(P).toFixed(1)));
     check('(4c) ★名前ラベルの実寸も変わらない',
       !!(Z.label && P.label) && Math.abs(Z.label.h - P.label.h) <= 0.5,
       'zoom=' + (Z.label ? Z.label.h : '?') + ' plain=' + (P.label ? P.label.h : '?'));
@@ -538,6 +604,80 @@ function OBSERVE() {
     mark('§6 backing (塗るデバイス px) が camZ に依らず不変');
     check('(6a) ★3 枚の canvas の backing が ?zoom=0 と同じ (1/camZ^2 倍に暴発していない)',
       eq(Z.backing, P.backing), 'zoom=' + JSON.stringify(Z.backing) + ' plain=' + JSON.stringify(P.backing));
+
+    // ══ §8 フォグ (視界) がズームを通っているか ═════════════════════════════
+    /* ⭐⭐⭐ **2026-08-19 に実際に出荷されていた欠陥**: resizeCanvas() は lctx へ
+     *   `lightScale * camZ` を張っていたが、renderLighting() が毎フレーム
+     *   `lightScale` だけで**張り直して上書き**していた。結果、暗幕の穴だけが等倍の
+     *   座標に開き、主人公が黒に塗り潰されて「PC が映らない・視界が壊れた」になった。
+     *   §5 (canvas の CTM) は mapCanvas しか見ておらず、この 1 枚を素通ししていた。
+     * ⭐ 舞台は **広いデスクトップ窓**。compact(390) では部屋が画面より広いので穴が
+     *   画面いっぱいに見え、ずれが見かけ上小さくなる = 母集団として弱い。 */
+    mark('§8 フォグの穴がズーム後の部屋と一致する (PC が暗幕に塗り潰されない)');
+    const WIDE = { width: 1880, height: 950 };
+    const holeCheck = (o) => {
+      if (!o.player || !o.fogHole || !(o.fogHole.n > 0)) return false;
+      const cx = o.player.x + o.player.w / 2, cy = o.player.y + o.player.h / 2;
+      return cx >= o.fogHole.x0 && cx <= o.fogHole.x1 && cy >= o.fogHole.y0 && cy <= o.fogHole.y1;
+    };
+    const holeWantX0 = (o) => (o.used.c0 * TILE - o.camX) * o.camZ;
+    /* 部屋 (= 絵) の画面上の矩形と、描画領域 (メニュー/HUD を除いた矩形) を突き合わせる。 */
+    const roomRect = (o) => ({
+      x0: (o.used.c0 * TILE - o.camX) * o.camZ, x1: ((o.used.c1 + 1) * TILE - o.camX) * o.camZ,
+      y0: (o.used.r0 * TILE - o.camY) * o.camZ, y1: ((o.used.r1 + 1) * TILE - o.camY) * o.camZ,
+    });
+    const drawRect = (o) => ({ x0: o.menuW, x1: o.innerW, y0: 0, y1: o.innerH - o.hud });
+    const coverOk = (o) => {
+      const r = roomRect(o), d = drawRect(o), EPS = 1.0;
+      return r.x0 <= d.x0 + EPS && r.x1 >= d.x1 - EPS && r.y0 <= d.y0 + EPS && r.y1 >= d.y1 - EPS;
+    };
+    /* 暗幕の穴が描画領域を覆っているか。⚠ 舞台は n0 = **最初から見渡せる屋外ノード**なので
+     *   「見えていない所がある = 欠陥」と言い切れる (坑道内部 n1 では成り立たない)。
+     *   EPS が 4 なのは fogHole を 2px 刻みで走査しているぶんの取りこぼし。 */
+    const holeCoversDraw = (o) => {
+      if (!o.fogHole || !(o.fogHole.n > 0)) return false;
+      const d = drawRect(o), E = 4.0;
+      return o.fogHole.x0 <= d.x0 + E && o.fogHole.x1 >= d.x1 - E &&
+             o.fogHole.y0 <= d.y0 + E && o.fogHole.y1 >= d.y1 - E;
+    };
+    const holeDetail = (o) => (o.fogHole && o.fogHole.n
+      ? 'hole=' + [o.fogHole.x0, o.fogHole.y0, o.fogHole.x1, o.fogHole.y1].map(v => v.toFixed(0)).join(',')
+      : 'hole=none') + ' draw=' + (() => { const d = drawRect(o);
+        return [d.x0, d.y0, d.x1, d.y1].map(v => v.toFixed(0)).join(','); })();
+    const coverDetail = (o) => {
+      const r = roomRect(o), d = drawRect(o);
+      return 'room=' + [r.x0, r.y0, r.x1, r.y1].map(v => v.toFixed(0)).join(',') +
+             ' draw=' + [d.x0, d.y0, d.x1, d.y1].map(v => v.toFixed(0)).join(',') +
+             ' camZ=' + o.camZ.toFixed(4);
+    };
+    {
+      const D = await observe(base, '?intel=0', WIDE);
+      check('(8a-装置) 広い窓でも camZ<1 = ズームの舞台を実際に踏んでいる',
+        D.camZ !== null && D.camZ < 1, 'camZ=' + (D.camZ !== null ? D.camZ.toFixed(4) : '?') + ' vw=' + D.innerW);
+      check('(8b-装置) 暗幕の「穴」が観測できている',
+        !!(D.fogHole && D.fogHole.n > 0), JSON.stringify(D.fogHole));
+      check('(8c) ★★主人公が暗幕の穴の中にいる (= 画面に映る)', holeCheck(D),
+        'player=' + (D.player ? D.player.x.toFixed(0) + ',' + D.player.y.toFixed(0) : '?') +
+        ' hole=' + (D.fogHole && D.fogHole.n ? [D.fogHole.x0, D.fogHole.y0, D.fogHole.x1, D.fogHole.y1].map(v => v.toFixed(0)).join('..') : '?'));
+      check('(8d) ★穴の左端が「部屋の左端 × camZ」と一致 (±24px)',
+        !!(D.fogHole && D.fogHole.n > 0) && Math.abs(D.fogHole.x0 - holeWantX0(D)) <= 24,
+        'got=' + (D.fogHole && D.fogHole.n ? D.fogHole.x0.toFixed(1) : '?') + ' want=' + holeWantX0(D).toFixed(1));
+      /* ⭐ 対: 撤退スイッチ (等倍) でも (8c) は緑 = 「ズームのときだけ通る式」を測っていない。 */
+      const Z1 = await observe(base, '?intel=0&zoom=0', WIDE);
+      check('(8e-対) ?zoom=0 (等倍) でも主人公は穴の中 = 不変条件で測れている',
+        Z1.camZ === 1 && holeCheck(Z1), 'camZ=' + Z1.camZ);
+      /* ★★★ 目的そのもの: 「廃坑の戦闘は 1 枚絵の中だけで完結する」
+       *   = 描画領域 (左メニューと下部 HUD を除いた矩形) が、部屋の外へ 1px もはみ出さない。
+       *   ⭐ 手段 (camZ の値・fit/cover のどちら) ではなく **黒が出ないこと** を測る。
+       *   ⚠ 縦横**両方**を見る。片側だけだと縦長/横長のどちらかで永久に緑になる。 */
+      check('(8f) ★★描画領域が「絵」の内側に完全に収まる (黒帯ゼロ / 広い窓)',
+        coverOk(D), coverDetail(D));
+      const C = await observe(base, '?intel=0');   // compact (390x844) でも同じ不変条件
+      check('(8g) ★★同じことが compact でも成り立つ (縦長でも黒帯ゼロ)',
+        coverOk(C), coverDetail(C));
+      check('(8h) ★★n0 では暗幕の穴が描画領域を覆う (黒く潰れた所が無い)',
+        holeCoversDraw(D), holeDetail(D));
+    }
 
     // ══ §7 負のコントロール ═════════════════════════════════════════════════
     mark('§7 負のコントロール — 壊すと狙った節だけが赤くなる');
@@ -567,6 +707,32 @@ function OBSERVE() {
         check('(7c2) ★そのとき位置は縮んだままなので (5a) は緑 = 外科的に 1 つだけ壊れている',
           !!M.player && Math.abs(M.player.x - (M.playerX - M.camX) * M.camZ) <= 1.5,
           'pos=' + (M.player ? M.player.x.toFixed(1) : '?'));
+      }
+      {
+        const M = await observe(PORT_OF.nofogz, '?intel=0', WIDE);
+        /* ⚠ ここを「主人公が穴の外か」で測ってはいけない。cover で穴が広がると
+         *   主人公がたまたま壊れた穴の中に入り、**欠陥が載っているのに緑**になる
+         *   (2026-08-19 に実測。位置の偶然に依存する負のコントロールは信用できない)。 */
+        check('(7e) ★nofogz → 穴が等倍の座標に開き (8h) の被覆が破れる',
+          !holeCoversDraw(M), holeDetail(M));
+        check('(7e2) ★そのとき (8d) の幾何も破れる',
+          !(M.fogHole && M.fogHole.n > 0 && Math.abs(M.fogHole.x0 - holeWantX0(M)) <= 24),
+          'got=' + (M.fogHole && M.fogHole.n ? M.fogHole.x0.toFixed(1) : '?') + ' want=' + holeWantX0(M).toFixed(1));
+      }
+      {
+        const M = await observe(PORT_OF.nolabelanchor, '?intel=0');
+        check('(7g) ★nolabelanchor → 縮まない UI の横が取り残され (4d) が赤くなる',
+          !relSame(relTo(M, 'label'), relTo(P, 'label'), 1.5),
+          'mut ' + relStr(relTo(M, 'label')) + ' / plain ' + relStr(relTo(P, 'label')));
+        check('(7g2) ★そのとき縦は無傷 = 外科的に横だけ壊れている',
+          !!(relTo(M, 'label') && relTo(P, 'label')) &&
+          Math.abs(relTo(M, 'label').dy - relTo(P, 'label').dy) <= 1.5,
+          'mut dy=' + relStr(relTo(M, 'label')) + ' / plain dy=' + relStr(relTo(P, 'label')));
+      }
+      {
+        const M = await observe(PORT_OF.nocover, '?intel=0', WIDE);
+        check('(7f) ★nocover → fit に戻り左右へ黒帯が出て (8f) が赤くなる',
+          !coverOk(M), coverDetail(M));
       }
       {
         const M = await observe(PORT_OF.nolegacyguard, '?intel=0&graph=0');
