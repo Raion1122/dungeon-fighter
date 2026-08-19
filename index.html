@@ -2779,6 +2779,65 @@
       40%  { opacity: 1; transform: translateX(-50%) scale(1.1); }
       100% { opacity: 1; transform: translateX(-50%) scale(1); }
     }
+
+    /* ══ [卓上グリッド P7] ズーム時だけ「絵」を縮める ═══════════════════════════════
+     * 位置は JS 側の SX()/SY() が既に camZ 倍しているので、ここで決めるのは**大きさだけ**。
+     *
+     * ⭐⭐⭐ **body.zoomed でゲートするのが肝**。camZ===1 のときはこのブロックが 1 行も
+     *   効かないので、既存 6 シナリオの描画は**1 ピクセルも動かない** (golden がそれを測る)。
+     *   transform-origin を無条件に 0 0 にすると、scaleX(-1) が「その場での反転」でなく
+     *   「左端を軸にした反転」になり、等倍のままスプライトが箱の外へ飛ぶ。
+     *
+     * ⭐ **UI はここに入れない**。HP バー (.allyHpBar/.enemyHpBar)・名前ラベル・
+     *   ダメージ表示 (.dmgPop/.rollPop)・吹き出し (.speechBubble)・詠唱ラベル
+     *   (.fxCastLabel)・`!` マーク・バッジ・出口矢印 (.exitArrow) は**縮めない**。
+     *   世界が 1/4 になっても文字が読めるのは、これらを意図的に除いているから。 */
+    body.zoomed #player,
+    body.zoomed .ally,
+    body.zoomed .enemy,
+    body.zoomed .displaceAfterimage {
+      /* スケール自体は composeSpriteTransform が transform 文字列に載せる。
+         ここは軸を左上へ移すだけ (translateX(100%) scaleX(-1) と対になっている)。 */
+      transform-origin: 0 0;
+    }
+    body.zoomed #guardEffect,
+    body.zoomed #counterAura,
+    body.zoomed #moveMarker,
+    body.zoomed .roomChest,
+    body.zoomed .roomCage,
+    body.zoomed .sce1Captive,
+    body.zoomed .trap,
+    body.zoomed .altarGlow,
+    body.zoomed .coin,
+    body.zoomed .weaponDrop,
+    body.zoomed .armorDrop,
+    body.zoomed .fxCureParticle,
+    body.zoomed .fxCastOrb,
+    body.zoomed .fxFireballProjectile,
+    body.zoomed .fxFireSpark,
+    body.zoomed .fxExplosionSprite,
+    body.zoomed .fxFireballRing,
+    body.zoomed .fxFirePillar,
+    body.zoomed .fxLightningSvg,
+    body.zoomed .fxLightningSpark,
+    body.zoomed .fxColdCrystal,
+    body.zoomed .fxScreenFlash,
+    body.zoomed .fxShadowPuff {
+      /* 左上アンカー (left/top = 世界の左上) の絵。軸を左上に固定して縮める。 */
+      transform-origin: 0 0;
+      transform: scale(var(--camz, 1));
+    }
+    /* 中央アンカー (margin で自分の半分だけ戻している) の絵は、既定の中心 origin のまま
+       scale すれば中心が動かない。inline transform を持つものは JS 側 zTf() が合成する。 */
+    body.zoomed .fxMissile,
+    body.zoomed .fxArrow,
+    body.zoomed .fxFireImpactCore {
+      transform: scale(var(--camz, 1));
+    }
+    /* 照準線は「起点から伸びる線」なので、軸を**起点 (左端中央)** に置く。
+       ⚠ 既定の中心 origin のまま縮めると、長さ L の線が L(1-z)/2 だけ横へ滑る
+       (6 タイル = 576 世界px の線なら z=0.25 で 216px のズレ)。 */
+    body.zoomed .fxAimLine { transform-origin: 0 50%; }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -3821,6 +3880,50 @@
 
     let camX = 0;
     let camY = 0;
+    /* ── [卓上グリッド P7] ズーム (world→screen 倍率) ─────────────────────────────
+     * camZ = 1 で従来と**完全に等価** (IEEE754 では x*1 も x/1 も恒等なのでビット一致)。
+     * 0.25 なら世界が 1/4 に縮み、画面には 4 倍の広さが入る。
+     * **camX/camY は今までどおり「画面左上のワールド座標」**で、単位もワールド px のまま。
+     * 変わるのは「1 ワールド px が画面上で何 px になるか」だけ。
+     *
+     * ⚠⚠⚠ world 要素を 1 枚のラッパに入れて scale する方式は**採れない**。world の z-index は
+     *   0〜52 に散っており (mapCanvas 0 / 敵 2 / 罠 3 / 宝箱 4 / PT 6 / HPバー 7 / fx 8 /
+     *   lighting 9 / 出口矢印 11・12 / FX 50〜52)、HUD の 10・40・41・45・47・48 と**交互に
+     *   噛み合っている**。transform はスタッキング文脈を作るのでラッパは中身を 1 層へ畳み、
+     *   どの z を与えても必ずどこかの前後関係が壊れる (dmgPop の z-index 45 は
+     *   「lightingCanvas より上・rollPop より下」を明示的に狙って挟まっている)。
+     *   #nodeLayer の「CSS を 1 行も与えない透明な器」という作法も、まさに同じ理由。
+     *   → **要素ごとにスケールする**。スタッキングは 1 ミリも動かない。
+     *
+     * ⭐ 縮めるのは「絵」だけ。HP バー・名前ラベル・ダメージ表示・吹き出しは
+     *   composeSpriteTransform を通らないので、**何もしなければ読みやすい大きさのまま**残る
+     *   (位置だけ SX/SY で追従する)。これが要素ごと方式の最大の利点。
+     *
+     * 撤退スイッチ = ?zoom=0 (常に 1 = 従来動作)。?zoom=<数値> で実機の見え方を直接比較できる。 */
+    let camZ = 1;
+    // ワールド座標 → スクリーン座標。DOM の style.left/top は**すべて**この 2 つを通す。
+    function SX(wx) { return (wx - camX) * camZ; }
+    function SY(wy) { return (wy - camY) * camZ; }
+    // 逆変換 (入力)。クリック位置 (画面px) → ワールド座標。
+    function WX(sx) { return sx / camZ + camX; }
+    function WY(sy) { return sy / camZ + camY; }
+    // 「画面が世界をどれだけ見せているか」を**世界 px** で返す。カメラのクランプはこの単位で行う。
+    // ⚠ UI_MENU_WIDTH / cameraBottomHud() は後方 (5800 行台) の let/function なので、
+    //   呼び出しがそこより後であることが前提 (computeCameraTarget 等はすべて後)。
+    function zVW()   { return window.innerWidth  / camZ; }
+    function zVH()   { return window.innerHeight / camZ; }
+    function zUIL()  { return UI_MENU_WIDTH      / camZ; }   // 左メニューが食う幅 (世界px)
+    function zHUD()  { return cameraBottomHud()  / camZ; }   // 下部HUD が食う高さ (世界px)
+    function zPX(px) { return px / camZ; }                   // 画面px の余白を世界px へ
+    // canvas の論理描画範囲。ctx が camZ 倍の CTM を持つので、論理座標系の幅は backing/camZ。
+    // ⚠ backing (width/height 属性) は**画面基準のまま増やさない**。増やすと塗るデバイス px が
+    //   1/camZ² 倍 (z=0.25 で 16 倍) になり、camera-perf STEP7 で詰めたモバイルが即死する。
+    /* inline transform を持つ「絵」に camZ を合成する。camZ===1 なら**引数をそのまま返す**ので
+     * 従来の文字列と完全一致 (golden・検証シームが赤くならない)。
+     * ⚠ scale は必ず**先頭**。後ろに置くと rotate/translate の適用順が変わって軌跡がずれる。 */
+    function zTf(inner) { return (camZ === 1) ? inner : ("scale(" + camZ + ") " + inner); }
+    function viewPxW() { return mapCanvas.width  / camZ; }
+    function viewPxH() { return mapCanvas.height / camZ; }
     // ── カメラ・イージング層 (案A: pan-only・literal zoomなし) ──
     // computeCameraTarget() が camTargetX/Y を算出 → cameraFollowTick() が camX/Y を毎フレーム lerp で寄せる。
     // camFocus = 戦闘時の注視点 (戦闘開始は交戦敵の中点 / 戦闘中は行動ユニット)。null なら主人公センタリング(探索)。
@@ -3870,6 +3973,15 @@
       mapCanvas.width = window.innerWidth;
       mapCanvas.height = window.innerHeight;
       ctx.imageSmoothingEnabled = false;
+      /* ★[卓上グリッド P7] ズーム: canvas は **backing も CSS サイズも触らず**、CTM だけを
+       *   camZ 倍にする。これで論理座標系 (= 描画側が書くワールド由来の px) が 1/camZ 倍に
+       *   広がり、同じデバイス px の中に広い世界が入る。
+       *   ⚠⚠⚠ 「backing を 1/camZ 倍に広げて等倍で描く」は**やってはいけない**。塗る
+       *     デバイス px が 1/camZ² 倍 (z=0.25 で 16 倍) になり、camera-perf STEP7 で
+       *     24.9→16.9ms/frame まで詰めたモバイルが即死する。ここは drawImage の**回数**だけ
+       *     増え 1 回あたりの面積が同じ比で縮むので、総塗り面積はほぼ不変。
+       *   ⚠ canvas.width への代入が CTM をリセットするので、必ず**代入の後**に張る。 */
+      ctx.setTransform(camZ, 0, 0, camZ, 0, 0);
       // [camera-perf STEP7] フォグ: スマホでは backing を半解像度に (塗り面積 1/4)。表示サイズは等倍のまま。
       // ⚠️ style.width/height は必須。lightingCanvas は CSS に寸法を持たず属性値がそのままレイアウト幅に
       //    なるため、書かないと要素が半分に縮み、画面の右下 3/4 がフォグ無しで露出する (= フォグオブウォーが死ぬ)。
@@ -3882,7 +3994,9 @@
       lightingCanvas.height = Math.max(1, Math.ceil(lightCssH * lightScale));
       lightingCanvas.style.width  = lightCssW + "px";
       lightingCanvas.style.height = lightCssH + "px";
-      lctx.setTransform(lightScale, 0, 0, lightScale, 0, 0);
+      // ★[P7] lightScale (backing 半減) と camZ (ズーム) は**掛け算で 1 本の CTM に載る**。
+      //   backing も style も画面基準のまま = フォグの塗り面積は camZ に依らず一定。
+      lctx.setTransform(lightScale * camZ, 0, 0, lightScale * camZ, 0, 0);
       // FX canvas: DPR 対応 (発光グラデを高密度画面で滲ませない)。上限2で高DPR端末の塗り面積暴発を抑制。
       // setTransform(dpr,...) 後は CSS px 座標で描けるので draw 側は DPR 非依存。
       const fxDpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -3890,7 +4004,8 @@
       fxCanvas.height = Math.round(window.innerHeight * fxDpr);
       fxCanvas.style.width  = window.innerWidth + "px";
       fxCanvas.style.height = window.innerHeight + "px";
-      fxctx.setTransform(fxDpr, 0, 0, fxDpr, 0, 0);
+      // ★[P7] DPR と camZ も同じく 1 本の CTM へ。描画側は今までどおり「ワールド由来の px」で書く。
+      fxctx.setTransform(fxDpr * camZ, 0, 0, fxDpr * camZ, 0, 0);
     }
     // viewport 変化 (リサイズ/端末回転) で HUD 寸法を再計算し、カメラも追従させる。
     // onViewportResize は実行時のみ呼ばれるので、computeUiMetrics/snapCamera と UI_MENU_WIDTH(let) は
@@ -3906,7 +4021,9 @@
       // Phase4: 回転等で非compactに復帰したら、開いたままのドロワー(幽霊パネル)を閉じる
       if (!(document.body && document.body.classList.contains("ui-compact"))) closeDrawer();
       clampPlayerToMap();   // 画面が広がってマップ外が見えた場合に主人公を戻す (関数宣言=ホイスティング済)
-      if (typeof gameStarted !== "undefined" && gameStarted) snapCamera();
+      /* ★[P7] 回転/リサイズは「部屋がどれだけ入るか」を変えるので倍率を引き直す。
+       * ⚠ resizeCanvas() より後 = setCamZoom が中で CTM を張り直すのでこの順で正しい。 */
+      if (typeof gameStarted !== "undefined" && gameStarted) { applyNodeZoom(); snapCamera(); }
       else updatePositions();
     }
     resizeCanvas();
@@ -5865,10 +5982,16 @@
     // 希望カメラ位置 (camTargetX/Y) を算出。実際の camX/Y への反映は updatePositions/cameraFollowTick が担う。
     function computeCameraTarget() {
       // 主人公(探索) または camFocus(戦闘の注視点) を「ダンジョン領域 (メニュー/ログ除外後)」の中央に据える
-      const bottomHud = cameraBottomHud();   // Phase4: ログ + 下部HPミニバー を下部占有の単一ソースに
-      const usableW = window.innerWidth - UI_MENU_WIDTH;
-      const usableH = window.innerHeight - bottomHud;
-      const centerScreenX = UI_MENU_WIDTH + usableW / 2;
+      /* ★[卓上グリッド P7] この関数の中は**すべて世界 px**で計算する。camX/camY が世界座標で
+       * ある以上、画面 px をそのまま引き算すると camZ≠1 で単位が混ざる。ゆえに HUD が食う幅も
+       * 画面端マージンも、ここで 1 度だけ camZ で割って世界 px へ変換しておく。
+       * ⚠ camZ=1 では除算が恒等なので、従来と 1 ビットも変わらない。 */
+      const bottomHud = zHUD();              // 下部HUD が食う高さ (世界px)。Phase4: ログ + 下部HPミニバー
+      const menuW     = zUIL();              // 左メニューが食う幅 (世界px)
+      const viewW     = zVW(), viewH = zVH();// 画面が見せている世界の幅/高さ
+      const usableW = viewW - menuW;
+      const usableH = viewH - bottomHud;
+      const centerScreenX = menuW + usableW / 2;
       const centerScreenY = usableH / 2;
       // (1) 希望カメラ: camFocus があればその注視点(戦闘) / なければ主人公中央(探索)
       let cx, cy;
@@ -5912,9 +6035,9 @@
       //   camFocus(=弾の実座標)へ密着させる (味方が一時的に画面端/外に寄るのは許容=「強め」設定)。
       //   下のマップ境界クランプ + cameraFollowTick の lerp 遅延は維持されるので酔い対策は効いたまま。
       if (!cameraTightFocus) {
-        const M = 48;   // 画面端マージン
+        const M = zPX(48);   // 画面端マージン (画面px 意味なので世界px へ)
         const CENTER_BIAS = 0.7;   // clamp後に行動キャラ(希望中央)へ引き戻す割合 0..1 (実機調整)
-        const loCx = maxX - window.innerWidth + M, hiCx = minX - UI_MENU_WIDTH - M;
+        const loCx = maxX - viewW + M, hiCx = minX - menuW - M;
         const loCy = maxY - usableH + M,          hiCy = minY - M;
         // 区間が成立(隊列が画面に収まる)→希望カメラを範囲にクランプ / 空(隊列が画面より大)→bbox 中央寄せ
         const clampedCx = (loCx <= hiCx) ? Math.max(loCx, Math.min(cx, hiCx)) : (loCx + hiCx) / 2;
@@ -5942,27 +6065,27 @@
         const heroPos = getHeroWorldPos();
         const hxC = heroPos.x + heroPos.w / 2, hyC = heroPos.y + heroPos.h / 2;        // 主人公の中心
         const axC = camFocus ? camFocus.x : hxC, ayC = camFocus ? camFocus.y : hyC;    // 行動キャラ(注視点)
-        const HM = 56;   // 主人公を画面端から離すマージン(px)
-        const AM = 40;   // 行動キャラを画面端から離すマージン(px)。HM より小さい = 主人公優先
+        const HM = zPX(56);   // 主人公を画面端から離すマージン(画面px → 世界px)
+        const AM = zPX(40);   // 行動キャラを画面端から離すマージン。HM より小さい = 主人公優先
         // v を [lo,hi] に収める。区間が空 (= 画面が 2*margin より狭い異常系) のときのみ中点へ。
         const fit = (v, lo, hi) => (lo <= hi) ? Math.max(lo, Math.min(v, hi)) : (lo + hi) / 2;
-        cx = fit(fit(cx, hxC - window.innerWidth + HM, hxC - UI_MENU_WIDTH - HM),
-                 axC - window.innerWidth + AM, axC - UI_MENU_WIDTH - AM);
+        cx = fit(fit(cx, hxC - viewW + HM, hxC - menuW - HM),
+                 axC - viewW + AM, axC - menuW - AM);
         cy = fit(fit(cy, hyC - usableH + HM, hyC - HM),
                  ayC - usableH + AM, ayC - AM);
       }
       // (3) マップ境界クランプ (既存): マップ左端が menu 右側に張り付くまで / 下端が log 上端より下に行かない
-      let minCamX = -UI_MENU_WIDTH;
-      let maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - window.innerWidth);
+      let minCamX = -menuW;
+      let maxCamX = Math.max(minCamX, MAP_W * TILE_SIZE - viewW);
       let minCamY = 0;
-      let maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (window.innerHeight - bottomHud));
+      let maxCamY = Math.max(minCamY, MAP_H * TILE_SIZE - (viewH - bottomHud));
       // (3b) [黒帯対策] ダンジョンでは「部屋/廊下が1つも無い外周」をそもそも画面へ入れない。
       //      MAP_USED の内側だけを可視域に許すよう、上の全域クランプをさらに内側へ絞る。
       //      使用域が画面より狭い軸 (hi<lo) は中央寄せに落とす (黒を左右/上下へ均等配分)。
       //      ⚠ 屋外は空/路肩を壁行へ描くので対象外 (従来の全域クランプのまま)。
       if (!IS_FIELD_THEME) {
-        let loX = MAP_USED.c0 * TILE_SIZE - UI_MENU_WIDTH;
-        let hiX = (MAP_USED.c1 + 1) * TILE_SIZE - window.innerWidth;
+        let loX = MAP_USED.c0 * TILE_SIZE - menuW;
+        let hiX = (MAP_USED.c1 + 1) * TILE_SIZE - viewW;
         if (hiX < loX) { const m = (loX + hiX) / 2; loX = m; hiX = m; }
         minCamX = Math.max(minCamX, Math.min(loX, maxCamX));
         maxCamX = Math.max(minCamX, Math.min(hiX, maxCamX));
@@ -6059,17 +6182,86 @@
       cameraInitialized = true;
       renderWorldWithShake();
     }
+    /* ══ [卓上グリッド P7] ズーム倍率の決定 ═══════════════════════════════════════
+     * 「部屋の広さに応じて自動」= 既存規格に収まる部屋は**等倍のまま**、卓上バトルマップ
+     * 1 枚ぶんの大部屋 (n0 33x22 / n1 39x23) だけ引く (ユーザー決定 2026-08-19)。
+     *
+     * ⚠⚠ **部屋の中では倍率を固定する**。歩くたびに倍率が動くと確実に酔うので、決めるのは
+     *   ノード遷移と画面回転の瞬間だけ。
+     * ⚠ 判定に使うのは MAP_USED (壁以外の外接矩形) = 「そのノードで実際に使われている広さ」。
+     *   rooms の矩形ではない (1 枚絵ノードは床を rooms の外にも描くため)。
+     * ⚠ 画面が広いほど z は 1 に近づく = 解像度適応。desktop では引きが浅くなる。 */
+    const ZOOM_MIN = 0.25;        // 引きの下限。compact(390px) で約 16 タイル / キャラ 96px→24px
+    const ZOOM_LARGE_W = 26;      // これ以下の部屋は等倍。既存 6 シナリオの最大は 22x18
+    const ZOOM_LARGE_H = 20;      // n0=33x22 / n1=39x23 はここを超えるので引きの対象になる
+    /* ?zoom=0 は**撤退スイッチ** (常に等倍 = P7 が無かった頃と同じ)。?zoom=<0〜1 の数値> で
+     * 実機の見え方を直接比較できる。dev チートではなく退避口なので __dfDevCheat では包まない
+     * (?doors=0 / ?locks=0 / ?paintgrid=0 / ?paintblock=0 と同じ扱い)。 */
+    function zoomQueryOverride() {
+      try {
+        const v = new URLSearchParams(window.location.search).get("zoom");
+        if (v === null) return null;
+        if (v === "0") return 1;                       // 撤退: 常に等倍
+        const n = parseFloat(v);
+        return (isFinite(n) && n > 0 && n <= 1) ? n : null;
+      } catch (e) { return null; }
+    }
+    function zoomForRoom() {
+      const ov = zoomQueryOverride();
+      if (ov !== null) return ov;
+      /* ⚠⚠⚠ 屋外 (地平線ビュー) は**必ず除外**。屋外マップは MAP_H=28 と縦に広いので
+       *   素直に「広い部屋」と判定されてしまうが、屋外のカメラは fieldCamY() が縦を
+       *   地平線へ**無条件ロック**する別系統で、ここを縮めると空の可視高・2 層パララックスの
+       *   ずれ量がまとめて壊れる (実測: driver_field_step3 の B4/B5/C0b/C1/C2/C3 が一斉に赤)。
+       *   卓上バトルマップの話とは無関係なので、そもそも対象にしない。 */
+      if (typeof IS_FIELD_THEME !== "undefined" && IS_FIELD_THEME) return 1;
+      /* ⚠⚠⚠ **MAP_USED が「部屋」を意味するのは分岐ノード (1 ノード = 1 部屋) だけ**。
+       *   旧単一マップ (?graph=0 / 生成クエスト) の MAP_USED は「ダンジョン全体」なので、
+       *   実測 45x18 = 幅だけ規格超え → 素直に判定すると z=0.25 になり、既存の見え方が
+       *   丸ごと変わってしまう (ユーザー合意は「既存 5 シナリオの見え方は変えない」)。
+       *   部屋の広さという規則の**前提そのものが成り立たない**経路なので対象外にする。
+       *   ⚠ isCustom は「カスタム幾何 = mapDef 由来のノード」の唯一の出所 (:4099)。 */
+      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return 1;
+      const w = MAP_USED.c1 - MAP_USED.c0 + 1, h = MAP_USED.r1 - MAP_USED.r0 + 1;
+      if (!(w > 0 && h > 0)) return 1;                 // 使用域が取れない異常系は従来どおり
+      /* ⚠ ここは **かつ (&&)** ではなく **または (||)** でもなく「両方とも規格内なら等倍」。
+       *   n4 (7x6) / n7 (9x6) のような小さいノードは fit が 0.58 等になるので、閾値で
+       *   切らないと**既存の小部屋まで引いてしまう**。 */
+      if (w <= ZOOM_LARGE_W && h <= ZOOM_LARGE_H) return 1;   // 既存規格 = 1 ミリも触らない
+      const fitW = (window.innerWidth  - UI_MENU_WIDTH)     / (w * TILE_SIZE);
+      const fitH = (window.innerHeight - cameraBottomHud()) / (h * TILE_SIZE);
+      return Math.max(ZOOM_MIN, Math.min(1, Math.min(fitW, fitH)));
+    }
+    /* 倍率を実際に適用する唯一の書き込み点。⚠ ここで描画はしない (buildNode の途中から
+     * 呼ばれても安全であること)。呼び出し側が続けて snapCamera() する契約。 */
+    function setCamZoom(z) {
+      const nz = Math.max(ZOOM_MIN, Math.min(1, (isFinite(z) && z > 0) ? z : 1));
+      if (nz === camZ) return false;
+      camZ = nz;
+      // CSS 側のゲート。camZ===1 では class も変数も付けない = 既存の見た目が 1px も動かない。
+      document.body.classList.toggle("zoomed", camZ !== 1);
+      document.documentElement.style.setProperty("--camz", String(camZ));
+      resizeCanvas();     // 3 枚の canvas の CTM を camZ 込みで張り直す
+      return true;
+    }
+    function applyNodeZoom() { return setCamZoom(zoomForRoom()); }
+    if (typeof window !== "undefined") {   // ヘッドレス検証用シーム
+      window.__camZoom = () => camZ;
+      window.__zoomForRoom = zoomForRoom;
+      window.__applyNodeZoom = applyNodeZoom;
+    }
     // コンフォートゾーン: 画面の内側 22% (端から最低80px/最大220px) を「もう十分見えている」領域とみなす。
     // 判定は camTargetX/Y (カメラの着地予定地) 基準。移動中の camX 基準にすると結果が非決定的になる。
     // iPhone 縦 (390x844) で padX≈86px (0.9タイル) / padY≈150px (1.6タイル)。
     function isInComfortZone(wx, wy) {
-      const bottomHud = cameraBottomHud();
-      const usableW = window.innerWidth - UI_MENU_WIDTH;
-      const usableH = window.innerHeight - bottomHud;
-      const padX = Math.max(80, Math.min(usableW * 0.22, 220));
-      const padY = Math.max(80, Math.min(usableH * 0.22, 220));
-      const sx = wx - camTargetX, sy = wy - camTargetY;   // 着地後の画面座標
-      return sx >= UI_MENU_WIDTH + padX && sx <= window.innerWidth - padX
+      const bottomHud = zHUD();                          // ★[P7] 以下すべて世界px
+      const menuW = zUIL(), viewW = zVW();
+      const usableW = viewW - menuW;
+      const usableH = zVH() - bottomHud;
+      const padX = Math.max(zPX(80), Math.min(usableW * 0.22, zPX(220)));
+      const padY = Math.max(zPX(80), Math.min(usableH * 0.22, zPX(220)));
+      const sx = wx - camTargetX, sy = wy - camTargetY;   // 着地後の画面座標 (世界px)
+      return sx >= menuW + padX && sx <= viewW - padX
           && sy >= padY               && sy <= usableH - padY;
     }
     // 与えたカメラ位置で、生存PTメンバー + 交戦中の生存敵の中心が可視矩形から
@@ -6077,8 +6269,8 @@
     // (computeCameraTarget の CENTER_BIAS=0.7 は bbox クランプを 30% しか効かせないので、
     //  はみ出しは元々ゼロではない。ゆえに絶対値ではなく据え置き前後の比較で判断する)
     function offscreenAmountAt(cx, cy) {
-      const usableH = window.innerHeight - cameraBottomHud();
-      const loX = cx + UI_MENU_WIDTH, hiX = cx + window.innerWidth;
+      const usableH = zVH() - zHUD();                     // ★[P7] 世界px
+      const loX = cx + zUIL(), hiX = cx + zVW();
       const loY = cy,                 hiY = cy + usableH;
       let total = 0;
       const add = (ax, ay, s) => {
@@ -6242,8 +6434,10 @@
       // [camera-perf STEP7] W/H は CSS px (backing ではない)。lctx の CTM が lightScale を掛けるので、
       // 以下の描画・カリング判定は全て CSS px 座標のままでよい。ここを backing px にすると二重スケールで
       // 全画面 fill・探索タイルのカリング・光源の画面外判定が一斉に壊れる。
-      const W = lightCssW;
-      const H = lightCssH;
+      // ★[P7] CTM が lightScale*camZ なので、論理座標系の可視範囲は CSS px を camZ で割った
+      //   **世界 px**。ここを画面 px のままにすると暗幕が画面の camZ 倍の範囲しか覆わない。
+      const W = lightCssW / camZ;
+      const H = lightCssH / camZ;
       // 未探索タイル用: ほぼ完全な暗闇。
       // ⚠️ 背景だけは CTM を外して backing 実寸で塗る。CSS px で (0,0,W,H) を塗ると、cssW が奇数のとき
       //    backing の最右列/最下行が半分しか塗られず、「未探索なのに明るい筋」が画面端に走る
@@ -6575,7 +6769,8 @@
     }
 
     function drawParticles(cx, cy) {
-      const W = window.innerWidth, H = window.innerHeight;   // CSS px (setTransform で論理座標)
+      // ★[P7] setTransform が dpr*camZ を持つので、論理座標系は「世界 px」= 画面幅/camZ。
+      const W = window.innerWidth / camZ, H = window.innerHeight / camZ;
       fxctx.clearRect(0, 0, W, H);
       if (!fxParticles.length) return;
       // 加算組 → 通常組 の 2 パスで globalCompositeOperation 切替を 2 回に固定
@@ -6592,7 +6787,7 @@
       // map と同じ shake offset を加算 → 粒子もワールド固定のまま自然に揺れる (二重揺れ無し)
       drawParticles(camX + shakeX, camY + shakeY);
       if (!fxParticles.length && !fxBurners.length) {
-        fxctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        fxctx.clearRect(0, 0, window.innerWidth / camZ, window.innerHeight / camZ);   // ★[P7] 論理座標系は世界px
         fxLoopActive = false;
         return;
       }
@@ -7019,7 +7214,7 @@
     function drawFieldSky() {
       if (!FIELD_SKY_ON) return;                       // ?sky=0 (幾何とカメラは残る)
       const horizonScreenY = Math.round(FIELD_HORIZON_Y - camY);
-      const W = mapCanvas.width;
+      const W = viewPxW();
       if (horizonScreenY <= 0 || W <= 0) return;
       // ⚠️ 空タイルの高さは clamp した H ではなく **horizonScreenY そのもの**。丘はタイルの
       //    下端を地平線として焼いてあるので、ここで縮めると丘だけが浮き上がる。画面外へ
@@ -7028,7 +7223,7 @@
       //    固定されているので horizonScreenY = skyPx ≤ 0.32×usableH ≦ 約 400px、つまり
       //    最大でも 1536×400×4 ≒ 2.4MB で**上限が閉じている**。ここを外部から任意の camY で
       //    叩ける経路 (ドライバの setCam 等) を作ると青天井になるので注意。
-      const H = Math.min(horizonScreenY, mapCanvas.height);
+      const H = Math.min(horizonScreenY, viewPxH());
       ctx.save();
       // 地平線より下へ 1px も漏らさない (drawImage の縁の補間対策)。renderMap 側の clip は
       // canvas 全域なので、ここで張らないと効かない。
@@ -7185,7 +7380,7 @@
       if (FIELD_MODE && FIELD_GEO_ACTIVE) {
         const hy = Math.max(0, Math.round(FIELD_HORIZON_Y - camY));
         ctx.beginPath();
-        ctx.rect(0, hy, mapCanvas.width, Math.max(0, mapCanvas.height - hy));
+        ctx.rect(0, hy, viewPxW(), Math.max(0, viewPxH() - hy));
         ctx.clip();
       }
       ctx.globalCompositeOperation = "multiply";
@@ -7199,8 +7394,8 @@
         for (const dupe of [-CLOUD_PERIOD_X, 0, CLOUD_PERIOD_X]) {
           const sx = wx + dupe - camX - size / 2;
           const sy = c.y - camY - size / 2;
-          if (sx + size < 0 || sx > mapCanvas.width)  continue;
-          if (sy + size < 0 || sy > mapCanvas.height) continue;
+          if (sx + size < 0 || sx > viewPxW())  continue;
+          if (sy + size < 0 || sy > viewPxH()) continue;
           ctx.drawImage(tile, sx, sy, size, size);
         }
       }
@@ -7209,12 +7404,12 @@
 
     function renderMap() {
       ctx.fillStyle = "#0a0a0a";
-      ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+      ctx.fillRect(0, 0, viewPxW(), viewPxH());
       if (!tilesetLoaded) return;
       // canvas 範囲外への描画漏れ防止 (松明・部屋ペインティング等が画面外にはみ出すのを clip)
       ctx.save();
       ctx.beginPath();
-      ctx.rect(0, 0, mapCanvas.width, mapCanvas.height);
+      ctx.rect(0, 0, viewPxW(), viewPxH());
       ctx.clip();
       // 屋外の「地平線ビュー」描画を実際に行うか。描画(FIELD_MODE)と幾何(FIELD_GEO_ACTIVE)の両方が要る。
       // ⚠️ renderMap の**冒頭**で1回だけ求める。Pass ごとに書くと片方だけ直し忘れる (実際 STEP2 の
@@ -7231,8 +7426,8 @@
       if (FIELD_DRAW) drawFieldSky();
       const startTX = Math.max(0, Math.floor(camX / TILE_SIZE));
       const startTY = Math.max(0, Math.floor(camY / TILE_SIZE));
-      const endTX = Math.min(MAP_W - 1, Math.ceil((camX + mapCanvas.width) / TILE_SIZE));
-      const endTY = Math.min(MAP_H - 1, Math.ceil((camY + mapCanvas.height) / TILE_SIZE));
+      const endTX = Math.min(MAP_W - 1, Math.ceil((camX + viewPxW()) / TILE_SIZE));
+      const endTY = Math.min(MAP_H - 1, Math.ceil((camY + viewPxH()) / TILE_SIZE));
 
       // ── Pass 1a: 天井(void)セル — 暗い背景 ──
       // 部屋ペインティングが覆うセルはスキップ(painting に含まれる)
@@ -7308,8 +7503,8 @@
         // 簡易カリング (画面外なら skip)
         const sx = Math.round(p.px - camX);
         const sy = Math.round(p.py - camY);
-        if (sx + p.pw < 0 || sx > mapCanvas.width) continue;
-        if (sy + p.ph < 0 || sy > mapCanvas.height) continue;
+        if (sx + p.pw < 0 || sx > viewPxW()) continue;
+        if (sy + p.ph < 0 || sy > viewPxH()) continue;
         ctx.drawImage(p.canvas || p.img, sx, sy, p.pw, p.ph);
       }
 
@@ -7320,7 +7515,7 @@
       //    帯+エプロンに寄せてあるが、jitter と displayMax でスプライトの**上端**は
       //    タイル境界より上に出る。ドロップではなく clip で切る (草の根元は残したい)。
       if (FIELD_DRAW) { ctx.save(); ctx.beginPath();
-        ctx.rect(0, horizonSY, mapCanvas.width, Math.max(0, mapCanvas.height - horizonSY)); ctx.clip(); }
+        ctx.rect(0, horizonSY, viewPxW(), Math.max(0, viewPxH() - horizonSY)); ctx.clip(); }
       for (const sp of sceneryPlacements) {
         const sheet = SCENERY_SHEETS[sp.kind];
         if (!sheet || !sheet.loaded) continue;
@@ -7335,8 +7530,8 @@
         const dx = Math.round(cx - dw / 2);
         const dy = Math.round(cy - dh / 2);
         // 画面外カリング
-        if (dx + dw < 0 || dx > mapCanvas.width)  continue;
-        if (dy + dh < 0 || dy > mapCanvas.height) continue;
+        if (dx + dw < 0 || dx > viewPxW())  continue;
+        if (dy + dh < 0 || dy > viewPxH()) continue;
         ctx.drawImage(sheet.img, fr.x, fr.y, fr.w, fr.h, dx, dy, dw, dh);
       }
       if (FIELD_DRAW) ctx.restore();
@@ -7360,7 +7555,7 @@
           const CW = 56, CH = fr.h * (CW / fr.w);
           const ldx = Math.round(cxw - CW / 2 - camX);
           const ldy = Math.round(cyw - CH / 2 - camY + 12);   // やや下 = 足元に薪を置く
-          if (!(ldx + CW < 0 || ldx > mapCanvas.width || ldy + CH < 0 || ldy > mapCanvas.height)) {
+          if (!(ldx + CW < 0 || ldx > viewPxW() || ldy + CH < 0 || ldy > viewPxH())) {
             ctx.drawImage(logSheet.img, fr.x, fr.y, fr.w, fr.h, ldx, ldy, CW, CH);
           }
         }
@@ -7873,7 +8068,7 @@
      * ⚠ 扉のタイルが壁か床かは**ここでは決めない**。data の tx/ty をそのまま使う。どちらで
      *   塞ぐかは P3 の設計判断でまだ答えが無く、だから位置 lint も未実装のままにしてある。 */
     function drawDoors(doors) {
-      const W = mapCanvas.width, H = mapCanvas.height;
+      const W = viewPxW(), H = viewPxH();
       for (let i = 0; i < doors.length; i++) {
         const d = doors[i];
         /* ⚠ "hidden" = 壁のふりをしている状態。**1 画素も描かない**のがこの状態の定義で、
@@ -9652,8 +9847,8 @@
           const offset = Math.sin(t * Math.PI) * curveAmp * curveSign;
           const cx = fromX + dx * t + px * offset;
           const cy = fromY + dy * t + py * offset;
-          el.style.left = (cx - camX) + "px";
-          el.style.top  = (cy - camY) + "px";
+          el.style.left = SX(cx) + "px";
+          el.style.top  = SY(cy) + "px";
           if (light) { light.worldX = cx; light.worldY = cy; }
           if (_tracking) trackProjectileTo(cx, cy);   // [camera-focus-v7.4] 弾を追う
           if (t < 1) requestAnimationFrame(step);
@@ -9692,10 +9887,10 @@
       function step(now) {
         const t = (now - startTime) / durationMs;
         if (t >= 1 || !el.parentNode) return;
-        el.style.left = (fromX - camX) + "px";
-        el.style.top  = (fromY - camY) + "px";
+        el.style.left = SX(fromX) + "px";
+        el.style.top  = SY(fromY) + "px";
         el.style.width = len + "px";
-        el.style.transform = `rotate(${angle}rad)`;
+        el.style.transform = zTf(`rotate(${angle}rad)`);
         requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
@@ -9718,9 +9913,9 @@
           const t = Math.min((now - startTime) / durationMs, 1);
           const cx = fromX + dx * t;
           const cy = fromY + dy * t;
-          el.style.left = (cx - camX) + "px";
-          el.style.top  = (cy - camY) + "px";
-          if (!spinning) el.style.transform = `rotate(${angle}rad)`;
+          el.style.left = SX(cx) + "px";
+          el.style.top  = SY(cy) + "px";
+          if (!spinning) el.style.transform = zTf(`rotate(${angle}rad)`);
           if (_tracking) trackProjectileTo(cx, cy);   // [camera-focus-v7.4] 弾を追う
           if (t < 1) requestAnimationFrame(step);
           else {
@@ -9762,11 +9957,11 @@
       function step(now) {
         const t = (now - startTime) / totalMs;
         if (t >= 1) return;
-        ring.style.left = (targetWX - camX) + "px";
-        ring.style.top  = (targetWY - camY) + "px";
+        ring.style.left = SX(targetWX) + "px";
+        ring.style.top  = SY(targetWY) + "px";
         for (const p of particles) {
-          p.el.style.left = (p.baseX - camX) + "px";
-          p.el.style.top  = (p.baseY - camY) + "px";
+          p.el.style.left = SX(p.baseX) + "px";
+          p.el.style.top  = SY(p.baseY) + "px";
         }
         requestAnimationFrame(step);
       }
@@ -9806,8 +10001,8 @@
       orb.style.boxShadow = `0 0 24px ${color}`;
       const cx = ally.x + (ally.def.displaySize || 96) / 2;
       const cy = ally.y + (ally.def.displaySize || 96) / 2 - 10;
-      orb.style.left = (cx - camX) + "px";
-      orb.style.top  = (cy - camY) + "px";
+      orb.style.left = SX(cx) + "px";
+      orb.style.top  = SY(cy) + "px";
       vfxHost().appendChild(orb);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       // 動的光源も追加 (詠唱中の手元が明るくなる)
       const light = addSpellLight({
@@ -9931,11 +10126,11 @@
         // 楕円中心 = 術者の足元。x/y はスプライト箱の左上 (味方も敵もこの規約で統一されている)
         const wx = unit.x + size / 2;
         const wy = unit.y + size * CAST_CIRCLE_FOOT_FY;
-        el.style.left = (wx - camX) + "px";
-        el.style.top  = (wy - camY) + "px";
+        el.style.left = SX(wx) + "px";
+        el.style.top  = SY(wy) + "px";
         el.style.backgroundPosition = (-f.frame * w) + "px 0px";
         el.style.opacity = f.opacity;
-        el.style.transform = "translate(-50%, -" + (S.anchorFY * 100) + "%) scale(" + f.scale + ")";
+        el.style.transform = zTf("translate(-50%, -" + (S.anchorFY * 100) + "%) scale(" + f.scale + ")");
         if (t >= dur) { destroy(); return; }
         rafId = requestAnimationFrame(step);
       };
@@ -10007,10 +10202,10 @@
         // カメラ追従 (毎フレーム再配置 → カメラがイージングしてもユニットに密着)
         let rafId = 0, done = false;
         const place = () => {
-          aura.style.left  = (cx() - camX) + "px";
-          aura.style.top   = (cyMid() - camY) + "px";
-          label.style.left = (cx() - camX) + "px";
-          label.style.top  = (cyHead() - camY) + "px";
+          aura.style.left  = SX(cx()) + "px";
+          aura.style.top   = SY(cyMid()) + "px";
+          label.style.left = SX(cx()) + "px";
+          label.style.top  = SY(cyHead()) + "px";
           if (light) { light.worldX = cx(); light.worldY = cyMid(); }
           if (!done) rafId = requestAnimationFrame(place);
         };
@@ -10058,16 +10253,16 @@
           const t = Math.min(1, (now - start) / durationMs);
           const wx = fromWX + (toWX - fromWX) * t;
           const wy = fromWY + (toWY - fromWY) * t;
-          ball.style.left = (wx - camX) + "px";
-          ball.style.top  = (wy - camY) + "px";
+          ball.style.left = SX(wx) + "px";
+          ball.style.top  = SY(wy) + "px";
           light.worldX = wx; light.worldY = wy;
           if (_tracking) trackProjectileTo(wx, wy);   // [camera-focus-v7.4] 弾を追う
           // 火粉軌跡 (5 フレームに 1 回)
           if (Math.random() < 0.5) {
             const spark = document.createElement("div");
             spark.className = "fxFireSpark";
-            spark.style.left = (wx - camX + (Math.random() - 0.5) * 12) + "px";
-            spark.style.top  = (wy - camY + (Math.random() - 0.5) * 12) + "px";
+            spark.style.left = SX(wx + (Math.random() - 0.5) * 12) + "px";
+            spark.style.top  = SY(wy + (Math.random() - 0.5) * 12) + "px";
             vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
             setTimeout(() => { try { spark.remove(); } catch {} }, 450);
           }
@@ -10131,16 +10326,16 @@
         // (b) フレーム切り出し (横ストリップなので row=0。updateEnemyAnim と同方式)
         el.style.backgroundPosition = `${-frame * size}px 0px`;
         // (c) カメラ追従 (spawnFireballProjectile / updateGroundFx と同式)
-        el.style.left = (centerWX - camX) + "px";
-        el.style.top  = (centerWY - camY) + "px";
+        el.style.left = SX(centerWX) + "px";
+        el.style.top  = SY(centerWY) + "px";
         // (d) 再生終了 → フェード → remove (フェード中もカメラ追従)
         if (t >= playMs) {
           el.style.transition = `opacity ${fadeMs}ms linear`;
           el.style.opacity = "0";
           const fadeStart = now;
           (function fadeStep(n2) {
-            el.style.left = (centerWX - camX) + "px";
-            el.style.top  = (centerWY - camY) + "px";
+            el.style.left = SX(centerWX) + "px";
+            el.style.top  = SY(centerWY) + "px";
             if (n2 - fadeStart < fadeMs) requestAnimationFrame(fadeStep);
             else { try { el.remove(); } catch {} }
           })(now);
@@ -10191,16 +10386,16 @@
       for (let i = 1; i <= 3; i++) {
         const ring = document.createElement("div");
         ring.className = "fxFireballRing r" + i;
-        ring.style.left = (centerWX - camX) + "px";
-        ring.style.top  = (centerWY - camY) + "px";
+        ring.style.left = SX(centerWX) + "px";
+        ring.style.top  = SY(centerWY) + "px";
         vfxHost().appendChild(ring);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { ring.remove(); } catch {} }, 900);
       }
       // 火柱
       const pillar = document.createElement("div");
       pillar.className = "fxFirePillar";
-      pillar.style.left = (centerWX - camX) + "px";
-      pillar.style.top  = (centerWY - camY) + "px";
+      pillar.style.left = SX(centerWX) + "px";
+      pillar.style.top  = SY(centerWY) + "px";
       vfxHost().appendChild(pillar);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => { try { pillar.remove(); } catch {} }, 850);
     }
@@ -10216,8 +10411,8 @@
       const h = Math.abs(toWY - fromWY) + 180;
       svg.setAttribute("width", w);
       svg.setAttribute("height", h);
-      svg.style.left = (minX - camX) + "px";
-      svg.style.top  = (minY - camY) + "px";
+      svg.style.left = SX(minX) + "px";
+      svg.style.top  = SY(minY) + "px";
 
       // jagged path 生成 (ジグザグ振幅と位置オフセットを変えて 5 本生成)
       // jitter: 振幅、curveOff: メインラインからの全体オフセット
@@ -10349,8 +10544,8 @@
         const dist = 30 + Math.random() * 50;
         spark.style.setProperty("--dx", (Math.cos(ang) * dist) + "px");
         spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
-        spark.style.left = (toWX - camX) + "px";
-        spark.style.top  = (toWY - camY) + "px";
+        spark.style.left = SX(toWX) + "px";
+        spark.style.top  = SY(toWY) + "px";
         vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 520);
       }
@@ -10362,8 +10557,8 @@
         const dist = 18 + Math.random() * 24;
         spark.style.setProperty("--dx", (Math.cos(ang) * dist) + "px");
         spark.style.setProperty("--dy", (Math.sin(ang) * dist) + "px");
-        spark.style.left = (fromWX - camX) + "px";
-        spark.style.top  = (fromWY - camY) + "px";
+        spark.style.left = SX(fromWX) + "px";
+        spark.style.top  = SY(fromWY) + "px";
         vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 460);
       }
@@ -10399,8 +10594,8 @@
         // dirX,dirY 方向に + 直交方向 (横) に振る
         const px = originWX + dirX * distTile * TILE_SIZE + (-dirY) * lateral * TILE_SIZE;
         const py = originWY + dirY * distTile * TILE_SIZE + (dirX)  * lateral * TILE_SIZE;
-        cr.style.left = (px - camX) + "px";
-        cr.style.top  = (py - camY) + "px";
+        cr.style.left = SX(px) + "px";
+        cr.style.top  = SY(py) + "px";
         cr.style.animationDelay = (i * 25) + "ms";
         vfxHost().appendChild(cr);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { cr.remove(); } catch {} }, 700);
@@ -10434,8 +10629,8 @@
         const lateral = (Math.random() - 0.5) * (distTile * 0.9);  // 遠いほど横に広がる
         const px = originWX + dirX * distTile * TILE_SIZE + (-dirY) * lateral * TILE_SIZE;
         const py = originWY + dirY * distTile * TILE_SIZE + (dirX)  * lateral * TILE_SIZE;
-        spark.style.left = (px - camX) + "px";
-        spark.style.top  = (py - camY) + "px";
+        spark.style.left = SX(px) + "px";
+        spark.style.top  = SY(py) + "px";
         spark.style.animationDelay = (i * 12) + "ms";
         vfxHost().appendChild(spark);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { spark.remove(); } catch {} }, 620);
@@ -10446,9 +10641,9 @@
         core.className = "fxFireImpactCore" + (step >= 2 ? " crit" : "");
         const px = originWX + dirX * step * TILE_SIZE;
         const py = originWY + dirY * step * TILE_SIZE;
-        core.style.left = (px - camX) + "px";
-        core.style.top  = (py - camY) + "px";
-        core.style.transform = "translate(-50%, -50%)";
+        core.style.left = SX(px) + "px";
+        core.style.top  = SY(py) + "px";
+        core.style.transform = zTf("translate(-50%, -50%)");
         vfxHost().appendChild(core);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { core.remove(); } catch {} }, 420);
       }
@@ -10470,8 +10665,8 @@
         // フェードアウト (残り 600ms から透明度低下)
         const remain = fx.expireAt - now;
         if (remain < 600) fx.el.style.opacity = String(remain / 600);
-        fx.el.style.left = (fx.tx * TILE_SIZE - camX) + "px";
-        fx.el.style.top  = (fx.ty * TILE_SIZE - camY) + "px";
+        fx.el.style.left = SX(fx.tx * TILE_SIZE) + "px";
+        fx.el.style.top  = SY(fx.ty * TILE_SIZE) + "px";
       }
     }
 
@@ -10630,7 +10825,7 @@
     function speechOnScreen(u) {
       const a = speechAnchor(u);
       if (!a) return false;
-      const vw = lightCssW || window.innerWidth, vh = lightCssH || window.innerHeight;
+      const vw = (lightCssW || window.innerWidth) / camZ, vh = (lightCssH || window.innerHeight) / camZ;   // ★[P7] 世界px
       const sx = a.x - camX, sy = a.y - camY;
       // ⚠️ 下端は cameraBottomHud() (= ログ + 下部HPミニバー)。ここは長らく UI_LOG_HEIGHT だけを
       //    引いており、compact (モバイル) で UI_MINIBAR_H=64px ぶん「ミニバーの下も画面内」と
@@ -10683,8 +10878,8 @@
       el.className = "speechBubble" + (isCry ? " crySpeech" : (kind === "enemy" ? " enemySpeech" : ""));
       el.textContent = entry.text;                      // textContent: HTML 混入なし
       const a = speechAnchor(unit);
-      el.style.left = (a.x - camX) + "px";
-      el.style.top  = (a.y - camY) + "px";
+      el.style.left = SX(a.x) + "px";
+      el.style.top  = SY(a.y) + "px";
       enemyLayer.appendChild(el);                       // enemyLayer は stacking context を作らない → z-index は大域で効く
       speechBubbles.push({ el, unit, expireAt: Date.now() + SPEECH_MS });
       speechBusyUntil = Date.now() + SPEECH_MS + SPEECH_GAP_MS;
@@ -10703,8 +10898,8 @@
         const remain = b.expireAt - now;
         if (remain < 300) b.el.style.opacity = String(remain / 300);
         const a = speechAnchor(b.unit);
-        b.el.style.left = (a.x - camX) + "px";   // ← カメラ lerp / シェイク / グライドに追従
-        b.el.style.top  = (a.y - camY) + "px";
+        b.el.style.left = SX(a.x) + "px";   // ← カメラ lerp / シェイク / グライドに追従
+        b.el.style.top  = SY(a.y) + "px";
       }
       if (speechBubbles.length || now < speechBusyUntil) return;   // 単一キュー: 1件ずつ
       while (speechQueue.length) {
@@ -12121,6 +12316,7 @@
     function startGame() {
       if (gameStarted) return;
       gameStarted = true;
+      applyNodeZoom();   // ★[P7] 起点ノードが大部屋 (廃坑入口 33x22) のときは初手から引く
       startScreen.style.display = "none";
       updateInfo("ゲームスタート！");
       setPhase("explore");
@@ -13585,8 +13781,8 @@
         return;
       }
       counterAura.style.display = "block";
-      counterAura.style.left = (playerX - camX - 26) + "px";
-      counterAura.style.top  = (playerY - camY - 26) + "px";
+      counterAura.style.left = SX(playerX - 26) + "px";
+      counterAura.style.top  = SY(playerY - 26) + "px";
     }
 
     // 敵の style.filter / style.opacity は「この関数だけ」が書く。renderWorld から毎フレーム
@@ -13691,7 +13887,17 @@
     // offPx / offYPx が 0(省略含む)のとき従来(scaleX のみ/空)と完全に等価。
     // ※ 呼出4箇所 (敵通常/敵staticSprite/仲間/主人公) の共有関数なので後方互換は厳守。
     function composeSpriteTransform(flip, offPx, offYPx) {
-      let out = flip ? "scaleX(-1)" : "";
+      /* ★[卓上グリッド P7] 「絵」の大きさはここ 1 箇所で決まる。scale(camZ) を**先頭**に置くと
+       * 以降の translate も同じ倍率で縮むので、踏み込み/浮遊のピクセル量まで自動で辻褄が合う。
+       * ⚠⚠⚠ scale を足すには transform-origin を左上に固定する必要があるが、scaleX(-1) は
+       *   origin 中央を前提にした「その場での反転」なので、そのままでは箱ごと左へ飛ぶ。
+       *   `translateX(100%) scaleX(-1)` は対称な箱では p→S-p となり中央 origin の scaleX(-1) と
+       *   **数学的に同一**なので、これで origin を左上へ移せる (CSS 側に transform-origin:0 0)。
+       * ⚠ camZ===1 のときは**旧文字列をそのまま**返す。ここを変えると DOM の transform を
+       *   記録している検証シーム/golden が「絵は同じなのに文字列だけ違う」で赤くなる。 */
+      const z = camZ;
+      let out = (z !== 1) ? ("scale(" + z + ")") : "";
+      if (flip) out += (out ? " " : "") + ((z !== 1) ? "translateX(100%) scaleX(-1)" : "scaleX(-1)");
       if (offPx) {
         const screenDx = flip ? -offPx : offPx;
         out += (out ? " " : "") + "translateX(" + screenDx + "px)";
@@ -13789,8 +13995,8 @@
 
       const ds = (w.def && w.def.displaySize) || 96;
       const sx0 = w.x - camX, sy0 = w.y - camY;
-      const vx0 = UI_MENU_WIDTH, vx1 = window.innerWidth;
-      const vy1 = window.innerHeight - cameraBottomHud();
+      const vx0 = zUIL(), vx1 = zVW();                    // ★[P7] 世界px (sx0/sy0 が世界px なので単位を揃える)
+      const vy1 = zVH() - zHUD();
       const ix = Math.min(sx0 + ds, vx1) - Math.max(sx0, vx0);
       const iy = Math.min(sy0 + ds, vy1) - Math.max(sy0, 0);
       if (ix >= ESCORT_MARKER_MIN_VIS && iy >= ESCORT_MARKER_MIN_VIS) {
@@ -13806,8 +14012,12 @@
       if (box.__label !== label) { box.__label = label; if (_escortEls.text) _escortEls.text.textContent = label; }
       if (box.__pct !== pct) { box.__pct = pct; if (_escortEls.fill) _escortEls.fill.style.width = pct + "%"; }
 
-      box.style.top = Math.max(30, Math.min(sy0 + ds / 2, vy1 - 30)) + "px";
-      box.style.left = (toLeft ? vx0 + 6 : vx1 - 6) + "px";
+      /* ★[卓上グリッド P7] このマーカーは**画面端に貼り付く HUD** なので、書き込みは画面 px。
+       * 上の可視判定 (sx0/sy0/vx0/vx1/vy1) は世界 px で揃えてあるので、ここで camZ を掛けて
+       * 画面 px へ戻す。30/6 のマージンは元から画面 px なので掛けない。
+       * ⚠ camZ=1 では乗算が恒等なので従来と 1 ビットも変わらない。 */
+      box.style.top = Math.max(30, Math.min((sy0 + ds / 2) * camZ, vy1 * camZ - 30)) + "px";
+      box.style.left = (toLeft ? vx0 * camZ + 6 : vx1 * camZ - 6) + "px";
       box.classList.toggle("side-left", toLeft);
       box.classList.toggle("side-right", !toLeft);
       box.classList.toggle("hit", performance.now() < _escortHitUntil);
@@ -13843,8 +14053,8 @@
       try { updateEscortMarker(); }
       catch (e) { window.__escortMarkerErr = (window.__escortMarkerErr || 0) + 1; }
 
-      player.style.left = (playerX - camX) + "px";
-      player.style.top  = (playerY - camY) + "px";
+      player.style.left = SX(playerX) + "px";
+      player.style.top  = SY(playerY) + "px";
       // シールド・オブ・フェイス バフ中: 金の光輪を持続表示
       player.classList.toggle("fx-shield",
         typeof playerBuffs !== "undefined" && playerBuffs.acBonusRemaining > 0);
@@ -13860,11 +14070,15 @@
         } else {
           warriorHpBar.style.display = "block";
           warriorLabel.style.display = "block";
-          warriorHpBar.style.left = (playerX + 18 - camX) + "px";
-          warriorHpBar.style.top  = (playerY - 10 - camY) + "px";
+          /* ★[卓上グリッド P7] バーは**縮まない**ので、ズーム時は「左上を世界に置く」では
+           * 中心がずれる (96px スプライト前提の +18 が、24px 表示だと右へ大きくはみ出す)。
+           * `SX(w + W/2) - W/2` は **camZ=1 で恒等** (= 従来と 1px も変わらない) のまま、
+           * z<1 では「z=1 のときバーの中心だった世界点」に中心を置き続ける。 */
+          warriorHpBar.style.left = SX(playerX + 18 + 30) - 30 + "px";   // .allyHpBar 幅 60
+          warriorHpBar.style.top  = SY(playerY - 10 + 5) - 5 + "px";     // .allyHpBar 高さ 10
           warriorHpFill.style.width = (hp / maxHp * 100) + "%";
-          warriorLabel.style.left = (playerX + 20 - camX) + "px";
-          warriorLabel.style.top  = (playerY - 28 - camY) + "px";
+          warriorLabel.style.left = SX(playerX + 20) + "px";
+          warriorLabel.style.top  = SY(playerY - 28) + "px";
           updateStatusSlot("player", document.getElementById("warriorStatusSlot"));   // status-effect v1.1
         }
       }
@@ -13934,8 +14148,8 @@
 
         if (enemy.alive) {
           enemyEl.style.display = "block";
-          enemyEl.style.left = (enemy.x - camX) + "px";
-          enemyEl.style.top  = (enemy.y - camY) + "px";
+          enemyEl.style.left = SX(enemy.x) + "px";
+          enemyEl.style.top  = SY(enemy.y) + "px";
           updateEnemyDamageFlash(enemyEl, enemy);
           updateEnemyAnim(enemy, enemyEl);
           // ステータスエフェクト連動: スリープ (stunned > 0)
@@ -13945,15 +14159,16 @@
 
           hpBarEl.style.display = "block";
           const hpBarOffX = (enemy.def.displaySize - 52) / 2;
-          hpBarEl.style.left = (enemy.x + hpBarOffX - camX) + "px";
-          hpBarEl.style.top  = (enemy.y - 10 - camY) + "px";
+          // ★[P7] 上の warriorHpBar と同じ理由。.enemyHpBar は 52x8。
+          hpBarEl.style.left = SX(enemy.x + hpBarOffX + 26) - 26 + "px";
+          hpBarEl.style.top  = SY(enemy.y - 10 + 4) - 4 + "px";
           hpFillEl.style.width = (enemy.hp / enemy.maxHp * 100) + "%";
           // status-effect v1.1: 状態アイコン列を HP バーの直上へ
           const statusEl = enemyStatusElements[index];
           if (statusEl) {
             statusEl.style.display = "flex";
-            statusEl.style.left = (enemy.x + hpBarOffX - camX) + "px";
-            statusEl.style.top  = (enemy.y - 27 - camY) + "px";
+            statusEl.style.left = SX(enemy.x + hpBarOffX) + "px";
+            statusEl.style.top  = SY(enemy.y - 27) + "px";
             updateStatusSlot(enemy, statusEl);
           }
           // ボス/敵がプレイヤー・仲間(z-index:6)と同タイルに重なると、敵(z-index:2)が
@@ -13975,27 +14190,27 @@
 
         coinEl.style.display = enemy.coinVisible ? "block" : "none";
         if (enemy.coinVisible) {
-          coinEl.style.left = (enemy.coinX - camX) + "px";
-          coinEl.style.top  = (enemy.coinY - camY) + "px";
+          coinEl.style.left = SX(enemy.coinX) + "px";
+          coinEl.style.top  = SY(enemy.coinY) + "px";
         }
 
         weaponEl.style.display = enemy.weaponVisible ? "block" : "none";
         if (enemy.weaponVisible) {
-          weaponEl.style.left = (enemy.weaponX - camX) + "px";
-          weaponEl.style.top  = (enemy.weaponY - camY) + "px";
+          weaponEl.style.left = SX(enemy.weaponX) + "px";
+          weaponEl.style.top  = SY(enemy.weaponY) + "px";
         }
 
         armorEl.style.display = enemy.armorVisible ? "block" : "none";
         if (enemy.armorVisible) {
-          armorEl.style.left = (enemy.armorX - camX) + "px";
-          armorEl.style.top  = (enemy.armorY - camY) + "px";
+          armorEl.style.left = SX(enemy.armorX) + "px";
+          armorEl.style.top  = SY(enemy.armorY) + "px";
         }
 
         // ！マーク：alert 状態のときだけ表示
         if (enemy.alive && enemy.state === "alert") {
           alertEl.style.display = "block";
-          alertEl.style.left = (enemy.x + 22 - camX) + "px";
-          alertEl.style.top  = (enemy.y - 26 - camY) + "px";
+          alertEl.style.left = SX(enemy.x + 22) + "px";
+          alertEl.style.top  = SY(enemy.y - 26) + "px";
         } else {
           alertEl.style.display = "none";
         }
@@ -14007,8 +14222,8 @@
             badgeEl.style.display = "block";
             // 敵サイズの中央に合わせて少し上 (status-effect v1.1 の状態アイコン列 -27px の更に上へ)
             const offX = enemy.def.displaySize / 2 - 18;
-            badgeEl.style.left = (enemy.x + offX - camX) + "px";
-            badgeEl.style.top  = (enemy.y - 46 - camY) + "px";
+            badgeEl.style.left = SX(enemy.x + offX) + "px";
+            badgeEl.style.top  = SY(enemy.y - 46) + "px";
           } else {
             badgeEl.style.display = "none";
           }
@@ -14020,8 +14235,8 @@
         if (!ally.el) return;
         if (ally.alive) {
           ally.el.style.display = "block";
-          ally.el.style.left = (ally.x - camX) + "px";
-          ally.el.style.top  = (ally.y - camY) + "px";
+          ally.el.style.left = SX(ally.x) + "px";
+          ally.el.style.top  = SY(ally.y) + "px";
           updateAllySprite(ally);
           // シールド・オブ・フェイス バフ中: 金の光輪を持続表示
           ally.el.classList.toggle("fx-shield",
@@ -14029,8 +14244,9 @@
           // HPバー (敵と同じスタイルで スプライト上部の外側)
           if (ally.hpWrapEl) {
             ally.hpWrapEl.style.display = "block";
-            ally.hpWrapEl.style.left = (ally.x + 18 - camX) + "px";
-            ally.hpWrapEl.style.top  = (ally.y - 10 - camY) + "px";
+            // ★[P7] 上の warriorHpBar と同じ理由。.allyHpBar は 60x10。
+            ally.hpWrapEl.style.left = SX(ally.x + 18 + 30) - 30 + "px";
+            ally.hpWrapEl.style.top  = SY(ally.y - 10 + 5) - 5 + "px";
             // .allyHpFill は transition: width 0.3s を持つ。毎フレーム同じ値を書くと
             // そのたびにトランジションが再起動して永久に走り続けるので、変化時だけ書く。
             const hpW = (ally.hp / ally.maxHp * 100) + "%";
@@ -14042,8 +14258,8 @@
           // 名前ラベル (HPバーの上)
           if (ally.nameLabelEl) {
             ally.nameLabelEl.style.display = "block";
-            ally.nameLabelEl.style.left = (ally.x + 20 - camX) + "px";
-            ally.nameLabelEl.style.top  = (ally.y - 28 - camY) + "px";
+            ally.nameLabelEl.style.left = SX(ally.x + 20) + "px";
+            ally.nameLabelEl.style.top  = SY(ally.y - 28) + "px";
             updateStatusSlot(ally, ally.statusSlotEl);   // status-effect v1.1
           }
         } else {
@@ -14065,8 +14281,8 @@
           chest.el.classList.remove("hidden-unfound");
           const wx = chest.tx * TILE_SIZE + TILE_SIZE / 2 - 28;
           const wy = chest.ty * TILE_SIZE + TILE_SIZE / 2 - 28;
-          chest.el.style.left = (wx - camX) + "px";
-          chest.el.style.top  = (wy - camY) + "px";
+          chest.el.style.left = SX(wx) + "px";
+          chest.el.style.top  = SY(wy) + "px";
         }
       }
       // 檻オブジェクト (Sce2 隠し要素、192px = 2タイル分、tile 中心に配置)
@@ -14075,8 +14291,8 @@
           if (!cage.el) continue;
           const wx = cage.tx * TILE_SIZE + TILE_SIZE / 2 - 96;
           const wy = cage.ty * TILE_SIZE + TILE_SIZE / 2 - 96;
-          cage.el.style.left = (wx - camX) + "px";
-          cage.el.style.top  = (wy - camY) + "px";
+          cage.el.style.left = SX(wx) + "px";
+          cage.el.style.top  = SY(wy) + "px";
         }
       }
       // [sce1-events] 縛られた従者 (檻と同じくタイル中心へカメラ追従で配置。96px = 1 マス)
@@ -14086,8 +14302,8 @@
         } else {
           const cs = sce1CaptiveSpot();
           sce1CaptiveEl.style.display = "block";
-          sce1CaptiveEl.style.left = (cs.tx * TILE_SIZE + TILE_SIZE / 2 - 48 - camX) + "px";
-          sce1CaptiveEl.style.top  = (cs.ty * TILE_SIZE + TILE_SIZE / 2 - 48 - camY) + "px";
+          sce1CaptiveEl.style.left = SX(cs.tx * TILE_SIZE + TILE_SIZE / 2 - 48) + "px";
+          sce1CaptiveEl.style.top  = SY(cs.ty * TILE_SIZE + TILE_SIZE / 2 - 48) + "px";
         }
       }
       /* ★[P3] 出口の矢印 + 羊皮紙 (宝箱 / 檻 / 捕虜 に続く 4 ブロック目。式も同型)。
@@ -14108,8 +14324,8 @@
           if (trap.triggered) trap.el.classList.add("triggered");
           const wx = trap.tx * TILE_SIZE + TILE_SIZE / 2 - 26;
           const wy = trap.ty * TILE_SIZE + TILE_SIZE / 2 - 26;
-          trap.el.style.left = (wx - camX) + "px";
-          trap.el.style.top  = (wy - camY) + "px";
+          trap.el.style.left = SX(wx) + "px";
+          trap.el.style.top  = SY(wy) + "px";
         }
       }
       // Sce3 蛇祭壇の微光オーラ: 封印中のみ、ハイドラ位置 (=祭壇中心) にカメラ追従で配置
@@ -14119,8 +14335,8 @@
           const ds = he.def.displaySize || TILE_SIZE;
           const cx = he.x + ds / 2, cy = he.y + ds / 2;
           altarGlowEl.style.display = "block";
-          altarGlowEl.style.left = (cx - 90 - camX) + "px";   // glow 幅180px → 中央寄せ
-          altarGlowEl.style.top  = (cy - 60 - camY) + "px";   // glow 高120px
+          altarGlowEl.style.left = SX(cx - 90) + "px";   // glow 幅180px → 中央寄せ
+          altarGlowEl.style.top  = SY(cy - 60) + "px";   // glow 高120px
         } else {
           altarGlowEl.style.display = "none";
         }
@@ -14381,8 +14597,8 @@
       if (facing === "left") { gx = playerX - 34; gy = playerY - 12; }
       if (facing === "right") { gx = playerX + 18; gy = playerY - 12; }
 
-      guardEffect.style.left = (gx - camX) + "px";
-      guardEffect.style.top  = (gy - camY) + "px";
+      guardEffect.style.left = SX(gx) + "px";
+      guardEffect.style.top  = SY(gy) + "px";
       guardEffect.style.display = "block";
       guardEffect.style.animation = "none";
       void guardEffect.offsetWidth;
@@ -14400,8 +14616,8 @@
       const enemy = enemies[index];
       const spark = hitSparkElements[index];
       spark.classList.toggle("strong", strong);
-      spark.style.left = (enemy.x - camX - (strong ? 24 : 10)) + "px";
-      spark.style.top  = (enemy.y - camY - (strong ? 24 : 10)) + "px";
+      spark.style.left = SX(enemy.x - (strong ? 24 : 10)) + "px";
+      spark.style.top  = SY(enemy.y - (strong ? 24 : 10)) + "px";
       spark.style.display = "block";
       spark.style.animation = "none";
       void spark.offsetWidth;
@@ -14556,8 +14772,8 @@
       const ds = e.def.displaySize || TILE_SIZE;
       ghost.style.width  = ds + "px";
       ghost.style.height = ds + "px";
-      ghost.style.left   = (e.x - camX) + "px";
-      ghost.style.top    = (e.y - camY) + "px";
+      ghost.style.left   = SX(e.x) + "px";
+      ghost.style.top    = SY(e.y) + "px";
       ghost.style.backgroundImage = `url("${e.def.sprite}")`;
       const scale = ds / e.def.frameW;
       ghost.style.backgroundSize = `${Math.round(e.def.sheetW * scale)}px ${Math.round(e.def.sheetH * scale)}px`;
@@ -14577,8 +14793,8 @@
       ghost.className = "displaceAfterimage";
       ghost.style.width  = playerWidth  + "px";
       ghost.style.height = playerHeight + "px";
-      ghost.style.left   = (playerX - camX) + "px";
-      ghost.style.top    = (playerY - camY) + "px";
+      ghost.style.left   = SX(playerX) + "px";
+      ghost.style.top    = SY(playerY) + "px";
       // インライン優先 → 計算済 → simple_knight フォールバック
       ghost.style.backgroundImage    = player.style.backgroundImage
         || cs.backgroundImage || "url(\"assets/simple_knight.png\")";
@@ -14601,8 +14817,8 @@
       const ds = (ally.def && ally.def.displaySize) || 96;
       ghost.style.width  = ds + "px";
       ghost.style.height = ds + "px";
-      ghost.style.left   = (ally.x - camX) + "px";
-      ghost.style.top    = (ally.y - camY) + "px";
+      ghost.style.left   = SX(ally.x) + "px";
+      ghost.style.top    = SY(ally.y) + "px";
       ghost.style.backgroundImage    = el.style.backgroundImage    || cs.backgroundImage    || "";
       ghost.style.backgroundSize     = el.style.backgroundSize     || cs.backgroundSize     || "";
       ghost.style.backgroundPosition = el.style.backgroundPosition || cs.backgroundPosition || "0 0";
@@ -15436,8 +15652,8 @@
       // 宝箱クリックはプレイヤーが触れる唯一の要素として残す(観戦でも拾える)
       if (gameOver) return;
       if (e.button !== 0) return;
-      const clickWX = e.clientX + camX;
-      const clickWY = e.clientY + camY;
+      const clickWX = WX(e.clientX);   // ★[P7] 画面px → ワールド (camZ=1 なら従来と同値)
+      const clickWY = WY(e.clientY);
       openChestAt(clickWX, clickWY);
     });
 
@@ -17687,8 +17903,8 @@
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
       pop.innerHTML = html;
-      pop.style.left = (playerX + 48 - camX) + "px";
-      pop.style.top  = (playerY - 24 - camY) + "px";
+      pop.style.left = SX(playerX + 48) + "px";
+      pop.style.top  = SY(playerY - 24) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
@@ -17697,8 +17913,8 @@
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
       pop.innerHTML = html;
-      pop.style.left = (e.x + e.def.displaySize / 2 - camX) + "px";
-      pop.style.top  = (e.y - 32 - camY) + "px";
+      pop.style.left = SX(e.x + e.def.displaySize / 2) + "px";
+      pop.style.top  = SY(e.y - 32) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
@@ -17706,8 +17922,8 @@
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
       pop.innerHTML = html;
-      pop.style.left = (ally.x + ally.def.displaySize / 2 - camX) + "px";
-      pop.style.top  = (ally.y - 24 - camY) + "px";
+      pop.style.left = SX(ally.x + ally.def.displaySize / 2) + "px";
+      pop.style.top  = SY(ally.y - 24) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
@@ -18206,8 +18422,8 @@
       const pop = document.createElement("div");
       pop.className = "dmgPop" + (isCrit ? " crit" : "");
       pop.textContent = dmg;
-      pop.style.left = (worldX - camX) + "px";
-      pop.style.top  = (worldY - camY - 4) + "px";
+      pop.style.left = SX(worldX) + "px";
+      pop.style.top  = SY(worldY - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => pop.remove(), isCrit ? 1200 : 900);
       if (isCrit) triggerScreenShake(SHAKE_CRIT.mag, SHAKE_CRIT.dur);   // クリティカルだけ揺らす(通常ヒットは静)
@@ -20005,8 +20221,8 @@
       const pop = document.createElement("div");
       pop.className = "rollPop skill";
       pop.innerHTML = `<span class="label">SKILL</span><span class="big">${skillName}</span>`;
-      pop.style.left = (playerX + 48 - camX) + "px";
-      pop.style.top  = (playerY - 40 - camY) + "px";
+      pop.style.left = SX(playerX + 48) + "px";
+      pop.style.top  = SY(playerY - 40) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), 1400);
     }
@@ -20014,8 +20230,8 @@
       const pop = document.createElement("div");
       pop.className = "rollPop buff";
       pop.innerHTML = text;
-      pop.style.left = (playerX + 48 - camX) + "px";
-      pop.style.top  = (playerY - 24 - camY) + "px";
+      pop.style.left = SX(playerX + 48) + "px";
+      pop.style.top  = SY(playerY - 24) + "px";
       document.body.appendChild(pop);
       setTimeout(() => pop.remove(), 1400);
     }
@@ -23393,8 +23609,8 @@
       pop.style.textShadow =
         "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(255,150,50,0.9)";
       pop.textContent = "武器化!";
-      pop.style.left = (worldX - camX) + "px";
-      pop.style.top  = (worldY - camY - 4) + "px";
+      pop.style.left = SX(worldX) + "px";
+      pop.style.top  = SY(worldY - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 1000);
     }
@@ -23696,8 +23912,8 @@
       pop.style.textShadow =
         "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(140,255,160,0.85)";
       pop.textContent = "+" + heal;
-      pop.style.left = (worldX - camX) + "px";
-      pop.style.top  = (worldY - camY - 4) + "px";
+      pop.style.left = SX(worldX) + "px";
+      pop.style.top  = SY(worldY - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 900);
     }
@@ -23710,8 +23926,8 @@
       pop.style.textShadow =
         "0 1px 0 #000, 0 2px 6px rgba(0,0,0,0.9), 0 0 10px rgba(140,255,160,0.85)";
       pop.textContent = "解除!";
-      pop.style.left = (worldX - camX) + "px";
-      pop.style.top  = (worldY - camY - 4) + "px";
+      pop.style.left = SX(worldX) + "px";
+      pop.style.top  = SY(worldY - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 900);
     }
@@ -23728,8 +23944,8 @@
       pop.textContent = `呪文 +${amount}`;
       const wx = ally.x + ally.def.displaySize / 2;
       const wy = ally.y;
-      pop.style.left = (wx - camX) + "px";
-      pop.style.top  = (wy - camY - 4) + "px";
+      pop.style.left = SX(wx) + "px";
+      pop.style.top  = SY(wy - 4) + "px";
       vfxHost().appendChild(pop);   // ★[P1] 一過性VFX (.dmgPop 系フロート) は #vfxLayer へ — 同じ z51 の仲間と前後が揺れないよう全 4 箇所を揃える
       setTimeout(() => pop.remove(), 1000);
     }
@@ -27212,8 +27428,8 @@
     function spawnShadowPuff(wx, wy) {
       const el = document.createElement("div");
       el.className = "fxShadowPuff";
-      el.style.left = (wx - camX - 48) + "px";
-      el.style.top  = (wy - camY - 48) + "px";
+      el.style.left = SX(wx - 48) + "px";
+      el.style.top  = SY(wy - 48) + "px";
       vfxHost().appendChild(el);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
       setTimeout(() => el.remove(), 650);
     }
@@ -32144,6 +32360,7 @@
         buildNode(resolveNodeMapDef(toId), toId);
         const revisit = restoreNodeState(toId);
         placeNodeParty(viaDir);
+        applyNodeZoom();   // ★[P7] 部屋の広さから倍率を決める (snapCamera の直前 = 描画前)
         snapCamera();
         await nodeFadeTo(false);
         if (node.kind === "rest") {
