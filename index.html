@@ -9594,7 +9594,9 @@
     // こちらは**ダンジョン内のイベントで立てて、同じ潜行の後段 (ボス戦・エピローグ) が読む**。
     // ⚠ sessionStorage には保存しない = 潜行内で完結し、リロードで消えてよい (次の潜行へ持ち越さない)。
     let sceneFlags = {
-      mine_alerted: false,      // EV-2 失敗 = 廃坑の入口で骨笛を鳴らされた (後段の敵増援)
+      mine_alerted: false,      // EV-2 失敗 = 廃坑の入口で骨笛を鳴らされた (その場に増援)
+      // EV-2 の②「遠距離攻撃が届く位置まで、ゆっくり近づく」に成功 = 次の戦闘の初手を取る
+      mine_ranged_opening: false,
       servant_rescued: false,   // EV-5 成功 = 捕らわれた従者を救出した (ボス戦の Redirect 無効化)
     };
     // [sce1-events] シナリオ1 (既定クエスト) でだけイベントを出すゲート。
@@ -18683,6 +18685,7 @@
       window.__inMidBoss = isMidBossActive();   // 既に解き放たれた中ボスが居れば midboss 曲を選ばせる
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
+      applyMineRangedOpening();   // [sce1-events] EV-2 の②に成功していれば敵の初手を潰す
       // [sce1-events] EV-9 を踏まずにボス戦へ入った場合の保険 (本線は runGrixEvent の末尾)。
       //   ⚠ ここが「ダメージが 1 点でも入る前」の最も早い地点。冪等ラッチ付きなので二重発火しない。
       armGrixHostageRedirect();
@@ -22644,9 +22647,17 @@
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「誘い出す」) が「判定なし(確定)」。
     //   分岐を bool で書かずデータで持つのは、判定なし枠が SkillCheck へ 1 度も到達しないことを
     //   構造で保証するため (「振らせない」が本項目の芯)。
+    /* ★[2026-08-19 ユーザー決定] ②を「骨笛を狙って射る」から
+     *   「遠距離攻撃が届く位置まで、ゆっくり近づく」へ差し替えた。見張りが n0 の盤面に
+     *   実際に立つようになったので、②の報酬は**その戦闘の初手**という具体的な形になる。
+     * ⭐ 得意クラスを**枝ごと**に持たせた。旧実装は SCE1_WATCH_CLASSES (盗賊) を全枝へ
+     *   一律に加算していたが、②は知覚 (WIS) なので盗賊の +2 は筋が通らない。
+     *   ⚠ classes を書かない枝は従来どおり SCE1_WATCH_CLASSES へ落ちる。 */
     const SCE1_WATCH_CHECKS = {
-      0: { check: "stealth",       title: "隠密判定", flavor: "足音を殺し、舟を漕ぐ見張りの脇を抜ける…" },
-      1: { check: "sleightOfHand", title: "早業判定", flavor: "腰の骨笛だけを狙う。指先の精度がすべてだ…" },
+      0: { check: "stealth",    title: "隠密判定", classes: ["rogue"],
+           flavor: "足音を殺し、舟を漕ぐ見張りの背後へ回り込む…" },
+      1: { check: "perception", title: "知覚判定", classes: ["elf", "dwarf"],
+           flavor: "見張りの視線が切れる間合いを読み、射程までじりじり詰める…" },
     };
 
     // 発火地点は ROOMS[0] (山場) から導出する。絶対タイル座標を直書きすると
@@ -22657,7 +22668,17 @@
       /* ★[P5] 分岐版は**現在ノードの部屋**から導出する。旧アンカーは「ROOMS[0] の西端から東へ
        *   +N」= 西から進入する前提だが、分岐マップは入場する縁がノードごとに変わるので成立しない。
        * ⚠ memo しない (ノードを跨ぐと部屋が変わる)。nodeEventSpot は関数宣言なので巻き上げ済み。 */
-      if (RUN) return nodeEventSpot(SCE1_WATCH_OFFSET_TX, 0);
+      /* ★[2026-08-19] EV-2 は廃坑入口 n0 の**冒頭の 3 択**になったので、パーティが
+       *   立った瞬間に出るのが正しい。よって発火地点は**そのノードの入場地点 (mapDef.start)**。
+       * ⚠⚠ 旧「部屋の西端から東へ +3」は 33 列の n0 では西の果て (23,13) に落ちる。
+       *   パーティの起点 (36,13) から 13 タイル離れており、半径 240px では**一度も発火しない**。
+       * ⚠ 再入場ではゲートから入るので start とは違う場所に立つが、イベントは
+       *   nodeState.eventsFired で 1 度きりなので取りこぼしにはならない。 */
+      if (RUN) {
+        const st = (typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.start) ? MAPDEF.start : null;
+        if (st && typeof st.tx === "number") return snapToWalkable({ tx: st.tx, ty: st.ty });
+        return nodeEventSpot(SCE1_WATCH_OFFSET_TX, 0);
+      }
       if (_sce1WatchSpot) return _sce1WatchSpot;
       const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -22668,8 +22689,18 @@
       _sce1WatchSpot = { tx, ty };
       return _sce1WatchSpot;
     }
-    // 増援のアンカー = 山場の中心 (既定で tx33, ty13 = 本隊の密集点)。ここも ROOMS[0] から導出。
+    /* 増援のアンカー。旧単一マップでは山場の中心 (tx33, ty13 = 本隊の密集点)。
+     * ★[2026-08-19] 分岐版は「増援が駆けつけてくる側」= **現在ノードの前進出口 (坑口)**。
+     * ⚠⚠ 部屋の中心を使ってはいけない。廃坑の n0 は 33x22 で、パーティの入場地点が
+     *   まさに部屋の中心 (36,13) なので、増援が**足元に湧いて囲まれた状態で開幕**する。
+     * ⚠ exits[].at はデータでは配列 [tx,ty]、導出経路では {tx,ty} なので両方受ける。 */
     function sce1AlertAnchorTile() {
+      if (RUN && currentNodeId && RUN.byId[currentNodeId]) {
+        const ex = (RUN.byId[currentNodeId].exits || [])[0];
+        const at = ex && ex.at;
+        if (Array.isArray(at) && at.length >= 2) return { tx: at[0], ty: at[1] };
+        if (at && typeof at.tx === "number") return { tx: at.tx, ty: at.ty };
+      }
       const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
       return { tx: Math.floor((r[1] + r[3]) / 2), ty: Math.floor((r[0] + r[2]) / 2) };
     }
@@ -22700,27 +22731,54 @@
       return n;
     }
 
+    /* ★[2026-08-19] EV-2 の②「遠距離攻撃が届く位置まで、ゆっくり近づく」に成功した
+     *   戦闘だけ、交戦した敵の初手を 1 ターン潰す = 遠距離職が先に撃てる。
+     * ⭐ **新しい戦闘機構は作らない**。`stunned` は牙の護符 (tryNegatePreemptive) が
+     *   既に使っている枠で、ターンループ側の配線が済んでいる。
+     * ⚠ フラグは 1 度で消費する。同じノードで 2 回目の戦闘が起きても効かない
+     *   (「射程を取った」のは最初の接敵についての話なので)。 */
+    function applyMineRangedOpening() {
+      if (!sceneFlags.mine_ranged_opening) return 0;
+      sceneFlags.mine_ranged_opening = false;
+      let n = 0;
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        e.stunned = Math.max(e.stunned || 0, 1);
+        n++;
+      }
+      if (n > 0) {
+        showBanner("🏹 射程を取っていた! 初手を潰した", 1600);
+        updateInfo(`遠距離が届く位置まで詰めていた — 見張り ${n} 体の初手を潰した`);
+      }
+      return n;
+    }
+
     function applyMineWatchResult(res, choice) {
       const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       // エンジン未読込 / PT 消滅で判定自体が成立しなかった場合は**安全側**に倒す (騒がれない)。
       // ここで警笛を鳴らすと「判定を受けていないのに罰だけ受ける」不条理になる。
       if (!res) { updateInfo(`${rep} たちは見張りの脇をすり抜けた。`); return; }
       if (res.success) {
-        showBanner(choice === 1 ? "🎯 骨笛を射抜いた" : "🥷 見張りに気づかれなかった", 1600);
-        updateInfo(choice === 1
-          ? `${rep} の一射が骨笛を割った (${res.total} ≧ DC ${res.dc}) — 警笛は鳴らない`
-          : `${rep} は足音を殺し、見張りの背後を抜けた (${res.total} ≧ DC ${res.dc}) — 廃坑はまだ静かだ`);
-        showDMMessage(choice === 1
-          ? "乾いた音を立てて骨笛が砕けた。見張りは腰へ手をやり、そこに何も無いことに気づく。もう、奥へ報せる術は無い。"
-          : "息を殺し、舟を漕ぐ見張りの背後を通り過ぎる。坑道の奥は、まだ何も知らない。", 2800);
+        /* ★どちらの成功も「増援なし」は共通 (ユーザー指定)。違いは②だけが持つ**初手**。 */
+        if (choice === 1) {
+          sceneFlags.mine_ranged_opening = true;
+          showBanner("🏹 射程を取った", 1600);
+          updateInfo(`${rep} は見張りの視線の切れ目を読み、射程まで詰めた (${res.total} ≧ DC ${res.dc}) — 骨笛は鳴らない`);
+          showDMMessage("岩陰から岩陰へ。二匹が欠伸を交わした一瞬、君たちは既に矢と呪文の届く間合いに居る。先に撃つのは、こちらだ。", 2800);
+        } else {
+          showBanner("🥷 見張りに気づかれなかった", 1600);
+          updateInfo(`${rep} は足音を殺し、見張りの背後へ回り込んだ (${res.total} ≧ DC ${res.dc}) — 骨笛は鳴らない`);
+          showDMMessage("息を殺し、舟を漕ぐ見張りの背後を取る。坑道の奥は、まだ何も知らない。", 2800);
+        }
         return;
       }
-      // 失敗: 骨笛が鳴り、山場で待ち構える頭数が増える (同じ潜行の後段が読む sceneFlags の初仕事)
+      // 失敗: 骨笛が鳴り、**その場に**増援が駆けつける (2026-08-19 ユーザー決定)
       sceneFlags.mine_alerted = true;
       const added = applyMineAlertedAdds();
       showBanner("📯 骨笛が鳴り響いた!", 1800);
-      updateInfo(`${rep} は見張りに気取られた… (${res.total} < DC ${res.dc}) 骨笛が鳴り、奥から ${added} 体が駆けつけた`);
-      showDMMessage("低く長い音が坑道を駆け上がっていく。奥の広間から、応じる喚声——待ち構える数が、増えた。", 3200);
+      updateInfo(`${rep} は見張りに気取られた… (${res.total} < DC ${res.dc}) 骨笛が鳴り、坑道から ${added} 体が駆けつけた`);
+      showDMMessage("低く長い音が坑道を駆け上がっていく。応じる喚声——坑口の闇から、新手が転がり出てきた。", 3200);
     }
 
     async function runMineWatchEvent(ev) {
@@ -22728,10 +22786,10 @@
       let choice = null;
       try {
         choice = await showCharChoice(
-          "坑道の入口に見張りが二匹。片方は舟を漕ぎ、もう片方の腰に骨笛が下がっている。",
+          "坑道の入口に見張りが二匹。片方は舟を漕ぎ、もう片方の腰には骨笛が下がっている。",
           [
-            { label: "静かに近づく" },
-            { label: "骨笛を狙って射る" },
+            { label: "物音を立てずに近づく" },
+            { label: "遠距離攻撃が届く位置まで、ゆっくり近づく" },
             { label: "わざと姿を見せて誘い出す" },
           ],
           "引き返す (Esc)");
@@ -22761,7 +22819,8 @@
           res = await SkillCheck.resolveSkillCheck(spec.check, SCE1_WATCH_DC, party, {
             title: spec.title,
             flavor: spec.flavor,
-            extraBonus: sceneClassBonus(SCE1_WATCH_CLASSES),   // ★DC ではなく加算側に効かせる
+            // ★DC ではなく加算側に効かせる。⚠ 枝ごとの classes を優先 (無い枝は従来どおり)
+            extraBonus: sceneClassBonus(spec.classes || SCE1_WATCH_CLASSES),
             voiceIds: PERCEPTION_VOICE,
           });
         } catch (e) { res = null; }
@@ -22791,8 +22850,15 @@
      * ⚠ EV-9 は RUN.bossNodeId を使う (ボスノードは kind:"boss" から一意に決まるので直書きしない)。
      * ⚠ ここより下 (startup の spawnNodeEntities) から参照されるので、宣言は必ず**その前**に置く
      *   (const は巻き上げても TDZ に落ちる)。 */
-    const SCE1_NODE_WATCH   = "n1";   // 見張りの詰所 (EV-2)
-    const SCE1_NODE_SERVANT = "n6";   // 横穴 (EV-5) — 縛られた従者が居るノードでもある
+    /* ★[2026-08-19 ユーザー決定]
+     *   EV-2 は n1 (見張りの詰所) から **n0 (廃坑入口)** へ移した。見張りのゴブリン 2 体を
+     *   実際に n0 の盤面へ置いた (E0_WATCH_SLOTS) ので、「冒頭で近づき方を選ぶ → 戦う →
+     *   倒すと坑口の矢印が出る」が 1 つのノードで完結する。
+     *   EV-5 は n6 (横穴) の撤去にともない **n5 (湧き水の間)** へ移した。n5 は kind:"rest" の
+     *   行き止まりで敵が 1 体も居ないので、旧 n6 と同じ「静かな寄り道」という性格が保たれる。
+     * ⚠ kind:"rest" の回復とイベントは独立 (registerNodeEvent は nodeId で引く) ので競合しない。 */
+    const SCE1_NODE_WATCH   = "n0";   // 廃坑入口 (EV-2) — 見張り 2 体が立っているノード
+    const SCE1_NODE_SERVANT = "n5";   // 湧き水の間 (EV-5) — 縛られた従者が居るノードでもある
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「迂回する」) が「判定なし(確定)」。
     const SCE1_SERVANT_CHECKS = {
       0: { check: "perception", title: "知覚判定", flavor: "呻き声の出どころと、その手前の床板を目で追う…" },
@@ -32702,8 +32768,10 @@
      *        400ms tick を待つ間に heroAI が前進して交戦距離へ入る競合が起きない
      *      ⚠ ボスや護衛をこれ以上西へ寄せると EV-9 が無言で死ぬ。動かすときは必ず
      *        driver_graph_sce1 の (9x) 群を走らせること。
-     *   ③ **n0 (start) も敵 0**。開幕ナレーションの最中に戦闘が始まるのを避ける
-     *      (旧単一マップでは起点 col24 と本隊 col31 が 7 タイル離れていたので起きなかった)。
+     *   ③ **n0 (start) も敵 0** … は P6 の 5 シナリオだけの話。廃坑の n0 は 33x22 の
+     *      大部屋なので「部屋が 7 列しかない」という①の前提がそもそも成り立たず、
+     *      起点 (36,13) から見張り (41,7)/(43,7) までは 7.8〜9.2 タイル = 750〜885px と
+     *      交戦距離 engagePx=400 の 2 倍近く離せる。開幕ナレの最中に戦闘は始まらない。
      *   ④ 敵の総数は旧 13 体に対し、全ノードを踏破すると 15 体 / 最短路 (n0→n1→n4→n7) で 10 体。
      *      道中の取りこぼしぶんは分岐を選ぶ判断の対価として意図的に残してある。
      *   ⑤ ヒント文は **kind から EXIT_HINTS が引く**ので原則書かない。EV-2 の枝だけ、
@@ -32750,8 +32818,23 @@
        * ⚠⚠ **絵側の gates を動かしたらここも動かすこと**。両方が揃っているかを測る装置は
        *   tools/driver_grid_p3b.js の §1 (exits[].at === nodeGateTile) が持っている
        *   (両モードで測るので、片方だけ直した日に必ず赤くなる)。 */
-      const E_UP = [36, 3], E_DOWN = [36, 24];
+      /* ⚠ [2026-08-19] 旧 E_UP=[36,3] / E_DOWN=[36,24] (ENTRY の上下の辺の中点) は
+       *   n0 の出口を坑口の 1 本へ絞ったので**使わなくなった**ため撤去した。
+       *   定数だけ残すと「上下にも出口がある」と読めてしまう。 */
       const E_RIGHT = PAINT_GATE_OFF ? [52, 13] : [45, 7];
+      /* ★[2026-08-19 ユーザー決定] 坑口を守る**見張りのゴブリン 2 体**。
+       *   ⭐ 置き場所は「絵に描かれた坑口の手前の砂利」= 絵ローカル (21,4)/(23,4)。
+       *     ENTRY [3,20,24,52] と tileBounds [3,20,24,52] は同じ 33x22 なので
+       *     global = local + (20,3) → (41,7) / (43,7)。blocked の行 4 は
+       *     ローカル列 14〜26 が空いている (坑口へ続く砂利道) ので、2 体とも床に立つ。
+       *   ⚠⚠ **起点 (36,13) から 7.8 / 9.2 タイル = 750 / 885px 離すこと**が肝。交戦距離は
+       *     engagePx=400 (4.17 タイル) なので、これより近づけると入場した瞬間に戦闘が
+       *     始まり、冒頭の 3 択イベント (EV-2) が一度も出ないまま乱戦になる。
+       *   ⚠ 「倒したら矢印が出る」は tickNodeChoice の isNodeSettled() が既に担保している
+       *     (生きている非 passiveNpc の敵が 1 体でも居れば出口を出さない)。専用の配線は不要。
+       *   ⚠ passiveNpc / inactive にはしない。passiveNpc は isNodeSettled を真にするので
+       *     **倒す前に矢印が出てしまう**。 */
+      const E0_WATCH_SLOTS = [[41, 7, "goblin"], [43, 7, "goblin"]];
       /* ★[P4] n1 の出口。N1 [2,17,24,55] の辺の中点は 上[36,2] / 下[36,24] / 左[17,13] / 右[55,13]。
        *   ROOM_PAINTINGS_DEF["goblin-mine"].n1.gates で **up だけ**を絵の梯子へ移してあるので、
        *   N1_UP = 絵ローカル [17,1] を写した [17+17, 2+1] = [34, 3] (rect と tileBounds が同じ
@@ -32795,13 +32878,14 @@
            *     ここは 17 倍の床面積なので同じ密度だと草と倒木が 17 倍湧いて、
            *     すでに草も倒木も描き込まれている絵の上に二重に載る。 */
           { id: "n0", kind: "start",
-            mapDef: node("n0", "坑道の入口", ENTRY, { paint: "n0", density: 0 }),
+            mapDef: node("n0", "坑道の入口", ENTRY,
+                         { paint: "n0", density: 0, slots: E0_WATCH_SLOTS }),
             exits: [
-              { to: "n1", dir: "right", at: E_RIGHT, hint: { text: "見張りの鼾が聞こえる" } },
-              { to: "n2", dir: "up",    at: E_UP,    hint: null },
-              { to: "n3", dir: "down",  at: E_DOWN,  hint: null },
+              { to: "n1", dir: "right", at: E_RIGHT, hint: { text: "奥から、かび臭い風が流れてくる" } },
             ] },
-          // ── EV-2「廃坑の入口の見張り」の部屋 (敵 0。上記①) ────────────────────
+          /* ── 坑口を抜けた先の坂道 (敵 0) ────────────────────────────
+           * ⚠ [2026-08-19] EV-2「廃坑の入口の見張り」は **n0 へ移した**ので、ここには
+           *   もうイベントが無い (名前だけ「見張りの詰所」のまま = 見張りが寝泊していた部屋)。 */
           /*  ★[卓上グリッド P4] 39x23 の大部屋 + 1 枚絵。⚠ 出口タイルは N1 用の N1_* を使う
            *   (MID 用の UP/RIGHT は部屋の中の変な所に落ちる)。
            *  ⚠ scenery は density:0 = **散らさない** (n0 とまったく同じ理由)。7x6 の 21 倍の
@@ -32812,16 +32896,14 @@
               { to: "n4", dir: "right", at: N1_RIGHT, hint: null },
               { to: "n5", dir: "up",    at: N1_UP,    hint: null },
             ] },
-          // ── 崩れた側坑: kind:"search" = 罠 / 隠し宝箱 / 探索宝箱が湧く唯一のノード種 ──
-          { id: "n2", kind: "search",
-            mapDef: node("n2", "崩れた側坑", MID,
-                         { slots: [[34, 11, "kobold"], [36, 11, "goblin"], [38, 12, "kobold"]] }),
-            exits: [{ to: "n6", dir: "right", at: RIGHT, hint: null }] },
-          // ── 荷置き場: kind:"loot" = 玄室宝箱が湧く唯一のノード種 (行き止まりの「当たり」) ──
-          { id: "n3", kind: "loot",
-            mapDef: node("n3", "打ち捨てられた荷置き場", MID,
-                         { slots: [[34, 15, "goblin"], [38, 15, "goblinArcher"]] }),
-            exits: [] },
+          /* ⚠⚠ **n2 (崩れた側坑 / search) と n3 (打ち捨てられた荷置き場 / loot) は撤去した**
+           *   (2026-08-19 ユーザー決定「最初の MAP は廃坑入口だけ →」)。n0 の出口を 1 本に
+           *   絞ると、この 2 つと n6 (横穴) が到達不能になるため。
+           *   ⚠ 代償として **廃坑シナリオからは罠も宝箱も湧かなくなる** — 罠/隠し宝箱は
+           *     kind:"search" のノードでしか、玄室宝箱は kind:"loot" のノードでしか湧かない
+           *     実装 (js/df-mapdef.js の KIND_SPAWNS_TRAPS / KIND_SPAWNS_ROOM_CHESTS) だから。
+           *     これはユーザーへ数字つきで提示したうえでの合意事項。復活させたくなったら
+           *     生き残ったどれかのノードの kind を "search" / "loot" にするだけでよい。 */
           // ── 掘削場: 旧「山場」に当たる大乱戦 ────────────────────────────────
           { id: "n4", kind: "combat",
             mapDef: node("n4", "掘削場", MID,
@@ -32833,8 +32915,8 @@
             exits: [{ to: "n7", dir: "right", at: RIGHT, hint: null }] },
           // ── 湧き水の間: kind:"rest" = 入室で applyRoomClearHeal (1 ノード 1 回きり) ──
           { id: "n5", kind: "rest", mapDef: node("n5", "湧き水の間", MID), exits: [] },
-          // ── EV-5「捕らわれた従者」の横穴 (敵 0。上記①) ────────────────────────
-          { id: "n6", kind: "event", mapDef: node("n6", "横穴", MID), exits: [] },
+          /* ⚠ n6 (横穴) も撤去。EV-5「捕らわれた従者」は行き止まりとして生き残った
+           *   n5「湧き水の間」へ再アンカーした (SCE1_NODE_SERVANT を参照)。 */
           // ── 玉座の間: EV-9 + ボス戦。★護衛は col39 以東 (上記②) ────────────────
           { id: "n7", kind: "boss",
             mapDef: node("n7", "玉座の間", BOSSR,
@@ -32860,8 +32942,12 @@
      *     ├ up    → n2 search 探索   ── right → n6 (隠し要素 / 当たり) (行き止まり)
      *     └ down  → n3 loot   宝箱   (行き止まり)
      *
+     * ⚠⚠ **この骨格は P6 の 5 シナリオ (森/沼地/砦/神殿/竜巣) 専用**。廃坑 (buildGoblinMineRun)
+     *   だけは 2026-08-19 のユーザー決定で n0 を「見張り 2 体を倒して坑口へ入る導入」に
+     *   作り替え、n2/n3/n6 を撤去した 5 ノード構成へ移った。詳細は buildGoblinMineRun の注記。
+     *
      * ★P5 の実装制約をそのまま継承する (どれか 1 つでも破ると隠し要素が**無言で**死ぬ):
-     *   ① **n0 / n5 / n6 には敵を 1 体も置かない**。部屋は 7 列しかないのに交戦距離
+     *   ① **n5 / n6 には敵を 1 体も置かない**。部屋は 7 列しかないのに交戦距離
      *      engagePx=400 (≒4.2 タイル) の方が広く、敵が居ると入室した瞬間に戦闘が始まって
      *      各種 tryApproach 系 / tryInteractCage の `encounterActive` ガードが永久に閉じる。
      *      ⚠ n6 に置く隠し要素 (残影の獣 / ハイドラ / 守護者 / カエルム) は

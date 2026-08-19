@@ -337,8 +337,11 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  *   同じ関数を両方のページの probe に当てることで「assert が本当に何かを見ている」を担保する。 */
 function detectors(P) {
   return {
-    D1: { label: 'sceneFlags のキーはちょうど 2 本 (mine_alerted / servant_rescued)',
-          ok: eq(P.flagKeys, ['mine_alerted', 'servant_rescued']), got: JSON.stringify(P.flagKeys) },
+    /* ★[2026-08-19] EV-2 の②「遠距離攻撃が届く位置まで、ゆっくり近づく」に成功したことを
+     *   次の戦闘へ伝える mine_ranged_opening が増えたので 3 本。⚠ flagKeys は sort 済み。 */
+    D1: { label: 'sceneFlags のキーはちょうど 3 本 (mine_alerted / mine_ranged_opening / servant_rescued)',
+          ok: eq(P.flagKeys, ['mine_alerted', 'mine_ranged_opening', 'servant_rescued']),
+          got: JSON.stringify(P.flagKeys) },
     D2: { label: 'sceneFlags.mine_alerted の初期値は false',
           ok: P.mineAlerted === false, got: String(P.mineAlerted) },
     D3: { label: 'sceneFlags.servant_rescued の初期値は false',
@@ -458,6 +461,8 @@ async function ev2Prepare(page) {
       spotIsWall: isTileWall(s.tx, s.ty),
       anchorInRoom0: a.ty >= ROOMS[0][0] && a.ty <= ROOMS[0][2] && a.tx >= ROOMS[0][1] && a.tx <= ROOMS[0][3],
       rogueBonus: sceneClassBonus(["rogue"]),
+      // ★[2026-08-19] 2「遠距離が届く位置まで」の得意クラス (E11 が枝ごとに測る)
+      rangedBonus: sceneClassBonus(["elf", "dwarf"]),
       roster: buildPerceptionParty().map(m => m.classKey),
       room0Before: window.__ev2.room0Count(),
       totalBefore: enemies.length,
@@ -511,6 +516,7 @@ async function ev2Settle(page) {
 async function ev2State(page) {
   return page.evaluate(() => ({
     flag: sceneFlags.mine_alerted,
+    ranged: sceneFlags.mine_ranged_opening,   // ★[2026-08-19] E18/E19 が使う
     fired: SCE1_EVENTS[0].fired, declined: SCE1_EVENTS[0].declined,
     calls: window.__ev2.calls.slice(),
     room0: window.__ev2.room0Count(), total: enemies.length,
@@ -521,6 +527,8 @@ async function ev2State(page) {
 async function ev2Rearm(page, force) {
   await page.evaluate((f) => {
     SCE1_EVENTS[0].fired = false; SCE1_EVENTS[0].declined = false;
+    // ★[2026-08-19] ②の報酬フラグも毎回戻す。残したままだと次の枝が「前の枝の結果」を見る。
+    sceneFlags.mine_ranged_opening = false;
     window.__ev2.calls.length = 0; window.__ev2.force = !!f;
     enemies.forEach(e => { e.inactive = true; });   // 増援も休眠させエンカを起こさない
     dialogPaused = false; skillCheckActive = false;
@@ -625,8 +633,11 @@ function ev2Detectors(Q) {
   return {
     E1: { label: 'EV-2: 接近すると 3択+キャンセル のダイアログが出る',
           ok: !!Q.dlg1 && L.length === 4, got: JSON.stringify(L) },
-    E2: { label: 'EV-2: ラベルは 静かに近づく / 骨笛を狙って射る / わざと姿を見せて誘い出す',
-          ok: L[0] === '1. 静かに近づく' && L[1] === '2. 骨笛を狙って射る'
+    /* ★[2026-08-19 ユーザー決定] ②を「骨笛を狙って射る」から「遠距離攻撃が届く位置まで、
+     *   ゆっくり近づく」へ差し替えた (見張りが n0 の盤面に実際に立つようになったため)。 */
+    E2: { label: 'EV-2: ラベルは 物音を立てずに近づく / 遠距離攻撃が届く位置まで、ゆっくり近づく / わざと姿を見せて誘い出す',
+          ok: L[0] === '1. 物音を立てずに近づく'
+              && L[1] === '2. 遠距離攻撃が届く位置まで、ゆっくり近づく'
               && L[2] === '3. わざと姿を見せて誘い出す' && L[3] === '引き返す (Esc)',
           got: JSON.stringify(L) },
     E3: { label: 'EV-2: キャンセル(Esc) では何も起きず declined が立つ',
@@ -648,14 +659,20 @@ function ev2Detectors(Q) {
     E9: { label: 'EV-2: 選択0 は stealth を DC13 で振る',
           ok: !!c0 && c0.checkKey === 'stealth' && c0.dc === 13 && Q.afterStealthOk.calls.length === 1,
           got: JSON.stringify(Q.afterStealthOk.calls) },
-    E10: { label: 'EV-2: 選択1 は sleightOfHand を DC13 で振る',
-          ok: !!c1 && c1.checkKey === 'sleightOfHand' && c1.dc === 13 && Q.afterWhistleOk.calls.length === 1,
+    E10: { label: 'EV-2: 選択1 は perception (視線の切れ目を読む) を DC13 で振る',
+          ok: !!c1 && c1.checkKey === 'perception' && c1.dc === 13 && Q.afterWhistleOk.calls.length === 1,
           got: JSON.stringify(Q.afterWhistleOk.calls) },
-    E11: { label: '★EV-2: DC は動かさず 得意クラス(盗賊) は extraBonus 側に乗る',
-          ok: !!c0 && !!c1 && c0.extraBonus === Q.rogueBonus && c1.extraBonus === Q.rogueBonus
-              && (Q.rogueBonus === 0 || Q.rogueBonus === 2),
+    /* ★[2026-08-19] 得意クラスが**枝ごと**になった (①=隠密なら盗賊 / ②=知覚ならエルフ・ドワーフ)。
+     *   ⚠⚠ 旧 assert は両枝とも rogueBonus と比べていた。今の編成ではたまたま両方 2 になり
+     *     **緑のまま素通りしうる**ので、枝ごとの期待値へ言い直す (偶然の一致で通さない)。 */
+    E11: { label: '★EV-2: DC は動かさず 得意クラスは枝ごとに extraBonus 側へ乗る (1=盗賊 / 2=エルフ・ドワーフ)',
+          ok: !!c0 && !!c1 && c0.extraBonus === Q.rogueBonus && c1.extraBonus === Q.rangedBonus
+              && (Q.rogueBonus === 0 || Q.rogueBonus === 2)
+              && (Q.rangedBonus === 0 || Q.rangedBonus === 2)
+              && c0.dc === 13 && c1.dc === 13,
           got: 'extraBonus=' + (c0 && c0.extraBonus) + '/' + (c1 && c1.extraBonus)
-               + ' sceneClassBonus=' + Q.rogueBonus + ' roster=' + JSON.stringify(Q.roster) },
+               + ' rogue=' + Q.rogueBonus + ' ranged=' + Q.rangedBonus
+               + ' roster=' + JSON.stringify(Q.roster) },
     E12: { label: 'EV-2: 判定成功なら mine_alerted=false のまま・敵も増えない',
           ok: Q.afterStealthOk.flag === false && Q.afterWhistleOk.flag === false
               && Q.afterWhistleOk.room0 === Q.room0Before,
@@ -675,6 +692,13 @@ function ev2Detectors(Q) {
     E17: { label: '★EV-2: 盗賊を 1 人加えると extraBonus が 2 になる (得意クラス +2 が実際に流れる)',
           ok: Q.rogueBonusWith === 2 && ((Q.afterRogue.calls || [])[0] || {}).extraBonus === 2,
           got: 'sceneClassBonus=' + Q.rogueBonusWith + ' passed=' + JSON.stringify(Q.afterRogue.calls) },
+    /* ★[2026-08-19] ②の報酬 = 次の戦闘で敵の初手を潰す (遠距離職が先に撃てる)。
+     *   ⚠ ①では立たないことも一緒に測る。片方だけだと「常に立つ実装」を見逃す。 */
+    E18: { label: '★EV-2: 選択1 の成功でだけ mine_ranged_opening が立つ (選択0 では立たない)',
+          ok: Q.afterWhistleOk.ranged === true && Q.afterStealthOk.ranged === false,
+          got: '選択1=' + Q.afterWhistleOk.ranged + ' 選択0=' + Q.afterStealthOk.ranged },
+    E19: { label: '★EV-2: 判定に失敗したときは mine_ranged_opening が立たない',
+          ok: Q.afterFail.ranged === false, got: String(Q.afterFail.ranged) },
   };
 }
 
@@ -1658,7 +1682,8 @@ const GEN_QUEST = {
   check('(4c) 生成クエストでは isGoblinMineScenario() が false',
     PG.isGM === false, PG.scenarioId + ' -> ' + PG.isGM);
   check('(4d) 母集団ガード: 生成クエスト側でも土台自体は生きている',
-    PG.typeofSceneFlags === 'object' && PG.err === null && eq(PG.flagKeys, ['mine_alerted', 'servant_rescued']),
+    PG.typeofSceneFlags === 'object' && PG.err === null &&
+    eq(PG.flagKeys, ['mine_alerted', 'mine_ranged_opening', 'servant_rescued']),
     'flags=' + JSON.stringify(PG.flagKeys) + ' err=' + PG.err);
   // ★縛られた従者は goblin-mine 専用。生成クエストでは DOM を **1 要素も作らない**
   //   (「見えていない」ではなく「作られていない」で測る = 隠しただけの実装を落とす)。

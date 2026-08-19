@@ -833,9 +833,17 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
      *     旧コメントの「rect だけでは区別できない」はこの版で解消 = 判別根拠が
      *     `enemies` の 1 本から 2 本へ増えている (緩めた訳ではない)。
      *   ⚠ assert は消していない。「無視したこと」の直接の証拠は (10c) の console.warn。 */
+    /* ★[2026-08-19] **敵の数はもう判別に使えない**。ユーザ決定で廃坑の n0 へも
+     *   見張りのゴブリン 2 体を置いたので、内蔵テストグラフの n0 と**同じ 2 体**になった。
+     *   ⭐ 判別は rect が単独で決定的 (廃坑 33x22 [3,20,24,52] vs テスト 7x6 [11,33,16,39])
+     *     なので、検出力は落ちていない。敵の数は判別をやめ、代わりに
+     *     **見張りが実際に湧いたこと**を別の事実として固定する (10b2)。
+     *   ⚠ 「無視したこと」の直接の証拠は (10c) の console.warn。 */
     check('(10b) 同上: ?graphtest は無視され、廃坑の内蔵グラフ (テストグラフではない) で立ち上がる',
-      g.rooms === 1 && g.roomRects === '[[3,20,24,52]]' && g.enemies === 0,
+      g.rooms === 1 && g.roomRects === '[[3,20,24,52]]',
       'rooms=' + g.rooms + ' rects=' + g.roomRects + ' enemies=' + g.enemies);
+    check('(10b2) ★廃坑の起点には見張りが 2 体湧いている (素の起動でも盤面に出ている)',
+      g.enemies === 2, 'enemies=' + g.enemies);
     check('(10c) 無視したことを console.warn で必ず知らせる (silent fail-open にしない)',
       gw.some(w => w.indexOf('?graphtest') >= 0),
       gw.filter(w => w.indexOf('graphtest') >= 0).join(' | ') || '<warn なし>');

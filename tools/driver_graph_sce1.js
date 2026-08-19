@@ -326,6 +326,61 @@ async function captiveDom(page) {
   // ══ §1 廃坑が既定で分岐版になる ═══════════════════════════════════════════
   mark('内蔵グラフ (goblin-mine) が既定で立ち上がる');
   const page = await bootPage(browser, PORT, '?diag=1&intel=0', errs, { freezeChoice: true });
+
+  /* ══ §4 ★EV-2 は起点 n0 の「冒頭の 3 択」として、起動した瞬間に開く ═══════════
+   * ★[2026-08-19 ユーザー決定] EV-2 を n1 (見張りの詰所) から **n0 (廃坑入口)** へ移し、
+   *   坑口を守る見張りのゴブリン 2 体を n0 の盤面に置いた。
+   * ⚠⚠ **測る位置を §3 の後から boot の直後へ動かした**。EV-2 が entry ノードのイベントに
+   *   なったので、ダイアログは起動した瞬間に開く。§3 の後に置いたままにすると、開きっぱなしの
+   *   ダイアログが §1〜§3 に被さり、(3h) の「ダイアログが出ていない」が実装と無関係に
+   *   赤くなる = **測定点が仕様変更に追随していない**状態になる。 */
+  mark('EV-2 「廃坑の入口の見張り」 @ n0 (冒頭の 3 択)');
+  const d2 = await waitDialog(page, 8000);
+  const st2 = await page.evaluate(() => ({
+    node: window.__graphRun.nodeId(),
+    encounter: encounterActive || encounterRunning,
+    enemies: enemies.length, alive: enemies.filter(e => e.alive).length,
+    types: enemies.map(e => e.type).join(','),
+    spot: sce1WatchSpot(), start: { tx: MAPDEF.start.tx, ty: MAPDEF.start.ty },
+    /* ⚠ 交戦距離は射程キーごとに違う (melee 400 / medium 520 / long 576)。どのキーで
+     *   湧いても成り立つよう **最大値**を採る = 「どの射程の敵でも届かない」を測る。 */
+    engage: Math.max.apply(null, Object.keys(RANGE).map(k => RANGE[k].engagePx)),
+    dists: enemies.map(e => Math.round(Math.hypot(
+      (e.x + (e.def.displaySize || 96) / 2) - (playerX + 48),
+      (e.y + (e.def.displaySize || 96) / 2) - (playerY + 58)))),
+  }));
+  check('(4a) ★起動直後 (n0) に EV-2 のダイアログが開く',
+    st2.node === 'n0' && !!d2 && d2.msg.indexOf('坑道の入口に見張りが二匹') >= 0,
+    st2.node + ' / ' + (d2 ? d2.msg.slice(0, 24) : 'none'));
+  check('(4b) ★選択肢は 物音を立てずに近づく / 遠距離攻撃が届く位置まで、ゆっくり近づく / わざと姿を見せて誘い出す',
+    !!d2 && d2.labels.length === 4 &&
+    d2.labels[0].indexOf('物音を立てずに近づく') >= 0 &&
+    d2.labels[1].indexOf('遠距離攻撃が届く位置まで、ゆっくり近づく') >= 0 &&
+    d2.labels[2].indexOf('わざと姿を見せて誘い出す') >= 0,
+    d2 ? d2.labels.join(' | ') : 'none');
+  /* ★旧 (4c)「event ノードは敵 0 体」の**言い直し**。n0 には見張りが 2 体居るので手段は
+   *   もう使えないが、守りたい目的 =「開幕ナレの最中に戦闘が始まらないのでイベントが必ず
+   *   開く」は生きている。目的そのもの (交戦距離より遠い) で測る。 */
+  check('(4c) ★見張り 2 体が居るのに戦闘は始まっていない (どちらも交戦距離より遠い)',
+    st2.alive === 2 && st2.encounter === false &&
+    st2.dists.length === 2 && st2.dists.every(d => d > st2.engage),
+    'alive=' + st2.alive + ' encounter=' + st2.encounter +
+    ' 距離=' + st2.dists.join('/') + ' > engagePx(max)=' + st2.engage);
+  check('(4d) ★EV-2 のアンカーはノードの入場地点 (mapDef.start) と一致する',
+    st2.spot.tx === st2.start.tx && st2.spot.ty === st2.start.ty,
+    JSON.stringify(st2.spot) + ' vs ' + JSON.stringify(st2.start));
+  await clickChoice(page, 2);                     // 「誘い出す」= 判定なし枠 (ダイス演出が出ない)
+  await sleep(800);
+  const after2 = await page.evaluate(() => ({
+    fired: window.__graphRun.eventFired('mine_watch'),
+    alerted: sceneFlags.mine_alerted, ranged: sceneFlags.mine_ranged_opening,
+    skill: skillCheckActive,
+  }));
+  check('(4f) 選ぶと発火が nodeState.eventsFired へ焼かれる',
+    after2.fired === true && after2.skill === false, JSON.stringify(after2));
+  check('(4g) 判定なし枠なので mine_alerted も mine_ranged_opening も立たない',
+    after2.alerted === false && after2.ranged === false, JSON.stringify(after2));
+
   const G = await page.evaluate(() => {
     const g = window.__graphRun, gr = g.graph();
     return {
@@ -359,14 +414,23 @@ async function captiveDom(page) {
     'active=' + G.active + ' node=' + G.nodeId);
   check('(1b) ★scenarioId は "goblin-mine" のまま (生成クエストに化けていない)',
     G.scenarioId === 'goblin-mine', G.scenarioId);
-  check('(1c) ノードは 8 件で kind が企画どおり',
-    G.nodes.join(',') === 'n0:start,n1:event,n2:search,n3:loot,n4:combat,n5:rest,n6:event,n7:boss',
+  /* ★[2026-08-19 ユーザー決定] n0 の出口を「坑口への → 1 本」に絞ったことで、n0 から
+   *   ぶら下がっていた n2 (search) / n3 (loot) / n6 (event) が到達不能になったため撤去。
+   *   ⚠ **期待値の書き換えではなく仕様そのものの変更**なので、ここは新しい形を写す。
+   *   ⚠ 代償として罠 (search) と玄室宝箱 (loot) が廃坑から消えることはユーザー合意済み。
+   *     復活させたくなったら生き残ったノードの kind を変えるだけでよい。 */
+  check('(1c) ノードは 5 件で kind が企画どおり',
+    G.nodes.join(',') === 'n0:start,n1:event,n4:combat,n5:rest,n7:boss',
     G.nodes.join(','));
   check('(1d) boss ノードは n7', G.boss === 'n7', String(G.boss));
   check('(1e) ★行き止まりありの「木」 (親が 1 つずつ / entry に親なし)',
-    G.parent.n1 === 'n0' && G.parent.n2 === 'n0' && G.parent.n3 === 'n0' &&
-    G.parent.n4 === 'n1' && G.parent.n5 === 'n1' && G.parent.n6 === 'n2' &&
+    G.parent.n1 === 'n0' && G.parent.n4 === 'n1' && G.parent.n5 === 'n1' &&
     G.parent.n7 === 'n4' && G.parent.n0 === undefined, JSON.stringify(G.parent));
+  /* ★到達性そのものを測る対。撤去した 3 ノードが「id だけ残って親が付かない」状態
+   *   (= 一生入れないノード) になっていないことを、id の集合として確かめる。 */
+  check('(1e2) ★到達できないノードが 1 つも無い (entry 以外は全部 parent を持つ)',
+    G.nodes.map(t => t.split(':')[0]).every(id => id === 'n0' || !!G.parent[id]),
+    JSON.stringify(G.parent) + ' vs ' + G.nodes.join(','));
   check('(1f) 全ノードの themeId が goblin-mine', G.themes.every(t => t === 'goblin-mine'),
     G.themes.join(','));
   check('(1g) 全ノードの objective が defeatBoss (クリア条件がボス撃破)',
@@ -385,14 +449,14 @@ async function captiveDom(page) {
    *   貼り、部屋を 39x23 の大部屋にした)。P7 / P3 と**同じ扱い**で、(1h) は配線図として
    *   更新し、守りたい不変条件そのものは (1h2) の same===true が持つ。 */
   check('(1h) ★1枚絵は n0 (起点) / n1 (坑道内部) / n4 (山場) / n7 (ボス) の 4 ノード',
-    G.paintKeys.join(',') === 'n0,n1,null,null,n4,null,null,n7', G.paintKeys.join(','));
+    G.paintKeys.join(',') === 'n0,n1,n4,null,n7', G.paintKeys.join(','));
   check('(1h2) ★その 4 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
     G.paintFit.length === 4 && G.paintFit.every(p => p.src && p.same === true),
     JSON.stringify(G.paintFit));
   /* ★[P4] n1 も大部屋になったので、7x6 の母集団は n2..n6 の 5 つ。⚠ 期待値を緩めるのではなく
    *   **外した 1 つを別の assert (1i3) で受け止める**。母集団が減っただけで誰も見ていない
    *   ノードが生まれると、次に幾何が壊れたとき誰も気づかない。 */
-  check('(1i) 道中 5 ノード (n2..n6) は 7 列 x 6 行 [11,33,16,39]',
+  check('(1i) 道中ノード (n4 / n5) は 7 列 x 6 行 [11,33,16,39]',
     G.rects.filter(s => ['n0=', 'n1=', 'n7='].every(k => s.indexOf(k) !== 0))
            .every(s => s.indexOf('[11,33,16,39]') > 0),
     G.rects.join(' '));
@@ -420,8 +484,13 @@ async function captiveDom(page) {
    *   2026-08-08 に実際に gameStarted=false で 12 件が赤くなり、実装を疑って時間を溶かした。 */
   check('(G0) ★前提: gameStarted が true (イベントの発火条件が整っている)',
     (await page.evaluate(() => gameStarted)) === true, '');
-  check('(G1) ★entry (kind:"start") は敵 0 体 = 開幕ナレを戦闘で潰さない',
-    G.board.enemies === 0 && G.board.spawns === 0,
+  /* ★[2026-08-19] 旧 (G1) は「entry は敵 0 体」。ユーザー決定で **坑口を守る見張り 2 体**を
+   *   n0 に置いたので、この期待値はもう仕様ではない。
+   *   ⭐ ただし旧 assert が守ろうとしていた不変条件 =「開幕ナレの最中に戦闘が始まらない」は
+   *     **生きている**。手段 (敵 0 体) ではなく目的 (交戦距離より遠い) で測り直したものが
+   *     §4 の (4c)。ここは「意図した頭数がちょうど湧いた」ことだけを見る。 */
+  check('(G1) ★entry には見張りがちょうど 2 体湧く (坑口を守るゴブリン)',
+    G.board.enemies === 2 && G.board.spawns === 2,
     'enemies=' + G.board.enemies + ' spawns=' + G.board.spawns);
   check('(G2) entry には罠も宝箱も 0 個 (P4: 罠=search / 玄室宝箱=loot だけ)',
     G.board.traps === 0 && G.board.chests === 0,
@@ -429,8 +498,8 @@ async function captiveDom(page) {
   check('(G3) ノードの部屋は 1 つ (1 ノード = 1 部屋)',
     G.board.rooms === 1 && G.board.bossRoomIdx === 0,
     'rooms=' + G.board.rooms + ' bossRoomIdx=' + G.board.bossRoomIdx);
-  check('(G4) ★敵スロットが「event / rest / start は 0 体」「combat と boss には居る」',
-    G.slotCounts.join(' ') === 'n0:0 n1:0 n2:3 n3:2 n4:7 n5:0 n6:0 n7:2+B', G.slotCounts.join(' '));
+  check('(G4) ★敵スロットが「event / rest は 0 体」「start (見張り) / combat / boss には居る」',
+    G.slotCounts.join(' ') === 'n0:2 n1:0 n4:7 n5:0 n7:2+B', G.slotCounts.join(' '));
   check('(G5) mapData が実体を持つ 72x28 (床と岩盤が両方ある)',
     await page.evaluate(() => mapData.length === 28 && mapData[0].length === 72 &&
       mapData.some(r => r.some(v => v === 0)) && mapData.some(r => r.some(v => v === 2))), '');
@@ -452,11 +521,12 @@ async function captiveDom(page) {
    * ⚠ ここは**値の写経**なので、これ 1 本では「実装とドライバが同じ間違いを共有」しうる。
    *   規則を知らずに測る側は tools/driver_grid_p3b.js が持つ (データ exits[].at と導出
    *   nodeGateTile の一致 / ?paintgate=0 の負のコントロール / 起点から到達できるか)。 */
-  check('(2a) n0 = 右[45,7] は絵の坑口 / 上[36,3] と 下[36,24] は大部屋 ENTRY の辺の中点',
-    EX.n0.join(' ') === 'n1:right@45,7 n2:up@36,3 n3:down@36,24', EX.n0.join(' '));
-  check('(2b) 行き止まりは n3 / n5 / n6 / n7 の 4 つ',
-    EX.n3.length === 0 && EX.n5.length === 0 && EX.n6.length === 0 && EX.n7.length === 0,
-    JSON.stringify({ n3: EX.n3.length, n5: EX.n5.length, n6: EX.n6.length, n7: EX.n7.length }));
+  /* ★[2026-08-19] n0 の出口は**坑口への 1 本だけ**になった (上下の辺の中点は使わない)。 */
+  check('(2a) ★n0 の出口は絵の坑口 [45,7] へ向かう 1 本だけ',
+    EX.n0.join(' ') === 'n1:right@45,7', EX.n0.join(' '));
+  check('(2b) 行き止まりは n5 / n7 の 2 つ',
+    EX.n5.length === 0 && EX.n7.length === 0,
+    JSON.stringify({ n5: EX.n5.length, n7: EX.n7.length }));
   check('(2c) ★前進の向きが「引き返す向き」と衝突していない (right で入った先は left へ戻る)',
     EX.n1.every(s => s.indexOf(':left@') < 0) && EX.n4.every(s => s.indexOf(':left@') < 0),
     EX.n1.join(' ') + ' / ' + EX.n4.join(' '));
@@ -470,6 +540,7 @@ async function captiveDom(page) {
     ids: window.__graphRun.graph().nodes.map(n => n.id),
     boss: window.__graphRun.bossNodeId(),
     watch: sce1WatchSpot(), servant: sce1ServantSpot(), grix: sce1GrixSpot(),
+    mapStart: { tx: MAPDEF.start.tx, ty: MAPDEF.start.ty },   // ★[2026-08-19] (3e0) が使う
     /* ★P3: snapToWalkable が効いたかを切り分けるために「その位置が歩けるか」も採る。
      *   (3e) が ty の不一致だけで赤くなると、原因が「導出式が壊れた」のか
      *   「絵に描かれた障害物を避けて 1 マスずれた」のかを区別できない。 */
@@ -486,8 +557,8 @@ async function captiveDom(page) {
   check('(3b) ★どの nodeId も実在するノード id (食い違うとイベントが静かに消える)',
     A.events.every(e => A.ids.indexOf(e.nodeId) >= 0),
     A.events.map(e => e.key + '@' + e.nodeId).join(' '));
-  check('(3c) 割り当ては EV-2=n1 / EV-5=n6 / EV-9=bossNodeId',
-    A.events[0].nodeId === 'n1' && A.events[1].nodeId === 'n6' && A.events[2].nodeId === A.boss,
+  check('(3c) 割り当ては EV-2=n0 / EV-5=n5 / EV-9=bossNodeId',
+    A.events[0].nodeId === 'n0' && A.events[1].nodeId === 'n5' && A.events[2].nodeId === A.boss,
     A.events.map(e => e.nodeId).join(','));
   check('(3d) 半径は旧 SCE1_EVENT_RADIUS(240) を引き継いでいる (新しい数字を発明していない)',
     A.events.every(e => e.radius === A.radiusConst) && A.radiusConst === 240,
@@ -503,41 +574,53 @@ async function captiveDom(page) {
    *     tx は snap が動かしていないので厳密一致のまま = c1 追従の検出力は落ちていない。 */
   const N0RECT = JSON.parse((G.rects.find(s => s.indexOf('n0=') === 0) || 'n0=[]').slice(3));
   const N0_C1 = N0RECT[1], N0_MIDR = Math.floor((N0RECT[0] + N0RECT[2]) / 2);
+  /* ⚠ 先頭 (EV-2) は (3e0) が別規則で測るので、この配列からは後で shift して落とす。 */
   const RAW = A.gateOffsets.map(o => ({ tx: N0_C1 + o, ty: N0_MIDR }));
   /* 素の導出先が歩けるかを**ページに聞く** (塞がっていれば snapToWalkable が動かす)。
    * ⚠ snap は斜めにも逃げるので tx も動く。「ty だけずれる」と決めつけないこと
    *   (2026-08-17 に実際に踏んだ: 期待 tx=23 に対し (22,12) へ斜め退避していた)。 */
   const RAWWALK = await page.evaluate(
     (pts) => pts.map(p => !isTileWall(p.tx, p.ty)), RAW);
-  const SPOTS = [A.watch, A.servant, A.grix];
-  const okDerive = SPOTS.every((s, i) => RAWWALK[i]
+  /* ★[2026-08-19] **EV-2 だけ導出の規則が変わった**。冒頭の 3 択になったので
+   *   「部屋の西端 +3」ではなく**そのノードの入場地点 (mapDef.start)** に置く。
+   *   よって c1+offset の規則で測る母集団は EV-5 / EV-9 の 2 件になり、EV-2 は (3e0) が持つ。 */
+  check('(3e0) ★EV-2 のアンカーはノードの入場地点 (mapDef.start) で、そこは歩ける',
+    A.watch.tx === A.mapStart.tx && A.watch.ty === A.mapStart.ty && A.spotWalk[0] === true,
+    'watch=' + JSON.stringify(A.watch) + ' start=' + JSON.stringify(A.mapStart) +
+    ' walk=' + A.spotWalk[0]);
+  const SPOTS = [A.servant, A.grix];
+  /* ⚠ **元の配列を破壊的に shift しない**。A.gateOffsets は (3f) も添字 2 で
+   *   参照しており、ここで削ると (3f) が undefined を比べて赤くなる (2026-08-19 に実測)。 */
+  const RAW_D = RAW.slice(1), RAWWALK_D = RAWWALK.slice(1), SPOTWALK_D = A.spotWalk.slice(1);
+  const okDerive = SPOTS.every((s, i) => RAWWALK_D[i]
     /* 素の導出先が空いているなら **厳密一致**でなければならない (snap の言い訳は使えない) */
-    ? (s.tx === RAW[i].tx && s.ty === RAW[i].ty)
+    ? (s.tx === RAW_D[i].tx && s.ty === RAW_D[i].ty)
     /* 塞がっているなら snap 半径 8 の中で、かつ実際に歩ける所へ逃げていること */
-    : (Math.abs(s.tx - RAW[i].tx) <= 8 && Math.abs(s.ty - RAW[i].ty) <= 8 && A.spotWalk[i]));
+    : (Math.abs(s.tx - RAW_D[i].tx) <= 8 && Math.abs(s.ty - RAW_D[i].ty) <= 8 && SPOTWALK_D[i]));
   check('(3e) ★spot が「現在ノードの部屋」から導出される (基準の c1 は rect から読む)',
-    N0RECT.length === 4 && okDerive && A.spotWalk.every(Boolean),
-    'c1=' + N0_C1 + ' midR=' + N0_MIDR + ' offs=' + A.gateOffsets.join(',') +
-    ' raw=' + JSON.stringify(RAW) + ' rawWalk=' + JSON.stringify(RAWWALK) +
-    ' spots=' + JSON.stringify(SPOTS) + ' walk=' + JSON.stringify(A.spotWalk));
+    N0RECT.length === 4 && okDerive && SPOTWALK_D.every(Boolean),
+    'c1=' + N0_C1 + ' midR=' + N0_MIDR + ' offs=' + A.gateOffsets.slice(1).join(',') +
+    ' raw=' + JSON.stringify(RAW_D) + ' rawWalk=' + JSON.stringify(RAWWALK_D) +
+    ' spots=' + JSON.stringify(SPOTS) + ' walk=' + JSON.stringify(SPOTWALK_D));
   /* ⚠ (3e) は snap を許す枝を持つので、**c1 の追従だけを厳密に測る対を別に置く**。
    *   道中ノードは 7x6 [11,33,16,39] = c1 が 13 マス違うので、ここが動かなければ
    *   「現在ノードの部屋から導出」が嘘になる (旧 ROOMS[0] 直書きへの退行の検出)。 */
   /* ★[卓上グリッド P4 2026-08-19] **母集団が仕様変更で消えた**。基準にしていた n1 も
    *   39x23 の大部屋 (c1=17) になり、n0 (c1=20) との差が 3 = snap 半径 8 の内側へ入って
    *   しまったので、この装置は「追従していなくても緑」になりうる。
-   *   ⭐ 期待値を緩めるのではなく **舞台を張り替える**: まだ 7x6 のままの n2 (c1=33) を使う。
+   *   ⭐ 期待値を緩めるのではなく **舞台を張り替える**: まだ 7x6 のままの n4 (c1=33) を使う。
+   *   ⚠ [2026-08-19] 1 度目の張り替え先 n2 も撤去されたので n4 へ移した (同じ 7x6)。
    *   ⚠ 「7x6 のノードが 1 つも無くなった日」に空振りしないよう、7x6 であることも一緒に測る。 */
   const SPOT_N1 = await page.evaluate(() => {
     const gr = window.__graphRun.graph();
-    const n2 = gr.nodes.find(n => n.id === 'n2');
+    const n2 = gr.nodes.find(n => n.id === 'n4');        // ★[2026-08-19] n2 撤去 → n4 へ張り替え
     const rc = n2.mapDef.rooms[0].rect;                 // [r1,c1,r2,c2]
     return { c1: rc[1], midR: Math.floor((rc[0] + rc[2]) / 2), rect: rc.slice() };
   });
-  check('(3e2) ★装置: n0 と道中ノード (n2) で基準の c1 が実際に違う (追従を測れる母集団がある)',
+  check('(3e2) ★装置: n0 と道中ノード (n4) で基準の c1 が実際に違う (追従を測れる母集団がある)',
     SPOT_N1.c1 !== N0_C1 && Math.abs(SPOT_N1.c1 - N0_C1) > 8 &&
     JSON.stringify(SPOT_N1.rect) === '[11,33,16,39]',
-    'n0.c1=' + N0_C1 + ' vs n2.c1=' + SPOT_N1.c1 +
+    'n0.c1=' + N0_C1 + ' vs n4.c1=' + SPOT_N1.c1 +
     ' (差 ' + Math.abs(SPOT_N1.c1 - N0_C1) + ' > snap 半径 8) n2.rect=' + JSON.stringify(SPOT_N1.rect));
   check('(3f) ★EV-9 のオフセット(2) と NODE_ENTRY_INSET(2) が同値 = 入場地点にちょうど落ちる',
     A.gateOffsets[2] === A.entryInset, A.gateOffsets[2] + ' vs ' + A.entryInset);
@@ -562,68 +645,19 @@ async function captiveDom(page) {
   check('(3i) 起動直後は縛られた従者の DOM がどこにも無い (n0 は所有ノードではない)',
     cap0.count === 0 && cap0.state === 'tunnel', JSON.stringify(cap0));
 
-  // ══ §4 EV-2 が n1 で発火する ═════════════════════════════════════════════
-  mark('EV-2 「廃坑の入口の見張り」 @ n1');
-  await kickEnter(page, 'n1', 'right');
-  const d2 = await waitDialog(page, 8000);
-  const st2 = await page.evaluate(() => ({
-    node: window.__graphRun.nodeId(), enterDone: window.__p5enterDone,
-    encounter: encounterActive || encounterRunning, enemies: enemies.length,
-    spot: sce1WatchSpot(),
-  }));
-  check('(4a) n1 へ遷移し、到着直後に EV-2 のダイアログが開く',
-    st2.node === 'n1' && !!d2 && d2.msg.indexOf('坑道の入口に見張りが二匹') >= 0,
-    st2.node + ' / ' + (d2 ? d2.msg.slice(0, 24) : 'none'));
-  check('(4b) ★文面と選択肢は旧実装のまま (再アンカーで文面を触っていない)',
-    !!d2 && d2.labels.length === 4 &&
-    d2.labels[0].indexOf('静かに近づく') >= 0 && d2.labels[1].indexOf('骨笛を狙って射る') >= 0 &&
-    d2.labels[2].indexOf('わざと姿を見せて誘い出す') >= 0,
-    d2 ? d2.labels.join(' | ') : 'none');
-  check('(4c) event ノードは敵 0 体 = 戦闘が始まらないのでイベントが必ず開く',
-    st2.enemies === 0 && st2.encounter === false,
-    'enemies=' + st2.enemies + ' encounter=' + st2.encounter);
-  /* ★[卓上グリッド P4] n1 の部屋が 7x6 [11,33,16,39] → 39x23 [2,17,24,55] になったので、
-   *   c1+SCE1_WATCH_OFFSET_TX も (36,13) → (20,13) へ動く。これは**導出式が壊れたのではなく
-   *   測り方が旧幾何に固定されていた**だけ ((3e) と完全に同じ事情) なので、期待値を 20 へ
-   *   書き換えるのではなく **n1 の rect から導出して**測る。
-   * ⚠ snap を許す枝も (3e) と同型に持つ (素の導出先が空いていれば厳密一致・塞がっていれば
-   *   snap 半径 8 以内かつ実際に歩ける)。⚠ 「n1 の c1 が n0 と違う」ことは (3e2) が別に測る。 */
-  const N1RECT = JSON.parse((G.rects.find(s => s.indexOf('n1=') === 0) || 'n1=[]').slice(3));
-  const N1_RAW = { tx: N1RECT[1] + A.gateOffsets[0],
-                   ty: Math.floor((N1RECT[0] + N1RECT[2]) / 2) };
-  const N1_RAWWALK = await page.evaluate(
-    (t) => ({ raw: !isTileWall(t.tx, t.ty), spot: !isTileWall(sce1WatchSpot().tx, sce1WatchSpot().ty) }),
-    N1_RAW);
-  check('(4d) ★EV-2 のアンカーが n1 の部屋から導出されている (基準の c1 は rect から読む)',
-    N1RECT.length === 4 && N1_RAWWALK.spot && (N1_RAWWALK.raw
-      ? (st2.spot.tx === N1_RAW.tx && st2.spot.ty === N1_RAW.ty)
-      : (Math.abs(st2.spot.tx - N1_RAW.tx) <= 8 && Math.abs(st2.spot.ty - N1_RAW.ty) <= 8)),
-    'rect=' + JSON.stringify(N1RECT) + ' raw=' + JSON.stringify(N1_RAW) +
-    ' rawWalk=' + N1_RAWWALK.raw + ' spot=' + JSON.stringify(st2.spot));
-  check('(4e) ★enterNode はイベントを await している (答えるまで解決しない)',
-    st2.enterDone === false, String(st2.enterDone));
-  await clickChoice(page, 2);                     // 「誘い出す」= 判定なし枠 (ダイス演出が出ない)
-  await sleep(800);
-  const after2 = await page.evaluate(() => ({
-    enterDone: window.__p5enterDone, fired: window.__graphRun.eventFired('mine_watch'),
-    alerted: sceneFlags.mine_alerted, skill: skillCheckActive,
-  }));
-  check('(4f) 選ぶと enterNode が解決し、発火が nodeState.eventsFired へ焼かれる',
-    after2.enterDone === true && after2.fired === true && after2.skill === false,
-    JSON.stringify(after2));
-  check('(4g) 判定なし枠なので mine_alerted は立たない (結果の分岐が旧実装のまま)',
-    after2.alerted === false, String(after2.alerted));
-
-  // ══ §5 EV-5 が n6 で発火する + 縛られた従者の DOM ══════════════════════════
-  mark('EV-5 「捕らわれた従者」 @ n6');
-  await kickEnter(page, 'n6', 'right');
+  /* ══ §5 EV-5 が n5 で発火する + 縛られた従者の DOM ══════════════════════════
+   * ★[2026-08-19] 横穴 n6 の撤去にともない、EV-5 の所有ノードは n5 (湧き水の間) へ移った。
+   *   ⚠ 部屋は n6 と同じ MID [11,33,16,39] なので (5d) のアンカー (37,13) は変わらない。 */
+  mark('EV-5 「捕らわれた従者」 @ n5');
+  await kickEnter(page, 'n5', 'up');
   const d5 = await waitDialog(page, 8000);
   const cap5 = await captiveDom(page);
   const st5 = await page.evaluate(() => ({
     node: window.__graphRun.nodeId(), spot: sce1ServantSpot(), enemies: enemies.length,
+    enterDone: window.__p5enterDone,
   }));
-  check('(5a) n6 へ遷移し、到着直後に EV-5 のダイアログが開く',
-    st5.node === 'n6' && !!d5 && d5.msg.indexOf('横穴の奥から、くぐもった呻き声') >= 0,
+  check('(5a) n5 へ遷移し、到着直後に EV-5 のダイアログが開く',
+    st5.node === 'n5' && !!d5 && d5.msg.indexOf('横穴の奥から、くぐもった呻き声') >= 0,
     st5.node + ' / ' + (d5 ? d5.msg.slice(0, 24) : 'none'));
   check('(5b) ★文面と選択肢は旧実装のまま',
     !!d5 && d5.labels[0].indexOf('声の方向を調べる') >= 0 &&
@@ -632,7 +666,7 @@ async function captiveDom(page) {
   check('(5c) ★横穴には縛られた姿 (.sce1Captive.bound) がちょうど 1 つある',
     cap5.count === 1 && cap5.cls.indexOf('bound') >= 0 && cap5.state === 'tunnel',
     JSON.stringify(cap5));
-  check('(5d) EV-5 のアンカーが n6 の部屋の西端 +4 = (37,13)',
+  check('(5d) EV-5 のアンカーが n5 の部屋の西端 +4 = (37,13)',
     st5.spot.tx === 37 && st5.spot.ty === 13, JSON.stringify(st5.spot));
   await clickChoice(page, 2);                     // 「迂回する」= 判定なし枠 → 玉座へ運ばれる
   await sleep(900);
@@ -640,13 +674,18 @@ async function captiveDom(page) {
   check('(5e) 「迂回する」で状態が throne へ移り、姿が hanging になる',
     after5.state === 'throne' && after5.cls.indexOf('hanging') >= 0 && after5.count === 1,
     JSON.stringify(after5));
+  /* ★[2026-08-19] 旧 (4e) の引き取り先。EV-2 は entry ノードのイベントになり enterNode を
+   *   通らなくなったので、「enterNode はイベントを await している」を測れる母集団が
+   *   §4 から消えた。⚠ assert を消さずに、まだ enterNode を通る EV-5 で測り直す。 */
+  check('(5e2) ★enterNode はイベントを await している (答えるまで解決しない)',
+    st5.enterDone === false, String(st5.enterDone));
   check('(5f) 救出していないので servant_rescued は false のまま',
     (await page.evaluate(() => sceneFlags.servant_rescued)) === false, '');
 
   // ══ §6 状態はノードを跨いで持ち越す ═══════════════════════════════════════
   mark('縛られた従者の状態がノードを跨ぐ');
-  await kickEnter(page, 'n2', 'up');              // 一度まったく関係ないノードを挟む
-  await waitNode(page, 'n2', 10000);
+  await kickEnter(page, 'n4', 'right');           // 一度まったく関係ないノードを挟む
+  await waitNode(page, 'n4', 10000);
   await sleep(400);
   const capMid = await captiveDom(page);
   check('(6a) ★別のノードでは姿は 1 つも無いが、状態 (throne) は保たれている',
@@ -849,9 +888,9 @@ async function captiveDom(page) {
   mark('負のコントロール N4 nocarry');
   {
     const p = await bootPage(browser, PORT_OF.nocarry, '?diag=1&intel=0', errsMut, { freezeChoice: true });
-    await kickEnter(p, 'n6', 'right');
+    await kickEnter(p, 'n5', 'up');                 // ★[2026-08-19] n6 撤去 → n5 へ張り替え
     const d = await waitDialog(p, 8000);
-    check('(N4a) [前提] 変異 nocarry でも横穴の EV-5 は開く (壊したのは持ち越しだけ)',
+    check('(N4a) [前提] 変異 nocarry でも EV-5 は開く (壊したのは持ち越しだけ)',
       !!d && d.msg.indexOf('横穴の奥から') >= 0, d ? d.msg.slice(0, 18) : 'none');
     await clickChoice(p, 2);                       // 迂回 → throne
     await sleep(900);

@@ -196,8 +196,13 @@ function invariantCheck(scan) {
   const lostNonLeaf = scan.nodes.filter(n => !reached.has(n.id) && (n.exits || []).length > 0)
     .map(n => n.id + '(出口' + n.exits.length + ')');
   const lost = scan.nodes.filter(n => !reached.has(n.id)).map(n => n.id);
+  /* ★[2026-08-19] シナリオによっては隠し要素の間 (n6) そのものが存在しない
+   *   (廃坑は n0 の出口を 1 本へ絞った際に n2/n3/n6 を撤去した)。
+   *   → (7i) の母集団ガードが「6 シナリオ分あるはず」と直書きできなくなったので、
+   *   **そのグラフが n6 を持っているか**をドライバ側で数えられるようにする。 */
+  const nodeIds = scan.nodes.map(n => n.id);
   return { nHidden, nWouldHide, nDoors, nExcludable, bad, bossIds, bossUnreachable,
-           lostNonLeaf, lost, entry: scan.entry || null, nReached: reached.size };
+           lostNonLeaf, lost, nodeIds, entry: scan.entry || null, nReached: reached.size };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -785,9 +790,17 @@ const SCAN_FN = () => {
       rows.map(r => r.scen + ':' + (r.I.lost.join('+') || 'なし')).join(' '));
     const badExcl = rows.filter(r => r.I.bad.excluded.length);
     const totExcludable = rows.reduce((a, r) => a + r.I.nExcludable, 0);
-    check('(7i) ★★★6 シナリオ全部で隠し要素の間 (' + WANT_NO_SECRET.join(',') +
-      ') が隠し扉で塞がれない (母集団 ' + totExcludable + ' 枚)',
-      totExcludable >= ALL_SCENS.length && badExcl.length === 0,
+    /* ★[2026-08-19] 旧ガードは `totExcludable >= ALL_SCENS.length` (= 6 シナリオが
+     *   1 枚ずつ寄与する) だったが、廃坑から n6 が撤去され**母集団が仕様ごと消えた**。
+     *   ⭐ 数字を 5 へ下げるのではなく **「n6 を持つシナリオすべて」と言い直す**。
+     *     こうすると n6 を持つシナリオが増えても減っても自動で追従する。
+     *   ⚠ 全部から n6 が消えた日に永久に緑にならないよう、「1 つ以上は持つ」も同時に見る。 */
+    const scensWithSecret = rows.filter(r => (r.I.nodeIds || []).some(
+      id => WANT_NO_SECRET.indexOf(id) >= 0)).length;
+    check('(7i) ★★★隠し要素の間 (' + WANT_NO_SECRET.join(',') +
+      ') を持つシナリオ全部で、そこが隠し扉で塞がれない (母集団 ' +
+      scensWithSecret + ' シナリオ / 扉 ' + totExcludable + ' 枚)',
+      scensWithSecret >= 1 && totExcludable >= scensWithSecret && badExcl.length === 0,
       badExcl.map(r => r.scen + ':' + r.I.bad.excluded.join(',')).join(' ') || '全シナリオで違反なし');
     check('(7c) ★★6 シナリオ全ノードで、隠れているのは行き止まり非ボス行きの扉だけ',
       badLeaf.length === 0,
