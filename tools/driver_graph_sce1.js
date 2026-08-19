@@ -381,18 +381,30 @@ async function captiveDom(page) {
    *   貼り、部屋を 33x22 の大部屋にした)。P7 のときと同じ扱いで、**期待値を書き換えるのでは
    *   なく言い直す**: 守りたいのは「部屋に載らない絵が無言で貼られていないこと」なので、
    *   枚数ではなく (1h2) の same===true が本体。(1h) は「どのノードに貼るか」の配線図。 */
-  check('(1h) ★1枚絵は n0 (起点) / n4 (山場) / n7 (ボス) の 3 ノード (残り 5 つは null)',
-    G.paintKeys.join(',') === 'n0,null,null,null,n4,null,null,n7', G.paintKeys.join(','));
-  check('(1h2) ★その 3 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
-    G.paintFit.length === 3 && G.paintFit.every(p => p.src && p.same === true),
+  /* ★[卓上グリッド P4 2026-08-19] 母集団がまた動いた (n1「見張りの詰所」に廃坑の坑道内部を
+   *   貼り、部屋を 39x23 の大部屋にした)。P7 / P3 と**同じ扱い**で、(1h) は配線図として
+   *   更新し、守りたい不変条件そのものは (1h2) の same===true が持つ。 */
+  check('(1h) ★1枚絵は n0 (起点) / n1 (坑道内部) / n4 (山場) / n7 (ボス) の 4 ノード',
+    G.paintKeys.join(',') === 'n0,n1,null,null,n4,null,null,n7', G.paintKeys.join(','));
+  check('(1h2) ★その 4 枚はカタログから引け、覆う矩形が部屋の rect と完全一致 (伸縮ゼロ)',
+    G.paintFit.length === 4 && G.paintFit.every(p => p.src && p.same === true),
     JSON.stringify(G.paintFit));
-  check('(1i) 道中 6 ノード (n1..n6) は 7 列 x 6 行 [11,33,16,39]',
-    G.rects.filter(s => s.indexOf('n0=') !== 0 && s.indexOf('n7=') !== 0)
+  /* ★[P4] n1 も大部屋になったので、7x6 の母集団は n2..n6 の 5 つ。⚠ 期待値を緩めるのではなく
+   *   **外した 1 つを別の assert (1i3) で受け止める**。母集団が減っただけで誰も見ていない
+   *   ノードが生まれると、次に幾何が壊れたとき誰も気づかない。 */
+  check('(1i) 道中 5 ノード (n2..n6) は 7 列 x 6 行 [11,33,16,39]',
+    G.rects.filter(s => ['n0=', 'n1=', 'n7='].every(k => s.indexOf(k) !== 0))
            .every(s => s.indexOf('[11,33,16,39]') > 0),
     G.rects.join(' '));
-  check('(1i2) ★起点 n0 だけ 33 列 x 22 行 [3,20,24,52] (卓上バトルマップ 1 枚ぶん)',
+  check('(1i2) ★起点 n0 は 33 列 x 22 行 [3,20,24,52] (卓上バトルマップ 1 枚ぶん)',
     G.rects.filter(s => s.indexOf('n0=') === 0)[0] === 'n0=[3,20,24,52]',
     G.rects.filter(s => s.indexOf('n0=') === 0)[0]);
+  /* ★[P4] (1i) から外した n1 の受け皿。⚠ 中心が他ノードと同じ col36/row13 であることも一緒に
+   *   測る (ここを外すとノード遷移でカメラが飛ぶ = 幾何の合意そのもの)。 */
+  check('(1i3) ★n1 は 39 列 x 23 行 [2,17,24,55] で、中心が col36 / row13 に揃っている',
+    G.rects.filter(s => s.indexOf('n1=') === 0)[0] === 'n1=[2,17,24,55]' &&
+    Math.floor((17 + 55) / 2) === 36 && Math.floor((2 + 24) / 2) === 13,
+    G.rects.filter(s => s.indexOf('n1=') === 0)[0]);
   check('(1j) ボスノードだけ 9 列 x 6 行 [11,32,16,40]',
     G.rects.filter(s => s.indexOf('n7=') === 0)[0] === 'n7=[11,32,16,40]',
     G.rects.filter(s => s.indexOf('n7=') === 0)[0]);
@@ -511,16 +523,22 @@ async function captiveDom(page) {
   /* ⚠ (3e) は snap を許す枝を持つので、**c1 の追従だけを厳密に測る対を別に置く**。
    *   道中ノードは 7x6 [11,33,16,39] = c1 が 13 マス違うので、ここが動かなければ
    *   「現在ノードの部屋から導出」が嘘になる (旧 ROOMS[0] 直書きへの退行の検出)。 */
+  /* ★[卓上グリッド P4 2026-08-19] **母集団が仕様変更で消えた**。基準にしていた n1 も
+   *   39x23 の大部屋 (c1=17) になり、n0 (c1=20) との差が 3 = snap 半径 8 の内側へ入って
+   *   しまったので、この装置は「追従していなくても緑」になりうる。
+   *   ⭐ 期待値を緩めるのではなく **舞台を張り替える**: まだ 7x6 のままの n2 (c1=33) を使う。
+   *   ⚠ 「7x6 のノードが 1 つも無くなった日」に空振りしないよう、7x6 であることも一緒に測る。 */
   const SPOT_N1 = await page.evaluate(() => {
     const gr = window.__graphRun.graph();
-    const n1 = gr.nodes.find(n => n.id === 'n1');
-    const rc = n1.mapDef.rooms[0].rect;                 // [r1,c1,r2,c2]
-    return { c1: rc[1], midR: Math.floor((rc[0] + rc[2]) / 2) };
+    const n2 = gr.nodes.find(n => n.id === 'n2');
+    const rc = n2.mapDef.rooms[0].rect;                 // [r1,c1,r2,c2]
+    return { c1: rc[1], midR: Math.floor((rc[0] + rc[2]) / 2), rect: rc.slice() };
   });
-  check('(3e2) ★装置: n0 と道中ノードで基準の c1 が実際に違う (追従を測れる母集団がある)',
-    SPOT_N1.c1 !== N0_C1 && Math.abs(SPOT_N1.c1 - N0_C1) > 8,
-    'n0.c1=' + N0_C1 + ' vs n1.c1=' + SPOT_N1.c1 +
-    ' (差 ' + Math.abs(SPOT_N1.c1 - N0_C1) + ' > snap 半径 8)');
+  check('(3e2) ★装置: n0 と道中ノード (n2) で基準の c1 が実際に違う (追従を測れる母集団がある)',
+    SPOT_N1.c1 !== N0_C1 && Math.abs(SPOT_N1.c1 - N0_C1) > 8 &&
+    JSON.stringify(SPOT_N1.rect) === '[11,33,16,39]',
+    'n0.c1=' + N0_C1 + ' vs n2.c1=' + SPOT_N1.c1 +
+    ' (差 ' + Math.abs(SPOT_N1.c1 - N0_C1) + ' > snap 半径 8) n2.rect=' + JSON.stringify(SPOT_N1.rect));
   check('(3f) ★EV-9 のオフセット(2) と NODE_ENTRY_INSET(2) が同値 = 入場地点にちょうど落ちる',
     A.gateOffsets[2] === A.entryInset, A.gateOffsets[2] + ' vs ' + A.entryInset);
   check('(3g) 旧台帳 SCE1_EVENTS は 3 行のまま残っている (器を作り替えていない)',
@@ -564,8 +582,24 @@ async function captiveDom(page) {
   check('(4c) event ノードは敵 0 体 = 戦闘が始まらないのでイベントが必ず開く',
     st2.enemies === 0 && st2.encounter === false,
     'enemies=' + st2.enemies + ' encounter=' + st2.encounter);
-  check('(4d) EV-2 のアンカーが n1 の部屋から導出されている (36,13)',
-    st2.spot.tx === 36 && st2.spot.ty === 13, JSON.stringify(st2.spot));
+  /* ★[卓上グリッド P4] n1 の部屋が 7x6 [11,33,16,39] → 39x23 [2,17,24,55] になったので、
+   *   c1+SCE1_WATCH_OFFSET_TX も (36,13) → (20,13) へ動く。これは**導出式が壊れたのではなく
+   *   測り方が旧幾何に固定されていた**だけ ((3e) と完全に同じ事情) なので、期待値を 20 へ
+   *   書き換えるのではなく **n1 の rect から導出して**測る。
+   * ⚠ snap を許す枝も (3e) と同型に持つ (素の導出先が空いていれば厳密一致・塞がっていれば
+   *   snap 半径 8 以内かつ実際に歩ける)。⚠ 「n1 の c1 が n0 と違う」ことは (3e2) が別に測る。 */
+  const N1RECT = JSON.parse((G.rects.find(s => s.indexOf('n1=') === 0) || 'n1=[]').slice(3));
+  const N1_RAW = { tx: N1RECT[1] + A.gateOffsets[0],
+                   ty: Math.floor((N1RECT[0] + N1RECT[2]) / 2) };
+  const N1_RAWWALK = await page.evaluate(
+    (t) => ({ raw: !isTileWall(t.tx, t.ty), spot: !isTileWall(sce1WatchSpot().tx, sce1WatchSpot().ty) }),
+    N1_RAW);
+  check('(4d) ★EV-2 のアンカーが n1 の部屋から導出されている (基準の c1 は rect から読む)',
+    N1RECT.length === 4 && N1_RAWWALK.spot && (N1_RAWWALK.raw
+      ? (st2.spot.tx === N1_RAW.tx && st2.spot.ty === N1_RAW.ty)
+      : (Math.abs(st2.spot.tx - N1_RAW.tx) <= 8 && Math.abs(st2.spot.ty - N1_RAW.ty) <= 8)),
+    'rect=' + JSON.stringify(N1RECT) + ' raw=' + JSON.stringify(N1_RAW) +
+    ' rawWalk=' + N1_RAWWALK.raw + ' spot=' + JSON.stringify(st2.spot));
   check('(4e) ★enterNode はイベントを await している (答えるまで解決しない)',
     st2.enterDone === false, String(st2.enterDone));
   await clickChoice(page, 2);                     // 「誘い出す」= 判定なし枠 (ダイス演出が出ない)

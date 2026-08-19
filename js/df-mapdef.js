@@ -2973,7 +2973,8 @@
    *           graph-gate-not-floor / graph-entry-start
    *   warning graph-dir-mismatch / graph-dead-end-empty / graph-kind-role /
    *           graph-painting-aspect (★P5 前段) /
-   *           graph-painting-gate-broken (★卓上グリッド P3 追補)
+   *           graph-painting-gate-broken (★卓上グリッド P3 追補) /
+   *           graph-painting-blocked-broken (★卓上グリッド P4)
    *
    * ⚠ **graph が未指定なら何も言わない** (errors:[] / warnings:[])。既存 6 シナリオは
    *   graph を持たないので、この装置は 1 件も発火しない = 装置が信用を失わない。 */
@@ -3156,6 +3157,25 @@
              "壊れています: " + gpm.error +
              " — 指定は丸ごと捨てられ、出口・扉・矢印が絵に描かれた口ではなく部屋の辺の中点に立ちます",
              node.id, [grc2[1], grc2[0]]);
+      }
+
+      /* ⑨ ★[卓上グリッド P4] ノードの絵が持つ障害物マスク blocked が壊れている (**warning**)。
+       * ⚠⚠ ⑧ と**まったく同じ穴**が blocked 側にも開いていた。lintMapDef には
+       *   painting-blocked-broken があるが、lintRun は lintMapDef を呼ばないので
+       *   **分岐マップのノードは一度も検査に掛からない**。2026-08-19 に n1 の blocked を
+       *   桁数不一致へ壊す変異 (driver_grid_p4 の n1noblocked) で警告 0 件を実測して見つけた。
+       * ⚠ 「gates を直したときに blocked も一緒に見る」という発想が要る = 同型の穴は
+       *   片方を塞いだら**もう片方も探す**。 */
+      for (j = 0; j < rooms.length; j++) {
+        if (!rooms[j].painting) continue;
+        var bpm = paintingBlockedFor(rooms[j].painting.theme, rooms[j].painting.key);
+        if (!bpm.error) continue;
+        var brc2 = rooms[j].rect;
+        warn("graph-painting-blocked-broken",
+             'ノード "' + node.id + '" の部屋 ' + rooms[j].id + " の1枚絵が持つ障害物マスク" +
+             " blocked が壊れています: " + bpm.error +
+             " — マスクは丸ごと捨てられ、絵に描かれた岩・樽・木箱をキャラがすり抜けます",
+             node.id, [brc2[1], brc2[0]]);
       }
     }
 

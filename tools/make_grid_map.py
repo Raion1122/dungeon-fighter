@@ -43,6 +43,16 @@ import argparse
 import os
 import sys
 
+# Windows コンソール (cp932) でも em dash や日本語を出せるよう UTF-8 化。
+# ⚠ tools/add_changelog.py と同じ理由・同じ書き方。cp932 は U+2014 (—) を持たないので、
+#   台帳の desc に em dash を 1 つ書いただけで **焼く前に UnicodeEncodeError で死ぬ**
+#   (2026-08-19 に実際に踏んだ)。文面の側を ASCII へ寄せて回避すると同じ罠を次で踏む。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import numpy as np
 from PIL import Image
 
@@ -71,8 +81,8 @@ GRIDS = {
     },
     "mine": {
         "src": "廃坑.png",
-        "out": "map_mine",
-        "desc": "廃坑の坑道内部",
+        "out": "room_goblin-mine_n1",   # ★[P4] 貼り先 = 廃坑グラフの n1「見張りの詰所」
+        "desc": "廃坑の坑道内部 (坑口を抜けた直後の広間 — 絵の左辺に外光と草)",
         "phase": (8.75, 36.25),
         "period": (38.460, 41.440),
         "cells": (39, 23),
