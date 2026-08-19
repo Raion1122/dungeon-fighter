@@ -31994,8 +31994,17 @@
       for (const a of exitArrowEls) {
         const t = a.exit.at;
         const aw = a.el.offsetWidth || ARROW_HALF * 2, ah = a.el.offsetHeight || ARROW_HALF * 2;
-        const ax = fit(t.tx * TILE_SIZE + TILE_SIZE / 2 - aw / 2 - camX, padL, vw - 8 - aw);
-        const ay = fit(t.ty * TILE_SIZE + TILE_SIZE / 2 - ah / 2 - camY, top, bottom - ah);
+        /* ★[卓上グリッド P7 追補 2026-08-19] **camZ を通す**。ここだけ SX()/SY() を経由せず
+         *   生の `- camX` で世界 px を画面 px として使っていたため、ズームが効く大部屋
+         *   (廃坑入口 33x22 = camZ≈0.30) では実際の約 3.3 倍の座標を指し、矢印が
+         *   一本残らず可視域の外へ飛んでクランプされ、「絵と無関係な画面の縁に並ぶ」
+         *   状態だった (ユーザ報告: 廃坑入口で大幅にずれて見える)。
+         *   ⚠ 矢印は body.zoomed で**縮めない** UI (CSS :2793) なので、自分の半分を引くのは
+         *     scale の**外側** = `SX(タイル中心) - aw/2`。HP バー (:14075) と同じ形。
+         *   ⚠ camZ=1 では SX(c) - aw/2 === c - camX - aw/2 の**恒等式**なので、
+         *     既存 6 シナリオの矢印は 1px も動かない (driver_graph_arrows がそれを測る)。 */
+        const ax = fit(SX(t.tx * TILE_SIZE + TILE_SIZE / 2) - aw / 2, padL, vw - 8 - aw);
+        const ay = fit(SY(t.ty * TILE_SIZE + TILE_SIZE / 2) - ah / 2, top, bottom - ah);
         a.el.style.left = ax + "px";
         a.el.style.top  = ay + "px";
         if (!a.hintEl) continue;
@@ -33204,7 +33213,7 @@
           };
         }),
         // 実描画に使われているカメラ値 (追従の検算に要る)
-        cam: () => ({ camX: camX, camY: camY, tile: TILE_SIZE,
+        cam: () => ({ camX: camX, camY: camY, camZ: camZ, tile: TILE_SIZE,
                       vw: window.innerWidth, vh: window.innerHeight, hud: cameraBottomHud() }),
         // 知覚判定の 4 結果を決定論的に作る (forcedTier は本編からは絶対に渡さない)
         reveal: (tier, id) => revealExitHints(RUN ? RUN.byId[id || currentNodeId] : null, tier || null),

@@ -31,6 +31,7 @@
  *   noautoguard   … chooseExit の ?autoplay ガードを外す    → autoplay で矢印が生える
  *   nogatetap     … ARROW_TAP_GATE を 0 へ                  → 表示直後の連打が貫通する
  *   bosslie       … boss 出口の誤情報ガードを外す           → ファンブルでボスに嘘が出る
+ *   nocamzarrow   … ★矢印の位置を camZ を通さない旧式へ   → ズーム大部屋で矢印が画面の縁へ飛ぶ
  *
  * ⚠ 変異は**ディスクを書き換えず配信をメモリ上で差し替える** (復元漏れが原理的に起きない)。
  * ⚠ 置換文字列は必ず 1 行。index.html は CRLF なので複数行は原理的に一致しない。
@@ -85,6 +86,12 @@ const MUTATIONS = {
               '    const ARROW_TAP_GATE = 0;   /* ★変異nogatetap */'],
   bosslie: ['      if (tier === "fumble" && kind !== "boss") {',
             '      if (tier === "fumble") {   /* ★変異bosslie */'],
+  /* ★[P7 追補 2026-08-19] 矢印の位置を camZ を通さない旧式へ戻す。
+   *   ズームが効く大部屋 (廃坑入口 33x22) で §12 が赤くなる。
+   * ⚠ camZ=1 の既存ノードではこの変異は**恒等変換**なので §2 は緑のまま。
+   *   それでよい — この変異が狙うのは「ズーム時だけ壊れる」こと自体の実測。 */
+  nocamzarrow: ['        const ax = fit(SX(t.tx * TILE_SIZE + TILE_SIZE / 2) - aw / 2, padL, vw - 8 - aw);',
+                '        const ax = fit(t.tx * TILE_SIZE + TILE_SIZE / 2 - aw / 2 - camX, padL, vw - 8 - aw);   /* ★変異nocamzarrow */'],
 };
 const MUTATE = arg('mutate', 'nope');
 if (!Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
@@ -849,6 +856,85 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
     await pQ.close();
   }
 
+  /* ══ §12 ★ズームが効く大部屋 (廃坑入口 33x22) で矢印が「絵の坑口」の上に立つ ══════
+   * ⚠⚠ §1〜§11 は **camZ=1 の舞台しか踏んでいない**。?graphtest=1 の内蔵グラフも
+   *   生成クエストのペイロードも 7x6 / 9x6 = ZOOM_LARGE 以下なのでズームが掛からない。
+   *   そのため「矢印の位置だけ SX()/SY() を通していない」欠陥を 2026-08-19 まで 1 件も
+   *   検出できず、実機では廃坑入口の矢印 3 本が**全部画面の右端に並ぶ**状態だった
+   *   (ユーザー報告)。→ 本番の goblin-mine n0 (33x22 / camZ≈0.298) を舞台にここで測る。
+   * ⭐ 期待値は**実装の式を写経しない**。mapCanvas の CTM (= 描画側が実際に使っている倍率)
+   *   からゲートタイルの中心を写し、矢印の **getBoundingClientRect の中心**と突き合わせる
+   *   = 「地面の絵と矢印がずれない」という目的そのものを、独立した 2 経路で測る。
+   *   ⚠ rect には脈動アニメ (transform:scale) が乗るが、原点が中心なので**中心は動かない**。
+   * ⚠⚠ startGame() を通さないと gameStarted=false のまま applyNodeZoom() が走らず camZ=1。
+   *   ここを忘れると「ズームしていない舞台でズームの assert を書いた」= **永久に緑**になる
+   *   (実際に 1 度踏んだ: camZ=1 のまま d=0 が出て「直っている」と誤読しかけた)。 */
+  mark('★ズーム大部屋 (廃坑入口 n0) で矢印がゲートタイルの真上に立つ');
+  {
+    const wZ = [], eZ = [];
+    // ⚠ ?graphtest を付けない = **本番の goblin-mine グラフ** (n0 = 33x22 の卓上バトルマップ)
+    const pZ = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&secret=0',
+                              wZ, eZ, DESKTOP);
+    await pZ.evaluate(() => { try { startGame(); } catch (e) {} });   // ★上の注記を参照
+    await sleep(900);
+    await pZ.evaluate(OPEN_CHOICE);
+    await sleep(400);
+    const Z = await pZ.evaluate(() => {
+      const g = window.__graphRun; g.reposition();
+      const ctm = mapCanvas.getContext('2d').getTransform();
+      const cr = mapCanvas.getBoundingClientRect();
+      return { node: g.nodeId(), cam: g.cam(), camZ: window.__camZoom(),
+               ctm: { a: ctm.a, d: ctm.d }, canvas: { x: cr.left, y: cr.top },
+               view: g.viewRect(), arrows: g.arrows() };
+    });
+    check('(12a) ★母集団: 廃坑入口 n0 でズームが実際に効いている (camZ < 1 かつ CTM も同値)',
+      Z.node === 'n0' && Z.camZ < 1 && Math.abs(Z.ctm.a - Z.camZ) < 1e-6,   // ⚠ CTM はブラウザ側で丸められるので完全一致を要求しない
+      'node=' + Z.node + ' camZ=' + Z.camZ.toFixed(4) + ' ctm.a=' + Z.ctm.a.toFixed(4));
+    check('(12b) 母集団: 矢印が 1 本以上出ている', Z.arrows.length >= 1,
+      Z.arrows.map(a => a.dir + '(' + a.at.tx + ',' + a.at.ty + ')').join(' '));
+    /* CTM 由来の「ゲートタイルの中心の画面座標」。⚠ クランプ幅は実装を写さずページ側の
+     *   viewRect から採る (§2 と同じ作法 = 二重定義にしない)。 */
+    const cz = (a) => ({
+      cx: Z.canvas.x + Z.ctm.a * (a.at.tx * Z.cam.tile + Z.cam.tile / 2 - Z.cam.camX),
+      cy: Z.canvas.y + Z.ctm.d * (a.at.ty * Z.cam.tile + Z.cam.tile / 2 - Z.cam.camY),
+    });
+    const clampv2 = (v, lo, hi) => (lo <= hi) ? Math.max(lo, Math.min(v, hi)) : v;
+    const wantCenter = (a) => {
+      const c = cz(a);
+      const L = clampv2(c.cx - a.box.w / 2, Z.view.x + 8, Z.view.x + Z.view.w - 8 - a.box.w);
+      const T = clampv2(c.cy - a.box.h / 2, 8, Z.view.h - 8 - a.box.h);
+      return { x: L + a.box.w / 2, y: T + a.box.h / 2,
+               freeX: Math.abs(L - (c.cx - a.box.w / 2)) < 0.51,
+               freeY: Math.abs(T - (c.cy - a.box.h / 2)) < 0.51 };
+    };
+    const got = (a) => ({ x: a.rect.x + a.rect.w / 2, y: a.rect.y + a.rect.h / 2 });
+    const bad12c = Z.arrows.filter(a => {
+      const w = wantCenter(a), m = got(a);
+      return !(Math.abs(m.x - w.x) <= 1.5 && Math.abs(m.y - w.y) <= 1.5);
+    });
+    check('(12c) ★矢印の実描画中心 == canvas の CTM で写したゲートタイルの中心 (±1.5px)',
+      Z.arrows.length >= 1 && bad12c.length === 0,
+      Z.arrows.map(a => { const w = wantCenter(a), m = got(a);
+        return a.dir + ' d=(' + (m.x - w.x).toFixed(2) + ',' + (m.y - w.y).toFixed(2) + ')'; }).join(' '));
+    const freeBoth = Z.arrows.filter(a => { const w = wantCenter(a); return w.freeX && w.freeY; });
+    check('(12d) ★母集団: 縦横どちらもクランプに掛からない矢印が 1 本以上 (恒等式だけを見ていない証明)',
+      freeBoth.length >= 1, '自由=' + freeBoth.length + '/' + Z.arrows.length +
+      ' [' + freeBoth.map(a => a.dir).join(' ') + ']');
+    /* ★positive control: 旧式 (camZ を通さない) なら、この舞台では必ず可視域の外へ出る。
+     *   ここが赤くなったら「部屋が小さくなって (12c) に歯が無くなった」合図。 */
+    const rawOut = Z.arrows.filter(a => {
+      const raw = a.at.tx * Z.cam.tile + Z.cam.tile / 2 - a.box.w / 2 - Z.cam.camX;
+      return raw < Z.view.x + 8 || raw > Z.view.x + Z.view.w - 8 - a.box.w;
+    });
+    check('(12e) ★歯の確認: 旧式 (camZ を通さない) なら 1 本以上が可視域の外へ出る舞台である',
+      rawOut.length >= 1, '旧式ではみ出す矢印=' + rawOut.length + '/' + Z.arrows.length +
+      ' [' + Z.arrows.map(a => a.dir + ':' +
+        (a.at.tx * Z.cam.tile + Z.cam.tile / 2 - a.box.w / 2 - Z.cam.camX).toFixed(0)).join(' ') +
+      '] view=' + JSON.stringify(Z.view));
+    check('(12f) ズーム大部屋で pageerror / console.error が 0', eZ.length === 0, eZ.slice(0, 3).join(' | '));
+    await pZ.close();
+  }
+
   // ══ §9 エラーゼロ ═════════════════════════════════════════════════════════
   mark('エラーゼロ');
   check('(9a) 素の側: 起動〜全操作で pageerror / console.error が 0', errs.length === 0,
@@ -997,6 +1083,39 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
       });
       check('(10) 変異側ではファンブル時に boss 出口へ誤情報が出る',
         R.byExit.n3.wrong === true, 'wrong=' + R.byExit.n3.wrong + ' "' + R.byExit.n3.text + '"');
+    } else if (MUTATE === 'nocamzarrow') {
+      /* ★§12 の負のコントロール。⚠ §12 は**素のサーバ (PORT)** を見ているので、ここで
+       *   改めて**変異サーバ (PORT+1) の本番グラフ**を開いて同じ測り方を流す。
+       *   pM (graphtest = 7x6 = camZ 1) では変異が恒等変換なので、そちらでは何も起きない
+       *   — それが正しい (この欠陥はズームが効く舞台でしか出ない)。 */
+      const wZM = [], eZM = [];
+      const pZM = await bootPage(browser, 'http://localhost:' + (PORT + 1) + '/index.html?diag=1&secret=0',
+                                 wZM, eZM, DESKTOP);
+      await pZM.evaluate(() => { try { startGame(); } catch (e) {} });
+      await sleep(900);
+      await pZM.evaluate(OPEN_CHOICE);
+      await sleep(400);
+      const M = await pZM.evaluate(() => {
+        const g = window.__graphRun; g.reposition();
+        const ctm = mapCanvas.getContext('2d').getTransform();
+        const cr = mapCanvas.getBoundingClientRect();
+        return { node: g.nodeId(), cam: g.cam(), camZ: window.__camZoom(),
+                 ctm: { a: ctm.a, d: ctm.d }, canvas: { x: cr.left, y: cr.top },
+                 view: g.viewRect(), arrows: g.arrows() };
+      });
+      check('(10y) ★変異側でも舞台は同じ (n0 / camZ<1) — 測る場所を取り違えていない',
+        M.node === 'n0' && M.camZ < 1, 'node=' + M.node + ' camZ=' + M.camZ.toFixed(4));
+      const off = M.arrows.filter(a => {
+        const cx = M.canvas.x + M.ctm.a * (a.at.tx * M.cam.tile + M.cam.tile / 2 - M.cam.camX);
+        return Math.abs((a.rect.x + a.rect.w / 2) - cx) > 1.5;
+      });
+      check('(10) ★nocamzarrow → 矢印が CTM 由来のゲートタイルから横へずれる ((12c) が赤くなる)',
+        M.arrows.length >= 1 && off.length >= 1,
+        'ずれた矢印=' + off.length + '/' + M.arrows.length + ' [' + M.arrows.map(a => {
+          const cx = M.canvas.x + M.ctm.a * (a.at.tx * M.cam.tile + M.cam.tile / 2 - M.cam.camX);
+          return a.dir + ':' + ((a.rect.x + a.rect.w / 2) - cx).toFixed(0);
+        }).join(' ') + ']');
+      await pZM.close();
     }
     check('(10z) 変異側でも JS エラーは出ない (壊したのは 1 箇所だけ = 外科的)',
       eM.length === 0, eM.slice(0, 3).join(' | '));
