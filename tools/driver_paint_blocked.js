@@ -726,12 +726,26 @@ async function bootPage(browser, url, scen, errs, opts) {
        *   母集団になる (初回実測で踏んだ: 全ノード paints:[null] / rects:[])。 */
       const page = await bootPage(browser, base + '/index.html?diag=1', STAGE, errs);
       const W = await page.evaluate(NODE_WALK_FN, REACH_FN.toString());
+      /* ★[2026-08-20 測定点の修正] 旧実装は `W.length >= 5` で「本番のグラフを見ている」
+       *   を代用していたが、P8 で廃坑が 5 ノード → **2 大部屋**へ畳まった矬間に
+       *   盤面は 1 マスも壊れていないのに赤くなった。**件数は手段であって目的ではない**ので、
+       *   目的 =「ドライバが見ているのは dev のスタブでなく本番のシナリオグラフで、
+       *   そのノードを 1 つ残らず組み直せた」を **entry と boss を含むか**で直接測る形へ言い直した。
+       * ⚠ 期待値を「5 → 2」へ書き換える対処は取らない (次の畳み込みでまた側する)。 */
+      const G = await page.evaluate(() => (typeof RUN === 'undefined' || !RUN) ? null : ({
+        entry: RUN.graph.entry, boss: RUN.bossNodeId, ids: Object.keys(RUN.byId),
+      }));
       if (!W) {
         check('(8a) 装置: 分岐マップ (RUN) が組めている', false, 'RUN=null');
       } else {
         console.log('[drv] nodes ' + JSON.stringify(W));
-        check('(8a) 装置: 分岐マップの全ノードを組み直せた',
-          W.length >= 5 && W.every(n => !n.err), JSON.stringify(W.filter(n => n.err).slice(0, 3)));
+        console.log('[drv] graph ' + JSON.stringify(G));
+        const ids = W.map(n => n.id);
+        check('(8a) 装置: 本番のシナリオグラフを 1 ノード残らず組み直せた (entry と boss を含む)',
+          !!G && W.length === G.ids.length && W.length >= 2 && W.every(n => !n.err) &&
+          !!G.entry && ids.indexOf(G.entry) >= 0 && !!G.boss && ids.indexOf(G.boss) >= 0,
+          'n=' + W.length + '/' + (G ? G.ids.length : '?') + ' entry=' + (G && G.entry) +
+          ' boss=' + (G && G.boss) + ' err=' + JSON.stringify(W.filter(n => n.err).slice(0, 3)));
         check('(8b) ★全ノードで起点が歩け、全部屋に到達できる',
           W.every(n => n.err || (n.startWalkable && n.allRooms)),
           JSON.stringify(W.filter(n => !n.err && !(n.startWalkable && n.allRooms)).slice(0, 3)));

@@ -188,7 +188,15 @@ async function bootPage(browser, port, query, errs, opts) {
     // Lv10 相当。検証中の全滅で止まらないようにする (勝率ではなく機構を測るため)
     try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
   }, opts.scen || 'goblin-mine', opts.gen || null);
-  await page.goto('http://localhost:' + port + '/index.html' + query,
+  /* ⭐⭐ [P8 / 2026-08-20] **`&minefold=0` を全ページに付ける**。廃坑は 2026-08-20 に
+   *   n0 → n1 の 2 大部屋へ畳まったので、付けないと本ドライバが測っている
+   *   5 ノード (n0/n1/n4/n5/n7) の形がごっそり消える。
+   *   ⭐⭐⭐ **期待値は 1 文字も書き換えていない**。母集団を旧経路へ固定するだけ
+   *   (?locks=0 で p2/p8 を固定したときと同じ作法)。新仕様側の検証は
+   *   tools/driver_grid_p8.js が別途持つ (役割分担)。
+   * ⚠ ピンが外れたことは (0p) が検知する (装置 assert)。 */
+  const sep = (query && query.indexOf('?') >= 0) ? '&' : '?';
+  await page.goto('http://localhost:' + port + '/index.html' + query + sep + 'minefold=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     "typeof mapData !== 'undefined' && typeof buildNode === 'function' && typeof sce1WatchSpot === 'function'",
@@ -326,6 +334,12 @@ async function captiveDom(page) {
   // ══ §1 廃坑が既定で分岐版になる ═══════════════════════════════════════════
   mark('内蔵グラフ (goblin-mine) が既定で立ち上がる');
   const page = await bootPage(browser, PORT, '?diag=1&intel=0', errs, { freezeChoice: true });
+  /* ★装置: 上の `&minefold=0` ピンが実際に効いていることを測る。
+   * ⚠ これが無いと、ピンを落とした日に「実装が壊れた」と誤読する
+   *   (実際には測る対象が別のグラフに入れ替わっているだけ)。 */
+  check('(0p) ★装置: ?minefold=0 で旧 5 ノードへピン留めされている',
+    await page.evaluate(() => (typeof MINE_FOLD_OFF !== 'undefined') && MINE_FOLD_OFF === true),
+    'MINE_FOLD_OFF');
 
   /* ══ §4 ★EV-2 は起点 n0 の「冒頭の 3 択」として、起動した瞬間に開く ═══════════
    * ★[2026-08-19 ユーザー決定] EV-2 を n1 (見張りの詰所) から **n0 (廃坑入口)** へ移し、
@@ -342,9 +356,20 @@ async function captiveDom(page) {
     enemies: enemies.length, alive: enemies.filter(e => e.alive).length,
     types: enemies.map(e => e.type).join(','),
     spot: sce1WatchSpot(), start: { tx: MAPDEF.start.tx, ty: MAPDEF.start.ty },
-    /* ⚠ 交戦距離は射程キーごとに違う (melee 400 / medium 520 / long 576)。どのキーで
-     *   湧いても成り立つよう **最大値**を採る = 「どの射程の敵でも届かない」を測る。 */
+    /* ★[2026-08-20 測定点の修正] 交戦距離は **その敵自身の射程キー**で決まる
+     *   (detectEnemiesEngagedByRange は getRange(e.def.range || "melee").engagePx しか見ない)。
+     * ⚠⚠ 旧実装は「全射程キーの最大値」を採っていたが、P6 (2bd5669) で梯子を
+     *   上げた瞬間に最大が 576 → **1152** へ跨ね上がり、盤面は 1 タイルも動いていないのに
+     *   赤くなった。守りたい目的は「この見張り 2 体が自分の交戦距離より遠い」なので、
+     *   期待値ではなく**測り方を実経路へ寄せた**。 */
     engage: Math.max.apply(null, Object.keys(RANGE).map(k => RANGE[k].engagePx)),
+    per: enemies.map(e => ({
+      range: e.def.range || 'melee',
+      engage: getRange(e.def.range || 'melee').engagePx,
+      d: Math.round(Math.hypot(
+        (e.x + (e.def.displaySize || 96) / 2) - (playerX + 48),
+        (e.y + (e.def.displaySize || 96) / 2) - (playerY + 58))),
+    })),
     dists: enemies.map(e => Math.round(Math.hypot(
       (e.x + (e.def.displaySize || 96) / 2) - (playerX + 48),
       (e.y + (e.def.displaySize || 96) / 2) - (playerY + 58)))),
@@ -361,11 +386,18 @@ async function captiveDom(page) {
   /* ★旧 (4c)「event ノードは敵 0 体」の**言い直し**。n0 には見張りが 2 体居るので手段は
    *   もう使えないが、守りたい目的 =「開幕ナレの最中に戦闘が始まらないのでイベントが必ず
    *   開く」は生きている。目的そのもの (交戦距離より遠い) で測る。 */
-  check('(4c) ★見張り 2 体が居るのに戦闘は始まっていない (どちらも交戦距離より遠い)',
+  check('(4c) ★見張り 2 体が居るのに戦闘は始まっていない (どちらも自分の交戦距離より遠い)',
     st2.alive === 2 && st2.encounter === false &&
-    st2.dists.length === 2 && st2.dists.every(d => d > st2.engage),
-    'alive=' + st2.alive + ' encounter=' + st2.encounter +
-    ' 距離=' + st2.dists.join('/') + ' > engagePx(max)=' + st2.engage);
+    st2.per.length === 2 && st2.per.every(o => o.d > o.engage),
+    'alive=' + st2.alive + ' encounter=' + st2.encounter + ' ' +
+    st2.per.map(o => o.range + ':' + o.d + '>' + o.engage).join(' / '));
+  /* ★装置: 上の (4c) が「射程キーごとに測る」へ移せていること自体を測る。
+   * ⚠ これが無いと「全部 melee だったのでたまたま通った」のか「実際にキー別で見ている」
+   *   のかを分けられない。見張りは goblin = melee(400) なので、全キー最大 (1152) とは
+   *   必ず違う = 旧式のままならここが赤くなる。 */
+  check('(4c2) ★装置: 見張りの射程キーは melee で、全キー最大の交戦距離とは別物',
+    st2.per.every(o => o.range === 'melee' && o.engage === 400) && st2.engage > 400,
+    st2.per.map(o => o.range + '=' + o.engage).join(',') + ' vs max=' + st2.engage);
   check('(4d) ★EV-2 のアンカーはノードの入場地点 (mapDef.start) と一致する',
     st2.spot.tx === st2.start.tx && st2.spot.ty === st2.start.ty,
     JSON.stringify(st2.spot) + ' vs ' + JSON.stringify(st2.start));

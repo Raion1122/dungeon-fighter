@@ -3757,6 +3757,35 @@
       try { return new URLSearchParams(window.location.search).get("paintgate") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[P8] 「ボス部屋に居る」の判定を **入室 → 玉座への接近** へ遅らせる撤退スイッチ。
+     * ⚠⚠ 効くのは **大部屋 (largeRoomSize が非 null) のときだけ**。廃坑 n1 は 39x23 で、
+     *   入場地点 (21,11) から玉座 (49,21) まで 28 タイル離れている。ここを入室即にすると
+     *   道中の乱戦 7 体を**ボス曲で**戦うことになり、「玉座に着いた」という段が丸ごと消える。
+     * ⚠ 他 5 シナリオの n7 は BOSSR 9x6 = 大部屋ではないので **1 ミリも変わらない**
+     *   (仮に判定を通しても入場 col34 → 玉座 col40 が 6 タイルで閾値 8 の内側 = 即座に真)。
+     * ⚠ 旧単一マップ (?graph=0 / 生成クエスト) は MAPDEF.isCustom=false で偽 → 恒等。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない
+     *   (?doors=0 / ?locks=0 / ?paintgrid=0 / ?paintgate=0 と同じ扱い)。 */
+    const BOSS_APPROACH_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("bossapproach") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* 玉座からこのチェビシェフ距離まで詰めたら「ボス部屋に着いた」。
+     * ⚠ 8 という数字は発明ではなく **既存のボス部屋 BOSSR [11,32,16,40] の最大チェビシェフ距離**。
+     *   小部屋では「部屋に入った瞬間に必ず満たされる」= 恒等になるように選んである。 */
+    const BOSS_APPROACH_TILES = 8;
+    /* ★[P8 / 2026-08-20 ユーザー決定] 廃坑を「n0 → n1 の 2 大部屋」へ畳んだことの撤退スイッチ。
+     *   0 にすると旧 5 ノード (n0 / n1 / n4 掘削場 / n5 湧き水の間 / n7 玉座の間) へ戻る。
+     * ⚠⚠ **置き場所がここなのは PAINT_GATE_OFF とまったく同じ理由**。RUN (:4006 の即時評価) の
+     *   中で buildGoblinMineRun が呼ばれるので、それより前に初期化されていないと一時的死角
+     *   (TDZ) で分岐マップが起動時に死ぬ。
+     * ⭐ driver_graph_sce1 (105 assert) / driver_sce1_events (212 assert) は旧グラフの形を
+     *   測っているので、**期待値を 1 文字も書き換えず**このスイッチで母集団を旧経路へ固定する
+     *   (?locks=0 で p2/p8 を固定したときと同じ作法)。 */
+    const MINE_FOLD_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("minefold") === "0"; }
+      catch (e) { return false; }
+    })();
     /* 検証シーム: 1 枚絵の上のグリッドだけを同一ページで切り替える (driver が A/B 差分を採る)。
      * ⚠ 2 回のページロードで比べるとカメラ位置・敵の湧き・フォグが別物になり、「グリッドで
      *   変わった画素」と「そもそも別の絵」を切り分けられない (__setWallProps と同じ理由)。 */
@@ -4720,6 +4749,16 @@
               * ⚠ 3 つ目の「向き」は省略 = キーの向き自身。n0 の坑口と違い、この 2 つは
               *   部屋の中心から見た向きと口の向きが一致するので上書きが要らない。 */
              gates: { left: [2, 9], up: [17, 1] },
+             /* ⭐⭐⭐ [P8 / 2026-08-20] **経路探索 aStar は 4 方向しか踏まない** (:15984 の
+              *   [[1,0],[-1,0],[0,1],[0,-1]])。斜めでしか繋がらない二タイルは、見た目は道でも
+              *   パーティにとっては**壁**。この絵は北半 (主通路) と南半 (泉の間 = 玉座) が
+              *   **たった 1 列分だけ重なっていなかった** (行16 は col34-36 / 行17 は col37-39)ので、
+              *   4 方向だと南へ下れず、実プレイでは**外周 1 タイルを大回り**していた
+              *   (2026-08-20 の autoplay 実測: 最後の約 20 タイルに 70 秒)。
+              *   → 行14 の col20 (= global (37,16) の荷車の軒下) を **1 マスだけ**開けて繋げた。
+              *   ⚠⚠ **连結の検査は必ず 4 方向でやること**。8 方向 BFS だと斜めで繋がって
+              *   しまい、実際には歩けない道を「繋がっている」と報告する (実際に踏んだ)。
+              *   driver_grid_p8.js の §4 は本番の `aStar` そのものを呼んで測る。 */
              /*  ★障害物: 岩盤の背 / 上段の足場と梯子 / 鉱石山と巻き上げ機 / 精錬炉 /
               *  居住区の寝床 / 瓦礫場の大岩 / 泉の間の石壇。
               *  ⚠ レール・枕木・倒れた板は**平置き**なので規則②で空ける (跨げる物を塞がない)。
@@ -4742,10 +4781,10 @@
                ".##.........####.......####............",   // 11  ★right ゲート = 軌道が東へ抜ける行。★起点 (19,11) もこの行 / col23-26 = 坑道の木枠
                ".########...####...##..#####.#####.....",   // 12  col16-18 = 歯車の間へ下りる口 / col19-20 = 大きな木箱
                ".##############..#...#################.",   // 13  col17 = 大きな歯車 (立っている) / col21- = 坑道の木枠と岩
-               ".#########...####...##################.",   // 14  col17-19 = 歯車の間の床 / col20-22 = 荷車と梁
-               ".######......#######...#####........##.",   // 15  col13-19 = 木箱の山 / col28-35 = 泉の間の苔床
-               ".#####........#######..#####..#####.##.",   // 16  col14-20 = 岩の背 / col30-34 = 泉の間の石壇と柱
-               ".##.............######.###.....###..##.",   // 17  col16-21 = 岩の背 / col22 = 南の広間へ下りる通路
+               ".#########...####....#################.",   // 14  col17-19 = 歯車の間の床 / col20 = ★荷車の軒下 (P8 で開けた) / col21-22 = 梁
+               ".######......######....#####........##.",   // 15  col13-18 = 木箱の山 / ★col19 = P8 で開けた (隙間) / col28-35 = 泉の間の苔床
+               ".#####........######...#####..#####.##.",   // 16  col14-19 = 岩の背 / ★col20 = P8 で開けた / col30-34 = 泉の間の石壇と柱
+               ".##.............#####..###.....###..##.",   // 17  col16-20 = 岩の背 / ★col21 = P8 で開けた / col22 = 南の広間へ下りる通路
                ".##....................###.....###..##.",   // 18  col15-21 = 軌道の枕木 = 規則②で空ける
                ".##...........########..............##.",   // 19  col22-24 = 泉の間への通路 (col25 の木戸は跨げる)
                ".###..........########..............##.",   // 20  南は大きな岩盤 / col26- は泉の間
@@ -6252,30 +6291,42 @@
         return (isFinite(n) && n > 0 && n <= 1) ? n : null;
       } catch (e) { return null; }
     }
-    function zoomForRoom() {
-      const ov = zoomQueryOverride();
-      if (ov !== null) return ov;
+    /* ★[P8] 「今の部屋は卓上の大部屋か」— **P7 のズーム発動条件そのもの**を 1 箇所へ括り出した。
+     *   ⭐ 括り出しの動機は P8-2 (ボス部屋化を「入室」から「接近」へ遅らせる) が
+     *     **まったく同じ母集団**を必要とするから。2 箇所に書くと「片方だけ直した日」に黙って食い違う。
+     *   ⚠ 戻り値は使用域の実寸 {w,h} (大部屋でなければ null)。zoomForRoom が続けて fit を
+     *     計算するので、判定と寸法を 2 度取りしないための形。
+     * ⚠⚠ **判定の中身は 1 ビットも変えていない** (屋外除外 → isCustom → 26x20 超)。
+     *   下の 3 つの除外理由はすべて P7 の実測によるもので、ここへ移設しただけ。 */
+    function largeRoomSize() {
       /* ⚠⚠⚠ 屋外 (地平線ビュー) は**必ず除外**。屋外マップは MAP_H=28 と縦に広いので
        *   素直に「広い部屋」と判定されてしまうが、屋外のカメラは fieldCamY() が縦を
        *   地平線へ**無条件ロック**する別系統で、ここを縮めると空の可視高・2 層パララックスの
        *   ずれ量がまとめて壊れる (実測: driver_field_step3 の B4/B5/C0b/C1/C2/C3 が一斉に赤)。
        *   卓上バトルマップの話とは無関係なので、そもそも対象にしない。 */
-      if (typeof IS_FIELD_THEME !== "undefined" && IS_FIELD_THEME) return 1;
+      if (typeof IS_FIELD_THEME !== "undefined" && IS_FIELD_THEME) return null;
       /* ⚠⚠⚠ **MAP_USED が「部屋」を意味するのは分岐ノード (1 ノード = 1 部屋) だけ**。
        *   旧単一マップ (?graph=0 / 生成クエスト) の MAP_USED は「ダンジョン全体」なので、
        *   実測 45x18 = 幅だけ規格超え → 素直に判定すると z=0.25 になり、既存の見え方が
        *   丸ごと変わってしまう (ユーザー合意は「既存 5 シナリオの見え方は変えない」)。
        *   部屋の広さという規則の**前提そのものが成り立たない**経路なので対象外にする。
        *   ⚠ isCustom は「カスタム幾何 = mapDef 由来のノード」の唯一の出所 (:4099)。 */
-      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return 1;
+      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return null;
       const w = MAP_USED.c1 - MAP_USED.c0 + 1, h = MAP_USED.r1 - MAP_USED.r0 + 1;
-      if (!(w > 0 && h > 0)) return 1;                 // 使用域が取れない異常系は従来どおり
-      /* ⚠ ここは **かつ (&&)** ではなく **または (||)** でもなく「両方とも規格内なら等倍」。
-       *   n4 (7x6) / n7 (9x6) のような小さいノードは fit が 0.58 等になるので、閾値で
-       *   切らないと**既存の小部屋まで引いてしまう**。 */
-      if (w <= ZOOM_LARGE_W && h <= ZOOM_LARGE_H) return 1;   // 既存規格 = 1 ミリも触らない
-      const fitW = (window.innerWidth  - UI_MENU_WIDTH)     / (w * TILE_SIZE);
-      const fitH = (window.innerHeight - cameraBottomHud()) / (h * TILE_SIZE);
+      if (!(w > 0 && h > 0)) return null;              // 使用域が取れない異常系は従来どおり
+      /* ⚠ ここは **かつ (&&)** で切る。n4 (7x6) / n7 (9x6) のような小さいノードは
+       *   fit が 0.58 等になるので、閾値で切らないと**既存の小部屋まで引いてしまう**。 */
+      if (w <= ZOOM_LARGE_W && h <= ZOOM_LARGE_H) return null;   // 既存規格 = 1 ミリも触らない
+      return { w: w, h: h };
+    }
+    function isLargeRoomNow() { return largeRoomSize() !== null; }
+    function zoomForRoom() {
+      const ov = zoomQueryOverride();
+      if (ov !== null) return ov;
+      const sz = largeRoomSize();
+      if (!sz) return 1;
+      const fitW = (window.innerWidth  - UI_MENU_WIDTH)     / (sz.w * TILE_SIZE);
+      const fitH = (window.innerHeight - cameraBottomHud()) / (sz.h * TILE_SIZE);
       /* ★★★ [2026-08-19 ユーザー決定] **cover** (大きい方) を採る。fit (小さい方) だと
        *   絵の縦横比 33:22=1.5 と描画領域の比 (最大化 1880x950 で 2.05) が食い違うぶんが
        *   そのまま黒帯になり、実測で左右に 216px ずつの虚無が出ていた。
@@ -6304,6 +6355,7 @@
       window.__camZoom = () => camZ;
       window.__zoomForRoom = zoomForRoom;
       window.__applyNodeZoom = applyNodeZoom;
+      window.__largeRoomSize = largeRoomSize;   // ★[P8] ドライバが写経せずに大部屋判定を引く口
     }
     // コンフォートゾーン: 画面の内側 22% (端から最低80px/最大220px) を「もう十分見えている」領域とみなす。
     // 判定は camTargetX/Y (カメラの着地予定地) 基準。移動中の camX 基準にすると結果が非決定的になる。
@@ -16548,6 +16600,9 @@
     // ─────────────────────────────────────────────────────────
     const visitedRooms = new Set();
     let bossRoomNarrationShown = false;  // ボス部屋到達ナレーションを1ランで1回だけ出すためのフラグ
+    /* ★[P8] 玉座へ 1 度でも詰めたか。⚠ **ノードではなくランの状態**。ボスノードを出て
+     *   引き返し、また入り直したときに BGM が探索曲へ戻ってしまわないためのラッチ。 */
+    let bossApproachLatched = false;
     const visitedTiles = new Set();  // フォグオブウォー用 (key = ty * 100 + tx)
     let heroPath = [];           // A*経路(ワールドタイル)
     let heroPathGoal = null;     // {tx, ty} 現在向かっている場所
@@ -16957,9 +17012,17 @@
           //   そのままだと道中ノードへ入るたびにボス到達ナレとボス BGM が鳴る。
           //   ⚠ 判定の出所はノードの **kind** ただ 1 つ。「部屋の role」ではボスノードを見分けられない。
           //   ⚠ RUN が null なら isBossNodeNow() は true を返す = 従来式へ恒等的に落ちる。
-          if (firstEntry && i === bossRoomIdx && isBossNodeNow() && !bossRoomNarrationShown &&
+          /* ★[P8] 大部屋 (廃坑 n1 = 39x23) では **firstEntry では測れない**。部屋に入った
+           *   最初の 1 tick は入口の坑口に立っているだけで、玉座までまだ 28 タイルある。
+           *   → 大部屋のときだけ firstEntry の代わりに「玉座への接近」を使う。
+           * ⚠ 小部屋・旧単一マップ・屋外・?bossapproach=0 は bigRoom=false で firstEntry の
+           *   ままなので **1 ビットも変わらない** (判定の出所は largeRoomSize 1 本)。 */
+          const bigRoom = !BOSS_APPROACH_OFF && isLargeRoomNow();
+          const bossGate = bigRoom ? bossApproachReachedNow() : firstEntry;
+          if (bossGate && i === bossRoomIdx && isBossNodeNow() && !bossRoomNarrationShown &&
               !encounterActive && !gameOver && !dungeonCleared) {
             bossRoomNarrationShown = true;
+            bossApproachLatched = true;
             window.__inBossRoom = true;
             bgm(currentBgmId() || "boss");   // ボス部屋: 専用ボス曲 (fantasy12=boss_battle)。dragon-lair は Pharaxus 曲を通しで継続
             narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
@@ -18672,6 +18735,19 @@
       if (attackActive || counterActive || playerHitStun > 0) return;
       const engaged = detectEngaged();
       if (engaged.length > 0) {
+        /* ★★★ [P8 / 2026-08-20] **戦闘が始まる瞬間にも「玉座へ詰めたか」を見る**。
+         * ⚠⚠ heroAI の入室検出 (:16993) は `!encounterActive` を要求するので、大部屋では
+         *   「玉座へ着いた瞬間に戦闘が始まる」= **あの枝を一度も通らない** という穴がある。
+         *   小部屋は「部屋に入る → 数タイル歩く → 交戦」と順番が違うので露呈しなかった。
+         *   2026-08-20 の実測: 玉座の脇で戦っているのに __inBossRoom が false のまま =
+         *   **ボス曲が一度も鳴らない**。setPhase("combat") はこの後に走るので、ここで確定させる。
+         * ⚠ ナレーション (narrate("boss_room_enter")) は heroAI 側のまま = 戦闘中には出さない。
+         *   鳴らすべきは「戦闘前に着いたときの語り」だけで、BGM は両方で必要だから。 */
+        if (!bossApproachLatched && RUN && currentNodeId === RUN.bossNodeId &&
+            !BOSS_APPROACH_OFF && isLargeRoomNow() && bossApproachReachedNow()) {
+          bossApproachLatched = true;
+          window.__inBossRoom = true;
+        }
         encounterRunning = true;
         runEncounter(engaged).finally(() => { encounterRunning = false; });
       }
@@ -22993,6 +23069,12 @@
     const SCE1_SERVANT_OFFSET_TX = 3;                // 山場の東端 (=坑道の奥) から西へ 3 タイル
     // ★[P5] 分岐版のアンカー: ノードの部屋の**西端から東へ** 4 タイル (sce1ServantSpot の注記)
     const SCE1_SERVANT_NODE_DX   = 4;
+    /* ★[P8] 畳み込み後の n1 (39x23 / c1=17 / midR=13) 用のアンカー。
+     * ⚠⚠ 旧小部屋 (7x6) 用の dx=4 をそのまま使うと (21,13) = **入場地点 (21,11) の 2 タイル下**
+     *   に落ちて、部屋に入った瞬間に EV-5 が開く。部屋の geography から取り直した値。
+     * ⭐ (35,16) = 絵の「歯車の間」= 主通路から泉の間 (玉座) へ下る**唯一の道**。
+     *   ここに置くことで、寄り道にせずとも必ず通りかかる (buildGoblinMineRun の注記を参照)。 */
+    const SCE1_SERVANT_FOLD_DX = 18, SCE1_SERVANT_FOLD_DY = 3;   // → global (35,16)
     /* ★[P5] EV-2 / EV-5 をどのノードに置くか。**buildGoblinMineRun() の id と 1 対 1**。
      * ⚠⚠ グラフの id を変えたらここも直すこと。ここが食い違うと registerNodeEvent の
      *   nodeId が誰とも一致せず、**イベントが一度も発火しないまま静かに消える**
@@ -23009,7 +23091,9 @@
      *   行き止まりで敵が 1 体も居ないので、旧 n6 と同じ「静かな寄り道」という性格が保たれる。
      * ⚠ kind:"rest" の回復とイベントは独立 (registerNodeEvent は nodeId で引く) ので競合しない。 */
     const SCE1_NODE_WATCH   = "n0";   // 廃坑入口 (EV-2) — 見張り 2 体が立っているノード
-    const SCE1_NODE_SERVANT = "n5";   // 湧き水の間 (EV-5) — 縛られた従者が居るノードでもある
+    /* ★[P8] 畳み込み後は n1 (坑道の奥) が従者もボスも抱える。?minefold=0 では旧 n5。
+     * ⚠ EV-9 は nodeId を直書きせず RUN.bossNodeId から引くので、こちらだけで足りる。 */
+    const SCE1_NODE_SERVANT = MINE_FOLD_OFF ? "n5" : "n1";
     // 判定つきの選択肢だけを持つ表。★ここに無い index (=2「迂回する」) が「判定なし(確定)」。
     const SCE1_SERVANT_CHECKS = {
       0: { check: "perception", title: "知覚判定", flavor: "呻き声の出どころと、その手前の床板を目で追う…" },
@@ -23025,7 +23109,9 @@
        * ⚠ 旧式は「東端から西へ 3」だが、分岐版の部屋は 7 列しかなく東端 -3 = 西端 +3 = 中央で
        *   入場地点と重なる。**西端から +4** にして、入場地点 (西端 +2) の 2 タイル東に置く
        *   = 「横穴の奥に人影が見える」という絵になるように寄せてある。 */
-      if (RUN) return nodeEventSpot(SCE1_SERVANT_NODE_DX, 0);
+      if (RUN) return MINE_FOLD_OFF
+        ? nodeEventSpot(SCE1_SERVANT_NODE_DX, 0)
+        : nodeEventSpot(SCE1_SERVANT_FOLD_DX, SCE1_SERVANT_FOLD_DY);
       if (_sce1ServantSpot) return _sce1ServantSpot;
       const r = (typeof ROOMS !== "undefined" && ROOMS[0]) ? ROOMS[0] : [7, 24, 20, 43];
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -23288,6 +23374,11 @@
     const SCE1_GRIX_PERSUADE_CLASSES = ["cleric"];   // 得意クラス = 僧侶 (在籍で +2)
     const SCE1_GRIX_DECEIVE_CLASSES  = ["elf"];      // 得意クラス = エルフ (在籍で +2)
     const SCE1_GRIX_OFFSET_TX    = 2;    // ボス部屋の西端 (=坑道からの入口) から東へ 2 タイル
+    /* ★[P8] 畳み込み後の玉座 = 泉の間の入口 (40,21)。⚠ 旧 dx=2 のままだと (19,13) =
+     *   部屋の西の果てに落ち、坑口から入った瞬間に玉座の交渉が開く。
+     * ⚠⚠ 護衛 (col46) から 6 タイル = 576px 手前に置くこと。交戦距離 melee=400px より遠いので
+     *   **戦闘が始まる前に必ず開く** (driver_graph_sce1 の (7a) が測っている不変条件)。 */
+    const SCE1_GRIX_FOLD_DX = 23, SCE1_GRIX_FOLD_DY = 8;         // → global (40,21)
     const SCE1_GRIX_ENRAGE_MUL   = 1.2;  // 交渉失敗でボスの初期 HP +20%
     // 見抜かれた時の配下 +2。★固定配列 = Math.random を 1 度も引かない (EV-2 と同じ決定論規約)。
     const SCE1_GRIX_ADD_TYPES    = ["goblin", "goblin"];
@@ -23339,7 +23430,9 @@
        *   西から入ったパーティは**この地点にちょうど降り立つ** = 距離 0 で必ず発火する。
        *   どちらかを動かすと EV-9 が無言で発火しなくなる恐れがあるので、必ず
        *   driver_graph_sce1 の (9x) 群で検算すること。 */
-      if (RUN) return nodeEventSpot(SCE1_GRIX_OFFSET_TX, 0);
+      if (RUN) return MINE_FOLD_OFF
+        ? nodeEventSpot(SCE1_GRIX_OFFSET_TX, 0)
+        : nodeEventSpot(SCE1_GRIX_FOLD_DX, SCE1_GRIX_FOLD_DY);
       if (_sce1GrixSpot) return _sce1GrixSpot;
       const r = sce1BossRoomRect();
       const ty = Math.floor((r[0] + r[2]) / 2);
@@ -31644,6 +31737,37 @@
       return currentNodeId === RUN.bossNodeId;
     }
 
+    /* ★[P8] 玉座へ十分近づいたか (今このフレームで)。
+     * ⚠⚠ 距離は **ボス個体の実座標**から測る。mapDef の bossSlot を直書きすると、
+     *   ノックバック・激怒フェーズの移動・多頭再生で位置が動いた後にずれる
+     *   (sce1ThroneCaptiveSpot が既にボス個体から導いているのと同じ理由)。
+     * ⚠ 盤面にボスが居ない (未生成 / 撃破済み) なら false。撃破後に真へ戻す必要は無く、
+     *   呼び出し側はラッチ (bossApproachLatched) を見る。 */
+    function bossApproachReachedNow() {
+      const pTX = Math.floor((playerX + 48) / TILE_SIZE);
+      const pTY = Math.floor((playerY + 58) / TILE_SIZE);
+      for (const e of enemies) {
+        if (!e.alive || !e.def || !e.def.isBoss) continue;
+        const sz = e.def.displaySize || 96;
+        const eTX = Math.floor((e.x + sz / 2) / TILE_SIZE);
+        const eTY = Math.floor((e.y + sz / 2) / TILE_SIZE);
+        if (Math.max(Math.abs(pTX - eTX), Math.abs(pTY - eTY)) <= BOSS_APPROACH_TILES) return true;
+      }
+      return false;
+    }
+
+    /* ★[P8] window.__inBossRoom の **唯一の書き込み点** (heroAI の到達検出を除く)。
+     * ⚠⚠ **buildNode の後に呼ぶこと**。largeRoomSize() は MAPDEF / MAP_USED を見るので、
+     *   buildNode より前に呼ぶと「1 つ前のノードの寸法」で判定してしまう。
+     * ⚠ 大部屋でなければ従来どおり「ボスノードに居る = ボス部屋」。小部屋・旧単一マップ・
+     *   屋外はここに落ちるので恒等。 */
+    function syncBossRoomFlag() {
+      if (!RUN) return;                                   // 従来経路は 1 命令も走らない
+      if (currentNodeId !== RUN.bossNodeId) { window.__inBossRoom = false; return; }
+      if (BOSS_APPROACH_OFF || !isLargeRoomNow()) { window.__inBossRoom = true; return; }
+      window.__inBossRoom = bossApproachLatched;
+    }
+
     /* ★クリア条件 objective.kind:"defeatBoss" の**唯一の述語**。
      *   checkDungeonClear と isQuestClearSettled の両方がこれを呼ぶ (判定式を 2 本持たない)。
      * ⚠ ボスノードに居る間は live な enemies を見る。ナレ再生中は moveEnemies が早期 return して
@@ -32588,11 +32712,23 @@
          *   applyRoomClearHeal / maybeOfferRestSummon / currentBgmId が以後ずっと
          *   「ボス部屋に居る」前提で動く = rest ノードが無言で効かなくなる。
          *   分岐マップでは「今どのノードに居るか」が唯一の正なので、遷移のたびにここで確定させる。 */
-        window.__inBossRoom = (toId === RUN.bossNodeId);
+        /* ★[P8] ここでは **落とすだけ**。真にするのは buildNode の後 (下の syncBossRoomFlag)。
+         *   largeRoomSize() は MAPDEF / MAP_USED を見るので、buildNode より前に判定すると
+         *   1 つ前のノードの寸法で決めてしまう。⚠ 落とす側をここに残すのは、ボスノードを出た
+         *   ときに必ず false になるという不変条件を遷移の入口で担保するため。 */
+        window.__inBossRoom = false;
         buildNode(resolveNodeMapDef(toId), toId);
         const revisit = restoreNodeState(toId);
         placeNodeParty(viaDir);
         applyNodeZoom();   // ★[P7] 部屋の広さから倍率を決める (snapCamera の直前 = 描画前)
+        /* ★[P4] ボス部屋フラグをノードの kind から引き直す。
+         * ⚠⚠ heroAI の入室検出 (:16963) は bossRoomNarrationShown が one-shot なので、
+         *   一度ボスノードへ入って引き返すと __inBossRoom が true のまま残る。すると
+         *   applyRoomClearHeal / maybeOfferRestSummon / currentBgmId が以後ずっと
+         *   「ボス部屋に居る」前提で動く = rest ノードが無言で効かなくなる。
+         *   分岐マップでは「今どのノードに居るか」が唯一の正なので、遷移のたびに確定させる。
+         * ★[P8] 大部屋では「玉座へ詰めたか」も見る (syncBossRoomFlag が唯一の規則)。 */
+        syncBossRoomFlag();
         snapCamera();
         await nodeFadeTo(false);
         if (node.kind === "rest") {
@@ -33003,6 +33139,36 @@
        *   絵の gates.left = [2,9] が自動で効く (親への引き返しをデータに書かない約束のとおり)。 */
       const N1_UP = PAINT_GATE_OFF ? [36, 2] : [34, 3];
       const N1_RIGHT = [55, 13];
+      /* ★[P8] 畳み込み後の n1 に入る敵。旧 n4 の乱戦 7 体と旧 n7 の護衛 2 + ボスを
+       *   **種類も数も変えずに** 39x23 の 1 枚絵の中へ移設したもの (合計は旧 2 部屋と同じ)。
+       *   ⭐ 座標は絵の blocked マスク (ROOM_PAINTINGS_DEF["goblin-mine"].n1.blocked) で
+       *     床が空いているタイルだけを選んである。rect [2,17,24,55] と tileBounds が同じ
+       *     39x23 なので **global = 絵ローカル + (17,2)** の恒等写像。
+       *   ⚠⚠ 検査は tools/driver_grid_p8.js の §2 が**絵のマスクから直に**行う。
+       *     「実装の戻り値どうしを突き合わせる」形にすると、両方が同じ誤りのとき永久に緑になる。
+       *
+       *   ── 乱戦 (入場地点 (21,11) からの距離) ──────────────────────────────
+       *   ⚠⚠ 前衛を 7 タイル (672px) より近づけないこと。交戦距離は melee=400px (4.17 タイル)
+       *     だが、パーティは入場後すぐ東へ歩き出すので、ここより近いと入場ナレの最中に
+       *     乱戦が始まる (n0 の見張りを 750px 以上離してあるのと同じ理由)。 */
+      const N1_MELEE_SLOTS = [
+        [29, 11, "hobgoblin"],    // 主通路の前衛 — 入場から 8 タイル
+        [28, 12, "hobgoblin"],    //                        7
+        [28, 13, "goblinBrute"],  //                        7
+        [32,  9, "goblin"],       // 一段奥                11
+        [33, 10, "goblinRider"],  //                       12
+        [37, 12, "goblinShaman"], // 後衛 (術)             16
+        [38,  9, "goblinArcher"], // 後衛 (弓)             17
+      ];
+      /* ── 玉座 = 泉の間 (絵の石壇と柱がある南東の大広間 rows 17-23 / cols 39-52) ──
+       *   ⭐ 絵の「石壇と柱」をそのまま玉座の壇に読み替えた。EV-9 の文面
+       *     「グリクスは柱の陰に身を寄せ…」が絵と食い違わないのはこのため。
+       *   ⚠⚠ 護衛は **col 46 以東**に置くこと。EV-9 のアンカー (40,21) から 6 タイル = 576px で
+       *     交戦距離 melee=400px より遠い。旧 n7 の「入場 col34 から 5 マス = 480px > 400」と
+       *     **同じ規則**を、新しい入場地点 (泉の間へ入る (39,21)) から測り直した値。
+       *     ここより西へ寄せると、玉座の交渉 (EV-9) が開く前に戦闘が始まる。 */
+      const N1_GUARD_SLOTS = [[46, 20, "hobgoblin"], [46, 22, "hobgoblin"]];
+      const N1_BOSS_SLOT   = [49, 21, "goblinKing"];
       function node(id, name, rect, opt) {
         opt = opt || {};
         return {
@@ -33025,9 +33191,23 @@
           tiles: null, props: null, graph: null, flags: { bandMask: false },
         };
       }
-      return {
-        entry: "n0",
-        nodes: [
+      /* ★[P8 / 2026-08-20 ユーザー決定] **廃坑は n0 → n1 の 2 大部屋だけ**へ畳んだ。
+       *   旧 n4 (掘削場) / n5 (湧き水の間) / n7 (玉座の間) は 7x6・9x6 の小部屋で、部屋の
+       *   最大チェビシェフ距離が 6 / 8 しかない = P5 の移動 6 マスも P6 の射程の梯子も
+       *   **原理的に効かない** (旧射程 6 の弓が既に道中部屋を 100% カバーしていた)。
+       *   → 3 つの中身を、既に codex1 の絵がある n1 (39x23 = 最大チェビシェフ距離 38) へ移した。
+       *   ⭐ **新規の絵は 0 枚**。納品済みの卓上バトルマップ 2 枚だけで廃坑が完結する。
+       *
+       * ⚠ EV-5「捕らわれた従者」は n5 が消えるので **n1 へ再アンカー**した (SCE1_NODE_SERVANT)。
+       *   ⭐⭐⭐ 置き場所を「寄り道」にはできない — 1 ノード = 1 部屋なので heroAI の
+       *     ③「未訪問の部屋へ」(findNextRoomGoal) が**永久に -1** を返し、④「霧を無視して
+       *     最寄り敵へ」に落ちる = **AI は敵へ一直線にしか歩かない**。羊皮紙 (出口選択) が
+       *     消えた時点で寄り道はオートバトルでは到達不能になる。よって EV-5 は泉の間へ下る
+       *     **唯一の隘路 (歯車の間)** の上に置いてある (sce1ServantSpot)。
+       * ⚠ 旧 n5 の kind:"rest" (入室で全快) は**復活させない**。2026-08-20 ユーザー決定で
+       *   補填はボス撃破後の報酬へ回し、廃坑の難易度 / XP 再調整の宿題にまとめた。
+       * ⚠ 罠と宝箱は n2/n3 撤去時 (2026-08-19) から既にゼロのまま (kind:"search"/"loot" が無い)。 */
+      const N0_NODES = [
           /* ── 入口 (敵 0 = 開幕ナレを戦闘で潰さない) ──────────────────────────
            * ★[卓上グリッド P3] ここだけ **33x22 の大部屋 + 卓上バトルマップ 1 枚**。
            *   ⚠ 出口タイルは ENTRY 用の E_* を使う (MID 用の UP/DOWN/RIGHT は部屋の外に落ちる)。
@@ -33040,6 +33220,33 @@
             exits: [
               { to: "n1", dir: "right", at: E_RIGHT, hint: { text: "奥から、かび臭い風が流れてくる" } },
             ] },
+      ];
+      if (!MINE_FOLD_OFF) {
+        return {
+          entry: "n0",
+          nodes: N0_NODES.concat([
+            /* ── 坑道の奥: 乱戦 → 従者 → 玉座 を 1 枚絵の中で順に踏む ──────────────
+             * ⚠ kind は "boss"。validate/lintRun が role:"boss" の部屋をちょうど 1 つ、
+             *   グラフに kind:"boss" のノードをちょうど 1 つ要求する。
+             * ⚠⚠ ボス到達ナレと専用 BGM は**入室では鳴らない**。大部屋では入口から玉座まで
+             *   28 タイルあるので、P8-2 の syncBossRoomFlag / bossApproachReachedNow が
+             *   「玉座へ 8 タイル以内」まで遅らせる (撤退は ?bossapproach=0)。
+             * ⚠ scenery は density:0 = 散らさない (n0 と同じ理由: 絵に既に描き込まれている)。 */
+            { id: "n1", kind: "boss",
+              mapDef: node("n1", "坑道の奥", N1,
+                           { paint: "n1", density: 0,
+                             slots: N1_MELEE_SLOTS.concat(N1_GUARD_SLOTS),
+                             boss: N1_BOSS_SLOT }),
+              exits: [] },
+          ]),
+        };
+      }
+      /* ── 以下は ?minefold=0 の旧経路 (2026-08-20 より前の 5 ノード構成) ────────────
+       * ⚠ **1 バイトも書き換えないこと**。driver_graph_sce1 / driver_sce1_events が
+       *   測っている形そのもので、ここを直すとピン留めの意味が無くなる。 */
+      return {
+        entry: "n0",
+        nodes: N0_NODES.concat([
           /* ── 坑口を抜けた先の坂道 (敵 0) ────────────────────────────
            * ⚠ [2026-08-19] EV-2「廃坑の入口の見張り」は **n0 へ移した**ので、ここには
            *   もうイベントが無い (名前だけ「見張りの詰所」のまま = 見張りが寝泊していた部屋)。 */
@@ -33081,7 +33288,7 @@
                            slots: [[39, 12, "hobgoblin"], [39, 14, "hobgoblin"]],
                            boss: [40, 13, "goblinKing"] }),
             exits: [] },
-        ],
+        ]),
       };
     }
 
@@ -33532,6 +33739,13 @@
         // 「まだ休んでいない rest ノード」へ戻す (回復を 2 通りの前提で測り直すため)
         clearRested: (id) => { const st = nodeState[id || currentNodeId]; if (st) st.rested = false; },
         inBossRoom: () => !!window.__inBossRoom,
+        /* ★[P8] ボス部屋化を「入室」から「接近」へ遅らせた配線を、ドライバが写経せずに測る口。
+         *   ⚠ bigRoom は largeRoomSize() の戻り値そのもの = 実装と同じ 1 本を見る。 */
+        bossApproach: () => ({ latched: bossApproachLatched,
+                               reached: bossApproachReachedNow(),
+                               bigRoom: !BOSS_APPROACH_OFF && isLargeRoomNow(),
+                               tiles: BOSS_APPROACH_TILES,
+                               narrated: bossRoomNarrationShown }),
         // イベント台帳の器 (P5 が EV-2/5/9 を載せる)。ドライバはここから登録して発火を測る
         registerEvent: registerNodeEvent,
         events: () => NODE_EVENTS.map(e => ({ key: e.key, nodeId: e.nodeId, kind: e.kind,

@@ -770,9 +770,19 @@ const SCAN_FN = () => {
     const badRule = rows.filter(r => r.I.bad.rule.length);
     const badMax = rows.filter(r => r.I.bad.maxone.length);
 
+    /* ★[2026-08-20] 旧ガードは `nodes.length >= 4` だったが、P8 で廃坑が
+     *   **2 大部屋 (n0 → n1)** へ畳まった矬間に赤くなった。隠し扉の仕組みは
+     *   1 マスも壊れていない = **ノード件数は手段であって目的ではない**。
+     *   ⭐ 数字を 4 → 2 へ下げるのではなく、§7 が実際に測っている基盤 =
+     *     「全シナリオでグラフが組めて (ノード 1 つ以上)、**扉が十分にあり**、
+     *     そのうち 1 枚以上隠れている」へ言い直す。次の畳み込みでも側さない。
+     * ⚠ 廃坑は n1 が kind:"boss" なので隠せる扉が原理的に 0 枚 (規則②)。
+     *   従って「各シナリオで 1 枚以上」にはしない — してしまうと仕様を誤って測る。 */
     check('(7a) 母集団ガード: 6 シナリオ全部でグラフが読めて、合計 1 枚以上隠れている',
-      rows.length === ALL_SCENS.length && rows.every(r => r.scan.nodes.length >= 4) && totHidden >= 1,
-      rows.map(r => r.scen + ':' + r.I.nHidden + '/' + r.I.nDoors).join(' '));
+      rows.length === ALL_SCENS.length && rows.every(r => r.scan.nodes.length >= 1) &&
+      totDoors >= 4 && totHidden >= 1,
+      rows.map(r => r.scen + ':' + r.I.nHidden + '/' + r.I.nDoors).join(' ') +
+      '  (ノード ' + rows.map(r => r.scan.nodes.length).join(',') + ')');
     check('(7b) ★6 シナリオ全ノードで「選べる出口」が 1 本以上残る',
       badStuck.length === 0,
       badStuck.map(r => r.scen + ':' + r.I.bad.stuck.join(',')).join(' ') ||

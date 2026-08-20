@@ -112,8 +112,8 @@ const MUTATIONS = {
   ],
   /* 旧単一マップの除外を外す。?graph=0 の 45x18 が大部屋判定になり (3b) が赤くなる。 */
   nolegacyguard: [
-    ['      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return 1;',
-     '      if (false) return 1;   /* ★変異nolegacyguard */'],
+    ['      if (!(typeof MAPDEF !== "undefined" && MAPDEF && MAPDEF.isCustom)) return null;',
+     '      if (false) return null;   /* ★変異nolegacyguard */'],
   ],
 };
 const MUT_ORDER = ['nodomz', 'nocanvasz', 'nospritez', 'nolegacyguard', 'nofogz', 'nocover', 'nolabelanchor'];

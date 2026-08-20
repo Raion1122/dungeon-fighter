@@ -223,7 +223,15 @@ async function bootPage(browser, port, query, errs, opts) {
     } catch (e) {}
     try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
   }, opts.scen || STAGE);
-  await page.goto('http://localhost:' + port + '/index.html' + query,
+  /* ⭐⭐ [P8 / 2026-08-20] **`&minefold=0` を全ページに付ける**。廃坑は 2026-08-20 に
+   *   n0 → n1 の 2 大部屋へ畳まったので、付けないと本ドライバが測っている
+   *   「n1 の出口 (up / right)」が母集団ごと消える (畳んだ後の n1 は exits: [])。
+   *   ⭐⭐⭐ **期待値は 1 文字も書き換えていない**。母集団を旧経路へ固定するだけ
+   *   (driver_graph_sce1 とまったく同じ手当て)。新仕様側の検証は
+   *   tools/driver_grid_p8.js が別途持つ (役割分担)。
+   * ⚠ ピンが外れたことは (1p) が検知する (装置 assert)。 */
+  const sep = (query && query.indexOf('?') >= 0) ? '&' : '?';
+  await page.goto('http://localhost:' + port + '/index.html' + query + sep + 'minefold=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     "typeof mapData !== 'undefined' && typeof buildNode === 'function' && " +
@@ -393,6 +401,12 @@ function imageAspect(rel) {
     // ══ §1 母集団ガード ═════════════════════════════════════════════════════
     mark('§1 母集団ガード — n1 に絵が貼られ、その口とマスクが実在する');
     const page = await bootPage(browser, base, '?diag=1&intel=0', errs);
+    /* ★装置: 上の `&minefold=0` ピンが実際に効いていることを測る。
+     * ⚠ これが無いと、ピンを落とした日に「実装が壊れた」と誤読する
+     *   (実際には測る対象が別のグラフに入れ替わっているだけ)。 */
+    check('(1p) ★装置: ?minefold=0 で旧 5 ノードへピン留めされている',
+      await page.evaluate(() => (typeof MINE_FOLD_OFF !== 'undefined') && MINE_FOLD_OFF === true),
+      'MINE_FOLD_OFF');
     const N = await gotoN1(page);
     check('(1a) ★前提: n1 の主部屋に 1 枚絵 goblin-mine/n1 が mapDef 経路で貼られている',
       N.gate.nodeId === 'n1' && N.painting === 'goblin-mine/n1' && N.isCustom === true,

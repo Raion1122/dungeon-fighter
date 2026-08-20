@@ -269,7 +269,13 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
   // ── §1 カタログ (12 エントリ) ─────────────────────────────────────────────
   mark('§1 ノード用 1 枚絵カタログ');
   const errs1 = [];
-  const page1 = await bootPage(browser, base + '/index.html?diag=1&intel=0', 'goblin-mine', errs1);
+  /* ★[2026-08-20 測定点の修正] 旧実装は 'goblin-mine' を台にしていたが、P8 で廃坑が
+   *   n0 → n1 の **2 大部屋**へ畳まり n4 / n7 が消えたので、§2 が undefined を踏んで落ちる。
+   * ⭐⭐ §2 が測っているのは **lintRun / paintingAspectFits の判定**であって廃坑ではない。
+   *   台にすべきなのは「7x6 の道中 + 9x6 のボス」を持つ分岐グラフ = §4 と同じ TOUR_SCEN。
+   *   §1 は ROOM_PAINTINGS_DEF を 6 テーマ分読むだけなのでシナリオに依存しない。
+   * ⚠ 台が成り立っていることは (2z) が測る (装置 assert)。 */
+  const page1 = await bootPage(browser, base + '/index.html?diag=1&intel=0', TOUR_SCEN, errs1);
   const CAT = await page1.evaluate((themes) => {
     const out = { themes: {}, catalogSet: !!DFMapDef.getPaintingCatalog() };
     for (const t of themes) {
@@ -308,6 +314,11 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
     const run = (g) => { const L = DFMapDef.lintRun(g);
       return { w: L.warnings.map(x => x.code), e: L.errors.map(x => x.code), ok: L.ok }; };
     const out = {};
+    /* ★装置: 台のグラフが n1 (道中 7x6) / n4 (山場) / n7 (ボス 9x6) を持っているか。
+     * ⚠ 持っていない日に undefined を踏んで**ドライバごと落ちる**のを防ぐ
+     *   (2026-08-20 に実際に踏んだ: FATAL "Cannot read properties of undefined")。 */
+    out.ids = gr.nodes.map(n => n.id);
+    if (['n1', 'n4', 'n7'].some(id => !at(gr, id))) return out;
     out.pristine = run(clone());
     { const g = clone(); at(g, 'n1').mapDef.rooms[0].painting = { theme: 'goblin-mine', key: '1' };
       out.oldOnMid = run(g); }                       // 7x6 の部屋に旧在庫 20x16 (5:4)
@@ -325,7 +336,15 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
     };
     return out;
   });
-  const hasAsp = (r) => r.w.indexOf('graph-painting-aspect') >= 0;
+  /* ⚠ 上の母集団ガードで早期離脱したとき、以下の detail 文字列は **先に評価される**ので
+   *   undefined を触ってドライバごと落ちる。空の値を埋めて「赤くなるが落ちない」にする。 */
+  for (const k of ['pristine', 'oldOnMid', 'midOnBoss', 'bossOnMid', 'missing'])
+    if (!ASP[k]) ASP[k] = { w: ['(台が組めていない)'], e: ['(台が組めていない)'], ok: false };
+  if (!ASP.fits) ASP.fits = {};
+  const hasAsp = (r) => !!r && r.w.indexOf('graph-painting-aspect') >= 0;
+  check('(2z) ★装置: 台の分岐グラフ (' + TOUR_SCEN + ') が n1 / n4 / n7 を持っている',
+    !!ASP.pristine && ['n1', 'n4', 'n7'].every(id => (ASP.ids || []).indexOf(id) >= 0),
+    'ids=' + (ASP.ids || []).join(','));
   check('(2a) ★素のグラフは警告 0 (n4 / n7 の絵が伸縮なしで載る)',
     !hasAsp(ASP.pristine) && ASP.pristine.w.length === 0 && ASP.pristine.e.length === 0,
     'w=' + ASP.pristine.w.join(',') + ' e=' + ASP.pristine.e.join(','));
