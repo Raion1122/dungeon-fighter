@@ -9,7 +9,7 @@
 
 | # | 依頼書 | ステータス | 一行 |
 |---|---|---|---|
-| 1 | [2026-08-20_mine-wall-clipping.md](2026-08-20_mine-wall-clipping.md) | **承認済(着手可)** | 廃坑の外周 1 タイルを塞ぎ、ゴブリン戦車を 176px + footprint 判定へ |
+| 1 | [2026-08-20_mine-wall-clipping.md](2026-08-20_mine-wall-clipping.md) | **完了 `7c59c44`** | 廃坑の外周 1 タイルを塞ぎ、ゴブリン戦車を 176px + footprint 判定へ |
 | 2 | [2026-08-20_wallbox-hardcoded-72px.md](2026-08-20_wallbox-hardcoded-72px.md) | 起草済(未承認) | 壁の当たり判定の箱が 72px 固定。大型 12 体で最大 1.5 タイルずれている |
 | 3 | [2026-08-20_paint-mask-subtile.md](2026-08-20_paint-mask-subtile.md) | 調査チケット(未承認) | 1 枚絵マスクの内側の半マスズレ。**まず道具を作って画像をユーザーに見せる** |
 | 4 | [2026-08-20_bgm-mine-swap.md](2026-08-20_bgm-mine-swap.md) | **承認済(着手可)** | 廃坑の BGM を 3 曲へ(入口 d1 / 坑内 haikou / グリクス戦 boss01) |
