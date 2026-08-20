@@ -429,14 +429,22 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
      *   探索に失敗したフォールバックが岩盤 (68,13) を返して**到達できない敵が残り、
      *   潜行が永久にクリアしなくなっていた** (実際に踏んだ)。 */
     const bossRect = ROOMS[BOSS_ROOM_IDX];
-    const chSpot = findChariotSpawnTile(Math.floor((bossRect[0] + bossRect[2]) / 2));
+    /* ⚠⚠ 2026-08-20 (廃坑の壁抜け): findChariotSpawnTile は **(kingTX, kingTY)** の
+     *   2 引数になり、合法タイルが無ければ **null** を返す (乱入ごと取り消す契約)。
+     *   1 引数のままだと kingTY が undefined → 距離が NaN → 候補が 0 件 → null で
+     *   FATAL になる (2026-08-20 に実際に踏んだ)。 */
+    const chSpot = findChariotSpawnTile(Math.floor((bossRect[1] + bossRect[3]) / 2),
+                                        Math.floor((bossRect[0] + bossRect[2]) / 2));
     const bossBoard = { enemies: enemies.length, types: enemies.map(e => e.type).join(','),
                         rooms: ROOMS.length, bossRoomIdx: BOSS_ROOM_IDX,
                         traps: traps.length, chests: roomChests.length,
                         excluded: g.excluded(), chestExcluded: g.chestExcluded(),
                         bossRect: bossRect.slice(), chariotBaseTx: chariotSpawnBaseTx(),
-                        chariot: chSpot, chariotWall: isTileWall(chSpot.tx, chSpot.ty),
-                        chariotInRoom: chSpot.ty >= bossRect[0] && chSpot.ty <= bossRect[2] &&
+                        chariot: chSpot,
+                        chariotWall: chSpot ? isTileWall(chSpot.tx, chSpot.ty) : null,
+                        chariotBodyWalls: chSpot ? unitBodyTiles(ENEMY_TYPES.goblinChariot, chSpot.tx, chSpot.ty)
+                                                     .filter(t => isTileWall(t.tx, t.ty)).length : -1,
+                        chariotInRoom: !!chSpot && chSpot.ty >= bossRect[0] && chSpot.ty <= bossRect[2] &&
                                        chSpot.tx >= bossRect[1] && chSpot.tx <= bossRect[3] };
     await g.enter('n4', 'down');
     const b = snap();
@@ -468,6 +476,10 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
   check('(3j) ★戦車の乱入起点がボス部屋の東端から導出されている (絶対座標の直書きでない)',
     D3.bossBoard.chariotBaseTx === D3.bossBoard.bossRect[3],
     'base=' + D3.bossBoard.chariotBaseTx + ' / ボス部屋=' + JSON.stringify(D3.bossBoard.bossRect));
+  /* ★ 2026-08-20: 「中心 1 マスが歩ける」だけでは不十分だった。体が 3x2 を覆うので
+   *   中心が床でも体の大半が岩の中になりうる → **体が含む壁の数**も同時に測る。 */
+  check('(3k2) ★乱入位置で体 (footprint) が壁を 0 マスしか含まない',
+    D3.bossBoard.chariotBodyWalls === 0, '体の壁=' + D3.bossBoard.chariotBodyWalls);
   check('(3k) ★戦車の湧き先が歩けるタイルで、しかもボス部屋の中 (岩盤に湧いて倒せなくならない)',
     D3.bossBoard.chariotWall === false && D3.bossBoard.chariotInRoom === true,
     '湧き先=' + JSON.stringify(D3.bossBoard.chariot) + ' 壁=' + D3.bossBoard.chariotWall +
@@ -769,11 +781,32 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
     /* ★[P5 前段] 戦車の乱入起点を「直書き 68」から「ボス部屋の東端」へ変えた分の**恒等性**。
      *   既定幾何では ROOMS[1] = [5,47,22,68] なので必ず 68 に戻る = 既存 6 シナリオの
      *   乱入位置は 1 タイルも動かない。ここが 68 でなくなったら、それは既定幾何を壊した合図。 */
-    const ch0 = await p0.evaluate(() => ({
-      base: chariotSpawnBaseTx(), rect: ROOMS[BOSS_ROOM_IDX].slice(),
-      spot: findChariotSpawnTile(13), wall: (() => { const s = findChariotSpawnTile(13);
-        return isTileWall(s.tx, s.ty); })(),
-    }));
+    /* ⚠⚠ 2026-08-20 (廃坑の壁抜け): 乱入位置の選び方を **体 (footprint) で判定 +
+     *   猛予 3〜4 ターンの道のり** へ変えたので、素の盤面ではもう col 68 にはならない。
+     *   この assert は「**chariotSpawnBaseTx() の導出化が恒等か**」を測るものなので、
+     *   **期待値を書き換えずに旧経路 (?chariotbody=0) へ固定**する。
+     *   新仕様側の不変条件 (体が壁を 0 マス) は (9j2) が別に測る。 */
+    const pOld = await bootPage(browser, 'http://localhost:' + PORT + QT + '&graph=0&chariotbody=0', w0, e0);
+    const ch0 = await pOld.evaluate(() => {
+      const s = findChariotSpawnTile(Math.floor((ROOMS[BOSS_ROOM_IDX][1] + ROOMS[BOSS_ROOM_IDX][3]) / 2), 13);
+      return { base: chariotSpawnBaseTx(), rect: ROOMS[BOSS_ROOM_IDX].slice(),
+               spot: s, wall: s ? isTileWall(s.tx, s.ty) : null,
+               bodyN: s ? unitBodyTiles(ENEMY_TYPES.goblinChariot, s.tx, s.ty).length : -1 };
+    });
+    await pOld.close();
+    const ch1 = await p0.evaluate(() => {
+      const r = ROOMS[BOSS_ROOM_IDX];
+      const s = findChariotSpawnTile(Math.floor((r[1] + r[3]) / 2), 13);
+      return { spot: s, base: chariotSpawnBaseTx(),
+               bodyWalls: s ? unitBodyTiles(ENEMY_TYPES.goblinChariot, s.tx, s.ty)
+                                .filter(t => isTileWall(t.tx, t.ty)).length : -1,
+               inRoom: !!s && s.ty >= r[0] && s.ty <= r[2] && s.tx >= r[1] && s.tx <= r[3] };
+    });
+    check('(9j-装置) ?chariotbody=0 で体の判定が中心 1 マスへ落ちている (旧経路へ固定できている)',
+      ch0.bodyN === 1, 'off の体のマス数=' + ch0.bodyN);
+    check('(9j2) ★?graph=0 の新仕様でも乱入位置の体が壁を 0 マスしか含まず、ボス部屋の中にある',
+      ch1.bodyWalls === 0 && ch1.inRoom === true,
+      '湧き先=' + JSON.stringify(ch1.spot) + ' 体の壁=' + ch1.bodyWalls + ' 部屋の中=' + ch1.inRoom);
     check('(9j) ★?graph=0 では戦車の乱入起点が従来どおり col 68 (導出化が恒等な書き換えである証明)',
       ch0.base === 68 && ch0.rect[3] === 68 && ch0.spot.tx === 68 && ch0.wall === false,
       'base=' + ch0.base + ' ボス部屋=' + JSON.stringify(ch0.rect) +

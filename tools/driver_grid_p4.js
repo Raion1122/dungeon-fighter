@@ -580,7 +580,13 @@ function imageAspect(rel) {
       for (const k of MUT_ORDER) {
         /* ⚠ 変異側も **?doors=0**。§4 と同じ理由 (閉扉が isTileWall を汚すと、
          *   注入した欠陥ではなく扉のせいで赤くなり負のコントロールが意味を失う)。 */
-        const p = await bootPage(browser, PORT_OF[k], '?diag=1&intel=0&doors=0', errs);
+        /* ⚠⚠ 2026-08-20 (廃坑の壁抜け): **?paintring=0 を足した**。この節の負の
+         *   コントロールはどれも「**外周 1 タイルが歩ける**盤面」を前提に書かれている
+         *   ((7c) = 外周経由で繋がる / (7d) = マスクを捨てれば塞がれたマスが 0 になる)。
+         *   sealRing で外周を塞いだので、**期待値を書き換えずに旧経路へ固定**する。
+         * ★ スイッチを外すと (7d) の厳密一致 (床 === 歩ける) が即座に落ちるので、
+         *   (7d) そのものが「旧経路へ固定できているか」の装置 assert を兼ねている。 */
+        const p = await bootPage(browser, PORT_OF[k], '?diag=1&intel=0&doors=0&paintring=0', errs);
         const R = await gotoN1(p);
         if (k === 'n1updrift') {
           const bad = R.gate.exits.filter(e => { const g = R.gate.gates[e.dir];

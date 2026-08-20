@@ -85,9 +85,11 @@ const MUTATIONS = {
   ],
   blockstartnoguard: [
     [ROW8_FROM, ROW8_TO],
-    ['          if (k === startKey)   { stat.skipStart++; continue; }',
+    /* ⚠ 2026-08-20 (廃坑の壁抜け): 門番が tryBlock へ畳まり continue → return になった。
+     *   変異アンカーは実装の 1 行と完全一致しないと空振りする (exit 3 で止まる)。 */
+    ['          if (k === startKey)   { stat.skipStart++; return; }',
      '          /* \u2605\u5909\u7570noguard-start */'],
-    ['          if (corridorKeys.has(k)) { stat.skipCorridor++; continue; }',
+    ['          if (corridorKeys.has(k)) { stat.skipCorridor++; return; }',
      '          /* \u2605\u5909\u7570noguard-corridor */'],
   ],
 };

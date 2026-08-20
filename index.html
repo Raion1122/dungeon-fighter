@@ -4710,6 +4710,16 @@
          *   ⚠ 33x22 は他ノード (7x6 / 9x6) より桁違いに広い。rooms[i].rect も同じ 33x22 に
          *     すること (paintingAspectFits は縦横比の完全一致を要求する)。 */
         n0: { src: "assets/room_goblin-mine_n0.jpg", tileBounds: [3, 20, 24, 52], node: true,
+             /* ★[廃坑の壁抜け 2026-08-20] 外周 1 タイルを通行不能にする (作法①の裏返し)。
+              *   作法① は「外周にマスクの '#' を書かない」= **描画のフェザー帯を歩けるまま残す**
+              *   という規則で、絵では岩・崖・樹林なのに素通りできる帯が n0=106 / n1=120 マス
+              *   できていた (2026-08-20 実測。本番の aStar が実際にそこを近道として通る)。
+              *   ⚠ sealRing は blocked とは独立に効く。外周も applyPaintingBlocking の
+              *     **同じ門番** (元から壁 / 起点 / 扉 / 敵スポーン / 廊下 / ゲート) を通すので、
+              *     ここを立てても出口や起点が塞がることはない (数は __paintBlockProbe に出る)。
+              *   ⚠⚠ 立てていいのは **blocked マスクを持つ絵だけ**。マスクの無い n4/n7 (7x6 / 9x6) は
+              *     ゲートが rect の縁に載るので、外周を塞ぐとノードが死ぬ。 */
+             sealRing: true,
              /* ★[P3 追補②] この絵は**空の下**の情景 (森と崖に囲まれた採掘キャンプ)。
               *   坑道へ潜る前なので、入った瞬間から地形の全体が見えているのが正しい。
               * ⚠ シナリオ単位の IS_FIELD_THEME / __daylight とは別物。あちらを立てると
@@ -4766,6 +4776,14 @@
          *   ⚠⚠ rect [2,17,24,55] と tileBounds は**同じ 39x23** にすること (paintingAspectFits)。
          *     中心は他ノードと同じ col36 / row13 (midC=floor((17+55)/2)=36 / midR=floor((2+24)/2)=13)。 */
         n1: { src: "assets/room_goblin-mine_n1.jpg", tileBounds: [2, 17, 24, 55], node: true,
+             /* ★[廃坑の壁抜け 2026-08-20] 外周 1 タイルを塞ぐ。理由は n0 の同じ注記を参照。
+              *   ⚠ この 1 行で n1 の到達性は壊れない (2026-08-20 に本番の aStar で全区間を実測):
+              *     入場→玉座 40 / 入場→s1 20 / s2→s3 11 / s3→s4 41 / s4→奥へ進む 19 /
+              *     入場→引き返し口 2 は **1 歩も変わらず**、変わるのは **s1→s2 の 7→15 だけ**
+              *     (= 上段の足場を大回りするようになった = 直したかったものそのもの)。
+              *   ⚠ ?minefold=0 の旧 5 ノード構成でも同じ絵を使うので、そちらの n1 にも効く。
+              *     外周の岩を歩ける欠陥は旧構成でも同じなので、一緒に直るのが正しい。 */
+             sealRing: true,
              /* ★[P4] 出入口は 2 つとも**絵に描かれている**ので gates で指定する (P3 追補と同じ流儀)。
               *   left  (絵ローカル 2,9)  … 坑口の木枠。外光が差し込む場所そのもの。
               *                             ⭐ ここは n0 へ**引き返す**口。exitsWithReturn は
@@ -5135,9 +5153,13 @@
       /* 絵 1 枚を roomPaintings + paintedTileMask へ積む。**両経路で共有**する
        * (フェザー / painted-skip マスク / onerror フォールバックの実装を 2 つ持たない)。
        * bounds = [r1, c1, r2, c2] (行が先。tileBounds も rooms[i].rect も同じ並び)。 */
-      function addPainting(src, bounds, blockedRows) {
+      function addPainting(src, bounds, blockedRows, sealRing) {
         const [r1, c1, r2, c2] = bounds;
         const entry = {
+          /* ★[廃坑の壁抜け] 外周 1 タイルを塞ぐか (絵側の宣言)。⚠⚠ blocked とまったく同じ扱いで、
+           *   **img.onload を待たない**。当たり判定が読み込み完了に依存すると回線の速さで
+           *   通れる場所が変わる (下の blocked の注記と同じ理由)。 */
+          sealRing: !!sealRing,
           loaded: false,
           canvas: null,
           /* ★[卓上グリッド P2] 絵に描かれた障害物のマスク (行文字列の配列 | null)。
@@ -5228,7 +5250,8 @@
         for (const def of Object.values(defs)) {
           if (def.node) continue;          // ← 分岐ノード専用の絵 (mapDef 経路でだけ貼る)
           addPainting(def.src, def.tileBounds,
-                      window.DFMapDef ? blockedRowsOf(DFMapDef.paintingBlockedRows(def), def.src) : null);
+                      window.DFMapDef ? blockedRowsOf(DFMapDef.paintingBlockedRows(def), def.src) : null,
+                      def.sealRing);
         }
         return;
       }
@@ -5248,8 +5271,13 @@
         if (!pg) continue;
         const src = DFMapDef.paintingSrcFor(pg.theme, pg.key);
         if (!src) continue;
+        /* ★[廃坑の壁抜け] sealRing は在庫の生エントリが持つ。DFMapDef は src / bounds / blocked の
+         *   3 本しか公開していないので、**カタログそのもの** (setPaintingCatalog へ渡している
+         *   ROOM_PAINTINGS_DEF と同一オブジェクト) から引く。ここで別の在庫を作らないこと。 */
+        const rawDef = (ROOM_PAINTINGS_DEF[pg.theme] || {})[pg.key];
         addPainting(src, room.rect,
-                    blockedRowsOf(DFMapDef.paintingBlockedFor(pg.theme, pg.key), pg.theme + "/" + pg.key));
+                    blockedRowsOf(DFMapDef.paintingBlockedFor(pg.theme, pg.key), pg.theme + "/" + pg.key),
+                    rawDef && rawDef.sealRing);
       }
     }
     loadRoomPaintings();   // ★[P1] 旧 IIFE と同位置・同回数の実行 (挙動不変)
@@ -5534,13 +5562,23 @@
       try { return new URLSearchParams(location.search).get("paintblock") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[廃坑の壁抜け 2026-08-20] 外周封鎖 (sealRing) だけの撤退スイッチ ?paintring=0。
+     * ⚠ 立てると **この節の追加分がまるごと** 旧挙動へ戻る (外周を塞がない + ゲートの門番も見ない)。
+     *   「半分だけ新しい」状態を作らないので、A/B は素 vs ?paintring=0 の 1 組で足りる。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat ではゲートしない (?paintblock=0 と同じ扱い)。 */
+    const PAINT_RING_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("paintring") === "0"; }
+      catch (e) { return false; }
+    })();
     /* 直近の適用結果。★検証シーム __paintBlockProbe の唯一の出所 (ドライバに写経させない)。 */
-    let paintBlockStat = { off: PAINT_BLOCK_OFF, entries: 0, tiles: [], applied: 0,
-                           onWall: 0, skipStart: 0, skipDoor: 0, skipSpawn: 0, skipCorridor: 0, perEntry: [] };
+    let paintBlockStat = { off: PAINT_BLOCK_OFF, ringOff: PAINT_RING_OFF, entries: 0, tiles: [], applied: 0,
+                           onWall: 0, skipStart: 0, skipDoor: 0, skipSpawn: 0, skipCorridor: 0,
+                           ring: 0, skipGate: 0, perEntry: [] };
 
     function applyPaintingBlocking(enemySpawns, playerStartTx, playerStartTy) {
-      const stat = { off: PAINT_BLOCK_OFF, entries: 0, tiles: [], applied: 0,
-                     onWall: 0, skipStart: 0, skipDoor: 0, skipSpawn: 0, skipCorridor: 0, perEntry: [] };
+      const stat = { off: PAINT_BLOCK_OFF, ringOff: PAINT_RING_OFF, entries: 0, tiles: [], applied: 0,
+                     onWall: 0, skipStart: 0, skipDoor: 0, skipSpawn: 0, skipCorridor: 0,
+                     ring: 0, skipGate: 0, perEntry: [] };
       paintBlockStat = stat;
       if (PAINT_BLOCK_OFF || !window.DFMapDef || !DFMapDef.paintingBlockedTilesFor) return;
       const startKey = (playerStartTx != null && playerStartTy != null)
@@ -5563,27 +5601,61 @@
           for (let c = Math.max(0, cc1); c <= Math.min(MAP_W - 1, cc2); c++) corridorKeys.add(r * MAP_W + c);
         }
       }
+      /* ★[廃坑の壁抜け 2026-08-20] 5 つ目の門番 = **ノードの出口タイル**。
+       * ⚠⚠ 現状の廃坑 2 ノードはゲートが内側にあるので弾く数は 0 だが、後で外周にゲートを
+       *   置いた瞬間に**無言で詰む** (出口が塞がって二度と部屋から出られない)。導出は
+       *   nodeGateTile 1 本だけを通す (辺の中点の式をここへ写さない)。
+       * ⚠ 単一マップ経路でも nodeGateTile は辺の中点を返すので 4 タイルが必ず入る。それは
+       *   「部屋の縁の床」なので、塞がないほうが安全側に倒れる。 */
+      const gateKeys = new Set();
+      if (!PAINT_RING_OFF) {
+        try {
+          for (const dir of ["up", "down", "left", "right"]) {
+            const g = nodeGateTile(MAPDEF, dir);
+            if (!g || g.tx < 0 || g.tx >= MAP_W || g.ty < 0 || g.ty >= MAP_H) continue;
+            gateKeys.add(g.ty * MAP_W + g.tx);
+          }
+        } catch (e) { /* 幾何が無いページ (エディタ等) = ゲート無しで続行 */ }
+      }
       for (const p of roomPaintings) {
-        if (!p.blocked) continue;
+        const sealing = !!(p.sealRing && !PAINT_RING_OFF);
+        if (!p.blocked && !sealing) continue;
         stat.entries++;
         /* ⚠ 矩形は roomPaintings のエントリから組む。ROOM_PAINTINGS_DEF の tileBounds を
          *   ここで引き直すと mapDef 経路 (部屋の rect へ貼る) で絵とマスクがずれる。 */
         const rect = [p.ty, p.tx, p.ty + p.th - 1, p.tx + p.tw - 1];
-        const keys = DFMapDef.paintingBlockedTilesFor(p.blocked, rect, MAP_W, MAP_H);
+        const keys = p.blocked ? DFMapDef.paintingBlockedTilesFor(p.blocked, rect, MAP_W, MAP_H) : [];
         let n = 0;
-        for (const k of keys) {
+        /* ⭐ 1 マスぶんの門番。**マスクと外周で同じ 1 本を通す**のが肝で、外周だけ門番を
+         *   迂回して obstacleTileMask へ直に書くと、扉のマスを塞いで出口が永久に閉じる。 */
+        const tryBlock = (k, isRing) => {
           const r = Math.floor(k / MAP_W), c = k % MAP_W;
-          if (mapData[r] && mapData[r][c] === 2) { stat.onWall++; continue; }  // 元から壁 = 数えるだけ
-          if (k === startKey)   { stat.skipStart++; continue; }
-          if (doorKeys.has(k))  { stat.skipDoor++;  continue; }
-          if (spawnKeys.has(k)) { stat.skipSpawn++; continue; }
-          if (corridorKeys.has(k)) { stat.skipCorridor++; continue; }
+          if (mapData[r] && mapData[r][c] === 2) { stat.onWall++; return; }  // 元から壁 = 数えるだけ
+          if (k === startKey)   { stat.skipStart++; return; }
+          if (doorKeys.has(k))  { stat.skipDoor++;  return; }
+          if (spawnKeys.has(k)) { stat.skipSpawn++; return; }
+          if (corridorKeys.has(k)) { stat.skipCorridor++; return; }
+          if (gateKeys.has(k))  { stat.skipGate++; return; }
           if (obstacleTileMask[k] !== 1) stat.applied++;
           obstacleTileMask[k] = 1;
           stat.tiles.push(k);
           n++;
+          if (isRing) stat.ring++;
+        };
+        for (const k of keys) tryBlock(k, false);
+        if (sealing) {
+          const [rr1, cc1, rr2, cc2] = rect;
+          for (let c = Math.max(0, cc1); c <= Math.min(MAP_W - 1, cc2); c++) {
+            if (rr1 >= 0 && rr1 < MAP_H) tryBlock(rr1 * MAP_W + c, true);
+            if (rr2 >= 0 && rr2 < MAP_H && rr2 !== rr1) tryBlock(rr2 * MAP_W + c, true);
+          }
+          for (let r = Math.max(0, rr1 + 1); r <= Math.min(MAP_H - 1, rr2 - 1); r++) {
+            if (cc1 >= 0 && cc1 < MAP_W) tryBlock(r * MAP_W + cc1, true);
+            if (cc2 >= 0 && cc2 < MAP_W && cc2 !== cc1) tryBlock(r * MAP_W + cc2, true);
+          }
         }
-        stat.perEntry.push({ tx: p.tx, ty: p.ty, tw: p.tw, th: p.th, n: n, candidates: keys.length });
+        stat.perEntry.push({ tx: p.tx, ty: p.ty, tw: p.tw, th: p.th, n: n,
+                             candidates: keys.length, sealRing: sealing });
       }
     }
     /* 検証シーム: 1 枚絵の障害物が「何マスを、どこを避けて」塞いだか (読み取り専用)。
@@ -5596,6 +5668,9 @@
         onWall: paintBlockStat.onWall, skipStart: paintBlockStat.skipStart,
         skipDoor: paintBlockStat.skipDoor, skipSpawn: paintBlockStat.skipSpawn,
         skipCorridor: paintBlockStat.skipCorridor,
+        /* ★[廃坑の壁抜け] 外周封鎖の実績。ring = 実際に塞いだ外周マス数 /
+         *   skipGate = 出口タイルだったので**塞がなかった**数。ドライバに規則を写経させない。 */
+        ringOff: paintBlockStat.ringOff, ring: paintBlockStat.ring, skipGate: paintBlockStat.skipGate,
         perEntry: paintBlockStat.perEntry.map(e => Object.assign({}, e)),
         mapW: MAP_W, mapH: MAP_H,
       };
@@ -8472,7 +8547,11 @@
       // グリクスがトロッコを鉄と骨で組み直した対人間兵器。「移動そのものが攻撃」の轢きユニットで、
       // 通常の近接ロジック (resolveOneBite) には乗せない → enemyAttackTurn の def.trample ゲートで分岐。
       // isBoss を付けない: 激怒/召喚/恐怖オーラのゲートに乗せたくないため。
-      // displaySize >= OVERLAP_BOSS_SIZE(200) なので isHeavyOverlapUnit=true = 押し出されず突進できる。
+      // ★[廃坑の壁抜け 2026-08-20] 不動 (押し出されない) は **heavyOverlap: true で明示している**。
+      //   かつては displaySize >= OVERLAP_BOSS_SIZE(200) に載っていたが、体を 176 へ縮めた時点で
+      //   その根拠は消えた。⚠⚠ サイズと不動を連動させたままにすると、縮めた瞬間に質量が
+      //   1e6 → r² へ落ちて**毎フレーム最大 6px ずつ仲間に押し出され**、footprint で
+      //   「壁に触れない位置」に置いても次フレームには岩へめり込む (縮小と補償は必ずセット)。
       goblinChariot: {
         name: "ゴブリン戦車",
         flavor: "鉄輪と骨で組み直された、坑道の暴走兵器",
@@ -8480,7 +8559,21 @@
         sprite: "assets/goblinChariot_anim.png?v=2",
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
-        displaySize: 240,
+        /* ★[廃坑の壁抜け 2026-08-20] 240 → 176。240 だと画面の体が 216x173px = 2.25x1.8 タイルで
+         *   中心タイルの上下左右へはみ出し、n1 (床 488) のうち体が壁に触れずに立てるのは 116 マス
+         *   (24%) しか無かった。176 では 158x127px = 1.65x1.32 タイル (覆うタイルが 3x3 → 3x2) で
+         *   174 マス (36%) へ増える。玉座の間の最長直進レーンは 8 マスのまま = 突進の見せ場は不変。
+         * ⚠⚠ 縦の閾値は **S <= 177.1 で 3 行 → 2 行**に変わる (体の上端 = tile*96 + 48 - 0.271*S)。
+         *   176 は境界のすぐ内側なので、スプライトを切り直すとこの効果は簡単に消える。 */
+        displaySize: 176,
+        /* ★体の実寸比 (フレーム 192px に対する内容の外接矩形。2026-08-20 に全 30 コマで実測:
+         *   x=9..182 → 幅 173 (0.901) / y=44..183 → 高さ 139 (0.724) / 上端 44 (0.229))。
+         * ⚠ **出所はスプライトそのもの**。assets/goblinChariot_anim.png を差し替えたら測り直すこと
+         *   (測り方: 各コマの alpha の bbox を全コマで取って和集合の外接をフレーム幅で割る)。 */
+        bodyRatioX: 0.901, bodyRatioY: 0.724, bodyOffY: 0.229,
+        /* ★不動 (overlap 押し出しの heavy 扱い + 近接ランジのクランプ対象)。上の注記を参照。
+         *   ⚠ この印を持つのは**戦車 1 体だけ**。他の大型 11 体は今まで通り displaySize >= 200 で判定。 */
+        heavyOverlap: true,
         hp: 65, speed: 0.8,
         hasAttackAnim: true,
         meleeRange: 190, hitRange: 260,
@@ -9474,7 +9567,9 @@
         //    上げると縦の当たり判定だけが無駄に広がるので上げない。※暫定値: STEP8 で実測して確定する。
         displaySize: 240,
         // ⚠️ 暫定値: STEP8 でウェーブ実測のうえ確定する (企画書の「40」は実コード未確認の根拠なき数値)。
-        //    同じ 240px 車体の goblinChariot(hp:65) を目安に、1ウェーブでは落ちない程度から始める。
+        //    goblinChariot(hp:65) を目安に、1ウェーブでは落ちない程度から始める。
+        //    ⚠ 2026-08-20 に戦車は 240 → 176 へ縮んだ (壁埋まり対策)。**コメントの参照だけで
+        //      コード結合は無い** (別 def なので馬車の 240 は連動しない)。
         hp: 60, speed: 0,
         isObjective: true,            // ★ 護衛対象: 動かない / 攻撃しない / それでも狙われる (狙わせるのは STEP5)
         // 攻撃しないので atkBonus/dmgDice は持たない。AC は「動かない大きな的」= 低め (D&D 3.5 の物体相当)。
@@ -16099,8 +16194,50 @@
     const OVERLAP_BOSS_SIZE  = 200;    // displaySize がこれ以上なら不動扱い(240/720 捕捉, 96 は通常)
     // 大型/ボス判定の共有述語: overlap 押し出しの heavy(不動)扱いと、近接ランジのクランプ対象を
     // 同一ドメインに保つ(乖離防止)。shadowBeast(192,isBoss無)はここでは非heavy=本件スコープ外。
+    /* ★[廃坑の壁抜け 2026-08-20] 3 つ目の口 heavyOverlap。**サイズに依らず不動**にしたい個体
+     *   (= ゴブリン戦車。体を 176 へ縮めたので 200 のしきい値から落ちた) のための明示の印。
+     * ⚠ OVERLAP_BOSS_SIZE そのものを下げてはいけない。下げると 192〜199 の 12 体全部の
+     *   押し出し挙動が同時に変わる。印を 1 体に付けるほうが影響範囲が閉じる。 */
     function isHeavyOverlapUnit(def) {
-      return !!(def && (def.isBoss || def.displaySize >= OVERLAP_BOSS_SIZE));
+      return !!(def && (def.isBoss || def.heavyOverlap === true || def.displaySize >= OVERLAP_BOSS_SIZE));
+    }
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★[廃坑の壁抜け 2026-08-20] 大型ユニットの「体が覆うタイル」 (footprint)
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⭐ 判定点をここ 1 つに畳む。ゲームの位置判定はどこも「中心 1 マスの isTileWall」だけを
+     *   見ており、体が 2〜3 タイルを覆う大型では**中心が床でも体の大半が岩の中**になる
+     *   (2026-08-20 実測: 戦車の乱入位置 (55,21) は体の 9 マス中 6 マスが壁だった)。
+     * ⚠⚠ **実測値 (bodyRatioX/Y・bodyOffY) を持たない def は中心 1 マスへ落とす**。
+     *   7x6 の小部屋に居る 360px のハイドラに footprint を要求すると 1 マスも動けなくなるので、
+     *   汎用に作っても**配線するのは印を持つ def だけ**という立て付けにしてある。
+     * ⚠ 撤退は ?chariotbody=0 (= 全 def が中心 1 マス判定 = この節の追加分がまるごと旧挙動)。 */
+    const CHARIOT_BODY_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("chariotbody") === "0"; }
+      catch (e) { return false; }
+    })();
+    function unitBodyTiles(def, tx, ty) {
+      const rx = def && def.bodyRatioX, ry = def && def.bodyRatioY;
+      if (CHARIOT_BODY_OFF || !rx || !ry) return [{ tx: tx, ty: ty }];
+      const S = def.displaySize || TILE_SIZE;
+      // 体の矩形。スプライトは (中心 - S/2) に描かれ、内容はその中の [oy, oy+ry] に載っている
+      const oy = (typeof def.bodyOffY === "number") ? def.bodyOffY : (1 - ry) / 2;
+      const cx = tx * TILE_SIZE + TILE_SIZE / 2, cy = ty * TILE_SIZE + TILE_SIZE / 2;
+      const left = cx - rx * S / 2, right = cx + rx * S / 2;
+      const top = cy - S / 2 + oy * S, bottom = top + ry * S;
+      const out = [];
+      // ⚠ 右端/下端は 1e-3 引く。ちょうど境界に載ったとき隣のタイルまで数えないため
+      for (let c = Math.floor(left / TILE_SIZE); c <= Math.floor((right - 0.001) / TILE_SIZE); c++) {
+        for (let r = Math.floor(top / TILE_SIZE); r <= Math.floor((bottom - 0.001) / TILE_SIZE); r++) {
+          out.push({ tx: c, ty: r });
+        }
+      }
+      return out;
+    }
+    /* 体が壁を 1 マスも含まないか。★大型の「立てる/進める」判定はすべてこの 1 本を通す。
+     * ⚠ isTileWall は盤外を真で返すので、盤の縁も自動的に弾かれる。 */
+    function isBodyClear(def, tx, ty) {
+      for (const t of unitBodyTiles(def, tx, ty)) if (isTileWall(t.tx, t.ty)) return false;
+      return true;
     }
     // 近接攻撃の踏み込み(lunge, translateX 視覚のみ)が大型スプライトにめり込むのを防ぐ。
     // 大型ターゲット時のみ、攻撃者の可視縁(=overlap 休止距離 r=displaySize*K の和)手前へ前進量をクランプ。
@@ -29441,6 +29578,7 @@
     const CHARIOT_SCENARIO_ID  = "goblin-mine";
     const CHARIOT_INTEL_FLAG   = "mine_chariot_intel";
     const CHARIOT_KING_TYPE    = "goblinKing";
+    const CHARIOT_TYPE         = "goblinChariot";   // ★体の実寸比を引くのに def が要る (footprint 判定)
     const CHARIOT_HP_TRIGGER   = 0.70;   // グリクスの HP がこの割合以下になったら乱入
     const CHARIOT_SPAWN_TX     = 68;     // 既定幾何のボス部屋の床の右端 = ボス背後 11 タイル
     const CHARIOT_SPAWN_SEARCH = 6;      // 壁/占有だった場合に手前へ探す最大タイル数
@@ -29494,21 +29632,94 @@
      * ⚠ 起点は chariotSpawnBaseTx() = **ボス部屋の東端** (上の注記を参照。既定幾何では 68)。
      * ⚠ フォールバックも「岩盤かもしれない基準列」ではなく **ボス部屋の中央**へ変えてある。
      *   ここが岩盤を返すと、到達できない敵が残って潜行が永久にクリアしない。 */
-    function findChariotSpawnTile(ty) {
-      const base = chariotSpawnBaseTx();
-      for (let tx = base; tx > base - CHARIOT_SPAWN_SEARCH; tx--) {
-        for (const dy of [0, -1, 1, -2, 2]) {
-          const y = ty + dy;
-          if (tx < 0 || tx >= MAP_W || y < 0 || y >= MAP_H) continue;
-          if (isTileWall(tx, y)) continue;
-          if (isTileTakenByEnemy(tx, y)) continue;
-          return { tx, ty: y };
+    /* ★[廃坑の壁抜け 2026-08-20] 判定を **体 (footprint)** へ差し替えた。
+     * ⚠⚠ 旧実装の起点 chariotSpawnBaseTx() は **部屋の東端 = 外周そのもの**で、外周を塞いだ
+     *   後は必ず外れる。さらに 240px の体では (55,21) の 9 マス中 6 マスが岩だった。
+     *   → 起点を「ボス部屋の合法タイルのうち**ボスから最も遠いもの**」へ変える
+     *     (坑道の奥から突っ込んでくる、という演出とも合う)。
+     * ⚠⚠⚠ **フォールバックが最重要**。合法タイルが 0 のときに岩盤を返すと
+     *   「到達できない敵が残って潜行が永久にクリアしない」= 8519138 の再演になり、しかも
+     *   戦闘は静かに終わるので画面を見ても異常に見えない。→ **null を返して乱入ごと取り消す**。
+     * ⚠⚠ 「最も遠い」**そのもの**では駄目 (2026-08-20 に実測して却下)。畳んだ n1 では部屋 = 39x23 で、
+     *   最遠点は入場地点 (19,11) = 坑口。ボスまで 40 歩 = 10 ターンかかり、企画の
+     *   「猶予 3〜4 ターン」が壊れる (旧幾何の「床端 col68 から約 3 ターン」がその根拠だった)。
+     *   → **猶予がちょうど 3〜4 ターンになる距離** (= trampleTiles x 4) に最も近い合法タイルを採る。
+     *     上限で切らずに |d - 目標| で順位付けするので、その距離に空きが無い盤面でも必ず 1 つ選べる。
+     * ⚠ 「距離が合う」だけでは足りない。**本番の aStar でボスまで繋がっている**ことも要る
+     *   (孤立した袋小路に湧くと、体は壁に埋まっていなくても誰とも戦えない)。
+     *   良い順に試して最初に繋がったものを採るので、通常は aStar を 1 回しか呼ばない。 */
+    function findChariotSpawnTile(kingTX, kingTY) {
+      const def = ENEMY_TYPES[CHARIOT_TYPE];
+      if (CHARIOT_BODY_OFF) {          // ── 撤退スイッチ: 旧挙動 (中心 1 マス判定・東端から手前へ)
+        const base = chariotSpawnBaseTx();
+        for (let tx = base; tx > base - CHARIOT_SPAWN_SEARCH; tx--) {
+          for (const dy of [0, -1, 1, -2, 2]) {
+            const y = kingTY + dy;
+            if (tx < 0 || tx >= MAP_W || y < 0 || y >= MAP_H) continue;
+            if (isTileWall(tx, y)) continue;
+            if (isTileTakenByEnemy(tx, y)) continue;
+            return { tx, ty: y };
+          }
         }
+        const rect0 = ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1];
+        const cx = rect0 ? Math.floor((rect0[1] + rect0[3]) / 2) : base;
+        const cy = rect0 ? Math.floor((rect0[0] + rect0[2]) / 2) : kingTY;
+        return snapToWalkable({ tx: cx, ty: cy });
       }
       const rect = ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1];
-      const cx = rect ? Math.floor((rect[1] + rect[3]) / 2) : base;
-      const cy = rect ? Math.floor((rect[0] + rect[2]) / 2) : ty;
-      return snapToWalkable({ tx: cx, ty: cy });
+      if (!rect) return null;
+      /* ⭐⭐⭐ 体が収まるだけでは足りない (2026-08-20 に実測して追加)。最初の実装は (36,15) —
+       *   3x2 の体がちょうど嵌まる窪み — を選び、**8 方向どこへも動けない戦車**が生まれた
+       *   (30 ターン全部 BLOCKED)。壁に埋まってはいないが「洞窟の中で動けない」のは同じ欠陥。
+       * ⭐ 体が収まらないタイルの集合を **本番の aStar の avoidTiles へ渡す**と、経路探索が
+       *   そのまま「体で走れる道」の探索になる。自前 BFS を書くと 4 方向/8 方向の違いで
+       *   「実際には通れない道」を通れると報告する (P8 で実測済み)。 */
+      const bodyBlocked = new Set();
+      for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) if (!isBodyClear(def, x, y)) bodyBlocked.add(x + "," + y);
+      }
+      /* ⚠⚠ 猶予は**直線距離ではなく道のり (aStar の歩数)** で測ること (2026-08-20 に実測して修正)。
+       *   畳んだ n1 は玉座の間 (泉の間) へ細い口 1 本でしか繋がっていないので、直線 16 マスの
+       *   位置を選んだら実際の道のりは **28 歩 = 7 ターン**あった。直線で測る限りこのずれは
+       *   盤面ごとに変わるので、最初から道のりで選ぶ。 */
+      const per = (def.trampleTiles || 4);
+      const want = per * 3.5, minS = per * 2, maxS = per * 5;   // 3〜4 ターンぶんの道のり
+      // 体が乗るマスにパーティが立っていないか (乱入した瞬間に味方へ重なるのを避ける)
+      const partyTiles = new Set();
+      for (const a of allies) {
+        if (!a.alive) continue;
+        partyTiles.add(Math.floor((a.x + a.def.displaySize / 2) / TILE_SIZE) + "," +
+                       Math.floor((a.y + a.def.displaySize / 2) / TILE_SIZE));
+      }
+      if (hp > 0) partyTiles.add(Math.floor((playerX + 48) / TILE_SIZE) + "," +
+                                 Math.floor((playerY + 58) / TILE_SIZE));
+      const cands = [];
+      for (let y = rect[0]; y <= rect[2]; y++) {
+        for (let x = rect[1]; x <= rect[3]; x++) {
+          if (!isBodyClear(def, x, y)) continue;
+          if (isTileTakenByEnemy(x, y)) continue;
+          if (unitBodyTiles(def, x, y).some(t => partyTiles.has(t.tx + "," + t.ty))) continue;
+          cands.push({ tx: x, ty: y, d: Math.max(Math.abs(x - kingTX), Math.abs(y - kingTY)) });
+        }
+      }
+      /* ⚠ 直線距離が上限を超えるものは**道のりも必ず超える**ので aStar を呼ばずに落とす
+       *   (経路探索は 1 回ぶんが重いので、呼ぶ回数を盤面の広さに引きずられないようにする)。
+       * ⚠ 同点の並びは決定論にする (タイル順で決まると再現しない盤面が出る)。 */
+      const near = cands.filter(c => c.d <= maxS)
+        .sort((a, b) => (Math.abs(a.d - want) - Math.abs(b.d - want)) || (b.tx - a.tx) || (b.ty - a.ty));
+      let best = null;
+      for (const c of near) {
+        const p = aStar(c.tx, c.ty, kingTX, kingTY, bodyBlocked, null);
+        if (!p) continue;
+        if (p.length >= minS && p.length <= maxS) return { tx: c.tx, ty: c.ty };
+        const gap = Math.abs(p.length - want);
+        if (!best || gap < best.gap) best = { tx: c.tx, ty: c.ty, gap: gap };
+      }
+      if (best) return { tx: best.tx, ty: best.ty };
+      // 近場に 1 つも届かない盤面なら、遠くても**届く**場所を採る (諦めるのは最後)
+      const far = cands.filter(c => c.d > maxS).sort((a, b) => (a.d - b.d) || (b.tx - a.tx) || (b.ty - a.ty));
+      for (const c of far) if (aStar(c.tx, c.ty, kingTX, kingTY, bodyBlocked, null)) return { tx: c.tx, ty: c.ty };
+      return null;                     // ★合法タイル 0 = 乱入を取り消す (呼び出し側が判断する)
     }
 
     // 乱入本体。units / sortUnits は runEncounter のローカルなので引数で受ける。
@@ -29516,9 +29727,27 @@
       const kingIdx = findGoblinKingIdx();
       const king = kingIdx >= 0 ? enemies[kingIdx] : null;
       const kingTY = king ? Math.floor((king.y + king.def.displaySize / 2) / TILE_SIZE) : 13;
-      const spot = findChariotSpawnTile(kingTY);
+      const kingTX = king ? Math.floor((king.x + king.def.displaySize / 2) / TILE_SIZE)
+                          : Math.floor(MAP_W / 2);
+      const spot = findChariotSpawnTile(kingTX, kingTY);
+      /* ★[廃坑の壁抜け 2026-08-20] 体が収まる合法タイルが 1 つも無ければ **乱入ごと取り消す**。
+       * ⚠⚠ ここで岩盤へ湧かせると「到達できない敵が alive で残り、ボスを倒しても潜行が
+       *   永久にクリアしない」。台詞とバナーだけ出して敵を作らないほうが、絵としても
+       *   「奥で車輪が軋んだが出てこられなかった」で筋が通る。 */
+      if (!spot) {
+        if (window.__chariotProbe) window.__chariotProbe.push({ site: "spawn", cancelled: true });
+        showBanner("🛞 坑道の奥で車輪が軋む 🛞", 1500);
+        updateInfo("坑道の奥で車輪が軋んだ — だが戦車が通れる道が無い");
+        return;
+      }
+      if (window.__chariotProbe) {
+        window.__chariotProbe.push({ site: "spawn", cancelled: false, tx: spot.tx, ty: spot.ty,
+          body: unitBodyTiles(ENEMY_TYPES[CHARIOT_TYPE], spot.tx, spot.ty)
+                  .map(t => ({ tx: t.tx, ty: t.ty, wall: isTileWall(t.tx, t.ty) })),
+          rect: (ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1] || null) });
+      }
 
-      const cart = createEnemy("goblinChariot", spot.tx, spot.ty);
+      const cart = createEnemy(CHARIOT_TYPE, spot.tx, spot.ty);
       cart.everSeen = true;      // 目の前で乱入する = フォグの未視認 cull にかけない
       cart.inactive = false;
       cart.state = "chase";      // idle だと未視認 cull の対象条件に入る
@@ -29791,7 +30020,12 @@
     // 目標に最も向いた方向から順に試し、1 マス以上進める直線経路を返す (壁の手前で停止)。
     // 味方ゴブリンのタイルは素通りする (轢く直前に飛び退く扱い)。ここで止めるとグリクスが
     // 壁になって戦車が永久に足止めされる (グリクス col57 が経路上に居るため)。
-    function chariotChargePath(fromTX, fromTY, toTX, toTY, maxTiles) {
+    /* ★[廃坑の壁抜け 2026-08-20] 1 マスずつ「中心が壁か」ではなく **体が収まるか** で判定する。
+     * ⚠ 斜め 1 歩は**体が角を舐める**ので、縦成分・横成分の 1 歩も体が収まることを要求する
+     *   (これが無いと 2 つの岩の隙間を斜めにすり抜けて、絵の上では岩を貫通して見える)。
+     * ⚠ 撤退時 (?chariotbody=0) は isBodyClear が中心 1 マス判定へ落ちるので、角の追加検査も
+     *   「隣の中心が床か」= 旧挙動と同じ通りやすさに戻る (斜め抜けは旧来から可能だった)。 */
+    function chariotChargePath(def, fromTX, fromTY, toTX, toTY, maxTiles) {
       const vx = toTX - fromTX, vy = toTY - fromTY;
       const len = Math.hypot(vx, vy) || 1;
       const ranked = CHARIOT_DIRS8
@@ -29801,13 +30035,36 @@
         const tiles = [];
         let tx = fromTX, ty = fromTY;
         for (let i = 0; i < maxTiles; i++) {
+          const px = tx, py = ty;
           tx += d[0]; ty += d[1];
-          if (isTileWall(tx, ty)) break;
+          if (!isBodyClear(def, tx, ty)) break;
+          if (d[0] !== 0 && d[1] !== 0 &&
+              !(isBodyClear(def, tx, py) && isBodyClear(def, px, ty))) break;   // 角抜け防止
           tiles.push({ tx, ty });
         }
         if (tiles.length > 0) return tiles;
       }
       return [];
+    }
+    /* 体が収まる 1 マスだけの逃げ道 (向きは問わない)。★回頭ターンの実体。
+     * ⚠ 「その場で向きを変えるだけ」だと状態が何も変わらないので**次ターンも同じ BLOCKED** に
+     *   なる (向きは移動から導いていて独立した状態を持たない)。1 マスだけ寄せることで
+     *   「無限 BLOCKED を作らない」という目的そのものを満たす。 */
+    function chariotTurnStep(def, fromTX, fromTY, toTX, toTY) {
+      const vx = toTX - fromTX, vy = toTY - fromTY;
+      const len = Math.hypot(vx, vy) || 1;
+      const ranked = CHARIOT_DIRS8
+        .map(d => ({ d, dot: (vx * d[0] + vy * d[1]) / (len * Math.hypot(d[0], d[1])) }))
+        .sort((a, b) => b.dot - a.dot);
+      for (const { d } of ranked) {
+        const tx = fromTX + d[0], ty = fromTY + d[1];
+        if (!isBodyClear(def, tx, ty)) continue;
+        if (d[0] !== 0 && d[1] !== 0 &&
+            !(isBodyClear(def, tx, fromTY) && isBodyClear(def, fromTX, ty))) continue;
+        if (isTileTakenByEnemy(tx, ty)) continue;
+        return { tx, ty };
+      }
+      return null;
     }
 
     // 経路タイル上にいる生存パーティ (頭 + 仲間) を列挙。敵 (グリクス等) は轢かない。
@@ -29855,15 +30112,34 @@
       const size = def.displaySize;
       const fromTX = Math.floor((enemy.x + size / 2) / TILE_SIZE);
       const fromTY = Math.floor((enemy.y + size / 2) / TILE_SIZE);
-      const path = chariotChargePath(
-        fromTX, fromTY,
-        Math.floor(pick.cx / TILE_SIZE), Math.floor(pick.cy / TILE_SIZE),
-        def.trampleTiles || 4);
+      const toTX = Math.floor(pick.cx / TILE_SIZE), toTY = Math.floor(pick.cy / TILE_SIZE);
+      const path = chariotChargePath(def, fromTX, fromTY, toTX, toTY, def.trampleTiles || 4);
       if (path.length === 0) {
+        /* ★[廃坑の壁抜け 2026-08-20] 体で判定するぶん合法レーンが減り、BLOCKED の頻度が上がる。
+         * ⚠⚠ 2 ターン続いたら **回頭ターン** = 体が収まる 1 マスへ寄せて向きを変える。
+         *   これが無いと、袋小路に嵌まった戦車が永久に BLOCKED を出し続けて戦闘が終わらない
+         *   (倒せば終わるが、パーティが近づかない配置だと詰みに見える)。 */
+        enemy.chariotBlocked = (enemy.chariotBlocked || 0) + 1;
+        if (enemy.chariotBlocked >= 2) {
+          const step = chariotTurnStep(def, fromTX, fromTY, toTX, toTY);
+          enemy.chariotBlocked = 0;
+          if (step) {
+            showRollAtEnemy(idx, `<span class="label">TURNING</span>車体を軋ませて向きを変える`, "miss");
+            await slideAnim((x, y) => { enemy.x = x; enemy.y = y; },
+              enemy.x, enemy.y,
+              step.tx * TILE_SIZE + TILE_SIZE / 2 - size / 2,
+              step.ty * TILE_SIZE + TILE_SIZE / 2 - size / 2, 260);
+            if (window.__trampleProbe) window.__trampleProbe.push({ turn: true, tiles: 1, victims: 0, prone: 0 });
+            await sleepMs(300);
+            return;
+          }
+        }
         showRollAtEnemy(idx, `<span class="label">BLOCKED</span>進路がふさがれている`, "miss");
+        if (window.__trampleProbe) window.__trampleProbe.push({ blocked: true, tiles: 0, victims: 0, prone: 0 });
         await sleepMs(750);
         return;
       }
+      enemy.chariotBlocked = 0;
 
       const victims = partyOnChariotPath(path);   // スライド前に確定 (通過前の経路で判定する)
       const end = path[path.length - 1];

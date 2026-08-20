@@ -618,7 +618,12 @@ async function closeAnyDialog(page) {
       await p5.close();
     }
     {
-      const p7 = await bootPage(browser, PORT_OF.sealgear, '?diag=1&intel=0', errs, { freezeChoice: true });
+      /* ⚠⚠ 2026-08-20 (廃坑の壁抜け): 絵の外周 1 タイルを sealRing で塞いだので、
+       *   素の盤面では withRing も null になり (9g) の後半が成立しなくなった。この負の
+       *   コントロールは「**外周が歩ける盤面**で降口を塞ぐと内側の道が消える」ことを
+       *   測るものなので、**期待値を書き換えずに旧経路へ固定**する (?paintring=0)。
+       *   スイッチが効かなくなったら (9g-装置) が声を上げる。 */
+      const p7 = await bootPage(browser, PORT_OF.sealgear, '?diag=1&intel=0&paintring=0', errs, { freezeChoice: true });
       await closeAnyDialog(p7);
       await kickEnter(p7, 'n1', 'right');
       await waitNode(p7, 'n1', 12000);
@@ -634,8 +639,12 @@ async function closeAnyDialog(page) {
         for (let y = r1; y <= r2; y++) { ring.add(c1 + ',' + y); ring.add(c2 + ',' + y); }
         const p = aStar(start.tx, start.ty, boss.tx, boss.ty, ring, null);
         const q = aStar(start.tx, start.ty, boss.tx, boss.ty, null, null);
-        return { noRing: p ? p.length : null, withRing: q ? q.length : null };
+        let ringWalk = 0;
+        for (const k of ring) { const t = k.split(','); if (!isTileWall(+t[0], +t[1])) ringWalk++; }
+        return { noRing: p ? p.length : null, withRing: q ? q.length : null, ringWalk: ringWalk };
       });
+      check('(9g-装置) ?paintring=0 で外周が実際に歩ける (旧経路へ固定できている)',
+        a7.ringWalk > 50, 'ringWalk=' + a7.ringWalk);
       check('(9g) ★sealgear → 降口を塞ぐと外周なしで玉座へ届かなくなり (4a) が赤くなる',
         a7.noRing === null && a7.withRing !== null, JSON.stringify(a7));
       await p7.close();
