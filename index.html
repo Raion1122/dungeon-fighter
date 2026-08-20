@@ -3786,6 +3786,24 @@
       try { return new URLSearchParams(window.location.search).get("minefold") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
+     *   ?detour=0    … 台帳ごと無効 (矢印も宝箱も出ない = P8 と同じ盤面)
+     *   ?detour=tour … ?autoplay / ?graph=auto でも未訪問スポットを選び続ける
+     *                  (新ドライバ driver_grid_p9 が 1 周を実測するための口)
+     * ⚠⚠ **置き場所が MINE_FOLD_OFF の隣なのは同じ理由**。detourSpotsFor は
+     *   spawnNodeEntities (起動時のスポーン一括) から呼ばれるので、そこより後で
+     *   宣言すると一時的死角 (TDZ) で落ちる。
+     * ⭐ 既定 (スイッチ無し) の ?autoplay は「奥へ進む」を即返す = 既存ドライバの
+     *   期待値 (P8 の autoplay 実測 184 秒) を 1 文字も書き換えない。周回は tour だけが踏む。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
+    const DETOUR_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("detour") === "0"; }
+      catch (e) { return false; }
+    })();
+    const DETOUR_TOUR = (() => {
+      try { return new URLSearchParams(window.location.search).get("detour") === "tour"; }
+      catch (e) { return false; }
+    })();
     /* 検証シーム: 1 枚絵の上のグリッドだけを同一ページで切り替える (driver が A/B 差分を採る)。
      * ⚠ 2 回のページロードで比べるとカメラ位置・敵の湧き・フォグが別物になり、「グリッドで
      *   変わった画素」と「そもそも別の絵」を切り分けられない (__setWallProps と同じ理由)。 */
@@ -4250,6 +4268,15 @@
         parent: po.map,          // childId -> parentId (「引き返す」の唯一の出所。手書きしない)
         bossNodeId: bossNodeId,
         auto: gp === "auto",
+        /* ★[P9] このグラフの**出所**。内蔵グラフ (buildScenarioRun) から来たときだけ
+         *   シナリオ id が入り、生成クエストのペイロードと dev シーム ?graphtest では null。
+         * ⚠⚠ これが無いと、シナリオ id とノード id だけで引く台帳 (detourTable) が
+         *   **?graphtest=1 の内蔵テストグラフにも漏れる**。あちらにも "n1" があるので、
+         *   廃坑の寄り道 4 本と宝箱 4 個がテストグラフに湧き、
+         *   driver_graph_kinds の (1c)「n1 の宝箱は 0 個」他が黙って赤くなる (2026-08-20 に発見)。
+         * ⚠ 生成クエスト側は _builtinScenId が既に null なので二重に守られているが、
+         *   守りの根拠を「たまたま null」ではなく**出所そのもの**に置く。 */
+        scenarioId: fromScenario,
       };
     })();
 
@@ -16810,6 +16837,17 @@
           // これが無いと findNearestDrop が開かない箱を返し続け、パーティが箱上で永久停留→探索停滞になる。
           if (chest.lockTried && !chest.unlocked) continue;
           if (chest.hidden && !chest.found) continue;
+          /* ★[P9] 寄り道スポットの宝箱は**ナビ目標に載せない**。
+           * ⚠⚠⚠ ここが今回いちばん危なかった所。この関数は heroAI の ②「敵なし → まず
+           *   ドロップを回収」の目標決定そのものなので、hidden:false の箱を素で置くと
+           *   **矢印を出す前にパーティが 4 個とも自動で回収しにいく** = ユーザーが明示的に
+           *   却下した「強制巡回」になり、「行くか選ぶ」という企画が丸ごと消える。
+           *   (さらに isNodeSettled() / hasPendingDetour() も落し物ありで永久に偽になり、
+           *    寄り道の選択肢も出口も一度も出なくなる。)
+           * ⚠ 箱は「行けばそこにある」もの。到着は heroForcedGoal が運び、開封は
+           *   tryDiscoverChest の接近判定 (CHEST_DISCOVER_RADIUS=240px + 視線) が拾うので、
+           *   ナビ目標から外しても取りこぼさない。 */
+          if (chest.detourSpot) continue;
           const tx = chest.tx, ty = chest.ty;
           if (isTileWall(tx, ty)) continue;
           if (unreachableDropTiles.has(dropTileKey(tx, ty))) continue;
@@ -23415,10 +23453,13 @@
         : "玉座の脇に、柱に縛りつけられた人影。グリクスがこちらを見て笑う。";
     }
 
-    // ボス部屋の矩形。★添字ではなく **ROOMS の末尾** で取る (ボス部屋 = ROOMS.length-1 が
-    //   このプロジェクトの正典。部屋数を変えても壊れない)。rect = [tyMin, txMin, tyMax, txMax]。
+    /* ボス部屋の矩形。rect = [tyMin, txMin, tyMax, txMax]。
+     * ★[P9] 出所を **ROOMS[BOSS_ROOM_IDX]** へ揃えた (:29418 / :29467 と同じ形)。
+     *   今日の全マップでは ROOMS.length-1 と**恒等**だが、rooms[] が 2 つ以上になった日に
+     *   黙って別の部屋を指す唯一の箇所だったので、末尾はフォールバックへ落とす。 */
     function sce1BossRoomRect() {
-      return (typeof ROOMS !== "undefined" && ROOMS.length) ? ROOMS[ROOMS.length - 1] : [5, 47, 22, 68];
+      if (typeof ROOMS === "undefined" || !ROOMS.length) return [5, 47, 22, 68];
+      return ROOMS[BOSS_ROOM_IDX] || ROOMS[ROOMS.length - 1];
     }
     // 発火地点はボス部屋の**入口側**。既定ダンジョンでは (tx49, ty13) に落ちる
     //   = 廊下 [13,43,15,47] を抜けた直後・ボス (tx57) から 8 タイル西。
@@ -31142,6 +31183,50 @@
       initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
       spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
       initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
+      spawnDetourChests();  // ★[P9] 寄り道スポットの宝箱。⚠ **必ず最後**に呼ぶ (下の注記)
+    }
+
+    /* ★[P9] 寄り道スポットの宝箱 (廃坑 n1)。廃坑は n2/n3 撤去 (2026-08-19) 以来
+     *   罠も宝箱も 0 個のままだったので、寄り道に「行った甲斐」を持たせる唯一の中身。
+     *
+     * ⚠⚠ **hidden:false にすること**。hidden:true だと runRoomSearchCheck の**1 部屋 1 ロール**に
+     *   巻き込まれ、大部屋 = 1 部屋なので **1 回のロールで 4 個の運命がまとめて決まる**
+     *   (外すと 4 個とも永久に見えない = 寄り道が丸ごと空振りになる)。
+     * ⚠⚠ **spawnNodeEntities の最後に呼ぶこと**。ここは withNodeRng の中 = Math.random が
+     *   ノード種で差し替わっているので、途中に挿すと後続 (檻 / ハイドラ / 竜の財宝 / 従者) の
+     *   乱数列が全部ずれる。末尾なら既存のスポーンを 1 ビットも動かさない。
+     * ⚠ 置き場所はスポットのタイルそのもの。到着 = CHEST_DISCOVER_RADIUS (240px = 2.5 タイル) の
+     *   内側 + 視線が通る、が確実に成立する。
+     * ⚠ 台帳の並び順で決定論的に回すこと。saveNodeState は roomChests の**添字**で開封済みを
+     *   覚えるので、順序が揺れると再入場で別の箱が開いた扱いになる。
+     * ⚠ spawnRoomChests / spawnTraps の除外集合には**触らない**。大部屋の rect が全面を覆って
+     *   いる以上、あちらは「タイルが除外部屋の矩形に入っているか」で弾く = 小部屋だけ許可するには
+     *   判定を 1 本の関数へ畳む改修が要る (今回はスコープ外。ユーザーは「宝箱を置く」を選択)。 */
+    function spawnDetourChests() {
+      const spots = detourSpotsFor(currentNodeId);
+      if (!spots.length) return;
+      for (const s of spots) {
+        const tx = s.at[0], ty = s.at[1];
+        /* ⚠ 黙って捨てない。絵のマスクや情景が動いてスポットが塞がったら、寄り道の中身が
+         *   無言でゼロになる = 自分では絶対に気づけない種類の欠陥なので必ず警告する。 */
+        if (isTileWall(tx, ty)) {
+          console.warn("[detour] スポット " + s.key + " (" + tx + "," + ty + ") が歩けないので宝箱を置きません");
+          continue;
+        }
+        if (roomChests.some(ch => ch.tx === tx && ch.ty === ty)) continue;
+        const chest = {
+          tx, ty, opened: false, found: false,
+          hidden: false,                                   // ★1 部屋 1 ロールに巻き込まない (上の注記)
+          /* ★寄り道の印。findNearestDrop がこれを見て**ナビ目標から外す**唯一の目印
+           *   (無いと heroAI が矢印を出す前に 4 個とも自動回収する = 強制巡回になる)。 */
+          detourSpot: s.key,
+          locked: Math.random() < CHEST_LOCK_CHANCE,       // 施錠は通常の宝箱と同じ確率
+          loot: pickChestLoot(),
+          el: null,
+        };
+        roomChests.push(chest);
+        createRoomChestDom(chest, roomChests.length - 1);
+      }
     }
 
     /* ══════════════════════════════════════════════════════════════════════════
@@ -31671,6 +31756,13 @@
          *     (「行き止まりありの木」= 引き返しが常に可能なので、回数制限が無い回復は必ず悪用される)。
          *   ★eventsFired … このノードで発火済みのイベント key (P5 が EV-2/5/9 を載せる器)。 */
         rested: false, eventsFired: new Set(),
+        /* ★[P9] spotsVisited … このノードで踏んだ寄り道スポットの key /
+         *   spotsDone … 「▶ 奥へ進む」を選んだ (以後この部屋では二度と提示しない)。
+         * ⚠⚠ 他の欄と違い saveNodeState では書き戻さない。盤面から復元できる情報ではなく
+         *   **プレイヤーが何を選んだか**なので、書き込みは markSpotVisited / offerDetour の
+         *   write-through が唯一の口 (doorStates と同じ扱い)。saveNodeState がこの 2 つを
+         *   触らないので、n0 へ引き返して n1 へ戻っても訪問済みが復活しない。 */
+        spotsVisited: new Set(), spotsDone: false,
         /* ★[扉 P8] doorStates … このノードの扉の state を id 別に覚える {doorId: state}。
          *   ⚠⚠ 他のフィールドと違い **saveNodeState では作らない**。扉の一覧は buildNode の中
          *     (rebuildNodeDoors) で作り直され、それは restoreNodeState **より前**に走るので、
@@ -32437,13 +32529,21 @@
           const el = document.createElement("div");
           el.className = "exitArrow" + (o.back ? " back" : "");
           el.dataset.to = o.to; el.dataset.dir = o.dir;
+          if (o.spot) el.dataset.spot = o.spot.key;          // ★[P9] 寄り道 (同じノード内の目的地)
           el.textContent = ARROW_GLYPH[o.dir] || "◆";
           const hintEl = document.createElement("div");
           hintEl.className = "exitHint";
           hintEl.dataset.to = o.to;
-          const h = o.back ? null : hintForExit(node, o);
-          const dirLabel = o.back ? "引き返す" : (DIR_LABELS[o.dir] || o.dir);
-          const body = o.back ? "来た道を戻る" : (h && h.text ? h.text : "先は見通せない");
+          if (o.spot) hintEl.dataset.spot = o.spot.key;
+          /* ★[P9] 寄り道は**行き先ノードを持たない** = kind が無いので知覚判定の既定表
+           *   (EXIT_HINTS) を引けない。名前と一文は台帳 (detourTable) が唯一の出所。
+           * ⚠ hintForExit は hr.byExit[o.to] を引くので、to が null の寄り道では必ず空振りに
+           *   なる。呼ばないのは「引けないことを知っている」ことをコードで示すため。 */
+          const h = (o.back || o.spot) ? null : hintForExit(node, o);
+          const dirLabel = o.spot ? o.spot.name
+                         : (o.back ? "引き返す" : (DIR_LABELS[o.dir] || o.dir));
+          const body = o.spot ? (o.spot.hint || "")
+                     : (o.back ? "来た道を戻る" : (h && h.text ? h.text : "先は見通せない"));
           const icon = (h && h.icon) ? '<span class="exitHintIcon">' + h.icon + "</span>" : "";
           /* ⚠ textContent ではなく innerHTML を使うのは、アイコンと方向ラベルを別要素にして
            *   CSS で大きさを分けるため。差し込むのは**台帳の固定文だけ**で外部入力は入らない。
@@ -32775,6 +32875,102 @@
       return true;
     }
 
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★P9 — 大部屋の中の「行かない小部屋」への寄り道 (廃坑 n1)
+     * ══════════════════════════════════════════════════════════════════════════
+     * 台帳は detourTable() (buildGoblinMineRun の隣)。ここは**提示できる窓**と**歩き出し**だけ。
+     *
+     * ⚠⚠ 提示できる窓は「見えている敵も落し物も無い」の **1 点しかない**。n1 の
+     *   isNodeSettled() は全敵撃破を要求し、それが満たされた瞬間 = ボス撃破 = クリアなので、
+     *   出口選択と同じ場所 (isNodeSettled の後ろ) へ置くと**永久に一度も出ない**。
+     * ⭐ findNearestAliveEnemy() は**霧の中の敵を数えない** (:16760) ので、玉座の護衛と
+     *   グリクスが生きていてもここは成立する = 乱戦を片付けた直後に出る。 */
+
+    // 到着後に次の提示を待つ時間。★宝箱 (tryDiscoverChest は別の 400ms interval) が開く猶予。
+    //   ⚠ 0 にすると ?detour=tour の autoplay で「箱の前に立った次の瞬間に歩き出す」。
+    const DETOUR_ARRIVE_HOLD_MS = 1200;
+
+    /* 1 スポットを showExitArrows の選択肢 1 本へ写す。★形は exitsWithReturn の戻り値と同じ
+     *   ({to,dir,at,back,label}) + spot。to は null = 「ノード遷移しない」ことの唯一の目印で、
+     *   tickNodeChoice の ① と showExitArrows の P9 分岐がこれだけを見る。 */
+    function detourOpt(s) {
+      return { to: null, spot: s, dir: s.dir || "right", back: false,
+               at: { tx: s.at[0], ty: s.at[1] },
+               label: s.name + (s.hint ? " — " + s.hint : "") };
+    }
+    /* まだ踏んでいない寄り道スポット。⚠ 「▶ 奥へ進む」を選んだ後は空 (二度と提示しない)。 */
+    function pendingDetourSpots() {
+      const st = nodeState[currentNodeId];
+      if (st && st.spotsDone) return [];
+      const done = (st && st.spotsVisited) || null;
+      return detourSpotsFor(currentNodeId).filter(s => !(done && done.has(s.key)));
+    }
+    function markSpotVisited(key) {
+      // ⚠ nodeStateFor は「今居るノード」専用。ここが渡すのは常に currentNodeId なので安全。
+      const st = nodeStateFor(currentNodeId);
+      if (st) st.spotsVisited.add(key);
+    }
+    /* 今このフレームで寄り道を提示してよいか。 */
+    function hasPendingDetour() {
+      if (!pendingDetourSpots().length) return false;
+      if (encounterActive || encounterRunning) return false;
+      /* ⚠⚠ **入場直後に出さないための条件**。placeNodeParty の markVisitedAround は半径 6
+       *   タイルしか照らさないので、乱戦 (入場地点から 7〜17 タイル) は**まだ霧の中** =
+       *   findNearestAliveEnemy() が null を返す。距離だけを条件にすると **n1 に降り立った
+       *   瞬間に**、乱戦の前に寄り道の矢印が出る。
+       *   → 「この部屋で 1 体でも倒したか」を要求する。乱戦を抜けた後にだけ成立し、
+       *     距離のしきい値と違って**部屋の幾何が変わっても壊れない**。
+       *   ⚠ この条件は「敵の居ないノードでは寄り道を提示しない」も意味する。台帳に敵の
+       *     居ないノードを足すときは、ここを一緒に読み直すこと (黙って出なくなる)。
+       *   ⚠ 再入場では restoreNodeState が撃破済みを復元するので即座に真 = 残りの
+       *     スポットだけがまた提示される。 */
+      if (!enemies.some(e => !e.alive && !e.passiveNpc)) return false;
+      if (findNearestAliveEnemy()) return false;          // 見えている敵が居る = まだ戦いの途中
+      if (findNearestDrop()) return false;                // 落し物を置き去りにしない (isNodeSettled と対)
+      return true;
+    }
+    /* 寄り道の選択。★chooseExit と**同じ 3 経路**を持つ (矢印 / ?graph=auto / ?autoplay)。
+     * ⚠⚠ ?autoplay と ?graph=auto では **showExitArrows を絶対に開かない**。開くと選択待ちで
+     *   既存ドライバが軒並みタイムアウトする (chooseExit の注記とまったく同じ理由)。
+     * ⭐ 自動経路の既定は「▶ 奥へ進む」= 今日の道順のまま。既存ドライバ (P8 の autoplay 実測
+     *   184 秒) の**期待値を 1 文字も書き換えない**ため。4 か所を全部回ると入口→玉座が
+     *   **40 歩 → 116 歩 (2.9 倍)** に伸びるので、周回は ?detour=tour だけが踏む。 */
+    async function chooseDetour(node, opts) {
+      if (RUN.auto || window.__autoplay) {
+        return DETOUR_TOUR ? (opts.find(o => !o.spot.advance) || null)
+                           : (opts.find(o => o.spot.advance) || null);
+      }
+      return await showExitArrows(node, opts);
+    }
+    /* 提示 → 選択 → 歩き出し。★歩き出しは commitExit と**同じ 1 行**
+     *   (heroForcedGoal = snapToWalkable(at))。
+     * ⚠ openDoorAt / resolveDoorLockAt は呼ばない。寄り道の先に扉は無く、呼ぶと
+     *   「扉のあるタイル」という嘘の意味が付く。
+     * ⚠ nodePendingExit へ入れるのは、到達検出 (heroAI :17072 → nodeGateReached) を出口と
+     *   まったく同じ 1 本で受けるため。tickNodeChoice の ① が spot 分岐で消費する。 */
+    async function offerDetour(node) {
+      const spots = pendingDetourSpots();
+      if (!spots.length) return;
+      const adv = detourAdvanceFor(currentNodeId);
+      const opts = spots.map(detourOpt);
+      if (adv) opts.push(detourOpt(adv));
+      nodeBusy = true;                                    // async 前に確定 (多重起動防止)
+      let chosen = null;
+      try { chosen = await chooseDetour(node, opts); }
+      finally { nodeBusy = false; }
+      if (!chosen) {                                      // Esc =「留まる」→ しばらく再提示しない
+        nodeChoiceCooldownUntil = Date.now() + NODE_CHOICE_COOLDOWN_MS;
+        return;
+      }
+      if (chosen.spot.advance) {                          // 「▶ 奥へ進む」= 以後この部屋では出さない
+        const st = nodeStateFor(currentNodeId);
+        if (st) st.spotsDone = true;
+        return;                                           // heroForcedGoal は立てない (heroAI の ④ が玉座へ運ぶ)
+      }
+      nodePendingExit = chosen;
+      heroForcedGoal = snapToWalkable(chosen.at);
+    }
+
     /* ── 400ms tick。ガードは tryInteractSce1Event (index.html:20902) と**同型**に揃える ──
      * ⚠ heroAI (30ms・同期) から async を呼ばないための緩衝でもある。到達フラグをここで
      *   消費することで、暗転が二重に掛かる事故が原理的に起きない。 */
@@ -32789,11 +32985,30 @@
       if (nodeGateReached && nodePendingExit) {
         const ex = nodePendingExit;
         nodeGateReached = false; nodePendingExit = null; heroForcedGoal = null;
+        /* ★[P9] 着いたのが**寄り道**なら**ノード遷移しない**。訪問済みの印を付けて返し、
+         *   次の tick で残りの選択肢を再提示させる。
+         * ⚠ 猶予を置くのは宝箱のため。tryDiscoverChest は別の 400ms interval なので、
+         *   ここで即座に次を提示すると「箱の前に立った次の瞬間に歩き出す」
+         *   (?detour=tour の autoplay で実際に起きる)。 */
+        if (ex.spot) {
+          markSpotVisited(ex.spot.key);
+          nodeChoiceCooldownUntil = Date.now() + DETOUR_ARRIVE_HOLD_MS;
+          return;
+        }
         await enterNode(ex.to, ex.dir);
         return;
       }
       if (heroForcedGoal) return;                         // 既に行き先が決まっている = 歩いている最中
       if (Date.now() < nodeChoiceCooldownUntil) return;   // 「留まる」の直後は再提示しない
+      /* ★[P9] 寄り道の提示。**isNodeSettled() の手前**に置くのが肝 — n1 の isNodeSettled は
+       *   全敵撃破を要求し、それが満たされた瞬間 = ボス撃破 = クリアなので、後ろに置くと
+       *   一度も出ない (提示できる窓は「見えている敵も落し物も無い」の 1 点しかない)。
+       * ⚠ 台帳の無いノード / ?detour=0 / ?minefold=0 では hasPendingDetour() が必ず偽 =
+       *   ここは 1 命令も走らない (既存の母集団は 1 ビットも動かない)。 */
+      if (hasPendingDetour() && RUN.byId[currentNodeId]) {
+        await offerDetour(RUN.byId[currentNodeId]);
+        return;
+      }
       if (!isNodeSettled()) return;
       // ② 出口を選ぶ
       const node = RUN.byId[currentNodeId];
@@ -33074,6 +33289,112 @@
      *   キー "n4"/"n7" = 7x6 / 9x6 のノード専用)。旧単一マップ用の在庫 (20x16 / 22x18) は
      *   縦横比が違うので載らない = 指定すると lintRun の graph-painting-aspect が warning を出す。
      *   ⚠ 残り 6 ノードは従来どおり painting:null (タイル描画 + 情景散布で成立させる)。 */
+    /* ══ ★[P9 / 2026-08-20 ユーザー決定] 大部屋の中の「行かない小部屋」への寄り道 ══════════
+     * 廃坑 n1 は 39x23 = 床 488 マスあるのに、入場 (21,11) → 玉座 (49,21) の実経路は
+     * **40 歩 / 41 マス**しか踏まない (床の 58% が本道から 4 マス超はなれている)。
+     * ⭐⭐⭐ 原因は経路探索ではなく**目標決定**。4 方向で孤立している床は 0 マス =
+     *   物理的には全部歩ける。1 ノード = 1 部屋なので heroAI の ③「未訪問の部屋へ」
+     *   (findNextRoomGoal) が永久に -1 を返し、「敵と出口へ一直線」しか残らない。
+     * → 既存の出口矢印 UI (showExitArrows は {to,dir,at,back,label} の配列を取るだけの汎用 UI)
+     *   へ**同じノード内の目的地**を渡して、行っても行かなくてもよい寄り道として見せる。
+     *   ⚠ mapDef.rooms[] に小部屋を足す案は採らない。ROOMS は ROOMS[BOSS_ROOM_IDX]・
+     *     heroRoomIdx (1 部屋 1 ロール)・除外集合・ドライバ 4 本の `rooms === 1` にぶら下がり、
+     *     しかも**自動巡回**になって「行くか選ぶ」という今回の要件を 1 ミリも満たさない。
+     *
+     * ⚠⚠⚠ **スポットそのものだけでなく「そこへ至る経路」を玉座から遠ざけること**。
+     *   条件は 3 つあり、2026-08-20 の実測ではじめの案 (s2=(51,5) 居住区 / s3=(53,12) 東の袋小路) が
+     *   **2 つとも落ちた**:
+     *     ① スポットが玉座からチェビシェフ **BOSS_APPROACH_TILES (=8) より遠い**こと。
+     *        跨いだ瞬間に bossApproachReachedNow() が真になり、寄り道の途中で
+     *        **ボス到達ナレとボス BGM が鳴る**。
+     *     ② **入場地点から、および隣り合うスポットどうしの最短経路が、その 8 マスの帯を
+     *        1 マスも通らない**こと。旧 s2/s3 は部屋の東半にあり、外周 (フェザー帯) を
+     *        使わない限り**必ず玉座から 8 行の通路 (global row 13) を横切る**ので、
+     *        ①を満たしていても実プレイで 215 秒地点・(45,13) でボス曲が鳴った (実測)。
+     *     ③ 経路が玉座の間 (泉の間) を貫通しないこと。旧 s3 → s4 の最短がそこを通り、
+     *        **護衛と交戦してボス戦が始まり、s4 へ一度も行けなかった** (実測)。
+     *   → 4 本とも部屋の**北の帯と南西の操車場**に置き直した。入場→s1→s2→s3→s4 の
+     *     4 区間はいずれも帯を **0 マス**しか通らない (帯へ入るのは s4→玉座 の最終区間だけ)。
+     *   ⚠⚠ ここを動かすときは必ず tools/driver_grid_p9.js の §1 (経路が帯を通らないこと) と
+     *     §5 (周回中にボスが鳴らないこと) を回すこと。負のコントロール spotsouth が
+     *     s3 を帯の中 (44,13) へ動かして、この assert が本当に赤くなることを確かめている。
+     * ⚠ タイルは絵の blocked マスク (ROOM_PAINTINGS_DEF["goblin-mine"].n1) から採った実タイル。
+     *   rect [2,17,24,55] と tileBounds が同じ 39x23 なので **global = 絵ローカル + (17,2)**。
+     *   4 つとも「床である・入場地点から **4 方向で**到達できる (20/35/46/87 歩)・本道から
+     *   6 マス以上外れている」を実測済み。⚠⚠ 8 方向 BFS で測らないこと — aStar は 4 方向しか
+     *   踏まないので、斜めでしか繋がらない道を「歩ける」と報告する (P8 で実際に踏んだ)。
+     * ⚠⚠ 検算では **外周 1 タイルを必ず禁止する**。1 枚絵の作法①で外周は空いているので、
+     *   禁止しないと「外周をぐるり回れば帯を避けられる」と出て、旧 s2/s3 が緑に見えてしまう
+     *   (実際にこの取りこぼしで 1 回誤判定した)。
+     * ⭐ 4 本全部回ると 入場→玉座 が **40 歩 → 116 歩 (2.9 倍)** (本番の aStar で実測)。
+     * ⚠⚠ 「帯を通らない」は**ボスが玉座に居る間**の話。s4 へ下る道は玉座の間の口を最接近
+     *   10 マスで横切るので、グリクスが自分から出てくると交戦が始まりうる (2026-08-20 の
+     *   ?detour=tour で実際に起きた)。巡回順 16 通りを全部実測しても消えない経路の性質なので、
+     *   欠陥ではなく創発として扱い、s4 の羊皮紙にその旨を書いて承知のうえで選ばせている。
+     * ⚠ ヒント文は EXIT_HINTS の既定表を引かず**スポット側に書く**。寄り道は行き先ノードを
+     *   持たない = kind が無いので表が引けない (exits[].hint.text が既定表に勝つのと同じ扱い)。
+     * ⚠ dir は**矢印のグリフだけ**に使う。寄り道は方向ではなく場所で選ぶものなので、
+     *   DIR_LABELS ("奥へ進む" 等) は引かず name を出す (showExitArrows の P9 分岐)。
+     * ⚠⚠ **const ではなく関数宣言**にしてあるのは TDZ 回避。この台帳は spawnNodeEntities
+     *   (起動時のスポーン一括) と tickNodeChoice の両方から引かれ、どちらもこの位置より
+     *   前にある。関数宣言は巻き上げられるので、どこから呼んでも必ず解決する
+     *   (buildGoblinMineRun が MID/BOSSR を関数内に置いているのと同じ理由)。 */
+    function detourTable() {
+      return {
+        "goblin-mine": {
+          n1: {
+            /* ⚠ 並び順は ?detour=tour (自動周回) が踏む順序でもある。入場地点から近い順に
+             *   並べてあるので、周回しても行ったり来たりしない。 */
+            spots: [
+              { key: "s1", name: "上段への縦坑", at: [34, 4],  dir: "up",
+                hint: "梯子が上段の足場へ伸びている" },
+              { key: "s2", name: "採掘場の切羽", at: [38, 3],  dir: "up",
+                hint: "掘りかけの切羽に、道具が置きっぱなしだ" },
+              { key: "s3", name: "北の横穴",     at: [43, 7],  dir: "right",
+                hint: "岩の陰に、灯りの消えた横穴が口を開けている" },
+              /* ⚠⚠ s4 だけは「行くと危ない」ことを**羊皮紙に書く**。北の 3 つと違い、南の
+               *   操車場へ下る道は**玉座の間の口を横切る** (本番の aStar で最接近 10 マス。
+               *   帯 8 マスの外なのでボス到達ナレは鳴らないが、グリクスが自分から出てきて
+               *   交戦が始まることがある = 2026-08-20 の ?detour=tour 実測で実際に起きた)。
+               *   経路の性質なので巡回順を変えても消えない (16 通り全部を実測して確認)。
+               *   → 隠さずに知らせて、承知のうえで選ばせる。 */
+              { key: "s4", name: "南の操車場",   at: [24, 23], dir: "down",
+                hint: "南の暗がりにトロッコが並んでいる — 行くには玉座の間の前を横切る" },
+            ],
+            /* 「▶ 奥へ進む」= 寄り道をやめる選択肢。★heroForcedGoal は**立てない**。
+             *   立てなくても heroAI の ④ (霧を無視して最寄り敵へ) が玉座へ運ぶ = 今日の道順そのまま。
+             * ⚠ at は**矢印を描く位置**にしか使わない。泉の間へ下る通路の口 (39,21) は玉座から
+             *   チェビシェフ 10 = 閾値 8 の外なので、ここを指してもボスは早鳴りしない。 */
+            advance: { key: "go", name: "奥へ進む", at: [39, 21], dir: "right", advance: true,
+                       hint: "南東の広間へ下る通路が続いている" },
+          },
+        },
+      };
+    }
+    /* 台帳を引く**唯一の口**。⚠ 旧 5 ノード (?minefold=0) では必ず空を返す — あちらの n1 は
+     *   「見張りの詰所」(敵 0 の通過点) で、isNodeSettled() が入場直後から真なので、寄り道を
+     *   提示すると driver_graph_sce1 (105) / driver_sce1_events (212) / driver_grid_p4 の
+     *   母集団が動く。**期待値を書き換えないための母集団固定**であって好みの問題ではない。 */
+    function detourNodeDef(nodeId) {
+      if (DETOUR_OFF || MINE_FOLD_OFF) return null;
+      /* ⚠⚠ **RUN.scenarioId で引く** (_builtinScenId ではない)。シナリオ id は
+       *   「どのテクスチャを敷くか」でしかなく、dev シーム ?graphtest=1 の内蔵テストグラフでも
+       *   "goblin-mine" のまま。ノード id だけで引くと、テストグラフの "n1" にも寄り道 4 本と
+       *   宝箱 4 個が湧き、driver_graph_kinds / driver_graph_arrows など 7 本が黙って赤くなる。
+       *   RUN.scenarioId は**内蔵グラフから来たときだけ**値を持つ (2026-08-20 に実測して追加)。 */
+      if (!RUN || !RUN.scenarioId || !nodeId) return null;
+      const t = detourTable()[RUN.scenarioId];
+      return (t && t[nodeId]) || null;
+    }
+    function detourSpotsFor(nodeId) {
+      const d = detourNodeDef(nodeId);
+      return (d && Array.isArray(d.spots)) ? d.spots : [];
+    }
+    function detourAdvanceFor(nodeId) {
+      const d = detourNodeDef(nodeId);
+      return (d && d.advance) || null;
+    }
+
     function buildGoblinMineRun() {
       /* ⚠⚠ 部屋の中心を **col 36 / row 11-16** で全ノード揃えること (buildTestRun と同じ理由)。 */
       const MID  = [11, 33, 16, 39];       // 道中 7 列 x 6 行 (iPad 1024x768 基準・P4.7 の実測値)
@@ -33649,6 +33970,9 @@
           const r = a.el.getBoundingClientRect(), hr = a.hintEl.getBoundingClientRect();
           return {
             to: a.exit.to, dir: a.exit.dir, back: !!a.exit.back,
+            // ★[P9] 寄り道 (同じノード内の目的地) は to を持たない。key で見分ける
+            spot: a.exit.spot ? a.exit.spot.key : null,
+            advance: !!(a.exit.spot && a.exit.spot.advance),
             at: { tx: a.exit.at.tx, ty: a.exit.at.ty },
             left: parseFloat(a.el.style.left), top: parseFloat(a.el.style.top),
             rect: { x: r.left, y: r.top, w: r.width, h: r.height },
@@ -33746,6 +34070,33 @@
                                bigRoom: !BOSS_APPROACH_OFF && isLargeRoomNow(),
                                tiles: BOSS_APPROACH_TILES,
                                narrated: bossRoomNarrationShown }),
+        /* ── ★P9 検証シーム: 寄り道 ────────────────────────────────────────────
+         * ⚠ 「台帳」だけでなく **「今提示してよいか」の判定そのもの (hasPendingDetour)** を
+         *   露出するのが肝。ドライバが自前で「未訪問なら出る」を写すと、実装とドライバが
+         *   同じ間違いを共有して両方緑になる。 */
+        detour: () => ({
+          off: DETOUR_OFF, tour: DETOUR_TOUR, holdMs: DETOUR_ARRIVE_HOLD_MS,
+          spots: detourSpotsFor(currentNodeId).map(sp => ({ key: sp.key, name: sp.name,
+                    tx: sp.at[0], ty: sp.at[1], dir: sp.dir, hint: sp.hint })),
+          advance: (() => { const a = detourAdvanceFor(currentNodeId);
+                            return a ? { key: a.key, name: a.name, tx: a.at[0], ty: a.at[1] } : null; })(),
+          pending: pendingDetourSpots().map(sp => sp.key),
+          canOffer: hasPendingDetour(),
+          visited: (() => { const st = nodeState[currentNodeId];
+                            return (st && st.spotsVisited) ? [...st.spotsVisited] : []; })(),
+          done: (() => { const st = nodeState[currentNodeId]; return !!(st && st.spotsDone); })(),
+        }),
+        /* 寄り道を「選んだ」だけの状態を作る (歩きと到達検出は本編の heroAI / tick に任せる)。
+         * ⚠ __graphRun.pick と同じ役割。本編と同じ 1 行 (snapToWalkable) を通す。 */
+        pickSpot: (key) => {
+          const sp = detourSpotsFor(currentNodeId).find(x => x.key === key);
+          if (!sp) return null;
+          nodePendingExit = detourOpt(sp);
+          heroForcedGoal = snapToWalkable({ tx: sp.at[0], ty: sp.at[1] });
+          return { key: key, at: heroForcedGoal };
+        },
+        // 本編とまったく同じ提示の入口 (矢印 UI / 自動選択の 3 経路がここから分かれる)
+        offerDetour: () => (RUN ? offerDetour(RUN.byId[currentNodeId]) : Promise.resolve()),
         // イベント台帳の器 (P5 が EV-2/5/9 を載せる)。ドライバはここから登録して発火を測る
         registerEvent: registerNodeEvent,
         events: () => NODE_EVENTS.map(e => ({ key: e.key, nodeId: e.nodeId, kind: e.kind,
