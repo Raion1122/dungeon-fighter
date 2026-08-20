@@ -12903,11 +12903,33 @@
     // ── シーン別ファイルBGM (mp3) マッピング: シナリオ単位で 1 曲を通しでループ ──
     //   該当シナリオでは探索/戦闘/ボスを問わず同一 ID を渡す → playBgm の dedup で
     //   途切れず継続 (Pharaxus の道中→ボス戦「通し」要件もこれで満たす)。
+    /* ★[廃坑 BGM] 撤退スイッチ ?minebgm=0 — NODE_BGM / SCENARIO_BOSS_BGM を丸ごと無視し、
+     *   廃坑を 2026-08-20 以前 (探索 dungeon_normal / ボス boss_battle) へ戻す。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
+    const MINE_BGM_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("minebgm") === "0"; }
+      catch (e) { return false; }
+    })();
     const SCENE_BGM = {
-      "goblin-mine": "dungeon_normal", "bandits-forest": "dungeon_normal", "lizard-swamp": "dungeon_normal",
+      // ★[廃坑 BGM] 廃坑の**既定**は坑内曲。入口 n0 だけを NODE_BGM が上書きする (下の理由参照)
+      "goblin-mine": MINE_BGM_OFF ? "dungeon_normal" : "mine_depths",
+      "bandits-forest": "dungeon_normal", "lizard-swamp": "dungeon_normal",
       "orc-fort": "dungeon_climax", "undead-temple": "dungeon_climax",
       "dragon-lair": "pharaxus_stage",
     };
+    /* ── ★[廃坑 BGM] ノード別ファイル BGM (2026-08-21) ──────────────────────────
+     *   SCENE_BGM が「シナリオ 1 曲」を決めるのに対し、こちらは**その中の例外ノードだけ**を
+     *   別曲へ振り替える。指定の無いノードは SCENE_BGM の既定へ落ちる。
+     * ⚠⚠ **「鳴らしたいノードを全部列挙する」形にしないこと**。廃坑は ?minefold=0 で
+     *   旧 5 ノード構成 (n0/n1/n4/n5/n7) に戻るので、列挙側は書き漏らした瞬間に
+     *   そのノードだけ**無言で** dungeon_normal へ戻る。既定を坑内曲にして「例外の 1 枚
+     *   (入口 n0) だけ書く」形なら、どちらの構成でも正しく鳴る。 */
+    const NODE_BGM = { "goblin-mine": { n0: "mine_entrance" } };
+    /* ── ★[廃坑 BGM] シナリオ別のボス曲 ────────────────────────────────────────
+     * ⚠⚠ **未指定は従来どおり boss_battle**。currentBgmId はボス部屋で無条件に boss_battle を
+     *   返していたが、boss_battle は **5 シナリオ共有**なので、そこを 1 曲に差し替えると
+     *   盗賊/沼地/砦/神殿のボス曲まで全部変わる。廃坑だけを上書きする表にしてある。 */
+    const SCENARIO_BOSS_BGM = { "goblin-mine": "mine_boss" };
     function sceneBgmId() {
       if (_genScenario) {                                  // 生成クエストは tier で割当 (pharaxus_stage は dragon-lair 専用に予約)
         const tk = _genScenario.tierKey;
@@ -12916,7 +12938,12 @@
         const ql = Number(_genScenario.questLevel) || 0;
         return (ql > 0 && ql <= 10) ? "dungeon_normal" : "dungeon_climax";
       }
-      return SCENE_BGM[scenarioId] || null;
+      /* ★[廃坑 BGM] ノード別の例外を先に引く。
+       * ⚠ currentNodeId の宣言はここより下 (分岐マップの節) にある let だが、この関数は
+       *   setPhase / bgm() 経由で**モジュール初期化が終わった後にしか呼ばれない**ので TDZ に
+       *   当たらない (startGame はボタン/オートプレイ由来で、module level の直呼びは無い)。 */
+      const nb = MINE_BGM_OFF ? null : (NODE_BGM[scenarioId] || {})[currentNodeId];
+      return nb || SCENE_BGM[scenarioId] || null;
     }
     function combatBgmTrack() {
       if (window.__inMidBoss) return "midboss";
@@ -12929,7 +12956,12 @@
     //   探索/通常戦闘/中ボス(隠し要素) → シーン曲のまま (ユーザー確定「シーン連続」を維持)。
     function currentBgmId() {
       const sb = sceneBgmId();
-      if (window.__inBossRoom && sb && sb !== "pharaxus_stage") return "boss_battle";
+      /* ★[廃坑 BGM] ボス曲はシナリオ別の表を引く。未指定は従来どおり boss_battle。
+       * ⚠ 廃坑では n1 が「坑道の奥」と「玉座の間」を兼ねるので、ここで mine_depths →
+       *   mine_boss へ切り替わる瞬間を作っているのは **syncBossRoomFlag の「玉座へ 8 タイル
+       *   以内」** (P8-2)。入室ではまだ鳴らない = 「グリクス戦」の意図どおり。 */
+      if (window.__inBossRoom && sb && sb !== "pharaxus_stage")
+        return (MINE_BGM_OFF ? null : SCENARIO_BOSS_BGM[scenarioId]) || "boss_battle";
       return sb;
     }
     function setPhase(kind) {
@@ -34339,6 +34371,14 @@
         // 「まだ休んでいない rest ノード」へ戻す (回復を 2 通りの前提で測り直すため)
         clearRested: (id) => { const st = nodeState[id || currentNodeId]; if (st) st.rested = false; },
         inBossRoom: () => !!window.__inBossRoom,
+        /* ── ★[廃坑 BGM] 検証シーム: 今どの mp3 キーを鳴らすべきか ────────────────
+         * ⚠ 「表を引く規則」ではなく **currentBgmId / sceneBgmId そのもの**を呼ぶ。ドライバが
+         *   NODE_BGM を写経すると、実装とドライバが同じ間違いを共有して両方緑になる。
+         * ⚠ 純粋な読み取り (曲を鳴らさない)。実際に鳴った ID の側は driver_bgm_mine が
+         *   GameAudio.playBgm を包んで別に記録する = 2 経路で突き合わせる。 */
+        bgm: () => ({ id: currentBgmId(), scene: sceneBgmId(),
+                      off: MINE_BGM_OFF, inBossRoom: !!window.__inBossRoom,
+                      scenarioId: scenarioId, nodeId: currentNodeId }),
         /* ★[P8] ボス部屋化を「入室」から「接近」へ遅らせた配線を、ドライバが写経せずに測る口。
          *   ⚠ bigRoom は largeRoomSize() の戻り値そのもの = 実装と同じ 1 本を見る。 */
         bossApproach: () => ({ latched: bossApproachLatched,

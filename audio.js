@@ -314,6 +314,23 @@
     dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
     boss_battle:    { src: "assets/bgm/maou_bgm_fantasy12.mp3",   loop: true, volume: 0.65, credit: "魔王魂" },
     pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
+    /* ── 廃坑 (goblin-mine) 専用の 3 曲 (2026-08-21) ────────────────────────────
+     *   入口 n0 / 坑内 / グリクス戦 を場面ごとに分ける。**どの場面でどれを鳴らすか**は
+     *   index.html の NODE_BGM / SCENARIO_BOSS_BGM が持つ (ここは曲の実体と音量だけ)。
+     *
+     *   ⚠ volume は per-track の係数。**曲ごとの実測ラウドネスから逆算した値**であって
+     *     好みで置いた数字ではない。式は volume = 10^((目標 − 実測) / 20)。
+     *       探索の基準 = 既存 dungeon_normal の実効 −15.5 LUFS × 0.60 = −19.9 LUFS 相当
+     *       d1     −17.3 → 0.74 (実効 −19.9 = 基準どおり)
+     *       haikou −12.6 → 0.43 (実効 −19.9 = 基準どおり)
+     *       boss01 −11.2 → 0.52 (実効 −16.9 = 基準 +3 dB)
+     *     ⚠ 既存 boss_battle は実効 −10.6 = 探索より 9.3 dB 大きい。同じ差にすると
+     *       廃坑だけ突出するので、ボスは +3 dB に留めてある。耳で違ったら動かしてよい
+     *       (volume を動かしても driver_bgm_mine の assert は 1 つも変わらない)。
+     *   ⚠⚠ credit は出所をユーザーに確認するまで空。推測で "魔王魂" 等と書かないこと。 */
+    mine_entrance:  { src: "assets/bgm/d1.mp3",                   loop: true, volume: 0.74, credit: "" },
+    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "" },
+    mine_boss:      { src: "assets/bgm/boss01.mp3",               loop: true, volume: 0.52, credit: "" },
   };
   var bgmEl = null, bgmElNode = null, bgmFileId = null, bgmElSrcId = null;
 
@@ -861,6 +878,14 @@
     __renderBgmOffline: renderBgmOffline,
     __bgmRunning: function () { return bgmRunning; },
     __bgmFileState: function () { return { id: bgmFileId, srcId: bgmElSrcId, hasEl: !!bgmEl, paused: bgmEl ? bgmEl.paused : null, node: !!bgmElNode }; },
+    /* ファイル BGM の登録表そのものを返す (検証用の読み取り口)。
+     * ⚠ driver_bgm_mine の §3a が「src が 404 でないか」を測るのに使う。mp3 の読み込み失敗は
+     *   **静かに無音になるだけ**で画面には何も出ないので、表を写経せず実体から引く。 */
+    __bgmFiles: function () {
+      var a = [];
+      for (var k in BGM_FILES) a.push({ id: k, src: BGM_FILES[k].src, volume: BGM_FILES[k].volume, credit: BGM_FILES[k].credit });
+      return a;
+    },
     __bgmFileIds: function () { var a = []; for (var k in BGM_FILES) a.push(k); return a; },
     __duckLevel: function () { return _duckLevel; },                 // 検証: 現在の duck 目標値
     __voiceDuckTest: function () { duckForVoice(); return _duckLevel; },  // startVoiceBuffer が呼ぶ duck 経路
