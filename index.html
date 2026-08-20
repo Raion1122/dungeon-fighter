@@ -8570,7 +8570,7 @@
          *   x=9..182 → 幅 173 (0.901) / y=44..183 → 高さ 139 (0.724) / 上端 44 (0.229))。
          * ⚠ **出所はスプライトそのもの**。assets/goblinChariot_anim.png を差し替えたら測り直すこと
          *   (測り方: 各コマの alpha の bbox を全コマで取って和集合の外接をフレーム幅で割る)。 */
-        bodyRatioX: 0.901, bodyRatioY: 0.724, bodyOffY: 0.229,
+        bodyRatioX: 0.901, bodyRatioY: 0.724, bodyOffX: 0.047, bodyOffY: 0.229,
         /* ★不動 (overlap 押し出しの heavy 扱い + 近接ランジのクランプ対象)。上の注記を参照。
          *   ⚠ この印を持つのは**戦車 1 体だけ**。他の大型 11 体は今まで通り displaySize >= 200 で判定。 */
         heavyOverlap: true,
@@ -8710,6 +8710,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                    // 通常の2倍 (ボスの威容)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.536, bodyRatioY: 0.625, bodyOffX: 0.208, bodyOffY: 0.339,
         hp: 92, speed: 0.6,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 540,
@@ -8901,6 +8903,8 @@
         sprite: "assets/pharaxus_anim.png?v=2",
         sheetW: 1152, sheetH: 960, frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 360,             // 2026-06-27: 720→360 に縮小(大きすぎたため半分に)。scale 3.75→1.875倍
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.828, bodyRatioY: 0.531, bodyOffX: 0.036, bodyOffY: 0.417,
         hp: 180, speed: 0.66,
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -9131,6 +9135,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 192,                  // 2 タイル分の大型ミニボス
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.693, bodyRatioY: 0.708, bodyOffX: 0.151, bodyOffY: 0.255,
         hp: 70, speed: 0.75,               // 盗賊より速い四足獣
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,    // 触手の分やや長め
@@ -9239,6 +9245,8 @@
         sheetW: 576, sheetH: 480,
         frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
         displaySize: 248,                    // 通常の2倍 (玉座のボス感をさらに増大)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.625, bodyRatioY: 0.646, bodyOffX: 0.240, bodyOffY: 0.302,
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,      // 大斧でリーチ広め
@@ -9265,6 +9273,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 360,                    // 巨大ボス (約2.4倍。原寸192px→アップスケール)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.693, bodyRatioY: 0.651, bodyOffX: 0.089, bodyOffY: 0.302,
         hp: 34, speed: 0.6,                  // hp = 1頭ぶん (headHp)。HPバー=現在の頭
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -9380,6 +9390,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 220,                         // 大型ボスの威容 (歩行~103px / 立ち上がり咆哮~194px)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.641, bodyRatioY: 0.500, bodyOffX: 0.172, bodyOffY: 0.469,
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -9406,6 +9418,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 260,                       // 2倍サイズ (192px原寸→アップスケール)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.786, bodyRatioY: 0.906, bodyOffX: 0.109, bodyOffY: 0.062,
         hp: 85, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 210, hitRange: 300,
@@ -9436,6 +9450,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                        // 2倍サイズ (192px原寸→アップスケール)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.870, bodyRatioY: 0.865, bodyOffX: 0.010, bodyOffY: 0.099,
         hp: 70, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -9465,6 +9481,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                          // 2倍サイズ (192px原寸→アップスケール)
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.792, bodyRatioY: 0.906, bodyOffX: 0.109, bodyOffY: 0.057,
         hp: 90, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -9492,6 +9510,8 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.672, bodyRatioY: 0.875, bodyOffX: 0.135, bodyOffY: 0.073,
         // 浮遊感(フワフワ・視覚のみ/論理座標は不変)。ampY 8px = peak-to-peak 16px ≒ 表示高の 6.7% で
         // 「明確に浮いている」がタイル接地の錯覚は壊さない上限帯。ampX は Y の4割弱にして主従を付ける
         // (等振幅だと円運動=別物に見える)。periodY 2400ms は人が「呼吸」と認識する帯。ここ1行で調整可。
@@ -9566,6 +9586,8 @@
         //    51% しか使わないため「幅基準」で決める。240 → 見かけ 幅≈204px(≈2.1タイル) / 高さ≈125px。
         //    上げると縦の当たり判定だけが無駄に広がるので上げない。※暫定値: STEP8 で実測して確定する。
         displaySize: 240,
+        // ★体の実寸比 (2026-08-21 実測・row2=移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.875, bodyRatioY: 0.552, bodyOffX: 0.062, bodyOffY: 0.411,
         // ⚠️ 暫定値: STEP8 でウェーブ実測のうえ確定する (企画書の「40」は実コード未確認の根拠なき数値)。
         //    goblinChariot(hp:65) を目安に、1ウェーブでは落ちない程度から始める。
         //    ⚠ 2026-08-20 に戦車は 240 → 176 へ縮んだ (壁埋まり対策)。**コメントの参照だけで
@@ -16240,8 +16262,13 @@
      *   見ており、体が 2〜3 タイルを覆う大型では**中心が床でも体の大半が岩の中**になる
      *   (2026-08-20 実測: 戦車の乱入位置 (55,21) は体の 9 マス中 6 マスが壁だった)。
      * ⚠⚠ **実測値 (bodyRatioX/Y・bodyOffY) を持たない def は中心 1 マスへ落とす**。
-     *   7x6 の小部屋に居る 360px のハイドラに footprint を要求すると 1 マスも動けなくなるので、
-     *   汎用に作っても**配線するのは印を持つ def だけ**という立て付けにしてある。
+     *   7x6 の小部屋に居る 360px のハイドラに footprint を要求すると 1 マスも動けなくなる。
+     * ⚠⚠⚠ 2026-08-21 に壁の箱 (unitWallBox) を入れた際、**大型 12 体全部が比率を持つようになった**。
+     *   つまり「印を持つ def だけに配線されている」という安全弁は **もう成立していない**。
+     *   今この関数を呼んでいるのは **戦車の 3 経路だけ** (chariotChargePath / chariotTurnStep /
+     *   findChariotSpawnTile。いずれも def.trample または ENEMY_TYPES[CHARIOT_TYPE] 経由)。
+     *   ⚠ **汎用の isBodyClear 呼び出しを追加するな**。追加した瞬間にハイドラや竜が
+     *     無言で動けなくなる。必要なら先に「体が収まらない時の逃げ道」を設計すること。
      * ⚠ 撤退は ?chariotbody=0 (= 全 def が中心 1 マス判定 = この節の追加分がまるごと旧挙動)。 */
     const CHARIOT_BODY_OFF = (() => {
       try { return new URLSearchParams(location.search).get("chariotbody") === "0"; }
@@ -16271,6 +16298,54 @@
       for (const t of unitBodyTiles(def, tx, ty)) if (isTileWall(t.tx, t.ty)) return false;
       return true;
     }
+    /* ═══════════════════════════════════════════════════════════════════════════
+     * ★[壁の当たり判定の箱 2026-08-21] 「壁にぶつかったか」を見る箱を 1 本へ畳む
+     * ═══════════════════════════════════════════════════════════════════════════
+     * 引数は **スプライトの箱の原点** (= obj.x / obj.y。中心ではない)。
+     * ⚠⚠ 40x40 の箱が **原点 +(16,18)** に直書きされていた。これは 72px スプライト専用の
+     *   値で、displaySize に一切追従しない。ズレ = 36 − displaySize/2 で、360px のハイドラと
+     *   ファラクサスでは箱が体の **左上 1.5 タイル** にあった。ノックバックは heavy を
+     *   見ないので大型 12 体すべてが対象 = 岩の中を見て常にブロックされていた。
+     * ★ 出所は unitBodyTiles と同じ実測比率 (bodyRatioX/Y・bodyOffX/Y)。判定の出所を 2 つ持たない。
+     *   ⚠ bodyOffX は **unitBodyTiles が読まない** = footprint 判定はビット不変。体の左右は
+     *     対称とは限らない (ハイドラは中心が −23px ずれている) ので壁の箱だけが使う。
+     * ⚠⚠ 変えるのは **箱の位置だけ**。大きさは 40x40 のまま据え置く。体の実寸へ広げると
+     *   360px のハイドラで箱が 3.4 タイルになり、狭い部屋では一歩も弾かれなくなる
+     *   (= 「全く動かない」で欠陥が温存される)。大きさを変えないので、今まで通れた
+     *   隙間が通れなくなる危険も原理的に無い。
+     * ⚠ プレイヤーの箱 (28/34/68/82・96px スプライト前提) はここを通さない。
+     *   あちらは横が中心・縦が足元寄りで意図どおりに出来ている。
+     * ⚠ 撤退 = ?wallbox=0 (全 def が旧 40x40 直書きへ戻る)。 */
+    const WALLBOX_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("wallbox") === "0"; }
+      catch (e) { return false; }
+    })();
+    const WALLBOX_SIZE = 40;   // 箱の一辺。**大きさは据え置き**、変えるのは位置だけ (上の ⚠⚠ を参照)
+    /* ★★ 箱の中心はスプライトの中心から **この距離を超えて離れない**。
+     *   = 箱は常に「スプライトの中心を中心とする 1 タイルの正方形」の内側に収まる。
+     * ⚠⚠⚠ 2026-08-21 に実測して追加。素の「内容 bbox の中心へ寄せる」だけだと、
+     *   体をフレームの下寄りに描いてある 6 体 (ハイドラ / ファラクサス / リッチ /
+     *   巨熊 / リザード長 / 馬車) で箱が **下隣のタイルへ出てしまい**、廃坑の床の
+     *   **23.9%** で箱が岩の中に入った (= 今直している「常にブロック」の再生産)。
+     *   ゲームの位置モデルはどこも floor((x + displaySize/2) / TILE_SIZE) = **スプライトの中心**なので、
+     *   当たり判定だけが絵の中心を追うと他の全判定と食い違う。
+     * ★ 72px スプライトの旧箱も (0, +2) でこの規則を満たしている = 新規則は旧の拡張。 */
+    const WALLBOX_MAX_OFF = TILE_SIZE / 2 - WALLBOX_SIZE / 2;   // 96/2 - 40/2 = 28px
+    function unitWallBox(def, originX, originY) {
+      const rx = def && def.bodyRatioX, ry = def && def.bodyRatioY;
+      if (WALLBOX_OFF || !rx || !ry) {   // 比率を持たない def = 72px スプライト前提の旧箱のまま
+        return { left: originX + 16, top: originY + 18, right: originX + 56, bottom: originY + 58 };
+      }
+      const S = def.displaySize || TILE_SIZE;
+      const ox = (typeof def.bodyOffX === "number") ? def.bodyOffX : (1 - rx) / 2;
+      const oy = (typeof def.bodyOffY === "number") ? def.bodyOffY : (1 - ry) / 2;
+      const M = WALLBOX_MAX_OFF;
+      // 内容 bbox の中心へ寄せる。ただしスプライトの中心から ±M を超えない
+      const cx = originX + S / 2 + Math.max(-M, Math.min(M, (ox + rx / 2 - 0.5) * S));
+      const cy = originY + S / 2 + Math.max(-M, Math.min(M, (oy + ry / 2 - 0.5) * S));
+      const h = WALLBOX_SIZE / 2;
+      return { left: cx - h, top: cy - h, right: cx + h, bottom: cy + h };
+    }
     // 近接攻撃の踏み込み(lunge, translateX 視覚のみ)が大型スプライトにめり込むのを防ぐ。
     // 大型ターゲット時のみ、攻撃者の可視縁(=overlap 休止距離 r=displaySize*K の和)手前へ前進量をクランプ。
     // 通常サイズ敵は LUNGE_MAG のまま=従来挙動(ゼロ回帰)。ランジは水平移動なので X 方向の実スラックで判定。
@@ -16294,8 +16369,7 @@
         addXY: (dx, dy) => { obj.x += dx; obj.y += dy; },
         radius: r,
         mass: heavy ? OVERLAP_HEAVY_MASS : (r * r),   // 質量 ~ radius^2(軽い方が多く動く)
-        wallBox: (cx, cy) => ({ left: cx - size / 2 + 16, top: cy - size / 2 + 18,
-                                right: cx - size / 2 + 56, bottom: cy - size / 2 + 58 }),
+        wallBox: (cx, cy) => unitWallBox(obj.def, cx - size / 2, cy - size / 2),
         clamp: () => { if (obj.def) clampEnemyToMap(obj); },
       };
     }
@@ -16431,9 +16505,11 @@
         if (enemy.hitStun > 0) {
           const newEX = enemy.x + enemy.knockbackVX;
           const newEY = enemy.y + enemy.knockbackVY;
-          if (!wouldOverlapWall(newEX+16, enemy.y+18, newEX+56, enemy.y+58)) enemy.x = newEX;
+          const kbX = unitWallBox(enemy.def, newEX, enemy.y);
+          if (!wouldOverlapWall(kbX.left, kbX.top, kbX.right, kbX.bottom)) enemy.x = newEX;
           else enemy.knockbackVX = 0;
-          if (!wouldOverlapWall(enemy.x+16, newEY+18, enemy.x+56, newEY+58)) enemy.y = newEY;
+          const kbY = unitWallBox(enemy.def, enemy.x, newEY);   // ⚠ enemy.x は上で更新済み。順序を変えない
+          if (!wouldOverlapWall(kbY.left, kbY.top, kbY.right, kbY.bottom)) enemy.y = newEY;
           else enemy.knockbackVY = 0;
           enemy.knockbackVX *= 0.55;
           enemy.knockbackVY *= 0.55;
