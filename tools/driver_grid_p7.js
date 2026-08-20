@@ -502,7 +502,15 @@ function OBSERVE() {
     // ══ §3 既存が動いていないこと ═══════════════════════════════════════════
     mark('§3 既存の舞台では camZ が 1 のまま (見え方が 1px も動かない)');
     {
-      const page = await bootPage(browser, base, '?intel=0', errs);
+      /* ⚠⚠ 2026-08-20: **?minefold=0 を付ける**。廃坑を 2 大部屋へ畳んだ (50302b8) 時点で
+       *   既定グラフから 7x6 / 9x6 の小ノードが消え、(3a) の**母集団が丸ごと空**に
+       *   なって赤のまま放置されていた (2026-08-20 に HEAD で再現して確認)。
+       *   (3a) が測るのは「**既存規格の小ノードは等倍のまま**」という不変条件で、
+       *   その小ノードは旧 5 ノード構成 (?minefold=0) に今も実在する。
+       *   **期待値を書き換えずに、測定点を母集団のある盤面へ移す**。
+       *   ★ スイッチを外すと (3a-装置) が即座に落ちるので、それ自体が
+       *     「母集団のある盤面を測れているか」の装置 assert を兼ねている。 */
+      const page = await bootPage(browser, base, '?intel=0&minefold=0', errs);
       await page.setViewport(VIEWPORT);
       await sleep(400);
       const small = await page.evaluate(() => {
