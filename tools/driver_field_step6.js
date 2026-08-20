@@ -543,7 +543,7 @@ async function runPartB(browser, base, root, rows, vp, label) {
  * 0 でない場合は「ダンジョンでも救済が効いた」= 意図した上位互換だが挙動は変わるので、
  * IS_FIELD_THEME ゲートに閉じるかの判断材料として数値を持ち帰る。
  */
-async function runPartC(browser, base, scenarioId, speed, budgetMs) {
+async function runPartC(browser, base, scenarioId, speed, budgetMs, extraMs) {
   SERVE.root = ROOT; SERVE.bandRows = 3;
   /* ⚠⚠ **`?graph=auto` を必ず付ける** (2026-08-11 に赤くなって判明)。ゲームブック風分岐マップの
    *   P5 (`a4c6091`) で廃坑が分岐版になり、**entry ノード n0 は敵 0 体**が設計上の必須条件
@@ -584,9 +584,26 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
 
   const t0 = Date.now();
   let last = null, dialogsAnswered = 0;
-  while (Date.now() - t0 < budgetMs) {
+  /* ★[2026-08-20] 「前進した」の観測だけは **budgetMs を超えて待つ**。
+   *   廃坑の entry n0 は 2026-08-19 (`a18465f`) 以降 **33x22 の大部屋 + 見張り 2 体**なので、
+   *   7x6 の道中部屋を前提にした 90 秒の固定窓では部屋を渡り切れず、
+   *   (C-goblin-mine) が赤くなっていた (P8 の前の HEAD でも同じ赤 = 既存の赤)。
+   *   ⭐⭐ **固定時間窓は原理的にフレーク**なので、閃いたら抜けるポーリングへ変え、
+   *   何秒で前進したか (advancedAt) をログへ残す。
+   * ⚠⚠ 救済の標本 (rescue) は **budgetMs 時点で凍結**する。延長ぶんまで数えると
+   *   Part C の非退行の母集団が廃坑だけ長くなり、他 5 本と並べられなくなる。
+   * ⚠ 分岐を持たないシナリオ (graphActive=false) では延長に 1 ミリ秒も入らない。 */
+  let sample = null, advancedAt = null;
+  for (;;) {
+    const el = Date.now() - t0;
+    if (el >= budgetMs && sample === null) sample = last ? last.rescue : null;
+    const waitMore = (el < budgetMs) ||
+      (advancedAt === null && !!(last && last.graphActive) && el < budgetMs + (extraMs || 0));
+    if (!waitMore) break;
     await new Promise(r => setTimeout(r, 400));
     try { last = await page.evaluate(() => window.__live.dump()); } catch (e) { break; }
+    if (advancedAt === null && last.graphActive && last.entryId &&
+        last.nodeId && last.nodeId !== last.entryId) advancedAt = Date.now() - t0;
     /* ★選択イベント (シナリオ1 の EV-2/EV-5/EV-9 など) に答える = プレイヤーの代役。
      * ⚠⚠ **`?autoplay` で代用しないこと**。autoplay は選択の自動回答だけでなく FX / 画面揺れ /
      *   カメラ追従 / ナレ停止 / sleepMs 倍率まで一括で切る (index.html の fxEnabled ほか多数)。
@@ -606,9 +623,11 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
     }
     if (last.gameOver) break;
   }
+  if (sample === null) sample = last ? last.rescue : null;
   const pageErrors = page.__pageErrors.slice();
   await page.close();
-  return { scenarioId, last, elapsedMs: Date.now() - t0, pageErrors, dialogsAnswered };
+  return { scenarioId, last, sample, advancedAt,
+           elapsedMs: Date.now() - t0, pageErrors, dialogsAnswered };
 }
 
 // ── メイン ──────────────────────────────────────────────────────────────────
@@ -731,14 +750,16 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
     if (!SKIP_C) {
       for (const sid of DUNGEONS) {
         mark('Part C 非退行 (既存シナリオ): ' + sid);
-        const r = await runPartC(browser, BASE, sid, 8, 90000);
+        /* ⚠ 第 6 引数 = 「前進した」だけを待つ延長分 (救済の標本は 90 秒で凍結)。
+         *   廃坑の entry が 33x22 の大部屋になった分を吸収する (runPartC の注記)。 */
+        const r = await runPartC(browser, BASE, sid, 8, 90000, 210000);
         report.partC.push(r);
-        const R = r.last && r.last.rescue;
+        const R = r.sample || (r.last && r.last.rescue);
         /* ⚠ 「選択に答えた回数」は**全シナリオで**出す。分岐を持たないシナリオでも隠し要素の
          *   対話 (砦のゴーレムの派閥識別など) でダイアログが開くことが実測で分かっている
          *   (2026-08-11: orc-fort で 1 回)。ここを分岐シナリオだけに出すと、代役が
          *   **黙って効いている**状態になり「実プレイのまま測っている」という主張が崩れる。 */
-        console.log('    → ' + Math.round(r.elapsedMs / 1000) + 's / title="' + (r.last && r.last.title) +
+        console.log('    → ' + Math.round(r.elapsedMs / 1000) + 's (標本 90s) / title="' + (r.last && r.last.title) +
           '" / firstTileStep 呼び出し ' + (R ? R.calls : '?') +
           ' / 救済発火 ' + (R ? R.n : '?') + ' / 完全に進めず ' + (R ? R.hardFail : '?') +
           ' / 選択に答えた ' + r.dialogsAnswered + ' 回');
@@ -754,9 +775,12 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
           console.log('    分岐: entry=' + r.last.entryId + ' → 現在 ' + r.last.nodeId +
             ' / 訪問ノード ' + r.last.visitedN + ' 件' +
             ' / 終了時のダイアログ ' + (r.last.dialogUp ? '開いたまま' : 'なし'));
+          /* ★前進の判定は **見た瞬間 (advancedAt)** で行う。終了時の nodeId だけを見ると
+           *   「前進したあとで引き返した」で赤くなりうるし、何秒かかったかも残らない。 */
           check('(C-' + sid + ') ★?graph=auto が出口を自動選択して entry から前進した',
-            r.last.nodeId !== r.last.entryId && r.last.visitedN >= 2,
-            'entry=' + r.last.entryId + ' 現在=' + r.last.nodeId + ' 訪問=' + r.last.visitedN);
+            r.advancedAt !== null && r.last.visitedN >= 2,
+            'entry=' + r.last.entryId + ' 現在=' + r.last.nodeId + ' 訪問=' + r.last.visitedN +
+            ' 前進=' + (r.advancedAt === null ? 'せず' : Math.round(r.advancedAt / 1000) + 's'));
         }
         check('(C-' + sid + ') pageerror 0', r.pageErrors.length === 0,
           r.pageErrors.slice(0, 3).join(' | ') || 'none');
@@ -807,7 +831,7 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
     console.log('  シナリオ          firstTileStep 呼出   救済発火   完全に進めず');
     let totalFired = 0, totalCalls = 0;
     for (const r of report.partC) {
-      const R = (r.last && r.last.rescue) || { calls: 0, n: 0, hardFail: 0 };
+      const R = r.sample || (r.last && r.last.rescue) || { calls: 0, n: 0, hardFail: 0 };
       totalFired += R.n; totalCalls += R.calls;
       console.log('  ' + r.scenarioId.padEnd(18) + String(R.calls).padStart(10) +
         String(R.n).padStart(13) + String(R.hardFail).padStart(15));
