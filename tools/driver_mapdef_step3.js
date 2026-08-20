@@ -63,8 +63,9 @@
  *     レア床(1) が 137 枚ある → 数えるときは**全面 壁(2) の白紙 tiles を敷いてから**測る
  *   ⚠⚠ **§9 に戦闘 RNG を混ぜない**。ロスターは rat のみ。過去に goblinKing を混ぜたら
  *     ボスの召喚で PT が全滅し cleared=false になった (= 幾何ではなく編成の問題)
- *   ⚠⚠ **index.html 自身にラン ハード上限 4 分がある** ([DIAG][run-timeout])。検証マップの
- *     横幅は既定と同程度 (起点→ボスで約 34 タイル) に収め、HARD_MS は 4 分より短くする
+ *   ★[2026-08-20] 本体の打ち切りは**進行ウォッチドッグ** (90 秒まったく進行しない = 詰み) へ
+ *     置き換わった。長いだけでは [DIAG][run-timeout] は鳴らないので、横幅の制約は
+ *     「ドライバの HARD_MS に収まるか」だけになった
  *
  * ■ 使い方
  *     node tools/driver_mapdef_step3.js [--headful] [--port N] [--browser <path>]
@@ -364,7 +365,8 @@ function countNonWall(map) { let n = 0; for (const row of map) for (const v of r
 /* rooms は「意味」だけを担う (焼き固め方式)。⚠ tiles とわざと食い違わせて、
  * 幾何がどちらから来たのかを 1 タイルで判別できる形にする。
  * ⚠⚠ 起点 (10,20) → ボス (44,20) = **横 34 タイル** = 既定 (24→57 = 33) と同程度。
- *   ここを広げると index.html 自身のラン ハード上限 4 分に衝突する (step2 で実際に踏んだ)。 */
+ *   ここを広げるとドライバの HARD_MS に収まらなくなる (step2 で実際に踏んだ)。
+ *   ★[2026-08-20] 本体の 4 分固定上限は進行ウォッチドッグへ置き換わったので衝突しない。 */
 const PLAY_ROOMS = [
   { id: 'p0', role: 'start', rect: [17, 5, 25, 18],
     enemySlots: [[8, 19], [12, 22]], bossSlot: null, painting: null, scenery: null },
@@ -1507,9 +1509,9 @@ async function runIndex(browser, base, cfg, query) {
        *   ロスターに goblinKing 等を混ぜるとボスの召喚で PT が全滅し cleared=false になるが、
        *   それは「マップが壊れている」ではなく「その編成では勝てなかった」でしかない
        *   (2026-08-02 に step2 の worker が実際に踏んだ)。→ **rat のみ**にする。
-       * ⚠⚠ HARD_MS は **index.html 自身のラン ハード上限 4 分より短く**する。超えるとゲーム側が
-       *   console.error("[DIAG][run-timeout] …") を出して強制終了し、1f (エラー 0 件) が
-       *   「ドライバが長く待ちすぎたせい」で落ちて原因が読めなくなる。
+       * ★[2026-08-20] 以前はここに「HARD_MS は本体の 4 分上限より短く」という制約があった。
+       *   本体の打ち切りが**進行ウォッチドッグ** (90 秒まったく進行しない = 詰み) へ置き換わり、
+       *   長いだけでは [DIAG][run-timeout] は鳴らなくなったので、その制約は消えた。
        * ⚠ 「時間切れ」と「本当に詰まった」を区別する: 進捗 (踏破数・残敵数・PT 位置) が
        *   STALL_MS 変化しなければ即打ち切って stalled として報告する。 */
       const HARD_MS = 210000, STALL_MS = 90000;

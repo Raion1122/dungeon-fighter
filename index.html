@@ -34459,6 +34459,23 @@
 
       const REPORT_KEY = "dragonfighters.debugReport";
       const CAMPAIGN_KEY = "dragonfighters.debugCampaign";
+      /* ── 進行ウォッチドッグの窓 (2026-08-20 に廃坑の autoplay で実測して決めた) ──
+       *   STUCK_ABORT_MS: 「まったく進行しない」= 詰み とみなすまでの実時間。健全なランの
+       *     最長の無進行は実測 17 秒だったので、その約 5 倍を取る。
+       *     ⚠ 伸ばす前に「本当に進行しているのか」を疑うこと (窓を伸ばすのは最後の手段)。
+       *   RUN_BUDGET_MS: 巡回 (?autodebug=N) が次のランへ進むための**予算**。詰みの検出は
+       *     STUCK_ABORT_MS が担うので、ここは「万一ずっと歩き回っている」ときの保険。 */
+      const STUCK_ABORT_MS = 90000;
+      const RUN_BUDGET_MS = 600000;
+      /* COMBAT_LONG_MS: 「戦闘が長い」の目安 (テンポの参考値)。⚠ ここは critical ではない。
+       *   無限ループの実体は combat-no-round (15 秒ラウンドが進まない) と
+       *   run-timeout (90 秒何も進まない) が測る。 */
+      const COMBAT_LONG_MS = 45000;
+      /* COMBAT_RUNAWAY_ROUNDS: 「戦闘が終わらない」の実体をラウンド数で測る (critical)。
+       *   ⭐ 実時間ではなく**ラウンド数**なので、機械の速さにも演出速度にも依存しない
+       *   = 固定時間窓の罠 (健全な分布が窓をまたぐ) を持ち込まない。
+       *   D&D の 1 ラウンド = 6 秒なので 100 ラウンド = ゲーム内の戦闘 10 分ぶん。 */
+      const COMBAT_RUNAWAY_ROUNDS = 100;
       const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       const isoNow = () => { try { return new Date().toISOString(); } catch (e) { return "" + Date.now(); } };
       const finite = (x) => typeof x === "number" && Number.isFinite(x);
@@ -34527,6 +34544,8 @@
         combatActive: false, combatStartMs: 0, lastRound: 0, lastRoundMs: nowMs(),
         resultCount: 0, hpStillCount: 0, lastHpSig: null,
         posStill: 0, lastPosKey: null,
+        // 進行ウォッチドッグ (manageCampaign の詰み判定。旧: 実時間 4 分の固定上限)
+        lastProgressMs: nowMs(), progressSig: null,
       };
       function beat(kind, val) {
         const t = nowMs();
@@ -34544,6 +34563,12 @@
           beats.lastRound = val; beats.lastRoundMs = t;
           if (report.current && val > report.current.rounds) report.current.rounds = val;
           if (val > 25) record("combat-long", "warn", "戦闘が長い (" + val + " ラウンド)",
+            { round: val, scen: report.current && report.current.scenarioId });
+          /* ★[2026-08-20] combat-stall を warn へ降ろしたぶんの穴埋め。「ラウンドは進み続ける
+           *   のに永久に終わらない戦闘」は combat-no-round (ラウンドが止まる) でも
+           *   run-timeout (何も進まない) でも捕まらないので、ここで critical にする。 */
+          if (val > COMBAT_RUNAWAY_ROUNDS) record("combat-runaway", "critical",
+            "戦闘が " + val + " ラウンド継続 (無限ループ疑い)",
             { round: val, scen: report.current && report.current.scenarioId });
         } else if (kind === "result") {
           beats.resultCount++;
@@ -34581,7 +34606,9 @@
 
       function runChecks() {
         report.heartbeat = nowMs();   // 生存ビート (違反ゼロでも進む。外部ランナーの凍結検出用)
-        if (typeof gameStarted === "undefined" || !gameStarted) return;
+        /* ⚠ 開始画面 (gameStarted=false) の間は進行ウォッチドッグの時計を進めない。
+         *   進めると「スタートを押されないまま放置」で詰み判定が鳴る。 */
+        if (typeof gameStarted === "undefined" || !gameStarted) { beats.lastProgressMs = nowMs(); return; }
         if (!report.current) return;
         const spatialStable = !((typeof heroSliding !== "undefined" && heroSliding) ||
                                 (typeof attackActive !== "undefined" && attackActive));
@@ -34640,7 +34667,17 @@
         // ── 致命/進行: 戦闘無限ループ・進行なし ──
         if (typeof encounterActive !== "undefined" && encounterActive) {
           const dur = nowMs() - beats.combatStartMs;
-          if (dur > 45000) record("combat-stall", "critical", "戦闘が45秒以上継続 (無限ループ疑い)",
+          /* ★[2026-08-20] 「45 秒続いた」は無限ループの証拠ではない。卓上グリッドの大部屋
+           *   (P5 の移動 6 マス + P6 の射程の梯子) では健全な戦闘でも 45 秒を超える
+           *   — 廃坑の autoplay 8 本中 1〜2 本で鳴っており、driver_grid_p8 の (E2) が
+           *   **間欠的に**赤くなる原因になっていた (2026-08-20 実測)。run-timeout と同じ
+           *   「固定時間窓で欠陥を測る」誤り。⭐ 無限ループの**実体**は別の 2 つが測る:
+           *     - combat-no-round (15 秒ラウンドが進まない, critical)
+           *     - run-timeout    (90 秒何も進まない, critical / manageCampaign)
+           *   → ここは critical ではなく**テンポの参考値 (warn)** へ降ろす。
+           * ⚠ 閾値を伸ばして critical のまま残さないこと (同じ罠を先送りするだけ)。 */
+          if (dur > COMBAT_LONG_MS) record("combat-stall", "warn",
+            "戦闘が長い (" + Math.round(dur / 1000) + "秒継続)",
             { durSec: Math.round(dur / 1000), round: beats.lastRound, scen: report.current.scenarioId });
           if (beats.lastRound > 0 && (nowMs() - beats.lastRoundMs) > 15000)
             record("combat-no-round", "critical", "ラウンドが15秒進行せず", { round: beats.lastRound });
@@ -34677,6 +34714,40 @@
             beats.posStill = 0;
           }
         } else { beats.posStill = 0; }
+
+        /* ── 進行ウォッチドッグ: 「ランが長い」ではなく「ランが進んでいない」を測る ──
+         * ⭐⭐⭐ 旧実装は manageCampaign の **実時間 4 分の固定上限**だった。廃坑が
+         *   2026-08-20 の P8/P9 で 33x22 + 39x23 の大部屋 2 枚へ畳まれてからは、健全な
+         *   ランでも 168〜286 秒かかる (?autoplay=N が縮めるのは sleepMs 系の演出待ちだけで、
+         *   **歩行は縮まない**) ため、分布が上限をまたいで**同じツリーで鳴ったり鳴らなかったり**
+         *   していた。さらに巡回 (?autodebug) では廃坑が毎回 abort され、シナリオ1 のクリアを
+         *   一度も観測できなかった。窓を伸ばすのではなく「何を測りたかったのか」=
+         *   **詰んでいないか**、へ言い直す。
+         *   進行 = タイル / 生存敵数 / ラウンド / ノード / XP / 金貨 のいずれかが動くこと。
+         * ⚠ 対話・ナレ・結果表示の間は**時計を止める** (探索停滞 stall と同じ扱い。ゲーム時間
+         *   そのものが止まっているので「進んでいない」ではない)。
+         * ⚠ 位置は**タイル**で見る (画素だと歩行中の微動で永久に進行扱いになり、10 秒の stall と
+         *   同じものを二重に測るだけになる)。 */
+        const timeHalted = (typeof dialogPaused !== "undefined" && dialogPaused) ||
+          (typeof narrationHold !== "undefined" && narrationHold) ||
+          (typeof narrationPlaying !== "undefined" && narrationPlaying) ||
+          (typeof resultShown !== "undefined" && resultShown) ||
+          (typeof gameOver !== "undefined" && gameOver) ||
+          (typeof dungeonCleared !== "undefined" && dungeonCleared);
+        if (timeHalted) { beats.lastProgressMs = nowMs(); beats.progressSig = null; }
+        else {
+          const T = (typeof TILE_SIZE !== "undefined") ? TILE_SIZE : 96;
+          const sig = [
+            finite(playerX) ? Math.floor(playerX / T) : "?",
+            finite(playerY) ? Math.floor(playerY / T) : "?",
+            (typeof enemies !== "undefined" && enemies) ? enemies.filter(e => e.alive).length : -1,
+            beats.lastRound,
+            (typeof currentNodeId !== "undefined") ? currentNodeId : "-",
+            (typeof currentTotalXp !== "undefined" && finite(currentTotalXp)) ? currentTotalXp : -1,
+            (typeof coins !== "undefined" && finite(coins)) ? coins : -1,
+          ].join("/");
+          if (sig !== beats.progressSig) { beats.progressSig = sig; beats.lastProgressMs = nowMs(); }
+        }
 
         // ── 進行: DOM/fx リーク ──
         try {
@@ -34735,10 +34806,27 @@
           advanceCampaignAndNavigate();
           return;
         }
-        // ハード上限 (4分) で強制 abort (凍結や詰まりで巡回が止まらないように)
-        if (report.current && (nowMs() - report.current.startMs) > 240000) {
-          record("run-timeout", "critical", "ランがハード上限(4分)を超過 → 強制終了", { scen: report.current.scenarioId });
+        if (!report.current) return;
+        /* ★[2026-08-20] 詰み検出 = 「**進行が止まった**」(runChecks の進行ウォッチドッグ)。
+         *   旧: 実時間 4 分の固定上限。⭐ 固定時間窓は原理的にフレークで、しかも
+         *   「遅い」と「詰んだ」を区別できない。ここで測りたいのは後者だけ。 */
+        const stuckMs = nowMs() - beats.lastProgressMs;
+        if (stuckMs > STUCK_ABORT_MS) {
+          record("run-timeout", "critical",
+            "ランが" + Math.round(stuckMs / 1000) + "秒まったく進行せず → 強制終了",
+            { scen: report.current.scenarioId, stuckSec: Math.round(stuckMs / 1000), sig: beats.progressSig });
           finalizeRun("aborted");
+          advanceCampaignAndNavigate();
+          return;
+        }
+        /* 絶対上限は「**巡回が次のランへ進めること**」だけのための装置なので、巡回中だけ効かせる。
+         *   進行している遅いランは欠陥ではないので critical ではなく warn (id も分ける)。
+         * ⚠ 単発ページ (ドライバ / ?diag=1) には掛けない。掛けると「長いだけ」で赤くなる。 */
+        if (window.__autodebug && (nowMs() - report.current.startMs) > RUN_BUDGET_MS) {
+          record("run-budget", "warn",
+            "ランが巡回の予算(" + Math.round(RUN_BUDGET_MS / 60000) + "分)を超過 → 次のランへ",
+            { scen: report.current.scenarioId, sec: Math.round((nowMs() - report.current.startMs) / 1000) });
+          finalizeRun("budget");
           advanceCampaignAndNavigate();
         }
       }
