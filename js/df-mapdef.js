@@ -3092,6 +3092,38 @@
                ") — 矢印の向きと実際に歩く方向が食い違って見えます", node.id, ex.at);
       }
 
+      /* ④-b ★[2026-08-23] 敵/ボスのスロットが**自ノードの出口ゲート**に乗っている (error)。
+       * ⚠⚠ 出口 1 つにつき「閉じた扉」を 1 枚、**ゲートタイルそのもの**へ立てる設計
+       *   (index.html の rebuildNodeDoors)。閉じた扉は isTileWall を true にするので、
+       *   そこへ湧いた敵は岩に埋まったのと同じ = **近づけない・視線も通らない・倒せない**。
+       *   倒せない敵が 1 体残ると isNodeSettled() が永久に false のままで出口が出ず、
+       *   パーティが立ち尽くす = **そのシナリオがクリア不能**になる。
+       *   2026-08-23 に bandits-forest / n4 の banditMage @(39,13) で実際に起きた
+       *   (n4 → n7 の出口ゲートと同じタイル。実プレイで永久停止を観測)。
+       * ⚠ 扉が実際に立つのは nodeGateTile(dir) だが、それと ex.at が一致していることは
+       *   同じ lint の graph-gate-not-floor / graph-dir-mismatch が担保している。ここへ
+       *   幾何の式を写すと出所が 2 つになるので、**データ側の ex.at ただ 1 つ**で見る。
+       * ⚠ 親へ戻る「引き返し口」には扉を立てない (rebuildNodeDoors の注記) ので対象外。 */
+      var gateAt = {};
+      for (j = 0; j < node.exits.length; j++)
+        gateAt[node.exits[j].at[0] + "," + node.exits[j].at[1]] = node.exits[j].to;
+      var spawnSlots = [];
+      for (j = 0; j < rooms.length; j++) {
+        var esl = rooms[j].enemySlots || [];
+        for (var eIdx = 0; eIdx < esl.length; eIdx++) spawnSlots.push({ at: esl[eIdx], what: "敵" });
+        if (rooms[j].bossSlot) spawnSlots.push({ at: rooms[j].bossSlot, what: "ボス" });
+      }
+      for (j = 0; j < spawnSlots.length; j++) {
+        var sl = spawnSlots[j].at, stx = sl[0], sty = sl[1];
+        var toId = gateAt[stx + "," + sty];
+        if (toId === undefined) continue;
+        err("graph-spawn-on-gate",
+            'ノード "' + node.id + '" の' + spawnSlots[j].what + 'スロット (tx' + stx + ", ty" + sty +
+            ') が "' + toId + '" への出口ゲートと同じタイルです — そこには閉じた扉が立つので、' +
+            "湧いた敵は壁の中に埋まって倒せなくなり、ノードが永久に片付かず潜行がクリア不能になります",
+            node.id, [stx, sty]);
+      }
+
       /* ⑤ 行き止まりなのに中身が無い (warning)。kind:"search" の行き止まり = 完全な無駄足。
        *   ⚠ error にしない: 「外れを引いたら引き返す」は企画の骨格で、無駄足そのものは仕様。
        *     ここが言うのは「**探索する物が何も無い**探索ノード」という設計ミスだけ。 */
