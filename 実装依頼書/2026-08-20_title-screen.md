@@ -1,8 +1,57 @@
 # タイトル画面 `title.html` の新設 + 名乗り(主人公選択)の移設
 
-**ステータス**: 起草済(未承認)
-**依存**: ⚠ **`2026-08-20_save-slots.md`(A)の完了が前提。** A の `DFSlots` API を使う
+**ステータス**: 承認済 (2026-08-22)
+**依存**: ✅ **`2026-08-20_save-slots.md`(A)は完了済 `dde8457`。** A の `DFSlots` API を使う
 **撤退スイッチ**: `?title=0`(title.html を素通りして酒場へ) / `?herolock=0`(酒場でのクラス変更を復活)
+
+---
+
+## ⚠ 着手前実測による訂正 (2026-08-22 / 承認時に追記)
+
+本文中の**行番号は起草時のもので、8 件中 8 件がズレていた**。
+下記は承認時に**識別子 grep で実測し直した値**で、本文中のリンクも訂正済み。
+⭐ 実装時も**行番号を当てにせず識別子で grep すること**。
+
+| 識別子 | 起草時 | 実測 (2026-08-22) |
+|---|---|---|
+| index.html の酒場戻り 4 箇所 (`location.href = "tavern.html"`) | 13157 / 13158 / 34558 / 34615 | **13212 / 13213 / 34717 / 34774** |
+| tavern.html `partyComposition = ["warrior"]` | 3776 | **3777** |
+| tavern.html `partyComposition = [hero]` | 3844 | **3845** |
+| tavern.html `renderPartyComposition()` の click リスナ | 4409 | **4419** (関数本体は 4406) |
+| tavern.html `selectHero()` | 4418 | **4427** |
+| tavern.html `initTavernPrologue()` | 5732 | **5757** |
+| tavern.html 『冒険の記録を消す』の 2 段タップ | 5255 付近 | **5286-5314** (`render(armed)` + `setTimeout(..., 8000)`) |
+| tavern.html 「仲間を引き直す」 | 4468 | **4477** (ボタン DOM は 1873) |
+
+### 実測で確認できた前提 (本文どおり = そのまま進めてよい)
+
+- `title.html` / `js/hero-classes.js` は **どちらも実在しない** → 「新規作成」で正しい
+- `DFSlots` の 8 メソッド + 3 定数は [js/save-slots.js:326-336](../js/save-slots.js#L326-L336) に全部実在
+- `PARTY_ZONES` は [tavern.html:3108](../tavern.html#L3108) に実在し **6 キー**。
+  本文の `HERO_CLASSES` 案の `zone` と **6 職すべて一致**
+  (warrior/dwarf=front, rogue/elf/cleric=mid, mage=rear) → 受入条件 6. は現状で成立する
+- `GameAudio.unlock` / `playSfx` は [audio.js:848](../audio.js#L848)、`button` 音は
+  [audio.js:230](../audio.js#L230) に登録済 (UI バス経由)
+- localStorage キー `dragonfighters.partyComposition` は
+  [tavern.html:3839](../tavern.html#L3839) で読み [3860](../tavern.html#L3860) で書く
+- `ゲームを起動.vbs` の `url = "http://localhost:8765/tavern.html"` は 21 行目に実在
+
+### 本文に書かれていなかった穴 3 点 (受入条件に織り込むこと)
+
+1. ⚠⚠ **`#prologueOverlay` は共用器である。**
+   [tavern.html:5406](../tavern.html#L5406) に「前口上 / 受注 / 闇市の **3 用途で共用**」と明記されている。
+   受入条件 2. を「`#prologueOverlay` が表示されている」だけで測ると
+   **別用途の表示でも緑になる**。前口上であること (`prologueSeen` が消えている /
+   `#dmNarration` の本文が前口上のもの / `.quest-accept` クラスが**付いていない**)
+   まで含めて測ること。
+2. ⚠ **`dragonfighters.partyComposition` は localStorage と sessionStorage の両方に同名キーで存在する。**
+   sessionStorage 側は [tavern.html:5179](../tavern.html#L5179) / [5233](../tavern.html#L5233) が
+   出発時に書く別物。title から書くのは **localStorage** 側 (本文どおりで正しい) だが、
+   **ドライバが読む側を間違えると偽の緑/偽の赤になる**。
+   ⚠⚠ さらに same-origin の localStorage は**ページ遷移をまたいで生き残る**ので、
+   各テストの冒頭で明示的に消してから始めること。
+3. ⚠ **changelog 1 行が必須。** `tavern.html` を触るコミットは pre-commit フックが止める。
+   `py tools/add_changelog.py "<b>見出し</b> — 説明"`。**`--no-verify` は使わない**。
 
 ---
 
@@ -31,11 +80,11 @@
 
 | 資産 | 場所 | 本依頼書での扱い |
 |---|---|---|
-| 前口上(フランの記録) | [tavern.html:5732](../tavern.html#L5732) `initTavernPrologue()` + `#prologueOverlay` + `playNarration()` + VOICEVOX manifest | **酒場に残す。title.html へ移設しない**(下記) |
-| 主人公 1 人縛り | [tavern.html:3776](../tavern.html#L3776) `partyComposition = ["warrior"]` / [3844](../tavern.html#L3844) `partyComposition = [hero]` | そのまま。書き込む場所が title.html に増えるだけ |
-| クラス選択 | [tavern.html:4418](../tavern.html#L4418) `selectHero()` | 関数は残す。酒場からの**呼び出しだけを封じる** |
+| 前口上(フランの記録) | [tavern.html:5757](../tavern.html#L5757) `initTavernPrologue()` + `#prologueOverlay` + `playNarration()` + VOICEVOX manifest | **酒場に残す。title.html へ移設しない**(下記) |
+| 主人公 1 人縛り | [tavern.html:3777](../tavern.html#L3777) `partyComposition = ["warrior"]` / [3845](../tavern.html#L3845) `partyComposition = [hero]` | そのまま。書き込む場所が title.html に増えるだけ |
+| クラス選択 | [tavern.html:4427](../tavern.html#L4427) `selectHero()` | 関数は残す。酒場からの**呼び出しだけを封じる** |
 | 新規ゲーム(消去) | 依頼書 A の `DFSlots.newGame(n)` | そのまま呼ぶ |
-| 酒場への戻り | [index.html:13157](../index.html#L13157) / [13158](../index.html#L13158) / [34558](../index.html#L34558) / [34615](../index.html#L34615) の 4 箇所が `tavern.html` へ直行 | ⚠ **1 箇所も触らない。** ダンジョンから戻るたびにスロット選択させられる地獄を作らない |
+| 酒場への戻り | [index.html:13212](../index.html#L13212) / [13213](../index.html#L13213) / [34717](../index.html#L34717) / [34774](../index.html#L34774) の 4 箇所が `tavern.html` へ直行 | ⚠ **1 箇所も触らない。** ダンジョンから戻るたびにスロット選択させられる地獄を作らない |
 
 ### 前口上を title.html へ移さない理由(重要な設計判断)
 
@@ -77,7 +126,7 @@
 - ⚠ 埋まっているスロットの「はじめから」は **2 段タップ確認**。
   1 回目で「このスロットの記録を消して最初から始めます」の確認行を出し、
   **8 秒無操作なら安全側(未確認)へ自動復帰**する。
-  この 2 段タップ + 8 秒復帰は [tavern.html:5255 付近](../tavern.html#L5255) の
+  この 2 段タップ + 8 秒復帰は [tavern.html:5286-5314](../tavern.html#L5286-L5314) の
   『冒険の記録を消す』が既に実装している作法。**同じ挙動に揃える**
 
 #### 画面 2: 名乗り(「はじめから」でのみ表示)
@@ -146,15 +195,15 @@ window.HERO_CLASSES = [
 | ファイル | 変更 |
 |---|---|
 | [ゲームを起動.vbs](../ゲームを起動.vbs) の `url =` 行 | `.../tavern.html` → `.../title.html` |
-| [tavern.html:4409](../tavern.html#L4409) 付近 `renderPartyComposition()` | `if (!isHero) el.addEventListener("click", () => selectHero(slot.classKey));` を **`?herolock=0` の時だけ**付けるようにする。通常時は非主人公タイルを `.locked-out`(押せない見た目)にし、`title` 属性に「主人公は変更できません(新規ゲームで選び直せます)」を出す |
-| [tavern.html:4418](../tavern.html#L4418) `selectHero()` | **関数は残す**(`?herolock=0` 経路とデバッグで使う)。削除しない |
+| [tavern.html:4419](../tavern.html#L4419) 付近 `renderPartyComposition()` | `if (!isHero) el.addEventListener("click", () => selectHero(slot.classKey));` を **`?herolock=0` の時だけ**付けるようにする。通常時は非主人公タイルを `.locked-out`(押せない見た目)にし、`title` 属性に「主人公は変更できません(新規ゲームで選び直せます)」を出す |
+| [tavern.html:4427](../tavern.html#L4427) `selectHero()` | **関数は残す**(`?herolock=0` 経路とデバッグで使う)。削除しない |
 
 ### 触らないと決めたファイル
 
-- **[index.html](../index.html) — 1 行も触らない。** 特に `tavern.html` へ戻る 4 箇所(`13157` / `13158` / `34558` / `34615`)
+- **[index.html](../index.html) — 1 行も触らない。** 特に `tavern.html` へ戻る 4 箇所(`13212` / `13213` / `34717` / `34774`)
 - `audio.js` — タイトル BGM は別チケット
-- [tavern.html:5732](../tavern.html#L5732) `initTavernPrologue()` — **無改修で動く**のが本設計の眼目
-- [tavern.html:4468](../tavern.html#L4468) 「仲間を引き直す」— これは**仲間の抽選**であって主人公変更ではない。残す
+- [tavern.html:5757](../tavern.html#L5757) `initTavernPrologue()` — **無改修で動く**のが本設計の眼目
+- [tavern.html:4477](../tavern.html#L4477) 「仲間を引き直す」— これは**仲間の抽選**であって主人公変更ではない。残す
 
 ---
 
