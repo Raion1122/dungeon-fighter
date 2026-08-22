@@ -10,7 +10,8 @@
  *    3. 運河が渡れない              … マスク × **絵の画素** の 2 経路
  *    4. クリックしたタイルに立つ
  *    5. 歩けないタイルでは動かない
- *    6. 看板から施設へ入れる        … ⚠ STEP5 待ちの部分あり (下記)
+ *    6. 看板から施設へ入れる        … 遷移先の **画面が開いているか** まで
+ *   10. 前口上が二重に出ない      … 後回しになっただけ (次に鹿亭へ入ると出る)
  *    7. 入口が 2 種類になっていない  … 遷移後の location.search が空文字
  *    8. 闇市は解禁前に出ない
  *    9. 立ち位置の規則              … 5 経路 + 未知の値 + 欠損 (fail-safe の直接検査)
@@ -18,12 +19,11 @@
  *   12. 撤退で赤くなる              … ?town=0 で 6 つの**状態**が崩れる
  *   13. 装置 assert                 … §0 の変異アンカーと、各所の母集団ガード
  *
- * ■ ⚠ まだ測れないもの (本依頼書の STEP5 = tavern.html / index.html / title.html の配線待ち)
- *    受入条件 6 の「#shopScreen / #plazaScreen が可視」・10「前口上が二重に出ない」・
- *    14「verify_title_screen.js の 2. と 8. を期待値を緩めずに回収した」は、
- *    **受け取り側がまだ無い**ので測れない。ここでは town.html 側の責務までを測る:
- *      「素の tavern.html へ遷移し、enterVia が正しい値で渡っている」。
- *    ⛔ 測れないものを「緑」にしない。STEP5 の着地時にこのファイルへ足すこと。
+ * ■ 受入条件 14 (既存の赤を期待値を緩めずに回収) は別ファイルで測る
+ *    tools/verify_title_screen.js の受入条件 2 / 3 / 4c / 8 はこの変更で必ず赤くなる
+ *    (依頼書 §10 の予告は 2 本だったが、実測では **9 本** だった)。
+ *    回収は「期待文字列を書き換える」ではなく **arriveTavern() で測定点を
+ *    「街を通り抜けた後」へ移し**、(TZ) が「本当に通り抜けたか」を装置 assert で押さえた。
  *
  * ■ ⭐⭐⭐ 空振りを防ぐ仕掛け
  *   - 到達可能性は **自前で BFS を書かない**。TOWN_MAP.findPath をブラウザで呼ぶ。
@@ -213,12 +213,21 @@ async function openTown(browser, base, opts) {
       }
       kill2.forEach(k => sessionStorage.removeItem(k));
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify([seed.cls]));
-      if (seed.plazaUnlocked) localStorage.setItem('dragonfighters.plazaState', JSON.stringify({ unlocked: true }));
+      if (seed.plazaUnlocked) {
+        /* ⚠ 闇市は「解禁 (5 回クリア)」と「門番 (変装手段)」の **2 段**。
+           受入条件 6 は看板から中へ入れることを測るので、門番を通れる状態まで作る。
+           everEntered / gatekeeperEventSeen を立てるのは初回ナレを挟ませないため
+           (ナレは受入条件 6 の対象ではないし、待ちが伸びると測定が不安定になる)。 */
+        localStorage.setItem('dragonfighters.plazaState',
+          JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: true }));
+        if (seed.plazaWand) localStorage.setItem('dragonfighters.plazaInventory',
+          JSON.stringify({ wand_polymorph: [3] }));
+      }
       if (seed.prologueSeen) localStorage.setItem('dragonfighters.prologueSeen', '1');
       if (seed.exitVia !== null) sessionStorage.setItem('dragonfighters.exitVia', seed.exitVia);
     } catch (e) {}
   }, { cls: opts.cls || 'warrior', plazaUnlocked: opts.plazaUnlocked !== false,
-       prologueSeen: !!opts.prologueSeen,
+       plazaWand: opts.plazaWand !== false, prologueSeen: !!opts.prologueSeen,
        exitVia: (opts.exitVia === undefined || opts.exitVia === null) ? null : opts.exitVia });
   await page.goto(base + (opts.url || '/town.html'), { waitUntil: 'load', timeout: 30000 });
   return { page: page, errs: errs };
@@ -432,24 +441,94 @@ async function measureTownState(browser, base, url) {
       await o.page.close();
     }
 
-    /* ── 受入条件 6/7: 看板 → 施設 / クエリを足していない ────────────────────
-     *  ⚠ STEP5 (tavern.html の受け口) はまだ無いので、ここは town.html 側の責務まで:
-     *    「素の tavern.html へ着く」+「enterVia が正しい値で渡っている」。 */
+    /* ── 受入条件 6/7: 看板 → 施設 / クエリを足していない ──────────────────
+     *  ⚠⚠ enterVia は tavern.html の受け口が **読んだ瞬間に消す** (一回性)。
+     *    よって「着いた後に enterVia が残っているか」で測ると必ず赤くなる。
+     *  ⭐ 測定点を **効果の側** へ移す: どの画面が開いたか + キーが消費されているか。 */
     console.log('\n--- 受入条件 6. 看板から施設へ入れる / 7. 入口が 2 種類になっていない ---');
-    for (const pair of [['tavern', 'tavern'], ['shop', 'shop'], ['plaza', 'plaza']]) {
-      const key = pair[0], via = pair[1];
-      const o = await openTown(browser, base, { plazaUnlocked: true });
+    for (const cse of [['tavern', { shop: false, plaza: false }],
+                       ['shop',   { shop: true,  plaza: false }],
+                       ['plaza',  { shop: false, plaza: true  }]]) {
+      const key = cse[0], want = cse[1];
+      const o = await openTown(browser, base, { plazaUnlocked: true, prologueSeen: true });
       await waitTownReady(o.page);
       const present = await o.page.evaluate((k) => !!document.getElementById('townSign_' + k), key);
       check('(6z-' + key + ') [装置] 看板が実在する', present);
       await o.page.evaluate((k) => document.getElementById('townSign_' + k).click(), key);
-      try { await o.page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 15000 }); } catch (e) {}
-      const loc = await o.page.evaluate(() => ({ path: location.pathname, search: location.search,
-                                                 via: sessionStorage.getItem('dragonfighters.enterVia') }));
+      try { await o.page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 20000 }); } catch (e) {}
+      await sleep(900);
+      const loc = await o.page.evaluate(() => {
+        const vis = (id) => {
+          const el = document.getElementById(id);
+          if (!el) return false;
+          const cs = getComputedStyle(el);
+          return cs.display !== 'none' && cs.visibility !== 'hidden';
+        };
+        return { path: location.pathname, search: location.search,
+                 shop: vis('shopScreen'), plaza: vis('plazaScreen'),
+                 tavernVis: getComputedStyle(document.getElementById('tavern')).visibility,
+                 hold: document.documentElement.classList.contains('enterViaHold'),
+                 leftover: sessionStorage.getItem('dragonfighters.enterVia') };
+      });
       check('(6-' + key + ') ★看板から tavern.html へ着く', /\/tavern\.html$/.test(loc.path), loc.path);
-      check('(6v-' + key + ') ★enterVia = "' + via + '" が渡っている', loc.via === via, String(loc.via));
+      check('(6s-' + key + ') ★★着いた先の画面が正しい (shop=' + want.shop + ' / plaza=' + want.plaza + ')',
+            loc.shop === want.shop && loc.plaza === want.plaza,
+            JSON.stringify({ shop: loc.shop, plaza: loc.plaza }));
+      check('(6c-' + key + ') [装置] enterVia は一回性 (受け口が読んで消している)',
+            loc.leftover === null, String(loc.leftover));
+      check('(6h-' + key + ') ★幕 (enterViaHold) が外れ、酒場が visible に戻っている',
+            loc.hold === false && loc.tavernVis === 'visible',
+            JSON.stringify({ hold: loc.hold, vis: loc.tavernVis }));
       check('(7-' + key + ') ★受入条件7: 遷移後の location.search が空文字 (クエリを 1 つも足していない)',
             loc.search === '', JSON.stringify(loc.search));
+      await o.page.close();
+    }
+
+    /* ── 受入条件 10: 前口上が二重に出ない ─────────────────────────────────
+     *  ⭐ 「消えた」のではなく「後回しになった」ことまで測る。
+     *    🛡️ から入ったときは出ず、その直後に 🦌 から入ると **出る**。
+     *  ⚠ 母集団ガード: prologueSeen を仕込まない (仕込むとどちらでも出ないので常に緑)。 */
+    console.log('\n--- 受入条件 10. 前口上が二重に出ない ---');
+    {
+      const o = await openTown(browser, base, { plazaUnlocked: true, prologueSeen: false });
+      await waitTownReady(o.page);
+      const seed = await o.page.evaluate(() => localStorage.getItem('dragonfighters.prologueSeen'));
+      check('(10z) [装置] prologueSeen が未設定 (前口上が出る条件を作れている)', seed === null, String(seed));
+
+      await o.page.evaluate(() => document.getElementById('townSign_shop').click());
+      try { await o.page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 20000 }); } catch (e) {}
+      await sleep(1500);
+      const viaShop = await o.page.evaluate(() => {
+        const ov = document.getElementById('prologueOverlay');
+        return { overlay: !!ov && getComputedStyle(ov).display !== 'none',
+                 shop: getComputedStyle(document.getElementById('shopScreen')).display !== 'none',
+                 seen: localStorage.getItem('dragonfighters.prologueSeen') };
+      });
+      check('(10a) ★🛡️ から入ったときは前口上が出ない', viaShop.overlay === false, JSON.stringify(viaShop));
+      check('(10z2) [装置] そのとき店はちゃんと開いている (何も起きずに緑ではない)', viaShop.shop === true);
+      check('(10z3) [装置] prologueSeen は立っていない (消したのではなく後回し)',
+            viaShop.seen === null, String(viaShop.seen));
+
+      /* 街へ出て、今度は 🦌 からくぐる */
+      await o.page.evaluate(() => {
+        const s = document.getElementById('shopScreen'); if (s) s.style.display = 'none';
+        document.getElementById('townExit').click();
+      });
+      try { await o.page.waitForFunction("window.__town && typeof window.__town.heroTile === 'function'", { timeout: 20000 }); } catch (e) {}
+      await o.page.evaluate(() => document.getElementById('townSign_tavern').click());
+      try { await o.page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 25000 }); } catch (e) {}
+      try {
+        await o.page.waitForFunction(() => {
+          const ov = document.getElementById('prologueOverlay');
+          return !!ov && getComputedStyle(ov).display !== 'none';
+        }, { timeout: 20000 });
+      } catch (e) {}
+      const viaTavern = await o.page.evaluate(() => {
+        const ov = document.getElementById('prologueOverlay');
+        return { overlay: !!ov && getComputedStyle(ov).display !== 'none', path: location.pathname };
+      });
+      check('(10b) ★その直後に 🦌 から入ると前口上が **出る** (消えたのではなく後回しだった)',
+            viaTavern.overlay === true, JSON.stringify(viaTavern));
       await o.page.close();
     }
 

@@ -3033,6 +3033,33 @@
   <div id="nodeLayer"><div id="enemyLayer"></div></div>
 
   <script>
+    /* ══ ダンジョンからの帰還先 (実装依頼書 #12 town-map-phlan) ═══════════════════
+       戻る先が「銀の鹿亭」から「港町フラン (town.html)」へ移った。
+
+       ⚠⚠⚠ **帰還先は 2 箇所ではなく 4 箇所**ある。起草時に 2 箇所と書いて
+         いちばん使われるリザルト経路を取りこぼした前科があるので、必ず数えること:
+             grep -n 'window.location.href = dfReturnPage' index.html   → 4 件 + この注記の 1 行
+         ① リザルト (クリア/敗北) ② 撤退 ③ エンディング後 ④ autoplay のスキップ
+
+       ⚠ exitVia を書いてから飛ぶ。街はこれを見て「直前に居た場所の前」に立たせる
+         (js/town-map.js の SPAWNS)。ダンジョンからの帰還は常に "dungeon" =
+         依頼を受けた酒場の前。⛔ ここでクエリを足さない (入口が 2 種類になる)。
+
+       ⚠ 撤退スイッチ ?town=0 のときは、街を足す前とまったく同じ tavern.html 直行に落とす。
+         クエリはページ遷移をまたがないので sessionStorage へ写して読む。 */
+    function dfReturnPage() {
+      var off = false;
+      try {
+        if (new URLSearchParams(location.search).get("town") === "0") {
+          sessionStorage.setItem("dragonfighters.townOff", "1");
+        }
+        off = sessionStorage.getItem("dragonfighters.townOff") === "1";
+      } catch (e) { off = false; }
+      if (off) return "tavern.html";
+      try { sessionStorage.setItem("dragonfighters.exitVia", "dungeon"); } catch (e) {}
+      return "town.html";
+    }
+
     // ── オーディオ薄ラッパ (audio.js 未読込でも安全に no-op) ──
     function sfx(n, o) { try { if (window.GameAudio) GameAudio.playSfx(n, o); } catch (e) {} }
     function bgm(n) { try { if (window.GameAudio) GameAudio.playBgm(n); } catch (e) {} }
@@ -13284,8 +13311,8 @@
 
     async function playEnding() {
       // autoplay / 自動巡回検証 はエンディングを完全スキップ (検証完走のため)
-      if (window.__autoplay) { window.location.href = "tavern.html"; return; }
-      const goTavern = () => { window.location.href = "tavern.html"; };
+      if (window.__autoplay) { window.location.href = dfReturnPage(); return; }   // 帰還④ autoplay のスキップ
+      const goTavern = () => { window.location.href = dfReturnPage(); };          // 帰還③ エンディング後
 
       const ro = document.getElementById("resultOverlay");
       if (ro) ro.classList.remove("show");
@@ -19056,10 +19083,45 @@
     // 初期検知: 各敵の射程 (engagePx) に基づいて判定
     // 増援検知: 同じく各敵の射程 + 少し余裕 (同室の敵を拾う)
     const REINFORCE_MARGIN_PX = 160;
+    /* ★[#13 / 2026-08-23] 「参加者が全滅した瞬間の掃討合流」の撤退スイッチ (?mopup=0)。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
+    const MOPUP_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("mopup") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* ★[#13 / 2026-08-23] 「増援の視線だけパーティ基準へ広げる」の撤退スイッチ (?mopupsight=0)。
+     * ⚠ 掃討合流 (?mopup=0) とは**別の口**にする。合流点を足したことの効果と、視線の
+     *   非対称を直したことの効果を切り分けて測るため。 */
+    const MOPUP_SIGHT_OFF = (() => {
+      try { return new URLSearchParams(location.search).get("mopupsight") === "0"; }
+      catch (e) { return false; }
+    })();
 
-    function detectEnemiesEngagedByRange(excludeSet, extraPx) {
+    /* @param partySight 真のとき「視線」だけをリーダー + 生存仲間の**誰か 1 人**で見る。
+     *   ⚠⚠ この関数は視界 (isEnemyVisibleToParty) を**パーティ全員**の和集合で見るのに、
+     *     視線 (hasLineOfSight) は**リーダー 1 人**からしか見ていなかった。この非対称のせいで
+     *     「パーティには見えているのにリーダーが柱の陰にいるから合流しない」が起きる
+     *     (2026-08-23 実測: 森 n7 の盗賊アーチャー vis=o / los=x で 5.1 タイル)。
+     *   ⚠ 真を渡すのは detectReinforcements() **だけ**。detectEngaged() (初期交戦) は
+     *     1 バイトも変えない — :18107 が名指しで警告している「交戦距離を広げると入場した
+     *     瞬間に戦闘 = 冒頭の 3 択 (EV-2) が消える」に触らないため。
+     *   ⚠ **距離の基準はリーダーのまま**。距離まで全員に広げると engagePx の意味が変わる。 */
+    function detectEnemiesEngagedByRange(excludeSet, extraPx, partySight) {
       const pCX = playerX + 48, pCY = playerY + 58;
       const list = [];
+      /* ⚠ partySight が偽なら短絡して仲間ループへ入らない = detectEngaged は毎フレーム
+       *   呼ばれるが従来と**恒等**かつ同じコスト。 */
+      const useParty = !!partySight && !MOPUP_SIGHT_OFF;
+      const losOK = (ex, ey) => {
+        if (hasLineOfSight(pCX, pCY, ex, ey)) return true;
+        if (!useParty) return false;
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          const s = (a.def && a.def.displaySize) || 96;
+          if (hasLineOfSight(a.x + s / 2, a.y + s / 2, ex, ey)) return true;
+        }
+        return false;
+      };
       for (let i = 0; i < enemies.length; i++) {
         if (excludeSet && excludeSet.has(i)) continue;
         const e = enemies[i];
@@ -19075,7 +19137,7 @@
         const enemyRange = getRange(e.def.range || "melee");
         const engageDist = enemyRange.engagePx + (extraPx || 0);
         // フォグ視界 gating: 敵がパーティ視界内に入るまで戦闘開始/増援しない(伏兵化)
-        if (d < engageDist && hasLineOfSight(pCX, pCY, ex, ey) && isEnemyVisibleToParty(e)) {
+        if (d < engageDist && losOK(ex, ey) && isEnemyVisibleToParty(e)) {
           list.push(i);
         }
       }
@@ -19085,7 +19147,53 @@
       return detectEnemiesEngagedByRange(null, 0);
     }
     function detectReinforcements() {
-      return detectEnemiesEngagedByRange(new Set(encounterEnemyIndices), REINFORCE_MARGIN_PX);
+      // ★[#13] 増援だけ視線をパーティ基準へ (第3引数)。初期交戦は従来のまま。
+      return detectEnemiesEngagedByRange(new Set(encounterEnemyIndices), REINFORCE_MARGIN_PX, true);
+    }
+
+    /* ── 増援の合流 (バナー → 状態リセット → イニシアチブ → units へ参戦) ────────────
+     * ⚠ units / sortUnits は runEncounter のローカルなので**引数で受ける**
+     *   (spawnGoblinChariot / spawnWave と同型。:29919 のコメント参照)。
+     * ⚠ 呼び出し点は 2 つだけ: ①ラウンド先頭 (round > 1) ②参加者が全滅した瞬間 (掃討)。
+     *   ここへ 3 つ目を足すときは「units をイテレート中に push しない」を必ず確かめること。 */
+    async function mergeReinforcements(list, units, sortUnits) {
+      if (!list || !list.length) return;
+      const names = list.map(i => enemies[i].def.name).join("、");
+      showBanner("⚠ REINFORCEMENT ⚠", 1200);
+      updateInfo(`敵の増援が合流! (${names})`);
+      await sleepMs(900);
+      for (const i of list) {
+        encounterEnemyIndices.push(i);
+        const e = enemies[i];
+        e.state = "idle";
+        e.attackTimer = 0;
+        e.attackHitDealt = false;
+        e.path = [];
+        e.pathTimer = 0;
+        e.stunned = 0;
+        e.slowedRemaining = 0; e.__moveBlockedThisTurn = false;
+        e.poisonRemaining = 0; e.poisonDie = null;
+        e.huntMarkRemaining = 0; e.huntMarkDie = 0;
+        e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
+        if (e.statusEffects) e.statusEffects.length = 0;   // status-effect v1.1
+
+        const dexVal = e.def.dex || 0;
+        const n = d20();
+        const init = n + dexVal;
+        units.push({
+          kind: "enemy",
+          idx: i,
+          name: e.def.name,
+          dex: dexVal,
+          initiative: init,
+        });
+        showRollAtEnemy(i,
+          `<span class="label">REINFORCE</span>1d20(${n})${signedDD(dexVal)} = <span class="big">${init}</span>`,
+          "init");
+        await sleepMs(400);
+      }
+      sortUnits();
+      await sleepMs(500);
     }
 
     function tryStartEncounter() {
@@ -19478,45 +19586,7 @@
                (encounterEnemyIndices.some(i => enemies[i].alive) || wavesRemaining())) {
           // 2ラウンド目以降: 近くに未参戦の敵がいれば増援として合流
           if (round > 1) {
-            const reinforce = detectReinforcements();
-            if (reinforce.length > 0) {
-              const names = reinforce.map(i => enemies[i].def.name).join("、");
-              showBanner("⚠ REINFORCEMENT ⚠", 1200);
-              updateInfo(`敵の増援が合流! (${names})`);
-              await sleepMs(900);
-              for (const i of reinforce) {
-                encounterEnemyIndices.push(i);
-                const e = enemies[i];
-                e.state = "idle";
-                e.attackTimer = 0;
-                e.attackHitDealt = false;
-                e.path = [];
-                e.pathTimer = 0;
-                e.stunned = 0;
-                e.slowedRemaining = 0; e.__moveBlockedThisTurn = false;
-                e.poisonRemaining = 0; e.poisonDie = null;
-                e.huntMarkRemaining = 0; e.huntMarkDie = 0;
-                e.atkPenaltyRemaining = 0; e.atkPenaltyAmount = 0;
-                if (e.statusEffects) e.statusEffects.length = 0;   // status-effect v1.1
-
-                const dexVal = e.def.dex || 0;
-                const n = d20();
-                const init = n + dexVal;
-                units.push({
-                  kind: "enemy",
-                  idx: i,
-                  name: e.def.name,
-                  dex: dexVal,
-                  initiative: init,
-                });
-                showRollAtEnemy(i,
-                  `<span class="label">REINFORCE</span>1d20(${n})${signedDD(dexVal)} = <span class="big">${init}</span>`,
-                  "init");
-                await sleepMs(400);
-              }
-              sortUnits();
-              await sleepMs(500);
-            }
+            await mergeReinforcements(detectReinforcements(), units, sortUnits);
           }
 
           showBanner(`ROUND ${round}`, 850);
@@ -19588,6 +19658,25 @@
              *   ラウンド先頭の点は二度と回らない (ボス撃破後は reached が false へ戻る)。
              * ⚠ setPhase("combat") はもう走り終わっているので、BGM はここで切り替える。 */
             if (latchBossApproachIfReached()) bgm(currentBgmId() || "boss");
+          }
+          /* ★★★[#13 / 2026-08-23] **参加者が全滅した瞬間にも増援を見る**。
+           * ⚠⚠ 既存の増援点は上の `if (round > 1)` = **ラウンド先頭のただ 1 点**しかない。
+           *   ところがパーティは戦闘中も playerAdvanceOneTile で 1 手番 1 タイル前進し、敵も
+           *   寄ってくる。**ラウンドの途中で条件を満たしたのに、そのラウンドの最後の一撃で
+           *   決着した敵**は二度と評価されない。while 条件も encounterEnemyIndices.some(alive)
+           *   = **その戦闘の参加者しか見ない**ので、周囲に敵が立っていても VICTORY →
+           *   setPhase("rest") へ落ちる (2026-08-23 実測: 廃坑 n1 で休憩の瞬間に
+           *   detectReinforcements() が 2 体を返していた = ユーザーのスクリーンショット)。
+           * ⚠ 判定式は detectReinforcements() **ただ 1 本**のまま (述語を 2 本にしない)。
+           *   合流できたら while 条件が真に戻るので、同じ戦闘がそのまま続く。
+           * ⚠ round > 1 のガードは**掃討側には掛けない**。あれは「初手で engagePx を 160px
+           *   広げない」ためのもので、参加者が全滅した後には当てはまらない。
+           * ⚠ ウェーブ防衛 (wavesRemaining) は while を自前で持たせている状態機械なので
+           *   素通しする。波の切れ目に掃討を挟むと区間制の意味が変わる。
+           * ⚠ 無限化しない: 合流した敵はこの戦闘で倒されるし、下の round > 40 が最終防壁。 */
+          if (!MOPUP_OFF && !gameOver && hp > 0 && !escortWagonLost() && !wavesRemaining() &&
+              !encounterEnemyIndices.some(i => enemies[i].alive)) {
+            await mergeReinforcements(detectReinforcements(), units, sortUnits);
           }
           round++;
           encounterRound = round;  // [英雄の眼] ミラー (ローカル round 自体は不変)
@@ -34844,7 +34933,7 @@
     resultBtnEl.addEventListener("click", () => {
       // dragon-lair クリア時はエンディング(エピローグ→スタッフロール)へ。それ以外は酒場へ。
       if (resultEndingPending) { resultEndingPending = false; playEnding(); return; }
-      window.location.href = "tavern.html";
+      window.location.href = dfReturnPage();   // 帰還① リザルト (いちばん使われる経路)
     });
 
     // ── 撤退機能 (探索中のみ・ペナルティなしで酒場へ戻る) ──
@@ -34901,7 +34990,7 @@
             totalXp:  currentTotalXp,
           },
         }));
-        window.location.href = "tavern.html";
+        window.location.href = dfReturnPage();   // 帰還② 撤退 (探索中の離脱)
       });
     }
     // 戦闘中・リザルト表示中・未開始はボタンをグレーアウト

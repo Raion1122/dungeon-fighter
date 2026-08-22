@@ -28,6 +28,10 @@
       素の tavern.html へ飛ばすだけで initTavernPrologue() が自動で語り出す。
       ⚠ **遷移先にクエリを足さないこと。** 足すと「ダンジョンから戻る」導線と形が変わり、
         酒場の入口が 2 種類になる。
+      ⚠ [依頼書 #12 town-map-phlan] 遷移先は **town.html (港町フラン)** へ移った。
+        語る順番も「起動 → 街を歩く → 酒場の扉をくぐる → 前口上」に変わっている。
+        ナレ機構は tavern.html 側の資産のままで、街へは移設していない (依頼書 §4)。
+        行き先は nextAfterTitle() ただ 1 本 (?town=0 で従来の tavern.html へ戻す)。
 
     ★ 音 (Phase 1 の方針)
       - **BGM を鳴らさない。** tavern の曲を鳴らすと遷移した瞬間に同じ曲が頭出しへ戻る
@@ -310,9 +314,29 @@
          酒場で「戻る」を押した人が撤退したはずのタイトルへ戻ってしまう。
        ⚠ 効かなくなっても静かに素通りしない (silent fail-open) ことは
          tools/verify_title_screen.js の受入条件 8. が測っている。 */
+    /* ══ 街の撤退スイッチ ?town=0 (依頼書 #12 town-map-phlan §11) ══════════
+       ⚠⚠ クエリはページ遷移をまたがないので、**見た時点で sessionStorage へ写して**全ページで読む。
+       ⚠⚠⚠ ?title=0 と ?town=0 は **別々のスイッチ**。?title=0 の行き先を tavern.html に
+         据え置くと「タイトルを飛ばすと街も飛ぶ」= 2 つの機能が 1 つのスイッチに相乗りし、
+         赤が出たときにどちらを撤退したのか切り分けられなくなる。組み合わせは:
+             ?title=0 無 / ?town=0 無 → title.html → town.html
+             ?title=0 有 / ?town=0 無 → town.html      (タイトルだけ飛ばす)
+             ?title=0 無 / ?town=0 有 → title.html → tavern.html (街を足す前と同じ)
+             ?title=0 有 / ?town=0 有 → tavern.html    (街を足す前の ?title=0 と同じ) */
+    var TOWN_OFF_KEY = "dragonfighters.townOff";
+    try {
+      if (new URLSearchParams(location.search).get("town") === "0") sessionStorage.setItem(TOWN_OFF_KEY, "1");
+    } catch (e) {}
+    /* ⛔ 遷移先にクエリを足さない。変わるのはページ名だけで、URL は常に素のまま。 */
+    function nextAfterTitle() {
+      var off = false;
+      try { off = sessionStorage.getItem(TOWN_OFF_KEY) === "1"; } catch (e) { off = false; }
+      return off ? "tavern.html" : "town.html";
+    }
+
     var titleOff = false;
     try { titleOff = new URLSearchParams(location.search).get("title") === "0"; } catch (e) { titleOff = false; }
-    if (titleOff) { location.replace("tavern.html"); return; }
+    if (titleOff) { location.replace(nextAfterTitle()); return; }
 
     /* zone の生値 → 日本語ラベル。⚠ ここは **表示ラベルの対応表**であって隊列の定義ではない。
        隊列の唯一の正は tavern.html / index.html の PARTY_ZONES で、
@@ -512,10 +536,11 @@
     }
 
     // ── 遷移 ─────────────────────────────────────────────────────────
-    /* ⚠ 遷移先にクエリを足さない。素の tavern.html へ飛ばす (依頼書の設計判断)。 */
+    /* ⚠ 遷移先にクエリを足さない (依頼書の設計判断)。行き先は nextAfterTitle() ただ 1 本で、
+       街 ON なら town.html / ?town=0 なら tavern.html。⛔ ここに ? を書き足さないこと。 */
     function doContinue(slot) {
       try { if (window.DFSlots) DFSlots.switchTo(slot); } catch (e) {}
-      location.href = "tavern.html";
+      location.href = nextAfterTitle();
     }
 
     function doNewGame(slot) {
@@ -537,7 +562,7 @@
         // ⚠ localStorage 側。tavern.html:5179/5233 が出発時に sessionStorage へ書く同名キーとは別物。
         localStorage.setItem("dragonfighters.partyComposition", JSON.stringify([chosenClass]));
       } catch (e) {}
-      location.href = "tavern.html";
+      location.href = nextAfterTitle();
     }
 
     // ══ 画面 2: 名乗り ═════════════════════════════════════════════════

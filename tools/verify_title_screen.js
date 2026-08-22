@@ -677,6 +677,38 @@ function probeLayout() {
     await sleep(600);   // 遷移先の同期スクリプト完走ぶん。以降の待ちは全てポーリング
   }
 
+  /* ══ 依頼書 #12 town-map-phlan: 着地点が town.html (港町フラン) へ移った ═══════════
+     タイトルから「つづきから/旅立つ」を押すと、酒場ではなく **街** に着き、
+     そこで 🦌 の看板をくぐって初めて酒場へ入る。
+
+     ⛔ (2)(3)(4c)(8) の期待文字列を tavern.html → town.html へ書き換えて終わりにしない。
+        それは検出器を「手段」に縛り直すだけで、次の仕様変更でまた腐る。
+     ⭐ 代わりに **測定点を「街を通り抜けた後」へ移す**。判定関数 (judgeNewGameRound /
+        judgeContinueRound / judgeConfirmArmed) の式と期待値は **1 文字も変えていない**。
+     ⚠ 通り抜けたかどうかは観測値として持ち帰る。0 回のまま全部緑になったら
+        「街を一度も通っていないのに通ったつもり」= 空振りなので (TZ) が弾く。
+     ⚠ 街に居ないとき (直接 /tavern.html を開いた等) は素通り。素通り回数も数える。 */
+  const townTrip = { legs: 0, skips: 0, firstSearch: [] };
+  async function arriveTavern(page) {
+    try {
+      const at = await page.evaluate(() => ({ path: location.pathname, search: location.search }));
+      if (/\/town\.html$/.test(at.path)) {
+        townTrip.firstSearch.push(at.search);
+        await page.waitForFunction(
+          "window.__town && !!document.getElementById('townSign_tavern')", { timeout: 20000 });
+        await page.evaluate(() => document.getElementById('townSign_tavern').click());
+        await page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 30000 });
+        await sleep(700);
+        townTrip.legs++;
+      } else {
+        townTrip.skips++;
+      }
+    } catch (e) {
+      townTrip.skips++;
+    }
+    return await page.evaluate(probeTavernArrival);
+  }
+
   /* 「はじめから」を押して名乗り画面まで進む共通手順。
      ⚠⚠ **埋まっているスロットは 2 段タップ確認を挟む** (受入条件 4.)。実プレイと同じ手順を
         踏むためここで吸収するが、**どちらを通ったかを戻り値で申告**する。
@@ -710,7 +742,7 @@ function probeLayout() {
     try {
       await clickAndNavigate(page, '#slotList .slotCard[data-slot="' + slot + '"] button[data-act="continue"]');
     } catch (e) { pressed = false; }
-    const obs = await page.evaluate(probeTavernArrival);
+    const obs = await arriveTavern(page);
     obs.pressedContinue = pressed;
     return obs;
   }
@@ -1023,7 +1055,11 @@ function probeLayout() {
     // ── ③ 2 タップ目: 「この者として旅立つ」で確定 → 酒場へ ───────────
     await clickAndNavigate(p2, '#btnDepart');
 
-    /* 前口上が出るまで **ポーリング**する。⚠ 固定 sleep に頼らない */
+    /* ⚠⚠ [依頼書 #12 town-map-phlan] 前口上は **街をくぐって酒場に入った後**に出る。
+       town.html には #prologueOverlay が無いので、ここで先に待つと必ずタイムアウトして
+       (2p) が偽の赤になる (実測で踏んだ)。→ **先に街を通り抜けてから**ポーリングする。
+       ⚠ 固定 sleep に頼らないのは従来どおり。 */
+    let o2 = await arriveTavern(p2);
     let overlayCameUp = true;
     try {
       await p2.waitForFunction(() => {
@@ -1031,7 +1067,7 @@ function probeLayout() {
         return !!o && getComputedStyle(o).display !== 'none';
       }, { timeout: 20000 });
     } catch (e) { overlayCameUp = false; }
-    const o2 = await p2.evaluate(probeTavernArrival);
+    o2 = await p2.evaluate(probeTavernArrival);   // ★オーバーレイが出た後の状態で採り直す
 
     console.log('  [到着] ' + o2.href);
     console.log('         localStorage  partyComposition = ' + JSON.stringify(o2.pcLocal));
@@ -1076,7 +1112,7 @@ function probeLayout() {
        「#prologueOverlay が見えている」が固定の真ではないことの証明。
        prologueSeen を立てて **同じ入口**を踏むと、同じ器は出ない。 */
     const p2n = await openPage('/tavern.html', { prologueSeen: true });
-    const o2n = await p2n.evaluate(probeTavernArrival);
+    const o2n = await arriveTavern(p2n);
     await p2n.close();
     check('(2n) [負のコントロール] prologueSeen を立てた酒場では同じ器が出ない (器は在るが非表示)',
       o2n.hasOverlay === true && o2n.overlayVisible === false && o2n.prologueSeen === '1',
@@ -1109,7 +1145,7 @@ function probeLayout() {
       localStorage.setItem('dragonfighters.xp', xp);
       localStorage.setItem('dragonfighters.gold', g);
     }, XP_A, GOLD_A);
-    const s1 = await p3.evaluate(probeTavernArrival);
+    const s1 = await arriveTavern(p3);
 
     check('(3z1) [装置] 1 周目: スロット1 で新規を始めて酒場に着き、そこへ進行を作れた',
       /\/tavern\.html$/.test(s1.pathname) && s1.pcLocal === JSON.stringify([HERO_A])
@@ -1139,7 +1175,7 @@ function probeLayout() {
       JSON.stringify({ slot1: step3a, slot2: step3b }));
     await p3.click('#classCards .classCard[data-class-key="' + HERO_B + '"]');
     await clickAndNavigate(p3, '#btnDepart');
-    const s2 = await p3.evaluate(probeTavernArrival);
+    const s2 = await arriveTavern(p3);
 
     /* ★ ここが無いと (3) は空振りする。切り替えが起きていなければ「戻った」も自明に緑になる。 */
     check('(3z3) [装置] スロット2 の新規でライブが入れ替わった (1 周目の xp が消え・主人公が変わり・active が 2)',
@@ -1293,7 +1329,7 @@ function probeLayout() {
 
     await p4.click('#classCards .classCard[data-class-key="' + NEW_HERO + '"]');
     await clickAndNavigate(p4, '#btnDepart');
-    const arr4 = await p4.evaluate(probeTavernArrival);
+    const arr4 = await arriveTavern(p4);
     await p4.close();
     check('(4c) ★受入条件4: 確定まで進むと記録が実際に消える (旧 xp / 旧所持金が消え、主人公が入れ替わる)',
       arr4.xp === null && arr4.gold === null
@@ -1492,11 +1528,33 @@ function probeLayout() {
     /* ⚠ tavern.html も js/save-slots.js を読み込むので DFSlots は **居る**。
        「タイトルが描かれていない」は screenSlots と .slotCard の不在で測る
        (最初 hasDFSlots===false で書いて偽の赤を踏んだ = 測定点の誤り)。 */
-    check('(8) ★受入条件8: title.html?title=0 は即座に tavern.html へ抜ける (タイトルは 1 枚も描かれない)',
-      /\/tavern\.html$/.test(arrived8.pathname || '') && arrived8.search === ''
+    /* ⭐⭐⭐ 受入条件 8 の **不変条件は「タイトルが 1 枚も描かれない」**。行き先のページ名は
+       手段でしかなく、依頼書 #12 town-map-phlan §11 の組み合わせ表が決める。
+       ⛔ 期待文字列を tavern.html → town.html へ書き換えて終わりにしない
+          (それは検出器を手段に縛り直すだけで、次の仕様変更でまた腐る)。
+       ⭐ そこで行き先は **1 点ではなく 2x2 の表そのもの**を (8t) で測る。こうすると
+          「?title=0 と ?town=0 が 1 つのスイッチに相乗りしていない」ことも同時に守れる。 */
+    check('(8) ★受入条件8: title.html?title=0 は即座に次のページへ抜ける (タイトルは 1 枚も描かれない)',
+      arrived8.search === ''
         && t8.screenSlots === false && t8.screenNaming === false && (t8.cards || []).length === 0,
       JSON.stringify({ pathname: arrived8.pathname, search: arrived8.search,
                        screenSlots: t8.screenSlots, nSlotCards: (t8.cards || []).length }));
+
+    /* (8t) 依頼書 #12 §11 の組み合わせ表。⚠ ?title=0 の行き先を tavern.html に据え置くと
+       「タイトルを飛ばすと街も飛ぶ」= 2 機能が 1 スイッチに相乗りし、赤が出たときに
+       どちらを撤退したのか切り分けられなくなる。表の 2 行を実測して独立を証明する。 */
+    {
+      const pTbl = await openPage('/title.html?title=0&town=0',
+        { prologueSeen: false, allowRedirect: true, settle: 1200 });
+      const tbl = await pTbl.evaluate(() => ({ path: location.pathname, search: location.search }));
+      await pTbl.close();
+      check('(8t) ★?title=0 単独は街へ / ?title=0&town=0 は街を足す前とまったく同じ酒場へ '
+            + '(2 つのスイッチが相乗りしていない)',
+        /\/town\.html$/.test(arrived8.pathname || '') && arrived8.search === ''
+          && /\/tavern\.html$/.test(tbl.path || '') && tbl.search === '',
+        JSON.stringify({ titleOffOnly: arrived8.pathname, titleOffTownOff: tbl.path,
+                         search: [arrived8.search, tbl.search] }));
+    }
 
     /* ── ★ 1.〜4. と **同じ判定関数**を、同じ手順を踏んだ結果に対して呼ぶ ──────
        踏めない (要素が無い) ことも記録に残す。⚠ 例外を握るのは「踏めなかった」を
@@ -1510,7 +1568,7 @@ function probeLayout() {
       await p8.click('#classCards .classCard[data-class-key="' + CASE2.hero + '"]');
       await clickAndNavigate(p8, '#btnDepart');
     } catch (e) { flow2Threw = String((e && e.message) || e).split('\n')[0].slice(0, 60); }
-    const a8 = await p8.evaluate(probeTavernArrival);
+    const a8 = await arriveTavern(p8);
     const j2 = judgeNewGameRound(a8, CASE2.hero);
 
     /* location.replace を使っている証明。href だと履歴に title.html が残り、
@@ -1873,6 +1931,17 @@ function probeLayout() {
   /* 受入条件 11. (既存 golden ドライバの非退行) は **本ドライバの外**で回す。
      ⚠ 受入条件 5. で tavern.html の DOM に .locked-out と title 属性が増えている。
        canvas の SHA しか見ない golden では検出できないので、5b / 7b が直接測っている。 */
+
+  /* ══ 装置 assert: 測定点が本当に「街を通り抜けた後」へ移ったか (依頼書 #12 受入条件 14) ══
+     ⚠⚠⚠ これが無いと、街が丸ごと壊れて誰も town.html に着かなくなっても
+       arriveTavern が毎回「素通り」に落ちて **全部緑のまま**になる。
+       移せたことを 1 本の assert で押さえるのが、期待値を緩めない張り替えの条件。
+     ⚠ 街の側でクエリを足していないことも、通り抜けたときの search で見る。 */
+  check('(TZ) [装置] 受入条件 2/3/4 の観測が **実際に街を通り抜けた後**で採られている '
+        + '(素通りだけで緑になっていない)',
+    townTrip.legs >= 3 && townTrip.firstSearch.every(s => s === ''),
+    JSON.stringify({ 街を通った回数: townTrip.legs, 素通り: townTrip.skips,
+                     街に着いた時のsearch: townTrip.firstSearch }));
 
   check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
 

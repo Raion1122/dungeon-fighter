@@ -1336,6 +1336,30 @@
       transition: background 0.12s, box-shadow 0.12s;
     }
     #shopEntry:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+
+    /* ── 街へ出る導線 (実装依頼書 #12 town-map-phlan) ────────────────────────
+       酒場は港町フランの中の 1 軒になったので、外へ出る口が要る。
+       ⚠ #shopEntry (右下) と対になる **左下**。 ?town=0 のときは JS 側で丸ごと出さない。 */
+    #townExit {
+      position: absolute; left: 18px; bottom: 18px; z-index: 12;
+      padding: 10px 16px; cursor: pointer;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px;
+      box-shadow: var(--parchment-shadow);
+      transition: background 0.12s, box-shadow 0.12s;
+    }
+    #townExit:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+
+    /* ⚠⚠ 🛡️/🌑 の扉から入ったときに「酒場の内装が一瞬見えてから店が被さる」のを防ぐ幕。
+       クラスは <html> に付く (描画より前の <script> が付ける)。
+       #shopScreen / #plazaScreen は #tavern の **内側**なので、子で visibility を戻す。
+       ⚠ 幕は店を開いた直後に外す。外し忘れると酒場へ戻ったときに真っ白になる。 */
+    html.enterViaHold #tavern { visibility: hidden; }
+    html.enterViaHold #tavern #shopScreen,
+    html.enterViaHold #tavern #plazaScreen { visibility: visible; }
     /* 武器防具屋 画面 (全画面オーバーレイ) */
     #shopScreen {
       position: fixed; inset: 0; z-index: 160; display: none;
@@ -1782,6 +1806,42 @@
     window.__dfDevMode = on;
     if (on) document.body.classList.add("dev-mode");
 
+    /* ══ 港町フランから「どの扉で入ったか」を受け取る (実装依頼書 #12 §3) ═══════════
+       town.html が sessionStorage["dragonfighters.enterVia"] に "tavern"/"shop"/"plaza" を
+       書いて、**クエリを 1 つも足さずに** 素の tavern.html へ飛ばしてくる。
+       ⛔ URL を 2 種類にしない。依頼書 #6 title-screen が名指しで禁じた事項。
+
+       ⚠⚠ **ここで読む理由 = 描画より前だから。** この <script> は #tavern (下方) より前に
+         あるので、酒場の内装が一度も塗られないうちに「隠す」を決められる。
+         あとから openShop() を呼ぶだけだと、酒場が一瞬見えてから店が被さる。
+       ⚠ 一回性。読んだら消す (再読込で勝手に店が開かない)。
+       ⚠ キーが無ければ今日とまったく同じ「素の酒場」。これは silent fail-open ではなく
+         **正しい既定へ落ちている** (街を通らない導線が今も生きている)。 */
+    var via = null;
+    try {
+      via = sessionStorage.getItem("dragonfighters.enterVia");
+      sessionStorage.removeItem("dragonfighters.enterVia");
+    } catch (e) { via = null; }
+    window.__enterVia = (via === "shop" || via === "plaza" || via === "tavern") ? via : null;
+    /* 🛡️/🌑 から入るときだけ、酒場の内装を塗らせない。⚠ #shopScreen と #plazaScreen は
+       #tavern の **内側**にあるので、visibility は子で戻してやる (CSS 側)。
+       クラスは店を開いた直後に外す (同じ同期タスク内なので途中で塗られることはない)。 */
+    if (window.__enterVia === "shop" || window.__enterVia === "plaza") {
+      document.documentElement.classList.add("enterViaHold");
+    }
+
+    /* ══ 街の撤退スイッチ ?town=0 (実装依頼書 #12 §11) ═════════════════════════
+       ⚠ クエリはページ遷移をまたがないので、見た時点で sessionStorage へ写す。
+       酒場から街へ出る導線は、これが立っているときは丸ごと出さない。 */
+    try {
+      if (new URLSearchParams(location.search).get("town") === "0") {
+        sessionStorage.setItem("dragonfighters.townOff", "1");
+      }
+    } catch (e) {}
+    window.__townOff = (function () {
+      try { return sessionStorage.getItem("dragonfighters.townOff") === "1"; } catch (e) { return false; }
+    })();
+
     /* dev 専用 URL チートの有効条件 (index.html と同一実装)。
        ⚠ ?autoplay / ?autodebug / ?diag が付いていれば dev 扱いにする。ヘッドレス検証ドライバ群は URL
           直指定に依存しており、dev モード必須にすると「チートが黙って効かない」= 測定値が壊れる静かな
@@ -2005,10 +2065,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>港町フランを歩けるようになった</b> — 冒険の出発点が酒場の中から街の通りへ。銀の鹿亭・武器防具屋・怪しい石段へは、運河の橋を渡って自分の足で向かう。</li>
         <li><b>森の「丸太の砦」で先へ進めなくなる不具合を修正</b> — 盗賊の魔術師が奥の扉と重なって湧いてしまい、どうやっても倒せず道が開かないことがあった。</li>
         <li><b>盗賊団のアジトが本物の野営地になった</b> — 森の街道を東へ、丸太橋を渡り、柵の門をくぐって頭目スカーの天幕へ。橋の見張りと門番が道を塞いでいる。</li>
         <li><b>依頼の重さで、応じる冒険者の数が変わるように</b> — 酒場で募集をかけると、★の少ない小仕事には人が集まらず、★の多い大仕事ほど多くの冒険者が名乗りを上げる。出発の準備では「この依頼に応じた冒険者: ◯人」と分かり、顔ぶれが気に入らなければ「募集をかけ直す」で呼び直せる。隊は多くても四人までのまま。</li>
-        <li><b>出発の準備の見出しを実態に合わせた</b> — 主人公の職業は名乗りで決まるので、準備画面では「えらぶ」ではなく「変更するには新規ゲーム」と案内するようにした。</li>
       </ul>
     </div>
     <script>
@@ -2065,12 +2125,17 @@
     </div>
 
     <!-- v7.1: 武器防具屋 入口 (酒場内・右下) -->
+    <!-- 街へ出る (実装依頼書 #12)。⚠ ?town=0 のときは JS が丸ごと消す -->
+    <div id="townExit" title="港町フランへ出る">🚪 街へ出る</div>
     <div id="shopEntry" title="武器防具屋">🛡️ 武器防具屋</div>
 
     <!-- v7.1: 武器防具屋 画面 -->
     <div id="shopScreen">
       <div id="shopInner">
-        <div id="shopSign">武器防具屋<small>鍛冶と革の匂いが漂う、銀の鹿亭併設の店</small></div>
+        <!-- ⚠ 副題は街の地理に合わせてある (実装依頼書 #12)。武器防具屋は銀の鹿亭の「併設」ではなく、
+             運河を **北橋で渡った東岸の市場口**。js/town-map.js の FACILITIES が唯一の正:
+             鹿亭 (9,0)-(10,1) / 武器防具屋 (15,0)-(16,1) / 運河 cols 12-13。 -->
+        <div id="shopSign">武器防具屋<small>鍛冶と革の匂いが漂う、運河を渡った市場口の店</small></div>
         <div class="shopHead">
           <div class="shopTabs">
             <button type="button" id="shopTabBuy" class="shopTab active">購入</button>
@@ -5888,6 +5953,11 @@
   // ── オープニング前口上: 初回来訪時のみ、クリックで開始して1度だけ語る ──
   (function initTavernPrologue() {
     const KEY = "dragonfighters.prologueSeen";
+    /* ⚠⚠ 🛡️ 武器防具屋 / 🌑 闇市 の扉から入ったときは語らない (実装依頼書 #12 §4)。
+       前口上は #prologueOverlay = **店の画面と共有のオーバーレイ**なので、放っておくと
+       店の裏で語り出して前に出てくる。消すのではなく **後回し**にするだけで、
+       次に 🦌 の扉から酒場へ入ったときに prologueSeen が未設定のまま残っていて語られる。 */
+    if (window.__enterVia && window.__enterVia !== "tavern") return;
     let seen = false;
     try { seen = !!(window.localStorage && localStorage.getItem(KEY)); } catch (e) {}
     if (seen) return;  // 既視聴 (旧 index フローで見た人を含む) はスキップ
@@ -6425,6 +6495,42 @@
         },
       };
       openPrep(synthetic);
+    });
+  })();
+
+  /* ══ 港町フランの扉から入ったときの受け口 (実装依頼書 #12 town-map-phlan §3) ═════
+     ⚠ ここは初期化の **最後**。openShop() / onTapPlazaDoor() が定義済みで、
+       酒場側の初期化も済んでいる必要がある (先頭で呼ぶと未定義で落ちる)。
+     ⚠⚠ 幕 (html.enterViaHold) は **必ず外す**。外し忘れると酒場へ戻ったときに真っ白になる。
+       「外す」と「開く」を同じ同期タスクで行うので、途中で酒場が塗られることはない。
+     ⚠⚠⚠ 闇市は onTapPlazaDoor() を通す (enterPlaza() を直接呼ばない)。
+       門番の判定 (変装手段が要る) が街から入ったときだけ抜けるのは、仕様の穴になる。 */
+  (function initEnterVia() {
+    const via = window.__enterVia;
+    const drop = function () {
+      try { document.documentElement.classList.remove("enterViaHold"); } catch (e) {}
+    };
+    drop();
+    if (!via || via === "tavern") return;      // 🦌 と「キー無し」は素の酒場 = 今日と同じ
+    try {
+      if (via === "shop") openShop();
+      else if (via === "plaza") onTapPlazaDoor();
+    } catch (e) {
+      /* ⛔ 握り潰さない。開けなかったら素の酒場に居る = 詰まないが、原因は残す。 */
+      console.warn("[town] enterVia=" + via + " の受け口で失敗", e);
+    }
+  })();
+
+  /* ══ 街へ出る (実装依頼書 #12 §5) ══════════════════════════════════════════
+     ⚠ exitVia を書いてから飛ぶ。街は「直前に居た場所の前」= 🦌 デッキの前 (10,3) に立たせる。
+     ⚠ ?town=0 のときはボタンごと消す。押せる導線を残すと、撤退したはずの街へ行けてしまう。 */
+  (function initTownExit() {
+    const btn = document.getElementById("townExit");
+    if (!btn) return;
+    if (window.__townOff) { btn.remove(); return; }
+    btn.addEventListener("click", function () {
+      try { sessionStorage.setItem("dragonfighters.exitVia", "tavern"); } catch (e) {}
+      location.href = "town.html";     // ⛔ クエリを足さない
     });
   })();
 
