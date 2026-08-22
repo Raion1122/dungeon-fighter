@@ -6,14 +6,24 @@
  *   node tools/verify_title_screen.js [--headful] [--port N]
  *
  * ── 実装状況 (段階的に足していく骨組み) ────────────────────────────────────
- *   ✅ 受入条件 6.  : hero-classes.js の zone と tavern.html の PARTY_ZONES の突き合わせ  ← 本ファイルの現状
- *   ⬜ 受入条件 1.〜4.: title.html のスロット選択 / 名乗り / 続き / 2 段タップ  (項目 2〜3 が追加)
- *   ⬜ 受入条件 5. 7. : tavern.html のクラス変更封印 と ?herolock=0 の装置 assert (項目 4 が追加)
- *   ⬜ 受入条件 8.    : ?title=0 の装置 assert                                   (項目 4 が追加)
+ *   ✅ 受入条件 6.  : hero-classes.js の zone と tavern.html の PARTY_ZONES の突き合わせ
+ *   ✅ 受入条件 1.〜3.: title.html のスロット選択 / 名乗り / 続きの一周
+ *   ✅ 受入条件 4.    : 埋まったスロットの 2 段タップ確認 + 8 秒で安全側へ自動復帰
+ *   ✅ 受入条件 5. 7. : tavern.html のクラス変更封印 と ?herolock=0 の装置 assert
+ *   ✅ 受入条件 8.    : ?title=0 の装置 assert (1.〜4. の判定関数を共有して落とす)
+ *   ✅ 実装ステップ 5.: ゲームを起動.vbs の飛び先が /title.html で、実際に立つこと
  *   ⬜ 受入条件 9. 10.: 390px / 横長デスクトップの両方 と GameAudio.unlock       (項目 4 が追加)
  *   ⬜ 受入条件 11.   : 既存 golden ドライバの非退行 (本ドライバの外で回す)
  *   足す場所は下の「■ SECTION」コメントに印を付けてある。共通の道具は
  *   openPage() / check() / results / pageErrors。新しいセクションはそれを使い回すこと。
+ *
+ * ── ⭐⭐⭐ 判定本体の共有 (受入条件 7. / 8. の要) ────────────────────────────
+ *   「スイッチを外すと赤」は **assert 本体を共有しないと空振りする**。判定式をその場に
+ *   直書きすると「要素が無い → false → たまたま赤」になり、何も証明できない (依頼書 #5 で実測)。
+ *     受入条件 1.〜4. → judgeSlotsScreen / judgeNewGameRound / judgeContinueRound / judgeConfirmArmed
+ *     受入条件 5. 7.  → judgeHeroUnchanged (+ 手順そのものも runHeroTileClick で共有)
+ *   本番セクションは戻り値を PROD_VERDICT に残し、?title=0 のセクションが
+ *   **同じ関数・同じ入力** で false を得る。conjunction (AND) と (8z1) が対で証明する。
  *
  * ── ★ 受入条件 6. の設計: 「片方の写経」にしないための 2 経路 ────────────────
  *   依頼書は「片方の写経ではなく **2 経路の突き合わせ**」を要求している。
@@ -148,6 +158,95 @@ function mutateOneZone(heroClasses) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * 受入条件 1. / 2. / 3. / 4. の **判定本体** (Node 側・純関数)
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⭐⭐⭐ ここが受入条件 8. の要。**「スイッチを外すと赤」は assert 本体を共有しないと空振りする。**
+ *   ?title=0 では title.html の要素が 1 つも無いので、判定を **その場に直書き**すると
+ *   「要素が無い → false → たまたま赤」になり、**何も証明できない**。
+ *   (依頼書 #5 で実測済み: 別々に書いた結果 keysEqual:true の空振りを踏み、
+ *    conjunction にして初めて 4/4 赤になった)
+ *
+ *   → 1.〜4. の判定式をこの 4 本に括り出し、
+ *       本番のセクション と ?title=0 のセクション が **同じ関数オブジェクト**を呼ぶ。
+ *       さらに 8. は 4 本の戻り値の **AND (状態の conjunction)** で測る。
+ *   → 「共有が空振りしていない」ことは (8z1) が押さえる:
+ *       同じ 4 本が **本番では true を返した**という記録 (PROD_VERDICT) と突き合わせる。
+ *       全部 false を返すだけの壊れた関数なら (8z1) が赤くなる。
+ *
+ * ⚠ 判定に使う期待値 (職業名など) は呼び出し側が渡す。ここに書き写さない。
+ */
+
+/* 受入条件 1. : 全消しの title.html がスロット 3 枚を「記録なし」+「はじめから」だけで描く */
+function judgeSlotsScreen(o) {
+  if (!o) return false;
+  const cards = o.cards || [];
+  return o.threw === '' && o.ranToEnd === true
+    && o.screenSlots === true && o.screenNaming === false && o.errorShown === false
+    && cards.length === 3
+    && cards.every(c => c.empty === true)
+    && cards.every(c => (c.emptyLabel || '').indexOf('記録なし') >= 0)
+    && cards.every(c => (c.metaFields || []).length === 0)
+    && cards.every(c => (c.acts || []).length === 1 && c.acts[0].act === 'new' && c.acts[0].label === 'はじめから');
+}
+
+/* 受入条件 2. : 新規の一周が素の tavern.html に着き、選んだ職 1 人だけが localStorage に入る */
+function judgeNewGameRound(o, heroKey) {
+  if (!o) return false;
+  return /\/tavern\.html$/.test(o.pathname || '') && o.search === ''
+    && o.pcLocal === JSON.stringify([heroKey])
+    && o.heroInTavern === heroKey && o.activeSlot === '1';
+}
+
+/* 受入条件 3. : スロット1 の「つづきから」で xp / gold / 主人公 が戻る
+   ⚠⚠⚠ **`pressedContinue` を必ず要求する。** 「つづきから」を押していないのに
+     たまたま同じ値が入っている状態 (例: ライブに同じ進行を仕込んで酒場を直接開いた)
+     と区別できないと、受入条件 8. の負のコントロールが偽の赤になる (実測で踏んだ)。
+     ボタンを押したという事実は runContinueRound() が観測値として載せてくる。 */
+function judgeContinueRound(o, heroKey, xp, gold) {
+  if (!o) return false;
+  return o.pressedContinue === true
+    && /\/tavern\.html$/.test(o.pathname || '') && o.search === ''
+    && o.xp === xp && o.gold === gold
+    && o.pcLocal === JSON.stringify([heroKey]) && o.heroInTavern === heroKey
+    && o.activeSlot === '1';
+}
+
+/* 受入条件 4. : 埋まったスロットの「はじめから」1 タップ目 = 確認行が出るだけで、記録は無傷
+   ⚠ 「確認行が出た」だけでは足りない。**名乗りへ進んでいない** ことと
+      **保存領域が 1 バイトも変わっていない** ことを同じ判定に畳む
+      (見た目だけ確認行で、裏で消えていたら赤にしたい)。
+   live0 = 1 タップ目の直前に採った live のスナップショット。 */
+function judgeConfirmArmed(o, slot, live0) {
+  if (!o || !live0) return false;
+  const card = (o.cards || []).find(c => c.slot === String(slot));
+  if (!card) return false;
+  const cf = card.confirm || {};
+  const acts = (cf.btns || []).map(b => b.act).sort().join(',');
+  return o.threw === ''
+    && o.screenSlots === true && o.screenNaming === false     // ★ 名乗りへ進んでいない
+    && card.empty === false
+    && cf.visible === true
+    && (cf.text || '').indexOf('このスロットの記録を消して最初から始めます') >= 0
+    && acts === 'confirm-cancel,confirm-yes'
+    // ★ 記録が無傷 (1 タップでは消えない)
+    && o.live.xp === live0.xp && o.live.gold === live0.gold
+    && o.live.pc === live0.pc && o.live.activeSlot === live0.activeSlot;
+}
+
+/* 受入条件 5. / 7. : 非主人公タイルをクリックしても主人公が変わらない
+   ⭐ 5. (通常時 = true であること) と 7. (?herolock=0 では false になること) が
+      **この 1 本を共有**する。別々に書くと「両方とも間違っている」事故を防げない。
+   ⚠ selection (酒場が実際に採用した値) と localStorage の両方を見る。
+      selectHero() は selection を書いてから saveSelections() を呼ぶので、
+      片方だけだと「途中で落ちた」状態を取りこぼす。 */
+function judgeHeroUnchanged(pre, post) {
+  if (!pre || !post) return false;
+  return pre.threw === '' && post.threw === ''
+    && typeof pre.hero === 'string' && pre.hero.length > 0
+    && post.hero === pre.hero && post.pc === pre.pc;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
  * 観測 (ページ側)。判定を 1 つも持たない。
  * ══════════════════════════════════════════════════════════════════════════ */
 function probePartyZones() {
@@ -205,13 +304,59 @@ function probeTitleSlots() {
         metaFields: [].slice.call(c.querySelectorAll('.slotMetaRow')).map(function (r) {
           return { field: r.getAttribute('data-field'), value: ((r.querySelector('.v') || {}).textContent || '') };
         }),
-        acts: [].slice.call(c.querySelectorAll('button[data-act]')).map(function (b) {
+        /* ⚠ **`.slotActs` に限定する。** 2 段タップ確認の「やめる / 消して始める」も
+              data-act を持つので、カード全体から拾うと armed のときだけ acts が 4 個に化ける。
+              確認行は下の `confirm` で別に採る (別の性質は別の器で測る)。 */
+        acts: [].slice.call(c.querySelectorAll('.slotActs button[data-act]')).map(function (b) {
           return { act: b.getAttribute('data-act'), label: b.textContent };
         }),
+        confirm: (function () {
+          var box = c.querySelector('.slotConfirm');
+          return {
+            exists: !!box,
+            // :empty の CSS で畳まれるので、display が「確認行が出ているか」そのもの
+            visible: !!box && getComputedStyle(box).display !== 'none',
+            text: (box && box.textContent) || '',
+            btns: box ? [].slice.call(box.querySelectorAll('button[data-act]')).map(function (b) {
+              return { act: b.getAttribute('data-act'), label: b.textContent };
+            }) : [],
+          };
+        })(),
       };
     });
     out.list = (window.DFSlots ? DFSlots.list() : null);   // 別経路 (API 側の実際の答え)
     out.hasDFSlots = !!window.DFSlots;
+    /* ライブ名前空間の生値。受入条件 4. が「1 タップ目で記録が **消えていない**」を
+       DOM ではなく保存領域そのもので測るのに使う (見た目が残っていても中身が消えていたら赤)。 */
+    out.live = {
+      xp:   localStorage.getItem('dragonfighters.xp'),
+      gold: localStorage.getItem('dragonfighters.gold'),
+      pc:   localStorage.getItem('dragonfighters.partyComposition'),
+      activeSlot: localStorage.getItem('df.activeSlot'),
+    };
+    out.ranToEnd = true;
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return out;
+}
+
+/* tavern.html の「主人公をえらぶ」タイル (#partyComp) を写し取る。判定は 1 つも持たない。
+   ⚠ selection は classic script 直下の変数なので **裸の識別子**でしか読めない。 */
+function probeTavernHeroTiles() {
+  var out = { threw: '', ranToEnd: false, search: location.search };
+  try {
+    out.hero  = selection.partyComposition[0];
+    out.pc    = localStorage.getItem('dragonfighters.partyComposition');
+    var host  = document.getElementById('partyComp');
+    out.hasHost = !!host;
+    out.tiles = host ? [].slice.call(host.querySelectorAll('.partyMemberToggle')).map(function (t) {
+      return {
+        name:      ((t.querySelector('.memberName') || {}).textContent || ''),
+        role:      ((t.querySelector('.memberRole') || {}).textContent || ''),
+        isHero:    t.classList.contains('active'),
+        lockedOut: t.classList.contains('locked-out'),
+        title:     t.getAttribute('title') || '',
+      };
+    }) : [];
     out.ranToEnd = true;
   } catch (e) { out.threw = String((e && e.message) || e); }
   return out;
@@ -338,7 +483,67 @@ function probeTavernArrival() {
         sessionStorage.setItem(cfg.mark, '1');
       } catch (e) {}
     }, { mark: PURGE_MARK, seen: opts.prologueSeen !== false, seed: opts.seed || {} });
-    await page.goto('http://localhost:' + PORT + pathQuery, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    /* ── opts.spyTimers: setTimeout / clearTimeout を **透過的に**包んで台帳を採る ──
+       受入条件 4. の「8 秒無操作で安全側へ自動復帰」を **実時間に頼らず**測るための道具。
+       ⚠ 実時間 8 秒を待つだけの測り方は、健全な分布が窓をまたいだ瞬間に間欠フレークになる。
+         → ここでは「8000ms のタイマーが 1 本仕込まれたか」「それを **今すぐ発火**させると
+           安全側へ戻るか」「やめるを押すと **解除**されるか」を決定論的に測る。
+         実時間の側は別に 1 本だけ用意し (4w)、この台帳が嘘をついていないことを裏取りする。
+       ⚠ 包むだけで挙動は変えない (元の setTimeout をそのまま呼ぶ)。 */
+    if (opts.spyTimers) {
+      await page.evaluateOnNewDocument(() => {
+        try {
+          var oST = window.setTimeout, oCT = window.clearTimeout;
+          var pending = {};
+          var spy = { scheduled: [], cleared: [] };
+          window.__dfTimers = spy;
+          window.setTimeout = function (fn, ms) {
+            var rest = Array.prototype.slice.call(arguments, 2);
+            var id = oST.call(window, function () {
+              delete pending[id];
+              if (typeof fn === 'function') fn.apply(null, rest);
+            }, ms);
+            spy.scheduled.push(ms);
+            pending[id] = { ms: ms, fn: fn, rest: rest };
+            return id;
+          };
+          window.clearTimeout = function (id) {
+            if (pending[id]) { spy.cleared.push(pending[id].ms); delete pending[id]; }
+            return oCT.call(window, id);
+          };
+          /* 指定 delay の **保留中**タイマーを今すぐ発火させる (仮想時間)。戻り値 = 発火本数 */
+          window.__dfFireTimers = function (ms) {
+            var hit = Object.keys(pending).filter(function (k) { return pending[k].ms === ms; });
+            hit.forEach(function (k) {
+              var p = pending[k];
+              oCT.call(window, Number(k));
+              delete pending[k];
+              try { if (typeof p.fn === 'function') p.fn.apply(null, p.rest); } catch (e) {}
+            });
+            return hit.length;
+          };
+          window.__dfPendingCount = function (ms) {
+            return Object.keys(pending).filter(function (k) { return pending[k].ms === ms; }).length;
+          };
+        } catch (e) {}
+      });
+    }
+
+    /* ⚠ opts.allowRedirect: ページ自身が読み込み中に location.replace() する場合
+       (= 撤退スイッチ ?title=0)、goto は「別の遷移に割り込まれた」で reject し得る。
+       そこだけ握って、遷移先が落ち着くのを **ポーリング**で待つ。
+       ⚠⚠ 既定では握らない。無条件に try/catch すると、ただの読み込み失敗まで
+          静かに緑になる (silent fail-open)。理由のある 1 箇所でだけ許す。 */
+    let navThrew = '';
+    try {
+      await page.goto('http://localhost:' + PORT + pathQuery, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (e) {
+      if (!opts.allowRedirect) throw e;
+      navThrew = String((e && e.message) || e).split('\n')[0];
+      await page.waitForFunction(() => document.readyState !== 'loading', { timeout: 20000 }).catch(() => {});
+    }
+    page.__navThrew = navThrew;
     await sleep(opts.settle || 800);
     return page;
   }
@@ -356,10 +561,59 @@ function probeTavernArrival() {
     await sleep(600);   // 遷移先の同期スクリプト完走ぶん。以降の待ちは全てポーリング
   }
 
+  /* 「はじめから」を押して名乗り画面まで進む共通手順。
+     ⚠⚠ **埋まっているスロットは 2 段タップ確認を挟む** (受入条件 4.)。実プレイと同じ手順を
+        踏むためここで吸収するが、**どちらを通ったかを戻り値で申告**する。
+        黙って両方を受け入れる「逃げ道つき」にすると、確認が出るべきでない所で出ても緑になる
+        (その穴自体は (4n) と下の (3z0) が別に塞いでいる)。
+     ⚠⚠⚠ openPage() の既定は dragonfighters.prologueSeen を仕込む。DFSlots の空判定は
+        「KEEP 以外の dragonfighters.* が 1 件でもあるか」なので、**既定では active スロットが
+        既に「記録あり」= 2 段タップになる** ((1n3) が明文化している罠)。 */
+  async function startNewGame(page, slot) {
+    const selNew = '#slotList .slotCard[data-slot="' + slot + '"] button[data-act="new"]';
+    const selYes = '#slotList .slotCard[data-slot="' + slot + '"] .slotConfirm button[data-act="confirm-yes"]';
+    await page.click(selNew);
+    /* 名乗りが開くか確認行が出るか、**どちらかが起きるまでポーリング**する (固定 sleep を使わない) */
+    await page.waitForFunction((sy) => {
+      var n = document.getElementById('screenNaming');
+      return (!!n && n.classList.contains('active')) || !!document.querySelector(sy);
+    }, { timeout: 10000 }, selYes);
+    let usedConfirm = false;
+    if (await page.$(selYes)) { usedConfirm = true; await page.click(selYes); }
+    await page.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    return { usedConfirm };
+  }
+
+  /* 「つづきから」を押して酒場に着くまでの共通手順。⚠ 受入条件 3. と 8. が共有する。
+     押せなかった場合も **観測値として** pressedContinue:false を載せて返す
+     (ドライバ側で分岐して false を返す「隠れた逃げ道」を作らない。判定は必ず共有関数が下す)。 */
+  async function runContinueRound(page, slot) {
+    let pressed = true;
+    try {
+      await clickAndNavigate(page, '#slotList .slotCard[data-slot="' + slot + '"] button[data-act="continue"]');
+    } catch (e) { pressed = false; }
+    const obs = await page.evaluate(probeTavernArrival);
+    obs.pressedContinue = pressed;
+    return obs;
+  }
+
   /* 受入条件 6. でブラウザから読み取った HERO_CLASSES の実体。受入条件 1.〜3. が
      **期待値をドライバに書き写さない**ために借りる (職業の日本語名・tagline・role・note・zone)。
      ⭐ 期待値は「実装が書いた数字」ではなく **元データ**から組み立てるのが規則。 */
   let heroClassesObs = null;
+
+  /* ★ 受入条件 8. のための記録: 1.〜4. の **共有判定関数**が本番で返した値。
+     ?title=0 のセクションが同じ 4 本を呼び、ここが true / あちらが false を突き合わせる。
+     ⚠ 「共有しているつもりで実は常に false を返す関数」を作ってしまう事故は
+        (8z1) がここを読むことで機械的に落ちる。 */
+  const PROD_VERDICT = { j1: null, j2: null, j3: null, j4: null };
+
+  /* 受入条件 2. / 3. が使う入力。⚠ 受入条件 8. は **同じ判定関数**に **同じ入力**を渡すので、
+     ここを 1 箇所にしておかないと「入力が違うから false になっただけ」になり証明にならない。 */
+  const CASE2 = { hero: 'rogue' };                                  // 依頼書が名指ししている職業
+  const CASE3 = { hero: 'warrior', other: 'mage', xp: '23456', gold: '4321' };
 
   /* ■ SECTION 受入条件 6 ─────────────────────────────────────────────────
      hero-classes.js の zone と tavern.html の PARTY_ZONES を 2 経路で突き合わせる */
@@ -505,12 +759,11 @@ function probeTavernArrival() {
       Array.isArray(o1.list) && o1.list.length === 3 && o1.list.every(r => r.empty === true),
       JSON.stringify(o1.list && o1.list.map(r => ({ slot: r.slot, empty: r.empty, active: r.active }))));
 
+    /* ★ 判定は judgeSlotsScreen() に括り出してある。受入条件 8. の ?title=0 版が
+       **この同じ関数**を呼んで false になることを測る (その場に直書きすると空振りする)。 */
+    PROD_VERDICT.j1 = judgeSlotsScreen(o1);
     check('(1) ★受入条件1: スロットを 3 枚描き、3 枚とも「記録なし」+「はじめから」だけ',
-      (o1.cards || []).length === 3
-        && o1.cards.every(c => c.empty === true)
-        && o1.cards.every(c => c.emptyLabel.indexOf('記録なし') >= 0)
-        && o1.cards.every(c => c.metaFields.length === 0)
-        && o1.cards.every(c => c.acts.length === 1 && c.acts[0].act === 'new' && c.acts[0].label === 'はじめから'),
+      PROD_VERDICT.j1 === true,
       JSON.stringify({ n: (o1.cards || []).length,
                        labels: (o1.cards || []).map(c => c.emptyLabel),
                        acts: (o1.cards || []).map(c => c.acts.map(a => a.act + ':' + a.label)) }));
@@ -575,18 +828,19 @@ function probeTavernArrival() {
    * ══════════════════════════════════════════════════════════════════════ */
   console.log('\n--- 受入条件 2. : 新規の一周 (はじめから → 名乗り → 旅立つ → 酒場 + 前口上) ---');
   {
-    const HERO_KEY = 'rogue';   // 依頼書が名指ししている職業
+    const HERO_KEY = CASE2.hero;   // ⚠ 受入条件 8. が同じ入力で同じ判定関数を呼ぶ (CASE2 が唯一の正)
     const src = (heroClassesObs || []).find(c => c.classKey === HERO_KEY) || null;
 
     // ⚠ 前口上が出ることそのものが受入条件なので prologueSeen を仕込まない
     const p2 = await openPage('/title.html', { prologueSeen: false });
 
     // ── ① スロット1 の「はじめから」を押す ──────────────────────────
-    await p2.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
-    await p2.waitForFunction(() => {
-      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
-    }, { timeout: 10000 });
+    //    prologueSeen も無い全消し状態なのでスロット1 は **空** = 1 タップで名乗りへ
+    const step2 = await startNewGame(p2, 1);
     const nam0 = await p2.evaluate(probeNaming);
+
+    check('(2z0) [装置] スロット1 は空なので 2 段タップ確認を通らずに名乗りへ進んだ',
+      step2.usedConfirm === false, JSON.stringify(step2));
 
     check('(2a) 名乗り画面が開き、カードが 6 枚出て、未選択では「この者として旅立つ」が押せない',
       nam0.threw === '' && nam0.namingActive === true && nam0.slotsActive === false
@@ -669,10 +923,10 @@ function probeTavernArrival() {
     console.log('         酒場が採用した主人公 selection.partyComposition[0] = ' + JSON.stringify(o2.heroInTavern));
     console.log('         df.activeSlot = ' + JSON.stringify(o2.activeSlot) + ' / prologueSeen = ' + JSON.stringify(o2.prologueSeen));
 
+    /* ★ 判定は judgeNewGameRound() の共有本体。受入条件 8. が同じ関数を呼ぶ */
+    PROD_VERDICT.j2 = judgeNewGameRound(o2, HERO_KEY);
     check('(2) ★受入条件2: 素の tavern.html に着き localStorage の partyComposition が選んだ職 1 人だけになっている',
-      /\/tavern\.html$/.test(o2.pathname) && o2.search === ''
-        && o2.pcLocal === JSON.stringify([HERO_KEY])
-        && o2.heroInTavern === HERO_KEY && o2.activeSlot === '1',
+      PROD_VERDICT.j2 === true,
       JSON.stringify({ pathname: o2.pathname, search: o2.search, pcLocal: o2.pcLocal,
                        heroInTavern: o2.heroInTavern, heroThrew: o2.heroThrew, activeSlot: o2.activeSlot }));
 
@@ -722,18 +976,17 @@ function probeTavernArrival() {
    * ══════════════════════════════════════════════════════════════════════ */
   console.log('\n--- 受入条件 3. : 続きの一周 (スロット1 に進行 → スロット2 で別主人公 → スロット1 へ戻る) ---');
   {
-    const HERO_A = 'warrior', HERO_B = 'mage';
-    const XP_A = '23456', GOLD_A = '4321';
+    // ⚠ 受入条件 8. が同じ入力で同じ判定関数を呼ぶ (CASE3 が唯一の正)
+    const HERO_A = CASE3.hero, HERO_B = CASE3.other;
+    const XP_A = CASE3.xp, GOLD_A = CASE3.gold;
     const nameA = ((heroClassesObs || []).find(c => c.classKey === HERO_A) || {}).name;
     const nameB = ((heroClassesObs || []).find(c => c.classKey === HERO_B) || {}).name;
 
     const p3 = await openPage('/title.html');
 
     // ── ① スロット1 で HERO_A の新規 → 酒場 → そこに進行 (xp / gold) を作る ──
-    await p3.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
-    await p3.waitForFunction(() => {
-      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
-    }, { timeout: 10000 });
+    //    ⚠ openPage の既定は prologueSeen を仕込む → スロット1 は「記録あり」= 2 段タップになる
+    const step3a = await startNewGame(p3, 1);
     await p3.click('#classCards .classCard[data-class-key="' + HERO_A + '"]');
     await clickAndNavigate(p3, '#btnDepart');
     await p3.evaluate((xp, g) => {
@@ -764,10 +1017,10 @@ function probeTavernArrival() {
     // ── ③ スロット2 で HERO_B の新規 → 酒場 ───────────────────────────
     //    ⚠ スロット2 は **空** なので 1 タップで進む。項目 3 が「埋まったスロットだけ 2 段タップ」を
     //      足してもこの経路は影響を受けない (意図的にそう組んである)
-    await p3.click('#slotList .slotCard[data-slot="2"] button[data-act="new"]');
-    await p3.waitForFunction(() => {
-      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
-    }, { timeout: 10000 });
+    const step3b = await startNewGame(p3, 2);
+    check('(3z0) [装置] 2 段タップ確認は **埋まったスロットだけ**に出た (① スロット1=埋 は確認あり / ③ スロット2=空 は確認なし)',
+      step3a.usedConfirm === true && step3b.usedConfirm === false,
+      JSON.stringify({ slot1: step3a, slot2: step3b }));
     await p3.click('#classCards .classCard[data-class-key="' + HERO_B + '"]');
     await clickAndNavigate(p3, '#btnDepart');
     const s2 = await p3.evaluate(probeTavernArrival);
@@ -791,32 +1044,457 @@ function probeTavernArrival() {
         && a1.acts.some(x => x.act === 'continue'),
       JSON.stringify({ slot1: heroOf(a1), slot2: heroOf(a2), expect: [nameA, nameB] }));
 
-    // ── ⑤ スロット1 の「つづきから」 ────────────────────────────────
-    await clickAndNavigate(p3, '#slotList .slotCard[data-slot="1"] button[data-act="continue"]');
-    const s3 = await p3.evaluate(probeTavernArrival);
+    // ── ⑤ スロット1 の「つづきから」 (受入条件 8. と同じ手順を共有) ──────
+    const s3 = await runContinueRound(p3, 1);
     await p3.close();
 
     console.log('  [復帰] xp=' + JSON.stringify(s3.xp) + ' gold=' + JSON.stringify(s3.gold)
       + ' hero=' + JSON.stringify(s3.heroInTavern) + ' activeSlot=' + JSON.stringify(s3.activeSlot));
 
+    /* ★ 判定は judgeContinueRound() の共有本体。受入条件 8. が同じ関数を呼ぶ */
+    PROD_VERDICT.j3 = judgeContinueRound(s3, HERO_A, XP_A, GOLD_A);
     check('(3) ★受入条件3: スロット1 の「つづきから」で xp と主人公が戻る',
-      /\/tavern\.html$/.test(s3.pathname) && s3.search === ''
-        && s3.xp === XP_A && s3.gold === GOLD_A
-        && s3.pcLocal === JSON.stringify([HERO_A]) && s3.heroInTavern === HERO_A
-        && s3.activeSlot === '1',
-      JSON.stringify({ xp: s3.xp, expectXp: XP_A, gold: s3.gold, pcLocal: s3.pcLocal,
-                       hero: s3.heroInTavern, activeSlot: s3.activeSlot, search: s3.search }));
+      PROD_VERDICT.j3 === true,
+      JSON.stringify({ pressedContinue: s3.pressedContinue, xp: s3.xp, expectXp: XP_A, gold: s3.gold,
+                       pcLocal: s3.pcLocal, hero: s3.heroInTavern, activeSlot: s3.activeSlot, search: s3.search }));
   }
 
-  /* ■ SECTION 受入条件 5. 7. 8. 9. 10.  ← 項目 4 がここに足す ────────────
-     5.  tavern.html で非主人公のクラスタイルをクリックしても partyComposition が変わらない
-     7.  [装置] ?herolock=0 を付けると 5. が **落ちる**
-         ⭐ 5. と 7. は **同じ assert 本体**を共有すること。別々に書くと空振りする
-            (実測済み: verify_save_slots.js の (7) 群と同じ作法)
-     8.  [装置] title.html?title=0 は即座に tavern.html へ抜ける。かつ 1.〜4. が **落ちる**
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 4. : 埋まっているスロットの「はじめから」は 1 タップでは消えない
+   *   1 タップ目 = 確認行が出るだけ (記録は無傷) / 2 タップ目 = 実行
+   *   + 8 秒 無操作で安全側 (未確認) へ自動復帰
+   *
+   * ── ⚠ 8 秒をどう測るか ──────────────────────────────────────────────
+   *   時間そのものが仕様なので、時間を測らないと測ったことにならない。ただし
+   *   「実時間を待って見に行く」だけの測り方は、健全な分布が窓をまたいだ瞬間に
+   *   間欠フレークになる (このリポジトリで何度も踏んでいる)。→ 2 段構えにする:
+   *     (4t1)(4t2)(4t3) = **仮想時間**。setTimeout の台帳を採り、8000ms の
+   *        タイマーが 1 本仕込まれたことを確認し、それを **今すぐ発火**させて畳まれるか見る。
+   *        時計に一切依存しないので原理的にフレークしない。
+   *     (4w)            = **実時間 1 本だけ**。台帳が嘘 (例: 仕込むだけで本物は動かない) を
+   *        ついていないことの裏取り。下限 7 秒・上限 25 秒の広い窓で、
+   *        「即座に戻る」でも「永久に戻らない」でもないことだけを言う。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 4. : 埋まったスロットの 2 段タップ確認 + 8 秒で安全側へ復帰 ---');
+  {
+    const CONFIRM_MS = 8000;                 // 見本 (tavern.html の btnWipeSave) と同じ 8 秒
+    const SEED_HERO = 'cleric', NEW_HERO = 'dwarf';
+    const SEED = {
+      'dragonfighters.xp': '31000',
+      'dragonfighters.gold': '2468',
+      'dragonfighters.partyComposition': JSON.stringify([SEED_HERO]),
+    };
+    const SEL_NEW    = '#slotList .slotCard[data-slot="1"] button[data-act="new"]';
+    const SEL_YES    = '#slotList .slotCard[data-slot="1"] .slotConfirm button[data-act="confirm-yes"]';
+    const SEL_CANCEL = '#slotList .slotCard[data-slot="1"] .slotConfirm button[data-act="confirm-cancel"]';
+    const waitArmed    = (pg) => pg.waitForFunction((s) => !!document.querySelector(s), { timeout: 10000 }, SEL_YES);
+    const waitDisarmed = (pg) => pg.waitForFunction(() => {
+      var b = document.querySelector('#slotList .slotCard[data-slot="1"] .slotConfirm');
+      return !!b && getComputedStyle(b).display === 'none';
+    }, { timeout: 30000 });
+    const card1 = (o) => ((o.cards || []).find(c => c.slot === '1') || { confirm: {}, acts: [], metaFields: [] });
+    const stableMeta = (o) => JSON.stringify((card1(o).metaFields || [])
+      .filter(f => f.field !== 'savedAt')     // ⚠ savedAt は読むたび動き得るので比較から外す
+      .map(f => f.field + '=' + f.value));
+
+    const p4 = await openPage('/title.html', { seed: SEED, spyTimers: true });
+    const before = await p4.evaluate(probeTitleSlots);
+    const live0 = before.live;
+
+    check('(4z0) [装置] 前提: スロット1 が埋まり「はじめから(上書き)」が居て、確認行はまだ出ていない',
+      before.threw === '' && card1(before).empty === false
+        && (card1(before).acts || []).map(a => a.act).sort().join(',') === 'continue,new'
+        && card1(before).confirm.exists === true && card1(before).confirm.visible === false
+        && live0.xp === SEED['dragonfighters.xp'],
+      JSON.stringify({ acts: (card1(before).acts || []).map(a => a.label),
+                       confirmVisible: card1(before).confirm.visible, live: live0 }));
+
+    const sched0 = await p4.evaluate((ms) => (window.__dfTimers || { scheduled: [] }).scheduled.filter(x => x === ms).length, CONFIRM_MS);
+
+    // ── ① 1 タップ目 ────────────────────────────────────────────────
+    await p4.click(SEL_NEW);
+    await waitArmed(p4);
+    const armed = await p4.evaluate(probeTitleSlots);
+
+    /* ★ 判定は judgeConfirmArmed() の共有本体。受入条件 8. が同じ関数を呼ぶ */
+    PROD_VERDICT.j4 = judgeConfirmArmed(armed, 1, live0);
+    check('(4) ★受入条件4: 1 タップでは消えない (確認行が出るだけ・名乗りへ進まない・保存領域が無傷)',
+      PROD_VERDICT.j4 === true,
+      JSON.stringify({ screenNaming: armed.screenNaming, confirmVisible: card1(armed).confirm.visible,
+                       btns: (card1(armed).confirm.btns || []).map(b => b.act + ':' + b.label),
+                       msgHead: (card1(armed).confirm.text || '').slice(0, 22),
+                       liveBefore: live0, liveAfter: armed.live }));
+
+    check('(4a) [装置] 1 タップ目でカードの表示 (主人公 / Lv / 所持金 / クリア) も変わっていない',
+      stableMeta(before) === stableMeta(armed) && stableMeta(armed).length > 10,
+      JSON.stringify({ before: stableMeta(before), after: stableMeta(armed) }));
+
+    const sched1 = await p4.evaluate((ms) => (window.__dfTimers || { scheduled: [] }).scheduled.filter(x => x === ms).length, CONFIRM_MS);
+    const pend1  = await p4.evaluate((ms) => window.__dfPendingCount(ms), CONFIRM_MS);
+    check('(4t1) [装置・仮想時間] 1 タップ目で 8000ms のタイマーがちょうど 1 本仕込まれ、保留中である',
+      sched1 - sched0 === 1 && pend1 === 1,
+      JSON.stringify({ scheduledDelta: sched1 - sched0, pending: pend1 }));
+
+    // ── ② そのタイマーを **今すぐ発火** → 安全側へ戻るか (時計に依存しない) ──
+    const fired = await p4.evaluate((ms) => window.__dfFireTimers(ms), CONFIRM_MS);
+    await waitDisarmed(p4);
+    const reverted = await p4.evaluate(probeTitleSlots);
+    check('(4t2) ★受入条件4[仮想時間]: 8 秒タイマーの発火で安全側 (未確認) へ戻る。同じ判定関数が false になる',
+      fired === 1 && judgeConfirmArmed(reverted, 1, live0) === false
+        && card1(reverted).confirm.visible === false
+        && (card1(reverted).acts || []).map(a => a.act).sort().join(',') === 'continue,new'
+        && reverted.screenNaming === false
+        && reverted.live.xp === live0.xp && reverted.live.pc === live0.pc,
+      JSON.stringify({ fired, confirmVisible: card1(reverted).confirm.visible,
+                       acts: (card1(reverted).acts || []).map(a => a.act), live: reverted.live }));
+
+    // ── ③ 「やめる」で畳むと 8 秒タイマーが **解除**される (detached ノード対策) ──
+    await p4.click(SEL_NEW);
+    await waitArmed(p4);
+    const clr0 = await p4.evaluate((ms) => (window.__dfTimers || { cleared: [] }).cleared.filter(x => x === ms).length, CONFIRM_MS);
+    await p4.click(SEL_CANCEL);
+    await waitDisarmed(p4);
+    const clr1  = await p4.evaluate((ms) => (window.__dfTimers || { cleared: [] }).cleared.filter(x => x === ms).length, CONFIRM_MS);
+    const pend2 = await p4.evaluate((ms) => window.__dfPendingCount(ms), CONFIRM_MS);
+    const afterCancel = await p4.evaluate(probeTitleSlots);
+    check('(4t3) [装置] 「やめる」で確認行が畳まれ、8 秒タイマーが **解除**される (detached ノードを掴み続けない)',
+      clr1 - clr0 === 1 && pend2 === 0
+        && judgeConfirmArmed(afterCancel, 1, live0) === false
+        && afterCancel.live.xp === live0.xp,
+      JSON.stringify({ clearedDelta: clr1 - clr0, pendingAfter: pend2, live: afterCancel.live }));
+
+    // ── ④ 2 タップ目 = 実行 (名乗りへ進む → 確定すると実際に消える) ──────
+    await p4.click(SEL_NEW);
+    await waitArmed(p4);
+    await p4.click(SEL_YES);
+    await p4.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    const nam4 = await p4.evaluate(probeNaming);
+    check('(4b) ★受入条件4: 2 タップ目で先へ進む (名乗り画面が開く)',
+      nam4.namingActive === true && nam4.slotsActive === false && (nam4.cards || []).length === 6,
+      JSON.stringify({ naming: nam4.namingActive, n: (nam4.cards || []).length }));
+
+    await p4.click('#classCards .classCard[data-class-key="' + NEW_HERO + '"]');
+    await clickAndNavigate(p4, '#btnDepart');
+    const arr4 = await p4.evaluate(probeTavernArrival);
+    await p4.close();
+    check('(4c) ★受入条件4: 確定まで進むと記録が実際に消える (旧 xp / 旧所持金が消え、主人公が入れ替わる)',
+      arr4.xp === null && arr4.gold === null
+        && arr4.pcLocal === JSON.stringify([NEW_HERO]) && arr4.heroInTavern === NEW_HERO,
+      JSON.stringify({ xpWas: SEED['dragonfighters.xp'], xpNow: arr4.xp, goldNow: arr4.gold,
+                       heroWas: SEED_HERO, heroNow: arr4.heroInTavern }));
+
+    /* ── 負のコントロール: **空**のスロットには確認を出さない ────────────
+       ここが緑にならないと、受入条件 2./3. の「空スロットは 1 タップで名乗りへ」が壊れる。 */
+    /* ⚠ startNewGame() を通す。直接 click + 「名乗りが開くまで待つ」だと、確認行が出る変異を
+       当てたときに **タイムアウトでドライバごと死ぬ** (赤ではなく exit 3 になり原因が読めない)。
+       共通手順なら「確認を通ったか」を戻り値で受け取れるので、ちゃんと赤にできる。 */
+    const p4n = await openPage('/title.html', { seed: SEED });
+    const step4n = await startNewGame(p4n, 2);
+    const n4 = await p4n.evaluate(probeTitleSlots);
+    await p4n.close();
+    const c2 = (n4.cards || []).find(c => c.slot === '2') || { confirm: {} };
+    check('(4n) [負のコントロール] **空**のスロットは 1 タップで名乗りへ進む (確認行を出さない)',
+      step4n.usedConfirm === false
+        && n4.screenNaming === true && c2.empty === true
+        && c2.confirm.exists === true && c2.confirm.visible === false && (c2.confirm.btns || []).length === 0,
+      JSON.stringify({ usedConfirm: step4n.usedConfirm, naming: n4.screenNaming, slot2Confirm: c2.confirm }));
+
+    /* ── 実時間の裏取り (1 本だけ) ────────────────────────────────────
+       台帳 (仮想時間) が「仕込んだふり」をしていないことの証明。
+       ⚠ 窓は 7 秒〜25 秒と広く取る。狙いは「即座でも永久でもない」ことだけで、
+         8 秒ちょうどを当てにいくと端末速度でフレークする。 */
+    const p4w = await openPage('/title.html', { seed: SEED });
+    await p4w.click(SEL_NEW);
+    await waitArmed(p4w);
+    const t0 = Date.now();
+    let wallOk = true;
+    try { await waitDisarmed(p4w); } catch (e) { wallOk = false; }
+    const elapsed = Date.now() - t0;
+    const w4 = await p4w.evaluate(probeTitleSlots);
+    await p4w.close();
+    check('(4w) ★受入条件4[実時間]: 実際に放置すると 8 秒前後で安全側へ戻る (7000〜25000ms の窓)',
+      wallOk === true && elapsed >= 7000 && elapsed <= 25000
+        && judgeConfirmArmed(w4, 1, live0) === false && w4.live.xp === live0.xp,
+      JSON.stringify({ elapsedMs: elapsed, confirmVisible: card1(w4).confirm.visible, live: w4.live }));
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 5. / 7. : tavern.html のクラス変更封印 と 撤退スイッチ ?herolock=0
+   * ⭐ 5. と 7. は **同じ assert 本体** judgeHeroUnchanged() と、
+   *    **同じ手順** runHeroTileClick() を共有する。クエリ文字列だけが違う。
+   *    別々に書くと「両方とも間違っている」事故を防げない。
+   * ⚠ #partyComp は「出発の準備」画面の中。クエスト選択の導線を通らずに、
+   *   本番の renderPartyComposition() を直接呼んで器を埋める。測りたいのは画面遷移ではなく
+   *   「タイルにクリックリスナが付いているか」なので、これで十分かつ決定論的。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 5. / 7. : 酒場のクラス変更封印 と ?herolock=0 ---');
+  {
+    const LOCK_HERO = 'cleric';
+    const LOCK_SEED = { 'dragonfighters.partyComposition': JSON.stringify([LOCK_HERO]) };
+
+    async function runHeroTileClick(query) {
+      const pg = await openPage('/tavern.html' + query, { seed: LOCK_SEED });
+      const built = await pg.evaluate(() => {
+        // renderPartyComposition は classic script 直下の関数宣言 → 裸の識別子で呼べる
+        try { renderPartyComposition(); return { threw: '' }; }
+        catch (e) { return { threw: String((e && e.message) || e) }; }
+      });
+      const pre = await pg.evaluate(probeTavernHeroTiles);
+      /* 非主人公タイルを 1 枚クリックする。
+         ⚠ 準備画面は非表示なので page.click (実座標クリック) は使えない。
+            本番のリスナを実際に発火させるため要素の click() を呼ぶ。 */
+      const clicked = await pg.evaluate(() => {
+        var host = document.getElementById('partyComp');
+        var tiles = host ? [].slice.call(host.querySelectorAll('.partyMemberToggle')) : [];
+        var t = tiles.filter(function (x) { return !x.classList.contains('active'); })[0];
+        if (!t) return { ok: false, name: '' };
+        var nm = ((t.querySelector('.memberName') || {}).textContent || '');
+        t.click();
+        return { ok: true, name: nm };
+      });
+      await sleep(400);
+      const post = await pg.evaluate(probeTavernHeroTiles);
+      await pg.close();
+      return { built, pre, clicked, post, verdict: judgeHeroUnchanged(pre, post) };
+    }
+
+    const lockOn  = await runHeroTileClick('');              // 本番 (封印されている)
+    const lockOff = await runHeroTileClick('?herolock=0');   // 撤退スイッチ (従来どおり変わる)
+
+    console.log('  [封印]   hero ' + JSON.stringify(lockOn.pre.hero) + ' → ' + JSON.stringify(lockOn.post.hero)
+      + ' / 押したタイル = ' + JSON.stringify(lockOn.clicked.name));
+    console.log('  [解除]   hero ' + JSON.stringify(lockOff.pre.hero) + ' → ' + JSON.stringify(lockOff.post.hero)
+      + ' / 押したタイル = ' + JSON.stringify(lockOff.clicked.name));
+
+    check('(5z0) [装置] 両方で 6 枚のタイルが本番の関数で描かれ、主人公が 1 枚だけ active・非主人公を実際に押せた',
+      lockOn.built.threw === '' && lockOff.built.threw === ''
+        && lockOn.pre.hasHost === true && (lockOn.pre.tiles || []).length === 6
+        && (lockOff.pre.tiles || []).length === 6
+        && (lockOn.pre.tiles || []).filter(t => t.isHero).length === 1
+        && (lockOff.pre.tiles || []).filter(t => t.isHero).length === 1
+        && lockOn.clicked.ok === true && lockOff.clicked.ok === true
+        && lockOn.clicked.name === lockOff.clicked.name    // ★ 同じタイルを押している
+        && lockOn.pre.hero === LOCK_HERO && lockOff.pre.hero === LOCK_HERO,
+      JSON.stringify({ builtThrew: [lockOn.built.threw, lockOff.built.threw],
+                       nTiles: [(lockOn.pre.tiles || []).length, (lockOff.pre.tiles || []).length],
+                       clicked: [lockOn.clicked.name, lockOff.clicked.name],
+                       preHero: [lockOn.pre.hero, lockOff.pre.hero] }));
+
+    check('(5) ★受入条件5: 非主人公のクラスタイルをクリックしても partyComposition が変わらない',
+      lockOn.verdict === true,
+      JSON.stringify({ hero: [lockOn.pre.hero, lockOn.post.hero], pc: [lockOn.pre.pc, lockOn.post.pc] }));
+
+    check('(7) ★受入条件7[装置]: ?herolock=0 を付けると **同じ判定関数**が false になる (= クラスが変わる)',
+      lockOff.verdict === false
+        && lockOff.post.hero !== lockOff.pre.hero
+        && lockOn.verdict === true,       // ★ 対で見る。両方 false なら検出器が壊れている
+      JSON.stringify({ lockOn: lockOn.verdict, lockOff: lockOff.verdict,
+                       heroOff: [lockOff.pre.hero, lockOff.post.hero] }));
+
+    /* 見た目の側 (依頼書が名指しした表示要件)。⚠ リスナを付けないのが本体で、
+       これはそれをプレイヤーに見せる部分。両方測らないと「押せるのに何も起きない」を見逃す。 */
+    const lockedTiles   = (lockOn.pre.tiles || []).filter(t => !t.isHero);
+    const unlockedTiles = (lockOff.pre.tiles || []).filter(t => !t.isHero);
+    check('(5b) 封印時は非主人公タイルに locked-out と説明の title 属性が付く / 主人公タイルには付かない',
+      lockedTiles.length === 5 && lockedTiles.every(t => t.lockedOut === true)
+        && lockedTiles.every(t => t.title.indexOf('主人公は変更できません') >= 0)
+        && (lockOn.pre.tiles || []).filter(t => t.isHero).every(t => t.lockedOut === false),
+      JSON.stringify(lockedTiles.map(t => ({ name: t.name, lockedOut: t.lockedOut, title: t.title }))));
+
+    check('(7b) [装置] ?herolock=0 では locked-out が 1 枚も付かない (見た目も従来どおり)',
+      unlockedTiles.length === 5 && unlockedTiles.every(t => t.lockedOut === false && t.title === ''),
+      JSON.stringify(unlockedTiles.map(t => ({ name: t.name, lockedOut: t.lockedOut, title: t.title }))));
+
+    /* 依頼書の「selectHero() は残す (削除しない)」を機械化。
+       ⚠ 消してしまうと ?herolock=0 経路が黙って死ぬ (しかも (7) は false のまま緑に見える)。 */
+    const pgFn = await openPage('/tavern.html');
+    const fnKinds = await pgFn.evaluate(() => {
+      var out = {};
+      try { out.selectHero = typeof selectHero; } catch (e) { out.selectHero = 'threw'; }
+      try { out.renderPartyComposition = typeof renderPartyComposition; } catch (e) { out.renderPartyComposition = 'threw'; }
+      try { out.isHeroLockOff = typeof isHeroLockOff; } catch (e) { out.isHeroLockOff = 'threw'; }
+      try { out.btnReroll = !!document.getElementById('btnReroll'); } catch (e) { out.btnReroll = false; }
+      return out;
+    });
+    await pgFn.close();
+    check('(5c) [設計] selectHero() は削除せず残っている / 「仲間を引き直す」も残っている',
+      fnKinds.selectHero === 'function' && fnKinds.renderPartyComposition === 'function'
+        && fnKinds.isHeroLockOff === 'function' && fnKinds.btnReroll === true,
+      JSON.stringify(fnKinds));
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 8. : 撤退スイッチ ?title=0
+   *   即座に tavern.html へ抜ける。かつ 1.〜4. のテストが **落ちる**。
+   * ⭐⭐⭐ 「落ちる」は **判定本体を共有**して初めて意味を持つ。ここでは
+   *   judgeSlotsScreen / judgeNewGameRound / judgeContinueRound / judgeConfirmArmed の
+   *   4 本を、本番セクションと **同じ関数・同じ入力**で呼び、
+   *   さらに **戻り値の AND (状態の conjunction)** で測る。
+   *   別々に判定式を書くと「要素が無いから false = たまたま赤」で何も証明できない。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 8. : 撤退スイッチ ?title=0 ---');
+  {
+    /* ⚠⚠⚠ **測定点を間違えると (8b) は空振りする。** 実際に踏んだ:
+       j1 を「クリックを試した後」の状態で採っていたため、スイッチを殺す変異を当てても
+       (スイッチが死ねばタイトルが出て 1 タップで名乗りへ進むので) screenSlots が false になり、
+       j1 が false のまま = (8b) が緑で通ってしまった。
+       → j1 は **何も触る前** の状態で採る。以下、各判定の測定点を明示して並べる。
+       ⚠ さらに j3 / j4 は「進行のあるスロット」でしか true になり得ないので、
+         全消しのページ A とは **別のページ B** を用意する。同じページで両方は測れない
+         (j1 は 3 枚とも空を要求し、j3 / j4 は埋まっていることを要求する = 排他)。 */
+
+    // ── ページ A: 全消し。j1 (触る前) と j2 (新規の一周を試みる) ─────────
+    const p8 = await openPage('/title.html?title=0', { prologueSeen: false, allowRedirect: true, settle: 1200 });
+    const arrived8 = await p8.evaluate(probeTavernArrival);
+    const t8 = await p8.evaluate(probeTitleSlots);   // ★ j1 の測定点 = **何も触る前**
+
+    console.log('  [到着] ' + arrived8.href + '  (goto の例外 = ' + JSON.stringify(p8.__navThrew) + ')');
+
+    /* ⚠ tavern.html も js/save-slots.js を読み込むので DFSlots は **居る**。
+       「タイトルが描かれていない」は screenSlots と .slotCard の不在で測る
+       (最初 hasDFSlots===false で書いて偽の赤を踏んだ = 測定点の誤り)。 */
+    check('(8) ★受入条件8: title.html?title=0 は即座に tavern.html へ抜ける (タイトルは 1 枚も描かれない)',
+      /\/tavern\.html$/.test(arrived8.pathname || '') && arrived8.search === ''
+        && t8.screenSlots === false && t8.screenNaming === false && (t8.cards || []).length === 0,
+      JSON.stringify({ pathname: arrived8.pathname, search: arrived8.search,
+                       screenSlots: t8.screenSlots, nSlotCards: (t8.cards || []).length }));
+
+    /* ── ★ 1.〜4. と **同じ判定関数**を、同じ手順を踏んだ結果に対して呼ぶ ──────
+       踏めない (要素が無い) ことも記録に残す。⚠ 例外を握るのは「踏めなかった」を
+       観測値にするためで、判定そのものは必ず共有関数に通す。 */
+    const j1 = judgeSlotsScreen(t8);                   // ★ 触る前の状態で判定
+
+    // 受入条件 2. と同じ手順 (スロット1 の はじめから → 名乗りで CASE2.hero → 旅立つ)
+    let flow2Threw = '';
+    try {
+      await startNewGame(p8, 1);
+      await p8.click('#classCards .classCard[data-class-key="' + CASE2.hero + '"]');
+      await clickAndNavigate(p8, '#btnDepart');
+    } catch (e) { flow2Threw = String((e && e.message) || e).split('\n')[0].slice(0, 60); }
+    const a8 = await p8.evaluate(probeTavernArrival);
+    const j2 = judgeNewGameRound(a8, CASE2.hero);
+
+    /* location.replace を使っている証明。href だと履歴に title.html が残り、
+       酒場で「戻る」を押すと撤退したはずのタイトルへ戻ってしまう。
+       ⚠ history.back() を evaluate の中で待つと遷移で実行コンテキストごと壊れる (実測)。
+          page.goBack() で遷移を **puppeteer 側に待たせる**。 */
+    let backHref = '(戻り先なし)';
+    try {
+      await p8.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 });
+      await sleep(400);
+      backHref = await p8.evaluate(() => location.href);
+    } catch (e) { backHref = '(戻れなかった: ' + String((e && e.message) || e).split('\n')[0].slice(0, 40) + ')'; }
+    await p8.close();
+    check('(8a) [設計] location.replace で抜けている (「戻る」でタイトルへ戻らない)',
+      !/title\.html/.test(backHref), JSON.stringify({ afterBack: backHref }));
+
+    /* ── ページ B: 進行のあるスロット。j4 (2 段タップ確認) と j3 (つづきから) ──
+       ⚠ j1 (3 枚とも空) とは排他なので、別ページで測る。 */
+    const p8b = await openPage('/title.html?title=0', {
+      allowRedirect: true, settle: 1200,
+      seed: {
+        'dragonfighters.xp': CASE3.xp,
+        'dragonfighters.gold': CASE3.gold,
+        'dragonfighters.partyComposition': JSON.stringify([CASE3.hero]),
+      },
+    });
+    const tB0 = await p8b.evaluate(probeTitleSlots);
+    let flow4Threw = '';
+    try { await p8b.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]'); }
+    catch (e) { flow4Threw = String((e && e.message) || e).split('\n')[0].slice(0, 60); }
+    await sleep(400);
+    const tB1 = await p8b.evaluate(probeTitleSlots);
+    const j4 = judgeConfirmArmed(tB1, 1, tB0.live);
+
+    /* ⚠ ここは受入条件 3. と **同じ runContinueRound()** を通す。
+       ライブに CASE3 の進行を仕込んであるので、?title=0 で酒場に直行すると
+       xp も gold も主人公も「つづきから」が復元したものと **区別が付かない**。
+       区別を付けているのが観測値 pressedContinue で、判定側 (judgeContinueRound) が要求している。 */
+    const aB = await runContinueRound(p8b, 1);
+    await p8b.close();
+    const j3 = judgeContinueRound(aB, CASE3.hero, CASE3.xp, CASE3.gold);
+
+    const conj = j1 && j2 && j3 && j4;
+
+    check('(8b) ★受入条件8[装置]: 1.〜4. と **同じ判定関数**が ?title=0 では 4 本とも false (conjunction も false)',
+      conj === false && j1 === false && j2 === false && j3 === false && j4 === false,
+      JSON.stringify({ conjunction: conj, j1, j2, j3, j4,
+                       pressedContinue: aB.pressedContinue,
+                       threw: { flow2: flow2Threw.length > 0, flow4: flow4Threw.length > 0 } }));
+
+    check('(8z1) [装置] その 4 本は本番では 4 本とも true を返していた (共有が空振りしていない = 常に false を返す関数ではない)',
+      PROD_VERDICT.j1 === true && PROD_VERDICT.j2 === true
+        && PROD_VERDICT.j3 === true && PROD_VERDICT.j4 === true
+        && (PROD_VERDICT.j1 && PROD_VERDICT.j2 && PROD_VERDICT.j3 && PROD_VERDICT.j4) === true,
+      JSON.stringify(PROD_VERDICT));
+
+    /* ── 負のコントロール 2 本: スイッチが「スイッチ」であること ────────── */
+    const p8n = await openPage('/title.html', { prologueSeen: false });
+    const o8n = await p8n.evaluate(probeTitleSlots);
+    await p8n.close();
+    check('(8z2) [負のコントロール] クエリを外した **同じ入口** では同じ judgeSlotsScreen が true になる',
+      judgeSlotsScreen(o8n) === true,
+      JSON.stringify({ screenSlots: o8n.screenSlots, n: (o8n.cards || []).length }));
+
+    const p8x = await openPage('/title.html?title=1', { prologueSeen: false });
+    const o8x = await p8x.evaluate(probeTitleSlots);
+    await p8x.close();
+    check('(8z3) [装置] ?title=1 のような別の値では素通りしない (has() ではなく ==="0" で判定している)',
+      judgeSlotsScreen(o8x) === true && /\/title\.html$/.test((o8x.href || '').split('?')[0]),
+      JSON.stringify({ href: o8x.href, screenSlots: o8x.screenSlots }));
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 実装ステップ 5. : ゲームを起動.vbs の飛び先
+   * ⚠ VBS の GUI 起動 (WScript) はヘッドレスから回せない。代わりに
+   *   「VBS が指すパスが実際に配信され、title.html として立つ」ところまでを機械で測る。
+   *   ⭐ 実機でのダブルクリック起動 (新規 / 続き 両方) は **人間の宿題**として残る。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 実装ステップ 5. : ゲームを起動.vbs の飛び先 ---');
+  {
+    const VBS_NAME = 'ゲームを起動.vbs';
+    const vbsSrc = fs.readFileSync(path.join(ROOT, VBS_NAME), 'utf8');
+    /* url = "http://localhost:" & port & "/xxx.html"  の末尾のパスを取り出す。
+       ⚠ 行番号で切らない (動く)。`url =` の代入行を識別子で拾う。 */
+    const urlLines = vbsSrc.split(/\r?\n/).filter(l => /^\s*url\s*=/.test(l));
+    const m = urlLines.length === 1 ? urlLines[0].match(/"(\/[^"]+)"\s*$/) : null;
+    const urlPath = m ? m[1] : null;
+
+    check('(v0) [装置] ' + VBS_NAME + ' から飛び先のパスをちょうど 1 本取り出せた (走査が空振りしていない)',
+      urlLines.length === 1 && !!urlPath,
+      JSON.stringify({ nUrlLines: urlLines.length, urlPath }));
+
+    check('(v1) ★STEP5: ' + VBS_NAME + ' の飛び先が /title.html になっている',
+      urlPath === '/title.html', JSON.stringify({ urlPath, line: (urlLines[0] || '').trim() }));
+
+    check('(v2) [装置] ポートと起動コマンドは無改修 (飛び先だけ差し替えた)',
+      /port\s*=\s*"8765"/.test(vbsSrc) && /http\.server/.test(vbsSrc) && /shell\.Run url/.test(vbsSrc),
+      JSON.stringify({ hasPort: /port\s*=\s*"8765"/.test(vbsSrc), hasServer: /http\.server/.test(vbsSrc) }));
+
+    /* ★ 「そのパスが実際に配信されて title.html として開ける」ところまで測る。
+       文字列比較だけだと、綴り間違いや未配置のファイルを指していても緑になる。 */
+    let vOpened = null;
+    if (urlPath) {
+      const pv = await openPage(urlPath, { prologueSeen: false });
+      vOpened = await pv.evaluate(probeTitleSlots);
+      await pv.close();
+    }
+    check('(v3) ★STEP5: VBS が指すパスを実際に開くとタイトル画面が立つ (同じ judgeSlotsScreen が true)',
+      !!vOpened && judgeSlotsScreen(vOpened) === true,
+      JSON.stringify({ urlPath, screenSlots: vOpened && vOpened.screenSlots,
+                       n: vOpened ? (vOpened.cards || []).length : 0 }));
+  }
+
+  /* ■ SECTION 受入条件 9. 10.  ← 項目 4 がここに足す ──────────────────────
      9.  幅 390px (compact) と横長デスクトップの **両方**で横スクロールが出ない
          → openPage(path, { viewport: {...} }) を使う。⚠ 片方だけで測って欠陥を 2 つ見逃した前例あり
-     10. 最初のタップで GameAudio.unlock() が呼ばれる / BGM は鳴らない */
+         ⚠ スロットは 3 枚 (空) と 3 枚 (埋) の両方を見ること。埋まると確認行のボタン 2 個が増える
+     10. 最初のタップで GameAudio.unlock() が呼ばれる / BGM は鳴らない
+     11. 既存 golden ドライバの非退行 (本ドライバの外で回す)
+     ⚠ 受入条件 5. で tavern.html の DOM に .locked-out と title 属性が増えている。
+       canvas の SHA しか見ない golden では検出できないので、5b / 7b が直接測っている。 */
 
   check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
 

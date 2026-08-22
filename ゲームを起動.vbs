@@ -12,7 +12,10 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 here = fso.GetParentFolderName(WScript.ScriptFullName)
 port = "8765"
-url  = "http://localhost:" & port & "/tavern.html"
+' Entry point is the title screen (slot select -> naming), which hands off to tavern.html.
+' Retreat switch: append "?title=0" to bypass the title screen and land in the tavern
+' directly. tavern.html also still works when opened on its own.
+url  = "http://localhost:" & port & "/title.html"
 
 ' Start the HTTP server in a HIDDEN window (style 0), from the project folder.
 ' If a server is already running on this port the new one just fails silently

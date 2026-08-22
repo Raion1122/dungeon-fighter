@@ -657,6 +657,17 @@
     .partyMemberToggle.locked {
       cursor: not-allowed;
     }
+    /* ★ 主人公は title.html の名乗り (「汝は何者か」) でしか決められない。
+       酒場では非主人公タイルを「押せない見た目」にする。
+       撤退スイッチ ?herolock=0 を付けると従来どおりクリックで切り替わる (この class も付かない)。 */
+    .partyMemberToggle.locked-out {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    .partyMemberToggle.locked-out:hover {
+      background: rgba(245,232,200,0.35);
+      border-color: rgba(139,105,20,0.35);
+    }
     .partyMemberToggle.locked::after {
       content: "★";
       position: absolute;
@@ -1985,10 +1996,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>起動するとまずタイトル画面が開くように</b> — 「ゲームを起動」から、記録の選択と名乗りを済ませてから銀の鹿亭へ入る流れになった。記録が入っている枠の「はじめから」は一度で消えず、確認してからになる。主人公の職業は名乗りで決めるので、酒場では変えられない。</li>
         <li><b>冒険の記録が自動で書き留められるように</b> — 酒場に戻ったとき・出発するとき・画面を離れたときに、そのときの進行を裏側で保存するようになった。セーブ枠を分けても、いま遊んでいる記録が取り残されない。</li>
         <li><b>『冒険の記録を消す』の作りを整理</b> — 消える範囲も、音量などの設定が残ることも今まで通り。今後セーブ枠が増えても取りこぼさない土台になった。</li>
         <li><b>セーブを3つ持てるようにする準備</b> — 今の冒険の記録はそのままに、あとから枠を分けて遊べるようにする土台を裏側に入れた。遊びかたはまだ変わらない。</li>
-        <li><b>廃坑の「南の操車場」へ寄り道できるように</b> — 玉座を守る衛兵が遠くから見張っていたため、南へ向かう途中で必ず玉座の戦いに巻き込まれていた。衛兵の持ち場を玉座の奥へ移し、寄り道するかどうかを選べるようになった。</li>
       </ul>
     </div>
     <script>
@@ -4403,12 +4414,25 @@
 
   // ── 主人公セレクタ (6職から1人だけ選ぶ。残りはNPC冒険者で自動編成) ──
   // Q1=B: 隊列は front→mid→rear に並び、先頭(前衛)が移動の先頭=蛇の頭=盾役。主人公が後衛なら後方に下がる。
+  //
+  // ★ 主人公は title.html の名乗りで **1 度だけ**決める。酒場からの付け替えは封印してある。
+  //   変えたければ title.html で「はじめから」を始め直す (それが唯一の入口)。
+  //   ⚠ selectHero() 自体は残す。?herolock=0 経路とデバッグが呼ぶ。
+  /* 撤退スイッチ ?herolock=0 : 酒場からの主人公付け替えを従来どおり復活させる。
+     ⚠ モジュール直下の const にしない。renderPartyComposition() は上流の関数から
+       この行より前に呼ばれ得るので、const だと TDZ で ReferenceError になる
+       (このリポジトリで実際に踏んだ罠)。**巻き上げされる関数宣言**にして毎回読む。 */
+  function isHeroLockOff() {
+    try { return new URLSearchParams(location.search).get("herolock") === "0"; } catch (e) { return false; }
+  }
+
   function renderPartyComposition() {
     const compEl = document.getElementById("partyComp");
     const countEl = document.getElementById("partyCompCount");
     if (!compEl) return;
     compEl.innerHTML = "";
     const heroKey = selection.partyComposition[0];
+    const heroLockOff = isHeroLockOff();   // ← 描くたびに読む (TDZ 回避。上のコメント参照)
     PARTY_SLOTS.forEach((slot) => {
       if (!slot) return;
       const isHero = slot.classKey === heroKey;
@@ -4416,7 +4440,17 @@
       el.className = "partyMemberToggle" + (isHero ? " active locked" : "");
       el.innerHTML = `<div class="memberName">${slot.name}</div>` +
                      `<div class="memberRole">${isHero ? "主人公" : "—"}</div>`;
-      if (!isHero) el.addEventListener("click", () => selectHero(slot.classKey));
+      if (!isHero) {
+        /* ★ 通常時は付け替えを封印する。リスナを **付けない** のが本体で、
+           .locked-out と title 属性はそれをプレイヤーに見せるための表示。
+           ⚠ 見た目だけ変えてリスナを残すと「押せるのに何も起きない」になる。 */
+        if (heroLockOff) {
+          el.addEventListener("click", () => selectHero(slot.classKey));
+        } else {
+          el.classList.add("locked-out");
+          el.title = "主人公は変更できません(新規ゲームで選び直せます)";
+        }
+      }
       compEl.appendChild(el);
     });
     const heroSlot = PARTY_SLOTS.find(s => s && s.classKey === heroKey);

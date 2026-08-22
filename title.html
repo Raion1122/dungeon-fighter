@@ -34,6 +34,10 @@
         (ページごとに AudioContext が別)。しゃっくりが出るくらいなら無音のほうが粗が少ない。
         ⚠ ここに GameAudio.playBgm(...) を足さないこと。タイトル専用 BGM は別チケット。
       - 効果音だけ。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
+
+    ★ 撤退スイッチ `?title=0`
+      title.html を素通りして従来どおり酒場へ直行する。IIFE の **先頭**で判定して return する
+      (描画より前でないと、撤退したはずのタイトルが一瞬見える)。
   -->
   <style>
     :root {
@@ -166,10 +170,17 @@
     .slotBtn.danger  { background: #7a3320; }
     .slotBtn:hover { filter: brightness(1.15); }
     .slotBtn:active { filter: brightness(0.9); }
-    /* ★ 項目 3 の 2 段タップ確認 (埋まったスロットの「はじめから(上書き)」) の差し込み口。
-       空のときは高さを持たない。tavern.html の『冒険の記録を消す』と同じ作法に揃えること */
+    /* ★ 2 段タップ確認 (埋まったスロットの「はじめから(上書き)」) の器。
+       空のときは高さを持たない。tavern.html の『冒険の記録を消す』と同じ作法に揃えてある */
     .slotConfirm:empty { display: none; }
-    .slotConfirm { margin-top: 4px; }
+    .slotConfirm {
+      margin-top: 4px; padding-top: 8px;
+      border-top: 1px solid rgba(139,105,20,0.35);
+    }
+    .confirmMsg { font-size: 12px; color: #6a4418; line-height: 1.55; margin-bottom: 8px; }
+    /* ⚠ 『やめる』が左。iOS のゴーストクリックは直前のタップ位置に落ちるので非破壊側を当てる */
+    .confirmRow { display: flex; gap: 10px; }
+    .confirmRow .slotBtn { flex: 1; }
 
     #slotHint { color: #8d7a55; font-size: 12px; letter-spacing: 1px; margin: 18px 0 0; text-align: center; }
     #slotError {
@@ -291,6 +302,18 @@
   (function () {
     "use strict";
 
+    /* ══ 撤退スイッチ ?title=0 ═══════════════════════════════════════════
+       タイトル画面を素通りして、従来どおり銀の鹿亭へ直行する。
+       ⚠⚠ **描画より前に判定して return する。** renderSlots() の後ろに置くと
+         タイトルが一瞬見えてから飛ぶ (撤退したはずのものが画面に出る)。
+       ⚠ location.href ではなく **replace**。href だと履歴に title.html が残り、
+         酒場で「戻る」を押した人が撤退したはずのタイトルへ戻ってしまう。
+       ⚠ 効かなくなっても静かに素通りしない (silent fail-open) ことは
+         tools/verify_title_screen.js の受入条件 8. が測っている。 */
+    var titleOff = false;
+    try { titleOff = new URLSearchParams(location.search).get("title") === "0"; } catch (e) { titleOff = false; }
+    if (titleOff) { location.replace("tavern.html"); return; }
+
     /* zone の生値 → 日本語ラベル。⚠ ここは **表示ラベルの対応表**であって隊列の定義ではない。
        隊列の唯一の正は tavern.html / index.html の PARTY_ZONES で、
        それと HERO_CLASSES の zone が一致していることは
@@ -349,16 +372,79 @@
     }
 
     // ══ 画面 1: スロット選択 ═══════════════════════════════════════════
-    function mkSlotBtn(act, label, kind, slot) {
+    /* needsConfirm = true (埋まっているスロットの「はじめから」) のとき、
+       1 タップ目では **何もしない**。確認行を出すだけ (下の renderConfirm)。 */
+    function mkSlotBtn(act, label, kind, slot, needsConfirm) {
       var b = el("button", "slotBtn " + kind, label);
       b.type = "button";
       b.setAttribute("data-act", act);
       b.setAttribute("data-slot", String(slot));
       b.addEventListener("click", function () {
-        if (act === "continue") doContinue(slot);
-        else doNewGame(slot);
+        if (act === "continue") { doContinue(slot); return; }
+        if (needsConfirm) { renderConfirm(slot, true); return; }   // ★ 1 タップ目は確認行だけ
+        doNewGame(slot);
       });
       return b;
+    }
+
+    /* ══ 2 段タップ確認 (埋まったスロットの「はじめから(上書き)」) ══════════
+       見本は tavern.html の『冒険の記録を消す』(btnWipeSave / render(armed) /
+       setTimeout(..., 8000))。**同じ挙動に揃える**:
+         1 タップ目 = 確認行を出すだけで、記録には一切触らない
+         2 タップ目 = 実行 (名乗り画面へ進む。実際の消去は departAsChosen() の newGame)
+         8 秒 無操作 = 安全側 (未確認) へ自動復帰
+
+       ⚠ **空のスロットには確認を出さない。** 消す記録が無いのに確認を求めるのは
+         ただの摩擦で、しかも「はじめから」1 タップで名乗りへ進む経路 (受入条件 2./3.) を壊す。
+
+       ⚠⚠ 見本側は ctx.onClose(clear) で 8 秒タイマーを解除している。title には
+         「閉じる」契機が無いので、代わりに **確認行を描き直すたびに前のタイマーを必ず解除**する。
+         やらないと detached ノードを掴んだ setTimeout が生き残る。
+
+       ⚠ armed になれるのは常に高々 1 スロット (別スロットを押したら前のを畳む)。
+         タイマーが構造的に 1 本しか存在しないので、解除漏れが起こりようがない。 */
+    var CONFIRM_MS = 8000;
+    var confirmTimer = null;
+    var armedSlot = 0;
+
+    function clearConfirmTimer() {
+      if (confirmTimer !== null) { clearTimeout(confirmTimer); confirmTimer = null; }
+    }
+    function confirmBoxOf(slot) {
+      var card = elSlotList.querySelector('.slotCard[data-slot="' + slot + '"]');
+      return card ? card.querySelector(".slotConfirm") : null;
+    }
+    function renderConfirm(slot, armed) {
+      clearConfirmTimer();                       // ★ 何をするにせよ、まず前のタイマーを消す
+      if (armedSlot && armedSlot !== slot) {     // 別スロットが armed なら畳む
+        var prev = confirmBoxOf(armedSlot);
+        if (prev) prev.textContent = "";
+      }
+      var box = confirmBoxOf(slot);
+      if (!box) { armedSlot = 0; return; }
+      box.textContent = "";
+      if (!armed) { armedSlot = 0; return; }
+      armedSlot = slot;
+
+      box.appendChild(el("div", "confirmMsg",
+        "このスロットの記録を消して最初から始めます。所持金・装備・習得した呪文・進行状況がすべて消えます。"));
+      var row = el("div", "confirmRow");
+      // ⚠ 『やめる』を左に置く (見本と同じ理由: iOS のゴーストクリック対策)
+      var no = el("button", "slotBtn sub", "やめる");
+      no.type = "button";
+      no.setAttribute("data-act", "confirm-cancel");
+      no.setAttribute("data-slot", String(slot));
+      no.addEventListener("click", function () { renderConfirm(slot, false); });
+      var yes = el("button", "slotBtn danger", "消して始める");
+      yes.type = "button";
+      yes.setAttribute("data-act", "confirm-yes");
+      yes.setAttribute("data-slot", String(slot));
+      yes.addEventListener("click", function () { renderConfirm(slot, false); doNewGame(slot); });
+      row.appendChild(no);
+      row.appendChild(yes);
+      box.appendChild(row);
+
+      confirmTimer = setTimeout(function () { renderConfirm(slot, false); }, CONFIRM_MS);
     }
 
     function buildSlotCard(row) {
@@ -394,17 +480,22 @@
 
       var acts = el("div", "slotActs");
       if (!empty) acts.appendChild(mkSlotBtn("continue", "つづきから", "primary", row.slot));
+      /* ★ 埋まっているときだけ 2 段タップ確認を要求する (第 5 引数 = !empty) */
       acts.appendChild(mkSlotBtn("new",
         empty ? "はじめから" : "はじめから(上書き)",
-        empty ? "primary" : "danger", row.slot));
+        empty ? "primary" : "danger", row.slot, !empty));
       card.appendChild(acts);
 
-      // ★ 項目 3 の 2 段タップ確認はこの器の中へ描く (埋まったスロットのみ)
+      // ★ 2 段タップ確認はこの器の中へ描く (埋まったスロットのみ)
       card.appendChild(el("div", "slotConfirm"));
       return card;
     }
 
     function renderSlots() {
+      /* ⚠ カードを作り直す = 確認行の DOM が detach される。
+         前のタイマーを残すと detached ノードを掴み続けるので、必ずここで解除する。 */
+      clearConfirmTimer();
+      armedSlot = 0;
       elSlotList.textContent = "";
       elSlotError.style.display = "none";
       var rows = null;
