@@ -1,7 +1,7 @@
 /*
  * tools/verify_title_screen.js — タイトル画面 title.html の検証ドライバ
  * ═══════════════════════════════════════════════════════════════════════════
- * 実装依頼書 `実装依頼書/2026-08-20_title-screen.md` の受入条件を測る。
+ * 実装依頼書 `実装依頼書/完了/2026-08-20_title-screen.md` の受入条件を測る。
  *
  *   node tools/verify_title_screen.js [--headful] [--port N]
  *

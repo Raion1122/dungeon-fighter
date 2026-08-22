@@ -21,8 +21,8 @@
 
 `localStorage` の `dragonfighters.*` 群。**キー参照は 2 ファイルに散らばっている**:
 
-- [tavern.html](../tavern.html) — 35 種
-- [index.html](../index.html) — 37 種
+- [tavern.html](../../tavern.html) — 35 種
+- [index.html](../../index.html) — 37 種
 
 (`xp` / `gold` / `ownedEquip` / `equipWeaponIdx` 等の装備一式 / `knownSpells` / `questFlags` /
 `partyComposition` / `partyMembers` / `plazaState` / `plazaInventory` / `cleared` / `prologueSeen` /
@@ -32,7 +32,7 @@
 
 ### すでにある資産(重要)
 
-[tavern.html:5238-5249](../tavern.html#L5238-L5249) の `WIPE_KEEP` + `wipeAdventureRecord()` が、
+[tavern.html:5238-5249](../../tavern.html#L5238-L5249) の `WIPE_KEEP` + `wipeAdventureRecord()` が、
 **消すキーを列挙せず** `dragonfighters.` 接頭辞を総なめして消す実装になっている。
 残すのは `dragonfighters.settings` と `dragonfighters.panelCollapsed` の 2 つだけ。
 
@@ -49,7 +49,7 @@ function wipeAdventureRecord() {
 
 ### 共有ファイルの前例
 
-[tavern.html:1747-1749](../tavern.html#L1747-L1749) に前例がある:
+[tavern.html:1747-1749](../../tavern.html#L1747-L1749) に前例がある:
 
 - `js/skill-check.js` — 「index.html と共有 (変更は js/skill-check.js 1か所で済む)」
 - `js/df-mapdef.js` — 「index.html / map-editor.html と共有」
@@ -132,12 +132,12 @@ DFSlots.sizeReport()         // { live: <bytes>, slot1: <bytes>, ..., total: <by
 
 | ファイル | 変更 |
 |---|---|
-| [tavern.html:5238-5249](../tavern.html#L5238-L5249) | `WIPE_KEEP` / `wipeAdventureRecord()` の**本体を削除**し、`DFSlots.wipeLive()` を呼んでから `location.replace(location.pathname)` する薄いラッパに置き換える。**消去の実装を 2 つ持たない** |
-| [tavern.html](../tavern.html) の既存 `js/skill-check.js` の隣 | `<script src="js/save-slots.js"></script>` を追加 |
-| [index.html](../index.html) 同上 | 同じ script タグを追加(index は snapshot のフックだけ使う。無くても壊れないが、`?slots=0` の判定を共有するため入れる) |
-| [tavern.html:3868](../tavern.html#L3868) `consumeResult()` の直後 | `DFSlots.snapshot()` を呼ぶ(ダンジョンから戻った直後の状態を要約に反映) |
-| [tavern.html:5146](../tavern.html#L5146) `departToScenario()` の `saveSelections()` 直後 | `DFSlots.snapshot()` を呼ぶ |
-| [tavern.html](../tavern.html) 初期化末尾 | `pagehide` と `visibilitychange`(hidden) の**両方**で `DFSlots.snapshot()`。iOS Safari は `beforeunload` が不発になるので `beforeunload` は使わない |
+| [tavern.html:5238-5249](../../tavern.html#L5238-L5249) | `WIPE_KEEP` / `wipeAdventureRecord()` の**本体を削除**し、`DFSlots.wipeLive()` を呼んでから `location.replace(location.pathname)` する薄いラッパに置き換える。**消去の実装を 2 つ持たない** |
+| [tavern.html](../../tavern.html) の既存 `js/skill-check.js` の隣 | `<script src="js/save-slots.js"></script>` を追加 |
+| [index.html](../../index.html) 同上 | 同じ script タグを追加(index は snapshot のフックだけ使う。無くても壊れないが、`?slots=0` の判定を共有するため入れる) |
+| [tavern.html:3868](../../tavern.html#L3868) `consumeResult()` の直後 | `DFSlots.snapshot()` を呼ぶ(ダンジョンから戻った直後の状態を要約に反映) |
+| [tavern.html:5146](../../tavern.html#L5146) `departToScenario()` の `saveSelections()` 直後 | `DFSlots.snapshot()` を呼ぶ |
+| [tavern.html](../../tavern.html) 初期化末尾 | `pagehide` と `visibilitychange`(hidden) の**両方**で `DFSlots.snapshot()`。iOS Safari は `beforeunload` が不発になるので `beforeunload` は使わない |
 
 ### 触らないと決めたファイル
 

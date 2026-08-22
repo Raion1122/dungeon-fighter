@@ -1,7 +1,7 @@
 /*
  * js/save-slots.js — セーブスロット基盤 (3スロット・アーカイブ方式) v1
  * ------------------------------------------------------------------
- * 実装依頼書 `実装依頼書/2026-08-20_save-slots.md` の STEP 1〜2 (API のみ・UI なし)。
+ * 実装依頼書 `実装依頼書/完了/2026-08-20_save-slots.md` の STEP 1〜2 (API のみ・UI なし)。
  *
  * ★ 共有モジュール: tavern.html / index.html (将来は title.html も) が
  *      <script src="js/save-slots.js"></script>

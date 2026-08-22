@@ -270,7 +270,7 @@ const READ_GATE = () => {
     const aud = fs.readFileSync(path.join(ROOT, 'audio.js'), 'utf8');
     const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     // ⚠ (D5) の測定点。消去の実体が tavern.html から js/save-slots.js へ引っ越したため
-    //    (2026-08-22 / 実装依頼書 2026-08-20_save-slots.md STEP3)、読む先も実経路へ移す。
+    //    (2026-08-22 / 実装依頼書 完了/2026-08-20_save-slots.md STEP3)、読む先も実経路へ移す。
     const slt = fs.readFileSync(path.join(ROOT, 'js', 'save-slots.js'), 'utf8');
 
     // ⚠ CSS ゲートはインライン style に無条件で負ける。生ソースで 0 件を確認する。
