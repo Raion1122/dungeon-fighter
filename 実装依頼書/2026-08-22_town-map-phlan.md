@@ -128,7 +128,10 @@ OK 横線: 周期 64.036px → 累積ドリフト 0.81 world-px (許容 4.0) / �
 | タイトル → 続きから | `title.html:518` | `location.href = "tavern.html"` |
 | タイトル → 名乗って出発 | `title.html:540` | `location.href = "tavern.html"` |
 | `?title=0`(タイトル撤退) | `title.html:315` | `location.replace("tavern.html")` |
-| ダンジョン → 帰還 | `index.html:13212-13213` | `window.location.href = "tavern.html"` |
+| 帰還① クリア/敗北のリザルト | `index.html:34717` `resultBtnEl` の click | `window.location.href = "tavern.html"` ⭐**いちばん使われる帰還** |
+| 帰還② 撤退 (探索中の離脱) | `index.html:34774` | 同上 |
+| 帰還③ エンディング後 | `index.html:13213` `goTavern` | 同上 (dragon-lair クリア時) |
+| 帰還④ autoplay のスキップ | `index.html:13212` | 同上 (検証ドライバ専用の近道) |
 | 武器防具屋を開く | `tavern.html:4381` `openShop()` / `:4402` `#shopEntry` の click | 酒場の一枚絵に浮かせたホットスポット |
 | 闇市を開く | `tavern.html:5836` 以降 / `#plazaDoor`(`:2035`、既定 `display:none`) | 通常クエスト 5 回クリアで常設化 |
 | 前口上 | `tavern.html:5803` `initTavernPrologue()` | `localStorage["dragonfighters.prologueSeen"]` 未設定なら tavern ロードで語る |
@@ -283,6 +286,37 @@ if (via && via !== "tavern") return;   // 🛡️/🌑 から入ったときは�
 - ⚠ 実機で耳障りなら**町を無音にする**(`title.html` と同じ方針)。街専用 BGM は別チケット
 - 最初の `pointerdown` で `GameAudio.unlock()`(iOS Safari の音声解錠に必須)
 
+### §10 既存ドライバへの波及 (⭐ 起草時に実測済み。着手してから驚かないこと)
+
+`grep -l "tavern.html" tools/*.js` → **23 本**。うち 21 本は
+**`/tavern.html` を直接開いているだけ**なので影響しない(街を足しても `tavern.html` は消えない)。
+
+**必ず赤くなるのは `tools/verify_title_screen.js` の 2 本**:
+
+| 受入条件 | 実装位置 | 今の期待 | なぜ赤くなるか |
+|---|---|---|---|
+| 2. | `verify_title_screen.js:195` / `:1044` | 「新規の一周が**素の tavern.html に着き**、選んだ職 1 人だけが localStorage に入る」 | 着地点が `town.html` へ移る |
+| 8. | `verify_title_screen.js:1495` | 「`title.html?title=0` は**即座に tavern.html へ抜ける**(タイトルは 1 枚も描かれない)」 | `?title=0` の行き先が §11 の表で決まる |
+
+**張り替え方 ⛔ 期待値を書き換えない**:
+
+- 受入条件 2. の**不変条件は「クエリの付かない次のページに着く」+「選んだ職 1 人だけ」**。
+  ページ名は手段でしかない。→ 測定点を `/town.html` へ移し、
+  **「`location.search` が空文字」の assert はそのまま残す**。
+  ⭐ これで受入条件 7.(入口が 2 種類になっていない)と**同じ不変条件を 2 本で守る**形になる。
+- 受入条件 8. の**不変条件は「タイトルが 1 枚も描かれない」**。行き先は下の組み合わせ表で決まる。
+
+| `?title=0` | `?town=0` | 行き先 |
+|---|---|---|
+| 無 | 無 | `title.html` → `town.html` |
+| **有** | 無 | `town.html`(タイトルだけ飛ばす) |
+| 無 | **有** | `title.html` → `tavern.html`(今日とまったく同じ) |
+| **有** | **有** | `tavern.html`(今日の `?title=0` と同じ) |
+
+⚠⚠⚠ **`?title=0` の行き先を `tavern.html` のまま据え置かない**。据え置くと
+「タイトルを飛ばすと街も飛ぶ」= **2 つの機能が 1 つのスイッチに相乗り**した状態になり、
+赤が出たときにどちらを撤退したのか切り分けられなくなる。
+
 ---
 
 ## 変更範囲
@@ -302,13 +336,13 @@ if (via && via !== "tavern") return;   // 🛡️/🌑 から入ったときは�
 |---|---|
 | `tools/make_grid_map.py` | `GRIDS` に `phlan-harbor` を追記(実測値 ①・`tile: 64`)。**素材差し替え時に焼き直せる唯一の口** |
 | `title.html:518` / `:540` | 遷移先を `town.html` へ。`:315` の `?title=0` も同様(⚠ §11 の撤退規則に従う) |
-| `index.html:13212-13213` | 帰還先を `town.html` へ |
+| `index.html` **4 箇所**(`:34717` / `:34774` / `:13213` / `:13212`) | 帰還先を `town.html` へ。⚠⚠⚠ **2 箇所だと思って着手しない** — 起草時に `grep -n 'location.href = "tavern.html"' index.html` で **4 箇所**を実測した。いちばん使われるリザルト経路 `:34717` は、起草者も最初 2 箇所と書いて取りこぼした |
 | `tavern.html` | ① `enterVia` を読んで `openShop()`/`enterPlaza()`(描画より前)② `initTavernPrologue()` に 1 行 ③ 酒場を出る導線 → `town.html`(`exitVia` を書く)④ `#shopSign` の副題「銀の鹿亭**併設**の店」を街の位置に合わせて書き換え ⑤ **📜 更新情報を 1 行追記** |
 
 ### ⛔ 触らない
 
 - `js/save-slots.js` / `js/hero-classes.js` / `js/skill-check.js` / `js/df-mapdef.js`
-- `index.html` の戦闘・マップ・スポーン系(帰還先の 1 行以外は 1 バイトも触らない)
+- `index.html` の戦闘・マップ・スポーン系(**帰還先の 4 行以外**は 1 バイトも触らない)
 - `#shopScreen` / `#plazaScreen` の**中身**(開閉の呼び口だけを使う。移設しない)
 - 闇市の解禁条件(通常クエスト 5 回クリア)。街の 🌑 も**同じ条件で出す/隠す**
 
@@ -411,9 +445,12 @@ py tools/add_changelog.py "<b>見出し</b> — 説明文"
     ⚠ 0 件ヒットだと `exit 3` でドライバごと死ぬ。⚠ インデント違いの同一行は
     部分文字列で 2 箇所ヒットして同じく `exit 3`
 
-14. **既存が壊れていない** — `tools/verify_title_screen.js` / `tools/verify_save_slots.js` /
-    `tools/driver_dev_gate.js` が**全部これまでどおり緑**。
-    ⚠ 赤が出たら**期待値を緩めず**、測定点を新しい経路へ移して装置 assert を添える
+14. **§10 の既存の赤を、期待値を緩めずに回収した** — `verify_title_screen.js` の
+    受入条件 2. と 8. は**この変更で必ず赤くなる**(§10 で実測済み)。緑に戻す方法は 1 つだけ:
+    **測定点を新しい経路へ移し、「移せたか」の装置 assert を 1 本足す**。
+    - ⛔ 期待文字列を `tavern.html` → `town.html` へ書き換えて終わりにしない
+      (それは検出器を「手段」に縛り直すだけで、次の仕様変更でまた腐る)
+    - `tools/verify_save_slots.js` / `tools/driver_dev_gate.js` は**これまでどおり緑**であること
 
 ---
 
@@ -467,5 +504,5 @@ const townOff = sessionStorage.getItem("dragonfighters.townOff") === "1";
 
 - 実測に使った道具: `tools/make_grid_map.py`(櫛形フィット + `--check` 検算)
 - 先例(卓上バトルマップの貼り込み): [2026-08-22_bandit-hideout-map-s2.md](2026-08-22_bandit-hideout-map-s2.md)
-- 先例(新規ページの責務の切り方 / クエリ禁止の理由): [2026-08-20_title-screen.md](完了/2026-08-20_title-screen.md)
+- 先例(新規ページの責務の切り方 / クエリ禁止の理由): [完了/2026-08-20_title-screen.md](完了/2026-08-20_title-screen.md) — **完了 `9f8b1bd`**
 - 先例(土台だけ先に固める / 撤退の測り方): [完了/2026-08-20_save-slots.md](完了/2026-08-20_save-slots.md)
