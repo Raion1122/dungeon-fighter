@@ -1872,7 +1872,9 @@
         <div class="sub" id="prepSub"></div>
         <div class="prepPanel">
           <div class="ph" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <span>主人公をえらぶ <span style="opacity:0.6;font-size:12px;">(残りはランダムな仲間で埋まる)</span></span>
+            <!-- ⚠ 文言は renderPartyComposition() が付け替える。封印中は「えらぶ」と言わせない
+                 (押せないのに選べと書いてあると、初見が押し続けて詰まる)。既定値は封印側。 -->
+            <span><span id="partyCompHead">主人公</span> <span id="partyCompHeadSub" style="opacity:0.6;font-size:12px;">(変更するには新規ゲーム。残りはランダムな仲間で埋まる)</span></span>
             <span id="partyCompCount" style="font-size:13px;opacity:0.85;"></span>
           </div>
           <div class="partyComp" id="partyComp"></div>
@@ -1996,10 +1998,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>出発の準備の見出しを実態に合わせた</b> — 主人公の職業は名乗りで決まるので、準備画面では「えらぶ」ではなく「変更するには新規ゲーム」と案内するようにした。</li>
         <li><b>起動するとまずタイトル画面が開くように</b> — 「ゲームを起動」から、記録の選択と名乗りを済ませてから銀の鹿亭へ入る流れになった。記録が入っている枠の「はじめから」は一度で消えず、確認してからになる。主人公の職業は名乗りで決めるので、酒場では変えられない。</li>
         <li><b>冒険の記録が自動で書き留められるように</b> — 酒場に戻ったとき・出発するとき・画面を離れたときに、そのときの進行を裏側で保存するようになった。セーブ枠を分けても、いま遊んでいる記録が取り残されない。</li>
         <li><b>『冒険の記録を消す』の作りを整理</b> — 消える範囲も、音量などの設定が残ることも今まで通り。今後セーブ枠が増えても取りこぼさない土台になった。</li>
-        <li><b>セーブを3つ持てるようにする準備</b> — 今の冒険の記録はそのままに、あとから枠を分けて遊べるようにする土台を裏側に入れた。遊びかたはまだ変わらない。</li>
       </ul>
     </div>
     <script>
@@ -4453,6 +4455,16 @@
       }
       compEl.appendChild(el);
     });
+    /* ★ 見出しを実態に合わせる。封印中に「主人公をえらぶ」と書いてあると、
+       押せないタイルを初見が押し続けることになる (title 属性は hover しないと出ない)。
+       ⚠ 静的な文言のままにすると ?herolock=0 で復活させたときに今度は逆に嘘になるので、
+         **リスナを付けたかどうかと同じ heroLockOff で**両方向に切り替える。 */
+    const headEl = document.getElementById("partyCompHead");
+    const headSubEl = document.getElementById("partyCompHeadSub");
+    if (headEl) headEl.textContent = heroLockOff ? "主人公をえらぶ" : "主人公";
+    if (headSubEl) headSubEl.textContent = heroLockOff
+      ? "(残りはランダムな仲間で埋まる)"
+      : "(変更するには新規ゲーム。残りはランダムな仲間で埋まる)";
     const heroSlot = PARTY_SLOTS.find(s => s && s.classKey === heroKey);
     if (countEl) countEl.textContent = heroSlot ? `主人公: ${heroSlot.name}` : "";
   }

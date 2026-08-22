@@ -12,10 +12,13 @@
  *   ✅ 受入条件 5. 7. : tavern.html のクラス変更封印 と ?herolock=0 の装置 assert
  *   ✅ 受入条件 8.    : ?title=0 の装置 assert (1.〜4. の判定関数を共有して落とす)
  *   ✅ 実装ステップ 5.: ゲームを起動.vbs の飛び先が /title.html で、実際に立つこと
- *   ⬜ 受入条件 9. 10.: 390px / 横長デスクトップの両方 と GameAudio.unlock       (項目 4 が追加)
- *   ⬜ 受入条件 11.   : 既存 golden ドライバの非退行 (本ドライバの外で回す)
- *   足す場所は下の「■ SECTION」コメントに印を付けてある。共通の道具は
- *   openPage() / check() / results / pageErrors。新しいセクションはそれを使い回すこと。
+ *   ✅ 受入条件 9.    : 390px / 横長デスクトップ / 境界 720px の 3 幅 × 3 状態で横スクロールなし
+ *   ✅ 受入条件 10.   : 最初のタップで GameAudio.unlock() が 1 回 / BGM は 0 回
+ *   ⬜ 受入条件 11.   : 既存 golden ドライバの非退行 (**本ドライバの外**で回す)
+ *      → driver_dev_gate / driver_depart_menu_clean / verify_save_slots / driver_grid_p8 ほか。
+ *        tavern.html の DOM を触っているが canvas の SHA しか見ない golden では検出できないので、
+ *        タイルの class と click リスナは 5b / 7b が直接測っている。
+ *   共通の道具は openPage() / check() / results / pageErrors。新しいセクションはそれを使い回すこと。
  *
  * ── ⭐⭐⭐ 判定本体の共有 (受入条件 7. / 8. の要) ────────────────────────────
  *   「スイッチを外すと赤」は **assert 本体を共有しないと空振りする**。判定式をその場に
@@ -246,6 +249,62 @@ function judgeHeroUnchanged(pre, post) {
     && post.hero === pre.hero && post.pc === pre.pc;
 }
 
+/* 受入条件 9. : 横スクロールが出ていない
+   ⚠⚠ 条件は「**横**スクロールを出さずに」。**縦スクロールは禁じない**
+      (390x844 では実測で縦 892px = わずかに出るが、これは可)。→ scrollHeight を一切見ない。
+   ⭐ 3 つの物差しを AND で束ねる。1 本だけだと「見え方の一部」しか測れない:
+        ① documentElement.scrollWidth <= clientWidth   … 依頼書の文言そのもの
+        ② body.scrollWidth <= clientWidth              … 器が違えば別の答えが出る
+        ③ #titleRoot 配下に「端をはみ出した要素」が 1 つも無い … 赤のとき原因が特定できる
+      ③ を入れないと「総量は収まっているが 1 要素だけ画面外」が緑になる。
+   ⚠⚠⚠ **`window.scrollTo(9999,y)` 後の scrollX は判定に使わない (使ってはいけない)。**
+      「実際に横へスクロールできてしまうか」は一見いちばん体感に近い物差しに見えるが、
+      puppeteer の `isMobile: true` (= iPhone 相当のエミュレーション) では
+      **200px のスクロール可能な溢れがあっても scrollX が 0 のまま**になる (実測)。
+      モバイル側では原理的に一度も反応しない = AND に混ぜると「永久に緑の飾り」になる。
+      → 観測値としては採って **ログには出す**が、judge には入れない。
+      (この事実は (9n) の負のコントロールが compact 390 で赤を出したことで発覚した)
+   ⭐ この 1 本を **全ビューポート × 全画面 と 負のコントロールが共有**する。 */
+function judgeNoHScroll(o) {
+  if (!o) return false;
+  return o.threw === '' && o.ranToEnd === true
+    && o.clientWidth > 0
+    && o.scrollWidth <= o.clientWidth
+    && o.bodyScrollWidth <= o.clientWidth
+    && (o.overflowers || []).length === 0;
+}
+
+/* ⚠ 「空っぽのページには横スクロールが出ない」で緑になる穴を塞ぐ装置判定。
+   測りたいのは「スロット 3 枚とクラスカード 6 枚が収まる」ことなので、
+   **その 3 枚 / 6 枚が本当にそこに在る**ことを状態ごとに要求する。
+     'slots'  … 画面 1 / 空 3 枚
+     'armed'  … 画面 1 / 埋 3 枚 + 確認行が開いている (いちばん横幅が要る状態)
+     'naming' … 画面 2 / カード 6 枚 + 1 枚だけ詳細が開いている */
+function judgeLayoutPopulated(o, kind) {
+  if (!o) return false;
+  if (kind === 'slots')  return o.screenSlots === true && o.nSlotCards === 3 && o.nFilledCards === 0;
+  if (kind === 'armed')  return o.screenSlots === true && o.nSlotCards === 3
+                             && o.nFilledCards === 3 && o.nConfirmBtns === 2;
+  if (kind === 'naming') return o.screenNaming === true && o.nClassCards === 6 && o.nOpenDetails === 1;
+  return false;
+}
+
+/* 受入条件 10. : 最初のタップで GameAudio.unlock() が 1 回 / BGM は 1 回も鳴らない
+   ⚠⚠ 「playBgm 0 回」は **スパイの掛け損ね**でも緑になる。ここは 3 段で塞ぐ:
+       ① installed.playBgm === true      … 実際に包めた (関数が存在した)
+       ② unlockAfter === 1               … **同じスパイ機構**が数えられている
+       ③ 呼び出し側が最後に手で playBgm を叩き、その 1 本が数えられる (負のコントロール)
+     ③ は呼び出し側の別 assert。ここでは ①② と 0 回を束ねる。 */
+function judgeTitleAudio(o) {
+  if (!o) return false;
+  const ins = o.installed || {};
+  return o.threw === '' && o.hasGameAudio === true
+    && ins.unlock === true && ins.playBgm === true
+    && o.unlockBefore === 0                     // ★ ロードだけでは解錠しない (タップが引き金)
+    && o.unlockAfter === 1                      // ★ once:true なのでちょうど 1 回
+    && (o.bgmCalls || []).length === 0;         // ★ Phase 1 の方針: BGM は鳴らさない
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 観測 (ページ側)。判定を 1 つも持たない。
  * ══════════════════════════════════════════════════════════════════════════ */
@@ -357,6 +416,10 @@ function probeTavernHeroTiles() {
         title:     t.getAttribute('title') || '',
       };
     }) : [];
+    /* パネルの見出し。⚠ タイルの押せる/押せないと **同じ heroLockOff** で切り替わるので、
+       「押せないのに『えらぶ』と書いてある」矛盾をここで拾える。 */
+    out.head    = ((document.getElementById('partyCompHead')    || {}).textContent || '');
+    out.headSub = ((document.getElementById('partyCompHeadSub') || {}).textContent || '');
     out.ranToEnd = true;
   } catch (e) { out.threw = String((e && e.message) || e); }
   return out;
@@ -427,6 +490,59 @@ function probeTavernArrival() {
     // 酒場が **実際に採用した**主人公 (loadSelections() を通った後の値)。キーの存在より一段強い
     try { out.heroInTavern = selection.partyComposition[0]; }
     catch (e3) { out.heroThrew = String((e3 && e3.message) || e3); }
+    out.ranToEnd = true;
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return out;
+}
+
+/* 受入条件 9. のレイアウト観測。判定は 1 つも持たない。
+   ⭐ **はみ出した要素を列挙して持ち帰る**のが要点。総量 (scrollWidth) だけを採ると、
+      赤になったときに「どこが悪いのか」が分からず CSS を当てずっぽうで触ることになる。
+   ⚠ 縦 (scrollHeight) は参考として採るだけで、判定には一切使わない (縦スクロールは可)。 */
+function probeLayout() {
+  var out = { threw: '', ranToEnd: false, href: location.href };
+  try {
+    var de = document.documentElement;
+    out.clientWidth     = de.clientWidth;
+    out.scrollWidth     = de.scrollWidth;
+    out.bodyScrollWidth = document.body.scrollWidth;
+    out.innerWidth      = window.innerWidth;
+    out.clientHeight    = de.clientHeight;      // 参考のみ (縦は禁じない)
+    out.scrollHeight    = de.scrollHeight;      // 参考のみ (縦は禁じない)
+
+    /* 実際に横へスクロールできてしまうか。⚠⚠ **judge には使わない** (judgeNoHScroll の
+       コメント参照)。isMobile エミュレーションでは溢れがあっても 0 のままなので、
+       ログに出す診断値としてだけ採る。 */
+    var sx0 = window.scrollX, sy0 = window.scrollY;
+    window.scrollTo(9999, sy0);
+    out.scrolledX = window.scrollX;
+    window.scrollTo(sx0, sy0);
+
+    /* 母集団 (装置 assert 用)。空のページで緑になる穴を塞ぐ材料。 */
+    var cards = [].slice.call(document.querySelectorAll('#slotList .slotCard'));
+    out.nSlotCards   = cards.length;
+    out.nFilledCards = cards.filter(function (c) { return c.getAttribute('data-empty') === '0'; }).length;
+    out.nConfirmBtns = document.querySelectorAll('#slotList .slotConfirm button[data-act]').length;
+    out.nClassCards  = document.querySelectorAll('#classCards .classCard').length;
+    out.nOpenDetails = [].slice.call(document.querySelectorAll('#classCards .classCard .classDetail'))
+      .filter(function (d) { return getComputedStyle(d).display !== 'none'; }).length;
+    var ss = document.getElementById('screenSlots'), sn = document.getElementById('screenNaming');
+    out.screenSlots  = !!ss && ss.classList.contains('active');
+    out.screenNaming = !!sn && sn.classList.contains('active');
+
+    /* どの要素が右 (または左) へはみ出しているか。⚠ 1px の丸め誤差は許す。 */
+    var cw = de.clientWidth;
+    var bad = [].slice.call(document.querySelectorAll('#titleRoot *')).filter(function (e) {
+      var r = e.getBoundingClientRect();
+      if (r.width <= 0 && r.height <= 0) return false;          // 畳まれている器は対象外
+      return r.right > cw + 1 || r.left < -1;
+    });
+    out.overflowers = bad.slice(0, 8).map(function (e) {
+      var r = e.getBoundingClientRect();
+      return { tag: e.tagName.toLowerCase(), id: e.id || '', cls: String(e.className || '').slice(0, 40),
+               left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width) };
+    });
+    out.nOverflowers = bad.length;
     out.ranToEnd = true;
   } catch (e) { out.threw = String((e && e.message) || e); }
   return out;
@@ -1307,6 +1423,27 @@ function probeTavernArrival() {
       unlockedTiles.length === 5 && unlockedTiles.every(t => t.lockedOut === false && t.title === ''),
       JSON.stringify(unlockedTiles.map(t => ({ name: t.name, lockedOut: t.lockedOut, title: t.title }))));
 
+    /* ★ 見出しの文言が **タイルの押せる/押せない と食い違っていない** こと。
+       ⚠ 項目 3 は「主人公をえらぶ (残りはランダムな仲間で埋まる)」を据え置いたため、
+         封印後は「押せないタイルに『えらぶ』と書いてある」状態だった (title 属性は
+         hover しないと出ないので、初見は押し続けることになる)。項目 4 で実態に合わせた。
+       ⚠⚠ 文言を静的に書き換えるだけだと ?herolock=0 で今度は逆に嘘になる。
+         → **リスナと同じ heroLockOff** で両方向に切り替え、ここで対にして測る。
+         片側だけ測ると「常にこの文言」でも緑になる。 */
+    check('(5d) 封印中の見出しは「えらぶ」と言わない / 変更手段 (新規ゲーム) を案内している',
+      lockOn.pre.head === '主人公'
+        && lockOn.pre.head.indexOf('えらぶ') < 0
+        && lockOn.pre.headSub.indexOf('新規ゲーム') >= 0
+        && lockOn.pre.headSub.indexOf('ランダムな仲間') >= 0,
+      JSON.stringify({ head: lockOn.pre.head, sub: lockOn.pre.headSub }));
+
+    check('(7c) [装置] ?herolock=0 では見出しが従来どおり「主人公をえらぶ」に戻る (静的な文言ではない)',
+      lockOff.pre.head === '主人公をえらぶ'
+        && lockOff.pre.headSub.indexOf('新規ゲーム') < 0
+        && lockOff.pre.head !== lockOn.pre.head           // ★ 対で見る。同じなら切り替わっていない
+        && lockOff.pre.headSub !== lockOn.pre.headSub,
+      JSON.stringify({ lockOn: lockOn.pre.head, lockOff: lockOff.pre.head, sub: lockOff.pre.headSub }));
+
     /* 依頼書の「selectHero() は残す (削除しない)」を機械化。
        ⚠ 消してしまうと ?herolock=0 経路が黙って死ぬ (しかも (7) は false のまま緑に見える)。 */
     const pgFn = await openPage('/tavern.html');
@@ -1487,12 +1624,253 @@ function probeTavernArrival() {
                        n: vOpened ? (vOpened.cards || []).length : 0 }));
   }
 
-  /* ■ SECTION 受入条件 9. 10.  ← 項目 4 がここに足す ──────────────────────
-     9.  幅 390px (compact) と横長デスクトップの **両方**で横スクロールが出ない
-         → openPage(path, { viewport: {...} }) を使う。⚠ 片方だけで測って欠陥を 2 つ見逃した前例あり
-         ⚠ スロットは 3 枚 (空) と 3 枚 (埋) の両方を見ること。埋まると確認行のボタン 2 個が増える
-     10. 最初のタップで GameAudio.unlock() が呼ばれる / BGM は鳴らない
-     11. 既存 golden ドライバの非退行 (本ドライバの外で回す)
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 9. : 幅 390px (compact) と 横長デスクトップの **両方**で、
+   *   スロット 3 枚とクラスカード 6 枚が **横スクロールを出さずに**収まる
+   *
+   * ── ⚠⚠ 母集団は「画面の向き」でも割れる ──────────────────────────────
+   *   compact 390 だけで測って横長デスクトップの欠陥を 2 つ見逃した前例がある (P7)。
+   *   → 390 / 1440 を **どちらも ★ の本チェックとして別々に**立てる。
+   *     さらに 1 列 ⇄ 3 列 が切り替わる境界 720px も足す (切り替わり際が最も危ない)。
+   *
+   * ── ⚠⚠ 「いちばん横幅が要る状態」を必ず踏む (項目 3 からの申し送り) ────
+   *   確認行が開くと .confirmRow にボタンが 2 個増えて幅が変わる。**空 3 枚だけで測ると
+   *   その状態を一度も踏まない**。→ 3 状態を全ビューポートで測る:
+   *     A: 画面 1 / 空 3 枚
+   *     B: 画面 1 / 埋 3 枚 + 確認行が開いている   ← 最大幅
+   *     C: 画面 2 / 名乗り 6 枚 + 1 枚の詳細が開いている
+   *   ⚠ 画面 2 だけを測っていたら当時の欠陥を見逃していた、という実績があるので画面 1 も測る。
+   *
+   * ── ⚠ 縦スクロールは禁じない ──────────────────────────────────────────
+   *   依頼書の条件は「**横**スクロールを出さずに」。390x844 では実測で縦がわずかに出るが可。
+   *   judgeNoHScroll() は scrollHeight を一切見ない。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 9. : 390px と横長デスクトップの両方で横スクロールが出ない ---');
+  {
+    const L9_PICK = 'mage';           // 詳細を開くカード (どれでもよい)
+    const SEL_NEW1 = '#slotList .slotCard[data-slot="1"] button[data-act="new"]';
+    const SEL_YES1 = '#slotList .slotCard[data-slot="1"] .slotConfirm button[data-act="confirm-yes"]';
+    const L9_LIVE = {
+      'dragonfighters.xp': '31000',
+      'dragonfighters.gold': '2468',
+      'dragonfighters.partyComposition': JSON.stringify(['cleric']),
+    };
+
+    /* ⚠ df.slotN の JSON 形式を **ドライバに書き写さない**。本番の DFSlots.snapshot() に
+       1 枚作らせて、その実物を 2 枚目・3 枚目の種にする (形式が変わっても腐らない)。
+       ⭐ 3 枚とも埋めるのは、横長で 3 列に並んだときの最大量を踏むため。 */
+    let SLOT_JSON = null;
+    {
+      const pb = await openPage('/title.html', { seed: L9_LIVE });
+      SLOT_JSON = await pb.evaluate(() => {
+        try { DFSlots.snapshot(); return localStorage.getItem(DFSlots._slotKey(1)); }
+        catch (e) { return null; }
+      });
+      await pb.close();
+    }
+    check('(9z0) [装置] 本番の DFSlots.snapshot() から「埋まったスロット」の実データを 1 枚採れた',
+      typeof SLOT_JSON === 'string' && SLOT_JSON.length > 20 && SLOT_JSON.indexOf('"meta"') >= 0,
+      JSON.stringify({ len: SLOT_JSON ? SLOT_JSON.length : 0, head: (SLOT_JSON || '').slice(0, 60) }));
+
+    const L9_SEED = Object.assign({}, L9_LIVE, {
+      'df.activeSlot': '1', 'df.slot2': SLOT_JSON || '', 'df.slot3': SLOT_JSON || '',
+    });
+
+    const VIEWPORTS = [
+      { key: 'compact390', label: '幅 390px (compact)',
+        vp: { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true } },
+      { key: 'desktop1440', label: '横長デスクトップ 1440x900',
+        vp: { width: 1440, height: 900, deviceScaleFactor: 1 } },
+      { key: 'break720', label: '境界 720px (1 列 ⇄ 3 列 の切り替わり点)',
+        vp: { width: 720, height: 900, deviceScaleFactor: 1 } },
+    ];
+
+    const waitNaming = (pg) => pg.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+
+    async function measureAt(vp) {
+      /* A: 空 3 枚。⚠ openPage の既定は prologueSeen を仕込む = active スロットが
+         「記録あり」になってしまうので、ここだけ false にして 3 枚とも空にする。 */
+      const pA = await openPage('/title.html', { viewport: vp, prologueSeen: false });
+      const oA = await pA.evaluate(probeLayout);
+      await pA.close();
+
+      // B: 埋 3 枚 + 確認行が開いた状態 (最大幅) → そのまま C: 名乗りへ進む
+      const pB = await openPage('/title.html', { viewport: vp, seed: L9_SEED });
+      await pB.click(SEL_NEW1);
+      await pB.waitForFunction((s) => !!document.querySelector(s), { timeout: 10000 }, SEL_YES1);
+      await sleep(250);
+      const oB = await pB.evaluate(probeLayout);
+
+      await pB.click(SEL_YES1);
+      await waitNaming(pB);
+      await pB.click('#classCards .classCard[data-class-key="' + L9_PICK + '"]');
+      await sleep(250);
+      const oC = await pB.evaluate(probeLayout);
+      await pB.close();
+      return { A: oA, B: oB, C: oC };
+    }
+
+    const fmt = (o) => o.clientWidth + 'w scroll=' + o.scrollWidth + '/body=' + o.bodyScrollWidth
+      + ' scrolledX=' + o.scrolledX + ' over=' + o.nOverflowers + ' (縦 ' + o.scrollHeight + '/' + o.clientHeight + ')';
+
+    for (const V of VIEWPORTS) {
+      const m = await measureAt(V.vp);
+      console.log('  [' + V.label + ']');
+      console.log('      A 空3枚          : ' + fmt(m.A));
+      console.log('      B 埋3枚+確認行   : ' + fmt(m.B));
+      console.log('      C 名乗り6枚+詳細 : ' + fmt(m.C));
+      if (m.B.nOverflowers) console.log('      ⚠ はみ出し(B): ' + JSON.stringify(m.B.overflowers));
+      if (m.C.nOverflowers) console.log('      ⚠ はみ出し(C): ' + JSON.stringify(m.C.overflowers));
+
+      /* ★ 装置を先に立てる。「空っぽのページには横スクロールが出ない」で緑になる穴を塞ぐ。 */
+      check('(9z-' + V.key + ') [装置] ' + V.label + ' で 3 状態が実際に「空3枚 / 埋3枚+確認行 / 名乗り6枚+詳細」だった',
+        judgeLayoutPopulated(m.A, 'slots') && judgeLayoutPopulated(m.B, 'armed')
+          && judgeLayoutPopulated(m.C, 'naming'),
+        JSON.stringify({ A: { slots: m.A.nSlotCards, filled: m.A.nFilledCards },
+                         B: { slots: m.B.nSlotCards, filled: m.B.nFilledCards, confirmBtns: m.B.nConfirmBtns },
+                         C: { cards: m.C.nClassCards, openDetails: m.C.nOpenDetails } }));
+
+      check('(9-' + V.key + ') ★受入条件9: ' + V.label + ' で 3 状態すべて横スクロールが出ない (縦は可)',
+        judgeNoHScroll(m.A) && judgeNoHScroll(m.B) && judgeNoHScroll(m.C),
+        JSON.stringify({ A: fmt(m.A), B: fmt(m.B), C: fmt(m.C),
+                         over: [].concat(m.A.overflowers, m.B.overflowers, m.C.overflowers).slice(0, 4) }));
+    }
+
+    /* ── 負のコントロール: 検出器が空振りしていないこと ──────────────────
+       わざと画面より広い要素を 1 つ差し込み、**同じ judgeNoHScroll** が false になるか見る。
+       ⚠ これが無いと「常に true を返す測定器」を永久に緑のまま持ち続けられる。
+       ⚠⚠ **全ビューポートで回す。** compact だけ isMobile エミュレーションが効いており、
+          モード次第で死ぬ物差しが実在する (scrollX がまさにそれで、ここで発覚した)。
+          「両方で測る」は本チェックだけでなく **検出器そのもの**にも要る。
+       ⭐ 判定に使う 3 本 (scrollWidth / body.scrollWidth / はみ出し要素) が
+          **どれも**反応することまで個別に書き出す。1 本しか効いていない測定器を見逃さない。 */
+    for (const V of VIEWPORTS) {
+      const pN = await openPage('/title.html', { viewport: V.vp, prologueSeen: false });
+      const clean = await pN.evaluate(probeLayout);
+      await pN.evaluate(() => {
+        var host = document.getElementById('titleRoot');
+        var d = document.createElement('div');
+        d.id = '__dfWideProbe';
+        d.style.cssText = 'width:' + (document.documentElement.clientWidth + 400) + 'px;height:6px;flex:none;';
+        host.appendChild(d);
+      });
+      await sleep(250);
+      const dirty = await pN.evaluate(probeLayout);
+      await pN.close();
+      check('(9n-' + V.key + ') [負のコントロール] ' + V.label + ' で広すぎる要素を 1 つ差し込むと **同じ judgeNoHScroll** が false になる',
+        judgeNoHScroll(clean) === true && judgeNoHScroll(dirty) === false
+          && dirty.scrollWidth > dirty.clientWidth          // ① 反応した
+          && dirty.bodyScrollWidth > dirty.clientWidth      // ② 反応した
+          && dirty.nOverflowers >= 1                        // ③ 反応した
+          && (dirty.overflowers || []).some(e => e.id === '__dfWideProbe'),
+        JSON.stringify({ clean: fmt(clean), dirty: fmt(dirty),
+                         hit: (dirty.overflowers || []).map(e => e.id || e.cls) }));
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 10. : 最初のタップで GameAudio.unlock() が呼ばれる / BGM は鳴らない
+   *
+   * ── ⚠⚠⚠ スパイは「最初のクリックより前」に仕掛ける ────────────────────
+   *   title.html の解錠は pointerdown の { once:true }。**先に 1 回踏むと二度と発火しない**
+   *   ので、後から仕込むと永久に 0 回のまま = 偽の赤になる (項目 2 からの申し送り)。
+   *   → openPage() 直後・どのクリックよりも前に installAudioSpy() を通す。
+   *
+   * ── ⚠⚠ 「playBgm 0 回」はスパイの掛け損ねでも緑になる ────────────────
+   *   0 回を主張するには「掛かっていた」証拠が要る。3 段で塞ぐ:
+   *     ① installed.playBgm === true … 実際に関数を包めた
+   *     ② unlockAfter === 1          … **同じスパイ機構**が別の関数で 1 回数えている
+   *     ③ (10n)                      … その playBgm を手で 1 回叩くと確かに数が増える
+   *   ⚠ ③ で渡す名前は **存在しないトラック名**にする。実在の曲名だと playBgm が
+   *      mp3 の取得まで進み、測定のために音を鳴らすことになる (副作用を持ち込まない)。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 10. : 最初のタップで GameAudio.unlock() / BGM は鳴らさない ---');
+  {
+    /* ⚠ 透過ラッパ。元の関数をそのまま呼び、挙動を一切変えない。 */
+    const installAudioSpy = (pg) => pg.evaluate(() => {
+      var out = { threw: '', hasGameAudio: false, installed: {} };
+      try {
+        var G = window.GameAudio;
+        out.hasGameAudio = !!G;
+        var spy = { unlock: 0, bgmCalls: [], sfxCalls: [] };
+        window.__dfAudio = spy;
+        ['unlock', 'playBgm', 'playSfx'].forEach(function (k) {
+          if (!G || typeof G[k] !== 'function') { out.installed[k] = false; return; }
+          var orig = G[k];
+          G[k] = function () {
+            var a = Array.prototype.slice.call(arguments).map(String);
+            if (k === 'unlock') spy.unlock++;
+            else if (k === 'playBgm') spy.bgmCalls.push(a);
+            else spy.sfxCalls.push(a);
+            return orig.apply(this, arguments);
+          };
+          out.installed[k] = true;
+        });
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    const readSpy = (pg) => pg.evaluate(() => {
+      var s = window.__dfAudio || { unlock: 0, bgmCalls: [], sfxCalls: [] };
+      return { unlock: s.unlock, bgmCalls: s.bgmCalls.slice(), sfxCalls: s.sfxCalls.slice() };
+    });
+
+    const p10 = await openPage('/title.html', { prologueSeen: false });
+    const ins = await installAudioSpy(p10);
+    const spy0 = await readSpy(p10);                       // ★ どのクリックよりも前
+
+    /* ★ 実座標クリック。page.click は pointerdown → mousedown → mouseup → click を出すので、
+       本番と同じく { once:true } の pointerdown リスナが発火する。 */
+    await p10.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
+    await p10.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    const spy1 = await readSpy(p10);
+
+    // タイトルに居る間ずっと BGM が鳴らないこと。名乗りまで進めてもう一度読む。
+    await p10.click('#classCards .classCard[data-class-key="rogue"]');
+    await sleep(300);
+    const spy2 = await readSpy(p10);
+
+    const verdict = Object.assign({}, ins, {
+      unlockBefore: spy0.unlock, unlockAfter: spy2.unlock, bgmCalls: spy2.bgmCalls,
+    });
+
+    console.log('  [スパイ] installed=' + JSON.stringify(ins.installed)
+      + ' / unlock 0回目→' + spy0.unlock + ' 1タップ後→' + spy1.unlock + ' 名乗りまで→' + spy2.unlock
+      + ' / sfx=' + spy2.sfxCalls.length + ' / bgm=' + spy2.bgmCalls.length);
+
+    check('(10z0) [装置] スパイが 3 本とも実際に掛かっていて、タップ前は unlock 0 回だった',
+      ins.threw === '' && ins.hasGameAudio === true
+        && ins.installed.unlock === true && ins.installed.playBgm === true && ins.installed.playSfx === true
+        && spy0.unlock === 0 && spy0.bgmCalls.length === 0,
+      JSON.stringify({ installed: ins.installed, before: spy0.unlock }));
+
+    check('(10) ★受入条件10: 最初のタップで GameAudio.unlock() がちょうど 1 回呼ばれ、BGM は 1 回も鳴らない',
+      judgeTitleAudio(verdict) === true && spy1.unlock === 1,
+      JSON.stringify({ unlockBefore: spy0.unlock, afterFirstTap: spy1.unlock, afterNaming: spy2.unlock,
+                       bgm: spy2.bgmCalls }));
+
+    check('(10a) [装置] 同じスパイ機構が **効果音は数えている** (「何も鳴らない実装」で緑になっていない)',
+      spy2.sfxCalls.length >= 1 && spy2.sfxCalls.every(a => a[0] === 'button'),
+      JSON.stringify({ n: spy2.sfxCalls.length, ids: spy2.sfxCalls.map(a => a[0]) }));
+
+    /* ── 負のコントロール: その playBgm スパイは本当に数えられるのか ──────
+       ⚠ 存在しないトラック名を渡す。playBgm は TRACKS/BGM_FILES のどちらにも無い名前なら
+         早期 return するので、**測定のために音を鳴らさずに**ラッパだけを通せる。 */
+    const NO_SUCH = '__df_probe_no_such_track';
+    const bgmBefore = (await readSpy(p10)).bgmCalls.length;
+    await p10.evaluate((n) => { try { GameAudio.playBgm(n); } catch (e) {} }, NO_SUCH);
+    const spy3 = await readSpy(p10);
+    await p10.close();
+    check('(10n) [負のコントロール] playBgm を手で 1 回叩くと **同じスパイ**が 1 本数える (0 回は掛け損ねではない)',
+      bgmBefore === 0 && spy3.bgmCalls.length === 1 && spy3.bgmCalls[0][0] === NO_SUCH
+        && judgeTitleAudio(Object.assign({}, verdict, { bgmCalls: spy3.bgmCalls })) === false,
+      JSON.stringify({ before: bgmBefore, after: spy3.bgmCalls }));
+  }
+
+  /* 受入条件 11. (既存 golden ドライバの非退行) は **本ドライバの外**で回す。
      ⚠ 受入条件 5. で tavern.html の DOM に .locked-out と title 属性が増えている。
        canvas の SHA しか見ない golden では検出できないので、5b / 7b が直接測っている。 */
 
