@@ -269,6 +269,9 @@ const READ_GATE = () => {
     const tav = fs.readFileSync(path.join(ROOT, 'tavern.html'), 'utf8');
     const aud = fs.readFileSync(path.join(ROOT, 'audio.js'), 'utf8');
     const idx = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    // ⚠ (D5) の測定点。消去の実体が tavern.html から js/save-slots.js へ引っ越したため
+    //    (2026-08-22 / 実装依頼書 2026-08-20_save-slots.md STEP3)、読む先も実経路へ移す。
+    const slt = fs.readFileSync(path.join(ROOT, 'js', 'save-slots.js'), 'utf8');
 
     // ⚠ CSS ゲートはインライン style に無条件で負ける。生ソースで 0 件を確認する。
     const rowLines = tav.split('\n').filter(l => /id="debugEvadeRow"|id="debugAutoplayRow"/.test(l));
@@ -281,8 +284,28 @@ const READ_GATE = () => {
       /body\.dev-mode\s+#debugEvadeRow/.test(tav));
     check('(D4) dev キーは "dragonfighters." prefix の外 (記録消去に巻き込まれない)',
       /"df\.devMode"/.test(tav) && !/dragonfighters\.devMode/.test(tav));
+    // ⚠⚠ 2026-08-22: 測定点を tavern.html → js/save-slots.js へ移した。**期待値は緩めていない**。
+    //    消去の実装が DFSlots.wipeLive() 1 本へ畳まれ、tavern 側は薄いラッパになっただけで、
+    //    この assert の *目的*「消去がキーのハードコード列挙になっていないこと」はそのまま生きている。
+    //    prefix の literal は save-slots.js では定数 LIVE_PREFIX に束ねられているので、
+    //    「LIVE_PREFIX で prefix 一致している」+「その LIVE_PREFIX が "dragonfighters." である」の
+    //    2 本に分けて、元の /indexOf\("dragonfighters\."\)===0/ と同じことを測る。
     check('(D5) 消去は Object.keys 走査 (キーのハードコード列挙をしていない)',
-      /Object\.keys\(store\)/.test(tav) && /indexOf\("dragonfighters\."\)\s*===\s*0/.test(tav));
+      /Object\.keys\(store\)/.test(slt) &&
+      /indexOf\(LIVE_PREFIX\)\s*===\s*0/.test(slt) &&
+      /LIVE_PREFIX\s*=\s*"dragonfighters\."/.test(slt));
+    // ── 装置 assert: (D5) が「何も測っていない」状態に落ちていないことの証明 ──
+    // ⚠ readFileSync が空文字列を返す / 別物を読んでいると、上の正規表現は**黙って外れる**のではなく
+    //   黙って FAIL する側に倒れるが、逆に「D5 が緑なのは本当に実経路を読んだからか」は別途要る。
+    check('(D5a) [装置] js/save-slots.js のソースを実際に読めている (空/別物なら D5 は何も測っていない)',
+      slt.length > 1000 && /global\.DFSlots\s*=/.test(slt) && /function wipeLive\(\)/.test(slt),
+      'len=' + slt.length);
+    // ⚠ 「移した」のではなく「増やした」だと、消去の実装が 2 つある状態のまま D5 が緑になる。
+    //   tavern 側から本体が消えたことを直接測って、畳み込みが本当に起きたことを証明する。
+    check('(D5b) [装置] tavern.html 側の消去本体が消え DFSlots.wipeLive() の薄いラッパに畳まれている',
+      !/Object\.keys\(store\)/.test(tav) && !/WIPE_KEEP/.test(tav) && /DFSlots\.wipeLive\(\)/.test(tav),
+      JSON.stringify({ objKeys: /Object\.keys\(store\)/.test(tav), wipeKeep: /WIPE_KEEP/.test(tav),
+                       call: /DFSlots\.wipeLive\(\)/.test(tav) }));
     check('(D6) native confirm() を使っていない (プロジェクト全体で前例 0 件)',
       !/[^.\w]confirm\s*\(/.test(tav));
     check('(D7) closeSettings が後始末ループを持つ (8 秒タイマーの取り残し防止)',
@@ -460,6 +483,53 @@ const READ_GATE = () => {
       JSON.stringify([after.otherApp, after.sessOther]));
     check('(F9) 消去後にクエリ無しへ再読込されている (location.replace 到達)',
       after.search === '', 'search=' + JSON.stringify(after.search));
+    await page.close();
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // (G) 消去が DFSlots へ畳まれたことで生まれうる **silent fail-open** の否定。
+  //     「1 件も消えていないのに再読込されたので消えたように見える」が最悪の挙動なので、
+  //     DFSlots を取り上げた状態で確認を押し、**再読込しない** ことと **データが残る** ことを測る。
+  //     ⚠ これは (F) の裏返しではなく別の性質。(F) は成功経路、(G) は失敗経路の fail-closed。
+  // ══════════════════════════════════════════════════════════════════
+  console.log('\n--- (G) js/save-slots.js が居ない時に「消えたように見える」を作らない (fail-closed) ---');
+  {
+    const SEED = `
+      localStorage.setItem('dragonfighters.__probeGold', '9999');
+      sessionStorage.setItem('dragonfighters.__probeParty', '[{"classKey":"fighter"}]');
+    `;
+    const page = await openTavernSeeded(browser, SEED);
+    // ⚠ script タグの読み込み失敗を再現する。ページを跨がないので evaluateOnNewDocument は不要。
+    const armed = await page.evaluate(() => {
+      const had = !!(window.DFSlots && typeof window.DFSlots.wipeLive === 'function');
+      try { delete window.DFSlots; } catch (e) { window.DFSlots = undefined; }
+      return { had, gone: !window.DFSlots };
+    });
+    check('(G1) [装置] DFSlots が元は居て、取り上げに成功している (実験の前提)',
+      armed.had === true && armed.gone === true, JSON.stringify(armed));
+
+    let navigated = false;
+    const navWatch = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 4000 })
+      .then(() => { navigated = true; }).catch(() => {});
+    await page.evaluate(() => {
+      GameAudio.openSettings();
+      document.getElementById('btnWipeSave').click();
+      document.getElementById('btnWipeConfirm').click();
+    });
+    await navWatch;
+    await sleep(300);
+
+    check('(G2) 消せなかったので再読込していない (「消えたように見える」を作らない)',
+      navigated === false, 'navigated=' + navigated);
+    const kept = await page.evaluate(() => ({
+      probeGold: localStorage.getItem('dragonfighters.__probeGold'),
+      sessParty: sessionStorage.getItem('dragonfighters.__probeParty'),
+      label:     (document.getElementById('btnWipeConfirm') || {}).textContent || null,
+    }));
+    check('(G3) データが 1 件も消えていない (local/session とも無傷)',
+      kept.probeGold === '9999' && !!kept.sessParty, JSON.stringify(kept));
+    check('(G4) 失敗が画面にも出る (黙って握り潰していない)',
+      kept.label === '消せませんでした', 'label=' + JSON.stringify(kept.label));
     await page.close();
   }
 

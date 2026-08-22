@@ -1985,10 +1985,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>『冒険の記録を消す』の作りを整理</b> — 消える範囲も、音量などの設定が残ることも今まで通り。今後セーブ枠が増えても取りこぼさない土台になった。</li>
         <li><b>セーブを3つ持てるようにする準備</b> — 今の冒険の記録はそのままに、あとから枠を分けて遊べるようにする土台を裏側に入れた。遊びかたはまだ変わらない。</li>
         <li><b>廃坑の「南の操車場」へ寄り道できるように</b> — 玉座を守る衛兵が遠くから見張っていたため、南へ向かう途中で必ず玉座の戦いに巻き込まれていた。衛兵の持ち場を玉座の奥へ移し、寄り道するかどうかを選べるようになった。</li>
         <li><b>グリクス戦の曲が確実に切り替わるように</b> — 戦いながら玉座へ詰め寄ったとき、ボス戦の曲に変わらないまま決着してしまうことがあった。</li>
-        <li><b>大型モンスターが壁際で正しく弾かれるように</b> — ハイドラや竜など体の大きい敵は当たり判定が体からずれていて、殴られてもその場から動かないことがあった。</li>
       </ul>
     </div>
     <script>
@@ -5235,18 +5235,30 @@
   // ─────────────────────────────────────────────────────────────
   // 設定モーダル『冒険の記録を消す』(出荷前の大掃除)
   // 本体を酒場側に置き GameAudio へ登録する。index.html は登録しない = 潜行中に消去 UI が出ることが構造的に不可能。
+  //
+  // ⚠ 消去の実体は js/save-slots.js の DFSlots.wipeLive() **ただ 1 本**。
+  //   (prefix 総なめ / KEEP の 2 キー "dragonfighters.settings" "dragonfighters.panelCollapsed" を残す /
+  //    localStorage と sessionStorage の両方を掃く、はすべて向こうの責任)
+  //   ここに写しを置かない = 消去の実装を 2 つ持たない。片方だけ直して腐る事故が原理的に起きない。
+  //   ⚠ wipeLive() は ?slots=0 でも必ず動く。撤退スイッチが止めてよいのは新設のスロット機能だけで、
+  //     『冒険の記録を消す』は撤退スイッチ以前からある既存機能だから。
   // ─────────────────────────────────────────────────────────────
-  const WIPE_KEEP = { "dragonfighters.settings": 1, "dragonfighters.panelCollapsed": 1 };
   function wipeAdventureRecord() {
-    // ⚠ 消すキーをハードコード列挙しない。今後キーが増えるたびに列挙は必ず腐るので prefix 走査する。
-    [localStorage, sessionStorage].forEach((store) => {
-      try {
-        Object.keys(store)
-          .filter((k) => k.indexOf("dragonfighters.") === 0 && !WIPE_KEEP[k])
-          .forEach((k) => { try { store.removeItem(k); } catch (e) {} });
-      } catch (e) {}
-    });
-    // ⚠ 両ストレージが失敗してもここへ必ず到達させる (再読込しないと消えた状態が画面に反映されない)。
+    // ⚠⚠ silent fail-open を作らない方針。
+    //   js/save-slots.js が読み込めていない (script タグの 404・パース失敗など) 状態でそのまま
+    //   location.replace すると「1 件も消えていないのに、再読込されたので消えたように見える」
+    //   = 最悪の挙動になる。→ **消せなかったときは再読込しない**。画面が変わらないこと自体を合図にし、
+    //     押したボタンの文言でも失敗を明示する。黙って握り潰さない。
+    if (!(window.DFSlots && typeof DFSlots.wipeLive === "function")) {
+      console.error("[wipe] js/save-slots.js が読み込めていないため冒険の記録を消せませんでした");
+      const btn = document.getElementById("btnWipeConfirm");
+      if (btn) { btn.textContent = "消せませんでした"; btn.disabled = true; }
+      return;
+    }
+    DFSlots.wipeLive();
+    // ⚠ 消えた件数が 0 でもここへ必ず到達させる (元から空のセーブを消すのは正常)。
+    //   再読込しないと「消えた状態」が画面に反映されない。これは設定モーダル側の都合なので、
+    //   API (wipeLive) には混ぜず呼び出し側であるここに置く。
     location.replace(location.pathname);
   }
   if (window.GameAudio && GameAudio.registerSettingsExtra) {
