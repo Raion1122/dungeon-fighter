@@ -13,7 +13,7 @@
 | 2 | [2026-08-20_wallbox-hardcoded-72px.md](2026-08-20_wallbox-hardcoded-72px.md) | **完了 `f8c3bba`** | 壁の当たり判定の箱を実測比率へ。⚠ 箱の中心はスプライト中心から ±28px に制限(絵の中心をそのまま追うと下隣のタイルへ出る) |
 | 3 | [2026-08-20_paint-mask-subtile.md](2026-08-20_paint-mask-subtile.md) | **見送り `5cfe1e1`** | 1 枚絵マスクの内側の半マスズレ。STEP1(道具・実測・目視)まで実施し、**マスク編集は見送り**。⚠ STEP1 の道具は #1 で既に作られていた。⭐ ノード部屋の内側に岩盤は 0 マス = 赤は全部マスク由来 |
 | 4 | [2026-08-20_bgm-mine-swap.md](2026-08-20_bgm-mine-swap.md) | **完了 `4090a99`** | 廃坑の BGM を 3 曲へ(入口 d1 / 坑内 haikou / グリクス戦 boss01) |
-| 5 | [2026-08-20_save-slots.md](2026-08-20_save-slots.md) | 起草済(未承認) | セーブスロット 3 つ。**キー名は 1 文字も変えない**(ライブ + アーカイブ方式)。UI なし |
+| 5 | [2026-08-20_save-slots.md](2026-08-20_save-slots.md) | **完了 `dde8457`** | セーブスロット 3 つ。**キー名は 1 文字も変えない**(ライブ + アーカイブ方式)。UI なし。STEP1-7 完了(`89f58a9`/`87ffca8`/`b92444e`/`dde8457`)。検証 `tools/verify_save_slots.js` 30/30。⭐ **3 スロット満杯で 78,326 bytes = 5MB の 1.49%** = quota は問題にならない。⭐⭐⭐ 受入条件 7 は「?slots=0 で緑」ではなく **同じ assert 本体を両ページへ当てて「外すと赤」**で測る。⚠ 実機(iOS Safari)で `pagehide`/`visibilitychange` が発火するかは未確認 |
 | 6 | [2026-08-20_title-screen.md](2026-08-20_title-screen.md) | 起草済(未承認) | `title.html` 新設。新規/続き → 名乗り(主人公選択)→ 酒場。以後クラス変更不可 |
 | 7 | [2026-08-20_quest-recruit-size.md](2026-08-20_quest-recruit-size.md) | 起草済(未承認) | 「募集 → 増援」。★の数で同行 NPC が 1〜3 人に変わる。**器だけ作り値は入れない** |
 | 8 | [2026-08-20_recruit-balance-retune.md](2026-08-20_recruit-balance-retune.md) | 起草済(未承認) | 7 の後に難易度/XP を**ペア比較で実測してから**調整。廃坑の既存宿題も同時に回収 |
