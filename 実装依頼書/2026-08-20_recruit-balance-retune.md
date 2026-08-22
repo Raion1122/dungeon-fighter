@@ -199,6 +199,46 @@ NEW (既定)        酒場: recruitOn=true   recruitCountOf=2 → index側 allie
 酒場側は `scenarios` / `prepScenario` / `regeneratePartyMembers` / `departToScenario` /
 `isRecruitOn` / `recruitCountOf`。
 
+### 3-8 測定台の実装 (2026-08-23) — できたこと・実測で分かったこと
+
+**`tools/sweep_recruit_balance.js` を新設。§3-1〜3-7 をそのまま実装した。**
+本番 80 走行は **#13 が着地してから**回すこと(§3-6 の理由)。
+
+```bash
+node tools/sweep_recruit_balance.js --scen bandits-forest --pairs 2      # スモーク
+node tools/sweep_recruit_balance.js --scen all --pairs 20 --workers 2    # 本番 (80 走行)
+node tools/sweep_recruit_balance.js --scen goblin-mine --pairs 1 --negative
+```
+
+✅ **腕は割れた**(スモーク実測): シナリオ2 OLD=計4人 / NEW=計3人、廃坑 OLD=計4人 / NEW=計2人。
+✅ **装置 assert 5 本は空回りしていない**。`--negative`(OLD から `&recruit=0` を外す)で
+   assert 1 `isRecruitOn(got=true want=false)` と 4 `partySize(got=2 want=4)` が**赤くなる**ことを実測。
+   赤くならなかったら exit 1 で落ちる = 負のコントロールが道具に内蔵されている。
+
+#### ⚠⚠⚠ 本番走行の前に知っておくこと(全部 N=2 スモークの実測)
+
+1. **`allies` は走行中に増える。** 廃坑の囚われの従者 `joinServantAlly()`(`index.html`、
+   `sce1CaptiveState` の救出イベント)と闇市の召喚 `executeSummon()` が `allies.push` する。
+   → **開始 3 人が終了 4 人になる**。⭐⭐⭐ 「仲間の生存」の分母は**終了時**から採ること。
+   開始の分母と終了の分子を混ぜると **`4/3`** という有り得ない数が出る(実際に出した)。
+   → **人数差の一部は救出で自然に埋まる**。★1 の廃坑で NEW=計2人 でも、従者を助ければ計3人。
+     「★1 が最も過酷になる」という #7 の懸念は、この合流ぶんを差し引いてから判断すること。
+2. **全滅走行でも仲間は生きている。** ゲームオーバー判定は**主人公の死**だけを見るので、
+   `生存=3/3` かつ `HP=0` で `wipe` になる。→ **「仲間の生存」は難易度の指標として鈍い**。
+   効くのは**到達ノードと XP**。
+3. **1 走行の上限は 300 秒では足りない。** 廃坑 OLD(計4人)が 241 秒でもまだ n1 を戦っていた。
+   既定を **420 秒**にした。⚠ 打切は「クリアでも全滅でもない」ので、集計表に**打切列を必ず出す**
+   (無いと打切が「クリアしなかった」に混ざる)。
+4. **到達ノードは思ったより手前で割れる。** シナリオ2 は n1(入口の次)での全滅が多く、
+   n7 まで行けたのは OLD の 1/2 だけだった。廃坑は 2 ノードなので `n1(clear)` / `n1` の 2 値。
+
+#### 期待値表はドライバ側が独立に持つ
+
+`SCEN_TABLE`(`goblin-mine` = ★1/NPC1、`bandits-forest` = ★2/NPC2)は
+`recruitCountOf()` の clamp を**写経していない**。ページから読んだ `sc.difficulty` の★の数と
+突き合わせるので、仕様を変えたら赤くなる。⚠ 表に無いシナリオを `--scen` に渡すと
+**わざと exit 2 で止まる**(表を足さずに測ると「★の読み違い」に気づけないため)。
+
 ---
 
 ## 4. 調整の順序(この順を守ること)
