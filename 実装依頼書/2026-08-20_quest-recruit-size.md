@@ -1,6 +1,6 @@
 # クエスト難易度に連動した「募集 → 増援」の人数
 
-**ステータス**: 起草済(未承認)
+**ステータス**: **承認済** (2026-08-22。着手前実測で行番号 10 件を訂正 — 下記「着手前実測」節)
 **依存**: なし(依頼書 A / B とは独立。並行して進めてよい)
 **この後に必ず**: `2026-08-20_recruit-balance-retune.md`(D)。**本依頼書はバランスを決めない**
 **撤退スイッチ**: `?recruit=0`
@@ -16,25 +16,56 @@
 
 ---
 
+## 着手前実測 (2026-08-22 / 承認直後)
+
+⭐ **行番号は 10 件中 10 件ズレていた**(#6 title-screen が入ったぶん全体が下へ動いた)。
+本文の行番号は**この実測値へ置換済み**。以降も行番号は当てにせず**識別子で grep** すること。
+
+**主張の中身はすべて正しかった** — 依頼書の根幹 3 点を本番コードで確認した:
+
+1. ✅ **`index.html` の `buildParty` はフォールバック専用**。
+   `index.html:31373` が sessionStorage の `partyMembers` を読み、
+   それが無い/壊れている時**だけ** `31387` で `orderFormation(buildParty(heroOld))` を通る。
+   → **「`index.html` を 1 行も触らない」は成立する**
+2. ✅ **`difficulty` を持つのは固定 6 シナリオだけ** (`tavern.html` 2100 / 2123 / 2143 / 2163 / 2183 / 2203)
+3. ✅ **生成クエストは持たない**。`buildPlazaSynthetic` (`tavern.html:5996`) の return は
+   `{ id:"generated-quest", place, title, source, clientName, clientPortrait, enemies, target, recommendedLevel, __generated }`。
+   → フォールバック + `[DIAG]` が必要。**DIAG に出す id は `generated-quest`**
+
+### ⚠ 依頼書に書かれていなかった 2 点 (起草後に変わった / 見落とされていた)
+
+- **`regeneratePartyMembers()` の呼び出しは 6 箇所**(依頼書は 1 箇所前提の書き方だった)。
+  `tavern.html` の **4101** (`openPrep`) / **4476** (`selectHero`) /
+  4494・5218・5274・5736 (いずれも「空なら作る」の遅延初期化)。
+  ⭐ `openPrep(sc)` は **4084 で `prepScenario = sc` を代入してから** 4101 で呼ぶので、
+  「`regeneratePartyMembers` が `prepScenario` を読む」設計はそのまま成立する。
+  ⚠ 遅延初期化の 4 箇所は **人数が変わっても再抽選しない**(既に `partyMembers` があれば素通り)。
+  クエストを選び直したら人数が変わるので、**`openPrep` が毎回作り直す**この経路が唯一の正。
+- ⚠ **`selectHero()` は #6 (title-screen) で酒場から封印された**。
+  通常経路では非主人公タイルが `.locked-out` になり、**`?herolock=0` の時だけ**到達できる。
+  → 「主人公切替 → 再編成」経路の `PARTY_SIZE` フォールバックは**残すが、主経路ではない**。
+
+---
+
 ## 背景・現状
 
 ### いまのパーティ編成
 
 | 場所 | 内容 |
 |---|---|
-| [tavern.html:3109](../tavern.html#L3109) | `const PARTY_SIZE = 4;` — 主人公1 + NPC3 |
-| [tavern.html:3163](../tavern.html#L3163) | `buildParty(heroClassKey)` — zone をばらけさせつつ `PARTY_SIZE` まで詰める |
-| [tavern.html:4429](../tavern.html#L4429) 付近 | `regeneratePartyMembers()` — `orderFormation(buildParty(heroKey))` |
-| [tavern.html:4468](../tavern.html#L4468) | 「仲間を引き直す」ボタン(出発前に何度でも再抽選可) |
-| [tavern.html:1815](../tavern.html#L1815) | `#partyMatchOverlay` — 「共に挑む仲間が集う……」のマッチング演出 |
-| [tavern.html:5165](../tavern.html#L5165) | `departToScenario()` が `sessionStorage["dragonfighters.partyMembers"]` に書いて index へ渡す |
+| [tavern.html:3123](../tavern.html#L3123) | `const PARTY_SIZE = 4;` — 主人公1 + NPC3 |
+| [tavern.html:3177](../tavern.html#L3177) | `buildParty(heroClassKey)` — zone をばらけさせつつ `PARTY_SIZE` まで詰める |
+| [tavern.html:4485](../tavern.html#L4485) 付近 | `regeneratePartyMembers()` — `orderFormation(buildParty(heroKey))` |
+| [tavern.html:4523](../tavern.html#L4523) | 「仲間を引き直す」ボタン(出発前に何度でも再抽選可) |
+| [tavern.html:1827](../tavern.html#L1827) | `#partyMatchOverlay` — 「共に挑む仲間が集う……」のマッチング演出 |
+| [tavern.html:5202](../tavern.html#L5202) | `departToScenario()` が `sessionStorage["dragonfighters.partyMembers"]` に書いて index へ渡す |
 
 ### 朗報: `index.html` を触らなくてよい
 
-`index.html` にも `PARTY_SIZE = 4`([index.html:11837](../index.html#L11837))と `buildParty`([11883](../index.html#L11883))の**写しがある**。
-しかし [index.html:31254](../index.html#L31254) を読むと、実プレイのパーティは
+`index.html` にも `PARTY_SIZE = 4`([index.html:11860](../index.html#L11860))と `buildParty`([11906](../index.html#L11906))の**写しがある**。
+しかし [index.html:31373](../index.html#L31373) を読むと、実プレイのパーティは
 **sessionStorage の `partyMembers` を読んで組んでおり**、`buildParty` が使われるのは
-[31268](../index.html#L31268) の**「それが無い時のフォールバック」だけ**。
+[31387](../index.html#L31387) の**「それが無い時のフォールバック」だけ**。
 
 → **人数を変えるのに `index.html` を触る必要はない。二重同期コストはほぼゼロ。**
 (直起動・デバッグ時のフォールバックが 4 人のままなのは、むしろ望ましい)
@@ -53,7 +84,7 @@
 | `dragon-lair`(竜の巣) | `★★★★` | **4** |
 
 ⚠ **生成クエスト(闇市ポドルプラザ)は `difficulty` を持たない。**
-[tavern.html:5977-5983](../tavern.html#L5977-L5983) の `buildPlazaSynthetic()` が返すのは
+[tavern.html:6049-6054](../tavern.html#L6049-L6054) の `buildPlazaSynthetic()` が返すのは
 `recommendedLevel: q.level` までで、`difficulty` フィールドは無い。**フォールバックが必要。**
 
 ---
@@ -75,7 +106,7 @@ recruitCountOf(sc):
 `dragon-lair` は ★4 なので素直に数えると NPC 4 人 = **パーティ 5 人**になる。
 だが **5 人編成は一度も通したことがない**:
 
-- `index.html` の味方スポーンタイル割り当て(`allyInitTakenTiles` 付近、[31245](../index.html#L31245))
+- `index.html` の味方スポーンタイル割り当て(`allyInitTakenTiles` 付近、[31351](../index.html#L31351))
 - 隊列順 `orderFormation` と「頭 = 最も狙われる位置」の前提
 - 出発準備画面のキャラタブ / 装備 UI の枠
 - カメラ・視界・描画コスト
@@ -93,12 +124,12 @@ recruitCountOf(sc):
 
 | 場所 | 変更 |
 |---|---|
-| [tavern.html:3163](../tavern.html#L3163) `buildParty(heroClassKey)` | 第2引数 `partySize = PARTY_SIZE` を足す。`PARTY_SIZE` は**既定値としてのみ残す**(定数は消さない) |
-| [tavern.html:4429](../tavern.html#L4429) `regeneratePartyMembers()` | `prepScenario` から `recruitCountOf()` を引いて `buildParty(heroKey, 1 + n)` を呼ぶ。`prepScenario` が無い時は `PARTY_SIZE` |
-| [tavern.html:2085](../tavern.html#L2085) 以降のシナリオ表 | **今は何も足さない。** `recruit:` は依頼書 D で値を決めてから入れる(器だけ先に作る) |
-| [tavern.html:4468](../tavern.html#L4468) 「仲間を引き直す」 | ラベルを **「募集をかけ直す」** に変更 |
+| [tavern.html:3177](../tavern.html#L3177) `buildParty(heroClassKey)` | 第2引数 `partySize = PARTY_SIZE` を足す。`PARTY_SIZE` は**既定値としてのみ残す**(定数は消さない) |
+| [tavern.html:4485](../tavern.html#L4485) `regeneratePartyMembers()` | `prepScenario` から `recruitCountOf()` を引いて `buildParty(heroKey, 1 + n)` を呼ぶ。`prepScenario` が無い時は `PARTY_SIZE` |
+| [tavern.html:2095](../tavern.html#L2095) 以降のシナリオ表 | **今は何も足さない。** `recruit:` は依頼書 D で値を決めてから入れる(器だけ先に作る) |
+| [tavern.html:4523](../tavern.html#L4523) 「仲間を引き直す」 | ラベルを **「募集をかけ直す」** に変更 |
 | 出発準備画面(`#partyPreview` の上) | **「この依頼に応じた冒険者: N 人」** を 1 行出す |
-| [tavern.html:1819](../tavern.html#L1819) `#pmSub` | 人数で文言を出し分ける(下記) |
+| [tavern.html:1831](../tavern.html#L1831) `#pmSub` | 人数で文言を出し分ける(下記) |
 
 #### `#pmSub` の文言(任意だが推奨)
 
@@ -110,7 +141,7 @@ recruitCountOf(sc):
 
 ### 触らないと決めたファイル
 
-- **[index.html](../index.html) — 1 行も触らない。** `PARTY_SIZE`(11837)も `buildParty`(11883)も**フォールバック専用**
+- **[index.html](../index.html) — 1 行も触らない。** `PARTY_SIZE`(11860)も `buildParty`(11906)も**フォールバック専用**
 - `js/save-slots.js` / `title.html`(依頼書 A / B の担当)
 - 敵の配置・数・強さ・XP テーブル — **依頼書 D の担当**
 
