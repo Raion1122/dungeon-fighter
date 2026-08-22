@@ -17,7 +17,7 @@
 | 6 | [2026-08-20_title-screen.md](2026-08-20_title-screen.md) | 起草済(未承認) | `title.html` 新設。新規/続き → 名乗り(主人公選択)→ 酒場。以後クラス変更不可 |
 | 7 | [2026-08-20_quest-recruit-size.md](2026-08-20_quest-recruit-size.md) | 起草済(未承認) | 「募集 → 増援」。★の数で同行 NPC が 1〜3 人に変わる。**器だけ作り値は入れない** |
 | 8 | [2026-08-20_recruit-balance-retune.md](2026-08-20_recruit-balance-retune.md) | 起草済(未承認) | 7 の後に難易度/XP を**ペア比較で実測してから**調整。廃坑の既存宿題も同時に回収 |
-| 9 | [2026-08-22_boss-latch-during-combat.md](2026-08-22_boss-latch-during-combat.md) | **承認済(着手可)** | ボス到達ラッチが「**戦闘中に帯を跨ぐ**」と両方すり抜け、ボス曲もナレも鳴らずにグリクスを倒せてしまう(間欠・実測 1 周再現) |
+| 9 | [2026-08-22_boss-latch-during-combat.md](2026-08-22_boss-latch-during-combat.md) | **完了 `24dbb60`** | 戦闘中も「玉座へ詰めたか」を見るラッチ点を `runEncounter` の手番ループへ 1 本。⚠ 負のコントロールは実プレイではなく **`tools/probe_boss_latch.js`**(`--index` で修正前の index.html を配れる)。⭐⭐⭐ **「戦闘中だったか」は「同じ戦闘だったか」ではない**(`encounterStartedAt` で見る) |
 | 10 | [2026-08-22_mine-s4-guard-fog.md](2026-08-22_mine-s4-guard-fog.md) | **承認済(着手可)** | 廃坑 s4 へ実質行けない。⚠ **本文の「真因」は実測で訂正済**(霧ではなく**索敵 12.5 タイル AND 視線**)。採用は **案 1 修正版 = 護衛を (51,20)/(51,22) へ**。末尾の「決定」節が唯一の正 |
 
 ⚠ **1 → 2 の順は守ること**。2 は 1 の STEP3 で作る `unitBodyTiles` の比率を出所として使う(判定の出所を 2 つ持たないため)。
