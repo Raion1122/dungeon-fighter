@@ -19,9 +19,16 @@
  *                       「同じ判定関数」「同じ観測」で **スイッチを外すと期待値が変わる** を測る。
  *   ✅ 受入条件 8. : STEP1 完了時点 (既定 OFF) で既存 golden 全緑 — 項目1 で実測済み。
  *                    STEP2 の非退行は golden 側 (tools/_golden.js) と triage 一覧が担当。
- *   ⬜ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在
- *   ⬜ 受入条件 4. : `recruit: 3` の個別上書きが goblin-mine にも効く
- *   ⬜ 受入条件 5. : 隊列順が front → mid → rear のまま
+ *   ✅ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在 → (F)
+ *                    ⭐⭐ 「ログが出た」は件数の絶対値では測らない。観測の直前に consoleLines の
+ *                       件数を採り、**差分だけ**を見る (「X したから今の状態」と「元から同じ状態」は
+ *                       区別できない)。区間を 3 つに割って「どの操作が出したか」まで確定させる。
+ *   ✅ 受入条件 4. : `recruit: 3` の個別上書きが goblin-mine にも効く → (G)
+ *                    ⛔⛔ **ソース編集で測ってはいけない** ((S9) が「表に recruit: の具体値を
+ *                       入れていない」を静的検査しているので赤くなる) → ランタイム注入で測る。
+ *   ✅ 受入条件 5. : 隊列順が front → mid → rear のまま → (H)
+ *                    ⚠ 全員 front の隊列は自明にソート済 = 何も証明しない。(Hz1) が
+ *                       「zone が 2 種類以上ある行が実在する」を装置 assert で押さえる。
  *   ✅ 受入条件 6. : 「募集をかけ直す」で顔ぶれが変わり人数は変わらない → (D6a)(D6b)
  *                    ⭐ 顔ぶれが変わるは乱数依存なので 1 回では測れない。10 回押して
  *                       11 サンプル中に 2 種類以上の顔ぶれがあることで測る (全同一の確率 (1/48)^10)。
@@ -698,6 +705,302 @@ function judgeNoOverflow(rows, cap) {
       && pmE1.direct.four === pmE1.direct.three
       && pmE1.direct.nan === pmE1.direct.zero,
       '0人="' + pmE1.direct.zero + '" / 4人="' + pmE1.direct.four + '" (=3人の文言) / undefined="' + pmE1.direct.nan + '"');
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (F) 受入条件 3. : 生成クエスト (闇市ポドルプラザ) は NPC 3 人。
+     *     かつ `[DIAG] recruit: fallback used ...` が **この観測で** 実際に出た。
+     *
+     * ⭐⭐ 「ログが出た」を件数の絶対値で測ると『元から出ていた』と区別できない
+     *    (このリポジトリの恒久知見:「X したから今の状態」と「元から同じ状態」は区別できない)。
+     *    → **観測の直前に consoleLines の件数を採り、その差分だけ**を見る。
+     *    さらに区間を 3 つに割って「どの操作が出したのか」まで確定させる:
+     *      区間1 = 生成クエストを **作るだけ**            → 0 行 (作っただけでは出ない)
+     *      区間2 = 本番の再抽選 + 出発処理               → **ちょうど 1 行**
+     *      区間3 = 経路B (recruitCountOf の直呼び)        → 1 行
+     * ⭐ 負のコントロールは **difficulty を持つ固定シナリオ**。同じページ・同じ観測関数で
+     *    DIAG が 1 行も出ないことを見て、「無条件に出しているだけ」ではないと確定させる。
+     * ⭐ 依頼書「なぜフォールバックで黙らないのか」の眼目は
+     *    **将来 difficulty を持つ生成クエストが増えた時に気づけること**。
+     *    (Fz1) が「buildPlazaSynthetic の戻り値は difficulty を持たない」を前提として測るので、
+     *    持つようになった日にここが赤くなる = DIAG の存在意義そのものを守る。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (F) 受入条件 3. : 生成クエスト (闇市) は NPC 3 人 + [DIAG] の実在 ---');
+    /* ⚠ 先頭固定で照合する。部分一致にすると別の [DIAG] 行を拾って永久に緑になる。 */
+    const DIAG_PREFIX = '[DIAG] recruit: fallback used';
+    const DIAG_EXPECT = '[DIAG] recruit: fallback used (no difficulty) id=generated-quest -> 3';
+    const diagSince = (from) => consoleLines.slice(from)
+      .map(s => String(s).trim()).filter(s => s.indexOf(DIAG_PREFIX) === 0);
+
+    const pageF = await openPage('/tavern.html');
+
+    // ── 負のコントロール: difficulty を持つ固定シナリオでは DIAG が出ないこと ──
+    const baseFneg = consoleLines.length;
+    const obsFneg  = await observeDepartSizes(pageF, ['goblin-mine']);
+    await sleep(500);
+    const diagFneg = diagSince(baseFneg);
+
+    // ── 区間1: 生成クエストを **作るだけ** (人数はまだ決めない) ──
+    const baseF1 = consoleLines.length;
+    const buildF = await pageF.evaluate(() => {
+      const out = { threw: '', seam: {}, probes: [], keys: [] };
+      try {
+        out.seam = {
+          QuestGen:            typeof QuestGen,
+          buildPlazaSynthetic: typeof buildPlazaSynthetic,
+          recruitCountOf:      typeof recruitCountOf,
+          generateQuest:       (typeof QuestGen === 'object' && QuestGen) ? typeof QuestGen.generateQuest : 'なし',
+        };
+        // ⭐ 1 件だけだと家系の引き当て運に左右されるので、レベル 1..6 で 6 件掃いて
+        //    「生成クエストは difficulty を持たない」を母集団で押さえる。
+        for (let lv = 1; lv <= 6; lv++) {
+          const q = QuestGen.generateQuest(lv, { source: 'plaza' });
+          q._sentence = QuestGen.buildSentence(q);
+          const s = buildPlazaSynthetic(q);          // ★本番の 生成クエスト → シナリオ 変換
+          out.probes.push({
+            lv,
+            id: s.id,
+            familyId: q.familyId || (q.family && q.family.id) || '(不明)',
+            hasDifficulty: Object.prototype.hasOwnProperty.call(s, 'difficulty'),
+            hasRecruit:    Object.prototype.hasOwnProperty.call(s, 'recruit'),
+            generated:     !!s.__generated,
+          });
+          if (lv === 3) { window.__synthTV = s; out.keys = Object.keys(s); }
+        }
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    await sleep(500);
+    const diagF1 = diagSince(baseF1);
+
+    // ── 区間2: 本番の再抽選 + 出発処理 (人数を決めるのはここ) ──
+    const baseF2 = consoleLines.length;
+    const departF = await pageF.evaluate(() => {
+      const out = { threw: '', row: null };
+      try {
+        const s = window.__synthTV;
+        prepScenario = s;                     // openPrep(synthetic) が最初にやることと同じ
+        regeneratePartyMembers();             // ★本番の再抽選 (ここで recruitCountOf が走る)
+        sessionStorage.removeItem('dragonfighters.partyMembers');
+        departToScenario();                   // ★本番の出発処理
+        const raw = sessionStorage.getItem('dragonfighters.partyMembers');
+        let arr = null; try { arr = JSON.parse(raw); } catch (e) {}
+        const ok = Array.isArray(arr);
+        out.row = {
+          id: s.id,
+          wrote:  raw !== null,
+          total:  ok ? arr.length : -1,
+          npc:    ok ? arr.length - 1 : -1,
+          heroes: ok ? arr.filter(m => m && m.isHero).length : -1,
+          zones:  ok ? arr.map(m => m && m.zone).join('>') : '',
+          wroteGenerated: sessionStorage.getItem('dragonfighters.generatedScenario') !== null,
+          wroteScenario:  sessionStorage.getItem('dragonfighters.currentScenario'),
+        };
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    await sleep(600);
+    const diagF2 = diagSince(baseF2);
+
+    // ── 区間3: 経路B (決める関数そのもの) ──
+    const baseF3 = consoleLines.length;
+    const decideF = await pageF.evaluate(() => {
+      try { return { threw: '', decided: recruitCountOf(window.__synthTV) }; }
+      catch (e) { return { threw: String((e && e.message) || e), decided: null }; }
+    });
+    await sleep(500);
+    const diagF3 = diagSince(baseF3);
+
+    console.log('       生成クエスト 6 件の掃き = ' + JSON.stringify(buildF.probes));
+    console.log('       seam = ' + JSON.stringify(buildF.seam));
+    console.log('       出発観測 = ' + JSON.stringify(departF.row) + '  経路B decided=' + decideF.decided);
+    console.log('       DIAG 行数: 負のコントロール=' + diagFneg.length + ' / 作るだけ=' + diagF1.length
+      + ' / 出発=' + diagF2.length + ' / 経路B=' + diagF3.length);
+    if (diagF2.length) console.log('       DIAG 実文 = "' + diagF2[0] + '"');
+
+    check('(Fz0) [装置] QuestGen / buildPlazaSynthetic を裸の識別子で読めた + 例外なし',
+      buildF.seam.QuestGen === 'object' && buildF.seam.buildPlazaSynthetic === 'function'
+      && buildF.threw === '' && departF.threw === '' && decideF.threw === '',
+      'seam=' + JSON.stringify(buildF.seam) + ' threw=' + (buildF.threw || departF.threw || decideF.threw || 'なし'));
+    check('(Fz1) [装置] 生成クエストは 6 件とも id=generated-quest で difficulty も recruit も持たない (フォールバックの前提が実在する)',
+      buildF.probes.length === 6
+      && buildF.probes.every(p => p.id === 'generated-quest' && p.hasDifficulty === false
+                                  && p.hasRecruit === false && p.generated === true),
+      '前提を満たさない件数 = ' + buildF.probes.filter(p => p.hasDifficulty || p.hasRecruit).length
+      + ' / 家系 = ' + buildF.probes.map(p => p.familyId).join(', '));
+    check('(Fz2) [装置] 負のコントロール: difficulty を持つ固定シナリオでは DIAG が 1 行も出ない (無条件に出しているのではない)',
+      diagFneg.length === 0 && obsFneg.rows.length === 1 && obsFneg.rows[0].wrote === true,
+      'DIAG=' + diagFneg.length + ' 行 / goblin-mine NPC=' + (obsFneg.rows[0] || {}).npc);
+    check('(Fz3) [装置] 生成クエストを 6 件 **作っただけ** では DIAG は出ない (人数を決めた時だけ出る)',
+      diagF1.length === 0, 'DIAG=' + diagF1.length + ' 行');
+
+    check('(F) ★受入条件3: 生成クエスト (闇市) の出発パーティが 主人公1 + NPC3 = 4 人',
+      departF.row && departF.row.wrote === true && departF.row.npc === 3
+      && departF.row.total === 4 && departF.row.heroes === 1,
+      departF.row ? ('計' + departF.row.total + '人 / NPC' + departF.row.npc + ' / 主人公' + departF.row.heroes) : '観測なし');
+    check('(F2) ★受入条件3: 出発の再抽選で DIAG が **ちょうど 1 行** 出た + 文面が依頼書の指定どおり',
+      diagF2.length === 1 && diagF2[0] === DIAG_EXPECT,
+      '出た行 = ' + JSON.stringify(diagF2) + ' / 期待 = "' + DIAG_EXPECT + '"');
+    check('(F3) 経路B (recruitCountOf 直呼び) も 3 を返し、同じく DIAG を 1 行出す',
+      decideF.decided === 3 && diagF3.length === 1 && diagF3[0] === DIAG_EXPECT,
+      'decided=' + decideF.decided + ' / DIAG=' + diagF3.length + ' 行');
+    check('(F4) 受入条件2 は生成クエストでも成り立つ (4 人を超えない)',
+      judgeNoOverflow(departF.row ? [departF.row] : [], 4).ok,
+      '計 ' + (departF.row ? departF.row.total : '-') + ' 人');
+    check('(Fz4) [装置] 出発処理が生成クエストとして書いた (__generated が index.html へ渡っている)',
+      !!(departF.row && departF.row.wroteGenerated === true && departF.row.wroteScenario === 'generated-quest'),
+      'generatedScenario=' + (departF.row && departF.row.wroteGenerated)
+      + ' / currentScenario=' + (departF.row && departF.row.wroteScenario));
+    await pageF.close();
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (G) 受入条件 4. : シナリオ定義に `recruit: 3` を注入すると goblin-mine でも NPC 3 人
+     *
+     * ⛔⛔ **ソース編集で測ってはいけない。** (S9) が「シナリオ表に recruit: の具体値を
+     *    入れていない」(= 値は依頼書 D の担当) を静的検査しているので、テスト用に
+     *    `recruit: 3` を書き足すと (S9) が赤くなる。
+     *    → **ランタイムで scenarios のオブジェクトへ注入**する。測り終えたら delete で戻す。
+     * ⭐ 「注入したら 3 になった」だけでは『元から 3 だった』と区別できない。
+     *    同じ run・同じページ・同じ観測関数で **注入前 1 → 注入後 3 → 撤去後 1** の
+     *    3 点を採り、往復することまで見る。
+     * ⭐ ついでに **上書きでも clamp(n,1,3) を外せない**ことを測る (依頼書 D が値を入れる器なので、
+     *    器の側で 5 人パーティを作れないことを保証しておく)。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (G) 受入条件 4. : recruit の個別上書き (ランタイム注入) ---');
+    const pageG = await openPage('/tavern.html');
+    const G_ID = 'goblin-mine';
+    async function setRecruit(page, id, value) {
+      return page.evaluate((cfg) => {
+        const sc = scenarios.find(s => s.id === cfg.id);
+        if (!sc) return { found: false };
+        const had = Object.prototype.hasOwnProperty.call(sc, 'recruit');
+        if (cfg.value === null) delete sc.recruit; else sc.recruit = cfg.value;
+        return { found: true, hadBefore: had,
+                 hasNow: Object.prototype.hasOwnProperty.call(sc, 'recruit'),
+                 now: sc.recruit };
+      }, { id, value });
+    }
+    const gPre   = await setRecruit(pageG, G_ID, null);          // 注入前の状態を読むだけ (delete は no-op)
+    const gObs0  = await observeDepartSizes(pageG, [G_ID]);      // (1) 素のまま
+    await setRecruit(pageG, G_ID, 3);
+    const gObs3  = await observeDepartSizes(pageG, [G_ID]);      // (2) recruit: 3
+    await setRecruit(pageG, G_ID, 9);
+    const gObs9  = await observeDepartSizes(pageG, [G_ID]);      // (3) recruit: 9 (clamp 上限)
+    await setRecruit(pageG, G_ID, 0);
+    const gObs0v = await observeDepartSizes(pageG, [G_ID]);      // (4) recruit: 0 (clamp 下限)
+    const gDel   = await setRecruit(pageG, G_ID, null);
+    const gObsD  = await observeDepartSizes(pageG, [G_ID]);      // (5) 撤去して元へ戻る
+
+    const gAll  = [gObs0, gObs3, gObs9, gObs0v, gObsD];
+    const gNpc  = gAll.map(o => (o.rows[0] || {}).npc);
+    const gDec  = gAll.map(o => (o.rows[0] || {}).decided);
+    console.log('       注入前の recruit プロパティ = ' + JSON.stringify(gPre));
+    console.log('       NPC 数 (素/3/9/0/撤去) = ' + JSON.stringify(gNpc));
+    console.log('       経路B recruitCountOf     = ' + JSON.stringify(gDec));
+
+    check('(Gz0) [装置] 5 回の観測すべてで例外なし・実際に踏んだ・出発処理が書いた',
+      gAll.every(o => o.threw === '' && o.sawIds.length === 1
+                      && o.rows.length === 1 && o.rows[0].wrote === true),
+      gAll.map((o, i) => '#' + (i + 1) + ':' + (o.threw || 'ok')).join(' '));
+    check('(Gz1) [装置] 注入前の goblin-mine は recruit プロパティを持っていない ((S9) の静的検査とランタイムの 2 経路が一致)',
+      gPre.found === true && gPre.hadBefore === false,
+      'found=' + gPre.found + ' / hadBefore=' + gPre.hadBefore);
+    check('(G) ★受入条件4: recruit: 3 を注入すると goblin-mine の NPC が 1 → 3 になる (個別上書きが効く)',
+      gNpc[0] === 1 && gNpc[1] === 3,
+      '注入前 NPC' + gNpc[0] + ' → 注入後 NPC' + gNpc[1]);
+    check('(G2) 上書きでも clamp(n,1,3) は外れない: recruit: 9 でも NPC 3 止まり (器が 5 人パーティを作れない)',
+      gNpc[2] === 3, 'recruit:9 → NPC' + gNpc[2]);
+    check('(G3) 上書きでも clamp の下限が効く: recruit: 0 でも NPC 1 (0 人パーティにならない)',
+      gNpc[3] === 1, 'recruit:0 → NPC' + gNpc[3]);
+    check('(Gz2) [装置] recruit を撤去すると NPC 1 へ戻る (『元から 3 だった』でも『ページが壊れた』でもない)',
+      gDel.hasNow === false && gNpc[4] === 1,
+      '撤去後 hasRecruit=' + gDel.hasNow + ' / NPC' + gNpc[4]);
+    check('(Gz3) [装置] 経路B (recruitCountOf) も 5 回すべてで経路A と同じ値を返す',
+      gNpc.length === 5 && gNpc.every((n, i) => n === gDec[i]),
+      '経路A=' + JSON.stringify(gNpc) + ' / 経路B=' + JSON.stringify(gDec));
+    check('(Gz4) [装置] 注入で観測値が実際に動いた (注入が飾りでない)',
+      new Set(gNpc).size >= 2, 'NPC の種類 = ' + JSON.stringify([...new Set(gNpc)]));
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (H) 受入条件 5. : 隊列順が front → mid → rear のまま (orderFormation を壊していない)
+     * ⚠ **母集団が空でも緑にならないようにする。** 全員 front の隊列は "front" 1 語なので
+     *   自明にソート済み = 何も証明しない。→ (Hz1) が「zone が 2 種類以上ある行が実在する」を測る。
+     * ⭐ 判定本体 judgeFormation() は 1 本きり。(A) 既定 ON / (C) 撤退 ON / (F) 生成クエストの
+     *   3 つの観測に同じ関数を当てる。恒真でないことは (Hz2) が逆順を落として示す。
+     * ⭐⭐ さらに 2 経路: 本番の orderFormation() に **わざと崩した配列**を渡して並べ直させ、
+     *   ソート結果と **安定性** (同 zone 内で元の順序が保たれる) まで見る。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (H) 受入条件 5. : 隊列順 front → mid → rear ---');
+    const gOrd = await pageG.evaluate(() => {
+      const out = { threw: '', seam: typeof orderFormation, before: '', after: '', zones: '' };
+      try {
+        // わざと崩した並び (rear が先頭・front が真ん中・同 zone が 2 人ずつ)
+        const src = [
+          { classKey: 'mage',    zone: 'rear',  name: 'R1' },
+          { classKey: 'warrior', zone: 'front', name: 'F1' },
+          { classKey: 'rogue',   zone: 'mid',   name: 'M1' },
+          { classKey: 'dwarf',   zone: 'front', name: 'F2' },
+          { classKey: 'cleric',  zone: 'mid',   name: 'M2' },
+        ];
+        out.before = src.map(m => m.name).join('>');
+        const sorted = orderFormation(src.slice());      // ★本番の並べ替え
+        out.after = sorted.map(m => m.name).join('>');
+        out.zones = sorted.map(m => m.zone).join('>');
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    await pageG.close();
+
+    const ZONE_RANK = { front: 0, mid: 1, rear: 2 };
+    /* 判定本体 (Node 側・純関数)。rows は observeDepartSizes / (F) の row が持つ zones 文字列を読む。
+       空の rows は false (空で緑になる測定器を作らない)。 */
+    function judgeFormation(rows) {
+      const bad = [];
+      let maxDistinct = 0, multiZoneRows = 0;
+      (rows || []).forEach(r => {
+        const zs = String((r && r.zones) || '').split('>').filter(Boolean);
+        if (!zs.length) { bad.push(((r && r.id) || '(id なし)') + ': zone 情報なし'); return; }
+        const unknown = zs.filter(z => ZONE_RANK[z] === undefined);
+        if (unknown.length) { bad.push(r.id + ': 未知の zone ' + unknown.join(',')); return; }
+        const kinds = new Set(zs).size;
+        maxDistinct = Math.max(maxDistinct, kinds);
+        if (kinds >= 2) multiZoneRows++;
+        for (let i = 1; i < zs.length; i++) {
+          if (ZONE_RANK[zs[i]] < ZONE_RANK[zs[i - 1]]) { bad.push(r.id + ': ' + r.zones); break; }
+        }
+      });
+      return { ok: (rows || []).length > 0 && bad.length === 0, bad, maxDistinct, multiZoneRows };
+    }
+
+    const fA = judgeFormation(obsA.rows);
+    const fC = judgeFormation(obsC.rows);
+    const fF = judgeFormation(departF.row ? [departF.row] : []);
+    console.log('       (A) 既定ON の隊列 = ' + obsA.rows.map(r => r.id + ':' + r.zones).join('  '));
+    console.log('       (C) ?recruit=0 の隊列 = ' + obsC.rows.map(r => r.id + ':' + r.zones).join('  '));
+    console.log('       (F) 生成クエストの隊列 = ' + (departF.row ? departF.row.zones : '(観測なし)'));
+    console.log('       orderFormation 直呼び: ' + gOrd.before + ' → ' + gOrd.after + ' (' + gOrd.zones + ')');
+
+    check('(H) ★受入条件5: 既定 ON の 6 シナリオすべてで隊列が front → mid → rear 順',
+      fA.ok, fA.bad.length ? '崩れ: ' + fA.bad.join(' / ') : '崩れなし (' + obsA.rows.length + ' 件)');
+    check('(Hz1) [装置] zone が 2 種類以上ある行が実在する (全員 front なら自明にソート済み = 何も証明しない)',
+      fA.maxDistinct >= 2 && fA.multiZoneRows >= 3,
+      'zone 最大種類=' + fA.maxDistinct + ' / 2 種類以上の行=' + fA.multiZoneRows + '/' + obsA.rows.length);
+    check('(Hz2) [装置] judgeFormation は逆順と空を落とす (恒真でない証明)',
+      judgeFormation([{ id: 'x', zones: 'mid>front' }]).ok === false
+      && judgeFormation([{ id: 'x', zones: 'rear>mid>front' }]).ok === false
+      && judgeFormation([{ id: 'x', zones: 'front>rear>mid' }]).ok === false
+      && judgeFormation([]).ok === false
+      && judgeFormation([{ id: 'x', zones: '' }]).ok === false
+      && judgeFormation([{ id: 'x', zones: 'front>mid>rear' }]).ok === true);
+    check('(H2) ★受入条件5: 撤退スイッチ ?recruit=0 の 6 件でも隊列順は front → mid → rear',
+      fC.ok && fC.maxDistinct >= 2,
+      fC.bad.length ? '崩れ: ' + fC.bad.join(' / ') : '崩れなし (' + obsC.rows.length + ' 件 / 最大 ' + fC.maxDistinct + ' 種類)');
+    check('(H3) ★受入条件5: 生成クエスト (闇市) の隊列も front → mid → rear',
+      fF.ok && fF.maxDistinct >= 2,
+      fF.bad.length ? '崩れ: ' + fF.bad.join(' / ') : '隊列 = ' + (departF.row ? departF.row.zones : '(なし)'));
+    check('(Hz3) [装置] 2 経路: 本番の orderFormation() に崩した配列を渡すと front→mid→rear へ並べ直し、同 zone 内の順序は保つ (安定ソート)',
+      gOrd.threw === '' && gOrd.seam === 'function'
+      && gOrd.after === 'F1>F2>M1>M2>R1' && gOrd.zones === 'front>front>mid>mid>rear',
+      '入力 ' + gOrd.before + ' → 出力 ' + gOrd.after + ' (' + gOrd.zones + ') threw=' + (gOrd.threw || 'なし'));
 
     check('(Z) JS エラーが 1 件も出ていない', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
   } catch (e) {
