@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ダンジョンファイターズ — 港町フラン</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
+  <!--
+    town.html — 港町フランの街 (キャラ選択のあと、酒場ではなくここに立つ)
+    ═══════════════════════════════════════════════════════════════════════
+    実装依頼書 `実装依頼書/2026-08-22_town-map-phlan.md`。検証は tools/verify_town_map.js。
+
+    ★ このファイルの責務は「街のどこに立っているか」と「どの扉をくぐるか」だけ。
+      ⛔ **ゲームロジックを書かない。** パーティ編成・装備・クエスト・戦闘は 1 つも持たない。
+      ⛔ **数値の写しを作らない。** 通行マスクと施設と立ち位置は js/town-map.js が唯一の正。
+        クラス定義は js/hero-classes.js、セーブは js/save-slots.js。
+
+    ★ 読み込むのは 4 本だけ (依頼書 §2 の指定。これ以上増やさない)
+        js/save-slots.js  … 記録の切り替えは title.html の担当。ここでは同席させるだけ
+        js/hero-classes.js… 主人公のクラスキーの妥当性確認
+        js/town-map.js    … 通行マスク / 経路探索 / 施設 / 立ち位置
+        audio.js          … BGM (tavern) と効果音
+
+    ★ 「第2の入口」問題 — ⛔ 遷移先にクエリを足さない (依頼書 §3)
+      武器防具屋も闇市も中身は tavern.html の中の画面なので、素直に作ると
+      `tavern.html?shop=1` になり、依頼書 #6 title-screen が名指しで禁じた
+      「酒場の入口が 2 種類になる」をそのまま踏む。
+      **解: URL は常に素の tavern.html。どの扉から入ったかは sessionStorage の 1 キーで渡す。**
+        sessionStorage["dragonfighters.enterVia"] = "tavern" | "shop" | "plaza"
+      受け取り側 (tavern.html の描画より前) は本依頼書の STEP5 の担当。
+      ⭐ キーが無ければ今日とまったく同じ挙動 = 天然の撤退経路 (silent fail-open ではなく
+        「素の酒場」という正しい既定へ落ちる)。
+
+    ★ 立ち位置 (依頼書 §5) — 規則は 1 本: **町へ入るときは、直前に居た場所の前に立つ。**
+      sessionStorage["dragonfighters.exitVia"] を読んで TOWN_MAP.spawnFor() に渡すだけ。
+      ⚠ 未知の値 / 欠損では (10,3) 酒場の前へ落とす (fail-safe は town-map.js 側に置いてある)。
+
+    ★ 移動 (依頼書 §6)
+      - タイルクリック → そこまで経路歩き。歩けないタイルなら **動かない**
+        (⛔ 隣接まで寄せる救済を入れない。「押したのに違う所へ行く」ほうが不快)
+      - 看板クリック → その施設の入場タイルまで自動で歩いてから入る
+      - ⛔ クリック地点への直線移動は却下。運河があるので橋を渡れず詰む
+      - 経路探索は TOWN_MAP.findPath (4 近傍。index.html の aStar と同じ形)
+
+    ★ スプライト (依頼書 §8)
+      assets/<class>_walk.png は全 6 職とも 576x384 = **96px セル 6 列 x 4 行**。
+      index.html の updateKnightSprite と同じく **row 3 が右向き**を使い、
+      左へ歩くときは scaleX(-1)。⚠ 1 マス 64px に対してセルは 96px = タイルより大きく描くのが正しい。
+      ⭐ **足元をタイル中心に置く** (top = row*64 + 32 - 96*0.93)。
+        これは南橋のための規則でもある: 橋板は row 9.5〜10.5 に乗っているので、
+        (12,10)(13,10) に立つと体が 10.0〜10.5 = 橋板の上に乗る。
+        足元をタイル下端に置くと水の上に立つ。⚠ この 0.93 を動かすと橋の見え方が壊れる。
+
+    ★ 音 (依頼書 §9)
+      GameAudio.playBgm("tavern") — audio.js の合成トラック (mp3 ではない)。
+      最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
+      ⚠ 実機で耳障りなら街を無音にする (title.html と同じ方針)。街専用 BGM は別チケット。
+
+    ★ 撤退スイッチ `?town=0` (依頼書 §11)
+      街を丸ごと素通りして、今日とまったく同じ「タイトル → 酒場」に戻す。
+      ⚠⚠ クエリはページ遷移をまたがないので、**見た時点で sessionStorage へ写して**全ページで読む。
+      ⚠ sessionStorage はタブ単位なので、新しいタブを開けば自動的に解除される
+        (テスト用の撤退口として正しい粒度)。
+  -->
+  <style>
+    :root {
+      --parchment-ink: #3a2912;
+      --parchment-gold: #8b6914;
+      --wood-dark: #3a2614;
+      --wood-mid: #5a3a1e;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden;                       /* ⚠ 受入条件 11: 横スクロールバーを出さない */
+      background: #0a0805;
+      color: #f5e8c8;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      -webkit-text-size-adjust: 100%;
+      touch-action: manipulation;
+    }
+
+    /* ── 舞台 ────────────────────────────────────────────────────────────
+       #townViewport が画面いっぱいの窓、#townStage が絵の実寸 (1472x960)。
+       拡大とカメラは **stage の transform 1 本**でやる (子要素は素の座標のままでよい)。 */
+    #townViewport {
+      position: fixed; inset: 0;
+      overflow: hidden;
+      background: #0a0805;
+      cursor: pointer;
+    }
+    #townStage {
+      position: absolute; left: 0; top: 0;
+      transform-origin: 0 0;
+      background-image: url("assets/town_phlan.jpg");
+      background-size: 100% 100%;
+      background-repeat: no-repeat;
+      image-rendering: auto;
+    }
+
+    /* 主人公。⚠ 96px セルを 1:1 で出す (タイル 64px より大きいのが正しい) */
+    #townHero {
+      position: absolute;
+      width: 96px; height: 96px;
+      background-repeat: no-repeat;
+      background-size: 576px 384px;           /* 96px セル 6列 x 4行 */
+      transform-origin: 50% 100%;
+      pointer-events: none;
+      filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55));
+      z-index: 3;
+    }
+    /* 足元の楕円影。⭐ 接地点 = タイル中心が「どこに立っているか」の唯一の手がかりになる */
+    #townHeroShadow {
+      position: absolute;
+      width: 44px; height: 16px;
+      margin-left: -22px; margin-top: -8px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 70%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* 施設の看板 */
+    .townSign {
+      position: absolute;
+      width: 64px; height: 64px;
+      margin-left: -32px; margin-top: -32px;   /* タイル中心に置く */
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; line-height: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 40%, rgba(20,14,6,0.86) 0%, rgba(20,14,6,0.55) 62%, rgba(20,14,6,0) 100%);
+      border: 2px solid rgba(190,150,70,0.85);
+      box-shadow: 0 0 12px rgba(0,0,0,0.6);
+      cursor: pointer;
+      z-index: 4;
+      transition: transform 0.12s ease, box-shadow 0.2s ease;
+      text-shadow: 0 2px 3px rgba(0,0,0,0.9);
+    }
+    .townSign:hover { transform: scale(1.12); }
+    .townSign .townSignName {
+      position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      margin-top: 2px;
+      font-size: 12px; white-space: nowrap;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: #f5e8c8;
+      text-shadow: 0 1px 3px #000, 0 0 6px #000;
+      pointer-events: none;
+    }
+    /* ⛔ 初見プレイヤーが街に放り出されて迷わないよう、街の初回だけ 🦌 を光らせる。
+       判定は localStorage["dragonfighters.prologueSeen"] が未設定 = まだ物語を聞いていない。
+       ⚠ 新しいキーを作らない (依頼書 §4)。 */
+    .townSign.beckon {
+      animation: townBeckon 1.6s ease-in-out infinite;
+      border-color: rgba(255,225,140,0.95);
+    }
+    @keyframes townBeckon {
+      0%, 100% { box-shadow: 0 0 12px rgba(0,0,0,0.6), 0 0 0 rgba(255,220,130,0); }
+      50%      { box-shadow: 0 0 12px rgba(0,0,0,0.6), 0 0 26px 6px rgba(255,220,130,0.65); }
+    }
+
+    /* 行き先マーカー (クリックしたタイル) */
+    #townGoal {
+      position: absolute;
+      width: 64px; height: 64px;
+      margin-left: -32px; margin-top: -32px;
+      border: 2px solid rgba(120,255,180,0.85);
+      border-radius: 8px;
+      box-shadow: inset 0 0 12px rgba(120,255,180,0.35);
+      pointer-events: none; opacity: 0;
+      z-index: 1;
+      transition: opacity 0.25s ease;
+    }
+    #townGoal.show { opacity: 1; }
+
+    /* ── 画面上の帯 ─────────────────────────────────────────────────── */
+    #townTitle {
+      position: fixed; left: 0; right: 0; top: 0;
+      padding: 10px 14px calc(10px + env(safe-area-inset-top, 0px));
+      text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      font-size: 20px; letter-spacing: 0.08em;
+      color: #f0dca8;
+      text-shadow: 0 2px 6px #000, 0 0 12px #000;
+      background: linear-gradient(to bottom, rgba(10,8,5,0.72), rgba(10,8,5,0));
+      pointer-events: none;
+      z-index: 10;
+    }
+    #townTitle small {
+      display: block; margin-top: 2px;
+      font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0;
+      color: #cbb98c;
+    }
+
+    /* compact 用の施設ボタン列。⚠ デスクトップでは出さない (看板が十分大きいので) */
+    #townHud {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      display: none;
+      gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+      justify-content: center; flex-wrap: wrap;
+      background: linear-gradient(to top, rgba(10,8,5,0.86), rgba(10,8,5,0));
+      z-index: 11;
+    }
+    #townHud button {
+      flex: 0 1 auto;
+      min-height: 44px;                       /* 指で押せる高さ */
+      padding: 8px 12px;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      font-size: 15px;
+      color: #f5e8c8;
+      background: linear-gradient(to bottom, var(--wood-mid), var(--wood-dark));
+      border: 2px solid var(--parchment-gold);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #townHud button:active { transform: translateY(1px); }
+    body.compact #townHud { display: flex; }
+    body.compact #townTitle { font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div id="townViewport">
+    <div id="townStage">
+      <div id="townGoal"></div>
+      <div id="townHeroShadow"></div>
+      <div id="townHero"></div>
+    </div>
+  </div>
+
+  <div id="townTitle">港町フラン
+    <small>行きたい場所をタップ / 看板をタップで中へ</small>
+  </div>
+  <div id="townHud"></div>
+
+  <script src="js/save-slots.js"></script>
+  <script src="js/hero-classes.js"></script>
+  <script src="js/town-map.js"></script>
+  <script src="audio.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    /* ══ 撤退スイッチ ?town=0 ═══════════════════════════════════════════
+       ⚠⚠ **描画より前に判定して return する。** 後ろに置くと撤退したはずの街が一瞬見える
+         (title.html:315 が ?title=0 を IIFE の先頭で判定したのと同じ理由)。
+       ⚠ クエリはページ遷移をまたがないので sessionStorage へ写す。
+       ⚠ location.href ではなく **replace**。href だと履歴に town.html が残り、
+         酒場で「戻る」を押した人が撤退したはずの街へ戻ってしまう。 */
+    var TOWN_OFF_KEY = "dragonfighters.townOff";
+    try {
+      if (new URLSearchParams(location.search).get("town") === "0") {
+        sessionStorage.setItem(TOWN_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var townOff = false;
+    try { townOff = sessionStorage.getItem(TOWN_OFF_KEY) === "1"; } catch (e) { townOff = false; }
+    if (townOff) { location.replace("tavern.html"); return; }
+
+    var TM = window.TOWN_MAP;
+    if (!TM) { location.replace("tavern.html"); return; }   // 保険: データが無ければ従来の酒場へ
+
+    var TILE = TM.TILE;                        // 64
+    var MAP_W = TM.COLS * TILE, MAP_H = TM.ROWS * TILE;
+    var SPRITE = 96;                           // 歩行シートのセル
+    var FOOT = 0.93;                           // ★接地比 (index.html の他アセットと同じ実測値)
+    var SHEET_ROW_RIGHT = 3;                   // ★右向きの行 (index.html updateKnightSprite と同じ)
+
+    var elViewport = document.getElementById("townViewport");
+    var elStage    = document.getElementById("townStage");
+    var elHero     = document.getElementById("townHero");
+    var elShadow   = document.getElementById("townHeroShadow");
+    var elGoal     = document.getElementById("townGoal");
+    var elHud      = document.getElementById("townHud");
+
+    elStage.style.width  = MAP_W + "px";
+    elStage.style.height = MAP_H + "px";
+
+    /* ══ compact 判定 ═══════════════════════════════════════════════════
+       ⚠ tavern.html:2020 と **同じ 3 条件**。写しを作らず同じ式を使う (依頼書 §7)。 */
+    function isCompact() {
+      try {
+        return window.matchMedia('(max-width: 560px)').matches
+            || window.matchMedia('(max-height: 480px)').matches
+            || window.matchMedia('(hover: none)').matches;
+      } catch (e) { return false; }
+    }
+
+    /* ══ 主人公 ═════════════════════════════════════════════════════════ */
+    function heroClassKey() {
+      var key = null;
+      try {
+        var pc = JSON.parse(localStorage.getItem("dragonfighters.partyComposition") || "[]");
+        if (Array.isArray(pc) && typeof pc[0] === "string") key = pc[0];
+      } catch (e) {}
+      /* ⚠ 知らないクラスキーで <class>_walk.png を引くと 404 になって主人公が消える。
+         js/hero-classes.js の一覧に無ければ warrior へ落とす (黙って消えないための保険)。 */
+      var known = (window.HERO_CLASSES || []).map(function (c) { return c.classKey; });
+      if (!key || (known.length && known.indexOf(key) < 0)) key = "warrior";
+      return key;
+    }
+    var HERO_CLASS = heroClassKey();
+    elHero.style.backgroundImage = 'url("assets/' + HERO_CLASS + '_walk.png")';
+
+    /* ══ 立ち位置 (依頼書 §5) ═══════════════════════════════════════════ */
+    var EXIT_VIA_KEY = "dragonfighters.exitVia";
+    var exitVia = null;
+    try {
+      exitVia = sessionStorage.getItem(EXIT_VIA_KEY);
+      sessionStorage.removeItem(EXIT_VIA_KEY);   // ★一回性。再読込で前回の入口が復活しない
+    } catch (e) {}
+    var hero = TM.spawnFor(exitVia);             // { c, r } — 未知の値は town-map.js が (10,3) へ落とす
+    var facingLeft = false;
+
+    /* ══ 描画 ═══════════════════════════════════════════════════════════ */
+    var frame = 0, moving = false;
+    function placeHero(cx, cy) {
+      /* ⭐ 足元をタイル中心に置く (この規則が南橋の見え方を決めている。ヘッダのコメント参照) */
+      elHero.style.left = (cx - SPRITE / 2) + "px";
+      elHero.style.top  = (cy - SPRITE * FOOT) + "px";
+      elHero.style.transform = facingLeft ? "scaleX(-1)" : "none";
+      elHero.style.backgroundPosition = (-frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
+      elShadow.style.left = cx + "px";
+      elShadow.style.top  = cy + "px";
+    }
+    function tileCenter(c, r) { return { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 }; }
+
+    var heroPx = tileCenter(hero.c, hero.r);
+    placeHero(heroPx.x, heroPx.y);
+
+    /* ══ カメラ ═════════════════════════════════════════════════════════
+       デスクトップ (横長): 23x15 が全部入る倍率で固定。
+       compact: 1 マス 17px ではキャラが見えないので拡大し、主人公を追う。
+       ⚠⚠ 母集団は画面の向きでも割れる。デスクトップ横長と compact 縦の**両方**で測ること。 */
+    var zoom = 1, camX = 0, camY = 0;
+    /* 可視域 = 画面から上下の帯を引いた残り。
+       ⚠⚠ 帯の高さを引かずに中央へ寄せると、**いちばん大事な 🦌 の看板がタイトル帯の下に潜る**
+         (デスクトップ 1440x900 で実際に起きた)。⚠ 帯の高さは CSS で決まるので実測する。 */
+    function insets() {
+      var elTitle = document.getElementById("townTitle");
+      var top = elTitle ? elTitle.offsetHeight : 0;
+      var bottom = (document.body.classList.contains("compact") && elHud) ? elHud.offsetHeight : 0;
+      return { top: top, bottom: bottom };
+    }
+    function layout() {
+      var compact = isCompact();
+      document.body.classList.toggle("compact", compact);
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var avail = Math.max(120, vh - ins.top - ins.bottom);
+      if (compact) {
+        /* ⭐ compact は「全体を入れる」ではなく **可視域を満たす** 倍率。
+           23x15 の横長を縦長の画面へ収めると上下が真っ黒になり、しかも 1 マス 17px で
+           キャラが見えない (実測: 390x844 で zoom 0.265 = 黒帯 334px)。
+           満たす倍率にしてカメラで追えば、黒帯ゼロで 1 マス 56px になる。
+           ⚠ 下限 34px/マスは「極端に横長の compact (横持ち)」で寄りが足りなくなる保険。
+           ⚠ 上限 1.5 は寄りすぎ防止 (1 マス 96px を超えると街が見渡せなくなる)。 */
+        zoom = Math.min(1.5, Math.max(vw / MAP_W, avail / MAP_H, 34 / TILE));
+      } else {
+        /* デスクトップ: 23x15 が **帯を除いた領域に** 全部入る倍率で固定 */
+        zoom = Math.min(vw / MAP_W, avail / MAP_H);
+      }
+      applyCamera();
+    }
+    function applyCamera() {
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var viewTop = ins.top, viewH = Math.max(120, vh - ins.top - ins.bottom);
+      var sw = MAP_W * zoom, sh = MAP_H * zoom;
+      if (sw <= vw) camX = (vw - sw) / 2;
+      else camX = Math.max(vw - sw, Math.min(0, vw / 2 - heroPx.x * zoom));
+      if (sh <= viewH) camY = viewTop + (viewH - sh) / 2;
+      else camY = Math.max(viewTop + viewH - sh, Math.min(viewTop, viewTop + viewH / 2 - heroPx.y * zoom));
+      elStage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + zoom + ")";
+    }
+    window.addEventListener("resize", layout);
+    window.addEventListener("orientationchange", layout);
+
+    /* ══ 施設の看板 ═════════════════════════════════════════════════════ */
+    function plazaUnlocked() {
+      /* ⚠ 判定の出所は tavern.html と同じ localStorage の 1 キーだけ。写しを作らない。 */
+      try {
+        var s = JSON.parse(localStorage.getItem("dragonfighters.plazaState") || "{}");
+        return !!(s && s.unlocked);
+      } catch (e) { return false; }
+    }
+    function prologueUnseen() {
+      try { return localStorage.getItem("dragonfighters.prologueSeen") === null; } catch (e) { return false; }
+    }
+    var signs = {};
+    function buildSigns() {
+      elHud.innerHTML = "";
+      TM.FACILITIES.forEach(function (f) {
+        /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
+        if (f.requiresPlazaUnlock && !plazaUnlocked()) return;
+        var s = document.createElement("div");
+        s.className = "townSign";
+        s.id = "townSign_" + f.key;
+        s.setAttribute("data-facility", f.key);
+        s.title = f.name;
+        s.textContent = f.icon;
+        var nm = document.createElement("span");
+        nm.className = "townSignName";
+        nm.textContent = f.name;
+        s.appendChild(nm);
+        var p = tileCenter(f.sign[0], f.sign[1]);
+        s.style.left = p.x + "px";
+        s.style.top  = p.y + "px";
+        if (f.key === "tavern" && prologueUnseen()) s.classList.add("beckon");
+        s.addEventListener("click", function (ev) { ev.stopPropagation(); goToFacility(f); });
+        elStage.appendChild(s);
+        signs[f.key] = s;
+
+        var b = document.createElement("button");
+        b.type = "button";
+        b.id = "townHudBtn_" + f.key;
+        b.setAttribute("data-facility", f.key);
+        b.textContent = f.icon + " " + f.name;
+        b.addEventListener("click", function (ev) { ev.stopPropagation(); goToFacility(f); });
+        elHud.appendChild(b);
+      });
+    }
+    buildSigns();
+
+    /* ══ 移動 ═══════════════════════════════════════════════════════════
+       ⭐ 歩きはタイル 1 マスずつの補間。経路は TOWN_MAP.findPath (4 近傍) が出したものだけを辿る。
+       ⛔ クリック地点への直線移動は却下 (運河があるので橋を渡れず詰む)。 */
+    var MS_PER_TILE = 170;
+    var walkTimer = null, pendingArrive = null;
+
+    function stopWalk() {
+      if (walkTimer) { cancelAnimationFrame(walkTimer); walkTimer = null; }
+      moving = false; frame = 0;
+      placeHero(heroPx.x, heroPx.y);
+    }
+
+    function walkPath(path, onArrive) {
+      stopWalk();
+      pendingArrive = onArrive || null;
+      if (!path || !path.length) {
+        if (pendingArrive) { var f0 = pendingArrive; pendingArrive = null; f0(); }
+        return;
+      }
+      var idx = 0;
+      var from = { x: heroPx.x, y: heroPx.y };
+      var to = tileCenter(path[0].c, path[0].r);
+      var t0 = performance.now();
+      moving = true;
+      if (to.x !== from.x) facingLeft = (to.x < from.x);
+      function step(now) {
+        var t = Math.min(1, (now - t0) / MS_PER_TILE);
+        heroPx.x = from.x + (to.x - from.x) * t;
+        heroPx.y = from.y + (to.y - from.y) * t;
+        frame = Math.floor((now - t0) / 95 + idx * 2) % 6;
+        placeHero(heroPx.x, heroPx.y);
+        applyCamera();
+        if (t >= 1) {
+          hero = { c: path[idx].c, r: path[idx].r };
+          idx++;
+          if (idx >= path.length) {
+            stopWalk();
+            elGoal.classList.remove("show");
+            if (pendingArrive) { var fn = pendingArrive; pendingArrive = null; fn(); }
+            return;
+          }
+          from = { x: heroPx.x, y: heroPx.y };
+          to = tileCenter(path[idx].c, path[idx].r);
+          if (to.x !== from.x) facingLeft = (to.x < from.x);
+          t0 = now;
+        }
+        walkTimer = requestAnimationFrame(step);
+      }
+      walkTimer = requestAnimationFrame(step);
+    }
+
+    function walkTo(c, r, onArrive) {
+      /* ⛔ 歩けないタイルなら **動かない**。隣接まで寄せる救済を入れない (依頼書 §6)。 */
+      if (!TM.isWalkable(c, r)) return false;
+      var path = TM.findPath(hero.c, hero.r, c, r);
+      if (path === null) return false;
+      var p = tileCenter(c, r);
+      elGoal.style.left = p.x + "px"; elGoal.style.top = p.y + "px";
+      elGoal.classList.add("show");
+      walkPath(path, onArrive);
+      return true;
+    }
+
+    /* ══ 施設へ入る (依頼書 §3) ═════════════════════════════════════════ */
+    var ENTER_VIA_KEY = "dragonfighters.enterVia";
+    var leaving = false;
+    function enterFacility(f) {
+      if (leaving) return;
+      leaving = true;
+      try { sessionStorage.setItem(ENTER_VIA_KEY, f.via); } catch (e) {}
+      /* ⛔ クエリを足さない。URL は常に素の tavern.html (依頼書 §3 / #6 の禁止事項) */
+      location.href = "tavern.html";
+    }
+    function goToFacility(f) {
+      var ec = f.enter[0], er = f.enter[1];
+      if (hero.c === ec && hero.r === er) { enterFacility(f); return; }
+      var ok = walkTo(ec, er, function () { enterFacility(f); });
+      /* 入場タイルへ行けない = マスクの不具合。黙って何も起きないのは最悪なので、
+         その場で入れてしまう (詰ませない)。⚠ 受入条件 2 が 0 件を保証しているので通常は起きない。 */
+      if (!ok) enterFacility(f);
+    }
+
+    /* ══ クリック ═══════════════════════════════════════════════════════ */
+    function tileFromClient(clientX, clientY) {
+      var rect = elStage.getBoundingClientRect();
+      var x = (clientX - rect.left) / zoom;
+      var y = (clientY - rect.top) / zoom;
+      return { c: Math.floor(x / TILE), r: Math.floor(y / TILE) };
+    }
+    elViewport.addEventListener("click", function (ev) {
+      var t = tileFromClient(ev.clientX, ev.clientY);
+      if (!TM.inBounds(t.c, t.r)) return;
+      walkTo(t.c, t.r, null);
+    });
+
+    /* ══ 音 (依頼書 §9) ════════════════════════════════════════════════
+       ⚠ 最初の pointerdown で unlock() (iOS Safari の音声解錠に必須)。 */
+    function bootAudio() {
+      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+      try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm("tavern"); } catch (e) {}
+    }
+    window.addEventListener("pointerdown", bootAudio, { once: true });
+    try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm("tavern"); } catch (e) {}
+
+    /* ══ 検証シーム ═════════════════════════════════════════════════════
+       ⚠ classic script 直下の let/const/function は window に載らない。
+         ドライバが読むものは明示的に載せる (title.html / index.html と同じ作法)。
+       ⛔ ここにゲームの状態を足さないこと。読むための窓であって、状態の置き場ではない。 */
+    window.__town = {
+      heroTile: function () { return { c: hero.c, r: hero.r }; },
+      heroClass: function () { return HERO_CLASS; },
+      isMoving:  function () { return moving; },
+      zoom:      function () { return zoom; },
+      compact:   function () { return document.body.classList.contains("compact"); },
+      spawnVia:  function () { return exitVia; },
+      signKeys:  function () { return Object.keys(signs); },
+      walkTo:    function (c, r) { return walkTo(c, r, null); },
+      tileFromClient: tileFromClient,
+      /* tileFromClient の逆。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
+         ドライバが「タイル (c,r) を実際にクリックする」ために要る。 */
+      clientFromTile: function (c, r) {
+        var rect = elStage.getBoundingClientRect();
+        return { x: rect.left + (c * TILE + TILE / 2) * zoom,
+                 y: rect.top  + (r * TILE + TILE / 2) * zoom };
+      }
+    };
+
+    layout();
+    placeHero(heroPx.x, heroPx.y);
+  })();
+  </script>
+</body>
+</html>
