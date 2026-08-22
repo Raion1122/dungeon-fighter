@@ -218,3 +218,79 @@ DFSlots.sizeReport()         // { live: <bytes>, slot1: <bytes>, ..., total: <by
 
 **新規ロジックはすべて `js/save-slots.js` の 1 箇所。HTML には写しを作らない。**
 `tavern.html` / `index.html` に増えるのは `<script src>` の 1 行と、snapshot 呼び出しの数行だけ。
+
+---
+
+## 実装結果 (2026-08-22 / STEP1〜7 完了)
+
+| STEP | 内容 | コミット |
+|---|---|---|
+| 1〜2 | `js/save-slots.js` 新規 + `tavern.html`/`index.html` へ `<script src>`(配線だけの段) | `89f58a9` |
+| 3 | `wipeAdventureRecord()` を `DFSlots.wipeLive()` の薄いラッパへ畳む | `87ffca8` |
+| 4〜5 | `switchTo()`/`newGame()`/`sizeReport()` + snapshot フック 4 箇所 | `b92444e` |
+| 6〜7 | 検証ドライバ `tools/verify_save_slots.js` (**30/30**) + `sizeReport()` 実測 | `dde8457` |
+
+### 受入条件の結果
+
+| # | 結果 | 証拠 (`node tools/verify_save_slots.js`) |
+|---|---|---|
+| 1 | ✅ | `(1)` `sw2:true / xpOnSlot2:null / liveKeysOn2:0 / sw1:true / xpBack:"10000"` |
+| 2 | ✅ | `(2)` `ng:true / liveKeysAfterNg:0 / slot2AfterNg:null / keysEqual:true (6キー)` |
+| 3 | ✅ | `(3)` slot1 `{active:true, empty:false, level:5, gold:340, hero:"warrior", cleared:2}` / slot2・slot3 `empty:true` |
+| 4 | ✅ | `(4)` `listA0gold:340 → listB0gold:55555`(snapshot 無し)。同時に `archive1gold:340` = **由来がライブ**である証拠 |
+| 5 | ✅ | `(5)` `["{\"master\":0.42}","1"]` / `(5b)` sessionStorage 側の KEEP も残る |
+| 6 | ✅ | `(6)` `navCount:0 / hrefSame:true / sentinelSurvived:true` + `(6a)` 関数本体に `location` の語が 0 |
+| 7 | ✅ | `(7)` `1:FAIL(=OK) 2:FAIL(=OK) 3:FAIL(=OK) 4:FAIL(=OK)` = **4/4 とも落ちた** |
+| 8 | ✅ | `{"live":17660,"slot1":20222,"slot2":20222,"slot3":20222,"total":78326}` = **76.5 KB**(5MB の **1.49%**) |
+| 9 | ✅ | `driver_dev_gate` 52/52 ・ `driver_depart_menu_clean` 41/41 ・ `driver_grid_p8` 55/55 (すべて基準どおり) |
+
+### 逸脱・判断
+
+1. **受入条件 7 の測り方を「両方向」にした。** 依頼書は「?slots=0 で 1.〜4. が**落ちる**」と書いてあるが、
+   途中の使い捨てプローブは「?slots=0 で `switchTo`/`newGame` が false になる」側しか測っておらず**半分だった**。
+   正式ドライバでは **ページ側 = 観測だけ (`featureProbe`) / Node 側 = 判定だけ (`featureAsserts`)** に分け、
+   **同じ `featureAsserts()` を ON ページと `?slots=0` ページの両方へ当てる**形にした。
+   assert 本体を共有していないと「別々に書いた 2 つの assert が両方とも間違っている」= 実装とドライバが
+   同じ誤りを持つと永久に緑、という事故を防げない。装置 assert `(7z4)` で「両側で assert が同数」も測っている。
+
+2. **各 assert を「戻り値 AND 状態」の conjunction にした。** 状態だけで測ると負のコントロールが空振りする。
+   実測で判明: 受入条件 2 は `?slots=0` でも `keysEqual:true` になる(**何も起きないので結果的に一致する**)。
+   `ng===true` を conjunction に入れていなければ、この 1 本だけ「?slots=0 でも緑」= 空振りしていた。
+
+3. **`sizeReport()` の実測を正式ドライバの assert として取り込んだ**(使い捨てで測っただけでは腐るため)。
+   満杯は酒場自身のカタログ (`CHAR_EQUIP` / `PARTY_SLOTS` / `SCROLL_CATALOG_TV` / `ACCESSORIES_TV` /
+   `PLAZA_ITEMS(_COMMON)_TV` / `ALL_MAIN_SCENARIOS`) から組み立てるので、装備や呪文が増えれば測定値も追随する。
+   実数: 呪文 59 / 装身具 13 / 闇市 8 / 装備上限 {weapons:5, armors:3, shields:4} / gated 10 / ライブ 29 キー。
+   `total > 2MB` で FAIL する assert `(8)` と、満杯が空振りしていないことの装置 assert `(8z3)` を両方入れた。
+
+4. **受入条件 5./6. は `driver_dev_gate.js` の (F)(G) 群と一部重複する。** あえて残した
+   (依頼書の受入条件を 1 本のドライバで全部たどれるほうが良い / コストも小さい)。
+
+### 実測値 (受入条件 8 の報告)
+
+```
+[1 スロットのみ]           {"live":17660,"slot1":0,"slot2":0,"slot3":0,"total":17660}       = 17.2 KB
+[ライブ1 + アーカイブ2/3]  {"live":17660,"slot1":20222,"slot2":20222,"slot3":20222, ...}
+[★3スロット満杯(最悪値)]  {"live":17660,"slot1":20222,"slot2":20222,"slot3":20222,"total":78326}
+  → 78,326 bytes = 76.5 KB   localStorage 上限 5MB (5,242,880) の 1.49%
+```
+
+⚠ バイトの定義は **UTF-16 コードユニット**((キー長 + 値長) × 2)。Chrome / Safari の quota の数え方に合わせて
+安全側に倒してある(UTF-8 換算より必ず大きく出る)。**quota は問題にならない**(2MB ゲートに対して 26 倍の余裕)。
+
+### 罠 (再演しやすいので残す)
+
+- 日本語コメント中に `df.` と `dragonfighters.` を**スラッシュで並べて書く**と `*` + `/` になり
+  **ブロックコメントが閉じて SyntaxError**。1 回目の実行がこれで死んだ。
+- same-origin の `localStorage` は**ページ遷移をまたいで生き残る**。tavern を開いた時点で
+  `consumeResult` 直後の snapshot フックが `df.slot1` を焼くため、前セクションの `df.` が次セクションへ漏れる。
+  → `page.evaluateOnNewDocument` で **document-start に purge** している。
+- `sessionStorage` は**タブ単位**。別タブで蒔いた値は届かない。
+- snapshot フックは 4 つだが、`pagehide` と `visibilitychange` は `snap()` ヘルパを共有するので
+  **`DFSlots.snapshot()` の呼び出しサイトは 3 つ**。literal の個数で測ると偽の赤になる。
+
+### 残件
+
+- **実機(iOS Safari)での確認は未実施。** 特に `pagehide` / `visibilitychange`(hidden) の
+  snapshot フックが iOS Safari で実際に発火するか(`beforeunload` を使っていないのはこのため)。
+- UI は本依頼書のスコープ外。スロット選択画面は **依頼書 #6 `title-screen`** の担当。
