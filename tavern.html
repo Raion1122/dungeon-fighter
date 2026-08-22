@@ -1985,10 +1985,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>冒険の記録が自動で書き留められるように</b> — 酒場に戻ったとき・出発するとき・画面を離れたときに、そのときの進行を裏側で保存するようになった。セーブ枠を分けても、いま遊んでいる記録が取り残されない。</li>
         <li><b>『冒険の記録を消す』の作りを整理</b> — 消える範囲も、音量などの設定が残ることも今まで通り。今後セーブ枠が増えても取りこぼさない土台になった。</li>
         <li><b>セーブを3つ持てるようにする準備</b> — 今の冒険の記録はそのままに、あとから枠を分けて遊べるようにする土台を裏側に入れた。遊びかたはまだ変わらない。</li>
         <li><b>廃坑の「南の操車場」へ寄り道できるように</b> — 玉座を守る衛兵が遠くから見張っていたため、南へ向かう途中で必ず玉座の戦いに巻き込まれていた。衛兵の持ち場を玉座の奥へ移し、寄り道するかどうかを選べるようになった。</li>
-        <li><b>グリクス戦の曲が確実に切り替わるように</b> — 戦いながら玉座へ詰め寄ったとき、ボス戦の曲に変わらないまま決着してしまうことがあった。</li>
       </ul>
     </div>
     <script>
@@ -3891,6 +3891,14 @@
       }
     } catch (e) { /* ignore */ }
   })();
+  // ── セーブスロット: ダンジョンから戻った直後の状態を、スロット一覧の要約へ反映する ──
+  //   ⚠ ライブ (dragonfighters.*) が常に真の実体なので、ここで焼き忘れても **進行は消えない**。
+  //     ずれるのは「他スロットへ移った時に一覧へ出る要約 (meta)」だけ。
+  //   ⚠ 握り潰さない: 失敗は console.warn に必ず出す (silent fail は作らない)。
+  //     ただし酒場の初期化を道連れにはしないので try/catch で受ける。
+  try {
+    if (window.DFSlots && typeof DFSlots.snapshot === "function") DFSlots.snapshot();
+  } catch (e) { console.warn("[slots] 帰還直後の snapshot に失敗", e); }
 
   function showReturnBanner(r) {
     const banner = document.createElement("div");
@@ -5149,6 +5157,10 @@
     if (!prepScenario) return;
     // 選んだ構成を永続化 + sessionStorage 経由で index.html へ
     saveSelections();
+    // セーブスロット: 出発直前の状態を要約に反映 (潜行から戻れなくても一覧が「出発時点」を指す)
+    try {
+      if (window.DFSlots && typeof DFSlots.snapshot === "function") DFSlots.snapshot();
+    } catch (e) { console.warn("[slots] 出発直前の snapshot に失敗", e); }
     // 生成クエスト以外では stale な generatedScenario を必ず除去 (既存6本が生成扱いに化けるのを防ぐ)
     sessionStorage.removeItem("dragonfighters.generatedScenario");
     sessionStorage.setItem("dragonfighters.currentScenario", prepScenario.id);
@@ -6281,6 +6293,31 @@
         },
       };
       openPrep(synthetic);
+    });
+  })();
+
+  // ───────────────────────────────────────────────────────────
+  // セーブスロット: 離脱時の snapshot (初期化末尾)
+  //
+  // ⛔ beforeunload は使わない。iOS Safari では **不発になる** ため、
+  //    pagehide と visibilitychange(hidden) の **両方** を張る (依頼書の明示指定)。
+  //    片方だけでは足りない: ホーム画面へ戻る/タブ切替は visibilitychange しか来ないことがあり、
+  //    逆に遷移でページが捨てられる場合は pagehide しか来ない。
+  //    二重に呼ばれるのは無害 (snapshot は冪等 = ライブを丸ごと焼き直すだけ)。
+  //
+  // ⚠ ここはページが死ぬ直前に走る。例外が漏れると何が起きるか分からないので try/catch で包む。
+  //   ただし **握り潰さない**: 失敗は console.warn へ必ず出す。
+  //   なお失敗しても進行は消えない — ライブが常に真の実体で、ずれるのは一覧の要約だけ。
+  // ───────────────────────────────────────────────────────────
+  (function initSlotSnapshotHooks() {
+    function snap(why) {
+      try {
+        if (window.DFSlots && typeof DFSlots.snapshot === "function") DFSlots.snapshot();
+      } catch (e) { console.warn("[slots] " + why + " の snapshot に失敗", e); }
+    }
+    window.addEventListener("pagehide", function () { snap("pagehide"); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") snap("visibilitychange");
     });
   })();
 </script>

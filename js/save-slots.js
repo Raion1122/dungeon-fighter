@@ -27,8 +27,13 @@
  *   - KEEP の 2 キー (settings / panelCollapsed) はスロットに含めない = 設定と UI 状態は全スロット共通
  *
  * 公開API: window.DFSlots
- *   LIVE_PREFIX / KEEP / SLOT_COUNT / enabled() / active() / list() / snapshot() / wipeLive()
- *   ⛔ switchTo() / newGame() / sizeReport() は依頼書 STEP4 の担当。**本ファイルにはまだ無い**。
+ *   LIVE_PREFIX / KEEP / SLOT_COUNT / enabled() / active() / list() / snapshot()
+ *   switchTo() / newGame() / wipeLive() / sizeReport()          ← STEP4 で switchTo/newGame/sizeReport を追加
+ *
+ * ★ 撤退スイッチ ?slots=0 の効き方 (3 段に分かれる。混ぜないこと)
+ *   - 無効化する (新設のスロット *機能*)      … active()/list()/snapshot()/switchTo()/newGame()
+ *   - 無効化しない (既存機能が載っている)     … wipeLive()  ← 設定モーダル『冒険の記録を消す』が依存
+ *   - 無効化しない (機能ではなく計測器)       … sizeReport()
  *
  * ⚠ 本モジュールは「読み込んだだけでは localStorage / sessionStorage に一切書き込まない」。
  *   active() の遅延書き込みも **呼ばれた時だけ**。これが「配線だけの段」の核心で、
@@ -136,6 +141,19 @@
     return null;
   }
 
+  /* アーカイブが「中身のあるセーブ」かどうか。
+     ⚠⚠ **アーカイブが存在すること == セーブがあること、ではない**。
+        STEP4 で switchTo()/newGame() が入ったことで、次の状態が日常的に起きるようになった:
+          newGame(2) → (スロット2 でまだ何もしていない) → switchTo(1)
+        switchTo は必ず先に snapshot() するので、**中身が空の df.slot2 が焼かれる**。
+        存在だけで判定すると、まっさらなスロットが一覧に「Lv1 / 0G のセーブ」として並ぶ。
+     判定は active スロット側の liveHasData() と**同じ規則**にする
+        (= KEEP を除いた dragonfighters.* が 1 件でもあるか)。
+        active と非 active で「空」の意味が食い違うと、切り替えた瞬間に一覧の表示が変わる。 */
+  function slotHasData(snap) {
+    try { return !!(snap && snap.data && Object.keys(snap.data).length > 0); } catch (e) { return false; }
+  }
+
   // ── 公開 API 本体 ────────────────────────────────────────────────
 
   /* 撤退スイッチ ?slots=0。
@@ -179,7 +197,9 @@
         continue;
       }
       var snap = readSlot(n);
-      out.push({ slot: n, active: false, empty: !snap, meta: (snap && snap.meta) || null });
+      // ⚠ 存在ではなく **中身** で判定する (slotHasData のコメント参照)。
+      var full = slotHasData(snap);
+      out.push({ slot: n, active: false, empty: !full, meta: full ? (snap.meta || null) : null });
     }
     return out;
   }
@@ -212,6 +232,95 @@
     return removed;
   }
 
+  /* ライブを active スロットから **スロット n** へ切り替える。
+     戻り値: 実際に入れ替えたら true / 何もしなかったら false (n===active の no-op、範囲外、?slots=0)。
+             切り替え後の状態を知りたい呼び出し側は active() を読む。
+
+     ⚠⚠ **順序がこの方式の安全性の根拠**。必ずこの 4 手順、この順番で行うこと:
+        ① snapshot()  … いまのライブを *いまの* active スロットへ焼く
+        ② wipeLive()  … ライブを空にする
+        ③ slot n の data をライブへ流し込む (空スロットなら何も入らない = まっさらな状態)
+        ④ df.activeSlot = n
+     ① を後回しにすると (= 先にライブを消すと) **直前まで遊んでいたスロットの進行がそのまま消える**。
+     逆に ① を先に済ませておけば、②〜④ の途中でブラウザが落ちても直前の進行はアーカイブ側に残る。
+
+     ⚠ KEEP の 2 キー (settings / panelCollapsed) は全スロット共通なので、
+        流し込みでも上書きしない (そもそも snapshot の data に入っていないが、
+        手で編集された df.slotN が紛れ込んでも設定を壊さないよう、流し込み側でも弾く)。 */
+  function switchTo(n) {
+    if (!enabled()) return false;
+    n = n | 0;
+    if (!isSlotNo(n)) return false;
+    var cur = active();
+    if (n === cur) return false;          // no-op (すでにそのスロットで遊んでいる)
+    snapshot();                           // ① 先に焼く。ここを飛ばすと進行が消える
+    wipeLive();                           // ② ライブを空に
+    var snap = readSlot(n);               // ③ 流し込む
+    if (snap && snap.data) {
+      Object.keys(snap.data).forEach(function (k) {
+        if (k.indexOf(LIVE_PREFIX) !== 0 || KEEP[k]) return;
+        var v = snap.data[k];
+        if (typeof v === "string") lsSet(k, v);
+      });
+    }
+    lsSet(ACTIVE_KEY, String(n));         // ④
+    return true;
+  }
+
+  /* スロット n を **新規ゲーム**にして、そこへ移る。
+     戻り値: true / 何もしなかったら false (範囲外、?slots=0)。
+
+     ① snapshot()   … 直前まで遊んでいたスロットの進行を守る (n === active でも先に焼く。
+                       分岐させないのは「順序が安全性の根拠」を 1 本に保つため。
+                       n === active のときは ④ で消えるので実害はない)
+     ② wipeLive()   … ライブを空に (KEEP の 2 キーは残る = 音量設定は新規ゲームでも維持)
+     ③ activeSlot=n … 以後ライブは n のもの
+     ④ df.slotN を削除 … n のアーカイブも空に。これが無いと「新規にしたのに switchTo で古い進行が戻る」
+
+     ⚠ location.replace はここでも **しない**。画面へ反映するのは呼び出し側の責任
+        (wipeLive() と同じ理由。API に混ぜると UI 側の都合が API を縛る)。 */
+  function newGame(n) {
+    if (!enabled()) return false;
+    n = n | 0;
+    if (!isSlotNo(n)) return false;
+    snapshot();                           // ①
+    wipeLive();                           // ②
+    lsSet(ACTIVE_KEY, String(n));         // ③
+    try { global.localStorage.removeItem(slotKey(n)); } catch (e) {}   // ④
+    return true;
+  }
+
+  /* quota 検証用のサイズ実測。{ live, slot1, slot2, slot3, total } (単位: バイト)。
+     ライブ + 3 スロットで最大 4 倍になるので、通す前に必ず実測する (依頼書 受入条件 8.)。
+
+     ⚠ バイトの定義: Chrome / Safari の localStorage は **UTF-16 コードユニット単位**で
+        quota を数えるため、1 エントリ = (キー長 + 値長) × 2 バイトとする。
+        UTF-8 換算より必ず大きく出る = 安全側に倒れる。日本語が多いデータで UTF-8 換算すると
+        quota を下に見積もってしまい「測ったのに溢れる」が起きる。
+     ⚠ live には KEEP の 2 キー (settings / panelCollapsed) も含める。
+        スロットには入らないが localStorage の容量は実際に食っているため、quota の見積りには要る。
+     ⚠ **ゲートしない (?slots=0 でも動く)**。これは計測器であって機能ではない。
+        撤退スイッチを入れた状態で「いま何バイト残っているか」を測れないと調査そのものができない。
+        wipeLive() と同じ扱い (撤退スイッチが止めてよいのは新設のスロット *機能* だけ)。 */
+  function sizeReport() {
+    var rep = { live: 0, total: 0 };
+    var n;
+    for (n = 1; n <= SLOT_COUNT; n++) rep["slot" + n] = 0;
+    try {
+      Object.keys(global.localStorage).forEach(function (k) {
+        var v = lsGet(k);
+        var b = (k.length + (v === null ? 0 : v.length)) * 2;
+        if (k.indexOf(LIVE_PREFIX) === 0) { rep.live += b; return; }
+        for (var i = 1; i <= SLOT_COUNT; i++) {
+          if (k === slotKey(i)) { rep["slot" + i] += b; return; }
+        }
+      });
+    } catch (e) {}
+    rep.total = rep.live;
+    for (n = 1; n <= SLOT_COUNT; n++) rep.total += rep["slot" + n];
+    return rep;
+  }
+
   // ⚠ classic script 直下の関数は window に載らない。ここで明示的に生やすこと。
   global.DFSlots = {
     LIVE_PREFIX: LIVE_PREFIX,
@@ -221,8 +330,11 @@
     active: active,
     list: list,
     snapshot: snapshot,
+    switchTo: switchTo,
+    newGame: newGame,
     wipeLive: wipeLive,
-    // テスト/内部用 (STEP4 の switchTo/newGame/sizeReport はここへ足す)
+    sizeReport: sizeReport,
+    // テスト/内部用
     _ACTIVE_KEY: ACTIVE_KEY,
     _slotKey: slotKey,
     _readSlot: readSlot,
