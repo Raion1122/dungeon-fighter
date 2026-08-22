@@ -86,7 +86,7 @@ const MUTATIONS = {
     '        : nodeEventSpot(SCE1_SERVANT_FOLD_DX, SCE1_SERVANT_FOLD_DY);',
     '        : nodeEventSpot(SCE1_SERVANT_NODE_DX, 0);   /* mut-noservantfold */'],
   guardwest: [
-    '      const N1_GUARD_SLOTS = [[46, 20, "hobgoblin"], [46, 22, "hobgoblin"]];',
+    '      const N1_GUARD_SLOTS = [[51, 20, "hobgoblin"], [51, 22, "hobgoblin"]];',
     '      const N1_GUARD_SLOTS = [[42, 20, "hobgoblin"], [42, 22, "hobgoblin"]];  /* mut-guardwest */'],
   slotinwall: [
     '        [32,  9, "goblin"],       // 一段奥                11',
