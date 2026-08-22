@@ -37,7 +37,7 @@
  * ■ 使い方
  *     node tools/verify_town_map.js
  *     node tools/verify_town_map.js --mutate canalopen      (負のコントロールを手回し)
- *     node tools/verify_town_map.js --mutate isolate | snapnear | addquery
+ *     node tools/verify_town_map.js --mutate isolate | snapnear | addquery | hidebehind
  */
 'use strict';
 
@@ -57,7 +57,7 @@ const MUTATE = arg('mutate', null);
 /* ══ 負のコントロール ═══════════════════════════════════════════════════════
  *  ⚠ 置換前後で**長さを変える**こと。同じ長さだと「当たったのに何も変わらない」を
  *    検出できない。⚠ 置換文字列は 1 行に閉じる (CRLF/LF 混在で複数行は必ず空振りする)。 */
-const MUTATE_TARGETS = ['js/town-map.js', 'town.html'];
+const MUTATE_TARGETS = ['js/town-map.js', 'town.html', 'tavern.html'];
 const MUTATIONS = {
   // 運河に穴を開ける → 受入条件 3 が赤くなる
   canalopen: [
@@ -82,13 +82,22 @@ const MUTATIONS = {
     ['      if (!TM.isWalkable(c, r)) return false;',
      '      if (!TM.isWalkable(c, r)) { var _n = [[1,0],[-1,0],[0,1],[0,-1]].map(function (d) { return [c + d[0], r + d[1]]; }).filter(function (p) { return TM.isWalkable(p[0], p[1]); }); if (!_n.length) return false; c = _n[0][0]; r = _n[0][1]; }  /* ★変異snapnear */'],
   ],
+  /* 「街へ出る」を **実際に踏んだ壊れ方** へ戻す → (R2) が赤くなる。
+     ⭐ この欠陥は目視でしか見つからなかった。矩形の重なり比較では見えず、
+       #btnDrawQuest が上に来て押せないだけ = 「在るのに押せない」。
+     ⚠ 位置を戻すだけなので、要素は在るし画面内にも居る ((R1) は緑のまま)。
+       だからこそ (R2) が「押せるか」を見ていないと素通りする。 */
+  hidebehind: [
+    ['      position: absolute; left: 18px; top: 18px; z-index: 13;',
+     '      position: absolute; left: 18px; bottom: 18px; z-index: 12;  /* ★変異hidebehind */'],
+  ],
   // 遷移先にクエリを足す → 受入条件 7 が赤くなる
   addquery: [
     ['      location.href = "tavern.html";',
      '      location.href = "tavern.html?via=" + f.via;  /* \u2605\u5909\u7570addquery */'],
   ],
 };
-const MUT_ORDER = ['canalopen', 'isolate', 'snapnear', 'addquery'];
+const MUT_ORDER = ['canalopen', 'isolate', 'snapnear', 'addquery', 'hidebehind'];
 if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
   console.error('[drv] 未知の --mutate: ' + MUTATE + '  (' + MUT_ORDER.join(' / ') + ')');
   process.exit(3);
@@ -587,6 +596,48 @@ async function measureTownState(browser, base, url) {
       const again = await o2.page.evaluate(() => __town.spawnVia());
       check('(9z) [装置] exitVia は一回性 (再読込で残っていない)', again === null, String(again));
       await o2.page.close();
+    }
+
+    /* ── 街 ⇄ 酒場の往復 (依頼書 §5 の対) ──────────────────────────────────
+     *  ⚠⚠⚠ **「そこに在る」と「押せる」は別物。** #townExit を #shopEntry と同じ
+     *    bottom:18px に置いたら、#btnDrawQuest (依頼を引く) が上に来て押せなかった。
+     *    矩形の重なり比較では **見えない** (別々の親の中にいると rect が交差しない)。
+     *    効くのは「その点で elementFromPoint が何を返すか」だけ。目視で見つけた欠陥なので、
+     *    同じ型を二度と通さないようにここで機械化する。
+     *  ⚠ 母集団は画面の向きでも割れるので compact 390 と desktop 1440 の両方で測る。 */
+    console.log('\n--- 街 ⇄ 酒場の往復 (街へ出る導線が実際に押せるか) ---');
+    for (const vp of [['compact390', 390, 844, true], ['desktop1440', 1440, 900, false]]) {
+      const label = vp[0], w = vp[1], h = vp[2], mobile = vp[3];
+      const o = await openTown(browser, base, { w: w, h: h, mobile: mobile, prologueSeen: true });
+      await waitTownReady(o.page);
+      await o.page.evaluate(() => document.getElementById('townSign_tavern').click());
+      try { await o.page.waitForFunction("location.pathname.indexOf('/tavern.html') >= 0", { timeout: 25000 }); } catch (e) {}
+      await sleep(1200);
+      const r = await o.page.evaluate(() => {
+        const el = document.getElementById('townExit');
+        if (!el) return { exists: false };
+        const b = el.getBoundingClientRect();
+        const cx = Math.round(b.left + b.width / 2), cy = Math.round(b.top + b.height / 2);
+        const hit = document.elementFromPoint(cx, cy);
+        const name = !hit ? 'null' : (hit.id ? '#' + hit.id : hit.tagName);
+        return { exists: true, w: Math.round(b.width), h: Math.round(b.height),
+                 inView: b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight,
+                 hitSelf: !!hit && (hit === el || el.contains(hit)), hitName: name };
+      });
+      check('(R1-' + label + ') [装置] 酒場に「街へ出る」導線がある', r.exists === true);
+      check('(R2-' + label + ') ★★その導線が **実際に押せる** (その点で拾われるのが自分自身)',
+            r.hitSelf === true && r.inView === true, JSON.stringify(r));
+      if (r.hitSelf) {
+        await o.page.evaluate(() => document.getElementById('townExit').click());
+        try { await o.page.waitForFunction("window.__town && typeof window.__town.heroTile === 'function'", { timeout: 25000 }); } catch (e) {}
+        const back = await o.page.evaluate(() => ({ tile: __town.heroTile(), path: location.pathname, search: location.search }));
+        check('(R3-' + label + ') ★押すと街の (10,3) 酒場の前に戻る (クエリ無し)',
+              eq(back.tile, { c: 10, r: 3 }) && /\/town\.html$/.test(back.path) && back.search === '',
+              JSON.stringify(back));
+      } else {
+        check('(R3-' + label + ') ★押すと街の (10,3) 酒場の前に戻る (クエリ無し)', false, '押せないので測れなかった');
+      }
+      await o.page.close();
     }
 
     /* ── 受入条件 11: compact でも遊べる (⚠ 母集団は画面の向きでも割れる) ───── */
