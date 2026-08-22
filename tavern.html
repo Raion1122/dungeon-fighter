@@ -1998,7 +1998,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>依頼の重さで、応じる冒険者の数が変わるように</b> — 酒場で募集をかけると、★の少ない小仕事には人が集まらず、★の多い大仕事ほど多くの冒険者が名乗りを上げる。</li>
+        <li><b>依頼の重さで、応じる冒険者の数が変わるように</b> — 酒場で募集をかけると、★の少ない小仕事には人が集まらず、★の多い大仕事ほど多くの冒険者が名乗りを上げる。卓につく顔ぶれは依頼ごとに組み直され、隊は多くても四人までのまま。</li>
         <li><b>出発の準備の見出しを実態に合わせた</b> — 主人公の職業は名乗りで決まるので、準備画面では「えらぶ」ではなく「変更するには新規ゲーム」と案内するようにした。</li>
         <li><b>起動するとまずタイトル画面が開くように</b> — 「ゲームを起動」から、記録の選択と名乗りを済ませてから銀の鹿亭へ入る流れになった。記録が入っている枠の「はじめから」は一度で消えず、確認してからになる。主人公の職業は名乗りで決めるので、酒場では変えられない。</li>
         <li><b>冒険の記録が自動で書き留められるように</b> — 酒場に戻ったとき・出発するとき・画面を離れたときに、そのときの進行を裏側で保存するようになった。セーブ枠を分けても、いま遊んでいる記録が取り残されない。</li>
@@ -3173,16 +3173,14 @@
       variant: pickVariant(classKey),
     };
   }
-  // ════════════ 依頼の重さ → 応募人数 (実装依頼書 #7 quest-recruit-size / STEP1) ════════════
-  /* 撤退・段階スイッチ ?recruit=1 :
-       STEP1 (配線だけ) では **?recruit=1 が付いている時だけ** 新しい人数計算が効く。
-       URL 無指定 = 従来どおり PARTY_SIZE (主人公1 + NPC3 = 4人)。
-       既定 ON への切替 (と撤退 ?recruit=0) は後続ステップの担当。
+  // ════════════ 依頼の重さ → 応募人数 (実装依頼書 #7 quest-recruit-size / STEP2) ════════════
+  /* 撤退スイッチ ?recruit=0 : 依頼の重さに関わらず従来どおり PARTY_SIZE (主人公1 + NPC3 = 4人)
+       で編成する。**既定は ON** (URL 無指定 = ★の数で応募人数が変わる)。
      ⚠ モジュール直下の const にしない。regeneratePartyMembers() は上流の関数から
        この行より前に呼ばれ得るので、const だと TDZ で ReferenceError になる
        (このリポジトリで実際に踏んだ罠。isHeroLockOff() と同じ作法で毎回 location.search を読む)。 */
   function isRecruitOn() {
-    try { return new URLSearchParams(location.search).get("recruit") === "1"; } catch (e) { return false; }
+    try { return new URLSearchParams(location.search).get("recruit") !== "0"; } catch (e) { return true; }
   }
   // 依頼の重さから「募集に応じた冒険者 (NPC) の数」を決める。
   //   1. sc.recruit が数値      → その値を使う          (クエスト個別の上書き。器だけ先に作る)
@@ -4520,7 +4518,7 @@
   // 主人公に合わせて仲間(NPC)を抽選し、隊列順(front→mid→rear)に並べる
   function regeneratePartyMembers() {
     const heroKey = selection.partyComposition[0] || "warrior";
-    // #7: 依頼の重さで応募人数が変わる。⚠ STEP1 は既定 OFF (?recruit=1 の時だけ効く)。
+    // #7: 依頼の重さで応募人数が変わる。⚠ STEP2 で **既定 ON** (撤退は ?recruit=0)。
     //   prepScenario が無い経路 (selectHero など) は従来どおり PARTY_SIZE にフォールバックする。
     //   ⭐ クエストを選び直したときに作り直すのは openPrep 経路が唯一の正
     //     (openPrep は prepScenario = sc を代入した **後** に本関数を呼ぶ)。他の呼び口は

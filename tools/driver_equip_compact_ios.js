@@ -36,6 +36,23 @@ const PORT = parseInt(arg('port', '8831'), 10);
 const ROOT = path.resolve(arg('root', REPO));
 const LABEL = arg('label', 'WORKTREE');
 const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'df_pptr'));
+/* ⭐⭐ 測るのは **いちばん枠が要る状態**。実装依頼書 #7 (quest-recruit-size) で
+   「依頼の★の数 → 同行する冒険者の数」が入り、goblin-mine (★1) は計 2 人になった。
+   そのまま goblin-mine で測り続けると、いちばん人数の少ない準備画面を見て
+   「レイアウトが壊れていない」と報告することになる。→ NPC 3 人 = 計 4 人になる
+   orc-fort (★3) を既定にする。
+
+   ⭐⭐⭐ #7 の着手時に実測して分かったこと (思い込みで期待値を書かない):
+   **#charTabs はパーティ人数に依存しない。** renderCharTabs() は PARTY_SLOTS
+   (全 6 職) を回す「職業別プリセット board」で、編成に居ない職のタブも出る。
+   → 「タブが減って溢れなくなり自明に緑」という筋は **この実装では成立しない**。
+      代わりに (0) が「パーティ人数 (= #7 が動かした値)」と
+      「タブ枚数がそれに引きずられていないこと」を **両方の実数** で押さえる。
+      タブを人数連動に変えた誰かが居れば (0) が赤くなる。
+   負のコントロール: --scenario goblin-mine を渡すと party=2 になり (0) が落ちる。 */
+const PREP_SCENARIO = arg('scenario', 'orc-fort');
+const EXPECT_PARTY = parseInt(arg('party', '4'), 10);   // orc-fort (★3) = 主人公1 + NPC3
+const EXPECT_TABS  = parseInt(arg('tabs', '6'), 10);    // 全 6 職固定 (パーティ人数と無関係)
 
 const IPHONE = { name: 'iphone_port', width: 390, height: 844 };
 const DESKTOP = { name: 'desktop', width: 1280, height: 900 };
@@ -178,11 +195,11 @@ async function openEquipScreen(page, viewport) {
   //   進み、マッチング演出は **タップを待って止まる** 仕様 (project_party_match_cinematic)。
   //   headless では誰もタップしないので evaluate ごと永久に固まる (3 分ハングの原因)。
   //   発火だけさせて、画面中央をタップし続けて #prep が出るまで進める。
-  await page.evaluate(() => {
-    const sc = scenarios.find(s => s.id === 'goblin-mine');
+  await page.evaluate((scId) => {
+    const sc = scenarios.find(s => s.id === scId);
     if (!(selection.partyComposition && selection.partyComposition.length)) selection.partyComposition = ['warrior'];
     Promise.resolve(openPrep(sc)).catch(() => {});
-  });
+  }, PREP_SCENARIO);
   const isPrepShown = () => page.evaluate(() => {
     const p = document.getElementById('prep');
     if (!p || getComputedStyle(p).display === 'none') return false;
@@ -199,13 +216,21 @@ async function openEquipScreen(page, viewport) {
   }
   if (!shown) throw new Error('準備画面 (#prep) が可視にならなかった — 演出の進行に失敗');
   mark('準備画面 可視 → タブ固定');
-  await page.evaluate(() => {
+  const tabs = await page.evaluate(() => {
     const ov = document.getElementById('prologueOverlay');
     if (ov) ov.style.display = 'none';
     window.__equipTV.setTab('warrior');
+    const t = document.getElementById('charTabs');
+    // 何枚あるか **そのものを数える**。「在庫のどれかに当たるか」式にすると枚数が減っても緑になる。
+    return {
+      n: t ? t.children.length : -1,
+      prepId: (typeof prepScenario === 'object' && prepScenario) ? prepScenario.id : null,
+      members: (selection.partyMembers || []).length,
+    };
   });
   await sleep(600);
-  mark('計測可能');
+  mark('計測可能 (charTabs=' + tabs.n + ' / prepScenario=' + tabs.prepId + ' / party=' + tabs.members + ')');
+  return tabs;
 }
 
 (async () => {
@@ -223,7 +248,7 @@ async function openEquipScreen(page, viewport) {
   page.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
 
   // ═══ iPhone 390x844 ═══════════════════════════════════════════════════════
-  await openEquipScreen(page, IPHONE);
+  const tabsIphone = await openEquipScreen(page, IPHONE);
   const ip = {
     weapon: await page.evaluate(measureFn, 'equipWeaponList', 'bagWeaponSection'),
     shield: await page.evaluate(measureFn, 'equipShieldList', 'bagShieldSection'),
@@ -235,6 +260,12 @@ async function openEquipScreen(page, viewport) {
   const ownedItems = wp.items.filter(it => !/購入可|所持なし|両手武器/.test(it.name));
 
   console.log('── iPhone 390x844 ──');
+  /* ⭐⭐ 母集団ガード。#7 でパーティ人数が依頼ごとに変わるようになったので、
+     「いちばん枠が要る状態で測っているか」を **実数そのもの**で押さえる。
+     これが無いと、将来また人数が減ったときに狭い画面を見て黙って緑になる。 */
+  check(`(0) 前提: いちばん枠が要る状態で測っている (${PREP_SCENARIO} = パーティ ${EXPECT_PARTY} 人 / キャラタブは全 ${EXPECT_TABS} 職固定)`,
+        tabsIphone.prepId === PREP_SCENARIO && tabsIphone.members === EXPECT_PARTY && tabsIphone.n === EXPECT_TABS,
+        `prepScenario=${tabsIphone.prepId} / partyMembers=${tabsIphone.members} (期待 ${EXPECT_PARTY}) / charTabs=${tabsIphone.n} (期待 ${EXPECT_TABS} = 人数非依存)`);
   check('(1) 前提: 道具袋が可視 = 欠陥の発生条件を再現している', wp.bagVisible === true,
         'bagVisible=' + wp.bagVisible);
   check('(2) 前提: 所持品カードが 2 件以上並んでいる', ownedItems.length >= 2,

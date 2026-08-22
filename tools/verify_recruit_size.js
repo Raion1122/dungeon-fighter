@@ -8,21 +8,21 @@
  *
  * ── 実装状況 (段階的に足していく骨組み) ────────────────────────────────────
  *   ✅ 受入条件 1. : 固定 6 シナリオの出発時パーティ人数 = 1 + 期待値
- *                    ⚠ **STEP1 (項目1) の時点では既定 OFF** なので `?recruit=1` を付けて測る。
- *                       STEP2 で既定 ON になったら (A) の URL から `?recruit=1` を外し、
- *                       (C) の URL を `?recruit=0` に変える。**期待値の表は 1 文字も変えない**。
+ *                    ⭐ **STEP2 (項目2) で既定 ON になった**ので (A) は URL 無指定で測る。
+ *                       = 「実プレイヤーが踏む URL でそうなる」を直接の物差しにしている。
  *   ✅ 受入条件 2. : どのクエストでもパーティが 4 人を超えない
- *   ✅ 受入条件 8. : 既定 OFF (URL 無指定) では 6 シナリオ全部が従来どおり PARTY_SIZE 人
- *                    = 「挙動が 1 ミリも変わっていない」の直接の物差し。
- *                    ⭐ **STEP2 で既定 ON にした瞬間に (C) は赤へ反転するのが正しい。**
- *                       反転したら (C) の URL を `?recruit=0` に張り替える = 受入条件 7. になる。
- *                       期待値 (legacyExpectation) は据え置き。張り替え先が用意されているので
- *                       「赤を機械的に緩める」必要が原理的に無い。
+ *   ✅ 受入条件 7. : `?recruit=0` (撤退スイッチ) を付けると 6 件とも従来どおり PARTY_SIZE 人。
+ *                    ⭐⭐⭐ 予告どおり STEP2 で (C) が赤へ反転したので、**期待値ではなく
+ *                       測定点 (URL) を張り替えた**。legacyExpectation / EXPECTED_NPC_RECRUIT は
+ *                       STEP1 から 1 文字も変えていない。
+ *                       「?recruit=0 で緑」だけでは何も証明しないので、(Cz3)(Cz4)(Cz6) が
+ *                       「同じ判定関数」「同じ観測」で **スイッチを外すと期待値が変わる** を測る。
+ *   ✅ 受入条件 8. : STEP1 完了時点 (既定 OFF) で既存 golden 全緑 — 項目1 で実測済み。
+ *                    STEP2 の非退行は golden 側 (tools/_golden.js) と triage 一覧が担当。
  *   ⬜ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在
  *   ⬜ 受入条件 4. : `recruit: 3` の個別上書きが goblin-mine にも効く
  *   ⬜ 受入条件 5. : 隊列順が front → mid → rear のまま
  *   ⬜ 受入条件 6. : 「募集をかけ直す」で顔ぶれが変わり人数は変わらない
- *   ⬜ 受入条件 7. : `?recruit=0` の装置 assert (= STEP2 で (C) を張り替えたもの)
  *   共通の道具は openPage() / observeDepartSizes() / check() / results / pageErrors。
  *
  * ── ⭐⭐⭐ 判定本体の共有 (受入条件 1. と 8. の要) ──────────────────────────
@@ -123,8 +123,8 @@ const pageErrors = [];
 const consoleLines = [];
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 期待表 (依頼書「受入条件」の表そのもの)。⚠ ここは STEP2 でも 1 文字も変えない。
- * 変えるのは「どの URL でこの表を当てるか」だけ。
+ * 期待表 (依頼書「受入条件」の表そのもの)。⚠ ここは STEP2 でも 1 文字も変えなかった。
+ * 変えたのは「どの URL でこの表を当てるか」だけ (STEP1: ?recruit=1 / STEP2: 無指定)。
  * ══════════════════════════════════════════════════════════════════════════ */
 const SCENARIO_IDS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
 const EXPECTED_NPC_RECRUIT = {
@@ -324,7 +324,7 @@ function judgeNoOverflow(rows, cap) {
      * (S) シーム: 本番の識別子が読めること + 期待表そのものの健全性
      * ══════════════════════════════════════════════════════════════════════ */
     console.log('\n--- (S) シームと期待表の健全性 ---');
-    const pageS = await openPage('/tavern.html?recruit=1');
+    const pageS = await openPage('/tavern.html');
     const obsS = await observeDepartSizes(pageS, []);
     console.log('       seam = ' + JSON.stringify(obsS.seam));
     check('(S1) [装置] scenarios / recruitCountOf / departToScenario を裸の識別子で読めた',
@@ -340,7 +340,7 @@ function judgeNoOverflow(rows, cap) {
     const distinct = new Set(Object.values(EXPECTED_NPC_RECRUIT));
     check('(Sz) [装置] 期待表が 1 種類の値に潰れていない (全部同値なら一致は自明で無意味)',
       distinct.size >= 2, '期待値の種類=' + JSON.stringify([...distinct]));
-    check('(S4) ?recruit=1 で isRecruitOn() が true (段階スイッチが読めている)',
+    check('(S4) URL 無指定で isRecruitOn() が true (STEP2: 既定 ON になっている)',
       obsS.seam.recruitOn === true, 'isRecruitOn()=' + obsS.seam.recruitOn);
     // tavern.html / index.html のソース側の静的検査
     const tavSrc = fs.readFileSync(path.join(ROOT, 'tavern.html'), 'utf8');
@@ -359,11 +359,11 @@ function judgeNoOverflow(rows, cap) {
     await pageS.close();
 
     /* ══════════════════════════════════════════════════════════════════════
-     * (A) 受入条件 1. / 2. : ?recruit=1 で 6 シナリオの出発人数
-     *   ⚠ STEP2 (既定 ON) になったらこの URL から ?recruit=1 を外すこと。期待表は据え置き。
+     * (A) 受入条件 1. / 2. : **URL 無指定** (= 実プレイヤーが踏む経路) で 6 シナリオの出発人数
+     *   ⭐ STEP2 で既定 ON になったので ?recruit=1 を外した。期待表は据え置き。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (A) 受入条件 1. 2. : ?recruit=1 で 6 シナリオの出発人数 ---');
-    const pageA = await openPage('/tavern.html?recruit=1');
+    console.log('\n--- (A) 受入条件 1. 2. : URL 無指定 (既定 ON) で 6 シナリオの出発人数 ---');
+    const pageA = await openPage('/tavern.html');
     const obsA = await observeDepartSizes(pageA, SCENARIO_IDS);
     /* ⚠ location.href への代入は **同期では飛ばない**。evaluate が返った直後に
        navBlocked を読むと必ず 0 件になり、(Az3) が「横取りが空振り」と偽の赤を出す
@@ -405,8 +405,8 @@ function judgeNoOverflow(rows, cap) {
      *      **実プレイの導線と同じ結果になる**ことを 1 本だけ実測で押さえる。
      *   ⚠ 既定で解放されているのは goblin-mine (テーブル1) だけなので 1 件で測る。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (B) 本番導線: 実クリックで goblin-mine に出発 (?recruit=1) ---');
-    const pageB = await openPage('/tavern.html?recruit=1');
+    console.log('\n--- (B) 本番導線: 実クリックで goblin-mine に出発 (URL 無指定 = 既定 ON) ---');
+    const pageB = await openPage('/tavern.html');
     const advB = await advanceToPrep(pageB);
     check('(Bz1) [装置] 実クリック導線で出発準備画面まで到達した (これが無いと以下は空振り)',
       advB.reached, 'steps=' + advB.steps.join('>'));
@@ -436,47 +436,49 @@ function judgeNoOverflow(rows, cap) {
     await pageB.close();
 
     /* ══════════════════════════════════════════════════════════════════════
-     * (C) 受入条件 8. : 既定 OFF (URL 無指定) で挙動が 1 ミリも変わっていない
-     *   ⭐⭐⭐ STEP2 で既定 ON にした瞬間、(C) は **赤へ反転する**のが正しい。
-     *      反転を見たら URL を '/tavern.html?recruit=0' に張り替える = 受入条件 7. になる。
-     *      期待値 (legacyExpectation) は据え置き。「赤を機械的に緩める」必要が原理的に無い。
+     * (C) 受入条件 7. : 撤退スイッチ ?recruit=0 を付けると従来どおり PARTY_SIZE 人へ戻る
+     *   ⭐⭐⭐ STEP1 ではここが「URL 無指定 = 受入条件 8 (挙動不変)」だった。予告どおり
+     *      STEP2 で赤へ反転したので、**期待値ではなく測定点 (URL) を張り替えた**。
+     *      legacyExpectation は 1 文字も変えていない = 「赤を機械的に緩める」経路が原理的に無い。
+     *   ⚠ 「?recruit=0 で緑」だけでは何も証明しない (何も起きなくても一致する)。
+     *      (Cz3)(Cz4) が **判定関数の共有**を、(Cz6) が **数値そのものが動くこと**を押さえる。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (C) 受入条件 8. : URL 無指定 = 従来どおり (挙動不変の直接の物差し) ---');
-    const pageC = await openPage('/tavern.html');
+    console.log('\n--- (C) 受入条件 7. : ?recruit=0 (撤退スイッチ) = 従来どおり ---');
+    const pageC = await openPage('/tavern.html?recruit=0');
     const obsC = await observeDepartSizes(pageC, SCENARIO_IDS);
     console.log('       観測: ' + dump(obsC.rows));
     check('(Cz0) [装置] 観測中に例外が出ていない', obsC.threw === '', obsC.threw || 'なし');
     check('(Cz1) [装置] 6 シナリオを実際に踏んだ (母集団が空でない)',
       obsC.sawIds.length === 6, '踏んだ id = ' + obsC.sawIds.join(', '));
-    check('(Cz2) [装置] URL 無指定では isRecruitOn() が false (段階スイッチが効いている)',
+    check('(Cz2) [装置] ?recruit=0 では isRecruitOn() が false (撤退スイッチが効いている)',
       obsC.seam.recruitOn === false, 'isRecruitOn()=' + obsC.seam.recruitOn);
 
     const legacy = legacyExpectation(SCENARIO_IDS, obsC.partySize);
     const vC = judgePartySizes(obsC.rows, legacy);
-    check('(C) ★受入条件8: URL 無指定なら 6 シナリオ全部が従来どおり ' + obsC.partySize + ' 人',
+    check('(C) ★受入条件7: ?recruit=0 なら 6 シナリオ全部が従来どおり ' + obsC.partySize + ' 人',
       vC.ok, vC.diffs.length ? vC.diffs.join(' / ') : '差分なし');
     const nC = judgeNoOverflow(obsC.rows, 4);
-    check('(C2) 受入条件2 は既定 OFF でも成り立つ (4 人を超えない)',
+    check('(C2) 受入条件2 は ?recruit=0 でも成り立つ (4 人を超えない)',
       nC.ok, nC.over.length ? '超過: ' + nC.over.join(' ') : '超過なし');
 
     /* ⭐⭐⭐ 共有が空振りしていない証明:
        **同じ judgePartySizes に (A) の期待表を通すと (C) の観測は落ちる**。
        これが緑にならない = 「どんな入力でも true を返す壊れた関数」を掴んでいる、ということ。 */
     const vCwrong = judgePartySizes(obsC.rows, EXPECTED_NPC_RECRUIT);
-    check('(Cz3) [装置] 同じ判定関数に募集ONの期待表を通すと (C) の観測は落ちる (恒真でない証明)',
+    check('(Cz3) [装置] 同じ判定関数に募集ONの期待表を通すと ?recruit=0 の観測は落ちる (恒真でない証明)',
       vCwrong.ok === false && vCwrong.diffs.length >= 3,
       '差分 ' + vCwrong.diffs.length + ' 件: ' + vCwrong.diffs.slice(0, 3).join(' / '));
     check('(Cz4) [装置] 同じ判定関数が (A) では true を返していた (共有が空振りでない)',
       PROD_VERDICT === true, 'PROD_VERDICT=' + PROD_VERDICT);
     check('(Cz5) [装置] 空の観測を通すと落ちる (母集団が空でも緑になる測定器ではない)',
       judgePartySizes([], EXPECTED_NPC_RECRUIT).ok === false && judgeNoOverflow([], 4).ok === false);
-    /* スイッチを外すと期待値が変わる、を数値そのもので言い直す (依頼書の受入条件 7. の先取り) */
+    /* ★受入条件 7. の本体: 「?recruit=0 で緑」ではなく **スイッチを外すと期待値が変わる** を数値で測る */
     const flipped = SCENARIO_IDS.filter(id => {
       const a = (obsA.rows.find(r => r.id === id) || {}).npc;
       const c = (obsC.rows.find(r => r.id === id) || {}).npc;
       return a !== c;
     });
-    check('(Cz6) [装置] ?recruit=1 の有無で実際に人数が変わる id が 3 件以上ある (スイッチが飾りでない)',
+    check('(Cz6) [装置] ?recruit=0 の有無で実際に人数が変わる id が 3 件以上ある (スイッチが飾りでない)',
       flipped.length >= 3, '変わった id = ' + flipped.join(', '));
     await pageC.close();
 
