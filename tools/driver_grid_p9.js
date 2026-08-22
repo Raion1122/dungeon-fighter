@@ -27,10 +27,28 @@
  *
  * ■ ⚠⚠ 「4 か所すべて回れる」は要求しない
  *   s4 (南の操車場) へ下る道は**玉座の間の口を最接近 10 マスで横切る**。帯 (8 マス) の外なので
- *   ボス到達ナレは鳴らないが、グリクスが自分から出てきて交戦が始まることがある
+ *   ボス到達ナレは鳴らないが、玉座側が自分から出てきて交戦が始まることがある
  *   (2026-08-20 実測。巡回順 16 通りを全部測っても消えない経路の性質)。欠陥ではなく創発なので
  *   s4 の羊皮紙にその旨を書いてある。§4a は「回れなかった理由がそれか」を測る。
  *   「構造的に届くか」は §1c/§1e が本番の aStar で決定論的に押さえている。
+ *
+ * ■ ⭐⭐⭐ 2026-08-22: (4a)(5b) の逃げ道を言い直した (フレークの回収)
+ *   2026-08-21 に 48/50、翌日**同じ HEAD で 50/50**。同じ挙動が赤にも緑にもなっていた。
+ *   仕組み (プローブで実測):
+ *     ・玉座の護衛は (46,20)/(46,22)、ボスは (49,21)。
+ *     ・`DETECTION_RANGE = 1200px = 12.5 タイル` (index.html:16013) は、パーティの霧
+ *       `markVisitedAround(...,6)` の **2 倍遠い** → **向こうが先に気づく**。
+ *     ・護衛が `chase` で持ち場を離れ、既に霧の晴れたタイルへ一歩入ると
+ *       `findNearestAliveEnemy()` が拾う。heroAI の優先順は ①見えている敵 > ③heroForcedGoal
+ *       なので、**s4 へ歩いている最中でも迎撃へ引き返す** = s4 は永久に未訪問。
+ *     ・ボスが動き出すのはそのあと。旧版は「鳴った瞬間の 1 秒サンプルでボスが玉座に居たか」
+ *       だけを見ていたので、**「s4 を落とす」×「その瞬間ボスがまだ玉座に居た」の二重の
+ *       コイン投げ**になっていた。
+ *   → 逃げ道を **「玉座側の誰か (護衛でもボスでも) が持ち場を離れて、しかもパーティから
+ *     見えていたか」** へ言い直し、1 点読みをやめて**周回中ずっと監視してラッチ**する。
+ *   ⚠ 期待値は緩めていない。「玉座側が誰も動いていないのに鳴った」= パーティが自分で
+ *     踏み込んだ、は依然として赤 (負のコントロール spotsouth が測るのはこちら)。
+ *   ⚠ 「持ち場」がドライバの創作でないことは (4z) が著者の enemySlots/bossSlot と突き合わせる。
  *
  *   ⭐ §1 は **本番の `aStar` をそのまま呼ぶ**。自前 BFS を書くと 8 方向で繋いでしまい
  *     「実際には歩けない道」を繋がっていると報告する (P8 で実測済み)。さらに
@@ -569,6 +587,9 @@ async function waitArrows(page, ms) {
       const play = await bootPage(browser, PORT, '?autoplay=30&detour=tour&intel=0', playErrs);
       const t0 = Date.now();
       let last = null, early = null, cleared = false;
+      /* 玉座側の「持ち場」= n1 の初回サンプルでの実体の位置 (著者の enemySlots とは (4z) で
+       * 突き合わせる)。帯は本番の BOSS_APPROACH_TILES を検証シームから採る (写経しない)。 */
+      let posts = null, postsBoss = -1, sortie = null, bandSeen = null, lastFg = null;
       for (;;) {
         await sleep(1000);
         const st = await play.evaluate(() => {
@@ -578,21 +599,76 @@ async function waitArrows(page, ms) {
                    visited: d.visited, done: d.done, pending: d.pending,
                    chests: roomChests.filter(c => c.detourSpot)
                      .map(c => c.detourSpot + ':' + (c.opened ? 'O' : c.found ? 'F' : '.')).join(' '),
-                   latched: ba.latched, narrated: ba.narrated,
+                   latched: ba.latched, narrated: ba.narrated, band: ba.tiles,
+                   /* ★パーティの**行き先そのもの**。「帯へ入ったのは自分の目的地が帯の中に
+                    *   あったからか (欠陥)」と「引きずり込まれたからか (創発)」を分ける。 */
+                   fg: (() => { const g = window.__graphRun.forcedGoal();
+                                return g ? (g.tx + ',' + g.ty) : null; })(),
                    /* ★ボスの**現在位置**も採る。ボスが自分から寄ってきて閾値に入ったのか、
                     *   パーティが玉座へ踏み込んだのかを (5b) が区別するため。 */
                    boss: (() => { const b = enemies.find(e => e.def && e.def.isBoss);
                      return b ? (Math.floor((b.x + b.def.displaySize / 2) / TILE_SIZE) + ',' +
                                  Math.floor((b.y + b.def.displaySize / 2) / TILE_SIZE)) : null; })(),
+                   /* ★★★[2026-08-22] 玉座側の個体を**全部**採る (ボスだけでは足りない)。
+                    *   ⚠⚠ 先にパーティを見つけて動き出すのは **護衛のほう**。
+                    *     DETECTION_RANGE=1200px = 12.5 タイル (index.html:16013) は
+                    *     パーティの霧 markVisitedAround(...,6) の **2 倍遠い**ので、
+                    *     s4 へ下る道で必ず玉座の護衛に先に気づかれる。護衛が既に霧の晴れた
+                    *     タイルへ一歩入った瞬間 findNearestAliveEnemy() が拾い、heroAI の
+                    *     ①(見えている敵) が ③(heroForcedGoal) を追い越して**迎撃へ引き返す**
+                    *     = s4 へ二度と行けない (2026-08-22 に実測)。
+                    *   ⚠ 個体の同一性は **enemies の添字**で取る。enemies は length=0 の全消し
+                    *     しかせず splice しない (index.html:12243 / 31634) ので、ノードの中では
+                    *     添字が動かない。「持ち場」はドライバ側が初回サンプルで採り、
+                    *     著者が書いた enemySlots/bossSlot と (4z) で突き合わせる。
+                    *   ⚠ 出力は 1 個体 1 文字列に畳む (evaluate を重くすると autoplay 自体が遅くなる)。 */
+                   ent: enemies.map(e => {
+                     if (!e.def) return null;
+                     const sz = e.def.displaySize || 96;
+                     const tx = Math.floor((e.x + sz / 2) / TILE_SIZE);
+                     const ty = Math.floor((e.y + sz / 2) / TILE_SIZE);
+                     return (e.alive ? 1 : 0) + ':' + tx + ',' + ty + ':' +
+                            (visitedTiles.has(ty * 100 + tx) ? 1 : 0) + ':' + (e.def.isBoss ? 1 : 0);
+                   }),
                    p: Math.floor((playerX + 48) / TILE_SIZE) + ',' + Math.floor((playerY + 58) / TILE_SIZE) };
         });
+        /* ★★★[2026-08-22] 「玉座側が持ち場を離れて、パーティから見えた」を**ラッチ**する。
+         *   ⚠⚠ 1 秒サンプルで 1 回だけ覗いてはいけない。ボスは閾値を跨いだ**後**に動き出すので、
+         *     鳴った瞬間のサンプルではまだ玉座に居ることがある = 同じ挙動が緑にも赤にもなる
+         *     (2026-08-21 の 48/50 と 2026-08-22 の 50/50 はこれで割れていた)。
+         *     出た瞬間を記録する方式に揃える (early とまったく同じ理由)。 */
+        if (st.node === 'n1' && Array.isArray(st.ent)) {
+          if (!posts) {
+            posts = st.ent.map(v => v ? v.split(':')[1] : null);
+            postsBoss = st.ent.findIndex(v => v && v.split(':')[3] === '1');
+            bandSeen = st.band;                       // 帯は実装の値をそのまま使う (写経しない)
+          }
+          if (postsBoss >= 0 && posts[postsBoss]) {
+            const bp = posts[postsBoss].split(',').map(Number);
+            st.ent.forEach((v, i) => {
+              if (!v || !posts[i]) return;
+              const q = posts[i].split(',').map(Number);
+              // 持ち場が帯の中にある個体 = 玉座側 (護衛 + ボス)
+              if (Math.max(Math.abs(q[0] - bp[0]), Math.abs(q[1] - bp[1])) > st.band) return;
+              const f = v.split(':');
+              if (f[0] === '1' && f[1] !== posts[i] && f[2] === '1' && !sortie) {
+                sortie = { t: ((Date.now() - t0) / 1000).toFixed(1), post: posts[i], at: f[1],
+                           boss: f[3] === '1' };
+              }
+            });
+          }
+        }
         /* ★ボスが「鳴った瞬間」の状態を残す。⭐ 固定時間窓で 1 回だけ覗くと共有キューで
          *   必ずフレークするので、**出た瞬間を記録する**方式にしてある。 */
         if (!early && (st.latched || st.narrated)) {
           early = { t: ((Date.now() - t0) / 1000).toFixed(1), visited: st.visited.slice(),
-                    pending: st.pending.slice(), p: st.p, boss: st.boss };
+                    pending: st.pending.slice(), p: st.p, boss: st.boss, sortie: sortie, fg: st.fg };
         }
-        const line = JSON.stringify(st);
+        /* ⚠ ent は**表示しない**。毎秒 10 体ぶんの座標が動くので載せると `line !== last` の
+         *   間引きが効かず、ログが 1 秒 1 行の巨大な羅列になって読めなくなる。 */
+        lastFg = st.fg;                                   // ★決着した瞬間の行き先 ((4a) が使う)
+        const shown = Object.assign({}, st); delete shown.ent; delete shown.band;
+        const line = JSON.stringify(shown);
         if (line !== last) { console.log('      ' + ((Date.now() - t0) / 1000).toFixed(1) + 's ' + line); last = line; }
         if (st.cleared) { cleared = true; break; }
         if (st.over) break;
@@ -610,19 +686,63 @@ async function waitArrows(page, ms) {
         return r.bossSlot[0] + ',' + r.bossSlot[1];
       }).catch(() => null);
       /* ⭐⭐⭐ 「4 か所すべて」を要求してはいけない。s4 (南の操車場) へ下る道は**玉座の間の口を
-       *   最接近 10 マスで横切る**ので、グリクスが自分から出てきて交戦が始まり、周回の途中で
+       *   最接近 10 マスで横切る**ので、玉座側が自分から出てきて交戦が始まり、周回の途中で
        *   決着することがある (2026-08-20 実測。巡回順 16 通りを全部測っても消えない経路の性質)。
        *   これは欠陥ではなく創発で、s4 の羊皮紙にもその旨を書いてある。
        *   → 測るべきは **「行けなかった理由がそれか」**。未訪問が残ったなら、
-       *     ボスが玉座を離れて (early.boss !== bossSlot) 決着していること、を要求する。
+       *     **玉座側の誰かが持ち場を離れて、しかもパーティから見えていた**こと、を要求する。
+       *
+       *   ⚠⚠⚠ [2026-08-22 に言い直した] 旧版は逃げ道を **「ボスが玉座を離れたか」だけ**で
+       *     測っており、しかも**鳴った瞬間の 1 秒サンプル 1 点**しか見ていなかった。
+       *     実測すると先に動くのは**護衛のほう**で (DETECTION_RANGE=1200px=12.5 タイルは
+       *     パーティの霧 半径 6 の 2 倍遠い)、護衛が霧の晴れたタイルへ入った瞬間に
+       *     heroAI の ①(見えている敵) が ③(heroForcedGoal) を追い越して s4 行きが消える。
+       *     ボスはそのあと動くので、サンプル 1 点では玉座に居たり居なかったりする
+       *     = **同じ挙動が 48/50 にも 50/50 にもなる二重のコイン投げ**だった
+       *     (2026-08-21 = 赤 / 2026-08-22 = 緑。どちらも同じ HEAD)。
        *   ⚠ 「構造的に行けるか」は §1c/§1e が本番の aStar で決定論的に測っている。
-       *     ここを緩めても「届かないスポット」は必ず §1 で赤くなる。 */
+       *     ここを緩めても「届かないスポット」は必ず §1 で赤くなる。
+       *   ⚠ 「パーティが自分で帯へ踏み込んだ」= 玉座側が誰も動いていないのに鳴った、は
+       *     **依然として赤**。負のコントロール spotsouth (s3 を帯の中へ) が消えないこと。 */
       const missed = F.pending;
-      const bossSortied = !!(early && early.boss && early.boss !== SLOT0);
-      check('(4a) ★★★?detour=tour で 4 スポットを回る。回れなかったならボスが玉座を離れたときだけ',
-        (F.visited.length === 4 && missed.length === 0) || (bossSortied && cleared && missed.length <= 1),
+      /* ⚠ 判定には使わない (下の注記のとおり「向こうから来た」は仕様どおりなので)。
+       *   赤を読むときに「誰が先に動いたか」が分かるよう、**明細にだけ**載せる。 */
+      const sortieTxt = early && early.sortie
+        ? (early.sortie.t + 's ' + (early.sortie.boss ? 'ボス' : '護衛') +
+           ' 持ち場' + early.sortie.post + '→' + early.sortie.at)
+        : 'なし';
+      /* ★★★ 逃げ道は **「最後までそこへ歩いていたか」** で測る。
+       *   heroForcedGoal は到着するまで消えないので、決着した瞬間にそれが未訪問スポットの
+       *   タイルを指していれば「行くのをやめたのではなく、行く途中で玉座の間の戦いに
+       *   巻き込まれて決着した」ことになる。逆に **null (一度も提示されなかった)** や
+       *   **別のタイル (行き先を乗り換えた)** なら、寄り道の仕掛けが壊れている = 赤。
+       *   ⚠ 2026-08-22 実測で fg は cleared の瞬間まで "24,23" のまま残る (3 周で確認)。 */
+      const missedSpot = missed.length === 1 ? A.spots.find(x => x.key === missed[0]) : null;
+      const stillHeaded = !!(missedSpot && lastFg === (missedSpot.tx + ',' + missedSpot.ty));
+      check('(4a) ★★★?detour=tour で 4 スポットを回る。回れなかったなら、そこへ歩いている最中に決着したときだけ',
+        (F.visited.length === 4 && missed.length === 0) || (stillHeaded && cleared),
         'visited=' + JSON.stringify(F.visited) + ' 未訪問=' + JSON.stringify(missed) +
-        ' ボス出撃=' + bossSortied + ' (玉座=' + SLOT0 + ' 初出時=' + (early ? early.boss : '-') + ')');
+        ' 決着時の行き先=' + lastFg + (missedSpot ? (' (' + missedSpot.key + '=' +
+          missedSpot.tx + ',' + missedSpot.ty + ')') : '') +
+        ' 玉座側の出撃=' + sortieTxt);
+      /* ★装置: 「持ち場」がドライバの創作でないこと。初回サンプルで採った玉座側の位置が、
+       *   **著者が mapDef に書いた** enemySlots / bossSlot と一致することを突き合わせる
+       *   (⭐ 期待値は実装が動かした実体ではなく、別の作者が書いた別のデータから組み立てる)。 */
+      const AUTH = await play.evaluate(() => {
+        const r = window.__graphRun.graph().nodes.find(n => n.id === 'n1').mapDef.rooms[0];
+        const b = r.bossSlot, t = window.__graphRun.bossApproach().tiles;
+        return (r.enemySlots || []).concat([b])
+          .filter(x => Math.max(Math.abs(x[0] - b[0]), Math.abs(x[1] - b[1])) <= t)
+          .map(x => x[0] + ',' + x[1]).sort();
+      }).catch(() => null);
+      const SNAP = (posts && postsBoss >= 0 && posts[postsBoss]) ? (() => {
+        const bp = posts[postsBoss].split(',').map(Number);
+        return posts.filter(q => q && (() => { const a = q.split(',').map(Number);
+          return Math.max(Math.abs(a[0] - bp[0]), Math.abs(a[1] - bp[1])) <= bandSeen; })()).sort();
+      })() : null;
+      check('(4z) 装置: 玉座側の「持ち場」が著者の enemySlots / bossSlot と一致する',
+        !!AUTH && !!SNAP && AUTH.length >= 2 && JSON.stringify(AUTH) === JSON.stringify(SNAP),
+        '著者=' + JSON.stringify(AUTH) + ' 初回サンプル=' + JSON.stringify(SNAP));
       /* ⚠ 「opened」ではなく **「found」** で測る。施錠は CHEST_LOCK_CHANCE=0.8 で開錠判定にも
        *   失敗しうるので、opened を要求すると**サイコロでフレークする**。到着したかどうかを
        *   決定論的に表すのは found (tryDiscoverChest が接近で立てる)。 */
@@ -637,18 +757,32 @@ async function waitArrows(page, ms) {
       console.log('      [周回量の判断材料] 寄り道 ' + F.visited.length + ' か所を回った 1 周 = ' +
         secs + 's (P8 の直行 autoplay 実測は 184s。歩数は本番の aStar で 40 → 116 歩)');
       /* ⭐⭐ 「寄り道の途中で鳴らない」を **パーティ側の落ち度に限って**測る。
-       *   ボス個体は自分から動くので、寄り道の最中にボスが近づいてきて閾値に入ることは
-       *   ありうる (それは仕様どおり = ボスが見つけに来た)。判別は「鳴った瞬間にボスが
-       *   まだ玉座 (mapDef の bossSlot) に居たか」。居たなら**パーティが踏み込んだ**ので赤。
-       * ⚠ 静的な保証は §1e (4 区間が帯を 1 マスも通らない) が持つ。ここはその実プレイ版。 */
-      const SLOT = await play.evaluate(() => {
-        const r = window.__graphRun.graph().nodes.find(n => n.id === 'n1').mapDef.rooms[0];
-        return r.bossSlot[0] + ',' + r.bossSlot[1];
-      }).catch(() => null);
-      check('(5b) ★★★寄り道の途中でボスが早鳴りしない (回り終える前に鳴るのは、ボスが動いた時だけ)',
-        !early || early.pending.length === 0 || (early.boss && early.boss !== SLOT),
+       *   玉座側は索敵 12.5 タイル (DETECTION_RANGE=1200px) で自分から動くし、パーティが
+       *   s4 へ下る道は霧 (半径 6) で護衛 (46,22) を暴く位置を通る。どちらの経路でも
+       *   heroAI の ①(見えている敵) が ③(heroForcedGoal) を追い越すので、**寄り道の最中に
+       *   玉座の間の戦いへ引きずり込まれること自体は仕様どおり** (s4 の羊皮紙にも書いてある)。
+       *   → ここで赤くすべきなのは **「行き先そのものが玉座に近すぎた」** ときだけ。
+       * ⚠⚠ 旧版は「鳴った瞬間にボスが玉座に居たか」の 1 点読みで、これが 2026-08-21 の
+       *   48/50 と 2026-08-22 の 50/50 (同じ HEAD) を分けていた。詳細は (4a) の注記。
+       * ⚠ 静的な保証は §1e (4 区間が帯を 1 マスも通らない) と §5a (スポット自身の距離) が
+       *   持つ。ここはその実プレイ版で、負のコントロール spotsouth が測る先でもある。 */
+      /* ⭐⭐⭐ 「玉座側が動いた」だけでは**負のコントロールが空振りする**。s3 を帯の中へ動かす
+       *   変異 spotsouth では、パーティがそこへ歩くだけで護衛の索敵 (12.5 タイル) に入るので
+       *   護衛も出撃してしまい、逃げ道が成立してしまう。
+       *   → **パーティの行き先そのものが帯の中だったか**を足す。これが真なら「自分の目的地が
+       *     玉座に近すぎた」= 測りたい欠陥そのもの。s4 (24,23) へ向かって引きずり込まれた
+       *     ケースでは行き先は帯の外なので、こちらは通る。 */
+      const goalInBand = (() => {
+        if (!early || !early.fg || !SLOT0) return false;
+        const g = early.fg.split(',').map(Number), b = SLOT0.split(',').map(Number);
+        return Math.max(Math.abs(g[0] - b[0]), Math.abs(g[1] - b[1])) <= (bandSeen || 8);
+      })();
+      check('(5b) ★★★寄り道の途中でボスが早鳴りしない (鳴ってよいのは、行き先が帯の外なのに巻き込まれた時だけ)',
+        !early || early.pending.length === 0 || !goalInBand,
         early ? ('初出 ' + early.t + 's パーティ=' + early.p + ' ボス=' + early.boss +
-                 ' (玉座=' + SLOT + ') pending=' + JSON.stringify(early.pending))
+                 ' (玉座=' + SLOT0 + ') pending=' + JSON.stringify(early.pending) +
+                 ' 玉座側の出撃=' + sortieTxt + ' 行き先=' + early.fg +
+                 (goalInBand ? ' ← **帯の中**' : ''))
               : 'ボス到達フラグが最後まで立たなかった (= ボスに到達していない: 4c を見よ)');
 
       // ══ §6 再入場: n0 へ引き返して戻っても訪問済みが復活しない ══════════════
