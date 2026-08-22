@@ -75,6 +75,12 @@ const EXTRA_TX = 36, EXTRA_TY = 13;
 const MID_C1 = 33, MID_C2 = 39, BOSS_C1 = 32, BOSS_C2 = 40, RECT_R1 = 11, RECT_R2 = 16;
 // ボス部屋の入場地点 = 西の縁 + NODE_ENTRY_INSET(2)。護衛はここから 400px(=4.2 タイル)より遠く
 const BOSS_ENTRY_TX = BOSS_C1 + 2, GUARD_MIN_TX = 39;
+/* ★[#11 2026-08-22] (3c)(3d) は上の GUARD_MIN_TX (9x6 のボス部屋でだけ意味を持つ列番号) を
+ *   やめ、「入場地点から交戦距離より遠い」という**目的そのもの**で測るようになった。
+ *   ⚠ TILE_PX は index.html の TILE_SIZE、ENGAGE_PX は近接の交戦距離 (P5 が実測した値)。 */
+const TILE_PX = 96, ENGAGE_PX = 400;
+/* ボス部屋が骨格 (9x6) でないシナリオを sid → true で拾う。ループ後の装置 assert が使う。 */
+const bigBossRooms = {};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -227,6 +233,16 @@ const SHAPE_SRC = `(() => {
       bossSlot: n.mapDef.rooms[0].bossSlot ? n.mapDef.rooms[0].bossSlot.join('/') : null,
       painting: n.mapDef.rooms[0].painting,
       exits: n.exits.map(e => e.to + ':' + e.dir).join(','),
+      /* ★[#11 2026-08-22] このノードの**入場地点**。placeNodeParty と同じ規則を
+       *   本番の関数で引く (nodeGateTile + NODE_ENTRY_INSET)。⚠ 幾何を写経しないこと。
+       *   道中ノードは n4→n7 のように "right" で入るので、入口は反対側の left ゲート。
+       *   これを持つと「護衛が col>=39」のような**部屋の大きさに縛られた期待値**を、
+       *   「入場地点から交戦距離より遠い」という目的そのものへ移せる。 */
+      entry: (() => {
+        try { const gt = nodeGateTile(n.mapDef, 'left');
+              return { tx: gt.tx + NODE_ENTRY_INSET, ty: gt.ty }; }
+        catch (e) { return null; }
+      })(),
     })),
     /* ★P7: 絵を貼るノードだけを取り出し、「カタログから引けるか」「覆う矩形が部屋と
      *   同一か」を採る。⚠ same は比率一致ではなく**完全一致**で見る (ノード用の絵は
@@ -363,9 +379,16 @@ const TOUR_SRC = `(async () => {
        *   → 絵は n4 (山場) / n7 (ボス) のちょうど 2 つ、参照はカタログから引け、
        *     覆う矩形が部屋の rect と完全一致 (= 5引数 drawImage の伸縮ゼロ)。
        *   ⚠ 5 シナリオ分をこのループが回すので、1 本でもテーマを書き忘れると赤くなる。 */
+      /* ⚠⚠ **測定点を「キーの名前」から「どのノードが絵を持つか」へ移した**
+       *   (2026-08-22 / 依頼書 #11)。守りたいのは上のコメントどおり
+       *   「載らない絵が無言で貼られていないこと」であって、キーがノード id と同名で
+       *   あることではない。bandits-forest/n7 は大部屋版の絵 "n7big" を指すようになった。
+       *   ⭐ 期待値は緩めていない: **どの絵が載っているか**は (1i2) が
+       *   「自テーマの絵で、覆う矩形が部屋 rect と完全一致」で押さえている。 */
       const pk = sh.nodes.map(n => n.painting ? n.painting.key : 'null').join(',');
-      check('(1i-' + sid + ') 1 枚絵は n4 / n7 のちょうど 2 ノード',
-        pk === 'null,null,null,null,n4,null,null,n7', pk);
+      const painted = sh.nodes.filter(n => n.painting).map(n => n.id).join(',');
+      check('(1i-' + sid + ') 1 枚絵を持つのは n4 / n7 のちょうど 2 ノード',
+        painted === 'n4,n7', painted + '  keys=' + pk);
       check('(1i2-' + sid + ') その 2 枚は自テーマの絵で、覆う矩形が部屋 rect と完全一致',
         sh.paintFit.length === 2 &&
         sh.paintFit.every(p => p.theme === sid && p.src && p.same === true),
@@ -373,9 +396,20 @@ const TOUR_SRC = `(async () => {
       const midOk = sh.nodes.filter(n => n.id !== 'n7')
         .every(n => n.rect[0] === RECT_R1 && n.rect[1] === MID_C1 && n.rect[2] === RECT_R2 && n.rect[3] === MID_C2);
       const b = sh.nodes.find(n => n.id === 'n7').rect;
-      check('(1j-' + sid + ') 道中は 7 列 / ボスだけ 9 列',
-        midOk && b[0] === RECT_R1 && b[1] === BOSS_C1 && b[2] === RECT_R2 && b[3] === BOSS_C2,
-        'boss rect=' + b.join(','));
+      check('(1j-' + sid + ') 道中 7 ノードは 7 列 x 6 行の骨格どおり', midOk,
+        sh.nodes.filter(n => n.id !== 'n7').map(n => n.id + '=' + n.rect.join(',')).join(' '));
+      /* ★[#11] ボス部屋だけは「9x6 の骨格」か「1 枚絵で丸ごと覆った大部屋」の 2 択。
+       * ⚠ 期待値を緩めているのではない。大部屋を許す条件は
+       *   **その部屋の絵の tileBounds と rect が完全一致していること** ((1i2) が測る) なので、
+       *   「絵の無い大部屋」「絵と寸法の違う大部屋」はここで赤くなる。
+       * ⚠ 例外が黙って他シナリオへ広がらないよう、ループの後に装置 assert を 1 本置く。 */
+      const bossSkeleton = (b[0] === RECT_R1 && b[1] === BOSS_C1 &&
+                            b[2] === RECT_R2 && b[3] === BOSS_C2);
+      const bossPaintSame = sh.paintFit.some(p => p.node === 'n7' && p.same === true);
+      bigBossRooms[sid] = !bossSkeleton;
+      check('(1j2-' + sid + ') ボス部屋は 9x6 の骨格か、絵と矩形が完全一致する大部屋',
+        bossSkeleton || bossPaintSame,
+        'boss rect=' + b.join(',') + ' skeleton=' + bossSkeleton + ' paintSame=' + bossPaintSame);
     }
 
     // ── §2 lint ────────────────────────────────────────────────────────────
@@ -393,16 +427,32 @@ const TOUR_SRC = `(async () => {
         byId.n0.slots.length === 0, '件数=' + byId.n0.slots.length);
       check('(3b-' + sid + ') n5 (休憩) に敵スロットが 0',
         byId.n5.slots.length === 0, '件数=' + byId.n5.slots.length);
-      const gx = byId.n7.slots.map(s => parseInt(s.split('/')[0], 10));
-      check('(3c-' + sid + ') ボスの護衛が col>=' + GUARD_MIN_TX + ' (入場 col' + BOSS_ENTRY_TX + ' から 400px 超)',
-        gx.length > 0 && gx.every(x => x >= GUARD_MIN_TX), 'cols=' + gx.join(','));
-      check('(3d-' + sid + ') ボススロットが ' + S.boss + ' で col>=' + GUARD_MIN_TX,
+      /* ⚠⚠ **測定点を「col>=39」から「入場地点から交戦距離より遠い」へ移した**
+       *   (2026-08-22 / 依頼書 #11)。col 39 は 9x6 のボス部屋 (入場 col34) でだけ意味を持つ
+       *   数字で、52x26 の大部屋では何も測っていない。守りたいのは P5 が書いた目的
+       *   「入場ナレの最中に乱戦が始まらない = 前衛が engagePx より遠い」そのもの。
+       *   ⭐ 期待値は緩んでいない: 旧 9x6 の (39,12)(39,14)(39,16)(40,15) は
+       *     入場 (34,13) から 489〜607px なので、この式でも同じように通る。
+       *   ⚠ 入場地点は本番の nodeGateTile + NODE_ENTRY_INSET で引いた値 (SHAPE_SRC の entry)。 */
+      const ent = byId.n7.entry;
+      const farEnough = (s) => {
+        const tx = Number(s.split('/')[0]), ty = Number(s.split('/')[1]);
+        return Math.hypot(tx - ent.tx, ty - ent.ty) * TILE_PX > ENGAGE_PX;
+      };
+      const near = byId.n7.slots.filter(s => !farEnough(s));
+      check('(3c-' + sid + ') ボスの護衛が入場地点 ' +
+            (ent ? ent.tx + '/' + ent.ty : '?') + ' から ' + ENGAGE_PX + 'px より遠い',
+        !!ent && byId.n7.slots.length > 0 && near.length === 0,
+        'entry=' + JSON.stringify(ent) + ' 近すぎ=' + JSON.stringify(near) +
+        ' slots=' + byId.n7.slots.join(' '));
+      check('(3d-' + sid + ') ボススロットが ' + S.boss + ' で入場地点から ' + ENGAGE_PX + 'px より遠い',
         !!byId.n7.bossSlot && byId.n7.bossSlot.split('/')[2] === S.boss &&
-        parseInt(byId.n7.bossSlot.split('/')[0], 10) >= GUARD_MIN_TX, 'bossSlot=' + byId.n7.bossSlot);
+        farEnough(byId.n7.bossSlot), 'bossSlot=' + byId.n7.bossSlot);
+      /* ⚠ 部屋の矩形は**そのノード自身の rect** を使う (骨格の定数を当てない)。
+       *   ボス部屋が大部屋になると BOSS_C1/BOSS_C2 は現実と無関係になるため。 */
       const inRect = (n) => n.slots.every(s => {
         const tx = Number(s.split('/')[0]), ty = Number(s.split('/')[1]);
-        const c1 = n.id === 'n7' ? BOSS_C1 : MID_C1, c2 = n.id === 'n7' ? BOSS_C2 : MID_C2;
-        return tx >= c1 && tx <= c2 && ty >= RECT_R1 && ty <= RECT_R2;
+        return ty >= n.rect[0] && tx >= n.rect[1] && ty <= n.rect[2] && tx <= n.rect[3];
       });
       check('(3e-' + sid + ') 敵スロットが全部その部屋の矩形の中',
         sh.nodes.every(inRect), sh.nodes.filter(n => !inRect(n)).map(n => n.id).join(','));
@@ -457,6 +507,18 @@ const TOUR_SRC = `(async () => {
 
     for (const e of errs) errsAll.push(sid + ': ' + e);
     await page.close();
+  }
+
+  /* ⚠⚠ 装置 assert: (1j2) が許した「大部屋のボス部屋」という例外が、**黙って他シナリオへ
+   *   広がっていない**ことを 1 本で押さえる。これが無いと (1j2) は
+   *   「全シナリオが大部屋になった」でも緑のままになる (例外を許した検出器の典型的な穴)。
+   *   ⚠ 2026-08-22 時点で大部屋は bandits-forest/n7 (52x26) の**ちょうど 1 つだけ**。
+   *     別のシナリオを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。 */
+  mark('§1z 大部屋のボス部屋はちょうど 1 シナリオだけ (例外が広がっていない装置 assert)');
+  {
+    const big = Object.keys(bigBossRooms).filter(k => bigBossRooms[k]);
+    check('(1z) ボス部屋が骨格 (9x6) でないのは bandits-forest だけ',
+      big.length === 1 && big[0] === 'bandits-forest', '大部屋=' + (big.join(',') || 'なし'));
   }
 
   // ── §6 撤退スイッチ ?graph=0 ────────────────────────────────────────────────

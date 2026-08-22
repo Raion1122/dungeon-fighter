@@ -530,19 +530,41 @@ async function closeAnyDialog(page) {
     check('(6c-装置) 閾値は 8 タイル (旧ボス部屋 BOSSR の最大チェビシェフ距離と同値)',
       A0.tiles === 8, String(A0.tiles));
 
-    // 他シナリオ (n7 = 9x6 の小部屋) は入室即 = 1 ミリも変わっていない
+    /* 他シナリオ (n7 = 9x6 の小部屋) は入室即 = 1 ミリも変わっていない。
+     * ⚠⚠ **代表を bandits-forest から lizard-swamp へ移した** (2026-08-22 / 依頼書 #11)。
+     *   森の n7 は codex1 の卓上バトルマップ 52x26 を丸ごと貼った**大部屋**になったので、
+     *   もはや「小部屋の代表」ではない。⭐ 期待値は 1 文字も緩めず、母集団の側を
+     *   「今も 9x6 であるシナリオ」へ移す。抜けた 1 件は下の (6d2) が**大部屋として**測る
+     *   (母集団から黙って消すと、そこだけ検出器が居なくなる)。 */
     const pageF = await bootPage(browser, PORT, '?diag=1&intel=0', errs,
-      { scen: 'bandits-forest', freezeChoice: true });
+      { scen: 'lizard-swamp', freezeChoice: true });
     await kickEnter(pageF, 'n7', 'right');
-    if (!await waitNode(pageF, 'n7', 12000)) check('(6x) 森の n7 へ遷移できた', false, 'timeout');
+    if (!await waitNode(pageF, 'n7', 12000)) check('(6x) 沼の n7 へ遷移できた', false, 'timeout');
     await sleep(600);
     const AF = await pageF.evaluate(() => {
       const a = window.__graphRun.bossApproach();
       return { inBoss: window.__graphRun.inBossRoom(), size: window.__largeRoomSize(), bigRoom: a.bigRoom };
     });
-    check('(6d) ★★他 5 シナリオの n7 (9x6) は大部屋ではないので入室即ボス部屋 = 恒等',
+    check('(6d) ★★他 4 シナリオの n7 (9x6) は大部屋ではないので入室即ボス部屋 = 恒等',
       AF.bigRoom === false && AF.size === null && AF.inBoss === true, JSON.stringify(AF));
     await pageF.close();
+
+    /* ★[#11] (6d) から抜けた 1 件を**同じ観測値の裏返し**で押さえる。
+     *   森の n7 は 52x26 の大部屋なので、入室しただけではボス部屋にならない
+     *   (bossApproachReachedNow がボスから 8 タイルまで遅らせる = 廃坑 n1 と同じ枝)。 */
+    const pageB = await bootPage(browser, PORT, '?diag=1&intel=0', errs,
+      { scen: 'bandits-forest', freezeChoice: true });
+    await kickEnter(pageB, 'n7', 'right');
+    if (!await waitNode(pageB, 'n7', 12000)) check('(6x2) 森の n7 へ遷移できた', false, 'timeout');
+    await sleep(600);
+    const AB = await pageB.evaluate(() => {
+      const a = window.__graphRun.bossApproach();
+      return { inBoss: window.__graphRun.inBossRoom(), size: window.__largeRoomSize(), bigRoom: a.bigRoom };
+    });
+    check('(6d2) ★[#11] 森の n7 は 52x26 の大部屋なので入室だけではボス部屋にならない',
+      AB.bigRoom === true && !!AB.size && AB.size.w === 52 && AB.size.h === 26 && AB.inBoss === false,
+      JSON.stringify(AB));
+    await pageB.close();
 
     // ══ §7 撤退スイッチ ═════════════════════════════════════════════════════════
     mark('§7 撤退スイッチ ?minefold=0 / ?bossapproach=0');

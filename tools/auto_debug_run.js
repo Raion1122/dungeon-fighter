@@ -35,6 +35,7 @@ const RUNS = parseInt(arg('runs', '6'), 10);
 const SPEED = parseInt(arg('speed', '15'), 10);
 const SCEN = arg('scen', null);
 const CYCLE = arg('cycle', null);
+const EXTRA_QS = arg('qs', '');     // ★[#11] 撤退スイッチ等をそのまま URL へ足す (負のコントロール用)
 const PORT = parseInt(arg('port', '8765'), 10);
 const OUT = arg('out', path.join(os.tmpdir(), 'df_auto_debug_report.json'));
 const HEADFUL = flag('headful');
@@ -106,6 +107,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let url = 'http://localhost:' + PORT + '/index.html?autodebug=' + RUNS + '&autoplay=' + SPEED;
   if (SCEN) url += '&scen=' + encodeURIComponent(SCEN);
   if (CYCLE) url += '&cycle=' + encodeURIComponent(CYCLE);
+  /* ★[#11 2026-08-23] 撤退スイッチをそのまま渡せる口。
+   *   実プレイの巡回で赤が出たとき「自分由来か」を切り分けるには、**同じランナーで
+   *   スイッチを外した版を回して比べる**のが唯一素直な負のコントロールになる。
+   *   例) node tools/auto_debug_run.js --scen bandits-forest --runs 3 --qs "banditmap=0"
+   * ⚠ 既定は空なので、指定しなければ URL は 1 文字も変わらない。 */
+  if (EXTRA_QS) url += '&' + EXTRA_QS.replace(/^[?&]+/, '');
 
   const profile = require('./_pptr_profile')('df_runner_profile_');
   const browser = await puppeteer.launch({
