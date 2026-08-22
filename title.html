@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ダンジョンファイターズ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
+  <!--
+    title.html — 開始画面 (スロット選択 → 名乗り)
+    ═══════════════════════════════════════════════════════════════════════
+    実装依頼書 `実装依頼書/2026-08-20_title-screen.md`。検証は tools/verify_title_screen.js。
+
+    ★ このファイルの責務は「どの記録で遊ぶか」と「主人公は誰か」を決めて tavern.html へ渡すことだけ。
+      ⚠ **ゲームロジックを書かない。** セーブ操作は DFSlots (js/save-slots.js)、
+        クラスの表示文言は HERO_CLASSES (js/hero-classes.js) に閉じる。
+        ここに数値や隊列規則の写しを作ると index.html / tavern.html との同期が 3 本になる。
+
+    ★ 読み込むのは 3 本だけ (依頼書の指定。これ以上増やさない)
+        js/save-slots.js  … DFSlots.list()/switchTo()/newGame()
+        js/hero-classes.js… HERO_CLASSES (名乗りカードの文言 + zone)
+        audio.js          … 効果音のみ。⚠ **BGM は鳴らさない** (下記)
+
+    ★ 前口上 (フランの記録) を **ここへ移設していない**
+      羊皮紙 CSS も playNarration() も VOICEVOX manifest も全部 tavern.html 側の資産。
+      新規なら DFSlots.newGame() が dragonfighters.prologueSeen ごと消すので、
+      素の tavern.html へ飛ばすだけで initTavernPrologue() が自動で語り出す。
+      ⚠ **遷移先にクエリを足さないこと。** 足すと「ダンジョンから戻る」導線と形が変わり、
+        酒場の入口が 2 種類になる。
+
+    ★ 音 (Phase 1 の方針)
+      - **BGM を鳴らさない。** tavern の曲を鳴らすと遷移した瞬間に同じ曲が頭出しへ戻る
+        (ページごとに AudioContext が別)。しゃっくりが出るくらいなら無音のほうが粗が少ない。
+        ⚠ ここに GameAudio.playBgm(...) を足さないこと。タイトル専用 BGM は別チケット。
+      - 効果音だけ。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
+  -->
+  <style>
+    :root {
+      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      --parchment-ink: #3a2912;
+      --parchment-ink-soft: #5a4323;
+      --parchment-gold: #8b6914;
+      --parchment-border: #8b6914;
+      --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
+      --wood-dark: #3a2614;
+      --wood-mid: #5a3a1e;
+      --stone: #2a251e;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      min-height: 100%;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      color: #f5e8c8;
+      background: #0a0805;
+      user-select: none;
+      -webkit-text-size-adjust: 100%;
+    }
+    /* 松明の残り火だけが照らす石室。⚠ 画像アセットは使わない (Phase 1 は文字組みのみ) */
+    body {
+      background:
+        radial-gradient(ellipse at 50% 8%,  rgba(196,140,52,0.20) 0%, transparent 58%),
+        radial-gradient(ellipse at 50% 100%, rgba(90,58,30,0.30) 0%, transparent 62%),
+        linear-gradient(180deg, #14100a 0%, #0c0906 55%, #060504 100%);
+      background-attachment: fixed;
+    }
+
+    /* 画面全体。⚠ 横スクロールを出さないため幅は 100% までに閉じる (受入条件 9.) */
+    #titleRoot {
+      width: 100%;
+      max-width: 100%;
+      min-height: 100vh;
+      padding: 22px 14px calc(28px + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    /* 画面 1 / 画面 2 の入れ替え。⚠ hidden 属性ではなく class で切る
+       (display:flex が hidden を上書きしてしまうため)。ドライバは .active を見る */
+    .screen { display: none; width: 100%; max-width: 960px; flex-direction: column; align-items: center; }
+    .screen.active { display: flex; }
+
+    /* ── タイトル (文字組みのみ。ロゴ画像は codex1 への別チケット) ───────── */
+    #titleMark { text-align: center; margin: 8px 0 22px; width: 100%; }
+    /* ⚠⚠ タイトルは 11 文字の全角。所要幅 ≒ 11 × (font-size + letter-spacing) で、
+       ここを欲張ると **狭い端末で横スクロールが出る** (受入条件 9. 違反)。
+       実測: 8.4vw + 1.2vw では 390px で 32px / 320px で 29px あふれた。
+       いまの値は 320px でも収まる。⚠ さらに word-break を既定に戻してあるので、
+       将来どこかで文言が伸びても「はみ出す」のではなく「折り返す」に倒れる。 */
+    #titleMain {
+      font-family: 'MedievalSharp', serif;
+      font-size: clamp(20px, 6.6vw, 46px);
+      letter-spacing: clamp(1px, 0.8vw, 8px);
+      max-width: 100%;
+      color: #e8c877;
+      text-shadow: 0 0 14px rgba(200,140,40,0.45), 0 2px 0 #3a2614;
+      line-height: 1.3;
+    }
+    #titleSub {
+      font-family: 'Cinzel', serif;
+      font-size: clamp(10px, 2.6vw, 14px);
+      letter-spacing: clamp(2px, 1.6vw, 10px);
+      color: #a08046;
+      margin-top: 6px;
+    }
+    #titleRule {
+      width: min(320px, 82%);
+      height: 1px; margin: 14px auto 10px;
+      background: linear-gradient(90deg, transparent, var(--parchment-gold), transparent);
+    }
+    #titleTag { font-size: clamp(11px, 3vw, 13px); color: #8d7a55; letter-spacing: 1px; }
+
+    /* ── スロット 3 枚 ────────────────────────────────────────────────── */
+    #slotList {
+      width: 100%;
+      display: grid;
+      /* 390px では 1 列に積む / 横長では 3 列。⚠ minmax の下限を欲張ると横スクロールが出る */
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 720px) {
+      #slotList { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
+    }
+    .slotCard {
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      border-radius: 4px;
+      color: var(--parchment-ink);
+      padding: 12px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;   /* ⚠ grid 子の既定 min-width:auto は長い文言で列を押し広げる */
+    }
+    .slotHead {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+      border-bottom: 1px solid rgba(139,105,20,0.35);
+      padding-bottom: 6px;
+    }
+    .slotNo { font-family: 'MedievalSharp', serif; font-size: 17px; color: var(--parchment-gold); letter-spacing: 1px; }
+    .slotActiveMark { font-size: 10px; color: #7a5a20; letter-spacing: 0.5px; }
+    .slotBody { min-height: 96px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+    .slotEmptyLabel { text-align: center; color: #7b6438; font-size: 14px; letter-spacing: 2px; }
+    .slotMetaRow { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; line-height: 1.5; }
+    .slotMetaRow .k { color: var(--parchment-ink-soft); font-size: 12px; }
+    .slotMetaRow .v { color: var(--parchment-ink); font-weight: 700; text-align: right; word-break: break-all; }
+    .slotMetaRow[data-field="hero"] .v { color: #6a3a10; }
+
+    .slotActs { display: flex; flex-direction: column; gap: 7px; margin-top: 2px; }
+    .slotBtn {
+      width: 100%;
+      padding: 10px 8px;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      font-size: 14px;
+      letter-spacing: 1px;
+      border: 1px solid rgba(60,36,10,0.45);
+      border-radius: 3px;
+      cursor: pointer;
+      transition: filter 0.1s;
+      color: #fff8e0;
+    }
+    .slotBtn.primary { background: var(--parchment-gold); }
+    .slotBtn.sub     { background: #5a3a20; }
+    .slotBtn.danger  { background: #7a3320; }
+    .slotBtn:hover { filter: brightness(1.15); }
+    .slotBtn:active { filter: brightness(0.9); }
+    /* ★ 項目 3 の 2 段タップ確認 (埋まったスロットの「はじめから(上書き)」) の差し込み口。
+       空のときは高さを持たない。tavern.html の『冒険の記録を消す』と同じ作法に揃えること */
+    .slotConfirm:empty { display: none; }
+    .slotConfirm { margin-top: 4px; }
+
+    #slotHint { color: #8d7a55; font-size: 12px; letter-spacing: 1px; margin: 18px 0 0; text-align: center; }
+    #slotError {
+      display: none; margin-top: 16px; padding: 10px 14px; border: 1px solid #8b2020;
+      background: rgba(90,20,20,0.35); color: #f0c8b0; font-size: 13px; border-radius: 3px; text-align: center;
+    }
+
+    /* ── 画面 2: 名乗り ──────────────────────────────────────────────── */
+    #namingTitle {
+      font-family: 'MedievalSharp', serif;
+      font-size: clamp(22px, 6.4vw, 34px);
+      color: #e8c877;
+      letter-spacing: clamp(3px, 1.6vw, 8px);
+      margin: 6px 0 4px;
+      text-shadow: 0 0 12px rgba(200,140,40,0.4);
+    }
+    #namingLead { color: #8d7a55; font-size: 12px; letter-spacing: 1px; margin: 0 0 16px; text-align: center; }
+    #classCards {
+      width: 100%;
+      display: grid;
+      /* 390px で 2 列 / 横長で 3 列。⚠ minmax の下限を 0 にしておくのが横スクロール対策 */
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @media (min-width: 720px) { #classCards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    .classCard {
+      display: block; width: 100%; min-width: 0; text-align: left;
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      border-radius: 4px;
+      color: var(--parchment-ink);
+      font-family: inherit;
+      padding: 10px 11px 11px;
+      cursor: pointer;
+      transition: filter 0.1s, box-shadow 0.15s, transform 0.1s;
+    }
+    .classCard:hover { filter: brightness(1.06); }
+    .classCard:active { transform: translateY(1px); }
+    .classCard.selected {
+      box-shadow: 0 0 0 2px #e8c877, 0 0 18px rgba(232,200,119,0.55), inset 0 0 20px rgba(120,80,30,0.25);
+      border-color: #e8c877;
+    }
+    .className { font-family: 'MedievalSharp', serif; font-size: 18px; color: #6a3a10; letter-spacing: 1px; }
+    .classTagline { font-size: 12px; line-height: 1.6; color: var(--parchment-ink-soft); margin-top: 5px; }
+    /* 1 タップ目で開く。⚠ 詩 → 数字 ではなく 詩 → 役割 (数値の二重管理を作らないため) */
+    .classDetail { display: none; margin-top: 8px; padding-top: 7px; border-top: 1px solid rgba(139,105,20,0.35); }
+    .classCard.selected .classDetail { display: block; }
+    .classZone {
+      display: inline-block; padding: 1px 8px; border-radius: 2px;
+      background: rgba(139,105,20,0.22); border: 1px solid rgba(139,105,20,0.45);
+      font-size: 11px; letter-spacing: 2px; color: #6a4418;
+    }
+    .classRole { font-size: 13px; font-weight: 700; margin-top: 6px; color: var(--parchment-ink); }
+    .classNote { font-size: 12px; line-height: 1.55; margin-top: 3px; color: var(--parchment-ink-soft); }
+
+    /* ⚠ 依頼書の必須表示。カード群の下に **常時** 出す (選択の有無に関わらず消さない) */
+    #classWarn {
+      width: 100%;
+      margin: 16px 0 0;
+      padding: 10px 13px;
+      border-left: 3px solid #c07a20;
+      background: rgba(120,72,16,0.22);
+      color: #efd9a8;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+    #classWarn b { color: #ffd98a; }
+
+    #namingPick { margin: 14px 0 0; min-height: 18px; font-size: 13px; color: #c9ad72; letter-spacing: 1px; text-align: center; }
+    #namingActions { display: flex; gap: 10px; width: 100%; max-width: 460px; margin-top: 10px; }
+    #namingActions button {
+      flex: 1; padding: 12px 8px;
+      font-family: 'Cinzel', 'Times New Roman', serif; font-size: 14px; letter-spacing: 1px;
+      border: 1px solid rgba(60,36,10,0.45); border-radius: 3px; cursor: pointer; color: #fff8e0;
+      transition: filter 0.1s;
+    }
+    #btnNamingBack { background: #5a3a20; flex: 0 0 34%; }
+    #btnDepart { background: var(--parchment-gold); }
+    #namingActions button:hover { filter: brightness(1.15); }
+    #namingActions button:disabled { background: #4a4034; color: #8d8272; cursor: default; filter: none; }
+  </style>
+</head>
+<body>
+  <div id="titleRoot">
+
+    <!-- ══ 画面 1: スロット選択 ══════════════════════════════════════════ -->
+    <section id="screenSlots" class="screen active">
+      <header id="titleMark">
+        <div id="titleMain">ダンジョンファイターズ</div>
+        <div id="titleSub">DUNGEON FIGHTERS</div>
+        <div id="titleRule"></div>
+        <div id="titleTag">— 銀の鹿亭より、地の底へ —</div>
+      </header>
+      <div id="slotList"></div>
+      <div id="slotError"></div>
+      <p id="slotHint">記録は 3 つまで残せる。</p>
+    </section>
+
+    <!-- ══ 画面 2: 名乗り (「はじめから」でのみ表示) ═══════════════════════ -->
+    <section id="screenNaming" class="screen">
+      <h2 id="namingTitle">汝は何者か</h2>
+      <p id="namingLead">名乗りを一つ選べ。もう一度押せば、その者として旅立つ。</p>
+      <div id="classCards"></div>
+      <p id="classWarn"><b>この選択は後から変えられません。</b> 職業を変えるには、新しく「はじめから」を始める必要があります。</p>
+      <p id="namingPick"></p>
+      <div id="namingActions">
+        <button type="button" id="btnNamingBack">戻る</button>
+        <button type="button" id="btnDepart" disabled>この者として旅立つ</button>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="js/save-slots.js"></script>
+  <script src="js/hero-classes.js"></script>
+  <script src="audio.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    /* zone の生値 → 日本語ラベル。⚠ ここは **表示ラベルの対応表**であって隊列の定義ではない。
+       隊列の唯一の正は tavern.html / index.html の PARTY_ZONES で、
+       それと HERO_CLASSES の zone が一致していることは
+       tools/verify_title_screen.js の受入条件 6. が 2 経路で機械検査している。
+       未知の値が来たら生値をそのまま出す (黙って空欄にしない)。 */
+    var ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
+
+    var CLASSES = (window.HERO_CLASSES || []);
+    var byKey = {};
+    CLASSES.forEach(function (c) { byKey[c.classKey] = c; });
+
+    var elSlotList     = document.getElementById("slotList");
+    var elSlotError    = document.getElementById("slotError");
+    var elScreenSlots  = document.getElementById("screenSlots");
+    var elScreenNaming = document.getElementById("screenNaming");
+    var elClassCards   = document.getElementById("classCards");
+    var elClassPick    = document.getElementById("namingPick");
+    var elDepart       = document.getElementById("btnDepart");
+    var elBack         = document.getElementById("btnNamingBack");
+
+    var pendingSlot = 0;    // 「はじめから」で選ばれたスロット番号 (画面 2 が確定時に使う)
+    var chosenClass = "";   // 名乗りで選ばれた classKey
+
+    // ── 表示ヘルパ ───────────────────────────────────────────────────
+    /* 職業キー → 日本語名。
+       ⚠ meta.hero は null になり得る (partyComposition をまだ書いていない記録。例えば旧フローで
+         前口上だけ見た人。DFSlots は KEEP 以外の dragonfighters.* が 1 件でもあれば「記録あり」と数える)。
+         その時に "?" と出すと壊れているように見えるので、素直に「—」を出す。
+         未知だが値はあるキーは、隠さずそのまま出す (調査の手がかりを消さない)。 */
+    function heroName(key) { return (byKey[key] && byKey[key].name) || key || "—"; }
+
+    function fmtDate(iso) {
+      if (!iso) return "—";
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return "—";
+      var p = function (n) { return (n < 10 ? "0" : "") + n; };
+      return d.getFullYear() + "/" + p(d.getMonth() + 1) + "/" + p(d.getDate())
+           + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+    }
+    function fmtGold(n) {
+      n = Number(n) || 0;
+      try { return n.toLocaleString("ja-JP"); } catch (e) { return String(n); }
+    }
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined && text !== null) e.textContent = text;
+      return e;
+    }
+
+    // ── 画面切り替え ─────────────────────────────────────────────────
+    function showScreen(which) {
+      elScreenSlots.classList.toggle("active", which === "slots");
+      elScreenNaming.classList.toggle("active", which === "naming");
+      try { window.scrollTo(0, 0); } catch (e) {}
+    }
+
+    // ══ 画面 1: スロット選択 ═══════════════════════════════════════════
+    function mkSlotBtn(act, label, kind, slot) {
+      var b = el("button", "slotBtn " + kind, label);
+      b.type = "button";
+      b.setAttribute("data-act", act);
+      b.setAttribute("data-slot", String(slot));
+      b.addEventListener("click", function () {
+        if (act === "continue") doContinue(slot);
+        else doNewGame(slot);
+      });
+      return b;
+    }
+
+    function buildSlotCard(row) {
+      var empty = !!row.empty || !row.meta;
+      var card = el("div", "slotCard " + (empty ? "isEmpty" : "isFilled") + (row.active ? " isActive" : ""));
+      card.setAttribute("data-slot", String(row.slot));
+      card.setAttribute("data-empty", empty ? "1" : "0");
+
+      var head = el("div", "slotHead");
+      head.appendChild(el("span", "slotNo", "記録 " + row.slot));
+      if (row.active) head.appendChild(el("span", "slotActiveMark", "いま遊んでいる記録"));
+      card.appendChild(head);
+
+      var body = el("div", "slotBody");
+      if (empty) {
+        body.appendChild(el("div", "slotEmptyLabel", "―― 記録なし ――"));
+      } else {
+        var m = row.meta;
+        [ ["hero",    "主人公",   heroName(m.hero)],
+          ["level",   "レベル",   "Lv " + (Number(m.level) || 1)],
+          ["gold",    "所持金",   fmtGold(m.gold) + " G"],
+          ["cleared", "クリア",   (Number(m.clearedCount) || 0) + " 件"],
+          ["savedAt", "最終プレイ", fmtDate(m.savedAt)]
+        ].forEach(function (f) {
+          var r = el("div", "slotMetaRow");
+          r.setAttribute("data-field", f[0]);
+          r.appendChild(el("span", "k", f[1]));
+          r.appendChild(el("span", "v", f[2]));
+          body.appendChild(r);
+        });
+      }
+      card.appendChild(body);
+
+      var acts = el("div", "slotActs");
+      if (!empty) acts.appendChild(mkSlotBtn("continue", "つづきから", "primary", row.slot));
+      acts.appendChild(mkSlotBtn("new",
+        empty ? "はじめから" : "はじめから(上書き)",
+        empty ? "primary" : "danger", row.slot));
+      card.appendChild(acts);
+
+      // ★ 項目 3 の 2 段タップ確認はこの器の中へ描く (埋まったスロットのみ)
+      card.appendChild(el("div", "slotConfirm"));
+      return card;
+    }
+
+    function renderSlots() {
+      elSlotList.textContent = "";
+      elSlotError.style.display = "none";
+      var rows = null;
+      try { rows = (window.DFSlots && DFSlots.list()) || null; } catch (e) { rows = null; }
+      /* ⚠ 読めなかったときに「空スロット 3 枚」を捏造しない。
+         それをやると save-slots.js の読み込み失敗が『まっさらなセーブ』に化けて
+         プレイヤーの記録が消えたように見える (silent fail-open)。状況をそのまま出す。 */
+      if (!rows || !rows.length) {
+        elSlotError.textContent = "記録の読み込みに失敗した。ページを再読み込みしてほしい。";
+        elSlotError.style.display = "block";
+        return;
+      }
+      rows.forEach(function (row) { elSlotList.appendChild(buildSlotCard(row)); });
+    }
+
+    // ── 遷移 ─────────────────────────────────────────────────────────
+    /* ⚠ 遷移先にクエリを足さない。素の tavern.html へ飛ばす (依頼書の設計判断)。 */
+    function doContinue(slot) {
+      try { if (window.DFSlots) DFSlots.switchTo(slot); } catch (e) {}
+      location.href = "tavern.html";
+    }
+
+    function doNewGame(slot) {
+      pendingSlot = slot;
+      chosenClass = "";
+      renderClassCards();
+      elDepart.disabled = true;
+      elClassPick.textContent = "";
+      showScreen("naming");
+    }
+
+    function departAsChosen() {
+      if (!chosenClass || !pendingSlot) return;
+      /* ⚠ 順序が意味を持つ。newGame() は dragonfighters.* を prefix 総なめで消す
+         (prologueSeen も含む = 酒場で前口上が自動で流れる)。
+         partyComposition は **その後**に書くこと。逆にすると書いた直後に消える。 */
+      try { if (window.DFSlots) DFSlots.newGame(pendingSlot); } catch (e) {}
+      try {
+        // ⚠ localStorage 側。tavern.html:5179/5233 が出発時に sessionStorage へ書く同名キーとは別物。
+        localStorage.setItem("dragonfighters.partyComposition", JSON.stringify([chosenClass]));
+      } catch (e) {}
+      location.href = "tavern.html";
+    }
+
+    // ══ 画面 2: 名乗り ═════════════════════════════════════════════════
+    function selectClass(key) {
+      chosenClass = key;
+      Array.prototype.forEach.call(elClassCards.children, function (c) {
+        var on = c.getAttribute("data-class-key") === key;
+        c.classList.toggle("selected", on);
+        c.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      elDepart.disabled = false;
+      elClassPick.textContent = "選んだ名乗り: " + heroName(key);
+    }
+
+    function buildClassCard(c) {
+      var card = el("button", "classCard");
+      card.type = "button";
+      card.setAttribute("data-class-key", c.classKey);
+      card.setAttribute("aria-pressed", "false");
+      card.appendChild(el("div", "className", c.name));
+      card.appendChild(el("div", "classTagline", c.tagline));
+
+      // 1 タップ目でここが開く (CSS: .classCard.selected .classDetail)
+      var det = el("div", "classDetail");
+      det.appendChild(el("div", "classZone", ZONE_LABEL[c.zone] || c.zone));
+      det.appendChild(el("div", "classRole", c.role));
+      det.appendChild(el("div", "classNote", c.note));
+      card.appendChild(det);
+
+      card.addEventListener("click", function () { selectClass(c.classKey); });
+      return card;
+    }
+
+    function renderClassCards() {
+      elClassCards.textContent = "";
+      CLASSES.forEach(function (c) { elClassCards.appendChild(buildClassCard(c)); });
+    }
+
+    elBack.addEventListener("click", function () {
+      pendingSlot = 0;
+      chosenClass = "";
+      showScreen("slots");
+    });
+    elDepart.addEventListener("click", departAsChosen);
+
+    // ══ 音 ═══════════════════════════════════════════════════════════
+    /* iOS Safari は「ユーザー操作の中」でしか AudioContext を起こせない。最初の 1 回だけ解錠する。
+       ⚠ ここで GameAudio.playBgm(...) を **呼ばない**。Phase 1 は無音 (上のヘッダコメント参照)。 */
+    document.addEventListener("pointerdown", function () {
+      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+    }, { once: true });
+
+    document.addEventListener("click", function (e) {
+      if (!window.GameAudio || !GameAudio.playSfx) return;
+      var t = e.target;
+      if (t && t.closest && t.closest("button")) {
+        try { GameAudio.playSfx("button"); } catch (err) {}
+      }
+    }, true);
+
+    // ══ 起動 ═══════════════════════════════════════════════════════════
+    renderSlots();
+    showScreen("slots");
+  })();
+  </script>
+</body>
+</html>

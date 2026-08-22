@@ -170,6 +170,9 @@ function probeHeroClasses() {
     out.classes = (window.HERO_CLASSES || []).map(function (c) {
       return {
         classKey: c.classKey, name: c.name, zone: c.zone,
+        // 生の文言も持ち帰る。受入条件 2. が「カードの表示が元データそのものか」を
+        // **写経なしで**突き合わせるのに使う (期待値は元データから組み立てる)。
+        tagline: c.tagline, role: c.role, note: c.note,
         hasTagline: typeof c.tagline === 'string' && c.tagline.length > 0,
         hasRole:    typeof c.role    === 'string' && c.role.length    > 0,
         hasNote:    typeof c.note    === 'string' && c.note.length    > 0,
@@ -177,6 +180,108 @@ function probeHeroClasses() {
         numericFields: Object.keys(c).filter(function (k) { return typeof c[k] === 'number'; }),
       };
     });
+    out.ranToEnd = true;
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return out;
+}
+
+/* title.html の画面 1 (スロット選択) を丸ごと写し取る。判定は 1 つも持たない。
+   ⚠ DOM 側 (.slotCard) と API 側 (DFSlots.list()) の **両方**を採る。
+      片方だけだと「描画は正しいが API が別物を返している」「その逆」が区別できない。 */
+function probeTitleSlots() {
+  var out = { threw: '', ranToEnd: false, href: location.href, search: location.search };
+  var vis = function (e) { return !!e && getComputedStyle(e).display !== 'none'; };
+  try {
+    var ss = document.getElementById('screenSlots');
+    var sn = document.getElementById('screenNaming');
+    out.screenSlots  = !!ss && ss.classList.contains('active');
+    out.screenNaming = !!sn && sn.classList.contains('active');
+    out.errorShown = vis(document.getElementById('slotError'));
+    out.cards = [].slice.call(document.querySelectorAll('#slotList .slotCard')).map(function (c) {
+      return {
+        slot: c.getAttribute('data-slot'),
+        empty: c.getAttribute('data-empty') === '1',
+        emptyLabel: ((c.querySelector('.slotEmptyLabel') || {}).textContent || ''),
+        metaFields: [].slice.call(c.querySelectorAll('.slotMetaRow')).map(function (r) {
+          return { field: r.getAttribute('data-field'), value: ((r.querySelector('.v') || {}).textContent || '') };
+        }),
+        acts: [].slice.call(c.querySelectorAll('button[data-act]')).map(function (b) {
+          return { act: b.getAttribute('data-act'), label: b.textContent };
+        }),
+      };
+    });
+    out.list = (window.DFSlots ? DFSlots.list() : null);   // 別経路 (API 側の実際の答え)
+    out.hasDFSlots = !!window.DFSlots;
+    out.ranToEnd = true;
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return out;
+}
+
+/* title.html の画面 2 (名乗り) を写し取る。判定は 1 つも持たない。
+   ⚠ .classDetail は選択されたカードでだけ表示されるが、textContent は非表示でも読める。
+      「開いているか」は display で、「中身が正しいか」は textContent で別々に測る。 */
+function probeNaming() {
+  var out = { threw: '', ranToEnd: false };
+  var vis = function (e) { return !!e && getComputedStyle(e).display !== 'none' && e.offsetParent !== null; };
+  var txt = function (e) { return (e && e.textContent) || ''; };
+  try {
+    var sn = document.getElementById('screenNaming');
+    var ss = document.getElementById('screenSlots');
+    out.namingActive = !!sn && sn.classList.contains('active');
+    out.slotsActive  = !!ss && ss.classList.contains('active');
+    out.heading = txt(document.getElementById('namingTitle'));
+    var warn = document.getElementById('classWarn');
+    out.warnText = txt(warn);
+    out.warnVisible = vis(warn);
+    var dep = document.getElementById('btnDepart');
+    out.departDisabled = !!dep && dep.disabled;
+    out.departLabel = txt(dep);
+    out.cards = [].slice.call(document.querySelectorAll('#classCards .classCard')).map(function (c) {
+      var det = c.querySelector('.classDetail');
+      return {
+        classKey: c.getAttribute('data-class-key'),
+        selected: c.classList.contains('selected'),
+        detailOpen: !!det && getComputedStyle(det).display !== 'none',
+        name:    txt(c.querySelector('.className')),
+        tagline: txt(c.querySelector('.classTagline')),
+        zone:    txt(c.querySelector('.classZone')),
+        role:    txt(c.querySelector('.classRole')),
+        note:    txt(c.querySelector('.classNote')),
+      };
+    });
+    out.ranToEnd = true;
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return out;
+}
+
+/* tavern.html に着いた瞬間の状態。判定は 1 つも持たない。
+   ⚠⚠ #prologueOverlay は 前口上 / 受注 / 闇市 / 準備画面オンボーディング の **共用器**。
+      「表示されている」だけを採ると別用途でも緑になるので、用途を切り分けられる材料
+      (quest-accept の有無 / dmHint の show / dmBody の実文 / prologueSeen) を全部採る。
+   ⚠ dragonfighters.partyComposition は localStorage と sessionStorage の **両方**に同名で存在する
+      (session 側は tavern.html:5179/5233 が出発時に書く別物)。両方採って取り違えを防ぐ。 */
+function probeTavernArrival() {
+  var out = { threw: '', ranToEnd: false, href: location.href, pathname: location.pathname, search: location.search };
+  try {
+    out.pcLocal      = localStorage.getItem('dragonfighters.partyComposition');
+    out.pcSession    = sessionStorage.getItem('dragonfighters.partyComposition');
+    out.xp           = localStorage.getItem('dragonfighters.xp');
+    out.gold         = localStorage.getItem('dragonfighters.gold');
+    out.prologueSeen = localStorage.getItem('dragonfighters.prologueSeen');
+    out.activeSlot   = localStorage.getItem('df.activeSlot');
+    var ov = document.getElementById('prologueOverlay');
+    out.hasOverlay     = !!ov;
+    out.overlayVisible = !!ov && getComputedStyle(ov).display !== 'none';
+    out.questAccept    = !!ov && ov.classList.contains('quest-accept');
+    var hint = document.getElementById('dmHint');
+    out.hintShown = !!hint && hint.classList.contains('show');
+    out.bodyText  = (document.getElementById('dmBody') || {}).textContent || '';
+    // 本番の前口上テキスト。classic script 直下の const なので **裸の識別子**でしか読めない
+    try { out.prologueParas = PROLOGUE_NARRATION.slice(); }
+    catch (e2) { out.prologueThrew = String((e2 && e2.message) || e2); }
+    // 酒場が **実際に採用した**主人公 (loadSelections() を通った後の値)。キーの存在より一段強い
+    try { out.heroInTavern = selection.partyComposition[0]; }
+    catch (e3) { out.heroThrew = String((e3 && e3.message) || e3); }
     out.ranToEnd = true;
   } catch (e) { out.threw = String((e && e.message) || e); }
   return out;
@@ -195,17 +300,32 @@ function probeHeroClasses() {
 
   /* ⚠⚠ same-origin の localStorage はページ遷移をまたいで生き残る。
         前のセクションの残骸が次のセクションへ漏れて偽の赤/偽の緑になる (実際に踏んだ)。
-        → **document-start** で毎回 purge する。ページ内スクリプトより前に走るのが要点。
+        → **document-start** で purge する。ページ内スクリプトより前に走るのが要点。
+
+     ⚠⚠⚠ **purge は「1 タブにつき 1 回だけ」**。ここは素直に書くと必ず転ぶ:
+        evaluateOnNewDocument は goto の時だけでなく **そのタブで新しい document が
+        できるたび** (= location.href による遷移でも) 再実行される。毎回 purge すると
+        title.html が書いた dragonfighters.partyComposition を、遷移先 tavern.html の
+        document-start が消してしまい、受入条件 2./3. が **原理的に測れなくなる**
+        (しかも「title が書いていない」ように見える偽の赤になる)。
+        → 2 つの接頭辞のどちらにも当たらないマーカーを sessionStorage に置いて 1 回に絞る。
+          sessionStorage はタブ単位なので、openPage() のたびに新しいタブ = 必ず 1 回は purge される。
+          ⚠ DFSlots.wipeLive() が消すのは dragonfighters.* だけなのでマーカーは巻き添えにならない。
+
      opts.prologueSeen  既定 true = 前口上を出さない。⚠ 受入条件 2. を測るときだけ false にする
-                        (項目 2 の担当。前口上が出ることそのものが受入条件なので)
+                        (前口上が出ることそのものが受入条件なので)
+     opts.seed          purge の直後に localStorage へ書く { key: value }。
+                        「進行のある状態」を人工的に作る口 (受入条件 1. の負のコントロール等)
      opts.viewport      受入条件 9. で 390px と横長デスクトップの両方を測るための口 (項目 4 の担当) */
+  const PURGE_MARK = '__dfPurgedOnce';
   async function openPage(pathQuery, opts) {
     opts = opts || {};
     const page = await browser.newPage();
     if (opts.viewport) await page.setViewport(opts.viewport);
     page.on('pageerror', e => pageErrors.push(pathQuery + ' :: ' + e.message));
-    await page.evaluateOnNewDocument((seen) => {
+    await page.evaluateOnNewDocument((cfg) => {
       try {
+        if (sessionStorage.getItem(cfg.mark)) return;   // ★ このタブでは purge 済み。遷移先を荒らさない
         var kill = function (store) {
           Object.keys(store).forEach(function (k) {
             if (k.indexOf('df.') === 0) store.removeItem(k);
@@ -213,13 +333,33 @@ function probeHeroClasses() {
           });
         };
         kill(localStorage); kill(sessionStorage);
-        if (seen) localStorage.setItem('dragonfighters.prologueSeen', '1');
+        if (cfg.seen) localStorage.setItem('dragonfighters.prologueSeen', '1');
+        Object.keys(cfg.seed || {}).forEach(function (k) { localStorage.setItem(k, cfg.seed[k]); });
+        sessionStorage.setItem(cfg.mark, '1');
       } catch (e) {}
-    }, opts.prologueSeen !== false);
+    }, { mark: PURGE_MARK, seen: opts.prologueSeen !== false, seed: opts.seed || {} });
     await page.goto('http://localhost:' + PORT + pathQuery, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(opts.settle || 800);
     return page;
   }
+
+  const URL_OF = (p) => 'http://localhost:' + PORT + p;
+
+  /* クリックして **遷移が完了するまで** 待つ。
+     ⚠ 固定 sleep で代用しない。遷移や描画の所要時間は端末速度で伸び縮みするので、
+        固定時間窓は健全な分布が窓をまたいだ瞬間に間欠フレークになる (実測済みの罠)。 */
+  async function clickAndNavigate(page, selector) {
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+      page.click(selector),
+    ]);
+    await sleep(600);   // 遷移先の同期スクリプト完走ぶん。以降の待ちは全てポーリング
+  }
+
+  /* 受入条件 6. でブラウザから読み取った HERO_CLASSES の実体。受入条件 1.〜3. が
+     **期待値をドライバに書き写さない**ために借りる (職業の日本語名・tagline・role・note・zone)。
+     ⭐ 期待値は「実装が書いた数字」ではなく **元データ**から組み立てるのが規則。 */
+  let heroClassesObs = null;
 
   /* ■ SECTION 受入条件 6 ─────────────────────────────────────────────────
      hero-classes.js の zone と tavern.html の PARTY_ZONES を 2 経路で突き合わせる */
@@ -249,6 +389,7 @@ function probeHeroClasses() {
     const pageB = await openPage(PROBE_HOST);
     const obsB = await pageB.evaluate(probeHeroClasses);
     await pageB.close();
+    heroClassesObs = obsB.classes || null;   // 受入条件 1.〜3. が期待値を借りる元データ
 
     console.log('  [経路A] ' + obsA.href);
     console.log('          PARTY_ZONES     = ' + JSON.stringify(obsA.zones));
@@ -329,18 +470,343 @@ function probeHeroClasses() {
     }
   }
 
-  /* ■ SECTION 受入条件 1.〜4.  ← 項目 2〜3 がここに足す ───────────────────
-     1. title.html がスロットを 3 枚描く (全消し状態では 3 枚とも「記録なし」+「はじめから」)
-     2. 新規の一周: スロット1「はじめから」→ 名乗りで rogue → 確定 → tavern.html に着き、
-        localStorage["dragonfighters.partyComposition"] === '["rogue"]' かつ #prologueOverlay が表示
-        ⚠ openPage('/title.html', { prologueSeen: false }) で開くこと。既定は true なので前口上が出ない
-        ⚠⚠ #prologueOverlay は前口上 / 受注 / 闇市の 3 用途で共用の器 (tavern.html の該当コメント参照)。
-           「表示されている」だけで測ると別用途でも緑になる。前口上であることまで測る
-        ⚠ partyComposition は localStorage と sessionStorage の両方に同名キーがある。読む側は **localStorage**
-     3. 続きの一周: スロット1 に進行を作り、スロット2 で別主人公の新規 → title に戻って
-        スロット1 の「つづきから」→ スロット1 の xp と主人公が戻る
-     4. 埋まっているスロットの「はじめから」は 1 タップでは消えない (確認行が出るだけ)。2 タップ目で消える
-     ── 道具: openPage() / DFSlots (js/save-slots.js) ─────────────────── */
+  /* ■ SECTION 受入条件 1.〜3. ─────────────────────────────────────────────
+     ⬜ 4. (埋まったスロットの 2 段タップ確認) は **項目 3 がこの下に足す**。
+        1 タップ目で .slotConfirm に確認行が出て消えない / 2 タップ目で消える、を測ること。
+        ⚠ 下の (3) の一周は **空のスロット2** の「はじめから」しか押していないので、
+          項目 3 が「埋まったスロットだけ 2 段タップ」を足しても壊れない (意図的にそう組んである)。 */
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 1. : 全消し状態で スロット 3 枚が「記録なし」+「はじめから」だけ
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 1. : title.html が全消し状態でスロット 3 枚を描く ---');
+  {
+    /* ⚠⚠⚠ **`{ prologueSeen: false }` は飾りではない。外すとこのテストは赤くなる。**
+       openPage() の既定は dragonfighters.prologueSeen = "1" を仕込む。ところが
+       DFSlots が「空スロット」を判定する規則は *KEEP を除いた dragonfighters.* が 1 件でもあるか*
+       (js/save-slots.js の liveHasData / slotHasData のコメントに明記) なので、
+       **prologueSeen が 1 件あるだけで active スロットは empty:false になる**。
+       つまり「全消し状態」を作るには前口上フラグも置いてはいけない。
+       この結合そのものは下の (1n3) が機械的に押さえてある (外した人がログで理由に辿り着けるように)。 */
+    const p1 = await openPage('/title.html', { prologueSeen: false });
+    const o1 = await p1.evaluate(probeTitleSlots);
+    await p1.close();
+
+    console.log('  [DOM] ' + JSON.stringify((o1.cards || []).map(c =>
+      ({ slot: c.slot, empty: c.empty, acts: c.acts.map(a => a.label) }))));
+    console.log('  [API] DFSlots.list() = ' + JSON.stringify(o1.list));
+
+    check('(1z0) [装置] title.html が例外なく描き終えた (スロット画面が active・エラー表示なし・DFSlots が居る)',
+      o1.threw === '' && o1.ranToEnd === true && o1.screenSlots === true
+        && o1.screenNaming === false && o1.errorShown === false && o1.hasDFSlots === true,
+      JSON.stringify({ threw: o1.threw, screenSlots: o1.screenSlots, errorShown: o1.errorShown, hasDFSlots: o1.hasDFSlots }));
+
+    check('(1z1) [装置] 前提の「全消し」が実際に成立している (DFSlots.list() が 3 件とも empty)',
+      Array.isArray(o1.list) && o1.list.length === 3 && o1.list.every(r => r.empty === true),
+      JSON.stringify(o1.list && o1.list.map(r => ({ slot: r.slot, empty: r.empty, active: r.active }))));
+
+    check('(1) ★受入条件1: スロットを 3 枚描き、3 枚とも「記録なし」+「はじめから」だけ',
+      (o1.cards || []).length === 3
+        && o1.cards.every(c => c.empty === true)
+        && o1.cards.every(c => c.emptyLabel.indexOf('記録なし') >= 0)
+        && o1.cards.every(c => c.metaFields.length === 0)
+        && o1.cards.every(c => c.acts.length === 1 && c.acts[0].act === 'new' && c.acts[0].label === 'はじめから'),
+      JSON.stringify({ n: (o1.cards || []).length,
+                       labels: (o1.cards || []).map(c => c.emptyLabel),
+                       acts: (o1.cards || []).map(c => c.acts.map(a => a.act + ':' + a.label)) }));
+
+    check('(1b) スロット番号が 1 / 2 / 3 の 3 枚 (重複も欠番もない)',
+      (o1.cards || []).map(c => c.slot).join(',') === '1,2,3',
+      JSON.stringify((o1.cards || []).map(c => c.slot)));
+
+    /* ── 負のコントロール ─────────────────────────────────────────────
+       「記録なし」も「はじめから 1 個だけ」も **固定文言ではない**ことの証明。
+       ライブ名前空間に進行を仕込んで開くと active スロットだけが埋まり、
+       「つづきから」が生えて meta 5 行が出るはず。ここが緑にならないなら (1) は何も測っていない。 */
+    const SEED_GOLD = '777';
+    const NEG_HERO = 'rogue';
+    const p1n = await openPage('/title.html', { seed: {
+      'dragonfighters.xp': '12345',
+      'dragonfighters.gold': SEED_GOLD,
+      'dragonfighters.partyComposition': JSON.stringify([NEG_HERO]),
+    } });
+    const o1n = await p1n.evaluate(probeTitleSlots);
+    await p1n.close();
+
+    const filled  = (o1n.cards || []).filter(c => !c.empty);
+    const stillEmpty = (o1n.cards || []).filter(c => c.empty);
+    check('(1n1) [負のコントロール] 進行を仕込むと 1 枚だけ埋まり「つづきから」+「はじめから(上書き)」が生える',
+      (o1n.cards || []).length === 3 && filled.length === 1 && stillEmpty.length === 2
+        && filled[0].acts.map(a => a.act).sort().join(',') === 'continue,new'
+        && filled[0].emptyLabel === ''
+        && filled[0].metaFields.length === 5
+        && stillEmpty.every(c => c.acts.length === 1 && c.acts[0].act === 'new'),
+      JSON.stringify({ filled: filled.map(c => ({ slot: c.slot, acts: c.acts.map(a => a.label) })),
+                       meta: (filled[0] || {}).metaFields }));
+
+    /* 埋まったカードの中身が **仕込んだ値そのもの** かを、期待値を書き写さずに測る。
+       職業の日本語名は hero-classes.js (heroClassesObs) から借りる。 */
+    const mv = ((filled[0] || {}).metaFields || []).reduce((m, f) => (m[f.field] = f.value, m), {});
+    const negName = ((heroClassesObs || []).find(c => c.classKey === NEG_HERO) || {}).name;
+    check('(1n2) [負のコントロール] 埋まったカードの主人公名 / 所持金が仕込んだ値と一致 (プレースホルダではない)',
+      !!negName && mv.hero === negName && (mv.gold || '').indexOf(SEED_GOLD) >= 0
+        && (mv.savedAt || '').length > 1 && (mv.level || '').length > 1 && (mv.cleared || '').length > 0,
+      JSON.stringify({ expectHero: negName, got: mv }));
+
+    /* ── ⚠ 罠の明文化 (項目 3 / 4 が同じところで転ばないように) ────────────
+       DFSlots の「空」の規則は *KEEP を除いた dragonfighters.* が 1 件でもあるか* なので、
+       **前口上フラグ 1 個だけでも active スロットは「記録あり」になる**。
+       openPage() の既定はそのフラグを仕込むため、上の (1) は必ず { prologueSeen: false } で
+       開かなければならない。この 1 本があると、誰かがそれを外したときに
+       「(1) が赤い理由」がログの中で自己完結する。 */
+    const p1s = await openPage('/title.html');   // ← 既定 = prologueSeen を仕込む
+    const o1s = await p1s.evaluate(probeTitleSlots);
+    await p1s.close();
+    const activeRow = ((o1s.list || []).find(r => r.active) || {});
+    check('(1n3) [罠の明文化] 前口上フラグだけでも active スロットは「記録あり」になる (= 全消しは prologueSeen も無い状態)',
+      Array.isArray(o1s.list) && o1s.list.length === 3 && activeRow.empty === false
+        && (o1s.list || []).filter(r => !r.active).every(r => r.empty === true),
+      JSON.stringify((o1s.list || []).map(r => ({ slot: r.slot, active: r.active, empty: r.empty }))));
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 2. : 新規の一周 (スロット1「はじめから」→ 名乗り → 確定 → 酒場 + 前口上)
+   * ⚠ 内部関数を直接呼ばない。**実際にクリックして遷移した先の状態**だけを測る。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 2. : 新規の一周 (はじめから → 名乗り → 旅立つ → 酒場 + 前口上) ---');
+  {
+    const HERO_KEY = 'rogue';   // 依頼書が名指ししている職業
+    const src = (heroClassesObs || []).find(c => c.classKey === HERO_KEY) || null;
+
+    // ⚠ 前口上が出ることそのものが受入条件なので prologueSeen を仕込まない
+    const p2 = await openPage('/title.html', { prologueSeen: false });
+
+    // ── ① スロット1 の「はじめから」を押す ──────────────────────────
+    await p2.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
+    await p2.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    const nam0 = await p2.evaluate(probeNaming);
+
+    check('(2a) 名乗り画面が開き、カードが 6 枚出て、未選択では「この者として旅立つ」が押せない',
+      nam0.threw === '' && nam0.namingActive === true && nam0.slotsActive === false
+        && (nam0.cards || []).length === 6 && nam0.departDisabled === true
+        && nam0.heading.indexOf('汝は何者か') >= 0,
+      JSON.stringify({ n: (nam0.cards || []).length, departDisabled: nam0.departDisabled, heading: nam0.heading }));
+
+    check('(2b) 1 タップ前は どのカードの zone / role / note も開いていない (詩だけが見えている)',
+      (nam0.cards || []).length === 6
+        && nam0.cards.every(c => c.detailOpen === false && c.selected === false)
+        && nam0.cards.every(c => c.tagline.length > 0),
+      JSON.stringify((nam0.cards || []).map(c => ({ k: c.classKey, open: c.detailOpen, sel: c.selected }))));
+
+    // ── ② 1 タップ目: rogue を選ぶ ────────────────────────────────
+    await p2.click('#classCards .classCard[data-class-key="' + HERO_KEY + '"]');
+    await p2.waitForFunction((k) => {
+      var c = document.querySelector('#classCards .classCard[data-class-key="' + k + '"]');
+      return !!c && c.classList.contains('selected');
+    }, { timeout: 10000 }, HERO_KEY);
+    const nam1 = await p2.evaluate(probeNaming);
+    const picked = (nam1.cards || []).find(c => c.classKey === HERO_KEY) || {};
+    const others = (nam1.cards || []).filter(c => c.classKey !== HERO_KEY);
+
+    check('(2c) 1 タップ目で押したカードだけが選択状態になり zone / role / note が開く。確定ボタンが有効化される',
+      picked.selected === true && picked.detailOpen === true
+        && picked.zone.length > 0 && picked.role.length > 0 && picked.note.length > 0
+        && others.length === 5 && others.every(c => c.selected === false && c.detailOpen === false)
+        && nam1.departDisabled === false,
+      JSON.stringify({ picked: { sel: picked.selected, open: picked.detailOpen, zone: picked.zone, role: picked.role },
+                       othersOpen: others.filter(c => c.detailOpen).map(c => c.classKey),
+                       departDisabled: nam1.departDisabled }));
+
+    check('(2d) カード群の下の「後から変えられません」の 1 行が **常時** 出ている (選択後も消えない)',
+      nam1.warnVisible === true && nam0.warnVisible === true
+        && nam1.warnText.indexOf('後から変えられません') >= 0
+        && nam1.warnText.indexOf('はじめから') >= 0,
+      JSON.stringify({ visibleBefore: nam0.warnVisible, visibleAfter: nam1.warnVisible, text: nam1.warnText }));
+
+    /* zone の表示ラベルが HERO_CLASSES の zone と 1 対 1 で対応しているか。
+       ⚠ 期待値 (「前衛」等) をここに書き写さない。同じ zone のカードは同じ表示、
+          違う zone のカードは違う表示、という **構造だけ**で測る。
+       ⚠⚠ zone の英語リテラルは (6z0) が禁じているので、値は heroClassesObs から借りる。 */
+    const zoneLabelOf = {};
+    let zoneMapOk = (nam1.cards || []).length === 6;
+    (nam1.cards || []).forEach(c => {
+      const s = (heroClassesObs || []).find(h => h.classKey === c.classKey);
+      if (!s || !c.zone) { zoneMapOk = false; return; }
+      if (zoneLabelOf[s.zone] === undefined) zoneLabelOf[s.zone] = c.zone;
+      else if (zoneLabelOf[s.zone] !== c.zone) zoneMapOk = false;
+    });
+    const zoneLabels = Object.keys(zoneLabelOf).map(k => zoneLabelOf[k]);
+    check('(2e) 6 枚の zone 表示が hero-classes.js の zone と 1 対 1 対応 (同 zone は同表示・異 zone は異表示)',
+      zoneMapOk && zoneLabels.length >= 2 && zoneLabels.length === new Set(zoneLabels).size,
+      JSON.stringify({ nGroups: zoneLabels.length, labels: zoneLabels }));
+
+    /* カードの文言が hero-classes.js の値 **そのもの** か。title.html に写しを作っていない証明。 */
+    const textDiffs = (nam1.cards || []).filter(c => {
+      const s = (heroClassesObs || []).find(h => h.classKey === c.classKey);
+      return !s || s.name !== c.name || s.tagline !== c.tagline || s.role !== c.role || s.note !== c.note;
+    }).map(c => c.classKey);
+    check('(2f) カードの name / tagline / role / note が hero-classes.js の値そのもの (title.html に写しが無い)',
+      (nam1.cards || []).length === 6 && textDiffs.length === 0, JSON.stringify({ diffs: textDiffs }));
+
+    // ── ③ 2 タップ目: 「この者として旅立つ」で確定 → 酒場へ ───────────
+    await clickAndNavigate(p2, '#btnDepart');
+
+    /* 前口上が出るまで **ポーリング**する。⚠ 固定 sleep に頼らない */
+    let overlayCameUp = true;
+    try {
+      await p2.waitForFunction(() => {
+        var o = document.getElementById('prologueOverlay');
+        return !!o && getComputedStyle(o).display !== 'none';
+      }, { timeout: 20000 });
+    } catch (e) { overlayCameUp = false; }
+    const o2 = await p2.evaluate(probeTavernArrival);
+
+    console.log('  [到着] ' + o2.href);
+    console.log('         localStorage  partyComposition = ' + JSON.stringify(o2.pcLocal));
+    console.log('         sessionStorage partyComposition = ' + JSON.stringify(o2.pcSession) + '  (別物。読み違えると偽の緑/赤)');
+    console.log('         酒場が採用した主人公 selection.partyComposition[0] = ' + JSON.stringify(o2.heroInTavern));
+    console.log('         df.activeSlot = ' + JSON.stringify(o2.activeSlot) + ' / prologueSeen = ' + JSON.stringify(o2.prologueSeen));
+
+    check('(2) ★受入条件2: 素の tavern.html に着き localStorage の partyComposition が選んだ職 1 人だけになっている',
+      /\/tavern\.html$/.test(o2.pathname) && o2.search === ''
+        && o2.pcLocal === JSON.stringify([HERO_KEY])
+        && o2.heroInTavern === HERO_KEY && o2.activeSlot === '1',
+      JSON.stringify({ pathname: o2.pathname, search: o2.search, pcLocal: o2.pcLocal,
+                       heroInTavern: o2.heroInTavern, heroThrew: o2.heroThrew, activeSlot: o2.activeSlot }));
+
+    check('(2g) [設計] 遷移先にクエリを足していない (酒場の入口を 2 種類にしない)',
+      o2.search === '', JSON.stringify({ href: o2.href }));
+
+    check('(2p) ★受入条件2: 前口上が出ている。共用器の別用途ではない (quest-accept 無し + 開始ヒント表示 + prologueSeen 未設定)',
+      overlayCameUp === true && o2.overlayVisible === true && o2.questAccept === false
+        && o2.hintShown === true && o2.prologueSeen === null,
+      JSON.stringify({ cameUp: overlayCameUp, visible: o2.overlayVisible, questAccept: o2.questAccept,
+                       hintShown: o2.hintShown, prologueSeen: o2.prologueSeen }));
+
+    /* ★ 共用器の 4 用途を確実に切り分ける最後の一手:
+         オーバーレイをクリックして、実際に語り出した本文が本番の PROLOGUE_NARRATION[0] の頭かを見る。
+       ⚠ 期待文をドライバに書き写さない。tavern.html から **裸の識別子**で読んだ値と比べる。 */
+    let typed = '';
+    try {
+      await p2.click('#prologueOverlay');
+      await p2.waitForFunction(() =>
+        ((document.getElementById('dmBody') || {}).textContent || '').length >= 8, { timeout: 30000 });
+      typed = await p2.evaluate(() => (document.getElementById('dmBody') || {}).textContent || '');
+    } catch (e) { typed = ''; }
+    const para0 = (o2.prologueParas || [])[0] || '';
+    check('(2q) ★受入条件2: 語り出した本文が本番 PROLOGUE_NARRATION[0] の頭 (受注/闇市/準備オンボーディングではない)',
+      para0.length > 0 && typed.length >= 8 && para0.indexOf(typed) === 0,
+      JSON.stringify({ nParas: (o2.prologueParas || []).length, prologueThrew: o2.prologueThrew,
+                       typed: typed.slice(0, 24), expectHead: para0.slice(0, 24) }));
+    await p2.close();
+
+    /* ── 負のコントロール ─────────────────────────────────────────────
+       「#prologueOverlay が見えている」が固定の真ではないことの証明。
+       prologueSeen を立てて **同じ入口**を踏むと、同じ器は出ない。 */
+    const p2n = await openPage('/tavern.html', { prologueSeen: true });
+    const o2n = await p2n.evaluate(probeTavernArrival);
+    await p2n.close();
+    check('(2n) [負のコントロール] prologueSeen を立てた酒場では同じ器が出ない (器は在るが非表示)',
+      o2n.hasOverlay === true && o2n.overlayVisible === false && o2n.prologueSeen === '1',
+      JSON.stringify({ hasOverlay: o2n.hasOverlay, visible: o2n.overlayVisible, seen: o2n.prologueSeen }));
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * 受入条件 3. : 続きの一周
+   *   スロット1 に進行を作り → スロット2 で別主人公の新規 → title へ戻って
+   *   スロット1 の「つづきから」→ スロット1 の xp と主人公が戻る
+   * ⚠ 全部 **同じタブ**で、実際のクリックと遷移だけで進める (内部関数を直接呼ばない)。
+   *   openPage() の purge は 1 タブ 1 回なので、この往復の途中で記録が消えることはない。
+   * ══════════════════════════════════════════════════════════════════════ */
+  console.log('\n--- 受入条件 3. : 続きの一周 (スロット1 に進行 → スロット2 で別主人公 → スロット1 へ戻る) ---');
+  {
+    const HERO_A = 'warrior', HERO_B = 'mage';
+    const XP_A = '23456', GOLD_A = '4321';
+    const nameA = ((heroClassesObs || []).find(c => c.classKey === HERO_A) || {}).name;
+    const nameB = ((heroClassesObs || []).find(c => c.classKey === HERO_B) || {}).name;
+
+    const p3 = await openPage('/title.html');
+
+    // ── ① スロット1 で HERO_A の新規 → 酒場 → そこに進行 (xp / gold) を作る ──
+    await p3.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
+    await p3.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    await p3.click('#classCards .classCard[data-class-key="' + HERO_A + '"]');
+    await clickAndNavigate(p3, '#btnDepart');
+    await p3.evaluate((xp, g) => {
+      localStorage.setItem('dragonfighters.xp', xp);
+      localStorage.setItem('dragonfighters.gold', g);
+    }, XP_A, GOLD_A);
+    const s1 = await p3.evaluate(probeTavernArrival);
+
+    check('(3z1) [装置] 1 周目: スロット1 で新規を始めて酒場に着き、そこへ進行を作れた',
+      /\/tavern\.html$/.test(s1.pathname) && s1.pcLocal === JSON.stringify([HERO_A])
+        && s1.heroInTavern === HERO_A && s1.activeSlot === '1',
+      JSON.stringify({ pathname: s1.pathname, pcLocal: s1.pcLocal, hero: s1.heroInTavern, slot: s1.activeSlot }));
+
+    // ── ② title へ戻る。スロット1 が埋まり HERO_A が出ているはず ──────
+    await p3.goto(URL_OF('/title.html'), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(600);
+    const t1 = await p3.evaluate(probeTitleSlots);
+    const c1 = (t1.cards || []).find(c => c.slot === '1') || {};
+    const heroOf = (card) => (((card.metaFields || []).find(f => f.field === 'hero') || {}).value || '');
+
+    check('(3z2) [装置] title に戻るとスロット1 だけが埋まり、1 周目の主人公が一覧に出る',
+      (t1.cards || []).length === 3 && c1.empty === false && !!nameA && heroOf(c1) === nameA
+        && c1.acts.some(a => a.act === 'continue')
+        && (t1.cards || []).filter(c => !c.empty).length === 1,
+      JSON.stringify({ slot1: { empty: c1.empty, hero: heroOf(c1), acts: (c1.acts || []).map(a => a.act) },
+                       expectHero: nameA }));
+
+    // ── ③ スロット2 で HERO_B の新規 → 酒場 ───────────────────────────
+    //    ⚠ スロット2 は **空** なので 1 タップで進む。項目 3 が「埋まったスロットだけ 2 段タップ」を
+    //      足してもこの経路は影響を受けない (意図的にそう組んである)
+    await p3.click('#slotList .slotCard[data-slot="2"] button[data-act="new"]');
+    await p3.waitForFunction(() => {
+      var e = document.getElementById('screenNaming'); return !!e && e.classList.contains('active');
+    }, { timeout: 10000 });
+    await p3.click('#classCards .classCard[data-class-key="' + HERO_B + '"]');
+    await clickAndNavigate(p3, '#btnDepart');
+    const s2 = await p3.evaluate(probeTavernArrival);
+
+    /* ★ ここが無いと (3) は空振りする。切り替えが起きていなければ「戻った」も自明に緑になる。 */
+    check('(3z3) [装置] スロット2 の新規でライブが入れ替わった (1 周目の xp が消え・主人公が変わり・active が 2)',
+      s2.activeSlot === '2' && s2.xp === null && s2.pcLocal === JSON.stringify([HERO_B])
+        && s2.heroInTavern === HERO_B,
+      JSON.stringify({ activeSlot: s2.activeSlot, xp: s2.xp, pcLocal: s2.pcLocal, hero: s2.heroInTavern }));
+
+    // ── ④ title へ戻る。2 枚とも埋まり、別々の主人公が並ぶ ────────────
+    await p3.goto(URL_OF('/title.html'), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(600);
+    const t2 = await p3.evaluate(probeTitleSlots);
+    const a1 = (t2.cards || []).find(c => c.slot === '1') || {};
+    const a2 = (t2.cards || []).find(c => c.slot === '2') || {};
+
+    check('(3z4) [装置] 一覧にスロット1 / スロット2 が別々の主人公で並ぶ (アーカイブが上書きされていない)',
+      a1.empty === false && a2.empty === false && !!nameA && !!nameB
+        && heroOf(a1) === nameA && heroOf(a2) === nameB
+        && a1.acts.some(x => x.act === 'continue'),
+      JSON.stringify({ slot1: heroOf(a1), slot2: heroOf(a2), expect: [nameA, nameB] }));
+
+    // ── ⑤ スロット1 の「つづきから」 ────────────────────────────────
+    await clickAndNavigate(p3, '#slotList .slotCard[data-slot="1"] button[data-act="continue"]');
+    const s3 = await p3.evaluate(probeTavernArrival);
+    await p3.close();
+
+    console.log('  [復帰] xp=' + JSON.stringify(s3.xp) + ' gold=' + JSON.stringify(s3.gold)
+      + ' hero=' + JSON.stringify(s3.heroInTavern) + ' activeSlot=' + JSON.stringify(s3.activeSlot));
+
+    check('(3) ★受入条件3: スロット1 の「つづきから」で xp と主人公が戻る',
+      /\/tavern\.html$/.test(s3.pathname) && s3.search === ''
+        && s3.xp === XP_A && s3.gold === GOLD_A
+        && s3.pcLocal === JSON.stringify([HERO_A]) && s3.heroInTavern === HERO_A
+        && s3.activeSlot === '1',
+      JSON.stringify({ xp: s3.xp, expectXp: XP_A, gold: s3.gold, pcLocal: s3.pcLocal,
+                       hero: s3.heroInTavern, activeSlot: s3.activeSlot, search: s3.search }));
+  }
 
   /* ■ SECTION 受入条件 5. 7. 8. 9. 10.  ← 項目 4 がここに足す ────────────
      5.  tavern.html で非主人公のクラスタイルをクリックしても partyComposition が変わらない
