@@ -22,7 +22,11 @@
  *   ⬜ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在
  *   ⬜ 受入条件 4. : `recruit: 3` の個別上書きが goblin-mine にも効く
  *   ⬜ 受入条件 5. : 隊列順が front → mid → rear のまま
- *   ⬜ 受入条件 6. : 「募集をかけ直す」で顔ぶれが変わり人数は変わらない
+ *   ✅ 受入条件 6. : 「募集をかけ直す」で顔ぶれが変わり人数は変わらない → (D6a)(D6b)
+ *                    ⭐ 顔ぶれが変わるは乱数依存なので 1 回では測れない。10 回押して
+ *                       11 サンプル中に 2 種類以上の顔ぶれがあることで測る (全同一の確率 (1/48)^10)。
+ *   ✅ 項目3 の UI  : ボタンのラベル (D1) / 「この依頼に応じた冒険者: N 人」(D2)(D3)(D4)
+ *                    / #pmSub の人数出し分け (E1)(E2)(E3)(E4)(E5)
  *   共通の道具は openPage() / observeDepartSizes() / check() / results / pageErrors。
  *
  * ── ⭐⭐⭐ 判定本体の共有 (受入条件 1. と 8. の要) ──────────────────────────
@@ -356,6 +360,11 @@ function judgeNoOverflow(rows, cap) {
       'index.html の buildParty(heroClassKey) は 1 引数のまま');
     check('(S9) シナリオ表に recruit: の具体値を入れていない (器だけ。値は依頼書 D の担当)',
       !/^\s*recruit:\s*\d/m.test(tavSrc));
+    /* (S10) 項目3: ボタン名とナレの言い回しを揃えた。揃えないと「仲間を引き直す」と
+       語りかけるナレの先に「募集をかけ直す」ボタンがある、という食い違いが残る。 */
+    check('(S10) tavern.html に旧「仲間を引き直す」が 1 箇所も残っていない (ナレ文を含む)',
+      !/仲間を引き直す/.test(tavSrc) && /「募集をかけ直す」/.test(tavSrc),
+      '旧文言の残存 = ' + (tavSrc.match(/仲間を引き直す/g) || []).length + ' 件');
     await pageS.close();
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -481,6 +490,214 @@ function judgeNoOverflow(rows, cap) {
     check('(Cz6) [装置] ?recruit=0 の有無で実際に人数が変わる id が 3 件以上ある (スイッチが飾りでない)',
       flipped.length >= 3, '変わった id = ' + flipped.join(', '));
     await pageC.close();
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (D) 受入条件 6. + 項目3 で足した UI
+     *   ・「募集をかけ直す」ボタンのラベル
+     *   ・「この依頼に応じた冒険者: N 人」の 1 行
+     *   ⭐⭐ N は **画面の文字列** と **実体の配列長** の 2 経路で突き合わせる。
+     *      片方の写経にすると「定数を書いただけ」でも緑になる。
+     *   ⚠ ★1 (NPC1) と ★3 (NPC3) の 2 シナリオで測る。1 シナリオだけだと
+     *      「N を直書きした実装」と区別できない ((Dz6) がそれを押さえる)。
+     *   ⚠⚠ この行は #partyPreview の **外側** にある必要がある (中に入れると (B2) が赤くなる)。
+     *      (Dz4) が「実際に外側にある」を測るので、内側へ移した瞬間にここで落ちる。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (D) 受入条件 6. + 応募人数の行 / ボタンのラベル ---');
+
+    /* 「募集をかけ直す」を PRESSES 回押しながら、押すたびに
+         ・実体 selection.partyMembers の 顔ぶれ署名 / 人数
+         ・画面の #recruitCountLine の文字列
+       を採る。⚠ 本番のボタンを **実際に click** する (ハンドラを写経しない)。 */
+    const REROLL_PRESSES = 10;
+    /* ⭐ 「顔ぶれが変わる」は乱数依存なので **1 回では測れない**。
+       goblin-mine は NPC 1 人で、名前は NPC_NAMES 16 個から一様 (usedNames は buildParty ごとに新規)、
+       職業は mid の 3 職から一様 → 1 回のかけ直しで **まったく同じ NPC** が出る確率は 1/48。
+       10 回押して 11 サンプルすべてが同一になる確率は (1/48)^10 ≒ 6e-17。
+       → 「11 サンプル中に 2 種類以上の顔ぶれがある」なら実質フレークしない。
+       (NPC 3 人の orc-fort はさらに小さいので同じ閾値で足りる) */
+    async function probeRecruitUi(page, scId, presses) {
+      return page.evaluate((cfg) => {
+        const out = { threw: '', id: cfg.scId || '(現状のまま)', samples: [], clicked: 0,
+                      btnLabel: '', lineOutsidePreview: null, lineN: null, seam: {} };
+        try {
+          const btn    = document.getElementById('btnReroll');
+          const lineEl = document.getElementById('recruitCountLine');
+          const prevEl = document.getElementById('partyPreview');
+          out.seam = { btn: !!btn, lineEl: !!lineEl, prevEl: !!prevEl,
+                       renderRecruitCountLine: typeof renderRecruitCountLine,
+                       renderPartyPreview: typeof renderPartyPreview };
+          if (cfg.scId) {
+            const sc = scenarios.find(s => s.id === cfg.scId);
+            prepScenario = sc;            // openPrep(sc) が最初にやることと同じ
+            regeneratePartyMembers();     // ★本番の再抽選
+            renderPartyPreview();         // ★本番の描画 (この中で応募人数の行も更新される)
+          }
+          const snap = () => {
+            const ms = selection.partyMembers || [];
+            return {
+              npc:   ms.filter(m => m && !m.isHero).length,
+              total: ms.length,
+              sig:   ms.map(m => (m && m.isHero ? '★' + m.classKey : (m && m.name) + '|' + (m && m.classKey))).join(','),
+              line:  lineEl ? (lineEl.textContent || '') : '(要素なし)',
+              rows:  document.querySelectorAll('#partyPreview > div').length,
+            };
+          };
+          out.samples.push(snap());
+          for (let i = 0; i < cfg.presses; i++) {
+            if (!btn) break;
+            btn.click();                  // ★本番の「募集をかけ直す」を実際に押す
+            out.clicked++;
+            out.samples.push(snap());
+          }
+          out.btnLabel = btn ? (btn.textContent || '').trim() : '(ボタンなし)';
+          out.lineOutsidePreview = !!(lineEl && prevEl && !prevEl.contains(lineEl));
+          const last = out.samples[out.samples.length - 1];
+          const m = /(\d+)\s*人/.exec(last.line);
+          out.lineN = m ? parseInt(m[1], 10) : null;   // 経路A: 画面の文字列から読んだ N
+        } catch (e) { out.threw = String((e && e.message) || e); }
+        return out;
+      }, { scId: scId, presses: presses });
+    }
+    /* 受入条件 6. の判定本体。⚠ サンプルが 1 個以下なら false (空で緑にならない)。 */
+    function judgeReroll(samples) {
+      const counts = new Set((samples || []).map(s => s.npc));
+      const sigs   = new Set((samples || []).map(s => s.sig));
+      return { ok: (samples || []).length >= 2 && counts.size === 1 && sigs.size >= 2,
+               counts: [...counts], sigKinds: sigs.size };
+    }
+
+    const pageD = await openPage('/tavern.html');
+    const advD = await advanceToPrep(pageD);
+    check('(Dz1) [装置] 実クリック導線で出発準備画面まで到達した (これが無いと以下は空振り)',
+      advD.reached, 'steps=' + advD.steps.join('>'));
+    // ★1 = goblin-mine。実クリック導線が確定させた状態をそのまま使う (scId=null で上書きしない)。
+    const probeD1 = await probeRecruitUi(pageD, null, REROLL_PRESSES);
+    // ★3 = orc-fort。準備画面の DOM は生きているので prepScenario を差し替えて本番描画を通す。
+    const probeD2 = await probeRecruitUi(pageD, 'orc-fort', REROLL_PRESSES);
+    const showP = (p) => p.id + ': ラベル"' + p.btnLabel + '" / 行"' + (p.samples[p.samples.length - 1] || {}).line
+      + '" / 実体NPC' + (p.samples[p.samples.length - 1] || {}).npc + ' / 顔ぶれ' + new Set(p.samples.map(s => s.sig)).size + '種';
+    console.log('       ' + showP(probeD1));
+    console.log('       ' + showP(probeD2));
+    console.log('       seam = ' + JSON.stringify(probeD1.seam));
+
+    check('(Dz2) [装置] (D) の観測中に例外が出ていない',
+      probeD1.threw === '' && probeD2.threw === '', (probeD1.threw || '') + (probeD2.threw || '') || 'なし');
+    check('(Dz3) [装置] 「募集をかけ直す」ボタンを実際に ' + REROLL_PRESSES + ' 回ずつ押せた',
+      probeD1.clicked === REROLL_PRESSES && probeD2.clicked === REROLL_PRESSES,
+      '押した回数 = ' + probeD1.clicked + ' / ' + probeD2.clicked);
+    check('(Dz4) [装置] 応募人数の行は #partyPreview の **外側** にある ((B2) の行数 assert を壊さない)',
+      probeD1.lineOutsidePreview === true && probeD2.lineOutsidePreview === true,
+      'outside=' + probeD1.lineOutsidePreview + '/' + probeD2.lineOutsidePreview);
+    check('(Dz5) [装置] #partyPreview の行数は依然としてパーティ総人数と一致 (母集団が壊れていない)',
+      probeD1.samples.every(s => s.rows === s.total) && probeD2.samples.every(s => s.rows === s.total),
+      '★1: rows/total=' + probeD1.samples[0].rows + '/' + probeD1.samples[0].total
+      + '  ★3: rows/total=' + probeD2.samples[0].rows + '/' + probeD2.samples[0].total);
+
+    check('(D1) 「募集をかけ直す」ボタン: ラベルに「募集」が入り、旧「引き直」が残っていない',
+      /募集/.test(probeD1.btnLabel) && !/引き直/.test(probeD1.btnLabel), 'ラベル = "' + probeD1.btnLabel + '"');
+
+    /* ★受入条件 6: 押すと顔ぶれが変わり、人数は変わらない */
+    const vR1 = judgeReroll(probeD1.samples);
+    const vR2 = judgeReroll(probeD2.samples);
+    check('(D6a) ★受入条件6: ★1 goblin-mine で ' + REROLL_PRESSES + ' 回かけ直しても人数は変わらず、顔ぶれは変わる',
+      vR1.ok, '人数の種類=' + JSON.stringify(vR1.counts) + ' / 顔ぶれ ' + vR1.sigKinds + ' 種 (11 サンプル中)');
+    check('(D6b) ★受入条件6: ★3 orc-fort でも同じ (人数不変 / 顔ぶれ可変)',
+      vR2.ok, '人数の種類=' + JSON.stringify(vR2.counts) + ' / 顔ぶれ ' + vR2.sigKinds + ' 種 (11 サンプル中)');
+    check('(Dz6) [装置] judgeReroll は空/単一サンプルでは false (空で緑になる測定器ではない)',
+      judgeReroll([]).ok === false && judgeReroll([{ npc: 1, sig: 'a' }]).ok === false
+      && judgeReroll([{ npc: 1, sig: 'a' }, { npc: 1, sig: 'a' }]).ok === false,
+      '顔ぶれが 1 種類だけでも false になる');
+
+    /* ★★ 2 経路の突き合わせ: 画面の文字列 N ⇔ 実体 selection.partyMembers の NPC 数 */
+    const lastD1 = probeD1.samples[probeD1.samples.length - 1];
+    const lastD2 = probeD2.samples[probeD2.samples.length - 1];
+    check('(D2) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (★1 goblin-mine)',
+      probeD1.lineN !== null && probeD1.lineN === lastD1.npc
+      && lastD1.npc === EXPECTED_NPC_RECRUIT['goblin-mine'],
+      '画面 N=' + probeD1.lineN + ' / 実体 NPC=' + lastD1.npc + ' / 行 = "' + lastD1.line + '"');
+    check('(D3) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (★3 orc-fort)',
+      probeD2.lineN !== null && probeD2.lineN === lastD2.npc
+      && lastD2.npc === EXPECTED_NPC_RECRUIT['orc-fort'],
+      '画面 N=' + probeD2.lineN + ' / 実体 NPC=' + lastD2.npc + ' / 行 = "' + lastD2.line + '"');
+    check('(Dz7) [装置] ★1 と ★3 で N が実際に違う (N を直書きした実装では緑にならない)',
+      probeD1.lineN !== probeD2.lineN, '★1 N=' + probeD1.lineN + ' / ★3 N=' + probeD2.lineN);
+    check('(D4) 応募人数の行は「募集をかけ直す」のたびに更新されている (押した後も実体と一致)',
+      probeD1.samples.every(s => { const m = /(\d+)\s*人/.exec(s.line); return m && parseInt(m[1], 10) === s.npc; })
+      && probeD2.samples.every(s => { const m = /(\d+)\s*人/.exec(s.line); return m && parseInt(m[1], 10) === s.npc; }),
+      '★1 ' + probeD1.samples.length + ' サンプル / ★3 ' + probeD2.samples.length + ' サンプル すべて一致');
+    await pageD.close();
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (E) #pmSub をマッチング演出の応募人数で出し分ける (依頼書「#pmSub の文言」表)
+     *   ⚠ 表の「人数」は **募集に応じた NPC の数**。NPC 1人 = パーティ計 2人。
+     *   ⭐ 「期待した文言そのもの」と一致することも測るが、**★1 と ★3 で違う文字列である**
+     *      ことを別 assert で押さえる。こちらは表の文面を書き換えても腐らない。
+     *   ⚠ playPartyMatchCinematic() の Promise は「タップして出発」のタップまで resolve しない。
+     *      await すると永久に返らないので、意図的に await しない。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (E) #pmSub が応募人数で切り替わる ---');
+    async function probePmSub(page, scId) {
+      return page.evaluate((id) => {
+        const out = { threw: '', id, npc: null, before: '', after: '', overlayShown: null, direct: {}, seam: {} };
+        try {
+          const el = document.getElementById('pmSub');
+          out.seam = { pmSub: !!el, pmSubTextFor: typeof pmSubTextFor,
+                       play: typeof playPartyMatchCinematic };
+          out.before = el ? (el.textContent || '') : '(要素なし)';   // HTML 直書きの既定値
+          const sc = scenarios.find(s => s.id === id);
+          prepScenario = sc;
+          regeneratePartyMembers();                       // ★本番の再抽選
+          out.npc = (selection.partyMembers || []).filter(m => m && !m.isHero).length;
+          playPartyMatchCinematic(sc);                    // ★本番の演出 (await しない)
+          out.after = el ? (el.textContent || '') : '(要素なし)';
+          const ov = document.getElementById('partyMatchOverlay');
+          out.overlayShown = !!(ov && ov.style.display === 'flex');
+          out.direct = { one: pmSubTextFor(1), two: pmSubTextFor(2), three: pmSubTextFor(3),
+                         zero: pmSubTextFor(0), four: pmSubTextFor(4), nan: pmSubTextFor(undefined) };
+        } catch (e) { out.threw = String((e && e.message) || e); }
+        return out;
+      }, scId);
+    }
+    // ⚠ 演出は「タップ待ち」で止まるので、1 シナリオにつき 1 ページ使う (状態を持ち越さない)。
+    const pageE1 = await openPage('/tavern.html');
+    const pmE1 = await probePmSub(pageE1, 'goblin-mine');
+    await pageE1.close();
+    const pageE2 = await openPage('/tavern.html');
+    const pmE2 = await probePmSub(pageE2, 'orc-fort');
+    await pageE2.close();
+    console.log('       ★1 goblin-mine: NPC' + pmE1.npc + ' 直書き前"' + pmE1.before + '" → 演出後"' + pmE1.after + '"');
+    console.log('       ★3 orc-fort   : NPC' + pmE2.npc + ' 直書き前"' + pmE2.before + '" → 演出後"' + pmE2.after + '"');
+    console.log('       pmSubTextFor 直呼び = ' + JSON.stringify(pmE1.direct));
+
+    check('(Ez1) [装置] pmSubTextFor / playPartyMatchCinematic を裸の識別子で読めた + 例外なし',
+      pmE1.seam.pmSubTextFor === 'function' && pmE1.seam.play === 'function'
+      && pmE1.threw === '' && pmE2.threw === '',
+      'seam=' + JSON.stringify(pmE1.seam) + ' threw=' + (pmE1.threw || pmE2.threw || 'なし'));
+    check('(Ez2) [装置] マッチング演出が実際に開いた (開いていないと #pmSub を読む意味がない)',
+      pmE1.overlayShown === true && pmE2.overlayShown === true,
+      '★1=' + pmE1.overlayShown + ' / ★3=' + pmE2.overlayShown);
+    check('(Ez3) [装置] 観測した人数が期待どおり (★1=NPC1 / ★3=NPC3)',
+      pmE1.npc === 1 && pmE2.npc === 3, '★1 NPC' + pmE1.npc + ' / ★3 NPC' + pmE2.npc);
+    check('(Ez4) [装置] ★1 では HTML 直書きの既定値から実際に書き換わった (直書きを読んでいるだけではない)',
+      pmE1.before !== pmE1.after && pmE1.before !== '(要素なし)',
+      '"' + pmE1.before + '" → "' + pmE1.after + '"');
+
+    check('(E1) ★受入条件: NPC1 (★1 goblin-mine) の #pmSub が「応じたのは、ただ一人 ――」',
+      pmE1.after === '応じたのは、ただ一人 ――', '実際 = "' + pmE1.after + '"');
+    check('(E2) ★受入条件: NPC3 (★3 orc-fort) の #pmSub が「共に挑む仲間が集う ――」',
+      pmE2.after === '共に挑む仲間が集う ――', '実際 = "' + pmE2.after + '"');
+    check('(E3) ★1 と ★3 で #pmSub が違う文字列になる (表の文面を書き換えても腐らない物差し)',
+      pmE1.after !== pmE2.after && pmE1.after.length > 0 && pmE2.after.length > 0,
+      '"' + pmE1.after + '" ≠ "' + pmE2.after + '"');
+    check('(E4) 表の 3 人数ぶんの文言がすべて別物 (どれかが同じ文面に潰れていない)',
+      new Set([pmE1.direct.one, pmE1.direct.two, pmE1.direct.three]).size === 3,
+      JSON.stringify([pmE1.direct.one, pmE1.direct.two, pmE1.direct.three]));
+    check('(E5) 表に無い人数のフォールバックが黙って壊れない (0人 / 4人以上 / undefined)',
+      pmE1.direct.zero.length > 0 && pmE1.direct.zero !== pmE1.direct.one
+      && pmE1.direct.four === pmE1.direct.three
+      && pmE1.direct.nan === pmE1.direct.zero,
+      '0人="' + pmE1.direct.zero + '" / 4人="' + pmE1.direct.four + '" (=3人の文言) / undefined="' + pmE1.direct.nan + '"');
 
     check('(Z) JS エラーが 1 件も出ていない', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
   } catch (e) {

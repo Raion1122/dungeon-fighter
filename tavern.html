@@ -809,7 +809,7 @@
       .prepPanel { padding: 12px 12px; }
       /* 主人公セレクタ: 6列だと各トグルが潰れるため 3列(2段)に折返してタップ域を確保 */
       .partyComp { grid-template-columns: repeat(3, 1fr); }
-      /* ヘッダ行 + 引き直す/未所持表示ボタンが横にはみ出さないよう折返し許可 (.ph は inline で display:flex, flex-wrap 未指定) */
+      /* ヘッダ行 + 募集をかけ直す/未所持表示ボタンが横にはみ出さないよう折返し許可 (.ph は inline で display:flex, flex-wrap 未指定) */
       .prepPanel .ph { flex-wrap: wrap; }
       /* 出発/戻るボタンが2つ並んで溢れないよう中央寄せ + 折返し */
       .choices { flex-wrap: wrap; justify-content: center; }
@@ -1828,7 +1828,9 @@
     <div id="pmInner">
       <div id="pmHeader">
         <div id="pmPlace"></div>
-        <div id="pmSub">共に挑む仲間が集う……</div>
+        <!-- ⚠ ここは「JS が走る前でも空欄にしない」ための既定値 (募集3人ぶんの文言)。
+             実際に出る文言は playPartyMatchCinematic() が応募人数で上書きする (#7 STEP3)。 -->
+        <div id="pmSub">共に挑む仲間が集う ――</div>
       </div>
       <div id="pmColumns"></div>
       <div id="pmHint">タップでスキップ</div>
@@ -1882,9 +1884,14 @@
 
         <div class="prepPanel">
           <div class="ph" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <span>パーティ <span style="opacity:0.6;font-size:12px;">(酒場で居合わせた冒険者・自動編成 / 先頭=前衛が盾)</span></span>
-            <button type="button" id="btnReroll" class="equipToggleBtn">🎲 仲間を引き直す</button>
+            <span>パーティ <span style="opacity:0.6;font-size:12px;">(募集に応じた者が同行 / 先頭=前衛が盾)</span></span>
+            <!-- 絵文字を 🎲(くじを引き直す) から 📣(募集をかける) へ変えた理由:
+                 もう「仲間を引く」のではなく「酒場に募集をかけ直す」ので、くじの絵は世界観と食い違う。 -->
+            <button type="button" id="btnReroll" class="equipToggleBtn">📣 募集をかけ直す</button>
           </div>
+          <!-- ⚠⚠ この行は #partyPreview の **外側** に置くこと。中に入れると
+               tools/verify_recruit_size.js の (B2) (= #partyPreview > div の行数) が赤くなる。 -->
+          <div id="recruitCountLine" style="font-size:13px;opacity:0.85;margin:2px 0 8px;"></div>
           <div id="partyPreview"></div>
         </div>
 
@@ -1998,7 +2005,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>依頼の重さで、応じる冒険者の数が変わるように</b> — 酒場で募集をかけると、★の少ない小仕事には人が集まらず、★の多い大仕事ほど多くの冒険者が名乗りを上げる。卓につく顔ぶれは依頼ごとに組み直され、隊は多くても四人までのまま。</li>
+        <li><b>依頼の重さで、応じる冒険者の数が変わるように</b> — 酒場で募集をかけると、★の少ない小仕事には人が集まらず、★の多い大仕事ほど多くの冒険者が名乗りを上げる。出発の準備では「この依頼に応じた冒険者: ◯人」と分かり、顔ぶれが気に入らなければ「募集をかけ直す」で呼び直せる。隊は多くても四人までのまま。</li>
         <li><b>出発の準備の見出しを実態に合わせた</b> — 主人公の職業は名乗りで決まるので、準備画面では「えらぶ」ではなく「変更するには新規ゲーム」と案内するようにした。</li>
         <li><b>起動するとまずタイトル画面が開くように</b> — 「ゲームを起動」から、記録の選択と名乗りを済ませてから銀の鹿亭へ入る流れになった。記録が入っている枠の「はじめから」は一度で消えず、確認してからになる。主人公の職業は名乗りで決めるので、酒場では変えられない。</li>
         <li><b>冒険の記録が自動で書き留められるように</b> — 酒場に戻ったとき・出発するとき・画面を離れたときに、そのときの進行を裏側で保存するようになった。セーブ枠を分けても、いま遊んでいる記録が取り残されない。</li>
@@ -3822,7 +3829,7 @@
     }
     // パーティ編成 (1-4人): 第1段階は戦士強制リーダー、デフォルト 4人推奨構成
     let partyComposition = ["warrior"];   // 主人公のみ (仲間は出発時にNPC自動編成)
-    let partyMembers = [];                 // 隊列順の rich 構成 (openPrep/引き直しで生成)
+    let partyMembers = [];                 // 隊列順の rich 構成 (openPrep/募集のかけ直しで生成)
     // 仲間装備 (キャラ別。CHAR_EQUIP に登録された全キャラ分の枠を作る)
     const allyEquip = {};
     for (const key of Object.keys(CHAR_EQUIP)) {
@@ -4528,12 +4535,26 @@
     selection.partyMembers = orderFormation(buildParty(heroKey, partySize));
   }
 
+  // ── 「この依頼に応じた冒険者: N 人」(#partyPreview の外側の 1 行) ── (実装依頼書 #7 STEP3)
+  // ⭐ N は **募集に応じた NPC の数**。主人公は依頼を「受けた」側であって「応じた」側ではないので
+  //   数に含めない (「冒険者 N 人」と書いておいて主人公込み、だと必ず読み違えられる)。
+  // ⛔ PARTY_SIZE (定数4) からも recruitCountOf() の再計算からも導かない。画面に出す数は
+  //   **実体の selection.partyMembers そのもの** から数える。これが唯一、募集 OFF (?recruit=0) の
+  //   ときにも画面と実体がズレない読み方。
+  function renderRecruitCountLine(members) {
+    const el = document.getElementById("recruitCountLine");
+    if (!el) return;
+    const npc = (members || []).filter(m => m && !m.isHero).length;
+    el.textContent = `この依頼に応じた冒険者: ${npc} 人`;
+  }
+
   // ── パーティのプレビュー (隊列順。先頭=前衛が盾、主人公を金色ハイライト) ──
   function renderPartyPreview() {
     const el = document.getElementById("partyPreview");
     if (!el) return;
     if (!selection.partyMembers || !selection.partyMembers.length) regeneratePartyMembers();
     const members = selection.partyMembers || [];
+    renderRecruitCountLine(members);   // #7: 「この依頼に応じた冒険者: N 人」(#partyPreview の外の行)
     const ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
     const nameOf = (k) => { const s = PARTY_SLOTS.find(x => x && x.classKey === k); return s ? s.name : k; };
     el.innerHTML = "";
@@ -4561,7 +4582,8 @@
     });
   }
 
-  // 「仲間を引き直す」ボタン (出発前に何度でも再抽選可)
+  // 「募集をかけ直す」ボタン (出発前に何度でも募集し直せる)。人数は prepScenario から
+  // regeneratePartyMembers() が引き直すので、押しても **顔ぶれだけ変わり人数は変わらない**。
   (function bindRerollBtn() {
     const btn = document.getElementById("btnReroll");
     if (!btn) return;
@@ -5419,10 +5441,10 @@
   ];
 
   // 準備画面 初回オンボーディング: 準備画面を初めて開いた時のみ、語り部口調で遊び方を短く案内する。
-  // 文面は実UI (主人公えらぶ→仲間→引き直す→出発) に対応。説明書臭くせず2段落に収める。
+  // 文面は実UI (主人公えらぶ→募集に応じた仲間→募集をかけ直す→出発) に対応。説明書臭くせず2段落に収める。
   const PREP_ONBOARDING_NARRATION = [
     "まずは旗頭を選ぶがよい。お主が誰として戦うか——それがこの一行の芯となる。",
-    "残る仲間は、酒場に居合わせた者たちが馳せ参じる。顔ぶれが気に入らねば「仲間を引き直す」がよい。支度が済めば、扉の向こうへ。出発だ。",
+    "残る仲間は、酒場に募集をかけて集める。依頼が重いほど多くの者が名乗りを上げよう。顔ぶれが気に入らねば「募集をかけ直す」がよい。支度が済めば、扉の向こうへ。出発だ。",
   ];
 
   function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -5587,6 +5609,24 @@
   // 二重発火で即閉じする事故の両方を防ぐため。
   const PM_TAP_GATE = 500;          // 全確定〜タップ受付開始までの猶予 (ms)。
 
+  // ── #pmSub の文言: 募集に応じた人数で出し分ける (実装依頼書 #7 の表) ──
+  // ⚠ 表の「人数」は **募集に応じた NPC の数**であって、パーティの総人数ではない
+  //   (NPC 1人 = パーティ計 2人)。「ただ一人」は主人公が独りという意味ではなく、
+  //   名乗りを上げた者が 1人しかいなかった、という意味。
+  const PM_SUB_BY_RECRUITS = {
+    1: "応じたのは、ただ一人 ――",
+    2: "二人が、卓についた ――",
+    3: "共に挑む仲間が集う ――",
+  };
+  // 表に無い人数のフォールバック (黙って空文字にしない)。
+  //   0人    : recruitCountOf() の clamp(n,1,3) があるので通常は起きない。主人公だけの編成でも文は出す。
+  //   4人以上: 上限 3 を将来外した時のため。「集う」= 大人数側の文言へ寄せる。
+  const PM_SUB_NONE = "名乗りを上げる者は、なかった ――";
+  function pmSubTextFor(recruitCount) {
+    if (!(recruitCount > 0)) return PM_SUB_NONE;
+    return PM_SUB_BY_RECRUITS[recruitCount] || PM_SUB_BY_RECRUITS[3];
+  }
+
   function pmClassNameJa(classKey) {
     const s = PARTY_SLOTS.find(x => x && x.classKey === classKey);
     return s ? s.name : classKey;
@@ -5686,6 +5726,7 @@
     const overlay = document.getElementById("partyMatchOverlay");
     const colsEl = document.getElementById("pmColumns");
     const placeEl = document.getElementById("pmPlace");
+    const subEl = document.getElementById("pmSub");
     const hintEl = document.getElementById("pmHint");
     if (!overlay || !colsEl) return Promise.resolve();
     const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
@@ -5696,6 +5737,10 @@
     const ordered = hero ? [hero].concat(others) : raw.slice();
 
     if (placeEl) placeEl.textContent = (sc && sc.place) ? sc.place : "";
+    // #7: 応募人数でサブ文言を差し替える。others = 主人公を除いた「募集に応じた者」。
+    // ⚠ HTML 直書きの既定値は残してある (JS が走る前に空欄にしないため) が、
+    //   演出が始まった時点で必ずここが権威になる。
+    if (subEl) subEl.textContent = pmSubTextFor(others.length);
     colsEl.innerHTML = "";
     const cols = ordered.map((m, i) => buildPmColumn(m, i));
     cols.forEach(c => colsEl.appendChild(c.el));
