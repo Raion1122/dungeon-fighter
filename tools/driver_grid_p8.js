@@ -498,12 +498,24 @@ async function closeAnyDialog(page) {
     const A0 = await page.evaluate(() => {
       const a = window.__graphRun.bossApproach();
       return { inBoss: window.__graphRun.inBossRoom(), bgm: currentBgmId(),
+               /* ★[2026-08-22] 曲名を写経せず、実装自身の「シーン曲」を読む ((6a2) が使う) */
+               scene: window.__graphRun.bgm().scene,
                bigRoom: a.bigRoom, latched: a.latched, reached: a.reached, tiles: a.tiles };
     });
     check('(6a) ★★n1 に入った直後は「ボス部屋」ではない (乱戦をボス曲で戦わない)',
       A0.bigRoom === true && A0.inBoss === false && A0.latched === false && A0.reached === false,
       JSON.stringify(A0));
-    check('(6a2) ★そのとき BGM はシーン曲のまま', A0.bgm === 'dungeon_normal', String(A0.bgm));
+    /* ⚠⚠⚠ [2026-08-22] 期待値を 'dungeon_normal' の直書きから言い直した。
+     *   #4 (4090a99) で **廃坑 n1 のシーン曲が dungeon_normal → mine_depths** になったのに
+     *   この 1 本だけ golden を更新し忘れており、**HEAD 567fa98 でもずっと赤**だった
+     *   (2026-08-22 に素の worktree で実測: 54 PASS / 1 FAIL・FAIL 行まで完全一致)。
+     *   ⭐⭐ 曲名の直書きは「表を差し替える変更」で必ず腐る。測りたかったのは
+     *     **「まだボス曲へ切り替わっていない = currentBgmId() がシーン曲そのもの」**なので、
+     *     sceneBgmId() の戻り値 (検証シーム bgm().scene) と突き合わせる不変条件へ直す。
+     *   ⚠ 実装の写経にはならない: currentBgmId が常にボス曲を返すよう壊れれば
+     *     bgm !== scene で赤くなる (「接近で切り替わる」側は §8 の (8d)(8e) が押さえている)。 */
+    check('(6a2) ★そのとき BGM はシーン曲のまま (ボス曲へ切り替わっていない)',
+      !!A0.scene && A0.bgm === A0.scene, 'bgm=' + A0.bgm + ' scene=' + A0.scene);
     /* 玉座の 5 タイル手前へワープする。⚠ 護衛が生きていると交戦して heroAI の
      *   `!encounterActive` 枝に入らないので、**ボス以外を先に伏せてから**測る
      *   (測りたいのは「接近でフラグが立つか」であって戦闘の可否ではない)。 */
