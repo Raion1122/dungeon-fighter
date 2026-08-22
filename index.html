@@ -19025,12 +19025,10 @@
          *   2026-08-20 の実測: 玉座の脇で戦っているのに __inBossRoom が false のまま =
          *   **ボス曲が一度も鳴らない**。setPhase("combat") はこの後に走るので、ここで確定させる。
          * ⚠ ナレーション (narrate("boss_room_enter")) は heroAI 側のまま = 戦闘中には出さない。
-         *   鳴らすべきは「戦闘前に着いたときの語り」だけで、BGM は両方で必要だから。 */
-        if (!bossApproachLatched && RUN && currentNodeId === RUN.bossNodeId &&
-            !BOSS_APPROACH_OFF && isLargeRoomNow() && bossApproachReachedNow()) {
-          bossApproachLatched = true;
-          window.__inBossRoom = true;
-        }
+         *   鳴らすべきは「戦闘前に着いたときの語り」だけで、BGM は両方で必要だから。
+         * ★[#9 / 2026-08-22] 書き込み点は latchBossApproachIfReached() 1 本へ畳んだ。
+         *   条件も代入も同じなので恒等。戦闘中のラッチ点 (runEncounter) と同じ 1 本を見る。 */
+        latchBossApproachIfReached();
         encounterRunning = true;
         runEncounter(engaged).finally(() => { encounterRunning = false; });
       }
@@ -19502,6 +19500,18 @@
               await enemyAttackTurn(actor.idx);
             }
             await sleepMs(220);
+            /* ★★★[#9 / 2026-08-22] **戦闘中も「玉座へ詰めたか」を見る**。
+             * ⚠⚠ 既存のラッチ点は 2 つとも**戦闘の切れ目にしか無い**:
+             *   ・heroAI の入室検出は先頭で if (encounterActive) return; する
+             *   ・tryStartEncounter は**新しい戦闘が始まる瞬間**にしか通らない
+             *   → **帯の外で始まった戦闘のまま帯へ押し込まれる**と、どちらも一度も評価されず、
+             *     ボス曲もボス到達ナレも鳴らないまま決着する (2026-08-22 実測)。
+             *     パーティは戦闘中も playerAdvanceOneTile で 1 手番 1 タイル前進するので、
+             *     ここが「戦闘中に帯を跨ぐ」瞬間を拾える場所になる。
+             * ⚠ ラウンド先頭ではなく**手番ごと**に置く。最後の 1 手番で帯へ入って決着すると
+             *   ラウンド先頭の点は二度と回らない (ボス撃破後は reached が false へ戻る)。
+             * ⚠ setPhase("combat") はもう走り終わっているので、BGM はここで切り替える。 */
+            if (latchBossApproachIfReached()) bgm(currentBgmId() || "boss");
           }
           round++;
           encounterRound = round;  // [英雄の眼] ミラー (ローカル round 自体は不変)
@@ -32230,6 +32240,23 @@
         if (Math.max(Math.abs(pTX - eTX), Math.abs(pTY - eTY)) <= BOSS_APPROACH_TILES) return true;
       }
       return false;
+    }
+    /* ★[#9 / 2026-08-22] 「玉座へ詰めたか」を見てラッチするだけの共通の書き込み点。
+     * ⚠⚠ **述語を増やさない**。距離の式は bossApproachReachedNow() ただ 1 本のままで、
+     *   ここがやるのは「ラッチと __inBossRoom を立てる」書き込みだけ (P8 の注記と同じ理由)。
+     * ⚠ ナレーション (narrate("boss_room_enter")) はここでは出さない。「戦闘中には語らせない」
+     *   という P8 の方針をそのまま引き継ぐ = 立てるのはラッチと (呼び出し側の判断で) BGM だけ。
+     * ⚠ RUN が null / BOSS_APPROACH_OFF / 小部屋 なら 1 ビットも変えず false を返す
+     *   (?bossapproach=0 で従来どおり firstEntry 判定へ恒等的に落ちる)。
+     * 戻り値: このコールでラッチが立ったら true。 */
+    function latchBossApproachIfReached() {
+      if (bossApproachLatched) return false;
+      if (!RUN || currentNodeId !== RUN.bossNodeId) return false;
+      if (BOSS_APPROACH_OFF || !isLargeRoomNow()) return false;
+      if (!bossApproachReachedNow()) return false;
+      bossApproachLatched = true;
+      window.__inBossRoom = true;
+      return true;
     }
 
     /* ★[P8] window.__inBossRoom の **唯一の書き込み点** (heroAI の到達検出を除く)。

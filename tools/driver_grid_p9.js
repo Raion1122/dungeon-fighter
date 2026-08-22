@@ -590,6 +590,10 @@ async function waitArrows(page, ms) {
       /* 玉座側の「持ち場」= n1 の初回サンプルでの実体の位置 (著者の enemySlots とは (4z) で
        * 突き合わせる)。帯は本番の BOSS_APPROACH_TILES を検証シームから採る (写経しない)。 */
       let posts = null, postsBoss = -1, sortie = null, bandSeen = null, lastFg = null;
+      /* ★[#9 / 2026-08-22] 「クリアしたならボス到達ラッチが立っていたか」を測るための**ラッチ**。
+       *   ⚠ 1 秒サンプルの 1 点読みにしない。bossApproachLatched は一度立てば下がらないので、
+       *     周回中に一度でも真を見たら覚えておき、周回後の実値とも突き合わせる。 */
+      let latchedEver = false;
       for (;;) {
         await sleep(1000);
         const st = await play.evaluate(() => {
@@ -667,6 +671,7 @@ async function waitArrows(page, ms) {
         /* ⚠ ent は**表示しない**。毎秒 10 体ぶんの座標が動くので載せると `line !== last` の
          *   間引きが効かず、ログが 1 秒 1 行の巨大な羅列になって読めなくなる。 */
         lastFg = st.fg;                                   // ★決着した瞬間の行き先 ((4a) が使う)
+        if (st.latched) latchedEver = true;               // ★[#9] 出た瞬間を覚える ((4e) が使う)
         const shown = Object.assign({}, st); delete shown.ent; delete shown.band;
         const line = JSON.stringify(shown);
         if (line !== last) { console.log('      ' + ((Date.now() - t0) / 1000).toFixed(1) + 's ' + line); last = line; }
@@ -677,6 +682,9 @@ async function waitArrows(page, ms) {
       const F = await play.evaluate(() => {
         const d = window.__graphRun.detour();
         return { visited: d.visited, pending: d.pending, cleared: dungeonCleared,
+                 /* ★[#9] 周回後の実値。ポーリングの latchedEver と 2 経路で突き合わせる */
+                 latched: window.__graphRun.bossApproach().latched,
+                 narrated: window.__graphRun.bossApproach().narrated,
                  chests: roomChests.filter(c => c.detourSpot).map(c => ({
                    k: c.detourSpot, found: c.found, opened: c.opened, lockTried: !!c.lockTried })) };
       });
@@ -754,6 +762,20 @@ async function waitArrows(page, ms) {
         F.visited.length >= 3, 'visited=' + F.visited.length + ' / 4');
       check('(4c) ★★★詰まない = 目的そのもの (dungeonCleared に到達した)', cleared,
         '所要 ' + secs + 's / 上限 ' + (FULL_TIMEOUT_MS / 1000) + 's');
+      /* ★★★[#9 / 2026-08-22] **グリクスを倒したなら、その前に必ずボス到達ラッチが立っている**。
+       *   ⚠⚠ 2026-08-22 の実測で、**帯 (玉座から 8) の外で始まった戦闘のまま帯へ押し込まれる**と
+       *     ラッチ点 2 つ (heroAI の入室検出 / tryStartEncounter) が**どちらも戦闘の切れ目にしか
+       *     無い**ので一度も評価されず、ボス曲もボス到達ナレも鳴らないまま決着していた。
+       *   ⚠ 実プレイでは間欠 (8 周に 1 周ほど) なので、**決定論的な負のコントロールは
+       *     `tools/probe_boss_latch.js`** が持つ (同じ状態をシームで作って毎回測る)。
+       *     ここはその実プレイ版 = 目的そのもの。
+       *   ⚠ 「クリアしていないなら何も言わない」= (4c) が既に赤で理由を語っているので、
+       *     ここで二重に赤くしても情報が増えない (母集団を cleared に限る)。 */
+      check('(4e) ★★★クリアしたなら、その前にボス到達ラッチが立っている (ボス曲が鳴らないまま倒せない)',
+        !cleared || latchedEver || F.latched,
+        'cleared=' + cleared + ' 周回中に見た latched=' + latchedEver +
+        ' 周回後の latched=' + F.latched + ' narrated=' + F.narrated +
+        (early ? (' 初出 ' + early.t + 's') : ' (一度も立たなかった)'));
       console.log('      [周回量の判断材料] 寄り道 ' + F.visited.length + ' か所を回った 1 周 = ' +
         secs + 's (P8 の直行 autoplay 実測は 184s。歩数は本番の aStar で 40 → 116 歩)');
       /* ⭐⭐ 「寄り道の途中で鳴らない」を **パーティ側の落ち度に限って**測る。
