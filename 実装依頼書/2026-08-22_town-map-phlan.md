@@ -1,8 +1,92 @@
 # 港町フランの街マップ `town.html` — キャラ選択のあと、酒場ではなく街に立つ
 
-**ステータス**: 起草済(未承認)
+**ステータス**: 起草済(未承認) — **着手前実測は完了** (2026-08-22。参照 12 件中 11 件は正確。⚠ tavern.html の行番号は #7 の着地でまとめてズレる → 識別子アンカーへ。下記「着手前実測」節)
 **撤退スイッチ**: `?town=0`
 **検証ドライバ**: `tools/verify_town_map.js`(新規)
+
+---
+
+## 着手前実測 (2026-08-22 / 承認前・別窓が #7 を実装している最中に実施)
+
+### 結論 — 依頼書の参照は**ほぼ全部正しい**。危ないのは「これから壊れる」こと
+
+`7ab7ff0` の訂正が効いていて、**12 件中 11 件が正確**だった (下表)。
+⚠ 唯一の誤り = `tavern.html:3407` (`"dragonfighters." + mk`) は実測 **`:3421`**。
+
+### ⚠⚠⚠ ただし `tavern.html` の行番号 10 件は **#7 の着地でまとめてズレる**
+
+本依頼書は `tavern.html` の行番号を **10 箇所**握っている。
+いま別窓が **#7 quest-recruit-size** を実装中で、その編集点は
+
+- `#pmSub` (`:1831`) の文言出し分け
+- `#partyPreview` (`:1888`) の上に「この依頼に応じた冒険者: N 人」を 1 行
+- `buildParty` (`:3177`) に第 2 引数
+- `regeneratePartyMembers` (`:4485`) / 「募集をかけ直す」ボタン (`:4525`)
+
+= **本依頼書が引用しているほぼ全ての行より上**。
+
+実測: 別窓の作業ツリー (未コミット `+47 / -4` = 正味 **+43 行**) で測ると、
+
+| 物 | HEAD | #7 作業ツリー | ズレ |
+|---|---|---|---|
+| `ムーンシー湖の畔` | 5371 | 5414 | **+43** |
+| `いまだ復興の半ば` | 5373 | 5416 | **+43** |
+| `initTavernPrologue()` | 5803 | 5846 | **+43** |
+| `playBgm("tavern")` | 5783 | 5826 | **+43** |
+| `openShop()` | 4381 | 4417 | **+36** |
+| `departToScenario()` | 5202 | 5245 | **+33** |
+
+⭐⭐⭐ **だから本依頼書の `tavern.html` 参照は行番号で持ってはいけない**。
+着手する実装窓は、下の**識別子アンカー**で grep すること。行番号は「その時点の目安」でしかない。
+
+| 依頼書の記述 | **識別子アンカー (これが正)** | HEAD 時点 |
+|---|---|---|
+| 酒場の見出し | `Silver Stag Tavern —` | `:1844` |
+| compact 判定 | `var compact = window.matchMedia` | `:2013` |
+| `#plazaDoor` | `<div id="plazaDoor"` | `:2035` |
+| 装備の永続キー | `localStorage.setItem("dragonfighters." + mk` | **`:3421`** (依頼書は 3407 = 誤り) |
+| 武器防具屋を開く | `function openShop()` | `:4381` |
+| `#shopEntry` の click | `document.getElementById("shopEntry")` | `:4402` |
+| 出発 → index への引き継ぎ | `function departToScenario(` | `:5202` |
+| 前口上のテキスト | `ムーンシー湖の畔に` / `いまだ復興の半ばに` | `:5371` / `:5373` |
+| 酒場 BGM | `GameAudio.playBgm("tavern")` | `:5783` |
+| 前口上の起動 | `(function initTavernPrologue()` | `:5803` |
+| 闇市の節 | `闇市 ポドルプラザ: 隠し扉` | `:5836` |
+
+⚠ **測り方の注意 (今回踏んだ)**: 別窓が `tavern.html` を編集中は、作業ツリーを grep すると
+**相手の未コミット編集込みの行番号**が返る。`git show HEAD:tavern.html` で測ること。
+
+### `index.html` / `title.html` の参照は **11 件すべて正確** ✅
+
+⭐ しかも **#7 は `index.html` も `title.html` も 1 行も触らない** (#7 の依頼書が明記) ので、
+**#7 が着地しても壊れない**。本依頼書の中核 (帰還先 4 箇所 + タイトルからの遷移 2 箇所) は無傷。
+
+| 参照 | 実測した中身 | |
+|---|---|---|
+| `index.html:4650` | `const ROOM_PAINTINGS_DEF = {` | ✅ |
+| `index.html:10572` | `el.style.backgroundSize = ...` (スプライトシート) | ✅ |
+| `index.html:13212` | `if (window.__autoplay) { window.location.href = "tavern.html"; return; }` | ✅ 帰還先 |
+| `index.html:13213` | `const goTavern = () => { window.location.href = "tavern.html"; };` | ✅ 帰還先 (エンディング) |
+| `index.html:34717` | `window.location.href = "tavern.html";` | ✅ 帰還先 (リザルト) |
+| `index.html:34774` | `window.location.href = "tavern.html";` | ✅ 帰還先 (撤退) |
+| `title.html:315` | `if (titleOff) { location.replace("tavern.html"); return; }` | ✅ `?title=0` の退避口 |
+| `title.html:515` | 「遷移先にクエリを足さない」の注記 | ✅ |
+| `title.html:518` | `location.href = "tavern.html";` | ✅ 新規ゲーム |
+| `title.html:537` | localStorage 側の注記 | ✅ |
+| `title.html:540` | `location.href = "tavern.html";` | ✅ 続きから |
+
+### そのほか検算したもの
+
+- 素材 = `harbor-town-rebuilding-player-v1.png` **1536x1024 / 3,939,727 bytes (3.76 MB)** 実在 ✅
+  ⚠ 依頼書の「3.94 MB」は **10 進 MB** の数え方。バイト数は一致しているので実害なし
+- `audio.js:271` の酒場 BGM = `tavern: { bpm: 80, ... }` の**合成トラック** ✅ (mp3 ではない、は正しい)
+- `#shopEntry` の DOM は `:2061` / CSS は `:1327`。依頼書が挙げた `:4402` は**click ハンドラ**側 ✅
+
+### 承認前に決めておきたいこと
+
+⚠ **着手順は「#7 が着地してから」が安全**。#12 自体は #7 と独立 (触る場所が重ならない) だが、
+上記のとおり **`tavern.html` の行番号が #7 の着地でまとめて動く**ので、
+#7 のコミット後に `git show HEAD:tavern.html` で測り直してから着手するのが手戻りが無い。
 
 ---
 
@@ -483,7 +567,7 @@ const townOff = sessionStorage.getItem("dragonfighters.townOff") === "1";
 - ⛔ **街専用 BGM**(別チケット)。前口上の `town.html` への移設(§4)
 - ⛔ **市場での買い物**(露店は飾り)。港の船に乗る導線
 - ⛔ **`tavern.html` / `town.html` のファイル名変更**。改名は動的キーの前科があるので禁止
-  (`tavern.html:3407` に `"dragonfighters." + mk` の動的キーが実在)
+  (`tavern.html:3421` に `"dragonfighters." + mk` の動的キーが実在。⚠ 依頼書は 3407 と書いていた = 実測で訂正)
 - ⛔ **`index.html` のマップ機構(`aStar` / カメラ / フォグ)の流用**。`index.html` は
   sessionStorage のパーティ + シナリオ受け渡しを前提に起動するので、
   「クエストを選ぶ前」に居る街では前提が成立しない
