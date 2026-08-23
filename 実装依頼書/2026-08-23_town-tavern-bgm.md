@@ -36,9 +36,10 @@
 |---|---|---|
 | `town.html:645` | インラインスクリプト内で**即時** | `"tavern"` |
 | `town.html:642` | 最初の `pointerdown` の `bootAudio()` 内(iOS の解錠用) | `"tavern"` |
-| `tavern.html:5974` | 酒場の起動時 | `"tavern"` |
+| `tavern.html:5974` | ⚠ **最初の `pointerdown` のみ**(`document.addEventListener("pointerdown", …, { once: true })` の中。**素のページロードでは 1 回も呼ばれない**) | `"tavern"` |
 
 `playBgm("tavern")` はこの 3 箇所だけ(リポジトリ全文 grep で実測)。`index.html` は無関係。
+⚠⚠⚠ **2026-08-23 訂正(起草後の実測)**: 起草時この表の `tavern.html:5974` を「酒場の起動時」と書いていたが**誤り**。実体は `document.addEventListener("pointerdown", …, { once: true })` の中で、**素のページロードでは 1 回も呼ばれない**。→ §8 の **(2a) / (6b) は `pointerdown` を 1 回送ってから**assert すること(修正済み)。街 `town.html:645` は即時呼び出しなので**依頼書どおりで正しい**。⭐ この誤りは §8 の **(0a) 母集団ガードが赤にして拾う**ので、装置の設計自体は効いている。
 
 ### 2-2. ⚠⚠⚠ `BGM_FILES.tavern` という ID を使ってはいけない
 
@@ -290,7 +291,8 @@ await page.evaluateOnNewDocument(() => {
 
 ### §2 酒場(`tavern.html`)
 
-- **(2a)** 素のページで `__bgmCalls` に **`"tavern_room"` が含まれ、`"tavern"` は含まれない**。
+- **(2a)** ⚠ **`pointerdown` を 1 回送った後**の `__bgmCalls` に **`"tavern_room"` が含まれ、`"tavern"` は含まれない**。
+  ⚠⚠ **素のページロードでは 0 件**(§2-1 の訂正を参照)。ここを「素のページで」と書くと (0a) が正しく赤になる。
 
 ### §3 素材(⚠ 404 は無音になるだけで画面に出ない)
 
@@ -313,7 +315,7 @@ await page.evaluateOnNewDocument(() => {
 ### §6 撤退
 
 - **(6a)** `town.html?townbgm=0` → 渡る ID が **`"tavern"`**。
-- **(6b)** `tavern.html?townbgm=0` → 渡る ID が **`"tavern"`**。
+- **(6b)** `tavern.html?townbgm=0` で **`pointerdown` を 1 回送った後**、渡る ID が **`"tavern"`**。
 
 ### ⛔ 測らないこと
 
