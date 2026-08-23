@@ -15,9 +15,9 @@
  *   ✅ 受入条件 1. 既定が本番と 1 ビットも変わらない            … §2   (STEP1 = 本ファイルの初版)
  *   ✅ 受入条件 2. 負のコントロールを道具に内蔵 (--negative)     … §4   (STEP1)
  *   ✅ 受入条件 3. 母集団ガード (実体の配列長 + 到達数)          … §3   (STEP1)
- *   ⬜ 受入条件 4. スポーンタイル                               … §5   (STEP2)
- *   ⬜ 受入条件 5. 隊列順と zone                                … §6   (STEP2)
- *   ⬜ 受入条件 6. 下部 HP ミニバーの枠                          … §7   (STEP2)
+ *   ✅ 受入条件 4. スポーンタイル                               … §5   (STEP2)
+ *   ✅ 受入条件 5. 隊列順と zone                                … §6   (STEP2)
+ *   ✅ 受入条件 6. 下部 HP ミニバーの枠                          … §7   (STEP2)
  *   ⬜ 受入条件 7. カメラ / 主人公が画面外のフレーム率           … §8   (STEP3)
  *   ⬜ 受入条件 8. カメラ / クランプ区間が空に落ちた率           … §9   (STEP3)
  *   ⬜ 受入条件 9. 置き去りと救済                               … §10  (STEP3)
@@ -38,6 +38,10 @@
  *   (OFF 用に別の判定を書くと、両方が同じ誤りのとき永久に緑)。
  *   → 判定は judgeIdentity() ただ 1 本。本番モードは ok===true を、--negative は
  *     **同じ関数の** ok===false を要求する。緑のままなら exit 1。
+ *   ⚠ STEP2 で足した §5〜§7 は --negative では走らせない。変異が書き換えるのは
+ *     devPartySizeOverride の「raw === null」枝 = ?party 無指定でしか通らない枝で、
+ *     これらの節は必ず ?party=N を渡すため**原理的に届かない**。「届かない」ことは
+ *     (4d) が同じ観測で機械的に判定しているので、混ぜても信号は 1 ビットも増えない。
  *
  * ── ⚠⚠⚠ 母集団ガード (受入条件 3.) ─────────────────────────────────────────
  *   「違反 0 件」は母集団が 0 でも 0 件になる (2026-08-23 に ?doors=0 の腕が対象ノードへ
@@ -250,6 +254,259 @@ const OBSERVE = (idList) => {
 
 const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.total + '人/NPC' + r.npc).join('  ');
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * STEP2 で足した測定 (受入条件 4. / 5. / 6.)
+ * ──────────────────────────────────────────────────────────────────────────
+ * ⭐ ここは **長時間プレイを一切しない**。departToScenario() で index へ着地した
+ *   直後の 1 フレームで、本番の関数を呼んで幾何だけを採る。
+ * ⚠ 判定は必ず Node 側の純関数 (judgeSpawn / judgeFormation / judgeMiniBar) に置き、
+ *   「空の観測で落ちる」ことを装置 assert で毎回確かめる (§3 の (3c) と同じ作法)。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const PROBE_N6      = 6;                             /* 受入条件 4./5. のもう一方の腕 */
+const MINIBAR_NS    = [4, 5, 6];                     /* 受入条件 6. で実測する N (上限を跨ぐ範囲) */
+const MINIBAR_VIEW  = { width: 390, height: 844 };   /* compact = iPhone 14 相当 */
+const ZRANK         = { front: 0, mid: 1, rear: 2 };
+const ZONE_NAMES    = ['front', 'mid', 'rear'];
+
+/* ── 受入条件 5. の判定本体 (tavern 側の出力にも index 側の formation にも同じものを掛ける) ──
+ *   rows : [{ id, zones: "front>mid>rear" }]
+ *   ⚠ 母集団が空なら false。 */
+function judgeFormation(rows, total) {
+  const bad = [];
+  (rows || []).forEach((r) => {
+    const zs = String(r.zones || '').split('>').filter(Boolean);
+    const tag = r.id + '[' + zs.join('>') + ']';
+    if (zs.length !== total) { bad.push(tag + ': 人数 ' + zs.length + ' (期待 ' + total + ')'); return; }
+    if (zs.some((z) => !(z in ZRANK))) { bad.push(tag + ': 未知の zone'); return; }
+    for (let i = 1; i < zs.length; i++) {
+      if (ZRANK[zs[i]] < ZRANK[zs[i - 1]]) { bad.push(tag + ': front->mid->rear の順序が崩れている'); return; }
+    }
+    if (zs[0] !== 'front') { bad.push(tag + ': [0] が front zone でない'); return; }
+    const miss = ZONE_NAMES.filter((z) => zs.indexOf(z) < 0);
+    if (miss.length) bad.push(tag + ': zone 欠落 ' + miss.join(','));
+  });
+  return { ok: (rows || []).length > 0 && bad.length === 0, bad };
+}
+
+/* ── 受入条件 4. の判定本体 ────────────────────────────────────────────────
+ *   rows : SWEEP_SPAWN が返した 1 配置ぶんに腕の情報 (scen / n) を足したもの
+ *          { scen, n, node, via, err, head:[tx,ty], tiles:[[tx,ty]..], walls:[bool..], overlap }
+ *   (a) 全員が互いに別タイル (頭も含めて重複なし)  (b) isTileWall が全員 false
+ *   (c) 「頭に重ねる」最終手段の枝に落ちた仲間が 0 人
+ *   ⭐ (c) は index.html へ dev シームを足さずに測れる。両方の配置関数
+ *     (resolveAllyInitTile / placeNodeParty) は **頭のタイルを taken の種にしてから**
+ *     候補を回すので、仲間のタイルが頭と一致するのは最終手段の枝だけ
+ *     (どちらの候補表にも [0,0] が無いことを実装で確認済み)。 */
+function judgeSpawn(rows) {
+  const bad = [];
+  (rows || []).forEach((r) => {
+    const tag = r.scen + '/N=' + r.n + '/' + r.node + '(via ' + r.via + ')';
+    if (r.err) { bad.push(tag + ': 例外 ' + r.err); return; }
+    if (!Array.isArray(r.tiles) || r.tiles.length !== r.n - 1) {
+      bad.push(tag + ': 仲間 ' + ((r.tiles || []).length) + ' 人ぶんしか採れていない (期待 ' + (r.n - 1) + ')');
+      return;
+    }
+    const keys = new Set();
+    if (r.head) keys.add(r.head.join(','));
+    let dup = 0;
+    r.tiles.forEach((t) => { const k = t.join(','); if (keys.has(k)) dup++; keys.add(k); });
+    if (dup > 0) bad.push(tag + ': (a) 同じタイルに ' + dup + ' 人重なった ' + JSON.stringify(r.tiles));
+    const wall = (r.walls || []).filter(Boolean).length;
+    if (wall > 0) bad.push(tag + ': (b) 壁の中に ' + wall + ' 人 ' + JSON.stringify(r.tiles));
+    if (r.overlap > 0) {
+      bad.push(tag + ': (c) 頭に重ねる枝に ' + r.overlap + ' 人 head=' + JSON.stringify(r.head)
+        + ' tiles=' + JSON.stringify(r.tiles));
+    }
+  });
+  return { ok: (rows || []).length > 0 && bad.length === 0, bad };
+}
+
+/* ── 受入条件 6. の判定本体 ────────────────────────────────────────────────
+ *   rows : [{ n, innerW, collapsed, chips:[{retreat,w,minW}], clientW, scrollW, gapPx, err }]
+ *   ⭐⭐⭐ ここでは **「N=6 は溢れる」といった予測を assert にしない**。測るのは
+ *     ① 観測そのものが成立しているか ② 上限が測定範囲の内側にあるか (溢れた N と
+ *     溢れなかった N が両方在る = 上限を実際に跨いだか) ③ 単調か。上限の値は**報告**する。
+ *   ⚠ 依頼書 (受入条件 6.) の予測値 70.8 / 58.0 / 48.9px は `.hpChip.retreatChip` が
+ *     `flex: 0 0 auto; min-width: 48px` = 伸縮しない固定枠であることを見落としている。
+ *     予測に合わせて assert を書き換えず、実測を出す。 */
+function judgeMiniBar(rows) {
+  const bad = [];
+  (rows || []).forEach((r) => {
+    const tag = 'N=' + r.n;
+    if (r.err) { bad.push(tag + ': ' + r.err); return; }
+    if (r.innerW !== MINIBAR_VIEW.width) bad.push(tag + ': 画面幅 ' + r.innerW + ' (期待 ' + MINIBAR_VIEW.width + ')');
+    if (!r.collapsed) bad.push(tag + ': body.ui-collapsed が付いていない = ミニバーが表示されていない');
+    const chips = r.chips || [];
+    if (chips.length !== r.n + 1) {
+      bad.push(tag + ': チップ ' + chips.length + ' 枚 (期待 ' + (r.n + 1) + ' = 頭 + 仲間 + 撤退)');
+      return;
+    }
+    if (chips.filter((c) => c.retreat).length !== 1) bad.push(tag + ': 撤退チップが 1 枚ではない');
+    if (chips.some((c) => !(c.w > 0))) bad.push(tag + ': 実寸 0 のチップがある (描画されていない)');
+  });
+  return { ok: (rows || []).length > 0 && bad.length === 0, bad };
+}
+const overflowed    = (r) => r.scrollW > r.clientW + 0.5;
+const retreatChipOf = (r) => (r.chips || []).find((c) => c.retreat) || null;
+const partyChipsOf  = (r) => (r.chips || []).filter((c) => !c.retreat);
+/* 実測値どうしの整合: 「左右 padding と撤退枠を先に引いてから残りを等分」を
+   **測った値だけ**から導く。⚠ 依頼書の予測値 (定数) とは比べない。予測が誤っていても実測が正。
+   ⚠⚠ clientWidth は **padding を含む** (border と scrollbar は含まない)。#hpMiniBar は
+     padding: 4px 6px なので左右 12px を先に引かないと 1 チップあたり 3px ずれる
+     (2026-08-23 に実際にずれて (7d) が赤くなった)。実測での検算:
+       N=4 → (390 - 12 - 52.67 - 6x4) / 4 = 75.33px = 実測 75.33px
+       N=5 → (390 - 12 - 52.67 - 6x5) / 5 = 59.07px = 実測 59.06px */
+function partyChipPredicted(r) {
+  const rt = retreatChipOf(r);
+  if (!rt || !(r.clientW > 0)) return null;
+  return (r.clientW - r.padL - r.padR - rt.w - r.gapPx * r.n) / r.n;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ページ側 (酒場): 1 シナリオぶんだけ出発させる。§5/§7 の腕はここから index へ着地する。
+ * ⚠ partyMembers を手で組まない。本番の regeneratePartyMembers() / departToScenario() が
+ *   書いた実体だけを読む (OBSERVE と同じ約束)。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const KICK_ONE = (sid) => {
+  const out = { err: '', total: -1, npc: -1, zones: '' };
+  try {
+    const sc = (typeof scenarios !== 'undefined') ? scenarios.find((s) => s.id === sid) : null;
+    if (!sc) { out.err = 'scenario not found: ' + sid; return out; }
+    prepScenario = sc;
+    regeneratePartyMembers();
+    const pm = (selection && selection.partyMembers) || [];
+    out.total = pm.length;
+    out.npc   = pm.filter((m) => m && !m.isHero).length;
+    out.zones = pm.map((m) => m && m.zone).join('>');
+    departToScenario();
+  } catch (e) { out.err = String((e && e.message) || e); }
+  return out;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ページ側 (index): 受入条件 4. の掃き出し。**本番の関数だけ**を呼ぶ。
+ *   ① 起動時配置 = resolveAllyInitTile()  (index.html:31518。希望 1 個 + 代替 24 個)
+ *   ② ノード遷移 = placeNodeParty(viaDir) (index.html:33230。enterNode の唯一の配置点)
+ * ⭐⭐⭐ ② を落とすと調査が半分になる。仲間の配置点は 1 つではなく **2 つ**在り、
+ *   起動時の 1 回を除く全部 (= 実プレイのほぼ全部) は ② が担っている。
+ *   依頼書の前提表が名指ししているのは ① だけ。
+ * ⚠ ① は生の allies[].x を読んではいけない。heroAI が既に歩かせた後の座標になる。
+ *   **同じ初期状態 (種 = 頭の足元 1 タイルだけ) から本番の関数をもう一度回す**。
+ * ⚠ ② の入口方向は手で並べない。グラフの辺から導く:
+ *     辺 A --d--> B について、B は d で入られ、A は DIR_OPPOSITE[d] で入り直される
+ *     (exitsWithReturn が親へ戻る口を DIR_OPPOSITE[nodeEnteredVia] で作るのと同じ規則)。
+ * ⚠ buildNode は必ず resolveNodeMapDef() を通す (生の mapDef を渡すと sanitize / isCustom が
+ *   付かず、1 枚絵が従来経路へ落ちて別物を測る — 2026-08-17 に実測済みの罠)。
+ * ⚠ 裸の識別子でしか読めない (window.RUN は常に undefined)。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const SWEEP_SPAWN = () => {
+  const out = { err: '', scenarioId: null, entry: null, nodeCount: 0, allies: -1,
+                zones: '', classKeys: '', startMatch: null, initial: null, rows: [] };
+  try {
+    if (typeof RUN === 'undefined' || !RUN || !RUN.graph || !Array.isArray(RUN.graph.nodes)) {
+      out.err = 'RUN.graph.nodes が無い (分岐グラフで起動していない)';
+      return out;
+    }
+    out.scenarioId = RUN.scenarioId;
+    out.entry      = RUN.graph.entry;
+    out.nodeCount  = RUN.graph.nodes.length;
+    out.allies     = allies.length;
+    out.zones      = formation.map((m) => m.zone).join('>');
+    out.classKeys  = formation.map((m) => m.classKey).join(',');
+
+    const allyTile = (a) => [
+      Math.round((a.x + a.def.displaySize / 2 - TILE_SIZE / 2) / TILE_SIZE),
+      Math.round((a.y + a.def.displaySize / 2 - TILE_SIZE / 2) / TILE_SIZE),
+    ];
+
+    /* ── ① 起動時配置 (resolveAllyInitTile) ───────────────────────────────
+       装置ガード: 再実行は「起動時と同じ盤面」でしか意味が無い。PARTY_START_* は
+       起動時に捕まえた const なので、今の START_* と一致していることを測って残す。 */
+    out.startMatch = (PARTY_START_TX === START_TX && PARTY_START_TY === START_TY);
+    allyInitTakenTiles.clear();
+    allyInitTakenTiles.add(PARTY_START_TY * MAP_W + PARTY_START_TX);
+    const init = { node: RUN.graph.entry, kind: 'start', via: '起動時 resolveAllyInitTile', err: '',
+                   head: [PARTY_START_TX, PARTY_START_TY],
+                   headWall: !!isTileWall(PARTY_START_TX, PARTY_START_TY),
+                   tiles: [], walls: [], overlap: 0 };
+    for (const m of formation.slice(1)) {
+      const p = resolveAllyInitTile(m.classKey);
+      init.tiles.push([p.tx, p.ty]);
+      init.walls.push(!!isTileWall(p.tx, p.ty));
+      if (p.tx === PARTY_START_TX && p.ty === PARTY_START_TY) init.overlap++;
+    }
+    out.initial = init;
+
+    /* ── ② ノード遷移配置 (placeNodeParty) ──────────────────────────────── */
+    const DIRS = {};
+    const add = (id, d) => { if (!d) return; (DIRS[id] = DIRS[id] || {})[d] = 1; };
+    for (const n of RUN.graph.nodes) {
+      for (const ex of (n.exits || [])) {
+        if (!ex || !ex.dir) continue;
+        add(ex.to, ex.dir);                      /* 子へ前進して入る */
+        add(n.id, DIR_OPPOSITE[ex.dir]);         /* 子から引き返して入り直す */
+      }
+    }
+    for (const n of RUN.graph.nodes) {
+      const dirs = Object.keys(DIRS[n.id] || {});
+      if (!dirs.length) dirs.push('');           /* 入口の無いノード = 起点。entryDir なしで置く */
+      for (const d of dirs) {
+        const row = { node: n.id, kind: n.kind, via: d || 'entryDir なし', err: '',
+                      head: null, headWall: null, tiles: [], walls: [], overlap: 0 };
+        try {
+          buildNode(resolveNodeMapDef(n.id), n.id);
+          placeNodeParty(d || null);
+          const ht = [Math.round((playerX - SNAP_X_OFFSET) / TILE_SIZE),
+                      Math.round((playerY - SNAP_Y_OFFSET) / TILE_SIZE)];
+          row.head = ht;
+          row.headWall = !!isTileWall(ht[0], ht[1]);
+          for (const a of allies) {
+            if (!a) continue;
+            const t = allyTile(a);
+            row.tiles.push(t);
+            row.walls.push(!!isTileWall(t[0], t[1]));
+            if (t[0] === ht[0] && t[1] === ht[1]) row.overlap++;
+          }
+        } catch (e) { row.err = String((e && e.message) || e); }
+        out.rows.push(row);
+      }
+    }
+  } catch (e) { out.err = String((e && e.message) || e); }
+  return out;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ページ側 (index): 受入条件 6. 下部 HP ミニバーの実寸。
+ * ⚠ 予測値をページへ持ち込まない。getBoundingClientRect() の実測と、導出に要る
+ *   CSS の実測値 (gap / padding / clientWidth / scrollWidth) だけを返す。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const MEASURE_MINIBAR = () => {
+  const out = { err: '', allies: -1, innerW: -1, collapsed: false, compact: false,
+                chips: [], clientW: -1, scrollW: -1, barW: -1, gapPx: -1, padL: -1, padR: -1 };
+  try {
+    out.allies    = (typeof allies !== 'undefined') ? allies.length : -1;
+    out.innerW    = window.innerWidth;
+    out.collapsed = !!(document.body && document.body.classList.contains('ui-collapsed'));
+    out.compact   = !!(document.body && document.body.classList.contains('ui-compact'));
+    const mini = document.getElementById('hpMiniBar');
+    if (!mini) { out.err = '#hpMiniBar が無い'; return out; }
+    const cs = getComputedStyle(mini);
+    out.gapPx   = parseFloat(cs.gap || cs.columnGap || '0') || 0;
+    out.padL    = parseFloat(cs.paddingLeft || '0') || 0;
+    out.padR    = parseFloat(cs.paddingRight || '0') || 0;
+    out.barW    = +mini.getBoundingClientRect().width.toFixed(2);
+    out.clientW = mini.clientWidth;
+    out.scrollW = mini.scrollWidth;
+    out.chips = Array.prototype.map.call(mini.querySelectorAll('.hpChip'), (c) => ({
+      retreat: c.classList.contains('retreatChip'),
+      w:       +c.getBoundingClientRect().width.toFixed(2),
+      minW:    parseFloat(getComputedStyle(c).minWidth || '0') || 0,
+      name:    (c.querySelector('.chipName') || {}).textContent || '',
+    }));
+  } catch (e) { out.err = String((e && e.message) || e); }
+  return out;
+};
+
 /* ══════════════════════════════════════════════════════════════════════════ */
 (async () => {
   /* ── 装置の故障は先に落とす: 変異アンカーが 1 箇所ちょうどか ── */
@@ -277,6 +534,20 @@ const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.tot
   /* ⚠ purge は「1 タブにつき 1 回だけ」。evaluateOnNewDocument は新しい document ができるたびに
      走るので、無条件だと遷移先で前ページの書き込みを消してしまう。 */
   const PURGE_MARK = '__dfProbePartyPurged';
+  /* ⚠ 酒場だけの腕 (openTavern) と index まで着地する腕 (openIndexArm) で **同じ 1 本**を使う。
+     2 本に写すと、片方だけ prologueSeen を立て忘れて「片方の腕だけ別のゲームを測る」になる。 */
+  const PURGE_ON_NEW_DOC = (mark) => {
+    try {
+      if (sessionStorage.getItem(mark)) return;
+      const kill = (store) => Object.keys(store).forEach((k) => {
+        if (k.indexOf('df.') === 0) store.removeItem(k);
+        if (k.indexOf('dragonfighters.') === 0) store.removeItem(k);
+      });
+      kill(localStorage); kill(sessionStorage);
+      localStorage.setItem('dragonfighters.prologueSeen', '1');
+      sessionStorage.setItem(mark, '1');
+    } catch (e) {}
+  };
   async function openTavern(query) {
     const page = await browser.newPage();
     const navBlocked = [];
@@ -285,18 +556,7 @@ const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.tot
     page.__console = consoleLines;
     page.on('pageerror', (e) => pageErrors.push(query + ' :: ' + e.message));
     page.on('console', (m) => { consoleLines.push(m.text()); });
-    await page.evaluateOnNewDocument((mark) => {
-      try {
-        if (sessionStorage.getItem(mark)) return;
-        const kill = (store) => Object.keys(store).forEach((k) => {
-          if (k.indexOf('df.') === 0) store.removeItem(k);
-          if (k.indexOf('dragonfighters.') === 0) store.removeItem(k);
-        });
-        kill(localStorage); kill(sessionStorage);
-        localStorage.setItem('dragonfighters.prologueSeen', '1');
-        sessionStorage.setItem(mark, '1');
-      } catch (e) {}
-    }, PURGE_MARK);
+    await page.evaluateOnNewDocument(PURGE_ON_NEW_DOC, PURGE_MARK);
 
     /* index.html への遷移だけ abort する。departToScenario() は本番のまま完走し、
        tavern.html のページ (と JS 状態) が生き残るので 6 シナリオを 1 タブで測れる。 */
@@ -319,6 +579,45 @@ const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.tot
       { timeout: 30000 });
     await sleep(500);
     return page;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * §5 / §7 の腕 — 酒場を本番どおり通してから **index.html へ実際に着地する**。
+   * ⛔⛔ index.html を直接開かないこと。isRecruitOn() / recruitCountOf() /
+   *   devPartySizeOverride() は tavern.html にしか無いので、index 直起動の腕は
+   *   人数の指定が一切効かず全部 4 人になる = 腕が割れない (#8 が実際に踏んだ)。
+   * ⚠ openTavern と違い遷移を横取りしない (横取りすると index に着かない)。
+   * ⚠ ?autoplay は付けない。autoplay は FX / カメラ追従 / ナレ / sleepMs 倍率まで
+   *   一括で切るので、測る対象そのものが別物になる。
+   * ══════════════════════════════════════════════════════════════════════ */
+  async function openIndexArm(sid, n, viewport) {
+    const page = await browser.newPage();
+    const tag = sid + '/N=' + n;
+    page.on('pageerror', (e) => pageErrors.push('index ' + tag + ' :: ' + e.message));
+    await page.setViewport(viewport);
+    await page.evaluateOnNewDocument(PURGE_ON_NEW_DOC, PURGE_MARK);
+    await page.goto('http://localhost:' + PORT + '/tavern.html?party=' + n,
+      { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(
+      "typeof scenarios !== 'undefined' && typeof departToScenario === 'function'"
+      + " && typeof regeneratePartyMembers === 'function' && typeof devPartySizeOverride === 'function'"
+      + " && typeof selection !== 'undefined' && selection && Array.isArray(selection.partyComposition)",
+      { timeout: 30000 });
+    const kick = await page.evaluate(KICK_ONE, sid);
+    /* index の着地待ち。⚠ 固定 sleep で誤魔化さない (sweep_recruit_balance と同じ待ち条件 +
+       この節が読む allies / RUN が揃うまで)。 */
+    let landed = '';
+    try {
+      await page.waitForFunction(
+        "typeof mapData !== 'undefined' && typeof heroAI === 'function'"
+        + " && typeof allies !== 'undefined' && typeof placeNodeParty === 'function'"
+        + " && typeof buildNode === 'function' && typeof RUN !== 'undefined'",
+        { timeout: 60000 });
+      landed = page.url();
+    } catch (e) {
+      landed = 'TIMEOUT url=' + page.url();
+    }
+    return { page, kick, landed, tag };
   }
 
   let exitCode = 0;
@@ -478,6 +777,246 @@ const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.tot
     }
 
     /* ══════════════════════════════════════════════════════════════════════
+     * §5〜§7 (STEP2) — 静的・幾何の測定 (受入条件 4. / 5. / 6.)
+     * ──────────────────────────────────────────────────────────────────────
+     * ⚠ --negative では走らせない。変異 (MUT_FROM → MUT_TO) が書き換えるのは
+     *   devPartySizeOverride の「raw === null」枝 = **?party 無指定のときだけ通る枝**で、
+     *   これらの節は必ず ?party=N を渡すので**原理的に届かない**。
+     *   その「届かない」こと自体は (4d) が同じ観測で機械的に判定している。
+     *   ⭐ 届かない節を負のコントロールに混ぜると、走行時間だけ倍になって信号が 1 ビットも
+     *     増えない (しかも「赤くならなかった」の理由が 2 種類に増えて読めなくなる)。
+     * ══════════════════════════════════════════════════════════════════════ */
+    if (NEGATIVE) {
+      console.log('====== §5〜§7 受入条件 4. / 5. / 6. ======');
+      console.log('  -- --negative では走らせない。変異は devPartySizeOverride の');
+      console.log('     「raw === null」枝 (= ?party 無指定) だけを書き換えるので、');
+      console.log('     ?party=N を必ず渡すこれらの節には原理的に届かない。');
+      console.log('     その「届かない」こと自体は (4d) が同じ観測で機械的に判定している。 --');
+    } else {
+      const tStep2 = Date.now();
+
+      /* ── 腕の起動 (N=5 / N=6 x 6 シナリオ)。⚠ この節で唯一の重い処理 ── */
+      const spawnArms = [];
+      for (const n of [PROBE_N, PROBE_N6]) {
+        for (const sid of SCENARIO_IDS) {
+          const arm = await openIndexArm(sid, n, { width: 1280, height: 900 });
+          let sweep = { err: '着地せず: ' + arm.landed, rows: [], initial: null,
+                        allies: -1, nodeCount: 0, zones: '', classKeys: '', startMatch: null };
+          if (/\/index\.html/.test(arm.landed)) sweep = await arm.page.evaluate(SWEEP_SPAWN);
+          spawnArms.push({ scen: sid, n, landed: arm.landed, kick: arm.kick, sweep });
+          try { await arm.page.close(); } catch (e) {}
+        }
+      }
+      /* 1 配置 = 1 行へ畳む (起動時配置 ① + ノード遷移配置 ②) */
+      const spawnRows = [];
+      for (const a of spawnArms) {
+        const rs = [];
+        if (a.sweep.initial) rs.push(a.sweep.initial);
+        for (const r of (a.sweep.rows || [])) rs.push(r);
+        for (const r of rs) spawnRows.push(Object.assign({ scen: a.scen, n: a.n }, r));
+      }
+
+      /* ══ §5 受入条件 4. スポーンタイル ══════════════════════════════════
+       * ⚠⚠⚠ 母集団ガード: 「違反 0 件」は母集団が 0 でも 0 件になる。
+       *   何シナリオ / 何ノード / 何配置を実際に測ったかを**必ず先頭に出す**。 */
+      console.log('====== §5 受入条件 4. スポーンタイル ======');
+      console.log('  母集団: 腕 ' + spawnArms.length + ' 本 (N=' + PROBE_N + ' / N=' + PROBE_N6
+        + ' x ' + SCENARIO_IDS.length + ' シナリオ)');
+      for (const a of spawnArms) {
+        console.log('    ' + a.scen + ' N=' + a.n
+          + ': 着地=' + (/\/index\.html/.test(a.landed) ? 'index.html' : a.landed)
+          + ' / 仲間=' + a.sweep.allies + '人'
+          + ' / ノード=' + a.sweep.nodeCount + '件'
+          + ' / 配置測定=' + ((a.sweep.rows || []).length + (a.sweep.initial ? 1 : 0)) + '件'
+          + (a.sweep.err ? '  NG ' + a.sweep.err : ''));
+      }
+      const allyPlacements = spawnRows.reduce((s, r) => s + (r.tiles || []).length, 0);
+      console.log('  合計 配置 ' + spawnRows.length + ' 件 / 仲間の着地 ' + allyPlacements + ' 人ぶん');
+
+      /* 実装の候補数を実装から読む (⭐ 依頼書の前提表は起動時配置の代替候補しか見ていない) */
+      const idxSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+      const countPairs = (s) => (s ? (s.match(/\[\s*-?\d+\s*,\s*-?\d+\s*\]/g) || []).length : -1);
+      const mFall = idxSrc.match(/const ALLY_FALLBACK_OFFSETS = \[([\s\S]*?)\];/);
+      const mRing = idxSrc.match(/const RING = \[([\s\S]*?)\];/);
+      const nFall = countPairs(mFall && mFall[1]);
+      const nRing = countPairs(mRing && mRing[1]);
+      console.log('  実装の候補数: 起動時 resolveAllyInitTile = 希望1 + 代替 ' + nFall
+        + ' 個 / ノード遷移 placeNodeParty = RING ' + nRing + ' 個');
+
+      const vSpawn      = judgeSpawn(spawnRows);
+      const overlapRows = spawnRows.filter((r) => r.overlap > 0);
+      const wallRows    = spawnRows.filter((r) => (r.walls || []).some(Boolean));
+      /* ⭐ (c) が 1 人でも出たノードは座標を全部ログに残す (そのノードが上限の真の制約) */
+      if (overlapRows.length) {
+        console.log('  ★ (c) 頭に重ねる枝に落ちた配置 ' + overlapRows.length + ' 件 — 座標を全部残す:');
+        overlapRows.forEach((r) => console.log('     ' + r.scen + ' N=' + r.n + ' node=' + r.node
+          + '(' + r.kind + ') via=' + r.via + ' head=' + JSON.stringify(r.head)
+          + ' 仲間=' + JSON.stringify(r.tiles)));
+      } else {
+        console.log('  ★ (c) 頭に重ねる枝に落ちた仲間: 0 人 / 全 ' + spawnRows.length + ' 配置 ('
+          + allyPlacements + ' 人ぶん)');
+      }
+      if (wallRows.length) {
+        console.log('  ★ (b) 壁の中に湧いた配置 ' + wallRows.length + ' 件:');
+        wallRows.forEach((r) => console.log('     ' + r.scen + ' N=' + r.n + ' node=' + r.node
+          + ' via=' + r.via + ' 仲間=' + JSON.stringify(r.tiles) + ' walls=' + JSON.stringify(r.walls)));
+      }
+
+      check('(5a) 12 腕すべてが index.html へ着地し、指定どおり N 人で出発した',
+        spawnArms.length === 2 * SCENARIO_IDS.length
+        && spawnArms.every((a) => /\/index\.html/.test(a.landed)
+          && a.kick.total === a.n && a.sweep.allies === a.n - 1),
+        spawnArms.map((a) => a.scen + '/N=' + a.n + ':計' + a.kick.total + '人/仲間' + a.sweep.allies).join(' '));
+      check('(5b) 6 シナリオ x 全ノード x 全入口方向で (a) 別タイル (b) 壁でない (c) 頭重ね 0 人',
+        vSpawn.ok, vSpawn.bad.length ? vSpawn.bad.slice(0, 6).join(' / ') : '違反なし ('
+          + spawnRows.length + ' 配置 / ' + allyPlacements + ' 人ぶん)');
+      check('(5c) 頭 (playerX/Y) 自身も壁の中に立っていない',
+        spawnRows.length > 0 && spawnRows.every((r) => r.headWall === false),
+        '壁の中の頭 ' + spawnRows.filter((r) => r.headWall !== false).length + ' 件');
+      check('(5z1) 判定本体は空の観測で落ちる (母集団 0 件で緑にならない)',
+        judgeSpawn([]).ok === false);
+      check('(5z2) 判定本体は (a)(b)(c) を実際に赤にし、正常な観測は緑にする',
+        [{ scen: 'x', n: 3, node: 'n0', via: 'up', head: [0, 0], headWall: false,
+           tiles: [[1, 1], [1, 1]], walls: [false, false], overlap: 0 },
+         { scen: 'x', n: 3, node: 'n0', via: 'up', head: [0, 0], headWall: false,
+           tiles: [[1, 1], [2, 2]], walls: [true, false], overlap: 0 },
+         { scen: 'x', n: 3, node: 'n0', via: 'up', head: [0, 0], headWall: false,
+           tiles: [[0, 0], [2, 2]], walls: [false, false], overlap: 1 }]
+          .every((r) => judgeSpawn([r]).ok === false)
+        && judgeSpawn([{ scen: 'x', n: 3, node: 'n0', via: 'up', head: [0, 0], headWall: false,
+             tiles: [[1, 1], [2, 2]], walls: [false, false], overlap: 0 }]).ok === true);
+      check('(5z3) 起動時配置の再実行は起動時と同じ盤面で行われた (PARTY_START_* === START_*)',
+        spawnArms.length > 0 && spawnArms.every((a) => a.sweep.startMatch === true),
+        spawnArms.map((a) => a.scen + '/N=' + a.n + ':' + a.sweep.startMatch).join(' '));
+      check('(5z4) 母集団: どの腕でも「起動時配置 1 件 + ノード遷移配置 2 件以上」を実際に踏んだ',
+        spawnArms.length > 0 && spawnArms.every((a) => a.sweep.initial && (a.sweep.rows || []).length >= 2),
+        spawnArms.map((a) => a.scen + '/N=' + a.n + ':' + ((a.sweep.rows || []).length)).join(' '));
+      check('(5z5) 配置関数 2 本の候補数を実装から読めた (前提表が見ていない側が在ることの証明)',
+        nFall > 0 && nRing > 0, '起動時の代替=' + nFall + '個 / ノード遷移の RING=' + nRing + '個');
+
+      /* ══ §6 受入条件 5. 隊列順と zone ═══════════════════════════════════ */
+      console.log('====== §6 受入条件 5. 隊列順と zone ======');
+      const pageN6 = await openTavern('?party=' + PROBE_N6);
+      const obsN6  = await pageN6.evaluate(OBSERVE, SCENARIO_IDS);
+      await sleep(900);
+      const formTav5 = obsFixed.rows.map((r) => ({ id: 'tavern/' + r.id, zones: r.zones }));
+      const formTav6 = obsN6.rows.map((r) => ({ id: 'tavern/' + r.id, zones: r.zones }));
+      const formIdx5 = spawnArms.filter((a) => a.n === PROBE_N)
+        .map((a) => ({ id: 'index/' + a.scen, zones: a.sweep.zones }));
+      const formIdx6 = spawnArms.filter((a) => a.n === PROBE_N6)
+        .map((a) => ({ id: 'index/' + a.scen, zones: a.sweep.zones }));
+      console.log('  母集団: 酒場の出力 N=' + PROBE_N + ' が ' + formTav5.length + ' 件 / N=' + PROBE_N6
+        + ' が ' + formTav6.length + ' 件、index が実際に読んだ formation N=' + PROBE_N + ' が '
+        + formIdx5.length + ' 件 / N=' + PROBE_N6 + ' が ' + formIdx6.length + ' 件');
+      [['酒場 N=' + PROBE_N, formTav5], ['酒場 N=' + PROBE_N6, formTav6],
+       ['index N=' + PROBE_N, formIdx5], ['index N=' + PROBE_N6, formIdx6]].forEach(([lbl, rs]) => {
+        console.log('    ' + lbl + ': ' + rs.map((r) => r.id.split('/')[1] + '=' + r.zones).join('  '));
+      });
+      const vF5t = judgeFormation(formTav5, PROBE_N);
+      const vF6t = judgeFormation(formTav6, PROBE_N6);
+      const vF5i = judgeFormation(formIdx5, PROBE_N);
+      const vF6i = judgeFormation(formIdx6, PROBE_N6);
+      check('(6a) N=' + PROBE_N + ' の隊列が front->mid->rear / [0]=front / zone 欠落なし (酒場の出力)',
+        vF5t.ok, vF5t.bad.join(' / ') || '6 シナリオとも成立');
+      check('(6b) N=' + PROBE_N6 + ' の隊列が front->mid->rear / [0]=front / zone 欠落なし (酒場の出力)',
+        vF6t.ok, vF6t.bad.join(' / ') || '6 シナリオとも成立');
+      check('(6c) N=' + PROBE_N + ' の隊列 — index が実際に読んだ formation でも成立 (2 経路目)',
+        vF5i.ok, vF5i.bad.join(' / ') || '6 シナリオとも成立');
+      check('(6d) N=' + PROBE_N6 + ' の隊列 — index が実際に読んだ formation でも成立 (2 経路目)',
+        vF6i.ok, vF6i.bad.join(' / ') || '6 シナリオとも成立');
+      check('(6z1) 判定本体は空の観測で落ちる', judgeFormation([], PROBE_N).ok === false);
+      check('(6z2) 判定本体は順序崩れ / zone 欠落 / [0] 非 front を実際に赤にする',
+        judgeFormation([{ id: 'x', zones: 'front>rear>mid' }], 3).ok === false
+        && judgeFormation([{ id: 'x', zones: 'front>front>mid' }], 3).ok === false
+        && judgeFormation([{ id: 'x', zones: 'mid>mid>rear' }], 3).ok === false
+        && judgeFormation([{ id: 'x', zones: 'front>mid>rear' }], 3).ok === true);
+
+      /* ══ §7 受入条件 6. 下部 HP ミニバーの枠 ════════════════════════════ */
+      console.log('====== §7 受入条件 6. 下部 HP ミニバーの枠 ======');
+      const MINIBAR_SCEN = SCENARIO_IDS[0];
+      const barRows = [];
+      for (const n of MINIBAR_NS) {
+        const arm = await openIndexArm(MINIBAR_SCEN, n, MINIBAR_VIEW);
+        let m = { err: '着地せず: ' + arm.landed, chips: [], innerW: -1, collapsed: false,
+                  clientW: -1, scrollW: -1, gapPx: -1 };
+        if (/\/index\.html/.test(arm.landed)) {
+          /* ⚠ 固定 sleep で誤魔化さない。ミニバーは renderPartyStatuses から描かれるので
+             チップが 1 枚でも出るまでポーリングする。 */
+          try {
+            await arm.page.waitForFunction(
+              "(document.getElementById('hpMiniBar') || {}).childElementCount > 0", { timeout: 20000 });
+          } catch (e) { /* 出なければ下の judgeMiniBar が枚数違いで赤くする */ }
+          m = await arm.page.evaluate(MEASURE_MINIBAR);
+        }
+        barRows.push(Object.assign({ n, scen: MINIBAR_SCEN }, m));
+        try { await arm.page.close(); } catch (e) {}
+      }
+      console.log('  母集団: ' + barRows.length + ' 腕 (N=' + MINIBAR_NS.join(' / ') + ') / 画面 '
+        + MINIBAR_VIEW.width + 'x' + MINIBAR_VIEW.height + ' / シナリオ=' + MINIBAR_SCEN);
+      barRows.forEach((r) => {
+        const rt = retreatChipOf(r);
+        const pred = partyChipPredicted(r);
+        console.log('    N=' + r.n + ': チップ ' + (r.chips || []).length + ' 枚'
+          + ' / 頭+仲間 = [' + partyChipsOf(r).map((c) => c.w).join(', ') + ']px'
+          + ' / 撤退 = ' + (rt ? rt.w + 'px (min-width ' + rt.minW + ')' : '(なし)')
+          + ' / bar client=' + r.clientW + ' scroll=' + r.scrollW
+          + ' gap=' + r.gapPx + ' padding=' + r.padL + '+' + r.padR
+          + ' / 横スクロール=' + (r.err ? '(測れず)' : (overflowed(r) ? '★あり' : 'なし'))
+          + ' / 実測からの導出値=' + (pred === null ? '-' : pred.toFixed(2)) + 'px'
+          + (r.err ? '  NG ' + r.err : ''));
+      });
+      const barOK   = barRows.filter((r) => !r.err && (r.chips || []).length === r.n + 1);
+      const barFit  = barOK.filter((r) => !overflowed(r)).map((r) => r.n);
+      const barOver = barOK.filter((r) =>  overflowed(r)).map((r) => r.n);
+      const barLimit = barFit.length ? Math.max.apply(null, barFit) : null;
+      console.log('  ⭐ 横スクロールに落ちない N の上限 = '
+        + (barLimit === null ? '(測定範囲内に無い)' : barLimit + ' 人')
+        + '   溢れない N=[' + barFit.join(',') + '] / 溢れる N=[' + barOver.join(',') + ']');
+      /* ⚠ 予測との突き合わせは **ログだけ**。assert には一切使わない (実測が正)。 */
+      const rtW = (retreatChipOf(barOK[0] || {}) || {}).w;
+      console.log('  ⚠ 依頼書 受入条件 6. の予測 (4人 70.8 / 5人 58.0 / 6人 48.9px) は、撤退チップが');
+      console.log('     .hpChip.retreatChip { flex: 0 0 auto; min-width: 48px } = 伸縮しない固定枠で');
+      console.log('     あることを見落としている。⭐ さらに撤退チップの実寸は min-width の 48px ではなく');
+      console.log('     **中身 (🏃 撤退) の幅 ' + (rtW === undefined ? '(未測定)' : rtW + 'px')
+        + '** だった (flex:0 0 auto = auto basis なので内容幅で決まり、');
+      console.log('     min-width はその下限でしかない)。上の実測が正。');
+      const vBar = judgeMiniBar(barRows);
+      const predOK = barOK.filter((r) => !overflowed(r)).every((r) => {
+        const pred = partyChipPredicted(r);
+        return pred !== null && partyChipsOf(r).every((c) => Math.abs(c.w - pred) <= 0.75);
+      });
+      const clampOK = barOK.filter((r) => overflowed(r)).every(
+        (r) => partyChipsOf(r).every((c) => Math.abs(c.w - c.minW) <= 0.5));
+      check('(7a) 390x844 の compact で N=' + MINIBAR_NS.join('/') + ' のミニバーを実測できた',
+        vBar.ok, vBar.bad.join(' / ') || barRows.length + ' 腕とも観測成立');
+      check('(7b) 上限が測定範囲の内側にある (溢れる N と溢れない N が両方在る = 上限を実際に跨いだ)',
+        barFit.length > 0 && barOver.length > 0,
+        '溢れない=[' + barFit.join(',') + '] / 溢れる=[' + barOver.join(',') + ']');
+      check('(7c) 単調: 溢れない N はすべて溢れる N より小さい',
+        barFit.length > 0 && barOver.length > 0
+        && barFit.every((f) => barOver.every((o) => f < o)),
+        '上限=' + barLimit);
+      check('(7d) 溢れない N では「撤退枠を引いてから残りを等分」の導出と実測が 0.75px 以内で一致',
+        barOK.filter((r) => !overflowed(r)).length > 0 && predOK,
+        barOK.filter((r) => !overflowed(r)).map((r) => 'N=' + r.n + ':実測'
+          + (partyChipsOf(r)[0] || {}).w + '/導出' + (partyChipPredicted(r) || 0).toFixed(2)).join(' '));
+      check('(7e) 溢れる N では仲間チップが CSS の min-width に張り付いている (それ以上縮まない)',
+        barOK.filter((r) => overflowed(r)).length > 0 && clampOK,
+        barOK.filter((r) => overflowed(r)).map((r) => 'N=' + r.n + ':'
+          + partyChipsOf(r).map((c) => c.w + '/' + c.minW).join(',')).join(' '));
+      check('(7z1) 判定本体は空の観測で落ちる', judgeMiniBar([]).ok === false);
+      check('(7z2) 判定本体はチップ枚数の食い違い / 非表示を実際に赤にする',
+        judgeMiniBar([{ n: 5, innerW: MINIBAR_VIEW.width, collapsed: true,
+          chips: [{ retreat: false, w: 60 }, { retreat: true, w: 48 }] }]).ok === false
+        && judgeMiniBar([{ n: 1, innerW: MINIBAR_VIEW.width, collapsed: false,
+          chips: [{ retreat: false, w: 60 }, { retreat: true, w: 48 }] }]).ok === false
+        && judgeMiniBar([{ n: 1, innerW: MINIBAR_VIEW.width, collapsed: true,
+          chips: [{ retreat: false, w: 60 }, { retreat: true, w: 48 }] }]).ok === true);
+
+      console.log('  (§5〜§7 の所要 ' + Math.round((Date.now() - tStep2) / 1000) + ' 秒)');
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
      * ここから下は後続 STEP の担当。見出しだけ置いて中身は譲る。
      * ⚠ 空セクションは results に 1 件も積まない (未実装が緑に数えられないように)。
      * ══════════════════════════════════════════════════════════════════════ */
@@ -485,9 +1024,6 @@ const dump = (rows) => rows.map((r) => r.id + '(星' + r.stars + ')=計' + r.tot
       console.log('====== ' + title + ' ======');
       console.log('  -- 未実装 (' + owner + ' の担当) --');
     };
-    todo('§5 受入条件 4. スポーンタイル (N=5 / N=6 で別タイル・壁でない・頭に重ねる枝 0 人)', 'STEP2');
-    todo('§6 受入条件 5. 隊列順と zone (front->mid->rear / [0] が front / zone が欠けていない)', 'STEP2');
-    todo('§7 受入条件 6. 下部 HP ミニバーの枠 (390x844 でチップ実寸 / 横スクロールに落ちない N の上限)', 'STEP2');
     todo('§8 受入条件 7. カメラ / 主人公が画面外のフレーム率 (N=4 と N=5 のペア比較)', 'STEP3');
     todo('§9 受入条件 8. カメラ / クランプ区間が空に落ちた率 (loCx<=hiCx が偽になった回数)', 'STEP3');
     todo('§10 受入条件 9. 置き去りと救済 (MAX_LAG 超の待ち / ワープ救済の発動回数)', 'STEP3');
