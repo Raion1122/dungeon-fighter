@@ -617,6 +617,46 @@
       margin-left: 4px;
     }
 
+    /* 行動の優先度 (実装依頼書 #19): 状況ごとに「この技を優先」をプルダウンで指示する。
+       ⚠ 親の .equipGroup は横並び flex なので min-width:0 を切らすと <select> の
+          既定幅 (内容依存) に張られ、iPhone (compact) で #apRows が横スクロールする。
+       ⚠ 既存の .skillItem / .equipList には一切触っていない (新規 class 3 つだけ)。 */
+    .apRows {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .apRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .apRow > label {
+      flex: 0 0 auto;
+      width: 38px;
+      font-size: 12px;
+      line-height: 1.3;
+      color: var(--parchment-ink-soft);
+      letter-spacing: 1px;
+    }
+    .apSel {
+      flex: 1 1 auto;
+      width: 100%;
+      max-width: 260px;
+      min-width: 0;
+      min-height: 34px;
+      padding: 5px 6px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--parchment-ink);
+      background: rgba(255,245,210,0.55);
+      border: 2px solid rgba(139,105,20,0.35);
+      border-radius: 3px;
+    }
+
     /* パーティースロットタブ (編成中のキャラ数に応じて自動列数) */
     .partyTabs {
       display: grid;
@@ -2016,6 +2056,13 @@
             <div class="equipLabel">魔法 <span id="magicHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span></div>
             <div class="skillList" id="magicList"></div>
           </div>
+          <!-- 行動の優先度 (実装依頼書 #19 / STEP2): 状況ごとに「この技を優先」を指示する -->
+          <div class="equipGroup" id="actionPrioritySection">
+            <div class="equipLabel">🎯 行動の優先度
+              <span id="apHint" style="opacity:0.55;font-size:11px;font-style:italic;"></span>
+            </div>
+            <div class="apRows" id="apRows"></div>
+          </div>
         </div>
         <!-- スクロール書庫: キャラタブと独立 (聖典→僧侶/巻物→魔法使い/森の書→エルフ を一ヶ所で習得) -->
         <div class="prepPanel" id="scrollLibrarySection" style="display:none;">
@@ -2069,10 +2116,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間に戦い方を指示できるようになった</b> — 出発の準備で「雑魚にはスリープ、ボスにはファイアボール」のように技の優先度を決められる。僧侶なら道中に祝福をかけさせることもできる。</li>
         <li><b>街と酒場に専用のBGMを追加</b> — 港町フランと銀の鹿亭で、それぞれ違う曲が流れるようになった。</li>
         <li><b>盗賊団の根城が 1 枚の戦場になった</b> — 森の街道からアジトの天幕まで、途切れずひと続きの野営地を進む。罠も宝箱も檻もその中にある。</li>
         <li><b>自分のキャラの頭上に金色の ▽ が出るようになった</b> — 街でもダンジョンでも、仲間と入り乱れてどれが自分か分からなくなることがない。</li>
-        <li><b>街の看板が羊皮紙の立て札になった</b> — 施設名だけでなく「何ができる場所か」も書いてある。</li>
       </ul>
     </div>
     <script>
@@ -3181,6 +3228,27 @@
   ];
   const SKILL_SLOT_LIMIT = 3;
 
+  // ── 行動の優先度 (実装依頼書 #19) ──
+  // 状況キー。UI の行順もこの順。"general" は他 3 つが未設定のときの落とし先。
+  const AP_SITUATIONS = [
+    { key: "general", label: "全般", hint: "下の 3 つが未設定のときに使う" },
+    { key: "mob",     label: "雑魚", hint: "ボス格がいない戦闘" },
+    { key: "boss",    label: "ボス", hint: "ボス格が 1 体でもいる戦闘" },
+    { key: "travel",  label: "道中", hint: "探索フェーズ (歩いている間)" },
+  ];
+  // 道中に唱えられるのは「呪文スロットを消費し、敵を対象に取らない呪文」だけ。
+  //   1戦1回スキル (battle-roar 等) を許すと、戦闘開始の
+  //   `a.skillsUsedInEncounter.clear()` (index.html) で使用記録が消え、
+  //   同じ戦闘でもう一度撃てる = 実質2回撃てる抜け道になる。
+  //   このリストは index.html 側と完全に一致していなければならない (二重定義)。
+  //     ドライバ 0b が両者の突合を機械検査する。
+  const TRAVEL_CASTABLE_IDS = [
+    "bless", "shield-of-faith", "striking",
+    "cure-light-wounds", "cure-moderate-wounds", "cure-serious-wounds", "cure-critical-wounds",
+    "arcane-shield",
+    "cure-minor", "haste",
+  ];
+
   // ── パーティースロット定義 (現状は 5 キャラ枠: 戦士 + 仲間 4 人) ──
   const PARTY_SLOTS = [
     { classKey: "warrior", name: "戦士", skillPool: WARRIOR_SKILLS_UI,
@@ -4004,7 +4072,29 @@
         }
       }
     } catch (e) { /* ignore */ }
-    return { equipWeapon, equipArmor, equipShield, equipAccessory1, equipAccessory2, partySkills, allyEquip, partyComposition, partyMembers };
+    // 行動の優先度 { classKey: { general, mob, boss, travel } }。値は skillId または null。
+    const actionPriority = {};
+    for (const slot of PARTY_SLOTS) {
+      if (slot) actionPriority[slot.classKey] = { general: null, mob: null, boss: null, travel: null };
+    }
+    try {
+      const apRaw = localStorage.getItem("dragonfighters.actionPriority");
+      if (apRaw) {
+        const parsed = JSON.parse(apRaw) || {};
+        for (const slot of PARTY_SLOTS) {
+          if (!slot) continue;
+          const src = parsed[slot.classKey];
+          if (!src) continue;
+          // skillPool に無い ID は捨てる (旧セーブ / 手書き改変への耐性。partySkills と同じ作法)
+          const validIds = new Set(slot.skillPool.map(sk => sk.id));
+          for (const s of AP_SITUATIONS) {
+            const v = src[s.key];
+            if (typeof v === "string" && validIds.has(v)) actionPriority[slot.classKey][s.key] = v;
+          }
+        }
+      }
+    } catch (e) { /* 壊れていたら既定 (全部 null) のまま */ }
+    return { equipWeapon, equipArmor, equipShield, equipAccessory1, equipAccessory2, partySkills, allyEquip, partyComposition, partyMembers, actionPriority };
   }
   const selection = loadSelections();
 
@@ -4016,6 +4106,7 @@
       localStorage.setItem("dragonfighters.partySkills", JSON.stringify(selection.partySkills));
       localStorage.setItem("dragonfighters.allyEquip",  JSON.stringify(selection.allyEquip));
       localStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
+      localStorage.setItem("dragonfighters.actionPriority", JSON.stringify(selection.actionPriority));
       // v7.1: 主人公アクセサリー (index.html が読む)
       localStorage.setItem("dragonfighters.equipAccessory1", selection.equipAccessory1 || "none");
       localStorage.setItem("dragonfighters.equipAccessory2", selection.equipAccessory2 || "none");
@@ -5189,6 +5280,90 @@
     });
   }
 
+  // ══════════ 行動の優先度 (実装依頼書 #19 / STEP2) ══════════
+  // 候補は「今そのキャラが枠に入れている技」だけにする。装備していない技を指定できると、
+  // 指示が永久に空振りするため。母集団の作り方は既存の 2 本をそのまま流用する:
+  //   僧侶 (自動配分職) … CLERIC_SLOTS_TABLE から現 Lv で残数 > 0 かつ習得済の呪文
+  //                       (renderSpellSlotItem が「自動 0」と描くものは枠に入っていない)
+  //   それ以外          … selection.partySkills[classKey]
+  // 並び順はどちらも skillPool 順に揃える (重複呪文はここで畳む)。
+  function apEquippedIdsFor(slot, classKey) {
+    if (isAutoSlotClassTV(classKey)) {
+      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));
+      return slot.skillPool
+        .filter(sk => (auto[sk.id] || 0) > 0 && isSpellKnownTV(classKey, sk.id))
+        .map(sk => sk.id);
+    }
+    const list = Array.isArray(selection.partySkills[classKey]) ? selection.partySkills[classKey] : [];
+    const owned = new Set(list);
+    return slot.skillPool.filter(sk => owned.has(sk.id)).map(sk => sk.id);
+  }
+
+  function renderActionPriority() {
+    const rowsEl = document.getElementById("apRows");
+    if (!rowsEl) return;
+    const slot = PARTY_SLOTS.find(s => s && s.classKey === activeCharTab);
+    if (!slot) return;
+    const classKey = slot.classKey;
+    const hintEl = document.getElementById("apHint");
+    if (hintEl) hintEl.textContent = "指示は傾向です。射程やスロットが足りなければ別の手を打ちます";
+    if (!selection.actionPriority) selection.actionPriority = {};
+    const row = selection.actionPriority[classKey] ||
+                (selection.actionPriority[classKey] = { general: null, mob: null, boss: null, travel: null });
+    // ⚠ 「装備している技だけに絞る」フィルタはこの 1 行。
+    //    ドライバ tools/driver_action_priority.js の負のコントロール N3 はここを
+    //    skillPool 全部に差し替えて (6b) が赤くなることを確かめる。
+    const equippedIds = apEquippedIdsFor(slot, classKey);
+    const nameOf = (id) => {
+      const hit = slot.skillPool.find(sk => sk.id === id);
+      return hit ? hit.name : id;
+    };
+    let dirty = false;
+    rowsEl.innerHTML = "";
+    for (const sit of AP_SITUATIONS) {
+      // 道中の行だけ TRAVEL_CASTABLE_IDS で絞る (戦士 / ドワーフ / 盗賊は必ず 0 件)。
+      const ids = (sit.key === "travel")
+        ? equippedIds.filter(id => TRAVEL_CASTABLE_IDS.indexOf(id) >= 0)
+        : equippedIds.slice();
+      const rowEl = document.createElement("div");
+      rowEl.className = "apRow";
+      // 候補が 0 件なら行ごと隠す (指示のしようがない枠を出さない)。
+      if (ids.length === 0) rowEl.style.display = "none";
+      const selId = "apSel_" + classKey + "_" + sit.key;
+      const labelEl = document.createElement("label");
+      labelEl.setAttribute("for", selId);
+      labelEl.textContent = sit.label;
+      labelEl.title = sit.hint;
+      const selEl = document.createElement("select");
+      selEl.className = "apSel";
+      selEl.id = selId;
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "おまかせ";
+      selEl.appendChild(opt0);
+      for (const id of ids) {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = nameOf(id);
+        selEl.appendChild(o);
+      }
+      // 保存済みの ID が今の候補に無い (装備を外した等) → 「おまかせ」に戻し、値も null へ書き戻す。
+      // 黙って古い ID を残さない。
+      if (row[sit.key] && ids.indexOf(row[sit.key]) < 0) { row[sit.key] = null; dirty = true; }
+      selEl.value = row[sit.key] || "";
+      selEl.addEventListener("change", () => {
+        row[sit.key] = selEl.value || null;
+        saveSelections();
+        // ⛔ ここで renderCharLoadout() を呼ばない。
+        //    select が閉じた直後に作り直されて、次の指定ができなくなる。
+      });
+      rowEl.appendChild(labelEl);
+      rowEl.appendChild(selEl);
+      rowsEl.appendChild(rowEl);
+    }
+    if (dirty) saveSelections();
+  }
+
   // ── 統合レンダ: アクティブキャラの全セクション ──
   function renderCharLoadout() {
     const slot = PARTY_SLOTS.find(s => s && s.classKey === activeCharTab);
@@ -5292,6 +5467,9 @@
       btn.classList.toggle("active", showAllEquip);
       btn.textContent = showAllEquip ? "所持のみ表示" : "未所持も表示";
     }
+
+    // 行動の優先度 (実装依頼書 #19): スキル枠が確定した後に描く (候補が枠に依存するため)
+    renderActionPriority();
   }
 
   // トグルボタン: 1度だけリスナを張る
