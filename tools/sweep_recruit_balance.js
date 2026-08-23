@@ -88,7 +88,17 @@ const OUT_ARG     = arg('out', null);
  *   仕様を変えたらこの表が赤くなる = 気づける。 */
 const OLD_NPC = 3;                              /* #7 以前 = PARTY_SIZE 4 - 主人公 1 */
 const SCEN_TABLE = {
-  'goblin-mine':    { stars: 1, newNpc: 1, label: '廃坑 ★1' },
+  /* ⚠ [#8 の調整後] newNpc は「NEW 腕 (既定 URL) の期待 NPC 数」。廃坑は #8 で
+     tavern.html の goblin-mine 定義へ `recruit: 3` を入れたので ★1 の 1 ではなく 3。
+     期待値を緩めたのではなく **本番の仕様が変わった** (依頼書 #8 §9-4)。
+     ⚠⚠ この結果 OLD 腕 (計4人) と NEW 腕 (計4人) は**人数が同じ**になる:
+        ・腕の区別は assert 1 (isRecruitOn の true/false) が単独で担う
+        ・--negative では assert 4 (partySize) が赤くならない (元から同じ値なので)
+          = 負のコントロールの検査力は assert 1 だけに落ちる。廃坑で --negative を
+          回すときはこれを承知で読むこと (bandits-forest なら 4 も赤くなる)。
+     ⭐ 調整が効いたかは「OLD と NEW の差」ではなく **調整前の NEW (クリア率 15%) と
+        調整後の NEW の差**で読む。OLD と揃うことこそが狙った結果。 */
+  'goblin-mine':    { stars: 1, newNpc: 3, label: '廃坑 ★1 (#8 で recruit: 3)' },
   'bandits-forest': { stars: 2, newNpc: 2, label: 'シナリオ2 ★2' },
 };
 const ALL_SCENS = ['bandits-forest', 'goblin-mine'];
