@@ -39,6 +39,14 @@
         ⚠ ここに GameAudio.playBgm(...) を足さないこと。タイトル専用 BGM は別チケット。
       - 効果音だけ。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
 
+    ★ 紋章 (2026-08-23 追加)
+      画面最上部の `#titleEmblem` = `assets/title_emblem.png`。codex1 への依頼文は
+      `codex1/requests/2026-08-23_title-emblem.md`、受入検査は `tools/check_title_emblem.py`。
+      ⚠ **絵に文字は 1 文字も入っていない。** 和文「ダンジョンファイターズ」も欧文も
+        CSS の文字組み (`#titleMain` / `#titleSub`) のままで、そこは Phase 1 から変えていない
+        (日本語字形を画像モデルに描かせない、が codex1 側の既定作法)。
+      ⚠ 素材は 1536x768 の **2:1**。縦長にできないのは #slotList が既に 680px あるため。
+
     ★ 撤退スイッチ `?title=0`
       title.html を素通りして従来どおり酒場へ直行する。IIFE の **先頭**で判定して return する
       (描画より前でないと、撤退したはずのタイトルが一瞬見える)。
@@ -65,7 +73,8 @@
       user-select: none;
       -webkit-text-size-adjust: 100%;
     }
-    /* 松明の残り火だけが照らす石室。⚠ 画像アセットは使わない (Phase 1 は文字組みのみ) */
+    /* 松明の残り火だけが照らす石室。⚠ **背景**は画像アセットを使わない (CSS のグラデーションだけ)。
+       画像は #titleEmblem の紋章 1 枚だけで、それは背景ではなく前景の飾り。 */
     body {
       background:
         radial-gradient(ellipse at 50% 8%,  rgba(196,140,52,0.20) 0%, transparent 58%),
@@ -89,8 +98,22 @@
     .screen { display: none; width: 100%; max-width: 960px; flex-direction: column; align-items: center; }
     .screen.active { display: flex; }
 
-    /* ── タイトル (文字組みのみ。ロゴ画像は codex1 への別チケット) ───────── */
+    /* ── タイトル ────────────────────────────────────────────────────── */
     #titleMark { text-align: center; margin: 8px 0 22px; width: 100%; }
+    /* 紋章 (codex1 納品 assets/title_emblem.png / 依頼文 2026-08-23_title-emblem.md)。
+       ⚠ 素材は 1536x768 の 2:1。**横長でないと縦が持たない** —
+         390x844 では紋章を足す前から #slotList だけで 680px あり、既に縦スクロールしている。
+       ⚠⚠ 幅は必ず % でも閉じること (受入条件 9. の横スクロール)。280px 固定だと
+         320px 端末で溢れる。min() の第 2 項がそれを防いでいる。
+       ⚠ 文字は 1 文字も入っていない絵。和文/欧文は下の #titleMain / #titleSub が担当する
+         (日本語字形を画像モデルに描かせない、が codex1 側の既定作法)。 */
+    #titleEmblem {
+      display: block;
+      width: min(280px, 78%);
+      height: auto;
+      max-width: 100%;
+      margin: 0 auto 6px;
+    }
     /* ⚠⚠ タイトルは 11 文字の全角。所要幅 ≒ 11 × (font-size + letter-spacing) で、
        ここを欲張ると **狭い端末で横スクロールが出る** (受入条件 9. 違反)。
        実測: 8.4vw + 1.2vw では 390px で 32px / 320px で 29px あふれた。
@@ -274,6 +297,9 @@
     <!-- ══ 画面 1: スロット選択 ══════════════════════════════════════════ -->
     <section id="screenSlots" class="screen active">
       <header id="titleMark">
+        <!-- 紋章。⚠ alt は空 (文字を持たない純粋な飾りで、読み上げる内容が無い)。
+             ⚠ width/height を書いておくと縦横比が先に決まり、読み込み中に下の文字が跳ねない。 -->
+        <img id="titleEmblem" src="assets/title_emblem.png" alt="" width="1536" height="768" />
         <div id="titleMain">ダンジョンファイターズ</div>
         <div id="titleSub">DUNGEON FIGHTERS</div>
         <div id="titleRule"></div>
@@ -337,6 +363,20 @@
     var titleOff = false;
     try { titleOff = new URLSearchParams(location.search).get("title") === "0"; } catch (e) { titleOff = false; }
     if (titleOff) { location.replace(nextAfterTitle()); return; }
+
+    /* ══ 紋章の撤退スイッチ ?emblem=0 ═══════════════════════════════════
+       紋章 (assets/title_emblem.png) を消して、文字組みだけの Phase 1 の姿へ戻す。
+       ⚠ ?title=0 とは **別のスイッチ**。相乗りさせると、赤が出たときに
+         「タイトルを撤退したのか紋章を撤退したのか」が切り分けられなくなる。
+       ⚠ sessionStorage へ写さない。紋章は title.html の中だけの話で、
+         ページ遷移をまたいで効かせる必要が無い (?town=0 とはそこが違う)。
+       ⚠ この script は body の末尾にあるので、消すのは画像が絵として出るより前。 */
+    try {
+      if (new URLSearchParams(location.search).get("emblem") === "0") {
+        var em = document.getElementById("titleEmblem");
+        if (em && em.parentNode) em.parentNode.removeChild(em);
+      }
+    } catch (e) {}
 
     /* zone の生値 → 日本語ラベル。⚠ ここは **表示ラベルの対応表**であって隊列の定義ではない。
        隊列の唯一の正は tavern.html / index.html の PARTY_ZONES で、
