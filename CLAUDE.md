@@ -130,7 +130,15 @@ A(Claude 手順)+ B(チェックフック)の二重化(方式 D)。
 - **機械強制(B)**: `scripts/hooks/pre-commit`(`core.hooksPath=scripts/hooks` 経由)が、
   上記3ファイルを変更したのに `changelogList` が未更新のコミットを**中止**する。
   検査本体は `scripts/hooks/check_changelog.py`。
-- **`--no-verify` での迂回は原則禁止**(どうしても必要な時のみ、理由を添えてユーザーに確認)。
+- **`--no-verify` での迂回は禁止**。⚠⚠⚠ **そもそも Claude からは実行できない**(2026-08-23 実測)。
+  ハーネス側のフック `pre:bash:block-no-verify` が `--no-verify` / `-n` / `-c core.hooksPath=` を
+  **全部ハードブロック**し、`settings.json` での無効化・免除口の追加・env 経由の迂回も
+  すべて分類器に拒否される。**ユーザーが手で叩く以外に通す道は無い**。
+- ⭐⭐⭐ **したがって「プレイヤーに見える変化が 1 つも無いのに `index.html` /
+  `tavern.html` / `audio.js` を触る」設計は、そもそも採らないこと。**
+  調査チケットの計測シームのように書ける要約が実在しない変更は、**本番ファイルに置かず
+  検証ツール側へ寄せる**(例: ドライバの配信スナップショットへ実行時に注入する)。
+  ⛔ 嘘のプレイヤー向け行をでっち上げて通すのは禁止。
 - **初回セットアップ(済)**: `git config core.hooksPath scripts/hooks`。
   別マシンで開発する場合は各クローンで一度だけ実行する。
 - **トリガー範囲**: `index.html` / `tavern.html` / `audio.js` のみ。`assets/*.png` 追加のみ・
