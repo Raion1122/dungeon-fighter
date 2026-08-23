@@ -6,8 +6,8 @@
  *   node tools/driver_action_priority.js --negative     ← 負のコントロール
  *
  * ── セクションと実装状況 (段階的に足していく骨組み) ───────────────────────
- *   §0 装置 (母集団の確認 / index↔tavern の二重定義突合)   … PENDING (項目②)
- *   §1 主人公 — 重み倍率がクランプに食われていない          … PENDING (項目②)
+ *   §0 装置 (母集団の確認 / index↔tavern の二重定義突合)   … 実装済 (項目②)
+ *   §1 主人公 — 重み倍率がクランプに食われていない          … 実装済 (項目②)
  *   §2 仲間 — 先出しが効き、指定外は不変                    … PENDING (項目③)
  *   §3 道中詠唱                                             … PENDING (項目④)
  *   §4 バフ退避 (戦闘開始で主人公だけ剥がれない)            … PENDING (項目④)
@@ -31,12 +31,14 @@
  *  - ⭐⭐ 配信バイトを起動時に凍結する。別窓が同じリポを触っても、この run が読むのは 1 枚。
  *
  * ── 負のコントロール (--negative) ──────────────────────────────────────────
+ *   N1: pickLeaderAction の `w *= AP_BOOST` を `Math.min(LEADER_W_MAX,...)` の **前** へ
+ *       移す (依頼書 §2-4 の罠そのもの) → **(1c) が赤くなる**こと。
  *   N3: renderActionPriority() の「装備している技だけに絞る」フィルタを外す
  *       (= 候補を skillPool 全部にする) → **(6b) が赤くなる**こと。
- *       赤くならなければ exit 1 (テストが空振りしている証拠)。
+ *       どちらも赤くならなければ exit 1 (テストが空振りしている証拠)。
  *       ⚠ 注入点が 1 箇所ちょうど見つからなければ、走らせる前に exit 1 で止まる
  *         (アンカーが腐ったまま「注入したつもり」で緑になるのを防ぐ)。
- *   ※ 依頼書 §8 の N1/N2/N4/N5/N6 は後続項目 (②③④) の担当。ここでは入れない。
+ *   ※ 依頼書 §8 の N2/N4/N5/N6 は後続項目 (③④) の担当。ここでは入れない。
  */
 'use strict';
 
@@ -75,6 +77,29 @@ if (NEGATIVE) {
   }
   FROZEN['/tavern.html'] = Buffer.from(parts.join(NEG_PATCH), 'utf8');
   console.log('[driver] ★ 負のコントロール N3 を注入しました (renderActionPriority の絞り込みを外す)');
+
+  // ── N1 (依頼書 §2-4 の罠): 倍率をクランプの **前** へ移す ─────────────────
+  //   ⚠ index.html は CRLF。改行を '\n' 決め打ちで探すと注入点 0 で止まるので行単位で扱う。
+  const iLines = FROZEN['/index.html'].toString('utf8').split('\n');
+  const trimCR = (s) => s.replace(/\r$/, '').trim();
+  const L_CLAMP = 'w = Math.min(LEADER_W_MAX, Math.max(LEADER_W_FLOOR, w));';
+  const L_BOOST = 'if (apPrefId && id === apPrefId) w *= AP_BOOST;';
+  const n1Spots = [];
+  for (let i = 0; i + 1 < iLines.length; i++)
+    if (trimCR(iLines[i]) === L_CLAMP && trimCR(iLines[i + 1]) === L_BOOST) n1Spots.push(i);
+  if (n1Spots.length !== 1) {
+    console.error('[driver] 負のコントロール N1 の注入点が ' + n1Spots.length + ' 箇所 (期待 1)。アンカーが腐っています:');
+    console.error('         ' + L_CLAMP + '  /  ' + L_BOOST);
+    process.exit(1);
+  }
+  {
+    const i = n1Spots[0];
+    const a = iLines[i], b = iLines[i + 1];
+    iLines[i]     = b.replace(/(\r?)$/, ' /* N1: クランプの前へ移した変異 */$1');
+    iLines[i + 1] = a;
+    FROZEN['/index.html'] = Buffer.from(iLines.join('\n'), 'utf8');
+  }
+  console.log('[driver] ★ 負のコントロール N1 を注入しました (倍率を Math.min クランプの前へ移動)');
 }
 
 function loadPuppeteer() {
@@ -211,6 +236,87 @@ async function openPrepScreen(browser, viewport) {
   return page;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * index.html 側の測定装置 (§0 / §1)
+ * ══════════════════════════════════════════════════════════════════════════ */
+// 仕込む優先度。⚠ localStorage は **遷移前** に書く
+// (loadPersistentProgress はページ読み込み時に 1 回しか走らない)。
+const AP_SEED = {
+  warrior: { general: null, mob: null, boss: 'strong-cleave', travel: null },
+  cleric:  { general: null, mob: null, boss: 'bless',         travel: null },
+  mage:    { general: null, mob: null, boss: 'fireball',      travel: null },
+};
+// ダイス表記の期待値。⛔ 重みの再実装ではない (「2d8 は今の武器より強い」を言うためだけ)。
+const diceEV = (s) => {
+  const m = /^(\d+)d(\d+)$/.exec(String(s || ''));
+  return m ? Number(m[1]) * (Number(m[2]) + 1) / 2 : 0;
+};
+
+// 戦闘の自走が測定を汚さないよう敵を遠ざけて静穏化する (driver_leader_ai の QUIET を踏襲)
+const QUIET = `
+  try { enemies.forEach(e => { e.x = -999999; e.y = -999999; }); } catch (e) {}
+  try { encounterActive = false; } catch (e) {}
+`;
+
+const AP_HELPERS = `
+  window.__apSample = function (choices, ctx, n) {
+    const tally = {};
+    for (const c of choices) tally[c] = 0;
+    for (let i = 0; i < n; i++) { const r = window.pickLeaderAction(choices, ctx); tally[r.id] = (tally[r.id] || 0) + 1; }
+    const share = {};
+    for (const c of choices) share[c] = tally[c] / n;
+    return { tally: tally, share: share };
+  };
+  window.__apMkTarget = function (opt) {
+    opt = opt || {};
+    const mx = (opt.maxHp != null ? opt.maxHp : 40);
+    return { hp: (opt.hp != null ? opt.hp : mx), maxHp: mx, alive: true,
+             def: opt.def || { name: 'ダミー', hp: mx } };
+  };
+  // 「ボス戦の最中」を **同期のうちに** 作って必ず戻す。pickLeaderAction のサンプリングは
+  // 完全に同期なので、この間に非同期のゲームループが割り込むことは原理的に無い。
+  // ⚠ enemies へ素の object を push しない (parallel array が並走している) → 配列ごと差し替えて戻す。
+  window.__apWithBoss = function (fn) {
+    const prevEnemies = enemies, prevIdx = encounterEnemyIndices, prevActive = encounterActive;
+    try {
+      enemies = [{ alive: true, hp: 100, maxHp: 100, def: { name: 'ボス', isBoss: true, hp: 100 } }];
+      encounterEnemyIndices = [0];
+      encounterActive = true;
+      return fn();
+    } finally {
+      enemies = prevEnemies; encounterEnemyIndices = prevIdx; encounterActive = prevActive;
+    }
+  };
+  // 指定あり / 指定なし を同一ページ・同一 RNG ストリームで採る。
+  // ⭐ 本番の let をそのまま切り替えているだけ (計測用の分岐を本番へ足していない)。
+  window.__apWithMap = function (map, fn) {
+    const prev = actionPriorityMap;
+    try { actionPriorityMap = map; return fn(); } finally { actionPriorityMap = prev; }
+  };
+`;
+
+async function openIndexPage(browser, qs, seedAp) {
+  const page = await browser.newPage();
+  page.on('pageerror', e => pageErrors.push('index :: ' + e.message));
+  await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+  await page.evaluateOnNewDocument((ap) => {
+    try {
+      sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine');
+      if (ap) localStorage.setItem('dragonfighters.actionPriority', JSON.stringify(ap));
+      else localStorage.removeItem('dragonfighters.actionPriority');
+    } catch (e) {}
+  }, seedAp || null);
+  await page.goto('http://localhost:' + PORT + '/index.html?' + (qs || 'autoplay=30&diag=1'),
+    { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForFunction(
+    'typeof gameStarted !== "undefined" && gameStarted && document.getElementById("combatLog")',
+    { timeout: 45000 });
+  await sleep(400);
+  await page.evaluate(QUIET);
+  await page.evaluate(AP_HELPERS);
+  return page;
+}
+
 /* 1 職ぶんの観測。⭐ 「今の枠」はドライバが **selection.partySkills / CLERIC 表から独立に**
    組み立て、実装が描いた option と突き合わせる (2 経路)。 */
 async function readClass(page, classKey) {
@@ -264,19 +370,166 @@ async function readClass(page, classKey) {
 
   try {
     /* ════════════════════════════════════════════════════════════════════
-     * §0〜§5 — 後続項目の担当。黙って緑にせず PENDING として数える。
+     * §0 装置 + §1 主人公 — index.html 側 (項目② の担当)
      * ════════════════════════════════════════════════════════════════════ */
     console.log('\n--- (§0) 装置: 母集団と二重定義の突合 ---');
-    pending('(0a) window.apPreferredId("mage","boss") が仕込んだ ID を返す', '項目② (index.html STEP3) 未実装');
-    pending('(0b) tavern の TRAVEL_CASTABLE_IDS と index の AP_TRAVEL_CASTABLE が集合として一致 (10 件)', '項目② (index.html STEP3) 未実装');
+    const idxPage = await openIndexPage(browser, 'autoplay=30&diag=1', AP_SEED);
+
+    const seam0 = await idxPage.evaluate(() => ({
+      hasPreferred: typeof window.apPreferredId === 'function',
+      hasSituation: typeof window.apSituationNow === 'function',
+      hasGate:      typeof window.apGateP === 'function',
+      on:           window.ACTION_PRIORITY_ON,
+      boost:        window.AP_BOOST,
+      // 注意: LEADER_PICK_T / LEADER_W_MAX は classic script 直下の const = window に載らない → 裸で読む
+      pickT:        (typeof LEADER_PICK_T !== 'undefined') ? LEADER_PICK_T : null,
+      wMax:         (typeof LEADER_W_MAX  !== 'undefined') ? LEADER_W_MAX  : null,
+      travel:       window.AP_TRAVEL_CASTABLE ? Array.from(window.AP_TRAVEL_CASTABLE) : null,
+      mageBoss:     window.apPreferredId('mage',    'boss'),
+      clericBoss:   window.apPreferredId('cleric',  'boss'),
+      warriorBoss:  window.apPreferredId('warrior', 'boss'),
+      dwarfBoss:    window.apPreferredId('dwarf',   'boss'),
+      mageMob:      window.apPreferredId('mage',    'mob'),
+      sitQuiet:     window.apSituationNow(),
+      sitBoss:      window.__apWithBoss(() => window.apSituationNow()),
+    }));
+
+    check('(0a-0) 装置: apPreferredId / apSituationNow / apGateP / AP_BOOST が window に載っている',
+      seam0.hasPreferred && seam0.hasSituation && seam0.hasGate && typeof seam0.boost === 'number',
+      JSON.stringify({ pref: seam0.hasPreferred, sit: seam0.hasSituation, gate: seam0.hasGate,
+                       boost: seam0.boost, on: seam0.on, T: seam0.pickT, wMax: seam0.wMax }));
+    // ⭐⭐⭐ ここが null のまま §1 が全部緑になるのが最悪の空振り。
+    check('(0a) window.apPreferredId("mage","boss") が仕込んだ ID を返す',
+      seam0.mageBoss === AP_SEED.mage.boss && seam0.clericBoss === AP_SEED.cleric.boss
+        && seam0.warriorBoss === AP_SEED.warrior.boss,
+      'mage/boss=' + JSON.stringify(seam0.mageBoss) + ' cleric/boss=' + JSON.stringify(seam0.clericBoss)
+        + ' warrior/boss=' + JSON.stringify(seam0.warriorBoss));
+    check('(0a-2) 仕込んでいない職は null / general 未設定の枠も null (何でも返す実装ではない)',
+      seam0.dwarfBoss === null && seam0.mageMob === null,
+      'dwarf/boss=' + JSON.stringify(seam0.dwarfBoss) + ' mage/mob=' + JSON.stringify(seam0.mageMob));
+    check('(0a-3) apSituationNow が travel / boss を実際に作り分ける (§1 のボス状況が本物である証明)',
+      seam0.sitQuiet === 'travel' && seam0.sitBoss === 'boss',
+      '非戦闘=' + JSON.stringify(seam0.sitQuiet) + ' ボス格交戦中=' + JSON.stringify(seam0.sitBoss));
+
+    // ── (0b) 二重定義の突合 (tavern ↔ index) ────────────────────────────
+    const tPeek = await browser.newPage();
+    tPeek.on('pageerror', e => pageErrors.push('tavern-peek :: ' + e.message));
+    await tPeek.goto('http://localhost:' + PORT + '/tavern.html', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await tPeek.waitForFunction("typeof TRAVEL_CASTABLE_IDS !== 'undefined'", { timeout: 20000 });
+    const tavernTravel = await tPeek.evaluate(() => TRAVEL_CASTABLE_IDS.slice());
+    await tPeek.close();
+    const tvArr = Array.isArray(tavernTravel) ? tavernTravel : [];
+    const ixArr = Array.isArray(seam0.travel) ? seam0.travel : [];
+    const travelDiff = tvArr.filter(x => ixArr.indexOf(x) < 0).concat(ixArr.filter(x => tvArr.indexOf(x) < 0));
+    check('(0b) tavern の TRAVEL_CASTABLE_IDS と index の AP_TRAVEL_CASTABLE が集合として一致 (10 件)',
+      tvArr.length === 10 && ixArr.length === 10 && setEq(tvArr, ixArr) && setEq(ixArr, EXPECT_TRAVEL_IDS),
+      'tavern n=' + tvArr.length + ' index n=' + ixArr.length + ' 片側にしか無い ID=' + JSON.stringify(travelDiff));
+
     pending('(0c) executeSkillOn のラッパが 1 回以上捕まえている', '項目③ (STEP4-b) 未実装');
     pending('(0d) 道中テストで敵が alert/chase になった瞬間が 1 回以上ある', '項目④ (STEP5) 未実装');
 
     console.log('\n--- (§1) 主人公: 重み倍率がクランプに食われていない ---');
-    pending('(1a) 僧侶リーダー boss=bless でシェアが有意に上がる', '項目② (STEP4-a) 未実装');
-    pending('(1b) シェア差が AP_BOOST^(1/T) から独立計算した期待シェアと一致 (±0.05)', '項目② (STEP4-a) 未実装');
-    pending('(1c) LEADER_W_MAX に張り付く候補でもシェアが上がる (罠 §2-4 の本丸)', '項目② (STEP4-a) 未実装');
-    pending('(1d) RNG パリティ: pickLeaderAction 1 回あたり Math.random ちょうど 1 回', '項目② (STEP4-a) 未実装');
+    const AP_N = 6000;
+
+    // ── (1a)(1b) 僧侶リーダー・boss = bless ──────────────────────────────
+    const s1 = await idxPage.evaluate((N) => {
+      leaderClassKey = 'cleric';
+      encounterRound = 1;        // bless は開幕バフ = 実際に張る場面
+      hp = maxHp;                // 回復候補が混ざらない状態に固定
+      const cs = ['normal', 'bless'];
+      const target = window.__apMkTarget({ hp: 40, maxHp: 40, def: { name: 'ボス', isBoss: true, hp: 40 } });
+      const saved = actionPriorityMap;
+      return window.__apWithBoss(() => ({
+        sit:    window.apSituationNow(),
+        prefId: window.apPreferredId('cleric', window.apSituationNow()),
+        none:   window.__apWithMap(null,  () => window.__apSample(cs, { target: target }, N)).share,
+        pref:   window.__apWithMap(saved, () => window.__apSample(cs, { target: target }, N)).share,
+      }));
+    }, AP_N);
+
+    check('(1a-0) 前提: 状況が boss と判定され、僧侶の指定が bless に解決している',
+      s1.sit === 'boss' && s1.prefId === 'bless',
+      'sit=' + s1.sit + ' prefId=' + JSON.stringify(s1.prefId));
+    check('(1a) 僧侶リーダー boss=bless でシェアが有意に上がる',
+      s1.pref.bless > s1.none.bless + 0.05,
+      '指定なし=' + s1.none.bless.toFixed(4) + ' → 指定あり=' + s1.pref.bless.toFixed(4) + ' (N=' + AP_N + '/両側)');
+
+    // ⭐ 2 経路目: ページから読んだ AP_BOOST と LEADER_PICK_T だけで期待シェアを独立計算する。
+    //   倍率はクランプ後の重みに掛かるので、勝った候補の最終重みはちょうど B = AP_BOOST^(1/T) 倍。
+    //   他候補の重みは 1 ビットも動かないので、指定なしのシェア s0 から
+    //     s = s0*B / (1 - s0 + s0*B)
+    //   が一意に決まる。⛔ ドライバ側で重み式を再実装していない (s0 は実測値)。
+    const apT   = Math.min(4, Math.max(0.2, Number(seam0.pickT)));   // 実装と同じ温度クランプ
+    const apB   = Math.pow(Number(seam0.boost), 1 / apT);
+    const s0    = s1.none.bless;
+    const s1exp = (s0 * apB) / (1 - s0 + s0 * apB);
+    check('(1b) シェア差が AP_BOOST^(1/T) から独立計算した期待シェアと一致 (±0.05)',
+      apB > 1 && Math.abs(s1exp - s1.pref.bless) <= 0.05,
+      'B=' + apB.toFixed(4) + ' 期待=' + s1exp.toFixed(4) + ' 実測=' + s1.pref.bless.toFixed(4)
+        + ' 差=' + Math.abs(s1exp - s1.pref.bless).toFixed(4));
+
+    // ── (1c) クランプに張り付く候補でも効くか (§2-4 の罠の本丸) ──────────
+    const s1c = await idxPage.evaluate((N) => {
+      leaderClassKey = 'warrior';
+      encounterRound = 5;        // バフ加点を切って攻撃同士の比較にする
+      hp = maxHp;
+      // ⭐ 撃破圏 (hp=1) のボス格にすると、通常攻撃も強斬りも生重みが LEADER_W_MAX=3 を超えて
+      //    上限に張り付く。鉄壁の構え (dmgDice も healDice も持たない = その他扱いで常に 1.0) だけが
+      //    張り付かないので、3 者のシェアで「クランプが効いている」ことが読める。
+      const target = window.__apMkTarget({ hp: 1, maxHp: 40, def: { name: 'ボス', isBoss: true, hp: 40 } });
+      const cs = ['normal', 'strong-cleave', 'iron-guard'];
+      const saved = actionPriorityMap;
+      const wpn = (typeof getCurrentWeapon === 'function' && getCurrentWeapon()) || null;
+      return window.__apWithBoss(() => ({
+        prefId:     window.apPreferredId('warrior', window.apSituationNow()),
+        weaponDice: (wpn && wpn.dmgDice) || (typeof playerStats !== 'undefined' ? playerStats.dmgDice : null),
+        skillDice:  (CLASS_SKILL_DICTS.warrior['strong-cleave'] || {}).dmgDice,
+        none: window.__apWithMap(null,  () => window.__apSample(cs, { target: target }, N)).share,
+        pref: window.__apWithMap(saved, () => window.__apSample(cs, { target: target }, N)).share,
+      }));
+    }, AP_N);
+
+    check('(1c-0) 前提: 指定が強斬りに解決し、強斬り (2d8) の期待値が今の武器より厳密に大きい',
+      s1c.prefId === 'strong-cleave' && diceEV(s1c.skillDice) > diceEV(s1c.weaponDice),
+      'prefId=' + JSON.stringify(s1c.prefId) + ' 技=' + s1c.skillDice + '(EV ' + diceEV(s1c.skillDice) + ')'
+        + ' 武器=' + s1c.weaponDice + '(EV ' + diceEV(s1c.weaponDice) + ')');
+    check('(1c-1) 前提: 指定なしで 通常攻撃 と 強斬り のシェアが一致し 鉄壁の構え だけ低い (上限に張り付いている証拠)',
+      Math.abs(s1c.none['normal'] - s1c.none['strong-cleave']) <= 0.03
+        && s1c.none['iron-guard'] < s1c.none['normal'] - 0.05,
+      'normal=' + s1c.none['normal'].toFixed(4) + ' cleave=' + s1c.none['strong-cleave'].toFixed(4)
+        + ' guard=' + s1c.none['iron-guard'].toFixed(4));
+    check('(1c) LEADER_W_MAX に張り付く候補でもシェアが上がる (罠 §2-4 の本丸)',
+      s1c.pref['strong-cleave'] > s1c.none['strong-cleave'] + 0.05,
+      '指定なし=' + s1c.none['strong-cleave'].toFixed(4) + ' → 指定あり=' + s1c.pref['strong-cleave'].toFixed(4));
+
+    // ── (1d) RNG パリティ (driver_leader_ai G2 と同じ測り方) ─────────────
+    const s1d = await idxPage.evaluate(() => {
+      leaderClassKey = 'warrior';
+      encounterRound = 1;
+      hp = maxHp;
+      const target = window.__apMkTarget({ hp: 20, maxHp: 40, def: { name: 'ボス', isBoss: true, hp: 40 } });
+      const real = Math.random;
+      let n = 0;
+      Math.random = function () { n++; return real.apply(this, arguments); };
+      const out = {};
+      try {
+        window.__apWithBoss(() => {
+          out.prefId = window.apPreferredId('warrior', window.apSituationNow());
+          for (const cs of [['normal'], ['normal', 'strong-cleave'],
+                            ['normal', 'strong-cleave', 'iron-guard', 'morale']]) {
+            n = 0;
+            window.pickLeaderAction(cs, { target: target });
+            out['n' + cs.length] = n;
+          }
+        });
+      } finally { Math.random = real; }
+      return out;
+    });
+    check('(1d) RNG パリティ: pickLeaderAction 1 回あたり Math.random ちょうど 1 回',
+      s1d.prefId === 'strong-cleave' && s1d.n1 === 1 && s1d.n2 === 1 && s1d.n4 === 1,
+      '倍率が乗る指定=' + JSON.stringify(s1d.prefId) + ' 候補1=' + s1d.n1 + ' 候補2=' + s1d.n2 + ' 候補4=' + s1d.n4);
+
+    await idxPage.close();
 
     console.log('\n--- (§2) 仲間: 先出しが効き、指定外は不変 ---');
     pending('(2a) 魔法使い仲間 boss=fireball でボス戦 1 手目の fireball が増える', '項目③ (STEP4-b) 未実装');
@@ -537,19 +790,30 @@ async function readClass(page, classKey) {
   const pend   = results.filter(r => r.pending).length;
   console.log('\n[driver] RESULT: PASSED ' + passed + ' / FAILED ' + failed + ' / PENDING ' + pend);
   if (failed) console.log('[driver] FAILED: ' + results.filter(r => !r.ok && !r.pending).map(r => r.name).join(' | '));
-  if (pend)   console.log('[driver] PENDING: §0〜§5 は後続項目 (②③④) の担当 — 黙って緑にしていない');
+  if (pend)   console.log('[driver] PENDING: §2〜§5 は後続項目 (③④) の担当 — 黙って緑にしていない');
 
   if (NEGATIVE) {
-    // 負のコントロールの判定: N3 (絞り込みを外す) で (6b) が赤くなること。
-    const b = results.filter(r => r.name.indexOf('(6b-') === 0);
-    const reds = b.filter(r => !r.ok);
-    console.log('\n[driver] 負のコントロール N3 の判定: (6b) ' + reds.length + '/' + b.length + ' 本が赤');
-    if (reds.length === 0) {
-      console.log('[driver] NG: N3 を注入したのに (6b) が緑のまま = テストが空振りしています');
-      process.exit(1);
-    }
-    console.log('[driver] OK: N3 で (6b) が赤くなった: ' + reds.map(r => r.name).join(' , '));
-    process.exit(0);
+    // 負のコントロールの判定。⚠ 1 本でも「注入したのに緑」があれば exit 1 (空振りの証拠)。
+    let negNg = 0;
+    const judge = (label, prefix, note) => {
+      const grp  = results.filter(r => r.name.indexOf(prefix) === 0 && !r.pending);
+      const reds = grp.filter(r => !r.ok);
+      console.log('\n[driver] 負のコントロール ' + label + ' の判定 (' + note + '): '
+        + reds.length + '/' + grp.length + ' 本が赤');
+      if (grp.length === 0) {
+        console.log('[driver] NG: ' + note + ' の assert が 1 本も走っていません (母集団ゼロ)');
+        negNg++; return;
+      }
+      if (reds.length === 0) {
+        console.log('[driver] NG: ' + label + ' を注入したのに ' + note + ' が緑のまま = テストが空振りしています');
+        negNg++; return;
+      }
+      console.log('[driver] OK: ' + label + ' で ' + note + ' が赤くなった: ' + reds.map(r => r.name).join(' , '));
+    };
+    // ⚠ '(1c)' で始まる名前は本体 1 本だけ ((1c-0)/(1c-1) は前提ガードなので N1 では赤くならない)
+    judge('N1', '(1c)', '(1c) 倍率がクランプに食われていないか');
+    judge('N3', '(6b-', '(6b) 装備していない技が候補に出ないか');
+    process.exit(negNg === 0 ? 0 : 1);
   }
   process.exit(failed === 0 ? 0 : 1);
 })().catch(e => { console.error('[driver] FATAL', e); process.exit(3); });
