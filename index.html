@@ -16972,14 +16972,20 @@
           if (encounterActive || encounterRunning) break;
           const ally = aliveAllies[i];
           const targetTile = (i === 0) ? oldPlayerTile : startTiles[i - 1];
-          if (!targetTile) continue;
           const myStart = startTiles[i];
-          if (myStart.tx === targetTile.tx && myStart.ty === targetTile.ty) continue;  // 既に到達
-          const wx = targetTile.tx * TILE_SIZE + TILE_SIZE / 2;
-          const wy = targetTile.ty * TILE_SIZE + TILE_SIZE / 2;
-          await allyAdvanceTowardPoint(ally, wx, wy, {
-            steps: 1, slideMs: 600, postSleep: 40, silent: true,   // ★探索は 1 タイル (P5)
-          });
+          // 1 タイル追従。行き先が無い / 既に到達しているなら **移動だけ** を飛ばす。
+          // ⚠ ここを continue で抜けると、定位置に居る仲間が下の道中詠唱まで飛ばされる。
+          if (targetTile && myStart && !(myStart.tx === targetTile.tx && myStart.ty === targetTile.ty)) {
+            const wx = targetTile.tx * TILE_SIZE + TILE_SIZE / 2;
+            const wy = targetTile.ty * TILE_SIZE + TILE_SIZE / 2;
+            await allyAdvanceTowardPoint(ally, wx, wy, {
+              steps: 1, slideMs: 600, postSleep: 40, silent: true,   // ★探索は 1 タイル (P5)
+            });
+          }
+          // ★#19 STEP5 道中詠唱。exploreAllyTurn の呼び口は 1 箇所 (heroAI の 1 タイル到達) だけ
+          //   なので「たまに呼ばれない」経路は原理的に存在しない (依頼書 §2-7)。
+          // 主人公はここに入れない。heroAI は 1 タイル前進の同期ループで、await を挟むと前進が止まる。
+          if (ACTION_PRIORITY_ON) await apTryTravelCast(ally);
         }
       } finally {
         exploreAllyTurnRunning = false;
@@ -19611,7 +19617,14 @@
         }
 
         // プレイヤーのバフ・デバフもリセット
+        // ★#19 STEP6 ⚠⚠⚠ 道中で受けたバフはここで消さない。
+        //   この直下の仲間ループは skillsUsedInEncounter しかクリアしない (resetAllyBuffs の
+        //   呼び口は戦闘 **終了** 時の 1 箇所だけ) ので、素直にリセットすると
+        //   **主人公だけ祝福が剥がれ、仲間には乗ったまま** という非対称が出る (依頼書 §2-5)。
+        // resetPlayerBuffs 本体は触らない (戦闘終了時からも呼ばれている)。
+        const __apKeep = apCaptureTravelBuffs();   // 道中詠唱が無い / ?actionpri=0 なら null
         resetPlayerBuffs();
+        if (__apKeep) apRestoreTravelBuffs(__apKeep);
         // 仲間の 1戦1回スキル使用記録 + クールダウンをリセット
         for (const a of allies) {
           if (a.skillsUsedInEncounter) a.skillsUsedInEncounter.clear();
@@ -19892,6 +19905,11 @@
           for (const a of allies) {
             if (a.alive) resetAllyBuffs(a);
           }
+          // ★#19 STEP6: 道中バフの印と「1 接敵 1 回」のラッチをここで落とす。
+          //   交戦敵は全滅しているので apTryTravelCast の条件 6 (alert/chase) が自然に落ち、
+          //   次の接敵で改めて 1 回だけ唱えられる。
+          playerBuffs.__apTravel = false;
+          apTravelCastDone.clear();
           await sleepMs(900);
 
           // 1. Phase 2-J: 呪文スロット回復 (勝利ボーナス: maxSpellSlots[id] × 25% 切上げ)
@@ -29145,8 +29163,11 @@
     }
     // 「もう効いている / 撃っても無駄」を弾く。⚠ ここを省くと、指定した瞬間から毎手番
     //   同じバフを撃ち直してスロットを溶かす (リーダー側の候補フィルタが同じ事をしている)。
-    function apIsWastedCast(unit, skillId, sk) {
+    // healNeedRatio = 「この割合まで減っていなければ回復は無駄」の閾値。既定 1 = 1 でも減っていれば撃つ。
+    //   道中詠唱 (STEP5) だけは 0.75 を渡す = 歩きながらの回復は本当に減っている時だけ。
+    function apIsWastedCast(unit, skillId, sk, healNeedRatio) {
       const b = unit.buffs || {};
+      const needRatio = (typeof healNeedRatio === "number") ? healNeedRatio : 1;
       // 自己バフ系: 既に効いているなら撃たない
       if (skillId === "arcane-shield" || skillId === "shield-wall") return (b.acBonusRemaining || 0) > 0;
       if (skillId === "haste")       return (b.hastedRemaining || 0) > 0;
@@ -29178,9 +29199,9 @@
       }
       // 回復系: 誰も減っていなければ無駄 (リーダー側の "healDice && hp >= maxHp" と同じ作法)
       if (sk && sk.healDice) {
-        if (sk.target === "self") return unit.hp >= unit.maxHp;
+        if (sk.target === "self") return unit.hp >= unit.maxHp * needRatio;
         const low = findLowestHpPartyMember();
-        return !low || low.ratio >= 1;
+        return !low || low.ratio >= needRatio;
       }
       return false;
     }
@@ -29217,6 +29238,92 @@
       }
       // executeSkillOn が「撃てなかった」(= false) と言ってきたら、そのまま従来の連鎖へ落とす。
       return await executeSkillOn(unit, cls, id, tgtIdx);
+    }
+
+    // ── #19 STEP5: 道中詠唱 (探索フェーズ中に本当に唱えさせる) ──────────────────
+    // 1 回の接敵につき 1 回だけ。キーは "<allies の添字>:<skillId>"。
+    // ⚠ クリアは戦闘 **終了** 時の 1 箇所だけ (resetAllyBuffs ループの直後)。
+    const apTravelCastDone = new Set();
+
+    // 「敵にもう気づかれている」= 戦いが近い。⭐ この条件が無いと歩くたびにスロットを溶かす。
+    // ⚠ 護衛対象 (隊商の馬車) は未視認 cull を避けるため常時 "chase" を持たされているので数に入れない。
+    function apTravelEnemyAware() {
+      for (const e of enemies) {
+        if (!e || !e.alive) continue;
+        if (typeof isEscortObjective === "function" && isEscortObjective(e)) continue;
+        if (e.state === "alert" || e.state === "chase") return true;
+      }
+      return false;
+    }
+
+    // 道中で唱えたバフは戦闘開始の resetPlayerBuffs() で **主人公だけ** 剥がれる (依頼書 §2-5)。
+    // 退避/復元するキー。⚠ atkBonusAmount / acBonusAmount / strikingDie のような「量」を
+    //   一緒に持って行かないと、残りターンだけ戻って効果量 0 の抜け殻バフになる。
+    const AP_TRAVEL_BUFF_KEYS = ["atkBonusRemaining", "atkBonusAmount", "blessMoveRemaining",
+      "acBonusRemaining", "acBonusAmount", "strikingRemaining", "strikingDie", "hastedRemaining"];
+
+    async function apTryTravelCast(ally) {
+      if (!ACTION_PRIORITY_ON) return false;
+      if (!ally || !ally.alive) return false;
+      const cls = ally.classKey || null;
+      if (!cls) return false;
+      // 1. 「道中」の指定があること (枠が空なら apPreferredId が "全般" へ落とす)
+      const id = apPreferredId(cls, "travel");
+      if (!id) return false;
+      // 2. ⚠⚠⚠ 抜け道封じ (依頼書 §2-6)。道中に許すのは「呪文スロットを消費し、敵を対象に
+      //    取らない呪文」だけ。1戦1回スキル (battle-roar 等) を通すと、戦闘開始の
+      //    a.skillsUsedInEncounter.clear() で使用記録が消えて **実質 2 回撃てる**。
+      //    酒場の TRAVEL_CASTABLE_IDS と二重に守る。この責任を他の条件へ肩代わりさせない。
+      if (!AP_TRAVEL_CASTABLE.has(id)) return false;
+      // 3. 探索フェーズ中だけ
+      if (!gameStarted || gameOver) return false;
+      if (currentPhase !== "explore") return false;
+      if (encounterActive || encounterRunning) return false;
+      // 装備していない技は撃たない (僧侶は自動配分なので equippedSkills = spellSlots のキー集合)
+      if (!Array.isArray(ally.equippedSkills) || ally.equippedSkills.indexOf(id) < 0) return false;
+      const dict = (typeof CLASS_SKILL_DICTS !== "undefined") ? CLASS_SKILL_DICTS[cls] : null;
+      const sk = dict && dict[id];
+      if (!sk) return false;
+      // 4. 呪文スロット残。⚠ 呪文スロットは戦闘開始でリセットされない (補充は勝利後だけ) ので、
+      //    ここで払った 1 発は戦闘中に取り戻せない = 二重取りにならない唯一の資源。
+      if (sk.mpCost && !hasSpellSlot(ally, id)) return false;
+      // 5. 効果が未適用のときだけ。回復は「0.75 まで減っている人が居る」ときだけ
+      //    (歩いている間の擦り傷でスロットを溶かさない)。
+      if (apIsWastedCast(ally, id, sk, 0.75)) return false;
+      // 6. 敵に見つかっている = 接敵直前
+      if (!apTravelEnemyAware()) return false;
+      // 7. 1 回の接敵につき 1 回だけ
+      const latch = allies.indexOf(ally) + ":" + id;
+      if (apTravelCastDone.has(latch)) return false;
+      // ⚠ ラッチと「道中バフの印」は await の **前** に立てる。詠唱アニメ (数秒) の最中に
+      //   戦闘が始まると、後で立てても apCaptureTravelBuffs が取りこぼす。
+      apTravelCastDone.add(latch);
+      playerBuffs.__apTravel = true;
+      // 道中に来るのは味方対象/自己対象の呪文だけなので targetIdx は -1 で足りる。
+      return await executeSkillOn(ally, cls, id, -1);
+    }
+
+    // 道中で付いたぶんのバフだけを退避する。道中詠唱をしていない戦闘では null を返す
+    //   (何でも復元すると「前の戦闘の残りを持ち越す」という別の欠陥になる)。
+    function apCaptureTravelBuffs() {
+      if (!ACTION_PRIORITY_ON) return null;
+      if (!playerBuffs.__apTravel) return null;
+      const keep = {};
+      for (const k of AP_TRAVEL_BUFF_KEYS) keep[k] = playerBuffs[k] || 0;
+      return keep;
+    }
+    // 復元は Math.max (既存 allyBless / allyShieldOfFaith と同じ作法 = 強い方を残す)。
+    function apRestoreTravelBuffs(keep) {
+      if (!keep) return;
+      for (const k of AP_TRAVEL_BUFF_KEYS) playerBuffs[k] = Math.max(playerBuffs[k] || 0, keep[k] || 0);
+    }
+    if (typeof window !== "undefined") {
+      window.apTryTravelCast      = apTryTravelCast;
+      window.apTravelEnemyAware   = apTravelEnemyAware;
+      window.apCaptureTravelBuffs = apCaptureTravelBuffs;
+      window.apRestoreTravelBuffs = apRestoreTravelBuffs;
+      window.apTravelCastDone     = apTravelCastDone;
+      window.AP_TRAVEL_BUFF_KEYS  = AP_TRAVEL_BUFF_KEYS;
     }
 
     // ダイス表記の期待値。⚠ parseDiceDD は m===null のガードが無いので必ずこのラッパ越しに使う。

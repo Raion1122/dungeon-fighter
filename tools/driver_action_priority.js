@@ -9,9 +9,9 @@
  *   §0 装置 (母集団の確認 / index↔tavern の二重定義突合)   … 実装済 (項目②)
  *   §1 主人公 — 重み倍率がクランプに食われていない          … 実装済 (項目②)
  *   §2 仲間 — 先出しが効き、指定外は不変                    … 実装済 (項目③)
- *   §3 道中詠唱                                             … PENDING (項目④)
- *   §4 バフ退避 (戦闘開始で主人公だけ剥がれない)            … PENDING (項目④)
- *   §5 撤退スイッチ ?actionpri=0                            … PENDING (項目④)
+ *   §3 道中詠唱                                             … 実装済 (項目④)
+ *   §4 バフ退避 (戦闘開始で主人公だけ剥がれない)            … 実装済 (項目④)
+ *   §5 撤退スイッチ ?actionpri=0                            … 実装済 (項目④)
  *   §6 酒場 UI                                              … 実装済 (本ファイル)
  *
  *   ⛔ PENDING は **黙って緑にしない**。RESULT 行に PASSED / FAILED / PENDING の
@@ -40,7 +40,13 @@
  *       どれも赤くならなければ exit 1 (テストが空振りしている証拠)。
  *       ⚠ 注入点が 1 箇所ちょうど見つからなければ、走らせる前に exit 1 で止まる
  *         (アンカーが腐ったまま「注入したつもり」で緑になるのを防ぐ)。
- *   ※ 依頼書 §8 の N4/N5/N6 (道中詠唱・バフ退避) は後続項目 ④ の担当。ここでは入れない。
+ *   N4: apTryTravelCast の AP_TRAVEL_CASTABLE ガードを index 側だけ外す (依頼書 §2-6 の罠)
+ *       → **(3d) が赤くなる**こと。1戦1回スキルを道中で唱えられてしまう = 戦闘開始の
+ *       skillsUsedInEncounter.clear() で記録が消え、実質 2 回撃てる抜け道の再現。
+ *   N5: apCaptureTravelBuffs を no-op (常に null) にする (依頼書 §2-5 の罠)
+ *       → **(4a) が赤くなる**こと。戦闘開始で **主人公のバフだけ** 剥がれる非対称の再現。
+ *   N6: apTryTravelCast の apTravelCastDone ラッチを外す
+ *       → **(3c) が赤くなる**こと。1 回の接敵で何度も唱えてスロットを溶かす。
  */
 'use strict';
 
@@ -102,6 +108,30 @@ editIndexLines('計測シーム (executeSkillOn)', (lines, trimCR) => {
   return true;
 });
 
+/* ── 計測シーム: 戦闘開始の「バフ退避 → resetPlayerBuffs → 復元」直後の実測値 ────────
+ * ⭐⭐⭐ (4a) は「主人公と仲間が一致するか」を **その一瞬** で見ないと意味が無い。
+ *   後からポーリングで読むと、戦闘ターンでバフが減って **両方 0 = 一致** に化け、
+ *   退避を外しても緑になる (最悪の空振り)。→ 復元行の直後で 1 回だけ写し取る。
+ * ⛔ 本番ファイルには置かない。配信スナップショットへ実行時に注入する。 */
+const BUFF_ANCHOR = 'if (__apKeep) apRestoreTravelBuffs(__apKeep);';
+const BUFF_LINE = '        try { (window.__apBuffLog = window.__apBuffLog || []).push({ keep: !!__apKeep,'
+  + ' logN: ((window.__apLog || []).length),'
+  + ' player: { atk: playerBuffs.atkBonusRemaining || 0, atkAmt: playerBuffs.atkBonusAmount || 0,'
+  + ' ac: playerBuffs.acBonusRemaining || 0, striking: playerBuffs.strikingRemaining || 0,'
+  + ' hasted: playerBuffs.hastedRemaining || 0, move: playerBuffs.blessMoveRemaining || 0 },'
+  + ' allies: allies.filter(a => a.alive).map(a => ({ cls: a.classKey, atk: a.buffs.atkBonusRemaining || 0 }))'
+  + ' }); } catch (e) {}';
+editIndexLines('計測シーム (バフ退避)', (lines, trimCR) => {
+  const spots = [];
+  for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === BUFF_ANCHOR) spots.push(i);
+  if (spots.length !== 1) {
+    console.error('[driver] バフ退避の復元行が ' + spots.length + ' 箇所 (期待 1):  ' + BUFF_ANCHOR);
+    return false;
+  }
+  lines.splice(spots[0] + 1, 0, BUFF_LINE + '\r');
+  return true;
+});
+
 // ⚠ 実装側のこの 1 行が「装備している技だけに絞る」フィルタの入口。
 const NEG_ANCHOR = 'const equippedIds = apEquippedIdsFor(slot, classKey);';
 const NEG_PATCH  = 'const equippedIds = slot.skillPool.map(sk => sk.id); /* N3: フィルタを外した変異 */';
@@ -157,6 +187,49 @@ if (NEGATIVE) {
     return true;
   });
   console.log('[driver] ★ 負のコントロール N2 を注入しました (apGateP を Math.min = 引き下げへ反転)');
+
+  // ── N4 (依頼書 §2-6 の罠): 道中許可リストのガードを index 側だけ外す ────────
+  //   酒場側 (TRAVEL_CASTABLE_IDS) は素のまま = 「片方だけ忘れた」実装ミスの再現。
+  const N4_OLD = 'if (!AP_TRAVEL_CASTABLE.has(id)) return false;';
+  editIndexLines('負のコントロール N4 (道中許可リスト)', (lines, trimCR) => {
+    const spots = [];
+    for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === N4_OLD) spots.push(i);
+    if (spots.length !== 1) {
+      console.error('[driver] N4 の注入点が ' + spots.length + ' 箇所 (期待 1):  ' + N4_OLD);
+      return false;
+    }
+    lines[spots[0]] = '      /* N4: 道中許可リストのガードを外した変異 */\r';
+    return true;
+  });
+  console.log('[driver] ★ 負のコントロール N4 を注入しました (AP_TRAVEL_CASTABLE のガードを index 側だけ外す)');
+
+  // ── N5 (依頼書 §2-5 の罠): 道中バフの退避を no-op にする ───────────────────
+  const N5_OLD = 'if (!playerBuffs.__apTravel) return null;';
+  editIndexLines('負のコントロール N5 (バフ退避)', (lines, trimCR) => {
+    const spots = [];
+    for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === N5_OLD) spots.push(i);
+    if (spots.length !== 1) {
+      console.error('[driver] N5 の注入点が ' + spots.length + ' 箇所 (期待 1):  ' + N5_OLD);
+      return false;
+    }
+    lines[spots[0]] = '      return null;   /* N5: 退避を no-op にした変異 */\r';
+    return true;
+  });
+  console.log('[driver] ★ 負のコントロール N5 を注入しました (apCaptureTravelBuffs を常に null へ)');
+
+  // ── N6: 「1 接敵 1 回」のラッチを外す ──────────────────────────────────────
+  const N6_OLD = 'if (apTravelCastDone.has(latch)) return false;';
+  editIndexLines('負のコントロール N6 (ラッチ)', (lines, trimCR) => {
+    const spots = [];
+    for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === N6_OLD) spots.push(i);
+    if (spots.length !== 1) {
+      console.error('[driver] N6 の注入点が ' + spots.length + ' 箇所 (期待 1):  ' + N6_OLD);
+      return false;
+    }
+    lines[spots[0]] = '      /* N6: 1 接敵 1 回のラッチを外した変異 */\r';
+    return true;
+  });
+  console.log('[driver] ★ 負のコントロール N6 を注入しました (apTravelCastDone のラッチを外す)');
 }
 
 function loadPuppeteer() {
@@ -260,13 +333,19 @@ function seed() {
 
 const PREP_SCENARIO = 'goblin-mine';
 
-async function openPrepScreen(browser, viewport) {
+async function openPrepScreen(browser, viewport, opts) {
+  opts = opts || {};
+  const qs = opts.qs ? ('?' + opts.qs) : '';
   const page = await browser.newPage();
   page.on('pageerror', e => pageErrors.push(viewport.name + ' :: ' + e.message));
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
-  await page.goto('http://localhost:' + PORT + '/tavern.html', { waitUntil: 'domcontentloaded', timeout: 25000 });
+  await page.goto('http://localhost:' + PORT + '/tavern.html' + qs, { waitUntil: 'domcontentloaded', timeout: 25000 });
   await page.evaluate(seed);
-  await page.goto('http://localhost:' + PORT + '/tavern.html', { waitUntil: 'domcontentloaded', timeout: 25000 });
+  // ⚠ seed() が dragonfighters.* を全部消すので、保存値の seed は **その後** に置く ((5b) 用)。
+  if (opts.seedAp) await page.evaluate((ap) => {
+    try { localStorage.setItem('dragonfighters.actionPriority', JSON.stringify(ap)); } catch (e) {}
+  }, opts.seedAp);
+  await page.goto('http://localhost:' + PORT + '/tavern.html' + qs, { waitUntil: 'domcontentloaded', timeout: 25000 });
   await page.waitForFunction("typeof openPrep === 'function' && typeof scenarios !== 'undefined'", { timeout: 20000 });
   // ⚠ await しない (マッチング演出がタップ待ちで止まるため)
   await page.evaluate((scId) => {
@@ -274,12 +353,13 @@ async function openPrepScreen(browser, viewport) {
     if (!(selection.partyComposition && selection.partyComposition.length)) selection.partyComposition = ['warrior'];
     Promise.resolve(openPrep(sc)).catch(() => {});
   }, PREP_SCENARIO);
-  const shownNow = () => page.evaluate(() => {
+  const shownNow = () => page.evaluate((expectRows) => {
     const p = document.getElementById('prep');
     if (!p || getComputedStyle(p).display === 'none') return false;
+    if (!expectRows) return true;   // ?actionpri=0 では #apRows が空のまま = 幅で待てない
     const rows = document.getElementById('apRows');
     return !!rows && rows.getBoundingClientRect().width > 1;
-  });
+  }, opts.expectRows !== false);
   let shown = false;
   for (let i = 0; i < 45 && !shown; i++) {
     shown = await shownNow();
@@ -310,6 +390,29 @@ const AP_SEED_ALLY = {
   rogue:   { general: null, mob: null, boss: 'thrown-dagger',  travel: null },
   warrior: { general: null, mob: null, boss: 'strong-cleave',  travel: null },
 };
+/* ── §3/§4 (道中詠唱・バフ退避) 用の seed ────────────────────────────────────
+ * ⭐ 実プレイで観測するので、隊列も習得呪文も装備スキルも **本番の読み口** へ流し込む
+ *   (index.html は sessionStorage.partyMembers / localStorage.knownSpells /
+ *    localStorage.partySkills をページ読み込み時に 1 回だけ読む)。
+ * ⚠⚠ 僧侶の bless は **スクロール習得制** で DEFAULT_KNOWN に入っていない (index.html:12254)。
+ *    ここを seed しないと equippedSkills に bless が入らず、§3 の assert が全部空振りする。
+ *    → (3a-0) が母集団ガードとして先に赤くなる。 */
+const TRAVEL_PARTY = [
+  { classKey: 'warrior', isHero: true, name: '勇者',   level: 5 },
+  { classKey: 'cleric',  name: 'リタ',   level: 5 },
+  { classKey: 'dwarf',   name: 'グリム', level: 5 },
+];
+const TRAVEL_KNOWN  = { cleric: ['cure-light-wounds', 'shield-of-faith', 'turn-undead', 'bless'], mage: [], elf: [] };
+// ドワーフに battle-roar (1戦1回・mpCost 無し) を持たせる = (3d) の抜け道テストの母集団。
+const TRAVEL_SKILLS = { dwarf: ['battle-roar', 'power-attack', 'shield-wall'] };
+const AP_SEED_TRAVEL = {
+  cleric: { general: null, mob: null, boss: null, travel: 'bless' },
+  dwarf:  { general: null, mob: null, boss: null, travel: 'battle-roar' },   // 許可リスト外 = 一生撃てないのが正
+};
+// (4b) 用: 優先度そのものは生きているが「道中」だけ未設定 → 退避が常時バフ持ち越しに化けていないか。
+const AP_SEED_NOTRAVEL = { cleric: { general: null, mob: null, boss: 'bless', travel: null } };
+const TRAVEL_OPTS = { party: TRAVEL_PARTY, known: TRAVEL_KNOWN, skills: TRAVEL_SKILLS, xp: 10000 };
+
 // ダイス表記の期待値。⛔ 重みの再実装ではない (「2d8 は今の武器より強い」を言うためだけ)。
 const diceEV = (s) => {
   const m = /^(\d+)d(\d+)$/.exec(String(s || ''));
@@ -428,27 +531,107 @@ const AP_ALLY_HELPERS = `
   };
 `;
 
-async function openIndexPage(browser, qs, seedAp) {
+async function openIndexPage(browser, qs, seedAp, opts) {
+  opts = opts || {};
   const page = await browser.newPage();
   page.on('pageerror', e => pageErrors.push('index :: ' + e.message));
   await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
-  await page.evaluateOnNewDocument((ap) => {
+  await page.evaluateOnNewDocument((ap, o) => {
     try {
       sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine');
       if (ap) localStorage.setItem('dragonfighters.actionPriority', JSON.stringify(ap));
       else localStorage.removeItem('dragonfighters.actionPriority');
+      // ⚠ 隊列 / 習得呪文 / 装備スキルは **遷移前** に置く (どれも読み込み時に 1 回しか読まれない)。
+      if (o && o.party) sessionStorage.setItem('dragonfighters.partyMembers', JSON.stringify(o.party));
+      else sessionStorage.removeItem('dragonfighters.partyMembers');
+      if (o && o.known)  localStorage.setItem('dragonfighters.knownSpells', JSON.stringify(o.known));
+      if (o && o.skills) localStorage.setItem('dragonfighters.partySkills', JSON.stringify(o.skills));
+      if (o && o.xp)     localStorage.setItem('dragonfighters.xp', String(o.xp));
     } catch (e) {}
-  }, seedAp || null);
+    /* 実プレイ観測用の連続サンプラ。
+     * ⭐⭐⭐ 固定時間窓のポーリングでは「敵が alert になった一瞬」を取りこぼす
+     *   (alertTimer は約 480ms で chase へ抜け、接敵まではさらに短い)。
+     *   → 50ms の常設サンプラで **回数** を数える。(0d) の母集団はこれで採る。
+     * __apEarlyCast = 「まだ誰にも気づかれていないのに道中詠唱が記録された」回数 = (3b) の実プレイ版。
+     *   ⚠ 一度 aware になった後は数えない (過去のログを数え続けて永久に赤くなるのを防ぐ)。 */
+    window.__apAware = 0;
+    window.__apEarlyCast = 0;
+    try {
+      setInterval(function () {
+        try {
+          if (typeof window.apTravelEnemyAware !== 'function') return;
+          if (typeof encounterActive === 'undefined' || encounterActive) return;
+          if (typeof currentPhase === 'undefined' || currentPhase !== 'explore') return;
+          if (window.apTravelEnemyAware()) { window.__apAware++; return; }
+          if (window.__apAware > 0) return;
+          if ((window.__apLog || []).some(function (r) { return r.phase === 'explore' && !r.isLeader; }))
+            window.__apEarlyCast++;
+        } catch (e) {}
+      }, 50);
+    } catch (e) {}
+  }, seedAp || null, { party: opts.party || null, known: opts.known || null,
+                       skills: opts.skills || null, xp: opts.xp || null });
   await page.goto('http://localhost:' + PORT + '/index.html?' + (qs || 'autoplay=30&diag=1'),
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     'typeof gameStarted !== "undefined" && gameStarted && document.getElementById("combatLog")',
     { timeout: 45000 });
   await sleep(400);
-  await page.evaluate(QUIET);
+  // 実プレイ観測ページ (quiet:false) だけは静穏化しない。歩いて・見つかって・戦うのが測定対象。
+  if (opts.quiet !== false) await page.evaluate(QUIET);
   await page.evaluate(AP_HELPERS);
   return page;
 }
+
+/* 「出るまでポーリング」。⭐ 固定 sleep は共有キュー (ゲームループ) のある所では原理的にフレークする。 */
+async function pollUntil(page, fn, timeoutMs, stepMs) {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await page.evaluate(fn);
+    if (last && last.done) return last;
+    await sleep(stepMs || 400);
+  }
+  return last;
+}
+
+/* ── 道中詠唱を「決定論の盤面」で叩くための装置 (QUIET 済みページ専用) ──────────
+ * ⭐ 叩くのは **本番の apTryTravelCast** そのもの。決定ロジックは 1 行も触らない。
+ * ⚠ 敵は QUIET で遠方へ退避済みなので、state を書き換えても交戦は始まらない
+ *   (= 条件 6 だけを独立に動かせる)。 */
+const AP_CTL_HELPERS = `
+  window.__apCtlSetup = function (state) {
+    for (const e of enemies) { if (!e.alive) continue; e.state = state; e.alertTimer = 9999; }
+    return enemies.filter(e => e.alive).map(e => e.state);
+  };
+  // 「祝福が切れた」状態を作る。⭐ これが無いと apIsWastedCast が先に止めてしまい、
+  //   ラッチ (条件 7) が効いているのかどうかを区別できない = N6 が空振りする。
+  window.__apCtlClearBuffs = function () {
+    playerBuffs.atkBonusRemaining = 0; playerBuffs.atkBonusAmount = 0; playerBuffs.blessMoveRemaining = 0;
+    for (const a of allies) {
+      a.buffs.atkBonusRemaining = 0; a.buffs.atkBonusAmount = 0; a.buffs.blessMoveRemaining = 0;
+    }
+  };
+  window.__apCtlAlly  = function (cls) { return allies.find(a => a.classKey === cls) || null; };
+  window.__apCtlCount = function (id) {
+    return (window.__apLog || []).filter(r => r.skillId === id).length;
+  };
+  window.__apCtlRun = async function (cls, n, opt) {
+    opt = opt || {};
+    const out = { fired: [], aware: [], states: null, before: window.__apCtlCount(opt.id), after: 0 };
+    for (let i = 0; i < n; i++) {
+      if (opt.state) out.states = window.__apCtlSetup(opt.state);
+      if (opt.clearBuffs) window.__apCtlClearBuffs();
+      // ⭐ state を書いてから apTryTravelCast の条件 6 判定までは **完全に同期** なので、
+      //   ゲームループ (setInterval/rAF = マクロタスク) は割り込めない。
+      //   1 発も撃たない回は await がマイクロタスクしか消費しない = ループ全体が原子的。
+      out.aware.push(window.apTravelEnemyAware());
+      out.fired.push(!!(await window.apTryTravelCast(window.__apCtlAlly(cls))));
+    }
+    out.after = window.__apCtlCount(opt.id);
+    return out;
+  };
+`;
 
 /* 1 職ぶんの観測。⭐ 「今の枠」はドライバが **selection.partySkills / CLERIC 表から独立に**
    組み立て、実装が描いた option と突き合わせる (2 経路)。 */
@@ -559,7 +742,7 @@ async function readClass(page, classKey) {
       'tavern n=' + tvArr.length + ' index n=' + ixArr.length + ' 片側にしか無い ID=' + JSON.stringify(travelDiff));
 
     console.log('  ..  (0c) 計測シームの母集団ガードは §2 の計測後に出す (下の "(0c)" を見ること)');
-    pending('(0d) 道中テストで敵が alert/chase になった瞬間が 1 回以上ある', '項目④ (STEP5) 未実装');
+    console.log('  ..  (0d) 道中の母集団ガードは §3 の実プレイ観測後に出す (下の "(0d)" を見ること)');
 
     console.log('\n--- (§1) 主人公: 重み倍率がクランプに食われていない ---');
     const AP_N = 6000;
@@ -821,19 +1004,239 @@ async function readClass(page, classKey) {
         'ゲート総数=' + all + ' / ラップ済=' + wrapped + ' (裸で残り=' + (all - wrapped) + ')');
     }
 
-    console.log('\n--- (§3) 道中詠唱 ---');
-    pending('(3a) 僧侶仲間 travel=bless が探索フェーズ中に発動する', '項目④ (STEP5) 未実装');
-    pending('(3b) 敵が idle しかいない間は一度も発動しない', '項目④ (STEP5) 未実装');
-    pending('(3c) 1 回の接敵で 2 回以上は撃たない (ラッチ)', '項目④ (STEP5) 未実装');
-    pending('(3d) travel に battle-roar を手で書き込んでも発動しない (2 重ガード)', '項目④ (STEP5) 未実装');
+    /* ══════════════════════════════════════════════════════════════════
+     * §3 道中詠唱 / §4 バフ退避 / §5 撤退 — 測り方は 2 系統
+     *   ① 実プレイ観測 (TR / NT ページ)  … 本番の呼び口 exploreAllyTurn がそのまま走る。
+     *      「出るまでポーリング」で採る (固定時間窓はゲームループの前で必ずフレークする)。
+     *   ② 決定論の盤面 (CTL ページ)      … QUIET で敵を遠ざけ、state だけを動かして
+     *      条件 6 / 条件 7 を独立に検査する。交戦が始まらないので測定が汚れない。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (§3) 道中詠唱: 実プレイ観測 ---');
+    const trPage = await openIndexPage(browser, 'autoplay=20&diag=1', AP_SEED_TRAVEL,
+      Object.assign({ quiet: false }, TRAVEL_OPTS));
+    const trSetup = await trPage.evaluate(() => {
+      const cl = allies.find(a => a.classKey === 'cleric');
+      const dw = allies.find(a => a.classKey === 'dwarf');
+      return {
+        party: [leaderClassKey].concat(allies.map(a => a.classKey)),
+        clericEquipped: cl ? (cl.equippedSkills || []).slice() : null,
+        clericBlessSlots: cl ? ((cl.spellSlots || {})['bless'] || 0) : 0,
+        dwarfHasRoar: !!dw && (dw.equippedSkills || []).indexOf('battle-roar') >= 0,
+        travelCleric: window.apPreferredId('cleric', 'travel'),
+        travelDwarf: window.apPreferredId('dwarf', 'travel'),
+        on: window.ACTION_PRIORITY_ON,
+      };
+    });
+    check('(3a-0) 母集団: 僧侶仲間が bless を枠に入れ・スロットも残り・指定が travel=bless に解決している',
+      !!trSetup.clericEquipped && trSetup.clericEquipped.indexOf('bless') >= 0
+        && trSetup.clericBlessSlots > 0 && trSetup.travelCleric === 'bless' && trSetup.on === true,
+      JSON.stringify(trSetup));
+
+    // ⭐ 「出るまでポーリング」: 道中 bless が記録され、かつ戦闘開始のスナップショットが 1 件出るまで。
+    const tr = await pollUntil(trPage, () => {
+      const log  = (window.__apLog || []);
+      const buff = (window.__apBuffLog || []);
+      const bless = log.filter(r => r.classKey === 'cleric' && r.skillId === 'bless' && r.phase === 'explore');
+      return {
+        done: bless.length > 0 && buff.length > 0,
+        aware: window.__apAware || 0,
+        early: window.__apEarlyCast || 0,
+        gameOver: (typeof gameOver !== 'undefined') ? gameOver : null,
+        blessExplore: bless.length,
+        blessEnc: bless.map(r => r.enc),
+        roar: log.filter(r => r.skillId === 'battle-roar').length,
+        log: log.map(r => r.classKey + '/' + r.skillId + '@' + r.phase + (r.enc ? '/enc' : '')),
+        latch: Array.from(window.apTravelCastDone || []),
+        buff: buff.slice(),
+      };
+    }, 150000, 500);
+    const trOk = !!tr;
+
+    // ⭐⭐⭐ 母集団ガード: 条件 6 が一度も真にならなければ §3 の assert は全部空振りする。
+    check('(0d) 道中テストで「敵が alert/chase になった」瞬間が 1 回以上ある (条件 6 の母集団)',
+      trOk && tr.aware > 0,
+      trOk ? ('50ms サンプラの当たり回数=' + tr.aware + ' / gameOver=' + tr.gameOver) : '(観測できず)');
+
+    check('(3a) 僧侶仲間 travel=bless が **探索フェーズ中に** 発動する (phase:"explore" の記録)',
+      trOk && tr.blessExplore >= 1 && tr.blessEnc.every(e => e === false),
+      trOk ? ('道中 bless=' + tr.blessExplore + ' enc=' + JSON.stringify(tr.blessEnc)
+              + ' ラッチ=' + JSON.stringify(tr.latch) + ' 全ログ=' + JSON.stringify(tr.log)) : '(観測できず)');
+    check('(3b-2) 実プレイ: 誰にも気づかれていない間に道中詠唱が記録されたことは一度も無い',
+      trOk && tr.early === 0,
+      trOk ? ('気づかれる前の記録=' + tr.early + ' 回 (0 が正) / aware=' + tr.aware) : '(観測できず)');
+    check('(3d-2) 実プレイ: 許可リスト外の battle-roar は道中で一度も撃たれない',
+      trOk && tr.roar === 0,
+      trOk ? ('battle-roar の記録=' + tr.roar + ' 回 (0 が正)') : '(観測できず)');
 
     console.log('\n--- (§4) バフ退避 (罠 §2-5) ---');
-    pending('(4a) 戦闘開始時に主人公と仲間で atkBonusRemaining>0 が一致する', '項目④ (STEP6) 未実装');
-    pending('(4b) 道中詠唱をしていない戦闘では開始時の playerBuffs が全部 0', '項目④ (STEP6) 未実装');
+    const b0 = (trOk && tr.buff && tr.buff[0]) || null;
+    const b0Allies = (b0 && b0.allies) || [];
+    check('(4a-0) 母集団: 道中詠唱の **後** に戦闘開始のスナップショットが 1 件以上ある',
+      !!b0 && b0.logN >= 1 && trOk && tr.blessExplore >= 1 && b0Allies.length > 0,
+      b0 ? ('戦闘開始時点の executeSkillOn 記録数=' + b0.logN + ' 生存仲間=' + b0Allies.length) : '(記録なし)');
+    // ⚠⚠⚠ 片方だけ見ると、退避を外しても仲間側だけで緑になる。必ず両方を突き合わせる。
+    check('(4a) 戦闘開始の瞬間、主人公と仲間で atkBonusRemaining>0 が一致する (主人公だけ剥がれていない)',
+      !!b0 && b0.player.atk > 0 && b0.player.atkAmt > 0 && b0Allies.every(a => a.atk > 0),
+      b0 ? ('主人公 atk=' + b0.player.atk + '(+' + b0.player.atkAmt + ') move=' + b0.player.move
+            + ' / 仲間 ' + JSON.stringify(b0Allies.map(a => a.cls + ':' + a.atk))
+            + ' / keep=' + b0.keep) : '(記録なし)');
+    await trPage.close();
+
+    // (4b) 優先度は生きているが「道中」だけ未設定 → 退避が「常時バフ持ち越し」に化けていないか
+    const ntPage = await openIndexPage(browser, 'autoplay=20&diag=1', AP_SEED_NOTRAVEL,
+      Object.assign({ quiet: false }, TRAVEL_OPTS));
+    const ntPre = await ntPage.evaluate(() => ({
+      on: window.ACTION_PRIORITY_ON,
+      travel: window.apPreferredId('cleric', 'travel'),
+      boss: window.apPreferredId('cleric', 'boss'),
+    }));
+    const nt = await pollUntil(ntPage, () => {
+      const buff = (window.__apBuffLog || []);
+      return { done: buff.length > 0, buff: buff.slice(),
+               gameOver: (typeof gameOver !== 'undefined') ? gameOver : null,
+               log: (window.__apLog || []).map(r => r.classKey + '/' + r.skillId + '@' + r.phase) };
+    }, 150000, 500);
+    const nb0 = (nt && nt.buff && nt.buff[0]) || null;
+    check('(4b-0) 母集団: 優先度そのものは生きているが「道中」だけ未設定 (退避が動く余地はある)',
+      ntPre.on === true && ntPre.travel === null && ntPre.boss === 'bless',
+      JSON.stringify(ntPre));
+    check('(4b) 道中詠唱をしていない戦闘では、開始時の playerBuffs が従来どおり全部 0',
+      !!nb0 && nb0.keep === false && nb0.player.atk === 0 && nb0.player.atkAmt === 0
+        && nb0.player.ac === 0 && nb0.player.striking === 0 && nb0.player.hasted === 0
+        && nb0.player.move === 0,
+      nb0 ? JSON.stringify(nb0) : '(戦闘開始の記録なし / ' + JSON.stringify(nt && nt.log) + ')');
+    await ntPage.close();
+
+    console.log('\n--- (§3) 道中詠唱: 決定論の盤面 (条件 6 / 条件 7 の分離) ---');
+    const ctlPage = await openIndexPage(browser, 'autoplay=20&diag=1', AP_SEED_TRAVEL, TRAVEL_OPTS);
+    await ctlPage.evaluate(AP_CTL_HELPERS);
+
+    // (3b) 敵が idle しかいない間は一度も発動しない (条件 6)
+    const c3b = await ctlPage.evaluate(async () =>
+      ({ r: await window.__apCtlRun('cleric', 6, { state: 'idle', clearBuffs: true, id: 'bless' }) }));
+    check('(3b-0) 母集団: 全敵を idle に固定した 6 回とも条件 6 が偽になっている',
+      c3b.r.aware.length === 6 && c3b.r.aware.every(a => a === false)
+        && !!c3b.r.states && c3b.r.states.length > 0,
+      'aware=' + JSON.stringify(c3b.r.aware) + ' 敵の state=' + JSON.stringify(c3b.r.states));
+    check('(3b) 敵が idle しかいない間は一度も発動しない (6 回叩いて 0 発)',
+      (c3b.r.after - c3b.r.before) === 0 && c3b.r.fired.every(f => f === false),
+      '発火=' + JSON.stringify(c3b.r.fired) + ' bless 記録の増分=' + (c3b.r.after - c3b.r.before));
+
+    // (3c) ラッチ。⭐ 毎回バフを消すので apIsWastedCast は止めない = 残る歯止めはラッチだけ。
+    const c3c = await ctlPage.evaluate(async () => {
+      const cl = window.__apCtlAlly('cleric');
+      const slotsBefore = (cl.spellSlots || {})['bless'] || 0;
+      const r = await window.__apCtlRun('cleric', 4, { state: 'alert', clearBuffs: true, id: 'bless' });
+      return { r: r, slotsBefore: slotsBefore, slotsAfter: (cl.spellSlots || {})['bless'] || 0,
+               latch: Array.from(window.apTravelCastDone || []) };
+    });
+    check('(3c-0) 母集団: 4 回とも条件 6 が真で、スロットが 2 発以上残っている (ラッチが唯一の歯止め)',
+      c3c.r.aware.every(a => a === true) && c3c.slotsBefore >= 2 && (c3c.r.after - c3c.r.before) >= 1,
+      'aware=' + JSON.stringify(c3c.r.aware) + ' bless スロット ' + c3c.slotsBefore + '→' + c3c.slotsAfter
+        + ' 増分=' + (c3c.r.after - c3c.r.before));
+    check('(3c) 1 回の接敵で 2 回以上は撃たない (バフを毎回消しても 4 回中 1 発だけ)',
+      (c3c.r.after - c3c.r.before) === 1,
+      '発火=' + JSON.stringify(c3c.r.fired) + ' bless 増分=' + (c3c.r.after - c3c.r.before)
+        + ' ラッチ=' + JSON.stringify(c3c.latch));
+
+    // (3d) 抜け道封じ。⚠ 「許可リストに無い」以外の条件は全部満たした状態にしてから叩く。
+    const c3d = await ctlPage.evaluate(async () => {
+      window.__apCtlClearBuffs();
+      const st = window.__apCtlSetup('alert');
+      const dw = window.__apCtlAlly('dwarf');
+      const sk = ((typeof CLASS_SKILL_DICTS !== 'undefined' && CLASS_SKILL_DICTS.dwarf) || {})['battle-roar'] || {};
+      const pre = {
+        prefId: window.apPreferredId('dwarf', 'travel'),
+        equipped: (dw.equippedSkills || []).indexOf('battle-roar') >= 0,
+        inTravelList: window.AP_TRAVEL_CASTABLE.has('battle-roar'),
+        aware: window.apTravelEnemyAware(),
+        phase: currentPhase, enc: encounterActive,
+        atk: dw.buffs.atkBonusRemaining || 0,
+        latched: Array.from(window.apTravelCastDone || []).indexOf(allies.indexOf(dw) + ':battle-roar') >= 0,
+        mpCost: sk.mpCost || 0,
+        once: !!sk.oncePerEncounter,
+        used: !!(dw.skillsUsedInEncounter && dw.skillsUsedInEncounter.has('battle-roar')),
+        cooldown: (dw.skillCooldowns && dw.skillCooldowns['battle-roar']) || 0,
+        states: st,
+      };
+      const r = await window.__apCtlRun('dwarf', 4, { state: 'alert', clearBuffs: true, id: 'battle-roar' });
+      return { pre: pre, r: r };
+    });
+    check('(3d-0) 母集団: battle-roar は「道中許可リストに無い」以外の条件を全部満たしている',
+      c3d.pre.prefId === 'battle-roar' && c3d.pre.equipped === true && c3d.pre.inTravelList === false
+        && c3d.pre.aware === true && c3d.pre.phase === 'explore' && c3d.pre.enc === false
+        && c3d.pre.atk === 0 && c3d.pre.latched === false && c3d.pre.mpCost === 0
+        && c3d.pre.once === true && c3d.pre.used === false && c3d.pre.cooldown === 0,
+      JSON.stringify(c3d.pre));
+    check('(3d) travel に battle-roar (1戦1回) を localStorage へ手で書き込んでも発動しない (2 重ガード)',
+      (c3d.r.after - c3d.r.before) === 0 && c3d.r.fired.every(f => f === false),
+      '発火=' + JSON.stringify(c3d.r.fired) + ' battle-roar 記録の増分=' + (c3d.r.after - c3d.r.before));
+    await ctlPage.close();
 
     console.log('\n--- (§5) 撤退スイッチ ?actionpri=0 ---');
-    pending('(5a) index.html?actionpri=0 で apPreferredId が null を返す', '項目④ (STEP7) 未実装');
-    pending('(5b) tavern.html?actionpri=0 で #actionPrioritySection 非表示 + 保存値は残る', '項目④ (STEP7) 未実装');
+    const offPage = await openIndexPage(browser, 'actionpri=0&autoplay=20&diag=1', AP_SEED_TRAVEL, TRAVEL_OPTS);
+    await offPage.evaluate(AP_CTL_HELPERS);
+    const off = await offPage.evaluate(async () => {
+      window.__apCtlSetup('alert');
+      window.__apCtlClearBuffs();
+      const cl = window.__apCtlAlly('cleric');
+      const before = (window.__apLog || []).length;
+      const fired = await window.apTryTravelCast(cl);
+      playerBuffs.__apTravel = true;                 // 道中詠唱があったことにしても…
+      const cap = window.apCaptureTravelBuffs();     // …退避は動かない
+      playerBuffs.__apTravel = false;
+      let ls = null;
+      try { ls = JSON.parse(localStorage.getItem('dragonfighters.actionPriority') || 'null'); } catch (e) {}
+      return {
+        on: window.ACTION_PRIORITY_ON,
+        travel: window.apPreferredId('cleric', 'travel'),
+        dwarfTravel: window.apPreferredId('dwarf', 'travel'),
+        gate: window.apGateP({ classKey: 'cleric' }, 'bless', 0.5),
+        aware: window.apTravelEnemyAware(),
+        hasBless: (cl.equippedSkills || []).indexOf('bless') >= 0,
+        slots: (cl.spellSlots || {})['bless'] || 0,
+        fired: fired, delta: (window.__apLog || []).length - before,
+        cap: cap,
+        lsTravel: (ls && ls.cleric) ? ls.cleric.travel : '(キー無し)',
+      };
+    });
+    check('(5a-0) 母集団: ?actionpri=0 が無ければ撃てた盤面 (条件 6 が真・bless を装備・スロット残)',
+      off.aware === true && off.hasBless === true && off.slots > 0,
+      'aware=' + off.aware + ' bless 装備=' + off.hasBless + ' スロット=' + off.slots);
+    check('(5a) index.html?actionpri=0 で優先度が全部 no-op (指定は null / ゲートは base / 道中詠唱も撃たない)',
+      off.on === false && off.travel === null && off.dwarfTravel === null && off.gate === 0.5
+        && off.fired === false && off.delta === 0 && off.cap === null,
+      JSON.stringify({ on: off.on, travel: off.travel, dwarfTravel: off.dwarfTravel, gate: off.gate,
+                       fired: off.fired, delta: off.delta, cap: off.cap }));
+    check('(5a-2) 保存済みの値は消えていない (スイッチを外せば戻る)',
+      off.lsTravel === 'bless', 'localStorage の cleric.travel=' + JSON.stringify(off.lsTravel));
+    await offPage.close();
+
+    const offPrep = await openPrepScreen(browser, { name: 'tavern-off', width: 1280, height: 900 },
+      { qs: 'actionpri=0', expectRows: false, seedAp: AP_SEED_TRAVEL });
+    const b5 = await offPrep.evaluate(() => {
+      const sec = document.getElementById('actionPrioritySection');
+      let ls = null;
+      try { ls = JSON.parse(localStorage.getItem('dragonfighters.actionPriority') || 'null'); } catch (e) {}
+      return {
+        exists: !!sec,
+        display: sec ? getComputedStyle(sec).display : null,
+        selects: document.querySelectorAll('#apRows select').length,
+        prepShown: (function () { const p = document.getElementById('prep'); return !!p && getComputedStyle(p).display !== 'none'; })(),
+        lsTravel: (ls && ls.cleric) ? ls.cleric.travel : '(キー無し)',
+        memTravel: (selection.actionPriority && selection.actionPriority.cleric) ? selection.actionPriority.cleric.travel : '(キー無し)',
+      };
+    });
+    check('(5b-0) 母集団: ?actionpri=0 でも「出発の準備」画面そのものは開いている',
+      b5.prepShown === true && b5.exists === true,
+      '#prep 可視=' + b5.prepShown + ' #actionPrioritySection 存在=' + b5.exists);
+    check('(5b) tavern.html?actionpri=0 で #actionPrioritySection が非表示 (select も 0 個)',
+      b5.display === 'none' && b5.selects === 0,
+      'display=' + b5.display + ' select 数=' + b5.selects);
+    check('(5b-2) 保存済みの値は消えていない (localStorage / selection の両方)',
+      b5.lsTravel === 'bless' && b5.memTravel === 'bless',
+      'localStorage=' + JSON.stringify(b5.lsTravel) + ' selection=' + JSON.stringify(b5.memTravel));
+    await offPrep.close();
 
     /* ════════════════════════════════════════════════════════════════════
      * §6 — 酒場 UI (本項目の担当)
@@ -1074,7 +1477,7 @@ async function readClass(page, classKey) {
   const pend   = results.filter(r => r.pending).length;
   console.log('\n[driver] RESULT: PASSED ' + passed + ' / FAILED ' + failed + ' / PENDING ' + pend);
   if (failed) console.log('[driver] FAILED: ' + results.filter(r => !r.ok && !r.pending).map(r => r.name).join(' | '));
-  if (pend)   console.log('[driver] PENDING: §2〜§5 は後続項目 (③④) の担当 — 黙って緑にしていない');
+  if (pend)   console.log('[driver] PENDING: まだ測っていない節があります (黙って緑にしていない)');
 
   if (NEGATIVE) {
     // 負のコントロールの判定。⚠ 1 本でも「注入したのに緑」があれば exit 1 (空振りの証拠)。
@@ -1099,6 +1502,12 @@ async function readClass(page, classKey) {
     // ⚠ (2c-1) は「指定なし」の検査なので N2 でも緑のまま。赤くなるのは (2c-0)/(2c-2)。
     judge('N2', '(2c', '(2c) apGateP が上げるだけで下げていないか');
     judge('N3', '(6b-', '(6b) 装備していない技が候補に出ないか');
+    // ⚠ '(3d' は (3d-0)/(3d)/(3d-2) に当たる。N4 では本体 (3d)/(3d-2) が赤くなる。
+    judge('N4', '(3d', '(3d) 1戦1回スキルが道中で撃てないか (§2-6 の罠)');
+    // ⚠ '(4a' は (4a-0)/(4a) に当たる。N5 で赤くなるのは本体 (4a)。
+    judge('N5', '(4a', '(4a) 主人公のバフだけ剥がれていないか (§2-5 の罠)');
+    // ⚠ '(3c' は (3c-0)/(3c) に当たる。N6 で赤くなるのは本体 (3c)。
+    judge('N6', '(3c', '(3c) 1 接敵 1 回のラッチが効いているか');
     process.exit(negNg === 0 ? 0 : 1);
   }
   process.exit(failed === 0 ? 0 : 1);
