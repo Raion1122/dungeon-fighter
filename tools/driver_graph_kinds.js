@@ -662,8 +662,14 @@ const TOUR_SRC = `(async () => {
         const p2 = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1', w2, e2, c.scen);
         const r2 = await p2.evaluate(() => ({ active: window.__graphRun.active(),
                                               nodes: (window.__graphRun.graph() || { nodes: [] }).nodes.length }));
-        check('(8-' + c.scen + '-e) ★装置: ?graph=0 を外すと分岐が立つ (スイッチが効いている証拠)',
-          r2.active === true && r2.nodes >= 2, 'active=' + r2.active + ' nodes=' + r2.nodes);
+        /* ★[#16] しきい値を `nodes >= 2` から `>= 1` へ下げたが、**緩めていない** —
+         *   同じ if の (8-*-a) が ?graph=0 側で active === false を要求しており、
+         *   ここは**その裏返し**を測る対。ノード数 2 は「分岐がある」ことの偶発的な代理で、
+         *   シナリオ2 が 1 ノードへ畳まれた今は成り立たない (卓上マップ 1 枚で完結)。
+         *   スイッチが効いていることの証拠は active の反転そのものなので、そちらを名指しにした。 */
+        check('(8-' + c.scen + '-e) ★装置: ?graph=0 を外すとグラフが立つ (スイッチが効いている証拠)',
+          r2.active === true && r2.nodes >= 1 && r.active === false,
+          'active=' + r2.active + ' nodes=' + r2.nodes + ' / ?graph=0 側 active=' + r.active);
         await p2.close();
       }
     }

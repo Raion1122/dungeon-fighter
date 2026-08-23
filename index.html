@@ -3852,6 +3852,50 @@
       try { return new URLSearchParams(window.location.search).get("banditmap") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[#16 シナリオ2 の畳み込み] 森を **8 ノード → 1 ノード**にして、卓上バトルマップ
+     *   1 枚 (52x26) だけでシナリオ2 を完結させる配線の撤退スイッチ。?s2fold=0 で
+     *   **畳む前の 8 ノード構成へ完全に戻る** (n0〜n6 の小部屋 / 分岐 / n6 の檻)。
+     * ⭐ 起案は「n7 の絵がプレイで一度も出てこない」というユーザー指摘。実測すると
+     *   実プレイ 3/3 が R6〜R9 (n0/n1 の最初の戦闘) で敗北していて **n7 に到達していない**
+     *   のが真因だった。畳めば 1 部屋目がその絵になるので構造ごと解消する。
+     * ⚠⚠ **置き場所が MINE_FOLD_OFF / BANDIT_MAP_OFF の隣なのは同じ理由** (RUN の即時評価から
+     *   buildBanditsForestRun が呼ばれるので、そこより後の宣言は TDZ で落ちる)。
+     * ⚠ スイッチは**ここ 1 箇所で読む**。分岐は buildBanditsForestRun と
+     *   SCENARIO_NODE_EXTRAS の 2 箇所だけ (どちらも「どのノード id へ載せるか」の話で、
+     *   グラフの形と隠し要素のアンカーは 1 対 1 なので分けられない)。
+     * ⚠ ?banditmap=0 **単独でも**畳みは外れる (下の S2_FOLDED)。あちらは #11 より前へ戻す
+     *   退避口で、#11 より前のシナリオ2 は 8 ノードだったため。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
+    const S2_FOLD_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("s2fold") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* ★[#16] 「森は畳まれているか」の**唯一の真偽**。3 箇所 (グラフの形 / 兼務の台帳 /
+     *   隠し要素のアンカー) がすべてこれ 1 本を読む。
+     * ⚠⚠ ?banditmap=0 でも畳みを外す。あちらは「#11 より前の姿へ戻る」退避口で、
+     *   #11 より前のシナリオ2 は **8 ノード**だった。畳みだけを残すと「9x6 の旧小部屋 1 つで
+     *   シナリオが完結し、残影の獣の (41,17) はその rect の外」という、
+     *   どちらの版でもない不整合な状態になる。
+     * ⚠ 派生はここ 1 箇所で作る。各所で `S2_FOLD_OFF || BANDIT_MAP_OFF` と書き下すと、
+     *   片方を足し忘れた中間状態が生まれる。 */
+    const S2_FOLDED = !S2_FOLD_OFF && !BANDIT_MAP_OFF;
+    /* ★[#16] 「このノードは kind に加えてこの kind も兼ねる」台帳。
+     * ⚠⚠ 1 ノードだけのグラフでは kind が **"boss" 一択**になる ("search"/"loot" にすると
+     *   validate が graph-no-boss を出す。tools/probe_s2_fold.js --lint で実測)。そのままだと
+     *   罠 (kind:"search") と玄室宝箱 (kind:"loot") が**無言でゼロ**になるので、
+     *   畳んだノードだけが兼務を宣言する。⚠ 畳みを戻す (?s2fold=0) と n7 は
+     *   行き止まりのボス部屋に戻るが、この表は id で引くので**そちらにも効いてしまう**。
+     *   → 表そのものを S2_FOLD_OFF で空にする (兼務は畳んだときだけの話)。
+     * ⚠ **判定そのものはここに書かない**。真偽を決めるのは js/df-mapdef.js の
+     *   KIND_SPAWNS_TRAPS / KIND_SPAWNS_ROOM_CHESTS ただ 1 本で、ここは「何を兼ねるか」の
+     *   台帳にすぎない (出所を 2 つ持たないための分担。SCENARIO_NODE_EXTRAS と同じ流儀)。
+     * ⚠⚠ **置き場所がここなのは TDZ 回避**。applyNodeKindExclusions は宣言より前の
+     *   index.html:4502 (MAPDEF 構築直後) から呼ばれるので、4500 行台に const で置くと
+     *   一時的死角で ReferenceError になる (2026-08-23 に実際に踏みかけた)。
+     * ⚠ 畳んだシナリオだけが載る。他 5 シナリオはこの表を 1 度も引かない。 */
+    const NODE_EXTRA_SPAWN_KINDS = S2_FOLDED
+      ? { "bandits-forest": { n7: ["search", "loot"] } }
+      : {};
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
      *   ?detour=0    … 台帳ごと無効 (矢印も宝箱も出ない = P8 と同じ盤面)
      *   ?detour=tour … ?autoplay / ?graph=auto でも未訪問スポットを選び続ける
@@ -4499,12 +4543,19 @@
      * ⚠ 罠 (spawnTraps) / 隠し宝箱 / 探索宝箱 は EXCLUDED_ROOMS を、玄室宝箱 (spawnRoomChests) は
      *   ROOM_CHEST_EXCLUDED_ROOMS を読む。**2 系統あるのは実装事実**なので、片方だけ差し替えると
      *   「search なのに玄室宝箱まで湧く」等の中間状態になる → 必ず 2 つ一緒に差し替える。 */
+    function extraSpawnKindsFor(nodeId) {
+      if (!RUN || !_builtinScenId || !nodeId) return null;
+      const t = NODE_EXTRA_SPAWN_KINDS[_builtinScenId];
+      return (t && t[nodeId]) || null;
+    }
     function applyNodeKindExclusions(mapDef, nodeId) {
       nodeBuildKind = graphKindOf(nodeId);
       if (!nodeBuildKind || !window.DFMapDef ||
           typeof DFMapDef.excludedRoomIdxForKind !== "function") return false;
-      EXCLUDED_ROOMS = DFMapDef.excludedRoomIdxForKind(mapDef, nodeBuildKind);
-      ROOM_CHEST_EXCLUDED_ROOMS = DFMapDef.chestExcludedRoomIdxForKind(mapDef, nodeBuildKind);
+      /* ⚠ 2 系統は必ず**同じ extra** を渡して一緒に差し替える (片方だけだと中間状態)。 */
+      const extra = extraSpawnKindsFor(nodeId);
+      EXCLUDED_ROOMS = DFMapDef.excludedRoomIdxForKind(mapDef, nodeBuildKind, extra);
+      ROOM_CHEST_EXCLUDED_ROOMS = DFMapDef.chestExcludedRoomIdxForKind(mapDef, nodeBuildKind, extra);
       return true;
     }
     /* 「このノードは玄室宝箱の当たりを保証するか」= kind:"loot"。
@@ -10138,11 +10189,21 @@
      *   ここに載るのは「森の残影の獣」と「沼のハイドラ」の 2 つだけ。
      * ⚠ RUN が null の経路 (既存の単一マップ / ?graph=0) からは 1 度も読まれない。 */
     const SCENARIO_NODE_EXTRAS = {
-      "bandits-forest": {
-        // 残影の獣は startsCaged。檻と**同一タイル**に置くこと (linkCagedBeasts が最寄りの檻へ吸着する)
-        n6: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],
-              cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] },
-      },
+      /* ★[#16] 森を 1 ノードへ畳んだので、残影の獣のアンカーは n6 (苔むした檻の前) から
+       *   n7 (盗賊団のアジト = 唯一のノード) へ移る。⚠ 座標も一緒に移すこと:
+       *   旧 (36,13) は 7x6 の小部屋の中心だが、52x26 の大部屋では**絵ローカル (26,12) =
+       *   北東の岩場の内側**にあたる (依頼書 #11 が「起点の床保証がここに無言で穴を開ける」と
+       *   名指ししたまさにそのタイル)。
+       * ⭐ 新座標 (41,17) の出所は**旧・単一マップ版のシナリオ2 が使っていた檻の座標**
+       *   (ENEMY_SPAWNS / cageSpawns の "s2_beast_intel" 行)。本番の isTileWall で床、
+       *   入場 (12,15) から本番 aStar で 31 歩、街道の南・丸太柵の門の手前 = 絵とも合う。
+       * ⚠ 檻と獣は**同一タイル**に置くこと (linkCagedBeasts が最寄りの檻へ吸着する)。
+       * ⚠ 第 4 要素は酒場の噂フラグ。掴んでいなければ獣も檻も現れない (= 0 体が正常)。 */
+      "bandits-forest": S2_FOLDED
+        ? { n7: { spawns: [["shadowBeast", 41, 17, "s2_beast_intel"]],
+                  cages:  [{ tx: 41, ty: 17, flag: "s2_beast_intel" }] } }
+        : { n6: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],
+                  cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] } },
       "lizard-swamp": {
         // 封印中のハイドラ (inactive + passiveNpc)。部屋の中心 = 祭壇
         n6: { spawns: [["hydra", 36, 13, "s3_hydra_intel"]] },
@@ -34411,10 +34472,12 @@
     }
 
     /* ── シナリオ2「町外れの森 — 盗賊団の根城」 ────────────────────────────────
-     * 隠し要素 = 残影の獣 (檻つき)。n6 へ SCENARIO_NODE_EXTRAS で置く
-     * (酒場の噂フラグ s2_beast_intel で出す/出さないを切り替えるため。理由は台帳の注記)。 */
+     * 隠し要素 = 残影の獣 (檻つき)。SCENARIO_NODE_EXTRAS で置く
+     * (酒場の噂フラグ s2_beast_intel で出す/出さないを切り替えるため。理由は台帳の注記)。
+     * ★[#16] 既定は **1 ノードへ畳んだ形** = 卓上バトルマップ 1 枚 (52x26) だけで完結する。
+     *   ?s2fold=0 で下の 8 ノード構成へ完全に戻る。 */
     function buildBanditsForestRun() {
-      return buildP6Run("bandits-forest", "bandits-forest", {
+      const run = buildP6Run("bandits-forest", "bandits-forest", {
         n0: { name: "森の入口" },
         n1: { name: "野営の焚き火跡",
               slots: [[34, 12, "banditHeavy"], [34, 14, "banditHeavy"], [35, 13, "banditHeavy"],
@@ -34474,6 +34537,20 @@
                       [56, 14, "banditArcher"], [55, 13, "banditMage"]],
               boss: [57, 12, "scar"] },       // 赤い天幕の前 = 絵ローカル (47,11)
       });
+      if (!S2_FOLDED) return run;
+      /* ★[#16] 8 ノード → 1 ノード。**n7 の mapDef はここで組み直さない** —
+       *   buildP6Run が作ったものをそのまま取り出す。組み直すと「畳んだ版と畳んでいない版で
+       *   n7 の幾何が違う」中間状態が生まれ、driver_grid_s2 の 93 本が測っている対象が
+       *   別物になる (#11 の受入条件がまるごと空振りする)。
+       * ⚠ id は "n7" のまま。driver_grid_s2 / driver_graph_p6 の変異アンカーが id を
+       *   名指ししており、変えると 0 件ヒットでドライバごと exit 3 = 偽の緑になる。
+       * ⚠ n7 の exits は元から [] (行き止まりのボス部屋) なので、そのまま entry にできる。
+       *   entry === boss ノードで validate/lintRun が error 0 / warning 0 になることは
+       *   tools/probe_s2_fold.js --lint で実測済み。
+       * ⚠ 罠と玄室宝箱は kind:"boss" では湧かないので、NODE_EXTRA_SPAWN_KINDS が
+       *   n7 に "search" / "loot" の兼務を宣言している (この 2 つはセット)。 */
+      const boss = run.nodes.find(n => n.id === "n7");
+      return { entry: "n7", nodes: [boss] };
     }
 
     /* ── シナリオ3「沼地 — リザードマン族長の討伐」 ────────────────────────────

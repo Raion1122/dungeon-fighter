@@ -56,7 +56,10 @@ const SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
                'orc-fort', 'undead-temple', 'dragon-lair'];
 /* 分岐グラフのノード数。6 シナリオとも buildP6Run の 8 ノード。廃坑だけ P8 で 2 ノードへ畳んだ。
  * ⚠ これは母集団ガード。ここが崩れたら「0 件」は**測っていないから 0**かもしれない。 */
-const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 8, 'lizard-swamp': 8,
+/* ★[#16] シナリオ2 は既定で 1 ノードへ畳まれた (卓上バトルマップ 1 枚で完結)。
+ *   ここは**既定の腕 = 実際に遊ばれる姿**の期待値なので 1。8 ノードの骨格は
+ *   ?s2fold=0 の腕で別に測る (下の S2_FOLD_ARM)。 */
+const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 1, 'lizard-swamp': 8,
                          'orc-fort': 8, 'undead-temple': 8, 'dragon-lair': 8 };
 const S2_NODE = 'n4';
 const S2_GATE = [39, 13];            // n4 → n7 の出口ゲート (P6_RIGHT)。扉が立つタイル
@@ -376,8 +379,26 @@ function blockedLines(m) {
     check('(1d-' + sid + ') 本番グラフが lintRun を通る (落ちると単一マップへ黙って退行)',
           m.lint && m.lint.ok === true, JSON.stringify(m.lint));
     if (sid === 'bandits-forest') {
-      s2Measure = await measureS2Node(page, S2_NODE, S2_ENTRY);
-      lintMeasure = await measureLint(page);
+      /* ★[#16] 本ドライバの主題 (n4 の出口ゲートに湧く banditMage) は **8 ノードの骨格**の話で、
+       *   その骨格は畳んだ今 ?s2fold=0 の腕に生きている。§2 §3 §4 の素材はそちらから採る。
+       * ⚠ 既定の腕を測るのをやめたのではない — 上の (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に
+       *   当たったまま。ここで **両方の腕を測る**ようにして母集団を増やしている。 */
+      const pf = await bootPage(browser, 'http://localhost:' + PORT + '?s2fold=0', sid, errsAll);
+      const mf = await measureAllNodes(pf);
+      const spawnsF = mf.err ? 0 : mf.nodes.reduce((a, n) => a + n.spawns.length, 0);
+      totalSpawns += spawnsF; totalNodes += (mf.err ? 0 : mf.nodes.length);
+      check('(1a2-' + sid + ') [?s2fold=0] 8 ノードの骨格が撤退先として生きている',
+            !mf.err && mf.nodes.length === 8, mf.err || ('実測 ' + mf.nodes.length + ' 件'));
+      check('(1b2-' + sid + ') [?s2fold=0] 敵スポーンを 1 体以上測れている (母集団ガード)',
+            spawnsF > 0, spawnsF + ' 体');
+      check('(1c2-' + sid + ') [?s2fold=0] 歩けないマスに湧く敵が 0 体',
+            !mf.err && blockedLines(mf).length === 0,
+            mf.err || (blockedLines(mf).join(' / ') || '0 体'));
+      check('(1d2-' + sid + ') [?s2fold=0] 本番グラフが lintRun を通る',
+            !!mf.lint && mf.lint.ok === true, JSON.stringify(mf.lint));
+      s2Measure = await measureS2Node(pf, S2_NODE, S2_ENTRY);
+      lintMeasure = await measureLint(pf);
+      await pf.close();
     }
     await page.close();
   }
@@ -433,7 +454,7 @@ function blockedLines(m) {
     /* (4a)(4b) 魔術師を (39,13) へ戻す = 実際に起きていた欠陥そのもの。
      * ⭐ lint を足したので、この版は**分岐グラフごと立たなくなる**のが正しい姿。
      *   よって観測は RUN 経由ではなく内蔵グラフの lint で採る (測定点を移した)。 */
-    const pr = await bootPage(browser, 'http://localhost:' + PORT_OF.regress, 'bandits-forest', []);
+    const pr = await bootPage(browser, 'http://localhost:' + PORT_OF.regress + '?s2fold=0', 'bandits-forest', []);
     const lr = await measureBuiltinLint(pr, 'bandits-forest');
     check('(4a) [regress] 欠陥データを lint が捕まえる',
           lr.ok === false && (lr.errors || []).some(c => c.indexOf('graph-spawn-on-gate@n4') === 0),
@@ -444,7 +465,7 @@ function blockedLines(m) {
 
     /* (4c)(4d) lint も一緒に殺した版 = **実行時に何が起きていたか**。
      * ⚠ 判定は素の版とまったく同じ measure 関数の戻り値で行う (ドライバ側の分岐で補わない)。 */
-    const prn = await bootPage(browser, 'http://localhost:' + PORT_OF.regressnolint, 'bandits-forest', []);
+    const prn = await bootPage(browser, 'http://localhost:' + PORT_OF.regressnolint + '?s2fold=0', 'bandits-forest', []);
     const mrn = await measureAllNodes(prn);
     const srn = await measureS2Node(prn, S2_NODE, S2_ENTRY);
     const lines = blockedLines(mrn);
@@ -458,7 +479,7 @@ function blockedLines(m) {
     await prn.close();
 
     /* (4e)(4f) lint を素通しにすると §2 が鳴らなくなる = (2b)(2d) が空振りでない証拠。 */
-    const pn = await bootPage(browser, 'http://localhost:' + PORT_OF.nolint, 'bandits-forest', []);
+    const pn = await bootPage(browser, 'http://localhost:' + PORT_OF.nolint + '?s2fold=0', 'bandits-forest', []);
     const ln = await measureLint(pn);
     check('(4e) [nolint] 測定が成立している (装置 assert)', !ln.err && Array.isArray(ln.dirty), ln.err || 'ok');
     check('(4f) [nolint] lint を素通しにすると (2b) が鳴らなくなる',

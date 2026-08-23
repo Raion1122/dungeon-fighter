@@ -20,6 +20,9 @@
  *   PORT+2 | nostart     | p6Node の start 上書きを外す (既定 36,13 へ)   | §3 (3b) = §2 の穴
  *   PORT+3 | nodensity   | density の既定落としを != null から || へ      | §3 (3c) = §7 の情景
  *   PORT+4 | noring      | sealRing の適用を殺す                          | §3 (3d) = §6 の外周
+ *   PORT+5 | nosearchkind| 兼務の台帳から "search" を抜く [#16]           | §3 (3e) = §13 の罠
+ *   PORT+6 | nolootkind  | 兼務の台帳から "loot" を抜く [#16]             | §3 (3f) = §13 の宝箱
+ *   PORT+7 | nobeastmove | 獣と檻を畳む前の (36,13) = 岩の中へ戻す [#16]   | §3 (3g) = §13 の檻
  *
  * ⚠ 変異の置換文字列は**必ず 1 行**(index.html は CRLF なので \n を含むと原理的に一致しない)。
  * ⚠ 置換前後で**バイト長を必ずずらす**。
@@ -48,7 +51,7 @@ function arg(name, dflt) {
 }
 const HEADFUL = process.argv.includes('--headful');
 const UPDATE_GOLDEN = process.argv.includes('--update-golden');
-/* ⚠ ポートは既存ドライバと 6 以上空ける (本ドライバは PORT..PORT+4 の 5 本を掴む)。 */
+/* ⚠ ポートは既存ドライバと 9 以上空ける (本ドライバは PORT..PORT+7 の 8 本を掴む)。 */
 const PORT = parseInt(arg('port', '9320'), 10);
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -66,6 +69,10 @@ const ROWS = RECT[2] - RECT[0] + 1;        // 26
 const GATE_LEFT = [10, 15];                // 絵に描かれた街道の西口 (絵ローカル 0,14)
 const ENTRY = [12, 15];                    // ★ゲートではなく NODE_ENTRY_INSET=2 だけ内側
 const BOSS = [57, 12];                     // 赤い天幕の前 (絵ローカル 47,11)
+/* ★[#16] 残影の獣と檻。座標の出所は**旧・単一マップ版のシナリオ2 が使っていた檻**
+ *   (index.html の ENEMY_SPAWNS / cageSpawns の "s2_beast_intel" 行)。本番の isTileWall で床、
+ *   入場 (12,15) から本番 aStar で 31 歩、街道の南・丸太柵の門の手前。 */
+const CAGE_TILE = [41, 17];
 const BRIDGE = [[30, 15], [31, 15], [30, 16], [31, 16]];   // 唯一の渡り
 /* 外周で歩けてよいのは 4 方向のゲートタイルだけ。
  *   left  = 絵の gates 指定 (10,15)
@@ -106,8 +113,26 @@ const MUTATIONS = {
   noring: [
     '        const sealing = !!(p.sealRing && !PAINT_RING_OFF);',
     '        const sealing = false;   /* ★変異noring */'],
+  /* ★[#16] 兼務の台帳から "search" を抜く = 1 ノードでは kind が "boss" 一択なので罠が湧かなくなる。 */
+  nosearchkind: [
+    '      ? { "bandits-forest": { n7: ["search", "loot"] } }',
+    '      ? { "bandits-forest": { n7: ["loot"] } }   /* ★変異nosearchkind */'],
+  /* ★[#16] 同じく "loot" を抜く = 玄室宝箱が湧かなくなる。 */
+  nolootkind: [
+    '      ? { "bandits-forest": { n7: ["search", "loot"] } }',
+    '      ? { "bandits-forest": { n7: ["search"] } }   /* ★変異nolootkind */'],
+  /* ★[#16] 残影の獣と檻を畳む前の座標 (36,13) へ戻す。52x26 の大部屋ではそこは
+   *   絵ローカル (26,12) = 北東の岩場の内側なので、檻が壁の上に立つ。
+   * ⚠ 獣と檻は**必ず 2 行とも**戻す。片方だけだと linkCagedBeasts が最寄りの檻へ
+   *   吸着して辻褄が合ってしまい、負のコントロールが空振りする。 */
+  nobeastmove: [
+    ['        ? { n7: { spawns: [["shadowBeast", 41, 17, "s2_beast_intel"]],',
+     '        ? { n7: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],  /* ★変異nobeastmove */'],
+    ['                  cages:  [{ tx: 41, ty: 17, flag: "s2_beast_intel" }] } }',
+     '                  cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] } }  /* ★変異nobeastmove2 */']],
 };
-const MUT_ORDER = ['nobridge', 'nostart', 'nodensity', 'noring'];
+const MUT_ORDER = ['nobridge', 'nostart', 'nodensity', 'noring',
+                   'nosearchkind', 'nolootkind', 'nobeastmove'];
 const PORT_OF = {};
 MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
 
@@ -244,6 +269,54 @@ async function bootPage(browser, url, errs) {
  * ⚠⚠ 実プレイと同じ入口 (resetNodeState → buildNode(resolveNodeMapDef(id), id) → …) を通す。
  *   buildNode(mapDef) を直に呼ぶと MAPDEF.isCustom が付かず、旧在庫 (キー "1"/"2") の絵が
  *   貼られたままの盤面を測ってしまう (2026-08-22 に実際に踏んだ)。 */
+
+/* ★[#16] 畳んだ形と、そこへ戻した罠 / 宝箱 / 檻 / 残影の獣を**実プレイと同じ順序**で測る。
+ * ⚠ 罠と宝箱は buildNode だけでは湧かない。spawnNodeEntities まで通すこと
+ *   (measureNode は幾何だけを見るので別に測る)。
+ * ⚠ 素の腕・?s2fold=0 の腕・変異版に**同じ文字列**を流す = 同じ手順を掛けたことが読んで分かる。 */
+const foldSrc = (scen, cageTile, forceNode) => `(() => {
+      const run = buildScenarioRun(${JSON.stringify(scen)});
+      const ids = run.nodes.map(n => n.id);
+      const want = ${JSON.stringify(forceNode || null)} || run.entry;
+      const nd = run.byId ? run.byId[want] : run.nodes.find(n => n.id === want);
+      resetNodeState();
+      currentNodeId = want;
+      buildNode(resolveNodeMapDef(want), want);
+      try { restoreNodeState(want); } catch (e) {}
+      try { spawnNodeEntities(); } catch (e) {}
+      const beast = (typeof enemies !== 'undefined' ? enemies : [])
+        .filter(e => e && e.type === 'shadowBeast');
+      const onFloor = (list) => list.every(t => !isTileWall(t[0], t[1]));
+      const trapAt  = (typeof traps !== 'undefined' ? traps : []).map(t => [t.tx, t.ty]);
+      const chestAt = (typeof roomChests !== 'undefined' ? roomChests : []).map(c => [c.tx, c.ty]);
+      const cageAt  = (typeof cages !== 'undefined' ? cages : []).map(c => [c.tx, c.ty]);
+      /* ⚠⚠ roomChests は spawnRoomChests (玄室宝箱 / kind:"loot" 系) と
+       *   spawnHiddenChests (隠し宝箱 / kind:"search" 系) の**両方**を抱える。
+       *   総数だけを見ると「loot の兼務を抜いたのに宝箱が残る」= 負のコントロールが空振りする
+       *   (2026-08-23 に (3f) で実際に踏んだ)。**門番の除外集合そのもの**を測る。 */
+      const exTrap  = (typeof EXCLUDED_ROOMS !== 'undefined' && EXCLUDED_ROOMS)
+                      ? EXCLUDED_ROOMS.size : -1;
+      const exChest = (typeof ROOM_CHEST_EXCLUDED_ROOMS !== 'undefined' && ROOM_CHEST_EXCLUDED_ROOMS)
+                      ? ROOM_CHEST_EXCLUDED_ROOMS.size : -1;
+      let lint = null;
+      try { const L = window.DFMapDef.lintRun(run.graph || run);
+            lint = { e: L.errors.map(x => x.code), w: L.warnings.map(x => x.code) }; }
+      catch (e) { lint = { e: ['THREW ' + e], w: [] }; }
+      return { ids: ids, entry: run.entry, measured: want, kind: nd ? nd.kind : null, lint: lint,
+               exits: nd && nd.exits ? nd.exits.length : -1,
+               traps: trapAt.length, chests: chestAt.length, cages: cageAt.length,
+               exTrap: exTrap, exChest: exChest,
+               beast: beast.length,
+               beastAt: beast.map(b => [Math.floor((b.x + b.def.displaySize / 2) / TILE_SIZE),
+                                        Math.floor((b.y + b.def.displaySize / 2) / TILE_SIZE)]),
+               cageAt: cageAt,
+               flagOn: (typeof questFlagOn === 'function') ? !!questFlagOn('s2_beast_intel') : null,
+               allOnFloor: onFloor(trapAt) && onFloor(chestAt) && onFloor(cageAt),
+               offenders: trapAt.concat(chestAt).concat(cageAt).filter(t => isTileWall(t[0], t[1])),
+               cageWanted: ${JSON.stringify(cageTile)} };
+    })()`;
+
+
 async function measureNode(page, nodeId, via) {
   return page.evaluate((scen, id, dir, RECT_, ENTRY_, BOSS_, KEY_) => {
     const out = { err: null };
@@ -391,6 +464,12 @@ function ringOpenCount(m) {
   const m = await measureNode(page, NODE, 'right');
   if (m.err) { console.error('[drv] ⛔ ' + m.err); process.exit(1); }
 
+  /* ★[#16] 森は既定で **1 ノード**へ畳まれた。n0〜n6 を母集団にしていた assert
+   *   ((7c) / §11 / §12) は、**本体を 1 文字も変えずに測る腕だけ**こちらへ移す。
+   * ⚠ 「n0〜n6 が無改修であること」は #11 の受入条件そのもので、畳んだ今も
+   *   ?s2fold=0 の行き先として**生きていなければならない**。緩めるのではなく移す。 */
+  const foldOff = await bootPage(browser, PURE + '?s2fold=0', errsAll);
+
   // ── §1 絵が載っている ────────────────────────────────────────────────────
   mark('§1 絵が載っている');
   check('(1a) n7 の painting.key が "' + PAINT_KEY + '"', m.paintKey === PAINT_KEY, 'key=' + m.paintKey);
@@ -435,8 +514,15 @@ function ringOpenCount(m) {
     });
     check('(2c) 敵スポーンが 1 体もマスクの塞ぎに載っていない (穴あけ防止)',
           bad.length === 0, bad.length + ' 体 ' + JSON.stringify(bad));
-    check('(2d) 装置 assert: 敵が 10 体 + ボス 1 体スポーンしている',
-          (m.enemies || []).length === 10, (m.enemies || []).length + ' 体');
+    /* ★[#16] 畳み込みで残影の獣 (檻つき) が n6 から n7 へ移ったので、実際に湧く敵は 10 → 11 体。
+     *   内訳 = mapDef のスロット 9 + ボス 1 + SCENARIO_NODE_EXTRAS の shadowBeast 1。
+     * ⚠ **緩めたのではなく内訳を名指しにして厳しくした** (合計だけを見ると、スロットが 1 本
+     *   死んで獣が 2 体湧いても 11 で通ってしまう)。獣は酒場の噂フラグ s2_beast_intel が
+     *   ON のときだけ湧くので、母集団ガードは §13 の (13z) と対で読むこと。 */
+    check('(2d) 装置 assert: 敵がスロット 9 + ボス 1 + 残影の獣 1 = 11 体スポーンしている',
+          (m.slots || []).length === 9 && !!m.boss && (m.enemies || []).length === 11,
+          'スロット ' + (m.slots || []).length + ' / ボス ' + (m.boss ? 1 : 0) +
+          ' / 実際に湧いた ' + (m.enemies || []).length + ' 体');
   }
 
   // ── §4 §5 到達可能性と経路 ───────────────────────────────────────────────
@@ -471,8 +557,11 @@ function ringOpenCount(m) {
   check('(7b) sceneryPlacements が 0 個', m.scenery === 0, m.scenery + ' 個');
   {
     /* 装置 assert — 「情景が数えられている」ことを density:1 のノードで示す。
-     * ⚠ これが無いと sceneryPlacements の読みが壊れていても (7b) は永久に緑。 */
-    const m4 = await measureNode(page, 'n4', 'right');
+     * ⚠ これが無いと sceneryPlacements の読みが壊れていても (7b) は永久に緑。
+     * ★[#16] 既定では森が 1 ノードへ畳まれて n4 が存在しないので、**assert 本体は
+     *   1 文字も変えずに測る腕だけ ?s2fold=0 へ移した**。density:1 の道中ノードが
+     *   残っているのはそちらの腕だけで、装置 assert の意味 (情景が数えられている) は同じ。 */
+    const m4 = await measureNode(foldOff, 'n4', 'right');
     check('(7c) 装置 assert: density:1 の n4 では情景が 1 個以上湧く',
           m4.density === 1 && m4.scenery > 0, 'n4 density=' + m4.density + ' scenery=' + m4.scenery);
   }
@@ -504,8 +593,10 @@ function ringOpenCount(m) {
   }
 
   // ── §11 §12 隠し要素 / 罠 / 宝箱 が無改修 ────────────────────────────────
-  mark('§11 §12 n0〜n6 が無改修 (残影の獣 / 罠 / 宝箱 / 湧き水)');
-  const keepJson = await page.evaluate((scen, ids) => {
+  /* ★[#16] 測る腕を ?s2fold=0 へ移した。**assert 本体も golden のキーも 1 文字も変えていない** —
+   *   n0〜n6 が #11 の時と 1 バイトも違わないことは、畳んだ後も撤退先として要求され続ける。 */
+  mark('§11 §12 n0〜n6 が無改修 (残影の獣 / 罠 / 宝箱 / 湧き水) — ?s2fold=0 の腕で測る');
+  const keepJson = await foldOff.evaluate((scen, ids) => {
     const run = buildScenarioRun(scen);
     const byId = run.byId || {};
     const out = {};
@@ -526,6 +617,56 @@ function ringOpenCount(m) {
   for (const id of S2_KEEP_NODES) {
     G.check(check, '(11-' + id + ') ' + SCEN + '/' + id + ' の mapDef が golden と一致',
             's2-' + id, keepJson[id].mapDef);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // §13 [#16] 畳み込み — 森が 1 ノードで完結し、罠 / 宝箱 / 檻 が大部屋へ戻っている
+  // ══════════════════════════════════════════════════════════════════════════
+  mark('§13 [#16] 1 ノードへ畳んだ形と、そこへ戻した罠 / 宝箱 / 残影の獣');
+  {
+    const F = await page.evaluate(foldSrc(SCEN, CAGE_TILE));
+    const O = await foldOff.evaluate(foldSrc(SCEN, CAGE_TILE, NODE));
+
+    check('(13a) 既定のグラフが 1 ノードだけ', F.ids.length === 1, 'ノード ' + JSON.stringify(F.ids));
+    check('(13b) その 1 ノードが entry かつ kind:"boss" かつ行き止まり',
+          F.entry === NODE && F.kind === 'boss' && F.exits === 0,
+          'entry=' + F.entry + ' kind=' + F.kind + ' exits=' + F.exits);
+    check('(13c) 本番の lintRun が error 0 / warning 0',
+          F.lint.e.length === 0 && F.lint.w.length === 0,
+          'e=' + JSON.stringify(F.lint.e) + ' w=' + JSON.stringify(F.lint.w));
+    /* ⚠⚠ 母集団ガード。噂フラグが落ちていれば獣も檻も 0 が**正常**なので、
+     *   フラグを確かめずに 0 を許すと (13f) は永久に緑になる。 */
+    check('(13z) 母集団ガード: 酒場の噂フラグ s2_beast_intel が ON',
+          F.flagOn === true, 'flagOn=' + F.flagOn);
+    check('(13d) 罠が 1 個以上湧く (kind:"boss" なのに search を兼務できている)',
+          F.traps > 0, F.traps + ' 個');
+    check('(13e) 宝箱が 1 個以上湧く', F.chests > 0, F.chests + ' 個');
+    /* ⚠ 総数では 2 系統を切り分けられないので、門番の除外集合が**両方とも空**であることを直接見る
+     *   (空 = そのノードでは湧かせてよい。全部屋入り = 湧かせない)。 */
+    check('(13e2) 罠と玄室宝箱の除外集合が両方とも空 (2 系統とも兼務が効いている)',
+          F.exTrap === 0 && F.exChest === 0,
+          'EXCLUDED_ROOMS=' + F.exTrap + ' / ROOM_CHEST_EXCLUDED_ROOMS=' + F.exChest);
+    /* ⚠ 檻の個数は「畳む前に n6 で湧いていた数」= 2 (2026-08-23 に probe_s2_fold --kinds で実測)。
+     *   撤退腕の n7 は檻を持たないので、そちらとは比べない。 */
+    check('(13f) 檻 2 個と残影の獣 1 体が大部屋へ移っている',
+          F.cages === 2 && F.beast === 1,
+          '檻 ' + F.cages + ' / 獣 ' + F.beast + ' @' + JSON.stringify(F.beastAt));
+    check('(13g) 獣と檻が **同一タイル** ' + JSON.stringify(CAGE_TILE) + ' に立っている',
+          F.beastAt.length === 1 && F.beastAt[0][0] === CAGE_TILE[0] &&
+          F.beastAt[0][1] === CAGE_TILE[1] &&
+          F.cageAt.some(t => t[0] === CAGE_TILE[0] && t[1] === CAGE_TILE[1]),
+          '獣 ' + JSON.stringify(F.beastAt) + ' / 檻 ' + JSON.stringify(F.cageAt));
+    check('(13h) 罠 / 宝箱 / 檻 が 1 つも壁の上に無い', F.allOnFloor === true,
+          '壁の上 ' + F.offenders.length + ' 個 ' + JSON.stringify(F.offenders.slice(0, 6)));
+    /* ⚠⚠ 撤退スイッチは「?s2fold=0 で緑」ではなく、**同じ測り方**を当てて割れることで見る。 */
+    check('(13i) ?s2fold=0 では同じ測り方が 8 ノードを返す (= 畳みが実際に効いている)',
+          O.ids.length === 8 && O.entry === 'n0',
+          'ノード ' + O.ids.length + ' 個 / entry=' + O.entry);
+    /* ⚠ 撤退腕でも **同じ n7** を名指しで測る。あちらの n7 は kind:"boss" のまま兼務を
+     *   宣言していないので、罠も玄室宝箱も 0 でなければならない (= 台帳が畳み限定で効いている)。 */
+    check('(13j) ?s2fold=0 の n7 では罠も玄室宝箱も湧かない (兼務の台帳が畳み限定)',
+          O.measured === NODE && O.traps === 0 && O.chests === 0,
+          '測ったノード=' + O.measured + ' 罠 ' + O.traps + ' / 宝箱 ' + O.chests);
   }
 
   // ── §8 他 4 シナリオの mapDef が不変 ─────────────────────────────────────
@@ -609,6 +750,34 @@ function ringOpenCount(m) {
           R4.open > RING_OPEN_OK.length,
           '歩ける外周 ' + R4.open + ' マス (素の版は ' + RING_OPEN_OK.length + ')');
     await p4.close();
+
+    /* ★[#16] 畳み込みの 3 本。⚠ **§13 と同じ foldSrc** を流して、同じ数え方が割れることで見る。 */
+    const p5 = await bootPage(browser, 'http://localhost:' + PORT_OF.nosearchkind, []);
+    const f5 = await p5.evaluate(foldSrc(SCEN, CAGE_TILE));
+    check('(3e) [nosearchkind] 兼務から "search" を抜くと罠が 0 個・除外集合が閉じる',
+          f5.traps === 0 && f5.exTrap > 0 && f5.exChest === 0,
+          '罠 ' + f5.traps + ' / EXCLUDED_ROOMS=' + f5.exTrap +
+          ' / ROOM_CHEST_EXCLUDED_ROOMS=' + f5.exChest + ' (玄室側は開いたまま = 2 系統が独立)');
+    await p5.close();
+
+    const p6 = await bootPage(browser, 'http://localhost:' + PORT_OF.nolootkind, []);
+    const f6 = await p6.evaluate(foldSrc(SCEN, CAGE_TILE));
+    check('(3f) [nolootkind] 兼務から "loot" を抜くと玄室宝箱の除外集合が閉じる',
+          f6.exChest > 0 && f6.exTrap === 0 && f6.traps > 0,
+          'ROOM_CHEST_EXCLUDED_ROOMS=' + f6.exChest + ' / EXCLUDED_ROOMS=' + f6.exTrap +
+          ' / 罠 ' + f6.traps + ' (罠は残る = 2 系統が独立)');
+    await p6.close();
+
+    const p7 = await bootPage(browser, 'http://localhost:' + PORT_OF.nobeastmove, []);
+    const f7 = await p7.evaluate(foldSrc(SCEN, CAGE_TILE));
+    /* ⚠ OR で緩く通さない。「獣が CAGE_TILE に居ない」ことを名指しで要求する
+     *   (壁の上かどうかは (13h) の担当で、こちらの変異が壊すのは (13g) の座標そのもの)。 */
+    check('(3g) [nobeastmove] 獣と檻を (36,13) へ戻すと (13g) の座標契約が壊れる',
+          !(f7.beastAt.length === 1 && f7.beastAt[0][0] === CAGE_TILE[0] &&
+            f7.beastAt[0][1] === CAGE_TILE[1]),
+          '獣 ' + JSON.stringify(f7.beastAt) + ' / 檻 ' + JSON.stringify(f7.cageAt) +
+          ' / 壁の上 ' + f7.offenders.length + ' 個 ' + JSON.stringify(f7.offenders.slice(0, 4)));
+    await p7.close();
   }
 
   // ── 後始末 ────────────────────────────────────────────────────────────────

@@ -336,11 +336,19 @@ const TOUR_SRC = `(async () => {
 
   const shapeByScen = {};
 
+  /* ★[#16] シナリオ2 は既定で **8 ノード → 1 ノード**へ畳まれた (卓上バトルマップ 1 枚で完結)。
+   *   本ドライバが測っているのは **buildP6Run が作る共通骨格 (8 ノード)** そのものなので、
+   *   **assert 本体は 1 文字も変えず、測る腕だけ ?s2fold=0 へ移す**。骨格は畳んだ後も
+   *   buildP6Run の中に生きており、撤退先として同じ形であり続けなければならない。
+   * ⚠ 移しっぱなしにすると「畳みが黙って外れた」ことに気づけないので、
+   *   下で装置 assert (1s2fold) を 1 本足して既定側が 1 ノードであることを直接見る。 */
+  const P6_ARM = (sid) => (sid === 'bandits-forest' ? '&s2fold=0' : '');
+
   for (const sid of SCENS) {
     const S = SCEN[sid];
     mark('§1-§5 ' + sid + ' (' + S.title + ')');
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1', sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1' + P6_ARM(sid), sid, warns, errs);
 
     // ── §1 骨格 ────────────────────────────────────────────────────────────
     const sh = await page.evaluate(SHAPE_SRC);
@@ -355,6 +363,17 @@ const TOUR_SRC = `(async () => {
     check('(1b-' + sid + ') scenarioId が素のまま (生成クエストに化けていない)',
       sh.scen === sid, 'scenarioId=' + sh.scen);
     check('(1c-' + sid + ') ノードが 8 件', sh.nodes.length === 8, '件数=' + sh.nodes.length);
+    /* ⭐⭐ 装置 assert — 上の 8 件は ?s2fold=0 の腕で測っている。腕を移したまま既定側を
+     *   見ないでいると、畳みが黙って外れても (1c) が緑のまま通ってしまう。 */
+    if (sid === 'bandits-forest') {
+      const w2 = [], e2 = [];
+      const pf = await bootPage(browser, base + '/index.html?diag=1', sid, w2, e2);
+      const shf = await pf.evaluate(SHAPE_SRC);
+      check('(1s2fold-' + sid + ') ★装置: 既定 (?s2fold なし) では 1 ノードへ畳まれている',
+            shf.active === true && shf.nodes.length === 1 && shf.entry === 'n7',
+            '件数=' + shf.nodes.length + ' entry=' + shf.entry);
+      await pf.close();
+    }
     check('(1d-' + sid + ') entry=n0 / 起動ノード=n0', sh.entry === 'n0' && sh.node === 'n0',
       'entry=' + sh.entry + ' node=' + sh.node);
     check('(1e-' + sid + ') boss ノード=n7', sh.boss === 'n7', 'boss=' + sh.boss);
@@ -525,7 +544,7 @@ const TOUR_SRC = `(async () => {
   mark('§6 撤退スイッチ ?graph=0 (恒久の契約)');
   for (const sid of SCENS) {
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&graph=0', sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&graph=0' + P6_ARM(sid), sid, warns, errs);
     const st = await page.evaluate('({ active: window.__graphRun.active(), rooms: ROOMS.length })');
     check('(6a-' + sid + ') ?graph=0 で分岐が死ぬ (従来の単一マップへ戻る)',
       st.active === false, 'active=' + st.active + ' rooms=' + st.rooms);
@@ -540,7 +559,7 @@ const TOUR_SRC = `(async () => {
   mark('§6b 撤退スイッチを外すと分岐が生きる (スイッチが効いている証拠)');
   for (const sid of SCENS) {
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1', sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1' + P6_ARM(sid), sid, warns, errs);
     const a = await page.evaluate('window.__graphRun.active()');
     check('(6c-' + sid + ') ?graph 無指定なら分岐が生きる', a === true, 'active=' + a);
     await page.close();
@@ -553,7 +572,7 @@ const TOUR_SRC = `(async () => {
     const want = SCEN[sid].hidden;
     for (const v of ['0', '1']) {
       const warns = [], errs = [];
-      const page = await bootPage(browser, base + '/index.html?diag=1&intel=' + v, sid, warns, errs);
+      const page = await bootPage(browser, base + '/index.html?diag=1&intel=' + v + P6_ARM(sid), sid, warns, errs);
       const r = await page.evaluate(`(async () => {
         const g = window.__graphRun;
         await g.enter('n2', 'up'); await g.enter('n6', 'right');

@@ -2086,11 +2086,27 @@
     for (var i = 0; i < rooms.length; i++) s.add(i);
     return s;
   }
-  function excludedRoomIdxForKind(d, kind) {
-    return KIND_SPAWNS_TRAPS[kind] ? new Set() : allRoomIdx(d);
+  /* ★[#16] extraKinds = 「このノードは kind に加えてこの kind も兼ねる」。
+   * ⚠⚠ 1 ノードだけのグラフ (シナリオ2 の畳み込み) では kind が **"boss" 一択**になる —
+   *   "search" / "loot" にすると validate が graph-no-boss を出す (クリア条件 defeatBoss の
+   *   終着点が消えるため。2026-08-23 に tools/probe_s2_fold.js --lint で実測)。
+   *   そのままだと罠と玄室宝箱が**無言でゼロ**になる (廃坑 P8 が実際に払った代償) ので、
+   *   「kind を分け合えないノード」だけが外から兼務を宣言できる口をここに開ける。
+   * ⚠ **判定の出所はこの 1 本のまま**。呼び口 (index.html の applyNodeKindExclusions) で
+   *   kind を再判定しないこと — 出所が 2 つになると片方だけ直した中間状態が生まれる。
+   * ⚠ extraKinds を渡さない限り**戻り値は 1 ビットも変わらない** (既存 6 シナリオは無改修)。
+   * ⚠ 未知の kind を extraKinds に入れても開かない (table を引くだけなので fail-closed のまま)。 */
+  function kindSpawnsFrom(table, kind, extraKinds) {
+    if (table[kind]) return true;
+    if (Array.isArray(extraKinds))
+      for (var i = 0; i < extraKinds.length; i++) if (table[extraKinds[i]]) return true;
+    return false;
   }
-  function chestExcludedRoomIdxForKind(d, kind) {
-    return KIND_SPAWNS_ROOM_CHESTS[kind] ? new Set() : allRoomIdx(d);
+  function excludedRoomIdxForKind(d, kind, extraKinds) {
+    return kindSpawnsFrom(KIND_SPAWNS_TRAPS, kind, extraKinds) ? new Set() : allRoomIdx(d);
+  }
+  function chestExcludedRoomIdxForKind(d, kind, extraKinds) {
+    return kindSpawnsFrom(KIND_SPAWNS_ROOM_CHESTS, kind, extraKinds) ? new Set() : allRoomIdx(d);
   }
 
   /* ⭐ bossRoomIdx(d) は既存 (role:"boss" を探し、無ければ rooms.length - 1)。
@@ -3328,9 +3344,12 @@
     chestExcludedRoomIdx: chestExcludedRoomIdx,
 
     /* ── ★P4: 除外集合の **kind 由来版** (分岐 RUN があるときだけ index.html が使う) ──
-     *   excludedRoomIdxForKind(mapDef, kind)      … kind:"search" だけ空集合 (= 罠が湧く)
-     *   chestExcludedRoomIdxForKind(mapDef, kind) … kind:"loot"   だけ空集合 (= 玄室宝箱が湧く)
+     *   excludedRoomIdxForKind(mapDef, kind [, extraKinds])      … kind:"search" だけ空集合 (= 罠が湧く)
+     *   chestExcludedRoomIdxForKind(mapDef, kind [, extraKinds]) … kind:"loot"   だけ空集合 (= 玄室宝箱が湧く)
      *   それ以外の kind と未知の kind は **全部屋を除外** (fail-closed)。
+     *  ★[#16] 第 3 引数 extraKinds (省略可) = 「この kind も兼ねる」の配列。1 ノードだけのグラフでは
+     *    kind が "boss" 一択になる (graph-no-boss) ので、罠/宝箱を消さずに畳むための口。
+     *    ⚠ **渡さなければ戻り値は 1 ビットも変わらない**。
      *  ⚠ 上の 2 つ (部屋 index からの推測) と**併存**させる。統合すると既存 6 シナリオが変わる。
      *  ⚠ 「湧かせない」= 全部屋を入れる。bossRoomIdx だけを入れる部分集合にしてはいけない
      *    (道中ノードの隅に罠が湧き「search が唯一のノード種」という約束が崩れる)。 */

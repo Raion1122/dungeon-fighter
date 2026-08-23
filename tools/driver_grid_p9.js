@@ -530,8 +530,12 @@ async function waitArrows(page, ms) {
           go: 'n1', probe: (d, x) => d.off === true },
         { name: '?minefold=0 (旧 5 ノード)', port: PORT, q: '?diag=1&minefold=0&intel=0', scen: 'goblin-mine',
           go: 'n1', probe: (d, x) => x.nodes === 5 },
+        /* ★[#16] シナリオ2 は 1 ノードへ畳まれた (卓上バトルマップ 1 枚で完結)。
+         * ⚠ 母集団ガードを `x.nodes > 1` から緩めたのではなく、**ノード数という代理をやめて
+         *   ノード id まで名指しにした** = 厳しくなっている。ここが測りたいのは
+         *   「廃坑ではない別シナリオのグラフに本当に居る」ことで、件数はその代理でしかなかった。 */
         { name: '他シナリオ (bandits-forest)', port: PORT, q: '?diag=1&intel=0', scen: 'bandits-forest',
-          go: null, probe: (d, x) => x.nodes > 1 },
+          go: null, probe: (d, x) => x.active === true && x.nodes === 1 && x.node === 'n7' },
         { name: '?graph=0 (旧単一マップ)', port: PORT, q: '?diag=1&graph=0&intel=0', scen: 'goblin-mine',
           go: null, probe: (d, x) => x.active === false },
         /* ⭐⭐⭐ 2026-08-20 に実際に踏んだ漏れ。台帳を「シナリオ id + ノード id」で引くと、

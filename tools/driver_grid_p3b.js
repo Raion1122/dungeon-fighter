@@ -513,8 +513,25 @@ async function readNode(page) {
         rows.push(sc + ':' + r.outdoor.rooms + '/' + r.outdoor.tiles);
         await p.close();
       }
-      check('(3i) ★他 5 シナリオの起点は 開放 0 部屋 / 0 マス (outdoor は n0 の絵だけ)',
-        rows.every(s => /:0\/0$/.test(s)), rows.join(' '));
+      /* ★[#16] シナリオ2 は 1 ノードへ畳まれ、**起点がそのまま outdoor の大部屋 n7** に
+       *   なった (52x26 = 1352 マス)。「屋外の起点は廃坑 n0 の絵だけ」という前提は
+       *   ここで崩れる。
+       * ⚠ **緩めていない** — 「全部 0/0」という一様な期待値を、**シナリオごとの
+       *   名指しの期待値**へ置き換えた (0/0 のままだと畳みを見落とし、
+       *   `every(:0/0)` だと逆にシナリオ2 の 1352 マスを説明できない)。
+       *   ここが赤くなったら「どのシナリオの起点が屋外になったか」を必ず確かめること。 */
+      const OUTDOOR_ENTRY_EXPECT = {
+        'bandits-forest': '1/1352',   // ★[#16] 畳んだ n7 = 卓上バトルマップ 52x26
+        'lizard-swamp': '0/0', 'orc-fort': '0/0', 'undead-temple': '0/0', 'dragon-lair': '0/0',
+      };
+      const wantRows = OTHER_STAGES.map(sc => sc + ':' + OUTDOOR_ENTRY_EXPECT[sc]);
+      check('(3i) ★他 5 シナリオの起点の開放が契約どおり (屋外の起点はシナリオ2 の n7 だけ)',
+        rows.join(' ') === wantRows.join(' '), '実測 ' + rows.join(' ') + ' / 期待 ' + wantRows.join(' '));
+      /* ⚠ 母集団ガード: 0/0 でないものが**ちょうど 1 本**であること。
+       *   全部が非 0 になったら「outdoor が全シナリオへ漏れた」= 別の壊れ方。 */
+      check('(3i2) ★屋外の起点を持つのは 5 本中ちょうど 1 本',
+        rows.filter(s => !/:0\/0$/.test(s)).length === 1,
+        rows.filter(s => !/:0\/0$/.test(s)).join(' ') || '0 本');
       check('(3j) ★母集団の identity: 5 本すべて測れている (空振りしていない)',
         rows.length === OTHER_STAGES.length, rows.length + ' 本');
     }

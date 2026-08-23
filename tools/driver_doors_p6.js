@@ -167,8 +167,16 @@ function invariantCheck(scan) {
       if (WANT_NO_SECRET.indexOf(e.to) < 0) continue;
       if (e.toExits === 0 && e.toKind !== 'boss') nExcludable++;
     }
-    // 選べる出口が 1 本以上残るか (前進が全部隠れるなら親へ引き返せなければならない)
-    if (dirs.length - hid.length < 1 && !n.hasParent) bad.stuck.push(n.id);
+    /* 選べる出口が 1 本以上残るか (前進が全部隠れるなら親へ引き返せなければならない)
+     * ★[#16] ⚠ **ボスノードだけは除く**。そこでの終わり方は「出口を選んで出る」ではなく
+     *   objective.kind:"defeatBoss" = ボスを倒すことなので、出口 0 本は詰みではない。
+     *   8 ノードの頃は n7 (boss) に必ず親 (n4) が居たので hasParent で拾えていたが、
+     *   シナリオ2 を 1 ノードへ畳んだ結果 **entry がそのままボスノード**になり、
+     *   親も出口も無い正当な形が現れた。
+     * ⚠ 緩めていない — ボスへ本当に到達できるかは (7g) が
+     *   「隠し扉を 1 枚も見つけられなくても entry からボスへ届く」で別に測っており、
+     *   そちらが本物の不変条件 (この stuck は手段の側の補助)。 */
+    if (dirs.length - hid.length < 1 && !n.hasParent && n.kind !== 'boss') bad.stuck.push(n.id);
   }
 
   /* ★★★真の不変条件 = 「**隠し扉を 1 枚も見つけられなかった**と仮定しても entry からボスへ
