@@ -139,12 +139,17 @@
   /* ── 施設 ─────────────────────────────────────────────────────────────────
    *  enter … そこまで歩いてから中へ入るタイル (看板クリックの行き先)
    *  sign  … 看板を浮かせるタイル (絵の上の位置。歩けなくてよい)
+   *  desc  … 立て札の 2 行目 (「何ができる場所か」の一行)。⭐ 文言の**唯一の正はここ**。
+   *           town.html には 1 文字も写さない (依頼書 #15 §5 B-1)。
    *  via   … tavern.html へ「どの扉から入ったか」を渡す値 (sessionStorage の 1 キー)
    *  ⛔ 遷移先にクエリを足さない。依頼書 #6 title-screen が名指しで禁じている。 */
   var FACILITIES = [
-    { key: "tavern", icon: "🦌", name: "銀の鹿亭",   enter: [10, 2], sign: [10, 1], via: "tavern" },
-    { key: "shop",   icon: "🛡️", name: "武器防具屋", enter: [15, 2], sign: [15, 1], via: "shop"   },
+    { key: "tavern", icon: "🦌", name: "銀の鹿亭",   enter: [10, 2], sign: [10, 1], via: "tavern",
+      desc: "宿と酒。仲間を募り、依頼を受ける" },
+    { key: "shop",   icon: "🛡️", name: "武器防具屋", enter: [15, 2], sign: [15, 1], via: "shop",
+      desc: "剣・鎧・弓。旅装を整える" },
     { key: "plaza",  icon: "🌑", name: "怪しい石段", enter: [3, 10], sign: [2, 10], via: "plaza",
+      desc: "下りれば闇市。牙貨だけが物を言う",
       /* 闇市は通常クエスト 5 回クリアで常設化。⚠ 判定の出所は tavern.html と同じ
          localStorage["dragonfighters.plazaState"].unlocked ただ 1 つ (写しを作らない) */
       requiresPlazaUnlock: true }

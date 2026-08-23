@@ -903,6 +903,31 @@
       50%      { box-shadow: 0 0 14px 3px rgba(224,90,58,0.85); }
     }
 
+    /* ── 自キャラ (主人公) の頭上マーカー ▽ (依頼書 #15 STEP A) ─────────────
+       ⭐⭐⭐ **1 枚しか作らない。** ally ごとに持たせると、NPC 頭が倒れて主人公が頭へ
+         昇格した瞬間に tryPromoteNewHead が ally の DOM を remove() するので ▽ ごと消える。
+       ⚠ z-index 8 = .allyLabel (7) の 1 つ上。既存の DOM にも 8 は居る (#158/#577)。
+       ⚠⚠ pointer-events: none (クリックを食わない)。
+       ⛔ 絵文字 ▽ や文字で描かない。border 三角なら camZ の寄り引きで輪郭が崩れない。
+       ⚠ --hm-w は JS の HERO_MARK_HALF_W と一致させること
+         (ドライバの装置 assert が実描画の矩形と突き合わせて写経ミスを殺す)。 */
+    #heroMark {
+      --hm-w: 9px;
+      --hm-h: 13px;
+      --hm-color: #ffd24a;
+      position: absolute;
+      display: none;
+      width: 0; height: 0;
+      border-left: var(--hm-w) solid transparent;
+      border-right: var(--hm-w) solid transparent;
+      border-top: var(--hm-h) solid var(--hm-color);
+      filter: drop-shadow(0 0 2px #000) drop-shadow(0 2px 3px rgba(0,0,0,0.8));
+      pointer-events: none;
+      z-index: 8;
+      animation: heroMarkBob 1.2s ease-in-out infinite;
+    }
+    @keyframes heroMarkBob { 0%, 100% { margin-top: 0; } 50% { margin-top: 4px; } }
+
     #phaseIndicator {
       position: fixed;
       top: 12px;
@@ -3004,6 +3029,7 @@
   <div id="player"></div>
   <div id="warriorHpBar" class="allyHpBar warrior"><div class="allyHpFill" id="warriorHpFill"></div></div>
   <div id="warriorLabel" class="allyLabel warrior"><span id="warriorName">戦士</span><span id="warriorStatusSlot" class="status-slot"></span></div>
+  <div id="heroMark"></div>
   <div id="guardEffect"></div>
   <div id="counterAura"></div>
   <div id="moveMarker"></div>
@@ -6082,6 +6108,65 @@
     // ── パーティ編成 (Q1=B): 頭(player アバター)と主人公(isHero)を分離 ──
     let heroIsHead = true;       // 頭(player)が主人公本人か (主人公が前衛=warrior/dwarf なら true)
     let heroRef = null;          // 主人公が ally の場合の参照 (頭でない時=主人公が mid/rear)
+
+    /* ══ 自キャラの ▽ マーカー (依頼書 #15 STEP A-2) ═══════════════════════════
+     * ⭐⭐⭐ **▽ は 1 枚だけ。毎フレーム「今の主人公」を引き直す。**
+     *   ally ごとに持たせると、NPC 頭の死 → tryPromoteNewHead が新頭 ally の
+     *   el / hpWrapEl / nameLabelEl を remove() する瞬間に ▽ ごと消える (:17776 参照)。
+     * ⚠ 「頭 (player アバター)」と「主人公 (isHero)」は別物。主人公が僧侶/魔法使い/
+     *   エルフ/盗賊なら、主人公は allies 側に居る。
+     * ⚠ ここに置く理由 = renderWorld は起動中の resize から **let 宣言より前に**呼ばれ得る
+     *   (:14436 の TDZ 注記)。playerX (:11497) より手前に置けば、renderWorld が
+     *   到達できる時点では必ず初期化済み = try-catch が一度も鳴らない ((A7) が 0 を要求)。
+     * ⚠ 撤退スイッチ ?heromark=0 は town.html の同名スイッチとは**独立**
+     *   (クエリはページ遷移をまたがない。依頼書 §7 が明示的に了承している)。 */
+    let HERO_MARK_ON = true;
+    try {
+      if (new URLSearchParams(window.location.search).get("heromark") === "0") HERO_MARK_ON = false;
+    } catch (e) {}
+    let _heroMarkEl = undefined;          // undefined=未解決 / null=要素なし (毎フレーム引かない)
+    const HERO_MARK_HALF_W = 9;           // CSS の --hm-w と一致させる
+    /* ⚠ dy=-46 (敵の装備バッジと同じ帯) だと、bob の +4px を足した ▽ の下端が
+       名前ラベル (-28) の上端と 1px しか離れない。実測して -50 にした ((A5))。 */
+    const HERO_MARK_DY = -50;
+
+    /* 今の主人公。⚠ 死んでいる / 居ないときは null を返す ((A6) が ▽ を消すことを要求)。
+       ⛔ getHeroWorldPos() (:6262) は主人公不在時に**頭へフォールバック**するので使えない。 */
+    function heroMarkTarget() {
+      if (gameOver) return null;
+      if (heroIsHead) {
+        if (hp <= 0) return null;
+        return { x: playerX, y: playerY, size: playerWidth, isHead: true };
+      }
+      const h = heroRef || allies.find(a => a && a.isHero) || null;
+      if (!h || !h.alive) return null;
+      return { x: h.x, y: h.y, size: (h.def && h.def.displaySize) || 96, isHead: false };
+    }
+
+    function updateHeroMark() {
+      if (_heroMarkEl === undefined) _heroMarkEl = document.getElementById("heroMark");
+      const el = _heroMarkEl;
+      if (!el) return;
+      if (!HERO_MARK_ON) { if (el.parentNode) el.remove(); _heroMarkEl = null; return; }
+      const t = heroMarkTarget();
+      if (!t) { el.style.display = "none"; return; }
+      el.style.display = "block";
+      /* ⚠⚠ placeUnscaledUi は left = SX(wx + size/2) + (dx - size/2) を書く。
+         三角は width:0 の border 三角なので**見た目の中心は left + 半幅**。
+         中心をスプライト中心へ合わせるには dx = size/2 - 半幅。
+         ⛔ dx に -半幅 をそのまま渡すと、スプライト半分ぶん左へずれる
+            (敵の装備バッジ :14606 が displaySize/2 - 18 を渡しているのと同じ規則)。 */
+      placeUnscaledUi(el, t.x, t.y, t.size, t.size / 2 - HERO_MARK_HALF_W, HERO_MARK_DY);
+    }
+
+    /* 検証シーム。⛔ ここにゲームの状態を足さない (読むための窓であって状態の置き場ではない)。 */
+    window.__heroMark = {
+      on:         function () { return HERO_MARK_ON; },
+      heroIsHead: function () { return heroIsHead; },
+      target:     function () { return heroMarkTarget(); },
+      geom:       function () { return { halfW: HERO_MARK_HALF_W, dy: HERO_MARK_DY }; },
+      errs:       function () { return window.__heroMarkErr || 0; }
+    };
     let headDisplayName = "";    // 頭の表示名 (NPC=個人名 / 主人公="あなた")
     let leaderLevel = 1;         // 頭(player)の実効レベル (主人公=永続Lv / NPC=ティア帯Lv)
     let knightFrameTick = 0;
@@ -14468,6 +14553,11 @@
           updateStatusSlot("player", document.getElementById("warriorStatusSlot"));   // status-effect v1.1
         }
       }
+
+      /* ▽ 自キャラマーカー。⚠ #escortMarker と同じ作法で try-catch + 失敗回数を残す
+         (黙って消え続けないため)。受入条件 (A7) は __heroMarkErr === 0 を要求する。 */
+      try { updateHeroMark(); }
+      catch (e) { window.__heroMarkErr = (window.__heroMarkErr || 0) + 1; }
 
       // 騎士アニメーション(Simple Knight: 4方向×3アクション × 5フレーム)
       updateKnightSprite();

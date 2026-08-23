@@ -122,32 +122,105 @@
       z-index: 2;
     }
 
-    /* 施設の看板 */
+    /* ── 施設の立て札 (依頼書 #15 STEP B) ────────────────────────────
+       丸アイコンをやめ、**羊皮紙の札に「施設名 + 一行の説明」** を書いて立てる。
+       ⭐ 紙質は **変数ブロック 1 つだけ**で決まる (闇市 .pqcard と同じ作法)。
+         ⛔ ただし DOM もセレクタも共有しない = tavern.html は 1 バイトも触らない。
+       ⚠ 闇市は暗幕 --pq-veil: 0.62 を掛けて沈めているが、街の札は **明るい紙**なので veil: 0。
+       ⚠ 文言の唯一の正は js/town-map.js の FACILITIES.desc。ここに文字列を写さない。 */
     .townSign {
+      --sp-paper-img: url("assets/parchment_plaza.jpg");
+      --sp-veil: 0;                        /* 街は明るい紙 (闇市の 0.62 と違い暗幕を掛けない) */
+      /* ⭐ 明るいクリームの薄掛け。**紙のまだら模様に細い書体が食われる**のを防ぐ。
+         実測 (2026-08-23): これが無いと 2 行目の説明が desktop で読めなかった。
+         ⚠ 暗幕 (--sp-veil) とは別レイヤ。veil を負にして代用しようとしても効かない。 */
+      --sp-wash: 0.30;
+      --sp-ink: #2e2113;                   /* 本文インク (明るい紙なので濃い墨) */
+      --sp-ink-soft: #4a3413;              /* 説明文。名前より柔らかいが**読める**濃さ */
+      --sp-edge: rgba(120,86,44,0.85);
       position: absolute;
-      width: 64px; height: 64px;
+      width: auto; min-width: 150px; max-width: 280px;
+      padding: 6px 16px 7px;
+      /* ⭐ 幅が可変になるので「タイル中心に置く」規則は固定 margin -32px では守れない。
+         ⛔ :hover の scale は translate を**潰す**ので、下の :hover で必ず合成して書く。 */
+      transform: translate(-50%, -50%);
+      white-space: nowrap; text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: var(--sp-ink);
+      border: 1px solid var(--sp-edge);
+      border-radius: 2px;
+      background-image: linear-gradient(rgba(0,0,0,var(--sp-veil)), rgba(0,0,0,var(--sp-veil))),
+                        linear-gradient(rgba(246,232,198,var(--sp-wash)), rgba(246,232,198,var(--sp-wash))),
+                        var(--sp-paper-img);
+      background-size: auto, auto, cover;
+      background-position: center, center, center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6), inset 0 0 18px rgba(120,80,30,0.25);
+      cursor: pointer;
+      z-index: 4;
+      transition: transform 0.12s ease, box-shadow 0.2s ease;
+    }
+    .townSign:hover { transform: translate(-50%, -50%) scale(1.06); }
+    .townSign .townSignName {
+      display: block;
+      font-size: 17px; line-height: 1.25;
+      letter-spacing: 0.04em;
+      color: var(--sp-ink);
+      pointer-events: none;
+    }
+    .townSign .townSignDesc {
+      display: block;
+      margin-top: 1px;
+      font-size: 13px; line-height: 1.3;
+      color: var(--sp-ink-soft);
+      /* ⛔ opacity で薄めない。**紙が斑なので、透かした瞬間に読めなくなる**
+         (2026-08-23 実測)。「柔らかさ」は --sp-ink-soft の**色**だけで出す。 */
+      pointer-events: none;
+    }
+    /* ── 撤退 ?signplate=0 : 今日と同じ丸アイコンへ戻す ─────────────────
+       ⚠ 「?signplate=0 で緑」ではなく、**同じ assert を両モードへ当てて崩れる**ことを
+         受入条件が見る (依頼書 §6 C3)。だから丸は「消す」のではなく厳密に復元する。 */
+    body.signplate-off .townSign {
+      width: 64px; height: 64px; min-width: 0; max-width: none;
+      padding: 0;
       margin-left: -32px; margin-top: -32px;   /* タイル中心に置く */
+      transform: none;
       display: flex; align-items: center; justify-content: center;
       font-size: 30px; line-height: 1;
       border-radius: 50%;
       background: radial-gradient(circle at 50% 40%, rgba(20,14,6,0.86) 0%, rgba(20,14,6,0.55) 62%, rgba(20,14,6,0) 100%);
       border: 2px solid rgba(190,150,70,0.85);
       box-shadow: 0 0 12px rgba(0,0,0,0.6);
-      cursor: pointer;
-      z-index: 4;
-      transition: transform 0.12s ease, box-shadow 0.2s ease;
       text-shadow: 0 2px 3px rgba(0,0,0,0.9);
     }
-    .townSign:hover { transform: scale(1.12); }
-    .townSign .townSignName {
+    body.signplate-off .townSign:hover { transform: scale(1.12); }
+    body.signplate-off .townSign .townSignName {
       position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
       margin-top: 2px;
       font-size: 12px; white-space: nowrap;
-      font-family: 'MedievalSharp', 'Cinzel', serif;
       color: #f5e8c8;
       text-shadow: 0 1px 3px #000, 0 0 6px #000;
-      pointer-events: none;
     }
+
+    /* ── 自キャラの ▽ (依頼書 #15 STEP A) ──────────────────────────
+       ⛔ 絵文字 ▽ や文字で描かない。border 三角なら zoom 0.70〜1.5 のどこでも輪郭が崩れない。
+       ⚠⚠ pointer-events: none が必須。看板の上を横切ったときに「在るのに押せない」
+         (verify_town_map (11b) / 受入条件 (B3)) を作らないため。
+       ⚠ z-index 5 = 看板 (4) の上・タイトル帯 (10) の下。 */
+    #townHeroMark {
+      --hm-w: 9px;        /* 三角の半幅 (JS の HM_W と一致させる。装置 assert が突き合わせる) */
+      --hm-h: 13px;       /* 三角の高さ (JS の HM_H と一致させる) */
+      --hm-color: #ffd24a;
+      position: absolute;
+      width: 0; height: 0;
+      border-left: var(--hm-w) solid transparent;
+      border-right: var(--hm-w) solid transparent;
+      border-top: var(--hm-h) solid var(--hm-color);
+      filter: drop-shadow(0 0 2px #000) drop-shadow(0 2px 3px rgba(0,0,0,0.8));
+      pointer-events: none;
+      z-index: 5;
+      animation: heroMarkBob 1.2s ease-in-out infinite;
+    }
+    @keyframes heroMarkBob { 0%, 100% { margin-top: 0; } 50% { margin-top: 4px; } }
     /* ⛔ 初見プレイヤーが街に放り出されて迷わないよう、街の初回だけ 🦌 を光らせる。
        判定は localStorage["dragonfighters.prologueSeen"] が未設定 = まだ物語を聞いていない。
        ⚠ 新しいキーを作らない (依頼書 §4)。 */
@@ -225,6 +298,7 @@
       <div id="townGoal"></div>
       <div id="townHeroShadow"></div>
       <div id="townHero"></div>
+      <div id="townHeroMark"></div>
     </div>
   </div>
 
@@ -257,6 +331,18 @@
     try { townOff = sessionStorage.getItem(TOWN_OFF_KEY) === "1"; } catch (e) { townOff = false; }
     if (townOff) { location.replace("tavern.html"); return; }
 
+    /* ══ 撤退スイッチ ?heromark=0 / ?signplate=0 (依頼書 #15 §7) ═══════════
+       ⚠ ?town=0 と**同じ位置**で判定する。後ろへ置くと撤退したはずの姿が一瞬見える。
+       ⚠ クエリはページ遷移をまたがない。?heromark=0 は index.html 側で**独立に**読む
+         (酒場を経由して index へは渡らない。依頼書 §7 が明示的に了承している)。 */
+    var HERO_MARK_ON = true, SIGN_PLATE_ON = true;
+    try {
+      var _q15 = new URLSearchParams(location.search);
+      if (_q15.get("heromark") === "0") HERO_MARK_ON = false;
+      if (_q15.get("signplate") === "0") SIGN_PLATE_ON = false;
+    } catch (e) {}
+    if (!SIGN_PLATE_ON) document.body.classList.add("signplate-off");
+
     var TM = window.TOWN_MAP;
     if (!TM) { location.replace("tavern.html"); return; }   // 保険: データが無ければ従来の酒場へ
 
@@ -265,10 +351,19 @@
     var SPRITE = 96;                           // 歩行シートのセル
     var FOOT = 0.93;                           // ★接地比 (index.html の他アセットと同じ実測値)
     var SHEET_ROW_RIGHT = 3;                   // ★右向きの行 (index.html updateKnightSprite と同じ)
+    /* ▽ の幾何。⭐ HEAD_TOP は 6 職の <class>_walk.png row3 を実測した
+       「96px セル上端 → 頭の天辺」の最小値 (warrior 32 / dwarf 33 / elf 33 /
+       cleric 34 / mage 32 / rogue 32。依頼書 §2-4)。
+       ⚠⚠ FOOT=0.93 は**足元**の話。頭の位置はこれとは別に測らないと ▽ が頭から浮く。
+       ⚠ HM_W / HM_H は CSS の --hm-w / --hm-h と一致させること
+         (ドライバの装置 assert が実描画の矩形と突き合わせて写経ミスを殺す)。 */
+    var HEAD_TOP = 32, HM_GAP = 8, HM_W = 9, HM_H = 13;
 
     var elViewport = document.getElementById("townViewport");
     var elStage    = document.getElementById("townStage");
     var elHero     = document.getElementById("townHero");
+    var elHeroMark = document.getElementById("townHeroMark");
+    if (!HERO_MARK_ON && elHeroMark) { elHeroMark.remove(); elHeroMark = null; }
     var elShadow   = document.getElementById("townHeroShadow");
     var elGoal     = document.getElementById("townGoal");
     var elHud      = document.getElementById("townHud");
@@ -322,6 +417,13 @@
       elHero.style.backgroundPosition = (-frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
       elShadow.style.left = cx + "px";
       elShadow.style.top  = cy + "px";
+      /* ⭐ ▽ の位置の出所は **placeHero のこの 2 行だけ**。別の場所からも書くと
+         「歩くと ▽ だけ取り残される」が静かに起きる (位置の出所を 2 つ持たない)。
+         三角は width:0 の border 三角なので、見た目の中心は left + HM_W。 */
+      if (elHeroMark) {
+        elHeroMark.style.left = (cx - HM_W) + "px";
+        elHeroMark.style.top  = (cy - SPRITE * FOOT + HEAD_TOP - HM_GAP - HM_H) + "px";
+      }
     }
     function tileCenter(c, r) { return { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 }; }
 
@@ -398,11 +500,27 @@
         s.id = "townSign_" + f.key;
         s.setAttribute("data-facility", f.key);
         s.title = f.name;
-        s.textContent = f.icon;
-        var nm = document.createElement("span");
-        nm.className = "townSignName";
-        nm.textContent = f.name;
-        s.appendChild(nm);
+        /* ⚠ アイコンは札に載せない (ユーザー決定 = テキストだけ)。ただし f.icon の
+           データは残し、下の #townHud ボタンは絵文字付きのままにする
+           (compact では小さい画面の識別が落ちるため。依頼書 §8)。 */
+        if (SIGN_PLATE_ON) {
+          var nm = document.createElement("span");
+          nm.className = "townSignName";
+          nm.textContent = f.name;
+          s.appendChild(nm);
+          if (f.desc) {
+            var ds = document.createElement("span");
+            ds.className = "townSignDesc";
+            ds.textContent = f.desc;
+            s.appendChild(ds);
+          }
+        } else {
+          s.textContent = f.icon;
+          var nm0 = document.createElement("span");
+          nm0.className = "townSignName";
+          nm0.textContent = f.name;
+          s.appendChild(nm0);
+        }
         var p = tileCenter(f.sign[0], f.sign[1]);
         s.style.left = p.x + "px";
         s.style.top  = p.y + "px";
@@ -538,6 +656,12 @@
       compact:   function () { return document.body.classList.contains("compact"); },
       spawnVia:  function () { return exitVia; },
       signKeys:  function () { return Object.keys(signs); },
+      heroMarkOn:  function () { return HERO_MARK_ON; },
+      signPlateOn: function () { return SIGN_PLATE_ON; },
+      /* ⚠ ドライバはこの値と**実描画の矩形**を突き合わせる。CSS と JS の写経ズレを殺すため。 */
+      heroMarkGeom: function () { return { w: HM_W, h: HM_H, gap: HM_GAP,
+                                           headTop: HEAD_TOP, sprite: SPRITE, foot: FOOT }; },
+      heroPx:    function () { return { x: heroPx.x, y: heroPx.y }; },
       walkTo:    function (c, r) { return walkTo(c, r, null); },
       tileFromClient: tileFromClient,
       /* tileFromClient の逆。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
