@@ -2069,10 +2069,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>タイトル画面に紋章が飾られた</b> — 交差した二振りの剣と、地の底へ続く石の門。開始画面の一番上で松明の光を受けている。</li>
         <li><b>目の前の敵を残したまま休憩しなくなった</b> — 手前の一体を倒しただけで一息つくのをやめ、見えている敵はまとめて片付けるようになった。</li>
         <li><b>港町フランを歩けるようになった</b> — 冒険の始まりが酒場の中から街の通りへ。銀の鹿亭も武器防具屋も怪しい石段も、運河の橋を渡って自分の足で訪ねる。</li>
         <li><b>森の「丸太の砦」で先へ進めなくなる不具合を修正</b> — 盗賊の魔術師が奥の扉と重なって湧いてしまい、どうやっても倒せず道が開かないことがあった。</li>
-        <li><b>盗賊団のアジトが本物の野営地になった</b> — 森の街道を東へ、丸太橋を渡り、柵の門をくぐって頭目スカーの天幕へ。橋の見張りと門番が道を塞いでいる。</li>
       </ul>
     </div>
     <script>
@@ -3257,6 +3257,34 @@
        (このリポジトリで実際に踏んだ罠。isHeroLockOff() と同じ作法で毎回 location.search を読む)。 */
   function isRecruitOn() {
     try { return new URLSearchParams(location.search).get("recruit") !== "0"; } catch (e) { return true; }
+  }
+  // ════════════ 調査シーム: パーティ人数の上書き (実装依頼書 #14 party-size-5-feasibility / STEP1) ════════════
+  // ⛔ これは **調査のための道具** であって機能ではない。本番の導線からは一切呼べない
+  //    (URL に手で ?party=N を付けたときだけ効く)。recruitCountOf の clamp 上限 3 は 1 ビットも触っていない。
+  // ⭐ 既定 (?party 無指定) は **恒等**。tools/probe_party_size.js の受入条件 1. が
+  //    「本番と 1 ビットも変わらない」を 6 シナリオぶん機械的に検査する。
+  // ⚠⚠ silent fail-open を作らないこと。読めなかった / 範囲外だったときは必ず [DIAG] を 1 行出す
+  //    (recruitCountOf の [DIAG] と同じ作法)。黙って既定へ戻すと
+  //    「シームが効いていないのに緑」という偽の緑が出る。
+  // ⚠ モジュール直下の const にしない。regeneratePartyMembers() は上流の関数からこの行より前に
+  //    呼ばれ得るので、const だと TDZ で ReferenceError になる (isRecruitOn / isHeroLockOff と同じ作法で
+  //    毎回 location.search を読む)。
+  function devPartySizeOverride(n) {
+    let raw = null;
+    try {
+      raw = new URLSearchParams(location.search).get("party");
+    } catch (e) {
+      console.log("[DIAG] party override: ignored (location.search を読めなかった) -> " + n);
+      return n;
+    }
+    if (raw === null) return n;   // 未指定 = 恒等。本番が必ず通る枝 (負のコントロールのアンカー: 揃えるな)
+    const v = Number(raw);
+    if (!isFinite(v) || !Number.isInteger(v) || v < 2 || v > 8) {
+      console.log("[DIAG] party override: ignored (2〜8 の整数ではない) raw=" + JSON.stringify(raw) + " -> " + n);
+      return n;
+    }
+    console.log("[DIAG] party override: " + n + " -> " + v);
+    return v;
   }
   // 依頼の重さから「募集に応じた冒険者 (NPC) の数」を決める。
   //   1. sc.recruit が数値      → その値を使う          (クエスト個別の上書き。器だけ先に作る)
@@ -4601,6 +4629,7 @@
     //     「空なら作る」の遅延初期化なので、人数が変わっても再抽選しない。
     let partySize = PARTY_SIZE;
     if (isRecruitOn() && prepScenario) partySize = 1 + recruitCountOf(prepScenario);
+    partySize = devPartySizeOverride(partySize);   // #14 調査シーム。?party 無しでは恒等 (本番は素通り)
     selection.partyMembers = orderFormation(buildParty(heroKey, partySize));
   }
 
