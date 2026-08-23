@@ -2069,10 +2069,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>街と酒場に専用のBGMを追加</b> — 港町フランと銀の鹿亭で、それぞれ違う曲が流れるようになった。</li>
         <li><b>盗賊団の根城が 1 枚の戦場になった</b> — 森の街道からアジトの天幕まで、途切れずひと続きの野営地を進む。罠も宝箱も檻もその中にある。</li>
         <li><b>自分のキャラの頭上に金色の ▽ が出るようになった</b> — 街でもダンジョンでも、仲間と入り乱れてどれが自分か分からなくなることがない。</li>
         <li><b>街の看板が羊皮紙の立て札になった</b> — 施設名だけでなく「何ができる場所か」も書いてある。</li>
-        <li><b>廃坑の依頼に仲間が3人集まるようになった</b> — 最初の依頼なのに一番危うかった坑道へ、これまでより手厚い顔ぶれで挑める。</li>
       </ul>
     </div>
     <script>
@@ -5969,9 +5969,16 @@
   // ─────────────────────────────────────────────────────────────
   // 初期化
   // ─────────────────────────────────────────────────────────────
-  // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM、UIクリックで効果音、⚙で設定 ──
+  // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM (tavern_room = 酒場.mp3 / 依頼書 #17)、UIクリックで効果音、⚙で設定 ──
   document.addEventListener("pointerdown", function () {
-    if (window.GameAudio) { GameAudio.unlock(); GameAudio.playBgm("tavern"); }
+    /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
+       0 を渡すと従来どおり合成トラック TRACKS.tavern を鳴らす。
+       ⚠ クエリはページ遷移をまたがらないので town.html とは**独立に**読む。 */
+    var TAVERN_BGM_ID = "tavern_room";
+    try {
+      if (new URLSearchParams(location.search).get("townbgm") === "0") TAVERN_BGM_ID = "tavern";
+    } catch (e) {}
+    if (window.GameAudio) { GameAudio.unlock(); GameAudio.playBgm(TAVERN_BGM_ID); }
   }, { once: true });
   document.addEventListener("click", function (e) {
     if (!window.GameAudio) return;

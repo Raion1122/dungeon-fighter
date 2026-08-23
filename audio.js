@@ -314,6 +314,22 @@
     dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
     boss_battle:    { src: "assets/bgm/maou_bgm_fantasy12.mp3",   loop: true, volume: 0.65, credit: "魔王魂" },
     pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
+    /* ── 街 (港町フラン) と 酒場 (銀の鹿亭) ───────────────────────
+     *   town.html / tavern.html はどちらも合成トラック TRACKS.tavern を鳴らしていた
+     *   (= 街と酒場が同じ音)。専用の mp3 へ分ける (依頼書 #17)。
+     *
+     *   ⚠⚠⚠ ID を "tavern" にしないこと。playBgm は BGM_FILES を TRACKS より先に見るの
+     *     で、"tavern" で登録すると呼び口を直していない playBgm("tavern") が黙って
+     *     mp3 へ逸れ、renderBgmOffline("tavern") だけが合成トラックを指す
+     *     = 同じ名前が 2 つの別物になる。
+     *
+     *   ⚠ volume は曲ごとの実測ラウドネスからの逆算。式は volume = 10^((目標 − 実測)/20)、
+     *     目標 = 探索の基準 −19.9 LUFS (dungeon_normal −15.5 × 0.60 の実効値)。
+     *       village08 −14.6 → 0.54 / 酒場 −12.6 → 0.43
+     *     ⭐ 街と酒場は安全地帯なので耳で下げてよい (volume を動かしても
+     *        driver_bgm_town の assert は 1 つも変わらない)。 */
+    town:           { src: "assets/bgm/village08.mp3",           loop: true, volume: 0.54, credit: "魔王魂" },
+    tavern_room:    { src: "assets/bgm/酒場.mp3",              loop: true, volume: 0.43, credit: "魔王魂" },
     /* ── 廃坑 (goblin-mine) 専用の 3 曲 (2026-08-21) ────────────────────────────
      *   入口 n0 / 坑内 / グリクス戦 を場面ごとに分ける。**どの場面でどれを鳴らすか**は
      *   index.html の NODE_BGM / SCENARIO_BOSS_BGM が持つ (ここは曲の実体と音量だけ)。
@@ -327,10 +343,10 @@
      *     ⚠ 既存 boss_battle は実効 −10.6 = 探索より 9.3 dB 大きい。同じ差にすると
      *       廃坑だけ突出するので、ボスは +3 dB に留めてある。耳で違ったら動かしてよい
      *       (volume を動かしても driver_bgm_mine の assert は 1 つも変わらない)。
-     *   ⚠⚠ credit は出所をユーザーに確認するまで空。推測で "魔王魂" 等と書かないこと。 */
-    mine_entrance:  { src: "assets/bgm/d1.mp3",                   loop: true, volume: 0.74, credit: "" },
-    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "" },
-    mine_boss:      { src: "assets/bgm/boss01.mp3",               loop: true, volume: 0.52, credit: "" },
+     *   ⭐ 出所は 2026-08-23 にユーザー確認済み = 3 曲とも 魔王魂。 */
+    mine_entrance:  { src: "assets/bgm/d1.mp3",                   loop: true, volume: 0.74, credit: "魔王魂" },
+    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "魔王魂" },
+    mine_boss:      { src: "assets/bgm/boss01.mp3",               loop: true, volume: 0.52, credit: "魔王魂" },
   };
   var bgmEl = null, bgmElNode = null, bgmFileId = null, bgmElSrcId = null;
 

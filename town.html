@@ -54,9 +54,9 @@
         足元をタイル下端に置くと水の上に立つ。⚠ この 0.93 を動かすと橋の見え方が壊れる。
 
     ★ 音 (依頼書 §9)
-      GameAudio.playBgm("tavern") — audio.js の合成トラック (mp3 ではない)。
+      GameAudio.playBgm("town") — assets/bgm/village08.mp3 (依頼書 #17)。?townbgm=0 で合成へ戻る。
       最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
-      ⚠ 実機で耳障りなら街を無音にする (title.html と同じ方針)。街専用 BGM は別チケット。
+      ⚠ 実機で耳障りなら audio.js の BGM_FILES.town の volume を下げる (assert は壊れない)。
 
     ★ 撤退スイッチ `?town=0` (依頼書 §11)
       街を丸ごと素通りして、今日とまったく同じ「タイトル → 酒場」に戻す。
@@ -342,6 +342,15 @@
       if (_q15.get("signplate") === "0") SIGN_PLATE_ON = false;
     } catch (e) {}
     if (!SIGN_PLATE_ON) document.body.classList.add("signplate-off");
+
+    /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
+       0 を渡すと街も酒場も従来どおり合成トラック TRACKS.tavern を鳴らす。
+       ⚠ クエリはページ遷移をまたがらない。tavern.html 側は**独立に**読む
+         (#15 の ?heromark=0 と同じ作法)。 */
+    var TOWN_BGM_ID = "town";
+    try {
+      if (new URLSearchParams(location.search).get("townbgm") === "0") TOWN_BGM_ID = "tavern";
+    } catch (e) {}
 
     var TM = window.TOWN_MAP;
     if (!TM) { location.replace("tavern.html"); return; }   // 保険: データが無ければ従来の酒場へ
@@ -639,10 +648,10 @@
        ⚠ 最初の pointerdown で unlock() (iOS Safari の音声解錠に必須)。 */
     function bootAudio() {
       try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
-      try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm("tavern"); } catch (e) {}
+      try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(TOWN_BGM_ID); } catch (e) {}
     }
     window.addEventListener("pointerdown", bootAudio, { once: true });
-    try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm("tavern"); } catch (e) {}
+    try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(TOWN_BGM_ID); } catch (e) {}
 
     /* ══ 検証シーム ═════════════════════════════════════════════════════
        ⚠ classic script 直下の let/const/function は window に載らない。

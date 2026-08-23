@@ -65,7 +65,7 @@ const MUTATIONS = {
     from: '        return (MINE_BGM_OFF ? null : SCENARIO_BOSS_BGM[scenarioId]) || "boss_battle";',
     to:   '        return "mine_boss";   /* mut-bossglobal 全シナリオのボス曲を廃坑のものへ */' },
   badsrc: { file: 'audio.js',
-    from: '    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "" },',
+    from: '    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "魔王魂" },',
     to:   '    mine_depths: { src: "assets/bgm/__no_such_file.mp3", loop: true, volume: 0.43, credit: "" },   /* mut-badsrc */' },
 };
 const MUT_ORDER = ['nonodebgm', 'bossglobal', 'badsrc'];
