@@ -732,8 +732,10 @@ if (__apKeep) apRestoreTravelBuffs(__apKeep);
 
 - `node tools/driver_leader_ai.js` → **42/42**(⭐ **2026-08-23 にこの窓で実走して確認済み**)
 - `node tools/verify_recruit_size.js` → 82/82(酒場 `#prep` の DOM を触るため)
-- `node tools/verify_title_screen.js` → 83/83(`loadSelections`/`saveSelections` を触るため)
-- `node tools/driver_grid_s2.js` → 93/93(仲間の手番ループを触るため)
+- `node tools/verify_title_screen.js` → ~~83/83~~ → **85/85**(`loadSelections`/`saveSelections` を触るため)
+  ⚠ **起草時の記録違い。** 項目④ の実走で 85/85。起草窓は再走行していなかった(§8 末尾の注記どおり)。
+- `node tools/driver_grid_s2.js` → ~~93/93~~ → **111/111**(仲間の手番ループを触るため)
+  ⚠ **起草時の記録違い。** 93/93 は依頼書 #16 以前の記録。項目④ の実走で 111/111。
 
 ⚠ 上の基準値は 2026-08-23 時点の記録(`driver_leader_ai.js` **以外は再走行していない**)。
 **走らせて違ったら、期待値を書き換える前に理由を突き止める。**
@@ -781,4 +783,74 @@ py tools/add_changelog.py "<b>仲間に戦い方を指示できるようにな�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: 完了**(2026-08-24)。dev-loop で 4 項目に分割し、1 窓で順に回した。
+
+### 12-1. コミット
+
+| 項目 | 範囲 | commit | 中身 |
+|---|---|---|---|
+| ① | STEP1 + STEP2 | `f61ab1a` | 酒場のデータ(`selection.actionPriority` / `TRAVEL_CASTABLE_IDS`)+ `#actionPrioritySection` の UI + 新規ドライバの骨組みと空セクション |
+| ② | STEP3 + STEP4-a | `4059763` | index 側の読み込み・`apSituationNow`/`apPreferredId`/`apGateP` + 主人公の重み倍率(クランプの**後**) |
+| ③ | STEP4-b + STEP4-c | `c6601d5` | `executeSkillOn` 抽出 + 仲間の先出し `apTryPreferred` 5 箇所 + 確率ゲート 20 本のラップ |
+| ④ | STEP5〜STEP7 | `2f33dfd` | 道中詠唱 + 道中バフの退避/復元 + `?actionpri=0` を両ページへ + 受入条件 §3/§4/§5 と N4/N5/N6 |
+
+### 12-2. 受入条件(`tools/driver_action_priority.js`)
+
+- `node tools/driver_action_priority.js` → **PASSED 75 / FAILED 0 / PENDING 0**
+- `node tools/driver_action_priority.js --negative` → **PASSED 65 / FAILED 10**、exit 0
+  (負のコントロール 6 本すべてが「注入した欠陥の節」を赤にした)
+
+| 変異 | 注入した欠陥 | 赤くなった assert |
+|---|---|---|
+| **N1** | 倍率を `Math.min(LEADER_W_MAX,...)` の**前**へ移す | (1c) — ついでに (1b) も赤 |
+| **N2** | `apGateP` を `Math.max` → `Math.min`(上げずに下げる) | (2c-2) |
+| **N3** | `renderActionPriority` の「装備している技だけ」フィルタを外す | (6b-1) / (6b-2) — ついでに (6c-4)/(6c-5) も赤 |
+| **N4** | `AP_TRAVEL_CASTABLE` のガードを index 側だけ外す(§2-6 の罠) | (3d) |
+| **N5** | `apCaptureTravelBuffs` を常に `null`(§2-5 の罠) | (4a) |
+| **N6** | `apTravelCastDone` のラッチを外す | (3c) |
+
+### 12-3. 既存 golden の非退行(項目④ の実走)
+
+| ドライバ | 結果 |
+|---|---|
+| `node tools/driver_grid_s2.js` | **111/111 PASS** |
+| `node tools/driver_leader_ai.js` | **42/42 passed**(G2 の RNG パリティも維持) |
+| `node tools/verify_recruit_size.js` | **82/82 PASS** |
+| `node tools/verify_title_screen.js` | **85/85 passed** |
+
+⚠ §8 の基準値のうち 2 件は**起草時の記録違い**だった(§8 に訂正を書き込んだ):
+`verify_title_screen.js` は 83/83 でなく **85/85**、`driver_grid_s2.js` は 93/93 でなく **111/111**。
+どちらも本チケットの変更前から現在の値であり、退行ではない。
+
+### 12-4. 実装中に判明した事実(次の窓のために)
+
+- ⭐⭐⭐ **僧侶の `bless` はスクロール習得制**(`DEFAULT_KNOWN` = `index.html:12252` に無い)。
+  既定のパーティでは `equippedSkills` に `bless` が入らないので、**道中詠唱の検証には
+  `localStorage["dragonfighters.knownSpells"]` の seed が要る**。これを忘れると §3 の
+  assert が全部空振りする(母集団ガード (3a-0) がそれを捕まえる)。
+- ⭐⭐⭐ **`exploreAllyTurn` の「既に到達しているなら `continue`」を素直に残すと、
+  定位置に居る仲間が道中詠唱まで飛ばされる。** 追従の `continue` 2 本を `if` へ畳んだ
+  (移動だけを飛ばし、詠唱は必ず 1 回試す)。
+- ⭐⭐ **条件 4 の `hasSpellSlot` を「`mpCost` の有無に関わらず」にしてはいけない。**
+  そうすると `mpCost` を持たない `battle-roar` がスロット判定で先に落ち、
+  §2-6 の抜け道封じ(`AP_TRAVEL_CASTABLE`)が**効いているかどうか検査できなくなる**
+  (N4 が空振りする)。抜け道封じの責任は条件 2 に一本化した。
+- ⭐⭐ **ラッチと `__apTravel` の印は `await executeSkillOn` の「前」に立てる。**
+  詠唱アニメ(bless で約 3 秒)の最中に戦闘が始まると、後で立てたのでは
+  `apCaptureTravelBuffs` が取りこぼす。
+- ⭐⭐ **(4a) は「戦闘開始のその一瞬」で測らないと意味が無い。** 後からポーリングで読むと
+  戦闘ターンでバフが減って**主人公も仲間も 0 = 一致**に化け、退避を外しても緑になる。
+  → 配信スナップショットの復元行の直後へ観測シームを 1 行注入して写し取っている。
+- ⭐ **`apTryTravelCast` は条件 6 の判定まで完全に同期**なので、ドライバのループが
+  1 発も撃たない限り**ゲームループ(マクロタスク)は割り込めない**。(3b) の
+  「6 回叩いて 0 発」はこの性質のおかげで原子的に測れている。
+- ⭐ 項目③ の**意図的な仕様逸脱**: STEP4-b は「本体中の `leaderClassKey` を全て引数
+  `classKey` へ置換」と書いていたが、`striking` の候補選定にある 1 箇所だけは
+  「**リーダー**が近接役か」を見ており術者の職ではないため、**置換しなかった**。
+  置換すると僧侶の仲間が唱えたときに戦士のリーダーが候補から落ちる。
+  リーダー経路では `classKey === leaderClassKey` なのでバイト等価。
+
+### 12-5. 残(ユーザーの実機確認 = 依頼書 §9)
+
+`?actionpri=0` で #19 以前の挙動へ戻せる。実機で見るのは §9 の 4 項目(雑魚→スリープ /
+道中→ブレスの目視 / 8 割の体感 / iPhone のプルダウン)。
