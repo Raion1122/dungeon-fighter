@@ -8,7 +8,7 @@
  * ── セクションと実装状況 (段階的に足していく骨組み) ───────────────────────
  *   §0 装置 (母集団の確認 / index↔tavern の二重定義突合)   … 実装済 (項目②)
  *   §1 主人公 — 重み倍率がクランプに食われていない          … 実装済 (項目②)
- *   §2 仲間 — 先出しが効き、指定外は不変                    … PENDING (項目③)
+ *   §2 仲間 — 先出しが効き、指定外は不変                    … 実装済 (項目③)
  *   §3 道中詠唱                                             … PENDING (項目④)
  *   §4 バフ退避 (戦闘開始で主人公だけ剥がれない)            … PENDING (項目④)
  *   §5 撤退スイッチ ?actionpri=0                            … PENDING (項目④)
@@ -33,12 +33,14 @@
  * ── 負のコントロール (--negative) ──────────────────────────────────────────
  *   N1: pickLeaderAction の `w *= AP_BOOST` を `Math.min(LEADER_W_MAX,...)` の **前** へ
  *       移す (依頼書 §2-4 の罠そのもの) → **(1c) が赤くなる**こと。
+ *   N2: apGateP を Math.max(base, AP_P) → Math.min(base, AP_P) へ反転 (上げずに下げる)
+ *       → **(2c) が赤くなる**こと。⚠ 赤くならなければゲート 20 本のラップは信用できない。
  *   N3: renderActionPriority() の「装備している技だけに絞る」フィルタを外す
  *       (= 候補を skillPool 全部にする) → **(6b) が赤くなる**こと。
- *       どちらも赤くならなければ exit 1 (テストが空振りしている証拠)。
+ *       どれも赤くならなければ exit 1 (テストが空振りしている証拠)。
  *       ⚠ 注入点が 1 箇所ちょうど見つからなければ、走らせる前に exit 1 で止まる
  *         (アンカーが腐ったまま「注入したつもり」で緑になるのを防ぐ)。
- *   ※ 依頼書 §8 の N2/N4/N5/N6 は後続項目 (③④) の担当。ここでは入れない。
+ *   ※ 依頼書 §8 の N4/N5/N6 (道中詠唱・バフ退避) は後続項目 ④ の担当。ここでは入れない。
  */
 'use strict';
 
@@ -63,6 +65,43 @@ const FROZEN = {};
 for (const rel of ['tavern.html', 'index.html']) {
   FROZEN['/' + rel] = fs.readFileSync(path.join(ROOT, rel));
 }
+
+/* ── index.html を行単位で書き換えるユーティリティ ─────────────────────────────
+ * ⚠⚠ index.html は CRLF。'\n' 決め打ちで split すると各行末に '\r' が残るので、
+ *    比較は trim してから行い、書き戻す行には '\r' を付け直す。
+ * ⚠ アンカーがちょうど 1 箇所見つからなければ **走らせる前に exit 1**
+ *   (腐ったアンカーで「注入したつもり」のまま緑になるのを防ぐ)。 */
+function editIndexLines(label, mutate) {
+  const lines = FROZEN['/index.html'].toString('utf8').split('\n');
+  const trimCR = (s) => s.replace(/\r$/, '').trim();
+  if (!mutate(lines, trimCR)) {
+    console.error('[driver] ' + label + ' の注入点が腐っています。走らせずに止めます。');
+    process.exit(1);
+  }
+  FROZEN['/index.html'] = Buffer.from(lines.join('\n'), 'utf8');
+}
+
+/* ── 計測シーム: executeSkillOn の呼び出しログ ────────────────────────────────
+ * ⛔ 本番ファイルに計測シームを置かない (CLAUDE.md: プレイヤーに見える変化の無い
+ *    本番改変は changelog ガードに掛かる) → **配信スナップショットへ実行時に注入**する。
+ * 関数本体の先頭へ 1 行だけ差し込むので、呼び出しを 1 件も取りこぼさない。
+ * ⭐⭐⭐ このログが空のまま §2 の assert が全部緑になるのが最悪の空振り → (0c) で見る。 */
+const SEAM_FN   = 'async function executeSkillOn(actor, classKey, skillId, targetIdx) {';
+const SEAM_LINE = '      try { (window.__apLog = window.__apLog || []).push({ classKey: classKey, skillId: skillId,'
+  + ' isLeader: !!(actor && actor.isLeader), targetIdx: targetIdx,'
+  + ' phase: (typeof currentPhase !== "undefined" ? currentPhase : null),'
+  + ' enc: (typeof encounterActive !== "undefined" ? encounterActive : null) }); } catch (e) {}';
+editIndexLines('計測シーム (executeSkillOn)', (lines, trimCR) => {
+  const spots = [];
+  for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === SEAM_FN) spots.push(i);
+  if (spots.length !== 1) {
+    console.error('[driver] executeSkillOn の定義が ' + spots.length + ' 箇所 (期待 1):  ' + SEAM_FN);
+    return false;
+  }
+  lines.splice(spots[0] + 1, 0, SEAM_LINE + '\r');
+  return true;
+});
+
 // ⚠ 実装側のこの 1 行が「装備している技だけに絞る」フィルタの入口。
 const NEG_ANCHOR = 'const equippedIds = apEquippedIdsFor(slot, classKey);';
 const NEG_PATCH  = 'const equippedIds = slot.skillPool.map(sk => sk.id); /* N3: フィルタを外した変異 */';
@@ -100,6 +139,24 @@ if (NEGATIVE) {
     FROZEN['/index.html'] = Buffer.from(iLines.join('\n'), 'utf8');
   }
   console.log('[driver] ★ 負のコントロール N1 を注入しました (倍率を Math.min クランプの前へ移動)');
+
+  // ── N2 (依頼書 §8): apGateP を「上げる」から「下げる」へ反転させる ──────────
+  //   Math.max(base, AP_P) → Math.min(base, AP_P)。20 本のゲートのラップが実際に
+  //   効いているかを (2c) が見ている。⚠ これが赤くならなければラップは信用できない。
+  const N2_OLD = 'return (apPreferredId(cls, apSituationNow()) === skillId) ? Math.max(base, AP_P) : base;';
+  const N2_NEW = 'return (apPreferredId(cls, apSituationNow()) === skillId) ? Math.min(base, AP_P) : base;'
+               + '   /* N2: 上げずに下げた変異 */';
+  editIndexLines('負のコントロール N2 (apGateP)', (lines, trimCR) => {
+    const spots = [];
+    for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === N2_OLD) spots.push(i);
+    if (spots.length !== 1) {
+      console.error('[driver] N2 の注入点が ' + spots.length + ' 箇所 (期待 1):  ' + N2_OLD);
+      return false;
+    }
+    lines[spots[0]] = '      ' + N2_NEW + '\r';
+    return true;
+  });
+  console.log('[driver] ★ 負のコントロール N2 を注入しました (apGateP を Math.min = 引き下げへ反転)');
 }
 
 function loadPuppeteer() {
@@ -246,6 +303,13 @@ const AP_SEED = {
   cleric:  { general: null, mob: null, boss: 'bless',         travel: null },
   mage:    { general: null, mob: null, boss: 'fireball',      travel: null },
 };
+// §2 (仲間) 用の仕込み。⭐ 「その職の AI が自力では絶対に選ばない技」を指定して、
+//   先出しが既存の判断 (threatScore の梯子 / if 連鎖の順序) を素通りできるかを見る。
+const AP_SEED_ALLY = {
+  mage:    { general: null, mob: null, boss: 'fireball',       travel: null },
+  rogue:   { general: null, mob: null, boss: 'thrown-dagger',  travel: null },
+  warrior: { general: null, mob: null, boss: 'strong-cleave',  travel: null },
+};
 // ダイス表記の期待値。⛔ 重みの再実装ではない (「2d8 は今の武器より強い」を言うためだけ)。
 const diceEV = (s) => {
   const m = /^(\d+)d(\d+)$/.exec(String(s || ''));
@@ -292,6 +356,75 @@ const AP_HELPERS = `
   window.__apWithMap = function (map, fn) {
     const prev = actionPriorityMap;
     try { actionPriorityMap = map; return fn(); } finally { actionPriorityMap = prev; }
+  };
+`;
+
+/* ── §2 (仲間) 用の測定装置 ─────────────────────────────────────────────────
+ * ⭐⭐ 本物の ally* 関数は 1 手番あたり数秒の演出を回すので、分布を採る回数を稼げない。
+ *    そこで **「実行」だけを記録用スタブへ差し替える**。決定ロジック (mageAI の
+ *    threatScore 梯子・rogueAI の if 連鎖・apTryPreferred) は 1 行も触らない。
+ * ⚠⚠ enemies / encounterEnemyIndices / encounterActive / actionPriorityMap は
+ *    ループ全体を 1 回だけ包んで必ず戻す。スタブは即座に解決する async なので
+ *    ループ中に **マクロタスクへ降りない** = 走行中のゲームループが割り込めない。
+ * ⚠ enemies へ素の object を push しない (parallel array が並走している) → 配列ごと差し替える。
+ */
+const AP_ALLY_HELPERS = `
+  window.__apMkAlly = function (classKey, equipped, slots, opt) {
+    opt = opt || {};
+    return {
+      classKey: classKey, alive: true, stunned: 0, confused: 0, wildConfused: 0,
+      hp: (opt.hp != null ? opt.hp : 30), maxHp: 30,
+      x: (opt.x != null ? opt.x : 0), y: (opt.y != null ? opt.y : 0),
+      def: { name: 'テスト' + classKey, displaySize: 96, role: 'backline', weaponRange: 'melee' },
+      weaponRange: 'melee',
+      statusEffects: [],
+      buffs: { acBonusRemaining: 0, atkBonusRemaining: 0, strikingRemaining: 0, hastedRemaining: 0,
+               blessMoveRemaining: 0, dmgReductionRemaining: 0, dmgReductionFlatRemaining: 0,
+               antiKnockbackRemaining: 0, evasionRemaining: 0, luckyRemaining: 0,
+               statusImmunityCharges: 0, frightenedRemaining: 0, fearImmuneRemaining: 0,
+               dmgReductionDice: null, dmgReductionFlat: 0, luckyCritWiden: 0, sleepWatchHp: null },
+      equippedSkills: equipped.slice(),
+      spellSlots: Object.assign({}, slots || {}),
+      maxSpellSlots: Object.assign({}, slots || {}),
+      skillsUsedInEncounter: new Set(),
+      skillCooldowns: {},
+      el: null,
+    };
+  };
+  window.__apMkBoss = function (ally, cfg) {
+    cfg = cfg || {};
+    return { alive: true, inactive: false, stunned: 0,
+             hp: (cfg.bossHp != null ? cfg.bossHp : 10), maxHp: 40,
+             x: ally.x + (cfg.dx != null ? cfg.dx : 96), y: ally.y,
+             poisonRemaining: 0, huntMarkRemaining: 0,
+             def: { name: 'ボス', isBoss: true, hp: 40, displaySize: 96 } };
+  };
+  // cfg = { classKey, equipped, slots, stubs, map, n, ai, bossHp, dx }
+  // 返り = { tally: {スタブ名 or '(none)': 回数}, seamDelta: executeSkillOn 呼び出し増分 }
+  window.__apAllyRun = async function (cfg) {
+    const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
+    const seamBefore = (window.__apLog || []).length;
+    const saved = {}, tally = {};
+    let lastFn = null;
+    for (const nm of cfg.stubs) { saved[nm] = window[nm]; }
+    for (const nm of cfg.stubs) window[nm] = async function () { lastFn = nm; return true; };
+    try {
+      actionPriorityMap = cfg.map;
+      for (let i = 0; i < cfg.n; i++) {
+        const ally = window.__apMkAlly(cfg.classKey, cfg.equipped, cfg.slots, cfg);
+        enemies = [window.__apMkBoss(ally, cfg)];
+        encounterEnemyIndices = [0];
+        encounterActive = true;
+        lastFn = null;
+        const fired = await window[cfg.ai](ally);
+        const key = lastFn ? lastFn : (fired ? '(fired-unknown)' : '(none)');
+        tally[key] = (tally[key] || 0) + 1;
+      }
+    } finally {
+      for (const nm of cfg.stubs) window[nm] = saved[nm];
+      enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
+    }
+    return { tally: tally, seamDelta: (window.__apLog || []).length - seamBefore };
   };
 `;
 
@@ -425,7 +558,7 @@ async function readClass(page, classKey) {
       tvArr.length === 10 && ixArr.length === 10 && setEq(tvArr, ixArr) && setEq(ixArr, EXPECT_TRAVEL_IDS),
       'tavern n=' + tvArr.length + ' index n=' + ixArr.length + ' 片側にしか無い ID=' + JSON.stringify(travelDiff));
 
-    pending('(0c) executeSkillOn のラッパが 1 回以上捕まえている', '項目③ (STEP4-b) 未実装');
+    console.log('  ..  (0c) 計測シームの母集団ガードは §2 の計測後に出す (下の "(0c)" を見ること)');
     pending('(0d) 道中テストで敵が alert/chase になった瞬間が 1 回以上ある', '項目④ (STEP5) 未実装');
 
     console.log('\n--- (§1) 主人公: 重み倍率がクランプに食われていない ---');
@@ -532,10 +665,161 @@ async function readClass(page, classKey) {
     await idxPage.close();
 
     console.log('\n--- (§2) 仲間: 先出しが効き、指定外は不変 ---');
-    pending('(2a) 魔法使い仲間 boss=fireball でボス戦 1 手目の fireball が増える', '項目③ (STEP4-b) 未実装');
-    pending('(2b) 盗賊 (確率ゲート 0 本) でも先出しが効く', '項目③ (STEP4-b) 未実装');
-    pending('(2c) 指定 null のとき apGateP が 20 箇所の base 値と厳密に等しい', '項目③ (STEP4-c) 未実装');
-    pending('(2d) 戦士の仲間では executeSkillOn が 1 回も呼ばれない', '項目③ (STEP4-b) 未実装');
+    const allyPage = await openIndexPage(browser, 'autoplay=30&diag=1', AP_SEED_ALLY);
+    await allyPage.evaluate(AP_ALLY_HELPERS);
+
+    const seamOk = await allyPage.evaluate(() => ({
+      hasRun:   typeof window.__apAllyRun === 'function',
+      hasTry:   typeof window.apTryPreferred === 'function',
+      hasExec:  typeof window.executeSkillOn === 'function',
+      logIsArr: Array.isArray(window.__apLog) || window.__apLog === undefined,
+      mageBoss: window.apPreferredId('mage', 'boss'),
+      rogueBoss: window.apPreferredId('rogue', 'boss'),
+    }));
+    check('(2-装置) apTryPreferred / executeSkillOn が実在し、仲間の指定が解決している',
+      seamOk.hasRun && seamOk.hasTry && seamOk.hasExec
+        && seamOk.mageBoss === AP_SEED_ALLY.mage.boss && seamOk.rogueBoss === AP_SEED_ALLY.rogue.boss,
+      JSON.stringify(seamOk));
+
+    // ── (2a) 魔法使い: threatScore の梯子を素通りできているか ──────────────────
+    //   equip = [fire-bolt, magic-missile, fireball, ice-storm] / 敵 HP 10 → threatScore ≤ 25。
+    //   梯子は 32/30/25/25/20 の閾値をどれも満たさず fallbackOrder の先頭 = ice-storm へ落ちる。
+    //   ⭐ つまり **指定なしでは fireball が 1 回も出ない盤面**。ここで fireball が出れば
+    //      「梯子を素通りした」ことの直接証拠になる。
+    const MAGE_N = 300;
+    const MAGE_STUBS = ['allyMagicMissile', 'allyFireBolt', 'allySleep', 'allyArcaneShield',
+                        'allyFireball', 'allyLightningBolt', 'allyConeOfCold', 'allyBurningHands', 'allyIceStorm'];
+    const mageCfg = {
+      classKey: 'mage', ai: 'mageAI', n: MAGE_N, bossHp: 10, dx: 96, stubs: MAGE_STUBS,
+      equipped: ['fire-bolt', 'magic-missile', 'fireball', 'ice-storm'],
+      slots: { 'fire-bolt': 9, 'magic-missile': 9, 'fireball': 9, 'ice-storm': 9 },
+    };
+    const mageNone = await allyPage.evaluate((c) => window.__apAllyRun(Object.assign({}, c, { map: null })), mageCfg);
+    const magePref = await allyPage.evaluate((c, m) => window.__apAllyRun(Object.assign({}, c, { map: m })), mageCfg, AP_SEED_ALLY);
+    const mageFbNone = (mageNone.tally.allyFireball || 0) / MAGE_N;
+    const mageFbPref = (magePref.tally.allyFireball || 0) / MAGE_N;
+    check('(2a-0) 母集団: 指定なしでは 300 回すべて梯子の結論 (ice-storm) に落ち、fireball が 0 回',
+      (mageNone.tally.allyIceStorm || 0) === MAGE_N && mageFbNone === 0,
+      '指定なしの内訳 = ' + JSON.stringify(mageNone.tally));
+    check('(2a) 魔法使い仲間 boss=fireball で fireball のシェアが上がる (threatScore の梯子を素通り)',
+      mageFbPref > mageFbNone + 0.2,
+      '指定なし=' + mageFbNone.toFixed(3) + ' → 指定あり=' + mageFbPref.toFixed(3)
+        + '  指定ありの内訳 = ' + JSON.stringify(magePref.tally));
+    check('(2a-2) 先出しが外れた手番は従来の連鎖 (ice-storm) へ落ちている (手番を潰していない)',
+      (magePref.tally['(none)'] || 0) === 0
+        && (magePref.tally.allyFireball || 0) + (magePref.tally.allyIceStorm || 0) === MAGE_N,
+      JSON.stringify(magePref.tally));
+
+    // ── (2b) 盗賊 (確率ゲート 0 本 = 完全に決定論) でも先出しが効くか ───────────
+    //   敵は隣接 (dist=1)。rogueAI の ① 毒塗り短剣が無条件で先に決まる盤面で、
+    //   ③ 投げナイフ (dist 2〜3 が条件なので **絶対に選ばれない**) を指定する。
+    const ROGUE_N = 300;
+    const ROGUE_STUBS = ['allyPoisonBlade', 'allyShadowStep', 'allyThrownDagger', 'allySmokeBomb',
+                         'allyLucky', 'allyEvasion'];
+    const rogueCfg = {
+      classKey: 'rogue', ai: 'rogueAI', n: ROGUE_N, bossHp: 10, dx: 96, stubs: ROGUE_STUBS,
+      equipped: ['poison-blade', 'thrown-dagger', 'smoke-bomb', 'lucky', 'evasion'], slots: {},
+    };
+    const rogueNone = await allyPage.evaluate((c) => window.__apAllyRun(Object.assign({}, c, { map: null })), rogueCfg);
+    const roguePref = await allyPage.evaluate((c, m) => window.__apAllyRun(Object.assign({}, c, { map: m })), rogueCfg, AP_SEED_ALLY);
+    const rgTdNone = (rogueNone.tally.allyThrownDagger || 0) / ROGUE_N;
+    const rgTdPref = (roguePref.tally.allyThrownDagger || 0) / ROGUE_N;
+    check('(2b-0) 母集団: 指定なしでは 300 回すべて 毒塗り短剣 で、投げナイフは 0 回',
+      (rogueNone.tally.allyPoisonBlade || 0) === ROGUE_N && rgTdNone === 0,
+      '指定なしの内訳 = ' + JSON.stringify(rogueNone.tally));
+    check('(2b) 盗賊 (確率ゲート 0 本) でも先出しが効く',
+      rgTdPref > rgTdNone + 0.2,
+      '指定なし=' + rgTdNone.toFixed(3) + ' → 指定あり=' + rgTdPref.toFixed(3)
+        + '  指定ありの内訳 = ' + JSON.stringify(roguePref.tally));
+
+    // ── (0c) 母集団ガード: 計測シームが実際に捕まえているか ────────────────────
+    //   ⭐⭐⭐ ここが 0 のまま §2 が緑になるのが最悪の空振り。
+    const seamCount = await allyPage.evaluate(() => ({
+      total: (window.__apLog || []).length,
+      byId: (window.__apLog || []).reduce((m, r) => { m[r.classKey + '/' + r.skillId] = (m[r.classKey + '/' + r.skillId] || 0) + 1; return m; }, {}),
+    }));
+    check('(0c) 計測シームが executeSkillOn を 1 回以上捕まえている (ログが空でない)',
+      seamCount.total > 0, 'n=' + seamCount.total + ' ' + JSON.stringify(seamCount.byId));
+    check('(0c-2) 捕まえた呼び出しがすべて仲間経路 (isLeader=false) で、指定した技だけ',
+      await allyPage.evaluate((seed) => (window.__apLog || []).every(r =>
+        r.isLeader === false && seed[r.classKey] && seed[r.classKey].boss === r.skillId), AP_SEED_ALLY),
+      JSON.stringify(seamCount.byId));
+
+    // ── (2c) 指定外の非退行: apGateP は「上げるだけ」で「下げない」 ─────────────
+    //   ⚠ N2 (Math.max → Math.min) はここで赤くなる。
+    const GATE_BASES = [0.3, 0.35, 0.4, 0.5, 0.6, 0.7];
+    const g2c = await allyPage.evaluate((bases) => {
+      const unit = { classKey: 'cleric' };
+      return window.__apWithBoss(() => {
+        const out = { sit: window.apSituationNow(), apP: window.AP_P, none: [], pref: [], other: [] };
+        window.__apWithMap(null, () => { for (const b of bases) out.none.push(window.apGateP(unit, 'bless', b)); });
+        window.__apWithMap({ cleric: { general: null, mob: null, boss: 'bless', travel: null } }, () => {
+          for (const b of bases) out.pref.push(window.apGateP(unit, 'bless', b));
+          for (const b of bases) out.other.push(window.apGateP(unit, 'striking', b));
+        });
+        return out;
+      });
+    }, GATE_BASES);
+    check('(2c-0) 母集団: AP_P が最大の base (0.7) より大きい = 引き上げが実際に起きる帯にいる',
+      g2c.sit === 'boss' && g2c.apP > Math.max.apply(null, GATE_BASES),
+      'sit=' + g2c.sit + ' AP_P=' + g2c.apP + ' base 最大=' + Math.max.apply(null, GATE_BASES));
+    check('(2c-1) 指定なしのとき 20 箇所の base 値 (0.3/0.35/0.4/0.5/0.6/0.7) が厳密にそのまま返る',
+      GATE_BASES.every((b, i) => g2c.none[i] === b),
+      JSON.stringify(g2c.none));
+    check('(2c-2) 指定ありのとき Math.max(base, AP_P) と厳密に一致する (上げるだけで下げない)',
+      GATE_BASES.every((b, i) => g2c.pref[i] === Math.max(b, g2c.apP)),
+      '実測=' + JSON.stringify(g2c.pref) + ' 期待=' + JSON.stringify(GATE_BASES.map(b => Math.max(b, g2c.apP))));
+    check('(2c-3) 指定した技以外は 1 ビットも動かない (同じ職の別の技は base のまま)',
+      GATE_BASES.every((b, i) => g2c.other[i] === b),
+      JSON.stringify(g2c.other));
+
+    // ── (2d) 戦士の仲間 — AI 分岐が無いので技は 1 つも出ない ───────────────────
+    const d1 = await allyPage.evaluate((m) => window.__apAllyRun({
+      classKey: 'warrior', ai: 'allyAttackTurn', n: 5, bossHp: 10, dx: 96,
+      stubs: ['allyBasicAttack'], equipped: ['strong-cleave'], slots: {}, map: m,
+    }), AP_SEED_ALLY);
+    check('(2d-1) 戦士の仲間の手番 (allyAttackTurn) では executeSkillOn が 1 回も呼ばれない',
+      d1.seamDelta === 0 && (d1.tally.allyBasicAttack || 0) === 5,
+      'executeSkillOn 呼び出し増分=' + d1.seamDelta + ' 内訳=' + JSON.stringify(d1.tally));
+    const d2 = await allyPage.evaluate(async (m) => {
+      const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
+      const savedPSA = window.playerSingleAttack, savedEWS = window.executeWarriorSkill;
+      let fired = [];
+      window.playerSingleAttack = async function () { fired.push('playerSingleAttack'); };
+      window.executeWarriorSkill = async function () { fired.push('executeWarriorSkill'); };
+      try {
+        actionPriorityMap = m;
+        const ally = window.__apMkAlly('warrior', ['strong-cleave'], {});
+        enemies = [window.__apMkBoss(ally, {})]; encounterEnemyIndices = [0]; encounterActive = true;
+        const before = (window.__apLog || []).length;
+        const r = await window.apTryPreferred(ally);
+        return { r: r, fired: fired, seamDelta: (window.__apLog || []).length - before };
+      } finally {
+        window.playerSingleAttack = savedPSA; window.executeWarriorSkill = savedEWS;
+        enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
+      }
+    }, AP_SEED_ALLY);
+    check('(2d-2) 直に apTryPreferred(戦士の仲間) を呼んでも false が返り、技も通常攻撃も暴発しない',
+      d2.r === false && d2.fired.length === 0 && d2.seamDelta === 1,
+      '返り=' + d2.r + ' 実行された物=' + JSON.stringify(d2.fired)
+        + ' (executeSkillOn までは届いてリーダー限定ガードで止まった: 増分=' + d2.seamDelta + ')');
+
+    await allyPage.close();
+
+    // ── (2e) 確率ゲート 20 本が漏れなくラップされているか (配信バイトを直接数える) ──
+    //   ⚠ 実装から数字を写してくるのではなく、「仲間 AI の中に裸の確率ゲートが
+    //     1 本も残っていない」を見る。1 本でも取りこぼせばここが赤くなる。
+    {
+      const src = FROZEN['/index.html'].toString('utf8');
+      const s = src.indexOf('async function clericAI(ally) {');
+      const e = src.indexOf('async function executeWarriorSkill(');
+      const region = (s >= 0 && e > s) ? src.slice(s, e) : '';
+      const all     = (region.match(/Math\.random\(\) </g) || []).length;
+      const wrapped = (region.match(/Math\.random\(\) < apGateP\(ally,/g) || []).length;
+      check('(2e) 仲間 AI (clericAI〜elfAI) の確率ゲート 20 本がすべて apGateP でラップされている',
+        region.length > 0 && all === 20 && wrapped === 20,
+        'ゲート総数=' + all + ' / ラップ済=' + wrapped + ' (裸で残り=' + (all - wrapped) + ')');
+    }
 
     console.log('\n--- (§3) 道中詠唱 ---');
     pending('(3a) 僧侶仲間 travel=bless が探索フェーズ中に発動する', '項目④ (STEP5) 未実装');
@@ -812,6 +1096,8 @@ async function readClass(page, classKey) {
     };
     // ⚠ '(1c)' で始まる名前は本体 1 本だけ ((1c-0)/(1c-1) は前提ガードなので N1 では赤くならない)
     judge('N1', '(1c)', '(1c) 倍率がクランプに食われていないか');
+    // ⚠ (2c-1) は「指定なし」の検査なので N2 でも緑のまま。赤くなるのは (2c-0)/(2c-2)。
+    judge('N2', '(2c', '(2c) apGateP が上げるだけで下げていないか');
     judge('N3', '(6b-', '(6b) 装備していない技が候補に出ないか');
     process.exit(negNg === 0 ? 0 : 1);
   }

@@ -18024,7 +18024,165 @@
       }
       if (actor.facing) facing = actor.facing;
     }
-    // リーダー版スキル発動: 戦士は executeWarriorSkill、それ以外は ally系関数をアダプタ経由で呼ぶ
+    // ── #19 STEP4-b: スキル実行の書き込み点を 1 つに畳む ─────────────────────────
+    // executeLeaderSkill の本体をここへ抽出した「ユニット非依存のスキル実行」。
+    //   actor  = makeLeaderActor() が作るリーダーの ally 形、または本物の仲間オブジェクト
+    //   戻り値 = 実際に撃ったら true / 何も撃たなかったら false
+    // 仲間側 (apTryPreferred) は false を受けたら黙って従来の if 連鎖へ落ちる = 手番を潰さない。
+    // ⚠⚠ 通常攻撃 (playerSingleAttack) へのフォールバックは **リーダー経路だけ** に残す。
+    //    仲間から来たときに撃つと「指示した技の代わりに主人公が殴る」暴発になる。
+    // ⚠ 本体中の leaderClassKey → 引数 classKey へ置換済み。ただし「ストライキングの
+    //    候補としてのリーダーが近接役か」を見る 1 箇所だけは **リーダーの職** を指すので
+    //    leaderClassKey のまま残す (術者の職に置き換えると意味が変わる)。
+    async function executeSkillOn(actor, classKey, skillId, targetIdx) {
+      const isLeader = !!(actor && actor.isLeader);
+      // リーダー専用のフォールバック。仲間経路では「何もせず false」で呼び元へ返す。
+      const fallbackAttack = async function () {
+        if (!isLeader) return false;
+        await playerSingleAttack(targetIdx, {});
+        return true;
+      };
+      // 戦士: executeWarriorSkill はプレイヤーのグローバルを直に触るリーダー専用実装。
+      // 仲間の戦士には AI 分岐そのものが無い (依頼書 §2-3) ので、ここへ来ても何もしない。
+      if (classKey === "warrior") {
+        if (!isLeader) return false;
+        await executeWarriorSkill(skillId, targetIdx);
+        return true;
+      }
+      // ドワーフ (Step a-2 + フェーズ A 攻撃 3 + フェーズ B 防御 3 + フェーズ C バフ 3 追加)
+      if (classKey === "dwarf") {
+        if (skillId === "throwing-axe")       { await allyThrowingAxe(actor, targetIdx); return true; }
+        if (skillId === "axe-storm")          { await allyAxeStorm(actor);     return true; }
+        if (skillId === "earth-shatter")      { await allyEarthShatter(actor); return true; }
+        if (skillId === "stone-skin")         { await allyStoneSkin(actor);    return true; }
+        if (skillId === "steel-will")         { await allySteelWill(actor);    return true; }
+        if (skillId === "brace")              { await allyBrace(actor);        return true; }
+        if (skillId === "battle-roar")        { await allyBattleRoar(actor);   return true; }
+        if (skillId === "big-eater")          { await allyBigEater(actor);     return true; }
+        // dwarven-grit はリアクティブのため明示発動できない (HP 閾値で自動発動。leader 用 hook は将来課題)
+        if (skillId === "power-attack")       { await allyPowerAttack(actor, targetIdx); return true; }
+        if (skillId === "shield-wall")        { await allyShieldWall(actor);   return true; }
+        if (skillId === "battle-rest")        { await allyBattleRest(actor);   return true; }
+        return false;
+      }
+      // 僧侶 (Step a-3 第1弾) ─ 回復&バフは味方ターゲットを構築して渡す
+      if (classKey === "cleric") {
+        if (skillId === "cure-light-wounds" || skillId === "cure-moderate-wounds"
+            || skillId === "cure-serious-wounds" || skillId === "cure-critical-wounds") {
+          const tgt = findLowestHpPartyMember();
+          if (!tgt) return false;
+          await allyCureWounds(actor, tgt, skillId);
+          return true;
+        }
+        if (skillId === "bless")       { await allyBless(actor);      return true; }
+        if (skillId === "turn-undead") { await allyTurnUndead(actor); return true; }
+        if (skillId === "striking") {
+          // 前衛/近接の未バフ PT 員を選んで武器強化
+          const cands = [];
+          // ⚠ ここの leaderClassKey は「候補であるリーダーが近接役か」の判定 = 術者の職ではない。
+          //    classKey へ置換すると、僧侶の仲間が唱えたとき戦士のリーダーが候補から落ちる。
+          if (hp > 0 && !gameOver && playerBuffs.strikingRemaining <= 0
+              && (playerStats.weaponRange === "melee" || leaderClassKey === "warrior" || leaderClassKey === "dwarf")) {
+            cands.push({ kind: "leader", priority: 2, cx: playerX + 48, cy: playerY + 58 });
+          }
+          for (const a of allies) {
+            if (!a.alive || a.buffs.strikingRemaining > 0) continue;
+            const pri = (a.def.role === "frontline") ? 3 : ((a.weaponRange === "melee" || a.def.weaponRange === "melee") ? 2 : 0);
+            if (pri <= 0) continue;
+            cands.push({ kind: "ally", ally: a, priority: pri, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+          }
+          if (cands.length === 0) return false;
+          cands.sort((a, b) => b.priority - a.priority);
+          await allyStriking(actor, cands[0]);
+          return true;
+        }
+        if (skillId === "shield-of-faith") {
+          // 未バフ候補から優先度付きで選ぶ (前衛 > リーダー > 後衛)
+          const candidates = [];
+          if (hp > 0 && !gameOver && playerBuffs.acBonusRemaining <= 0) {
+            candidates.push({
+              kind: "leader", priority: 2,
+              cx: playerX + 48, cy: playerY + 58,
+            });
+          }
+          for (const a of allies) {
+            if (!a.alive) continue;
+            if (a.buffs.acBonusRemaining > 0) continue;
+            const pri = (a.def.role === "frontline") ? 3 : 1;
+            candidates.push({
+              kind: "ally", ally: a, priority: pri,
+              cx: a.x + a.def.displaySize / 2,
+              cy: a.y + a.def.displaySize / 2,
+            });
+          }
+          if (candidates.length === 0) return false;
+          candidates.sort((a, b) => b.priority - a.priority);
+          await allyShieldOfFaith(actor, candidates[0]);
+          return true;
+        }
+        return false;
+      }
+      // 魔法使い (Step a-3 第2弾)
+      if (classKey === "mage") {
+        if (skillId === "magic-missile")   { await allyMagicMissile(actor, targetIdx); return true; }
+        if (skillId === "fire-bolt")       { await allyFireBolt(actor, targetIdx);     return true; }
+        if (skillId === "sleep")           { await allySleep(actor, targetIdx);        return true; }
+        if (skillId === "arcane-shield")   { await allyArcaneShield(actor);            return true; }
+        // Phase 2-I: 新規 3 呪文
+        if (skillId === "fireball")        { await allyFireball(actor, targetIdx);       return true; }
+        if (skillId === "lightning-bolt")  { await allyLightningBolt(actor, targetIdx);  return true; }
+        if (skillId === "cone-of-cold")    { await allyConeOfCold(actor, targetIdx);     return true; }
+        if (skillId === "burning-hands")   { await allyBurningHands(actor, targetIdx);   return true; }
+        if (skillId === "ice-storm")       { await allyIceStorm(actor, targetIdx);       return true; }
+        return false;
+      }
+      // エルフ (Step a-3 第3弾)
+      if (classKey === "elf") {
+        if (skillId === "aimed-shot")        { await allyAimedShot(actor, targetIdx);  return true; }
+        if (skillId === "magic-arrow")       { await allyMagicArrow(actor, targetIdx); return true; }
+        if (skillId === "cure-minor")        { await allyCureMinor(actor);             return true; }
+        // spells.md Ranger 5呪文 (Phase 2-V)
+        if (skillId === "hail-of-thorns")    { await allyHailOfThorns(actor, targetIdx);    return true; }
+        if (skillId === "conjure-volley")    { await allyConjureVolley(actor, targetIdx);   return true; }
+        if (skillId === "hunters-mark")      { await allyHuntersMark(actor, targetIdx);     return true; }
+        if (skillId === "lightning-arrow")   { await allyLightningArrow(actor, targetIdx);  return true; }
+        if (skillId === "cordon-of-arrows")  { await allyCordonOfArrows(actor, targetIdx);  return true; }
+        if (skillId === "haste")             { await allyHaste(actor); return true; }   // STEP3
+        return false;
+      }
+      // 盗賊 (Step a-3 第4弾) ─ shadow-step は sneak 条件 (helpless or flanking) を要する
+      if (classKey === "rogue") {
+        if (skillId === "shadow-step") {
+          // sneak 可能 & 移動先確保可な敵を探す。なければ通常攻撃にフォールバック (リーダーのみ)
+          const candidates = [];
+          for (let i = 0; i < enemies.length; i++) {
+            if (!enemies[i].alive) continue;
+            if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 護衛対象に shadow-step しない
+            if (canSneakOnTarget(actor, enemies[i])) candidates.push(i);
+          }
+          // HP 残量低い順 (確実にトドメを刺せる相手優先)
+          candidates.sort((a, b) => enemies[a].hp - enemies[b].hp);
+          for (const idx of candidates) {
+            if (pickShadowStepTile(actor, enemies[idx])) {
+              await allyShadowStep(actor, idx);
+              return true;
+            }
+          }
+          return await fallbackAttack();
+        }
+        if (skillId === "thrown-dagger") { await allyThrownDagger(actor, targetIdx); return true; }
+        if (skillId === "poison-blade")  { await allyPoisonBlade(actor, targetIdx);  return true; }
+        if (skillId === "evasion")       { await allyEvasion(actor);   return true; }
+        if (skillId === "smoke-bomb")    { await allySmokeBomb(actor); return true; }
+        if (skillId === "lucky")         { await allyLucky(actor);     return true; }
+        return await fallbackAttack();   // find-traps(パッシブ) 等は通常攻撃
+      }
+      // 未対応クラス → 通常攻撃にフォールバック
+      return await fallbackAttack();
+    }
+
+    // リーダー版スキル発動: 戦士は executeWarriorSkill、それ以外は executeSkillOn の薄い皮。
+    // ⚠ syncLeaderFromActor (actor → プレイヤーのグローバルへの書き戻し) は **リーダー経路だけ**。
     async function executeLeaderSkill(skillId, targetIdx) {
       if (leaderClassKey === "warrior") {
         await executeWarriorSkill(skillId, targetIdx);
@@ -18032,132 +18190,7 @@
       }
       const actor = makeLeaderActor();
       try {
-        // ドワーフ (Step a-2 + フェーズ A 攻撃 3 + フェーズ B 防御 3 + フェーズ C バフ 3 追加)
-        if (leaderClassKey === "dwarf") {
-          if (skillId === "throwing-axe")       await allyThrowingAxe(actor, targetIdx);
-          else if (skillId === "axe-storm")     await allyAxeStorm(actor);
-          else if (skillId === "earth-shatter") await allyEarthShatter(actor);
-          else if (skillId === "stone-skin")    await allyStoneSkin(actor);
-          else if (skillId === "steel-will")    await allySteelWill(actor);
-          else if (skillId === "brace")         await allyBrace(actor);
-          else if (skillId === "battle-roar")   await allyBattleRoar(actor);
-          else if (skillId === "big-eater")     await allyBigEater(actor);
-          // dwarven-grit はリアクティブのため明示発動できない (HP 閾値で自動発動。leader 用 hook は将来課題)
-          else if (skillId === "power-attack")  await allyPowerAttack(actor, targetIdx);
-          else if (skillId === "shield-wall")   await allyShieldWall(actor);
-          else if (skillId === "battle-rest")   await allyBattleRest(actor);
-        }
-        // 僧侶 (Step a-3 第1弾) ─ 回復&バフは味方ターゲットを構築して渡す
-        else if (leaderClassKey === "cleric") {
-          if (skillId === "cure-light-wounds" || skillId === "cure-moderate-wounds"
-              || skillId === "cure-serious-wounds" || skillId === "cure-critical-wounds") {
-            const tgt = findLowestHpPartyMember();
-            if (tgt) await allyCureWounds(actor, tgt, skillId);
-          } else if (skillId === "bless") {
-            await allyBless(actor);
-          } else if (skillId === "turn-undead") {
-            await allyTurnUndead(actor);
-          } else if (skillId === "striking") {
-            // 前衛/近接の未バフ PT 員を選んで武器強化
-            const cands = [];
-            if (hp > 0 && !gameOver && playerBuffs.strikingRemaining <= 0
-                && (playerStats.weaponRange === "melee" || leaderClassKey === "warrior" || leaderClassKey === "dwarf")) {
-              cands.push({ kind: "leader", priority: 2, cx: playerX + 48, cy: playerY + 58 });
-            }
-            for (const a of allies) {
-              if (!a.alive || a.buffs.strikingRemaining > 0) continue;
-              const pri = (a.def.role === "frontline") ? 3 : ((a.weaponRange === "melee" || a.def.weaponRange === "melee") ? 2 : 0);
-              if (pri <= 0) continue;
-              cands.push({ kind: "ally", ally: a, priority: pri, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
-            }
-            if (cands.length > 0) {
-              cands.sort((a, b) => b.priority - a.priority);
-              await allyStriking(actor, cands[0]);
-            }
-          } else if (skillId === "shield-of-faith") {
-            // 未バフ候補から優先度付きで選ぶ (前衛 > リーダー > 後衛)
-            const candidates = [];
-            if (hp > 0 && !gameOver && playerBuffs.acBonusRemaining <= 0) {
-              candidates.push({
-                kind: "leader", priority: 2,
-                cx: playerX + 48, cy: playerY + 58,
-              });
-            }
-            for (const a of allies) {
-              if (!a.alive) continue;
-              if (a.buffs.acBonusRemaining > 0) continue;
-              const pri = (a.def.role === "frontline") ? 3 : 1;
-              candidates.push({
-                kind: "ally", ally: a, priority: pri,
-                cx: a.x + a.def.displaySize / 2,
-                cy: a.y + a.def.displaySize / 2,
-              });
-            }
-            if (candidates.length > 0) {
-              candidates.sort((a, b) => b.priority - a.priority);
-              await allyShieldOfFaith(actor, candidates[0]);
-            }
-          }
-        }
-        // 魔法使い (Step a-3 第2弾)
-        else if (leaderClassKey === "mage") {
-          if (skillId === "magic-missile")     await allyMagicMissile(actor, targetIdx);
-          else if (skillId === "fire-bolt")    await allyFireBolt(actor, targetIdx);
-          else if (skillId === "sleep")        await allySleep(actor, targetIdx);
-          else if (skillId === "arcane-shield") await allyArcaneShield(actor);
-          // Phase 2-I: 新規 3 呪文
-          else if (skillId === "fireball")        await allyFireball(actor, targetIdx);
-          else if (skillId === "lightning-bolt")  await allyLightningBolt(actor, targetIdx);
-          else if (skillId === "cone-of-cold")    await allyConeOfCold(actor, targetIdx);
-          else if (skillId === "burning-hands")   await allyBurningHands(actor, targetIdx);
-          else if (skillId === "ice-storm")       await allyIceStorm(actor, targetIdx);
-        }
-        // エルフ (Step a-3 第3弾)
-        else if (leaderClassKey === "elf") {
-          if (skillId === "aimed-shot")       await allyAimedShot(actor, targetIdx);
-          else if (skillId === "magic-arrow") await allyMagicArrow(actor, targetIdx);
-          else if (skillId === "cure-minor")  await allyCureMinor(actor);
-          // spells.md Ranger 5呪文 (Phase 2-V)
-          else if (skillId === "hail-of-thorns") await allyHailOfThorns(actor, targetIdx);
-          else if (skillId === "conjure-volley") await allyConjureVolley(actor, targetIdx);
-          else if (skillId === "hunters-mark")   await allyHuntersMark(actor, targetIdx);
-          else if (skillId === "lightning-arrow") await allyLightningArrow(actor, targetIdx);
-          else if (skillId === "cordon-of-arrows") await allyCordonOfArrows(actor, targetIdx);
-          else if (skillId === "haste")           await allyHaste(actor);   // STEP3
-        }
-        // 盗賊 (Step a-3 第4弾) ─ shadow-step は sneak 条件 (helpless or flanking) を要する
-        else if (leaderClassKey === "rogue") {
-          if (skillId === "shadow-step") {
-            // sneak 可能 & 移動先確保可な敵を探す。なければ通常攻撃にフォールバック
-            const candidates = [];
-            for (let i = 0; i < enemies.length; i++) {
-              if (!enemies[i].alive) continue;
-              if (isEscortObjective(enemies[i])) continue;   // [7.9-3 STEP5] 護衛対象に shadow-step しない
-              if (canSneakOnTarget(actor, enemies[i])) candidates.push(i);
-            }
-            // HP 残量低い順 (確実にトドメを刺せる相手優先)
-            candidates.sort((a, b) => enemies[a].hp - enemies[b].hp);
-            let fired = false;
-            for (const idx of candidates) {
-              if (pickShadowStepTile(actor, enemies[idx])) {
-                await allyShadowStep(actor, idx);
-                fired = true;
-                break;
-              }
-            }
-            if (!fired) await playerSingleAttack(targetIdx, {});
-          }
-          else if (skillId === "thrown-dagger") await allyThrownDagger(actor, targetIdx);
-          else if (skillId === "poison-blade")  await allyPoisonBlade(actor, targetIdx);
-          else if (skillId === "evasion")       await allyEvasion(actor);
-          else if (skillId === "smoke-bomb")    await allySmokeBomb(actor);
-          else if (skillId === "lucky")         await allyLucky(actor);
-          else await playerSingleAttack(targetIdx, {});  // find-traps(パッシブ) 等は通常攻撃
-        }
-        // 未対応クラス → 通常攻撃にフォールバック
-        else {
-          await playerSingleAttack(targetIdx, {});
-        }
+        await executeSkillOn(actor, leaderClassKey, skillId, targetIdx);
       } finally {
         syncLeaderFromActor(actor);
       }
@@ -27255,6 +27288,10 @@
       if (isSovereignShellActive()) return false;
       // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つ僧侶は呪文を撃てない → 通常攻撃へフォールスルー。
       if (isOnSovereignRay(ally)) return false;
+      // ★#19 行動の優先度: 指定された技を「まず 1 回だけ」試す。撃てない (未装備 /
+      //   スロット切れ / 射程外 / 対象なし / 既にバフ済) なら黙って従来の連鎖へ落ちる。
+      //   AP_P の確率でしか先出ししないので「たまに違う行動をする」が保たれる。
+      if (await apTryPreferred(ally)) return true;
       const threat = evaluateThreat();
       const aCX = ally.x + ally.def.displaySize / 2;
       const aCY = ally.y + ally.def.displaySize / 2;
@@ -27302,7 +27339,7 @@
           if (pri <= 0) continue;   // 近接攻撃役のみ対象 (後衛キャスター/射手は除外)
           cands.push({ kind: "ally", ally: a, priority: pri, cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
         }
-        if (cands.length > 0 && Math.random() < 0.5) {
+        if (cands.length > 0 && Math.random() < apGateP(ally, "striking", 0.5)) {
           cands.sort((a, b) => b.priority - a.priority);
           await allyStriking(ally, cands[0]);
           return true;
@@ -27310,7 +27347,7 @@
       }
 
       // 4. 通常回復: 75% 未満 & 50% (温存のため弱めの回復から)
-      if (low && low.ratio < 0.75 && Math.random() < 0.5) {
+      if (low && low.ratio < 0.75 && Math.random() < apGateP(ally, bestAffordableHeal(ally, false) || "", 0.5)) {
         const healId = bestAffordableHeal(ally, false);
         if (healId) { await allyCureWounds(ally, low, healId); return true; }
       }
@@ -27334,7 +27371,7 @@
             cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2,
           });
         }
-        if (candidates.length > 0 && Math.random() < 0.4) {
+        if (candidates.length > 0 && Math.random() < apGateP(ally, "shield-of-faith", 0.4)) {
           candidates.sort((a, b) => b.priority - a.priority);
           await allyShieldOfFaith(ally, candidates[0]);
           return true;
@@ -27350,6 +27387,10 @@
       if (isSovereignShellActive()) return false;
       // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つ魔法使いは呪文を撃てない → 通常攻撃 (スリング) へフォールスルー。
       if (isOnSovereignRay(ally)) return false;
+      // ★#19 行動の優先度: 指定された技を「まず 1 回だけ」試す。撃てない (未装備 /
+      //   スロット切れ / 射程外 / 対象なし / 既にバフ済) なら黙って従来の連鎖へ落ちる。
+      //   AP_P の確率でしか先出ししないので「たまに違う行動をする」が保たれる。
+      if (await apTryPreferred(ally)) return true;
       const threat = evaluateThreat();
       const unstunnedEnemies = threat.aliveEnemies.filter(i => (enemies[i].stunned || 0) <= 0);
       const threatScore = threat.score;
@@ -27364,7 +27405,7 @@
       }
       // 通常自己シールド: HP 70%以下 & 未バフ & 脅威度が十分高ければ 30%
       if (hasAShield && hasSpellSlot(ally, "arcane-shield") && ally.buffs.acBonusRemaining <= 0
-          && ally.hp < ally.maxHp * 0.7 && threatScore >= 15 && Math.random() < 0.3) {
+          && ally.hp < ally.maxHp * 0.7 && threatScore >= 15 && Math.random() < apGateP(ally, "arcane-shield", 0.3)) {
         await allyArcaneShield(ally);
         return true;
       }
@@ -27372,7 +27413,7 @@
       // 2. スリープ: 未スタンの敵が 2体以上 & 50%確率
       const hasSleep = ally.equippedSkills.includes("sleep");
       const sleepCost = MAGE_SKILLS["sleep"]?.mpCost || 0;
-      if (hasSleep && hasSpellSlot(ally, "sleep") && unstunnedEnemies.length >= 2 && Math.random() < 0.5) {
+      if (hasSleep && hasSpellSlot(ally, "sleep") && unstunnedEnemies.length >= 2 && Math.random() < apGateP(ally, "sleep", 0.5)) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0) {
           await allySleep(ally, tgtIdx);
@@ -27448,6 +27489,10 @@
     // ドワーフ AI: 緊急回復/防御 → 大火力 → シールドウォール → 攻撃
     async function dwarfAI(ally) {
       const used = ally.skillsUsedInEncounter;
+      // ★#19 行動の優先度: 指定された技を「まず 1 回だけ」試す。撃てない (未装備 /
+      //   スロット切れ / 射程外 / 対象なし / 既にバフ済) なら黙って従来の連鎖へ落ちる。
+      //   AP_P の確率でしか先出ししないので「たまに違う行動をする」が保たれる。
+      if (await apTryPreferred(ally)) return true;
 
       // 1a. 大飯食らい (緊急回復): HP 40% 以下 & 未使用 → 優先発動 (battle-rest より回復量多)
       if (ally.equippedSkills.includes("big-eater")
@@ -27470,7 +27515,7 @@
           && !used.has("battle-roar")
           && (ally.buffs.atkBonusRemaining || 0) <= 0) {
         const aliveCount = encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive).length;
-        if (aliveCount >= 2 && Math.random() < 0.5) {
+        if (aliveCount >= 2 && Math.random() < apGateP(ally, "battle-roar", 0.5)) {
           await allyBattleRoar(ally);
           return true;
         }
@@ -27481,7 +27526,7 @@
           && !used.has("stone-skin")
           && ally.buffs.dmgReductionFlatRemaining <= 0
           && ally.hp < ally.maxHp * 0.5
-          && Math.random() < 0.7) {
+          && Math.random() < apGateP(ally, "stone-skin", 0.7)) {
         await allyStoneSkin(ally);
         return true;
       }
@@ -27500,7 +27545,7 @@
           const eCY = e.y + e.def.displaySize / 2;
           if (tileChebyshev(aCX, aCY, eCX, eCY) <= 1) adjEnemies++;
         }
-        if (adjEnemies >= 2 && Math.random() < 0.5) {
+        if (adjEnemies >= 2 && Math.random() < apGateP(ally, "brace", 0.5)) {
           await allyBrace(ally);
           return true;
         }
@@ -27511,7 +27556,7 @@
           && !used.has("steel-will")
           && (ally.buffs.statusImmunityCharges || 0) <= 0
           && ally.hp < ally.maxHp * 0.6
-          && Math.random() < 0.3) {
+          && Math.random() < apGateP(ally, "steel-will", 0.3)) {
         await allySteelWill(ally);
         return true;
       }
@@ -27535,7 +27580,7 @@
               if (tileChebyshev(aCX, aCY, oCX, oCY) <= 1) { hasAdj = true; break; }
             }
           }
-          if (hasAdj && Math.random() < 0.3) {
+          if (hasAdj && Math.random() < apGateP(ally, "shield-wall", 0.3)) {
             await allyShieldWall(ally);
             return true;
           }
@@ -27546,7 +27591,7 @@
       if (ally.equippedSkills.includes("earth-shatter")
           && !used.has("earth-shatter")) {
         const aliveCount = encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive).length;
-        if (aliveCount >= 3 && Math.random() < 0.7) {
+        if (aliveCount >= 3 && Math.random() < apGateP(ally, "earth-shatter", 0.7)) {
           await allyEarthShatter(ally);
           return true;
         }
@@ -27565,7 +27610,7 @@
           const eCY = e.y + e.def.displaySize / 2;
           if (tileChebyshev(aCX, aCY, eCX, eCY) <= 1) around++;
         }
-        if (around >= 2 && Math.random() < 0.6) {
+        if (around >= 2 && Math.random() < apGateP(ally, "axe-storm", 0.6)) {
           await allyAxeStorm(ally);
           return true;
         }
@@ -27581,7 +27626,7 @@
           const eCY = e.y + e.def.displaySize / 2;
           const aCX = ally.x + ally.def.displaySize / 2;
           const aCY = ally.y + ally.def.displaySize / 2;
-          if (tileChebyshev(aCX, aCY, eCX, eCY) <= 1 && Math.random() < 0.5) {
+          if (tileChebyshev(aCX, aCY, eCX, eCY) <= 1 && Math.random() < apGateP(ally, "power-attack", 0.5)) {
             await allyPowerAttack(ally, tgtIdx);
             return true;
           }
@@ -27599,7 +27644,7 @@
           const aCY = ally.y + ally.def.displaySize / 2;
           const dist = tileChebyshev(aCX, aCY, eCX, eCY);
           // 隣接していない (近接攻撃が届かない) なら積極的に投げる、隣接でも 35% で発動
-          const trigger = (dist > 1) || (Math.random() < 0.35);
+          const trigger = (dist > 1) || (Math.random() < apGateP(ally, "throwing-axe", 0.35));
           if (trigger && dist <= getRange("medium").tiles) {
             await allyThrowingAxe(ally, tgtIdx);
             return true;
@@ -28256,6 +28301,10 @@
       if (isSovereignShellActive()) return false;
       // アンチマジック・レイ (単眼の暴君・C4): 帯の上に立つエルフは呪文を撃てない → 通常攻撃 (弓) へフォールスルー。
       if (isOnSovereignRay(ally)) return false;
+      // ★#19 行動の優先度: 指定された技を「まず 1 回だけ」試す。撃てない (未装備 /
+      //   スロット切れ / 射程外 / 対象なし / 既にバフ済) なら黙って従来の連鎖へ落ちる。
+      //   AP_P の確率でしか先出ししないので「たまに違う行動をする」が保たれる。
+      if (await apTryPreferred(ally)) return true;
       const threat = evaluateThreat();
 
       // 1. 自己ヒール: HP 35%以下 & スロット残あり (Phase 2-J: MP → spellSlots)
@@ -28291,7 +28340,7 @@
       const mArrowCost = ELF_SKILLS["magic-arrow"]?.mpCost || 0;
       if (hasMArrow && hasSpellSlot(ally, "magic-arrow") && threat.score >= 15) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-        if (tgtIdx >= 0 && Math.random() < 0.5) {
+        if (tgtIdx >= 0 && Math.random() < apGateP(ally, "magic-arrow", 0.5)) {
           await allyMagicArrow(ally, tgtIdx);
           return true;
         }
@@ -28301,7 +28350,7 @@
       if (ally.equippedSkills.includes("hail-of-thorns") && hasSpellSlot(ally, "hail-of-thorns")
           && threat.aliveEnemies.length >= 2) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-        if (tgtIdx >= 0 && Math.random() < 0.5) {
+        if (tgtIdx >= 0 && Math.random() < apGateP(ally, "hail-of-thorns", 0.5)) {
           await allyHailOfThorns(ally, tgtIdx);
           return true;
         }
@@ -28311,7 +28360,7 @@
       if (ally.equippedSkills.includes("hunters-mark") && hasSpellSlot(ally, "hunters-mark")
           && threat.score >= 10) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-        if (tgtIdx >= 0 && (enemies[tgtIdx].huntMarkRemaining || 0) <= 0 && Math.random() < 0.5) {
+        if (tgtIdx >= 0 && (enemies[tgtIdx].huntMarkRemaining || 0) <= 0 && Math.random() < apGateP(ally, "hunters-mark", 0.5)) {
           await allyHuntersMark(ally, tgtIdx);
           return true;
         }
@@ -28321,7 +28370,7 @@
       if (ally.equippedSkills.includes("cordon-of-arrows") && hasSpellSlot(ally, "cordon-of-arrows")
           && threat.aliveEnemies.length >= 2 && cordonZones.length === 0) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-        if (tgtIdx >= 0 && Math.random() < 0.4) {
+        if (tgtIdx >= 0 && Math.random() < apGateP(ally, "cordon-of-arrows", 0.4)) {
           await allyCordonOfArrows(ally, tgtIdx);
           return true;
         }
@@ -28333,7 +28382,7 @@
       const remainCure = (ally.spellSlots && ally.spellSlots["cure-minor"]) || 0;
       const aimedSlotOk = hasSpellSlot(ally, "aimed-shot") &&
                          (!hasCure || remainCure >= 1 || (ally.spellSlots["aimed-shot"] || 0) > 1);
-      if (hasAimed && aimedSlotOk && Math.random() < 0.5) {
+      if (hasAimed && aimedSlotOk && Math.random() < apGateP(ally, "aimed-shot", 0.5)) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0) {
           await allyAimedShot(ally, tgtIdx);
@@ -28345,7 +28394,7 @@
       //    現状は移動 +1マスのみ (STEP4 で 2回攻撃が乗れば AI 価値が上がる)。
       if (ally.equippedSkills.includes("haste") && hasSpellSlot(ally, "haste")
           && (ally.buffs.hastedRemaining || 0) <= 0 && threat.aliveEnemies.length >= 1
-          && Math.random() < 0.3) {
+          && Math.random() < apGateP(ally, "haste", 0.3)) {
         await allyHaste(ally);
         return true;
       }
@@ -28905,6 +28954,9 @@
           if (ally.skillCooldowns[k] > 0) ally.skillCooldowns[k]--;
         }
       }
+      // ★#19 行動の優先度: 先出しは **クールダウンのデクリメントより後** に置く。
+      //   前に置くと、先出しが成立した手番で全スキルの CD が減らず永久に塞がる。
+      if (await apTryPreferred(ally)) return true;
       const eq = ally.equippedSkills || [];
       const cd = ally.skillCooldowns || {};
       const has = (id) => eq.includes(id);
@@ -29077,6 +29129,94 @@
       window.ACTION_PRIORITY_ON = ACTION_PRIORITY_ON;
       window.AP_BOOST           = AP_BOOST;
       window.AP_P               = AP_P;
+    }
+
+    // ── #19 STEP4-b: 仲間の「先出し」 ───────────────────────────────────────────
+    // 酒場で指定された技を「まず 1 回だけ」試す。撃てない (未装備 / スロット切れ /
+    // 1戦1回済 / クールダウン中 / 既に効いている / 射程外) なら黙って false を返し、
+    // 呼び元は従来の if 連鎖へそのまま落ちる = 手番を潰さない。
+    // ⛔ 既存の閾値・優先順序は 1 つも書き換えない。ここは「先に 1 段足す」だけ。
+    //
+    // 「その技が今 PT に効いているか」を主人公 + 生存仲間で走査する。
+    function apPartyHasUnbuffed(pred) {
+      if (hp > 0 && !gameOver && pred(playerBuffs)) return true;
+      for (const a of allies) if (a.alive && pred(a.buffs)) return true;
+      return false;
+    }
+    // 「もう効いている / 撃っても無駄」を弾く。⚠ ここを省くと、指定した瞬間から毎手番
+    //   同じバフを撃ち直してスロットを溶かす (リーダー側の候補フィルタが同じ事をしている)。
+    function apIsWastedCast(unit, skillId, sk) {
+      const b = unit.buffs || {};
+      // 自己バフ系: 既に効いているなら撃たない
+      if (skillId === "arcane-shield" || skillId === "shield-wall") return (b.acBonusRemaining || 0) > 0;
+      if (skillId === "haste")       return (b.hastedRemaining || 0) > 0;
+      if (skillId === "evasion")     return (b.evasionRemaining || 0) > 0;
+      if (skillId === "lucky")       return (b.luckyRemaining || 0) > 0;
+      if (skillId === "stone-skin")  return (b.dmgReductionFlatRemaining || 0) > 0;
+      if (skillId === "brace")       return (b.dmgReductionRemaining || 0) > 0;
+      if (skillId === "steel-will")  return (b.statusImmunityCharges || 0) > 0;
+      if (skillId === "battle-roar") return (b.atkBonusRemaining || 0) > 0;
+      // 味方対象のバフ系: 未バフの候補が 1 人もいなければ無駄打ち
+      if (skillId === "bless")           return !apPartyHasUnbuffed(bf => (bf.atkBonusRemaining || 0) <= 0);
+      if (skillId === "shield-of-faith") return !apPartyHasUnbuffed(bf => (bf.acBonusRemaining || 0) <= 0);
+      if (skillId === "striking")        return !apPartyHasUnbuffed(bf => (bf.strikingRemaining || 0) <= 0);
+      // ターンアンデッド: 射程内に生存アンデッドがいなければ無駄 (clericAI の 2. と同じ条件)
+      if (skillId === "turn-undead") {
+        const aCX = unit.x + unit.def.displaySize / 2;
+        const aCY = unit.y + unit.def.displaySize / 2;
+        const tuRange = getRange(CLERIC_SKILLS["turn-undead"].range).tiles;
+        return !enemies.some(e => {
+          if (!e.alive || !isUndeadEnemy(e)) return false;
+          const ecx = e.x + e.def.displaySize / 2, ecy = e.y + e.def.displaySize / 2;
+          return tileChebyshev(aCX, aCY, ecx, ecy) <= tuRange && hasLineOfSight(aCX, aCY, ecx, ecy);
+        });
+      }
+      // ハンターズ・マーク: 最寄り敵が既に烙印済みなら無駄 (elfAI の 2.7 と同じ条件)
+      if (skillId === "hunters-mark") {
+        const ti = pickClosestEngagedEnemyFromAlly(unit);
+        return ti < 0 || (enemies[ti].huntMarkRemaining || 0) > 0;
+      }
+      // 回復系: 誰も減っていなければ無駄 (リーダー側の "healDice && hp >= maxHp" と同じ作法)
+      if (sk && sk.healDice) {
+        if (sk.target === "self") return unit.hp >= unit.maxHp;
+        const low = findLowestHpPartyMember();
+        return !low || low.ratio >= 1;
+      }
+      return false;
+    }
+    // 敵を対象に取らない技 (= 射程内の交戦敵を要求しない)。
+    const AP_FRIENDLY_TARGETS = new Set(["self", "ally", "party"]);
+    async function apTryPreferred(unit) {
+      if (!ACTION_PRIORITY_ON) return false;
+      const cls = (unit && unit.classKey) || null;
+      if (!cls) return false;
+      const id = apPreferredId(cls, apSituationNow());
+      if (!id) return false;
+      // ⚠⚠ 指定された技を **そのキャラが実際に枠へ入れているか** を必ず確認する。
+      //    ここを外すと未装備の技が発動する (酒場の候補と本番がずれる = 一番たちの悪い欠陥)。
+      //    僧侶は自動配分なので equippedSkills = spellSlots のキー集合。
+      if (!Array.isArray(unit.equippedSkills) || unit.equippedSkills.indexOf(id) < 0) return false;
+      const dict = (typeof CLASS_SKILL_DICTS !== "undefined") ? CLASS_SKILL_DICTS[cls] : null;
+      const sk = dict && dict[id];
+      if (!sk) return false;
+      if (sk.reactive || sk.passive || sk.outOfCombat) return false;
+      // ⛔ 既存の実行可能条件 (スロット / 1戦1回 / クールダウン) は一切曲げない。上げるのは確率だけ。
+      if (sk.mpCost && !hasSpellSlot(unit, id)) return false;
+      if (sk.oncePerEncounter && unit.skillsUsedInEncounter && unit.skillsUsedInEncounter.has(id)) return false;
+      if (sk.cooldown && ((unit.skillCooldowns && unit.skillCooldowns[id]) || 0) > 0) return false;
+      if (apIsWastedCast(unit, id, sk)) return false;
+      // ⭐ ここが「たまに違う行動をする」の唯一の出所。
+      if (Math.random() >= AP_P) return false;
+      // 敵対象の技は射程内に交戦敵が要る。⚠ 射程外なら **撃たずに** false で戻す。
+      //   既存 ally* の「射程外なら 1 タイル前進」を流用すると、前進で手番を潰して
+      //   「指示したのに何もしない」に見える。
+      let tgtIdx = -1;
+      if (!AP_FRIENDLY_TARGETS.has(sk.target)) {
+        tgtIdx = pickClosestEngagedEnemyFromAlly(unit);
+        if (tgtIdx < 0) return false;
+      }
+      // executeSkillOn が「撃てなかった」(= false) と言ってきたら、そのまま従来の連鎖へ落とす。
+      return await executeSkillOn(unit, cls, id, tgtIdx);
     }
 
     // ダイス表記の期待値。⚠ parseDiceDD は m===null のガードが無いので必ずこのラッパ越しに使う。
