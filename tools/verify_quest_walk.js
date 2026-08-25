@@ -75,6 +75,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');            // (5a) の恒等ハッシュ (項目 3 が追加)
 
 // ⚠ path.resolve 必須。区切り文字のまま持つと fp.startsWith(ROOT) が常に false になり
 //   全リクエストが 404 → 症状は「タイムアウト」だけで実装の欠陥に見える。
@@ -421,6 +422,53 @@ async function measureWorld(browser, port, errs, opts) {
         hasEnter: WM ? (WM.NODES[id].enter !== undefined) : null,
       };
     }
+    /* ── 項目 3 が追加 ────────────────────────────────────────────────────
+       ⭐ 返すのは **本番のデータ / 本番の関数が出した値**だけ。⛔ 期待値を混ぜない。 */
+    /* (2z)/(5a)/(5b) 用の実体。⛔ ドライバへ写経せず毎回ここから引く。 */
+    const mapData = WM ? {
+      unlock: WM.UNLOCK || null,
+      sites: WM.SITES,
+      edges: WM.EDGES.map(e => e[0] + '__' + e[1]),
+      nodesFP: Object.keys(WM.NODES).map(id => {
+        const n = WM.NODES[id];
+        return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—');
+      }),
+      enterIds: Object.keys(WM.NODES).filter(id => WM.NODES[id].enter !== undefined),
+    } : null;
+    /* (2c) 到達性。⛔ 自前 BFS を書かない — **本番の findPath をブラウザで呼ぶ**
+       (近傍の定義が違うだけで「歩けない道」を永久に緑と報告する恒久教訓)。
+       ⭐ 起点は「enter を持つノード」= 港町 (⛔ "phlan" を直書きしない)。 */
+    const paths = WM ? (function () {
+      const start = Object.keys(WM.NODES).filter(id => WM.NODES[id].enter !== undefined)[0] || null;
+      const o = { start: start, len: {} };
+      if (start) for (const id of Object.keys(WM.NODES)) {
+        const p = WM.findPath(start, id);
+        o.len[id] = (p === null) ? null : p.length;
+      }
+      return o;
+    })() : null;
+    /* (3e) 札の中心の elementFromPoint。⚠ 中心は **札自身の矩形**から採る
+       (ノード座標ではない — 札は主人公の頭上へ逃がしてあるので必ずズレる)。
+       手本 = verify_world_map.js の (7d)。 */
+    const signProbe = (function () {
+      const rows = [];
+      document.querySelectorAll('.worldSign').forEach(function (sg) {
+        const r = sg.getBoundingClientRect();
+        const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
+        const hit = document.elementFromPoint(cx, cy);
+        const owner = sg.closest('.worldNode');
+        rows.push({
+          id: owner ? owner.getAttribute('data-node') : null,
+          onScreen: r.width > 0 && r.height > 0 && cx >= 0 && cy >= 0
+            && cx < window.innerWidth && cy < window.innerHeight,
+          self: !!hit && (hit === sg || sg.contains(hit)),
+          top: hit ? (hit.id || hit.className || hit.tagName) : '(null)',
+        });
+      });
+      return rows;
+    })();
+    const askEl = document.getElementById('worldEnterAsk');
+
     let clearedRaw = null;
     try { clearedRaw = localStorage.getItem(KC); } catch (e) { clearedRaw = '⛔' + String(e && e.message); }
     let clearedParsed = null;
@@ -438,6 +486,10 @@ async function measureWorld(browser, port, errs, opts) {
       questDestSeam: (typeof WD.questDest === 'function') ? WD.questDest() : null,
       hasAskOpenFn: typeof WD.askOpen === 'function',
       askOpen: (typeof WD.askOpen === 'function') ? WD.askOpen() : null,
+      /* ⭐ 見た目の実体も採る。(3e) / 変異 asktop は「display:none か visibility:hidden か」で割れる。 */
+      askDisplay: askEl ? getComputedStyle(askEl).display : null,
+      askAria: askEl ? askEl.getAttribute('aria-hidden') : null,
+      mapData: mapData, paths: paths, signProbe: signProbe,
       clearedRaw: clearedRaw, clearedParsed: clearedParsed,
     };
   }, KEY_CLEARED);
@@ -636,8 +688,151 @@ async function measureDepart(browser, port, errs, opts) {
     out.landed.path = p.path; out.landed.search = p.search;
   }
   out.storage = await readStorage(page);
+  /* ⭐ 項目 3 が追加。(3a)/(3b)/(3c) は **本番の酒場が実際に受注 → 出発した** タブを
+     そのまま使い続ける (⛔ questDest を仕込んだ合成タブで代用しない)。
+     ⚠ blocked は **生の参照**を渡す — 「入る」を押した後の遷移がここへ積まれる。 */
+  if (o.keepOpen) { out.page = page; out._blocked = blocked; return out; }
   await page.close();
   return out;
+}
+
+/* ── ノードを 1 つ実クリックして到着まで待つ (項目 3 が追加) ─────────────────
+ *  ⛔ goToNode() を直接呼ばない。**画面上の点を実際に押す**
+ *    (当たり判定が壊れていても永久に緑になるのを防ぐ)。 */
+async function clickNode(page, id, errs, tag) {
+  const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+  if (!pt) { errs.push(tag + ' clientFromNode が null: ' + id); return false; }
+  await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+  /* ⚠ 港町 → 廃坑は実測 1,200px / PX_PER_MS 0.18 = 約 6.7 秒。30 秒では足りない腕が出うる。 */
+  try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 60000, polling: 80 }); }
+  catch (e) { errs.push(tag + ' 到着待ちタイムアウト: ' + id); return false; }
+  await sleep(200);
+  return true;
+}
+
+/* 確認ダイアログの姿を読む。⛔ 期待値を混ぜない (⭐ display も aria も実体で採る)。 */
+async function readAskState(page) {
+  return page.evaluate(() => {
+    const el = document.getElementById('worldEnterAsk');
+    const tx = document.getElementById('worldEnterText');
+    const WD = window.__world || {};
+    return {
+      askOpen: (typeof WD.askOpen === 'function') ? WD.askOpen() : null,
+      askText: tx ? (tx.textContent || '') : null,
+      askDisplay: el ? getComputedStyle(el).display : null,
+      askAria: el ? el.getAttribute('aria-hidden') : null,
+      heroNode: (typeof WD.heroNode === 'function') ? WD.heroNode() : null,
+      path: location.pathname, search: location.search,
+    };
+  });
+}
+
+/* ── §3 の本線 ((3z)(3a)(3b)(3c)) ────────────────────────────────────────────
+ *  ⭐⭐⭐ **仕込みではなく、本番の酒場が実際に受注 → 出発した**タブで測る。
+ *    questDest も partyMembers も currentScenario も本物なので、(3b) の
+ *    「消費されるのは questDest だけ」が本当の意味で測れる。
+ *  ⭐ 押す先は sessionStorage の questDest → WORLD_MAP.SITES で引く
+ *    (⛔ "goblin-mine" / "mine" をドライバに直書きしない)。
+ *  順番: 札をタップ → 確認が出る → **やめる** ((3c)) → もう一度タップ → **入る** ((3b))。
+ *  ⚠ 2 回目のタップは「同じノードにもう一度」= goToNode の即時枝を通る。 */
+async function measureAskChain(browser, port, errs) {
+  const d = await measureDepart(browser, port, errs, {
+    tag: '受注→地図→入場', mode: 'ui', seed: { cleared: [] }, keepOpen: true,
+  });
+  const out = { depart: d, onWorld: /\/world\.html$/.test(d.landed.path) };
+  const page = d.page;
+  if (!out.onWorld) { if (page) await page.close(); return out; }
+  const tag = '[:' + port + ' askchain] ';
+
+  const t = await page.evaluate((K) => {
+    const WM = window.WORLD_MAP, WD = window.__world || {};
+    let dest = null; try { dest = sessionStorage.getItem(K); } catch (e) {}
+    const nodeId = (dest && WM && WM.SITES[dest]) ? WM.SITES[dest] : null;
+    return {
+      dest: dest, nodeId: nodeId,
+      label: nodeId ? (WM.NODES[nodeId].label || '') : '',
+      seamDest: (typeof WD.questDest === 'function') ? WD.questDest() : null,
+      hasAskOpen: typeof WD.askOpen === 'function',
+      signCount: document.querySelectorAll('.worldSign').length,
+    };
+  }, KEY_QUEST_DEST);
+  Object.assign(out, t);
+  if (!t.nodeId) { await page.close(); return out; }
+
+  /* ── 1 回目: タップ → 確認 → やめる ── */
+  await clickNode(page, t.nodeId, errs, tag + '1回目');
+  out.afterClick = await readAskState(page);
+  await page.evaluate(() => { const b = document.getElementById('worldEnterNo'); if (b) b.click(); });
+  await sleep(240);
+  out.afterNo = await readAskState(page);
+  out.afterNoStorage = await readStorage(page);
+
+  /* ── 2 回目: 同じ札をタップ → 確認 → 入る ── */
+  await clickNode(page, t.nodeId, errs, tag + '2回目');
+  out.afterClick2 = await readAskState(page);
+  const before = d._blocked.length;
+  await page.evaluate(() => { const b = document.getElementById('worldEnterYes'); if (b) b.click(); });
+  const t0 = Date.now();
+  while (Date.now() - t0 < 12000) {
+    if (d._blocked.length > before) break;
+    let u = ''; try { u = page.url(); } catch (e) {}
+    if (!/\/world\.html/.test(u)) break;
+    await sleep(100);
+  }
+  out.yesBlocked = d._blocked.slice(before).map(u => {
+    try { const x = new URL(u); return { path: x.pathname, search: x.search }; }
+    catch (e) { return { path: '⛔', search: '⛔' }; }
+  });
+  out.afterYes = await readAskState(page);
+  out.afterYesStorage = await readStorage(page);
+  await page.close();
+  return out;
+}
+
+/* ── §3 の対照 ((3d)) ────────────────────────────────────────────────────────
+ *  受注していない解放済み拠点をタップ → 歩くだけ。
+ *  ⭐ ここは仕込みでよい (測るのは「受注状態と一致しない拠点では何も起きない」だけで、
+ *    party や exitVia は関係しない)。⛔ ただし押す先は SITES から引く。 */
+async function measureSeededAsk(browser, port, errs, tav, opts) {
+  const o = opts || {};
+  const tag = '[:' + port + ' seededask ' + (o.tag || '') + '] ';
+  const seed = { cleared: clearedUpTo(tav, o.clearedN), session: {} };
+  seed.session[KEY_QUEST_DEST] = o.questDest;
+  seed.session[KEY_SCENARIO] = o.questDest;
+  const page = await newPage(browser, errs, tag, { seed: seed });
+  const blocked = [];
+  await page.setRequestInterception(true);
+  page.on('request', (r) => {
+    try {
+      const u = r.url();
+      const nav = (typeof r.isNavigationRequest === 'function')
+        ? (r.isNavigationRequest() && r.frame() === page.mainFrame())
+        : (r.resourceType() === 'document');
+      /* ⚠ 'aborted' を明示する (既定の abort() は net::ERR_FAILED で (9a) を汚す)。 */
+      if (nav && /\/index\.html(\?|#|$)/.test(u)) { blocked.push(u); r.abort('aborted'); return; }
+      r.continue();
+    } catch (e) { try { r.continue(); } catch (e2) {} }
+  });
+  await page.goto('http://localhost:' + port + WORLD_PATH, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 }).catch(() => {});
+  await settle(page);
+  const seam = await page.evaluate(() => {
+    const WD = window.__world || {};
+    return {
+      questDest: (typeof WD.questDest === 'function') ? WD.questDest() : null,
+      signCount: document.querySelectorAll('.worldSign').length,
+      revealed: (typeof WD.revealed === 'function') ? WD.revealed() : null,
+    };
+  });
+  const target = await page.evaluate((sc) => {
+    const WM = window.WORLD_MAP;
+    return (WM && WM.SITES[sc]) ? WM.SITES[sc] : null;
+  }, o.targetScenario);
+  if (target) await clickNode(page, target, errs, tag);
+  const st = await readAskState(page);
+  const storage = await readStorage(page);
+  await page.close();
+  return { target: target, targetScenario: o.targetScenario, seam: seam, st: st, storage: storage, blocked: blocked.slice() };
 }
 
 /* ── 地図の札を実際に押す ((4b)) ─────────────────────────────────────────────
@@ -810,28 +1005,252 @@ const ASSERTS = [
 
   // ── §2 未解放の不可視 ──────────────────────────────────────────────────────
   ['2z', '★js/world-map.js の UNLOCK が、配信中の tavern.html の scenarios[] から読み取った'
-    + ' locked / unlockAfter と 1 文字違わず一致 (別ファイルの実体どうしの照合)', null, P3],
+    + ' locked / unlockAfter と 1 文字違わず一致 (別ファイルの実体どうしの照合)',
+    m => {
+      const tav = m.tavern, md = m.stages[0].mapData;
+      const unlock = md ? md.unlock : null;
+      if (!unlock) return [false, '⛔ WORLD_MAP.UNLOCK がブラウザから見えない'];
+      const keys = Object.keys(unlock), diffs = [];
+      if (keys.length !== tav.rows.length) diffs.push('件数 UNLOCK=' + keys.length + '/tavern=' + tav.rows.length);
+      for (const r of tav.rows) {
+        if (!(r.id in unlock)) { diffs.push(r.id + ':UNLOCK に無い'); continue; }
+        const got = unlock[r.id];
+        /* ⭐ 2 つの実体を突き合わせる: ① 前提の id が一致 ② 「鍵が掛かっているか」も一致 */
+        if (got !== r.unlockAfter) {
+          diffs.push(r.id + ':UNLOCK=' + JSON.stringify(got) + ' ≠ tavern.unlockAfter=' + JSON.stringify(r.unlockAfter));
+        }
+        if ((got === null) !== (r.locked === false)) {
+          diffs.push(r.id + ':UNLOCK=' + JSON.stringify(got) + ' なのに tavern.locked=' + r.locked);
+        }
+      }
+      for (const k of keys) if (!tav.map[k]) diffs.push(k + ':tavern に無い');
+      return [tav.rows.length === 6 && keys.length === 6 && diffs.length === 0,
+        'js/world-map.js UNLOCK=' + JSON.stringify(unlock)
+        + '  vs  配信中の tavern.html='
+        + JSON.stringify(tav.rows.reduce((o, r) => { o[r.id] = (r.locked ? r.unlockAfter : null); return o; }, {}))
+        + (diffs.length ? '  ⛔ ' + diffs.join(' / ') : '')];
+    }],
   ['2a', '★cleared = [] のとき、札は 港町フランと廃坑の 2 枚だけ。未解放 5 拠点は'
-    + ' .worldSign が 0 枚・.worldNode-site でなく .worldNode-way・title 属性が空', null, P3],
+    + ' .worldSign が 0 枚・.worldNode-site でなく .worldNode-way・title 属性が空',
+    m => {
+      const st = m.stages[0], md = st.mapData;
+      /* ⭐ 期待値は **UNLOCK と SITES から導く**。⛔ "phlan" / "mine" をここに書かない
+         (鎖が変わった日に嘘の緑が出る)。cleared=[] なので前提の要らないシナリオだけ解放。 */
+      const scOf = {}; for (const sc of Object.keys(md.sites)) scOf[md.sites[sc]] = sc;
+      const siteIds = Object.keys(st.nodes).filter(id => st.nodes[id].kind === 'site');
+      const wantShown = siteIds.filter(id => !scOf[id] || md.unlock[scOf[id]] === null);
+      const wantHidden = siteIds.filter(id => wantShown.indexOf(id) < 0);
+      const bad = [];
+      for (const id of wantShown) {
+        const n = st.nodes[id];
+        if (!n.hasSign) bad.push(id + ':札が無い');
+        if (!/worldNode-site/.test(n.cls)) bad.push(id + ':class=' + n.cls);
+        if (!n.title) bad.push(id + ':title が空');
+      }
+      for (const id of wantHidden) {
+        const n = st.nodes[id];
+        if (n.hasSign) bad.push(id + ':札が出ている');
+        if (/worldNode-site/.test(n.cls) || !/worldNode-way/.test(n.cls)) bad.push(id + ':class=' + n.cls);
+        if (n.title !== '') bad.push(id + ':title="' + n.title + '" が漏れている');
+      }
+      /* ⭐ 検証シームの側も同じ答えか (DOM だけ隠して内部状態が食い違っていないか)。 */
+      const wantRevealed = Object.keys(st.nodes).filter(id => wantHidden.indexOf(id) < 0);
+      if (!st.hasRevealed) bad.push('__world.revealed() が無い');
+      else if (JSON.stringify(st.revealed) !== JSON.stringify(wantRevealed)) {
+        bad.push('revealed()=' + JSON.stringify(st.revealed) + ' ≠ 期待 ' + JSON.stringify(wantRevealed));
+      }
+      const ok = JSON.stringify(st.clearedParsed) === '[]'
+        && wantShown.length === 2 && wantHidden.length === 5
+        && st.signCount === 2 && bad.length === 0;
+      return [ok, 'cleared=[] → .worldSign ' + st.signCount + ' 枚 (' + st.signIds.join(',') + ')'
+        + '  ⭐ UNLOCK から導いた 出す=' + JSON.stringify(wantShown)
+        + ' / 隠す=' + JSON.stringify(wantHidden)
+        + '  隠した側の実測=' + JSON.stringify(wantHidden.map(id =>
+            id + '{' + st.nodes[id].cls + '|title="' + st.nodes[id].title + '"|札=' + st.nodes[id].hasSign + '}'))
+        + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+    }],
   ['2b', 'cleared を 0 → 1 → 2 → 3 → 4 → 5 本と伸ばすと、札が 2 → 3 → 4 → 5 → 6 → 7 枚へ'
-    + ' 1 枚ずつ増える (6 段階を実測。順序も UNLOCK の鎖どおり)', null, P3],
+    + ' 1 枚ずつ増える (6 段階を実測。順序も UNLOCK の鎖どおり)',
+    m => {
+      const rows = m.stages.map((st, n) => {
+        const md = st.mapData;
+        const scOf = {}; for (const sc of Object.keys(md.sites)) scOf[md.sites[sc]] = sc;
+        const siteIds = Object.keys(st.nodes).filter(id => st.nodes[id].kind === 'site');
+        const cleared = st.clearedParsed || [];
+        /* ⭐ 期待する札の並びは **UNLOCK の鎖 + 仕込んだ cleared** から毎回導く。
+           ⛔ 2,3,4,5,6,7 の内訳をドライバへ並べ書きしない。 */
+        const want = siteIds.filter(id => {
+          const sc = scOf[id];
+          if (!sc) return true;
+          const need = md.unlock[sc];
+          return !need || cleared.indexOf(need) >= 0;
+        });
+        return { n: n, cleared: cleared, want: want, got: st.signIds, count: st.signCount };
+      });
+      const bad = [];
+      rows.forEach((r, i) => {
+        if (JSON.stringify(r.got) !== JSON.stringify(r.want)) {
+          bad.push('cleared=' + r.n + '本:札=' + JSON.stringify(r.got) + ' ≠ 鎖から導いた ' + JSON.stringify(r.want));
+        }
+        if (r.count !== i + 2) bad.push('cleared=' + r.n + '本:' + r.count + ' 枚 (期待 ' + (i + 2) + ')');
+      });
+      return [m.stages.length === 6 && bad.length === 0,
+        rows.map(r => r.n + '本[' + r.cleared.length + ']→' + r.count + '枚(' + r.got.join(',') + ')').join('   ')
+        + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+    }],
   ['2c', '★★★ 未解放でも歩ける。cleared = [] の状態で、本番の WORLD_MAP.findPath("phlan", X) が'
     + ' 14 ノードすべてに対して null を返さない ⭐ 特に mine と temple を名指しで見る'
-    + ' (§2-2 の詰みが起きていない証明)', null, P3],
+    + ' (§2-2 の詰みが起きていない証明)',
+    m => {
+      const st = m.stages[0], p = st.paths, md = st.mapData;
+      if (!p) return [false, '⛔ findPath の測定が取れていない'];
+      const ids = Object.keys(st.nodes);
+      const unreachable = ids.filter(id => p.len[id] === null || p.len[id] === undefined);
+      /* ⭐ 名指しの 2 つ = 鎖の 1 本目 (廃坑) と 5 本目 (地下神殿)。
+         ⛔ ノード id を直書きせず tavern の並び → SITES で引く。 */
+      const named = [m.tavern.order[0], m.tavern.order[m.tavern.order.length - 2]]
+        .map(sc => ({ sc: sc, node: md.sites[sc] }));
+      const namedBad = named.filter(x => !x.node || p.len[x.node] === null || p.len[x.node] === undefined);
+      const ok = JSON.stringify(st.clearedParsed) === '[]'
+        && !!p.start && ids.length === 14
+        && unreachable.length === 0 && namedBad.length === 0;
+      return [ok, 'cleared=[] / 起点=' + p.start + ' (enter を持つノード = 港町)  '
+        + ids.length + ' ノードすべてへ本番の findPath が経路を返す'
+        + '  ⭐ 名指し: ' + named.map(x => x.sc + '→' + x.node + '(' + p.len[x.node] + '手)').join(' / ')
+        + '  全ノードの手数=' + JSON.stringify(p.len)
+        + (unreachable.length ? '  ⛔ 到達不能 ' + unreachable.join(',') : '')];
+    }],
   ['2d', '未解放拠点を実クリック → 歩けて、そのノードに立つ (__world.heroNode() が一致)。'
-    + ' 遷移も確認ダイアログも起きない', null, P3],
+    + ' 遷移も確認ダイアログも起きない',
+    m => {
+      const w = m.walkPlain, md = w.mapData;
+      const scOf = {}; for (const sc of Object.keys(md.sites)) scOf[md.sites[sc]] = sc;
+      const cleared = w.clearedParsed || [];
+      const hidden = w.clickIds.filter(id => {
+        const sc = scOf[id];
+        return sc && md.unlock[sc] !== null && cleared.indexOf(md.unlock[sc]) < 0;
+      });
+      const bad = [];
+      for (const r of w.clicks) {
+        if (r.err) { bad.push(r.id + ':' + r.err); continue; }
+        if (!/\/world\.html$/.test(r.path)) bad.push(r.id + ':' + r.path + ' へ遷移した');
+        if (r.search !== '') bad.push(r.id + ':search="' + r.search + '"');
+        if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
+        if (r.askOpen !== false) bad.push(r.id + ':askOpen=' + r.askOpen);
+      }
+      const ok = w.signCount === 2 && hidden.length === 5
+        && w.clickIds.length === 6 && bad.length === 0;
+      return [ok, 'cleared=[] (札 ' + w.signCount + ' 枚) で 拠点 ' + w.clickIds.length
+        + ' 件を実クリック — うち **未解放が ' + hidden.length + ' 件** (' + hidden.join(',') + ')'
+        + '  着いた先=' + JSON.stringify(w.clicks.map(r => r.id + '→' + r.node))
+        + '  遷移 0 件 / 確認ダイアログ 0 件'
+        + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+    }],
 
   // ── §3 受注地のクリック ────────────────────────────────────────────────────
-  ['3z', '[装置] questDest = "goblin-mine" を仕込んだ状態で測っている (__world.questDest() で確認)', null, P3],
+  ['3z', '[装置] questDest = "goblin-mine" を仕込んだ状態で測っている (__world.questDest() で確認)',
+    m => {
+      const a = m.ask;
+      const ok = a.onWorld === true && a.dest === 'goblin-mine' && a.seamDest === 'goblin-mine'
+        && !!a.nodeId && !!a.label && a.hasAskOpen === true;
+      return [ok, '⭐ 仕込みではなく **本番の酒場が実際に受注 → 出発** した結果を測っている  '
+        + 'sessionStorage[questDest]=' + a.dest + ' / __world.questDest()=' + a.seamDest
+        + ' / SITES で引いた受注地=' + a.nodeId + ' (label="' + a.label + '")'
+        + ' / 着地=' + a.depart.landed.path + ' search="' + a.depart.landed.search + '"'
+        + ' / 札=' + a.signCount + ' 枚'
+        + ' / __world.askOpen()=' + (a.hasAskOpen ? 'あり' : '⛔ 無い')];
+    }],
   ['3a', '★受注地 (廃坑) の札をタップ → 確認ダイアログが出る (__world.askOpen() が true)。'
-    + ' 文言に NODES.mine.label (= 「廃坑」) がそのまま入っている (⛔ 写経していない)', null, P3],
+    + ' 文言に NODES.mine.label (= 「廃坑」) がそのまま入っている (⛔ 写経していない)',
+    m => {
+      const a = m.ask, s1 = a.afterClick || {}, s2 = a.afterClick2 || {};
+      const label = a.label || '';
+      /* ⛔ 文言そのものをドライバへ写経しない。⭐ **本番の label を読んで**
+         「その label が文中に在り、かつ label だけではない (文になっている)」を見る。 */
+      const textOk = (t) => !!t && !!label && t.indexOf(label) >= 0 && t.length > label.length;
+      const ok = s1.askOpen === true && s1.heroNode === a.nodeId && textOk(s1.askText)
+        && /\/world\.html$/.test(s1.path) && s1.search === ''
+        && s2.askOpen === true && textOk(s2.askText);
+      return [ok, '受注地 ' + a.nodeId + ' の札をタップ → askOpen=' + s1.askOpen
+        + ' / heroNode=' + s1.heroNode + ' / display=' + s1.askDisplay + ' / aria-hidden=' + s1.askAria
+        + '  文言="' + s1.askText + '"'
+        + '  ⭐ 本番の label ("' + label + '" = js/world-map.js) を含む=' + (textOk(s1.askText) ? 'true' : 'false')
+        + '  [2 回目のタップ] askOpen=' + s2.askOpen + ' 文言="' + s2.askText + '"'];
+    }],
   ['3b', '★「入る」→ index.html へ遷移し、location.search === ""。かつ questDest が消費されている'
-    + ' (sessionStorage に無い)。⭐ currentScenario / partyMembers は生きたまま', null, P3],
-  ['3c', '「やめる」→ world.html のまま・ダイアログが閉じ・questDest は残る', null, P3],
+    + ' (sessionStorage に無い)。⭐ currentScenario / partyMembers は生きたまま',
+    m => {
+      const a = m.ask;
+      const st = a.afterYesStorage ? a.afterYesStorage.session : {};
+      const b = (a.yesBlocked && a.yesBlocked[0]) || { path: '(遷移なし)', search: '' };
+      let party = null; try { party = JSON.parse(st[KEY_PARTY]); } catch (e) {}
+      let comp = null; try { comp = JSON.parse(st[KEY_PARTY_COMP]); } catch (e) {}
+      const ok = (a.yesBlocked || []).length === 1
+        && /\/index\.html$/.test(b.path) && b.search === ''
+        && st[KEY_QUEST_DEST] === null
+        && st[KEY_SCENARIO] === 'goblin-mine'
+        && Array.isArray(party) && party.length > 0
+        && Array.isArray(comp) && comp.length === party.length
+        && st[KEY_EXIT_VIA] === 'tavern';        /* ⛔ world は一回性キーを食わない */
+      return [ok, '「入る」→ ' + b.path + ' search="' + b.search + '" ('
+        + (a.yesBlocked || []).length + ' 件)  ⭐ 横取りしたのは遷移だけなので、この search が'
+        + ' 着地していたはずの location.search'
+        + '  questDest=' + (st[KEY_QUEST_DEST] === null ? '(消費済)' : '⛔ 残っている ' + st[KEY_QUEST_DEST])
+        + '  ⭐ 生きたまま: currentScenario=' + st[KEY_SCENARIO]
+        + ' / partyMembers=' + (Array.isArray(party) ? party.length + '人' : '⛔' + st[KEY_PARTY])
+        + ' / partyComposition=' + (Array.isArray(comp) ? comp.length + '件' : '⛔' + st[KEY_PARTY_COMP])
+        + ' / exitVia=' + st[KEY_EXIT_VIA]
+        + ' / enterVia=' + (st[KEY_ENTER_VIA] === null ? '(元から無し)' : st[KEY_ENTER_VIA])
+        + ' / lastResult=' + (st[KEY_LAST_RESULT] === null ? '(元から無し)' : st[KEY_LAST_RESULT])];
+    }],
+  ['3c', '「やめる」→ world.html のまま・ダイアログが閉じ・questDest は残る',
+    m => {
+      const a = m.ask, s = a.afterNo || {};
+      const st = a.afterNoStorage ? a.afterNoStorage.session : {};
+      const ok = s.askOpen === false && s.askDisplay === 'none' && s.askAria === 'true'
+        && /\/world\.html$/.test(s.path) && s.search === ''
+        && s.heroNode === a.nodeId
+        && st[KEY_QUEST_DEST] === 'goblin-mine';
+      return [ok, '「やめる」→ ' + s.path + ' search="' + s.search + '"'
+        + ' / askOpen=' + s.askOpen + ' / display=' + s.askDisplay + ' / aria-hidden=' + s.askAria
+        + ' / heroNode=' + s.heroNode
+        + ' / questDest=' + (st[KEY_QUEST_DEST] === null ? '⛔ 消えている' : st[KEY_QUEST_DEST] + ' (残っている)')];
+    }],
   ['3d', '★受注していない解放済み拠点 (例: cleared を 6 本にしたうえで questDest = "goblin-mine" の'
-    + 'まま森をタップ) → 歩くだけ・遷移せず・確認も出ない', null, P3],
+    + 'まま森をタップ) → 歩くだけ・遷移せず・確認も出ない',
+    m => {
+      const o = m.askOther, s = o.st || {}, st = o.storage ? o.storage.session : {};
+      const ok = !!o.seam && o.seam.signCount === 7            /* ★ 母集団: 全部解放済み */
+        && o.seam.questDest === 'goblin-mine'                  /* ★ 受注はしている */
+        && !!o.target && o.targetScenario !== 'goblin-mine'    /* ★ 押したのは受注地ではない */
+        && s.heroNode === o.target                             /* 歩けている */
+        && s.askOpen === false && s.askDisplay === 'none'
+        && /\/world\.html$/.test(s.path)
+        && (o.blocked || []).length === 0
+        && st[KEY_QUEST_DEST] === 'goblin-mine';               /* 消費されていない */
+      return [ok, 'cleared=6本 (札 ' + (o.seam ? o.seam.signCount : '?') + ' 枚) / questDest='
+        + (o.seam ? o.seam.questDest : '?') + ' のまま、受注していない '
+        + o.targetScenario + ' (' + o.target + ') をタップ'
+        + '  →  heroNode=' + s.heroNode + ' / ' + s.path + s.search
+        + ' / askOpen=' + s.askOpen + ' display=' + s.askDisplay
+        + ' / index.html への遷移 ' + (o.blocked || []).length + ' 件'
+        + ' / questDest=' + st[KEY_QUEST_DEST] + ' (消費されていない)'];
+    }],
   ['3e', '確認ダイアログが閉じているとき、7 枚の札の中心の elementFromPoint が 自分自身か子孫'
-    + ' (#21 の (7d) を壊していない = ダイアログが display:none である証明)', null, P3],
+    + ' (#21 の (7d) を壊していない = ダイアログが display:none である証明)',
+    m => {
+      const st = m.device.stages[m.device.hi];   /* cleared = 6 本 = 札 7 枚の母集団 */
+      const rows = st.signProbe || [];
+      const bad = rows.filter(r => !r.onScreen || !r.self)
+        .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
+      const ok = st.askOpen === false && st.askDisplay === 'none'
+        && rows.length === 7 && bad.length === 0;
+      return [ok, 'cleared=6本 → 札 ' + rows.length + ' 枚 (' + rows.map(r => r.id).join(',')
+        + ') の中心の elementFromPoint がすべて自分自身か子孫'
+        + '  ダイアログ: askOpen=' + st.askOpen + ' / display=' + st.askDisplay
+        + ' (⭐ display:none だから札が食われない — visibility:hidden にすると 7 枚とも赤くなる)'
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
+    }],
 
   // ── §4 撤退 ────────────────────────────────────────────────────────────────
   ['4a', 'tavern.html?questwalk=0 で受注 → 出発 → index.html へ直行。questDest が無い',
@@ -936,9 +1355,36 @@ const ASSERTS = [
 
   // ── §5 恒等 (非退行) ───────────────────────────────────────────────────────
   ['5a', 'WORLD_MAP.NODES / EDGES / SITES の中身が 1 件も変わっていない'
-    + ' (件数・キー・座標・enter の有無をハッシュで固定)', null, P3],
+    + ' (件数・キー・座標・enter の有無をハッシュで固定)',
+    m => {
+      const md = m.stages[0].mapData;
+      /* ⭐ 固定するのは **件数・キー・kind・座標・enter の有無・エッジの並び・SITES** だけ。
+         ⛔ label / desc は入れない (それは verify_world_map.js の (7a) が
+            配信中の tavern.html と照合して縛っている = 二重に持たない)。
+         ⚠ 期待値は #23 着手時 (2026-08-26) の実測を焼いたもの。ここが赤くなったら
+            「地図のデータを触った」= 依頼書 §11 の禁止事項を踏んだということ。 */
+      const canon = JSON.stringify({ nodes: md.nodesFP, edges: md.edges, sites: md.sites });
+      const got = crypto.createHash('sha1').update(canon).digest('hex').slice(0, 16);
+      const WANT = '876c5f6336f96811';   /* 2026-08-26 実測 (NODES 14 / EDGES 14 / SITES 6) */
+      return [got === WANT, 'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edges.length
+        + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
+        + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT + ')'
+        + (got === WANT ? '' : '  ⛔ 実測の中身= ' + canon)];
+    }],
   ['5b', 'enter を持つノードは 今も phlan ただ 1 つ'
-    + ' (⛔ 受注地の入場を NODES.enter で実装していないことの証明)', null, P3],
+    + ' (⛔ 受注地の入場を NODES.enter で実装していないことの証明)',
+    m => {
+      const st = m.stages[0], md = st.mapData;
+      /* ⭐ 2 経路で突き合わせる: ① WORLD_MAP のデータ ② ページが DOM を組む時に見た値。 */
+      const domEnter = Object.keys(st.nodes).filter(id => st.nodes[id].hasEnter === true);
+      const ok = md.enterIds.length === 1 && domEnter.length === 1
+        && md.enterIds[0] === domEnter[0]
+        && st.nodes[md.enterIds[0]].kind === 'site';
+      return [ok, 'enter を持つノード = ' + JSON.stringify(md.enterIds)
+        + ' (DOM 経路の実測=' + JSON.stringify(domEnter) + ')'
+        + '  ⭐ 受注地の入場は NODES.enter ではなく **受注状態の関数**'
+        + ' (onArriveNode → askEnter) で実装されている  — (3a)(3b) がその実装を実測している'];
+    }],
 ];
 const ASSERT_OF = {}; for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
@@ -1038,6 +1484,39 @@ const SECTIONS = [
           + '  exitVia=' + (d.storage.session[KEY_EXIT_VIA] === null ? '—' : d.storage.session[KEY_EXIT_VIA])
           + '  heroNode=' + (d.heroNode === null ? '—' : d.heroNode));
       }
+
+      /* ══ §2 / §3 / §5 の測定 (項目 3 が追加) ═══════════════════════════
+         ⭐ 解放段階は **配信中の tavern.html から読んだ順序**で作る (clearedUpTo)。
+           ⛔ "goblin-mine" 等を並べ書きしない (鎖が変わった日に嘘の緑が出る)。
+         ⚠ 1 段階 = 1 タブ。seedPage の仕込みは 1 タブ 1 回だけ効くので混ざらない。 */
+      mark('§2 / §3 の測定 — 解放段階ごとの札と、受注地への入場');
+      m.stages = [];
+      for (let n = 0; n <= 5; n++) {
+        const want = clearedUpTo(m.tavern, n);
+        const st = await measureWorld(browser, PORT, errs, { tag: 'cleared=' + n + '本', seed: { cleared: want } });
+        st.want = want;
+        m.stages.push(st);
+      }
+      /* (2d) 未解放でも歩けること。⭐ questDest は仕込まない = 何も起きないのが正解。 */
+      m.walkPlain = await measureWorldClicks(browser, PORT, errs, { tag: 'cleared=0 未解放を歩く', seed: { cleared: [] } });
+      /* (3z)(3a)(3b)(3c) ⭐ 本番の酒場が実際に受注 → 出発したタブをそのまま使う。 */
+      m.ask = await measureAskChain(browser, PORT, errs);
+      /* (3d) 受注外の拠点。⭐ 押す先は「鎖の 2 本目」= 受注地 (1 本目) とは必ず別。 */
+      m.askOther = await measureSeededAsk(browser, PORT, errs, m.tavern, {
+        tag: '受注外', clearedN: m.tavern.order.length,
+        questDest: m.tavern.order[0], targetScenario: m.tavern.order[1],
+      });
+      console.log('       [記録] 解放段階 → 札 (⭐ 期待値は UNLOCK の鎖から毎回導いている):');
+      for (const st of m.stages) {
+        console.log('         cleared=' + st.want.length + '本 ' + JSON.stringify(st.want)
+          + '  →  .worldSign ' + st.signCount + ' 枚  [' + st.signIds.join(',') + ']');
+      }
+      console.log('       [記録] 受注地への入場 (⭐ 実出発したタブでの実クリック):');
+      console.log('         受注=' + m.ask.dest + ' → ノード ' + m.ask.nodeId
+        + ' (label="' + m.ask.label + '")'
+        + '  1回目=' + JSON.stringify(m.ask.afterClick ? m.ask.afterClick.askText : null)
+        + '  やめる後 askOpen=' + (m.ask.afterNo ? m.ask.afterNo.askOpen : null)
+        + '  入る後の遷移=' + JSON.stringify(m.ask.yesBlocked || []));
 
       for (let i = 1; i < SECTIONS.length; i++) {
         mark(SECTIONS[i][0]);

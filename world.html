@@ -324,6 +324,53 @@
       color: #cbb98c;
     }
     body.compact #worldTitle { font-size: 16px; }
+
+    /* ── 入場の確認ダイアログ (依頼書 #23 §6-3) ──────────────────────────
+       ⚠⚠ **既定は display:none。** visibility:hidden にすると (3e) / #21 の (7d) の
+         elementFromPoint がこの要素に食われて 札 7 枚とも赤くなる
+         (#15 の town.html で踏んだ罠と同型 = 負のコントロール asktop の再現対象)。
+       ⛔ 配色・寸法・文字サイズは受入条件で縛られていない (依頼書 §8「測らないこと」)。
+         .worldSign と同じトンマナ (羊皮紙 + 焦茶のインク) に合わせてある。
+       ⭐ ここは #worldStage の scale(zoom) の **外** (position: fixed) なので、札と違って
+         文字が zoom で縮まない = 書いた px がそのまま実効サイズ (依頼書 §9-5 の読みやすさ)。 */
+    #worldEnterAsk { display: none; position: fixed; inset: 0; z-index: 20;
+      align-items: center; justify-content: center; background: rgba(8,6,4,0.62); }
+    #worldEnterAsk.show { display: flex; }
+    #worldEnterBox {
+      max-width: min(86vw, 420px);
+      padding: 20px 24px 18px;
+      border: 1px solid rgba(120,86,44,0.9);
+      border-radius: 3px;
+      /* ⭐ 明るいクリームの薄掛け + 羊皮紙。⛔ opacity で薄めない (紙の斑に文字が食われる)。 */
+      background-image: linear-gradient(rgba(246,232,198,0.34), rgba(246,232,198,0.34)),
+                        url("assets/parchment_plaza.jpg");
+      background-size: auto, cover;
+      background-position: center, center;
+      background-color: #efe0bd;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.75), inset 0 0 26px rgba(120,80,30,0.28);
+      text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: #2e2113;
+    }
+    #worldEnterText { font-size: 20px; line-height: 1.45; letter-spacing: 0.03em; }
+    #worldEnterBtns { margin-top: 18px; display: flex; gap: 14px; justify-content: center; }
+    #worldEnterBtns button {
+      flex: 0 0 auto; min-width: 104px;
+      padding: 10px 18px;
+      border: 1px solid rgba(70,48,20,0.9);
+      border-radius: 2px;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      font-size: 17px; letter-spacing: 0.05em;
+      cursor: pointer;
+      color: #f4e6c4;
+      background: linear-gradient(to bottom, #6b4c22, #402c12);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+    }
+    #worldEnterNo { background: linear-gradient(to bottom, #514639, #2c251d); }
+    #worldEnterBtns button:hover { filter: brightness(1.16); }
+    /* ⚠ compact (iPhone) でも読める大きさを保つ (依頼書 §9-5)。 */
+    body.compact #worldEnterText { font-size: 18px; }
+    body.compact #worldEnterBtns button { font-size: 16px; min-width: 96px; padding: 11px 16px; }
   </style>
 </head>
 <body>
@@ -341,6 +388,19 @@
 
   <div id="worldTitle">地方全景
     <small>行き先をタップ / 街道の点線をたどって歩く</small>
+  </div>
+
+  <!-- 入場の確認 (依頼書 #23 §6-3)。⛔ 文言はここに書かない —— 地名の唯一の正は
+       js/world-map.js の label で、JS が読んで #worldEnterText へ流し込む。
+       ⚠ 既定は CSS の display:none (上の #worldEnterAsk)。開くのは .show を付けたときだけ。 -->
+  <div id="worldEnterAsk" aria-hidden="true">
+    <div id="worldEnterBox">
+      <div id="worldEnterText"></div>
+      <div id="worldEnterBtns">
+        <button type="button" id="worldEnterYes">入る</button>
+        <button type="button" id="worldEnterNo">やめる</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/save-slots.js"></script>
@@ -388,6 +448,11 @@
     var elHero     = document.getElementById("worldHero");
     var elShadow   = document.getElementById("worldHeroShadow");
     var elGoal     = document.getElementById("worldGoal");
+    /* ⭐ 入場の確認ダイアログ (依頼書 #23 §6-3)。⛔ 既定は display:none = (3e) の番人。 */
+    var elAsk      = document.getElementById("worldEnterAsk");
+    var elAskText  = document.getElementById("worldEnterText");
+    var elAskYes   = document.getElementById("worldEnterYes");
+    var elAskNo    = document.getElementById("worldEnterNo");
 
     elStage.style.width  = MAP_W + "px";
     elStage.style.height = MAP_H + "px";
@@ -549,23 +614,64 @@
          羊皮紙の立て札 (.worldSign) は **el の 2 人目の子**として **頭上へ** 出る。
          当たり判定の要素 (.worldNode[data-node]) は**そのまま**なので、
          (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。
-       ⛔ 札に「未解放 / 解放済」の状態を持たせない (依頼書 §11)。**v1 は常に 7 枚とも出す**
-         (unlockAfter の鎖を world 側でも解釈し始めると進行状態の出所が 2 つになる)。 */
+       ⭐ 2026-08-26 (#23 §6-2): **未解放の拠点は札を出さず、中継点の点に化ける。**
+         ⛔ ただし隠すのは **見た目だけ**。当たり判定 (.worldNode[data-node] 44px 角) も
+            EDGES も findPath も 1 バイトも変えない。
+         ⚠⚠⚠ 依頼書 §2-2 の罠 A (2026-08-26 に再実測して実在を確認): 未解放 5 拠点
+            (forest / swamp / fort / temple / dragon) を EDGES から外すと、phlan から届くのは
+            phlan / pier / cross_n の 3 つだけになり **廃坑へ到達できず開始直後に詰む**。
+            街道網は環状なので単体テストは永久に緑になる。→ だから歩ける道は触らない。 */
+
+    /* ══ 解放状態 (依頼書 #23 §2-5 / §6-1) ══════════════════════════════
+       ⚠ 出所は localStorage の 1 キーだけ (tavern.html の PROGRESS_KEY と同じ)。写しを作らない。
+       ⚠ 鎖 (UNLOCK) の解釈も js/world-map.js の isRevealed ただ 1 つ。⛔ ここへ写経しない。
+       ⚠ ?questwalk=0 のときは「今日どおり」= 全部見せる。
+       ⛔ ?world=0 とは独立 (相乗りさせると赤が出たときどちらの撤退か切り分けられない)。 */
+    var QUEST_WALK_OFF_KEY = "dragonfighters.questWalkOff";
+    try {
+      if (new URLSearchParams(location.search).get("questwalk") === "0") {
+        sessionStorage.setItem(QUEST_WALK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var questWalkOff = false;
+    try { questWalkOff = sessionStorage.getItem(QUEST_WALK_OFF_KEY) === "1"; } catch (e) {}
+
+    var clearedList = [];
+    try { clearedList = JSON.parse(localStorage.getItem("dragonfighters.cleared") || "[]"); } catch (e) { clearedList = []; }
+    if (!Array.isArray(clearedList)) clearedList = [];
+
+    /* ⭐ 受注中の依頼。⛔ ここでは消費しない (入場の直前に 1 回だけ消す)。
+       ⚠⚠⚠ exitVia / enterVia / lastResult とは別物。あちらは 1 バイトも触らない。 */
+    var questDest = null;
+    try { questDest = sessionStorage.getItem("dragonfighters.questDest"); } catch (e) {}
+
+    /* このノードの札を出すか。⭐ 拠点でない中継点は常に true (元から札が無いので影響しない)。 */
+    function isNodeRevealed(id) {
+      if (questWalkOff) return true;
+      var sc = WM.scenarioOfNode(id);
+      if (!sc) return true;                 /* phlan は SITES に居ないので常に見える */
+      return WM.isRevealed(sc, clearedList);
+    }
+
     var nodeEls = {};
     function buildNodes() {
       Object.keys(NODES).forEach(function (id) {
         var n = NODES[id];
         var el = document.createElement("div");
-        el.className = "worldNode worldNode-" + (n.kind === "site" ? "site" : "way");
+        /* ⭐ 未解放の拠点は way と同じ体裁 = 「街道の折れ目」に見えるだけ (依頼書 §6-2)。
+           ⛔ data-node / data-kind と 44px 角の当たり判定は **変えない** (罠 A)。 */
+        var shown = isNodeRevealed(id);
+        el.className = "worldNode worldNode-" + (n.kind === "site" && shown ? "site" : "way");
         el.id = "worldNode_" + id;
         el.setAttribute("data-node", id);
         el.setAttribute("data-kind", n.kind);
-        /* ⛔ 文言をここに写さない。label / desc の唯一の正は js/world-map.js。 */
-        if (n.label) el.title = n.label;
+        /* ⛔ 文言をここに写さない。label / desc の唯一の正は js/world-map.js。
+           ⛔ 未解放では title 属性も付けない (hover で地名が漏れる)。 */
+        if (n.label && shown) el.title = n.label;
         var body = document.createElement("span");
         body.className = "worldNodeBody";
         el.appendChild(body);
-        if (n.kind === "site") {
+        if (n.kind === "site" && shown) {
           /* ⭐ 拠点 = 足元の拠点マーカー (上で作った body) + **頭上の**羊皮紙の立て札。
              ⭐⭐ 札は body の中身ではなく **el の 2 人目の子**。こうすると札を頭上へ
                逃がしても el.contains(sign) が真のまま = (7d) の「自分自身か子孫」も、
@@ -660,12 +766,61 @@
          歩き終わりの枝も、どちらもここへ合流する。
        ⛔ **遷移先にクエリを足さない** (#6 / #12 の確定作法 / 受入条件 (3d) が
          location.search === "" を要求する)。行き先は NODES[id].enter そのまま。
-       ⛔ enter を持たない 6 つの拠点では**何も起きない**。歩いて着くだけで、
-         依頼の受注は今日どおり酒場 (依頼書 §12-3 のユーザー決定 / 受入条件 (7e))。 */
+       ⭐ 2026-08-26 (#23 §6-4): enter を持たない 6 つの拠点のうち **受注中の依頼の地だけ**が
+         確認ダイアログを開いて index.html へ入れる。他は今までどおり歩いて着くだけ。 */
     function onArriveNode(id) {
       var n = NODES[id];
-      if (!n || !n.enter) return;
-      location.href = n.enter;
+      if (!n) return;
+      if (n.enter) { location.href = n.enter; return; }   /* 港町フランは今日どおり即入る */
+      /* ⭐ 受注中の依頼の地だけが入れる。⛔ NODES に enter を足さない —
+         行き先は「ページの静的な属性」ではなく「受注状態の関数」。
+         ⚠ NODES へ enter を足すと verify_world_map.js の (7b-data)(7b-dom)
+           「enter を持つのはただ 1 つ」と (5b) が赤くなる (依頼書 §2-6 / 変異 enterprop)。 */
+      if (questWalkOff || !questDest) return;
+      if (WM.scenarioOfNode(id) !== questDest) return;
+      askEnter(id);
+    }
+
+    /* ══ 入場の確認 (依頼書 #23 §6-3 / §6-4) ═════════════════════════════
+       ⚠ 押し口は click **と** touchend の 2 本。自動クローズを持たないダイアログなので、
+         click 非発火端末だと閉じることも入ることもできなくなる (#5 で踏んだ罠)。
+       ⭐ ハンドラは **1 回だけ**登録する。askEnter() の中で addEventListener すると
+         開くたびに積み上がって同じ処理が何度も走る。
+       ⭐ 二重発火 (touchend → 合成 click) は preventDefault と askBusy が吸う。 */
+    var askNodeId = null, askBusy = false;
+    function bindAsk(el, fn) {
+      if (!el) return;
+      var run = function (ev) {
+        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        if (askBusy) return;
+        fn();
+      };
+      el.addEventListener("click", run);
+      el.addEventListener("touchend", run);
+    }
+    function closeAsk() {
+      askNodeId = null;
+      if (!elAsk) return;
+      elAsk.classList.remove("show");
+      elAsk.setAttribute("aria-hidden", "true");
+    }
+    bindAsk(elAskYes, function () {
+      if (!askNodeId) return;
+      askBusy = true;                        /* この後は遷移するだけ = 二重押しを殺す */
+      /* ⭐ questDest を消費するのはこの 1 箇所だけ。⛔ exitVia / enterVia / lastResult /
+         currentScenario / partyMembers には触れない (酒場と index が読む)。 */
+      try { sessionStorage.removeItem("dragonfighters.questDest"); } catch (e) {}
+      location.href = "index.html";          /* ⛔ クエリを足さない */
+    });
+    bindAsk(elAskNo, function () { closeAsk(); });
+
+    function askEnter(id) {
+      if (!elAsk || !elAskText) return;
+      askNodeId = id;
+      /* ⛔ 文言を写経しない。地名の唯一の正は js/world-map.js の label。 */
+      elAskText.textContent = "〈" + (NODES[id].label || id) + "〉へ入りますか?";
+      elAsk.classList.add("show");
+      elAsk.setAttribute("aria-hidden", "false");
     }
 
     function goToNode(id) {
@@ -717,6 +872,14 @@
          sessionStorage の実体の**両方**を見る (peek しているのに読めていない、を殺すため)。 */
       spawnVia:  function () { return { raw: exitVia, via: spawnVia, scenario: scenarioId }; },
       worldOff:  function () { return worldOff; },
+      /* ── #23 が足した窓 (⛔ 読むためだけ。ここへ状態を置かない) ──────────────
+         revealed  … 札を出しているノード id (way は元から札が無いので常に含まれる)
+         questDest … **読んだ値**。「入る」で sessionStorage を消しても、この JS 変数は
+                     読んだ時の値のまま残る (消費したかは storage の実体で測る)
+         askOpen   … 確認ダイアログが開いているか (⛔ display:none が既定 = (3e) の番人) */
+      revealed:  function () { return Object.keys(NODES).filter(isNodeRevealed); },
+      questDest: function () { return questDest; },
+      askOpen:   function () { return !!elAsk && elAsk.classList.contains("show"); },
       isMoving:  function () { return moving; },
       zoom:      function () { return zoom; },
       compact:   function () { return document.body.classList.contains("compact"); },
