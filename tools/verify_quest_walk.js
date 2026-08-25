@@ -46,19 +46,25 @@
  *   world BGM の volume (#17 / #21 の「耳で下げてよい」を壊さない)。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⚠ 10 本とも **項目 4 の担当**。今は名前と担当節だけ宣言し、PENDING を出す。
+ *   ⭐ 10 本とも **実装済** (項目 4)。空振り (赤くならない) があれば exit 1。
  *
- *   mutate     | 注入する欠陥                                          | 赤くなるべき節 | 状態
- *   blockwalk  | ⭐⭐⭐ 罠 A の再現 — 未解放ノードを EDGES から外す      | (2c) / (2d)    | PENDING
- *   eatquery   | ⭐⭐⭐ 罠 B の再現 — autoplay 付きでも地図を挟む        | (4d)           | PENDING
- *   pier       | 罠 C の再現 — exitVia を書かずに world.html へ飛ぶ     | (1a)           | PENDING
- *   showall    | 未解放でも札を出す                                    | (2a) / (2b)    | PENDING
- *   enterany   | questDest の一致を見ずにどの拠点でも入れる            | (3d)           | PENDING
- *   eatdest    | world.html が questDest を読む **前**に消す           | (3a) / (3b)    | PENDING
- *   chaindrift | UNLOCK の 1 本を隣へずらす                            | (2z)           | PENDING
- *   nodialog   | 確認をはさまず即遷移する                              | (3a) / (3c)    | PENDING
- *   asktop     | ダイアログを visibility:hidden で隠す                  | (3e)           | PENDING
- *   enterprop  | NODES の 6 拠点へ enter: "index.html" を足して実装する | (5b)           | PENDING
+ *   port | mutate     | 注入する欠陥                                          | 担当の節    | 一緒に赤くなる
+ *   9161 | blockwalk  | ⭐⭐⭐ 罠 A の再現 — 未解放を EDGES から外す           | (2c)(2d)    | (5a)
+ *   9162 | eatquery   | ⭐⭐⭐ 罠 B の再現 — autoplay 付きでも地図を挟む       | (4d)        | —
+ *   9163 | pier       | 罠 C の再現 — exitVia を書かずに world.html へ飛ぶ     | (1a)        | (1b)
+ *   9164 | showall    | 未解放でも札を出す                                    | (2a)(2b)    | —
+ *   9165 | enterany   | questDest の一致を見ずにどの拠点でも入れる            | (3d)        | —
+ *   9166 | eatdest    | world.html が questDest を読む **前**に消す           | (3a)(3b)    | (3z)(3c)
+ *   9167 | chaindrift | UNLOCK の 1 本を隣へずらす                            | (2z)        | —
+ *   9168 | nodialog   | 確認をはさまず即遷移する                              | (3a)(3c)    | (3b)
+ *   9169 | asktop     | ダイアログを visibility:hidden で隠す                  | (3e)        | —
+ *   9170 | enterprop  | NODES の 6 拠点へ enter: "index.html" を足して実装する | (5b)        | (5a)
+ *
+ *   ⚠ 依頼書 §8 の表は「赤くなるべき節」を **最小限**しか書いていない。実際には上の
+ *     「一緒に赤くなる」列の節も赤くなる。これは欠陥の性質そのものなので MUTATIONS[k].allowRed
+ *     へ明示的に許可を書き、(neg-*-範囲) が **それ以外の巻き込み** だけを落とす。
+ *   ⚠ 変異ごとに採る測定は MUTATIONS[k].need で絞っている (全部採ると measureDepart /
+ *     measureAskChain が 10 回ずつ走って終わらない)。⛔ 採っていない節を evaluable へ書かない。
  *
  *   ⚠ 変異アンカーは **部分文字列一致**で、配信スナップショット中に **ちょうど 1 箇所**
  *     ヒットしなければ **exit 3 でドライバごと死ぬ** (0 件でも 2 件以上でも空振りするため)。
@@ -95,53 +101,135 @@ const PORT = parseInt(arg('port', '9160'), 10);
 // ⚠ 置換文字列は必ず 1 行に閉じる (CRLF/LF 混在で複数行は原理的に一致しない)。
 // ⚠ 置換前後でバイト長を変える (同じ長さだと「当たったのに何も変わらない」を検出できない)。
 // ══════════════════════════════════════════════════════════════════════════════
+/* 各エントリの意味 (項目 4 が実装):
+ *   from / to  … 配信スナップショットへの 1 行置換。⚠ **ちょうど 1 箇所**ヒットが起動時の条件。
+ *   targets    … 依頼書 §8 の表。**ここが赤くならなければ空振り = exit 1**。
+ *   need       … 変異ポートで採る測定 (⭐ 担当の節が読める最小限だけ。全部採ると 10 倍遅い)。
+ *   evaluable  … その測定で **実際に評価できる** assert。⛔ 測っていない節をここへ書かない
+ *                (述語が例外 → 一律 false = 「巻き込んだ」の偽陽性になる)。
+ *   allowRed   … targets 以外で **赤くなるのが正しい**節。⭐ 依頼書の表は最小限しか
+ *                書いていないので、余分に赤くなる節はここで明示的に許可し、証拠へ出す。 */
 const MUTATIONS = {
   blockwalk: {
-    impl: false, file: 'world.html', targets: ['2c', '2d'],
-    why: '項目 4。⭐⭐⭐ 依頼書 §2-2 罠 A の機械証明 — 未解放ノードを EDGES から外して歩けなくすると、'
+    impl: true, file: 'js/world-map.js', targets: ['2c', '2d'],
+    /* ⭐⭐⭐ 依頼書 §2-2 罠 A の再現。cleared=[] で未解放の swamp / fort を街道網から外す。 */
+    from: '    ["cross_n", "swamp"], ["swamp", "village_s"], ["village_s", "fort"], ["fort", "lakeside"],',
+    to: '    ["village_s", "lakeside"],   /* mut-blockwalk 未解放の swamp / fort を EDGES から外す */',
+    need: ['stage0', 'walkPlain'],
+    evaluable: ['2z', '2a', '2c', '2d', '5a', '5b'],
+    /* ⭐ EDGES を触ったので恒等ハッシュ (5a) が赤くなるのは定義どおり = 想定内。 */
+    allowRed: ['5a'],
+    why: '⭐⭐⭐ 依頼書 §2-2 罠 A の機械証明 — 未解放ノードを EDGES から外して歩けなくすると、'
       + 'cleared=[] のゲーム開始直後に phlan から mine へ到達できず **詰む**。'
       + '街道網は環状なので 1 つ消しただけでは切れず、単体テストは永久に緑になる。',
   },
   eatquery: {
-    impl: false, file: 'tavern.html', targets: ['4d'],
-    why: '項目 4。⭐⭐⭐ 依頼書 §2-3 罠 B の機械証明 — autoplay/evade が付いていても地図を挟む。'
+    impl: true, file: 'tavern.html', targets: ['4d'],
+    /* ⭐⭐⭐ 依頼書 §2-3 罠 B の再現 = 「行き先が index.html なら **クエリを無視して**
+       地図を挟む」実装にする。
+       ⚠⚠ 2026-08-26 実測: 条件①「params が 0 本」だけを潰しても **(4d) は緑のままだった**。
+         `target += sep + params.join("&")` (すぐ上の行) が target を "index.html?autoplay=10"
+         にしているので、条件②の `target === "index.html"` が代わりに止めていたため。
+         ⭐ dev URL を素通しさせているのは①と②の **2 つ**で、①だけでは罠 B を再現できない。
+       ⭐ && は || より強く結合するので、この 1 行で
+         (params 0 本) || (クエリを剥いだ行き先が index.html && 拠点 && 撤退が立っていない)
+         になり、autoplay=10 でも地図を挟むようになる。 */
+    from: '      && (target === "index.html")',
+    to: '      || (target.split("?")[0] === "index.html") /* mut-eatquery クエリを無視して地図を挟む */',
+    need: ['departAuto'],
+    evaluable: ['4d'],
+    allowRed: [],
+    why: '⭐⭐⭐ 依頼書 §2-3 罠 B の機械証明 — autoplay/evade が付いていても地図を挟む。'
       + 'probe_s2_clear.js / sweep_recruit_balance.js がここで死ぬ (長尺なので身代わりが (4d))。',
   },
   pier: {
-    impl: false, file: 'tavern.html', targets: ['1a'],
-    why: '項目 4。依頼書 §2-4 罠 C — exitVia を書かずに world.html へ飛ぶと '
+    impl: true, file: 'tavern.html', targets: ['1a'],
+    /* ⚠ exitVia の setItem は tavern.html に **2 箇所**ある (出発と「街へ出る」) ので、
+       その行そのものはアンカーにできない (2 ヒットで exit 3)。⭐ 代わりに出発側だけに在る
+       「world.html へ飛ぶ 1 行」を握り、飛ぶ直前に exitVia を落とす = 書かなかったのと同じ。 */
+    from: '      window.location.href = "world.html";',
+    to: '      try { sessionStorage.removeItem("dragonfighters.exitVia"); } catch (e) {} /* mut-pier */ window.location.href = "world.html";',
+    need: ['depart', 'worldSrc'],
+    evaluable: ['1a', '1b'],
+    /* ⭐ (1b) は exitVia === "tavern" を要求しているので一緒に赤くなるのが正しい。 */
+    allowRed: ['1b'],
+    why: '依頼書 §2-4 罠 C — exitVia を書かずに world.html へ飛ぶと '
       + 'world.html が空の exitVia を "title" と読み、spawnFor が **pier (桟橋)** を返す。'
       + '酒場から出たのに桟橋に立つ。',
   },
   showall: {
-    impl: false, file: 'world.html', targets: ['2a', '2b'],
-    why: '項目 4。未解放でも札を出す = 隠していない。ドラゴンの巣の地名が初回起動から漏れる。',
+    impl: true, file: 'world.html', targets: ['2a', '2b'],
+    from: '      if (questWalkOff) return true;',
+    to: '      if (true) return true; /* mut-showall 未解放でも札を出す */',
+    need: ['stages6'],
+    evaluable: ['2z', '2a', '2b', '2c', '5a', '5b'],
+    allowRed: [],
+    why: '未解放でも札を出す = 隠していない。ドラゴンの巣の地名が初回起動から漏れる。',
   },
   enterany: {
-    impl: false, file: 'world.html', targets: ['3d'],
-    why: '項目 4。questDest の一致を見ずにどの拠点でも入れる = 受注していない地へ潜れる。',
+    impl: true, file: 'world.html', targets: ['3d'],
+    from: '      if (WM.scenarioOfNode(id) !== questDest) return;',
+    to: '      /* mut-enterany 受注地と一致しているかを見ない */',
+    need: ['askOther'],
+    evaluable: ['3d'],
+    allowRed: [],
+    why: 'questDest の一致を見ずにどの拠点でも入れる = 受注していない地へ潜れる。',
   },
   eatdest: {
-    impl: false, file: 'world.html', targets: ['3a', '3b'],
-    why: '項目 4。world.html が questDest を読む **前**に消す = 受注中なのに入れない。',
+    impl: true, file: 'world.html', targets: ['3a', '3b'],
+    from: '    try { questDest = sessionStorage.getItem("dragonfighters.questDest"); } catch (e) {}',
+    to: '    try { sessionStorage.removeItem("dragonfighters.questDest"); /* mut-eatdest 読む前に消す */ questDest = sessionStorage.getItem("dragonfighters.questDest"); } catch (e) {}',
+    need: ['ask'],
+    evaluable: ['3z', '3a', '3b', '3c'],
+    /* ⭐ 受注中の印そのものが消えるので、装置の (3z) と「やめる後も残る」(3c) も一緒に赤くなる。 */
+    allowRed: ['3z', '3c'],
+    why: 'world.html が questDest を読む **前**に消す = 受注中なのに入れない。',
   },
   chaindrift: {
-    impl: false, file: 'js/world-map.js', targets: ['2z'],
-    why: '項目 4。UNLOCK の 1 本を隣へずらす (orc-fort → bandits-forest)。'
+    impl: true, file: 'js/world-map.js', targets: ['2z'],
+    from: '    "orc-fort":       "lizard-swamp",',
+    to: '    "orc-fort": "bandits-forest", /* mut-chaindrift 鎖を隣へずらす */',
+    need: ['stage0'],
+    evaluable: ['2z', '2a', '2c', '5a', '5b'],
+    allowRed: [],
+    why: 'UNLOCK の 1 本を隣へずらす (orc-fort → bandits-forest)。'
       + '⭐ 意図的に重複させた鎖が黙ってドリフトした状態 = (2z) の照合だけが気づける。',
   },
   nodialog: {
-    impl: false, file: 'world.html', targets: ['3a', '3c'],
-    why: '項目 4。確認をはさまず即遷移する = 誤タップで潜行が始まる (ユーザー決定 2026-08-25 の反転)。',
+    impl: true, file: 'world.html', targets: ['3a', '3c'],
+    /* ⭐ 「確認をはさまず即遷移する」実装は questDest も同時に消費する (askEnter の中の
+       removeItem を前へ持ってきただけ) ので、(3c)「やめる後も questDest が残る」も赤くなる。 */
+    from: '      askEnter(id);',
+    to: '      try { sessionStorage.removeItem("dragonfighters.questDest"); } catch (e) {} location.href = "index.html"; /* mut-nodialog 確認をはさまず即遷移 */',
+    need: ['ask'],
+    evaluable: ['3z', '3a', '3b', '3c'],
+    /* ⭐ 「入る」を押す相手が居なくなるので (3b) の遷移も起きない = 一緒に赤くなるのが正しい。 */
+    allowRed: ['3b'],
+    why: '確認をはさまず即遷移する = 誤タップで潜行が始まる (ユーザー決定 2026-08-25 の反転)。',
   },
   asktop: {
-    impl: false, file: 'world.html', targets: ['3e'],
-    why: '項目 4。ダイアログを visibility:hidden で隠す = 常に最前面に残り、'
-      + '札の中心の elementFromPoint がダイアログに食われる (#15 の town.html で踏んだ罠と同型)。',
+    impl: true, file: 'world.html', targets: ['3e'],
+    from: '    #worldEnterAsk { display: none; position: fixed; inset: 0; z-index: 20;',
+    to: '    #worldEnterAsk { visibility: hidden; display: flex; /* mut-asktop */ position: fixed; inset: 0; z-index: 20;',
+    need: ['device'],
+    evaluable: ['0a', '0b', '3e'],
+    allowRed: [],
+    why: 'ダイアログを visibility:hidden で隠す = 全面 (inset:0 / z-index:20) を覆ったまま'
+      + '常に最前面に残る (#15 の town.html で踏んだ罠と同型)。'
+      + '⭐ (3e) は「閉じているとき display が none であること」まで見ているので、'
+      + 'ブラウザが visibility:hidden を hit-test から外す実装でも取り逃がさない。',
   },
   enterprop: {
-    impl: false, file: 'js/world-map.js', targets: ['5b'],
-    why: '項目 4。NODES の 6 拠点へ enter:"index.html" を足して実装する = '
+    impl: true, file: 'js/world-map.js', targets: ['5b'],
+    /* ⭐ 6 行を別々に書き換えると 1 行 1 アンカーの規則を破るので、NODES の直後に
+       「site 全部へ enter を生やす 1 行」を差し込んで同じ状態を作る。 */
+    from: '  var EDGES = [',
+    to: '  Object.keys(NODES).forEach(function (k) { if (NODES[k].kind === "site" && !NODES[k].enter) NODES[k].enter = "index.html"; });  /* mut-enterprop */  var EDGES = [',
+    need: ['stage0'],
+    evaluable: ['2z', '2a', '2c', '5a', '5b'],
+    /* ⭐ nodesFP は enter の有無を含むので恒等ハッシュ (5a) も赤くなる = 定義どおり。 */
+    allowRed: ['5a'],
+    why: 'NODES の 6 拠点へ enter:"index.html" を足して実装する = '
       + '行き先を「受注状態の関数」でなく「ページの静的属性」にしてしまう (依頼書 §11)。',
   },
 };
@@ -881,15 +969,61 @@ async function readWorldSource(port) {
   };
 }
 
+/* ── 負のコントロールで採る測定 (項目 4 が追加) ───────────────────────────────
+ *  ⭐⭐⭐ **素の実行とまったく同じ装置・まったく同じ述語**を、変異ポートへ向けて回す。
+ *    ⛔ 変異専用の簡易測定を書かない (それは「別の物差しで採った数値」= 恒久教訓)。
+ *  ⭐ 採るのは MUTATIONS[k].need に挙がった物だけ。10 本すべてで全部採ると
+ *    measureDepart / measureAskChain が 10 回ずつ走って現実的な時間で終わらない。
+ *  ⛔ ここで採っていない測定を evaluable へ書かないこと — 述語が例外で落ちて一律 false =
+ *    「担当外を巻き込んだ」の偽陽性になる。 */
+async function negMeasure(browser, port, errs, tav, need) {
+  const m = { tavern: tav };
+  const has = (k) => need.indexOf(k) >= 0;
+  if (has('stage0')) {
+    m.stages = [await measureWorld(browser, port, errs, { tag: 'neg cleared=0本', seed: { cleared: [] } })];
+    m.stages[0].want = [];
+  }
+  if (has('stages6')) {
+    m.stages = [];
+    for (let n = 0; n <= 5; n++) {
+      const want = clearedUpTo(tav, n);
+      const st = await measureWorld(browser, port, errs, { tag: 'neg cleared=' + n + '本', seed: { cleared: want } });
+      st.want = want; m.stages.push(st);
+    }
+  }
+  if (has('walkPlain')) {
+    m.walkPlain = await measureWorldClicks(browser, port, errs, { tag: 'neg 未解放を歩く', seed: { cleared: [] } });
+  }
+  if (has('device')) m.device = await measureDevice(browser, port, errs, tav);
+  if (has('worldSrc')) m.worldSrc = await readWorldSource(port);
+  if (has('depart')) {
+    m.depart = await measureDepart(browser, port, errs, { tag: 'neg 素', mode: 'ui', seed: { cleared: [] } });
+  }
+  if (has('departAuto')) {
+    m.departAuto = await measureDepart(browser, port, errs,
+      { tag: 'neg autoplay=10', mode: 'ui', query: '?autoplay=10', seed: { cleared: [] } });
+  }
+  if (has('ask')) m.ask = await measureAskChain(browser, port, errs);
+  if (has('askOther')) {
+    m.askOther = await measureSeededAsk(browser, port, errs, tav, {
+      tag: 'neg 受注外', clearedN: tav.order.length,
+      questDest: tav.order[0], targetScenario: tav.order[1],
+    });
+  }
+  return m;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 (⭐ 1 つの assert = 1 つの純粋な述語。素でも変異でも同じ式を回す)
 //  形: [id, 文面, 述語 or null, PENDING の理由 or undefined]
 //  ⚠ **文面は依頼書 §8 の原文を写す。言い換えない**
 //    (後続項目が「どれを埋めるか」を文面で照合するため)。
 // ══════════════════════════════════════════════════════════════════════════════
-const P2 = '項目 2 (tavern.html — 出発を地図へ回す) が実装したら埋める';
-const P3 = '項目 3 (world.html — 隠す / 入る / 確認する) が実装したら埋める';
-const P4 = '項目 4 (負のコントロール + 仕上げ) が実装する';
+/* ⭐ 4 項目とも実装済 = **PENDING を出す assert はもう 1 本も無い**。
+ *   (起草時は P2 / P3 / P4 という PENDING 理由文の定数を置いて 4 番目の要素へ渡していた。
+ *    項目 4 で最後の (0b) が埋まったので、参照が 0 件になった定数ごと外した。)
+ *   ⚠ 新しく assert を足して未実装のまま置く時は、4 番目の要素に理由文字列を書けば
+ *     emit() が PASSED / FAILED ではなく **PENDING** で出す (3 値表示は生きている)。 */
 
 const ASSERTS = [
   // ── §0 装置 (先に母集団を確かめる) ─────────────────────────────────────────
@@ -928,12 +1062,20 @@ const ASSERTS = [
     + ' (検出器が状態に反応している = 常に同じ数を返していない)',
     m => {
       const lo = m.device.stages[m.device.lo], hi = m.device.stages[m.device.hi];
-      return [lo.signCount !== hi.signCount,
-        '0本=' + lo.signCount + ' 枚 / 6本=' + hi.signCount + ' 枚'];
-    },
-    '⭐ 式は書いてあるが world.html が未実装なので **必ず 7 = 7** になる (world.html:552'
-    + '「⛔ 札に状態を持たせない。v1 は常に 7 枚とも出す」)。緑にすれば嘘・赤にすれば未実装を'
-    + '退行と読み違えるので PENDING。項目 3 の実装後に ' + P4],
+      /* ⭐⭐⭐ 見るのは「枚数が同じか違うか」ただ 1 つ。⛔ 2 枚 / 7 枚という**数**を
+         ここへ書かない — それは (2a)(2b) の仕事で、ここは「検出器が状態に反応しているか」
+         (= 何を仕込んでも同じ数を返す装置ではないこと) だけを見る番人。
+         ⚠ 起草時 (2026-08-25) の PENDING 理由文は「world.html が未実装なので必ず 7 = 7」
+           だったが、項目 3 の実装で **2 枚 / 7 枚**に実際に割れたので理由ごと外した。 */
+      const same = lo.signCount === hi.signCount;
+      return [!same,
+        '0本 ' + JSON.stringify(lo.want) + ' → ' + lo.signCount + ' 枚 (' + lo.signIds.join(',') + ')'
+        + '  /  ' + m.device.hi + '本 ' + JSON.stringify(hi.want) + ' → ' + hi.signCount
+        + ' 枚 (' + hi.signIds.join(',') + ')'
+        + (same ? '  ⛔ 同じ枚数 = 検出器が cleared に反応していない (常に同じ数を返している)'
+          : '  ⭐ 同じ検出器 (.worldSign の DOM 件数) が 2 つの状態で違う数を返した'
+            + ' = 「何を仕込んでも同じ」ではない')];
+    }],
 
   // ── §1 出発の導線 ──────────────────────────────────────────────────────────
   ['1a', '★酒場で廃坑を受注 → 準備 → #btnDepart → world.html に着き、location.search === ""'
@@ -1539,6 +1681,49 @@ const SECTIONS = [
           check('(n0b-' + k + ') 素と変異で配信バイト長が違う (同じ物を 2 回測っていない)',
             pure.body.length !== mut.body.length, '素=' + pure.body.length + 'B / 変異=' + mut.body.length + 'B');
         }
+      }
+
+      mark('欠陥を注入すると担当の節が赤くなること (⭐ 素と同じ装置・同じ述語を変異ポートへ)');
+      const negTav = await readTavernScenarios(PORT);
+      check('(n1z) [装置] 変異の母集団 — 配信中の tavern.html から解放の鎖を 6 組読めている',
+        negTav.status === 200 && negTav.rows.length === 6,
+        'status=' + negTav.status + ' 組数=' + negTav.rows.length
+        + ' order=' + JSON.stringify(negTav.order));
+
+      for (const k of MUT_IMPL) {
+        const mt = MUTATIONS[k];
+        const port = PORT_OF[k];
+        const negErrs = [];
+        const m = await negMeasure(browser, port, negErrs, negTav, mt.need);
+        /* ⭐ 評価できる assert を **全部** 1 度ずつ回してから合否を組む。
+           こうすると「担当の節が赤い」だけでなく「他にどこが赤くなったか」まで証拠に残る。 */
+        const res = {};
+        for (const key of mt.evaluable) {
+          try { res[key] = ASSERT_OF[key][2](m); }
+          catch (e) { res[key] = [false, '⛔ 述語が例外: ' + (e && e.message)]; }
+        }
+        for (const key of mt.targets) {
+          const r = res[key] || [true, '⛔ evaluable に載っていない = この変異では測っていない'];
+          check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + key + ') が赤くなる — '
+            + ASSERT_OF[key][1].slice(0, 60),
+            r[0] === false, (r[0] ? '⛔ 緑のまま (空振り) ' : '') + r[1]);
+        }
+        const red = mt.evaluable.filter(key => res[key][0] === false);
+        const extra = red.filter(key => mt.targets.indexOf(key) < 0);
+        const unexpected = extra.filter(key => (mt.allowRed || []).indexOf(key) < 0);
+        /* ⭐ 「効きすぎていないこと」まで見る。⚠ 依頼書 §8 の表は **赤くなるべき節を最小限**
+           しか書いていないので、余分に赤くなる節は allowRed で明示的に許可して証拠へ出す
+           (例: enterprop は (5b) だけでなく (5a) も赤くなる — 恒等ハッシュが enter の有無を含む)。 */
+        check('(neg-' + k + '-範囲) 変異 ' + k + ' は担当外の節を巻き込まない'
+          + ' (見た節=' + mt.evaluable.join('/') + ')',
+          unexpected.length === 0,
+          '赤=' + (red.length ? red.join(',') : '(無し)')
+          + '  担当=' + mt.targets.join(',')
+          + '  想定内の巻き添え=' + ((mt.allowRed || []).length ? mt.allowRed.join(',') : '(無し)')
+          + '  緑のまま=' + (mt.evaluable.filter(x => red.indexOf(x) < 0).join(',') || '(無し)')
+          + (unexpected.length ? '  ⛔ 想定外の巻き込み=' + unexpected.join(',') : '')
+          + (negErrs.length ? '  [変異ページのエラー ' + negErrs.length + ' 件: '
+            + negErrs.slice(0, 2).join(' | ') + ']' : ''));
       }
 
       if (MUT_TODO.length) {

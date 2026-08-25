@@ -1712,6 +1712,31 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
     args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage',
       '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
   });
+
+  /* ══ 装置: 測定タブへ「6 シナリオ クリア済み」を焼く (実装依頼書 #23 §2-6) ══════
+     ⭐⭐⭐ #23 で world.html の札が **解放段階に応じて出る**ようになった。ヘッドレスの
+       素のプロファイルは localStorage["dragonfighters.cleared"] が未設定 = 解放は廃坑だけ
+       なので、何も仕込まないと札が **2 枚**になり (7b-dom)/(7d) の母集団 (7 枚) が壊れる。
+     ⛔ **これは退行ではないので assert の文面と本数は 1 つも減らさない。**
+       直すのは測定ページの仕込みだけ = 母集団のほうを復元する。
+     ⚠⚠ world.html を開く箇所は 1 つではない (札の測定 / (7e) の実クリック / compact の
+       ビューポート / BGM の (8z)(8a)(8b) …)。1 箇所だけ仕込むと (7b-dom) は緑になるのに
+       (7d) が赤のまま、という割れ方をする → **browser.newPage を 1 回だけ包む**。
+     ⛔ 6 本を直書きしない。⭐ 唯一の正は配信中の tavern.html の scenarios[] で、
+       readTavernPlaces() が既にその順序を持っている (#23 の readTavernScenarios と同じ作法)。 */
+  const CLEARED_ALL = (await readTavernPlaces(PORT)).order;
+  const CLEARED_KEY = 'dragonfighters.cleared';
+  const _newPage = browser.newPage.bind(browser);
+  browser.newPage = async function () {
+    const p = await _newPage();
+    await p.evaluateOnNewDocument((k, v) => {
+      try { localStorage.setItem(k, v); } catch (e) {}
+    }, CLEARED_KEY, JSON.stringify(CLEARED_ALL));
+    return p;
+  };
+  console.log('[drv]   [装置] 測定タブへ ' + CLEARED_KEY + '=' + JSON.stringify(CLEARED_ALL)
+    + ' を仕込む (#23 §2-6 — 札 7 枚の母集団を復元)');
+
   const errs = [];
 
   try {
