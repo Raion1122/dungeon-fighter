@@ -152,7 +152,19 @@
       desc: "下りれば闇市。牙貨だけが物を言う",
       /* 闇市は通常クエスト 5 回クリアで常設化。⚠ 判定の出所は tavern.html と同じ
          localStorage["dragonfighters.plazaState"].unlocked ただ 1 つ (写しを作らない) */
-      requiresPlazaUnlock: true }
+      requiresPlazaUnlock: true },
+    /* ⭐ 4 件目だけ via ではなく **to** を持つ。to があるものは酒場ではなく地方全景へ出る。
+       ⛔ enterVia を書かない (酒場が消費する一回性キー。書くと次に鹿亭へ入った瞬間に誤爆する)。
+       ⚠⚠ sign を銀の鹿亭の札 (10,1) と同じ row へ寄せるなら **3.75 タイル以上**あけること。
+         実測 (desktop 1440x900 / zoom 0.875): 鹿亭も「町の外へ」も札の幅は **240 stage px**
+         (`max-width: 280px` には張り付かない) → 同じ row では中心間 240px 未満で交差する。
+         ⛔ 依頼書 §2-5 の「(6,1) だと 4px 交差する」は **実測で崩れた** (4 タイル差 = 256px は
+            交差しない)。実際に赤くなるのは (7,1) のような 3 タイル差。
+            → tools/verify_town_exit.js の変異 signcrowd がこれを機械証明している。
+       ⚠ desc の文字数を増やすと札が横へ伸び (現状 240px / 上限 280px)、交差の閾値が広がる。 */
+    { key: "gate", icon: "🚪", name: "町の外へ", enter: [6, 0], sign: [5, 2],
+      to: "world.html",
+      desc: "北へ延びる街道。森へ、湖へ、山へ" }
   ];
 
   /* ── 立ち位置 ─────────────────────────────────────────────────────────────
@@ -167,7 +179,8 @@
     tavern:  [10, 3],   // 鹿亭のデッキの前
     shop:    [15, 3],   // 武器防具屋の店先の前
     plaza:   [3, 11],   // 闇市の石段の南の広場
-    dungeon: [10, 3]    // index.html から帰還 = 依頼を受けた場所へ帰る
+    dungeon: [10, 3],   // index.html から帰還 = 依頼を受けた場所へ帰る
+    town:    [6, 1]     // 地方全景から街へ戻った = 出た門の 1 マス内側に立つ
   };
   function spawnFor(via) {
     var s = (via && SPAWNS[via]) || SPAWNS.tavern;
