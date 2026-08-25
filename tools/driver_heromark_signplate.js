@@ -309,10 +309,10 @@ async function runTown(browser, base) {
   check('(Z1b) [装置] ▽ の実描画が JS の幾何と一致 (CSS と JS の写経ズレが無い)',
         s0.markExists && Math.abs(drawnW - s0.geom.w * 2) < 1.5 && Math.abs(drawnH - s0.geom.h) < 1.5,
         'drawn=' + drawnW.toFixed(1) + 'x' + drawnH.toFixed(1) + ' geom=' + (s0.geom.w * 2) + 'x' + s0.geom.h);
-  // 装置: 3 施設ぶんの desc がデータ側に実在する (0 件なら (B1) は空振りする)
+  // 装置: 4 施設ぶんの desc がデータ側に実在する (0 件なら (B1) は空振りする)
   const descOk = s0.facilities.filter(f => typeof f.desc === 'string' && f.desc.length > 0).length;
-  check('(Z1c) [装置] FACILITIES の 3 施設すべてに desc がある',
-        descOk === 3 && s0.facilities.length === 3, descOk + '/' + s0.facilities.length);
+  check('(Z1c) [装置] FACILITIES の 4 施設すべてに desc がある',
+        descOk === 4 && s0.facilities.length === 4, descOk + '/' + s0.facilities.length);
 
   // (A1) ▽ が頭の天辺より上、かつ頭から 32px 以内
   const bots = snaps.filter(s => s.markWBottom !== null).map(s => s.markWBottom);
@@ -354,7 +354,7 @@ async function runTown(browser, base) {
   const byKey = {};
   st.signs.forEach(s => { byKey[s.key] = s; });
   const facs = st.facilities;
-  let b1 = facs.length === 3 && st.signs.length === 3;
+  let b1 = facs.length === 4 && st.signs.length === 4;
   const b1detail = [];
   facs.forEach(f => {
     const s = byKey[f.key];
@@ -362,7 +362,7 @@ async function runTown(browser, base) {
     if (!ok) b1 = false;
     b1detail.push(f.key + ':' + (s ? JSON.stringify([s.name, s.desc]) : 'なし'));
   });
-  check('(B1) 3 施設の札に name と desc の両方が出ている (FACILITIES と一致)', b1, b1detail.join(' '));
+  check('(B1) 4 施設の札に name と desc の両方が出ている (FACILITIES と一致)', b1, b1detail.join(' '));
 
   const EMOJI = /\p{Extended_Pictographic}/u;
   const emojiSigns = st.signs.filter(s => EMOJI.test(s.text || ''));
@@ -370,36 +370,36 @@ async function runTown(browser, base) {
         emojiSigns.map(s => s.id + '=' + JSON.stringify(s.text)).join(' ') || '0 件');
 
   check('(B3) 札の中心の elementFromPoint が自分自身か子孫 (= 押せる)',
-        st.signs.length === 3 && st.signs.every(s => s.clickable),
-        st.signs.filter(s => s.clickable).length + '/3');
+        st.signs.length === 4 && st.signs.every(s => s.clickable),
+        st.signs.filter(s => s.clickable).length + '/4');
 
   check('(B4) desktop 1440x900: 札の上端がタイトル帯の下端より下 (帯に潜っていない)',
-        st.signs.length === 3 && st.signs.every(s => s.top > st.titleBottom),
+        st.signs.length === 4 && st.signs.every(s => s.top > st.titleBottom),
         'titleBottom=' + st.titleBottom.toFixed(0) + ' tops=' + st.signs.map(s => s.top.toFixed(0)).join(','));
 
   const effFs = st.signs.map(s => (s.descFs || 0) * st.zoom);
   check('(B5) desktop 1440x900: 説明文の実効文字高が 10px 以上',
-        effFs.length === 3 && effFs.every(v => v >= 10),
+        effFs.length === 4 && effFs.every(v => v >= 10),
         'zoom=' + st.zoom.toFixed(4) + ' eff=' + effFs.map(v => v.toFixed(2)).join(','));
 
   let overlap = 0;
   for (let i = 0; i < st.signs.length; i++)
     for (let j = i + 1; j < st.signs.length; j++) overlap += rectsOverlap(st.signs[i], st.signs[j]);
-  check('(B6) 3 枚の札が互いに重なっていない', overlap === 0, '交差面積=' + overlap + 'px²');
+  check('(B6) 4 枚の札が互いに重なっていない', overlap === 0, '交差面積=' + overlap + 'px²');
 
   check('(C5a) 街で pageerror / console error が 0 件', o.errs.length === 0, JSON.stringify(o.errs.slice(0, 3)));
   await o.page.close();
 
-  // (B7) compact 390x844 で HUD ボタンが 3 つとも押せる
+  // (B7) compact 390x844 で HUD ボタンが 4 つとも押せる
   {
     const c = await openTown(browser, base, { w: 390, h: 844, mobile: true });
-    if (!c.ready) { check('(B7) compact 390x844 の #townHud ボタンが 3 つとも押せる', false, '起動できず'); }
+    if (!c.ready) { check('(B7) compact 390x844 の #townHud ボタンが 4 つとも押せる', false, '起動できず'); }
     else {
       const cs = await c.page.evaluate(TOWN_SNAP);
       const isCompact = await c.page.evaluate(() => __town.compact());
       check('(Z1f) [装置] compact 判定になっている', isCompact === true, String(isCompact));
-      check('(B7a) compact 390x844 の #townHud ボタンが 3 つとも押せる',
-            cs.hudCount === 3 && cs.hudClickable === 3, cs.hudClickable + '/' + cs.hudCount);
+      check('(B7a) compact 390x844 の #townHud ボタンが 4 つとも押せる',
+            cs.hudCount === 4 && cs.hudClickable === 4, cs.hudClickable + '/' + cs.hudCount);
       const hudEmoji = await c.page.evaluate(() =>
         Array.prototype.slice.call(document.querySelectorAll('#townHud button'))
           .every(b => /\p{Extended_Pictographic}/u.test(b.textContent)));
@@ -413,13 +413,13 @@ async function runTown(browser, base) {
   const conjOf = (s) => ({
     markExists: !!s.markExists,
     markAboveHead: !!(s.markWBottom !== null && s.markWBottom <= s.headTopW + 0.5),
-    plateHasDesc: s.signs.length === 3 && s.signs.every(x => typeof x.desc === 'string' && x.desc.length > 0),
-    plateNoEmoji: s.signs.length === 3 && s.signs.every(x => !EMOJI.test(x.text || '')),
-    plateClickable: s.signs.length === 3 && s.signs.every(x => x.clickable),
+    plateHasDesc: s.signs.length === 4 && s.signs.every(x => typeof x.desc === 'string' && x.desc.length > 0),
+    plateNoEmoji: s.signs.length === 4 && s.signs.every(x => !EMOJI.test(x.text || '')),
+    plateClickable: s.signs.length === 4 && s.signs.every(x => x.clickable),
     signCount: s.signs.length,
   });
   const allTrue = (c) => c.markExists && c.markAboveHead && c.plateHasDesc && c.plateNoEmoji
-                      && c.plateClickable && c.signCount === 3;
+                      && c.plateClickable && c.signCount === 4;
   const onC = conjOf(st);
   check('(C3a) 既定 (両方 ON) で 6 つの状態がすべて成立する', allTrue(onC), JSON.stringify(onC));
   {
@@ -430,7 +430,7 @@ async function runTown(browser, base) {
           !!ms && ms.markExists === false && ms.markOn === false, JSON.stringify(c1));
     check('(C3b) ★?heromark=0 で同じ conjunction が崩れる (空振りしていない)', !!c1 && !allTrue(c1));
     check('(C3c) ?heromark=0 でも札は無事 (スイッチが互いを汚さない)',
-          !!c1 && c1.plateHasDesc && c1.plateClickable && c1.signCount === 3);
+          !!c1 && c1.plateHasDesc && c1.plateClickable && c1.signCount === 4);
     await m0.page.close();
   }
   {
@@ -439,7 +439,7 @@ async function runTown(browser, base) {
     const c2 = ps ? conjOf(ps) : null;
     const circles = ps ? ps.signs.filter(s => Math.abs(s.w / ps.zoom - 64) < 1.5 && EMOJI.test(s.text || '')).length : -1;
     check('(C2b) ?signplate=0 で看板が今日と同じ丸アイコン (64px + 絵文字) に戻る',
-          circles === 3, circles + '/3');
+          circles === 4, circles + '/4');
     check('(C3d) ★?signplate=0 で同じ conjunction が崩れる (空振りしていない)', !!c2 && !allTrue(c2));
     check('(C3e) ?signplate=0 でも ▽ は無事 (スイッチが互いを汚さない)',
           !!c2 && c2.markExists && c2.markAboveHead);

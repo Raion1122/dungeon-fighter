@@ -357,9 +357,12 @@ async function measureTownState(browser, base, url) {
                  usesProd: typeof TM.findPath === 'function' };
       });
       check('(2z1) [装置] 母集団が空でない (歩けるマスが 100 以上)', r.walkable >= 100, r.walkable + '/' + r.total);
-      check('(2z2) [装置] 施設が 3 つある', r.facilities.length === 3, r.facilities.join(','));
+      /* ⭐ 依頼書 #22: 件数だけだと「別の施設が 1 件増えて gate が消えた」でも緑になる。
+         母集団が増えたことを黙って飲まないよう **id 列**で照合する。 */
+      check('(2z2) [装置] 施設が 4 つある (id 列で照合)',
+            r.facilities.join(',') === 'tavern,shop,plaza,gate', r.facilities.join(','));
       check('(2z3) [装置] 判定に本番の TOWN_MAP.findPath を使っている', r.usesProd);
-      check('(2) ★受入条件2: 3 施設のどれかへ到達できない歩けるマスが 0 件',
+      check('(2) ★受入条件2: 4 施設のどれかへ到達できない歩けるマスが 0 件',
             r.bad.length === 0, r.bad.length + ' 件 ' + r.bad.slice(0, 12).join(' '));
       check('(2e) ページエラーが 0 件', o.errs.length === 0, o.errs.join(' | '));
       await o.page.close();
@@ -555,8 +558,11 @@ async function measureTownState(browser, base, url) {
       check('(8z) [装置] plazaState が未設定 (解禁前の状態を作れている)', r.stored === null, String(r.stored));
       check('(8a) ★解禁前は 🌑 の看板が DOM に無い', r.sign === false);
       check('(8b) ★解禁前は 🌑 の HUD ボタンも DOM に無い', r.hud === false);
-      check('(8c) ★解禁前でも 🦌 と 🛡️ は出る (母集団が空で緑になっていない)',
-            r.keys.length === 2 && r.keys.indexOf('tavern') >= 0 && r.keys.indexOf('shop') >= 0, r.keys.join(','));
+      /* ⭐ 依頼書 #22: 4 枚目「町の外へ」(gate) は requiresPlazaUnlock を持たないので
+         **解禁前から出る**。ここを 2 のままにすると解禁前の母集団が古いまま固定される。 */
+      check('(8c) ★解禁前でも 🦌 と 🛡️ と 🚪 は出る (母集団が空で緑になっていない)',
+            r.keys.length === 3 && r.keys.indexOf('tavern') >= 0 && r.keys.indexOf('shop') >= 0
+            && r.keys.indexOf('gate') >= 0, r.keys.join(','));
       await clickTile(o.page, 3, 10);                    // 石段の位置をクリックしても遷移しない
       await sleep(1500);
       check('(8d) ★石段をクリックしても遷移しない',
@@ -670,8 +676,8 @@ async function measureTownState(browser, base, url) {
         };
       });
       check('(11a-' + label + ') 主人公が画面内に居る', r.heroIn, JSON.stringify(r));
-      check('(11b-' + label + ') 3 施設が押せる (compact=HUD ボタン / それ以外=看板)',
-            r.reachable === 3, r.reachable + '/3 btn=' + r.btnCount + ' sign=' + r.signCount);
+      check('(11b-' + label + ') 4 施設が押せる (compact=HUD ボタン / それ以外=看板)',
+            r.reachable === 4, r.reachable + '/4 btn=' + r.btnCount + ' sign=' + r.signCount);
       check('(11c-' + label + ') 横スクロールバーが出ない',
             r.scrollW <= r.clientW, r.scrollW + ' vs ' + r.clientW);
       check('(11z-' + label + ') [装置] compact 判定が期待どおり (' + (w <= 560 ? 'true' : 'false') + ')',
@@ -686,7 +692,7 @@ async function measureTownState(browser, base, url) {
     {
       const on  = await measureTownState(browser, base, '/town.html');
       const off = await measureTownState(browser, base, '/town.html?town=0');
-      const conj = (s) => s.townAlive && s.reachAllZero && s.clickLands && s.spawnRule && s.noQuery && s.signCount === 3;
+      const conj = (s) => s.townAlive && s.reachAllZero && s.clickLands && s.spawnRule && s.noQuery && s.signCount === 4;
       check('(12a) 既定 (街 ON) では 6 つの状態がすべて成立する', conj(on), JSON.stringify(on));
       check('(12b) ★?town=0 では同じ 6 つの状態が崩れる (空振りしていない)', !conj(off), JSON.stringify(off));
       check('(12c) ★?town=0 は街が 1 枚も描かれない', off.townAlive === false && off.signCount === 0, JSON.stringify(off));

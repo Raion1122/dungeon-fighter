@@ -436,6 +436,68 @@ async function walkOutOfTown(browser, base, opts) {
   return out;
 }
 
+/* ══ §4 恒等 (非退行) の測定: 立て札 → 素の tavern.html ════════════════
+ *  ⭐ 出口の分岐 (f.to) が **既存経路を巻き込んでいない**ことを、実際に踏んで測る。
+ *  ⚠⚠⚠ tavern.html は enterVia を **読んだ直後に removeItem する** (tavern.html:1866-1867)。
+ *    → 着地後に sessionStorage を読むと必ず null で、「そもそも書かれていない」と区別できない。
+ *    ⭐ だから 2 経路で突き合わせる:
+ *      ① town が消える直前の pagehide スナップショット (= town が書いたか)
+ *      ② 酒場が解釈した window.__enterVia            (= 届いて解釈されたか)
+ *  ⭐ 押し方は walkOutOfTown と同じ「実座標クリック」。key だけ差し替える。
+ *  ⚠ 待つのは load ではなく domcontentloaded (酒場は 6,800 行 + 音源で load が重い)。 */
+async function enterFacilityBySign(browser, base, key) {
+  const o = await openTown(browser, base, { plazaUnlocked: true });
+  const out = { page: o.page, errs: o.errs, why: null, keep: null, hit: null, dest: null };
+  if (!(await waitTownReady(o.page, 12000))) { out.why = 'town が起動しない'; return out; }
+
+  /* ⭐ (4a) の実体はここで採る。⛔ gate (f.to を持つ 4 件目) は含めない
+     (4 件目は via ではなく to を持つ別形なので、恒等の母集団ではない)。 */
+  out.keep = await o.page.evaluate(() => window.TOWN_MAP.FACILITIES.filter(f => !f.to).map(f => ({
+    key: f.key, name: f.name, desc: f.desc, icon: f.icon, enter: f.enter, sign: f.sign, via: f.via })));
+
+  await o.page.evaluate(() => {
+    window.addEventListener('pagehide', function () {
+      try {
+        sessionStorage.setItem('__drvAtEnter', JSON.stringify({
+          exitVia:  sessionStorage.getItem('dragonfighters.exitVia'),
+          enterVia: sessionStorage.getItem('dragonfighters.enterVia')
+        }));
+      } catch (e) {}
+    });
+  });
+
+  const id = 'townSign_' + key;
+  out.hit = await o.page.evaluate((sel) => {
+    const el = document.getElementById(sel);
+    if (!el) return { id: sel, found: false };
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const h = document.elementFromPoint(cx, cy);
+    return { id: sel, found: true, x: cx, y: cy,
+             self: !!(h && (h === el || el.contains(h))),
+             got: h ? (h.id || h.className || h.tagName) : null };
+  }, id);
+  if (!out.hit.found) { out.why = id + ' が DOM に無い'; return out; }
+  if (!out.hit.self)  { out.why = id + ' が他の要素に覆われている: ' + out.hit.got; return out; }
+
+  try {
+    await Promise.all([
+      o.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
+      o.page.mouse.click(Math.round(out.hit.x), Math.round(out.hit.y)),
+    ]);
+  } catch (e) { out.why = '遷移しなかった: ' + e.message; return out; }
+
+  await o.page.waitForFunction('"__enterVia" in window', { timeout: 20000 }).catch(() => {});
+  out.dest = await o.page.evaluate(() => ({
+    path: location.pathname, search: location.search,
+    /* ⚠ null と「キーごと無い」を潰さない (後者は酒場側の受け口が動いていない)。 */
+    hasKey: ('__enterVia' in window),
+    interpreted: ('__enterVia' in window) ? window.__enterVia : null,
+    atEnter: (function () { try { return JSON.parse(sessionStorage.getItem('__drvAtEnter')); } catch (e) { return null; } })()
+  }));
+  return out;
+}
+
 /* ══ (3d) 地方全景 → 港町フランの札を押して街へ戻る ══════════════════
  *  ⭐ ノード id を写経せず **enter を持つノード** を押す (唯一の正は js/world-map.js)。
  *  ⚠ #worldHero は pointer-events: none なので、駒がその札の上に立っていても押せる。 */
@@ -691,8 +753,41 @@ function runNegative(audit) {
 
     /* ── §4 恒等 (非退行) ─────────────────────────────────────────────── */
     console.log('\n--- §4 恒等 (非退行) ---');
-    pending('(4a) 既存 3 施設の key/name/desc/icon/enter/sign/via が 1 文字も変わっていない', '項目③');
-    pending('(4b) townSign_tavern → 素の /tavern.html (search === "") かつ enterVia === "tavern"', '項目③');
+    /* ⭐⭐ ドライバへ期待値を写してよいのは **ここだけ**。「1 文字も変わっていない」は
+       写しと突き合わせる以外に測りようが無い。値は本チケット着手前の HEAD (8c402f4) の
+       js/town-map.js から機械生成した。
+       ⚠ \u エスケープにしてあるのは 🛡️ が U+1F6E1 + U+FE0F の **2 コードポイント**で、
+         見た目では写経ズレ (VS16 の欠落) を検出できないため。
+       ⛔ gate は含めない (4 件目は via ではなく to を持つ別形)。 */
+    const KEEP3 = [
+      { key: "tavern", name: "\u9280\u306e\u9e7f\u4ead", desc: "\u5bbf\u3068\u9152\u3002\u4ef2\u9593\u3092\u52df\u308a\u3001\u4f9d\u983c\u3092\u53d7\u3051\u308b",
+        icon: "\ud83e\udd8c", enter: [10, 2], sign: [10, 1], via: "tavern" },
+      { key: "shop", name: "\u6b66\u5668\u9632\u5177\u5c4b", desc: "\u5263\u30fb\u93a7\u30fb\u5f13\u3002\u65c5\u88c5\u3092\u6574\u3048\u308b",
+        icon: "\ud83d\udee1\ufe0f", enter: [15, 2], sign: [15, 1], via: "shop" },
+      { key: "plaza", name: "\u602a\u3057\u3044\u77f3\u6bb5", desc: "\u4e0b\u308a\u308c\u3070\u95c7\u5e02\u3002\u7259\u8ca8\u3060\u3051\u304c\u7269\u3092\u8a00\u3046",
+        icon: "\ud83c\udf11", enter: [3, 10], sign: [2, 10], via: "plaza" },
+    ];
+    const fx = await enterFacilityBySign(browser, base, 'tavern');
+    check('(4a) 既存 3 施設の key/name/desc/icon/enter/sign/via が 1 文字も変わっていない',
+          !!fx.keep && eq(fx.keep, KEEP3),
+          fx.keep ? JSON.stringify(fx.keep) : '⛔ ' + (fx.why || '街が起動していない'));
+
+    /* ⭐ ① town が書いたか (pagehide) ② 酒場が解釈したか (__enterVia) の 2 経路。
+       ⭐ exitVia が null のままであることも同時に見る = 出口の分岐 (f.to) が
+         既存経路へ漏れ出していないことの裏。 */
+    const dz = fx.dest;
+    const aE = dz && dz.atEnter ? dz.atEnter : null;
+    check('(4b) townSign_tavern → 素の /tavern.html (search === "") かつ enterVia === "tavern"',
+          !!dz && dz.path === '/tavern.html' && dz.search === ''
+          && !!aE && aE.enterVia === 'tavern' && aE.exitVia === null
+          && dz.hasKey === true && dz.interpreted === 'tavern',
+          (fx.why ? '⛔ ' + fx.why + '  ' : '')
+          + 'hit=' + JSON.stringify(fx.hit)
+          + ' / ① 消える直前=' + JSON.stringify(aE)
+          + ' / ② 酒場が解釈した __enterVia=' + JSON.stringify(dz ? dz.interpreted : null)
+          + ' (hasKey=' + (dz ? dz.hasKey : 'n/a') + ')'
+          + ' / dest=' + JSON.stringify(dz ? { path: dz.path, search: dz.search } : null));
+    if (fx.page) await fx.page.close();
 
     /* ── §5 撤退 ──────────────────────────────────────────────────────── */
     console.log('\n--- §5 撤退 (?world=0) ---');
