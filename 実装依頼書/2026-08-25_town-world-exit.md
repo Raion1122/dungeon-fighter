@@ -458,4 +458,155 @@ py tools/add_changelog.py "<b>町から地方の地図へ出られるように�
 
 ## 13. 実装結果
 
-(実装窓が埋める)
+- **完了**: 2026-08-25 / dev-loop **4 項目分割**(orchestrator の停止 0 回で完走 = **5 例目**)
+- **最終 HEAD**: `3dda3f5`(実装の最終 commit)+ 本 commit(changelog + 文書)/ ⛔ **未 push**(ユーザー承認事項)
+- **結論**: 街 `town.html` に 4 枚目の立て札「町の外へ」が立ち、押すと `world.html` が開いて
+  駒が **港町フラン(`phlan`)** に立つ。そこから港町の札を押すと街の **(6,1)** へ戻る = **往復が閉じた**。
+  ⭐ 依頼書の予告どおり **`js/world-map.js` / `world.html` は 1 文字も触っていない**。
+
+### 13-1. commit と各項目の検証
+
+| 項目 | commit | 触ったファイル | その時点の検証 |
+|---|---|---|---|
+| ① | `a4e048d` | `js/town-map.js` / `tools/verify_town_exit.js`(新規 552 行) | 素 **8/8** PASSED(PENDING 15)/ `--negative` **1/4 実行**・空振り 0 |
+| ② | `cf8fb3b` | `town.html`(+24 行) / `tools/verify_town_exit.js` | 素 **18/18** PASSED(PENDING 5)/ `--negative` **3/4 実行**・空振り 0 |
+| ③ | `0e39288` | `tools/verify_town_map.js` / `tools/driver_heromark_signplate.js` / `tools/verify_town_exit.js` | 素 **20/20** PASSED(PENDING 3)/ `--negative` **3/4 実行**・空振り 0 |
+| ④ | `3dda3f5`(driver §5)+ 本 commit(changelog + 文書) | `tools/verify_town_exit.js` / `tavern.html`(changelog 1 行) / `実装依頼書/*` | 素 **23/23** PASSED(**PENDING 0**)/ `--negative` **4/4 実行**・空振り 0 |
+
+### 13-2. 新規ドライバ `tools/verify_town_exit.js` の最終値
+
+```
+node tools/verify_town_exit.js
+  --- §0 装置 ---            (0a-eatenter)(0a-signcrowd)(0a-noexitvia)(0a-worldalive)(0b)(0c)(0c-err)
+  --- §1 札が 4 枚 ---       (1a) signs=4/4 [tavern shop plaza gate] / compact hud=4/4
+                             (1b) overlap=0.0  belowTitle=4/4  titleBottom=69.0
+                             (1c) 出口の札の 1 行目 / 2 行目が FACILITIES の実体と一致
+                             (1d) elementFromPoint が自分自身
+  --- §2 world.html へ着く --- (2a) atExit tile={"c":6,"r":0} → path=/world.html
+                             (2b) search=""   (2c) compact 390x844 の HUD からも同じ
+  --- §3 一回性キー ---       (3a) exitVia="town"  (3b) enterVia=null / lastResult 番兵が不変
+                             (3c) ① spawnFor("town")="phlan" ② heroNode()="phlan"
+                             (3d) 戻ると tile={"c":6,"r":1} / spawnVia="town" / exitVia=null
+  --- §4 恒等 ---            (4a) 既存 3 施設が 1 文字も変わっていない
+                             (4b) townSign_tavern → 素の /tavern.html + enterVia="tavern"
+  --- §5 撤退 (?world=0) --- (5a) signs=3/4 (期待 facCount-1=3) / gateExists=false / compact hud=3/4
+                             (5b) 同じタブで素の town.html → env={"search":"","worldOff":"1"} で効き続ける
+                             (5c) ON=true / OFF=false / OFF(2回目)=false
+════════════════════════════════════════════
+  素 23/23 PASSED  (PENDING 0)          ← exit 0
+════════════════════════════════════════════
+
+node tools/verify_town_exit.js --negative
+  PASSED 変異 eatenter   で (3b が赤くなる          ((2a) は緑のまま = 効きすぎていない)
+  PASSED 変異 signcrowd  で (1b が赤くなる
+  PASSED 変異 noexitvia  で (3a / (3c / (3d が赤くなる
+  PASSED 変異 worldalive で (5a / (5c が赤くなる
+  4 / 4 実行  (PENDING 0)   空振りした変異は無い    ← exit 0
+```
+
+### 13-3. 既存 golden 8 本の非退行(**実測 2026-08-25 / 全部 exit 0**)
+
+| ドライバ | 依頼書 §8 の期待 | **実測** | 判定 |
+|---|---|---|---|
+| `node tools/verify_town_map.js` | 85/85 | **85 / 85** | ✅ 一致 |
+| `node tools/driver_heromark_signplate.js` | 46/46 | **46 / 46** | ✅ 一致 |
+| `node tools/driver_heromark_signplate.js --negative` | 4/4 | **負のコントロール 4 本すべて赤くなった** | ✅ 一致 |
+| `node tools/verify_world_map.js` | 55/55 | **55/55 PASSED FAILED 0 PENDING 0** | ✅ 一致(**無変更で通った**) |
+| `node tools/verify_world_map.js --negative` | 40/40 | **40/40 PASSED FAILED 0 PENDING 0** | ✅ 一致 |
+| `node tools/verify_title_screen.js` | 86/86 | **86/86 passed** | ✅ 一致 |
+| `node tools/verify_save_slots.js` | 30/30 | **30/30 passed** | ✅ 一致 |
+| `node tools/driver_bgm_town.js` | 17/17 | **17/17 PASS** | ✅ 一致 |
+| `node tools/driver_bgm_title.js` | 16/16 | **16/16 PASS** | ✅ 一致 |
+| `node tools/driver_bgm_title.js --negative` | 14/14 | **14/14 PASS** | ✅ 一致 |
+| `node tools/driver_bgm_mine.js` | 37/37 | **37/37 PASS** | ✅ 一致 |
+
+⭐ **期待値を 1 つも書き換えていない**(#19 のような「他チケットが assert を足していた」ズレは今回 0 件)。
+⭐ `verify_title_screen.js` は #21 で 85 → 86 へ回収した経緯があるが、本チケットは `title.html` を
+1 文字も触っていないので **86/86 のまま**だった(依頼書の読みどおり)。
+
+### 13-4. ⭐⭐⭐ 起草の主張が崩れた件(**3 件**)
+
+**① §2-5 の「札は幅 280px 上限に張り付く / (6,1) だと 4px 交差」は偽**(項目 ① が実測)
+
+- 実測(desktop 1440x900 / `zoom` 0.875 / `getBoundingClientRect`):
+  `townSign_tavern w=210`(client)= **stage 240px**。`max-width: 280px` には**張り付いていない**。
+- したがって同じ row で交差するのは中心間が **3.75 タイル未満**の時だけ。
+  **(6,1) = 4 タイル差では client 12px の隙間が残る**(交差しない)。
+- → 負のコントロール `signcrowd` を **(7,1) = 3 タイル差**へ変更し、
+  **(1b) だけが赤くなる**(overlap 2033px² / (1a)(1c)(1d) は緑)ことを機械証明した。
+  本番の `sign` は **(5,2) のまま据え置き**(row が違うのでさらに余裕がある)。
+- ⭐ 教訓: **負のコントロールを「寄せれば重なるはず」という思い込みで選ばない。**
+  実際に重なる位置を**矩形で測ってから**選ぶ(`verify_town_map.js` の `isolate` と同じ教訓)。
+
+**② 札の幅は一律ではない**(項目 ② が実測。§2-5 は「銀の鹿亭の札は 280px」と 1 枚しか測っていなかった)
+
+```
+townSign_tavern w=210 / townSign_shop w=165 / townSign_plaza w=210 / townSign_gate w=210  (client px)
+```
+
+= 幅は **文字数で決まる**。武器防具屋だけ 165px と狭い。
+→ 「札の幅」を 1 枚だけ測って全体の規則にしない。
+
+**③ §2-3 の「`verify_town_map.js` は 3 箇所」は過小。実際は 4 箇所**(項目 ③ が実測)
+
+- 数え落としは **(8c) `:558-559`** = 闇市の**解禁前**の母集団 `r.keys.length === 2`。
+  grep パターン `=== 3|/3'|circles === 3` に **`=== 2` は当たらない**。
+- 根拠 = `gate` は `requiresPlazaUnlock` を持たないので **闇市の解禁前から札が出る**(2 → 3 になる)。
+- → §2-3 の「**16 箇所**」自体が過小で、**実際は 17 箇所**(`verify_town_map` 4 + `signplate` 13)。
+  実際の編集はラベル文字列込みで `verify_town_map` 5 箇所 / `signplate` 17 箇所。
+- ⭐⭐⭐ 教訓: **件数直書きの grep は「増える側の数」だけでなく
+  「減る側 / 別の母集団の数」も掛ける。**
+
+**⭐ 逆に、崩れなかった重要な主張**
+
+§2-2 の「`exitVia = "town"` を 1 行書けば `js/world-map.js:170` の fail-safe が `phlan` を返すので
+**`js/world-map.js` も `world.html` も 1 文字も触らなくてよい**」は**完全に正しかった**
+(`verify_world_map.js` が**無変更**で 55/55 / `--negative` 40/40)。
+⭐ しかも `noexitvia` 変異が「書かないと駒が `pier` に立つ」= ⚓ アンカーの
+「新しいキーは要らない」という**誤り**を機械的に再現した((3c) の ② `heroNode()="pier"` が
+① `spawnFor()="phlan"` と食い違う形で赤くなる)。
+
+### 13-5. 実装中に踏んで解いた罠(次のチケットへの申し送り)
+
+- ⭐⭐⭐ **出口タイルの到達は `pagehide` で「消える直前」を同期で焼き付けて遷移先から読む。**
+  着いた rAF の中で `location.href` が走るので、ポーリングでも固定時間窓でも**原理的に間に合わない**。
+- ⭐⭐ **「不変」を測るときは番兵を置いてから測る。** `lastResult` は `null` 同士の一致では
+  「触っていない」の証拠にならない(`DRV_LAST_RESULT_SENTINEL` を置いてから前後で照合)。
+- ⚠⚠⚠ **`tavern.html:1866-1867` が `enterVia` を読んだ直後に `removeItem` する。**
+  着地後の `sessionStorage` は必ず `null` なので、**① `pagehide` スナップショット
+  ② 酒場が解釈した `window.__enterVia`** の 2 経路で突き合わせる。
+- ⚠⚠ **ドライバの purge は `sessionStorage.__drvSeeded` で 1 タブ 1 回。**
+  (5b)「クエリ無しの 2 回目のロードでも効いている」は **同じタブで `page.goto` を 2 回**踏む。
+  新しいタブを作ると purge が走って `worldOff` が消え、**assert が静かに空振りする**。
+- ⭐⭐ **撤退スイッチは「OFF で緑」でなく「同じ conjunction を ON / OFF の両方へ当てて崩れる」**((5c))。
+  OFF だけ測ると、**出口がそもそも壊れていても永久に緑**になる。
+- ⚠⚠ **Bash ツールのヒアドキュメントはバックスラッシュを 1 段食う**(`\` → `\`)。
+  `\u` エスケープを含む JS をファイルへ書くときは要注意(単独の `\u` は生き残る)。
+- ⚠ **EOL が混在している。** `tools/verify_town_map.js` は **CRLF**、
+  `tools/driver_heromark_signplate.js` / `tools/verify_town_exit.js` は **LF**。
+  複数行をまたぐ文字列置換は EOL を揃えないと 0 件ヒットする。
+
+### 13-6. changelog
+
+```
+py tools/add_changelog.py "<b>町から地方の地図へ出られるようになった</b> — 港町フランの北の街道口に「町の外へ」の立て札。押すと地方全景が開き、次の目的地まで駒が歩く。"
+```
+
+→ `tavern.html:2119` に 1 行追加(先頭 = 最新 / 4 件維持 = 最古の「仲間が指示した技を先に出す」を落とした)。
+⭐ 予告どおり **`tavern.html` を触るのは最終項目 ④ だけ**にしたので、
+`scripts/hooks/pre-commit` はこの commit で 1 回だけ鳴り、**その 1 行が答えになって通った**。
+項目 ①〜③ は「`tavern.html` を触らないのが正しい」と言い切れる。
+
+### 13-7. 残っている宿題(⚠ ユーザーの実機体感 = §9 の 5 項目)
+
+⚠ ローカルは **http 起動が必須**(`file://` だと音が出ない)。
+
+1. 「町の外へ」の札が、北の小路の脇に置かれていて**邪魔ではないか**(銀の鹿亭の札との間合い)
+2. 出口タイル **(6,0)** まで歩いたとき、**街道へ出て行くように見えるか**(絵に門は描かれていない)
+3. 街 → 地図 → 港町フラン → 街 の往復を 2 周して、**立ち位置が毎回同じか**((6,1) → 出口 → `phlan`)
+4. compact(iPhone 幅)で HUD ボタンが **4 つ**並んで**溢れないか**
+5. iOS 実機
+
+⛔ 別チケット送り(§11 のまま): `SPAWNS.title` / `SPAWNS.shop` / `SPAWNS.plaza` は
+`exitVia` に入り得るのが `dungeon` / `tavern` / `town` の 3 つだけなので**現状どこからも到達しない死にコード**。
+本チケットでは**消していない**。
