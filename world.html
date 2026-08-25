@@ -64,12 +64,18 @@
         同じ判断。隣接まで寄せる救済は入れない)。だから viewport には click ハンドラを置かない。
       - ⛔ 遷移先にクエリを足さない (#6 / #12 の確定作法)。
 
-    ★ ⛔ ここにまだ無いもの (後続項目の担当。勝手に足さない)
-      - 拠点の羊皮紙の立て札 7 枚 … .worldNode > .worldNodeBody を差し替える形にしてある
-      - 一回性キー (exitVia / lastResult / enterVia) の peek … ⛔ **1 つも removeItem しない**
-      - phlan から town.html への遷移 … onArriveNode() が差し込み口
-      - 撤退スイッチ ?world=0
+    ★⛔⛔⛔ 一回性のキーを 1 つも消さない (依頼書 §2-2 の罠 A)
+      dragonfighters.exitVia を消費するのは town.html、enterVia / lastResult は tavern.html。
+      ここは exitVia / currentScenario を **peek するだけ**で、enterVia / lastResult は
+      **コメント以外の行に 1 度も出てこない**。詳細は下の「立ち位置」の節。
+
+    ★ 撤退スイッチ ?world=0 (依頼書 §7) — ⛔ ?town=0 とは **独立**。判定順は
+      `?town=0` (街ごと素通り) → `?world=0` (地図だけ素通り) → world.html。
+      title.html の nextAfterTitle() が 3 段でこの順に判定する。
+
+    ★ ⛔ ここにまだ無いもの (項目 4 の担当。勝手に足さない)
       - BGM の呼び口 GameAudio.playBgm("world") / unlock()
+      - index.html の dfReturnPage() (ダンジョンからの帰還に world を 1 段挟む)
   -->
   <style>
     :root {
@@ -182,8 +188,8 @@
     #worldGoal.show { opacity: 1; }
 
     /* ── ノードの当たり判定 ──────────────────────────────────────────────
-       ⭐⭐⭐ **1 ノード = 1 要素** (`data-node`)。site の 7 つは後続項目が
-         .worldNodeBody の中身を **羊皮紙の立て札**へ差し替える。
+       ⭐⭐⭐ **1 ノード = 1 要素** (`data-node`)。site の 7 つは
+         .worldNodeBody が **羊皮紙の立て札**そのものになる (下の .worldSign)。
        ⚠ 受入条件 (7d) が「札の中心の elementFromPoint が自分自身か子孫」を要求するので、
          この要素より上に pointer-events を持つ物を重ねないこと
          (#worldHero / #worldHeroShadow / #worldGoal は全部 pointer-events: none)。 */
@@ -195,20 +201,67 @@
       cursor: pointer;
       z-index: 4;
     }
+    /* ⚠ 丸い点は **中継点だけ**の見た目。拠点は下の .worldSign が上書きする。 */
     .worldNodeBody {
       display: block;
+      transition: transform 0.12s ease;
+    }
+    .worldNode-way .worldNodeBody {
+      width: 9px; height: 9px;
       border-radius: 50%;
       background: var(--route-ink);
       box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
-      transition: transform 0.12s ease;
-    }
-    .worldNode-way .worldNodeBody  { width: 9px;  height: 9px; }
-    .worldNode-site .worldNodeBody {
-      width: 18px; height: 18px;
-      background: radial-gradient(circle at 40% 35%, #fff6da 0%, var(--route-ink) 55%, #c8a45c 100%);
-      box-shadow: 0 0 0 3px rgba(20,14,6,0.92), 0 0 12px rgba(255,220,130,0.55), 0 2px 6px rgba(0,0,0,0.7);
     }
     .worldNode:hover .worldNodeBody { transform: scale(1.25); }
+
+    /* ── 拠点の羊皮紙の立て札 (依頼書 §6-2 の 3) ─────────────────────────
+       ⭐ 作法は #15 の town.html `.townSign` の流用。⛔ ただし DOM もセレクタも
+         共有しない (town.html は 1 バイトも触らない)。
+       ⭐⭐ **札 = .worldNodeBody そのもの**。当たり判定の親 .worldNode[data-node] は
+         項目 2 が作ったまま 1 バイトも変えていないので、(3b) の「ノードをタップ →
+         そこへ立つ」も (7d) の elementFromPoint も同じ要素で測り続けられる。
+       ⚠⚠ #15 の実測: **可変幅の札は margin-left/-top: -32px では中心に置けない**。
+         中心合わせは親 .worldNode の transform: translate(-50%,-50%) が担う。
+         ⭐ だから :hover の scale は **子 (.worldNodeBody)** に掛ける。
+           同じ要素へ書くと translate が潰れて札が右下へずれる (#15 で踏んだ罠)。
+       ⚠ ステージの scale(zoom) で札の文字も縮む。desktop の実効 zoom は 0.82 前後なので
+         実効文字高は 15px x 0.82 = 12.3px / 11px x 0.82 = 9.0px。
+       ⛔ 説明文を opacity で薄めない。**紙が斑なので透かした瞬間に読めなくなる**
+         (#15 の 2026-08-23 実測)。柔らかさは --wsp-ink-soft の**色**だけで出す。 */
+    .worldNode-site { width: auto; height: auto; }
+    .worldSign {
+      --wsp-paper-img: url("assets/parchment_plaza.jpg");
+      /* ⭐ 明るいクリームの薄掛け。紙のまだら模様に細い書体が食われるのを防ぐ (#15)。 */
+      --wsp-wash: 0.34;
+      --wsp-ink: #2e2113;
+      --wsp-ink-soft: #4a3413;
+      padding: 5px 12px 6px;
+      border: 1px solid rgba(120,86,44,0.85);
+      border-radius: 2px;
+      background-image: linear-gradient(rgba(246,232,198,var(--wsp-wash)), rgba(246,232,198,var(--wsp-wash))),
+                        var(--wsp-paper-img);
+      background-size: auto, cover;
+      background-position: center, center;
+      background-color: #efe0bd;              /* 紙が届く前の下敷き (文字が浮かないように) */
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6), inset 0 0 18px rgba(120,80,30,0.25);
+      white-space: nowrap; text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: var(--wsp-ink);
+    }
+    .worldSignName {
+      display: block;
+      font-size: 15px; line-height: 1.25; letter-spacing: 0.04em;
+      color: var(--wsp-ink);
+      pointer-events: none;
+    }
+    .worldSignDesc {
+      display: block; margin-top: 1px;
+      font-size: 11px; line-height: 1.3;
+      color: var(--wsp-ink-soft);
+      pointer-events: none;
+    }
+    body.compact .worldSignName { font-size: 14px; }
+    body.compact .worldSignDesc { font-size: 10px; }
 
     /* ── 画面上の帯 ─────────────────────────────────────────────────── */
     #worldTitle {
@@ -255,6 +308,25 @@
   <script>
   (function () {
     "use strict";
+
+    /* ══ 撤退スイッチ ?world=0 (依頼書 §7) ═══════════════════════════════
+       ワールドマップを丸ごと素通りし、今日とまったく同じ「タイトル → 街」に戻す。
+       ⚠⚠ **描画より前に判定して return する。** 後ろに置くと撤退したはずの地図が一瞬見える
+         (town.html:318 が ?town=0 を IIFE の先頭で判定したのと同じ理由)。
+       ⚠ クエリはページ遷移をまたがないので、**見た時点で sessionStorage へ写して**全ページで読む
+         (?town=0 とまったく同じ形。写しではなく同じ作法を使う)。
+       ⛔ **?town=0 とは独立**。相乗りさせると赤が出たときどちらの撤退か切り分けられない。
+       ⚠ location.href ではなく **replace**。href だと履歴に world.html が残り、
+         街で「戻る」を押した人が撤退したはずの地図へ戻ってしまう。 */
+    var WORLD_OFF_KEY = "dragonfighters.worldOff";
+    try {
+      if (new URLSearchParams(location.search).get("world") === "0") {
+        sessionStorage.setItem(WORLD_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var worldOff = false;
+    try { worldOff = sessionStorage.getItem(WORLD_OFF_KEY) === "1"; } catch (e) { worldOff = false; }
+    if (worldOff) { location.replace("town.html"); return; }
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
@@ -329,11 +401,38 @@
     elHero.style.backgroundImage = 'url("assets/' + HERO_CLASS + '_walk.png")';
 
     /* ══ 立ち位置 ═══════════════════════════════════════════════════════
-       ⛔⛔ ここは **後続項目の差し込み口**。sessionStorage の一回性キー
-         (exitVia / currentScenario) を **peek するだけ** で spawnFor へ渡す形になる。
-         ⚠⚠⚠ removeItem は 1 本も呼ばない (依頼書 §2-2 の罠 A)。
-         今は「タイトルから来た」= pier に固定してある。 */
-    var heroNodeId = WM.spawnFor("title");
+       規則は 1 本: **ワールドマップに出るときは、直前に居た場所に立つ。**
+
+         | 入口                 | 判定                  | 湧く場所               |
+         |----------------------|-----------------------|------------------------|
+         | キャラ選択の後       | exitVia が無い        | pier (船で上陸した所)  |
+         | ダンジョンからの帰還 | exitVia === "dungeon" | SITES[currentScenario] |
+         | 未知の値 / 欠損      | —                     | phlan (fail-safe)      |
+
+       ⛔⛔⛔ **一回性のキーを 1 つも消さない (依頼書 §2-2 の罠 A)。読むだけ = peek。**
+         このページが removeItem を呼ぶと、下の 3 つが**黙って**壊れる:
+           dragonfighters.exitVia    … 消費するのは town.html:414。消すと帰還先が
+                                       必ず酒場前 (10,3) に落ちる = **一見正しく見える**
+           dragonfighters.enterVia   … 消費するのは tavern.html:1867
+           dragonfighters.lastResult … 消費するのは tavern.html:4121。
+                                       消すと**酒場のリザルト画面が出なくなる**
+         ⭐ enterVia / lastResult は getItem すら**しない**のが一番安全。
+           このファイルでは名前が**この注意書きの中にしか出てこない**ので、
+           `grep -n 'enterVia\|lastResult' world.html` が全部コメント行を返すことが担保になる
+           (実行される行に 1 つでも出たら、それは触っている証拠)。
+       ⭐ dragonfighters.currentScenario は removeItem が全文 grep で 0 件なので peek でよい。 */
+    var EXIT_VIA_KEY = "dragonfighters.exitVia";
+    var SCENARIO_KEY = "dragonfighters.currentScenario";
+    /* ⚠ 名前のとおり **読むだけ**。⛔ この関数に removeItem を足さないこと。 */
+    function peekSession(key) {
+      try { return sessionStorage.getItem(key); } catch (e) { return null; }
+    }
+    var exitVia = peekSession(EXIT_VIA_KEY);   /* ⛔ peek のみ。消費するのは town.html */
+    var scenarioId = peekSession(SCENARIO_KEY);
+    /* ⚠ 「キー自体が無い」= タイトルから来た。空文字も同じ扱いにする。
+       それ以外の未知の値は js/world-map.js 側の fail-safe (phlan) へ落ちる。 */
+    var spawnVia = (exitVia === null || exitVia === "") ? "title" : exitVia;
+    var heroNodeId = WM.spawnFor(spawnVia, scenarioId);
     if (!WM.has(heroNodeId)) heroNodeId = "phlan";
     var heroPx = { x: NODES[heroNodeId].x, y: NODES[heroNodeId].y };
     var facingLeft = false;
@@ -404,9 +503,11 @@
     window.addEventListener("orientationchange", layout);
 
     /* ══ ノード ═════════════════════════════════════════════════════════
-       ⭐ site の 7 つは後続項目が .worldNodeBody を羊皮紙の立て札へ差し替える。
+       ⭐ site の 7 つは .worldNodeBody が羊皮紙の立て札になる (.worldSign)。
          当たり判定の要素 (.worldNode[data-node]) は**そのまま**なので、
-         札になっても (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。 */
+         札になっても (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。
+       ⛔ 札に「未解放 / 解放済」の状態を持たせない (依頼書 §11)。**v1 は常に 7 枚とも出す**
+         (unlockAfter の鎖を world 側でも解釈し始めると進行状態の出所が 2 つになる)。 */
     var nodeEls = {};
     function buildNodes() {
       Object.keys(NODES).forEach(function (id) {
@@ -420,6 +521,22 @@
         if (n.label) el.title = n.label;
         var body = document.createElement("span");
         body.className = "worldNodeBody";
+        if (n.kind === "site") {
+          /* ⭐ 拠点 = 羊皮紙の立て札。⛔ 文言をここで作らない。
+             label / desc を **そのまま textContent へ流し込むだけ** (唯一の正は
+             js/world-map.js の 1 箇所。label のさらに上流は tavern.html の place:)。 */
+          body.className += " worldSign";
+          var nm = document.createElement("span");
+          nm.className = "worldSignName";
+          nm.textContent = n.label || id;
+          body.appendChild(nm);
+          if (n.desc) {
+            var ds = document.createElement("span");
+            ds.className = "worldSignDesc";
+            ds.textContent = n.desc;
+            body.appendChild(ds);
+          }
+        }
         el.appendChild(body);
         el.style.left = n.x + "px";
         el.style.top  = n.y + "px";
@@ -486,9 +603,18 @@
       walkTimer = requestAnimationFrame(step);
     }
 
-    /* ⛔ 到着したときに何かする (港町フランなら town.html へ入る) のは後続項目の担当。
-       ここは「歩いて止まる」だけ。差し込み口だけ 1 本に畳んである。 */
-    function onArriveNode(id) { /* 後続項目: enter を持つノードならページ遷移 */ }
+    /* ══ 到着 ═══════════════════════════════════════════════════════════
+       ⭐ 遷移の書き口は **この 1 本だけ**。goToNode() の「同じノードをもう一度押した」枝も
+         歩き終わりの枝も、どちらもここへ合流する。
+       ⛔ **遷移先にクエリを足さない** (#6 / #12 の確定作法 / 受入条件 (3d) が
+         location.search === "" を要求する)。行き先は NODES[id].enter そのまま。
+       ⛔ enter を持たない 6 つの拠点では**何も起きない**。歩いて着くだけで、
+         依頼の受注は今日どおり酒場 (依頼書 §12-3 のユーザー決定 / 受入条件 (7e))。 */
+    function onArriveNode(id) {
+      var n = NODES[id];
+      if (!n || !n.enter) return;
+      location.href = n.enter;
+    }
 
     function goToNode(id) {
       if (!WM.has(id)) return false;
@@ -510,6 +636,10 @@
       heroNode:  function () { return heroNodeId; },
       heroPx:    function () { return { x: heroPx.x, y: heroPx.y }; },
       heroClass: function () { return HERO_CLASS; },
+      /* ⚠ **読んだ値**であって消した値ではない。ドライバは (4a) でこの値と
+         sessionStorage の実体の**両方**を見る (peek しているのに読めていない、を殺すため)。 */
+      spawnVia:  function () { return { raw: exitVia, via: spawnVia, scenario: scenarioId }; },
+      worldOff:  function () { return worldOff; },
       isMoving:  function () { return moving; },
       zoom:      function () { return zoom; },
       compact:   function () { return document.body.classList.contains("compact"); },

@@ -701,7 +701,41 @@ function probeLayout() {
         「街を一度も通っていないのに通ったつもり」= 空振りなので (TZ) が弾く。
      ⚠ 街に居ないとき (直接 /tavern.html を開いた等) は素通り。素通り回数も数える。 */
   const townTrip = { legs: 0, skips: 0, firstSearch: [] };
+
+  /* ══ 依頼書 #21 world-map-entry: 街の**前**にワールドマップが 1 段挟まった ═══════════
+     タイトルから「つづきから/旅立つ」を押すと、まず **地方全景 world.html** に着き、
+     主人公の駒で港町フランの札まで歩いて初めて街 town.html に入る。
+
+     ⛔ ここでも (2)(3)(4c)(8) の期待文字列を書き換えて終わりにしない。#12 と**同じ手**で
+        **測定点をワールドマップも通り抜けた後へ移す**。判定関数 (judgeNewGameRound /
+        judgeContinueRound / judgeConfirmArmed) の式と期待値は 1 文字も変えていない。
+     ⚠ 通り抜けたことは観測値として持ち帰り、(WZ) が「0 回のまま全部緑」を弾く。
+     ⚠ 札を押すと駒が街道を歩いてから遷移するので、遷移待ちは **waitForNavigation**
+       (固定 sleep で代用しない。経路の長さは走行ごとに違う)。 */
+  const worldTrip = { legs: 0, skips: 0, firstSearch: [] };
+  async function passWorld(page) {
+    try {
+      const at = await page.evaluate(() => ({ path: location.pathname, search: location.search }));
+      if (!/\/world\.html$/.test(at.path)) { worldTrip.skips++; return false; }
+      worldTrip.firstSearch.push(at.search);
+      await page.waitForFunction(
+        "!!window.__world && !!document.getElementById('worldNode_phlan')", { timeout: 20000 });
+      const pt = await page.evaluate(() => window.__world.clientFromNode('phlan'));
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 40000 }),
+        page.mouse.click(Math.round(pt.x), Math.round(pt.y)),
+      ]);
+      await sleep(700);
+      worldTrip.legs++;
+      return true;
+    } catch (e) {
+      worldTrip.skips++;
+      return false;
+    }
+  }
+
   async function arriveTavern(page) {
+    await passWorld(page);          // ★ #21: 街の前に地方全景を 1 段通り抜ける
     try {
       const at = await page.evaluate(() => ({ path: location.pathname, search: location.search }));
       if (/\/town\.html$/.test(at.path)) {
@@ -1560,12 +1594,22 @@ function probeLayout() {
         { prologueSeen: false, allowRedirect: true, settle: 1200 });
       const tbl = await pTbl.evaluate(() => ({ path: location.pathname, search: location.search }));
       await pTbl.close();
+      /* ⚠ 依頼書 #21: ?title=0 単独の着地点は **world.html (地方全景)** へ 1 段移った。
+         ⛔ 期待値 town.html を world.html へ書き換えて終わりにしない。#12 と同じく
+            **測定点を「地方全景を通り抜けた後」へ移す** (通り抜けたことは (WZ) が押さえる)。
+         ⭐ こうすると「?title=0 単独は街へ着く」という主張も期待値も 1 文字も変わらない。
+         ⚠ ここで p8 は world.html → town.html まで進む。以降の流れ (flow2 が名乗り画面を
+            探して失敗し、arriveTavern が街の看板をくぐる) は #21 以前とまったく同じ。 */
+      const wentThroughWorld = await passWorld(p8);
+      const t8town = await p8.evaluate(() => ({ path: location.pathname, search: location.search }));
       check('(8t) ★?title=0 単独は街へ / ?title=0&town=0 は街を足す前とまったく同じ酒場へ '
             + '(2 つのスイッチが相乗りしていない)',
-        /\/town\.html$/.test(arrived8.pathname || '') && arrived8.search === ''
+        /\/town\.html$/.test(t8town.path || '') && t8town.search === ''
           && /\/tavern\.html$/.test(tbl.path || '') && tbl.search === '',
-        JSON.stringify({ titleOffOnly: arrived8.pathname, titleOffTownOff: tbl.path,
-                         search: [arrived8.search, tbl.search] }));
+        JSON.stringify({ titleOffOnly: t8town.path, 着地直後: arrived8.pathname,
+                         地方全景を通った: wentThroughWorld,
+                         titleOffTownOff: tbl.path,
+                         search: [t8town.search, tbl.search] }));
     }
 
     /* ── ★ 1.〜4. と **同じ判定関数**を、同じ手順を踏んだ結果に対して呼ぶ ──────
@@ -1955,6 +1999,17 @@ function probeLayout() {
     townTrip.legs >= 3 && townTrip.firstSearch.every(s => s === ''),
     JSON.stringify({ 街を通った回数: townTrip.legs, 素通り: townTrip.skips,
                      街に着いた時のsearch: townTrip.firstSearch }));
+
+  /* ══ 装置 assert: 測定点が「地方全景 (world.html) も通り抜けた後」へ移ったか (依頼書 #21) ══
+     ⚠⚠⚠ これが無いと、ワールドマップが丸ごと壊れて誰も world.html に着かなくなっても
+       passWorld() が毎回「素通り」に落ちて **全部緑のまま**になる。(TZ) と同じ役目。
+     ⚠ 地方全景の側でクエリを足していないことも、着いたときの search で見る
+       (足すと「タイトルから来た」と「ダンジョンから帰った」で入口が 2 種類になる)。 */
+  check('(WZ) [装置] 受入条件 2/3/4/8 の観測が **実際に地方全景を通り抜けた後**で採られている '
+        + '(素通りだけで緑になっていない)',
+    worldTrip.legs >= 3 && worldTrip.firstSearch.every(s => s === ''),
+    JSON.stringify({ 地方全景を通った回数: worldTrip.legs, 素通り: worldTrip.skips,
+                     地方全景に着いた時のsearch: worldTrip.firstSearch }));
 
   check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
 

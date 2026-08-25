@@ -32,6 +32,10 @@
         語る順番も「起動 → 街を歩く → 酒場の扉をくぐる → 前口上」に変わっている。
         ナレ機構は tavern.html 側の資産のままで、街へは移設していない (依頼書 §4)。
         行き先は nextAfterTitle() ただ 1 本 (?town=0 で従来の tavern.html へ戻す)。
+      ⚠ [依頼書 #21 world-map-entry] 遷移先はさらに **world.html (地方全景)** へ 1 段移った。
+        「タイトル → 地図を歩く → 港町フランの札 → 街 → 酒場」。⛔ 行き先は
+        nextAfterTitle() ただ 1 本のままで、呼び口 (:371 / :600 / :622) は増やしていない。
+        判定順は **?town=0 → ?world=0 → world.html** の 3 段 (逆にすると罠 B)。
 
     ★ 音 (依頼書 #20)
       - **BGM = GameAudio.playBgm("title")** — assets/bgm/opening.mp3 (魔王魂)。?titlebgm=0 で無音へ戻る。
@@ -359,11 +363,30 @@
     try {
       if (new URLSearchParams(location.search).get("town") === "0") sessionStorage.setItem(TOWN_OFF_KEY, "1");
     } catch (e) {}
-    /* ⛔ 遷移先にクエリを足さない。変わるのはページ名だけで、URL は常に素のまま。 */
+    /* ══ 地図の撤退スイッチ ?world=0 (依頼書 #21 world-map-entry §7) ═══════
+       ワールドマップ world.html を丸ごと素通りし、今日とまったく同じ「タイトル → 街」に戻す。
+       ⚠⚠ クエリはページ遷移をまたがないので、?town=0 と**同じ形**で sessionStorage へ写す。
+       ⛔ ?town=0 とは **独立**にする (相乗りさせると赤が出たときにどちらの撤退か
+         切り分けられない。?heromark=0 が ?town=0 から独立している前例と同じ)。 */
+    var WORLD_OFF_KEY = "dragonfighters.worldOff";
+    try {
+      if (new URLSearchParams(location.search).get("world") === "0") sessionStorage.setItem(WORLD_OFF_KEY, "1");
+    } catch (e) {}
+    /* ⛔ 遷移先にクエリを足さない。変わるのはページ名だけで、URL は常に素のまま。
+       ⛔⛔ **判定の順序は 3 段**: ?town=0 (街ごと素通り) → ?world=0 (地図だけ素通り) → world.html。
+         逆にすると「街を丸ごと飛ばす」撤退路が地図に食われて死ぬ (依頼書 §2-3 の罠 B)。
+           | ?town=0 | ?world=0 | 行き先      |
+           |   無    |   無     | world.html  |
+           |   無    |   有     | town.html   |
+           |   有    |   無     | tavern.html |
+           |   有    |   有     | tavern.html |  */
     function nextAfterTitle() {
-      var off = false;
+      var off = false, worldOff = false;
       try { off = sessionStorage.getItem(TOWN_OFF_KEY) === "1"; } catch (e) { off = false; }
-      return off ? "tavern.html" : "town.html";
+      try { worldOff = sessionStorage.getItem(WORLD_OFF_KEY) === "1"; } catch (e) { worldOff = false; }
+      if (off) return "tavern.html";
+      if (worldOff) return "town.html";
+      return "world.html";
     }
 
     var titleOff = false;
