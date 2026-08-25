@@ -358,6 +358,115 @@ async function measureSigns(page) {
   });
 }
 
+/* ══ §2 §3 の共通手順: 街 → 出口を押す → world.html ════════════════════
+ *  ⚠⚠⚠ 主人公が出口タイルに着いた **その rAF の中で** location.href が走る。
+ *    後からポーリングしても文脈が消えていて間に合わない (固定時間窓でも同じ)。
+ *    → **pagehide で「消える直前」を同期で焼き付け**、遷移先から読む。
+ *  ⭐ 出口は key を写経せず **f.to を持つ施設**から引く (名前を変えても空振りしない)。
+ *  ⭐ lastResult は **番兵を置いてから**測る。null 同士の一致は「触っていない」の
+ *    証拠にならない (酒場が消費する一回性キーだから、誤って消されたら赤くしたい)。 */
+const SENTINEL = 'DRV_LAST_RESULT_SENTINEL';
+
+async function walkOutOfTown(browser, base, opts) {
+  opts = opts || {};
+  const o = await openTown(browser, base, { plazaUnlocked: true, w: opts.w, h: opts.h, mobile: opts.mobile });
+  const out = { page: o.page, errs: o.errs, why: null };
+  out.alive = await waitTownReady(o.page, 12000);
+  if (!out.alive) { out.why = 'town が起動しない'; return out; }
+
+  out.gate = await o.page.evaluate(() => {
+    const g = window.TOWN_MAP.FACILITIES.filter(f => f.to)[0];
+    return g ? { key: g.key, to: g.to, enter: g.enter } : null;
+  });
+  if (!out.gate) { out.why = 'f.to を持つ施設が FACILITIES に無い'; return out; }
+
+  out.before = await o.page.evaluate((sent) => {
+    sessionStorage.setItem('dragonfighters.lastResult', sent);
+    const snap = () => ({
+      tile: window.__town ? window.__town.heroTile() : null,
+      exitVia:    sessionStorage.getItem('dragonfighters.exitVia'),
+      enterVia:   sessionStorage.getItem('dragonfighters.enterVia'),
+      lastResult: sessionStorage.getItem('dragonfighters.lastResult')
+    });
+    window.addEventListener('pagehide', function () {
+      try { sessionStorage.setItem('__drvAtExit', JSON.stringify(snap())); } catch (e) {}
+    });
+    return snap();
+  }, SENTINEL);
+
+  /* 押し口 (desktop = 立て札 / compact = HUD ボタン) を **実座標でクリック**する。
+     ⚠ elementFromPoint が押し口自身でないなら「押せない」= 欠陥なのでそのまま落とす。 */
+  const id = (opts.viaHud ? 'townHudBtn_' : 'townSign_') + out.gate.key;
+  out.hit = await o.page.evaluate((sel) => {
+    const el = document.getElementById(sel);
+    if (!el) return { id: sel, found: false };
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const h = document.elementFromPoint(cx, cy);
+    return { id: sel, found: true, x: cx, y: cy,
+             self: !!(h && (h === el || el.contains(h))),
+             got: h ? (h.id || h.className || h.tagName) : null };
+  }, id);
+  if (!out.hit.found) { out.why = id + ' が DOM に無い'; return out; }
+  if (!out.hit.self)  { out.why = id + ' が他の要素に覚われている: ' + out.hit.got; return out; }
+
+  try {
+    await Promise.all([
+      o.page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      o.page.mouse.click(Math.round(out.hit.x), Math.round(out.hit.y)),
+    ]);
+  } catch (e) { out.why = '遷移しなかった: ' + e.message; return out; }
+
+  await o.page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 }).catch(() => {});
+  out.world = await o.page.evaluate(() => {
+    const N = (window.WORLD_MAP && window.WORLD_MAP.NODES) || {};
+    return {
+      path: location.pathname, search: location.search,
+      /* ⭐ 'phlan' を写経しない。「街へ戻る札」= enter を持つノードから引く。 */
+      townNode: Object.keys(N).find(k => N[k].enter !== undefined) || null,
+      heroNode: window.__world ? window.__world.heroNode() : null,
+      spawnForTown: window.WORLD_MAP ? window.WORLD_MAP.spawnFor('town') : null,
+      spawnVia: window.__world ? window.__world.spawnVia() : null,
+      exitVia:    sessionStorage.getItem('dragonfighters.exitVia'),
+      enterVia:   sessionStorage.getItem('dragonfighters.enterVia'),
+      lastResult: sessionStorage.getItem('dragonfighters.lastResult'),
+      atExit: (function () { try { return JSON.parse(sessionStorage.getItem('__drvAtExit')); } catch (e) { return null; } })()
+    };
+  });
+  return out;
+}
+
+/* ══ (3d) 地方全景 → 港町フランの札を押して街へ戻る ══════════════════
+ *  ⭐ ノード id を写経せず **enter を持つノード** を押す (唯一の正は js/world-map.js)。
+ *  ⚠ #worldHero は pointer-events: none なので、駒がその札の上に立っていても押せる。 */
+async function returnToTown(page) {
+  const r = { enterId: null, why: null };
+  r.enterId = await page.evaluate(() => {
+    const N = (window.WORLD_MAP && window.WORLD_MAP.NODES) || {};
+    return Object.keys(N).find(k => N[k].enter !== undefined) || null;
+  });
+  if (!r.enterId) { r.why = 'enter を持つノードが無い'; return r; }
+  const pt = await page.evaluate((i) => window.__world.clientFromNode(i), r.enterId);
+  if (!pt) { r.why = 'clientFromNode が null'; return r; }
+  try {
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      page.mouse.click(Math.round(pt.x), Math.round(pt.y)),
+    ]);
+  } catch (e) { r.why = '遷移しなかった: ' + e.message; return r; }
+  await page.waitForFunction('!!window.__town', { timeout: 20000 }).catch(() => {});
+  const t = await page.evaluate(() => ({
+    path: location.pathname, search: location.search,
+    tile: window.__town ? window.__town.heroTile() : null,
+    spawnVia: window.__town ? window.__town.spawnVia() : null,
+    /* ⭐ (6,1) を写経しない。唯一の正は js/town-map.js の SPAWNS.town。 */
+    spawnTown: (window.TOWN_MAP && window.TOWN_MAP.SPAWNS.town) || null,
+    exitVia: sessionStorage.getItem('dragonfighters.exitVia')
+  }));
+  Object.keys(t).forEach(k => { r[k] = t[k]; });
+  return r;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // --negative : 4 変異を自分で回し、赤くならなければ exit 1
 //   ⭐ 「まだアンカーが無い」「その assert がまだ PENDING」を**空振りと区別して**報告する。
@@ -504,18 +613,81 @@ function runNegative(audit) {
     check('(0c-err) pageerror / console error が 0 件', o.errs.length === 0, o.errs.join(' | ') || 'なし');
     await page.close();
 
-    /* ── §2 出口が world.html へ着く ──────────────────────────────────── */
+    /* ── §2 出口が world.html へ着く ──────────────────────────────── */
     console.log('\n--- §2 出口が world.html へ着く ---');
-    pending('(2a) townSign_gate を押す → 主人公が (6,0) に立ち location.pathname が /world.html', '項目②');
-    pending('(2b) 遷移後の location.search === "" (⛔ クエリを足していない)', '項目②');
-    pending('(2c) compact 390x844 で townHudBtn_gate から押しても (2a)(2b) と同じ結果', '項目②');
+    /* ⭐ (6,0) / 'world.html' をドライバに写経しない。全部 FACILITIES の実体から引く。 */
+    const gx = await walkOutOfTown(browser, base, {});
+    const gT = gx.gate ? { c: gx.gate.enter[0], r: gx.gate.enter[1] } : null;
+    const gW = gx.world || null;
+    const gA = gW && gW.atExit ? gW.atExit : null;
+    const gArrived = !!(gT && gA && eq(gA.tile, gT));
+    const gLanded  = !!(gW && gx.gate && gW.path === '/' + gx.gate.to);
+    const gDetail  = (gx.why ? '⛔ ' + gx.why + '  ' : '')
+      + 'gate=' + JSON.stringify(gx.gate) + '  hit=' + JSON.stringify(gx.hit || null)
+      + '  atExit=' + JSON.stringify(gA) + '  world=' + JSON.stringify(gW);
 
-    /* ── §3 一回性キーの扱い ──────────────────────────────────────────── */
+    check('(2a) townSign_gate を押す → 主人公が (6,0) に立ち location.pathname が /world.html',
+          gArrived && gLanded, gDetail);
+    check('(2b) 遷移後の location.search === "" (⛔ クエリを足していない)',
+          !!gW && gW.search === '', gW ? JSON.stringify({ path: gW.path, search: gW.search }) : '遷移していない');
+
+    /* compact は **HUD ボタンから**押す (押し口が別系統なので別に測る)。 */
+    const cxr = await walkOutOfTown(browser, base, { w: 390, h: 844, mobile: true, viaHud: true });
+    const cT = cxr.gate ? { c: cxr.gate.enter[0], r: cxr.gate.enter[1] } : null;
+    const cW = cxr.world || null;
+    const cA = cW && cW.atExit ? cW.atExit : null;
+    check('(2c) compact 390x844 で townHudBtn_gate から押しても (2a)(2b) と同じ結果',
+          !!(cT && cA && eq(cA.tile, cT)) && !!(cW && cxr.gate && cW.path === '/' + cxr.gate.to)
+          && !!cW && cW.search === '',
+          (cxr.why ? '⛔ ' + cxr.why + '  ' : '')
+          + 'hit=' + JSON.stringify(cxr.hit || null) + '  atExit=' + JSON.stringify(cA)
+          + '  world=' + (cW ? JSON.stringify({ path: cW.path, search: cW.search, heroNode: cW.heroNode }) : 'null'));
+    if (cxr.page) await cxr.page.close();
+
+    /* ── §3 一回性キーの扱い ────────────────────────────────── */
     console.log('\n--- §3 一回性キーの扱い (2 経路で突き合わせる) ---');
-    pending('(3a) 遷移直後 sessionStorage["dragonfighters.exitVia"] === "town"', '項目②');
-    pending('(3b) ⛔ dragonfighters.enterVia が null のまま / lastResult も遷移前後で不変', '項目②');
-    pending('(3c) world 側の駒が phlan に立つ (① WORLD_MAP.spawnFor("town") ② __world.heroNode() の 2 経路)', '項目②');
-    pending('(3d) 港町フランの札から街へ戻る → 主人公が (6,1) / exitVia が null (消費済み)', '項目②');
+    check('(3a) 遷移直後 sessionStorage["dragonfighters.exitVia"] === "town"',
+          !!gW && gW.exitVia === 'town',
+          gW ? 'world で読んだ値=' + JSON.stringify(gW.exitVia)
+             + ' / 消える直前=' + JSON.stringify(gA && gA.exitVia)
+             + ' / world が解釈した spawnVia=' + JSON.stringify(gW.spawnVia)
+             : '遷移していない');
+
+    /* ⛔ 書き忘れより誤爆のほうが静かに壊れる。書いていないことも測る。 */
+    check('(3b) ⛔ dragonfighters.enterVia が null のまま / lastResult も遷移前後で不変',
+          !!gW && !!gA && gW.enterVia === null && gA.enterVia === null
+          && !!gx.before && gx.before.lastResult === SENTINEL
+          && gA.lastResult === SENTINEL && gW.lastResult === SENTINEL,
+          'before=' + JSON.stringify(gx.before || null)
+          + ' / atExit=' + JSON.stringify(gA)
+          + ' / world=' + JSON.stringify(gW ? { enterVia: gW.enterVia, lastResult: gW.lastResult } : null));
+
+    /* ⭐ ①だけだと「本番が spawnFor を呼んでいない」を見逃すので ② と両方見る。
+       ⭐ 'phlan' はドライバに写経せず、**enter を持つノード** (= 街へ戻る札) と照合する。 */
+    check('(3c) world 側の駒が phlan に立つ (① WORLD_MAP.spawnFor("town") ② __world.heroNode() の 2 経路)',
+          !!gW && !!gW.townNode && gW.spawnForTown === gW.townNode && gW.heroNode === gW.townNode,
+          gW ? '街へ戻るノード=' + JSON.stringify(gW.townNode)
+             + ' / ① spawnFor("town")=' + JSON.stringify(gW.spawnForTown)
+             + ' / ② heroNode()=' + JSON.stringify(gW.heroNode)
+             : '遷移していない');
+
+    /* (3d) そのまま港町フランの札を押して街へ戻る。 */
+    const back = gW ? await returnToTown(gx.page) : null;
+    const bT = back && back.spawnTown ? { c: back.spawnTown[0], r: back.spawnTown[1] } : null;
+    /* ⭐ SPAWNS.town と一致するだけだとデータの写しになるので、
+       「出口タイルの 1 マス内側」(直前に居た場所の前) という規則も同時に見る。 */
+    const bAdj = !!(bT && gT && Math.abs(bT.c - gT.c) + Math.abs(bT.r - gT.r) === 1);
+    check('(3d) 港町フランの札から街へ戻る → 主人公が (6,1) / exitVia が null (消費済み)',
+          !!back && back.path === '/town.html' && back.search === ''
+          && !!bT && eq(back.tile, bT) && bAdj
+          && back.spawnVia === 'town' && back.exitVia === null,
+          back ? (back.why ? '⛔ ' + back.why + '  ' : '')
+                 + 'enterId=' + JSON.stringify(back.enterId) + ' path=' + JSON.stringify(back.path)
+                 + ' tile=' + JSON.stringify(back.tile) + ' SPAWNS.town=' + JSON.stringify(back.spawnTown)
+                 + ' 出口の1マス内側=' + bAdj
+                 + ' spawnVia=' + JSON.stringify(back.spawnVia) + ' exitVia=' + JSON.stringify(back.exitVia)
+               : 'world へ遷移していないので戻れない');
+    if (gx.page) await gx.page.close();
 
     /* ── §4 恒等 (非退行) ─────────────────────────────────────────────── */
     console.log('\n--- §4 恒等 (非退行) ---');

@@ -331,6 +331,17 @@
     try { townOff = sessionStorage.getItem(TOWN_OFF_KEY) === "1"; } catch (e) { townOff = false; }
     if (townOff) { location.replace("tavern.html"); return; }
 
+    /* ══ 撤退スイッチ ?world=0 (#21 と共有) ═════════════════════
+       ⚠ 判定位置は ?town=0 と同じ IIFE 先頭。⚠ キーは #21 が使っているものと同一
+         (title.html:371 / index.html:3098 / world.html:329)。新しいキーを作らない。
+       ⚠ ここでは replace しない。街そのものは生きていて、**出口の札だけ**が出なくなる。 */
+    var WORLD_OFF_KEY = "dragonfighters.worldOff";
+    try {
+      if (new URLSearchParams(location.search).get("world") === "0") sessionStorage.setItem(WORLD_OFF_KEY, "1");
+    } catch (e) {}
+    var worldOff = false;
+    try { worldOff = sessionStorage.getItem(WORLD_OFF_KEY) === "1"; } catch (e) { worldOff = false; }
+
     /* ══ 撤退スイッチ ?heromark=0 / ?signplate=0 (依頼書 #15 §7) ═══════════
        ⚠ ?town=0 と**同じ位置**で判定する。後ろへ置くと撤退したはずの姿が一瞬見える。
        ⚠ クエリはページ遷移をまたがない。?heromark=0 は index.html 側で**独立に**読む
@@ -504,6 +515,9 @@
       TM.FACILITIES.forEach(function (f) {
         /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
         if (f.requiresPlazaUnlock && !plazaUnlocked()) return;
+        /* ⚠ ?world=0 のときは出口を **DOM に作らない**。display:none で残すと押せてしまう
+           (闇市の作法と同じ)。 */
+        if (f.to && worldOff) return;
         var s = document.createElement("div");
         s.className = "townSign";
         s.id = "townSign_" + f.key;
@@ -618,6 +632,16 @@
     function enterFacility(f) {
       if (leaving) return;
       leaving = true;
+      /* ⭐ 「町の外へ」は酒場ではなく地方全景へ。
+         ⛔ enterVia を書かない (酒場の一回性キー)。⛔ クエリも足さない (#6 / #12 の確定作法)。
+         ⚠ exitVia = "town" は **world 側の fail-safe に phlan を返させるため**に要る
+           (書かないと駒が pier に立つ。依頼書 §2-1 / §2-2)。
+           消費するのは今日どおり town.html の exitVia 読み取り 1 箇所だけ。 */
+      if (f.to) {
+        try { sessionStorage.setItem(EXIT_VIA_KEY, "town"); } catch (e) {}
+        location.href = f.to;
+        return;
+      }
       try { sessionStorage.setItem(ENTER_VIA_KEY, f.via); } catch (e) {}
       /* ⛔ クエリを足さない。URL は常に素の tavern.html (依頼書 §3 / #6 の禁止事項) */
       location.href = "tavern.html";
