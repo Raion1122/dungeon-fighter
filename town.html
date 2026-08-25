@@ -566,7 +566,11 @@
     /* ══ 移動 ═══════════════════════════════════════════════════════════
        ⭐ 歩きはタイル 1 マスずつの補間。経路は TOWN_MAP.findPath (4 近傍) が出したものだけを辿る。
        ⛔ クリック地点への直線移動は却下 (運河があるので橋を渡れず詰む)。 */
-    var MS_PER_TILE = 170;
+    /* ⭐ 2026-08-25 実機体感で「速い」→ 半分へ (170 → 340)。world.html の PX_PER_MS と対。
+       ⚠⚠ コマ送り (下の step 内の除数) は **時間基準**なので MS_PER_TILE と必ず同率で動かすこと。
+         340 にして周期 95 を据え置くと 1 マスあたり 1.79 コマ → 3.58 コマになり、
+         足だけ元の速さで回って **滑って見える**。比 170:95 を保つ = 340:190。 */
+    var MS_PER_TILE = 340;
     var walkTimer = null, pendingArrive = null;
 
     function stopWalk() {
@@ -592,7 +596,7 @@
         var t = Math.min(1, (now - t0) / MS_PER_TILE);
         heroPx.x = from.x + (to.x - from.x) * t;
         heroPx.y = from.y + (to.y - from.y) * t;
-        frame = Math.floor((now - t0) / 95 + idx * 2) % 6;
+        frame = Math.floor((now - t0) / 190 + idx * 2) % 6;   /* ⚠ MS_PER_TILE と同率 (170:95 を維持) */
         placeHero(heroPx.x, heroPx.y);
         applyCamera();
         if (t >= 1) {
