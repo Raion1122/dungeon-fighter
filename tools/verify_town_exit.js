@@ -20,8 +20,8 @@
  *      - **最終項目 (④) の完了条件は「PENDING 0」**
  *    ⚠ PENDING は exit code に影響しない (0 のまま)。FAILED があるときだけ exit 1。
  *
- * ■ 実装状況 (項目 ① 時点)
- *    ✅ §0 §1 を実装。§2 §3 §4 §5 は枠だけ (PENDING)。
+ * ■ 実装状況 (項目 ④ = 最終項目時点)
+ *    ✅ §0〜§5 を全部実装済み = **PENDING 0**。--negative も 4/4 実行。
  *    ⚠ (0a) の変異アンカー 4 種のうち 3 種は `town.html` 側 = **項目 ② が書くまで存在しない**。
  *      → アンカー 0 件は `exit 3` ではなく **PENDING**。2 件以上だけ即死 (変異が効きすぎる
  *        事故は静かに壊れるため)。項目 ② が行を書いた瞬間、自動で本物の装置 assert に変わる。
@@ -791,9 +791,62 @@ function runNegative(audit) {
 
     /* ── §5 撤退 ──────────────────────────────────────────────────────── */
     console.log('\n--- §5 撤退 (?world=0) ---');
-    pending('(5a) town.html?world=0 → .townSign が 3 枚 / townSign_gate が DOM に無い / compact の #townHud button も 3 個', '項目④');
-    pending('(5b) ?world=0 の後に素の town.html をロードしても効いている (sessionStorage へ写っている)', '項目④');
-    pending('(5c) ⭐ 同じ測定関数を両モードへ当てて conjunction が崩れる (gateExists && gateClickable && signCount === facilities.length)', '項目④');
+    /* ⭐⭐⭐ 「3」を直書きしない。母集団の唯一の正は FACILITIES なので **facCount - 1** で引く
+       (出口は f.to を持つちょうど 1 件 = §0 の (0b) が id 列で押さえている)。
+       ⚠⚠ openTown の purge は sessionStorage の __drvSeeded で **1 タブ 1 回**。
+         (5b) は「クエリ無しの 2 回目のロード」を測るので、**同じタブで page.goto を 2 回**踏む。
+         新しいタブを作ると purge が走って worldOff が消え、assert が静かに空振りする。 */
+    const off = await openTown(browser, base, { plazaUnlocked: true, url: '/town.html?world=0' });
+    const offAlive = await waitTownReady(off.page, 12000);
+    const sOff = offAlive ? await measureSigns(off.page) : null;
+
+    /* compact は別タブで測る (HUD ボタンは札と同じループで作られるが、押し口が別系統なので別に見る)。 */
+    const offC = await openTown(browser, base,
+      { plazaUnlocked: true, url: '/town.html?world=0', w: 390, h: 844, mobile: true });
+    const offCAlive = await waitTownReady(offC.page, 12000);
+    const cOff = offCAlive ? await measureSigns(offC.page) : null;
+
+    check('(5a) town.html?world=0 → .townSign が 3 枚 / townSign_gate が DOM に無い / compact の #townHud button も 3 個',
+          !!sOff && sOff.signCount === sOff.facCount - 1 && sOff.gateExists === false
+          && sOff.signIds.indexOf('townSign_' + sOff.gateKey) < 0
+          && !!cOff && cOff.hudCount === cOff.facCount - 1,
+          sOff ? 'desktop signs=' + sOff.signCount + '/' + sOff.facCount
+               + ' (期待 facCount-1=' + (sOff.facCount - 1) + ') [' + sOff.signIds.join(' ') + ']'
+               + ' gateKey=' + JSON.stringify(sOff.gateKey) + ' gateExists=' + sOff.gateExists
+               + '  compact hud=' + (cOff ? cOff.hudCount + '/' + cOff.facCount : 'n/a')
+             : '街が起動していない');
+    if (offC.page) await offC.page.close();
+
+    /* (5b) 同じタブで素の town.html をもう一度ロードする。purge は走らないので
+       ?world=0 が sessionStorage へ写っていれば効き続けるはず。 */
+    await off.page.goto(base + '/town.html', { waitUntil: 'load', timeout: 30000 });
+    const off2Alive = await waitTownReady(off.page, 12000);
+    const sOff2 = off2Alive ? await measureSigns(off.page) : null;
+    const off2Env = await off.page.evaluate(() => ({
+      search: location.search,
+      worldOff: sessionStorage.getItem('dragonfighters.worldOff')
+    }));
+    check('(5b) ?world=0 の後に素の town.html をロードしても効いている (sessionStorage へ写っている)',
+          !!sOff2 && off2Env.search === '' && off2Env.worldOff === '1'
+          && sOff2.gateExists === false && sOff2.signCount === sOff2.facCount - 1,
+          (sOff2 ? 'signs=' + sOff2.signCount + '/' + sOff2.facCount
+                 + ' gateExists=' + sOff2.gateExists + ' [' + sOff2.signIds.join(' ') + ']'
+                 : '街が起動していない')
+          + '  env=' + JSON.stringify(off2Env));
+
+    /* (5c) ⭐⭐⭐ 「?world=0 で緑」ではなく、**同じ conjunction を両モードへ当てる**。
+       ON で成立し OFF で崩れて初めて「このスイッチが効いている」と言える
+       (OFF だけ測ると、出口がそもそも壊れていても永久に緑になる)。
+       ⭐ 材料は measureSigns の 1 本から全部引く。ON = §1 で採った s をそのまま使う。 */
+    const conj = (m) => !!m && m.gateExists === true && m.gateClickable === true && m.signCount === m.facCount;
+    const conjDump = (m) => m ? JSON.stringify({ gateExists: m.gateExists, gateClickable: m.gateClickable,
+                                                 signCount: m.signCount, facCount: m.facCount }) : 'null';
+    check('(5c) ⭐ 同じ測定関数を両モードへ当てて conjunction が崩れる (gateExists && gateClickable && signCount === facilities.length)',
+          conj(s) === true && conj(sOff) === false && conj(sOff2) === false,
+          'ON=' + conj(s) + ' ' + conjDump(s)
+          + ' / OFF=' + conj(sOff) + ' ' + conjDump(sOff)
+          + ' / OFF(2回目)=' + conj(sOff2) + ' ' + conjDump(sOff2));
+    if (off.page) await off.page.close();
 
   } catch (e) {
     console.error('\n[drv] 例外: ' + e.message + '\n' + (e.stack || ''));
