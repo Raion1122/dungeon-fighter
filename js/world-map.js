@@ -150,6 +150,38 @@
     "dragon-lair":    "dragon"
   };
 
+  /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
+   *  ⭐⭐⭐ **唯一の正は tavern.html:2218 の scenarios[] の locked / unlockAfter。**
+   *     world から 6,802 行の tavern は読めないので #21 の label と同じく
+   *     **意図的に重複させ、ドライバが配信中の実体と機械照合する**
+   *     (tools/verify_quest_walk.js の (2z) / verify_world_map.js の (7a) が前例)。
+   *  ⚠ null = 最初から解放済み (goblin-mine だけ locked: false)。
+   *  ⛔ ここへ「クリア済みか」を持たせない。状態の出所は localStorage の 1 キーだけ。 */
+  var UNLOCK = {
+    "goblin-mine":    null,
+    "bandits-forest": "goblin-mine",
+    "lizard-swamp":   "bandits-forest",
+    "orc-fort":       "lizard-swamp",
+    "undead-temple":  "orc-fort",
+    "dragon-lair":    "undead-temple"
+  };
+
+  /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
+   * ⚠ 契約は tavern.html:4179 の isUnlocked() と同一 — 前提が無ければ常に true。 */
+  function isRevealed(scenarioId, cleared) {
+    if (!Object.prototype.hasOwnProperty.call(UNLOCK, scenarioId)) return true;
+    var need = UNLOCK[scenarioId];
+    if (!need) return true;
+    return Array.isArray(cleared) && cleared.indexOf(need) >= 0;
+  }
+
+  /* ノード id → シナリオ id (SITES の逆引き)。⛔ 別表を作らず SITES から毎回引く。 */
+  function scenarioOfNode(nodeId) {
+    var ks = Object.keys(SITES);
+    for (var i = 0; i < ks.length; i++) if (SITES[ks[i]] === nodeId) return ks[i];
+    return null;
+  }
+
   /* ── 立ち位置 ─────────────────────────────────────────────────────
    *  規則は 1 本: **ワールドマップに出るときは、直前に居た場所に立つ。**
    *
@@ -174,7 +206,8 @@
 
   global.WORLD_MAP = {
     W: W, H: H,
-    NODES: NODES, EDGES: EDGES, SITES: SITES,
-    has: has, neighbors: neighbors, findPath: findPath, spawnFor: spawnFor
+    NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
+    has: has, neighbors: neighbors, findPath: findPath, spawnFor: spawnFor,
+    isRevealed: isRevealed, scenarioOfNode: scenarioOfNode
   };
 })(typeof window !== "undefined" ? window : this);
