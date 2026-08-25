@@ -227,12 +227,19 @@ function judgeNoOverflow(rows, cap) {
       } catch (e) {}
     }, { mark: PURGE_MARK, seen: opts.prologueSeen !== false });
 
-    /* ★ index.html への遷移だけ abort する。departToScenario() は本番のまま完走させ、
-         tavern.html のページ (と JS 状態) を生かしたまま何度も測る。 */
+    /* ★ 酒場から出ていく遷移を abort する。departToScenario() は本番のまま完走させ、
+         tavern.html のページ (と JS 状態) を生かしたまま何度も測る。
+       ⚠⚠⚠ **world.html を含めること** (実測 2026-08-26 / 実装依頼書 #23 項目 2)。
+         #23 以降、本筋 6 シナリオの出発は **地方全景 (world.html)** を 1 段挟む。
+         index.html だけを abort していると酒場のタブが本当に地図へ遷移し、
+         以降の evaluate が全部 "Execution context was destroyed" /
+         "QuestGen is not defined" で倒れる (実測: 82/82 → 57/66 + FATAL)。
+       ⭐ ここで ?questwalk=0 (#23 の撤退スイッチ) へ逃げない。本ドライバが測るのは
+         人数だけで行き先は何でもよい → **既定の本番導線のまま**測る方が強い。 */
     await page.setRequestInterception(true);
     page.on('request', (r) => {
       try {
-        if (r.isNavigationRequest() && r.frame() === page.mainFrame() && /\/index\.html/.test(r.url())) {
+        if (r.isNavigationRequest() && r.frame() === page.mainFrame() && /\/(index|world)\.html/.test(r.url())) {
           navBlocked.push(r.url());
           r.abort('aborted');
           return;

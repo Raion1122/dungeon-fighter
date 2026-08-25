@@ -1831,6 +1831,12 @@
        事故 (`8519138` = ボスを倒してもクリアしない) を構造的に封じる。
        ⚠ 404 でも酒場は死なせない → 下の ROOM_SLOTS に現行値そのままの救命ボートを内蔵してある。 -->
   <script src="js/df-mapdef.js"></script>
+  <!-- 地方全景のルートグラフ (ノード / エッジ / 拠点 / 解放の鎖)。world.html と共有。
+       ⚠⚠⚠ **ここで読む理由 = departToScenario() より前だから。** 出発の分岐が
+         window.WORLD_MAP.SITES を見て「本筋 6 シナリオか生成クエストか」を判別する
+         (実装依頼書 #23 §5-2)。読み込みを外すと WORLD_MAP が undefined になり、
+         分岐が永久に false = 地図を一度も挟まないまま静かに今日どおりへ落ちる。 -->
+  <script src="js/world-map.js"></script>
 </head>
 <body>
   <script>
@@ -1884,6 +1890,20 @@
     } catch (e) {}
     window.__townOff = (function () {
       try { return sessionStorage.getItem("dragonfighters.townOff") === "1"; } catch (e) { return false; }
+    })();
+
+    /* ══ 出発導線の撤退スイッチ ?questwalk=0 (実装依頼書 #23 §7) ══════════════
+       立っているときは「今日とまったく同じ」= 出発は index.html へ直行し、
+       地図の札も 7 枚とも出て誰も入れない。⛔ ?town=0 / ?world=0 とは独立
+       (相乗りさせると赤が出たときどの撤退か切り分けられなくなる)。
+       ⚠ クエリはページ遷移をまたがないので、見た時点で sessionStorage へ写す。 */
+    try {
+      if (new URLSearchParams(location.search).get("questwalk") === "0") {
+        sessionStorage.setItem("dragonfighters.questWalkOff", "1");
+      }
+    } catch (e) {}
+    window.__questWalkOff = (function () {
+      try { return sessionStorage.getItem("dragonfighters.questWalkOff") === "1"; } catch (e) { return false; }
     })();
 
     /* dev 専用 URL チートの有効条件 (index.html と同一実装)。
@@ -2116,10 +2136,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>依頼の地まで自分で歩いて向かう</b> — 受注しても即出発ではなく、地方全景を歩いて目的地の立て札にたどり着いてから潜るようになった。まだ解放していない依頼の地は地図に現れない。</li>
         <li><b>地方の地図で立て札が主人公にかぶらなくなった</b> — 拠点の羊皮紙が頭上へ上がり、足元には拠点の印が出るようになった。</li>
         <li><b>町と地図を歩く速さをゆっくりに</b> — 港町フランと地方全景で、主人公が景色を眺めながら歩く速さになった。</li>
         <li><b>町から地方の地図へ出られるようになった</b> — 港町フランの北の街道口に「町の外へ」の立て札。押すと地方全景が開き、次の目的地まで駒が歩く。</li>
-        <li><b>ワールドマップが開けるようになった</b> — 冒険の始まりと、ダンジョンからの帰り道に、地方の全景を歩いて渡れる。</li>
       </ul>
     </div>
     <script>
@@ -5614,6 +5634,38 @@
     if (params.length) {
       const sep = target.includes("?") ? "&" : "?";
       target += sep + params.join("&");
+    }
+    /* ══ 地方全景を経由するか (実装依頼書 #23 §5-2) ═══════════════════════
+       ⭐ 5 条件の **すべて**が揃ったときだけ地図を挟む。1 つでも欠けたら今日どおり直行。
+         ① 行き先が素の index.html      … battle.html 等の単体検証は素通し
+         ② 本筋 6 シナリオ              … 生成クエストは据え置き (ユーザー決定 2026-08-25)。
+                                          ⭐ 判定は SITES に在るかだけ。両方とも id は
+                                          "generated-quest" なので別表は要らない (§2-1)
+         ③ dev / ヘッドレスの印が無い   … ⚠⚠⚠ 地図を挟むと autoplay / evade が
+                                          **確実に落ちる** (§2-3 罠 B)。probe_s2_clear.js /
+                                          sweep_recruit_balance.js がここで死ぬ
+         ④ ?questwalk=0 が立っていない
+         ⑤ ?world=0 が立っていない      … ⚠ 立っていると world.html は即 town.html へ
+                                          replace するので、依頼を持ったまま街に放り出される */
+    var viaWorld = (params.length === 0)
+      && (target === "index.html")
+      && !!(window.WORLD_MAP && WORLD_MAP.SITES && WORLD_MAP.SITES[prepScenario.id])
+      && !window.__questWalkOff
+      && !(function () {
+           try { return sessionStorage.getItem("dragonfighters.worldOff") === "1"; } catch (e) { return false; }
+         })();
+
+    if (viaWorld) {
+      /* ⭐ 受注中の行き先。world.html だけが読み、入場の直前に消費する。
+         ⛔ currentScenario で代用しない — 帰還後も残る値なので「受注中」を表せない。 */
+      try { sessionStorage.setItem("dragonfighters.questDest", prepScenario.id); } catch (e) {}
+      /* ⚠⚠ §2-4 罠 C: これを書かないと駒は港町でなく **桟橋** に立つ
+         (world.html の spawnVia が空の exitVia を "title" と読み、spawnFor が pier を返す)。
+         ⭐ "tavern" は spawnFor が知らない値 → fail-safe の phlan へ落ちる。#22 と同じ手。
+         ⛔ enterVia / lastResult には触れない (消費するのは酒場)。 */
+      try { sessionStorage.setItem("dragonfighters.exitVia", "tavern"); } catch (e) {}
+      window.location.href = "world.html";   // ⛔ クエリを足さない
+      return;
     }
     window.location.href = target;
   }

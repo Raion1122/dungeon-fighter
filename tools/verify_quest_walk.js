@@ -416,6 +416,9 @@ async function measureWorld(browser, port, errs, opts) {
         hasSign: !!sign,
         signText: sign ? sign.textContent : null,
         kind: WM ? WM.NODES[id].kind : null,
+        /* ⭐ 項目 2 が追加。(4b) が「港町フラン以外」を **enter の有無**で選り分けるために要る
+           (⛔ ドライバに "phlan" と直書きしない)。項目 3 の (5b) もこの窓で測れる。 */
+        hasEnter: WM ? (WM.NODES[id].enter !== undefined) : null,
       };
     }
     let clearedRaw = null;
@@ -458,6 +461,229 @@ async function measureDevice(browser, port, errs, tav) {
     stages[n] = m;
   }
   return { stages: stages, lo: 0, hi: tav.order.length };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 装置 — 酒場から出発させて着地先を測る (項目 2 が追加。§1 / §4 が使う)
+// ══════════════════════════════════════════════════════════════════════════════
+/* ⚠ classic script 直下の let/const/function は window に載らない。
+ *   本番の識別子は **裸で** 読む (verify_recruit_size.js:270 と同じ作法)。 */
+const VIS_FN = `(function(el){
+  if (!el) return false;
+  if (typeof el.checkVisibility === 'function')
+    return el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+  return el.getClientRects().length > 0;
+})`;
+
+/* 実クリックだけで 酒場 → 依頼書ダイアログ → 出発準備 まで進む。
+ * ⭐ 既定で解放されているのは goblin-mine (テーブル 1) だけ = 廃坑の受注そのもの。
+ * ⛔ prepScenario を直接置く近道にしない ((1a) の文面が「受注 → 準備 → #btnDepart」)。
+ * 手本 = verify_recruit_size.js:315 advanceToPrep()。 */
+async function advanceToPrep(page, maxSteps) {
+  const steps = [];
+  /* ⚠ 150 回 (約 63 秒) は手本どおり。受注ナレーションが #prologueOverlay を使い回して
+     おり、音声ペースで 1 行ずつ進むので 60 回だと準備画面まで届かない (2026-08-26 実測:
+     steps = [table>btnAccept>prologueOverlay>partyMatchOverlay>prologueOverlay] で打ち切り)。 */
+  for (let i = 0; i < (maxSteps || 150); i++) {
+    const st = await page.evaluate((visSrc) => {
+      const vis = eval(visSrc);
+      const q = (id) => document.getElementById(id);
+      if (vis(q('prep'))) return { done: true, at: 'prep' };
+      if (vis(q('partyMatchOverlay'))) { q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' }; }
+      if (vis(q('prologueOverlay')))   { q('prologueOverlay').click();   return { done: false, at: 'prologueOverlay' }; }
+      const acc = q('btnAccept');
+      if (vis(acc) && !acc.disabled) { acc.click(); return { done: false, at: 'btnAccept' }; }
+      const t = document.querySelector('#tableArea .table');
+      if (t && vis(t)) { t.click(); return { done: false, at: 'table' }; }
+      return { done: false, at: '(待機)' };
+    }, VIS_FN);
+    if (steps[steps.length - 1] !== st.at) steps.push(st.at);
+    if (st.done) return { reached: true, steps: steps };
+    await sleep(420);
+  }
+  return { reached: false, steps: steps };
+}
+
+/* ── 出発を 1 回測る ──────────────────────────────────────────────────────────
+ *  opts = { tag, query, reopen, mode:'ui'|'generated', seed }
+ *
+ *  ⭐⭐⭐ **index.html への遷移だけを横取りして中止する**。理由は 2 つ:
+ *    ① index.html は本編まるごと = 重く、console.error も出るので (9a) を汚す
+ *    ② 中止した **リクエスト URL の search が、着地していたはずの location.search そのもの**
+ *       → (4d)「autoplay=10 が残っている」を、本編を起動せずに直接測れる
+ *    ⚠ departToScenario() は本番のまま完走する (横取りするのは遷移だけ) ので、
+ *      sessionStorage への書き込みは全部起きている。手本 = verify_recruit_size.js:230。
+ *  ⛔ world.html は横取りしない ((1a) が heroNode を実際に読む必要がある)。 */
+async function measureDepart(browser, port, errs, opts) {
+  const o = opts || {};
+  const tag = '[:' + port + ' depart' + (o.tag ? ' ' + o.tag : '') + '] ';
+  const page = await newPage(browser, errs, tag, o);
+  /* ⚠⚠ 前口上 (音声ペースで数分) は測定対象外。※これを飛ばさないと
+     advanceToPrep が #prologueOverlay を押し続けて準備画面へ永久に届かない
+     (2026-08-26 実測: steps が [prologueOverlay] だけで止まる)。
+     ⭐ localStorage なので 1 回書けばタブ内で生き続ける。dev ゲートとは無関係のキー。
+     手本 = verify_recruit_size.js:222。 */
+  await page.evaluateOnNewDocument(() => {
+    try { localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
+  });
+  const blocked = [];
+  await page.setRequestInterception(true);
+  page.on('request', (r) => {
+    try {
+      const u = r.url();
+      const nav = (typeof r.isNavigationRequest === 'function')
+        ? (r.isNavigationRequest() && r.frame() === page.mainFrame())
+        : (r.resourceType() === 'document');
+      if (nav && /\/index\.html(\?|#|$)/.test(u)) {
+        /* ⚠ 'aborted' を明示する。既定の abort() は net::ERR_FAILED で
+           Chrome が console.error を 1 本吐く → (9a) が偽の赤になる。 */
+        blocked.push(u); r.abort('aborted'); return;
+      }
+      r.continue();
+    } catch (e) { try { r.continue(); } catch (e2) {} }
+  });
+
+  const WAIT_TAVERN = "typeof scenarios !== 'undefined' && typeof departToScenario === 'function'";
+  await page.goto('http://localhost:' + port + TAVERN_PATH + (o.query || ''), { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction(WAIT_TAVERN, { timeout: 20000 });
+  /* (4c) 用: **同じタブで**クエリ無しへ開き直す (sessionStorage へ写せているかの検査)。 */
+  if (o.reopen !== undefined && o.reopen !== null) {
+    await page.goto('http://localhost:' + port + TAVERN_PATH + o.reopen, { waitUntil: 'load', timeout: 30000 });
+    await page.waitForFunction(WAIT_TAVERN, { timeout: 20000 });
+  }
+  await settle(page);
+
+  /* ⭐ 装置: 酒場から WORLD_MAP が本当に見えているか。⚠⚠⚠ ここが 'undefined' だと
+     §5-2 の分岐が永久に false = 「何も起きないのに緑」になる。必ず証拠へ出す。 */
+  const seam = await page.evaluate(() => ({
+    scenarios: typeof scenarios,
+    departToScenario: typeof departToScenario,
+    regenerate: typeof regeneratePartyMembers,
+    QuestGen: typeof QuestGen,
+    buildPlazaSynthetic: typeof buildPlazaSynthetic,
+    worldMapInTavern: typeof window.WORLD_MAP,
+    sites: (window.WORLD_MAP && window.WORLD_MAP.SITES) ? Object.keys(window.WORLD_MAP.SITES) : null,
+    questWalkOff: window.__questWalkOff === true,
+    search: location.search,
+  }));
+
+  let reachedPrep = null, steps = [];
+  if (o.mode === 'generated') {
+    /* ⭐ 本番の変換器を通す (⛔ 合成シナリオをドライバに写経しない)。
+       手本 = verify_recruit_size.js:806 の buildPlazaSynthetic(QuestGen.generateQuest(...))。 */
+    const g = await page.evaluate(() => {
+      const out = { threw: '', id: null, target: null };
+      try {
+        const q = QuestGen.generateQuest(3, { source: 'plaza' });
+        q._sentence = QuestGen.buildSentence(q);
+        const s = buildPlazaSynthetic(q);        // ★本番の 生成クエスト → シナリオ 変換
+        prepScenario = s;                        // openPrep(synthetic) が最初にやることと同じ
+        regeneratePartyMembers();                // ★本番の再抽選
+        out.id = s.id; out.target = s.target;
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    steps = ['QuestGen>buildPlazaSynthetic'];
+    reachedPrep = (g.threw === '');
+    if (g.threw) errs.push(tag + '生成クエストの合成に失敗: ' + g.threw);
+  } else {
+    const adv = await advanceToPrep(page);
+    reachedPrep = adv.reached; steps = adv.steps;
+  }
+
+  const pre = await page.evaluate(() => ({
+    prepId: (typeof prepScenario === 'object' && prepScenario) ? prepScenario.id : null,
+    prepTarget: (typeof prepScenario === 'object' && prepScenario) ? (prepScenario.target || null) : null,
+    hasBtn: !!document.getElementById('btnDepart'),
+  }));
+  /* ★本番の「出発する」ボタン。⛔ departToScenario() を直接叩かない。 */
+  await page.evaluate(() => { const b = document.getElementById('btnDepart'); if (b) b.click(); });
+
+  /* 決着待ち: 「index.html への遷移が中止された」か「tavern から出た」かのどちらか。 */
+  const t0 = Date.now();
+  while (Date.now() - t0 < 15000) {
+    if (blocked.length) break;
+    let u = ''; try { u = page.url(); } catch (e) {}
+    if (!/\/tavern\.html/.test(u)) break;
+    await sleep(120);
+  }
+
+  const landedUrl = page.url();
+  const out = {
+    tag: o.tag || '', seam: seam, steps: steps, reachedPrep: reachedPrep,
+    prepId: pre.prepId, prepTarget: pre.prepTarget, hasBtn: pre.hasBtn,
+    blocked: blocked.slice(),
+    blockedParsed: blocked.map(u => {
+      try { const x = new URL(u); return { path: x.pathname, search: x.search }; }
+      catch (e) { return { path: '⛔', search: '⛔' }; }
+    }),
+    landed: { url: landedUrl, path: '', search: '' },
+    heroNode: null, spawnVia: null, worldSignCount: null,
+  };
+  if (/\/world\.html/.test(landedUrl)) {
+    await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 }).catch(() => {});
+    await settle(page);
+    const w = await page.evaluate(() => ({
+      heroNode: (window.__world && typeof window.__world.heroNode === 'function') ? window.__world.heroNode() : null,
+      spawnVia: (window.__world && typeof window.__world.spawnVia === 'function') ? window.__world.spawnVia() : null,
+      signCount: document.querySelectorAll('.worldSign').length,
+      path: location.pathname, search: location.search,
+    }));
+    out.heroNode = w.heroNode; out.spawnVia = w.spawnVia; out.worldSignCount = w.signCount;
+    out.landed.path = w.path; out.landed.search = w.search;
+  } else {
+    const p = await page.evaluate(() => ({ path: location.pathname, search: location.search }));
+    out.landed.path = p.path; out.landed.search = p.search;
+  }
+  out.storage = await readStorage(page);
+  await page.close();
+  return out;
+}
+
+/* ── 地図の札を実際に押す ((4b)) ─────────────────────────────────────────────
+ *  ⭐ 押す先は **enter を持たない site ノード** = 「港町フラン以外」を実測で選り分ける
+ *    (⛔ "phlan" をドライバに直書きしない)。手本 = verify_world_map.js の (7e)。 */
+async function measureWorldClicks(browser, port, errs, opts) {
+  const m = await measureWorld(browser, port, errs, Object.assign({}, opts || {}, { keepOpen: true }));
+  const page = m.page;
+  const tag = '[:' + port + ' worldclick' + (opts && opts.tag ? ' ' + opts.tag : '') + '] ';
+  const ids = Object.keys(m.nodes).filter(id => m.nodes[id].kind === 'site' && m.nodes[id].hasEnter === false);
+  const rows = [];
+  for (const id of ids) {
+    const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    if (!pt) { rows.push({ id: id, err: 'clientFromNode が null' }); continue; }
+    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+    try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 30000, polling: 80 }); }
+    catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); }
+    rows.push(await page.evaluate((i) => ({
+      id: i,
+      node: window.__world.heroNode(),
+      path: location.pathname, search: location.search,
+      hasAskOpen: typeof window.__world.askOpen === 'function',
+      askOpen: (typeof window.__world.askOpen === 'function') ? window.__world.askOpen() : null,
+    }), id));
+  }
+  m.clicks = rows; m.clickIds = ids;
+  await page.close(); delete m.page;
+  return m;
+}
+
+/* ── world.html のソース検査 ((1b) の後半) ───────────────────────────────────
+ *  「enterVia / lastResult は getItem すらしていない」を機械化する。
+ *  ⭐ 判定 = ① キー文字列を Storage API に渡している箇所が 0 件
+ *            ② それらの語を含む行が 1 行も Storage と同居していない (= 全部コメント)
+ *  ⚠ 母集団ガード: world.html を本当に配信できたか (served) を必ず併記する。 */
+async function readWorldSource(port) {
+  const r = await httpGet('http://localhost:' + port + WORLD_PATH);
+  const body = r.body || '';
+  const lines = [];
+  body.split(/\r?\n/).forEach((t, i) => { if (/enterVia|lastResult/.test(t)) lines.push({ n: i + 1, text: t.trim() }); });
+  return {
+    served: r.status === 200 && body.length > 1000,
+    status: r.status, bytes: body.length, lines: lines,
+    withStorage: lines.filter(h => /Storage/.test(h.text)),
+    apiHits: body.match(/(?:session|local)Storage\s*\.\s*(?:get|set|remove)Item\s*\(\s*["'][^"']*(?:enterVia|lastResult)/g) || [],
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -517,12 +743,70 @@ const ASSERTS = [
   // ── §1 出発の導線 ──────────────────────────────────────────────────────────
   ['1a', '★酒場で廃坑を受注 → 準備 → #btnDepart → world.html に着き、location.search === ""'
     + ' ⭐ 2 経路で突き合わせる: page.url() と、着地後の __world.heroNode() が "phlan" であること'
-    + ' (§2-4 罠 C の裏返し)', null, P2],
+    + ' (§2-4 罠 C の裏返し)',
+    m => {
+      const d = m.depart;
+      /* ⭐⭐⭐ 装置: 酒場から WORLD_MAP が見えているか。'undefined' なら §5-2 の条件②が
+         永久 false = 地図を一度も挟まないまま「素で緑」になる。合否に含める。 */
+      const ok = d.seam.worldMapInTavern === 'object'
+        && d.reachedPrep === true && d.prepId === 'goblin-mine'
+        && d.blocked.length === 0
+        && /\/world\.html$/.test(d.landed.path) && d.landed.search === ''
+        && d.heroNode === 'phlan';
+      return [ok, '準備画面まで [' + d.steps.join('>') + '] 受注=' + d.prepId
+        + '  →  着地 ' + d.landed.path + ' search="' + d.landed.search + '"'
+        + '  heroNode=' + d.heroNode + ' (spawnVia=' + JSON.stringify(d.spawnVia) + ')'
+        + '  [装置] 酒場で typeof window.WORLD_MAP=' + d.seam.worldMapInTavern
+        + ' SITES=' + JSON.stringify(d.seam.sites)
+        + ' / index.html への遷移 ' + d.blocked.length + ' 件'];
+    }],
   ['1b', '★departToScenario が書く既存キーが 地図に着いた後も全部生きている:'
     + ' currentScenario / partyMembers / partyComposition / questFlags / exitVia (= "tavern") /'
-    + ' 新設 questDest (= "goblin-mine")。⛔ lastResult / enterVia は getItem すらしていない', null, P2],
+    + ' 新設 questDest (= "goblin-mine")。⛔ lastResult / enterVia は getItem すらしていない',
+    m => {
+      const d = m.depart, s = d.storage.session, w = m.worldSrc;
+      const j = (k) => { try { return JSON.parse(s[k]); } catch (e) { return null; } };
+      const party = j(KEY_PARTY), comp = j(KEY_PARTY_COMP), flags = j(KEY_QUEST_FLAGS);
+      const alive = s[KEY_SCENARIO] === 'goblin-mine'
+        && Array.isArray(party) && party.length > 0
+        && Array.isArray(comp) && comp.length === party.length
+        && flags !== null && typeof flags === 'object'
+        && s[KEY_EXIT_VIA] === 'tavern'
+        && s[KEY_QUEST_DEST] === 'goblin-mine';
+      /* ⛔ world.html が enterVia / lastResult を **getItem すらしていない** の機械化。
+         ⚠ 母集団ガード: world.html を本当に配信できたか (served) を合否に含める。 */
+      const untouched = w.served && w.withStorage.length === 0 && w.apiHits.length === 0;
+      return [alive && untouched,
+        'currentScenario=' + s[KEY_SCENARIO]
+        + ' / partyMembers=' + (Array.isArray(party) ? party.length + '人' : '⛔' + s[KEY_PARTY])
+        + ' / partyComposition=' + (Array.isArray(comp) ? comp.length + '件' : '⛔' + s[KEY_PARTY_COMP])
+        + ' / questFlags=' + s[KEY_QUEST_FLAGS]
+        + ' / exitVia=' + s[KEY_EXIT_VIA] + ' / questDest=' + s[KEY_QUEST_DEST]
+        + '  ||  world.html(' + w.bytes + 'B status=' + w.status + ') の enterVia|lastResult 出現 '
+        + w.lines.length + ' 行 (行 ' + w.lines.map(h => h.n).join(',') + ') '
+        + '— Storage と同居 ' + w.withStorage.length + ' 行 / '
+        + 'getItem 等へキーを渡している箇所 ' + w.apiHits.length + ' 件'];
+    }],
   ['1c', '生成クエスト (掲示板 / 闇市) で出発 → index.html へ直行し、questDest が書かれない'
-    + ' (ユーザー決定「据え置き」の機械化)', null, P2],
+    + ' (ユーザー決定「据え置き」の機械化)',
+    m => {
+      const d = m.departGen, s = d.storage.session;
+      const b = d.blockedParsed[0] || { path: '(遷移なし)', search: '' };
+      const ok = d.seam.worldMapInTavern === 'object'   /* 装置: 判別の材料が在る上での「直行」 */
+        && d.prepId === 'generated-quest'
+        && d.blockedParsed.length === 1 && /\/index\.html$/.test(b.path) && b.search === ''
+        && /\/tavern\.html$/.test(d.landed.path)        /* world へは 1 度も行っていない */
+        && s[KEY_SCENARIO] === 'generated-quest'        /* 出発処理は本当に走った */
+        && s[KEY_QUEST_DEST] === null;
+      return [ok, '合成シナリオ id=' + d.prepId + ' target=' + d.prepTarget
+        + '  →  遷移先 ' + b.path + ' search="' + b.search + '" (' + d.blockedParsed.length + ' 件)'
+        + '  currentScenario=' + s[KEY_SCENARIO]
+        + ' questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])
+        + ' exitVia=' + (s[KEY_EXIT_VIA] === null ? '(無し)' : s[KEY_EXIT_VIA])
+        + '  [装置] SITES に "generated-quest" は'
+        + (((d.seam.sites || []).indexOf('generated-quest') >= 0) ? '**ある**⛔' : '無い')
+        + ' (SITES=' + JSON.stringify(d.seam.sites) + ')'];
+    }],
 
   // ── §2 未解放の不可視 ──────────────────────────────────────────────────────
   ['2z', '★js/world-map.js の UNLOCK が、配信中の tavern.html の scenarios[] から読み取った'
@@ -550,15 +834,105 @@ const ASSERTS = [
     + ' (#21 の (7d) を壊していない = ダイアログが display:none である証明)', null, P3],
 
   // ── §4 撤退 ────────────────────────────────────────────────────────────────
-  ['4a', 'tavern.html?questwalk=0 で受注 → 出発 → index.html へ直行。questDest が無い', null, P2],
+  ['4a', 'tavern.html?questwalk=0 で受注 → 出発 → index.html へ直行。questDest が無い',
+    m => {
+      const d = m.departOff, s = d.storage.session;
+      const b = d.blockedParsed[0] || { path: '(遷移なし)', search: '' };
+      const ok = d.seam.worldMapInTavern === 'object'
+        && d.seam.questWalkOff === true && s[KEY_WALK_OFF] === '1'
+        && d.reachedPrep === true && d.prepId === 'goblin-mine'
+        && d.blockedParsed.length === 1 && /\/index\.html$/.test(b.path) && b.search === ''
+        && /\/tavern\.html$/.test(d.landed.path)
+        && s[KEY_QUEST_DEST] === null;
+      return [ok, '酒場 URL="' + d.seam.search + '" __questWalkOff=' + d.seam.questWalkOff
+        + ' sessionStorage[questWalkOff]=' + s[KEY_WALK_OFF]
+        + '  受注=' + d.prepId + '  →  ' + b.path + ' search="' + b.search + '"'
+        + '  questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])
+        + '  [装置] 酒場で typeof window.WORLD_MAP=' + d.seam.worldMapInTavern];
+    }],
   ['4b', 'world.html?questwalk=0 → 札が 7 枚とも出る (cleared = [] でも)。'
-    + ' 港町フラン以外はどれも遷移しない = #21 の (7e) と同じ姿', null, P2],
+    + ' 港町フラン以外はどれも遷移しない = #21 の (7e) と同じ姿',
+    m => {
+      const w = m.walkOffWorld;
+      const bad = [];
+      for (const r of w.clicks) {
+        if (r.err) { bad.push(r.id + ':' + r.err); continue; }
+        if (!/\/world\.html$/.test(r.path)) bad.push(r.id + ':' + r.path + ' へ遷移した');
+        if (r.search !== '?questwalk=0') bad.push(r.id + ':search="' + r.search + '"');
+        if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
+        if (r.askOpen === true) bad.push(r.id + ':確認ダイアログが出た');
+      }
+      /* ⛔ 「常に true を返す式」にしない。DOM の .worldSign を **実際に数えて** 7 と比べる。
+         ⚠ 今は world.html が未実装なので 7 枚は自明だが、項目 3 の実装後も 7 枚のままで
+           あることを守る番人になる (撤退スイッチが効いている証明)。 */
+      const ok = w.search === '?questwalk=0'        /* 装置: クエリが本当に届いている */
+        && w.signCount === 7
+        && w.clickIds.length === 6                  /* 港町フラン以外 = enter を持たない site */
+        && bad.length === 0;
+      return [ok, 'URL search="' + w.search + '"  .worldSign=' + w.signCount + ' 枚'
+        + '  押した札 ' + w.clickIds.length + ' 枚 (' + w.clickIds.join(',') + ')'
+        + '  遷移 0 件 / 確認ダイアログ 0 件'
+        + (w.clicks.length && w.clicks[0].hasAskOpen === false
+            ? ' (⚠ __world.askOpen() はまだ無い = 項目 3 が足す。出ていないことは path で押さえた)' : '')
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
+    }],
   ['4c', '?questwalk=0 を付けた後、クエリ無しで開き直しても撤退が効いている'
-    + ' (sessionStorage へ写せている)。⭐ 同じタブで測る', null, P2],
+    + ' (sessionStorage へ写せている)。⭐ 同じタブで測る',
+    m => {
+      const d = m.departOff2, s = d.storage.session;
+      const b = d.blockedParsed[0] || { path: '(遷移なし)', search: '' };
+      const ok = d.seam.worldMapInTavern === 'object'
+        && d.seam.search === ''                     /* ★ 開き直した後は素の URL */
+        && d.seam.questWalkOff === true             /* それでも撤退が効いている */
+        && s[KEY_WALK_OFF] === '1'
+        && d.blockedParsed.length === 1 && /\/index\.html$/.test(b.path) && b.search === ''
+        && /\/tavern\.html$/.test(d.landed.path)
+        && s[KEY_QUEST_DEST] === null;
+      return [ok, '?questwalk=0 → 同じタブでクエリ無しへ開き直した後の location.search="'
+        + d.seam.search + '"  __questWalkOff=' + d.seam.questWalkOff
+        + '  sessionStorage[questWalkOff]=' + s[KEY_WALK_OFF]
+        + '  →  ' + b.path + ' search="' + b.search + '"'
+        + '  questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])];
+    }],
   ['4d', '★★★ tavern.html?autoplay=10 で出発 → index.html へ直行し、location.search に'
     + ' autoplay=10 が残っている (§2-3 罠 B の直接の検査。probe_s2_clear.js /'
-    + ' sweep_recruit_balance.js の身代わり)', null, P2],
-  ['4e', '?world=0 が立っているとき、出発は index.html 直行 (依頼を持ったまま街に落ちない)', null, P2],
+    + ' sweep_recruit_balance.js の身代わり)',
+    m => {
+      const d = m.departAuto, s = d.storage.session;
+      const b = d.blockedParsed[0] || { path: '(遷移なし)', search: '' };
+      /* ⭐⭐⭐ worldMapInTavern を合否に入れるのが肝。入れないと「WORLD_MAP が
+         undefined で地図を一度も挟まない」実装でも (4d) は緑になってしまう。 */
+      const ok = d.seam.worldMapInTavern === 'object'
+        && d.seam.search === '?autoplay=10'
+        && d.reachedPrep === true && d.prepId === 'goblin-mine'
+        && d.blockedParsed.length === 1 && /\/index\.html$/.test(b.path)
+        && /(^|[?&])autoplay=10($|&)/.test(b.search)
+        && /\/tavern\.html$/.test(d.landed.path)
+        && s[KEY_QUEST_DEST] === null;
+      return [ok, '酒場 URL="' + d.seam.search + '"  →  遷移先 ' + b.path
+        + ' search="' + b.search + '"'
+        + ' (⭐ これが着地していたはずの location.search。横取りしたのは遷移だけ)'
+        + '  questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])
+        + '  [装置] 酒場で typeof window.WORLD_MAP=' + d.seam.worldMapInTavern
+        + ' (undefined なら地図を挟む条件が永久 false = この緑は嘘)'];
+    }],
+  ['4e', '?world=0 が立っているとき、出発は index.html 直行 (依頼を持ったまま街に落ちない)',
+    m => {
+      const d = m.departWorldOff, s = d.storage.session;
+      const b = d.blockedParsed[0] || { path: '(遷移なし)', search: '' };
+      const ok = d.seam.worldMapInTavern === 'object'
+        && s[KEY_WORLD_OFF] === '1'                 /* ★ 装置: ?world=0 の写しが実在する */
+        && d.seam.questWalkOff === false            /* ⭐ questwalk とは独立に効いている */
+        && d.reachedPrep === true && d.prepId === 'goblin-mine'
+        && d.blockedParsed.length === 1 && /\/index\.html$/.test(b.path) && b.search === ''
+        && /\/tavern\.html$/.test(d.landed.path)
+        && s[KEY_QUEST_DEST] === null;
+      return [ok, 'sessionStorage[worldOff]=' + s[KEY_WORLD_OFF]
+        + ' / [questWalkOff]=' + (s[KEY_WALK_OFF] === null ? '(無し)' : s[KEY_WALK_OFF])
+        + '  受注=' + d.prepId + '  →  ' + b.path + ' search="' + b.search + '"'
+        + '  questDest=' + (s[KEY_QUEST_DEST] === null ? '(無し)' : s[KEY_QUEST_DEST])
+        + '  [装置] 酒場で typeof window.WORLD_MAP=' + d.seam.worldMapInTavern];
+    }],
 
   // ── §5 恒等 (非退行) ───────────────────────────────────────────────────────
   ['5a', 'WORLD_MAP.NODES / EDGES / SITES の中身が 1 件も変わっていない'
@@ -639,6 +1013,31 @@ const SECTIONS = [
       console.log('         __world.revealed() = ' + (hi.hasRevealed ? 'あり' : '⚠ まだ無い')
         + '   __world.questDest() = ' + (hi.hasQuestDestFn ? 'あり' : '⚠ まだ無い')
         + '   __world.askOpen() = ' + (hi.hasAskOpenFn ? 'あり' : '⚠ まだ無い'));
+
+      /* ══ §1 / §4 の測定 (項目 2 が追加) ═══════════════════════════════════
+         ⭐ 1 回の measureDepart = 1 タブ。seedPage の仕込みは 1 タブ 1 回だけ効くので、
+           腕どうしが sessionStorage を汚し合うことはない。
+         ⚠ index.html への遷移だけ横取りして中止するので、本編は 1 度も起動しない
+           (重さと console.error を持ち込まない)。 */
+      mark('§1 / §4 の測定 — 酒場から実際に出発させる');
+      m.worldSrc       = await readWorldSource(PORT);
+      m.depart         = await measureDepart(browser, PORT, errs, { tag: '素',            mode: 'ui',        seed: { cleared: [] } });
+      m.departGen      = await measureDepart(browser, PORT, errs, { tag: '生成クエスト',   mode: 'generated', seed: { cleared: [] } });
+      m.departOff      = await measureDepart(browser, PORT, errs, { tag: 'questwalk=0',   mode: 'ui', query: '?questwalk=0', seed: { cleared: [] } });
+      m.departOff2     = await measureDepart(browser, PORT, errs, { tag: 'questwalk=0→素', mode: 'ui', query: '?questwalk=0', reopen: '', seed: { cleared: [] } });
+      m.departAuto     = await measureDepart(browser, PORT, errs, { tag: 'autoplay=10',   mode: 'ui', query: '?autoplay=10', seed: { cleared: [] } });
+      m.departWorldOff = await measureDepart(browser, PORT, errs, { tag: 'world=0',       mode: 'ui', seed: { cleared: [], session: { [KEY_WORLD_OFF]: '1' } } });
+      m.walkOffWorld   = await measureWorldClicks(browser, PORT, errs, { tag: 'questwalk=0', query: '?questwalk=0', seed: { cleared: [] } });
+      console.log('       [記録] 出発の着地先 (⭐ 「地図を挟む / 挟まない」を分ける 5 条件の実測):');
+      for (const d of [m.depart, m.departGen, m.departOff, m.departOff2, m.departAuto, m.departWorldOff]) {
+        const b = d.blockedParsed[0];
+        console.log('         ' + (d.tag + '                ').slice(0, 16)
+          + ' 受注=' + ((d.prepId || '-') + '            ').slice(0, 16)
+          + ' → ' + (b ? (b.path + b.search + '  (直行)') : (d.landed.path + d.landed.search + '  (地図経由)'))
+          + '  questDest=' + (d.storage.session[KEY_QUEST_DEST] === null ? '—' : d.storage.session[KEY_QUEST_DEST])
+          + '  exitVia=' + (d.storage.session[KEY_EXIT_VIA] === null ? '—' : d.storage.session[KEY_EXIT_VIA])
+          + '  heroNode=' + (d.heroNode === null ? '—' : d.heroNode));
+      }
 
       for (let i = 1; i < SECTIONS.length; i++) {
         mark(SECTIONS[i][0]);
