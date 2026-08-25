@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ダンジョンファイターズ — 地方全景</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
+  <!--
+    world.html — 地方全景 (ワールドマップ)
+    ═══════════════════════════════════════════════════════════════════════
+    実装依頼書 `実装依頼書/2026-08-25_world-map-entry.md`。検証は tools/verify_world_map.js。
+
+    ★ このファイルの責務は「世界のどこに立っているか」と「どこへ歩くか」だけ。
+      ⛔ **ゲームロジックを書かない。** パーティ編成・装備・クエスト・戦闘は 1 つも持たない。
+      ⛔ **数値の写しを作らない。** ノード / エッジ / 拠点 / 立ち位置は js/world-map.js が唯一の正。
+        クラス定義は js/hero-classes.js、セーブは js/save-slots.js。
+      (town.html の設計思想をそのまま持ってきている。器は薄く、データは 1 箇所)
+
+    ★ 読み込むのは 4 本だけ (依頼書 §6-1 の指定。これ以上増やさない)
+        js/save-slots.js  … 記録の切り替えは title.html の担当。ここでは同席させるだけ
+        js/hero-classes.js… 主人公のクラスキーの妥当性確認 (未知なら warrior へ)
+        js/world-map.js   … ルートグラフ / 拠点 / 立ち位置
+        audio.js          … BGM ("world" = fierd.mp3) と効果音
+                            ⚠ **読み込むだけ。** playBgm の呼び口は依頼書 §6-2 の 6 = 別項目の担当。
+
+    ★⭐⭐⭐ 罠 C — 「絵の道」と「歩けるデータ」を別々に持つと必ずズレる (依頼書 §2-4)
+      街道の描き幅は 1 マス 64px に対して実測 ~10px しかないので、**通行マスクは作らない**。
+      画面に描く点線は WORLD_MAP.EDGES **ただ 1 つ**から生成し、歩ける経路も同じ配列から引く。
+      ⚠ この HTML の中で「ノード座標 → 線の端点」を計算しているのは
+        **edgeEnds() の 1 箇所だけ**。⛔ 2 箇所目を作らないこと
+        (負のコントロール maskdrift の変異アンカーが 2 ヒットして exit 3 になる)。
+
+    ★ 点線の見た目 (依頼書 §12-2 の実測)
+      全区間の直下が中〜暗調 (luma mean 72.2〜116.7 / 区間内 max 146.6) なので **明色 1 色でよい**。
+      ⚠ 縁取りを省くと最も明るい区間 (farm_n—pass_n の max 146.6) で線が溶ける。
+      → 明色 (#f6ead0 = luma 234.7) の丸い点 + **暗色の縁取り**。
+        縁取りは `<g>` に掛けた drop-shadow で作る。
+        ⭐ こうすると **1 エッジ = <line> 1 本**のまま縁取りが乗る。
+        ⚠⚠ 縁取りを「同じ座標にもう 1 本太い線を敷く」方式でやると、線分の本数が
+           EDGES.length の 2 倍になり、受入条件 (2a) が原理的に測れなくなる。
+
+    ★ スプライト (依頼書 §6-2 の 4 / town.html と同じ規則)
+      assets/<class>_walk.png は全 6 職とも 576x384 = **96px セル 6 列 x 4 行**。
+      **row 3 が右向き**、左へ歩くときは scaleX(-1)。
+      ⭐ **足元をノード座標に置く** (top = y - 96*0.93)。
+        town.html は「足元をタイル中心に置く」だったので、その規則を
+        「足元を**ルート上の点**に置く」へ読み替えただけ。⚠ この 0.93 を動かさない。
+
+    ★ カメラ (依頼書 §6-2 の 5 / town.html の layout() / insets() を流用)
+      デスクトップ: 1536x1024 が **帯を除いた領域に** 全部入る倍率で固定 (地図は全体が見えてこそ)。
+      compact:      可視域を満たす倍率にして主人公を追う (縦持ちで上下が真っ黒になるのを避ける)。
+      ⚠⚠ insets() = 上下の帯の高さを**実測して引く**。引かないと拠点の札が帯の下に潜る。
+      ⭐ **黒帯を作らない工夫**: 全体を入れると 1536x1024 (3:2) と画面 (16:10 等) の
+        アスペクト差ぶんだけ左右が余る。そこは黒く塗らず、**同じ地図をぼかして敷いた
+        #worldBackdrop** で埋める (卓の上に地図を広げた見え方)。⛔ 画面を切り取って
+        黒帯を消す (= 地図の端が見えなくなる) 方向へは倒さない。
+
+    ★ 移動 (依頼書 §6-3)
+      - **ノードをタップ** → WORLD_MAP.findPath でグラフ上を歩く。エッジ上は線形補間、
+        向きは進行方向で scaleX。
+      - ⛔ **線の無いところをタップしても動かない** (town.html の「歩けないタイルでは動かない」と
+        同じ判断。隣接まで寄せる救済は入れない)。だから viewport には click ハンドラを置かない。
+      - ⛔ 遷移先にクエリを足さない (#6 / #12 の確定作法)。
+
+    ★ ⛔ ここにまだ無いもの (後続項目の担当。勝手に足さない)
+      - 拠点の羊皮紙の立て札 7 枚 … .worldNode > .worldNodeBody を差し替える形にしてある
+      - 一回性キー (exitVia / lastResult / enterVia) の peek … ⛔ **1 つも removeItem しない**
+      - phlan から town.html への遷移 … onArriveNode() が差し込み口
+      - 撤退スイッチ ?world=0
+      - BGM の呼び口 GameAudio.playBgm("world") / unlock()
+  -->
+  <style>
+    :root {
+      --parchment-ink: #3a2912;
+      --parchment-gold: #8b6914;
+      --route-ink: #f6ead0;            /* 点線の明色。luma 234.7 (依頼書 §12-2 の「luma >= 220」) */
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden;                       /* ⚠ 受入条件 (5a): 横スクロールバーを出さない */
+      background: #0a0805;
+      color: #f5e8c8;
+      font-family: 'Cinzel', 'Times New Roman', serif;
+      -webkit-text-size-adjust: 100%;
+      touch-action: manipulation;
+    }
+
+    /* ── 余白を埋める背景 ────────────────────────────────────────────────
+       地図 (3:2) と画面のアスペクト差ぶんの余りを黒帯にしない。
+       ⚠ 同じ URL なのでブラウザのキャッシュに乗る (2 回ダウンロードしない)。 */
+    #worldBackdrop {
+      position: fixed; inset: 0;
+      background-image: url("assets/world_region.jpg");
+      background-size: cover; background-position: center;
+      filter: blur(22px) brightness(0.34) saturate(0.55);
+      transform: scale(1.08);                 /* blur の縁が透けるのを隠す */
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── 舞台 ────────────────────────────────────────────────────────────
+       #worldViewport が画面いっぱいの窓、#worldStage が絵の実寸 (1536x1024)。
+       拡大とカメラは **stage の transform 1 本**でやる (子要素は素の px 座標のままでよい)。 */
+    #worldViewport {
+      position: fixed; inset: 0;
+      overflow: hidden;
+      background: transparent;                /* ⚠ 黒で塗らない (#worldBackdrop を透かす) */
+      z-index: 1;
+    }
+    #worldStage {
+      position: absolute; left: 0; top: 0;
+      transform-origin: 0 0;
+      box-shadow: 0 0 34px 8px rgba(0,0,0,0.55);
+    }
+    /* ⭐ 背景画像を CSS の background ではなく <img> で敷く理由:
+       受入条件 (0b) が **naturalWidth / naturalHeight を DOM から**読んで
+       WORLD_MAP.W / H と突き合わせる。CSS background には自然寸法の読み口が無い。 */
+    #worldBg {
+      position: absolute; left: 0; top: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; user-select: none; -webkit-user-drag: none;
+    }
+
+    /* ── ルート (点線) ───────────────────────────────────────────────────
+       ⭐ 1 エッジ = <line> 1 本。⛔ 縁取りのために 2 本目を敷かない (受入条件 (2a))。 */
+    #worldRoutes {
+      position: absolute; left: 0; top: 0;
+      overflow: visible;                      /* drop-shadow が切れないように */
+      pointer-events: none;
+      z-index: 1;
+    }
+    #worldRouteInk {
+      /* 暗色の縁取り。#15 の羊皮紙立て札と同じ「明色 + 暗い縁」のトンマナ。 */
+      filter: drop-shadow(0 0 1.6px rgba(0,0,0,0.95))
+              drop-shadow(0 0 3.2px rgba(0,0,0,0.85));
+    }
+    .worldRouteLine {
+      stroke: var(--route-ink);
+      stroke-width: 6;
+      stroke-linecap: round;
+      stroke-dasharray: 1 17;                 /* 丸い「点」が 18px おき = 点線 */
+      fill: none;
+    }
+
+    /* 主人公。⚠ 96px セルを 1:1 で出す */
+    #worldHero {
+      position: absolute;
+      width: 96px; height: 96px;
+      background-repeat: no-repeat;
+      background-size: 576px 384px;           /* 96px セル 6列 x 4行 */
+      transform-origin: 50% 100%;
+      pointer-events: none;
+      filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55));
+      z-index: 3;
+    }
+    /* 足元の楕円影。⭐ 接地点 = ノード座標が「どこに立っているか」の唯一の手がかり */
+    #worldHeroShadow {
+      position: absolute;
+      width: 44px; height: 16px;
+      margin-left: -22px; margin-top: -8px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 70%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* 行き先マーカー */
+    #worldGoal {
+      position: absolute;
+      width: 52px; height: 52px;
+      margin-left: -26px; margin-top: -26px;
+      border: 2px solid rgba(120,255,180,0.85);
+      border-radius: 50%;
+      box-shadow: inset 0 0 12px rgba(120,255,180,0.35);
+      pointer-events: none; opacity: 0;
+      z-index: 1;
+      transition: opacity 0.25s ease;
+    }
+    #worldGoal.show { opacity: 1; }
+
+    /* ── ノードの当たり判定 ──────────────────────────────────────────────
+       ⭐⭐⭐ **1 ノード = 1 要素** (`data-node`)。site の 7 つは後続項目が
+         .worldNodeBody の中身を **羊皮紙の立て札**へ差し替える。
+       ⚠ 受入条件 (7d) が「札の中心の elementFromPoint が自分自身か子孫」を要求するので、
+         この要素より上に pointer-events を持つ物を重ねないこと
+         (#worldHero / #worldHeroShadow / #worldGoal は全部 pointer-events: none)。 */
+    .worldNode {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex; align-items: center; justify-content: center;
+      width: 44px; height: 44px;
+      cursor: pointer;
+      z-index: 4;
+    }
+    .worldNodeBody {
+      display: block;
+      border-radius: 50%;
+      background: var(--route-ink);
+      box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
+      transition: transform 0.12s ease;
+    }
+    .worldNode-way .worldNodeBody  { width: 9px;  height: 9px; }
+    .worldNode-site .worldNodeBody {
+      width: 18px; height: 18px;
+      background: radial-gradient(circle at 40% 35%, #fff6da 0%, var(--route-ink) 55%, #c8a45c 100%);
+      box-shadow: 0 0 0 3px rgba(20,14,6,0.92), 0 0 12px rgba(255,220,130,0.55), 0 2px 6px rgba(0,0,0,0.7);
+    }
+    .worldNode:hover .worldNodeBody { transform: scale(1.25); }
+
+    /* ── 画面上の帯 ─────────────────────────────────────────────────── */
+    #worldTitle {
+      position: fixed; left: 0; right: 0; top: 0;
+      padding: 10px 14px calc(10px + env(safe-area-inset-top, 0px));
+      text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      font-size: 20px; letter-spacing: 0.08em;
+      color: #f0dca8;
+      text-shadow: 0 2px 6px #000, 0 0 12px #000;
+      background: linear-gradient(to bottom, rgba(10,8,5,0.72), rgba(10,8,5,0));
+      pointer-events: none;                   /* ⚠ 帯の下のノードが押せなくなるのを防ぐ */
+      z-index: 10;
+    }
+    #worldTitle small {
+      display: block; margin-top: 2px;
+      font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 0;
+      color: #cbb98c;
+    }
+    body.compact #worldTitle { font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div id="worldBackdrop"></div>
+  <div id="worldViewport">
+    <div id="worldStage">
+      <img id="worldBg" src="assets/world_region.jpg" alt="" draggable="false">
+      <svg id="worldRoutes" xmlns="http://www.w3.org/2000/svg"><g id="worldRouteInk"></g></svg>
+      <div id="worldGoal"></div>
+      <div id="worldHeroShadow"></div>
+      <div id="worldHero"></div>
+      <!-- .worldNode はここへ JS が並べる -->
+    </div>
+  </div>
+
+  <div id="worldTitle">地方全景
+    <small>行き先をタップ / 街道の点線をたどって歩く</small>
+  </div>
+
+  <script src="js/save-slots.js"></script>
+  <script src="js/hero-classes.js"></script>
+  <script src="js/world-map.js"></script>
+  <script src="audio.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    var WM = window.WORLD_MAP;
+    if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
+
+    var MAP_W = WM.W, MAP_H = WM.H;            // 1536 x 1024 (js/world-map.js が唯一の正)
+    var NODES = WM.NODES, EDGES = WM.EDGES;
+    var SPRITE = 96;                           // 歩行シートのセル
+    var FOOT = 0.93;                           // ★接地比 (town.html / index.html と同じ実測値)
+    var SHEET_ROW_RIGHT = 3;                   // ★右向きの行 (index.html updateKnightSprite と同じ)
+
+    var SVG_NS = "http://www.w3.org/2000/svg";
+
+    var elViewport = document.getElementById("worldViewport");
+    var elStage    = document.getElementById("worldStage");
+    var elRoutes   = document.getElementById("worldRoutes");
+    var elInk      = document.getElementById("worldRouteInk");
+    var elHero     = document.getElementById("worldHero");
+    var elShadow   = document.getElementById("worldHeroShadow");
+    var elGoal     = document.getElementById("worldGoal");
+
+    elStage.style.width  = MAP_W + "px";
+    elStage.style.height = MAP_H + "px";
+
+    /* ══ compact 判定 ═══════════════════════════════════════════════════
+       ⚠ town.html:385 / tavern.html:2020 と **同じ 3 条件**。写しを作らず同じ式を使う。 */
+    function isCompact() {
+      try {
+        return window.matchMedia('(max-width: 560px)').matches
+            || window.matchMedia('(max-height: 480px)').matches
+            || window.matchMedia('(hover: none)').matches;
+      } catch (e) { return false; }
+    }
+
+    /* ══ ルート (点線) ══════════════════════════════════════════════════
+       ⭐⭐⭐ **「ノード座標 → 線の端点」を計算しているのは、この関数ただ 1 つ。**
+         ⛔ 2 箇所目を作らない。散らすと負のコントロール maskdrift の変異アンカーが
+            複数ヒットして exit 3 になる (依頼書 §8 / #20 で実測)。
+         ⚠ 行を整形し直さないこと (1 行まるごとがアンカー)。 */
+    function edgeEnds(a, b) { return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }; }
+
+    function buildRoutes() {
+      elRoutes.setAttribute("width", MAP_W);
+      elRoutes.setAttribute("height", MAP_H);
+      elRoutes.setAttribute("viewBox", "0 0 " + MAP_W + " " + MAP_H);
+      for (var i = 0; i < EDGES.length; i++) {
+        var e = EDGES[i], a = NODES[e[0]], b = NODES[e[1]];
+        if (!a || !b) continue;                /* データ側が壊れていたら (0a)/(3a) が拾う */
+        var p = edgeEnds(a, b);
+        var ln = document.createElementNS(SVG_NS, "line");
+        ln.setAttribute("class", "worldRouteLine");
+        ln.setAttribute("data-edge", e[0] + "__" + e[1]);
+        ln.setAttribute("x1", p.x1); ln.setAttribute("y1", p.y1);
+        ln.setAttribute("x2", p.x2); ln.setAttribute("y2", p.y2);
+        elInk.appendChild(ln);
+      }
+    }
+    buildRoutes();
+
+    /* ══ 主人公 ═════════════════════════════════════════════════════════ */
+    function heroClassKey() {
+      var key = null;
+      try {
+        var pc = JSON.parse(localStorage.getItem("dragonfighters.partyComposition") || "[]");
+        if (Array.isArray(pc) && typeof pc[0] === "string") key = pc[0];
+      } catch (e) {}
+      /* ⚠ 知らないクラスキーで <class>_walk.png を引くと 404 になって主人公が消える。 */
+      var known = (window.HERO_CLASSES || []).map(function (c) { return c.classKey; });
+      if (!key || (known.length && known.indexOf(key) < 0)) key = "warrior";
+      return key;
+    }
+    var HERO_CLASS = heroClassKey();
+    elHero.style.backgroundImage = 'url("assets/' + HERO_CLASS + '_walk.png")';
+
+    /* ══ 立ち位置 ═══════════════════════════════════════════════════════
+       ⛔⛔ ここは **後続項目の差し込み口**。sessionStorage の一回性キー
+         (exitVia / currentScenario) を **peek するだけ** で spawnFor へ渡す形になる。
+         ⚠⚠⚠ removeItem は 1 本も呼ばない (依頼書 §2-2 の罠 A)。
+         今は「タイトルから来た」= pier に固定してある。 */
+    var heroNodeId = WM.spawnFor("title");
+    if (!WM.has(heroNodeId)) heroNodeId = "phlan";
+    var heroPx = { x: NODES[heroNodeId].x, y: NODES[heroNodeId].y };
+    var facingLeft = false;
+
+    /* ══ 描画 ═══════════════════════════════════════════════════════════ */
+    var frame = 0, moving = false;
+    function placeHero(cx, cy) {
+      /* ⭐ 足元をノード座標に置く (town.html の「足元をタイル中心に置く」の読み替え) */
+      elHero.style.left = (cx - SPRITE / 2) + "px";
+      elHero.style.top  = (cy - SPRITE * FOOT) + "px";
+      elHero.style.transform = facingLeft ? "scaleX(-1)" : "none";
+      elHero.style.backgroundPosition = (-frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
+      elShadow.style.left = cx + "px";
+      elShadow.style.top  = cy + "px";
+    }
+    placeHero(heroPx.x, heroPx.y);
+
+    /* ══ カメラ ═════════════════════════════════════════════════════════
+       ⚠⚠ 母集団は画面の向きでも割れる。デスクトップ横長と compact 縦の**両方**で測ること。 */
+    var zoom = 1, camX = 0, camY = 0;
+    /* 可視域 = 画面から上下の帯を引いた残り。
+       ⚠⚠ 帯の高さを引かずに中央へ寄せると、拠点の札がタイトル帯の下に潜る (town.html で実測)。
+       ⚠ #worldHud はまだ無い (後続項目が compact 用の帯を足すならここが読み口)。 */
+    function insets() {
+      var elTitle = document.getElementById("worldTitle");
+      var elHud   = document.getElementById("worldHud");
+      var top = elTitle ? elTitle.offsetHeight : 0;
+      var bottom = 0;
+      if (elHud && elHud.offsetHeight > 0) {
+        try { if (getComputedStyle(elHud).display !== "none") bottom = elHud.offsetHeight; } catch (e) {}
+      }
+      return { top: top, bottom: bottom };
+    }
+    function layout() {
+      var compact = isCompact();
+      document.body.classList.toggle("compact", compact);
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var avail = Math.max(120, vh - ins.top - ins.bottom);
+      if (compact) {
+        /* ⭐ compact は「全体を入れる」ではなく **可視域を満たす** 倍率。
+           1536x1024 を縦長の画面へ収めると上下が真っ黒になり、しかも駒が豆粒になる
+           (390x844 で全体を入れると zoom 0.25 = 駒が実効 24px)。
+           満たす倍率にしてカメラで追えば黒帯ゼロで駒が読める大きさになる。
+           ⚠ 下限 0.42 は「極端に横長の compact (横持ち)」で寄りが足りなくなる保険
+             (駒の実効 96*0.42 = 40px)。⚠ 上限 1.5 は寄りすぎ防止。 */
+        zoom = Math.min(1.5, Math.max(vw / MAP_W, avail / MAP_H, 0.42));
+      } else {
+        /* デスクトップ: 1536x1024 が **帯を除いた領域に** 全部入る倍率で固定。
+           ⭐ 地図は全体が見えてこそなので、ここは切り取らない。
+             アスペクト差ぶんの余りは #worldBackdrop (同じ地図のぼかし) が埋める。 */
+        zoom = Math.min(vw / MAP_W, avail / MAP_H);
+      }
+      applyCamera();
+    }
+    function applyCamera() {
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var viewTop = ins.top, viewH = Math.max(120, vh - ins.top - ins.bottom);
+      var sw = MAP_W * zoom, sh = MAP_H * zoom;
+      if (sw <= vw) camX = (vw - sw) / 2;
+      else camX = Math.max(vw - sw, Math.min(0, vw / 2 - heroPx.x * zoom));
+      if (sh <= viewH) camY = viewTop + (viewH - sh) / 2;
+      else camY = Math.max(viewTop + viewH - sh, Math.min(viewTop, viewTop + viewH / 2 - heroPx.y * zoom));
+      elStage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + zoom + ")";
+    }
+    window.addEventListener("resize", layout);
+    window.addEventListener("orientationchange", layout);
+
+    /* ══ ノード ═════════════════════════════════════════════════════════
+       ⭐ site の 7 つは後続項目が .worldNodeBody を羊皮紙の立て札へ差し替える。
+         当たり判定の要素 (.worldNode[data-node]) は**そのまま**なので、
+         札になっても (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。 */
+    var nodeEls = {};
+    function buildNodes() {
+      Object.keys(NODES).forEach(function (id) {
+        var n = NODES[id];
+        var el = document.createElement("div");
+        el.className = "worldNode worldNode-" + (n.kind === "site" ? "site" : "way");
+        el.id = "worldNode_" + id;
+        el.setAttribute("data-node", id);
+        el.setAttribute("data-kind", n.kind);
+        /* ⛔ 文言をここに写さない。label / desc の唯一の正は js/world-map.js。 */
+        if (n.label) el.title = n.label;
+        var body = document.createElement("span");
+        body.className = "worldNodeBody";
+        el.appendChild(body);
+        el.style.left = n.x + "px";
+        el.style.top  = n.y + "px";
+        el.addEventListener("click", function (ev) { ev.stopPropagation(); goToNode(id); });
+        elStage.appendChild(el);
+        nodeEls[id] = el;
+      });
+    }
+    buildNodes();
+
+    /* ══ 移動 ═══════════════════════════════════════════════════════════
+       ⭐ 経路は WORLD_MAP.findPath が出したノード列だけを辿り、エッジ上は線形補間。
+       ⛔ 線の無いところをタップしても動かない → viewport に click ハンドラを置かない
+         (依頼書 §6-3。隣接まで寄せる救済も入れない)。 */
+    var PX_PER_MS = 0.36;                      /* 街の 64px/170ms = 0.376 px/ms とほぼ同じ体感 */
+    var PX_PER_FRAME = 34;                     /* 歩行アニメの 1 コマぶんの距離 */
+    var walkTimer = null, pendingArrive = null;
+
+    function stopWalk() {
+      if (walkTimer) { cancelAnimationFrame(walkTimer); walkTimer = null; }
+      moving = false; frame = 0;
+      placeHero(heroPx.x, heroPx.y);
+    }
+
+    function walkPath(ids, onArrive) {
+      stopWalk();
+      pendingArrive = onArrive || null;
+      if (!ids || !ids.length) {
+        if (pendingArrive) { var f0 = pendingArrive; pendingArrive = null; f0(); }
+        return;
+      }
+      var idx = 0;
+      var from = { x: heroPx.x, y: heroPx.y };
+      var to = { x: NODES[ids[0]].x, y: NODES[ids[0]].y };
+      var t0 = performance.now(), walked = 0;
+      moving = true;
+      if (to.x !== from.x) facingLeft = (to.x < from.x);
+      function step(now) {
+        var span = Math.max(1, Math.sqrt((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y)));
+        var t = Math.min(1, (now - t0) * PX_PER_MS / span);
+        heroPx.x = from.x + (to.x - from.x) * t;
+        heroPx.y = from.y + (to.y - from.y) * t;
+        frame = Math.floor((walked + span * t) / PX_PER_FRAME) % 6;
+        placeHero(heroPx.x, heroPx.y);
+        applyCamera();
+        if (t >= 1) {
+          heroNodeId = ids[idx];
+          heroPx.x = NODES[heroNodeId].x; heroPx.y = NODES[heroNodeId].y;
+          walked += span;
+          idx++;
+          if (idx >= ids.length) {
+            stopWalk();
+            elGoal.classList.remove("show");
+            if (pendingArrive) { var fn = pendingArrive; pendingArrive = null; fn(); }
+            return;
+          }
+          from = { x: heroPx.x, y: heroPx.y };
+          to = { x: NODES[ids[idx]].x, y: NODES[ids[idx]].y };
+          if (to.x !== from.x) facingLeft = (to.x < from.x);
+          t0 = now;
+        }
+        walkTimer = requestAnimationFrame(step);
+      }
+      walkTimer = requestAnimationFrame(step);
+    }
+
+    /* ⛔ 到着したときに何かする (港町フランなら town.html へ入る) のは後続項目の担当。
+       ここは「歩いて止まる」だけ。差し込み口だけ 1 本に畳んである。 */
+    function onArriveNode(id) { /* 後続項目: enter を持つノードならページ遷移 */ }
+
+    function goToNode(id) {
+      if (!WM.has(id)) return false;
+      if (id === heroNodeId && !moving) { onArriveNode(id); return true; }
+      var path = WM.findPath(heroNodeId, id);
+      if (path === null) return false;         /* 到達できないノードでは動かない */
+      var n = NODES[id];
+      elGoal.style.left = n.x + "px"; elGoal.style.top = n.y + "px";
+      elGoal.classList.add("show");
+      walkPath(path, function () { onArriveNode(id); });
+      return true;
+    }
+
+    /* ══ 検証シーム ═════════════════════════════════════════════════════
+       ⚠ classic script 直下の let/const/function は window に載らない。
+         ドライバが読むものは明示的に載せる (town.html / title.html と同じ作法)。
+       ⛔ ここにゲームの状態を足さないこと。読むための窓であって、状態の置き場ではない。 */
+    window.__world = {
+      heroNode:  function () { return heroNodeId; },
+      heroPx:    function () { return { x: heroPx.x, y: heroPx.y }; },
+      heroClass: function () { return HERO_CLASS; },
+      isMoving:  function () { return moving; },
+      zoom:      function () { return zoom; },
+      compact:   function () { return document.body.classList.contains("compact"); },
+      insets:    insets,
+      nodeIds:   function () { return Object.keys(nodeEls); },
+      goToNode:  goToNode,
+      /* ⚠ ドライバはこの値と**実描画の矩形**を突き合わせる (CSS と JS の写経ズレを殺すため)。 */
+      heroGeom:  function () { return { sprite: SPRITE, foot: FOOT, rowRight: SHEET_ROW_RIGHT }; },
+      /* ワールド px → クライアント座標。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
+         ドライバが「ノードを実際にクリックする」ために要る。 */
+      clientFromWorld: function (x, y) {
+        var rect = elStage.getBoundingClientRect();
+        return { x: rect.left + x * zoom, y: rect.top + y * zoom };
+      },
+      clientFromNode: function (id) {
+        var n = NODES[id];
+        if (!n) return null;
+        return window.__world.clientFromWorld(n.x, n.y);
+      }
+    };
+
+    layout();
+    placeHero(heroPx.x, heroPx.y);
+  })();
+  </script>
+</body>
+</html>

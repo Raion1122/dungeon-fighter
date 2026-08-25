@@ -9,19 +9,36 @@
  *   締める。後続の項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認でき、
  *   **最終項目の完了条件が PENDING 0** になる (依頼書 #19 でこの型が停止 0 回で完走した)。
  *
- * ■ 現時点で実際に測れるもの (項目 1 = データ層)
- *   world.html はまだ無い。よってドライバは **自前の最小ハーネスページ**
- *   `/__world_probe__.html` (メモリ上で組み立てて配信) に `js/world-map.js` だけを載せ、
- *   `window.WORLD_MAP` を直に測る。
+ * ■ ⭐⭐⭐ 測定は **本番で配信される `/world.html` の上で行う** (項目 2 で移行済み)
+ *   項目 1 の自前ハーネス `/__world_probe__.html` は畳んだ。
+ *   ⚠⚠ ハーネスは `js/world-map.js` だけを載せるので、**本番ページだけが壊れているケースを
+ *      永久に緑と報告する**。world.html が出来た今はデータ層の assert も本番ページで測る
+ *      (world.html が js/world-map.js を読むので window.WORLD_MAP はそのまま取れる)。
+ *   ⚠ 水の測定は canvas に絵を焼いて getImageData するので **同一オリジンで配ること**
+ *      (別オリジンだと canvas が汚染されて SecurityError = 測定が丸ごと空振りする)。
+ *
+ * ■ 現時点で実際に測れるもの (項目 1 = データ層 / 項目 2 = 器)
  *     (0a) 母集団   … NODES / EDGES が空でない  ← これが無いと以降が全部空振りで永久緑
+ *     (0b) 素材     … <img id="worldBg"> の naturalWidth/Height が WORLD_MAP.W/H と一致
  *     (1a) 水       … 全ノード + 全エッジ (16px 刻み) の周囲 32px 角の水率 < 40%
  *     (1b) 対照     … 海 / 湖が水と判定される  ← 検出器が全部 0 を返していないことの証明
+ *     (2a) 線の本数 … 画面に描かれた線分の本数と data-edge の集合が EDGES と一致
+ *     (2b) 線の端点 … 各線分の両端の**画面座標**が対応する 2 ノード (x zoom) と 2px 以内
  *     (3a) 到達性   … phlan から全ノードへ **本番の WORLD_MAP.findPath** が null を返さない
+ *     (3b) 歩ける   … 全 14 ノードを実際にクリック → 駒がそのノードへ立つ (FOOT=0.93 込み)
+ *     (3c) 歩けない … 線の無い座標をクリック → 駒が 1px も動かない
  *     (4s) SITES    … tavern.html の実体から抜いたシナリオ id 集合と完全一致し、
  *                      値は全部 kind:"site" の実在ノード
  *     (7a) 札の文言 … **配信中の tavern.html の `place:`** と 1 文字違わず一致
  *     (7b) 札の枚数 … kind:"site" がちょうど 7 / enter を持つのは 1 つだけ (データ側)
  *     (7c) 札の間隔 … 札どうし & 札と「絵に描かれた集落」が 96px 以上
+ *
+ * ■ ⭐⭐⭐ (2a)(2b) が実装方式を縛っている
+ *   「エッジ 1 本 = DOM から個別に引ける 1 要素」でなければ本数も端点も読めない。
+ *   world.html は SVG の <line data-edge="a__b"> を 1 エッジ 1 本だけ作り、
+ *   縁取りは親 <g> に掛けた drop-shadow で出している (2 本目を敷くと本数が 2 倍になる)。
+ *   ⭐ 端点の**画面座標**は `line.getScreenCTM()` で読む = 実装の clientFromWorld とは
+ *     別経路 (ブラウザのレイアウト結果) なので、写経どうしの突き合わせにならない。
  *
  * ■ ⭐⭐⭐ 空振りを防ぐ仕掛け
  *   - 到達可能性は **自前で BFS を書かない**。`WORLD_MAP.findPath` をブラウザで呼ぶ
@@ -47,9 +64,9 @@
  *   9120  | nowater    | **ドライバの水検出器**が常に 0 を返す         | (1b) のみ        | 実装済
  *   9122  | labeldrift | mine の label を「古い坑道」へ                | (7a) のみ        | 実装済
  *   9123  | crowdsign  | temple を mine の隣 (1120,416) へ寄せる       | (7c-1) / 他は緑  | 実装済
+ *   9124  | maskdrift  | **描画側の線だけ** +12px ずらす (グラフは無傷) | (2b) / 他は緑    | 実装済
  *   —     | eatvia     | world.html に exitVia の removeItem を足す    | (4a) / (4b) は緑 | **PENDING**
  *   —     | eatresult  | world.html に lastResult の removeItem を足す | (4c) のみ        | **PENDING**
- *   —     | maskdrift  | 描画側の線だけ +12px ずらす (グラフは触らない) | (2b) / (3a) は緑 | **PENDING**
  *   —     | earlyworld | dfReturnPage の off 判定より前に world を返す  | (6c)             | **PENDING**
  *   —     | silent     | world.html の playBgm 呼び口を 2 本とも消す    | (8a)(8b)         | **PENDING**
  *   —     | spyonly    | pointerdown 側の unlock() だけ消す             | (8a) は緑 /(8b)  | **PENDING**
@@ -112,16 +129,24 @@ const MUTATIONS = {
     from: '    temple:    { kind: "site", x: 1184, y: 416, label: "地下神殿", desc: "雪山の谷あいに埋もれた神殿" },',
     to: '    temple: { kind: "site", x: 1120, y: 416, label: "地下神殿", desc: "雪山の谷あいに埋もれた神殿" },   /* mut-crowdsign 廃坑の隣へ寄せた */',
   },
-  /* ── ここから下は項目 2〜4 の担当。枠だけ宣言して PENDING を出す ───────────── */
+  /* ⭐⭐⭐ 罠 C の機械証明 — **描画側の線の端点だけ**を +12px ずらす。
+   *  グラフ (WORLD_MAP.NODES / EDGES) は 1 バイトも触らないので、
+   *  (3a) 到達性も (3b) 駒の立ち位置も緑のまま = 「線とデータを 2 つ持つとズレる」が (2b) だけに出る。
+   *  ⚠ world.html 側でこの計算が 2 箇所に散ると、ここが 2 ヒットして exit 3 になる。 */
+  maskdrift: {
+    impl: true, file: 'world.html', targets: ['2b'],
+    from: '    function edgeEnds(a, b) { return { x1: a.x, y1: a.y, x2: b.x, y2: b.y }; }',
+    to: '    function edgeEnds(a, b) { return { x1: a.x + 12, y1: a.y + 12, x2: b.x + 12, y2: b.y + 12 }; }   /* mut-maskdrift 描画だけ 12px ずらす */',
+  },
+  /* ── ここから下は項目 3〜4 の担当。枠だけ宣言して PENDING を出す ───────────── */
   eatvia: { impl: false, targets: ['4a'], why: '項目 3: world.html が exitVia を消さないこと' },
   eatresult: { impl: false, targets: ['4c'], why: '項目 3: world.html が lastResult を消さないこと' },
-  maskdrift: { impl: false, targets: ['2b'], why: '項目 2: 点線の描画が EDGES と同一データであること' },
   earlyworld: { impl: false, targets: ['6c'], why: '項目 3: dfReturnPage の判定順 (?town=0 が先)' },
   silent: { impl: false, targets: ['8a', '8b'], why: '項目 4: world.html の playBgm 呼び口 2 本' },
   spyonly: { impl: false, targets: ['8b'], why: '項目 4: pointerdown 側の unlock() (経路 B)' },
 };
-const MUT_ORDER = ['sinkroute', 'nowater', 'labeldrift', 'crowdsign',
-  'eatvia', 'eatresult', 'maskdrift', 'earlyworld', 'silent', 'spyonly'];
+const MUT_ORDER = ['sinkroute', 'nowater', 'labeldrift', 'crowdsign', 'maskdrift',
+  'eatvia', 'eatresult', 'earlyworld', 'silent', 'spyonly'];
 const MUT_IMPL = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_SERVED = MUT_IMPL.filter(k => !MUTATIONS[k].driver);
 const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
@@ -188,25 +213,18 @@ const MIME = {
   '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml'
 };
 
-/* ⭐ world.html はまだ無い (項目 2 の担当) ので、データ層だけを載せる最小ハーネスを配る。
+/* ⭐⭐⭐ 測る対象は **本番で配信される world.html そのもの**。
+ *   ⛔ 項目 1 の自前ハーネス `/__world_probe__.html` は畳んだ (本番ページだけが壊れている
+ *      ケースを永久に緑と報告するため)。
  *   ⚠ 同一オリジンで配ること。別オリジンから画像を読むと canvas が汚染されて
  *      getImageData が SecurityError になり、水の測定が丸ごと空振りする。 */
-const PROBE_PATH = '/__world_probe__.html';
-const PROBE_HTML = '<!doctype html><html lang="ja"><head><meta charset="utf-8">'
-  + '<title>world-map probe</title></head><body>'
-  + '<script src="js/world-map.js"></' + 'script>'
-  + '</body></html>';
+const PAGE_PATH = '/world.html';
 
 function startServer(port, mutKey) {
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
-        if (u === '/' || u === PROBE_PATH) {
-          res.setHeader('Content-Type', MIME['.html']);
-          res.setHeader('Cache-Control', 'no-store');
-          res.end(PROBE_HTML); return;
-        }
         const rel = u.replace(/^\/+/, '');
         if (mutKey && MUT_SRC[mutKey] && rel === MUT_SRC[mutKey].file) {
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
@@ -225,6 +243,13 @@ function startServer(port, mutKey) {
     srv.on('error', reject);
     srv.listen(port, () => resolve(srv));
   });
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+/* 書体 + 画像が届いて layout() が落ち着くまで待つ。⛔ 固定時間だけに頼らない
+ *   (document.fonts.ready を先に待ってから、レイアウト 1 往復ぶんだけ寝る)。 */
+async function settle(page) {
+  try { await page.evaluate(() => (document.fonts && document.fonts.ready) ? document.fonts.ready : null); } catch (e) {}
+  await sleep(260);
 }
 function httpGet(url) {
   return new Promise((res, rej) => {
@@ -281,8 +306,11 @@ async function measure(browser, port, errs, opts) {
     errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
   });
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto('http://localhost:' + port + PROBE_PATH, { waitUntil: 'load', timeout: 30000 });
-  await page.waitForFunction('!!window.WORLD_MAP', { timeout: 20000 });
+  await page.goto('http://localhost:' + port + PAGE_PATH, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  /* ⚠ 書体が後から届くと #worldTitle の高さ = insets() が動き、layout() が引き直される。
+   *   その前に幾何を読むと (2b) が「書体レースのせいで」赤くなる (原理的なフレーク)。 */
+  await settle(page);
 
   m.map = await page.evaluate(() => {
     const WM = window.WORLD_MAP;
@@ -309,6 +337,43 @@ async function measure(browser, port, errs, opts) {
       paths: out,
       nullProbe: WM.findPath('phlan', '__no_such_node__') === null,
       selfEmpty: Array.isArray(self) && self.length === 0,
+    };
+  });
+
+  /* ── 描画 (§0 (0b) / §2 罠 C) ───────────────────────────────────────────────
+   *  ⭐ 線分の**画面座標**は line.getScreenCTM() から取る = ブラウザのレイアウト結果。
+   *     期待値は WORLD_MAP.NODES から clientFromWorld() で引く = データ側。
+   *     **別経路どうし**なので、描画とグラフが別データになった瞬間 (2b) が赤くなる。
+   *  ⛔ ドライバに座標表を写経しない。 */
+  m.render = await page.evaluate(() => {
+    const WM = window.WORLD_MAP, WD = window.__world;
+    const svg = document.getElementById('worldRoutes');
+    const bg = document.getElementById('worldBg');
+    if (!svg) return { ok: false, err: '#worldRoutes が無い' };
+    const lines = Array.prototype.slice.call(svg.querySelectorAll('line'));
+    const drawn = lines.map((ln) => {
+      const ctm = ln.getScreenCTM();
+      if (!ctm) return { edge: ln.getAttribute('data-edge'), bad: 'getScreenCTM null' };
+      const p = svg.createSVGPoint();
+      p.x = parseFloat(ln.getAttribute('x1')); p.y = parseFloat(ln.getAttribute('y1'));
+      const s1 = p.matrixTransform(ctm);
+      p.x = parseFloat(ln.getAttribute('x2')); p.y = parseFloat(ln.getAttribute('y2'));
+      const s2 = p.matrixTransform(ctm);
+      return { edge: ln.getAttribute('data-edge'), s1: { x: s1.x, y: s1.y }, s2: { x: s2.x, y: s2.y } };
+    });
+    const want = WM.EDGES.map((e) => {
+      const a = WM.NODES[e[0]], b = WM.NODES[e[1]];
+      return {
+        edge: e[0] + '__' + e[1],
+        s1: a ? WD.clientFromWorld(a.x, a.y) : null,
+        s2: b ? WD.clientFromWorld(b.x, b.y) : null,
+      };
+    });
+    return {
+      ok: true, lineCount: lines.length, edgeCount: WM.EDGES.length,
+      drawn: drawn, want: want,
+      bgW: bg ? bg.naturalWidth : 0, bgH: bg ? bg.naturalHeight : 0,
+      zoom: WD.zoom(), compact: WD.compact(), geom: WD.heroGeom(),
     };
   });
 
@@ -408,6 +473,100 @@ async function measure(browser, port, errs, opts) {
   return m;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * 歩き (§3 (3b) / (3c)) — ⭐ **実際にマウスで押す**。goToNode() を直接呼ばない
+ *   (呼ぶと「当たり判定が画面に出ていない」= 押せないノードを永久に緑と報告する)。
+ * ⚠ 到着待ちは固定時間窓にしない。isMoving() が false になるまでポーリングする
+ *   (経路の長さが 90px 〜 1,400px まで 15 倍違うので固定窓は原理的にフレークする)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const SPRITE = 96;        // 依頼書 §2-8: <class>_walk.png は 576x384 = 96px セル 6 列 x 4 行
+const FOOT = 0.93;        // 依頼書 §2-8: 足元をルート上の点に置く接地比
+const ROW_RIGHT = 3;      // 依頼書 §2-8: 右向きの行
+const HIT_EPS = 0.5;      // px。style.left/top は文字列なので丸め誤差だけ許す
+
+async function measureWalk(browser, port, errs, opts) {
+  opts = opts || {};
+  const page = await browser.newPage();
+  const tag = '[:' + port + ' walk] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  await settle(page);
+
+  const all = await page.evaluate(() => Object.keys(window.WORLD_MAP.NODES));
+  const ids = opts.ids || all;
+  const rows = [];
+  for (const id of ids) {
+    const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    /* 装置: そのノードが本当に画面に出ていて、押した先が自分 (か子孫) であること。
+       ⛔ ここを省くと「帯の下に潜って押せない」を永久に緑と報告する。 */
+    const hit = await page.evaluate((i, x, y) => {
+      const el = document.getElementById('worldNode_' + i);
+      const top = document.elementFromPoint(Math.round(x), Math.round(y));
+      return { has: !!el, onScreen: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
+               self: !!el && !!top && (top === el || el.contains(top)),
+               top: top ? (top.id || top.className || top.tagName) : null };
+    }, id, pt.x, pt.y);
+    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+    try {
+      await page.waitForFunction('!window.__world.isMoving()', { timeout: 25000, polling: 60 });
+    } catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); }
+    const r = await page.evaluate((i) => {
+      const WM = window.WORLD_MAP, WD = window.__world;
+      const n = WM.NODES[i];
+      const h = document.getElementById('worldHero');
+      const sh = document.getElementById('worldHeroShadow');
+      return {
+        id: i, node: WD.heroNode(), px: WD.heroPx(), moving: WD.isMoving(),
+        nx: n.x, ny: n.y,
+        left: parseFloat(h.style.left), top: parseFloat(h.style.top),
+        bp: h.style.backgroundPosition,
+        shx: parseFloat(sh.style.left), shy: parseFloat(sh.style.top),
+      };
+    }, id);
+    r.hit = hit;
+    rows.push(r);
+  }
+
+  /* ── (3c) 線の無い座標をタップ → 1px も動かない ─────────────────────────────
+   *  ⭐ 座標はドライバが決め打ちだが、「どのノードからも 100px 以上離れている」ことと
+   *     「elementFromPoint が .worldNode ではない」ことを**その場で実測**してから押す。 */
+  const before = await page.evaluate(() => window.__world.heroPx());
+  const voids = [];
+  for (const w of [[64, 544], [1440, 960]]) {
+    const info = await page.evaluate((wx, wy) => {
+      const WM = window.WORLD_MAP, WD = window.__world;
+      let near = Infinity, who = '-';
+      for (const id of Object.keys(WM.NODES)) {
+        const n = WM.NODES[id];
+        const d = Math.sqrt((n.x - wx) * (n.x - wx) + (n.y - wy) * (n.y - wy));
+        if (d < near) { near = d; who = id; }
+      }
+      const c = WD.clientFromWorld(wx, wy);
+      const top = document.elementFromPoint(Math.round(c.x), Math.round(c.y));
+      return { wx, wy, near: near, who: who, c: c,
+               onScreen: c.x >= 0 && c.y >= 0 && c.x < innerWidth && c.y < innerHeight,
+               onNode: !!(top && top.closest && top.closest('.worldNode')),
+               top: top ? (top.id || top.className || top.tagName) : null };
+    }, w[0], w[1]);
+    await page.mouse.click(Math.round(info.c.x), Math.round(info.c.y));
+    voids.push(info);
+  }
+  await sleep(700);
+  const after = await page.evaluate(() => ({ px: window.__world.heroPx(), node: window.__world.heroNode(),
+                                             moving: window.__world.isMoving() }));
+  await page.close();
+  return { rows: rows, voids: voids, before: before, after: after, ids: ids, allCount: all.length };
+}
+
 /* ⭐ 札の文言の唯一の正 = 配信中の tavern.html の実体。⛔ ドライバに文字列を写経しない。 */
 async function readTavernPlaces(port) {
   const r = await httpGet('http://localhost:' + port + '/tavern.html');
@@ -434,6 +593,11 @@ const ASSERTS = [
   ['0d', '[装置] 公開シグネチャが揃っている (findPath / neighbors / spawnFor)',
     m => [m.map.fnFindPath && m.map.fnNeighbors && m.map.fnSpawnFor,
       JSON.stringify({ findPath: m.map.fnFindPath, neighbors: m.map.fnNeighbors, spawnFor: m.map.fnSpawnFor })]],
+  ['0b', '素材が 1536x1024 で読めている (<img id="worldBg"> の naturalWidth/Height を DOM から)'
+    + ' ⛔ 期待値は直書きせず WORLD_MAP.W/H と突き合わせる',
+    m => [m.render.ok === true && m.render.bgW > 0 && m.render.bgH > 0
+      && m.render.bgW === m.map.W && m.render.bgH === m.map.H,
+      'img=' + m.render.bgW + 'x' + m.render.bgH + ' / WORLD_MAP=' + m.map.W + 'x' + m.map.H]],
 
   // ── §1 ルートは水の上を通らない ────────────────────────────────────────────
   ['1z', '[装置] 絵の画素を実際に読めて、サンプル点の母集団が空でない',
@@ -459,6 +623,41 @@ const ASSERTS = [
       m.water.ok ? ('海=' + (m.water.sea * 100).toFixed(1) + '% 湖=' + (m.water.lake * 100).toFixed(1) + '%')
         : String(m.water.err)]],
 
+  // ── §2 線とグラフが同一データ (罠 C) ───────────────────────────────────────
+  ['2a', '画面に描かれた線分の本数が EDGES.length と一致し、data-edge の集合も EDGES と一致する',
+    m => {
+      if (!m.render.ok) return [false, String(m.render.err)];
+      const got = m.render.drawn.map(d => d.edge).slice().sort();
+      const want = m.render.want.map(d => d.edge).slice().sort();
+      return [m.render.edgeCount > 0 && m.render.lineCount === m.render.edgeCount
+        && JSON.stringify(got) === JSON.stringify(want),
+        '線分=' + m.render.lineCount + ' / EDGES=' + m.render.edgeCount
+        + (JSON.stringify(got) === JSON.stringify(want) ? '' : '  ⛔ 集合違い got=' + JSON.stringify(got))];
+    }],
+  ['2b', '各線分の両端の画面座標が、対応する 2 ノードの座標 (x zoom) と 2px 以内で一致する'
+    + ' (⛔ ドライバに座標表を写経せず WORLD_MAP から引く)',
+    m => {
+      if (!m.render.ok) return [false, String(m.render.err)];
+      const by = {};
+      for (const d of m.render.drawn) by[d.edge] = d;
+      let matched = 0, worst = 0, who = '-';
+      const bad = [];
+      for (const w of m.render.want) {
+        const d = by[w.edge];
+        if (!d || d.bad || !w.s1 || !w.s2) { bad.push(w.edge + ':' + ((d && d.bad) || '線分が無い')); continue; }
+        matched++;
+        const e1 = Math.max(Math.abs(d.s1.x - w.s1.x), Math.abs(d.s1.y - w.s1.y));
+        const e2 = Math.max(Math.abs(d.s2.x - w.s2.x), Math.abs(d.s2.y - w.s2.y));
+        const e = Math.max(e1, e2);
+        if (e > worst) { worst = e; who = w.edge; }
+        if (e > 2) bad.push(w.edge + '=' + e.toFixed(2) + 'px');
+      }
+      return [m.render.want.length > 0 && matched === m.render.want.length && bad.length === 0,
+        '照合 ' + matched + '/' + m.render.want.length + ' zoom=' + m.render.zoom.toFixed(4)
+        + ' 最大ズレ ' + worst.toFixed(2) + 'px (' + who + ')'
+        + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' ') : '')];
+    }],
+
   // ── §3 歩ける / 歩けない ───────────────────────────────────────────────────
   ['3z', '[装置] findPath が「存在しないノード」には null を返し、同じノードには [] を返す (常に非 null ではない)',
     m => [m.reach.nullProbe === true && m.reach.selfEmpty === true,
@@ -469,6 +668,46 @@ const ASSERTS = [
       return [bad.length === 0 && Object.keys(m.reach.paths).length === Object.keys(m.map.nodes).length,
         '到達 ' + (Object.keys(m.reach.paths).length - bad.length) + '/' + Object.keys(m.map.nodes).length
         + (bad.length ? '  ⛔ 孤立=' + bad.join(',') : '')];
+    }],
+
+  ['3z2', '[装置] 駒の幾何が依頼書 §2-8 どおり (96px セル / FOOT 0.93 / 右向き行 3 = backgroundPosition Y -288px)',
+    m => {
+      const g = m.render.geom || {};
+      const bp = (m.walk && m.walk.rows.length) ? m.walk.rows[m.walk.rows.length - 1].bp : '';
+      const okBp = /(^|\s)-?0px\s+-288px$/.test(bp) || /-288px$/.test(bp);
+      return [g.sprite === SPRITE && g.foot === FOOT && g.rowRight === ROW_RIGHT && okBp,
+        JSON.stringify(g) + ' backgroundPosition="' + bp + '"'];
+    }],
+  ['3b', 'ノードをタップ → 駒がそのノードの座標に立つ (FOOT=0.93 の接地込み) — 全ノードで測る',
+    m => {
+      if (!m.walk) return [false, 'walk 未測定'];
+      const bad = [];
+      for (const r of m.walk.rows) {
+        const why = [];
+        if (!r.hit.has) why.push('要素が無い');
+        if (!r.hit.onScreen) why.push('画面外');
+        if (!r.hit.self) why.push('押した先が別要素(' + r.hit.top + ')');
+        if (r.node !== r.id) why.push('heroNode=' + r.node);
+        if (Math.abs(r.px.x - r.nx) > HIT_EPS || Math.abs(r.px.y - r.ny) > HIT_EPS) why.push('px=' + r.px.x + ',' + r.px.y);
+        if (Math.abs(r.left - (r.nx - SPRITE / 2)) > HIT_EPS) why.push('left=' + r.left);
+        if (Math.abs(r.top - (r.ny - SPRITE * FOOT)) > HIT_EPS) why.push('top=' + r.top + ' 期待=' + (r.ny - SPRITE * FOOT));
+        if (Math.abs(r.shx - r.nx) > HIT_EPS || Math.abs(r.shy - r.ny) > HIT_EPS) why.push('shadow=' + r.shx + ',' + r.shy);
+        if (why.length) bad.push(r.id + '[' + why.join('/') + ']');
+      }
+      return [m.walk.rows.length === m.walk.ids.length && m.walk.rows.length > 0 && bad.length === 0,
+        m.walk.rows.length + '/' + m.walk.allCount + ' ノードを実クリック'
+        + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' ') : '  全部その座標へ接地')];
+    }],
+  ['3c', '線の無い座標をタップ → 駒が 1px も動かない (⛔ 隣接まで寄せる救済を入れていない)',
+    m => {
+      if (!m.walk) return [false, 'walk 未測定'];
+      const v = m.walk.voids;
+      const usable = v.filter(x => x.onScreen && !x.onNode && x.near >= 100);
+      const moved = Math.abs(m.walk.after.px.x - m.walk.before.x) + Math.abs(m.walk.after.px.y - m.walk.before.y);
+      return [usable.length === v.length && v.length >= 2 && moved === 0 && m.walk.after.moving === false,
+        '試行 ' + v.length + ' 点 (最近ノードまで '
+        + v.map(x => x.who + ' ' + x.near.toFixed(0) + 'px' + (x.onNode ? '/⛔ノードの上' : '')).join(', ')
+        + ') 移動量=' + moved + 'px'];
     }],
 
   // ── §4 立ち位置 / SITES の健全性 ───────────────────────────────────────────
@@ -601,17 +840,16 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       const tav = await readTavernPlaces(PORT);
       const m = await measure(browser, PORT, errs, { scenIds: tav.order });
       m.tavern = tav;
-      for (const key of ['0a', '0d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
-      pending('(0b) 素材が 1536x1024 で読めている (naturalWidth/Height を **DOM から**)',
-        '項目 2: world.html のステージ DOM が要る (ここでは probe ページの Image でしか読めない)');
+      m.walk = await measureWalk(browser, PORT, errs, {});
+      for (const key of ['0a', '0d', '0b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       for (const k of MUT_SERVED) {
         check('(0c-' + k + ') [装置] 変異アンカーが ' + MUTATIONS[k].file + ' 内にちょうど 1 箇所ヒットする', true,
           '起動時ガードを通過 (0 件 or 2 件以上なら exit 3)');
       }
       check('(0c-nowater) [装置] nowater はドライバ内の検出器を差し替える (配信アンカー不要)', true,
         '⚠ 水検出器はドライバ側に居るので配信差し替えでは届かない');
-      pending('(0c) 残り 6 本の変異アンカーが 1 箇所ヒットする',
-        '未実装: ' + MUT_TODO.join(' / ') + ' (world.html / index.html / title.html / audio.js がまだ無い or 未改修)');
+      pending('(0c) 残り ' + MUT_TODO.length + ' 本の変異アンカーが 1 箇所ヒットする',
+        '未実装: ' + MUT_TODO.join(' / ') + ' (index.html / title.html / audio.js が未改修 / world.html の該当コードがまだ無い)');
 
       mark('§1 ルートは水の上を通らない (2 経路)');
       for (const key of ['1z', '1a', '1b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
@@ -621,13 +859,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       }
 
       mark('§2 線とグラフが同一データ (罠 C)');
-      pending('(2a) 画面に描かれた線分の本数が EDGES.length と一致', '項目 2: world.html の点線描画');
-      pending('(2b) 各線分の両端の画面座標が対応する 2 ノード (x zoom) と 2px 以内で一致', '項目 2: world.html の点線描画');
+      for (const key of ['2a', '2b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
 
       mark('§3 歩ける / 歩けない');
-      for (const key of ['3z', '3a']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
-      pending('(3b) ノードをタップ → 駒がそのノードの座標に立つ (FOOT=0.93 の接地込み)', '項目 2: world.html の駒');
-      pending('(3c) 線の無い座標をタップ → 駒が 1px も動かない', '項目 2: world.html の駒');
+      for (const key of ['3z', '3a', '3z2', '3b', '3c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       pending('(3d) phlan の札をタップ → 歩いてから town.html へ遷移し location.search が空文字', '項目 3: 遷移');
 
       mark('§4 一回性のキーを壊していない (罠 A) — 本チケットの核心');
@@ -638,7 +873,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       pending('(4c) lastResult を置いて ダンジョン → world → town → tavern で酒場のリザルト画面が出る', '項目 3: 通し検査');
 
       mark('§5 compact でも遊べる');
-      pending('(5a) 390x844 / 1440x900 の 2 点で 横スクロール無し / 黒帯 5% 未満 / 駒が画面内', '項目 2: world.html の layout()');
+      pending('(5a) 390x844 / 1440x900 の 2 点で 横スクロール無し / 黒帯 5% 未満 / 駒が画面内',
+        '項目 3。⭐ 式は項目 2 が立てた: desktop=全体が入る倍率で固定 / compact=可視域を満たす。'
+        + '⚠⚠ 「黒帯」は**画素で**測ること — 全体を入れると 1440x900 では幾何的な余白が 13.3% 出るが、'
+        + 'そこは #worldBackdrop (同じ地図のぼかし) が埋めていて黒くない (1280x900 は 2.5% / 390x844 は 0%)');
 
       mark('§6 撤退');
       pending('(6a) title.html?world=0 → town.html へ直行 (world.html を経由しない)', '項目 3: title.html');
@@ -679,6 +917,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
         const port = MUTATIONS[k].driver ? PORT : PORT_OF[k];
         const m = await measure(browser, port, negErrs, { scenIds: tav.order, nowater: (k === 'nowater') });
         m.tavern = tav;
+        /* ⭐⭐⭐ maskdrift だけは「駒の立ち位置は無傷」まで実測する = 罠 C の機械証明。
+         *   描画側だけをずらしたので (2b) は赤 / (3b) は緑、が成り立たなければ変異点が誤り。
+         *   ⚠ 全 14 ノードは時間が掛かるので、離れた 3 ノードに絞る (母集団は detail に出す)。 */
+        if (k === 'maskdrift') m.walk = await measureWalk(browser, port, negErrs, { ids: ['phlan', 'swamp', 'lakeside'] });
         for (const key of MUTATIONS[k].targets) {
           const a = ASSERT_OF[key];
           const r = a[2](m);
@@ -686,10 +928,11 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
             r[0] === false, (r[0] ? '⛔ 緑のまま (空振り) ' : '') + r[1]);
         }
         /* ⭐ 「効きすぎていないこと」まで見る。担当外の本体 assert は緑のままであるべき。 */
-        const collateral = ['0a', '1a', '3a', '7a', '7c-1', '7c-2']
+        const collateral = ['0a', '0b', '1a', '2a', '2b', '3a', '7a', '7c-1', '7c-2']
+          .concat(k === 'maskdrift' ? ['3b', '3c'] : [])
           .filter(key => MUTATIONS[k].targets.indexOf(key) < 0);
         const broke = collateral.filter(key => ASSERT_OF[key][2](m)[0] === false);
-        check('(neg-' + k + '-範囲) 変異 ' + k + ' は担当外の節を巻き込まない (0a/1a/3a/7a/7c-1/7c-2 のうち担当外)',
+        check('(neg-' + k + '-範囲) 変異 ' + k + ' は担当外の節を巻き込まない (' + collateral.join('/') + ')',
           broke.length === 0, broke.length ? '⛔ 巻き込み=' + broke.join(',') : '巻き込み 0 件');
       }
 
