@@ -168,7 +168,11 @@
       transform-origin: 50% 100%;
       pointer-events: none;
       filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55));
-      z-index: 3;
+      /* ⭐ 拠点マーカー (.worldNode = z-index 4) は主人公の足元に重なるので、主人公を上へ出す
+         = 立っている間はマーカーが体の後ろに隠れる (地面の印が体を突き抜けない)。
+         ⚠ #worldHero は pointer-events: none なので、上に出しても (7d) の elementFromPoint も
+           (3b)/(7e) の実クリックも一切変わらない。 */
+      z-index: 5;
     }
     /* 足元の楕円影。⭐ 接地点 = ノード座標が「どこに立っているか」の唯一の手がかり */
     #worldHeroShadow {
@@ -197,7 +201,7 @@
 
     /* ── ノードの当たり判定 ──────────────────────────────────────────────
        ⭐⭐⭐ **1 ノード = 1 要素** (`data-node`)。site の 7 つは
-         .worldNodeBody が **羊皮紙の立て札**そのものになる (下の .worldSign)。
+         .worldNodeBody が **足元の拠点マーカー**、その兄弟 .worldSign が **頭上の羊皮紙**。
        ⚠ 受入条件 (7d) が「札の中心の elementFromPoint が自分自身か子孫」を要求するので、
          この要素より上に pointer-events を持つ物を重ねないこと
          (#worldHero / #worldHeroShadow / #worldGoal は全部 pointer-events: none)。 */
@@ -221,13 +225,16 @@
       box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
     }
     .worldNode:hover .worldNodeBody { transform: scale(1.25); }
+    /* ⚠ 札の中心出しは translateX(-50%) なので、scale だけ書くと translate が潰れて
+       札が右へずれる (#15 の town.html で踏んだ罠と同型)。必ず合成して書く。 */
+    .worldNode:hover .worldSign { transform: translateX(-50%) scale(1.05); }
 
     /* ── 拠点の羊皮紙の立て札 (依頼書 §6-2 の 3) ─────────────────────────
        ⭐ 作法は #15 の town.html `.townSign` の流用。⛔ ただし DOM もセレクタも
          共有しない (town.html は 1 バイトも触らない)。
-       ⭐⭐ **札 = .worldNodeBody そのもの**。当たり判定の親 .worldNode[data-node] は
-         項目 2 が作ったまま 1 バイトも変えていないので、(3b) の「ノードをタップ →
-         そこへ立つ」も (7d) の elementFromPoint も同じ要素で測り続けられる。
+       ⭐⭐ **札は .worldNodeBody ではなく その兄弟** (2026-08-25 に分離)。当たり判定の親
+         .worldNode[data-node] はノード中心の 44px 角のままなので、(3b) の「ノードをタップ →
+         そこへ立つ」は不変。(7d) は札自身の矩形で測るので頭上へ出しても子孫のまま通る。
        ⚠⚠ #15 の実測: **可変幅の札は margin-left/-top: -32px では中心に置けない**。
          中心合わせは親 .worldNode の transform: translate(-50%,-50%) が担う。
          ⭐ だから :hover の scale は **子 (.worldNodeBody)** に掛ける。
@@ -236,8 +243,35 @@
          実効文字高は 15px x 0.82 = 12.3px / 11px x 0.82 = 9.0px。
        ⛔ 説明文を opacity で薄めない。**紙が斑なので透かした瞬間に読めなくなる**
          (#15 の 2026-08-23 実測)。柔らかさは --wsp-ink-soft の**色**だけで出す。 */
-    .worldNode-site { width: auto; height: auto; }
+    /* ── 拠点マーカー (2026-08-25) ───────────────────────────────────────
+       ⭐ 実機体感で「札と主人公が重なって見えなくなる」。実測すると **構造的に必ず重なる**:
+         札はノード中心に置かれ (translate(-50%,-50%))、主人公も同じノードに立つ。
+         desktop 実測 = 拠点 7 つとも 96 x 30.2px (96px セル面積の 31.5%) が隠れ、
+         初期位置 pier では隣の phlan の札に 63 x 47px (32.1%) 食われていた。
+       ⭐⭐⭐ 解き方 = **当たり判定はノードに残し、羊皮紙だけを子要素として頭上へ逃がす**。
+         ドライバはこの分離を最初から想定している:
+           (7d)      … 「札の中心」を **札自身の矩形**から採る (ノード座標ではない)
+           (7c-1/2/3)… 札どうし / 集落 / 港町との間隔は **ノード座標**で測る → 不動
+           (1a)      … 水率も **ノード + エッジ**で測る → 不動
+         ⛔ したがって守るべきは 2 つだけ: 札が **画面内 (onScreen)** に居ること、
+            札が **.worldNode の子孫 (self)** のままであること。
+       ⚠ site の当たり判定は way と同じ 44px 角へ戻す (以前は width/height:auto = 札の箱)。
+         clientFromNode はノード中心を押すので、ここに実体が要る。 */
+    .worldNode-site .worldNodeBody {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--route-ink);
+      box-shadow: 0 0 0 3px rgba(238,222,182,0.92), 0 0 0 4px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
+    }
     .worldSign {
+      /* ⭐ 札は当たり判定 (44px 角) の **上** へ出す。G = 76px は実測から導いた:
+           主人公の上端はノードから -89.3px (96px セル x 接地比 0.93)、親の上端は -22px
+           → G >= 89.3 - 22 = 67.3。余白 8px を足して 76px (札の下端 = ノードから -98px)。
+         ⛔ margin-left/-top では可変幅の中心を出せない (#15 の実測)。中心は translateX(-50%)。 */
+      position: absolute;
+      left: 50%; bottom: calc(100% + 76px);
+      transform: translateX(-50%);
+      transition: transform 0.12s ease;
       --wsp-paper-img: url("assets/parchment_plaza.jpg");
       /* ⭐ 明るいクリームの薄掛け。紙のまだら模様に細い書体が食われるのを防ぐ (#15)。 */
       --wsp-wash: 0.34;
@@ -511,9 +545,10 @@
     window.addEventListener("orientationchange", layout);
 
     /* ══ ノード ═════════════════════════════════════════════════════════
-       ⭐ site の 7 つは .worldNodeBody が羊皮紙の立て札になる (.worldSign)。
+       ⭐ site の 7 つは .worldNodeBody が **足元の拠点マーカー**になり、
+         羊皮紙の立て札 (.worldSign) は **el の 2 人目の子**として **頭上へ** 出る。
          当たり判定の要素 (.worldNode[data-node]) は**そのまま**なので、
-         札になっても (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。
+         (3b) の「ノードをタップ → そこへ立つ」は測り続けられる。
        ⛔ 札に「未解放 / 解放済」の状態を持たせない (依頼書 §11)。**v1 は常に 7 枚とも出す**
          (unlockAfter の鎖を world 側でも解釈し始めると進行状態の出所が 2 つになる)。 */
     var nodeEls = {};
@@ -529,23 +564,28 @@
         if (n.label) el.title = n.label;
         var body = document.createElement("span");
         body.className = "worldNodeBody";
+        el.appendChild(body);
         if (n.kind === "site") {
-          /* ⭐ 拠点 = 羊皮紙の立て札。⛔ 文言をここで作らない。
-             label / desc を **そのまま textContent へ流し込むだけ** (唯一の正は
-             js/world-map.js の 1 箇所。label のさらに上流は tavern.html の place:)。 */
-          body.className += " worldSign";
+          /* ⭐ 拠点 = 足元の拠点マーカー (上で作った body) + **頭上の**羊皮紙の立て札。
+             ⭐⭐ 札は body の中身ではなく **el の 2 人目の子**。こうすると札を頭上へ
+               逃がしても el.contains(sign) が真のまま = (7d) の「自分自身か子孫」も、
+               clientFromNode (ノード中心) を押す (3b)/(7e) も両方生き残る。
+             ⛔ 文言をここで作らない。label / desc を **そのまま textContent へ流し込むだけ**
+               (唯一の正は js/world-map.js の 1 箇所。さらに上流は tavern.html の place:)。 */
+          var sign = document.createElement("span");
+          sign.className = "worldSign";
           var nm = document.createElement("span");
           nm.className = "worldSignName";
           nm.textContent = n.label || id;
-          body.appendChild(nm);
+          sign.appendChild(nm);
           if (n.desc) {
             var ds = document.createElement("span");
             ds.className = "worldSignDesc";
             ds.textContent = n.desc;
-            body.appendChild(ds);
+            sign.appendChild(ds);
           }
+          el.appendChild(sign);
         }
-        el.appendChild(body);
         el.style.left = n.x + "px";
         el.style.top  = n.y + "px";
         el.addEventListener("click", function (ev) { ev.stopPropagation(); goToNode(id); });
