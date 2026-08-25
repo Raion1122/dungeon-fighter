@@ -337,8 +337,11 @@ const EXISTING_7 = [
 const ASSERTS = [
   ['0a', '装置: playBgm ラッパが街で 1 回以上 ID を捉えている (検出器が空振りしていない)',
     m => [m.townCalls.length >= 1, 'calls=' + JSON.stringify(m.townCalls)]],
-  ['0b', '装置: __bgmFiles() が 9 件返る (既存 7 + 新規 2 / 表を写経せず実体から引く)',
-    m => [m.files.length === 9, 'n=' + m.files.length + ' ids=' + JSON.stringify(m.files.map(f => f.id))]],
+  /* ⚠ 件数は **わざと直書き**。曲を足したら必ずここが赤くなり「気づかず増やした」を止める。
+   *   赤くなったら期待値を書き換える前に理由を突き止めること (退行か、新チケットの追加か)。
+   *   2026-08-25: 依頼書 #20 が title (opening.mp3) を足したので 9 → 10。 */
+  ['0b', '装置: __bgmFiles() が 10 件返る (既存 7 + #17 の 2 + #20 の title / 表を写経せず実体から引く)',
+    m => [m.files.length === 10, 'n=' + m.files.length + ' ids=' + JSON.stringify(m.files.map(f => f.id))]],
   ['0c', '装置: 酒場は pointerdown の前は 1 度も鳴らしていない ((2a) の因果がジェスチャに在る)',
     m => [m.tavernCallsBefore.length === 0, 'before=' + JSON.stringify(m.tavernCallsBefore)]],
 

@@ -13,7 +13,7 @@
  *   ✅ 受入条件 8.    : ?title=0 の装置 assert (1.〜4. の判定関数を共有して落とす)
  *   ✅ 実装ステップ 5.: ゲームを起動.vbs の飛び先が /title.html で、実際に立つこと
  *   ✅ 受入条件 9.    : 390px / 横長デスクトップ / 境界 720px の 3 幅 × 3 状態で横スクロールなし
- *   ✅ 受入条件 10.   : 最初のタップで GameAudio.unlock() が 1 回 / BGM は 0 回
+ *   ✅ 受入条件 10.   : 最初のタップで GameAudio.unlock() が 1 回 / BGM は title で 1 回 (#20 で反転)
  *   ⬜ 受入条件 11.   : 既存 golden ドライバの非退行 (**本ドライバの外**で回す)
  *      → driver_dev_gate / driver_depart_menu_clean / verify_save_slots / driver_grid_p8 ほか。
  *        tavern.html の DOM を触っているが canvas の SHA しか見ない golden では検出できないので、
@@ -289,20 +289,32 @@ function judgeLayoutPopulated(o, kind) {
   return false;
 }
 
-/* 受入条件 10. : 最初のタップで GameAudio.unlock() が 1 回 / BGM は 1 回も鳴らない
-   ⚠⚠ 「playBgm 0 回」は **スパイの掛け損ね**でも緑になる。ここは 3 段で塞ぐ:
+/* 受入条件 10. : 最初のタップで GameAudio.unlock() が 1 回 / BGM が title でちょうど 1 回
+   ⚠⚠ 「playBgm の回数」は **スパイの掛け損ね**でも辻褄が合ってしまう。ここは 3 段で塞ぐ:
        ① installed.playBgm === true      … 実際に包めた (関数が存在した)
        ② unlockAfter === 1               … **同じスパイ機構**が数えられている
        ③ 呼び出し側が最後に手で playBgm を叩き、その 1 本が数えられる (負のコントロール)
-     ③ は呼び出し側の別 assert。ここでは ①② と 0 回を束ねる。 */
+     ③ は呼び出し側の別 assert。ここでは ①② と回数/ID を束ねる。
+
+   ⚠⚠⚠ 【依頼書 #20 で反転】Phase 1 の「BGM は 0 回」は仕様ごと変わった。
+     タイトルは assets/bgm/opening.mp3 を鳴らす (BGM_FILES.title)。
+     ⭐ **`=== 1` であって `>= 1` ではない。** このスパイは openPage() の **後**に掛かるので、
+       title.html の **ロード時の呼び口 (pendingBgm へ落ちる 1 本) は原理的に見えず**、
+       最初の pointerdown の中の 1 本だけを数える。
+     ⚠ さらに unlock() が pendingBgm を鳴らす経路は **モジュール内部の playBgm** を通るので、
+       GameAudio.playBgm を包んだこのスパイからは**永久に見えない** (audio.js:119)。
+       「実際に mp3 を掴んで鳴っているか」は tools/driver_bgm_title.js の (2b) が
+       __bgmFileState() で測る。ここは「渡した ID」だけを見る。 */
 function judgeTitleAudio(o) {
   if (!o) return false;
   const ins = o.installed || {};
+  const bgm = o.bgmCalls || [];
   return o.threw === '' && o.hasGameAudio === true
     && ins.unlock === true && ins.playBgm === true
     && o.unlockBefore === 0                     // ★ ロードだけでは解錠しない (タップが引き金)
     && o.unlockAfter === 1                      // ★ once:true なのでちょうど 1 回
-    && (o.bgmCalls || []).length === 0;         // ★ Phase 1 の方針: BGM は鳴らさない
+    && bgm.length === 1                         // ★ #20: タイトル専用 BGM がちょうど 1 回
+    && bgm[0][0] === 'title';                   // ★ #20: 渡した ID は title
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1905,7 +1917,7 @@ function probeLayout() {
         && spy0.unlock === 0 && spy0.bgmCalls.length === 0,
       JSON.stringify({ installed: ins.installed, before: spy0.unlock }));
 
-    check('(10) ★受入条件10: 最初のタップで GameAudio.unlock() がちょうど 1 回呼ばれ、BGM は 1 回も鳴らない',
+    check('(10) ★受入条件10: 最初のタップで GameAudio.unlock() がちょうど 1 回呼ばれ、BGM が title でちょうど 1 回鳴る',
       judgeTitleAudio(verdict) === true && spy1.unlock === 1,
       JSON.stringify({ unlockBefore: spy0.unlock, afterFirstTap: spy1.unlock, afterNaming: spy2.unlock,
                        bgm: spy2.bgmCalls }));
@@ -1918,12 +1930,13 @@ function probeLayout() {
        ⚠ 存在しないトラック名を渡す。playBgm は TRACKS/BGM_FILES のどちらにも無い名前なら
          早期 return するので、**測定のために音を鳴らさずに**ラッパだけを通せる。 */
     const NO_SUCH = '__df_probe_no_such_track';
+    /* ⚠ #20 で反転: タイトルが自分で title を 1 本鳴らしているので **開始点は 0 でなく 1**。 */
     const bgmBefore = (await readSpy(p10)).bgmCalls.length;
     await p10.evaluate((n) => { try { GameAudio.playBgm(n); } catch (e) {} }, NO_SUCH);
     const spy3 = await readSpy(p10);
     await p10.close();
-    check('(10n) [負のコントロール] playBgm を手で 1 回叩くと **同じスパイ**が 1 本数える (0 回は掛け損ねではない)',
-      bgmBefore === 0 && spy3.bgmCalls.length === 1 && spy3.bgmCalls[0][0] === NO_SUCH
+    check('(10n) [負のコントロール] playBgm を手で 1 回叩くと **同じスパイ**が 1 本増える (回数の一致は掛け損ねではない)',
+      bgmBefore === 1 && spy3.bgmCalls.length === 2 && spy3.bgmCalls[1][0] === NO_SUCH
         && judgeTitleAudio(Object.assign({}, verdict, { bgmCalls: spy3.bgmCalls })) === false,
       JSON.stringify({ before: bgmBefore, after: spy3.bgmCalls }));
   }

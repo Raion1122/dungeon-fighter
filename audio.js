@@ -314,6 +314,21 @@
     dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
     boss_battle:    { src: "assets/bgm/maou_bgm_fantasy12.mp3",   loop: true, volume: 0.65, credit: "魔王魂" },
     pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
+    /* ── タイトル画面 (title.html) — 開始画面と名乗り (依頼書 #20) ──────────────
+     *   #6 の Phase 1 は「無音」だった。見送り理由は「遷移先と同じ曲が頭出しへ戻る」で、
+     *   ⭐ 今回は街が village08 = **別の曲**なので原理的に起きない。
+     *
+     *   ⚠⚠⚠ ブラウザはユーザー操作の外で音を出せない。ロード時の playBgm は
+     *     pendingBgm へ落ちて、最初の pointerdown の unlock() が鳴らす (audio.js:119)。
+     *     その再生は **モジュール内部の playBgm** を通るので、GameAudio.playBgm を
+     *     包んだスパイからは見えない → title.html 側は「ロード」と「最初のタップ」の
+     *     2 本を持ち、検証は __bgmFileState() と 2 経路で突き合わせる (依頼書 #20 §2-2)。
+     *
+     *   ⚠ volume は実測ラウドネスからの逆算。opening −10.3 LUFS → 0.33 (実効 −19.9 = 基準どおり)。
+     *     ⭐ タイトルは安全地帯なので耳で動かしてよい
+     *        (volume を動かしても driver_bgm_title の assert は 1 つも変わらない)。
+     *   ⭐ 出所は 2026-08-25 にユーザー確認済み = 魔王魂。 */
+    title:          { src: "assets/bgm/opening.mp3",             loop: true, volume: 0.33, credit: "魔王魂" },
     /* ── 街 (港町フラン) と 酒場 (銀の鹿亭) ───────────────────────
      *   town.html / tavern.html はどちらも合成トラック TRACKS.tavern を鳴らしていた
      *   (= 街と酒場が同じ音)。専用の mp3 へ分ける (依頼書 #17)。

@@ -20,7 +20,7 @@
     ★ 読み込むのは 3 本だけ (依頼書の指定。これ以上増やさない)
         js/save-slots.js  … DFSlots.list()/switchTo()/newGame()
         js/hero-classes.js… HERO_CLASSES (名乗りカードの文言 + zone)
-        audio.js          … 効果音のみ。⚠ **BGM は鳴らさない** (下記)
+        audio.js          … 効果音 + BGM ("title" = assets/bgm/opening.mp3。依頼書 #20。下記)
 
     ★ 前口上 (フランの記録) を **ここへ移設していない**
       羊皮紙 CSS も playNarration() も VOICEVOX manifest も全部 tavern.html 側の資産。
@@ -33,11 +33,17 @@
         ナレ機構は tavern.html 側の資産のままで、街へは移設していない (依頼書 §4)。
         行き先は nextAfterTitle() ただ 1 本 (?town=0 で従来の tavern.html へ戻す)。
 
-    ★ 音 (Phase 1 の方針)
-      - **BGM を鳴らさない。** tavern の曲を鳴らすと遷移した瞬間に同じ曲が頭出しへ戻る
-        (ページごとに AudioContext が別)。しゃっくりが出るくらいなら無音のほうが粗が少ない。
-        ⚠ ここに GameAudio.playBgm(...) を足さないこと。タイトル専用 BGM は別チケット。
-      - 効果音だけ。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
+    ★ 音 (依頼書 #20)
+      - **BGM = GameAudio.playBgm("title")** — assets/bgm/opening.mp3 (魔王魂)。?titlebgm=0 で無音へ戻る。
+        #6 の Phase 1 が無音だった理由 (tavern の曲を鳴らすと遷移した瞬間に同じ曲が頭出しへ戻る) は、
+        街が village08 = **別の曲**なので消えている。曲が変わるのは粗ではなく場面転換。
+      - 効果音だけでなく BGM も鳴る。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
+      - ⚠⚠ 鳴り出すのは **最初のタップから**。ブラウザの自動再生ポリシーで、ページを開いた
+        だけでは音が出ない (バグではない。依頼書 #20 §6)。
+      - ⚠⚠ 呼び口は **2 本**。ロード時 (pendingBgm へ落ちる) と最初の pointerdown の中。
+        unlock() が鳴らす分は **モジュール内部の playBgm** を通るので外から観測できない
+        → タップ中の 1 本が「実装が生きている」ことを見せる唯一の窓になる (town.html と同じ形)。
+      - ⚠ 実機で耳障りなら audio.js の BGM_FILES.title の volume を下げる (assert は壊れない)。
 
     ★ 紋章 (2026-08-23 追加)
       画面最上部の `#titleEmblem` = `assets/title_emblem.png`。codex1 への依頼文は
@@ -378,6 +384,17 @@
       }
     } catch (e) {}
 
+    /* ══ BGM の撤退スイッチ ?titlebgm=0 (依頼書 #20 §7) ═══════════════════
+       タイトルを **無音** (Phase 1 の姿) へ戻す。効果音と unlock() は生かしたまま。
+       ⚠ ?title=0 / ?emblem=0 とは **別のスイッチ**。相乗りさせると、赤が出たときに
+         「タイトルを撤退したのか BGM を撤退したのか」が切り分けられなくなる。
+       ⚠ sessionStorage へ写さない。タイトルは 1 ページで完結する話で、街は
+         ?townbgm=0 を **独立に** 持っている (#15 / #17 と同じ作法)。 */
+    var TITLE_BGM_ID = "title";
+    try {
+      if (new URLSearchParams(location.search).get("titlebgm") === "0") TITLE_BGM_ID = null;
+    } catch (e) {}
+
     /* zone の生値 → 日本語ラベル。⚠ ここは **表示ラベルの対応表**であって隊列の定義ではない。
        隊列の唯一の正は tavern.html / index.html の PARTY_ZONES で、
        それと HERO_CLASSES の zone が一致していることは
@@ -650,10 +667,15 @@
 
     // ══ 音 ═══════════════════════════════════════════════════════════
     /* iOS Safari は「ユーザー操作の中」でしか AudioContext を起こせない。最初の 1 回だけ解錠する。
-       ⚠ ここで GameAudio.playBgm(...) を **呼ばない**。Phase 1 は無音 (上のヘッダコメント参照)。 */
+       ⚠⚠ playBgm は **2 本**呼ぶ (town.html と同じ形)。ロード時の 1 本は未解錠なので
+         pendingBgm へ落ち、unlock() が鳴らす。タップ中の 1 本は GameAudio.playBgm を通るので
+         外から観測できる = 検証がここを窓にする (依頼書 #20 §2-2)。
+       ⛔ TITLE_BGM_ID が null (?titlebgm=0) のときは **1 本も呼ばない**。 */
     document.addEventListener("pointerdown", function () {
       try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+      try { if (TITLE_BGM_ID && window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(TITLE_BGM_ID); } catch (e) {}
     }, { once: true });
+    try { if (TITLE_BGM_ID && window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(TITLE_BGM_ID); } catch (e) {}   // ロード時 (pendingBgm へ落ちる)
 
     document.addEventListener("click", function (e) {
       if (!window.GameAudio || !GameAudio.playSfx) return;
