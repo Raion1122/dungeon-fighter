@@ -345,6 +345,23 @@
      *        driver_bgm_town の assert は 1 つも変わらない)。 */
     town:           { src: "assets/bgm/village08.mp3",           loop: true, volume: 0.54, credit: "魔王魂" },
     tavern_room:    { src: "assets/bgm/酒場.mp3",              loop: true, volume: 0.43, credit: "魔王魂" },
+    /* ── 地方全景 (world.html) — 街道を歩いて渡る (依頼書 #21) ──────────────────
+     *   キャラ選択の後と、ダンジョンからの帰り道に 1 枚絵のワールドマップを挟む。
+     *
+     *   ⚠⚠⚠ ID は "world"。⛔ "field" や "town" にしないこと。playBgm は BGM_FILES を
+     *     TRACKS より先に見る (playBgm の先頭) ので、既存 ID と衝突させると呼び口を
+     *     1 行も直していない playBgm がその瞬間から黙って別の曲へ逸れる (#17 の罠)。
+     *
+     *   ⚠ 街と地図は **必ず別の曲**でなければならない。同一ページ内の dedup
+     *     (playBgmFile の bgmFileId === id) はページ遷移をまたがず、遷移のたびに
+     *     <audio> 要素ごと作り直される = 同じ曲にしても街へ入った瞬間に頭出しへ戻る。
+     *
+     *   ⚠ volume は実測ラウドネスからの逆算。fierd −13.5 LUFS → 0.48 (実効 −19.9 = 基準どおり)。
+     *     ⭐ 地図は戦闘の無い安全地帯なので耳で動かしてよい
+     *        (volume を動かしても verify_world_map の assert は 1 つも変わらない)。
+     *   ⚠ 58.1 秒とループが短い。継ぎ目が気になったら曲ごと差し替える判断もある。
+     *   ⭐ 出所は 2026-08-25 にユーザー確認済み = 魔王魂。 */
+    world:          { src: "assets/bgm/fierd.mp3",               loop: true, volume: 0.48, credit: "魔王魂" },
     /* ── 廃坑 (goblin-mine) 専用の 3 曲 (2026-08-21) ────────────────────────────
      *   入口 n0 / 坑内 / グリクス戦 を場面ごとに分ける。**どの場面でどれを鳴らすか**は
      *   index.html の NODE_BGM / SCENARIO_BOSS_BGM が持つ (ここは曲の実体と音量だけ)。

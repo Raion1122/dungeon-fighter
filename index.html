@@ -3059,8 +3059,9 @@
   <div id="nodeLayer"><div id="enemyLayer"></div></div>
 
   <script>
-    /* ══ ダンジョンからの帰還先 (実装依頼書 #12 town-map-phlan) ═══════════════════
-       戻る先が「銀の鹿亭」から「港町フラン (town.html)」へ移った。
+    /* ══ ダンジョンからの帰還先 (実装依頼書 #12 town-map-phlan / #21 world-map-entry) ═══
+       戻る先が「銀の鹿亭」→「港町フラン (town.html)」→ **「地方全景 (world.html)」** と
+       1 段ずつ手前へ伸びた。⭐ 伸ばしたのは **この関数の中身だけ**で、呼び口は 4 箇所のまま。
 
        ⚠⚠⚠ **帰還先は 2 箇所ではなく 4 箇所**ある。起草時に 2 箇所と書いて
          いちばん使われるリザルト経路を取りこぼした前科があるので、必ず数えること:
@@ -3070,20 +3071,38 @@
        ⚠ exitVia を書いてから飛ぶ。街はこれを見て「直前に居た場所の前」に立たせる
          (js/town-map.js の SPAWNS)。ダンジョンからの帰還は常に "dungeon" =
          依頼を受けた酒場の前。⛔ ここでクエリを足さない (入口が 2 種類になる)。
+       ⚠⚠⚠ **world.html を 1 段挟んでもこの書き込みを消さない。** 地図は exitVia を
+         **peek するだけ**で (「帰ってきた場所に立つ」ため)、消費するのは今日どおり
+         town.html:414。⛔ 同じ理由で lastResult / enterVia にも触れない (依頼書 §2-2 の罠 A)。
 
-       ⚠ 撤退スイッチ ?town=0 のときは、街を足す前とまったく同じ tavern.html 直行に落とす。
-         クエリはページ遷移をまたがないので sessionStorage へ写して読む。 */
+       ⛔⛔ **判定の順序は 3 段**: ?town=0 (街ごと素通り) → ?world=0 (地図だけ素通り) →
+         world.html。逆にすると「街を丸ごと飛ばす」撤退路が地図に食われて死ぬ (依頼書 §2-3 の罠 B)。
+         ⭐ title.html の nextAfterTitle() が **まったく同じ 3 段**で判定している。
+           | ?town=0 | ?world=0 | 帰還の行き先 |
+           |   無    |   無     | world.html   |
+           |   無    |   有     | town.html    |
+           |   有    |   無     | tavern.html  |
+           |   有    |   有     | tavern.html  |
+       ⚠ クエリはページ遷移をまたがないので、?town=0 / ?world=0 とも **見た時点で
+         sessionStorage へ写して**全ページで読む (2 つは完全に独立したスイッチ)。 */
     function dfReturnPage() {
-      var off = false;
+      var off = false, worldOff = false;
       try {
         if (new URLSearchParams(location.search).get("town") === "0") {
           sessionStorage.setItem("dragonfighters.townOff", "1");
         }
         off = sessionStorage.getItem("dragonfighters.townOff") === "1";
       } catch (e) { off = false; }
+      try {
+        if (new URLSearchParams(location.search).get("world") === "0") {
+          sessionStorage.setItem("dragonfighters.worldOff", "1");
+        }
+        worldOff = sessionStorage.getItem("dragonfighters.worldOff") === "1";
+      } catch (e) { worldOff = false; }
       if (off) return "tavern.html";
       try { sessionStorage.setItem("dragonfighters.exitVia", "dungeon"); } catch (e) {}
-      return "town.html";
+      if (worldOff) return "town.html";
+      return "world.html";
     }
 
     // ── オーディオ薄ラッパ (audio.js 未読込でも安全に no-op) ──

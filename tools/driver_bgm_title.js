@@ -358,8 +358,14 @@ const ASSERTS = [
   ['0a', '装置: タイトルを開いただけ (どのクリックよりも前) で playBgm ラッパが 1 回以上 ID を捉えている',
     m => [m.spyInstalled === true && m.loadCalls.length >= 1,
           'installed=' + m.spyInstalled + ' loadCalls=' + JSON.stringify(m.loadCalls)]],
-  ['0b', '装置: __bgmFiles() が 10 件返り既存の代表を含む (表を写経せず実体から引いている)',
-    m => [m.files.length === 10 && ['town', 'tavern_room', 'mine_depths'].every(id => !!findFile(m, id)),
+  /* ⚠ 件数は **わざと直書き**。曲を足したら必ずここが赤くなり「気づかず増やした」を止める。
+   *   赤くなったら期待値を書き換える前に理由を突き止めること (退行か、新チケットの追加か)。
+   *   2026-08-25: 依頼書 #21 が world (fierd.mp3) を足したので 10 → 11。
+   *     切り分け = HEAD の worktree で同じドライバを走らせて 16/16 を確認済み
+   *     (既存 10 件の id は 1 つも欠けておらず、増えたのは world だけ = 退行ではない)。
+   *   ⚠⚠ 同じ直書きが tools/driver_bgm_town.js の (0b) にも在る。**曲を足す時は 2 本とも直す**。 */
+  ['0b', '装置: __bgmFiles() が 11 件返り既存の代表を含む (表を写経せず実体から引いている)',
+    m => [m.files.length === 11 && ['town', 'tavern_room', 'mine_depths'].every(id => !!findFile(m, id)),
           'n=' + m.files.length + ' ids=' + JSON.stringify(m.files.map(f => f.id))]],
   ['0c', '装置: 同じスパイ機構が **効果音は数えている** (「音が丸ごと死んだ実装」で緑になっていない)',
     m => [m.sfxCalls.length >= 1, 'sfx=' + JSON.stringify(m.sfxCalls)]],

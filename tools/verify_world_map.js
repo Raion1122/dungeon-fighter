@@ -17,6 +17,22 @@
  *   ⚠ 水の測定は canvas に絵を焼いて getImageData するので **同一オリジンで配ること**
  *      (別オリジンだと canvas が汚染されて SecurityError = 測定が丸ごと空振りする)。
  *
+ * ■ 項目 4 で足したもの (帰還の 3 段判定 / 結果チャネルの通し / BGM の 2 経路) — **PENDING 0 へ**
+ *     (4c) 通し     … lastResult を置いて ダンジョン → world → town → tavern。**酒場のリザルトが出る**
+ *     (6b) 撤退     … index.html?world=0 の dfReturnPage() → town.html (⭐ 実際に飛ばして着地も見る)
+ *     (6c-index)    … index.html?town=0 → tavern.html (?world=0 の有無によらず = 2 モードとも)
+ *     (8a) 経路A    … ロード時に GameAudio.playBgm へ渡った ID が "world" (スパイ)
+ *     (8b) 経路B    … 最初の pointerdown 後、__bgmFileState() が world を掴んで paused:false、
+ *                      かつ **assets/bgm/fierd.mp3 を実際に要求している** (リクエストログ = 別経路)
+ *     (8c) 表       … BGM_FILES.world の src / credit。⛔ volume は縛らない
+ *
+ * ■ ⭐⭐⭐ BGM は **必ず 2 経路で測る** (#20 で実測した罠)
+ *   audio.js の unlock() は `if (pendingBgm) { … playBgm(p); }` で **モジュール内部の**
+ *   playBgm を呼ぶ。window.GameAudio.playBgm を包んだスパイは**この再生を永久に見られない**。
+ *   逆に「鳴っているか」だけを見ると、ロード時の呼び口が 1 本死んでも緑のまま。
+ *   ⭐ だから 経路A (渡した ID) と 経路B (__bgmFileState + mp3 の実要求) の両方が要る。
+ *     負のコントロール spyonly が「(8a) は緑のまま (8b) だけ赤」でこれを機械証明する。
+ *
  * ■ 項目 3 で足したもの (遷移 / 一回性のキー / 画面 / 撤退 / 札)
  *     (3d) 遷移     … 港町フランの札 → 歩いて town.html へ / location.search が空文字
  *     (4a) 罠 A     … exitVia="dungeon" で world をロード → 駒は SITES[scen] / **キーが残る**
@@ -75,10 +91,10 @@
  *   9123  | crowdsign  | temple を mine の隣 (1120,416) へ寄せる       | (7c-1) / 他は緑  | 実装済
  *   9124  | maskdrift  | **描画側の線だけ** +12px ずらす (グラフは無傷) | (2b) / 他は緑    | 実装済
  *   9125  | eatvia     | world.html に exitVia の removeItem を足す    | (4a) / (4b) は緑 | 実装済
- *   —     | eatresult  | world.html に lastResult の removeItem を足す | (4c) のみ        | **PENDING**
- *   —     | earlyworld | dfReturnPage の off 判定より前に world を返す  | (6c-index)       | **PENDING**
- *   —     | silent     | world.html の playBgm 呼び口を 2 本とも消す    | (8a)(8b)         | **PENDING**
- *   —     | spyonly    | pointerdown 側の unlock() だけ消す             | (8a) は緑 /(8b)  | **PENDING**
+ *   9126  | eatresult  | world.html に lastResult の removeItem を足す | (4c) のみ        | 実装済
+ *   9127  | earlyworld | dfReturnPage の off 判定より前に world を返す  | (6c-index)       | 実装済
+ *   9128  | silent     | world.html の playBgm 呼び口を 2 本とも消す    | (8a)(8b)         | 実装済
+ *   9129  | spyonly    | pointerdown 側の unlock() だけ消す             | (8a) は緑 /(8b)  | 実装済
  *
  *   ⭐⭐⭐ eatvia は本チケットの核心 (依頼書 §2-2 の罠 A) の機械証明。
  *     world.html が exitVia を **peek でなく消費**すると、town.html は入口を見失い
@@ -166,11 +182,41 @@ const MUTATIONS = {
     from: '    var exitVia = peekSession(EXIT_VIA_KEY);   /* ⛔ peek のみ。消費するのは town.html */',
     to: '    var exitVia = peekSession(EXIT_VIA_KEY); try { sessionStorage.removeItem(EXIT_VIA_KEY); } catch (e) {}   /* mut-eatvia 一回性キーを食う */',
   },
-  /* ── ここから下は項目 4 の担当。枠だけ宣言して PENDING を出す ───────────── */
-  eatresult: { impl: false, targets: ['4c'], why: '項目 4: world.html が lastResult を消さないこと (通し検査 (4c) と対)' },
-  earlyworld: { impl: false, targets: ['6c-index'], why: '項目 4: index.html dfReturnPage の判定順 (?town=0 が先)' },
-  silent: { impl: false, targets: ['8a', '8b'], why: '項目 4: world.html の playBgm 呼び口 2 本' },
-  spyonly: { impl: false, targets: ['8b'], why: '項目 4: pointerdown 側の unlock() (経路 B)' },
+  /* ⭐ (4a) の対。こちらは **lastResult** を食う。exitVia には触らないので (4a)(4b) は緑のまま。
+   *  ⚠ lastResult を消すと「酒場のリザルト画面が黙って出なくなる」= 画面に何も出ないので
+   *    プレイ中は気づけない。本チケットで新しく壊しうる唯一の既存機能 (依頼書 §2-2)。
+   *  ⚠ 消すのは peek の**後ろの行**。前に置くと駒の立ち位置まで巻き添えになる。 */
+  eatresult: {
+    impl: true, file: 'world.html', targets: ['4c'],
+    from: '    var scenarioId = peekSession(SCENARIO_KEY);',
+    to: '    var scenarioId = peekSession(SCENARIO_KEY); try { sessionStorage.removeItem("dragonfighters.lastResult"); } catch (e) {}   /* mut-eatresult リザルトを食う */',
+  },
+  /* ⭐⭐⭐ 罠 B の機械証明 (依頼書 §2-3) — dfReturnPage() の **?town=0 判定より前**に
+   *  world.html を返してしまう。「街を丸ごと素通りする撤退スイッチ」が地図に食われて死ぬ。
+   *  ⚠ 行き先が「地図」なので一見それらしく動いてしまい、?town=0 を使う人にしか刺さらない。 */
+  earlyworld: {
+    impl: true, file: 'index.html', targets: ['6c-index'],
+    from: '    function dfReturnPage() {',
+    to: '    function dfReturnPage() { return "world.html";   /* mut-earlyworld ?town=0 の判定より前に地図を返す */',
+  },
+  /* 呼び口の実体 playWorldBgm() を空にする = ロード時と pointerdown の **2 本とも**死ぬ。
+   *  ⭐ world.html が呼び口を 1 つの関数へ畳んでいるので、1 アンカーで両方を殺せる
+   *    (2 箇所へ同じ 1 行を書く実装だと、この from が 2 ヒットして exit 3 = #20 で実測)。 */
+  silent: {
+    impl: true, file: 'world.html', targets: ['8a', '8b'],
+    from: '    function playWorldBgm() { try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(WORLD_BGM_ID); } catch (e) {} }',
+    to: '    function playWorldBgm() { /* mut-silent 呼び口を 2 本とも殺す */ }',
+  },
+  /* ⭐⭐⭐ #20 の罠の機械証明 — **呼び口は 2 本とも生きているのに音が出ない**状態。
+   *  unlock() を消すと audio.js の `unlocked` が false のままなので playBgm は
+   *  pendingBgm へ落ち続ける。スパイ (経路A) には "world" が届くので **(8a) は緑のまま**、
+   *  実際に鳴っているかを見る (8b) だけが赤くなる。
+   *  ⚠ 両方赤になったら変異が効きすぎ = アンカーが呼び口まで巻き込んでいる。 */
+  spyonly: {
+    impl: true, file: 'world.html', targets: ['8b'],
+    from: '      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}',
+    to: '      /* mut-spyonly unlock() を消す = pendingBgm が永久に鳴らない */',
+  },
 };
 const MUT_ORDER = ['sinkroute', 'nowater', 'labeldrift', 'crowdsign', 'maskdrift',
   'eatvia', 'eatresult', 'earlyworld', 'silent', 'spyonly'];
@@ -868,6 +914,236 @@ async function measureTitleDest(browser, port, errs, query, from) {
            reqs: reqs, sawWorld: reqs.some(p => /\/world\.html$/.test(p)) };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * §6 (6b) / (6c-index) — 撤退スイッチ (index.html 側 = ダンジョンからの帰還)
+ * ⭐ **返り値を読むだけで済ませない。** dfReturnPage() の文字列だけ見ると、呼び口が
+ *   死んでいても / 返り先が 404 でも緑になる。返り値を読んだうえで **実際に飛ばして着地**を見る。
+ * ⚠ dfReturnPage() は副作用 (townOff / worldOff / exitVia の書き込み) を持つが冪等なので、
+ *   読み取り 1 回 + 遷移 1 回で 2 度呼んでも状態は変わらない。
+ * ⚠ index.html は classic script 直下の function 宣言なので **window に載る** (実測済み)。
+ *   ⛔ RUN のような const とは違うので `window.` を外す必要は無い。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+async function measureReturnDest(browser, port, errs, query) {
+  const entry = '/index.html' + query;
+  const page = await browser.newPage();
+  const tag = '[:' + port + ' ' + entry + '] ';
+  const reqs = [];
+  page.on('request', r => { try { reqs.push(new URL(r.url()).pathname); } catch (e) {} });
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let u = ''; try { u = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(u)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (u ? ' <' + u + '>' : ''));
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  let ret = null, navThrew = '';
+  try {
+    await page.goto('http://localhost:' + port + entry, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForFunction('typeof window.dfReturnPage === "function"', { timeout: 25000 });
+    ret = await page.evaluate(() => window.dfReturnPage());
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      page.evaluate(() => { window.location.href = window.dfReturnPage(); }),
+    ]);
+  } catch (e) { navThrew = String((e && e.message) || e).split('\n')[0]; }
+  await page.waitForFunction(() => document.readyState !== 'loading', { timeout: 20000 }).catch(() => {});
+  await sleep(800);
+  const at = await page.evaluate(() => ({ path: location.pathname, search: location.search }));
+  await page.close();
+  /* ⚠ 起点の /index.html は当然リクエストに入るので、着地側だけを見る指標として
+   *   「world.html を要求したか」を持ち帰る (6a) と同じ形)。 */
+  return { query: query, ret: ret, path: at.path, search: at.search, navThrew: navThrew,
+           reqs: reqs, sawWorld: reqs.some(p => /\/world\.html$/.test(p)) };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * §4 (4c) — 結果チャネルの通し検査 (ダンジョン → world → town → tavern)
+ * ⭐⭐⭐ **本チケットで新しく壊しうる唯一の既存機能。** lastResult は
+ *   index.html:35409 が書き、**tavern.html:4121 が消費**する。間に world.html を 1 枚
+ *   挟むので、地図が消してしまうと「酒場のリザルト画面が黙って出なくなる」。
+ *   ⚠ 画面に何も出ないという壊れ方なので、プレイしていても気づけない。
+ * ⭐ 4 つの停留所すべてで lastResult の生死を採り、最後に **酒場のバナーの実文字列**まで見る
+ *   (「消費された」だけだと、どこかで消えていても最後は同じ null になって見分けられない)。
+ * ⚠ 置くのは cleared ではなく **retreated**。cleared にすると tavern 側が
+ *   progress.cleared / plazaState を書き換えてしまい、検証がプロファイルを汚す。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const KEY_RESULT = 'dragonfighters.lastResult';
+/* ⭐ ドライバが置いた一意の文字列。酒場のバナーにそのまま出るので、
+ *   「バナーが出た」を **本文の照合**で確かめられる (要素の有無だけだと弱い)。 */
+const RESULT_TITLE = '通し検査の依頼';
+
+async function measureResultChannel(browser, port, errs) {
+  const tag = '[:' + port + ' 4c] ';
+  const page = await browser.newPage();
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let u = ''; try { u = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(u)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (u ? ' <' + u + '>' : ''));
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  const out = { threw: '' };
+  try {
+    // ── ① ダンジョン (index.html) — リザルトを書いて帰還する ────────────────
+    await page.goto('http://localhost:' + port + '/index.html', { waitUntil: 'load', timeout: 60000 });
+    await page.waitForFunction('typeof window.dfReturnPage === "function"', { timeout: 25000 });
+    out.dungeon = await page.evaluate((k, title, scen) => {
+      sessionStorage.setItem(k, JSON.stringify({
+        scenarioId: scen, scenarioTitle: title, cleared: false, defeated: false, retreated: true,
+      }));
+      sessionStorage.setItem('dragonfighters.currentScenario', scen);
+      return { path: location.pathname, next: window.dfReturnPage(), lastResult: sessionStorage.getItem(k) };
+    }, KEY_RESULT, RESULT_TITLE, 'goblin-mine');
+
+    // ── ② 地方全景 (world.html) — ⛔ ここが消してはいけない ────────────────
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      page.evaluate(() => { window.location.href = window.dfReturnPage(); }),
+    ]);
+    await page.waitForFunction('!!window.__world', { timeout: 20000 }).catch(() => {});
+    await settle(page);
+    out.world = await page.evaluate((k) => ({
+      path: location.pathname, search: location.search,
+      node: window.__world ? window.__world.heroNode() : null,
+      lastResult: sessionStorage.getItem(k),
+      exitVia: sessionStorage.getItem('dragonfighters.exitVia'),
+    }), KEY_RESULT);
+
+    // ── ③ 港町フラン (town.html) — 札を実クリックして入る ──────────────────
+    const enterId = await page.evaluate(() =>
+      Object.keys(window.WORLD_MAP.NODES).find(k => window.WORLD_MAP.NODES[k].enter !== undefined));
+    const pt = await page.evaluate((i) => window.__world.clientFromNode(i), enterId);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+      page.mouse.click(Math.round(pt.x), Math.round(pt.y)),
+    ]);
+    await page.waitForFunction('!!window.__town', { timeout: 20000 }).catch(() => {});
+    await settle(page);
+    out.town = await page.evaluate((k) => ({
+      path: location.pathname, tile: window.__town ? window.__town.heroTile() : null,
+      lastResult: sessionStorage.getItem(k),
+    }), KEY_RESULT);
+
+    // ── ④ 銀の鹿亭 (tavern.html) — 立て札を実クリックして入る ──────────────
+    const sp = await page.evaluate(() => {
+      const el = document.getElementById('townSign_tavern');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    out.signFound = !!sp;
+    if (sp) {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),
+        page.mouse.click(Math.round(sp.x), Math.round(sp.y)),
+      ]);
+    }
+    /* ⚠ バナーは consumeResult() から setTimeout(…, 100) で出るので、固定時間で読まずに
+     *   **出るまでポーリング**する (出なければそのまま assert に落とす)。 */
+    await page.waitForFunction((t) => Array.prototype.some.call(
+      document.querySelectorAll('body > div'), d => d.textContent && d.textContent.indexOf(t) >= 0),
+      { timeout: 15000 }, RESULT_TITLE).catch(() => {});
+    out.tavern = await page.evaluate((k, t) => {
+      const hits = Array.prototype.filter.call(document.querySelectorAll('body > div'),
+        d => d.textContent && d.textContent.indexOf(t) >= 0);
+      return { path: location.pathname, search: location.search,
+        banners: hits.length, text: hits.length ? hits[0].textContent.slice(0, 80) : null,
+        lastResult: sessionStorage.getItem(k) };
+    }, KEY_RESULT, RESULT_TITLE);
+  } catch (e) { out.threw = String((e && e.message) || e).split('\n')[0]; }
+  await page.close();
+  return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * §8 BGM — ⭐⭐⭐ **2 経路**で測る (経路A = 渡した ID / 経路B = 実際に鳴っているか)
+ *   経路A は evaluateOnNewDocument で window.GameAudio に **setter を仕掛け**、audio.js 末尾の
+ *   `global.GameAudio = GameAudio;` が走った瞬間に playBgm を包む
+ *   (page.evaluate で後から包むと **ロード時の 1 本が原理的に見えない**)。
+ *   経路B は __bgmFileState() に加えて **mp3 を実際に要求したか** をリクエストログで見る
+ *   (テーブルの src を読み直すと「写経どうしの突き合わせ」になるため、ネットワーク側から採る)。
+ * ⚠ ジェスチャは **実座標クリック**。ただし押す場所は「線もノードも無い所」を
+ *   その場で実測してから押す (ノードを押すと駒が歩き出して測りたい経路と関係ない差が入る)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+async function measureBgm(browser, port, errs) {
+  const tag = '[:' + port + ' bgm] ';
+  const page = await browser.newPage();
+  const reqs = [];
+  page.on('request', r => { try { reqs.push(new URL(r.url()).pathname); } catch (e) {} });
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let u = ''; try { u = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(u)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (u ? ' <' + u + '>' : ''));
+  });
+  await page.evaluateOnNewDocument(() => {
+    window.__bgmCalls = [];
+    window.__spyInstalled = false;
+    let _ga;
+    Object.defineProperty(window, 'GameAudio', {
+      configurable: true,
+      get() { return _ga; },
+      set(v) {
+        _ga = v;
+        if (v && typeof v.playBgm === 'function') {
+          const ob = v.playBgm;
+          v.playBgm = function (n) { try { window.__bgmCalls.push(n); } catch (e) {} return ob.apply(this, arguments); };
+          window.__spyInstalled = true;
+        }
+      },
+    });
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.GameAudio && !!window.__world', { timeout: 20000 });
+  await settle(page);
+
+  const out = {};
+  out.spyInstalled = await page.evaluate(() => window.__spyInstalled === true);
+  /* ★ どのクリックよりも前に採る = 「ロード時に渡した ID」(経路A) */
+  out.loadCalls = await page.evaluate(() => window.__bgmCalls.slice());
+  out.files = await page.evaluate(() => { try { return window.GameAudio.__bgmFiles(); } catch (e) { return []; } });
+  out.beforeState = await page.evaluate(() => {
+    try { return window.GameAudio.__bgmFileState(); } catch (e) { return { err: String(e && e.message) }; }
+  });
+  out.trackBefore = reqs.some(p => /\/assets\/bgm\/fierd\.mp3$/.test(p));
+
+  /* ジェスチャの位置は「線もノードも無い所」を実測してから決める (⛔ 決め打ちで押さない)。 */
+  const gp = await page.evaluate(() => {
+    const WM = window.WORLD_MAP, WD = window.__world;
+    const c = WD.clientFromWorld(64, 544);          // 海。(3c) と同じ「線の無い座標」
+    let near = Infinity, who = '-';
+    for (const id of Object.keys(WM.NODES)) {
+      const n = WM.NODES[id];
+      const d = Math.sqrt((n.x - 64) * (n.x - 64) + (n.y - 544) * (n.y - 544));
+      if (d < near) { near = d; who = id; }
+    }
+    const top = document.elementFromPoint(Math.round(c.x), Math.round(c.y));
+    return { c: c, near: near, who: who,
+      onScreen: c.x >= 0 && c.y >= 0 && c.x < innerWidth && c.y < innerHeight,
+      onNode: !!(top && top.closest && top.closest('.worldNode')),
+      top: top ? (top.id || top.className || top.tagName) : null };
+  });
+  out.gesture = gp;
+  await page.mouse.click(Math.round(gp.c.x), Math.round(gp.c.y));
+  /* ⚠ 鳴り出すまでポーリング。鳴らなければ待ち切って、そのまま assert に落とす。 */
+  await page.waitForFunction(() => {
+    try { const s = window.GameAudio.__bgmFileState(); return !!s && !!s.id && s.paused === false; }
+    catch (e) { return false; }
+  }, { timeout: 9000 }).catch(() => {});
+  out.afterCalls = await page.evaluate(() => window.__bgmCalls.slice());
+  out.state = await page.evaluate(() => {
+    try { return window.GameAudio.__bgmFileState(); } catch (e) { return { err: String(e && e.message) }; }
+  });
+  out.heroNode = await page.evaluate(() => window.__world.heroNode());
+  await page.close();
+  out.sawTrack = reqs.some(p => /\/assets\/bgm\/fierd\.mp3$/.test(p));
+  return out;
+}
+
 /* ⭐ 札の文言の唯一の正 = 配信中の tavern.html の実体。⛔ ドライバに文字列を写経しない。 */
 async function readTavernPlaces(port) {
   const r = await httpGet('http://localhost:' + port + '/tavern.html');
@@ -1101,6 +1377,38 @@ const ASSERTS = [
         期待: want, town側が読んだ入口: a.spawnVia, 遷移後のexitVia: a.exitVia })];
     }],
 
+  ['4c-z', '[装置] (4c) の通しが 4 つの停留所すべてに着いている (index → world → town → tavern)',
+    m => {
+      if (!m.result) return [false, 'result 未測定'];
+      const r = m.result;
+      const ok = !r.threw && r.dungeon && r.world && r.town && r.tavern
+        && /\/index\.html$/.test(r.dungeon.path) && /\/world\.html$/.test(r.world.path)
+        && /\/town\.html$/.test(r.town.path) && /\/tavern\.html$/.test(r.tavern.path)
+        && r.signFound === true;
+      return [ok, JSON.stringify({ 起点: r.dungeon && r.dungeon.path, 地図: r.world && r.world.path,
+        街: r.town && r.town.path, 酒場: r.tavern && r.tavern.path,
+        銀の鹿亭の札: r.signFound, threw: r.threw })];
+    }],
+  ['4c', '★lastResult を置いて **ダンジョン → world → town → tavern** と通し、'
+    + '**酒場のリザルト画面 (バナー) が出る** = lastResult が生き延びた '
+    + '(⛔ world.html も town.html も消さない / 消費するのは tavern.html:4121 ただ 1 つ)',
+    m => {
+      if (!m.result) return [false, 'result 未測定'];
+      const r = m.result;
+      if (r.threw) return [false, '⛔ 通しが例外で止まった: ' + r.threw];
+      const why = [];
+      if (r.dungeon.next !== 'world.html') why.push('dfReturnPage()=' + JSON.stringify(r.dungeon.next));
+      if (r.world.exitVia !== 'dungeon') why.push('⛔ exitVia=' + JSON.stringify(r.world.exitVia));
+      if (r.world.lastResult === null) why.push('⛔ world.html が lastResult を食った');
+      if (r.town.lastResult === null) why.push('⛔ town.html までに lastResult が消えた');
+      if (!r.tavern.banners) why.push('⛔ 酒場にリザルトのバナーが出ない');
+      else if (String(r.tavern.text).indexOf(RESULT_TITLE) < 0) why.push('バナーの本文が違う="' + r.tavern.text + '"');
+      if (r.tavern.lastResult !== null) why.push('⛔ 酒場が消費していない (一回性が壊れている)');
+      return [why.length === 0, why.length ? why.join(' / ')
+        : 'world("' + r.world.node + '") / town' + JSON.stringify(r.town.tile)
+          + ' を通り抜けて lastResult が生存 → 酒場のバナー「' + r.tavern.text + '」→ 消費されて null'];
+    }],
+
   // ── §5 compact でも遊べる ──────────────────────────────────────────────────
   ['5z', '[装置] 2 点とも実際に画素を数えられていて、単色の空撮りではない (色数 > 8)',
     m => {
@@ -1168,6 +1476,44 @@ const ASSERTS = [
       const toTavern = (x) => /\/tavern\.html$/.test(x.path) && x.search === '';
       const ok = toTavern(d[0]) && toTavern(d[1]) && !toTavern(d[2]) && !toTavern(d[3]);
       return [ok, JSON.stringify(k.reduce((a, q, i) => { a[q] = d[i].path; return a; }, {}))];
+    }],
+
+  ['6z2', '[装置] index.html 側の 4 モードとも dfReturnPage() を実際に呼べ、遷移が例外なく完了している',
+    m => {
+      if (!m.ret) return [false, 'ret 未測定'];
+      const ks = Object.keys(m.ret);
+      const bad = ks.filter(q => !m.ret[q].ret || m.ret[q].navThrew !== '')
+        .map(q => q + ':' + JSON.stringify(m.ret[q].ret) + (m.ret[q].navThrew ? ' threw=' + m.ret[q].navThrew : ''));
+      return [ks.length === 4 && bad.length === 0,
+        ks.map(q => 'index.html' + q + '→' + m.ret[q].ret).join(' / ')
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
+    }],
+  ['6b', '★index.html?world=0 の dfReturnPage() → **town.html** で、/world.html を 1 回も要求しない。'
+    + 'かつ ?world=0 が無ければ world.html を経由する (= スイッチが本当にスイッチである)'
+    + ' ⭐ 返り値だけでなく **実際に飛ばして着地**も見る',
+    m => {
+      if (!m.ret) return [false, 'ret 未測定'];
+      const off = m.ret['?world=0'], on = m.ret[''];
+      if (!off || !on) return [false, 'ret の母集団が足りない'];
+      const ok = off.ret === 'town.html' && /\/town\.html$/.test(off.path) && off.search === ''
+        && off.sawWorld === false
+        && on.ret === 'world.html' && /\/world\.html$/.test(on.path) && on.sawWorld === true;
+      return [ok, JSON.stringify({ '?world=0あり': { 返り値: off.ret, 着地: off.path, world要求: off.sawWorld },
+        'クエリ無し': { 返り値: on.ret, 着地: on.path, world要求: on.sawWorld } })];
+    }],
+  ['6c-index', '★index.html?town=0 の dfReturnPage() → **tavern.html** (?world=0 の有無によらず = 2 モードとも)。'
+    + '⭐ 「?world=0 で緑」ではなく **状態の conjunction が崩れる**ことを見る '
+    + '(?town=0 が無い 2 モードは酒場に着かない)。⛔ 判定順を逆にすると罠 B で撤退路が死ぬ',
+    m => {
+      if (!m.ret) return [false, 'ret 未測定'];
+      const k = ['?town=0', '?town=0&world=0', '', '?world=0'];
+      const d = k.map(q => m.ret[q]);
+      if (d.some(x => !x)) return [false, 'ret の母集団が足りない: ' + JSON.stringify(k.filter(q => !m.ret[q]))];
+      const toTavern = (x) => x.ret === 'tavern.html' && /\/tavern\.html$/.test(x.path)
+        && x.search === '' && x.sawWorld === false;
+      const ok = toTavern(d[0]) && toTavern(d[1]) && !toTavern(d[2]) && !toTavern(d[3]);
+      return [ok, JSON.stringify(k.reduce((a, q, i) => {
+        a['index.html' + q] = d[i].ret + ' → ' + d[i].path; return a; }, {}))];
     }],
 
   // ── §7 拠点の札 ────────────────────────────────────────────────────────────
@@ -1280,6 +1626,50 @@ const ASSERTS = [
         rows.length + ' 枚 (' + rows.map(r => r.id).join(',') + ') を実クリック'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '  全部 world.html のまま歩いただけ')];
     }],
+  // ── §8 BGM (⭐⭐⭐ 2 経路) ──────────────────────────────────────────────────
+  ['8z', '[装置] playBgm のスパイが本当に掛かっていて (evaluateOnNewDocument)、'
+    + 'ジェスチャを送った点は「線もノードも無い所」= 駒を歩かせていない',
+    m => {
+      if (!m.bgm) return [false, 'bgm 未測定'];
+      const g = m.bgm.gesture;
+      const ok = m.bgm.spyInstalled === true && m.bgm.files.length > 0
+        && g.onScreen === true && g.onNode === false && g.near >= 100;
+      return [ok, 'spy=' + m.bgm.spyInstalled + ' 曲数=' + m.bgm.files.length
+        + ' ジェスチャ点: 最近ノード ' + g.who + ' まで ' + g.near.toFixed(0) + 'px 押した先=' + g.top
+        + ' / 押した後の駒=' + m.bgm.heroNode];
+    }],
+  ['8a', '★[経路A] ロード時に GameAudio.playBgm へ渡った ID が **"world"** '
+    + '(⛔ どのクリックよりも前に採る = 呼び口が生きていることの証明)',
+    m => {
+      if (!m.bgm) return [false, 'bgm 未測定'];
+      const c = m.bgm.loadCalls;
+      return [m.bgm.spyInstalled === true && c.length === 1 && c[0] === 'world',
+        'ロード時の呼び=' + JSON.stringify(c) + ' / ジェスチャ後=' + JSON.stringify(m.bgm.afterCalls)];
+    }],
+  ['8b', '★[経路B] 最初の pointerdown の後、__bgmFileState() が **world を掴んで paused:false** で、'
+    + 'かつ **assets/bgm/fierd.mp3 を実際に要求している** '
+    + '(⚠⚠⚠ (8a) だけでは足りない — unlock() はモジュール内部の playBgm を呼ぶので'
+    + 'スパイからは pendingBgm 経由の再生が永久に見えない = #20 で実測)',
+    m => {
+      if (!m.bgm) return [false, 'bgm 未測定'];
+      const s = m.bgm.state || {};
+      const ok = s.id === 'world' && s.srcId === 'world' && s.paused === false
+        && m.bgm.sawTrack === true;
+      return [ok, 'ジェスチャ前=' + JSON.stringify(m.bgm.beforeState)
+        + ' / 後=' + JSON.stringify(s)
+        + ' / fierd.mp3 を要求した=' + m.bgm.sawTrack + ' (前=' + m.bgm.trackBefore + ')'];
+    }],
+  ['8c', 'BGM_FILES.world の src / credit が assets/bgm/fierd.mp3 / "魔王魂" '
+    + '(⛔ volume は assert しない — 地図は安全地帯なので耳で下げてよい。数値であることだけ見る)',
+    m => {
+      if (!m.bgm) return [false, 'bgm 未測定'];
+      const f = m.bgm.files.filter(x => x.id === 'world')[0];
+      if (!f) return [false, '⛔ BGM_FILES に world が無い ids=' + JSON.stringify(m.bgm.files.map(x => x.id))];
+      const ok = f.src === 'assets/bgm/fierd.mp3' && f.credit === '魔王魂'
+        && typeof f.volume === 'number' && f.volume > 0 && f.volume <= 1;
+      return [ok, JSON.stringify(f) + '  (volume は縛らない = 0 < v <= 1 だけ)'];
+    }],
+
   ['7c-3', '[対照] 唯一 enter を持つ札は逆に「絵に描かれた港町」の 96px 以内に在る (例外扱いではなく実測で縛る)',
     m => {
       const ents = enterIds(m);
@@ -1314,7 +1704,13 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
   const browser = await puppeteer.launch({
     executablePath: browserPath, headless: !HEADFUL,
-    args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
+    /* ⭐ --autoplay-policy=no-user-gesture-required + --mute-audio で **経路B が headless でも
+     *   実際に取れる** (#20 で実測: paused:false まで届く)。「headless では鳴っているか
+     *   分からない」は思い込みだった。⚠ audio.js の `unlocked` は unlock() でしか true に
+     *   ならないので、このフラグを足してもロード時の 1 本は pendingBgm へ落ちたまま
+     *   = (8a)/(8b) の切り分け (spyonly) はそのまま成立する。 */
+    args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage',
+      '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
   });
   const errs = [];
 
@@ -1336,6 +1732,15 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       /* 地図そのものを直接開いたときの撤退口 (town.html の ?town=0 と同じ形の自衛)。 */
       m.dest['world.html?world=0'] = await measureTitleDest(browser, PORT, errs, '?world=0', PAGE_PATH);
       m.dest['world.html'] = await measureTitleDest(browser, PORT, errs, '', PAGE_PATH);
+      /* ⭐ 帰還側 (index.html の dfReturnPage) は title 側と **別の関数**で測る。
+         title は自分で replace するが、index は呼び口 4 箇所から呼ばれる関数なので
+         「返り値を読む」+「実際に飛ばす」の 2 段が要る。 */
+      m.ret = {};
+      for (const q of ['', '?world=0', '?town=0', '?town=0&world=0']) {
+        m.ret[q] = await measureReturnDest(browser, PORT, errs, q);
+      }
+      m.result = await measureResultChannel(browser, PORT, errs);
+      m.bgm = await measureBgm(browser, PORT, errs);
       for (const key of ['0a', '0d', '0b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       for (const k of MUT_SERVED) {
         check('(0c-' + k + ') [装置] 変異アンカーが ' + MUTATIONS[k].file + ' 内にちょうど 1 箇所ヒットする', true,
@@ -1343,10 +1748,9 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       }
       check('(0c-nowater) [装置] nowater はドライバ内の検出器を差し替える (配信アンカー不要)', true,
         '⚠ 水検出器はドライバ側に居るので配信差し替えでは届かない');
-      pending('(0c) 残り ' + MUT_TODO.length + ' 本の変異アンカーが 1 箇所ヒットする',
-        '未実装: ' + MUT_TODO.join(' / ')
-        + ' (項目 4 の担当 = index.html の dfReturnPage / audio.js の BGM_FILES.world /'
-        + ' world.html の playBgm 呼び口 2 本がまだ無い)');
+      check('(0c) [装置] 変異アンカーの実装漏れが 0 件 (PENDING の変異が残っていない)',
+        MUT_TODO.length === 0, MUT_TODO.length ? '⛔ 未実装=' + MUT_TODO.join(' / ')
+          : MUT_ORDER.length + ' 本すべて実装済 (' + MUT_ORDER.join(' / ') + ')');
 
       mark('§1 ルートは水の上を通らない (2 経路)');
       for (const key of ['1z', '1a', '1b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
@@ -1362,9 +1766,7 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       for (const key of ['3z', '3a', '3z2', '3b', '3c', '3d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
 
       mark('§4 一回性のキーを壊していない (罠 A) — 本チケットの核心');
-      for (const key of ['4s-1', '4s-2', '4s-3', '4z', '4a', '4b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
-      pending('(4c) lastResult を置いて ダンジョン → world → town → tavern で酒場のリザルト画面が出る',
-        '項目 4: 通し検査 (負のコントロール eatresult と対。dfReturnPage が world を返すようになってから)');
+      for (const key of ['4s-1', '4s-2', '4s-3', '4z', '4a', '4b', '4c-z', '4c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
 
       mark('§5 compact でも遊べる');
       for (const key of ['5z', '5a']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
@@ -1377,18 +1779,22 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
           + '  →  ' + m.dest[q].path
           + '  (world.html を要求した=' + m.dest[q].sawWorld + ')');
       }
-      pending('(6b) index.html?world=0 の dfReturnPage() → town.html', '項目 4: index.html');
-      pending('(6c-index) index.html?town=0 の dfReturnPage() → tavern.html (?world=0 の有無によらず)',
-        '項目 4: index.html。⭐ (6c) は title 側 (6c-title = 実装済) と index 側に割った。'
-        + '負のコントロール earlyworld (off 判定より前に world を返す) が赤くする相手はこちら');
+      for (const key of ['6z2', '6b', '6c-index']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      console.log('       [記録] ダンジョンからの帰還 (index.html の dfReturnPage / 依頼書 §7 の 2x2):');
+      for (const q of Object.keys(m.ret)) {
+        console.log('         index.html' + q + '  →  返り値 "' + m.ret[q].ret + '"  →  着地 ' + m.ret[q].path
+          + '  (world.html を要求した=' + m.ret[q].sawWorld + ')');
+      }
 
       mark('§7 拠点の札 7 枚');
       for (const key of ['7z', '7a', '7b-data', '7b-dom', '7c-1', '7c-2', '7c-3', '7d', '7e']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
 
       mark('§8 BGM (2 経路)');
-      pending('(8a) [経路A] ロード時に GameAudio.playBgm へ渡った ID が "world"', '項目 4: audio.js + world.html');
-      pending('(8b) [経路B] 最初の pointerdown 後、__bgmFileState() の src に fierd.mp3 / paused:false', '項目 4');
-      pending('(8c) BGM_FILES.world の src / credit が assets/bgm/fierd.mp3 / "魔王魂"', '項目 4');
+      for (const key of ['8z', '8a', '8b', '8c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      console.log('       [記録] BGM_FILES の在庫 (⛔ volume は縛らない = 耳で動かしてよい):');
+      for (const f of m.bgm.files) {
+        console.log('         ' + f.id + '  ' + f.src + '  volume=' + f.volume + '  credit="' + f.credit + '"');
+      }
 
       mark('§9 ページエラー');
       check('(9a) 測定ページで pageerror / console.error が出ていない', errs.length === 0, errs.slice(0, 6).join(' | '));
@@ -1422,6 +1828,23 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
         /* ⭐⭐⭐ eatvia は「(4a) だけ赤 / (4b) は緑のまま」まで実測する = 罠 A の機械証明。
          *   両方赤なら変異が効きすぎ (peek より前で消している) = 変異点が誤り。 */
         if (k === 'eatvia') m.keys = await measureKeys(browser, port, negErrs, tav.order);
+        /* ⭐⭐⭐ eatresult は「(4c) だけ赤 / (4a)(4b) は緑のまま」まで実測する。
+         *   食うのは lastResult だけで exitVia には触れない = 壊れ方の切り分けを機械で示す。 */
+        if (k === 'eatresult') {
+          m.result = await measureResultChannel(browser, port, negErrs);
+          m.keys = await measureKeys(browser, port, negErrs, tav.order);
+        }
+        /* ⭐⭐⭐ earlyworld は罠 B の機械証明。index.html だけを差し替えるので
+         *   world.html 側の本体 assert は全部緑のまま = 巻き込み検査がそれを見る。 */
+        if (k === 'earlyworld') {
+          m.ret = {};
+          for (const q of ['', '?world=0', '?town=0', '?town=0&world=0']) {
+            m.ret[q] = await measureReturnDest(browser, port, negErrs, q);
+          }
+        }
+        /* ⭐⭐⭐ spyonly が #20 の罠の再現。「(8a) は緑のまま (8b) だけ赤」でなければ
+         *   変異が効きすぎ = アンカーが呼び口まで巻き込んでいる。 */
+        if (k === 'silent' || k === 'spyonly') m.bgm = await measureBgm(browser, port, negErrs);
         for (const key of MUTATIONS[k].targets) {
           const a = ASSERT_OF[key];
           const r = a[2](m);
@@ -1435,16 +1858,28 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
            *   立つので **(4b) は緑のまま** = 「一見正しく見えるので黙って壊れる」。
            *   ここを巻き込み検査に入れておくことで、その性質そのものを機械で押さえる。 */
           .concat(k === 'eatvia' ? ['3d', '4b'] : [])
+          /* ⭐ eatresult は lastResult だけを食う。exitVia の道 ((4a)(4b)) は無傷であるべき。 */
+          .concat(k === 'eatresult' ? ['4a', '4b', '3d'] : [])
+          /* ⭐ silent / spyonly でもスパイの装置 (8z) と曲の表 (8c) は無傷であるべき。
+             ⭐⭐⭐ spyonly はさらに **(8a) が緑のまま**であることが罠の本体そのもの。 */
+          .concat(k === 'silent' ? ['8z', '8c'] : [])
+          .concat(k === 'spyonly' ? ['8z', '8c', '8a'] : [])
           .filter(key => MUTATIONS[k].targets.indexOf(key) < 0);
         const broke = collateral.filter(key => ASSERT_OF[key][2](m)[0] === false);
         check('(neg-' + k + '-範囲) 変異 ' + k + ' は担当外の節を巻き込まない (' + collateral.join('/') + ')',
           broke.length === 0, broke.length ? '⛔ 巻き込み=' + broke.join(',') : '巻き込み 0 件');
       }
 
-      mark('まだ実装されていない変異 (項目 2〜4 の担当)');
-      for (const k of MUT_TODO) {
-        pending('(neg-' + k + ') 変異 ' + k + ' → ' + MUTATIONS[k].targets.map(t => '(' + t + ')').join('') + ' が赤くなる',
-          MUTATIONS[k].why);
+      if (MUT_TODO.length) {
+        mark('まだ実装されていない変異');
+        for (const k of MUT_TODO) {
+          pending('(neg-' + k + ') 変異 ' + k + ' → ' + MUTATIONS[k].targets.map(t => '(' + t + ')').join('') + ' が赤くなる',
+            MUTATIONS[k].why);
+        }
+      } else {
+        mark('変異の実装漏れ');
+        check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
+          true, MUT_ORDER.join(' / '));
       }
     }
   } catch (e) {

@@ -23,7 +23,7 @@
         js/hero-classes.js… 主人公のクラスキーの妥当性確認 (未知なら warrior へ)
         js/world-map.js   … ルートグラフ / 拠点 / 立ち位置
         audio.js          … BGM ("world" = fierd.mp3) と効果音
-                            ⚠ **読み込むだけ。** playBgm の呼び口は依頼書 §6-2 の 6 = 別項目の担当。
+                            ⚠ 呼び口は **ロード時 + 最初の pointerdown の 2 本** (下の「音」の節)。
 
     ★⭐⭐⭐ 罠 C — 「絵の道」と「歩けるデータ」を別々に持つと必ずズレる (依頼書 §2-4)
       街道の描き幅は 1 マス 64px に対して実測 ~10px しかないので、**通行マスクは作らない**。
@@ -73,9 +73,17 @@
       `?town=0` (街ごと素通り) → `?world=0` (地図だけ素通り) → world.html。
       title.html の nextAfterTitle() が 3 段でこの順に判定する。
 
-    ★ ⛔ ここにまだ無いもの (項目 4 の担当。勝手に足さない)
-      - BGM の呼び口 GameAudio.playBgm("world") / unlock()
-      - index.html の dfReturnPage() (ダンジョンからの帰還に world を 1 段挟む)
+    ★ BGM (依頼書 §6-2 の 6 / §12-1)
+      GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
+      呼び口は **ロード時 + 最初の pointerdown (unlock()) の 2 本** = town.html / title.html と
+      同じ形。⭐ 実体は playWorldBgm() ただ 1 つへ畳んである (同じ 1 行を 2 箇所へ書くと
+      負のコントロール silent の変異アンカーが 2 ヒットして exit 3 になる = #20 で実測)。
+      ⚠⚠⚠ unlock() が鳴らす分は **モジュール内部の** playBgm を通るので
+        GameAudio.playBgm を包んだスパイからは見えない → 検証は必ず 2 経路。
+
+    ★ ダンジョンからの帰還もここへ落ちる (index.html の dfReturnPage() が 3 段判定で
+      world.html を返す)。⚠ そのとき exitVia = "dungeon" が置かれているので、
+      下の「立ち位置」が SITES[currentScenario] へ駒を置く。⛔ キーは 1 つも消さない。
   -->
   <style>
     :root {
@@ -627,6 +635,31 @@
       walkPath(path, function () { onArriveNode(id); });
       return true;
     }
+
+    /* ══ 音 (依頼書 §6-2 の 6 / §12-1) ══════════════════════════════════
+       BGM = GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
+
+       ⚠⚠ 呼び口は **2 本**。town.html / title.html とまったく同じ形にしてある。
+         ① ロード時    … ブラウザはユーザー操作の外で音を出せないので、この 1 本は
+                          audio.js の pendingBgm へ落ちるだけで**鳴らない**。
+         ② 最初の pointerdown … unlock() が pendingBgm を拾って実際に鳴らす
+                          (iOS Safari の音声解錠に必須)。
+       ⚠⚠⚠ unlock() が鳴らす分は **モジュール内部の playBgm** を通る (audio.js の
+         `if (pendingBgm) { … playBgm(p); }`) ので、GameAudio.playBgm を包んだスパイからは
+         **永久に見えない**。だから検証は 2 経路 = 経路A (渡した ID) + 経路B
+         (__bgmFileState() が実際に何を掴んで鳴らしているか) で測る (#20 で実測)。
+
+       ⭐ 呼び口の実体を **playWorldBgm() ただ 1 つ**に畳んである。2 箇所へ同じ 1 行を
+         書くと、負のコントロール silent の変異アンカーが 2 ヒットして exit 3 になる
+         (#20 の title.html で実測した罠)。⛔ この関数を展開して 2 行に戻さないこと。 */
+    var WORLD_BGM_ID = "world";
+    function playWorldBgm() { try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(WORLD_BGM_ID); } catch (e) {} }
+    function bootAudio() {
+      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
+      playWorldBgm();
+    }
+    window.addEventListener("pointerdown", bootAudio, { once: true });
+    playWorldBgm();   // ロード時 (未解錠なので pendingBgm へ落ちる)
 
     /* ══ 検証シーム ═════════════════════════════════════════════════════
        ⚠ classic script 直下の let/const/function は window に載らない。
