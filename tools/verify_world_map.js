@@ -57,6 +57,10 @@
  *     (7a) 札の文言 … **配信中の tavern.html の `place:`** と 1 文字違わず一致
  *     (7b) 札の枚数 … kind:"site" がちょうど 7 / enter を持つのは 1 つだけ (データ側)
  *     (7c) 札の間隔 … 札どうし & 札と「絵に描かれた集落」が 96px 以上
+ *     (7f) 札と駒   … 全 14 ノードに立ったときの駒の矩形が、どの札も 10% 以上は隠さない
+ *       ⭐⭐⭐ (7c) とは別物。(7c) は **ノード座標**だけを見、(7d) は **札の中心の
+ *       elementFromPoint** だけを見るので、札を再センタリングしても **両方緑のまま戻る**
+ *       (主人公は pointer-events: none なので elementFromPoint には永久に写らない)。
  *
  * ■ ⭐⭐⭐ (2a)(2b) が実装方式を縛っている
  *   「エッジ 1 本 = DOM から個別に引ける 1 要素」でなければ本数も端点も読めない。
@@ -95,6 +99,7 @@
  *   9127  | earlyworld | dfReturnPage の off 判定より前に world を返す  | (6c-index)       | 実装済
  *   9128  | silent     | world.html の playBgm 呼び口を 2 本とも消す    | (8a)(8b)         | 実装済
  *   9129  | spyonly    | pointerdown 側の unlock() だけ消す             | (8a) は緑 /(8b)  | 実装済
+ *   9130  | signflat   | phlan の signDx: -72 を消す (札を再センタリング) | (7f) のみ        | 実装済
  *
  *   ⭐⭐⭐ eatvia は本チケットの核心 (依頼書 §2-2 の罠 A) の機械証明。
  *     world.html が exitVia を **peek でなく消費**すると、town.html は入口を見失い
@@ -217,9 +222,19 @@ const MUTATIONS = {
     from: '      try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}',
     to: '      /* mut-spyonly unlock() を消す = pendingBgm が永久に鳴らない */',
   },
+  /* ⭐⭐⭐ 2026-08-26 に直した「主人公が港町フランの札を覆う」を **黙って戻す**変異。
+   *  戻さないのは札の位置だけで、当たり判定 (44px 角) もノード座標も 1 バイトも動かない。
+   *  ⭐⭐⭐ だから (7c-1)(7c-2) (ノード座標しか見ない) も (7d) (札の中心の
+   *    elementFromPoint しか見ない / 駒は pointer-events: none) も **緑のまま**で、
+   *    (7f) だけが気づける = この変異が (7f) の存在理由そのもの。 */
+  signflat: {
+    impl: true, file: 'js/world-map.js', targets: ['7f'],
+    from: '    phlan:     { kind: "site", x:  416, y: 544, label: "港町フラン", desc: "船着き場と酒場。旅の起点", enter: "town.html", signDx: -72 },',
+    to: '    phlan: { kind: "site", x: 416, y: 544, label: "港町フラン", desc: "船着き場と酒場。旅の起点", enter: "town.html" },   /* mut-signflat 札をノード中心へ戻した */',
+  },
 };
 const MUT_ORDER = ['sinkroute', 'nowater', 'labeldrift', 'crowdsign', 'maskdrift',
-  'eatvia', 'eatresult', 'earlyworld', 'silent', 'spyonly'];
+  'eatvia', 'eatresult', 'earlyworld', 'silent', 'spyonly', 'signflat'];
 const MUT_IMPL = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_SERVED = MUT_IMPL.filter(k => !MUTATIONS[k].driver);
 const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
@@ -361,6 +376,10 @@ const DRAWN_SETTLEMENTS = [
 const HARBOR = DRAWN_SETTLEMENTS[3];
 const MIN_SIGN_GAP = 96;      // 1.5 タイル (依頼書 §8 (7c))
 const WATER_MAX = 0.40;       // 依頼書 §8 (1a)
+/* (7f) 札 1 枚の面積に対して主人公の矩形が覆ってよい上限。
+ * ⭐ 2026-08-26 の実測から決めた: 直した後の最大は mine に立ったときの temple、
+ *   signDx を消して戻すと cross_n に立ったときの phlan が跳ね上がる。その間に置く。 */
+const COVER_MAX = 0.10;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 (⭐ 素でも変異でも **この同じ関数**を回す)
@@ -482,6 +501,47 @@ async function measure(browser, port, errs, opts) {
       });
     }
     return { total: all.length, rows: rows };
+  });
+
+  /* ── (7f) 主人公が札を隠さない ──────────────────────────────────────────────
+   *  ⭐⭐⭐ **実際に歩かせない**。駒の矩形はノード座標だけで決まる (placeHero が
+   *     left = cx - SPRITE/2 / top = cy - SPRITE*FOOT を書く) ので、計算で 14 ノードを
+   *     一度に出せる。⭐ これで **enter を持つ港町の札を押すと town.html へ飛ぶ**罠
+   *     (測定ループに入れると waitForFunction が 25 秒でタイムアウトし、症状が
+   *     「実装の欠陥」にしか見えない) を原理的に踏まない。
+   *  ⛔ 96 / 0.93 をドライバへ写経しない — __world.heroGeom() から採る。
+   *  ⭐ 札の矩形は getBoundingClientRect() を #worldStage の rect と zoom でワールド px へ
+   *     逆算する (clientFromWorld の逆) = **実描画の結果**と**座標データ**の突き合わせ。 */
+  m.cover = await page.evaluate(() => {
+    const WM = window.WORLD_MAP, WD = window.__world;
+    const g = WD.heroGeom();
+    const z = WD.zoom();
+    const stEl = document.getElementById('worldStage');
+    if (!stEl || !z || !g) return null;
+    const st = stEl.getBoundingClientRect();
+    const signs = [];
+    for (const id of Object.keys(WM.NODES)) {
+      const el = document.getElementById('worldNode_' + id);
+      const s = el ? el.querySelector('.worldSign') : null;
+      if (!s) continue;
+      const r = s.getBoundingClientRect();
+      signs.push({ id: id, x: (r.left - st.left) / z, y: (r.top - st.top) / z,
+                   w: r.width / z, h: r.height / z });
+    }
+    const ids = Object.keys(WM.NODES);
+    const rows = [];
+    for (const id of ids) {
+      const n = WM.NODES[id];
+      const hx = n.x - g.sprite / 2, hy = n.y - g.sprite * g.foot;
+      for (const s of signs) {
+        const ow = Math.max(0, Math.min(hx + g.sprite, s.x + s.w) - Math.max(hx, s.x));
+        const oh = Math.max(0, Math.min(hy + g.sprite, s.y + s.h) - Math.max(hy, s.y));
+        const area = s.w * s.h;
+        rows.push({ at: id, sign: s.id, ow: ow, oh: oh, ratio: area > 0 ? (ow * oh) / area : 1 });
+      }
+    }
+    return { zoom: z, geom: g, signCount: signs.length, nodeCount: ids.length,
+             sizes: signs.map(s => s.id + ':' + s.w.toFixed(1) + 'x' + s.h.toFixed(1)), rows: rows };
   });
 
   /* 立ち位置の fail-safe。⚠ シナリオ id はドライバに写経せず tavern.html 由来のものを渡す。 */
@@ -1626,6 +1686,28 @@ const ASSERTS = [
         rows.length + ' 枚 (' + rows.map(r => r.id).join(',') + ') を実クリック'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '  全部 world.html のまま歩いただけ')];
     }],
+  ['7f', '★主人公が札を隠さない — 全 14 ノードに立ったときの駒の矩形が、どの .worldSign とも '
+    + '**札の面積の ' + (COVER_MAX * 100).toFixed(0) + '% 以上**は重ならない'
+    + ' ⛔ 96px / 0.93 をドライバへ写経せず __world.heroGeom() から採る'
+    + ' ⭐ 実際に歩かせず座標から出す (enter を持つ港町の札は押すと town.html へ遷移してしまう)',
+    m => {
+      if (!m.cover) return [false, 'cover 未測定'];
+      if (m.cover.signCount !== 7 || m.cover.nodeCount !== 14) {
+        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/7 ノード='
+          + m.cover.nodeCount + '/14 (装置の cleared 仕込みが効いていない可能性)'];
+      }
+      const bad = m.cover.rows.filter(r => r.ratio >= COVER_MAX)
+        .map(r => r.at + ' に立つと ' + r.sign + ' の札を ' + (r.ratio * 100).toFixed(1)
+          + '% 覆う (' + r.ow.toFixed(1) + 'x' + r.oh.toFixed(1) + 'px)');
+      const top3 = m.cover.rows.slice().sort((a, b) => b.ratio - a.ratio).slice(0, 3)
+        .map(r => r.at + '->' + r.sign + '=' + (r.ratio * 100).toFixed(1) + '%('
+          + r.ow.toFixed(1) + 'x' + r.oh.toFixed(1) + 'px)');
+      return [bad.length === 0,
+        m.cover.nodeCount + ' ノード x ' + m.cover.signCount + ' 枚 = ' + m.cover.rows.length
+        + ' 組を照合 (sprite=' + m.cover.geom.sprite + ' foot=' + m.cover.geom.foot
+        + ' 上限=' + (COVER_MAX * 100).toFixed(0) + '%)  重なりの上位 3 件: ' + top3.join(' ')
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
+    }],
   // ── §8 BGM (⭐⭐⭐ 2 経路) ──────────────────────────────────────────────────
   ['8z', '[装置] playBgm のスパイが本当に掛かっていて (evaluateOnNewDocument)、'
     + 'ジェスチャを送った点は「線もノードも無い所」= 駒を歩かせていない',
@@ -1812,7 +1894,16 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
       }
 
       mark('§7 拠点の札 7 枚');
-      for (const key of ['7z', '7a', '7b-data', '7b-dom', '7c-1', '7c-2', '7c-3', '7d', '7e']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      for (const key of ['7z', '7a', '7b-data', '7b-dom', '7c-1', '7c-2', '7c-3', '7d', '7e', '7f']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      if (m.cover) {
+        console.log('       [記録] 札の実寸 (ワールド px) — ' + m.cover.sizes.join(' / '));
+        console.log('       [記録] 駒 ' + m.cover.geom.sprite + 'px 角 (接地比 '
+          + m.cover.geom.foot + ') と札の重なり 上位 5 件:');
+        for (const r of m.cover.rows.slice().sort((a, b) => b.ratio - a.ratio).slice(0, 5)) {
+          console.log('         ' + r.at + ' に立つ → ' + r.sign + ' の札を '
+            + (r.ratio * 100).toFixed(1) + '% (' + r.ow.toFixed(1) + 'x' + r.oh.toFixed(1) + 'px)');
+        }
+      }
 
       mark('§8 BGM (2 経路)');
       for (const key of ['8z', '8a', '8b', '8c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
@@ -1889,6 +1980,12 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
              ⭐⭐⭐ spyonly はさらに **(8a) が緑のまま**であることが罠の本体そのもの。 */
           .concat(k === 'silent' ? ['8z', '8c'] : [])
           .concat(k === 'spyonly' ? ['8z', '8c', '8a'] : [])
+          /* ⭐⭐⭐ signflat の本体: 札を再センタリングしても **(7b-dom) も (7d) も緑のまま**。
+             (7b-dom) は枚数と文言、(7d) は札の中心の elementFromPoint しか見ておらず、
+             主人公は pointer-events: none なのでそこには永久に写らない。
+             ここを巻き込み検査に入れることで「既存の assert では戻ったことに気づけない」
+             という (7f) の存在理由そのものを機械で押さえる。 */
+          .concat(k === 'signflat' ? ['7b-dom', '7d'] : [])
           .filter(key => MUTATIONS[k].targets.indexOf(key) < 0);
         const broke = collateral.filter(key => ASSERT_OF[key][2](m)[0] === false);
         check('(neg-' + k + '-範囲) 変異 ' + k + ' は担当外の節を巻き込まない (' + collateral.join('/') + ')',
