@@ -28,9 +28,13 @@ tools/make_grid_map.py — codex1 の「グリッドが焼き込まれた」バ�
     py tools/make_grid_map.py --name mine-entrance --tile 48     1 マス 48px で焼く
     py tools/make_grid_map.py --check assets/map_mine-entrance.jpg --tile 48
         → 既に在るファイルの検算だけ (焼かない)
+    py tools/make_grid_map.py --fit 廃坑入口.png --fit-around 46.55
+        → **素材**の焼き込み格子を測って GRIDS 用の 6 数値を出す (焼かない)。
+          ⚠ 探索中心が要る。中心 = 素材の幅 ÷ ざっと数えたマス数 (下の --fit の節)
 
 ★台帳 (GRIDS) の値はどこから来たか
-    scratchpad の measure_grid.py → fit_grid.py (櫛形フィルタ) で当てた実測値。
+    櫛形フィットで当てた実測値。⚠⚠⚠ 当時の測定器 (scratchpad の fit_grid.py) は
+    **既に消えている**ので、いまの測定器は本ファイルの --fit。
     ⚠ 単一正弦波との相関では**暗い岩盤に引きずられて候補が拮抗する**。細線強調 → 周期と
       位相の総当たり (comb fit) にして初めて安定した。さらに**木板の床の縞**をグリッドと
       誤検出するので、確認は必ず「予測線を重ねた画像を目で見る」まで行うこと。
@@ -66,7 +70,7 @@ DEFAULT_TILE = 96          # ★index.html の TILE_SIZE と同じ。焼き上�
 # ──────────────────────────────────────────────────────────────────────────────
 # 台帳 — codex1 納品 MAP の実測値
 #   ⚠ ここは「測った結果」であって設定ではない。素材を差し替えたら測り直すこと
-#     (fit_grid.py を scratchpad へ戻して回す。台帳の数値を勘で動かさない)。
+#     (--fit で測り直す。台帳の数値を勘で動かさない)。
 # ──────────────────────────────────────────────────────────────────────────────
 GRIDS = {
     "mine-entrance": {
@@ -296,12 +300,127 @@ def bake(spec, tile, out_dir, quality, fmt):
     return ok
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 素材の焼き込み格子を測る (--fit)
+#   ⭐⭐⭐ 新しい測定器ではない。verify() が使っている line_response / comb_score を
+#     **素材へ向けて** 回すだけ。だから既存台帳 phlan-harbor の 6 数値
+#     (33.40 / 7.25 / 63.945 / 64.410 / 23 / 15) を小数点以下まで復元できる。
+#
+#   ⚠⚠⚠ この節は **復元**である。冒頭の docstring が指す scratchpad の fit_grid.py は
+#     既に消えていて (git ls-files で 0 件)、次に MAP を 1 枚受け取った瞬間に詰む状態だった。
+#     ⛔ 二度と scratchpad へ置かないこと。測定器は台帳と同じファイルに住む。
+#
+#   ⚠⚠ マス数は入力ではなく **出力**。(len - phase) // period の整数部が答えで、
+#     1536x1024 の素材でも 24x16 にはならず 23x15 になる。
+#     ⛔ だから発注文に「24x16 マスで納品せよ」と書いてはいけない。書くのは
+#       「1 マス 64px 相当の格子で 1536x1024」まで。
+#
+#   ⚠⚠⚠ 探索には **中心が要る**。中心無しの広域探索は倍音を拾う (2026-08-26 実測):
+#       廃坑入口 縦 … 素朴な argmax は 91.40px (= 2 x 45.70 の倍音) が本物に勝った
+#       港町     縦 … 32px 付近の成分が基本波 63.945px より強い
+#     comb_score は「櫛が当たった画素の**平均**」なので、周期が大きいほど標本が減って
+#     平均が上がる = **異なる周期どうしを比較できない**。反櫛との差 (contrast) でも
+#     標本数バイアスは消えず、離散フーリエでも港町は 32px を選んだ (3 方式とも実測で失敗)。
+#     ⭐ したがって中心は人が与える。出し方は「素材の幅 ÷ ざっと数えたマス数」で、
+#       ±8% の窓は **1 マス数え違えても入る** (23 マスを 24 と数えても 4.3% のズレ)。
+#     ⚠ ここで数えた概数は答えではない。答えは測って出てくる整数マス数のほう。
+#
+#   ⚠ 探索の中心を --tile にしてはいけない。--tile は「焼き上がりの 1 マス px」であって
+#     **素材の周期ではない**。台帳 4 件のうち 3 件で両者は一致しない
+#     (廃坑入口 45.70/64 ・廃坑 38.46/64 ・アジト 30.52/48 ・港町 63.945/64)。
+#     tile を中心に固定すると 45.70 の素材は永久に測れない = 汎用だった fit_grid.py が
+#     失われた事故の構造そのもの。負のコントロール fitcenter がこれを機械証明する。
+# ──────────────────────────────────────────────────────────────────────────────
+FIT_SPAN_RATIO = 0.08      # 探索窓 = 中心 ±8% (1 マス数え違えても入る幅)
+FIT_HINT = chr(10).join((
+    "--fit には探索中心が要ります。--fit-around <px> か --tile <px> を渡してください。",
+    "  ⚠ 中心無しの広域探索は倍音を拾います (実測: 廃坑入口で 91.40 = 2 x 45.70 が本物に勝った)。",
+    "  ⭐ 中心 = 素材の幅 ÷ ざっと数えたマス数。1536px を 24 マスと数えたなら 64。",
+    "  ⚠ ざっと数えた 24 は答えではありません。答えは測って出てくる 23 のほうです。",
+))
+
+
+def fit_axis(resp, center):
+    """櫛形フィットの 2 段 (粗 → 細)。戻り値 (score, period, phase)。
+
+    ⚠ 1 段目を粗くしすぎると別の極大へ吸い込まれる (verify() の sweep と同じ理由)。
+    """
+    lo, hi = center * (1.0 - FIT_SPAN_RATIO), center * (1.0 + FIT_SPAN_RATIO)
+    best = (-1.0, lo, 0.0)
+    step = max(0.05, (hi - lo) / 400.0)
+    T = lo
+    while T <= hi:
+        ph = 0.0
+        while ph < T:
+            s = comb_score(resp, T, ph)
+            if s > best[0]:
+                best = (s, T, ph)
+            ph += 0.25
+        T += step
+    T = best[1] - 0.30
+    while T <= best[1] + 0.30:
+        ph = 0.0
+        while ph < T:
+            s = comb_score(resp, T, ph)
+            if s > best[0]:
+                best = (s, T, ph)
+            ph += 0.05
+        T += 0.005
+    return best
+
+
+def fit(path, tile, around):
+    """素材の焼き込み格子を測り、GRIDS へ貼れる形で出す。⛔ 1 バイトも書かない。"""
+    src = path if os.path.isabs(path) else os.path.join(SRC_DIR, path)
+    if not os.path.exists(src):
+        alt = path if os.path.isabs(path) else os.path.join(ROOT, path)
+        if not os.path.exists(alt):
+            raise SystemExit(f"素材が見つかりません: {path}")
+        src = alt
+    center = around if around is not None else (float(tile) if tile else None)
+    if not center:
+        raise SystemExit(FIT_HINT)
+
+    im = Image.open(src).convert("RGB")
+    gray = np.asarray(im.convert("L"), dtype=np.float64)
+    print(f"--- 格子フィット: {src}  {im.width}x{im.height}")
+    print(f"    探索窓 = 中心 {center:.2f}px ±{FIT_SPAN_RATIO*100:.0f}% "
+          f"({center*(1-FIT_SPAN_RATIO):.2f} 〜 {center*(1+FIT_SPAN_RATIO):.2f}px)"
+          + ("  [--fit-around]" if around is not None else "  [--tile を中心に流用]"))
+
+    out = {}
+    for name, axis, key in (("縦線", 0, "x"), ("横線", 1, "y")):
+        resp = line_response(gray, axis)
+        score, period, phase = fit_axis(resp, center)
+        n = int((len(resp) - phase) // period)   # ⚠ round() にしない (負のコントロール fitceil)
+        out[key] = {"period": round(period, 3), "phase": round(phase, 2),
+                    "cells": n, "score": round(score, 3)}
+        naive = int(round(len(resp) / center))
+        print(f"    {name}: 周期 {period:8.3f}px / 位相 {phase:6.2f}px / "
+              f"整数マス {n:3d} / score {score:.3f}"
+              + (f"   ⚠ 素朴な割り算なら {naive} (答えは {n})" if naive != n else ""))
+
+    print()
+    print("    GRIDS へ貼る形:")
+    print(f'        "phase":  ({out["x"]["phase"]:.2f}, {out["y"]["phase"]:.2f}),')
+    print(f'        "period": ({out["x"]["period"]:.3f}, {out["y"]["period"]:.3f}),')
+    print(f'        "cells":  ({out["x"]["cells"]}, {out["y"]["cells"]}),')
+    print()
+    print("    ⚠ マス数は測って出てきた値。発注時に数えた数と違っていても、こちらが正しい。")
+    print("    ⚠ 貼ったら必ず --name <キー> で焼き、末尾の検算 3 指標が OK になることを見る。")
+    # ⛔ --fit は読むだけ。ここで bake() を呼ばない (負のコントロール fitwrite が機械証明)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="codex1 の焼き込みグリッド MAP を DF のタイル格子へ乗せ直す")
     ap.add_argument("--name", help=f"台帳のキー ({' / '.join(GRIDS)})")
     ap.add_argument("--all", action="store_true", help="台帳の全件を焼く")
     ap.add_argument("--list", action="store_true", help="台帳の一覧を出す")
     ap.add_argument("--check", help="既に在る画像の検算だけ行う (焼かない)")
+    ap.add_argument("--fit", help="素材画像の焼き込み格子を測って GRIDS 用の値を出す (焼かない)")
+    ap.add_argument("--fit-around", type=float, default=None,
+                    help="--fit の探索中心 px (既定 = --tile)。⚠ 中心は「素材の幅 ÷ ざっと数えたマス数」")
     ap.add_argument("--tile", type=int, default=None,
                     help=f"1 マスの px (既定 = 台帳の tile / --check では {DEFAULT_TILE})")
     ap.add_argument("--out-dir", default=OUT_DIR, help="出力先 (既定 assets/)")
@@ -316,6 +435,9 @@ def main():
             print(f"{k:16s} {s['src']:12s} 周期 {px:.2f}x{py:.2f}px → {c}x{r} マス "
                   f"({c*5}ft x {r*5}ft) → {s['out']}.jpg @{s['tile']}px  {s['desc']}")
         return 0
+
+    if args.fit:
+        return fit(args.fit, args.tile, args.fit_around)
 
     if args.check:
         tile = args.tile or DEFAULT_TILE
