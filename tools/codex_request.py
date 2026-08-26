@@ -289,6 +289,24 @@ def build_prompt(header: str, body: str) -> str:
 
 # === argv 組み立て ====================================================
 
+def is_real_git_repo(workdir: Path) -> bool:
+    """作業根が **有効な** git リポジトリかどうか。
+
+    !! `.git` が「在るか」だけで判定しないこと (2026-08-27 に実際に踏んだ)。
+       codex1 には 2026-07-08 から **空の `.git` ディレクトリ**が残っており、
+       `git rev-parse` は "not a git repository" と言うのに `.exists()` は True を返す。
+       その結果 `--skip-git-repo-check` が付かず、2026-08-25 に更新された codex CLI が
+           Not inside a trusted directory and --skip-git-repo-check was not specified.
+       で **0.6 秒で exit 1** した (生成失敗ではなく起動すらしていない)。
+    * 有効性の最小の証拠は `HEAD` の存在。`.git` が **ファイル**なら
+      worktree / submodule のリンクなので有効とみなす。
+    """
+    dotgit = workdir / ".git"
+    if dotgit.is_file():
+        return True
+    return (dotgit / "HEAD").is_file()
+
+
 def build_argv(
     codex: Path,
     workdir: Path,
@@ -311,8 +329,13 @@ def build_argv(
     ]
     if model:
         argv += ["-m", model]
-    if not (workdir / ".git").exists():
-        # 作業根が git リポジトリでない場合だけ緩める (codex1 は git 管理下なので通常は付かない)
+    if not is_real_git_repo(workdir):
+        # 作業根が **有効な** git リポジトリでない場合だけ付ける。
+        # !! これはサンドボックスの緩和ではない。`-s` は据え置きで、書き込み可能な範囲も
+        #    作業根のまま変わらない。codex CLI の「版管理が無いので取り消せない」という
+        #    起動前チェックを飛ばすだけ。
+        # !! codex1 は 1.2GB の素材置き場で、実際に git 管理下ではない
+        #    (過去の成功投下 3 回もすべてこの状態で走っていた)。
         argv.append("--skip-git-repo-check")
     argv.append("-")                               # PROMPT を stdin から読む
     return argv
@@ -661,6 +684,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     log_info(f"Sandbox (-s): {args.sandbox}")
     log_info("Extra writable dirs (--add-dir): none "
              "(the Dungeon Fighters repo is intentionally NOT writable)")
+    # !! 起動前チェックを飛ばしたかどうかを **必ずログに残す** (黙って緩めない)
+    if "--skip-git-repo-check" in argv:
+        log_info("--skip-git-repo-check: YES "
+                 f"({workdir} is not a valid git repo; sandbox is unchanged)")
+    else:
+        log_info("--skip-git-repo-check: no (working root is a valid git repo)")
 
     # ログには「実際に送った全文」を必ず残す (後から何を頼んだか再現できるように)
     _LOG_LINES.append("=" * 70)
