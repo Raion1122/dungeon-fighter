@@ -260,7 +260,17 @@
     .worldNode-site .worldNodeBody {
       width: 14px; height: 14px;
       border-radius: 50%;
-      background: var(--route-ink);
+      /* ⭐ **中心の暗い点** (2026-08-26)。実機体感の症状は「拠点マーカーが街道の中継点を
+           一回り大きくしただけに見える」で、原因は --route-ink がクリームなので
+           14px も 9px も **ただの明るい塊**にしか見えないこと。
+         ⭐⭐ だから差を「大きさ / 明るさ」ではなく **中身があるか**で付ける
+           (中継点 .worldNode-way は 9px の塗りつぶし、拠点は中心が抜けた ◎)。
+         ⚠ 芯の色は札のインク --wsp-ink と同じ #2e2113 = 地図のトンマナを 1 系統に保つ。
+         ⚠⚠ **未解放の拠点は .worldNode-way を着る** (buildNodes の className を参照) ので、
+           ここをどれだけ変えても未解放側には波及しない。むしろ「明るい塊 = ただの街道の
+           折れ目」という読みが強まるので、隠していることはバレにくくなる。 */
+      background: radial-gradient(circle at 50% 50%,
+                    #2e2113 0, #2e2113 3px, var(--route-ink) 3.6px, var(--route-ink) 100%);
       box-shadow: 0 0 0 3px rgba(238,222,182,0.92), 0 0 0 4px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
     }
     .worldSign {
@@ -680,6 +690,15 @@
                (唯一の正は js/world-map.js の 1 箇所。さらに上流は tavern.html の place:)。 */
           var sign = document.createElement("span");
           sign.className = "worldSign";
+          /* ⭐ ノード別の札オフセット (唯一の正は js/world-map.js の signDx)。
+               中心出しは CSS の translateX(-50%) が担うので、**アンカーの left そのもの**を
+               ずらす。こうすると :hover の transform (translateX(-50%) scale(1.05)) と
+               干渉しない。⛔ margin-left で書かない — #15 の「可変幅は margin では中心が
+               出ない」と同じ土俵に見えて後で読み違える。
+             ⚠ calc は "50% + -72px" が**構文エラー**になる。符号を文字列側へ畳むこと。 */
+          if (typeof n.signDx === "number" && n.signDx !== 0) {
+            sign.style.left = "calc(50% " + (n.signDx < 0 ? "- " + Math.abs(n.signDx) : "+ " + n.signDx) + "px)";
+          }
           var nm = document.createElement("span");
           nm.className = "worldSignName";
           nm.textContent = n.label || id;
