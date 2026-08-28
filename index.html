@@ -18085,12 +18085,21 @@
         await playerSingleAttack(targetIdx, {});
         return true;
       };
-      // 戦士: executeWarriorSkill はプレイヤーのグローバルを直に触るリーダー専用実装。
-      // 仲間の戦士には AI 分岐そのものが無い (依頼書 §2-3) ので、ここへ来ても何もしない。
+      // 戦士: executeWarriorSkill は playerStats / playerBuffs / hp を直に書くリーダー専用実装。
+      // ⚠⚠⚠ ここを「!isLeader なら false」の 1 行だけ消して下へ流すと、
+      //    **仲間の戦士が唱えた闘志で主人公の HP が回復する** (依頼書 #34 §2-2)。
+      //    仲間には必ず ally* 側の実装を通す。
       if (classKey === "warrior") {
-        if (!isLeader) return false;
-        await executeWarriorSkill(skillId, targetIdx);
-        return true;
+        if (isLeader) { await executeWarriorSkill(skillId, targetIdx); return true; }
+        if (!WARRIOR_ALLY_ON) return false;      // #34 撤退スイッチ ?warally=0
+        if (skillId === "strong-cleave")   { await allyStrongCleave(actor, targetIdx); return true; }
+        if (skillId === "sweep")           { await allySweep(actor);                   return true; }
+        if (skillId === "finisher")        { await allyFinisher(actor, targetIdx);     return true; }
+        if (skillId === "iron-guard")      { await allyIronGuard(actor);               return true; }
+        if (skillId === "shield-bash")     { await allyShieldBash(actor, targetIdx);   return true; }
+        if (skillId === "morale")          { await allyMorale(actor);                  return true; }
+        if (skillId === "fighting-spirit") { await allyFightingSpirit(actor);          return true; }
+        return false;   // counter / resilient / second-wind はここへ来ない (apTryPreferred が弾く)
       }
       // ドワーフ (Step a-2 + フェーズ A 攻撃 3 + フェーズ B 防御 3 + フェーズ C バフ 3 追加)
       if (classKey === "dwarf") {
@@ -25138,9 +25147,14 @@
     }
 
     // 仲間の通常攻撃
-    async function allyBasicAttack(ally, enemyIdx) {
+    // opts は playerSingleAttack と同じ契約 (実装依頼書 #34 §4)。⚠ 未指定なら従来どおり。
+    //   skillName / dmgDice / dmgBonus / range / suppressWeaponFx
+    // ⛔ critMult / onAfterHit は今回使わないので受けない (使わない口を開けない)。
+    // 返り値も playerSingleAttack と同じ形 { missed, ... }。既存の呼び口 9 箇所は返り値を見ていない。
+    async function allyBasicAttack(ally, enemyIdx, opts) {
+      const o = opts || {};
       const target = enemies[enemyIdx];
-      if (!target.alive) return;
+      if (!target.alive) return { missed: true };
       const tgtDef = target.def;
       const ex = target.x + tgtDef.displaySize / 2;
       const ey = target.y + tgtDef.displaySize / 2;
@@ -25153,19 +25167,20 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       // 射程 + 視線チェック (遠距離武器は壁越しに撃てない)
-      const rangeKey = ally.weaponRange || "melee";
+      // #34: o.range (スキル側) が優先、無ければ武器射程 = 従来と同一。
+      const rangeKey = o.range || ally.weaponRange || "melee";
       const rangeTiles = getRange(rangeKey).tiles;
       const distT = tileChebyshev(aCX, aCY, ex, ey);
       const needLOS = (rangeKey !== "melee");
       if (distT > rangeTiles || (needLOS && !hasLineOfSight(aCX, aCY, ex, ey))) {
         await allyAdvanceTowardPoint(ally, ex, ey);
-        return;
+        return { missed: true, outOfRange: true };
       }
 
       flashAction(ally.el, "attack");
       startAllyAttackAnim(ally);
       triggerLungeAlly(ally, Math.sign(dfx), clampLungeMag(aCX, aCY, ally.def.displaySize, target));   // 攻撃エフェクト: 対象方向へ踏み込み(大型はめり込み防止クランプ)
-      if ((ally.weaponRange || "melee") === "melee") spawnSlashArc(aCX, aCY, Math.atan2(dfy, dfx), { radius: 52 });   // 斬撃の弧 (近接のみ)
+      if (rangeKey === "melee") spawnSlashArc(aCX, aCY, Math.atan2(dfy, dfx), { radius: 52 });   // 斬撃の弧 (近接のみ / #34: opts.range も反映)
 
       const helpless = target.stunned > 0;
       const natD20 = d20();
@@ -25182,14 +25197,15 @@
         await spawnArrow(launchX, launchY, ex, ey, 320);
       };
 
-      const allyMelee = (ally.weaponRange || "melee") === "melee";   // 斬撃音は近接の仲間のみ
+      const allyMelee = rangeKey === "melee";   // 斬撃音は近接の仲間のみ (#34: opts.range も反映)
+      const labelPrefix = o.skillName ? (o.skillName + " ") : "";   // #34: 技名をロール表示のラベルへ
       if (isFumble) {
         if (allyMelee) playMeleeSwing();
         showRollAtAlly(ally,
-          `<span class="label">FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`,
+          `<span class="label">${labelPrefix}FUMBLE!</span>1d20(<b>1</b>)${signedDD(aAtk)}`,
           "fumble");
         await sleepMs(900);
-        return;
+        return { missed: true };
       }
 
       const hit = helpless || isThreat || atkTotal >= effectiveEnemyAc(target);
@@ -25197,11 +25213,11 @@
       if (!hit) {
         if (allyMelee) playMeleeSwing();   // 近接=空振りの風切り / 遠隔=従来通り矢の発射音
         showRollAtAlly(ally,
-          `<span class="label">MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
+          `<span class="label">${labelPrefix}MISS</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = ${atkTotal}<br>vs AC ${effectiveEnemyAc(target)}`,
           "miss");
         await fireArrowFromAlly();
         await sleepMs(500);
-        return;
+        return { missed: true };
       }
 
       if (!helpless && isThreat) {
@@ -25214,18 +25230,24 @@
           "crit");
       } else {
         showRollAtAlly(ally,
-          `<span class="label">${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
+          `<span class="label">${labelPrefix}${isCrit ? "CRIT!" : "HIT"}</span>1d20(<b>${natD20}</b>)${signedDD(aAtk)} = <span class="big">${atkTotal}</span><br>vs AC ${effectiveEnemyAc(target)}`,
           isCrit ? "crit" : "hit");
       }
       await sleepMs(300);
       // 命中側でも矢飛翔 (着弾 → ダメージ)
       await fireArrowFromAlly();
 
-      const { n, sides } = parseDiceDD(ally.dmgDice);
+      // #34: o.dmgDice が優先。⚠ 無ければ ally.dmgDice = 従来と同一。
+      const { n, sides } = parseDiceDD(o.dmgDice || ally.dmgDice);
       const times = isCrit ? ally.critMult : 1;
       let allRolls = [];
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
-      const bonusTotal = effectiveAllyDmgBonus(ally) * times;   // C4 ④c: 帯の上では装備+ の下駄を抑制
+      // #34: o.dmgBonus は **null/undefined でないときだけ** 優先する。|| で判定すると
+      //   dmgBonus: 0 (STR 修正 0 の戦士) が従来値へ黙って落ちる。
+      // ⚠ effectiveAllyDmgBonus は武器 +N (_dmgEnhDelta) を既に畳み込んでいるので、
+      //   スキル側の値へ更に +N を足さない (二重計上になる = ドワーフ仲間版 11 本と同じ作法)。
+      const skillDmgBonus = (o.dmgBonus != null) ? o.dmgBonus : effectiveAllyDmgBonus(ally);
+      const bonusTotal = skillDmgBonus * times;   // C4 ④c: 帯の上では装備+ の下駄を抑制
       let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + bonusTotal);
       // ストライキング: 命中ごとに +1dX (crit 非倍化)
       if (ally.buffs.strikingRemaining > 0 && ally.buffs.strikingDie > 0) {
@@ -25239,7 +25261,7 @@
       // Phase 2-A: 残影回避判定 (shadowBeast 等)
       if (tryDisplacement(enemyIdx)) {
         await sleepMs(420);
-        return;
+        return { missed: true, displaced: true };
       }
       // 非魔法物理免疫 (ストーンゴーレム等): 仲間は当面 weaponEnhancement 未設定=0 で無効化
       if (golemPhysImmune(enemyIdx, ally.weaponEnhancement || 0)) {
@@ -25247,7 +25269,7 @@
         updateInfo(`${ally.def.name}: 非魔法の武器は ${tgtDef.name} に通用しない!`);
         noteDisplacementHit(enemyIdx);
         await sleepMs(380);
-        return;
+        return { missed: true, immune: true };
       }
       // 非魔法物理耐性 (ガーゴイル等): 当たってはいるので return せず、半減して続行
       if (golemPhysResist(enemyIdx, ally.weaponEnhancement || 0)) {
@@ -25276,12 +25298,13 @@
         shockwaveType:   ally.weaponShockwaveType,
         shockwaveSaveDC: ally.weaponShockwaveSaveDC,
       };
-      await applyWeaponSpecialEffects(allyWeaponLike, target, enemyIdx, ex, isCrit, ally.def.name, { kind:"ally", ally });
+      await applyWeaponSpecialEffects(allyWeaponLike, target, enemyIdx, ex, isCrit, ally.def.name, { kind:"ally", ally }, o.suppressWeaponFx);
 
       if (target.hp <= 0) {
         defeatEnemy(enemyIdx);
         await sleepMs(400);
       }
+      return { missed: false, isCrit: isCrit };
     }
 
     // アンデッド判定 (ターンアンデッド用)。将来の不死敵は def.undead=true を付与。
@@ -27231,6 +27254,105 @@
       }
     }
 
+    // ══════════ 戦士 仲間版 7 本 (実装依頼書 #34) ══════════
+    // ⛔ リーダー側 (skill_* / executeWarriorSkill) は 1 行も触らない。あちらは
+    //    playerStats / playerBuffs / hp を直に書くリーダー専用実装なので、仲間を通すと
+    //    「仲間の戦士が唱えた闘志で主人公の HP が回復する」暴発になる (依頼書 §2-2)。
+    // ⭐ 攻撃系 4 本は allyBasicAttack の薄いラッパ (リーダー側 skill_* と同じ構造)。
+    async function allyStrongCleave(ally, enemyIdx) {
+      const sk = WARRIOR_SKILLS["strong-cleave"];
+      await allyBasicAttack(ally, enemyIdx, {
+        skillName: sk.name, dmgDice: sk.dmgDice, dmgBonus: ally.str, range: sk.range,
+      });
+      return true;
+    }
+    async function allySweep(ally) {
+      // 前列全体: 交戦中の生存敵すべてに個別に攻撃ロール (リーダー側 skill_sweep と同じ作法)
+      const sk = WARRIOR_SKILLS["sweep"];
+      const idxs = (encounterEnemyIndices || []).filter(i => enemies[i] && enemies[i].alive);
+      for (const idx of idxs) {
+        if (!ally.alive) break;
+        if (!enemies[idx] || !enemies[idx].alive) continue;
+        await allyBasicAttack(ally, idx, {
+          skillName: sk.name, dmgDice: sk.dmgDice, dmgBonus: ally.str, range: sk.range,
+        });
+        await sleepMs(200);
+      }
+      return true;
+    }
+    async function allyFinisher(ally, enemyIdx) {
+      const sk = WARRIOR_SKILLS["finisher"];
+      await allyBasicAttack(ally, enemyIdx, {
+        skillName: sk.name, dmgDice: sk.dmgDice, dmgBonus: ally.str, range: sk.range,
+      });
+      // ⚠⚠⚠ 依頼書 §2-4: ally.buffs.skipNextTurn は **誰も読まない死にフィールド**。
+      //   ここへ書くとデメリット (次ターン休み) が黙って消え、3d10 がノーリスクの
+      //   上位互換になる。仲間のスタンは既存の数値枠 ally.stunned が唯一の正
+      //   (allyAttackTurn の冒頭が ally.stunned-- で 1 手番飛ばす)。
+      ally.stunned = Math.max(ally.stunned || 0, 1);
+      showRollAtAlly(ally, `<span class="label">SELF STUN</span>息切れ — 次ターン休み`, "miss");
+      await sleepMs(400);
+      return true;
+    }
+    async function allyShieldBash(ally, enemyIdx) {
+      const sk = WARRIOR_SKILLS["shield-bash"];
+      const res = await allyBasicAttack(ally, enemyIdx, {
+        skillName: sk.name, dmgDice: sk.dmgDice, dmgBonus: ally.str, range: sk.range,
+        suppressWeaponFx: true,   // 盾の打撃なので武器の炎エフェクトは出さない
+      });
+      // ⚠ 命中したときだけスタン (リーダー側 skill_shieldBash と同じ res.missed 判定)
+      if (res && !res.missed && enemies[enemyIdx] && enemies[enemyIdx].alive) {
+        enemies[enemyIdx].stunned = sk.stunTarget;
+        showRollAtEnemy(enemyIdx, `<span class="label">STUNNED</span>次ターン行動不能`, "miss");
+        await sleepMs(500);
+      }
+      return true;
+    }
+    // ⭐ バフ系 3 本はドワーフ仲間版 (allyBrace / allyBattleRoar / allyBigEater) の型を転用。
+    async function allyIronGuard(ally) {
+      const sk = WARRIOR_SKILLS["iron-guard"];
+      flashAction(ally.el, "skill");
+      ally.buffs.dmgReductionDice = sk.dmgReductionDice;
+      ally.buffs.dmgReductionRemaining = sk.duration + 1;   // ⚠ リーダー側 skill_ironGuard と同じ +1
+      showRollAtAlly(ally,
+        `<span class="label">SKILL</span><span class="big">${sk.name}</span><br>被ダメ -${sk.dmgReductionDice}`,
+        "skill");
+      updateInfo(`${ally.npcName || ally.def.name}: 鉄壁の構え! 被ダメージを ${sk.dmgReductionDice} 軽減`);
+      await sleepMs(800);
+      return true;
+    }
+    async function allyMorale(ally) {
+      const sk = WARRIOR_SKILLS["morale"];
+      flashAction(ally.el, "skill");
+      // ⚠ 既存の atk バフより弱い場合は上書きしない (allyBattleRoar と同じ Math.max)。
+      //   戦闘の咆哮 +4 の上に 士気高揚 +2 を書くと弱体化になる。
+      ally.buffs.atkBonusAmount = Math.max(ally.buffs.atkBonusAmount || 0, sk.atkBonusAmount);
+      ally.buffs.atkBonusRemaining = sk.duration + 1;       // ⚠ リーダー側 skill_morale と同じ +1
+      showRollAtAlly(ally,
+        `<span class="label">SKILL</span><span class="big">${sk.name}</span><br>攻撃 +${sk.atkBonusAmount} / ${sk.duration}T`,
+        "skill");
+      updateInfo(`${ally.npcName || ally.def.name}: 士気高揚! ${sk.duration}ターン攻撃 +${sk.atkBonusAmount}`);
+      await sleepMs(800);
+      return true;
+    }
+    async function allyFightingSpirit(ally) {
+      const sk = WARRIOR_SKILLS["fighting-spirit"];
+      flashAction(ally.el, "skill");
+      const { n, sides } = parseDiceDD(sk.healDice);
+      const r = rollDiceDD(n, sides);
+      const heal = Math.max(1, r.total + (sk.useCon ? ally.con : 0));
+      const prev = ally.hp;
+      ally.hp = Math.min(ally.maxHp, ally.hp + heal);
+      const actual = ally.hp - prev;
+      showRollAtAlly(ally,
+        `<span class="label">闘志 HEAL</span>${sk.healDice}(${r.rolls.join("+")})${signedDD(ally.con)} = <span class="big">+${actual}</span>`,
+        "init");
+      showHealAt(ally.x + ally.def.displaySize / 2, ally.y, actual);
+      updateInfo(`${ally.npcName || ally.def.name}: 闘志でHPを ${actual} 回復 (${ally.hp}/${ally.maxHp})`);
+      await sleepMs(800);
+      return true;
+    }
+
     async function allyAttackTurn(ally) {
       // バフ tick
       if (ally.buffs.atkBonusRemaining > 0) ally.buffs.atkBonusRemaining--;
@@ -27288,6 +27410,8 @@
       // クラス別 AI 分岐
       if (ally.classKey === "cleric") {
         if (await clericAI(ally)) return;
+      } else if (ally.classKey === "warrior") {   // #34: 戦士の仲間にも行動の優先度を効かせる
+        if (await warriorAI(ally)) return;
       } else if (ally.classKey === "mage") {
         if (await mageAI(ally)) return;
       } else if (ally.classKey === "dwarf") {
@@ -29078,6 +29202,70 @@
       return false;  // 通常攻撃ロジックへフォールバック
     }
 
+    // ── 戦士 AI (実装依頼書 #34) ────────────────────────────────────────────────
+    // ⭐ 既存 5 職と同じ形: ① クールダウンのデクリメント → ② 先出し (apTryPreferred)
+    //    → ③ 従来の if 連鎖。false を返したら呼び元 (allyAttackTurn) が通常攻撃へ
+    //    落とすので、手番は潰れない。
+    // ⚠⚠ このブロックは driver_action_priority.js の (2e) が数える region
+    //    (clericAI 〜 executeWarriorSkill) の内側。確率ゲートは **必ず**
+    //    apGateP(ally, "<id>", <base>) を通した比較の形で書く。素の乱数比較を
+    //    1 本でも裸で残すと (2e) が赤くなる。
+    // ⚠ この注意書き自体に「乱数 < apGateP(」の文字列を書かないこと。(2e) は配信バイトを
+    //    正規表現で数えるので、コメントの中の 1 本まで本物のゲートとして数えてしまう。
+    // ⛔ finisher / shield-bash / iron-guard は既定の連鎖に **入れない**。
+    //    渾身の一撃はセルフスタンでテンポが死に、盾バッシュは 1d4 で素の攻撃より弱く、
+    //    鉄壁の構えは受け身すぎる。どれも「プレイヤーが明示的に指定したときだけ出る」に
+    //    することで、指定そのものに意味が生まれる (依頼書 §6)。
+    async function warriorAI(ally) {
+      if (!WARRIOR_ALLY_ON) return false;
+      if (ally.skillCooldowns) {
+        for (const k of Object.keys(ally.skillCooldowns)) {
+          if (ally.skillCooldowns[k] > 0) ally.skillCooldowns[k]--;
+        }
+      }
+      // ★#19/#34: 先出しは **クールダウンのデクリメントより後**。前に置くと先出しが
+      //   成立した手番で CD が減らず永久に塞がる (rogueAI と同じ理由)。
+      if (await apTryPreferred(ally)) return true;
+
+      const eq = ally.equippedSkills || [];
+      const has = (id) => eq.indexOf(id) >= 0;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const meleeTiles = getRange("melee").tiles;
+      let adjacent = 0;
+      for (const e of enemies) {
+        if (!e || !e.alive) continue;
+        const ecx = e.x + e.def.displaySize / 2, ecy = e.y + e.def.displaySize / 2;
+        if (tileChebyshev(aCX, aCY, ecx, ecy) <= meleeTiles) adjacent++;
+      }
+
+      // ① 闘志: HP 半分未満なら生き残りが最優先
+      if (has("fighting-spirit") && ally.hp < ally.maxHp * 0.5
+          && Math.random() < apGateP(ally, "fighting-spirit", 0.6)) {
+        await allyFightingSpirit(ally);
+        return true;
+      }
+      // ② なぎ払い: 隣接 2 体以上を巻き込めるとき
+      if (has("sweep") && adjacent >= 2
+          && Math.random() < apGateP(ally, "sweep", 0.5)) {
+        await allySweep(ally);
+        return true;
+      }
+      // ③ 士気高揚: 攻撃バフが切れているときの開幕バフ
+      if (has("morale") && (ally.buffs.atkBonusRemaining || 0) <= 0
+          && Math.random() < apGateP(ally, "morale", 0.4)) {
+        await allyMorale(ally);
+        return true;
+      }
+      // ④ 強斬り: 隣接敵が居るなら素の一撃より強い
+      if (has("strong-cleave") && adjacent >= 1
+          && Math.random() < apGateP(ally, "strong-cleave", 0.5)) {
+        const ti = pickClosestEngagedEnemyFromAlly(ally);
+        if (ti >= 0) { await allyStrongCleave(ally, ti); return true; }
+      }
+      return false;  // 通常攻撃ロジックへフォールバック
+    }
+
     async function executeWarriorSkill(skillId, defaultTargetIdx) {
       showSkillAnnounce(WARRIOR_SKILLS[skillId].name);
       await sleepMs(1100);
@@ -29135,6 +29323,12 @@
       try { return new URLSearchParams(window.location.search).get("actionpri") !== "0"; }
       catch (e) { return true; }
     })();
+    // #34 撤退スイッチ: ?warally=0 で戦士の仲間が従来 (通常攻撃 + カウンターのみ) へ戻る。
+    // ⚠ ?actionpri=0 は上位。両方 off でも矛盾しない (apTryPreferred が先に false を返す)。
+    const WARRIOR_ALLY_ON = (function () {
+      try { return new URLSearchParams(window.location.search).get("warally") !== "0"; }
+      catch (e) { return true; }
+    })();
     const AP_BOOST = 4.0;   // 主人公の重み倍率 (⚠ クランプの **後** に掛ける。§2-4)
     const AP_P     = 0.8;   // 仲間の先出し確率 / 確率ゲートの引き上げ先
     // ⚠⚠ tavern.html の TRAVEL_CASTABLE_IDS と **集合として完全一致** させること (二重定義)。
@@ -29182,6 +29376,7 @@
       window.apGateP            = apGateP;
       window.AP_TRAVEL_CASTABLE = AP_TRAVEL_CASTABLE;
       window.ACTION_PRIORITY_ON = ACTION_PRIORITY_ON;
+      window.WARRIOR_ALLY_ON    = WARRIOR_ALLY_ON;
       window.AP_BOOST           = AP_BOOST;
       window.AP_P               = AP_P;
     }
@@ -29214,6 +29409,8 @@
       if (skillId === "brace")       return (b.dmgReductionRemaining || 0) > 0;
       if (skillId === "steel-will")  return (b.statusImmunityCharges || 0) > 0;
       if (skillId === "battle-roar") return (b.atkBonusRemaining || 0) > 0;
+      if (skillId === "morale")      return (b.atkBonusRemaining || 0) > 0;        // #34
+      if (skillId === "iron-guard")  return (b.dmgReductionRemaining || 0) > 0;    // #34
       // 味方対象のバフ系: 未バフの候補が 1 人もいなければ無駄打ち
       if (skillId === "bless")           return !apPartyHasUnbuffed(bf => (bf.atkBonusRemaining || 0) <= 0);
       if (skillId === "shield-of-faith") return !apPartyHasUnbuffed(bf => (bf.acBonusRemaining || 0) <= 0);

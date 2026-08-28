@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
- * driver_action_priority.js — 実装依頼書 #19「行動の優先度」検証ドライバ
+ * driver_action_priority.js — 実装依頼書 #19「行動の優先度」+ #34「戦士の仲間」検証ドライバ
  * ═══════════════════════════════════════════════════════════════════════════
  *   node tools/driver_action_priority.js [--headful] [--port N] [--browser <path>]
  *   node tools/driver_action_priority.js --negative     ← 負のコントロール
+ *   node tools/driver_action_priority.js --baseline <hash>   ← §7 の非退行比較の基準
  *
  * ── セクションと実装状況 (段階的に足していく骨組み) ───────────────────────
  *   §0 装置 (母集団の確認 / index↔tavern の二重定義突合)   … 実装済 (項目②)
@@ -13,6 +14,12 @@
  *   §4 バフ退避 (戦闘開始で主人公だけ剥がれない)            … 実装済 (項目④)
  *   §5 撤退スイッチ ?actionpri=0                            … 実装済 (項目④)
  *   §6 酒場 UI                                              … 実装済 (本ファイル)
+ *   §7 戦士の仲間 (実装依頼書 #34)                          … 実装済 (#34)
+ *
+ * ── ⚠⚠⚠ §7 の非退行比較 (7a-0)/(7k) の基準コミット ──────────────────────
+ *   BASE_REF は **#34 に着手する直前のコミット** を直書きで固定する。
+ *   ⛔ ここを HEAD にすると、#34 を commit した瞬間に「自分自身との比較」になり
+ *      **永久に緑** になる (= 最悪の空振り)。--baseline で上書きできる。
  *
  *   ⛔ PENDING は **黙って緑にしない**。RESULT 行に PASSED / FAILED / PENDING の
  *      3 つの数を必ず出し、「まだ測っていない」を数で見えるようにする。
@@ -47,6 +54,22 @@
  *       → **(4a) が赤くなる**こと。戦闘開始で **主人公のバフだけ** 剥がれる非対称の再現。
  *   N6: apTryTravelCast の apTravelCastDone ラッチを外す
  *       → **(3c) が赤くなる**こと。1 回の接敵で何度も唱えてスロットを溶かす。
+ *
+ *   ── #34 で追加した 5 本 ───────────────────────────────────────────────
+ *   ⚠ 依頼書 #34 §8 の表は N4〜N8 と書いてあるが、**N4/N5/N6 は #19 で既に使用済**
+ *     だったので N7〜N11 へ繰り下げた (依頼書 §12 に記録)。
+ *   N7:  allyBasicAttack の `o.dmgBonus != null` を `o.dmgBonus ||` へ (0 を潰す変異)
+ *        → **(7b-2) が赤くなる**こと。STR 修正 0 の戦士でスキルの威力が武器値へ化ける。
+ *   N8 ⭐: allyFinisher の `ally.stunned = ...` を `ally.buffs.skipNextTurn = true` へ
+ *        (依頼書 §2-4 の罠そのもの) → **(7d) が赤くなる**こと。誰も読まない死にフィールド
+ *        へ書くのでセルフスタンが黙って消え、3d10 がノーリスクの上位互換になる。
+ *   N9:  apIsWastedCast の morale の行を削る (依頼書 §2-5 の罠)
+ *        → **(7f) が赤くなる**こと。効いている最中も毎手番撃ち直してターンを溶かす。
+ *   N10 ⭐: executeSkillOn の warrior 枝から isLeader の分岐を外し、仲間も
+ *        executeWarriorSkill へ流す (依頼書 §2-2 の罠) → **(7h) が赤くなる**こと。
+ *        仲間の戦士が唱えた闘志で **主人公の HP が回復する**。
+ *   N11: warriorAI のゲート 1 本を apGateP から裸の Math.random() < へ戻す
+ *        → **(2e) が赤くなる**こと。
  */
 'use strict';
 
@@ -71,6 +94,19 @@ const FROZEN = {};
 for (const rel of ['tavern.html', 'index.html']) {
   FROZEN['/' + rel] = fs.readFileSync(path.join(ROOT, rel));
 }
+
+/* ── §7 (#34) の非退行比較用: 着手前のスナップショットを別 URL で同時に配信する ──
+ * ⛔⛔ 既定を HEAD にしてはいけない。#34 を commit した瞬間に「自分自身との比較」に
+ *    化けて **永久に緑** になる (memory: 期待値の写経回避は着手前 hash で採る)。
+ * ⚠ 取得に失敗したら (7a-0)/(7k) は PENDING にする。黙って緑にはしない。
+ * ⚠ git show が返すのは blob (LF) で、作業ツリー (CRLF) とは改行が違う。JS の意味は
+ *   変わらないので比較には影響しない (比べるのはバイトではなく実行時の観測列)。 */
+const BASE_REF = arg('baseline', 'c226acf');   // #29 着地直後 = #34 に 1 バイトも触る前
+let BASE_ERR = null;
+try {
+  FROZEN['/index_base.html'] = require('child_process')
+    .execFileSync('git', ['show', BASE_REF + ':index.html'], { cwd: ROOT, maxBuffer: 128 * 1024 * 1024 });
+} catch (e) { BASE_ERR = (e && e.message) || String(e); }
 
 /* ── index.html を行単位で書き換えるユーティリティ ─────────────────────────────
  * ⚠⚠ index.html は CRLF。'\n' 決め打ちで split すると各行末に '\r' が残るので、
@@ -230,6 +266,62 @@ if (NEGATIVE) {
     return true;
   });
   console.log('[driver] ★ 負のコントロール N6 を注入しました (apTravelCastDone のラッチを外す)');
+
+  /* ══ #34 の 5 本 (N7〜N11) ══════════════════════════════════════════════
+   * ⚠ 依頼書 #34 §8 は N4〜N8 と書いているが、N4/N5/N6 は #19 で使用済だったので
+   *   繰り下げた。番号だけの違いで、変異の中身は依頼書の表と 1 対 1 に対応する。 */
+  const oneLine = (label, oldTrim, newLine) => {
+    editIndexLines(label, (lines, trimCR) => {
+      const spots = [];
+      for (let i = 0; i < lines.length; i++) if (trimCR(lines[i]) === oldTrim) spots.push(i);
+      if (spots.length !== 1) {
+        console.error('[driver] ' + label + ' の注入点が ' + spots.length + ' 箇所 (期待 1):  ' + oldTrim);
+        return false;
+      }
+      lines[spots[0]] = newLine + '\r';
+      return true;
+    });
+    console.log('[driver] ★ 負のコントロール ' + label + ' を注入しました');
+  };
+
+  // N7: 0 を潰す || へ戻す (dmgBonus: 0 の戦士でスキル威力が武器値へ化ける)
+  oneLine('N7 (allyBasicAttack の dmgBonus 判定)',
+    'const skillDmgBonus = (o.dmgBonus != null) ? o.dmgBonus : effectiveAllyDmgBonus(ally);',
+    '      const skillDmgBonus = (o.dmgBonus || effectiveAllyDmgBonus(ally));   /* N7: 0 を潰す変異 */');
+
+  // N8 ⭐ 依頼書 §2-4 の罠そのもの: 誰も読まない死にフィールドへ書く
+  oneLine('N8 (allyFinisher のセルフスタン)',
+    'ally.stunned = Math.max(ally.stunned || 0, 1);',
+    '      ally.buffs.skipNextTurn = true;   /* N8: 死にフィールドへ書いた変異 */');
+
+  // N9 依頼書 §2-5 の罠: 士気高揚の無駄撃ち判定を落とす
+  oneLine('N9 (apIsWastedCast の morale)',
+    'if (skillId === "morale")      return (b.atkBonusRemaining || 0) > 0;        // #34',
+    '      /* N9: morale の無駄撃ち判定を落とした変異 */');
+
+  // N11 (2e) 用: ゲート 1 本を裸の Math.random() < へ戻す
+  oneLine('N11 (warriorAI のゲート)',
+    '&& Math.random() < apGateP(ally, "strong-cleave", 0.5)) {',
+    '          && Math.random() < 0.5) {   /* N11: apGateP を外した裸のゲート */');
+
+  // N10 ⭐ 依頼書 §2-2 の罠: 仲間もリーダー用実装へ流す (2 行を 1 行へ潰す)
+  {
+    const L1 = 'if (isLeader) { await executeWarriorSkill(skillId, targetIdx); return true; }';
+    const L2 = 'if (!WARRIOR_ALLY_ON) return false;      // #34 撤退スイッチ ?warally=0';
+    editIndexLines('負のコントロール N10 (executeSkillOn の warrior 枝)', (lines, trimCR) => {
+      const spots = [];
+      for (let i = 0; i + 1 < lines.length; i++)
+        if (trimCR(lines[i]) === L1 && trimCR(lines[i + 1]) === L2) spots.push(i);
+      if (spots.length !== 1) {
+        console.error('[driver] N10 の注入点が ' + spots.length + ' 箇所 (期待 1)');
+        return false;
+      }
+      lines[spots[0]]     = '        await executeWarriorSkill(skillId, targetIdx); return true;   /* N10: 仲間もリーダー用実装へ流す変異 */\r';
+      lines[spots[0] + 1] = '\r';
+      return true;
+    });
+    console.log('[driver] ★ 負のコントロール N10 を注入しました (仲間の戦士を executeWarriorSkill へ流す)');
+  }
 }
 
 function loadPuppeteer() {
@@ -507,7 +599,7 @@ const AP_ALLY_HELPERS = `
   window.__apAllyRun = async function (cfg) {
     const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
     const seamBefore = (window.__apLog || []).length;
-    const saved = {}, tally = {};
+    const saved = {}, tally = {}, seq = [];
     let lastFn = null;
     for (const nm of cfg.stubs) { saved[nm] = window[nm]; }
     for (const nm of cfg.stubs) window[nm] = async function () { lastFn = nm; return true; };
@@ -522,12 +614,258 @@ const AP_ALLY_HELPERS = `
         const fired = await window[cfg.ai](ally);
         const key = lastFn ? lastFn : (fired ? '(fired-unknown)' : '(none)');
         tally[key] = (tally[key] || 0) + 1;
+        seq.push(key);
       }
     } finally {
       for (const nm of cfg.stubs) window[nm] = saved[nm];
       enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
     }
-    return { tally: tally, seamDelta: (window.__apLog || []).length - seamBefore };
+    return { tally: tally, seq: seq, seamDelta: (window.__apLog || []).length - seamBefore };
+  };
+`;
+
+/* ── §7 (#34) 戦士の仲間 用の測定装置 ──────────────────────────────────────────
+ * ⭐⭐⭐ §2 の装置 (__apAllyRun) は「実行」をスタブへ差し替えて **判断だけ** を採る。
+ *   #34 は「指定した技が実際に実行され、盤面が動いたか」まで見るので、
+ *   **演出だけを黙らせて本物の ally* 実装を走らせる** 別装置が要る (= 2 経路目)。
+ * ⚠ 差し替えるのは描画・音・待ちだけ。判断とダイスは 1 行も触らない。
+ * ⚠⚠ sleepMs を「即解決の Promise」へ差し替えるのでループ全体がマイクロタスクだけで
+ *   回り、ゲームループ (マクロタスク) が割り込めない = 測定が原子的になる。
+ * ⚠ 差し替えた描画関数は観測列 (__warTrace) へ書き出すので「何が起きたか」は失われない。 */
+const WAR_HELPERS = `
+  window.__warTrace = [];
+  window.__warQuiet = function () {
+    const T = window.__warTrace;
+    const names = ['flashAction','startAllyAttackAnim','triggerLungeAlly','spawnSlashArc',
+      'showRollAtAlly','showRollAtEnemy','showDmgAt','showHealAt','showHitSpark',
+      'triggerEnemyDamageFlash','noteDisplacementHit','playMeleeSwing','playMeleeHit',
+      'updateInfo','sayCritLine','spawnArrow','showSkillAnnounce','showBuffPop',
+      'sleepMs','applyWeaponSpecialEffects','allyAdvanceTowardPoint','defeatEnemy',
+      'tryDisplacement','golemPhysImmune','golemPhysResist','triggerRecoilAlly',
+      'checkDwarvenGritTrigger',
+      // ⚠ 負のコントロール N10 は仲間をリーダー用実装 (playerSingleAttack) へ流すので、
+      //   頭側の演出も黙らせておかないと測定が DOM 例外で汚れる。
+      'showRollAtPlayer','triggerLungePlayer','triggerRecoilPlayer','runSwingNoHit',
+      'updateFacingFromMouse','sfx'];
+    const saved = {};
+    for (const nm of names) saved[nm] = window[nm];
+    window.showRollAtPlayer = function (h, t) { T.push('RP:' + t + ':' + h); };
+    window.triggerLungePlayer = function () {};
+    window.triggerRecoilPlayer = function () {};
+    window.runSwingNoHit = function () { return Promise.resolve(); };
+    window.updateFacingFromMouse = function () {};
+    window.sfx = function () {};
+    window.sleepMs = function () { return Promise.resolve(); };
+    window.flashAction = function () {};
+    window.startAllyAttackAnim = function () {};
+    window.triggerLungeAlly = function () {};
+    window.spawnSlashArc = function () {};
+    window.showHitSpark = function () {};
+    window.triggerEnemyDamageFlash = function () {};
+    window.triggerRecoilAlly = function () {};
+    window.noteDisplacementHit = function () {};
+    window.playMeleeSwing = function () {};
+    window.playMeleeHit = function () {};
+    window.sayCritLine = function () {};
+    window.showSkillAnnounce = function () {};
+    window.checkDwarvenGritTrigger = function () { return Promise.resolve(); };
+    window.tryDisplacement = function () { return false; };
+    window.golemPhysImmune = function () { return false; };
+    window.golemPhysResist = function () { return false; };
+    window.spawnArrow = function () { T.push('ARROW'); return Promise.resolve(); };
+    window.applyWeaponSpecialEffects = function () { return Promise.resolve(); };
+    window.allyAdvanceTowardPoint = function () { T.push('ADV'); return Promise.resolve(); };
+    window.defeatEnemy = function (i) { T.push('DEAD:' + i); if (enemies[i]) enemies[i].alive = false; };
+    window.showBuffPop = function (h) { T.push('BP:' + h); };
+    window.showRollAtAlly  = function (a, h, t) { T.push('RA:' + t + ':' + h); };
+    window.showRollAtEnemy = function (i, h, t) { T.push('RE:' + t + ':' + h); };
+    window.showDmgAt  = function (x, y, d, c) { T.push('D:' + d + (c ? ':crit' : '')); };
+    window.showHealAt = function (x, y, h) { T.push('HEAL:' + h); };
+    window.updateInfo = function (m) { T.push('I:' + m); };
+    return function () {
+      for (const nm of names) {
+        if (saved[nm] !== undefined) window[nm] = saved[nm];
+        else { try { delete window[nm]; } catch (e) {} }
+      }
+    };
+  };
+  // 決定論の乱数 (mulberry32)。⚠ Math.random を丸ごと差し替えて必ず戻す。
+  window.__warSeed = function (seed) {
+    const prev = Math.random;
+    let a = (seed >>> 0) || 1;
+    Math.random = function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    return function () { Math.random = prev; };
+  };
+  window.__warMkEnemy = function (ally, cfg, k) {
+    cfg = cfg || {}; k = k || 0;
+    return { alive: true, inactive: false, stunned: 0, phase: 0,
+             hp: (cfg.bossHp != null ? cfg.bossHp : 999), maxHp: 999,
+             x: ally.x + (cfg.dx != null ? cfg.dx : 96) + k * 8, y: ally.y,
+             poisonRemaining: 0, huntMarkRemaining: 0, huntMarkDie: 0,
+             def: { name: 'ダミー' + k, isBoss: !!cfg.boss, hp: 999,
+                    ac: (cfg.ac != null ? cfg.ac : 13), displaySize: 96 } };
+  };
+  // (7a-0)/(7k): opts を渡さない allyBasicAttack の観測列。
+  //   ⭐⭐⭐ 返り値では比べない。着手前の版は返り値そのものを持たないので、返り値で
+  //     比べると「従来の攻撃が変わったか」ではなく「口が開いたか」を見てしまう。
+  window.__warBasicSeq = async function (classKey, n, seed) {
+    const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive;
+    window.__warTrace = [];
+    const unquiet = window.__warQuiet();
+    const unseed  = window.__warSeed(seed);
+    try {
+      encounterActive = true;
+      for (let i = 0; i < n; i++) {
+        const ally = createAlly(classKey, playerX, playerY);
+        enemies = [window.__warMkEnemy(ally, {})];
+        encounterEnemyIndices = [0];
+        await allyBasicAttack(ally, 0);
+      }
+    } finally {
+      unseed(); unquiet();
+      enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA;
+    }
+    const t = window.__warTrace; window.__warTrace = [];
+    return t;
+  };
+  // 戦士 仲間版 7 本。⭐⭐⭐ **スタブではなく薄いラッパ**で「実際に走ったか」を記録する。
+  //   ⚠ 既定の連鎖は executeSkillOn を通らず ally* を直に呼ぶので、__apLog (経路①) だけ
+  //     見ていると (7j) が「そもそも記録されない」で自明に緑になる = 最悪の空振り。
+  window.__WAR_FNS = ['allyStrongCleave', 'allySweep', 'allyFinisher', 'allyShieldBash',
+                      'allyIronGuard', 'allyMorale', 'allyFightingSpirit'];
+  window.__warWrap = function (buf) {
+    const saved = {};
+    for (const nm of window.__WAR_FNS) {
+      saved[nm] = window[nm];
+      if (typeof saved[nm] === 'function') {
+        (function (n, f) {
+          window[n] = async function () { buf.push(n); return await f.apply(null, arguments); };
+        })(nm, saved[nm]);
+      }
+    }
+    /* ⚠⚠⚠ 通常攻撃も記録する。⭐ これが無いと「先出しが外れて通常攻撃した手番」の
+     *   ダメージ (= 武器の修正値が乗る) をスキルのダメージと取り違える。#34 実装中に
+     *   (7b-2) が 54 ダメージで誤って赤くなったのがこれ。
+     *   basicPlain = opts 無し (従来の通常攻撃) / basicOpts = スキル経由。 */
+    const savedBA = window.allyBasicAttack;
+    window.allyBasicAttack = async function (a, i, o) {
+      buf.push(o ? 'basicOpts' : 'basicPlain');
+      return await savedBA.apply(null, arguments);
+    };
+    return function () {
+      for (const nm of window.__WAR_FNS) {
+        if (saved[nm] !== undefined) window[nm] = saved[nm];
+      }
+      window.allyBasicAttack = savedBA;
+    };
+  };
+  // (7c): 本番の apTryPreferred を 1 回だけ直に叩き、返り値と盤面の両方を採る。
+  window.__warTryPreferred = async function (cfg) {
+    const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
+    window.__warTrace = [];
+    const ran = [];
+    const unwrap  = window.__warWrap(ran);
+    const unquiet = window.__warQuiet();
+    const unseed  = window.__warSeed(cfg.seed || 31415);
+    const out = { r: null, ran: ran, seamDelta: 0, enemyDmg: 0, playerHpDelta: 0, err: null };
+    try {
+      actionPriorityMap = cfg.map || null;
+      encounterActive = true;
+      const ally = createAlly('warrior', playerX, playerY);
+      if (cfg.equipped) ally.equippedSkills = cfg.equipped.slice();
+      if (cfg.hp != null) ally.hp = cfg.hp;
+      const nE = (cfg.enemies != null) ? cfg.enemies : 1;
+      enemies = []; encounterEnemyIndices = [];
+      for (let k = 0; k < nE; k++) { enemies.push(window.__warMkEnemy(ally, cfg, k)); encounterEnemyIndices.push(k); }
+      const seamBefore = (window.__apLog || []).length;
+      const eHpBefore = enemies.reduce((s, e) => s + e.hp, 0);
+      const pHpBefore = hp;
+      out.r = await apTryPreferred(ally);
+      out.seamDelta = (window.__apLog || []).length - seamBefore;
+      out.enemyDmg = eHpBefore - enemies.reduce((s, e) => s + e.hp, 0);
+      out.playerHpDelta = hp - pHpBefore;
+      out.allyHp = ally.hp;
+    } catch (e) { out.err = String((e && e.message) || e); }
+    finally {
+      unseed(); unquiet(); unwrap();
+      enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
+    }
+    return out;
+  };
+  // §7 本体: 本物の allyAttackTurn を n 手番まわし、毎手番の盤面を写し取る。
+  window.__warRun = async function (cfg) {
+    const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
+    window.__warTrace = [];
+    const ranBuf = [];
+    const unwrap  = window.__warWrap(ranBuf);
+    const unquiet = window.__warQuiet();
+    const unseed  = window.__warSeed(cfg.seed || 20260829);
+    /* ⚠⚠⚠ 主人公の hp を任意の値から始められるようにする。⭐ 満タンのまま測ると
+     *   「仲間の闘志で主人公が回復する」欠陥 (N10) が Math.min(maxHp, ...) に吸われて
+     *   **主人公の hp が動かない = 正常** に見えてしまう (#34 実装中に実際に空振りした)。 */
+    const prevPlayerHp = hp;
+    if (cfg.playerHp != null) hp = cfg.playerHp;
+    const out = { turns: [], skills: [], ran: ranBuf, playerHpStart: hp, playerHpEnd: null, err: null, trace: null };
+    try {
+      actionPriorityMap = cfg.map || null;
+      encounterActive = true;
+      const ally = createAlly('warrior', playerX, playerY);
+      ally.npcName = 'テスト戦士';
+      if (cfg.equipped) ally.equippedSkills = cfg.equipped.slice();
+      if (cfg.hp != null) ally.hp = cfg.hp;
+      if (cfg.str != null) ally.str = cfg.str;
+      if (cfg.dmgBonus != null) ally.dmgBonus = cfg.dmgBonus;
+      const nE = (cfg.enemies != null) ? cfg.enemies : 1;   // ⚠ 0 を 1 へ潰さない (7i の母集団)
+      enemies = []; encounterEnemyIndices = [];
+      for (let k = 0; k < nE; k++) { enemies.push(window.__warMkEnemy(ally, cfg, k)); encounterEnemyIndices.push(k); }
+      out.allyStart = { hp: ally.hp, maxHp: ally.maxHp, str: ally.str, critMult: ally.critMult,
+                        dmgDice: ally.dmgDice, dmgBonus: ally.dmgBonus,
+                        equipped: ally.equippedSkills.slice() };
+      for (let t = 0; t < cfg.n; t++) {
+        // ⚠⚠ 敵のスタンは誰も減らさないので、消さないと 1 回当たった時点で以後ずっと
+        //   helpless = 自動クリになり、(7e) の「外した試行」が作れなくなる。
+        if (cfg.clearEnemyStun) for (const e of enemies) e.stunned = 0;
+        const before = (window.__apLog || []).length;
+        const ranBefore = ranBuf.length;
+        const rec = { t: t,
+          stunBefore: ally.stunned || 0,
+          atkRemBefore: ally.buffs.atkBonusRemaining || 0,
+          drRemBefore: ally.buffs.dmgReductionRemaining || 0,
+          hpBefore: ally.hp,
+          eHpBefore: enemies.map(e => e.hp) };
+        await allyAttackTurn(ally);
+        rec.fired = (window.__apLog || []).slice(before).map(r => r.skillId);
+        rec.ran   = ranBuf.slice(ranBefore);   // ⭐ 実際に走った ally* (既定の連鎖もここに出る)
+        rec.stunAfter    = ally.stunned || 0;
+        rec.skipNextTurn = !!(ally.buffs && ally.buffs.skipNextTurn);
+        rec.atkRemAfter  = ally.buffs.atkBonusRemaining || 0;
+        rec.drRemAfter   = ally.buffs.dmgReductionRemaining || 0;
+        rec.hpAfter      = ally.hp;
+        rec.eHpAfter     = enemies.map(e => e.hp);
+        rec.eStunned     = enemies.map(e => e.stunned || 0);
+        rec.dmg = rec.eHpBefore.reduce((s, v, i) => s + (v - rec.eHpAfter[i]), 0);
+        out.turns.push(rec);
+        out.skills = out.skills.concat(rec.fired);
+        if (cfg.reviveEnemies !== false) {
+          for (let k = 0; k < enemies.length; k++)
+            if (!enemies[k].alive || enemies[k].hp <= 0) enemies[k] = window.__warMkEnemy(ally, cfg, k);
+        }
+      }
+      out.allyEnd = { hp: ally.hp, maxHp: ally.maxHp, stunned: ally.stunned || 0 };
+    } catch (e) { out.err = String((e && e.message) || e); }
+    finally {
+      unseed(); unquiet(); unwrap();
+      enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
+    }
+    out.playerHpEnd = hp;
+    if (cfg.playerHp != null) hp = prevPlayerHp;   // ⚠ 必ず戻す (以後の測定を汚さない)
+    out.trace = window.__warTrace.slice(0, 400); window.__warTrace = [];
+    return out;
   };
 `;
 
@@ -571,7 +909,7 @@ async function openIndexPage(browser, qs, seedAp, opts) {
     } catch (e) {}
   }, seedAp || null, { party: opts.party || null, known: opts.known || null,
                        skills: opts.skills || null, xp: opts.xp || null });
-  await page.goto('http://localhost:' + PORT + '/index.html?' + (qs || 'autoplay=30&diag=1'),
+  await page.goto('http://localhost:' + PORT + (opts.path || '/index.html') + '?' + (qs || 'autoplay=30&diag=1'),
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     'typeof gameStarted !== "undefined" && gameStarted && document.getElementById("combatLog")',
@@ -956,42 +1294,22 @@ async function readClass(page, classKey) {
       GATE_BASES.every((b, i) => g2c.other[i] === b),
       JSON.stringify(g2c.other));
 
-    // ── (2d) 戦士の仲間 — AI 分岐が無いので技は 1 つも出ない ───────────────────
-    const d1 = await allyPage.evaluate((m) => window.__apAllyRun({
-      classKey: 'warrior', ai: 'allyAttackTurn', n: 5, bossHp: 10, dx: 96,
-      stubs: ['allyBasicAttack'], equipped: ['strong-cleave'], slots: {}, map: m,
-    }), AP_SEED_ALLY);
-    check('(2d-1) 戦士の仲間の手番 (allyAttackTurn) では executeSkillOn が 1 回も呼ばれない',
-      d1.seamDelta === 0 && (d1.tally.allyBasicAttack || 0) === 5,
-      'executeSkillOn 呼び出し増分=' + d1.seamDelta + ' 内訳=' + JSON.stringify(d1.tally));
-    const d2 = await allyPage.evaluate(async (m) => {
-      const prevE = enemies, prevI = encounterEnemyIndices, prevA = encounterActive, prevM = actionPriorityMap;
-      const savedPSA = window.playerSingleAttack, savedEWS = window.executeWarriorSkill;
-      let fired = [];
-      window.playerSingleAttack = async function () { fired.push('playerSingleAttack'); };
-      window.executeWarriorSkill = async function () { fired.push('executeWarriorSkill'); };
-      try {
-        actionPriorityMap = m;
-        const ally = window.__apMkAlly('warrior', ['strong-cleave'], {});
-        enemies = [window.__apMkBoss(ally, {})]; encounterEnemyIndices = [0]; encounterActive = true;
-        const before = (window.__apLog || []).length;
-        const r = await window.apTryPreferred(ally);
-        return { r: r, fired: fired, seamDelta: (window.__apLog || []).length - before };
-      } finally {
-        window.playerSingleAttack = savedPSA; window.executeWarriorSkill = savedEWS;
-        enemies = prevE; encounterEnemyIndices = prevI; encounterActive = prevA; actionPriorityMap = prevM;
-      }
-    }, AP_SEED_ALLY);
-    check('(2d-2) 直に apTryPreferred(戦士の仲間) を呼んでも false が返り、技も通常攻撃も暴発しない',
-      d2.r === false && d2.fired.length === 0 && d2.seamDelta === 1,
-      '返り=' + d2.r + ' 実行された物=' + JSON.stringify(d2.fired)
-        + ' (executeSkillOn までは届いてリーダー限定ガードで止まった: 増分=' + d2.seamDelta + ')');
+    /* ── (2d) は #34 で **削除** した ────────────────────────────────────────
+     * 旧 (2d-1)/(2d-2) は「戦士の仲間は executeSkillOn を 1 回も呼ばない /
+     * apTryPreferred が false を返す」を主張していた。#34 でこれは仕様ごと逆転し、
+     * 呼ばれるのが正しい振る舞いになったので **コメントアウトで残さず消し**、
+     * §7 (7b)/(7c) へ書き直した。旧主張は「?warally=0 のときだけ成立する」ので
+     * (7l) がその形で引き継いでいる。 */
 
     await allyPage.close();
 
-    // ── (2e) 確率ゲート 20 本が漏れなくラップされているか (配信バイトを直接数える) ──
+    // ── (2e) 確率ゲートが漏れなくラップされているか (配信バイトを直接数える) ──
     //   ⚠ 実装から数字を写してくるのではなく、「仲間 AI の中に裸の確率ゲートが
     //     1 本も残っていない」を見る。1 本でも取りこぼせばここが赤くなる。
+    //   ⚠⚠ #34 で warriorAI が同じ region (clericAI 〜 executeWarriorSkill) の内側へ
+    //     入り、ゲートが 4 本増えた → 期待値 20 → 24。これは退行ではない。
+    //   ⚠⚠⚠ region 内のコメントに「乱数 < apGateP(」の文字列を書くと、それも 1 本として
+    //     数えられる (#34 実装中に実際に踏んで 25 本になった)。
     {
       const src = FROZEN['/index.html'].toString('utf8');
       const s = src.indexOf('async function clericAI(ally) {');
@@ -999,10 +1317,285 @@ async function readClass(page, classKey) {
       const region = (s >= 0 && e > s) ? src.slice(s, e) : '';
       const all     = (region.match(/Math\.random\(\) </g) || []).length;
       const wrapped = (region.match(/Math\.random\(\) < apGateP\(ally,/g) || []).length;
-      check('(2e) 仲間 AI (clericAI〜elfAI) の確率ゲート 20 本がすべて apGateP でラップされている',
-        region.length > 0 && all === 20 && wrapped === 20,
+      check('(2e) 仲間 AI (clericAI〜warriorAI) の確率ゲート 24 本がすべて apGateP でラップされている',
+        region.length > 0 && all === 24 && wrapped === 24,
         'ゲート総数=' + all + ' / ラップ済=' + wrapped + ' (裸で残り=' + (all - wrapped) + ')');
     }
+
+    /* ══════════════════════════════════════════════════════════════════
+     * §7 戦士の仲間にも行動の優先度を効かせる (実装依頼書 #34)
+     *   ⭐ 2 経路で突き合わせる。片方の写経にしない。
+     *     経路① executeSkillOn の呼び出しログ (配信スナップショットへ注入した計測シーム)
+     *     経路② ally* が実際に走ったか (__warWrap の薄いラッパ) + バフ/HP/スタンの盤面変化
+     *   ⚠⚠ 既定の連鎖は executeSkillOn を通らず ally* を直に呼ぶので、経路①だけ見ると
+     *     (7j) が「そもそも記録されない」で自明に緑になる。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (§7) 戦士の仲間: 指定した技が実際に出て、盤面が動くか (#34) ---');
+    // 依頼書 #34 §2-8 の表 (reactive / outOfCombat を除いた 7 本)。⛔ 実装から写さない。
+    const EXPECT_WARRIOR_AP_IDS = ['strong-cleave', 'sweep', 'finisher',
+      'iron-guard', 'shield-bash', 'morale', 'fighting-spirit'];
+    const warMap = (id) => ({ warrior: { general: id, mob: id, boss: id, travel: null } });
+    const ALL7 = EXPECT_WARRIOR_AP_IDS.slice();
+    const firstDiff = (a, b) => {
+      for (let i = 0; i < Math.max(a.length, b.length); i++)
+        if (a[i] !== b[i]) return '#' + i + ' 今=' + JSON.stringify(a[i]) + ' 基準=' + JSON.stringify(b[i]);
+      return '(差なし)';
+    };
+    const tallyOf = (arr) => arr.reduce((o, k) => { o[k] = (o[k] || 0) + 1; return o; }, {});
+    const ranCnt  = (r, fn) => r.ran.filter(x => x === fn).length;
+    const firedCnt = (r, id) => r.skills.filter(x => x === id).length;
+    // 通常攻撃 (basicPlain/basicOpts) を除いた「技だけ」の観測列。
+    const skillRan = (r) => r.ran.filter(x => x.indexOf('basic') !== 0);
+    /* ⚠⚠⚠ 判断時のバフ残ターン。allyAttackTurn は **手番の冒頭でバフを 1 減らしてから**
+     *   AI を呼ぶので、手番開始時の値をそのまま「効いているか」に使うと、
+     *   「切れた瞬間に掛け直した」正しい動作を撃ち直しと誤検出する
+     *   (#34 実装中に (7f)/(7g) が実際にこれで赤くなった)。 */
+    const remAtDecision = (v) => Math.max(0, (v || 0) - 1);
+
+    const warPage = await openIndexPage(browser, 'autoplay=30&diag=1', AP_SEED_ALLY);
+    await warPage.evaluate(AP_ALLY_HELPERS);
+    await warPage.evaluate(WAR_HELPERS);
+
+    // ── (7a-1) 母集団: 指定できる戦士の技はちょうど 7 本 ────────────────────
+    const w7 = await warPage.evaluate(() => {
+      const ids = Object.keys(WARRIOR_SKILLS);
+      const ok = ids.filter(id => {
+        const sk = WARRIOR_SKILLS[id];
+        return !(sk.reactive || sk.passive || sk.outOfCombat);
+      });
+      return { all: ids, ok: ok };
+    });
+    check('(7a-1) 母集団: WARRIOR_SKILLS 10 件のうち apTryPreferred を通るのはちょうど 7 件',
+      w7.all.length === 10 && w7.ok.length === 7 && setEq(w7.ok, EXPECT_WARRIOR_AP_IDS),
+      '全 ' + w7.all.length + ' 件 / 通る ' + w7.ok.length + ' 件 = ' + JSON.stringify(w7.ok));
+
+    // ── (7a-2) 母集団: 戦士の仲間が作れて、warriorAI が実在する ─────────────
+    const wMk = await warPage.evaluate(() => {
+      const a = createAlly('warrior', playerX, playerY);
+      return { cls: a.classKey, eq: (a.equippedSkills || []).slice(), hp: a.hp, maxHp: a.maxHp,
+               str: a.str, hasAI: typeof warriorAI === 'function',
+               hasRun: typeof window.__warRun === 'function', on: window.WARRIOR_ALLY_ON };
+    });
+    check('(7a-2) 母集団: 戦士の仲間が生成でき枠が空でない / warriorAI が実在し ?warally は on',
+      wMk.cls === 'warrior' && wMk.eq.length > 0 && wMk.hp > 0
+        && wMk.hasAI === true && wMk.hasRun === true && wMk.on === true,
+      JSON.stringify(wMk));
+
+    // ── (7a-0)/(7k) 非退行: opts を渡さない allyBasicAttack が着手前と 1 ビットも変わらない ──
+    //   ⭐⭐⭐ これが無いと「口を開けたついでに従来の攻撃が変わった」を見逃す。
+    //   ⭐ allyBasicAttack は 6 職すべてが通る共有点なので、ここが本当の非退行検査。
+    let basePage = null;
+    if (BASE_ERR) {
+      pending('(7a-0) opts 無しの allyBasicAttack が着手前と厳密一致 (戦士)',
+        '基準スナップショット ' + BASE_REF + ' を取得できなかった: ' + BASE_ERR);
+      pending('(7k) 他 5 職の allyBasicAttack も着手前と厳密一致', '同上');
+    } else {
+      basePage = await openIndexPage(browser, 'autoplay=30&diag=1', AP_SEED_ALLY, { path: '/index_base.html' });
+      await basePage.evaluate(WAR_HELPERS);
+      const curW = await warPage.evaluate(() => window.__warBasicSeq('warrior', 200, 12345));
+      const basW = await basePage.evaluate(() => window.__warBasicSeq('warrior', 200, 12345));
+      check('(7a-0) opts 無しの allyBasicAttack の観測列が着手前 (' + BASE_REF + ') と厳密一致 (戦士 200 回)',
+        curW.length > 0 && JSON.stringify(curW) === JSON.stringify(basW),
+        '今 ' + curW.length + ' 件 / 基準 ' + basW.length + ' 件 / 先頭差=' + firstDiff(curW, basW));
+      const others = ['cleric', 'mage', 'dwarf', 'elf', 'rogue'];
+      const diffs = [];
+      let dmgSeen = 0;
+      for (const ck of others) {
+        const c = await warPage.evaluate((k) => window.__warBasicSeq(k, 100, 24680), ck);
+        const b = await basePage.evaluate((k) => window.__warBasicSeq(k, 100, 24680), ck);
+        dmgSeen += c.filter(x => x.indexOf('D:') === 0).length;
+        if (JSON.stringify(c) !== JSON.stringify(b)) diffs.push(ck + ' ' + firstDiff(c, b));
+      }
+      check('(7k) 他 5 職 (僧侶/魔法使い/ドワーフ/エルフ/盗賊) の allyBasicAttack も着手前と厳密一致',
+        diffs.length === 0 && dmgSeen > 0,
+        diffs.length ? diffs.join(' | ') : '5 職とも一致 (ダメージが出た試行 ' + dmgSeen + ' 件 = 自明な空振りではない)');
+      await basePage.close();
+    }
+
+    // ── (7b-0)/(7j) 指定なしの既定の連鎖 ──────────────────────────────────
+    const noPref = await warPage.evaluate((eq) => window.__warRun({
+      map: null, n: 300, seed: 777, boss: true, clearEnemyStun: true, equipped: eq,
+    }), ALL7);
+    check('(7b-0) 母集団: 指定なしでは 盾バッシュ が 300 手番で 1 回も出ない (= 指定に意味がある盤面)',
+      !noPref.err && noPref.turns.length === 300 && ranCnt(noPref, 'allyShieldBash') === 0
+        && skillRan(noPref).length > 0,
+      'err=' + noPref.err + ' 実際に走った技=' + JSON.stringify(tallyOf(skillRan(noPref))));
+    check('(7j) 既定の連鎖では 渾身の一撃 / 盾バッシュ / 鉄壁の構え が 300 手番で 0 回 (§6 の設計)',
+      ranCnt(noPref, 'allyFinisher') === 0 && ranCnt(noPref, 'allyShieldBash') === 0
+        && ranCnt(noPref, 'allyIronGuard') === 0,
+      'finisher=' + ranCnt(noPref, 'allyFinisher') + ' shieldBash=' + ranCnt(noPref, 'allyShieldBash')
+        + ' ironGuard=' + ranCnt(noPref, 'allyIronGuard'));
+
+    // ── (7b) 指定すると、その技だけが出る ──────────────────────────────────
+    const prefSB = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 60, seed: 909, boss: true, clearEnemyStun: true, equipped: eq,
+    }), warMap('shield-bash'), ALL7);
+    const sbFired = firedCnt(prefSB, 'shield-bash');
+    const sbRan   = ranCnt(prefSB, 'allyShieldBash');
+    check('(7b) ボス=盾バッシュ を指定すると executeSkillOn 経由で盾バッシュだけが実行される (60 手番)',
+      !prefSB.err && sbFired >= 30 && sbRan === sbFired
+        && prefSB.skills.every(s => s === 'shield-bash'),
+      '経路① executeSkillOn=' + JSON.stringify(tallyOf(prefSB.skills))
+        + ' / 経路② 実行=' + JSON.stringify(tallyOf(prefSB.ran)));
+
+    // ── (7c) apTryPreferred が true を返し、盤面 (敵 HP) が実際に動く ────────
+    const tp = await warPage.evaluate((m, eq) => window.__warTryPreferred({
+      map: m, equipped: eq, seed: 5150, boss: true,
+    }), warMap('strong-cleave'), ALL7);
+    check('(7c) apTryPreferred(戦士の仲間) が true を返し、敵の HP が実際に減っている (2 経路)',
+      tp.err === null && tp.r === true && tp.seamDelta === 1
+        && tp.ran.indexOf('allyStrongCleave') >= 0 && tp.enemyDmg > 0,
+      '返り=' + tp.r + ' シーム増分=' + tp.seamDelta + ' 実行=' + JSON.stringify(tp.ran)
+        + ' 敵ダメージ=' + tp.enemyDmg);
+
+    // ── (7b-2) dmgBonus に 0 を渡しても武器の値へ落ちない (N7 の検出器) ──────
+    //   ⚠ STR 修正 0 の戦士に dmgBonus:50 の武器を持たせる。正しい実装なら強斬りの
+    //     ダメージは 2d8 (クリで 4d8) = 最大 32 に収まる。|| で判定すると 50 が乗る。
+    const zero = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 40, seed: 2468, boss: true, clearEnemyStun: true, equipped: eq,
+      str: 0, dmgBonus: 50,
+    }), warMap('strong-cleave'), ALL7);
+    //   ⚠⚠ 通常攻撃の手番 (basicPlain = opts 無し → 武器の +50 が乗る) を必ず除く。
+    //     混ぜると 2d8+0 ではなく 武器+50 を測ってしまい、正しい実装でも赤くなる。
+    const zeroSkillTurns = zero.turns.filter(t =>
+      t.ran.indexOf('allyStrongCleave') >= 0 && t.ran.indexOf('basicPlain') < 0);
+    const zeroMax = zeroSkillTurns.reduce((mx, t) => Math.max(mx, t.dmg), 0);
+    //   上限 = 2d8 をクリティカル倍率だけ振った値。⛔ 実装から写さず ally の実体から引く。
+    const zeroCap = 16 * ((zero.allyStart && zero.allyStart.critMult) || 2);
+    check('(7b-2) dmgBonus: 0 (STR 修正 0) が武器の修正値へ黙って落ちない (強斬りの最大ダメージ <= 2d8×クリ倍率)',
+      !zero.err && zeroSkillTurns.length > 0 && zeroMax > 0 && zeroMax <= zeroCap,
+      '強斬りだけの手番=' + zeroSkillTurns.length + ' 回 / 最大ダメージ=' + zeroMax
+        + ' / 上限=' + zeroCap + ' (武器の修正値は ' + (zero.allyStart && zero.allyStart.dmgBonus) + ')');
+
+    // ── (7d) 渾身の一撃 = ally.stunned へ書き、次の手番が実際に飛ぶ ──────────
+    const fin = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 8, seed: 1357, boss: true, clearEnemyStun: true, equipped: eq,
+    }), warMap('finisher'), ALL7);
+    const finIdx = fin.turns.findIndex(t => t.ran.indexOf('allyFinisher') >= 0);
+    const finT   = finIdx >= 0 ? fin.turns[finIdx] : null;
+    const nextT  = (finIdx >= 0 && finIdx + 1 < fin.turns.length) ? fin.turns[finIdx + 1] : null;
+    check('(7d) 渾身の一撃で ally.stunned が立ち (skipNextTurn は false のまま)、次の手番が実際に飛ぶ',
+      !!finT && finT.stunAfter >= 1 && finT.skipNextTurn === false
+        && !!nextT && nextT.stunBefore >= 1 && nextT.ran.length === 0 && nextT.dmg === 0,
+      finT ? ('発動手番 stunned=' + finT.stunAfter + ' skipNextTurn=' + finT.skipNextTurn
+              + ' / 次手番 実行=' + JSON.stringify(nextT && nextT.ran) + ' ダメージ=' + (nextT && nextT.dmg))
+           : '渾身の一撃が 1 回も出なかった (母集団ゼロ)');
+
+    // ── (7e) 盾バッシュ = 命中したときだけ敵がスタンする ────────────────────
+    const sbHit  = prefSB.turns.filter(t => t.ran.indexOf('allyShieldBash') >= 0 && t.dmg > 0);
+    const sbMiss = prefSB.turns.filter(t => t.ran.indexOf('allyShieldBash') >= 0 && t.dmg === 0);
+    check('(7e) 盾バッシュは命中した試行だけ敵が stunned=1、外した試行は 0 のまま (res.missed が効いている)',
+      sbHit.length > 0 && sbMiss.length > 0
+        && sbHit.every(t => t.eStunned[0] === 1) && sbMiss.every(t => t.eStunned[0] === 0),
+      '命中 ' + sbHit.length + ' 回 / 空振り ' + sbMiss.length + ' 回'
+        + ' / 命中側のスタン=' + JSON.stringify(sbHit.map(t => t.eStunned[0]).slice(0, 8))
+        + ' 空振り側=' + JSON.stringify(sbMiss.map(t => t.eStunned[0]).slice(0, 8)));
+
+    // ── (7f) 士気高揚 = 効いている間は撃ち直さない (N9 の検出器) ─────────────
+    const mor = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 20, seed: 8642, boss: true, clearEnemyStun: true, equipped: eq,
+    }), warMap('morale'), ALL7);
+    const morRedundant = mor.turns.filter(t =>
+      remAtDecision(t.atkRemBefore) > 0
+        && (t.ran.indexOf('allyMorale') >= 0 || t.fired.indexOf('morale') >= 0));
+    /*   ⭐ 2 経路目: 20 手番あたりの発動回数が「効果時間ぶんの間隔」に収まる。
+     *     duration 3 + 1 = 4 ターン持続なので 20/4 = 5 回前後が上限。
+     *   ⚠⚠⚠ 回数は **経路①(executeSkillOn)と経路②(実際に走った ally*)の大きい方** で数える。
+     *     片方だけ見ると、別の変異 (N10 = 仲間をリーダー用実装へ流す) が入ったときに
+     *     「仲間側では 1 回も走っていない」ので N9 の証拠が消え、**変異どうしが
+     *     互いを覆い隠して両方とも空振りする** (#34 実装中に実測した)。 */
+    const morCasts = Math.max(ranCnt(mor, 'allyMorale'), firedCnt(mor, 'morale'));
+    check('(7f) 士気高揚は効いている最中に撃ち直されず、20 手番の発動が効果時間ぶんに収まる',
+      !mor.err && morCasts > 0 && morRedundant.length === 0 && morCasts <= 6,
+      '発動 ' + morCasts + ' 回 / 20 手番中 (上限 6) / 効いている最中の撃ち直し='
+        + morRedundant.length + ' 回 (残ターンの推移='
+        + JSON.stringify(mor.turns.map(t => t.atkRemAfter)) + ')');
+
+    // ── (7g) 鉄壁の構えも同じ ───────────────────────────────────────────────
+    const ig = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 20, seed: 8643, boss: true, clearEnemyStun: true, equipped: eq,
+    }), warMap('iron-guard'), ALL7);
+    const igRedundant = ig.turns.filter(t =>
+      remAtDecision(t.drRemBefore) > 0
+        && (t.ran.indexOf('allyIronGuard') >= 0 || t.fired.indexOf('iron-guard') >= 0));
+    //   duration 1 + 1 = 2 ターン持続なので 20/2 = 10 回前後が上限。⚠ 回数は 2 経路の最大値。
+    const igCasts = Math.max(ranCnt(ig, 'allyIronGuard'), firedCnt(ig, 'iron-guard'));
+    check('(7g) 鉄壁の構えも効いている最中は撃ち直さず、発動が効果時間ぶんに収まる',
+      !ig.err && igCasts > 0 && igRedundant.length === 0 && igCasts <= 11,
+      '発動 ' + igCasts + ' 回 / 20 手番中 (上限 11) / 効いている最中の撃ち直し=' + igRedundant.length
+        + ' 回 (残ターンの推移=' + JSON.stringify(ig.turns.map(t => t.drRemAfter)) + ')');
+
+    // ── (7h) 仲間の闘志で主人公の HP が 1 も動かない (N10 の検出器) ──────────
+    //   ⚠⚠⚠ executeWarriorSkill へ流れていないことの直接証明。⭐ 「主人公が動かない」
+    //     だけだと満タン時に自明に緑になるので、**仲間の HP が実際に増えた** も見る。
+    //   ⚠⚠ 主人公を **わざと削っておく** (playerHp)。満タンだとリーダー用実装へ流れても
+    //     Math.min(maxHp, ...) に吸われて「主人公の hp が動かない = 正常」に化ける。
+    //   ⚠⚠ 仲間の HP は maxHp の半分より上にする。半分未満だと warriorAI の既定の連鎖 ①
+    //     が闘志を直に撃ってしまい、executeSkillOn を通らないので N10 が観測できない。
+    const fspirit = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 6, seed: 1123, boss: true, clearEnemyStun: true, equipped: eq,
+      hp: 20, playerHp: 10,
+    }), warMap('fighting-spirit'), ALL7);
+    const fsTurn = fspirit.turns.find(t => t.ran.indexOf('allyFightingSpirit') >= 0);
+    check('(7h) 仲間の戦士の闘志で 主人公の hp は 1 も動かず、仲間自身の HP が増えている',
+      !fspirit.err && !!fsTurn && fsTurn.hpAfter > fsTurn.hpBefore
+        && fspirit.playerHpStart === fspirit.playerHpEnd,
+      '主人公 hp ' + fspirit.playerHpStart + ' → ' + fspirit.playerHpEnd
+        + ' / 仲間 hp ' + (fsTurn && fsTurn.hpBefore) + ' → ' + (fsTurn && fsTurn.hpAfter)
+        + ' / 実行=' + JSON.stringify(tallyOf(fspirit.ran)));
+
+    // ── (7i) 交戦敵が 1 体も居なければ撃たずに false (手番を潰さない) ─────────
+    //   ⚠ 依頼書 §2-8 の「射程外なら撃たずに false」は実測すると **成立しない**。
+    //     pickClosestEngagedEnemyFromAlly に射程の絞り込みが無く、最寄りの交戦敵を
+    //     距離に関係なく返すため。撃たずに false になるのは「交戦敵ゼロ」のときだけで、
+    //     射程外のときは既存 ally* (allyPowerAttack 等) と同じく **前進して間合いを詰める**。
+    //     → (7i) は「交戦敵ゼロ」、(7i-2) は「射程外は前進に化けて敵は減らない」で測る。
+    const noEnemy = await warPage.evaluate((m, eq) => window.__warTryPreferred({
+      map: m, equipped: eq, seed: 6180, enemies: 0,
+    }), warMap('strong-cleave'), ALL7);
+    check('(7i) 交戦敵が 0 体なら 強斬り 指定でも撃たずに false を返す (手番を潰さない)',
+      noEnemy.err === null && noEnemy.r === false && noEnemy.ran.length === 0 && noEnemy.seamDelta === 0,
+      '返り=' + noEnemy.r + ' 実行=' + JSON.stringify(noEnemy.ran) + ' シーム増分=' + noEnemy.seamDelta);
+    const farAway = await warPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 5, seed: 6181, boss: true, equipped: eq, dx: 96 * 20,
+    }), warMap('strong-cleave'), ALL7);
+    check('(7i-2) 射程外のときは前進に化け、敵の HP は 1 も減らない (既存 ally* と同じ作法)',
+      !farAway.err && farAway.turns.every(t => t.dmg === 0)
+        && farAway.trace.indexOf('ADV') >= 0,
+      '総ダメージ=' + farAway.turns.reduce((s, t) => s + t.dmg, 0)
+        + ' / 前進した=' + (farAway.trace.indexOf('ADV') >= 0));
+
+    await warPage.close();
+
+    // ── (7l-0)/(7l)/(7m) 撤退スイッチ ?warally=0 ────────────────────────────
+    const warOffPage = await openIndexPage(browser, 'autoplay=30&diag=1&warally=0', AP_SEED_ALLY);
+    await warOffPage.evaluate(AP_ALLY_HELPERS);
+    await warOffPage.evaluate(WAR_HELPERS);
+    const warOffFlag = await warOffPage.evaluate(() => window.WARRIOR_ALLY_ON);
+    check('(7l-0) 母集団: ?warally=0 で WARRIOR_ALLY_ON が false になり、(7b) と同じ盤面を張れる',
+      warOffFlag === false && firedCnt(prefSB, 'shield-bash') > 0,
+      'WARRIOR_ALLY_ON=' + warOffFlag + ' / スイッチ無しでは同条件で ' + firedCnt(prefSB, 'shield-bash') + ' 回撃てていた');
+    const warOff = await warOffPage.evaluate((m, eq) => window.__warRun({
+      map: m, n: 60, seed: 909, boss: true, clearEnemyStun: true, equipped: eq,
+    }), warMap('shield-bash'), ALL7);
+    //   ⚠ 「何も起きない」ではなく「技が 1 本も走らず、通常攻撃だけになる」が正。
+    //     ran が空だと母集団ゼロ (そもそも手番が回っていない) と区別できない。
+    check('(7l) ?warally=0 なら戦士の仲間は executeSkillOn を 1 回も呼ばず、技も 1 本も走らない (通常攻撃だけ)',
+      !warOff.err && warOff.skills.length === 0 && skillRan(warOff).length === 0
+        && warOff.ran.length > 0 && warOff.turns.length === 60,
+      'executeSkillOn=' + JSON.stringify(tallyOf(warOff.skills))
+        + ' 技=' + JSON.stringify(tallyOf(skillRan(warOff)))
+        + ' 手番の中身=' + JSON.stringify(tallyOf(warOff.ran)));
+    const warOffMage = await warOffPage.evaluate((m) => window.__apAllyRun({
+      classKey: 'mage', ai: 'mageAI', n: 200, bossHp: 10, dx: 96,
+      stubs: ['allyFireball', 'allyIceStorm', 'allyMagicMissile', 'allyFireBolt'],
+      equipped: ['fire-bolt', 'magic-missile', 'fireball', 'ice-storm'],
+      slots: { 'fire-bolt': 9, 'magic-missile': 9, 'fireball': 9, 'ice-storm': 9 }, map: m,
+    }), AP_SEED_ALLY);
+    check('(7m) ?warally=0 でも他 5 職の先出しは従来どおり効く (?actionpri=0 とは別物)',
+      (warOffMage.tally.allyFireball || 0) > 100,
+      'fireball=' + (warOffMage.tally.allyFireball || 0) + ' / 200  内訳=' + JSON.stringify(warOffMage.tally));
+    await warOffPage.close();
 
     /* ══════════════════════════════════════════════════════════════════
      * §3 道中詠唱 / §4 バフ退避 / §5 撤退 — 測り方は 2 系統
@@ -1508,6 +2101,12 @@ async function readClass(page, classKey) {
     judge('N5', '(4a', '(4a) 主人公のバフだけ剥がれていないか (§2-5 の罠)');
     // ⚠ '(3c' は (3c-0)/(3c) に当たる。N6 で赤くなるのは本体 (3c)。
     judge('N6', '(3c', '(3c) 1 接敵 1 回のラッチが効いているか');
+    // ── #34 の 5 本 ──────────────────────────────────────────────────────────
+    judge('N7',  '(7b-2)', '(7b-2) dmgBonus: 0 が武器の修正値へ落ちていないか');
+    judge('N8',  '(7d)',   '(7d) 渾身の一撃のセルフスタンが死にフィールドへ消えていないか (§2-4 の罠)');
+    judge('N9',  '(7f)',   '(7f) 士気高揚を効いている最中に撃ち直していないか (§2-5 の罠)');
+    judge('N10', '(7h)',   '(7h) 仲間の闘志で主人公が回復していないか (§2-2 の罠)');
+    judge('N11', '(2e)',   '(2e) 確率ゲートがすべて apGateP でラップされているか');
     process.exit(negNg === 0 ? 0 : 1);
   }
   process.exit(failed === 0 ? 0 : 1);
