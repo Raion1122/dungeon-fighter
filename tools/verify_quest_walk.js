@@ -633,7 +633,12 @@ async function advanceToPrep(page, maxSteps) {
       if (vis(q('prologueOverlay')))   { q('prologueOverlay').click();   return { done: false, at: 'prologueOverlay' }; }
       const acc = q('btnAccept');
       if (vis(acc) && !acc.disabled) { acc.click(); return { done: false, at: 'btnAccept' }; }
-      const t = document.querySelector('#tableArea .table');
+      /* ⭐ #25 で酒場が歩ける地図になり、卓は床の上の席札 (#questTable_<scenarioId>) になった。
+         地図 ON では body.tavernMapOn #tableArea { display:none } なので vis() が false → 一度も押されず (待機) で打ち切られた。
+         カンマ区切りの querySelector は「セレクタ順」でなく **文書順** で 1 件返す。
+         #tavernViewport (席札) は #tableArea より前にあるので席札が勝ち、撤退 ?tavernmap=0 では
+         席札が存在しないので #tableArea .table が返る (両方の経路を測る)。 */
+      const t = document.querySelector('#questTable_goblin-mine, #tableArea .table');
       if (t && vis(t)) { t.click(); return { done: false, at: 'table' }; }
       return { done: false, at: '(待機)' };
     }, VIS_FN);
