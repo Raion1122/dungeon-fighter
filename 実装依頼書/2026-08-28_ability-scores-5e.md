@@ -548,7 +548,7 @@ const OLD_TABLE = parseAbilityTable(m && m[1]);   // {warrior:{str:15,...},...}
 | `node tools/driver_skillcheck_roster.js` | **12/12** | 2026-08-28 実測 |
 | `node tools/driver_room_search_roll.js` | **39/39** | 2026-08-28 実測 |
 | `node tools/verify_title_screen.js --port 8917` | **86/86** | 2026-08-28 実測(⚠ メモの 83/83 は古い) |
-| `node tools/driver_trap_disarm.js` | 未測定 — **着手前に測ってから実装する** | — |
+| `node tools/driver_trap_disarm.js` | **44/44** | 2026-08-28 実測(起草後に追測) |
 | `node tools/verify_town_map.js` | 85/85(記録値) | 記録 |
 | `node tools/verify_world_map.js` | 57/57(記録値) | 記録 |
 
