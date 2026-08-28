@@ -1,7 +1,9 @@
 # #29 プレイヤーシート v1(いつでも開ける・閲覧専用)+ 言語
 
-- **起草**: 2026-08-28(計画窓) / **ステータス**: **承認済**(2026-08-28 ユーザー承認)
-- **着手**: ⏸ **保留 — #28 の完了待ち**(2026-08-28)。
+- **起草**: 2026-08-28(計画窓) / **ステータス**: ✅ **完了**(2026-08-29)
+- **着手 → 完了**: 2026-08-29。dev-loop 4 項目分割で**停止 0 回**。
+  コミット `af08a3a` → `702ef0e` → `20150af` → `3e42886`。**実装結果は §13。**
+  ⚠ **残 = ユーザーの実機体感 4 項目(§10)と、後回しにした絵(§7)。**
 - **触るファイル**: `js/player-sheet.js`(新規) / `index.html` / `tavern.html` / `town.html` /
   `world.html` / `title.html` / `assets/sheet_frame.png`(codex1 納品) /
   `tools/verify_player_sheet.js`(新規)
@@ -51,25 +53,42 @@
 
 ### 2-1. 呼び出しボタンを置ける固定スロットの実測
 
+> ⚠⚠⚠ **【2026-08-29 訂正】起草時のこの節の表は誤りだった。**
+> 「`town.html` は `position:fixed` が 0 件 / 左下は空」と書いていたが、**実測では 3 件**あり、
+> **`#townHud` が下端全幅を占有**している(`town.html:270` `position:fixed; left:0; right:0; bottom:0; z-index:11`)。
+> `world.html` も 0 件ではなく **5 件**。→ **呼び出し口は 2 経路ではなく 3 経路**になった。
+> 以下は訂正後の実測値(`20150af` 時点)。
+
 `position: fixed` の既存要素を 5 ページ全部で数えた結果:
 
-| ページ | 左上 | 右上 | 左下 | 右下 | 備考 |
-|---|---|---|---|---|---|
-| `index.html` | **占有** `#partyToggleBtn` (`top:11px; left:11px; z-index:61`) | **占有** `#settingsBtn` (`top:11px; right:172px`、モバイルは `right:8px`) | **占有** `#partyPanel` が**左列全域**(`top:0; left:0; bottom:0; width:var(--ui-menu-w); z-index:10`) | **占有** `#combatLog`(`bottom:0; left:var(--ui-menu-w); right:0`) | ⭐ **空いている固定スロットが無い** |
-| `tavern.html` | 空 | 空 | **空** | 占有 `#settingsBtn`(`bottom:18px; right:18px; z-index:30`) | 他は z 200/210 のオーバーレイ |
-| `town.html` | 空 | 空 | **空** | 空 | `position:fixed` の要素が 0 件 |
-| `world.html` | 空 | 空 | **空** | 空 | `#worldEnterAsk` は `inset:0` の全画面 ask(z 20) |
-| `title.html` | 空 | 空 | **空** | 空 | `position:fixed` の要素が 0 件 |
+| ページ | fixed 件数 | 左下(`bottom:18px; left:18px`)の空き | 備考 |
+|---|---|---|---|
+| `index.html` | **26** | ❌ `#partyPanel` が**左列全域**(`top:0; left:0; bottom:0; width:var(--ui-menu-w); z-index:10`) | 上下左右すべて既存 HUD が占有 |
+| `tavern.html` | **11** | ✅ 空 | 右下は `#settingsBtn`(`bottom:18px; right:18px; z-index:30`)。他は z 200/210 のオーバーレイ |
+| `town.html` | **3** | ❌ **`#townHud` が下端全幅**(`town.html:270` `left:0; right:0; bottom:0; z-index:11`) | ⚠ **デスクトップでは `display:none`**、`body.compact` のときだけ `display:flex` |
+| `world.html` | **5** | ✅ 空 | `#worldTitle` は上端 / `#worldBackdrop`+`#worldViewport` は `inset:0` だが z-index 0 |
+| `title.html` | **0** | ✅ 空 | |
 
-⭐⭐ **したがって呼び出し口は 2 経路になる。1 経路で全ページを賄おうとすると `index.html` で必ず衝突する。**
+⭐⭐⭐ **したがって呼び出し口は 3 経路。** 依頼書自身の原則
+「**ページ名で分岐しない。その DOM が在るかで分岐する**」をそのまま伸ばして、
+`js/player-sheet.js` の `pickHost()` を次の順で書いた:
 
-- **`tavern` / `town` / `world` / `title`** … 共有モジュールが `bottom:18px; left:18px; z-index:62` へ
-  固定ボタン `#dfSheetBtn` を注入する(4 ページとも左下は空)。
-- **`index.html`** … **`#partyPanel` の中**(リーダー行の直下)へボタンを置く。
-  ⛔ 固定配置にしないこと。上下左右すべて既存 HUD が占有している。
-  ⚠ モバイル(`body.ui-collapsed`)では `#partyPanel` が画面外へ退避するので、
-  **`#partyToggleBtn`(☰)を開いてから押す**導線になる。これは既存の
-  「パーティを見る」導線と同じなので新しい学習は要らない。
+1. `document.getElementById("partyPanel")` が在る → **その中へ差し込む**(`index.html`)
+2. 無くて `document.getElementById("townHud")` が在り、**かつ表示中** → **その中へ差し込む**(`town.html` の compact)
+3. どちらでもない → `bottom:18px; left:18px; z-index:62` へ固定注入(`tavern` / `world` / `title` / **デスクトップの `town`**)
+
+⚠⚠ **経路 2 は「在るか」ではなく「表示中か」で分岐する。**
+`#townHud` は `town.html:308` に**空の div として常に存在**し、中身(compact の HUD ボタン列)は
+JS が後から入れる。デスクトップでは `display:none` なので、「在るか」だけで分岐すると
+**デスクトップの町でボタンが永久に押せなくなる**(`isDisplayed()` を挟んで解決)。
+
+⚠ モバイル(`body.ui-collapsed`)では `#partyPanel` が画面外へ退避するので、
+**`#partyToggleBtn`(☰)を開いてから押す**導線になる。これは既存の
+「パーティを見る」導線と同じなので新しい学習は要らない。
+
+⚠⚠ **ボタンは `<button>` ではなく `<div role="button" tabindex="0">`。**
+`tools/verify_town_map.js` の (11b) が **`#townHud button` を数えて**「4 施設が押せる」を
+見ているため、HUD の中へ 5 本目の `<button>` を足すとその golden が即赤になる(2026-08-28 実測)。
 
 **再測定コマンド**:
 
@@ -224,17 +243,47 @@ pre-commit で**中止**させ、`--no-verify` はハーネス側で全経路が
 **→ 鳴る**(`index.html` / `tavern.html` を触る)。
 ⭐ 書けるプレイヤー向けの要約は実在する: 「キャラクターシートをいつでも開けるようになった」。
 
-### 2-9. 既存 golden のベースライン(2026-08-28 実測 / `638b479` 時点)
+### 2-9. 既存 golden のベースライン
 
-| ドライバ | 実測 |
-|---|---|
-| `node tools/driver_skillcheck_roster.js` | **12/12** |
-| `node tools/driver_room_search_roll.js` | **39/39** |
-| `node tools/verify_title_screen.js --port 8917` | **86/86**(⚠ メモの 83/83 は古い) |
+> ⚠ **【2026-08-29 訂正】起草時の記録値は 3 本が古かった。**
+> 下の表の「訂正後」は **`a7f194e` 時点で実走して確かめた値**(dev-loop の orchestrator が着手前に測定)。
+
+| ドライバ | 起草時の記録 | **訂正後(これが正)** |
+|---|---|---|
+| `node tools/verify_title_screen.js --port 8917` | 86/86 | **86/86** |
+| `node tools/driver_skillcheck_roster.js` | 12/12 | **13/13** ⚠ 記録が古かった |
+| `node tools/verify_town_map.js` | 85/85 | **85/85** |
+| `node tools/verify_world_map.js` | 57/57 | **57/57** PENDING 0 |
+| `node tools/verify_quest_walk.js` | 25/25 | **25/25** PENDING 0 |
+| `node tools/verify_recruit_size.js` | 79/79 | **82/82** ⚠ 記録が古かった |
+| `node tools/verify_tavern_map.js` | (#25 後に測る) | **42/42** PENDING 0 |
+| `node tools/verify_ability_scores.js` | — | **24/24** PENDING 0 |
 
 ⚠ **`verify_title_screen` は本チケットで最も赤くなりやすい**
 (`title.html` の「汝は何者か」画面に言語選択を足すため)。**着手前に必ず測り直す。**
+→ **実際に赤くなった。**(2c) の期待値そのものが新仕様と衝突したため、装置追加では直らず
+**期待値を弱めずに強めて**復帰させた。詳細は §13 の逸脱 (i)。
 ⚠ ポートが掴まれていると `EADDRINUSE`。`--port` を変える。
+
+### 2-10. ⚠⚠⚠ 改行コード — **`title.html` だけ LF**(5 枚のうち 1 枚)
+
+`core.autocrlf=true` なので **`git diff` には出ない**。Python で書き換えるときは
+`newline=""` を **読み書き両方**に付け、そのファイルの既存の改行に合わせること。
+
+| ファイル | CRLF | LF | bareCR |
+|---|---|---|---|
+| `index.html` | 36113 | 36113 | 0 |
+| `tavern.html` | 7546 | 7546 | 0 |
+| `town.html` | 720 | 720 | 0 |
+| `world.html` | 930 | 930 | 0 |
+| **`title.html`** | **0** | **881** | 0 |
+| `js/player-sheet.js` | 0 | 690 | 0 |
+| `tools/verify_player_sheet.js` | 0 | 1757 | 0 |
+| `tools/verify_title_screen.js` | 2072 | 2072 | 0 |
+
+⛔⛔ **改行の実測に `grep -c $'\r'` を使わない。** Bash ツール経由だと `$'\r'` が空文字に化けて
+**全行ヒットし「5 枚とも CRLF」という嘘の測定になる**(2026-08-29 に dev-loop の orchestrator が
+実際にこれで誤情報を配った)。実測は **`py -c` のバイト数え**(`b.count(b'\r\n')`)で行う。
 
 ---
 
@@ -332,12 +381,16 @@ var CLASS_LANGUAGES = {
   (`Math.floor((s-10)/2)` をシート側に書くと #28 の撤退スイッチ `?ability5e=0` が効かなくなる)。
 - **技能**: `SkillCheck.CHECKS` を回して `SkillCheck.checkScore(member, def)`。
   習熟は `SkillCheck.CLASS_PROFICIENCIES`。
-  ⚠ **`SkillCheck` は `index.html` / `tavern.html` にしか載っていない**(#28 §2-2)。
+  ⚠ **`SkillCheck` は `index.html` / `tavern.html` にしか載っていない**(#28 §2-2。2026-08-29 に再実測して成立)。
   `town/world/title` では技能区画を**行ごと伏せる**か、`js/skill-check.js` も
   5 ページへ載せるかを実装窓が選ぶ。⭐ **選んだ方を §13 に書くこと。**
+  → **「行ごと伏せる」を選んだ。**理由は §13 の「技能区画をどう解いたか」。
 - **レベル / XP**: `dragonfighters.xp` を読み、
   `XP_THRESHOLDS = [0,1000,3000,6000,10000,15000,21000,28000,36000,45000]`
-  (`index.html:11841` 実測)で Lv を出す。
+  で Lv を出す。
+  ⚠ **【2026-08-29 訂正】行番号は `index.html:11841` ではなく `index.html:11783`。**
+  (起草時の値が古かった。⭐ 行番号は #34/#35 など別チケットが入るたびに動くので、
+  引用するときは必ず `grep -n "XP_THRESHOLDS *=" index.html` で測り直すこと。)
   ⚠ この表は現在 `index.html` の中にしか無い。**シート側に写しを作ってよい**が、
   §9 (4b) で `index.html` の実体と一致することを機械照合すること。
 
@@ -485,15 +538,8 @@ http サーバ経由で 5 ページを読み、各ページでシートを開い
 
 ### 既存 golden の非退行(実装後に必ず走らせる)
 
-| ドライバ | 基準 | 測定日 |
-|---|---|---|
-| `node tools/verify_title_screen.js --port 8917` | **86/86** | 2026-08-28 実測 ⚠ **最も赤くなりやすい** |
-| `node tools/driver_skillcheck_roster.js` | **12/12** | 2026-08-28 実測 |
-| `node tools/verify_town_map.js` | 85/85(記録値) | 記録 |
-| `node tools/verify_world_map.js` | 57/57(記録値) | 記録 |
-| `node tools/verify_quest_walk.js` | 25/25(記録値) | 記録 |
-| `node tools/verify_recruit_size.js` | 79/79(記録値) | 記録 |
-| `node tools/verify_tavern_map.js` | #25 の完了値 | ⚠ **#25 完了後に測り直す** |
+⭐ **基準は §2-9 の「訂正後」列**(8 本すべて `a7f194e` で実走済)。起草時の記録値は 3 本が古かった。
+実装後の実測は §13 の表を見ること(**8 本すべて基準一致**)。
 
 ⚠ **#28 を先に入れているので `driver_room_search_roll` / `driver_trap_disarm` は
 #28 側で一度動いている可能性がある。** 赤を見たら **まず HEAD で走らせて切り分ける**
@@ -551,4 +597,178 @@ py tools/add_changelog.py "<b>キャラクターシートを追加</b> — い�
 
 ## 13. 実装結果
 
-(実装窓が埋める)
+**✅ 完了(2026-08-29)。** dev-loop の 4 項目分割で **停止 0 回(8 例目)**。
+着手時 HEAD = `a7f194e` / tree clean。
+
+### 13-1. コミット
+
+| # | 項目 | コミット | 規模 | その時点の実測 |
+|---|---|---|---|---|
+| 1 | `js/player-sheet.js`(新規)+ `tools/verify_player_sheet.js`(§0〜§5 の枠を**全宣言**し未実装は `pending()`) | `af08a3a` | 新規 2 本 / 1525 行(LF) | 素 **16/16 PASSED / FAILED 0 / PENDING 19** / `--negative` 16/16 / PENDING 26 |
+| 2 | 5 ページへ `<script src>` + 呼び出し口 3 経路 + シート中身の描画 + **changelog 1 行** | `702ef0e` | 6 files / +521 -33 | 素 **30/30 / PENDING 5** / golden 8 本すべて基準一致 |
+| 3 | `title.html` の「汝は何者か」に言語選択 UI「識る言の葉」+ 出発時保存 + 撤退の完成 | `20150af` | 3 files / +638 -29 | 素 **35/35 / FAILED 0 / PENDING 0**(受入条件を全部充足) |
+| 4 | `--negative` の変異 7 本を実装 + golden 非退行 + 本節の書き戻し | `3e42886` ほか | 1 file / +74 -18 | 素 **42/42** / `--negative` **57/57** / **PENDING 0 / 空振り 0** |
+
+⭐ **本番 HTML を触るのは項目 2 だけに閉じた**ので、changelog は **1 行で済んだ**
+(`index.html` / `tavern.html` を触るコミットが 1 つしかない = §2-7 のフックを 1 回だけ通す)。
+項目 3 の `title.html` と項目 4 の `tools/` は `GAME_LOGIC` の外なのでフックは鳴らない。
+
+### 13-2. 新ドライバ `tools/verify_player_sheet.js` の最終値
+
+```
+node tools/verify_player_sheet.js              → 42/42 PASSED   FAILED 0   **PENDING** 0   (exit 0)
+node tools/verify_player_sheet.js --negative   → 57/57 PASSED   FAILED 0   **PENDING** 0   (exit 0)
+```
+
+- 1757 行(**LF**)/ 既定ポート **9470**(変異帯 9471〜9477)。
+- 素の 42 本 = 受入条件 35 本 + 変異アンカーの検算 `(0m-<key>)` 7 本。
+- `--negative` の 57 本 = 素 42 + 変異ごとの `(neg-<key>-<節>)` 7 + `(neg-<key>-範囲)` 7 + `(n9a)` 1。
+
+**負のコントロール 7 本 — どれも実際に担当節を赤くした(空振り 0)**:
+
+| 変異 | 何を注入したか | 担当節 | **実測で赤くなった節** |
+|---|---|---|---|
+| `wipeorder` | `title.html`: `languages` の保存を `DFSlots.newGame()` の**前**へ移す | (3c) | **3c** / 3d / 4d |
+| `fixedsave` | `title.html`: 固定分(`fixed`)も `dragonfighters.languages` へ保存 | (3c) | **3c** のみ |
+| `nocha` | `js/player-sheet.js`: 能力値行から CHA を落とす | (2a) | **2a** / 2b |
+| `ownmod` | `js/player-sheet.js`: 修正値を `Math.floor((s-10)/2)` で自前計算 | (2b) | **2b** / 0s13 |
+| `blankrow` | `js/player-sheet.js`: 取れない区画を「行ごと消す」でなく空で描く | (2c) | **2c** / 2d |
+| `fixedbtn` | `js/player-sheet.js`: `pickHost()` を常に `body` + `position:fixed` へ | (1b) | **1b** のみ |
+| `closedread` | 装置側: `probeRealPage` の `opts.skipOpen` で**押下ごと省く** | (0c) | **0c** / 1c / 2a / 2b / 2c / 2d |
+
+⚠ 変異は**配信スナップショットへ実行時に注入**する。**本番ファイルは 1 バイトも書き換えない。**
+
+**⭐⭐⭐ ここで学んだこと(次のドライバへ持っていける)**:
+
+1. **`evaluable` / `allowRed` は机上で決めない。** `--mutate <k>` を 7 本とも単体で回して
+   「実際に赤くなった節」を採ってから決めた。巻き込みは**必ず**出る
+   (7 本中 5 本が担当外を巻き込んだ)。
+2. **⛔ その変異の `want` で測っていない節を `evaluable` に載せない。**
+   母集団 0 の述語は一律 `false` を返すので、載せると「**偽の赤**」になって
+   **空振りを見逃す**。`wipeorder` の (4d) と `nocha` の (2b) がこれに当たり、外した。
+3. ⭐ **`fixedsave` は (3d) が緑のまま**になる。`languagesOf()` が重複を潰すので
+   **画面は正しく見える**。保存の中身を直接見る (3c) だけが唯一の網。
+   = 「表示のテストだけでは保存の欠陥は捕まらない」の実例。
+4. ⭐ **`ownmod` は (2a) が緑のまま**。5e では `Math.floor((s-10)/2)` が正解と一致するので、
+   **`?ability5e=0` を当てた (2b)** と **ソース文字列を見る (0s13)** の 2 経路だけが赤くなる。
+5. ⭐ **`fixedbtn` は (1a)/(1c) が緑のまま**。`z-index:62` なので **押せてはしまう**
+   = 「押せる」ではなく「**どこにマウントされたか**」を見る (1b) がないと素通りする。
+6. **1 行置換の制約(`from` は 1 行 / 前後で長さを変える)を守るための書き方**:
+   `wipeorder` は行の入れ替え(2 行の置換)ではなく、**`newGame()` の手前で書き、
+   同じ式で `LANG_ON` を落として後段の保存を殺す**形にした。結果は「newGame より前に
+   1 回だけ書いた」= 罠 B そのもの。
+
+### 13-3. 既存 golden 8 本の非退行(2026-08-29 実測 / 全本走らせた)
+
+| ドライバ | 基準 | **実測** |
+|---|---|---|
+| `node tools/verify_title_screen.js --port 8917` | 86/86 | **86/86 passed** ✅ |
+| `node tools/verify_town_map.js` | 85/85 | **85 / 85** ✅ |
+| `node tools/verify_tavern_map.js` | 42/42 PENDING 0 | **42/42 PASSED / FAILED 0 / PENDING 0** ✅ |
+| `node tools/verify_world_map.js` | 57/57 PENDING 0 | **57/57 PASSED / FAILED 0 / PENDING 0** ✅ |
+| `node tools/verify_ability_scores.js` | 24/24 PENDING 0 | **24/24 PASSED / FAILED 0 / PENDING 0** ✅ |
+| `node tools/driver_skillcheck_roster.js` | 13/13 | **13/13 passed** ✅ |
+| `node tools/verify_recruit_size.js` | 82/82 | **82/82 PASS** ✅ |
+| `node tools/verify_quest_walk.js` | 25/25 | **25/25 PASSED / PENDING 0** ✅ |
+
+### 13-4. ⭐ 職業名をどう解いた か(§5 が「選んだ方を書け」と指示した点)
+
+**`js/player-sheet.js` が自前の `CLASS_LABELS`(6 職)を持つ。ただし写しではなく fallback。**
+
+`classLabel(key)` は **`window.HERO_CLASSES` が在ればそちらを優先**し、無いときだけ自前表を使う。
+
+- 理由 = **`js/hero-classes.js` は title / town / world の 3 枚にしか載っていない**
+  (2026-08-29 実測。⚠ しかも `js/hero-classes.js` の冒頭コメントは
+  「title.html と tavern.html が読み込む」と書いていて**実物とズレている**)。
+- ⛔ **`js/hero-classes.js` を 5 枚へ載せる案は採らなかった。**
+  title/town/world の 3 枚は主人公スプライトの解決に使っており、
+  index/tavern には**別の職業表がすでに在る**。5 枚へ載せると「4 つ目の正」が増える。
+- ⭐ **ズレたら赤くなる。** ドライバの **(0s12)** が `HERO_CLASSES` を同載したスタブページで
+  6 職すべてを **2 経路照合**する(自前表 vs `HERO_CLASSES`)。
+
+### 13-5. ⭐ 技能区画を town/world/title でどうしたか(§5 が「選んだ方を書け」と指示した点)
+
+**「行ごと伏せる」を選んだ。**`js/skill-check.js` を 5 枚へ載せる案は採らなかった。
+
+- 理由 = `js/skill-check.js` は**判定 UI ごと引き連れてくる**ので、閲覧専用のシートには重い。
+- ⭐ **伏せたことは機械検査している。** (2c) が `__state()` の `avail`(データが取れたか)と
+  `inDom`(DOM に居るか)を **別々に**返させ、不一致(`mismatch`)を見る。
+  ⛔ `hidden` 配列だけを見ると **`inDom` から作った値を `inDom` と比べる自己参照**になり、
+  「全部空欄でも緑」になる。(2d) も「`SkillCheck` が無いページで技能区画が残っていたら赤」を見る。
+- 実測の伏せ方: `index` = 伏せ 0 / `tavern` = 体 / `town`・`world`・`title` = 技能 + 体。
+  **伏せた区画 計 7・全部出たページ 1** で母集団ガードも満たしている。
+
+### 13-6. ⚠ 依頼書からの逸脱(実装窓が実測で見つけて直したもの — **全 12 件**)
+
+**項目 1**
+
+- **(a)** `#dfSheetBtn` は **`<div role="button" tabindex="0">`** であって `<button>` ではない。
+  `tools/verify_town_map.js` の (11b) が **`#townHud button` を数えている**ため、
+  HUD へ 5 本目の `<button>` を足すとその golden が即赤になる。
+- **(b)** town のルートは「`#townHud` が在る」ではなく「**表示中**」で分岐(§2-1 の訂正を参照)。
+- **(c)** ⚠⚠ **HP / AC は window 非搭載**(classic script 直下の `const`/`let`)。
+  → `DFSheet.setBodyProvider()` を生やし、**`index.html` 側で登録する**設計にした。
+- **(d)** 職業名は自前 `CLASS_LABELS` + `HERO_CLASSES` 優先の fallback(§13-4)。
+- **(e)** ドライバの既定ポートは **9470**(依頼を受けた 8935 ではない)。
+  理由 = 変異 7 本ぶんの帯 8936〜8942 が `driver_choice_logslot`(8940)/
+  `driver_mapeditor_waterkit`(8941)/ `verify_ability_scores` の変異帯 8931〜8936 と重なる。
+  **9470〜9479 は丸ごと空き**だった。
+
+**項目 2**
+
+- **(f)** ⚠⚠⚠ **「5 枚とも CRLF」は誤り。`title.html` は今も LF。**(§2-10 を新設して記録)
+- **(g)** ⚠⚠ **`index.html` の `hp` / `playerStats` は「隊列の先頭」のもの**なので、
+  主人公が中衛/後衛だと **NPC の HP/AC を「自分の体」として出してしまう**。
+  → `!heroIsHead` のとき `heroRef` へ落とす修正を入れた。
+- **(h)** `tavern.html` の `#prologueOverlay` が**初回訪問で `#dfSheetBtn` を覆う**
+  (これは演出であって欠陥ではない)。ドライバは `dragonfighters.prologueSeen='1'` を種として撒く。
+
+**項目 3**
+
+- **(i)** ⚠⚠⚠ **`verify_title_screen` の (2c) は期待値そのものが新仕様と衝突した**
+  (旧: 「職を選べば出発が有効」/ 新: 「職 + 言の葉が揃って有効」)。
+  装置追加だけでは直らないので、**期待値を弱めずに強めた** —
+  「職だけでは `disabled` → 言の葉を選ぶと有効」という **2 相を同じ assert 内で見る**形にし、
+  `pickLanguages()` を 5 箇所へ挿入して **86/86 復帰**。
+  ⭐ **依頼書には「影響なし」相当の記述しかなく、そこが崩れていた。**
+- **(j)** 撤退判定は `title.html` 側では**クエリを読み直さず `window.DFSheet` の有無**で分岐。
+  (判定を 2 箇所に持つと片方だけ直して食い違うため。§8 の「判定位置は 1 箇所」を守る形)
+- **(k)** §9 (4d)「増えたキーが `languages` の 1 本だけ」は **`newGame()` の prefix 総なめ**のせいで
+  **出発前後の単純差分では測れない**(前が全部消えるので「増えた」を定義できない)。
+  → **`?sheet=0` で出発した記録との集合差**に置換した。
+- **(l)** 名乗り画面のチップは `data-pick-lang` / `data-fixed-lang`
+  (シートの `data-lang` / `data-fixed` と**わざと分けた**。`probeRealPage` が
+  document 全体からチップを拾うので、同名だと (3d) の母集団が汚れる)。
+
+### 13-7. 残っている宿題
+
+**⭐ ユーザーの実機体感(§10 の 4 項目)— ここが本当の受入。まだ誰も見ていない。**
+
+1. **iPhone 実機**で 5 ページとも開閉できるか。特に `index.html` は
+   ☰ → パーティパネル → 📜シート の **2 段**になるので、**戦闘中に開いて閉じられるか**。
+2. シートを開いている間、**オートバトルが裏で進んで死んでいないか**
+   (v1 は一時停止しない。危険なら「開いている間だけ止める」を **#31** で検討)。
+3. 言語選択「識る言の葉」が **「汝は何者か」の詩的なトーンを壊していないか**。
+4. デスクトップの `town.html` で、左下の 📜シートボタンが看板や街の絵と喧嘩していないか。
+
+**⛔ このループでやらなかったこと(ユーザー判断で後回し)**
+
+- **§7 の絵**(`assets/sheet_frame.png` / codex1 への発注)。
+  ⭐ **枠が 404 でもシートは読める**形になっている(`background-image` が外れるだけ)。
+  発注文の起草もしていない。羊皮紙の枠が欲しくなったら **#29 の残件**として別途起こす。
+  ⚠⚠⚠ 納品後は必ず `py tools/check_alpha_bg_residue.py`(**充填率**だけが白矩形を捕まえる)。
+
+**後続チケットへの申し送り**
+
+- **#30**(装備テーブル 41 定義の集約 + シートに装備欄): ⭐ §2-7 のとおり
+  **純粋なリファクタ単独では commit できない**。必ず可視変化と抱き合わせる。
+  ⭐ シート側の受け口はもう在る — `SECTION_DEFS` に 1 件足して `render()` に 1 ブロック
+  書けば区画が増える。**`__state()` の `avail`/`inDom` も自動で追随する**
+  (ただし (0s9) が「区画 5 件」を直書きしているので **そこを 6 へ直すこと**)。
+- **#31**(シートから装備変更): 論点 = 戦闘中の付け替え可否 / 開いている間ゲームを止めるか。
+  ⚠ 止める設計にするなら (4a)「HUD が 1px も動かない」は影響を受けないが、
+  **オートバトルのループへ触る**ので `driver_grid_p8` 系の golden を先に測ること。
+- **#32**(戦闘用修正値を 6 能力から導出): ⚠ 戦闘バランスが動く。ペア比較が要る。
+- **#33**(言語に効き目): `DFSheet.languagesOf(classKey)` が**表示の唯一の入口**として
+  もう在るので、効き目側もここを読むこと(⛔ `localStorage` を直接読まない —
+  **固定分は保存されていない**ので選択分しか取れず、必ず取りこぼす)。
