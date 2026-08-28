@@ -92,44 +92,89 @@ const STUB_HC_HTML = '<!doctype html><meta charset="utf-8"><title>sheet probe (h
 //     違うので衝突しない**。本ドライバが触る対象は js/player-sheet.js と
 //     title.html に閉じること。
 // ══════════════════════════════════════════════════════════════════════════════
+/* ⭐⭐ 2026-08-29 に `--mutate <k>` を 7 本とも単体で回して実測した「赤くなった節」。
+ *   evaluable / allowRed はこの実測から決めた (机上で決めない — 巻き込みは必ず出る)。
+ *     wipeorder  → 3c 3d 4d          (担当 3c / 3d は言語欄が固定分だけになる副作用)
+ *     fixedsave  → 3c                (⭐ languagesOf が重複を潰すので 3d は緑のまま)
+ *     nocha      → 2a 2b             (2b は cha 行が消えることの副作用)
+ *     ownmod     → 0s13 2b           (⭐ 2a は緑 = 5e では同じ数字になるから)
+ *     blankrow   → 2c 2d
+ *     fixedbtn   → 1b                (⭐ 1a/1c は緑 = z-index 62 なので押せてはしまう)
+ *     closedread → 0c 1c 2a 2b 2c 2d (開かないので中身が全部空になる)
+ *   ⚠ 4d / 2b のように **その変異の want で測っていない節**は evaluable に載せない。
+ *     母集団 0 の述語は一律 false を返すので「偽の赤」= 空振りの見逃しになる。
+ */
 const MUTATIONS = {
   wipeorder: {
-    impl: false, file: TITLE_HTML, targets: ['3c'],
+    impl: true, file: TITLE_HTML, targets: ['3c'],
+    /* ⭐ 「保存を前へ移す」を 1 行置換で作る。素直に行を入れ替えると 2 行の置換になり、
+       CRLF/LF 差で空振りしうる (from は 1 行しか許していない)。
+       → newGame() の **手前** で書き、同じ式で LANG_ON を落として後段の保存を殺す。
+         結果は「newGame より前に 1 回だけ書いた」= 罠 B そのもの。 */
+    from: '      try { if (window.DFSlots) DFSlots.newGame(pendingSlot); } catch (e) {}',
+    to:   '      try { if (LANG_ON) { localStorage.setItem(LANG_KEY, JSON.stringify(pickedLangs)); LANG_ON = false; } } catch (e) {}\n'
+        + '      try { if (window.DFSlots) DFSlots.newGame(pendingSlot); } catch (e) {}',
+    want: { title: true }, evaluable: ['3a', '3b', '3c', '3d', '3e'], allowRed: ['3d'],
     why: '⭐⭐⭐ 依頼書 §2-2 罠 B の再現。languages の保存を DFSlots.newGame() の **前** へ移す。'
        + ' newGame() は dragonfighters.* を prefix 総なめで消すので、書いた直後に消える'
        + ' (しかもエラーは 1 つも出ない = 振る舞いのテストでしか捕まらない)。',
   },
   fixedsave: {
-    impl: false, file: TITLE_HTML, targets: ['3c'],
+    impl: true, file: TITLE_HTML, targets: ['3c'],
+    from: '        if (LANG_ON) localStorage.setItem(LANG_KEY, JSON.stringify(pickedLangs));',
+    to:   '        if (LANG_ON) localStorage.setItem(LANG_KEY, JSON.stringify((((langDefOf(chosenClass) || {}).fixed) || []).concat(pickedLangs)));',
+    want: { title: true }, evaluable: ['3a', '3b', '3c', '3d', '3e'], allowRed: [],
     why: '固定分 (CLASS_LANGUAGES.fixed) も dragonfighters.languages へ保存する。'
-       + ' ⛔ 依頼書 §2-5 の禁止事項。混ぜると職の固定言語を直したとき既存セーブだけ古くなる。',
+       + ' ⛔ 依頼書 §2-5 の禁止事項。混ぜると職の固定言語を直したとき既存セーブだけ古くなる。'
+       + ' ⭐ languagesOf() が重複を潰すので **表示 (3d) は正しいまま** = 保存の中身を'
+       + ' 直接見る (3c) だけが赤くなる。',
   },
   nocha: {
-    impl: false, file: SHEET_JS, targets: ['2a'],
+    impl: true, file: SHEET_JS, targets: ['2a'],
+    from: '      var keys = A.ABILITY_KEYS || ["str", "dex", "con", "int", "wis", "cha"];',
+    to:   '      var keys = (A.ABILITY_KEYS || ["str", "dex", "con", "int", "wis"]).filter(function (x) { return x !== "cha"; });',
+    want: { pages: true }, evaluable: ['2a', '2c', '2d'], allowRed: [],
+    /* ⛔ (2b) を evaluable に入れない: want に pagesBX を含めていないので母集団 0 で
+       「述語が false」= 偽の赤になる。測っていない節は載せない (依頼書 §9 の作法)。 */
     why: 'シートの能力値行から CHA を落とす。#28 で CHA 込みへ一本化した意味が死ぬ。',
   },
   ownmod: {
-    impl: false, file: SHEET_JS, targets: ['2b'],
+    impl: true, file: SHEET_JS, targets: ['2b'],
+    from: '          mod: A.abilityMod(sc[k]),',
+    to:   '          mod: Math.floor((sc[k] - 10) / 2),',
+    want: { pages: true, pagesBX: true },
+    evaluable: ['0s13', '2a', '2b', '2c', '2d'], allowRed: ['0s13'],
     why: '⭐ シートが修正値を Math.floor((s-10)/2) で自前計算する。'
        + ' 見た目は同じ数字になるので (2a) は緑のまま — 赤くなるのは ?ability5e=0 を'
-       + ' 当てた (2b) だけ。「撤退スイッチが効かなくなる」を機械証明する。',
+       + ' 当てた (2b) だけ。「撤退スイッチが効かなくなる」を機械証明する。'
+       + ' ⭐ ソース文字列を見る (0s13) も同時に赤くなる (振る舞いと文字列の 2 経路)。',
   },
   blankrow: {
-    impl: false, file: SHEET_JS, targets: ['2c'],
+    impl: true, file: SHEET_JS, targets: ['2c'],
+    from: '    LAST_AVAIL = avail;',
+    to:   '    for (var _bz = 0; _bz < SECTION_IDS.length; _bz++) { if (!avail[SECTION_IDS[_bz]]) host.appendChild(sectionEl(defOf(SECTION_IDS[_bz]), document.createElement("div"))); }\n'
+        + '    LAST_AVAIL = avail;',
+    want: { pages: true }, evaluable: ['2a', '2c', '2d'], allowRed: ['2d'],
     why: '⭐⭐ 取れない区画を「行ごと消す」でなく空文字で描く。'
        + ' 画面はどちらも同じに見えるので、__state() の avail と inDom を'
-       + ' **別々に**返していないと原理的に検出できない (依頼書 §2-4)。',
+       + ' **別々に**返していないと原理的に検出できない (依頼書 §2-4)。'
+       + ' ⭐ hidden 配列だけを見ると inDom から作った値を inDom と比べる自己参照になり永久緑。',
   },
   fixedbtn: {
-    impl: false, file: SHEET_JS, targets: ['1b'],
+    impl: true, file: SHEET_JS, targets: ['1b'],
+    from: '  function pickHost() {',
+    to:   '  function pickHost() { return { host: document.body, fixed: true, via: "body" };',
+    want: { pages: true }, evaluable: ['1a', '1b', '1c'], allowRed: [],
     why: '⭐ 依頼書 §2-1 の再現。#partyPanel / #townHud を無視して常に position:fixed で'
        + ' 注入する。index.html は上下左右すべて既存 HUD が占有しているので必ず衝突する。',
   },
   closedread: {
-    impl: false, file: null, driverSide: true, targets: ['0c'],
+    impl: true, file: null, driverSide: true, targets: ['0c'],
+    probeOpts: { skipOpen: true },
+    want: { pages: true }, evaluable: ['0c', '1c'], allowRed: ['1c'],
     why: '⭐⭐⭐ 装置側の変異: シートを **開かずに** 中身を採る。'
        + ' (0c) が無いと「閉じたままの空 DOM を測って全部緑」になることを機械証明する。'
-       + ' ⚠ ファイル置換ではなく、測定関数が open() を呼ばない経路を通す形で実装する。',
+       + ' ⚠ ファイル置換ではなく、probeRealPage の opts.skipOpen で押下ごと省く経路を通す。',
   },
 };
 const MUT_ORDER = ['wipeorder', 'fixedsave', 'nocha', 'ownmod', 'blankrow', 'fixedbtn', 'closedread'];
@@ -1564,8 +1609,13 @@ function emit(id, M) {
     args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
   });
 
-  /** 1 ポート分を丸ごと測る。want で「要る測定だけ」に絞る (変異ごとの時短)。 */
-  async function measureAll(port, mutKey, want) {
+  /**
+   * 1 ポート分を丸ごと測る。want で「要る測定だけ」に絞る (変異ごとの時短)。
+   * @param {object|null} popts probeRealPage へ渡す装置側のオプション。
+   *   ⭐ 変異 closedread はここに { skipOpen: true } を渡して「開かずに採る」経路を通す
+   *     (ファイル置換ではなく装置の変異)。
+   */
+  async function measureAll(port, mutKey, want, popts) {
     const base = 'http://localhost:' + port;
     const m = {};
     m.sheetSrc = servedSrc(mutKey, SHEET_JS);
@@ -1581,14 +1631,15 @@ function emit(id, M) {
      *  ⭐ 素 5 枚 + ?ability5e=0 の 5 枚 + ?sheet=0 の 5 枚 + 町 compact 1 枚 = 16 ロード。
      *  ⚠ index.html は重いので、変異ごとに全部測ると時間が爆発する。
      *    項目 4 で変異を実装するときは want で必要な分だけに絞ること。 */
+    const PO = popts || null;
     m.pages = [];
     if (!want || want.pages) {
-      for (const spec of PAGE_MATRIX) m.pages.push(await probeRealPage(browser, base, spec, '', null));
+      for (const spec of PAGE_MATRIX) m.pages.push(await probeRealPage(browser, base, spec, '', PO));
     }
-    m.townCompact = (!want || want.pages) ? await probeRealPage(browser, base, TOWN_COMPACT, '', null) : null;
+    m.townCompact = (!want || want.pages) ? await probeRealPage(browser, base, TOWN_COMPACT, '', PO) : null;
     m.pagesBX = [];
     if (!want || want.pagesBX) {
-      for (const spec of PAGE_MATRIX) m.pagesBX.push(await probeRealPage(browser, base, spec, '?ability5e=0', null));
+      for (const spec of PAGE_MATRIX) m.pagesBX.push(await probeRealPage(browser, base, spec, '?ability5e=0', PO));
     }
     m.retreat = [];
     if (!want || want.retreat) {
@@ -1624,7 +1675,10 @@ function emit(id, M) {
     }
 
     mark('測定 — モジュール単体 / 撤退 / 表示名 / 言語キー無し');
-    const M = await measureAll(PORT, MUTATE, null);
+    /* ⭐ --mutate <k> の単体診断でも装置側の変異 (closedread) が効くように popts を渡す。
+       ここだけ null にすると「closedread を単体で当てても全部緑」= 診断が嘘をつく。 */
+    const M = await measureAll(PORT, MUTATE, null,
+      MUTATE ? (MUTATIONS[MUTATE].probeOpts || null) : null);
     console.log('[drv]   DFSheet=' + (M.mod.has ? '有り' : '⛔無し')
       + '  言語 ' + ((M.mod.languages || []).length) + ' 件'
       + '  職 ' + Object.keys(M.mod.classLang || {}).length
@@ -1643,7 +1697,9 @@ function emit(id, M) {
         const mu = MUTATIONS[k];
         mark('負のコントロール — 変異 ' + k + ' → (' + mu.targets.join(')(') + ') が赤くなる');
         const ev = mu.evaluable || [];
-        const mm = await measureAll(PORT_OF[k], k, null);
+        /* ⚠ want で測定を絞る = 時短だが、**測っていない節を evaluable に載せない**こと。
+           母集団 0 の述語は一律 false を返すので「偽の赤」= 空振りの見逃しになる。 */
+        const mm = await measureAll(PORT_OF[k], k, mu.want || null, mu.probeOpts || null);
         const res = {};
         for (const id of ev) {
           try { res[id] = ASSERT_OF[id][2](mm); }
