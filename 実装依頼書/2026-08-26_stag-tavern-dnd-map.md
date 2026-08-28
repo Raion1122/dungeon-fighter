@@ -620,13 +620,165 @@ py tools/add_changelog.py "<b>銀の鹿亭が見下ろしの地図になった</
 
 ## 13. 実装結果
 
-(実装窓が埋める)
+**✅ 完了(2026-08-28)。** STEP1+2 を別窓が 1 コミットで、STEP3 以降を dev-loop 4 項目で回し、
+**停止 0 回**(4 項目分割の 7 例目)。
 
-⭐ 必ず書くこと:
+### 13-1. コミット
 
-- コミットハッシュ / `verify_tavern_map.js` の `N/N` と `--negative M/M` / PENDING 0 の確認
-- 既存 golden 9 本の実測値(期待値を書き換えたものが在れば**理由も**)
-- **#24 の `codex-map-request` スキルのどこが足りなかったか**(#24 §9 の指定)
-- codex への発注が何回で通ったか / 差し戻した理由
-- 依頼書からの逸脱と、その理由
-- 残った宿題(§10 の実機体感)
+| コミット | 内容 |
+|---|---|
+| `8036ce5` | **STEP1 + STEP2** — 銀の鹿亭 MAP を codex へ発注・受入・格子へ焼き付け / `js/tavern-map.js` 新設(別窓・push 済) |
+| `638b479` | **項目1** — `tools/verify_tavern_map.js` を新規作成。§0〜§7 の枠を**全部宣言**し、未実装は `pending()` で明示 PENDING(5 本だけ実装) |
+| `4aaea2b` | **項目2** — STEP3 `tavern.html` 改修 + STEP4「奥の間へ」の暫定扉。⭐ **changelog はここ**(`GAME_LOGIC` を鳴らすのはこのコミットだけ) |
+| `d80e7f7` | **項目3** — `verify_tavern_map.js` を埋める(素 **42/42** / `--negative` **66/66** / **PENDING 0**) |
+| `037726a` | **項目4** — golden 3 本のセレクタを席札へ(82/82・25/25・41/41 復帰) |
+| (本コミット) | **項目4** — §13 実装結果を記入 / `README.md` の #25 を完了へ |
+
+### 13-2. 新規 driver `tools/verify_tavern_map.js`
+
+| 走らせ方 | 実測 | PENDING |
+|---|---|---|
+| `node tools/verify_tavern_map.js` | **42/42 PASSED / FAILED 0** | **0** ✅ |
+| `node tools/verify_tavern_map.js --negative` | **66/66 PASSED / FAILED 0** | **0** ✅(変異 10 本すべて実装済・空振り 0) |
+
+**変異 10 本 → どの節を赤くしたか**(項目3 の実測):
+
+| 変異 | 差し替え先 | 担当 | 一緒に赤くなる | 緑のまま |
+|---|---|---|---|---|
+| `nomapjs` | `tavern.html` | (0a) | (2a)(2b)(2c)(2d)(4c) | (6a)(6b)(6c) |
+| `reclick` | `tavern.html` | **(3b)** | — | (3a) |
+| `instant` | `tavern.html` | (3a) | (3b) | — |
+| `gatetable` | `js/tavern-map.js` | (1b)(1c) | — | (0z1)(0b)(0c)(1z1) |
+| `dropscen` | `tavern.html` | (6a)(4b) | (6b) | (0a)(2a)(2b)(2c)(2d)(4c)(6c) |
+| `hidelock` | `tavern.html` | (2d) | (2a) | (0a)(2b)(2c)(4c)(6a)(6b)(6c) |
+| `copyplace` | `js/tavern-map.js` | (2c) | — | (0a)(2a)(2b)(2d)(4c)(6a)(6b)(6c) |
+| `gridsize` | `js/tavern-map.js` | (0b) | (1b)(1c) | (0z1)(0c)(1z1) |
+| `plazashow` | `tavern.html` | (4c) | — | (0a)(2a)(2b)(2c)(2d)(6a)(6b)(6c) |
+| `noretreat` | `tavern.html` | (7a)(7b) | (7c) | (0a)(2a)(6a) |
+
+⭐ §2-2 の**罠 A を再現する `reclick` が (3b) を実際に赤くした** = 3 本の golden が
+なぜ壊れたのかを装置が理解している証明。
+
+### 13-3. 既存 golden の非退行(2026-08-28 実測・全件 exit 0)
+
+| ドライバ | 依頼書の期待 | **実測** | 判定 |
+|---|---|---|---|
+| `node tools/verify_tavern_map.js` | 42/42 PENDING 0 | **42/42 PENDING 0** | ✅ |
+| `node tools/verify_tavern_map.js --negative` | 66/66 | **66/66 PENDING 0** | ✅ |
+| `node tools/verify_recruit_size.js` | 82/82 | **82/82 PASS** | ✅ |
+| `node tools/verify_quest_walk.js` | 25/25 | **25/25 PASSED / FAILED 0 / PENDING 0** | ✅ |
+| `node tools/verify_quest_walk.js --negative` | 46/46 | **46/46 PASSED / PENDING 0** | ✅ |
+| `node tools/driver_depart_menu_clean.js` | 41/41 | **41/41 PASS** | ✅ |
+| `node tools/verify_world_map.js` | 57/57 PENDING 0 | **57/57 PENDING 0** | ✅((7a) の `place:` 照合が生きている) |
+| `node tools/verify_world_map.js --negative` | 44/44 | **44/44 PENDING 0** | ✅ |
+| `node tools/verify_town_map.js` | 85/85 | **85/85** | ✅(変異 `snapnear` の 2 ファイルヒットは逸脱(7) で解決済) |
+| `node tools/verify_town_exit.js` | 23/23 | **23/23 PENDING 0** | ✅ |
+| `node tools/verify_town_exit.js --negative` | 4/4 | **4/4(空振り 0)** | ✅ |
+| `node tools/verify_title_screen.js` | 86/86 | **86/86** | ✅ |
+| `node tools/verify_save_slots.js` | 30/30 | **30/30** | ✅ |
+| `node tools/driver_bgm_town.js` | ~~37/37~~ | **17/17** | ⚠ **依頼書 §9 の期待値のほうが誤り**(下記) |
+| `node tools/driver_bgm_town.js --negative` | (記載なし) | **15/15** | ✅ |
+
+⚠⚠ **期待値を書き換えたのは `driver_bgm_town` の 1 件だけ**。理由:
+
+- §9 の表に書いた **37/37 は誤記**。このドライバは新設時(#17)から一貫して
+  **素 17/17 + `--negative` 15/15** であり、`実装依頼書/2026-08-23_town-tavern-bgm.md:407-408`
+  / `2026-08-25_title-bgm-opening.md:472,534-535` / `2026-08-25_town-world-exit.md:394,518`
+  / `2026-08-23_scenario2-clear-rate.md:334,425` の **5 枚が全部 17/17 と記録**している。
+- ⭐ **退行ではない証明**: `git diff --stat 7394692 HEAD -- tools/driver_bgm_town.js audio.js` が
+  **空**(= #25 着手前と 1 バイトも変わっていない)。曲も 1 件も足していないので
+  「(0b) の件数直書き」も鳴っていない。
+- ⛔ assert は 1 本も緩めていない(**触ってすらいない**)。直したのは**この依頼書の記録値だけ**。
+
+### 13-4. 壊れた golden 3 本の直し方(本チケットの本丸)
+
+**真因**(項目2 のワーカーが実測):
+`advanceToPrep()` が引く `#tableArea .table` は
+`body.tavernMapOn #tableArea { display: none; }` で `getClientRects().length === 0` になり
+`vis(t)` が永久に false → **一度も卓が押されず `steps=(待機)` で打ち切り**。
+`#tableArea` の中身自体は今も 6 件描かれているので、**直しはセレクタ 1 行で足りた**。
+
+| ファイル | 行(修正後) | 修正前 | 修正後 |
+|---|---|---|---|
+| `tools/verify_recruit_size.js` | 338 | 75/82(NG 7 = (Bz1)(Bz2)(B)(B2)(Dz1)(D6a)(D4)) | **82/82** |
+| `tools/verify_quest_walk.js` | 641 | 15/25(NG 10 = (1a)(1b)(3z)(3a)(3b)(3c)(4a)(4c)(4d)(4e)) | **25/25** |
+| `tools/driver_depart_menu_clean.js` | 152 | 34/41(NG 7 = (A1)(A2)(B1)(B2)(B3)(B5)(C4)) | **41/41** |
+
+修正後のセレクタ(3 本とも同一・直上に理由のコメントを 5 行付けた):
+
+    const t = document.querySelector('#questTable_goblin-mine, #tableArea .table');
+
+- ⭐ **カンマ区切りの `querySelector` は「セレクタ順」ではなく文書順で 1 件返す。**
+  DOM 上 `#tavernViewport`(席札を含む)は `#tableArea` より**前**にあるので、
+  地図 ON では席札が先に返る。
+- ⭐ **撤退 `?tavernmap=0` では席札が DOM に存在しない**ので `#tableArea .table` が返る
+  = 同じ 1 行で**両方の経路を測る**(⛔ `?tavernmap=0` で逃げていない)。
+- ⭐⭐ **待ち時間は 1ms も伸ばしていない。** 卓へは spawn(7,8) から 7 マス / 実測 **2.4 秒**だが、
+  ループは 420ms x 130〜150 step(54〜63 秒)の予算を持っており余裕がある。
+  歩行中の 420ms ごとの再クリックは `goToTable` のガードが無視する(変異 `reclick` が機械証明)ので、
+  `stopWalk()` → `t0` 打ち直しの無限ループにも落ちない。
+- ⛔ **期待値(N/N の N)は 1 つも弱めていない。**
+
+### 13-5. #24 の `codex-map-request` スキルのどこが足りなかったか(#24 §9 の宿題)
+
+**#25 の STEP1 が実地試験になり、穴が 4 件出た。**
+
+| # | 穴 | 実測 | 直し方 |
+|---|---|---|---|
+| **罠 E** | ⚠⚠⚠ **定型ヘッダとの衝突が MAP では毎回 3 件**(① 納品先 `assets/` の強制 ② 検算コード実行の強制 ③ スプライト用 md5) | スプライト前提のヘッダが MAP 発注に丸ごと乗る | **依頼文の冒頭で「該当しない」と 3 件とも打ち消す**。⭐ 恒久教訓「投下前に必ず `--dry-run` でヘッダ全文を読む」の MAP 版 |
+| **罠 F** | ⭐ **発注文の 1 行目に「D&D セッションで使える MAP の作成をお願いします。」を置くと codex の `dnd-map-maker` スキルが起動する**(ユーザー指摘) | 置かないと汎用の画像生成に落ちる | スキルの発注テンプレの**1 行目に固定**する |
+| **罠 G** | ⭐⭐⭐ **`make_grid_map.py --fit` は板張りの床で 2 倍の倍音を返す** | 格子 49.88 x 48.75px に対し**板目が 24px = 半マス**。`--fit` が板目の周期を拾う | **行ごと応答の median** で継ぎ目を消してから測り直す |
+| **罠 H** | ⚠⚠ **`--check` の位相ズレも同じ理由で誤報する** | 周期側のドリフトは正常なのに「ズレている」と出る | 新規 `tools/check_grid_alignment.py` を作った |
+
+⭐⭐⭐ **副産物: 街・酒場では「二重グリッド」は原理的に起きない**(格子を重ねて描く箇所が全ファイルで 0 件)。
+
+### 13-6. codex への発注(何回で通ったか)
+
+- **1 回で通った。差し戻し 0 回。** codex の自己チェック **6/6**。
+- 素材 = `codex1/maps/stag-tavern-hall-player-v1.png` **1536 x 1024**。
+- ⭐⭐⭐ **`--sandbox read-only` の下見で既に生成まで走っていた。**
+  権限で失敗したのは**納品先へのコピーだけ**で、生成物は
+  `~/.codex/generated_images/<uuid>/exec-*.png` に残っていた → **本番投下は不要だった**。
+  (次回から MAP 発注は「read-only で下見 → 生成物を拾う」で完結できる可能性がある)
+
+### 13-7. 依頼書からの逸脱(全 7 件)
+
+| # | 逸脱 | 理由(実測) |
+|---|---|---|
+| **(1)** | **1 マスを 64px でなく 96px にした**(STEP1) | 素材の格子が **99.8 x 97.5px** あるので 96px で焼いても拡大にならない(x0.968 / x0.993)。64px だと 896x640 になり desktop 1440x900 での表示が **1.31 倍の拡大**でぼける(96px なら 0.875 倍の**縮小**)。⭐ **画面上の大きさはどちらも 1176 x 840 で同じ** |
+| **(2)** | **(3b) を 2 本の走行の AND にした**(項目3) | 依頼書の「420ms x 6 回」だけでは変異 `reclick` が**空振りする**。ガードを外しても 420ms > `MS_PER_TILE` 340ms なので 1 タイルは毎回完走し、3020ms で到達して**緑のまま**。⭐⭐⭐ **罠 A が牙を剥くのは「間隔 < MS_PER_TILE」のときだけ** → `geom().msPerTile x 0.55`(実測 187ms)で到達まで連打する走行を追加。この走行では **22 回押しても spawn から 1 マスも動かない** |
+| **(3)** | **(5a) を zoom でなく「1 マスの実表示 px」で判定**(項目3) | 依頼書の「zoom 1.5 以下」は港町(TILE 64)前提。項目2 の `layout()` は `Math.min(96/TILE, ...)` が天井で **TILE=96 なので zoom 上限は 1.0**。実測 zoom 0.6740 → **64.70px/マス**(許容 34〜96px) |
+| **(4)** | **(6b) は HEAD と比較しない**(項目3) | 恒久教訓「**負のコントロールの基準に HEAD を使うな**」。目的は `verify_world_map` (7a) を守ることなので、同じ照合(`WORLD_MAP.SITES → NODES[].label` vs `scenarios[].place`)を **tavern のページの中で** 6 件やる |
+| **(5)** | **(6c) の基準は固定コミット `DOM_BASE = 638b479`**(項目3) | HEAD は地図改修**後**なので恒等の基準にならない。`git show 638b479:tavern.html` と配信中の実体で「タグ名 + id + class の並び」を比較(文言変更は許す)。実測 dialog 18 / prep 95 / shopScreen 18 / plazaScreen 16 で**完全一致** |
+| **(6)** | **ドライバのポートを 9170 → 9200 にした**(項目3) | ⚠⚠ 項目1 の「9161-9179 は未使用」は**誤り**。`verify_quest_walk.js` は変異ポートを `9160+1+i` で採るので **9161-9170 を実際に使う**(直書き grep では見えない)。9192-9239 が空いていることを数え上げた |
+| **(7)** | **`tavern.html` の内部変数を `TM` → `TVM` にリネーム**(項目2) | `walkTo()` の `if (!TM.isWalkable(c, r)) return false;` を `town.html` から写経したら **`verify_town_map.js` が exit 3 で死んだ**。⚠⚠ 変異 `snapnear` のアンカーが `town.html` と `tavern.html` の **2 ファイルへヒット**(`MUTATE_TARGETS` が 3 ファイル横断)。リネームで解決 |
+
+⭐ **項目4 からの逸脱は 0 件。** 待ち時間も期待値も 1 つも触っていない
+(唯一の書き換えは §13-3 の `driver_bgm_town` の**記録値の訂正**で、これは assert ではない)。
+
+### 13-8. 残った宿題 — §10 の実機体感 6 項目(⚠ **すべて未確認**)
+
+⛔ **ユーザーが実機で見て決める領域**なので、この窓では「確認済」と書かない。
+⚠ ローカルは **http 起動が必須**(`file://` ではナレ音声が鳴らない)。
+
+| # | 見るもの | 参考実測・注意 |
+|---|---|---|
+| 1 | **酒場を横切る時間** | 卓へは spawn(7,8) から **7 マス / 2.4 秒**、奥の間の扉へは **4.1 秒**(項目2 の実測)。⭐ 長すぎたら動かすのは `MS_PER_TILE` であって**マップの大きさではない** |
+| 2 | **卓が「席」に見えるか** | ⚠ 足元をタイル中心に置く規則なので、主人公は卓の**手前**に立つ |
+| 3 | **依頼人ポートレイト**(`assets/client_*.png`)が俯瞰の床の上で浮かないか | ⚠ 浮くなら**卓の絵の側**(codex への再依頼)で直す。⛔ **コードで縮めて誤魔化さない** |
+| 4 | **compact(iPhone 縦)で 3 卓が見つけられるか** | カメラが主人公を追ったとき卓が画面外に出っぱなしにならないか |
+| 5 | **暖炉の微光 `#fireplace`** が新しい絵の暖炉と重なっているか | ⚠⚠ 今の座標 x50% / y58% は**旧 1 枚絵**に合わせたもの。**必ずずれる** |
+| 6 | **iOS Safari の実タップ** | `click` 非発火端末があるので `touchend` 併用を確認 |
+
+### 13-9. 次のチケットへの申し送り
+
+- ⛔ **復興評議会館(領主館)の新設 → #26。** 本チケットは「奥の間へ」の**暫定扉**まで。
+  シナリオ 4〜6 の 3 卓は `#tableArea.backroomOpen` へ逃がしてあり、**#26 で扉ごと消せる**構造。
+  (`verify_tavern_map.js` の (4b) が「⚠ 暫定 — #26 で扉ごと消える節」と自分で明記している)
+- ⛔ **ポドルプラザの MAP 化と概念の再設計 → #27。** `#plazaScreen` は今日のまま
+  (変異 `plazashow` が (4c) で守っている)。
+- ⚠⚠⚠ **`#tableArea .table` を押す装置は今後も「席札を先に見る」二段構えで書くこと。**
+  新しいドライバを起こすときにここを写経し忘れると、**同じ「(待機) で打ち切り」に落ちる**。
+- ⚠⚠ **`tavern.html` を触る変異を書くときは `verify_town_map.js` の `MUTATE_TARGETS` を必ず確認する**
+  (`js/town-map.js` / `town.html` / `tavern.html` の 3 ファイル横断なので、
+  `town.html` から写経した行がそのまま 2 ヒットして **exit 3** で死ぬ = 逸脱(7))。
