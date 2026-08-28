@@ -163,7 +163,11 @@ function abilityModifier(score) {
 | intimidation(威圧) | +2 warrior | +2 warrior | **±0** |
 | deception(ペテン) | +1 cleric | +1 rogue/elf/cleric | **±0** |
 
-**= 12 判定中 6 判定が +1、残り 6 判定は ±0。下がる判定は無い。**
+**= 12 判定中 7 判定が +1、残り 5 判定は ±0。下がる判定は無い。**
+⚠⚠ **起草時この行は「6 判定が +1 / 残り 6 判定は ±0」と書かれていたが誤記だった**
+(2026-08-28 実装時に `tools/verify_ability_scores.js (2c)` で実測)。**上の行表のほうが正**で、
++1 が付くのは sleightOfHand / stealth / athletics / arcana / history / religion / insight の **7 本**。
+±0 は perception / investigation / persuasion / intimidation / deception の **5 本**。
 ⭐ **最頻出の知覚は ±0**(ドワーフ WIS 13 / エルフ WIS 13 はどちらの式でも +1)。
 ⚠ persuasion / deception は**代表者が cleric 単独 → rogue/elf/cleric の 3 者同点**へ変わる。
 同点時は `selectRepresentative` が**配列順(= 隊列順)の安定ソート**で決めるので、
@@ -182,7 +186,9 @@ resolveSkillCheck("athletics")      1 箇所   check: "deception"      1 箇所
 ```
 
 **→ 実際に易しくなるのは sleightOfHand(罠解除・開錠、3 箇所)/ stealth / athletics /
-investigation / religion。知覚・説得・ペテンは ±0。**
+religion の 4 種。知覚・捜査・説得・ペテンは ±0。**
+⚠ **起草時この行は investigation も「易しくなる」側に挙げていたが誤り**(2026-08-28 実測で訂正)。
+investigation の代表者は盗賊 (INT 13・習熟あり) で、B/X も 5e も `+1 +2 = +3` で **±0**。
 
 **再測定スクリプト**(この表を再生成する。scratchpad へ置いて `py` で走らせる):
 
@@ -263,7 +269,8 @@ GAME_LOGIC = ("index.html", "tavern.html", "audio.js")
 ⭐ **書けるプレイヤー向けの要約は実在する**(嘘をでっち上げる必要が無い):
 「技能判定の修正値を D&D 5e 方式へ揃えた。罠解除・隠密・運動など、
 得意分野の判定がわずかに通りやすくなった。」
-= §2-3 で実測した「12 判定中 6 判定が +1」がそのまま player-facing な変化。
+= §2-3 で実測した「12 判定中 7 判定が +1」がそのまま player-facing な変化
+(⚠ 起草時は 6 と書かれていたが実測は 7)。
 
 ---
 
@@ -598,4 +605,138 @@ py tools/add_changelog.py "<b>技能判定を D&D 5e 方式へ</b> — 罠解除
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**完了(2026-08-28 実装窓)。** 素 **24/24** / `--negative` **39/39** / **PENDING 0** / 空振り 0。
+既存 golden **13 本すべて非退行**。
+
+### 12-1. 実際に触ったファイル
+
+| ファイル | 変更 |
+|---|---|
+| `js/abilities.js` | **新規** 3,946 bytes(LF)。§4 の草案どおり。36 マスは 1 つも変えていない |
+| `js/skill-check.js` | `CLASS_ABILITIES` の定義と `abilityModifier` の B/X 式を**削除**し `DFAbilities` へ委譲。`ABILITY_ABBR` も委譲。公開 API `SkillCheck.CLASS_ABILITIES` は**転送で残した** |
+| `index.html` / `tavern.html` | `js/skill-check.js` の直前へ `<script src>` を 1 行 |
+| `town.html` / `world.html` / `title.html` | `js/save-slots.js` の直前へ `<script src>` を 1 行 |
+| `tavern.html` | changelog 1 行(§10) |
+| `tools/verify_ability_scores.js` | **新規**。§8 の 3 値表示 + `--negative`(変異 6 本) |
+| `tools/driver_skillcheck_roster.js` / `driver_fix4_help_bonus.js` / `driver_scroll_autoskip.js` | **装置の復元**(下記 12-3) |
+| `tools/driver_room_search_roll.js` | **装置の復元**(下記 12-4) |
+
+⛔ `index.html` の戦闘用修正値は 1 文字も触っていない —— `(4b)` が
+`git show 6bd11b7:index.html` との照合で **9 定義 × 5 能力 = 45 マス一致**を毎回検算する。
+
+### 12-2. ⚠⚠⚠ 逸脱 1 — `title.html` だけ改行コードが LF
+
+§6 は「HTML はディスク上 CRLF」と書いているが、**実測すると `title.html` だけ LF**
+(`index` / `tavern` / `town` / `world` は CRLF)。CRLF の 1 行を挿入しようとして
+**アンカーが 0 ヒットで止まった**(4 枚は成功済みの状態で)。
+→ `title.html` だけ LF で挿入し直して解決。**5 枚とも挿入後に `crlf == lf` を検算**した。
+
+⭐ **教訓: 「この種のファイルは CRLF」という一般化は 1 枚で破れる。**挿入前にファイル単位で測る。
+
+### 12-3. ⚠⚠⚠ 逸脱 2 — 委譲すると **golden 3 本の母集団が静かに 0 になる**
+
+`js/skill-check.js` を単体注入しているドライバが **3 本**ある
+(`driver_skillcheck_roster` / `driver_fix4_help_bonus` / `driver_scroll_autoskip`。
+いずれも `about:blank` + `addScriptTag`)。委譲後はここで `DFAbilities` が未定義になるため、
+
+- `SkillCheck.CLASS_ABILITIES` が **`{}`** になる
+- → `driver_skillcheck_roster (f)` の `for (const cls of classes)` が **0 周**で回り、
+  **「全 CHECKS × 全クラスで一致」が 0 件検査のまま緑**になる
+- → `(g) 代表行の表示合計 === outcome.total` が **実際に赤くなった**(repTotal=6 / outcome.total=4)
+
+⭐ **§2-6 の「既存 golden の期待値書き換えは不要な見込み」は、単体注入の 3 本については false。**
+ただし直すのは**期待値ではなく装置**:
+
+1. 3 本すべてで `js/abilities.js` を `js/skill-check.js` の**前**に `addScriptTag`
+2. `driver_skillcheck_roster` に**母集団ガードを 1 本追加**
+   —— `CLASS_ABILITIES が 6 職` が緑でないと `(f)` が空回りしていることに気づけないため。
+   これで基準は **12/12 → 13/13**(退行ではなく assert が 1 本増えた)。
+
+### 12-4. ⚠⚠ 逸脱 3 — `driver_room_search_roll (8)` の「同点の検体」が 5e で同点でなくなる
+
+`(8) 同点は知覚` の検体は **戦士**で、B/X 式では perception (WIS10→0) と
+investigation (INT9→0) が偶然そろって同点だった。5e 式では **0 と −1** になり同点が壊れる
+(`(8) 同点テストが本当に同点` が `[0,-1]` で赤 = **38/39**)。
+⭐ **6 職のどれも 5e では perception と investigation が同点にならない**ので、
+「別の職に差し替える」では直らない。
+
+→ 期待値は 1 つも弱めず、**同点を式に依存せず構成する**形へ装置を直した:
+本番の装備由来ボーナス `itemBonus` を使い、実測した差 `dP - dI` をちょうど埋める。
+`(8) 同点テストが本当に同点` は残したので、**この構成が効いたかを毎回検算する**
+(`itemBonus` が壊れれば赤になる)。→ **39/39 復帰**。
+
+### 12-5. ⭐ 実測: 代表者スコアは **7 判定が +1 / 5 判定が ±0 / 下降 0**
+
+依頼書 §2-3 の**要約行が誤記**だった(6/6 と書かれていた)。**行表のほうが正**。
+`(2c)` はこれを「git から採った旧表 + 5e 式」の Node 側独立計算と
+**ブラウザで実際に `selectRepresentative` + `checkScore` を回した結果**の 2 経路で照合する。
+
+```
+perception=3 investigation=3 sleightOfHand=4 stealth=4 athletics=4 arcana=4
+history=4 religion=4 insight=4 persuasion=1 intimidation=2 deception=1
+上昇 7 / 据置 5 / 下降 0
+```
+
+⚠ **実プレイで実際に呼ばれる判定**のうち易しくなるのは
+**sleightOfHand(罠解除・開錠 3 箇所)/ stealth / athletics / religion の 4 種だけ**。
+最頻出の **perception と、investigation / persuasion / deception は ±0**。
+
+### 12-6. `tools/verify_ability_scores.js` の作り
+
+- **エンジン単体**: 内蔵サーバのスタブページ `__ability_probe.html` に
+  `js/abilities.js` → `js/skill-check.js` の順で `<script src>`。
+  ⭐ `addScriptTag` ではなく**配信を通す**ので、変異(配信差し替え)がそのまま効く。
+- **統合**: 5 ページを http で開いて `window.DFAbilities` を見る(罠 A の検査)。
+- **期待値の 2 経路**: 旧 36 マスは `git show 6bd11b7:js/skill-check.js` から、
+  旧 45 マス(戦闘値)は `git show 6bd11b7:index.html` から採る。
+  ⛔ ドライバに 1 マスも直書きしていない。`DF_BASE_REF` で ref を差し替え可能。
+- ⚠ **`(4b)` はブラウザ評価ではなくソース解析**。`const CLASS_DEFS` は classic script 直下の
+  `const` なので **window に載らず `page.evaluate` から見えない**。
+  CLAUDE.md の「調査シームを本番ファイルに置かない」に従い、
+  **配信バイトを正規表現で読む**形にした(変異 `combat` が配信を差し替えるので検出できる)。
+
+**負のコントロール 6 本(全実装・空振り 0)**:
+
+| 変異 | 注入した欠陥 | 赤くなった節 | 巻き添え(許可済) |
+|---|---|---|---|
+| `bxmod` | `abilityMod` を `modBX` へ差し戻す | (2a)(2c) | 無し |
+| `nocha` | 全職から `cha` を削る | (1a)(1b) | (2c)(5b) |
+| `tweak` | `warrior.str` を 15 → 16 | (1a) | (2c)(5b) |
+| `nopage` | `town.html` の `<script src>` を配信時に落とす | (3a) | 無し |
+| `shadow` | `skill-check.js` に旧スコア表の写しを復活 | (3b) | 無し |
+| `combat` | `CLASS_DEFS.warrior.str` を 3 → 4 | (4b) | 無し |
+
+⭐⭐ **`shadow` は「振る舞いが 1 つも変わらない欠陥」**。写しは未参照なので
+(1a)〜(2c)(4a) は全部緑のままで、**(3b) だけが赤くなる**。二重管理を
+振る舞いのテストでは絶対に捕まえられないことが、この 1 本で見える。
+⭐ **`bxmod` で (5a)(5b) が緑のまま**なのも同じ理屈で有用 —— 撤退経路 (B/X) は壊していない、
+が機械で言える。
+
+### 12-7. 既存 golden の非退行(2026-08-28 実測・全数)
+
+| ドライバ | 基準 | 実測 | 備考 |
+|---|---|---|---|
+| `driver_skillcheck_roster` | 12/12 | **13/13** | 母集団ガードを 1 本追加(12-3) |
+| `driver_fix4_help_bonus` | — | **13/13** | 依存注入を追加(12-3) |
+| `driver_scroll_autoskip` | — | **9/9** | 依存注入を追加(12-3) |
+| `driver_room_search_roll` | 39/39 | **39/39** | 同点検体を作り直して復帰(12-4) |
+| `driver_trap_disarm` | 44/44 | **44/44** | ⭐ sleightOfHand +1 でも赤くならなかった |
+| `verify_title_screen --port 8917` | 86/86 | **86/86** | |
+| `verify_town_map` | 85/85 | **85/85** | |
+| `verify_world_map` | 57/57 | **57/57** | |
+| `verify_tavern_map` | 42/42 | **42/42** | |
+| `verify_quest_walk` | 25/25 | **25/25** | |
+| `verify_recruit_size` | 82/82 | **82/82** | |
+| `verify_save_slots` | 30/30 | **30/30** | |
+| `verify_town_exit` | 23/23 | **23/23** | |
+
+### 12-8. 残っていること
+
+- **§9 の実機/実感の確認 3 項目**(ユーザー担当。ローカルは http 起動が必須)
+  1. 廃坑 1 周で罠解除・開錠が易しくなりすぎていないか
+  2. グリクスの説得/欺瞞の**代表者が誰になるか**
+     (⚠ cleric 単独 → **rogue/elf/cleric の 3 者同点**へ変わり、隊列順で決まる)
+  3. `?ability5e=0` で判定パネルの内訳が旧値へ戻るか
+- **第 2 段(別チケット)**: 戦闘用修正値をスコアから導出へ差し替える一本化。
+- **DC の再調整**(別チケット)。判定が最大 +1 易しくなったが、
+  実プレイのペア比較をしてから決める。
