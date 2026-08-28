@@ -2869,6 +2869,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
+  <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 の純粋関数群 (幾何の単一の情報源)。map-editor.html と共有。
        ⚠ 本ファイルが 404 になると幾何が作れずゲーム全損 → index.html 側に
           MAPDEF_INLINE_FALLBACK (現行値の最小リテラル) を置いてある (「マップ幾何の単一の情報源」節)。 -->
@@ -17878,6 +17879,22 @@
       critRange: 19, critMult: 2,
       weaponRange: "melee",
     };
+    /* プレイヤーシート (js/player-sheet.js) への HP/AC 供給口 (依頼書 #29 §2-4)。
+       ⚠⚠ hp / maxHp / playerStats は classic script 直下の let/const なので **window に載らない**。
+          シート側からは原理的に読めないので、ここから closure で明示的に渡す。
+       ⭐ 登録しないページ (tavern / town / world / title) では体区画が**行ごと消える** = 正しい振る舞い。
+          「HP 0」や「—」を出すと死んでいるように見えるので、伏せるのが正しい。 */
+    try {
+      if (window.DFSheet && window.DFSheet.setBodyProvider) {
+        window.DFSheet.setBodyProvider(function () {
+          /* ⭐ 主人公が隊列の頭でない (= mid/rear 職) とき、hp / playerStats は
+             **頭に立っている NPC 仲間**の値になる。シートは「主人公の」体を出す場所なので、
+             その時は heroRef (allies の中の主人公) を見る。⛔ 頭の値をそのまま出さない。 */
+          if (!heroIsHead && heroRef) return { hp: heroRef.hp, maxHp: heroRef.maxHp, ac: heroRef.ac };
+          return { hp: hp, maxHp: maxHp, ac: playerStats.ac };
+        });
+      }
+    } catch (e) { /* シート未搭載 (?sheet=0) でも本体は落ちない */ }
     // リーダー名を動的に取得 (ログ表示用)
     function getLeaderName() {
       // 頭の表示名 (主人公="あなた" / NPC=個人名)。未設定時はクラス名にフォールバック

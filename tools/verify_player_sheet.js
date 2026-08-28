@@ -454,6 +454,237 @@ async function probeRetreat(browser, base) {
   return Object.assign(o, d);
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * 実ページの測定 (dev-loop 項目 2 で追加) — スタブではなく **本番の 5 枚**を開く
+ * ⭐ スタブ (__sheet_probe.html) はデータ層の契約、ここは **結線** の担保。
+ *   両方要る: 5 枚に <script src> を書き忘れても、スタブ側は緑のままだから。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const PAGE_MATRIX = [
+  { label: 'index',  file: 'index.html',  w: 1280, h: 900, mobile: false },
+  { label: 'tavern', file: 'tavern.html', w: 1280, h: 900, mobile: false },
+  { label: 'town',   file: 'town.html',   w: 1280, h: 900, mobile: false },
+  { label: 'world',  file: 'world.html',  w: 1280, h: 900, mobile: false },
+  { label: 'title',  file: 'title.html',  w: 1280, h: 900, mobile: false },
+];
+/* ⭐ 町だけ 2 点で測る。呼び出し口が **画面幅で切り替わる**唯一のページだから
+ *   (compact = #townHud の子 / デスクトップ = #townHud が display:none なので body へ fixed)。
+ *   ⚠ 390x844 は verify_town_map の compact390 と同じ点。 */
+const TOWN_COMPACT = { label: 'town(compact390)', file: 'town.html', w: 390, h: 844, mobile: true };
+
+/* 種。⭐ dwarf を選ぶ理由 = 5e と B/X で修正値が **2 マス割れる** (str 14 → +2/+1, con 15 → +2/+1)。
+ *   全マス同値の職を種にすると (2b) の ?ability5e=0 側が空振りする (数字が動かないので
+ *   自前計算していても気づけない)。⚠ この「割れる」ことは (2b) の中で母集団ガードとして数える。
+ * ⚠⚠ prologueSeen を立てないと tavern の前口上オーバーレイ (#prologueOverlay) が
+ *   #dfSheetBtn を丸ごと覆い、(1a) が「覆われている」で赤くなる (2026-08-29 実測)。
+ *   これは演出であって欠陥ではない (他ドライバも同じ種を使っている)。 */
+const PAGE_SEED = {
+  'dragonfighters.partyComposition': JSON.stringify(['dwarf']),
+  'dragonfighters.xp': '6000',
+  'dragonfighters.prologueSeen': '1',
+  'dragonfighters.languages': JSON.stringify(['goblin']),
+};
+const HUD_IDS = ['settingsBtn', 'partyToggleBtn', 'combatLog'];
+const PAGE_SETTLE = 1500;   // index/town は JS が HUD を後から組む。⚠ 縮めると mountVia が body へ化ける
+
+/** 本番ページを 1 枚、開く前 → 押す → 開いている間 → 閉じた後 の 4 相で測る。 */
+async function probeRealPage(browser, base, spec, query, opts) {
+  const o = { label: spec.label, file: spec.file, w: spec.w, h: spec.h, errs: [], status: 0, has: false };
+  const page = await browser.newPage();
+  page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
+  await page.setViewport({ width: spec.w, height: spec.h, deviceScaleFactor: 1,
+    isMobile: !!spec.mobile, hasTouch: !!spec.mobile });
+  await page.evaluateOnNewDocument((s) => {
+    try {
+      localStorage.clear();
+      if (s) for (const k in s) localStorage.setItem(k, s[k]);
+    } catch (e) { /* private mode 等 */ }
+  }, PAGE_SEED);
+  let resp = null;
+  try { resp = await page.goto(base + '/' + spec.file + (query || ''), { waitUntil: 'load', timeout: 45000 }); }
+  catch (e) { o.errs.push('goto: ' + ((e && e.message) || e)); }
+  o.status = resp ? resp.status() : 0;
+  await sleep(PAGE_SETTLE);
+
+  // ── 相 1: 押す前 (⭐ elementFromPoint はここで採る。開いた後はオーバーレイが覆う) ──
+  const pre = await page.evaluate((HUD) => {
+    const S = window.DFSheet;
+    const out = { has: !!S, btn: false, overlay: !!document.getElementById('dfSheetOverlay') };
+    const btn = document.getElementById('dfSheetBtn');
+    out.btn = !!btn;
+    if (btn) {
+      const b = btn.getBoundingClientRect();
+      out.rect = { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) };
+      out.cx = Math.round(b.left + b.width / 2);
+      out.cy = Math.round(b.top + b.height / 2);
+      const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+      out.inViewport = b.width >= 8 && b.height >= 8 && b.right > 0 && b.bottom > 0 && b.left < vw && b.top < vh;
+      const hit = document.elementFromPoint(out.cx, out.cy);
+      out.covered = !(hit && (hit === btn || btn.contains(hit)));
+      out.hitDesc = hit ? (hit.id ? '#' + hit.id : (hit.tagName + (hit.className ? '.' + String(hit.className).split(' ')[0] : ''))) : '(none)';
+      const pp = document.getElementById('partyPanel'), hud = document.getElementById('townHud');
+      out.inPartyPanel = !!(pp && pp.contains(btn));
+      out.inTownHud = !!(hud && hud.contains(btn));
+      out.isFixed = getComputedStyle(btn).position === 'fixed';
+      out.tag = btn.tagName;
+      out.parentId = btn.parentNode ? (btn.parentNode.id || btn.parentNode.tagName) : null;
+    }
+    out.openBefore = S ? S.isOpen() : null;
+    const R = {};
+    for (const id of HUD) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      R[id] = [Math.round(r.left * 100) / 100, Math.round(r.top * 100) / 100,
+               Math.round(r.width * 100) / 100, Math.round(r.height * 100) / 100];
+    }
+    out.hudBefore = R;
+    const ls = [];
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('dragonfighters.') === 0) ls.push(k); } } catch (e) {}
+    out.lsBefore = ls.sort();
+    return out;
+  }, HUD_IDS);
+  Object.assign(o, pre);
+
+  /* ── 相 2: **実際のマウスで押す** ──────────────────────────────────────
+   *  ⛔ el.click() で済ませないこと。覆われていても通ってしまうので、
+   *    「押せる」ではなく「イベントが繋がっている」しか測れなくなる。
+   *  ⭐ 変異 closedread (項目 4) は、この押下ごと省く経路を通す。 */
+  o.clicked = false;
+  if (!(opts && opts.skipOpen) && o.btn && o.rect && o.rect.w > 0) {
+    try { await page.mouse.click(o.cx, o.cy); o.clicked = true; }
+    catch (e) { o.errs.push('click: ' + ((e && e.message) || e)); }
+    await sleep(220);
+  }
+
+  // ── 相 3: 開いている間に中身を採る ──
+  const post = await page.evaluate((HUD) => {
+    const S = window.DFSheet;
+    const out = { openAfter: S ? S.isOpen() : null };
+    out.state = S ? JSON.parse(JSON.stringify(S.__state())) : null;
+    const bodyEl = document.getElementById('dfSheetBody');
+    out.bodyTextLen = bodyEl ? String(bodyEl.textContent || '').replace(/\s+/g, '').length : 0;
+    /* ⭐ 区画の実在は **document 全体** で見る。#dfSheetBody の中だけ見ると
+       「別の場所に空で置いた」が素通りする。 */
+    out.secInDom = {};
+    if (S) for (const id of S.SECTION_IDS) out.secInDom[id] = !!document.getElementById(id);
+
+    const ck = S ? S.heroClassKey() : null;
+    out.classKey = ck;
+
+    // ── 能力値: DOM (経路 1)
+    out.abilDom = Array.prototype.slice.call(document.querySelectorAll('[data-ability]')).map(el => ({
+      key: el.getAttribute('data-ability'),
+      score: parseInt(el.getAttribute('data-score'), 10),
+      mod: parseInt(el.getAttribute('data-mod'), 10),
+      text: String(el.textContent || '').replace(/\s+/g, ' ').trim(),
+    }));
+    // ── 能力値: モジュールをブラウザで評価 (経路 2)。⛔ ドライバへ数値を写経しない
+    const A = window.DFAbilities;
+    out.hasAbilities = !!A;
+    out.use5e = (A && A.use5e) ? A.use5e() : null;
+    out.abilExpect = (A && ck && A.CLASS_ABILITIES && A.CLASS_ABILITIES[ck])
+      ? (A.ABILITY_KEYS || []).map(k => ({
+          key: k, score: A.CLASS_ABILITIES[ck][k],
+          mod: A.abilityMod(A.CLASS_ABILITIES[ck][k]),
+          mod5e: A.mod5e(A.CLASS_ABILITIES[ck][k]),
+        }))
+      : null;
+
+    // ── 技能
+    const SC = window.SkillCheck;
+    out.hasSkillCheck = !!SC;
+    out.skillDom = Array.prototype.slice.call(document.querySelectorAll('[data-skill]')).map(el => ({
+      key: el.getAttribute('data-skill'),
+      score: parseInt(el.getAttribute('data-score'), 10),
+      prof: el.getAttribute('data-prof') === '1',
+    }));
+    out.skillExpect = null;
+    if (SC && SC.CHECKS && typeof SC.checkScore === 'function' && ck && S) {
+      const member = { classKey: ck, name: S.classLabel(ck) };
+      const profs = (SC.CLASS_PROFICIENCIES && SC.CLASS_PROFICIENCIES[ck]) || [];
+      out.skillExpect = Object.keys(SC.CHECKS).map(k => ({
+        key: k, score: SC.checkScore(member, SC.CHECKS[k]),
+        prof: profs.indexOf(SC.CHECKS[k].profKey) >= 0,
+      }));
+    }
+
+    // ── 言語
+    out.langDom = Array.prototype.slice.call(document.querySelectorAll('[data-lang]'))
+      .map(el => ({ id: el.getAttribute('data-lang'), fixed: el.getAttribute('data-fixed') === '1' }));
+    out.langExpect = (S && ck) ? S.languagesOf(ck) : null;
+
+    // ── 見出し / 体
+    const hd = document.getElementById('dfSheetSecHeader');
+    out.headerText = hd ? String(hd.textContent || '').replace(/\s+/g, ' ').trim() : null;
+    const bd = document.getElementById('dfSheetSecBody');
+    out.bodyText = bd ? String(bd.textContent || '').replace(/\s+/g, ' ').trim() : null;
+    out.xpSeed = (function () { try { return parseInt(localStorage.getItem('dragonfighters.xp') || '0', 10); } catch (e) { return 0; } })();
+    out.levelExpect = S ? S.levelFromXp(out.xpSeed) : null;
+
+    const R = {};
+    for (const id of HUD) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      R[id] = [Math.round(r.left * 100) / 100, Math.round(r.top * 100) / 100,
+               Math.round(r.width * 100) / 100, Math.round(r.height * 100) / 100];
+    }
+    out.hudOpen = R;
+    return out;
+  }, HUD_IDS);
+  Object.assign(o, post);
+
+  // ── 相 4: Esc で閉じる (⭐ 本番の閉じ口をそのまま通す) ──
+  try { await page.keyboard.press('Escape'); } catch (e) { /* noop */ }
+  await sleep(160);
+  const fin = await page.evaluate((HUD) => {
+    const S = window.DFSheet;
+    const out = { openAfterClose: S ? S.isOpen() : null };
+    const R = {};
+    for (const id of HUD) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      R[id] = [Math.round(r.left * 100) / 100, Math.round(r.top * 100) / 100,
+               Math.round(r.width * 100) / 100, Math.round(r.height * 100) / 100];
+    }
+    out.hudClosed = R;
+    const ls = [];
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('dragonfighters.') === 0) ls.push(k); } } catch (e) {}
+    out.lsAfter = ls.sort();
+    return out;
+  }, HUD_IDS);
+  Object.assign(o, fin);
+
+  await page.close();
+  return o;
+}
+
+/** ?sheet=0 — 本番 5 枚で「丸ごと居なくなる」ことだけを見る軽い測定。 */
+async function probeRetreatPage(browser, base, spec) {
+  const o = { label: spec.label, errs: [], status: 0 };
+  const page = await browser.newPage();
+  page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
+  await page.setViewport({ width: spec.w, height: spec.h, deviceScaleFactor: 1 });
+  await page.evaluateOnNewDocument((s) => {
+    try { localStorage.clear(); if (s) for (const k in s) localStorage.setItem(k, s[k]); } catch (e) {}
+  }, PAGE_SEED);
+  let resp = null;
+  try { resp = await page.goto(base + '/' + spec.file + '?sheet=0', { waitUntil: 'load', timeout: 45000 }); }
+  catch (e) { o.errs.push('goto: ' + ((e && e.message) || e)); }
+  o.status = resp ? resp.status() : 0;
+  await sleep(600);
+  const d = await page.evaluate(() => ({
+    hasDFSheet: typeof window.DFSheet !== 'undefined',
+    btn: !!document.getElementById('dfSheetBtn'),
+    overlay: !!document.getElementById('dfSheetOverlay'),
+    style: !!document.getElementById('dfSheetStyle'),
+  }));
+  await page.close();
+  return Object.assign(o, d);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // assert 一覧 (id / 見出し / 述語)。述語は測定結果 M だけを見る純関数。
 // ══════════════════════════════════════════════════════════════════════════════
@@ -639,6 +870,250 @@ const ASSERTS = [
       + '  pageerror=' + (r.errs || []).length
       + (ok ? '' : '  ⛔ 固定分だけが出てエラー 0 であること')];
   }],
+
+  // ══ 実ページの受入条件 (dev-loop 項目 2 で実装) ══════════════════════════════
+  //  ⚠ 母集団は「5 ページ」。1 枚でも欠けたら赤にする (欠けたページを黙って飛ばさない)。
+  ['0a', '[装置] 5 ページすべてが HTTP 200 で読めている (母集団 = 5)', (M) => {
+    const P = M.pages || [];
+    const bad = P.filter(p => p.status !== 200).map(p => p.label + '=' + p.status);
+    const files = P.map(p => p.file);
+    const covers = PAGES.every(f => files.indexOf(f) >= 0);
+    return [P.length === 5 && bad.length === 0 && covers,
+      P.map(p => p.label + ':' + p.status).join(' ')
+      + (M.townCompact ? '  + ' + M.townCompact.label + ':' + M.townCompact.status : '')
+      + (P.length === 5 && !bad.length && covers ? '' : '  ⛔ 期待 = PAGES 5 枚すべて 200')];
+  }],
+  ['0b', '5 ページすべてで window.DFSheet が truthy (1 枚でも欠けたら赤)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない (' + P.length + ')'];
+    const bad = P.filter(p => !p.has).map(p => p.label);
+    return [bad.length === 0,
+      bad.length ? '⛔ DFSheet が無い: ' + bad.join(',') + ' — <script src="js/player-sheet.js"> の書き忘れ'
+        : '5 枚とも搭載 (' + P.map(p => p.label).join(',') + ')'];
+  }],
+  ['0c', '[装置] 各ページで実際にシートが開いた (isOpen()===true) を確認してから中身を採る', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない (' + P.length + ')'];
+    /* ⭐ 「開いた」の証拠は 3 つ重ねる: isOpen() / __state().open / 中身の文字数。
+       どれか 1 つだけだと「開いたことにして空を測る」経路が素通りする。 */
+    const bad = P.filter(p => !(p.openBefore === false && p.openAfter === true
+      && p.state && p.state.open === true && (p.bodyTextLen || 0) >= 20));
+    return [bad.length === 0,
+      P.map(p => p.label + ':' + p.openBefore + '→' + p.openAfter + '/' + (p.bodyTextLen || 0) + '字').join(' ')
+      + (bad.length ? '  ⛔ 開けていない: ' + bad.map(p => p.label).join(',') : '')];
+  }],
+
+  // ── §1 呼び出し口 (キュー訂正版の 3 経路) ───────────────────────────────
+  ['1a', 'tavern / world / title / town(compact) で #dfSheetBtn が覆われていない (elementFromPoint)', (M) => {
+    const P = M.pages || [];
+    const t = ['tavern', 'world', 'title'].map(l => P.find(p => p.label === l)).filter(Boolean);
+    if (M.townCompact) t.push(M.townCompact);
+    if (t.length !== 4) return [false, '⛔ 母集団が 4 でない (' + t.length + ') — 測れていないページがある'];
+    const bad = t.filter(p => !(p.btn === true && p.inViewport === true && p.covered === false));
+    return [bad.length === 0,
+      t.map(p => p.label + ':' + (p.btn ? (p.covered ? '⛔覆' + p.hitDesc : 'OK@' + p.rect.x + ',' + p.rect.y) : '⛔無')).join('  ')
+      + (bad.length ? '  ⛔ 存在だけでは足りない。中心の elementFromPoint が自分自身か子孫であること' : '')];
+  }],
+  ['1b', 'index では #partyPanel の子孫 / town(compact) では #townHud の子孫 (どちらも fixed でない)', (M) => {
+    const P = M.pages || [];
+    const idx = P.find(p => p.label === 'index');
+    const tc  = M.townCompact;
+    const td  = P.find(p => p.label === 'town');
+    if (!idx || !tc || !td) return [false, '⛔ 母集団が足りない (index/town/town-compact)'];
+    const okIdx = idx.btn === true && idx.inPartyPanel === true && idx.isFixed === false
+      && idx.state && idx.state.mountVia === 'partyPanel';
+    const okTc  = tc.btn === true && tc.inTownHud === true && tc.isFixed === false
+      && tc.state && tc.state.mountVia === 'townHud';
+    /* ⭐ 3 経路目も一緒に固定する。デスクトップの町は #townHud が display:none なので
+       中へ入れたら永久に押せない = body へ fixed が正しい (キュー訂正版 §2)。 */
+    const okTd  = td.btn === true && td.inTownHud === false && td.isFixed === true
+      && td.state && td.state.mountVia === 'body';
+    return [okIdx && okTc && okTd,
+      'index: partyPanel子=' + idx.inPartyPanel + ' fixed=' + idx.isFixed + ' via=' + (idx.state && idx.state.mountVia)
+      + ' | town(compact): townHud子=' + tc.inTownHud + ' fixed=' + tc.isFixed + ' via=' + (tc.state && tc.state.mountVia)
+      + ' | town(desktop): fixed=' + td.isFixed + ' via=' + (td.state && td.state.mountVia)
+      + (okIdx && okTc && okTd ? '' : '  ⛔ 期待 partyPanel / townHud / body の 3 経路')];
+  }],
+  ['1c', '5 ページとも、ボタンを **実マウスで押す** 前後で isOpen() が false → true', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = P.filter(p => !(p.clicked === true && p.openBefore === false && p.openAfter === true));
+    /* Esc で閉じるところまで通す (開きっぱなしだと「開けた」しか言えない) */
+    const noClose = P.filter(p => p.openAfterClose !== false).map(p => p.label);
+    return [bad.length === 0 && noClose.length === 0,
+      P.map(p => p.label + ':' + (p.clicked ? '押' : '⛔未押') + p.openBefore + '→' + p.openAfter
+        + '→Esc' + p.openAfterClose).join(' ')
+      + (noClose.length ? '  ⛔ Esc で閉じない: ' + noClose.join(',') : '')];
+  }],
+
+  // ── §2 中身 ────────────────────────────────────────────────────────────
+  ['2a', '6 能力すべて (CHA 含む) が描かれ、値が DFAbilities.CLASS_ABILITIES と一致 (2 経路)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let cells = 0;
+    for (const p of P) {
+      if (!p.abilExpect) { bad.push(p.label + ' ⛔ DFAbilities が読めない'); continue; }
+      const keys = p.abilDom.map(a => a.key);
+      if (keys.indexOf('cha') < 0) { bad.push(p.label + ' ⛔ CHA が無い (' + keys.join(',') + ')'); continue; }
+      if (keys.length !== p.abilExpect.length) { bad.push(p.label + ' ⛔ ' + keys.length + ' 件 (期待 ' + p.abilExpect.length + ')'); continue; }
+      for (const e of p.abilExpect) {
+        const got = p.abilDom.find(a => a.key === e.key);
+        cells++;
+        if (!got) { bad.push(p.label + '/' + e.key + ' ⛔ 無い'); continue; }
+        if (got.score !== e.score) bad.push(p.label + '/' + e.key + ' score ' + got.score + '≠' + e.score);
+      }
+    }
+    return [bad.length === 0 && cells === 30,
+      '照合 ' + cells + ' マス (5 ページ × 6 能力) classKey=' + (P[0] && P[0].classKey)
+      + '  ' + (P[0] ? P[0].abilDom.map(a => a.key + a.score).join(' ') : '')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['2b', '修正値が DFAbilities.abilityMod() と一致し、?ability5e=0 でシートも B/X へ戻る', (M) => {
+    const P = M.pages || [], Q = M.pagesBX || [];
+    if (P.length !== 5 || Q.length !== 5) return [false, '⛔ 母集団が 5/5 でない (' + P.length + '/' + Q.length + ')'];
+    const bad = [];
+    for (const p of P) {
+      if (p.use5e !== true) bad.push(p.label + ' ⛔ 素なのに use5e=' + p.use5e);
+      for (const e of (p.abilExpect || [])) {
+        const got = p.abilDom.find(a => a.key === e.key);
+        if (!got || got.mod !== e.mod) bad.push(p.label + '/' + e.key + ' mod ' + (got && got.mod) + '≠' + e.mod);
+      }
+    }
+    /* ⭐ 母集団ガード: 5e と B/X で **実際に数字が動くマス**が無いと、
+       自前計算していても気づけない (種の職を変えたときに空振りする)。 */
+    let diffCells = 0;
+    for (const q of Q) {
+      if (q.use5e !== false) bad.push(q.label + ' ⛔ ?ability5e=0 なのに use5e=' + q.use5e);
+      for (const e of (q.abilExpect || [])) {
+        if (e.mod !== e.mod5e) diffCells++;
+        const got = q.abilDom.find(a => a.key === e.key);
+        if (!got) { bad.push(q.label + '/' + e.key + ' ⛔ 無い'); continue; }
+        if (got.mod !== e.mod) bad.push('BX ' + q.label + '/' + e.key + ' mod ' + got.mod + '≠' + e.mod + ' (5e なら ' + e.mod5e + ')');
+      }
+    }
+    return [bad.length === 0 && diffCells >= 5,
+      '素: 5 ページとも abilityMod と一致  ?ability5e=0: 一致 かつ 5e と割れるマス ' + diffCells + ' 個'
+      + (Q[0] ? ' (例 ' + Q[0].abilDom.map(a => a.key + (a.mod >= 0 ? '+' : '') + a.mod).join(' ') + ')' : '')
+      + (diffCells >= 5 ? '' : '  ⛔ 割れるマスが少なすぎる = 種の職が悪く空振りする')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['2c', '取れない区画は行ごと消えている (__state() の avail と inDom が食い違わない)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = [];
+    for (const p of P) {
+      const st = p.state;
+      if (!st) { bad.push(p.label + ' ⛔ __state() が無い'); continue; }
+      /* ⭐ avail (データが取れたか) と inDom (DOM に居るか) の不一致 = 「空文字で描いた」か「描き忘れ」。
+         hidden 配列だけを見ると inDom から作った値を inDom と比べる自己参照になり、永久緑になる。 */
+      if ((st.mismatch || []).length) bad.push(p.label + ' ⛔ avail≠inDom: ' + st.mismatch.join(','));
+      // 独立した期待: 技能は SkillCheck の有無、体は HP 供給口 (= index だけ) で決まる
+      const wantSkills = p.hasSkillCheck === true;
+      const wantBody   = p.file === 'index.html';
+      const has = (id) => !!(p.secInDom && p.secInDom[id]);
+      if (has('dfSheetSecSkills') !== wantSkills) bad.push(p.label + ' 技能区画=' + has('dfSheetSecSkills') + ' (期待 ' + wantSkills + ')');
+      if (has('dfSheetSecBody') !== wantBody) bad.push(p.label + ' 体区画=' + has('dfSheetSecBody') + ' (期待 ' + wantBody + ')');
+      for (const id of ['dfSheetSecHeader', 'dfSheetSecAbilities', 'dfSheetSecLanguages']) {
+        if (!has(id)) bad.push(p.label + ' ⛔ ' + id + ' が無い');
+      }
+      // 「空文字で描いた」の直接検出: DOM に居る区画は必ず中身を持つ
+      for (const s of (st.sections || [])) {
+        if (s.inDom && s.textLen < 2) bad.push(p.label + '/' + s.id + ' ⛔ DOM に居るのに中身が空 (' + s.textLen + '字)');
+      }
+    }
+    /* 母集団ガード: 「全ページで全部出ている」だと (2c) は何も証明しない。
+       実際に伏せられた区画が在ることを数える。 */
+    const hiddenTotal = P.reduce((n, p) => n + ((p.state && p.state.hidden) || []).length, 0);
+    const allShown = P.filter(p => ((p.state && p.state.hidden) || []).length === 0).length;
+    return [bad.length === 0 && hiddenTotal >= 5 && allShown >= 1,
+      P.map(p => p.label + ':伏' + JSON.stringify(((p.state && p.state.hidden) || []).map(s => s.replace('dfSheetSec', '')))).join(' ')
+      + '  伏せた区画 計 ' + hiddenTotal + ' / 全部出たページ ' + allShown
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')
+      + (hiddenTotal >= 5 && allShown >= 1 ? '' : '  ⛔ 母集団ガード: 伏せた例と全部出た例の両方が要る')];
+  }],
+  ['2d', '技能 12 種が描かれ、合計が SkillCheck.checkScore と一致 (載っていないページでは区画ごと伏せる)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let cells = 0, withSC = 0, withoutSC = 0;
+    for (const p of P) {
+      if (p.hasSkillCheck) {
+        withSC++;
+        const exp = p.skillExpect || [];
+        if (exp.length !== 12) { bad.push(p.label + ' ⛔ SkillCheck.CHECKS が ' + exp.length + ' 件 (期待 12)'); continue; }
+        if (p.skillDom.length !== 12) { bad.push(p.label + ' ⛔ DOM の技能 ' + p.skillDom.length + ' 件'); continue; }
+        for (const e of exp) {
+          const got = p.skillDom.find(s => s.key === e.key);
+          cells++;
+          if (!got) { bad.push(p.label + '/' + e.key + ' ⛔ 無い'); continue; }
+          if (got.score !== e.score) bad.push(p.label + '/' + e.key + ' ' + got.score + '≠' + e.score);
+          if (got.prof !== e.prof) bad.push(p.label + '/' + e.key + ' 習熟 ' + got.prof + '≠' + e.prof);
+        }
+      } else {
+        withoutSC++;
+        if (p.skillDom.length !== 0) bad.push(p.label + ' ⛔ SkillCheck が無いのに技能 ' + p.skillDom.length + ' 件');
+        if (p.secInDom && p.secInDom.dfSheetSecSkills) bad.push(p.label + ' ⛔ 技能区画が残っている');
+      }
+    }
+    return [bad.length === 0 && cells === 24 && withSC === 2 && withoutSC === 3,
+      'SkillCheck 有り ' + withSC + ' 枚 (照合 ' + cells + ' マス) / 無し ' + withoutSC + ' 枚は区画ごと伏せる'
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+
+  // ── §4 恒等 ────────────────────────────────────────────────────────────
+  ['4a', 'シートを開閉しても既存 HUD (#settingsBtn / #partyToggleBtn / #combatLog) の矩形が 1px も動かない', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let measured = 0, meaningful = 0;
+    for (const p of P) {
+      for (const id of HUD_IDS) {
+        const a = (p.hudBefore || {})[id], b = (p.hudOpen || {})[id], c = (p.hudClosed || {})[id];
+        if (!a) continue;
+        measured++;
+        if (a[2] > 0 && a[3] > 0) meaningful++;   // 実体のある要素だけを母集団として数える
+        if (!deepEq(a, b)) bad.push(p.label + '/#' + id + ' 開いたら ' + JSON.stringify(a) + '→' + JSON.stringify(b));
+        if (!deepEq(a, c)) bad.push(p.label + '/#' + id + ' 閉じたら ' + JSON.stringify(a) + '→' + JSON.stringify(c));
+      }
+    }
+    return [bad.length === 0 && meaningful >= 3,
+      '測った HUD ' + measured + ' 件 (うち実体あり ' + meaningful + ' 件) — 開く前 / 開いている間 / 閉じた後 の 3 点比較'
+      + (meaningful >= 3 ? '' : '  ⛔ 母集団ガード: 実体のある HUD が 3 件未満 = 空振り')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 4).join(' / ') : '')];
+  }],
+  ['4c', '5 ページすべてで pageerror ゼロ (素 / ?ability5e=0 / ?sheet=0 の 3 経路とも)', (M) => {
+    const all = [].concat(M.pages || [], M.pagesBX || [], M.retreat || [], M.townCompact ? [M.townCompact] : []);
+    const bad = all.filter(p => (p.errs || []).length)
+      .map(p => p.label + ': ' + p.errs.slice(0, 2).join(' | '));
+    return [all.length >= 15 && bad.length === 0,
+      '測ったページロード ' + all.length + ' 回 (素 5 + BX 5 + 撤退 5 + 町 compact 1)'
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 4).join('  //  ') : '  pageerror 0 件')];
+  }],
+  ['4d', 'シートの開閉で localStorage に増えたキーが 0 本 (⚠ 言語の保存は項目 3 の担当)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = [];
+    for (const p of P) {
+      const added = (p.lsAfter || []).filter(k => (p.lsBefore || []).indexOf(k) < 0);
+      if (added.length) bad.push(p.label + ' ⛔ +' + added.join(','));
+      if ((p.lsBefore || []).length === 0) bad.push(p.label + ' ⛔ 種が入っていない = 差分が空振り');
+    }
+    return [bad.length === 0,
+      '開く直前 → 閉じた後 の dragonfighters.* 差分 = 0 本 × 5 ページ'
+      + '  (種 ' + ((P[0] && P[0].lsBefore) || []).length + ' 本を母集団ガードに使用)'
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')
+      + '  ⚠ 項目 3 で言語保存が入ったら「languages の 1 本だけ増える」形へ差し替える'];
+  }],
+
+  // ── §5 撤退 ────────────────────────────────────────────────────────────
+  ['5a', '?sheet=0 で 5 ページとも #dfSheetBtn も #dfSheetOverlay も存在しない', (M) => {
+    const R = M.retreat || [];
+    if (R.length !== 5) return [false, '⛔ 母集団が 5 でない (' + R.length + ')'];
+    const bad = R.filter(r => !(r.status === 200 && r.hasDFSheet === false
+      && r.btn === false && r.overlay === false && r.style === false));
+    return [bad.length === 0,
+      R.map(r => r.label + ':' + (r.status === 200 ? '' : '⛔' + r.status)
+        + 'DFSheet=' + r.hasDFSheet + ' btn=' + r.btn + ' ov=' + r.overlay).join('  ')
+      + (bad.length ? '  ⛔ 期待 全部 false' : '')];
+  }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -647,29 +1122,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
  *  ⭐ 項目 1 は HTML を 1 枚も触らないので、5 ページに <script src> がまだ無い。
  *    → 実ページを開いて測る条件は **全部 PENDING**。理由を必ず添える。
  *  ⛔ 「測れないから消す」も「測れないけど緑にする」も禁止。 */
-const HTML_YET = '実ページに <script src="js/player-sheet.js"> がまだ無い (項目 2 の担当)';
+/* ⭐ 項目 2 で 5 枚へ <script src> を入れたので、この理由を使う PENDING はもう無い。
+   定数だけ残す (項目 3/4 が同じ罠を再利用しないように、使わなくなったことを明記する)。 */
+const HTML_YET = '(未使用) 実ページへの <script src> は項目 2 で完了した';
 const PENDING_OF = {
-  '0a': ['[装置] 5 ページすべてが HTTP 200 で読めている (母集団 = 5)',
-    HTML_YET + ' — ページ自体は 200 だが、母集団として意味を持つのは搭載後'],
-  '0b': ['5 ページすべてで window.DFSheet が truthy (1 枚でも欠けたら赤)',
-    HTML_YET + ' ⭐ 罠 A: 「共有モジュールだから見える」は false。5 枚に個別で <script src> が要る'],
-  '0c': ['[装置] 各ページで実際にシートが開いた (DFSheet.isOpen() === true) を確認してから中身を採る',
-    HTML_YET + ' ⭐ これが無いと「閉じたままの空 DOM を測って全部緑」になる (変異 closedread の担当)'],
-  '1a': ['tavern / town / world / title で #dfSheetBtn の中心の elementFromPoint が自分自身か子孫',
-    HTML_YET + ' ⚠ 存在だけでは足りない。覆われていないことまで見る'],
-  '1b': ['index では #dfSheetBtn が #partyPanel の子孫 / town(compact) では #townHud の子孫',
-    HTML_YET + ' ⚠ キュー訂正版の 3 経路。町は **compact のときだけ** #townHud の子になる'
-      + ' (デスクトップでは #townHud が display:none なので body へ fixed。実装のコメント参照)'],
-  '1c': ['5 ページすべてで、ボタンを押す前後で DFSheet.isOpen() が false → true',
-    HTML_YET + ' ⚠ click だけでなく touchend でも押せること'],
-  '2a': ['6 能力すべて (CHA 含む) が描かれ、値が DFAbilities.CLASS_ABILITIES と一致 (2 経路)',
-    HTML_YET + ' ⛔ 期待値をドライバに写経しない。DOM のテキスト vs ブラウザで評価したモジュール値'],
-  '2b': ['修正値が DFAbilities.abilityMod() と一致し、?ability5e=0 でシートも B/X へ戻る',
-    HTML_YET + ' ⭐ シートが自前の式を持っていないことの証明 (変異 ownmod の担当)'],
-  '2c': ['取れない区画は行ごと消えている (__state().hidden と DOM に無い id の集合が一致)',
-    HTML_YET + ' ⭐ 「空文字を描いた」と「行ごと消した」の区別 (変異 blankrow の担当)'],
-  '2d': ['技能 12 種が描かれ、各行の合計が SkillCheck.checkScore と一致',
-    HTML_YET + ' ⚠ SkillCheck は index / tavern にしか載っていない。他 3 枚では区画ごと伏せる'],
   '3a': ['title.html で職を選ぶと CLASS_LANGUAGES[key].picks 個の選択チップが出る (6 職・rogue だけ 2)',
     'title.html の「汝は何者か」に言語選択 UI がまだ無い (項目 3 の担当)'],
   '3b': ['picks 未充足では「出発」が disabled',
@@ -678,23 +1134,16 @@ const PENDING_OF = {
     'title.html の departAsChosen() に保存がまだ無い (項目 3 の担当)'
       + ' ⭐⭐⭐ 罠 B: DFSlots.newGame() の **後** に書くこと'],
   '3d': ['シートの言語欄が DFSheet.languagesOf(classKey) と一致し、固定分 + 選択分が両方出ている',
-    HTML_YET + ' + 項目 3 の保存が要る (固定分だけの経路は (5b) で既に緑)'],
+    '項目 3 の「選んだ言語を保存する」がまだ無い (項目 3 の担当)'
+      + ' ⭐ 固定分だけの経路は (5b) で、実ページへの搭載は (0b) で既に緑'],
   '3e': ['職を選び直すと選択済みがリセットされる (固定分との重複が起きない)',
     'title.html の言語選択 UI がまだ無い (項目 3 の担当)'],
-  '4a': ['シートを開閉しても既存 HUD (#settingsBtn / #partyToggleBtn / #combatLog) の矩形が 1px も動かない',
-    HTML_YET + ' ⚠ 開く前後の getBoundingClientRect を比較する'],
-  '4c': ['5 ページすべてで pageerror ゼロ',
-    HTML_YET + ' (モジュール単体の pageerror 0 は (0s2) で既に緑)'],
-  '4d': ['localStorage に増えたキーが dragonfighters.languages の 1 本だけ',
-    HTML_YET + ' + 項目 3 の保存が要る (シートが 1 バイトも書かないことは (0s8) で既に緑)'],
-  '5a': ['?sheet=0 で 5 ページとも #dfSheetBtn も #dfSheetOverlay も存在しない',
-    HTML_YET + ' (スタブページでの撤退は (0s11) で既に緑)'],
 };
 
 const SECTIONS = [
   ['§0 装置 — 共有モジュール単体の契約 (項目 1 で測れる分)',
     ['0s1', '0s2', '0d', '0s3', '0s4', '0s5', '0s6', '0s7', '0s8', '0s9', '0s10', '0s11', '0s12', '0s13']],
-  ['§0 装置 — 実ページの母集団 (項目 2 以降)', ['0a', '0b', '0c']],
+  ['§0 装置 — 実ページの母集団 (5 枚)', ['0a', '0b', '0c']],
   ['§1 呼び出し口 — 3 経路 (キュー訂正版)', ['1a', '1b', '1c']],
   ['§2 中身 — 能力値 / 技能 / 伏せた区画', ['2a', '2b', '2c', '2d']],
   ['§3 言語 — 選択 UI と保存', ['3a', '3b', '3c', '3d', '3e']],
@@ -742,6 +1191,24 @@ function emit(id, M) {
     m.off    = (!want || want.off)    ? await probeRetreat(browser, base)     : null;
     m.labels = (!want || want.labels) ? await probeLabels(browser, base)      : null;
     m.nolang = (!want || want.nolang) ? await probeNoLangKey(browser, base)   : null;
+
+    /* ── 実ページ (項目 2) ─────────────────────────────────────
+     *  ⭐ 素 5 枚 + ?ability5e=0 の 5 枚 + ?sheet=0 の 5 枚 + 町 compact 1 枚 = 16 ロード。
+     *  ⚠ index.html は重いので、変異ごとに全部測ると時間が爆発する。
+     *    項目 4 で変異を実装するときは want で必要な分だけに絞ること。 */
+    m.pages = [];
+    if (!want || want.pages) {
+      for (const spec of PAGE_MATRIX) m.pages.push(await probeRealPage(browser, base, spec, '', null));
+    }
+    m.townCompact = (!want || want.pages) ? await probeRealPage(browser, base, TOWN_COMPACT, '', null) : null;
+    m.pagesBX = [];
+    if (!want || want.pagesBX) {
+      for (const spec of PAGE_MATRIX) m.pagesBX.push(await probeRealPage(browser, base, spec, '?ability5e=0', null));
+    }
+    m.retreat = [];
+    if (!want || want.retreat) {
+      for (const spec of PAGE_MATRIX) m.retreat.push(await probeRetreatPage(browser, base, spec));
+    }
     return m;
   }
 
