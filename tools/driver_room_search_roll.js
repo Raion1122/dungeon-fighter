@@ -324,8 +324,19 @@ function mark(s) { console.log('[drv] ' + s); }
   // ── (8) 振り手の選択 ─────────────────────────────────────────────────────
   const r8 = await page.evaluate(() => {
     const p = (classKey, skillBonus) => [{ classKey, name: classKey, skillBonus: skillBonus || null }];
-    // 戦士は perception=WIS10→0(習熟なし) / investigation=INT9→0(習熟なし) で**同点**になる。
-    const w = { classKey: 'warrior', skillBonus: null };
+    /* ⚠ 同点の検体を「特定の職の素点が偶然そろう」ことに頼らない (#28)。
+       B/X 式では戦士が perception=WIS10→0 / investigation=INT9→0 で同点だったが、
+       5e 式 floor((値-10)/2) では 0 / -1 になり **6 職のどれも同点にならない**。
+       → 装備由来の技能ボーナス (itemBonus) で差をちょうど埋めて同点を作る。
+       ⭐ 期待値は 1 つも弱めていない: 下の「(8) 同点テストが本当に同点」が
+         この構成が実際に効いたかを毎回検算する (itemBonus が壊れれば赤になる)。 */
+    const wBase = { classKey: 'warrior', name: 'warrior', skillBonus: null };
+    const dP = SkillCheck.checkScore(wBase, SkillCheck.CHECKS.perception);
+    const dI = SkillCheck.checkScore(wBase, SkillCheck.CHECKS.investigation);
+    const diff = dP - dI;
+    const w = { classKey: 'warrior', name: 'warrior',
+                skillBonus: diff > 0 ? { investigation: diff }
+                          : diff < 0 ? { perception: -diff } : null };
     return {
       rogue: pickSearchCheckKey(p('rogue')),
       dwarf: pickSearchCheckKey(p('dwarf')),

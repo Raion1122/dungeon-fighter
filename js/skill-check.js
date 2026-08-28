@@ -19,33 +19,35 @@
  *   - abilityModifier(score) -> number
  *   - CLASS_ABILITIES / CLASS_PROFICIENCIES / CHECKS / DC_TIERS / PROFICIENCY_BONUS / HELP_BONUS
  *
+ * ★ 依存: js/abilities.js (window.DFAbilities)。**本ファイルより前**に読み込むこと。
+ *   6能力のスコア表も修正値の式も、唯一の正は js/abilities.js 側にある（#28）。
+ *
  * outcome = { success, roll, total, dc, bonus, rep, helper, crit, fumble }
  */
 (function (global) {
   "use strict";
 
-  // === §2 能力修正値（B/X準拠。5e式 (値-10)/2 は使わない） =============
+  // === §2 能力修正値（5e式 floor((値-10)/2)。#28 で B/X から切替） ======
+  // ⚠ 式もスコア表も js/abilities.js が唯一の正。ここに写しを置かないこと。
+  //   （#28 以前は本ファイルが B/X 式と職業別スコア表を自前で持っており、
+  //     index.html の戦闘用修正値との二重管理になっていた。）
   function abilityModifier(score) {
-    if (score <= 3) return -3;
-    if (score <= 5) return -2;
-    if (score <= 8) return -1;
-    if (score <= 12) return 0;
-    if (score <= 15) return 1;
-    if (score <= 17) return 2;
-    return 3; // 18
+    return (global.DFAbilities && global.DFAbilities.abilityMod)
+      ? global.DFAbilities.abilityMod(score)
+      : 0;   // ⚠ 未読込は 0（＝修正なし）。silent fail-open だが
+             //    tools/verify_ability_scores.js (3a) が 5 ページ全部で搭載を検査する。
   }
 
   // === §3 職業固定能力値（生値 3〜18・全6能力） =======================
-  // これが本システム唯一の新規キャラデータ。index.html の CLASS_DEFS が持つ
-  // 「戦闘用の修正値（str:3 等・CHA無し）」とは別物なので混同しないこと。
-  var CLASS_ABILITIES = {
-    warrior: { str: 15, dex: 11, con: 14, int: 9,  wis: 10, cha: 11 },
-    dwarf:   { str: 14, dex: 9,  con: 15, int: 10, wis: 13, cha: 9  },
-    rogue:   { str: 10, dex: 15, con: 11, int: 13, wis: 12, cha: 12 },
-    elf:     { str: 10, dex: 14, con: 10, int: 14, wis: 13, cha: 12 },
-    cleric:  { str: 12, dex: 9,  con: 13, int: 11, wis: 15, cha: 13 },
-    mage:    { str: 9,  dex: 11, con: 10, int: 15, wis: 13, cha: 11 },
-  };
+  // ⚠ 実体は js/abilities.js の DFAbilities.CLASS_ABILITIES（#28 で移設）。
+  //   ここには写しを置かない ── 置くと片方だけ古くなる二重管理が復活する。
+  //   index.html の CLASS_DEFS が持つ「戦闘用の修正値（str:3 等・CHA無し）」は
+  //   まだ別系統なので混同しないこと（統合は #28 の第2段＝別チケット）。
+  function classAbilities(classKey) {
+    return (global.DFAbilities && global.DFAbilities.scoresFor)
+      ? global.DFAbilities.scoresFor(classKey)
+      : null;
+  }
 
   // === §4 クラス別習熟（race = class）・習熟ボーナス一律 +2 ============
   var PROFICIENCY_BONUS = 2;
@@ -102,7 +104,7 @@
   }
   function checkScore(member, checkDef) {
     if (!member || !checkDef) return 0;
-    var ab = CLASS_ABILITIES[member.classKey];
+    var ab = classAbilities(member.classKey);
     if (!ab) return 0;
     var mod = abilityModifier(ab[checkDef.ability]);
     var profs = CLASS_PROFICIENCIES[member.classKey] || [];
@@ -112,9 +114,10 @@
 
   // 修正値の内訳（パネルの代表行で内訳表示するため）。total（extra=0,help=0）は checkScore と一致。
   // 第4引数 helpBonus は省略可（既存3引数呼び出しは help=0 で従来通り＝後方互換）。
-  var ABILITY_ABBR = { str: "STR", dex: "DEX", con: "CON", int: "INT", wis: "WIS", cha: "CHA" };
+  // 略称表も js/abilities.js が唯一の正（#28）。未読込時だけ空表で耐える。
+  var ABILITY_ABBR = (global.DFAbilities && global.DFAbilities.ABILITY_ABBR) || {};
   function checkScoreBreakdown(member, checkDef, extraBonus, helpBonus) {
-    var ab = member ? CLASS_ABILITIES[member.classKey] : null;
+    var ab = member ? classAbilities(member.classKey) : null;
     var abilityMod = (ab && checkDef) ? abilityModifier(ab[checkDef.ability]) : 0;
     var profs = (member && CLASS_PROFICIENCIES[member.classKey]) || [];
     var prof = (checkDef && profs.indexOf(checkDef.profKey) >= 0) ? PROFICIENCY_BONUS : 0;
@@ -491,7 +494,8 @@
 
   global.SkillCheck = {
     abilityModifier: abilityModifier,
-    CLASS_ABILITIES: CLASS_ABILITIES,
+    // ⚠ 転送。実体は js/abilities.js。tools/driver_skillcheck_roster.js:110 が読むので消さない。
+    CLASS_ABILITIES: (global.DFAbilities && global.DFAbilities.CLASS_ABILITIES) || {},
     CLASS_PROFICIENCIES: CLASS_PROFICIENCIES,
     PROFICIENCY_BONUS: PROFICIENCY_BONUS,
     HELP_BONUS: HELP_BONUS,

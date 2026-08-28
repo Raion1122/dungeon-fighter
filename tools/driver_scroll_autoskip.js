@@ -96,6 +96,9 @@ function check(name, cond, detail) {
 
   // ── (1) エンジン単体: about:blank に注入して定数公開を確認 ──
   await page.goto('about:blank', { waitUntil: 'domcontentloaded' });
+  // ⚠ #28: skill-check.js はスコア表も修正値の式も js/abilities.js (DFAbilities) へ委譲した。
+  //   これを先に注入しないと CLASS_ABILITIES が空 {} になり、母集団 0 で assert が空振りする。
+  await page.addScriptTag({ path: path.join(ROOT, 'js', 'abilities.js') });
   await page.addScriptTag({ path: path.join(ROOT, 'js', 'skill-check.js') });
   const autoMs = await page.evaluate(() => (window.SkillCheck || {}).AUTO_ROLL_MS);
   check('(1) SkillCheck.AUTO_ROLL_MS === 2000 (公開API経由で共有参照可)', autoMs === 2000, 'AUTO_ROLL_MS=' + autoMs);

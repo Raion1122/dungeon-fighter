@@ -2038,6 +2038,7 @@
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
+  <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
   <!-- マップ定義 df-map/1 (幾何・敵スロットの唯一の情報源)。index.html / map-editor.html と共有。
@@ -2388,10 +2389,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>技能判定を D&D 5e 方式へ</b> — 罠解除・隠密・運動など、得意分野の判定がわずかに通りやすくなった。</li>
         <li><b>銀の鹿亭が見下ろしの地図になった</b> — 主人公が酒場の床を歩いて依頼人の卓まで行くようになった。手前の三つの卓で最初の三つの依頼を受けられる。</li>
         <li><b>依頼の地まで自分で歩いて向かう</b> — 受注しても即出発ではなく、地方全景を歩いて目的地の立て札にたどり着いてから潜るようになった。まだ解放していない依頼の地は地図に現れない。</li>
         <li><b>地方の地図で立て札が主人公にかぶらなくなった</b> — 拠点の羊皮紙が頭上へ上がり、足元には拠点の印が出るようになった。</li>
-        <li><b>町と地図を歩く速さをゆっくりに</b> — 港町フランと地方全景で、主人公が景色を眺めながら歩く速さになった。</li>
       </ul>
     </div>
     <script>

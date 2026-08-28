@@ -98,6 +98,9 @@ function check(name, cond, detail) {
 
   // ── エンジン単体: about:blank に注入 ──
   await page.goto('about:blank', { waitUntil: 'domcontentloaded' });
+  // ⚠ #28: skill-check.js はスコア表も修正値の式も js/abilities.js (DFAbilities) へ委譲した。
+  //   これを先に注入しないと CLASS_ABILITIES が空 {} になり、母集団 0 で assert が空振りする。
+  await page.addScriptTag({ path: path.join(ROOT, 'js', 'abilities.js') });
   await page.addScriptTag({ path: path.join(ROOT, 'js', 'skill-check.js') });
   const hasEngine = await page.evaluate(() =>
     !!(window.SkillCheck && SkillCheck.resolveSkillCheck && SkillCheck.selectHelper
