@@ -287,6 +287,39 @@
     }
     #classWarn b { color: #ffd98a; }
 
+    /* ── 名乗り: 識る言の葉 (依頼書 #29 STEP3) ────────────────────────
+       ⚠ 390px でも横スクロールを出さないこと (verify_title_screen 受入条件 9)。
+         チップは必ず折り返す (flex-wrap) / 幅は内容なりで max-width:100%。 */
+    #langPick { width: 100%; margin: 16px 0 0; }
+    #langPickTitle {
+      font-family: 'MedievalSharp', serif; font-size: 17px; color: #e8c877;
+      letter-spacing: 4px; margin: 0 0 5px; text-align: center;
+    }
+    #langPickLead { color: #8d7a55; font-size: 12px; line-height: 1.7; letter-spacing: 1px; margin: 0 0 10px; text-align: center; }
+    #langFixed, #langChoices { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; min-width: 0; }
+    #langFixed:empty { display: none; }
+    #langFixed { margin-bottom: 10px; }
+    .langChip {
+      max-width: 100%; min-width: 0; padding: 5px 11px;
+      font-family: inherit; font-size: 13px; line-height: 1.3;
+      border: 1px solid rgba(139,105,20,0.55); border-radius: 13px;
+      background: var(--parchment-bg); color: var(--parchment-ink);
+      transition: filter 0.1s, box-shadow 0.15s;
+    }
+    /* 生まれつき解する言葉。⚠ 破線 = 「選ぶ対象ではない」の合図 (押せない見た目にする) */
+    .langChip.isFixed { background: rgba(139,105,20,0.28); color: #efd9a8; border-style: dashed; cursor: default; }
+    button.langChip { cursor: pointer; }
+    button.langChip:hover { filter: brightness(1.1); }
+    button.langChip:active { transform: translateY(1px); }
+    button.langChip[aria-pressed="true"] {
+      background: var(--parchment-gold); color: #fff8e0; border-color: #e8c877;
+      box-shadow: 0 0 0 2px #e8c877, 0 0 12px rgba(232,200,119,0.5);
+    }
+    /* 上限まで選んだ後の未選択チップ。⚠ disabled にはしない ——
+       「押せない」のではなく「今は選べない(外せば選べる)」なので、操作は生かしたまま薄くする。 */
+    button.langChip.isFull[aria-pressed="false"] { opacity: 0.42; }
+    #langHint { margin: 10px 0 0; min-height: 17px; font-size: 12.5px; letter-spacing: 1px; color: #c9ad72; text-align: center; }
+
     #namingPick { margin: 14px 0 0; min-height: 18px; font-size: 13px; color: #c9ad72; letter-spacing: 1px; text-align: center; }
     #namingActions { display: flex; gap: 10px; width: 100%; max-width: 460px; margin-top: 10px; }
     #namingActions button {
@@ -326,6 +359,19 @@
       <p id="namingLead">名乗りを一つ選べ。もう一度押せば、その者として旅立つ。</p>
       <div id="classCards"></div>
       <p id="classWarn"><b>この選択は後から変えられません。</b> 職業を変えるには、新しく「はじめから」を始める必要があります。</p>
+      <!-- ══ 識る言の葉 (依頼書 #29 STEP3) ═════════════════════════════════
+           職を選ぶまでは出さない (hidden)。?sheet=0 では丸ごと取り除く。
+           ⚠⚠ data-lang / data-fixed という属性名は **使わない**。js/player-sheet.js の
+             シート内チップがその 2 つを名乗っており、tools/verify_player_sheet.js は
+             document 全体から [data-lang] を拾う。同じ名前をここで使うと
+             「シートに出ている言語」の測定へ名乗り画面のチップが混ざる。 -->
+      <section id="langPick" hidden>
+        <h3 id="langPickTitle">識る言の葉</h3>
+        <p id="langPickLead"></p>
+        <div id="langFixed"></div>
+        <div id="langChoices"></div>
+        <p id="langHint"></p>
+      </section>
       <p id="namingPick"></p>
       <div id="namingActions">
         <button type="button" id="btnNamingBack">戻る</button>
@@ -442,6 +488,44 @@
 
     var pendingSlot = 0;    // 「はじめから」で選ばれたスロット番号 (画面 2 が確定時に使う)
     var chosenClass = "";   // 名乗りで選ばれた classKey
+
+    /* ══ 識る言の葉 (依頼書 #29 STEP3) ═══════════════════════════════════
+       ⭐ 言語表の唯一の正は js/player-sheet.js (DFSheet.LANGUAGES / CLASS_LANGUAGES)。
+         ⛔ ここへ言語名や職ごとの固定分を写さない。写した瞬間に「正」が 2 つになり、
+            後で職の固定言語を直したときに片方だけ古くなる (依頼書 §2-3 で見た事故の再来)。
+       ⚠ 撤退スイッチ ?sheet=0 では js/player-sheet.js が IIFE 先頭で return するので
+         window.DFSheet 自体が生えない。→ **クエリを自分で読み直さず「DFSheet が居るか」で分岐**
+         する (判定を 2 箇所に持つと、片方だけ直して食い違う)。
+         LANG_ON=false のとき: 言語 UI は DOM ごと消え、dragonfighters.languages も
+         1 バイトも書かれず、「出発」は職を選んだ時点で押せる = 完全に従来どおり。 */
+    var LANG_ON  = !!(window.DFSheet && DFSheet.CLASS_LANGUAGES && DFSheet.LANGUAGES);
+    var LANG_KEY = (window.DFSheet && DFSheet.LANG_KEY) || "dragonfighters.languages";
+    var pickedLangs = [];   // ⛔ 固定分は 1 つも入れない。localStorage へ書くのはこの配列だけ
+
+    var elLangPick    = document.getElementById("langPick");
+    var elLangLead    = document.getElementById("langPickLead");
+    var elLangFixed   = document.getElementById("langFixed");
+    var elLangChoices = document.getElementById("langChoices");
+    var elLangHint    = document.getElementById("langHint");
+    if (!LANG_ON && elLangPick && elLangPick.parentNode) {
+      /* ⚠ hidden にするだけでなく **DOM から外す**。「隠れているが在る」だと
+         撤退したのかどうかが検査から見て曖昧になる (js/player-sheet.js が
+         ?sheet=0 で window.DFSheet ごと生やさないのと同じ作法)。 */
+      elLangPick.parentNode.removeChild(elLangPick);
+      elLangPick = null;
+    }
+
+    function langDefOf(key)  { return (LANG_ON && key && DFSheet.CLASS_LANGUAGES[key]) || null; }
+    function picksOf(key)    { var d = langDefOf(key); return d ? (d.picks || 0) : 0; }
+    function langLabel(id) {
+      var L = LANG_ON ? DFSheet.LANGUAGES : [];
+      for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i].label;
+      return id;   // 未知の id は隠さず生値のまま (調査の手がかりを消さない)
+    }
+    /* 「汝は何者か」の語り口に合わせて数詞は和語。picks は 1 か 2 しか来ないが、
+       未知の値でも黙って壊れないよう素の数字へ落とす。 */
+    var COUNT_WORD = { 1: "一つ", 2: "二つ" };
+    function countWord(n) { return COUNT_WORD[n] || (n + " つ"); }
 
     // ── 表示ヘルパ ───────────────────────────────────────────────────
     /* 職業キー → 日本語名。
@@ -628,7 +712,9 @@
     function doNewGame(slot) {
       pendingSlot = slot;
       chosenClass = "";
+      pickedLangs = [];
       renderClassCards();
+      renderLangPick("");           // → 職が未選択なので言の葉は伏せる
       elDepart.disabled = true;
       elClassPick.textContent = "";
       showScreen("naming");
@@ -636,6 +722,9 @@
 
     function departAsChosen() {
       if (!chosenClass || !pendingSlot) return;
+      /* ⚠ ボタンの disabled だけに頼らない。Enter キーや外からの click() で
+         「言の葉を選ばないまま出発した記録」が生まれると、後から直せない。 */
+      if (!langReady()) return;
       /* ⚠ 順序が意味を持つ。newGame() は dragonfighters.* を prefix 総なめで消す
          (prologueSeen も含む = 酒場で前口上が自動で流れる)。
          partyComposition は **その後**に書くこと。逆にすると書いた直後に消える。 */
@@ -643,21 +732,92 @@
       try {
         // ⚠ localStorage 側。tavern.html:5179/5233 が出発時に sessionStorage へ書く同名キーとは別物。
         localStorage.setItem("dragonfighters.partyComposition", JSON.stringify([chosenClass]));
+        /* ⚠⚠⚠ 罠 B (依頼書 §2-2): languages も **newGame() より後**。前に書くと
+           書いた直後に prefix 総なめで消え、言語が常に空になる —— しかもエラーは 1 つも出ない。
+           ⛔ 固定分 (CLASS_LANGUAGES.fixed) は混ぜない。保存するのは選んだ分だけ (依頼書 §2-5)。
+              混ぜると、後で職の固定言語を直したとき既存セーブだけ古い言語を持ち続ける。 */
+        if (LANG_ON) localStorage.setItem(LANG_KEY, JSON.stringify(pickedLangs));
       } catch (e) {}
       location.href = nextAfterTitle();
     }
 
     // ══ 画面 2: 名乗り ═════════════════════════════════════════════════
     function selectClass(key) {
+      /* ⚠ 職を選び直したら、選んだ言の葉を捨てる。ドワーフで「ドワーフ語」を選んでから
+         魔法使いへ変えると、mage の fixed(共通語・竜語) と重ならないので残ってしまうが、
+         逆に 戦士で「ドワーフ語」→ ドワーフ へ変えると **固定分と重複**する。
+         ⚠ 同じカードをもう一度押したときは捨てない (選び直しではないので摩擦にしかならない)。 */
+      if (key !== chosenClass) pickedLangs = [];
       chosenClass = key;
       Array.prototype.forEach.call(elClassCards.children, function (c) {
         var on = c.getAttribute("data-class-key") === key;
         c.classList.toggle("selected", on);
         c.setAttribute("aria-pressed", on ? "true" : "false");
       });
-      elDepart.disabled = false;
+      renderLangPick(key);
+      updateDepartState();
       elClassPick.textContent = "選んだ名乗り: " + heroName(key);
     }
+
+    /* ── 識る言の葉: 描画と選択 ─────────────────────────────────────── */
+    function renderLangPick(key) {
+      if (!elLangPick) return;                 // ?sheet=0 = 器ごと居ない
+      var def = langDefOf(key);
+      if (!def) { elLangPick.hidden = true; return; }
+      elLangPick.hidden = false;
+      elLangPick.setAttribute("data-picks", String(def.picks));
+
+      var fixed = def.fixed || [];
+      elLangLead.textContent = "生まれながらに " + fixed.map(langLabel).join("・")
+        + " を解する。旅の空で覚えた言の葉を、さらに " + countWord(def.picks) + " 選べ。";
+
+      elLangFixed.textContent = "";
+      fixed.forEach(function (id) {
+        var c = el("span", "langChip isFixed", langLabel(id));
+        c.setAttribute("data-fixed-lang", id);
+        elLangFixed.appendChild(c);
+      });
+
+      elLangChoices.textContent = "";
+      DFSheet.LANGUAGES.forEach(function (L) {
+        if (fixed.indexOf(L.id) >= 0) return;  // ⛔ 固定分は選択肢に出さない (重複を作らせない)
+        var b = el("button", "langChip", L.label);
+        b.type = "button";
+        b.setAttribute("data-pick-lang", L.id);
+        b.setAttribute("aria-pressed", "false");
+        b.addEventListener("click", function () { toggleLang(L.id); });
+        elLangChoices.appendChild(b);
+      });
+      paintLangPick();
+    }
+
+    function toggleLang(id) {
+      var n = picksOf(chosenClass);
+      var at = pickedLangs.indexOf(id);
+      if (at >= 0) pickedLangs.splice(at, 1);
+      else if (pickedLangs.length < n) pickedLangs.push(id);
+      else return;   // 上限。⚠ 黙って古い方を捨てない (選んだ覚えのない言語が残る)
+      paintLangPick();
+      updateDepartState();
+    }
+
+    function paintLangPick() {
+      if (!elLangPick) return;
+      var n = picksOf(chosenClass);
+      var full = pickedLangs.length >= n;
+      Array.prototype.forEach.call(elLangChoices.children, function (b) {
+        var on = pickedLangs.indexOf(b.getAttribute("data-pick-lang")) >= 0;
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+        b.classList.toggle("isFull", full && !on);
+      });
+      elLangHint.textContent = full
+        ? "選び終えた。" + pickedLangs.map(langLabel).join("・") + " を識る。"
+        : "あと " + countWord(n - pickedLangs.length) + "。";
+    }
+
+    /** 出発してよいか。⭐ ?sheet=0 (LANG_ON=false) では常に true = 従来どおり。 */
+    function langReady() { return !LANG_ON || pickedLangs.length === picksOf(chosenClass); }
+    function updateDepartState() { elDepart.disabled = !(chosenClass && langReady()); }
 
     function buildClassCard(c) {
       var card = el("button", "classCard");
@@ -686,6 +846,8 @@
     elBack.addEventListener("click", function () {
       pendingSlot = 0;
       chosenClass = "";
+      pickedLangs = [];
+      renderLangPick("");
       showScreen("slots");
     });
     elDepart.addEventListener("click", departAsChosen);

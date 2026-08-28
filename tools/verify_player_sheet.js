@@ -685,6 +685,232 @@ async function probeRetreatPage(browser, base, spec) {
   return Object.assign(o, d);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * §3 言語 — title.html の「汝は何者か」で言の葉を選ぶ (dev-loop 項目 3 で追加)
+ * ⭐ ここだけは **本番の名乗りフローを実マウスで踏む**。
+ *   モジュール単体 (スタブ) では「選ばせる UI」も「出発時の保存」も原理的に測れない。
+ * ⚠⚠ 属性名は data-pick-lang / data-fixed-lang。
+ *   ⛔ data-lang / data-fixed は **シートのチップ**が名乗っており、probeRealPage が
+ *     document 全体から拾っている。名乗り画面で同じ名前を使うと (3d) の母集団が汚れる。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/** 名乗り画面の今の姿を丸ごと採る。⭐ 読み取りは 1 箇所に畳む (経路が増えると食い違う)。 */
+const READ_LANG = function () {
+  const S = window.DFSheet;
+  const sec = document.getElementById('langPick');
+  const dep = document.getElementById('btnDepart');
+  const chips = (root, attr) => root
+    ? Array.prototype.slice.call(root.querySelectorAll('[' + attr + ']')).map(el => ({
+        id: el.getAttribute(attr),
+        on: el.getAttribute('aria-pressed') === 'true',
+        text: String(el.textContent || '').trim(),
+      }))
+    : [];
+  const out = {
+    hasDFSheet: !!S,
+    secInDom: !!sec,
+    secHidden: sec ? !!sec.hidden : null,
+    dataPicks: sec ? sec.getAttribute('data-picks') : null,
+    fixed: chips(document.getElementById('langFixed'), 'data-fixed-lang'),
+    choices: chips(document.getElementById('langChoices'), 'data-pick-lang'),
+    departDisabled: dep ? !!dep.disabled : null,
+    hint: (document.getElementById('langHint') || {}).textContent || '',
+  };
+  out.selected = out.choices.filter(c => c.on).map(c => c.id);
+  return out;
+};
+
+/** title.html を開いて名乗り画面まで進める。⚠ 記録が残っていると 2 段タップになるので両方踏む。 */
+async function openNaming(browser, base, query) {
+  const errs = [];
+  const page = await browser.newPage();
+  page.on('pageerror', e => errs.push(String((e && e.message) || e)));
+  await page.setViewport({ width: 1280, height: 1000, deviceScaleFactor: 1 });
+  /* ⭐ 種は空。スロット 1 が「記録なし」= 1 タップで名乗りへ入れる。
+     ⚠ PAGE_SEED を使うと 2 段タップ確認が挟まり、手順が測定ごとにブレる。
+     ⚠⚠⚠ **title.html のときだけ**消すこと。evaluateOnNewDocument は
+       この page が開く **すべての document** で走るので、無条件に clear() すると
+       出発した先 (world.html) でも走り、出発フローが書いた languages を
+       着いた瞬間に消してしまう。症状は「保存が 1 本も無い」= 罠 B と見分けが付かない
+       (2026-08-29 に実測で踏んだ)。 */
+  await page.evaluateOnNewDocument(() => {
+    try { if (/title\.html$/.test(location.pathname)) localStorage.clear(); } catch (e) {}
+  });
+  const resp = await page.goto(base + '/title.html' + (query || ''), { waitUntil: 'load', timeout: 45000 });
+  await sleep(400);
+  await page.click('#slotList .slotCard[data-slot="1"] button[data-act="new"]');
+  await sleep(200);
+  const needConfirm = await page.$('#slotList button[data-act="confirm-yes"]');
+  if (needConfirm) { await page.click('#slotList button[data-act="confirm-yes"]'); await sleep(200); }
+  await page.waitForFunction(() => {
+    const e = document.getElementById('screenNaming');
+    return !!e && e.classList.contains('active');
+  }, { timeout: 15000 });
+  return { page, errs, status: resp ? resp.status() : 0 };
+}
+
+/**
+ * 6 職ぶんの言語選択を **1 ページロード**で回る ((3a)(3b)(3e))。
+ * ⭐ 名乗り画面は職を選び直せるので、ロードし直す必要がない。
+ *   = 職替えそのものが (3e) の手順になる。
+ */
+async function probeTitleLangPick(browser, base) {
+  const o = { errs: [], classes: [], switchCase: null, retreat: null };
+  const r = await openNaming(browser, base, '');
+  const page = r.page; o.errs = r.errs; o.status = r.status;
+
+  o.def = await page.evaluate(() => {
+    const S = window.DFSheet;
+    return S ? { classLang: JSON.parse(JSON.stringify(S.CLASS_LANGUAGES)),
+                 langIds: (S.LANGUAGES || []).map(x => x.id) } : null;
+  });
+  const keys = o.def ? Object.keys(o.def.classLang) : [];
+
+  for (const key of keys) {
+    const def = o.def.classLang[key];
+    const picks = def.picks;
+    const rec = { key: key, picks: picks, fixedWant: def.fixed.slice(), steps: [] };
+    await page.click('#classCards .classCard[data-class-key="' + key + '"]');
+    await sleep(90);
+    rec.afterClass = await page.evaluate(READ_LANG);
+
+    const ids = rec.afterClass.choices.map(c => c.id);
+    /* picks 個 選ぶ → もう 1 つ押しても増えない (上限) → 1 つ外すと戻る、まで踏む。
+       ⭐ 「picks 個ぶんの選択チップ」= 個数の宣言ではなく **picks 個で打ち止め**という
+         振る舞い。数を数えるだけだと「何個でも選べる」実装が素通りする。 */
+    rec.picked = [];
+    for (let i = 0; i < picks && i < ids.length; i++) {
+      await page.click('#langChoices [data-pick-lang="' + ids[i] + '"]');
+      await sleep(70);
+      rec.picked.push(ids[i]);
+      rec.steps.push(await page.evaluate(READ_LANG));
+    }
+    if (ids.length > picks) {
+      await page.click('#langChoices [data-pick-lang="' + ids[picks] + '"]');
+      await sleep(70);
+      rec.overflow = await page.evaluate(READ_LANG);
+      rec.overflowId = ids[picks];
+    }
+    if (ids.length) {
+      await page.click('#langChoices [data-pick-lang="' + ids[0] + '"]');   // 外す
+      await sleep(70);
+      rec.afterDeselect = await page.evaluate(READ_LANG);
+      await page.click('#langChoices [data-pick-lang="' + ids[0] + '"]');   // 戻す
+      await sleep(70);
+      rec.afterReselect = await page.evaluate(READ_LANG);
+    }
+    o.classes.push(rec);
+  }
+
+  /* ── (3e) の本命: 戦士で「ドワーフ語」を選んでから ドワーフ へ替える ──
+   *  ⭐ dwarf の fixed は common + dwarvish。リセットしないと **固定分と重複**する。
+   *  ⚠ 言語 id をここへ書き写しているが、これは「重複が起きる組み合わせ」を作るための
+   *    入力であって期待値ではない。実在することは下の assert が classLang 側で確かめる。 */
+  const CROSS_FROM = 'warrior', CROSS_TO = 'dwarf', CROSS_LANG = 'dwarvish';
+  if (keys.indexOf(CROSS_FROM) >= 0 && keys.indexOf(CROSS_TO) >= 0) {
+    await page.click('#classCards .classCard[data-class-key="' + CROSS_FROM + '"]');
+    await sleep(90);
+    await page.click('#langChoices [data-pick-lang="' + CROSS_LANG + '"]');
+    await sleep(90);
+    const before = await page.evaluate(READ_LANG);
+    await page.click('#classCards .classCard[data-class-key="' + CROSS_TO + '"]');
+    await sleep(120);
+    const after = await page.evaluate(READ_LANG);
+    o.switchCase = { from: CROSS_FROM, to: CROSS_TO, lang: CROSS_LANG, before: before, after: after };
+  }
+  await page.close();
+
+  /* ── 撤退 ?sheet=0 の名乗り画面 ──────────────────────────────────────
+   *  ⭐ 「言語 UI が出ない」だけでなく **「出発」が押せる (詰まない)** まで見る。
+   *    UI を消しただけで disabled が解けていないと、撤退したのに新規が始められない。 */
+  const rr = await openNaming(browser, base, '?sheet=0');
+  await rr.page.click('#classCards .classCard[data-class-key="' + (keys[0] || 'warrior') + '"]');
+  await sleep(120);
+  o.retreat = await rr.page.evaluate(READ_LANG);
+  o.retreat.errs = rr.errs;
+  await rr.page.close();
+  return o;
+}
+
+/**
+ * 名乗り → 言の葉を選ぶ → 出発 → 行き先で localStorage とシートを読む ((3c)(3d)(4d))。
+ * @param {string} classKey  選ぶ職
+ * @param {boolean} retreat  true なら ?sheet=0 (言語 UI なし = 従来どおりの出発)
+ */
+async function probeTitleDepart(browser, base, classKey, retreat) {
+  const o = { classKey: classKey, retreat: !!retreat, errs: [], picked: [], fixedWant: [] };
+  const r = await openNaming(browser, base, retreat ? '?sheet=0' : '');
+  const page = r.page; o.errs = r.errs;
+
+  const def = await page.evaluate((k) => {
+    const S = window.DFSheet;
+    return S ? JSON.parse(JSON.stringify(S.CLASS_LANGUAGES[k])) : null;
+  }, classKey);
+  o.fixedWant = def ? def.fixed.slice() : [];
+  o.picksWant = def ? def.picks : 0;
+
+  await page.click('#classCards .classCard[data-class-key="' + classKey + '"]');
+  await sleep(120);
+  const snap = await page.evaluate(READ_LANG);
+  o.beforeDepart = snap;
+  if (!retreat) {
+    const ids = snap.choices.map(c => c.id);
+    for (let i = 0; i < (def ? def.picks : 0) && i < ids.length; i++) {
+      await page.click('#langChoices [data-pick-lang="' + ids[i] + '"]');
+      await sleep(70);
+      o.picked.push(ids[i]);
+    }
+  }
+  o.readyDisabled = await page.evaluate(() => {
+    const d = document.getElementById('btnDepart'); return d ? !!d.disabled : null;
+  });
+
+  try {
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'load', timeout: 45000 }),
+      page.click('#btnDepart'),
+    ]);
+  } catch (e) { o.errs.push('depart: ' + ((e && e.message) || e)); }
+  await sleep(900);
+  o.dest = await page.evaluate(() => location.pathname + location.search);
+
+  /* 行き先 (既定 world.html) は同一オリジンなので localStorage をそのまま読める。
+     ⭐ シートもそこで開く = (3d) は「保存した言語が本当にシートへ出る」を測る。 */
+  const d = await page.evaluate(() => {
+    const out = Object.assign({}, (function () {
+      const keys = [];
+      let langs = null, party = null;
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf('dragonfighters.') === 0) keys.push(k);
+        }
+        langs = localStorage.getItem('dragonfighters.languages');
+        party = localStorage.getItem('dragonfighters.partyComposition');
+      } catch (e) { /* noop */ }
+      return { keys: keys.sort(), langsRaw: langs, partyRaw: party };
+    })());
+    const S = window.DFSheet;
+    out.hasDFSheet = !!S;
+    if (S) {
+      let threw = null;
+      try { S.open(); } catch (e) { threw = e.message; }
+      out.threw = threw;
+      out.open = S.isOpen();
+      out.sheetClassKey = S.heroClassKey();
+      out.expect = S.languagesOf(out.sheetClassKey);
+      const sec = document.getElementById('dfSheetSecLanguages');
+      out.secPresent = !!sec;
+      out.chips = sec ? Array.prototype.slice.call(sec.querySelectorAll('[data-lang]'))
+        .map(el => ({ id: el.getAttribute('data-lang'), fixed: el.getAttribute('data-fixed') === '1' })) : [];
+      S.close();
+    }
+    return out;
+  });
+  await page.close();
+  return Object.assign(o, d);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // assert 一覧 (id / 見出し / 述語)。述語は測定結果 M だけを見る純関数。
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1059,6 +1285,149 @@ const ASSERTS = [
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
   }],
 
+  // ── §3 言語 — title.html の「汝は何者か」 ──────────────────────────────
+  ['3a', 'title.html で職を選ぶと CLASS_LANGUAGES[key].picks 個ぶんの選択チップが出る (6 職・rogue だけ 2)', (M) => {
+    const L = M.langPick;
+    if (!L || !L.def) return [false, '⛔ 母集団が無い (名乗り画面まで進めていない)'];
+    const C = L.classes || [];
+    if (C.length !== 6) return [false, '⛔ 測れた職が ' + C.length + ' (期待 6)'];
+    const allIds = L.def.langIds || [];
+    const bad = [];
+    for (const r of C) {
+      const a = r.afterClass;
+      if (!a.secInDom || a.secHidden !== false) { bad.push(r.key + ' ⛔ #langPick が出ていない'); continue; }
+      if (a.dataPicks !== String(r.picks)) bad.push(r.key + ' ⛔ data-picks=' + a.dataPicks + ' (期待 ' + r.picks + ')');
+      if (!deepEq(a.fixed.map(c => c.id), r.fixedWant)) {
+        bad.push(r.key + ' ⛔ 固定分 ' + JSON.stringify(a.fixed.map(c => c.id)) + '≠' + JSON.stringify(r.fixedWant));
+      }
+      /* ⛔ 固定分は選択肢に出さない = 重複を作らせない (依頼書 §6) */
+      const want = allIds.filter(id => r.fixedWant.indexOf(id) < 0);
+      const got = a.choices.map(c => c.id);
+      if (!deepEq(got, want)) bad.push(r.key + ' ⛔ 選択肢 ' + got.length + ' 件 (期待 ' + want.length + ' = 14 - 固定 ' + r.fixedWant.length + ')');
+      if (a.selected.length !== 0) bad.push(r.key + ' ⛔ 職を選んだ直後なのに ' + a.selected.length + ' 個が選択済み');
+      // picks 個 選べる
+      const last = r.steps[r.steps.length - 1];
+      if (!last || last.selected.length !== r.picks) bad.push(r.key + ' ⛔ ' + r.picks + ' 個 選べていない');
+      // ⭐ picks 個で打ち止め (もう 1 つ押しても増えない)
+      if (r.overflow && r.overflow.selected.length !== r.picks) {
+        bad.push(r.key + ' ⛔ 上限を超えて ' + r.overflow.selected.length + ' 個 選べた (期待 ' + r.picks + ')');
+      }
+      if (r.overflow && r.overflow.selected.indexOf(r.overflowId) >= 0) {
+        bad.push(r.key + ' ⛔ 上限後に押した ' + r.overflowId + ' が選択に入った');
+      }
+    }
+    const p2 = C.filter(r => r.picks === 2).map(r => r.key);
+    const okPicks = p2.length === 1 && p2[0] === 'rogue' && C.filter(r => r.picks === 1).length === 5;
+    return [bad.length === 0 && okPicks,
+      C.map(r => r.key + ':固' + r.fixedWant.length + '/選' + r.afterClass.choices.length + '/picks' + r.picks).join(' ')
+      + (okPicks ? '' : '  ⛔ picks=2 は rogue 1 職だけのはず (' + p2.join(',') + ')')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['3b', 'picks 未充足では「出発」が disabled (充足で有効化・外すとまた disabled)', (M) => {
+    const L = M.langPick;
+    if (!L) return [false, '⛔ 母集団が無い'];
+    const C = L.classes || [];
+    if (C.length !== 6) return [false, '⛔ 測れた職が ' + C.length + ' (期待 6)'];
+    const bad = []; let midChecked = 0;
+    for (const r of C) {
+      if (r.afterClass.departDisabled !== true) bad.push(r.key + ' ⛔ 職を選んだだけで押せる');
+      for (let i = 0; i < r.steps.length; i++) {
+        const want = (i + 1) < r.picks;              // 途中は disabled のまま
+        if (want) midChecked++;
+        if (r.steps[i].departDisabled !== want) {
+          bad.push(r.key + ' ⛔ ' + (i + 1) + '/' + r.picks + ' 個で disabled=' + r.steps[i].departDisabled + ' (期待 ' + want + ')');
+        }
+      }
+      if (r.afterDeselect && r.afterDeselect.departDisabled !== true) bad.push(r.key + ' ⛔ 1 つ外しても押せたまま');
+      if (r.afterReselect && r.afterReselect.departDisabled !== false) bad.push(r.key + ' ⛔ 選び直しても押せない');
+    }
+    /* ⭐ 撤退 ?sheet=0: 言語 UI が **DOM ごと居らず**、職を選んだだけで押せる (詰まない)。
+       ⚠ UI を消しただけで disabled が解けていないと、撤退したのに新規が始められない。 */
+    const R = L.retreat || {};
+    const okOff = R.hasDFSheet === false && R.secInDom === false && R.departDisabled === false
+      && (R.errs || []).length === 0;
+    /* ⭐ 母集団ガード: 「途中」の状態が 1 度も現れないと (3b) は
+       「0 個 → 1 個」しか見ていない = rogue の 2 個目が空振りする。 */
+    return [bad.length === 0 && okOff && midChecked >= 1,
+      '6 職とも 0 個=disabled / 充足=有効 / 外すと disabled  (途中状態 ' + midChecked + ' 回 = rogue の 1/2)'
+      + '  ?sheet=0: DFSheet=' + R.hasDFSheet + ' #langPick=' + R.secInDom + ' 出発disabled=' + R.departDisabled
+      + (okOff ? '' : '  ⛔ 撤退で詰まっている / UI が残っている')
+      + (midChecked >= 1 ? '' : '  ⛔ 母集団ガード: picks 2 の職が測れていない')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['3c', '出発後 localStorage["dragonfighters.languages"] が **選択分だけ** (固定分を含まない・順序も一致)', (M) => {
+    const D = M.departs || [];
+    if (D.length !== 2) return [false, '⛔ 母集団が 2 でない (' + D.length + ')'];
+    const bad = [];
+    for (const d of D) {
+      if (d.langsRaw === null) { bad.push(d.classKey + ' ⛔ languages キーが無い — 罠 B (newGame より前に書いた) か保存漏れ'); continue; }
+      let got = null;
+      try { got = JSON.parse(d.langsRaw); } catch (e) { bad.push(d.classKey + ' ⛔ JSON でない: ' + d.langsRaw); continue; }
+      if (!Array.isArray(got)) { bad.push(d.classKey + ' ⛔ 配列でない: ' + d.langsRaw); continue; }
+      if (!deepEq(got, d.picked)) bad.push(d.classKey + ' ⛔ ' + JSON.stringify(got) + '≠選んだ分 ' + JSON.stringify(d.picked));
+      const mixed = got.filter(id => d.fixedWant.indexOf(id) >= 0);
+      if (mixed.length) bad.push(d.classKey + ' ⛔ 固定分が混ざっている: ' + mixed.join(','));
+      if (got.length !== d.picksWant) bad.push(d.classKey + ' ⛔ ' + got.length + ' 件 (picks ' + d.picksWant + ')');
+      if (d.partyRaw !== JSON.stringify([d.classKey])) bad.push(d.classKey + ' ⛔ partyComposition=' + d.partyRaw);
+    }
+    /* ⭐ 母集団ガード: 「固定分と選択分の両方が空でない」職で測っていること。
+       fixed が 0 件の職だけで測ると「混ざっていない」が自明になる。 */
+    const guard = D.filter(d => d.fixedWant.length >= 1 && d.picked.length >= 1).length;
+    return [bad.length === 0 && guard === 2,
+      D.map(d => d.classKey + ' 固' + JSON.stringify(d.fixedWant) + ' 選' + JSON.stringify(d.picked)
+        + ' → 保存 ' + d.langsRaw + ' @' + d.dest).join('   ')
+      + (guard === 2 ? '' : '  ⛔ 母集団ガード: 固定分と選択分が両方ある職で測ること')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['3d', 'シートの言語欄が DFSheet.languagesOf(classKey) と一致し、固定分 + 選択分が両方出ている (2 経路)', (M) => {
+    const D = M.departs || [];
+    if (D.length !== 2) return [false, '⛔ 母集団が 2 でない'];
+    const bad = [];
+    for (const d of D) {
+      if (!d.hasDFSheet) { bad.push(d.classKey + ' ⛔ 行き先 (' + d.dest + ') に DFSheet が無い'); continue; }
+      if (d.threw) { bad.push(d.classKey + ' ⛔ open() が例外: ' + d.threw); continue; }
+      if (d.open !== true || d.secPresent !== true) { bad.push(d.classKey + ' ⛔ 言語区画が出ていない'); continue; }
+      if (d.sheetClassKey !== d.classKey) { bad.push(d.classKey + ' ⛔ シートが見ている職 ' + d.sheetClassKey + ' が違う'); continue; }
+      const domIds = (d.chips || []).map(c => c.id);
+      /* 経路 1 = DOM のチップ / 経路 2 = モジュールの返り値。⛔ ドライバに言語 id を写経しない */
+      if (!deepEq(domIds, d.expect)) bad.push(d.classKey + ' ⛔ DOM ' + JSON.stringify(domIds) + '≠languagesOf ' + JSON.stringify(d.expect));
+      const domFixed  = (d.chips || []).filter(c => c.fixed).map(c => c.id);
+      const domPicked = (d.chips || []).filter(c => !c.fixed).map(c => c.id);
+      if (!deepEq(domFixed, d.fixedWant)) bad.push(d.classKey + ' ⛔ 固定分 ' + JSON.stringify(domFixed) + '≠' + JSON.stringify(d.fixedWant));
+      if (!sameSet(domPicked, d.picked)) bad.push(d.classKey + ' ⛔ 選択分 ' + JSON.stringify(domPicked) + '≠' + JSON.stringify(d.picked));
+      if (!domFixed.length || !domPicked.length) bad.push(d.classKey + ' ⛔ 片方しか出ていない');
+    }
+    return [bad.length === 0,
+      D.map(d => d.classKey + ' シート=' + JSON.stringify((d.chips || []).map(c => c.id + (c.fixed ? '(固)' : '')))
+        + ' == languagesOf ' + JSON.stringify(d.expect)).join('   ')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['3e', '職を選び直すと選択済みがリセットされる (固定分との重複が起きない)', (M) => {
+    const L = M.langPick;
+    if (!L) return [false, '⛔ 母集団が無い'];
+    const S = L.switchCase;
+    if (!S) return [false, '⛔ 職替えの測定が無い'];
+    const bad = [];
+    /* 前提 (母集団ガード): 替える前に確かに 1 つ選ばれていて、
+       その言語が **替えた先の固定分** に在ること = 重複が起きうる組み合わせであること。 */
+    if (!deepEq(S.before.selected, [S.lang])) bad.push('⛔ 替える前に ' + S.lang + ' が選ばれていない: ' + JSON.stringify(S.before.selected));
+    const toFixed = S.after.fixed.map(c => c.id);
+    if (toFixed.indexOf(S.lang) < 0) bad.push('⛔ 母集団ガード: ' + S.to + ' の固定分に ' + S.lang + ' が無い = 重複が起きない組み合わせ');
+    // 本体
+    if (S.after.selected.length !== 0) bad.push('⛔ 職替え後も ' + JSON.stringify(S.after.selected) + ' が選択に残っている');
+    if (S.after.choices.map(c => c.id).indexOf(S.lang) >= 0) bad.push('⛔ ' + S.lang + ' が固定分なのに選択肢にも出ている');
+    if (S.after.departDisabled !== true) bad.push('⛔ 職替え後に「出発」が押せたまま');
+    /* 6 職を順に回るループ側でも同じ性質を確かめる (afterClass.selected が毎回 0 件)。 */
+    const loopBad = (L.classes || []).filter(r => r.afterClass.selected.length !== 0).map(r => r.key);
+    if (loopBad.length) bad.push('⛔ 職替え直後に選択が残った職: ' + loopBad.join(','));
+    return [bad.length === 0,
+      S.from + ' で ' + S.lang + ' を選ぶ → ' + S.to + ' へ替える: 選択 '
+      + JSON.stringify(S.before.selected) + ' → ' + JSON.stringify(S.after.selected)
+      + '  (' + S.to + ' の固定分 ' + JSON.stringify(toFixed) + ' と重複しない)'
+      + '  出発disabled=' + S.after.departDisabled
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+
   // ── §4 恒等 ────────────────────────────────────────────────────────────
   ['4a', 'シートを開閉しても既存 HUD (#settingsBtn / #partyToggleBtn / #combatLog) の矩形が 1px も動かない', (M) => {
     const P = M.pages || [];
@@ -1079,28 +1448,54 @@ const ASSERTS = [
       + (meaningful >= 3 ? '' : '  ⛔ 母集団ガード: 実体のある HUD が 3 件未満 = 空振り')
       + (bad.length ? '  ⛔ ' + bad.slice(0, 4).join(' / ') : '')];
   }],
-  ['4c', '5 ページすべてで pageerror ゼロ (素 / ?ability5e=0 / ?sheet=0 の 3 経路とも)', (M) => {
-    const all = [].concat(M.pages || [], M.pagesBX || [], M.retreat || [], M.townCompact ? [M.townCompact] : []);
+  ['4c', '5 ページすべてで pageerror ゼロ (素 / ?ability5e=0 / ?sheet=0 / 名乗りフロー の 4 経路とも)', (M) => {
+    /* ⭐ 名乗りフロー (項目 3) も勘定に入れる。title.html で職を選び言の葉を押す経路は
+       ここでしか通らないので、外すと「新しく足した UI だけ例外を投げていても緑」になる。 */
+    const title = [];
+    if (M.langPick) {
+      title.push({ label: 'title(名乗り)', errs: M.langPick.errs });
+      if (M.langPick.retreat) title.push({ label: 'title(?sheet=0 名乗り)', errs: M.langPick.retreat.errs });
+    }
+    for (const d of (M.departs || [])) title.push({ label: 'title→出発(' + d.classKey + ')', errs: d.errs });
+    if (M.departOff) title.push({ label: 'title→出発(?sheet=0)', errs: M.departOff.errs });
+    const all = [].concat(M.pages || [], M.pagesBX || [], M.retreat || [],
+      M.townCompact ? [M.townCompact] : [], title);
     const bad = all.filter(p => (p.errs || []).length)
       .map(p => p.label + ': ' + p.errs.slice(0, 2).join(' | '));
-    return [all.length >= 15 && bad.length === 0,
-      '測ったページロード ' + all.length + ' 回 (素 5 + BX 5 + 撤退 5 + 町 compact 1)'
+    return [all.length >= 20 && bad.length === 0,
+      '測ったページロード ' + all.length + ' 回 (素 5 + BX 5 + 撤退 5 + 町 compact 1 + 名乗り ' + title.length + ')'
       + (bad.length ? '  ⛔ ' + bad.slice(0, 4).join('  //  ') : '  pageerror 0 件')];
   }],
-  ['4d', 'シートの開閉で localStorage に増えたキーが 0 本 (⚠ 言語の保存は項目 3 の担当)', (M) => {
+  ['4d', 'title の出発フローで増える localStorage キーは dragonfighters.languages の 1 本だけ (シートの開閉では 0 本)', (M) => {
+    /* ⭐⭐ 「増えた 1 本」は **?sheet=0 で出発した記録との差**で測る。
+       newGame() が dragonfighters.* を prefix 総なめで消すので、
+       出発前後の単純な差分では「増えた」を定義できない (前が全部消える)。
+       → 従来どおりの出発 (撤退アーム) と、言語つきの出発 (本番アーム) を
+         **同じ職・同じ手順**で走らせ、鍵の集合の差だけを見る。 */
+    const A = M.departOff, B = (M.departs || []).find(d => d.classKey === (A && A.classKey));
     const P = M.pages || [];
     if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    if (!A || !B) return [false, '⛔ 出発アームが揃っていない (撤退=' + !!A + ' 本番=' + !!B + ')'];
     const bad = [];
+    // ① シートの開閉では 1 本も増えない (項目 2 からの担保をそのまま残す)
     for (const p of P) {
       const added = (p.lsAfter || []).filter(k => (p.lsBefore || []).indexOf(k) < 0);
-      if (added.length) bad.push(p.label + ' ⛔ +' + added.join(','));
+      if (added.length) bad.push(p.label + ' ⛔ シート開閉で +' + added.join(','));
       if ((p.lsBefore || []).length === 0) bad.push(p.label + ' ⛔ 種が入っていない = 差分が空振り');
     }
+    // ② 出発フローで増えたのは languages 1 本だけ / 減ったキーは 0 本
+    const gained = (B.keys || []).filter(k => (A.keys || []).indexOf(k) < 0);
+    const lost   = (A.keys || []).filter(k => (B.keys || []).indexOf(k) < 0);
+    const okGain = deepEq(gained, ['dragonfighters.languages']) && lost.length === 0;
+    if (!okGain) bad.push('⛔ 出発フローの差分 +' + JSON.stringify(gained) + ' -' + JSON.stringify(lost));
+    // 母集団ガード: 両アームが実際に同じ職で出発し、鍵を持って着いていること
+    if (!(A.keys || []).length || !(B.keys || []).length) bad.push('⛔ 母集団ガード: 行き先で鍵が 0 本 = 差分が空振り');
+    if (A.langsRaw !== null) bad.push('⛔ ?sheet=0 なのに languages が書かれた: ' + A.langsRaw);
     return [bad.length === 0,
-      '開く直前 → 閉じた後 の dragonfighters.* 差分 = 0 本 × 5 ページ'
-      + '  (種 ' + ((P[0] && P[0].lsBefore) || []).length + ' 本を母集団ガードに使用)'
-      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')
-      + '  ⚠ 項目 3 で言語保存が入ったら「languages の 1 本だけ増える」形へ差し替える'];
+      'シート開閉 +0 本 × 5 ページ (種 ' + ((P[0] && P[0].lsBefore) || []).length + ' 本)'
+      + '   出発 ?sheet=0 ' + (A.keys || []).length + ' 本 → 素 ' + (B.keys || []).length + ' 本'
+      + '  差分 +' + JSON.stringify(gained) + ' -' + JSON.stringify(lost)
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 4).join(' / ') : '')];
   }],
 
   // ── §5 撤退 ────────────────────────────────────────────────────────────
@@ -1125,20 +1520,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 /* ⭐ 項目 2 で 5 枚へ <script src> を入れたので、この理由を使う PENDING はもう無い。
    定数だけ残す (項目 3/4 が同じ罠を再利用しないように、使わなくなったことを明記する)。 */
 const HTML_YET = '(未使用) 実ページへの <script src> は項目 2 で完了した';
-const PENDING_OF = {
-  '3a': ['title.html で職を選ぶと CLASS_LANGUAGES[key].picks 個の選択チップが出る (6 職・rogue だけ 2)',
-    'title.html の「汝は何者か」に言語選択 UI がまだ無い (項目 3 の担当)'],
-  '3b': ['picks 未充足では「出発」が disabled',
-    'title.html の言語選択 UI がまだ無い (項目 3 の担当)'],
-  '3c': ['出発後、localStorage["dragonfighters.languages"] が **選択分だけ**の JSON 配列',
-    'title.html の departAsChosen() に保存がまだ無い (項目 3 の担当)'
-      + ' ⭐⭐⭐ 罠 B: DFSlots.newGame() の **後** に書くこと'],
-  '3d': ['シートの言語欄が DFSheet.languagesOf(classKey) と一致し、固定分 + 選択分が両方出ている',
-    '項目 3 の「選んだ言語を保存する」がまだ無い (項目 3 の担当)'
-      + ' ⭐ 固定分だけの経路は (5b) で、実ページへの搭載は (0b) で既に緑'],
-  '3e': ['職を選び直すと選択済みがリセットされる (固定分との重複が起きない)',
-    'title.html の言語選択 UI がまだ無い (項目 3 の担当)'],
-};
+/* ⭐ 項目 3 で §3 の 5 本 (3a〜3e) を実装したので、受入条件側の PENDING は 0 件になった。
+   残る PENDING は `--negative` の変異 7 本だけ (= 項目 4 の担当)。
+   ⛔ この器を消さないこと。項目 4 が変異を実装するまでは「空でも在る」ことに意味がある。 */
+const PENDING_OF = {};
 
 const SECTIONS = [
   ['§0 装置 — 共有モジュール単体の契約 (項目 1 で測れる分)',
@@ -1208,6 +1593,20 @@ function emit(id, M) {
     m.retreat = [];
     if (!want || want.retreat) {
       for (const spec of PAGE_MATRIX) m.retreat.push(await probeRetreatPage(browser, base, spec));
+    }
+
+    /* ── §3 言語: title.html の名乗りフロー (項目 3) ────────────────────
+     *  ⭐ langPick = 1 ページロードで 6 職を回る (職替えが (3e) の手順そのもの) + ?sheet=0 の 1 枚。
+     *  ⭐ departs = 実際に出発して行き先で localStorage とシートを読む。
+     *    dwarf (固定 2 / picks 1) と rogue (固定 1 / picks 2) の 2 職で、
+     *    「固定分と選択分が両方ある」母集団を作る (どちらかが 0 だと (3c) が自明になる)。
+     *  ⚠ 変異ごとに全部やると時間が爆発するので want.title で絞れるようにしてある。 */
+    m.langPick  = (!want || want.title) ? await probeTitleLangPick(browser, base) : null;
+    m.departs   = [];
+    m.departOff = null;
+    if (!want || want.title) {
+      for (const k of ['dwarf', 'rogue']) m.departs.push(await probeTitleDepart(browser, base, k, false));
+      m.departOff = await probeTitleDepart(browser, base, 'dwarf', true);   // (4d) の比較アーム
     }
     return m;
   }

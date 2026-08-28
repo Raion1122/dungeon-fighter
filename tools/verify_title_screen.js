@@ -689,6 +689,41 @@ function probeLayout() {
     await sleep(600);   // 遷移先の同期スクリプト完走ぶん。以降の待ちは全てポーリング
   }
 
+  /* ══ 識る言の葉 (実装依頼書 #29 プレイヤーシート v1) ═══════════════════════
+     ⚠⚠ 2026-08-29 に名乗り画面へ **導線が 1 枚増えた**。職を選んだだけでは
+       「この者として旅立つ」は disabled のままで、**その職の picks 個ぶんの
+       言の葉を選ぶまで押せない**。カード → #btnDepart と進む従来の手順は
+       全部 waitForNavigation のタイムアウトで死ぬ (2026-08-29 に実測)。
+     ⭐ 期待値は 1 つも緩めない。**装置側** (この関数) が新しい 1 段を踏むだけ。
+     ⭐ 選ぶ言語は DOM から拾う (ドライバへ言語 id を写経しない)。
+     ⚠ ?sheet=0 では #langPick ごと居ない → skipped:true を返して何もしない。 */
+  async function pickLanguages(page) {
+    const need = await page.evaluate(() => {
+      const sec = document.getElementById('langPick');
+      if (!sec || sec.hidden) return null;
+      const all = [].slice.call(document.querySelectorAll('#langChoices [data-pick-lang]'));
+      return {
+        n: parseInt(sec.getAttribute('data-picks') || '0', 10),
+        on: all.filter(el => el.getAttribute('aria-pressed') === 'true').length,
+        unsel: all.filter(el => el.getAttribute('aria-pressed') !== 'true')
+          .map(el => el.getAttribute('data-pick-lang')),
+      };
+    });
+    if (!need) return { picked: [], skipped: true };
+    const picked = [];
+    for (let i = 0; i < need.n - need.on && i < need.unsel.length; i++) {
+      await page.click('#langChoices [data-pick-lang="' + need.unsel[i] + '"]');
+      picked.push(need.unsel[i]);
+      await sleep(70);
+    }
+    /* 固定 sleep ではなく **押せるようになったこと** を待つ。ここで死んだら
+       「選べば押せる」が壊れている = 先へ進めても意味がない。 */
+    await page.waitForFunction(() => {
+      const d = document.getElementById('btnDepart'); return !!d && !d.disabled;
+    }, { timeout: 10000 });
+    return { picked, skipped: false };
+  }
+
   /* ══ 依頼書 #12 town-map-phlan: 着地点が town.html (港町フラン) へ移った ═══════════
      タイトルから「つづきから/旅立つ」を押すと、酒場ではなく **街** に着き、
      そこで 🦌 の看板をくぐって初めて酒場へ入る。
@@ -1057,15 +1092,24 @@ function probeLayout() {
     const nam1 = await p2.evaluate(probeNaming);
     const picked = (nam1.cards || []).find(c => c.classKey === HERO_KEY) || {};
     const others = (nam1.cards || []).filter(c => c.classKey !== HERO_KEY);
+    /* ⭐ #29 で入った 2 つ目の門: 職を選んだだけではまだ旅立てない。
+       言の葉を picks 個 選んで初めて有効化される。
+       ⚠ この 2 相を **同じ assert の中**で見ること。片方だけにすると
+         「ずっと disabled」も「門が無い」も同じだけ緑になる。 */
+    const lang2 = await pickLanguages(p2);
+    const nam1b = await p2.evaluate(probeNaming);
 
-    check('(2c) 1 タップ目で押したカードだけが選択状態になり zone / role / note が開く。確定ボタンが有効化される',
+    check('(2c) 1 タップ目で押したカードだけが選択状態になり zone / role / note が開く。言の葉を選んで初めて確定ボタンが有効化される',
       picked.selected === true && picked.detailOpen === true
         && picked.zone.length > 0 && picked.role.length > 0 && picked.note.length > 0
         && others.length === 5 && others.every(c => c.selected === false && c.detailOpen === false)
-        && nam1.departDisabled === false,
+        && nam1.departDisabled === true          // 職だけではまだ押せない (#29 の言語ゲート)
+        && lang2.skipped === false && lang2.picked.length >= 1
+        && nam1b.departDisabled === false,       // 言の葉を選んだら押せる
       JSON.stringify({ picked: { sel: picked.selected, open: picked.detailOpen, zone: picked.zone, role: picked.role },
                        othersOpen: others.filter(c => c.detailOpen).map(c => c.classKey),
-                       departDisabled: nam1.departDisabled }));
+                       departDisabled: nam1.departDisabled, langs: lang2.picked,
+                       departAfterLangs: nam1b.departDisabled }));
 
     check('(2d) カード群の下の「後から変えられません」の 1 行が **常時** 出ている (選択後も消えない)',
       nam1.warnVisible === true && nam0.warnVisible === true
@@ -1186,6 +1230,7 @@ function probeLayout() {
     //    ⚠ openPage の既定は prologueSeen を仕込む → スロット1 は「記録あり」= 2 段タップになる
     const step3a = await startNewGame(p3, 1);
     await p3.click('#classCards .classCard[data-class-key="' + HERO_A + '"]');
+    await pickLanguages(p3);   // ★ #29: 言の葉を選ばないと #btnDepart は disabled のまま
     await clickAndNavigate(p3, '#btnDepart');
     await p3.evaluate((xp, g) => {
       localStorage.setItem('dragonfighters.xp', xp);
@@ -1220,6 +1265,7 @@ function probeLayout() {
       step3a.usedConfirm === true && step3b.usedConfirm === false,
       JSON.stringify({ slot1: step3a, slot2: step3b }));
     await p3.click('#classCards .classCard[data-class-key="' + HERO_B + '"]');
+    await pickLanguages(p3);   // ★ #29: 言の葉を選ばないと #btnDepart は disabled のまま
     await clickAndNavigate(p3, '#btnDepart');
     const s2 = await arriveTavern(p3);
 
@@ -1374,6 +1420,7 @@ function probeLayout() {
       JSON.stringify({ naming: nam4.namingActive, n: (nam4.cards || []).length }));
 
     await p4.click('#classCards .classCard[data-class-key="' + NEW_HERO + '"]');
+    await pickLanguages(p4);   // ★ #29: 言の葉を選ばないと #btnDepart は disabled のまま
     await clickAndNavigate(p4, '#btnDepart');
     const arr4 = await arriveTavern(p4);
     await p4.close();
@@ -1622,6 +1669,7 @@ function probeLayout() {
     try {
       await startNewGame(p8, 1);
       await p8.click('#classCards .classCard[data-class-key="' + CASE2.hero + '"]');
+      await pickLanguages(p8);   // ★ #29: 言の葉を選ばないと #btnDepart は disabled のまま
       await clickAndNavigate(p8, '#btnDepart');
     } catch (e) { flow2Threw = String((e && e.message) || e).split('\n')[0].slice(0, 60); }
     const a8 = await arriveTavern(p8);
