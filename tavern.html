@@ -873,8 +873,15 @@
 
     /* ④ スマホ縦持ち(≤560px): 銀の鹿亭の卓を「横長前提の絶対%配置」から2列スクロールグリッドへ。
        横持ち(幅>560)は非発動=既存の円卓レイアウトを温存。縦画面のカード/依頼人/扉の重なりを根治。 */
+    /* ⚠⚠⚠ 2026-08-27 (実装依頼書 #25 STEP3): ここの規則は **1 枚絵の 6 卓専用**なので、
+       歩ける地図を出している間 (body.tavernMapOn) は 1 行も効かせない。
+       ⛔ 削除しない — 撤退スイッチ ?tavernmap=0 がこの CSS をそのまま使う。
+       ⚠ 「奥の間」(#tableArea.backroomOpen) の縦画面レイアウトは、この節ではなく
+         下方の body.tavernMapOn 側で別に定義してある (役割が違うので混ぜない)。
+       ⚠ tavern.html の @media (max-width: 560px) は **他にも 2 ブロックある**
+         (#title/#changelogBox 側 と 所持品カード側)。括ってよいのはこの 1 つだけ。 */
     @media (max-width: 560px) {
-      #tableArea {
+      body:not(.tavernMapOn) #tableArea {
         inset: auto;
         position: absolute;
         top: 46%; left: 4%; right: 4%;
@@ -886,31 +893,33 @@
         z-index: 5;
       }
       /* renderTables が style.left/top をインライン設定 → !important で無効化しグリッドセル化 */
-      .table {
+      body:not(.tavernMapOn) .table {
         position: relative !important;
         left: auto !important; top: auto !important;
         width: auto; height: auto; min-height: 150px;
         display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
       }
-      .table:hover { transform: none; }
+      body:not(.tavernMapOn) .table:hover { transform: none; }
       /* 看板を浮かせず(上段カードへの突き刺さり防止)カード見出しに落とす */
-      .sign, .table:has(.clientArt) .sign {
+      body:not(.tavernMapOn) .sign,
+      body:not(.tavernMapOn) .table:has(.clientArt) .sign {
         position: static !important; transform: none !important;
         top: auto !important; left: auto !important;
         min-width: 0; width: 100%; margin: 0 0 4px; box-sizing: border-box;
       }
       /* 依頼人ポートレイトをセル内中央の小型に */
-      .clientArt {
+      body:not(.tavernMapOn) .clientArt {
         position: relative !important;
         left: auto; bottom: auto; transform: none !important;
         width: 64px; height: 84px; margin: 0 auto;
       }
-      .npc { position: relative; left: auto; bottom: auto; transform: none; margin: 0 auto; }
+      body:not(.tavernMapOn) .npc { position: relative; left: auto; bottom: auto; transform: none; margin: 0 auto; }
       /* 円卓・床タグは縦では省き、カードを素直な[見出し][依頼人]の縦積みに */
-      .tableTop, .floorTag { display: none; }
+      body:not(.tavernMapOn) .tableTop,
+      body:not(.tavernMapOn) .floorTag { display: none; }
       /* 怪しい扉をカードグリッドの外(タイトル直下の右上)へ退避・縮小。
          基底 #plazaDoor 定義(後方の行)に勝つよう body 接頭で詳細度を上げる */
-      body #plazaDoor {
+      body:not(.tavernMapOn) #plazaDoor {
         top: calc(80px + env(safe-area-inset-top));
         right: 6px;
         width: 54px; height: 96px;
@@ -1821,6 +1830,211 @@
       #pmColumns { gap: 9px; }
       .pmPortraitWrap, .pmPortrait { --pm-d: 72px; width: 72px; height: 72px; }
     }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+       銀の鹿亭 = 歩ける D&D マップ (実装依頼書 #25 STEP3 / STEP4)
+       ──────────────────────────────────────────────────────────────────────────
+       ★ 責務は「酒場のどこに立っているか」と「どの卓 / 扉へ歩くか」だけ。
+         ⛔ 通行マスク・卓・扉・立ち位置の**写しを作らない** (js/tavern-map.js が唯一の正)。
+         ⛔ 席札の文言も写さない (scenarios[].place / .difficulty から生成する)。
+       ★ すべて body.tavernMapOn の下に閉じ込める。?tavernmap=0 では 1 行も効かない。
+       ★ 幾何 (タイル px / スプライト px) は **JS が --tv-tile と style で入れる**。
+         ⛔ 96 も 64 もここに直書きしない (TAVERN_MAP.TILE が唯一の正)。
+       ══════════════════════════════════════════════════════════════════════════ */
+    #tavernViewport {
+      position: absolute; inset: 0;
+      overflow: hidden;
+      background: #0a0805;
+      cursor: pointer;
+      z-index: 1;          /* #tableArea(5) / #title(10) / HUD(12〜15) より下 */
+    }
+    #tavernStage {
+      position: absolute; left: 0; top: 0;
+      transform-origin: 0 0;
+    }
+    #tavernMapImg {
+      position: absolute; left: 0; top: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; user-select: none;
+    }
+    /* 主人公。⚠ width/height と background-size は JS が SPRITE から入れる (写経ズレ防止) */
+    #tavernHero {
+      position: absolute;
+      background-repeat: no-repeat;
+      transform-origin: 50% 100%;
+      pointer-events: none;
+      filter: drop-shadow(0 3px 4px rgba(0,0,0,0.55));
+      z-index: 3;
+    }
+    /* 足元の楕円影。⭐ 接地点 = タイル中心が「どこに立っているか」の唯一の手がかりになる */
+    #tavernHeroShadow {
+      position: absolute;
+      width: 44px; height: 16px;
+      margin-left: -22px; margin-top: -8px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 70%);
+      pointer-events: none;
+      z-index: 2;
+    }
+    /* 行き先マーカー (押したタイル) */
+    #tavernGoal {
+      position: absolute;
+      width: var(--tv-tile, 96px); height: var(--tv-tile, 96px);
+      transform: translate(-50%, -50%);
+      border: 2px solid rgba(120,255,180,0.85);
+      border-radius: 8px;
+      box-shadow: inset 0 0 12px rgba(120,255,180,0.35);
+      pointer-events: none; opacity: 0;
+      z-index: 1;
+      transition: opacity 0.25s ease;
+    }
+    #tavernGoal.show { opacity: 1; }
+
+    /* ── 席札 / 扉札 ────────────────────────────────────────────────────────
+       港町フランの .townSign と**同じ羊皮紙の作法**だが、⛔ DOM もセレクタも共有しない
+       (town.html は 1 バイトも触らない)。
+       ⭐ 当たり判定はタイル、羊皮紙だけ頭上へ逃がす型 (#22 で確立)。頭上のタイルは
+         js/tavern-map.js の sign が持っており、歩いて行く先 enter とは別物。
+       ⚠ 幅が可変なので「タイル中心に置く」は translate(-50%,-50%) で守る。
+         ⛔ :hover の scale は translate を潰すので、下の :hover で必ず合成して書く。 */
+    .tavernSign {
+      --sp-paper-img: url("assets/parchment_plaza.jpg");
+      --sp-veil: 0;
+      --sp-wash: 0.30;    /* ⭐ 紙のまだらに細い書体が食われるのを防ぐクリームの薄掛け (#15 実測) */
+      --sp-ink: #2e2113;
+      --sp-ink-soft: #4a3413;
+      --sp-edge: rgba(120,86,44,0.85);
+      position: absolute;
+      width: auto; min-width: 128px; max-width: 260px;
+      padding: 5px 14px 6px;
+      transform: translate(-50%, -50%);
+      white-space: nowrap; text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: var(--sp-ink);
+      border: 1px solid var(--sp-edge);
+      border-radius: 2px;
+      background-image: linear-gradient(rgba(0,0,0,var(--sp-veil)), rgba(0,0,0,var(--sp-veil))),
+                        linear-gradient(rgba(246,232,198,var(--sp-wash)), rgba(246,232,198,var(--sp-wash))),
+                        var(--sp-paper-img);
+      background-size: auto, auto, cover;
+      background-position: center, center, center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6), inset 0 0 18px rgba(120,80,30,0.25);
+      cursor: pointer;
+      z-index: 4;
+      transition: transform 0.12s ease, box-shadow 0.2s ease;
+    }
+    .tavernSign:hover { transform: translate(-50%, -50%) scale(1.06); }
+    .tavernSign .tavernSignName {
+      display: block;
+      font-size: 16px; line-height: 1.25; letter-spacing: 0.04em;
+      color: var(--sp-ink);
+      pointer-events: none;
+    }
+    .tavernSign .tavernSignDesc {
+      display: block; margin-top: 1px;
+      font-size: 12px; line-height: 1.3;
+      color: var(--sp-ink-soft);
+      /* ⛔ opacity で薄めない。紙が斑なので透かした瞬間に読めなくなる (#15 実測)。 */
+      pointer-events: none;
+    }
+    /* 未解放の席は灰の板。⛔ 隠さない — 酒場は「次がある」ことが見えている必要がある */
+    .tavernSign.locked {
+      --sp-wash: 0;
+      background-image: linear-gradient(135deg, #3a3a3a, #1a1a1a);
+      border-color: #404040;
+    }
+    .tavernSign.locked .tavernSignName { color: #8a8a8a; }
+    .tavernSign.locked .tavernSignDesc { color: #6a6a6a; }
+    /* 扉の札は少し小さく、席札と役割を取り違えないようにする */
+    .tavernSign.tavernDoorSign { min-width: 108px; }
+    .tavernSign.tavernDoorSign .tavernSignName { font-size: 15px; }
+
+    /* 地図を出している間は、内装の 1 枚絵・暖炉のゆらぎ・怪しい扉・6 卓は地図が担当する。
+       ⚠ #plazaDoor は updatePlazaDoor() が display をインラインで書くので !important が要る
+         (地図では「地下への石段」の札が同じ役目を果たす)。
+       ⭐ #townExit / #shopEntry / #questBoard / #changelogBox は HUD として**残す**。 */
+    body.tavernMapOn #tavern { background: #0a0805; }
+    body.tavernMapOn #fireplace { display: none; }
+    body.tavernMapOn #plazaDoor { display: none !important; }
+    body.tavernMapOn #tableArea { display: none; }
+
+    /* ── 「奥の間」 ⚠⚠ 暫定 (実装依頼書 #25 STEP4) ──────────────────────────────
+       #26 (復興評議会館) ができたら **この節と #backroomBar と DOORS "back" ごと撤去する**。
+       ⭐ 新しい画面を作らず、既存の #tableArea を シナリオ4〜6 の 3 件だけで描き直して
+         重ねているだけ (renderTables(list) の list 引数)。 */
+    body.tavernMapOn #tableArea.backroomOpen {
+      display: grid;
+      position: fixed; inset: 0;
+      grid-template-columns: repeat(3, 1fr);
+      align-content: start;
+      gap: 14px;
+      padding: 78px 18px 18px;
+      overflow-y: auto;
+      background: rgba(8,6,3,0.94);
+      z-index: 40;      /* ⚙ 設定(30) より上、#prep(90) / #dialog(100) より下 */
+    }
+    body.tavernMapOn #tableArea.backroomOpen .table {
+      position: relative !important;
+      left: auto !important; top: auto !important;
+      width: auto; height: auto; min-height: 190px;
+      padding: 10px 10px 14px;
+      background: rgba(30,22,12,0.72);
+      border: 1px solid rgba(139,105,20,0.45);
+      border-radius: 6px;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    }
+    body.tavernMapOn #tableArea.backroomOpen .table:hover { transform: none; }
+    body.tavernMapOn #tableArea.backroomOpen .sign,
+    body.tavernMapOn #tableArea.backroomOpen .table:has(.clientArt) .sign {
+      position: static !important; transform: none !important;
+      top: auto !important; left: auto !important;
+      min-width: 0; width: 100%; margin: 0 0 6px; box-sizing: border-box;
+    }
+    body.tavernMapOn #tableArea.backroomOpen .clientArt {
+      position: relative !important;
+      left: auto; bottom: auto; transform: none !important;
+      width: 92px; height: 120px; margin: 0 auto;
+    }
+    body.tavernMapOn #tableArea.backroomOpen .npc {
+      position: relative; left: auto; bottom: auto; transform: none; margin: 0 auto;
+    }
+    body.tavernMapOn #tableArea.backroomOpen .tableTop,
+    body.tavernMapOn #tableArea.backroomOpen .floorTag { display: none; }
+    #backroomBar {
+      position: fixed; left: 0; right: 0; top: 0;
+      display: none;
+      align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 16px calc(10px + env(safe-area-inset-top, 0px));
+      background: linear-gradient(to bottom, rgba(10,8,5,0.97), rgba(10,8,5,0.78));
+      z-index: 41;
+    }
+    body.backroomOn #backroomBar { display: flex; }
+    #backroomBar .backroomTitle {
+      font-family: 'MedievalSharp', serif; font-size: 18px; letter-spacing: 2px;
+      color: #e9d7a8; text-shadow: 0 2px 6px #000;
+    }
+    #backroomClose {
+      min-height: 40px; padding: 8px 14px;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px; cursor: pointer;
+    }
+
+    /* ── 縦画面 ────────────────────────────────────────────────────────────────
+       ⚠ **新しい @media を増やさない。** compact 判定は下の layout() が body.compact を
+         付けるので、それに乗る (tavern.html の既存 3 つの @media とは独立に動かせる)。 */
+    body.tavernMapOn.compact .tavernSign { min-width: 0; max-width: 46vw; padding: 4px 10px 5px; }
+    body.tavernMapOn.compact .tavernSign .tavernSignName { font-size: 14px; }
+    body.tavernMapOn.compact .tavernSign .tavernSignDesc { font-size: 11px; }
+    body.tavernMapOn.compact .tavernSign.tavernDoorSign .tavernSignName { font-size: 13px; }
+    body.tavernMapOn.compact #tableArea.backroomOpen {
+      grid-template-columns: 1fr 1fr; gap: 10px; padding: 70px 12px 12px;
+    }
+    body.tavernMapOn.compact #tableArea.backroomOpen .table { min-height: 150px; }
+    body.tavernMapOn.compact #tableArea.backroomOpen .clientArt { width: 64px; height: 84px; }
+    body.compact #backroomBar .backroomTitle { font-size: 14px; letter-spacing: 1px; }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -1837,6 +2051,12 @@
          (実装依頼書 #23 §5-2)。読み込みを外すと WORLD_MAP が undefined になり、
          分岐が永久に false = 地図を一度も挟まないまま静かに今日どおりへ落ちる。 -->
   <script src="js/world-map.js"></script>
+  <!-- 銀の鹿亭 1 階ホールの通行マスク / 卓 / 扉 / 立ち位置 (実装依頼書 #25 STEP2)。
+       ⚠⚠⚠ **この 1 行を外すと window.TAVERN_MAP が undefined** になり、酒場の地図が
+         「何も起きないのに assert が全部緑」になる (#23 で world-map.js を読み忘れた事故と同型)。
+         → tools/verify_tavern_map.js の (0a) が母集団ガードとして毎回これを見る。
+       ⭐ 撤退 ?tavernmap=0 のときも読み込みは残す (分岐は body.tavernMapOn の 1 か所だけ)。 -->
+  <script src="js/tavern-map.js"></script>
 </head>
 <body>
   <script>
@@ -1891,6 +2111,18 @@
     window.__townOff = (function () {
       try { return sessionStorage.getItem("dragonfighters.townOff") === "1"; } catch (e) { return false; }
     })();
+
+    /* ══ 銀の鹿亭の歩ける地図 / 撤退スイッチ ?tavernmap=0 (実装依頼書 #25 §8) ═══════
+       ⚠⚠ **判定はここ 1 か所だけ。** この <script> は #tavern (下方) より前にあるので、
+         内装が一度も塗られないうちに姿を決められる (後ろに置くと 1 枚絵が一瞬見える)。
+       ⭐ CSS はすべて body.tavernMapOn / body:not(.tavernMapOn) で分岐する。
+         → OFF のときは従来の 1 枚絵 assets/tavern_bg.png + tableSlots の 6 卓へそのまま戻る。
+       ⚠ クエリはページ遷移をまたがない。**またがせない**のが仕様 (#15 の ?heromark=0 と同型)。
+         town.html / index.html はこのスイッチを一切関知しない。 */
+    window.__tavernMapOn = (function () {
+      try { return new URLSearchParams(location.search).get("tavernmap") !== "0"; } catch (e) { return true; }
+    })();
+    document.body.classList.toggle("tavernMapOn", window.__tavernMapOn);
 
     /* ══ 出発導線の撤退スイッチ ?questwalk=0 (実装依頼書 #23 §7) ══════════════
        立っているときは「今日とまったく同じ」= 出発は index.html へ直行し、
@@ -1970,7 +2202,27 @@
       <small>Silver Stag Tavern — フランの町・復興半ばの交易都市</small>
     </div>
 
+    <!-- ★歩けるマップ (実装依頼書 #25 STEP3)。?tavernmap=0 のときは JS が DOM ごと remove する。
+         ⚠ display:none で残すと elementFromPoint に写って受入条件が濁る。 -->
+    <div id="tavernViewport">
+      <div id="tavernStage">
+        <img id="tavernMapImg" src="assets/tavern_map.jpg" alt="" draggable="false">
+        <div id="tavernGoal"></div>
+        <div id="tavernHeroShadow"></div>
+        <div id="tavernHero"></div>
+      </div>
+    </div>
+
+    <!-- ★従来の 6 卓。?tavernmap=0 のとき / 「奥の間」の中身として再利用する。⛔ 消さない -->
     <div id="tableArea"></div>
+
+    <!-- ⚠⚠ 暫定 (実装依頼書 #25 STEP4) — シナリオ4〜6 の受け口。
+         #26 (復興評議会館) ができたら **この帯と #tableArea.backroomOpen の CSS と
+         js/tavern-map.js の DOORS "back" を、扉ごとまとめて撤去する**。 -->
+    <div id="backroomBar">
+      <span class="backroomTitle">奥の間 — 格の違う依頼</span>
+      <button type="button" id="backroomClose">← 酒場へ戻る</button>
+    </div>
 
     <div id="dialog">
       <div id="dialogBox">
@@ -2136,10 +2388,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>銀の鹿亭が見下ろしの地図になった</b> — 主人公が酒場の床を歩いて依頼人の卓まで行くようになった。手前の三つの卓で最初の三つの依頼を受けられる。</li>
         <li><b>依頼の地まで自分で歩いて向かう</b> — 受注しても即出発ではなく、地方全景を歩いて目的地の立て札にたどり着いてから潜るようになった。まだ解放していない依頼の地は地図に現れない。</li>
         <li><b>地方の地図で立て札が主人公にかぶらなくなった</b> — 拠点の羊皮紙が頭上へ上がり、足元には拠点の印が出るようになった。</li>
         <li><b>町と地図を歩く速さをゆっくりに</b> — 港町フランと地方全景で、主人公が景色を眺めながら歩く速さになった。</li>
-        <li><b>町から地方の地図へ出られるようになった</b> — 港町フランの北の街道口に「町の外へ」の立て札。押すと地方全景が開き、次の目的地まで駒が歩く。</li>
       </ul>
     </div>
     <script>
@@ -4235,10 +4487,13 @@
     img.replaceWith(npc);
   }
 
-  function renderTables() {
+  /* ⚠⚠ 引数 list は **暫定** (実装依頼書 #25 STEP4)。「奥の間へ」の扉が
+       シナリオ4〜6 だけを渡すために在る。#26 (復興評議会館) が来たら畳んでよい。
+     ⛔ 既定は今までどおり scenarios 全 6 件 — 撤退 ?tavernmap=0 の 1 枚絵がこれを使う。 */
+  function renderTables(list) {
     const area = document.getElementById("tableArea");
     area.innerHTML = "";
-    scenarios.forEach((sc, i) => {
+    (list || scenarios).forEach((sc, i) => {
       const slot = tableSlots[i] || tableSlots[tableSlots.length - 1];
       const unlocked = isUnlocked(sc);
       const table = document.createElement("div");
@@ -6227,7 +6482,7 @@
   document.addEventListener("click", function (e) {
     if (!window.GameAudio) return;
     var t = e.target;
-    if (t && t.closest && t.closest("button, .qcard, .table, .partyMemberToggle, .charTab")) GameAudio.playSfx("button");
+    if (t && t.closest && t.closest("button, .qcard, .table, .tavernSign, .partyMemberToggle, .charTab")) GameAudio.playSfx("button");
   }, true);
   (function () {
     var sb = document.getElementById("settingsBtn");
@@ -6295,6 +6550,9 @@
   function updatePlazaDoor() {
     const d = document.getElementById("plazaDoor");
     if (d) d.style.display = plazaStateTV.unlocked ? "flex" : "none";
+    /* ⭐ 地図側の「地下への石段」の札も生やし直す (解禁は遊んでいる最中に起きる)。
+       ⚠ 解禁前は札を **DOM に作らない**ので、display の切り替えでは足りない。 */
+    try { if (window.__tavernRefreshSigns) window.__tavernRefreshSigns(); } catch (e) {}
   }
   // 闇市ナレ: prologueOverlay(全画面暗幕 + 羊皮紙ナレ窓)を流用して語る
   async function playPlazaOverlayNarration(header, paras, voiceId) {
@@ -6823,6 +7081,438 @@
       try { sessionStorage.setItem("dragonfighters.exitVia", "tavern"); } catch (e) {}
       location.href = "town.html";     // ⛔ クエリを足さない
     });
+  })();
+
+  /* ══════════════════════════════════════════════════════════════════════════════
+     銀の鹿亭 = 歩ける D&D マップ (実装依頼書 #25 STEP3 / STEP4)
+     ──────────────────────────────────────────────────────────────────────────────
+     ★ 写経元は town.html:315-718 (港町フラン)。規則は 1 本ずつ同じものを使う:
+         - placeHero() は **足元をタイル中心**に置く (top = cy - SPRITE*FOOT)
+         - MS_PER_TILE = 340 (town / world と揃える。⛔ 酒場だけ速くしない)
+         - コマ送りの除数 190 は MS_PER_TILE と**同率** (170:95 を保つ)。
+           片方だけ動かすと足だけ元の速さで回って滑って見える。
+         - layout() / applyCamera() は insets() で**帯を引く** (酒場の帯は #title と、
+           縦画面での #questBoard)
+     ★ ⚠⚠ 1 マスは TAVERN_MAP.TILE = 96px。town は 64px。**64 も 96 も直書きしない。**
+       ⭐ スプライトのセルは town と同じ 96px なので、
+         酒場 = TILE 96 に対し SPRITE 96 = **等倍**、
+         港町 = TILE 64 に対し SPRITE 96 = **1.5 倍**。同じ絵でも酒場のほうが小さく見えるが、
+         円卓 1 つが 2x2 マス = 192px の地図なので、人が 1 マスなのが D&D 的に正しい。
+     ★ ⛔ データの写しを作らない。通行マスク / 卓 / 扉 / 立ち位置は js/tavern-map.js、
+       席札の文言は scenarios[] が唯一の正。
+     ★ 撤退 ?tavernmap=0 は上の <script> (描画前) が body.tavernMapOn を落としており、
+       ここでは #tavernViewport を **DOM から remove する**だけ
+       (display:none で残すと elementFromPoint に写って受入条件が濁る)。
+     ══════════════════════════════════════════════════════════════════════════════ */
+  (function initTavernMap() {
+    "use strict";
+
+    var elViewport = document.getElementById("tavernViewport");
+
+    /* ── 撤退 / 保険 ─────────────────────────────────────────────────────────── */
+    if (!window.__tavernMapOn) { if (elViewport) elViewport.remove(); return; }
+    /* ⚠⚠ 変数名を town.html の TM と **意図的に変えてある**。同名にすると
+         tools/verify_town_map.js の変異 snapnear のアンカー
+         "if (!TM.isWalkable(c, r)) return false;" が town.html と tavern.html の
+         **2 ファイルへヒット**して、負のコントロールが空振りする
+         (2026-08-27 実測: verify_town_map が exit 3 で止まった)。戻さないこと。 */
+    var TVM = window.TAVERN_MAP;
+    if (!TVM) {
+      /* ⛔ 握り潰さない。データが無いなら従来の 1 枚絵へ落とす (詰ませない) */
+      console.warn("[tavern] js/tavern-map.js が読めていない → 従来の 1 枚絵へ落とす");
+      document.body.classList.remove("tavernMapOn");
+      if (elViewport) elViewport.remove();
+      return;
+    }
+
+    var TILE   = TVM.TILE;                       /* ⚠ 96。ここでも直書きしない */
+    var MAP_W  = TVM.COLS * TILE, MAP_H = TVM.ROWS * TILE;
+    var SPRITE = 96;                            /* 歩行シートのセル (<class>_walk.png は 576x384) */
+    var FOOT   = 0.93;                          /* ★接地比 (index.html の他アセットと同じ実測値) */
+    var SHEET_ROW_RIGHT = 3;                    /* ★右向きの行 (index.html updateKnightSprite と同じ) */
+
+    var elStage  = document.getElementById("tavernStage");
+    var elHero   = document.getElementById("tavernHero");
+    var elShadow = document.getElementById("tavernHeroShadow");
+    var elGoal   = document.getElementById("tavernGoal");
+    if (!elStage || !elHero || !elShadow || !elGoal) {
+      console.warn("[tavern] 地図の DOM が足りない → 従来の 1 枚絵へ落とす");
+      document.body.classList.remove("tavernMapOn");
+      if (elViewport) elViewport.remove();
+      return;
+    }
+
+    elStage.style.width  = MAP_W + "px";
+    elStage.style.height = MAP_H + "px";
+    elStage.style.setProperty("--tv-tile", TILE + "px");   /* #tavernGoal の一辺 */
+    elHero.style.width  = SPRITE + "px";
+    elHero.style.height = SPRITE + "px";
+    elHero.style.backgroundSize = (SPRITE * 6) + "px " + (SPRITE * 4) + "px";
+
+    /* ══ compact 判定 — #changelogBox の折りたたみ判定と **同じ 3 条件** ══════════ */
+    function isCompact() {
+      try {
+        return window.matchMedia('(max-width: 560px)').matches
+            || window.matchMedia('(max-height: 480px)').matches
+            || window.matchMedia('(hover: none)').matches;
+      } catch (e) { return false; }
+    }
+
+    /* ══ 主人公 ═══════════════════════════════════════════════════════════════ */
+    function heroClassKey() {
+      var key = null;
+      try { key = (selection && selection.partyComposition && selection.partyComposition[0]) || null; } catch (e) {}
+      if (!key) {
+        try {
+          var pc = JSON.parse(localStorage.getItem("dragonfighters.partyComposition") || "[]");
+          if (Array.isArray(pc) && typeof pc[0] === "string") key = pc[0];
+        } catch (e) {}
+      }
+      /* ⚠ 知らないクラスキーで <class>_walk.png を引くと 404 になって主人公が消える。
+         ALL_CLASS_KEYS (このファイルの 6 職) に無ければ warrior へ落とす。 */
+      if (!key || ALL_CLASS_KEYS.indexOf(key) < 0) key = "warrior";
+      return key;
+    }
+    var HERO_CLASS = heroClassKey();
+    elHero.style.backgroundImage = 'url("assets/' + HERO_CLASS + '_walk.png")';
+
+    /* ══ 立ち位置 ═════════════════════════════════════════════════════════════
+       規則は town-map.js と 1 本: **酒場へ入るときは、直前に居た場所の前に立つ。**
+       ⚠ 「どこから入ったか」の唯一の正は window.__enterVia (上の <script> が
+         sessionStorage["dragonfighters.enterVia"] を一回性で読んで載せてある)。
+         ⛔ ここで sessionStorage を読み直さない (一回性キーを 2 度消費しない)。
+       ⚠ 未知 / 欠損は spawnFor() が "door" (表口の内側) へ落とす。 */
+    var VIA_TO_SPAWN = { tavern: "town", plaza: "plaza", shop: "door" };
+    var spawnVia = (window.__enterVia && VIA_TO_SPAWN[window.__enterVia]) || null;
+    var hero = TVM.spawnFor(spawnVia);
+    var facingLeft = false;
+
+    /* ══ 描画 ═════════════════════════════════════════════════════════════════ */
+    var frame = 0, moving = false;
+    function placeHero(cx, cy) {
+      /* ⭐ 足元をタイル中心に置く。卓の手前に立てているか / 樽にめり込んでいないかは
+         この 1 行だけで決まる。⚠ 位置の出所を 2 つ持たない。 */
+      elHero.style.left = (cx - SPRITE / 2) + "px";
+      elHero.style.top  = (cy - SPRITE * FOOT) + "px";
+      elHero.style.transform = facingLeft ? "scaleX(-1)" : "none";
+      elHero.style.backgroundPosition = (-frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
+      elShadow.style.left = cx + "px";
+      elShadow.style.top  = cy + "px";
+    }
+    function tileCenter(c, r) { return { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 }; }
+
+    var heroPx = tileCenter(hero.c, hero.r);
+    placeHero(heroPx.x, heroPx.y);
+
+    /* ══ カメラ ═══════════════════════════════════════════════════════════════
+       デスクトップ (横長): 15x10 が帯を除いた領域へ全部入る倍率で固定。
+       compact: 可視域を満たす倍率にして主人公を追う (全体を入れると 1 マスが小さすぎる)。 */
+    var zoom = 1, camX = 0, camY = 0;
+    /* 可視域 = 画面から帯を引いた残り。⚠⚠ 帯を引かずに中央へ寄せると、
+       いちばん上の席札が #title の下に潜る (港町で実際に起きた)。帯の高さは実測する。 */
+    function insets() {
+      var vh = elViewport.clientHeight || window.innerHeight || 600;
+      var top = 0;
+      var t = document.getElementById("title");
+      if (t) { try { top = Math.max(0, t.getBoundingClientRect().bottom) + 8; } catch (e) {} }
+      var bottom = 0;
+      if (document.body.classList.contains("compact")) {
+        /* ⚠ 縦画面では #questBoard (左下) と #shopEntry (右下) が地図へかぶる。
+           下辺の帯としていちばん背の高い #questBoard を引く。 */
+        var qb = document.getElementById("questBoard");
+        if (qb) { try { bottom = Math.max(0, vh - qb.getBoundingClientRect().top) + 6; } catch (e) {} }
+        bottom = Math.min(bottom, vh * 0.35);   /* 引きすぎ防止 */
+      }
+      return { top: top, bottom: bottom };
+    }
+    function layout() {
+      var compact = isCompact();
+      document.body.classList.toggle("compact", compact);
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var avail = Math.max(120, vh - ins.top - ins.bottom);
+      if (compact) {
+        /* ⭐ compact は「全体を入れる」ではなく **可視域を満たす** 倍率 (港町と同じ規則)。
+           ⚠ 下限 34px/マスは極端な横長 (横持ち) で寄りが足りなくなる保険。
+           ⚠ 上限は 1 マス 96px。港町は TILE 64 に対し 1.5 倍で、これと同じ天井だった。 */
+        zoom = Math.min(96 / TILE, Math.max(vw / MAP_W, avail / MAP_H, 34 / TILE));
+      } else {
+        zoom = Math.min(vw / MAP_W, avail / MAP_H);
+      }
+      applyCamera();
+    }
+    function applyCamera() {
+      var vw = elViewport.clientWidth, vh = elViewport.clientHeight;
+      var ins = insets();
+      var viewTop = ins.top, viewH = Math.max(120, vh - ins.top - ins.bottom);
+      var sw = MAP_W * zoom, sh = MAP_H * zoom;
+      if (sw <= vw) camX = (vw - sw) / 2;
+      else camX = Math.max(vw - sw, Math.min(0, vw / 2 - heroPx.x * zoom));
+      if (sh <= viewH) camY = viewTop + (viewH - sh) / 2;
+      else camY = Math.max(viewTop + viewH - sh, Math.min(viewTop, viewTop + viewH / 2 - heroPx.y * zoom));
+      elStage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + zoom + ")";
+    }
+    window.addEventListener("resize", layout);
+    window.addEventListener("orientationchange", layout);
+
+    /* ══ 席札と扉札 ═══════════════════════════════════════════════════════════
+       ⚠⚠ 文言は scenarios[] (席札) と TAVERN_MAP.DOORS (扉札) から**生成**する。
+         ⛔ js/tavern-map.js に place の写しを作らない (変異 copyplace が二重管理を殺す)。
+       ⭐ id を安定させる: 席札 = questTable_<scenarioId> / 扉札 = tavernDoor_<key>。
+         golden 3 本 (verify_recruit_size / verify_quest_walk / driver_depart_menu_clean) が
+         #questTable_goblin-mine を押しに来る。 */
+    function plazaUnlocked() {
+      /* ⚠ 判定の出所は既存の plazaStateTV ただ 1 つ。写しを作らない。 */
+      try { return !!(plazaStateTV && plazaStateTV.unlocked); } catch (e) { return false; }
+    }
+    var signs = {}, tableKeys = [];
+    function makeSign(o) {
+      var s = document.createElement("div");
+      s.className = o.cls;
+      s.id = o.id;
+      s.title = o.title || o.name;
+      var nm = document.createElement("span");
+      nm.className = "tavernSignName";
+      nm.textContent = o.name;
+      s.appendChild(nm);
+      if (o.desc) {
+        var ds = document.createElement("span");
+        ds.className = "tavernSignDesc";
+        ds.textContent = o.desc;
+        s.appendChild(ds);
+      }
+      var p = tileCenter(o.tile[0], o.tile[1]);
+      s.style.left = p.x + "px";
+      s.style.top  = p.y + "px";
+      s.addEventListener("click", function (ev) { ev.stopPropagation(); o.onClick(); });
+      elStage.appendChild(s);
+      return s;
+    }
+    function buildSigns() {
+      Object.keys(signs).forEach(function (k) { if (signs[k]) signs[k].remove(); });
+      signs = {}; tableKeys = [];
+      TVM.TABLES.forEach(function (t) {
+        var sc = scenarios.find(function (s) { return s.id === t.scenarioId; });
+        if (!sc) { console.warn("[tavern] 卓の scenarioId が scenarios に無い", t); return; }
+        var unlocked = isUnlocked(sc);
+        /* ⚠ 未解放の卓も **3 つとも出す** (今日の挙動 = place が ???、diff が — 未解放 —)。
+           ⛔ 隠さない。酒場は「次がある」ことがプレイヤーに見えている必要がある。 */
+        var s = makeSign({
+          id: "questTable_" + t.scenarioId,
+          cls: "tavernSign questTableSign" + (unlocked ? "" : " locked"),
+          name: unlocked ? sc.place : "???",
+          desc: unlocked ? sc.difficulty : "— 未解放 —",
+          title: unlocked ? (sc.place + " — " + sc.title) : "まだ解放されていない依頼",
+          tile: t.sign,
+          onClick: function () { goToTable(t); }
+        });
+        s.setAttribute("data-scenario", t.scenarioId);
+        signs[t.key] = s;
+        tableKeys.push(t.key);
+      });
+      TVM.DOORS.forEach(function (d) {
+        /* ⚠ ?town=0 のときは街への口を **DOM に作らない** (#townExit を消すのと同じ理由) */
+        if (d.to && window.__townOff) return;
+        /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
+        if (d.requiresPlazaUnlock && !plazaUnlocked()) return;
+        var s2 = makeSign({
+          id: "tavernDoor_" + d.key,
+          cls: "tavernSign tavernDoorSign",
+          name: d.name,
+          desc: d.desc,
+          tile: d.sign,
+          onClick: function () { goToDoor(d); }
+        });
+        s2.setAttribute("data-door", d.key);
+        signs[d.key] = s2;
+      });
+    }
+
+    /* ══ 移動 ═════════════════════════════════════════════════════════════════
+       ⭐ 歩きはタイル 1 マスずつの補間。経路は TAVERN_MAP.findPath (4 近傍) が出したものだけ。
+       ⛔ クリック地点への直線移動は却下 (卓や樽をすり抜けてしまう)。 */
+    var MS_PER_TILE = 340;
+    var walkTimer = null, pendingArrive = null;
+
+    function stopWalk() {
+      if (walkTimer) { cancelAnimationFrame(walkTimer); walkTimer = null; }
+      moving = false; frame = 0;
+      placeHero(heroPx.x, heroPx.y);
+    }
+
+    function walkPath(path, onArrive) {
+      stopWalk();
+      pendingArrive = onArrive || null;
+      if (!path || !path.length) {
+        if (pendingArrive) { var f0 = pendingArrive; pendingArrive = null; f0(); }
+        return;
+      }
+      var idx = 0;
+      var from = { x: heroPx.x, y: heroPx.y };
+      var to = tileCenter(path[0].c, path[0].r);
+      var t0 = performance.now();
+      moving = true;
+      if (to.x !== from.x) facingLeft = (to.x < from.x);
+      function step(now) {
+        var t = Math.min(1, (now - t0) / MS_PER_TILE);
+        heroPx.x = from.x + (to.x - from.x) * t;
+        heroPx.y = from.y + (to.y - from.y) * t;
+        frame = Math.floor((now - t0) / 190 + idx * 2) % 6;   /* ⚠ MS_PER_TILE と同率 (170:95 を維持) */
+        placeHero(heroPx.x, heroPx.y);
+        applyCamera();
+        if (t >= 1) {
+          hero = { c: path[idx].c, r: path[idx].r };
+          idx++;
+          if (idx >= path.length) {
+            stopWalk();
+            elGoal.classList.remove("show");
+            if (pendingArrive) { var fn = pendingArrive; pendingArrive = null; fn(); }
+            return;
+          }
+          from = { x: heroPx.x, y: heroPx.y };
+          to = tileCenter(path[idx].c, path[idx].r);
+          if (to.x !== from.x) facingLeft = (to.x < from.x);
+          t0 = now;
+        }
+        walkTimer = requestAnimationFrame(step);
+      }
+      walkTimer = requestAnimationFrame(step);
+    }
+
+    function walkTo(c, r, onArrive) {
+      /* ⛔ 歩けないタイルなら **動かない**。隣接まで寄せる救済を入れない
+         (「押したのに違う所へ行く」ほうが不快)。 */
+      if (!TVM.isWalkable(c, r)) return false;
+      var path = TVM.findPath(hero.c, hero.r, c, r);
+      if (path === null) return false;
+      var p = tileCenter(c, r);
+      elGoal.style.left = p.x + "px"; elGoal.style.top = p.y + "px";
+      elGoal.classList.add("show");
+      walkPath(path, onArrive);
+      return true;
+    }
+
+    /* ══ 卓へ歩いて話しかける ═════════════════════════════════════════════════
+       ⭐⭐⭐ 罠 A: golden 3 本 (verify_recruit_size / verify_quest_walk /
+         driver_depart_menu_clean) は卓を **420ms ごとに押し続ける**。walkPath() は
+         先頭で stopWalk() して t0 を打ち直すので、ガードが無いと現在タイルの補間が
+         毎回やり直しになる。MS_PER_TILE=340 に対し 420ms なので**ぎりぎり進むのは偶然**。
+         → 同じ行き先への再クリックは黙って吸収する。
+       ⚠⚠ 下の 1 行 (walkingTo === t.key) は **1 行に閉じたまま**にすること。
+         整列のための空白を後から足すと、装置の変異アンカー reclick が外れる。 */
+    var walkingTo = null;
+    function goToTable(t) {
+      var sc = scenarios.find(function (s) { return s.id === t.scenarioId; });
+      if (!sc) { console.warn("[tavern] 卓の scenarioId が scenarios に無い", t); return; }
+      var ec = t.enter[0], er = t.enter[1];
+      if (hero.c === ec && hero.r === er) { openDialog(sc, isUnlocked(sc)); return; }
+      if (walkingTo === t.key) return;
+      walkingTo = t.key;
+      var ok = walkTo(ec, er, function () {
+        walkingTo = null;
+        openDialog(sc, isUnlocked(sc));
+      });
+      /* 入場タイルへ行けない = マスクの不具合。黙って何も起きないのが最悪なので、その場で開く */
+      if (!ok) { walkingTo = null; openDialog(sc, isUnlocked(sc)); }
+    }
+
+    /* ══ 扉 ═══════════════════════════════════════════════════════════════════ */
+    var leaving = false;
+    function enterDoor(d) {
+      if (d.key === "town") {
+        if (leaving) return;
+        leaving = true;
+        /* ⚠ exitVia を書いてから飛ぶ。街は「直前に居た場所の前」= 🦌 デッキの前 に立つ。
+           ⛔ 遷移先にクエリを 1 文字も足さない (#6 / #12 の確定作法)。 */
+        try { sessionStorage.setItem("dragonfighters.exitVia", "tavern"); } catch (e) {}
+        location.href = "town.html";
+        return;
+      }
+      if (d.key === "back") { openBackroom(); return; }
+      if (d.key === "plaza") {
+        /* ⚠⚠ onTapPlazaDoor() を通す (enterPlaza() を直接呼ばない)。
+           門番の判定 (変装手段が要る) が地図から入ったときだけ抜けるのは、仕様の穴になる。 */
+        try { onTapPlazaDoor(); } catch (e) { console.warn("[tavern] 闇市の扉で失敗", e); }
+        return;
+      }
+      console.warn("[tavern] 知らない扉", d);
+    }
+    function goToDoor(d) {
+      var ec = d.enter[0], er = d.enter[1];
+      if (hero.c === ec && hero.r === er) { enterDoor(d); return; }
+      if (walkingTo === d.key) return;
+      walkingTo = d.key;
+      var ok = walkTo(ec, er, function () { walkingTo = null; enterDoor(d); });
+      if (!ok) { walkingTo = null; enterDoor(d); }
+    }
+
+    /* ══ 「奥の間」 ⚠⚠ 暫定 (実装依頼書 #25 STEP4) ═══════════════════════════
+       シナリオ4〜6 の受け口。⛔ 新しい画面を作らない — 既存の #tableArea と
+       renderTables() をそのまま使い、3 件だけで描き直して重ねる。
+       ⚠⚠ #26 (復興評議会館) ができたら **扉ごと撤去する前提**。撤去するのは
+         この 2 関数 / #backroomBar の DOM と CSS / js/tavern-map.js の DOORS "back"。 */
+    function openBackroom() {
+      renderTables(scenarios.slice(3));        /* ★ orc-fort / undead-temple / dragon-lair */
+      document.getElementById("tableArea").classList.add("backroomOpen");
+      document.body.classList.add("backroomOn");
+    }
+    function closeBackroom() {
+      document.getElementById("tableArea").classList.remove("backroomOpen");
+      document.body.classList.remove("backroomOn");
+      renderTables();                          /* 既定の 6 件へ戻す (?tavernmap=0 と同じ状態) */
+    }
+    (function () {
+      var b = document.getElementById("backroomClose");
+      if (b) b.addEventListener("click", function (ev) { ev.stopPropagation(); closeBackroom(); });
+    })();
+
+    /* ══ クリック ═════════════════════════════════════════════════════════════ */
+    function tileFromClient(clientX, clientY) {
+      var rect = elStage.getBoundingClientRect();
+      var x = (clientX - rect.left) / zoom;
+      var y = (clientY - rect.top) / zoom;
+      return { c: Math.floor(x / TILE), r: Math.floor(y / TILE) };
+    }
+    elViewport.addEventListener("click", function (ev) {
+      var t = tileFromClient(ev.clientX, ev.clientY);
+      if (!TVM.inBounds(t.c, t.r)) return;
+      walkTo(t.c, t.r, null);
+    });
+
+    /* ══ 検証シーム ═══════════════════════════════════════════════════════════
+       ⚠ classic script 直下の let/const/function は window に載らない。
+         ドライバが読むものは明示的に載せる (town.html:685 / title.html と同じ作法)。
+       ⛔ ここにゲームの状態を足さない。読むための窓であって、状態の置き場ではない。 */
+    window.__TAVERN_TV = {
+      heroTile:  function () { return { c: hero.c, r: hero.r }; },
+      heroClass: function () { return HERO_CLASS; },
+      isMoving:  function () { return moving; },
+      zoom:      function () { return zoom; },
+      compact:   function () { return document.body.classList.contains("compact"); },
+      spawnVia:  function () { return spawnVia; },
+      signKeys:  function () { return Object.keys(signs); },
+      tableKeys: function () { return tableKeys.slice(); },
+      walkingTo: function () { return walkingTo; },
+      heroPx:    function () { return { x: heroPx.x, y: heroPx.y }; },
+      walkTo:    function (c, r) { return walkTo(c, r, null); },
+      tileFromClient: tileFromClient,
+      /* tileFromClient の逆。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
+         ドライバが「タイル (c,r) を実際に押す」ために要る。 */
+      clientFromTile: function (c, r) {
+        var rect = elStage.getBoundingClientRect();
+        return { x: rect.left + (c * TILE + TILE / 2) * zoom,
+                 y: rect.top  + (r * TILE + TILE / 2) * zoom };
+      },
+      geom: function () { return { tile: TILE, cols: TVM.COLS, rows: TVM.ROWS,
+                                   mapW: MAP_W, mapH: MAP_H, sprite: SPRITE, foot: FOOT,
+                                   msPerTile: MS_PER_TILE }; }
+    };
+    /* 闇市が遊んでいる最中に解禁されたら札を生やし直す (updatePlazaDoor から呼ばれる) */
+    window.__tavernRefreshSigns = buildSigns;
+
+    buildSigns();
+    layout();
+    placeHero(heroPx.x, heroPx.y);
   })();
 
   // ───────────────────────────────────────────────────────────
