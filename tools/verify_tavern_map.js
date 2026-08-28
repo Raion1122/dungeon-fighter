@@ -24,10 +24,37 @@
  *   ⛔ (0a) をデータ層の測定で代用しないこと。#23 で js/world-map.js の <script src> を
  *      書き忘れ、5 本の assert が「何も起きないのに全部緑」になった事故がある。
  *
- * ■ この時点 (依頼書 #25 の項目 1) で **実装済 = 5 本**
- *     (0b) MASK の寸法 / (0c) 絵の実寸 / (1a) 格子の位置合わせ / (1b) enter の通行可否 /
- *     (1c) spawn からの到達塗りつぶし   + 装置 assert (0z1)(0z2)(1z1)(1z2)(0m-*)
- *   §0(0a) と §2〜§7 は **PENDING**。項目 2 で tavern.html を改修した後、項目 3 が埋める。
+ * ■ 実装状況 (依頼書 #25 の項目 3 で **PENDING 0** に到達した)
+ *     §0 (0a)(0b)(0c) / §1 (1a)(1b)(1c) / §2〜§7 の 20 本すべて + 装置 assert
+ *     (0z1)(0z2)(0m-*)(1z1)(1z2)(3z)(6z) を実装済。負のコントロールも 10 本すべて実装済。
+ *
+ * ■ ⚠⚠⚠ 依頼書 §9 からの逸脱 (項目 3 で実測して分かったこと。§13 の材料)
+ *   (a) **(3b) は「420ms x 6 回」だけでは変異 reclick が空振りする** — 2026-08-27 実測。
+ *       goToTable のガードを外しても、クリック間隔 420ms > MS_PER_TILE 340ms なので
+ *       1 タイルは毎回完走し、7 マスを ~2.9 秒で歩き切ってしまう (依頼書の 5 秒以内に収まる)。
+ *       ⭐ 罠 A が実際に牙を剥くのは **クリック間隔 < MS_PER_TILE** のとき。walkPath() は
+ *         「現在位置 → 次のタイル中心」を毎回 MS_PER_TILE で引き直すので、間隔が短いと
+ *         残距離が幾何級数で縮むだけで **永久に 1 マスも完了しない**。
+ *       → (3b) は **2 本の走行の AND** にした:
+ *           (1) golden 準拠 … 420ms x 6 回 (verify_recruit_size 等と同じ叩き方)
+ *           (2) 罠 A の実証 … MS_PER_TILE x 0.55 の間隔で **到達するまで連打し続ける**
+ *         ⭐ 間隔は geom().msPerTile から引く (⛔ 340 を直書きしない)。(2) の間隔が本当に
+ *           MS_PER_TILE より速かったかは装置 assert (3z) が毎回証明する。
+ *   (b) **(5a) の上限は 1.5 ではなく「1 マス 96px」** — 項目 2 の layout() が
+ *       Math.min(96 / TILE, ...) を天井にしている (港町 TILE 64 x 1.5 = 96px と同じ天井を
+ *       px で表現したもの)。TILE が 96 なので zoom の上限は 1.0。
+ *       → 判定は zoom ではなく **1 マスの実表示 px (34〜96)** で書く。下限 34px は依頼書のまま。
+ *   (c) **(6b) の「HEAD と比較」は採らない** — 恒久教訓「負のコントロールの基準に HEAD を
+ *       使うな」。目的は「js/world-map.js の label と機械照合している 6 件が壊れていないこと」
+ *       なので、**verify_world_map.js の (7a) と同じ照合**を tavern のページ内で行う
+ *       (WORLD_MAP.SITES → NODES[].label  vs  scenarios[].place の実体どうし)。
+ *   (d) **(6c) の比較基準は明示した固定コミット** DOM_BASE = 638b479 (= 項目 1 完了時点 =
+ *       tavern.html が地図改修を受ける前)。⛔ HEAD ではない (HEAD は改修後なので恒等の基準に
+ *       ならない)。git show <DOM_BASE>:tavern.html の実体と、配信中の実体の
+ *       **タグ構造の署名**を突き合わせる。
+ *   (e) **ポートを 9170 → 9200 へ移した** — 項目 1 の「9161-9179 は 1 本も使われていない」は
+ *       誤り。verify_quest_walk.js は変異ポートを 9160+1+i で採るので **9161-9170 を実際に
+ *       使う** (同ファイルの表に明記されている)。9192-9239 が空いていることを数え上げた。
  *
  * ■ ⚠⚠ 寸法の数は 1 つも直書きしない
  *   ROWS / COLS の期待値 … tools/make_grid_map.py の GRIDS["stag-tavern"]["cells"] から引く
@@ -77,9 +104,11 @@ const flag = (n) => argv.includes('--' + n);
 const NEGATIVE = flag('negative');
 const HEADFUL  = flag('headful');
 const MUTATE   = arg('mutate', null);
-/* ⚠ ポートは既存ドライバと空ける。2026-08-27 に tools/*.js のポート直書きを数え上げ、
- *   9161-9179 が 1 本も使われていないことを実測した (9160 = verify_quest_walk)。 */
-const PORT = parseInt(arg('port', '9170'), 10);
+/* ⚠⚠ ポートは既存ドライバと空ける。**項目 1 の数え上げは誤りだった** (2026-08-27 再実測):
+ *   verify_quest_walk.js は変異ポートを 9160+1+i で採るので **9161-9170 を実際に使う**
+ *   (同ファイル冒頭の表に port 9161〜9170 と明記されている)。直書きの grep では見えない。
+ *   → 素 9200 / 変異 9201-9210 へ移した。9191 の次は 9240 なので 9192-9239 が空いている。 */
+const PORT = parseInt(arg('port', '9200'), 10);
 
 const MAP_JS      = 'js/tavern-map.js';
 const TAVERN_HTML = 'tavern.html';
@@ -125,32 +154,67 @@ const LEDGER = readLedger();
 //               ⛔ 測っていない節をここへ書かない (述語が例外 → 一律 false = 偽陽性)。
 //   allowRed  … targets 以外で **赤くなるのが正しい**節 (依頼書の表は最小限しか書いていない)。
 // ══════════════════════════════════════════════════════════════════════════════
-const P3 = '項目 3 で実装 (tavern.html の改修 = 項目 2 待ち)';
-
+/* ⭐ tavern.html を実際に開く測定は重い (1 フェーズ 2〜10 秒)。変異ごとに **要る
+ *   フェーズだけ**を回す。⛔ 採っていないフェーズの節を evaluable へ書かない
+ *   (述語が例外 → 一律 false = 「巻き込んだ」の偽陽性になる)。
+ *   フェーズ名: base / compact / walk1 / walk6 / walkbad / door / back / off */
 const MUTATIONS = {
-  nomapjs: { impl: false, file: TAVERN_HTML, targets: ['0a'],
-    why: '⭐ #23 で実際に起きた「<script src> を書き忘れて、読み込んでいないのに全部緑」の再現。'
-      + ' ' + P3 + ' — 現時点の tavern.html にはまだこの 1 行が無いのでアンカーが存在しない。' },
-  reclick: { impl: false, file: TAVERN_HTML, targets: ['3b'],
+  nomapjs: { impl: true, file: TAVERN_HTML, targets: ['0a'], phases: ['base'],
+    from: '  <script src="js/tavern-map.js"></script>',
+    to:   '  <!-- mut-nomapjs: <script src> を書き忘れた状態 -->',
+    evaluable: ['0a', '2a', '2b', '2c', '2d', '4c', '6a', '6b', '6c'],
+    allowRed: ['2a', '2b', '2c', '2d', '4c'],
+    /* ⭐ TAVERN_MAP が無いと initTavernMap が 1 枚絵へ落ちるので、札を見る節は全部道連れ。
+       それでも (6a)(6b)(6c) は緑のまま = 「効きすぎていない」ことがここで見える。 */
+    why: '⭐ #23 で実際に起きた「<script src> を書き忘れて、読み込んでいないのに全部緑」の再現。' },
+  reclick: { impl: true, file: TAVERN_HTML, targets: ['3b'], phases: ['walk1', 'walk6'],
+    from: '      if (walkingTo === t.key) return;',
+    to:   '      /* mut-reclick: 罠 A のガードを外す */',
+    evaluable: ['3a', '3b'], allowRed: [],
+    /* ⚠⚠⚠ 依頼書の「420ms x 6 回」だけでは **この変異は空振りする** (間隔 420 > 340 なので
+       1 タイルは毎回完走してしまう)。(3b) は MS_PER_TILE より速い連打の走行も AND で見る。 */
     why: '⭐⭐⭐ 依頼書 §2-2 罠 A の機械証明。goToTable の "if (walkingTo === t.key) return;" を'
-      + '消すと、420ms ごとの再クリックで walkPath が毎回 stopWalk して t0 を打ち直し、'
-      + '歩きが再起動し続けて永久に着かない。' + P3 },
-  instant: { impl: false, file: TAVERN_HTML, targets: ['3a'],
-    why: '卓のクリックで歩かずに即 openDialog にする =「歩いてから開く」が死ぬ。' + P3 },
-  gatetable: { impl: true, file: MAP_JS, targets: ['1b', '1c'],
+      + '消すと、MS_PER_TILE より短い間隔の再クリックで walkPath が毎回 stopWalk して t0 を'
+      + '打ち直し、残距離が幾何級数で縮むだけで **1 マスも完了しない**。' },
+  instant: { impl: true, file: TAVERN_HTML, targets: ['3a'], phases: ['walk1', 'walk6'],
+    from: '    function goToTable(t) {',
+    to:   '    function goToTable(t) { var _sc = scenarios.find(function (s) { return s.id === t.scenarioId; }); if (_sc) { openDialog(_sc, isUnlocked(_sc)); return; }  /* mut-instant: 歩かずに即 openDialog */',
+    evaluable: ['3a', '3b'], allowRed: ['3b'],
+    /* ⚠ アンカーを "var ok = walkTo(ec, er, function () {" にすると goToDoor と 2 ヒットして
+       exit 3 になる (項目 2 の実測)。関数の頭で早期 return させるのが 1 ヒットで済む唯一の形。 */
+    why: '卓のクリックで歩かずに即 openDialog にする =「歩いてから開く」が死ぬ。' },
+  gatetable: { impl: true, file: MAP_JS, targets: ['1b', '1c'], phases: [],
     from: '    { key: "t1", scenarioId: "goblin-mine",    enter: [4, 4], sign: [4, 1] },',
     to:   '    { key: "t1", scenarioId: "goblin-mine", enter: [0, 0], sign: [4, 1] },  /* mut-gatetable: enter を外壁 W へずらす */',
     evaluable: ['0z1', '0b', '0c', '1z1', '1b', '1c'], allowRed: [],
     why: '⚠ 扉システムで踏んだ「出口ゲートタイルに置くと壁に埋まって詰む」の同型。'
       + 'TABLES[0].enter を (0,0) = 外壁 W へずらす。' },
-  dropscen: { impl: false, file: TAVERN_HTML, targets: ['6a', '4b'],
-    why: '卓を 3 つにするために scenarios から 4〜6 を配列ごと削る誘惑。' + P3 },
-  hidelock: { impl: false, file: TAVERN_HTML, targets: ['2d'],
-    why: '未解放の卓を DOM に作らない =「次がある」が見えなくなる。' + P3 },
-  copyplace: { impl: false, file: MAP_JS, targets: ['2c'],
-    why: 'js/tavern-map.js に place の文字列を写して札をそこから描く = 二重管理のドリフト。'
-      + '⚠ 変異先は js だが、赤くなる (2c) は tavern.html の描画を見るので ' + P3 },
-  gridsize: { impl: true, file: MAP_JS, targets: ['0b'],
+  dropscen: { impl: true, file: TAVERN_HTML, targets: ['6a', '4b'], phases: ['base', 'back'],
+    from: '  function isUnlocked(sc) {',
+    to:   '  scenarios.length = 3;  /* mut-dropscen: シナリオ4〜6 を配列ごと削る */  function isUnlocked(sc) {',
+    evaluable: ['0a', '2a', '2b', '2c', '2d', '4b', '4c', '6a', '6b', '6c'],
+    allowRed: ['6b'],
+    /* ⭐ (6b) が道連れになるのは欠陥の性質そのもの: WORLD_MAP.SITES の 6 件に対し
+       scenarios が 3 件しか無いので、後半 3 件の place が引けなくなる。 */
+    why: '卓を 3 つにするために scenarios から 4〜6 を配列ごと削る誘惑。'
+      + '⚠ 配列リテラルは複数行なので、1 行アンカーで **後から length を切り詰める**形にした。' },
+  hidelock: { impl: true, file: TAVERN_HTML, targets: ['2d'], phases: ['base'],
+    from: '        var unlocked = isUnlocked(sc);',
+    to:   '        var unlocked = isUnlocked(sc); if (!unlocked) return;  /* mut-hidelock: 未解放の卓を DOM に作らない */',
+    evaluable: ['0a', '2a', '2b', '2c', '2d', '4c', '6a', '6b', '6c'], allowRed: ['2a'],
+    why: '未解放の卓を DOM に作らない =「次がある」が見えなくなる。' },
+  copyplace: { impl: true, file: MAP_JS, targets: ['2c'], phases: ['base'],
+    from: '  var TABLES = [',
+    to:   '  var TABLES_PLACE_COPY = { t1: "廃坑", t2: "町外れの森", t3: "沼地" }; (function () { function paint() { TABLES.forEach(function (t) { var el = document.getElementById("questTable_" + t.scenarioId); if (!el) return; var n = el.querySelector(".tavernSignName"); if (n && n.textContent !== "???") n.textContent = TABLES_PLACE_COPY[t.key]; }); } var _r = null; try { Object.defineProperty(window, "__tavernRefreshSigns", { configurable: true, set: function (f) { _r = function () { f(); paint(); }; }, get: function () { return _r; } }); } catch (e) {} document.addEventListener("DOMContentLoaded", paint); })();  /* mut-copyplace: place の写しを持ち、札をそこから描く */  var TABLES = [',
+    evaluable: ['0a', '2a', '2b', '2c', '2d', '4c', '6a', '6b', '6c'], allowRed: [],
+    /* ⚠⚠ この変異だけは **2 ファイルに跨る欠陥**を 1 ファイルで作る必要がある
+       (装置は「1 ファイル 1 箇所ヒット」で検算するので、tavern.html 側は触れない)。
+       → js/tavern-map.js の中に place の写しを置き、__tavernRefreshSigns を包んで
+         「札を写しから描く」状態を作る。⭐ (2c) は静的な文字列比較ではなく
+         **「place を書き換えると札も変わるか」という振る舞い**で測っているので、
+         写しを持った瞬間に赤くなる (依頼書 §9 (2c) の文言そのもの)。 */
+    why: 'js/tavern-map.js に place の文字列を写して札をそこから描く = 二重管理のドリフト。' },
+  gridsize: { impl: true, file: MAP_JS, targets: ['0b'], phases: [],
     from: '    /* row 5 */ "WC.......TT..CW",',
     to:   '    /* mut-gridsize: row 5 を落として ROWS と食い違わせる */',
     evaluable: ['0z1', '0b', '0c', '1z1', '1b', '1c'], allowRed: ['1b', '1c'],
@@ -158,10 +222,18 @@ const MUTATIONS = {
        enter [4,8] と spawn [7,8] が旧 row 9 の外壁へ落ちる。依頼書の表は最小限しか
        書いていないので allowRed で明示的に許可し、証拠へ出す。 */
     why: '絵とマスクの寸法ズレ。MASK を 1 行削って ROWS と食い違わせる。' },
-  plazashow: { impl: false, file: TAVERN_HTML, targets: ['4c'],
-    why: '闇市の石段を display:none で DOM に残す = 押せてしまう事故の芽。' + P3 },
-  noretreat: { impl: false, file: TAVERN_HTML, targets: ['7a', '7b'],
-    why: '?tavernmap=0 の分岐を握り潰す = 撤退スイッチが死ぬ。' + P3 },
+  plazashow: { impl: true, file: TAVERN_HTML, targets: ['4c'], phases: ['base'],
+    from: '        if (d.requiresPlazaUnlock && !plazaUnlocked()) return;',
+    to:   '        if (d.requiresPlazaUnlock && !plazaUnlocked()) { setTimeout(function () { var _e = document.getElementById("tavernDoor_" + d.key); if (_e) _e.style.display = "none"; }, 0); }  /* mut-plazashow: display:none で DOM に残す */',
+    evaluable: ['0a', '2a', '2b', '2c', '2d', '4c', '6a', '6b', '6c'], allowRed: [],
+    why: '闇市の石段を display:none で DOM に残す = 押せてしまう事故の芽。' },
+  noretreat: { impl: true, file: TAVERN_HTML, targets: ['7a', '7b'], phases: ['base', 'off'],
+    from: '      try { return new URLSearchParams(location.search).get("tavernmap") !== "0"; } catch (e) { return true; }',
+    to:   '      return true;  /* mut-noretreat: ?tavernmap=0 の分岐を握り潰す */',
+    evaluable: ['0a', '2a', '6a', '7a', '7b', '7c'], allowRed: ['7c'],
+    /* ⭐ (7c) が道連れになるのは正しい: OFF 側が ON と同じ姿になるので「ON/OFF で崩れる」が
+       成立しなくなる。⛔ ここを targets にしてしまうと (7a)(7b) の空振りを見逃す。 */
+    why: '?tavernmap=0 の分岐を握り潰す = 撤退スイッチが死ぬ。' },
 };
 const MUT_ORDER  = ['nomapjs', 'reclick', 'instant', 'gatetable', 'dropscen',
                     'hidelock', 'copyplace', 'gridsize', 'plazashow', 'noretreat'];
@@ -426,6 +498,518 @@ function measureGrid(tile) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 測定 ③ tavern.html を **実際に開く** (§0(0a) と §2〜§7)
+//   ⭐ フェーズごとに 1 タブ。⛔ 1 枚のタブで全部を測らない (卓を押した後の状態が
+//     次の測定を汚す。#12 で「同じタブで測って撤退が緑になった」空振りの前例がある)。
+//   ⚠⚠ このブロックには **バックスラッシュを 1 つも書かない**。この環境の書き込み経路は
+//     エスケープを 1 段食うことがあり、黙って別の正規表現になる (項目 1 が 1 回踏んだ)。
+//     → 文字列判定は indexOf / endsWith、URL は new URL() で分解する。
+// ══════════════════════════════════════════════════════════════════════════════
+const TAVERN_PATH  = '/' + TAVERN_HTML;
+const VIEW_DESKTOP = { width: 1440, height: 900 };
+const VIEW_COMPACT = { width: 390, height: 844 };
+/* 素の実行はこの順に全部回す。⚠ 負のコントロールは MUTATIONS[k].phases だけを回す
+   (全部回すと 10 変異 x 8 フェーズで終わらない)。 */
+const ALL_PHASES = ['base', 'compact', 'off', 'walk1', 'walk6', 'walkbad', 'door', 'back'];
+/* (5a) の許容。⚠ 依頼書の「zoom 1.5 以下」は港町 (TILE 64) の天井を zoom で書いたもの。
+   項目 2 の layout() は Math.min(96 / TILE, ...) なので、不変量は **1 マスの実表示 px**。
+   ⛔ zoom で書くと TILE を変えた瞬間に意味が変わる。 */
+const MIN_TILE_PX = 34;   // 依頼書 §9 (5a) の下限そのまま
+const MAX_TILE_PX = 96;   // 項目 2 の天井 (港町 TILE 64 x 1.5 = 96px と同じ)
+/* (6c) の比較基準。⛔ HEAD ではない (HEAD は地図改修後なので「恒等」の基準にならない)。
+   638b479 = 依頼書 #25 項目 1 完了時点 = tavern.html が地図改修を受ける **前**。 */
+const DOM_BASE  = '638b479';
+const DOM_ROOTS = ['dialog', 'prep', 'shopScreen', 'plazaScreen'];
+
+async function settle(page) {
+  try {
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  } catch (e) { /* 遷移中は無視 */ }
+  await sleep(180);
+}
+
+async function newTavPage(browser, o) {
+  const opts = o || {};
+  const page = await browser.newPage();
+  const errs = [], reqs = [];
+  page.on('pageerror', e => errs.push('pageerror: ' + e.message));
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    let url = '';
+    try { url = (m.location() && m.location().url) || ''; } catch (e) {}
+    if (url.indexOf('favicon.ico') >= 0) return;
+    errs.push('console: ' + m.text());
+  });
+  page.on('request', r => { try { reqs.push(r.url()); } catch (e) {} });
+  /* ⚠ 前口上 #prologueOverlay は全画面の暗幕。消しておかないと席札を押せない
+       (手本 = verify_quest_walk.js の measureDepart)。⛔ 他のゲーム状態は仕込まない
+       — 未解放の卓が「??? のまま出ている」ことを (2d) が見るので cleared は空のまま。 */
+  await page.evaluateOnNewDocument(() => {
+    try { localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
+  });
+  await page.setViewport(opts.view || VIEW_DESKTOP);
+  return { page: page, errs: errs, reqs: reqs };
+}
+
+async function gotoTavern(ctx, port, query) {
+  await ctx.page.goto('http://localhost:' + port + TAVERN_PATH + (query || ''),
+    { waitUntil: 'load', timeout: 30000 });
+  await ctx.page.waitForFunction("typeof scenarios !== 'undefined'", { timeout: 20000 });
+  await settle(ctx.page);
+}
+
+/* ページ 1 枚から静的な姿を全部読む。⛔ 期待値はここに書かない (述語だけが判定する)。 */
+function pageSnapshot() {
+  const o = { err: [] };
+  const $  = (s) => document.querySelector(s);
+  const $$ = (s) => Array.prototype.slice.call(document.querySelectorAll(s));
+  const rc = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; };
+  try {
+    o.mapOn    = window.__tavernMapOn === true;
+    o.hasTM    = typeof window.TAVERN_MAP;
+    o.hasTV    = typeof window.__TAVERN_TV;
+    o.mapClass = document.body.classList.contains('tavernMapOn');
+    o.viewport = !!$('#tavernViewport');
+    o.stage    = !!$('#tavernStage');
+    o.search   = location.search;
+  } catch (e) { o.err.push('dom: ' + e.message); }
+  try {
+    o.scenIds    = scenarios.map(function (s) { return s.id; });
+    o.scenPlaces = scenarios.map(function (s) { return s.place; });
+    o.scenLen    = scenarios.length;
+    o.unlocked   = scenarios.map(function (s) { return !!isUnlocked(s); });
+  } catch (e) { o.err.push('scenarios: ' + e.message); }
+  try {
+    const TM = window.TAVERN_MAP;
+    o.tableSids = TM ? TM.TABLES.map(function (t) { return t.scenarioId; }) : null;
+    o.doorKeys  = TM ? TM.DOORS.map(function (d) { return d.key; }) : null;
+  } catch (e) { o.err.push('TAVERN_MAP: ' + e.message); }
+  try {
+    o.signs = $$('#tavernStage [data-scenario]').map(function (el) {
+      const r = el.getBoundingClientRect();
+      const nm = el.querySelector('.tavernSignName'), ds = el.querySelector('.tavernSignDesc');
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { id: el.id, sid: el.getAttribute('data-scenario'),
+               cls: String(el.className).split(' ').filter(function (x) { return x; }),
+               name: nm ? nm.textContent : null, desc: ds ? ds.textContent : null,
+               pos: getComputedStyle(el).position, rect: rc(el),
+               hitSelf: !!(hit && (hit === el || el.contains(hit))) };
+    });
+    o.signAll   = $$('#tavernStage .tavernSign').length;
+    o.doorSigns = $$('#tavernStage [data-door]').map(function (el) { return el.id; });
+    o.plazaSign = !!document.getElementById('tavernDoor_plaza');
+  } catch (e) { o.err.push('signs: ' + e.message); }
+  try { o.plazaUnlocked = (typeof plazaStateTV !== 'undefined') ? !!plazaStateTV.unlocked : null; }
+  catch (e) { o.plazaUnlocked = null; }
+  try { o.titleRect = $('#title') ? rc($('#title')) : null; }
+  catch (e) { o.err.push('title: ' + e.message); }
+  try {
+    const ta = $('#tableArea');
+    o.tableCount      = $$('#tableArea .table').length;
+    o.tableAreaShown  = ta ? ta.getClientRects().length > 0 : null;
+    o.tavernBg        = $('#tavern') ? getComputedStyle($('#tavern')).backgroundImage : null;
+  } catch (e) { o.err.push('tableArea: ' + e.message); }
+  try {
+    const TV = window.__TAVERN_TV;
+    o.zoom     = TV ? TV.zoom() : null;
+    o.compact  = TV ? TV.compact() : null;
+    o.geom     = TV ? TV.geom() : null;
+    o.signKeys = TV ? TV.signKeys() : null;
+    o.heroTile = TV ? TV.heroTile() : null;
+  } catch (e) { o.err.push('TV: ' + e.message); }
+  try {
+    /* ⭐ (6b): verify_world_map.js の (7a) と **同じ照合**を、tavern のページの中で行う。
+       js/world-map.js は tavern.html も読み込んでいるので、別ファイルの実体どうしを
+       写経なしで突き合わせられる。 */
+    const W = window.WORLD_MAP;
+    o.world = (W && W.SITES) ? Object.keys(W.SITES).map(function (k) {
+      const n = W.NODES[W.SITES[k]] || {};
+      const sc = scenarios.filter(function (s) { return s.id === k; })[0];
+      return { sid: k, node: W.SITES[k],
+               label: (n.label === undefined) ? null : n.label,
+               place: sc ? sc.place : null };
+    }) : null;
+  } catch (e) { o.err.push('world: ' + e.message); }
+  return o;
+}
+
+/* ⭐ (2c) は静的な文字列比較では測れない (写しを持っていても初期値は一致するので必ず緑)。
+ *   **place を書き換えて札が追随するか**という振る舞いで測る = 依頼書 §9 (2c) の文言そのもの。
+ *   ⚠ 書き換えたら必ず戻す (同じタブの後続測定を汚さない)。 */
+function placeLinkProbe() {
+  const o = { ok: false, why: '' };
+  try {
+    if (!window.TAVERN_MAP) { o.why = 'TAVERN_MAP が無い'; return o; }
+    if (typeof window.__tavernRefreshSigns !== 'function') { o.why = '__tavernRefreshSigns が無い'; return o; }
+    const tb = window.TAVERN_MAP.TABLES.filter(function (t) {
+      const sc = scenarios.filter(function (s) { return s.id === t.scenarioId; })[0];
+      return sc && isUnlocked(sc);
+    })[0];
+    if (!tb) { o.why = '解放済みの卓が 1 つも無い (母集団が空)'; return o; }
+    const sc = scenarios.filter(function (s) { return s.id === tb.scenarioId; })[0];
+    const nameOf = function () {
+      const e = document.getElementById('questTable_' + tb.scenarioId);
+      if (!e) return null;
+      const n = e.querySelector('.tavernSignName');
+      return n ? n.textContent : null;
+    };
+    o.sid = tb.scenarioId;
+    o.orig = sc.place;
+    o.before = nameOf();
+    o.mark = '★測定用の書き換え★';
+    sc.place = o.mark;
+    window.__tavernRefreshSigns();
+    o.after = nameOf();
+    sc.place = o.orig;
+    window.__tavernRefreshSigns();
+    o.restored = nameOf();
+    o.ok = (o.before === o.orig) && (o.after === o.mark) && (o.restored === o.orig);
+    if (!o.ok) o.why = '札が scenarios[].place を追随していない (写しを持っている)';
+  } catch (e) { o.why = '例外: ' + e.message; }
+  return o;
+}
+
+/* ── フェーズ: 静的な姿 (base / compact / off) ─────────────────────────────── */
+async function tavSnap(browser, port, o) {
+  const out = { tag: o.tag, err: null };
+  const ctx = await newTavPage(browser, { view: o.view });
+  try {
+    await gotoTavern(ctx, port, o.query || '');
+    out.snap = await ctx.page.evaluate(pageSnapshot);
+    out.sawMapJs = ctx.reqs.some(function (u) { return u.indexOf('/' + MAP_JS) >= 0; });
+    if (o.place) out.place = await ctx.page.evaluate(placeLinkProbe);
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+/* ── フェーズ: 卓へ歩く (walk1 / walk6 / walkTrap) ──────────────────────────
+ *  intervalMs: null = 1 回だけ押す / 数値 = その間隔で押し続ける /
+ *              'trap' = geom().msPerTile x 0.55 (⭐ 罠 A が牙を剥く速さ) */
+async function tavWalk(browser, port, o) {
+  const out = { tag: o.tag, err: null, clicks: 0, gaps: [], tiles: [], arrivedMs: null };
+  const ctx = await newTavPage(browser, {});
+  try {
+    await gotoTavern(ctx, port, '');
+    const pre = await ctx.page.evaluate(() => {
+      const TV = window.__TAVERN_TV, TM = window.TAVERN_MAP;
+      if (!TV || !TM) return null;
+      const t = TM.TABLES[0], h = TV.heroTile();
+      const p = TM.findPath(h.c, h.r, t.enter[0], t.enter[1]);
+      return { sel: '#questTable_' + t.scenarioId, enter: t.enter, key: t.key,
+               spawn: h, msPerTile: TV.geom().msPerTile, pathLen: p === null ? -1 : p.length };
+    });
+    if (!pre) { out.err = '__TAVERN_TV / TAVERN_MAP が無い (地図が立ち上がっていない)'; return out; }
+    Object.assign(out, pre);
+    const iv = (o.intervalMs === 'trap')
+      ? Math.max(50, Math.round(pre.msPerTile * 0.55)) : o.intervalMs;
+    out.interval = iv;
+    const READ = () => ({
+      dlg: getComputedStyle(document.getElementById('dialog')).display,
+      tile: window.__TAVERN_TV.heroTile(),
+      moving: window.__TAVERN_TV.isMoving(),
+      walkingTo: window.__TAVERN_TV.walkingTo() });
+    let last = 0;
+    const push = (st) => {
+      const k = st.tile.c + ',' + st.tile.r;
+      if (out.tiles[out.tiles.length - 1] !== k) out.tiles.push(k);
+    };
+    const t0 = Date.now();
+    const doClick = async () => {
+      await ctx.page.click(pre.sel);
+      if (out.clicks > 0) out.gaps.push(Date.now() - last);
+      last = Date.now(); out.clicks++;
+    };
+    await doClick();
+    out.justAfter = await ctx.page.evaluate(READ);
+    push(out.justAfter);
+    while (Date.now() - t0 < o.budgetMs) {
+      const st = await ctx.page.evaluate(READ);
+      push(st); out.final = st;
+      if (st.dlg === 'flex') { out.arrivedMs = Date.now() - t0; break; }
+      if (iv !== null && (o.maxClicks === undefined || out.clicks < o.maxClicks)
+          && Date.now() - last >= iv) {
+        try { await doClick(); } catch (e) { out.clickErr = String(e && e.message); }
+      }
+      await sleep(35);
+    }
+    out.maxGap = out.gaps.length ? Math.max.apply(null, out.gaps) : null;
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+/* ── フェーズ: 歩けないタイルを押す (walkbad) ───────────────────────────────
+ *  ⭐⭐ 「動かない」だけでは **押せていないだけ**と区別できない。同じタブで直後に
+ *    歩けるタイルを押して **動くこと** (陽性対照) まで見る。 */
+async function tavWalkBad(browser, port) {
+  const out = { err: null };
+  const ctx = await newTavPage(browser, {});
+  try {
+    await gotoTavern(ctx, port, '');
+    const pick = await ctx.page.evaluate(() => {
+      const TV = window.__TAVERN_TV, TM = window.TAVERN_MAP;
+      if (!TV || !TM) return null;
+      const res = { hero: TV.heroTile(), bad: null, good: null };
+      const usable = function (p) {
+        if (p.x < 6 || p.y < 6 || p.x > innerWidth - 6 || p.y > innerHeight - 6) return null;
+        const el = document.elementFromPoint(p.x, p.y);
+        if (!el) return null;
+        if (el.closest && el.closest('.tavernSign')) return null;
+        const vp = document.getElementById('tavernViewport');
+        if (!vp || !(vp === el || vp.contains(el))) return null;
+        return el;
+      };
+      for (let r = 0; r < TM.ROWS && !res.bad; r++) {
+        for (let c = 0; c < TM.COLS; c++) {
+          if (TM.isWalkable(c, r)) continue;
+          const p = TV.clientFromTile(c, r), el = usable(p);
+          if (!el) continue;
+          res.bad = { c: c, r: r, x: p.x, y: p.y, tile: TM.tileAt(c, r),
+                      hit: el.id || el.tagName };
+          break;
+        }
+      }
+      let best = null;
+      for (let r = 0; r < TM.ROWS; r++) {
+        for (let c = 0; c < TM.COLS; c++) {
+          if (!TM.isWalkable(c, r)) continue;
+          const p = TV.clientFromTile(c, r);
+          if (!usable(p)) continue;
+          const path = TM.findPath(res.hero.c, res.hero.r, c, r);
+          if (path === null || path.length < 2) continue;
+          if (!best || path.length > best.len) best = { c: c, r: r, x: p.x, y: p.y, len: path.length };
+        }
+      }
+      res.good = best;
+      return res;
+    });
+    out.pick = pick;
+    if (!pick) { out.err = '__TAVERN_TV / TAVERN_MAP が無い'; return out; }
+    if (!pick.bad) { out.err = '押せる歩けないタイルが 1 つも見つからない (母集団が空)'; return out; }
+    out.before = pick.hero;
+    await ctx.page.mouse.click(pick.bad.x, pick.bad.y);
+    await sleep(700);
+    out.after = await ctx.page.evaluate(() => ({
+      tile: window.__TAVERN_TV.heroTile(),
+      moving: window.__TAVERN_TV.isMoving(),
+      goal: String(document.getElementById('tavernGoal').className).indexOf('show') >= 0 }));
+    if (pick.good) {
+      await ctx.page.mouse.click(pick.good.x, pick.good.y);
+      await sleep(700);
+      out.ctrl = await ctx.page.evaluate(() => ({
+        tile: window.__TAVERN_TV.heroTile(), moving: window.__TAVERN_TV.isMoving() }));
+    }
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+/* ── フェーズ: 「町へ出る」(door) ────────────────────────────────────────────
+ *  ⭐ town.html への遷移だけを横取りして中止する。中止した **リクエスト URL の search が、
+ *    着地していたはずの location.search そのもの** = (4a)「クエリが 1 文字も付かない」を
+ *    街を起動せずに直接測れる (手本 = verify_quest_walk.js の measureDepart)。 */
+async function tavDoor(browser, port) {
+  const out = { err: null, blocked: [] };
+  const ctx = await newTavPage(browser, {});
+  try {
+    await ctx.page.setRequestInterception(true);
+    ctx.page.on('request', (r) => {
+      try {
+        const u = r.url();
+        const nav = (typeof r.isNavigationRequest === 'function')
+          ? (r.isNavigationRequest() && r.frame() === ctx.page.mainFrame())
+          : (r.resourceType() === 'document');
+        if (nav && u.indexOf('/town.html') >= 0) {
+          /* ⚠ 'aborted' を明示する。既定の abort() は net::ERR_FAILED で console.error が 1 本出る。 */
+          out.blocked.push(u); r.abort('aborted'); return;
+        }
+        r.continue();
+      } catch (e) { try { r.continue(); } catch (e2) {} }
+    });
+    await gotoTavern(ctx, port, '');
+    const has = await ctx.page.$('#tavernDoor_town');
+    if (!has) { out.err = '#tavernDoor_town が無い'; return out; }
+    await ctx.page.click('#tavernDoor_town');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 12000 && out.blocked.length === 0) await sleep(60);
+    out.ms = Date.now() - t0;
+    out.exitVia = await ctx.page.evaluate(() => {
+      try { return sessionStorage.getItem('dragonfighters.exitVia'); }
+      catch (e) { return '⛔' + e.message; } });
+    if (out.blocked.length) {
+      const u = new URL(out.blocked[0]);
+      out.path = u.pathname; out.search = u.search; out.hash = u.hash;
+    }
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+/* ── フェーズ: 「奥の間へ」(back) ⚠⚠ 暫定 — #26 で扉ごと消える節 ────────────── */
+async function tavBack(browser, port) {
+  const out = { err: null };
+  const ctx = await newTavPage(browser, {});
+  try {
+    await gotoTavern(ctx, port, '');
+    const has = await ctx.page.$('#tavernDoor_back');
+    if (!has) { out.err = '#tavernDoor_back が無い'; return out; }
+    await ctx.page.click('#tavernDoor_back');
+    const READ = () => {
+      const ta = document.getElementById('tableArea');
+      const bar = document.getElementById('backroomBar');
+      return {
+        open: !!(ta && ta.classList.contains('backroomOpen')),
+        bodyOn: document.body.classList.contains('backroomOn'),
+        bar: !!(bar && bar.getClientRects().length > 0),
+        tables: ta ? ta.querySelectorAll('.table').length : -1,
+        artIds: Array.prototype.slice.call(document.querySelectorAll('#tableArea .table img.clientArt'))
+          .map(function (im) {
+            const s = im.getAttribute('src') || '';
+            const i = s.lastIndexOf('client_');
+            return i < 0 ? s : s.slice(i + 7).replace('.png', '');
+          }),
+        expected: scenarios.slice(3).map(function (s) { return s.id; }),
+        tile: window.__TAVERN_TV.heroTile() };
+    };
+    const t0 = Date.now();
+    while (Date.now() - t0 < 14000) {
+      out.state = await ctx.page.evaluate(READ);
+      if (out.state.open) { out.ms = Date.now() - t0; break; }
+      await sleep(80);
+    }
+    /* 閉じるボタンで 6 卓へ戻ること (⚠ 暫定の節なので detail 止まり) */
+    if (out.state && out.state.open) {
+      await ctx.page.click('#backroomClose');
+      await sleep(300);
+      out.closed = await ctx.page.evaluate(READ);
+    }
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+async function measureTavern(browser, port, phases, label) {
+  const want = (p) => phases.indexOf(p) >= 0;
+  const t = { phases: phases.slice() };
+  if (!phases.length) return t;
+  const say = (s) => console.log('[drv]   ' + (label || '') + ' フェーズ ' + s);
+  if (want('base'))    { say('base (1440x900)');       t.base    = await tavSnap(browser, port, { tag: 'base', view: VIEW_DESKTOP, query: '', place: true }); }
+  if (want('compact')) { say('compact (390x844)');     t.compact = await tavSnap(browser, port, { tag: 'compact', view: VIEW_COMPACT, query: '' }); }
+  if (want('off'))     { say('off (?tavernmap=0)');    t.off     = await tavSnap(browser, port, { tag: 'off', view: VIEW_DESKTOP, query: '?tavernmap=0' }); }
+  if (want('walk1'))   { say('walk1 (1 回押す)');      t.walk1   = await tavWalk(browser, port, { tag: 'walk1', intervalMs: null, budgetMs: 9000 }); }
+  if (want('walk6'))   {
+    say('walk6 (420ms x 6 = golden 準拠)');
+    t.walk6 = await tavWalk(browser, port, { tag: 'walk6', intervalMs: 420, maxClicks: 6, budgetMs: 5000 });
+    say('walkTrap (MS_PER_TILE x 0.55 で連打 = 罠 A の実証)');
+    t.walkTrap = await tavWalk(browser, port, { tag: 'walkTrap', intervalMs: 'trap', budgetMs: 5000 });
+  }
+  if (want('walkbad')) { say('walkbad (壁を押す + 陽性対照)'); t.walkbad = await tavWalkBad(browser, port); }
+  if (want('door'))    { say('door (町へ出る)');       t.door    = await tavDoor(browser, port); }
+  if (want('back'))    { say('back (奥の間へ)');       t.back    = await tavBack(browser, port); }
+  return t;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 測定 ④ (6c) — 4 つの画面の **タグ構造の署名** を配信中の実体と DOM_BASE で突き合わせる
+//   ⚠⚠ バックスラッシュを使わない走査器 (正規表現を組み立てるとエスケープが食われる)。
+//   ⭐ 比較するのは「タグ名 + id + class の並び」。文言の変更は許し、構造の変化だけを捕まえる。
+// ══════════════════════════════════════════════════════════════════════════════
+const CH = { LT: 60, GT: 62, SLASH: 47, SP: 32, TAB: 9, CR: 13, LF: 10 };
+const isSpaceCh = (c) => c === CH.SP || c === CH.TAB || c === CH.CR || c === CH.LF;
+const isAlphaCh = (c) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+function readTagName(src, at) {
+  let e = at + 1, t = '';
+  while (e < src.length) {
+    const c = src.charCodeAt(e);
+    if (isSpaceCh(c) || c === CH.GT || c === CH.SLASH) break;
+    t += src[e]; e++;
+  }
+  return t;
+}
+function subtreeOf(src, id) {
+  const i = src.indexOf('id="' + id + '"');
+  if (i < 0) return null;
+  const s = src.lastIndexOf('<', i);
+  if (s < 0) return null;
+  const tag = readTagName(src, s).toLowerCase();
+  if (!tag) return null;
+  let depth = 0, p = s;
+  while (p < src.length) {
+    const q = src.indexOf('<', p);
+    if (q < 0) return null;
+    if (src.charCodeAt(q + 1) === CH.SLASH) {
+      if (readTagName(src, q + 1).toLowerCase() === tag) {
+        depth--;
+        if (depth === 0) { const g = src.indexOf('>', q); return src.slice(s, g + 1); }
+      }
+      p = q + 1; continue;
+    }
+    if (isAlphaCh(src.charCodeAt(q + 1)) && readTagName(src, q).toLowerCase() === tag) depth++;
+    p = q + 1;
+  }
+  return null;
+}
+function attrOf(attrs, name) {
+  const k = name + '="';
+  const i = attrs.indexOf(k);
+  if (i < 0) return null;
+  const j = attrs.indexOf('"', i + k.length);
+  return j < 0 ? null : attrs.slice(i + k.length, j);
+}
+function domSig(src, id) {
+  const sub = subtreeOf(src, id);
+  if (sub === null) return null;
+  let s = '';
+  for (let p = 0; p < sub.length;) {                       // HTML コメントを落とす
+    const c = sub.indexOf('<!--', p);
+    if (c < 0) { s += sub.slice(p); break; }
+    s += sub.slice(p, c);
+    const e = sub.indexOf('-->', c);
+    if (e < 0) break;
+    p = e + 3;
+  }
+  const tags = [];
+  for (let p = 0; p < s.length;) {
+    const q = s.indexOf('<', p);
+    if (q < 0) break;
+    if (!isAlphaCh(s.charCodeAt(q + 1))) { p = q + 1; continue; }
+    const g = s.indexOf('>', q);
+    if (g < 0) break;
+    const tag = readTagName(s, q).toLowerCase();
+    const attrs = s.slice(q + 1 + tag.length, g);
+    const eid = attrOf(attrs, 'id'), ecl = attrOf(attrs, 'class');
+    tags.push(tag + (eid ? '#' + eid : '')
+      + (ecl ? '.' + ecl.trim().split(' ').filter(function (x) { return x; }).join('.') : ''));
+    p = g + 1;
+  }
+  return { n: tags.length, key: tags.join('|') };
+}
+let _domBaseSrc = null, _domBaseErr = null;
+function domBaseSource() {
+  if (_domBaseSrc !== null || _domBaseErr !== null) return _domBaseSrc;
+  try {
+    _domBaseSrc = execFileSync('git', ['show', DOM_BASE + ':' + TAVERN_HTML],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  } catch (e) { _domBaseErr = String((e && e.message) || e); _domBaseSrc = null; }
+  return _domBaseSrc;
+}
+/* 配信中の実体 (= 変異が当たっていればその後の姿) と DOM_BASE を比べる。 */
+function domPair(servedSrc) {
+  const base = domBaseSource();
+  const out = { baseErr: _domBaseErr, roots: {} };
+  for (const id of DOM_ROOTS) {
+    out.roots[id] = { cur: domSig(servedSrc, id), base: base === null ? null : domSig(base, id) };
+  }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 受入条件の表 (依頼書 §9 の §0〜§7 を **全部宣言**する)
 //   形: [id, 文面, 述語 (m -> [bool, detail]) or null, PENDING の理由 or undefined]
 //   ⭐ 未実装は 4 番目の要素に理由を持たせる → emit() が **PENDING** で出す。
@@ -433,6 +1017,34 @@ function measureGrid(tile) {
 // ══════════════════════════════════════════════════════════════════════════════
 const S = (m) => (m && m.stub) || {};
 const kinds = (m, k) => ((S(m).enters) || []).filter(e => e.kind === k);
+/* tavern.html を開いた測定。⚠ フェーズを採っていなければ null。⛔ null を緑にしない。 */
+const TAV = (m) => (m && m.tav) || {};
+const TB  = (m) => TAV(m).base || null;         // base フェーズ (1440x900)
+const TC  = (m) => TAV(m).compact || null;      // compact フェーズ (390x844)
+const TO  = (m) => TAV(m).off || null;          // ?tavernmap=0
+const snapOf = (ph) => (ph && ph.snap) || {};
+/* 席札 <-> シナリオの対応表 (data-scenario とページ内の scenarios[] だけから作る)。 */
+function tableRows(s) {
+  return (s.tableSids || []).map(function (sid) {
+    const i = (s.scenIds || []).indexOf(sid);
+    return { sid: sid, idx: i, unlocked: i >= 0 ? s.unlocked[i] : null,
+             place: i >= 0 ? s.scenPlaces[i] : null,
+             sign: (s.signs || []).filter(function (x) { return x.sid === sid; })[0] || null };
+  });
+}
+const rectHit = (a, b) => !!(a && b) && !(a.l + a.w <= b.l || b.l + b.w <= a.l
+                                       || a.t + a.h <= b.t || b.t + b.h <= a.t);
+/* (7c) 用。ON / OFF の両方へ当てる **同じ 5 つの条件**。⛔ 片側だけ見て緑にしない。 */
+function retreatFacts(ph) {
+  const s = snapOf(ph);
+  return {
+    viewport: s.viewport === true,
+    tv: s.hasTV === 'object',
+    mapClass: s.mapClass === true,
+    bgPainting: String(s.tavernBg || '').indexOf('tavern_bg.png') >= 0,
+    tableAreaShown: s.tableAreaShown === true,
+  };
+}
 
 const ASSERT_OF = {};
 [
@@ -445,9 +1057,20 @@ const ASSERT_OF = {};
     (m) => [!!(m.ledger && S(m).has && m.ledger.tile === S(m).TILE),
       m.ledger ? ('台帳 tile=' + m.ledger.tile + ' cells(' + m.ledger.cols + ',' + m.ledger.rows + ')'
         + ' / TAVERN_MAP.TILE=' + S(m).TILE) : '⛔ ' + LEDGER_PY + ' の GRIDS を読めない']],
-  ['0a', 'window.TAVERN_MAP が tavern.html に実際に載っている', null,
-    '⭐⭐⭐ 母集団ガード。' + P3 + ' — 現時点の tavern.html にはまだ <script src="' + MAP_JS
-    + '"> が無い。⚠ これが無いと §2〜§4 が全部空振りで永久緑になる (#23 の再発防止)'],
+  ['0a', 'window.TAVERN_MAP が tavern.html に実際に載っている'
+    + ' (① 配信で js/tavern-map.js を要求した ② ページで TAVERN_MAP と __TAVERN_TV が生きている)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      if (b.err) return [false, '⛔ 測定が失敗: ' + b.err];
+      const s = b.snap || {};
+      const ok = b.sawMapJs === true && s.hasTM === 'object' && s.hasTV === 'object'
+        && s.viewport === true && s.mapClass === true;
+      return [ok, '/' + MAP_JS + ' を要求した=' + b.sawMapJs
+        + ' / typeof TAVERN_MAP=' + s.hasTM + ' / typeof __TAVERN_TV=' + s.hasTV
+        + ' / #tavernViewport=' + s.viewport + ' / body.tavernMapOn=' + s.mapClass
+        + (ok ? '' : '  ⛔ この状態では §2〜§4 が全部空振りで永久緑になる (#23 の再発)')];
+    }],
   ['0b', 'TAVERN_MAP.MASK.length === ROWS かつ全行の長さ === COLS',
     (m) => {
       const s = S(m);
@@ -538,47 +1161,328 @@ const ASSERT_OF = {};
     }],
 ].forEach(a => { ASSERT_OF[a[0]] = a; });
 
-/* ── §2〜§7 は **枠だけ宣言**して PENDING を出す (項目 3 が埋める) ─────────────
- *  ⭐ 文面は依頼書 §9 のもの。⛔ 述語を書かずに緑にしない (数合わせは禁止)。
- *  ⚠ 項目 3 は 4 番目の要素 (PENDING 理由) を消して 3 番目に述語を書くだけでよい。 */
+/* ── §2〜§7 (項目 3 で実装) ────────────────────────────────────────────────
+ *  ⭐ 文面は依頼書 §9 のもの。逸脱した 2 本 ((3b) と (5a)) は文面にも理由を書いた。
+ *  ⛔ 数合わせで緑にしない。母集団が採れていない場合は必ず **赤** にする
+ *    (「測っていないから緑」は #23 の事故そのもの)。 */
 [
-  /* §2 卓が 3 つで、シナリオ1〜3 に対応している */
-  ['2a', '#tavernStage 上の席札がちょうど 3 枚 / id が questTable_<scenarioId> (goblin-mine / bandits-forest / lizard-swamp)', null, P3],
-  ['2b', '⭐ 2 経路の突き合わせ: TAVERN_MAP.TABLES[].scenarioId の 3 件が tavern.html の scenarios[].id の先頭 3 件と完全一致', null, P3],
-  ['2c', '席札の文言が scenarios[].place から生成されている (place を書き換えると札も変わる = 写しを持っていない)', null, P3],
-  ['2d', '未解放の卓 (bandits-forest / lizard-swamp) は DOM に在り、かつ ??? 表示である (⛔ 隠していない)', null, P3],
-  /* §3 歩いて着いてから開く */
-  ['3a', 'questTable_goblin-mine を 1 回押すと、押した直後は #dialog が閉じたままで、TABLES[0].enter へ到達した後に開く', null, P3],
-  ['3b', '⭐ 罠 A の対策が効いている: 420ms 間隔で同じ卓を 6 回押し続けても主人公は前進し、5 秒以内に到達してダイアログが開く', null, P3],
-  ['3c', '歩けないタイルを押しても動かない (隣接まで寄せる救済を入れない)', null, P3],
-  /* §4 扉 */
-  ['4a', '「町へ出る」で exitVia === "tavern" が書かれ town.html へ遷移する / ⛔ URL にクエリが 1 文字も付かない', null, P3],
-  ['4b', '「奥の間へ」で #tableArea が開き、シナリオ4〜6 の 3 卓だけが並ぶ (⚠ 暫定 — #26 で消える節)', null, P3],
-  ['4c', '闇市の石段は plazaState.unlocked === false のとき DOM に存在しない (⛔ display:none で残っていたら赤)', null, P3],
-  /* §5 compact (縦画面) */
-  ['5a', '390x844 で zoom が 34/TILE 以上 (1 マス 34px 未満にならない) かつ 1.5 以下', null,
-    P3 + ' ⚠ 依頼書の「34/64」は誤り。TILE=96 なので 34/TAVERN_MAP.TILE から引くこと'],
-  ['5b', '#title の下に席札が潜っていない (#title の矩形と 3 枚の席札の矩形が交差 0 件)', null, P3],
-  ['5c', '@media (max-width:560px) の 2 列グリッドが効いていない (#questTable_* の position が relative ではない)', null,
-    P3 + ' ⚠ tavern.html の @media (max-width: 560px) は 3 ブロックある。括ってよいのは卓のグリッドの 1 つだけ'],
-  /* §6 恒等 (非退行) */
-  ['6a', 'scenarios は 6 件のまま (⛔ 卓を 3 つにするために配列を削らない)', null, P3],
-  ['6b', 'tavern.html の place: 6 件の文字列が HEAD と 1 文字も違わない (verify_world_map の (7a) がこれを見ている)', null, P3],
-  ['6c', '#dialog / #prep / #shopScreen / #plazaScreen の DOM 構造が HEAD と同一', null, P3],
-  /* §7 撤退 */
-  ['7a', 'tavern.html?tavernmap=0 で #tavernViewport が DOM に存在しない', null, P3],
-  ['7b', '同 URL で #tableArea .table が 6 枚あり assets/tavern_bg.png が敷かれている', null, P3],
-  ['7c', '⭐ 撤退の受入は「OFF で緑」ではなく、同じ条件を ON/OFF 両方へ当てて崩れること', null, P3],
+  /* ── §2 卓が 3 つで、シナリオ1〜3 に対応している ─────────────────────────── */
+  ['2a', '#tavernStage 上の席札がちょうど 3 枚 / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const want = (s.tableSids || []).map(x => 'questTable_' + x);
+      const got  = (s.signs || []).map(x => x.id);
+      const cls  = (s.signs || []).every(x => (x.cls || []).indexOf('questTableSign') >= 0);
+      const hit  = (s.signs || []).every(x => x.hitSelf === true);
+      const ok = want.length === 3 && got.length === 3 && want.join(',') === got.join(',') && cls && hit;
+      return [ok, '席札 ' + got.length + ' 枚 ' + JSON.stringify(got)
+        + ' / TABLES から期待 ' + JSON.stringify(want)
+        + ' / class に questTableSign=' + cls + ' / 中心が自分自身=' + hit
+        + '  ⚠ .tavernSign だけで数えると扉札こみで ' + s.signAll + ' 枚になる'];
+    }],
+  ['2b', '⭐ 2 経路の突き合わせ: TAVERN_MAP.TABLES[].scenarioId の 3 件が tavern.html の scenarios[].id の先頭 3 件と完全一致',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const a1 = s.tableSids || [], a2 = (s.scenIds || []).slice(0, 3);
+      const ok = a1.length === 3 && a2.length === 3 && a1.join(',') === a2.join(',');
+      return [ok, 'TABLES=' + JSON.stringify(a1) + ' / scenarios[0..2]=' + JSON.stringify(a2)
+        + '  ⭐ どちらも同じページから読んでいる (⛔ ドライバに写経しない)'];
+    }],
+  ['2c', '席札の文言が scenarios[].place から生成されている (place を書き換えると札も変わる = 写しを持っていない)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const p = b.place;
+      if (!p) return [false, '⛔ place の追随を測れていない'];
+      return [p.ok === true,
+        '卓 ' + p.sid + ': 初期 "' + p.before + '" (place="' + p.orig + '")'
+        + ' → place を "' + p.mark + '" へ書き換えると札は "' + p.after + '"'
+        + ' → 戻すと "' + p.restored + '"' + (p.ok ? '' : '  ⛔ ' + p.why)];
+    }],
+  ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const rows = tableRows(s);
+      const locked = rows.filter(r => r.unlocked === false);
+      if (!rows.length) return [false, '⛔ 卓の母集団が空 ((0a) を見よ)'];
+      if (!locked.length) return [false, '⛔ 未解放の卓が 1 つも無い = この assert は空振り'];
+      const bad = locked.filter(r => !r.sign || r.sign.name !== '???'
+        || (r.sign.cls || []).indexOf('locked') < 0);
+      return [bad.length === 0,
+        '未解放 ' + locked.length + ' 件 ' + JSON.stringify(locked.map(r => r.sid))
+        + ' / DOM に無い or ??? でない ' + bad.length + ' 件'
+        + (bad.length ? ' ⛔ ' + JSON.stringify(bad.map(r => ({ sid: r.sid, name: r.sign && r.sign.name })))
+                      : ' (札の文言 ' + JSON.stringify(locked.map(r => r.sign.name + '/' + r.sign.desc)) + ')')];
+    }],
+
+  /* ── §3 歩いて着いてから開く ─────────────────────────────────────────────── */
+  ['3z', '[装置] (3b) の 2 本の走行が成立している — 経路が 2 マス以上 / golden 走行はちょうど 6 回押した / 罠走行の実測間隔が MS_PER_TILE より速い',
+    (m) => {
+      const t = TAV(m), g = t.walk6, tr = t.walkTrap, w1 = t.walk1;
+      if (!g || !tr) return [false, '⛔ walk6 フェーズを測っていない'];
+      const ms = g.msPerTile || 0;
+      const gapOk = tr.maxGap !== null && tr.maxGap !== undefined && tr.maxGap < ms;
+      const pathOk = (g.pathLen || 0) >= 2 && (!w1 || (w1.pathLen || 0) >= 2);
+      const clicksOk = g.clicks === 6;
+      return [pathOk && clicksOk && gapOk && tr.interval < ms,
+        'MS_PER_TILE=' + ms + ' / 経路 ' + g.pathLen + ' マス'
+        + ' / golden 走行 ' + g.clicks + ' 回 (間隔 ' + g.interval + 'ms, 実測 max ' + g.maxGap + 'ms)'
+        + ' / 罠走行 ' + tr.clicks + ' 回 (間隔 ' + tr.interval + 'ms, 実測 max ' + tr.maxGap + 'ms)'
+        + (gapOk ? '' : '  ⛔ 罠走行の実測間隔が MS_PER_TILE 以上 = この機械では罠 A を再現できない')];
+    }],
+  ['3a', '卓を 1 回押すと、押した直後は #dialog が閉じたままで、TABLES[0].enter へ到達した後に開く',
+    (m) => {
+      const w = TAV(m).walk1;
+      if (!w) return [false, '⛔ walk1 フェーズを測っていない'];
+      if (w.err) return [false, '⛔ 測定が失敗: ' + w.err];
+      const f = w.final || {};
+      const at = !!(f.tile && w.enter && f.tile.c === w.enter[0] && f.tile.r === w.enter[1]);
+      const ok = w.justAfter && w.justAfter.dlg === 'none' && w.arrivedMs !== null
+        && f.dlg === 'flex' && at && w.tiles.length >= 2;
+      return [ok, '押した直後 #dialog=' + (w.justAfter && w.justAfter.dlg)
+        + ' 主人公=' + JSON.stringify(w.justAfter && w.justAfter.tile)
+        + ' → 到達 ' + w.arrivedMs + 'ms 後 #dialog=' + f.dlg
+        + ' 主人公=' + JSON.stringify(f.tile) + ' (期待 enter=' + JSON.stringify(w.enter) + ')'
+        + ' / 通ったタイル ' + w.tiles.length + ' 個 ' + JSON.stringify(w.tiles)];
+    }],
+  ['3b', '⭐ 罠 A の対策が効いている: (1) 420ms x 6 回の連打で 5 秒以内に到達 かつ'
+    + ' (2) MS_PER_TILE より速い連打を到達まで続けても 5 秒以内に到達する'
+    + ' (⚠ 依頼書は (1) だけだが、実測すると (1) は間隔 420ms > MS_PER_TILE 340ms なので'
+    + ' ガードを外しても通ってしまう = 変異 reclick が空振りする)',
+    (m) => {
+      const t = TAV(m), g = t.walk6, tr = t.walkTrap;
+      if (!g || !tr) return [false, '⛔ walk6 フェーズを測っていない'];
+      const judge = (w) => {
+        if (w.err) return { ok: false, s: '⛔ 測定が失敗: ' + w.err };
+        const f = w.final || {};
+        const at = !!(f.tile && w.enter && f.tile.c === w.enter[0] && f.tile.r === w.enter[1]);
+        const ok = w.arrivedMs !== null && w.arrivedMs <= 5000 && f.dlg === 'flex'
+          && at && w.tiles.length >= 2;
+        return { ok: ok, s: w.clicks + ' 回押下 (間隔 ' + w.interval + 'ms) / 到達 '
+          + (w.arrivedMs === null ? '⛔ 5 秒以内に着かない' : w.arrivedMs + 'ms')
+          + ' / 主人公 ' + JSON.stringify(f.tile) + ' / 通ったタイル ' + w.tiles.length
+          + ' 個 ' + JSON.stringify(w.tiles) + ' / #dialog=' + f.dlg };
+      };
+      const a = judge(g), b = judge(tr);
+      return [a.ok && b.ok, '(1) golden 準拠 420ms: ' + a.s + '  ||  (2) 罠 A の実証 '
+        + tr.interval + 'ms: ' + b.s];
+    }],
+  ['3c', '歩けないタイルを押しても動かない (隣接まで寄せる救済を入れない) — ⭐ 直後に歩けるタイルを押して動くことまで見る (陽性対照)',
+    (m) => {
+      const w = TAV(m).walkbad;
+      if (!w) return [false, '⛔ walkbad フェーズを測っていない'];
+      if (w.err) return [false, '⛔ 測定が失敗: ' + w.err];
+      const b0 = w.before || {}, a0 = w.after || {}, c0 = w.ctrl || {};
+      const still = !!(a0.tile && a0.tile.c === b0.c && a0.tile.r === b0.r) && a0.moving === false;
+      const ctrlMoved = !!(c0.tile && (c0.moving === true || c0.tile.c !== b0.c || c0.tile.r !== b0.r));
+      return [still && ctrlMoved,
+        '壁 (' + w.pick.bad.c + ',' + w.pick.bad.r + ')="' + w.pick.bad.tile + '" を押した'
+        + ' (当たった要素 ' + w.pick.bad.hit + ') → 主人公 ' + JSON.stringify(b0)
+        + ' のまま=' + still + ' (moving=' + a0.moving + ', goal 表示=' + a0.goal + ')'
+        + ' / 陽性対照: 歩ける (' + (w.pick.good && w.pick.good.c) + ',' + (w.pick.good && w.pick.good.r)
+        + ') を押すと動いた=' + ctrlMoved + ' ' + JSON.stringify(c0)];
+    }],
+
+  /* ── §4 扉 ───────────────────────────────────────────────────────────────── */
+  ['4a', '「町へ出る」で exitVia === "tavern" が書かれ town.html へ遷移する / ⛔ URL にクエリが 1 文字も付かない',
+    (m) => {
+      const d = TAV(m).door;
+      if (!d) return [false, '⛔ door フェーズを測っていない'];
+      if (d.err) return [false, '⛔ 測定が失敗: ' + d.err];
+      const ok = d.blocked.length >= 1 && String(d.path || '').indexOf('/town.html') >= 0
+        && d.search === '' && d.hash === '' && d.exitVia === 'tavern';
+      return [ok, '横取りした遷移 ' + d.blocked.length + ' 件 / path=' + d.path
+        + ' search=' + JSON.stringify(d.search) + ' hash=' + JSON.stringify(d.hash)
+        + ' / sessionStorage[exitVia]=' + JSON.stringify(d.exitVia) + ' / ' + d.ms + 'ms'];
+    }],
+  ['4b', '「奥の間へ」で #tableArea が開き、シナリオ4〜6 の 3 卓だけが並ぶ (⚠ 暫定 — #26 で扉ごと消える節)',
+    (m) => {
+      const b = TAV(m).back;
+      if (!b) return [false, '⛔ back フェーズを測っていない'];
+      if (b.err) return [false, '⛔ 測定が失敗: ' + b.err];
+      const st = b.state || {};
+      const ids = st.artIds || [], exp = st.expected || [];
+      const ok = st.open === true && st.bodyOn === true && st.bar === true
+        && st.tables === 3 && ids.length === 3 && exp.length === 3 && ids.join(',') === exp.join(',');
+      return [ok, 'backroomOpen=' + st.open + ' body.backroomOn=' + st.bodyOn + ' #backroomBar=' + st.bar
+        + ' / .table ' + st.tables + ' 枚 ' + JSON.stringify(ids)
+        + ' / 期待 (ページの scenarios.slice(3)) ' + JSON.stringify(exp)
+        + ' / ' + b.ms + 'ms かけて歩いた (主人公 ' + JSON.stringify(st.tile) + ')'
+        + (b.closed ? ' / 閉じると .table ' + b.closed.tables + ' 枚へ戻る (backroomOpen=' + b.closed.open + ')' : '')];
+    }],
+  ['4c', '闇市の石段は plazaState.unlocked === false のとき DOM に存在しない (⛔ display:none で残っていたら赤)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      /* ⚠ 母集団ガード: 「札が 1 枚も出ていないから plaza も無い」を緑にしない。
+         DOORS には plaza を含む 3 つがあり、そのうち 2 つは必ず出ているはず。 */
+      const guard = s.plazaUnlocked === false && (s.doorSigns || []).length >= 2
+        && (s.doorKeys || []).indexOf('plaza') >= 0;
+      const ok = guard && s.plazaSign === false && (s.signKeys || []).indexOf('plaza') < 0;
+      return [ok, 'plazaState.unlocked=' + s.plazaUnlocked
+        + ' / DOORS=' + JSON.stringify(s.doorKeys) + ' / DOM の扉札=' + JSON.stringify(s.doorSigns)
+        + ' / #tavernDoor_plaza=' + (s.plazaSign ? '⛔ 在る' : '無い')
+        + ' / signKeys=' + JSON.stringify(s.signKeys)
+        + (guard ? '' : '  ⛔ 母集団ガードが立たない (扉札そのものが出ていない)')];
+    }],
+
+  /* ── §5 compact (縦画面) ─────────────────────────────────────────────────── */
+  ['5a', '390x844 で 1 マスの実表示が ' + MIN_TILE_PX + 'px 以上 ' + MAX_TILE_PX + 'px 以下'
+    + ' (⚠ 依頼書の「34/64 以上・zoom 1.5 以下」は港町 TILE 64 前提。TILE と zoom から px で測る)',
+    (m) => {
+      const c = TC(m);
+      if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const s = snapOf(c);
+      const tile = (s.geom && s.geom.tile) || 0;
+      const z = s.zoom;
+      if (!tile || typeof z !== 'number') return [false, '⛔ zoom / TILE を読めない (地図が立ち上がっていない)'];
+      const px = z * tile;
+      const ok = s.compact === true && px >= MIN_TILE_PX - 1e-6 && px <= MAX_TILE_PX + 1e-6;
+      return [ok, 'compact=' + s.compact + ' / zoom=' + z.toFixed(4) + ' x TILE ' + tile
+        + ' = 1 マス ' + px.toFixed(2) + 'px (許容 ' + MIN_TILE_PX + '〜' + MAX_TILE_PX + 'px'
+        + ' = zoom ' + (MIN_TILE_PX / tile).toFixed(3) + '〜' + (MAX_TILE_PX / tile).toFixed(3) + ')'];
+    }],
+  ['5b', '#title の下に席札が潜っていない (#title の矩形と 3 枚の席札の矩形が交差 0 件)',
+    (m) => {
+      const c = TC(m);
+      if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const s = snapOf(c);
+      if (!s.titleRect) return [false, '⛔ #title が無い'];
+      if ((s.signs || []).length !== 3) return [false, '⛔ 席札が 3 枚ない (' + (s.signs || []).length + ' 枚) = 空振り'];
+      const bad = s.signs.filter(x => rectHit(s.titleRect, x.rect));
+      return [bad.length === 0,
+        '#title ' + JSON.stringify(s.titleRect) + ' / 交差 ' + bad.length + ' 件'
+        + (bad.length ? ' ⛔ ' + JSON.stringify(bad.map(x => ({ id: x.id, rect: x.rect })))
+                      : ' ' + JSON.stringify(s.signs.map(x => x.id + '@' + Math.round(x.rect.t))))];
+    }],
+  ['5c', '@media (max-width:560px) の 2 列グリッドが席札へ効いていない (#questTable_* の position が relative ではない)',
+    (m) => {
+      const c = TC(m);
+      if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const s = snapOf(c);
+      if ((s.signs || []).length !== 3) return [false, '⛔ 席札が 3 枚ない = 空振り'];
+      const bad = s.signs.filter(x => x.pos === 'relative');
+      return [bad.length === 0,
+        '席札の position=' + JSON.stringify(s.signs.map(x => x.id + ':' + x.pos))
+        + ' / relative ' + bad.length + ' 件'
+        + '  ⚠ 括ってよい @media (max-width:560px) は卓のグリッドの 1 つだけ (他に #title 側と所持品カード側がある)'];
+    }],
+
+  /* ── §6 恒等 (非退行) ────────────────────────────────────────────────────── */
+  ['6z', '[装置] (6c) の母集団 — 4 つの画面が配信中の実体と DOM_BASE (' + DOM_BASE + ') の両方で見つかり、10 タグ以上ある',
+    (m) => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM 署名を採っていない'];
+      if (d.baseErr) return [false, '⛔ git show ' + DOM_BASE + ':' + TAVERN_HTML + ' が読めない: ' + d.baseErr];
+      const bad = DOM_ROOTS.filter(id => !d.roots[id].cur || !d.roots[id].base
+        || d.roots[id].cur.n < 10 || d.roots[id].base.n < 10);
+      return [bad.length === 0,
+        DOM_ROOTS.map(id => id + ' cur=' + (d.roots[id].cur ? d.roots[id].cur.n : 'null')
+          + '/base=' + (d.roots[id].base ? d.roots[id].base.n : 'null')).join(' ')
+        + (bad.length ? '  ⛔ 抽出できていない: ' + bad.join(',') : '')];
+    }],
+  ['6a', 'scenarios は 6 件のまま (⛔ 卓を 3 つにするために配列を削らない)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const nw = (s.world || []).length;
+      /* ⭐ 「6」は依頼書の数だが、js/world-map.js の SITES 件数とも突き合わせる
+         (片方だけ削られたら必ず気づく)。 */
+      const ok = s.scenLen === 6 && nw === 6;
+      return [ok, 'scenarios ' + s.scenLen + ' 件 ' + JSON.stringify(s.scenIds)
+        + ' / WORLD_MAP.SITES ' + nw + ' 件'];
+    }],
+  ['6b', 'place の 6 件が js/world-map.js の label と 1 文字も違わない'
+    + ' (⭐ verify_world_map.js の (7a) と同じ照合を tavern のページの中で行う。⛔ HEAD とは比べない)',
+    (m) => {
+      const b = TB(m);
+      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const w = s.world;
+      if (!w || !w.length) return [false, '⛔ WORLD_MAP が tavern.html から見えない = 空振り'];
+      const bad = w.filter(x => x.label === null || x.place === null || x.label !== x.place);
+      return [w.length === 6 && bad.length === 0,
+        w.length + ' 件照合 / 不一致 ' + bad.length + ' 件'
+        + (bad.length ? ' ⛔ ' + JSON.stringify(bad) : ' ' + JSON.stringify(w.map(x => x.sid + ':' + x.place)))];
+    }],
+  ['6c', '#dialog / #prep / #shopScreen / #plazaScreen の DOM 構造が DOM_BASE (' + DOM_BASE + ') と同一'
+    + ' (タグ名 + id + class の並びで比較。文言の変更は許す)',
+    (m) => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM 署名を採っていない'];
+      if (d.baseErr) return [false, '⛔ git show が読めない: ' + d.baseErr];
+      const bad = [], detail = [];
+      for (const id of DOM_ROOTS) {
+        const r = d.roots[id];
+        const same = !!(r.cur && r.base && r.cur.key === r.base.key);
+        if (!same) bad.push(id);
+        detail.push(id + ' ' + (r.cur ? r.cur.n : 'null') + '/' + (r.base ? r.base.n : 'null')
+          + (same ? ' 一致' : ' ⛔不一致'));
+      }
+      return [bad.length === 0, detail.join(' / ')];
+    }],
+
+  /* ── §7 撤退 ─────────────────────────────────────────────────────────────── */
+  ['7a', 'tavern.html?tavernmap=0 で #tavernViewport が DOM に存在しない (⛔ display:none で残さない)',
+    (m) => {
+      const o = TO(m);
+      if (!o) return [false, '⛔ off フェーズを測っていない'];
+      if (o.err) return [false, '⛔ 測定が失敗: ' + o.err];
+      const s = snapOf(o);
+      if (!(s.scenLen > 0)) return [false, '⛔ OFF のページが立ち上がっていない = 空振り'];
+      const ok = s.viewport === false && s.hasTV === 'undefined' && s.mapClass === false;
+      return [ok, 'search=' + JSON.stringify(s.search) + ' / #tavernViewport=' + s.viewport
+        + ' / typeof __TAVERN_TV=' + s.hasTV + ' / body.tavernMapOn=' + s.mapClass
+        + ' / #tavernStage=' + s.stage];
+    }],
+  ['7b', '同 URL で #tableArea .table が scenarios と同数 (6 枚) 並び、assets/tavern_bg.png が敷かれている',
+    (m) => {
+      const o = TO(m);
+      if (!o) return [false, '⛔ off フェーズを測っていない'];
+      if (o.err) return [false, '⛔ 測定が失敗: ' + o.err];
+      const s = snapOf(o);
+      if (!(s.scenLen > 0)) return [false, '⛔ OFF のページが立ち上がっていない = 空振り'];
+      const bg = String(s.tavernBg || '').indexOf('tavern_bg.png') >= 0;
+      /* ⭐ 「6 枚」は直書きせずページの scenarios から引く (件数そのものは (6a) の担当)。 */
+      const ok = s.tableCount === s.scenLen && s.tableAreaShown === true && bg;
+      return [ok, '#tableArea .table ' + s.tableCount + ' 枚 (scenarios ' + s.scenLen + ' 件)'
+        + ' / #tableArea が見えている=' + s.tableAreaShown
+        + ' / #tavern の background-image=' + JSON.stringify(String(s.tavernBg || '').slice(0, 70))];
+    }],
+  ['7c', '⭐ 撤退の受入は「OFF で緑」ではなく、同じ 5 条件を ON/OFF 両方へ当てて崩れること',
+    (m) => {
+      const on = TB(m), off = TO(m);
+      if (!on || !off) return [false, '⛔ base / off の両方を測っていない (片側だけでは判定しない)'];
+      if (on.err || off.err) return [false, '⛔ 測定が失敗: ' + (on.err || off.err)];
+      const a = retreatFacts(on), b = retreatFacts(off);
+      const wantOn  = { viewport: true,  tv: true,  mapClass: true,  bgPainting: false, tableAreaShown: false };
+      const wantOff = { viewport: false, tv: false, mapClass: false, bgPainting: true,  tableAreaShown: true };
+      const ks = Object.keys(wantOn);
+      const badOn  = ks.filter(k => a[k] !== wantOn[k]);
+      const badOff = ks.filter(k => b[k] !== wantOff[k]);
+      return [badOn.length === 0 && badOff.length === 0,
+        'ON  ' + JSON.stringify(a) + (badOn.length ? ' ⛔ ' + badOn.join(',') : ' ✓')
+        + '  /  OFF ' + JSON.stringify(b) + (badOff.length ? ' ⛔ ' + badOff.join(',') : ' ✓')
+        + '  ⭐ 5 条件が ON/OFF で全部反転することが受入 (⛔ 片側だけ見ない)'];
+    }],
 ].forEach(a => { ASSERT_OF[a[0]] = a; });
 
 const SECTIONS = [
   ['§0 装置 — 先に母集団を確かめる',            ['0z1', '0z2', '0a', '0b', '0c']],
   ['§1 マップと絵が食い違っていない',            ['1z1', '1z2', '1a', '1b', '1c']],
   ['§2 卓が 3 つで、シナリオ1〜3 に対応している', ['2a', '2b', '2c', '2d']],
-  ['§3 歩いて着いてから開く',                    ['3a', '3b', '3c']],
+  ['§3 歩いて着いてから開く',                    ['3z', '3a', '3b', '3c']],
   ['§4 扉',                                      ['4a', '4b', '4c']],
   ['§5 compact (縦画面)',                        ['5a', '5b', '5c']],
-  ['§6 恒等 (非退行)',                           ['6a', '6b', '6c']],
+  ['§6 恒等 (非退行)',                           ['6z', '6a', '6b', '6c']],
   ['§7 撤退',                                    ['7a', '7b', '7c']],
 ];
 
@@ -631,10 +1535,21 @@ function emit(id, m) {
     const grid = tile > 0 ? measureGrid(tile)
       : { tile: 0, code: -1, out: '', shiftCode: 0, v: null, h: null, shiftV: null, shiftH: null,
           dv: null, dh: null, driftOut: '' };
-    const M = { ledger: LEDGER, grid: grid, stub: stub };
     if (stub.pageErrs && stub.pageErrs.length) {
       console.log('[drv]   ⚠ スタブページのエラー ' + stub.pageErrs.length + ' 件: '
         + stub.pageErrs.slice(0, 3).join(' | '));
+    }
+
+    mark('測定 — tavern.html を実際に開く (§0(0a) と §2〜§7)');
+    const tav = await measureTavern(browser, PORT, ALL_PHASES, '素');
+    const M = { ledger: LEDGER, grid: grid, stub: stub, tav: tav,
+                dom: domPair(frozen(TAVERN_HTML).toString('utf8')) };
+    for (const k of ALL_PHASES.concat(['walkTrap'])) {
+      const ph = tav[k];
+      if (ph && ph.pageErrs && ph.pageErrs.length) {
+        console.log('[drv]   ⚠ ' + k + ' のページエラー ' + ph.pageErrs.length + ' 件: '
+          + ph.pageErrs.slice(0, 2).join(' | '));
+      }
     }
 
     for (const sec of SECTIONS) {
@@ -651,7 +1566,11 @@ function emit(id, m) {
         mark('負のコントロール — 変異 ' + k + ' (' + MUTATIONS[k].file + ' の配信を差し替え) → ('
           + MUTATIONS[k].targets.join(')(') + ') が赤くなる');
         const ms = await probeStub(browser, 'http://localhost:' + PORT_OF[k]);
-        const mm = { ledger: LEDGER, grid: grid, stub: ms };
+        const mt = await measureTavern(browser, PORT_OF[k], MUTATIONS[k].phases || [], '変異 ' + k);
+        /* ⚠ 変異が tavern.html を差し替えているなら (6c) も差し替え後の実体で測る */
+        const src = (MUT_SRC[k] && MUT_SRC[k].file === TAVERN_HTML)
+          ? MUT_SRC[k].body : frozen(TAVERN_HTML).toString('utf8');
+        const mm = { ledger: LEDGER, grid: grid, stub: ms, tav: mt, dom: domPair(src) };
         const ev = MUTATIONS[k].evaluable || [];
         const res = {};
         for (const id of ev) {
