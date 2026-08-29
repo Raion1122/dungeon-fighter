@@ -1,26 +1,28 @@
 # #36 キャラクターシートを「本物の 5E キャラクターシート」の体裁へ
 
 - **起草**: 2026-08-29(計画窓) / **ステータス**: **承認済**(2026-08-29 ユーザー承認)
-- **着手**: ⏸ **別窓の着地待ち**。2026-08-29 時点で別窓が `tavern.html` +
-  `tools/verify_tavern_map.js` を編集中(`#prep` に `btnPartyView` を追加し、
-  それに合わせて (6c) の `DOM_BASE` を更新している最中と見られる)。
-  ⚠ **着手前に `git status --short` が clean になっていることを確認する。**
-  ⚠ **着手前に §2 の行番号を全部測り直す**(別窓の commit で `tavern.html` は動くが、
-  本チケットが触る `index.html` / `js/player-sheet.js` は動かない見込み。ただし必ず測る)。
+- **着手**: ✅ **着手可能**(2026-08-29)。別窓は **`9b6f3b8`「準備画面からマッチング画面を
+  開き直せるようにする」で着地済み**。tree clean / HEAD = `f8471e7` = `origin/main`。
+  ⭐ 別窓が触ったのは `tavern.html` と `tools/verify_tavern_map.js` だけで、
+  **本チケットが触る `index.html` / `js/player-sheet.js` は 1 行も動いていない** —
+  §2 の行番号 9 件を着地後に全部照合し、**全部そのまま有効**であることを確認済み。
+  ⚠ それでも着手時にもう一度 `git status --short` を取る(また誰か入っている可能性)。
 - **触るファイル**:
   - `js/player-sheet.js`(区画の再構成・3 段組 CSS・空欄枠の契約・撤退スイッチ)
   - `index.html`(供給口の拡張 + `<script src="js/hero-classes.js">` 1 行 + changelog 1 行)
+  - `tavern.html`(`<script src="js/hero-classes.js">` **1 行だけ**)
   - `tools/verify_player_sheet.js`(区画 5 → 11 に伴う期待値更新 + 新規 §6〜§8 + 変異 8 本)
   - `assets/character-sheet/*.png`(codex1 納品・4 点。**404 でもシートは読める**設計)
   - `codex1/requests/2026-08-29_character-sheet-parchment.md`(発注文・別途起草済)
-- ⛔ **触らないファイル**: **`tavern.html`**
-  — **別窓が編集中**。2026-08-29 の起草中に `git status` が
-  `M tavern.html` + `?? tools/driver_party_view_reopen.js` へ変わった(`#prep` に
-  `<button id="btnPartyView" class="equipToggleBtn">🎴 編成を見る</button>` + `<span>` の
-  2 ノードが増えている)。本チケットは **tavern.html を一度も開かずに完了できる**(§3 で確認済)。
-  `git add .` 禁止・**ファイル単位 add**・`git diff --cached <file>` を読んでから commit。
-- ⛔ **`town.html` / `world.html` / `title.html` も開かない。** §2-6 のとおり、
+- **`tavern.html`** … `<script src="js/hero-classes.js">` を **1 行足すだけ**。
+  ⭐ **【2026-08-29 更新】** 起草時は別窓が編集中だったので「触らないファイル」に置き、
+  この 1 行を **#36b** として切り出していた。別窓が `9b6f3b8` で**着地したので #36 本体へ戻す**
+  — 切り出したままだと「tavern でだけ 特徴&特性 が伏せられる」というプレイヤーに説明できない
+  差が残るため。⚠ **1 行だけ。`#prep` まわりには一切触らない**(別窓が `btnPartyView` を入れたばかり)。
+- ⛔ **`town.html` / `world.html` / `title.html` は開かない。** §2-6 のとおり、
   必要だったフォントの追加は **モジュール側からの `<link>` 注入 1 箇所**で足りる。
+- ⚠ 並走の作法は維持する: `git add .` 禁止・**ファイル単位 add**・
+  `git diff --cached <file>` を読んでから commit。
 
 ---
 
@@ -166,8 +168,9 @@ title.html:386  town.html:312  world.html:418
     index の職業名の出所が `CLASS_LABELS` → `HERO_CLASSES` に変わる。
     **6 職とも表示名は一字一句同じ**(戦士 / ドワーフ / 僧侶 / 魔法使い / エルフ / 盗賊)なので
     画面は 1 文字も変わらない。
-- ⛔ **`tavern.html` へは足さない**(別窓が編集中)。→ tavern では 特徴&特性 が**行ごと伏せる**。
-  これは「取れない区画は伏せる」の規律どおりで矛盾しない。1 行を足す作業は §11 に用意した。
+- **`tavern.html` にも同じ 1 行を足す。** ⭐ 起草時は別窓が編集中で保留していたが、
+  `9b6f3b8` で着地したので本チケットに含める。⚠ **足すのは 1 行だけ**。
+  `#prep` まわり(別窓が `btnPartyView` を入れたばかり)には一切触らない。
 
 ### 2-6. ⚠⚠ 罠 E — `Noto Serif JP` は **index.html にしか読み込まれていない**
 
@@ -243,7 +246,15 @@ window.DFSheet.setBodyProvider(function () {
 | `tools/verify_title_screen.js` | **86/86** | |
 | `tools/verify_town_map.js` | **85/85** | |
 | `tools/verify_world_map.js` | **57/57 PENDING 0** | |
-| `tools/verify_tavern_map.js` | ⚠ **41/42 — (6c) が着手前から赤** | **本チケットのせいではない** ↓ |
+| `tools/verify_tavern_map.js` | ✅ **43/43 PENDING 0**(隣窓の着地後に再測定) | 起草中は 41/42 だった ↓ |
+
+⭐ **【2026-08-29 追記 — 決着済み】** 起草中に見えていた `41/42` は隣窓の未コミット差分が
+原因で、隣窓が **`9b6f3b8`「準備画面からマッチング画面を開き直せるようにする」** で着地した。
+着地後に測り直して **43/43**。⚠⚠ **基準は 42 ではなく 43**(隣窓が assert を 1 本足した)。
+⭐ 隣窓が触ったのは `tavern.html` と `tools/verify_tavern_map.js` だけで、
+**本チケットが触る `index.html` / `js/player-sheet.js` は 1 行も動いていない** —
+§2 の行番号 9 件を着地後に全部照合して**全部そのまま有効**だった。
+以下は起草時の記録(調べ方が再利用できるので残す):
 
 ⚠⚠⚠ **`verify_tavern_map` (6c) の赤は別窓の未コミット差分が原因。**
 (6c) は `#prep` のタグ構造を固定コミット `638b479` と突き合わせる assert で、実測は
@@ -256,9 +267,9 @@ now [15..]: span | button#btnPartyView.equipToggleBtn | button#btnReroll.equipTo
 
 = 作業ツリーの `tavern.html` に `<span>` + `<button id="btnPartyView">` が増えている。
 `git show HEAD:tavern.html | grep -c btnPartyView` → **0**(HEAD には無い)。
-つまり **HEAD は 42/42 のまま**で、赤いのは**別窓が編集中の作業ツリー**。
-→ 本チケットは (6c) を直さない。着手時に `git status` を取り直し、
-別窓が着地していれば **42/42 に戻っているはず**。戻っていなければ別窓へ報告する。
+つまり **HEAD は無傷**で、赤いのは**別窓が編集中の作業ツリー**だった。
+✅ **その後 `9b6f3b8` で別窓が着地し、再測定して 43/43**(⚠ 42 ではない。assert が 1 本増えた)。
+→ 本チケットは (6c) を直さない。
 
 **再測定コマンド**:
 
@@ -312,7 +323,7 @@ changelog を書くのは項目 2 の 1 コミットだけ。
 | 項目 | 担当 | 触るファイル | changelog |
 |---|---|---|---|
 | 1 | 区画定義の再構成 + 空欄枠の契約 + `__state()` の 3 値化 + **ドライバの §0〜§9 の枠を全宣言し未実装は `pending()`** | `js/player-sheet.js` / `tools/verify_player_sheet.js` | 不要 |
-| 2 | 3 段組 CSS + 各区画の描画 + 供給口の拡張 + `hero-classes.js` の 1 行 | `js/player-sheet.js` / **`index.html`** | **必要** |
+| 2 | 3 段組 CSS + 各区画の描画 + 供給口の拡張 + `hero-classes.js` の 1 行 × 2 枚 | `js/player-sheet.js` / **`index.html`** / **`tavern.html`**(1 行だけ) | **必要** |
 | 3 | フォント注入 + 撤退スイッチ `?sheet5e=0` + 装置を埋めて **PENDING 0** | `js/player-sheet.js` / `tools/verify_player_sheet.js` | 不要 |
 | 4 | 負のコントロール 8 本 + 既存 golden 非退行 + §12 実装結果 | `tools/verify_player_sheet.js` / 本ファイル | 不要 |
 
@@ -359,12 +370,15 @@ var SECTION_DEFS = [
 | `dfSheetSecBody` | 供給口 | ○ | — | — | — | — |
 | `dfSheetSecAttacks` | 供給口 | ○ | — | — | — | — |
 | `dfSheetSecPersona` | **blank** | ○ | ○ | ○ | ○ | ○ |
-| `dfSheetSecTraits` | `HERO_CLASSES` | ○ | **—** | ○ | ○ | ○ |
+| `dfSheetSecTraits` | `HERO_CLASSES` | ○ | ○ | ○ | ○ | ○ |
 | `dfSheetSecLanguages` | `DFSheet` | ○ | ○ | ○ | ○ | ○ |
-| **出る / 伏せる** | | 11/0 | 6/5 | 5/6 | 5/6 | 5/6 |
+| **出る / 伏せる** | | 11/0 | 7/4 | 5/6 | 5/6 | 5/6 |
 
-⭐ **tavern の Traits が「—」なのは §2-5 のとおり**。別窓の着地後に 1 行足せば ○ になる。
-⭐ 伏せた区画の合計 = **0+5+6+6+6 = 23**、全部出たページ = **1**(index)。
+⭐ tavern で伏せるのは **供給口(index 専用)由来の 4 つだけ**
+(`Saves` / `Combat` / `Body` / `Attacks`)。town/world/title はそれに
+`Proficiency` / `Skills`(SkillCheck 由来)が加わって 6 つ。
+= **伏せる理由が「供給口が無い」「SkillCheck が無い」の 2 つしかない**きれいな形になる。
+⭐ 伏せた区画の合計 = **0+4+6+6+6 = 22**、全部出たページ = **1**(index)。
    → (2c) の母集団ガード `hiddenTotal >= 5 && allShown >= 1` は満たす。
 
 ### 5-3. 空欄枠の宣言(ホワイトリスト)
@@ -568,7 +582,7 @@ function ensureFont() {
 | 節 | いま | 変更後 |
 |---|---|---|
 | (0s9) | `secs.length === 5` / `ids.length === 5` / `shown+hidden === 5` | **11** に直し、さらに `typeof s.blank === 'boolean'` を形の検査へ足す |
-| (2c) | `mismatch` = `inDom !== avail` | `inDom !== (avail \|\| blank)` へ**拡張**(⛔ 緩めない)。§5-2 の表を期待値として 5 ページ全部で照合。母集団は **伏せた区画 計 23 / 全部出たページ 1** |
+| (2c) | `mismatch` = `inDom !== avail` | `inDom !== (avail \|\| blank)` へ**拡張**(⛔ 緩めない)。§5-2 の表を期待値として 5 ページ全部で照合。母集団は **伏せた区画 計 22 / 全部出たページ 1** |
 | (2d) | 技能 12 の照合 | 変更なし。⚠ **行リストへ作り替えても `data-skill` / `data-score` / `data-prof` は変えない**ので緑のまま通ること |
 
 ### §0 装置(先に母集団を確かめる)
@@ -661,7 +675,7 @@ function ensureFont() {
 | `node tools/verify_title_screen.js` | **86/86** |
 | `node tools/verify_town_map.js` | **85/85** |
 | `node tools/verify_world_map.js` | **57/57** |
-| `node tools/verify_tavern_map.js` | ⚠ **HEAD では 42/42。着手時の作業ツリーでは 41/42**(§2-9・別窓由来) |
+| `node tools/verify_tavern_map.js` | **43/43 PENDING 0**(⚠ 42 ではない。別窓の着地 `9b6f3b8` で assert が 1 本増えた) |
 | `node tools/driver_action_priority.js` | **92/92**(index.html を触るので念のため) |
 
 ⚠ 基準値は 2026-08-29 時点の記録。**走らせて違ったら期待値を書き換える前に理由を突き止める**。
@@ -697,12 +711,9 @@ py tools/add_changelog.py "<b>キャラクターシートが本物の冒険者�
 
 ## 11. やらないこと
 
-- ⛔ **`tavern.html` を開くこと**(別窓が編集中)。着地後に足す 1 行は用意してある:
-
-  ```html
-  <script src="js/hero-classes.js"></script><!-- 職の立ち位置/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
-  ```
-  → tavern で 特徴&特性 が出るようになる。**#36b** として別途 1 コミット。
+- ⛔ **`tavern.html` の `#prep` まわりを触ること。** 足すのは `<script src="js/hero-classes.js">` の
+  **1 行だけ**(別窓が `9b6f3b8` で `btnPartyView` を入れたばかりで、構造を動かすと
+  `verify_tavern_map` (6c) の `DOM_BASE` 照合が即座に赤くなる)。
 - ⛔ **`js/skill-check.js` を town / world / title へ載せること。**
   #29 が「判定 UI ごと引き連れてくるので閲覧専用シートには重すぎる」と決めている。
   技能・習熟・受動知覚が 3 枚で伏せられるのは**設計どおり**。
@@ -714,10 +725,12 @@ py tools/add_changelog.py "<b>キャラクターシートが本物の冒険者�
   → **#37(仮)「人物欄に職ごとの一節を書き入れる」**として残す。
   ⭐ 本チケットで `BLANK_FIELD_IDS` から `trait/ideal/bond/flaw` を外すだけで流し込める形にしておく。
 - ⛔ **主人公に名前を付けること**。本作に PC 名は無い。名前欄には職業名を出す。
-- ⛔ **`verify_tavern_map` (6c) の赤を直すこと**(§2-9・別窓由来)。
-- ⛔ **`実装依頼書/README.md` への行追加**(別窓の着地後)。用意してある行:
+- ⛔ **`verify_tavern_map` (6c) を触ること。** §2-9 のとおり別窓の着地 `9b6f3b8` で
+  **43/43 に復帰済み**。本チケットの担当ではない。
+- ✅ **`実装依頼書/README.md` の #36 行は 2026-08-29 に追加済み**(別窓が着地したため)。
+  追加した行:
 
-  | 36 | [2026-08-29_player-sheet-5e-layout.md](2026-08-29_player-sheet-5e-layout.md) | **承認済** | 0% | キャラクターシートを本物の 5E シートの体裁へ(3 段組・能力値ボックス・セーヴ・攻撃・人物欄)。⚠⚠⚠ **セーヴの唯一の正は `playerStats`(戦闘系)で `js/abilities.js` ではない** — 5e 修正値から出すと画面が嘘になる(統合は #32)。⚠⚠⚠ **区画 5 → 11 で `verify_player_sheet` (0s9) が件数直書きのため必ず赤**(退行ではない)。⚠⚠ **「空の枠を出す」は #29 の `blankrow` 規律と衝突する** → `avail`/`blank`/`inDom` の 3 値へ拡張して**緩めずに**解く。⚠ `hero-classes.js` は index/tavern に載っていない・`Noto Serif JP` は index にしか載っていない。⛔ **tavern.html は別窓が編集中なので開かない**。撤退 = `?sheet5e=0` |
+  | 36 | [2026-08-29_player-sheet-5e-layout.md](2026-08-29_player-sheet-5e-layout.md) | **承認済** | 0% | キャラクターシートを本物の 5E シートの体裁へ(区画 5 → 11 の 3 段組・能力値ボックス・セーヴ・攻撃・人物欄)。⚠⚠⚠ **セーヴの唯一の正は `playerStats`(戦闘系)で `js/abilities.js` ではない** — 5e 修正値から出すと画面が嘘になる(統合は #32)。⚠⚠⚠ **区画 5 → 11 で `verify_player_sheet` (0s9) が件数直書きのため必ず赤**(退行ではない)。⚠⚠ **「空の枠を出す」は #29 の `blankrow` 規律と衝突する** → `avail`/`blank`/`inDom` の 3 値へ拡張して**緩めずに**解く。⚠ `hero-classes.js` は index/tavern に載っていない・`Noto Serif JP` は **index にしか載っていない**(同じシートが 5 ページで違う書体で出ている)。⛔ `tavern.html` は `<script src>` を **1 行足すだけ**(`#prep` は触らない)。golden 基準 2026-08-29: player_sheet 42/42 / ability 24/24 / title 86/86 / town 85/85 / world 57/57 / tavern 43/43 / action_priority 92/92。撤退 = `?sheet5e=0` |
 
 ---
 
