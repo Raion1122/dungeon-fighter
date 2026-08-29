@@ -1532,6 +1532,43 @@
       color: var(--parchment-ink-soft); margin-right: 7px; white-space: nowrap;
     }
     .chEmpty { padding: 18px; text-align: center; font-style: italic; color: var(--parchment-ink-soft); }
+    /* ── 隊列の働き (#37 STEP2 / 依頼書 §5-3) ────────────────────────────
+       与ダメ / 被ダメ / 撃破 / 生死 を墨の棒グラフで描く。
+       ⛔ 画像アセットは使わない (div の幅 % だけ)。⛔ 新しいカラー変数も作らない。
+       ⚠ 説明文に opacity を掛けない (#15 の実測: 羊皮紙の斑に食われる)。
+          読みやすさは chEvents と同じクリーム色の薄掛けで作る。 */
+    .chRosterHead {
+      font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 2px;
+      color: var(--parchment-ink-soft); margin: 2px 0 6px;
+    }
+    .chRoster { list-style: none; margin: 0 0 12px; padding: 0; }
+    .chRoster li {
+      display: grid; grid-template-columns: minmax(92px, 32%) 1fr; gap: 2px 10px;
+      align-items: center; padding: 6px 9px; margin-bottom: 4px;
+      border-left: 3px solid rgba(139,105,20,0.35); border-radius: 0 4px 4px 0;
+      background: rgba(255,245,210,0.42);
+    }
+    .chRoster li.down { border-left-color: #8b2010; }
+    .chWho { font-size: 13px; line-height: 1.35; }
+    .chWho small { display: block; font-size: 11px; color: var(--parchment-ink-soft); }
+    .chWho .chFell { display: block; font-size: 11px; color: #8b2010; }
+    .chBars { display: flex; flex-direction: column; gap: 3px; }
+    .chBarRow {
+      display: grid; grid-template-columns: 1.5em 1fr 3.4em; gap: 6px;
+      align-items: center; font-size: 11px; line-height: 1.2;
+    }
+    .chBarKey { font-family: 'Cinzel', serif; color: var(--parchment-ink-soft); }
+    .chBarTrack { height: 9px; border-radius: 2px; background: rgba(90,66,20,0.16); overflow: hidden; }
+    .chBarTrack i { display: block; height: 100%; background: #3b2a12; }
+    .chBarRow.taken .chBarTrack i { background: #8b2010; }
+    .chBarNum { text-align: right; font-variant-numeric: tabular-nums; }
+    /* iPhone 相当。⚠ 行が増えても縦スクロールを持つのは #chronicleBody 側 (器は動かさない)。
+       ⚠⚠ この画面の狭幅クラスは **body.compact** (layout() が付ける)。index.html の
+          body.ui-compact は tavern.html には一度も付かない (実測: 出現 0 件)。
+          検証ドライバが手で ui-compact を付ける流儀もあるので、両方を並べて受ける。 */
+    body.compact #chronicleInner, body.ui-compact #chronicleInner { max-height: 88vh; padding: 14px 14px 12px; }
+    body.compact .chRoster li, body.ui-compact .chRoster li { grid-template-columns: minmax(76px, 36%) 1fr; padding: 5px 7px; }
+    body.compact .chWho, body.ui-compact .chWho { font-size: 12px; }
     /* ⚠ iOS: 明示的な閉じるボタンはタップ領域 44px 以上 (依頼書 §9 (5a))。 */
     #chronicleClose {
       display: block; margin: 0 auto; min-height: 44px; min-width: 168px;
@@ -2623,10 +2660,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間の働きが数字で見える</b> — 与えたダメージ・受けたダメージ・倒した数を、帰還後の記録に隊列ごとの墨の棒グラフで並べる。</li>
         <li><b>冒険の記録が残るようになった</b> — 帰還後、酒場の羊皮紙で「誰がどこで何に倒れたか」を読み返せる。</li>
         <li><b>設定の引き出しが暗い画面に馴染むようになった</b> — 技の一覧が暗幕の上でもはっきり読めるようになり、今どのカードを開いているかも金の二重枠で一目で分かる。画面下の案内も「カードを押して設定・下のボタンで出発」と実際の操作どおりに直した。</li>
         <li><b>仲間が集う画面でスキルと戦い方を決められるようになった</b> — 顔ぶれのカードを押すとその場で開き、誰に何を使ってほしいかを出発前にまとめて指示できる。</li>
-        <li><b>仲間が集う画面に「出発する」ボタンが付いた</b> — うっかり画面に触れて出発してしまうことがなくなり、顔ぶれをゆっくり見てから自分の意思で出発できる。</li>
       </ul>
     </div>
     <script>
@@ -4728,6 +4765,50 @@
     el.addEventListener("touchend", run);
   }
 
+  /* classKey → 日本語の職名。⚠ 唯一の正はこの画面の職業表 (PARTY_SLOTS)。別表を作らない。 */
+  function chClassLabel(k) {
+    if (!k) return "";
+    try {
+      const s = PARTY_SLOTS.find((x) => x.classKey === k);
+      if (s) return s.name;
+    } catch (e) { /* 初期化順で見えない場合は職名なしで描く */ }
+    return "";
+  }
+
+  /* 隊列の働き (#37 STEP2 / 依頼書 §5-3)。
+     ⛔ 画像アセットは使わない — 棒は div の幅 % だけで描く。
+     ⚠ 与と被は**同じ物差し** (隊全体の最大値) で正規化する。別々に正規化すると
+        「たくさん殴った者」と「たくさん殴られた者」が同じ長さに見えてしまう。
+     ⛔ 数字で並べ替えない (snapshot の順 = 頭 → 出発時の隊列。誰が頭かが読めなくなる)。 */
+  function renderRoster(ch) {
+    const ms = (ch && Array.isArray(ch.members)) ? ch.members : [];
+    if (ms.length === 0) return "";
+    let max = 0;
+    for (const m of ms) {
+      if ((m.dealt || 0) > max) max = m.dealt || 0;
+      if ((m.taken || 0) > max) max = m.taken || 0;
+    }
+    const pct = (v) => (max > 0 ? Math.round(((v || 0) / max) * 100) : 0);
+    const bar = (key, cls, v) =>
+      '<div class="chBarRow ' + cls + '">'
+      + '<span class="chBarKey">' + key + '</span>'
+      + '<span class="chBarTrack"><i style="width:' + pct(v) + '%"></i></span>'
+      + '<span class="chBarNum">' + chEsc(String(v || 0)) + '</span></div>';
+    const rows = ms.map((m) => {
+      const cls  = chClassLabel(m.classKey);
+      const fell = m.fellAt
+        ? '<span class="chFell">R' + chEsc(String(m.fellAt.round || "?")) + ' '
+          + chEsc(m.fellAt.node || "道中") + 'で倒れた</span>'
+        : '';
+      const sub = (cls ? cls + " ／ " : "") + "討ち取り " + (m.kills || 0);
+      return '<li class="' + (m.fellAt ? 'down' : 'alive') + '">'
+        + '<div class="chWho"><b>' + chEsc(m.name) + '</b><small>' + chEsc(sub) + '</small>' + fell + '</div>'
+        + '<div class="chBars">' + bar("与", "dealt", m.dealt) + bar("被", "taken", m.taken) + '</div>'
+        + '</li>';
+    }).join("");
+    return '<div class="chRosterHead">隊列の働き</div><ul class="chRoster">' + rows + '</ul>';
+  }
+
   function renderChronicle(ch, meta) {
     const sub  = document.getElementById("chronicleSub");
     const body = document.getElementById("chronicleBody");
@@ -4740,6 +4821,7 @@
     const lead = "全 " + ((ch && ch.rounds) || 0) + " ラウンド ／ 討ち取った敵 "
                + ((ch && ch.kills) || 0) + " ／ 記した出来事 " + evs.length + " 件";
     let html = '<div class="chLead">' + chEsc(lead) + "</div>";
+    html += renderRoster(ch);   /* 年代記 (#37 STEP2 §5-3): 隊列の働き (墨の棒グラフ) */
     if (evs.length === 0) {
       html += '<div class="chEmpty">語り継ぐほどの出来事は無かった。</div>';
     } else {

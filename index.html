@@ -13896,6 +13896,55 @@
         } catch (e) { /* 初期化前 */ }
       }
 
+      /* ── 働きの集計 (#37 STEP2 / 依頼書 §5) ────────────────────────────────
+       * 手番の前後で全ユニットの hp を差分し、その手番の行動者へ帰属する。
+       * ⭐ 43 ある HP 書込点のうち 37 箇所が「手番ディスパッチ 1 点」のラップで覆われ、
+       *    残りは手番の外にある 6 関数を同じヘルパーで包んで拾う (依頼書 §2-2)。
+       * ⛔ Object.defineProperty のアクセサ方式は不採用。.hp の**読み**は HP バー描画と
+       *    AI のターゲット選択で高頻度に走るので、書込みを畳む目的で読みへコストを乗せない。 */
+      let turnDepth = 0;                  // beginTurn のネスト深さ (内側は no-op)
+      const NESTED = { nested: true };    // ネストした beginTurn の返り値 (identity で判定)
+
+      /* 全ユニットの hp を控える。O(仲間 + 敵) の配列走査 1 周だけ。 */
+      function hpSnapshot() {
+        const s = { actor: null, head: null, allies: [], enemies: [] };
+        try { s.head = hp; } catch (e) { /* 初期化前 */ }
+        try { for (let i = 0; i < allies.length; i++) s.allies.push(allies[i] ? allies[i].hp : null); } catch (e) {}
+        try { for (let i = 0; i < enemies.length; i++) s.enemies.push(enemies[i] ? enemies[i].hp : null); } catch (e) {}
+        return s;
+      }
+
+      /* 1 ユニット分の増減を台帳へ載せる。victimM = 味方なら受け皿 (敵は null)。
+         ⛔ 回復をダメージに数えない (依頼書 §9 (2c))。符号の分かれ目は下の 1 行だけ。 */
+      function credit(actorM, victimM, delta) {
+        if (!delta) return;
+        const dmg = -delta;                       /* ★ 減った分だけが正になる = 回復は負 */
+        if (dmg > 0) {
+          if (victimM) victimM.taken += dmg;
+          if (actorM && actorM !== victimM) actorM.dealt += dmg;
+        } else if (victimM && actorM) {
+          actorM.healed += delta;                 /* 回復は healed へ。dealt には入れない */
+        }
+      }
+
+      /* 手番の差分を台帳へ。⚠ 行動者を引く前に隊列を作ること — 逆にすると最初の手番だけ
+         「まだ members に居ない」で帰属が丸ごと落ちる。 */
+      function applyTurnDiff(snap) {
+        syncRoster();
+        const actorM = snap.actor ? memberByName(snap.actor) : null;
+        if (snap.head != null) credit(actorM, ensure({ head: true }), hp - snap.head);
+        for (let i = 0; i < snap.allies.length; i++) {
+          const a = allies[i];
+          if (!a || snap.allies[i] == null) continue;
+          credit(actorM, ensure(a), a.hp - snap.allies[i]);
+        }
+        for (let i = 0; i < snap.enemies.length; i++) {
+          const e = enemies[i];
+          if (!e || snap.enemies[i] == null) continue;
+          credit(actorM, null, e.hp - snap.enemies[i]);   /* 敵は taken を持たない */
+        }
+      }
+
       return {
         /* ラウンドの刻印。戦闘の while ループが 1 ラウンド 1 回だけ呼ぶ。 */
         setRound(r) {
@@ -13904,16 +13953,24 @@
           roundsTotal++;
         },
 
-        /* ⚠ 中身 (全ユニットの hp を控える) は STEP2 = 依頼書 §5-1 の担当。
-           ここでは「いまの行動者」だけ控える。返り値はそのまま endTurn へ渡すこと。 */
+        /* 手番の始まり。全ユニットの hp を控えて返す。返り値はそのまま endTurn へ渡すこと。
+           ⚠ ネスト: 手番の中から手番外の 6 点が呼ばれても外側の帰属を壊さないよう、
+              既にスナップショットが開いていれば内側は no-op を返す (閉じるのは外側 1 回)。 */
         beginTurn(actor) {
           if (!CHRONICLE_ON) return null;
+          turnDepth++;
+          if (turnDepth > 1) return NESTED;
           curActor = actorName(actor);
-          return { actor: curActor };
+          const s = hpSnapshot();
+          s.actor = curActor;
+          return s;
         },
-        /* ⚠ 中身 (hp 差分を actor へ帰属 / delta<0=ダメージ, delta>0=回復) は STEP2 の担当。 */
+        /* 手番の終わり。hp 差分を行動者へ帰属する (delta<0 = ダメージ / delta>0 = 回復)。 */
         endTurn(snap) {
           if (!CHRONICLE_ON) return;
+          if (turnDepth > 0) turnDepth--;
+          if (!snap || snap === NESTED) return;
+          try { applyTurnDiff(snap); } catch (e) { /* 帰属の失敗で手番を止めない */ }
           curActor = null;
         },
 
@@ -15634,56 +15691,63 @@
     }
 
     function damageEnemy(index, stage = 0, angle = currentAttackAngle) {
-      const enemy = enemies[index];
-      if (!enemy.alive) return;
-      // [7.9-3 STEP5] 護衛対象 (馬車) は PT の探索フェーズの斬撃を受けない。
-      //   damageEnemy の呼び出し元は checkAttackHit 1 箇所のみ = PT 専用のダメージ経路なので、
-      //   ここで弾いても「敵が馬車を攻撃する」(enemyAttackEnemyTarget) には影響しない。
-      //   ★ STEP4 実測の「PT が 5 秒で 3 回・hp 60→56」はこの経路 (weapon.power 分) が真因。
-      if (isEscortObjective(enemy)) return;
+      /* 年代記 (#37 STEP2): 手番外の 6 点 1/6 — 探索フェーズの斬撃。呼び出し元は
+         checkAttackHit ただ 1 箇所 = PT 専用の経路なので、加害者は頭。 */
+      const __chOut = RunChronicle.beginTurn({ kind: "player" });
+      try {
+        const enemy = enemies[index];
+        if (!enemy.alive) return;
+        // [7.9-3 STEP5] 護衛対象 (馬車) は PT の探索フェーズの斬撃を受けない。
+        //   damageEnemy の呼び出し元は checkAttackHit 1 箇所のみ = PT 専用のダメージ経路なので、
+        //   ここで弾いても「敵が馬車を攻撃する」(enemyAttackEnemyTarget) には影響しない。
+        //   ★ STEP4 実測の「PT が 5 秒で 3 回・hp 60→56」はこの経路 (weapon.power 分) が真因。
+        if (isEscortObjective(enemy)) return;
 
-      // 攻撃を受けたら必ず追跡状態に
-      //   [7.9-3 STEP4] ただし護衛対象 (馬車) は追跡しない = state を idle のまま据え置く。
-      //   chase に飛ぶと (1) 歩行アニメ(row2)がその場で再生される「走らない馬車が車輪だけ回す」絵になり、
-      //   (2) exploreEnemyTurn の state ゲートに載ってしまう (そちらは def フラグでも塞いであるが二重防護)。
-      if (enemy.state !== "chase" && !enemy.def.isObjective) {
-        enemy.state = "chase";
-        enemy.alertTimer = 0;
-        enemy.path = [];
-        enemy.pathTimer = 0;
-      }
-
-      const weapon = getCurrentWeapon();
-      let damage = weapon.power;
-      let knockback = weapon.knockback;
-      let strong = false;
-
-      if (stage === 1) {
-        knockback *= 2;
-        strong = true;
-      }
-
-      // 非魔法物理の免疫/耐性 (ストーンゴーレム/ガーゴイル): 探索フェーズの斬りもここを通す。
-      // ⚠ 渡すのは装備の真値 (weapon.enhancement)。effectiveWeaponEnh() の実効値ではない。
-      // 免疫時は「弾かれた」= ダメージもノックバックも起きない (上の chase 化だけは済んでいる)。
-      const physDef = resolvePhysDefense(index, (weapon && weapon.enhancement) || 0, damage, "斬撃");
-      if (physDef.immune) return;
-      damage = physDef.dmg;
-
-      triggerEnemyDamageFlash(index);
-      showHitSpark(index, strong);
-      enemy.hp -= damage;
-      applyKnockback(enemy, knockback, angle);
-
-      if (enemy.hp <= 0) {
-        defeatEnemy(index);
-      } else {
-        if (stage === 0) {
-          const nm = (enemy.def && enemy.def.name) || "敵";
-          updateInfo(nm + "に " + damage + " ダメージ！ 残りHP: " + enemy.hp);
-        } else {
-          updateInfo("ダッシュカウンター命中！ 残りHP: " + enemy.hp);
+        // 攻撃を受けたら必ず追跡状態に
+        //   [7.9-3 STEP4] ただし護衛対象 (馬車) は追跡しない = state を idle のまま据え置く。
+        //   chase に飛ぶと (1) 歩行アニメ(row2)がその場で再生される「走らない馬車が車輪だけ回す」絵になり、
+        //   (2) exploreEnemyTurn の state ゲートに載ってしまう (そちらは def フラグでも塞いであるが二重防護)。
+        if (enemy.state !== "chase" && !enemy.def.isObjective) {
+          enemy.state = "chase";
+          enemy.alertTimer = 0;
+          enemy.path = [];
+          enemy.pathTimer = 0;
         }
+
+        const weapon = getCurrentWeapon();
+        let damage = weapon.power;
+        let knockback = weapon.knockback;
+        let strong = false;
+
+        if (stage === 1) {
+          knockback *= 2;
+          strong = true;
+        }
+
+        // 非魔法物理の免疫/耐性 (ストーンゴーレム/ガーゴイル): 探索フェーズの斬りもここを通す。
+        // ⚠ 渡すのは装備の真値 (weapon.enhancement)。effectiveWeaponEnh() の実効値ではない。
+        // 免疫時は「弾かれた」= ダメージもノックバックも起きない (上の chase 化だけは済んでいる)。
+        const physDef = resolvePhysDefense(index, (weapon && weapon.enhancement) || 0, damage, "斬撃");
+        if (physDef.immune) return;
+        damage = physDef.dmg;
+
+        triggerEnemyDamageFlash(index);
+        showHitSpark(index, strong);
+        enemy.hp -= damage;
+        applyKnockback(enemy, knockback, angle);
+
+        if (enemy.hp <= 0) {
+          defeatEnemy(index);
+        } else {
+          if (stage === 0) {
+            const nm = (enemy.def && enemy.def.name) || "敵";
+            updateInfo(nm + "に " + damage + " ダメージ！ 残りHP: " + enemy.hp);
+          } else {
+            updateInfo("ダッシュカウンター命中！ 残りHP: " + enemy.hp);
+          }
+        }
+      } finally {
+        RunChronicle.endTurn(__chOut);
       }
     }
 
@@ -16143,49 +16207,55 @@
     }
 
     function damagePlayer(enemy, enemyIndex) {
-      if (gameOver) return;
-      if (encounterActive) return;  // 観戦フェーズ中はダイス側に任せる
-      if (counterActive || counterInvincible) return;
-      if (invincible || guardInvincible) return;
+      /* 年代記 (#37 STEP2): 手番外の 6 点 2/6 — 探索フェーズの被弾。加害者は触れた敵。 */
+      const __chOut = RunChronicle.beginTurn({ kind: "enemy", idx: enemyIndex });
+      try {
+        if (gameOver) return;
+        if (encounterActive) return;  // 観戦フェーズ中はダイス側に任せる
+        if (counterActive || counterInvincible) return;
+        if (invincible || guardInvincible) return;
 
-      if (isGuarding && isGuardFacingEnemy(enemy)) {
-        showGuardEffect();
-        updateInfo("正面ガード成功！ カキン！");
-        startCounterCombo(enemyIndex);
-        return;
+        if (isGuarding && isGuardFacingEnemy(enemy)) {
+          showGuardEffect();
+          updateInfo("正面ガード成功！ カキン！");
+          startCounterCombo(enemyIndex);
+          return;
+        }
+
+        const armor = getCurrentArmor();
+
+        if (Math.random() < armor.blockChance) {
+          applyPlayerKnockbackFromEnemy(enemy, true, 1, 1);
+          updateInfo(armor.name + " がダメージを防いだ！ カキン！");
+          showGuardEffect();
+          startTimedInvincibility(guardInvincibleDuration, true);
+          return;
+        }
+
+        hp -= 1;
+        applyPlayerKnockbackFromEnemy(enemy, false, 2, 2);
+        triggerRecoilPlayer(Math.sign((playerX + 48) - (enemy.x + enemy.def.displaySize / 2)));   // 攻撃エフェクト: 攻撃者と逆へのけぞり
+        updateInfo("ダメージを受けた！");
+
+        if (hp <= 0) {
+          if (onHeadDowned("explore")) return;   // 頭=NPC → 委譲して継続
+          gameOver = true;
+          invincible = false;
+          guardInvincible = false;
+          counterInvincible = false;
+          counterVisualActive = false;
+          stopDamageBlink();
+          player.style.opacity = "1";
+          player.style.filter = "none";
+          updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
+          return;
+        }
+
+        // ノックバック廃止に伴い、密着継続でも連続被弾しないよう i-frame を固定化
+        startDamageBlinkInvincibility(600);
+      } finally {
+        RunChronicle.endTurn(__chOut);
       }
-
-      const armor = getCurrentArmor();
-
-      if (Math.random() < armor.blockChance) {
-        applyPlayerKnockbackFromEnemy(enemy, true, 1, 1);
-        updateInfo(armor.name + " がダメージを防いだ！ カキン！");
-        showGuardEffect();
-        startTimedInvincibility(guardInvincibleDuration, true);
-        return;
-      }
-
-      hp -= 1;
-      applyPlayerKnockbackFromEnemy(enemy, false, 2, 2);
-      triggerRecoilPlayer(Math.sign((playerX + 48) - (enemy.x + enemy.def.displaySize / 2)));   // 攻撃エフェクト: 攻撃者と逆へのけぞり
-      updateInfo("ダメージを受けた！");
-
-      if (hp <= 0) {
-        if (onHeadDowned("explore")) return;   // 頭=NPC → 委譲して継続
-        gameOver = true;
-        invincible = false;
-        guardInvincible = false;
-        counterInvincible = false;
-        counterVisualActive = false;
-        stopDamageBlink();
-        player.style.opacity = "1";
-        player.style.filter = "none";
-        updateInfo(isPartyWiped() ? MSG_DEFEAT_PARTY : MSG_DEFEAT_YOU);
-        return;
-      }
-
-      // ノックバック廃止に伴い、密着継続でも連続被弾しないよう i-frame を固定化
-      startDamageBlinkInvincibility(600);
     }
 
     function checkPlayerCollision() {
@@ -20098,14 +20168,25 @@
             const actorFocus = actorWorldCenter(actor);
             if (actorFocus) focusCameraOn(actorFocus.x, actorFocus.y);
 
-            if (actor.kind === "player") {
-              const tgtIdx = pickAliveEngagedIdx();
-              if (tgtIdx < 0) break;
-              await playerAttackTurn(tgtIdx);
-            } else if (actor.kind === "ally") {
-              await allyAttackTurn(actor.ally);
-            } else {
-              await enemyAttackTurn(actor.idx);
+            /* ── 年代記 (#37 STEP2): 手番ラップ (依頼書 §5-1) ────────────────
+             * 手番の前後で全ユニットの hp を差分し、その手番の行動者へ帰属する。
+             * ⭐ 43 ある HP 書込点のうち 37 箇所がこの 1 点で覆われる (§2-2)。
+             * ⛔ try/finally にすること。break でも例外でも差分を必ず閉じる。
+             * ⛔ 上のガード (gameOver / 生存 / ナレ待ち) より**内側**に置くこと。外側だと
+             *    死んだユニットの手番でもスナップショットが走り、差分が空回りする。 */
+            const __chSnap = RunChronicle.beginTurn(actor);
+            try {
+              if (actor.kind === "player") {
+                const tgtIdx = pickAliveEngagedIdx();
+                if (tgtIdx < 0) break;
+                await playerAttackTurn(tgtIdx);
+              } else if (actor.kind === "ally") {
+                await allyAttackTurn(actor.ally);
+              } else {
+                await enemyAttackTurn(actor.idx);
+              }
+            } finally {
+              RunChronicle.endTurn(__chSnap);
             }
             await sleepMs(220);
             /* ★★★[#9 / 2026-08-22] **戦闘中も「玉座へ詰めたか」を見る**。
@@ -24790,53 +24871,66 @@
     }
 
     function triggerTrapOnPlayer(trap, dmText) {
-      trap.triggered = true;
-      trap.found = true;
-      sfx("trap");
-      const r = rollDiceDD(1, 6);
-      const dmg = r.total;
-      // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (1戦1回)
-      if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired
-          && (hp - dmg) <= 0 && dmg > 0) {
-        playerBuffs.resilientFired = true;
-        const s = rollDiceDD(1, 4);
-        hp = s.total;
-        showBuffPop(`<span class="label">不屈!</span>罠の致命傷を 1d4(<span class="big">${s.total}</span>) HP で耐える`);
-      } else {
-        hp = Math.max(0, hp - dmg);
+      /* 年代記 (#37 STEP2): 手番外の 6 点 3/6 — 罠。加害者は誰でもないので無名の 罠。
+         members に居ない名前なので dealt は誰にも付かず、頭の taken だけが増える。 */
+      const __chOut = RunChronicle.beginTurn("罠");
+      try {
+        trap.triggered = true;
+        trap.found = true;
+        sfx("trap");
+        const r = rollDiceDD(1, 6);
+        const dmg = r.total;
+        // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (1戦1回)
+        if (equippedSkills.includes("resilient") && !playerBuffs.resilientFired
+            && (hp - dmg) <= 0 && dmg > 0) {
+          playerBuffs.resilientFired = true;
+          const s = rollDiceDD(1, 4);
+          hp = s.total;
+          showBuffPop(`<span class="label">不屈!</span>罠の致命傷を 1d4(<span class="big">${s.total}</span>) HP で耐える`);
+        } else {
+          hp = Math.max(0, hp - dmg);
+        }
+        showBanner("罠発動!", 1200);
+        showDMMessage(dmText || "しまった! 罠だ!", 1800);   // 既定=不意の踏み抜き / 引数=ファンブル等の文脈別の語り
+        updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
+        showDmgAt(playerX + 48, playerY + 48, dmg, false);
+        if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }
+      } finally {
+        RunChronicle.endTurn(__chOut);
       }
-      showBanner("罠発動!", 1200);
-      showDMMessage(dmText || "しまった! 罠だ!", 1800);   // 既定=不意の踏み抜き / 引数=ファンブル等の文脈別の語り
-      updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
-      showDmgAt(playerX + 48, playerY + 48, dmg, false);
-      if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }
     }
 
     function triggerTrapOnAlly(trap, ally) {
-      trap.triggered = true;
-      trap.found = true;
-      const r = rollDiceDD(1, 6);
-      const dmg = r.total;
-      // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (戦士系の仲間のみ・1戦1回)
-      let trapResilientNote = "";
-      if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
-          && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
-        ally.buffs.resilientFired = true;
-        const s = rollDiceDD(1, 4);
-        ally.hp = s.total;
-        trapResilientNote = ` → 不屈! ${s.total} HP で耐えた`;
-      } else {
-        ally.hp = Math.max(0, ally.hp - dmg);
-      }
-      showBanner("罠発動!", 1200);
-      showDMMessage("しまった! 罠だ!", 1800);
-      updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ${trapResilientNote}`);
-      showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
-      if (ally.hp <= 0) {
-        RunChronicle.fall(ally, "罠");   // 年代記 (#37): 仲間の死 1/4
-        ally.alive = false;
-        updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
-        if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+      /* 年代記 (#37 STEP2): 手番外の 6 点 4/6 — 罠 (仲間)。加害者は無名の 罠。 */
+      const __chOut = RunChronicle.beginTurn("罠");
+      try {
+        trap.triggered = true;
+        trap.found = true;
+        const r = rollDiceDD(1, 6);
+        const dmg = r.total;
+        // 不屈: 罠の致命傷でも 1d4 HP で踏みとどまる (戦士系の仲間のみ・1戦1回)
+        let trapResilientNote = "";
+        if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+            && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+          ally.buffs.resilientFired = true;
+          const s = rollDiceDD(1, 4);
+          ally.hp = s.total;
+          trapResilientNote = ` → 不屈! ${s.total} HP で耐えた`;
+        } else {
+          ally.hp = Math.max(0, ally.hp - dmg);
+        }
+        showBanner("罠発動!", 1200);
+        showDMMessage("しまった! 罠だ!", 1800);
+        updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ${trapResilientNote}`);
+        showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
+        if (ally.hp <= 0) {
+          RunChronicle.fall(ally, "罠");   // 年代記 (#37): 仲間の死 1/4
+          ally.alive = false;
+          updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
+          if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+        }
+      } finally {
+        RunChronicle.endTurn(__chOut);
       }
     }
 
@@ -24858,42 +24952,49 @@
     //   triggerTrapOnAlly を敵に反転したもの。⚠damageEnemy は使わない (weapon.power/chase 等の斬撃専用副作用を巻き込むため)。
     //   ⚠決定論の核心: parseDice (=Math.random) はこの関数内でのみ引く = 敵が実際にタイルに乗った瞬間だけ。
     function triggerTrapOnEnemy(trap, enemy, idx) {
-      if (!enemy || !enemy.alive) return;
-      const type = trap.type || "damage";
-      const spec = TRAP_TYPES[type] || TRAP_TYPES.damage;
-      const r = parseDice(spec.weaponizeDice);   // ★2d6: 敵が実際に乗った瞬間にのみ RNG を引く
-      // 非魔法物理の免疫/耐性 (fort-golems.md): 罠の刃も非魔法物理なので石の敵には通りにくい。
-      // ⚠ 罠には持ち主の武器 + が乗らない = enh 0 固定 (盗賊が仕掛け直しても魔法にはならない)。
-      // ⚠ parseDice は免疫でも先に引いてある。「敵が乗った瞬間に 1 ドロー」という決定論を崩さないため。
-      // 免疫でも罠そのものは消費する (発動はした = trap.triggered)。
-      const physDef = resolvePhysDefense(idx, 0, r.total, "罠");
-      const dmg = physDef.dmg;
-      if (!physDef.immune) enemy.hp -= dmg;
-      trap.triggered = true;                     // 1回で消費
-      if (trap.el) {
-        trap.el.classList.remove("rearmed");     // 起動したらオーラを消す
-        trap.el.classList.add("triggered");
-      }
-      sfx("trap");
-      const eSize = (enemy.def && enemy.def.displaySize) || 96;
-      const eCX = enemy.x + eSize / 2;
-      const eCY = enemy.y + eSize / 2;
-      const enm = (enemy.def && enemy.def.name) || "敵";
-      if (physDef.immune) {
-        // 演出 (IMMUNE ポップ + updateInfo) は resolvePhysDefense 側で出している。
-        // ダメージフラッシュと「喰らわれる番だ」の DM 語りは、0 ダメージでは嘘になるので出さない。
-        showBanner("💥 罠は石の体に弾かれた…", 1200);
-        return;
-      }
-      if (typeof triggerEnemyDamageFlash === "function") triggerEnemyDamageFlash(idx);
-      showDmgAt(eCX, eCY, dmg, false);
-      showBanner("💥 罠が敵を捉えた!", 1200);
-      // Phase 2 の見せ場の到達点。踏み抜き(player/ally)と同様にここでも DM が一言添える(voiceId なし=無音 no-op)。
-      showDMMessage("反転した罠が牙を剥いた——今度は、敵が喰らわれる番だ。", 1800);
-      updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg}${physDef.resisted ? " (半減後)" : ""} ダメージ`);
-      if (enemy.hp <= 0) {
-        enemy.hp = 0;
-        if (typeof defeatEnemy === "function") defeatEnemy(idx);   // XP/ドロップ/クエスト進行を回す
+      /* 年代記 (#37 STEP2): 手番外の 6 点 5/6 — 武器化した罠。owner が party =
+         パーティの仕掛けなので頭 (隊の代表) へ帰属させる。仕掛け直した本人までは追わない。 */
+      const __chOut = RunChronicle.beginTurn({ head: true });
+      try {
+        if (!enemy || !enemy.alive) return;
+        const type = trap.type || "damage";
+        const spec = TRAP_TYPES[type] || TRAP_TYPES.damage;
+        const r = parseDice(spec.weaponizeDice);   // ★2d6: 敵が実際に乗った瞬間にのみ RNG を引く
+        // 非魔法物理の免疫/耐性 (fort-golems.md): 罠の刃も非魔法物理なので石の敵には通りにくい。
+        // ⚠ 罠には持ち主の武器 + が乗らない = enh 0 固定 (盗賊が仕掛け直しても魔法にはならない)。
+        // ⚠ parseDice は免疫でも先に引いてある。「敵が乗った瞬間に 1 ドロー」という決定論を崩さないため。
+        // 免疫でも罠そのものは消費する (発動はした = trap.triggered)。
+        const physDef = resolvePhysDefense(idx, 0, r.total, "罠");
+        const dmg = physDef.dmg;
+        if (!physDef.immune) enemy.hp -= dmg;
+        trap.triggered = true;                     // 1回で消費
+        if (trap.el) {
+          trap.el.classList.remove("rearmed");     // 起動したらオーラを消す
+          trap.el.classList.add("triggered");
+        }
+        sfx("trap");
+        const eSize = (enemy.def && enemy.def.displaySize) || 96;
+        const eCX = enemy.x + eSize / 2;
+        const eCY = enemy.y + eSize / 2;
+        const enm = (enemy.def && enemy.def.name) || "敵";
+        if (physDef.immune) {
+          // 演出 (IMMUNE ポップ + updateInfo) は resolvePhysDefense 側で出している。
+          // ダメージフラッシュと「喰らわれる番だ」の DM 語りは、0 ダメージでは嘘になるので出さない。
+          showBanner("💥 罠は石の体に弾かれた…", 1200);
+          return;
+        }
+        if (typeof triggerEnemyDamageFlash === "function") triggerEnemyDamageFlash(idx);
+        showDmgAt(eCX, eCY, dmg, false);
+        showBanner("💥 罠が敵を捉えた!", 1200);
+        // Phase 2 の見せ場の到達点。踏み抜き(player/ally)と同様にここでも DM が一言添える(voiceId なし=無音 no-op)。
+        showDMMessage("反転した罠が牙を剥いた——今度は、敵が喰らわれる番だ。", 1800);
+        updateInfo(`武器化した罠が ${enm} を直撃! ${spec.weaponizeDice}(${r.rolls.join("+")}) = ${dmg}${physDef.resisted ? " (半減後)" : ""} ダメージ`);
+        if (enemy.hp <= 0) {
+          enemy.hp = 0;
+          if (typeof defeatEnemy === "function") defeatEnemy(idx);   // XP/ドロップ/クエスト進行を回す
+        }
+      } finally {
+        RunChronicle.endTurn(__chOut);
       }
     }
 
@@ -28606,30 +28707,38 @@
       if (cordonZones.length === 0) return;
       for (let z = cordonZones.length - 1; z >= 0; z--) {
         const zone = cordonZones[z];
-        const idxs = enemiesInArea(zone.tx, zone.ty, zone.w, zone.h);
-        let hitCount = 0;
-        for (const idx of idxs) {
-          const t = enemies[idx];
-          if (!t.alive) continue;
-          const { n, sides } = parseDiceDD(zone.dmgDice);
-          let dmg = 0;
-          for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
-          dmg = Math.max(1, dmg);
-          if (tryDisplacement(idx)) continue;
-          t.hp = Math.max(0, t.hp - dmg);
-          triggerEnemyDamageFlash(idx);
-          noteDisplacementHit(idx);
-          showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, false);
-          hitCount++;
-          if (t.hp <= 0) defeatEnemy(idx);
+        /* 年代記 (#37 STEP2): 手番外の 6 点 6/6 — コードン・オブ・アロー。
+           ⚠ 発動はラウンド開始時 = 手番の外。加害者は「その時の行動者」ではなく
+              **ゾーンを設置したエルフ本人**なので、設置時に控えた zone.owner を使う。 */
+        const __chOut = RunChronicle.beginTurn(zone.owner || "コードン");
+        try {
+          const idxs = enemiesInArea(zone.tx, zone.ty, zone.w, zone.h);
+          let hitCount = 0;
+          for (const idx of idxs) {
+            const t = enemies[idx];
+            if (!t.alive) continue;
+            const { n, sides } = parseDiceDD(zone.dmgDice);
+            let dmg = 0;
+            for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+            dmg = Math.max(1, dmg);
+            if (tryDisplacement(idx)) continue;
+            t.hp = Math.max(0, t.hp - dmg);
+            triggerEnemyDamageFlash(idx);
+            noteDisplacementHit(idx);
+            showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, false);
+            hitCount++;
+            if (t.hp <= 0) defeatEnemy(idx);
+          }
+          if (hitCount > 0) {
+            spawnGroundFx(zone.tx, zone.ty, zone.w, zone.h, "fireball-scorch", 500);
+            updateInfo(`コードンの矢が ${hitCount}体を貫いた`);
+            await sleepMs(320);
+          }
+          zone.roundsLeft -= 1;
+          if (zone.roundsLeft <= 0) cordonZones.splice(z, 1);
+        } finally {
+          RunChronicle.endTurn(__chOut);
         }
-        if (hitCount > 0) {
-          spawnGroundFx(zone.tx, zone.ty, zone.w, zone.h, "fireball-scorch", 500);
-          updateInfo(`コードンの矢が ${hitCount}体を貫いた`);
-          await sleepMs(320);
-        }
-        zone.roundsLeft -= 1;
-        if (zone.roundsLeft <= 0) cordonZones.splice(z, 1);
       }
     }
 
@@ -28687,7 +28796,10 @@
       spawnGroundFx(best.tx, best.ty, 3, 3, "fireball-scorch", (skill.zoneRounds || 3) * 2600);
 
       cordonZones.push({ tx: best.tx, ty: best.ty, w: 3, h: 3,
-        dmgDice: skill.dmgDice || "1d6", roundsLeft: skill.zoneRounds || 3 });
+        dmgDice: skill.dmgDice || "1d6", roundsLeft: skill.zoneRounds || 3,
+        /* 年代記 (#37 STEP2): 発動はラウンド開始時 = 手番の外なので、加害者は
+           「その時の行動者」ではなく**設置したエルフ本人**。ここで控えておく (依頼書 §5-2)。 */
+        owner: ally });
       updateInfo(`${ally.def.name}: コードン・オブ・アローを地帯に仕込んだ (${skill.zoneRounds || 3}R)`);
       await sleepMs(500);
     }
