@@ -13,16 +13,19 @@
  *     #partyMatchOverlay を **review モード** (全員確定済み・開示アニメ無し) で開き直す。
  *
  * ⚠⚠ このドライバの肝は「開いた」ではなく **「開いて、閉じて、準備画面に居る」** を測ること。
- *   マッチング画面の既存の待ち文言は「タップして出発」で、そのまま流用すると
+ *   マッチング画面の待ち文言は出発を指しており、そのまま流用すると
  *   *押したら潜れる* という嘘の導線になる。閉じた先が #prep のままであること (§2) と
- *   文言が「タップして準備へ戻る」であること (1d) は、同じ 1 つの主張の両面。
+ *   文言が「準備へ戻る」を指すこと (1d) は、同じ 1 つの主張の両面。
+ *   ⚠ 2026-08-29 (#35 STEP3): 背景タップで出発しなくなったので文言そのものが変わった
+ *     (hintWait / hintReview)。(1d)(4c) は **期待値を弱めず測定点だけ移した** ——
+ *     verbatim 一致 → 「どちらの出口を指しているか」の不変条件。
  *
  * ⚠ 到達を必ず assert する。#prep に着いていない状態で「オーバーレイが閉じている」を測ると
  *   全部が自明に真になる空振り (memory ⑤: 母集団はカメラの置き方だけで消える)。→ (0a)(0b)。
  *
  * ── 負のコントロール (--negative) ──────────────────────────────────────────
  * 配信する tavern.html のバイト列へ変異を注入し、**下記が赤くなること**で物差しの生存を証明する。
- *   N1: finishReveal の待ち文言の三項を "タップして出発" 固定へ
+ *   N1: finishReveal の待ち文言の三項を hintWait (出発側) 固定へ
  *       → (1d) が赤。閉じたら準備画面へ戻るのに「出発」と言う = 嘘の導線が復活する。
  *   N2: `if (m.isHero || review)` を `if (m.isHero)` へ (review でも仲間を伏せる)
  *       → (1b)(1c) が赤。開き直すたびに ？？？ から始まる茶番の再生になる。
@@ -91,9 +94,12 @@ function mutate(label, anchor, patch) {
   console.log('[driver] ★ 負のコントロール ' + label + ' を注入しました');
 }
 if (NEGATIVE) {
+  /* ⚠ #35 STEP3 (2026-08-29) で待ち文言がリテラルから hintWait / hintReview の 2 変数へ移った。
+     背景タップで出発しなくなり「タップして出発」自体が実挙動と合わなくなったため (依頼書 #35 §4-2)。
+     ⭐ 変異の意味は不変 = 「review でも出発側の文言を出す」。 */
   mutate('N1 (待ち文言を「出発」固定へ)',
-    'review ? "タップして準備へ戻る" : "タップして出発"',
-    '"タップして出発"');
+    'review ? hintReview : hintWait',
+    'hintWait');
   mutate('N2 (review でも仲間を伏せる)',
     'if (m.isHero || review) cols[i].fill(false); else revealQueue.push(i);',
     'if (m.isHero) cols[i].fill(false); else revealQueue.push(i);');
@@ -350,8 +356,14 @@ async function tapOverlay(page) {
     check('(1c) 「？？？」の伏せ札が 1 枚も無い',
       o1.names.length > 0 && o1.names.filter((n) => n.indexOf('？') >= 0).length === 0,
       JSON.stringify(o1.names));
-    check('(1d) ★受入条件: 待ち文言が「タップして準備へ戻る」(閉じた先は出発ではない)',
-      o1.hint === 'タップして準備へ戻る', '実際 = "' + o1.hint + '"');
+    /* ⚠ #35 STEP3 で【測定点を移した】。文言そのものを verbatim で縛っていたが、背景タップで
+       出発しなくなった以上「タップして〜」という言い方が実挙動と合わない (依頼書 #35 §4-2)。
+       ⛔ 期待値は弱めない —— 主張は元から「閉じた先は出発ではない」1 点なので、
+         それを **2 つの向き** (準備へ戻ると言っている / 出発とは言っていない) で縛り直す。
+       ⭐ N1 (review でも出発側の文言) / N5 (review を渡さない) はどちらもここで赤になる。 */
+    check('(1d) ★受入条件: 待ち文言が「準備へ戻る」を指し、「出発」とは言わない (閉じた先は出発ではない)',
+      o1.hint.indexOf('準備へ戻る') >= 0 && o1.hint.indexOf('出発') < 0,
+      '実際 = "' + o1.hint + '"');
     check('(1e) 300ms 以内に待機フェーズへ入っている (.pmWait が付く = 死に時間が無い)',
       o1.hintWait === true, 'pmWait=' + o1.hintWait);
     check('(1f) カラム数がパーティ人数と一致', o1.nCols === party.length,
@@ -488,9 +500,16 @@ async function tapOverlay(page) {
       n1a.hint === 'タップでスキップ', '実際 = "' + n1a.hint + '"');
     await sleep(720 * 4 + 900);            // 全開示 + PM_TAP_GATE
     const n1b = await page2.evaluate(PROBE, VIS_FN);
-    check('(4c) 全開示後の文言は「タップして出発」のまま (review の文言が漏れていない)',
-      n1b.hint === 'タップして出発' && n1b.nFilled === n1b.nCols,
-      '"' + n1b.hint + '" / ' + n1b.nFilled + '/' + n1b.nCols);
+    /* ⚠ #35 STEP3 で【測定点を移した】(1d と同じ理由)。verbatim の一致から
+       「開示中 → 全開示 で文言が切り替わり、出発の導線を語り、review の文言が漏れていない」
+       という不変条件へ。⛔ 弱めていない: 元の 1 条件が 4 条件になっている。
+       ⭐ 「カード」を要求するのは #35 で導線そのものが変わったから —— 全開示後にできることは
+         「カードを押して設定」と「下のボタンで出発」で、背景タップはもう何もしない。 */
+    check('(4c) 全開示後は文言が開示中から切り替わり、出発の導線を語る (review の文言が漏れていない)',
+      n1b.hint !== n1a.hint && n1b.hint.indexOf('出発') >= 0
+      && n1b.hint.indexOf('準備へ戻る') < 0 && n1b.hint.indexOf('カード') >= 0
+      && n1b.nFilled === n1b.nCols,
+      '"' + n1a.hint + '" -> "' + n1b.hint + '" / ' + n1b.nFilled + '/' + n1b.nCols);
     await page2.close();
 
     /* ══════════════════════════════════════════════════════════════════

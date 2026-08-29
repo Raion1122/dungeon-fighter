@@ -1830,12 +1830,19 @@
        ⛔ 既存の .pmColumn 規則は書き換えない (上書き規則を足すだけ)。 */
     .pmColumn.pmOpen {
       border-color: var(--pm-gold);
-      box-shadow: 0 0 18px rgba(224,180,60,0.35), inset 0 0 22px rgba(0,0,0,0.4);
+      box-shadow: 0 0 22px rgba(224,180,60,0.55), inset 0 0 22px rgba(0,0,0,0.4);
+      /* ⚠ 主人公カードは .pmHeroCol で既に金の縁が付いている。縁と地の色だけでは
+         「開いている 1 枚」と見分けが付かないので、二重の輪を足す。
+         ⭐ outline はレイアウトを 1px も動かさないので、compact で出発の口が画面内に残る
+           条件 (受入条件 (4c) / 変異 M6) の余白 (実測 66px) を食わない。 */
+      background: linear-gradient(180deg, rgba(74,58,20,0.66), rgba(20,16,26,0.72));
+      outline: 2px solid var(--pm-gold-soft);
+      outline-offset: 3px;
     }
     /* 引き出しを開いている間は縦を稼ぐ。⚠ #partyMatchOverlay は align-items:center の
        固定オーバーレイなので、中身が伸びると上下とも画面外へ逃げる。
-       ⭐ #pmHint は「タップして出発」と書いているが背景タップでは出発しないので、
-         引き出しを開けている間はしまっておくと実挙動とのズレも同時に減る。 */
+       ⭐ 開いている間は引き出しの中の「閉じる」と下の出発の口が導線なので、
+         画面下のヒント 1 行は畳んでその分の高さを引き出しへ回す。 */
     #pmInner.pmDrawerOpen { gap: 12px; }
     #pmInner.pmDrawerOpen #pmHint { display: none; }
     .pmDrawerHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
@@ -1858,6 +1865,46 @@
        ⛔ .apRow / .apSel 本体は触らない (準備画面の見た目が変わる)。 */
     #pmDrawer .apRows { gap: 6px; }
     #pmDrawer .apRow > label { color: #b8a878; }
+    /* ══ #35 STEP3: 引き出しの中身を暗幕へ馴染ませる (依頼書 §2-6 / §6) ══════════
+       ⚠ 準備画面のスキル項目は羊皮紙色 rgba(255,245,210,0.55) で、暗い金/黒の
+         オーバーレイに置くと「明るい矩形が浮く」。文字も暗インク (--parchment-ink) なので、
+         枠だけ暗くすると今度は字が読めなくなる —— 枠と字は必ず一緒に上げる。
+       ⛔ .skillItem / .pmColumn 本体の規則は 1 行も書き換えない。ここは #pmDrawer の
+         下だけに効く【上書き規則】で、準備画面 (#prep) の見た目は 1px も変わらない。
+       ⚠ 配色そのものは受入条件で測らない (依頼書 §8「測らないこと」)。目で決める。 */
+    #pmDrawer .skillItem {
+      background: rgba(255,245,210,0.10);
+      color: #f0e6d0;
+      border-color: rgba(224,180,60,0.16);
+    }
+    #pmDrawer .skillItem:hover:not(.full) { background: rgba(255,245,210,0.19); }
+    #pmDrawer .skillItem.selected {
+      background: linear-gradient(180deg, rgba(220,194,240,0.35), rgba(176,144,216,0.35));
+      border-color: var(--pm-gold-soft);
+      box-shadow: inset 0 0 8px rgba(110,60,160,0.28);
+    }
+    #pmDrawer .skillItem.spellCountItem.selected { background: rgba(200,160,70,0.24); }
+    /* ⚠⚠ 選択中は #2a0a3a / #5a2085 という暗い紫が焼かれている。選択の有無どちらも
+       明示的に指定しないと「読める枠に読めない字」になる。 */
+    #pmDrawer .skillItem .sName,
+    #pmDrawer .skillItem.selected .sName { color: #f4ecd8; }
+    #pmDrawer .skillItem .sFlavor,
+    #pmDrawer .skillItem.selected .sFlavor { color: #cbbd98; }
+    #pmDrawer .skillItem .sCat,
+    #pmDrawer .skillItem.selected .sCat { color: #e0b43c; }
+    /* 射程 / MP / スロット / Lv 不足 の色分けは renderSkillItem・renderSpellSlotItem が
+       inline style で焼くので CSS では勝てない。⭐ 色そのものは触らず明度だけ上げる =
+       意味 (紫=射程 / 青=消費 / 赤=不可) を保ったまま暗幕の上で読める。 */
+    #pmDrawer .skillItem .sCat[style] { filter: brightness(2.1) saturate(0.85); }
+    /* 呪文職 (魔法使い / 僧侶 / エルフ) の引き出しに出る ± スロット UI */
+    #pmDrawer .spcBtn { background: rgba(255,245,210,0.14); color: #f0e6d0; border-color: rgba(224,180,60,0.35); }
+    #pmDrawer .spcBtn:hover:not(:disabled) { background: rgba(255,245,210,0.28); }
+    #pmDrawer .spcNum { color: #f4ecd8; }
+    #pmDrawer .spellAuto { color: var(--pm-gold); border-color: var(--pm-gold-soft); }
+    /* 傾向段の <select>。⚠ 半透明の明るい背景を暗幕へ置くと、ネイティブの候補リスト側が
+       「白地に薄字」になって読めなくなる端末がある → 不透明の暗色を option まで明示する。 */
+    #pmDrawer .apSel { color: #f0e6d0; background: #241c14; border-color: rgba(224,180,60,0.35); }
+    #pmDrawer .apSel option { color: #f0e6d0; background: #241c14; }
     /* #35 STEP2: カードに「今枠に入れている技」を出す。同じ職が 2 人来たとき、
        2 枚のカードが同じ値になることが「設定は職業に紐づく」の見える形 (依頼書 §2-4)。 */
     .pmSkills { margin-top: 8px; width: 100%; display: flex; gap: 7px; font-size: 11.5px; line-height: 1.35; align-items: baseline; }
@@ -1873,6 +1920,13 @@
     }
     #pmDepart[hidden] { display: none !important; }
     #pmDepart:active { transform: translateY(1px); }
+    /* #35 STEP3: 「押しに行く」操作になったので、押せることが見えるまで仕上げる。
+       ⛔ 高さは変えない (compact で出発の口が画面内に残る条件 (4c) の余白は 66px しかない)。 */
+    #pmDepart:hover {
+      background: linear-gradient(180deg, #ffe28c, #d8a733);
+      box-shadow: 0 0 26px rgba(224,180,60,0.55);
+    }
+    #pmDepart:focus-visible { outline: 2px solid #fff3c4; outline-offset: 2px; }
     /* 指で押す端末では的を大きく (誤爆でなく「押しに行く」操作になったので狙いやすさが要る) */
     @media (hover: none) { #pmDepart { padding: 15px 40px; font-size: 17px; } }
     #pmHint { font-size: 12px; letter-spacing: 3px; color: #8a7c5a; opacity: 0; transition: opacity 0.4s ease-out; }
@@ -2486,10 +2540,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>設定の引き出しが暗い画面に馴染むようになった</b> — 技の一覧が暗幕の上でもはっきり読めるようになり、今どのカードを開いているかも金の二重枠で一目で分かる。画面下の案内も「カードを押して設定・下のボタンで出発」と実際の操作どおりに直した。</li>
         <li><b>仲間が集う画面でスキルと戦い方を決められるようになった</b> — 顔ぶれのカードを押すとその場で開き、誰に何を使ってほしいかを出発前にまとめて指示できる。</li>
         <li><b>仲間が集う画面に「出発する」ボタンが付いた</b> — うっかり画面に触れて出発してしまうことがなくなり、顔ぶれをゆっくり見てから自分の意思で出発できる。</li>
         <li><b>キャラクターシートが本物の冒険者の紙に</b> — 能力値・セーヴ・技能・攻撃・特徴が羊皮紙の三段組に並ぶようになった。</li>
-        <li><b>出発の準備から仲間の顔ぶれを見直せる</b> — 「編成を見る」で、受注のときのカードをいつでも開き直せる。装備を替えた後に開けばその武器で並ぶ。</li>
       </ul>
     </div>
     <script>
@@ -6711,8 +6765,10 @@
   //
   // opts.review = true → 「見るだけ」モード (準備画面の 🎴 編成を見る から開き直す時)。
   //   受注直後の演出と違い、全カラムを最初から確定表示にし、開示アニメも効果音も出さない。
-  //   ⚠ 閉じた先は【出発ではなく準備画面】なので、待ち文言も「タップして準備へ戻る」へ差し替える。
-  //     ここを "タップして出発" のままにすると、押した人は潜れると思って押す = 嘘の導線になる。
+  //   ⚠ 閉じた先は【出発ではなく準備画面】なので、待ち文言も「準備へ戻る」側へ差し替える。
+  //     ここを出発の文言のままにすると、押した人は潜れると思って押す = 嘘の導線になる。
+  //   ⚠ #35 STEP3: 文言は hintWait / hintReview が唯一の正 (背景タップで出発しなくなったので、
+  //     「タップして〜」という言い方そのものが実挙動と合わない)。
   //   ⚠ PM_TAP_GATE は review でも必ず効かせる。iOS の touchend→click ゴーストクリックが
   //     ボタンと同じ座標で overlay へ落ちてきて、開いた瞬間に閉じる事故を吸収しているのはこの猶予。
   function playPartyMatchCinematic(sc, opts) {
@@ -6729,6 +6785,12 @@
     // null = 従来の姿 (出発の口も引き出しも出さない)。
     const departBtn = setupOn ? departEl : null;
     const drawerBox = setupOn ? drawerEl : null;
+    // #35 STEP3: 待ち文言。⚠⚠⚠ 背景タップでは【もう出発しない】(STEP1 で廃止した) ので、
+    //   「タップして出発」「タップして準備へ戻る」はどちらも嘘の導線になる。
+    //   実挙動 = カードを押すと設定でき、画面を出る口は下のボタン 1 つだけ。
+    //   ⛔ ?pmsetup=0 のときは背景タップが本当に出口なので、従来の文言のまま残す。
+    const hintWait   = setupOn ? "カードを押して設定 ・ 下のボタンで出発"       : "タップして出発";
+    const hintReview = setupOn ? "カードを押して設定 ・ 下のボタンで準備へ戻る" : "タップして準備へ戻る";
     if (!overlay || !colsEl) return Promise.resolve();
     const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
     if (!raw.length) return Promise.resolve();
@@ -6761,7 +6823,7 @@
     overlay.classList.remove("fading");
     overlay.style.display = "flex";
     overlay.setAttribute("aria-hidden", "false");
-    if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = review ? "タップして準備へ戻る" : "タップでスキップ"; }
+    if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = review ? hintReview : "タップでスキップ"; }
     // #35: 開くたびに出発の口と引き出しを初期状態へ戻す (前回の残りを見せない)。
     if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
     if (departEl) {
@@ -6783,7 +6845,7 @@
       const finishReveal = () => {
         if (phase === "done") return;   // 二重呼び出し (touch→click の連鎖など) は無視
         phase = "done";
-        if (hintEl) { hintEl.textContent = review ? "タップして準備へ戻る" : "タップして出発"; hintEl.classList.add("pmWait"); }
+        if (hintEl) { hintEl.textContent = review ? hintReview : hintWait; hintEl.classList.add("pmWait"); }
         gateOpen = false;
         timers.push(setTimeout(() => {
           gateOpen = true;

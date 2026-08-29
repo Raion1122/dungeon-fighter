@@ -12,8 +12,8 @@
  *   §2 伝播 (click / touchend を飲み込む)          … 実装済 (STEP1 = 項目1)
  *   §3 引き出しの中身                              … 実装済 (STEP2 = 項目2)
  *   §4 同職 2 人 / レイアウト                      … 実装済 (STEP2 = 項目2)
- *   §5 恒等 (非退行)                               … PENDING (STEP3 = 項目3)
- *   §6 撤退スイッチ ?pmsetup=0 / ?actionpri=0      … PENDING (STEP3 = 項目3)
+ *   §5 恒等 (非退行)                               … 実装済 (STEP3 = 項目3)
+ *   §6 撤退スイッチ ?pmsetup=0 / ?actionpri=0      … 実装済 (STEP3 = 項目3)
  *
  *   ⛔ PENDING は **黙って緑にしない**。RESULT 行に PASSED / FAILED / PENDING の
  *      3 つの数を必ず出し、「まだ測っていない」を数で見えるようにする。
@@ -196,8 +196,12 @@ const PROBE = (visSrc) => {
     /* ⚠ フェード中 (520ms) は display も flex のままなので、閉じたかは fading も併せて見る。 */
     fading:     !!(ov && ov.classList.contains('fading')),
     hint:       txt(q('pmHint')),
+    /* ⚠⚠ finishReveal が付ける印。「全カラムが filled」= まだ待機フェーズとは限らない
+       (最後の 1 枚が埋まってからさらに PM_REVEAL_INTERVAL 720ms 経ってから finishReveal)。 */
+    hintWait:   !!(q('pmHint') && q('pmHint').classList.contains('pmWait')),
     nCols:      cols.length,
     nFilled:    cols.filter((c) => c.dataset.state === 'filled').length,
+    nOpen:      cols.filter((c) => c.classList.contains('pmOpen')).length,
     names:      cols.map((c) => txt(c.querySelector('.pmName'))),
     classesJa:  cols.map((c) => txt(c.querySelector('.pmClass'))),
     depExists:  !!dep,
@@ -389,6 +393,98 @@ const DRAWER_SNAP = (n) => {
     cardSkills: cols.map((c) => { const v = c.querySelector('.pmSkillsVal'); return v ? v.textContent : null; }),
   };
 };
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * §5 / §6 (STEP3) 用のヘルパー
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* (5a) の物差し。selection の全文と、dragonfighters.* の全キー/全値を 1 本の文字列へ畳む。
+   ⚠ 「1 バイトも変わっていない」を主張するので、キーの取りこぼしを作らない
+     (前置詞の総なめ + キー名でソート = 列挙順の揺れを持ち込まない)。 */
+const STATE_SNAP = () => {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('dragonfighters.') === 0) out.push([k, localStorage.getItem(k)]);
+    }
+  } catch (e) {}
+  out.sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0)));
+  return { sel: JSON.stringify(selection), ls: JSON.stringify(out), nKeys: out.length };
+};
+
+/* (X-d) 用: 「保存済みの値」を本番の入り口 (saveSelections) で作る。
+   ⚠⚠ でたらめな ID を書いてはいけない。引き出しも準備画面も「今の候補に無い ID は
+     おまかせへ戻す」正規化を持っているので、消えたのか正規化されたのか区別が付かなくなる。
+   ⭐ apEquippedIdsFor が返す【今まさに枠に入っている ID】だけを書く。 */
+const AP_SEED = () => {
+  const slot = PARTY_SLOTS.find((s) => s && s.classKey === 'rogue');
+  if (!slot) return null;
+  let ids = [];
+  try { ids = apEquippedIdsFor(slot, 'rogue') || []; } catch (e) { ids = []; }
+  if (!ids.length) return null;
+  if (!selection.actionPriority) selection.actionPriority = {};
+  const row = selection.actionPriority['rogue'] ||
+              (selection.actionPriority['rogue'] = { general: null, mob: null, boss: null, travel: null });
+  row.general = ids[0];
+  row.boss = ids[ids.length - 1];
+  saveSelections();
+  return { general: ids[0], boss: ids[ids.length - 1],
+           skills: JSON.stringify(selection.partySkills['rogue'] || []) };
+};
+/* 仕込んだ値を 2 経路 (メモリ上の selection と localStorage) で読み返す。 */
+const AP_READ = () => {
+  let ap = null, sk = null;
+  try { ap = JSON.parse(localStorage.getItem('dragonfighters.actionPriority') || 'null'); } catch (e) {}
+  try { sk = JSON.parse(localStorage.getItem('dragonfighters.partySkills') || 'null'); } catch (e) {}
+  return {
+    sel: ((selection.actionPriority || {})['rogue']) || null,
+    ls:  ((ap || {})['rogue']) || null,
+    skills:    JSON.stringify(((sk || {})['rogue']) || []),
+    selSkills: JSON.stringify((selection.partySkills || {})['rogue'] || []),
+  };
+};
+
+/* 既に仕込んである編成のまま演出だけを開き、出発の口が出るまで待つ。
+   ⚠ playForcedCinema と違い selection を書き換えない ((5a) の前後比較を汚さないため)。 */
+async function playCinemaOnly(page, scId) {
+  await page.evaluate((id) => {
+    const sc = scenarios.find((s) => s.id === id);
+    Promise.resolve(window.__pmTest.play(sc)).catch(() => {});
+  }, scId);
+  for (let i = 0; i < 240; i++) {
+    const s = await page.evaluate(PROBE, VIS_FN);
+    if (s.depVis) return true;
+    await sleep(50);
+  }
+  return false;
+}
+
+/* ?pmsetup=0 では #pmDepart が出ないので「出発の口が見えた」では待てない。
+   ⚠⚠⚠ 「全カラムが filled」で待つのは **間違い** (2026-08-29 に実測して 1 度赤くした)。
+     step() は最後の 1 枚を埋めた後もう一度 720ms のタイマを積み、その次の呼び出しで
+     ようやく finishReveal する。filled + 750ms の時点ではまだ phase==="reveal" なので、
+     背景を叩くと close ではなく **skipRest** に落ちて画面が閉じない。
+   → finishReveal が付ける .pmWait を待ってから PM_TAP_GATE (500ms) を越える。 */
+async function waitAllFilled(page, budgetMs) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < (budgetMs || 25000)) {
+    const s = await page.evaluate(PROBE, VIS_FN);
+    if (s.nCols > 0 && s.nFilled === s.nCols && s.hintWait === true) { await sleep(700); return true; }
+    await sleep(60);
+  }
+  return false;
+}
+
+/* 座標を直接叩く (カードでもボタンでもない「背景」を叩くのはこれだけ)。命中先も返す。 */
+async function clickPoint(page, x, y) {
+  const hit = await page.evaluate((px, py) => {
+    const e = document.elementFromPoint(px, py);
+    return e ? String(e.id || e.className || e.tagName) : '(なし)';
+  }, x, y);
+  await page.mouse.click(x, y);
+  return hit;
+}
 
 (async () => {
   const puppeteer = loadPuppeteer();
@@ -634,6 +730,7 @@ const DRAWER_SNAP = (n) => {
     if (!advB.reached) {
       pending('(1d) 開示中に背景を叩くと残りが即確定する', '腕B が演出まで到達しなかった (steps=' + advB.steps.join('>') + ')');
       pending('(2c) #pmDepart の touchend で出発する (iOS で詰まない)', '腕B が演出まで到達しなかった');
+      pending('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される', '腕B が演出まで到達しなかった');
     } else {
       if (b0.nFilled < b0.nCols) {
         await pageB.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
@@ -656,7 +753,15 @@ const DRAWER_SNAP = (n) => {
       }
       if (!bDep) {
         pending('(2c) #pmDepart の touchend で出発する (iOS で詰まない)', '出発の口が可視にならなかった');
+        pending('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される', '出発の口が可視にならなかった');
       } else {
+        /* ⭐ ここで (5b) の母集団も作る —— 引き出しを【開いたまま】出発する。
+           設定し終えてそのまま出発する = 実プレイで最も起きる終わり方なので、
+           (2c) の一撃と兼ねる。⚠ 開いた分 #pmDepart は下へ動くが、dispatch は
+           id 指定なので座標には影響されない。 */
+        const openB = await clickCenterOfSel(pageB, ['#pmColumns .pmColumn']);
+        await sleep(250);
+        const bOpen = await pageB.evaluate(PROBE, VIS_FN);
         await pageB.evaluate(() => {
           const d = document.getElementById('pmDepart');
           let ev;
@@ -671,6 +776,46 @@ const DRAWER_SNAP = (n) => {
         check('(2c) ⚠ #pmDepart の touchend では出発する (click 非発火の端末で詰まない)',
           b2.display === 'none' && reachedB === true && b3.prepVis === true,
           'touchend 900ms 後 display=' + b2.display + ' → 準備画面 prep=' + b3.prepVis);
+
+        /* ── (5b) 引き出しを開いたまま出発した後、準備画面のスキル選択が生きているか ──
+           ⚠⚠ pmLoadoutRepaint はモジュール変数で window に載っていない = 直接は読めない。
+             **挙動で測る**: 準備画面のスキル項目を 1 つ押し、selection だけでなく
+             #skillList / #skillSlotCounter が実際に描き直されるかを見る。
+             close() が pmCloseDrawer() を呼ばないと描き直し先が引き出しのまま残り、
+             selection は変わるのに準備画面が 1px も動かない —— 負のコントロール M5。
+           ⭐ 「押した項目が 1 つ」だけでは弱い。selection の本数・選択中の項目数・
+             残量表示の 3 つが【全部】動いたことを見る (どれか 1 つは偶然でも動きうる)。 */
+        const r5b = (reachedB && b3.prepVis) ? await pageB.evaluate(() => {
+          const list = document.getElementById('skillList');
+          const counter = document.getElementById('skillSlotCounter');
+          if (!list || !counter) return null;
+          const items = Array.prototype.slice.call(list.querySelectorAll('.skillItem'));
+          // .full な未選択項目は上限で早期 return する = 押しても何も起きない。それ以外を選ぶ。
+          const t = items.filter((x) => !x.classList.contains('full'))[0];
+          if (!t) return null;
+          const ck = (typeof activeCharTab !== 'undefined' && activeCharTab)
+            ? activeCharTab : ((selection.partyComposition || ['warrior'])[0]);
+          const snap = () => ({
+            n: (((selection.partySkills || {})[ck]) || []).length,
+            sel: list.querySelectorAll('.skillItem.selected').length,
+            counter: counter.textContent,
+          });
+          const before = snap();
+          const nm = (t.querySelector('.sName') || {}).textContent || '';
+          t.click();
+          return { ck: ck, name: nm, before: before, after: snap() };
+        }) : null;
+        check('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される',
+          bOpen.drwHidden === false && bOpen.nOpen === 1 && reachedB === true && !!r5b
+          && r5b.after.n !== r5b.before.n
+          && r5b.after.sel !== r5b.before.sel
+          && r5b.after.counter !== r5b.before.counter,
+          '出発時の引き出し hidden=' + bOpen.drwHidden + ' pmOpen=' + bOpen.nOpen
+          + ' (カードの命中先=' + (openB ? openB.hit : '(取れず)') + ') → 準備画面で "'
+          + (r5b ? r5b.name : '(項目が取れず)') + '" を押した結果 '
+          + (r5b ? (r5b.ck + ': selection ' + r5b.before.n + '→' + r5b.after.n
+              + ' / 選択中の項目 ' + r5b.before.sel + '→' + r5b.after.sel
+              + ' / 残量 "' + r5b.before.counter + '"→"' + r5b.after.counter + '"') : '(採れず)'));
       }
     }
     await pageB.close();
@@ -905,15 +1050,159 @@ const DRAWER_SNAP = (n) => {
       'scrollWidth ' + geo.drwScrollW + ' <= clientWidth ' + geo.drwClientW);
     await pageD.close();
 
-    /* ═════ §5 / §6 は STEP3 (項目3) の枠 —— ⛔ 黙って緑にしない ═════ */
-    console.log('\n-- section5/6 (STEP3) --');
-    const TODO3 = 'STEP3 (見た目 / 撤退スイッチの完成) 未実装';
-    pending('(5a) 引き出しを一度も開かずに出発したとき、selection と localStorage が 1 バイトも変わっていない', TODO3);
-    pending('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される', TODO3);
-    pending('(X-a) [母集団] スイッチが無ければ引き出しが開いた盤面', TODO3);
-    pending('(X-b) ?pmsetup=0 で #pmDrawer も #pmDepart も出ず、背景タップで従来どおり出発する', TODO3);
-    pending('(X-c) ?actionpri=0 で引き出しは出るがスキル段だけ (傾向段が無い)', TODO3);
-    pending('(X-d) どちらのスイッチでも保存済みの値は消えていない', TODO3);
+    /* ═══════════════════════════════════════════════════════════
+     * 腕 E (desktop 1280x900) —— §5 (5a) と §6 の母集団 (X-a)
+     *   ⚠⚠ (5a) を openPrep 経由で測ってはいけない。openPrep は毎回
+     *     regeneratePartyMembers() を通り selection を書き換えるので、
+     *     「1 バイトも変わらない」は原理的に成立しない (自明に赤い検出器になる)。
+     *     測るのは【演出を開いて出発するまでの一往復】= 既存の検証シーム __pmTest.play。
+     * ═══════════════════════════════════════════════════════════ */
+    console.log('\n-- armE: identity (5a) / population for section6 (X-a) --');
+    const pageE = await openTavern(browser, { name: 'ident', width: 1280, height: 900 }, '');
+    /* 編成の仕込み = 装置側の書き込み。⭐ スナップショットはこの【後】で採る
+       (装置が書いた分を「本番が壊した」と読み違えないため)。 */
+    await pageE.evaluate((want) => {
+      const mk = (ck, isHero, name) => ({
+        classKey: ck, isHero: !!isHero, name: name,
+        zone: PARTY_ZONES[ck], variant: 0, level: 10,
+      });
+      selection.partyComposition = ['warrior'];
+      selection.partyMembers = [mk('warrior', true, '')]
+        .concat(want.map((ck, i) => mk(ck, false, '仲間' + (i + 1))));
+      saveSelections();
+    }, ['rogue', 'cleric', 'mage']);
+    const eBefore = await pageE.evaluate(STATE_SNAP);
+    const eReady = await playCinemaOnly(pageE, SCENARIO);
+    const eMid = await pageE.evaluate(PROBE, VIS_FN);          // ⚠ 引き出しは一度も開かない
+    await clickCenterOf(pageE, 'pmDepart');
+    await sleep(1000);
+    const eEnd = await pageE.evaluate(PROBE, VIS_FN);
+    const eAfter = await pageE.evaluate(STATE_SNAP);
+    check('(5a) 引き出しを一度も開かずに出発したとき、selection と localStorage が 1 バイトも変わっていない',
+      eReady === true && eMid.drwHidden === true && eMid.nOpen === 0 && eEnd.display === 'none'
+      && eBefore.nKeys >= 3 && eBefore.sel.length > 200        // ← 空同士を比べていない証明
+      && eBefore.sel === eAfter.sel && eBefore.ls === eAfter.ls,
+      '比べた母集団 = selection ' + eBefore.sel.length + ' 文字 / localStorage ' + eBefore.nKeys + ' キー'
+      + ' / 出発前の引き出し hidden=' + eMid.drwHidden + ' pmOpen=' + eMid.nOpen
+      + ' → selection 一致=' + (eBefore.sel === eAfter.sel)
+      + ' localStorage 一致=' + (eBefore.ls === eAfter.ls) + ' / 閉じた display=' + eEnd.display);
+
+    /* 同じページで演出を開き直し、スイッチ無しなら引き出しが開くことを確かめる。
+       ⭐⭐ これが (X-b)/(X-c) の母集団。これが無いと「出なかった」が自明に緑になる。 */
+    const eReady2 = await playCinemaOnly(pageE, SCENARIO);
+    const hitXa = await clickCenterOfSel(pageE, ['#pmColumns .pmColumn:nth-child(2)']);
+    await sleep(250);
+    const xa = await pageE.evaluate(DRAWER_SNAP, 1);
+    check('(X-a) [母集団] スイッチが無ければ、カードを押すと引き出しが開きスキル段も傾向段も出る',
+      eReady2 === true && xa.drawerVis === true && xa.nOpen === 1
+      && xa.nSkillItem >= 1 && xa.nSel >= 1,
+      '命中先=' + (hitXa ? hitXa.hit : '(取れず)') + ' / 職=' + xa.classKey
+      + ' 可視=' + xa.drawerVis + ' pmOpen=' + xa.nOpen
+      + ' / スキル項目 ' + xa.nSkillItem + ' / 傾向の select ' + xa.nSel);
+    const xaSel = xa.nSel;
+    await pageE.close();
+
+    /* ═══════════════════════════════════════════════════════════
+     * 腕 G (?pmsetup=0) —— (X-b) と (X-d) の片側
+     *   ⚠ 「従来どおり出発する」は #prep が出るところまで見たいので、ここだけは
+     *     受注からの実導線 (advanceToCinema) を通す。
+     * ═══════════════════════════════════════════════════════════ */
+    console.log('\n-- armG: ?pmsetup=0 --');
+    const pageG = await openTavern(browser, { name: 'pmsetup0', width: 1280, height: 900 }, 'pmsetup=0');
+    const gSeed = await pageG.evaluate(AP_SEED);
+    const advG = await advanceToCinema(pageG, SCENARIO);
+    const gFilled = await waitAllFilled(pageG, 25000);
+    const g0 = await pageG.evaluate(PROBE, VIS_FN);
+    /* ⛔ カードではなく overlay の余白を叩く —— これが「背景タップ」の定義そのもの。 */
+    const gHit = await clickPoint(pageG, 6, 6);
+    await sleep(1000);
+    const g1 = await pageG.evaluate(PROBE, VIS_FN);
+    const reachedG = await settleToPrep(pageG, 40000);
+    const g2 = await pageG.evaluate(PROBE, VIS_FN);
+    /* 「カードも押せない」= ?pmsetup=0 ではカードは背景の一部。準備画面から 🎴 で開き直し、
+       カードを叩いて【引き出しが開かず、背景と同じく閉じる】ことを見る。
+       ⚠ 先に背景を叩いてしまうと閉じるので、順番はこの通りでないと測れない。 */
+    console.log('       ?pmsetup=0: 到達=' + advG.reached + ' 全確定=' + gFilled
+      + ' / 背景 (' + gHit + ') を叩く前 hint="' + g0.hint + '" 引き出し hidden=' + g0.drwHidden
+      + ' 出発の口 可視=' + g0.depVis + ' → 直後 display=' + g1.display
+      + ' / settleToPrep=' + reachedG + ' prep=' + g2.prepVis);
+    let gCard = null;
+    if (await pageG.evaluate(() => !!document.getElementById('btnPartyView'))) {
+      /* ⚠ puppeteer の page.click は「画面内で可視かつクリック可能」を要求し、そうでないと
+         「Node is either not clickable or not an Element」で run ごと落ちる (2026-08-29 実測)。
+         ここで測りたいのはボタンの押しやすさではなく **カードが押せないこと** なので、
+         開き直しは DOM の click() で済ませる (押しやすさは driver_party_view_reopen の担当)。 */
+      await pageG.evaluate(() => {
+        const b = document.getElementById('btnPartyView');
+        if (b && b.scrollIntoView) b.scrollIntoView({ block: 'center' });
+        if (b) b.click();
+      });
+      await sleep(950);                       // review は即確定 + PM_TAP_GATE 500ms
+      const gr0 = await pageG.evaluate(PROBE, VIS_FN);
+      const grHit = await clickCenterOfSel(pageG, ['#pmColumns .pmColumn']);
+      await sleep(1000);
+      const gr1 = await pageG.evaluate(PROBE, VIS_FN);
+      gCard = { opened: gr0.overlayVis, dep: gr0.depVis, hit: grHit ? grHit.hit : '(取れず)',
+                drwAfter: gr1.drwHidden, nOpen: gr1.nOpen, display: gr1.display };
+    }
+    const gKept = await pageG.evaluate(AP_READ);
+    check('(X-b) ?pmsetup=0 で #pmDrawer も #pmDepart も出ず、背景タップで従来どおり出発する (カードも押せない)',
+      advG.reached === true && gFilled === true
+      && g0.drwHidden === true && g0.drwVis === false
+      && g0.depHidden === true && g0.depVis === false
+      && g0.hint === 'タップして出発'
+      && g1.display === 'none' && reachedG === true && g2.prepVis === true
+      && !!gCard && gCard.opened === true && gCard.dep === false
+      && gCard.drwAfter === true && gCard.nOpen === 0 && gCard.display === 'none',
+      '全確定=' + gFilled + ' / 引き出し hidden=' + g0.drwHidden + ' 出発の口 可視=' + g0.depVis
+      + ' hint="' + g0.hint + '" / 背景 (' + gHit + ') を叩く → display=' + g1.display
+      + ' 準備画面=' + g2.prepVis + ' / 開き直してカード ('
+      + (gCard ? gCard.hit : '-') + ') を叩く → 引き出し hidden=' + (gCard ? gCard.drwAfter : '-')
+      + ' pmOpen=' + (gCard ? gCard.nOpen : '-') + ' display=' + (gCard ? gCard.display : '-'));
+    await pageG.close();
+
+    /* ═══════════════════════════════════════════════════════════
+     * 腕 H (?actionpri=0) —— (X-c) と (X-d) のもう片側
+     *   ⭐ ?pmsetup=0 とは別物: 引き出しは出るが【傾向段だけ】無い。
+     * ═══════════════════════════════════════════════════════════ */
+    console.log('\n-- armH: ?actionpri=0 --');
+    const pageH = await openTavern(browser, { name: 'actionpri0', width: 1280, height: 900 }, 'actionpri=0');
+    const hSeed = await pageH.evaluate(AP_SEED);
+    const h0 = await playForcedCinema(pageH, SCENARIO, ['rogue', 'cleric', 'mage']);
+    const hitXc = await clickCenterOfSel(pageH, ['#pmColumns .pmColumn:nth-child(2)']);
+    await sleep(250);
+    const xc = await pageH.evaluate(DRAWER_SNAP, 1);
+    const xcDom = await pageH.evaluate(() => ({
+      apSec:  !!document.getElementById('pmDrawerAp'),
+      apRows: document.querySelectorAll('#pmDrawer .apRow').length,
+      apSel:  document.querySelectorAll('#pmDrawer select.apSel').length,
+      skill:  document.querySelectorAll('#pmDrawer .skillItem').length,
+      head:   !!document.getElementById('pmDrawerSkillHead'),
+    }));
+    const hKept = await pageH.evaluate(AP_READ);
+    check('(X-c) ?actionpri=0 で引き出しは出るがスキル段だけ (傾向段が無い)',
+      h0.depVis === true && xc.drawerVis === true && xc.nOpen === 1
+      && xcDom.skill >= 1 && xcDom.head === true
+      && xcDom.apSec === false && xcDom.apRows === 0 && xcDom.apSel === 0
+      && xaSel >= 1,                       // ← 素の盤面には傾向段が実在した (2 経路突合)
+      '命中先=' + (hitXc ? hitXc.hit : '(取れず)') + ' / 引き出し可視=' + xc.drawerVis
+      + ' / スキル項目 ' + xcDom.skill + ' 見出し=' + xcDom.head
+      + ' / 傾向段 apSec=' + xcDom.apSec + ' apRow ' + xcDom.apRows + ' select ' + xcDom.apSel
+      + ' (素の盤面では select ' + xaSel + ' 本)');
+    await pageH.close();
+
+    /* (X-d) —— どちらのスイッチでも「保存済みの値」が消えない。
+       ⚠ 撤退スイッチは表示を消すだけで、保存の中身には触ってはいけない
+         (外せばそのまま戻ることが撤退路の条件)。 */
+    const keptOk = (sd, rd) => !!sd && !!rd && !!rd.sel && !!rd.ls
+      && rd.sel.general === sd.general && rd.sel.boss === sd.boss
+      && rd.ls.general  === sd.general && rd.ls.boss  === sd.boss
+      && rd.skills === sd.skills && rd.selSkills === sd.skills;
+    check('(X-d) どちらのスイッチでも保存済みの値は消えていない',
+      !!gSeed && !!hSeed && !!gSeed.general && !!hSeed.general
+      && keptOk(gSeed, gKept) && keptOk(hSeed, hKept),
+      '?pmsetup=0: 仕込み ' + JSON.stringify(gSeed) + ' → 読み返し ' + JSON.stringify(gKept)
+      + '  /  ?actionpri=0: 仕込み ' + JSON.stringify(hSeed) + ' → 読み返し ' + JSON.stringify(hKept));
 
     check('(Z) JS エラーが出ていない', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
   } catch (e) {
