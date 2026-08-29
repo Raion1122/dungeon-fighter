@@ -136,6 +136,35 @@ function installKillProbe() {
   document.addEventListener('DOMContentLoaded', tryWrap);
 }
 
+/* ── 記録棚 / レポートに食わせる年代記の作り物 ────────────────────────────
+ * ⚠ 形は index.html の RunChronicle.snapshot() が返すものと同じ。数字の中身は問わない
+ *   (§3〜§6 が測るのは「保存・表示・撤退」であって集計ではない。集計は §1/§2 の担当)。 */
+function MK_CH(nEvents) {
+  const evs = [];
+  for (let i = 1; i <= (nEvents || 1); i++) {
+    evs.push({ round: i, node: '坑道', kind: (i % 3 === 0) ? 'fall' : 'kill',
+      who: (i % 3 === 0) ? 'カイ' : 'ゴブリン', by: 'ゴブリン戦車',
+      text: '坑道にて ゴブリン戦車 が ' + ((i % 3 === 0) ? 'カイ を倒した' : 'ゴブリン を討ち取った') + ' (' + i + ')' });
+  }
+  return {
+    v: 1, outcome: 'defeat', rounds: evs.length, kills: evs.length,
+    members: [
+      { name: 'あなた', classKey: 'warrior', isHero: true,
+        dealt: 42, taken: 31, kills: 3, healed: 0, fellAt: { round: 4, node: '坑道' } },
+      { name: 'エラ', classKey: 'mage', isHero: false,
+        dealt: 18, taken: 6, kills: 1, healed: 0, fellAt: null },
+    ],
+    events: evs,
+    idle: { spellSlotsLeft: 2, spellSlotsMax: 4, slots: [{ who: 'エラ', left: 2, max: 4 }],
+            unusedSkills: ['盾構え'], unusedByWho: [{ who: 'あなた', skills: ['盾構え'] }] },
+    lastBlow: { by: 'ゴブリン戦車', enemiesLeft: 4 },
+  };
+}
+function MK_RESULT(nEvents) {
+  return { scenarioId: 'goblin-mine', scenarioTitle: '廃坑の依頼',
+           cleared: false, defeated: true, reward: null, chronicle: MK_CH(nEvents) };
+}
+
 /* ── index.html を開く共通口 ────────────────────────────────────────────── */
 async function openIndex(browser, qs, opts) {
   opts = opts || {};
@@ -157,6 +186,39 @@ async function openIndex(browser, qs, opts) {
     { timeout: 45000 });
   await sleep(400);
   return page;
+}
+
+/* ── tavern.html を開く共通口 ─────────────────────────────────────────────
+ * ⚠ evaluateOnNewDocument は全ナビゲーションで再実行される。ここで消しているのは
+ *   **ページが書く前**のライブキーだけなので、酒場自身が書いた値は潰さない。
+ * ⚠ prologueSeen を立てておかないと z:200 のプロローグが被さって導線が押せない。 */
+async function openTavern(browser, qs, seed, viewport) {
+  const page = await browser.newPage();
+  page.on('pageerror', e => pageErrors.push('tavern :: ' + e.message));
+  await page.setViewport(viewport || { width: 1280, height: 900, deviceScaleFactor: 1 });
+  await page.evaluateOnNewDocument((o) => {
+    try {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.indexOf('df.') === 0 || k.indexOf('dragonfighters.') === 0) localStorage.removeItem(k);
+      });
+      Object.keys(sessionStorage).forEach((k) => {
+        if (k.indexOf('df.') === 0 || k.indexOf('dragonfighters.') === 0) sessionStorage.removeItem(k);
+      });
+      localStorage.setItem('dragonfighters.prologueSeen', '1');
+      if (o.seed) sessionStorage.setItem('dragonfighters.lastResult', JSON.stringify(o.seed));
+    } catch (e) {}
+  }, { seed: seed || null });
+  await page.goto('http://localhost:' + PORT + '/tavern.html' + (qs ? ('?' + qs) : ''),
+    { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await sleep(1000);   // consumeResult → setTimeout(…,100) の帰還バナーまで待つ
+  return page;
+}
+/* 帰還バナーの枚数。⚠ バナーには id が無いので、インラインスタイルの指紋で数える
+ *   (z-index:15 は tavern.html でこのバナーだけが使う値)。 */
+function countBanners() {
+  return Array.prototype.slice.call(document.body.children)
+    .filter((el) => el.tagName === 'DIV'
+      && /z-index:15;/.test((el.getAttribute('style') || '').replace(/\s/g, ''))).length;
 }
 
 /* 「出るまでポーリング」。⭐ 固定 sleep はゲームループという共有キューのある所では
@@ -834,29 +896,478 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // §3〜§6 — 宣言だけ。STEP3 / STEP4 が埋める。
-  //   ⚠ ここを消さないこと。「まだ測っていない」が一覧に残っているのが唯一の目印になる。
+  // §3 記録棚と永続化 (STEP4 = 依頼書 §7)
+  //   ⭐⭐⭐ どの節も先に「母集団を作れたか」を [装置] で確かめる。
+  //      (3c) は「6 件目を保存する前に本当に 5 件溜まっていたか」を先に縛らないと、
+  //      0 件のまま 0 件と一致して永久に緑になる。
   // ══════════════════════════════════════════════════════════════════════
-
   console.log('\n--- §3 記録棚と永続化 (STEP4 = 依頼書 §7) ---');
-  pending('(3a) dragonfighters.chronicles が localStorage にあり、前置詞が dragonfighters.', 'STEP4 未実装');
-  pending('(3b) DFSlots.wipeLive() の後に dragonfighters.chronicles が null', 'STEP4 未実装');
-  pending('(3c) 6 件目を保存すると件数が 5 のまま (最古が落ちる)', 'STEP4 未実装');
+  {
+    const page = await openTavern(browser, '', MK_RESULT(3));
+    const st = await page.evaluate(() => {
+      const out = { api: !!window.__chronicle };
+      if (!out.api) return out;
+      const C = window.__chronicle;
+      out.on  = C.on();
+      out.key = C.shelfKey();
+      out.max = C.shelfMax();
+      out.n   = C.shelf().length;
+      out.raw = localStorage.getItem('dragonfighters.chronicles');
+      /* 前置詞違いのキー (df_chronicles など) が混ざっていないことも同じ 1 回で見る。
+         ⚠ これが無いと N6 wipeleak が「別名で保存」しても (3a) が緑のままになりうる。 */
+      out.hits = Object.keys(localStorage).filter(k => k.toLowerCase().indexOf('chronicle') >= 0);
+      out.entry0 = C.shelf()[0] || null;
+      return out;
+    });
+    console.log('  [arm G] ' + JSON.stringify({ api: st.api, on: st.on, key: st.key, max: st.max,
+      n: st.n, hits: st.hits, rawLen: st.raw ? st.raw.length : -1 }));
 
+    check('(3z0) [装置] 酒場側の読み取り窓 window.__chronicle が載っている',
+      st.api === true && st.on === true, JSON.stringify({ api: st.api, on: st.on }));
+    check('(3z1) [装置] 母集団が空でない — 帰還 1 回で記録棚に 1 件積まれた',
+      st.n >= 1 && !!st.raw, 'shelf=' + st.n + ' raw=' + (st.raw ? 'あり' : 'null'));
+    check('(3a) ★dragonfighters.chronicles が localStorage にあり、前置詞が dragonfighters.',
+      st.key === 'dragonfighters.chronicles'
+        && st.key.indexOf('dragonfighters.') === 0
+        && st.raw !== null
+        && st.hits.length === 1 && st.hits[0] === 'dragonfighters.chronicles',
+      'key=' + st.key + ' / localStorage 内の chronicle キー=' + JSON.stringify(st.hits));
+    check('(3a2) 積まれた 1 件が { at (epoch ms) / scenarioTitle / ch } の形をしている',
+      !!(st.entry0 && typeof st.entry0.at === 'number' && st.entry0.at > 0
+         && st.entry0.scenarioTitle === '廃坑の依頼' && st.entry0.ch && st.entry0.ch.v === 1),
+      JSON.stringify(st.entry0 ? { at: st.entry0.at, t: st.entry0.scenarioTitle,
+        v: st.entry0.ch && st.entry0.ch.v } : null));
+
+    // ── (3b) 新規ゲーム (wipeLive) で消えること ────────────────────────────
+    const wiped = await page.evaluate(() => {
+      const out = {};
+      const before = localStorage.getItem('dragonfighters.chronicles');
+      out.beforeN = before ? (JSON.parse(before) || []).length : 0;
+      try { out.removed = DFSlots.wipeLive(); } catch (e) { out.threw = String((e && e.message) || e); }
+      out.after = localStorage.getItem('dragonfighters.chronicles');
+      return out;
+    });
+    console.log('  [arm G] wipeLive = ' + JSON.stringify(wiped));
+    check('(3z2) [装置] 母集団が空でない — wipeLive の**前**に記録棚が実在した',
+      wiped.beforeN >= 1 && !wiped.threw, JSON.stringify(wiped));
+    check('(3b) ★DFSlots.wipeLive() の後に dragonfighters.chronicles が null '
+        + '(前置詞が dragonfighters. なので keysOf() が勝手に面倒を見る)',
+      wiped.after === null && wiped.removed >= 1,
+      'after=' + String(wiped.after) + ' removed=' + wiped.removed);
+    await page.close();
+  }
+
+  // ── (3c) 6 件目で最古が落ちる ────────────────────────────────────────────
+  {
+    const page = await openTavern(browser, '', null);
+    const trim = await page.evaluate(() => {
+      const C = window.__chronicle;
+      const out = {};
+      try {
+        localStorage.removeItem('dragonfighters.chronicles');
+        /* ⛔ localStorage へ直に書かない。**本番の保存経路** (shelfPush) を通す。
+           直書きすると「5 件で切る」ロジックを写経した別実装を測ることになる。 */
+        const mk = (i) => ({ at: 1756400000000 + i * 1000, scenarioId: 's' + i,
+          scenarioTitle: 'run' + i,
+          ch: { v: 1, outcome: 'defeat', rounds: i, kills: 0, members: [], events: [],
+                idle: null, lastBlow: null } });
+        for (let i = 1; i <= 5; i++) C.shelfPush(mk(i));
+        const a5 = C.shelf();
+        out.n5 = a5.length;
+        out.first5 = a5.length ? a5[0].scenarioTitle : null;
+        out.last5  = a5.length ? a5[a5.length - 1].scenarioTitle : null;
+        C.shelfPush(mk(6));
+        const a6 = C.shelf();
+        out.n6 = a6.length;
+        out.first6 = a6.length ? a6[0].scenarioTitle : null;
+        out.last6  = a6.length ? a6[a6.length - 1].scenarioTitle : null;
+        out.max = C.shelfMax();
+      } catch (e) { out.err = String((e && e.message) || e); }
+      return out;
+    });
+    console.log('  [arm H] ' + JSON.stringify(trim));
+    check('(3z3) [装置] ★母集団 — 6 件目を保存する**前**に実際に 5 件溜まっていた',
+      trim.n5 === 5 && trim.first5 === 'run1' && trim.last5 === 'run5', JSON.stringify(trim));
+    check('(3c) ★6 件目を保存すると件数が 5 のまま (最古の run1 が落ちて run2〜run6 が残る)',
+      trim.n5 === 5 && trim.n6 === 5 && trim.first6 === 'run2' && trim.last6 === 'run6',
+      'n ' + trim.n5 + '→' + trim.n6 + ' / 先頭 ' + trim.first5 + '→' + trim.first6);
+    await page.close();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // §4 恒等 (非退行) — 触っていないものが本当に動いていないか
+  // ══════════════════════════════════════════════════════════════════════
   console.log('\n--- §4 恒等 (非退行) ---');
-  pending('(4a) showReturnBanner が従来どおり存在し、5.5 秒で消える', 'STEP3 で酒場側を測る');
-  pending('(4b) lastResult の既存キーが 1 つも欠けていない', 'STEP3 で酒場側を測る');
-  pending('(4c) world.html の配信バイトに enterVia|lastResult が 0 回', 'STEP3 で測る');
-  pending('(4d) #combatLog の固定バッファ長が従来どおり', 'STEP3 で測る');
+  {
+    // (4a) 帰還バナーは残っていて、従来どおり自動で消える
+    const page = await openTavern(browser, '', MK_RESULT(2));
+    const b0 = await page.evaluate(countBanners);
+    const src = await fetchText('/tavern.html');
+    const hasFade  = src.indexOf('banner.style.opacity = "0", 5500') >= 0;
+    const hasKill  = src.indexOf('banner.remove(), 6200') >= 0;
+    console.log('  [arm I] banners@1s=' + b0 + ' fade5500=' + hasFade + ' remove6200=' + hasKill);
+    check('(4z0) [装置] 母集団が空でない — 帰還直後にバナーが 1 枚出ている',
+      b0 === 1, 'banners=' + b0);
+    await sleep(6600);
+    const b1 = await page.evaluate(countBanners);
+    check('(4a) ★showReturnBanner が従来どおり存在し、5.5 秒でフェード / 6.2 秒で消える',
+      b0 === 1 && b1 === 0 && hasFade && hasKill,
+      'banners 1s=' + b0 + ' → 7.6s=' + b1 + ' / fade=' + hasFade + ' remove=' + hasKill);
+    await page.close();
+  }
+  {
+    /* (4c) world.html は 1 バイトも触っていない (既存 golden verify_quest_walk の縛りを自分でも守る)。
+       ⚠⚠ 依頼書 §9 (4c) の「配信バイトに enterVia|lastResult が **0 回**」は誤り。
+          実測 = 14 回出現する (全部コメント)。verify_quest_walk (1b) の実際の述語は
+            ① その語を含む行が Storage と**同居していない**
+            ② (session|local)Storage.(get|set|remove)Item("…enterVia|lastResult…") が 0 件
+          = 「getItem すらしていない」。⛔ 期待値を緩めるのではなく、**golden と同じ述語**を使う。 */
+    const w = await fetchText('/world.html');
+    const lines = w.split(/\r?\n/).filter(t => /enterVia|lastResult/.test(t));
+    const withStorage = lines.filter(t => /Storage/.test(t));
+    const apiHits = w.match(
+      new RegExp('(?:session|local)Storage\\s*\\.\\s*(?:get|set|remove)Item\\s*\\(\\s*["\'][^"\']*(?:enterVia|lastResult)', 'g')) || [];
+    check('(4z1) [装置] world.html の配信が空でない', w.length > 10000, w.length + ' bytes');
+    check('(4z2) [装置] ★母集団 — その語を含む行が 1 行以上ある (0 行だと述語が空回りして永久緑)',
+      lines.length >= 1, 'lines=' + lines.length);
+    check('(4c) ★world.html が enterVia / lastResult を **getItem すらしていない** '
+        + '(語を含む行はすべてコメント。verify_quest_walk (1b) と同じ述語)',
+      withStorage.length === 0 && apiHits.length === 0,
+      'その語を含む行=' + lines.length + ' / Storage と同居=' + withStorage.length
+        + ' / Storage API 呼び=' + apiHits.length);
+  }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // §6 撤退 (6a) と §4 (4b)(4d) — index 側は同じ 2 ページで一度に測る
+  //   ⭐ 撤退スイッチは「off で出ないこと」だけでは緑にできない。**on で出ること**を
+  //      対にして測らないと、そもそも出ない実装でも「出ない」で通ってしまう。
+  // ══════════════════════════════════════════════════════════════════════
+  console.log('\n--- §6 撤退 (6a) / §4 (4b)(4d) ---');
+  {
+    const probeResult = () => {
+      const out = {};
+      try {
+        sessionStorage.removeItem('dragonfighters.lastResult');
+        out.on = (typeof CHRONICLE_ON !== 'undefined') ? CHRONICLE_ON : null;
+        out.logMax = (typeof COMBAT_LOG_MAX !== 'undefined') ? COMBAT_LOG_MAX : null;
+        out.hasFn = (typeof window.showResult === 'function');
+        resultShown = false;               // 既に出ていても書き直させる
+        if (out.hasFn) window.showResult(false);
+        const raw = sessionStorage.getItem('dragonfighters.lastResult');
+        const p = raw ? JSON.parse(raw) : null;
+        out.keys = p ? Object.keys(p) : null;
+        out.hasCh = !!(p && p.chronicle);
+        /* リザルトの結論 1 行 (§6-2)。⛔ 文面は縛らない。「行が増えたか」だけ見る。 */
+        const rr = document.getElementById('resultReward');
+        out.reward = rr ? rr.innerHTML : null;
+      } catch (e) { out.err = String((e && e.message) || e); }
+      return out;
+    };
+
+    const pOn = await openIndex(browser, 'autoplay=30&diag=1', {});
+    const on = await pOn.evaluate(probeResult);
+    await pOn.close();
+    const pOff = await openIndex(browser, 'autoplay=30&diag=1&chronicle=0', {});
+    const off = await pOff.evaluate(probeResult);
+    await pOff.close();
+    console.log('  [arm J] on  = ' + JSON.stringify({ on: on.on, hasCh: on.hasCh, keys: on.keys,
+      logMax: on.logMax, rewardLen: (on.reward || '').length, err: on.err }));
+    console.log('  [arm J] off = ' + JSON.stringify({ on: off.on, hasCh: off.hasCh, keys: off.keys,
+      logMax: off.logMax, rewardLen: (off.reward || '').length, err: off.err }));
+
+    check('(6z0) [装置] 両方のページで showResult が実際に走り lastResult が書かれた',
+      on.hasFn === true && off.hasFn === true && !!on.keys && !!off.keys,
+      JSON.stringify({ onFn: on.hasFn, offFn: off.hasFn }));
+    check('(6z1) [装置] ★対の片方 — 撤退スイッチ無しなら chronicle キーが**載る**'
+        + ' (これが無いと (6a) は「出ない実装」でも緑になる)',
+      on.on === true && on.hasCh === true, 'CHRONICLE_ON=' + on.on + ' hasChronicle=' + on.hasCh);
+    check('(6a) ★index.html?chronicle=0 → lastResult に chronicle キーが載らない',
+      off.on === false && off.hasCh === false && (off.keys || []).indexOf('chronicle') < 0,
+      'CHRONICLE_ON=' + off.on + ' keys=' + JSON.stringify(off.keys));
+
+    const NEED = ['scenarioId', 'scenarioTitle', 'cleared', 'defeated', 'reward'];
+    const missOn  = NEED.filter(k => (on.keys || []).indexOf(k) < 0);
+    const missOff = NEED.filter(k => (off.keys || []).indexOf(k) < 0);
+    check('(4b) ★lastResult の既存キー (scenarioId/scenarioTitle/cleared/defeated/reward) が'
+        + ' ?chronicle=0 の有無どちらでも 1 つも欠けていない',
+      missOn.length === 0 && missOff.length === 0,
+      '欠け on=' + JSON.stringify(missOn) + ' off=' + JSON.stringify(missOff));
+    check('(4d) ★#combatLog の固定バッファ長が従来どおり (実行時の値を読む。'
+        + 'バイト数えだとコメントまで数えてしまう)',
+      on.logMax === 18 && off.logMax === 18,
+      'on=' + on.logMax + ' off=' + off.logMax);
+    check('(6a2) 敗北リザルトの結論 1 行 — スイッチ ON では行が増え、?chronicle=0 では増えない'
+        + ' (⛔ 文面そのものは縛らない)',
+      (on.reward || '').length > (off.reward || '').length && (off.reward || '').length > 0,
+      'on=' + (on.reward || '').length + 'B / off=' + (off.reward || '').length + 'B');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // STEP3 の中身 — 空振り (依頼書 §6-1) と とどめ (§6-2)
+  //   ⛔ 「◯◯しましょう」の類が 1 文も無いことは §12 の禁止事項。ここでは**数と名前**が
+  //      正しく動くかだけを測る (文面は縛らない = 依頼書 §9 の「測らないこと」)。
+  //   ⭐ 発動の記録は 2 経路ある。① 記録口 usedSkill ② 呪文スロット台帳 (max − 残)。
+  //      **両方**を別々に動かして、どちらも「発動しなかった一覧」から消えることを見る。
+  // ══════════════════════════════════════════════════════════════════════
+  console.log('\n--- STEP3 空振り (§6-1) と とどめ (§6-2) ---');
+  {
+    const PARTY6c = [
+      { classKey: 'warrior', isHero: true,  zone: 'front', name: null, trait: null, line: null },
+      { classKey: 'dwarf',   isHero: false, zone: 'front', name: 'アルヴ', trait: null, line: null },
+      { classKey: 'cleric',  isHero: false, zone: 'mid',   name: 'ベル',   trait: null, line: null },
+      { classKey: 'rogue',   isHero: false, zone: 'mid',   name: 'カイ',   trait: null, line: null },
+      { classKey: 'elf',     isHero: false, zone: 'mid',   name: 'ディア', trait: null, line: null },
+      { classKey: 'mage',    isHero: false, zone: 'rear',  name: 'エラ',   trait: null, line: null },
+    ];
+    const page = await openIndex(browser, 'autoplay=30&diag=1', { party: PARTY6c });
+    await page.evaluate(() => {
+      try { enemies.forEach(e => { e.x = -999999; e.y = -999999; }); } catch (e) {}
+      try { encounterActive = false; encounterEnemyIndices = []; } catch (e) {}
+      window.sleepMs = function () { return new Promise(r => setTimeout(r, 0)); };
+    });
+
+    const idle = await page.evaluate(() => {
+      const out = {};
+      try {
+        const i0 = RunChronicle.snapshot(null).idle;
+        out.n0 = (i0.unusedSkills || []).length;
+        out.slotsMax0 = i0.spellSlotsMax; out.slotsLeft0 = i0.spellSlotsLeft;
+        /* ① 記録口。⚠ 名前で持つのは、技の入口が 40 本近くあり ID を持たない集約点
+              (showRollAtAlly) で拾っているため。 */
+        out.target = (i0.unusedSkills || [])[0] || null;
+        if (out.target) RunChronicle.usedSkill(out.target);
+        const i1 = RunChronicle.snapshot(null).idle;
+        out.n1 = (i1.unusedSkills || []).length;
+        out.targetGone = out.target ? ((i1.unusedSkills || []).indexOf(out.target) < 0) : null;
+        /* ② 呪文スロット台帳。**本番の呪文が書くのと同じ 1 行**を撃つ。 */
+        let caster = null, sid = null;
+        for (const a of allies) {
+          if (!a || !a.spellSlots || !a.maxSpellSlots) continue;
+          for (const k of Object.keys(a.maxSpellSlots)) {
+            if ((a.maxSpellSlots[k] || 0) > 0 && (a.spellSlots[k] || 0) > 0
+                && (a.equippedSkills || []).indexOf(k) >= 0) { caster = a; sid = k; break; }
+          }
+          if (caster) break;
+        }
+        out.sid = sid;
+        if (caster) {
+          out.sname = (getSkill(sid) && getSkill(sid).name) || sid;
+          const b = RunChronicle.snapshot(null).idle;
+          out.bHas = (b.unusedSkills || []).indexOf(out.sname) >= 0;
+          out.bLeft = b.spellSlotsLeft;
+          caster.spellSlots[sid] = Math.max(0, caster.spellSlots[sid] - 1);
+          const c = RunChronicle.snapshot(null).idle;
+          out.cHas = (c.unusedSkills || []).indexOf(out.sname) >= 0;
+          out.cLeft = c.spellSlotsLeft;
+        }
+      } catch (e) { out.err = String((e && e.message) || e); }
+      return out;
+    });
+    console.log('  [arm N] ' + JSON.stringify(idle));
+
+    check('(6-1z0) [装置] ★母集団 — 出発直後は「発動しなかった技」が 1 つ以上あり、'
+        + '呪文スロットも 1 つ以上ある (0 だと以降が空振りで永久緑)',
+      idle.n0 >= 1 && idle.slotsMax0 >= 1,
+      'unused=' + idle.n0 + ' slots=' + idle.slotsLeft0 + '/' + idle.slotsMax0);
+    check('(6-1a) ★記録口 (RunChronicle.usedSkill) を通した技は「一度も発動しなかった技」から消える',
+      idle.targetGone === true && idle.n1 === idle.n0 - 1,
+      '対象=' + idle.target + ' / 件数 ' + idle.n0 + '→' + idle.n1);
+    check('(6-1z1) [装置] ★母集団 — 呪文スロットを持つ技が実在し、消費前は未発動扱いだった',
+      !!idle.sid && idle.bHas === true, 'sid=' + idle.sid + ' name=' + idle.sname + ' bHas=' + idle.bHas);
+    check('(6-1b) ★呪文スロットを 1 つ消費すると、その技が未発動一覧から消え、残数も 1 減る '
+        + '(⭐ 呪文はフックを刺さず既存の台帳から導いている)',
+      idle.bHas === true && idle.cHas === false && idle.cLeft === idle.bLeft - 1,
+      idle.sname + ': 未発動 ' + idle.bHas + '→' + idle.cHas
+        + ' / 残スロット ' + idle.bLeft + '→' + idle.cLeft);
+
+    // ── §6-2 とどめ ────────────────────────────────────────────────────────
+    const kick = await page.evaluate(() => {
+      const out = {};
+      try {
+        sessionStorage.removeItem('dragonfighters.lastResult');
+        heroIsHead = true;
+        playerBuffs.resilientFired = true;
+        equippedSkills = [];
+        hp = 1;
+        /* 盤面から**独立に**残存敵数を数える (本番の式は写経せず、ここで自分で数える)。 */
+        triggerTrapOnPlayer({ triggered: false, found: false });
+        out.gameOver = gameOver;
+        out.boardLeft = enemies.filter(e => e && e.alive && !e.passiveNpc).length;
+      } catch (e) { out.err = String((e && e.message) || e); }
+      return out;
+    });
+    const land = await pollUntil(page, () => {
+      const raw = sessionStorage.getItem('dragonfighters.lastResult');
+      let p = null;
+      try { p = raw ? JSON.parse(raw) : null; } catch (e) {}
+      const c = p && p.chronicle;
+      return { done: !!(c && c.lastBlow), lb: (c && c.lastBlow) || null,
+               outcome: c ? c.outcome : null, idleNull: c ? (c.idle === null) : null,
+               unused: (c && c.idle) ? (c.idle.unusedSkills || []).length : -1 };
+    }, 15000, 400);
+    console.log('  [arm N] kick=' + JSON.stringify(kick) + ' land=' + JSON.stringify(land));
+
+    check('(6-2z0) [装置] ★母集団 — 罠で頭が倒れて gameOver が立ち、リザルトが書かれた',
+      kick.gameOver === true && !!(land && land.done), JSON.stringify({ kick: kick, done: land && land.done }));
+    check('(6-2a) ★敗北の年代記に lastBlow が入り、とどめを刺した相手の名前が埋まっている',
+      !!(land && land.lb && land.lb.by), 'lastBlow=' + JSON.stringify(land && land.lb));
+    check('(6-2b) ★lastBlow.enemiesLeft が、盤面で数えた「生きている非 NPC の敵」と一致'
+        + ' (ドライバ側で独立に数えた値)',
+      !!(land && land.lb) && land.lb.enemiesLeft === kick.boardLeft,
+      'chronicle=' + (land && land.lb ? land.lb.enemiesLeft : '?') + ' / board=' + kick.boardLeft);
+    check('(6-2c) 保存された年代記に空振り (idle) も一緒に載っている',
+      land && land.idleNull === false && land.unused >= 1,
+      'idle=' + (land && land.idleNull === false ? 'あり' : 'null') + ' unused=' + (land && land.unused));
+    check('(6-2d) outcome が "defeat"', land && land.outcome === 'defeat', 'outcome=' + (land && land.outcome));
+
+    await page.close();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // §5 iOS / 手触り
+  // ══════════════════════════════════════════════════════════════════════
   console.log('\n--- §5 iOS / 手触り ---');
-  pending('(5a) レポートに明示的な閉じるボタンがあり、タップ領域が 44px 以上', 'STEP3 (項目3) 担当');
-  pending('(5b) 閉じるボタンと背景の両方に click と touchend が配線されている', 'STEP3 (項目3) 担当');
-  pending('(5c) body.ui-compact で年代記が 10 行を超えてもスクロールできる', 'STEP3 (項目3) 担当');
+  {
+    const page = await openTavern(browser, '', MK_RESULT(3));
+    const a = await page.evaluate(() => {
+      const out = {};
+      out.opened = window.__chronicle.open();
+      const btn = document.getElementById('chronicleClose');
+      out.hasBtn = !!btn;
+      if (btn) {
+        const r = btn.getBoundingClientRect();
+        out.w = Math.round(r.width); out.h = Math.round(r.height);
+        out.hit = (function () {
+          const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!(el && (el === btn || btn.contains(el)));
+        })();
+      }
+      return out;
+    });
+    console.log('  [arm K] close = ' + JSON.stringify(a));
+    check('(5z0) [装置] 母集団が空でない — レポートが実際に開いている',
+      a.opened === true, 'opened=' + a.opened);
+    check('(5a) ★レポートに明示的な閉じるボタンがあり、タップ領域が 44px 以上 (かつ実際に押せる)',
+      a.hasBtn === true && a.w >= 44 && a.h >= 44 && a.hit === true,
+      JSON.stringify({ w: a.w, h: a.h, hit: a.hit }));
 
-  console.log('\n--- §6 撤退 ---');
-  pending('(6a) index.html?chronicle=0 → lastResult に chronicle キーが載らない', 'STEP3 (項目3) 担当');
-  pending('(6b) tavern.html?chronicle=0 → レポートの導線が出ず、バナーだけが従来どおり出る', 'STEP3 (項目3) 担当');
+    /* (5b) 配線は「イベントを実際に投げて閉じるか」で測る。
+       ⚠ リスナ一覧はページ側から列挙できないので、機能で縛るのが唯一の手。
+       ⚠ 背景の口は ev.target !== ov で弾くので、必ず ov 自身へ投げること。 */
+    const wire = await page.evaluate(() => {
+      const C = window.__chronicle;
+      const ov = document.getElementById('chronicleOverlay');
+      const btn = document.getElementById('chronicleClose');
+      const out = {};
+      const trial = (host, type) => {
+        C.open();
+        if (!C.isOpen()) return 'not-open';
+        host.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+        return C.isOpen() ? 'still-open' : 'closed';
+      };
+      out.btnClick = trial(btn, 'click');
+      out.btnTouch = trial(btn, 'touchend');
+      out.bgClick  = trial(ov,  'click');
+      out.bgTouch  = trial(ov,  'touchend');
+      /* 中身 (羊皮紙) を叩いても閉じないこと = 背景判定が雑になっていないか */
+      C.open();
+      document.getElementById('chronicleInner')
+        .dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
+      out.innerKeepsOpen = C.isOpen();
+      C.close();
+      return out;
+    });
+    console.log('  [arm K] wire = ' + JSON.stringify(wire));
+    check('(5b) ★閉じるボタンと背景の**両方**に click と touchend が配線されている'
+        + ' (4 通りとも実際に閉じる)',
+      wire.btnClick === 'closed' && wire.btnTouch === 'closed'
+        && wire.bgClick === 'closed' && wire.bgTouch === 'closed',
+      JSON.stringify(wire));
+    check('(5b2) 羊皮紙の中身を叩いても閉じない (背景判定が雑になっていない)',
+      wire.innerKeepsOpen === true, 'innerKeepsOpen=' + wire.innerKeepsOpen);
+    await page.close();
+  }
+  {
+    /* (5c) 狭幅で 10 行を超えてもスクロールできること。
+       ⚠⚠ 依頼書の body.ui-compact は **tavern.html には一度も付かない**。この画面の
+          狭幅クラスの実体は body.compact (layout() が付ける)。ui-compact で測ると
+          「狭幅になっていないのに緑」になる。 */
+    const page = await openTavern(browser, '', MK_RESULT(14), { width: 420, height: 860, deviceScaleFactor: 1 });
+    const sc = await page.evaluate(() => {
+      const out = {};
+      out.bodyClass = document.body.className;
+      out.compact = document.body.classList.contains('compact');
+      out.opened = window.__chronicle.open();
+      const body = document.getElementById('chronicleBody');
+      out.rows = body ? body.querySelectorAll('.chEvents li').length : -1;
+      out.scrollH = body ? body.scrollHeight : -1;
+      out.clientH = body ? body.clientHeight : -1;
+      if (body) {
+        body.scrollTop = 0;
+        body.scrollTop = 99999;
+        out.scrolled = body.scrollTop;
+      }
+      out.idleRows = body ? body.querySelectorAll('.chIdle li').length : -1;
+      return out;
+    });
+    console.log('  [arm L] ' + JSON.stringify(sc));
+    check('(5z1) [装置] 狭幅クラスが実際に付いている (body.compact — ui-compact ではない)',
+      sc.compact === true, 'bodyClass="' + sc.bodyClass + '"');
+    check('(5z2) [装置] ★母集団 — 年代記が実際に 10 行を超えている '
+        + '(超えていなければスクロールも起きず永久に緑)',
+      sc.rows > 10, 'rows=' + sc.rows);
+    check('(5c) ★狭幅で年代記が 10 行を超えてもスクロールできる '
+        + '(器ではなく #chronicleBody が縦スクロールを持つ)',
+      sc.rows > 10 && sc.scrollH > sc.clientH && sc.scrolled > 0,
+      'scrollH=' + sc.scrollH + ' clientH=' + sc.clientH + ' scrollTop=' + sc.scrolled);
+    check('(5c2) 空振り (STEP3 §6-1) の行が末尾に出ている', sc.idleRows >= 1, 'idleRows=' + sc.idleRows);
+    await page.close();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // §6 撤退 (6b) — 酒場側。⭐ こちらも「スイッチ無しなら出る」を対で測る。
+  // ══════════════════════════════════════════════════════════════════════
+  console.log('\n--- §6 撤退 (6b) ---');
+  {
+    const probeTv = () => {
+      const out = {};
+      out.on = window.__chronicle ? window.__chronicle.on() : null;
+      out.hasOpenBtn = !!document.getElementById('chronicleOpenBtn');
+      const sh = document.getElementById('chronicleShelf');
+      out.hasShelf = !!sh;
+      out.shelfShown = !!(sh && sh.classList.contains('show'));
+      out.shelfN = window.__chronicle ? window.__chronicle.shelf().length : -1;
+      out.raw = localStorage.getItem('dragonfighters.chronicles');
+      out.opened = window.__chronicle ? window.__chronicle.open() : null;
+      if (out.opened) window.__chronicle.close();
+      out.banners = Array.prototype.slice.call(document.body.children)
+        .filter((el) => el.tagName === 'DIV'
+          && /z-index:15;/.test((el.getAttribute('style') || '').replace(/\s/g, ''))).length;
+      return out;
+    };
+    const pOn = await openTavern(browser, '', MK_RESULT(3));
+    const tvOn = await pOn.evaluate(probeTv);
+    await pOn.close();
+    const pOff = await openTavern(browser, 'chronicle=0', MK_RESULT(3));
+    const tvOff = await pOff.evaluate(probeTv);
+    await pOff.close();
+    console.log('  [arm M] on  = ' + JSON.stringify(tvOn));
+    console.log('  [arm M] off = ' + JSON.stringify(tvOff));
+
+    check('(6z2) [装置] ★対の片方 — スイッチ無しなら導線 (バナーの読む口 + 記録棚) が**出る**',
+      tvOn.on === true && tvOn.hasOpenBtn === true && tvOn.hasShelf === true
+        && tvOn.shelfShown === true && tvOn.opened === true,
+      JSON.stringify({ on: tvOn.on, openBtn: tvOn.hasOpenBtn, shelf: tvOn.shelfShown, opened: tvOn.opened }));
+    check('(6b) ★tavern.html?chronicle=0 → レポートの導線が出ず (読む口も記録棚も DOM ごと無い)、'
+        + 'バナーだけが従来どおり出る',
+      tvOff.on === false && tvOff.hasOpenBtn === false && tvOff.hasShelf === false
+        && tvOff.opened === false && tvOff.banners === 1 && tvOn.banners === 1,
+      JSON.stringify({ on: tvOff.on, openBtn: tvOff.hasOpenBtn, shelf: tvOff.hasShelf,
+        opened: tvOff.opened, banners: tvOff.banners }));
+    check('(6b2) ?chronicle=0 では記録棚へ 1 件も書かれない (localStorage が null のまま)',
+      tvOff.raw === null && tvOff.shelfN === 0 && tvOn.shelfN >= 1,
+      'off raw=' + String(tvOff.raw) + ' / on shelf=' + tvOn.shelfN);
+  }
 
   check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
 

@@ -1577,6 +1577,49 @@
       background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
       border: 2px solid var(--parchment-gold); border-radius: 5px;
     }
+    /* ── 空振り (#37 STEP3 §6-1) と 記録棚 (#37 STEP4 §7) ────────────────────
+       ⛔ 新しいカラー変数を作らない。地は既存の --parchment-*。
+       ⚠ 説明文に opacity を掛けない (#15 の実測: 羊皮紙の斑に食われる)。
+          読みやすさは chEvents と同じクリーム色の薄掛けで作る。 */
+    .chIdle, .chShelf { list-style: none; margin: 0 0 6px; padding: 0; }
+    .chIdle li, .chShelf li {
+      padding: 7px 9px; margin-bottom: 4px;
+      border-left: 3px solid rgba(139,105,20,0.35); border-radius: 0 4px 4px 0;
+      background: rgba(255,245,210,0.42);
+    }
+    .chIdle li small, .chShelf li small {
+      display: block; margin-top: 3px; font-size: 11px; line-height: 1.5;
+      color: var(--parchment-ink-soft);
+    }
+    .chShelf li { cursor: pointer; }
+    .chShelf li:hover { background: rgba(255,245,210,0.72); }
+    /* 記録棚から 1 件を開いたときの戻り道。⚠ iOS: タップ領域 44px 以上。 */
+    #chronicleBack {
+      display: block; margin: 0 0 10px; min-height: 44px; min-width: 148px;
+      padding: 8px 16px; cursor: pointer;
+      font-size: 13px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: rgba(255,245,210,0.6); color: var(--parchment-ink);
+      border: 1px solid var(--parchment-gold); border-radius: 4px;
+    }
+    /* 記録棚を開く導線。⚠⚠ 左下 (#questBoard) / 右下 (#shopEntry + ⚙) / 右上 (#changelogBox) は
+       すべて埋まっている。空いているのは **左上の #townExit の真下** だけ (#12 の実測と同じ理由で
+       重ねると elementFromPoint がそちらを返す)。 */
+    #chronicleShelf {
+      position: absolute; left: 18px; top: 74px; z-index: 13;
+      display: none; min-height: 44px; box-sizing: border-box;
+      padding: 10px 16px; cursor: pointer;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px;
+      box-shadow: var(--parchment-shadow);
+      transition: background 0.12s, box-shadow 0.12s;
+    }
+    #chronicleShelf.show { display: block; }
+    #chronicleShelf:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+    body.compact #chronicleShelf, body.ui-compact #chronicleShelf { font-size: 13px; padding: 11px 12px; }
+
     /* 帰還バナー末尾の「📜 記録を読む」。⚠ こちらも 44px 以上。 */
     #chronicleOpenBtn {
       display: block; margin: 10px auto 0; min-height: 44px; min-width: 168px;
@@ -2660,10 +2703,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>使わずに終わったものが分かる</b> — 余った呪文スロットや一度も出番の無かったスキルを、記録の末尾に並べる。過去 5 回ぶんの記録も酒場に残る。</li>
         <li><b>仲間の働きが数字で見える</b> — 与えたダメージ・受けたダメージ・倒した数を、帰還後の記録に隊列ごとの墨の棒グラフで並べる。</li>
         <li><b>冒険の記録が残るようになった</b> — 帰還後、酒場の羊皮紙で「誰がどこで何に倒れたか」を読み返せる。</li>
         <li><b>設定の引き出しが暗い画面に馴染むようになった</b> — 技の一覧が暗幕の上でもはっきり読めるようになり、今どのカードを開いているかも金の二重枠で一目で分かる。画面下の案内も「カードを押して設定・下のボタンで出発」と実際の操作どおりに直した。</li>
-        <li><b>仲間が集う画面でスキルと戦い方を決められるようになった</b> — 顔ぶれのカードを押すとその場で開き、誰に何を使ってほしいかを出発前にまとめて指示できる。</li>
       </ul>
     </div>
     <script>
@@ -2723,6 +2766,10 @@
     <!-- 街へ出る (実装依頼書 #12)。⚠ ?town=0 のときは JS が丸ごと消す -->
     <div id="townExit" title="港町フランへ出る">🚪 街へ出る</div>
     <div id="shopEntry" title="武器防具屋">🛡️ 武器防具屋</div>
+    <!-- 記録棚 (#37 STEP4): 過去 5 回ぶんの冒険の記録を開き直す。
+         ⚠ 既定は display:none。記録が 1 件以上あるときだけ JS が .show を付ける。
+         ⛔ ?chronicle=0 のときは initChronicleShelf() が DOM ごと remove する。 -->
+    <div id="chronicleShelf" title="過去の冒険の記録">📜 冒険の記録</div>
 
     <!-- v7.1: 武器防具屋 画面 -->
     <div id="shopScreen">
@@ -4666,6 +4713,34 @@
   const CHRONICLE_ON_TV = !/[?&]chronicle=0(&|$)/.test(location.search);
   let lastChronicle = null;       // 直近の帰還で受け取った年代記 (記録棚 = STEP4 が拾う口)
   let lastChronicleMeta = null;   // 同じ lastResult の見出し情報 (シナリオ名など)
+
+  /* ══ 記録棚 (#37 STEP4 / 依頼書 §7) ═══════════════════════════════════════
+   * localStorage に **直近 5 件**。6 件目を足すときに最古が落ちる。
+   * ⛔⛔ 前置詞 "dragonfighters." を変えない。js/save-slots.js の keysOf() が
+   *      LIVE_PREFIX = "dragonfighters." で総なめしているので、この前置詞のままなら
+   *      snapshot() (スロットごとに焼く) と wipeLive() (新規ゲームで消す) が
+   *      こちらのコードを 1 行も書かずに正しくなる。変えると両方壊れる。
+   * ⛔ KEEP (settings / panelCollapsed) には載せない — 記録はスロットごとに分かれるべきもの。
+   * ⚠ この 3 つは consumeResult より **前** に置くこと。const は巻き上がっても TDZ なので、
+   *   後ろに置くと帰還直後の 1 回だけ ReferenceError で記録が落ちる。 */
+  const CHRONICLE_SHELF_KEY = "dragonfighters.chronicles";
+  const CHRONICLE_SHELF_MAX = 5;
+  function loadShelf() {
+    try {
+      const raw = localStorage.getItem(CHRONICLE_SHELF_KEY);
+      const a = raw ? JSON.parse(raw) : null;
+      return Array.isArray(a) ? a : [];
+    } catch (e) { return []; }
+  }
+  function pushShelf(entry) {
+    if (!CHRONICLE_ON_TV || !entry) return null;
+    const a = loadShelf();
+    a.push(entry);
+    while (a.length > CHRONICLE_SHELF_MAX) a.shift();   // ★ 6 件目で最古が落ちる
+    try { localStorage.setItem(CHRONICLE_SHELF_KEY, JSON.stringify(a)); }
+    catch (e) { console.warn("[chronicle] 記録棚への保存に失敗", e); return null; }
+    return a;
+  }
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
@@ -4675,7 +4750,13 @@
       const r = JSON.parse(resultRaw);
       /* 年代記 (#37): lastResult に相乗りしてきた記録を受け取る。
          ⚠ 運搬の経路は増やさない (新しい sessionStorage キーを作らない・依頼書 §2-5)。 */
-      if (CHRONICLE_ON_TV && r && r.chronicle) { lastChronicle = r.chronicle; lastChronicleMeta = r; }
+      if (CHRONICLE_ON_TV && r && r.chronicle) {
+        lastChronicle = r.chronicle; lastChronicleMeta = r;
+        /* 記録棚 (#37 STEP4): 直近 5 件へ積む。⚠ この行は下の DFSlots.snapshot() より
+           **前**に居ること — 後ろだと、いま帰ってきた 1 件だけスロットへ焼かれない。 */
+        pushShelf({ at: Date.now(), scenarioId: r.scenarioId || null,
+                    scenarioTitle: r.scenarioTitle || null, ch: r.chronicle });
+      }
       if (r && r.cleared && r.scenarioId) {
         // 闇市アンロック: クリア累計を計数し、閾値で「怪しい扉」を常設化 (生成/固定どちらのクリアも計上)
         plazaStateTV.totalQuestsCleared = (plazaStateTV.totalQuestsCleared || 0) + 1;
@@ -4809,7 +4890,48 @@
     return '<div class="chRosterHead">隊列の働き</div><ul class="chRoster">' + rows + '</ul>';
   }
 
-  function renderChronicle(ch, meta) {
+  /* 空振り (#37 STEP3 / 依頼書 §6-1)。
+     ⛔⛔ 助言・推奨・提案を **1 文も書かない**。使わずに終わったものを事実として並べるだけ
+        (2026-08-29 ユーザー決定: 自動生成の助言は外れた瞬間にゲームが嘘つきになる)。
+     ⛔ 数字は index.html の snapshot() が唯一の正。ここで 1 つも計算し直さない。 */
+  function renderIdle(ch) {
+    const id = ch && ch.idle;
+    const lb = ch && ch.lastBlow;
+    const rows = [];
+    if (lb) {
+      rows.push("<li>" + (lb.by ? "とどめを刺したのは <b>" + chEsc(lb.by) + "</b> ／ " : "")
+        + "残っていた敵 <b>" + chEsc(String(lb.enemiesLeft)) + "</b> 体</li>");
+    }
+    if (id && id.spellSlotsMax > 0) {
+      const detail = (id.slots || []).filter((s) => s && s.max > 0)
+        .map((s) => chEsc(s.who) + " " + chEsc(String(s.left)) + "/" + chEsc(String(s.max)))
+        .join("　");
+      rows.push("<li>使わずに終わった呪文スロット <b>" + chEsc(String(id.spellSlotsLeft))
+        + "</b> / " + chEsc(String(id.spellSlotsMax))
+        + (detail ? "<small>" + detail + "</small>" : "") + "</li>");
+    }
+    if (id && Array.isArray(id.unusedByWho) && id.unusedByWho.length > 0) {
+      rows.push("<li>一度も発動しなかった技 <b>"
+        + chEsc(String((id.unusedSkills || []).length)) + "</b> 種<small>"
+        + id.unusedByWho.map((u) => chEsc(u.who) + "：" + (u.skills || []).map((s) => chEsc(s)).join(" / "))
+            .join("<br>")
+        + "</small></li>");
+    }
+    if (rows.length === 0) return "";
+    return '<div class="chRosterHead">空振り</div><ul class="chIdle">' + rows.join("") + "</ul>";
+  }
+
+  /* 記録棚の日付。⚠ 保存しているのは epoch ミリ秒の数値だけ。表示のときにだけ整形する。 */
+  function chWhen(ms) {
+    const n = Number(ms);
+    if (!n) return "";
+    const d = new Date(n);
+    const p = (v) => (v < 10 ? "0" + v : String(v));
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate())
+         + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  function renderChronicle(ch, meta, opts) {
     const sub  = document.getElementById("chronicleSub");
     const body = document.getElementById("chronicleBody");
     if (!body) return;
@@ -4820,7 +4942,12 @@
     const evs = (ch && Array.isArray(ch.events)) ? ch.events : [];
     const lead = "全 " + ((ch && ch.rounds) || 0) + " ラウンド ／ 討ち取った敵 "
                + ((ch && ch.kills) || 0) + " ／ 記した出来事 " + evs.length + " 件";
-    let html = '<div class="chLead">' + chEsc(lead) + "</div>";
+    let html = "";
+    /* 記録棚から開いたときだけ戻り道を出す。⚠ 44px 以上 (iOS)。 */
+    if (opts && opts.fromShelf) {
+      html += '<button type="button" id="chronicleBack">◀ 記録棚へ戻る</button>';
+    }
+    html += '<div class="chLead">' + chEsc(lead) + "</div>";
     html += renderRoster(ch);   /* 年代記 (#37 STEP2 §5-3): 隊列の働き (墨の棒グラフ) */
     if (evs.length === 0) {
       html += '<div class="chEmpty">語り継ぐほどの出来事は無かった。</div>';
@@ -4832,8 +4959,55 @@
              + '<span class="chRound">' + chEsc(rd) + "</span>" + chEsc(tx) + "</li>";
       }).join("") + "</ol>";
     }
+    html += renderIdle(ch);     /* 空振り (#37 STEP3 §6-1): 末尾に事実だけ並べる */
     body.innerHTML = html;
+    if (opts && opts.fromShelf) {
+      chronicleBindTap(document.getElementById("chronicleBack"), () => renderShelfList());
+    }
     body.scrollTop = 0;
+  }
+
+  /* 記録棚の一覧 (#37 STEP4)。⚠ 新しい順。行を押すとその記録が開く。 */
+  function renderShelfList() {
+    const sub  = document.getElementById("chronicleSub");
+    const body = document.getElementById("chronicleBody");
+    if (!body) return;
+    const a = loadShelf();
+    if (sub) sub.textContent = "記録棚 — 直近 " + a.length + " 件";
+    if (a.length === 0) {
+      body.innerHTML = '<div class="chEmpty">まだ書き留めた冒険が無い。</div>';
+      return;
+    }
+    let html = '<div class="chLead">' + chEsc("新しい順。行を押すとその冒険の記録が開く。") + "</div>";
+    html += '<ul class="chShelf">';
+    for (let i = a.length - 1; i >= 0; i--) {
+      const e = a[i] || {};
+      const c = e.ch || {};
+      html += '<li data-ci="' + i + '"><b>「' + chEsc(e.scenarioTitle || "依頼") + "」 "
+        + chEsc(chOutcomeLabel(c.outcome)) + "</b><small>" + chEsc(chWhen(e.at))
+        + " ／ 全 " + chEsc(String(c.rounds || 0)) + " ラウンド ／ 討ち取った敵 "
+        + chEsc(String(c.kills || 0)) + "</small></li>";
+    }
+    html += "</ul>";
+    body.innerHTML = html;
+    Array.prototype.forEach.call(body.querySelectorAll(".chShelf li"), (li) => {
+      chronicleBindTap(li, () => {
+        const i = parseInt(li.getAttribute("data-ci"), 10);
+        const e = loadShelf()[i];
+        if (e) renderChronicle(e.ch, { scenarioTitle: e.scenarioTitle }, { fromShelf: true });
+      });
+    });
+    body.scrollTop = 0;
+  }
+
+  function openChronicleShelf() {
+    if (!CHRONICLE_ON_TV) return false;
+    const ov = document.getElementById("chronicleOverlay");
+    if (!ov) return false;
+    renderShelfList();
+    ov.classList.add("show");
+    ov.setAttribute("aria-hidden", "false");
+    return true;
   }
 
   function openChronicle(ch, meta) {
@@ -4868,7 +5042,23 @@
     ov.addEventListener("touchend", bg);
   })();
 
-  /* 読み取り窓 (検証ドライバ / STEP3 の記録棚が使う)。⚠ 書き込み口は作らない。 */
+  /* 記録棚を開き直す導線 (#37 STEP4)。
+     ⚠ 置き場所は左上の #townExit の**真下**。右下 (#shopEntry + ⚙) / 左下 (#questBoard) /
+        右上 (#changelogBox) は既に埋まっており、重ねると elementFromPoint がそちらを返す。
+     ⛔ 撤退 ?chronicle=0 のときは **DOM ごと消す** (押せる導線を残さない)。
+     ⚠ 記録が 1 件も無いうちは出さない (空の棚を開かせない)。 */
+  (function initChronicleShelf() {
+    const btn = document.getElementById("chronicleShelf");
+    if (!btn) return;
+    if (!CHRONICLE_ON_TV) { btn.remove(); return; }
+    if (loadShelf().length === 0) return;
+    btn.classList.add("show");
+    chronicleBindTap(btn, () => openChronicleShelf());
+  })();
+
+  /* 読み取り窓 (検証ドライバが使う)。
+     ⚠ shelfPush だけは書き込みだが、**本番の保存経路そのもの** (pushShelf) を呼ぶ。
+        ドライバに別の保存規則を写経させないための口で、ここに第二の実装は無い。 */
   window.__chronicle = {
     on:    () => CHRONICLE_ON_TV,
     last:  () => lastChronicle,
@@ -4879,6 +5069,11 @@
       const ov = document.getElementById("chronicleOverlay");
       return !!(ov && ov.classList.contains("show"));
     },
+    shelfKey:  () => CHRONICLE_SHELF_KEY,
+    shelfMax:  () => CHRONICLE_SHELF_MAX,
+    shelf:     () => loadShelf(),
+    shelfPush: (e) => pushShelf(e),
+    openShelf: () => openChronicleShelf(),
   };
 
   function isUnlocked(sc) {

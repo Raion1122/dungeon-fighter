@@ -13812,6 +13812,12 @@
       let roundsTotal = 0;     // 全戦闘のラウンド合計 (snapshot の rounds)
       let kills = 0;           // 撃破の総数。⚠ events は EVENT_MAX で溢れるのでこちらが正
       let curActor = null;     // いまの行動者の表示名 (STEP2 の手番ラップが入れる)
+      /* ── 空振りととどめ (#37 STEP3 / 依頼書 §6) ────────────────────────────
+       * ⛔ ここで作るのは**事実だけ**。「◯◯しましょう」の類は 1 文も生成しない
+       *    (2026-08-29 ユーザー決定: 自動生成の助言は外れた瞬間にゲームが嘘つきになる)。 */
+      const usedSkillNames = new Set();   // 発動した技の**名前**。呼び口は 3 点だけ (下の usedSkill)
+      let lastBlowBy = null;              // 頭にとどめを刺した相手の名前 (fall が控える)
+      let sealed = null;                  // idle / lastBlow の確定値。1 ラン 1 回しか計算しない
 
       /* 「どこで」= 部屋名。場所と名前がある文だけが記録になる (依頼書 §9 (1b))。
          ⚠ RUN / currentNodeId はこの位置より後で宣言される let なので、初期化前に触ると
@@ -13945,6 +13951,78 @@
         }
       }
 
+      /* ── 空振り (#37 STEP3 / 依頼書 §6-1) ──────────────────────────────────
+       * 「使わずに終わったもの」を**事実として**数える。
+       * ⛔ 助言・推奨・提案の類は 1 文も作らない。数と名前だけを並べる。
+       * ⭐ 呪文スロットの消費は既存の台帳 (max − 残) をそのまま読む = 新しい記録を作らない。
+       *   だから呪文の入口 40 近くへフックを刺す必要が無い。記録口 usedSkill が要るのは
+       *   スロットを消費しない技 (戦士 / ドワーフ / 盗賊) だけ。 */
+      function slotSum(o) {
+        let n = 0;
+        try { for (const k of Object.keys(o || {})) n += (o[k] || 0); } catch (e) {}
+        return n;
+      }
+      function skillNameOf(id) {
+        try { const sk = getSkill(id); if (sk && sk.name) return sk.name; } catch (e) {}
+        return id;
+      }
+      /* その技が「発動した」か。① 演出の記録 (usedSkill) ② 呪文スロットが減っている、の 2 経路。
+         ⚠ ② は「その技のスロットを持っている技」にしか使えない (持っていなければ ① だけが正)。 */
+      function skillWasUsed(id, maxS, curS) {
+        if (usedSkillNames.has(skillNameOf(id))) return true;
+        if (maxS && (maxS[id] || 0) > 0) return (maxS[id] || 0) > (curS ? (curS[id] || 0) : 0);
+        return false;
+      }
+      function computeIdle() {
+        const slots = [], unusedByWho = [], flat = [], seen = new Set();
+        const add = (who, ids, maxS, curS) => {
+          if (!who) return;
+          const left = slotSum(curS), max = slotSum(maxS);
+          if (max > 0) slots.push({ who: who, left: left, max: max });
+          const un = [];
+          for (const id of (ids || [])) {
+            if (skillWasUsed(id, maxS, curS)) continue;
+            const nm = skillNameOf(id);
+            un.push(nm);
+            if (!seen.has(nm)) { seen.add(nm); flat.push(nm); }
+          }
+          if (un.length) unusedByWho.push({ who: who, skills: un });
+        };
+        try {
+          const p = profileOf({ head: true });
+          add(p && p.name, equippedSkills, currentMaxSpellSlots, currentSpellSlots);
+        } catch (e) { /* 初期化前 */ }
+        try {
+          if (Array.isArray(allies)) for (const a of allies) {
+            if (!a) continue;
+            const p = profileOf(a);
+            add(p && p.name, a.equippedSkills, a.maxSpellSlots, a.spellSlots);
+          }
+        } catch (e) { /* 初期化前 */ }
+        let left = 0, max = 0;
+        for (const s of slots) { left += s.left; max += s.max; }
+        return { spellSlotsLeft: left, spellSlotsMax: max, slots: slots,
+                 unusedSkills: flat.slice(0, 24), unusedByWho: unusedByWho };
+      }
+      /* とどめ (#37 STEP3 / 依頼書 §6-2)。⚠ 敗北時だけ意味を持つ。
+         ⚠ 護衛対象などの passiveNpc は「残っていた敵」に数えない。 */
+      function computeLastBlow() {
+        let n = 0;
+        try { n = enemies.filter(e => e && e.alive && !e.passiveNpc).length; } catch (e) { n = 0; }
+        return { by: lastBlowBy, enemiesLeft: n };
+      }
+      /* idle / lastBlow を 1 ラン 1 回だけ確定する。⚠ リザルトの 1 行 (defeatLine) と
+         snapshot() の 2 か所から呼ばれるが、値が食い違わないよう最初の 1 回で封をする。 */
+      function seal(outcome) {
+        if (sealed) return sealed;
+        sealed = { idle: computeIdle(), lastBlow: (outcome === "defeat") ? computeLastBlow() : null };
+        return sealed;
+      }
+      function chEsc(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
       return {
         /* ラウンドの刻印。戦闘の while ループが 1 ラウンド 1 回だけ呼ぶ。 */
         setRound(r) {
@@ -14000,15 +14078,49 @@
           if (m.fellAt && m.fellAt.round === round && m.fellAt.node === node) return;
           m.fellAt = { round: round, node: node };
           const by = byName || curActor || null;
+          /* 年代記 (#37 STEP3 §6-2): 頭にとどめを刺した相手を控える。委譲で頭が入れ替われば
+             上書きされ、最後に残るのが「冒険を終わらせた一撃」になる。 */
+          if (unit && unit.head === true) lastBlowBy = by;
           push({ round: round, node: node, kind: "fall", who: m.name, by: by,
                  text: by ? (node + "にて " + m.name + " は " + by + " に倒れた")
                           : (node + "にて " + m.name + " は倒れた") });
+        },
+
+        /* 技が発動した瞬間の記録口 (#37 STEP3 §6-1)。
+           ⛔ 記録の出所を 2 つ作らない — 呼び口はここ 1 本だけで、刺し先は 3 点:
+              ① showRollAtAlly (仲間の SKILL 吹き出し 33 箇所を 1 点で覆う)
+              ② showSkillAnnounce (頭の SKILL 吹き出し)
+              ③ checkDwarvenGritTrigger (リアクティブなので上の 2 つを通らない)
+           ⭐ 呪文スロットを消費する技は台帳 (max − 残) から導けるので刺していない。 */
+        usedSkill(name) {
+          if (!CHRONICLE_ON) return;
+          if (name) usedSkillNames.add(String(name));
+        },
+
+        /* リザルト画面の敗北分岐へ足す**1 行だけ**の結論 (#37 STEP3 §6-2)。
+           ⛔ 画面は作り替えない。⛔ 助言は書かない (事実だけ)。 */
+        defeatLine() {
+          if (!CHRONICLE_ON) return "";
+          const lb = seal("defeat").lastBlow;
+          if (!lb) return "";
+          const parts = [];
+          if (lb.by) {
+            let who = "あなた";
+            try { const p = profileOf({ head: true }); if (p && p.name) who = p.name; } catch (e) {}
+            parts.push(chEsc(who) + "を倒したのは〈" + chEsc(lb.by) + "〉");
+          }
+          parts.push("残っていた敵は " + lb.enemiesLeft + " 体");
+          return parts.join(" ／ ");
         },
 
         /* showResult から 1 回だけ呼ぶ。これが年代記の唯一の正 (tavern は読むだけ)。 */
         snapshot(outcome) {
           if (!CHRONICLE_ON) return null;
           syncRoster();
+          /* ⚠⚠ outcome 無しの覗き見 (検証ドライバの計器が何度も呼ぶ) で封をしてはいけない。
+             封をすると、あとで本物の showResult が呼んだときに**戦闘途中の空振り**が
+             そのまま返ってしまう。封をするのは決着 (clear / defeat / retreat) のときだけ。 */
+          const sl = outcome ? seal(outcome) : { idle: computeIdle(), lastBlow: null };
           return {
             v: 1,
             outcome: outcome || null,
@@ -14020,8 +14132,8 @@
               fellAt: m.fellAt,
             })),
             events: events.slice(),
-            idle: null,       /* STEP3 (依頼書 §6-1): 余った呪文スロット / 未発動スキル */
-            lastBlow: null,   /* STEP3 (依頼書 §6-2): とどめの一撃 / 残存敵数 (敗北時のみ) */
+            idle: sl.idle,        /* STEP3 (依頼書 §6-1): 余った呪文スロット / 未発動スキル */
+            lastBlow: sl.lastBlow /* STEP3 (依頼書 §6-2): とどめの一撃 / 残存敵数 (敗北時のみ) */,
           };
         },
       };
@@ -19045,6 +19157,14 @@
       setTimeout(() => pop.remove(), type === "crit" ? 1500 : 1300);
     }
     function showRollAtAlly(ally, html, type) {
+      /* 年代記 (#37 STEP3): 仲間の技の発動をここ 1 点で拾う。技の実装は 40 本近くあるが、
+         「SKILL の吹き出しを出す」瞬間はこの 1 関数に集まっている (33 箇所)。
+         ⚠ 名前を html から読むのは、この関数が技 ID を受け取らないため。呼び口 33 箇所へ
+            引数を足すより、集約点 1 つで読むほうが抜けない。 */
+      if (html && html.indexOf('class="label">SKILL') >= 0) {
+        const m = html.match(new RegExp('class="big">([^<]*)'));
+        if (m && m[1]) RunChronicle.usedSkill(m[1]);
+      }
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
       pop.innerHTML = html;
@@ -21454,6 +21574,7 @@
     }
 
     function showSkillAnnounce(skillName) {
+      RunChronicle.usedSkill(skillName);   // 年代記 (#37 STEP3): 頭の技の発動 (記録口 2/3)
       const pop = document.createElement("div");
       pop.className = "rollPop skill";
       pop.innerHTML = `<span class="label">SKILL</span><span class="big">${skillName}</span>`;
@@ -27419,6 +27540,9 @@
       // 発動
       const skill = DWARF_SKILLS["dwarven-grit"];
       ally.skillsUsedInEncounter.add("dwarven-grit");
+      /* 年代記 (#37 STEP3): 記録口 3/3。リアクティブ発動なので吹き出しのラベルが GRIT! で、
+         showRollAtAlly の SKILL 判定を通らない。ここだけ明示的に記録する。 */
+      RunChronicle.usedSkill(skill.name);
       flashAction(ally.el, "skill");
       // 攻撃 +2 (既存 atk バフが弱ければ上書き)、残戦闘永続 (duration 99)
       ally.buffs.atkBonusAmount = Math.max(ally.buffs.atkBonusAmount || 0, skill.atkBonusAmount);
@@ -35965,6 +36089,15 @@
         resultTitleEl.textContent = "DEFEAT";
         resultSubEl.textContent = `「${currentScenario.title}」に力尽きた…`;
         resultRewardEl.innerHTML = "<i>この道中で得た宝は、すべて失われた</i>";
+        /* 年代記 (#37 STEP3 §6-2): 結論を **1 行だけ** 足す。
+           ⛔ リザルト画面は作り替えない (新しい画面もロードも作らない)。
+           ⛔ 助言は書かない — 誰に倒されたか / 敵が何体残っていたか、の事実だけ。
+           ?chronicle=0 のときは空文字が返るので 1 バイトも増えない。 */
+        const chDefeatLine = RunChronicle.defeatLine();
+        if (chDefeatLine) {
+          resultRewardEl.innerHTML +=
+            '<br><span style="font-size:13px">' + chDefeatLine + "</span>";
+        }
       }
       // 最終ボス(dragon-lair)クリア時のみ、結果ボタンをエンディングへ誘導する。
       // autoplay/自動巡回検証は従来どおり「酒場に戻る」で直行(=検証が完走する)。
