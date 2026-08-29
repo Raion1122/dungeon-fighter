@@ -629,7 +629,14 @@ async function advanceToPrep(page, maxSteps) {
       const vis = eval(visSrc);
       const q = (id) => document.getElementById(id);
       if (vis(q('prep'))) return { done: true, at: 'prep' };
-      if (vis(q('partyMatchOverlay'))) { q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' }; }
+      /* #35: 全確定後の「背景タップ = 出発」は廃止され、出発の口は #pmDepart になった。
+         ⚠ 開示中 (reveal) はスキップのために背景を叩く必要が残るので **2 段**にする。
+         ⭐ フォールバックを残すのは ?pmsetup=0 / 旧版でも同じ手順で突破できるようにするため。 */
+      if (vis(q('partyMatchOverlay'))) {
+        const dep = q('pmDepart');
+        if (dep && vis(dep)) { dep.click(); return { done: false, at: 'pmDepart' }; }
+        q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' };
+      }
       if (vis(q('prologueOverlay')))   { q('prologueOverlay').click();   return { done: false, at: 'prologueOverlay' }; }
       const acc = q('btnAccept');
       if (vis(acc) && !acc.disabled) { acc.click(); return { done: false, at: 'btnAccept' }; }

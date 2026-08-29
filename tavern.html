@@ -1806,6 +1806,23 @@
     #partyMatchOverlay .item-normal { color: #e8dcc0; font-weight: 600; }
     #partyMatchOverlay .item-magic { color: #6db3ff; font-weight: 700; }
     #partyMatchOverlay .item-special { color: #d08cff; font-weight: 700; text-shadow: 0 0 6px rgba(200,120,255,0.4); }
+    /* #35 STEP1: 引き出しの器 (中身と装飾は STEP2 / STEP3)。
+       ⚠ 開閉は hidden 属性。素の #pmDrawer に display を書くと hidden が効かなくなるので、
+         装飾を足すときは必ず [hidden] 側の display:none を残すこと。 */
+    #pmDrawer { width: 100%; }
+    #pmDrawer[hidden] { display: none !important; }
+    /* #35 STEP1: 出発の口。「画面のどこを叩いても出発する」を廃した代わりの明示ボタン。 */
+    #pmDepart {
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 16px; letter-spacing: 4px; padding: 12px 34px; cursor: pointer;
+      color: #2a2008; background: linear-gradient(180deg, #f0cf6a, #c9982c);
+      border: 1px solid var(--pm-gold); border-radius: 8px;
+      box-shadow: 0 0 18px rgba(224,180,60,0.35);
+    }
+    #pmDepart[hidden] { display: none !important; }
+    #pmDepart:active { transform: translateY(1px); }
+    /* 指で押す端末では的を大きく (誤爆でなく「押しに行く」操作になったので狙いやすさが要る) */
+    @media (hover: none) { #pmDepart { padding: 15px 40px; font-size: 17px; } }
     #pmHint { font-size: 12px; letter-spacing: 3px; color: #8a7c5a; opacity: 0; transition: opacity 0.4s ease-out; }
     #pmHint.show { opacity: 0.85; }
     /* 全員確定後は自動で進まない = タップが必須操作になるので、ヒントを金色で脈打たせて気づかせる */
@@ -2192,6 +2209,15 @@
         <div id="pmSub">共に挑む仲間が集う ――</div>
       </div>
       <div id="pmColumns"></div>
+      <!-- #35 STEP1: 引き出しの器。中身 (スキル段 / 傾向段) は STEP2 で組む。
+           ⚠ 開閉は hidden 属性で行う。CSS で display を書き足すときは [hidden] 側を必ず残すこと。 -->
+      <div id="pmDrawer" hidden></div>
+      <!-- #35 STEP1: 出発の口。背景タップでの出発を廃止した代わりの明示ボタン。
+           ⚠ hidden を外すのは【全員確定 (phase==="done") かつ猶予明け (gateOpen)】の 1 点だけ。
+             「確定を見ずに飛ばす」を作らないという既存の不変条件を守るため。
+           ⚠ ラベルは review モードでは「準備へ戻る」へ差し替わる (行き先が出発ではないため)。
+             ⛔ id は変えない — 既存 golden 5 本がこの id で出発の口を掴む。 -->
+      <button id="pmDepart" type="button" hidden>出発する</button>
       <div id="pmHint">タップでスキップ</div>
     </div>
   </div>
@@ -2399,10 +2425,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間が集う画面に「出発する」ボタンが付いた</b> — うっかり画面に触れて出発してしまうことがなくなり、顔ぶれをゆっくり見てから自分の意思で出発できる。</li>
         <li><b>キャラクターシートが本物の冒険者の紙に</b> — 能力値・セーヴ・技能・攻撃・特徴が羊皮紙の三段組に並ぶようになった。</li>
         <li><b>出発の準備から仲間の顔ぶれを見直せる</b> — 「編成を見る」で、受注のときのカードをいつでも開き直せる。装備を替えた後に開けばその武器で並ぶ。</li>
         <li><b>仲間の戦士が指示どおりの技を使うようになった</b> — 強斬りや盾バッシュなど、これまで通常攻撃しかしなかった仲間の戦士が、出発前に指定した傾向で動く。</li>
-        <li><b>キャラクターシートを追加</b> — いつでも開いて、能力値・技能・話せる言語を確かめられるようになった。</li>
       </ul>
     </div>
     <script>
@@ -5594,6 +5620,18 @@
     return slot.skillPool.filter(sk => owned.has(sk.id)).map(sk => sk.id);
   }
 
+  // ── #35 撤退スイッチ ?pmsetup=0 ───────────────────────────────────────────
+  // マッチング画面の「出発の口の作り替え」ごと従来の姿へ戻す。
+  //   OFF = #pmDepart も #pmDrawer も出ず、背景タップで出発する昔の挙動。
+  // ⚠ 判定はここ 1 箇所だけ。playPartyMatchCinematic は先頭でこれを 1 回読み、
+  //   以降の分岐は全部その値を見る (2 箇所で URL を読むと片方だけ直って食い違う)。
+  // ⚠ ?actionpri=0 とは別物。両方指定しても矛盾しない。
+  // ⚠ ページ遷移をまたがない (演出も準備画面も tavern.html の中で完結する)。
+  const PM_SETUP_ON = (function () {
+    try { return new URLSearchParams(window.location.search).get("pmsetup") !== "0"; }
+    catch (e) { return true; }
+  })();
+
   // ── #19 STEP7 撤退スイッチ ?actionpri=0 ───────────────────────────────────
   // 設定欄そのものを消す。⚠ 保存済みの値は消さない (スイッチを外せばそのまま戻る)。
   // ⚠ ページ遷移をまたがない。index.html は自分で同じクエリを読む (先例 = ?heromark=0)。
@@ -6289,6 +6327,40 @@
     pmTryPortrait(el, urls, 0, PM_CLASS_EMOJI[m.classKey] || "🗡️");
   }
 
+  // #35: 演出の phase (reveal / done) は playPartyMatchCinematic の Promise 内のローカル変数で、
+  //   カードのハンドラからは見えない。参照用のシームをモジュールスコープに 1 つだけ置く。
+  //   ⭐ 値を写さず「読む関数」を差し替える = 唯一の正は今も演出の中の phase 1 つだけ。
+  //   ⛔ window へは晒さない (検証シームは既存の __pmTest に限る)。
+  let pmPhaseRef = () => "idle";
+
+  // #35: カードの上のタップ。
+  // ⚠⚠ 開示中 (reveal) は【何もしない = 伝播も止めない】。背景の skipRest へ通すため。
+  //   ここで一律に止めると、画面の大半が「タップでスキップ」の効かない死に領域になる。
+  // ⚠ 全確定 (done) の時だけ引き出しを開き、その時だけ伝播を止める。
+  //   ⛔ 出発は #pmDepart だけなので、ここで止め損ねても出発はしない (二重の守り)。
+  function pmBindCardTaps(el) {
+    if (!el) return;
+    const handler = (ev) => {
+      if (pmPhaseRef() !== "done") return;   // 開示中は背景の skipRest へ通す
+      ev.stopPropagation();
+      // STEP2: ここで引き出しを開閉する (pmToggleDrawer)。STEP1 では場所だけ確保する。
+    };
+    el.addEventListener("click", handler);
+    el.addEventListener("touchend", handler);
+  }
+
+  // #35: この要素の上のタップを overlay まで上げない。
+  // ⚠⚠ click だけでなく touchend も止める。iOS Safari の <select> は指を離した瞬間に
+  //   touchend が overlay へ上がるので、click だけ止めても「指を離した時点で出発」する。
+  //   overlay 側が touchend を拾っているのは click 非発火端末で詰まないためで、外せない。
+  // ⚠ 同じ要素へ二度張らない (#pmDrawer は HTML に常駐し、演出を開くたびここを通る)。
+  function pmSwallowTaps(el) {
+    if (!el || el.dataset.pmSwallow === "1") return;
+    el.dataset.pmSwallow = "1";
+    el.addEventListener("click", (ev) => { ev.stopPropagation(); });
+    el.addEventListener("touchend", (ev) => { ev.stopPropagation(); });
+  }
+
   // 1カラムを生成。fill(animate) を呼ぶまでは空スロット (シルエット + ？？？)。
   function buildPmColumn(m, i) {
     const el = document.createElement("div");
@@ -6355,11 +6427,18 @@
   //     ボタンと同じ座標で overlay へ落ちてきて、開いた瞬間に閉じる事故を吸収しているのはこの猶予。
   function playPartyMatchCinematic(sc, opts) {
     const review = !!(opts && opts.review);
+    // #35: 撤退スイッチを読むのはこの 1 行だけ。以降は setupOn / departBtn / drawerBox を見る。
+    const setupOn = PM_SETUP_ON;
     const overlay = document.getElementById("partyMatchOverlay");
     const colsEl = document.getElementById("pmColumns");
     const placeEl = document.getElementById("pmPlace");
     const subEl = document.getElementById("pmSub");
     const hintEl = document.getElementById("pmHint");
+    const drawerEl = document.getElementById("pmDrawer");
+    const departEl = document.getElementById("pmDepart");
+    // null = 従来の姿 (出発の口も引き出しも出さない)。
+    const departBtn = setupOn ? departEl : null;
+    const drawerBox = setupOn ? drawerEl : null;
     if (!overlay || !colsEl) return Promise.resolve();
     const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
     if (!raw.length) return Promise.resolve();
@@ -6376,6 +6455,9 @@
     colsEl.innerHTML = "";
     const cols = ordered.map((m, i) => buildPmColumn(m, i));
     cols.forEach(c => colsEl.appendChild(c.el));
+    // #35: カードと引き出しの上のタップは overlay まで上げない (指がそのまま出発を叩くのを防ぐ)。
+    //   ⛔ ?pmsetup=0 では「どこを叩いても出発」の昔の姿へ戻すので、ここも通さない。
+    if (setupOn) { cols.forEach(c => pmBindCardTaps(c.el)); pmSwallowTaps(drawerBox); }
     // 主人公カラムは即・確定 (アニメ無し。開示対象は残りの仲間)。
     // review では仲間も即・確定 = revealQueue が空になり、開示フェーズを 1 コマも通らない。
     const revealQueue = [];
@@ -6385,6 +6467,14 @@
     overlay.style.display = "flex";
     overlay.setAttribute("aria-hidden", "false");
     if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = review ? "タップして準備へ戻る" : "タップでスキップ"; }
+    // #35: 開くたびに出発の口と引き出しを初期状態へ戻す (前回の残りを見せない)。
+    if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
+    if (departEl) {
+      departEl.hidden = true;
+      // ⚠ review の行き先は【出発ではなく準備画面】。同じボタンでラベルだけ出し分ける
+      //   (close() の中身は共通。id を変えると既存 golden が掴めなくなる)。
+      departEl.textContent = review ? "準備へ戻る" : "出発する";
+    }
     setTimeout(() => { if (hintEl) hintEl.classList.add("show"); }, 400);
 
     return new Promise((resolve) => {
@@ -6400,7 +6490,12 @@
         phase = "done";
         if (hintEl) { hintEl.textContent = review ? "タップして準備へ戻る" : "タップして出発"; hintEl.classList.add("pmWait"); }
         gateOpen = false;
-        timers.push(setTimeout(() => { gateOpen = true; }, PM_TAP_GATE));
+        timers.push(setTimeout(() => {
+          gateOpen = true;
+          // #35: 出発の口を開けるのはこの 1 点だけ = 全員確定 (phase==="done") かつ猶予明け。
+          //   ⛔ ここより前に hidden を外すと「確定を見ずに飛ばす」が復活する。
+          if (departBtn) departBtn.hidden = false;
+        }, PM_TAP_GATE));
       };
       const step = () => {
         if (qi >= revealQueue.length) { finishReveal(); return; }
@@ -6423,6 +6518,11 @@
         closed = true;
         clearTimers();
         unbindTaps();
+        // #35: 閉じたら phase の読み口も畳む (閉じた後のカードのタップを拾わない)。
+        pmPhaseRef = () => "idle";
+        // #35: 次に開いた時に「確定前なのに出発の口が見えている」状態を作らない。
+        if (departEl) departEl.hidden = true;
+        if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
         overlay.classList.add("fading");
         setTimeout(() => {
           overlay.style.display = "none";
@@ -6431,17 +6531,36 @@
           resolve();
         }, 520);
       };
-      // 開示中のタップ = 残りを即確定 (従来どおり)。全確定後のタップ = 閉じる。
+      // 開示中のタップ = 残りを即確定 (従来どおり。ここは変えない)。
       // ⚠ 確定していない間は絶対に閉じない ("確定を見ずに飛ばす" を作らないため)。
+      // ⚠⚠⚠ #35: 全確定後の「背景タップ = 出発」は廃止した。カードや引き出しを押した指が
+      //   そのまま出発を叩いてしまうため (#19 がこの画面を不採用にした理由そのもの)。
+      //   閉じる口は #pmDepart ただ 1 つ。⛔ ?pmsetup=0 のときだけ従来の姿へ戻す。
       const onTap = () => {
         if (closed) return;
         if (phase === "reveal") { skipRest(); return; }
-        if (gateOpen) close();
+        if (!setupOn && gateOpen) close();
+      };
+      // #35: 出発の口。確定前 / 猶予中は hidden なので指では押せないが、
+      //   プログラム経由の click でも閉じないよう phase と gateOpen を必ず見る。
+      const onDepart = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        if (closed || phase !== "done" || !gateOpen) return;
+        close();
       };
       // iOS Safari 対策で touchend も拾う (click 非発火の端末があると、自動クローズが無い今は詰む)。
       // touch→click の二重発火は PM_TAP_GATE と closed ガードが吸収する。
-      const bindTaps = () => { overlay.addEventListener("click", onTap); overlay.addEventListener("touchend", onTap); };
-      const unbindTaps = () => { overlay.removeEventListener("click", onTap); overlay.removeEventListener("touchend", onTap); };
+      // ⚠⚠ 出発の口も click と touchend の両方に張る。片方だけだと iOS で出発できない端末が出る。
+      const bindTaps = () => {
+        overlay.addEventListener("click", onTap); overlay.addEventListener("touchend", onTap);
+        if (departBtn) { departBtn.addEventListener("click", onDepart); departBtn.addEventListener("touchend", onDepart); }
+      };
+      const unbindTaps = () => {
+        overlay.removeEventListener("click", onTap); overlay.removeEventListener("touchend", onTap);
+        if (departBtn) { departBtn.removeEventListener("click", onDepart); departBtn.removeEventListener("touchend", onDepart); }
+      };
+      // #35: カードのハンドラから phase を読めるようにする (値は写さず読み口だけ差し替える)。
+      pmPhaseRef = () => phase;
       bindTaps();
       // review は開示するものが無いので待たずに待機フェーズへ入る (PM_TAP_GATE はここから数え始める)。
       if (review) finishReveal();

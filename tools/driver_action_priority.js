@@ -456,7 +456,17 @@ async function openPrepScreen(browser, viewport, opts) {
   for (let i = 0; i < 45 && !shown; i++) {
     shown = await shownNow();
     if (shown) break;
-    await page.mouse.click(Math.round(viewport.width / 2), Math.round(viewport.height / 2));
+    /* #35: 全確定後の「背景タップ = 出発」は廃止され、出発の口は #pmDepart になった。
+       ⚠ 画面中央は 4 列のカードの上か隙間なので、叩いても先へ進まなくなった。
+       ⚠ 開示中はスキップのために背景を叩く必要が残るので **2 段**にする。
+       ⭐ #pmDepart が無い (?pmsetup=0 / 旧版) ときは従来の中央クリックへ落ちる。 */
+    const pressedDepart = await page.evaluate(() => {
+      const dep = document.getElementById('pmDepart');
+      if (dep && dep.getClientRects().length > 0) { dep.click(); return true; }
+      return false;
+    });
+    if (!pressedDepart)
+      await page.mouse.click(Math.round(viewport.width / 2), Math.round(viewport.height / 2));
     await sleep(550);
   }
   if (!shown) throw new Error('準備画面 (#prep) が可視にならなかった — 演出の進行に失敗 [' + viewport.name + ']');

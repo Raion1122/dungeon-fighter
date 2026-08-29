@@ -237,7 +237,14 @@ async function advanceToPrep(page, maxSteps) {
       const vis = eval(visSrc);
       const q = (id) => document.getElementById(id);
       if (vis(q('prep'))) return { done: true, at: 'prep' };
-      if (vis(q('partyMatchOverlay'))) { q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' }; }
+      /* #35: 全確定後の「背景タップ = 出発」は廃止され、出発の口は #pmDepart になった。
+         ⚠ 開示中 (reveal) はスキップのために背景を叩く必要が残るので **2 段**にする。
+         ⭐ フォールバックを残すのは ?pmsetup=0 / 旧版でも同じ手順で突破できるようにするため。 */
+      if (vis(q('partyMatchOverlay'))) {
+        const dep = q('pmDepart');
+        if (dep && vis(dep)) { dep.click(); return { done: false, at: 'pmDepart' }; }
+        q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' };
+      }
       if (vis(q('prologueOverlay'))) { q('prologueOverlay').click(); return { done: false, at: 'prologueOverlay' }; }
       const acc = q('btnAccept');
       if (vis(acc) && !acc.disabled) { acc.click(); return { done: false, at: 'btnAccept' }; }
@@ -283,6 +290,13 @@ async function pressPartyView(page) {
 /* オーバーレイの地をタップする (実プレイの指と同じ経路)。 */
 async function tapOverlay(page) {
   await page.evaluate(() => {
+    /* #35: 出発の口が #pmDepart へ移った (背景タップでは閉じなくなった)。
+       ⚠ 猶予 (PM_TAP_GATE) の間は #pmDepart が hidden なので、この経路は地をタップする側へ
+         落ちる = (2a)「猶予内では閉じない」を従来どおり測れる。
+       ⚠ review モードではラベルが「準備へ戻る」だが id は同じなので掴み方は変わらない。
+       ⭐ フォールバックを残すのは ?pmsetup=0 / 旧版でも動かすため。 */
+    const dep = document.getElementById('pmDepart');
+    if (dep && dep.getClientRects().length > 0) { dep.click(); return; }
     const ov = document.getElementById('partyMatchOverlay');
     if (ov) ov.click();
   });

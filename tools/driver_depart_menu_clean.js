@@ -137,7 +137,14 @@ async function advanceToPrep(page, maxSteps) {
       const q = (id) => document.getElementById(id);
       if (vis(q('prep'))) return { done: true, at: 'prep' };
       // 1) パーティ編成シネマ (タップ待ち)
-      if (vis(q('partyMatchOverlay'))) { q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' }; }
+      /* #35: 全確定後の「背景タップ = 出発」は廃止され、出発の口は #pmDepart になった。
+         ⚠ 開示中 (reveal) はスキップのために背景を叩く必要が残るので **2 段**にする。
+         ⭐ フォールバックを残すのは ?pmsetup=0 / 旧版でも同じ手順で突破できるようにするため。 */
+      if (vis(q('partyMatchOverlay'))) {
+        const dep = q('pmDepart');
+        if (dep && vis(dep)) { dep.click(); return { done: false, at: 'pmDepart' }; }
+        q('partyMatchOverlay').click(); return { done: false, at: 'partyMatchOverlay' };
+      }
       // 2) 共有オーバーレイ (前口上 / 受注ナレ / 準備画面オンボーディング)
       if (vis(q('prologueOverlay'))) { q('prologueOverlay').click(); return { done: false, at: 'prologueOverlay' }; }
       // 3) 依頼人ダイアログの「引き受ける」
