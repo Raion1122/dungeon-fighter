@@ -10,9 +10,9 @@
  *   §0 装置 (母集団 / 出発の口が開く順番)          … 実装済 (STEP1 = 項目1)
  *   §1 出発の口 #pmDepart                          … 実装済 (STEP1 = 項目1)
  *   §2 伝播 (click / touchend を飲み込む)          … 実装済 (STEP1 = 項目1)
- *   §3 引き出しの中身                              … PENDING (STEP2 = 項目2)
- *   §4 同職 2 人 / レイアウト                      … PENDING (STEP2〜3)
- *   §5 恒等 (非退行)                               … PENDING (STEP2)
+ *   §3 引き出しの中身                              … 実装済 (STEP2 = 項目2)
+ *   §4 同職 2 人 / レイアウト                      … 実装済 (STEP2 = 項目2)
+ *   §5 恒等 (非退行)                               … PENDING (STEP3 = 項目3)
  *   §6 撤退スイッチ ?pmsetup=0 / ?actionpri=0      … PENDING (STEP3 = 項目3)
  *
  *   ⛔ PENDING は **黙って緑にしない**。RESULT 行に PASSED / FAILED / PENDING の
@@ -316,6 +316,80 @@ async function clickCenterOf(page, id) {
   return rc;
 }
 
+/* セレクタ版。先に見つかったものの中心を実マウスで叩く。
+   ⚠ 引き出しを開けば #pmInner の高さが変わり、align-items:center なのでカードの中心も動く。
+     座標を使い回さず、叩く直前に毎回測り直すこと。 */
+async function clickCenterOfSel(page, selectors) {
+  const rc = await page.evaluate((sels) => {
+    let e = null;
+    for (const s of sels) { e = document.querySelector(s); if (e) break; }
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return { x: x, y: y, hit: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)' };
+  }, selectors);
+  if (!rc) return null;
+  await page.mouse.click(Math.round(rc.x), Math.round(rc.y));
+  return rc;
+}
+
+/* 同職 2 人を含む【決定論的な】編成で演出だけを開く。
+ * ⚠⚠ openPrep は毎回 regeneratePartyMembers() を呼んで顔ぶれを作り直すので、
+ *   openPrep 経由では編成を固定できない (4a-0 の母集団が乱数任せになる)。
+ *   → 既存の検証シーム window.__pmTest.play で演出だけを直接開く。
+ * ⚠ NPC に level:10 を与える = スキル枠 5。主人公 (xp 10000 = Lv5) は 3 枠のままなので
+ *   「枠が埋まっている職」と「空きがある職」が同じ盤面に並ぶ。 */
+async function playForcedCinema(page, scId, wants) {
+  await page.evaluate((id, want) => {
+    const mk = (ck, isHero, name) => ({
+      classKey: ck, isHero: !!isHero, name: name,
+      zone: PARTY_ZONES[ck], variant: 0, level: 10,
+    });
+    selection.partyComposition = ['warrior'];
+    selection.partyMembers = [mk('warrior', true, '')]
+      .concat(want.map((ck, i) => mk(ck, false, '仲間' + (i + 1))));
+    const sc = scenarios.find((s) => s.id === id);
+    Promise.resolve(window.__pmTest.play(sc)).catch(() => {});
+  }, scId, wants);
+  for (let i = 0; i < 240; i++) {
+    const s = await page.evaluate(PROBE, VIS_FN);
+    if (s.depVis) return s;
+    await sleep(50);
+  }
+  return await page.evaluate(PROBE, VIS_FN);
+}
+
+/* 引き出しを開いた直後の状態を 1 回で採る。 */
+const DRAWER_SNAP = (n) => {
+  const cols = Array.prototype.slice.call(document.querySelectorAll('#pmColumns .pmColumn'));
+  const d = document.getElementById('pmDrawer');
+  const rows = d ? Array.prototype.slice.call(d.querySelectorAll('.apRow')) : [];
+  const opts = [];
+  (d ? Array.prototype.slice.call(d.querySelectorAll('select.apSel')) : []).forEach((s) => {
+    Array.prototype.slice.call(s.options).forEach((o) => { if (o.value) opts.push(o.value); });
+  });
+  const travel = rows.filter((r) => r.dataset.sit === 'travel');
+  const note = d ? d.querySelector('.pmDrawerNote') : null;
+  const title = d ? d.querySelector('.pmDrawerTitle') : null;
+  return {
+    classKey:   cols[n] ? cols[n].dataset.classKey : null,
+    drawerVis:  !!(d && !d.hidden),
+    nOpen:      cols.filter((c) => c.classList.contains('pmOpen')).length,
+    openIsMe:   !!(cols[n] && cols[n].classList.contains('pmOpen')),
+    title:      title ? title.textContent : '',
+    hasNote:    !!note,
+    noteText:   note ? note.textContent : '',
+    nSkillItem: d ? d.querySelectorAll('.skillItem').length : 0,
+    nSel:       d ? d.querySelectorAll('select.apSel').length : 0,
+    apOptions:  opts,
+    travelRows: travel.length,
+    travelShown: travel.length === 1 && travel[0].style.display !== 'none',
+    cardSkills: cols.map((c) => { const v = c.querySelector('.pmSkillsVal'); return v ? v.textContent : null; }),
+  };
+};
+
 (async () => {
   const puppeteer = loadPuppeteer();
   const srv = await startServer();
@@ -448,54 +522,65 @@ async function clickCenterOf(page, id) {
       '叩いた点の命中先=' + (hit1a ? hit1a.hit : '(取れず)') + ' → prep=' + s1a.prepVis
       + ' display=' + s1a.display + ' fading=' + s1a.fading);
 
-    /* ── §2 伝播 ────────────────────────────────────────────────────
-       ⚠ STEP1 の #pmDrawer は空の器。指で押せる大きさが無いので、
-         **装置側で器だけ開いて**その上を叩く。中身 (スキル項目 / <select>) は STEP2。
+    /* ── §2 伝播 ────────────────────────────────
+       ⚠⚠ STEP2 で中身が入ったので、**本物の .skillItem / <select> の上**で測る。
+         STEP1 では装置側が空の器を開いて叩いていた = 中身のイベントを 1 つも通していなかった。
        ⭐ 「#prep が出ない」だけだと #35 以後は onTap が閉じないので自明に緑になる。
           そこで overlay まで **イベントが上がったか**を数える spy を併置する (M2 の担当)。 */
-    console.log('\n-- §2 伝播 (引き出しの上のタップを飲み込む) --');
+    console.log('\n-- §2 伝播 (引き出しの中身の上のタップを飲み込む) --');
+    const openA = await clickCenterOfSel(page, ['#pmColumns .pmColumn']);
+    await sleep(220);
+    const sOpenA = await page.evaluate(DRAWER_SNAP, 0);
+    check('(2z) [母集団] カードを押して開いた引き出しに、本物のスキル項目と <select> が両方ある',
+      sOpenA.drawerVis === true && sOpenA.nSkillItem >= 1 && sOpenA.nSel >= 1,
+      '命中先=' + (openA ? openA.hit : '(取れず)') + ' / 引き出し可視=' + sOpenA.drawerVis
+      + ' / skillItem ' + sOpenA.nSkillItem + ' / select ' + sOpenA.nSel + ' / 見出し="' + sOpenA.title + '"');
+
     await page.evaluate(() => {
       window.__pmSpy = { click: 0, touchend: 0 };
       const ov = document.getElementById('partyMatchOverlay');
       // ⚠ バブリング相で張る。capture で張ると引き出しの stopPropagation より先に走って永久に数える。
       ov.addEventListener('click',    () => { window.__pmSpy.click++; });
       ov.addEventListener('touchend', () => { window.__pmSpy.touchend++; });
-      const d = document.getElementById('pmDrawer');
-      d.hidden = false;
-      d.textContent = '(装置) 引き出しの器';
-      d.style.minHeight = '60px';
-      d.style.padding = '18px';
     });
-    await sleep(120);
-    const hit2a = await clickCenterOf(page, 'pmDrawer');
+    /* ⭐ 枠が埋まっている職の .full な項目を選ぶと、押しても中身が変わらない
+       (上限で早期 return する) = 伝播だけを分離して測れる。 */
+    const hit2a = await clickCenterOfSel(page,
+      ['#pmDrawer .skillItem.full:not(.selected)', '#pmDrawer .skillItem']);
     await sleep(700);
     const s2a = await page.evaluate(PROBE, VIS_FN);
-    check('(2a) 引き出しの上で click しても #prep が出ない',
-      s2a.prepVis === false && s2a.display === 'flex' && s2a.fading === false,
-      '命中先=' + (hit2a ? hit2a.hit : '(取れず)') + ' → prep=' + s2a.prepVis + ' display=' + s2a.display);
+    check('(2a) 引き出しのスキル項目を click しても #prep が出ない',
+      hit2a !== null && s2a.prepVis === false && s2a.display === 'flex' && s2a.fading === false,
+      '命中先=' + (hit2a ? hit2a.hit : '(取れず)') + ' -> prep=' + s2a.prepVis + ' display=' + s2a.display);
     check('(2a-2) その click は #partyMatchOverlay まで上がっていない (引き出しが飲み込んでいる)',
       !!s2a.spy && s2a.spy.click === 0, 'overlay が受けた click = ' + (s2a.spy ? s2a.spy.click : '(spy なし)'));
 
-    await page.evaluate(() => {
+    /* ⚠⚠ iOS の <select> は指を離した瞬間に touchend が overlay まで上がる。
+       本物の <select> の上でディスパッチする。 */
+    const tgt2b = await page.evaluate(() => {
       const d = document.getElementById('pmDrawer');
+      const sels = d ? Array.prototype.slice.call(d.querySelectorAll('select.apSel')) : [];
+      const vis = sels.filter((s) => s.parentElement && s.parentElement.style.display !== 'none');
+      const s = vis[0] || sels[0];
+      if (!s) return null;
       let ev;
       try { ev = new TouchEvent('touchend', { bubbles: true, cancelable: true }); }
       catch (e) { ev = new Event('touchend', { bubbles: true, cancelable: true }); }
-      d.dispatchEvent(ev);
+      s.dispatchEvent(ev);
+      return s.id;
     });
     await sleep(700);
     const s2b = await page.evaluate(PROBE, VIS_FN);
-    check('(2b) ⚠⚠ 引き出しの上で touchend をディスパッチしても #prep が出ない (iOS の <select> 対策)',
-      s2b.prepVis === false && s2b.display === 'flex' && s2b.fading === false,
-      'prep=' + s2b.prepVis + ' display=' + s2b.display + ' fading=' + s2b.fading);
+    check('(2b) ⚠⚠ 引き出しの <select> の上で touchend をディスパッチしても #prep が出ない (iOS 対策)',
+      tgt2b !== null && s2b.prepVis === false && s2b.display === 'flex' && s2b.fading === false,
+      '対象=' + tgt2b + ' prep=' + s2b.prepVis + ' display=' + s2b.display + ' fading=' + s2b.fading);
     check('(2b-2) ⚠⚠ その touchend は #partyMatchOverlay まで上がっていない (click だけ止めた実装はここで赤)',
       !!s2b.spy && s2b.spy.touchend === 0, 'overlay が受けた touchend = ' + (s2b.spy ? s2b.spy.touchend : '(spy なし)'));
 
-    // 器を元に戻す (以降の測定に装置の細工を持ち越さない)
-    await page.evaluate(() => {
-      const d = document.getElementById('pmDrawer');
-      d.hidden = true; d.textContent = ''; d.style.minHeight = ''; d.style.padding = '';
-    });
+    /* 引き出しを閉じてから (1b) へ。desktop でも開けたままだと #pmDepart が下へ押されて
+       実マウスの座標が取りにくい。閉じるボタンの動作確認も兼ねる。 */
+    await page.evaluate(() => { const b = document.getElementById('pmDrawerClose'); if (b) b.click(); });
+    await sleep(200);
 
     /* ── (1b) #pmDepart を押すと出発する (= 演出が閉じて準備画面へ) ── */
     const hit1b = await clickCenterOf(page, 'pmDepart');
@@ -593,22 +678,238 @@ async function clickCenterOf(page, id) {
     /* ══════════════════════════════════════════════════════════════════
      * §3〜§6 — STEP2 / STEP3 で埋める枠 (⛔ 黙って緑にしない)
      * ══════════════════════════════════════════════════════════════════ */
-    console.log('\n-- §3〜§6 (STEP2 / STEP3 で実装) --');
-    const TODO2 = 'STEP2 (引き出しの中身) 未実装';
+    /* ═══════════════════════════════════════════════════════════
+     * 腕 C (desktop 1280x900 / 同職 2 人を含む決定論的な編成) —— §3 / §4a / §4b
+     * ═══════════════════════════════════════════════════════════ */
+    console.log('\n-- armC: drawer contents --');
+    const pageC = await openTavern(browser, { name: 'drawer', width: 1280, height: 900 }, '');
+    const c0 = await playForcedCinema(pageC, SCENARIO, ['rogue', 'rogue', 'mage']);
+
+    /* 実体側の真実 (カードの写経ではなく PARTY_SLOTS / apEquippedIdsFor から引く) */
+    const truthC = await pageC.evaluate(() => {
+      const cols = Array.prototype.slice.call(document.querySelectorAll('#pmColumns .pmColumn'));
+      return cols.map((c) => {
+        const ck = c.dataset.classKey;
+        const slot = PARTY_SLOTS.find((s) => s && s.classKey === ck);
+        let eq = [];
+        try { eq = slot ? (apEquippedIdsFor(slot, ck) || []) : []; } catch (e) { eq = []; }
+        const all = slot ? slot.skillPool.map((s) => s.id) : [];
+        return {
+          classKey: ck,
+          equipped: eq,
+          nFree: all.filter((id) => eq.indexOf(id) < 0).length,
+          travel: eq.filter((id) => TRAVEL_CASTABLE_IDS.indexOf(id) >= 0),
+          same: (selection.partyMembers || []).filter((x) => x && x.classKey === ck).length,
+        };
+      });
+    });
+    const nCards = truthC.length;
+
+    /* 全カードを順に押して引き出しを開き、その都度状態を採る。 */
+    const snaps = [];
+    for (let ci = 0; ci < nCards; ci++) {
+      const hit = await clickCenterOfSel(pageC, ['#pmColumns .pmColumn:nth-child(' + (ci + 1) + ')']);
+      await sleep(200);
+      const s = await pageC.evaluate(DRAWER_SNAP, ci);
+      snaps.push({ i: ci, hit: hit ? hit.hit : '(取れず)', s: s });
+    }
+
+    check('(0e) [装置] 仕込んだ編成で演出が開き、全員確定して出発の口が出た',
+      c0.overlayVis === true && c0.depVis === true && nCards >= 3,
+      'カード ' + nCards + ' 枚 = ' + JSON.stringify(truthC.map((t) => t.classKey))
+      + ' / 出発の口可視=' + c0.depVis);
+
+    check('(3a) カードを押すと #pmDrawer が可視になり、.pmColumn.pmOpen がちょうど 1 枚',
+      snaps.length === nCards && nCards >= 3
+      && snaps.every((x) => x.s.drawerVis === true && x.s.nOpen === 1 && x.s.openIsMe === true),
+      snaps.map((x) => '#' + x.i + '(' + x.s.classKey + ') vis=' + x.s.drawerVis + ' pmOpen=' + x.s.nOpen
+        + ' self=' + x.s.openIsMe).join(' , '));
+
+    /* (3b) 傾向の候補は apEquippedIdsFor の部分集合 */
+    const badOpt = [];
+    snaps.forEach((x) => {
+      const eq = truthC[x.i].equipped;
+      x.s.apOptions.forEach((v) => { if (eq.indexOf(v) < 0) badOpt.push(x.s.classKey + ':' + v); });
+    });
+    const popFree = truthC.filter((t) => t.nFree >= 1 && t.equipped.length >= 1);
+    const nOptTotal = snaps.reduce((a, x) => a + x.s.apOptions.length, 0);
+    check('(3b) 傾向の候補に「枠に入れていない技」が 1 つも無い (apEquippedIdsFor を流用している証明)',
+      popFree.length >= 1 && nOptTotal >= 1 && badOpt.length === 0,
+      '母集団 ' + popFree.length + ' 職 / 候補総数 ' + nOptTotal + ' / はみ出した候補 = '
+      + (badOpt.length ? badOpt.join(',') : 'なし'));
+
+    /* (3c) 2 経路突合: データ由来の職の集合 vs 実際に行が出た職の集合 */
+    const uniq = (a) => Array.from(new Set(a)).sort().join(',');
+    const travelByData = uniq(truthC.filter((t) => t.travel.length > 0).map((t) => t.classKey));
+    const travelByUi   = uniq(snaps.filter((x) => x.s.travelShown).map((x) => x.s.classKey));
+    const noTravelData = uniq(truthC.filter((t) => t.travel.length === 0).map((t) => t.classKey));
+    check('(3c) 「道中」の行が出るのは 枠 ∩ TRAVEL_CASTABLE_IDS が非空の職だけ (2 経路突合)',
+      travelByData !== '' && noTravelData !== '' && travelByData === travelByUi
+      && snaps.every((x) => x.s.travelRows === 1),
+      'data={' + travelByData + '} / ui={' + travelByUi + '} / travel空の職={' + noTravelData + '}');
+
+    /* (4b) 同職 2 人のときだけ注記 */
+    const noteMismatch = snaps.filter((x) => x.s.hasNote !== (truthC[x.i].same >= 2));
+    const hasDup = truthC.filter((t) => t.same >= 2).length >= 1;
+    const hasSolo = truthC.filter((t) => t.same === 1).length >= 1;
+    const dupNoteSnap = snaps.filter((x) => truthC[x.i].same >= 2)[0];
+    const dupNote = dupNoteSnap ? dupNoteSnap.s.noteText : '';
+    check('(4b) 同職 2 人のとき引き出しに共通適用の注記が出る / 1 人だけのときは出ない',
+      hasDup && hasSolo && noteMismatch.length === 0 && dupNote.indexOf('2') >= 0,
+      '注記="' + dupNote + '" / 食い違い ' + noteMismatch.length + ' 件 / dup=' + hasDup + ' solo=' + hasSolo);
+
+    /* ── (4a) 同職 2 枚の同期 ── */
+    const dupRow = truthC.filter((t) => t.same >= 2)[0];
+    const dupClass = dupRow ? dupRow.classKey : null;
+    const dupIdxs  = truthC.map((t, k) => (t.classKey === dupClass ? k : -1)).filter((k) => k >= 0);
+    check('(4a-0) [母集団] 同じ職が 2 人いる編成を作れている',
+      dupClass !== null && dupIdxs.length >= 2,
+      'dupClass=' + dupClass + ' / カード番号=' + JSON.stringify(dupIdxs));
+
+    if (!dupClass || dupIdxs.length < 2) {
+      pending('(3d) スキル項目を押すと selection.partySkills と localStorage の両方が変わり、引き出しの表示も更新される', '同職 2 人の母集団が作れなかった');
+      pending('(3e) 傾向の select を変えると selection.actionPriority と localStorage の両方が変わる', '同上');
+      pending('(3f) change の直後も select が同じ DOM ノードのまま (作り直されていない)', '同上');
+      pending('(4a) 片方のカードで技を足すと、もう片方のカードの表示も同じ値になる', '同上');
+    } else {
+      await clickCenterOfSel(pageC, ['#pmColumns .pmColumn:nth-child(' + (dupIdxs[0] + 1) + ')']);
+      await sleep(200);
+      const before = await pageC.evaluate(DRAWER_SNAP, dupIdxs[0]);
+      /* ⭐ 選択済みを 1 つ外す -> 枠に空きができる -> 別の 1 つを足す。
+         「足す」を測るには先に空きを作らないと、上限で早期 return されて永久に緑になる。 */
+      const step1 = await pageC.evaluate((ck) => {
+        const d = document.getElementById('pmDrawer');
+        const items = Array.prototype.slice.call(d.querySelectorAll('.skillItem'));
+        const t = items.filter((x) => x.classList.contains('selected'))[0];
+        if (!t) return null;
+        const nm = (t.querySelector('.sName') || {}).textContent || '';
+        const headBefore = (document.getElementById('pmDrawerSkillHead') || {}).textContent || '';
+        const nBefore = (selection.partySkills[ck] || []).length;
+        t.click();
+        let ls = null;
+        try { ls = JSON.parse(localStorage.getItem('dragonfighters.partySkills') || 'null'); } catch (e) {}
+        return {
+          name: nm, headBefore: headBefore,
+          headAfter: (document.getElementById('pmDrawerSkillHead') || {}).textContent || '',
+          nBefore: nBefore, nAfter: (selection.partySkills[ck] || []).length,
+          ls: (ls && ls[ck]) ? ls[ck].length : null,
+          lsEqualsSel: !!(ls && JSON.stringify(ls[ck]) === JSON.stringify(selection.partySkills[ck])),
+        };
+      }, dupClass);
+      const after1 = await pageC.evaluate(DRAWER_SNAP, dupIdxs[0]);
+      check('(3d) スキル項目を押すと selection.partySkills と localStorage の両方が変わり、引き出しの表示も更新される',
+        !!step1 && step1.nAfter === step1.nBefore - 1 && step1.ls === step1.nAfter
+        && step1.lsEqualsSel === true && step1.headAfter !== step1.headBefore,
+        !step1 ? '選択済みのスキル項目が無かった'
+        : '外した技="' + step1.name + '" / selection ' + step1.nBefore + '->' + step1.nAfter
+          + ' / localStorage ' + step1.ls + ' / 見出し "' + step1.headBefore + '"->"' + step1.headAfter + '"');
+
+      const step2 = await pageC.evaluate((ck) => {
+        const d = document.getElementById('pmDrawer');
+        const items = Array.prototype.slice.call(d.querySelectorAll('.skillItem'));
+        const t = items.filter((x) => !x.classList.contains('selected') && !x.classList.contains('full'))[0];
+        if (!t) return null;
+        const nm = (t.querySelector('.sName') || {}).textContent || '';
+        const nBefore = (selection.partySkills[ck] || []).length;
+        t.click();
+        return { name: nm, nBefore: nBefore, nAfter: (selection.partySkills[ck] || []).length };
+      }, dupClass);
+      const after2 = await pageC.evaluate(DRAWER_SNAP, dupIdxs[0]);
+      const pick = (snap) => dupIdxs.map((k) => snap.cardSkills[k]);
+      const v0 = pick(before), v1 = pick(after1), v2 = pick(after2);
+      const allSame = (a) => a.every((x) => x === a[0]);
+      check('(4a) 片方のカードで技を足すと、もう片方のカードの表示も同じ値になる',
+        !!step2 && step2.nAfter === step2.nBefore + 1
+        && allSame(v0) && allSame(v1) && allSame(v2)
+        && v1[0] !== v0[0] && v2[0] !== v1[0] && v0[0] !== null,
+        'before=' + JSON.stringify(v0) + ' -> 外した後=' + JSON.stringify(v1)
+        + ' -> 足した後=' + JSON.stringify(v2)
+        + ' (足した技="' + (step2 ? step2.name : 'なし') + '")');
+
+      /* ── (3e)(3f) 傾向の <select> ── */
+      const ap = await pageC.evaluate(() => {
+        const d = document.getElementById('pmDrawer');
+        const sels = Array.prototype.slice.call(d.querySelectorAll('select.apSel'))
+          .filter((s) => s.options.length >= 2 && s.parentElement && s.parentElement.style.display !== 'none');
+        const s = sels[0];
+        if (!s) return null;
+        window.__pmSelRef = s;                       // (3f) 同一ノード判定用
+        const parts = s.id.split('_');               // pmApSel_<classKey>_<sit>
+        const ck = parts[1], sit = parts[2];
+        const was = s.value;
+        const want = Array.prototype.slice.call(s.options).map((o) => o.value)
+          .filter((v) => v && v !== was)[0];
+        if (!want) return { id: s.id, want: null };
+        s.value = want;
+        s.dispatchEvent(new Event('change', { bubbles: true }));
+        let ls = null;
+        try { ls = JSON.parse(localStorage.getItem('dragonfighters.actionPriority') || 'null'); } catch (e) {}
+        const now = document.getElementById(s.id);
+        return {
+          id: s.id, ck: ck, sit: sit, was: was, want: want,
+          sel: (selection.actionPriority && selection.actionPriority[ck]) ? selection.actionPriority[ck][sit] : null,
+          ls:  (ls && ls[ck]) ? ls[ck][sit] : null,
+          sameNode: now === window.__pmSelRef,
+          valueNow: now ? now.value : null,
+        };
+      });
+      check('(3e) 傾向の select を変えると selection.actionPriority と localStorage の両方が変わる',
+        !!ap && ap.want !== null && ap.sel === ap.want && ap.ls === ap.want && ap.want !== ap.was,
+        !ap ? '候補 2 件以上の <select> が無かった'
+        : ap.id + ' : "' + ap.was + '" -> "' + ap.want + '" / selection=' + ap.sel + ' / localStorage=' + ap.ls);
+      check('(3f) change の直後も select が同じ DOM ノードのまま (作り直されていない)',
+        !!ap && ap.sameNode === true && ap.valueNow === ap.want,
+        !ap ? '(3e) と同じ理由で採れず' : 'sameNode=' + ap.sameNode + ' / value=' + ap.valueNow);
+    }
+    await pageC.close();
+
+    /* ═══════════════════════════════════════════════════════════
+     * 腕 D (compact 390x844) —— §4c / §4d
+     *   ⚠⚠ #partyMatchOverlay は align-items:center の固定オーバーレイ。中身が伸びると
+     *     上下とも画面外へ逃げる = 出発の口が押せなくなる。
+     * ═══════════════════════════════════════════════════════════ */
+    console.log('\n-- armD: compact 390x844 --');
+    const pageD = await openTavern(browser, { name: 'compact', width: 390, height: 844 }, '');
+    await playForcedCinema(pageD, SCENARIO, ['rogue', 'rogue', 'mage']);
+    const hitD = await clickCenterOfSel(pageD, ['#pmColumns .pmColumn:nth-child(2)']);
+    await sleep(300);
+    const geo = await pageD.evaluate(() => {
+      const dep = document.getElementById('pmDepart');
+      const drw = document.getElementById('pmDrawer');
+      const inr = document.getElementById('pmInner');
+      const r = dep ? dep.getBoundingClientRect() : null;
+      const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+      return {
+        drawerVis: !!(drw && !drw.hidden),
+        nOpen: document.querySelectorAll('#pmColumns .pmColumn.pmOpen').length,
+        rect: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) } : null,
+        hitId: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)',
+        vw: window.innerWidth, vh: window.innerHeight,
+        drwScrollW: drw ? drw.scrollWidth : 0,
+        drwClientW: drw ? drw.clientWidth : 0,
+        drwH: drw ? Math.round(drw.getBoundingClientRect().height) : 0,
+        drwScrollH: drw ? drw.scrollHeight : 0,
+        innerH: inr ? Math.round(inr.getBoundingClientRect().height) : 0,
+      };
+    });
+    check('(4c) ⚠ compact (390x844) で引き出しを開いても #pmDepart が画面内に残っている',
+      geo.drawerVis === true && geo.nOpen === 1 && !!geo.rect
+      && geo.rect.top >= 0 && geo.rect.bottom <= geo.vh
+      && geo.rect.left >= 0 && geo.rect.right <= geo.vw
+      && geo.hitId === 'pmDepart',
+      'drawer ' + geo.drwH + 'px (中身 ' + geo.drwScrollH + 'px) / #pmInner ' + geo.innerH + 'px / viewport '
+      + geo.vw + 'x' + geo.vh + ' / #pmDepart rect=' + JSON.stringify(geo.rect) + ' 命中先=' + geo.hitId
+      + ' (カードの命中先=' + (hitD ? hitD.hit : '(取れず)') + ')');
+    check('(4d) compact で #pmDrawer が横スクロールを起こさない',
+      geo.drawerVis === true && geo.drwScrollW <= geo.drwClientW,
+      'scrollWidth ' + geo.drwScrollW + ' <= clientWidth ' + geo.drwClientW);
+    await pageD.close();
+
+    /* ═════ §5 / §6 は STEP3 (項目3) の枠 —— ⛔ 黙って緑にしない ═════ */
+    console.log('\n-- section5/6 (STEP3) --');
     const TODO3 = 'STEP3 (見た目 / 撤退スイッチの完成) 未実装';
-    pending('(3a) カードを押すと #pmDrawer が可視になり、.pmColumn.pmOpen がちょうど 1 枚', TODO2);
-    pending('(3b) 傾向の候補に「枠に入れていない技」が 1 つも無い (apEquippedIdsFor を流用している証明)', TODO2);
-    pending('(3c) 「道中」の行が出るのは 枠 ∩ TRAVEL_CASTABLE_IDS が非空の職だけ (2 経路突合)', TODO2);
-    pending('(3d) スキル項目を押すと selection.partySkills と localStorage の両方が変わり、引き出しの表示も更新される', TODO2);
-    pending('(3e) 傾向の select を変えると selection.actionPriority と localStorage の両方が変わる', TODO2);
-    pending('(3f) change の直後も select が同じ DOM ノードのまま (作り直されていない)', TODO2);
-    pending('(4a-0) [母集団] 同じ職が 2 人いる編成を作れている', TODO2);
-    pending('(4a) 片方のカードで技を足すと、もう片方のカードの表示も同じ値になる', TODO2);
-    pending('(4b) 同職 2 人のとき引き出しに共通適用の注記が出る / 1 人だけのときは出ない', TODO2);
-    pending('(4c) compact (390x844) で引き出しを開いても #pmDepart が画面内に残っている', TODO3);
-    pending('(4d) compact で #pmDrawer が横スクロールを起こさない', TODO3);
-    pending('(5a) 引き出しを一度も開かずに出発したとき、selection と localStorage が 1 バイトも変わっていない', TODO2);
-    pending('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される', TODO2);
+    pending('(5a) 引き出しを一度も開かずに出発したとき、selection と localStorage が 1 バイトも変わっていない', TODO3);
+    pending('(5b) 引き出しを開いたまま出発しても、その後の準備画面でスキル選択が正しく更新される', TODO3);
     pending('(X-a) [母集団] スイッチが無ければ引き出しが開いた盤面', TODO3);
     pending('(X-b) ?pmsetup=0 で #pmDrawer も #pmDepart も出ず、背景タップで従来どおり出発する', TODO3);
     pending('(X-c) ?actionpri=0 で引き出しは出るがスキル段だけ (傾向段が無い)', TODO3);

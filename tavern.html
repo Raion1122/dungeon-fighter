@@ -1806,11 +1806,63 @@
     #partyMatchOverlay .item-normal { color: #e8dcc0; font-weight: 600; }
     #partyMatchOverlay .item-magic { color: #6db3ff; font-weight: 700; }
     #partyMatchOverlay .item-special { color: #d08cff; font-weight: 700; text-shadow: 0 0 6px rgba(200,120,255,0.4); }
-    /* #35 STEP1: 引き出しの器 (中身と装飾は STEP2 / STEP3)。
+    /* #35 STEP2: 引き出し本体。カード列の【下】へ開く 1 枚のパネル。
+       ⭐ カードの中には入れない —— 4 列のカード 1 枚の実効幅には
+         スキル 1 行 ([分類]名前 [射程] [MP n] + フレーバー文) が原理的に入らない。
        ⚠ 開閉は hidden 属性。素の #pmDrawer に display を書くと hidden が効かなくなるので、
-         装飾を足すときは必ず [hidden] 側の display:none を残すこと。 */
-    #pmDrawer { width: 100%; }
+         [hidden] 側の display:none !important を必ず残すこと。
+       ⚠⚠⚠ max-height + overflow-y は必須。戦士は技が 10 本あり、#partyMatchOverlay は
+         align-items:center の固定オーバーレイなので、中身が伸びると上下が画面外へはみ出して
+         出発の口が押せなくなる。—— 受入条件 (4c) / 変異 M6。
+       ⚠ 配色の作り込みは STEP3。ここにあるのは器の形と読める最低限だけ。 */
+    #pmDrawer {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--pm-panel);
+      border: 1px solid var(--pm-border);
+      border-radius: 10px;
+      max-height: 42vh;
+      overflow-y: auto;
+      text-align: left;
+    }
     #pmDrawer[hidden] { display: none !important; }
+    /* どのカードの引き出しかを示す。—— 受入条件 (3a) はこれがちょうど 1 枚であることを見る。
+       ⛔ 既存の .pmColumn 規則は書き換えない (上書き規則を足すだけ)。 */
+    .pmColumn.pmOpen {
+      border-color: var(--pm-gold);
+      box-shadow: 0 0 18px rgba(224,180,60,0.35), inset 0 0 22px rgba(0,0,0,0.4);
+    }
+    /* 引き出しを開いている間は縦を稼ぐ。⚠ #partyMatchOverlay は align-items:center の
+       固定オーバーレイなので、中身が伸びると上下とも画面外へ逃げる。
+       ⭐ #pmHint は「タップして出発」と書いているが背景タップでは出発しないので、
+         引き出しを開けている間はしまっておくと実挙動とのズレも同時に減る。 */
+    #pmInner.pmDrawerOpen { gap: 12px; }
+    #pmInner.pmDrawerOpen #pmHint { display: none; }
+    .pmDrawerHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .pmDrawerTitle {
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 15px; letter-spacing: 2px; color: var(--pm-gold); line-height: 1.35;
+    }
+    /* ⚠ 指で押すのでタップ領域を 44px 以上に保つ */
+    .pmDrawerClose {
+      flex: 0 0 auto; min-height: 44px; min-width: 88px; padding: 10px 16px;
+      font-family: inherit; font-size: 13px; letter-spacing: 1px; cursor: pointer;
+      color: #f0e6cc; background: rgba(255,245,210,0.10);
+      border: 1px solid var(--pm-border); border-radius: 8px;
+    }
+    .pmDrawerNote { font-size: 12px; line-height: 1.5; color: #e3c76a; margin: -2px 0 8px; }
+    .pmDrawerSec { border-top: 1px solid rgba(224,180,60,0.18); padding-top: 9px; margin-top: 9px; }
+    .pmDrawerSecHead { font-size: 12.5px; letter-spacing: 2px; color: #cbb98a; margin-bottom: 7px; }
+    .pmDrawerHint { display: block; font-size: 11px; letter-spacing: 0; color: #8a7c5a; margin-top: 3px; line-height: 1.45; }
+    /* 暗幕の上では羊皮紙色の字が読めないので、引き出しの中だけラベル色を上書きする。
+       ⛔ .apRow / .apSel 本体は触らない (準備画面の見た目が変わる)。 */
+    #pmDrawer .apRows { gap: 6px; }
+    #pmDrawer .apRow > label { color: #b8a878; }
+    /* #35 STEP2: カードに「今枠に入れている技」を出す。同じ職が 2 人来たとき、
+       2 枚のカードが同じ値になることが「設定は職業に紐づく」の見える形 (依頼書 §2-4)。 */
+    .pmSkills { margin-top: 8px; width: 100%; display: flex; gap: 7px; font-size: 11.5px; line-height: 1.35; align-items: baseline; }
+    .pmSkillsLabel { flex: 0 0 30px; color: #7a6e52; }
+    .pmSkillsVal { flex: 1 1 auto; color: #cfc19a; word-break: break-word; }
     /* #35 STEP1: 出発の口。「画面のどこを叩いても出発する」を廃した代わりの明示ボタン。 */
     #pmDepart {
       font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
@@ -1842,6 +1894,15 @@
       #pmColumns { grid-template-columns: repeat(2, 1fr); }
       .pmColumn { min-height: 0; padding: 12px 10px; }
       #pmPlace { font-size: 18px; letter-spacing: 2px; }
+      /* 縦持ちはカードだけで画面の半分を使うので、引き出しはさらに低くする。
+         引き出しを開いたままでも出発の口が画面内に残ることが条件 (4c)。 */
+      #pmDrawer { max-height: 30vh; padding: 10px 11px; }
+      #pmDrawer .skillList { grid-template-columns: 1fr; }
+      /* 縦持ちはカードだけで画面の 7 割を使うので、引き出しを開いている間は
+         飾りの見出しとカードの明細を畳む。—— 受入条件 (4c)。 */
+      #pmInner.pmDrawerOpen #pmHeader { display: none; }
+      #pmInner.pmDrawerOpen .pmEquip { display: none; }
+      #pmInner.pmDrawerOpen .pmSkills { display: none; }
     }
     @media (max-width: 380px) {
       #pmColumns { gap: 9px; }
@@ -2425,10 +2486,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間が集う画面でスキルと戦い方を決められるようになった</b> — 顔ぶれのカードを押すとその場で開き、誰に何を使ってほしいかを出発前にまとめて指示できる。</li>
         <li><b>仲間が集う画面に「出発する」ボタンが付いた</b> — うっかり画面に触れて出発してしまうことがなくなり、顔ぶれをゆっくり見てから自分の意思で出発できる。</li>
         <li><b>キャラクターシートが本物の冒険者の紙に</b> — 能力値・セーヴ・技能・攻撃・特徴が羊皮紙の三段組に並ぶようになった。</li>
         <li><b>出発の準備から仲間の顔ぶれを見直せる</b> — 「編成を見る」で、受注のときのカードをいつでも開き直せる。装備を替えた後に開けばその武器で並ぶ。</li>
-        <li><b>仲間の戦士が指示どおりの技を使うようになった</b> — 強斬りや盾バッシュなど、これまで通常攻撃しかしなかった仲間の戦士が、出発前に指定した傾向で動く。</li>
       </ul>
     </div>
     <script>
@@ -5424,6 +5485,20 @@
   }
 
 
+  // ── #35: スキル枠を変えた後に描き直す先の【唯一の正】 ──────────────
+  // 既定は準備画面 (#prep) の職業タブ + ロードアウト。
+  // マッチング画面の引き出しを開いている間だけ、ここを引き出しへ向け直す。
+  // ⚠⚠ 引き出しの中で準備画面の再描画を呼んでも、#prep は display:none なので
+  //   引き出しは 1 ピクセルも変わらない = 「押しても何も起きない」に見える。
+  // ⛔ 呼び口を全部書き換えない。差し替えるのは
+  //   renderSkillItem の 1 箱所 + renderSpellSlotItem の 2 箱所 = 計 3 箱所だけ。
+  let pmLoadoutRepaint = null;   // null = 従来どおり (準備画面を描き直す)
+  function repaintAfterSkillChange() {
+    if (pmLoadoutRepaint) { pmLoadoutRepaint(); return; }
+    renderCharTabs();
+    renderCharLoadout();
+  }
+
   // ── Phase 2-J: 呪文職用 個数指定 (±ボタン) アイテム描画 ──
   // partySkills[classKey] は重複 ID 配列 (例: ["fireball","fireball","magic-missile"])
   // 個数 = 重複数。getMaxSpellSlotsForClassTV(classKey, lv) を上限とする。
@@ -5471,8 +5546,7 @@
         if (idx >= 0) {
           list2.splice(idx, 1);
           saveSelections();
-          renderCharTabs();
-          renderCharLoadout();
+          repaintAfterSkillChange();
         }
       });
       if (btnPlus) btnPlus.addEventListener("click", (ev) => {
@@ -5482,8 +5556,7 @@
         const list2 = selection.partySkills[classKey] || (selection.partySkills[classKey] = []);
         list2.push(sk.id);
         saveSelections();
-        renderCharTabs();
-        renderCharLoadout();
+        repaintAfterSkillChange();
       });
     }
     return item;
@@ -5582,8 +5655,7 @@
         selection.partySkills[classKey] = [...list, sk.id];
       }
       saveSelections();
-      renderCharTabs();
-      renderCharLoadout();
+      repaintAfterSkillChange();
     });
     return item;
   }
@@ -6333,6 +6405,201 @@
   //   ⛔ window へは晒さない (検証シームは既存の __pmTest に限る)。
   let pmPhaseRef = () => "idle";
 
+  // ═════ #35 STEP2: マッチング画面の引き出し ═════
+  // カードを押すとカード列の下へ 1 枚のパネルが開き、スキルと傾向をその場で決められる。
+  // ⚠⚠ 設定は【職業】に紐づく (依頼書 §1 のユーザー決定)。同じ職が 2 人来ると
+  //   カードは 2 枚だが編集先は 1 つ —— それを隠すと事故になるので、
+  //   見出しは職業を主にし、注記を出し、もう一枚のカードも必ず描き直す。
+  let pmDrawerIdx = -1;   // 開いているカードの番号 (-1 = 閉じている)
+  let pmCols = [];        // 今出ているカード ({ el, fill, refresh })
+  let pmOrdered = [];     // カードの並び (番号 → メンバー)
+
+  // カードに出す「今この職が枠に入れている技」。
+  // ⭐ 唯一の正は apEquippedIdsFor (引き出しの傾向段と同じ母集団)。
+  //   ⛔ selection.partySkills を直接読んで別の絞り方をしない (僧侶は自動配分で入り口が違う)。
+  function pmEquippedSkillNames(classKey) {
+    const slot = PARTY_SLOTS.find(s => s && s.classKey === classKey);
+    if (!slot) return [];
+    let ids = [];
+    try { ids = apEquippedIdsFor(slot, classKey) || []; } catch (e) { ids = []; }
+    return ids.map((id) => { const sk = slot.skillPool.find(x => x.id === id); return sk ? sk.name : id; });
+  }
+
+  function pmToggleDrawer(idx) {
+    if (pmDrawerIdx === idx) { pmCloseDrawer(); return; }
+    pmOpenDrawer(idx);
+  }
+
+  function pmOpenDrawer(idx) {
+    const drawer = document.getElementById("pmDrawer");
+    if (!drawer || !pmOrdered[idx]) return;
+    pmDrawerIdx = idx;
+    pmCols.forEach((c, i) => { if (c && c.el) c.el.classList.toggle("pmOpen", i === idx); });
+    drawer.hidden = false;
+    const inner = document.getElementById("pmInner");
+    if (inner) inner.classList.add("pmDrawerOpen");
+    pmRenderDrawer(idx);
+    // ⚠⚠⚠ 開いている間だけ、スキル枠を変えた後の描き直し先を引き出しへ向ける。
+    //   ⛔ pmCloseDrawer で必ず null へ戻す (戻さないと準備画面が二度と更新されない)。
+    pmLoadoutRepaint = function () { saveSelections(); pmRenderDrawer(pmDrawerIdx); pmRefreshCards(); };
+  }
+
+  function pmCloseDrawer() {
+    // ⚠⚠⚠ 先に戻す。ここを飛ばすと準備画面のスキル選択が一切反映されなくなる。
+    pmLoadoutRepaint = null;
+    pmDrawerIdx = -1;
+    pmCols.forEach((c) => { if (c && c.el) c.el.classList.remove("pmOpen"); });
+    const inner = document.getElementById("pmInner");
+    if (inner) inner.classList.remove("pmDrawerOpen");
+    const drawer = document.getElementById("pmDrawer");
+    if (drawer) { drawer.hidden = true; drawer.innerHTML = ""; }
+  }
+
+  // 同職 2 枚の同期はこれ。片方の引き出しで技を足したら、もう一枚も同じ値になる。
+  function pmRefreshCards() {
+    pmCols.forEach((c) => { if (c && c.refresh) c.refresh(); });
+  }
+
+  function pmRenderDrawer(idx) {
+    const drawer = document.getElementById("pmDrawer");
+    if (!drawer) return;
+    const m = pmOrdered[idx];
+    const slot = m ? PARTY_SLOTS.find(s => s && s.classKey === m.classKey) : null;
+    if (!m || !slot) { drawer.innerHTML = ""; return; }
+    const classKey = m.classKey;
+    drawer.innerHTML = "";
+
+    // ── 見出し。⚠⚠ 職業を主にする (依頼書 §2-4 / §2-8)。
+    //   出発のたびに顔ぶれは作り直されるので、名前を主にすると
+    //   次の出発でその人が居なくなったとき「設定が消えた」ように見える。
+    const head = document.createElement("div");
+    head.className = "pmDrawerHead";
+    const title = document.createElement("div");
+    title.className = "pmDrawerTitle";
+    title.id = "pmDrawerTitle";
+    title.textContent = slot.name + " — " + (m.isHero ? "あなた" : (m.name || slot.name));
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "pmDrawerClose";
+    closeBtn.id = "pmDrawerClose";
+    closeBtn.textContent = "閉じる";
+    closeBtn.addEventListener("click", function (ev) { ev.stopPropagation(); pmCloseDrawer(); });
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+    drawer.appendChild(head);
+
+    // ── 同職が 2 人以上のときだけ注記。
+    //   ⛔ PARTY_SIZE からも buildParty の再計算からも導かない。数える先は
+    //      selection.partyMembers ただ 1 つ (画面に出ている顔ぶれそのもの)。
+    const sameCount = (selection.partyMembers || []).filter(x => x && x.classKey === classKey).length;
+    if (sameCount >= 2) {
+      const note = document.createElement("div");
+      note.className = "pmDrawerNote";
+      note.id = "pmDrawerNote";
+      note.textContent = "⚠ この設定は " + slot.name + " " + sameCount + " 人に共通で適用されます";
+      drawer.appendChild(note);
+    }
+
+    // ── スキル段。⛔ 新しいスキル項目のコンポーネントは書かない。
+    //   準備画面と同じ renderSkillItem / renderSpellSlotItem をそのまま呼ぶ。
+    const limit = skillLimitForClass(classKey);
+    const equippedSet = new Set(selection.partySkills[classKey] || []);
+    const full = equippedSet.size >= limit;
+    const skillSec = document.createElement("div");
+    skillSec.className = "pmDrawerSec";
+    const skHead = document.createElement("div");
+    skHead.className = "pmDrawerSecHead";
+    skHead.id = "pmDrawerSkillHead";
+    skHead.textContent = "スキル (" + equippedSet.size + "/" + limit + ")";
+    const listEl = document.createElement("div");
+    listEl.className = "skillList";
+    listEl.id = "pmDrawerSkillList";
+    const plain  = slot.skillPool.filter(sk => !sk.mpCost);
+    const magics = slot.skillPool.filter(sk => sk.mpCost > 0 && isSpellKnownTV(classKey, sk.id));
+    plain.forEach(sk => listEl.appendChild(renderSkillItem(sk, equippedSet, full, classKey)));
+    if (isCasterClassTV(classKey)) {
+      const lv = getLevelFromXP(inventory.xp);
+      const totalMax = getMaxSpellSlotsForClassTV(classKey, lv);
+      const arr = Array.isArray(selection.partySkills[classKey]) ? selection.partySkills[classKey] : [];
+      const totalUsed = isAutoSlotClassTV(classKey) ? totalMax : arr.length;
+      magics.forEach(sk => listEl.appendChild(renderSpellSlotItem(sk, classKey, totalUsed, totalMax, lv)));
+    } else {
+      magics.forEach(sk => listEl.appendChild(renderSkillItem(sk, equippedSet, full, classKey)));
+    }
+    skillSec.appendChild(skHead);
+    skillSec.appendChild(listEl);
+    drawer.appendChild(skillSec);
+
+    // ── 傾向段。⛔ renderActionPriority そのものは呼ばない (準備画面の DOM へ直接書くため)。
+    //   同じ組み立てをここへ書き出し、値の読み書きだけを selection.actionPriority で共有する。
+    //   ⚠ 候補の絞り込みは apEquippedIdsFor を必ず流用する (二重化すると #19 と食い違う)。
+    if (!ACTION_PRIORITY_UI_ON) return;
+    if (!selection.actionPriority) selection.actionPriority = {};
+    const row = selection.actionPriority[classKey] ||
+                (selection.actionPriority[classKey] = { general: null, mob: null, boss: null, travel: null });
+    const equippedIds = apEquippedIdsFor(slot, classKey);
+    const nameOf = (id) => { const hit = slot.skillPool.find(sk => sk.id === id); return hit ? hit.name : id; };
+    const apSec = document.createElement("div");
+    apSec.className = "pmDrawerSec";
+    apSec.id = "pmDrawerAp";
+    const apHead = document.createElement("div");
+    apHead.className = "pmDrawerSecHead";
+    apHead.textContent = "傾向";
+    const apHint = document.createElement("span");
+    apHint.className = "pmDrawerHint";
+    apHint.textContent = "指示は傾向です。射程やスロットが足りなければ別の手を打ちます";
+    apHead.appendChild(apHint);
+    const rowsEl = document.createElement("div");
+    rowsEl.className = "apRows";
+    rowsEl.id = "pmDrawerApRows";
+    let dirty = false;
+    for (const sit of AP_SITUATIONS) {
+      // 道中の行だけ TRAVEL_CASTABLE_IDS で更に絞る (戦士 / ドワーフ / 盗賨は必ず 0 件)。
+      const ids = (sit.key === "travel")
+        ? equippedIds.filter(id => TRAVEL_CASTABLE_IDS.indexOf(id) >= 0)
+        : equippedIds.slice();
+      const rowEl = document.createElement("div");
+      rowEl.className = "apRow";
+      rowEl.dataset.sit = sit.key;
+      // 候補が 0 件なら行ごと隠す (指示のしようがない枠を出さない)。
+      if (ids.length === 0) rowEl.style.display = "none";
+      const selId = "pmApSel_" + classKey + "_" + sit.key;
+      const labelEl = document.createElement("label");
+      labelEl.setAttribute("for", selId);
+      labelEl.textContent = sit.label;
+      labelEl.title = sit.hint;
+      const selEl = document.createElement("select");
+      selEl.className = "apSel";
+      selEl.id = selId;
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "おまかせ";
+      selEl.appendChild(opt0);
+      for (const id of ids) {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = nameOf(id);
+        selEl.appendChild(o);
+      }
+      // 保存済の ID が今の候補に無い (枠から外した等) → 「おまかせ」へ戻し、値も null へ書き戻す。
+      if (row[sit.key] && ids.indexOf(row[sit.key]) < 0) { row[sit.key] = null; dirty = true; }
+      selEl.value = row[sit.key] || "";
+      selEl.addEventListener("change", () => {
+        row[sit.key] = selEl.value || null;
+        saveSelections();
+        // ⛔⛔ ここで引き出しを描き直さない。select が閉じた直後に作り直されると
+        //   次の指定ができなくなる (準備画面側にも同じ罠の記録がある)。
+      });
+      rowEl.appendChild(labelEl);
+      rowEl.appendChild(selEl);
+      rowsEl.appendChild(rowEl);
+    }
+    apSec.appendChild(apHead);
+    apSec.appendChild(rowsEl);
+    drawer.appendChild(apSec);
+    if (dirty) saveSelections();
+  }
+
   // #35: カードの上のタップ。
   // ⚠⚠ 開示中 (reveal) は【何もしない = 伝播も止めない】。背景の skipRest へ通すため。
   //   ここで一律に止めると、画面の大半が「タップでスキップ」の効かない死に領域になる。
@@ -6340,10 +6607,17 @@
   //   ⛔ 出発は #pmDepart だけなので、ここで止め損ねても出発はしない (二重の守り)。
   function pmBindCardTaps(el) {
     if (!el) return;
+    // ⚠⚠ 実機では同じ指から touchend → click の 2 発が飛んでくる。素通しすると
+    //   開いた直後に閉じて「押しても開かない」に見える。touchend の直後の click は捨てる。
+    let lastTouchAt = 0;
     const handler = (ev) => {
       if (pmPhaseRef() !== "done") return;   // 開示中は背景の skipRest へ通す
       ev.stopPropagation();
-      // STEP2: ここで引き出しを開閉する (pmToggleDrawer)。STEP1 では場所だけ確保する。
+      const now = Date.now();
+      if (ev.type === "touchend") lastTouchAt = now;
+      else if (now - lastTouchAt < 700) return;
+      const idx = parseInt(el.dataset.memberIdx, 10);
+      if (idx >= 0) pmToggleDrawer(idx);
     };
     el.addEventListener("click", handler);
     el.addEventListener("touchend", handler);
@@ -6366,6 +6640,9 @@
     const el = document.createElement("div");
     el.className = "pmColumn";
     el.dataset.state = "empty";
+    // #35: 引き出しはこの 2 つで「どのカードか」を引く。⛔ 表示名から職を逆引きしない。
+    el.dataset.classKey = m.classKey;
+    el.dataset.memberIdx = String(i);
     const wrap = document.createElement("div");
     wrap.className = "pmPortraitWrap";
     const portrait = document.createElement("div");
@@ -6379,13 +6656,25 @@
     const classEl = document.createElement("div"); classEl.className = "pmClass";
     const zoneEl = document.createElement("div"); zoneEl.className = "pmZone";
     const equipEl = document.createElement("div"); equipEl.className = "pmEquip";
+    const skillsEl = document.createElement("div"); skillsEl.className = "pmSkills";
     el.appendChild(wrap);
     el.appendChild(nameEl);
     el.appendChild(classEl);
     el.appendChild(zoneEl);
     el.appendChild(equipEl);
+    el.appendChild(skillsEl);
 
     let filled = false;
+    // #35: 枠に入れている技の行。同職 2 枚の同期 (pmRefreshCards) がここを呼び直す。
+    function renderSkills() {
+      skillsEl.innerHTML = "";
+      if (!filled) return;
+      const names = pmEquippedSkillNames(m.classKey);
+      const lab = document.createElement("span"); lab.className = "pmSkillsLabel"; lab.textContent = "技";
+      const val = document.createElement("span"); val.className = "pmSkillsVal";
+      val.textContent = names.length ? names.join("・") : "—";
+      skillsEl.appendChild(lab); skillsEl.appendChild(val);
+    }
     function fill(animate) {
       if (filled) return;
       filled = true;
@@ -6413,8 +6702,9 @@
         row.appendChild(lab); row.appendChild(val);
         equipEl.appendChild(row);
       });
+      renderSkills();
     }
-    return { el, fill };
+    return { el, fill, refresh: renderSkills };
   }
 
   // 演出本体。Promise を返し、閉じ切ってから resolve (openPrep の await チェーンを止めない)。
@@ -6458,6 +6748,11 @@
     // #35: カードと引き出しの上のタップは overlay まで上げない (指がそのまま出発を叩くのを防ぐ)。
     //   ⛔ ?pmsetup=0 では「どこを叩いても出発」の昔の姿へ戻すので、ここも通さない。
     if (setupOn) { cols.forEach(c => pmBindCardTaps(c.el)); pmSwallowTaps(drawerBox); }
+    // #35 STEP2: 引き出しが参照する「今出ているカード」。⛔ 別の配列へ写さない。
+    //   閉じるのは前回の開きっぱなしを持ち越さないため (pmLoadoutRepaint も null へ)。
+    pmCols = cols;
+    pmOrdered = ordered;
+    pmCloseDrawer();
     // 主人公カラムは即・確定 (アニメ無し。開示対象は残りの仲間)。
     // review では仲間も即・確定 = revealQueue が空になり、開示フェーズを 1 コマも通らない。
     const revealQueue = [];
@@ -6520,6 +6815,9 @@
         unbindTaps();
         // #35: 閉じたら phase の読み口も畳む (閉じた後のカードのタップを拾わない)。
         pmPhaseRef = () => "idle";
+        // ⚠⚠⚠ #35 STEP2: 引き出しを開いたまま出発しても必ず畳む。ここを抜くと
+        //   描き直し先が引き出しのまま残り、準備画面のスキル選択が一切反映されなくなる。
+        pmCloseDrawer();
         // #35: 次に開いた時に「確定前なのに出発の口が見えている」状態を作らない。
         if (departEl) departEl.hidden = true;
         if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
