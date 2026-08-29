@@ -571,7 +571,23 @@
 
   var CSS = CSS_BASE.join('\n') + '\n' + (SHEET5E ? CSS_V2 : CSS_PAPER_V1.join('\n'));
 
+  /* ★#36 §2-6 罠 E: 紙の CSS が "Noto Serif JP" を指しているのに、その <link> を持っているのは
+   *   index.html だけだった (= 同じシートが 5 ページで違う書体で出ていた)。
+   * ⭐ HTML を 1 枚も触らず、モジュール側から 1 本だけ注入して直す。
+   *   既に在るページ (index) では何もしない。ページが増えても勝手に効く。
+   * ⚠ 読めなくても serif へ落ちるだけ。⛔ ここで例外を投げてシートを道連れにしない。 */
+  function ensureFont() {
+    try {
+      if (document.querySelector('link[href*="Noto+Serif+JP"]')) return;
+      var l = document.createElement("link");
+      l.rel = "stylesheet";
+      l.href = "https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600&display=swap";
+      (document.head || document.documentElement).appendChild(l);
+    } catch (e) { /* noop */ }
+  }
+
   function ensureStyle() {
+    ensureFont();
     if (document.getElementById(STYLE_ID)) return;
     var st = document.createElement("style");
     st.id = STYLE_ID;

@@ -589,6 +589,13 @@ const PAGE_SEED = {
   'dragonfighters.languages': JSON.stringify(['goblin']),
 };
 const HUD_IDS = ['settingsBtn', 'partyToggleBtn', 'combatLog'];
+/* ★#36 (8b)(8c) の種。⭐ 主人公の職を localStorage (シートが読む) と sessionStorage
+ *   (index.html の編成が読む) の **両方** へ撒いて、紙と本番の中身を同じ人物に揃える。
+ *   warrior は前衛なので隊列の頭 = 主人公 / mage は後衛なので頭は NPC になる。 */
+const heroSeed = (cls) => ({
+  ls: Object.assign({}, PAGE_SEED, { 'dragonfighters.partyComposition': JSON.stringify([cls]) }),
+  ss: { 'dragonfighters.partyComposition': JSON.stringify([cls]) },
+});
 const PAGE_SETTLE = 1500;   // index/town は JS が HUD を後から組む。⚠ 縮めると mountVia が body へ化ける
 
 /** 本番ページを 1 枚、開く前 → 押す → 開いている間 → 閉じた後 の 4 相で測る。 */
@@ -598,12 +605,16 @@ async function probeRealPage(browser, base, spec, query, opts) {
   page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
   await page.setViewport({ width: spec.w, height: spec.h, deviceScaleFactor: 1,
     isMobile: !!spec.mobile, hasTouch: !!spec.mobile });
+  /* ★#36 (8b)(8c): index.html の編成は **sessionStorage** の partyMembers / partyComposition が
+     決めている (localStorage ではない)。頭が主人公か NPC かを作り分けるため、両方を種にできる。
+     ⚠ 既定は今までどおり localStorage だけ = 既存の測定は 1 バイトも変わらない。 */
   await page.evaluateOnNewDocument((s) => {
     try {
       localStorage.clear();
-      if (s) for (const k in s) localStorage.setItem(k, s[k]);
+      if (s.ls) for (const k in s.ls) localStorage.setItem(k, s.ls[k]);
+      if (s.ss) { sessionStorage.clear(); for (const k in s.ss) sessionStorage.setItem(k, s.ss[k]); }
     } catch (e) { /* private mode 等 */ }
-  }, PAGE_SEED);
+  }, { ls: (opts && opts.ls) || PAGE_SEED, ss: (opts && opts.ss) || null });
   let resp = null;
   try { resp = await page.goto(base + '/' + spec.file + (query || ''), { waitUntil: 'load', timeout: 45000 }); }
   catch (e) { o.errs.push('goto: ' + ((e && e.message) || e)); }
@@ -726,6 +737,58 @@ async function probeRealPage(browser, base, spec, query, opts) {
     out.xpSeed = (function () { try { return parseInt(localStorage.getItem('dragonfighters.xp') || '0', 10); } catch (e) { return 0; } })();
     out.levelExpect = S ? S.levelFromXp(out.xpSeed) : null;
 
+    /* ══ ★#36 ここから ═══════════════════════════════════════════════════
+       ⭐ 「何を描いたか」(DOM) と「どこから取ったか」(供給口 / 本番の実体) を **別々に** 採る。
+       ⛔ ドライバに数式を写経しない — 実装と同じ間違いを共有すると両方緑になる。 */
+    out.blankIdsDecl = S ? (S.BLANK_FIELD_IDS || []).slice() : [];
+    out.blankSecDecl = S ? (S.BLANK_SECTION_IDS || []).slice() : [];
+    out.sheet5e = S ? S.SHEET5E : null;
+    out.blankDom = Array.prototype.slice.call(document.querySelectorAll('[data-blank]')).map(el => ({
+      id: el.getAttribute('data-blank'),
+      text: String(el.textContent || '').replace(/\s+/g, ' ').trim(),
+    }));
+    out.saveDom = Array.prototype.slice.call(document.querySelectorAll('[data-save]')).map(el => ({
+      key: el.getAttribute('data-save'),
+      mod: parseInt(el.getAttribute('data-mod'), 10),
+      text: String(el.textContent || '').replace(/\s+/g, ' ').trim(),
+    }));
+    out.statDom = {};
+    for (const el of document.querySelectorAll('[data-stat]')) {
+      const k = el.getAttribute('data-stat');
+      const vEl = el.querySelector('.v') || el.querySelector('.rv');
+      out.statDom[k] = { v: vEl ? String(vEl.textContent || '').trim() : '',
+                         text: String(el.textContent || '').replace(/\s+/g, ' ').trim() };
+    }
+    out.colsInDom = Array.prototype.slice.call(document.querySelectorAll('.dfSheetCol'))
+      .map(e => e.getAttribute('data-col'));
+    /* 経路 2: 供給口を **そのまま** 呼んだ生値 */
+    out.body = (S && typeof S.__body === 'function')
+      ? (function () { try { return JSON.parse(JSON.stringify(S.__body())); } catch (e) { return null; } })() : null;
+    /* 経路 2: 受動知覚 / 習熟ボーナスを SkillCheck から直接 */
+    out.passiveExpect = null; out.profBonusExpect = null;
+    if (SC && SC.CHECKS && SC.CHECKS.perception && typeof SC.checkScore === 'function' && ck && S) {
+      try { out.passiveExpect = 10 + SC.checkScore({ classKey: ck, name: S.classLabel(ck) }, SC.CHECKS.perception); }
+      catch (e) { out.passiveExpect = null; }
+      out.profBonusExpect = (typeof SC.PROFICIENCY_BONUS === 'number') ? SC.PROFICIENCY_BONUS : null;
+    }
+    /* 経路 2: 「誰が頭か」「主人公の実体はどれか」を **本番の検証シーム** から。
+       ⭐ window.__heroMark / window.__plaza は index.html が常時生やしている読み取り窓。
+       ⛔ ここでシートの供給口を見ない (見ると自己参照になり headmix が検出できない)。 */
+    out.heroIsHead = (window.__heroMark && typeof window.__heroMark.heroIsHead === 'function')
+      ? window.__heroMark.heroIsHead() : null;
+    out.heroAlly = null; out.headAc = null; out.headAtk = null;
+    if (window.__plaza) {
+      try {
+        const a = (typeof window.__plaza.allies === 'function')
+          ? window.__plaza.allies().find(x => x && x.isHero) : null;
+        if (a) out.heroAlly = { classKey: a.classKey, ac: a.ac, str: a.str, dex: a.dex, con: a.con,
+          int: a.int, wis: a.wis, atkBonus: a.atkBonus, dmgDice: a.dmgDice, dmgBonus: a.dmgBonus,
+          weaponName: (a.def && a.def.weaponName) || null };
+      } catch (e) { out.heroAlly = null; }
+      try { out.headAc = (typeof window.__plaza.pAc === 'function') ? window.__plaza.pAc() : null; } catch (e) {}
+      try { out.headAtk = (typeof window.__plaza.pAtk === 'function') ? window.__plaza.pAtk() : null; } catch (e) {}
+    }
+
     const R = {};
     for (const id of HUD) {
       const el = document.getElementById(id);
@@ -738,6 +801,7 @@ async function probeRealPage(browser, base, spec, query, opts) {
     return out;
   }, HUD_IDS);
   Object.assign(o, post);
+  try { Object.assign(o, await page.evaluate(LAYOUT_JS)); } catch (e) { o.errs.push('layout: ' + ((e && e.message) || e)); }
 
   // ── 相 4: Esc で閉じる (⭐ 本番の閉じ口をそのまま通す) ──
   try { await page.keyboard.press('Escape'); } catch (e) { /* noop */ }
@@ -761,6 +825,86 @@ async function probeRealPage(browser, base, spec, query, opts) {
   }, HUD_IDS);
   Object.assign(o, fin);
 
+  await page.close();
+  return o;
+}
+
+/* ★#36 §7: レイアウトの測り方を **1 箇所** に畳む (probeRealPage と probeWidths が共有)。
+ * ⭐ 実効文字高は「祖先の transform scale を掛けた font-size」で見る (#15 と同じ罠)。
+ * ⚠ 文字を実際に持つ要素だけを数える。空の罫線 <span> まで数えると最小値が意味を失う。 */
+const LAYOUT_JS = `(() => {
+  const out = { paper: null, gridTracks: 0, abilRects: [] };
+  const paper = document.getElementById('dfSheetPaper');
+  if (paper) {
+    let mn = Infinity;
+    for (const el of paper.querySelectorAll('*')) {
+      let hasText = false;
+      for (const n of el.childNodes) if (n.nodeType === 3 && String(n.nodeValue).trim()) hasText = true;
+      if (!hasText) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const fs = parseFloat(cs.fontSize) || 0;
+      let sc = 1, p = el;
+      while (p && p !== document.documentElement) {
+        const t = getComputedStyle(p).transform;
+        /* ⚠⚠ ここはテンプレートリテラルの中なので、正規表現の \( や \s は
+           **テンプレートリテラルのエスケープに食われて消える** (2026-08-29 に実測)。
+           -> 正規表現を使わず indexOf / slice で採る。 */
+        if (t && t !== 'none') {
+          const i0 = t.indexOf('('), i1 = t.indexOf(',');
+          if (i0 > 0 && i1 > i0) { const av = parseFloat(t.slice(i0 + 1, i1)); if (av) sc *= Math.abs(av); }
+        }
+        p = p.parentElement;
+      }
+      if (fs * sc < mn) mn = fs * sc;
+    }
+    out.paper = { scrollW: paper.scrollWidth, clientW: paper.clientWidth,
+                  minFont: isFinite(mn) ? Math.round(mn * 100) / 100 : null };
+    const colsEl = paper.querySelector('.dfSheetCols');
+    if (colsEl) {
+      const g = String(getComputedStyle(colsEl).gridTemplateColumns || '').trim();
+      out.gridTracks = (g && g !== 'none') ? g.split(' ').filter(Boolean).length : 0;
+    }
+  }
+  out.abilRects = Array.prototype.slice.call(document.querySelectorAll('.dfSheetAbilBox')).map(el => {
+    const r = el.getBoundingClientRect();
+    return { left: Math.round(r.left * 100) / 100, top: Math.round(r.top * 100) / 100 };
+  });
+  return out;
+})()`;
+
+/**
+ * ★#36 §7: **1 ページロードのまま** 幅を 1200 -> 760 -> 390 と変えて三段組の畳まれ方を測る。
+ * ⭐ 開くのは DFSheet.open()。ボタンで開けることは §1 が別に担保しているので、ここは
+ *   **レイアウトだけ** を見る (390px では #partyPanel が畳まれてボタンの座標が変わるため)。
+ */
+async function probeWidths(browser, base, file) {
+  const o = { file: file, errs: [], marks: [] };
+  const page = await browser.newPage();
+  page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
+  await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 1 });
+  await page.evaluateOnNewDocument((s) => {
+    try { localStorage.clear(); if (s) for (const k in s) localStorage.setItem(k, s[k]); } catch (e) {}
+  }, PAGE_SEED);
+  try { await page.goto(base + '/' + file, { waitUntil: 'load', timeout: 45000 }); }
+  catch (e) { o.errs.push('goto: ' + ((e && e.message) || e)); }
+  await sleep(PAGE_SETTLE);
+  for (const w of [1200, 760, 390]) {
+    await page.setViewport({ width: w, height: (w === 390 ? 844 : 900), deviceScaleFactor: 1,
+      isMobile: w === 390, hasTouch: w === 390 });
+    await sleep(280);
+    let mk = { open: false };
+    try {
+      mk = await page.evaluate(() => {
+        const S = window.DFSheet;
+        if (!S) return { open: false };
+        S.open();
+        return { open: S.isOpen() };
+      });
+      Object.assign(mk, await page.evaluate(LAYOUT_JS));
+    } catch (e) { o.errs.push('w' + w + ': ' + ((e && e.message) || e)); }
+    o.marks.push(Object.assign({ w: w }, mk));
+  }
   await page.close();
   return o;
 }
@@ -1346,23 +1490,33 @@ const ASSERTS = [
       + (diffCells >= 5 ? '' : '  ⛔ 割れるマスが少なすぎる = 種の職が悪く空振りする')
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
   }],
-  ['2c', '取れない区画は行ごと消えている (__state() の avail と inDom が食い違わない)', (M) => {
+  ['2c', '取れない区画は行ごと消え、宣言済みの空欄枠だけが例外 (inDom === avail || blank)', (M) => {
     const P = M.pages || [];
     if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    /* ★#36 §5-2 の表そのもの。⭐ 伏せる理由は「供給口が無い」「SkillCheck が無い」の 2 つだけ。 */
+    const SUPPLY = ['dfSheetSecSaves', 'dfSheetSecCombat', 'dfSheetSecBody', 'dfSheetSecAttacks'];
+    const SKILLC = ['dfSheetSecProficiency', 'dfSheetSecSkills'];
+    const wantHidden = {
+      'index.html': [], 'tavern.html': SUPPLY,
+      'town.html': SUPPLY.concat(SKILLC), 'world.html': SUPPLY.concat(SKILLC),
+      'title.html': SUPPLY.concat(SKILLC),
+    };
     const bad = [];
     for (const p of P) {
       const st = p.state;
       if (!st) { bad.push(p.label + ' ⛔ __state() が無い'); continue; }
-      /* ⭐ avail (データが取れたか) と inDom (DOM に居るか) の不一致 = 「空文字で描いた」か「描き忘れ」。
-         hidden 配列だけを見ると inDom から作った値を inDom と比べる自己参照になり、永久緑になる。 */
-      if ((st.mismatch || []).length) bad.push(p.label + ' ⛔ avail≠inDom: ' + st.mismatch.join(','));
-      // 独立した期待: 技能は SkillCheck の有無、体は HP 供給口 (= index だけ) で決まる
-      const wantSkills = p.hasSkillCheck === true;
-      const wantBody   = p.file === 'index.html';
+      /* ⭐ avail (実データが取れた) / blank (空欄枠と宣言済み) / inDom (DOM に居る) の 3 値。
+         規則は inDom === (avail || blank)。⛔ #29 の規律を緩めるのではなく広げた形。
+         hidden 配列だけを見ると inDom から作った値を inDom と比べる自己参照になり永久緑。 */
+      if ((st.mismatch || []).length) bad.push(p.label + ' ⛔ inDom≠(avail||blank): ' + st.mismatch.join(','));
+      if (!sameSet(st.hidden || [], wantHidden[p.file]))
+        bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden) + ' (期待 ' + JSON.stringify(wantHidden[p.file]) + ')');
+      // 独立した期待: 技能/習熟は SkillCheck の有無、供給口の 4 区画は index だけ
       const has = (id) => !!(p.secInDom && p.secInDom[id]);
-      if (has('dfSheetSecSkills') !== wantSkills) bad.push(p.label + ' 技能区画=' + has('dfSheetSecSkills') + ' (期待 ' + wantSkills + ')');
-      if (has('dfSheetSecBody') !== wantBody) bad.push(p.label + ' 体区画=' + has('dfSheetSecBody') + ' (期待 ' + wantBody + ')');
-      for (const id of ['dfSheetSecHeader', 'dfSheetSecAbilities', 'dfSheetSecLanguages']) {
+      for (const id of SKILLC) if (has(id) !== (p.hasSkillCheck === true)) bad.push(p.label + ' ' + id + '=' + has(id));
+      for (const id of SUPPLY) if (has(id) !== (p.file === 'index.html')) bad.push(p.label + ' ' + id + '=' + has(id));
+      for (const id of ['dfSheetSecHeader', 'dfSheetSecAbilities', 'dfSheetSecLanguages',
+                        'dfSheetSecTraits', 'dfSheetSecPersona']) {
         if (!has(id)) bad.push(p.label + ' ⛔ ' + id + ' が無い');
       }
       // 「空文字で描いた」の直接検出: DOM に居る区画は必ず中身を持つ
@@ -1370,15 +1524,14 @@ const ASSERTS = [
         if (s.inDom && s.textLen < 2) bad.push(p.label + '/' + s.id + ' ⛔ DOM に居るのに中身が空 (' + s.textLen + '字)');
       }
     }
-    /* 母集団ガード: 「全ページで全部出ている」だと (2c) は何も証明しない。
-       実際に伏せられた区画が在ることを数える。 */
+    /* 母集団ガード: 期待は 伏せた区画 計 22 (0+4+6+6+6) / 全部出たページ 1 (index)。 */
     const hiddenTotal = P.reduce((n, p) => n + ((p.state && p.state.hidden) || []).length, 0);
     const allShown = P.filter(p => ((p.state && p.state.hidden) || []).length === 0).length;
-    return [bad.length === 0 && hiddenTotal >= 5 && allShown >= 1,
+    return [bad.length === 0 && hiddenTotal === 22 && allShown === 1,
       P.map(p => p.label + ':伏' + JSON.stringify(((p.state && p.state.hidden) || []).map(s => s.replace('dfSheetSec', '')))).join(' ')
       + '  伏せた区画 計 ' + hiddenTotal + ' / 全部出たページ ' + allShown
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')
-      + (hiddenTotal >= 5 && allShown >= 1 ? '' : '  ⛔ 母集団ガード: 伏せた例と全部出た例の両方が要る')];
+      + (hiddenTotal === 22 && allShown === 1 ? '' : '  ⛔ 母集団ガード: 期待は 22 / 1')];
   }],
   ['2d', '技能 12 種が描かれ、合計が SkillCheck.checkScore と一致 (載っていないページでは区画ごと伏せる)', (M) => {
     const P = M.pages || [];
@@ -1632,6 +1785,312 @@ const ASSERTS = [
         + 'DFSheet=' + r.hasDFSheet + ' btn=' + r.btn + ' ov=' + r.overlay).join('  ')
       + (bad.length ? '  ⛔ 期待 全部 false' : '')];
   }],
+
+  // ══ ★#36 §6 空欄枠 ═══════════════════════════════════════════════════
+  ['0s14', '★#36 空欄枠の宣言 (区画 1 件 / セル 10 件) が SECTION_DEFS / __state() と食い違わない', (M) => {
+    const m = M.mod;
+    if (!m || !m.has) return [false, '⛔ 母集団が無い'];
+    const secIds = m.sectionIds || [];
+    const bs = m.blankSecIds || [], bf = m.blankFieldIds || [];
+    const st = (m.state && m.state.sections) || [];
+    const notASection = bs.filter(id => secIds.indexOf(id) < 0);
+    const crossed = bs.filter(id => bf.indexOf(id) >= 0);
+    const flagged = st.filter(s => s.blank).map(s => s.id);
+    const uniq = bf.filter((x, i) => bf.indexOf(x) === i).length === bf.length;
+    const ok = bs.length === 1 && bf.length === 10 && notASection.length === 0
+      && crossed.length === 0 && uniq && sameSet(flagged, bs);
+    return [ok, '区画 ' + JSON.stringify(bs) + ' / セル ' + bf.length + ' 件 ' + JSON.stringify(bf)
+      + '  __state() が blank と言った区画 ' + JSON.stringify(flagged)
+      + (ok ? '' : '  ⛔ ' + (bs.length === 1 ? '' : '区画の件数 ')
+          + (bf.length === 10 ? '' : 'セルの件数 ')
+          + (notASection.length ? '区画 id が SECTION_DEFS に無い ' : '')
+          + (crossed.length ? '区画とセルで id が衝突 ' : '')
+          + (uniq ? '' : 'セル id が重複 ')
+          + (sameSet(flagged, bs) ? '' : '__state() の blank と宣言が食い違う'))];
+  }],
+  ['6a', '★#36 DOM の [data-blank] が宣言の中だけで、index では 10 件ちょうど', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = [];
+    for (const p of P) {
+      const decl = p.blankIdsDecl || [];
+      if (decl.length !== 10) bad.push(p.label + ' ⛔ 宣言が ' + decl.length + ' 件');
+      const ids = (p.blankDom || []).map(x => x.id);
+      const outside = ids.filter(id => decl.indexOf(id) < 0);
+      if (outside.length) bad.push(p.label + ' ⛔ 宣言に無い空欄セル: ' + outside.join(','));
+      if (ids.filter((x, i) => ids.indexOf(x) === i).length !== ids.length)
+        bad.push(p.label + ' ⛔ 同じ id の空欄セルが 2 つ以上');
+    }
+    const idx = P.find(p => p.file === 'index.html');
+    const idxN = idx ? (idx.blankDom || []).length : -1;
+    return [bad.length === 0 && idxN === 10,
+      P.map(p => p.label + ':' + (p.blankDom || []).length + '個').join(' ') + '  (index は 10 件ちょうど)'
+      + (idxN === 10 ? '' : '  ⛔ index の空欄セルが ' + idxN + ' 件')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+  ['6b', '★#36 空欄枠の区画は 実データ 0 かつ 空欄セル 1 以上 (5 ページとも)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let n = 0;
+    for (const p of P) for (const s of ((p.state && p.state.sections) || [])) {
+      if (!s.blank) continue;
+      n++;
+      if (!s.inDom) bad.push(p.label + '/' + s.id + ' ⛔ DOM に居ない');
+      if (s.dataCells !== 0) bad.push(p.label + '/' + s.id + ' ⛔ 実データのセルが ' + s.dataCells + ' 個');
+      if (!(s.blankCells >= 1)) bad.push(p.label + '/' + s.id + ' ⛔ 空欄セルが 0 個');
+    }
+    return [bad.length === 0 && n === 5, '空欄枠の区画 ' + n + ' 件 (5 ページ × 1) を検査'
+      + (n === 5 ? '' : '  ⛔ 母集団が 5 でない')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+  ['6c', '★#36 空欄枠でない区画が DOM に居るなら、必ず実データのセルを持つ', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let n = 0;
+    for (const p of P) for (const s of ((p.state && p.state.sections) || [])) {
+      if (s.blank || !s.inDom) continue;
+      n++;
+      if (!(s.dataCells >= 1)) bad.push(p.label + '/' + s.id + ' ⛔ 実データのセルが 0 個');
+    }
+    return [bad.length === 0 && n >= 25,
+      '実データを持つはずの区画 ' + n + ' 件を検査 (index 10 + tavern 6 + 他 4×3)'
+      + (n >= 25 ? '' : '  ⛔ 母集団が小さすぎる')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
+  }],
+  ['6d', '★#36 空欄セルに — / 0 / - を書いていない (「取れなかった」に見せない)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let n = 0;
+    for (const p of P) for (const b of (p.blankDom || [])) {
+      n++;
+      if (/[\u2014\u30140\-]/.test(String(b.text || ''))) bad.push(p.label + '/' + b.id + ' "' + b.text + '"');
+    }
+    return [bad.length === 0 && n >= 10, '空欄セル ' + n + ' 個の文字を検査 (5 ページ合計)'
+      + (n >= 10 ? '' : '  ⛔ 母集団が小さすぎる')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+
+  // ══ ★#36 §7 5E の体裁 ════════════════════════════════════════════════
+  ['7a', '★#36 幅 1200 / 760 / 390 で三段組が 3 / 2 / 1 列に畳まれる', (M) => {
+    const W = M.widths;
+    if (!W || (W.marks || []).length !== 3) return [false, '⛔ 幅の測定が無い'];
+    const want = { 1200: 3, 760: 2, 390: 1 };
+    const bad = W.marks.filter(k => k.gridTracks !== want[k.w] || k.open !== true);
+    return [bad.length === 0,
+      W.marks.map(k => k.w + 'px:' + k.gridTracks + '列' + (k.open ? '' : '(⛔開いていない)')).join('  ')
+      + (bad.length ? '  ⛔ 期待 1200:3 / 760:2 / 390:1' : '')];
+  }],
+  ['7b', '★#36 中身が 0 の段は DOM に置かない (index は A/B/C・他 4 枚は A/C)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const want = { 'index.html': ['A', 'B', 'C'], 'tavern.html': ['A', 'C'],
+      'town.html': ['A', 'C'], 'world.html': ['A', 'C'], 'title.html': ['A', 'C'] };
+    const bad = P.filter(p => !deepEq(p.colsInDom || [], want[p.file]));
+    return [bad.length === 0,
+      P.map(p => p.label + ':' + JSON.stringify(p.colsInDom || [])).join(' ')
+      + (bad.length ? '  ⛔ B 段 (供給口の 4 区画) は index にしか中身が無い' : '')];
+  }],
+  ['7c', '★#36 6 つの能力値ボックスが縦 1 列に積まれている (left 同一 / top 単調増加)', (M) => {
+    const p = (M.pages || []).find(x => x.file === 'index.html');
+    if (!p) return [false, '⛔ index の測定が無い'];
+    const r = p.abilRects || [];
+    if (r.length !== 6) return [false, '⛔ 能力値ボックスが ' + r.length + ' 個 (期待 6)'];
+    const sameLeft = r.every(x => Math.abs(x.left - r[0].left) <= 0.5);
+    let mono = true;
+    for (let i = 1; i < r.length; i++) if (!(r[i].top > r[i - 1].top + 8)) mono = false;
+    return [sameLeft && mono,
+      'left=' + r.map(x => x.left).join('/') + '  top=' + r.map(x => x.top).join('/')
+      + (sameLeft && mono ? '' : '  ⛔ ' + (sameLeft ? '' : 'left が揃っていない ') + (mono ? '' : 'top が単調増加でない'))];
+  }],
+  ['7d', '★#36 3 幅とも紙が横スクロールしない (scrollWidth <= clientWidth + 1)', (M) => {
+    const W = M.widths;
+    if (!W || (W.marks || []).length !== 3) return [false, '⛔ 幅の測定が無い'];
+    const bad = W.marks.filter(k => !(k.paper && k.paper.scrollW <= k.paper.clientW + 1));
+    return [bad.length === 0,
+      W.marks.map(k => k.w + 'px:' + (k.paper ? k.paper.scrollW + '/' + k.paper.clientW : '⛔無')).join('  ')
+      + (bad.length ? '  ⛔ 紙がはみ出している' : '')];
+  }],
+  ['7e', '★#36 390px 幅で紙の実効文字高が 11px 以上 (縮小がかかると読めなくなる)', (M) => {
+    const W = M.widths;
+    const k = W && (W.marks || []).find(x => x.w === 390);
+    if (!k || !k.paper) return [false, '⛔ 390px の測定が無い'];
+    const mn = k.paper.minFont;
+    const ok = typeof mn === 'number' && mn >= 11;
+    return [ok, '最小の実効文字高 ' + mn + 'px (祖先の transform scale 込み)'
+      + (ok ? '' : '  ⛔ 11px 未満')];
+  }],
+
+  // ══ ★#36 §8 数字の出所 ═══════════════════════════════════════════════
+  ['8a', '★#36 ?sheet5e=0 で 5 ページとも #29 の 5 区画へ戻る (段組も空欄枠も出ない)', (M) => {
+    const R = M.retreat5e || [];
+    if (R.length !== 5) return [false, '⛔ 母集団が 5 でない (' + R.length + ')'];
+    const want = { 'index.html': [], 'tavern.html': ['dfSheetSecBody'],
+      'town.html': ['dfSheetSecSkills', 'dfSheetSecBody'],
+      'world.html': ['dfSheetSecSkills', 'dfSheetSecBody'],
+      'title.html': ['dfSheetSecSkills', 'dfSheetSecBody'] };
+    const bad = [];
+    for (const p of R) {
+      const st = p.state;
+      if (!st) { bad.push(p.label + ' ⛔ __state() が無い'); continue; }
+      if (p.sheet5e !== false) bad.push(p.label + ' ⛔ SHEET5E=' + p.sheet5e);
+      if ((st.sectionIds || []).length !== 5) bad.push(p.label + ' ⛔ 区画 ' + (st.sectionIds || []).length + ' 件');
+      if (!sameSet(st.hidden || [], want[p.file])) bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden));
+      if ((p.colsInDom || []).length !== 0) bad.push(p.label + ' ⛔ 三段組の器が残っている');
+      if ((p.blankDom || []).length !== 0) bad.push(p.label + ' ⛔ 空欄枠が残っている');
+      if ((p.bodyTextLen || 0) < 20) bad.push(p.label + ' ⛔ 中身が空 (' + p.bodyTextLen + '字)');
+    }
+    return [bad.length === 0,
+      R.map(p => p.label + ':' + ((p.state && p.state.sectionIds) || []).length + '区画/伏'
+        + JSON.stringify((((p.state && p.state.hidden) || [])).map(s => s.replace('dfSheetSec', '')))).join(' ')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+  ['8b', '★#36 セーヴ 5 行が供給口の saves + saveBonus と一致し、5e 修正値とは割れている', (M) => {
+    const p = M.numHead;
+    if (!p || !p.body || !p.body.saves) return [false, '⛔ 供給口の saves が無い'];
+    if (p.heroIsHead !== true) return [false, '⛔ 母集団: 頭が主人公でない (heroIsHead=' + p.heroIsHead + ')'];
+    const bad = []; let diverge = 0;
+    const dom = p.saveDom || [];
+    if (dom.length !== 5) bad.push('⛔ セーヴ行が ' + dom.length + ' 本 (期待 5)');
+    if (dom.some(r => r.key === 'cha')) bad.push('⛔ 魅力の行が在る (playerStats に cha は無い)');
+    for (const k of ['str', 'dex', 'con', 'int', 'wis']) {
+      const got = dom.find(r => r.key === k);
+      const w = p.body.saves[k] + p.body.saveBonus;
+      if (!got) { bad.push(k + ' ⛔ 行が無い'); continue; }
+      if (got.mod !== w) bad.push(k + ' DOM ' + got.mod + '≠' + w);
+      const e = (p.abilExpect || []).find(a => a.key === k);
+      if (e && w !== e.mod) diverge++;
+    }
+    return [bad.length === 0 && diverge >= 1,
+      '供給口 ' + JSON.stringify(p.body.saves) + ' 装備' + p.body.saveBonus
+      + '  DOM ' + dom.map(r => r.key + (r.mod >= 0 ? '+' : '') + r.mod).join(' ')
+      + '  5e 修正値と割れるマス ' + diverge + ' 個'
+      + (diverge >= 1 ? '' : '  ⛔ 母集団ガード: 割れていないと 5e から出しても気づけない')
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+  }],
+  ['8c', '★#36 頭が NPC の編成でも、紙は主人公 (heroRef) の数字を出す', (M) => {
+    const p = M.numAlly;
+    if (!p || !p.body) return [false, '⛔ 測定が無い'];
+    if (p.heroIsHead !== false) return [false, '⛔ 母集団: 頭が NPC になっていない (heroIsHead=' + p.heroIsHead + ')'];
+    const h = p.heroAlly;
+    if (!h) return [false, '⛔ 母集団: allies の中に主人公が居ない'];
+    const divergent = (typeof p.headAc === 'number' && h.ac !== p.headAc)
+      || (typeof p.headAtk === 'number' && h.atkBonus !== p.headAtk);
+    const bad = [];
+    const sd = p.saveDom || [];
+    for (const k of ['str', 'dex', 'con', 'int', 'wis']) {
+      const got = sd.find(r => r.key === k);
+      const w = (h[k] | 0) + p.body.saveBonus;
+      if (!got) { bad.push('セーヴ ' + k + ' ⛔ 行が無い'); continue; }
+      if (got.mod !== w) bad.push('セーヴ ' + k + ' ' + got.mod + '≠' + w + ' (主人公の値)');
+    }
+    const S = p.statDom || {};
+    const eq = (key, w) => { if (!S[key] || S[key].v !== String(w)) bad.push(key + ' ' + (S[key] ? S[key].v : '無') + '≠' + w); };
+    eq('ac', h.ac);
+    eq('initiative', (h.dex >= 0 ? '+' : '') + h.dex);
+    eq('atkBonus', (h.atkBonus >= 0 ? '+' : '') + h.atkBonus);
+    if (h.weaponName) eq('weapon', h.weaponName);
+    return [bad.length === 0 && divergent,
+      '主人公=' + h.classKey + ' (ac' + h.ac + ' atk' + h.atkBonus + ' ' + h.weaponName + ')'
+      + '  頭=ac' + p.headAc + ' atk' + p.headAtk
+      + (divergent ? '' : '  ⛔ 母集団ガード: 頭と主人公の数字が割れていない = 頭の値を出しても気づけない')
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+  ['8d', '★#36 先制が供給口の initiative (= u.dex 系統) と一致し、5e 修正値とは別物', (M) => {
+    const arms = [M.numHead, M.numAlly].filter(Boolean);
+    if (arms.length !== 2) return [false, '⛔ 母集団が 2 でない'];
+    const bad = []; let diverge = 0;
+    for (const p of arms) {
+      if (!p.body || typeof p.body.initiative !== 'number') { bad.push(p.label + ' ⛔ 供給口の initiative が無い'); continue; }
+      const S = p.statDom || {};
+      const w = (p.body.initiative >= 0 ? '+' : '') + p.body.initiative;
+      if (!S.initiative || S.initiative.v !== w) bad.push(p.label + ' DOM ' + (S.initiative ? S.initiative.v : '無') + '≠' + w);
+      const e = (p.abilExpect || []).find(a => a.key === 'dex');
+      if (e && p.body.initiative !== e.mod) diverge++;
+    }
+    return [bad.length === 0 && diverge >= 1,
+      arms.map(p => p.label + ':' + (p.body ? (p.body.initiative >= 0 ? '+' : '') + p.body.initiative : '⛔')).join('  ')
+      + '  DFAbilities の DEX 修正値と割れた腕 ' + diverge + ' 本'
+      + (diverge >= 1 ? '' : '  ⛔ 母集団ガード: 割れていないと 5e から出しても気づけない')
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+  }],
+  ['8e', '★#36 攻撃欄の武器名 / 命中 / ダメージが供給口と一致する (2 経路)', (M) => {
+    const arms = [M.numHead, M.numAlly].filter(Boolean);
+    if (arms.length !== 2) return [false, '⛔ 母集団が 2 でない'];
+    const bad = []; const names = [];
+    for (const p of arms) {
+      const S = p.statDom || {}, b = p.body || {};
+      if (!b.weaponName) { bad.push(p.label + ' ⛔ 供給口の weaponName が無い'); continue; }
+      names.push(b.weaponName);
+      if (!S.weapon || S.weapon.v !== b.weaponName) bad.push(p.label + ' 武器 ' + (S.weapon ? S.weapon.v : '無') + '≠' + b.weaponName);
+      const w = (b.atkBonus >= 0 ? '+' : '') + b.atkBonus;
+      if (!S.atkBonus || S.atkBonus.v !== w) bad.push(p.label + ' 命中 ' + (S.atkBonus ? S.atkBonus.v : '無') + '≠' + w);
+      if (!S.damage || !S.damage.v || S.damage.v.indexOf(b.dmgDice) < 0)
+        bad.push(p.label + ' ダメージ ' + (S.damage ? S.damage.v : '無') + ' に ' + b.dmgDice + ' が無い');
+    }
+    const distinct = names.length === 2 && names[0] !== names[1];
+    return [bad.length === 0 && distinct,
+      arms.map((p, i) => p.label + ':' + names[i]).join('  ')
+      + (distinct ? '' : '  ⛔ 母集団ガード: 2 本の腕で武器が同じだと固定文字列でも通る')
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+  }],
+  ['8f', '★#36 受動知覚 = 10 + SkillCheck.checkScore(知覚) / 習熟ボーナスも 2 経路 (index / tavern)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let withSC = 0, withoutSC = 0;
+    for (const p of P) {
+      const S = p.statDom || {};
+      if (p.hasSkillCheck) {
+        withSC++;
+        if (typeof p.passiveExpect !== 'number') { bad.push(p.label + ' ⛔ 期待値が採れない'); continue; }
+        if (!S.passivePerception || S.passivePerception.v !== String(p.passiveExpect))
+          bad.push(p.label + ' 受動知覚 ' + (S.passivePerception ? S.passivePerception.v : '無') + '≠' + p.passiveExpect);
+        const pb = (p.profBonusExpect >= 0 ? '+' : '') + p.profBonusExpect;
+        if (!S.profBonus || S.profBonus.v !== pb)
+          bad.push(p.label + ' 習熟 ' + (S.profBonus ? S.profBonus.v : '無') + '≠' + pb);
+      } else {
+        withoutSC++;
+        if (S.passivePerception) bad.push(p.label + ' ⛔ SkillCheck が無いのに受動知覚が出ている');
+        if (S.profBonus) bad.push(p.label + ' ⛔ SkillCheck が無いのに習熟ボーナスが出ている');
+      }
+    }
+    return [bad.length === 0 && withSC === 2 && withoutSC === 3,
+      P.filter(p => p.hasSkillCheck).map(p => p.label + ':受動知覚 '
+        + (((p.statDom || {}).passivePerception || {}).v) + ' (期待 ' + p.passiveExpect + ')').join('  ')
+      + '  SkillCheck 無し ' + withoutSC + ' 枚は習熟の区画ごと伏せる'
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
+  }],
+
+  // ══ ★#36 §9 恒等 (撤退路) ════════════════════════════════════════════
+  ['9a', '★#36 ?sheet5e=0 の 5 ページで pageerror ゼロ', (M) => {
+    const R = M.retreat5e || [];
+    if (R.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = R.filter(p => (p.errs || []).length || p.status !== 200);
+    return [bad.length === 0,
+      '測ったページロード ' + R.length + ' 回  pageerror ' + R.reduce((n, p) => n + (p.errs || []).length, 0) + ' 件'
+      + (bad.length ? '  ⛔ ' + bad.map(p => p.label + ':' + ((p.errs || [])[0] || p.status)).join(' / ') : '')];
+  }],
+  ['9b', '★#36 ?sheet5e=0 でもシートの開閉で localStorage のキーが 0 本増えない', (M) => {
+    const R = M.retreat5e || [];
+    if (R.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = R.filter(p => !deepEq(p.lsBefore || [], p.lsAfter || []));
+    return [bad.length === 0,
+      R.map(p => p.label + ':' + (p.lsBefore || []).length + '→' + (p.lsAfter || []).length + '本').join(' ')
+      + (bad.length ? '  ⛔ 増減した: ' + bad.map(p => p.label).join(',') : '')];
+  }],
+  ['9c', '★#36 ?sheet5e=0 でも既存 HUD の矩形が 1px も動かない', (M) => {
+    const R = M.retreat5e || [];
+    if (R.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    const bad = []; let n = 0;
+    for (const p of R) for (const id of HUD_IDS) {
+      if (!p.hudBefore || !p.hudBefore[id]) continue;
+      n++;
+      if (!deepEq(p.hudBefore[id], (p.hudOpen || {})[id]) || !deepEq(p.hudBefore[id], (p.hudClosed || {})[id]))
+        bad.push(p.label + '/' + id);
+    }
+    return [bad.length === 0 && n >= 3, '測った HUD ' + n + ' 件 — 開く前 / 開いている間 / 閉じた後 の 3 点比較'
+      + (n >= 3 ? '' : '  ⛔ 母集団が小さすぎる')
+      + (bad.length ? '  ⛔ 動いた: ' + bad.join(',') : '')];
+  }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1649,29 +2108,11 @@ const HTML_YET = '(未使用) 実ページへの <script src> は項目 2 で完
 /* ⚠⚠⚠ #36 項目 1: 区画は 11 になったが **描くのは項目 2 の担当**。
    よって「11 区画が実ページに出る」ことを前提にする節は 1 つも測れない。
    ⛔ 測れないものを緑にしない。項目 3 が全部埋めて PENDING 0 にする。 */
-const P36_YET = '#36 項目 2 (描画 + 供給口の拡張) 待ち。11 区画がまだ実ページに出ないので母集団が作れない';
-const PENDING_OF = {
-  '0s14': ['★#36 BLANK_SECTION_IDS 1 件 / BLANK_FIELD_IDS 10 件が、実際に描かれた data-blank と食い違わない', P36_YET],
-  '2c':   ['取れない区画は行ごと消え、宣言済みの空欄枠だけが例外 (inDom === avail || blank)', P36_YET],
-  '6a':   ['★#36 DOM の [data-blank] の id 集合 ⊆ BLANK_FIELD_IDS (index では 10 件ちょうど)', P36_YET],
-  '6b':   ['★#36 BLANK_SECTION_IDS の区画は dataCells 0 かつ blankCells 1 以上', P36_YET],
-  '6c':   ['★#36 BLANK_SECTION_IDS 以外で DOM に居る区画は必ず dataCells 1 以上', P36_YET],
-  '6d':   ['★#36 空欄セルのテキストが — / 0 / - を含まない (伏せたように見せない)', P36_YET],
-  '7a':   ['★#36 幅 1200/760/390 で .dfSheetCols が 3/2/1 列になる', P36_YET],
-  '7b':   ['★#36 中身が 0 の段は DOM に存在しない (title で B 段 0 件 / index で 1 件)', P36_YET],
-  '7c':   ['★#36 6 つの能力値ボックスが縦 1 列に積まれている (left 同一 / top 単調増加)', P36_YET],
-  '7d':   ['★#36 3 幅とも紙が横スクロールしない (scrollWidth <= clientWidth + 1)', P36_YET],
-  '7e':   ['★#36 390px 幅で紙の実効文字高が 11px 以上', P36_YET],
-  '8a':   ['★#36 ?sheet5e=0 の 5 ページで __state() が #29 の 5 区画へ戻る', P36_YET],
-  '8b':   ['★#36 セーヴ 5 行が供給口の saves + saveBonus と一致し、5e 修正値とは割れている', P36_YET],
-  '8c':   ['★#36 頭が NPC の編成で、セーヴ/AC/先制/攻撃が heroRef 側の値 (頭の値ではない)', P36_YET],
-  '8d':   ['★#36 先制の表示値が供給口の initiative (= u.dex 系統) と一致する', P36_YET],
-  '8e':   ['★#36 攻撃欄の武器名が供給口の weaponName と一致する (2 経路)', P36_YET],
-  '8f':   ['★#36 受動知覚 = 10 + SkillCheck.checkScore(perception) (index / tavern)', P36_YET],
-  '9a':   ['★#36 ?sheet5e=0 の 5 ページで pageerror ゼロ', P36_YET],
-  '9b':   ['★#36 ?sheet5e=0 でもシートの開閉で localStorage のキーが 0 本増えない', P36_YET],
-  '9c':   ['★#36 ?sheet5e=0 でも既存 HUD の矩形が 1px も動かない', P36_YET],
-};
+/* ⭐ #36 項目 3 で §6〜§9 の 20 件をすべて実装した。受入条件側の PENDING は 0 件。
+   残る PENDING は `--negative` の変異だけ (= 項目 4 の担当)。
+   ⛔ この器を消さないこと。「測れないものは緑にしない」経路そのものなので、
+      次のチケットが同じ形で使えるように空でも残す。 */
+const PENDING_OF = {};
 
 const SECTIONS = [
   ['§0 装置 — 共有モジュール単体の契約 (項目 1 で測れる分)',
@@ -1752,6 +2193,24 @@ function emit(id, M) {
     m.retreat = [];
     if (!want || want.retreat) {
       for (const spec of PAGE_MATRIX) m.retreat.push(await probeRetreatPage(browser, base, spec));
+    }
+
+    /* ── ★#36 §7〜§9 ────────────────────────────────────────────────
+     *  retreat5e … ?sheet5e=0 の 5 枚。⭐ 撤退路は「付ければ #29 の姿へ戻る」まで機械証明する。
+     *  widths    … index を 1 ロードして 3 幅ぶん測る。
+     *  numHead / numAlly … 頭が主人公 (warrior) / 頭が NPC (主人公 mage) の 2 本の腕。
+     *    ⚠ 編成を決めているのは **sessionStorage** なので、そちらにも種を撒く。 */
+    m.retreat5e = [];
+    if (!want || want.retreat5e) {
+      for (const spec of PAGE_MATRIX) m.retreat5e.push(await probeRealPage(browser, base, spec, '?sheet5e=0', PO));
+    }
+    m.widths = (!want || want.widths) ? await probeWidths(browser, base, 'index.html') : null;
+    m.numHead = null; m.numAlly = null;
+    if (!want || want.numbers) {
+      m.numHead = await probeRealPage(browser, base, PAGE_MATRIX[0], '', Object.assign({}, PO, heroSeed('warrior')));
+      if (m.numHead) m.numHead.label = 'index(頭=主人公 warrior)';
+      m.numAlly = await probeRealPage(browser, base, PAGE_MATRIX[0], '', Object.assign({}, PO, heroSeed('mage')));
+      if (m.numAlly) m.numAlly.label = 'index(頭=NPC / 主人公 mage)';
     }
 
     /* ── §3 言語: title.html の名乗りフロー (項目 3) ────────────────────
