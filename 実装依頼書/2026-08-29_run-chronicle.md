@@ -1,11 +1,11 @@
 # #37 戦いの記録 — 帰還後レポート(冒険の年代記)
 
-- **起草**: 2026-08-29(計画窓) / **ステータス**: **承認済**(2026-08-29 ユーザー承認)
-- **着手**: ⏸ **保留 — 隣窓の #36 が `index.html` / `tavern.html` に未コミット差分を持っているため**
-  (2026-08-29 ユーザー判断: 「隣の実装窓が完了した状態を待って、そのあと実装に進んでください」)。
-  ⚠ **再開の最初の 1 手は `git status` で `index.html` / `tavern.html` が clean かを見ること。**
-  clean かつ #36 のコミットが出ていれば着手可。まだなら待つ。
-  ⚠ **着手前に §2 の測定をもう一度回して行番号を取り直す**(#36 が index.html に +31 行入れている)。
+- **起草**: 2026-08-29(計画窓) / **ステータス**: ✅ **完了**(2026-08-29 / dev-loop 4 項目・停止 0 回)
+  — 実装結果は **§13**。⛔ **push は未実施**(ユーザー承認事項)。
+- **着手**: ✅ 済(#36 の着地 `1d3dbd2` を待って開始)。
+  当初は ⏸ 保留だった(2026-08-29 ユーザー判断:
+  「隣の実装窓が完了した状態を待って、そのあと実装に進んでください」)。
+  ⚠ **着手時に §2 の測定をやり直して行番号を取り直した** → 訂正表は **§2-0**。
 - **出所**: 開発会議 `dev-meetings/2026-08-29_次の方向性.md`(第1段 候補① → 第2段 開発計画書)
 - **測定の基準コミット**: `a51dad3`。⚠ **本書の行番号はすべて `git show HEAD:<file>` で測った値**
 - **触るファイル**: `index.html` / `tavern.html` / `tools/verify_run_chronicle.js`(新規)
@@ -505,8 +505,16 @@ function damagePlayer(enemy, enemyIndex) {
 ⛔ 前置詞 `dragonfighters.` を変えない(§2-6)。⛔ `KEEP` に載せない(スロットごとに分かれるべき)。
 
 酒場から開き直す導線を 1 つ置く(場所は実装窓の判断でよい)。
-⚠ **`#townHud` に 5 本目の `<button>` を足さないこと** — `verify_town_map` の (11b) が
-`#townHud button` を数えている(#29 の実測)。
+
+⚠ 【実装窓が訂正】**「`#townHud` に 5 本目の `<button>` を足すな」は `tavern.html` には無関係。**
+`#townHud` は **`town.html` にしかなく**、`tavern.html` での出現は **0 件**(実測)。
+`verify_town_map` (11b) は `town.html` を測っているので、本件が `town.html` を触らない限り
+この制約は**自動的に満たされる**。
+→ ⭐ **実装した置き場所** = 酒場左上の `#townExit` の**真下**(`#chronicleShelf`)。
+右下(`#shopEntry` + ⚙)/ 左下(`#questBoard`)/ 右上(`#changelogBox`)は既に埋まっており、
+重ねると `elementFromPoint` がそちらを返す。**隙間 11px** で、`#chronicleShelf` と `#townExit`
+**両方の中心の `elementFromPoint` が自分自身**であることを **(6b3)** が機械化している
+(⚠ 矩形の比較では見えない欠陥 — #12 の実測)。
 
 **サイズを実測して §13 へ書き戻すこと**(基準: #5 の実測で 3 スロット満杯 78,326 B = 5MB の 1.49%)。
 
@@ -542,6 +550,12 @@ function damagePlayer(enemy, enemyIndex) {
 ### §1 年代記(死と撃破)
 
 - **(1a)** 仲間が倒れた回数 = 年代記の `fall` イベント数(**盤面の `alive` を直接数えた値と突き合わせ**)
+  ⚠⚠⚠ 【実装窓が訂正・検出力の追加】**倒れた直後に数えると N3(罠 B)を捕まえられない。**
+  4 人倒した時点では年代記がまだ溢れていないので、18 行 + 素の `shift` でも `fall` が生き残り
+  **空振りする**。→ 倒したあとに**本番の記録口** `RunChronicle.kill` を **80 回**叩いて
+  **わざと溢れさせてから**数える。母集団は新設 **(1z5)**「押し込んだ件数より総イベント数が
+  少ない = 上限で捨てが起きた」で縛る(実測: 4 + 80 → **40**)。
+  ⭐ これが罠 B の本体「**序盤が消える**」を機械で再現する唯一の形。
 - **(1b)** 年代記の各 `fall` 行に**場所(部屋名)と名前**が入っている(ガイウス要求)
 - **(1c)** 檻の解放(24221)と一括消去(33909)が**撃破数に混ざっていない**
 - **(1d)** 探索中の罠で頭が死ぬ経路(§4-3 の既知の穴)でも年代記が保存される。
@@ -564,14 +578,26 @@ function damagePlayer(enemy, enemyIndex) {
 - **(4a)** `showReturnBanner` が**従来どおり存在し、5.5 秒で消える**
 - **(4b)** `lastResult` の既存キー(`scenarioId` / `scenarioTitle` / `cleared` / `defeated` / `reward`)が
   **1 つも欠けていない**
-- **(4c)** `world.html` の配信バイトに `enterVia|lastResult` が **0 回**(§2-9 の golden を自分でも守る)
+- **(4c)** ⚠⚠ 【実装窓が訂正】**「`world.html` の配信バイトに `enterVia|lastResult` が 0 回」は誤り。**
+  実測(2026-08-29 / `d5484ff`)= **その語を含む行が 8 行 / 出現 14 回**(全部コメント)。
+  既存 golden `verify_quest_walk (1b)` の**実際の述語**は
+  「その語を含む行が `Storage` と同居しない(実測 **0 行**)∧
+  `(session|local)Storage.(get|set|remove)Item("…enterVia|lastResult")` が **0 件**」
+  = **getItem すらしていない**。⛔ 期待値を緩めるのではなく **golden と同じ述語**を使うこと。
+  さらに **(4z2) で「その語を含む行が 1 行以上ある」を母集団として先に縛る**(0 行だと述語が
+  空回りして永久緑になる)。
 - **(4d)** `#combatLog` の `COMBAT_LOG_MAX` が **18 のまま**
 
 ### §5 iOS / 手触り
 
 - **(5a)** レポートに**明示的な閉じるボタンがあり、タップ領域が 44px 以上**
 - **(5b)** 閉じるボタンと背景の**両方**に `click` と `touchend` が配線されている
-- **(5c)** `body.ui-compact` で年代記が 10 行を超えてもスクロールできる
+- **(5c)** ⚠ 【実装窓が訂正】**`body.ui-compact` は `tavern.html` には付かない。**
+  `ui-compact` を付けるのは `index.html` だけ(6394 行)。酒場の狭幅クラスの**実体は
+  `body.compact`**(`tavern.html:8027` の `layout()`)。420x860 の実測で
+  `bodyClass = "tavernMapOn compact"`。→ **`body.compact` で**年代記が 10 行を超えても
+  スクロールできること(器ではなく `#chronicleBody` が縦スクロールを持つ)。
+  ⚠ `ui-compact` で測ると「狭幅になっていないのに緑」になる。
 
 ### §6 撤退
 
@@ -586,34 +612,58 @@ function damagePlayer(enemy, enemyIndex) {
 
 ### 負のコントロール(`--negative` で道具に内蔵。赤くならなければ exit 1)
 
-| 変異 | 注入する欠陥 | 赤くなるべき節 |
+⚠⚠⚠ 【実装窓が訂正】**「赤くなるべき節」の列は起草時の机上の想定で、2 件が崩れた**
+(N3 / N6)。下表は **`--only N<i>` で 1 本ずつ実際に走らせて確定させた実測値**。
+巻き添えで赤くなった節は**列挙しない**(巻き添えを担当表へ書くと、その節の母集団が
+消えただけの「偽の赤」で空振りを隠してしまう)。
+
+| 変異 | 注入する欠陥(配信バイトへの実行時注入) | 赤くなる節(実測) |
 |---|---|---|
-| **N1** `noturnwrap` | 手番ラップ(§5-1)を外す | (2a) |
-| **N2** `nofall` | 仲間の死の 4 点を記録しない | (1a) |
-| **N3** `ringbuffer` | ⭐ **罠 B の再現** — 年代記の源を `combatLogLines`(18 行)にする | (0a)(1a) |
-| **N4** `sessiononly` | 記録棚を `sessionStorage` に置く | (3a)(3c) |
-| **N5** `noclose` | 閉じるボタンを外し背景タップだけにする | (5a)(5b) |
-| **N6** `wipeleak` | ⭐ **罠 §2-6 の再現** — キーを `df_chronicles`(前置詞違い)にする | (3b) |
-| **N7** `outofturn` | 手番外 6 点のラップを外す | (2b) |
-| **N8** `healasdmg` | 回復をダメージとして計上する | (2c) |
+| **N1** `noturnwrap` | 手番ラップ(§5-1)= `const __chSnap = RunChronicle.beginTurn(actor);`(**1 箇所**)を殺す | **(2a)** |
+| **N2** `nofall` | 仲間の死の 4 点(`RunChronicle.fall(…) // 仲間の死 n/4`)を記録しない。⚠ 頭の死は消さない | **(1a)** |
+| **N3** `ringbuffer` | ⭐ **罠 B の再現** — `EVENT_MAX` を 40 → **18**、かつ「倒れた行を守る `splice`」を素の `shift` へ戻す | **(1a) のみ** |
+| **N4** `sessiononly` | 記録棚の読み書き 2 点を `sessionStorage` に置く | **(3a)(3c)** |
+| **N5** `noclose` | `<button id="chronicleClose">` を DOM ごと外し背景タップだけにする | **(5a)(5b)** |
+| **N6** `wipeleak` | ⭐ **罠 §2-6 の再現** — キーを `df_chronicles`(前置詞違い)にする | **(3a)(3b)** |
+| **N7** `outofturn` | 手番外 6 点の `const __chOut = RunChronicle.beginTurn(…)`(**6 箇所**)を殺す | **(2b)** |
+| **N8** `healasdmg` | 回復をダメージとして計上する(`const dmg = -delta;` → `Math.abs(delta)`) | **(2c)** |
 
 ⭐ **N3 と N6 が §2 の罠を機械で守る本体。** この 2 本が赤くならなければ実装は受け入れない。
-⚠ **#34 の罠**: 変異を全部同時に注入すると互いを覆い隠す。**1 本ずつ注入して測る**。
+⚠ **#34 の罠**: 変異を全部同時に注入すると互いを覆い隠す。**1 本ずつ注入して測る**
+(素の `--negative` は自分自身を**子プロセスで 1 タグずつ**呼び直す。#35 と同じ形)。
+
+**崩れた 2 件**:
+
+1. ⚠⚠ **N3 の「(0a) も赤くなる」は成立しない。** 18 行のリングバッファでも 1 件以上は
+   積まれるので **(0a) は緑のまま**(実測 `events=3`)。赤くなるのは **(1a) だけ**。
+   さらに **(1a) は測り方を強くしないと N3 に対して空振りする**(上の (1a) の訂正を参照)。
+2. ⚠⚠ **N6 は (3b) だけでなく (3a) も赤くなる。**(3a) は「使っているキーが
+   `dragonfighters.chronicles` であること」を直接見ているため。
+
+⛔⛔ **負のコントロールの基準に `git show HEAD:<path>` を使わないこと。**
+コミットした瞬間 `HEAD === 作業ツリー`になり、測る節が全滅する(#35 の実測)。
+本装置は **起動時に凍結した配信バイトへ実行時に文字列注入する**方式で、
+**本番ファイルは 1 バイトも書き換えない**。
+⭐ 副産物として、凍結は素の run でも効く = **別窓が同じリポを触っても、この run が読むのは 1 枚**。
 
 ### 既存 golden の非退行(実装後に必ず走らせる)
 
-| ドライバ | 期待 |
-|---|---|
-| `tools/verify_player_sheet.js` | 42/42 ⚠ **#36 で動く** |
-| `tools/verify_ability_scores.js` | 24/24 |
-| `tools/verify_title_screen.js` | 86/86 |
-| `tools/verify_town_map.js` | 85/85 |
-| `tools/verify_world_map.js` | 57/57 |
-| `tools/verify_tavern_map.js` | 43/43 ⚠ **#35 で動く可能性** |
-| `tools/driver_action_priority.js` | 92/92 |
-| `tools/verify_save_slots.js` | 30/30 |
-| `tools/verify_quest_walk.js` | 25/25 |
-| `tools/verify_town_exit.js` | (着手時に実測して記録する) |
+| ドライバ | 期待 | **実測(2026-08-29 / 項目4 完了時)** |
+|---|---|---|
+| `tools/verify_player_sheet.js` | 42/42 ⚠ **#36 で動く** | **70/70**(#36 で 42 → 70 へ増えた) |
+| `tools/verify_ability_scores.js` | 24/24 | **24/24** |
+| `tools/verify_title_screen.js` | 86/86 | **86/86** |
+| `tools/verify_town_map.js` | 85/85 | **85/85** |
+| `tools/verify_world_map.js` | 57/57 | **57/57** |
+| `tools/verify_tavern_map.js` | 43/43 ⚠ **#35 で動く可能性** | **43/43**(据置) |
+| `tools/driver_action_priority.js` | 92/92 | **92/92** |
+| `tools/verify_save_slots.js` | 30/30 | **30/30**(⚠ (8) の total = **78,326 B のまま**) |
+| `tools/verify_quest_walk.js` | 25/25 | **25/25** |
+| `tools/verify_town_exit.js` | (着手時に実測して記録する) | **23/23 PENDING 0**(← 本チケットで初計測) |
+| `tools/verify_party_match_setup.js` | (#35 の新規) | **36/36 PENDING 0** |
+| `tools/verify_recruit_size.js` | (#35 が突破手順を付け替え) | **82/82** |
+| `tools/driver_party_view_reopen.js` | 〃 | **35/35** |
+| `tools/driver_depart_menu_clean.js` | 〃 | **41/41** |
 
 ⚠ **基準値は 2026-08-29 時点の記録**(出所 = `実装依頼書/README.md` の #36 行)。
 **#35 / #36 の着地後に取り直すこと。** 走らせて違ったら、期待値を書き換える前に理由を突き止める。
@@ -659,7 +709,9 @@ py tools/add_changelog.py "<b>過去の冒険を読み返せる</b> — 直近 5
 - ⛔ **`Object.defineProperty` によるアクセサ方式**(§2-2 で不採用)
 - ⛔ **`world.html` / `town.html` / `title.html` を触ること**
 - ⛔ **候補② 傭兵名簿 / ③ 冒険の賭け金 / ④ 灯りと闇**(本件の完了後に順次)
-- ⛔ **`実装依頼書/README.md` への行追加**(#36 の着地後)。用意してある行:
+- ✅ **`実装依頼書/README.md` への行追加は 項目4 で実施済**(#36 `1d3dbd2` の着地を確認してから)。
+  ⚠ 実際に載せた行は下の下書きではなく、**§13 の実測(装置 73/73・`--negative` 8 本 空振り 0・
+  既存 golden 14 本 非退行・崩れた主張 9 件)を反映した完了版**。以下は起草時の下書き(履歴として残す):
 
 ```
 | 37 | [2026-08-29_run-chronicle.md](2026-08-29_run-chronicle.md) | **承認済** | 0% | 帰還後レポート「冒険の年代記」。⛔ **#36 の後**(index/tavern を共有)。⚠⚠⚠ **HP を引く点は 14 でなく 43 箇所 / 37 関数**(第二の書き方 `hp = Math.max(0, X.hp - dmg)` が 29 箇所)→ 個別フックは採らず **手番ディスパッチ `for (const actor of units)` (19871) の 1 点ラップ + 手番外 6 点**で覆う。⛔ **アクセサ方式は不採用**(`.hp` の読みが高頻度)。⚠⚠⚠ **`combatLogLines` は `COMBAT_LOG_MAX = 18` のリングバッファ**で年代記の源にできない。⭐⭐⭐ **`keysOf()` は `dragonfighters.` の前置詞総なめ**なので新キーはスロット振り分けも新規ゲームでの消去もタダで付く(前置詞を変えると壊れる)。⭐ 死の集約点は **6 点**(`defeatEnemy` 1 / `onHeadDowned` 1 / `ally.alive=false` 4)。⚠ 24221・33909 の `alive=false` は**撃破ではない**ので刺さない。⚠ z-index は **170**(shop 160 の上・prologue 200 / partyMatch 210 / sheet 220 の下)。⛔ **`world.html` を 1 バイトも触らない**(`verify_quest_walk` 1118 が `enterVia|lastResult` の 0 件を機械化)。撤退 = `?chronicle=0` |
@@ -669,4 +721,108 @@ py tools/add_changelog.py "<b>過去の冒険を読み返せる</b> — 直近 5
 
 ## 13. 実装結果
 
-(実装窓が埋める)
+**着地 = 2026-08-29。dev-loop 4 項目で完走(停止 0 回)。** ⛔ push はユーザー承認事項なので未実施。
+
+### 13-1. コミット
+
+| 項目 | commit | 何を実装したか |
+|---|---|---|
+| 項目1 | `b069a4a` | 記録係 `RunChronicle` と年代記(自前配列 / `EVENT_MAX = 40`)/ **死の 6 点**(`defeatEnemy` 1・`onHeadDowned` 1・仲間の `alive=false` 4)/ `showResult` からの `lastResult.chronicle` 書き出し / 酒場の `#chronicleOverlay`(z:170)と帰還後レポート |
+| 項目2 | `f8bb159` | **手番ラップ 1 点**(`for (const actor of units)`)+ **手番外 6 点**で与ダメ・被ダメ・回復・撃破を集計 / 隊列表(墨の棒グラフ)/ 装置の §2 を PASS へ |
+| 項目3 | `b2d638a` + `6aabbf3` + `d5484ff` | 空振り(未使用スロット・未発動スキル)/ 敗北リザルトの結論 1 行 / 記録棚 `dragonfighters.chronicles` 直近 5 件 / 装置を **PENDING 0** へ / (3b)(3c)(5b) を締め、(6b3) で新 HUD が「街へ出る」を塞がないことを `elementFromPoint` で縛る |
+| **項目4** | **(本コミット)** | **`--negative` で N1〜N8 を実装**(配信バイトへの実行時注入)/ **(1a) に罠 B の検出力を追加**((1z5) 新設)/ 本節 §13 と §9 の訂正 / `README.md` へ #37 行 |
+
+### 13-2. 装置の最終値
+
+```
+node tools/verify_run_chronicle.js
+  → [run-chronicle] 73 PASSED / 0 FAILED / 0 PENDING
+```
+
+⚠ **72 → 73 に増えたのは退行ではない。** 項目4 で **(1z5)**(年代記が実際に溢れたことの母集団)を
+新設した。理由は上の (1a) の訂正のとおり —— これが無いと **N3(罠 B)が空振りする**。
+
+```
+node tools/verify_run_chronicle.js --negative
+  → 8 本すべてで担当ラベルが赤くなった (空振り 0)
+```
+
+| 変異 | 素点 | **赤くなったラベル(実測)** | うち担当 |
+|---|---|---|---|
+| N1 `noturnwrap` | 70 PASSED / 3 FAILED | `(2a)` `(2z7)` `(2c)` | **(2a)** |
+| N2 `nofall` | 71 / 2 | `(1a)` `(1b)` | **(1a)** |
+| N3 `ringbuffer` ⭐ | 71 / 2 | `(1a)` `(1b)` | **(1a)** |
+| N4 `sessiononly` | 69 / 4 | `(3z1)` `(3a)` `(3z2)` `(3c)` | **(3a)(3c)** |
+| N5 `noclose` | 71 / 2 | `(5a)` `(5b)` | **(5a)(5b)** |
+| N6 `wipeleak` ⭐ | 68 / 5 | `(3z1)` `(3a)` `(3b)` `(3c)` `(6b2)` | **(3a)(3b)** |
+| N7 `outofturn` | 71 / 2 | `(2b)` `(6-2a)` | **(2b)** |
+| N8 `healasdmg` | 71 / 2 | `(2z7)` `(2c)` | **(2c)** |
+
+⭐ N3 の実測: `events 4 → 18`(上限 18・素の `shift`)で **`fall` が 4 → 0 に消えた**
+= 罠 B「序盤が消える」の再現。正常時は `events 4 → 40` で **`fall` は 4 のまま**。
+
+### 13-3. 既存 golden の非退行(実測)
+
+**14 本すべて期待値どおり。期待値の書き換えは 0 件。**
+`verify_tavern_map 43/43` / `verify_player_sheet 70/70` / `verify_party_match_setup 36/36` /
+`verify_recruit_size 82/82` / `driver_party_view_reopen 35/35` / `driver_depart_menu_clean 41/41` /
+`verify_ability_scores 24/24` / `verify_save_slots 30/30`(**(8) の total = 78,326 B のまま**)/
+`verify_quest_walk 25/25` / `verify_town_exit 23/23` / `verify_title_screen 86/86` /
+`verify_town_map 85/85` / `verify_world_map 57/57` / `driver_action_priority 92/92`。
+
+### 13-4. ⚠⚠⚠ 依頼書の主張で崩れた点(全部)
+
+**行番号ズレを除いて 9 件。**(行番号のズレ自体は §2-0 の表で既に訂正済)
+
+1. ⚠⚠ **§9 (4c)「`world.html` の配信バイトに `enterVia|lastResult` が 0 回」は誤り。**
+   実測 **8 行 / 出現 14 回**(全部コメント)。既存 golden `verify_quest_walk (1b)` の実際の述語は
+   「その語を含む行が `Storage` と同居しない ∧ `(session|local)Storage.(get|set|remove)Item(…)` が 0 件」
+   = **getItem すらしていない**。装置はこの述語に合わせ、(4z2) で母集団も縛った。
+2. ⚠⚠ **§9 の N3 表「(0a)(1a) が赤くなる」は成立しない。** 18 行のリングバッファでも
+   (0a) は 1 件以上積まれるので緑のまま。赤くなるのは **(1a) のみ**。
+   さらに **(1a) は「倒した直後に数える」形では N3 に対して空振りする** ——
+   本番の記録口 `RunChronicle.kill` で **80 回積んで溢れさせてから**数える形に締めた((1z5) 新設)。
+3. ⚠⚠ **§9 の N6 表「(3b) だけ」も不足。** **(3a) も赤くなる**(使っているキー名を直接見ているため)。
+4. ⚠ **§9 (5c) の `body.ui-compact` は `tavern.html` には付かない。**
+   `ui-compact` を付けるのは `index.html` だけ(6394 行)。酒場の狭幅クラスの実体は
+   **`body.compact`**(`tavern.html:8027` の `layout()`)。420x860 で `bodyClass="tavernMapOn compact"`。
+5. ⚠ **§7 の「`#townHud` に 5 本目の `<button>` を足すな」は `tavern.html` には無関係。**
+   `#townHud` は `town.html` にしかなく、`tavern.html` での出現は **0 件**。
+   導線は左上 `#townExit` の直下に置き、**隙間 11px / 両方の中心の `elementFromPoint` が自分自身**
+   であることを **(6b3)** で機械化した。
+6. ⭐ **(1d) は「年代記が保存される」が正。** 罠で頭が死ぬ経路
+   (`triggerTrapOnPlayer` の `if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }`)から
+   `showResult` は**直接呼ばれない**が、**300ms 周期の `setInterval` 監視**が `gameOver` を見て
+   `showResult(false)` を発火する → **到達するので保存される**。
+7. ⚠ **§4-2 の「`defeatEnemy` の冒頭」は誤り。** 実装は **`enemy.alive = false` の直後**へずらした。
+   冒頭に置くと多頭ハイドラの「頭を焼き切った = 撃破でない早期 return」まで撃破に数えてしまう。
+8. ⚠ **§5-2 の `tickCordonZones` の加害者**は「関数丸ごと」ではなく **ゾーンごとに `owner: ally` を
+   持たせて**包んだ(欠けたときのフォールバックは `"コードン"`)。
+9. ⚠ **`triggerTrapOnEnemy` の加害者は依頼書が指定していなかった** → **頭(`{head:true}`)へ帰属**させた。
+
+### 13-5. 実装上の判断と実測値(次のチケットへ効くもの)
+
+- **`beginTurn` のネスト**は **`turnDepth` カウンタ + `NESTED` センチネル**で解いた
+  (手番の中から手番外の 6 点が呼ばれても、閉じるのは外側 1 回だけ)。
+- **手番ラップの実測コスト = 0.78µs / 手番**(10 ユニット・40,000 回平均)。⛔ アクセサ方式は不採用のまま。
+- **記録棚の実測サイズ** = 実プレイ 5 件 **21,242 B(5MB の 0.405%)** / 最悪 5 件 **64,142 B(1.223%)**。
+  (基準: #5 の 3 スロット満杯 78,326 B = 1.49%)
+- **技の発動の記録口は 3 点だけ** — `showRollAtAlly`(仲間の SKILL 吹き出し **33 箇所を 1 点で覆う**)/
+  `showSkillAnnounce`(頭)/ `checkDwarvenGritTrigger`(リアクティブ)。
+  ⭐ **呪文スロット消費型には 1 箇所も刺していない** —— 既存台帳 `maxSpellSlots[id] > spellSlots[id]`
+  から導出できるので、呪文の入口 40 近くへフックを刺す必要が無い。
+- ⚠⚠⚠ **`snapshot(null)` の覗き見で `idle` / `lastBlow` を封印すると本番が壊れる。**
+  ドライバの計器が何十回も呼ぶため。**封は決着時のみ**(`seal(outcome)`)。
+- ⛔⛔ **負のコントロールの基準に `git show HEAD:<path>` を使わない。** コミットした瞬間
+  `HEAD === 作業ツリー`になり測る節が全滅する。**起動時に凍結した配信バイトへ実行時注入**が正解。
+
+### 13-6. 残件
+
+**§10「実機/実感の確認」5 項目**(ユーザーの iPhone 実機待ち)。
+
+1. iOS Safari 縦持ちで 敗北 → 酒場 → レポートを開く → 閉じる が**片手で**通るか
+2. 年代記が「読み物」になっているか(数字の羅列に見えないか)
+3. 墨の棒グラフが羊皮紙の斑に食われていないか(⚠ #15: 説明文に `opacity` は禁止)
+4. レポートを開いたままキャラクターシート(z:220)を開けるか
+5. 記録棚に 5 件溜めたときの `localStorage` サイズの体感
+   (数値は 13-5 に実測済 = 実プレイ 5 件 21,242 B)

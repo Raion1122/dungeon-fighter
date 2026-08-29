@@ -2,6 +2,8 @@
  * tools/verify_run_chronicle.js — 冒険の年代記 (実装依頼書 #37) の検証ドライバ
  * ═══════════════════════════════════════════════════════════════════════════
  *   node tools/verify_run_chronicle.js [--headful] [--port N]
+ *   node tools/verify_run_chronicle.js --negative            ← 負のコントロール (N1〜N8 を 1 本ずつ)
+ *   node tools/verify_run_chronicle.js --negative --only N3  ← 1 本だけ注入
  *
  * ── 担当表 (どの節が何を守っているか) ─────────────────────────────────────
  *   §0 装置    … 母集団。「1 件も積まれていない」= 以降が全部空振りで永久緑、を先に潰す
@@ -29,6 +31,33 @@
  *    必ず `setTimeout(r, 0)` でマクロタスク化する。
  *  - (0c) の「配信バイトを数える assert」の近くでは**コメントも数えられる**。
  *    ⛔ 本ドライバの説明文にも index.html の説明文にも、測定対象の文字列そのものを書かない。
+ *
+ * ── 負のコントロール (--negative) ────────────────────────────────────────
+ *   依頼書 §9 の変異表 N1〜N8 を全部内蔵している。
+ *   ⛔⛔ **本番ファイルは 1 バイトも書き換えない。** 起動時に凍結した**配信バイト**だけを
+ *      変異させて配る。⚠⚠⚠ `git show HEAD:<path>` を「変異前」の基準に使ってはいけない
+ *      —— コミットした瞬間 HEAD === 作業ツリーになり、測る節が全滅する (#35 の実測)。
+ *   ⚠⚠⚠ **1 本ずつ `--only <N>` で確定させること。** 全部同時に入れると互いを覆い隠す
+ *      (N1 が入ると手番が丸ごと記録されず、N7 / N8 の証拠が手番経由で消える)。
+ *      素の `--negative` は自分自身を子プロセスで 1 タグずつ呼び直す。
+ *
+ *   N1 noturnwrap : 手番ラップ (依頼書 §5-1) を外す            → (2a) が赤くなること
+ *   N2 nofall     : 仲間の死の 4 点を記録しない                → (1a)
+ *   N3 ringbuffer ⭐: 年代記の源を 18 行のリングバッファにする   → (1a)   ← §2-4 罠 B の再現
+ *   N4 sessiononly: 記録棚を sessionStorage に置く             → (3a)(3c)
+ *   N5 noclose    : 閉じるボタンを外し背景タップだけにする      → (5a)(5b)
+ *   N6 wipeleak  ⭐: キーを前置詞違い (df_chronicles) にする    → (3a)(3b) ← §2-6 罠の再現
+ *   N7 outofturn  : 手番外 6 点のラップを外す                  → (2b)
+ *   N8 healasdmg  : 回復をダメージとして計上する               → (2c)
+ *
+ *   ⭐⭐⭐ **N3 と N6 が §2 の罠を機械で守る本体。**
+ *   ⚠⚠⚠ N3 の担当は **(1a) だけ**。依頼書 §9 の表にあった「(0a) も赤くなる」は成立しない
+ *      —— 18 行のリングバッファでも 1 件以上は積まれるので (0a) は緑のまま。
+ *   ⚠⚠⚠ N3 を捕まえるには **(1a) の測り方そのものに検出力が要る**。倒れた直後に数えると
+ *      「まだ溢れていない」ので shift でも falls が残り、**空振りする**。よって (1a) の腕は
+ *      4 人倒したあとに記録口 RunChronicle.kill を 80 回叩いて**わざと溢れさせてから**
+ *      数える (母集団は (1z5) が「実際に溢れたこと」で縛る)。これが罠 B の本体
+ *      =「序盤が消える」を機械で再現する唯一の形。
  */
 'use strict';
 
@@ -42,6 +71,147 @@ const argv = process.argv.slice(2);
 const arg  = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv[i + 1]) ? argv[i + 1] : d; };
 const PORT = parseInt(arg('port', '8897'), 10);
 const HEADFUL = argv.includes('--headful');
+const NEGATIVE = argv.includes('--negative');
+/* ⭐⭐⭐ 変異を全部同時に入れると互いを覆い隠す (N1 を入れると手番が記録されず、
+ *   N7 / N8 の証拠が手番経由で丸ごと消える)。→ `--only N3` で 1 本ずつ確定させる。 */
+const ONLY = (arg('only', '') || '').split(',').map(s => s.trim()).filter(Boolean);
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 配信バイトの凍結 + 負のコントロールの注入
+ *   ⛔ 本番ファイルは 1 バイトも書き換えない。**配信スナップショットだけ**を変異させる。
+ *   ⭐ 凍結は素の run でも効く = 別窓が同じリポを触っても、この run が読むのは 1 枚。
+ *   ⚠ index.html / tavern.html はディスク上 CRLF。複数行アンカーは \r\n で書くこと。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const FROZEN = {
+  '/index.html':  fs.readFileSync(path.join(ROOT, 'index.html')),
+  '/tavern.html': fs.readFileSync(path.join(ROOT, 'tavern.html')),
+};
+const INJECTED = [];
+/* アンカーが期待した数だけ当たらなければ **走らせる前に exit 3**。
+   腐ったアンカーで「注入したつもり」のまま緑になるのを防ぐ。 */
+function mutate(label, file, anchor, patch, wantHits) {
+  const tag  = label.split(' ')[0];
+  const key  = '/' + file;
+  const src  = FROZEN[key].toString('utf8');
+  const want = wantHits || 1;
+  let hits, apply;
+  if (anchor instanceof RegExp) {
+    hits  = (src.match(anchor) || []).length;
+    apply = () => src.replace(anchor, patch);
+  } else {
+    const parts = src.split(anchor);
+    hits  = parts.length - 1;
+    apply = () => parts.join(patch);
+  }
+  if (hits !== want) {
+    console.error('[driver] 負のコントロール ' + label + ' の注入点が ' + hits + ' 箇所 (期待 ' + want + ')。'
+      + 'アンカーが腐っています:');
+    console.error('         ' + String(anchor));
+    process.exit(3);
+  }
+  if (ONLY.length && ONLY.indexOf(tag) < 0) {
+    console.log('[driver]   (' + tag + ' はアンカー健在・--only 指定により注入せず)');
+    return;
+  }
+  FROZEN[key] = Buffer.from(apply(), 'utf8');
+  if (INJECTED.indexOf(tag) < 0) INJECTED.push(tag);
+  console.log('[driver] ★ 負のコントロール ' + label + ' を注入しました');
+}
+/* 変異 → 赤くなるべきラベルの担当表。--negative で空振りしたら exit 1。
+   ⚠⚠⚠ この表は **机上で書いてはいけない**。`--only <N>` で 1 本ずつ走らせ、
+     実際に赤くなったラベルを見てから書く。標的以外の巻き添えは列挙しない ——
+     巻き添えを書くと、その節の母集団が消えただけの「偽の赤」で空振りを隠してしまう。 */
+const NEG_EXPECT = {
+  N1: ['(2a)'],
+  N2: ['(1a)'],
+  N3: ['(1a)'],
+  N4: ['(3a)', '(3c)'],
+  N5: ['(5a)', '(5b)'],
+  N6: ['(3a)', '(3b)'],
+  N7: ['(2b)'],
+  N8: ['(2c)'],
+};
+/* ⭐⭐⭐ `--only` を付けない `--negative` は 8 本を **子プロセスで 1 本ずつ順に**回す。
+   ⚠ 子は別ポートで立てる (前の run の残骸サーバがポートを掴んでいると全腕が空振りする)。
+   ⚠ 子でも mutate() は 8 本ぶん呼ばれる = **アンカーの健全性は毎回 8 本とも検査される**。 */
+if (NEGATIVE && !ONLY.length) {
+  const { spawnSync } = require('child_process');
+  const tags = Object.keys(NEG_EXPECT);
+  const bad  = [];
+  console.log('[driver] --negative (一括): ' + tags.join(',') + ' を 1 本ずつ順に走らせます'
+    + '  ⚠ 同時注入は互いを覆い隠すので必ず 1 本ずつ');
+  tags.forEach((tag, i) => {
+    console.log('\n[driver] ══════════ ' + tag + ' ══════════');
+    const a = [__filename, '--negative', '--only', tag, '--port', String(PORT + 1 + i)];
+    if (HEADFUL) a.push('--headful');
+    const r = spawnSync(process.execPath, a, { stdio: 'inherit' });
+    if (r.status !== 0) bad.push(tag + ' (exit ' + r.status + ')');
+  });
+  if (bad.length) { console.error('\n[driver] --negative NG: ' + bad.join(' , ')); process.exit(1); }
+  console.log('\n[driver] --negative OK: ' + tags.length + ' 本すべて担当ラベルが赤くなりました (空振り 0)');
+  process.exit(0);
+}
+if (NEGATIVE) {
+  /* ── N1 手番ラップ (依頼書 §5-1) を外す ─────────────────────────────────
+     手番ディスパッチ `for (const actor of units)` の 1 点ラップを殺す。37 箇所の
+     HP 書き込みが誰にも帰属されなくなる。 */
+  mutate('N1 (手番ラップを外す = 手番の与ダメが誰にも帰属しない)', 'index.html',
+    'const __chSnap = RunChronicle.beginTurn(actor);',
+    'const __chSnap = null;   /* N1 */');
+
+  /* ── N2 仲間の死の 4 点を記録しない ────────────────────────────────────
+     ⚠ 頭の死 (RunChronicle.fall({head:true}, …)) は**消さない**。消すと (1d)(6-2a) の
+       母集団まで落ちて、赤の理由が「仲間の死を記録していない」から逸れる。 */
+  mutate('N2 (仲間の死の 4 点を記録しない)', 'index.html',
+    new RegExp('RunChronicle\\.fall\\([^;]*\\);\\s*//[^\\r\\n]*仲間の死[^\\r\\n]*', 'g'),
+    '/* N2: 仲間の死を記録しない */', 4);
+
+  /* ── N3 ⭐ 罠 B の再現 — 年代記の源を 18 行のリングバッファにする ────────
+     ① 上限を 40 → 18 ② 「倒れた行を守る splice」を素の shift へ戻す。
+     依頼書 §2-4 が「1 ラン分を保持できない」と書いた器そのもの。 */
+  mutate('N3 (年代記の源を 18 行のリングバッファにする)', 'index.html',
+    'const EVENT_MAX = 40;', 'const EVENT_MAX = 18;   /* N3 */');
+  mutate('N3 (溢れたとき倒れた行を守らず素の shift で捨てる)', 'index.html',
+    '        while (events.length > EVENT_MAX) {\r\n'
+    + '          let i = events.findIndex(e => e.kind !== "fall");\r\n'
+    + '          if (i < 0) i = 0;\r\n'
+    + '          events.splice(i, 1);\r\n'
+    + '        }',
+    '        while (events.length > EVENT_MAX) events.shift();   /* N3 */');
+
+  /* ── N4 記録棚を sessionStorage に置く ─────────────────────────────────── */
+  mutate('N4 (記録棚の読みを sessionStorage にする)', 'tavern.html',
+    'const raw = localStorage.getItem(CHRONICLE_SHELF_KEY);',
+    'const raw = sessionStorage.getItem(CHRONICLE_SHELF_KEY);   /* N4 */');
+  mutate('N4 (記録棚の書きを sessionStorage にする)', 'tavern.html',
+    'try { localStorage.setItem(CHRONICLE_SHELF_KEY, JSON.stringify(a)); }',
+    'try { sessionStorage.setItem(CHRONICLE_SHELF_KEY, JSON.stringify(a)); }   /* N4 */');
+
+  /* ── N5 閉じるボタンを外し背景タップだけにする ───────────────────────────
+     ⚠ bind 側 (chronicleBindTap) は el が null なら黙って返るので、DOM を消すだけでよい。 */
+  mutate('N5 (閉じるボタンを DOM ごと外す = 背景タップだけにする)', 'tavern.html',
+    '      <button type="button" id="chronicleClose">閉じる</button>\r\n',
+    '      <!-- N5: 閉じるボタンを外した -->\r\n');
+
+  /* ── N6 ⭐ 罠 §2-6 の再現 — キーの前置詞を変える ─────────────────────────
+     js/save-slots.js の keysOf() は "dragonfighters." の前置詞総なめ。前置詞を外すと
+     スロット振り分けも新規ゲームでの消去も**黙って効かなくなる**。 */
+  mutate('N6 (記録棚のキーを前置詞違い df_chronicles にする)', 'tavern.html',
+    'const CHRONICLE_SHELF_KEY = "dragonfighters.chronicles";',
+    'const CHRONICLE_SHELF_KEY = "df_chronicles";   /* N6 */');
+
+  /* ── N7 手番外 6 点のラップを外す ───────────────────────────────────────
+     damageEnemy / damagePlayer / triggerTrapOnPlayer / triggerTrapOnAlly /
+     triggerTrapOnEnemy / tickCordonZones の 6 本が 1 本の正規表現で全部当たる。 */
+  mutate('N7 (手番外 6 点のラップを外す)', 'index.html',
+    new RegExp('const __chOut = RunChronicle\\.beginTurn\\([^;]*\\);', 'g'),
+    'const __chOut = null;   /* N7 */', 6);
+
+  /* ── N8 回復をダメージとして計上する ────────────────────────────────────
+     符号の分かれ目 1 行を絶対値にすると、回復がそのまま「与ダメ」に化ける。 */
+  mutate('N8 (回復をダメージとして計上する)', 'index.html',
+    'const dmg = -delta;', 'const dmg = Math.abs(delta);   /* N8 */');
+}
 
 function loadPuppeteer() {
   try { return require('puppeteer-core'); } catch (e) {}
@@ -63,6 +233,13 @@ function startServer() {
       try {
         let u = decodeURIComponent(rq.url.split('?')[0]);
         if (u === '/') u = '/index.html';
+        /* ⭐ index.html / tavern.html は起動時に凍結したバイトを配る (負のコントロールは
+           ここへ実行時注入されている)。⛔ ディスクの本番ファイルは 1 バイトも触らない。 */
+        if (FROZEN[u]) {
+          rs.setHeader('Content-Type', MIME['.html']);
+          rs.end(FROZEN[u]);
+          return;
+        }
         const fp = path.join(ROOT, u);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { rs.statusCode = 404; rs.end('404'); return; }
         rs.setHeader('Content-Type', MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream');
@@ -443,6 +620,16 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
           }
         }
       } catch (e) { out.err = String(e && e.message || e); }
+      /* ⭐⭐⭐ ここからが罠 B (依頼書 §2-4) の再現試験。倒れた**直後**に数えると、まだ
+         年代記が溢れていないので「18 行のリングバッファ + 素の shift」でも falls が残り、
+         (1a) が空振りする。→ **本番の記録口** RunChronicle.kill を 80 回叩いて溢れさせて
+         から数える。⛔ ドライバ側で events を作らない (本番の push を通すのが要点)。 */
+      try {
+        out.eventsBeforeFlood = RunChronicle.snapshot(null).events.length;
+        out.flood = 80;
+        for (let k = 0; k < out.flood; k++) RunChronicle.kill(null, { name: '洪水' + k });
+        out.eventsAfterFlood = RunChronicle.snapshot(null).events.length;
+      } catch (e) { out.floodErr = String(e && e.message || e); }
       const s = RunChronicle.snapshot(null);
       out.falls = s.events.filter(e => e.kind === 'fall');
       out.fallCount = out.falls.length;
@@ -457,9 +644,17 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
     check('(1z3) [装置] 仲間の死の 4 経路が **全部** 実際に倒れている (どれか 1 本だけで緑になっていない)',
       (fell.steps || []).filter(s => s.boardDelta > 0).length === 4,
       JSON.stringify((fell.steps || []).map(s => s.site + '=' + s.boardDelta)));
-    check('(1a) ★仲間が倒れた回数 (盤面の alive を直接数えた値) = 年代記の fall イベント数',
+    check('(1z5) [装置] ★母集団 — 年代記が実際に溢れるところまで積んだ '
+        + '(押し込んだ件数より総イベント数が少ない = 上限で捨てが起きた)',
+      fell.eventsAfterFlood >= 1 && !fell.floodErr
+        && fell.eventsAfterFlood < fell.eventsBeforeFlood + fell.flood,
+      '溢れる前=' + fell.eventsBeforeFlood + ' + 押し込み ' + fell.flood
+        + ' → 溢れた後=' + fell.eventsAfterFlood + ' err=' + String(fell.floodErr));
+    check('(1a) ★仲間が倒れた回数 (盤面の alive を直接数えた値) = 年代記の fall イベント数。'
+        + '⭐ 年代記を溢れさせた**後**でも消えていない (依頼書 §2-4 の罠 B)',
       fell.boardFalls >= 4 && fell.fallCount === fell.boardFalls,
-      'board=' + fell.boardFalls + ' / chronicle=' + fell.fallCount);
+      'board=' + fell.boardFalls + ' / chronicle=' + fell.fallCount
+        + ' / events ' + fell.eventsBeforeFlood + '→' + fell.eventsAfterFlood);
     const bad = (fell.falls || []).filter(f => !f.node || !String(f.node).trim() || !f.who || !String(f.who).trim());
     check('(1b) ★年代記の各 fall 行に場所 (部屋名) と名前が入っている',
       (fell.falls || []).length >= 1 && bad.length === 0,
@@ -1417,6 +1612,19 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
   console.log('\n[run-chronicle] ' + pass + ' PASSED / ' + fail + ' FAILED / ' + pend + ' PENDING');
   if (fail > 0) {
     console.log('[run-chronicle] NG: ' + results.filter(r => r.state === 'FAIL').map(r => r.name).join(' | '));
-    process.exit(1);
   }
+
+  if (NEGATIVE) {
+    /* 変異を入れたのに担当ラベルが緑のまま = 空振り。⛔ 黙って成功させない。 */
+    const red  = new Set(results.filter(r => r.state === 'FAIL').map(r => r.name.split(' ')[0]));
+    const miss = [];
+    INJECTED.forEach(tag => (NEG_EXPECT[tag] || []).forEach(lab => { if (!red.has(lab)) miss.push(tag + '→' + lab); }));
+    console.log('[driver] --negative: 注入=' + (INJECTED.join(',') || 'なし')
+      + ' / 赤くなったラベル=' + (Array.from(red).join(',') || '(なし)'));
+    if (!INJECTED.length) { console.error('[driver] 変異を 1 つも注入していません'); process.exit(1); }
+    if (miss.length) { console.error('[driver] 空振り: ' + miss.join(' , ')); process.exit(1); }
+    console.log('[driver] --negative OK (担当ラベルが全部赤くなりました)');
+    process.exit(0);
+  }
+  if (fail > 0) process.exit(1);
 })().catch(e => { console.error(e); process.exit(3); });
