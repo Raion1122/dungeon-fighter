@@ -74,6 +74,34 @@ CSS も `#partyMatchOverlay { cursor: pointer; }` で「どこでも押せる」
 DOM: `#partyMatchOverlay > #pmInner > (#pmHeader, #pmColumns, #pmHint)`(`tavern.html:2184-2195`。`#pmColumns` = 2192)。
 `#pmHint` の文言は `"タップでスキップ"` → 全確定後 `"タップして出発"` に差し替わる。
 
+> **【訂正 2026-08-29 / 着手時 HEAD `1d3dbd2`】⚠⚠⚠ この節が知らない 2 つ目の使われ方 = `review` モード**
+>
+> 起草は 2026-08-28(HEAD `a7f194e`)。その翌日に **`9b6f3b8`「準備画面の 🎴 編成を見る で開き直せる」**が
+> 着地し、**同じオーバーレイに 2 つ目の使われ方**が生えていた。
+>
+> - `playPartyMatchCinematic(scenario, { review: true })` — 準備画面の 🎴 から `openPartyMatchReview()` が呼ぶ
+> - review では全員 `cols[i].fill(false)` で**即確定** = **開示フェーズを 1 コマも通らない**(`if (review) finishReveal();`)
+> - ヒント文が **`"タップして準備へ戻る"`**(通常は `"タップでスキップ"` → `"タップして出発"`)
+>
+> ⇒ **§4-2 の「全確定後のタップ = 出発」は review では成立しない。**
+> **決定(ユーザー提示済み)**: `#pmDepart` は **id 共通・ラベルだけ出し分け**
+> (通常「出発する」/ review「準備へ戻る」)、`close()` は共通。**引き出しは両モードで開ける**
+> (準備画面から開き直した先で設定できるのが本チケットの目的そのもの)。
+> ⚠ review は `phase` が即 `"done"` になるので、**開示中の挙動 `(1d)` / `(1e)` は通常モードでしか測れない**。
+>
+> **【訂正】§2 の行番号は 26 項目すべてズレていた**(#34 `692fb3e` / `9b6f3b8` / #36 の 4 コミットによる)。
+> 実測 `1d3dbd2` の正しい値: `playPartyMatchCinematic` 6330→**6356** / `PM_REVEAL_INTERVAL`・`PM_TAP_GATE`
+> 6211・6215→**6230・6234** / `onTap` 6415→**6436** / `buildPmColumn` 6274→**6293** /
+> `AP_SITUATIONS` 3506→**3516** / `TRAVEL_CASTABLE_IDS` 3518→**3528** / `apEquippedIdsFor` 5566→**5585** /
+> `renderSkillItem` 5514→**5533** / `renderSpellSlotItem` 5386→**5405** / `renderCharLoadout` 5658→**5677** /
+> `renderActionPriority` 5586→**5605** / `isCasterClassTV`・`isAutoSlotClassTV` 4021→**4028・4031** /
+> `skillLimitForClass` 3741→**3751** / `PARTY_SLOTS` 3526→**3536** /
+> `buildParty`・`openPrep`・`regeneratePartyMembers` 3682・4612・4997→**3673・4605・5007** /
+> HTML `#pmColumns` 2192→**2194** / CSS `#pmColumns`・`.pmColumn` **1735・1741**(不変)/
+> `@media (max-width:720px)` 1825→**1824** / **再描画点 3 箇所** 5540-41・5429-30・5440-41 →
+> **5559-60・5448-49・5459-60**。
+> ⭐ 変わらなかったもの = `renderCharLoadout()` の呼び口 **18 箇所** / `#partyMatchOverlay` の **z-index 210**。
+
 ### 2-2. ⚠⚠⚠ 罠 A — **4 本の golden ドライバが「オーバーレイを叩けば進む」に依存している**
 
 `grep -rn "partyMatchOverlay" tools/` = **3 ファイル 6 行** + `driver_action_priority` の
@@ -102,6 +130,25 @@ DOM: `#partyMatchOverlay > #pmInner > (#pmHeader, #pmColumns, #pmHint)`(`tavern.
     node tools/verify_quest_walk.js            # → 25/25
     node tools/driver_depart_menu_clean.js     # → 41/41
     node tools/driver_action_priority.js       # → 75/75 PENDING 0
+
+> **【訂正 2026-08-29】⚠⚠⚠ 「golden 4 本」は誤りで、実際は 5 本。基準値も 1 本古い。**
+>
+> `grep -rn "partyMatchOverlay" tools/` を着手時 HEAD `1d3dbd2` で自分で打ち直したら、
+> **この表に無い 5 本目**が出た。⭐ **grep を自分で打たないと落ちる**(この表を写経すると
+> 1 本を付け替え忘れて `driver_party_view_reopen` だけが赤く残る)。
+>
+> | ファイル:行 | 現在 | **基準(これが正)** |
+> |---|---|---|
+> | `tools/verify_recruit_size.js:329` / `:709` | `q('partyMatchOverlay').click()` | **82/82** |
+> | `tools/verify_quest_walk.js:632` | 同上 | **25/25 PENDING 0** |
+> | `tools/driver_depart_menu_clean.js:140` | 同上 | **41/41** |
+> | `tools/driver_action_priority.js:367` | `page.mouse.click(幅/2, 高/2)` ×45 | ⚠ **92/92 PENDING 0**(表の 75/75 は #34 `692fb3e` で失効) |
+> | ⭐ **`tools/driver_party_view_reopen.js:240`**(同 `:185` / `:286`) | `q('partyMatchOverlay').click()` | **35/35**(⚠ 起草時の表に無い **5 本目**) |
+>
+> ⚠ 5 本目は **review モードのドライバ**(上の §2-1 の訂正を参照)なので、
+> `#pmDepart` のラベルが「準備へ戻る」に変わっても押せる形にすること。
+> ⭐ 同じページを読む `verify_tavern_map`(**43/43**)と `verify_player_sheet`(**70/70**、#36 で 42→70)も
+> 非退行の対象に足して、非退行は **合計 7 本**で見る。
 
 ### 2-3. ⚠⚠ 罠 B — `touchend` も張られている(iOS の `<select>`)
 
@@ -336,6 +383,29 @@ DOM: `#partyMatchOverlay > #pmInner > (#pmHeader, #pmColumns, #pmHint)`(`tavern.
 **「`#pmDepart` があれば押す / 無ければ背景を叩く」の 2 段**にする。
 
 ⛔ **期待値(82/82・25/25・41/41・75/75)を 1 つも弱めない。** 突破手順だけを直す。
+
+> **【訂正 2026-08-29】この表は 4 行ではなく 5 行 / 基準は 75/75 でなく 92/92 / ラベルは 2 種類**
+>
+> - ⭐ **5 行目 = `tools/driver_party_view_reopen.js:240`(35/35)を足すこと。**
+>   §2-2 の訂正表が唯一の正。⛔ この §4-4 の表を写経すると 1 本落ちる。
+> - ⚠ `driver_action_priority` の **75/75 は #34 `692fb3e` で失効**。正は **92/92 PENDING 0**。
+> - ⚠⚠⚠ **`#pmDepart` のラベルは 2 種類ある**(§2-1 の訂正 = `review` モード)。
+>   通常「出発する」/ review「準備へ戻る」。**id は共通**なので、5 本とも
+>   `q('pmDepart') ? q('pmDepart').click() : q('partyMatchOverlay').click()` の形で通る
+>   (⛔ **ラベル文字列でボタンを探す突破手順を書かないこと** — review のドライバで落ちる)。
+>
+> **【実測 2026-08-29 / 項目1 `194d109`】⭐⭐⭐ §8 の「突破手順を直す**前**に一度走らせる」が効いた。**
+> `tavern.html` だけ直した時点で 5 本とも実際に赤くなった —— **80/82 · 21/25 · 34/41 ·
+> 63+FATAL「#prep が可視にならなかった」· 2/6**。これで「背景タップ = 出発が本当に死んだ」ことが
+> 証明され、付け替え後に 5 本とも基準へ復帰した(**期待値の変更は 0 件**)。
+>
+> **【逸脱 1 件】§4-3 の `swallow` はカードへ無条件に適用しなかった。**
+> 無条件に止めると**開示中にカードを叩いても `skipRest()` が走らず、画面の大半が死に領域**になる。
+> → `pmBindCardTaps()` = **`pmPhaseRef() === "done"` の時だけ**伝播を止める形にした
+> (§4-2 / §5-1 の「開示中は何もしない = 背景の `skipRest` へ通す」と一致する)。
+> ⚠ `phase` は演出の Promise 内のローカル変数なので、**値は写さず読み口だけ**を
+> `let pmPhaseRef = () => "idle";` としてモジュール直下に置き、演出内で `pmPhaseRef = () => phase;` /
+> `close()` で戻す。**唯一の正は今も `phase` 1 つ。**
 
 ---
 
@@ -626,4 +696,133 @@ DOM: `#partyMatchOverlay > #pmInner > (#pmHeader, #pmColumns, #pmHint)`(`tavern.
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**着手** 2026-08-29 / **着手時 HEAD** `1d3dbd2`(#36 着地後・tree clean)/ **dev-loop 4 項目**。
+撤退スイッチ **`?pmsetup=0`**(`?actionpri=0` とは独立)。
+
+### 12-1. 4 項目の着地
+
+| 項目 | commit | 規模 | やったこと |
+|---|---|---|---|
+| 1 | `194d109` | 7 files / +823 -11 | **STEP1 出発の口**。`#pmDepart` 新設 / `onTap` から「全確定後の背景タップ = 出発」を撤去(開示中の `skipRest` は温存)/ `pmSwallowTaps()` で `click` + `touchend` を飲む / `PM_SETUP_ON` / **review モード対応**(id 共通・ラベルだけ出し分け)/ **既存 golden 5 本**の突破手順を `#pmDepart` へ付け替え / 新規装置 `tools/verify_party_match_setup.js`(§0/§1/§2 実装・§3〜§6 は `pending()` 宣言)+ 変異 M1・M2 を先行内蔵 |
+| 2 | `97f350d` | 2 files / +653 -54 | **STEP2 引き出し `#pmDrawer`**。カード押下で開閉 / 3 段(見出し + 同職注記・スキル段・傾向段)/ `renderSkillItem`・`renderSpellSlotItem`・`apEquippedIdsFor`・`AP_SITUATIONS`・`TRAVEL_CASTABLE_IDS` を**流用**(新しい部品を書かない)/ **再描画点を 3 箇所へ一本化**(`repaintAfterSkillChange`)/ `pmRefreshCards()` / `pmCloseDrawer()` を `close()` からも呼ぶ |
+| 3 | `85b5b15` | 3 files / +399 -29 | **STEP3 見た目 + 撤退スイッチ**。`#pmDrawer` の中だけ暗い基調へ上書き(⛔ `.skillItem` 本体は無改修)/ `max-height` + `overflow-y` / compact で見出しと明細を畳む / `?pmsetup=0`・`?actionpri=0` の受入 / 装置を **PENDING 0** まで |
+| 4 | (本コミット) | 2 files | **負のコントロール M3〜M7 を追加(計 7 本・空振り 0)** / 既存 golden 7 本の非退行実測 / 本節と §2-1・§2-2・§4-4 の訂正書き戻し / `実装依頼書/README.md` の #35 行更新 |
+
+⭐ **項目4 は `tavern.html` / `index.html` / `audio.js` を 1 バイトも触っていない**ので changelog は鳴らない。
+⛔ 鳴らないのに嘘のプレイヤー向け行を足していない(CLAUDE.md の恒久方針)。
+
+### 12-2. 装置 `tools/verify_party_match_setup.js` の最終値
+
+    node tools/verify_party_match_setup.js
+    → [driver] RESULT: PASSED 36 / FAILED 0 / PENDING 0   (合計 36)
+
+**負のコントロール = 7 本すべて実装・1 本ずつ `--only` で確定・空振り 0。**
+
+    node tools/verify_party_match_setup.js --negative --only M3   ← 1 本だけ注入
+    node tools/verify_party_match_setup.js --negative             ← ⭐ 7 本を 1 本ずつ順に走らせる
+
+⭐ **`--only` 無しの `--negative` は、自分自身を 1 タグずつ子プロセスで呼び直す**ようにした
+(子は別ポート)。⚠⚠⚠ **7 本を同時に注入すると互いを覆い隠す**ので、素朴に全部入れる実装だと
+M1 が背景タップで演出を閉じてしまい §2〜§5 の母集団がまるごと消え、**残り 5 本が全部空振り**する。
+⚠ 子でも `mutate()` は 7 本ぶん呼ばれるので、**アンカーの健全性は毎回 7 本とも検査される**
+(腐っていれば注入せずとも exit 3)。
+
+| 変異 | 注入した欠陥(アンカー) | **実際に赤くなったラベル** | 素点 |
+|---|---|---|---|
+| **M1** | `if (!setupOn && gateOpen) close();` → `if (gateOpen) close();` | `(1a)` `(2z)` `(2a)` `(2b)` | 32/36 |
+| **M2** | `pmSwallowTaps` の `touchend` 行だけ削除 | `(2b-2)` | 35/36 |
+| **M3** | `repaintAfterSkillChange` の `if (pmLoadoutRepaint) {…}` を殺す | `(3d)` `(4a)` | 34/36 |
+| **M4** | `pmLoadoutRepaint` から `pmRefreshCards();` を落とす | `(4a)` | 35/36 |
+| **M5** | `close()` から `pmCloseDrawer();` を外す | `(5b)` | 35/36 |
+| **M6** | `#pmDrawer` の `max-height`/`overflow-y` を外す(**2 アンカー**) | `(4c)` | 35/36 |
+| **M7** | 傾向の候補を `apEquippedIdsFor` でなく `slot.skillPool` 全部に | `(3b)` | 35/36 |
+
+⭐ `NEG_EXPECT` には**標的のラベルだけ**を載せた。M1 の `(2z)(2a)(2b)` と M3 の `(4a)` は
+**巻き添え(母集団が消える側)**なので担当表には書かない —— 担当表へ書くと
+「母集団 0 で述語が false = 偽の赤」で本物の空振りを隠す(#29 の実測)。
+
+#### ⚠⚠⚠ 変異アンカーで実際に踏んだ罠(次に同じ画面を触る窓へ)
+
+1. **`saveSelections(); repaintAfterSkillChange();` はアンカーに使えない** —— **3 箇所で同形**なので
+   `mutate()` が `hits !== 1` で **exit 3**。一意なのは `repaintAfterSkillChange` の**本体 1 行**。
+2. **M5 は `close()` の中に一意な 1 行が無い**(`        pmCloseDrawer();` は 2 箇所)。
+   → **直前のコメント行ごと** `\r\n` 込みで掴む。⚠ **4 スペース版**(演出を開くときのリセット)と混同しない。
+3. ⚠⚠⚠ **M6 は `max-height: 42vh` を消しても compact の `(4c)` は赤くならない。**
+   390px では `@media (max-width:720px)` の `#pmDrawer { max-height: 30vh; … }` が勝つ。
+   **両方潰して初めて赤くなる**(実測: 引き出し 253px → **789px** / `#pmInner` 711px → **1247px** /
+   `#pmDepart` の rect.top が **996** で viewport 844 の外・`elementFromPoint` が `(なし)`)。
+   ⭐ `mutate()` の tag は**ラベルの先頭語**なので、2 本とも `'M6 '` で始めれば `--only M6` で同時に入る。
+4. ⚠⚠ **M7 の `const equippedIds = apEquippedIdsFor(slot, classKey);` は
+   `renderActionPriority` と `pmRenderDrawer` の 2 箇所で文字列が完全一致** → 単体では exit 3。
+   引き出し側だけを狙う一意な行は `const nameOf = (id) => { … };` の **1 行版**
+   (`renderActionPriority` 側は同じ関数を複数行で書いているので衝突しない)。
+5. ⚠⚠⚠ **配信バイトは CRLF。** 複数行アンカーは `\r\n` を含めないと 0 件ヒットで exit 3。
+6. ⚠⚠⚠ **変異を全部同時に入れると互いを覆い隠す。** M1 を入れると背景タップで演出が閉じ、
+   §2〜§4 の母集団がまるごと消えて「誰の証拠か」が分からなくなる。**必ず `--only` で 1 本ずつ。**
+
+### 12-3. 既存 golden の非退行(2026-08-29 実測・**7 本すべて基準どおり / 期待値の変更 0 件**)
+
+| ドライバ | 基準 | **実測** |
+|---|---|---|
+| `node tools/verify_recruit_size.js` | 82/82 | **82/82 PASS** |
+| `node tools/verify_quest_walk.js` | 25/25 PENDING 0 | **25/25 PASSED / FAILED 0 / PENDING 0** |
+| `node tools/driver_depart_menu_clean.js` | 41/41 | **41/41 PASS** |
+| `node tools/driver_action_priority.js` | 92/92 PENDING 0 | **PASSED 92 / FAILED 0 / PENDING 0** |
+| `node tools/driver_party_view_reopen.js` | 35/35 | **35/35 PASSED / 0 FAILED / 0 PENDING** |
+| `node tools/verify_tavern_map.js` | 43/43 PENDING 0 | **43/43 PASSED / FAILED 0 / PENDING 0** |
+| `node tools/verify_player_sheet.js` | 70/70 PENDING 0 | **70/70 PASSED / FAILED 0 / PENDING 0** |
+
+### 12-4. 起草時の主張が崩れた 3 件(訂正は本文へ書き戻した)
+
+1. **§2 の行番号が 26 項目すべてズレていた** → §2-1 の訂正ブロック。
+2. **§2-1 / §4 が知らない `review` モードが `9b6f3b8` で増えていた** → §2-1 の訂正ブロック。
+   決定 = `#pmDepart` は **id 共通・ラベルだけ出し分け**、引き出しは両モードで開ける。
+3. **§2-2 / §4-4 の「golden 4 本」は誤りで実際は 5 本**(5 本目 = `driver_party_view_reopen` 35/35)。
+   さらに **`driver_action_priority` の基準 75/75 も古い**(#34 で 92/92)→ §2-2 / §4-4 の訂正ブロック。
+
+### 12-5. 実装中に採った逸脱 3 件(⛔ 依頼書の指示と違う形にした箇所)
+
+1. **カードへの `swallow` は無条件ではなく `done` の時だけ**(§4-4 の訂正ブロックに詳細)。
+   無条件に止めると開示中に `skipRest()` が走らず、**画面の大半が死に領域**になる。
+2. **カードのタップに `touchend` → `click` のゴーストクリック除けが要った。**
+   項目1 の時点では中身が no-op だったので露見しなかったが、`pmToggleDrawer` を入れた瞬間に
+   **実機の指 1 回で開いて即閉じる**ようになる(1 回のタップで `touchend` と `click` が両方飛ぶ)。
+3. **`#pmHint` の文言を実挙動に合わせ、`driver_party_view_reopen (4c)` は測定点を移した。**
+   背景タップ出発を廃止したのに文言が「タップして出発」のままだと嘘になる。ところが `(4c)` が
+   その文字列を **verbatim** で縛っていた。⛔ pending 化も削除もせず、**期待値を弱めず
+   1 条件 → 4 条件へ強化**して置き換えた(旧: `hint === "タップして出発"` /
+   新: **開示中の文言 ≠ 全確定後の文言** && `"出発"` を含む && `"準備へ戻る"` を**含まない**
+   && `"カード"` を含む && 母集団)。本数は **35 本のまま**、負のコントロール N1/N5 も赤のまま。
+   新文言 = `"カードを押して設定 ・ 下のボタンで出発"` / review は `"…下のボタンで準備へ戻る"`。
+   ⭐ **`?pmsetup=0` のときだけ従来の `"タップして出発"` に戻る**(撤退路が文言まで完全に戻る)。
+
+### 12-6. 実装中に判明した計測の知見(次の窓へ)
+
+- ⚠⚠ **「#prep が出ない」だけの assert は自明に緑になる。** `onTap` がもう閉じないので、
+  伝播を止めていなくても `(2a)`/`(2b)` は通る。→ **overlay が実際にイベントを受けた回数を数える**
+  `(2a-2)`/`(2b-2)` を併置した。負のコントロール M2 はこちらで数える。
+- ⚠⚠⚠ **「全カラムが `filled`」で待つと、まだ `phase === "reveal"`。** `step()` は最後の 1 枚を
+  埋めた後にもう一度 720ms のタイマを積むので、`filled + 750ms` で背景を叩くと `close` ではなく
+  `skipRest` に落ちる。**待つのは `finishReveal` が付ける `.pmWait`** + `PM_TAP_GATE`。
+- ⭐ **決定論的な編成は検証シーム `window.__pmTest.play` 経由で作る。**
+  `openPrep` 経由だと毎回 `regeneratePartyMembers()` が走って顔ぶれが変わり、
+  同職 2 人の母集団 `(4a-0)` が乱数任せになる。
+- ⚠ **`puppeteer` の `page.click('#btnPartyView')` は準備画面が縦に長いと
+  `Node is either not clickable or not an Element` で run ごと落ちる**(FATAL 1 本で他が測れなくなる)。
+  押しやすさを測らない場面では `evaluate` 内の `b.click()` にする。
+- ⚠⚠ **`(5a)`(1 バイトも変わらない)を `openPrep` 経由で測ってはいけない。**
+  `openPrep` は毎回 `regeneratePartyMembers()` を通って `selection` を書き換えるので、
+  **原理的に成立しない = 自明に赤い検出器**になる。測るのは `__pmTest.play` の一往復。
+
+### 12-7. 残件 = ユーザーの実機体感(§9)
+
+⚠ ローカルは **http 起動が必須**(`file://` 直開きだとナレ音声が無音)。**機械では測っていない 8 項目**:
+
+1. ⚠⚠⚠ **iPhone 実機で `<select>` を開いて閉じたとき、出発してしまわないか**(§2-3。最も壊れやすい)
+2. カードを押した瞬間の反応 —— どこを押しても開くのは邪魔でないか(⭐「下半分だけ」に変えてよい)
+3. 引き出しが開いたとき、**出発ボタンが指の届く位置に残っているか**(縦持ち)
+4. 暗幕の上でスキル項目が読めるか(§2-6 の上書きが効いているか)
+5. 同職 2 人のときの注記が**分かる文言**になっているか
+6. 戦士(技 10 本)で引き出しが縦に長くなりすぎないか。中のスクロールが自然か
+7. `?pmsetup=0` で従来の「タップして出発」に戻るか
+8. ⭐ 準備画面(`#prep`)の職業タブは**残してある**。二重で邪魔なら別チケットで整理する

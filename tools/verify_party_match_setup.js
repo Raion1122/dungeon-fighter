@@ -42,9 +42,9 @@
  *    (叩く直前に nFilled < nCols だったこと) を併せて出す。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────
- *   ⚠ 依頼書 §8 の変異表は M1〜M7 だが、M3〜M7 は STEP2 / STEP3 の実装 (引き出しの
- *     中身・再描画点の一本化・撤退スイッチの完成) が入ってからでないと注入点が無い。
- *     STEP1 の時点で成立する **M1 / M2 の 2 本だけ**をここに置く (残りは項目4)。
+ *   依頼書 §8 の変異表 **M1〜M7 を全部**内蔵している (項目4 で M3〜M7 を追加)。
+ *   ⚠⚠⚠ **1 本ずつ `--only <M>` で確定させること。** 全部同時に入れると互いを覆い隠す
+ *     (M1 が入ると背景タップで演出が閉じ、§2〜§4 の母集団がまるごと消える)。
  *   M1 ⭐: onTap に「全確定後の背景タップ = 閉じる」を戻す (#19 が警告した誤爆の再現)
  *          → **(1a) が赤くなる**こと。
  *   M2 ⭐: pmSwallowTaps から touchend の行だけ削る (依頼書 §2-3 の罠)
@@ -52,6 +52,18 @@
  *          ⚠ (2b) の本文 (#prep が出ない) は #35 以後 onTap が閉じないので M2 だけでは
  *            動かない。だから「イベントが overlay まで上がったか」を数える (2b-2) を
  *            併置している。⛔ (2b) を消して (2b-2) だけにしない (受入条件の文面は (2b))。
+ *   M3   : repaintAfterSkillChange の引き出しへの分岐を殺す (依頼書 §2-5 の罠 D)
+ *          → **(3d) が赤くなる**こと (selection は変わるのに引き出しの見出しが動かない)。
+ *   M4   : pmLoadoutRepaint から pmRefreshCards() を落とす (依頼書 §2-4)
+ *          → **(4a) が赤くなる**こと (同職 2 枚のカードが同期しない)。
+ *   M5 ⭐: close() から pmCloseDrawer() を外す (依頼書 §5-3)
+ *          → **(5b) が赤くなる**こと (pmLoadoutRepaint が残り準備画面が更新されない)。
+ *   M6   : #pmDrawer の max-height / overflow-y を外す (依頼書 §6)
+ *          → **(4c) が赤くなる**こと。⚠⚠⚠ 42vh だけ消しても 390px では
+ *            @media (max-width:720px) の 30vh が勝つので**両方**潰す (2 アンカー・同 tag)。
+ *   M7   : 傾向の候補を apEquippedIdsFor でなく slot.skillPool 全部にする (依頼書 §2-9)
+ *          → **(3b) が赤くなる**こと。
+ *   ⭐ M1 / M2 / M5 が §2 の罠 A / B / D の再現。
  */
 'use strict';
 
@@ -100,8 +112,43 @@ function mutate(label, anchor, patch) {
   INJECTED.push(tag);
   console.log('[driver] ★ 負のコントロール ' + label + ' を注入しました');
 }
-/* 変異 → 赤くなるべきラベルの担当表。--negative で空振りしたら exit 1。 */
-const NEG_EXPECT = { M1: ['(1a)'], M2: ['(2b-2)'] };
+/* 変異 → 赤くなるべきラベルの担当表。--negative で空振りしたら exit 1。
+   ⚠⚠⚠ この表は **机上で書いてはいけない**。`--only <M>` で 1 本ずつ走らせ、
+     実際に赤くなったラベルを見てから書く (#29 の実測: 7 本中 5 本が標的以外の節を
+     巻き込んだ)。標的以外の巻き添えは列挙しない —— 巻き添えを担当表へ書くと、
+     その節の母集団が消えただけの「偽の赤」で空振りを隠してしまう。 */
+const NEG_EXPECT = {
+  M1: ['(1a)'],
+  M2: ['(2b-2)'],
+  M3: ['(3d)'],
+  M4: ['(4a)'],
+  M5: ['(5b)'],
+  M6: ['(4c)'],
+  M7: ['(3b)'],
+};
+/* ⭐⭐⭐ `--only` を付けない `--negative` は、7 本を同時に入れると互いを覆い隠すので
+     **自分自身を 1 タグずつ子プロセスで呼び直す**。これで「空振り 0」が 1 コマンドで再現できる。
+   ⚠ 子は別ポートで立てる (前の run の残骸サーバがポートを掴んでいると全腕が空振りする)。
+   ⚠ 子でも mutate() は 7 本ぶん呼ばれる = **アンカーの健全性は毎回 7 本とも検査される**
+     (腐っていれば注入せずとも exit 3)。 */
+if (NEGATIVE && !ONLY.length) {
+  const { spawnSync } = require('child_process');
+  const tags = Object.keys(NEG_EXPECT);
+  const bad  = [];
+  console.log('[driver] --negative (一括): ' + tags.join(',') + ' を 1 本ずつ順に走らせます'
+    + '  ⚠ 同時注入は互いを覆い隠すので必ず 1 本ずつ');
+  tags.forEach((tag, i) => {
+    console.log('\n[driver] ══════════ ' + tag + ' ══════════');
+    const a = [__filename, '--negative', '--only', tag, '--port', String(PORT + 1 + i)];
+    if (HEADFUL) a.push('--headful');
+    const b = arg('browser', null); if (b) a.push('--browser', b);
+    const r = spawnSync(process.execPath, a, { stdio: 'inherit' });
+    if (r.status !== 0) bad.push(tag + ' (exit ' + r.status + ')');
+  });
+  if (bad.length) { console.error('\n[driver] --negative NG: ' + bad.join(' , ')); process.exit(1); }
+  console.log('\n[driver] --negative OK: ' + tags.length + ' 本すべて担当ラベルが赤くなりました (空振り 0)');
+  process.exit(0);
+}
 if (NEGATIVE) {
   mutate('M1 (全確定後の背景タップで閉じる挙動を戻す)',
     'if (!setupOn && gateOpen) close();',
@@ -109,6 +156,41 @@ if (NEGATIVE) {
   mutate('M2 (伝播止めから touchend の行だけ削る)',
     '    el.addEventListener("touchend", (ev) => { ev.stopPropagation(); });',
     '');
+  /* M3 — 依頼書 §2-5 の罠 D。再描画点の一本化を無かったことにし、
+       renderSkillItem の末尾が実質 renderCharLoadout() 直結だった頃へ戻す。
+     ⚠ アンカーに `saveSelections(); repaintAfterSkillChange();` は使えない
+       (3 箇所で同形 = exit 3)。一意なのは repaintAfterSkillChange の本体 1 行。 */
+  mutate('M3 (repaintAfterSkillChange の引き出しへの分岐を消す = renderCharLoadout 直結へ戻す)',
+    '    if (pmLoadoutRepaint) { pmLoadoutRepaint(); return; }',
+    '    /* M3: 引き出しへの分岐を殺した (準備画面だけを描き直す) */');
+  /* M4 — 依頼書 §2-4。同職 2 枚のカードが同期しなくなる。 */
+  mutate('M4 (pmLoadoutRepaint から pmRefreshCards() を落とす)',
+    '    pmLoadoutRepaint = function () { saveSelections(); pmRenderDrawer(pmDrawerIdx); pmRefreshCards(); };',
+    '    pmLoadoutRepaint = function () { saveSelections(); pmRenderDrawer(pmDrawerIdx); };');
+  /* M5 ⭐ — 依頼書 §5-3。引き出しを開いたまま出発すると pmLoadoutRepaint が残り、
+       準備画面のスキル選択が二度と反映されなくなる。
+     ⚠ close() の中に一意な 1 行が無い (`pmCloseDrawer();` は 8 スペース版が 2 箇所) ので
+       **直前のコメント行ごと**掴む。⚠ 4 スペース版 (演出を開くときのリセット) と混同しない。 */
+  mutate('M5 (close() から pmCloseDrawer() を外す = pmLoadoutRepaint が残る)',
+    '        //   描き直し先が引き出しのまま残り、準備画面のスキル選択が一切反映されなくなる。\r\n        pmCloseDrawer();',
+    '        //   描き直し先が引き出しのまま残り、準備画面のスキル選択が一切反映されなくなる。');
+  /* M6 — 依頼書 §6。⚠⚠⚠ 42vh を消すだけでは compact の (4c) は赤くならない。
+       390px では @media (max-width:720px) の 30vh が勝つので **両方**潰す。
+       ⭐ tag は label の先頭語なので、2 本とも 'M6 ' で始めれば --only M6 で同時に入る。 */
+  mutate('M6 (基底の #pmDrawer から max-height / overflow-y を外す)',
+    '      max-height: 42vh;\r\n      overflow-y: auto;\r\n',
+    '');
+  mutate('M6 (compact の #pmDrawer から max-height を外す ← 390px ではこちらが勝つ)',
+    '      #pmDrawer { max-height: 30vh; padding: 10px 11px; }',
+    '      #pmDrawer { padding: 10px 11px; }');
+  /* M7 — 依頼書 §2-9。傾向の候補を「枠に入れている技」でなく skillPool 全部にする。
+     ⚠⚠ `const equippedIds = apEquippedIdsFor(slot, classKey);` は renderActionPriority と
+       pmRenderDrawer の 2 箇所で完全一致 = exit 3。引き出し側だけを狙う一意な行は
+       nameOf の **1 行版** (renderActionPriority 側は同じ関数を複数行で書いている)。 */
+  mutate('M7 (傾向の候補を apEquippedIdsFor でなく slot.skillPool 全部にする)',
+    '    const nameOf = (id) => { const hit = slot.skillPool.find(sk => sk.id === id); return hit ? hit.name : id; };',
+    '    const nameOf = (id) => { const hit = slot.skillPool.find(sk => sk.id === id); return hit ? hit.name : id; };\r\n'
+    + '    equippedIds.length = 0; slot.skillPool.forEach(sk => equippedIds.push(sk.id));');
 }
 
 function loadPuppeteer() {
