@@ -730,7 +730,7 @@ py tools/add_changelog.py "<b>過去の冒険を読み返せる</b> — 直近 5
 | 項目1 | `b069a4a` | 記録係 `RunChronicle` と年代記(自前配列 / `EVENT_MAX = 40`)/ **死の 6 点**(`defeatEnemy` 1・`onHeadDowned` 1・仲間の `alive=false` 4)/ `showResult` からの `lastResult.chronicle` 書き出し / 酒場の `#chronicleOverlay`(z:170)と帰還後レポート |
 | 項目2 | `f8bb159` | **手番ラップ 1 点**(`for (const actor of units)`)+ **手番外 6 点**で与ダメ・被ダメ・回復・撃破を集計 / 隊列表(墨の棒グラフ)/ 装置の §2 を PASS へ |
 | 項目3 | `b2d638a` + `6aabbf3` + `d5484ff` | 空振り(未使用スロット・未発動スキル)/ 敗北リザルトの結論 1 行 / 記録棚 `dragonfighters.chronicles` 直近 5 件 / 装置を **PENDING 0** へ / (3b)(3c)(5b) を締め、(6b3) で新 HUD が「街へ出る」を塞がないことを `elementFromPoint` で縛る |
-| **項目4** | **(本コミット)** | **`--negative` で N1〜N8 を実装**(配信バイトへの実行時注入)/ **(1a) に罠 B の検出力を追加**((1z5) 新設)/ 本節 §13 と §9 の訂正 / `README.md` へ #37 行 |
+| **項目4** | `7d00eb3` | **`--negative` で N1〜N8 を実装**(配信バイトへの実行時注入)/ **(1a) に罠 B の検出力を追加**((1z5) 新設)/ 本節 §13 と §9 の訂正 / `README.md` へ #37 行 |
 
 ### 13-2. 装置の最終値
 
@@ -743,8 +743,8 @@ node tools/verify_run_chronicle.js
 新設した。理由は上の (1a) の訂正のとおり —— これが無いと **N3(罠 B)が空振りする**。
 
 ```
-node tools/verify_run_chronicle.js --negative
-  → 8 本すべてで担当ラベルが赤くなった (空振り 0)
+node tools/verify_run_chronicle.js --negative        (一括 = 子プロセスで 1 本ずつ / 1,692 秒 / exit 0)
+  → [driver] --negative OK: 8 本すべて担当ラベルが赤くなりました (空振り 0)
 ```
 
 | 変異 | 素点 | **赤くなったラベル(実測)** | うち担当 |
