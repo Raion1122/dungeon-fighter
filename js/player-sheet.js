@@ -503,6 +503,11 @@
     '  background-color: #efe2c0;',
     '  background-image: url("assets/character-sheet/parchment.png");',
     '  background-size: 512px 512px; background-repeat: repeat;',
+    /* ⚠⚠ 2026-08-29 実測: 納品された parchment.png は **ほぼ無彩色** (彩度 0.031 / R-B=7)。
+       そのまま敷くと紙が灰白色になる (CSS のクリーム #efe2c0 は R-B=47)。
+       ⭐ multiply でクリーム地へ掛けると、紙色の唯一の正が CSS 側に残り、
+          絵が 404 のときは従来どおりのクリームがそのまま出る。 */
+    '  background-blend-mode: multiply;',
     '  border: 2px solid #7a5a2c; border-radius: 10px;',
     '  color: #2a2118; font-family: "Noto Serif JP", "Cinzel", serif;',
     '  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);',
@@ -514,8 +519,22 @@
     '}',
     '@media (min-width: 640px) { #' + OVERLAY_ID + ' .dfSheetCols { grid-template-columns: repeat(2, 1fr); } }',
     '@media (min-width: 920px) { #' + OVERLAY_ID + ' .dfSheetCols { grid-template-columns: repeat(3, 1fr); } }',
+    /* ⚠ 供給口の無いページ (title/town/world/tavern) は B 段が丸ごと空なので段が 2 本しか出ない。
+       3 トラックのままだと **右 1/3 が丸ごと空く** (2026-08-29 に実機幅 1280 で目視)。
+       ⭐ 器の数は render が数えて紙へ札を貼る。CSS は札を見て幅とトラックを詰めるだけ。 */
+    '@media (min-width: 920px) {',
+    '  #' + OVERLAY_ID + ' .dfSheetPaper.dfCols2 { width: min(720px, 100%); }',
+    '  #' + OVERLAY_ID + ' .dfSheetPaper.dfCols2 .dfSheetCols { grid-template-columns: repeat(2, 1fr); }',
+    '}',
     '#' + OVERLAY_ID + ' .dfSheetCol { min-width: 0; }',
     '#' + OVERLAY_ID + ' .dfSheetHead { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }',
+    /* 見出し帯の下の飾り罫。⭐ 404 でも 12px の余白が残るだけで、読めなくならない
+       (⛔ 既存の border-bottom を透明にして絵に置き換える、はやらない)。 */
+    '#' + OVERLAY_ID + ' .dfSheetRule {',
+    '  display: block; height: 12px; margin: 10px 0 0;',
+    '  background-image: url("assets/character-sheet/rule_head.png");',
+    '  background-repeat: repeat-x; background-position: left center; background-size: auto 12px;',
+    '}',
     '#' + OVERLAY_ID + ' .dfSheetHead .dfSheetName { flex: 0 0 auto; margin-right: 10px; font-size: 26px; }',
     /* ── 能力値ボックス: 実物と同じ「小さな見出し / 特大の修正値 / 下端の丸に生スコア」 ── */
     '#' + OVERLAY_ID + ' .dfSheetAbilBox {',
@@ -895,7 +914,11 @@
       head.appendChild(blankBox("alignment", "属性", true));
       head.appendChild(statBox("経験点", String(d.xp),
         d.nextXp === null ? "最高位" : "次まで " + Math.max(0, d.nextXp - d.xp), "xp"));
-      inner.dfSheetSecHeader = head;
+      var rule = wrapDiv("dfSheetRule");
+      var headWrap = wrapDiv("");
+      headWrap.appendChild(head);
+      headWrap.appendChild(rule);
+      inner.dfSheetSecHeader = headWrap;
     }
 
     // ── 能力値: 6 個を **縦 1 列** に積む (5E シートの顔)
@@ -1061,6 +1084,12 @@
       placed++;
     }
     if (placed) host.appendChild(cols);
+    /* 段数の札。⭐ 「いくつ段が立ったか」を知っているのは render だけなので、ここで貼る。 */
+    var paperEl = document.getElementById("dfSheetPaper");
+    if (paperEl) {
+      paperEl.classList.remove("dfCols1", "dfCols2", "dfCols3");
+      paperEl.classList.add("dfCols" + Math.max(1, Math.min(3, placed)));
+    }
 
     LAST_AVAIL = avail;
     return d;

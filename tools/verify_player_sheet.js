@@ -189,44 +189,89 @@ const MUTATIONS = {
      ⚠⚠⚠ 実装するときは **1 本ずつ単体で回して** evaluable / allowRed を実測から決める
        (#29 で 7 本中 5 本が担当外を巻き込み、#34 で「全部同時だと互いを覆い隠す」を踏んだ)。 */
   savesfrom5e: {
-    impl: false, file: SHEET_JS, targets: ['8b'],
+    impl: true, file: SHEET_JS, targets: ['8b'],
+    from: '        var total = b.saves[vk] + b.saveBonus;',
+    to:   '        var total = (function () { if (!d.abilities) return b.saves[vk] + b.saveBonus; for (var _r = 0; _r < d.abilities.length; _r++) if (d.abilities[_r].key === vk) return d.abilities[_r].mod; return 0; })();',
+    want: { numbers: true }, evaluable: ['8b', '8c', '8d', '8e'], allowRed: ['8c'],
     why: '⭐⭐⭐ 依頼書 #36 §2-2 罠 A の再現。セーヴを playerStats (戦闘系) ではなく'
-       + ' DFAbilities.abilityMod() から出す。画面の数字が「実際に振られている値」と割れる。',
+       + ' DFAbilities.abilityMod() から出す。画面の数字が「実際に振られている値」と割れる。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 8b(担当) / 8c(主人公が ally の腕でも同じ式を通るので'
+       + ' 巻き込む。allowRed)。8d / 8e は緑のまま = 先制と武器は別経路であることの傍証。',
   },
   blankdata: {
-    impl: false, file: SHEET_JS, targets: ['6c'],
+    impl: true, file: SHEET_JS, targets: ['6c'],
+    from: '        box.setAttribute("data-ability", a.key);',
+    to:   '        box.setAttribute("data-blank", "inspiration");',
+    want: { pages: true, pagesBX: true },
+    evaluable: ['2a', '2b', '2c', '2d', '6a', '6b', '6c', '6d'],
+    allowRed: ['2a', '2b', '6a', '6d'],
     why: '⭐⭐⭐ 依頼書 #36 §2-4 罠 C の再現。能力値の区画から data-ability を落として'
-       + ' data-blank に置き換える = 実データのある区画を空欄枠にすり替える。',
+       + ' data-blank に置き換える = 実データのある区画を空欄枠にすり替える。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 6c(担当) / 2a・2b(能力値が消えるので当然) /'
+       + ' 6a(同じ id の空欄セルが 6 個に増える) / 6d(能力値の文字がそのまま空欄セルに残り'
+       + ' 「敏捷力-19」のように - や 0 を含んでしまう)。⭐⭐ 2c と 6b が緑のままなのが肝で、'
+       + ' 「区画の出し入れ」だけを見ていたら 1 本も捕まらない欠陥であることを示している。',
   },
   blankundeclared: {
-    impl: false, file: SHEET_JS, targets: ['6a'],
-    why: 'ホワイトリストに無い空欄セル (data-blank="foo") を 1 つ足す。'
-       + ' 宣言と実物がズレていることを機械証明する。',
+    impl: true, file: SHEET_JS, targets: ['6a'],
+    from: '    var pergroup = wrapDiv("");',
+    to:   '    var pergroup = wrapDiv(""); pergroup.appendChild(blankBox("nosuchfield", "\u8b0e\u306e\u6b04", false));',
+    want: { pages: true }, evaluable: ['2c', '6a', '6b', '6c', '6d'], allowRed: [],
+    why: 'ホワイトリストに無い空欄セル (data-blank="nosuchfield") を 1 つ足す。'
+       + ' 宣言と実物がズレていることを機械証明する。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 6a だけ。宣言 (BLANK_FIELD_IDS) と DOM を'
+       + ' 突き合わせる節が無いと、空欄枠はいくらでも増やせてしまう。',
   },
   headmix: {
-    impl: false, file: INDEX_HTML, targets: ['8c'],
+    impl: true, file: INDEX_HTML, targets: ['8c'],
+    from: '          const st = src.st || {};',
+    to:   '          const st = playerStats;',
+    want: { numbers: true }, evaluable: ['8b', '8c', '8d', '8e'], allowRed: [],
     why: '⭐ 依頼書 #36 §2-7 の罠。供給口の新フィールドだけ heroIsHead の分岐を通さず'
-       + ' playerStats を直読みする = 「HP は主人公 / セーヴは頭の NPC」の混ざった紙が出る。',
+       + ' playerStats を直読みする = 「HP は主人公 / セーヴは頭の NPC」の混ざった紙が出る。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 8c だけ。⭐⭐ 8b が緑のままなのが肝 —'
+       + ' 頭が主人公の編成では src も playerStats も同じ物を指すので **原理的に検出できない**。'
+       + ' 頭が NPC になる編成 (主人公 mage) を別に用意していないと、この欠陥は一生見つからない。',
   },
   emptycol: {
-    impl: false, file: SHEET_JS, targets: ['7b'],
+    impl: true, file: SHEET_JS, targets: ['7b'],
+    from: '      if (!members.length) continue;',
+    to:   '      if (false) { continue; }',
+    want: { pages: true }, evaluable: ['2c', '6c', '7b', '7c'], allowRed: [],
     why: '中身が 0 の段も常に描く。title/town/world では B 段が丸ごと空なので、'
-       + ' 置くと右に幅ぶんの余白が出る (見た目だけの欠陥は DOM の件数でしか捕まらない)。',
+       + ' 置くと右に幅ぶんの余白が出る (見た目だけの欠陥は DOM の件数でしか捕まらない)。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 7b だけ。区画の出し入れ (2c) は正しいままなので、'
+       + ' 「器を数える」節が無いと 5 枚中 4 枚がスカスカでも全部緑になる。',
   },
   abilrow: {
-    impl: false, file: SHEET_JS, targets: ['7c'],
+    impl: true, file: SHEET_JS, targets: ['7c'],
+    from: "    '  display: block; position: relative; box-sizing: border-box;',",
+    to:   "    '  display: inline-block; width: 30%; vertical-align: top; position: relative; box-sizing: border-box;',",
+    want: { pages: true, widths: true }, evaluable: ['2a', '2c', '7a', '7b', '7c', '7d'], allowRed: [],
     why: '能力値ボックスを横並びに戻す。5E シートの顔は「縦 1 列に積まれた 6 個」なので、'
-       + ' 数字が全部合っていても体裁としては失敗している。',
+       + ' 数字が全部合っていても体裁としては失敗している。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 7c だけ (left=150/244/338 の 2 行 × 3 列になる)。'
+       + ' 数値の節も段組の節も横スクロールの節も緑 = 「並び」を見る節はこれ 1 本しかない。',
   },
   retreatkeep: {
-    impl: false, file: SHEET_JS, targets: ['8a'],
+    impl: true, file: SHEET_JS, targets: ['8a'],
+    from: '    SHEET5E = new URLSearchParams(global.location.search).get("sheet5e") !== "0";',
+    to:   '    SHEET5E = true || new URLSearchParams(global.location.search).get("sheet5e") !== "0";',
+    want: { retreat5e: true }, evaluable: ['8a', '9a', '9b', '9c'], allowRed: [],
     why: '?sheet5e=0 でも 11 区画のまま = 撤退スイッチが効かない。'
-       + ' ⭐ 撤退路は「付ければ #29 の姿へ戻る」ことまで含めて機械証明する。',
+       + ' ⭐ 撤退路は「付ければ #29 の姿へ戻る」ことまで含めて機械証明する。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 8a だけ。9a〜9c (pageerror / localStorage / HUD) は'
+       + ' 撤退が効いていなくても緑になるので、恒等の節だけでは撤退路を守れない。',
   },
   initfrom5e: {
-    impl: false, file: SHEET_JS, targets: ['8d'],
+    impl: true, file: SHEET_JS, targets: ['8d'],
+    from: '        (typeof b.initiative === "number") ? signed(b.initiative) : "?", "d20 \u306b\u52a0\u7b97", "initiative"));',
+    to:   '        (d.abilities ? signed((function () { for (var _q = 0; _q < d.abilities.length; _q++) if (d.abilities[_q].key === "dex") return d.abilities[_q].mod; return 0; })()) : "?"), "d20 \u306b\u52a0\u7b97", "initiative"));',
+    want: { numbers: true }, evaluable: ['8b', '8c', '8d', '8e'], allowRed: ['8c'],
     why: '先制を DFAbilities.abilityMod(DEX スコア) から出す。罠 A と同根で、'
-       + ' index.html:19774 の u.initiative = d20() + u.dex とは別系統の数字になる。',
+       + ' index.html:19774 の u.initiative = d20() + u.dex とは別系統の数字になる。'
+       + ' ⭐ 2026-08-29 の単体診断: 赤 = 8d(担当) / 8c(先制も見ているので巻き込む。allowRed)。'
+       + ' 8b が緑 = セーヴと先制が別経路であることの傍証。',
   },
 };
 const MUT_ORDER = ['wipeorder', 'fixedsave', 'nocha', 'ownmod', 'blankrow', 'fixedbtn', 'closedread',
