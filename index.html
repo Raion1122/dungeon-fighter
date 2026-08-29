@@ -2869,6 +2869,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
+  <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 の純粋関数群 (幾何の単一の情報源)。map-editor.html と共有。
        ⚠ 本ファイルが 404 になると幾何が作れずゲーム全損 → index.html 側に
@@ -17890,8 +17891,36 @@
           /* ⭐ 主人公が隊列の頭でない (= mid/rear 職) とき、hp / playerStats は
              **頭に立っている NPC 仲間**の値になる。シートは「主人公の」体を出す場所なので、
              その時は heroRef (allies の中の主人公) を見る。⛔ 頭の値をそのまま出さない。 */
-          if (!heroIsHead && heroRef) return { hp: heroRef.hp, maxHp: heroRef.maxHp, ac: heroRef.ac };
-          return { hp: hp, maxHp: maxHp, ac: playerStats.ac };
+          /* ⭐⭐⭐ #36: まず「誰の体か」を **1 回だけ** 決めてから組む。
+             ⛔ フィールドごとに heroIsHead を書くと、必ずどれか 1 本を書き忘れて
+                「HP は主人公 / セーヴは頭の NPC」という混ざった紙が出る (#29 が HP/AC で踏んだ穴)。
+             ⚠ createAlly が str/dex/con/int/wis・atkBonus・ac・dmgDice・def・equippedSkills を
+                全部持つので、材料は heroRef 側にも揃っている。 */
+          const src = (!heroIsHead && heroRef)
+            ? { hp: heroRef.hp, maxHp: heroRef.maxHp, st: heroRef,
+                def: heroRef.def, skills: heroRef.equippedSkills, unit: heroRef }
+            : { hp: hp, maxHp: maxHp, st: playerStats,
+                def: CLASS_DEFS[leaderClassKey], skills: equippedSkills, unit: "player" };
+          const st = src.st || {};
+          return {
+            hp: src.hp, maxHp: src.maxHp, ac: st.ac,        // ← 既存 3 つ。契約は 1 文字も変えない
+            /* ── ここから #36 で足す分 (5E キャラクターシートの材料) ──────────────
+               ⛔ セーヴを js/abilities.js の 5e 修正値から出さないこと。本作で実際に
+                  振られているのは playerStats / ally の 戦闘系 0〜4 (依頼書 #36 §2-2 罠 A)。
+               ⛔ 魅力 (cha) は playerStats に無いので **行ごと作らない**。 */
+            saves: { str: st.str | 0, dex: st.dex | 0, con: st.con | 0, int: st.int | 0, wis: st.wis | 0 },
+            saveBonus: (typeof getSaveBonus === "function") ? getSaveBonus(src.unit) : 0,
+            initiative: st.dex | 0,   // ⚠ u.initiative = d20() + u.dex と同じ系統 (5e 修正値ではない)
+            speedTiles: 1,            // パーティは 1 手番 1 タイル前進 (ブレス/ヘイストで 2)
+            weaponName: (src.def && src.def.weaponName) || null,
+            armorName:  (src.def && src.def.armorName)  || null,
+            atkBonus: st.atkBonus, dmgDice: st.dmgDice, dmgBonus: st.dmgBonus,
+            critRange: st.critRange, critMult: st.critMult, weaponRange: st.weaponRange,
+            skillNames: (src.skills || []).map(function (id) {
+              const sk = (typeof getSkill === "function") ? getSkill(id) : null;
+              return (sk && sk.name) ? sk.name : id;
+            }),
+          };
         });
       }
     } catch (e) { /* シート未搭載 (?sheet=0) でも本体は落ちない */ }

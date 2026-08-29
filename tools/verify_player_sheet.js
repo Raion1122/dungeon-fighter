@@ -155,9 +155,13 @@ const MUTATIONS = {
   },
   blankrow: {
     impl: true, file: SHEET_JS, targets: ['2c'],
-    from: '    LAST_AVAIL = avail;',
-    to:   '    for (var _bz = 0; _bz < SECTION_IDS.length; _bz++) { if (!avail[SECTION_IDS[_bz]]) host.appendChild(sectionEl(defOf(SECTION_IDS[_bz]), document.createElement("div"))); }\n'
-        + '    LAST_AVAIL = avail;',
+    /* ⚠⚠ #36 で renderV1 / renderV2 の 2 箇所に `LAST_AVAIL = avail;` が並んだため、
+       アンカーを **renderV2 にしか無い 1 行** へ張り直した (2 ヒットすると exit 3 で即死する)。
+       ⭐ 既に DOM に居る区画は飛ばす = 宣言済みの空欄枠 (Persona) を二重に置かない。
+          「取れなかった区画を空文字で描く」だけを純粋に再現する。 */
+    from: '    if (placed) host.appendChild(cols);',
+    to:   '    if (placed) host.appendChild(cols);\n'
+        + '    for (var _bz = 0; _bz < SECTION_IDS.length; _bz++) { if (!avail[SECTION_IDS[_bz]] && !host.querySelector("#" + SECTION_IDS[_bz])) host.appendChild(sectionEl(defOf(SECTION_IDS[_bz]), document.createElement("div"))); }',
     want: { pages: true }, evaluable: ['2a', '2c', '2d'], allowRed: ['2d'],
     why: '⭐⭐ 取れない区画を「行ごと消す」でなく空文字で描く。'
        + ' 画面はどちらも同じに見えるので、__state() の avail と inDom を'

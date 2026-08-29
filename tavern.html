@@ -2041,6 +2041,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
+  <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 (幾何・敵スロットの唯一の情報源)。index.html / map-editor.html と共有。
        ここから敵スロット座標を引くことで、部屋を動かしたときに tavern だけ旧座標が取り残される
@@ -2398,10 +2399,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>キャラクターシートが本物の冒険者の紙に</b> — 能力値・セーヴ・技能・攻撃・特徴が羊皮紙の三段組に並ぶようになった。</li>
         <li><b>出発の準備から仲間の顔ぶれを見直せる</b> — 「編成を見る」で、受注のときのカードをいつでも開き直せる。装備を替えた後に開けばその武器で並ぶ。</li>
         <li><b>仲間の戦士が指示どおりの技を使うようになった</b> — 強斬りや盾バッシュなど、これまで通常攻撃しかしなかった仲間の戦士が、出発前に指定した傾向で動く。</li>
         <li><b>キャラクターシートを追加</b> — いつでも開いて、能力値・技能・話せる言語を確かめられるようになった。</li>
-        <li><b>技能判定を D&D 5e 方式へ</b> — 罠解除・隠密・運動など、得意分野の判定がわずかに通りやすくなった。</li>
       </ul>
     </div>
     <script>
