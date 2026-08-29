@@ -13788,6 +13788,188 @@
       if (/(ミス|ファンブル|スタン|OUT OF RANGE|射程外|行動不能)/i.test(msg)) return "miss";
       return "";
     }
+    /* ══════════ 冒険の年代記 (#37 STEP1) ══════════════════════════════════════
+     * 1 回の冒険で「誰が・どこで・何に倒れたか」を溜め、帰還時に lastResult へ載せる記録係。
+     * ⛔ 戦闘ログ (combatLogLines) を源にしない。あれは固定長のリングバッファで 1 ラン分を
+     *    保持できない (依頼書 #37 §2-4)。ここは自前の配列を持つ。
+     * ⛔ 記録の出所を 2 つ作らない。唯一の正は snapshot() が返す 1 個のオブジェクトで、
+     *    tavern.html 側は**読むだけ**。数字を作り直さない。
+     * ⛔ 保存キーの前置詞 "dragonfighters." を変えないこと。js/save-slots.js の keysOf() が
+     *    前置詞で総なめしており、スロット振り分けと新規ゲームでの消去がタダで付く (§2-6)。
+     * ⛔ アクセサ (Object.defineProperty) 方式は不採用 (§2-2)。.hp の**読み**が HP バー描画と
+     *    AI のターゲット選択で高頻度に走るため、書込みを畳む目的で読みにコストを乗せない。
+     * ⛔ 撤退 = ?chronicle=0 → 全 API が即 return する (記録も表示も一切起きない)。 */
+    const CHRONICLE_ON = !/[?&]chronicle=0(&|$)/.test(location.search);
+    const RunChronicle = (() => {
+      /* key -> { name, classKey, isHero, dealt, taken, kills, healed, fellAt } */
+      const members = new Map();
+      /* { round, node, kind, who, by, text }
+       *   kind:"fall" … who = 倒れた者 / by = 加害者 (不明なら null)
+       *   kind:"kill" … who = 倒された敵 / by = 討ち取った者 (不明なら null) */
+      const events = [];
+      const EVENT_MAX = 40;    // 年代記の上限 (localStorage 肥大の歯止め)
+      let round = 0;           // いま戦っているラウンド (イベントの刻印用)
+      let roundsTotal = 0;     // 全戦闘のラウンド合計 (snapshot の rounds)
+      let kills = 0;           // 撃破の総数。⚠ events は EVENT_MAX で溢れるのでこちらが正
+      let curActor = null;     // いまの行動者の表示名 (STEP2 の手番ラップが入れる)
+
+      /* 「どこで」= 部屋名。場所と名前がある文だけが記録になる (依頼書 §9 (1b))。
+         ⚠ RUN / currentNodeId はこの位置より後で宣言される let なので、初期化前に触ると
+           TDZ の ReferenceError になる (typeof でも投げる)。必ず try で受ける。 */
+      function here() {
+        try {
+          const n = (RUN && RUN.byId && currentNodeId) ? RUN.byId[currentNodeId] : null;
+          if (n && n.mapDef && n.mapDef.name) return n.mapDef.name;
+          if (n && n.name) return n.name;
+        } catch (e) { /* 分岐グラフが無い / 初期化前 */ }
+        try {
+          if (currentScenario && currentScenario.title) return currentScenario.title;
+        } catch (e) { /* 初期化前 */ }
+        return "道中";
+      }
+
+      /* ユニット → { name, classKey, isHero }。頭は { head:true } を渡す。 */
+      function profileOf(u) {
+        if (!u) return null;
+        if (u.head === true) {
+          let hero = false, name = null, cls = null;
+          try { hero = !!heroIsHead; } catch (e) {}
+          try { cls = leaderClassKey; } catch (e) {}
+          try { name = hero ? "あなた" : getLeaderName(); } catch (e) {}
+          return { name: name || "頭", classKey: cls || null, isHero: hero };
+        }
+        const nm = u.npcName || (u.isHero ? "あなた" : (u.def && u.def.name)) || "仲間";
+        return { name: nm, classKey: u.classKey || null, isHero: !!u.isHero };
+      }
+
+      /* 手番ディスパッチが渡す actor ({kind,ally,idx}) / 文字列 / ally をすべて名前へ畳む。 */
+      function actorName(a) {
+        if (!a) return null;
+        if (typeof a === "string") return a;
+        try {
+          if (a.kind === "player" || a.head === true) return profileOf({ head: true }).name;
+          if (a.kind === "ally"  && a.ally) return profileOf(a.ally).name;
+          if (a.kind === "enemy" && enemies[a.idx] && enemies[a.idx].def) return enemies[a.idx].def.name;
+        } catch (e) { /* 初期化前 */ }
+        if (a.npcName || a.def) { const p = profileOf(a); return p && p.name; }
+        return null;
+      }
+
+      function keyOf(p) { return "u:" + p.name + "/" + (p.classKey || ""); }
+
+      function ensure(u) {
+        const p = profileOf(u);
+        if (!p) return null;
+        const k = keyOf(p);
+        let m = members.get(k);
+        if (!m) {
+          m = { name: p.name, classKey: p.classKey, isHero: p.isHero,
+                dealt: 0, taken: 0, kills: 0, healed: 0, fellAt: null };
+          members.set(k, m);
+        }
+        return m;
+      }
+
+      function memberByName(name) {
+        if (!name) return null;
+        for (const m of members.values()) if (m.name === name) return m;
+        return null;
+      }
+
+      function push(ev) {
+        events.push(ev);
+        /* 溢れたら「倒れた」以外の最古から捨てる。
+           ⚠ 素の shift だと fall が撃破行に押し流され、(1a)「仲間が倒れた回数 =
+             年代記の fall イベント数」が原理的に成立しなくなる。 */
+        while (events.length > EVENT_MAX) {
+          let i = events.findIndex(e => e.kind !== "fall");
+          if (i < 0) i = 0;
+          events.splice(i, 1);
+        }
+      }
+
+      /* 出発時の顔ぶれを members へ流し込む (何もしなかった者も隊列表に載せるため)。 */
+      function syncRoster() {
+        ensure({ head: true });
+        try {
+          if (Array.isArray(allies)) for (const a of allies) ensure(a);
+        } catch (e) { /* 初期化前 */ }
+      }
+
+      return {
+        /* ラウンドの刻印。戦闘の while ループが 1 ラウンド 1 回だけ呼ぶ。 */
+        setRound(r) {
+          if (!CHRONICLE_ON) return;
+          round = r || 0;
+          roundsTotal++;
+        },
+
+        /* ⚠ 中身 (全ユニットの hp を控える) は STEP2 = 依頼書 §5-1 の担当。
+           ここでは「いまの行動者」だけ控える。返り値はそのまま endTurn へ渡すこと。 */
+        beginTurn(actor) {
+          if (!CHRONICLE_ON) return null;
+          curActor = actorName(actor);
+          return { actor: curActor };
+        },
+        /* ⚠ 中身 (hp 差分を actor へ帰属 / delta<0=ダメージ, delta>0=回復) は STEP2 の担当。 */
+        endTurn(snap) {
+          if (!CHRONICLE_ON) return;
+          curActor = null;
+        },
+
+        /* 敵の撃破。呼び口は defeatEnemy ただ 1 点 (呼び出しは 33 箇所あるが集約されている)。
+           ⚠ actor を省略したときは手番ラップが控えた行動者へ帰属する。 */
+        kill(actor, enemyDef) {
+          if (!CHRONICLE_ON) return;
+          kills++;
+          const who = (enemyDef && enemyDef.name) || "敵";
+          const by = actorName(actor) || curActor || null;
+          const m = by ? memberByName(by) : null;
+          if (m) m.kills++;
+          const node = here();
+          push({ round: round, node: node, kind: "kill", who: who, by: by,
+                 text: by ? (node + "にて " + by + " が " + who + " を討ち取った")
+                          : (node + "にて " + who + " を討ち取った") });
+        },
+
+        /* 倒れた。頭は fall({head:true}, 加害者名)、仲間は fall(ally, 加害者名)。 */
+        fall(unit, byName) {
+          if (!CHRONICLE_ON) return;
+          const m = ensure(unit);
+          if (!m) return;
+          const node = here();
+          /* 同じラウンド・同じ部屋の二重記録は 1 行に畳む (呼び口が 2 度通る経路の保険)。
+             ⚠ 頭が委譲で入れ替わった後の死は別ラウンド or 別の部屋なので必ず残る。 */
+          if (m.fellAt && m.fellAt.round === round && m.fellAt.node === node) return;
+          m.fellAt = { round: round, node: node };
+          const by = byName || curActor || null;
+          push({ round: round, node: node, kind: "fall", who: m.name, by: by,
+                 text: by ? (node + "にて " + m.name + " は " + by + " に倒れた")
+                          : (node + "にて " + m.name + " は倒れた") });
+        },
+
+        /* showResult から 1 回だけ呼ぶ。これが年代記の唯一の正 (tavern は読むだけ)。 */
+        snapshot(outcome) {
+          if (!CHRONICLE_ON) return null;
+          syncRoster();
+          return {
+            v: 1,
+            outcome: outcome || null,
+            rounds: roundsTotal,
+            kills: kills,
+            members: Array.from(members.values()).map(m => ({
+              name: m.name, classKey: m.classKey, isHero: m.isHero,
+              dealt: m.dealt, taken: m.taken, kills: m.kills, healed: m.healed,
+              fellAt: m.fellAt,
+            })),
+            events: events.slice(),
+            idle: null,       /* STEP3 (依頼書 §6-1): 余った呪文スロット / 未発動スキル */
+            lastBlow: null,   /* STEP3 (依頼書 §6-2): とどめの一撃 / 残存敵数 (敗北時のみ) */
+          };
+        },
+      };
+    })();
+
     function appendLog(msg, cls) {
       if (!msg) return;
       const finalCls = cls || autoClassifyLog(msg);
@@ -15670,6 +15852,7 @@
         }
       }
       enemy.alive = false;
+      RunChronicle.kill(null, enemy.def);   // 年代記 (#37): 撃破の唯一の集約点 (呼び口 33 箇所)
       enemy.__diagDead = true;   // 自動デバッグ: 死亡反転検出マーカー
       // コインドロップは廃止 (報酬は宝箱とクリア報酬に集約)
       enemy.coinVisible = false;
@@ -18020,6 +18203,10 @@
 
     // 頭が hp<=0 になった時: 主人公頭なら GO(false)、NPC頭なら委譲を試みる(成功=true で継続)
     function onHeadDowned(context) {
+      /* 年代記 (#37): 頭 (主人公 / 委譲先 NPC) の死。⚠ 委譲の判定より**前**に置く —
+         ここを通った時点で「今の頭は倒れた」が確定しており、委譲の成否とは無関係。
+         ⚠ 加害者名は手番ラップが控えた行動者から補われる (STEP2)。 */
+      RunChronicle.fall({ head: true }, null);
       if (heroIsHead) return false;       // 頭=主人公の死 → GO
       return tryPromoteNewHead(context);  // NPC頭 → 委譲(不能なら false=GO)
     }
@@ -19865,6 +20052,7 @@
 
           showBanner(`ROUND ${round}`, 850);
           if (window.__diag) window.__diag.beat("round", round);   // 自動デバッグ: ラウンド進行
+          RunChronicle.setRound(round);   // 年代記 (#37): ラウンドの刻印 (1 ラウンド 1 回)
           await sleepMs(650);
 
           // エルフ コードン・オブ・アロー: 設置ゾーンをラウンド開始時に発動
@@ -24645,6 +24833,7 @@
       updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ${trapResilientNote}`);
       showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
       if (ally.hp <= 0) {
+        RunChronicle.fall(ally, "罠");   // 年代記 (#37): 仲間の死 1/4
         ally.alive = false;
         updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
         if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
@@ -27265,6 +27454,7 @@
         updateInfo(`${aName} は暴走し、味方の ${tName} に ${dmg} ダメージ! HP ${a.hp}/${a.maxHp}`);
         await sleepMs(450);
         if (a.hp <= 0) {
+          RunChronicle.fall(a, aName + " の同士討ち");   // 年代記 (#37): 仲間の死 2/4
           a.alive = false;
           updateInfo(`${a.npcName || a.def.name} は同士討ちで倒れた…`);
           if (a.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
@@ -30223,6 +30413,7 @@
       showDmgAt(tCX, a.y, dmg, false);
       updateInfo(`${a.def.name} は火球で ${dmg} ダメージ! HP ${a.hp}/${a.maxHp}`);
       if (a.hp <= 0) {
+        RunChronicle.fall(a, "火炎ブレス");   // 年代記 (#37): 仲間の死 3/4
         a.alive = false;
         updateInfo(`${a.npcName || a.def.name} は倒れた…`);
         if (a.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
@@ -32093,6 +32284,7 @@
       await sleepMs(500);
 
       if (ally.hp <= 0) {
+        RunChronicle.fall(ally, def.name);   // 年代記 (#37): 仲間の死 4/4 (敵の攻撃)
         ally.alive = false;
         updateInfo(`${ally.npcName || ally.def.name} は倒れた…`);
         if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
@@ -35675,6 +35867,10 @@
         cleared: !!win,
         defeated: !win,
         reward,
+        /* 年代記 (#37): 帰還後レポートの唯一の正。?chronicle=0 のときは snapshot() が
+           null を返し、JSON.stringify が undefined のキーを落とすので lastResult は
+           従来と 1 バイトも変わらない (受入条件 (6a))。 */
+        chronicle: RunChronicle.snapshot(win ? "clear" : "defeat") || undefined,
       }));
     }
     resultBtnEl.addEventListener("click", () => {
@@ -35736,6 +35932,10 @@
             earnedXp: earnedXpThisRun,
             totalXp:  currentTotalXp,
           },
+          /* 年代記 (#37): 帰還後レポートの唯一の正。?chronicle=0 のときは snapshot() が
+             null を返し、JSON.stringify が undefined のキーを落とすので lastResult は
+             従来と 1 バイトも変わらない (受入条件 (6a))。 */
+          chronicle: RunChronicle.snapshot("retreat") || undefined,
         }));
         window.location.href = dfReturnPage();   // 帰還② 撤退 (探索中の離脱)
       });

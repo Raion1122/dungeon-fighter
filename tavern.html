@@ -1477,6 +1477,78 @@
     #shopConfirmText { font-size: 15px; margin-bottom: 16px; }
     .shopConfirmBtns { display: flex; gap: 12px; justify-content: center; }
 
+    /* ── 冒険の年代記 (#37 STEP1): 帰還後レポート ──────────────────────────
+       z-index 170 は tavern.html の空き番地。武器防具屋(160) / 闇市(150) は覆い、
+       プロローグ(200) / マッチング(210) / キャラクターシート(220) には覆われる。
+       ⛔ 新しいカラー変数を作らない。地は既存の --parchment-* (依頼書 §2-7)。 */
+    #chronicleOverlay {
+      position: fixed; inset: 0; z-index: 170; display: none;
+      align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse at 50% 26%, rgba(70,45,15,0.30) 0%, rgba(18,12,5,0.88) 74%),
+        rgba(10,8,5,0.9);
+    }
+    #chronicleOverlay.show { display: flex; }
+    #chronicleInner {
+      width: min(620px, 94vw); max-height: 84vh;
+      display: flex; flex-direction: column;
+      padding: 18px 20px 16px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-gold);
+      border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+      color: var(--parchment-ink);
+    }
+    #chronicleSign {
+      font-family: 'MedievalSharp', serif; font-size: 22px; letter-spacing: 3px;
+      text-align: center;
+    }
+    #chronicleSign small {
+      display: block; font-size: 12px; letter-spacing: 0; margin-top: 5px;
+      color: var(--parchment-ink-soft); font-family: 'Cinzel', serif;
+    }
+    /* ⚠ スクロールするのは本文だけ。器ごとスクロールさせると閉じるボタンが流れて届かなくなる。 */
+    #chronicleBody {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      margin: 12px 0; padding-right: 4px;
+      font-size: 14px; line-height: 1.7;
+    }
+    .chLead {
+      font-family: 'Cinzel', serif; font-size: 13px; color: var(--parchment-ink-soft);
+      border-bottom: 1px dashed rgba(139,105,20,0.45);
+      padding-bottom: 8px; margin-bottom: 8px;
+    }
+    .chEvents { list-style: none; margin: 0; padding: 0; }
+    .chEvents li {
+      padding: 5px 9px; margin-bottom: 4px;
+      border-left: 3px solid rgba(139,105,20,0.35); border-radius: 0 4px 4px 0;
+      /* ⚠ 説明文に opacity を掛けない (#15 の実測: 羊皮紙の斑に食われる)。
+         読みやすさはクリーム色の薄掛けで作る。 */
+      background: rgba(255,245,210,0.42);
+    }
+    .chEvents li.fall { border-left-color: #8b2010; }
+    .chRound {
+      font-family: 'Cinzel', serif; font-size: 11px;
+      color: var(--parchment-ink-soft); margin-right: 7px; white-space: nowrap;
+    }
+    .chEmpty { padding: 18px; text-align: center; font-style: italic; color: var(--parchment-ink-soft); }
+    /* ⚠ iOS: 明示的な閉じるボタンはタップ領域 44px 以上 (依頼書 §9 (5a))。 */
+    #chronicleClose {
+      display: block; margin: 0 auto; min-height: 44px; min-width: 168px;
+      padding: 10px 22px; cursor: pointer;
+      font-size: 14px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
+      border: 2px solid var(--parchment-gold); border-radius: 5px;
+    }
+    /* 帰還バナー末尾の「📜 記録を読む」。⚠ こちらも 44px 以上。 */
+    #chronicleOpenBtn {
+      display: block; margin: 10px auto 0; min-height: 44px; min-width: 168px;
+      padding: 10px 20px; cursor: pointer;
+      font-size: 14px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
+      border: 2px solid var(--parchment-gold); border-radius: 5px;
+    }
+
     /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
     /* 背景 = 夜の地下闇市 一枚絵 (assets/plaza_bg.png)。暗色 radial-gradient を可読性ヴェールとして上に薄く重ね、
        中央は絵を透かし、周縁を締めて UI パネルの可読性を確保する。銀の鹿亭(暖色酒場)との対比トーン。 */
@@ -2313,6 +2385,17 @@
       <div class="dmHint" id="dmHint">クリックで続ける</div>
     </div>
   </div>
+  <!-- 冒険の年代記 (#37 STEP1): 帰還後レポート。z-index:170 は tavern.html の空き番地。
+       ⛔ 中身は JS が index.html の RunChronicle.snapshot() から描く。
+          こちらは**読むだけ**で数字を作り直さない (記録の出所を 2 つにしない)。 -->
+  <div id="chronicleOverlay" aria-hidden="true">
+    <div id="chronicleInner" role="dialog" aria-label="冒険の年代記">
+      <div id="chronicleSign">📜 冒険の年代記<small id="chronicleSub"></small></div>
+      <div id="chronicleBody"></div>
+      <button type="button" id="chronicleClose">閉じる</button>
+    </div>
+  </div>
+
 
   <!-- パーティ・マッチング演出 (4カラム編成ビュー)。受注直後に仲間を順に開示する全画面シネマ。 -->
   <div id="partyMatchOverlay" aria-hidden="true">
@@ -2540,10 +2623,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>冒険の記録が残るようになった</b> — 帰還後、酒場の羊皮紙で「誰がどこで何に倒れたか」を読み返せる。</li>
         <li><b>設定の引き出しが暗い画面に馴染むようになった</b> — 技の一覧が暗幕の上でもはっきり読めるようになり、今どのカードを開いているかも金の二重枠で一目で分かる。画面下の案内も「カードを押して設定・下のボタンで出発」と実際の操作どおりに直した。</li>
         <li><b>仲間が集う画面でスキルと戦い方を決められるようになった</b> — 顔ぶれのカードを押すとその場で開き、誰に何を使ってほしいかを出発前にまとめて指示できる。</li>
         <li><b>仲間が集う画面に「出発する」ボタンが付いた</b> — うっかり画面に触れて出発してしまうことがなくなり、顔ぶれをゆっくり見てから自分の意思で出発できる。</li>
-        <li><b>キャラクターシートが本物の冒険者の紙に</b> — 能力値・セーヴ・技能・攻撃・特徴が羊皮紙の三段組に並ぶようになった。</li>
       </ul>
     </div>
     <script>
@@ -4538,6 +4621,14 @@
   }
   // (左上プレイヤーカードは廃止: renderPlayerCard と専用ヘルパーを削除)
 
+  /* ══════════ 冒険の年代記 (#37 STEP1) ══════════════════════════════════════
+   * index.html の RunChronicle.snapshot() が唯一の正。ここは lastResult に相乗りしてきた
+   * それを**読むだけ**で、数字を作り直さない (記録の出所を 2 つにしない)。
+   * ⛔ 撤退 = ?chronicle=0 → 導線を出さず、従来どおり帰還バナーだけが出る。
+   * ⛔ showReturnBanner は残す。5.5 秒の自動消滅も 1 バイトも変えない (既存 golden の保護)。 */
+  const CHRONICLE_ON_TV = !/[?&]chronicle=0(&|$)/.test(location.search);
+  let lastChronicle = null;       // 直近の帰還で受け取った年代記 (記録棚 = STEP4 が拾う口)
+  let lastChronicleMeta = null;   // 同じ lastResult の見出し情報 (シナリオ名など)
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
@@ -4545,6 +4636,9 @@
     sessionStorage.removeItem("dragonfighters.lastResult");
     try {
       const r = JSON.parse(resultRaw);
+      /* 年代記 (#37): lastResult に相乗りしてきた記録を受け取る。
+         ⚠ 運搬の経路は増やさない (新しい sessionStorage キーを作らない・依頼書 §2-5)。 */
+      if (CHRONICLE_ON_TV && r && r.chronicle) { lastChronicle = r.chronicle; lastChronicleMeta = r; }
       if (r && r.cleared && r.scenarioId) {
         // 闇市アンロック: クリア累計を計数し、閾値で「怪しい扉」を常設化 (生成/固定どちらのクリアも計上)
         plazaStateTV.totalQuestsCleared = (plazaStateTV.totalQuestsCleared || 0) + 1;
@@ -4595,10 +4689,115 @@
       msg = `「${r.scenarioTitle || "依頼"}」失敗… もう一度挑もう`;
     }
     banner.textContent = msg;
+    /* 年代記 (#37): バナーの末尾へ「📜 記録を読む」を足す。
+       ⛔ バナーの自動消滅 (5.5 秒) は変えない — 下の 2 本の setTimeout はそのまま。 */
+    if (CHRONICLE_ON_TV && lastChronicle) {
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.id = "chronicleOpenBtn";
+      openBtn.textContent = "📜 記録を読む";
+      chronicleBindTap(openBtn, () => openChronicle());
+      banner.appendChild(openBtn);
+    }
     document.body.appendChild(banner);
     setTimeout(() => banner.style.opacity = "0", 5500);
     setTimeout(() => banner.remove(), 6200);
   }
+  /* ── 冒険の年代記 (#37 STEP1): レポートの開閉と描画 ───────────────────────── */
+
+  function chEsc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+  function chOutcomeLabel(o) {
+    return o === "clear" ? "依頼達成" : o === "retreat" ? "撤退" : "敗北";
+  }
+
+  /* ⚠ iOS: click だけだと発火しない端末がある。閉じる口は **click と touchend の両方**へ
+     配線する (依頼書 §4-4 / #29 の実測)。touchend では preventDefault して合成 click の
+     二重発火を潰す。 */
+  function chronicleBindTap(el, fn) {
+    if (!el) return;
+    const run = (ev) => {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      fn(ev);
+    };
+    el.addEventListener("click", run);
+    el.addEventListener("touchend", run);
+  }
+
+  function renderChronicle(ch, meta) {
+    const sub  = document.getElementById("chronicleSub");
+    const body = document.getElementById("chronicleBody");
+    if (!body) return;
+    const title = (meta && meta.scenarioTitle) || "依頼";
+    if (sub) {
+      sub.textContent = "「" + title + "」 — " + chOutcomeLabel(ch && ch.outcome);
+    }
+    const evs = (ch && Array.isArray(ch.events)) ? ch.events : [];
+    const lead = "全 " + ((ch && ch.rounds) || 0) + " ラウンド ／ 討ち取った敵 "
+               + ((ch && ch.kills) || 0) + " ／ 記した出来事 " + evs.length + " 件";
+    let html = '<div class="chLead">' + chEsc(lead) + "</div>";
+    if (evs.length === 0) {
+      html += '<div class="chEmpty">語り継ぐほどの出来事は無かった。</div>';
+    } else {
+      html += '<ol class="chEvents">' + evs.map((e) => {
+        const rd = (e && e.round) ? ("R" + e.round) : "—";
+        const tx = (e && e.text) || "";
+        return '<li class="' + (e && e.kind === "fall" ? "fall" : "kill") + '">'
+             + '<span class="chRound">' + chEsc(rd) + "</span>" + chEsc(tx) + "</li>";
+      }).join("") + "</ol>";
+    }
+    body.innerHTML = html;
+    body.scrollTop = 0;
+  }
+
+  function openChronicle(ch, meta) {
+    if (!CHRONICLE_ON_TV) return false;
+    const use = ch || lastChronicle;
+    if (!use) return false;
+    const ov = document.getElementById("chronicleOverlay");
+    if (!ov) return false;
+    renderChronicle(use, meta || lastChronicleMeta);
+    ov.classList.add("show");
+    ov.setAttribute("aria-hidden", "false");
+    return true;
+  }
+  function closeChronicle() {
+    const ov = document.getElementById("chronicleOverlay");
+    if (!ov) return;
+    ov.classList.remove("show");
+    ov.setAttribute("aria-hidden", "true");
+  }
+
+  (function wireChronicleOverlay() {
+    const ov = document.getElementById("chronicleOverlay");
+    if (!ov) return;
+    chronicleBindTap(document.getElementById("chronicleClose"), () => closeChronicle());
+    /* 背景タップでも閉じる。⚠ 羊皮紙 (#chronicleInner) の中のタップでは閉じない。 */
+    const bg = (ev) => {
+      if (ev && ev.target !== ov) return;
+      if (ev && ev.preventDefault) ev.preventDefault();
+      closeChronicle();
+    };
+    ov.addEventListener("click", bg);
+    ov.addEventListener("touchend", bg);
+  })();
+
+  /* 読み取り窓 (検証ドライバ / STEP3 の記録棚が使う)。⚠ 書き込み口は作らない。 */
+  window.__chronicle = {
+    on:    () => CHRONICLE_ON_TV,
+    last:  () => lastChronicle,
+    meta:  () => lastChronicleMeta,
+    open:  (ch, meta) => openChronicle(ch, meta),
+    close: () => closeChronicle(),
+    isOpen: () => {
+      const ov = document.getElementById("chronicleOverlay");
+      return !!(ov && ov.classList.contains("show"));
+    },
+  };
 
   function isUnlocked(sc) {
     if (!sc.locked) return true;
