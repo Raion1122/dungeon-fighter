@@ -521,6 +521,46 @@ const MAX_TILE_PX = 96;   // 項目 2 の天井 (港町 TILE 64 x 1.5 = 96px と
 const DOM_BASE  = '638b479';
 const DOM_ROOTS = ['dialog', 'prep', 'shopScreen', 'plazaScreen'];
 
+/* ── (6c) の「宣言済みの差分」 ────────────────────────────────────────────────
+ * DOM_BASE 以後に **意図して足した**タグを、画面ごとに出現順で並べる。
+ * ⛔⛔ DOM_BASE を新しいコミットへ動かして緑にするのは禁止 — 基準が改修後になると
+ *    「自分自身との比較」に化けて (6c) は永久に緑になる (恒久教訓: 基準に HEAD を使うな)。
+ * ⭐ 代わりに **足した分だけを列挙して差し引く**。閾値で緩めるのではなく不変条件を
+ *    言い直す形なので、ここに書いていない構造変化 (削除・並べ替え・class 変更) は
+ *    今までどおり全部赤になる (memory ⑧: 別要因は列挙して差し引く)。
+ * ⚠ 追加のたびにここへ 1 行足す。空配列 = DOM_BASE と完全一致が期待値。
+ *
+ *   2026-08-29 準備画面から マッチング画面 を開き直す 🎴 編成を見る:
+ *     パーティ欄のヘッダで 2 つのボタンを span で包み、その中へ #btnPartyView を足した。
+ *     → 増えたタグは span 1 つと button#btnPartyView.equipToggleBtn 1 つ (#btnReroll は不動)。
+ */
+const DOM_ADDED = {
+  dialog:      [],
+  prep:        ['span', 'button#btnPartyView.equipToggleBtn'],
+  shopScreen:  [],
+  plazaScreen: [],
+};
+
+/* 現在の署名が「基準の署名 + 宣言済みの追加タグ (順序どおり)」ちょうどかを調べる。
+ * 許すのは **挿入だけ**。基準側のタグが 1 つでも消えたり並べ替わったら差分が合わずに赤。
+ * 返り値: { ok, used, why } — used = 実際に消費した追加タグ数 (宣言と一致しなければ赤)。 */
+function domDeltaOk(curKey, baseKey, added) {
+  const cur  = curKey  ? curKey.split('|')  : [];
+  const base = baseKey ? baseKey.split('|') : [];
+  const want = added || [];
+  let i = 0, j = 0, k = 0;
+  while (i < cur.length && j < base.length) {
+    if (cur[i] === base[j]) { i++; j++; continue; }
+    if (k < want.length && cur[i] === want[k]) { i++; k++; continue; }   // 宣言済みの追加
+    return { ok: false, used: k, why: '基準 "' + base[j] + '" に対し実体 "' + cur[i] + '"' };
+  }
+  while (i < cur.length && k < want.length && cur[i] === want[k]) { i++; k++; }   // 末尾の追加
+  if (j < base.length) return { ok: false, used: k, why: '基準の残り ' + (base.length - j) + ' タグが実体に無い' };
+  if (i < cur.length)  return { ok: false, used: k, why: '宣言に無い余分なタグ ' + (cur.length - i) + ' 件: ' + cur.slice(i, i + 3).join('|') };
+  if (k !== want.length) return { ok: false, used: k, why: '宣言した追加のうち ' + (want.length - k) + ' 件が実体に無い' };
+  return { ok: true, used: k, why: '' };
+}
+
 async function settle(page) {
   try {
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -1413,8 +1453,8 @@ const ASSERT_OF = {};
         w.length + ' 件照合 / 不一致 ' + bad.length + ' 件'
         + (bad.length ? ' ⛔ ' + JSON.stringify(bad) : ' ' + JSON.stringify(w.map(x => x.sid + ':' + x.place)))];
     }],
-  ['6c', '#dialog / #prep / #shopScreen / #plazaScreen の DOM 構造が DOM_BASE (' + DOM_BASE + ') と同一'
-    + ' (タグ名 + id + class の並びで比較。文言の変更は許す)',
+  ['6c', '#dialog / #prep / #shopScreen / #plazaScreen の DOM 構造が DOM_BASE (' + DOM_BASE + ') + DOM_ADDED の宣言分'
+    + ' ちょうど (タグ名 + id + class の並びで比較。文言の変更は許す / 宣言に無い構造変化は赤)',
     (m) => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM 署名を採っていない'];
@@ -1422,12 +1462,30 @@ const ASSERT_OF = {};
       const bad = [], detail = [];
       for (const id of DOM_ROOTS) {
         const r = d.roots[id];
-        const same = !!(r.cur && r.base && r.cur.key === r.base.key);
-        if (!same) bad.push(id);
-        detail.push(id + ' ' + (r.cur ? r.cur.n : 'null') + '/' + (r.base ? r.base.n : 'null')
-          + (same ? ' 一致' : ' ⛔不一致'));
+        const want = DOM_ADDED[id] || [];
+        if (!r.cur || !r.base) { bad.push(id); detail.push(id + ' ⛔署名が採れない'); continue; }
+        const v = domDeltaOk(r.cur.key, r.base.key, want);
+        if (!v.ok) bad.push(id);
+        detail.push(id + ' ' + r.cur.n + '/' + r.base.n
+          + (want.length ? '(+宣言 ' + want.length + ')' : '')
+          + (v.ok ? ' 一致' : ' ⛔不一致: ' + v.why));
       }
       return [bad.length === 0, detail.join(' / ')];
+    }],
+  /* ⭐ (6c) が「宣言済みの差分」を許すようになった以上、**その許しが効きすぎていない**ことを
+     別 assert で押さえる。宣言に 1 件でっち上げを混ぜたら赤くなる = 差し引きが素通しでない証拠。
+     ⚠ これが無いと DOM_ADDED に何を書いても緑になり、(6c) が骨抜きになったことに気づけない。 */
+  ['6c2', '[装置] (6c) の差し引きが素通しでない — 宣言に実在しないタグを混ぜると不一致になる',
+    (m) => {
+      const d = m.dom;
+      if (!d || d.baseErr) return [false, '⛔ DOM 署名を採っていない'];
+      const r = d.roots['prep'];
+      if (!r || !r.cur || !r.base) return [false, '⛔ #prep の署名が採れない'];
+      const fake = (DOM_ADDED.prep || []).concat(['div#__df_no_such_tag__']);
+      const v = domDeltaOk(r.cur.key, r.base.key, fake);
+      const real = domDeltaOk(r.cur.key, r.base.key, DOM_ADDED.prep || []);
+      return [v.ok === false && real.ok === true,
+        '偽の宣言を足すと ok=' + v.ok + ' (' + v.why + ') / 本物の宣言では ok=' + real.ok];
     }],
 
   /* ── §7 撤退 ─────────────────────────────────────────────────────────────── */
@@ -1482,7 +1540,7 @@ const SECTIONS = [
   ['§3 歩いて着いてから開く',                    ['3z', '3a', '3b', '3c']],
   ['§4 扉',                                      ['4a', '4b', '4c']],
   ['§5 compact (縦画面)',                        ['5a', '5b', '5c']],
-  ['§6 恒等 (非退行)',                           ['6z', '6a', '6b', '6c']],
+  ['§6 恒等 (非退行)',                           ['6z', '6a', '6b', '6c', '6c2']],
   ['§7 撤退',                                    ['7a', '7b', '7c']],
 ];
 

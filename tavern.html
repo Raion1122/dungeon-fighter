@@ -2265,7 +2265,15 @@
             <span>パーティ <span style="opacity:0.6;font-size:12px;">(募集に応じた者が同行 / 先頭=前衛が盾)</span></span>
             <!-- 絵文字を 🎲(くじを引き直す) から 📣(募集をかける) へ変えた理由:
                  もう「仲間を引く」のではなく「酒場に募集をかけ直す」ので、くじの絵は世界観と食い違う。 -->
-            <button type="button" id="btnReroll" class="equipToggleBtn">📣 募集をかけ直す</button>
+            <!-- ⚠ ボタンが 2 つ並ぶので span で包む。裸で置くと .ph の justify-content:space-between が
+                 3 要素を等間隔に散らし、「パーティ」見出しが左端へ取り残される。 -->
+            <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <!-- 受注直後のマッチング演出 (#partyMatchOverlay) を準備画面からいつでも開き直す。
+                   演出のやり直しではなく「見るだけ」= 全員確定済み・開示アニメ無し・効果音なし。
+                   装備を替えた後に開くと、その武器/防具/盾も更新後の値で出る (pmEquipItems が都度読む)。 -->
+              <button type="button" id="btnPartyView" class="equipToggleBtn">🎴 編成を見る</button>
+              <button type="button" id="btnReroll" class="equipToggleBtn">📣 募集をかけ直す</button>
+            </span>
           </div>
           <!-- ⚠⚠ この行は #partyPreview の **外側** に置くこと。中に入れると
                tools/verify_recruit_size.js の (B2) (= #partyPreview > div の行数) が赤くなる。 -->
@@ -2390,10 +2398,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>出発の準備から仲間の顔ぶれを見直せる</b> — 「編成を見る」で、受注のときのカードをいつでも開き直せる。装備を替えた後に開けばその武器で並ぶ。</li>
         <li><b>仲間の戦士が指示どおりの技を使うようになった</b> — 強斬りや盾バッシュなど、これまで通常攻撃しかしなかった仲間の戦士が、出発前に指定した傾向で動く。</li>
         <li><b>キャラクターシートを追加</b> — いつでも開いて、能力値・技能・話せる言語を確かめられるようになった。</li>
         <li><b>技能判定を D&D 5e 方式へ</b> — 罠解除・隠密・運動など、得意分野の判定がわずかに通りやすくなった。</li>
-        <li><b>銀の鹿亭が見下ろしの地図になった</b> — 主人公が酒場の床を歩いて依頼人の卓まで行くようになった。手前の三つの卓で最初の三つの依頼を受けられる。</li>
       </ul>
     </div>
     <script>
@@ -5066,6 +5074,15 @@
     });
   })();
 
+  // 「編成を見る」ボタン (受注直後のマッチング画面を、準備画面からいつでも開き直す)。
+  // ⚠ ここは【出発しない】。overlay を閉じると準備画面へ戻るだけ。
+  //   出発は #btnDepart だけが担う (押し間違いで潜ってしまう口を増やさない)。
+  (function bindPartyViewBtn() {
+    const btn = document.getElementById("btnPartyView");
+    if (!btn) return;
+    btn.addEventListener("click", () => { sfx("button"); openPartyMatchReview(); });
+  })();
+
   // ─────────────────────────────────────────────────────────────
   // 事前情報チェック (examine/talk/pray) — js/skill-check.js に配線
   // 準備画面で潜るパーティが判定を宣言し、出目しだいで攻略前情報を得る。
@@ -6328,7 +6345,15 @@
   }
 
   // 演出本体。Promise を返し、閉じ切ってから resolve (openPrep の await チェーンを止めない)。
-  function playPartyMatchCinematic(sc) {
+  //
+  // opts.review = true → 「見るだけ」モード (準備画面の 🎴 編成を見る から開き直す時)。
+  //   受注直後の演出と違い、全カラムを最初から確定表示にし、開示アニメも効果音も出さない。
+  //   ⚠ 閉じた先は【出発ではなく準備画面】なので、待ち文言も「タップして準備へ戻る」へ差し替える。
+  //     ここを "タップして出発" のままにすると、押した人は潜れると思って押す = 嘘の導線になる。
+  //   ⚠ PM_TAP_GATE は review でも必ず効かせる。iOS の touchend→click ゴーストクリックが
+  //     ボタンと同じ座標で overlay へ落ちてきて、開いた瞬間に閉じる事故を吸収しているのはこの猶予。
+  function playPartyMatchCinematic(sc, opts) {
+    const review = !!(opts && opts.review);
     const overlay = document.getElementById("partyMatchOverlay");
     const colsEl = document.getElementById("pmColumns");
     const placeEl = document.getElementById("pmPlace");
@@ -6351,13 +6376,14 @@
     const cols = ordered.map((m, i) => buildPmColumn(m, i));
     cols.forEach(c => colsEl.appendChild(c.el));
     // 主人公カラムは即・確定 (アニメ無し。開示対象は残りの仲間)。
+    // review では仲間も即・確定 = revealQueue が空になり、開示フェーズを 1 コマも通らない。
     const revealQueue = [];
-    ordered.forEach((m, i) => { if (m.isHero) cols[i].fill(false); else revealQueue.push(i); });
+    ordered.forEach((m, i) => { if (m.isHero || review) cols[i].fill(false); else revealQueue.push(i); });
 
     overlay.classList.remove("fading");
     overlay.style.display = "flex";
     overlay.setAttribute("aria-hidden", "false");
-    if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = "タップでスキップ"; }
+    if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = review ? "タップして準備へ戻る" : "タップでスキップ"; }
     setTimeout(() => { if (hintEl) hintEl.classList.add("show"); }, 400);
 
     return new Promise((resolve) => {
@@ -6371,7 +6397,7 @@
       const finishReveal = () => {
         if (phase === "done") return;   // 二重呼び出し (touch→click の連鎖など) は無視
         phase = "done";
-        if (hintEl) { hintEl.textContent = "タップして出発"; hintEl.classList.add("pmWait"); }
+        if (hintEl) { hintEl.textContent = review ? "タップして準備へ戻る" : "タップして出発"; hintEl.classList.add("pmWait"); }
         gateOpen = false;
         timers.push(setTimeout(() => { gateOpen = true; }, PM_TAP_GATE));
       };
@@ -6416,8 +6442,19 @@
       const bindTaps = () => { overlay.addEventListener("click", onTap); overlay.addEventListener("touchend", onTap); };
       const unbindTaps = () => { overlay.removeEventListener("click", onTap); overlay.removeEventListener("touchend", onTap); };
       bindTaps();
-      timers.push(setTimeout(step, PM_REVEAL_INTERVAL));
+      // review は開示するものが無いので待たずに待機フェーズへ入る (PM_TAP_GATE はここから数え始める)。
+      if (review) finishReveal();
+      else timers.push(setTimeout(step, PM_REVEAL_INTERVAL));
     });
+  }
+
+  // 準備画面から「編成を見る」= マッチング演出を review モードで開き直す。
+  // ⚠ 二重で開かない。開いている最中にもう一度呼ぶと cols が作り直され、前回の Promise の
+  //   close() が新しい列を閉じにかかって「開けたのに勝手に消える」ようになる。
+  function openPartyMatchReview() {
+    const overlay = document.getElementById("partyMatchOverlay");
+    if (overlay && overlay.style.display === "flex") return;
+    playPartyMatchCinematic(prepScenario, { review: true });
   }
 
   // 検証シーム (dev/ヘッドレス専用・製品挙動に影響なし)。演出関数は script スコープに閉じるため、
