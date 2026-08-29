@@ -1353,6 +1353,23 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       out.hasShelf = !!sh;
       out.shelfShown = !!(sh && sh.classList.contains('show'));
       out.shelfN = window.__chronicle ? window.__chronicle.shelf().length : -1;
+      /* ⚠⚠ 新しく置いた HUD が既存の口を塞いでいないか。矩形の比較では見えない —
+         効くのは「その点で elementFromPoint が何を返すか」だけ (#12 の実測)。
+         記録棚は左上 #townExit の真下に置いたので、両方の中心を撃って確かめる。 */
+      const hitOf = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return 'hidden';
+        const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return (h && (h === el || el.contains(h))) ? 'self' : ((h && h.id) || (h && h.tagName) || 'none');
+      };
+      out.hitShelf = hitOf('chronicleShelf');
+      out.hitTownExit = hitOf('townExit');
+      const rs = sh ? sh.getBoundingClientRect() : null;
+      const te = document.getElementById('townExit');
+      const rt = te ? te.getBoundingClientRect() : null;
+      out.gap = (rs && rt) ? Math.round(rs.top - rt.bottom) : null;
       out.raw = localStorage.getItem('dragonfighters.chronicles');
       out.opened = window.__chronicle ? window.__chronicle.open() : null;
       if (out.opened) window.__chronicle.close();
@@ -1383,6 +1400,10 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
     check('(6b2) ?chronicle=0 では記録棚へ 1 件も書かれない (localStorage が null のまま)',
       tvOff.raw === null && tvOff.shelfN === 0 && tvOn.shelfN >= 1,
       'off raw=' + String(tvOff.raw) + ' / on shelf=' + tvOn.shelfN);
+    check('(6b3) 新しく置いた記録棚の HUD が、既存の「街へ出る」を塞いでいない '
+        + '(両方の中心の elementFromPoint が自分自身。⚠ 矩形の比較では見えない欠陥)',
+      tvOn.hitShelf === 'self' && tvOn.hitTownExit === 'self' && tvOn.gap >= 0,
+      '記録棚=' + tvOn.hitShelf + ' / 街へ出る=' + tvOn.hitTownExit + ' / 隙間=' + tvOn.gap + 'px');
   }
 
   check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
