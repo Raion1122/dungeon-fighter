@@ -701,6 +701,43 @@ assert の近くではコメントも数えられる」がここでも起きる�
 
 ## 13. 実装結果
 
+### 📌 既存 golden 10 本の基準 — 着手時 HEAD `6185d4b` で実測(2026-08-30 / orchestrator)
+
+§9 の表の期待値は 2026-08-23〜08-29 の記録なので、**着手時に 10 本を素で走らせて採り直した**。
+⭐ **実装後はこの表と突き合わせる**(§9 の古い数字ではなく、こちらが唯一の正)。
+
+| ドライバ | §9 の記録 | **着手時の実測 (`6185d4b`)** | 判定 |
+|---|---|---|---|
+| `tools/verify_recruit_size.js` | 82/82 | **82/82 PASS** | ✅ 一致 |
+| `tools/probe_party_size.js` | 57/57 | **37/57 FAIL** | ❌ **記録が腐っていた**(下記) |
+| `tools/verify_party_match_setup.js` | 36/36 | **36/36 PASSED / 0 FAILED / 0 PENDING** | ✅ 一致 |
+| `tools/verify_quest_walk.js` | 25/25 | **25/25 PASSED / PENDING 0** | ✅ 一致 |
+| `tools/driver_party_view_reopen.js` | 35/35 | **35/35 PASSED** | ✅ 一致 |
+| `tools/verify_tavern_map.js` | 43/43 | **43/43 PASSED / PENDING 0** | ✅ 一致 |
+| `tools/verify_save_slots.js` | 30/30 | **30/30 passed** | ✅ 一致 |
+| `tools/verify_run_chronicle.js` | #37 の実績値 | **73 PASSED / 0 FAILED / 0 PENDING** | ✅ 一致 |
+| `tools/driver_action_priority.js` | 92/92 | **92 PASSED / 0 FAILED / 0 PENDING** | ✅ 一致 |
+| `tools/verify_player_sheet.js` | 70/70 | **70/70 PASSED / PENDING 0** | ✅ 一致 |
+
+#### ⚠⚠⚠ `probe_party_size` は **#38 に着手する前から赤だった**
+
+- **着手前の素の実測**(orchestrator / 引数なし)= **37/57 FAIL**。
+- 項目1 の worker が `git worktree add --detach <TMP>/df_base_6185d4b 6185d4b` で
+  **着手前のコミットを別ツリーへ取り出し、同一引数で突き合わせた**結果:
+
+      基準 6185d4b : 28/41 FAIL
+      作業ツリー   : 28/41 FAIL
+      diff → 差分なし(NG セットは完全一致 = 非退行)
+
+  (28/41 は `--skip-play` を付けた軽量モードの母集団。素の 37/57 と数は違うが、
+  **どちらの母集団でも「基準と作業ツリーで同じ」**)。
+- 大元の原因は **`(1e)`(`departToScenario()` が `index.html` へ遷移しない)**。
+  **#23 の `viaWorld`(ワールドマップを 1 枚挟む導線)**でドライバの遷移横取りが
+  空振りするようになったため。**#38 とは無関係の既存の赤**。
+- ⭐⭐⭐ **項目4 は「golden 一括で `probe_party_size` が赤い」のを見て
+  「#38 が壊した」と読まないこと。** 比べるのは **NG セットが基準と一致するか**だけ。
+- ⭐ `--skip-play` を付けると **25〜30 分 → 5 分**で決着する。
+
 ### 項目1 — STEP1 (`js/mercenary-roster.js`) + STEP2 (出発時に名簿から引く) + 新ドライバの骨格
 
 | 項目 | 実測 |
