@@ -938,13 +938,17 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       JSON.stringify(st.entry0 ? { at: st.entry0.at, t: st.entry0.scenarioTitle,
         v: st.entry0.ch && st.entry0.ch.v } : null));
 
-    // ── (3b) 新規ゲーム (wipeLive) で消えること ────────────────────────────
+    /* ── (3b) 新規ゲーム (wipeLive) で消えること ────────────────────────────
+       ⚠⚠ 読むのは **本番が実際に使っているキー** (shelfKey()) であって、期待している
+          キー名ではない。期待名を直書きすると「別名 (df_chronicles) で保存する欠陥」が
+          before=null / after=null で一致して緑になってしまう (依頼書 §9 の N6)。 */
     const wiped = await page.evaluate(() => {
       const out = {};
-      const before = localStorage.getItem('dragonfighters.chronicles');
+      out.key = window.__chronicle.shelfKey();
+      const before = localStorage.getItem(out.key);
       out.beforeN = before ? (JSON.parse(before) || []).length : 0;
       try { out.removed = DFSlots.wipeLive(); } catch (e) { out.threw = String((e && e.message) || e); }
-      out.after = localStorage.getItem('dragonfighters.chronicles');
+      out.after = localStorage.getItem(out.key);
       return out;
     });
     console.log('  [arm G] wipeLive = ' + JSON.stringify(wiped));
@@ -982,15 +986,23 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
         out.first6 = a6.length ? a6[0].scenarioTitle : null;
         out.last6  = a6.length ? a6[a6.length - 1].scenarioTitle : null;
         out.max = C.shelfMax();
+        /* ⚠ 「棚から読み返せる」だけでは足りない。**localStorage に居る**ことまで見る。
+           セッション限りの器へ逃がされると、shelf() 越しでは 5 件で一致して緑になる。 */
+        const raw = localStorage.getItem('dragonfighters.chronicles');
+        out.lsN = raw ? (JSON.parse(raw) || []).length : -1;
+        out.ssRaw = sessionStorage.getItem('dragonfighters.chronicles');
       } catch (e) { out.err = String((e && e.message) || e); }
       return out;
     });
     console.log('  [arm H] ' + JSON.stringify(trim));
     check('(3z3) [装置] ★母集団 — 6 件目を保存する**前**に実際に 5 件溜まっていた',
       trim.n5 === 5 && trim.first5 === 'run1' && trim.last5 === 'run5', JSON.stringify(trim));
-    check('(3c) ★6 件目を保存すると件数が 5 のまま (最古の run1 が落ちて run2〜run6 が残る)',
-      trim.n5 === 5 && trim.n6 === 5 && trim.first6 === 'run2' && trim.last6 === 'run6',
-      'n ' + trim.n5 + '→' + trim.n6 + ' / 先頭 ' + trim.first5 + '→' + trim.first6);
+    check('(3c) ★6 件目を保存すると件数が 5 のまま (最古の run1 が落ちて run2〜run6 が残る)。'
+        + 'かつ 5 件が **localStorage** に居る (session 限りの器へ逃げていない)',
+      trim.n5 === 5 && trim.n6 === 5 && trim.first6 === 'run2' && trim.last6 === 'run6'
+        && trim.lsN === 5 && trim.ssRaw === null,
+      'n ' + trim.n5 + '→' + trim.n6 + ' / 先頭 ' + trim.first5 + '→' + trim.first6
+        + ' / localStorage=' + trim.lsN + ' / sessionStorage=' + String(trim.ssRaw));
     await page.close();
   }
 
@@ -1259,7 +1271,11 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       const ov = document.getElementById('chronicleOverlay');
       const btn = document.getElementById('chronicleClose');
       const out = {};
+      /* ⚠ 閉じるボタンごと外す欠陥 (依頼書 §9 の N5) では btn が null になる。
+         そこで例外を投げると evaluate ごと落ちて「ドライバが壊れた」に化けるので、
+         必ず 'no-host' を返して **赤い判定**として残す。 */
       const trial = (host, type) => {
+        if (!host) return 'no-host';
         C.open();
         if (!C.isOpen()) return 'not-open';
         host.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
@@ -1271,9 +1287,9 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       out.bgTouch  = trial(ov,  'touchend');
       /* 中身 (羊皮紙) を叩いても閉じないこと = 背景判定が雑になっていないか */
       C.open();
-      document.getElementById('chronicleInner')
-        .dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
-      out.innerKeepsOpen = C.isOpen();
+      const inner = document.getElementById('chronicleInner');
+      if (inner) inner.dispatchEvent(new Event('click', { bubbles: true, cancelable: true }));
+      out.innerKeepsOpen = !!inner && C.isOpen();
       C.close();
       return out;
     });
