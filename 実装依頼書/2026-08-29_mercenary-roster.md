@@ -203,6 +203,125 @@ UTF-8 換算だと日本語で過小に出て「測ったのに溢れる」が�
 
 ⭐ `js/mercenary-roster.js`(新規)は `GAME_LOGIC` に含まれないのでトリガーしない。
 
+### 2-10. ⚠⚠⚠ 着手時の再実測(2026-08-30 / 実装窓 / HEAD `6185d4b`)
+
+§2-0 の指示どおり、**着手した窓が本節の主張を本番コードで測り直した**。
+基準は #35 着地時の `4f7710d` から **`6185d4b`(#37 着地後)** へ移った。
+
+#### ✅ 成立した主張(そのまま使ってよい)
+
+| 節 | 主張 | 実測 (`6185d4b`) |
+|---|---|---|
+| 2-1 a | `loadSelections()` が `partyMembers = []` で初期化し、どこからも読み込まない | ✅ `tavern.html:4595` |
+| 2-1 c | `regeneratePartyMembers()` が毎回まっさらに抽選 | ✅ `tavern.html:5624-5636`(`selection.partyMembers = orderFormation(buildParty(heroKey, partySize))`) |
+| 2-2 | index 側の `buildParty` はフォールバック専用・呼び口は 1 箇所 | ✅ `index.html:32710` の 1 箇所のみ(定義は `12178`) |
+| 2-3 | `keysOf()` は `dragonfighters.` 前置詞の総なめ(列挙式ではない) | ✅ `js/save-slots.js:80-88` |
+| 2-5 | `NPC_NAMES` = 16 要素 → 上限 12 なら名前が衝突しない | ✅ 16 要素(tavern / index とも同一内容) |
+| 2-7 | `(6c)` の凍結対象は 4 画面・`DOM_BASE = 638b479` | ✅ `tools/verify_tavern_map.js:521-541`。**HUD へ足すのは対象外** |
+| 2-8 | `lastResult` の書き込みは 2 箇所 | ✅ **`index.html:36109`(`showResult`)/ `index.html:36168`(撤退)**。⭐ **#37 の `chronicle:` キーが両方に既に載っている** |
+| 2-9 | changelog フックが鳴る | ✅ `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` |
+| 5 | `buildParty()` 内の `makeNpcMember()` 呼びは 2 箇所 | ✅ **`tavern.html:3996` と `4003`**。差し替え点はこの 2 行で正しい |
+| 5 | `assignCompanionLevels()` の本体が §5 の引用どおり | ✅ `tavern.html:6472-6485`。`cap = Math.min(heroLevel, 10)` も引用と一致 |
+| 9 | golden 10 本がすべて実在 | ✅ 10/10 |
+
+#### ❌ 崩れた主張 5 件
+
+**(1) 行番号は全滅**(§2-0 の予告どおり)。`tavern.html` は **+153 〜 +476**、
+`index.html` は **+428 〜 +441** 動いた。例外は index の `NPC_NAMES`(`12133`)だけが一致。
+
+| 対象 | 依頼書 (`4f7710d`) | 実測 (`6185d4b`) | 差 |
+|---|---|---|---|
+| `tavern.html` `NPC_NAMES` / `NPC_TRAITS` / `NPC_LINES` | 3699 | **3866** / 3868 / 3871 | +167 |
+| `tavern.html` `pickUniqueName()` | 3736 | **3903** | +167 |
+| `tavern.html` `makeNpcMember()` | — | **3909** | — |
+| `tavern.html` `buildParty()` | 3814 | **3981** | +167 |
+| `tavern.html` `makeNpcMember()` 呼び ×2 | 3829 / 3836 | **3996 / 4003** | +167 |
+| `tavern.html` `orderFormation()` | — | **4008** | — |
+| `tavern.html` `loadSelections()` | 4428 | **4581** | +153 |
+| `tavern.html` `saveSelections()` | 4526 | **4692** | +166 |
+| `tavern.html` `consumeResult()` | 4542 | **4745** | +203 |
+| `tavern.html` `regeneratePartyMembers()` | 5148 | **5624** | +476 |
+| `tavern.html` `assignCompanionLevels()` | 5996 | **6472** | +476 |
+| `tavern.html` `departToScenario()` | 6043 | **6497** | +454 |
+| `tavern.html` HUD の `<div>` 群 | 2604 | **2767 (`#townExit`) / 2768 (`#shopEntry`) / 2772 (`#chronicleShelf`)** | +163 |
+| `index.html` `lastResult` 書き込み ① | 35672 | **36109** | +437 |
+| `index.html` `lastResult` 書き込み ② | 35727 | **36168** | +441 |
+| `index.html` `buildParty()` 呼び口 | 32282 | **32710** | +428 |
+| `index.html` `NPC_NAMES` | 12133 | **12133** | **±0** |
+
+**(2) §2-1 b の「`saveSelections()` が書くのは 8 キー」→ 実測 9 キー。**
+`equipAccessory1` / `equipAccessory2` を数え落としている
+(`equipWeaponIdx` / `equipShieldIdx` / `equipArmorIdx` / `partySkills` / `allyEquip` /
+`partyComposition` / `actionPriority` / `equipAccessory1` / `equipAccessory2`)。
+⭐ **主張の核心(`partyMembers` を 1 行も書かない)は成立**しているので、名簿を刺す場所は変わらない。
+
+**(3) ⚠⚠⚠ §7 の HUD 入口が成立しない — #37 が置き場所を使い切った。**
+
+依頼書は「`#townExit` / `#shopEntry` の並びへ `#rosterEntry`「📜 傭兵名簿」を 1 つ足す」と書くが、
+**#37 が「唯一空いていた左上 `#townExit` の真下」を `#chronicleShelf` で埋めていた**
+(`tavern.html:1607-1618` = `position:absolute; left:18px; top:74px; z-index:13`)。
+`#chronicleShelf` のコメント(`tavern.html:1604-1606`)がそのまま書いている:
+
+    左下 (#questBoard) / 右下 (#shopEntry + ⚙) / 右上 (#changelogBox) はすべて埋まっている。
+    空いているのは **左上の #townExit の真下** だけ
+
+さらに **`#chronicleShelf` は既に 📜 を名乗っている**(`📜 冒険の記録`)ので、
+依頼書の「📜 傭兵名簿」は**同じ縦列に 📜 が 2 つ並ぶ**ことになる。
+
+⭐ **ユーザー決定(2026-08-30)**:
+
+| 論点 | 決定 | 不採用にした案(なぜそれではないか) |
+|---|---|---|
+| 置き場所 | **左上の縦列の 3 つ目**(`left:18px; top:130px`)。⭐ **`#chronicleShelf` が非表示(記録 0 件)のときは `top:74px` へ詰めて空白を作らない** | ⛔ 左上を flex column の器へ作り替える(`#townExit` / `#chronicleShelf` の `position` を剥がすので `verify_run_chronicle` 73 / `verify_tavern_map` 43 / `verify_town_map` 85 の座標系 assert を巻き込む) / ⛔ `#chronicleOverlay` 内のタブへ同居(記録 0 件だと記録棚ごと消えて名簿へ到達できない) |
+| 絵文字 | **📖 傭兵名簿** | ⛔ 📜(`#chronicleShelf` と衝突) / ⛔ 🪶(小画面で何の絵か読めない) / ⛔ ⚔️(戦闘・装備アイコンと混同) |
+
+⚠ **受入条件 §4 に 2 本足すこと**(§9 の (4a)〜(4d) に加えて):
+
+- **(4e)** ⭐⭐⭐ **`#rosterEntry` / `#chronicleShelf` / `#townExit` の 3 つとも、
+  中心の `elementFromPoint` が自分自身(またはその子孫)を返す。**
+  ⚠ 重なりは矩形の比較では見えない(#12 / #37 が同じ罠を踏んでいる)。
+  `verify_run_chronicle.js:1547-1599` の `hitOf()` がそのまま流用できる。
+- **(4f)** ⭐ **記録棚が非表示のとき `#rosterEntry` の `top` が `74px`、
+  表示中は `130px`。** かつ**どちらの状態でも (4e) が成立する**。
+  ⛔ 「`top` が変わる」だけを測ると、詰めた結果 `#townExit` に重なっても緑になる。
+
+**(4) §7 の z-index の説明が誤り。**
+「200(`#partyMatchOverlay` 系)より下に置く」と書いてあるが、実測は:
+
+| 要素 | z-index |
+|---|---|
+| `#plazaScreen`(闇市) | 150 |
+| `#shopScreen`(武器防具屋) | 160 |
+| `#chronicleOverlay`(#37) | **170** |
+| `#prologueOverlay` | **200** |
+| `#partyMatchOverlay` | **210** |
+
+→ `#partyMatchOverlay` は **200 ではなく 210**。200 は `#prologueOverlay`。
+⭐ **結論(180 を使う)と受入条件 (4b)(「`#partyMatchOverlay` より小さい」)はどちらも成立する**
+(180 < 210)。⚠ ただし **180 は `#prologueOverlay`(200)よりも下**なので、
+プロローグ中に名簿が前に出ることは無い(意図どおり)。
+
+⚠⚠ `grep -c "z-index: 170"` は **2** を返すが、実体は 1 つだけ
+(もう 1 つは `tavern.html:1481` の**コメント**)。#34 の罠「配信バイトを正規表現で数える
+assert の近くではコメントも数えられる」がここでも起きる。**z-index は `getComputedStyle` で読む**。
+
+**(5) §2-6 の容量が過大に見積もられている。**
+依頼書の計測コマンドをそのまま実行した実測値:
+
+| | 依頼書 | 実測 (`node -e` を §2-6 のコマンドのまま実行) |
+|---|---|---|
+| 1 人あたり | 145 UTF-16 単位 = 290 B | **113 単位 = 226 B** |
+| 12 人 | 3,480 B | **2,712 B** |
+| ライブ + 3 スロット(×4) | 13.9 KB | **10.8 KB** |
+
+⭐ **結論(「データ量は跳ねない」/ 文字列をそのまま持つ)は変わらない**。むしろ余裕が増えた。
+#5 の基準「3 スロット満杯 = 78,326 B = 5 MB の 1.49%」に対し、最悪 **+10.8 KB = 89.1 KB = 1.70%**。
+
+#### 📌 §9「既存 golden の非退行」の基準
+
+⚠ 依頼書 §9 の表の期待値は **2026-08-23〜08-29 の記録**。着手時に 10 本を素で走らせて
+採り直した実測値を **§13** に記録する(実装前の基準)。実装後はその値と突き合わせる。
+
 ---
 
 ## 3. 変更範囲
@@ -582,4 +701,76 @@ UTF-8 換算だと日本語で過小に出て「測ったのに溢れる」が�
 
 ## 13. 実装結果
 
-(実装窓が埋める)
+### 項目1 — STEP1 (`js/mercenary-roster.js`) + STEP2 (出発時に名簿から引く) + 新ドライバの骨格
+
+| 項目 | 実測 |
+|---|---|
+| 実装 | `js/mercenary-roster.js`(新規・LF)/ `tavern.html`(`<script src>` 1 行 + `pickCompanion()` 新設 + `buildParty()` の 2 箇所差し替え + `assignCompanionLevels()` に既知の顔の分岐 + `departToScenario()` から名簿登録)/ `tools/verify_mercenary_roster.js`(新規) |
+| 新ドライバ | `node tools/verify_mercenary_roster.js` → **23/23 PASSED / 0 FAILED / 0 PENDING** |
+| 負のコントロール | `--negative` → `badprefix` を注入して **(3a)(3b)(3c) が赤・巻き添え 0**(20/23)。残り 8 本は項目4 |
+| 既存 golden | `verify_recruit_size` **82/82 PASS**(基準どおり)/ `probe_party_size` は **着手前から赤**(下記) |
+| 撤退 | `?roster=0`(酒場側 = `DFRoster.enabled()`)。⭐ index 側の `ROSTER_ON` は項目2 |
+
+#### ⚠ 実装で確定したこと(次項目が前提にしてよい)
+
+- **実装後の行番号**(`tavern.html`): `<script src="js/mercenary-roster.js">` = **2328** /
+  `makeNpcMember()` = **3910** / `pickCompanion()` = **3935** / `pickCompanion()` の呼び 2 箇所 =
+  **4031 / 4038** / `buildParty()` = **4016** / `orderFormation()` = **4043** /
+  `loadSelections()` = **4616** / `saveSelections()` = **4727** / `consumeResult()` = **4780** /
+  `regeneratePartyMembers()` = **5659** / `assignCompanionLevels()` = **6507** /
+  `departToScenario()` = **6540**(名簿登録は **6565-6575**)。
+  `index.html` は **1 バイトも触っていない**ので §2-10 の値のまま(`lastResult` = 36109 / 36168)。
+- ⭐⭐⭐ **計測シームは本番ファイルに置かなかった。** `pickCompanion()` の枝カウンタ
+  (`window.__rosterSeam`)は **配信スナップショットへの実行時注入**で作っている
+  (`probe_party_size.js` と同じ作法)。(0z1) が「配信に 15 箇所・ディスクに 0 件」を両側で検査する。
+- ⭐⭐⭐ **(2c) は 2 本の腕で挟まないと何も測れない。** orc-fort は推奨 Lv6 = tier2 で
+  帯 **[5,8]**。名簿の Lv を **9(帯の外)** に固定し、
+  **主人公 Lv10 → 出発 Lv が 9 のまま**(= 振り直していない)/
+  **主人公 Lv3 → 出発 Lv が 3**(= clamp が効いている)の 2 本で挟んで初めて意味を持つ。
+  片方(clamp 側)だけだと、新顔の乱択も clamp されて同じ 3 になるので **区別できない**。
+- ⚠⚠ **(2c) の母集団は「Lv を書き換えた当人」だけに絞ること。** 絞らずに測って
+  **1 回目の実行で偽の赤が出た**(`名簿 Lv=[9,…,9,3]`)。原因は欠陥ではなく、
+  2 度目の走行中に **新しく登録された顔がその時の帯 / cap で決まった Lv を持つ**という正常動作。
+  名簿が満杯でなければ必ず起きる。
+- ⚠⚠ **(3b) を「`dragonfighters.mercRoster` が null」で測ってはいけない。**
+  前置詞違い(`badprefix`)のとき、その名前のキーはそもそも存在しないので **null で緑になる**。
+  `DFRoster.all()` と「`mercRoster` を含む localStorage キーが 0 本」の **両方**で測ると赤くなる。
+- ⭐ 実測値: `CAP=12` / `NPC_NAMES=16` / 14 周で名簿は **12 人で頭打ち**・編成人数は
+  全周 **4 人**(満杯でも編成は完成する)/ 再登板 **10 人**(最多 6 周)/
+  `allyEquip`・`partySkills`・`actionPriority` は 14 周とも **完全同一**。
+- ⚠⚠⚠ **§9 の表の「`probe_party_size` = 57/57」は腐っている。着手前から赤。**
+  素で走らせたら赤かったので、**着手前 HEAD `6185d4b` の worktree を作って同じ引数で測り直した**:
+
+  | 腕 | 結果 | NG ラベル |
+  |---|---|---|
+  | 基準 `6185d4b`(私の変更を 1 バイトも含まない worktree) | **28/41 FAIL** | (1e)(5a)(5b)(5c)(5z3)(5z4)(6c)(6d)(7a)(7b)(7c)(7d)(7e) |
+  | 作業ツリー(#38 項目1 込み) | **28/41 FAIL** | **完全に同じ 13 本**(`diff` が空) |
+
+  ⭐⭐⭐ **NG セットが 1 文字も違わない = 非退行**。⛔ 私の変更が壊したのではない。
+  ⭐ 大元は **(1e)「`departToScenario()` が index.html へ遷移しようとした」が赤**で、
+  そこから index へ着地する腕 (§5〜§7 と §8〜§11) が全部倒れている。
+  `probe_party_size` は index への遷移を横取りして数えるが、**#23 で入った地方全景の迂回
+  (`viaWorld` → `world.html`)** があるため `?party=N` の腕は index へ行かない。
+  ⚠⚠ **項目4 は golden 10 本を一括で走らせる。`probe_party_size` の赤を見て
+  「#38 が壊した」と読まないこと。** 直すなら #38 とは別チケット。
+  ⭐ 再現手順(そのまま使える):
+
+      git worktree add --detach <TMP>/df_base_6185d4b 6185d4b
+      node <TMP>/df_base_6185d4b/tools/probe_party_size.js --port 9371 --skip-play
+      node tools/probe_party_size.js --port 9381 --skip-play     # 作業ツリー側
+      # → 「== 結果: 28/41 FAIL ==」と NG 13 本が両側で一致する
+
+  ⚠ `--skip-play` を付けると §8〜§11 を飛ばすので **5 分**で決着する(付けないと 25〜30 分)。
+- ⚠⚠⚠ **項目2 への申し送り — `recordRun()` を配線した瞬間に `memberLevelOf()` が主人公 Lv を超え得る。**
+  `tavern.html:4086` の `memberLevelOf(classKey)` は `selection.partyMembers` の `m.level` を
+  そのまま返し、`skillLimitForClass()` → 準備画面の**仲間のスキルスロット数**を決めている。
+  ⭐ **項目1 の範囲では問題は起きない** —— 名簿の Lv は登録時に `≤ その時の主人公 Lv` で焼かれ、
+  主人公 Lv は下がらないので、常に `≤ 現在の主人公 Lv`。
+  ⚠ しかし **項目2 が `recordRun()`(生還で Lv+1・主人公 Lv では clamp しない)を配線すると**、
+  名簿の Lv が現在の主人公 Lv を超え得る。すると `pickCompanion()` が名簿の Lv を載せた時点から
+  `assignCompanionLevels()` が clamp するまでの間、準備画面が **出発後の実 Lv より多い
+  スキルスロット**を出す。⛔ `partySkills` は触らない決定なので、項目2 は
+  「これを直すのか / 仕様として許すのか」を **明示的に決めてから**着地すること。
+- ⛔ 未着手(スコープ外): §6 帰還時の書き戻し(項目2)/ §7 名簿パネル `#rosterEntry` `#rosterOverlay`
+  (項目3)/ `--negative` の残り 8 本と golden 10 本の一括(項目4)。
+  受入条件 `(4x)` `(5c)` `(6x)` は **ドライバにまだ書いていない**(PENDING を残さないため)。

@@ -2325,6 +2325,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
+  <script src="js/mercenary-roster.js"></script><!-- 傭兵名簿 (#38)。一度共に戦った冒険者が次の依頼にも来る。⛔ キーの前置詞は dragonfighters. のまま (save-slots の keysOf が総なめ)。撤退 ?roster=0 -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 (幾何・敵スロットの唯一の情報源)。index.html / map-editor.html と共有。
@@ -2703,10 +2704,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>傭兵名簿 — 同じ顔が次の依頼にも来る</b> — 一度いっしょに潜った冒険者を酒場が覚えていて、次の依頼にも同じ名前・同じ気性の相手が名乗り出るようになった。</li>
         <li><b>使わずに終わったものが分かる</b> — 余った呪文スロットや一度も出番の無かったスキルを、記録の末尾に並べる。過去 5 回ぶんの記録も酒場に残る。</li>
         <li><b>仲間の働きが数字で見える</b> — 与えたダメージ・受けたダメージ・倒した数を、帰還後の記録に隊列ごとの墨の棒グラフで並べる。</li>
         <li><b>冒険の記録が残るようになった</b> — 帰還後、酒場の羊皮紙で「誰がどこで何に倒れたか」を読み返せる。</li>
-        <li><b>設定の引き出しが暗い画面に馴染むようになった</b> — 技の一覧が暗幕の上でもはっきり読めるようになり、今どのカードを開いているかも金の二重枠で一目で分かる。画面下の案内も「カードを押して設定・下のボタンで出発」と実際の操作どおりに直した。</li>
       </ul>
     </div>
     <script>
@@ -3915,6 +3916,40 @@
       variant: pickVariant(classKey),
     };
   }
+  /* ════════════ 傭兵名簿 (実装依頼書 #38 STEP2) ════════════════════════════
+     同行 NPC は今日まで使い捨てだった。一度共に戦った冒険者を js/mercenary-roster.js が
+     覚えているので、その職の在籍者が居れば **同じ顔をもう一度連れてくる**。
+
+     候補 = 名簿の在籍者 (同職・この編成でまだ名前を使っていない人) + 「新顔」1 通り。
+            満杯 (CAP) のときだけ「新顔」を候補から外す。ここから一様抽選。
+
+     ⭐⭐⭐ **名簿が空なら必ず makeNpcMember に落ちる = 従来と 1 バイトも変わらない。**
+       これが「まっさらなプロファイルで走る既存 golden が緑のままである」根拠であり、
+       tools/verify_mercenary_roster.js の (0a) が実測するもの。
+
+     ⚠ DFRoster.enabled() は **呼ぶたびに読む**。モジュール直下の const に畳むと、
+       regeneratePartyMembers() が上流の関数からこの行より前に呼ばれ得るので TDZ で落ちる
+       (isRecruitOn() / devPartySizeOverride() が同じ理由でそう書かれている)。
+     ⚠ 名簿の失敗で編成を止めない。読めなければ黙って新顔へ落とす (try/catch)。
+     ⛔ Lv はここで clamp しない。主人公 Lv による clamp は assignCompanionLevels() 1 箇所に集約。 */
+  function pickCompanion(classKey, usedNames) {
+    if (!(window.DFRoster && DFRoster.enabled())) return makeNpcMember(classKey, usedNames);   // 名簿 OFF の枝
+    let vets = [], full = false;
+    try {
+      const roster = DFRoster.all();
+      vets = roster.filter(m => m && m.classKey === classKey && !usedNames.has(m.name));
+      full = roster.length >= DFRoster.CAP;
+    } catch (e) { return makeNpcMember(classKey, usedNames); }
+    const n = vets.length + (full ? 0 : 1);
+    if (n <= 0) return makeNpcMember(classKey, usedNames);   // 満杯かつその職が名簿に 0 人の枝
+    const i = Math.floor(Math.random() * n);
+    if (i >= vets.length) return makeNpcMember(classKey, usedNames);   // 新顔を作る枝
+    const v = vets[i];                                                 // 名簿から引く枝
+    usedNames.add(v.name);   // ⭐ 1 回の編成に同じ顔が 2 回入らない (pickUniqueName と同じ器を共有)
+    return { classKey, isHero: false, zone: PARTY_ZONES[classKey],
+             name: v.name, trait: v.trait, line: v.line,
+             variant: v.variant, level: v.level, mercId: v.id };
+  }
   // ════════════ 依頼の重さ → 応募人数 (実装依頼書 #7 quest-recruit-size / STEP2) ════════════
   /* 撤退スイッチ ?recruit=0 : 依頼の重さに関わらず従来どおり PARTY_SIZE (主人公1 + NPC3 = 4人)
        で編成する。**既定は ON** (URL 無指定 = ★の数で応募人数が変わる)。
@@ -3993,14 +4028,14 @@
       const cand = fresh.length ? fresh : zoneClasses;
       if (!cand.length) continue;
       const pick = cand[Math.floor(Math.random() * cand.length)];
-      members.push(makeNpcMember(pick, usedNames));
+      members.push(pickCompanion(pick, usedNames));   // #38: 名簿に居ればその顔・居なければ新顔
       coveredZones.add(zone);
       usedClasses.add(pick);
     }
     // (2) 残り枠は全職業からランダム (重複可)
     while (members.length < partySize) {
       const pick = ALL_CLASS_KEYS[Math.floor(Math.random() * ALL_CLASS_KEYS.length)];
-      members.push(makeNpcMember(pick, usedNames));
+      members.push(pickCompanion(pick, usedNames));   // #38: 同上
     }
     return members;
   }
@@ -6479,6 +6514,14 @@
     const lo = band[0], hi = band[1];
     members.forEach(m => {
       if (m.isHero) { m.level = heroLevel; return; }
+      /* 傭兵名簿 (#38): **既知の顔は振り直さない**。名簿の Lv を clamp だけして使う。
+         ⛔ cap = Math.min(heroLevel, 10) は動かさない (既存不変条件「NPC Lv ≤ 主人公 Lv」)。
+         ⭐ clamp は表示時ではなく **ここ 1 箇所**で行う。名簿には主人公 Lv を超えた値を
+           保存してよい (主人公が育てば追いつく)。 */
+      if (m.mercId != null && typeof m.level === "number" && m.level > 0) {
+        m.level = Math.max(1, Math.min(cap, m.level));
+        return;
+      }
       const r = lo + Math.floor(Math.random() * (hi - lo + 1));
       m.level = Math.max(1, Math.min(cap, r));
     });
@@ -6516,6 +6559,20 @@
       const heroLv = getLevelFromXP(inventory.xp);
       assignCompanionLevels(selection.partyMembers, questLevelOf(prepScenario, heroLv), heroLv);
     } catch (e) {}
+    /* 傭兵名簿 (#38 STEP2): まだ名簿に居ない NPC を登録し、発行された id を **書き戻してから**
+       sessionStorage へ焼く。これで index.html 側にも mercId が渡り、帰還時に誰が同行したかが引ける。
+       ⚠ assignCompanionLevels() の **後**に登録する。先に登録すると level が未確定のまま入る。
+       ⚠ 満杯で enroll() が null を返したら mercId を付けない (= その回だけの使い捨てになる)。
+       ⛔ ここで例外を投げない。名簿の失敗が出発そのものを止めてはいけない。 */
+    try {
+      if (window.DFRoster && DFRoster.enabled()) {
+        (selection.partyMembers || []).forEach(m => {
+          if (!m || m.isHero || m.mercId != null) return;
+          const newId = DFRoster.enroll(m);
+          if (newId != null) m.mercId = newId;
+        });
+      }
+    } catch (e) { console.warn("[roster] 名簿への登録に失敗", e); }
     sessionStorage.setItem("dragonfighters.partyMembers", JSON.stringify(selection.partyMembers));
     sessionStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyMembers.map(m => m.classKey)));
     // === tavern-intel v1.0 (tavern.html / index.html) ===
