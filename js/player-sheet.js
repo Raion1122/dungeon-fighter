@@ -25,6 +25,11 @@
  *   `—` や `0` を出すと「HP 0 = 死んでいる」に見える。伏せるのが正しい。
  *   ⭐ 「空文字を描いた」と「行ごと消した」の区別は __state() の avail / inDom で機械検査する。
  *
+ * ★ #36 で 5E キャラクターシートの体裁へ (区画 5 -> 11 / 3 段組)
+ *   区画の割り付けは SECTION_DEFS_V2 の col が唯一の正。空欄枠は BLANK_* のホワイトリスト。
+ *   ⚠ 「取れなかった区画」と「空欄枠」は別物。__state() は avail / blank / inDom の 3 値を返し、
+ *     規則は inDom === (avail || blank)。⛔ #29 の規律 (取れない区画は行ごと消す) は緩めない。
+ *
  * ★ 撤退スイッチ ?sheet=0
  *   IIFE 先頭で location.search を 1 回読み、真なら **ボタンもオーバーレイも注入せず、
  *   window.DFSheet も生やさずに** return する。ページ単位で完結する (?ability5e=0 と同じ作法)。
@@ -52,6 +57,16 @@
     ENABLED = new URLSearchParams(global.location.search).get("sheet") !== "0";
   } catch (e) { ENABLED = true; }
   if (!ENABLED) return;
+
+  /* ══ 撤退スイッチ ?sheet5e=0 (依頼書 #36 §7-2) ═══════════════════════════
+   *  既定 (真)  … 5E キャラクターシートの体裁 (11 区画・3 段組)
+   *  ?sheet5e=0 … #29 の v1 (5 区画・flex 折り返し) の姿へ丸ごと戻る
+   *  ⛔ ?sheet=0 (モジュールごと止める) と混ぜない。2 本を独立に残す。
+   *  ⚠ ページ遷移はまたがない (?ability5e=0 と同じ、ページ単位で完結)。 */
+  var SHEET5E = true;
+  try {
+    SHEET5E = new URLSearchParams(global.location.search).get("sheet5e") !== "0";
+  } catch (e) { SHEET5E = true; }
 
   // ══ localStorage キー ══════════════════════════════════════════════════
   var LANG_KEY  = "dragonfighters.languages";        // ⭐ 本モジュールが増やす唯一のキー
@@ -108,14 +123,63 @@
 
   // ══ 区画 (section) の宣言 ═════════════════════════════════════════════
   //  ⭐ 「取れなかったら行ごと消す」の単位。id はドライバが名指しする契約なので変えない。
-  var SECTION_DEFS = [
+
+  /* #29 の v1 (5 区画)。⭐ ?sheet5e=0 のときの姿そのもの。⛔ 1 文字も変えない。 */
+  var SECTION_DEFS_V1 = [
     { id: "dfSheetSecHeader",    label: "" },
     { id: "dfSheetSecAbilities", label: "能力値" },
     { id: "dfSheetSecSkills",    label: "技能" },
     { id: "dfSheetSecLanguages", label: "言語" },
     { id: "dfSheetSecBody",      label: "体" },
   ];
-  var SECTION_IDS = SECTION_DEFS.map(function (s) { return s.id; });
+
+  /* #36 の 5E キャラクターシート (11 区画)。
+   * ⛔ v1 の 5 つの id は 1 文字も変えない (ドライバとの契約)。新しい区画は **足すだけ**。
+   * col   … 実物のシートの段。A=左 / B=中 / C=右。見出しだけ全幅 (col:"full")。
+   *   ⭐ 3 段組の割り付けを **この表 1 箇所** で決める。CSS 側は列の器しか持たない。
+   * blank … 実データを 1 つも持たない「空の枠」(依頼書 #36 §2-4 の 3 値契約)。 */
+  var SECTION_DEFS_V2 = [
+    { id: "dfSheetSecHeader",      label: "",                   col: "full" },
+    { id: "dfSheetSecAbilities",   label: "能力値",             col: "A" },
+    { id: "dfSheetSecProficiency", label: "習熟",               col: "A" },
+    { id: "dfSheetSecSaves",       label: "セーヴィングスロー", col: "A" },
+    { id: "dfSheetSecSkills",      label: "技能",               col: "A" },
+    { id: "dfSheetSecCombat",      label: "",                   col: "B" },
+    { id: "dfSheetSecBody",        label: "ヒット・ポイント",   col: "B" },
+    { id: "dfSheetSecAttacks",     label: "攻撃 & 呪文発動",    col: "B" },
+    { id: "dfSheetSecPersona",     label: "人物",               col: "C", blank: true },
+    { id: "dfSheetSecTraits",      label: "特徴 & 特性",        col: "C" },
+    { id: "dfSheetSecLanguages",   label: "その他の習熟と言語", col: "C" },
+  ];
+
+  var SECTION_DEFS = SHEET5E ? SECTION_DEFS_V2 : SECTION_DEFS_V1;
+  var SECTION_IDS  = SECTION_DEFS.map(function (s) { return s.id; });
+  var COL_ORDER    = ["A", "B", "C"];
+  var SECTION_COLS = (function () {
+    var m = {};
+    for (var ci = 0; ci < SECTION_DEFS.length; ci++) {
+      m[SECTION_DEFS[ci].id] = SECTION_DEFS[ci].col || "full";
+    }
+    return m;
+  })();
+
+  /* 空欄枠のホワイトリスト (依頼書 #36 §5-3)。
+   * ⭐ ここに無い id で data-blank を名乗ったら契約違反 = ドライバ (6a) が赤くなる。
+   * ⛔ 「まだ実装していない」ではなく「本作にその概念が原理的に無い」ものだけを載せる。
+   * ⭐ #37 で人物欄に文章が入ったら、trait/ideal/bond/flaw を **この表から外すだけ** で流し込める。 */
+  var BLANK_SECTION_IDS = SHEET5E ? ["dfSheetSecPersona"] : [];
+  var BLANK_FIELD_IDS = SHEET5E ? [
+    "background",   // 背景                 — 見出し帯
+    "alignment",    // 属性                 — 見出し帯
+    "inspiration",  // インスピレーション   — 習熟の区画
+    "tempHp",       // 一時ヒット・ポイント — HP の区画
+    "hitDice",      // ヒットダイス         — HP の区画
+    "deathSaves",   // 死亡セーヴ           — HP の区画
+    "trait",        // 性格的特徴  ┐
+    "ideal",        // 理想        │ 人物の区画 (= BLANK_SECTION_IDS)
+    "bond",         // 絆          │
+    "flaw",         // 欠点        ┘
+  ] : [];
 
   var BTN_ID     = "dfSheetBtn";
   var OVERLAY_ID = "dfSheetOverlay";
@@ -620,14 +684,25 @@
       secs.push({
         id: id,
         avail: !!(LAST_AVAIL && LAST_AVAIL[id]),
+        /* ★#36: 「実データが原理的に無い」と **宣言済み** の空欄枠。avail とは排他。
+           ⛔ (2c) を緩めるのではなく 3 値へ **広げる** ためのフラグ (依頼書 §2-4)。 */
+        blank: BLANK_SECTION_IDS.indexOf(id) >= 0,
         inDom: !!el,
         textLen: el ? String(el.textContent || "").replace(/\s+/g, "").length : 0,
+        /* ★#36: 「実データのセル」と「空欄枠のセル」を **別々に** 数える。
+           これが無いと「実データのある区画を空欄枠へすり替えた」欠陥を検出できない。 */
+        dataCells:  el ? el.querySelectorAll("[data-ability],[data-skill],[data-lang],[data-save],[data-stat]").length : 0,
+        blankCells: el ? el.querySelectorAll("[data-blank]").length : 0,
       });
     }
     var shown = [], hidden = [], mismatch = [];
     for (var j = 0; j < secs.length; j++) {
       if (secs[j].inDom) shown.push(secs[j].id); else hidden.push(secs[j].id);
-      if (secs[j].inDom !== secs[j].avail) mismatch.push(secs[j].id);
+      /* ★#36: 規則は inDom === (avail || blank)。⛔ 緩めるのではなく広げる。
+         avail と blank が **同時に真** = 「実データがあるのに空欄枠を名乗った」= 契約違反。 */
+      var s3 = secs[j];
+      if (s3.avail && s3.blank) mismatch.push(s3.id + "(avail&blank)");
+      else if (s3.inDom !== (s3.avail || s3.blank)) mismatch.push(s3.id);
     }
     return {
       classKey: LAST_CLASS || heroClassKey(),
@@ -673,6 +748,10 @@
     CLASS_LABELS: CLASS_LABELS,
     XP_THRESHOLDS: XP_THRESHOLDS,
     SECTION_IDS: SECTION_IDS,
+    SECTION_COLS: SECTION_COLS,            // ★#36 3 段組の割り付け表 (id -> full/A/B/C)
+    BLANK_SECTION_IDS: BLANK_SECTION_IDS,  // ★#36 空欄枠のホワイトリスト (区画)
+    BLANK_FIELD_IDS: BLANK_FIELD_IDS,      // ★#36 空欄枠のホワイトリスト (セル)
+    SHEET5E: SHEET5E,                      // ★#36 撤退スイッチの現在値
     LANG_KEY: LANG_KEY,
     open: open,
     close: close,
@@ -684,6 +763,7 @@
     classLabel: classLabel,
     levelFromXp: levelFromXp,
     setBodyProvider: setBodyProvider,
+    __body: bodyStats,                     // ★#36 検証シーム: 供給口を通した「体」の生値
     __state: __state,
     __rehome: rehome,
   };

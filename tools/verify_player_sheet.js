@@ -10,6 +10,10 @@
  *   §4 恒等   既存 HUD が 1px も動かない / XP_THRESHOLDS の写しが index.html と一致 /
  *             pageerror 0 / 増えた localStorage キーは 1 本だけ
  *   §5 撤退   ?sheet=0 で何も注入されない / 言語キー無しでも固定分だけ出て落ちない
+ *   §6 空欄枠 宣言した「空の枠」と「取れなかった区画」を混同していない (#36)
+ *   §7 体裁   3 段組が 3/2/1 に畳まれる / 能力値ボックスが縦 1 列 / 横スクロールしない (#36)
+ *   §8 出所   セーヴ・先制・攻撃が **実際に振られている値** と一致する 2 経路照合 (#36)
+ *   §9 恒等   撤退 ?sheet5e=0 で #29 の姿へ戻り、非退行であること (#36)
  *
  * ⭐⭐⭐ 本ファイルは **dev-loop 項目 1 の成果物**である。
  *   項目 1 の時点では 5 ページに `<script src="js/player-sheet.js">` が **まだ 1 行も無い**
@@ -176,8 +180,53 @@ const MUTATIONS = {
        + ' (0c) が無いと「閉じたままの空 DOM を測って全部緑」になることを機械証明する。'
        + ' ⚠ ファイル置換ではなく、probeRealPage の opts.skipOpen で押下ごと省く経路を通す。',
   },
+
+  /* ══ #36 で足す 8 本。⭐ 項目 1 では **全部 impl:false = 宣言のみ**。実装は項目 4 の担当。
+     ⚠⚠⚠ 実装するときは **1 本ずつ単体で回して** evaluable / allowRed を実測から決める
+       (#29 で 7 本中 5 本が担当外を巻き込み、#34 で「全部同時だと互いを覆い隠す」を踏んだ)。 */
+  savesfrom5e: {
+    impl: false, file: SHEET_JS, targets: ['8b'],
+    why: '⭐⭐⭐ 依頼書 #36 §2-2 罠 A の再現。セーヴを playerStats (戦闘系) ではなく'
+       + ' DFAbilities.abilityMod() から出す。画面の数字が「実際に振られている値」と割れる。',
+  },
+  blankdata: {
+    impl: false, file: SHEET_JS, targets: ['6c'],
+    why: '⭐⭐⭐ 依頼書 #36 §2-4 罠 C の再現。能力値の区画から data-ability を落として'
+       + ' data-blank に置き換える = 実データのある区画を空欄枠にすり替える。',
+  },
+  blankundeclared: {
+    impl: false, file: SHEET_JS, targets: ['6a'],
+    why: 'ホワイトリストに無い空欄セル (data-blank="foo") を 1 つ足す。'
+       + ' 宣言と実物がズレていることを機械証明する。',
+  },
+  headmix: {
+    impl: false, file: INDEX_HTML, targets: ['8c'],
+    why: '⭐ 依頼書 #36 §2-7 の罠。供給口の新フィールドだけ heroIsHead の分岐を通さず'
+       + ' playerStats を直読みする = 「HP は主人公 / セーヴは頭の NPC」の混ざった紙が出る。',
+  },
+  emptycol: {
+    impl: false, file: SHEET_JS, targets: ['7b'],
+    why: '中身が 0 の段も常に描く。title/town/world では B 段が丸ごと空なので、'
+       + ' 置くと右に幅ぶんの余白が出る (見た目だけの欠陥は DOM の件数でしか捕まらない)。',
+  },
+  abilrow: {
+    impl: false, file: SHEET_JS, targets: ['7c'],
+    why: '能力値ボックスを横並びに戻す。5E シートの顔は「縦 1 列に積まれた 6 個」なので、'
+       + ' 数字が全部合っていても体裁としては失敗している。',
+  },
+  retreatkeep: {
+    impl: false, file: SHEET_JS, targets: ['8a'],
+    why: '?sheet5e=0 でも 11 区画のまま = 撤退スイッチが効かない。'
+       + ' ⭐ 撤退路は「付ければ #29 の姿へ戻る」ことまで含めて機械証明する。',
+  },
+  initfrom5e: {
+    impl: false, file: SHEET_JS, targets: ['8d'],
+    why: '先制を DFAbilities.abilityMod(DEX スコア) から出す。罠 A と同根で、'
+       + ' index.html:19774 の u.initiative = d20() + u.dex とは別系統の数字になる。',
+  },
 };
-const MUT_ORDER = ['wipeorder', 'fixedsave', 'nocha', 'ownmod', 'blankrow', 'fixedbtn', 'closedread'];
+const MUT_ORDER = ['wipeorder', 'fixedsave', 'nocha', 'ownmod', 'blankrow', 'fixedbtn', 'closedread',
+  'savesfrom5e', 'blankdata', 'blankundeclared', 'headmix', 'emptycol', 'abilrow', 'retreatkeep', 'initfrom5e'];
 const MUT_IMPL  = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_TODO  = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
 
@@ -374,6 +423,12 @@ async function probeModule(browser, base, query) {
     out.classLang   = JSON.parse(JSON.stringify(S.CLASS_LANGUAGES || {}));
     out.classLabels = JSON.parse(JSON.stringify(S.CLASS_LABELS || {}));
     out.sectionIds  = (S.SECTION_IDS || []).slice();
+    /* ★#36: 段組の割り付けと空欄枠のホワイトリスト。
+       ⭐ (0s14)(0s15) の母集団。これが無いと §6 の assert が全部空振りで永久緑になる。 */
+    out.sectionCols   = JSON.parse(JSON.stringify(S.SECTION_COLS || {}));
+    out.blankSecIds   = (S.BLANK_SECTION_IDS || []).slice();
+    out.blankFieldIds = (S.BLANK_FIELD_IDS || []).slice();
+    out.sheet5e       = S.SHEET5E;
     out.xp          = (S.XP_THRESHOLDS || []).slice();
     out.langKey     = S.LANG_KEY;
 
@@ -1067,17 +1122,20 @@ const ASSERTS = [
         : (m.langKeyAfterOpen === null ? '増減 0 件 / languages キーも未生成'
           : '⛔ languages キーが書かれた: ' + m.langKeyAfterOpen)];
   }],
-  ['0s9', '区画 id が 5 件で、__state() が avail と inDom を **別々に** 返す', (M) => {
+  /* ⚠⚠ #36 で 5 -> 11。件数の直書きは 3 箇所。**区画を足した瞬間に赤くなる**のは
+     退行ではなく設計どおり (依頼書 #36 §2-3 罠 B)。 */
+  ['0s9', '区画 id が 11 件で、__state() が avail / blank / inDom を **別々に** 返す', (M) => {
     const m = M.mod;
     if (!m || !m.has) return [false, '⛔ 母集団が無い'];
     const st = m.state || {};
     const secs = st.sections || [];
-    const shape = secs.length === 5 && secs.every(s =>
-      typeof s.id === 'string' && typeof s.avail === 'boolean' && typeof s.inDom === 'boolean');
+    const shape = secs.length === 11 && secs.every(s =>
+      typeof s.id === 'string' && typeof s.avail === 'boolean' && typeof s.inDom === 'boolean'
+      && typeof s.blank === 'boolean');
     const ids = (m.sectionIds || []);
-    const idsOk = ids.length === 5 && sameSet(ids, secs.map(s => s.id));
+    const idsOk = ids.length === 11 && sameSet(ids, secs.map(s => s.id));
     const listOk = Array.isArray(st.shown) && Array.isArray(st.hidden)
-      && st.shown.length + st.hidden.length === 5;
+      && st.shown.length + st.hidden.length === 11;
     return [shape && idsOk && listOk,
       '区画 ' + ids.length + ' 件 ' + JSON.stringify(ids)
       + '  shown=' + JSON.stringify(st.shown) + ' hidden=' + JSON.stringify(st.hidden)
@@ -1113,6 +1171,22 @@ const ASSERTS = [
         ? 'Math.floor 0 箇所 / (s-10)/2 0 箇所 (DFAbilities.abilityMod が唯一の入口)'
         : '⛔ Math.floor ' + floors + ' 箇所 / (s-10)/2 ' + halves
           + ' 箇所 — #28 の ?ability5e=0 が効かなくなる'];
+  }],
+  ['0s15', '★#36 SECTION_COLS が full/A/B/C の 4 種だけで、A/B/C それぞれに 1 件以上ある', (M) => {
+    const m = M.mod;
+    if (!m || !m.has) return [false, '⛔ 母集団が無い'];
+    const cols = m.sectionCols || {};
+    const ids = (m.sectionIds || []);
+    if (!ids.length) return [false, '⛔ 区画が 0 件'];
+    const vals = ids.map(id => cols[id]);
+    const bad = ids.filter(id => ['full', 'A', 'B', 'C'].indexOf(cols[id]) < 0);
+    const n = (c) => vals.filter(v => v === c).length;
+    const ok = bad.length === 0 && Object.keys(cols).length === ids.length
+      && n('A') >= 1 && n('B') >= 1 && n('C') >= 1 && n('full') >= 1;
+    return [ok, 'full=' + n('full') + ' A=' + n('A') + ' B=' + n('B') + ' C=' + n('C')
+      + '  (割り付け表 ' + Object.keys(cols).length + ' 件 / 区画 ' + ids.length + ' 件)'
+      + (bad.length ? '  ⛔ 未知の段: ' + bad.map(id => id + '=' + cols[id]).join(',') : '')
+      + (ok ? '' : '  ⛔ 3 段のどれかが空 = 段組の割り付け表が壊れている')];
   }],
 
   // ── §4 恒等 (この項目で測れる分) ───────────────────────────────────────
@@ -1568,17 +1642,47 @@ const HTML_YET = '(未使用) 実ページへの <script src> は項目 2 で完
 /* ⭐ 項目 3 で §3 の 5 本 (3a〜3e) を実装したので、受入条件側の PENDING は 0 件になった。
    残る PENDING は `--negative` の変異 7 本だけ (= 項目 4 の担当)。
    ⛔ この器を消さないこと。項目 4 が変異を実装するまでは「空でも在る」ことに意味がある。 */
-const PENDING_OF = {};
+/* ⚠⚠⚠ #36 項目 1: 区画は 11 になったが **描くのは項目 2 の担当**。
+   よって「11 区画が実ページに出る」ことを前提にする節は 1 つも測れない。
+   ⛔ 測れないものを緑にしない。項目 3 が全部埋めて PENDING 0 にする。 */
+const P36_YET = '#36 項目 2 (描画 + 供給口の拡張) 待ち。11 区画がまだ実ページに出ないので母集団が作れない';
+const PENDING_OF = {
+  '0s14': ['★#36 BLANK_SECTION_IDS 1 件 / BLANK_FIELD_IDS 10 件が、実際に描かれた data-blank と食い違わない', P36_YET],
+  '2c':   ['取れない区画は行ごと消え、宣言済みの空欄枠だけが例外 (inDom === avail || blank)', P36_YET],
+  '6a':   ['★#36 DOM の [data-blank] の id 集合 ⊆ BLANK_FIELD_IDS (index では 10 件ちょうど)', P36_YET],
+  '6b':   ['★#36 BLANK_SECTION_IDS の区画は dataCells 0 かつ blankCells 1 以上', P36_YET],
+  '6c':   ['★#36 BLANK_SECTION_IDS 以外で DOM に居る区画は必ず dataCells 1 以上', P36_YET],
+  '6d':   ['★#36 空欄セルのテキストが — / 0 / - を含まない (伏せたように見せない)', P36_YET],
+  '7a':   ['★#36 幅 1200/760/390 で .dfSheetCols が 3/2/1 列になる', P36_YET],
+  '7b':   ['★#36 中身が 0 の段は DOM に存在しない (title で B 段 0 件 / index で 1 件)', P36_YET],
+  '7c':   ['★#36 6 つの能力値ボックスが縦 1 列に積まれている (left 同一 / top 単調増加)', P36_YET],
+  '7d':   ['★#36 3 幅とも紙が横スクロールしない (scrollWidth <= clientWidth + 1)', P36_YET],
+  '7e':   ['★#36 390px 幅で紙の実効文字高が 11px 以上', P36_YET],
+  '8a':   ['★#36 ?sheet5e=0 の 5 ページで __state() が #29 の 5 区画へ戻る', P36_YET],
+  '8b':   ['★#36 セーヴ 5 行が供給口の saves + saveBonus と一致し、5e 修正値とは割れている', P36_YET],
+  '8c':   ['★#36 頭が NPC の編成で、セーヴ/AC/先制/攻撃が heroRef 側の値 (頭の値ではない)', P36_YET],
+  '8d':   ['★#36 先制の表示値が供給口の initiative (= u.dex 系統) と一致する', P36_YET],
+  '8e':   ['★#36 攻撃欄の武器名が供給口の weaponName と一致する (2 経路)', P36_YET],
+  '8f':   ['★#36 受動知覚 = 10 + SkillCheck.checkScore(perception) (index / tavern)', P36_YET],
+  '9a':   ['★#36 ?sheet5e=0 の 5 ページで pageerror ゼロ', P36_YET],
+  '9b':   ['★#36 ?sheet5e=0 でもシートの開閉で localStorage のキーが 0 本増えない', P36_YET],
+  '9c':   ['★#36 ?sheet5e=0 でも既存 HUD の矩形が 1px も動かない', P36_YET],
+};
 
 const SECTIONS = [
   ['§0 装置 — 共有モジュール単体の契約 (項目 1 で測れる分)',
-    ['0s1', '0s2', '0d', '0s3', '0s4', '0s5', '0s6', '0s7', '0s8', '0s9', '0s10', '0s11', '0s12', '0s13']],
+    ['0s1', '0s2', '0d', '0s3', '0s4', '0s5', '0s6', '0s7', '0s8', '0s9', '0s10', '0s11', '0s12', '0s13',
+     '0s14', '0s15']],
   ['§0 装置 — 実ページの母集団 (5 枚)', ['0a', '0b', '0c']],
   ['§1 呼び出し口 — 3 経路 (キュー訂正版)', ['1a', '1b', '1c']],
   ['§2 中身 — 能力値 / 技能 / 伏せた区画', ['2a', '2b', '2c', '2d']],
   ['§3 言語 — 選択 UI と保存', ['3a', '3b', '3c', '3d', '3e']],
   ['§4 恒等 — 非退行', ['4a', '4b', '4c', '4d']],
   ['§5 撤退 — ?sheet=0', ['5a', '5b']],
+  ['§6 空欄枠 — 宣言した空欄と「取れなかった区画」を混同していない (#36)', ['6a', '6b', '6c', '6d']],
+  ['§7 5E の体裁 — 3 段組と縦積み (#36)', ['7a', '7b', '7c', '7d', '7e']],
+  ['§8 数字の出所 — 2 経路の突き合わせ (#36)', ['8a', '8b', '8c', '8d', '8e', '8f']],
+  ['§9 恒等 — 撤退 ?sheet5e=0 の非退行 (#36)', ['9a', '9b', '9c']],
 ];
 
 function emit(id, M) {
