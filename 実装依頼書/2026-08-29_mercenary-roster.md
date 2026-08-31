@@ -1,6 +1,7 @@
 # #38 傭兵名簿 — 仲間が固有名詞になる
 
-- **起草**: 2026-08-29(計画窓 `claude-36`) / **ステータス**: **承認済**(2026-08-29 ユーザー承認)
+- **起草**: 2026-08-29(計画窓 `claude-36`) / **ステータス**: ✅ **完了 `c6862a9`+`f112f53`+`edd42d0`+`b7c70ef`+`1f518d2`**(2026-08-30〜31 / dev-loop 4 項目・停止 0 回)
+  — 実装結果は **§13**。⛔ **push は未実施**(ユーザー承認事項)。
 - **触るファイル**: `js/mercenary-roster.js`(新規) / `tavern.html` / `index.html`(最小) /
   `tools/verify_mercenary_roster.js`(新規)
 - **着手**: ⏸ **保留 — 依頼書 #37(`2026-08-29_run-chronicle.md`)の着地待ち。**
@@ -934,3 +935,153 @@ assert の近くではコメントも数えられる」がここでも起きる�
   残さないと「aria も見ている」ぶんだけ余計に赤くなり、何を検出したのか判らなくなる)。
 - ⛔ 未着手(スコープ外): `(6a)`(`tavern.html?roster=0` の腕)/ `(6c)`(撤退を外すと名簿が復活)/
   `--negative` の残り 8 本 / golden 10 本の一括 / `実装依頼書/README.md` の #38 行(項目4)。
+
+### 項目4(締め)— `--negative` の残り 8 本 + 撤退 `(6a)(6c)` + 既存 golden 10 本の一括
+
+| 項目 | 実測 |
+|---|---|
+| 実装 | **`tools/verify_mercenary_roster.js` だけ**(受入条件 +3 本 / 変異 +8 本 / `seamTo()` `gotoTavern()` 新設 / 一括ログの `/9 本` → `/10 本`)。⛔ **本番ファイルは 1 バイトも触っていない**(`git status` の差分は当該 1 本のみ)→ changelog フックの対象外(`GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` を実測確認) |
+| 新ドライバ | `node tools/verify_mercenary_roster.js` → **44 PASSED / 0 FAILED / 0 PENDING**(41 → 44) |
+| 負のコントロール | **10/10 本**とも担当ラベルが赤・**空振り 0 本**。巻き添えは **1 件だけ**(`noretreatswitch` → `(5a)`) |
+| 既存 golden | **10 本とも §13 冒頭の基準どおり**(`probe_party_size` の赤は着手前から。NG セットが基準と一致) |
+| 撤退 | `?roster=0`(酒場 = `DFRoster.enabled()` + `initRosterEntry()` / index = `ROSTER_ON`)。**(6a)(6c) で機械検査済** |
+
+#### 追加した受入条件 3 本
+
+`(6z4)`(装置: 腕A で NPC が編成され、腕B で名簿が育った)/ `(6a)` / `(6c)`。
+
+⭐ **(6a)(6c) は 2 本の腕で挟まないと片方しか言えない。**
+
+- **腕A** = まっさらなプロファイル + `?roster=0` で **8 周**。名簿が **生えない**ことを見る
+  (`dragonfighters.mercRoster` が null のまま / `mercRoster` を含む localStorage キーが 0 本 /
+  `#rosterEntry` が DOM に出ない / 8 周ぶんの `partyMembers` に `mercId` が 0 件)。
+  実測 = **NPC 24 人を編成して mercId 0 件・例外 0 件**。
+- **腕B** = 先に名簿を育ててから `?roster=0` へ切り替え、また外す。**読まないが消さない**ことを見る。
+  実測 = 在籍 `11 → 11 → 11` / `all()` `11 → 0 → 11` / 入口 `true → false → true` /
+  `open()` `true → false → true` / **撤退中の生バイトが 1 文字も変わらない**。
+
+⚠⚠⚠ **腕B は「同じタブで遷移」でないと原理的に測れない。** 新しいタブで開き直すと
+ドライバの `BOOT` が `dragonfighters.*` を purge して、**「消えていないこと」を測る母集団そのものが消える**
+(項目2 が `reloadTavern()` で踏んだ罠と同じ)。→ 新設 `gotoTavern(page, query)`。
+
+⛔ **腕B の OFF 中に出発を回さないこと。** 回すと `noretreatswitch` で `(6c)` まで赤くなり、
+`(6a)` と二重に鳴って何を検出したのか判らなくなる(「撤退中に書かない」は腕A の担当)。
+
+⚠ 生バイトは **`DFRoster.KEY` 越し**に読む。キー名を直書きすると `badprefix` のとき
+「名簿が育っていない」ように見えて、担当外の変異で母集団ガード `(6z4)` が落ちる。
+
+#### 変異 10 本の実測(1 本ずつ別プロセス・別ポートで注入。⚠ 同時に入れると互いを覆い隠す)
+
+| 変異 | 依頼書 §9 の期待 | **実測で赤くなったラベル** | 合計 | 空振り | 巻き添え |
+|---|---|---|---|---|---|
+| `badprefix` | (3a)(3b)(3c) | **(3a)(3c)(3b)** | 41/44 | なし | 0 |
+| `nolevelclamp`(項目2 が新設) | (2e) | **(2e)** | 43/44 | なし | 0 |
+| `fadeclose` | (4c) | **(4c)** | 43/44 | なし | 0 |
+| `noretreatswitch` | (6a) | **(6a)** + (5a) | 42/44 | なし | **1 件 = (5a)** |
+| `nocap` | (3d) | **(3d)** | 43/44 | なし | 0 |
+| `reuseid` | (3e) | **(3e)** | 43/44 | なし | 0 |
+| `defeatgrows` | (2b)(2f2) | **(2b)(2f2)** | 42/44 | なし | 0 |
+| `alwaysroster` | (0a)(5a) | **(0a)(5a)** | 42/44 | なし | 0 |
+| `noclamp` | (2c) | **(2c)** | 43/44 | なし | 0 |
+| `switchleak` | (3c) | **(3c)** | 43/44 | なし | 0 |
+
+⭐ **一括でも同じ**: `node tools/verify_mercenary_roster.js --negative`(自分自身を 1 タグずつ
+子プロセスで呼び直す)→ **`--negative OK: 10 本とも担当ラベルが赤くなりました (空振り 0)` / exit 0**。
+10 本すべて、1 本ずつ走らせたときと **赤くなったラベルが完全一致**した。
+
+⭐ **赤くなった中身の指紋**(空振りでないことの根拠):
+
+- `nocap` → `(3d)` = **在籍 19/12 人(14 周)/ 超過周 7 件**。各周の編成人数は `[4,…,4]` のまま。
+- `reuseid` → `(3e)` = **`next 13 → 1` / 見送った id=1 が次に再発行された**。
+- `defeatgrows` → `(2b)` = `runs 3→8 / Lv2→3`、`(2f2)` = **敗北の帰還で 3 人の runs が 0→1**。
+- `noclamp` → `(2c)` = 主人公 Lv3 側の出発 Lv が **`[9,9,…]`(clamp されていない)**。`(2e)` は緑のまま
+  = 「出発側の呼びだけを外した」ことの証拠。
+- `fadeclose` → `(4c)` = click 後が `{"display":"flex","opacity":"0"}`(= 見えないのに押せる板)。
+- `switchleak` → `(3c)` = `snapshot.data` の名簿キーが `[]`(data 全体は 12 キー)。`(3b)` は緑
+  = `wipeLive()` を巻き込んでいないことの証拠。
+- `alwaysroster` → `(0a)` = 1 周目の抽選直後に **mercId 持ちが 3 人**(名簿は 0 人なのに)、
+  `(5a)` = 値の形が `trait:["string:empty"] / line:["string:empty"]`。
+- `noretreatswitch` → `(6a)` = 腕A の生バイトに `{"v":1,"next":13,"list":[…]}` が生えた +
+  腕B が `all() 10→10→10` / 入口 `true→true→true`。
+
+⚠⚠ **巻き添え 1 件の中身**: `noretreatswitch` は `(5a)` も赤にする。`(5a)` は
+**`?roster=0` の腕そのものを「従来」の基準にしている**ので、撤退スイッチが壊れると基準側にも
+`mercId` が生えて比較が成立しなくなる(実測: 従来キーに `mercId` が入った)。
+⭐ これは誤検出ではなく **基準が立たないことを正しく赤で言っている**二重検出。
+⛔ だからといって `NEG_EXPECT` の期待に `(5a)` を足して「想定内」にはしない(隠すことになる)。
+
+#### ⚠⚠⚠ 依頼書 §9 / 項目3 の申し送りのアンカーが **3 本そのままでは空振りした**
+
+| 変異 | 書いてあった注入点 | なぜ空振りするか(実測) | 実際に赤くするために必要だったこと |
+|---|---|---|---|
+| `nocap` | `enroll()` の `if (r.list.length >= CAP) return null;` を削る | **`save()` と `load()` が CAP で切り詰め直す**ので在籍は 12 のまま戻り `(3d)` が緑 | 上限を守る **3 箇所**(`enroll` の門番 / `load` の切り詰め / `save` の切り詰め)+ 抽選側の `full = roster.length >= DFRoster.CAP` を全部外す |
+| `reuseid` | `release()` の `return save(r);` の前に `r.next = 1;` | **`save()`/`load()` の「next は既存 id より大きい」押し上げ**が next を元へ戻すので `(3e)` が緑。⭐ その押し上げこそが id 再利用を防ぐ防具 | 押し上げ 2 箇所ごと外す(= 防具を外して初めて欠陥になる) |
+| `alwaysroster` | `if (i >= vets.length) return makeNpcMember(...)` を「潰す」 | 素直に消すと `vets[i]` が undefined で **pickCompanion が例外** → 編成ごと落ちて §1 §3d §4 §5 まで全滅し、何を検出したのか判らなくなる | **「新顔も名簿の顔として扱う」形**へ翻訳 = 性格も口癖も持たない半端な人物をその場で `DFRoster.enroll()` して返す。名簿は正しく育つので `(0a)(5a)` だけが赤くなる |
+
+⭐⭐⭐ **「変異が緑」には 2 種類ある。** ①受入条件が何も検出していない(→ 受入条件を強くする)
+②**変異が欠陥になっていない**(→ 変異のほうを直す)。`nocap` / `reuseid` は ②で、
+**実装が多重に守っていた**ことの裏返しだった(欠陥ではない)。
+
+#### ⭐ 受入条件を強くした / 測定点を移した 3 箇所(⛔ どれも弱めていない)
+
+1. **`(5a)` を「キー集合」から「キー集合 + 値の形」へ。**
+   ⚠⚠⚠ `alwaysroster` を入れても `(5a)` は **緑のままだった**。キー名は全部そろっており、
+   差は `mercId` 1 本だけ —— それは `(5a)` が最初から除外しているキーだったから。
+   → 非主人公の `name` / `trait` / `line` / `variant` / `level` について
+   **型と「空文字でないこと」**を `?roster=0` の腕と突き合わせる。
+   実測の指紋: 従来 `{"trait":["string"],"line":["string"]}` vs 名簿 ON `{"trait":["string:empty"],"line":["string:empty"]}`。
+   ⛔ 中身(どの性格が出たか)は見ない —— そこは抽選なので比べられるのは型と空でないことだけ。
+2. **`(2f)` の基準を `seed` → `afterLose` へ(測定点を移しただけ)。**
+   `defeatgrows` が `(2f)` でも赤くなり `(2f2)` と二重に鳴っていた。
+   ⛔ 「同行者だけ +1 / 留守は 0」という主張は基準をずらしても 1 ミリも緩まない
+   (敗北で増える欠陥を捕まえるのは `(2f2)` の担当)。
+3. **`(4z1)` の母集団ガードを「在籍 = CAP」→「在籍 >= CAP」へ。**
+   `nocap` で母集団ガードまで赤くなっていた。正しい実装では在籍が CAP を超えないので **等価**。
+   上限を壊す欠陥の担当は `(3d)` 一本に寄せた。
+
+#### ⚠ 変異を配る順序 — シームが先、変異が後
+
+`alwaysroster` の注入点は **計測シームが既に書き換えた行**(`(c) 新顔を作る枝`)。
+ディスクの原文をアンカーにすると `patch()` が 0 ヒットで **exit 3** になる。
+→ 新設 `seamTo(prefix)` が `SEAM_INJECTIONS` から **ラベルで**注入後の文字列を引く。
+⛔ 番号(`SEAM_INJECTIONS[2]`)で引かない —— 並びが変わると黙って別の枝を壊す。
+⭐ 枝カウンタ(`BUMP`)は **残す**。枝は現に通っているので、そこを消すと計測器のほうを壊すことになる。
+
+#### 既存 golden 10 本 — 着手時の基準(§13 冒頭)との突き合わせ
+
+| ドライバ | 着手時の基準(`6185d4b`) | **項目4 の実測(`1f518d2`)** | 判定 |
+|---|---|---|---|
+| `tools/verify_recruit_size.js` | 82/82 PASS | **82/82 PASS** | ✅ 一致 |
+| `tools/probe_party_size.js` | 28/41 FAIL(`--skip-play`) | **28/41 FAIL — NG 13 本 = (1e)(5a)(5b)(5c)(5z3)(5z4)(6c)(6d)(7a)(7b)(7c)(7d)(7e) で **基準と完全一致**** | ✅ 一致 (着手前から赤) |
+| `tools/verify_party_match_setup.js` | 36/36 PENDING 0 | **PASSED 36 / FAILED 0 / PENDING 0** | ✅ 一致 |
+| `tools/verify_quest_walk.js` | 25/25 PENDING 0 | **25/25 PASSED / FAILED 0 / PENDING 0** | ✅ 一致 |
+| `tools/driver_party_view_reopen.js` | 35/35 | **35/35 PASSED / 0 FAILED / 0 PENDING** | ✅ 一致 |
+| `tools/verify_tavern_map.js` | 43/43 PENDING 0 | **43/43 PASSED / FAILED 0 / PENDING 0** | ✅ 一致 |
+| `tools/verify_save_slots.js` | 30/30 | **30/30 passed** | ✅ 一致 |
+| `tools/verify_run_chronicle.js` | 73 PASSED / 0 FAILED / 0 PENDING | **73 PASSED / 0 FAILED / 0 PENDING** | ✅ 一致 |
+| `tools/driver_action_priority.js` | 92 PASSED / 0 FAILED / 0 PENDING | **RESULT: PASSED 92 / FAILED 0 / PENDING 0** | ✅ 一致 |
+| `tools/verify_player_sheet.js` | 70/70 PENDING 0 | **70/70 PASSED / FAILED 0 / PENDING 0** | ✅ 一致 |
+
+⚠⚠⚠ **`probe_party_size` の赤は #38 に着手する前から。** 項目1 が
+`git worktree add --detach <TMP>/df_base_6185d4b 6185d4b` で基準を取り出し、
+**NG セットが完全一致(diff が空)= 非退行**であることを実証済み。大元は
+`(1e)`(`departToScenario()` が index.html へ遷移しない)で、**#23 の `viaWorld`
+(ワールドマップを 1 枚挟む導線)** によってドライバの遷移横取りが空振りするようになったため。
+項目4 の実測でも `(1e)` の詳細は **「横取り 0 件 / 現在地 = world.html」** で基準と同じ指紋。
+⛔ **#38 が壊したのではない。** 直すなら #38 とは別チケット。
+
+#### ⚠ 実装で確定したこと
+
+- **changelog は不要だった。** 項目4 が触ったのは `tools/` と `実装依頼書/` だけで、
+  `scripts/hooks/check_changelog.py` の `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` に
+  当たらない。⭐ **プレイヤーに見える変化が無い変更は本番ファイルへ置かない**という CLAUDE.md の
+  方針どおり、変異も計測シームも **配信スナップショットへの実行時注入**のままで済んでいる。
+- ⚠ **並列に走らせるときは全ドライバへ明示ポートを渡すこと。** `verify_recruit_size` と
+  `verify_run_chronicle` は **既定ポートが同じ `8897`**。素で同時に起動すると片方が落ちる。
+- ⚠ Bash の `cd X && … & (B) & (C) & wait` は **`&` が優先**するので、2 本目以降の
+  サブシェルに `cd` が効かない(実測: `MODULE_NOT_FOUND` で 2 本が即死した)。
+  各サブシェルの内側に `cd` を書くこと。
+- ⛔ **残件(このチケットの外)**: 依頼書 §10 の実機/実感 7 項目(同じ顔の来る頻度・iPhone での
+  スクロールと開閉・見送りの取り返しのつかなさ・12 人で頭打ちになったときの手応え・
+  `runs % 3` のテンポ・敗北で減らないことのぬるさ・HUD が 1 つ増えた窮屈さ)。
+
