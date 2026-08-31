@@ -11,10 +11,11 @@
  * ── 担当表 (どの節が何を守っているか) ─────────────────────────────────────
  *   §0 装置  … 母集団。⭐⭐⭐ (0a) が無いと「名簿から引けていないのに全部緑」になる
  *   §1 再登板… 同じ顔が返ってくる。2 経路 (名簿の実体 / 出発が焼いた partyMembers) で突き合わせ
- *   §2 成長  … 生還で増え、敗北で増えない。主人公 Lv による clamp は出発時 1 箇所
+ *   §2 成長  … 生還で増え、敗北で増えない。主人公 Lv による clamp は出発時と表示時で同じ関数
  *   §3 器    … 前置詞・スロット・上限・見送り
- *   §5 恒等  … 名簿が空なら従来と 1 バイトも変わらない / 装備 3 キーが動かない
- *   §4 (パネル) は **項目3**、§5 の (5c) と §6 (撤退) は **項目2 / 項目4** の担当。
+ *   §5 恒等  … 名簿が空なら従来と 1 バイトも変わらない / 装備 3 キーが動かない / lastResult の既存キー
+ *   §6 帰還  … index が書いた lastResult を酒場の consumeResult() が消費して名簿が育つ (項目2)
+ *   §4 (パネル) と (6a)(6c) は **項目3 / 項目4** の担当。
  *   ⛔ この窓のスコープ外の受入条件は **ドライバにまだ書かない** (PENDING を残さない)。
  *
  * ── ⛔ 測らないこと (依頼書 §9 の末尾) ────────────────────────────────────
@@ -108,6 +109,27 @@ function patch(kind, label, key, from, to, wantHits) {
   return hits;
 }
 
+/* index.html の lastResult 書き込みブロックを配信バイトから切り出す (§5 (5c2) / §6 用)。
+   ⭐ 撤退経路 (retreated: true) は実プレイで踏むのが難しい —— 撤退ボタンは gameStarted かつ
+     非交戦中でしか押せず、押してから 4 秒以上の演出を待つ。そこで「書き込み点が 2 つあり、
+     両方が roster を載せている」だけは **構造** で縛る。
+   ⚠⚠ #34 の罠「配信バイトを正規表現で数える assert の近くではコメントも数えられる」を避けるため、
+     探すのは実際の呼び `roster: rosterResultPayload(` にする (私が書いたコメントには
+     "?roster=0" とは書いてあるが "roster: rosterResultPayload(" は 1 度も出てこない)。 */
+function lastResultBlocks(src) {
+  const MARK = 'sessionStorage.setItem("dragonfighters.lastResult", JSON.stringify({';
+  const out = [];
+  let i = 0;
+  for (;;) {
+    const at = src.indexOf(MARK, i);
+    if (at < 0) break;
+    const end = src.indexOf('}));', at);
+    out.push(src.slice(at, end < 0 ? Math.min(at + 4000, src.length) : end));
+    i = at + MARK.length;
+  }
+  return out;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 計測シームの実行時注入 — pickCompanion() の **枝カウンタ**
  *   ⭐⭐⭐ (0a) の本体。「名簿から引いたのか / 新顔を作ったのか」を、返り値の mercId ではなく
@@ -142,20 +164,34 @@ SEAM_INJECTIONS.forEach((inj) => patch('計測シーム', inj.label, '/tavern.ht
  *   ⚠⚠ 変異は **1 本ずつ**注入する。全部同時に入れると互いを覆い隠す
  *      (#34 / #37 で実測)。素の --negative は自分自身を子プロセスで 1 タグずつ呼び直す。
  *
- *   ⭐ 本窓 (項目1) が用意したのは **badprefix 1 本 + 注入機構**。
- *      残り 8 本 (noclamp / defeatgrows / nocap / alwaysroster / reuseid / switchleak /
- *      noretreatswitch / fadeclose) は **項目4 の仕事**。⛔ 表に嘘の行を足さないこと。
+ *   ⭐ 項目1 が用意したのは **badprefix 1 本 + 注入機構**。項目2 が **nolevelclamp** を足した
+ *      (項目2 で新設した受入条件 (2e) 専用。依頼書 §9 の 9 本の表には無い 10 本目)。
+ *      依頼書 §9 の残り 8 本 (noclamp / defeatgrows / nocap / alwaysroster / reuseid /
+ *      switchleak / noretreatswitch / fadeclose) は **項目4 の仕事**。⛔ 表に嘘の行を足さないこと。
+ *   ⚠ 項目4 へ: 依頼書の `noclamp` (assignCompanionLevels から clamp を外す → (2c) が赤) の
+ *      アンカーは項目2 で変わった。いまの clamp は clampCompanionLevel() 1 関数に集約されており、
+ *      出発時は `m.level = clampCompanionLevel(m.level, heroLevel);` の 1 行。
+ *      ⛔ clampCompanionLevel() の中身を壊すと (2c) と (2e) が **同時に** 赤くなって
+ *        「どちらの欠陥を検出したのか」が判らなくなる。noclamp は出発側の呼びだけを外すこと。
  * ══════════════════════════════════════════════════════════════════════════ */
 const NEG_EXPECT = {
   /* キーの前置詞を dragonfighters. から外す = js/save-slots.js の keysOf() (前置詞総なめ) が
      黙って効かなくなる。依頼書 §2-3 の罠そのもの。 */
   badprefix: ['(3a)', '(3b)', '(3c)'],
+  /* 準備画面の表示 Lv を clamp せず素の名簿 Lv で返す = 項目1 の worker が見つけた欠陥そのもの。
+     recordRun() が主人公 Lv を超えて育てた Lv がそのまま skillLimitForClass() に渡り、
+     **出発後の実 Lv より多いスキルスロット**が準備画面に出る。 */
+  nolevelclamp: ['(2e)'],
 };
 const NEG_MUTATE = {
   badprefix: () => patch('負のコントロール', 'badprefix (キーの前置詞を外す)',
     '/js/mercenary-roster.js',
     'var KEY = "dragonfighters.mercRoster";',
     'var KEY = "df.mercRoster";   /* badprefix */', 1),
+  nolevelclamp: () => patch('負のコントロール', 'nolevelclamp (表示 Lv の clamp を外す)',
+    '/tavern.html',
+    'if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);',
+    'if (m && typeof m.level === "number" && m.level > 0) return m.level;   /* nolevelclamp */', 1),
 };
 const INJECTED = [];
 
@@ -359,6 +395,43 @@ const PROBE_FN = function () {
     await sleep(400);
     return page;
   }
+  /* 酒場タブを **同じタブのまま** 開き直す (§6 の帰還)。
+     ⚠⚠⚠ 新しいタブで openTavern すると BOOT の purge が走って localStorage の名簿ごと消える。
+       purge の番人 (PURGE_MARK) は sessionStorage なので、**同じタブの reload なら生き残る** =
+       名簿も lastResult も残ったまま consumeResult() だけをもう一度走らせられる。 */
+  async function reloadTavern(page) {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(
+      "typeof selection !== 'undefined' && selection && !!window.DFRoster"
+      + " && typeof departToScenario === 'function'", { timeout: 30000 });
+    await sleep(600);   /* consumeResult → setTimeout(…,100) の帰還バナーまで待つ */
+  }
+
+  /* index.html を開く共通口 (§5 (5c) / §6 (6b) 用)。
+     ⛔⛔ ここでは localStorage を **1 バイトも消さない**。酒場タブと同じオリジンなので、
+       purge すると育てたばかりの名簿が消えて §6 の母集団が丸ごと無くなる。
+       消してよいのはタブ固有の sessionStorage だけ (seed で上書きする)。
+     ⚠ 種に渡す party は **本番の departToScenario() が焼いた JSON そのもの**。
+       ドライバが手で組んだ配列だと mercId の作り方まで自分で決めてしまう。 */
+  async function openIndexPage(query, partyJson) {
+    const page = await browser.newPage();
+    page.on('pageerror', (e) => pageErrors.push('index' + (query || '') + ' :: ' + e.message));
+    await page.evaluateOnNewDocument((o) => {
+      try {
+        sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine');
+        sessionStorage.removeItem('dragonfighters.lastResult');
+        if (o.party) sessionStorage.setItem('dragonfighters.partyMembers', o.party);
+      } catch (e) {}
+    }, { party: partyJson || null });
+    await page.goto('http://localhost:' + PORT + '/index.html?autoplay=30&diag=1'
+      + (query || ''), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(
+      'typeof gameStarted !== "undefined" && gameStarted && document.getElementById("combatLog")',
+      { timeout: 60000 });
+    await sleep(400);
+    return page;
+  }
+
   /* 本番の出発処理を n 周させる。⭐ 名簿は必ずこれで育てる (手で JSON を書かない)。 */
   async function grow(page, n) {
     const rounds = [];
@@ -665,6 +738,72 @@ const PROBE_FN = function () {
       'Lv10 側の出発 Lv=' + JSON.stringify(armHi.seenLv) + ' / Lv3 側の出発 Lv='
         + JSON.stringify(armLo.seenLv) + ' / Lv3 側の名簿 Lv=' + JSON.stringify(armLo.rosterLv));
 
+    // ── (2e) 準備画面の **表示** Lv にも同じ clamp が効く (項目2 で新設) ──────────
+    //   ⚠⚠ (2c) は「出発が焼いた partyMembers の level」を見ている。それだけでは、
+    //     **出発する前** に準備画面が出しているスキルスロット数は縛れない。
+    //     recordRun() が主人公 Lv を超えて名簿を育てた直後、pickCompanion() は名簿の生 Lv を
+    //     載せる → assignCompanionLevels() が走るのは departToScenario() の中 → その間、
+    //     memberLevelOf() が生 Lv を返すと skillLimitForClass() が実 Lv より多い枠を出す。
+    //   ⭐ だから測るのは「名簿 Lv 9 / 主人公 Lv 3 のとき、準備画面のスロット数が Lv3 相当」。
+    //   ⛔ partySkills の中身も allyEquip も読まない。見るのは **枠の数** だけ。
+    console.log('\n--- §2 (2e) 準備画面の表示 Lv (項目2 で新設) ---');
+    {
+      const page = await openTavern('', 3000);      /* 主人公 Lv3 */
+      await grow(page, GROW_SMALL);
+      const set = await page.evaluate(() => {
+        /* ⚠ localStorage へ手で JSON を書かない。名簿自身の load()/save() を往復させる。 */
+        const r = DFRoster.load();
+        r.list.forEach((m) => { m.level = 9; });
+        return { saved: DFRoster.save(r), n: r.list.length };
+      });
+      const slotArm = await page.evaluate(() => {
+        const o = { err: '', tries: 0 };
+        try {
+          o.heroLv  = getLevelFromXP(inventory.xp);
+          o.slotAt3 = skillSlotsForLevel(3);
+          o.slotAt9 = skillSlotsForLevel(9);
+          /* 名簿から引いた顔が編成に入るまで引き直す。⚠ 抽選なので 1 回では入らないことがある。
+             ⭐ 選ぶのは「その classKey で **先頭** の人」だけ —— memberLevelOf() は
+               ms.find(x => x.classKey === classKey) なので、同職が 2 人いると別人を測る。 */
+          let pick = null;
+          for (let t = 0; t < 40 && !pick; t++) {
+            o.tries = t + 1;
+            regeneratePartyMembers();
+            const ms = selection.partyMembers;
+            pick = ms.find((x, i) => x && !x.isHero && x.mercId != null
+              && ms.findIndex((y) => y && y.classKey === x.classKey) === i) || null;
+          }
+          if (!pick) { o.err = '名簿から引いた顔が編成に入らなかった'; return o; }
+          o.classKey    = pick.classKey;
+          o.rawLevel    = pick.level;                          /* 名簿がそのまま載せた Lv (期待 9) */
+          o.memberLevel = memberLevelOf(pick.classKey);        /* 準備画面が使う Lv (期待 3)      */
+          o.slots       = skillLimitForClass(pick.classKey);   /* 準備画面のスロット数 (期待 Lv3) */
+          o.rosterLv    = DFRoster.load().list.map((m) => m.level);
+        } catch (e) { o.err = String((e && e.message) || e); }
+        return o;
+      });
+      await page.close();
+      console.log('  [2e] ' + JSON.stringify(slotArm));
+
+      check('(2z3) [母集団] 主人公 Lv3・名簿 Lv9 の状態を実際に作れて、しかも '
+          + 'Lv3 相当と Lv9 相当のスロット数が **違う** (同じなら (2e) は何も検出できない)',
+        !slotArm.err && set.saved === true && set.n >= 1 && slotArm.heroLv === 3
+          && slotArm.rawLevel === 9 && slotArm.slotAt3 !== slotArm.slotAt9,
+        '主人公 Lv=' + slotArm.heroLv + ' / 編成に載った生 Lv=' + slotArm.rawLevel
+          + ' / スロット Lv3=' + slotArm.slotAt3 + ' vs Lv9=' + slotArm.slotAt9
+          + ' / 引き直し ' + slotArm.tries + ' 回 (名簿 ' + set.n + ' 人)'
+          + (slotArm.err ? ' / err=' + slotArm.err : ''));
+      check('(2e) 名簿 Lv 9・主人公 Lv 3 のとき、準備画面の仲間スキルスロット数が **Lv3 相当** '
+          + '(Lv9 相当の多い枠が出ない)。かつ **名簿側の 9 は保存されたまま**',
+        !slotArm.err && slotArm.memberLevel === 3
+          && slotArm.slots === slotArm.slotAt3 && slotArm.slots !== slotArm.slotAt9
+          && Array.isArray(slotArm.rosterLv) && slotArm.rosterLv.length >= 1
+          && slotArm.rosterLv.every((v) => v === 9),
+        'memberLevelOf=' + slotArm.memberLevel + ' (期待 3) / スロット=' + slotArm.slots
+          + ' (Lv3 相当 ' + slotArm.slotAt3 + ' / Lv9 相当 ' + slotArm.slotAt9 + ') / 名簿 Lv='
+          + JSON.stringify(slotArm.rosterLv));
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // §3 名簿の器 (前置詞 / スロット / 新規ゲーム)
     // ══════════════════════════════════════════════════════════════════
@@ -740,6 +879,188 @@ const PROBE_FN = function () {
       persistStable,
       persistStable ? '3 キーとも ' + r1.length + ' 周ぜんぶ同一'
         : '★変化した -- 差分のあった周 ' + persists.filter((s) => s !== persists[0]).length + ' 件');
+
+    // ══════════════════════════════════════════════════════════════════
+    // §6 帰還時の書き戻し (項目2 = 依頼書 §6)
+    //   ⭐⭐⭐ ここだけは **本番の 2 ページを実際に往復させる**。
+    //     ⛔ localStorage へ手で JSON を書いて「帰還した」ことにしない。
+    //     ① 酒場の departToScenario() が名簿へ登録し、partyMembers を焼く
+    //     ② index.html がその formation を読み、showResult() が lastResult へ roster を載せる
+    //     ③ 酒場を **同じタブで開き直し**、consumeResult() にその lastResult を消費させる
+    //     ④ 名簿の runs / level が動いたかを見る
+    //   ⭐ 「2 経路で突き合わせる」= ① index が焼いた roster.ids と ② 名簿の runs 差分。
+    //     どちらか片方だけだと、ids が空でも runs が全部増えても緑になってしまう。
+    // ══════════════════════════════════════════════════════════════════
+    console.log('\n--- §6 帰還時の書き戻し (index → 酒場の往復) ---');
+    {
+      /* 配信バイトの構造 —— 書き込み点 2 つ (クリア/敗北 と 撤退) の両方に roster が載っているか。
+         ⭐ 撤退経路は実プレイで踏むのが難しいので、ここだけ構造で縛る (理由は lastResultBlocks)。 */
+      const blocks = lastResultBlocks(FROZEN['/index.html']);
+      const withRoster  = blocks.filter((b) => b.indexOf('roster: rosterResultPayload(') >= 0);
+      const withRetreat = blocks.filter((b) => b.indexOf('retreated: true') >= 0);
+      const NEED5 = ['scenarioId', 'scenarioTitle', 'cleared', 'defeated', 'reward', 'chronicle'];
+      /* ⚠⚠ キーの在り方は 2 通りある —— `reward,` (短縮記法) と `reward: {` (コロン付き)。
+         `k + ":"` だけで探すと scenarioId / reward を取りこぼして **偽の赤**になる。
+         ⚠ 逆に素の indexOf(k) だと ?chronicle=0 と書いたコメントまで数えてしまう (#34 の罠)。
+         → 「行頭 or { or , のあと」+ k + 「, か :」= プロパティの位置にあるものだけ数える。 */
+      const hasKey = (b, k) => new RegExp('(?:^|[\\n{,])\\s*' + k + '\\s*[,:]').test(b);
+      const lackKeys = blocks.map((b, i) => {
+        const miss = NEED5.filter((k) => !hasKey(b, k));
+        return miss.length ? ('#' + (i + 1) + ' 欠け=' + JSON.stringify(miss)) : '';
+      }).filter(Boolean);
+      check('(5c2) index.html の lastResult 書き込みは 2 箇所で、**両方**が roster を載せている。'
+          + 'うち 1 つが撤退経路 (retreated: true) で、既存キーはどちらのブロックでも欠けていない',
+        blocks.length === 2 && withRoster.length === 2 && withRetreat.length === 1
+          && lackKeys.length === 0,
+        '書き込み点 ' + blocks.length + ' 箇所 / roster 付き ' + withRoster.length
+          + ' / retreated:true 付き ' + withRetreat.length
+          + ' / 既存キーの欠け ' + (lackKeys.length ? lackKeys.join(' , ') : 'なし'));
+
+      /* ── ① 酒場で名簿を育て、本番が焼いた partyMembers をそのまま持ち出す ── */
+      const p6 = await openTavern('');
+      await grow(p6, GROW_SMALL);
+      const seed = await p6.evaluate(() => {
+        const out = { err: '' };
+        try {
+          out.party  = sessionStorage.getItem('dragonfighters.partyMembers');
+          out.roster = DFRoster.load().list.map((m) => ({ id: m.id, level: m.level, runs: m.runs }));
+          const arr  = JSON.parse(out.party || '[]');
+          out.mercIds = arr.filter((m) => m && m.mercId != null).map((m) => m.mercId);
+        } catch (e) { out.err = String((e && e.message) || e); }
+        return out;
+      });
+      check('(6z0) [装置] 本番の出発が焼いた partyMembers に mercId が 1 件以上ある '
+          + '(0 件だと index 側の roster.ids が空になり §6 が丸ごと空振りする)',
+        !seed.err && !!seed.party && (seed.mercIds || []).length >= 1
+          && (seed.roster || []).length >= 1,
+        '同行 ' + (seed.mercIds || []).length + ' 人 mercId=' + JSON.stringify(seed.mercIds)
+          + ' / 名簿 ' + (seed.roster || []).length + ' 人');
+
+      /* ── ② index.html に本番の formation を読ませ、showResult() に lastResult を書かせる ──
+         ⭐ 敗北 (survived=false) と クリア (survived=true) を **同じページで対にして** 採る。
+           対で採らないと「そもそも書いていない実装」でも「増えない」で緑になる。 */
+      const PROBE_INDEX = function () {
+        const out = { err: '' };
+        try {
+          out.on    = (typeof ROSTER_ON !== 'undefined') ? ROSTER_ON : null;
+          out.hasFn = (typeof window.showResult === 'function');
+          out.formationMerc = (typeof formation !== 'undefined' && formation)
+            ? formation.filter((m) => m && m.mercId != null).map((m) => m.mercId) : null;
+          const shot = (win) => {
+            sessionStorage.removeItem('dragonfighters.lastResult');
+            resultShown = false;                       /* 既に出ていても書き直させる */
+            if (out.hasFn) window.showResult(win);
+            return sessionStorage.getItem('dragonfighters.lastResult');
+          };
+          out.loseRaw = shot(false);
+          out.winRaw  = shot(true);
+          const p = (s) => { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } };
+          out.loseKeys = p(out.loseRaw) ? Object.keys(p(out.loseRaw)) : null;
+          out.winKeys  = p(out.winRaw)  ? Object.keys(p(out.winRaw))  : null;
+          out.lose     = p(out.loseRaw) ? p(out.loseRaw).roster : undefined;
+          out.win      = p(out.winRaw)  ? p(out.winRaw).roster  : undefined;
+        } catch (e) { out.err = String((e && e.message) || e); }
+        return out;
+      };
+      const pIdxOn = await openIndexPage('', seed.party);
+      const idxOn  = await pIdxOn.evaluate(PROBE_INDEX);
+      await pIdxOn.close();
+      const pIdxOff = await openIndexPage('&roster=0', seed.party);
+      const idxOff  = await pIdxOff.evaluate(PROBE_INDEX);
+      await pIdxOff.close();
+      console.log('  [index ON ] ' + JSON.stringify({ on: idxOn.on, keys: idxOn.winKeys,
+        lose: idxOn.lose, win: idxOn.win, err: idxOn.err }));
+      console.log('  [index OFF] ' + JSON.stringify({ on: idxOff.on, keys: idxOff.winKeys,
+        lose: idxOff.lose, err: idxOff.err }));
+
+      check('(6z1) [装置] 両方の index で showResult が実際に走り lastResult が書かれた。'
+          + 'かつ formation が酒場の焼いた mercId をそのまま読めている',
+        idxOn.hasFn === true && idxOff.hasFn === true && !!idxOn.winKeys && !!idxOff.loseKeys
+          && JSON.stringify((idxOn.formationMerc || []).slice().sort())
+             === JSON.stringify((seed.mercIds || []).slice().sort()),
+        'index の formation の mercId=' + JSON.stringify(idxOn.formationMerc)
+          + ' / 酒場が焼いた mercId=' + JSON.stringify(seed.mercIds)
+          + ' / err on=' + idxOn.err + ' off=' + idxOff.err);
+
+      check('(6z2) [装置] ★対の片方 — 撤退スイッチ無しなら roster キーが **載る** '
+          + '(これが無いと (6b) は「そもそも載せない実装」でも緑になる)。'
+          + 'クリア=survived true / 敗北=survived false',
+        idxOn.on === true
+          && !!idxOn.win  && idxOn.win.survived === true
+          && !!idxOn.lose && idxOn.lose.survived === false
+          && JSON.stringify((idxOn.win.ids || []).slice().sort())
+             === JSON.stringify((seed.mercIds || []).slice().sort()),
+        'ROSTER_ON=' + idxOn.on + ' / クリア側=' + JSON.stringify(idxOn.win)
+          + ' / 敗北側=' + JSON.stringify(idxOn.lose));
+
+      check('(6b) ★index.html?roster=0 → lastResult に roster キーが載らない',
+        idxOff.on === false && idxOff.lose === undefined
+          && (idxOff.loseKeys || ['roster']).indexOf('roster') < 0,
+        'ROSTER_ON=' + idxOff.on + ' / keys=' + JSON.stringify(idxOff.loseKeys));
+
+      const NEED = ['scenarioId', 'scenarioTitle', 'cleared', 'defeated', 'reward'];
+      const lack = (keys) => NEED.filter((k) => (keys || []).indexOf(k) < 0);
+      const lackCh = (keys) => ((keys || []).indexOf('chronicle') < 0);
+      check('(5c) lastResult の既存キー (scenarioId/scenarioTitle/cleared/defeated/reward) が '
+          + '?roster=0 の有無どちらでも 1 つも欠けていない。⚠ #37 が足した chronicle キーも消えていない',
+        lack(idxOn.winKeys).length === 0 && lack(idxOn.loseKeys).length === 0
+          && lack(idxOff.loseKeys).length === 0
+          && !lackCh(idxOn.winKeys) && !lackCh(idxOn.loseKeys) && !lackCh(idxOff.loseKeys),
+        '欠け on(clear)=' + JSON.stringify(lack(idxOn.winKeys))
+          + ' on(defeat)=' + JSON.stringify(lack(idxOn.loseKeys))
+          + ' off=' + JSON.stringify(lack(idxOff.loseKeys))
+          + ' / chronicle 欠け=' + JSON.stringify([lackCh(idxOn.winKeys),
+              lackCh(idxOn.loseKeys), lackCh(idxOff.loseKeys)]));
+
+      /* ── ③④ 酒場を同じタブで開き直し、consumeResult() に消費させて名簿の差分を見る ── */
+      const consume = async (raw) => {
+        await p6.evaluate((s) => {
+          sessionStorage.setItem('dragonfighters.lastResult', s);
+        }, raw);
+        await reloadTavern(p6);
+        return p6.evaluate(() => DFRoster.load().list
+          .map((m) => ({ id: m.id, level: m.level, runs: m.runs })));
+      };
+      const afterLose = await consume(idxOn.loseRaw);
+      const afterWin  = await consume(idxOn.winRaw);
+      const byId = (a) => { const m = {}; (a || []).forEach((x) => { m[x.id] = x; }); return m; };
+      const aL = byId(afterLose), aW = byId(afterWin);
+      const inRun = new Set(seed.mercIds || []);
+      const badLose = (seed.roster || []).filter((x) => !aL[x.id]
+        || aL[x.id].runs !== x.runs || aL[x.id].level !== x.level)
+        .map((x) => 'id=' + x.id + ' runs ' + x.runs + '→' + (aL[x.id] && aL[x.id].runs));
+      const badWin = (seed.roster || []).map((x) => {
+        const want = x.runs + (inRun.has(x.id) ? 1 : 0);
+        const got  = aW[x.id];
+        return (got && got.runs === want) ? null
+          : ('id=' + x.id + (inRun.has(x.id) ? '(同行)' : '(留守)') + ' runs '
+             + x.runs + '→' + (got && got.runs) + ' 期待 ' + want);
+      }).filter(Boolean);
+      console.log('  [往復] 出発前 runs=' + JSON.stringify((seed.roster || []).map((x) => x.runs))
+        + ' / 敗北の帰還後=' + JSON.stringify((afterLose || []).map((x) => x.runs))
+        + ' / 生還の帰還後=' + JSON.stringify((afterWin || []).map((x) => x.runs)));
+
+      check('(2f) ★index が書いた lastResult を酒場の consumeResult() が消費すると、'
+          + '**同行して生還した顔だけ** runs が +1 になる (留守番は動かない)。'
+          + '2 経路 = ① index が焼いた roster.ids ② 名簿の runs 差分',
+        !!(idxOn.win && (idxOn.win.ids || []).length >= 1) && inRun.size >= 1
+          && (seed.roster || []).length >= 1 && badWin.length === 0
+          && (seed.roster || []).some((x) => !inRun.has(x.id)),
+        '同行 ' + inRun.size + ' 人 / 留守 '
+          + ((seed.roster || []).length - inRun.size) + ' 人 / 食い違い '
+          + badWin.length + (badWin.length ? ' -- ' + badWin.slice(0, 4).join(' , ') : ''));
+
+      check('(2f2) ★敗北 (survived: false) で帰ってきた lastResult を消費しても、'
+          + 'runs も level も 1 も動かない (生還と敗北を同じ往復の対で測る)',
+        !!(idxOn.lose && idxOn.lose.survived === false)
+          && (seed.roster || []).length >= 1 && badLose.length === 0
+          && (afterLose || []).length === (seed.roster || []).length,
+        '在籍 ' + (seed.roster || []).length + '→' + (afterLose || []).length
+          + ' 人 / 動いた人 ' + badLose.length
+          + (badLose.length ? ' -- ' + badLose.slice(0, 4).join(' , ') : ''));
+
+      await p6.close();
+    }
 
     check('(Z) pageerror ゼロ', pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 5)));
 

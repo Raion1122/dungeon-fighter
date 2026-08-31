@@ -32709,6 +32709,26 @@
       } catch (e) { /* ignore */ }
       formation = orderFormation(buildParty(heroOld));
     }
+    /* ══ 傭兵名簿 (#38 STEP3 §6) — 帰還時に「誰と潜って、生きて帰ったか」を持ち帰る ══════
+       ⭐ index 側の仕事は **lastResult に 1 キー相乗りさせるだけ**。名簿の実体
+         (localStorage["dragonfighters.mercRoster"]) には index からは一切触らない。
+         書き戻しの権威は酒場側 (tavern.html の consumeResult → DFRoster.recordRun)。
+       ⛔ allies[] の alive を見に行かない。「今回は仲間を死なせない」という決定なので、
+         必要なのは **主人公が生きて帰ったか** だけ (依頼書 §6 の表)。
+       ⛔ index.html の NPC_NAMES / buildParty / orderFormation の複製は触らない
+         (依頼書 §2-2 でフォールバック専用と確認済)。
+       ⚠ 撤退スイッチは **ページ単位で完結** させる (?chronicle=0 / ?slots=0 と同じ方式)。
+         sessionStorage へ写す作法は要らない —— ?roster=0 のときは undefined を返し、
+         JSON.stringify がキーごと落とすので lastResult は従来と 1 バイトも変わらない
+         (受入条件 (6b))。酒場側は r.roster の不在で自然に何もしなくなる。 */
+    const ROSTER_ON = !/[?&]roster=0(&|$)/.test(location.search);
+    function rosterResultPayload(survived) {
+      if (!ROSTER_ON) return undefined;
+      const ids = (formation || [])
+        .filter(m => m && m.mercId !== undefined && m.mercId !== null)
+        .map(m => m.mercId);
+      return { ids, survived: !!survived };
+    }
     // 既存参照 (シナリオ判定など) 用に classKey 配列も維持 (隊列順 [0]=頭)
     let partyComposition = formation.map(m => m.classKey);
     const headMember = formation[0];
@@ -36116,6 +36136,9 @@
            null を返し、JSON.stringify が undefined のキーを落とすので lastResult は
            従来と 1 バイトも変わらない (受入条件 (6a))。 */
         chronicle: RunChronicle.snapshot(win ? "clear" : "defeat") || undefined,
+        /* 傭兵名簿 (#38): 同行した傭兵の mercId と「生還したか」。⭐ クリア=true / 敗北=false。
+           ?roster=0 のときは undefined = キーごと落ちる (受入条件 (6b))。 */
+        roster: rosterResultPayload(!!win),
       }));
     }
     resultBtnEl.addEventListener("click", () => {
@@ -36181,6 +36204,9 @@
              null を返し、JSON.stringify が undefined のキーを落とすので lastResult は
              従来と 1 バイトも変わらない (受入条件 (6a))。 */
           chronicle: RunChronicle.snapshot("retreat") || undefined,
+          /* 傭兵名簿 (#38): 撤退は **生還** として数える —— 「生きて戻ることもまた勇気」
+             (すぐ上の既存の台詞と同じ立場)。⛔ survived が false になるのは敗北だけ。 */
+          roster: rosterResultPayload(true),
         }));
         window.location.href = dfReturnPage();   // 帰還② 撤退 (探索中の離脱)
       });

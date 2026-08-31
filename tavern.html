@@ -2704,10 +2704,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>共に生きて帰った仲間が育つ</b> — 一緒に潜って無事に戻った冒険者は経験を重ね、何度か生還するとレベルが上がる。倒れて帰れなかった依頼では経験にならない。</li>
         <li><b>傭兵名簿 — 同じ顔が次の依頼にも来る</b> — 一度いっしょに潜った冒険者を酒場が覚えていて、次の依頼にも同じ名前・同じ気性の相手が名乗り出るようになった。</li>
         <li><b>使わずに終わったものが分かる</b> — 余った呪文スロットや一度も出番の無かったスキルを、記録の末尾に並べる。過去 5 回ぶんの記録も酒場に残る。</li>
         <li><b>仲間の働きが数字で見える</b> — 与えたダメージ・受けたダメージ・倒した数を、帰還後の記録に隊列ごとの墨の棒グラフで並べる。</li>
-        <li><b>冒険の記録が残るようになった</b> — 帰還後、酒場の羊皮紙で「誰がどこで何に倒れたか」を読み返せる。</li>
       </ul>
     </div>
     <script>
@@ -4082,13 +4082,32 @@
     const cap = Math.max(1, Math.min(10, (lv | 0) || 1));
     return SKILL_SLOT_CURVE[cap];
   }
+  /* 仲間 (NPC) の Lv を「主人公 Lv 以下・10 以下」に収める **唯一の口** (傭兵名簿 #38 項目2)。
+     ⭐ 呼ぶのは 2 箇所だけ:
+        ① assignCompanionLevels()  … 出発時に実 Lv を確定するとき
+        ② memberLevelOf()          … 準備画面が表示 Lv (= スキルスロット数) を引くとき
+     ⚠⚠ ② が要る理由: DFRoster.recordRun() は生還のたびに名簿の Lv を上げるが、**主人公 Lv では
+        clamp しない** (名簿には主人公 Lv を超えた値を保存してよい —— 主人公が育てば追いつく)。
+        そのため pickCompanion() が名簿の Lv を載せた瞬間から assignCompanionLevels() が
+        走るまでの間、素の m.level は現在の主人公 Lv を **超え得る**。素のまま返すと
+        skillLimitForClass() が「出発後の実 Lv より多いスキルスロット」を準備画面に出す。
+     ⛔ 名簿側の値はここで書き換えない。clamp するのは **使うとき** だけ。
+     ⛔ partySkills / allyEquip のデータ構造には触らない (依頼書 §3 / §12 の禁止事項)。
+        ここが動かすのは「表示に使う Lv の求め方」だけ。 */
+  function clampCompanionLevel(level, heroLevel) {
+    const cap = Math.min((heroLevel | 0) || 1, 10);
+    const lv = Math.floor(Number(level));
+    return Math.max(1, Math.min(cap, isFinite(lv) && lv > 0 ? lv : 1));
+  }
   // クラス → そのパーティメンバーのレベル (主人公=永続XP由来 / NPC=ティア帯Lv)
   function memberLevelOf(classKey) {
     const ms = (typeof selection !== "undefined" && selection && selection.partyMembers) || [];
     const m = ms.find(x => x && x.classKey === classKey);
-    if (m && m.isHero) return getLevelFromXP(inventory.xp);
-    if (m && typeof m.level === "number" && m.level > 0) return m.level;
-    return getLevelFromXP(inventory.xp);   // 未確定は主人公Lvにフォールバック
+    const heroLv = getLevelFromXP(inventory.xp);
+    if (m && m.isHero) return heroLv;
+    // ⚠ 名簿の Lv が主人公 Lv を超えていることがあるので、出発時と **同じ関数** で clamp して返す。
+    if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);
+    return heroLv;   // 未確定は主人公Lvにフォールバック
   }
   // クラス別スキルスロット上限 (Lv 連動)
   function skillLimitForClass(classKey) { return skillSlotsForLevel(memberLevelOf(classKey)); }
@@ -4792,6 +4811,23 @@
         pushShelf({ at: Date.now(), scenarioId: r.scenarioId || null,
                     scenarioTitle: r.scenarioTitle || null, ch: r.chronicle });
       }
+      /* ══ 傭兵名簿 (#38 STEP3 §6) — 帰還の書き戻し。**権威はこちら側** ══════════════
+         index.html は lastResult に { ids, survived } を相乗りさせるだけ。何回潜ったか /
+         いつ Lv が上がるかを決めるのは js/mercenary-roster.js の recordRun() 1 箇所。
+           survived === true  → 各人 runs++ 。RUNS_PER_LEVEL 回ごとに Lv+1 (上限 10)
+           survived === false → **何も変えない** (今回は仲間を死なせない = 敗北の罰は名簿に無い)
+         ⚠⚠ consumeResult() は上の removeItem で **1 回きりの消費**。名簿の反映はこの 1 回の
+            中で必ず終わらせる (後で読み直せない) → 参照するのは既にパース済みの r だけ。
+         ⚠ r.roster が無い場合 (?roster=0 で潜った / 旧セーブ) は何もしない。
+            index 側が ?roster=0 でキーごと落とすので、撤退スイッチはこれだけで成立する。
+         ⚠ 主人公 Lv による clamp はここではやらない (出発時の clampCompanionLevel 1 箇所に集約)。
+         ⛔ ここで例外を投げない。名簿の失敗が「酒場が開かない」に化けてはいけない。
+            外側の try も受けるが、握り潰さずに warn は必ず出す。 */
+      try {
+        if (window.DFRoster && r && r.roster && Array.isArray(r.roster.ids)) {
+          DFRoster.recordRun(r.roster.ids, r.roster.survived === true);
+        }
+      } catch (e) { console.warn("[roster] 帰還時の書き戻しに失敗", e); }
       if (r && r.cleared && r.scenarioId) {
         // 闇市アンロック: クリア累計を計数し、閾値で「怪しい扉」を常設化 (生成/固定どちらのクリアも計上)
         plazaStateTV.totalQuestsCleared = (plazaStateTV.totalQuestsCleared || 0) + 1;
@@ -6509,21 +6545,20 @@
     const tierKey = (typeof QuestGen !== "undefined" && QuestGen.qGetTier)
       ? QuestGen.qGetTier(questLevel) : "tier2";
     const BAND = { tier1: [2, 4], tier2: [5, 8], tier3: [9, 10], tier4: [10, 10] };
-    const cap = Math.min(heroLevel, 10);
     const band = BAND[tierKey] || [2, 4];
     const lo = band[0], hi = band[1];
     members.forEach(m => {
       if (m.isHero) { m.level = heroLevel; return; }
       /* 傭兵名簿 (#38): **既知の顔は振り直さない**。名簿の Lv を clamp だけして使う。
-         ⛔ cap = Math.min(heroLevel, 10) は動かさない (既存不変条件「NPC Lv ≤ 主人公 Lv」)。
-         ⭐ clamp は表示時ではなく **ここ 1 箇所**で行う。名簿には主人公 Lv を超えた値を
-           保存してよい (主人公が育てば追いつく)。 */
+         ⛔ 上限 min(heroLevel, 10) は動かさない (既存不変条件「NPC Lv ≤ 主人公 Lv」)。
+         ⭐ clamp の式は clampCompanionLevel() 1 箇所に集約した (項目2)。準備画面の
+           memberLevelOf() も **同じ関数**を呼ぶので、表示 Lv と出発後の実 Lv が食い違わない。 */
       if (m.mercId != null && typeof m.level === "number" && m.level > 0) {
-        m.level = Math.max(1, Math.min(cap, m.level));
+        m.level = clampCompanionLevel(m.level, heroLevel);
         return;
       }
       const r = lo + Math.floor(Math.random() * (hi - lo + 1));
-      m.level = Math.max(1, Math.min(cap, r));
+      m.level = clampCompanionLevel(r, heroLevel);
     });
   }
 

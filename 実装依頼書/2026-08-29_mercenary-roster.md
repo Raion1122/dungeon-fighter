@@ -811,3 +811,61 @@ assert の近くではコメントも数えられる」がここでも起きる�
 - ⛔ 未着手(スコープ外): §6 帰還時の書き戻し(項目2)/ §7 名簿パネル `#rosterEntry` `#rosterOverlay`
   (項目3)/ `--negative` の残り 8 本と golden 10 本の一括(項目4)。
   受入条件 `(4x)` `(5c)` `(6x)` は **ドライバにまだ書いていない**(PENDING を残さないため)。
+
+### 項目2 — STEP3 (帰還時の書き戻し) + `memberLevelOf()` の clamp
+
+| 項目 | 実測 |
+|---|---|
+| 実装 | `index.html`(`ROSTER_ON` + `rosterResultPayload()` 新設 / `lastResult` の 2 箇所へ `roster:` 1 キー)/ `tavern.html`(`clampCompanionLevel()` 新設 + `memberLevelOf()` と `assignCompanionLevels()` の両方が呼ぶ + `consumeResult()` から `DFRoster.recordRun()`)/ `tools/verify_mercenary_roster.js`(受入条件 +10 本) |
+| 新ドライバ | `node tools/verify_mercenary_roster.js` → **33/33 PASSED / 0 FAILED / 0 PENDING**(23 → 33) |
+| 負のコントロール | `--negative` → `badprefix` が (3a)(3b)(3c) / **新設 `nolevelclamp`** が (2e) —— **2 本とも赤・巻き添え 0** |
+| 既存 golden | `verify_run_chronicle` **73 PASSED / 0 FAILED / 0 PENDING**(§13 の基準どおり)/ `verify_recruit_size` **82/82 PASS**(同) |
+| 撤退 | `?roster=0` を **index 側でも独立に判定**(`ROSTER_ON`)。キーを載せないだけなので酒場側は `r.roster` の不在で自然に何もしない |
+
+#### 追加した受入条件 10 本
+
+`(5c2)`(配信バイトの構造)/ `(6z0)`(母集団: 焼かれた `mercId`)/ `(6z1)`(装置: index の
+`formation` が酒場の `mercId` を読めている)/ `(6z2)`(対の片方: ON なら `roster` が載る)/
+`(6b)` / `(5c)` / `(2z3)`(母集団: Lv3 と Lv9 のスロット数が違う)/ `(2e)` /
+`(2f)`(往復して生還者だけ `runs+1`)/ `(2f2)`(敗北では 1 も動かない)。
+
+#### ⚠ 実装で確定したこと(次項目が前提にしてよい)
+
+- **⭐⭐⭐ 決定 — `memberLevelOf()` の clamp は「直す」を選んだ。** 項目1 の申し送りの欠陥は実在した。
+  `--negative --only nolevelclamp` の実測がその指紋:**`memberLevelOf=9` / スロット=5**(正しくは Lv3 相当の 2)。
+  ⭐ 直し方 = **clamp の式を `clampCompanionLevel(level, heroLevel)` 1 関数へ切り出し、
+  `assignCompanionLevels()` と `memberLevelOf()` の両方がそれを呼ぶ。**
+  「clamp は 1 箇所」という §5 の原則を守ったまま、表示と実態の食い違いだけを消せる。
+  ⛔ `partySkills` / `allyEquip` は 1 バイトも触っていない(動かしたのは「表示に使う Lv の求め方」だけ)。
+- ⭐⭐⭐ **`?roster=0` は index 側で `undefined` を返すだけ**(`JSON.stringify` がキーごと落とす)。
+  実測: OFF の `lastResult` のキーは `["scenarioId","scenarioTitle","cleared","defeated","reward","chronicle"]`
+  = **#37 着地時と完全に同じ**。これが (6b) の根拠であり、酒場側に撤退の分岐が要らない理由。
+- ⚠⚠⚠ **§6 の往復は「新しいタブで酒場を開き直す」と原理的に測れない。**
+  ドライバの `BOOT` が `dragonfighters.*` を purge するので、**育てたばかりの名簿が消える**。
+  番人(`PURGE_MARK`)は `sessionStorage` なので、**同じタブの `reload()` なら purge が走らない**
+  → 名簿を残したまま `consumeResult()`(IIFE で再呼び出しできない)をもう一度走らせられる。
+  新設 `reloadTavern(page)` がこれ。⛔ index タブでも localStorage を purge しないこと(同一オリジン)。
+- ⚠⚠ **`lastResult` の既存キーを「`キー名 + ":"` があるか」で数えると偽の赤が出る。**
+  `scenarioId,` と `reward,`(`showResult` 側)は **短縮記法でコロンが無い**。
+  逆に素の `indexOf("chronicle")` だと `?chronicle=0` と書いたコメントを数える(#34 の罠)。
+  → 効くのは `(?:^|[\n{,])\s*<key>\s*[,:]` = 「プロパティの位置にあるものだけ」。
+- ⭐ **撤退経路(`retreated: true`)は実プレイで踏むのが難しい**(撤退ボタンは `gameStarted` かつ
+  非交戦中でしか押せず、押してから 4 秒以上の演出を待つ)。→ `(5c2)` が **配信バイトの構造**で
+  「書き込み点が 2 つ・両方に `roster: rosterResultPayload(` が在り・片方が `retreated: true`」を縛る。
+  ⚠ 探す文字列を `roster:` にすると自分のコメントを数えるので、**実際の呼び全体**で探すこと。
+- **実装後の行番号**(`tavern.html`): `<script src>` = **2328**(不変)/ `makeNpcMember()` = **3910**(不変)/
+  `pickCompanion()` = **3935**(不変)/ `buildParty()` = **4016**(不変)/ `orderFormation()` = **4043**(不変)/
+  **`clampCompanionLevel()` = 4097(新設)** / `memberLevelOf()` = **4103** / `skillLimitForClass()` = **4113** /
+  `loadSelections()` = **4635** / `saveSelections()` = **4746** / `consumeResult()` = **4799**
+  (名簿の書き戻しは **4813-4828**)/ `regeneratePartyMembers()` = **5695** /
+  `assignCompanionLevels()` = **6543** / `departToScenario()` = **6575**。
+  (`index.html`): `ROSTER_ON` = **32724** / `rosterResultPayload()` = **32725** /
+  `lastResult` 書き込み ① = **36129**(`roster:` は **36141**)/ ② = **36191**(`roster:` は **36209**)。
+- ⚠⚠ **項目4 へ — 依頼書 §9 の `noclamp` のアンカーは変わった。** clamp は
+  `clampCompanionLevel()` 1 関数に集約されたので、出発時の式は
+  `m.level = clampCompanionLevel(m.level, heroLevel);` の 1 行(`assignCompanionLevels` 内)。
+  ⛔ **`clampCompanionLevel()` の中身を壊すと `(2c)` と `(2e)` が同時に赤くなる**ので、
+  `noclamp` は **出発側の呼びだけ**を外すこと(どちらの欠陥を検出したのか判らなくなる)。
+- ⚠ 変異表は **2/10 本**(`badprefix` + 新設 `nolevelclamp`)。依頼書 §9 の残り 8 本は項目4。
+- ⛔ 未着手(スコープ外): §7 名簿パネル `#rosterEntry` `#rosterOverlay`(項目3)/
+  `(4a)`〜`(4f)` `(6a)` `(6c)` と `--negative` の残り 8 本・golden 10 本の一括(項目4)。
