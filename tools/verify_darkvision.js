@@ -88,30 +88,74 @@ const TERM_ELF   = '低光視力';
 //   ⛔ 実装していない変異を「無い」ことにしない。件数が見えないと取りこぼす。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
-  shadowsight: { impl: false, file: INDEX, targets: ['1a', '1b', '1c', '1d'],
-    why: '⭐ §2-2 の罠の再現。index.html に CLASS_SIGHT のリテラル表を**違う値で**書き戻し、DFSight.BASE を無視させる。' },
-  flatsight:   { impl: false, file: SIGHT_JS, targets: ['0b'],
-    why: 'DFSight.BASE の全職を tiles:8 に揃える → 母集団ガード (0b) が効いている証拠。' },
-  emptysight:  { impl: false, file: SIGHT_JS, targets: ['0a', '3e'],
-    why: 'DFSight.BASE を {} にする → (0a) か、STEP1 の throw (= pageerror) で (3e)。' },
-  wrongft:     { impl: false, file: SIGHT_JS, targets: ['1e'],
-    why: 'FT_PER_TILE を 4 にする → ft 表記が tiles×5 と食い違う。' },
-  elfdark:     { impl: false, file: SIGHT_JS, targets: ['1f'],
-    why: 'elf.term を「暗視」にする → SRD と食い違う語を当てた事故。' },
-  dropsheetrow:  { impl: false, file: SHEET_JS, targets: ['1a', '2a'],
-    why: 'シートの data-stat="sight" 行を出さない。' },
-  dropcardsight: { impl: false, file: TAVERN, targets: ['1b', '2a'],
-    why: '.pmSight を作らない。' },
-  droprostersight: { impl: false, file: TAVERN, targets: ['1c'],
-    why: 'mrMeta へ視界を足さない。' },
-  droptitlesight:  { impl: false, file: TITLE, targets: ['1d', '2a'],
-    why: '.classSight を作らない。' },
-  legacydrop:  { impl: false, file: SIGHT_JS, targets: [],
-    why: '⚠ 本ドライバでは赤くならない。driver_speech_boss (warriorSight===4) / driver_wall_face (pinOuter===330) が赤くなることを手で確認し §12 に書く。' },
-  noretreat:   { impl: false, file: SIGHT_JS, targets: ['4a', '4b', '4c'],
-    why: 'DFSight.enabled() を常に true にする → 撤退が効かない。' },
-  retreatkills: { impl: false, file: INDEX, targets: ['4d'],
-    why: '?darkvision=0 のとき CLASS_SIGHT も既定へ落とす → 「撤退でゲームが変わる」事故。' },
+  shadowsight: { impl: true, file: INDEX, targets: ['1a', '1b', '1c', '1d'],
+    why: '⭐ §2-2 の罠の再現。index.html に CLASS_SIGHT のリテラル表を**違う値で**書き戻し、DFSight.BASE を無視させる。',
+    /* ⭐ 「写しを作った」= 表示 (DFSight 8/10/12) と実行時 (写し 5/7/9) が食い違う。
+       これが §2-2 の「片方だけ古くなる」腐り方そのもの。 */
+    from: '    const CLASS_SIGHT = (() => {',
+    to: '    const CLASS_SIGHT = { mage: { tiles: 5, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' warrior: { tiles: 5, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' cleric: { tiles: 5, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' rogue: { tiles: 5, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' elf: { tiles: 7, inner: 375, outer: 825, term: "低光視力" },'
+      + ' dwarf: { tiles: 9, inner: 450, outer: 990, term: "暗視" } };\n'
+      + '    const CLASS_SIGHT_SHADOW_UNUSED = (() => {' },
+  flatsight:   { impl: true, file: SIGHT_JS, targets: ['0b'],
+    why: 'DFSight.BASE の全職を tiles:8 に揃える → 母集団ガード (0b) が効いている証拠。',
+    /* ⚠ from は 1 行でなければならない (CRLF/LF 混在で必ず空振りする) ので、
+       表そのものを差し替えるのではなく **先に平らな表を置き、元の表を未使用の名前へ落とす**。 */
+    from: '  var BASE = {',
+    to: '  var BASE = { mage: { tiles: 8, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' warrior: { tiles: 8, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' cleric: { tiles: 8, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' rogue: { tiles: 8, inner: 300, outer: 660, term: "松明の灯り" },'
+      + ' elf: { tiles: 8, inner: 375, outer: 825, term: "低光視力" },'
+      + ' dwarf: { tiles: 8, inner: 450, outer: 990, term: "暗視" } };\n'
+      + '  var BASE_FLAT_UNUSED = {' },
+  emptysight:  { impl: true, file: SIGHT_JS, targets: ['0a', '3e'], mode: 'any',
+    why: 'DFSight.BASE を {} にする → (0a) か、STEP1 の throw (= pageerror) で (3e)。',
+    from: '  var BASE = {',
+    to: '  var BASE = {};\n  var BASE_EMPTY_UNUSED = {' },
+  wrongft:     { impl: true, file: SIGHT_JS, targets: ['1e'],
+    why: 'FT_PER_TILE を 4 にする → ft 表記が tiles×5 と食い違う。',
+    from: '  var FT_PER_TILE = 5;',
+    to: '  var FT_PER_TILE = 4; /* ★負のコントロール wrongft */' },
+  elfdark:     { impl: true, file: SIGHT_JS, targets: ['1f'],
+    why: 'elf.term を「暗視」にする → SRD と食い違う語を当てた事故。',
+    from: '    elf:     { tiles: 10, inner: 375, outer: 825, term: "低光視力" },',
+    to: '    elf: { tiles: 10, inner: 375, outer: 825, term: "暗視" },' },
+  dropsheetrow:  { impl: true, file: SHEET_JS, targets: ['1a', '2a'],
+    why: 'シートの data-stat="sight" 行を出さない。',
+    from: '      if (d.traits.sight) {',
+    to: '      if (false) { /* ★負のコントロール dropsheetrow */' },
+  dropcardsight: { impl: true, file: TAVERN, targets: ['1b', '2a'],
+    why: '.pmSight を作らない。',
+    from: '    if (sightEl) sightEl.className = "pmSight";',
+    to: '    if (sightEl) sightEl.className = "pmSightDropped"; /* ★負のコントロール dropcardsight */' },
+  droprostersight: { impl: true, file: TAVERN, targets: ['1c'],
+    why: 'mrMeta へ視界を足さない。',
+    from: "            ? ' / ' + chEsc(DFSight.sightLabel(m.classKey, true)) : '')",
+    to: "            ? '' : '') /* ★負のコントロール droprostersight */" },
+  droptitlesight:  { impl: true, file: TITLE, targets: ['1d', '2a'],
+    why: '.classSight を作らない。',
+    from: '        det.appendChild(el("div", "classSight", DFSight.sightLabel(c.classKey, false)));',
+    to: '        void 0; /* ★負のコントロール droptitlesight */' },
+  legacydrop:  { impl: true, file: SIGHT_JS, targets: [],
+    why: '⚠ 本ドライバでは赤くならない。driver_speech_boss (warriorSight===4) / driver_wall_face (pinOuter===330) が赤くなることを手で確認し §12 に書く。',
+    from: '  var LEGACY = {',
+    to: '  var LEGACY = {};\n  var LEGACY_DROPPED_UNUSED = {' },
+  noretreat:   { impl: true, file: SIGHT_JS, targets: ['4a', '4b', '4c'],
+    why: 'DFSight.enabled() を常に true にする → 撤退が効かない。',
+    from: '      try { return !/[?&]darkvision=0(&|$)/.test(global.location.search); }',
+    to: '      try { return true; /* ★負のコントロール noretreat */ }' },
+  retreatkills: { impl: true, file: INDEX, targets: ['4d'],
+    why: '?darkvision=0 のとき CLASS_SIGHT も既定へ落とす → 「撤退でゲームが変わる」事故。',
+    from: '    const DEFAULT_SIGHT = CLASS_SIGHT.warrior;',
+    to: '    if (/[?&]darkvision=0(&|$)/.test(location.search)) {'
+      + ' for (const k of Object.keys(CLASS_SIGHT)) {'
+      + ' CLASS_SIGHT[k].tiles = 8; CLASS_SIGHT[k].inner = 300; CLASS_SIGHT[k].outer = 660; } }'
+      + ' /* ★負のコントロール retreatkills */\n'
+      + '    const DEFAULT_SIGHT = CLASS_SIGHT.warrior;' },
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
 const MUT_IMPL  = MUT_ORDER.filter(k => MUTATIONS[k].impl);
@@ -1252,24 +1296,141 @@ const ASSERTS = [
         + '→' + (p.lsAfter || []).length + '本').join(' ')
       + (bad.length ? '  ⛔ ' + bad.join(' / ') : '  (開閉とも +0 本)')];
   }],
+
+  // ── §4 撤退 ?darkvision=0 ────────────────────────────────────────────────
+  //   ⭐⭐⭐ 4 本とも「撤退アーム」と「素のアーム」を **同じ配信バイト**から採って比べる。
+  //     ⛔ 撤退アームだけを見て「0 個」を確かめるのは永久緑の作り方 —— 実装ごと壊れて
+  //       素のアームでも 0 個なら、その assert は何も測っていない。だから 4 本すべてに
+  //       「素のアームでは出ている」という **対照** を同居させる。
+  //   ⭐ 逆向きの事故 (撤退のしすぎ) も測る: 器や既存の行まで消していないこと。
+  ['4a', 'title.html?darkvision=0 → .classSight が 0 個、classDetail の他 3 行 (.classZone/.classRole/.classNote) は健在', (M) => {
+    const t = M.retTitle || {};
+    if (!t.reached) return [false, '⛔ 撤退アームで名乗り画面へ到達できなかった: ' + (t.errs || []).join(' | ')];
+    const bad = [];
+    const bc = t.beforeClick || {};
+    if (bc.nSight !== 0) bad.push('.classSight が ' + bc.nSight + ' 個 (0 個であるべき)');
+    const withSight = (t.cards || []).filter(c => c.hasSight).length;
+    if (withSight !== 0) bad.push('押した後のカードに .classSight が ' + withSight + ' 枚');
+    /* ⭐ 撤退のしすぎガード: 他 3 行まで消したら「表示の撤退」ではない。 */
+    for (const k of CLASS_KEYS) {
+      const rec = (t.cards || []).filter(c => c.classKey === k)[0];
+      if (!rec || !rec.clicked) { bad.push(k + ': カードを押せていない'); continue; }
+      if (!rec.detailDisplay || rec.detailDisplay === 'none') bad.push(k + ': classDetail が開かない');
+      if (!String(rec.zone || '').trim() || !String(rec.role || '').trim() || !String(rec.note || '').trim())
+        bad.push(k + ': 他 3 行が欠けた (zone="' + rec.zone + '" role="' + rec.role + '" note="' + rec.note + '")');
+    }
+    /* ⭐ 対照: 同じ配信バイトの素のアームでは 6 個出ている。 */
+    const plain = ((M.title || {}).beforeClick || {}).nSight;
+    if (plain !== 6) bad.push('⛔ 素のアームの .classSight が ' + plain + ' 個 — 対照が立たず (4a) は何も測っていない');
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : '撤退 .classSight 0 個 (素は ' + plain + ' 個) / 6 枚とも classDetail は開き zone・role・note は健在'];
+  }],
+  ['4b', 'tavern.html?darkvision=0 → .pmSight が 0 個、.mrMeta に視界が出ない', (M) => {
+    const r = M.retTavern || {};
+    const c = r.cinema || {}, ro = r.roster || {};
+    const bad = [];
+    if (!c.reached) bad.push('⛔ 撤退アームで演出へ到達できなかった: ' + (r.errs || []).join(' | '));
+    const cards = (c.cards || []).filter(x => x.state === 'filled');
+    if (c.reached && !cards.length) bad.push('⛔ filled のカードが 0 枚 — 母集団が無い');
+    const withSight = cards.filter(x => x.hasSight).length;
+    if (withSight !== 0) bad.push('.pmSight が ' + withSight + ' 枚 (0 枚であるべき)');
+    const rows = ro.rows || [];
+    if (!rows.length) bad.push('⛔ .mrRow が 0 行 — 母集団が無い');
+    const withMeta = rows.filter(x => parseSightShort(x.meta) !== null).length;
+    if (withMeta !== 0) bad.push('.mrMeta に視界が出ている行が ' + withMeta + ' 行: "' + (rows[0] || {}).meta + '"');
+    /* ⭐ 撤退のしすぎガード: 名簿の 1 行そのものが空になっていないこと。 */
+    for (const row of rows) if (!String(row.meta || '').trim()) bad.push('⛔ .mrMeta が空 — 撤退のしすぎ');
+    /* ⭐ 対照: 同じ配信バイトの素のアームでは出ている。 */
+    const pc = ((M.tavern || {}).cinema || {}).cards || [];
+    const pn = pc.filter(x => x.state === 'filled' && x.hasSight).length;
+    const pr = (((M.tavern || {}).roster || {}).rows || []).filter(x => parseSightShort(x.meta) !== null).length;
+    if (pn < 1 || pr < 1) bad.push('⛔ 素のアームで .pmSight ' + pn + ' 枚 / 視界付き .mrMeta ' + pr
+      + ' 行 — 対照が立たず (4b) は何も測っていない');
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : '撤退 .pmSight 0/' + cards.length + ' 枚・視界付き .mrMeta 0/' + rows.length + ' 行'
+        + ' (素は ' + pn + ' 枚 / ' + pr + ' 行)  撤退時の .mrMeta 例 "' + ((rows[0] || {}).meta || '') + '"'];
+  }],
+  ['4c', 'index.html?darkvision=0 → シートの [data-stat="sight"] が 0 個', (M) => {
+    const sh = (M.retIdx || {}).sheet || {};
+    if (!sh.ok) return [false, '⛔ 撤退アームでシートが測れない: ' + (sh.why || '')];
+    const bad = [], seen = [];
+    for (const k of CLASS_KEYS) {
+      const r = sh.byClass[k] || {};
+      if (r.heroKey !== k) { bad.push(k + ': 主人公が切り替わっていない (heroKey=' + r.heroKey + ')'); continue; }
+      if (r.rowInDom) bad.push(k + ': 視界行が残っている "' + r.value + '"');
+      /* ⭐ 撤退のしすぎガード: 区画ごと消したら #36 の 3 値契約を壊している。 */
+      if (!r.secInDom) bad.push(k + ': 区画 dfSheetSecTraits ごと消えている (撤退のしすぎ)');
+      const so = r.statOrder || [];
+      if (so.indexOf('zone') < 0 || so.indexOf('role') < 0 || so.indexOf('note') < 0)
+        bad.push(k + ': 既存 3 行が欠けた ' + JSON.stringify(so));
+      seen.push(k + '=' + so.join('>'));
+    }
+    /* ⭐ 対照: 同じ配信バイトの素のアームでは 6 職とも行が出ている。 */
+    const pby = ((M.idx || {}).sheet || {}).byClass || {};
+    const plain = CLASS_KEYS.filter(k => (pby[k] || {}).rowInDom).length;
+    if (plain !== 6) bad.push('⛔ 素のアームの視界行が ' + plain + '/6 — 対照が立たず (4c) は何も測っていない');
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : '撤退の data-stat: ' + seen.join('  ') + '  (素のアームは 6/6 職で視界行あり)'];
+  }],
+  ['4d', '★?darkvision=0 でも getSight() の値は 1 つも変わらない (表示の撤退であって挙動の撤退ではない)', (M) => {
+    const a = (M.idx || {}).runtime || {}, b = (M.retIdx || {}).runtime || {};
+    if (!a.ok) return [false, '⛔ 素のアームの経路Bが読めない: ' + (a.why || '')];
+    if (!b.ok) return [false, '⛔ 撤退アームの経路Bが読めない: ' + (b.why || '')];
+    const bad = [];
+    const ka = Object.keys(a.tiles || {}).sort(), kb = Object.keys(b.tiles || {}).sort();
+    /* ⭐ 母集団ガード: 職が 6 種・tiles が 3 種類そろっていないと、既定表 (全職 8) へ
+       落ちても差が出ず、(4d) が永久緑になる。 */
+    if (ka.length !== 6) bad.push('⛔ 素のアームの職が ' + ka.length + ' 種 — 母集団が無い');
+    if (!deepEq(ka, kb)) bad.push('職の集合が違う ' + JSON.stringify(ka) + ' / ' + JSON.stringify(kb));
+    const uniq = Array.from(new Set(ka.map(k => a.tiles[k])));
+    if (uniq.length < 3) bad.push('⛔ 素のアームの tiles が ' + uniq.length
+      + ' 種類 [' + uniq.join(',') + '] — 既定へ落ちても気づけない母集団');
+    for (const k of ka) {
+      if (a.tiles[k] !== (b.tiles || {})[k]) bad.push(k + ': tiles が 素 ' + a.tiles[k]
+        + ' → 撤退 ' + (b.tiles || {})[k] + ' へ動いた');
+      const ra = (a.raw || {})[k] || {}, rb = (b.raw || {})[k] || {};
+      if (ra.inner !== rb.inner || ra.outer !== rb.outer)
+        bad.push(k + ': 光半径が動いた inner ' + ra.inner + '→' + rb.inner
+          + ' / outer ' + ra.outer + '→' + rb.outer);
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : '素/撤退とも一致: ' + ka.map(k => k + '=' + a.tiles[k]
+        + '(' + ((a.raw || {})[k] || {}).inner + '/' + ((a.raw || {})[k] || {}).outer + ')').join(' ')];
+  }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
-/* まだ実装していない受入条件。⛔ 黙って緑にしない (理由つきの PENDING で出す)。 */
-const PENDING_ASSERTS = [
-  ['4a', 'title.html?darkvision=0 → .classSight が 0 個、classDetail の他 3 行は健在', '項目 4 (撤退) の担当'],
-  ['4b', 'tavern.html?darkvision=0 → .pmSight が 0 個、.mrMeta に視界が出ない', '項目 4 (撤退) の担当'],
-  ['4c', 'index.html?darkvision=0 → シートの [data-stat="sight"] が 0 個', '項目 4 (撤退) の担当'],
-  ['4d', '★?darkvision=0 でも getSight() の値は 1 つも変わらない (表示の撤退であって挙動の撤退ではない)', '項目 4 (撤退) の担当'],
-];
+/* まだ実装していない受入条件。⛔ 黙って緑にしない (理由つきの PENDING で出す)。
+ * ⭐ 2026-08-31 項目 4 で §4 撤退 (4a)〜(4d) が実装され、ここは 0 件になった。 */
+const PENDING_ASSERTS = [];
 
 const SECTIONS = [
   ['§0 装置 — 母集団を先に確かめる', ['0a', '0b', '0c', '0d', '0e', '0f', '0g']],
   ['§1 数字が一致する (本丸)', ['1a', '1b', '1c', '1d', '1e', '1f']],
   ['§2 表示が実在する (空文字で緑にしない)', ['2a', '2b']],
   ['§3 既存の器を壊していない (非退行 — 基準は着手前 hash の同時配信)', ['3a', '3b', '3c', '3d', '3e', '3f']],
+  ['§4 撤退 ?darkvision=0 (表示だけが戻る / 挙動は 1 つも変わらない)', ['4a', '4b', '4c', '4d']],
 ];
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * 負のコントロールで「その変異に必要な測定だけ」を採るための対応表。
+ *   ⭐ 12 本を毎回フル測定すると 1 本あたり 1 分近くかかる。担当の節が使う測定だけ回す。
+ *   ⚠ ここに書き漏らすと、述語が undefined を触って **例外 → 赤** になり
+ *     「変異を検出した」と誤読する。だから漏れがないか assert 側の M.* と突き合わせること。
+ *   ⭐ §4 の 4 本は撤退アームと素のアームを **両方** 要る (対照が assert の本体)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const NEED_OF = {
+  '0a': ['idx'], '0b': ['idx'], '0c': ['title'], '0d': ['tavern'], '0e': ['tavern'],
+  '0f': ['idx'], '0g': ['tables'],
+  '1a': ['idx'], '1b': ['idx', 'tavern'], '1c': ['idx', 'tavern'], '1d': ['idx', 'title'],
+  '1e': ['idx'], '1f': ['idx'],
+  '2a': ['idx', 'title', 'tavern'], '2b': ['title'],
+  '3a': ['nrCur', 'nrBase'], '3b': ['nrCur', 'nrBase'], '3c': ['nrCur', 'nrCompact'],
+  '3d': ['idx'], '3e': ['pages5'], '3f': ['pages5'],
+  '4a': ['title', 'retTitle'], '4b': ['tavern', 'retTavern'],
+  '4c': ['idx', 'retIdx'], '4d': ['idx', 'retIdx'],
+};
 function emit(id, M) {
   const a = ASSERT_OF[id];
   if (!a) { check('(' + id + ') ⛔ 未定義の assert', false); return; }
@@ -1308,6 +1469,31 @@ function emit(id, M) {
     return m;
   }
 
+  /* ★負のコントロール用の部分測定。needs に挙げたものだけを、その変異ポートから採る。
+   * ⚠ 撤退アームは **同じポート** (= 同じ変異バイト) から採る。別ポートから採ると
+   *   「素は変異なし / 撤退は変異あり」という比較になり、測っているものが変わる。 */
+  async function measureNeeds(port, mutKey, needs) {
+    const base = 'http://localhost:' + port;
+    const want = new Set(needs || []);
+    const m = { baseRef: BASE_REF, baseErr: BASE_ERR };
+    if (want.has('idx'))       m.idx       = await probeIndex(browser, base, '');
+    if (want.has('title'))     m.title     = await probeTitle(browser, base, '');
+    if (want.has('tavern'))    m.tavern    = await probeTavern(browser, base, '');
+    if (want.has('retIdx'))    m.retIdx    = await probeIndex(browser, base, '?darkvision=0');
+    if (want.has('retTitle'))  m.retTitle  = await probeTitle(browser, base, '?darkvision=0');
+    if (want.has('retTavern')) m.retTavern = await probeTavern(browser, base, '?darkvision=0');
+    if (want.has('pages5'))    m.pages5    = await probePages5(browser, base);
+    if (want.has('nrCur'))     m.nrCur     = await probeTavernNR(browser, base, '現行', VP_DESKTOP);
+    if (want.has('nrCompact')) m.nrCompact = await probeTavernNR(browser, base, '現行compact', VP_COMPACT, { skipRoster: true });
+    if (want.has('nrBase') && !BASE_ERR)
+      m.nrBase = await probeTavernNR(browser, 'http://localhost:' + BASE_PORT, '基準', VP_DESKTOP);
+    if (want.has('tables')) {
+      m.tables = {};
+      for (const f of [SIGHT_JS].concat(NUM_FILES)) m.tables[f] = countTables(servedSrc(mutKey, f));
+    }
+    return m;
+  }
+
   try {
     mark('測定 — index (経路A/B) / title (名乗り) / tavern (演出・名簿)');
     const M = await measureAll(PORT, MUTATE);
@@ -1339,6 +1525,23 @@ function emit(id, M) {
     console.log('[drv]   到達=' + M.nrCompact.reached + ' geo='
       + JSON.stringify((M.nrCompact.geo || {}).rect));
 
+    /* ★§4 撤退アーム。⭐ 素のアームと **同じ配信バイト**へ ?darkvision=0 を付けて開くだけ。
+       ⚠ probeIndex / probeTitle / probeTavern は第 2 引数の query をそのまま URL へ足す
+         (新しい probe は要らない)。⚠ 判定はページごとに独立なので遷移をまたがない。 */
+    mark('測定 — §4 撤退アーム ?darkvision=0 (表示だけが戻るか / 挙動は動かないか)');
+    M.retIdx    = await probeIndex(browser, 'http://localhost:' + PORT, '?darkvision=0');
+    M.retTitle  = await probeTitle(browser, 'http://localhost:' + PORT, '?darkvision=0');
+    M.retTavern = await probeTavern(browser, 'http://localhost:' + PORT, '?darkvision=0');
+    {
+      const rc = CLASS_KEYS.filter(k => (((M.retIdx.sheet || {}).byClass || {})[k] || {}).rowInDom).length;
+      const rp = (((M.retTavern.cinema || {}).cards) || []).filter(x => x.hasSight).length;
+      const rm = (((M.retTavern.roster || {}).rows) || []).filter(x => parseSightShort(x.meta) !== null).length;
+      console.log('[drv]   撤退: .classSight=' + ((M.retTitle.beforeClick || {}).nSight)
+        + ' 個 / .pmSight=' + rp + ' 枚 / 視界付き .mrMeta=' + rm + ' 行 / シートの視界行=' + rc + '/6 職');
+      console.log('[drv]   撤退の経路B (挙動): ' + CLASS_KEYS.map(k =>
+        k + '=' + (((M.retIdx.runtime || {}).tiles || {})[k])).join(' '));
+    }
+
     mark('測定 — 本番 5 ページ (pageerror / localStorage の増減)');
     M.pages5 = await probePages5(browser, 'http://localhost:' + PORT);
     console.log('[drv]   ' + M.pages5.map(p => p.label + ':' + p.status
@@ -1357,8 +1560,12 @@ function emit(id, M) {
 
     for (const sec of SECTIONS) { mark(sec[0]); for (const id of sec[1]) emit(id, M); }
 
-    mark('まだ実装していない受入条件 (⛔ 測れないものを黙って緑にしない)');
-    for (const p of PENDING_ASSERTS) pending('(' + p[0] + ') ' + p[1], p[2]);
+    if (PENDING_ASSERTS.length) {
+      mark('まだ実装していない受入条件 (⛔ 測れないものを黙って緑にしない)');
+      for (const p of PENDING_ASSERTS) pending('(' + p[0] + ') ' + p[1], p[2]);
+    } else {
+      mark('まだ実装していない受入条件 — 0 件 (§0〜§4 すべて実装済)');
+    }
 
     if (NEGATIVE) {
       if (MUT_TODO.length) {
@@ -1373,6 +1580,58 @@ function emit(id, M) {
         mark('変異の実装漏れ');
         check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
           true, MUT_ORDER.join(' / '));
+      }
+
+      /* ══════════════════════════════════════════════════════════════════════
+       * 1 本ずつ注入する。⛔ 全部同時に入れない (#34 の教訓: 互いを覆い隠す)。
+       *   変異ごとに専用ポートを立ててあるので、担当の節が使う測定だけをそのポートから採る。
+       * ⚠⚠ 「変異を入れたのに緑」= 受入条件が何も検出していない証拠 (#37 の N3)。
+       *   その場合は測り方を強くする。⚠⚠ 逆に空振りの原因が変異側のこともある (#38)。
+       * ══════════════════════════════════════════════════════════════════════ */
+      mark('負のコントロール — 1 本ずつ注入して担当の節が赤くなるか');
+      for (const k of MUT_IMPL) {
+        const mu = MUTATIONS[k];
+        if (!mu.targets.length) {
+          /* ★legacydrop — 本ドライバに測定点が無い (LEGACY は ?dndrange=0 でしか効かない)。
+             ⛔ 黙って飛ばさない。ここでは「変異が本当に LEGACY だけを空にする」ことを
+             モジュールを **node 内で評価して** 確かめ、赤くなる場所は別ドライバだと明示する。 */
+          let nBase = -1, nLegacy = -1, evalErr = null;
+          try {
+            const g = { location: { search: '' } };
+            new Function(MUT_SRC[k].body).call(g);
+            nBase   = g.DFSight ? Object.keys(g.DFSight.BASE || {}).length : -1;
+            nLegacy = g.DFSight ? Object.keys(g.DFSight.LEGACY || {}).length : -1;
+          } catch (e) { evalErr = (e && e.message) || String(e); }
+          check('(neg-' + k + ') 変異 ' + k + ' は**本ドライバの対象外** — LEGACY だけが空になることを確認'
+            + '  [' + mu.file + ']',
+            !evalErr && nBase === 6 && nLegacy === 0,
+            evalErr ? ('⛔ 変異後のモジュールが評価できない: ' + evalErr)
+              : ('変異後 DFSight.BASE=' + nBase + ' 職 / DFSight.LEGACY=' + nLegacy + ' 職。'
+                 + '⚠ 赤くなるのは driver_speech_boss (warriorSight===4) と driver_wall_face (pinOuter===330) '
+                 + '= どちらも ?dndrange=0 で走っている。手で確認して依頼書 §12 に記録すること。'));
+          continue;
+        }
+        const needs = [];
+        for (const t of mu.targets) for (const n of (NEED_OF[t] || [])) if (needs.indexOf(n) < 0) needs.push(n);
+        console.log('[drv]   注入 ' + k + ' → :' + PORT_OF[k] + ' (' + mu.file + ') / 測定 ' + needs.join('+'));
+        let Mm = null, err = null;
+        try { Mm = await measureNeeds(PORT_OF[k], k, needs); }
+        catch (e) { err = (e && e.message) || String(e); }
+        const red = [], green = [];
+        if (Mm) for (const t of mu.targets) {
+          const a = ASSERT_OF[t];
+          let r;
+          if (!a) r = [true, '⛔ 未定義の assert'];
+          else { try { r = a[2](Mm); } catch (e) { r = [false, '述語が例外: ' + (e && e.message)]; } }
+          (r[0] ? green : red).push('(' + t + ')' + (r[0] ? '' : ' ← ' + String(r[1] || '').slice(0, 110)));
+        }
+        const detected = (mu.mode === 'any') ? (red.length >= 1) : (green.length === 0 && red.length > 0);
+        check('(neg-' + k + ') 変異 ' + k + ' → ' + mu.targets.map(t => '(' + t + ')').join('')
+          + (mu.mode === 'any' ? ' の**どれか**' : '') + ' が赤くなる  [' + mu.file + ']',
+          !err && detected,
+          err ? ('⛔ 測定で例外: ' + err)
+            : ('赤=' + (red.join(' , ') || 'なし') + '  /  緑のまま=' + (green.join(',') || 'なし')
+               + (detected ? '' : '  ⛔⛔ 空振り — 変異を入れたのに検出できていない')));
       }
     }
   } catch (e) {
