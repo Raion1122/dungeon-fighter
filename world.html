@@ -229,6 +229,35 @@
        札が右へずれる (#15 の town.html で踏んだ罠と同型)。必ず合成して書く。 */
     .worldNode:hover .worldSign { transform: translateX(-50%) scale(1.05); }
 
+    /* ── 歩みの刻み (#40) ─────────────────────────────────
+       ⚠⚠ クラス名は **.worldStep**。⛔ .worldNode を着せないこと —
+         tools/verify_world_map.js:736 の (3c) と :1187 が top.closest('.worldNode') で
+         「押した先がノードでない」を測り、tools/verify_quest_walk.js:547 は札の
+         所有者を同じ式で引いている (依頼書 §2-4)。着せると既存 golden が 3 本誤爆する。
+       ⚠ 点線の点は stroke-dasharray: 1 17 = **18px おき**。紛れないよう
+         「点線より一回り大きく、中継点の 9px より小さい」6px + 明るい縁で出す。
+       ⭐ z-index は .worldNode (4) と同じ層。主人公 (5) より下 = 立つと体の後ろへ隠れる。
+       ⛔ 色・大きさ・形は受入条件の「測らないこと」= 実機で見て調整してよい。
+         機械が縛るのは「.worldNode を着ていない」ことだけ = (0c)。 */
+    .worldStep {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px;            /* 当たり判定。⚠ .worldNode の 44px より小さく */
+      cursor: pointer;
+      z-index: 4;
+    }
+    .worldStepBody {
+      display: block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--route-ink);
+      opacity: 0.85;
+      box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 1px 4px rgba(0,0,0,0.6);
+      transition: transform 0.12s ease;
+    }
+    .worldStep:hover .worldStepBody { transform: scale(1.35); }
+
     /* ── 拠点の羊皮紙の立て札 (依頼書 §6-2 の 3) ─────────────────────────
        ⭐ 作法は #15 の town.html `.townSign` の流用。⛔ ただし DOM もセレクタも
          共有しない (town.html は 1 バイトも触らない)。
@@ -665,6 +694,24 @@
       return WM.isRevealed(sc, clearedList);
     }
 
+    /* ══ 撤退スイッチ ?walkstep=0 (#40 §7) ═══════════════════════
+       ⭐ 立てると「今日の姿」= 刻み点マーカーを 1 枚も描かず、1 タップで経路全部を歩く。
+       ⚠ **buildSteps() より前**に読むこと (下の buildSteps が walkStepOff を見る)。
+       ⛔ ?world=0 / ?questwalk=0 と相乗りさせない
+         (赤が出たときどちらの撤退か切り分けられなくなる)。
+       ⚠ 遷移をまたぐ = sessionStorage へ写す。酒場 → 出発 → world の導線は
+         クエリを持ち越せない (#12 の確定作法「遷移先にクエリを足さない」)。
+       ⭐⭐⭐ 撤退しても WORLD_MAP.STEPS のデータ自体は消さない。
+         戻すのは「描画」と「1 ホップ制限」だけ ((6d) がこれを測る)。 */
+    var WALK_STEP_OFF_KEY = "dragonfighters.walkStepOff";
+    try {
+      if (new URLSearchParams(location.search).get("walkstep") === "0") {
+        sessionStorage.setItem(WALK_STEP_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var walkStepOff = false;
+    try { walkStepOff = sessionStorage.getItem(WALK_STEP_OFF_KEY) === "1"; } catch (e) {}
+
     var nodeEls = {};
     function buildNodes() {
       Object.keys(NODES).forEach(function (id) {
@@ -721,6 +768,35 @@
       });
     }
     buildNodes();
+
+    /* ══ 歩みの刻みのマーカー (#40 §5-2) ══════════════════════
+       ⭐⭐⭐ 座標は **WORLD_MAP.STEPS から引く**。⛔ world.html 側に写しを作らない
+         (js/world-map.js が唯一の正。2 つ持つと必ずズレる = 変異 handcoord の対象)。
+       ⛔ nodeEls へ入れない (__world.nodeIds() が汚れる)。読み窓は stepIds() を別に持つ。
+       ⛔ 点線 SVG (#worldRoutes) の子にしない — あちらは pointer-events: none なので
+         押せなくなり、さらに (2b)「<line> は EDGES.length 本のまま」が崩れる
+         (依頼書 §2-3 の罠 B)。 */
+    var STEPS = WM.STEPS || {};
+    var stepEls = {};
+    function buildSteps() {
+      if (walkStepOff) return;                /* 撤退時は 1 枚も描かない (§7) */
+      Object.keys(STEPS).forEach(function (id) {
+        var s = STEPS[id];
+        var el = document.createElement("div");
+        el.className = "worldStep";           /* ⛔ .worldNode を足さない (依頼書 §2-4) */
+        el.id = "worldStep_" + id;
+        el.setAttribute("data-step", id);
+        var body = document.createElement("span");
+        body.className = "worldStepBody";
+        el.appendChild(body);
+        el.style.left = s.x + "px";
+        el.style.top  = s.y + "px";
+        el.addEventListener("click", function (ev) { ev.stopPropagation(); goToPoint(id); });
+        elStage.appendChild(el);
+        stepEls[id] = el;
+      });
+    }
+    buildSteps();
 
     /* ══ 移動 ═══════════════════════════════════════════════════════════
        ⭐ 経路は WORLD_MAP.findPath が出したノード列だけを辿り、エッジ上は線形補間。
@@ -856,6 +932,12 @@
       return true;
     }
 
+    /* ⚠ #40 項目 3 がここを「1 タップ = 1 ホップ」の本体へ差し替える。
+       項目 2 の時点では既存の goToNode へ橋渡しするだけ。
+       ⚠ 刻み点 id は WM.has() が false なので goToNode がそのまま false を返す
+         = 押しても何も起きない (クラッシュしない)。 */
+    function goToPoint(id) { return goToNode(id); }
+
     /* ══ 音 (依頼書 §6-2 の 6 / §12-1) ══════════════════════════════════
        BGM = GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
 
@@ -906,6 +988,9 @@
       compact:   function () { return document.body.classList.contains("compact"); },
       insets:    insets,
       nodeIds:   function () { return Object.keys(nodeEls); },
+      /* ── #40 が足した窓 (⛔ 読むためだけ。ここへ状態を置かない) ────────
+         stepIds … 刻み点マーカーの id。⛔ nodeIds とは別。混ぜない。 */
+      stepIds:   function () { return Object.keys(stepEls); },
       goToNode:  goToNode,
       /* ⚠ ドライバはこの値と**実描画の矩形**を突き合わせる (CSS と JS の写経ズレを殺すため)。 */
       heroGeom:  function () { return { sprite: SPRITE, foot: FOOT, rowRight: SHEET_ROW_RIGHT }; },

@@ -22,6 +22,17 @@
  *     (1d) 恒等   … {nodesFP, edges, sites} の sha1 が 876c5f6336f96811
  *     (9a) 事故   … 測定ページで pageerror / console.error が出ていない
  *
+ * ■ 項目 2 が足したもの — **画面のマーカー** (measureSteps() = DOM の 2 経路目)
+ *     (0c) 装置   … .worldStep の DOM 件数が STEPS と一致し、**1 枚も .worldNode を着ていない**
+ *                   ⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 が誤爆する
+ *     (2a) 位置   … マーカーの画面座標が STEPS の座標 x zoom と 2px 以内
+ *                   ⭐ getBoundingClientRect から採る (実装の clientFromWorld とは **別経路**)
+ *     (2b) 非侵襲 … 点線 <line> は EDGES.length 本のまま (⛔ 刻み点で分割していない)
+ *     (2c) 押せる … 各マーカー中心の elementFromPoint が自分自身か子孫
+ *     (2d) 非干渉 … マーカーの矩形が 7 枚の .worldSign のどれとも 1px も重ならない
+ *   ⚠⚠ (2a)(2b)(2c)(2d) は **マーカーが 0 枚だと自明に真**になるので、
+ *      各 assert の中で母集団 (検査した件数) を必ず見る。(0c) が件数そのものを縛る。
+ *
  * ■ ⭐⭐⭐ 測定は **本番で配信される `/world.html` の上で行う**
  *   (world.html が js/world-map.js を読むので window.WORLD_MAP はそのまま取れる)。
  *   ⛔ 自前ハーネスで js/world-map.js だけを載せない — 本番ページだけが壊れているケースを
@@ -342,6 +353,82 @@ async function measure(browser, port, errs, opts) {
   return m;
 }
 
+/* ⭐ 画面の実測 (項目 2)。⛔ measure() と分けてある理由 = こちらは **DOM の矩形と命中先**
+ *   しか採らない (データ層と混ぜると、どちらが壊れて赤いのか読めなくなる)。
+ *   ⚠⚠ 座標は getBoundingClientRect から採る = 実装の clientFromWorld とは **別経路**。
+ *      同じ式を 2 回書くと写経どうしの照合になり、ズレを永久に検出できない。
+ *   ⚠ 呼ぶのは cleared 焼き込み装置 (browser.newPage のラップ) を仕掛けた **後**。
+ *      でないと札が 2 枚になり (2d) の母集団が壊れる。
+ *   ⚠ #worldStage は transform-origin: 0 0 なので「ステージ矩形の左上 + world 座標 x zoom」で
+ *      クライアント座標になる (world.html:129 で実測)。 */
+async function measureSteps(browser, port, errs, opts) {
+  opts = opts || {};
+  const page = await browser.newPage();
+  const tag = '[:' + port + (opts.query || '') + ' dom] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + (opts.query || ''),
+    { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  await settle(page);
+
+  const d = await page.evaluate(() => {
+    const WM = window.WORLD_MAP;
+    const stage = document.getElementById('worldStage').getBoundingClientRect();
+    const rectOf = (el) => {
+      const r = el.getBoundingClientRect();
+      return { l: r.left, t: r.top, w: r.width, h: r.height };
+    };
+    /* ⭐ 刻み点マーカー。⛔ セレクタは .worldStep だけ = 「.worldNode を着ていない」を
+       別の assert が測れるように、ここでは className をそのまま持ち帰る。 */
+    const marks = Array.from(document.querySelectorAll('.worldStep')).map(el => {
+      const r = rectOf(el);
+      const cx = r.l + r.w / 2, cy = r.t + r.h / 2;
+      const hit = document.elementFromPoint(cx, cy);
+      return {
+        id: el.getAttribute('data-step'), domId: el.id, cls: el.className,
+        rect: r, cx: cx, cy: cy,
+        /* ⚠ closest は自分自身も見る = .worldNode を着せた瞬間に true になる (変異 stepclass)。 */
+        inNode: el.closest('.worldNode') !== null,
+        onScreen: cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight,
+        hitOk: !!hit && (hit === el || el.contains(hit)),
+        hitDesc: hit ? (hit.id || hit.className || hit.tagName) : 'null',
+      };
+    });
+    /* 札。⚠ 所有者は verify_quest_walk.js:547 と同じ式 (sg.closest('.worldNode')) で引く。 */
+    const signs = Array.from(document.querySelectorAll('.worldSign')).map(sg => {
+      const owner = sg.closest('.worldNode');
+      const r = rectOf(sg);
+      return { node: owner ? owner.getAttribute('data-node') : null, l: r.l, t: r.t, w: r.w, h: r.h };
+    });
+    const svg = document.getElementById('worldRoutes');
+    const lines = svg ? Array.from(svg.querySelectorAll('line')) : [];
+    return {
+      zoom: window.__world.zoom(),
+      stage: { left: stage.left, top: stage.top },
+      steps: WM.STEPS ? JSON.parse(JSON.stringify(WM.STEPS)) : {},
+      edgeCount: WM.EDGES.length,
+      siteCount: Object.keys(WM.NODES).filter(k => WM.NODES[k].kind === 'site').length,
+      marks: marks, signs: signs,
+      lineCount: lines.length,
+      lineEdges: lines.map(l => l.getAttribute('data-edge')),
+      nodeElCount: document.querySelectorAll('.worldNode').length,
+      /* ⚠ 参考値。__world の読み窓そのものは (0d) が縛る (項目 3 の担当)。 */
+      stepIdsType: typeof window.__world.stepIds,
+      stepIds: (typeof window.__world.stepIds === 'function') ? window.__world.stepIds() : null,
+    };
+  });
+  await page.close();
+  return d;
+}
+
 /* ⭐ 装置: 測定タブへ「6 シナリオ クリア済み」を焼く (手本 = verify_world_map.js の同名装置)。
  *   ヘッドレスの素のプロファイルは localStorage["dragonfighters.cleared"] が未設定 =
  *   解放は廃坑だけなので、何も仕込まないと札が **2 枚**になり、
@@ -405,6 +492,109 @@ const ASSERTS = [
         '一致 ' + wantIds.length + ' 件 (cap=' + cap + ' をページから読んだ)'
         + '  座標の最悪差 ' + worst.toFixed(4) + 'px (' + who + ')'
         + '  内訳: ' + want.map(s => s.id + '(' + s.x + ',' + s.y + ')').join(' ')];
+    }],
+  ['0c', '刻み点マーカーの DOM 件数が STEPS の件数と一致し、**1 枚も .worldNode を着ていない**'
+    + ' (el.closest(".worldNode") === null)'
+    + ' ⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 が誤爆する (依頼書 §2-4)',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い (measureSteps を呼んでいない)'];
+      const want = Object.keys(d.steps || {}).slice().sort();
+      const got = d.marks.map(x => x.id).slice().sort();
+      const idsOk = JSON.stringify(want) === JSON.stringify(got);
+      const inNode = d.marks.filter(x => x.inNode);
+      /* ⚠ closest だけでなく **クラス文字列**も見る (親子関係と着衣は別の壊れ方)。 */
+      const wearing = d.marks.filter(x => /(^|\s)worldNode(\s|$)/.test(x.cls || ''));
+      return [want.length > 0 && d.marks.length === want.length && idsOk
+        && inNode.length === 0 && wearing.length === 0,
+        'マーカー ' + d.marks.length + ' 枚 / STEPS ' + want.length + ' 件  id 一致=' + idsOk
+        + '  .worldNode の子孫=' + inNode.length + ' 枚 / worldNode クラス着用=' + wearing.length + ' 枚'
+        + '  class=' + JSON.stringify(d.marks.map(x => x.cls))
+        + '  domId=' + JSON.stringify(d.marks.map(x => x.domId))
+        + '  (参考 __world.stepIds=' + d.stepIdsType + ' ' + JSON.stringify(d.stepIds) + ')'
+        + (idsOk ? '' : '  ⛔ want=' + JSON.stringify(want) + ' / got=' + JSON.stringify(got))];
+    }],
+
+  // ── §2 見た目 ──────────────────────────────────────────────────────────────
+  ['2a', '刻み点マーカーの**画面座標**が STEPS の座標 x zoom と 2px 以内'
+    + ' ⭐ getBoundingClientRect から採る (実装の clientFromWorld とは **別経路**)',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      /* ⚠⚠ 母集団ガード。0 枚だと「全部 2px 以内」が自明に真で永久緑になる。 */
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
+      const bad = [];
+      let worst = -1, who = '-';
+      for (const k of d.marks) {
+        const s = d.steps[k.id];
+        if (!s) { bad.push(k.id + ': STEPS に無い id'); continue; }
+        const ex = d.stage.left + s.x * d.zoom, ey = d.stage.top + s.y * d.zoom;
+        const e = Math.max(Math.abs(k.cx - ex), Math.abs(k.cy - ey));
+        if (e > worst) { worst = e; who = k.id; }
+        if (e > 2) bad.push(k.id + '=' + e.toFixed(2) + 'px (期待 ' + ex.toFixed(1) + ',' + ey.toFixed(1)
+          + ' / 実測 ' + k.cx.toFixed(1) + ',' + k.cy.toFixed(1) + ')');
+      }
+      return [bad.length === 0,
+        d.marks.length + ' 枚を検査 (zoom=' + d.zoom.toFixed(4) + ')  最悪差 '
+        + worst.toFixed(3) + 'px (' + who + ') / 許容 2px'
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
+    }],
+  ['2b', '⭐⭐⭐ 点線 <line> の本数が **EDGES.length のまま** (⛔ 点線を刻み点で分割していない)'
+    + ' ⚠ data-edge に刻み点 id ("@") が混ざっていないことも同じ assert で見る',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      /* ⚠ 母集団: 刻み点が 1 つも無ければ「分割していない」は自明に真。 */
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (刻み点が無いので「分割していない」が自明)'];
+      const dirty = d.lineEdges.filter(e => e === null || String(e).indexOf('@') >= 0);
+      return [d.edgeCount > 0 && d.lineCount === d.edgeCount && dirty.length === 0,
+        '<line>=' + d.lineCount + ' 本 / EDGES=' + d.edgeCount + ' 本'
+        + '  刻み点入り or data-edge 無しの線=' + dirty.length + ' 本'
+        + '  (母集団: 刻み点マーカー ' + d.marks.length + ' 枚)'
+        + (dirty.length ? '  ⛔ ' + JSON.stringify(dirty.slice(0, 6)) : '')];
+    }],
+  ['2c', '各刻み点マーカーの中心の elementFromPoint が **自分自身か子孫** (= 実際に押せる)'
+    + ' ⚠ 点線 SVG は pointer-events: none なので SVG の子にすると必ずここが赤くなる (罠 B)',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
+      const off = d.marks.filter(k => !k.onScreen);
+      const bad = d.marks.filter(k => !k.hitOk);
+      return [off.length === 0 && bad.length === 0,
+        d.marks.length + ' 枚を検査  画面外=' + off.length + ' 枚'
+        + '  命中先: ' + d.marks.map(k => k.id + '→' + k.hitDesc + '(' + (k.hitOk ? 'self' : '⛔他人') + ')').join(' ')];
+    }],
+  ['2d', '刻み点マーカーの矩形が **7 枚の .worldSign** のどれとも 1px も重ならない'
+    + ' ⚠ 札 7 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
+      /* ⚠⚠ 母集団ガード 2 本立て: 札の実数と、データ側の site ノード数の両方を見る。
+         ⛔ 0 枚でも「重ならなかった」で緑になる書き方をしない。 */
+      if (d.siteCount !== 7 || d.signs.length !== 7) {
+        return [false, '⛔ 母集団が壊れている: .worldSign=' + d.signs.length + ' 枚 / site ノード='
+          + d.siteCount + ' 件 (どちらも 7 のはず)  札の所有者='
+          + JSON.stringify(d.signs.map(s => s.node))];
+      }
+      const bad = [];
+      let nearest = Infinity, who = '-';
+      for (const k of d.marks) {
+        for (const s of d.signs) {
+          const ox = Math.min(k.rect.l + k.rect.w, s.l + s.w) - Math.max(k.rect.l, s.l);
+          const oy = Math.min(k.rect.t + k.rect.h, s.t + s.h) - Math.max(k.rect.t, s.t);
+          if (ox > 0 && oy > 0) {
+            bad.push(k.id + ' x ' + s.node + '=' + ox.toFixed(1) + 'x' + oy.toFixed(1) + 'px');
+          }
+          const gap = Math.max(-ox, -oy);      /* 離れていれば正 = 隙間 */
+          if (gap < nearest) { nearest = gap; who = k.id + ' / ' + s.node; }
+        }
+      }
+      return [bad.length === 0,
+        'マーカー ' + d.marks.length + ' 枚 x 札 ' + d.signs.length + ' 枚を総当たり'
+        + '  最小の隙間 ' + nearest.toFixed(1) + 'px (' + who + ')'
+        + (bad.length ? '  ⛔ 重なり=' + bad.join(' ') : '')];
     }],
 
   // ── §1 刻みのデータ ────────────────────────────────────────────────────────
@@ -516,20 +706,8 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
   ['§0 装置 (残り)', [
-    ['0c', '刻み点マーカーの DOM 件数が STEPS の件数と一致し、1 枚も .worldNode を着ていない',
-      '項目 2 (world.html へ .worldStep を描く) 待ち'],
     ['0d', '__world に stepIds / lastArrival / arrivalCount / walkStepOff / stepMaxPx / clientFromPoint が揃っている',
-      '項目 3 (world.html の読み窓) 待ち'],
-  ]],
-  ['§2 見た目', [
-    ['2a', '刻み点マーカーの画面座標が STEPS の座標 x zoom と 2px 以内 (getBoundingClientRect から採る)',
-      '項目 2 待ち'],
-    ['2b', '⭐⭐⭐ 点線 <line> の本数が 14 本のまま (= WORLD_MAP.EDGES.length)',
-      '項目 2 待ち'],
-    ['2c', '各刻み点マーカーの中心の elementFromPoint が自分自身か子孫 (押せる)',
-      '項目 2 待ち'],
-    ['2d', '刻み点マーカーの矩形が 7 枚の .worldSign のどれとも 1px も重ならない',
-      '項目 2 待ち'],
+      '項目 3 (world.html の読み窓) 待ち  ⭐ stepIds は項目 2 で着地済み'],
   ]],
   ['§3 1 タップ = 1 刻み (本体)', [
     ['3a', '⭐⭐⭐ phlan から temple の札を 1 回だけ押す → 着かない。かつ findWalkPath の先頭 1 点に立つ',
@@ -557,7 +735,8 @@ const PENDINGS = [
     ['5b', 'enter を持つノードは今も phlan ただ 1 つ',
       '項目 3 待ち'],
     ['5c', '札 (.worldSign) の DOM がちょうど 7 枚 (刻み点に札が生えていない)',
-      '項目 2 待ち'],
+      '⭐ (2d) が既に .worldSign 7 枚 + site ノード 7 件を母集団ガードとして実測しているので、'
+      + 'm.dom.signs / m.dom.siteCount をそのまま使えば移すだけで済む'],
   ]],
   ['§6 撤退', [
     ['6a', '?walkstep=0 → 刻み点マーカーが 0 枚、temple の札を 1 回押すと着く (今日の姿)',
@@ -620,7 +799,9 @@ const PENDINGS = [
       // ══ 受入条件 ═══════════════════════════════════════════════════════════
       mark('§0 装置 — 母集団と 2 経路');
       const m = await measure(browser, PORT, errs, {});
-      for (const key of ['0z', '0a', '0b']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      /* ⭐ DOM の観測は別タブ・別関数。⛔ 期待値はここでも混ぜない (assert 側が突き合わせる)。 */
+      m.dom = await measureSteps(browser, PORT, errs, {});
+      for (const key of ['0z', '0a', '0b', '0c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       for (const p of PENDINGS[0][1]) pending('(' + p[0] + ') ' + p[1], p[2]);
       if (MUT_TODO.length === 0) {
         check('(0e) [装置] 変異アンカーの実装漏れが 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
@@ -652,6 +833,22 @@ const PENDINGS = [
         console.log('         … 全 ' + rows.length + ' 区間 / 上限 ' + m.map.stepMaxPx + 'px');
       }
 
+      mark('§2 見た目 — 位置 / 点線を割らない / 押せる / 札に被らない');
+      for (const key of ['2a', '2b', '2c', '2d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      console.log('       [記録] 刻み点マーカー (.worldStep) の実描画:');
+      for (const k of (m.dom ? m.dom.marks : [])) {
+        console.log('         ' + k.id + '  class="' + k.cls + '"  id=' + k.domId
+          + '  中心 (' + k.cx.toFixed(1) + ', ' + k.cy.toFixed(1) + ')'
+          + '  ' + k.rect.w.toFixed(1) + 'x' + k.rect.h.toFixed(1) + 'px'
+          + '  命中先=' + k.hitDesc);
+      }
+      if (m.dom) {
+        console.log('       [記録] 札 (.worldSign) ' + m.dom.signs.length + ' 枚: '
+          + m.dom.signs.map(s => s.node + '(' + s.w.toFixed(0) + 'x' + s.h.toFixed(0) + ')').join(' '));
+        console.log('       [記録] 点線 <line> ' + m.dom.lineCount + ' 本 / .worldNode '
+          + m.dom.nodeElCount + ' 枚 / zoom ' + m.dom.zoom.toFixed(4));
+      }
+
       for (const [title, rows] of PENDINGS.slice(1)) {
         mark(title + ' (項目 2〜4 の担当)');
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
@@ -679,6 +876,10 @@ const PENDINGS = [
           const negErrs = [];
           const port = MUTATIONS[k].driver ? PORT : PORT_OF[k];
           const m = await measure(browser, port, negErrs, {});
+          /* ⚠ DOM 側の assert ((0c)(2a)-(2d)) も変異で赤くなることを測るので、
+             素と同じ 2 経路をここでも採る。⛔ 片方だけにすると m.dom が undefined で
+             「DOM の観測が無い」= どの変異でも赤 = 何も検出していないのに緑に見える。 */
+          m.dom = await measureSteps(browser, port, negErrs, {});
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
             if (!a) {
