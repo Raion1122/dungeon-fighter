@@ -212,10 +212,148 @@
     return "phlan";
   }
 
+  /* ── 歩みの刻み (#40) ─────────────────────────────────────────────
+   *  実装依頼書 `実装依頼書/2026-09-01_world-walk-steps.md` の §4。
+   *
+   *  ⭐⭐⭐ **NODES / EDGES / SITES / UNLOCK / has / neighbors / dist / findPath /
+   *    spawnFor / isRevealed / scenarioOfNode は 1 バイトも触らない。**
+   *    tools/verify_quest_walk.js の (5a) が {nodesFP, edges, sites} の sha1 を
+   *    **876c5f6336f96811** で固定し、tools/verify_world_map.js の (7f) が
+   *    「NODES はちょうど 14 件」、(2a) が「点線 <line> は EDGES.length 本」を要求している。
+   *    ここへ刻み点を混ぜると既存 golden が **4 本同時に赤くなる** (依頼書 §2-2 の罠 A)。
+   *    ⭐ WORLD_MAP へ **関数や定数を足す**ぶんにはハッシュは動かない
+   *       (材料は nodesFP / edges / sites の 3 つだけ)。
+   *
+   *  ⭐⭐⭐ 刻み点も **EDGES ただ 1 つから生成する**。⛔ 座標表を手で書かない
+   *    (冒頭 ★ の「画面に描く点線と歩けるデータは EDGES ただ 1 つから」と同じ理由。
+   *     2 つ持つと必ずズレる = 負のコントロール handcoord の対象)。
+   *
+   *  ⚠ 1 マス = 64px は assets/world_region.jpg (1536x1024 = 24x16) の換算にすぎない。
+   *    ⛔ タイル格子は作らない (冒頭 ★ の罠は今も有効)。この定数は
+   *    「刻みの長さを人間の言葉で言う」ためだけに使う。 */
+  var STEP_MAX_PX = 320;                 /* = 5 マス。⭐ 刻みの粗さはこの 1 定数だけで決まる */
+
+  /* エッジ 1 本に生える刻み点。⭐ **等分**するので「1 区間 <= STEP_MAX_PX」が必ず成り立つ。
+   *  id は "<a>__<b>@<i>" (i は 1..k-1)。⚠ NODES のキーと衝突しない形にしてある
+   *  (NODES のキーに "__" も "@" も無い)。
+   *  ⚠ 2026-09-01 実測: 14 本のうち分割されるのは lake_n-lakeside (409.8px) の 1 本だけ。 */
+  function stepsOfEdge(a, b) {
+    var na = NODES[a], nb = NODES[b], out = [];
+    if (!na || !nb) return out;
+    var d = Math.sqrt((nb.x - na.x) * (nb.x - na.x) + (nb.y - na.y) * (nb.y - na.y));
+    var k = Math.max(1, Math.ceil(d / STEP_MAX_PX));
+    for (var i = 1; i < k; i++) {
+      var t = i / k;
+      out.push({
+        id: a + "__" + b + "@" + i, kind: "step",
+        x: na.x + (nb.x - na.x) * t, y: na.y + (nb.y - na.y) * t,
+        on: [a, b]
+      });
+    }
+    return out;
+  }
+
+  /* 刻み点の全体。⭐ EDGES から生成する (⛔ 別表を持たない)。
+   *  ⚠ 2026-09-01 の実測では ちょうど 1 件 = lake_n__lakeside@1 (896, 416)。 */
+  var STEPS = (function () {
+    var m = {};
+    for (var i = 0; i < EDGES.length; i++) {
+      var ss = stepsOfEdge(EDGES[i][0], EDGES[i][1]);
+      for (var j = 0; j < ss.length; j++) m[ss[j].id] = ss[j];
+    }
+    return m;
+  })();
+
+  /* 細分化後のグラフ (NODES ∪ STEPS)。⛔ NODES を書き換えず、毎回組んで返す。 */
+  function walkNodes() {
+    var m = {}, k;
+    for (k in NODES) if (Object.prototype.hasOwnProperty.call(NODES, k)) m[k] = NODES[k];
+    for (k in STEPS) if (Object.prototype.hasOwnProperty.call(STEPS, k)) m[k] = STEPS[k];
+    return m;
+  }
+
+  /* 細分化後のエッジ。各 EDGE を [a, …刻み点…, b] の鎖にして、隣り合う 2 点ずつへ割る。 */
+  function walkEdges() {
+    var out = [];
+    for (var i = 0; i < EDGES.length; i++) {
+      var a = EDGES[i][0], b = EDGES[i][1];
+      var chain = [a].concat(stepsOfEdge(a, b).map(function (s) { return s.id; })).concat([b]);
+      for (var j = 0; j + 1 < chain.length; j++) out.push([chain[j], chain[j + 1]]);
+    }
+    return out;
+  }
+
+  /* ── 細分化グラフの上の経路探索 ─────────────────────────────────
+   *  ⛔ 既存の findPath / neighbors / dist には **手を触れない**。
+   *     tools/verify_world_map.js の (3z)(3a) と verify_quest_walk.js の (2c) が
+   *     あちらを 14 ノードのグラフとして測っている。
+   *  ⚠ 契約は findPath (:115) と同一:
+   *     **始点を含まないノード id の列** / 同じノードなら [] / 到達できなければ null。
+   *  ⭐ 本体は findPath (:115) の写しで、引き先だけ細分化グラフへ差し替えてある。 */
+
+  /* 細分化グラフの隣接。⛔ 別表を作らない (walkEdges から毎回引く)。 */
+  function walkNeighbors(id) {
+    var es = walkEdges(), out = [];
+    for (var i = 0; i < es.length; i++) {
+      var e = es[i];
+      if (e[0] === id && out.indexOf(e[1]) < 0) out.push(e[1]);
+      else if (e[1] === id && out.indexOf(e[0]) < 0) out.push(e[0]);
+    }
+    return out;
+  }
+
+  function findWalkPath(fromId, toId) {
+    /* ⭐ 性能: walkNodes() / walkEdges() は探索の**前に 1 回だけ**組む
+     *  (⛔ 内側ループで毎回呼ばない)。⚠ 距離も NODES 固定の既存 dist ではなく
+     *  この G の座標で引き直す (刻み点は NODES に居ないので dist では引けない)。 */
+    var G = walkNodes();
+    if (!Object.prototype.hasOwnProperty.call(G, fromId)) return null;
+    if (!Object.prototype.hasOwnProperty.call(G, toId)) return null;
+    if (fromId === toId) return [];
+    var es = walkEdges(), adj = {}, i, a, b;
+    for (i = 0; i < es.length; i++) {
+      a = es[i][0]; b = es[i][1];
+      if (!adj[a]) adj[a] = [];
+      if (!adj[b]) adj[b] = [];
+      if (adj[a].indexOf(b) < 0) adj[a].push(b);
+      if (adj[b].indexOf(a) < 0) adj[b].push(a);
+    }
+    function wdist(p, q) {
+      var np = G[p], nq = G[q];
+      return Math.sqrt((np.x - nq.x) * (np.x - nq.x) + (np.y - nq.y) * (np.y - nq.y));
+    }
+    var g = {}, prev = {}, done = {}, open = [fromId];
+    g[fromId] = 0;
+    while (open.length > 0) {
+      var bi = 0;
+      for (i = 1; i < open.length; i++) if (g[open[i]] < g[open[bi]]) bi = i;
+      var cur = open.splice(bi, 1)[0];
+      if (done[cur]) continue;
+      done[cur] = true;
+      if (cur === toId) {
+        var path = [], k = cur;
+        while (k !== fromId) { path.unshift(k); k = prev[k]; }
+        return path;
+      }
+      var ns = adj[cur] || [];
+      for (var j = 0; j < ns.length; j++) {
+        var n = ns[j];
+        if (done[n]) continue;
+        var cand = g[cur] + wdist(cur, n);
+        if (!(n in g) || cand < g[n]) { g[n] = cand; prev[n] = cur; if (open.indexOf(n) < 0) open.push(n); }
+      }
+    }
+    return null;
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
     has: has, neighbors: neighbors, findPath: findPath, spawnFor: spawnFor,
-    isRevealed: isRevealed, scenarioOfNode: scenarioOfNode
+    isRevealed: isRevealed, scenarioOfNode: scenarioOfNode,
+    /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
+    STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
+    walkNodes: walkNodes, walkEdges: walkEdges,
+    walkNeighbors: walkNeighbors, findWalkPath: findWalkPath
   };
 })(typeof window !== "undefined" ? window : this);
