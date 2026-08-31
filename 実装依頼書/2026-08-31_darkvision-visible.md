@@ -1,7 +1,11 @@
 # #39 暗視を編成の判断材料にする — 職業ごとの視界をプレイヤーへ見せる
 
-- **起草**: 2026-08-31(計画窓) / **ステータス**: **承認済**(2026-08-31 ユーザー承認)
-- **着手**: 未着手。⭐ ユーザーの承認は「**依頼書に書いたとおりで進めてよい**」という一括承認
+- **起草**: 2026-08-31(計画窓) / **ステータス**: ✅ **完了**(2026-08-31 / dev-loop 4 項目・停止 0 回)
+- **着手**: ✅ **完了**(2026-08-31)。`ed704e8`(項目1) / `df48c0f`(項目2) / `14ad37d`(項目3) /
+  `a97f60c`(項目4 装置) + 文書コミット。⛔ push は未実施(dev-loop の規約)。
+  新 driver `tools/verify_darkvision.js` **25/25 PASSED / FAILED 0 / PENDING 0**、
+  `--negative` **38/38・空振り 0**、既存 golden **10 本すべて基準どおり**。**実測の全文は §12**。
+  ⭐ 承認の経緯: ユーザーの承認は「**依頼書に書いたとおりで進めてよい**」という一括承認
   (「承認します」2026-08-31)。提示した 3 つの確認点に個別の指示は無かったので、
   **依頼書の案がそのまま採用**される: ①着手可 / ②`CLASS_SIGHT` の**移設に踏み込む** /
   ③本チケットが **#39** を取り #38 側の予約 5 箇所を書き直す。
@@ -689,4 +693,146 @@ STEP ごとに 1 行ずつ足す(先頭 = 最新・既定 4 件維持)。
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+✅ **完了 2026-08-31 / dev-loop 4 項目・停止 0 回。** 着手前 `HEAD = f80a03c`。
+
+| 項目 | commit | 中身 |
+|---|---|---|
+| 1 | `ed704e8` | `js/class-sight.js` 新設 + `index.html` の表を移設 + シートの視界行 + 装置 §0 と (1a)(1e)(1f) |
+| 2 | `df48c0f` | 名乗りカード `.classSight` + マッチングカード `.pmSight` + (1b)(1d)(2a)(2b) |
+| 3 | `14ad37d` | 傭兵名簿 `mrMeta` の視界 + (1c) と §3 非退行 (3a)〜(3f) |
+| 4 | `a97f60c` + 文書コミット | 撤退 §4 (4a)〜(4d) + 負のコントロール 12 本 + 既存 golden 10 本 + 文書 |
+
+⛔ push は未実施(dev-loop の規約)。
+
+### 12-1. 受入条件の実測
+
+    node tools/verify_darkvision.js
+      → 25/25 PASSED   FAILED 0   **PENDING** 0
+    node tools/verify_darkvision.js --negative
+      → 38/38 PASSED   FAILED 0   **PENDING** 0   [負のコントロール]   (空振り 0)
+
+**負のコントロール 12 本の内訳**(⚠ **1 本ずつ**専用ポートへ注入。#34 の教訓「全部同時だと互いを覆い隠す」):
+
+| 変異 | 赤くなった節 | 実測 |
+|---|---|---|
+| `shadowsight` | (1a)(1b)(1c)(1d) | 画面 8/10/12 ≠ 実行時 5/7/9(= §2-2 の「写しを作ると片方だけ古くなる」の再現) |
+| `flatsight` | (0b) | 相異なる tiles が 1 種類 [8] — 母集団ガードが効いている証拠 |
+| `emptysight` | (0a) **と** (3e) | keys=0 / index で pageerror 2 件(⭐ 依頼書の「(0a) **または** (3e)」は両方赤くなった) |
+| `wrongft` | (1e) | 32ft ≠ 8×5=40 |
+| `elfdark` | (1f) | elf に「低光視力」が無い + elf に「暗視」が出ている |
+| `dropsheetrow` | (1a)(2a) | 6 職とも視界行が DOM に無い |
+| `dropcardsight` | (1b)(2a) | 4 枚とも `.pmSight` が無い |
+| `droprostersight` | (1c) | 3 行とも `.mrMeta` から視界が読めない |
+| `droptitlesight` | (1d)(2a) | 6 枚とも `.classSight` が無い |
+| `legacydrop` | ⚠ **本ドライバの対象外**(下記 12-2) | 変異後 `DFSight.BASE`=6 職 / `DFSight.LEGACY`=0 職 を node 内評価で確認 |
+| `noretreat` | (4a)(4b)(4c) | 撤退でも `.classSight` 6 個 / `.pmSight` 4 枚 / `.mrMeta` 3 行 / シート 6 職に視界行 |
+| `retreatkills` | (4d) | dwarf が 素 12 → 撤退 8、光半径も 450/990 → 300/660 へ動いた |
+
+### 12-2. `legacydrop` の手動確認(⭐ 本ドライバに測定点が無い理由と、代わりに赤くなる場所)
+
+`CLASS_SIGHT_LEGACY` は **`?dndrange=0` を付けたときだけ**実行時の表を上書きする。
+`verify_darkvision` は素の URL しか開かないので、LEGACY を空にしても 1 本も赤くならない。
+→ `js/class-sight.js` を一時的に `LEGACY = {}` へ書き換えて 2 本を手で走らせた
+(⚠ `trap` で必ず復元し、`git diff --quiet js/class-sight.js` で検算済み):
+
+| ドライバ | 基準 | legacydrop 注入後 | 赤くなったラベル |
+|---|---|---|---|
+| `driver_speech_boss` | 19/19 | **18/19** | `(0-ピン) ?dndrange=0 が効いている` — `warriorSight=8`(旧値 4 を期待) |
+| `driver_wall_face` | 54/54 | **52/54** | `(0-ピン)` — `outer=660`(旧値 330 を期待) / `(3d)` 左右のリング — `westD2 α=30 / southD2 α=57`(石なら 104〜121。**光半径が旧値に戻らないとフォグ α の窓が較正外になる**) |
+
+⭐ **legacy 表を一緒に移した判断(§2-4)は正しかった。** 片方だけ移していたら、この 2 本が
+「原因不明の赤」で落ちていた(しかも `(3d)` は視界と無関係な α の assert なので原因が読めない)。
+
+### 12-3. 既存 golden 10 本の非退行(実装後・2026-08-31)
+
+⭐ **10 本すべて着手前の基準と一致。期待値の変更は 0 件。**
+
+| コマンド | 基準 | 実測 |
+|---|---|---|
+| `node tools/verify_player_sheet.js` | 70/70 PENDING 0 | ✅ **70/70** FAILED 0 PENDING 0 |
+| `node tools/verify_party_match_setup.js` | 36/36 PENDING 0 | ✅ **36/36** FAILED 0 PENDING 0 |
+| `node tools/driver_party_view_reopen.js` | 35/35 PENDING 0 | ✅ **35/35** FAILED 0 PENDING 0 |
+| `node tools/driver_grid_p5.js` | PASS 103 / FAIL 0 | ✅ **PASS 103 / FAIL 0** |
+| `node tools/driver_speech_boss.js` | 19/19 | ✅ **19/19** |
+| `node tools/driver_wall_face.js` | 54/54 | ✅ **54/54** |
+| `node tools/verify_title_screen.js` | 86/86 | ✅ **86/86** |
+| `node tools/verify_mercenary_roster.js` | 44/44 PENDING 0 | ✅ **44/44** FAILED 0 PENDING 0 |
+| `node tools/verify_mercenary_roster.js --negative` | 10 本とも赤・空振り 0 | ✅ **10 本とも赤・空振り 0** |
+| `node tools/verify_ability_scores.js` | 24/24 PENDING 0 | ✅ **24/24** FAILED 0 PENDING 0 |
+
+⭐ §2-7 のコメント書き換え(`js/mercenary-roster.js:28`)は変異アンカーに当たらなかった
+(`verify_mercenary_roster` の `(0z1)` が「ディスクの js は無改修」を毎回確かめており、44/44 と
+`--negative` 空振り 0 の両方が通った)。
+
+### 12-4. ⚠ 依頼書の主張が崩れた / 補正した点(実装窓の実測)
+
+1. ⚠⚠⚠ **§2-3「`CLASS_SIGHT` を読むドライバは 3 本」は不完全 —— 4 本目がいた。**
+   `tools/driver_grid_p5.js` が**表の行そのものをテキストで握る変異アンカー**を持っており、
+   移設でヒット 0 件 → **赤ではなく `exit 3` でドライバごと死ぬ**(= 非退行の測定が黙って消える)。
+   項目 1 で修理。⭐⭐⭐ 教訓 = **行を動かすときは識別子だけでなく「その行のテキスト」で
+   `grep tools/*.js` する**。識別子 grep だけでは 1 本落ちる。
+2. ⚠⚠⚠ **§4-3 の実装雛形に潜在クラッシュ。** `d.traits` は `HERO_CLASSES` の無いページで
+   `null` になるので `d.traits &&` のガードが要る(雛形は `d.traits.sight = …` を無条件に書いていた)。
+   ⭐ **依頼書の雛形コードも「主張」であって実測ではない。**
+3. ⚠⚠ **(0g) の素朴なパターンは永久に赤くなる。** `/tiles:\s*(8|10|12)/` は `index.html` の
+   **武器射程表 `RANGE`**(`medium: { tiles: 8, label: …, engagePx: 768 }` 等)に **5 件**当たる。
+   効くのは**行の三つ組の形** `tiles→inner→outer`(と legacy の `classKey: [n,n,n]`)。
+   実装後の実測 = `js/class-sight.js` 6/6 行 / 他 4 ファイル 0/0 行。
+4. ⚠⚠⚠ **§8 (3c) の「compact = ≤900px」は誤り。** 実体は `tavern.html:2213` の
+   `@media (max-width: 720px)`。900px で測ると 4 列のままで compact を測ったことにならない。
+5. ⚠⚠⚠ **演出を開いてから `setViewport` で縮めると演出ごと畳まれる**
+   (引き出し `vis=false` / 開いたカード 0 枚 / `#pmDepart` の命中先が `#tavernViewport`)
+   → compact アームは **390x844 で最初から開く**(`verify_party_match_setup` の腕 D と同じ作法)。
+6. ⭐⭐⭐ **(3a) は `openPrep` 経由では原理的に測れない。** `buildParty()` が `Math.random()` で
+   職を選ぶので、基準と現行を 1 文字単位で比べると**視界と無関係な差分**で必ず赤くなる。
+   → 既存の本番シーム `window.__pmTest.play(sc)` に `selection.partyMembers` を直書きして固定した。
+   ⚠ これは「乱数を潰す」のであって「測定点を弱める」のではない。
+7. ⭐ **(1b)(1c) の母集団の穴。** 出ているカード / 名簿の職が全部 `tiles=8` だと、
+   「視界 8 を直書きした実装」でも緑になる。→ `dwarf`/`elf` を必ず混ぜ、**最小値を経路Bから
+   導出する**母集団ガードを併置した(⛔ 8 を写経しない)。
+8. ⭐ **項目 2・3 は §5-2 の雛形(撤退時 `textContent=""`)から意図的に外し、要素ごと作らない形にした。**
+   §8 (4a)(4b) が「`.classSight` / `.pmSight` が **0 個**」を要求するため。名簿も同じで、
+   撤退時は `' / 視界 n'` の節を**1 文字も足さない**(空文字も足さない)。
+9. ⭐ **§8 の `emptysight` は「(0a) **または** (3e)」と書かれていたが、実測では両方赤くなった**
+   (`CLASS_SIGHT` が空 → `getSight()` が `undefined` を返し index で pageerror 2 件)。
+   ドライバ側は `mode:'any'` で受けているので、どちらか一方でも合格する。
+10. ✅ **§2-1 の「`CLAUDE.md` の 3 行が腐っている」は実装窓でも再確認できた** —
+    `renderLighting()` = `index.html:6896` / `exploredTiles`・`visibleTiles` = 4645-4646 /
+    `#dmNarration` = 2990 + `Noto Serif JP` = 820 / `#phaseIcon`・`#phaseText` = 2976 +
+    `PHASE_LABELS` の 3 状態表 = 13095。⭐ **タイピング速度まで実装済み**
+    (`NARRATION_CHAR_MS = 70` = `index.html:13343`。「設計書0.15→実プレイ向けに短縮」と注記あり)。
+    → 3 行を「未実装」欄から落とし、「既に実装済」欄へ**実体つきで**訂正を足した。
+
+### 12-5. 撤退 `?darkvision=0` の実測
+
+| 画面 | 素のアーム | `?darkvision=0` |
+|---|---|---|
+| 名乗り `title.html` | `.classSight` **6 個**(器)・押すと 6 枚とも可視 | **0 個**。`.classZone`/`.classRole`/`.classNote` は 6 枚とも健在 |
+| マッチングカード | `.pmSight` **4 枚** | **0 枚** |
+| 傭兵名簿 | 視界付き `.mrMeta` **3 行**(例「ドワーフ / Lv3 / 同行 0 回 / 視界 12」) | **0 行**(「ドワーフ / Lv3 / 同行 0 回」= 節ごと出さない) |
+| キャラシート | `[data-stat="sight"]` **6/6 職** | **0/6 職**。`zone>role>note>skills` の並びは不変 |
+| **挙動(経路B)** | `mage=8 warrior=8 cleric=8 rogue=8 elf=10 dwarf=12` | **まったく同じ**(inner/outer も 300/660・375/825・450/990 のまま) |
+
+⭐ **(4d) が本チケットで一番効く assert。** 撤退で表示だけでなく値まで既定へ落とす実装は
+「撤退でゲームが変わる」事故で、変異 `retreatkills` がそれを再現して赤くなることを確かめてある。
+
+### 12-6. changelog
+
+⚠ **項目 4 は鳴らない。** 触ったのは `tools/verify_darkvision.js` / `js/mercenary-roster.js`
+(コメント 1 行) / `CLAUDE.md` / `dev-meetings/` / `実装依頼書/` で、フックの対象
+(`index.html` / `tavern.html` / `audio.js`) を 1 バイトも触っていない
+(`scripts/hooks/check_changelog.py:24` の `GAME_LOGIC` を実読して確認)。
+⛔ プレイヤーに見える変化が無いのに嘘の行をでっち上げない。
+プレイヤー向けの 3 行は項目 1〜3 で既に入っている。
+
+### 12-7. 残り
+
+**§9 の実機体感 6 項目**(http 起動が必須)。機械では測れないので実機の目で決める:
+①ドワーフのカードの「視界 12 マス (60 ft)・暗視」が『強そう』に読めるか
+②6 枚を見比べて視界差が選ぶ理由になるか
+③マッチングカードの `視界 12` が 4 列/2 列でうるさくないか
+④名簿の 1 行が折り返さないか
+⑤シートの「特徴 & 特性」4 行目で紙面が窮屈になっていないか
+⑥ドワーフがいる回といない回で「明るさが違う」と体感できるか
+(⭐ ⑥ができないなら本チケットは**数字を見せただけ**で終わっている。次の一手は
+「灯りの補給」(§1 の不採用案・候補③と統合)か、視界差の拡大)

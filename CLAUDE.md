@@ -66,6 +66,16 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 - 魔法使いの Magic Missile + Sleep
 - 上から見下ろし 2D アクション部分(基本動作)
 - マップ 1枚
+- ⚠ **2026-08-31 訂正(#39 §2-1)**: 次の 3 つは長らく下の「未実装」欄に残っていたが、
+  実測の結果 **出荷済み**だった。⭐ 教訓 = 「その語で grep して 0 件」を未実装の根拠にしない
+  (`fogOfWar` は単語が無かっただけ)。**振る舞いの名前**で探すこと。
+  - **フォグオブウォー** … `index.html` `renderLighting()`。暗幕を `destination-out` で削る
+    **3 状態**(未探索 α=255 / 探索の記憶 α=178 / 現在視界 α≈0)。`exploredTiles`(累積)と
+    `visibleTiles`(毎更新クリア)。屋外テーマだけ無効
+  - **DM ナレーション UI** … `index.html` `#dmNarration` + `Noto Serif JP`。
+    タイピングは `NARRATION_CHAR_MS = 70`(設計書の 0.15 秒から実プレイ向けに短縮済)
+  - **フェーズ表示** … `index.html` `#phaseIcon` / `#phaseText` + `PHASE_LABELS`
+    (🔍探索 / ⚔️戦闘 / 💤休憩 の 3 状態)
 
 ## 実装が必要な機能(未実装)
 
@@ -74,9 +84,6 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 - スキルスロットシステム(Lv1=1 → Lv5=3 → Lv10=5)
 - スクロール拾得・「読む」コマンド・永続習得
 - グリッド制戦闘
-- フォグオブウォー
-- DM ナレーション UI(画面上部、Noto Serif JP、タイピング 0.15秒/文字)
-- フェーズ表示(🔍探索/⚔️戦闘/💤休憩)
 - 各シナリオの隠し要素
 
 ## 重要な制約・注意事項
