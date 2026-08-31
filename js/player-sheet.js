@@ -417,6 +417,14 @@
       }
     }
 
+    /* ★#39: 視界。⚠ 唯一の正は window.DFSight。載っていないページ / ?darkvision=0 では
+     *   sight を付けない = 行が出ない (「取れない区画は行ごと消す」の既存規律をそのまま使う)。
+     * ⛔ ここで文字列を組み立てないこと (数値を写すと片方だけ腐る)。
+     * ⚠ d.traits が null のページ (HERO_CLASSES 未搭載) では足さない。 */
+    if (d.traits && global.DFSight && global.DFSight.enabled()) {
+      d.traits.sight = global.DFSight.sightLabel(classKey, false);
+    }
+
     // ── 体: index.html だけが供給できる。
     d.body = bodyStats();
     return d;
@@ -1036,6 +1044,12 @@
       rrow.setAttribute("data-stat", "role"); tg.appendChild(rrow);
       var nrow = rowEl(null, "持ち味", d.traits.note || "", null);
       nrow.setAttribute("data-stat", "note"); tg.appendChild(nrow);
+      /* ★#39: 視界。⚠ d.traits.sight が無いとき (?darkvision=0 / DFSight 未搭載) は
+       *   行ごと出さない。⛔ 空文字の行を出すと「出ている」の assert が空振りする。 */
+      if (d.traits.sight) {
+        var srow = rowEl(null, "視界", d.traits.sight, null);
+        srow.setAttribute("data-stat", "sight"); tg.appendChild(srow);
+      }
       if (b && b.skillNames && b.skillNames.length) {
         var krow = rowEl(null, "構えている技", b.skillNames.join(" / "), null);
         krow.setAttribute("data-stat", "skills"); tg.appendChild(krow);

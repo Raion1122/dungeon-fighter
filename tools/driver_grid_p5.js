@@ -94,7 +94,10 @@ const OLD_ENGAGE = { melee: 400, spellBuff: 288, medium: 520, spellSingle: 480, 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (負のコントロール) — STEP 0 では対象が無い。STEP 2 以降で足す。
 // ══════════════════════════════════════════════════════════════════════════════
-const MUTATE_TARGETS = ['index.html'];
+/* ⚠ #39 で職業別視界の表が js/class-sight.js へ移設された。nosightwiden の
+ *   アンカーはその新しい住所を掴むので、配信対象にも足しておくこと。
+ *   ⭐ 機構 (mutatedSources / startServer) は元から複数ファイル対応。 */
+const MUTATE_TARGETS = ['index.html', 'js/class-sight.js'];
 const MUTATIONS = {
   /* ★★★ 主役の負のコントロール。敵の steps ループを潰し、旧実装の
    *   「敵は常に 1 タイル」へ戻す。(2c)(2cy)(2d) が赤くなるはず。 */
@@ -126,8 +129,9 @@ const MUTATIONS = {
   ],
   /* ドワーフの視界だけ旧値へ戻す。(3b:dwarf)(3d:dwarf) が赤くなる。 */
   nosightwiden: [
-    ['      dwarf:   { tiles: 12, inner: 450, outer: 990 },',
-     '      dwarf:   { tiles: 6, inner: 210, outer: 470 },   /* ★変異nosightwiden */'],
+    /* ⚠ #39: 表は js/class-sight.js へ移設済み。インデントが 4 になり term が付く。 */
+    ['    dwarf:   { tiles: 12, inner: 450, outer: 990, term: "暗視" },',
+     '    dwarf:   { tiles: 6, inner: 210, outer: 470, term: "暗視" },   /* ★変異nosightwiden */'],
   ],
   /* ★★★ 近接の engagePx を「据え置かず」一律に伸ばしてしまった版。
    *   廃坑 n0 の見張りは起点から 750px にしか居ないので、768px にすると

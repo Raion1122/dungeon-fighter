@@ -2870,6 +2870,7 @@
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
+  <script src="js/class-sight.js"></script><!-- 職業別の視界 8/10/12 の唯一の正 (#39)。index/tavern/title と js/player-sheet.js が読む。⚠ 下の const CLASS_SIGHT より前。撤退 ?darkvision=0 (表示のみ) -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 の純粋関数群 (幾何の単一の情報源)。map-editor.html と共有。
        ⚠ 本ファイルが 404 になると幾何が作れずゲーム全損 → index.html 側に
@@ -4613,18 +4614,23 @@
      *   **真っ暗なのに霧だけ晴れる**帯ができる。比を保つ方が見え方の性格を変えない。
      * ⚠ 視界は交戦開始の門でもある (detectEnemiesEngagedByRange の isEnemyVisibleToParty)。
      *   ここを広げないと engagePx をいくら伸ばしても交戦距離は伸びない。 */
-    const CLASS_SIGHT = {
-      mage:    { tiles: 8,  inner: 300, outer: 660 },
-      warrior: { tiles: 8,  inner: 300, outer: 660 },
-      cleric:  { tiles: 8,  inner: 300, outer: 660 },
-      rogue:   { tiles: 8,  inner: 300, outer: 660 },
-      elf:     { tiles: 10, inner: 375, outer: 825 },
-      dwarf:   { tiles: 12, inner: 450, outer: 990 },
-    };
-    const CLASS_SIGHT_LEGACY = {
-      mage:    [3, 120, 260], warrior: [4, 150, 330], cleric: [4, 150, 330],
-      rogue:   [4, 150, 330], elf:     [5, 180, 400], dwarf:  [6, 210, 470],
-    };
+    /* ★#39: 表の唯一の正は js/class-sight.js (DFSight)。ここは実行時の作業用コピー。
+     * ⚠ 識別子 CLASS_SIGHT / CLASS_SIGHT_LEGACY / getSight は**残すこと** —— 既存ドライバ 3 本
+     *   (driver_grid_p5 / driver_speech_boss / driver_wall_face) が裸の識別子で読んでいる。
+     * ⚠ 複製を作る (Object.assign)。DFSight.BASE をそのまま束縛すると、RANGE_LEGACY の
+     *   上書きがモジュール側の表を汚し、同じページの表示 (名簿・カード) まで旧値に化ける。
+     * ⚠ term は描画に使わないが、落とすと「表示と実行時が同じ表を見ている」の突き合わせが
+     *   できなくなるので shape ごと複製する。
+     * ⚠ 読み込まれていなければ throw する (silent fail-open を作らない)。既定表へ黙って落ちると
+     *   「全職 8 タイル」という**別のゲーム**が静かに始まる。 */
+    const CLASS_SIGHT = (() => {
+      const src = (window.DFSight && window.DFSight.BASE) || null;
+      if (!src) throw new Error("js/class-sight.js が読み込まれていない (#39)");
+      const o = {};
+      for (const k of Object.keys(src)) o[k] = Object.assign({}, src[k]);
+      return o;
+    })();
+    const CLASS_SIGHT_LEGACY = (window.DFSight && window.DFSight.LEGACY) || {};
     if (RANGE_LEGACY) {
       for (const k of Object.keys(CLASS_SIGHT_LEGACY)) {
         const v = CLASS_SIGHT_LEGACY[k];
