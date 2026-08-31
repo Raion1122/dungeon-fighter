@@ -273,6 +273,8 @@
     }
     .classRole { font-size: 13px; font-weight: 700; margin-top: 6px; color: var(--parchment-ink); }
     .classNote { font-size: 12px; line-height: 1.55; margin-top: 3px; color: var(--parchment-ink-soft); }
+    /* ★#39: 視界の 1 行。文字列は DFSight.sightLabel が唯一の正 (ここで数値を書かない)。⛔ .classZone / .classRole / .classNote の規則は変えない。 */
+    .classSight { font-size: 12px; line-height: 1.5; margin-top: 5px; color: #6a4418; letter-spacing: 0.5px; }
 
     /* ⚠ 依頼書の必須表示。カード群の下に **常時** 出す (選択の有無に関わらず消さない) */
     #classWarn {
@@ -384,6 +386,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/save-slots.js"></script>
   <script src="js/hero-classes.js"></script>
+  <script src="js/class-sight.js"></script><!-- 職業別の視界の唯一の正 (#39)。名乗りカードの視界行が読む。⚠ js/player-sheet.js より前。撤退 ?darkvision=0 (表示のみ) -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <script src="audio.js"></script>
   <script>
@@ -832,6 +835,11 @@
       det.appendChild(el("div", "classZone", ZONE_LABEL[c.zone] || c.zone));
       det.appendChild(el("div", "classRole", c.role));
       det.appendChild(el("div", "classNote", c.note));
+      // ★#39: 視界。⚠ 文字列は DFSight.sightLabel が唯一の正 (ここで組み立てない / 数値を写さない)。
+      // ⚠ ?darkvision=0 では **要素ごと作らない** (依頼書 §8 (4a) が「.classSight が 0 個」を要求する)。
+      if (window.DFSight && DFSight.enabled()) {
+        det.appendChild(el("div", "classSight", DFSight.sightLabel(c.classKey, false)));
+      }
       card.appendChild(det);
 
       card.addEventListener("click", function () { selectClass(c.classKey); });

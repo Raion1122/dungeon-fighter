@@ -25,9 +25,9 @@
  *   (tiles→inner→outer の並び / classKey→3 要素配列) で書くこと。
  *   散文のコメント (「魔法使い・戦士・僧侶・盗賊 = 8」) は数えない。
  *
- * ⚠ 実装状況 (2026-08-31 / dev-loop 項目 1)
- *   実装済 … §0 装置 (0a)〜(0g) / §1 (1a)(1e)(1f)
- *   PENDING … (1b)(1d)(2a)(2b) = 項目 2 / (1c)(3a)〜(3f) = 項目 3 /
+ * ⚠ 実装状況 (2026-08-31 / dev-loop 項目 2 まで着地)
+ *   実装済 … §0 装置 (0a)〜(0g) / §1 (1a)(1b)(1d)(1e)(1f) / §2 (2a)(2b)
+ *   PENDING … (1c)(3a)〜(3f) = 項目 3 /
  *             §4 撤退 (4a)〜(4d) と負のコントロール 12 本 = 項目 4
  *   ⛔ 測れないものを黙って緑にしない。未実装は理由つきの PENDING で出す。
  *
@@ -384,7 +384,14 @@ async function probeTitle(browser, base, query) {
       return { n: cards.length, detailDisplay: cards.map((c) => {
         const d = c.querySelector('.classDetail');
         return d ? getComputedStyle(d).display : null;
-      }), nSight: document.querySelectorAll('#classCards .classSight').length };
+      }), nSight: document.querySelectorAll('#classCards .classSight').length,
+        /* ⭐ (2b) 用。⚠ 祖先が display:none でも **自分の** computed display は block のまま
+           なので、「見えていない」は getClientRects().length で測る。器を classDetail の
+           外へ置いた事故 (= 押す前から見えている) はここでしか捕まらない。 */
+        sightVisible: cards.map((c) => {
+          const s = c.querySelector('.classSight');
+          return s ? (s.getClientRects().length > 0) : null;
+        }) };
     });
     o.nCards = o.beforeClick.n;
     /* 6 枚を 1 枚ずつ押して開き、その中の .classSight を読む (項目 2 が (1d) で使う) */
@@ -408,6 +415,8 @@ async function probeTitle(browser, base, query) {
             hasSight: !!sg,
             sightText: sg ? String(sg.textContent || '').trim() : '',
             sightDisplay: sg ? getComputedStyle(sg).display : null,
+            /* ⭐ (2a)(2b) 用: 実際に描かれているか (祖先ごと隠れていれば rects は 0)。 */
+            sightVisible: sg ? (sg.getClientRects().length > 0) : false,
             zone: t('.classZone'), role: t('.classRole'), note: t('.classNote'),
           };
         }, k);
@@ -436,7 +445,10 @@ function tavernSeed() {
   } catch (e) {}
   try {
     localStorage.setItem('dragonfighters.xp', '10000');
-    localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
+    /* ⭐ (1b) の母集団。主人公を **dwarf** にすることで、
+       マッチングカードに必ず tiles が最小でない職が 1 枚混ざる。
+       ⚠ 全員が 8 タイルの職だと、番号を写経した実装でも (1b) が緑になる。 */
+    localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['dwarf']));
     localStorage.setItem('dragonfighters.prologueSeen', '1');
     localStorage.setItem('dragonfighters.prepOnboardingSeen', '1');
   } catch (e) {}
@@ -551,14 +563,21 @@ async function probeTavern(browser, base, query) {
       return {
         n: cols.length,
         filled: cols.filter((c) => c.dataset.state === 'filled').length,
-        cards: cols.map((c) => ({
-          state: c.dataset.state || '',
-          name: txt(c.querySelector('.pmName')),
-          cls: txt(c.querySelector('.pmClass')),
-          zone: txt(c.querySelector('.pmZone')),
-          hasSight: !!c.querySelector('.pmSight'),
-          sight: txt(c.querySelector('.pmSight')),
-        })),
+        cards: cols.map((c) => {
+          const sg = c.querySelector('.pmSight');
+          return {
+            state: c.dataset.state || '',
+            /* ⭐ (1b) は職ごとに経路Bと突き合わせるので classKey が要る。
+               ⛔ 表示名 (pmClassNameJa) から逆引きしない —— 名前を変えた瞬間に測定が壊れる。 */
+            classKey: c.dataset.classKey || '',
+            name: txt(c.querySelector('.pmName')),
+            cls: txt(c.querySelector('.pmClass')),
+            zone: txt(c.querySelector('.pmZone')),
+            hasSight: !!sg,
+            sight: txt(sg),
+            sightDisplay: sg ? getComputedStyle(sg).display : null,
+          };
+        }),
       };
     }));
   } catch (e) { o.errs.push('cinema: ' + ((e && e.message) || e)); }
@@ -683,16 +702,118 @@ const ASSERTS = [
     return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
       : 'dwarf="' + dw + '" / elf="' + el + '"'];
   }],
+  ['1b', '★マッチングカードの .pmSight の数字 = 経路Bのその職の tiles (出ているカード全部)', (M) => {
+    const c = M.tavern.cinema || {};
+    const rt = (M.idx.runtime || {}).tiles || {};
+    if (!c.reached) return [false, '⛔ 演出へ到達できなかった — 先に (0d) を見ること'];
+    const cards = (c.cards || []).filter(x => x.state === 'filled');
+    /* ⭐ 母集団ガード。0 枚だと for が 1 度も回らず「欠陥ゼロ」で永久緑になる。 */
+    if (!cards.length) return [false, '⛔ filled のカードが 0 枚 — 母集団が無い'];
+    const bad = [], seen = [];
+    /* ⭐⭐ 母集団ガードの本体。出ているカードが全部「最小視界の職」だと、
+       .pmSight に数字を写経した実装でも (1b) が緑になる。
+       ⚠ 最小値は **経路Ｂから導出**する (8 を写経しない)。 */
+    const runtimeVals = CLASS_KEYS.map(k => rt[k]).filter(v => typeof v === 'number');
+    const minTiles = runtimeVals.length ? Math.min.apply(null, runtimeVals) : null;
+    if (minTiles !== null && !cards.some(x => typeof rt[x.classKey] === 'number' && rt[x.classKey] !== minTiles)) {
+      bad.push('⛔ 出ているカードが全部「最小視界 ' + minTiles
+        + ' の職」— 数字を写経した実装でも緑になる母集団');
+    }
+    for (const x of cards) {
+      const k = x.classKey;
+      if (!k) { bad.push('カードに data-class-key が無い (name="' + x.name + '")'); continue; }
+      if (typeof rt[k] !== 'number') { bad.push(k + ': 経路Bにその職が無い'); continue; }
+      if (!x.hasSight) { bad.push(k + ': .pmSight が無い'); continue; }
+      /* ⭐ 経路A = 画面の文字列から数字を読む。⛔ DFSight.sightLabel と突き合わせない。 */
+      const t = parseSightShort(x.sight);
+      seen.push(k + ' 画面=' + t + ' 実行時=' + rt[k]);
+      if (t === null) bad.push(k + ': 画面から数字が読めない "' + x.sight + '"');
+      else if (t !== rt[k]) bad.push(k + ': 画面 ' + t + ' ≠ 実行時 ' + rt[k]);
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : cards.length + ' 枚: ' + seen.join('  ')];
+  }],
+  ['1d', '★名乗りカード .classSight の数字 = 経路Bの tiles (6 枚すべて)', (M) => {
+    const t = M.title || {};
+    const rt = (M.idx.runtime || {}).tiles || {};
+    if (!t.reached) return [false, '⛔ 名乗り画面へ到達できなかった — 先に (0c) を見ること'];
+    const bad = [], seen = [];
+    for (const k of CLASS_KEYS) {
+      const rec = (t.cards || []).filter(c => c.classKey === k)[0];
+      if (!rec || !rec.clicked) { bad.push(k + ': カードを押せていない'); continue; }
+      if (!rec.hasSight) { bad.push(k + ': .classSight が無い'); continue; }
+      const p = parseSightText(rec.sightText);
+      seen.push(k + ' 画面=' + p.tiles + ' 実行時=' + rt[k]);
+      if (p.tiles === null) bad.push(k + ': 画面から数字が読めない "' + rec.sightText + '"');
+      else if (p.tiles !== rt[k]) bad.push(k + ': 画面 ' + p.tiles + ' ≠ 実行時 ' + rt[k]);
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ') : seen.join('  ')];
+  }],
+
+  // ── §2 表示が実在する (空文字で緑にしない) ─────────────────────────────
+  ['2a', '該当箇所 (シート / 名乗りカード / マッチングカード) の textContent が空文字でない・display !== "none"', (M) => {
+    /* ⚠ 4 箇所目の傭兵名簿は項目 3 (STEP3) が足す。ここでは 3 箇所を測る。
+       ⭐ #38 の教訓「キー集合だけの恒等 assert は変異を検出できない」→ 値の中身まで見る。 */
+    const bad = [], seen = [];
+    const sh = M.idx.sheet || {};
+    if (!sh.ok) bad.push('シートが測れない');
+    else for (const k of CLASS_KEYS) {
+      const r = sh.byClass[k] || {};
+      if (!r.rowInDom) bad.push('シート ' + k + ': 視界行が DOM に無い');
+      else if (!String(r.value || '').trim()) bad.push('シート ' + k + ': 値が空文字');
+      else if (r.display === 'none') bad.push('シート ' + k + ': display:none');
+    }
+    seen.push('シート 6 職');
+    const t = M.title || {};
+    if (!t.reached) bad.push('名乗り画面へ到達できていない');
+    else for (const k of CLASS_KEYS) {
+      const rec = (t.cards || []).filter(c => c.classKey === k)[0];
+      if (!rec || !rec.hasSight) bad.push('名乗り ' + k + ': .classSight が無い');
+      else if (!String(rec.sightText || '').trim()) bad.push('名乗り ' + k + ': 空文字');
+      else if (rec.sightDisplay === 'none') bad.push('名乗り ' + k + ': display:none');
+      else if (rec.sightVisible !== true) bad.push('名乗り ' + k + ': 開いても画面に出ていない');
+    }
+    seen.push('名乗り 6 枚');
+    const c = M.tavern.cinema || {};
+    const cards = (c.cards || []).filter(x => x.state === 'filled');
+    if (!c.reached || !cards.length) bad.push('マッチングカードの母集団が 0 枚');
+    else for (const x of cards) {
+      if (!x.hasSight) bad.push('カード ' + (x.classKey || x.name) + ': .pmSight が無い');
+      else if (!String(x.sight || '').trim()) bad.push('カード ' + x.classKey + ': 空文字');
+      else if (x.sightDisplay === 'none') bad.push('カード ' + x.classKey + ': display:none');
+    }
+    seen.push('カード ' + cards.length + ' 枚');
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : seen.join(' / ') + ' すべて非空・可視 (⚠ 4 箇所目の名簿は項目 3)'];
+  }],
+  ['2b', '名乗りカードはタップ前は非表示 / タップ後に表示 (既存の開閉規則を壊していない)', (M) => {
+    const t = M.title || {};
+    if (!t.reached) return [false, '⛔ 名乗り画面へ到達できなかった'];
+    const bc = t.beforeClick || {};
+    const bad = [];
+    const openBefore = (bc.detailDisplay || []).filter(d => d && d !== 'none').length;
+    if (openBefore !== 0) bad.push('押す前に開いている classDetail が ' + openBefore + ' 枚');
+    if (bc.nSight !== 6) bad.push('押す前の .classSight が ' + bc.nSight + ' 個 (器は 6 個作られているはず)');
+    const visBefore = (bc.sightVisible || []).filter(v => v === true).length;
+    if (visBefore !== 0) bad.push('⛔ 押す前から見えている .classSight が ' + visBefore
+      + ' 個 (classDetail の外へ置いた事故)');
+    for (const k of CLASS_KEYS) {
+      const rec = (t.cards || []).filter(c => c.classKey === k)[0];
+      if (!rec) { bad.push(k + ': カードが無い'); continue; }
+      if (!rec.selected) bad.push(k + ': 押しても selected にならない');
+      if (!rec.detailDisplay || rec.detailDisplay === 'none') bad.push(k + ': 押しても classDetail が開かない');
+      if (rec.sightVisible !== true) bad.push(k + ': 押しても .classSight が見えない');
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : '押す前 = classDetail 開 0 枚 / .classSight 器 ' + bc.nSight
+        + ' 個・可視 0 個  →  押した後 = 6 枚とも開き視界行が可視'];
+  }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
 /* まだ実装していない受入条件。⛔ 黙って緑にしない (理由つきの PENDING で出す)。 */
 const PENDING_ASSERTS = [
-  ['1b', '★マッチングカードの .pmSight の数字 = 経路Bのその職の tiles (出ているカード全部)', '項目 2 (STEP2) の担当 — .pmSight がまだ実装されていない'],
-  ['1d', '★名乗りカード .classSight の数字 = 経路Bの tiles (6 枚すべて)', '項目 2 (STEP2) の担当 — .classSight がまだ実装されていない'],
-  ['2a', '4 箇所とも textContent が空文字でない・display !== "none"', '項目 2 (STEP2) の担当 — 4 箇所のうち 3 箇所が未実装'],
-  ['2b', '名乗りカードはタップ前は非表示 / タップ後に表示 (既存の開閉規則を壊していない)', '項目 2 (STEP2) の担当'],
   ['1c', '★名簿の .mrMeta の視界 = 経路Bのその職の tiles (名簿の全行)', '項目 3 (STEP3) の担当 — mrMeta の視界がまだ実装されていない'],
   ['3a', '.pmName / .pmClass / .pmEquipRow / .pmSkillsVal のテキストが着手前と 1 文字も違わない', '項目 3 の担当 — 着手前 hash を worktree へ取り出して別 URL で同時配信する装置が要る'],
   ['3b', '.mrMeta から視界の部分を除いた文字列が着手前と一致', '項目 3 の担当'],
@@ -708,7 +829,8 @@ const PENDING_ASSERTS = [
 
 const SECTIONS = [
   ['§0 装置 — 母集団を先に確かめる', ['0a', '0b', '0c', '0d', '0e', '0f', '0g']],
-  ['§1 数字が一致する (本丸)', ['1a', '1e', '1f']],
+  ['§1 数字が一致する (本丸)', ['1a', '1b', '1d', '1e', '1f']],
+  ['§2 表示が実在する (空文字で緑にしない)', ['2a', '2b']],
 ];
 function emit(id, M) {
   const a = ASSERT_OF[id];
