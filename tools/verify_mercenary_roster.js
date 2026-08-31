@@ -16,8 +16,10 @@
  *   §5 恒等  … 名簿が空なら従来と 1 バイトも変わらない / 装備 3 キーが動かない / lastResult の既存キー
  *   §6 帰還  … index が書いた lastResult を酒場の consumeResult() が消費して名簿が育つ (項目2)
  *   §4 パネル… HUD の入口 (左上の縦列 3 段目) と名簿パネルの開閉・重なり・スクロール (項目3)
- *   (6a)(6c) は **項目4** の担当。
+ *   §撤退… ?roster=0 で名簿を **書かない / 読まない / 入口を出さない**、それでも
+ *            既に貯まった名簿を **消さない** (項目4)
  *   ⛔ この窓のスコープ外の受入条件は **ドライバにまだ書かない** (PENDING を残さない)。
+ *   ⭐ 項目4 で変異表が 10/10 本そろった (依頼書 §9 の 9 本 + 項目2 の nolevelclamp)。
  *
  * ── ⛔ 測らないこと (依頼書 §9 の末尾) ────────────────────────────────────
  *   パネルの配色・文言・行の並び順 / 「何回の生還で Lv+1 か」という数値 / 名簿から引く確率。
@@ -159,6 +161,18 @@ const SEAM_INJECTIONS = [
 ];
 SEAM_INJECTIONS.forEach((inj) => patch('計測シーム', inj.label, '/tavern.html', inj.from, inj.to, 1));
 
+/* ⚠⚠ 注入順は **シーム → 変異**。だから「シームが書き換えた行」を変異の対象にするときは、
+   ディスクの原文ではなく **注入後の文字列** をアンカーにしなければ当たらない (patch() が exit 3)。
+   ⛔ 番号 (SEAM_INJECTIONS[2]) で引かない —— 並びが変わると黙って別の枝を壊す。 */
+function seamTo(prefix) {
+  const hit = SEAM_INJECTIONS.filter((x) => x.label.indexOf(prefix) === 0);
+  if (hit.length !== 1) {
+    console.error('[driver] seamTo(' + prefix + ') が ' + hit.length + ' 件に当たりました');
+    process.exit(3);
+  }
+  return hit[0].to;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * 負のコントロール (--negative)
  *   ⛔⛔ 本番ファイルは 1 バイトも書き換えない。**配信バイトだけ**を変異させて配る。
@@ -183,6 +197,26 @@ const NEG_EXPECT = {
      recordRun() が主人公 Lv を超えて育てた Lv がそのまま skillLimitForClass() に渡り、
      **出発後の実 Lv より多いスキルスロット**が準備画面に出る。 */
   nolevelclamp: ['(2e)'],
+  /* ══ ここから下は依頼書 §9 の残り 8 本 (項目4 で実装) ══════════════════════
+     ⚠ 「赤くなるべき節」は依頼書 §9 の表のとおり。⛔ 表に無いラベルを期待に足して
+        「巻き添えも想定内」ということにしない —— 巻き添えは報告する対象であって、
+        期待に混ぜてしまうと二重検出を隠すことになる。 */
+  /* 閉じるボタンが display ではなく opacity だけを落とす = 見えないのに押せる板が残る。 */
+  fadeclose: ['(4c)'],
+  /* ?roster=0 を無視する (酒場側の 2 つのゲート = 入口の門番 と enabled() を両方潰す)。 */
+  noretreatswitch: ['(6a)'],
+  /* CAP を無視して名簿が無限に増える。 */
+  nocap: ['(3d)'],
+  /* release() が next を巻き戻し、単調増加の押し上げも失って id が再利用される。 */
+  reuseid: ['(3e)'],
+  /* 敗北でも runs を増やす (「今回は仲間を死なせない = 敗北の罰は名簿に無い」が壊れる)。 */
+  defeatgrows: ['(2b)', '(2f2)'],
+  /* 名簿が空でも makeNpcMember へ落ちず、名簿の形をした半端な人物を作って登録する。 */
+  alwaysroster: ['(0a)', '(5a)'],
+  /* 出発時の clamp の **呼びだけ** を外す (⛔ clampCompanionLevel() の中身は壊さない)。 */
+  noclamp: ['(2c)'],
+  /* snapshot() の data から名簿が落ちる (スロットへ焼かれない)。 */
+  switchleak: ['(3c)'],
 };
 const NEG_MUTATE = {
   badprefix: () => patch('負のコントロール', 'badprefix (キーの前置詞を外す)',
@@ -193,6 +227,101 @@ const NEG_MUTATE = {
     '/tavern.html',
     'if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);',
     'if (m && typeof m.level === "number" && m.level > 0) return m.level;   /* nolevelclamp */', 1),
+
+  /* ══ 依頼書 §9 の残り 8 本 (項目4) ═══════════════════════════════════════ */
+
+  /* (4c) 閉じるのを display ではなく opacity にする。
+     ⚠ aria-hidden の行は **残す** —— 消すと「aria も見ている」ぶんだけ余計に赤くなり、
+       何を検出したのか判らなくなる。 */
+  fadeclose: () => patch('負のコントロール', 'fadeclose (閉じるとき display でなく opacity を落とす)',
+    '/tavern.html',
+    '    ov.classList.remove("show");        /* ★ 閉じるのは display。⛔ opacity で消さない */',
+    '    ov.style.opacity = "0";   /* fadeclose */', 1),
+
+  /* (6a) 撤退スイッチを無視する。酒場側のゲートは 2 つあるので **両方**潰す
+     (片方だけだと「入口は消えるが名簿は書く」等の半端な状態になり、何を測ったのか濁る)。 */
+  noretreatswitch: () => {
+    patch('負のコントロール', 'noretreatswitch-1 (入口を消す門番を外す)', '/tavern.html',
+      '    if (!rosterOnTv()) { btn.remove(); return; }',
+      '    /* noretreatswitch: 入口を消さない */', 1);
+    patch('負のコントロール', 'noretreatswitch-2 (?roster=0 を読まない)', '/js/mercenary-roster.js',
+      '    try { return new URLSearchParams(global.location.search).get("roster") !== "0"; }',
+      '    try { return true; }   /* noretreatswitch */', 1);
+  },
+
+  /* (3d) 上限を無視する。
+     ⚠⚠ enroll() の門番だけ外しても **空振りする** —— save()/load() が CAP で切り詰めるので
+       在籍数は 12 のまま戻り、(3d) が緑になる。上限は 3 箇所 (enroll の門番 / load の切り詰め /
+       save の切り詰め) で守られているので全部外す。さらに抽選側の full 判定も外して
+       「満杯でも新顔を作り続ける」ようにしないと、増え方が止まって偽の緑になり得る。 */
+  nocap: () => {
+    patch('負のコントロール', 'nocap-1 (enroll の満杯判定)', '/js/mercenary-roster.js',
+      '    if (r.list.length >= CAP) return null;',
+      '    /* nocap: 満杯でも登録する */', 1);
+    patch('負のコントロール', 'nocap-2 (load の切り詰め)', '/js/mercenary-roster.js',
+      'for (var i = 0; i < o.list.length && list.length < CAP; i++) {',
+      'for (var i = 0; i < o.list.length; i++) {   /* nocap */', 1);
+    patch('負のコントロール', 'nocap-3 (save の切り詰め)', '/js/mercenary-roster.js',
+      'for (var i = 0; i < src.length && norm.list.length < CAP; i++) {',
+      'for (var i = 0; i < src.length; i++) {   /* nocap */', 1);
+    patch('負のコントロール', 'nocap-4 (抽選側の満杯判定)', '/tavern.html',
+      'full = roster.length >= DFRoster.CAP;',
+      'full = false;   /* nocap */', 1);
+  },
+
+  /* (3e) 見送った id が再利用される。
+     ⚠⚠ 依頼書の「release() の save(r) の前に r.next = 1 を挿す」だけでは **空振りする** ——
+       save()/load() が「next は既存 id より大きい」を毎回押し上げ直すので next は元へ戻る。
+       ⭐ その押し上げこそが id 再利用を防いでいる防具なので、防具ごと外して初めて欠陥になる。 */
+  reuseid: () => {
+    patch('負のコントロール', 'reuseid-1 (release が next を巻き戻す)', '/js/mercenary-roster.js',
+      '    return save(r);',
+      '    r.next = 1;   /* reuseid */ return save(r);', 1);
+    patch('負のコントロール', 'reuseid-2 (load の押し上げ)', '/js/mercenary-roster.js',
+      'for (var j = 0; j < list.length; j++) if (list[j].id >= next) next = list[j].id + 1;',
+      '/* reuseid: 押し上げない */', 1);
+    patch('負のコントロール', 'reuseid-3 (save の押し上げ)', '/js/mercenary-roster.js',
+      'for (var j = 0; j < norm.list.length; j++) if (norm.list[j].id >= next) next = norm.list[j].id + 1;',
+      '/* reuseid: 押し上げない */', 1);
+  },
+
+  /* (2b)(2f2) 敗北でも runs を増やす。 */
+  defeatgrows: () => patch('負のコントロール', 'defeatgrows (敗北でも runs を増やす)',
+    '/js/mercenary-roster.js',
+    '    if (survived !== true) return 0;',
+    '    /* defeatgrows: 敗北でも通す */', 1),
+
+  /* (0a)(5a) 名簿が空でも makeNpcMember へ落ちない。
+     ⭐ 「新顔を作らない」を素直に `return null` で書くと編成そのものが例外になり、
+       §1 §3d §4 まで巻き添えで全滅して何を検出したのか判らなくなる。
+     ⭐⭐ 実際に起こしたい欠陥は「新顔も名簿の顔として扱ってしまう」= 性格も口癖も持たない
+       半端な人物が編成に入り、その場で名簿へ登録される、という形。これなら名簿は正しく育つので
+       §1 §3d §4 は生き残り、(0a)(5a) だけが赤くなる。
+     ⚠ 枝カウンタ (BUMP) は残す。枝は現に通っているので、そこを消すと計測器のほうを壊すことになる。 */
+  alwaysroster: () => patch('負のコントロール',
+    'alwaysroster (名簿が空でも makeNpcMember へ落ちない)', '/tavern.html',
+    seamTo('(c)'),
+    '    if (i >= vets.length) {' + BUMP('fromNew')
+      + ' const nf = { classKey: classKey, isHero: false, zone: PARTY_ZONES[classKey],'
+      + ' name: pickUniqueName(usedNames), trait: "", line: "", variant: 0, level: 1 };'
+      + ' try { const nid = DFRoster.enroll(nf); if (nid != null) nf.mercId = nid; } catch (e) {}'
+      + ' return nf; }   /* alwaysroster */', 1),
+
+  /* (2c) 出発時の clamp の **呼びだけ** を外す。
+     ⛔ clampCompanionLevel() の中身を壊さないこと —— 壊すと (2c) と (2e) が同時に赤くなる。 */
+  noclamp: () => patch('負のコントロール', 'noclamp (出発時の clamp の呼びを外す)',
+    '/tavern.html',
+    '        m.level = clampCompanionLevel(m.level, heroLevel);',
+    '        /* noclamp (⛔ clampCompanionLevel() 自体は無傷) */', 1),
+
+  /* (3c) snapshot() の data から名簿を落とす。
+     ⭐ keysOf() を直接いじると wipeLive() まで道連れになり (3b) が巻き添えで赤くなる。
+       欠陥は「スロットへ焼かれない」なので、焼く側 (liveData) だけを壊す。 */
+  switchleak: () => patch('負のコントロール', 'switchleak (snapshot の data から名簿を落とす)',
+    '/js/save-slots.js',
+    'keysOf(global.localStorage).forEach(function (k) {',
+    'keysOf(global.localStorage).filter(function (k) { return k.indexOf("mercRoster") < 0; })'
+      + '.forEach(function (k) {   /* switchleak */', 1),
 };
 const INJECTED = [];
 
@@ -201,8 +330,8 @@ if (NEGATIVE && !ONLY.length) {
   const tags = Object.keys(NEG_EXPECT);
   const bad  = [];
   console.log('[driver] --negative (一括): ' + tags.join(',') + ' を 1 本ずつ順に走らせます');
-  console.log('[driver] ⚠ 変異表は現在 ' + tags.length + '/9 本 (残り 8 本は項目4 の仕事)。'
-    + '緑でも「9 本すべてが赤くなった」とは読まないこと。');
+  console.log('[driver] 変異表は ' + tags.length + '/10 本 (依頼書 §9 の 9 本 + 項目2 が新設した '
+    + 'nolevelclamp) —— 項目4 でそろった。');
   tags.forEach((tag, i) => {
     console.log('\n[driver] ══════════ ' + tag + ' ══════════');
     const a = [__filename, '--negative', '--only', tag, '--port', String(PORT + 1 + i)];
@@ -406,6 +535,20 @@ const PROBE_FN = function () {
       "typeof selection !== 'undefined' && selection && !!window.DFRoster"
       + " && typeof departToScenario === 'function'", { timeout: 30000 });
     await sleep(600);   /* consumeResult → setTimeout(…,100) の帰還バナーまで待つ */
+  }
+
+  /* 同じタブのまま **別のクエリで** 酒場を開き直す (§撤退 の (6a)(6c) 用)。
+     ⚠⚠⚠ openTavern (= 新しいタブ) にすると BOOT の purge が走って **育てた名簿ごと消える**。
+       purge の番人 (PURGE_MARK) は sessionStorage なので、同じタブの遷移なら残る。
+     ⚠ 遷移横取り (setRequestInterception) は tavern.html を通すので、クエリ付きでも goto できる。 */
+  async function gotoTavern(page, query) {
+    await page.goto('http://localhost:' + PORT + '/tavern.html' + (query || ''),
+      { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForFunction(
+      "typeof scenarios !== 'undefined' && typeof departToScenario === 'function'"
+      + " && typeof regeneratePartyMembers === 'function' && !!window.DFRoster"
+      + " && typeof selection !== 'undefined' && selection", { timeout: 30000 });
+    await sleep(400);
   }
 
   /* index.html を開く共通口 (§5 (5c) / §6 (6b) 用)。
@@ -794,9 +937,11 @@ const PROBE_FN = function () {
         return out;
       });
       console.log('  [4d] ' + JSON.stringify(sc));
-      check('(4z1) [母集団] 名簿が満杯 (CAP) で、パネルがその人数ぶんの行と「見送る」ボタンを'
-          + '実際に描いている (行が少ないと (4d) はスクロールの有無を測れない)',
-        !sc.err && sc.cap >= 1 && sc.n === sc.cap && sc.rows === sc.n && sc.releases === sc.n,
+      check('(4z1) [母集団] 名簿が上限まで埋まっており (在籍 >= CAP)、パネルがその人数ぶんの行と'
+          + '「見送る」ボタンを実際に描いている (行が少ないと (4d) はスクロールの有無を測れない)。'
+          + '⚠ 「= CAP」でなく「>= CAP」で書く —— 上限を壊す欠陥の担当は (3d) であって、'
+          + 'ここまで一緒に赤くなると何を検出したのか判らなくなる',
+        !sc.err && sc.cap >= 1 && sc.n >= sc.cap && sc.rows === sc.n && sc.releases === sc.n,
         '在籍 ' + sc.n + '/' + sc.cap + ' 人 / 行 ' + sc.rows + ' / 「見送る」' + sc.releases + ' 個');
       check('(4d) body.ui-compact (iPhone 相当の狭幅) で 12 行がスクロールできる '
           + '(#rosterBody の scrollHeight > clientHeight かつ overflow-y が auto / scroll)。'
@@ -808,6 +953,105 @@ const PROBE_FN = function () {
     }
 
     await p1.close();
+
+    // ══════════════════════════════════════════════════════════════════
+    // §撤退 ?roster=0 — (6a) (6c)  (項目4 = 依頼書 §9 の §6)
+    //   ⭐ 2 本の腕で挟む。片方だけでは「書かない」か「消さない」の一方しか言えない。
+    //     腕A = まっさらなプロファイルで ?roster=0。8 周まわしても名簿が **生えない**。
+    //     腕B = 先に名簿を育ててから ?roster=0 へ切り替える。**読まない** が **消さない**。
+    //   ⚠⚠⚠ 腕B は **同じタブで遷移** すること。新しいタブで開き直すと BOOT の purge が走り、
+    //     「消えていないこと」を測る母集団そのものが消える。
+    //   ⛔ 腕B の OFF 中に出発を回さない。回すと (6c) まで noretreatswitch で赤くなり、
+    //     (6a) と二重に鳴って何を検出したのか判らなくなる (「撤退中に書かない」は腕A の担当)。
+    //   ⚠ 生バイトは **DFRoster.KEY 越し** に読む。キー名を直書きすると badprefix のとき
+    //     「名簿が育っていない」に見えて、担当外の変異で母集団ガードが落ちる。
+    // ══════════════════════════════════════════════════════════════════
+    console.log('\n--- §撤退 ?roster=0 (項目4) ---');
+    {
+      /* ── 腕A: まっさら + ?roster=0 で 8 周 ── */
+      const pa = await openTavern('?roster=0');
+      const ra = await grow(pa, 8);
+      const offA = await pa.evaluate(() => {
+        const out = { err: '' };
+        try {
+          out.raw      = localStorage.getItem('dragonfighters.mercRoster');
+          out.lsKeys   = Object.keys(localStorage).filter((k) => k.indexOf('mercRoster') >= 0);
+          out.hasEntry = !!document.getElementById('rosterEntry');
+          out.on       = !!(window.DFRoster && DFRoster.enabled());
+          out.all      = window.DFRoster ? DFRoster.all().length : -1;
+        } catch (e) { out.err = String((e && e.message) || e); }
+        return out;
+      });
+      await pa.close();
+      const npcA  = ra.reduce((a, r) => a + (r.post || []).filter((m) => !m.isHero).length, 0);
+      const mercA = ra.reduce((a, r) => a
+        + (r.post || []).filter((m) => m.mercId !== null).length
+        + (r.pre  || []).filter((m) => m.mercId !== null).length, 0);
+      const errA  = ra.filter((r) => r.err).length;
+
+      /* ── 腕B: 名簿を育てる → ?roster=0 へ切り替え → 戻す (ぜんぶ同じタブ) ── */
+      const pb = await openTavern('');
+      await grow(pb, GROW_SMALL);
+      const snapB = () => pb.evaluate(() => {
+        const key = (window.DFRoster && DFRoster.KEY) || 'dragonfighters.mercRoster';
+        return {
+          list: (window.DFRoster ? DFRoster.load().list : []).map((m) => ({
+            id: m.id, classKey: m.classKey, name: m.name, trait: m.trait,
+            line: m.line, variant: m.variant, level: m.level, runs: m.runs })),
+          raw: localStorage.getItem(key),
+          all: window.DFRoster ? DFRoster.all().length : -1,
+          on: !!(window.DFRoster && DFRoster.enabled()),
+          hasEntry: !!document.getElementById('rosterEntry'),
+          opened: (window.__roster ? window.__roster.open() : null),
+        };
+      });
+      const bOn1 = await snapB();
+      await gotoTavern(pb, '?roster=0');
+      const bOff = await snapB();
+      await gotoTavern(pb, '');
+      const bOn2 = await snapB();
+      await pb.close();
+      console.log('  [腕A ?roster=0 まっさら] ' + JSON.stringify(offA) + ' / NPC ' + npcA
+        + ' 人 / mercId ' + mercA + ' 件 / 例外 ' + errA + ' 件 (' + ra.length + ' 周)');
+      console.log('  [腕B ON→OFF→ON] 在籍 ' + bOn1.list.length + '→' + bOff.list.length + '→'
+        + bOn2.list.length + ' / all() ' + bOn1.all + '→' + bOff.all + '→' + bOn2.all
+        + ' / 入口 ' + bOn1.hasEntry + '→' + bOff.hasEntry + '→' + bOn2.hasEntry
+        + ' / open() ' + bOn1.opened + '→' + bOff.opened + '→' + bOn2.opened);
+
+      check('(6z4) [装置] 腕A で NPC が実際に編成され、腕B では名簿が 1 人以上まで育った '
+          + '(どちらかが 0 だと (6a)(6c) は丸ごと空振りする)',
+        errA === 0 && npcA > 0 && bOn1.list.length >= 1 && !!bOn1.raw && bOn1.on === true
+          && bOn1.hasEntry === true && bOn1.opened === true,
+        '腕A の NPC ' + npcA + ' 人 (' + ra.length + ' 周) / 腕B の在籍 ' + bOn1.list.length
+          + ' 人 / 生バイト ' + (bOn1.raw ? bOn1.raw.length + ' 文字' : 'null'));
+
+      check('(6a) ★tavern.html?roster=0 — ① まっさらな腕で 8 周まわしても '
+          + 'dragonfighters.mercRoster が null のまま (mercRoster を含む localStorage キーが 0 本) '
+          + '② #rosterEntry が DOM に出ない ③ partyMembers に mercId が 0 件 '
+          + '④ 既に名簿が在る腕へ切り替えても DFRoster.all() が 0 人 (データを読まない)・'
+          + '入口が消える・パネルが開かない',
+        !offA.err && offA.raw === null && offA.lsKeys.length === 0
+          && offA.hasEntry === false && offA.on === false && offA.all === 0
+          && mercA === 0 && errA === 0
+          && bOff.on === false && bOff.all === 0 && bOff.hasEntry === false
+          && bOff.opened === false && bOff.list.length >= 1,
+        '腕A raw=' + JSON.stringify(offA.raw) + ' キー=' + JSON.stringify(offA.lsKeys)
+          + ' 入口=' + offA.hasEntry + ' enabled=' + offA.on + ' all()=' + offA.all
+          + ' mercId ' + mercA + ' 件 / 腕B(OFF) enabled=' + bOff.on + ' all()=' + bOff.all
+          + ' 入口=' + bOff.hasEntry + ' open()=' + bOff.opened
+          + ' 生の在籍=' + bOff.list.length + ' 人');
+
+      const sameRoster = JSON.stringify(bOn1.list) === JSON.stringify(bOn2.list);
+      check('(6c) ★?roster=0 を **外すと** 既に貯まっている名簿がそのまま復活する '
+          + '(撤退スイッチは名簿を消していない)。⭐ 撤退中も生バイトが 1 文字も変わらず、'
+          + '戻したあとの在籍が id/名前/性格/口癖/variant/Lv/同行回数まで出発前と完全一致する',
+        bOn1.list.length >= 1 && sameRoster
+          && bOff.raw === bOn1.raw && bOn2.raw === bOn1.raw
+          && bOn2.on === true && bOn2.hasEntry === true && bOn2.all === bOn1.all,
+        '在籍 ' + bOn1.list.length + ' 人 / 撤退中の生バイト '
+          + (bOff.raw === bOn1.raw ? '不変' : '★変化') + ' / 復帰後 ' + bOn2.list.length
+          + ' 人 (完全一致 ' + sameRoster + ') / all() ' + bOn1.all + '→' + bOn2.all);
+    }
 
     // ══════════════════════════════════════════════════════════════════
     // §2 成長
@@ -1076,11 +1320,37 @@ const PROBE_FN = function () {
     const same = legacyKeys.size > 0 && rosterMinusMerc.size === legacyKeys.size
       && Array.from(legacyKeys).every((k) => rosterMinusMerc.has(k));
     const legacyHasMerc = Array.from(legacyKeys).indexOf('mercId') >= 0;
+    /* ⭐⭐⭐ キー集合だけでは「形が一致する」と言い切れない。名簿の形をした **半端な人物** を
+       作る欠陥 (負のコントロール alwaysroster) は、キー名は全部そろったまま値だけが空になる。
+       → 値の「型」と「空文字でないこと」まで従来と突き合わせる。
+       ⛔ 中身 (どの性格が出たか) は見ない —— そこは抽選なので、比べられるのは型と空でないことだけ。 */
+    const shapeOf = (rounds) => {
+      const s = {};
+      rounds.forEach((r) => (r.post || []).forEach((m) => {
+        if (m.isHero) return;
+        ['name', 'trait', 'line', 'variant', 'level'].forEach((k) => {
+          const v = m[k];
+          const t = (v === null) ? 'null' : typeof v;
+          const tag = (t === 'string') ? ('string' + (v.length > 0 ? '' : ':empty')) : t;
+          if (!s[k]) s[k] = [];
+          if (s[k].indexOf(tag) < 0) s[k].push(tag);
+        });
+      }));
+      Object.keys(s).forEach((k) => s[k].sort());
+      return s;
+    };
+    const legacyShape = shapeOf(r5);
+    const rosterShape = shapeOf([r1[0]]);
+    const sameShape = Object.keys(legacyShape).length === 5
+      && JSON.stringify(legacyShape) === JSON.stringify(rosterShape);
     check('(5a) 名簿が空のとき partyMembers の形が従来と完全に一致する '
-        + '(キー集合が mercId を除いて同一。?roster=0 の腕を基準にする)',
-      same && !legacyHasMerc && r5.every((r) => !r.err) && !r1[0].err,
+        + '(① キー集合が mercId を除いて同一 ② name/trait/line/variant/level の型と'
+        + '「空文字でないこと」も同一。?roster=0 の腕を基準にする)',
+      same && sameShape && !legacyHasMerc && r5.every((r) => !r.err) && !r1[0].err,
       '従来=' + JSON.stringify(Array.from(legacyKeys).sort())
-        + ' / 名簿 ON 1 周目=' + JSON.stringify(Array.from(rosterKeys).sort()));
+        + ' / 名簿 ON 1 周目=' + JSON.stringify(Array.from(rosterKeys).sort())
+        + ' / 値の形 従来=' + JSON.stringify(legacyShape)
+        + ' vs 名簿 ON=' + JSON.stringify(rosterShape));
 
     check('(5b) allyEquip / partySkills / actionPriority の 3 キーが出発の前後で 1 バイトも変わらない '
         + '(' + r1.length + ' 周ぶん)',
@@ -1237,12 +1507,18 @@ const PROBE_FN = function () {
       const badLose = (seed.roster || []).filter((x) => !aL[x.id]
         || aL[x.id].runs !== x.runs || aL[x.id].level !== x.level)
         .map((x) => 'id=' + x.id + ' runs ' + x.runs + '→' + (aL[x.id] && aL[x.id].runs));
+      /* ⭐ 生還ぶんの差分は **敗北を消費した直後 (afterLose) を基準** に採る。seed を基準にすると
+         「敗北でも増える」欠陥 (負のコントロール defeatgrows) がここでも赤くなり、(2f2) と
+         二重に鳴って何を検出したのか判らなくなる。
+         ⛔ 弱めてはいない —— 「同行者だけ +1 / 留守は 0」という主張は基準をずらしても 1 ミリも
+           緩まない (「敗北でも増える」を捕まえるのは (2f2) の担当)。 */
       const badWin = (seed.roster || []).map((x) => {
-        const want = x.runs + (inRun.has(x.id) ? 1 : 0);
+        const base = aL[x.id];
+        const want = (base ? base.runs : x.runs) + (inRun.has(x.id) ? 1 : 0);
         const got  = aW[x.id];
-        return (got && got.runs === want) ? null
+        return (base && got && got.runs === want) ? null
           : ('id=' + x.id + (inRun.has(x.id) ? '(同行)' : '(留守)') + ' runs '
-             + x.runs + '→' + (got && got.runs) + ' 期待 ' + want);
+             + (base ? base.runs : x.runs) + '→' + (got && got.runs) + ' 期待 ' + want);
       }).filter(Boolean);
       console.log('  [往復] 出発前 runs=' + JSON.stringify((seed.roster || []).map((x) => x.runs))
         + ' / 敗北の帰還後=' + JSON.stringify((afterLose || []).map((x) => x.runs))
