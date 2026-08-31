@@ -15,7 +15,8 @@
  *   §3 器    … 前置詞・スロット・上限・見送り
  *   §5 恒等  … 名簿が空なら従来と 1 バイトも変わらない / 装備 3 キーが動かない / lastResult の既存キー
  *   §6 帰還  … index が書いた lastResult を酒場の consumeResult() が消費して名簿が育つ (項目2)
- *   §4 (パネル) と (6a)(6c) は **項目3 / 項目4** の担当。
+ *   §4 パネル… HUD の入口 (左上の縦列 3 段目) と名簿パネルの開閉・重なり・スクロール (項目3)
+ *   (6a)(6c) は **項目4** の担当。
  *   ⛔ この窓のスコープ外の受入条件は **ドライバにまだ書かない** (PENDING を残さない)。
  *
  * ── ⛔ 測らないこと (依頼書 §9 の末尾) ────────────────────────────────────
@@ -598,6 +599,213 @@ const PROBE_FN = function () {
     const persistStable = persists.every((s) => s === persists[0])
       && r1[0].persist && r1[0].persist.allyEquip !== null
       && r1[0].persist.partySkills !== null && r1[0].persist.actionPriority !== null;
+
+    // ══════════════════════════════════════════════════════════════════
+    // §4 傭兵名簿パネル (項目3 = 依頼書 §7)
+    //   ⭐ p1 を使い回すのは「12 行を出す」ためだけではない。ここまでの走行で名簿は CAP まで
+    //     埋まっており、育て直すと 14〜40 周ぶんの時間が二重に掛かる。
+    //   ⛔ 測らないもの: パネルの配色・行の並び順・文言 (依頼書 §9 末尾)。
+    // ══════════════════════════════════════════════════════════════════
+    console.log('\n--- §4 傭兵名簿パネル (項目3) ---');
+    {
+      /* ⚠⚠ HUD の重なりは **矩形の比較では見えない**。効くのは「その点で elementFromPoint が
+         何を返すか」だけ (#12 / #37 の実測)。verify_run_chronicle.js の hitOf() をそのまま使う。 */
+      const HUD_FN = function () {
+        const hitOf = (id) => {
+          const el = document.getElementById(id);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return 'hidden';
+          const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return (h && (h === el || el.contains(h))) ? 'self' : ((h && h.id) || (h && h.tagName) || 'none');
+        };
+        const topOf = (id) => {
+          const el = document.getElementById(id);
+          return el ? getComputedStyle(el).top : null;
+        };
+        const box = (id) => {
+          const el = document.getElementById(id);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return [Math.round(r.top), Math.round(r.bottom)];
+        };
+        const sh = document.getElementById('chronicleShelf');
+        return {
+          hasEntry: !!document.getElementById('rosterEntry'),
+          shelfShown: !!(sh && sh.classList.contains('show')),
+          hitEntry: hitOf('rosterEntry'), hitShelf: hitOf('chronicleShelf'), hitTown: hitOf('townExit'),
+          topEntry: topOf('rosterEntry'), topShelf: topOf('chronicleShelf'), topTown: topOf('townExit'),
+          boxEntry: box('rosterEntry'), boxShelf: box('chronicleShelf'), boxTown: box('townExit'),
+        };
+      };
+      /* 状態 A = 記録 0 件 (BOOT が dragonfighters.* を purge したまま) → 記録棚は非表示。 */
+      const hudA = await p1.evaluate(HUD_FN);
+      /* 状態 B = 記録棚を表示中にする。
+         ⛔ localStorage へ手で JSON を書かない —— 本番の保存経路 (pushShelf) を
+            window.__chronicle.shelfPush 越しに呼ぶ。
+         ⚠ .show を付けるのは読み込み時の initChronicleShelf() なので **同じタブで reload** する。
+            新しいタブで開き直すと BOOT の purge が育てた名簿ごと消える。 */
+      const pushed = await p1.evaluate(() => {
+        if (!window.__chronicle) return null;
+        const a = window.__chronicle.shelfPush({
+          at: Date.now(), scenarioId: 'orc-fort', scenarioTitle: '(装置) 記録棚を 1 件にする',
+          outcome: 'clear', ch: { events: [], roster: [] },
+        });
+        return a ? a.length : null;
+      });
+      await reloadTavern(p1);
+      const hudB = await p1.evaluate(HUD_FN);
+      console.log('  [HUD A 記録棚なし] ' + JSON.stringify(hudA));
+      console.log('  [HUD B 記録棚あり] ' + JSON.stringify(hudB));
+
+      check('(4z0) [装置] 記録棚の 2 状態を実際に作り分けられた '
+          + '(0 件 → 非表示 / 本番の保存経路で 1 件積んで同じタブを reload → 表示)',
+        pushed === 1 && hudA.shelfShown === false && hudB.shelfShown === true
+          && hudA.hasEntry === true && hudB.hasEntry === true,
+        '棚 ' + pushed + ' 件 / shelfShown A=' + hudA.shelfShown + ' B=' + hudB.shelfShown
+          + ' / #rosterEntry の在否 A=' + hudA.hasEntry + ' B=' + hudB.hasEntry);
+
+      /* ⚠⚠ 「閉じた」を **200ms 後の display** で測らない。フェード中は display:flex のままなので
+         永久緑になる (既知の罠)。効くのは display:none / visibility:hidden / hidden 属性で
+         **本当に不活性になったか**。⛔ opacity は数えない —— opacity だけで消す実装は
+         「見えないのに押せる板」を残すので、それを閉じたと呼ばない。 */
+      const VIS_FN = function (id) {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        const r  = el.getBoundingClientRect();
+        return { display: cs.display, visibility: cs.visibility, opacity: cs.opacity,
+                 hidden: el.hidden === true, aria: el.getAttribute('aria-hidden'),
+                 w: Math.round(r.width), h: Math.round(r.height),
+                 rows: el.querySelectorAll('.mrRow').length };
+      };
+      const isClosed = (s) => !!s
+        && (s.display === 'none' || s.visibility === 'hidden' || s.hidden === true);
+      const isOpen = (s) => !!s && !isClosed(s) && s.w > 0 && s.h > 0;
+
+      const ovBefore = await p1.evaluate(VIS_FN, 'rosterOverlay');
+      await p1.click('#rosterEntry');          /* ★ 実際のクリック (中心座標の hit-test を通る) */
+      await sleep(150);
+      const ovAfter = await p1.evaluate(VIS_FN, 'rosterOverlay');
+      check('(4a) #rosterEntry が HUD にあり、**実際に押すと** #rosterOverlay が可視になる '
+          + '(押す前は閉じている)',
+        hudB.hasEntry === true && isClosed(ovBefore) && isOpen(ovAfter) && ovAfter.aria === 'false',
+        '押す前=' + JSON.stringify(ovBefore) + ' / 押した後=' + JSON.stringify(ovAfter));
+
+      const z = await p1.evaluate(() => {
+        const zi = (id) => {
+          const el = document.getElementById(id);
+          return el ? getComputedStyle(el).zIndex : null;
+        };
+        return { roster: zi('rosterOverlay'), pm: zi('partyMatchOverlay'),
+                 chronicle: zi('chronicleOverlay'), prologue: zi('prologueOverlay') };
+      });
+      const zr = parseInt(z.roster, 10);
+      const zp = parseInt(z.pm, 10);
+      check('(4b) #rosterOverlay の z-index が #partyMatchOverlay より小さい '
+          + '(⛔ 数値を直書きせず getComputedStyle で **両方**を読んで比べる。grep で数えると'
+          + 'コメントの「z-index 170」まで数えてしまう = #34 の罠)',
+        isFinite(zr) && isFinite(zp) && zr < zp,
+        '名簿=' + z.roster + ' / マッチング=' + z.pm + ' / 年代記=' + z.chronicle
+          + ' / プロローグ=' + z.prologue);
+
+      const closeArm = await p1.evaluate(function () {
+        const ovEl = () => document.getElementById('rosterOverlay');
+        const btn  = () => document.getElementById('rosterClose');
+        const st = () => {
+          const el = ovEl(); if (!el) return null;
+          const cs = getComputedStyle(el);
+          const r  = el.getBoundingClientRect();
+          return { display: cs.display, visibility: cs.visibility, opacity: cs.opacity,
+                   hidden: el.hidden === true, aria: el.getAttribute('aria-hidden'),
+                   w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        /* ⚠ 合成イベントで **1 種類ずつ**撃つ。puppeteer の touchscreen.tap は互換 click まで
+           生むので、「click だけ配線」の実装でも tap で閉じてしまい **偽の緑**になる。 */
+        const fire = (type) => {
+          const b = btn(); if (!b) return false;
+          b.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+          return true;
+        };
+        const out = { hasBtn: !!btn(), tap: null };
+        const b = btn();
+        if (b) { const r = b.getBoundingClientRect();
+                 out.tap = { w: Math.round(r.width), h: Math.round(r.height) }; }
+        window.__roster.open(); out.openA = st(); out.firedA = fire('click');    out.afterClick = st();
+        window.__roster.open(); out.openB = st(); out.firedB = fire('touchend'); out.afterTouch = st();
+        return out;
+      });
+      console.log('  [4c] ' + JSON.stringify(closeArm));
+      check('(4c) 閉じるボタンに click と touchend が **両方**配線されている (合成イベントで 1 種類ずつ'
+          + '撃って確かめる)。⚠ 「閉じた」は 200ms 後の display ではなく '
+          + 'display:none / visibility:hidden / hidden 属性で測る (フェード中は display:flex の'
+          + 'まま = 永久緑の罠)。かつタップ域 44px 以上',
+        closeArm.hasBtn === true && closeArm.firedA === true && closeArm.firedB === true
+          && isOpen(closeArm.openA) && isClosed(closeArm.afterClick)
+          && isOpen(closeArm.openB) && isClosed(closeArm.afterTouch)
+          && closeArm.afterClick.aria === 'true' && closeArm.afterTouch.aria === 'true'
+          && !!closeArm.tap && closeArm.tap.h >= 44,
+        'click 後=' + JSON.stringify(closeArm.afterClick) + ' / touchend 後='
+          + JSON.stringify(closeArm.afterTouch) + ' / ボタン '
+          + (closeArm.tap ? closeArm.tap.w + 'x' + closeArm.tap.h : 'なし'));
+
+      check('(4e) #rosterEntry / #chronicleShelf / #townExit の 3 つとも、中心の elementFromPoint が'
+          + '自分自身 (またはその子孫) を返す —— 3 つが同じ縦列に並んだ状態で測る。'
+          + '⚠ 重なりは矩形の比較では見えない (#12 / #37 が同じ罠を踏んだ)',
+        hudB.hitEntry === 'self' && hudB.hitShelf === 'self' && hudB.hitTown === 'self',
+        '名簿=' + hudB.hitEntry + ' / 記録棚=' + hudB.hitShelf + ' / 街へ出る=' + hudB.hitTown
+          + ' / 縦位置 街[' + hudB.boxTown + '] 棚[' + hudB.boxShelf + '] 名簿[' + hudB.boxEntry + ']');
+
+      const gapA = (hudA.boxEntry && hudA.boxTown)  ? hudA.boxEntry[0] - hudA.boxTown[1]  : null;
+      const gapB = (hudB.boxEntry && hudB.boxShelf) ? hudB.boxEntry[0] - hudB.boxShelf[1] : null;
+      check('(4f) 記録棚が非表示のとき #rosterEntry の実効 top が 74px、表示中は 130px。'
+          + 'かつ **どちらの状態でも** 見えている HUD の中心の elementFromPoint が自分自身 '
+          + '(⛔ top が変わることだけを測ると、詰めた結果 #townExit に重なっても緑になる)',
+        hudA.topEntry === '74px' && hudB.topEntry === '130px'
+          && hudA.hitEntry === 'self' && hudA.hitTown === 'self' && hudA.hitShelf === 'hidden'
+          && hudB.hitEntry === 'self' && hudB.hitTown === 'self'
+          && gapA !== null && gapA >= 0 && gapB !== null && gapB >= 0,
+        '棚なし: top=' + hudA.topEntry + ' hit 名簿=' + hudA.hitEntry + ' 街=' + hudA.hitTown
+          + ' 棚=' + hudA.hitShelf + ' 隙間 ' + gapA + 'px / 棚あり: top=' + hudB.topEntry
+          + ' hit 名簿=' + hudB.hitEntry + ' 棚=' + hudB.hitShelf + ' 街=' + hudB.hitTown
+          + ' 隙間 ' + gapB + 'px');
+
+      /* ⚠ 12 行がはみ出すのは狭幅のとき。iPhone 相当まで縮めてから測る。
+         ⭐ 行数はドライバが写経せず、名簿の実体 (DFRoster.all()) と描かれた行の両方から採る。 */
+      await p1.setViewport({ width: 390, height: 844 });
+      await sleep(400);
+      const sc = await p1.evaluate(() => {
+        const out = { err: '' };
+        try {
+          document.body.classList.add('ui-compact');
+          out.opened    = window.__roster.open();
+          const b       = document.getElementById('rosterBody');
+          const cs      = b ? getComputedStyle(b) : null;
+          out.cap       = (window.DFRoster && DFRoster.CAP) || 0;
+          out.n         = window.DFRoster ? DFRoster.all().length : -1;
+          out.rows      = b ? b.querySelectorAll('.mrRow').length : -1;
+          out.releases  = b ? b.querySelectorAll('.mrRelease').length : -1;
+          out.overflowY = cs ? cs.overflowY : null;
+          out.scrollH   = b ? b.scrollHeight : -1;
+          out.clientH   = b ? b.clientHeight : -1;
+          if (b) b.scrollTop = 99999;
+          out.scrolled  = b ? b.scrollTop : -1;
+        } catch (e) { out.err = String((e && e.message) || e); }
+        return out;
+      });
+      console.log('  [4d] ' + JSON.stringify(sc));
+      check('(4z1) [母集団] 名簿が満杯 (CAP) で、パネルがその人数ぶんの行と「見送る」ボタンを'
+          + '実際に描いている (行が少ないと (4d) はスクロールの有無を測れない)',
+        !sc.err && sc.cap >= 1 && sc.n === sc.cap && sc.rows === sc.n && sc.releases === sc.n,
+        '在籍 ' + sc.n + '/' + sc.cap + ' 人 / 行 ' + sc.rows + ' / 「見送る」' + sc.releases + ' 個');
+      check('(4d) body.ui-compact (iPhone 相当の狭幅) で 12 行がスクロールできる '
+          + '(#rosterBody の scrollHeight > clientHeight かつ overflow-y が auto / scroll)。'
+          + '⚠ スクロールを持つのは器ではなく本文 (器ごと動かすと閉じるボタンが流れて届かない)',
+        !sc.err && sc.opened === true && sc.scrollH > sc.clientH
+          && ['auto', 'scroll'].indexOf(sc.overflowY) >= 0 && sc.scrolled > 0,
+        'overflow-y=' + sc.overflowY + ' / scrollH=' + sc.scrollH + ' clientH=' + sc.clientH
+          + ' / scrollTop=' + sc.scrolled + ' (' + sc.rows + ' 行)');
+    }
 
     await p1.close();
 

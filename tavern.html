@@ -1629,6 +1629,119 @@
       border: 2px solid var(--parchment-gold); border-radius: 5px;
     }
 
+    /* ── 傭兵名簿 (#38 STEP4 / 依頼書 §7) ─────────────────────────────────────
+       入口は **左上の縦列の 3 つ目**。左下 (#questBoard) / 右下 (#shopEntry + ⚙) /
+       右上 (#changelogBox) は埋まっており、#37 が #townExit の真下 (top:74px) を
+       記録棚で使い切った。
+       ⛔⛔ #townExit / #chronicleShelf の position / top / left は 1 バイトも動かさない。
+         剥がすと verify_run_chronicle 73 / verify_tavern_map 43 / verify_town_map 85 の
+         座標系 assert を巻き込む。**足すのはこの 1 枚だけ**。
+       ⭐ 記録棚が非表示 (記録 0 件で .show が付かない / ?chronicle=0 で DOM ごと無い) のときは
+         top:74px へ **詰める**。既定を 74px にして、記録棚が出ているときだけ兄弟セレクタで
+         130px へ落とす —— JS を 1 行も書かずに両方の状態が正しくなる。
+         ⚠ そのため #rosterEntry は DOM 上で #chronicleShelf の **後ろ**に居ること。
+       ⭐ 絵文字は 📖。⛔ 📜 は #chronicleShelf (📜 冒険の記録) が使用中で、
+         同じ縦列に 📜 が 2 つ並んでしまう。
+       ⭐ body.tavernMapOn でも HUD として残る系列 (#townExit / #shopEntry / #questBoard /
+         #changelogBox と同じ扱い)。地図の CSS で消していないので何も書き足さない。 */
+    #rosterEntry {
+      position: absolute; left: 18px; top: 74px; z-index: 13;
+      min-height: 44px; box-sizing: border-box;
+      padding: 10px 16px; cursor: pointer;
+      font-family: 'MedievalSharp', serif; font-size: 15px; letter-spacing: 1px;
+      color: var(--parchment-ink);
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      border-radius: 6px;
+      box-shadow: var(--parchment-shadow);
+      transition: background 0.12s, box-shadow 0.12s;
+    }
+    /* ★ 記録棚が出ている間だけ 3 段目へ下がる。⚠ 特異度は (2 id + 1 class) なので
+       下の body.compact 版 (1 id + 1 class + 1 要素) に負けない。 */
+    #chronicleShelf.show ~ #rosterEntry { top: 130px; }
+    #rosterEntry:hover { background: rgba(255,245,210,0.95); box-shadow: 0 0 18px rgba(139,105,20,0.4); }
+    body.compact #rosterEntry, body.ui-compact #rosterEntry { font-size: 13px; padding: 11px 12px; }
+
+    /* 名簿パネル。z-index 180 は #chronicleOverlay(170) と #prologueOverlay(200) の間の空き番地。
+       武器防具屋(160) / 闇市(150) / 年代記(170) は覆い、プロローグ(200) と
+       マッチング(210) には覆われる。
+       ⛔ 新しいカラー変数を作らない。地は既存の --parchment-*。 */
+    #rosterOverlay {
+      position: fixed; inset: 0; z-index: 180; display: none;
+      align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse at 50% 26%, rgba(70,45,15,0.30) 0%, rgba(18,12,5,0.88) 74%),
+        rgba(10,8,5,0.9);
+    }
+    #rosterOverlay.show { display: flex; }
+    #rosterInner {
+      width: min(620px, 94vw); max-height: 84vh;
+      display: flex; flex-direction: column;
+      padding: 18px 20px 16px;
+      background: var(--parchment-bg);
+      border: 3px double var(--parchment-gold);
+      border-radius: 8px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+      color: var(--parchment-ink);
+    }
+    #rosterSign {
+      font-family: 'MedievalSharp', serif; font-size: 22px; letter-spacing: 3px;
+      text-align: center;
+    }
+    #rosterSign small {
+      display: block; font-size: 12px; letter-spacing: 0; margin-top: 5px;
+      color: var(--parchment-ink-soft); font-family: 'Cinzel', serif;
+    }
+    /* ⚠ スクロールするのは本文だけ。器ごとスクロールさせると閉じるボタンが流れて届かなくなる
+       (#chronicleBody と同じ理由)。12 人ぶん並ぶので狭幅では必ずはみ出す。 */
+    #rosterBody {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      margin: 12px 0; padding-right: 4px;
+      font-size: 14px; line-height: 1.7;
+    }
+    .mrList { list-style: none; margin: 0; padding: 0; }
+    .mrRow {
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: start;
+      padding: 7px 9px; margin-bottom: 5px;
+      border-left: 3px solid rgba(139,105,20,0.35); border-radius: 0 4px 4px 0;
+      /* ⚠ 説明文に opacity を掛けない (#15 の実測: 羊皮紙の斑に食われる)。
+         読みやすさはクリーム色の薄掛けで作る。 */
+      background: rgba(255,245,210,0.42);
+    }
+    .mrHead { grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+    .mrName { font-size: 15px; }
+    .mrMeta {
+      font-family: 'Cinzel', serif; font-size: 11px; color: var(--parchment-ink-soft);
+      white-space: nowrap;
+    }
+    .mrTrait, .mrLine { grid-column: 1; font-size: 12px; line-height: 1.55; }
+    .mrLine { color: var(--parchment-ink-soft); }
+    /* 「見送る」。⚠ iOS: タップ領域 44px 以上。 */
+    .mrRelease {
+      grid-column: 2; grid-row: 1 / span 3; align-self: center;
+      min-height: 44px; min-width: 76px; padding: 8px 12px; cursor: pointer;
+      font-size: 12px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: rgba(255,245,210,0.6); color: var(--parchment-ink);
+      border: 1px solid var(--parchment-gold); border-radius: 4px;
+    }
+    .mrRelease:hover { background: rgba(255,245,210,0.92); }
+    .mrEmpty { padding: 18px; text-align: center; font-style: italic; color: var(--parchment-ink-soft); }
+    /* iPhone 相当。⚠ 行が増えても縦スクロールを持つのは #rosterBody 側 (器は動かさない)。
+       ⚠⚠ この画面の狭幅クラスは body.compact (layout() が付ける)。index.html の
+          body.ui-compact は tavern.html には付かないが、検証ドライバが手で付ける流儀もあるので
+          両方を並べて受ける (#chronicleInner と同じ)。 */
+    body.compact #rosterInner, body.ui-compact #rosterInner { max-height: 88vh; padding: 14px 14px 12px; }
+    body.compact .mrRow, body.ui-compact .mrRow { padding: 6px 7px; }
+    body.compact .mrName, body.ui-compact .mrName { font-size: 14px; }
+    /* ⚠ iOS: 明示的な閉じるボタンはタップ領域 44px 以上。 */
+    #rosterClose {
+      display: block; margin: 0 auto; min-height: 44px; min-width: 168px;
+      padding: 10px 22px; cursor: pointer;
+      font-size: 14px; font-family: 'Cinzel', serif; letter-spacing: 1px;
+      background: linear-gradient(180deg, #f0daa0, #d8bc7e); color: #3a2010;
+      border: 2px solid var(--parchment-gold); border-radius: 5px;
+    }
+
     /* 闇市 画面 (全画面オーバーレイ・theme-plaza 配下) */
     /* 背景 = 夜の地下闇市 一枚絵 (assets/plaza_bg.png)。暗色 radial-gradient を可読性ヴェールとして上に薄く重ね、
        中央は絵を透かし、周縁を締めて UI パネルの可読性を確保する。銀の鹿亭(暖色酒場)との対比トーン。 */
@@ -2477,6 +2590,18 @@
     </div>
   </div>
 
+  <!-- 傭兵名簿 パネル (#38 STEP4)。z-index:180 は #chronicleOverlay(170) と
+       #prologueOverlay(200) の間の空き番地。
+       ⛔ 中身は JS が window.DFRoster (js/mercenary-roster.js) から描く。
+          こちらは**読むだけ**で、上限・成長・id の払い出しという規則を 1 つも持たない。 -->
+  <div id="rosterOverlay" aria-hidden="true">
+    <div id="rosterInner" role="dialog" aria-label="傭兵名簿">
+      <div id="rosterSign">📖 傭兵名簿<small id="rosterSub"></small></div>
+      <div id="rosterBody"></div>
+      <button type="button" id="rosterClose">閉じる</button>
+    </div>
+  </div>
+
 
   <!-- パーティ・マッチング演出 (4カラム編成ビュー)。受注直後に仲間を順に開示する全画面シネマ。 -->
   <div id="partyMatchOverlay" aria-hidden="true">
@@ -2704,10 +2829,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場で傭兵名簿を開けるようになった</b> — 左上の「📖 傭兵名簿」から、これまで共に潜った顔ぶれと同行回数を見られる。もう組まない相手は見送れる。</li>
         <li><b>共に生きて帰った仲間が育つ</b> — 一緒に潜って無事に戻った冒険者は経験を重ね、何度か生還するとレベルが上がる。倒れて帰れなかった依頼では経験にならない。</li>
         <li><b>傭兵名簿 — 同じ顔が次の依頼にも来る</b> — 一度いっしょに潜った冒険者を酒場が覚えていて、次の依頼にも同じ名前・同じ気性の相手が名乗り出るようになった。</li>
         <li><b>使わずに終わったものが分かる</b> — 余った呪文スロットや一度も出番の無かったスキルを、記録の末尾に並べる。過去 5 回ぶんの記録も酒場に残る。</li>
-        <li><b>仲間の働きが数字で見える</b> — 与えたダメージ・受けたダメージ・倒した数を、帰還後の記録に隊列ごとの墨の棒グラフで並べる。</li>
       </ul>
     </div>
     <script>
@@ -2771,6 +2896,13 @@
          ⚠ 既定は display:none。記録が 1 件以上あるときだけ JS が .show を付ける。
          ⛔ ?chronicle=0 のときは initChronicleShelf() が DOM ごと remove する。 -->
     <div id="chronicleShelf" title="過去の冒険の記録">📜 冒険の記録</div>
+    <!-- 傭兵名簿 (#38 STEP4): これまで共に潜った顔ぶれ。
+         ⚠⚠ DOM 上で #chronicleShelf の **後ろ**に置くこと。記録棚が出ていないときに
+            top:74px へ詰める CSS (#chronicleShelf.show ~ #rosterEntry) が兄弟セレクタなので、
+            前に置くと詰まらず、記録棚との間に空白の穴が開く。
+         ⛔ ?roster=0 のときは initRosterEntry() が DOM ごと remove する
+            (#townExit が ?town=0 でそうしているのと同じ作法。押せる導線を残さない)。 -->
+    <div id="rosterEntry" title="これまで共に潜った顔ぶれ">📖 傭兵名簿</div>
 
     <!-- v7.1: 武器防具屋 画面 -->
     <div id="shopScreen">
@@ -5145,6 +5277,114 @@
     shelf:     () => loadShelf(),
     shelfPush: (e) => pushShelf(e),
     openShelf: () => openChronicleShelf(),
+  };
+
+  /* ══ 傭兵名簿 パネル (#38 STEP4 / 依頼書 §7) ══════════════════════════════════
+     名簿の実体は js/mercenary-roster.js (window.DFRoster)。ここは **読んで描くだけ**で、
+     上限・成長・id の払い出しという規則を 1 つも持たない (唯一の正はあちら)。
+     ⛔ 配色・行の並び順・文言は受入条件が測らない (目で決める余地を残す・依頼書 §9 末尾)。
+     ⚠ 閉じる口は click と touchend の **両方**へ配線する (click 非発火端末で詰む既知の罠)。
+        既存の chronicleBindTap() をそのまま使う —— あれは年代記の状態を 1 つも見ない
+        純粋なタップ配線 (preventDefault + stopPropagation) なので、2 本目の実装を作らない。
+     ⚠⚠ 閉じるときは **display を落とす** (.show を外す)。opacity だけで消すと
+        「見えないのに押せる板」が残り、検証も「閉じた」と読んでしまう (既知の永久緑の罠)。 */
+
+  /* ⚠ const に畳まない。呼ぶたびに読む —— この <script> の実行順に依存する TDZ を作らないため
+     (js/mercenary-roster.js の enabled() の注意書きと同じ理由)。 */
+  function rosterOnTv() { return !!(window.DFRoster && DFRoster.enabled()); }
+
+  function renderRosterPanel() {
+    const body = document.getElementById("rosterBody");
+    if (!body) return -1;
+    const list = window.DFRoster ? DFRoster.all() : [];
+    const cap  = (window.DFRoster && DFRoster.CAP) || 0;
+    const sub  = document.getElementById("rosterSub");
+    if (sub) sub.textContent = "銀の鹿亭に名を連ねる者 " + list.length + " / " + cap + " 名";
+    if (!list.length) {
+      /* ⚠ 空の名簿でも開ける。開けないと「まだ誰も居ない」ことが伝わらない。 */
+      body.innerHTML = '<div class="mrEmpty">まだ誰とも組んでいない。'
+        + '依頼を受ければ、誰かが名乗り出る。</div>';
+      body.scrollTop = 0;
+      return 0;
+    }
+    let html = '<ul class="mrList">';
+    list.forEach((m) => {
+      html += '<li class="mrRow">'
+        + '<div class="mrHead"><span class="mrName">' + chEsc(m.name) + '</span>'
+        + '<span class="mrMeta">' + chEsc(chClassLabel(m.classKey)) + ' / Lv' + chEsc(String(m.level))
+        + ' / 同行 ' + chEsc(String(m.runs)) + ' 回</span></div>'
+        + '<div class="mrTrait">' + chEsc(m.trait) + '</div>'
+        + '<div class="mrLine">' + chEsc(m.line) + '</div>'
+        + '<button type="button" class="mrRelease" data-mid="' + chEsc(String(m.id))
+        + '">見送る</button>'
+        + '</li>';
+    });
+    html += "</ul>";
+    body.innerHTML = html;
+    Array.prototype.forEach.call(body.querySelectorAll(".mrRelease"), (btn) => {
+      chronicleBindTap(btn, () => {
+        const id = parseInt(btn.getAttribute("data-mid"), 10);
+        if (window.DFRoster) DFRoster.release(id);
+        /* ⛔ 行を DOM から抜くのではなく、名簿から引き直して描き直す。
+           画面が名簿より新しい状態を持つと、そこが第二の権威になる。 */
+        renderRosterPanel();
+      });
+    });
+    body.scrollTop = 0;
+    return list.length;
+  }
+
+  function openRoster() {
+    if (!rosterOnTv()) return false;
+    const ov = document.getElementById("rosterOverlay");
+    if (!ov) return false;
+    renderRosterPanel();
+    ov.classList.add("show");
+    ov.setAttribute("aria-hidden", "false");
+    return true;
+  }
+  function closeRoster() {
+    const ov = document.getElementById("rosterOverlay");
+    if (!ov) return;
+    ov.classList.remove("show");        /* ★ 閉じるのは display。⛔ opacity で消さない */
+    ov.setAttribute("aria-hidden", "true");
+  }
+
+  (function wireRosterOverlay() {
+    const ov = document.getElementById("rosterOverlay");
+    if (!ov) return;
+    chronicleBindTap(document.getElementById("rosterClose"), () => closeRoster());
+    /* 背景タップでも閉じる。⚠ 羊皮紙 (#rosterInner) の中のタップでは閉じない。 */
+    const bg = (ev) => {
+      if (ev && ev.target !== ov) return;
+      if (ev && ev.preventDefault) ev.preventDefault();
+      closeRoster();
+    };
+    ov.addEventListener("click", bg);
+    ov.addEventListener("touchend", bg);
+  })();
+
+  /* 名簿を開く導線 (HUD 左上の縦列 3 段目)。
+     ⛔ 撤退 ?roster=0 のときは **DOM ごと消す** (押せる導線を残さない)。
+     ⚠ 記録棚と違って「0 件なら出さない」はしない。空の名簿を開いて
+        「まだ誰とも組んでいない」と読めることが、名簿という仕掛けの説明そのものになる。 */
+  (function initRosterEntry() {
+    const btn = document.getElementById("rosterEntry");
+    if (!btn) return;
+    if (!rosterOnTv()) { btn.remove(); return; }
+    chronicleBindTap(btn, () => openRoster());
+  })();
+
+  /* 読み取り窓 (検証ドライバが使う)。⛔ ここに第二の実装を置かない (全部上の本番関数を呼ぶ)。 */
+  window.__roster = {
+    on:     () => rosterOnTv(),
+    open:   () => openRoster(),
+    close:  () => closeRoster(),
+    render: () => renderRosterPanel(),
+    isOpen: () => {
+      const ov = document.getElementById("rosterOverlay");
+      return !!(ov && ov.classList.contains("show"));
+    },
   };
 
   function isUnlocked(sc) {

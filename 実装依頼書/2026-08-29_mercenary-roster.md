@@ -869,3 +869,68 @@ assert の近くではコメントも数えられる」がここでも起きる�
 - ⚠ 変異表は **2/10 本**(`badprefix` + 新設 `nolevelclamp`)。依頼書 §9 の残り 8 本は項目4。
 - ⛔ 未着手(スコープ外): §7 名簿パネル `#rosterEntry` `#rosterOverlay`(項目3)/
   `(4a)`〜`(4f)` `(6a)` `(6c)` と `--negative` の残り 8 本・golden 10 本の一括(項目4)。
+
+### 項目3 — STEP4 (酒場の名簿パネル)
+
+| 項目 | 実測 |
+|---|---|
+| 実装 | `tavern.html`(CSS: `#rosterEntry` / `#rosterOverlay` 一式 / DOM: 入口 1 枚 + パネル 1 枚 / JS: `rosterOnTv()` `renderRosterPanel()` `openRoster()` `closeRoster()` `wireRosterOverlay()` `initRosterEntry()` `window.__roster`)/ `tools/verify_mercenary_roster.js`(受入条件 +8 本) |
+| 新ドライバ | `node tools/verify_mercenary_roster.js` → **41/41 PASSED / 0 FAILED / 0 PENDING**(33 → 41) |
+| 負のコントロール | `--negative` → `badprefix` が (3a)(3b)(3c)【38/41】/ `nolevelclamp` が (2e)【40/41】—— **2 本とも赤・巻き添え 0**(新設の §4 は 8 本とも緑のまま) |
+| 既存 golden | `verify_tavern_map` **43/43 PASSED / FAILED 0 / PENDING 0**(うち **(6c) は dialog 18/18・prep 97/95(+宣言 2)・shopScreen 18/18・plazaScreen 16/16 で一致** = HUD へ足したので対象外だった)/ `verify_run_chronicle` **73 PASSED / 0 FAILED / 0 PENDING**(**(6b3) 記録棚=self / 街へ出る=self / 隙間 11px** も不変) |
+| 撤退 | `?roster=0` → `initRosterEntry()` が `#rosterEntry` を **DOM ごと remove**(`#townExit` の `?town=0` と同じ作法)。⚠ (6a) の受入条件は項目4 |
+
+#### 追加した受入条件 8 本
+
+`(4z0)`(装置: 記録棚の 2 状態を作り分けた)/ `(4a)` / `(4b)` / `(4c)` / `(4e)` / `(4f)` /
+`(4z1)`(母集団: 名簿が満杯で 12 行 + 「見送る」12 個を実際に描いている)/ `(4d)`。
+
+#### ⚠ 実装で確定したこと(次項目が前提にしてよい)
+
+- ⭐⭐⭐ **「記録棚が非表示なら詰める」は JS を 1 行も書かずに CSS の兄弟セレクタで解けた。**
+  既定を `top:74px` にして、`#chronicleShelf.show ~ #rosterEntry { top:130px; }` で
+  出ているときだけ下げる。⚠ そのため **`#rosterEntry` は DOM 上で `#chronicleShelf` の後ろ**に
+  居ること(前に置くと詰まらず、記録棚との間に穴が開く)。
+  ⚠ 特異度は `(2 id + 1 class)` なので `body.compact #rosterEntry`(1 id + 1 class + 1 要素)に
+  負けない。狭幅側では font-size / padding だけを動かしている。
+  実測: 棚なし `[74,119]` / 棚あり `[130,175]`、どちらも `#townExit [18,63]` との隙間 **11px**。
+- ⭐⭐⭐ **(4c) は「合成イベントを 1 種類ずつ撃つ」でないと偽の緑になる。**
+  puppeteer の `touchscreen.tap()` は **互換 click まで生む**ので、`click` だけ配線した実装でも
+  tap で閉じてしまう。`el.dispatchEvent(new Event('touchend', …))` なら互換 click が出ない。
+- ⭐⭐⭐ **「閉じた」の判定に `opacity` を数えてはいけない。**
+  `display:none` / `visibility:hidden` / `hidden` 属性のどれかで **本当に不活性になったか**だけを見る。
+  ⚠ 実測では `getComputedStyle(ov).visibility` は **display:none でも `"visible"` のまま**なので、
+  `visibility` 単独では閉じたことを判定できない(実測ログ:
+  `{"display":"none","visibility":"visible","opacity":"1","aria":"true","w":0,"h":0}`)。
+  → 項目4 の `fadeclose`(opacity だけで消す)は、この定義でちゃんと赤くなる。
+- ⭐ **z-index は `getComputedStyle` で読んだ実測**: 名簿 **180** / 年代記 170 /
+  プロローグ **200** / マッチング **210**。§2-10 (4) の訂正どおりで、180 < 210 が成立。
+- ⭐ **§4 は p1(§1 の走行で名簿が CAP まで埋まったページ)を使い回す。**
+  育て直すと 14〜40 周ぶんの時間が二重に掛かる。⚠ ただし §3 の `DFSlots.wipeLive()` より
+  **前**に測ること(あれは名簿を消す)。いまの並びは §0→§1→§3d→**§4**→§2→§3→§5→§6。
+- ⭐ **記録棚を「表示中」にするのは本番の保存経路で。** `window.__chronicle.shelfPush({…})` を
+  呼んでから **同じタブで `reloadTavern()`**(`.show` を付けるのは読み込み時の
+  `initChronicleShelf()` なので reload が要る/新しいタブだと BOOT の purge で名簿ごと消える)。
+- ⚠ **`(4d)` は既定ビューポート 1280x900 のままでは測れない。**
+  `page.setViewport({width:390,height:844})` へ縮めてから `body.ui-compact` を付ける。
+  実測 `scrollH=1058 / clientH=589 / scrollTop=469`、`overflow-y=auto`(器ではなく `#rosterBody`)。
+- **実装後の行番号**(`tavern.html`。⚠ 項目1・2 が書いた値は **CSS と DOM を上流へ足したぶん
+  全部ずれている**。`index.html` は 1 バイトも触っていないので項目2 の値のまま):
+
+  | 対象 | 項目2 時点 | **項目3 後** |
+  |---|---|---|
+  | `#rosterEntry` の CSS / 詰めの `~` セレクタ / `#rosterOverlay` の CSS | — | **1647 / 1661 / 1669** |
+  | `<script src="js/mercenary-roster.js">` | 2328 | **2441** |
+  | `#rosterOverlay` の DOM / `#rosterEntry` の DOM | — | **2597 / 2905** |
+  | `makeNpcMember()` / `pickCompanion()` / `buildParty()` / `orderFormation()` | 3910 / 3935 / 4016 / 4043 | **4042 / 4067 / 4148 / 4175** |
+  | `clampCompanionLevel()` / `memberLevelOf()` / `skillLimitForClass()` | 4097 / 4103 / 4113 | **4229 / 4235 / 4245** |
+  | `loadSelections()` / `saveSelections()` / `consumeResult()` | 4635 / 4746 / 4799 | **4767 / 4878 / 4931** |
+  | `renderRosterPanel()` / `openRoster()` / `closeRoster()` / `window.__roster` | — | **5296 / 5337 / 5346 / 5379** |
+  | `regeneratePartyMembers()` / `assignCompanionLevels()` / `departToScenario()` | 5695 / 6543 / 6575 | **5935 / 6783 / 6815** |
+
+- ⚠⚠ **項目4 の `fadeclose` のアンカー** = `closeRoster()` 内の 1 行
+  `ov.classList.remove("show");        /* ★ 閉じるのは display。⛔ opacity で消さない */`。
+  ここを `ov.style.opacity = "0";` へ差し替えれば (4c) が赤くなる(`aria-hidden` の行は残すこと。
+  残さないと「aria も見ている」ぶんだけ余計に赤くなり、何を検出したのか判らなくなる)。
+- ⛔ 未着手(スコープ外): `(6a)`(`tavern.html?roster=0` の腕)/ `(6c)`(撤退を外すと名簿が復活)/
+  `--negative` の残り 8 本 / golden 10 本の一括 / `実装依頼書/README.md` の #38 行(項目4)。
