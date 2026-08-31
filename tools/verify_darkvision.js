@@ -25,11 +25,23 @@
  *   (tiles→inner→outer の並び / classKey→3 要素配列) で書くこと。
  *   散文のコメント (「魔法使い・戦士・僧侶・盗賊 = 8」) は数えない。
  *
- * ⚠ 実装状況 (2026-08-31 / dev-loop 項目 2 まで着地)
- *   実装済 … §0 装置 (0a)〜(0g) / §1 (1a)(1b)(1d)(1e)(1f) / §2 (2a)(2b)
- *   PENDING … (1c)(3a)〜(3f) = 項目 3 /
- *             §4 撤退 (4a)〜(4d) と負のコントロール 12 本 = 項目 4
+ * ⚠ 実装状況 (2026-08-31 / dev-loop 項目 3 まで着地)
+ *   実装済 … §0 装置 (0a)〜(0g) / §1 (1a)(1b)(1c)(1d)(1e)(1f) / §2 (2a)(2b) /
+ *            §3 非退行 (3a)〜(3f)
+ *   PENDING … §4 撤退 (4a)〜(4d) と負のコントロール 12 本 = 項目 4
  *   ⛔ 測れないものを黙って緑にしない。未実装は理由つきの PENDING で出す。
+ *
+ * ⭐⭐⭐ §3 の基準は「**着手前 hash を別ポートで同時配信**して採る」(--baseline <hash>)。
+ *   ⛔ HEAD を基準にしてはいけない。commit した瞬間 HEAD === 作業ツリーになり、
+ *     (3a)(3b) が「自分自身との比較」に化けて **永久に緑** になる (#34 の教訓)。
+ *   ⭐ 別ポート = 別オリジン。localStorage が混ざらないので、両アームへ同じ種を撒ける。
+ *
+ * ⭐⭐⭐ §3 の顔ぶれは **固定する**。buildParty() が Math.random() で編成を作り直すので、
+ *   openPrep 経由で「1 文字も違わない」を測ると **視界と無関係な差分**で必ず赤くなる。
+ *   → 既存の検証シーム window.__pmTest.play() に selection.partyMembers を直接与えて
+ *     演出だけを開く (verify_party_match_setup の playForcedCinema と同じ手)。
+ *   ⚠ この手は「乱数を潰す」のであって「測定点を弱める」のではない。測るのは
+ *     **同じ顔ぶれを与えたときに描かれた文字列**で、基準と現行で 1 文字も違わないこと。
  *
  * 使い方:
  *     node tools/verify_darkvision.js                      # 素
@@ -130,6 +142,43 @@ function frozen(rel) {
 }
 for (const rel of [SIGHT_JS, SHEET_JS, INDEX, TAVERN, TITLE]) frozen(rel);
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * §3 非退行の基準 — 着手前 hash を **別ポートで同時配信**する
+ *   ⛔⛔ 基準を HEAD にしない (#34 の教訓)。既定は #39 に 1 バイトも触っていない f80a03c。
+ *   ⚠ git show が返すのは blob (LF)。作業ツリーは CRLF だが、比べるのはバイトではなく
+ *     **実行時に描かれた文字列**なので改行差は結果に影響しない。
+ *   ⚠ 着手前に存在しないファイル (js/class-sight.js) は取れない → 現行バイトへフォールバック。
+ *     基準の tavern.html はそれを <script src> していないので、置いてあっても 1 行も効かない。
+ *   ⚠ git を叩くのは .html / .js / .css だけ。画像や音まで git show すると
+ *     1 ページで数十回プロセスを起こすことになる (どうせ #39 では 1 バイトも動いていない)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const BASE_REF  = arg('baseline', 'f80a03c');
+const BASE_PORT = PORT + 40;
+const BASE_EXT  = ['.html', '.js', '.css'];
+const BASE_SNAP = new Map();
+let BASE_ERR = null;
+function baseBytes(rel) {
+  if (BASE_SNAP.has(rel)) return BASE_SNAP.get(rel);
+  let buf = null;
+  try {
+    buf = require('child_process').execFileSync('git', ['show', BASE_REF + ':' + rel],
+      { cwd: ROOT, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch (e) { buf = null; }
+  BASE_SNAP.set(rel, buf);
+  return buf;
+}
+try {
+  const bt = baseBytes(TAVERN);
+  if (bt === null) throw new Error('git show ' + BASE_REF + ':' + TAVERN + ' が取れない');
+  /* ⭐ 母集団ガード: 「基準が本当に着手前か」を 1 点で確かめる。
+     基準の tavern.html に既に #39 の痕跡があれば、それは基準ではなく着地後のコミット。 */
+  const s = bt.toString('utf8');
+  if (s.indexOf('pmSight') >= 0 || s.indexOf('DFSight') >= 0) {
+    throw new Error('基準 ' + BASE_REF + ' の tavern.html に既に #39 が入っている'
+      + ' (pmSight/DFSight を検出) = 基準が新しすぎる');
+  }
+} catch (e) { BASE_ERR = (e && e.message) || String(e); }
+
 const MUT_SRC = {};
 for (const k of MUT_IMPL) {
   const m = MUTATIONS[k];
@@ -204,7 +253,7 @@ const MIME = {
   '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.woff': 'font/woff',
   '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml',
 };
-function startServer(port, mutKey) {
+function startServer(port, mutKey, useBase) {
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
       try {
@@ -215,7 +264,10 @@ function startServer(port, mutKey) {
           res.setHeader('Cache-Control', 'no-store');
           res.end(MUT_SRC[mutKey].body); return;
         }
-        const buf = frozen(rel);
+        /* ★基準ポート: ソース系だけ着手前 hash から配り、資材は現行へフォールバック。 */
+        let buf = null;
+        if (useBase && BASE_EXT.indexOf(path.extname(rel).toLowerCase()) >= 0) buf = baseBytes(rel);
+        if (buf === null || buf === undefined) buf = frozen(rel);
         if (buf === null) { res.statusCode = 404; res.end('404'); return; }
         res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream');
         res.setHeader('Cache-Control', 'no-store');
@@ -502,6 +554,13 @@ async function probeTavern(browser, base, query) {
         empty: !!document.querySelector('.mrEmpty'),
         nRows: rows.length,
         all: window.DFRoster ? DFRoster.all().length : -1,
+        /* ⭐ (1c) は職ごとに経路Bと突き合わせるので classKey が要る。
+           ⛔ 本番 DOM へ検証専用の data 属性を足さない —— 名簿の権威 DFRoster.all() と
+             **同じ並び**で突き合わせる (renderRosterPanel は all() を forEach で描いている)。
+           ⚠ 並びが同じであることは .mrName と名簿の name の一致で毎回確かめる
+             (並びがズレていたら (1c) は職を取り違えたまま緑になりうる)。 */
+        allList: window.DFRoster ? DFRoster.all().map((m) => ({
+          id: m.id, classKey: m.classKey, name: m.name, level: m.level, runs: m.runs })) : [],
         rows: rows.map((r) => {
           const meta = r.querySelector('.mrMeta');
           const nm   = r.querySelector('.mrName');
@@ -585,6 +644,236 @@ async function probeTavern(browser, base, query) {
   await page.close();
   return o;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 測定 ④ §3 非退行 — 決定論的な編成で演出を開き、器のテキストと出発の口を採る
+//   ⭐⭐⭐ openPrep 経由では (3a) を測れない。buildParty() が Math.random() で顔ぶれを
+//     作り直すので、基準と現行を 1 文字単位で比べると **視界と無関係な差分**で必ず赤くなる。
+//     → 既存の検証シーム window.__pmTest.play() に selection.partyMembers を直接与える。
+//   ⭐ 顔ぶれ = warrior(主人公) + dwarf / elf / rogue。視界が 8 / 10 / 12 の 3 種類そろう。
+//     ⚠ 全員が同じ職だと「1 行増えたことの巻き添え」が 1 通りしか見えない。
+//   ⚠ 名簿も同じ関数で採る。基準 (着手前) には視界の節が無いので (3b) は
+//     「視界の節を落とした残り」を突き合わせる。
+// ══════════════════════════════════════════════════════════════════════════════
+/** 名簿の種。⛔ localStorage へ手で JSON を書かない (保存形をドライバが決めてしまう)。 */
+const ROSTER_SEED = [
+  { classKey: 'dwarf',   name: '(装置) ドワーフ', trait: '石に明るい', line: '「任せろ。」', level: 3 },
+  { classKey: 'elf',     name: '(装置) エルフ',   trait: '耳が良い',   line: '「静かに。」', level: 2 },
+  { classKey: 'warrior', name: '(装置) 戦士',     trait: '前に出る',   line: '「行くぞ。」', level: 1 },
+];
+/** (3a) の顔ぶれ。主人公 warrior + 仲間 3 人。⭐ 視界が 3 種類そろう並び。 */
+const NR_PARTY = ['dwarf', 'elf', 'rogue'];
+
+/** 見えている要素の中心を **実マウス**で叩く。⚠ 引き出しを開くと中心が動くので毎回測り直す。 */
+async function clickCenterOfSel(page, sel) {
+  const rc = await page.evaluate((s) => {
+    const e = document.querySelector(s);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, hit: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)' };
+  }, sel);
+  if (!rc) return null;
+  await page.mouse.click(Math.round(rc.x), Math.round(rc.y));
+  return rc;
+}
+
+/** 引き出しを開いたまま #pmDepart が viewport に残っているか ((3c))。 */
+const DEPART_GEO = () => {
+  const dep = document.getElementById('pmDepart');
+  const drw = document.getElementById('pmDrawer');
+  const r = dep ? dep.getBoundingClientRect() : null;
+  const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+  return {
+    vw: window.innerWidth, vh: window.innerHeight,
+    drawerVis: !!(drw && !drw.hidden),
+    nOpen: document.querySelectorAll('#pmColumns .pmColumn.pmOpen').length,
+    depHidden: dep ? !!dep.hidden : null,
+    /* ⚠ 2 列へ落ちたことを確かめる。落ちていない幅で測ると compact を測ったことにならない。 */
+    cols: (() => { try { return getComputedStyle(document.getElementById('pmColumns'))
+      .gridTemplateColumns.trim().split(/\s+/).length; } catch (e) { return -1; } })(),
+    rect: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom),
+                left: Math.round(r.left), right: Math.round(r.right) } : null,
+    hitId: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)',
+  };
+};
+
+/* ⚠⚠⚠ 2026-08-31 実測: **演出を開いたあとに setViewport で幅を変えると演出ごと畳まれる**
+ *   (引き出し vis=false / 開いたカード 0 枚 / #pmDepart の命中先が #tavernViewport)。
+ *   → compact は「開いてから縮める」のではなく **最初から 390x844 で開いた別ページ**で測る
+ *     (verify_party_match_setup の腕 D と同じ作法)。⛔ 縮めて測る形へ戻さないこと。 */
+const VP_DESKTOP = { w: 1280, h: 900, mobile: false, cols: 4 };
+const VP_COMPACT = { w: 390,  h: 844, mobile: true,  cols: 2 };
+
+async function probeTavernNR(browser, base, label, vp, opts) {
+  vp = vp || VP_DESKTOP;
+  const o = { label, vp, errs: [], status: 0, boot: false, enrolled: -1,
+              roster: [], cards: [], reached: false, geo: null };
+  const page = await browser.newPage();
+  page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
+  await page.setViewport({ width: vp.w, height: vp.h, deviceScaleFactor: 1,
+    isMobile: !!vp.mobile, hasTouch: !!vp.mobile });
+  const url = base + '/' + TAVERN;
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.evaluate(tavernSeed);
+    const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    o.status = resp ? resp.status() : 0;
+    await page.waitForFunction(
+      "typeof scenarios !== 'undefined' && !!window.DFRoster"
+      + " && !!(window.__pmTest && typeof __pmTest.play === 'function')",
+      { timeout: 30000 });
+    await sleep(400);
+    o.boot = true;
+  } catch (e) { o.errs.push('boot: ' + ((e && e.message) || e)); }
+
+  /* ── 名簿 ((3b)) ────────────────────────────────────────────────────── */
+  if (!(opts && opts.skipRoster)) try {
+    o.enrolled = await page.evaluate((want) => {
+      let n = 0;
+      for (const m of want) { if (DFRoster.enroll(m) != null) n++; }
+      return n;
+    }, ROSTER_SEED);
+    await page.click('#rosterEntry');
+    await sleep(250);
+    o.roster = await page.evaluate(() => {
+      const txt = (e) => (e ? String(e.textContent || '').trim() : '');
+      return Array.prototype.map.call(document.querySelectorAll('.mrRow'), (r) => ({
+        name: txt(r.querySelector('.mrName')), meta: txt(r.querySelector('.mrMeta')) }));
+    });
+    await page.evaluate(() => {
+      const ov = document.getElementById('rosterOverlay');
+      if (ov) ov.classList.remove('show');
+    });
+    await sleep(150);
+  } catch (e) { o.errs.push('roster: ' + ((e && e.message) || e)); }
+
+  /* ── 演出を **決定論的な顔ぶれ**で開く ────────────────────────────── */
+  try {
+    await page.evaluate((id, want) => {
+      const mk = (ck, isHero, name) => ({
+        classKey: ck, isHero: !!isHero, name: name,
+        zone: PARTY_ZONES[ck], variant: 0, level: 5,
+      });
+      selection.partyComposition = ['warrior'];
+      selection.partyMembers = [mk('warrior', true, '')]
+        .concat(want.map((ck, i) => mk(ck, false, '(装置) 仲間' + (i + 1))));
+      const sc = scenarios.find((s) => s.id === id);
+      Promise.resolve(window.__pmTest.play(sc)).catch(() => {});
+    }, 'goblin-mine', NR_PARTY);
+    /* 出発の口が見えるまで待つ (= 全カード確定 + タップ猶予明け)。 */
+    for (let i = 0; i < 300; i++) {
+      const st = await page.evaluate(() => {
+        const d = document.getElementById('pmDepart');
+        return !!(d && !d.hidden && d.getClientRects().length > 0);
+      });
+      if (st) { o.reached = true; break; }
+      await sleep(50);
+    }
+    o.cards = await page.evaluate(() => {
+      const txt = (e) => (e ? String(e.textContent || '').trim() : '');
+      return Array.prototype.map.call(document.querySelectorAll('#pmColumns .pmColumn'), (c) => ({
+        state: c.dataset.state || '',
+        classKey: c.dataset.classKey || '',
+        name:   txt(c.querySelector('.pmName')),
+        cls:    txt(c.querySelector('.pmClass')),
+        zone:   txt(c.querySelector('.pmZone')),
+        /* ⭐ (3a) の対象。⛔ .pmSight は入れない (それは足したもの = 比べる相手ではない)。 */
+        equip:  Array.prototype.map.call(c.querySelectorAll('.pmEquipRow'), (r) => txt(r)),
+        skills: txt(c.querySelector('.pmSkillsVal')),
+        hasSight: !!c.querySelector('.pmSight'),
+        sight:  txt(c.querySelector('.pmSight')),
+      }));
+    });
+  } catch (e) { o.errs.push('cinema: ' + ((e && e.message) || e)); }
+
+  /* ── (3c) 引き出しを開いたまま #pmDepart が画面に残るか ──────────────
+     ⚠⚠ #35 の実測: compact の 30vh が desktop の 42vh に勝つ = **両方の幅で**測る。
+     ⚠ カードが 2 列へ落ちる境目は @media (max-width: 720px)。
+       ⭐ 依頼書 §8 (3c) の「≤900px」は誤り —— tavern.html:2213 を読んで実測した。 */
+  if (o.reached) {
+    try {
+      await clickCenterOfSel(page, '#pmColumns .pmColumn');
+      await sleep(320);
+      o.geo = await page.evaluate(DEPART_GEO);
+    } catch (e) { o.errs.push('depart: ' + ((e && e.message) || e)); }
+  }
+
+  await page.close();
+  return o;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 測定 ⑤ (3e)(3f) — 本番 5 ページを開き、pageerror と localStorage の増減を採る
+//   ⭐ シートは 5 ページ共通モジュール。読み込み順の巻き添えはここでしか見えない。
+//   ⚠ 「0 本増えない」は **種が入っていること** が前提。空の localStorage で測ると
+//     差分が空振りして永久緑になる (#36 (9b) と同じ罠)。
+// ══════════════════════════════════════════════════════════════════════════════
+const PAGES5 = [
+  { label: 'index',  file: 'index.html'  },
+  { label: 'tavern', file: 'tavern.html' },
+  { label: 'title',  file: 'title.html'  },
+  { label: 'town',   file: 'town.html'   },
+  { label: 'world',  file: 'world.html'  },
+];
+const LS_KEYS = () => {
+  const a = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('dragonfighters.') === 0) a.push(k);
+    }
+  } catch (e) { /* private mode */ }
+  return a.sort();
+};
+async function probePages5(browser, base) {
+  const out = [];
+  for (const spec of PAGES5) {
+    const o = { label: spec.label, file: spec.file, errs: [], status: 0,
+                has: false, opened: null, closed: null, lsBefore: [], lsOpen: [], lsAfter: [] };
+    const page = await browser.newPage();
+    page.on('pageerror', e => o.errs.push(String((e && e.message) || e)));
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+    await page.evaluateOnNewDocument((s) => {
+      try { localStorage.clear(); for (const k in s) localStorage.setItem(k, s[k]); } catch (e) {}
+    }, PAGE_SEED);
+    let resp = null;
+    try { resp = await page.goto(base + '/' + spec.file, { waitUntil: 'load', timeout: 45000 }); }
+    catch (e) { o.errs.push('goto: ' + ((e && e.message) || e)); }
+    o.status = resp ? resp.status() : 0;
+    await sleep(PAGE_SETTLE);
+    try {
+      const a = await page.evaluate((src) => ({ has: !!window.DFSheet, ls: eval(src)() }), String(LS_KEYS));
+      o.has = a.has; o.lsBefore = a.ls;
+      if (o.has) {
+        o.opened = await page.evaluate((src) => {
+          try { DFSheet.open(); } catch (e) { return 'open で例外: ' + (e && e.message); }
+          return !!(DFSheet.isOpen && DFSheet.isOpen());
+        }, String(LS_KEYS));
+        await sleep(500);
+        o.lsOpen = await page.evaluate((src) => eval(src)(), String(LS_KEYS));
+        o.closed = await page.evaluate(() => {
+          try { DFSheet.close(); } catch (e) { return 'close で例外: ' + (e && e.message); }
+          return !!(DFSheet.isOpen && DFSheet.isOpen());
+        });
+        await sleep(400);
+        o.lsAfter = await page.evaluate((src) => eval(src)(), String(LS_KEYS));
+      }
+    } catch (e) { o.errs.push('sheet: ' + ((e && e.message) || e)); }
+    await page.close();
+    out.push(o);
+  }
+  return out;
+}
+
+/** 「戦士 / Lv3 / 同行 5 回 / 視界 12」から **視界の節だけ**を落とす ((3b))。 */
+function stripSight(meta) {
+  return String(meta || '').split('/').map(s => s.trim())
+    .filter(s => !/^視界\s*\d+$/.test(s)).join(' / ');
+}
+const deepEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // assert 一覧 (id / 見出し / 述語)。述語は測定結果 M だけを見る純関数。
@@ -808,19 +1097,167 @@ const ASSERTS = [
       : '押す前 = classDetail 開 0 枚 / .classSight 器 ' + bc.nSight
         + ' 個・可視 0 個  →  押した後 = 6 枚とも開き視界行が可視'];
   }],
+
+  // ── §1 の 4 箇所目: 傭兵名簿 ─────────────────────────────────────────────
+  ['1c', '★名簿の .mrMeta の視界 = 経路Bのその職の tiles (名簿の全行)', (M) => {
+    const r  = M.tavern.roster || {};
+    const rt = (M.idx.runtime || {}).tiles || {};
+    const rows = r.rows || [], all = r.allList || [];
+    /* ⭐ 母集団ガード ①: 行が無いと for が 1 度も回らず「欠陥ゼロ」で永久緑になる。 */
+    if (!rows.length) return [false, '⛔ .mrRow が 0 行 — 先に (0e) を見ること'];
+    if (rows.length !== all.length) return [false, '⛔ 描かれた行 ' + rows.length
+      + ' と名簿の在籍 ' + all.length + ' が食い違う (突き合わせの前提が崩れている)'];
+    const bad = [], seen = [];
+    /* ⭐⭐ 母集団ガード ②: 名簿の職が全部同じ視界だと、「視界 8」を直書きした実装でも
+       (1c) が緑になる。相異なる tiles が 2 種類以上あることを要求する。 */
+    const uniq = Array.from(new Set(all.map(m => rt[m.classKey]).filter(v => typeof v === 'number')));
+    if (uniq.length < 2) bad.push('⛔ 名簿の職の視界が ' + uniq.length
+      + ' 種類しかない [' + uniq.join(',') + '] — 数字を直書きした実装でも緑になる母集団');
+    for (let i = 0; i < rows.length; i++) {
+      const m = all[i] || {};
+      /* ⭐ 並びが同じであることを名前で確かめる。ズレていたら職を取り違えたまま緑になる。 */
+      if (rows[i].name !== m.name) {
+        bad.push('行 ' + i + ': 名簿と描画の並びが違う ("' + rows[i].name + '" vs "' + m.name + '")');
+        continue;
+      }
+      if (typeof rt[m.classKey] !== 'number') { bad.push(m.classKey + ': 経路Bにその職が無い'); continue; }
+      /* ⭐ 経路A = 画面の文字列から数字を読む。⛔ DFSight.sightLabel と突き合わせない。 */
+      const t = parseSightShort(rows[i].meta);
+      seen.push(m.classKey + ' 画面=' + t + ' 実行時=' + rt[m.classKey]);
+      if (t === null) bad.push(m.classKey + ': .mrMeta から視界が読めない "' + rows[i].meta + '"');
+      else if (t !== rt[m.classKey]) bad.push(m.classKey + ': 画面 ' + t + ' ≠ 実行時 ' + rt[m.classKey]);
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ')
+      : rows.length + ' 行: ' + seen.join('  ')];
+  }],
+
+  // ── §3 既存の器を壊していない (非退行) ───────────────────────────────────
+  ['3a', '★.pmName / .pmClass / .pmEquipRow / .pmSkillsVal のテキストが着手前と 1 文字も違わない', (M) => {
+    if (M.baseErr) return [false, '⛔ 基準 (' + M.baseRef + ') が配れない: ' + M.baseErr];
+    const A = M.nrCur || {}, B = M.nrBase || {};
+    if (!A.reached) return [false, '⛔ 現行アームが演出へ到達できなかった: ' + (A.errs || []).join(' | ')];
+    if (!B.reached) return [false, '⛔ 基準アームが演出へ到達できなかった: ' + (B.errs || []).join(' | ')];
+    const a = A.cards || [], b = B.cards || [];
+    /* ⭐ 母集団ガード: カードが 0 枚 / 枚数違い / 空文字だと「差が無い」が自明に成立する。 */
+    if (a.length < 2) return [false, '⛔ 現行のカードが ' + a.length + ' 枚 — 母集団が無い'];
+    if (a.length !== b.length) return [false, '⛔ 枚数が違う 現行 ' + a.length + ' / 基準 ' + b.length];
+    const bad = [];
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i], y = b[i];
+      if (x.classKey !== y.classKey) { bad.push('#' + i + ': 職が違う ' + x.classKey + ' / ' + y.classKey); continue; }
+      if (!x.name || !x.cls || !x.skills || (x.equip || []).length === 0) {
+        bad.push('#' + i + ' (' + x.classKey + '): ⛔ 器が空 name="' + x.name + '" cls="' + x.cls
+          + '" skills="' + x.skills + '" equip=' + (x.equip || []).length + ' 行 — 差が無いのは当たり前');
+        continue;
+      }
+      if (x.name !== y.name)   bad.push('#' + i + ' .pmName "' + x.name + '" ≠ "' + y.name + '"');
+      if (x.cls !== y.cls)     bad.push('#' + i + ' .pmClass "' + x.cls + '" ≠ "' + y.cls + '"');
+      if (!deepEq(x.equip, y.equip)) bad.push('#' + i + ' .pmEquipRow ' + JSON.stringify(x.equip)
+        + ' ≠ ' + JSON.stringify(y.equip));
+      if (x.skills !== y.skills) bad.push('#' + i + ' .pmSkillsVal "' + x.skills + '" ≠ "' + y.skills + '"');
+    }
+    /* ⭐ 基準が「本当に着手前」であることの現場確認: 基準側に .pmSight は 1 枚も無いはず。 */
+    const bSight = b.filter(x => x.hasSight).length;
+    if (bSight !== 0) bad.push('⛔ 基準 (' + M.baseRef + ') のカードに .pmSight が ' + bSight
+      + ' 枚ある = 基準が着手前ではない');
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.slice(0, 6).join(' / ')
+      : '基準 ' + M.baseRef + ' と現行を同時配信して突き合わせ: ' + a.length + ' 枚 × 4 器 ('
+        + a.map(x => x.classKey).join(',') + ') が 1 文字も違わない'
+        + '  (現行の .pmSight ' + a.filter(x => x.hasSight).length + ' 枚 / 基準 0 枚)'];
+  }],
+  ['3b', '.mrMeta から視界の部分を除いた文字列が着手前と一致 (「戦士 / Lv3 / 同行 5 回」)', (M) => {
+    if (M.baseErr) return [false, '⛔ 基準 (' + M.baseRef + ') が配れない: ' + M.baseErr];
+    const a = (M.nrCur || {}).roster || [], b = (M.nrBase || {}).roster || [];
+    if (!a.length) return [false, '⛔ 現行の名簿が 0 行 — 母集団が無い'];
+    if (a.length !== b.length) return [false, '⛔ 行数が違う 現行 ' + a.length + ' / 基準 ' + b.length];
+    const bad = [], seen = [];
+    /* ⭐ 母集団ガード: 現行に視界の節が 1 つも無いなら stripSight は素通しで、
+       この assert は「同じものどうし」を比べているだけになる。 */
+    const withSight = a.filter(x => stripSight(x.meta) !== x.meta).length;
+    if (withSight !== a.length) bad.push('⛔ 現行で視界の節を持つ行が ' + withSight + '/' + a.length
+      + ' 行しかない — 落とす対象が無ければ (3b) は何も測っていない');
+    for (let i = 0; i < a.length; i++) {
+      const cur = stripSight(a[i].meta), base = stripSight(b[i].meta);
+      seen.push('"' + cur + '"');
+      if (a[i].name !== b[i].name) bad.push('行 ' + i + ': 名前が違う "' + a[i].name + '" / "' + b[i].name + '"');
+      if (!base) bad.push('行 ' + i + ': 基準の .mrMeta が空 = 比較が空振り');
+      else if (cur !== base) bad.push('行 ' + i + ': "' + cur + '" ≠ 基準 "' + base + '"');
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.slice(0, 5).join(' / ')
+      : a.length + ' 行とも視界の節を落とすと基準 ' + M.baseRef + ' と一致: ' + seen.join(' ')
+        + '  (現行の原文例 "' + a[0].meta + '")'];
+  }],
+  ['3c', '★カードが 1 行増えても #pmDepart が viewport の中に残る (desktop 4 列 / compact 2 列・引き出しを開いたまま)', (M) => {
+    const A = M.nrCur || {}, C = M.nrCompact || {};
+    if (!A.reached) return [false, '⛔ desktop アームが演出へ到達できなかった: ' + (A.errs || []).join(' | ')];
+    if (!C.reached) return [false, '⛔ compact アームが演出へ到達できなかった: ' + (C.errs || []).join(' | ')];
+    const bad = [], seen = [];
+    const judge = (lbl, g, wantCols) => {
+      if (!g) { bad.push(lbl + ': 測れていない'); return; }
+      if (!g.drawerVis || g.nOpen !== 1) bad.push(lbl + ': 引き出しが開いていない (vis=' + g.drawerVis
+        + ' 開いたカード ' + g.nOpen + ' 枚) — 開いていない状態で測ると (3c) は自明に緑');
+      if (g.cols !== wantCols) bad.push(lbl + ': #pmColumns が ' + g.cols + ' 列 (期待 ' + wantCols + ' 列)');
+      if (!g.rect) { bad.push(lbl + ': #pmDepart の矩形が採れない (hidden=' + g.depHidden + ')'); return; }
+      const inView = g.rect.top >= 0 && g.rect.bottom <= g.vh && g.rect.left >= 0 && g.rect.right <= g.vw;
+      if (!inView) bad.push(lbl + ': 画面外 rect=' + JSON.stringify(g.rect) + ' viewport ' + g.vw + 'x' + g.vh);
+      if (g.hitId !== 'pmDepart') bad.push(lbl + ': 覆われている (命中先=' + g.hitId + ')');
+      seen.push(lbl + ' ' + g.vw + 'x' + g.vh + ' ' + g.cols + '列 top=' + g.rect.top
+        + ' bottom=' + g.rect.bottom + '/' + g.vh + ' 命中=' + g.hitId);
+    };
+    judge('desktop', A.geo, VP_DESKTOP.cols);
+    judge('compact', C.geo, VP_COMPACT.cols);
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ') : seen.join('   ')];
+  }],
+  ['3d', 'dfSheetSecTraits の既存 3 行 (data-stat = zone / role / note) が順序ごと不変', (M) => {
+    const sh = M.idx.sheet || {};
+    if (!sh.ok) return [false, '⛔ シートが測れない'];
+    const WANT = ['zone', 'role', 'note'];
+    const bad = [], seen = [];
+    for (const k of CLASS_KEYS) {
+      const so = (sh.byClass[k] || {}).statOrder || [];
+      if (so.length < 3) { bad.push(k + ': data-stat の行が ' + so.length + ' 本しか無い'); continue; }
+      if (!deepEq(so.slice(0, 3), WANT)) bad.push(k + ': 先頭 3 行が ' + JSON.stringify(so.slice(0, 3)));
+      /* ⭐ 足した行が既存 3 行より前に割り込んでいないこと = 上の slice で担保される。
+         ⚠ 「sight が有る」は (1a) の担当。ここは **既存 3 行の順序だけ**を見る。 */
+      seen.push(k + '=' + so.join('>'));
+    }
+    return [bad.length === 0, bad.length ? '⛔ ' + bad.join(' / ') : seen.join('  ')];
+  }],
+  ['3e', '5 ページ (index / tavern / title / town / world) で pageerror 0 件', (M) => {
+    const P = M.pages5 || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 ページでない (' + P.length + ')'];
+    const bad = P.filter(p => (p.errs || []).length || p.status !== 200);
+    const n = P.reduce((a, p) => a + (p.errs || []).length, 0);
+    return [bad.length === 0,
+      P.map(p => p.label + ':' + p.status + '/' + (p.errs || []).length + '件').join(' ')
+      + '  合計 pageerror ' + n + ' 件'
+      + (bad.length ? '  ⛔ ' + bad.map(p => p.label + ' → ' + ((p.errs || [])[0] || ('status ' + p.status))).join(' / ') : '')];
+  }],
+  ['3f', 'シートの開閉で localStorage のキーが 0 本増えない (5 ページとも)', (M) => {
+    const P = M.pages5 || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 ページでない (' + P.length + ')'];
+    const bad = [];
+    for (const p of P) {
+      /* ⭐ 母集団ガード: 種が入っていない / シートが開いていないと差分が空振りする。 */
+      if (!p.has) { bad.push(p.label + ' ⛔ DFSheet が載っていない'); continue; }
+      if (p.opened !== true) { bad.push(p.label + ' ⛔ シートが開かなかった (' + p.opened + ')'); continue; }
+      if (!(p.lsBefore || []).length) { bad.push(p.label + ' ⛔ 種が 0 本 = 差分が空振り'); continue; }
+      const addOpen  = (p.lsOpen  || []).filter(k => (p.lsBefore || []).indexOf(k) < 0);
+      const addClose = (p.lsAfter || []).filter(k => (p.lsBefore || []).indexOf(k) < 0);
+      if (addOpen.length)  bad.push(p.label + ' ⛔ 開いた時点で +' + addOpen.join(','));
+      if (addClose.length) bad.push(p.label + ' ⛔ 閉じた後に +' + addClose.join(','));
+    }
+    return [bad.length === 0,
+      P.map(p => p.label + ':' + (p.lsBefore || []).length + '→' + (p.lsOpen || []).length
+        + '→' + (p.lsAfter || []).length + '本').join(' ')
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '  (開閉とも +0 本)')];
+  }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
 /* まだ実装していない受入条件。⛔ 黙って緑にしない (理由つきの PENDING で出す)。 */
 const PENDING_ASSERTS = [
-  ['1c', '★名簿の .mrMeta の視界 = 経路Bのその職の tiles (名簿の全行)', '項目 3 (STEP3) の担当 — mrMeta の視界がまだ実装されていない'],
-  ['3a', '.pmName / .pmClass / .pmEquipRow / .pmSkillsVal のテキストが着手前と 1 文字も違わない', '項目 3 の担当 — 着手前 hash を worktree へ取り出して別 URL で同時配信する装置が要る'],
-  ['3b', '.mrMeta から視界の部分を除いた文字列が着手前と一致', '項目 3 の担当'],
-  ['3c', '★カードが 1 行増えても #pmDepart が viewport の中に残る (desktop / compact 両方)', '項目 3 の担当 — 引き出しを開いた状態でも測る'],
-  ['3d', 'dfSheetSecTraits の既存 3 行 (zone / role / note) が順序ごと不変', '項目 3 の担当 (statOrder は本ドライバが既に採取している)'],
-  ['3e', '5 ページ (index / tavern / title / town / world) で pageerror 0 件', '項目 3 の担当 — town / world をまだ開いていない'],
-  ['3f', 'シートの開閉で localStorage のキーが 0 本増えない', '項目 3 の担当'],
   ['4a', 'title.html?darkvision=0 → .classSight が 0 個、classDetail の他 3 行は健在', '項目 4 (撤退) の担当'],
   ['4b', 'tavern.html?darkvision=0 → .pmSight が 0 個、.mrMeta に視界が出ない', '項目 4 (撤退) の担当'],
   ['4c', 'index.html?darkvision=0 → シートの [data-stat="sight"] が 0 個', '項目 4 (撤退) の担当'],
@@ -829,8 +1266,9 @@ const PENDING_ASSERTS = [
 
 const SECTIONS = [
   ['§0 装置 — 母集団を先に確かめる', ['0a', '0b', '0c', '0d', '0e', '0f', '0g']],
-  ['§1 数字が一致する (本丸)', ['1a', '1b', '1d', '1e', '1f']],
+  ['§1 数字が一致する (本丸)', ['1a', '1b', '1c', '1d', '1e', '1f']],
   ['§2 表示が実在する (空文字で緑にしない)', ['2a', '2b']],
+  ['§3 既存の器を壊していない (非退行 — 基準は着手前 hash の同時配信)', ['3a', '3b', '3c', '3d', '3e', '3f']],
 ];
 function emit(id, M) {
   const a = ASSERT_OF[id];
@@ -852,6 +1290,8 @@ function emit(id, M) {
   const profile = require('./_pptr_profile')('df_dark_');
   const servers = [await startServer(PORT, MUTATE)];
   if (NEGATIVE) for (const k of MUT_IMPL) servers.push(await startServer(PORT_OF[k], k));
+  /* ★§3 の基準を **同じ実行の中で同時に**配る。⛔ HEAD ではない (#34 の教訓)。 */
+  if (!BASE_ERR) servers.push(await startServer(BASE_PORT, null, true));
   const browser = await puppeteer.launch({
     executablePath: findBrowser(), headless: !HEADFUL,
     args: ['--user-data-dir=' + profile, '--no-sandbox', '--disable-dev-shm-usage', '--mute-audio'],
@@ -871,6 +1311,39 @@ function emit(id, M) {
   try {
     mark('測定 — index (経路A/B) / title (名乗り) / tavern (演出・名簿)');
     const M = await measureAll(PORT, MUTATE);
+    M.baseRef = BASE_REF; M.baseErr = BASE_ERR;
+
+    mark('測定 — §3 非退行 (基準 = 着手前 ' + BASE_REF + ' を :' + BASE_PORT + ' で同時配信)');
+    /* ⭐ 顔ぶれは __pmTest.play で固定する (乱数を潰す)。両アームへ同じ並びを与える。
+       ⚠ 現行アームは基準が配れなくても必ず測る —— (3c) は基準を 1 バイトも使わない。
+         ここを BASE_ERR で括ると、基準の取得に失敗しただけで (3c) まで巻き添えで赤くなる
+         (2026-08-31 実測: --baseline HEAD で 3 本赤くなり、うち 1 本は無関係だった)。 */
+    M.nrCur = await probeTavernNR(browser, 'http://localhost:' + PORT, '現行', VP_DESKTOP);
+    console.log('[drv]   現行 カード ' + ((M.nrCur.cards || []).length) + ' 枚 / 名簿 '
+      + ((M.nrCur.roster || []).length) + ' 行 / 到達=' + M.nrCur.reached);
+    if (BASE_ERR) {
+      console.log('[drv]   ⛔ 基準が配れない: ' + BASE_ERR);
+    } else {
+      M.nrBase = await probeTavernNR(browser, 'http://localhost:' + BASE_PORT, '基準', VP_DESKTOP);
+      console.log('[drv]   基準 カード ' + ((M.nrBase.cards || []).length) + ' 枚 / 名簿 '
+        + ((M.nrBase.roster || []).length) + ' 行 / 到達=' + M.nrBase.reached);
+      if ((M.nrCur.roster || [])[0]) console.log('[drv]   .mrMeta 現行="' + M.nrCur.roster[0].meta
+        + '"  基準="' + ((M.nrBase.roster || [])[0] || {}).meta + '"');
+    }
+
+    /* ⚠⚠⚠ compact は **最初から 390x844 で開く**。開いてから縮めると演出ごと畳まれる
+       (2026-08-31 実測 = 引き出し vis=false / 命中先が #tavernViewport)。 */
+    mark('測定 — (3c) compact 390x844 (最初からこの幅で演出を開く)');
+    M.nrCompact = await probeTavernNR(browser, 'http://localhost:' + PORT, '現行compact',
+      VP_COMPACT, { skipRoster: true });
+    console.log('[drv]   到達=' + M.nrCompact.reached + ' geo='
+      + JSON.stringify((M.nrCompact.geo || {}).rect));
+
+    mark('測定 — 本番 5 ページ (pageerror / localStorage の増減)');
+    M.pages5 = await probePages5(browser, 'http://localhost:' + PORT);
+    console.log('[drv]   ' + M.pages5.map(p => p.label + ':' + p.status
+      + '/err' + (p.errs || []).length).join(' '));
+
     const rt = (M.idx.runtime || {}).tiles || {};
     const by = (M.idx.sheet || {}).byClass || {};
     console.log('[drv]   経路B (実行時 getSight().tiles): ' + CLASS_KEYS.map(k => k + '=' + rt[k]).join(' '));

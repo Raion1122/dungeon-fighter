@@ -2832,10 +2832,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間の見える範囲が編成で分かる</b> — マッチング画面のカードと傭兵名簿に視界を表示。暗視を持つ相手を連れると、松明の届かない先まで見えるようになる。</li>
         <li><b>職業を選ぶときに暗視が分かる</b> — 名乗りの画面で、その職がダンジョンでどこまで見通せるかを開けるようになった。</li>
         <li><b>キャラクターシートに視界が載った</b> — 自分がどれだけ先まで見通せるかが「特徴 & 特性」に出る。ドワーフは暗闇でも 60 フィート先まで見える。</li>
         <li><b>酒場で傭兵名簿を開けるようになった</b> — 左上の「📖 傭兵名簿」から、これまで共に潜った顔ぶれと同行回数を見られる。もう組まない相手は見送れる。</li>
-        <li><b>共に生きて帰った仲間が育つ</b> — 一緒に潜って無事に戻った冒険者は経験を重ね、何度か生還するとレベルが上がる。倒れて帰れなかった依頼では経験にならない。</li>
       </ul>
     </div>
     <script>
@@ -5315,7 +5315,15 @@
       html += '<li class="mrRow">'
         + '<div class="mrHead"><span class="mrName">' + chEsc(m.name) + '</span>'
         + '<span class="mrMeta">' + chEsc(chClassLabel(m.classKey)) + ' / Lv' + chEsc(String(m.level))
-        + ' / 同行 ' + chEsc(String(m.runs)) + ' 回</span></div>'
+        + ' / 同行 ' + chEsc(String(m.runs)) + ' 回'
+        /* ★#39: 視界。⛔ ここで文字列を組み立てない (唯一の正は DFSight.sightLabel)。
+           ⛔ DFRoster の保存形は 1 バイトも変えない —— 視界は classKey から **毎回引く**。
+              名簿へ焼くと、あとで視界を調整したとき名簿の中だけ古い数字が残る。
+           ⚠ ?darkvision=0 では **1 文字も足さない** (空文字も足さない)。
+              依頼書 §8 (4b) が「.mrMeta に視界が出ない」を要求する。 */
+        + ((window.DFSight && DFSight.enabled())
+            ? ' / ' + chEsc(DFSight.sightLabel(m.classKey, true)) : '')
+        + '</span></div>'
         + '<div class="mrTrait">' + chEsc(m.trait) + '</div>'
         + '<div class="mrLine">' + chEsc(m.line) + '</div>'
         + '<button type="button" class="mrRelease" data-mid="' + chEsc(String(m.id))
