@@ -95,7 +95,8 @@
  *   **刻みの上限値そのもの (320px)**。(1a)(0b) は必ずページから読んだ cap と比較する。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⭐ 12 本すべて実装済み (2026-09-02 / 項目 4)。1 本ずつ別ポートへ配信して順に回す。
+ *   ⭐ 15 本すべて実装済み (2026-09-02 / #40 項目 4 で 12 本 → #42 項目 3 で 3 本追加)。
+ *     1 本ずつ別ポートへ配信して順に回す。
  *
  *   mutate       | 注入する欠陥                                           | 赤くなるべき節
  *   nosteps      | stepsOfEdge の分割数を常に 1 にして STEPS を空に        | (0a)(1a)(2a)
@@ -110,6 +111,17 @@
  *   retreatkills | 撤退時に STEPS のデータごと空にする (撤退のしすぎ)       | (6d)
  *   fireevent    | 刻み点到着で確認ダイアログを開く (器に中身を入れる)      | (4c)
  *   arrivedup    | walkPath の中からフックを呼び 1 ホップで 2 回鳴らす       | (4b)
+ *   ── #42 項目 3 で追加 ──────────────────────────────────────────────────────
+ *   coarsestep   | STEP_MAX_PX を 320 へ戻す (#40 の姿 = 5 マス刻み)        | (1e) のみ
+ *   signsteal    | 刻み点を札の帯へ -40px 押し込み z-index 9 へ上げる        | (2d)(2e)
+ *   smallstep    | .worldStepBody を 6px へ戻す (#40 の姿)                  | (2f)
+ *
+ *   ⭐⭐⭐ coarsestep の眼目 = **(0b) は緑のまま (1e) だけが赤くなる**。
+ *     (0b) は cap をページから読むので 320 へ戻っても期待値ごと 320 になり一致してしまう。
+ *     ⇒「人間が要求した粗さ」を縛れるのは (1e) だけ、が機械で証明される。
+ *   ⚠⚠⚠ signsteal を「z-index を上げるだけ」で書くと **原理的に空振りする**
+ *     (本番はもう z3 = 札の下。層を上げてもマーカーが (2d) の見る 5 点に届かない)。
+ *     ⇒ **札の帯の中へ押し込んでから**層を上げる複合にすること。
  *
  *   ⭐⭐⭐ 変異を書くときに **机上で 3 本潰した**「当たっているのに緑」(2026-09-02):
  *     ① nosteps を「STEP_MAX_PX を大きくする」で書くと、cap をページから読む (1a) が
@@ -229,9 +241,44 @@ const MUTATIONS = {
     why: 'walkPath の中からフックを呼び 1 ホップで 2 回鳴らす',
     from: 'heroNodeId = ids[idx];',
     to: 'heroNodeId = ids[idx]; onArriveStep(heroNodeId, "__dup__");  /* MUT arrivedup */' },
+  /* ══ #42 項目 3 (2026-09-02) で足した 3 本 ═══════════════════════════════════
+     ⭐ 狙いは「本チケットが動かした 3 つの数値 (粗さ / 層 / 大きさ) を **#40 の姿へ戻すと
+        ちゃんと赤くなる**」の機械証明。⛔ どれも受入条件を弱めずに測定点だけを突く。 */
+  /* ⭐⭐⭐ 眼目 = **(0b) は緑のまま (1e) だけが赤くなる**こと。
+       (0b) は cap を **ページから読む** ので、STEP_MAX_PX が 320 へ戻ると
+       「ページの cap で計算した期待値」も 320 になり **一致してしまう**。
+       ⇒ 「人間が要求した粗さ」を縛れるのは (1e) だけ、という設計の証明になる。
+     ⚠ to にコメントを足すのは飾りではない — 'var STEP_MAX_PX = 320;' だけだと from と
+       **同じ長さ**になり、起動時ガード (置換前後が同じ長さ → 配信の検算が誤報する) で
+       exit 3 になる。 */
+  coarsestep: { impl: true, file: 'js/world-map.js', targets: ['1e'],
+    why: 'STEP_MAX_PX を 320 へ戻す (#40 の姿 = 5 マス刻み)',
+    from: 'var STEP_MAX_PX = 160;',
+    to: 'var STEP_MAX_PX = 320;  /* MUT coarsestep */' },
+  /* ⭐ 依頼書 §2-2 の罠の再現 = 刻み点が札のクリック点を奪う。
+     ⚠⚠⚠ **「z-index を上げるだけ」では原理的に空振りする。**
+       2026-09-02 の実測 (項目 1/2):
+         z4 / 32px … 奪われ 2 件      z3 / 32px … 奪われ **0 件**
+         z4 / 44px … 奪われ 2 件      z3 / 44px … 奪われ **0 件** (現在の本番)
+       本番はもう z3 なので、層を上げるだけでは (2d) の見る 5 点にマーカーが届かない。
+       ⇒ **s.y を上へずらして札の帯の中へ押し込んでから**層を上げる複合にする。
+     ⭐ #41 が (2b) で踏んだのと同型の罠 —「矩形が交差する」と「その点を奪う」は別条件。 */
+  signsteal: { impl: true, file: 'world.html', targets: ['2d', '2e'],
+    why: '刻み点マーカーを札の帯へ押し込み、かつ札より上の層へ上げる (依頼書 §2-2 の罠)',
+    from: 'el.style.top  = s.y + "px";',
+    to: 'el.style.top  = (s.y - 40) + "px"; el.style.zIndex = "9";  /* MUT signsteal */' },
+  /* ⚠⚠⚠ 素の 'width: 9px; height: 9px;' は world.html 内に **2 件**ある
+       (:222 の .worldNode-way .worldNodeBody と :262 の .worldStepBody)。
+       ⇒ **行末コメントごと**アンカーにして一意にする。外すと exit 3 でドライバごと死ぬ
+       (#39 の driver_grid_p5 と同型)。2026-09-02 実測: 素は 2 件 / コメント込みは 1 件。 */
+  smallstep: { impl: true, file: 'world.html', targets: ['2f'],
+    why: '.worldStepBody を 6px へ戻す (#40 の姿 = 中継点より小さい点)',
+    from: 'width: 9px; height: 9px;              /* ⭐ #42:',
+    to: 'width: 6px; height: 6px;  /* MUT smallstep */ /* ⭐ #42:' },
 };
 const MUT_ORDER = ['nosteps', 'fullwalk', 'handcoord', 'nodemut', 'linemut', 'stepclass',
-  'hopnone', 'pathswap', 'retreatdead', 'retreatkills', 'fireevent', 'arrivedup'];
+  'hopnone', 'pathswap', 'retreatdead', 'retreatkills', 'fireevent', 'arrivedup',
+  'coarsestep', 'signsteal', 'smallstep'];
 const MUT_IMPL = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_SERVED = MUT_IMPL.filter(k => !MUTATIONS[k].driver);
 const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
