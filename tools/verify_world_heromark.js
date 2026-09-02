@@ -31,27 +31,41 @@
  *                   ⭐ **素と撤退 (?heromark=0) の両アーム**を同じ errs へ流し込む
  *                     (依頼書 §8 (9a) が「両アーム」と明記している)
  *
- * ■ 項目 2 以降が埋めるもの (今は PENDINGS)
- *   §1 追従と収まり
+ * ■ 項目 2 (このコミット) が足したもの — **§1 追従と収まり**
+ *   ⭐ 観測は 3 経路。measure() の 1 フレームでは足りないので 2 本足した:
+ *     ① measure()      … 1 フレームの姿 (§0 が使う)
+ *     ② measureMark()  … **bob の 1 周期 (1.2s) を 12 点サンプリング**した矩形 +
+ *                        14 ノードの world/client 座標 + 7 枚の札の実矩形
+ *     ③ measurePlay()  … **実クリックで 3 ホップ歩かせる** + rAF で移動中も採る
  *     (1a) 初期位置で ▽ の見た目の中心 x が主人公の中心 x と 1px 以内、
  *          下端 y が heroRect.top + (headTop - gap) * zoom と 1px 以内
  *          ⭐ 右辺は __world.heroPx() + heroGeom() + heroMarkGeom() から **ドライバが独立に計算**
+ *            (さらに heroPx() → clientFromWorld() の経路でも同じことを測る = 駒ごと
+ *             同じだけズレたケースを #worldHero の矩形だけでは見逃すため)
  *          ⛔ elMark.style.top の文字列を読んで比べない (実装の写経になる)
+ *          ⚠ bob は ▽ を **下へしか**動かさないので、y は 1 周期の **最小値**で測る
+ *            (1 点だけ読むと間欠フレークする = 項目 1 の実測 11.0〜15.0 map px)
  *     (1b) ★ ▽ の矩形が #worldHero の矩形に **完全に含まれる** (4 辺すべて)。
  *          bob は margin-top を 0→4px 動かすので **1 周期 (1.2s) を 12 点サンプリングして最悪値**
  *          ⭐⭐⭐ これが verify_world_map の (7f)「駒が札を 10% 以上隠さない」を
  *            ▽ にも継承させる **唯一の条件** (依頼書 §2-2)
  *     (1c) 実クリックで 3 ホップ歩かせた後も (1a) が成り立つ
  *          ⚠ 母集団ガード: heroNode() が押す前と変わっていること
- *          ⛔ 行き先に phlan (enter を持つ唯一のノード) を選ばない
+ *          ⛔ 行き先に phlan (enter を持つ唯一のノード) を選ばない。
+ *            ⭐ 行き先は **ページに選ばせる** — enter を持たず、かつ経路が 3 ホップより
+ *              長いノードだけを候補にする = 3 ホップでは着かない = 到着イベントが鳴らない
  *     (1d) 移動中 (isMoving() === true のサンプル) でも中心 x が 2px 以内
  *          ⚠ 母集団ガード: isMoving() が true のサンプルが 1 件以上あること
+ *          ⭐ rAF のサンプラは **クリックより先に**回し始める (後から始めると空振りする)
  *     (1e) 全 14 ノードに立った場合の ▽ の矩形が 7 枚の .worldSign と 1px も交差しない
  *          ⭐ (7f) と同じ手口で **実際には歩かせず計算で出す**
  *          ⛔ 期待値 19.72px をドライバへ書かない。縛るのは「交差 0」だけ
  *          ⚠ 母集団: 照合した組が 14 x 7 = 98 件あること
+ *          ⭐ bob の振幅もドライバへ書かず、(1b) と同じサンプルから **実測して**足す
  *     (1f) computed の zIndex が #worldHero より **大きい**
  *          ⛔ 6 という数値そのものは書かない (§2-4 の「並びが違う」を関係で縛る)
+ *
+ * ■ 項目 3 以降が埋めるもの (今は PENDINGS)
  *   §2 非干渉
  *     (2a) ★ 全 14 ノード + 全刻み点マーカーの **中心 + 四隅の内側 8px の 5 点** を
  *          elementFromPoint し、返る要素が #worldHeroMark でもその子孫でもない
@@ -340,6 +354,28 @@ const MARK_GEOM_KEYS = ['w', 'h', 'gap', 'headTop', 'sprite', 'foot'];
 
 const isFiniteNum = (v) => typeof v === 'number' && isFinite(v);
 
+/* ── §1 の計測パラメタ ──────────────────────────────────────────────────────
+ *  ⚠ BOB_PERIOD_MS / BOB_SAMPLES は **期待値ではなくサンプリングの窓**。
+ *    bob (margin-top 0→4px) は 1 周期 1.2s なので、1 周期を 12 点で舐めて
+ *    「どのフレームでも成り立つ」を測る。⛔ 1 点だけ読むと (1a)(1b) が間欠フレークする
+ *    (項目 1 の実測: ▽ の top と主人公の top の差は bob のぶん 11.0〜15.0 map px で揺れる)。
+ *  ⛔ 揺れの **速さと振幅そのもの** は測らない (依頼書 §8「測らないこと」)。 */
+const BOB_PERIOD_MS = 1200;
+const BOB_SAMPLES = 12;
+/* (1a)(1c) 位置の許容差 (client px)。⭐ 左辺=実描画 / 右辺=ドライバの独立計算 の 2 経路。 */
+const POS_EPS = 1;
+/* (1d) 移動中の許容差 (client px)。歩行 rAF の 1 フレームぶんのズレを許す。 */
+const MOVE_EPS = 2;
+/* (1c) 実クリックで歩かせるホップ数 (依頼書 §8)。 */
+const HOPS = 3;
+/* 1 タップ後の落ち着き待ち (tools/verify_world_steps.js と同じ)。 */
+const TAP_SETTLE_MS = 140;
+/* (1e) の母集団。⚠ これは「幾何の期待値」ではなく **数え上げの母集団** で、
+ *  依頼書 §8 が「照合した組が 14 x 7 = 98 件あること」と明記している。
+ *  ⛔ 19.72px のような幾何の期待値はドライバへ書かない (縛るのは「交差 0」だけ)。 */
+const EXPECT_NODES = 14;
+const EXPECT_SIGNS = 7;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 — ⛔ 返すのは **本番のデータ / 本番の関数 / ブラウザのレイアウト結果**だけ。
 //        期待値を混ぜない (assert 側が突き合わせる)。
@@ -426,6 +462,313 @@ async function readScenarioIds(browser, port) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// §1 の観測 — **DOM 専用の 2 経路目** (手本 = tools/verify_world_steps.js の
+//   measureSteps / measurePlay の分け方)
+//   ⛔ ここでは判定しない。返すのは
+//     ① ブラウザのレイアウト結果 (bob 1 周期ぶんの矩形 / 札の実矩形)
+//     ② 本番の関数が返した値 (heroMarkGeom / heroGeom / zoom / heroPx / clientFromWorld)
+//     ③ 母集団 (14 ノードの世界座標と client 座標 / 7 枚の札)
+//   だけで、**期待値は assert 側が独立に組み立てる**。
+// ══════════════════════════════════════════════════════════════════════════════
+/* 測定タブを 1 枚開く。⚠ pageerror / console.error は呼び手の errs へ流す ((9a) が見る)。 */
+async function openPage(browser, port, errs, opts, tagSuffix) {
+  opts = opts || {};
+  const page = await browser.newPage();
+  const tag = '[:' + port + (opts.query || '') + (tagSuffix || '') + '] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;      // ⚠ 除外はこの 1 本の URL だけに絞る
+    errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + (opts.query || ''),
+    { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  await settle(page);
+  return page;
+}
+
+/* ⭐⭐⭐ bob の 1 周期ぶんの矩形を n 点そろえる。
+   ⛔ elMark.style.top の **文字列は読まない** — それは実装の写経になり、
+      CSS と JS が同じ間違いを共有していると緑のまま通る (依頼書 §8 (1a))。
+   ⚠ 1 点だけ読むと bob (margin-top 0→4px) のぶん間欠フレークする。 */
+function sampleBob(page, n, periodMs) {
+  return page.evaluate((n, periodMs) => new Promise((resolve) => {
+    const rect = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { l: r.left, t: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+    };
+    const out = []; const t0 = performance.now(); let i = 0;
+    (function once() {
+      out.push({
+        t: performance.now() - t0,
+        mark: rect(document.getElementById('worldHeroMark')),
+        hero: rect(document.getElementById('worldHero')),
+      });
+      if (++i >= n) { resolve(out); return; }
+      setTimeout(once, periodMs / n);
+    })();
+  }), n, periodMs);
+}
+
+/* 幾何と母集団を **同じ瞬間に** 採る。⛔ 3 回開いて別々に採らない (状態がズレる)。 */
+function readMarkGeom(page) {
+  return page.evaluate(() => {
+    const W = window.__world, WM = window.WORLD_MAP;
+    const safe = (f, d) => { try { return f(); } catch (e) { return d; } };
+    const rect = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { l: r.left, t: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+    };
+    const heroPx = safe(() => W.heroPx(), null);
+    return {
+      zoom: safe(() => W.zoom(), null),
+      heroPx: heroPx,
+      heroNode: safe(() => W.heroNode(), null),
+      markGeom: safe(() => W.heroMarkGeom(), null),
+      heroGeom: safe(() => W.heroGeom(), null),
+      /* ⭐ 主人公の**足元の world px** を client へ落とした点。(1a) の右辺はここから組む
+         (⛔ ドライバは stage の rect も zoom の掛け方も自前で書かない)。 */
+      heroClient: heroPx ? safe(() => W.clientFromWorld(heroPx.x, heroPx.y), null) : null,
+      /* 全 14 ノードの world 座標 + その点の client 座標
+         (⛔ ドライバへノード id も座標も直書きしない = 出所は WORLD_MAP.NODES ただ 1 つ)。 */
+      nodes: Object.keys(WM.NODES).map((id) => {
+        const n = WM.NODES[id];
+        const c = safe(() => W.clientFromWorld(n.x, n.y), null);
+        return { id: id, x: n.x, y: n.y, cx: c ? c.x : null, cy: c ? c.y : null };
+      }),
+      /* 7 枚の札の **実矩形** (⛔ bottom: calc(100% + 76px) も 19.72px もドライバへ書かない)。 */
+      signs: Array.prototype.map.call(document.querySelectorAll('.worldSign'), (el) => {
+        const owner = el.closest ? el.closest('.worldNode') : null;
+        const r = rect(el);
+        r.node = owner ? owner.getAttribute('data-node') : null;
+        return r;
+      }),
+      markRect: rect(document.getElementById('worldHeroMark')),
+      heroRect: rect(document.getElementById('worldHero')),
+    };
+  });
+}
+
+async function measureMark(browser, port, errs, opts) {
+  opts = opts || {};
+  const page = await openPage(browser, port, errs, opts, ' mark');
+  const out = { query: opts.query || '' };
+  try {
+    out.geom = await readMarkGeom(page);
+    out.samples = await sampleBob(page, BOB_SAMPLES, BOB_PERIOD_MS);
+  } finally {
+    await page.close();
+  }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⭐ 実操作の観測 ((1c)(1d)) — **画面上の点を実際に押して歩く**
+//   ⛔ goToNode() / goToPoint() を page.evaluate から直接呼ばない
+//      (当たり判定が壊れていても永久に緑になる = #23 の確定作法)。
+//   ⚠⚠⚠ enter を持つノード (phlan) へ **着く**と town.html へ飛び、以後の測定が全部死ぬ
+//      (2026-09-01 に tools/verify_world_map.js が実際に全滅した)。
+//      ⛔ 行き先に入場ノードを選ばない。⭐ 通りすがり (arrived === false) は安全。
+// ══════════════════════════════════════════════════════════════════════════════
+async function readPlay(page) {
+  /* ⚠ try/catch は必須。ページが world.html を離れると evaluate が投げる。 */
+  try {
+    return await page.evaluate(() => {
+      const W = window.__world;
+      if (!W) return { dead: true, path: location.pathname, search: location.search };
+      return {
+        dead: false, node: W.heroNode(), px: W.heroPx(), moving: W.isMoving(),
+        askOpen: W.askOpen(), path: location.pathname, search: location.search,
+      };
+    });
+  } catch (e) {
+    return { dead: true, path: '(evaluate 失敗: ' + String(e && e.message).slice(0, 80) + ')', search: '' };
+  }
+}
+async function waitStill(page) {
+  try {
+    await page.waitForFunction('!window.__world || !window.__world.isMoving()',
+      { timeout: 40000, polling: 60 });
+    return true;
+  } catch (e) { return false; }
+}
+/* ノードを 1 回だけ実クリックする。⭐ client 座標は **毎タップ採り直す** (カメラが動くため)。 */
+async function tapNode(page, id) {
+  const before = await readPlay(page);
+  if (before.dead) {
+    return { ok: false, id: id, before: before, after: before,
+      err: 'ページが world.html を離れている: ' + before.path };
+  }
+  let pt = null;
+  try { pt = await page.evaluate(i => window.__world.clientFromNode(i), id); } catch (e) { pt = null; }
+  if (!pt) return { ok: false, id: id, before: before, after: before, err: 'clientFromNode が null: ' + id };
+  await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+  const still = await waitStill(page);
+  await sleep(TAP_SETTLE_MS);
+  const after = await readPlay(page);
+  return {
+    ok: still && !after.dead && after.node !== before.node,
+    id: id, pt: pt, before: before, after: after,
+    err: !still ? '到着待ちタイムアウト'
+      : (after.dead ? 'タップ後にページが遷移した: ' + after.path
+        : (after.node === before.node ? '1px も進まなかった (' + before.node + ')' : null)),
+  };
+}
+
+async function measurePlay(browser, port, errs, opts) {
+  opts = opts || {};
+  const out = { query: opts.query || '', taps: [], moveSamples: [], err: null };
+  const page = await openPage(browser, port, errs, opts, ' play');
+  try {
+    out.boot = await readPlay(page);
+    /* ⭐ 行き先は **ページに選ばせる** (⛔ ドライバへノード id を直書きしない)。
+       ⚠⚠⚠ enter を持つノードを除外し、さらに **HOPS より長い経路**だけを候補にする
+         = 3 ホップでは着かない = 到着イベントを一度も起こさない。
+       ⭐ 途中で phlan を通るのは構わない (通りすがりは onArriveNode を鳴らさない)。 */
+    out.dest = await page.evaluate((hops) => {
+      const WM = window.WORLD_MAP, W = window.__world;
+      const from = W.heroNode();
+      let best = null;
+      for (const id of Object.keys(WM.NODES)) {
+        if (id === from) continue;
+        if (WM.NODES[id].enter) continue;
+        let p = null;
+        try { p = WM.findWalkPath(from, id); } catch (e) { p = null; }
+        if (!p || p.length <= hops) continue;
+        if (!best || p.length > best.len) best = { id: id, len: p.length, head: p.slice(0, hops) };
+      }
+      return best;
+    }, HOPS);
+    if (!out.dest) { out.err = HOPS + ' ホップで着かない行き先が 1 つも無い'; return out; }
+
+    /* ⭐ サンプラは **クリックより先に**回し始める。後から始めると
+       「1 ホップが短くて移動中を一度も捕まえられない」が起きて (1d) が空振りする。 */
+    await page.evaluate(() => {
+      window.__hmProbe = { on: true, s: [] };
+      const rect = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { l: r.left, t: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+      };
+      (function tick() {
+        const P = window.__hmProbe;
+        if (!P || !P.on) return;
+        try {
+          const W = window.__world;
+          if (P.s.length < 4000) {
+            P.s.push({
+              moving: !!(W && W.isMoving()),
+              mark: rect(document.getElementById('worldHeroMark')),
+              hero: rect(document.getElementById('worldHero')),
+            });
+          }
+        } catch (e) {}
+        requestAnimationFrame(tick);
+      })();
+    });
+
+    for (let i = 0; i < HOPS; i++) {
+      const t = await tapNode(page, out.dest.id);
+      out.taps.push(t);
+      if (!t.ok) { out.err = 'ホップ ' + (i + 1) + ': ' + (t.err || '不明'); break; }
+    }
+    try {
+      out.moveSamples = await page.evaluate(() => {
+        const P = window.__hmProbe;
+        if (P) P.on = false;
+        return P ? P.s : [];
+      });
+    } catch (e) { out.moveSamples = []; }
+
+    if (!out.err) {
+      out.after = await readPlay(page);
+      out.afterGeom = await readMarkGeom(page);
+      out.afterSamples = await sampleBob(page, BOB_SAMPLES, BOB_PERIOD_MS);
+    }
+  } finally {
+    await page.close();
+  }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// §1 の突き合わせ (⭐ 期待値はここで **ドライバが独立に**組み立てる)
+// ══════════════════════════════════════════════════════════════════════════════
+/* (1a)(1c) 共通。⭐ 2 経路 =
+ *    左辺 … #worldHeroMark / #worldHero の getBoundingClientRect (ブラウザのレイアウト結果)
+ *    右辺 … heroPx() + heroGeom() + heroMarkGeom() + zoom() からドライバが計算した点
+ *  ⚠ bob は ▽ を **下へしか**動かさないので、1 周期の中で「最も上のフレーム」= bob 0 が
+ *    式の値と一致する → y は 1 周期ぶんの **最小値** で測る。 */
+function markFollow(geom, samples) {
+  const why = [];
+  if (!geom) return { ok: false, why: ['⛔ 観測が無い (measureMark / measurePlay を呼んでいない)'] };
+  const g = geom.markGeom, hg = geom.heroGeom, z = geom.zoom, hc = geom.heroClient;
+  if (!g || !isFiniteNum(g.headTop) || !isFiniteNum(g.gap) || !isFiniteNum(g.h) || !isFiniteNum(g.w)) {
+    return { ok: false, why: ['⛔ heroMarkGeom() が数値を返さない: ' + JSON.stringify(g)] };
+  }
+  if (!hg || !isFiniteNum(hg.sprite) || !isFiniteNum(hg.foot)) {
+    return { ok: false, why: ['⛔ heroGeom() が数値を返さない: ' + JSON.stringify(hg)] };
+  }
+  if (!isFiniteNum(z) || z <= 0) return { ok: false, why: ['⛔ zoom() が正の数でない: ' + JSON.stringify(z)] };
+  const rows = (samples || []).filter(s => s && s.mark && s.hero);
+  if (rows.length < 2) return { ok: false, why: ['⛔ 母集団: 矩形を採れたサンプルが ' + rows.length + ' 件'] };
+
+  let dxMax = 0, dyMin = Infinity, dyMax = -Infinity;
+  for (const s of rows) {
+    dxMax = Math.max(dxMax, Math.abs((s.mark.l + s.mark.w / 2) - (s.hero.l + s.hero.w / 2)));
+    /* 依頼書 §8 (1a) の式そのもの: ▽ の下端 == heroRect.top + (headTop - gap) * zoom */
+    const d = s.mark.b - (s.hero.t + (g.headTop - g.gap) * z);
+    dyMin = Math.min(dyMin, d); dyMax = Math.max(dyMax, d);
+  }
+  if (dxMax > POS_EPS) why.push('⛔ 中心 x のズレ ' + dxMax.toFixed(3) + 'px > ' + POS_EPS + 'px');
+  if (Math.abs(dyMin) > POS_EPS) {
+    why.push('⛔ 下端 y のズレ (bob 最小フレーム) ' + dyMin.toFixed(3) + 'px > ' + POS_EPS + 'px');
+  }
+  /* ⭐ もう 1 本の独立経路: 主人公の DOM を一切使わず heroPx() → clientFromWorld() から組む。
+     ⛔ #worldHero の矩形だけを右辺にすると「駒ごと同じだけズレた」を見逃す。 */
+  let dxPx = null, dyPx = null;
+  if (hc && isFiniteNum(hc.x) && isFiniteNum(hc.y)) {
+    dxPx = 0; dyPx = Infinity;
+    for (const s of rows) {
+      dxPx = Math.max(dxPx, Math.abs((s.mark.l + s.mark.w / 2) - hc.x));
+      dyPx = Math.min(dyPx, s.mark.b - (hc.y + (-hg.sprite * hg.foot + g.headTop - g.gap) * z));
+    }
+    if (dxPx > POS_EPS) why.push('⛔ heroPx 経路の中心 x のズレ ' + dxPx.toFixed(3) + 'px > ' + POS_EPS + 'px');
+    if (Math.abs(dyPx) > POS_EPS) why.push('⛔ heroPx 経路の下端 y のズレ ' + dyPx.toFixed(3) + 'px > ' + POS_EPS + 'px');
+  } else {
+    why.push('⛔ heroPx() / clientFromWorld() から client 座標を採れない');
+  }
+  return {
+    ok: why.length === 0, why: why, n: rows.length,
+    dxMax: dxMax, dyMin: dyMin, dyMax: dyMax, dxPx: dxPx, dyPx: dyPx,
+    text: 'サンプル ' + rows.length + ' 点 / 中心 x のズレ最大 ' + dxMax.toFixed(3) + 'px'
+      + ' / 下端 y のズレ ' + dyMin.toFixed(3) + '〜' + dyMax.toFixed(3) + 'px (bob のぶん下へ揺れる)'
+      + (dxPx === null ? '' : ' / heroPx 経路 x ' + dxPx.toFixed(3) + 'px y ' + dyPx.toFixed(3) + 'px')
+      + ' (許容 ' + POS_EPS + 'px)',
+  };
+}
+
+/* (1e) が使う bob の実測レンジ (world px)。⛔ 4px という振幅をドライバへ書かない。 */
+function bobRange(geom, samples) {
+  const g = geom && geom.markGeom, z = geom && geom.zoom;
+  const rows = (samples || []).filter(s => s && s.mark && s.hero);
+  if (!g || !isFiniteNum(z) || z <= 0 || rows.length === 0) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (const s of rows) {
+    const base = s.hero.t + (g.headTop - g.gap - g.h) * z;   /* bob 0 のときの ▽ の上端 */
+    const d = (s.mark.t - base) / z;
+    lo = Math.min(lo, d); hi = Math.max(hi, d);
+  }
+  return { lo: lo, hi: hi };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 (実装済み)  ⭐ [key, 見出し, m => [bool, detail]]
 // ══════════════════════════════════════════════════════════════════════════════
 const ASSERTS = [
@@ -496,6 +839,142 @@ const ASSERTS = [
         + (sOk ? '' : '  ⛔ sprite が正の有限数でない')
         + (fOk ? '' : '  ⛔ foot が正の有限数でない')];
     }],
+
+  // ── §1 追従と収まり ────────────────────────────────────────────────────────
+  ['1a', '初期位置で ▽ の見た目の中心 x が主人公の中心 x と ' + POS_EPS + 'px 以内、'
+    + '下端 y が heroRect.top + (headTop - gap) * zoom と ' + POS_EPS + 'px 以内'
+    + ' ⭐ 右辺は heroPx() + heroGeom() + heroMarkGeom() からドライバが独立に計算する'
+    + ' ⛔ elMark.style.top の文字列を読んで比べない',
+    m => {
+      if (!m.mark) return [false, '⛔ measureMark の観測が無い'];
+      const r = markFollow(m.mark.geom, m.mark.samples);
+      return [r.ok, (r.ok ? '' : r.why.join(' / ') + '  ') + (r.text || '')];
+    }],
+  ['1b', '★ ▽ の矩形が #worldHero の矩形に **完全に含まれる** (4 辺すべて / '
+    + 'bob の 1 周期 ' + BOB_PERIOD_MS + 'ms を ' + BOB_SAMPLES + ' 点サンプリングして最悪値)'
+    + ' ⭐⭐⭐ verify_world_map (7f)「駒が札を 10% 以上隠さない」を ▽ に継承させる唯一の条件',
+    m => {
+      if (!m.mark) return [false, '⛔ measureMark の観測が無い'];
+      const rows = (m.mark.samples || []).filter(s => s && s.mark && s.hero);
+      if (rows.length < 2) return [false, '⛔ 母集団: 矩形を採れたサンプルが ' + rows.length + ' 件'];
+      /* ⭐ 4 辺の「余白」の **最小値**を採る。負なら ▽ が箱からはみ出したフレームがある。 */
+      let L = Infinity, R = Infinity, T = Infinity, B = Infinity;
+      for (const s of rows) {
+        L = Math.min(L, s.mark.l - s.hero.l);
+        R = Math.min(R, s.hero.r - s.mark.r);
+        T = Math.min(T, s.mark.t - s.hero.t);
+        B = Math.min(B, s.hero.b - s.mark.b);
+      }
+      const bad = [];
+      if (L < 0) bad.push('左 ' + L.toFixed(2));
+      if (R < 0) bad.push('右 ' + R.toFixed(2));
+      if (T < 0) bad.push('上 ' + T.toFixed(2));
+      if (B < 0) bad.push('下 ' + B.toFixed(2));
+      return [bad.length === 0,
+        (bad.length ? '⛔ 箱からはみ出した辺: ' + bad.join(' / ') + 'px  ' : '')
+        + 'サンプル ' + rows.length + ' 点 / 余白の最悪値 左 ' + L.toFixed(2)
+        + ' 右 ' + R.toFixed(2) + ' 上 ' + T.toFixed(2) + ' 下 ' + B.toFixed(2) + 'px'];
+    }],
+  ['1c', '実クリックで ' + HOPS + ' ホップ歩かせた後も (1a) が成り立つ'
+    + ' ⚠ 母集団ガード = heroNode() が押す前と変わっていること'
+    + ' ⛔ 行き先に phlan (enter を持つ唯一のノード) を選ばない',
+    m => {
+      const p = m.play;
+      if (!p) return [false, '⛔ 実操作の観測が無い (measurePlay を呼んでいない)'];
+      const why = [];
+      if (p.err) why.push('⛔ ' + p.err);
+      if (!p.dest) why.push('⛔ 行き先を選べていない');
+      const okTaps = p.taps.filter(t => t.ok).length;
+      if (okTaps !== HOPS) why.push('⛔ 母集団: 進んだホップが ' + okTaps + ' / ' + HOPS + ' 件');
+      /* ⚠ 母集団ガード: 1px も動かないまま緑になるのを殺す。 */
+      const from = p.boot && p.boot.node, to = p.after && p.after.node;
+      if (!from || !to || from === to) why.push('⛔ 母集団: heroNode() が ' + JSON.stringify(from) + ' のまま変わっていない');
+      if (p.after && p.after.dead) why.push('⛔ ページが world.html を離れた: ' + p.after.path);
+      const r = (why.length === 0) ? markFollow(p.afterGeom, p.afterSamples) : null;
+      if (r && !r.ok) why.push(...r.why);
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + 'heroNode ' + JSON.stringify(from) + ' → ' + JSON.stringify(to)
+        + ' (行き先 ' + (p.dest ? p.dest.id + ' / 経路 ' + p.dest.len + ' ホップ' : '—')
+        + ' / 押した ' + p.taps.length + ' 回)'
+        + (r ? '  ' + r.text : '')];
+    }],
+  ['1d', '移動中 (isMoving() === true のサンプル) でも ▽ の中心 x と主人公の中心 x が '
+    + MOVE_EPS + 'px 以内'
+    + ' ⚠ 母集団ガード = isMoving() が true のサンプルが 1 件以上あること (0 件なら空振り → FAIL)',
+    m => {
+      const p = m.play;
+      if (!p) return [false, '⛔ 実操作の観測が無い (measurePlay を呼んでいない)'];
+      const all = p.moveSamples || [];
+      const rows = all.filter(s => s && s.moving === true && s.mark && s.hero);
+      if (rows.length === 0) {
+        return [false, '⛔ 母集団: isMoving() === true のサンプルが 0 件 (空振り)'
+          + '  全サンプル ' + all.length + ' 件'];
+      }
+      let dx = 0;
+      for (const s of rows) dx = Math.max(dx, Math.abs((s.mark.l + s.mark.w / 2) - (s.hero.l + s.hero.w / 2)));
+      return [dx <= MOVE_EPS,
+        '移動中のサンプル ' + rows.length + ' / ' + all.length + ' 件'
+        + ' / 中心 x のズレ最大 ' + dx.toFixed(3) + 'px (許容 ' + MOVE_EPS + 'px)'];
+    }],
+  ['1e', '全 ' + EXPECT_NODES + ' ノードに立った場合の ▽ の矩形が ' + EXPECT_SIGNS
+    + ' 枚の .worldSign と **1px も交差しない**'
+    + ' ⭐ (7f) と同じ手口で実際には歩かせず計算で出す ⛔ 期待値 19.72px は書かない',
+    m => {
+      if (!m.mark) return [false, '⛔ measureMark の観測が無い'];
+      const geom = m.mark.geom;
+      const g = geom && geom.markGeom, hg = geom && geom.heroGeom, z = geom && geom.zoom;
+      if (!g || !hg || !isFiniteNum(z) || z <= 0) return [false, '⛔ 幾何を採れない (0a/0c を先に見ること)'];
+      const nodes = (geom.nodes || []).filter(n => isFiniteNum(n.cx) && isFiniteNum(n.cy));
+      const signs = (geom.signs || []).filter(s => s && isFiniteNum(s.l));
+      const bob = bobRange(geom, m.mark.samples);
+      if (!bob) return [false, '⛔ bob のレンジを採れない'];
+      const why = [];
+      if (nodes.length !== EXPECT_NODES) why.push('⛔ 母集団: ノードが ' + nodes.length + ' 件 (want ' + EXPECT_NODES + ')');
+      if (signs.length !== EXPECT_SIGNS) why.push('⛔ 母集団: 札が ' + signs.length + ' 枚 (want ' + EXPECT_SIGNS + ')');
+      /* ⭐ ノード (cx, cy) に立ったときの ▽ の矩形を placeHero と同じ式から組む。
+         ⚠ bob は下へ動くので、上端は bob 最小・下端は bob 最大で取る (1 周期の和集合)。 */
+      const baseTop = -(hg.sprite * hg.foot) + g.headTop - g.gap - g.h;
+      const hits = []; let pairs = 0; let minClear = Infinity, minPair = null;
+      for (const n of nodes) {
+        const mL = n.cx - g.w * z, mR = n.cx + g.w * z;
+        const mT = n.cy + (baseTop + bob.lo) * z;
+        const mB = n.cy + (baseTop + g.h + bob.hi) * z;
+        for (const s of signs) {
+          pairs++;
+          const ow = Math.min(mR, s.r) - Math.max(mL, s.l);
+          const oh = Math.min(mB, s.b) - Math.max(mT, s.t);
+          if (ow > 0 && oh > 0) {
+            hits.push(n.id + ' x 札(' + s.node + ') ' + ow.toFixed(1) + 'x' + oh.toFixed(1) + 'px');
+          } else if (ow > 0) {
+            /* ⭐ 横が被っている組だけ「縦にどれだけ離れているか」を採る。
+               ⚠ ▽ が札の **上** に居る組もあるので、両向きの距離の大きいほうが実際の隙間。
+               ⛔ mT - s.b だけで測ると、遠くの札の上に居る組が -347px のような
+                 読めない値を返す (この値は判定には使わないが、記録が嘘になる)。 */
+            const sep = Math.max(mT - s.b, s.t - mB);
+            if (sep < minClear) { minClear = sep; minPair = n.id + ' x 札(' + s.node + ')'; }
+          }
+        }
+      }
+      const wantPairs = EXPECT_NODES * EXPECT_SIGNS;
+      if (pairs !== wantPairs) why.push('⛔ 母集団: 照合した組が ' + pairs + ' 件 (want ' + wantPairs + ')');
+      if (hits.length) why.push('⛔ 交差 ' + hits.length + ' 組: ' + hits.slice(0, 4).join(' / '));
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '照合 ' + pairs + ' 組 / 交差 ' + hits.length + ' 組'
+        + ' / 横が被る組の縦の空きの最小 '
+        + (isFinite(minClear) ? minClear.toFixed(2) + 'px (' + minPair + ')' : '—')
+        + ' / bob の実測レンジ ' + bob.lo.toFixed(2) + '〜' + bob.hi.toFixed(2) + ' map px'];
+    }],
+  ['1f', 'computed の zIndex が #worldHeroMark > #worldHero'
+    + ' ⛔ 6 という数値そのものは書かない (§2-4 の「並びが違う」を関係で縛る)',
+    m => {
+      const zm = parseInt(m.markZ, 10), zh = parseInt(m.heroZ, 10);
+      const ok = isFinite(zm) && isFinite(zh) && zm > zh;
+      return [ok, '#worldHeroMark z-index=' + JSON.stringify(m.markZ)
+        + '  /  #worldHero z-index=' + JSON.stringify(m.heroZ)
+        + (ok ? '' : '  ⛔ ▽ が主人公より上に居ない (数値でない場合も FAIL)')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -508,36 +987,15 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //   ⛔ 空になっても配列ごと削除しないこと (削ると PENDING という 3 値そのものが消える)。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  ['§1 追従と収まり — ⭐ ▽ が主人公に付いてきて、96px セルの内側に収まる', [
-    ['1a', '初期位置で ▽ の見た目の中心 x が主人公の中心 x と 1px 以内、'
-      + '下端 y が heroRect.top + (headTop - gap) * zoom と 1px 以内',
-      '⭐ 右辺は heroPx() + heroGeom() + heroMarkGeom() からドライバが独立に計算する。'
-      + ' ⛔ elMark.style.top の文字列を読んで比べない → 項目 2 の担当'],
-    ['1b', '★ ▽ の矩形が #worldHero の矩形に **完全に含まれる** (4 辺すべて / '
-      + 'bob の 1 周期 1.2s を 12 点サンプリングして最悪値)',
-      '⭐⭐⭐ verify_world_map (7f)「駒が札を 10% 以上隠さない」を ▽ に継承させる唯一の条件'
-      + ' (依頼書 §2-2)。負のコントロール markbox が機械証明する → 項目 2 の担当'],
-    ['1c', '実クリックで 3 ホップ歩かせた後も (1a) が成り立つ',
-      '⚠ 母集団ガード = heroNode() が押す前と変わっていること。'
-      + ' ⛔ 行き先に phlan (enter を持つ唯一のノード) を選ばない → 項目 3 の担当'],
-    ['1d', '移動中 (isMoving() === true のサンプル) でも ▽ の中心 x と主人公の中心 x が 2px 以内',
-      '⚠ 母集団ガード = isMoving() が true のサンプルが 1 件以上あること'
-      + ' (0 件なら空振り → FAIL) → 項目 3 の担当'],
-    ['1e', '全 14 ノードに立った場合の ▽ の矩形が 7 枚の .worldSign と 1px も交差しない',
-      '⭐ (7f) と同じ手口で **実際には歩かせず計算で出す**。⛔ 期待値 19.72px を書かない。'
-      + ' ⚠ 母集団 = 14 x 7 = 98 件 → 項目 2 の担当'],
-    ['1f', 'computed の zIndex が #worldHeroMark > #worldHero',
-      '⛔ 6 という数値そのものは書かない (§2-4 の「並びが違う」を関係で縛る) → 項目 2 の担当'],
-  ]],
   ['§2 非干渉 — ⭐ ▽ が誰の当たり判定も奪わない', [
     ['2a', '★ 全 14 ノード + 全刻み点マーカーの **中心 + 四隅の内側 8px の 5 点** を '
       + 'elementFromPoint し、返る要素が #worldHeroMark でもその子孫でもない',
       '⚠ 母集団ガード = 検査した点が (14 + STEPS 件数) x 5 と一致し 0 でないこと。'
-      + ' ⚠⚠ ▽ は pointer-events: none なので自明に緑 → 変異 markhit で担保する → 項目 2 の担当'],
+      + ' ⚠⚠ ▽ は pointer-events: none なので自明に緑 → 変異 markhit で担保する → 項目 3 の担当'],
     ['2b', '.worldStep の DOM 件数が WORLD_MAP.STEPS と一致し .worldNode が 14 件。'
       + 'かつ #worldHeroMark が .worldNode も .worldStep も着ていない (classList.length === 0)',
       '⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 が誤爆する'
-      + ' (#40 §2-4 の既知の罠) → 項目 2 の担当'],
+      + ' (#40 §2-4 の既知の罠) → 項目 3 の担当'],
   ]],
   ['§3 恒等 (非退行) — ⛔ 既存のシームを 1 バイトも汚していないこと', [
     ['3a', 'Object.keys(window.__world) が #42 時点のキー集合をすべて含み、'
@@ -611,6 +1069,10 @@ const PENDINGS = [
          ⛔ 素のアームだけ見ると「撤退したときだけ落ちる」を永久に見逃す。
          ⚠ ここで採るのは errs (事故) と [記録] だけ。§4 の assert は項目 4 の担当。 */
       const mOff = await measure(browser, PORT, errs, { query: RETREAT_QUERY });
+      /* ⭐ §1 の 2 経路目 (DOM 専用) と 3 経路目 (実操作)。
+         ⛔ measure() の 1 フレームだけで §1 を測らない — bob のぶん間欠フレークする。 */
+      m.mark = await measureMark(browser, PORT, errs, {});
+      m.play = await measurePlay(browser, PORT, errs, {});
 
       for (const key of ['0a', '0b', '0c']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
@@ -646,6 +1108,30 @@ const PENDINGS = [
         + '  heroNode=' + JSON.stringify(mOff.heroNode)
         + '  札 ' + mOff.signCount + ' 枚 / 刻み点 ' + mOff.stepElCount + ' 枚');
 
+      mark('§1 追従と収まり — ⭐ ▽ が主人公に付いてきて、96px セルの内側に収まる');
+      for (const key of ['1a', '1b', '1c', '1d', '1e', '1f']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+      {
+        const gm = m.mark && m.mark.geom;
+        const sm = (m.mark && m.mark.samples) || [];
+        const bob = gm ? bobRange(gm, sm) : null;
+        console.log('       [記録] §1 の母集団 (⛔ 期待値ではない。読み解き用):');
+        console.log('         bob 1 周期 ' + BOB_PERIOD_MS + 'ms を ' + sm.length + ' 点'
+          + ' / 実測レンジ ' + (bob ? bob.lo.toFixed(2) + '〜' + bob.hi.toFixed(2) + ' map px' : '—')
+          + ' / heroMarkGeom()=' + JSON.stringify(gm && gm.markGeom));
+        console.log('         札 ' + ((gm && gm.signs) || []).map(s => s.node + ' '
+          + s.w.toFixed(0) + 'x' + s.h.toFixed(0)).join(' / '));
+        console.log('         実操作: ' + (m.play && m.play.dest
+          ? ('行き先 ' + m.play.dest.id + ' (経路 ' + m.play.dest.len + ' ホップ) / '
+            + (m.play.boot && m.play.boot.node) + ' → ' + (m.play.after && m.play.after.node)
+            + ' / 押した ' + m.play.taps.length + ' 回 / rAF サンプル '
+            + ((m.play.moveSamples || []).length) + ' 件 (うち移動中 '
+            + ((m.play.moveSamples || []).filter(s => s.moving === true).length) + ' 件)')
+          : '⛔ 行き先を選べていない'));
+      }
+
       for (const [title, rows] of PENDINGS) {
         mark(title);
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
@@ -679,6 +1165,16 @@ const PENDINGS = [
              読めなくなる (verify_world_steps の needsRetreat と同じ理屈)。 */
           if (MUTATIONS[k].needsRetreat) {
             m.off = await measure(browser, port, negErrs, { query: RETREAT_QUERY });
+          }
+          /* ⭐ §1 を狙う変異は **§1 と同じ観測**が要る。⛔ 素の m だけ渡すと
+             「観測が無い」で機械的に赤くなり、欠陥を検出したのか装置が欠けたのか読めない。
+             ⚠ 対象は targets から自動で決まる (⛔ 変異ごとに手で書き足さない)。 */
+          const tg = MUTATIONS[k].targets || [];
+          if (tg.some(t => ['1a', '1b', '1c', '1d', '1e'].indexOf(t) >= 0)) {
+            m.mark = await measureMark(browser, port, negErrs, {});
+          }
+          if (tg.some(t => ['1c', '1d'].indexOf(t) >= 0)) {
+            m.play = await measurePlay(browser, port, negErrs, {});
           }
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
