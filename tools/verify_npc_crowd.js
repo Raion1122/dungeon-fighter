@@ -10,13 +10,23 @@
  *   exit コードは FAILED が 0 件なら 0 (PENDING は 0 のまま通す)。
  *   → 後続項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認できる。
  *
- * ■ 実装状況 (⭐ 項目 3 = ここまで)
+ * ■ 実装状況 (⭐ 項目 4 = 完了。PENDING 0)
  *     §0 (0a-town)(0a-tavern)(0b)(0b-dom)(0c)(0d)(0e)              … 実装済
- *     §1 (1z)(1a)(1b)(1c)(1d)(1e) / §2 (2a)(2b)(2c)(2d)            … 実装済
+ *     §1 (1z)(1a)(1b)(1c)(1d)(1e)(1f) / §2 (2a)(2b)(2c)(2d)        … 実装済
  *     §3 (3a)(3a-touch)(3a-life)(3b)(3c)(3d)                       … 実装済 (項目 3)
  *     §4 恒等 (4a)(4b)(4c)(4d)                                     … 実装済
- *     §5 撤退                                                      … **PENDING** (項目 4)
- *     負のコントロール 13 本                                        … **PENDING** (項目 4)
+ *     §5 撤退 (5a)(5b)(5c)                                         … 実装済 (項目 4)
+ *     負のコントロール 13 本                                        … 実装済 (項目 4)
+ *
+ * ■ ⭐⭐⭐ §5 撤退は「?npc=0 で消えた」だけを見ない (項目 4)
+ *   撤退アームだけを見る assert は **永久緑**になる (実装が丸ごと壊れていても OFF は緑)。
+ *   → (5a) は撤退アームの中に **素のアームの対照を同居**させ、
+ *     (5b) は同じ 4 条件 { layer, unitCount>0, bubbleWorks, signsClickable } を ON/OFF 両方へ当てて
+ *     **ON{true,true,true,true} / OFF{false,false,false,true}** を測る。
+ *     ⭐⭐ 「全部反転」ではなく「反転すべき 3 つが反転し、**反転してはいけない signsClickable が
+ *          両方 true のまま**」= 「NPC ごと札も壊した」実装をここで落とす。
+ *   → (5c) は **同じタブで**続けて開いて、?npc=0 が次のページへ漏れないことを見る
+ *     (sessionStorage へ写す型にすると必ず赤くなる)。
  *
  * ■ ⭐⭐⭐ §3 は「押したら喋る」を **本物のイベント**で測る (項目 3)
  *   ⛔ el.click() / 座標なしの MouseEvent は使えない。clientX/clientY が 0 になるので、
@@ -134,37 +144,98 @@ const POP = {
 const GOLDEN_TAP_TILES = [[6, 3], [11, 3], [15, 3], [15, 10], [8, 12], [12, 6], [3, 10]];
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 負のコントロール (依頼書 §8 の変異 13 本) — ⭐ 項目 4 が実装する
-//   impl … false = **PENDING**。file/from/to を埋めて true にすると有効になる。
-//   ⚠ 変異のアンカーは実装後に配信バイトへ当てて 1 回空振りを確認すること (#38 の恒久教訓)。
+// 負のコントロール (依頼書 §8 の変異 13 本) — ⭐ 項目 4 で全部実装した
+//   edits … [{ file, from, to }] の配列。⭐ **1 本の変異が複数ファイルへまたがれる**
+//           (吹き出し / CSS / 撤退のアンカーは tavern.html と town.html の両方に 1 行ずつある)。
+//   ⚠ from は **1 行に閉じている**こと (複数行だと CRLF/LF 差で必ず空振りする)。
+//   ⚠ from の出現はファイルごとに ちょうど 1 箇所 (0 でも 2 でも exit 3 で止める)。
+//   ⚠ 変異は 1 本ずつ注入する (全部同時だと互いを覆い隠す。#34 の実測)。
+//
+// ⚠⚠⚠ 依頼書 §8 の表から **2 か所だけ「変異のほう」を直した**
+//      (#38 の恒久教訓 = 空振りしたら受入条件を弱めるのではなく変異を直す)。2026-09-02 実測:
+//   ① `oversign` (街 mason を (11,2) へ) **単独では (2b) が赤くならない**。
+//      .npcUnit の z-index は 3 / 札は 4 なので、矩形が重なっても elementFromPoint が
+//      拾うのは札のまま。→ oversign の targets は **(1a) だけ**にした。
+//   ② `zorder` (z-index を 5 に) **単独でも (2b) は赤くならない**。(1a) が「NPC と札は
+//      1 件も交差しない」を保証しているので、そもそも **奪う相手が居ない**。
+//      → zorder を **複合**にした = 「z-index 5」+「mason を (10,1) へ」。
+//      ⭐ (11,2) ではなく (10,1) なのは、(2b) が見るのが札の **中心の 1 点**だから:
+//        mason(11,2) の矩形 x[688..784] は townSign_tavern の中心 x=672 を **含まない**
+//        (矩形どうしは交差するので (1a) は赤くなるが (2b) は緑のまま)。
+//        (10,1) dx0/dy0 なら矩形 x[624..720] y[6.72..102.72] が中心 (672,96) を含む。
 // ══════════════════════════════════════════════════════════════════════════════
+const BOTH_HTML = [TAVERN_HTML, TOWN_HTML];
+const each = (files, from, to) => files.map(f => ({ file: f, from: from, to: to }));
+/* ⚠ 実装後に配信バイトへ当てて 1 箇所ヒットを確認済みの「1 行に閉じたアンカー」 */
+const A_FILTER  = '      filter: drop-shadow(0 3px 4px rgba(0,0,0,0.45));';
+const A_BGPOS   = '        u.el.style.backgroundPosition = (-u.frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";';
+const A_STOP    = '          if (ev && ev.stopPropagation) ev.stopPropagation();   /* [nostop] 1 行に閉じたまま保つ */';
+const A_HIDE    = '        npcBubbleHide();                          /* ⭐ 先に消す = 常に 1 枚 */';
+const A_RETREAT = '      if (!NPC_ON) return;                      /* [retreatnoop] 1 行に閉じたまま保つ */';
+const A_MASON   = '    { key: "mason",    kind: "stand", tile: [ 4, 4], dx:   0, dy:   8, face: "right",';
+
 const MUTATIONS = {
-  nosrc:       { impl: false, targets: ['0a-town', '0a-tavern'],
-    why: '配信 HTML から <script src="js/npc-crowd.js"> を落とす。⭐ #23 の「読み込んでいないのに全部緑」の再現。' },
-  walkable:    { impl: false, targets: ['1b'],
-    why: '定点 1 体を歩けるタイル (酒場 (7,4)) へ移す = (I1) 違反。' },
-  oversign:    { impl: false, targets: ['1a', '2b'],
-    why: '⭐⭐⭐ 依頼書 §2-3 の罠の再現。街 mason を (11,2) へ移す (townSign_tavern の 242px 幅と交差)。' },
-  strollsign:  { impl: false, targets: ['1a'],
-    why: '⭐⭐⭐ 罠の再現 2。酒場 server の巡回を (8,3)⇄(8,6) へ戻す (端点は無事だが**経路上の (8,3)** が席札と交差)。' },
-  dxover:      { impl: false, targets: ['1d'],
-    why: 'dx を TILE/2 + 1 にする = (I3) 違反。' },
-  maskpatch:   { impl: false, targets: ['4a', '4b'],
-    why: 'js/npc-crowd.js に TAVERN_MAP.MASK[4] = "W.............W" を足す = マスクへの書き込み。' },
-  zorder:      { impl: false, targets: ['2a', '2b'],
-    why: '.npcUnit の z-index を 5 にする = 札 (4) の上に被さる。' },
-  nostop:      { impl: false, targets: ['3c'],
-    why: '吹き出しの ev.stopPropagation() を外す = NPC を押すと主人公が歩き出す。' },
-  twobubble:   { impl: false, targets: ['3b'],
-    why: '前の吹き出しを消さない = 吹き出しが 2 枚以上出る。' },
-  row0:        { impl: false, targets: ['2d'],
-    why: 'background-position の Y を 0 にする (空の行 0 を指す) = NPC が全員透明になる。' },
-  retreatnoop: { impl: false, targets: ['5a', '5b'],
-    why: '?npc=0 の判定を潰す = 撤退スイッチが死ぬ。' },
-  allstand:    { impl: false, targets: ['1e'],
-    why: '巡回 3 本を全部 stand にする = (1c) の母集団が空になる。' },
-  validateyes: { impl: false, targets: ['0e'],
-    why: 'validate() を常に {ok:true, problems:[]} にする = 装置が素通しになる。' },
+  nosrc:       { impl: true, targets: ['0a-town', '0a-tavern'],
+    why: '配信 HTML から <script src="js/npc-crowd.js"> を落とす。⭐ #23 の「読み込んでいないのに全部緑」の再現。',
+    edits: each(BOTH_HTML, SCRIPT_TAG, '<!-- [nosrc] script タグごと落とした -->') },
+  walkable:    { impl: true, targets: ['1b'],
+    why: '定点 1 体を歩けるタイル (酒場 (7,4)) へ移す = (I1) 違反。',
+    edits: [{ file: NPC_JS,
+      from: '    { key: "porter",  kind: "stand", tile: [11, 8], dx:   0, dy: -14, face: "left",',
+      to:   '    { key: "porter", kind: "stand", tile: [7, 4], dx: 0, dy: -14, face: "left",' }] },
+  oversign:    { impl: true, targets: ['1a'],
+    why: '⭐⭐⭐ 依頼書 §2-3 の罠の再現。街 mason を (11,2) へ移す (townSign_tavern の 242px 幅と矩形が交差)。'
+       + ' ⚠ (2b) は z-index 3 < 4 なので単独では赤くならない → zorder の複合へ移した。',
+    edits: [{ file: NPC_JS, from: A_MASON,
+      to:   '    { key: "mason", kind: "stand", tile: [11, 2], dx: 0, dy: 8, face: "right",' }] },
+  strollsign:  { impl: true, targets: ['1a'],
+    why: '⭐⭐⭐ 罠の再現 2。酒場 server の巡回を (8,3)⇄(8,6) へ戻す (端点は無事だが**経路上の (8,3)** が席札と交差)。',
+    edits: [{ file: NPC_JS,
+      from: '    { key: "server",  kind: "stroll", from: [7, 3], to: [7, 6], face: "right",',
+      to:   '    { key: "server", kind: "stroll", from: [8, 3], to: [8, 6], face: "right",' }] },
+  dxover:      { impl: true, targets: ['1d'],
+    why: 'dx を TILE/2 + 1 (街は 33) にする = (I3) 違反。',
+    edits: [{ file: NPC_JS,
+      from: '    { key: "customer", kind: "stand", tile: [15, 5], dx:  12, dy:   0, face: "left",',
+      to:   '    { key: "customer", kind: "stand", tile: [15, 5], dx: 33, dy: 0, face: "left",' }] },
+  maskpatch:   { impl: true, targets: ['4a', '4b'],
+    why: 'js/npc-crowd.js に TAVERN_MAP.MASK[4] = "W.............W" を足す = マスクへの書き込み。',
+    edits: [{ file: NPC_JS, from: '  global.NPC_CROWD = {',
+      to: '  try { window.TAVERN_MAP.MASK[4] = "W.............W"; } catch (e) {}  global.NPC_CROWD = {' }] },
+  zorder:      { impl: true, targets: ['2a', '2b'],
+    why: '⭐ **複合**: .npcUnit の z-index を 5 にする + 街 mason を (10,1) = townSign_tavern の'
+       + ' **中心 (672,96)** を覆う位置へ移す。⚠ どちらか片方だけでは (2b) が原理的に赤くならない。',
+    edits: each(BOTH_HTML, A_FILTER, A_FILTER + ' z-index: 5 !important;').concat([
+      { file: NPC_JS, from: A_MASON,
+        to: '    { key: "mason", kind: "stand", tile: [10, 1], dx: 0, dy: 0, face: "right",' }]) },
+  nostop:      { impl: true, targets: ['3c'],
+    why: '吹き出しの ev.stopPropagation() を外す = NPC を押すと主人公が歩き出す。',
+    edits: each(BOTH_HTML, A_STOP, '          /* [nostop] 伝播を止めない */') },
+  twobubble:   { impl: true, targets: ['3b'],
+    why: '前の吹き出しを消さない = 吹き出しが 2 枚以上並ぶ。',
+    edits: each(BOTH_HTML, A_HIDE, '        /* [twobubble] 前を消さない */') },
+  row0:        { impl: true, targets: ['2d'],
+    why: 'background-position の Y を 0 にする (空の行 0 を指す) = NPC が全員透明になる。',
+    edits: each(BOTH_HTML, A_BGPOS,
+      '        u.el.style.backgroundPosition = (-u.frame * SPRITE) + "px 0px";') },
+  retreatnoop: { impl: true, targets: ['5a', '5b'],
+    why: '?npc=0 の判定を潰す = 撤退スイッチが死ぬ (OFF でも NPC が出る)。',
+    edits: each(BOTH_HTML, A_RETREAT, '      if (false) return; /* [retreatnoop] 撤退を潰した */') },
+  allstand:    { impl: true, targets: ['1e'],
+    why: '巡回 4 本 (酒場 1 / 街 3) を全部 stand にする = (1c) の母集団が空になる。',
+    edits: [
+      { file: NPC_JS, from: '    { key: "server",  kind: "stroll", from: [7, 3], to: [7, 6], face: "right",',
+        to:   '    { key: "server", kind: "stand", tile: [7, 3], face: "right",' },
+      { file: NPC_JS, from: '    { key: "strollA", kind: "stroll", from: [12, 3], to: [14, 3], face: "right",',
+        to:   '    { key: "strollA", kind: "stand", tile: [12, 3], face: "right",' },
+      { file: NPC_JS, from: '    { key: "strollB", kind: "stroll", from: [16,11], to: [19,11], face: "right",',
+        to:   '    { key: "strollB", kind: "stand", tile: [16,11], face: "right",' },
+      { file: NPC_JS, from: '    { key: "strollC", kind: "stroll", from: [18, 4], to: [18, 9], face: "right",',
+        to:   '    { key: "strollC", kind: "stand", tile: [18, 4], face: "right",' }] },
+  validateyes: { impl: true, targets: ['0e'],
+    why: 'validate() を常に {ok:true, problems:[]} にする = 装置が素通しになる。',
+    edits: [{ file: NPC_JS, from: '  function validate(list, map, signs) {',
+      to: '  function validate(list, map, signs) { return { ok: true, problems: [] };' }] },
 };
 const MUT_ORDER = ['nosrc', 'walkable', 'oversign', 'strollsign', 'dxover', 'maskpatch',
                    'zorder', 'nostop', 'twobubble', 'row0', 'retreatnoop', 'allstand', 'validateyes'];
@@ -196,31 +267,49 @@ function frozen(rel) {
 }
 for (const rel of [NPC_JS, TAVERN_HTML, TOWN_HTML]) frozen(rel);
 
-/* 変異ソース (項目 4 で MUT_IMPL が埋まったら動き出す)。
- * ⚠ アンカーが 1 箇所にヒットしなければここで exit 3。 */
+/* 変異ソース。⭐ 1 変異 = ファイル名 → 変異後の本文 の写像 (複数ファイルへまたがれる)。
+ * ⚠ アンカーが 1 箇所にヒットしなければここで exit 3 (空振りしたまま「全部赤」に見せない)。 */
 const MUT_SRC = {};
 for (const k of MUT_IMPL) {
   const m = MUTATIONS[k];
-  const body = frozen(m.file);
-  if (body === null) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の対象 ' + m.file + ' が読めない'); process.exit(3);
+  const edits = m.edits || [{ file: m.file, from: m.from, to: m.to }];
+  const files = {};
+  for (const e of edits) {
+    if (!Object.prototype.hasOwnProperty.call(files, e.file)) {
+      const body = frozen(e.file);
+      if (body === null) {
+        console.error('[drv] ⛔ 変異 ' + k + ' の対象 ' + e.file + ' が読めない'); process.exit(3);
+      }
+      files[e.file] = body.toString('utf8');
+    }
+    if (e.from.indexOf('\n') >= 0) {
+      console.error('[drv] ⛔ 変異 ' + k + ' の置換文字列が複数行 (CRLF/LF 混在で必ず空振りする)');
+      process.exit(3);
+    }
+    if (e.from.length === e.to.length) {
+      console.error('[drv] ⛔ 変異 ' + k + ' の置換前後が同じ長さ → 配信の検算が誤報する');
+      process.exit(3);
+    }
+    const n = files[e.file].split(e.from).length - 1;
+    if (n !== 1) {
+      console.error('[drv] ⛔ 変異 ' + k + ' の置換対象が ' + e.file + ' 内に ' + n
+        + ' 箇所 → 負のコントロールが空振りする: ' + JSON.stringify(e.from.slice(0, 90)));
+      process.exit(3);
+    }
+    files[e.file] = files[e.file].split(e.from).join(e.to);
   }
-  const src = body.toString('utf8');
-  if (m.from.indexOf('\n') >= 0) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換文字列が複数行 (CRLF/LF 混在で必ず空振りする)');
-    process.exit(3);
-  }
-  if (m.from.length === m.to.length) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換前後が同じ長さ → 配信の検算が誤報する');
-    process.exit(3);
-  }
-  const n = src.split(m.from).length - 1;
-  if (n !== 1) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換対象が ' + m.file + ' 内に ' + n
-      + ' 箇所 → 負のコントロールが空振りする: ' + JSON.stringify(m.from.slice(0, 90)));
-    process.exit(3);
-  }
-  MUT_SRC[k] = { file: m.file, body: src.split(m.from).join(m.to) };
+  MUT_SRC[k] = files;
+}
+/* 変異が触ったファイルの一覧 (n0a / n0b の検算と M.html の差し替えに使う) */
+const MUT_FILES = (k) => Object.keys(MUT_SRC[k] || {});
+function httpGet(url) {
+  return new Promise((res, rej) => {
+    http.get(url, r => {
+      let b = ''; r.setEncoding('utf8');
+      r.on('data', c => b += c);
+      r.on('end', () => res({ status: r.statusCode, body: b }));
+    }).on('error', rej);
+  });
 }
 const PORT_OF = {};
 MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });   /* 9574〜9586 を予約 */
@@ -261,10 +350,10 @@ function startServer(port, mutKey) {
       try {
         const u = decodeURIComponent(req.url.split('?')[0]);
         const rel = u.replace(/^\/+/, '');
-        if (mutKey && MUT_SRC[mutKey] && rel === MUT_SRC[mutKey].file) {
+        if (mutKey && MUT_SRC[mutKey] && Object.prototype.hasOwnProperty.call(MUT_SRC[mutKey], rel)) {
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(MUT_SRC[mutKey].body); return;
+          res.end(MUT_SRC[mutKey][rel]); return;
         }
         const buf = frozen(rel);
         if (buf === null) { res.statusCode = 404; res.end('404'); return; }
@@ -865,6 +954,130 @@ async function measureBubble(browser, port, o) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// §5 撤退 ?npc=0 — ⭐⭐ **撤退アームと素のアームを対で**測る (項目 4)
+//   ⭐⭐⭐ 「?npc=0 で NPC が消えた」だけを見る assert は **永久緑**になる
+//     (実装が丸ごと壊れていても OFF は緑)。→ 同じ 4 条件を ON/OFF の両方へ当てて
+//     「反転すべき 3 つが反転し、**反転してはいけない signsClickable が両方 true**」を測る。
+//   ⚠ bubbleWorks は **同じ 1 点**を押して測る (ON で吹き出しが出た client 座標を OFF でも押す)。
+//     ⛔ OFF 側で「NPC が居ないから押せない」を根拠にすると、押し所の話にすり替わる。
+//   ⚠ 札の elementFromPoint は **押す前**に測る (押すと主人公が歩き、compact ではカメラが動く)。
+//   ⚠ 観測は投げる前提で try/catch (変異 retreatnoop では壊れた世界を走らせる)。
+// ══════════════════════════════════════════════════════════════════════════════
+function retreatProbe(cfg) {
+  const out = { err: [] };
+  try { out.search = location.search; } catch (e) { out.search = null; }
+  try {
+    out.layer = !!document.getElementById('npcLayer');
+    out.layerCount = document.querySelectorAll('#npcLayer').length;
+  } catch (e) { out.layer = null; out.err.push('layer: ' + e.message); }
+  try { out.unitCount = document.querySelectorAll('.npcUnit').length; } catch (e) { out.unitCount = null; }
+  try { out.shadowCount = document.querySelectorAll('.npcShadow').length; } catch (e) { out.shadowCount = null; }
+  try { out.bubbleCount = document.querySelectorAll('.npcBubble').length; } catch (e) { out.bubbleCount = null; }
+  /* ⭐ 「札は NPC の有無に関わらず押せる」= **反転してはいけない条件**。
+     既存 golden 4 本とまったく同じ「中心の elementFromPoint が自分自身か子孫」で測る。 */
+  try {
+    const sg = Array.prototype.slice
+      .call(document.querySelectorAll('#' + cfg.stageId + ' ' + cfg.signSel));
+    const rows = sg.map(function (el) {
+      const b = el.getBoundingClientRect();
+      const x = b.left + b.width / 2, y = b.top + b.height / 2;
+      const inView = (x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight);
+      let self = null, id = null;
+      if (inView) {
+        const hit = document.elementFromPoint(x, y);
+        self = !!(hit && (hit === el || el.contains(hit)));
+        id = hit ? String(hit.id || hit.className || hit.tagName) : null;
+      }
+      return { key: el.id, inView: inView, hitSelf: self, hitId: id };
+    });
+    out.signAll = rows.length;
+    out.signInView = rows.filter(function (r) { return r.inView; }).length;
+    out.signBad = rows.filter(function (r) { return r.inView && r.hitSelf !== true; })
+      .map(function (r) { return r.key + '→' + r.hitId; });
+    /* ⚠ 母集団ガード: 画面内の札が 0 枚なら「押せる」を測っていない = null (緑にしない) */
+    out.signsClickable = (out.signInView > 0) ? (out.signBad.length === 0) : null;
+  } catch (e) { out.err.push('signs: ' + e.message); out.signsClickable = null; }
+  return out;
+}
+
+/* ON / OFF の 2 タブを開いて 4 条件を対で採る。⭐ 押す点は ON 側で決めて OFF へ持ち込む。 */
+async function measureRetreat(browser, port, o) {
+  const out = { tag: o.tag, err: null, on: null, off: null, point: null };
+  const P0 = { stageId: o.stageId, mapGlobal: o.mapGlobal, listKey: o.listKey,
+               tvGlobal: o.tvGlobal, signSel: o.signSel };
+  /* ── ① 素のアーム (クエリ無し) ── */
+  const c1 = await newPage(browser, o.view);
+  try {
+    await c1.page.goto('http://localhost:' + port + '/' + o.file, { waitUntil: 'load', timeout: 40000 });
+    await c1.page.waitForFunction(o.ready, { timeout: 25000 });
+    await settle(c1.page);
+    await sleep(300);
+    const on = await c1.page.evaluate(retreatProbe, P0);
+    const plan = await c1.page.evaluate(pickBubblePlan, P0);
+    const pt = (plan && (plan.probe || plan.second)) || ((plan && plan.cands) || [])[0] || null;
+    out.point = pt ? { x: pt.x, y: pt.y, key: pt.key } : null;
+    on.press = out.point;
+    on.wantSay = (pt && plan.says) ? plan.says[pt.key] : null;
+    if (pt) {
+      await c1.page.mouse.click(pt.x, pt.y);
+      await sleep(180);
+    }
+    const b = await c1.page.evaluate(bubbleSnap, P0);
+    on.bubbleAfter = b.count;
+    on.bubbleText = (b.texts && b.texts[0]) || null;
+    on.bubbleWorks = !!(pt && b.count === 1 && b.texts[0] === on.wantSay);
+    out.on = on;
+  } catch (e) { out.err = '(on) ' + String(e && e.message); }
+  finally { try { await c1.page.close(); } catch (e) {} }
+  /* ── ② 撤退アーム (?npc=0)。⭐ **同じ client 座標**を押す ── */
+  const c2 = await newPage(browser, o.view);
+  try {
+    await c2.page.goto('http://localhost:' + port + '/' + o.file + '?npc=0',
+      { waitUntil: 'load', timeout: 40000 });
+    await c2.page.waitForFunction(o.ready, { timeout: 25000 });
+    await settle(c2.page);
+    await sleep(300);
+    const off = await c2.page.evaluate(retreatProbe, P0);
+    off.press = out.point;
+    if (out.point) {
+      await c2.page.mouse.click(out.point.x, out.point.y);
+      await sleep(180);
+    }
+    const b2 = await c2.page.evaluate(bubbleSnap, P0);
+    off.bubbleAfter = b2.count;
+    off.bubbleText = (b2.texts && b2.texts[0]) || null;
+    off.bubbleWorks = !!(b2.count > 0);
+    out.off = off;
+  } catch (e) { out.err = (out.err ? out.err + ' / ' : '') + '(off) ' + String(e && e.message); }
+  finally { try { await c2.page.close(); } catch (e) {} }
+  return out;
+}
+
+/* (5c) — ?npc=0 が **次のページへ持ち越されない**。
+ * ⭐ 同じタブで続けて開く (sessionStorage はタブごとに生き残るので、写していれば必ず出る)。
+ * ⚠ ドライバの purge は __drvSeeded で 1 回だけなので、2 枚目以降の遷移でも状態が残る。 */
+async function measureCarry(browser, port, view, seq) {
+  const out = { steps: [], err: null };
+  const ctx = await newPage(browser, view);
+  try {
+    for (const s of seq) {
+      await ctx.page.goto('http://localhost:' + port + '/' + s.cfg.file + s.query,
+        { waitUntil: 'load', timeout: 40000 });
+      await ctx.page.waitForFunction(s.cfg.ready, { timeout: 25000 });
+      await settle(ctx.page);
+      const p = await ctx.page.evaluate(retreatProbe,
+        { stageId: s.cfg.stageId, signSel: s.cfg.signSel });
+      out.steps.push({ label: s.label, url: s.cfg.file + s.query, want: s.want,
+                       layer: p.layer, units: p.unitCount, search: p.search,
+                       ok: (s.want === 'off') ? (p.layer === false && p.unitCount === 0)
+                                              : (p.layer === true && p.unitCount > 0) });
+    }
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ⭐ (1a) 経路 ② — ドライバが **自前で** セル列と矩形を起こす
 //   ⛔ NPC_CROWD.cellsOf / boxOf を呼ばない (呼ぶと 1 経路目と同じ間違いを共有する)。
 //   ⚠ SPRITE / FOOT / TILE は本番から引いた実測値を渡す (⛔ 96 / 0.93 / 64 を直書きしない)。
@@ -969,6 +1182,9 @@ const PAIRS = (m) => [['酒場', PH(m, 'tav'), PH(m, 'tavC'), POP.tavern],
 /* §3 の 4 面 (吹き出しは押して測るので、§0〜§4 とは別の測定オブジェクトを持つ) */
 const BUB4 = (m) => [['酒場/desktop', (m.bub || {}).tav],  ['酒場/compact', (m.bub || {}).tavC],
                      ['街/desktop',   (m.bub || {}).town], ['街/compact',   (m.bub || {}).townC]];
+/* §5 の 4 面 (撤退は ON/OFF の 2 タブを開くので、さらに別の測定オブジェクト) */
+const RET4 = (m) => [['酒場/desktop', (m.ret || {}).tav],  ['酒場/compact', (m.ret || {}).tavC],
+                     ['街/desktop',   (m.ret || {}).town], ['街/compact',   (m.ret || {}).townC]];
 /* 主人公が動いたか。⭐ walkPath() は moving = true を **同期で**立てるので、
  *  「タイルが変わった」より先に moving で捕まる (150ms 後の観測でも間に合う)。 */
 function heroMoved(x) {
@@ -1572,11 +1788,89 @@ const ASSERT_OF = {};
 
   /* ── §5 撤退 (項目 4) ────────────────────────────────────────────────────── */
   ['5a', 'tavern.html?npc=0 / town.html?npc=0 で #npcLayer が DOM に存在しない'
-    + ' (⛔ display:none で残っていない)', null, '項目 4 が ?npc=0 を実装する。'],
-  ['5b', '⭐ 同じ 4 条件を ON/OFF 両方へ当てる — ON {true,true,true,true} / OFF {false,false,false,**true**}'
-    + ' (⚠ signsClickable は両方 true が正)', null,
-    '項目 4。⭐⭐ 「全部反転」ではなく「反転すべき 3 つが反転し、反転してはいけない 1 つが動かない」を測る。'],
-  ['5c', '?npc=0 が次のページへ持ち越されない (酒場で ?npc=0 → 街へ出ると NPC が居る)', null, '項目 4。'],
+    + ' (⛔ display:none で残っていない = .npcUnit / .npcShadow / .npcBubble も 0 件)'
+    + ' — ⭐ **素のアームの対照を同じ assert に同居させる** (クエリ無しでは必ず居る)。'
+    + '⛔ 撤退アームだけを見る assert は、実装が丸ごと壊れていても緑になる',
+    (m) => {
+      const rows = RET4(m).map(function (x) {
+        const r = x[1] || {}, on = r.on || {}, off = r.off || {};
+        return { name: x[0], err: r.err,
+                 offLayer: off.layer, offN: off.layerCount, offU: off.unitCount,
+                 offS: off.shadowCount, offB: off.bubbleCount, offQ: off.search,
+                 onLayer: on.layer, onU: on.unitCount, onQ: on.search };
+      });
+      const ok = rows.every(function (r) {
+        return !r.err
+          && r.offLayer === false && r.offN === 0 && r.offU === 0 && r.offS === 0 && r.offB === 0
+          && r.onLayer === true && r.onU > 0;      /* ⭐ 素のアームの対照 */
+      });
+      return [ok, rows.map(function (r) {
+        return r.name + ' OFF' + JSON.stringify(r.offQ) + ' #npcLayer=' + r.offLayer
+          + '(' + r.offN + ' 枚) .npcUnit ' + r.offU + ' / .npcShadow ' + r.offS + ' / .npcBubble ' + r.offB
+          + '  ‖  ON' + JSON.stringify(r.onQ) + ' #npcLayer=' + r.onLayer + ' .npcUnit ' + r.onU
+          + (r.err ? '  ⛔ ' + r.err : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ 撤退で DOM ごと消えていない / または素のアームで NPC が出ていない')];
+    }],
+  ['5b', '⭐⭐ 同じ 4 条件 { layer, unitCount>0, bubbleWorks, signsClickable } を **ON と OFF の両方**へ当てる'
+    + ' — ON {true,true,true,true} / OFF {false,false,false,**true**}。'
+    + '⚠ signsClickable だけは **両方 true が正** (札は NPC の有無に関わらず押せる)。'
+    + '⭐⭐ 「全部反転」ではなく「反転すべき 3 つが反転し、反転してはいけない 1 つが動かない」を測る'
+    + ' = 「NPC ごと札も壊した」実装をここで落とす。'
+    + '⚠ bubbleWorks は ON で吹き出しが出た **同じ client 座標**を OFF でも押して測る',
+    (m) => {
+      const rows = RET4(m).map(function (x) {
+        const r = x[1] || {}, on = r.on || {}, off = r.off || {};
+        const ON  = { layer: on.layer === true, units: on.unitCount > 0,
+                      bubble: on.bubbleWorks === true, signs: on.signsClickable === true };
+        const OFF = { layer: off.layer === true, units: off.unitCount > 0,
+                      bubble: off.bubbleWorks === true, signs: off.signsClickable === true };
+        /* ⚠ 母集団ガード — 同じ 1 点を両アームで押していないと (5b) は何も測っていない */
+        const same = !!(r.point && on.press && off.press
+                        && on.press.x === off.press.x && on.press.y === off.press.y);
+        const armed = !!(r.point && on.signInView > 0 && off.signInView > 0);
+        const okRow = !r.err && same && armed
+          && ON.layer && ON.units && ON.bubble && ON.signs
+          && !OFF.layer && !OFF.units && !OFF.bubble && OFF.signs;
+        return { name: x[0], ON: ON, OFF: OFF, same: same, armed: armed, ok: okRow,
+                 pt: r.point, onSay: on.bubbleText, offSay: off.bubbleText,
+                 onSign: on.signInView + '/' + on.signAll, offSign: off.signInView + '/' + off.signAll,
+                 onBad: (on.signBad || []).join(','), offBad: (off.signBad || []).join(','),
+                 err: r.err };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      const S = (o) => '{' + [o.layer, o.units, o.bubble, o.signs].join(',') + '}';
+      return [ok, rows.map(function (r) {
+        return r.name + ' 押し所=' + (r.pt ? (r.pt.key + '@' + r.pt.x + ',' + r.pt.y) : '⛔なし')
+          + (r.same ? '(両アームで同じ点)' : ' ⛔ 同じ点を押していない')
+          + ' ON' + S(r.ON) + ' / OFF' + S(r.OFF)
+          + ' [layer,unit>0,bubbleWorks,signsClickable]'
+          + ' / 吹き出し ON=' + JSON.stringify(r.onSay) + ' OFF=' + JSON.stringify(r.offSay)
+          + ' / 画面内の札 ON ' + r.onSign + ' OFF ' + r.offSign
+          + (r.onBad ? ' ⛔ ON で拾えない札=' + r.onBad : '')
+          + (r.offBad ? ' ⛔ OFF で拾えない札=' + r.offBad : '')
+          + (r.err ? ' ⛔ ' + r.err : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ 期待は ON{true,true,true,true} / OFF{false,false,false,true}')];
+    }],
+  ['5c', '?npc=0 が **次のページへ持ち越されない** — ⭐ 同じタブで続けて開いて確かめる'
+    + ' (酒場で ?npc=0 → クエリ無しの酒場 → 街 で NPC が戻る / 街から始めても同じ)。'
+    + '⚠ sessionStorage へ写す型 (?town=0) にすると、ここが赤くなる',
+    (m) => {
+      const seqs = (m.carry || []);
+      const rows = seqs.map(function (s, i) {
+        const bad = (s.steps || []).filter(function (t) { return !t.ok; });
+        return { name: '経路' + (i + 1), n: (s.steps || []).length, bad: bad, err: s.err,
+                 offN: (s.steps || []).filter(function (t) { return t.want === 'off'; }).length,
+                 onN: (s.steps || []).filter(function (t) { return t.want === 'on'; }).length,
+                 trail: (s.steps || []).map(function (t) {
+                   return t.url + '→' + (t.layer ? ('NPC ' + t.units + ' 体') : 'NPC 無し')
+                     + (t.ok ? '' : ' ⛔'); }).join(' ⇒ ') };
+      });
+      const ok = rows.length === 2 && rows.every(function (r) {
+        return !r.err && r.n >= 3 && r.offN >= 1 && r.onN >= 2 && r.bad.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.trail + (r.err ? ' ⛔ ' + r.err : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ 撤退がページ遷移をまたいでいる (sessionStorage へ写していないか確認)')];
+    }],
 ].forEach(a => { ASSERT_OF[a[0]] = a; });
 
 const SECTIONS = [
@@ -1585,7 +1879,7 @@ const SECTIONS = [
   ['§2 描画',                        ['2a', '2b', '2c', '2d']],
   ['§3 吹き出し',                    ['3a', '3a-touch', '3a-life', '3b', '3c', '3d']],
   ['§4 恒等 — 非退行',               ['4a', '4b', '4c', '4d']],
-  ['§5 撤退 (項目 4)',               ['5a', '5b', '5c']],
+  ['§5 撤退 ?npc=0 — ⭐ 撤退アームと素のアームを **対で**測る', ['5a', '5b', '5c']],
 ];
 
 /* ⭐ 出口は 1 本。PENDING の理由を持っている assert はここで PENDING になる。 */
@@ -1627,23 +1921,38 @@ function emit(id, m) {
                      ready: "window.__town && typeof window.__town.zoom === 'function'",
                      idle: "window.__town && window.__town.isMoving() === false" };
 
-  try {
-    mark('測定 — 4 面 (酒場 desktop / 酒場 compact / 街 desktop / 街 compact)');
+  /* ⭐ 測定は 1 か所に畳む — 素の実行と負のコントロールで **同じ関数**を使う。
+     ⛔ 変異のときだけ測り方を変えると「欠陥を検出したのか装置が欠けたのか」が読めなくなる
+        (#40 の恒久教訓: 片方だけの観測は「観測が無いから赤」で機械的に赤くなる)。 */
+  async function measureAll4(port) {
     console.log('[drv]   酒場 desktop 1440x900');
-    const tav   = await measure(browser, PORT, Object.assign({ tag: '酒場/desktop', view: VIEW_DESKTOP }, TAV_CFG));
+    const tav   = await measure(browser, port, Object.assign({ tag: '酒場/desktop', view: VIEW_DESKTOP }, TAV_CFG));
     console.log('[drv]   酒場 compact 390x844');
-    const tavC  = await measure(browser, PORT, Object.assign({ tag: '酒場/compact', view: VIEW_COMPACT }, TAV_CFG));
+    const tavC  = await measure(browser, port, Object.assign({ tag: '酒場/compact', view: VIEW_COMPACT }, TAV_CFG));
     console.log('[drv]   街   desktop 1440x900');
-    const town  = await measure(browser, PORT, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
+    const town  = await measure(browser, port, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
     console.log('[drv]   街   compact 390x844');
-    const townC = await measure(browser, PORT, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
-
-    mark('測定 — §3 吹き出し (⭐ 別ページで **実際に押す**。4 面それぞれ ①NPC ②同じ点で当たり判定を外す ③空きタイル)');
+    const townC = await measure(browser, port, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
+    for (const pair of [['酒場/desktop', tav], ['酒場/compact', tavC], ['街/desktop', town], ['街/compact', townC]]) {
+      const k = pair[0], ph = pair[1];
+      if (ph.err) console.log('[drv]   ⛔ ' + k + ' の測定が失敗: ' + ph.err);
+      if (ph.pageErrs && ph.pageErrs.length) {
+        console.log('[drv]   ⚠ ' + k + ' のページエラー ' + ph.pageErrs.length + ' 件: '
+          + ph.pageErrs.slice(0, 2).join(' | '));
+      }
+      const p = P(ph);
+      if (p.err && p.err.length) console.log('[drv]   ⚠ ' + k + ' の観測エラー: ' + p.err.join(' | '));
+      if (ph.injected) console.log('[drv]   ⭐ ' + k + ' は addScriptTag で js/npc-crowd.js を **暫定注入**した'
+        + ' (⛔ (0a-tavern) はこれで緑にしない)');
+    }
+    return { tav: tav, tavC: tavC, town: town, townC: townC };
+  }
+  async function measureBub4(port) {
     console.log('[drv]   酒場 desktop / compact → 街 desktop / compact');
-    const bTav   = await measureBubble(browser, PORT, Object.assign({ tag: '酒場/desktop', view: VIEW_DESKTOP }, TAV_CFG));
-    const bTavC  = await measureBubble(browser, PORT, Object.assign({ tag: '酒場/compact', view: VIEW_COMPACT }, TAV_CFG));
-    const bTown  = await measureBubble(browser, PORT, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
-    const bTownC = await measureBubble(browser, PORT, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
+    const bTav   = await measureBubble(browser, port, Object.assign({ tag: '酒場/desktop', view: VIEW_DESKTOP }, TAV_CFG));
+    const bTavC  = await measureBubble(browser, port, Object.assign({ tag: '酒場/compact', view: VIEW_COMPACT }, TAV_CFG));
+    const bTown  = await measureBubble(browser, port, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
+    const bTownC = await measureBubble(browser, port, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
     for (const bp of [bTav, bTavC, bTown, bTownC]) {
       if (bp.err) console.log('[drv]   ⛔ ' + bp.tag + ' の吹き出し測定が失敗: ' + bp.err);
       if (bp.idleErr) console.log('[drv]   ⚠ ' + bp.tag + ' 対照③の前に主人公が止まらなかった: ' + bp.idleErr);
@@ -1657,45 +1966,138 @@ function emit(id, m) {
           + bp.pageErrs.slice(0, 2).join(' | '));
       }
     }
-
-    const M = { tav: tav, tavC: tavC, town: town, townC: townC,
-                bub: { tav: bTav, tavC: bTavC, town: bTown, townC: bTownC },
-                html: { tavern: frozen(TAVERN_HTML).toString('utf8'),
-                        town:   frozen(TOWN_HTML).toString('utf8') } };
-
-    for (const pair of [['酒場/desktop', tav], ['酒場/compact', tavC], ['街/desktop', town], ['街/compact', townC]]) {
-      const k = pair[0], ph = pair[1];
-      if (ph.err) console.log('[drv]   ⛔ ' + k + ' の測定が失敗: ' + ph.err);
-      if (ph.pageErrs && ph.pageErrs.length) {
-        console.log('[drv]   ⚠ ' + k + ' のページエラー ' + ph.pageErrs.length + ' 件: '
-          + ph.pageErrs.slice(0, 2).join(' | '));
-      }
-      const p = P(ph);
-      if (p.err && p.err.length) console.log('[drv]   ⚠ ' + k + ' の観測エラー: ' + p.err.join(' | '));
-      if (ph.injected) console.log('[drv]   ⭐ ' + k + ' は addScriptTag で js/npc-crowd.js を **暫定注入**した'
-        + ' (⛔ (0a-tavern) はこれで緑にしない)');
+    return { tav: bTav, tavC: bTavC, town: bTown, townC: bTownC };
+  }
+  async function measureRet4(port) {
+    const rows = {};
+    for (const spec of [['tav', '酒場/desktop', VIEW_DESKTOP, TAV_CFG],
+                        ['tavC', '酒場/compact', VIEW_COMPACT, TAV_CFG],
+                        ['town', '街/desktop', VIEW_DESKTOP, TOWN_CFG],
+                        ['townC', '街/compact', VIEW_COMPACT, TOWN_CFG]]) {
+      rows[spec[0]] = await measureRetreat(browser, port,
+        Object.assign({ tag: spec[1], view: spec[2] }, spec[3]));
+      const r = rows[spec[0]];
+      console.log('[drv]   ' + spec[1] + ' ON #npcLayer=' + ((r.on || {}).layer)
+        + ' .npcUnit ' + ((r.on || {}).unitCount)
+        + '  /  OFF(?npc=0) #npcLayer=' + ((r.off || {}).layer)
+        + ' .npcUnit ' + ((r.off || {}).unitCount)
+        + '  / 押し所 ' + (r.point ? (r.point.key + '@' + r.point.x + ',' + r.point.y) : '⛔なし')
+        + (r.err ? '  ⛔ ' + r.err : ''));
     }
-
-    /* ⭐ 項目 2 で tavern.html を結線したので、(0a-tavern) は PENDING の差し込みではなく
-       (0a-town) と**同型の述語**で測る (ASSERT_OF の表を参照)。 */
-
-    for (const sec of SECTIONS) {
-      mark(sec[0]);
-      for (const id of sec[1]) emit(id, M);
+    return rows;
+  }
+  /* (5c) — ⭐ **同じタブで**続けて開く 2 経路。sessionStorage へ写していれば必ず 2 枚目で出る。 */
+  async function measureCarry2(port) {
+    const seqA = [
+      { cfg: TAV_CFG,  query: '?npc=0', label: '酒場 ?npc=0',        want: 'off' },
+      { cfg: TAV_CFG,  query: '',       label: '同じタブで酒場 (素)', want: 'on'  },
+      { cfg: TOWN_CFG, query: '',       label: 'そのまま街へ (素)',   want: 'on'  }];
+    const seqB = [
+      { cfg: TOWN_CFG, query: '?npc=0', label: '街 ?npc=0',          want: 'off' },
+      { cfg: TOWN_CFG, query: '',       label: '同じタブで街 (素)',   want: 'on'  },
+      { cfg: TAV_CFG,  query: '',       label: 'そのまま酒場へ (素)', want: 'on'  }];
+    const a = await measureCarry(browser, port, VIEW_DESKTOP, seqA);
+    const b = await measureCarry(browser, port, VIEW_DESKTOP, seqB);
+    for (const s of [a, b]) {
+      console.log('[drv]   ' + (s.steps || []).map(t => t.url + '→'
+        + (t.layer ? ('NPC ' + t.units + ' 体') : 'NPC 無し') + (t.ok ? '' : ' ⛔')).join('  ⇒  ')
+        + (s.err ? '  ⛔ ' + s.err : ''));
     }
+    return [a, b];
+  }
+  /* ⭐ (0a) が読む「配信された HTML」。変異が触ったファイルは **変異後の本文**を渡す
+     (⛔ ディスクの素を渡すと nosrc が「タグはある」と誤答する)。 */
+  function htmlOf(mutKey) {
+    const pick = (rel) => (mutKey && MUT_SRC[mutKey] && MUT_SRC[mutKey][rel])
+      ? MUT_SRC[mutKey][rel] : frozen(rel).toString('utf8');
+    return { tavern: pick(TAVERN_HTML), town: pick(TOWN_HTML) };
+  }
+  const NEEDS = (targets) => ({
+    base:    targets.some(t => /^[0124]/.test(t)),
+    bubble:  targets.some(t => /^3/.test(t)),
+    retreat: targets.some(t => /^5/.test(t)),
+  });
 
-    if (NEGATIVE) {
-      mark('負のコントロール');
-      if (MUT_IMPL.length === 0) {
-        console.log('[drv]   ⚠ 実装済みの変異が 0 本 — 項目 4 が 13 本すべてを埋める');
+  try {
+    if (!NEGATIVE) {
+      mark('測定 — 4 面 (酒場 desktop / 酒場 compact / 街 desktop / 街 compact)');
+      const base = await measureAll4(PORT);
+
+      mark('測定 — §3 吹き出し (⭐ 別ページで **実際に押す**。4 面それぞれ ①NPC ②同じ点で当たり判定を外す ③空きタイル)');
+      const bub = await measureBub4(PORT);
+
+      mark('測定 — §5 撤退 ?npc=0 (⭐ ON/OFF の 2 タブ x 4 面 + 持ち越しの 2 経路)');
+      const ret = await measureRet4(PORT);
+      const carry = await measureCarry2(PORT);
+
+      const M = Object.assign({}, base, { bub: bub, ret: ret, carry: carry, html: htmlOf(MUTATE) });
+
+      for (const sec of SECTIONS) {
+        mark(sec[0]);
+        for (const id of sec[1]) emit(id, M);
       }
+      mark('変異の実装漏れ');
       if (MUT_TODO.length) {
+        pending('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本)',
+          '⛔ 未実装=' + MUT_TODO.join(' / '));
+      } else {
+        check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
+          true, MUT_ORDER.join(' / '));
+      }
+    } else {
+      // ══ 負のコントロール ═════════════════════════════════════════════════════
+      mark('変異が素の配信に無く、変異ポートにだけ載っていること');
+      for (const k of MUT_IMPL) {
+        for (const rel of MUT_FILES(k)) {
+          const pure = await httpGet('http://localhost:' + PORT + '/' + rel);
+          const mut  = await httpGet('http://localhost:' + PORT_OF[k] + '/' + rel);
+          const tos  = (MUTATIONS[k].edits || []).filter(e => e.file === rel).map(e => e.to);
+          const cP = tos.map(t => pure.body.split(t).length - 1);
+          const cM = tos.map(t => mut.body.split(t).length - 1);
+          check('(n0a-' + k + ':' + rel + ') 素には注入文字列が無く、変異側にちょうど 1 つある',
+            cP.every(n => n === 0) && cM.every(n => n === 1),
+            '素=' + JSON.stringify(cP) + ' / 変異=' + JSON.stringify(cM)
+            + ' [' + tos.map(t => JSON.stringify(t.slice(0, 48))).join(' ') + ']');
+          check('(n0b-' + k + ':' + rel + ') 素と変異で配信バイト長が違う (同じ物を 2 回測っていない)',
+            pure.body.length !== mut.body.length,
+            '素=' + pure.body.length + 'B / 変異=' + mut.body.length + 'B');
+        }
+      }
+
+      mark('欠陥を注入すると担当の節が赤くなること (⚠ 変異は 1 本ずつ = 互いを覆い隠さない)');
+      for (const k of MUT_IMPL) {
+        const port = PORT_OF[k];
+        const need = NEEDS(MUTATIONS[k].targets);
+        console.log('\n[drv] ── 変異 ' + k + ' (port ' + port + ') → '
+          + MUTATIONS[k].targets.map(t => '(' + t + ')').join('')
+          + '  [測定: ' + Object.keys(need).filter(x => need[x]).join('+') + ']');
+        const M = { html: htmlOf(k) };
+        if (need.base)    Object.assign(M, await measureAll4(port));
+        if (need.bubble)  M.bub = await measureBub4(port);
+        if (need.retreat) { M.ret = await measureRet4(port); M.carry = await measureCarry2(port); }
+        for (const key of MUTATIONS[k].targets) {
+          const a = ASSERT_OF[key];
+          if (!a || !a[2]) {
+            check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + key + ') が赤くなる',
+              false, '⛔ (' + key + ') に述語が無い'); continue;
+          }
+          let r;
+          try { r = a[2](M); } catch (e) { r = [false, '⛔ 述語が例外: ' + (e && e.message)]; }
+          check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + a[0] + ') が赤くなる — '
+            + a[1].slice(0, 60), r[0] === false,
+            (r[0] ? '⛔ 緑のまま (空振り) — 変異のほうを直すこと (#38 の恒久教訓)  ' : '') + r[1]);
+        }
+      }
+
+      if (MUT_TODO.length) {
+        mark('まだ実装されていない変異 (⛔ 件数から隠さない)');
         for (const k of MUT_TODO) {
           pending('(neg-' + k + ') 変異 ' + k + ' → '
             + MUTATIONS[k].targets.map(t => '(' + t + ')').join('') + ' が赤くなる',
             MUTATIONS[k].why);
         }
       } else {
+        mark('変異の実装漏れ');
         check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
           true, MUT_ORDER.join(' / '));
       }

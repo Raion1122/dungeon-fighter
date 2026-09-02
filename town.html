@@ -427,6 +427,18 @@
     } catch (e) {}
     if (!SIGN_PLATE_ON) document.body.classList.add("signplate-off");
 
+    /* ══ 撤退スイッチ ?npc=0 (実装依頼書 #41 §7) ═══════════════════════════════
+       ⚠ 判定位置は ?heromark=0 / ?signplate=0 と **同じ場所** = この IIFE の先頭。
+       ⛔ #npcLayer を display:none で残さない = **DOM に 1 枚も作らない**
+         (elementFromPoint に写ると、既存 golden 4 本の「札の中心が自分自身か」が濁る)。
+       ⚠ クエリはページ遷移をまたがない。**sessionStorage へ写さない**
+         (?heromark=0 と同じ型。⛔ ?town=0 の sessionStorage 型ではない)。
+       ⛔ 遷移先の URL にクエリを 1 文字も足さない。tavern.html は自分で独立に読む。 */
+    var NPC_ON = true;
+    try {
+      if (new URLSearchParams(location.search).get("npc") === "0") NPC_ON = false;
+    } catch (e) {}
+
     /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
        0 を渡すと街も酒場も従来どおり合成トラック TRACKS.tavern を鳴らす。
        ⚠ クエリはページ遷移をまたがらない。tavern.html 側は**独立に**読む
@@ -800,10 +812,15 @@
        ⚠ 巡回の経路は NPC_CROWD.cellsOf() が返す直線だけ。⛔ findPath を呼ばない。
          すり抜けは許容 (依頼書 §1 のユーザー決定。js/town-map.js の作法③と同じ判断)。
        ⚠ タブが隠れている間は rAF を止める。⛔ 裏で回し続けない。
-       ⭐ 撤退 ?npc=0 は項目 4 が足す。 */
+       ⭐ 撤退 ?npc=0 のときは initNpcCrowd() が即 return する (レイヤごと生えない)。 */
     var npcUnits = [];
     var npcTimer = null, npcLastNow = null, npcClock = 0;
     (function initNpcCrowd() {
+      /* 撤退 ?npc=0 (依頼書 §7) — ⛔ #npcLayer ごと作らない。
+         ⭐ ここで返せば巡回も吹き出しも rAF も生えない (全部この IIFE の中にある)。
+         ⛔ display:none で残さない = elementFromPoint に写ると、札の中心を測る
+           既存 golden 4 本の判定が濁る (依頼書 §2-3)。 */
+      if (!NPC_ON) return;                      /* [retreatnoop] 1 行に閉じたまま保つ */
       var CROWD = window.NPC_CROWD;
       if (!CROWD || !CROWD.TOWN || !CROWD.TOWN.length) {
         /* ⛔ 握り潰さない。人が居ない街に落ちるだけだが、理由は必ず残す。 */
@@ -884,7 +901,7 @@
            札の上へ乗った瞬間に既存 golden 4 本の elementFromPoint が濁る (依頼書 §2-3)。
          ⭐ 幅と高さは出した瞬間に **1 回だけ**測って持つ。巡回に追従して毎フレーム
            offsetWidth を読むと、そのたびに強制レイアウトが起きる。
-         ⚠ 撤退 ?npc=0 は項目 4 が足す。 */
+         ⚠ 撤退 ?npc=0 のときは initNpcCrowd() が即 return する (レイヤごと生えない)。 */
       var BUBBLE_MS = 4000;
       var bubbleEl = null, bubbleOwner = null, bubbleTimer = null, bubbleW = 0, bubbleH = 0;
       function npcBubbleHide() {

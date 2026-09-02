@@ -2599,6 +2599,20 @@
     })();
     document.body.classList.toggle("tavernMapOn", window.__tavernMapOn);
 
+    /* ══ 撤退スイッチ ?npc=0 (実装依頼書 #41 §7) ═══════════════════════════════
+       ⚠⚠ **判定はここ 1 か所だけ。** ?tavernmap=0 と同じ位置 (描画より前) で姿を決める。
+       ⛔ #npcLayer を display:none で残さない = **DOM に 1 枚も作らない**。残すと
+         elementFromPoint に写り、「札の中心が自分自身か」を測る既存 golden 4 本
+         (verify_tavern_map / verify_town_map / driver_heromark_signplate /
+          verify_quest_walk) の判定が濁る (依頼書 §2-3 / §7)。
+       ⚠ クエリはページ遷移をまたがない。**sessionStorage へ写さない**
+         (#15 の ?heromark=0 と同じ型。⛔ ?town=0 の sessionStorage 型ではない)。
+       ⛔ 遷移先の URL にクエリを 1 文字も足さない。town.html は自分で独立に読む。
+       ⭐ 読むのは initNpcCrowd() の 1 か所だけ (下方)。丸ごと止めれば巡回も吹き出しも死ぬ。 */
+    window.__tavernNpcOn = (function () {
+      try { return new URLSearchParams(location.search).get("npc") !== "0"; } catch (e) { return true; }
+    })();
+
     /* ══ 出発導線の撤退スイッチ ?questwalk=0 (実装依頼書 #23 §7) ══════════════
        立っているときは「今日とまったく同じ」= 出発は index.html へ直行し、
        地図の札も 7 枚とも出て誰も入れない。⛔ ?town=0 / ?world=0 とは独立
@@ -2903,10 +2917,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>人混みを消して遊べるようになった</b> — 銀の鹿亭や港町のアドレスの末尾に ?npc=0 を付けて開くと、町の人が出ない以前の静かな画面に戻せる。</li>
         <li><b>町の人が返事をするようになった</b> — 銀の鹿亭や港町フランで人を押すと、その場の一言が頭の上に浮かぶ。少し経つと自然に消える。</li>
         <li><b>酒場と港町に人が増えた</b> — 銀の鹿亭には亭主と客が、フランの市場には売り子や石工が立つようになった。給仕や通行人は通りを行き来している。</li>
         <li><b>仲間の見える範囲が編成で分かる</b> — マッチング画面のカードと傭兵名簿に視界を表示。暗視を持つ相手を連れると、松明の届かない先まで見えるようになる。</li>
-        <li><b>職業を選ぶときに暗視が分かる</b> — 名乗りの画面で、その職がダンジョンでどこまで見通せるかを開けるようになった。</li>
       </ul>
     </div>
     <script>
@@ -8946,10 +8960,16 @@
        ⚠ 巡回の経路は NPC_CROWD.cellsOf() が返す直線だけ。⛔ findPath を呼ばない
          (毎フレーム主人公の経路探索を叩くことになる)。すり抜けは許容 (依頼書 §1 のユーザー決定)。
        ⚠ タブが隠れている間は rAF を止める。⛔ 裏で回し続けない。
-       ⭐ 撤退 ?npc=0 は項目 4 が足す。 */
+       ⭐ 撤退 ?npc=0 のときは initNpcCrowd() が即 return する (レイヤごと生えない)。 */
     var npcUnits = [];
     var npcTimer = null, npcLastNow = null, npcClock = 0;
     (function initNpcCrowd() {
+      /* 撤退 ?npc=0 (依頼書 §7) — ⛔ #npcLayer ごと作らない。
+         ⭐ ここで返せば巡回も吹き出しも rAF も生えない (全部この IIFE の中にある)。
+         ⛔ display:none で残さない = elementFromPoint に写ると、札の中心を測る
+           既存 golden 4 本の判定が濁る (依頼書 §2-3)。 */
+      var NPC_ON = (window.__tavernNpcOn !== false);
+      if (!NPC_ON) return;                      /* [retreatnoop] 1 行に閉じたまま保つ */
       var CROWD = window.NPC_CROWD;
       if (!CROWD || !CROWD.TAVERN || !CROWD.TAVERN.length) {
         /* ⛔ 握り潰さない。人が居ない酒場に落ちるだけだが、理由は必ず残す。 */
@@ -9030,7 +9050,7 @@
            札の上へ乗った瞬間に既存 golden 4 本の elementFromPoint が濁る (依頼書 §2-3)。
          ⭐ 幅と高さは出した瞬間に **1 回だけ**測って持つ。巡回に追従して毎フレーム
            offsetWidth を読むと、そのたびに強制レイアウトが起きる。
-         ⚠ 撤退 ?npc=0 は項目 4 が足す。 */
+         ⚠ 撤退 ?npc=0 のときは initNpcCrowd() が即 return する (レイヤごと生えない)。 */
       var BUBBLE_MS = 4000;
       var bubbleEl = null, bubbleOwner = null, bubbleTimer = null, bubbleW = 0, bubbleH = 0;
       function npcBubbleHide() {

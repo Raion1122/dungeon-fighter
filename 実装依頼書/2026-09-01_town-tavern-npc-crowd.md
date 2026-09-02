@@ -1,7 +1,14 @@
 # #41 銀の鹿亭と港町フランに人を置く — NPC 群衆 v1
 
-- **起草**: 2026-09-01(計画窓) / **ステータス**: **承認済**(2026-09-02 ユーザー承認)
-- **着手**: ⏸ **保留 — #40 の実装完了の通知を待つ**(2026-09-02 ユーザー判断)。
+- **起草**: 2026-09-01(計画窓) / **ステータス**: ✅ **完了**(2026-09-02 実装窓・dev-loop 4 項目・停止 0 回)
+- **commit**: 項目1 `daf7468` / 項目2 `c3d2af0` / 項目3 `51f8fd4` / 項目4 `(このコミット)`
+  ⚠ **push は未実施**(ユーザー承認事項)。
+- **検証**: 新 driver `tools/verify_npc_crowd.js` **32/32 PASSED FAILED 0 PENDING 0** /
+  `--negative` **58/58 PASSED FAILED 0 PENDING 0**(変異 13 本すべて赤・空振り 0)/
+  既存 golden 5 本すべて非退行(`verify_tavern_map` 43/43 ・ `verify_town_map` 85/85 ・
+  `driver_heromark_signplate` 46/46 ・ `verify_quest_walk` 25/25 ・ `verify_town_exit` 素 23/23)。
+  撤退 `?npc=0`。
+- **着手**: 2026-09-02(#40 の完了 `a472de6` を確認してから着手した。着手前 HEAD = `a472de6`)。
   ⚠ 起草後に状況が変わった点(2026-09-02 実測):
   - `HEAD` が `bb32beb` → **`b731644`** へ進んだ(#40 の項目 1 `b42f904` / 項目 2 `b731644` が着地)。
     → **§2-9 の golden 5 本は着手時に全部測り直す**(記録は `bb32beb` 時点の値)。
@@ -1082,3 +1089,121 @@ const signs = await page.evaluate((stageId, sel) => {
     py tools/add_changelog.py "<b>町の人が返事をするようになった</b> — 銀の鹿亭や港町フランで人を押すと、その場の一言が頭の上に浮かぶ。少し経つと自然に消える。"
 
 ⭐ §10 の文面は項目 2 が使い切っていたので、**吹き出しの分を書き下ろした**。
+
+### 項目 4 — 撤退 `?npc=0` / 受入 §5 / 負のコントロール 13 本(2026-09-02)
+
+**着手前 HEAD** `51f8fd4`。**触ったファイル** = `tavern.html` / `town.html` /
+`tools/verify_npc_crowd.js` / 本依頼書 / `実装依頼書/README.md`。
+⛔ `index.html` / `js/*-map.js` / `js/npc-crowd.js` / `world.html` / `title.html` /
+**既存 golden 5 本は 1 バイトも触っていない**。**通行マスクも 1 文字も変えていない**
+((4a) が毎回それを証明する)。
+
+**結果**(すべて実行して得た値):
+
+| 実行 | 結果 |
+|---|---|
+| `node tools/verify_npc_crowd.js` | **32/32 PASSED / FAILED 0 / PENDING 0** |
+| `node tools/verify_npc_crowd.js --negative` | **58/58 PASSED / FAILED 0 / PENDING 0**(exit 0) |
+| `node tools/verify_tavern_map.js` | **43/43 PASSED FAILED 0 PENDING 0** ✓ 基準どおり |
+| `node tools/verify_town_map.js` | **85 / 85** ✓ |
+| `node tools/driver_heromark_signplate.js` | **46 / 46** ✓ |
+| `node tools/verify_quest_walk.js` | **25/25 PASSED FAILED 0 PENDING 0** ✓ |
+| `node tools/verify_town_exit.js` | **素 23/23 PASSED (PENDING 0)** ✓ |
+
+#### 撤退スイッチの形(§7 のとおり)
+
+- `tavern.html` … 先頭 `<script>`(`window.__tavernMapOn` を立てている IIFE)で
+  `window.__tavernNpcOn` を決め、`initNpcCrowd()` の 1 行目で読む。
+- `town.html` … `?heromark=0` / `?signplate=0` と **同じ IIFE の先頭**で `var NPC_ON` を決める。
+- どちらも `initNpcCrowd()` が **即 return** = `#npcLayer` を **DOM に 1 枚も作らない**
+  (⛔ `display:none` で残さない)。⭐ 巡回も吹き出しも rAF も同じ IIFE の中にあるので **同時に死ぬ**。
+- **sessionStorage へ写さない / 遷移先の URL にクエリを 1 文字も足さない**((5c) が毎回それを証明する)。
+
+#### ⭐⭐⭐ 撤退の受入は「OFF で緑」にしない(3 本の形)
+
+- **(5a)** 撤退アームで `#npcLayer` / `.npcUnit` / `.npcShadow` / `.npcBubble` が全部 0 件、
+  **かつ 同じ assert の中で素のアームが NPC を出している**ことまで見る。
+  ⛔ 撤退アームだけの assert は、実装が丸ごと壊れていても永久緑。
+- **(5b)** 同じ 4 条件 `{ layer, unitCount>0, bubbleWorks, signsClickable }` を ON/OFF 両方へ当て、
+  **ON{true,true,true,true} / OFF{false,false,false,true}** を測る。
+  ⭐ `bubbleWorks` は ON で吹き出しが出た **同じ client 座標**を OFF でも押して測る
+  (⛔「NPC が居ないから押せない」を根拠にすると、押し所の話にすり替わる)。
+  ⭐⭐ `signsClickable` が **両方 true** = 「NPC ごと札も壊した」実装をここで落とす。
+- **(5c)** **同じタブで** `酒場?npc=0` → `酒場`(素)→ `街`(素)と続けて開く 2 経路
+  (街から始める経路も対で持つ)。sessionStorage へ写す型にすると 2 枚目で必ず赤くなる。
+
+**実測**(4 面すべて): ON = 酒場 **8 体** / 街 **11 体**、OFF = **0 体**(レイヤ自体が 0 枚)。
+画面内の札は ON/OFF で同数(酒場 desktop 5/5・compact 4/5、街 desktop 3/3・compact 1/3)。
+押し所は 4 面で `porter@1037,709` / `server@195,379` / `mason@332,260` / `fisher@51,666`。
+
+#### ⚠⚠⚠ 依頼書 §8 の変異表を **2 か所直した**(#38 の恒久教訓 = 変異のほうを直す)
+
+項目 2 の申し送りどおり **(2b) は §8 の変異 1 本では原理的に赤くならない**。実測して直した:
+
+| §8 の宣言 | 実測 | 直し方 |
+|---|---|---|
+| `oversign` → (1a)(2b) | (2b) は **緑**。`.npcUnit` の z-index 3 < 札 4 なので、矩形が重なっても `elementFromPoint` は札を返す | targets を **(1a) だけ**にした |
+| `zorder` → (2a)(2b) | (2b) は **緑**。(1a) が「交差 0 件」を保証しているので **奪う相手が居ない** | **複合**にした = 「z-index 5」+「`mason` を **(10,1)**」 |
+
+⭐⭐⭐ **申し送りの「z-index 5 + mason を (11,2)」の複合でも (2b) は緑のままだった。**
+(2b) が見るのは札の **中心の 1 点**であって矩形の交差ではない。
+`mason(11,2)` の矩形は x[688..784] で、`townSign_tavern` の中心 x=**672** を **含まない**
+(矩形どうしは交差するので (1a) だけが赤くなる)。**(10,1) dx0/dy0** なら
+矩形 x[624..720] y[6.72..102.72] が中心 (672,96) を含む → 実測で
+「`townSign_tavern`→`npcUnit`」と名指しで赤くなった(街 desktop / compact の両方)。
+⭐ 教訓 = **「矩形が重なる」と「中心の 1 点を奪う」は別の条件**。
+どちらの assert を狙うのかで、変異の座標は変わる。
+
+#### 変異 13 本の実測(⭐ どれが何を赤くしたか。1 本ずつ別ポートで注入)
+
+| 変異 | 注入先 | 赤くなった assert(実測の指紋) |
+|---|---|---|
+| `nosrc` | 両 HTML | **(0a-town)(0a-tavern)** — 配信の `<script src>` 0 箇所 / 要求した=false / 注入前 `typeof NPC_CROWD=undefined` |
+| `walkable` | `js/npc-crowd.js` | **(1b)** — 酒場 `porter` が「歩けるタイルに立っている」 |
+| `oversign` | 同上 | **(1a)** — 3 経路すべて 1 件(`mason(11,2)xtownSign_tavern`) |
+| `strollsign` | 同上 | **(1a)** — **経路上の (8,3)(8,4)** が `questTable_lizard-swamp` と交差(端点は無事) |
+| `dxover` | 同上 | **(1d)** — 街 `customer(33,0)` が上限 ±32 を超過 |
+| `maskpatch` | 同上 | **(4a)** 行4 `"WC.......TT..CW"→"W.............W"` / **(4b)** 歩ける 63→**67** |
+| `zorder` | 両 HTML + データ | **(2a)** z-index 全員 5(札の 4 以上が 8/11 体)/ **(2b)** `townSign_tavern→npcUnit` |
+| `nostop` | 両 HTML | **(3c)** — ① 押すと主人公が動く / ② 当たり判定を外すと動かない |
+| `twobubble` | 両 HTML | **(3b)** — 2 人目で **2 枚**になり文面が入れ替わらない |
+| `row0` | 両 HTML | **(2d)** — 19 体すべて `background-position` の Y が `0px` |
+| `retreatnoop` | 両 HTML | **(5a)** OFF でも `#npcLayer` 1 枚 + NPC 8/11 体 / **(5b)** OFF{true,true,true,true} |
+| `allstand` | `js/npc-crowd.js` | **(1e)** — 酒場 定点 8 / 巡回 **0**、街 定点 11 / 巡回 **0** |
+| `validateyes` | 同上 | **(0e)** — 壊した記録も ok=true / 欠けた不変条件 I1,I3,I4,I5 |
+
+⭐ **`nostop` は click 側の 1 行だけ**潰しても (3c) が 4 面とも赤くなった
+(項目 3 の申し送りは「両方潰した状態でしか実測していない」だったが、**単行版でも効く**)。
+
+#### ⭐ 装置として足したもの(次が壊さないよう明記する)
+
+- **1 本の変異が複数ファイルへまたがれる**ようにした(`edits: [{ file, from, to }]` の配列)。
+  吹き出し / CSS / 撤退のアンカーは `tavern.html` と `town.html` の **両方に 1 行ずつ**あるので、
+  片方だけ潰すと「もう片方の面は緑」という半端な赤になる。
+- **`n0a` / `n0b` をファイルごとに出す**(素には注入文字列が 0 箇所・変異側にちょうど 1 箇所・
+  配信バイト長が違う)。⛔「同じ物を 2 回測っていない」ことの証拠。実測 20 本 + 20 本。
+- **`--negative` では素の §0〜§5 を走らせない**(#40 と同じ形)。代わりに変異ごとに
+  **targets が要求する測定だけ**を採る(`base` / `bubble` / `retreat`)。
+  ⛔ 必要な観測を欠いたまま走らせると「観測が無いから赤」で機械的に赤くなり、
+  欠陥を検出したのか装置が欠けたのか読めなくなる。
+- **測定関数は素の実行と負のコントロールで同一**(`measureAll4` / `measureBub4` /
+  `measureRet4` / `measureCarry2`)。⛔ 変異のときだけ測り方を変えない。
+- ⚠ `pageProbe` / `retreatProbe` / `bubbleSnap` は **全部 try/catch**。
+  負のコントロールは「実装が壊れた世界」を走らせるので、1 か所の例外で観測関数ごと死ぬと
+  残りの変異が回らず (fatal) で止まる(#40 の実測)。
+
+#### changelog
+
+    py tools/add_changelog.py "<b>人混みを消して遊べるようになった</b> — 銀の鹿亭や港町のアドレスの末尾に ?npc=0 を付けて開くと、町の人が出ない以前の静かな画面に戻せる。"
+
+⚠ 項目 4 でプレイヤーに見える変化は **`?npc=0` そのもの**だけ(残りは受入条件と負のコントロール)。
+⭐ `?tavernmap=0` と同じで撤退スイッチは **プレイヤーが実際に使える**ので、でっち上げではない。
+
+#### ⭐ 実装後の行番号(⚠ 1 本着地するとずれるので構造で探すこと)
+
+| 何 | `tavern.html` | `town.html` |
+|---|---|---|
+| 撤退 `?npc=0` の判定ブロック | **2602-2614**(`window.__tavernNpcOn`) | **430-441**(`var NPC_ON`) |
+| `if (!NPC_ON) return;`(変異 `retreatnoop` の 1 行アンカー) | **8972** | **823** |
+| `(function initNpcCrowd() {` | **8966** | **818** |
+| `<script src="js/npc-crowd.js">` | 2534 | 385 |
