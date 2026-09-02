@@ -1,7 +1,7 @@
 # #40 ワールドマップを「刻んでタップして進む」へ — 1 タップ = 最大 5 マス
 
 - **起草**: 2026-09-01(計画窓) / **ステータス**: ✅ **完了**(2026-09-02 実装窓 / dev-loop 4 項目)
-  — commit `b42f904` + `b731644` + `64d3ceb` + (項目4 = 本コミット)。**push は未実施**。
+  — commit `b42f904` + `b731644` + `64d3ceb` + `56877b4`。**push は未実施**。
   新 driver `verify_world_steps` **30/30 PASSED PENDING 0** / `--negative` **46/46・変異 12 本とも空振り 0** /
   既存 golden **4 本すべて非退行**(`verify_world_map` 57/57 / `verify_quest_walk` 25/25 /
   `verify_town_exit` 素 23/23 / `verify_title_screen` 86/86)。撤退 `?walkstep=0`。**実測は §12**
@@ -777,7 +777,7 @@
 | 1 | `b42f904` | `js/world-map.js` に派生レイヤ(`STEP_MAX_PX` / `STEPS` / `stepsOfEdge` / `walkNodes` / `walkEdges` / `walkNeighbors` / `findWalkPath`)+ 新 driver の §0 / §1 |
 | 2 | `b731644` | `world.html` に `.worldStep` マーカーを描き、押せるようにする(§2) |
 | 3 | `64d3ceb` | 1 タップ = 経路の次の 1 点まで / 到着フックの器 / 既存 golden の押し口(§3 / §4) |
-| 4 | (本コミット) | 撤退 `?walkstep=0` の受入(§6)/ 恒等 3 本(§5)/ **負のコントロール 12 本** |
+| 4 | `56877b4` | 撤退 `?walkstep=0` の受入(§6)/ 恒等 3 本(§5)/ **負のコントロール 12 本** |
 
 ### 12-1. 検証(すべて実際に走らせた)
 
