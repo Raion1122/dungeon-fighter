@@ -379,6 +379,114 @@
       "cell": 384, "cols": 4,
       "states": ["closed", "locked", "open", "broken"],
       "note": "扉システム P7 の扉スプライト (2026-08-16 納品)。⚠️ **format:\"prop\" なので両パッカーの --all は 1 件も触らない** (pack_codex1_sprites.py は format==\"enemy\"、pack_codex1_player.py は \"player\" で絞る)。キャラ規格ではないので char_ratio / walk_dir / attack_dir / center を持たない。⚠️⚠️ **直接コピーではない**: `py tools/make_door_sheet.py` で**焼き込まれた背景を剥がしてから**書き出す。納品の closed / locked セルには**不透明な白い矩形**が扉の背後に残っており (bbox 362x141 = 51,040 画素ちょうど = 充填率 99.996%)、そのまま貼ると閉じた扉の周りに白枠が出た。剥がすと bbox 340x108 / 充填率 0.8952 になる (open / broken は白が無いので 0 画素も変わらない)。⚠️ この欠陥は**四隅の alpha・外周 8px・中央帯・半透明率のどれでも検出できない** (矩形は内側から始まり、内部は alpha=255)。検出器は **`py tools/check_alpha_bg_residue.py`** = 「切り抜き素材なのに不透明画素が自分の bbox をほぼ埋めている」を充填率で見る。⚠️ **hidden のセルは無い**: drawDoors が state===\"hidden\" で continue し 1 画素も描かないので絵が要らない (これが崩れると P6 の隠し扉の知覚判定が無意味になる)。⚠️ **縦板 (orientation:\"vertical\") の絵も無い**: drawDoorArt が 90° 回して横板を使い回す。2 種持つと必ず片方だけ直し忘れる。⚠️⚠️ **立面 (正面向き) は作らない方針** — 北壁の立面は画面に入るのが実測 27〜85px しかなく上端 6 割が原理的に見えないため (tools/make_wall_face.py の docstring が唯一の正)。⚠️⚠️ **取り込み側は読み込み時に 96px へ 1 回だけ高品質縮小して焼く** (index.html の doorSheetImg.onload → doorAtlas)。mapCanvas の 2D コンテキストは resizeCanvas で imageSmoothingEnabled=false (NEAREST) に固定されているので、384px のまま毎フレーム 96px 枠へ貼ると 16 画素に 1 画素しか採られず南京錠と木口の破片が壊れる。実測 = 4 状態とも 384x384 / 板の bbox y 中心 204±1 (closed 204.0 / locked 204.0 / open 203.5 / broken 204.5) / 中央帯 (x154..230) は closed・locked が 77 列すべて不透明・open が 0 列・broken が 13 列空で面積率 7.25% / closed との RGB 完全一致率 open 0.93% broken 2.12% (= 切り抜きではなく描き起こし) / 外周 8px に不透明画素 0。⚠️ 発注は 3 版かかった: v1 は open/broken が closed の矩形切り抜き (RGB 一致率 98.3% / 95.5%)、v2 は broken が本物の破断になったがカンバスが 384x256 で open の自由端が割れていた、v3 で決着。⚠️ **『open の端の標準偏差 5px 以上』という受入条件は誤りだった** — open の自由端は割れ口ではないので、ギザギザではなく『小口 (板の厚み) が見えること』が切り抜きとの差。v2 でこの指標に合わせて割られたのは依頼側の設計ミス。⚠️ **半透明画素率の下限も無意味だった** (broken は 0%): 取り込み先が NEAREST なので 384px のアンチエイリアスは縮小時に捨てられる。⚠️ 同名で中身を変える時は index.html の ?v=1 を bump すること (参照は doorSheetImg.src の 1 箇所だけ)。"
+    },
+    {
+      "key": "town-keeper", "out": "assets/town_keeper_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6143, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-keeper/town-keeper-walk-right-6-v1-clean",
+      "attack_dir": "town-keeper/town-keeper-walk-right-6-v1-clean",
+      "note": "銀の鹿亭の**給仕** (赤毛・前掛け・ジョッキを 3 つ載せた盆)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 char_ratio 0.6143 = 体高 58px ÷ 96 ÷ (体高/bbox = 0.9835)。パーティ 57〜59px と同格。"
+    },
+    {
+      "key": "town-stall", "out": "assets/town_stall_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6181, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-stall/town-stall-walk-right-6-v1-clean",
+      "attack_dir": "town-stall/town-stall-walk-right-6-v1-clean",
+      "note": "市場の**露店の売り子** (花を挿した麦わら帽・黄の前掛け・買い物籠)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 char_ratio 0.6181 = 58 ÷ 96 ÷ 0.9775。"
+    },
+    {
+      "key": "town-fisher", "out": "assets/town_fisher_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6144, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-fisher/town-fisher-walk-right-6-v1-clean",
+      "attack_dir": "town-fisher/town-fisher-walk-right-6-v1-clean",
+      "note": "桟橋の**漁師** (肩に巻いた漁網・長靴)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 char_ratio 0.6144 = 58 ÷ 96 ÷ 0.9834。"
+    },
+    {
+      "key": "town-mason", "out": "assets/town_mason_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6110, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-mason/town-mason-walk-right-6-v1-clean",
+      "attack_dir": "town-mason/town-mason-walk-right-6-v1-clean",
+      "note": "城壁を積み直す**石工** (革の前掛け・頭布・石工槌)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 char_ratio 0.6110 = 58 ÷ 96 ÷ 0.9888。"
+    },
+    {
+      "key": "town-guard", "out": "assets/town_guard_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.7160, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-guard/town-guard-walk-right-6-v1-clean",
+      "attack_dir": "town-guard/town-guard-walk-right-6-v1-clean",
+      "note": "北橋を巡回する**街の衛兵** (槍・鎖帷子・青の上っ張り)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 ⚠️⚠️ **char_ratio 0.7160 は他の町人 (0.61 前後) と違う。写してはいけない** — **槍が頭より高く伸びる**ので bbox 608px に対し体は 513px しかない (体高/bbox = 0.8438)。素の 0.604 を焼くと体が **49px** になりパーティ比 -15% の小男になる。0.7160 = 58 ÷ 96 ÷ 0.8438 で体高 58px が出る (mage のとんがり帽子と同じ罠)。"
+    },
+    {
+      "key": "town-commoner", "out": "assets/town_commoner_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6154, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "town-commoner/town-commoner-walk-right-6-v1-clean",
+      "attack_dir": "town-commoner/town-commoner-walk-right-6-v1-clean",
+      "note": "市場を歩く**町人の老女** (紫の外套・野菜の入った買い物籠)。2026-09-02 納品 (#41 STEP4)。**walk 6 コマのみ**の非戦闘 NPC なので attack_out を持たない (attack_dir が walk と同じ物を指すのは _load_frames がパッカの必須要件だから。merchant-bound / merchant-post と同じ形)。⚠️ walk_dir は **-clean 派生**を指す — 納品そのままの 36 コマには chroma 除去の取り残し (浮遊ゴミ最大 279px / マゼンタ残り) があり、パッカが bbox 高で縮尺を決め足元でアンカーするため **キャラが縮んで浮く**。`py tools/clean_codex1_frames.py --all-townsfolk` で作る (冪等)。 char_ratio 0.6154 = 58 ÷ 96 ÷ 0.9817。"
+    },
+    {
+      "key": "villager-man", "out": "assets/villager_man_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6090, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-man/villager-man-walk-right-6-v1-clean",
+      "attack_dir": "villager-man/villager-man-walk-right-6-v1-clean",
+      "note": "**村人の男** (革のベスト・腰袋)。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 char_ratio 0.6090 = 58 ÷ 96 ÷ 0.9920。"
+    },
+    {
+      "key": "villager-woman", "out": "assets/villager_woman_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6125, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-woman/villager-woman-walk-right-6-v1-clean",
+      "attack_dir": "villager-woman/villager-woman-walk-right-6-v1-clean",
+      "note": "**村人の女** (頭巾・前掛け)。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 ⚠️ 納品に**マゼンタ残り 2.52%** (可視画素比・全部 alpha=255 の不透明) があり -clean で除去。 char_ratio 0.6125 = 58 ÷ 96 ÷ 0.9864。"
+    },
+    {
+      "key": "villager-boy", "out": "assets/villager_boy_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.4976, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-boy/villager-boy-walk-right-6-v1-clean",
+      "attack_dir": "villager-boy/villager-boy-walk-right-6-v1-clean",
+      "note": "**村の少年**。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 ⚠️ **char_ratio 0.4976 は大人の 0.61 と違う。写してはいけない** — 子供なので**わざと低く**焼いている (体高 46px = 大人 58px の 79%)。0.61 を焼くと大人と同じ背丈の『頭の大きい大人』になる。0.4976 = 46 ÷ 96 ÷ 0.9629。"
+    },
+    {
+      "key": "villager-girl", "out": "assets/villager_girl_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.5056, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-girl/villager-girl-walk-right-6-v1-clean",
+      "attack_dir": "villager-girl/villager-girl-walk-right-6-v1-clean",
+      "note": "**村の少女**。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 ⚠️ villager-boy と同じ理由で**わざと低い** (体高 48px)。⚠️ 納品に**マゼンタ残り 3.21%** があり -clean で除去。0.5056 = 48 ÷ 96 ÷ 0.9889。"
+    },
+    {
+      "key": "villager-old-man", "out": "assets/villager_oldman_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6111, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-old-man/villager-old-man-walk-right-6-v1-clean",
+      "attack_dir": "villager-old-man/villager-old-man-walk-right-6-v1-clean",
+      "note": "**村の老人** (杖・フード付きの外套)。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 char_ratio 0.6111 = 58 ÷ 96 ÷ 0.9887。"
+    },
+    {
+      "key": "villager-old-woman", "out": "assets/villager_oldwoman_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.6144, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "villager-old-woman/villager-old-woman-walk-right-6-v1-clean",
+      "attack_dir": "villager-old-woman/villager-old-woman-walk-right-6-v1-clean",
+      "note": "**村の老婆** (杖・肩掛け)。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 ⚠️ 納品に**マゼンタ残り 3.37%** があり -clean で除去。0.6144 = 58 ÷ 96 ÷ 0.9833。"
     }
   ]
 }

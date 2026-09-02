@@ -15,8 +15,13 @@
  * ★ スプライトは **右向き 1 行 6 コマしか無い** (576x384 の 33 枚すべて実測済)。
  *   静止コマも上下向きも存在しない。左は scaleX(-1)。⛔ 正面向きの設計を足さないこと。
  *
- * ★ sprite: は **暫定**。STEP4 で codex1 へ発注した町人が納品されたら
- *   このファイルの sprite: だけを差し替える (他は 1 行も変えない)。
+ * ★ sprite: は 2026-09-02 の STEP4 で **町人 12 種へ差し替え済** (このファイルの sprite: だけを
+ *   14 箇所書き換え、他は 1 行も変えていない)。内訳 = codex1 へ新規発注した 6 種
+ *   (town_keeper / town_stall / town_fisher / town_mason / town_guard / town_commoner) と、
+ *   2026-07-17 に納品済みだが台帳に載らず眠っていた 6 種 (villager_man / _woman / _boy /
+ *   _girl / _oldman / _oldwoman)。⭐ **街からは冒険者が 1 人も居なくなった**。
+ *   酒場の客 4 人 (patronA-D) と drunk だけは「客が冒険者なのは正しい」ので据え置き。
+ *   ⚠ 同じ画面内で同じシートを 2 人に当てていない (酒場 8 / 街 11 とも全員別人)。
  *   ⛔ index.html の SPRITE_VARIANTS / tavern.html の PARTY_PORTRAIT_SPRITES へ写しを作らない。
  */
 (function (global) {
@@ -30,7 +35,7 @@
      say : クリックしたときの一言 (プレーンテキスト。⛔ HTML を入れない) */
   var TAVERN = [
     { key: "keeper",  kind: "stand", tile: [11, 1], dx:   0, dy:  18, face: "left",
-      sprite: "assets/servant_walk.png", hold: 0,
+      sprite: "assets/town_keeper_walk.png", hold: 0,
       say: "いらっしゃい。奥の卓が空いてるよ。" },
     { key: "patronA", kind: "stand", tile: [ 3, 3], dx: -14, dy:  -6, face: "right",
       sprite: "assets/dwarf_warrior_walk.png", hold: 2,
@@ -48,31 +53,31 @@
       sprite: "assets/warrior_npcfemale_walk.png", hold: 5,
       say: "……もう一杯だけ。もう一杯だけだ。" },
     { key: "porter",  kind: "stand", tile: [11, 8], dx:   0, dy: -14, face: "left",
-      sprite: "assets/mage_wizard_walk.png", hold: 0,
+      sprite: "assets/villager_man_walk.png", hold: 0,
       say: "この樽、どけておいてくれると助かるんだがね。" },
     /* ⚠ 巡回。経路は (7,3)..(7,6) の 4 マス。⛔ 列 8 にすると (8,3) が席札と交差する (依頼書 §2-3) */
     { key: "server",  kind: "stroll", from: [7, 3], to: [7, 6], face: "right",
-      sprite: "assets/servant_walk.png",
+      sprite: "assets/villager_woman_walk.png",
       say: "お待たせしました、エールをどうぞ。" }
   ];
 
   var TOWN = [
     { key: "stallA",   kind: "stand", tile: [16, 3], dx:   0, dy:  10, face: "right",
-      sprite: "assets/servant_walk.png", hold: 0, say: "干し魚だよ、干し魚。安いよ。" },
+      sprite: "assets/town_stall_walk.png", hold: 0, say: "干し魚だよ、干し魚。安いよ。" },
     { key: "stallB",   kind: "stand", tile: [19, 6], dx: -10, dy:   0, face: "left",
-      sprite: "assets/rogue_male_walk.png", hold: 2, say: "その値では買えん。半分にしろ。" },
+      sprite: "assets/villager_oldman_walk.png", hold: 2, say: "その値では買えん。半分にしろ。" },
     { key: "stallC",   kind: "stand", tile: [17, 8], dx:   0, dy:  10, face: "right",
-      sprite: "assets/mage_wizard_walk.png", hold: 4, say: "薬草だ。傷にも腹にも効く。" },
+      sprite: "assets/town_commoner_walk.png", hold: 4, say: "薬草だ。傷にも腹にも効く。" },
     { key: "customer", kind: "stand", tile: [15, 5], dx:  12, dy:   0, face: "left",
-      sprite: "assets/cleric_npcmale_walk.png", hold: 1, say: "麦の値がまた上がった……。" },
+      sprite: "assets/villager_oldwoman_walk.png", hold: 1, say: "麦の値がまた上がった……。" },
     { key: "mason",    kind: "stand", tile: [ 4, 4], dx:   0, dy:   8, face: "right",
-      sprite: "assets/dwarf_warrior_walk.png", hold: 3, say: "この壁を積み直すのに、あと半年だな。" },
+      sprite: "assets/town_mason_walk.png", hold: 3, say: "この壁を積み直すのに、あと半年だな。" },
     { key: "carpenter",kind: "stand", tile: [ 8, 7], dx: -10, dy:   0, face: "left",
-      sprite: "assets/warrior_npcfemale_walk.png", hold: 5, say: "足場に近づくな。落ちても知らんぞ。" },
+      sprite: "assets/villager_man_walk.png", hold: 5, say: "足場に近づくな。落ちても知らんぞ。" },
     { key: "fisher",   kind: "stand", tile: [ 7,13], dx:   0, dy: -20, face: "right",
-      sprite: "assets/elf_male_walk.png", hold: 0, say: "湖の魚が減った。何かが居るのさ。" },
+      sprite: "assets/town_fisher_walk.png", hold: 0, say: "湖の魚が減った。何かが居るのさ。" },
     { key: "dockhand", kind: "stand", tile: [15,13], dx:   0, dy: -20, face: "left",
-      sprite: "assets/servant_walk.png", hold: 2, say: "北からの荷はまだ来ん。橋がな。" },
+      sprite: "assets/villager_boy_walk.png", hold: 2, say: "北からの荷はまだ来ん。橋がな。" },
     /* 巡回 3 本。⭐ strollA は北橋 (12,3)(13,3) を渡る = 街が生きて見える一番の絵
        ⚠⚠⚠ (I6) 経路は **既存 golden が固定座標で押す 7 タイルの中心を覆ってはならない**。
          #41 項目 3 で吹き出しに ev.stopPropagation() を足した瞬間、NPC が「タップを食う板」に
@@ -87,11 +92,11 @@
          (col 11 の中心 x=736 に対し col 12 のスプライトは x=752 から)。
        → (1f) が毎回この 7 点を機械的に測る。動かしたくなったら先に (1f) を読むこと。 */
     { key: "strollA", kind: "stroll", from: [12, 3], to: [14, 3], face: "right",
-      sprite: "assets/warrior_npcfemale_walk.png", say: "橋の向こうは市場だよ。" },
+      sprite: "assets/town_guard_walk.png", say: "橋の向こうは市場だよ。" },
     { key: "strollB", kind: "stroll", from: [16,11], to: [19,11], face: "right",
-      sprite: "assets/cleric_npcmale_walk.png", say: "湖岸は風が気持ちいいね。" },
+      sprite: "assets/villager_girl_walk.png", say: "湖岸は風が気持ちいいね。" },
     { key: "strollC", kind: "stroll", from: [18, 4], to: [18, 9], face: "right",
-      sprite: "assets/rogue_male_walk.png", say: "……見ない顔だな。" }
+      sprite: "assets/villager_woman_walk.png", say: "……見ない顔だな。" }
   ];
 
   /* ── 不変条件の検査 (⭐ ドライバはこれを **呼ぶ**。自前で書き直さないこと) ─────────

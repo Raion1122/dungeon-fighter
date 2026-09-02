@@ -1207,3 +1207,118 @@ const signs = await page.evaluate((stageId, sel) => {
 | `if (!NPC_ON) return;`(変異 `retreatnoop` の 1 行アンカー) | **8972** | **823** |
 | `(function initNpcCrowd() {` | **8966** | **818** |
 | `<script src="js/npc-crowd.js">` | 2534 | 385 |
+
+---
+
+### STEP4 — 町人スプライトの発注・納品・取り込み(2026-09-02)
+
+**着手前 HEAD** `971597e`(#42 の着地後)。**触ったファイル** =
+`js/npc-crowd.js`(`sprite:` **14 箇所**と冒頭コメントだけ。データ構造・座標・台詞は 1 文字も動かしていない)/
+`tools/codex1_sprites.json`(**+12 件**)/ `tools/clean_codex1_frames.py`(**新規**)/
+`tavern.html`(changelog **1 行**)/ `assets/{town,villager}_*_walk.png`(**新規 12 枚 = 計 0.24MB**)。
+
+#### ⭐⭐⭐ 起草前の測り直しで §12 の主張が 3 件崩れた
+
+| # | §12 が書いていたこと | 実測 |
+|---|---|---|
+| 1 | 「**576x384 / セル 96px の完成シート**を発注する」 | ❌ codex1 が納品するのは**自由寸法のフレーム 6 枚**(実測 400x780 / 512x724 / 768x724)。96px セルへ畳むのは**受け取り側**の `pack_codex1_player.py` + 台帳の `char_ratio` |
+| 2 | 数値目標「**右向き 6 コマの bbox 高 max が 57〜60px**」 | ❌ それは `char_ratio × 96` で**こちらが焼く量**で codex は制御できない。しかもスキル `dnd-monster-sprites` 自身が "Do not add ineffective size instructions such as **exact pixel body height**" と明記している → **比率と接地線**へ翻訳した |
+| 3 | (暗黙)スキル既定のフローで納品してもらう | ❌ 既定は walk+attack の両方を作り `check_pose_alignment.py` で検査する。**同スクリプトは 12 コマを要求する**ので walk 単独では必ず失敗する → 依頼文 §0 で名指しで打ち消した |
+
+⚠⚠ **さらに閾値も測り直した。** スキルの「接地線 4px / 体高 5%」をそのまま課すと、
+**受け入れ済みの既存納品 2 セットが落ちる**(`npc-female-warrior` 7px / `female-thief` 6.1%)。
+あれは walk と attack を共有カンバスへ整列した**後**の物差しだった → **8px / 7%** に緩めて発注した。
+⭐ `codex1/requests/README.md` の指針 #6(扉 v2 = 指標に合わせて絵を壊された事故)を、
+そのまま再現するところだった。
+
+#### 発注と納品
+
+- 依頼文 `codex1/requests/2026-09-02_townsfolk-sprites.md` → ユーザー承認 → `--dry-run` でヘッダ全文確認 → 本番投下
+- **613 秒で 6 体 36 コマ納品**、md5 6/6 すべて相違
+- ⭐ codex は依頼文 §5-4 のとおり「**実行環境に Python が無いので (A)〜(E)(G) は未測定**」と
+  **正直に申告**してきた(代替として PowerShell/.NET で端の alpha だけ検査し 36 枚とも `edge_alpha=False`)。
+  → **受け取り側で全部測り直した**: (A) 1〜8px / (B) 0.6〜1.7% / (F) 6/6 / (G) 0 で 6 体とも合格。
+  (C)(E) は `town-mason`(7.4%)と `town-guard`(9.6%)がレンジ外だが、これは**フレーム内の位置と占有率**で、
+  パッカが接地で再アンカーするので実害なしと判断した。
+
+#### ⭐⭐⭐ 棚卸しで「眠っていた町人 6 体」が見つかった
+
+`codex1/assets` を一覧したところ、**`villager-man` / `-woman` / `-boy` / `-girl` / `-old-man` /
+`-old-woman` の 6 セットが 2026-07-17 に納品済み**で、**台帳にも `codex1/requests/README.md` の
+一覧にも載らないまま眠っていた**。
+
+⚠⚠⚠ **§2-2 の「『町人』は 1 枚も無い」は誤りではないが、測った場所が違った** —
+あれは**ゲーム側の `assets/*_walk.png`** を数えた結果で、**codex1 の納品側は誰も見ていなかった**。
+⭐ 恒久教訓: **「素材が無い」を主張するときは、納品元のフォルダまで見に行くこと。**
+(#39 の「その語で grep して 0 件を未実装の根拠にするな」の、置き場所版。)
+
+→ 新規 6 体と合わせて **12 体**を取り込んだ。⚠ codex1 側の一覧表へ行を足すのを忘れると
+同じことが起きるので、`codex1/requests/README.md` に「**納品したら必ずこの一覧へ行を足すこと**」と書いた。
+
+#### ⚠⚠ 納品の欠陥 2 種 → `tools/clean_codex1_frames.py`(新規)
+
+| 欠陥 | 実測 | なぜ効くか |
+|---|---|---|
+| **浮遊ゴミ** | 新規 6 体 36 コマに多数。最大の断片は **279px** で、alpha bbox を最大 **68px** 広げていた | パッカは **bbox 高**で共通スケールを決め `center:"feet"` で bbox 下端を接地線に置く → 足元のゴミ 1 個で**キャラが縮んで浮く**。⚠ 面積は小さいのに幾何が壊れる |
+| **マゼンタ残り** | `villager-woman` 2.52% / `-girl` 3.21% / `-old-woman` 3.37%(可視画素比) | ⚠ **全部 alpha=255 の完全不透明**。「半透明の縁」を狙う処理では落ちない |
+
+⭐ **パッカ本体は 1 行も触っていない。** `_load_frames` を全件で清掃すると出荷済み 44 シートの
+バイトが動きうるため、前処理を分離して `-clean` 派生フォルダを作り台帳から指す形にした
+(`-matched` / `-aligned` と同じ既存の流儀)。⭐ **実際に `--all` を流して既存 15 枚が
+バイト不変であることを `git status` で確認済み**(`M` は台帳のみ)。
+
+⚠ 閾値 `MIN_COMPONENT=400` の根拠: 落とす最大の成分は **279px**、本体は **46,000〜70,000px** で
+**160 倍の隔たり**がある。300〜40,000 のどこに置いても結果は同じ。
+
+#### ⚠⚠⚠ `char_ratio` の罠 — **槍が頭より高い**
+
+`town-guard` だけ `char_ratio` が **0.7160** で、他の町人(0.61 前後)と違う。**写してはいけない。**
+
+    bbox 608px に対し 体は 513px しかない (体高/bbox = 0.8438)
+    素の 0.604 を焼くと 体が 49px = パーティ 58px より 15% 低い小男になる
+    0.7160 = 58 ÷ 96 ÷ 0.8438  →  体高 58px
+
+⭐ 台帳の `mage`(とんがり帽子で 14px かさ上げ)と**同じ罠**。パッカの縮尺式が **bbox 高**を見る以上、
+**頭より高く伸びる持ち物があるキャラは必ずこの逆算が要る**。
+同じ理由で `villager-boy` (0.4976 = 体高 46px) と `-girl` (0.5056 = 48px) は
+**わざと低く**焼いてある(子供なので。0.61 を焼くと「頭の大きい大人」になる)。
+
+#### 割り当て — ⭐ 街から冒険者が 1 人も居なくなった
+
+| 場所 | key | 差し替え前 | 差し替え後 |
+|---|---|---|---|
+| 酒場 | `keeper` | `servant` | **`town_keeper`**(前掛け + 盆) |
+| 酒場 | `porter` | `mage_wizard` | **`villager_man`**(⭐ 樽を運ぶのが老魔術師でなくなった) |
+| 酒場 | `server` | `servant` | **`villager_woman`** |
+| 酒場 | `patronA`〜`D` / `drunk` | (据え置き) | ⭐ **客が冒険者なのは正しい**ので変えない |
+| 街 | `stallA` | `servant` | **`town_stall`** |
+| 街 | `stallB` | `rogue_male` | **`villager_oldman`** |
+| 街 | `stallC` | `mage_wizard` | **`town_commoner`** |
+| 街 | `customer` | `cleric_npcmale` | **`villager_oldwoman`** |
+| 街 | `mason` | `dwarf_warrior` | **`town_mason`**(⭐ 足場の上が全身板金鎧でなくなった) |
+| 街 | `carpenter` | `warrior_npcfemale` | **`villager_man`** |
+| 街 | `fisher` | `elf_male` | **`town_fisher`**(⭐ 桟橋に弓のエルフが居なくなった) |
+| 街 | `dockhand` | `servant` | **`villager_boy`** |
+| 街 | `strollA` | `warrior_npcfemale` | **`town_guard`**(⭐ 北橋を見回る衛兵) |
+| 街 | `strollB` | `cleric_npcmale` | **`villager_girl`** |
+| 街 | `strollC` | `rogue_male` | **`villager_woman`** |
+
+⚠ **同じ画面内で同じシートを 2 人に当てていない**(酒場 8 / 街 11 とも全員別人)。
+画面をまたぐ再利用(`villager_man` = 酒場の荷運び / 街の大工 など)は、
+酒場と街が同時に映らないので許容した。
+
+#### 検証 — ⭐ 受入 32/32 は 1 つも書き換えていない
+
+| ドライバ | 結果 |
+|---|---|
+| `tools/verify_npc_crowd.js` | **32/32 PASSED / FAILED 0 / PENDING 0** ⭐ **期待値の変更 0 件**(`sprite:` はどの assert にも焼かれていない、という §12 の予測が当たった) |
+| `tools/verify_tavern_map.js` | **43/43** PENDING 0(⚠ changelog で `tavern.html` を触った**後**に取り直した値) |
+| `tools/verify_town_map.js` | **85/85** |
+| `tools/driver_heromark_signplate.js` | **46/46** |
+| `tools/verify_quest_walk.js` | **25/25** PENDING 0 |
+| `tools/verify_town_exit.js` | **素 23/23** PENDING 0 |
+| `py tools/check_sprite_doubling.py` | 12/12 **clean**(分身 0) |
+| `py tools/check_alpha_bg_residue.py` | 72 セル / 背景残りの疑い **0 件** |
+| 本番の床の上での目視 | ✅ 街 = `town_phlan.jpg` / 酒場 = `tavern_bg.png` に 96px 実寸で並べて確認。白枠・浮遊ゴミ・縁の色残りなし。既存 `servant` / `warrior_npcfemale` と縮尺一致 |
+
+⚠ **残っているのは実機体感 10 項目だけ**(§9)。`http` 起動での目視が要る。
