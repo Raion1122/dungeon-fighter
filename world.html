@@ -823,9 +823,15 @@
         if (pendingArrive) { var f0 = pendingArrive; pendingArrive = null; f0(); }
         return;
       }
+      /* ⭐⭐⭐ 座標は **細分化グラフ (NODES ∪ STEPS)** から引く (#40)。
+         ⚠⚠⚠ ここを NODES のままにすると、刻み点 id を渡された瞬間に
+           NODES["lake_n__lakeside@1"] が undefined になり .x で TypeError で落ちる。
+         ⛔ 下の step() (rAF) の中で walkNodes() を呼ばないこと —
+           毎フレーム全ノードを組み直すことになる。**先頭で 1 回だけ**組んで持つ。 */
+      var G = WM.walkNodes();
       var idx = 0;
       var from = { x: heroPx.x, y: heroPx.y };
-      var to = { x: NODES[ids[0]].x, y: NODES[ids[0]].y };
+      var to = { x: G[ids[0]].x, y: G[ids[0]].y };
       var t0 = performance.now(), walked = 0;
       moving = true;
       if (to.x !== from.x) facingLeft = (to.x < from.x);
@@ -839,17 +845,20 @@
         applyCamera();
         if (t >= 1) {
           heroNodeId = ids[idx];
-          heroPx.x = NODES[heroNodeId].x; heroPx.y = NODES[heroNodeId].y;
+          heroPx.x = G[heroNodeId].x; heroPx.y = G[heroNodeId].y;
           walked += span;
           idx++;
           if (idx >= ids.length) {
             stopWalk();
-            elGoal.classList.remove("show");
+            /* ⭐ 目印 (elGoal) を消すのは **呼び手 (goToPoint)** の役目 (#40)。
+               1 タップ = 1 ホップなので、**最終目的地に着くまでは消さない**
+               (「まだ着いていない」を目印が語る)。⛔ ここへ戻さないこと。
+               ⚠ 撤退時 (walkStepOff) は 1 回で経路全部を歩くので今日どおり必ず消える。 */
             if (pendingArrive) { var fn = pendingArrive; pendingArrive = null; fn(); }
             return;
           }
           from = { x: heroPx.x, y: heroPx.y };
-          to = { x: NODES[ids[idx]].x, y: NODES[ids[idx]].y };
+          to = { x: G[ids[idx]].x, y: G[ids[idx]].y };
           if (to.x !== from.x) facingLeft = (to.x < from.x);
           t0 = now;
         }
@@ -920,23 +929,57 @@
       elAsk.setAttribute("aria-hidden", "false");
     }
 
-    function goToNode(id) {
-      if (!WM.has(id)) return false;
-      if (id === heroNodeId && !moving) { onArriveNode(id); return true; }
-      var path = WM.findPath(heroNodeId, id);
-      if (path === null) return false;         /* 到達できないノードでは動かない */
-      var n = NODES[id];
-      elGoal.style.left = n.x + "px"; elGoal.style.top = n.y + "px";
-      elGoal.classList.add("show");
-      walkPath(path, function () { onArriveNode(id); });
-      return true;
+    /* ══ 到着フック = ランダムイベントの器 (#40 §6-2) ═══════════════════
+       ⭐ **器だけ**。⛔ ここでイベントを起こさない (後続チケットの担当。
+         (4c) が「刻み点に着いても何も起きない」ことを機械で縛っている)。
+       ⚠ 1 ホップ = **ちょうど 1 回**呼ぶ。⛔ walkPath の中から呼ばないこと —
+         撤退時 (walkStepOff) は中継ノードを通過するので、そこで鳴らすと
+         回数が合わなくなる (変異 arrivedup が縛る)。
+       ⛔ lastArrival はゲームの状態を置く場所ではない。__world が読むための記録。 */
+    var lastArrival = null, arrivalCount = 0;
+    function onArriveStep(atId, destId) {
+      arrivalCount++;
+      lastArrival = { at: atId, dest: destId,
+                      kind: WM.has(atId) ? "node" : "step",
+                      arrived: atId === destId };
+      /* ⭐ 拠点の入場判定は **今日のまま** = 「タップした行き先へ着いたとき」だけ鳴らす。
+         ⚠⚠⚠ ここを `if (WM.has(atId))` だけにすると **通りすがりの拠点でも入場が起きる**。
+           2026-09-01 実測: pier から forest を押すと 1 ホップ目が phlan (enter を持つ
+           ただ 1 つのノード) なので location.href = "town.html" が走り、
+           tools/verify_world_map.js が (fatal)「WORLD_MAP が undefined」で全滅した。
+           ⭐ 今日の姿でも onArriveNode は **押した行き先でしか呼ばれていない**
+             (walkPath は中継ノードで何も鳴らさない) ので、これが本当の「今日のまま」。
+         ⛔ onArriveNode 自体は 1 バイトも変えていない。変えたのは **呼ぶ条件**だけ。
+         ⛔ 通りすがりでイベントを起こさない ((4c) が縛る)。 */
+      if (lastArrival.arrived && WM.has(atId)) onArriveNode(atId);
     }
 
-    /* ⚠ #40 項目 3 がここを「1 タップ = 1 ホップ」の本体へ差し替える。
-       項目 2 の時点では既存の goToNode へ橋渡しするだけ。
-       ⚠ 刻み点 id は WM.has() が false なので goToNode がそのまま false を返す
-         = 押しても何も起きない (クラッシュしない)。 */
-    function goToPoint(id) { return goToNode(id); }
+    /* ══ 1 タップ = 経路上の「次の 1 点」まで (#40 §6-1) ══════════════════
+       ⭐⭐⭐ 行き先は elGoal に残るので、同じ所を続けて押せば刻みながら着ける。
+       ⛔ 「隣接だけ押せる」にはしない — **遠い拠点を押しても 1 ホップは必ず進む**
+         ((3a)(3c) と負のコントロール hopnone が縛る)。
+       ⚠ 撤退時 (walkStepOff) は **今日どおり経路全部**を 1 回で歩く。
+       ⚠ 母集団は NODES ではなく **細分化グラフ (NODES ∪ STEPS)**。 */
+    function goToPoint(id) {
+      var G = WM.walkNodes();
+      if (!Object.prototype.hasOwnProperty.call(G, id)) return false;
+      if (id === heroNodeId && !moving) { onArriveNode(id); return true; }
+      var path = walkStepOff ? WM.findPath(heroNodeId, id) : WM.findWalkPath(heroNodeId, id);
+      if (path === null || path.length === 0) return false;   /* 到達できない先では動かない */
+      var g = G[id];
+      elGoal.style.left = g.x + "px"; elGoal.style.top = g.y + "px";
+      elGoal.classList.add("show");
+      var hop = walkStepOff ? path : path.slice(0, 1);      /* ★ ここが本チケットの核心 */
+      var last = hop[hop.length - 1];
+      walkPath(hop, function () {
+        /* ⭐ 目印は「まだ着いていない」あいだ出したままにする。 */
+        if (last === id) elGoal.classList.remove("show");
+        onArriveStep(last, id);
+      });
+      return true;
+    }
+    /* ⛔ 既存の呼び名は残す (__world.goToNode をドライバが握っている)。 */
+    function goToNode(id) { return goToPoint(id); }
 
     /* ══ 音 (依頼書 §6-2 の 6 / §12-1) ══════════════════════════════════
        BGM = GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
@@ -991,6 +1034,21 @@
       /* ── #40 が足した窓 (⛔ 読むためだけ。ここへ状態を置かない) ────────
          stepIds … 刻み点マーカーの id。⛔ nodeIds とは別。混ぜない。 */
       stepIds:   function () { return Object.keys(stepEls); },
+      /* lastArrival  … 直近の 1 ホップの記録 {at, dest, kind, arrived}。⛔ 状態ではない
+         arrivalCount … 1 ホップにつきちょうど 1 増える ((4b) が縛る)
+         walkStepOff  … 撤退が効いているか (sessionStorage 経由なのでクエリ無しでも真になる)
+         stepMaxPx    … 刻みの上限。⭐ ドライバはこれを読む (⛔ 320 を直書きさせない)
+         clientFromPoint … 刻み点も押せるよう clientFromNode の細分化グラフ版。
+                           ⚠ 式は clientFromWorld ただ 1 本へ寄せる (別式で書き直さない) */
+      lastArrival:  function () { return lastArrival; },
+      arrivalCount: function () { return arrivalCount; },
+      walkStepOff:  function () { return walkStepOff; },
+      stepMaxPx:    function () { return WM.STEP_MAX_PX; },
+      clientFromPoint: function (id) {
+        var g = WM.walkNodes()[id];
+        if (!g) return null;
+        return window.__world.clientFromWorld(g.x, g.y);
+      },
       goToNode:  goToNode,
       /* ⚠ ドライバはこの値と**実描画の矩形**を突き合わせる (CSS と JS の写経ズレを殺すため)。 */
       heroGeom:  function () { return { sprite: SPRITE, foot: FOOT, rowRight: SHEET_ROW_RIGHT }; },

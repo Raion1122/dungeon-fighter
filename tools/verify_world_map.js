@@ -650,6 +650,52 @@ const SPRITE = 96;        // 依頼書 §2-8: <class>_walk.png は 576x384 = 96p
 const FOOT = 0.93;        // 依頼書 §2-8: 足元をルート上の点に置く接地比
 const ROW_RIGHT = 3;      // 依頼書 §2-8: 右向きの行
 const HIT_EPS = 0.5;      // px。style.left/top は文字列なので丸め誤差だけ許す
+/* ⭐ #40「1 タップ = 最大 5 マス」以降、遠い拠点は 1 回では着かない → 着くまで押し直す。
+ *  ⛔ 上限を外さない (無限ループは「動かなくなった実装」を隠す)。
+ *  ⚠ 現行の最長経路は phlan→temple の 8 ホップ (2026-09-01 実測) なので 12 で足りる。 */
+const MAX_TAPS = 12;
+
+/* ⭐⭐⭐ #40 の余波 — **入場ノード (enter を持つ phlan) は押し直しループで測れない**。
+ *  ⚠⚠⚠ あそこは「着いた瞬間に location.href が走る」ので、
+ *    「heroNode() が一致するまで押す」形では一致する瞬間が永久に来ない (ページごと消える)。
+ *    2026-09-02 実測: 押し直しループだけを入れた状態だと、遠くから phlan を 1 回押す
+ *    3 箇所 ((4b) / (4c) の通し ③ / (3d)) のうち **遠い 2 箇所**が
+ *    「遷移待ちタイムアウト」になり (4b)(4c)(4c-z)(9a) が同時に赤くなった。
+ *    ⚠ 依頼書 §2-6 の「押し口はこの 2 箇所だけ」は **measureWalk / clickNode しか
+ *      数えていなかった** = 実測で崩れた前提 (Promise.all で遷移を待つ 3 箇所は別勘定)。
+ *  ⭐ 正解は「**細分化グラフ上で 1 つ手前の停留所まで歩いてから**、今までどおり
+ *    『1 回押す → 遷移』を測る」。この最後の 1 クリックが (4b)/(3d) の主張そのもの。
+ *  ⛔ assert の期待値は 1 つも変えない。⛔ 手前の id をドライバへ写経しない
+ *    (ページの findWalkPath から引く)。⛔ ?walkstep=0 で逃げない。 */
+async function walkNextTo(page, targetId, errs, tag) {
+  const info = await page.evaluate((t) => {
+    const WM = window.WORLD_MAP, W = window.__world;
+    const here = W.heroNode();
+    const fp = (typeof WM.findWalkPath === 'function') ? WM.findWalkPath(here, t) : WM.findPath(here, t);
+    if (!fp) return { here: here, near: null, hops: null };
+    return { here: here, near: (fp.length >= 2) ? fp[fp.length - 2] : here, hops: fp.length };
+  }, targetId);
+  /* ⚠ 手前の停留所は **刻み点のことがある** ので clientFromNode では引けない。 */
+  const cli = (i) => page.evaluate((k) => {
+    const W = window.__world;
+    return (typeof W.clientFromPoint === 'function') ? W.clientFromPoint(k) : W.clientFromNode(k);
+  }, i);
+  const out = { here: info.here, near: info.near, hops: info.hops, taps: 0, landed: null };
+  if (!info.near || info.near === info.here) { out.landed = info.here; return out; }
+  let lastNode = info.here, pt = await cli(info.near);
+  for (; out.taps < MAX_TAPS && pt; out.taps++) {
+    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+    try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 40000, polling: 80 }); }
+    catch (e) { errs.push(tag + '(装置) 到着待ちタイムアウト: ' + info.near); break; }
+    const now = await page.evaluate(() => window.__world.heroNode());
+    if (now === info.near) { out.taps++; break; }
+    if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
+    lastNode = now;
+    pt = await cli(info.near);
+  }
+  try { out.landed = await page.evaluate(() => window.__world.heroNode()); } catch (e) { out.landed = null; }
+  return out;
+}
 
 async function measureWalk(browser, port, errs, opts) {
   opts = opts || {};
@@ -680,9 +726,11 @@ async function measureWalk(browser, port, errs, opts) {
   const skipped = all.filter(id => ids.indexOf(id) < 0);
   const rows = [];
   for (const id of ids) {
-    const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    let pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
     /* 装置: そのノードが本当に画面に出ていて、押した先が自分 (か子孫) であること。
-       ⛔ ここを省くと「帯の下に潜って押せない」を永久に緑と報告する。 */
+       ⛔ ここを省くと「帯の下に潜って押せない」を永久に緑と報告する。
+       ⚠ **1 回目のタップの前**に採る (#40 の押し直しループを回した後だとカメラが
+         動いた後の座標になり、装置が別の瞬間を測ってしまう)。 */
     const hit = await page.evaluate((i, x, y) => {
       const el = document.getElementById('worldNode_' + i);
       const top = document.elementFromPoint(Math.round(x), Math.round(y));
@@ -690,10 +738,25 @@ async function measureWalk(browser, port, errs, opts) {
                self: !!el && !!top && (top === el || el.contains(top)),
                top: top ? (top.id || top.className || top.tagName) : null };
     }, id, pt.x, pt.y);
-    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
-    try {
-      await page.waitForFunction('!window.__world.isMoving()', { timeout: 25000, polling: 60 });
-    } catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); }
+    /* ⭐ #40 以降、1 タップ = 最大 STEP_MAX_PX (320px) しか進まない → **着くまで押し直す**。
+       ⛔ 上限 (MAX_TAPS) を外さない — 動かなくなった実装を無限ループで隠さないため。
+       ⛔ ?walkstep=0 を URL へ足して逃げない — 本番の振る舞いを golden が測らなくなる。
+       ⛔ assert の期待値 ((3b)(3z2)(7e)) は 1 つも変えていない。直したのは押し口だけ。
+       ⚠⚠⚠ カメラが主人公を追うので client 座標は **毎タップ採り直す**
+         (最初の pt を使い回すと 2 回目以降が的外れを押す)。 */
+    let taps = 0, lastNode = null;
+    for (; taps < MAX_TAPS; taps++) {
+      await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+      try {
+        await page.waitForFunction('!window.__world.isMoving()', { timeout: 25000, polling: 60 });
+      } catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); break; }
+      const now = await page.evaluate(() => window.__world.heroNode());
+      if (now === id) { taps++; break; }
+      if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
+      lastNode = now;
+      pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+      if (!pt) { errs.push(tag + 'clientFromNode が null: ' + id); break; }
+    }
     const r = await page.evaluate((i) => {
       const WM = window.WORLD_MAP, WD = window.__world;
       const n = WM.NODES[i];
@@ -712,6 +775,7 @@ async function measureWalk(browser, port, errs, opts) {
       };
     }, id);
     r.hit = hit;
+    r.taps = taps;          /* ⭐ #40: 着くまでに要したタップ数 (記録用。assert の期待値ではない) */
     rows.push(r);
   }
 
@@ -803,6 +867,10 @@ async function measureKeys(browser, port, errs, scenIds) {
    *     spawnFor(null) の fail-safe が (10,3) なので **(4b) は緑のまま** = 罠 A の本体。 */
   const enterId = await page.evaluate(() =>
     Object.keys(window.WORLD_MAP.NODES).find(k => window.WORLD_MAP.NODES[k].enter !== undefined));
+  /* ⭐ #40: (4a) の最後は SITES[scenario] (廃坑など) に立っているので、そこから
+     入場ノードまでは 1 タップでは届かない → **1 つ手前まで歩いてから**押す。
+     ⛔ 期待値は 1 つも変えていない (押すのは今までどおり最後の 1 回だけ)。 */
+  out.pre4b = await walkNextTo(page, enterId, errs, tag + '(4b) ');
   const pt = await page.evaluate((i) => window.__world.clientFromNode(i), enterId);
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load', timeout: 40000 }),
@@ -830,6 +898,9 @@ async function measureKeys(browser, port, errs, scenIds) {
   await p2.goto(url, { waitUntil: 'load', timeout: 30000 });
   await p2.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
   await settle(p2);
+  /* ⭐ #40: 素の入場では駒は pier = 入場ノードの隣なので **今日どおり 0 タップ**だが、
+     地図が変わったときに黙って「1 回では着かない」へ倒れないよう同じ装置を通す。 */
+  out.pre3d = await walkNextTo(p2, enterId, errs, tag + '(3d) ');
   const before = await p2.evaluate(() => ({ node: window.__world.heroNode(), path: location.pathname }));
   const pt2 = await p2.evaluate((i) => window.__world.clientFromNode(i), enterId);
   const hit2 = await p2.evaluate((i, x, y) => {
@@ -1074,6 +1145,9 @@ async function measureResultChannel(browser, port, errs) {
     // ── ③ 港町フラン (town.html) — 札を実クリックして入る ──────────────────
     const enterId = await page.evaluate(() =>
       Object.keys(window.WORLD_MAP.NODES).find(k => window.WORLD_MAP.NODES[k].enter !== undefined));
+    /* ⭐ #40: 帰還直後の駒は SITES["goblin-mine"] = 廃坑なので 1 タップでは港町へ届かない。
+       ⛔ ここを直さないと通しが例外で止まり (4c)(4c-z) が **通しの中身を 1 つも測れないまま**赤くなる。 */
+    out.pre = await walkNextTo(page, enterId, errs, tag);
     const pt = await page.evaluate((i) => window.__world.clientFromNode(i), enterId);
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'load', timeout: 60000 }),

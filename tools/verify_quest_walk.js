@@ -799,15 +799,36 @@ async function measureDepart(browser, port, errs, opts) {
 /* ── ノードを 1 つ実クリックして到着まで待つ (項目 3 が追加) ─────────────────
  *  ⛔ goToNode() を直接呼ばない。**画面上の点を実際に押す**
  *    (当たり判定が壊れていても永久に緑になるのを防ぐ)。 */
+/* ⭐ #40「1 タップ = 最大 5 マス」以降、遠い拠点は 1 回では着かない → 着くまで押し直す。
+ *  ⛔ 上限を外さない (無限ループは「動かなくなった実装」を隠す)。
+ *  ⚠ 現行の最長経路は phlan→temple の 8 ホップ (2026-09-01 実測) なので 12 で足りる。 */
+const MAX_TAPS = 12;
 async function clickNode(page, id, errs, tag) {
-  const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+  let pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
   if (!pt) { errs.push(tag + ' clientFromNode が null: ' + id); return false; }
-  await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
-  /* ⚠ 港町 → 廃坑は実測 1,200px / PX_PER_MS 0.18 = 約 6.7 秒。30 秒では足りない腕が出うる。 */
-  try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 60000, polling: 80 }); }
-  catch (e) { errs.push(tag + ' 到着待ちタイムアウト: ' + id); return false; }
-  await sleep(200);
-  return true;
+  /* ⭐ #40: 着くまで押し直す。⛔ ?walkstep=0 を URL へ足して逃げない —
+       本番の振る舞いを既存 golden が 1 つも測らなくなる。
+     ⛔ assert の期待値 ((3a)(3b)(3c)(3d)) は 1 つも変えていない。直したのは押し口だけ。
+     ⚠⚠⚠ カメラが主人公を追うので client 座標は **毎タップ採り直す**。
+     ⚠ 返り値の契約は今までどおり bool (呼び手 3 箇所が握っている)。 */
+  let lastNode = null;
+  for (let taps = 0; taps < MAX_TAPS; taps++) {
+    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+    /* ⚠ 港町 → 廃坑は実測 1,200px / PX_PER_MS 0.18 = 約 6.7 秒。30 秒では足りない腕が出うる。 */
+    try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 60000, polling: 80 }); }
+    catch (e) { errs.push(tag + ' 到着待ちタイムアウト: ' + id); return false; }
+    await sleep(200);
+    let now = null;
+    try { now = await page.evaluate(() => window.__world.heroNode()); }
+    catch (e) { errs.push(tag + ' heroNode が読めない: ' + id + ' (' + e.message + ')'); return false; }
+    if (now === id) return true;
+    if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
+    lastNode = now;
+    pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    if (!pt) { errs.push(tag + ' clientFromNode が null: ' + id); return false; }
+  }
+  errs.push(tag + ' ' + MAX_TAPS + ' 回押しても着かない: ' + id + ' (最後の位置=' + lastNode + ')');
+  return false;
 }
 
 /* 確認ダイアログの姿を読む。⛔ 期待値を混ぜない (⭐ display も aria も実体で採る)。 */
@@ -945,18 +966,33 @@ async function measureWorldClicks(browser, port, errs, opts) {
   const ids = Object.keys(m.nodes).filter(id => m.nodes[id].kind === 'site' && m.nodes[id].hasEnter === false);
   const rows = [];
   for (const id of ids) {
-    const pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    let pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    /* ⛔ この枝を消さない — clientFromNode が null になった事故を (2d)/(4b) が拾う。 */
     if (!pt) { rows.push({ id: id, err: 'clientFromNode が null' }); continue; }
-    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
-    try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 30000, polling: 80 }); }
-    catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); }
-    rows.push(await page.evaluate((i) => ({
+    /* ⭐ #40: 1 タップ = 最大 STEP_MAX_PX (320px) → **着くまで押し直す** (上限 MAX_TAPS)。
+       ⛔ ?walkstep=0 で逃げない / ⛔ assert の期待値 ((2d)(4b)) は 1 つも変えていない。
+       ⚠⚠⚠ カメラが主人公を追うので client 座標は **毎タップ採り直す**。 */
+    let taps = 0, lastNode = null;
+    for (; taps < MAX_TAPS; taps++) {
+      await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+      try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 30000, polling: 80 }); }
+      catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); break; }
+      const now = await page.evaluate(() => window.__world.heroNode());
+      if (now === id) { taps++; break; }
+      if (now === lastNode) break;     /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
+      lastNode = now;
+      pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+      if (!pt) { errs.push(tag + 'clientFromNode が null: ' + id); break; }
+    }
+    const row = await page.evaluate((i) => ({
       id: i,
       node: window.__world.heroNode(),
       path: location.pathname, search: location.search,
       hasAskOpen: typeof window.__world.askOpen === 'function',
       askOpen: (typeof window.__world.askOpen === 'function') ? window.__world.askOpen() : null,
-    }), id));
+    }), id);
+    row.taps = taps;      /* ⭐ 記録用。assert の期待値ではない */
+    rows.push(row);
   }
   m.clicks = rows; m.clickIds = ids;
   await page.close(); delete m.page;
