@@ -126,8 +126,10 @@
  *   ⭐ アンカーに選んだ行は**整形し直さない**。
  *   ⭐ 変異が空振りしたら、**変異のほうを直す** (受入条件を弱めない)。
  *
- * ⚠ ポート 9560 (+1..+12 が --negative 用)。`grep -rn "arg('port'" tools/*.js` の数え上げで
- *   空きを実測済み (最大は verify_darkvision の 9540 で、変異 12 本でも 9552 まで)。
+ * ⚠ ポート **9600** (+1..+15 が --negative 用)。
+ *   ⭐ #42 (2026-09-02) で 9560 → 9600 へ移した — 変異が 12 → 15 本になると
+ *   9561〜9575 を使うが、隣のチケット #41 の tools/verify_npc_crowd.js が
+ *   **9573〜9586** を使っていて衝突するため。⛔ 他のドライバのポートは触らない。
  *
  * 使い方:
  *   node tools/verify_world_steps.js               # 受入条件 (素の配信)
@@ -152,7 +154,7 @@ const flag = (n) => argv.includes('--' + n);
 const HEADFUL = flag('headful');
 const NEGATIVE = flag('negative');
 const MUTATE = arg('mutate', null);
-const PORT = parseInt(arg('port', '9560'), 10);
+const PORT = parseInt(arg('port', '9600'), 10);   /* ⭐ #42: 9560 → 9600 (理由は冒頭の ⚠ ポート)。 */
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (項目 4 が中身を入れる。⚠ 今は器だけ = 全部 impl: false)
@@ -354,7 +356,8 @@ let step = 0;
 function mark(msg) { console.log('\n[drv] ' + (++step) + ' ' + msg); }
 
 /* (1c) 刻み点と拠点の当たり判定が重ならない下限。⭐ .worldNode は 44px 角 (world.html の CSS)。
- *  ⚠ 2026-09-01 実測の最小は lake_n__lakeside@1 → mine の 172.3px なので余裕がある。 */
+ *  ⚠ 2026-09-02 実測 (#42 / cap=160) の最小は farm_n__pass_n@1 → farm_n の 90.5px。
+ *    ⭐ 44px 角どうしで見ても dx=64.0 / dy=64.0 でどちらも 44 を超えるので重ならない。 */
 const NODE_HIT_PX = 44;
 /* (0b) ドライバ計算とページの STEPS の座標一致の許容差。⭐ 同じ式なので本来は完全一致。 */
 const COORD_EPS = 0.01;
@@ -527,14 +530,52 @@ async function measureSteps(browser, port, errs, opts) {
         onScreen: cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight,
         hitOk: !!hit && (hit === el || el.contains(hit)),
         hitDesc: hit ? (hit.id || hit.className || hit.tagName) : 'null',
+        /* ⭐ #42 (2e): computed で採る (CSS の書き方に依存しない 2 経路目)。
+           ⚠ z-index が auto だと NaN。assert 側が数値でないことを赤にする。 */
+        z: parseInt(getComputedStyle(el).zIndex, 10),
+        /* ⭐ #42 (2f): 見た目の点の実寸。⛔ 9 を写経せず wayRef と突き合わせる。 */
+        bodyW: (function () { const b = el.querySelector('.worldStepBody');
+                              return b ? b.getBoundingClientRect().width : null; })(),
       };
     });
-    /* 札。⚠ 所有者は verify_quest_walk.js:547 と同じ式 (sg.closest('.worldNode')) で引く。 */
+    /* 札。⚠ 所有者は verify_quest_walk.js:547 と同じ式 (sg.closest('.worldNode')) で引く。
+       ⭐ #42 (2d): 札 1 枚につき **5 点** (中心 + 四隅の内側 8px) を elementFromPoint し、
+         返る要素が「その札自身か子孫」でなければ **奪われた** とみなして相手を記録する。
+       ⭐⭐⭐ 「矩形が交差する」と「その 1 点を奪う」は **別条件** (#41 が (2b) で踏んだ罠と同型)。
+         (2d) は後者だけを赤にし、前者は detail へ列挙して増減が読めるようにする。
+       ⚠ .worldSignName / .worldSignDesc は pointer-events: none なので、札の内側を突くと
+         返るのは .worldSign 自身 = top === sg で self 判定になる。
+       ⚠ 四隅を内側 8px にするのは、札の下端に食い込むマーカーを中心だけでは捕まえられないため
+         (依頼書 §8 の変異 signsteal は -40px で左上/右上を奪う設計)。 */
+    const SIGN_INSET = 8;
     const signs = Array.from(document.querySelectorAll('.worldSign')).map(sg => {
       const owner = sg.closest('.worldNode');
       const r = rectOf(sg);
-      return { node: owner ? owner.getAttribute('data-node') : null, l: r.l, t: r.t, w: r.w, h: r.h };
+      const P = SIGN_INSET;
+      const pts = [['中心', r.l + r.w / 2, r.t + r.h / 2],
+                   ['左上', r.l + P, r.t + P], ['右上', r.l + r.w - P, r.t + P],
+                   ['左下', r.l + P, r.t + r.h - P], ['右下', r.l + r.w - P, r.t + r.h - P]];
+      const stolen = pts.map(function (q) {
+        const lbl = q[0], top = document.elementFromPoint(q[1], q[2]);
+        if (top && (top === sg || sg.contains(top))) return null;
+        const st = (top && top.closest) ? top.closest('[data-step]') : null;
+        const who = st ? st.getAttribute('data-step')
+                       : (top ? (String(top.className || '') || top.tagName) : 'null');
+        return lbl + '←' + who;
+      }).filter(Boolean);
+      return { node: owner ? owner.getAttribute('data-node') : null,
+               l: r.l, t: r.t, w: r.w, h: r.h, stolen: stolen };
     });
+    /* ⭐ #42 (2f): 「中継点と同じ大きさ」を **中継点そのもの**から引く。⛔ 44 / 9 を写経しない。
+       ⚠ null なら (2f) が母集団ガードで赤になる (中継点が 1 つも無い地図は想定していない)。 */
+    const wayRef = (function () {
+      const el = document.querySelector('.worldNode-way');
+      if (!el) return null;
+      const b = el.querySelector('.worldNodeBody');
+      const r = el.getBoundingClientRect();
+      return { w: r.width, h: r.height, bodyW: b ? b.getBoundingClientRect().width : null,
+               z: parseInt(getComputedStyle(el).zIndex, 10) };
+    })();
     const svg = document.getElementById('worldRoutes');
     const lines = svg ? Array.from(svg.querySelectorAll('line')) : [];
     return {
@@ -544,6 +585,8 @@ async function measureSteps(browser, port, errs, opts) {
       edgeCount: WM.EDGES.length,
       siteCount: Object.keys(WM.NODES).filter(k => WM.NODES[k].kind === 'site').length,
       marks: marks, signs: signs,
+      /* ⭐ #42 (2f) の参照点。⛔ 期待値ではなく **実測の相方** (中継点の実寸)。 */
+      wayRef: wayRef,
       lineCount: lines.length,
       lineEdges: lines.map(l => l.getAttribute('data-edge')),
       nodeElCount: document.querySelectorAll('.worldNode').length,
@@ -567,8 +610,12 @@ async function measureSteps(browser, port, errs, opts) {
 //         (world.html の onArriveStep は arrived のときだけ onArriveNode を呼ぶ)。
 // ══════════════════════════════════════════════════════════════════════════════
 /* ⛔ 上限を外さない (無限ループは「動かなくなった実装」を隠す)。
- *  ⚠ 現行の最長経路は phlan→temple の 8 ホップ (2026-09-01 実測) なので 12 で足りる。 */
-const MAX_TAPS = 12;
+ *  ⚠ 2026-09-02 実測 (#42 / cap=160): 最長経路は phlan→temple の **11 ホップ** (旧 8)。
+ *  ⭐ 上限は安全網にすぎず、(3b) の本体は「押した回数 == findWalkPath の長さ」の
+ *    厳密一致なので、16 へ上げても assert は 1 ミリも弱くならない。
+ *  ⛔ tools/verify_world_map.js / tools/verify_quest_walk.js の MAX_TAPS は触らない
+ *    (あちらの実測の最悪は 5 回で 12 に余裕がある = 非退行の基準を動かさない)。 */
+const MAX_TAPS = 16;
 const TAP_SETTLE_MS = 140;
 /* (3a) 主人公の実座標と「経路の次の 1 点」の許容差。 */
 const HERO_PX_EPS = 1;
@@ -1026,6 +1073,15 @@ async function readScenarioIds(browser, port) {
 // ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 (実装済み)  ⭐ [key, 見出し, m => [bool, detail]]
 // ══════════════════════════════════════════════════════════════════════════════
+/* ⭐⭐⭐ #42: **人間が要求した刻みの粗さ**。(1e) ただ 1 本だけがこれを使う。
+ *  ⛔ 刻みの上限を **値として書くのはこの 1 行だけ** にすること (grep 160 で他に出るのは
+ *    「cap=160 のときの実測はこうだった」という文章だけ = 期待値としては使っていない)。
+ *    件数 (10 個) も停留所 (24 箇所) も座標も写経せず、expectSteps / walkNodes から計算する。
+ *  ⭐⭐⭐ なぜ (0b) と別に要るか — (0b) は cap を **ページから読む** ので、
+ *    js/world-map.js の STEP_MAX_PX が 320 へ戻されても **緑のまま通る**。
+ *    「要求された粗さ」を縛れるのは (1e) だけ (負のコントロール coarsestep が機械証明する)。 */
+const REQUIRED_STEP_MAX_PX = 160;
+
 const ASSERTS = [
   // ── §0 装置 ────────────────────────────────────────────────────────────────
   ['0z', '[装置] WORLD_MAP に #40 の 7 つの公開シグネチャが揃っている'
@@ -1144,36 +1200,75 @@ const ASSERTS = [
         d.marks.length + ' 枚を検査  画面外=' + off.length + ' 枚'
         + '  命中先: ' + d.marks.map(k => k.id + '→' + k.hitDesc + '(' + (k.hitOk ? 'self' : '⛔他人') + ')').join(' ')];
     }],
-  ['2d', '刻み点マーカーの矩形が **7 枚の .worldSign** のどれとも 1px も重ならない'
+  /* ⭐⭐⭐ #42 (2026-09-02) で **期待値を書き換えた**。旧 (2d) は「矩形が 1px も重ならない」
+     という強い条件だったが、刻みを 2.5 マスへ半減すると cross_n__swamp@1 が沼地の札に、
+     fort__lakeside@1 が廃墟の砦の札に構造的に食い込む (依頼書 §2-2)。
+     ⭐ ユーザー決定 = マーカーを札より下の層へ潜らせる → **重なりは許すが、押せなくはしない**。
+     ⇒ 測る対象を「矩形の交差」から **「札のクリック点を奪わないこと」+「中心が矩形の外に居ること」**
+        へ移した。⛔ 弱めたのではなく **測定点を移した** (#35 の教訓)。
+     ⚠ 重なり自体は赤にしない代わりに **必ず detail へ列挙**して、増減が人間に読めるようにする。
+
+     ⚠⚠⚠ 2026-09-02 (#42 項目 1) の実測 — **この assert は項目 2 が world.html を直すまで赤い**。
+       STEP_MAX_PX を 160 にした直後 (world.html は z-index: 4 / 32px のまま) の測定:
+         奪われた点 2 件 = swamp:左下←cross_n__swamp@1 / fort:右下←fort__lakeside@1
+       ⭐⭐⭐ 犯人は **層 (z-index) だけ**で、マーカーの大きさは 1 ミリも関係しない。
+       addStyleTag で 4 通りを被せた実測 (本番ファイルは 1 バイトも触らず配信へ注入):
+         z4 / 32px … 奪われ **2 件**   逃げ 1.63px   矩形の重なり 2 件
+         z3 / 32px … 奪われ **0 件** ✅ 逃げ 1.63px   矩形の重なり 2 件
+         z4 / 44px … 奪われ **2 件**   逃げ 1.63px   矩形の重なり 2 件
+         z3 / 44px … 奪われ **0 件** ✅ 逃げ 1.63px   矩形の重なり 2 件  ← 採用案
+       ⇒ 項目 2 が .worldStep を **z-index: 3** にした瞬間に緑になる。⛔ それまで (2d) を
+         弱めたり PENDING へ逃がしたりしないこと (今この瞬間、札の隅が実際に奪われている)。
+       ⚠ 依頼書 §2-4 の「逃げ 2.0px」は **world 座標**の値。ここは client 座標なので
+         zoom(≈0.8125) が掛かって 1.63px になる (1.63 / 0.8125 = 2.006)。⛔ 食い違いではない。
+       ⚠ 依頼書 §2-3 の表が「奪われ 0 件」と読めるのは **札の中心 1 点だけ**を測っていたため。
+         ⭐⭐⭐ 中心は 4 通りとも無傷 — 破れるのは **四隅**。「矩形の交差」「中心の奪取」
+         「隅の奪取」は 3 つとも別条件だと実測で確定した。 */
+  ['2d', '刻み点マーカーが **7 枚の .worldSign のどのクリック点も奪わない**'
+    + ' (札ごとに中心 + 四隅の内側 8px の 5 点を elementFromPoint)'
+    + ' ⭐ 各マーカーの中心が札の矩形から逃げている距離の最小値を必ず detail に出す'
     + ' ⚠ 札 7 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
     m => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM の観測が無い'];
       if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
       /* ⚠⚠ 母集団ガード 2 本立て: 札の実数と、データ側の site ノード数の両方を見る。
-         ⛔ 0 枚でも「重ならなかった」で緑になる書き方をしない。 */
+         ⛔ 0 枚でも「奪わなかった」で緑になる書き方をしない (#42 でもここは 1 バイトも緩めない)。 */
       if (d.siteCount !== 7 || d.signs.length !== 7) {
         return [false, '⛔ 母集団が壊れている: .worldSign=' + d.signs.length + ' 枚 / site ノード='
           + d.siteCount + ' 件 (どちらも 7 のはず)  札の所有者='
           + JSON.stringify(d.signs.map(s => s.node))];
       }
-      const bad = [];
-      let nearest = Infinity, who = '-';
+      /* ⛔ 観測側が 5 点を採っていない (measureSteps の改修漏れ) を「奪われ 0 件」で
+         緑にしない = 永久緑の穴を塞ぐ 3 本目のガード。 */
+      if (d.signs.some(s => !Array.isArray(s.stolen))) {
+        return [false, '⛔ 観測が signs[].stolen を持っていない (measureSteps の改修漏れ)'];
+      }
+      const stolen = [];
+      for (const s of d.signs) for (const w of s.stolen) stolen.push(s.node + ':' + w);
+      /* ⭐ 逃げ幅 = マーカー中心 (cx, cy) と札の矩形 (l, t, w, h) の符号付き距離。
+         正なら中心は矩形の外、0 以下なら中に入っている (= その刻み点が紙の下へ沈む)。 */
+      let esc = Infinity, escWho = '-';
+      const overlaps = [];
       for (const k of d.marks) {
         for (const s of d.signs) {
+          const g = Math.max(s.l - k.cx, k.cx - (s.l + s.w), s.t - k.cy, k.cy - (s.t + s.h));
+          if (g < esc) { esc = g; escWho = k.id + ' / ' + s.node; }
           const ox = Math.min(k.rect.l + k.rect.w, s.l + s.w) - Math.max(k.rect.l, s.l);
           const oy = Math.min(k.rect.t + k.rect.h, s.t + s.h) - Math.max(k.rect.t, s.t);
           if (ox > 0 && oy > 0) {
-            bad.push(k.id + ' x ' + s.node + '=' + ox.toFixed(1) + 'x' + oy.toFixed(1) + 'px');
+            overlaps.push(k.id + ' x ' + s.node + '=' + ox.toFixed(1) + 'x' + oy.toFixed(1) + 'px');
           }
-          const gap = Math.max(-ox, -oy);      /* 離れていれば正 = 隙間 */
-          if (gap < nearest) { nearest = gap; who = k.id + ' / ' + s.node; }
         }
       }
-      return [bad.length === 0,
+      return [stolen.length === 0 && esc > 0,
         'マーカー ' + d.marks.length + ' 枚 x 札 ' + d.signs.length + ' 枚を総当たり'
-        + '  最小の隙間 ' + nearest.toFixed(1) + 'px (' + who + ')'
-        + (bad.length ? '  ⛔ 重なり=' + bad.join(' ') : '')];
+        + '  ⭐ 中心の逃げ幅の最小 ' + esc.toFixed(1) + 'px (' + escWho + ')'
+        + ' [2026-09-02 実測 = 2.0px / cross_n__swamp@1 と fort__lakeside@1。0 以下で赤]'
+        + '  矩形が重なる組 ' + overlaps.length + ' 件 (⭐ 重なり自体は赤にしない = 既知 2 件)'
+        + (overlaps.length ? ': ' + overlaps.join(' ') : '')
+        + '  奪われた点 ' + stolen.length + ' 件'
+        + (stolen.length ? ' ⛔ ' + stolen.join(' ') : '')];
     }],
 
   // ── §1 刻みのデータ ────────────────────────────────────────────────────────
@@ -1231,7 +1326,8 @@ const ASSERTS = [
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
   ['1c', 'どの刻み点も最寄りの NODES から 44px より離れている (当たり判定が重ならない)'
-    + ' ⚠ 2026-09-01 実測の最小は lake_n__lakeside@1 → mine の 172.3px',
+    + ' ⚠ 2026-09-02 実測 (#42 / cap=160) の最小は farm_n__pass_n@1 → farm_n の 90.5px'
+    + ' (cap=320 のころは lake_n__lakeside@1 → mine の 172.3px だった)',
     m => {
       const st = m.map.steps, N = m.map.nodes;
       if (!st) return [false, 'STEPS が読めない'];
@@ -1274,6 +1370,50 @@ const ASSERTS = [
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
         + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT + ')'
         + (got === WANT ? '' : '  ⛔ 実測の中身= ' + canon)];
+    }],
+  ['1e', '⭐⭐⭐ 刻みの粗さが **要求どおり** か — ページの STEPS が、ドライバが **独立に計算した**'
+    + ' expectSteps(NODES, EDGES, ' + REQUIRED_STEP_MAX_PX + ') と 1 件残らず一致する'
+    + ' (id 集合 + 座標 0.01px 以内)'
+    + ' ⚠ (0b) は cap を **ページから読む** ので STEP_MAX_PX が 320 へ戻っても緑のまま'
+    + ' = **要求された粗さを縛るのはこの assert だけ**',
+    m => {
+      const got = m.map.steps;
+      if (!got) return [false, 'STEPS が読めない'];
+      /* ⭐ 期待値は「要求された cap」から毎回組み直す。⛔ 件数も座標も写経しない。 */
+      const want = expectSteps(m.map.nodes, m.map.edges, REQUIRED_STEP_MAX_PX);
+      const wantIds = want.map(x => x.id).slice().sort();
+      const gotIds = Object.keys(got).slice().sort();
+      /* ⚠ 母集団ガード: 要求 cap での期待が 0 件なら、この assert は何も検出できない。 */
+      if (want.length === 0) {
+        return [false, '⛔ 期待側が 0 件 (REQUIRED_STEP_MAX_PX=' + REQUIRED_STEP_MAX_PX
+          + ' が大きすぎて刻み点が生えない → assert が空振りする)'];
+      }
+      /* ⭐ 停留所 (NODES ∪ STEPS) の実測。⛔ 24 を期待値として直書きせず、表示するだけ。 */
+      const stops = m.map.walkNodes ? Object.keys(m.map.walkNodes).length : null;
+      const head = '刻み点 ' + gotIds.length + ' 件 (要求 cap ' + REQUIRED_STEP_MAX_PX
+        + 'px での期待 ' + wantIds.length + ' 件) / 停留所 ' + stops + ' 箇所'
+        + '  ページの STEP_MAX_PX=' + m.map.stepMaxPx + 'px';
+      if (JSON.stringify(wantIds) !== JSON.stringify(gotIds)) {
+        const miss = wantIds.filter(i => gotIds.indexOf(i) < 0);
+        const extra = gotIds.filter(i => wantIds.indexOf(i) < 0);
+        return [false, head + '  ⛔ id 集合が違う  欠け=' + JSON.stringify(miss)
+          + ' 余り=' + JSON.stringify(extra)];
+      }
+      const bad = [];
+      let worst = 0, who = '-';
+      for (const w of want) {
+        const g = got[w.id];
+        const dx = Math.abs(g.x - w.x), dy = Math.abs(g.y - w.y);
+        const e = Math.max(dx, dy);
+        if (e > worst) { worst = e; who = w.id; }
+        if (e > COORD_EPS) {
+          bad.push(w.id + ': ページ(' + g.x.toFixed(2) + ',' + g.y.toFixed(2)
+            + ') vs 期待(' + w.x.toFixed(2) + ',' + w.y.toFixed(2) + ')');
+        }
+      }
+      return [bad.length === 0,
+        head + '  座標の最悪ズレ ' + worst.toFixed(4) + 'px (' + who + ') / 上限 ' + COORD_EPS + 'px'
+        + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
 
   // ── §0 装置 (項目 3) ───────────────────────────────────────────────────────
@@ -1828,10 +1968,23 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 // まだ実装されていない受入条件 (⛔ 件数から隠さない = pending() で必ず出す)
 //   ⭐ 項目 2〜4 がここを 1 行ずつ ASSERTS へ移す。最終項目の完了条件 = PENDING 0。
 // ══════════════════════════════════════════════════════════════════════════════
-/* ⭐⭐⭐ 2026-09-02 (項目 4) で **全部 ASSERTS へ移した**。ここは空のまま残す —
- *  次に受入条件を足すチケットが「まだ測っていない節」を正直に出す場所として使う。
- *  ⛔ 空にしたからといって削除しないこと (削ると PENDING という 3 値そのものが消える)。 */
-const PENDINGS = [];
+/* ⭐⭐⭐ 2026-09-02 (#40 項目 4) で **全部 ASSERTS へ移した**。⛔ 空にしても削除しないこと
+ *  (削ると PENDING という 3 値そのものが消える)。
+ *  ⭐ #42 項目 1 (2026-09-02): world.html の CSS を触る **項目 2** が実装する 2 本を器で置く。
+ *    ⛔ ここに置いたキーは ASSERT_OF に無いので、実装したら必ず PENDINGS から外して
+ *      §2 の配線 (['2a','2b','2c','2d', …]) へキーを足すこと (両方やらないと数が合わない)。 */
+const PENDINGS = [
+  ['§2 見た目 (#42 項目 2 が実装) — 層と寸法', [
+    ['2e', '.worldStep の computed z-index が .worldNode より小さい (札より下の層に潜っている)',
+      '⛔ まだ world.html の .worldStep が z-index: 4 (= .worldNode と同じ層)。'
+      + ' 観測側 (marks[].z / wayRef.z) は #42 項目 1 で採れている → 項目 2 が assert を書く'],
+    ['2f', 'マーカーの当たり判定が .worldNode と同寸、見た目の点が .worldNode-way .worldNodeBody と'
+      + ' 同寸 (どちらも 0.5px 以内)。⛔ 44 / 9 を直書きしない',
+      '⛔ まだ world.html の .worldStep が 32px / .worldStepBody が 6px。'
+      + ' 観測側 (marks[].rect / marks[].bodyW / wayRef) は #42 項目 1 で採れている'
+      + ' → 項目 2 が中継点の実測から引いて突き合わせる'],
+  ]],
+];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -1900,7 +2053,7 @@ const PENDINGS = [];
       }
 
       mark('§1 刻みのデータ');
-      for (const key of ['1a', '1b', '1c', '1d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      for (const key of ['1a', '1b', '1c', '1d', '1e']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       console.log('       [記録] 刻み点 (WORLD_MAP.STEPS):');
       for (const id of Object.keys(m.map.steps || {})) {
         const s = m.map.steps[id];
