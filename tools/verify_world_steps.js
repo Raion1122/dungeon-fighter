@@ -114,7 +114,7 @@
  *   ── #42 項目 3 で追加 ──────────────────────────────────────────────────────
  *   coarsestep   | STEP_MAX_PX を 320 へ戻す (#40 の姿 = 5 マス刻み)        | (1e) のみ
  *   signsteal    | 刻み点を札の帯へ -40px 押し込み z-index 9 へ上げる        | (2d)(2e)
- *   smallstep    | .worldStepBody を 6px へ戻す (#40 の姿)                  | (2f)
+ *   smallstep    | .worldStepBody だけ 8px へ縮める (#40 の姿)              | (2f)
  *
  *   ⭐⭐⭐ coarsestep の眼目 = **(0b) は緑のまま (1e) だけが赤くなる**。
  *     (0b) は cap をページから読むので 320 へ戻っても期待値ごと 320 になり一致してしまう。
@@ -267,14 +267,17 @@ const MUTATIONS = {
     why: '刻み点マーカーを札の帯へ押し込み、かつ札より上の層へ上げる (依頼書 §2-2 の罠)',
     from: 'el.style.top  = s.y + "px";',
     to: 'el.style.top  = (s.y - 40) + "px"; el.style.zIndex = "9";  /* MUT signsteal */' },
-  /* ⚠⚠⚠ 素の 'width: 9px; height: 9px;' は world.html 内に **2 件**ある
-       (:222 の .worldNode-way .worldNodeBody と :262 の .worldStepBody)。
+  /* ⚠⚠⚠ 素の 'width: 13px; height: 13px;' は world.html 内に **2 件**ある
+       (.worldNode-way .worldNodeBody と .worldStepBody。⭐ 2026-09-02 に 9px から揃って上がった)。
        ⇒ **行末コメントごと**アンカーにして一意にする。外すと exit 3 でドライバごと死ぬ
-       (#39 の driver_grid_p5 と同型)。2026-09-02 実測: 素は 2 件 / コメント込みは 1 件。 */
+       (#39 の driver_grid_p5 と同型)。2026-09-02 実測: 素は 2 件 / コメント込みは 1 件。
+       ⭐⭐⭐ **見た目の px を動かすときはこの from も必ず一緒に直すこと。**
+         放置すると変異が当たらず (2f) が緑のまま = 負のコントロールが黙って空振りする。
+         ⭐ --negative はアンカー不一致を exit 3 で落とすので、空振りとしては残らない。 */
   smallstep: { impl: true, file: 'world.html', targets: ['2f'],
-    why: '.worldStepBody を 6px へ戻す (#40 の姿 = 中継点より小さい点)',
-    from: 'width: 9px; height: 9px;              /* ⭐ #42:',
-    to: 'width: 6px; height: 6px;  /* MUT smallstep */ /* ⭐ #42:' },
+    why: '.worldStepBody だけ 8px へ縮める (#40 の姿 = 中継点より小さい点)',
+    from: 'width: 13px; height: 13px;            /* ⭐ #42:',
+    to: 'width: 8px; height: 8px;  /* MUT smallstep */ /* ⭐ #42:' },
 };
 const MUT_ORDER = ['nosteps', 'fullwalk', 'handcoord', 'nodemut', 'linemut', 'stepclass',
   'hopnone', 'pathswap', 'retreatdead', 'retreatkills', 'fireevent', 'arrivedup',
@@ -414,7 +417,7 @@ const ON_LINE_EPS = 0.5;
 const LEN_EPS = 1e-6;
 /* (2f) 「中継点と同寸」の許容差。⭐ 比べるのは **どちらも実測値どうし** (刻み点 vs 中継点) なので
    本来はぴったり一致する。0.5px は getBoundingClientRect のサブピクセル丸めぶんだけ。
-   ⛔ ここを緩めて「だいたい同じ」にしない — 9px→6px の後退は zoom 込みでも 2.4px の差になるので
+   ⛔ ここを緩めて「だいたい同じ」にしない — 13px→8px の後退は zoom 込みでも 4.1px の差になるので
      0.5px なら変異 smallstep がきっちり赤くなる。 */
 const SIZE_EPS = 0.5;
 
@@ -1323,9 +1326,11 @@ const ASSERTS = [
         + (stolen.length ? ' ⛔ ' + stolen.join(' ') : '')];
     }],
   /* ⭐⭐⭐ #42 項目 2 (2026-09-02) で PENDING から実装へ移した 2 本。
-     ⛔⛔ **44 / 9 という数値をここへ写経しない。** 中継点 (.worldNode-way) の実測 wayRef から引く。
+     ⛔⛔ **44 / 13 という数値をここへ写経しない。** 中継点 (.worldNode-way) の実測 wayRef から引く。
+       ⭐⭐⭐ 2026-09-02 に見た目が 9px → 13px へ上がったが、この assert は **1 バイトも直さなくて済んだ**。
+         ⇒ 「○○と同じ大きさ」は数値でなく **参照元から引く** という設計が実際に効いた例。
        ⚠⚠ そもそも画面値は zoom(≈0.8125) 込みなので、CSS の 44px は実測 **35.8px**、
-         9px は **7.31px** になる。⇒ 44 / 9 の直書きは **原理的に通らない** (これが設計の意図)。
+         13px は **10.56px** になる。⇒ 44 / 13 の直書きは **原理的に通らない** (これが設計の意図)。
        ⭐ こうすると「中継点を変えたら刻み点も一緒に変わる」が保たれ、色・不透明度・影・
          hover 倍率は今までどおり「測らないこと」に残せる (依頼書 §2-7)。 */
   ['2e', '.worldStep の computed z-index が **.worldNode より小さい** (= 札より下の層に潜っている)'
@@ -1356,8 +1361,8 @@ const ASSERTS = [
     }],
   ['2f', 'マーカーの当たり判定が **.worldNode と同寸**、見た目の点が'
     + ' **.worldNode-way .worldNodeBody と同寸** (どちらも 0.5px 以内)'
-    + ' ⛔ 44 / 9 をドライバへ直書きしない — 中継点の実測 (wayRef) から引いて突き合わせる'
-    + ' ⚠ 画面値は zoom 込みなので 44px は 35.8px / 9px は 7.31px になる (直書きは原理的に通らない)',
+    + ' ⛔ 44 / 13 をドライバへ直書きしない — 中継点の実測 (wayRef) から引いて突き合わせる'
+    + ' ⚠ 画面値は zoom 込みなので 44px は 35.8px / 13px は 10.56px になる (直書きは原理的に通らない)',
     m => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM の観測が無い'];
@@ -1397,7 +1402,7 @@ const ASSERTS = [
         + ' / 点 ' + R.bodyW.toFixed(2)
         + '  最悪差 ' + worst.toFixed(3) + 'px (' + worstWho + ') / 許容 ' + SIZE_EPS + 'px'
         + (bad.length ? '  ⛔ ' + bad.join(' ')
-                      : '  [2026-09-02 実測 = CSS 44px/9px が zoom 込みで 35.75px/7.31px]')];
+                      : '  [2026-09-02 実測 = CSS 44px/13px が zoom 込みで 35.75px/10.56px]')];
     }],
 
   // ── §1 刻みのデータ ────────────────────────────────────────────────────────

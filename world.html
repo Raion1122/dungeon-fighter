@@ -219,10 +219,13 @@
       transition: transform 0.12s ease;
     }
     .worldNode-way .worldNodeBody {
-      width: 9px; height: 9px;
+      /* ⭐ 2026-09-02 実機体感: 9px は街道の点線の点 (stroke-width 6 = 直径 6px) と見分けが付かず、
+           「止まれる所」と「ただの線」が混ざって見える、という所見。点線の 2 倍を超える 13px へ。
+         ⛔ .worldStepBody と **必ず同時に**動かす — (2f) が両者の実寸を突き合わせるので片方だけだと赤。 */
+      width: 13px; height: 13px;
       border-radius: 50%;
       background: var(--route-ink);
-      box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
+      box-shadow: 0 0 0 2.5px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
     }
     .worldNode:hover .worldNodeBody { transform: scale(1.25); }
     /* ⚠ 札の中心出しは translateX(-50%) なので、scale だけ書くと translate が潰れて
@@ -234,11 +237,15 @@
          tools/verify_world_map.js:736 の (3c) と :1187 が top.closest('.worldNode') で
          「押した先がノードでない」を測り、tools/verify_quest_walk.js:547 は札の
          所有者を同じ式で引いている (依頼書 §2-4)。着せると既存 golden が 3 本誤爆する。
-       ⚠ 点線の点は stroke-dasharray: 1 17 = **18px おき**。
+       ⚠ 点線の点は stroke-width 6 + dasharray: 1 17 = **直径 6px が 18px おき**。
+         ⭐⭐⭐ 止まれる点の大きさは、中継点でなく **この 6px と比べて**決める。
        ⭐ #42 (2026-09-02): 見た目 6px / 当たり判定 32px は実機で「タップできる点がまだ小さい」と
          判定されたので、**中継点 (.worldNode-way) と同寸の 9px / 44px** へ揃えた。
-         ⛔ 拠点と同じ 14px にはしない — 拠点と中継点の差は「大きさ」でなく **中身があるか (◎ か ●)**
+         ⛔ 拠点と同じ大きさにはしない — 拠点と中継点の差は「大きさ」でなく **中身があるか (◎ か ●)**
             という #21 の設計核を、刻み点が跨いでしまうため。
+       ⭐⭐ 2026-09-02 (第 2 回): その 9px も **点線の点 (6px) と紛れる** と実機で判定された。
+         ⚠ #42 は「刻み点 vs 中継点」だけを見ていて、比べる相手を **点線の点** に取っていなかった。
+         ⇒ 止まれる点 13px / 拠点 17px へ引き上げ (点線 6px の 2.2 倍)。当たり判定 44px は不動。
        ⭐ z-index は **3** = 札 (.worldNode の 4) より下・主人公 (5) より下。
          刻みを細かくすると沼地/砦の札に 2 点が食い込むので紙の下へ潜らせている (#42 §2-2)。
        ⛔ 色・不透明度・影・hover 倍率は受入条件の「測らないこと」= 実機で見て調整してよい。
@@ -259,11 +266,12 @@
     }
     .worldStepBody {
       display: block;
-      width: 9px; height: 9px;              /* ⭐ #42: 中継点 .worldNode-way と**同寸**へ (6px は実機で小さすぎた) */
+      width: 13px; height: 13px;            /* ⭐ #42: 中継点 .worldNode-way と**同寸**へ (6px は実機で小さすぎた)
+                                               ⭐ 2026-09-02: その 9px も点線の点 (6px) と紛れたので、中継点ごと 13px へ */
       border-radius: 50%;
       background: var(--route-ink);
       opacity: 0.85;
-      box-shadow: 0 0 0 2px rgba(20,14,6,0.9), 0 1px 4px rgba(0,0,0,0.6);
+      box-shadow: 0 0 0 2.5px rgba(20,14,6,0.9), 0 1px 4px rgba(0,0,0,0.6);
       transition: transform 0.12s ease;
     }
     .worldStep:hover .worldStepBody { transform: scale(1.35); }
@@ -297,19 +305,21 @@
        ⚠ site の当たり判定は way と同じ 44px 角へ戻す (以前は width/height:auto = 札の箱)。
          clientFromNode はノード中心を押すので、ここに実体が要る。 */
     .worldNode-site .worldNodeBody {
-      width: 14px; height: 14px;
+      width: 17px; height: 17px;            /* ⭐ 2026-09-02: 中継点を 13px へ上げたので、拠点も比例で上げて
+                                               「点線 6 / 止まれる 13 / 拠点 17」の 3 段を保つ。
+                                               ⛔ 当たり判定 (.worldNode 44px 角) は不動 = (3b)(7d) に波及しない。 */
       border-radius: 50%;
       /* ⭐ **中心の暗い点** (2026-08-26)。実機体感の症状は「拠点マーカーが街道の中継点を
            一回り大きくしただけに見える」で、原因は --route-ink がクリームなので
-           14px も 9px も **ただの明るい塊**にしか見えないこと。
+           拠点も中継点も **ただの明るい塊**にしか見えないこと。
          ⭐⭐ だから差を「大きさ / 明るさ」ではなく **中身があるか**で付ける
-           (中継点 .worldNode-way は 9px の塗りつぶし、拠点は中心が抜けた ◎)。
+           (中継点 .worldNode-way は塗りつぶし ●、拠点は中心が抜けた ◎)。
          ⚠ 芯の色は札のインク --wsp-ink と同じ #2e2113 = 地図のトンマナを 1 系統に保つ。
          ⚠⚠ **未解放の拠点は .worldNode-way を着る** (buildNodes の className を参照) ので、
            ここをどれだけ変えても未解放側には波及しない。むしろ「明るい塊 = ただの街道の
            折れ目」という読みが強まるので、隠していることはバレにくくなる。 */
       background: radial-gradient(circle at 50% 50%,
-                    #2e2113 0, #2e2113 3px, var(--route-ink) 3.6px, var(--route-ink) 100%);
+                    #2e2113 0, #2e2113 3.6px, var(--route-ink) 4.3px, var(--route-ink) 100%);
       box-shadow: 0 0 0 3px rgba(238,222,182,0.92), 0 0 0 4px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
     }
     .worldSign {
