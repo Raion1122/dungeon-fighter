@@ -2322,6 +2322,42 @@
       pointer-events: none;
       z-index: 2;
     }
+    /* ── NPC の吹き出し — 押すと一言 (実装依頼書 #41 STEP3) ────────────────
+       ⚠⚠ pointer-events: none は **必須**。押せる吹き出しにすると、札の上へ乗った
+         瞬間に「札の中心の elementFromPoint が自分自身」を測る既存 golden 4 本が
+         赤くなる (依頼書 §2-3 / §6)。⛔ cursor も付けない (押せると誤解させない)。
+       ⚠⚠ z-index は 3 = .npcUnit と同じ。⛔ 4 以上にしない (札が 4)。
+       ⭐ 位置は JS が left / top で入れる。transform は translate(-50%, -100%) の固定 =
+         「left が横の中心・top が下端」。⛔ ここへ translate 以外を足すと clamp が壊れる。
+       ⚠ ::after の尻尾は content が "" なので textContent には出ない
+         (受入条件 (3a) の「say と 1 文字も違わない」を汚さない)。 */
+    .npcBubble {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      max-width: 240px;
+      padding: 7px 12px 8px;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 14px; line-height: 1.45;
+      text-align: center;
+      color: #2b1d0e;
+      background: rgba(247,236,209,0.97);
+      border: 1px solid rgba(120,86,44,0.9);
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.55);
+      pointer-events: none;
+      z-index: 3;
+      animation: npcBubbleIn 0.16s ease-out;
+    }
+    .npcBubble::after {
+      content: "";
+      position: absolute; left: 50%; top: 100%;
+      margin-left: -7px; width: 0; height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 8px solid rgba(247,236,209,0.97);
+    }
+    @keyframes npcBubbleIn { from { opacity: 0; } to { opacity: 1; } }
+    body.compact .npcBubble { max-width: 190px; font-size: 13px; padding: 6px 10px 7px; }
 
     /* ── 席札 / 扉札 ────────────────────────────────────────────────────────
        港町フランの .townSign と**同じ羊皮紙の作法**だが、⛔ DOM もセレクタも共有しない
@@ -2867,10 +2903,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>町の人が返事をするようになった</b> — 銀の鹿亭や港町フランで人を押すと、その場の一言が頭の上に浮かぶ。少し経つと自然に消える。</li>
         <li><b>酒場と港町に人が増えた</b> — 銀の鹿亭には亭主と客が、フランの市場には売り子や石工が立つようになった。給仕や通行人は通りを行き来している。</li>
         <li><b>仲間の見える範囲が編成で分かる</b> — マッチング画面のカードと傭兵名簿に視界を表示。暗視を持つ相手を連れると、松明の届かない先まで見えるようになる。</li>
         <li><b>職業を選ぶときに暗視が分かる</b> — 名乗りの画面で、その職がダンジョンでどこまで見通せるかを開けるようになった。</li>
-        <li><b>キャラクターシートに視界が載った</b> — 自分がどれだけ先まで見通せるかが「特徴 & 特性」に出る。ドワーフは暗闇でも 60 フィート先まで見える。</li>
       </ul>
     </div>
     <script>
@@ -8940,7 +8976,7 @@
         layer.appendChild(sh);
         layer.appendChild(el);
         var hold = (n.kind === "stand") ? (((n.hold || 0) % 6) + 6) % 6 : 0;
-        npcUnits.push({
+        var u = {
           n: n, el: el, sh: sh, cells: cells,
           dx: n.dx || 0, dy: n.dy || 0,
           left: n.face === "left",
@@ -8952,6 +8988,22 @@
           /* 巡回: base = 今いるセルの添字 / dir = 進む向き / mode = walk か pause */
           base: 0, dir: 1, mode: "walk", t0: 0, until: 0, walkT0: 0,
           pauseMs: 1500 + (i * 613) % 1500        /* 端点で 1.5〜3 秒 静止 */
+        };
+        npcUnits.push(u);
+        /* ⭐ 押したら一言 (STEP3)。⚠ 伝播を止めるのは **札と同じ作法** —
+           makeSign() の s.addEventListener("click", function (ev) { ev.stopPropagation(); ... })
+           と同型。⛔ stopPropagation を外すと #tavernViewport の click が tileFromClient で
+           NPC の頭上のタイルを拾い、押すたびに主人公が歩き出す。 */
+        el.addEventListener("click", function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();   /* [nostop] 1 行に閉じたまま保つ */
+          npcBubbleShow(u);
+        });
+        /* ⚠ タッチ端末では click が来ないことがある (#26 パーティ演出の実例)。
+           ⛔ preventDefault はしない (スクロール/ズームを殺さない)。touchend と click が
+           両方来ても npcBubbleShow() が先に前を消すので **吹き出しは 1 枚のまま**。 */
+        el.addEventListener("touchend", function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          npcBubbleShow(u);
         });
       });
 
@@ -8963,6 +9015,56 @@
         u.el.style.backgroundPosition = (-u.frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
         u.sh.style.left = (cx + u.dx) + "px";
         u.sh.style.top  = (cy + u.dy) + "px";
+        /* ⭐ 吹き出しは足元へ追従する (巡回中も頭の上に居続ける)。
+           ⚠ lx / ly は **dx / dy を足す前**のタイル中心。足す側は 1 か所に畳む。 */
+        u.lx = cx; u.ly = cy;
+        if (bubbleOwner === u) npcBubbleFollow(u);
+      }
+
+      /* ══ 吹き出し — 押すと一言 (実装依頼書 #41 STEP3) ═══════════════════════
+         ★ #npcLayer の中に **常に 1 枚だけ**。次を押したら前を消す。最後の一言から
+           BUBBLE_MS で自動的に消える。⛔ 2 枚目を並べない。
+         ⚠ 文面は textContent で入れる。⛔ innerHTML を使わない
+           (say は js/npc-crowd.js のデータ側の自由文)。
+         ⚠ 吹き出し自身は pointer-events: none (CSS)。⛔ 押せるようにしない —
+           札の上へ乗った瞬間に既存 golden 4 本の elementFromPoint が濁る (依頼書 §2-3)。
+         ⭐ 幅と高さは出した瞬間に **1 回だけ**測って持つ。巡回に追従して毎フレーム
+           offsetWidth を読むと、そのたびに強制レイアウトが起きる。
+         ⚠ 撤退 ?npc=0 は項目 4 が足す。 */
+      var BUBBLE_MS = 4000;
+      var bubbleEl = null, bubbleOwner = null, bubbleTimer = null, bubbleW = 0, bubbleH = 0;
+      function npcBubbleHide() {
+        if (bubbleTimer !== null) { clearTimeout(bubbleTimer); bubbleTimer = null; }
+        if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl);
+        bubbleEl = null; bubbleOwner = null;
+      }
+      function npcBubbleFollow(u) {
+        if (!bubbleEl || bubbleOwner !== u || u.lx === undefined) return;
+        /* 横 = 足元の中心 (CSS の translateX(-50%) が中心合わせをする)。
+           ⭐ ステージの左右端では紙が見切れるので clamp する。 */
+        var half = bubbleW / 2 + 4;
+        var x = u.lx + u.dx;
+        if (x < half) x = half;
+        if (x > MAP_W - half) x = MAP_W - half;
+        /* 縦 = 頭の上。CSS の translateY(-100%) があるので top は **下端**。 */
+        var y = u.ly + u.dy - SPRITE * FOOT - 8;
+        if (y < bubbleH + 4) y = bubbleH + 4;      /* 上端でも紙が切れないように */
+        bubbleEl.style.left = x + "px";
+        bubbleEl.style.top  = y + "px";
+      }
+      function npcBubbleShow(u) {
+        npcBubbleHide();                          /* ⭐ 先に消す = 常に 1 枚 */
+        var say = (u && u.n && u.n.say) ? String(u.n.say) : "";
+        if (!say) return;
+        var b = document.createElement("div");
+        b.className = "npcBubble";
+        b.setAttribute("data-npc-say", u.n.key);   /* ⚠ ドライバは誰の一言かをここで見る */
+        b.textContent = say;                       /* ⛔ innerHTML を使わない */
+        layer.appendChild(b);
+        bubbleEl = b; bubbleOwner = u;
+        bubbleW = b.offsetWidth; bubbleH = b.offsetHeight;
+        npcBubbleFollow(u);
+        bubbleTimer = setTimeout(function () { if (bubbleEl === b) npcBubbleHide(); }, BUBBLE_MS);
       }
       function npcUpdate(u, t) {
         if (u.n.kind === "stand") {

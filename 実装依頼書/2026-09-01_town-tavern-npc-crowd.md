@@ -940,3 +940,145 @@ const signs = await page.evaluate((stageId, sel) => {
 | 撤退スイッチの判定場所(`?npc=0` はここへ) | 先頭の `<script>`(`window.__tavernMapOn` を立てている IIFE) | **382-391**(`?heromark=0` / `?signplate=0` と同じ場所) |
 
 ⚠ 行番号は 1 本着地するだけで全部ずれる。**座標でなく構造(上の「何」の列)で探すこと。**
+
+### 項目 3 — STEP3 吹き出し(2026-09-02)
+
+**着手前 HEAD** `c3d2af0`。**触ったファイル** = `tavern.html` / `town.html` /
+`js/npc-crowd.js`(**巡回 2 本の端点だけ**。理由は下記)/ `tools/verify_npc_crowd.js`。
+⛔ `index.html` / `js/*-map.js` / `world.html` / `title.html` / **既存 golden 5 本は 1 バイトも触っていない**。
+
+**結果**: `node tools/verify_npc_crowd.js` → **28/28 PASSED / FAILED 0 / PENDING 3**
+(残る PENDING = §5 撤退の 3 本だけ。変異 13 本は `--negative` 側なので素の実行には出ない)。
+⭐ §3 を 4 本ではなく **6 本**にした(項目 1 が (0a)/(0b) を割ったのと同じ作法):
+`(3a)` click 経路 / `(3a-touch)` touchend 経路 / `(3a-life)` 4 秒で消える /
+`(3b)` 常に 1 枚 / `(3c)` 主人公が動かない / `(3d)` `pointer-events: none`。
+さらに §1 へ `(1f)` を新設したので **21 → 28**。
+
+**既存 golden 5 本(実装後に全部走らせた実測値)**:
+
+| driver | 結果 | 基準 |
+|---|---|---|
+| `verify_tavern_map` | **43/43 PASSED FAILED 0 PENDING 0** | 43/43 ✓ |
+| `verify_town_map` | **85 / 85** | 85/85 ✓(⚠ 一度 **84/85** に落ちた。下記) |
+| `driver_heromark_signplate` | **46 / 46** | 46/46 ✓ |
+| `verify_quest_walk` | **25/25 PASSED FAILED 0 PENDING 0** | 25/25 ✓ |
+| `verify_town_exit` | **素 23/23 PASSED (PENDING 0)** | 素 23/23 ✓ |
+
+#### ⚠⚠⚠ 依頼書 §2-6 の主張が崩れた — **NPC は「タップを食う板」になる**
+
+§2-6 は「NPC の DOM が上に乗っても**移動先の計算は 1 ミリも変わらない**」と書いているが、
+これは **`ev.stopPropagation()` を足す前**の話。§6 のとおり吹き出しに stopPropagation を足した
+瞬間、`.npcUnit` は **96x96 の当たり判定を持つ板**になり、その下のタイルが押せなくなる。
+
+**牙を剥いた**: `tools/verify_town_map.js` が **85/85 → 84/85** に落ちた
+(`(4-15,3) クリックしたタイルに立つ`)。同 driver は `__town.clientFromTile()` の
+**タイル中心の実座標**を `page.mouse.click` で押す(`:266`)。
+
+**実測**(12 秒 x 100ms 標本 / 2026-09-02):
+
+| golden が固定座標で押す点 | NPC に覆われていた割合 | 犯人 |
+|---|---|---|
+| **(15,3)** | **38%** | `strollA` |
+| **(11,3)** | **15%** | `strollA` |
+| **(15,10)** | **8%** | `strollB` |
+| (6,3) / (8,12) / (12,6) / (3,10) | 0% | — |
+
+⭐⭐⭐ **間欠的な赤**であって、ハード fail ではない。**1 回通っただけでは気づけない**種類の退行。
+
+**直し方 = 巡回 2 本の「端点だけ」を動かした。**
+⛔ golden の期待値も押し口も 1 つも触っていない(#40 の「押し口のみ」より弱い介入)。
+
+- `strollA` (9,3)⇄(15,3) → **(12,3)⇄(14,3)** … ⭐ 北橋 (12,3)(13,3) を渡る絵は保っている
+- `strollB` (14,11)⇄(19,11) → **(16,11)⇄(19,11)**
+
+⚠⚠ **スプライトは足元タイルより左右 ±48px はみ出す**(SPRITE 96 > 街の TILE 64)。
+「隣の列に居れば安全」は成り立たない — 列 11 の中心 x=736 を避けるには **列 12 から**
+始める必要がある(col 12 のスプライトは x=752 から)。
+
+**再発防止 = (1f) を新設**(§1 に 1 本増えたので 27 → 28):
+
+> **(1f)** (I6) 既存 golden が**タイル中心の実座標で押す** 7 タイルの中心を、
+> どの NPC のスプライト矩形も覆わない。⭐ 巡回は**経路上の全マス**で見る。
+> ⭐ 標本ではなく**データから決定的に**計算する(巡回が「今どこに居るか」に依らない)。
+
+⭐ **(1f) の非空振りを実測済み**: 旧経路へ戻すと **(1f) だけが赤**(27/28)、戻すと 28/28。
+⚠ 酒場側は `verify_tavern_map` が**適応的に**押し所を選ぶ(`usable()` = `elementFromPoint` で
+拾えた点だけ。⚠ ただし `.tavernSign` しか除外していない = **NPC は除外していない**)。
+実測では `bad(0,0)` / `good(1,2)` が選ばれ NPC 被覆 **0%** だったので (1f) の表には入れていない。
+⛔ 酒場の NPC を動かすときは、この適応ピッカーが NPC の上を選ばないか測り直すこと。
+⭐ `driver_heromark_signplate` は座標クリックを 1 つも持たず、`verify_town_exit` は
+**押す前に `elementFromPoint` が札自身か確かめてから**押す(`:406`)ので、どちらも構造的に安全。
+`verify_quest_walk` が押すのは `world.html` のノード = NPC が 1 体も居ない。
+
+#### ⭐ §3 の測り方(項目 4 が壊さないよう明記する)
+
+- **(3a)(3b)(3c) は `page.mouse.click(x, y)` = 実座標のマウス入力**で押す。
+  ⛔ `el.click()` や座標なしの `MouseEvent` は使えない — `clientX/clientY` が 0 になるので、
+  stopPropagation を外しても `#tavernViewport` は (0,0) のタイルを拾うだけになり、
+  **(3c) が自明に緑**になる。
+- **(3a-touch) だけは `el.dispatchEvent(new Event('touchend', {bubbles:true}))`** =
+  **click を 1 度も発火させない**経路。⭐ 直前の一言から**文面が入れ替わる**ことまで見るので、
+  「touchend を張り忘れた実装」は前の文面が残って赤くなる。
+- **(3a-life)** は 2.0 秒後に「まだ同じ文面で 1 枚」/ 4.7 秒後に「0 枚」。
+  ⭐ 前者が無いと「出た瞬間に消える実装」が緑になる。
+- **(3c) は 3 本の腕**:
+  ① NPC を押す → 動かない ② **同じ 1 点**を、NPC 全員の当たり判定を外して押す → **動く**
+  ③ 素の状態で NPC の居ない空きタイルを押す → **動く**
+  ⛔ ① だけだと「そもそもクリックが死んでいる実装」でも緑になる。
+  ⚠ ① の押し所は **「その点のタイルが歩けて、主人公の足元でない」**点に限る
+  (歩けないタイルを押しても `walkTo()` が false を返すので、stopPropagation が無くても緑になる)。
+  ⭐ 押し所は本番の `tileFromClient` / `clientFromTile` を**呼んで**決める(⛔ 幾何を写経しない)。
+  ⭐ 実測で選ばれた押し所 = 酒場/desktop `porter@(11,7)` / 酒場/compact `server@(7,4)` /
+  街/desktop `mason@(4,3)` / 街/compact `fisher@(7,12)`。
+- ⚠ **compact では押せる NPC が激減する**(カメラが主人公を追うため)。実測 =
+  酒場 desktop 8 体中 8 / compact **3**、街 desktop 11 体中 11 / compact **3**。
+  → 押し所は毎回 DOM から選び直している。⛔ key を焼かない。
+
+#### ⭐ 新しい assert が本当に赤くなることを 1 本ずつ実測した(手で変異 → 復帰)
+
+| 手で入れた欠陥 | 赤くなった assert |
+|---|---|
+| `nostop` … `ev.stopPropagation()` を殺す | **(3c)** のみ |
+| `notouch` … touchend の登録名を変える | **(3a-touch)** のみ |
+| `twobubble` … 先頭の `npcBubbleHide()` を殺す + 吹き出しを `pointer-events:auto` に | **(3b)(3a-life)(3d)**(+ (3a-touch) の巻き添え) |
+| `nolife` … 自動で消す `setTimeout` を殺す + click が別人の say を出す | **(3a)(3b)(3a-life)**(4.7s 後に 1 枚残る) |
+| 旧 `strollA`/`strollB` の経路へ戻す | **(1f)** のみ |
+
+#### ⭐ 項目 4 へ — 変異アンカーの下ごしらえ
+
+⚠⚠ **`nostop` の素のアンカーは 1 ファイルに 2 箇所ある**(click と touchend で同じ 1 行)。
+そのままだと driver の `n !== 1` 検査に引っかかって **exit 3** で死ぬ。
+→ click 側の行末に **`/* [nostop] 1 行に閉じたまま保つ */`** を足して**一意**にしてある。
+
+| 変異 | 1 行に閉じた一意なアンカー(`tavern.html` / `town.html` 共通) |
+|---|---|
+| `nostop` | `          if (ev && ev.stopPropagation) ev.stopPropagation();   /* [nostop] 1 行に閉じたまま保つ */` |
+| `twobubble` | `        npcBubbleHide();                          /* ⭐ 先に消す = 常に 1 枚 */` |
+| (参考) 寿命 | `        bubbleTimer = setTimeout(function () { if (bubbleEl === b) npcBubbleHide(); }, BUBBLE_MS);` |
+
+⚠ `row0` / `zorder` などの CSS 変異は `      pointer-events: none;` が**複数箇所にある**ので
+そのままではアンカーにできない。⭐ 直前の行と抱き合わせるか、`.npcBubble` 側の
+`      animation: npcBubbleIn 0.16s ease-out;` のような**一意な 1 行**を使うこと。
+
+#### ⭐ 実装後の行番号(項目 4 が使う。⚠ 1 本着地するとずれるので構造で探すこと)
+
+| 何 | `tavern.html` | `town.html` |
+|---|---|---|
+| `<script src="js/npc-crowd.js">` | **2534** | **385** |
+| NPC の CSS(`#npcLayer` / `.npcUnit` / `.npcShadow`) | 2303 / 2307 / 2317 | 305 / 309 / 319 |
+| **`.npcBubble` の CSS**(⭐ 新規) | **2334** | **336** |
+| `var MAP_W` / `SPRITE` / `FOOT` / `SHEET_ROW_RIGHT` | 8545 / 8546 / 8547 / 8548 | 443 / 444 / 445 / 446 |
+| `MS_PER_TILE` | 8750 | 646 |
+| `var npcUnits = [];` | **8950** | **804** |
+| `(function initNpcCrowd() {` | **8952** | **806** |
+| **click / touchend を張る行**(⭐ 吹き出しの入口) | **8997 / 9004** | **851 / 858** |
+| `function npcPlace(u, cx, cy)` | **9010** | **864** |
+| `var BUBBLE_MS = 4000;` | **9034** | **888** |
+| `npcBubbleHide` / `npcBubbleFollow` / `npcBubbleShow` | **9036 / 9041 / 9055** | **890 / 895 / 909** |
+| 撤退スイッチの判定場所(`?npc=0` はここへ) | 先頭の `<script>`(`window.__tavernMapOn` を立てている IIFE) | `?heromark=0` / `?signplate=0` と同じ場所 |
+
+#### changelog
+
+    py tools/add_changelog.py "<b>町の人が返事をするようになった</b> — 銀の鹿亭や港町フランで人を押すと、その場の一言が頭の上に浮かぶ。少し経つと自然に消える。"
+
+⭐ §10 の文面は項目 2 が使い切っていたので、**吹き出しの分を書き下ろした**。

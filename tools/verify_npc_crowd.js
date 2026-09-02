@@ -10,13 +10,29 @@
  *   exit コードは FAILED が 0 件なら 0 (PENDING は 0 のまま通す)。
  *   → 後続項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認できる。
  *
- * ■ 実装状況 (⭐ 項目 2 = ここまで)
+ * ■ 実装状況 (⭐ 項目 3 = ここまで)
  *     §0 (0a-town)(0a-tavern)(0b)(0b-dom)(0c)(0d)(0e)              … 実装済
  *     §1 (1z)(1a)(1b)(1c)(1d)(1e) / §2 (2a)(2b)(2c)(2d)            … 実装済
+ *     §3 (3a)(3a-touch)(3a-life)(3b)(3c)(3d)                       … 実装済 (項目 3)
  *     §4 恒等 (4a)(4b)(4c)(4d)                                     … 実装済
- *     §3 吹き出し                                                  … **PENDING** (項目 3)
  *     §5 撤退                                                      … **PENDING** (項目 4)
  *     負のコントロール 13 本                                        … **PENDING** (項目 4)
+ *
+ * ■ ⭐⭐⭐ §3 は「押したら喋る」を **本物のイベント**で測る (項目 3)
+ *   ⛔ el.click() / 座標なしの MouseEvent は使えない。clientX/clientY が 0 になるので、
+ *     stopPropagation を外しても #tavernViewport は (0,0) のタイルを拾うだけになり、
+ *     「主人公が動かない」が **自明に緑**になる。
+ *   → (3a)(3b)(3c) は page.mouse.click(x, y) = 実座標のマウス入力。
+ *     (3a-touch) だけは el.dispatchEvent(new Event('touchend')) = **click を 1 度も
+ *     発火させない**経路で押す (touchend を張り忘れた実装をここで捕まえる)。
+ *   ⭐⭐⭐ (3c) は「動かない」を 3 本の腕で測る:
+ *     ① NPC を押す                                      → 動かない
+ *     ② **同じ 1 点**を、NPC の当たり判定を外して押す    → 動く   (= 止めた側が仕事をした証拠)
+ *     ③ 素の状態で NPC の居ない空きタイルを押す          → 動く   (= クリックが生きている証拠)
+ *     ⛔ ① だけだと「そもそもクリックが死んでいる実装」でも緑になる。
+ *   ⚠ ① の押し所は **「押した点のタイルが歩けて、主人公の足元でない」**点に限る。
+ *     歩けないタイルを押しても walkTo() が false を返して動かないので、
+ *     stopPropagation が無くても ① が緑になってしまう (依頼書の罠の親戚)。
  *
  * ■ ⚠⚠⚠ (0a) を注入で緑にしてはいけない
  *   このドライバは、まだ結線されていないページの **データ層**を測るために
@@ -106,6 +122,16 @@ const POP = {
   tavern: { blocked: 87,  walkable: 63,  signs: 5 },
   town:   { blocked: 216, walkable: 129, signs: 3 },
 };
+
+/* ⚠⚠⚠ (I6) — 既存 golden が **タイル中心の実座標で押す**タイル (2026-09-02 実測)
+ *  項目 3 で吹き出しに ev.stopPropagation() を足した瞬間、NPC は「タップを食う板」になった。
+ *  そこに NPC のスプライトが重なると、その golden は **間欠的に**赤くなる
+ *  (実測: strollA が (15,3) を 38% / (11,3) を 15%、strollB が (15,10) を 8% の時間だけ覆っていた)。
+ *  出所 = tools/verify_town_map.js の :294 / :437 の spots / :446 / :566。
+ *  ⛔ ここを「赤いから」と削らない。削るとタップを塞ぐ NPC が黙って戻ってくる。
+ *  ⚠ 酒場側は verify_tavern_map が **適応的に**押し所を選ぶ (elementFromPoint で拾えた点だけ)
+ *    ので固定の表が無い。実測では bad(0,0) / good(1,2) が選ばれ、NPC 被覆は 0% だった。 */
+const GOLDEN_TAP_TILES = [[6, 3], [11, 3], [15, 3], [15, 10], [8, 12], [12, 6], [3, 10]];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 負のコントロール (依頼書 §8 の変異 13 本) — ⭐ 項目 4 が実装する
@@ -619,6 +645,226 @@ async function measure(browser, port, o) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// §3 吹き出し — **実際に押して**測る (項目 3)
+//   ⚠⚠ ここだけは page.evaluate の観測では足りない。本物のイベントを発火させないと
+//      「伝播が止まっている」ことを測れない。
+//   ⚠ 観測は投げる前提で try/catch (負のコントロールでは壊れた世界を走らせる)。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/* 押し所を選ぶ (ページの中で走る)。
+ *  ⭐ 「その点を押したときに主人公が歩き出すか」は **本番の tileFromClient + isWalkable**
+ *     で決める (⛔ ドライバ側で矩形と zoom から幾何を書き直さない)。
+ *  ⭐ 巡回 NPC は測ってから押すまでの数十 ms で動くので、タイル境界から遠い点を選ぶ。
+ *     定点 NPC を優先する (drift 0)。 */
+function pickBubblePlan(cfg) {
+  const out = { err: [], cands: [] };
+  try {
+    const TV = window[cfg.tvGlobal], M = window[cfg.mapGlobal], N = window.NPC_CROWD;
+    const hero = TV.heroTile();
+    out.hero = hero;
+    out.says = {};
+    const kinds = {};
+    (N[cfg.listKey] || []).forEach(function (n) { out.says[n.key] = n.say; kinds[n.key] = n.kind; });
+    const st = document.getElementById(cfg.stageId).getBoundingClientRect();
+    const z = TV.zoom() || 1;
+    const TILE = M.TILE;
+    const order = [];
+    Array.prototype.slice.call(document.querySelectorAll('.npcUnit')).forEach(function (el) {
+      const key = el.getAttribute('data-npc');
+      order.push(key);
+      const b = el.getBoundingClientRect();
+      [0.5, 0.38, 0.62].forEach(function (fx) {
+        [0.72, 0.6, 0.5, 0.38, 0.26, 0.16].forEach(function (fy) {
+          const x = Math.round(b.left + b.width * fx), y = Math.round(b.top + b.height * fy);
+          if (!(x >= 2 && y >= 2 && x < window.innerWidth - 2 && y < window.innerHeight - 2)) return;
+          if (document.elementFromPoint(x, y) !== el) return;   /* ⭐ 本当にその NPC が拾う点だけ */
+          const t = TV.tileFromClient(x, y);
+          let w = false;
+          try { w = !!(M.inBounds(t.c, t.r) && M.isWalkable(t.c, t.r)); } catch (e) { w = false; }
+          const sx = (x - st.left) / z, sy = (y - st.top) / z;
+          const margin = Math.min(sx % TILE, TILE - (sx % TILE), sy % TILE, TILE - (sy % TILE));
+          out.cands.push({ key: key, kind: kinds[key] || '?', x: x, y: y, tile: [t.c, t.r],
+                           walkable: w, notHero: !(t.c === hero.c && t.r === hero.r),
+                           margin: Math.round(margin * 10) / 10 });
+        });
+      });
+    });
+    out.order = order;
+    /* (3c) の押し所 = 歩けるタイル かつ 主人公の足元でない
+       ⛔ ここを緩めると「歩けないタイルを押したから動かなかっただけ」で緑になる。 */
+    const good = out.cands.filter(function (p) { return p.walkable && p.notHero; })
+      .sort(function (a, b) {
+        const ka = (a.kind === 'stand') ? 0 : 1, kb = (b.kind === 'stand') ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return b.margin - a.margin;
+      });
+    out.probe = good[0] || null;
+    /* (3b) の 2 人目 = probe と別の key。押せればよい (歩けるタイルでなくてよい)。 */
+    const pk = out.probe ? out.probe.key : null;
+    out.second = out.cands.filter(function (p) {
+      return p.key !== pk && out.says[p.key] && out.says[p.key] !== (pk ? out.says[pk] : null);
+    }).sort(function (a, b) {
+      const ka = (a.kind === 'stand') ? 0 : 1, kb = (b.kind === 'stand') ? 0 : 1;
+      if (ka !== kb) return ka - kb;
+      return b.margin - a.margin;
+    })[0] || null;
+    /* (3a-touch) の 3 人目 = dispatch なので座標が要らない (画面外でもよい)。
+       ⭐ 直前の一言と **文面が違う**ことが要る (入れ替わりで touchend が効いたと分かる)。 */
+    const sk = out.second ? out.second.key : null;
+    out.third = order.filter(function (k) {
+      if (k === pk || k === sk) return false;
+      const s = out.says[k];
+      return !!s && s !== (pk ? out.says[pk] : null) && s !== (sk ? out.says[sk] : null);
+    })[0] || null;
+  } catch (e) { out.err.push(String(e && e.message)); }
+  return out;
+}
+
+/* 吹き出しと主人公の「今」を写す (ページの中で走る)。 */
+function bubbleSnap(cfg) {
+  const out = { err: [] };
+  try {
+    const inLayer = Array.prototype.slice.call(document.querySelectorAll('#npcLayer .npcBubble'));
+    const all     = Array.prototype.slice.call(document.querySelectorAll('.npcBubble'));
+    out.count = inLayer.length;             /* ⭐ #npcLayer の中だけ (依頼書 §6) */
+    out.countAnywhere = all.length;         /* ⚠ 外へ漏れた 2 枚目を取り逃がさない */
+    out.texts  = all.map(function (b) { return b.textContent; });
+    out.owners = all.map(function (b) { return b.getAttribute('data-npc-say'); });
+    out.pe     = all.map(function (b) { return getComputedStyle(b).pointerEvents; });
+    out.zIndex = all.map(function (b) { return getComputedStyle(b).zIndex; });
+    out.kids   = all.map(function (b) { return b.children.length; });
+  } catch (e) { out.err.push('bubble: ' + e.message); }
+  try {
+    const TV = window[cfg.tvGlobal];
+    out.hero = TV.heroTile();
+    out.moving = TV.isMoving();
+  } catch (e) { out.err.push('hero: ' + e.message); out.hero = null; out.moving = null; }
+  return out;
+}
+
+/* 対照 ③ の押し所 = NPC も吹き出しも札も乗っていない、歩ける空きタイル (ページの中で走る)。
+ * ⭐ 座標は本番の clientFromTile() から採る (⛔ 幾何を書き直さない)。 */
+function pickEmptyTile(cfg) {
+  const out = { err: [] };
+  try {
+    const TV = window[cfg.tvGlobal], M = window[cfg.mapGlobal];
+    const hero = TV.heroTile();
+    out.hero = hero;
+    let best = null, seen = 0;
+    for (let r = 0; r < M.ROWS; r++) for (let c = 0; c < M.COLS; c++) {
+      if (c === hero.c && r === hero.r) continue;
+      let w = false; try { w = !!M.isWalkable(c, r); } catch (e) { w = false; }
+      if (!w) continue;
+      const p = TV.clientFromTile(c, r);
+      const x = Math.round(p.x), y = Math.round(p.y);
+      if (!(x >= 2 && y >= 2 && x < window.innerWidth - 2 && y < window.innerHeight - 2)) continue;
+      seen++;
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) continue;
+      let bad = true;
+      try { bad = !!(hit.closest && hit.closest('.npcUnit, .npcBubble, ' + cfg.signSel)); } catch (e) { bad = true; }
+      if (bad) continue;
+      const d = Math.abs(c - hero.c) + Math.abs(r - hero.r);
+      if (!best || d > best.d) best = { c: c, r: r, x: x, y: y, d: d,
+                                        hit: String(hit.id || hit.className || hit.tagName) };
+    }
+    out.inView = seen;
+    if (best) { out.x = best.x; out.y = best.y; out.tile = [best.c, best.r];
+                out.hitId = best.hit; out.dist = best.d; }
+  } catch (e) { out.err.push(String(e && e.message)); }
+  return out;
+}
+
+async function measureBubble(browser, port, o) {
+  const out = { tag: o.tag, err: null };
+  const ctx = await newPage(browser, o.view);
+  const P0 = { stageId: o.stageId, mapGlobal: o.mapGlobal, listKey: o.listKey, tvGlobal: o.tvGlobal };
+  try {
+    await ctx.page.goto('http://localhost:' + port + '/' + o.file, { waitUntil: 'load', timeout: 40000 });
+    await ctx.page.waitForFunction(o.ready, { timeout: 25000 });
+    await settle(ctx.page);
+    await sleep(300);
+    out.plan   = await ctx.page.evaluate(pickBubblePlan, P0);
+    out.before = await ctx.page.evaluate(bubbleSnap, P0);
+    const pr = out.plan && out.plan.probe;
+    const sc = out.plan && out.plan.second;
+    const th = out.plan && out.plan.third;
+
+    /* ① NPC を **実座標のマウス**で押す → (3a)(3c)(3d) */
+    if (pr) {
+      await ctx.page.mouse.click(pr.x, pr.y);
+      await sleep(150);
+      out.a = await ctx.page.evaluate(bubbleSnap, P0);
+      out.a.how = 'page.mouse.click(' + pr.x + ',' + pr.y + ')';
+    }
+    /* ② 別の NPC を押す → (3b) */
+    if (sc) {
+      await ctx.page.mouse.click(sc.x, sc.y);
+      await sleep(150);
+      out.b = await ctx.page.evaluate(bubbleSnap, P0);
+      out.b.how = 'page.mouse.click(' + sc.x + ',' + sc.y + ')';
+    }
+    /* ③ touchend **だけ**を発火 → (3a-touch)。⛔ click は 1 度も出さない */
+    if (th) {
+      out.tFired = await ctx.page.evaluate((key) => {
+        try {
+          const el = document.querySelector('.npcUnit[data-npc="' + key + '"]');
+          if (!el) return 'no-el';
+          el.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+          return 'ok';
+        } catch (e) { return 'throw: ' + e.message; }
+      }, th);
+      await sleep(150);
+      out.t = await ctx.page.evaluate(bubbleSnap, P0);
+      out.t.how = "el.dispatchEvent(new Event('touchend', {bubbles:true}))";
+    }
+    /* ④ 寿命 → (3a-life)。⭐ 2 秒後はまだ出ている = 「出た瞬間に消える実装」を弾く */
+    out.life = {};
+    await sleep(2000);
+    out.life.at2000 = await ctx.page.evaluate(bubbleSnap, P0);
+    await sleep(2700);
+    out.life.at4700 = await ctx.page.evaluate(bubbleSnap, P0);
+
+    /* ⑤ 対照 ② — **同じ 1 点**を、NPC の当たり判定を外して押す → 主人公が動く */
+    if (pr) {
+      await ctx.page.evaluate(() => {
+        try {
+          Array.prototype.slice.call(document.querySelectorAll('.npcUnit'))
+            .forEach(function (el) { el.style.pointerEvents = 'none'; });
+        } catch (e) {}
+      });
+      const h0 = await ctx.page.evaluate(bubbleSnap, P0);
+      await ctx.page.mouse.click(pr.x, pr.y);
+      await sleep(150);
+      const h1 = await ctx.page.evaluate(bubbleSnap, P0);
+      out.ctlBare = { before: h0.hero, after: h1.hero, moving: h1.moving,
+                      how: 'NPC 全員 pointer-events:none → 同じ点を page.mouse.click' };
+      await ctx.page.evaluate(() => {
+        try {
+          Array.prototype.slice.call(document.querySelectorAll('.npcUnit'))
+            .forEach(function (el) { el.style.pointerEvents = ''; });
+        } catch (e) {}
+      });
+    }
+    /* ⑥ 対照 ③ — **素の状態**で NPC の居ない空きタイルを押す → 主人公が動く */
+    try { await ctx.page.waitForFunction(o.idle, { timeout: 12000 }); }
+    catch (e) { out.idleErr = String(e && e.message); }
+    out.emptySpot = await ctx.page.evaluate(pickEmptyTile, Object.assign({ signSel: o.signSel }, P0));
+    if (out.emptySpot && out.emptySpot.x !== undefined) {
+      const h0 = await ctx.page.evaluate(bubbleSnap, P0);
+      await ctx.page.mouse.click(out.emptySpot.x, out.emptySpot.y);
+      await sleep(150);
+      const h1 = await ctx.page.evaluate(bubbleSnap, P0);
+      out.ctlEmpty = { tile: out.emptySpot.tile, before: h0.hero, after: h1.hero, moving: h1.moving,
+                       how: 'page.mouse.click(' + out.emptySpot.x + ',' + out.emptySpot.y + ')' };
+    }
+  } catch (e) { out.err = String(e && e.message); }
+  finally { try { await ctx.page.close(); } catch (e) {} }
+  out.pageErrs = ctx.errs;
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ⭐ (1a) 経路 ② — ドライバが **自前で** セル列と矩形を起こす
 //   ⛔ NPC_CROWD.cellsOf / boxOf を呼ばない (呼ぶと 1 経路目と同じ間違いを共有する)。
 //   ⚠ SPRITE / FOOT / TILE は本番から引いた実測値を渡す (⛔ 96 / 0.93 / 64 を直書きしない)。
@@ -720,6 +966,17 @@ const ALL4 = (m) => [['酒場/desktop', PH(m, 'tav')], ['酒場/compact', PH(m, 
                      ['街/desktop', PH(m, 'town')], ['街/compact', PH(m, 'townC')]];
 const PAIRS = (m) => [['酒場', PH(m, 'tav'), PH(m, 'tavC'), POP.tavern],
                       ['街',   PH(m, 'town'), PH(m, 'townC'), POP.town]];
+/* §3 の 4 面 (吹き出しは押して測るので、§0〜§4 とは別の測定オブジェクトを持つ) */
+const BUB4 = (m) => [['酒場/desktop', (m.bub || {}).tav],  ['酒場/compact', (m.bub || {}).tavC],
+                     ['街/desktop',   (m.bub || {}).town], ['街/compact',   (m.bub || {}).townC]];
+/* 主人公が動いたか。⭐ walkPath() は moving = true を **同期で**立てるので、
+ *  「タイルが変わった」より先に moving で捕まる (150ms 後の観測でも間に合う)。 */
+function heroMoved(x) {
+  if (!x || !x.before || !x.after) return false;
+  return (x.moving === true) || (x.before.c !== x.after.c) || (x.before.r !== x.after.r);
+}
+const TILE_S = (t) => (t ? JSON.stringify(t) : 'null');
+const HERO_S = (h) => (h ? ('(' + h.c + ',' + h.r + ')') : 'null');
 
 const ASSERT_OF = {};
 [
@@ -953,6 +1210,45 @@ const ASSERT_OF = {};
         return r.name + ' 定点 ' + r.stand + ' / 巡回 ' + r.stroll
           + (r.other.length ? ' ⛔ 未知の kind: ' + r.other.join(',') : ''); }).join('  /  ')];
     }],
+  ['1f', '★★★ (I6) 既存 golden が **タイル中心の実座標で押す** ' + GOLDEN_TAP_TILES.length
+    + ' タイルの中心を、どの NPC のスプライト矩形も覆わない'
+    + ' (⭐ 巡回は **経路上の全マス**で見る = 端点だけ見ると取りこぼす。'
+    + '⚠ 項目 3 で ev.stopPropagation() を足したので、覆うとその golden が **間欠的に**赤くなる。'
+    + '⛔ スプライトは足元タイルより左右 ±48px はみ出す = 「隣の列なら安全」は成り立たない)',
+    (m) => {
+      const rows = [['街/desktop', PH(m, 'town')], ['街/compact', PH(m, 'townC')]].map(function (x) {
+        const p = P(x[1]);
+        const TILE = p.TILE, SPRITE = p.SPRITE, FOOT = p.FOOT;
+        if (!TILE || !SPRITE || typeof FOOT !== 'number') {
+          return { name: x[0], broken: 'TILE/SPRITE/FOOT が引けない', hits: [], cells: 0, dom: null };
+        }
+        const hits = [];
+        let cells = 0;
+        (p.list || []).forEach(function (n) {
+          const cs = drvCells(n);
+          if (!cs) return;
+          cs.forEach(function (pc) {
+            cells++;
+            const bx = drvBox(pc[0], pc[1], TILE, n.dx, n.dy, SPRITE, FOOT);
+            GOLDEN_TAP_TILES.forEach(function (t) {
+              const px = t[0] * TILE + TILE / 2, py = t[1] * TILE + TILE / 2;
+              if (px >= bx.l && px <= bx.r && py >= bx.t && py <= bx.b) {
+                hits.push(n.key + '(' + pc[0] + ',' + pc[1] + ')x(' + t[0] + ',' + t[1] + ')');
+              }
+            });
+          });
+        });
+        return { name: x[0], hits: hits, cells: cells, broken: null };
+      });
+      const ok = rows.every(function (r) {
+        return !r.broken && r.cells > 0 && r.hits.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' golden の押し所 ' + GOLDEN_TAP_TILES.length + ' 点 x NPC の全セル ' + r.cells
+          + ' / 覆っている組=' + (r.hits.length ? r.hits.join(' ') : '0 件')
+          + (r.broken ? ' ⛔ ' + r.broken : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ この NPC が verify_town_map の (4-…) を間欠的に赤くする'
+                   + ' — 経路の端点を動かして避ける (⛔ golden の期待値を書き換えない)')];
+    }],
 
   /* ── §2 描画 (項目 2) ────────────────────────────────────────────────────── */
   ['2a', '.npcUnit の z-index が全員 3 以下 かつ 札の z-index を 1 つも超えていない'
@@ -1064,11 +1360,136 @@ const ASSERT_OF = {};
     }],
 
   /* ── §3 吹き出し (項目 3) ────────────────────────────────────────────────── */
-  ['3a', '★ .npcUnit を 1 体押すと吹き出しが 1 枚出て、textContent がデータの say と 1 文字も違わない', null,
-    '項目 3 が吹き出しを実装する。'],
-  ['3b', '別の NPC を押すと吹き出しは常に 1 枚のまま (前が消える)', null, '項目 3。'],
-  ['3c', '★ NPC を押しても主人公が動かない (stopPropagation が効いている)', null, '項目 3。'],
-  ['3d', '吹き出しの pointer-events が none', null, '項目 3。'],
+  ['3a', '★ .npcUnit を **実座標のマウス** page.mouse.click(x,y) で 1 体押すと、'
+    + '#npcLayer の中に吹き出しが 1 枚だけ出て、textContent がそのデータの say と **1 文字も違わない**'
+    + ' (⭐ data-npc-say も押した NPC の key と一致 / ⚠ 押す前は 0 枚)',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, a = b.a, pr = (b.plan || {}).probe;
+        const want = (pr && b.plan.says) ? b.plan.says[pr.key] : null;
+        const n0 = b.before ? b.before.count : null;
+        const ok = !!(a && pr && want && n0 === 0 && a.count === 1 && a.countAnywhere === 1
+                      && a.texts[0] === want && a.owners[0] === pr.key);
+        return { name: x[0], key: pr && pr.key, how: a && a.how, n0: n0,
+                 n: a && a.count, nAny: a && a.countAnywhere,
+                 got: a && a.texts && a.texts[0], want: want,
+                 owner: a && a.owners && a.owners[0], ok: ok, err: b.err };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.key + ' を ' + r.how + ' → 押す前 ' + r.n0 + ' 枚 / 押した後 ' + r.n
+          + ' 枚 (全体 ' + r.nAny + ') / data-npc-say=' + r.owner
+          + ' / textContent=' + JSON.stringify(r.got)
+          + (r.got === r.want ? ' = say 一致' : ' ⛔ say は ' + JSON.stringify(r.want))
+          + (r.err ? ' ⛔ ' + r.err : ''); }).join('  //  ')];
+    }],
+  ['3a-touch', '★ **touchend だけ**を発火させても吹き出しが出る'
+    + " (el.dispatchEvent(new Event('touchend')) = click を 1 度も出さない経路。"
+    + '⭐ 直前の一言から文面が入れ替わることまで見る = touchend を張り忘れた実装は前の文面のまま残る)',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, t = b.t, th = (b.plan || {}).third;
+        const want = (th && b.plan.says) ? b.plan.says[th] : null;
+        const prev = (b.b && b.b.texts) ? b.b.texts[0] : null;
+        const ok = !!(t && th && want && b.tFired === 'ok' && t.count === 1 && t.countAnywhere === 1
+                      && t.texts[0] === want && t.owners[0] === th && prev && prev !== want);
+        return { name: x[0], key: th, fired: b.tFired, n: t && t.count,
+                 got: t && t.texts && t.texts[0], want: want, prev: prev, ok: ok };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.key + ' へ touchend(' + r.fired + ') → ' + r.n + ' 枚'
+          + ' / 直前=' + JSON.stringify(r.prev) + ' → 今=' + JSON.stringify(r.got)
+          + (r.got === r.want ? ' = say 一致' : ' ⛔ say は ' + JSON.stringify(r.want)); }).join('  //  ')];
+    }],
+  ['3a-life', '吹き出しは最後の一言から **4 秒で自動的に消える**'
+    + ' (⭐ 2.0 秒後はまだ同じ文面で出ている = 「出た瞬間に消える実装」も弾く / 4.7 秒後は 0 枚)',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, L = b.life || {};
+        const last = (b.t && b.t.texts) ? b.t.texts[0] : null;
+        const a2 = L.at2000, a4 = L.at4700;
+        const ok = !!(last && a2 && a4 && a2.count === 1 && a2.texts[0] === last
+                      && a4.count === 0 && a4.countAnywhere === 0);
+        return { name: x[0], last: last, n2: a2 && a2.count, t2: a2 && a2.texts && a2.texts[0],
+                 n4: a4 && a4.count, n4any: a4 && a4.countAnywhere, ok: ok };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' 2.0s 後 ' + r.n2 + ' 枚 ' + JSON.stringify(r.t2)
+          + ' / 4.7s 後 ' + r.n4 + ' 枚 (全体 ' + r.n4any + ')'
+          + (r.ok ? '' : ' ⛔ 最後の一言は ' + JSON.stringify(r.last)); }).join('  //  ')];
+    }],
+  ['3b', '別の NPC を押すと吹き出しは **常に 1 枚のまま** (前が消える)'
+    + ' — ⭐ 枚数が 1 のままであることに加えて **文面が入れ替わる**ことまで見る'
+    + ' (⛔ 「1 枚のまま」だけだと、2 人目のクリックを黙って無視する実装が緑になる)',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, a = b.a, b2 = b.b, sc = (b.plan || {}).second, pr = (b.plan || {}).probe;
+        const want = (sc && b.plan.says) ? b.plan.says[sc.key] : null;
+        const first = (a && a.texts) ? a.texts[0] : null;
+        const ok = !!(a && b2 && sc && pr && want && sc.key !== pr.key
+                      && a.count === 1 && b2.count === 1 && b2.countAnywhere === 1
+                      && b2.texts[0] === want && b2.owners[0] === sc.key
+                      && first && b2.texts[0] !== first);
+        return { name: x[0], k1: pr && pr.key, k2: sc && sc.key,
+                 n1: a && a.count, n2: b2 && b2.count, nAny: b2 && b2.countAnywhere,
+                 first: first, got: b2 && b2.texts && b2.texts[0], want: want, ok: ok };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.k1 + '(' + r.n1 + ' 枚) → ' + r.k2 + '(' + r.n2 + ' 枚 / 全体 ' + r.nAny + ')'
+          + ' / 文面 ' + JSON.stringify(r.first) + ' → ' + JSON.stringify(r.got)
+          + (r.got === r.want ? '' : ' ⛔ say は ' + JSON.stringify(r.want)); }).join('  //  ')];
+    }],
+  ['3c', '★★★ NPC を押しても主人公が動かない (stopPropagation が効いている) — **3 本の腕**で測る:'
+    + ' ① NPC を押す→動かない ② **同じ 1 点**を NPC の当たり判定を外して押す→動く'
+    + ' ③ 素の状態で空きタイルを押す→動く'
+    + ' (⛔ ① だけだと「そもそもクリックが死んでいる実装」でも緑になる。'
+    + '⚠ ① の押し所は「その点のタイルが歩けて主人公の足元でない」= 止めなければ必ず動く点に限る)',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, a = b.a, pr = (b.plan || {}).probe;
+        const h0 = (b.plan || {}).hero;
+        const still = !!(a && h0 && a.hero && a.hero.c === h0.c && a.hero.r === h0.r && a.moving === false);
+        const bare = heroMoved(b.ctlBare);
+        const empty = heroMoved(b.ctlEmpty);
+        const armed = !!(pr && pr.walkable === true && pr.notHero === true);
+        return { name: x[0], key: pr && pr.key, tile: pr && pr.tile, armed: armed,
+                 h0: h0, h1: a && a.hero, moving: a && a.moving, still: still,
+                 bare: bare, bareX: b.ctlBare, empty: empty, emptyX: b.ctlEmpty,
+                 spot: b.emptySpot && b.emptySpot.tile,
+                 ok: armed && still && bare && empty };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ① ' + r.key + '@' + TILE_S(r.tile) + (r.armed ? '(歩ける/足元でない)' : ' ⛔ 押し所が装填できていない')
+          + ' ' + HERO_S(r.h0) + '→' + HERO_S(r.h1) + ' isMoving=' + r.moving + (r.still ? ' =動かない' : ' ⛔ 動いた')
+          + ' ② 同じ点で当たり判定を外す ' + (r.bareX ? HERO_S(r.bareX.before) + '→' + HERO_S(r.bareX.after)
+              + ' isMoving=' + r.bareX.moving : 'なし') + (r.bare ? ' =動いた' : ' ⛔ 動かない (①が自明に緑)')
+          + ' ③ 空きタイル' + TILE_S(r.spot) + ' ' + (r.emptyX ? HERO_S(r.emptyX.before) + '→' + HERO_S(r.emptyX.after)
+              + ' isMoving=' + r.emptyX.moving : 'なし') + (r.empty ? ' =動いた' : ' ⛔ 動かない');
+      }).join('  //  ')];
+    }],
+  ['3d', '吹き出しの pointer-events が **none** (⭐ ついでに z-index が 3 以下 = 札の 4 を超えない)'
+    + ' — ⚠ 押せる吹き出しにすると、札の上へ乗った瞬間に既存 golden 4 本の elementFromPoint が濁る',
+    (m) => {
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {};
+        const seen = [b.a, b.b, b.t].filter(function (s) { return s && s.countAnywhere > 0; });
+        const pes = [], zs = [];
+        seen.forEach(function (s) { pes.push.apply(pes, s.pe); zs.push.apply(zs, s.zIndex); });
+        const zn = zs.map(function (v) { return (v === 'auto') ? 0 : parseInt(v, 10); });
+        const ok = seen.length === 3 && pes.length > 0
+          && pes.every(function (v) { return v === 'none'; })
+          && zn.every(function (v) { return !isNaN(v) && v <= 3; });
+        return { name: x[0], n: seen.length, pe: pes.join(','), z: zs.join(','), ok: ok };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' 測った吹き出し ' + r.n + ' 回分 / pointer-events=[' + r.pe + '] / z-index=[' + r.z + ']';
+      }).join('  //  ')];
+    }],
 
   /* ── §4 恒等 (非退行) (項目 2) ───────────────────────────────────────────── */
   ['4a', '★★★ TAVERN_MAP.MASK / TOWN_MAP.MASK の全行の文字列が起動前後で同一'
@@ -1160,9 +1581,9 @@ const ASSERT_OF = {};
 
 const SECTIONS = [
   ['§0 装置 — 先に母集団を確かめる', ['0a-town', '0a-tavern', '0b', '0b-dom', '0c', '0d', '0e']],
-  ['§1 データの不変条件',            ['1z', '1a', '1b', '1c', '1d', '1e']],
+  ['§1 データの不変条件',            ['1z', '1a', '1b', '1c', '1d', '1e', '1f']],
   ['§2 描画',                        ['2a', '2b', '2c', '2d']],
-  ['§3 吹き出し (項目 3)',           ['3a', '3b', '3c', '3d']],
+  ['§3 吹き出し',                    ['3a', '3a-touch', '3a-life', '3b', '3c', '3d']],
   ['§4 恒等 — 非退行',               ['4a', '4b', '4c', '4d']],
   ['§5 撤退 (項目 4)',               ['5a', '5b', '5c']],
 ];
@@ -1198,11 +1619,13 @@ function emit(id, m) {
   const TAV_CFG = { file: TAVERN_HTML, stageId: 'tavernStage', signSel: '.tavernSign',
                     mapGlobal: 'TAVERN_MAP', listKey: 'TAVERN', tvGlobal: '__TAVERN_TV',
                     inject: true,
-                    ready: "window.__TAVERN_TV && typeof window.__TAVERN_TV.zoom === 'function'" };
+                    ready: "window.__TAVERN_TV && typeof window.__TAVERN_TV.zoom === 'function'",
+                    idle: "window.__TAVERN_TV && window.__TAVERN_TV.isMoving() === false" };
   const TOWN_CFG = { file: TOWN_HTML, stageId: 'townStage', signSel: '.townSign',
                      mapGlobal: 'TOWN_MAP', listKey: 'TOWN', tvGlobal: '__town',
                      inject: false,
-                     ready: "window.__town && typeof window.__town.zoom === 'function'" };
+                     ready: "window.__town && typeof window.__town.zoom === 'function'",
+                     idle: "window.__town && window.__town.isMoving() === false" };
 
   try {
     mark('測定 — 4 面 (酒場 desktop / 酒場 compact / 街 desktop / 街 compact)');
@@ -1215,7 +1638,28 @@ function emit(id, m) {
     console.log('[drv]   街   compact 390x844');
     const townC = await measure(browser, PORT, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
 
+    mark('測定 — §3 吹き出し (⭐ 別ページで **実際に押す**。4 面それぞれ ①NPC ②同じ点で当たり判定を外す ③空きタイル)');
+    console.log('[drv]   酒場 desktop / compact → 街 desktop / compact');
+    const bTav   = await measureBubble(browser, PORT, Object.assign({ tag: '酒場/desktop', view: VIEW_DESKTOP }, TAV_CFG));
+    const bTavC  = await measureBubble(browser, PORT, Object.assign({ tag: '酒場/compact', view: VIEW_COMPACT }, TAV_CFG));
+    const bTown  = await measureBubble(browser, PORT, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
+    const bTownC = await measureBubble(browser, PORT, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
+    for (const bp of [bTav, bTavC, bTown, bTownC]) {
+      if (bp.err) console.log('[drv]   ⛔ ' + bp.tag + ' の吹き出し測定が失敗: ' + bp.err);
+      if (bp.idleErr) console.log('[drv]   ⚠ ' + bp.tag + ' 対照③の前に主人公が止まらなかった: ' + bp.idleErr);
+      const pl = bp.plan || {};
+      console.log('[drv]   ' + bp.tag + ' 押し所 = ①' + ((pl.probe && pl.probe.key) || '⛔なし')
+        + ' ②' + ((pl.second && pl.second.key) || '⛔なし') + ' ③touchend=' + (pl.third || '⛔なし')
+        + ' / 候補点 ' + ((pl.cands || []).length) + ' 個'
+        + ((pl.err && pl.err.length) ? '  ⛔ ' + pl.err.join(' | ') : ''));
+      if (bp.pageErrs && bp.pageErrs.length) {
+        console.log('[drv]   ⚠ ' + bp.tag + ' のページエラー ' + bp.pageErrs.length + ' 件: '
+          + bp.pageErrs.slice(0, 2).join(' | '));
+      }
+    }
+
     const M = { tav: tav, tavC: tavC, town: town, townC: townC,
+                bub: { tav: bTav, tavC: bTavC, town: bTown, townC: bTownC },
                 html: { tavern: frozen(TAVERN_HTML).toString('utf8'),
                         town:   frozen(TOWN_HTML).toString('utf8') } };
 

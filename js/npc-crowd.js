@@ -73,10 +73,22 @@
       sprite: "assets/elf_male_walk.png", hold: 0, say: "湖の魚が減った。何かが居るのさ。" },
     { key: "dockhand", kind: "stand", tile: [15,13], dx:   0, dy: -20, face: "left",
       sprite: "assets/servant_walk.png", hold: 2, say: "北からの荷はまだ来ん。橋がな。" },
-    /* 巡回 3 本。⭐ strollA は北橋 (12,3)(13,3) を渡る = 街が生きて見える一番の絵 */
-    { key: "strollA", kind: "stroll", from: [ 9, 3], to: [15, 3], face: "right",
+    /* 巡回 3 本。⭐ strollA は北橋 (12,3)(13,3) を渡る = 街が生きて見える一番の絵
+       ⚠⚠⚠ (I6) 経路は **既存 golden が固定座標で押す 7 タイルの中心を覆ってはならない**。
+         #41 項目 3 で吹き出しに ev.stopPropagation() を足した瞬間、NPC が「タップを食う板」に
+         なった。tools/verify_town_map.js は (6,3)(11,3)(15,3)(15,10)(8,12)(12,6)(3,10) を
+         **タイル中心の実座標で押す**ので、そこに巡回が立つと (4-…) が間欠的に赤くなる。
+         2026-09-02 実測 = strollA が (15,3) を 38% / (11,3) を 15%、strollB が (15,10) を 8% の
+         時間だけ覆っていた (12 秒 x 100ms 標本)。
+       ⭐ 直したのは **経路の端点だけ**。strollA は北橋 (12,3)(13,3) を渡る絵を保っている。
+         ⛔ 受入条件の期待値も golden の押し口も 1 つも触っていない。
+       ⚠ スプライトは足元タイルより **左右 ±48px はみ出す** (SPRITE 96 > 街の TILE 64) ので、
+         「隣の列に居れば安全」ではない。列 11 を避けるには **列 12 から**始める必要がある
+         (col 11 の中心 x=736 に対し col 12 のスプライトは x=752 から)。
+       → (1f) が毎回この 7 点を機械的に測る。動かしたくなったら先に (1f) を読むこと。 */
+    { key: "strollA", kind: "stroll", from: [12, 3], to: [14, 3], face: "right",
       sprite: "assets/warrior_npcfemale_walk.png", say: "橋の向こうは市場だよ。" },
-    { key: "strollB", kind: "stroll", from: [14,11], to: [19,11], face: "right",
+    { key: "strollB", kind: "stroll", from: [16,11], to: [19,11], face: "right",
       sprite: "assets/cleric_npcmale_walk.png", say: "湖岸は風が気持ちいいね。" },
     { key: "strollC", kind: "stroll", from: [18, 4], to: [18, 9], face: "right",
       sprite: "assets/rogue_male_walk.png", say: "……見ない顔だな。" }
