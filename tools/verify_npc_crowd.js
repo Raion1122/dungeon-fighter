@@ -10,20 +10,24 @@
  *   exit コードは FAILED が 0 件なら 0 (PENDING は 0 のまま通す)。
  *   → 後続項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認できる。
  *
- * ■ 実装状況 (⭐ 項目 1 = ここまで)
- *     §0 (0a-town)(0b)(0c)(0d)(0e) / §1 (1z)(1a)(1b)(1c)(1d)(1e)  … 実装済
- *     §0 (0a-tavern)(0b-dom)                                      … **PENDING** (項目 2)
- *     §2 描画 / §3 吹き出し                                        … **PENDING** (項目 2 / 項目 3)
- *     §4 恒等 / §5 撤退                                            … **PENDING** (項目 3 / 項目 4)
+ * ■ 実装状況 (⭐ 項目 2 = ここまで)
+ *     §0 (0a-town)(0a-tavern)(0b)(0b-dom)(0c)(0d)(0e)              … 実装済
+ *     §1 (1z)(1a)(1b)(1c)(1d)(1e) / §2 (2a)(2b)(2c)(2d)            … 実装済
+ *     §4 恒等 (4a)(4b)(4c)(4d)                                     … 実装済
+ *     §3 吹き出し                                                  … **PENDING** (項目 3)
+ *     §5 撤退                                                      … **PENDING** (項目 4)
  *     負のコントロール 13 本                                        … **PENDING** (項目 4)
  *
  * ■ ⚠⚠⚠ (0a) を注入で緑にしてはいけない
- *   このドライバは酒場側の **データ層**を測るために、tavern.html を開いた後で
- *   page.addScriptTag({ url: '/js/npc-crowd.js' }) を撃って NPC_CROWD を載せている。
- *   ⛔ これは「tavern.html が実際に読み込んでいる」ことの証拠には **ならない**。
- *   → (0a-tavern) は「**配信された tavern.html のバイトに <script src> が実在するか**」だけを
- *     見る。項目 1 の時点では実在しないので **PENDING**。項目 2 が結線したら PASSED へ変える。
- *   ⭐ 街側 (0a-town) は既に結線済みなので、注入なしで
+ *   このドライバは、まだ結線されていないページの **データ層**を測るために
+ *   page.addScriptTag({ url: '/js/npc-crowd.js' }) で暫定注入する道を残してある
+ *   (項目 2 で両ページとも結線したので、素の実行では **発火しない**)。
+ *   ⛔ 注入は「そのページが実際に読み込んでいる」ことの証拠には **ならない**。
+ *   → (0a-tavern) / (0a-town) はどちらも
+ *     ① 配信バイトに <script src> が実在 ② ページが /js/npc-crowd.js を実際に要求した
+ *     ③ 注入する前に window.NPC_CROWD が生きている ④ ドライバは注入していない
+ *     の **4 つの AND** で測る。変異 nosrc が配信からタグを落とすと ①〜③ が一斉に落ちる。
+ *   ⭐ 街側 (0a-town) は項目 1 から結線済みなので、注入なしで
  *     ① 配信バイトにタグが実在する ② ページが /js/npc-crowd.js を実際に要求した
  *     ③ window.NPC_CROWD が生きている の **3 つの AND** で測る。
  *   ⭐⭐⭐ #23 で js/world-map.js の <script src> を書き忘れ、5 本の assert が
@@ -34,13 +38,14 @@
  *   ブラウザで呼ぶ**。不変条件は **本番の NPC_CROWD.validate() を呼ぶ**。
  *   写経すると実装とドライバが同じ間違いを共有して両方緑になる (恒久教訓)。
  *
- * ■ ⭐ ただし (1a) だけは 2 経路
+ * ■ ⭐ ただし (1a) だけは 3 経路 (項目 2 で 1 本増えた)
  *   経路 ① … ブラウザで NPC_CROWD.validate(list, MAP, 実 DOM から測った札) → problems 0 件
  *   経路 ② … ドライバが **自前で** データからスプライト矩形とセル列を起こし、
  *            実 DOM から測った札の矩形との交差を数える (⛔ boxOf / cellsOf を呼ばない)
- *   ⚠ 項目 1 の時点では .npcUnit がまだ DOM に無いので、経路 ② は
- *     「**データから計算した矩形** vs 実 DOM の札の矩形」。
- *     **DOM の .npcUnit 矩形**との突き合わせは項目 2 が (2b) と一緒に足す。
+ *   経路 ③ … **実 DOM の .npcUnit の矩形** (getBoundingClientRect をステージ px へ戻したもの)
+ *            と実 DOM の札の矩形の交差を数える。⭐ ①② はどちらもデータの話なので、
+ *            「データは正しいが描画が別の場所へ置いている」を捕まえられるのは ③ だけ。
+ *   ⚠ 巡回 NPC は測った瞬間の位置で写るので、③ は経路の途中も込みで見ていることになる。
  *
  * ■ ⚠ 札の矩形は必ず実 DOM から測ってステージ px へ戻す (定数表を渡さない)
  *   ステージには CSS transform の zoom が乗っている (実測 酒場 0.825 / 街 0.866667 @1440x900)。
@@ -89,6 +94,11 @@ const SCRIPT_TAG = '<script src="' + NPC_JS + '"></script>';
 
 const VIEW_DESKTOP = { width: 1440, height: 900 };
 const VIEW_COMPACT = { width: 390,  height: 844 };
+
+/* ⭐ NPC が **実際に動いたあと**に測るための待ち。
+ * ⚠ 直後に測ると (4a) の「起動後」がほぼ「起動前」と同時刻になり、何も証明できない。
+ * ⚠ MS_PER_TILE=340 なので、この間に巡回は 4 マス分進む = 端点に着いて折り返す挙動まで通る。 */
+const NPC_SETTLE_MS = 1500;
 
 /* 2026-09-01 / 2026-09-02 に実測した母集団。⛔ 期待値ではなく **母集団ガード** として使う。
  * ⚠ ここが動いたら「マスクを 1 文字も変えない」(依頼書 §2-5) が破れている。 */
@@ -297,6 +307,36 @@ async function newPage(browser, view) {
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
     } catch (e) {}
   });
+  /* ⭐⭐⭐ (4a) の「**起動前**」— 通行マスクを、地図モジュールが window へ載せた
+   *  **その瞬間**に写し取る。⚠ waitForFunction の後で採ると、その時点では既に
+   *  NPC の初期化が済んでいるので「前」にならない (永久に前後同一 = 永久緑)。
+   *  ⭐ js/tavern-map.js / js/town-map.js は `global.TAVERN_MAP = {...}` の 1 回代入なので、
+   *    setter を挟めば **js/npc-crowd.js もページの初期化も走る前**の値が確実に取れる。
+   *  ⛔ ここで MASK を書き換えない (読むだけ)。⚠ 例外は握り潰さず窓へ残す。 */
+  await page.evaluateOnNewDocument((names) => {
+    try {
+      window.__drvMaskSnap = {};
+      window.__drvMaskSnapErr = [];
+      names.forEach(function (nm) {
+        var box;
+        Object.defineProperty(window, nm, {
+          configurable: true, enumerable: true,
+          get: function () { return box; },
+          set: function (v) {
+            box = v;
+            try {
+              if (v && v.MASK && !window.__drvMaskSnap[nm]) {
+                window.__drvMaskSnap[nm] = {
+                  rows: Array.prototype.map.call(v.MASK, String),
+                  TILE: v.TILE, COLS: v.COLS, ROWS: v.ROWS
+                };
+              }
+            } catch (e) { window.__drvMaskSnapErr.push(nm + ': ' + e.message); }
+          }
+        });
+      });
+    } catch (e) { /* defineProperty が使えない環境では (4a) が「スナップ無し」で赤くなる */ }
+  }, ['TAVERN_MAP', 'TOWN_MAP']);
   await page.setViewport(Object.assign({ deviceScaleFactor: 1 }, view || VIEW_DESKTOP));
   return { page: page, errs: errs, reqs: reqs };
 }
@@ -481,7 +521,7 @@ function pageProbe(cfg) {
     }
   } catch (e) { out.err.push('probe: ' + e.message); }
 
-  /* ── 項目 2 以降の器 (今は 0 件で正しい) ── */
+  /* ── 描画された NPC (項目 2) ── */
   try {
     out.npcLayer = !!document.getElementById('npcLayer');
     const us = Array.prototype.slice.call(document.querySelectorAll('.npcUnit'));
@@ -498,6 +538,50 @@ function pageProbe(cfg) {
                bgPos: getComputedStyle(el).backgroundPosition };
     });
   } catch (e) { out.err.push('npcUnit: ' + e.message); }
+
+  /* ── (2b) 札の中心の elementFromPoint (⭐ 既存 golden 4 本と同じ条件を、NPC が居る状態で) ──
+   *  ⚠ compact ではカメラが主人公を追うので、画面外へ出た札は elementFromPoint が null を返す。
+   *    → 画面内かどうかを一緒に持ち帰り、判定は「画面内の札」に対してだけ行う
+   *      (⛔ 画面外を緑扱いにしないよう、母集団の件数も一緒に出す)。
+   *  ⭐ 拾われたのが NPC だったかどうかも記録する = 変異 zorder の診断がそのまま読める。 */
+  try {
+    out.signHit = Array.prototype.slice
+      .call(document.querySelectorAll('#' + cfg.stageId + ' ' + cfg.signSel))
+      .map(function (el) {
+        const b = el.getBoundingClientRect();
+        const x = b.left + b.width / 2, y = b.top + b.height / 2;
+        const inView = (x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight);
+        let hit = null, self = null, npc = false, id = null;
+        if (inView) {
+          hit = document.elementFromPoint(x, y);
+          self = !!(hit && (hit === el || el.contains(hit)));
+          try { npc = !!(hit && hit.closest && hit.closest('.npcUnit, #npcLayer')); } catch (ex) { npc = false; }
+          id = hit ? String(hit.id || hit.className || hit.tagName) : null;
+        }
+        return { key: el.id, inView: inView, hitSelf: self, hitNpc: npc, hitId: id };
+      });
+  } catch (e) { out.err.push('signHit: ' + e.message); out.signHit = out.signHit || []; }
+
+  /* ── (4a) 起動前の MASK スナップショット (evaluateOnNewDocument の setter が採ったもの) ── */
+  try {
+    const snap = window.__drvMaskSnap ? window.__drvMaskSnap[cfg.mapGlobal] : null;
+    out.maskSnap = snap ? { rows: snap.rows.slice(), TILE: snap.TILE, COLS: snap.COLS, ROWS: snap.ROWS } : null;
+    out.maskSnapErr = (window.__drvMaskSnapErr || []).slice();
+  } catch (e) { out.err.push('maskSnap: ' + e.message); out.maskSnap = null; }
+
+  /* ── (4c) 主人公の初期タイル。⭐ 期待値は本番の spawnFor(null) を **その場で呼んで**作る
+   *  (⛔ ドライバに (10,3) などの数値を焼かない = 地図が動いても腐らない)。 */
+  try {
+    const TV = window[cfg.tvGlobal];
+    out.tvGlobal = cfg.tvGlobal;
+    out.hasTV    = typeof TV;
+    out.heroTile = (TV && typeof TV.heroTile === 'function') ? TV.heroTile() : null;
+    out.isMoving = (TV && typeof TV.isMoving === 'function') ? TV.isMoving() : null;
+  } catch (e) { out.err.push('heroTile: ' + e.message); }
+  try {
+    const sp = (M && typeof M.spawnFor === 'function') ? M.spawnFor(null) : null;
+    out.spawnTile = sp ? { c: sp.c, r: sp.r } : null;
+  } catch (e) { out.err.push('spawnFor: ' + e.message); out.spawnTile = null; }
 
   return out;
 }
@@ -521,8 +605,13 @@ async function measure(browser, port, o) {
       out.injected = true;
       await settle(ctx.page);
     }
+    /* ⭐ NPC が実際に動いたあとで測る (巡回が進み、アイドルの周期も回る)。
+       ⚠ ここを削ると (4a) の「起動後」が「起動前」とほぼ同時刻になり、何も証明しなくなる。 */
+    await sleep(NPC_SETTLE_MS);
+    await settle(ctx.page);
     out.probe = await ctx.page.evaluate(pageProbe, {
-      stageId: o.stageId, signSel: o.signSel, mapGlobal: o.mapGlobal, listKey: o.listKey });
+      stageId: o.stageId, signSel: o.signSel, mapGlobal: o.mapGlobal,
+      listKey: o.listKey, tvGlobal: o.tvGlobal });
   } catch (e) { out.err = String(e && e.message); }
   finally { try { await ctx.page.close(); } catch (e) {} }
   out.pageErrs = ctx.errs;
@@ -580,6 +669,46 @@ function drvCross(p) {
 }
 const cellsEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/* データから起こした「あるべき矩形」を key ごとに束ねる (⛔ 本番の boxOf / cellsOf を呼ばない)。
+ * ⭐ (2c) はこれと **実 DOM の .npcUnit の矩形**を突き合わせて、CSS と JS の写経ズレを殺す。 */
+function drvBoxesByKey(p) {
+  const out = {};
+  (p.list || []).forEach(function (n) {
+    const cells = drvCells(n);
+    if (!cells) { out[n.key] = null; return; }
+    out[n.key] = cells.map(function (c) {
+      return drvBox(c[0], c[1], p.TILE, n.dx, n.dy, p.SPRITE, p.FOOT);
+    });
+  });
+  return out;
+}
+/* 実 DOM の .npcUnit の矩形 (l/t/w/h) と札の矩形 (cx/cy/w/h) の交差。
+ * ⭐ 肯定形で書く (本番の否定形とどちらかが符号を間違えたら食い違って見える)。 */
+function domHit(u, s) {
+  const sl = s.cx - s.w / 2, st = s.cy - s.h / 2, sr = s.cx + s.w / 2, sb = s.cy + s.h / 2;
+  return (u.l < sr) && (sl < u.l + u.w) && (u.t < sb) && (st < u.t + u.h);
+}
+/* ⭐ 「そのページが js/npc-crowd.js を実際に読み込んでいる」の **4 条件 AND**。
+ *  ① 配信バイトにタグが実在 ② ページが実際に要求した ③ 注入前に window.NPC_CROWD が生きている
+ *  ④ ドライバは暫定注入していない
+ *  ⛔ どれか 1 つでも欠けたら赤。#23 の「読み込んでいないのに全部緑」を構造的に防ぐ。 */
+function wiredOK(m, htmlKey, phKey, label) {
+  const n = ((m.html && m.html[htmlKey]) || '').split(SCRIPT_TAG).length - 1;
+  const ph = PH(m, phKey);
+  if (!ph) return [false, '⛔ ' + label + 'を測っていない'];
+  const req = ph.reqSawNpcJs === true;
+  const live = ph.hasNPCBeforeInject === 'object';
+  const noInject = ph.injected === false;
+  const ok = (n === 1) && req && live && noInject;
+  return [ok, '配信バイトに ' + JSON.stringify(SCRIPT_TAG) + ' が ' + n + ' 箇所'
+    + ' / 要求した=' + req + ' / 注入前の typeof NPC_CROWD=' + ph.hasNPCBeforeInject
+    + ' / ドライバの暫定注入=' + ph.injected
+    + (ok ? '' : '  ⛔ この状態では §1 / §2 が全部空振りで永久緑になる (#23 の再発)')];
+}
+/* ⚠ 歩行シートは 576x384 の 33 枚すべてで **row 3 (右向き) の 1 行しか中身が無い**
+ *   (項目 1 が全枚数を実測)。⛔ 行 0〜2 を指すと NPC が全員透明になる。 */
+const ROW_RIGHT = 3;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 受入条件の表 (依頼書 §8 の §0〜§5 を **全部宣言**する)
 //   形: [id, 文面, 述語 (m -> [bool, detail]) or null, PENDING の理由 or undefined]
@@ -596,29 +725,15 @@ const ASSERT_OF = {};
 [
   /* ── §0 装置 (先に母集団を確かめる) ──────────────────────────────────────── */
   ['0a-town', 'town.html が js/npc-crowd.js を実際に読み込んでいる'
-    + ' (① 配信バイトに <script src> が実在 ② ページが要求した ③ window.NPC_CROWD が生きている)',
-    (m) => {
-      const n = m.html.town.split(SCRIPT_TAG).length - 1;
-      const ph = PH(m, 'town');
-      if (!ph) return [false, '⛔ 街を測っていない'];
-      const req = ph.reqSawNpcJs === true;
-      const live = ph.hasNPCBeforeInject === 'object';
-      const noInject = ph.injected === false;
-      const ok = n === 1 && req && live && noInject;
-      return [ok, '配信バイトに ' + JSON.stringify(SCRIPT_TAG) + ' が ' + n + ' 箇所'
-        + ' / 要求した=' + req + ' / 注入前の typeof NPC_CROWD=' + ph.hasNPCBeforeInject
-        + ' / 注入=' + ph.injected
-        + (ok ? '' : '  ⛔ この状態では §1 が全部空振りで永久緑になる (#23 の再発)')];
-    }],
-  ['0a-tavern', 'tavern.html が js/npc-crowd.js を実際に読み込んでいる (配信バイトに <script src> が実在)',
-    null,
-    /* ⚠ 起動時に実測値を差し込む (下の本体を参照)。⛔ 「まだ」だけで済ませない。 */
-    '項目 2 が tavern.html の <script src="js/tavern-map.js"> の直後へ結線する。'
-    + '⛔ 項目 1 では tavern.html を 1 バイトも触らない'
-    + ' (触ると changelog フックが commit を止め、プレイヤーに見える変化が実在しないので'
-    + '嘘の要約を書くしかなくなる)。'
-    + '⭐ ドライバは酒場のデータ層を測るため addScriptTag で暫定注入している'
-    + ' — **注入で (0a) を緑にしない**。'],
+    + ' (① 配信バイトに <script src> が実在 ② ページが要求した ③ 注入前に window.NPC_CROWD が生きている'
+    + ' ④ ドライバは注入していない)',
+    (m) => wiredOK(m, 'town', 'town', '街')],
+  ['0a-tavern', 'tavern.html が js/npc-crowd.js を実際に読み込んでいる'
+    + ' (① 配信バイトに <script src> が実在 ② ページが要求した ③ 注入前に window.NPC_CROWD が生きている'
+    + ' ④ ドライバは注入していない)',
+    /* ⭐ 項目 2 が tavern.html:2464 (js/tavern-map.js の直後) へ結線した。
+       ⛔ addScriptTag の暫定注入で緑にしない — ④ が「注入=false」を毎回証明する。 */
+    (m) => wiredOK(m, 'tavern', 'tav', '酒場')],
   ['0b', '[装置] 配置データの母集団が空でない (酒場 / 街ともに 1 件以上)',
     (m) => {
       const rows = PAIRS(m).map(function (x) {
@@ -632,9 +747,26 @@ const ASSERT_OF = {};
         return r.name + ' ' + r.n + ' 件 (定点 ' + r.stand + ' / 巡回 ' + r.stroll + ')'; }).join(' / ')
         + (ok ? '' : '  ⛔ 0 件だと §1 の全 assert が空振りする')];
     }],
-  ['0b-dom', '[装置] 実際に生成された .npcUnit の数が NPC_CROWD.TAVERN.length / .TOWN.length と一致し、どちらも 0 でない',
-    null,
-    '項目 2 が #npcLayer と .npcUnit を描く。⚠ 現在は両ページとも 0 件 (器だけ用意した状態)。'],
+  ['0b-dom', '[装置] 実際に生成された .npcUnit の数が NPC_CROWD.TAVERN.length / .TOWN.length と一致し、どちらも 0 でない'
+    + ' (⭐ #npcLayer が 1 枚あり、data-npc の key 集合がデータと完全一致)',
+    (m) => {
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const want = (p.list || []).map(function (q) { return q.key; }).sort();
+        const got  = (p.npcRects || []).map(function (q) { return q.key; }).sort();
+        return { name: x[0], layer: p.npcLayer === true, n: p.npcUnitCount,
+                 want: want, got: got, same: want.join(',') === got.join(','),
+                 blank: got.filter(function (k) { return !k; }).length };
+      });
+      const ok = rows.every(function (r) {
+        return r.layer && r.n > 0 && r.n === r.want.length && r.same && r.blank === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' #npcLayer=' + r.layer + ' / .npcUnit ' + r.n + ' 件 (データ ' + r.want.length + ' 件)'
+          + ' / key 一致=' + r.same
+          + (r.same ? '' : ' ⛔ DOM=' + JSON.stringify(r.got) + ' データ=' + JSON.stringify(r.want))
+          + (r.blank ? ' ⛔ data-npc が空の .npcUnit が ' + r.blank + ' 件' : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ 0 件だと §2 の全 assert が空振りする')];
+    }],
   ['0c', '[装置] 札を実 DOM から 1 枚以上測れている (⭐ 0 枚だと (1a) の交差検査が空振りする)',
     (m) => {
       const want = { '酒場/desktop': POP.tavern.signs, '酒場/compact': POP.tavern.signs,
@@ -716,26 +848,37 @@ const ASSERT_OF = {};
           + ' / 斜めの巡回=' + (r.diag.length ? r.diag.join(',') : '(無し)')
           + (r.broken ? ' ⛔ ' + r.broken : ''); }).join('  /  ')];
     }],
-  ['1a', '★★ validate(list, MAP, 実 DOM の札) が problems 0 件 — '
-    + '**2 経路** (本番の validate / ドライバ自前の矩形交差) かつ **desktop と compact の両方**',
+  ['1a', '★★ 札と NPC の矩形が 1 件も交差しない — **3 経路** '
+    + '(① 本番の validate / ② ドライバ自前のデータ矩形 / ③ **実 DOM の .npcUnit 矩形**) '
+    + 'かつ **desktop と compact の両方**',
     (m) => {
       const rows = ALL4(m).map(function (x) {
         const p = P(x[1]);
         const v = p.validate || { ok: null, problems: [] };
         const d = drvCross({ list: p.list, signs: p.signs, TILE: p.TILE, SPRITE: p.SPRITE, FOOT: p.FOOT });
-        return { name: x[0], ok: v.ok, probs: v.problems || [], hits: d.hits,
-                 signs: (p.signs || []).length, cells: d.cellCount, broken: d.broken };
+        /* ⭐ 経路 ③ — データではなく **描かれた矩形**で見る。
+           「データは正しいが描画が別の場所へ置いている」を捕まえられるのはここだけ。 */
+        const dom = [];
+        (p.npcRects || []).forEach(function (u) {
+          (p.signs || []).forEach(function (s) {
+            if (domHit(u, s)) dom.push((u.key || '?') + 'x' + s.key); });
+        });
+        return { name: x[0], ok: v.ok, probs: v.problems || [], hits: d.hits, dom: dom,
+                 signs: (p.signs || []).length, cells: d.cellCount,
+                 units: (p.npcRects || []).length, broken: d.broken };
       });
       const ok = rows.every(function (r) {
-        return r.ok === true && r.probs.length === 0 && r.hits.length === 0
-          && r.signs > 0 && r.cells > 0 && !r.broken;
+        return r.ok === true && r.probs.length === 0 && r.hits.length === 0 && r.dom.length === 0
+          && r.signs > 0 && r.cells > 0 && r.units > 0 && !r.broken;
       });
       return [ok, rows.map(function (r) {
-        return r.name + ' 経路①problems ' + r.probs.length
+        return r.name + ' ①problems ' + r.probs.length
           + (r.probs.length ? ' [' + r.probs.map(function (q) { return q.key + ':' + q.why + ':' + q.detail; }).join(' | ') + ']' : '')
-          + ' / 経路②交差 ' + r.hits.length
+          + ' / ②データ矩形の交差 ' + r.hits.length
           + (r.hits.length ? ' [' + r.hits.join(' | ') + ']' : '')
-          + ' (札 ' + r.signs + ' 枚 x セル ' + r.cells + ')'; }).join('  //  ')];
+          + ' / ③DOM 矩形の交差 ' + r.dom.length
+          + (r.dom.length ? ' [' + r.dom.join(' | ') + ']' : '')
+          + ' (札 ' + r.signs + ' 枚 x セル ' + r.cells + ' / 描かれた NPC ' + r.units + ' 体)'; }).join('  //  ')];
     }],
   ['1b', '定点 NPC 全員が isWalkable()===false のタイルに立ち、マンハッタン距離 2 以内に歩けるマスを持つ'
     + ' (⭐ 本番の isWalkable を呼んで測る)',
@@ -812,15 +955,113 @@ const ASSERT_OF = {};
     }],
 
   /* ── §2 描画 (項目 2) ────────────────────────────────────────────────────── */
-  ['2a', '.npcUnit の z-index が全員 3 以下 (札の 4 を超えない)', null,
-    '項目 2 が #npcLayer / .npcUnit を描く。⚠ 現在 .npcUnit は 0 件。'],
+  ['2a', '.npcUnit の z-index が全員 3 以下 かつ 札の z-index を 1 つも超えていない'
+    + ' (⭐ 札の 4 は実 DOM から測る。⛔ 4 を直書きしない)',
+    (m) => {
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const zs = (p.npcRects || []).map(function (u) { return parseInt(u.zIndex, 10); });
+        const sz = (p.signs || []).map(function (s) { return parseInt(s.zIndex, 10); });
+        const bad = zs.filter(function (z) { return !(z <= 3); });
+        const minSign = sz.length ? Math.min.apply(null, sz.filter(function (z) { return !isNaN(z); })) : null;
+        const over = (minSign === null) ? [] : zs.filter(function (z) { return !(z < minSign); });
+        return { name: x[0], n: zs.length, zs: zs, bad: bad, minSign: minSign, over: over,
+                 nan: zs.filter(function (z) { return isNaN(z); }).length };
+      });
+      const ok = rows.every(function (r) {
+        return r.n > 0 && r.bad.length === 0 && r.nan === 0
+          && r.minSign !== null && r.over.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' .npcUnit ' + r.n + ' 体 z-index=' + JSON.stringify(r.zs)
+          + ' / 札の最小 z-index=' + r.minSign
+          + ' / 3 超え=' + r.bad.length + ' / 札以上=' + r.over.length; }).join('  //  ')
+        + (ok ? '' : '  ⛔ 札の上に被さると §2-3 の罠 (既存 golden 4 本) が発火する')];
+    }],
   ['2b', '★ 札 (酒場 5 枚 / 街 3 枚) の中心の elementFromPoint が自分自身か子孫'
-    + ' — ⭐ 既存 golden 4 本と同じ条件を **NPC が居る状態で**独立に測る', null,
-    '項目 2 が NPC を描いてから測る。⚠ NPC が 0 件の今に測ると空振り = 永久緑になるので測らない。'],
-  ['2c', '.npcUnit の top が cy + dy - SPRITE * FOOT と 1px 以内で一致 (CSS と JS の写経ズレを殺す)', null,
-    '項目 2 が描く。⚠ 現在 .npcUnit は 0 件。'],
-  ['2d', 'background-position の Y が -3 * SPRITE (= 右向きの行)。⭐ 行 0〜2 は空なので間違えると全員透明', null,
-    '項目 2 が描く。⚠ 現在 .npcUnit は 0 件。'],
+    + ' — ⭐ 既存 golden 4 本と同じ条件を **NPC が居る状態で**独立に測る',
+    (m) => {
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const all = p.signHit || [];
+        const inv = all.filter(function (s) { return s.inView; });
+        const bad = inv.filter(function (s) { return s.hitSelf !== true; });
+        const byNpc = inv.filter(function (s) { return s.hitNpc === true; });
+        return { name: x[0], units: (p.npcRects || []).length, all: all.length,
+                 inv: inv.length, bad: bad, byNpc: byNpc,
+                 off: all.filter(function (s) { return !s.inView; }).map(function (s) { return s.key; }) };
+      });
+      /* ⚠ 母集団ガード: NPC が 0 体だと「NPC が居る状態で」を測っていない = 空振り。
+         ⚠ 画面内の札が 0 枚でも同じく空振りなので赤にする。 */
+      const ok = rows.every(function (r) {
+        return r.units > 0 && r.all > 0 && r.inv > 0 && r.bad.length === 0 && r.byNpc.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' NPC ' + r.units + ' 体が居る状態で 札 ' + r.all + ' 枚中 画面内 ' + r.inv + ' 枚'
+          + ' / 自分自身でない=' + (r.bad.length ? r.bad.map(function (s) { return s.key + '→' + s.hitId; }).join(',') : '0 件')
+          + ' / NPC に奪われた=' + (r.byNpc.length ? r.byNpc.map(function (s) { return s.key; }).join(',') : '0 件')
+          + (r.off.length ? ' [画面外 ' + r.off.join(',') + ']' : ''); }).join('  //  ')];
+    }],
+  ['2c', '.npcUnit の left / top が **placeHero と同じ式** (cx + dx - SPRITE/2 / cy + dy - SPRITE*FOOT) と'
+    + ' 1px 以内で一致し、寸法が SPRITE 四方 (⭐ CSS と JS の写経ズレを殺す)',
+    (m) => {
+      const EPS = 1;
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const want = drvBoxesByKey(p);
+        const kind = {};
+        (p.list || []).forEach(function (q) { kind[q.key] = q.kind; });
+        const bad = [], noWant = [], size = [];
+        (p.npcRects || []).forEach(function (u) {
+          const w = want[u.key];
+          if (!w || !w.length) { noWant.push(u.key || '(key 無し)'); return; }
+          if (Math.abs(u.w - p.SPRITE) > EPS || Math.abs(u.h - p.SPRITE) > EPS)
+            size.push(u.key + ':' + Math.round(u.w) + 'x' + Math.round(u.h));
+          const lo = { l: Math.min.apply(null, w.map(function (b) { return b.l; })),
+                       t: Math.min.apply(null, w.map(function (b) { return b.t; })) };
+          const hi = { l: Math.max.apply(null, w.map(function (b) { return b.l; })),
+                       t: Math.max.apply(null, w.map(function (b) { return b.t; })) };
+          /* 定点は 1 点なので lo===hi = 厳密一致。巡回は測った瞬間が経路上のどこかに居ればよい。 */
+          const okL = (u.l >= lo.l - EPS) && (u.l <= hi.l + EPS);
+          const okT = (u.t >= lo.t - EPS) && (u.t <= hi.t + EPS);
+          if (!okL || !okT) bad.push(u.key + '(' + kind[u.key] + ') DOM(' + u.l.toFixed(1) + ',' + u.t.toFixed(1)
+            + ') 期待 l[' + lo.l.toFixed(1) + '..' + hi.l.toFixed(1) + '] t[' + lo.t.toFixed(1) + '..' + hi.t.toFixed(1) + ']');
+        });
+        const stands = (p.list || []).filter(function (q) { return q.kind === 'stand'; }).length;
+        return { name: x[0], n: (p.npcRects || []).length, bad: bad, noWant: noWant, size: size,
+                 stands: stands, sprite: p.SPRITE, foot: p.FOOT };
+      });
+      const ok = rows.every(function (r) {
+        return r.n > 0 && r.stands > 0 && r.bad.length === 0 && r.noWant.length === 0 && r.size.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.n + ' 体 (SPRITE ' + r.sprite + ' / FOOT ' + r.foot + ')'
+          + ' / ずれ=' + (r.bad.length ? r.bad.join(' | ') : '0 件')
+          + ' / データに無い key=' + (r.noWant.length ? r.noWant.join(',') : '0 件')
+          + ' / 寸法違い=' + (r.size.length ? r.size.join(',') : '0 件'); }).join('  //  ')];
+    }],
+  ['2d', 'background-position の Y が -' + ROW_RIGHT + ' * SPRITE (= 右向きの行)。'
+    + '⭐ 行 0〜2 は空なので間違えると NPC が全員透明になる',
+    (m) => {
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const wantY = -ROW_RIGHT * (p.SPRITE || 0);
+        const bad = [], xs = [];
+        (p.npcRects || []).forEach(function (u) {
+          const t = String(u.bgPos || '').trim().split(/\s+/);
+          const y = (t.length >= 2) ? parseFloat(t[1]) : NaN;
+          const xv = (t.length >= 1) ? parseFloat(t[0]) : NaN;
+          if (!isNaN(xv)) xs.push(xv);
+          if (isNaN(y) || Math.abs(y - wantY) > 0.5) bad.push(u.key + ':' + u.bgPos);
+        });
+        /* ⭐ 「X が全員同じ 1 値」だと、アイドルも巡回も 1 コマも動いていない疑い。
+           ⛔ ここは赤にしない (判定は (2d) の Y。X は診断として出すだけ)。 */
+        const uniq = xs.filter(function (v, i) { return xs.indexOf(v) === i; });
+        return { name: x[0], n: (p.npcRects || []).length, wantY: wantY, bad: bad, uniqX: uniq.length };
+      });
+      const ok = rows.every(function (r) { return r.n > 0 && r.bad.length === 0; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' ' + r.n + ' 体 / 期待 Y=' + r.wantY + 'px'
+          + ' / 違反=' + (r.bad.length ? r.bad.join(' | ') : '0 件')
+          + ' / コマ X の種類 ' + r.uniqX; }).join('  //  ')];
+    }],
 
   /* ── §3 吹き出し (項目 3) ────────────────────────────────────────────────── */
   ['3a', '★ .npcUnit を 1 体押すと吹き出しが 1 枚出て、textContent がデータの say と 1 文字も違わない', null,
@@ -829,16 +1070,84 @@ const ASSERT_OF = {};
   ['3c', '★ NPC を押しても主人公が動かない (stopPropagation が効いている)', null, '項目 3。'],
   ['3d', '吹き出しの pointer-events が none', null, '項目 3。'],
 
-  /* ── §4 恒等 (非退行) (項目 3) ───────────────────────────────────────────── */
+  /* ── §4 恒等 (非退行) (項目 2) ───────────────────────────────────────────── */
   ['4a', '★★★ TAVERN_MAP.MASK / TOWN_MAP.MASK の全行の文字列が起動前後で同一'
-    + ' (⭐ NPC がマスクへ書き込んでいないことの直接証拠)', null,
-    '項目 3 が「起動前」のスナップショットと突き合わせる。'
-    + '⚠ 項目 1 の時点では NPC を描く実装がまだ無いので、比較する「後」が存在しない。'],
-  ['4b', '歩けるマスの数が 酒場 ' + POP.tavern.walkable + ' / 街 ' + POP.town.walkable + ' のまま', null,
-    '項目 3。⚠ 現在の実測値は (0d) が毎回出している。'],
-  ['4c', '主人公の初期タイルが従来どおり (酒場 spawnFor / 街 spawnFor の結果が不変)', null, '項目 3。'],
-  ['4d', '#tavernStage / #townStage の札の枚数が従来どおり (酒場 5 / 街 3)', null,
-    '項目 3。⚠ 現在の実測値は (0c) が毎回出している。'],
+    + ' (⭐ NPC がマスクへ書き込んでいないことの直接証拠)',
+    (m) => {
+      /* 「前」= 地図モジュールが window へ代入した瞬間に setter が写したもの (NPC より前)。
+         「後」= NPC が NPC_SETTLE_MS ミリ秒ぶん動いたあとの live な MASK。 */
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const before = (p.maskSnap && p.maskSnap.rows) || null;
+        const after  = p.maskRows || null;
+        const diff = [];
+        if (before && after && before.length === after.length) {
+          for (let i = 0; i < before.length; i++)
+            if (before[i] !== after[i]) diff.push('行' + i + ' "' + before[i] + '" → "' + after[i] + '"');
+        }
+        return { name: x[0], units: (p.npcRects || []).length,
+                 nb: before ? before.length : null, na: after ? after.length : null,
+                 diff: diff, err: (p.maskSnapErr || []).join(' | ') };
+      });
+      const ok = rows.every(function (r) {
+        return r.units > 0 && r.nb !== null && r.nb > 0 && r.nb === r.na && r.diff.length === 0 && !r.err; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' NPC ' + r.units + ' 体が ' + NPC_SETTLE_MS + 'ms 動いたあと'
+          + ' / 起動前 ' + r.nb + ' 行 vs 起動後 ' + r.na + ' 行'
+          + ' / 食い違い=' + (r.diff.length ? r.diff.join(' | ') : '0 件')
+          + (r.err ? ' ⛔ スナップの例外: ' + r.err : ''); }).join('  //  ')
+        + (ok ? '' : '  ⛔ NPC がマスクへ書き込んでいる = 依頼書 §2-5 の設計の核が破れた')];
+    }],
+  ['4b', '歩けるマスの数が 酒場 ' + POP.tavern.walkable + ' / 街 ' + POP.town.walkable
+    + ' のまま (⭐ NPC が描かれている状態で本番の isWalkable を全マスに当てて数える)',
+    (m) => {
+      const rows = PAIRS(m).map(function (x) {
+        const p = P(x[1]);
+        return { name: x[0], w: p.walkable, b: p.blocked, want: x[3],
+                 units: (p.npcRects || []).length };
+      });
+      const ok = rows.every(function (r) {
+        return r.units > 0 && r.w === r.want.walkable && r.b === r.want.blocked; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' NPC ' + r.units + ' 体 / 歩ける ' + r.w + ' (期待 ' + r.want.walkable + ')'
+          + ' / 歩けない ' + r.b + ' (期待 ' + r.want.blocked + ')'; }).join('  //  ')];
+    }],
+  ['4c', '主人公の初期タイルが従来どおり — heroTile() が MAP.spawnFor(null) と一致し、まだ歩き出していない'
+    + ' (⭐ 期待値は本番の spawnFor をその場で呼んで作る。⛔ 座標を焼かない)',
+    (m) => {
+      const rows = ALL4(m).map(function (x) {
+        const p = P(x[1]);
+        const h = p.heroTile, s = p.spawnTile;
+        const same = !!(h && s && h.c === s.c && h.r === s.r);
+        return { name: x[0], h: h, s: s, same: same, moving: p.isMoving, tv: p.hasTV };
+      });
+      const ok = rows.every(function (r) {
+        return r.h && r.s && r.same && r.moving === false && r.tv === 'object'; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' heroTile=' + JSON.stringify(r.h) + ' spawnFor(null)=' + JSON.stringify(r.s)
+          + ' 一致=' + r.same + ' / isMoving=' + r.moving; }).join('  //  ')
+        + (ok ? '' : '  ⛔ NPC の初期化が主人公を動かした / 観測窓が生えていない')];
+    }],
+  ['4d', '#tavernStage / #townStage の札の枚数と id と z-index が従来どおり'
+    + ' (酒場 ' + POP.tavern.signs + ' / 街 ' + POP.town.signs + ' 枚、z-index は全部同じ)',
+    (m) => {
+      const rows = PAIRS(m).map(function (x) {
+        const d = P(x[1]), c = P(x[2]);
+        const kd = (d.signs || []).map(function (s) { return s.key; });
+        const kc = (c.signs || []).map(function (s) { return s.key; });
+        const zs = (d.signs || []).map(function (s) { return String(s.zIndex); });
+        const uz = zs.filter(function (v, i) { return zs.indexOf(v) === i; });
+        return { name: x[0], nd: kd.length, nc: kc.length, want: x[3].signs,
+                 same: kd.join(',') === kc.join(','), keys: kd, uz: uz,
+                 units: (d.npcRects || []).length };
+      });
+      const ok = rows.every(function (r) {
+        return r.units > 0 && r.nd === r.want && r.nc === r.want && r.same && r.uz.length === 1; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' desktop ' + r.nd + ' / compact ' + r.nc + ' 枚 (期待 ' + r.want + ')'
+          + ' / id 一致=' + r.same + ' / z-index=' + JSON.stringify(r.uz)
+          + ' [' + r.keys.join(' ') + ']'; }).join('  //  ')];
+    }],
 
   /* ── §5 撤退 (項目 4) ────────────────────────────────────────────────────── */
   ['5a', 'tavern.html?npc=0 / town.html?npc=0 で #npcLayer が DOM に存在しない'
@@ -852,9 +1161,9 @@ const ASSERT_OF = {};
 const SECTIONS = [
   ['§0 装置 — 先に母集団を確かめる', ['0a-town', '0a-tavern', '0b', '0b-dom', '0c', '0d', '0e']],
   ['§1 データの不変条件',            ['1z', '1a', '1b', '1c', '1d', '1e']],
-  ['§2 描画 (項目 2)',               ['2a', '2b', '2c', '2d']],
+  ['§2 描画',                        ['2a', '2b', '2c', '2d']],
   ['§3 吹き出し (項目 3)',           ['3a', '3b', '3c', '3d']],
-  ['§4 恒等 — 非退行 (項目 3)',      ['4a', '4b', '4c', '4d']],
+  ['§4 恒等 — 非退行',               ['4a', '4b', '4c', '4d']],
   ['§5 撤退 (項目 4)',               ['5a', '5b', '5c']],
 ];
 
@@ -887,10 +1196,12 @@ function emit(id, m) {
   });
 
   const TAV_CFG = { file: TAVERN_HTML, stageId: 'tavernStage', signSel: '.tavernSign',
-                    mapGlobal: 'TAVERN_MAP', listKey: 'TAVERN', inject: true,
+                    mapGlobal: 'TAVERN_MAP', listKey: 'TAVERN', tvGlobal: '__TAVERN_TV',
+                    inject: true,
                     ready: "window.__TAVERN_TV && typeof window.__TAVERN_TV.zoom === 'function'" };
   const TOWN_CFG = { file: TOWN_HTML, stageId: 'townStage', signSel: '.townSign',
-                     mapGlobal: 'TOWN_MAP', listKey: 'TOWN', inject: false,
+                     mapGlobal: 'TOWN_MAP', listKey: 'TOWN', tvGlobal: '__town',
+                     inject: false,
                      ready: "window.__town && typeof window.__town.zoom === 'function'" };
 
   try {
@@ -921,14 +1232,8 @@ function emit(id, m) {
         + ' (⛔ (0a-tavern) はこれで緑にしない)');
     }
 
-    /* (0a-tavern) の PENDING 理由へ実測値を差し込む。⛔ 「まだ」だけで済ませない。 */
-    {
-      const n = M.html.tavern.split(SCRIPT_TAG).length - 1;
-      ASSERT_OF['0a-tavern'][3] = '実測: 配信 tavern.html に ' + JSON.stringify(SCRIPT_TAG) + ' が ' + n + ' 箇所'
-        + ' / ページが要求した=' + tav.reqSawNpcJs
-        + ' / 注入前の typeof NPC_CROWD=' + tav.hasNPCBeforeInject
-        + ' / ドライバの暫定注入=' + tav.injected + '  ——  ' + ASSERT_OF['0a-tavern'][3];
-    }
+    /* ⭐ 項目 2 で tavern.html を結線したので、(0a-tavern) は PENDING の差し込みではなく
+       (0a-town) と**同型の述語**で測る (ASSERT_OF の表を参照)。 */
 
     for (const sec of SECTIONS) {
       mark(sec[0]);

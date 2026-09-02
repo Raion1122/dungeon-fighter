@@ -862,3 +862,81 @@ const signs = await page.evaluate((stageId, sel) => {
 
 ⚠ `(0b)` の detail が定点/巡回の内訳を毎回出すので、項目 4 の変異 `allstand` は
 **この内訳が 8/0・11/0 になること**で効いたと判定できる。
+
+### 項目 2 — STEP2 描画(定点 + アイドル + 巡回)(2026-09-02)
+
+**着手前 HEAD** `daf7468`。**触ったファイル** = `tavern.html`(結線 1 行 + CSS + 描画 + changelog)/
+`town.html`(CSS + 描画)/ `tools/verify_npc_crowd.js`。
+⛔ `index.html` / `js/*-map.js` / `world.html` / `title.html` は 1 バイトも開いていない。
+**通行マスクは 1 文字も変えていない**((4a) が毎回それを証明する)。
+
+**結果**: `node tools/verify_npc_crowd.js` → **21/21 PASSED / FAILED 0 / PENDING 7**
+(残る PENDING = §3 の 4 本 + §5 の 3 本。変異 13 本は `--negative` 側なので素の実行には出ない)。
+既存 golden 5 本は**全部基準どおり**: 43/43 / 85/85 / 46/46 / 25/25 / 素 23/23。
+
+#### ⚠ 依頼書 §5 の CSS からの唯一の逸脱(意図は同じ、当たり判定の事故だけ消した)
+
+`#npcLayer` へ **`pointer-events: none`**、`.npcUnit` へ **`pointer-events: auto`** を足した。
+`#npcLayer` は舞台全面 (100% x 100%) を覆うので、素のままだと**空きマスの
+`elementFromPoint` が `#npcLayer` を返す**。押せるのは NPC だけという §5 の意図は変えていない。
+⭐ 移動の計算は `tileFromClient` の幾何なので、そもそも NPC の DOM に左右されない(§2-6 の実測どおり)。
+
+#### ⚠⚠⚠ (2b) は現状の設計では **単独の変異では原理的に赤くならない**(項目 4 への申し送り)
+
+`.npcUnit` の z-index 3 < 札の 4 なので:
+
+| 単独の変異 | 何が起きるか | (2b) |
+|---|---|---|
+| `zorder`(z-index を 5 に) | NPC と札は**そもそも重なっていない**(1a が 0 件を保証) | **赤くならない** |
+| `oversign`(街 `mason` を (11,2) へ) | 重なるが z-index 3 < 4 なので拾われるのは札のまま | **赤くならない** |
+
+→ **(2b) を赤くするには「z-index を上げる」と「札に重ねる」を同時に注入するしかない。**
+項目 4 は §8 の変異表を **`zorder` = 「z-index 5」+「mason を (11,2) へ」の複合**にするか、
+`zorder` / `oversign` の targets から `2b` を外すこと
+(⭐ #38 の恒久教訓「**変異が空振りしたら変異のほうを直す**」)。
+⚠ `zorder` は **(2a)** を、`oversign` は **(1a) の 3 経路すべて**を確実に赤くする。
+
+#### ⭐⭐⭐ (4a)「起動前」の採り方 — setter を挟む
+
+`page.evaluateOnNewDocument` で `window.TAVERN_MAP` / `window.TOWN_MAP` に
+`Object.defineProperty` の **setter を挟み**、地図モジュールが `global.TAVERN_MAP = {...}` した
+**その瞬間**の MASK を `window.__drvMaskSnap` へ写している。
+⛔ `waitForFunction` の後で採ると、その時点では既に NPC の初期化が済んでいるので
+「前」にならず **永久に前後同一 = 永久緑**になる。
+⭐ さらに `NPC_SETTLE_MS = 1500` を挟んで「**NPC が実際に 1500ms 動いたあと**」を「後」にした
+(MS_PER_TILE=340 なので巡回は端点に着いて折り返すところまで通る)。
+
+#### ⭐ 新しい assert が本当に赤くなることを 1 本ずつ実測した(仮の変異を手で入れて確認 → 復帰)
+
+| 入れた欠陥 | 赤くなった assert |
+|---|---|
+| `background-position` の Y を `0` に(空の行 0) | **(2d)** — 街 11 体すべてを名指しで列挙 |
+| `top` を `cy + dy - SPRITE * 0.5` に | **(2c)** |
+| `TM.MASK[4] = "r......................"` | **(4a)**(行 4 の前後を並べて表示)+ **(4b)**(歩ける 129 → 144) |
+
+#### 実測値(項目 3 / 項目 4 の母集団)
+
+- 描かれた `.npcUnit` = 酒場 **8** / 街 **11**(4 面すべてで一致。`data-npc` の key 集合もデータと完全一致)
+- z-index は `.npcUnit` 全員 **3** / 札は全員 **4**(実 DOM から測った値)
+- `background-position` = 全員 Y **-288px**、コマ X は 4 面それぞれ **6 種類**(= アイドルも巡回も動いている)
+- 主人公の初期タイル = 酒場 **(7,8)** / 街 **(10,3)**(どちらも `spawnFor(null)` と一致・`isMoving=false`)
+- 画面内の札 = 酒場 desktop 5 / compact **4**(`tavernDoor_back` が画面外)、
+  街 desktop 3 / compact **1**(`townSign_shop` と `townSign_gate` が画面外)
+  → ⚠ compact はカメラが主人公を追うので、(2b) は**画面内の札だけ**を判定している
+    (画面外は `elementFromPoint` が null を返すため。件数は detail に必ず出る)
+
+#### ⭐ 実装後の行番号(項目 3 / 項目 4 が使う)
+
+| 何 | `tavern.html` | `town.html` |
+|---|---|---|
+| `<script src="js/npc-crowd.js">` | **2498** | **349** |
+| NPC の CSS (`#npcLayer` / `.npcUnit` / `.npcShadow`) | **2292-2324**(`#npcLayer {` = 2303) | **294-326**(`#npcLayer {` = 305) |
+| `var npcUnits = [];` | **8914** | **768** |
+| `(function initNpcCrowd() {` | **8916** | **770** |
+| NPC 1 体の DOM を作る `forEach`(⭐ 吹き出しの `click` / `touchend` はここへ) | **8928-8956** | **782-810** |
+| `function npcPlace(u, cx, cy)`(⭐ 吹き出しの追従を足すならここ) | **8958** | **812** |
+| `SPRITE` / `FOOT` / `SHEET_ROW_RIGHT` | 8510 / 8511 / 8512 | 408 / 409 / 410 |
+| `MS_PER_TILE` | 8714 | 610 |
+| 撤退スイッチの判定場所(`?npc=0` はここへ) | 先頭の `<script>`(`window.__tavernMapOn` を立てている IIFE) | **382-391**(`?heromark=0` / `?signplate=0` と同じ場所) |
+
+⚠ 行番号は 1 本着地するだけで全部ずれる。**座標でなく構造(上の「何」の列)で探すこと。**

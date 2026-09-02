@@ -2289,6 +2289,40 @@
     }
     #tavernGoal.show { opacity: 1; }
 
+    /* ── NPC 群衆 (実装依頼書 #41 STEP2) ────────────────────────────────────
+       ⛔ town.html と **セレクタを共有しない** = 同じ規則を両ページが別々に持つ。
+         インライン style なので、片方を直しても他方は 1 ピクセルも動かない。
+       ⚠⚠ z-index は 3 = 主人公と同じ。⛔ 4 以上にすると席札 / 扉札 (z-index 4) の
+         上に被さり、既存 golden 4 本の「札の中心の elementFromPoint が自分自身」が
+         赤くなる (依頼書 §2-3 / §2-6)。DOM 上は #npcLayer を主人公より **前** に挿すので、
+         同じ z-index 3 でも主人公が常に手前に来る。
+       ⚠ #npcLayer 自身は舞台全面を覆うが当たり判定を持たない (pointer-events: none)。
+         押せるのは .npcUnit だけ = 空きマスのクリックは従来どおり #tavernViewport へ抜ける
+         (移動の計算は tileFromClient の幾何なので、そもそも NPC の DOM に左右されない)。
+       ⚠ width / height / background-size は JS が SPRITE から入れる (写経ズレ防止)。 */
+    #npcLayer {
+      position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .npcUnit {
+      position: absolute;
+      background-repeat: no-repeat;
+      transform-origin: 50% 100%;
+      filter: drop-shadow(0 3px 4px rgba(0,0,0,0.45));
+      z-index: 3;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    /* 足元の楕円影。⭐ 主人公の影より一回り小さくして「脇役」に見せる */
+    .npcShadow {
+      position: absolute;
+      width: 40px; height: 14px; margin-left: -20px; margin-top: -7px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 70%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
     /* ── 席札 / 扉札 ────────────────────────────────────────────────────────
        港町フランの .townSign と**同じ羊皮紙の作法**だが、⛔ DOM もセレクタも共有しない
        (town.html は 1 バイトも触らない)。
@@ -2461,6 +2495,7 @@
          → tools/verify_tavern_map.js の (0a) が母集団ガードとして毎回これを見る。
        ⭐ 撤退 ?tavernmap=0 のときも読み込みは残す (分岐は body.tavernMapOn の 1 か所だけ)。 -->
   <script src="js/tavern-map.js"></script>
+  <script src="js/npc-crowd.js"></script><!-- 酒場と街の NPC 配置の唯一の正 (#41)。⚠ *-map.js より後。撤退 ?npc=0 -->
 </head>
 <body>
   <script>
@@ -2832,10 +2867,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場と港町に人が増えた</b> — 銀の鹿亭には亭主と客が、フランの市場には売り子や石工が立つようになった。給仕や通行人は通りを行き来している。</li>
         <li><b>仲間の見える範囲が編成で分かる</b> — マッチング画面のカードと傭兵名簿に視界を表示。暗視を持つ相手を連れると、松明の届かない先まで見えるようになる。</li>
         <li><b>職業を選ぶときに暗視が分かる</b> — 名乗りの画面で、その職がダンジョンでどこまで見通せるかを開けるようになった。</li>
         <li><b>キャラクターシートに視界が載った</b> — 自分がどれだけ先まで見通せるかが「特徴 & 特性」に出る。ドワーフは暗闇でも 60 フィート先まで見える。</li>
-        <li><b>酒場で傭兵名簿を開けるようになった</b> — 左上の「📖 傭兵名簿」から、これまで共に潜った顔ぶれと同行回数を見られる。もう組まない相手は見送れる。</li>
       </ul>
     </div>
     <script>
@@ -8858,6 +8893,135 @@
     buildSigns();
     layout();
     placeHero(heroPx.x, heroPx.y);
+
+    /* ══ NPC 群衆 — 定点 + アイドル + 巡回 (実装依頼書 #41 STEP2) ═══════════════
+       ★ 配置データの唯一の正は js/npc-crowd.js の NPC_CROWD.TAVERN。
+         ⛔ タイル座標もスプライトのパスも一言も、ここに写さない (二重管理を作らない)。
+       ★ 立ち位置は **placeHero() と同じ 2 行**で書く (left = cx - SPRITE/2 /
+         top = cy - SPRITE*FOOT)。⛔ 別式で書き直すと足元がタイル中心からずれ、
+         「卓の手前に立っているか」の規則が静かに壊れる。
+       ★ 速さは MS_PER_TILE、コマ送りの除数は 190 (主人公と同率 170:95)。
+         ⛔ 340 も 190 もここで別の数にしない = 主人公だけ速い/遅いが起きる。
+       ⚠⚠ 歩行シートは **row 3 (右向き) の 1 行しか中身が無い** (576x384 の 33 枚すべて実測済)。
+         背景の Y は必ず -SHEET_ROW_RIGHT * SPRITE。行 0〜2 を指すと NPC が全員透明になる。
+         静止コマも上下向きも存在しないので、立ち姿は歩行 6 コマのどれかを止めて使う。
+       ⚠ 定点 NPC は **歩けないタイルにしか立たない** (不変条件 I1。js/npc-crowd.js)。
+         → 通行マスクへ 1 文字も書き込まない。主人公とすり抜けることが原理的に起きない。
+       ⚠ 巡回の経路は NPC_CROWD.cellsOf() が返す直線だけ。⛔ findPath を呼ばない
+         (毎フレーム主人公の経路探索を叩くことになる)。すり抜けは許容 (依頼書 §1 のユーザー決定)。
+       ⚠ タブが隠れている間は rAF を止める。⛔ 裏で回し続けない。
+       ⭐ 撤退 ?npc=0 は項目 4 が足す。 */
+    var npcUnits = [];
+    var npcTimer = null, npcLastNow = null, npcClock = 0;
+    (function initNpcCrowd() {
+      var CROWD = window.NPC_CROWD;
+      if (!CROWD || !CROWD.TAVERN || !CROWD.TAVERN.length) {
+        /* ⛔ 握り潰さない。人が居ない酒場に落ちるだけだが、理由は必ず残す。 */
+        console.warn("[tavern] js/npc-crowd.js が読めていない → NPC を出さない");
+        return;
+      }
+      var layer = document.createElement("div");
+      layer.id = "npcLayer";
+      /* ⭐ 主人公より **前** に挿す。z-index が同じ 3 なので DOM 順で主人公が手前に来る。 */
+      elStage.insertBefore(layer, elShadow);
+
+      CROWD.TAVERN.forEach(function (n, i) {
+        var cells = CROWD.cellsOf(n);
+        if (!cells || !cells.length) return;
+        var sh = document.createElement("div");
+        sh.className = "npcShadow";
+        var el = document.createElement("div");
+        el.className = "npcUnit";
+        el.setAttribute("data-npc", n.key);        /* ⚠ ドライバはここから key を読む */
+        el.style.width  = SPRITE + "px";
+        el.style.height = SPRITE + "px";
+        el.style.backgroundImage = 'url("' + n.sprite + '")';
+        el.style.backgroundSize  = (SPRITE * 6) + "px " + (SPRITE * 4) + "px";
+        layer.appendChild(sh);
+        layer.appendChild(el);
+        var hold = (n.kind === "stand") ? (((n.hold || 0) % 6) + 6) % 6 : 0;
+        npcUnits.push({
+          n: n, el: el, sh: sh, cells: cells,
+          dx: n.dx || 0, dy: n.dy || 0,
+          left: n.face === "left",
+          hold: hold, frame: hold,
+          /* アイドル: 6〜11 秒に 1 回。⛔ 乱数にしない = NPC ごとに固定のオフセットで
+             ずらすので、全員が同時に身じろぎする不気味な絵にならない。 */
+          idleEvery: 6000 + (i * 1300) % 5000,
+          idlePhase: (i * 2111) % 5000,
+          /* 巡回: base = 今いるセルの添字 / dir = 進む向き / mode = walk か pause */
+          base: 0, dir: 1, mode: "walk", t0: 0, until: 0, walkT0: 0,
+          pauseMs: 1500 + (i * 613) % 1500        /* 端点で 1.5〜3 秒 静止 */
+        });
+      });
+
+      function npcPlace(u, cx, cy) {
+        /* ⭐ placeHero() と同じ 2 行。⛔ 別式で書き直さない。 */
+        u.el.style.left = (cx + u.dx - SPRITE / 2) + "px";
+        u.el.style.top  = (cy + u.dy - SPRITE * FOOT) + "px";
+        u.el.style.transform = u.left ? "scaleX(-1)" : "none";
+        u.el.style.backgroundPosition = (-u.frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
+        u.sh.style.left = (cx + u.dx) + "px";
+        u.sh.style.top  = (cy + u.dy) + "px";
+      }
+      function npcUpdate(u, t) {
+        if (u.n.kind === "stand") {
+          /* 既定は hold のコマで静止。周期の頭の 1 コマ分だけ hold+1 を出す
+             = hold → hold+1 → hold の **2 コマだけ**。
+             ⛔ 6 コマを回し続けると、その場で足踏み = ムーンウォークに見える。 */
+          var ph = (t + u.idlePhase) % u.idleEvery;
+          u.frame = (ph < 190) ? ((u.hold + 1) % 6) : u.hold;
+          var p0 = tileCenter(u.cells[0][0], u.cells[0][1]);
+          npcPlace(u, p0.x, p0.y);
+          return;
+        }
+        var last = u.cells.length - 1;
+        if (u.mode === "pause") {
+          if (t >= u.until) { u.mode = "walk"; u.t0 = t; u.walkT0 = t; }
+        } else if (t - u.t0 >= MS_PER_TILE) {
+          u.base += u.dir;
+          u.t0 += MS_PER_TILE;
+          if (u.base <= 0 || u.base >= last) {
+            u.base = Math.max(0, Math.min(last, u.base));
+            u.dir  = -u.dir;
+            u.left = !u.left;                    /* 端点で向きを反転 */
+            u.mode = "pause";
+            u.until = t + u.pauseMs;
+          }
+        }
+        var f = (u.mode === "walk") ? Math.min(1, Math.max(0, (t - u.t0) / MS_PER_TILE)) : 0;
+        var i0 = u.base, i1 = Math.max(0, Math.min(last, u.base + u.dir));
+        var a = tileCenter(u.cells[i0][0], u.cells[i0][1]);
+        var b = tileCenter(u.cells[i1][0], u.cells[i1][1]);
+        /* ⚠ 除数 190 は MS_PER_TILE と同率 (170:95 を維持)。片方だけ動かすと滑って見える。 */
+        u.frame = (u.mode === "walk") ? (Math.floor((t - u.walkT0) / 190) % 6) : 0;
+        npcPlace(u, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f);
+      }
+      function npcStep(now) {
+        npcTimer = null;
+        /* ⭐ 仮想時計。タブ復帰の大ジャンプを 100ms で頭打ちにして、巡回のワープを防ぐ。 */
+        if (npcLastNow === null) npcLastNow = now;
+        npcClock += Math.min(100, Math.max(0, now - npcLastNow));
+        npcLastNow = now;
+        for (var i = 0; i < npcUnits.length; i++) npcUpdate(npcUnits[i], npcClock);
+        npcTimer = requestAnimationFrame(npcStep);
+      }
+      function npcResume() {
+        if (npcTimer !== null) return;
+        npcLastNow = null;
+        npcTimer = requestAnimationFrame(npcStep);
+      }
+      function npcSuspend() {
+        if (npcTimer !== null) { cancelAnimationFrame(npcTimer); npcTimer = null; }
+        npcLastNow = null;
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") npcSuspend(); else npcResume();
+      });
+      /* 最初の 1 枚は rAF を待たずに置く (1 フレームだけ左上に取り残さない) */
+      for (var k = 0; k < npcUnits.length; k++) npcUpdate(npcUnits[k], npcClock);
+      if (document.visibilityState !== "hidden") npcResume();
+    })();
   })();
 
   // ───────────────────────────────────────────────────────────
