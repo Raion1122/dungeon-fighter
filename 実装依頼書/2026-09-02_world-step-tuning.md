@@ -3,6 +3,7 @@
 - **起草**: 2026-09-02(計画窓) / **ステータス**: ✅ **完了**(2026-09-02 実装窓・dev-loop 4 項目・停止 1 回)
 - **commit**: 項目1 `3c632d6` / 項目2 `f4ccc37` / 項目3 `180f20d` / 項目4 `d2c0d12`
   ✅ **push 済 `edc97d6..d2c0d12`**(2026-09-02 ユーザー承認のもと計画窓が実施)。
+  ⭐ **追補 `f8b07d3`**(§14 = 止まれる点 9px → 13px / 拠点 14px → 17px)✅ push 済 `2c9f638..f8b07d3`。
   ⭐ push 後、待機していた隣窓へ解放通知を送信済み(#41 STEP4 = codex への町人スプライト発注が再開できる)。
 - **検証**: `tools/verify_world_steps.js` **30 → 33/33 PASSED FAILED 0 PENDING 0** /
   `--negative` **56/56 PASSED FAILED 0 PENDING 0**(変異 12 → **15 本**すべて赤・空振り 0)/
@@ -730,7 +731,8 @@ commit = `3c632d6`(項目1: 計測機構 +(2d) 書き換え +(1e) 新設 + `STEP
   > この止まるスポットをもっと大きい〇にしてほしいです。
   > いまでは小さくて、止まれない小さい〇のスポットと区別がつきません。
 
-- **commit**: `(追補 commit で追記)` / **触ったファイル**: `world.html` / `tools/verify_world_steps.js`
+- **commit**: `f8b07d3` ✅ **push 済 `2c9f638..f8b07d3`**(2026-09-02)
+  / **触ったファイル**: `world.html` / `tools/verify_world_steps.js` / 本依頼書 / `実装依頼書/README.md`
 - **検証**: `verify_world_steps` **33/33 PASSED FAILED 0 PENDING 0** /
   `--negative` **56/56**(変異 15 本・空振り 0)/ 既存 golden 5 本 非退行
 - ⛔ `js/world-map.js` は 1 バイトも触っていない(データ層・`STEP_MAX_PX` は不動)
