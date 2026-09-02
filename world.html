@@ -322,6 +322,33 @@
                     #2e2113 0, #2e2113 3.6px, var(--route-ink) 4.3px, var(--route-ink) 100%);
       box-shadow: 0 0 0 3px rgba(238,222,182,0.92), 0 0 0 4px rgba(20,14,6,0.9), 0 2px 6px rgba(0,0,0,0.7);
     }
+    /* ── 自キャラの ▽ (依頼書 #43) ──────────────────────────────────────
+       ⭐ 見た目は town.html の #townHeroMark / index.html の #heroMark と **同じ**
+         (border 三角 / #ffd24a / 同じ bob)。⛔ 絵文字 ▽ や文字で描かない
+         —— ステージの scale(zoom) の中に居るので、文字だと輪郭が崩れる。
+       ⚠⚠ pointer-events: none が必須。#worldHero と同じ理由 (依頼書 §2-6)。
+         付け忘れると verify_world_map (7d)(3b)(3c) / verify_world_steps (2c)(2d) /
+         verify_quest_walk (3e) の 5 本が壊れる。
+       ⚠ z-index 6 = 主人公 (5) の 1 つ上・タイトル帯 (10) の下。
+         ⛔ town.html の 5 を写経しない —— 街は「主人公 3 < 札 4 < ▽ 5」だが、
+            世界地図は「刻み点 3 < 札 4 < 主人公 5」で **並びが違う** (依頼書 §2-4)。
+       ⚠ --hm-w / --hm-h は JS の HM_W / HM_H と一致させること
+         (装置 assert (0b) が実描画の矩形と突き合わせて写経ミスを殺す)。 */
+    #worldHeroMark {
+      --hm-w: 9px;        /* 三角の半幅 (JS の HM_W と一致) */
+      --hm-h: 13px;       /* 三角の高さ (JS の HM_H と一致) */
+      --hm-color: #ffd24a;
+      position: absolute;
+      width: 0; height: 0;
+      border-left: var(--hm-w) solid transparent;
+      border-right: var(--hm-w) solid transparent;
+      border-top: var(--hm-h) solid var(--hm-color);
+      filter: drop-shadow(0 0 2px #000) drop-shadow(0 2px 3px rgba(0,0,0,0.8));
+      pointer-events: none;
+      z-index: 6;
+      animation: heroMarkBob 1.2s ease-in-out infinite;
+    }
+    @keyframes heroMarkBob { 0%, 100% { margin-top: 0; } 50% { margin-top: 4px; } }
     .worldSign {
       /* ⭐ 札は当たり判定 (44px 角) の **上** へ出す。G = 76px は実測から導いた:
            主人公の上端はノードから -89.3px (96px セル x 接地比 0.93)、親の上端は -22px
@@ -441,6 +468,7 @@
       <div id="worldGoal"></div>
       <div id="worldHeroShadow"></div>
       <div id="worldHero"></div>
+      <div id="worldHeroMark"></div>
       <!-- .worldNode はここへ JS が並べる -->
     </div>
   </div>
@@ -491,6 +519,17 @@
     try { worldOff = sessionStorage.getItem(WORLD_OFF_KEY) === "1"; } catch (e) { worldOff = false; }
     if (worldOff) { location.replace("town.html"); return; }
 
+    /* ══ 撤退スイッチ ?heromark=0 (依頼書 #43 §7) ═══════════════════════════
+       ⚠ index.html:6204 / town.html:425 と **同名**だが、読むのは各ページが独立。
+         クエリはページ遷移をまたがない = それが仕様 (#15 §7 が明示的に了承済み)。
+       ⛔ sessionStorage へ写さない (?world=0 / ?walkstep=0 の型ではない —— あちらは
+          遷移をまたぐ必要があるから写しているだけで、▽ はページ内で完結する)。
+       ⛔ ?world=0 / ?questwalk=0 / ?walkstep=0 と相乗りさせない。 */
+    var HERO_MARK_ON = true;
+    try {
+      if (new URLSearchParams(location.search).get("heromark") === "0") HERO_MARK_ON = false;
+    } catch (e) {}
+
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
 
@@ -499,6 +538,15 @@
     var SPRITE = 96;                           // 歩行シートのセル
     var FOOT = 0.93;                           // ★接地比 (town.html / index.html と同じ実測値)
     var SHEET_ROW_RIGHT = 3;                   // ★右向きの行 (index.html updateKnightSprite と同じ)
+    /* ▽ の幾何 (依頼書 #43 §2-3)。⭐ HEAD_TOP は 6 職の <class>_walk.png row3 を実測した
+       「96px セル上端 → 頭の天辺」の最小値。2026-09-03 再測 = warrior 32 / dwarf 32 /
+       elf 33 / cleric 34 / mage 32 / rogue 32 → 32 (town.html:499 と同じ値)。
+       ⚠⚠ FOOT=0.93 は **足元** の話。頭の位置はこれとは別に測らないと ▽ が頭から浮く。
+       ⭐⭐⭐ HM_GAP + HM_H (= 21) < HEAD_TOP (= 32) である限り、▽ は主人公の 96px セルの
+         **内側** に収まる (余白 11px)。これが verify_world_map の (7f)「駒が札を 10% 以上
+         隠さない」を ▽ にも自動で効かせている **唯一の根拠** (依頼書 §2-2)。
+         ⛔ この不等式を崩さない。崩すと (7f) は永久に気づかないまま札が隠れる。 */
+    var HEAD_TOP = 32, HM_GAP = 8, HM_W = 9, HM_H = 13;
 
     var SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -507,6 +555,8 @@
     var elRoutes   = document.getElementById("worldRoutes");
     var elInk      = document.getElementById("worldRouteInk");
     var elHero     = document.getElementById("worldHero");
+    var elMark     = document.getElementById("worldHeroMark");
+    if (!HERO_MARK_ON && elMark) { elMark.remove(); elMark = null; }
     var elShadow   = document.getElementById("worldHeroShadow");
     var elGoal     = document.getElementById("worldGoal");
     /* ⭐ 入場の確認ダイアログ (依頼書 #23 §6-3)。⛔ 既定は display:none = (3e) の番人。 */
@@ -615,6 +665,13 @@
       elHero.style.backgroundPosition = (-frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
       elShadow.style.left = cx + "px";
       elShadow.style.top  = cy + "px";
+      /* ⭐ ▽ の位置の出所は **placeHero のこの 2 行だけ** (town.html:526 と同じ規則)。
+         別の場所からも書くと「歩くと ▽ だけ取り残される」が静かに起きる。
+         三角は width:0 の border 三角なので、**見た目の中心は left + HM_W**。 */
+      if (elMark) {
+        elMark.style.left = (cx - HM_W) + "px";
+        elMark.style.top  = (cy - SPRITE * FOOT + HEAD_TOP - HM_GAP - HM_H) + "px";
+      }
     }
     placeHero(heroPx.x, heroPx.y);
 
@@ -1072,6 +1129,12 @@
       goToNode:  goToNode,
       /* ⚠ ドライバはこの値と**実描画の矩形**を突き合わせる (CSS と JS の写経ズレを殺すため)。 */
       heroGeom:  function () { return { sprite: SPRITE, foot: FOOT, rowRight: SHEET_ROW_RIGHT }; },
+      /* ── #43 が足した窓 (⛔ 読むためだけ。ここへ状態を置かない) ──────────── */
+      heroMarkOn:   function () { return HERO_MARK_ON; },
+      /* ⚠ ドライバはこの値と **実描画の矩形** を突き合わせる (CSS と JS の写経ズレを殺すため)。
+         ⛔ ドライバ側へ 9 / 13 / 32 / 8 を直書きさせない。 */
+      heroMarkGeom: function () { return { w: HM_W, h: HM_H, gap: HM_GAP,
+                                           headTop: HEAD_TOP, sprite: SPRITE, foot: FOOT }; },
       /* ワールド px → クライアント座標。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
          ドライバが「ノードを実際にクリックする」ために要る。 */
       clientFromWorld: function (x, y) {
