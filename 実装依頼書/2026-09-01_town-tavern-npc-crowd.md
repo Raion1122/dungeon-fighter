@@ -1,7 +1,7 @@
 # #41 銀の鹿亭と港町フランに人を置く — NPC 群衆 v1
 
 - **起草**: 2026-09-01(計画窓) / **ステータス**: ✅ **完了**(2026-09-02 実装窓・dev-loop 4 項目・停止 0 回)
-- **commit**: 項目1 `daf7468` / 項目2 `c3d2af0` / 項目3 `51f8fd4` / 項目4 `(このコミット)`
+- **commit**: 項目1 `daf7468` / 項目2 `c3d2af0` / 項目3 `51f8fd4` / 項目4 `d35b7ce`
   ⚠ **push は未実施**(ユーザー承認事項)。
 - **検証**: 新 driver `tools/verify_npc_crowd.js` **32/32 PASSED FAILED 0 PENDING 0** /
   `--negative` **58/58 PASSED FAILED 0 PENDING 0**(変異 13 本すべて赤・空振り 0)/
