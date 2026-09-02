@@ -234,22 +234,32 @@
          tools/verify_world_map.js:736 の (3c) と :1187 が top.closest('.worldNode') で
          「押した先がノードでない」を測り、tools/verify_quest_walk.js:547 は札の
          所有者を同じ式で引いている (依頼書 §2-4)。着せると既存 golden が 3 本誤爆する。
-       ⚠ 点線の点は stroke-dasharray: 1 17 = **18px おき**。紛れないよう
-         「点線より一回り大きく、中継点の 9px より小さい」6px + 明るい縁で出す。
-       ⭐ z-index は .worldNode (4) と同じ層。主人公 (5) より下 = 立つと体の後ろへ隠れる。
-       ⛔ 色・大きさ・形は受入条件の「測らないこと」= 実機で見て調整してよい。
-         機械が縛るのは「.worldNode を着ていない」ことだけ = (0c)。 */
+       ⚠ 点線の点は stroke-dasharray: 1 17 = **18px おき**。
+       ⭐ #42 (2026-09-02): 見た目 6px / 当たり判定 32px は実機で「タップできる点がまだ小さい」と
+         判定されたので、**中継点 (.worldNode-way) と同寸の 9px / 44px** へ揃えた。
+         ⛔ 拠点と同じ 14px にはしない — 拠点と中継点の差は「大きさ」でなく **中身があるか (◎ か ●)**
+            という #21 の設計核を、刻み点が跨いでしまうため。
+       ⭐ z-index は **3** = 札 (.worldNode の 4) より下・主人公 (5) より下。
+         刻みを細かくすると沼地/砦の札に 2 点が食い込むので紙の下へ潜らせている (#42 §2-2)。
+       ⛔ 色・不透明度・影・hover 倍率は受入条件の「測らないこと」= 実機で見て調整してよい。
+         機械が縛るのは「.worldNode を着ていない」(0c) と「中継点と同寸」(2f) と
+         「札より下の層」(2e) の 3 つだけ。 */
     .worldStep {
       position: absolute;
       transform: translate(-50%, -50%);
       display: flex; align-items: center; justify-content: center;
-      width: 32px; height: 32px;            /* 当たり判定。⚠ .worldNode の 44px より小さく */
+      width: 44px; height: 44px;            /* 当たり判定。⭐ #42: .worldNode と**同じ** 44px
+                                               (⛔ 44 を独立に決めない = (2f) が中継点から引いて突き合わせる) */
       cursor: pointer;
-      z-index: 4;
+      z-index: 3;                           /* ⭐ #42: 札 (.worldNode = 4) より **下**。
+                                               刻みを 2.5 マスへ細かくすると沼地・砦の札に 2 点が食い込むので、
+                                               紙の下へ潜らせる (依頼書 §2-2 / §2-4)。
+                                               ⚠ 中心は札の外にあるので押せる = (2d) が毎回その逃げ幅を測る。
+                                               2026-09-02 実測: z4 のままだと札の隅を 2 件奪う / z3 で 0 件。 */
     }
     .worldStepBody {
       display: block;
-      width: 6px; height: 6px;
+      width: 9px; height: 9px;              /* ⭐ #42: 中継点 .worldNode-way と**同寸**へ (6px は実機で小さすぎた) */
       border-radius: 50%;
       background: var(--route-ink);
       opacity: 0.85;

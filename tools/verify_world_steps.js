@@ -365,6 +365,11 @@ const COORD_EPS = 0.01;
 const ON_LINE_EPS = 0.5;
 /* (1a) 浮動小数の丸めぶんだけ許す (等分なので理論上はちょうど cap 以下)。 */
 const LEN_EPS = 1e-6;
+/* (2f) 「中継点と同寸」の許容差。⭐ 比べるのは **どちらも実測値どうし** (刻み点 vs 中継点) なので
+   本来はぴったり一致する。0.5px は getBoundingClientRect のサブピクセル丸めぶんだけ。
+   ⛔ ここを緩めて「だいたい同じ」にしない — 9px→6px の後退は zoom 込みでも 2.4px の差になるので
+     0.5px なら変異 smallstep がきっちり赤くなる。 */
+const SIZE_EPS = 0.5;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ⭐ ドライバ側の独立計算 ((0b) の 2 経路目)
@@ -1270,6 +1275,83 @@ const ASSERTS = [
         + '  奪われた点 ' + stolen.length + ' 件'
         + (stolen.length ? ' ⛔ ' + stolen.join(' ') : '')];
     }],
+  /* ⭐⭐⭐ #42 項目 2 (2026-09-02) で PENDING から実装へ移した 2 本。
+     ⛔⛔ **44 / 9 という数値をここへ写経しない。** 中継点 (.worldNode-way) の実測 wayRef から引く。
+       ⚠⚠ そもそも画面値は zoom(≈0.8125) 込みなので、CSS の 44px は実測 **35.8px**、
+         9px は **7.31px** になる。⇒ 44 / 9 の直書きは **原理的に通らない** (これが設計の意図)。
+       ⭐ こうすると「中継点を変えたら刻み点も一緒に変わる」が保たれ、色・不透明度・影・
+         hover 倍率は今までどおり「測らないこと」に残せる (依頼書 §2-7)。 */
+  ['2e', '.worldStep の computed z-index が **.worldNode より小さい** (= 札より下の層に潜っている)'
+    + ' ⭐ CSS の書き方に依存しないよう getComputedStyle から採る'
+    + ' ⚠ 母集団 = マーカー >= 1 枚 かつ .worldNode-way が実在'
+    + ' (.worldNode-way は .worldNode でもあるので .worldNode の層は wayRef.z で引ける)',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
+      /* ⛔ 比較相手が引けないまま「全部より小さい」で緑にしない = 永久緑の穴を塞ぐ。 */
+      if (!d.wayRef) {
+        return [false, '⛔ 母集団が壊れている: .worldNode-way が 1 つも無い (= .worldNode の層が引けない)'];
+      }
+      const nodeZ = d.wayRef.z;
+      if (!Number.isFinite(nodeZ)) {
+        return [false, '⛔ .worldNode の computed z-index が数値でない (z=' + nodeZ + ')'];
+      }
+      /* ⚠ z-index が auto だと parseInt が NaN。NaN を「小さい」で通さない。 */
+      const bad = d.marks.filter(k => !Number.isFinite(k.z) || k.z >= nodeZ);
+      const zs = Array.from(new Set(d.marks.map(k => k.z))).sort((p, q) => p - q);
+      return [bad.length === 0,
+        'マーカー ' + d.marks.length + ' 枚の z の集合 = [' + zs.join(',') + ']'
+        + '  vs .worldNode の z = ' + nodeZ + ' (⭐ 全部これ未満であること)'
+        + (bad.length ? '  ⛔ 潜れていない=' + bad.map(k => k.id + ':z=' + k.z).join(' ')
+                      : '  [2026-09-02 実測 = 刻み 3 / ノード 4。'
+                        + ' z4 のままだと (2d) が札の隅を 2 件奪われて赤くなる]')];
+    }],
+  ['2f', 'マーカーの当たり判定が **.worldNode と同寸**、見た目の点が'
+    + ' **.worldNode-way .worldNodeBody と同寸** (どちらも 0.5px 以内)'
+    + ' ⛔ 44 / 9 をドライバへ直書きしない — 中継点の実測 (wayRef) から引いて突き合わせる'
+    + ' ⚠ 画面値は zoom 込みなので 44px は 35.8px / 9px は 7.31px になる (直書きは原理的に通らない)',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
+      if (!d.wayRef) {
+        return [false, '⛔ 母集団が壊れている: .worldNode-way が 1 つも無い (= 比較相手が引けない)'];
+      }
+      /* ⛔ 点の径の相方が採れていないのに「幅と高さだけ一致」で緑にしない。 */
+      if (!Number.isFinite(d.wayRef.bodyW)) {
+        return [false, '⛔ 母集団が壊れている: .worldNode-way .worldNodeBody の実寸が採れない'
+          + ' (wayRef.bodyW=' + d.wayRef.bodyW + ')'];
+      }
+      const R = d.wayRef;
+      const bad = [];
+      let worst = 0, worstWho = '-';
+      for (const k of d.marks) {
+        if (!Number.isFinite(k.bodyW)) {
+          bad.push(k.id + ':.worldStepBody の実寸が採れない (bodyW=' + k.bodyW + ')');
+          continue;
+        }
+        const dw = Math.abs(k.rect.w - R.w), dh = Math.abs(k.rect.h - R.h),
+              db = Math.abs(k.bodyW - R.bodyW);
+        for (const q of [['当たり幅', dw], ['当たり高', dh], ['点の径', db]]) {
+          if (q[1] > worst) { worst = q[1]; worstWho = k.id + ' の ' + q[0]; }
+        }
+        if (dw > SIZE_EPS || dh > SIZE_EPS || db > SIZE_EPS) {
+          bad.push(k.id + ':当たり ' + k.rect.w.toFixed(2) + 'x' + k.rect.h.toFixed(2)
+            + ' / 点 ' + k.bodyW.toFixed(2)
+            + ' (差 ' + dw.toFixed(2) + '/' + dh.toFixed(2) + '/' + db.toFixed(2) + ')');
+        }
+      }
+      const k0 = d.marks[0];
+      return [bad.length === 0,
+        'マーカー ' + d.marks.length + ' 枚  刻み点=当たり ' + k0.rect.w.toFixed(2) + 'x'
+        + k0.rect.h.toFixed(2) + ' / 点 ' + (Number.isFinite(k0.bodyW) ? k0.bodyW.toFixed(2) : k0.bodyW)
+        + '  ⭐ 中継点 (相方) =当たり ' + R.w.toFixed(2) + 'x' + R.h.toFixed(2)
+        + ' / 点 ' + R.bodyW.toFixed(2)
+        + '  最悪差 ' + worst.toFixed(3) + 'px (' + worstWho + ') / 許容 ' + SIZE_EPS + 'px'
+        + (bad.length ? '  ⛔ ' + bad.join(' ')
+                      : '  [2026-09-02 実測 = CSS 44px/9px が zoom 込みで 35.75px/7.31px]')];
+    }],
 
   // ── §1 刻みのデータ ────────────────────────────────────────────────────────
   ['1a', '⭐⭐⭐ 細分化後の全区間長が STEP_MAX_PX 以下'
@@ -1970,20 +2052,12 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 // ══════════════════════════════════════════════════════════════════════════════
 /* ⭐⭐⭐ 2026-09-02 (#40 項目 4) で **全部 ASSERTS へ移した**。⛔ 空にしても削除しないこと
  *  (削ると PENDING という 3 値そのものが消える)。
- *  ⭐ #42 項目 1 (2026-09-02): world.html の CSS を触る **項目 2** が実装する 2 本を器で置く。
+ *  ⭐ #42 項目 1 (2026-09-02): world.html の CSS を触る **項目 2** が実装する 2 本を器で置いた。
  *    ⛔ ここに置いたキーは ASSERT_OF に無いので、実装したら必ず PENDINGS から外して
- *      §2 の配線 (['2a','2b','2c','2d', …]) へキーを足すこと (両方やらないと数が合わない)。 */
+ *      §2 の配線 (['2a','2b','2c','2d', …]) へキーを足すこと (両方やらないと数が合わない)。
+ *  ⭐⭐⭐ #42 項目 2 (2026-09-02): その 2 本 (2e)(2f) を **実装して ASSERTS へ移した**ので、
+ *    ここは再び空になった。⛔ 空でも配列ごと削除しないこと。 */
 const PENDINGS = [
-  ['§2 見た目 (#42 項目 2 が実装) — 層と寸法', [
-    ['2e', '.worldStep の computed z-index が .worldNode より小さい (札より下の層に潜っている)',
-      '⛔ まだ world.html の .worldStep が z-index: 4 (= .worldNode と同じ層)。'
-      + ' 観測側 (marks[].z / wayRef.z) は #42 項目 1 で採れている → 項目 2 が assert を書く'],
-    ['2f', 'マーカーの当たり判定が .worldNode と同寸、見た目の点が .worldNode-way .worldNodeBody と'
-      + ' 同寸 (どちらも 0.5px 以内)。⛔ 44 / 9 を直書きしない',
-      '⛔ まだ world.html の .worldStep が 32px / .worldStepBody が 6px。'
-      + ' 観測側 (marks[].rect / marks[].bodyW / wayRef) は #42 項目 1 で採れている'
-      + ' → 項目 2 が中継点の実測から引いて突き合わせる'],
-  ]],
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2075,7 +2149,8 @@ const PENDINGS = [
       }
 
       mark('§2 見た目 — 位置 / 点線を割らない / 押せる / 札に被らない');
-      for (const key of ['2a', '2b', '2c', '2d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      /* ⭐ #42 項目 2: (2e) 層 / (2f) 寸法 を追加 (PENDINGS から移設したので両方やって数が合う)。 */
+      for (const key of ['2a', '2b', '2c', '2d', '2e', '2f']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       console.log('       [記録] 刻み点マーカー (.worldStep) の実描画:');
       for (const k of (m.dom ? m.dom.marks : [])) {
         console.log('         ' + k.id + '  class="' + k.cls + '"  id=' + k.domId
