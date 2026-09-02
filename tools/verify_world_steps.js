@@ -57,6 +57,25 @@
  *   ⚠ 実クリックだけで測る。⛔ goToPoint() / goToNode() を page.evaluate から呼ばない
  *      (当たり判定が壊れていても永久に緑になる)。
  *
+ * ■ 項目 4 (最終) が足したもの — **恒等と撤退** (measureRetreat() = 撤退/素の 2 アーム)
+ *     (5a) 恒等   … findPath / neighbors が **細分化前のまま**。NODES 全ペア (14x14=196 組) の
+ *                   findPath と全ノードの neighbors が刻み点 id を 1 つも返さない。
+ *                   ⭐ さらに **エッジ 1 本の findPath は必ず 1 ホップ** まで見る
+ *                      (刻み点を挟むと 2 になる = 変異 pathswap の指紋)
+ *                   ⚠ neighbors は EDGES からドライバが独立に組み直して集合ごと突き合わせる
+ *                      (「件数だけ」では walkNeighbors("lakeside") も 4 件で一致してしまう)
+ *     (5b) 恒等   … enter を持つノードは今も phlan ただ 1 つ (データ層と実操作タブの 2 経路)
+ *     (5c) 恒等   … 札 (.worldSign) がちょうど 7 枚 = 刻み点に札が生えていない
+ *     (6a) 撤退   … ?walkstep=0 → マーカー 0 枚 / temple の札を 1 回押すと着く (今日の姿)
+ *     (6b) 対照   … ⭐⭐⭐ **同じ操作を撤退なしでやると 1 回では着かない**。
+ *                   ⚠⚠ 両方測って初めて緑 (#39 の教訓 = 撤退アームだけだと永久緑)
+ *     (6c) 持続   … クエリを外して **同じタブで**開き直しても効いている (sessionStorage)。
+ *                   ⚠ 母集団 = **別タブでは効いていない** (常時撤退の実装を殺す)
+ *     (6d) 過剰   … ⭐ 撤退のしすぎを測る。?walkstep=0 でも WORLD_MAP.STEPS は
+ *                   同じ件数・同じ座標で存在する (消えるのは描画と 1 ホップ制限だけ)
+ *   ⚠ sessionStorage は最上位ブラウジングコンテキスト = **タブごと**。だから
+ *     「同じタブで開き直す」(6c) と「別タブの素のアーム」(6b)(6c) の対照が両立する。
+ *
  * ■ ⭐⭐⭐ 測定は **本番で配信される `/world.html` の上で行う**
  *   (world.html が js/world-map.js を読むので window.WORLD_MAP はそのまま取れる)。
  *   ⛔ 自前ハーネスで js/world-map.js だけを載せない — 本番ページだけが壊れているケースを
@@ -76,21 +95,31 @@
  *   **刻みの上限値そのもの (320px)**。(1a)(0b) は必ずページから読んだ cap と比較する。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⚠ 項目 1 では **器だけ**。変異 12 本は **項目 4 の担当** = 全部 PENDING で正直に出す。
+ *   ⭐ 12 本すべて実装済み (2026-09-02 / 項目 4)。1 本ずつ別ポートへ配信して順に回す。
  *
- *   mutate       | 注入する欠陥                                           | 赤くなるべき節    | 状態
- *   nosteps      | STEPS を空オブジェクトにする                            | (0a)(1a)(2a)      | PENDING
- *   fullwalk     | path.slice(0, 1) を path に戻す (今日の姿)              | (3a)(3b)(3c)(6b)  | PENDING
- *   handcoord    | STEPS を EDGES から生成せず手書き座標表にし 8px ずらす   | (0b)(1b)          | PENDING
- *   nodemut      | 刻み点を WORLD_MAP.NODES へ注入する                     | (1d)(5c)          | PENDING
- *   linemut      | 点線 <line> を刻み点で分割する                           | (2b)              | PENDING
- *   stepclass    | 刻み点マーカーに .worldNode クラスを着せる               | (0c)              | PENDING
- *   hopnone      | 遠い行き先では 1px も動かない (隣接だけ押せる)           | (3a)(3c)          | PENDING
- *   pathswap     | findPath 自体を findWalkPath へ差し替える                | (5a)              | PENDING
- *   retreatdead  | ?walkstep=0 を無視する                                  | (6a)(6c)          | PENDING
- *   retreatkills | 撤退時に STEPS のデータごと空にする (撤退のしすぎ)       | (6d)              | PENDING
- *   fireevent    | 刻み点到着で確認ダイアログを開く (器に中身を入れる)      | (4c)              | PENDING
- *   arrivedup    | walkPath の中からフックを呼び 1 ホップで 2 回鳴らす       | (4b)              | PENDING
+ *   mutate       | 注入する欠陥                                           | 赤くなるべき節
+ *   nosteps      | stepsOfEdge の分割数を常に 1 にして STEPS を空に        | (0a)(1a)(2a)
+ *   fullwalk     | path.slice(0, 1) を path に戻す (今日の姿)              | (3a)(3b)(3c)(6b)
+ *   handcoord    | STEPS を EDGES から生成せず手書き座標表にし 8px ずらす   | (0b)(1b)
+ *   nodemut      | 刻み点を WORLD_MAP.NODES へ注入する (kind:"site")       | (1d)(5c)
+ *   linemut      | 点線 <line> を walkEdges の 15 区間で引き直す            | (2b)
+ *   stepclass    | 刻み点マーカーに .worldNode クラスを着せる               | (0c)
+ *   hopnone      | 遠い行き先では 1px も動かない (隣接だけ押せる)           | (3a)(3c)
+ *   pathswap     | findPath 自体を findWalkPath へ差し替える                | (5a)
+ *   retreatdead  | ?walkstep=0 を無視する (sessionStorage を読まない)       | (6a)(6c)
+ *   retreatkills | 撤退時に STEPS のデータごと空にする (撤退のしすぎ)       | (6d)
+ *   fireevent    | 刻み点到着で確認ダイアログを開く (器に中身を入れる)      | (4c)
+ *   arrivedup    | walkPath の中からフックを呼び 1 ホップで 2 回鳴らす       | (4b)
+ *
+ *   ⭐⭐⭐ 変異を書くときに **机上で 3 本潰した**「当たっているのに緑」(2026-09-02):
+ *     ① nosteps を「STEP_MAX_PX を大きくする」で書くと、cap をページから読む (1a) が
+ *        「全区間 <= 99999」で緑のまま通る → **分割数のほう**を 1 に固定する。
+ *     ② nodemut を kind:"step" で注入すると buildNodes が札を作らないので (5c) が空振り
+ *        → **kind:"site"** で注入する。
+ *     ③ arrivedup で dest を at と同じにすると arrived=true になり、1 ホップ目が phlan の
+ *        ときに onArriveNode(phlan) → location.href="town.html" で**ページごと死ぬ**。
+ *        すると (4b) は「母集団が足りない」で赤くなり、欠陥を検出したのか装置が欠けたのか
+ *        読めない → dest を別値にして arrived=false へ倒す。
  *
  *   ⚠ 変異アンカーは **部分文字列一致**で、配信スナップショット中に **ちょうど 1 箇所**
  *     ヒットしなければ **exit 3 でドライバごと死ぬ** (0 件でも 2 件以上でも空振りするため)。
@@ -133,30 +162,71 @@ const PORT = parseInt(arg('port', '9560'), 10);
 //    アンカーは行内文字列にすること (改行をまたがない)。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
-  nosteps: { impl: false, file: 'js/world-map.js', targets: ['0a', '1a', '2a'],
-    why: '項目 4 の担当 — STEPS を空オブジェクトにする' },
-  fullwalk: { impl: false, file: 'world.html', targets: ['3a', '3b', '3c', '6b'],
-    why: '項目 4 の担当 — path.slice(0, 1) を path へ戻す (今日の姿)' },
-  handcoord: { impl: false, file: 'js/world-map.js', targets: ['0b', '1b'],
-    why: '項目 4 の担当 — STEPS を EDGES から生成せず手書き座標表にして 1 点だけ 8px ずらす' },
-  nodemut: { impl: false, file: 'js/world-map.js', targets: ['1d', '5c'],
-    why: '項目 4 の担当 — 刻み点を WORLD_MAP.NODES へ注入する (依頼書 §2-2 の罠 A)' },
-  linemut: { impl: false, file: 'world.html', targets: ['2b'],
-    why: '項目 4 の担当 — 点線 <line> を刻み点で分割する' },
-  stepclass: { impl: false, file: 'world.html', targets: ['0c'],
-    why: '項目 4 の担当 — 刻み点マーカーに .worldNode クラスを着せる (依頼書 §2-4)' },
-  hopnone: { impl: false, file: 'world.html', targets: ['3a', '3c'],
-    why: '項目 4 の担当 — 遠い行き先では 1px も動かない (隣接だけ押せる)' },
-  pathswap: { impl: false, file: 'js/world-map.js', targets: ['5a'],
-    why: '項目 4 の担当 — findPath 自体を findWalkPath へ差し替える (既存 API を汚す)' },
-  retreatdead: { impl: false, file: 'world.html', targets: ['6a', '6c'],
-    why: '項目 4 の担当 — ?walkstep=0 を無視する' },
-  retreatkills: { impl: false, file: 'world.html', targets: ['6d'],
-    why: '項目 4 の担当 — 撤退時に STEPS のデータごと空にする (撤退のしすぎ)' },
-  fireevent: { impl: false, file: 'world.html', targets: ['4c'],
-    why: '項目 4 の担当 — 刻み点到着で確認ダイアログを開く (器に中身を入れる)' },
-  arrivedup: { impl: false, file: 'world.html', targets: ['4b'],
-    why: '項目 4 の担当 — walkPath の中からフックを呼び 1 ホップで 2 回鳴らす' },
+  /* ⭐ 分割数を常に 1 にする = stepsOfEdge が [] しか返さない → STEPS が空。
+     ⛔ STEP_MAX_PX を大きくする形にはしない — cap をページから読む (1a) が
+        「全区間 <= 99999」で緑のまま通ってしまい、空振りになる (2026-09-02 に机上で潰した)。 */
+  nosteps: { impl: true, file: 'js/world-map.js', targets: ['0a', '1a', '2a'],
+    why: 'stepsOfEdge の分割数を常に 1 にして STEPS を空にする',
+    from: 'var k = Math.max(1, Math.ceil(d / STEP_MAX_PX));',
+    to: 'var k = 1;  /* MUT nosteps */' },
+  /* ⭐ 本チケットの核心の 1 行を「今日の姿」へ戻す。 */
+  fullwalk: { impl: true, file: 'world.html', targets: ['3a', '3b', '3c', '6b'],
+    why: 'path.slice(0, 1) を path へ戻す (今日の姿 = 1 タップで経路全部)',
+    from: 'var hop = walkStepOff ? path : path.slice(0, 1);',
+    to: 'var hop = path;  /* MUT fullwalk */' },
+  /* ⭐ EDGES から生成する IIFE を残したまま (STEPS_UNUSED へ退避)、STEPS を手書き表にする。
+     ⚠ (896,416) を x だけ +8px。線分の向きが (320,256) なので線分からの距離は 5.0px
+        = (1b) の閾値 0.5px を確実に超える (2026-09-02 に手計算 → 実測で確認)。 */
+  handcoord: { impl: true, file: 'js/world-map.js', targets: ['0b', '1b'],
+    why: 'STEPS を EDGES から生成せず手書き座標表にして 1 点だけ 8px ずらす',
+    from: 'var STEPS = (function () {',
+    to: 'var STEPS = { "lake_n__lakeside@1": { id: "lake_n__lakeside@1", kind: "step", x: 904, y: 416, on: ["lake_n", "lakeside"] } };  /* MUT handcoord */ var STEPS_UNUSED = (function () {' },
+  /* ⭐ 依頼書 §2-2 の罠 A の再現。⚠ kind を "site" にしないと札が生えず (5c) が空振りする
+        (kind:"step" のままだと buildNodes が .worldSign を作らない = 2026-09-02 に机上で潰した)。 */
+  nodemut: { impl: true, file: 'js/world-map.js', targets: ['1d', '5c'],
+    why: '刻み点を WORLD_MAP.NODES へ注入する (依頼書 §2-2 の罠 A)',
+    from: 'global.WORLD_MAP = {',
+    to: 'NODES["lake_n__lakeside@1"] = { kind: "site", x: 896, y: 416, label: "STEP", desc: "injected" };  /* MUT nodemut */ global.WORLD_MAP = {' },
+  /* ⭐ 点線を walkEdges (細分化後 15 区間) で引き直す → 本数が 15 になり data-edge に "@" が入る。 */
+  linemut: { impl: true, file: 'world.html', targets: ['2b'],
+    why: '点線 <line> を刻み点で分割する (walkEdges の 15 区間で引き直す)',
+    from: 'var e = EDGES[i], a = NODES[e[0]], b = NODES[e[1]];',
+    to: 'if (i === 0) { var __WE = WM.walkEdges(), __G = WM.walkNodes(); __WE.forEach(function (__e) { var __ln = document.createElementNS(SVG_NS, "line"); __ln.setAttribute("class", "worldRouteLine"); __ln.setAttribute("data-edge", __e[0] + "__" + __e[1]); __ln.setAttribute("x1", __G[__e[0]].x); __ln.setAttribute("y1", __G[__e[0]].y); __ln.setAttribute("x2", __G[__e[1]].x); __ln.setAttribute("y2", __G[__e[1]].y); elInk.appendChild(__ln); }); } continue; /* MUT linemut */ var e = EDGES[i], a = NODES[e[0]], b = NODES[e[1]];' },
+  stepclass: { impl: true, file: 'world.html', targets: ['0c'],
+    why: '刻み点マーカーに .worldNode クラスを着せる (依頼書 §2-4)',
+    from: 'el.className = "worldStep";',
+    to: 'el.className = "worldStep worldNode";  /* MUT stepclass */' },
+  /* ⭐ 「隣接だけ押せる」= 2 ホップ以上の行き先では 1px も動かない。 */
+  hopnone: { impl: true, file: 'world.html', targets: ['3a', '3c'],
+    why: '遠い行き先では 1px も動かない (隣接だけ押せる)',
+    from: 'if (path === null || path.length === 0) return false;',
+    to: 'if (path === null || path.length === 0 || (!walkStepOff && path.length > 1)) return false;  /* MUT hopnone */' },
+  pathswap: { impl: true, file: 'js/world-map.js', targets: ['5a'],
+    why: 'findPath 自体を findWalkPath へ差し替える (既存 API を汚す)',
+    from: 'has: has, neighbors: neighbors, findPath: findPath, spawnFor: spawnFor,',
+    to: 'has: has, neighbors: neighbors, findPath: findWalkPath, spawnFor: spawnFor,  /* MUT pathswap */' },
+  retreatdead: { impl: true, file: 'world.html', targets: ['6a', '6c'],
+    why: '?walkstep=0 を無視する (sessionStorage を読まない)',
+    from: 'try { walkStepOff = sessionStorage.getItem(WALK_STEP_OFF_KEY) === "1"; } catch (e) {}',
+    to: 'walkStepOff = false;  /* MUT retreatdead */' },
+  /* ⭐ 「撤退のしすぎ」。描画と 1 ホップ制限だけでなく **データごと**消す。 */
+  retreatkills: { impl: true, file: 'world.html', targets: ['6d'],
+    why: '撤退時に WORLD_MAP.STEPS のデータごと空にする (撤退のしすぎ)',
+    from: 'var STEPS = WM.STEPS || {};',
+    to: 'var STEPS = WM.STEPS || {}; if (walkStepOff) { Object.keys(WM.STEPS || {}).forEach(function (__k) { delete WM.STEPS[__k]; }); }  /* MUT retreatkills */' },
+  /* ⭐ 器に中身を入れる = 刻み点 (WM.has が偽) に着いたら確認ダイアログを開く。 */
+  fireevent: { impl: true, file: 'world.html', targets: ['4c'],
+    why: '刻み点到着で確認ダイアログを開く (器に中身を入れる)',
+    from: 'function onArriveStep(atId, destId) {',
+    to: 'function onArriveStep(atId, destId) { if (!WM.has(atId)) askEnter("temple");  /* MUT fireevent */' },
+  /* ⚠⚠⚠ dest を at と同じにすると arrived=true になり、1 ホップ目が phlan のとき
+        onArriveNode(phlan) → location.href="town.html" で **ページごと死ぬ**。
+        そうすると (4b) は「母集団が足りない」で赤くなり、欠陥を検出したのか装置が
+        欠けたのか読めなくなる。→ dest を別の値にして arrived=false に倒す。 */
+  arrivedup: { impl: true, file: 'world.html', targets: ['4b'],
+    why: 'walkPath の中からフックを呼び 1 ホップで 2 回鳴らす',
+    from: 'heroNodeId = ids[idx];',
+    to: 'heroNodeId = ids[idx]; onArriveStep(heroNodeId, "__dup__");  /* MUT arrivedup */' },
 };
 const MUT_ORDER = ['nosteps', 'fullwalk', 'handcoord', 'nodemut', 'linemut', 'stepclass',
   'hopnone', 'pathswap', 'retreatdead', 'retreatkills', 'fireevent', 'arrivedup'];
@@ -371,6 +441,39 @@ async function measure(browser, port, errs, opts) {
         return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—');
       }),
       edgesFP: WM.EDGES.map(e => e[0] + '__' + e[1]),
+      /* ── (5a)(5b) の材料。⭐ **既存 API を全数舐める** ──────────────────────
+         ⚠⚠ 依頼書 §8 (5a) は「findPath("phlan","temple") に刻み点 id が無いこと」だが、
+           それだけだと「刻み点が載らない経路を選ぶ実装」で素通りしうる。
+           → 14x14 の全ペアと **全エッジ 1 本ずつ** (findPath(a,b) の長さが必ず 1) まで見る。
+           ⭐ エッジ 1 本の期待値 1 は EDGES から導いた値であってドライバの写経ではない。
+         ⭐ 2026-09-02 実測: findPath("phlan","temple") は lake_n-lakeside を通る側
+           (route A 1352.4px < route B 1361.0px) なので、pathswap は確実にここへ現れる。 */
+      ident: (() => {
+        const ids = Object.keys(WM.NODES);
+        const bad = []; let pairs = 0, nulls = 0;
+        for (const a of ids) for (const b of ids) {
+          pairs++;
+          const p = WM.findPath(a, b);
+          if (p === null) { nulls++; bad.push(a + '->' + b + ':null'); continue; }
+          for (const q of p) if (!Object.prototype.hasOwnProperty.call(WM.NODES, q)) bad.push(a + '->' + b + ':' + q);
+        }
+        const nb = {}, nbBad = [];
+        for (const a of ids) {
+          const v = WM.neighbors(a);
+          nb[a] = v;
+          for (const q of v) if (!Object.prototype.hasOwnProperty.call(WM.NODES, q)) nbBad.push(a + ':' + q);
+        }
+        return {
+          pairs: pairs, nulls: nulls, badCount: bad.length, bad: bad.slice(0, 10),
+          nb: nb, nbBadCount: nbBad.length, nbBad: nbBad.slice(0, 10),
+          phlanTemple: WM.findPath('phlan', 'temple'),
+          edgeHops: WM.EDGES.map(e => ({ e: e[0] + '__' + e[1], n: (WM.findPath(e[0], e[1]) || []).length })),
+        };
+      })(),
+      /* (5b) の材料。⭐ measurePlay の out.enterIds と **2 経路**で突き合わせる。 */
+      enterIds: Object.keys(WM.NODES).filter(k => WM.NODES[k].enter !== undefined),
+      enterMap: Object.keys(WM.NODES).filter(k => WM.NODES[k].enter !== undefined)
+        .map(k => k + '→' + WM.NODES[k].enter),
     };
   });
   await page.close();
@@ -478,16 +581,29 @@ const EMPTY_POINTS = [[64, 544], [1440, 960]];
 /* 押す前/押した後の全状態。⚠ ページが遷移していたら dead:true で返す
  *  (window.__world が消えているので evaluate が投げる前に自分で分岐する)。 */
 async function readPlay(page) {
-  return page.evaluate(() => {
-    const W = window.__world;
-    if (!W) return { dead: true, path: location.pathname, search: location.search };
-    return {
-      dead: false, node: W.heroNode(), px: W.heroPx(),
-      arrivals: W.arrivalCount(), last: W.lastArrival(),
-      askOpen: W.askOpen(), moving: W.isMoving(),
-      path: location.pathname, search: location.search,
-    };
-  });
+  /* ⚠⚠⚠ try/catch は必須。負のコントロール fireevent は確認ダイアログを開くので、
+     以後のクリックが「はい」に当たると location.href="index.html" が走り、
+     evaluate が "Execution context was destroyed" で **投げる**。素通しにすると
+     measurePlay ごと例外で抜けて (fatal) になり、12 本全部の判定が読めなくなる。
+     ⭐ 投げたら dead 扱いで返す = 「ページが world.html を離れた」と同じ意味。 */
+  try {
+    return await page.evaluate(() => {
+      const W = window.__world;
+      if (!W) return { dead: true, path: location.pathname, search: location.search };
+      return {
+        dead: false, node: W.heroNode(), px: W.heroPx(),
+        arrivals: W.arrivalCount(), last: W.lastArrival(),
+        askOpen: W.askOpen(), moving: W.isMoving(),
+        path: location.pathname, search: location.search,
+      };
+    });
+  } catch (e) {
+    return { dead: true, path: '(evaluate 失敗: ' + String(e && e.message).slice(0, 80) + ')', search: '' };
+  }
+}
+/* ⭐ 同じ理由で、座標を引く evaluate も投げたら null を返す (呼び手が err で畳む)。 */
+async function safeEval(page, fn, arg) {
+  try { return await page.evaluate(fn, arg); } catch (e) { return null; }
 }
 async function waitStill(page) {
   try {
@@ -523,7 +639,7 @@ async function tapPoint(page, id, why) {
     return { ok: false, id: id, why: why, before: pre, after: pre, dist: null,
       err: 'ページが world.html を離れている: ' + pre.path };
   }
-  const pt = await page.evaluate(i => window.__world.clientFromPoint(i), id);
+  const pt = await safeEval(page, i => window.__world.clientFromPoint(i), id);
   if (!pt) {
     return { ok: false, id: id, why: why, before: pre, after: pre, dist: null,
       err: 'clientFromPoint が null: ' + id };
@@ -657,7 +773,14 @@ async function measurePlay(browser, port, errs, opts) {
        この後の「回収」が拾い、最終的な母集団は (3c) の assert が集合で縛る。 */
   const TOUR = ['dragon', 'swamp', 'pass_n', 'lakeside'];
   out.tour = [];
-  for (const d of TOUR) {
+  /* ⚠⚠⚠ ページが world.html を離れたら以降の evaluate は必ず投げる (実行文脈が消える)。
+     負のコントロール fireevent は確認ダイアログを開くので、次のクリックが「はい」に
+     当たると index.html へ飛ぶ。⛔ そこで例外を出すと (fatal) になり 12 本の判定が
+     まとめて読めなくなる → **生きているかを毎節の頭で確かめて畳む**。 */
+  const alive = async () => !(await readPlay(page)).dead;
+  out.aborted = null;
+  if (!(await alive())) out.aborted = 'C) 巡回の前に world.html を離れた';
+  for (const d of (out.aborted ? [] : TOUR)) {
     if (noGo(d)) { out.tour.push({ dest: d, skipped: '入場ノード' }); continue; }
     const r = await tapUntil(page, d, out.taps, 'C) 巡回 → ' + d);
     out.tour.push(Object.assign({ dest: d }, r));
@@ -668,8 +791,9 @@ async function measurePlay(browser, port, errs, opts) {
      ⭐ 「1 ホップで着ける位置に居る」ことを **ページの findWalkPath** で確かめてから押す
        (母集団ガード。遠くから押して「2 ホップ目で着いた」を 1 ホップと誤読しないため)。 */
   out.stepTap = null;
+  if (!out.aborted && !(await alive())) out.aborted = 'D) 直押しの前に world.html を離れた';
   {
-    const sid = out.seam.probeStepId;
+    const sid = out.aborted ? null : out.seam.probeStepId;
     if (sid) {
       const nb = await page.evaluate((s) => {
         const WM = window.WORLD_MAP;
@@ -707,8 +831,9 @@ async function measurePlay(browser, port, errs, opts) {
   /* ══ E) (3c) の取りこぼし回収 ═══════════════════════════════════════════
      ⭐ 巡回で起点にできなかった停留所を 1 つずつ拾う (台本が陳腐化しても母集団が立つ)。 */
   out.fallback = [];
+  if (!out.aborted && !(await alive())) out.aborted = 'E) 回収の前に world.html を離れた';
   {
-    const all = await page.evaluate(() => Object.keys(window.WORLD_MAP.walkNodes()));
+    const all = out.aborted ? [] : (await safeEval(page, () => Object.keys(window.WORLD_MAP.walkNodes())) || []);
     for (const s of all) {
       if (out.taps.some(t => t.ok && t.before && t.before.node === s)) continue;
       if (noGo(s)) { out.fallback.push({ id: s, skipped: '入場ノード (通りすがりでしか起点にできない)' }); continue; }
@@ -731,7 +856,8 @@ async function measurePlay(browser, port, errs, opts) {
   /* ══ F) (3e) — 線の無い座標を押しても 1px も動かない ═════════════════════
      ⭐ 押す前に「最寄りの停留所から何 px か」を **その場で実測**する
        (⛔ 「動かなかった」だけだと、そこが本当に線の無い所かを誰も測っていない)。 */
-  for (const p of EMPTY_POINTS) {
+  if (!out.aborted && !(await alive())) out.aborted = 'F) 空撃ちの前に world.html を離れた';
+  for (const p of (out.aborted ? [] : EMPTY_POINTS)) {
     const probe = await page.evaluate((x, y) => {
       const WM = window.WORLD_MAP, W = window.__world;
       const G = WM.walkNodes(), S = WM.STEPS || {};
@@ -773,6 +899,112 @@ async function measurePlay(browser, port, errs, opts) {
 
   out.end = await readPlay(page);
   await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⭐ 撤退の観測 (項目 4) — §6 の 4 本ぶんを **1 回の走行**で採る
+//   ⭐⭐⭐ **撤退アームと素のアームを必ず対で採る** (#39 の教訓 = 撤退アームだけを
+//      測る assert は「撤退が効いている」ことしか言わず、素の側が壊れても永久に緑)。
+//   ⚠ 3 つの場面を採る:
+//      off    … /world.html?walkstep=0 で開く → マーカー 0 枚 / 1 タップで着く
+//      reopen … **同じタブのまま** クエリ無しで開き直す → sessionStorage 経由で撤退が続く
+//      on     … **別タブ**で素の /world.html → マーカーが出る / 1 タップでは着かない
+//      (sessionStorage は最上位ブラウジングコンテキスト = タブごとなので、
+//       別タブの on アームには off の痕跡が漏れない。walkStepOff() の実測で確かめる)
+//   ⚠⚠⚠ 押す先は temple。⛔ phlan (enter を持つただ 1 つのノード) を押さない。
+//      ⭐ 撤退アームは pier→…→phlan→…→temple を 1 回で歩き切るが、walkPath は
+//        中継ノードで何も鳴らさないので **通りすがりの phlan では遷移しない**
+//        (2026-09-01 に項目 3 が実測した性質。ここが崩れると off アームが town.html で死ぬ)。
+// ══════════════════════════════════════════════════════════════════════════════
+const RETREAT_QUERY = '?walkstep=0';
+const RETREAT_DEST = 'temple';
+async function measureRetreat(browser, port, errs) {
+  const base = 'http://localhost:' + port + PAGE_PATH;
+  const out = { query: RETREAT_QUERY, dest: RETREAT_DEST };
+  const open = async (label) => {
+    const page = await browser.newPage();
+    const tag = '[:' + port + ' ' + label + '] ';
+    page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+    page.on('console', mm => {
+      if (mm.type() !== 'error') return;
+      let url = '';
+      try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+      if (/\/favicon\.ico$/.test(url)) return;
+      errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+    });
+    await page.setViewport({ width: 1280, height: 900 });
+    return page;
+  };
+  const load = async (page, url) => {
+    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+    await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+    await settle(page);
+  };
+  /* ⭐ 1 回の観測で「撤退が効いているか」「マーカーは何枚か」「STEPS のデータは残っているか」
+     を **同じ瞬間**に採る。⛔ 3 回ページを開いて別々に採らない (状態がズレる)。 */
+  const snap = (page) => page.evaluate((dest) => {
+    const WM = window.WORLD_MAP, W = window.__world;
+    return {
+      path: location.pathname, search: location.search,
+      walkStepOff: W.walkStepOff(),
+      marks: document.querySelectorAll('.worldStep').length,
+      stepIds: (typeof W.stepIds === 'function') ? W.stepIds() : null,
+      steps: WM.STEPS ? JSON.parse(JSON.stringify(WM.STEPS)) : null,
+      stepCount: WM.STEPS ? Object.keys(WM.STEPS).length : null,
+      signs: document.querySelectorAll('.worldSign').length,
+      node: W.heroNode(), px: W.heroPx(), arrivals: W.arrivalCount(),
+      /* ⭐ 「1 回で着くか」の期待値は **ページの findWalkPath / findPath** から採る
+         (⛔ ドライバに "phlan" などのノード id を直書きしない)。
+         ⚠⚠⚠ try/catch は必須。負のコントロール retreatkills は WORLD_MAP.STEPS を
+           空にするので、walkEdges() が生成する鎖に居る刻み点が walkNodes() から消え、
+           findWalkPath の wdist が undefined.x で **投げる**。素通しにすると
+           measureRetreat ごと例外で抜けて (fatal) になり、残りの変異が 1 本も回らない
+           (2026-09-02 に実際に踏んだ = 18/25 で止まった)。 */
+      wantWalk: (() => { try { return WM.findWalkPath(W.heroNode(), dest); } catch (e) { return null; } })(),
+      wantFull: (() => { try { return WM.findPath(W.heroNode(), dest); } catch (e) { return null; } })(),
+    };
+  }, RETREAT_DEST);
+  /* 拠点の札を **1 回だけ** 実クリックする。⛔ goToNode を evaluate から呼ばない。 */
+  const tapOnce = async (page, id) => {
+    const before = await readPlay(page);
+    if (before.dead) return { ok: false, before: before, after: before, err: 'ページが world.html を離れている' };
+    const pt = await safeEval(page, i => window.__world.clientFromNode(i), id);
+    if (!pt) return { ok: false, before: before, after: before, err: 'clientFromNode が null: ' + id };
+    await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
+    const still = await waitStill(page);
+    await sleep(TAP_SETTLE_MS);
+    const after = await readPlay(page);
+    return {
+      ok: still && !after.dead, pt: pt, before: before, after: after,
+      dist: after.dead ? null : Math.hypot(after.px.x - before.px.x, after.px.y - before.px.y),
+      err: !still ? '到着待ちタイムアウト' : (after.dead ? 'タップ後に遷移した: ' + after.path : null),
+    };
+  };
+
+  /* ══ A) 撤退アーム ?walkstep=0 ═════════════════════════════════════════ */
+  const pOff = await open('off');
+  await load(pOff, base + RETREAT_QUERY);
+  out.off = { boot: await snap(pOff) };
+  out.off.tap = await tapOnce(pOff, RETREAT_DEST);
+  out.off.after = out.off.tap.ok ? await snap(pOff) : null;
+
+  /* ══ B) クエリを外して **同じタブで** 開き直す ((6c)) ══════════════════ */
+  if (!out.off.tap.after.dead) {
+    await load(pOff, base);
+    out.reopen = await snap(pOff);
+  } else {
+    out.reopen = null;
+  }
+  await pOff.close();
+
+  /* ══ C) 素のアーム (別タブ = sessionStorage は空) ((6b) の対照) ════════ */
+  const pOn = await open('on');
+  await load(pOn, base);
+  out.on = { boot: await snap(pOn) };
+  out.on.tap = await tapOnce(pOn, RETREAT_DEST);
+  out.on.after = out.on.tap.ok ? await snap(pOn) : null;
+  await pOn.close();
   return out;
 }
 
@@ -1352,6 +1584,242 @@ const ASSERTS = [
         + '  走り終わりの pathname=' + JSON.stringify(p.end && p.end.path)
         + (why.length ? '  ' + why.slice(0, 8).join(' ') : '')];
     }],
+
+  // ── §5 恒等 (非退行) ───────────────────────────────────────────────────────
+  ['5a', '⭐⭐⭐ [恒等] findPath / neighbors が **細分化前のまま** — 刻み点 id を 1 つも返さない'
+    + ' (NODES 全ペアの findPath + 全エッジ 1 本ずつ + 全ノードの neighbors)'
+    + ' ⚠ neighbors の中身はドライバが EDGES から独立に組み直して突き合わせる (⛔ 写経しない)',
+    m => {
+      const id = m.map.ident;
+      if (!id) return [false, '⛔ ident の観測が無い'];
+      const N = m.map.nodes, E = m.map.edges, why = [];
+      const n = Object.keys(N).length;
+      /* ⚠⚠ 母集団ガード。0 ペアだと「刻み点 id を返さない」が自明に真。 */
+      if (n === 0 || id.pairs !== n * n) why.push('⛔ 母集団: 舐めたペア ' + id.pairs + ' 組 (期待 ' + (n * n) + ' 組)');
+      if (id.nulls !== 0) why.push('⛔ 到達できないペアが ' + id.nulls + ' 組: ' + JSON.stringify(id.bad));
+      if (id.badCount !== 0) why.push('⛔ findPath が NODES に無い id を返した (' + id.badCount + ' 件): ' + JSON.stringify(id.bad));
+      if (id.nbBadCount !== 0) why.push('⛔ neighbors が NODES に無い id を返した: ' + JSON.stringify(id.nbBad));
+      /* ⭐ 依頼書 §8 (5a) が名指しする findPath("phlan","temple") を明示的にも見る。 */
+      const pt = id.phlanTemple;
+      if (!Array.isArray(pt) || pt.length < 2) why.push('⛔ findPath("phlan","temple") が経路でない: ' + JSON.stringify(pt));
+      else for (const q of pt) {
+        if (!Object.prototype.hasOwnProperty.call(N, q)) why.push('⛔ phlan→temple に NODES 外の id: ' + q);
+      }
+      /* ⭐⭐⭐ エッジ 1 本を findPath すると必ず 1 ホップ。刻み点を挟むと 2 になる
+         (= 細分化グラフへ差し替えた実装の指紋。負のコントロール pathswap がここへ現れる)。
+         ⚠ 期待値 1 は EDGES から導いた性質であってドライバの写経ではない。 */
+      const eb = (id.edgeHops || []).filter(h => h.n !== 1);
+      if ((id.edgeHops || []).length !== E.length) {
+        why.push('⛔ 母集団: エッジ ' + (id.edgeHops || []).length + ' 本 (期待 ' + E.length + ' 本)');
+      }
+      if (eb.length) why.push('⛔ エッジ 1 本の findPath が 1 ホップでない: ' + JSON.stringify(eb));
+      /* ⭐ neighbors は EDGES から独立に組み直して集合ごと突き合わせる
+         (⚠ 「件数だけ」だと walkNeighbors("lakeside") も 4 件で一致してしまう = 2026-09-02 実測)。 */
+      const wantNb = {};
+      for (const k of Object.keys(N)) wantNb[k] = [];
+      for (const e of E) {
+        const a = e[0], b = e[1];
+        if (wantNb[a] && wantNb[a].indexOf(b) < 0) wantNb[a].push(b);
+        if (wantNb[b] && wantNb[b].indexOf(a) < 0) wantNb[b].push(a);
+      }
+      const nbDiff = [];
+      for (const k of Object.keys(wantNb)) {
+        const got = ((id.nb || {})[k] || []).slice().sort();
+        const w = wantNb[k].slice().sort();
+        if (JSON.stringify(got) !== JSON.stringify(w)) {
+          nbDiff.push(k + ': 実測 ' + JSON.stringify(got) + ' / EDGES から ' + JSON.stringify(w));
+        }
+      }
+      if (nbDiff.length) why.push('⛔ neighbors が EDGES と食い違う: ' + nbDiff.join(' | '));
+      return [why.length === 0,
+        'findPath を ' + id.pairs + ' 組 (' + n + 'x' + n + ') 舐めて NODES 外の id ' + id.badCount + ' 件'
+        + ' / neighbors ' + Object.keys(id.nb || {}).length + ' ノードで NODES 外 ' + id.nbBadCount + ' 件'
+        + '  findPath("phlan","temple")=' + JSON.stringify(pt)
+        + '  neighbors("lakeside")=' + JSON.stringify((id.nb || {}).lakeside)
+        + ' (' + (((id.nb || {}).lakeside) || []).length + ' 件 / EDGES から ' + (wantNb.lakeside || []).length + ' 件)'
+        + '  エッジ ' + (id.edgeHops || []).length + ' 本はすべて 1 ホップ=' + (eb.length === 0)
+        + '  ⭐ 参考: findWalkPath は同じ phlan→temple を '
+        + ((m.play && m.play.want && m.play.want.path) ? m.play.want.path.length : '?') + ' ホップで返す'
+        + (why.length ? '  ' + why.slice(0, 6).join(' ') : '')];
+    }],
+  ['5b', 'enter を持つノードは今も **phlan ただ 1 つ**'
+    + ' ⭐ データ層 (WORLD_MAP.NODES) と実操作タブ (measurePlay の enterIds) の **2 経路**で見る'
+    + ' ⚠⚠ ここが崩れると「通りすがりの拠点で town.html へ飛ぶ」事故が復活する (項目 3 の実測)',
+    m => {
+      const a = (m.map.enterIds || []).slice().sort();
+      const b = (m.play && m.play.enterIds) ? m.play.enterIds.slice().sort() : null;
+      const why = [];
+      if (a.length !== 1 || a[0] !== 'phlan') why.push('⛔ データ層の enter 持ち=' + JSON.stringify(a));
+      if (b === null) why.push('⛔ 実操作タブの観測が無い (measurePlay を呼んでいない)');
+      else if (JSON.stringify(a) !== JSON.stringify(b)) {
+        why.push('⛔ 2 経路が食い違う: データ層=' + JSON.stringify(a) + ' / 実操作タブ=' + JSON.stringify(b));
+      }
+      /* ⚠ 母集団: NODES と STEPS が両方 0 件でないこと (0 件だと自明に真)。 */
+      const nn = Object.keys(m.map.nodes || {}).length;
+      const sc = Object.keys(m.map.steps || {}).length;
+      if (nn === 0) why.push('⛔ 母集団: NODES が 0 件');
+      if (sc === 0) why.push('⛔ 母集団: 刻み点が 0 件 (刻み点に enter が生えていないことを測れていない)');
+      return [why.length === 0,
+        'enter 持ち: データ層=' + JSON.stringify(m.map.enterMap) + ' / 実操作タブ=' + JSON.stringify(b)
+        + '  (NODES ' + nn + ' 件 / 刻み点 ' + sc + ' 件を母集団に)'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+  ['5c', '札 (.worldSign) の DOM が **ちょうど 7 枚** (刻み点に札が生えていない)'
+    + ' ⭐ DOM の枚数と、データ側の site ノード数を **2 経路**で突き合わせる'
+    + ' ⚠ 刻み点マーカーが 1 枚以上ある母集団で測る',
+    m => {
+      const d = m.dom;
+      if (!d) return [false, '⛔ DOM の観測が無い'];
+      const why = [];
+      const owners = d.signs.map(s => s.node);
+      if (d.signs.length !== 7) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 7 枚)');
+      if (d.siteCount !== 7) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 7 件)');
+      if (d.signs.length !== d.siteCount) why.push('⛔ 2 経路が食い違う (DOM ' + d.signs.length + ' / データ ' + d.siteCount + ')');
+      if (owners.some(o => o === null)) why.push('⛔ .worldNode に属さない札がある: ' + JSON.stringify(owners));
+      const stepy = owners.filter(o => o !== null && String(o).indexOf('@') >= 0);
+      if (stepy.length) why.push('⛔ 刻み点 id の札が生えている: ' + JSON.stringify(stepy));
+      /* ⚠⚠ 母集団: マーカーが 0 枚だと「刻み点に札が生えていない」が自明に真。 */
+      if (d.marks.length === 0) why.push('⛔ 母集団: 刻み点マーカーが 0 枚');
+      return [why.length === 0,
+        '.worldSign=' + d.signs.length + ' 枚 / site ノード=' + d.siteCount + ' 件'
+        + '  所有者=' + JSON.stringify(owners)
+        + '  (母集団: 刻み点マーカー ' + d.marks.length + ' 枚)'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+
+  // ── §6 撤退 ?walkstep=0 ────────────────────────────────────────────────────
+  ['6a', '?walkstep=0 → 刻み点マーカーが **0 枚**、' + RETREAT_DEST + ' の札を **1 回押すと着く** (今日の姿)'
+    + ' ⚠⚠ 素のアームでマーカーが 1 枚以上出ていることを **母集団ガード**として同居させる'
+    + ' (⛔ でないと「そもそも刻み点が無い」実装で自明に緑)',
+    m => {
+      const r = m.retreat;
+      if (!r || !r.off || !r.on) return [false, '⛔ 撤退の観測が無い (measureRetreat を呼んでいない)'];
+      const off = r.off, on = r.on, why = [];
+      if (!(on.boot.marks > 0)) why.push('⛔ 母集団: 素のアームのマーカーが ' + on.boot.marks + ' 枚');
+      if (off.boot.search !== RETREAT_QUERY) why.push('⛔ 撤退アームの search=' + JSON.stringify(off.boot.search));
+      if (off.boot.walkStepOff !== true) why.push('⛔ __world.walkStepOff() が true でない: ' + JSON.stringify(off.boot.walkStepOff));
+      if (off.boot.marks !== 0) why.push('⛔ 撤退アームにマーカーが ' + off.boot.marks + ' 枚描かれている');
+      if (!Array.isArray(off.boot.stepIds) || off.boot.stepIds.length !== 0) {
+        why.push('⛔ 撤退アームの __world.stepIds()=' + JSON.stringify(off.boot.stepIds));
+      }
+      /* ⭐ 「1 回で着く」の母集団はページの findPath から (⛔ ノード id を直書きしない)。 */
+      if (!Array.isArray(off.boot.wantFull) || off.boot.wantFull.length < 2) {
+        why.push('⛔ 母集団: 撤退アームの findPath が 2 点以上を返していない: ' + JSON.stringify(off.boot.wantFull));
+      }
+      if (!off.tap.ok) why.push('⛔ 撤退アームのタップが成立していない: ' + off.tap.err);
+      else if (off.tap.after.node !== RETREAT_DEST) {
+        why.push('⛔ 1 回押しても着かない (今 ' + JSON.stringify(off.tap.after.node) + ')');
+      }
+      return [why.length === 0,
+        '撤退アーム: search=' + JSON.stringify(off.boot.search) + ' walkStepOff=' + JSON.stringify(off.boot.walkStepOff)
+        + ' マーカー ' + off.boot.marks + ' 枚 / stepIds=' + JSON.stringify(off.boot.stepIds)
+        + '  ' + JSON.stringify(off.boot.node) + ' から ' + RETREAT_DEST + ' を 1 回押して → '
+        + JSON.stringify(off.tap.ok ? off.tap.after.node : ('⛔' + off.tap.err))
+        + ' (' + (off.tap.ok && off.tap.dist !== null ? off.tap.dist.toFixed(1) + 'px' : '-') + ')'
+        + '  findPath の長さ=' + ((off.boot.wantFull || []).length)
+        + '  |  母集団 (素のアーム): マーカー ' + on.boot.marks + ' 枚'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+  ['6b', '⭐⭐⭐ **素のアームの対照を同じ assert に同居させる** — 同じ操作を撤退なしでやると'
+    + ' **1 回では着かない** (⚠ 両方測って初めて緑 = #39 の教訓「撤退アームだけだと永久緑」)',
+    m => {
+      const r = m.retreat;
+      if (!r || !r.off || !r.on) return [false, '⛔ 撤退の観測が無い'];
+      const off = r.off, on = r.on, why = [];
+      /* ── 素のアーム (撤退なし) ── */
+      if (on.boot.walkStepOff !== false) why.push('⛔ 素のアームで walkStepOff()=' + JSON.stringify(on.boot.walkStepOff));
+      if (on.boot.search !== '') why.push('⛔ 素のアームに search が付いている: ' + JSON.stringify(on.boot.search));
+      if (!(on.boot.marks > 0)) why.push('⛔ 母集団: 素のアームのマーカーが 0 枚');
+      if (!Array.isArray(on.boot.wantWalk) || on.boot.wantWalk.length < 2) {
+        why.push('⛔ 母集団: 素のアームの findWalkPath が 2 点以上でない: ' + JSON.stringify(on.boot.wantWalk));
+      }
+      if (!on.tap.ok) why.push('⛔ 素のアームのタップが成立していない: ' + on.tap.err);
+      else {
+        if (on.tap.after.node === RETREAT_DEST) why.push('⛔ 素のアームでも 1 回で着いてしまった (刻んでいない)');
+        if (Array.isArray(on.boot.wantWalk) && on.boot.wantWalk.length >= 2
+          && on.tap.after.node !== on.boot.wantWalk[0]) {
+          why.push('⛔ 素のアームの 1 タップ後が findWalkPath[0] でない: '
+            + JSON.stringify(on.tap.after.node) + ' != ' + JSON.stringify(on.boot.wantWalk[0]));
+        }
+      }
+      /* ── 撤退アーム (対照)。⭐ こちらが着かないと「差」が測れていない ── */
+      if (!off.tap.ok) why.push('⛔ 撤退アームのタップが成立していない: ' + off.tap.err);
+      else if (off.tap.after.node !== RETREAT_DEST) why.push('⛔ 対照が立たない: 撤退アームが 1 回で着いていない');
+      /* ⭐ 「同じ操作」であることの証明。出発ノードが違えば比較になっていない。 */
+      if (off.boot.node !== on.boot.node) {
+        why.push('⛔ 2 アームの出発ノードが違う: ' + JSON.stringify(off.boot.node) + ' / ' + JSON.stringify(on.boot.node));
+      }
+      return [why.length === 0,
+        '同じ出発点 ' + JSON.stringify(on.boot.node) + ' から ' + RETREAT_DEST + ' の札を 1 回押した結果'
+        + '  ⭐ 撤退あり → ' + JSON.stringify(off.tap.ok ? off.tap.after.node : ('⛔' + off.tap.err))
+        + ' (' + (off.tap.ok && off.tap.dist !== null ? off.tap.dist.toFixed(1) + 'px' : '-') + ')'
+        + '  ⭐ 撤退なし → ' + JSON.stringify(on.tap.ok ? on.tap.after.node : ('⛔' + on.tap.err))
+        + ' (' + (on.tap.ok && on.tap.dist !== null ? on.tap.dist.toFixed(1) + 'px' : '-') + ')'
+        + ' / 期待 findWalkPath[0]=' + JSON.stringify((on.boot.wantWalk || [])[0])
+        + '  findWalkPath ' + ((on.boot.wantWalk || []).length) + ' ホップ / findPath '
+        + ((on.boot.wantFull || []).length) + ' ホップ'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+  ['6c', 'クエリを外して開き直しても撤退が効いている (sessionStorage へ写っている)'
+    + ' ⚠⚠ 母集団 = **別タブの素のアームでは効いていない** ことを同居させる'
+    + ' (⛔ でないと「常に撤退している」実装でも緑になる)',
+    m => {
+      const r = m.retreat;
+      if (!r || !r.off || !r.on) return [false, '⛔ 撤退の観測が無い'];
+      const rp = r.reopen, on = r.on, off = r.off, why = [];
+      if (!rp) return [false, '⛔ 開き直しの観測が無い (撤退アームが途中で world.html を離れた)'];
+      if (off.boot.search !== RETREAT_QUERY) why.push('⛔ 母集団: 撤退アームに ' + RETREAT_QUERY + ' が付いていない');
+      if (rp.search !== '') why.push('⛔ 開き直した URL に search が残っている: ' + JSON.stringify(rp.search));
+      if (!/\/world\.html$/.test(rp.path)) why.push('⛔ 開き直しの pathname=' + rp.path);
+      if (rp.walkStepOff !== true) why.push('⛔ クエリを外したら撤退が切れた: walkStepOff()=' + JSON.stringify(rp.walkStepOff));
+      if (rp.marks !== 0) why.push('⛔ 開き直したらマーカーが ' + rp.marks + ' 枚出た');
+      /* ⚠⚠ 母集団 (対照): 別タブ = 別 sessionStorage では撤退していない。 */
+      if (on.boot.walkStepOff !== false) why.push('⛔ 母集団: 別タブでも walkStepOff() が真 (常時撤退になっている)');
+      if (!(on.boot.marks > 0)) why.push('⛔ 母集団: 別タブでマーカーが 0 枚');
+      return [why.length === 0,
+        '① ' + RETREAT_QUERY + ' で開く → walkStepOff=' + JSON.stringify(off.boot.walkStepOff)
+        + ' / マーカー ' + off.boot.marks + ' 枚'
+        + '  ② 同じタブでクエリ無しへ → search=' + JSON.stringify(rp.search)
+        + ' walkStepOff=' + JSON.stringify(rp.walkStepOff) + ' / マーカー ' + rp.marks + ' 枚'
+        + '  ③ 別タブ (対照) → walkStepOff=' + JSON.stringify(on.boot.walkStepOff)
+        + ' / マーカー ' + on.boot.marks + ' 枚'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+  ['6d', '⭐ **撤退のしすぎを測る** — ' + RETREAT_QUERY + ' でも WORLD_MAP.STEPS は'
+    + ' **同じ件数・同じ座標で存在する** (消えるのは描画と 1 ホップ制限だけ)'
+    + ' ⚠ 撤退が実際に効いている状態で測ることを母集団ガードにする',
+    m => {
+      const r = m.retreat;
+      if (!r || !r.off || !r.on) return [false, '⛔ 撤退の観測が無い'];
+      const off = r.off, on = r.on, why = [];
+      const A = off.boot.steps, B = on.boot.steps, C = m.map.steps || {};
+      if (!A || !B) return [false, '⛔ STEPS が読めない (撤退=' + JSON.stringify(A) + ' / 素=' + JSON.stringify(B) + ')'];
+      /* ⚠⚠ 母集団: 撤退が効いていない状態で比べても意味が無い。 */
+      if (off.boot.walkStepOff !== true) why.push('⛔ 母集団: 撤退アームで walkStepOff() が真でない');
+      if (off.boot.marks !== 0) why.push('⛔ 母集団: 撤退アームでマーカーが ' + off.boot.marks + ' 枚 (撤退していない)');
+      const ka = Object.keys(A).slice().sort(), kb = Object.keys(B).slice().sort(), kc = Object.keys(C).slice().sort();
+      if (kb.length === 0) why.push('⛔ 母集団: 素のアームの STEPS が 0 件');
+      if (JSON.stringify(ka) !== JSON.stringify(kb)) {
+        why.push('⛔ 件数/キーが違う: 撤退=' + JSON.stringify(ka) + ' (' + ka.length + ' 件)'
+          + ' / 素=' + JSON.stringify(kb) + ' (' + kb.length + ' 件)');
+      } else {
+        for (const k of ka) {
+          if (A[k].x !== B[k].x || A[k].y !== B[k].y) {
+            why.push('⛔ ' + k + ' の座標が違う: 撤退=(' + A[k].x + ',' + A[k].y + ') / 素=(' + B[k].x + ',' + B[k].y + ')');
+          }
+        }
+      }
+      /* ⭐ 3 経路目 = measure() が別タブで採ったデータ層とも突き合わせる。 */
+      if (JSON.stringify(ka) !== JSON.stringify(kc)) {
+        why.push('⛔ measure() の STEPS とも食い違う: ' + JSON.stringify(kc));
+      }
+      return [why.length === 0,
+        '撤退アームの STEPS=' + ka.length + ' 件 ' + JSON.stringify(ka.map(k => k + '(' + A[k].x + ',' + A[k].y + ')'))
+        + '  素のアーム=' + kb.length + ' 件 ' + JSON.stringify(kb.map(k => k + '(' + B[k].x + ',' + B[k].y + ')'))
+        + '  measure()=' + kc.length + ' 件'
+        + '  (撤退アームの描画マーカーは ' + off.boot.marks + ' 枚 = 消えるのは描画だけ)'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1360,27 +1828,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 // まだ実装されていない受入条件 (⛔ 件数から隠さない = pending() で必ず出す)
 //   ⭐ 項目 2〜4 がここを 1 行ずつ ASSERTS へ移す。最終項目の完了条件 = PENDING 0。
 // ══════════════════════════════════════════════════════════════════════════════
-const PENDINGS = [
-  ['§5 恒等 (非退行)', [
-    ['5a', '⭐⭐⭐ findPath / neighbors が細分化前のまま (刻み点 id を 1 つも含まない)',
-      '項目 4 待ち (データ層は着地済みだが、変異 pathswap と同居させる)'],
-    ['5b', 'enter を持つノードは今も phlan ただ 1 つ',
-      '項目 4 待ち  ⭐ measurePlay の out.enterIds が既に実測しているので移すだけで済む'],
-    ['5c', '札 (.worldSign) の DOM がちょうど 7 枚 (刻み点に札が生えていない)',
-      '⭐ (2d) が既に .worldSign 7 枚 + site ノード 7 件を母集団ガードとして実測しているので、'
-      + 'm.dom.signs / m.dom.siteCount をそのまま使えば移すだけで済む'],
-  ]],
-  ['§6 撤退', [
-    ['6a', '?walkstep=0 → 刻み点マーカーが 0 枚、temple の札を 1 回押すと着く (今日の姿)',
-      '項目 4 待ち'],
-    ['6b', '⭐⭐⭐ 素のアームの対照を同じ assert に同居 — 撤退なしなら 1 回では着かない',
-      '項目 4 待ち'],
-    ['6c', 'クエリを外して開き直しても撤退が効いている (sessionStorage へ写っている)',
-      '項目 4 待ち'],
-    ['6d', '⭐ 撤退のしすぎを測る — ?walkstep=0 でも STEPS は同じ件数・同じ座標で存在する',
-      '項目 4 待ち'],
-  ]],
-];
+/* ⭐⭐⭐ 2026-09-02 (項目 4) で **全部 ASSERTS へ移した**。ここは空のまま残す —
+ *  次に受入条件を足すチケットが「まだ測っていない節」を正直に出す場所として使う。
+ *  ⛔ 空にしたからといって削除しないこと (削ると PENDING という 3 値そのものが消える)。 */
+const PENDINGS = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -1436,6 +1887,9 @@ const PENDINGS = [
       /* ⭐ 実操作 (実クリックで歩く) の観測。§0 の (0d) と §3 / §4 が読む。
          ⚠ ここが一番時間を食う (約 25 タップ x 最大 1.8 秒の歩き)。 */
       m.play = await measurePlay(browser, PORT, errs, {});
+      /* ⭐ 撤退 (?walkstep=0) と **素のアームの対照**。§6 の 4 本がここを読む。
+         ⚠ 別タブを 2 枚使う (sessionStorage はタブごと = 素のアームへ撤退が漏れない)。 */
+      m.retreat = await measureRetreat(browser, PORT, errs);
       for (const key of ['0z', '0a', '0b', '0c', '0d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
       if (MUT_TODO.length === 0) {
         check('(0e) [装置] 変異アンカーの実装漏れが 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
@@ -1505,8 +1959,34 @@ const PENDINGS = [
       mark('§4 到着フック (ランダムイベントの器) — ⛔ 中身は後続チケット');
       for (const key of ['4a', '4b', '4c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
 
+      mark('§5 恒等 (非退行) — ⛔ 既存 API を 1 バイトも汚していないこと');
+      for (const key of ['5a', '5b', '5c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+
+      mark('§6 撤退 ' + RETREAT_QUERY + ' — ⭐ 撤退アームと素のアームを **対で**測る');
+      for (const key of ['6a', '6b', '6c', '6d']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      if (m.retreat) {
+        console.log('       [記録] 撤退の 3 場面 (⛔ 期待値ではない。読み解き用):');
+        const rows = [['① ' + RETREAT_QUERY, m.retreat.off.boot], ['② 同じタブでクエリ無し', m.retreat.reopen],
+          ['③ 別タブ (素)', m.retreat.on.boot]];
+        for (const [lbl, s] of rows) {
+          if (!s) { console.log('         ' + lbl + '  (観測なし)'); continue; }
+          console.log('         ' + lbl + '  search=' + JSON.stringify(s.search)
+            + ' walkStepOff=' + JSON.stringify(s.walkStepOff)
+            + ' マーカー ' + s.marks + ' 枚 / STEPS ' + s.stepCount + ' 件 / 札 ' + s.signs + ' 枚'
+            + '  出発 ' + JSON.stringify(s.node)
+            + '  findWalkPath ' + ((s.wantWalk || []).length) + ' ホップ / findPath '
+            + ((s.wantFull || []).length) + ' ホップ');
+        }
+        for (const [lbl, t] of [['撤退あり', m.retreat.off.tap], ['撤退なし', m.retreat.on.tap]]) {
+          console.log('         ' + lbl + ' の 1 タップ: ' + JSON.stringify(t.before && t.before.node)
+            + ' → ' + JSON.stringify(t.ok ? t.after.node : ('⛔' + t.err))
+            + (t.ok && t.dist !== null ? ('  ' + t.dist.toFixed(1) + 'px ('
+              + (t.dist / 64).toFixed(2) + ' マス)') : ''));
+        }
+      }
+
       for (const [title, rows] of PENDINGS) {
-        mark(title + ' (項目 4 の担当)');
+        mark(title);
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
       }
 
@@ -1542,6 +2022,12 @@ const PENDINGS = [
              ⚠ 実操作は 1 本あたり数十秒かかる。必要な変異でだけ採る。 */
           const needsPlay = MUTATIONS[k].targets.some(t => /^[34]/.test(t) || t === '0d');
           if (needsPlay) m.play = await measurePlay(browser, port, negErrs, {});
+          /* ⭐ §6 を狙う変異 (fullwalk / retreatdead / retreatkills) は撤退の観測が要る。
+             ⛔ 片方だけにすると「撤退の観測が無い」で機械的に赤くなり、欠陥を検出したのか
+                装置が欠けているのか読めなくなる (needsPlay と同じ理屈)。
+             ⚠ 実操作を伴うので 1 本あたり数十秒。必要な変異でだけ採る。 */
+          const needsRetreat = MUTATIONS[k].targets.some(t => /^6/.test(t));
+          if (needsRetreat) m.retreat = await measureRetreat(browser, port, negErrs);
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
             if (!a) {
