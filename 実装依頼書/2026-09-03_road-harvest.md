@@ -714,7 +714,10 @@ function applyRoadVigilance() {
 | 1 (装置) | `a30bb39` | #47 項目1 — 装置 tools/verify_road_boon.js (ポート 9790・§0 母集団ガード / §1-§4 は PENDING) |
 | 2 (街道側) | `c492253` | #47 項目2 — 街道側: BOONS 表 / boonOf / 「携えた」の 1 行 / roadBoon の書き込み / 撤退 ?roadboon=0 |
 | 3 (潜行側) | `abf0267` | #47 項目3 — 潜行側: roadBoon の消費 / 糧 maxHp+3 / 備え applyRoadVigilance / label ホワイトリスト / 撤退 ?roadboon=0 |
-| 4 (締め) | **本コミット** | #47 項目4 (最終) — 撤退 ?roadboon=0 の受入 3 本 / 変異 15 本 / golden 15 本の非退行 / 締め |
+| 4 (締め) | `24e1e7a` | #47 項目4 (最終) — 撤退 ?roadboon=0 の受入 3 本 / 変異 15 本 / golden 15 本の非退行 / 締め |
+
+⚠ 本節の hash は **追補コミットで実 hash に置き換えてある**(#45 / #46 と同じ作法)。
+⛔ 「本コミット」のまま残さない —— 後から読む窓が台帳から実物へ辿れなくなる。
 
 ⚠ 項目 4 が触ったのは `tools/verify_road_boon.js` と本依頼書・`実装依頼書/README.md` だけ
 (`index.html` / `tavern.html` / `audio.js` は 1 バイトも動かしていない)ので **changelog は不要**
