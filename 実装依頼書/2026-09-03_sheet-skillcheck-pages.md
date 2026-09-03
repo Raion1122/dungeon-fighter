@@ -599,7 +599,7 @@ py -m http.server 8000        # ⚠ file:// 直開きは不可 (音とfetchが�
   - `26a3f24` 項目1「装置」 — base ポート 9470 → **9620** 移設 + 冒頭コメント訂正 / 導出ヘルパ `pageHasSkillCheckSrc` / `measureAll` 側で `p.hasSkillCheckSrc` を載せる / 集合固定 assert **(0e)** 新設
   - `777cd34` 項目2「本体」 — (2c)(2d)(8a)(8f) の期待を「そのページに `<script src="js/skill-check.js">` が載っているか」からの導出へ
   - `5d00fc5` 項目3「負のコントロール」 — 変異 **`noscworld`** / **`stalepages`** を追加。変異 15 → **17 本**
-  - 本コミット 項目4「締め」 — golden 2 本の非退行 / 本 §12 の実測記録 / 台帳へ #48 完了
+  - `d9fd5d2` 項目4「締め」 — golden 2 本の非退行 / 本 §12 の実測記録 / 台帳へ #48 完了
 - `node tools/verify_player_sheet.js` → **73/73 PASSED / FAILED 0 / PENDING 0**(着手前 66/70 FAILED 4)
 - `node tools/verify_player_sheet.js --negative` → **111/111 PASSED / FAILED 0 / PENDING 0**(着手前 91/101 FAILED 10。変異 **17 本** PENDING 0)
 - `--mutate noscworld` 単体の実測(⭐ **どの節が赤くなったか**。予測は (0e) のみ):
