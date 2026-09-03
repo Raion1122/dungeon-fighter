@@ -265,6 +265,101 @@
     return null;
   }
 
+  // ══ 種つき乱数 (依頼書 §6-2) ═══════════════════════════════════════════════
+  /* ⚠⚠⚠ **確率のままだとドライバが間欠で赤くなる。** #41 で NPC の巡回が
+       verify_town_map を 38% / 15% / 8% の確率で落とし、原因の特定に丸一日かかった。
+     ⭐ 種は **URL の ?roadseed=N** から読む。⛔ __world へ書き込みの窓を作らない
+       (「__world は読むためだけ」と #23 / #40 / #43 の 3 枚が明記している)。
+     ⚠ 種が無いときは Math.random() 由来の種を **1 回だけ**引く
+       = 本番の姿は 1 バイトも変わらない (毎回ちがう出来事が起きる)。
+     ⛔ 発火判定で Math.random を **直接**使わない (変異 seedignore が番人)。
+     ⛔ ?roadseed は撤退スイッチではない —— 決定論のシームであって機能の on/off ではない。 */
+  var SEED_PARAM = "roadseed";
+  var seedInfo = null, rndState = 0;
+  function ensureRnd() {
+    if (seedInfo) return;
+    var raw = null;
+    try { raw = new URLSearchParams(location.search).get(SEED_PARAM); } catch (e) { raw = null; }
+    var n = (raw === null || raw === "") ? NaN : Number(raw);
+    seedInfo = isFinite(n) ? { seed: (n >>> 0), fromUrl: true }
+                           : { seed: (Math.random() * 4294967296) >>> 0, fromUrl: false };
+    rndState = seedInfo.seed;
+  }
+  /* mulberry32 (1 行 PRNG)。⛔ ここを Math.random へ戻さない。 */
+  function rnd() {
+    ensureRnd();
+    rndState = (rndState + 0x6D2B79F5) >>> 0;
+    var t = rndState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  function seed() { ensureRnd(); return seedInfo.seed; }
+  function seedFromUrl() { ensureRnd(); return seedInfo.fromUrl; }
+
+  /* 地形の発生率で 1 回振る。⭐ 呼び手 (world.html) は確率を 1 つも知らない
+     (⛔ 5% / 20% を world.html へ写さない。変異 alwaysfire が番人)。 */
+  function roll(terrain) { return rnd() < rateOf(terrain); }
+  /* その地形のイベントを 1 件引く。⛔ 「いつも先頭」にしない (swamp は 2 件ある)。 */
+  function pickEvent(terrain) {
+    var list = eventsFor(terrain);
+    if (!list.length) return null;
+    return list[Math.floor(rnd() * list.length) % list.length];
+  }
+
+  // ══ party — 誰が判定するか (依頼書 §2-3 の罠 B) ════════════════════════════
+  /* ⚠⚠⚠ **4 人分は sessionStorage / localStorage は主人公 1 人だけ。**
+       tavern.html:6948 / :7034 が sessionStorage へ 4 人分を書き、
+       title.html:737 / tavern.html:4973 が localStorage へ主人公 1 人だけを書く。
+       localStorage を読むと「4 人で歩いているのに 1 人で判定する」嘘になる
+       (変異 localparty が番人 = (2a) が判定パネルのロスターの行数で見る)。
+     ⛔⛔⛔ **removeItem を絶対に呼ばない。** world.html の #23 規律 =
+       「一回性のキーを 1 つも消さない。読むだけ = peek」。exitVia を消すと帰還先が、
+       lastResult を消すと酒場のリザルト画面が黙って壊れる ((2c) が配信バイトの数で見る)。
+     ⭐ name は window.HERO_CLASSES から引く (⛔ 職業名を写経しない)。 */
+  var PARTY_KEY = "dragonfighters.partyComposition";
+  var PARTY_FALLBACK = "warrior";           /* heroClassKey() の fail-safe と同じ倒し方 */
+  function readKeys(raw) {
+    var a = null;
+    try { a = JSON.parse(raw || "[]"); } catch (e) { a = null; }
+    if (!Array.isArray(a)) return [];
+    return a.filter(function (k) { return typeof k === "string" && k.length > 0; });
+  }
+  function classNameOf(key) {
+    var list = global.HERO_CLASSES || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].classKey === key) return list[i].name || key;
+    }
+    return key;
+  }
+  function buildParty() {
+    var raw = null;
+    try { raw = sessionStorage.getItem(PARTY_KEY); } catch (e) { raw = null; }   /* ① 4 人分 (peek のみ) */
+    var keys = readKeys(raw);
+    if (!keys.length) {
+      try { raw = localStorage.getItem(PARTY_KEY); } catch (e) { raw = null; }   /* ② 主人公 1 人 */
+      keys = readKeys(raw);
+    }
+    if (!keys.length) keys = [PARTY_FALLBACK];                                   /* ③ どちらも無い */
+    return keys.map(function (k) { return { classKey: k, name: classNameOf(k) }; });
+  }
+
+  // ══ 結末の文 (依頼書 §6-3) ════════════════════════════════════════════════
+  /* ⚠ SkillCheck.resolveSkillCheck は **null を返しうる** (未知の checkKey /
+       代表者が選べない)。null のときは **失敗扱いにせず**、判定なしの結末へ倒す。
+       ⛔ 黙って何も出さないのは禁止 (プレイヤーには器が開いたままに見える)。 */
+  function noRollText(ev) {
+    var cs = (ev && ev.choices) || [];
+    for (var i = 0; i < cs.length; i++) if (!cs[i].check && cs[i].result) return cs[i].result;
+    return "";
+  }
+  function resultText(ev, choice, outcome) {
+    if (!choice) return noRollText(ev);
+    if (!choice.check) return choice.result || noRollText(ev);
+    if (!outcome) return noRollText(ev);
+    return outcome.success ? choice.success : choice.fail;
+  }
+
   // ══ 器 (#worldEventBox の描画) ═══════════════════════════════════════════
   /* ⭐⭐⭐ 描画を js/road-events.js 側に置く理由は 2 つ。
        ① (0b) が「world.html の配信バイトに 6 件の文言が 1 文字も出てこない」を要求する
@@ -366,6 +461,10 @@
     /* 引き */
     terrainOf: terrainOf, stops: stops, rateOf: rateOf,
     eventsFor: eventsFor, byId: byId,
+    /* 種つき乱数 (⭐ 決定論のシーム。⛔ Math.random を発火判定で直接使わない) */
+    rnd: rnd, seed: seed, seedFromUrl: seedFromUrl, roll: roll, pickEvent: pickEvent,
+    /* party と結末の文 (⭐ 罠 B と null 結末の唯一の正) */
+    buildParty: buildParty, resultText: resultText,
     /* 器 */
     open: open, showResult: showResult, close: close,
     isOpen: isOpen, current: current, el: el, ARM_MS: ARM_MS

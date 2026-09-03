@@ -1077,6 +1077,65 @@
       elAsk.setAttribute("aria-hidden", "false");
     }
 
+    /* ══ 街道の出来事 (依頼書 #45 §6) ═══════════════════════════════════
+       ⭐ ここが決めるのは「どの停留所で / 何度まで / 今開いてよいか」だけ。
+         文言・地形・発生率・party・乱数の唯一の正は **js/road-events.js**。
+         ⛔ 文言も確率もここへ 1 文字も写さない ((0b) が配信バイトを全文検索する)。
+       ⛔ **storage へ 1 バイトも書かない。** roadVisited は「この滞在だけ」の JS 変数で、
+         ページを開き直せば忘れる (依頼書 §6-1)。世界の状態ではない。
+       ⚠ 撤退 ?roadevent=0 は ROAD_EVENT_ON を false にするだけで済む (項目 4)。 */
+    var ROAD_EVENT_ON = true;
+    var roadVisited = {}, roadFiredCount = 0, roadLast = null;
+
+    /* 拠点では出さない = 入場ダイアログが優先 ((1b) / 変異 sitefire が番人)。
+       ⚠⚠ **通りすがりの拠点** (phlan / forest / mine …) もここで落ちる —— 下の
+         onArriveStep は「押した行き先へ着いた」ときしか return しないので、
+         この 1 行が無いと通過中の拠点で街道の出来事が起きる。 */
+    function isRoadSite(id) { return WM.has(id) && !!NODES[id] && NODES[id].kind === "site"; }
+
+    function maybeRoadEvent(atId) {
+      if (!ROAD_EVENT_ON) return false;                 /* 撤退 ?roadevent=0 (§7) */
+      if (walkStepOff) return false;                    /* ⚠ 撤退モードは 1 回で全経路を歩く */
+      if (moving) return false;                         /* 歩行アニメの最中に開かない ((3d)) */
+      var RE = window.ROAD_EVENTS;
+      if (!RE || typeof RE.roll !== "function") return false;
+      if (isRoadSite(atId)) return false;
+      if (roadVisited[atId]) return false;              /* この滞在で 2 度目 ((3a)) */
+      roadVisited[atId] = true;
+      var terrain = RE.terrainOf(atId);
+      if (!terrain) return false;
+      if (!RE.roll(terrain)) return false;              /* 地形ごとの発生率 (表は road-events.js) */
+      var ev = RE.pickEvent(terrain);
+      if (!ev) return false;
+      roadFiredCount++;
+      roadLast = { at: atId, terrain: terrain, event: ev.id, choice: null, success: null, text: null };
+      RE.open(ev, function (choice) { onRoadChoice(ev, choice); });
+      return true;
+    }
+
+    /* 二択が押されたとき。⭐ 判定つきなら d20 を振り、結末の文を出し分ける。
+       ⚠ resolveSkillCheck は **null を返しうる** (未知の checkKey / 代表者が選べない)。
+         null は **失敗ではない** —— 判定なしの結末へ倒す (⛔ 黙って何も出さないのは禁止)。
+       ⚠ opts.iconContext は渡さない (Phase 1 では肖像は不要 = 領域ごと非表示になる)。
+       ⛔ opts.auto も ?autoplay も使わない (UI を出さず即解決してしまう)。 */
+    function onRoadChoice(ev, choice) {
+      if (roadLast) roadLast.choice = (choice && choice.label) || null;
+      var SC = window.SkillCheck;
+      if (!choice || !choice.check || !SC || typeof SC.resolveSkillCheck !== "function") {
+        finishRoadEvent(ev, choice, null);
+        return;
+      }
+      SC.resolveSkillCheck(ev.checkKey, ev.dc, window.ROAD_EVENTS.buildParty(),
+                           { title: ev.title, flavor: ev.intro })
+        .then(function (o) { finishRoadEvent(ev, choice, o); });
+    }
+    function finishRoadEvent(ev, choice, outcome) {
+      var RE = window.ROAD_EVENTS;
+      var text = RE.resultText(ev, choice, outcome);
+      if (roadLast) { roadLast.success = outcome ? !!outcome.success : null; roadLast.text = text; }
+      RE.showResult(ev, text, null);
+    }
+
     /* ══ 到着フック = ランダムイベントの器 (#40 §6-2) ═══════════════════
        ⭐ **器だけ**。⛔ ここでイベントを起こさない (後続チケットの担当。
          (4c) が「刻み点に着いても何も起きない」ことを機械で縛っている)。
@@ -1099,7 +1158,10 @@
              (walkPath は中継ノードで何も鳴らさない) ので、これが本当の「今日のまま」。
          ⛔ onArriveNode 自体は 1 バイトも変えていない。変えたのは **呼ぶ条件**だけ。
          ⛔ 通りすがりでイベントを起こさない ((4c) が縛る)。 */
-      if (lastArrival.arrived && WM.has(atId)) onArriveNode(atId);
+      if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return; }   /* ⭐ 入場が優先 */
+      /* ★ 街道の出来事 (#45 §6-1)。⛔ walkPath の中からは呼ばない —— 撤退時は
+         中継ノードを通過するので回数が合わなくなる (変異 arrivedup が縛る)。 */
+      maybeRoadEvent(atId);
     }
 
     /* ══ 1 タップ = 経路上の「次の 1 点」まで (#40 §6-1) ══════════════════
@@ -1206,6 +1268,18 @@
          ⛔ ドライバ側へ 9 / 13 / 32 / 8 を直書きさせない。 */
       heroMarkGeom: function () { return { w: HM_W, h: HM_H, gap: HM_GAP,
                                            headTop: HEAD_TOP, sprite: SPRITE, foot: FOOT }; },
+      /* ── #45 が足した窓 (⛔ 読むためだけ。ここへ状態を置かない) ────────────
+         on      … 撤退 ?roadevent=0 が効いていないか (項目 4 がここを false にする)
+         seed    … ?roadseed=N の種。⭐ **種は URL から渡す** ——
+                   ⛔ ここへ書き込みの窓を作らない (#23 / #40 / #43 の 3 枚が明記)
+         fired   … これまでに発火した件数 (1 停留所につき最大 1)
+         last    … 直近の 1 件 {at, terrain, event, choice, success, text}
+         visited … この滞在で **判定を通した** 停留所 (⛔ storage には 1 バイトも書かない) */
+      roadEvent: function () {
+        var RE = window.ROAD_EVENTS;
+        return { on: ROAD_EVENT_ON, seed: (RE && RE.seed) ? RE.seed() : null,
+                 fired: roadFiredCount, last: roadLast, visited: Object.keys(roadVisited) };
+      },
       /* ワールド px → クライアント座標。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
          ドライバが「ノードを実際にクリックする」ために要る。 */
       clientFromWorld: function (x, y) {

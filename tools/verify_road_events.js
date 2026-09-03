@@ -70,6 +70,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');            // (4a) の恒等ハッシュ
 
 // ⚠ path.resolve 必須。区切り文字のまま持つと fp.startsWith(ROOT) が常に false になり
 //   全リクエストが 404 → 症状は「タイムアウト」だけで実装の欠陥に見える。
@@ -105,10 +106,25 @@ const MUTATIONS = {
   /* ── ここから下は本体 (js/road-events.js + world.html の器/発火) が要る ──
      ⛔ 実装したら impl: true にして from/to を埋め、PENDINGS からも外すこと
        (片方だけだと件数が合わなくなる)。 */
-  localparty: { impl: false, file: 'js/road-events.js', targets: ['2a'],
-    why: 'party を sessionStorage ではなく localStorage から読む (罠 B の再現)' },
-  askreuse: { impl: false, file: 'world.html', targets: ['1a'],
-    why: 'イベントを #worldEnterAsk へ出す (器の取り違え)' },
+  /* ⭐⭐⭐ 依頼書 §2-3 の罠 B そのものの再現。party を sessionStorage (4 人分) ではなく
+     localStorage (主人公 1 人だけ) から読む。
+     ⛔ これが赤くならないなら (2a) は「4 人で歩いているのに 1 人で判定する」を何も検査していない。 */
+  localparty: {
+    impl: true, file: 'js/road-events.js', targets: ['2a'],
+    why: 'party を sessionStorage ではなく localStorage から読む (罠 B の再現)',
+    from: '    try { raw = sessionStorage.getItem(PARTY_KEY); } catch (e) { raw = null; }   /* ① 4 人分 (peek のみ) */',
+    to: '    try { raw = localStorage.getItem(PARTY_KEY); } catch (e) { raw = null; }   /* [neg localparty] 主人公 1 人だけを読む */',
+  },
+  /* 器の取り違え。#worldEnterAsk は __world.askOpen() が握っており、
+     verify_world_steps (4c) の条件②の番人 —— 流用した瞬間に既存 golden も赤くなる。
+     ⚠ askEnter(id) は NODES[id].label を読む。刻み点 id を渡すと TypeError になり
+       「器の取り違え」ではなく「例外」を測ってしまうので、**拠点 id** を渡す。 */
+  askreuse: {
+    impl: true, file: 'world.html', targets: ['1a'],
+    why: 'イベントを #worldEnterAsk へ出す (器の取り違え)',
+    from: '      RE.open(ev, function (choice) { onRoadChoice(ev, choice); });',
+    to: '      askEnter("temple");   /* [neg askreuse] 街道の出来事を #worldEnterAsk へ出す */',
+  },
   /* ⭐ 依頼書 §8 の copytext。world.html のコメント 1 行を、イベントの **実物の文言**
      (title + 二択の label) へ差し替える = 「写経した」状態の再現。
      ⛔ これが赤くならないなら (0b) は「文言が world.html に無い」を何も検査していない。
@@ -120,26 +136,76 @@ const MUTATIONS = {
     from: '  <!-- 街道の出来事の器 (依頼書 #45 §5-2)。⛔ 文言はここに書かない —— 唯一の正は js/road-events.js',
     to: '  <!-- [neg copytext] 桟橋のいざこざ / 間に割って入り、話をまとめる / 関わらず、荷の脇をすり抜ける',
   },
-  neverfire: { impl: false, file: 'world.html', targets: ['0d'],
-    why: 'イベントを 1 件も発火させない' },
-  alwaysfire: { impl: false, file: 'js/road-events.js', targets: ['3b'],
-    why: '確率を無視して毎停留所で出す' },
-  revisit: { impl: false, file: 'world.html', targets: ['3a'],
-    why: '再訪でもイベントを出す' },
-  sitefire: { impl: false, file: 'world.html', targets: ['1b'],
-    why: '拠点 (site) でもイベントを出す' },
+  /* 1 件も発火させない。⭐ (0d) は母集団の assert —— 「対象停留所に着いたタップ」だけでなく
+     「実際に 1 件は発火した」まで見るので、ここが赤くなる
+     (⛔ 到着だけを数える (0d) だと、この変異は空振りする = 項目 3 で足した条件)。
+     ⚠ RE.roll は呼んだまま条件だけ潰す (乱数の消費列を変えない)。 */
+  neverfire: {
+    impl: true, file: 'world.html', targets: ['0d'],
+    why: 'イベントを 1 件も発火させない',
+    from: '      if (!RE.roll(terrain)) return false;              /* 地形ごとの発生率 (表は road-events.js) */',
+    to: '      if (RE.roll(terrain) || true) return false;   /* [neg neverfire] 1 件も出さない */',
+  },
+  /* 確率を無視して毎回出す。⭐ (3b) の「地形ごとに違う」が swamp == coast == 1.0 で崩れる。 */
+  alwaysfire: {
+    impl: true, file: 'js/road-events.js', targets: ['3b'],
+    why: '確率を無視して毎停留所で出す',
+    from: '  function roll(terrain) { return rnd() < rateOf(terrain); }',
+    to: '  function roll(terrain) { rnd(); return terrain !== null; }   /* [neg alwaysfire] 確率を無視 */',
+  },
+  /* 再訪でも出す。⭐ **決定論的に**出す —— 「20% でもう一度振る」だと変異が 8 割空振りして
+     負のコントロールそのものが間欠になる (#41 の教訓)。 */
+  revisit: {
+    impl: true, file: 'world.html', targets: ['3a'],
+    why: '再訪でもイベントを出す',
+    from: '      if (roadVisited[atId]) return false;              /* この滞在で 2 度目 ((3a)) */',
+    to: '      if (roadVisited[atId]) { roadFiredCount++; roadLast = { at: atId, terrain: "neg", event: "neg", choice: null, success: null, text: null }; window.ROAD_EVENTS.open(window.ROAD_EVENTS.EVENTS[0], function () {}); return true; }   /* [neg revisit] 再訪でも出す */',
+  },
+  /* 拠点でも出す。⭐ 同じく決定論的に —— 通りすがりの拠点は 3 件しか無く、
+     素の確率 (5% / 10% / 18%) に任せると 3 割しか当たらない。 */
+  sitefire: {
+    impl: true, file: 'world.html', targets: ['1b'],
+    why: '拠点 (site) でもイベントを出す',
+    from: '    function isRoadSite(id) { return WM.has(id) && !!NODES[id] && NODES[id].kind === "site"; }',
+    to: '    function isRoadSite(id) { if (WM.has(id) && !!NODES[id] && NODES[id].kind === "site") { roadFiredCount++; roadLast = { at: id, terrain: "neg", event: "neg", choice: null, success: null, text: null }; window.ROAD_EVENTS.open(window.ROAD_EVENTS.EVENTS[0], function () {}); } return false; }   /* [neg sitefire] 拠点でも出す */',
+  },
   retreatfire: { impl: false, file: 'world.html', targets: ['3c'],
     why: '?walkstep=0 (撤退モード) でもイベントを出す' },
-  seedignore: { impl: false, file: 'js/road-events.js', targets: ['0c'],
-    why: '?roadseed を無視して Math.random を直接使う' },
-  movefire: { impl: false, file: 'world.html', targets: ['3d'],
-    why: '移動中 (isMoving) でもイベントを開く' },
-  sameresult: { impl: false, file: 'js/road-events.js', targets: ['3f'],
-    why: '成功と失敗で同じ文を出す' },
+  /* ?roadseed を無視して Math.random を直接使う。⭐ (0c) は「発火した停留所の列」だけでなく
+     **乱数 32 連の署名**も 2 枚のタブで突き合わせるので、ここは確実に赤くなる
+     (⛔ 発火列だけだと、たまたま両方 0 件で一致して 2 割ほど空振りする)。 */
+  seedignore: {
+    impl: true, file: 'js/road-events.js', targets: ['0c'],
+    why: '?roadseed を無視して Math.random を直接使う',
+    from: '    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;',
+    to: '    return Math.random();   /* [neg seedignore] 種を無視する */',
+  },
+  /* 移動中でも開く = 依頼書が ⛔ と書いた「walkPath の中から呼ぶ」設計そのもの。
+     ⚠⚠ (3d) は器が開いた **瞬間** を同期で捕まえないと検出できない —— rAF の 1 ブロックの
+       中で「開く → stopWalk() で moving=false」まで走り切るため、MutationObserver で
+       読むと moving は必ず false に見えて永久に緑になる。 */
+  movefire: {
+    impl: true, file: 'world.html', targets: ['3d'],
+    why: '移動中 (isMoving) でもイベントを開く',
+    from: '          heroNodeId = ids[idx];',
+    to: '          heroNodeId = ids[idx]; if (window.ROAD_EVENTS) window.ROAD_EVENTS.open(window.ROAD_EVENTS.EVENTS[0], function () {});   /* [neg movefire] 歩行中に開く */',
+  },
+  /* 成功と失敗で同じ文を出す。⭐ (3f) は「違うこと」だけでなく、success / fail の
+     **どちらの文が出たか**まで ROAD_EVENTS の実体と突き合わせる。 */
+  sameresult: {
+    impl: true, file: 'js/road-events.js', targets: ['3f'],
+    why: '成功と失敗で同じ文を出す',
+    from: '    return outcome.success ? choice.success : choice.fail;',
+    to: '    return choice.success;   /* [neg sameresult] 成功と失敗で同じ文 */',
+  },
   retreatkeep: { impl: false, file: 'world.html', targets: ['5a'],
     why: '?roadevent=0 でも器を DOM に残す (display:none で残す)' },
-  nodecount: { impl: false, file: 'js/road-events.js', targets: ['0e'],
-    why: 'イベントの母集団を way + step から刻み点だけへ狭める' },
+  nodecount: {
+    impl: true, file: 'js/road-events.js', targets: ['0e'],
+    why: 'イベントの母集団を way + step から刻み点だけへ狭める',
+    from: '    for (k in W.NODES) if (has(W.NODES, k) && W.NODES[k].kind === "way") out.push(k);',
+    to: '    /* [neg nodecount] 中継点を母集団から外す (刻み点だけへ狭める) */',
+  },
 };
 
 const MUT_ORDER = ['noscript', 'localparty', 'askreuse', 'copytext', 'neverfire', 'alwaysfire',
@@ -311,6 +377,41 @@ async function measureBoot(browser, port, errs, opts) {
       heroClassesType: typeof window.HERO_CLASSES,
       ways: ways, sites: sites, steps: steps,
       pop: ways.concat(steps),
+      /* ⭐ (4a) の恒等ハッシュの材料。⛔ ドライバへ写経せず毎回ここから引く
+         (nodesFP / edgesFP の式は tools/verify_world_steps.js:497 の (1d) と同じ。
+          そこに **STEPS を足して** #45 が刻み点の派生レイヤも動かしていないことまで見る)。 */
+      ident: (function () {
+        const nodesFP = Object.keys(WM.NODES).map(function (id) {
+          const n = WM.NODES[id];
+          return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—');
+        });
+        const edgesFP = WM.EDGES.map(function (e) { return e[0] + '__' + e[1]; });
+        const stepsFP = Object.keys(WM.STEPS || {}).slice().sort().map(function (id) {
+          const s = WM.STEPS[id];
+          return id + ':' + s.kind + ':' + s.x.toFixed(3) + ',' + s.y.toFixed(3)
+            + ':' + (s.on || []).join('|');
+        });
+        return { nodesFP: nodesFP, edgesFP: edgesFP, stepsFP: stepsFP, sites: WM.SITES };
+      })(),
+      /* ⭐ (4b) の材料 —— __world の窓の **キーと型**、および起動直後の返り値。
+         ⛔ 「キーが在る」だけで済ませない (#38「キー集合だけの恒等 assert」の教訓)。 */
+      seam: (function () {
+        const W = window.__world; if (!W) return null;
+        const types = {}; Object.keys(W).forEach(function (k) { types[k] = typeof W[k]; });
+        let cfn = null; try { cfn = W.clientFromNode('phlan'); } catch (e) { cfn = 'throw'; }
+        let hmg = null; try { hmg = W.heroMarkGeom(); } catch (e) { hmg = 'throw'; }
+        let hg = null; try { hg = W.heroGeom(); } catch (e) { hg = 'throw'; }
+        let re = null; try { re = (typeof W.roadEvent === 'function') ? W.roadEvent() : null; } catch (e) { re = 'throw'; }
+        return {
+          keys: Object.keys(W), types: types,
+          heroNode: W.heroNode(), askOpen: W.askOpen(), isMoving: W.isMoving(),
+          arrivalCount: W.arrivalCount(), lastArrival: W.lastArrival(),
+          walkStepOff: W.walkStepOff(), stepMaxPx: W.stepMaxPx(),
+          stepIds: W.stepIds().length, nodeIds: W.nodeIds().length,
+          heroMarkOn: W.heroMarkOn(), heroMarkGeom: hmg, heroGeom: hg,
+          clientFromNode: cfn, roadEvent: re,
+        };
+      })(),
       /* 後続項目 (§1 / §5) が読む器。項目 1 では **まだ無いのが正しい**。 */
       hasEventBox: !!document.getElementById('worldEventBox'),
       hasRoadEventSeam: !!(window.__world && typeof window.__world.roadEvent === 'function'),
@@ -354,10 +455,39 @@ async function measureBoot(browser, port, errs, opts) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 種 (決定論のシーム) — ⭐ **ドライバの定数**。⛔ ページから読まない
+//   (ページから読むと「?roadseed を無視する実装」を検出できない = 変異 seedignore)。
+// ⚠⚠⚠ 確率のままだとドライバは間欠で赤くなる (#41 の NPC 巡回が verify_town_map を
+//   38% / 15% / 8% で落とし、原因の特定に丸一日かかった)。下の 2 つは 2026-09-03 に
+//   mulberry32 をオフラインで回して選んだ種で、実走行の発火列がそれぞれ決まっている。
+//     SEED_MAIN … pier → fort (対象停留所 5 / うち 4 つが swamp) で **複数件**発火する
+//     SEED_NEAR … **2 タップ目**の cross_n (coast) で必ず 1 件発火する
+//                 = 二択を押す測定 ((2a)(2b)(3f)) を 2 タップで済ませられる
+// ⚠ 行き先に phlan を選ばないこと —— enter を持つただ 1 つのノードで、着いた瞬間に
+//   location.href で town.html へ飛び、以後の測定が全部死ぬ。
+// ⚠ 押した行き先へ「着いた」タップでは入場が優先されて出来事は出ない。だから
+//   DEST_NEAR は cross_n ではなく **その先の swamp**。
+// ══════════════════════════════════════════════════════════════════════════════
+const SEED_MAIN = 282;
+const SEED_NEAR = 7;
+const DEST_MAIN = 'fort';
+const DEST_NEAR = 'swamp';
+/* party の出所 (依頼書 §2-3 の罠 B)。⛔ world.html は storage へ 1 バイトも書かないので
+   ドライバ側で用意する。⚠ localStorage はプロファイル共有 = 毎回明示的に書くか消す。 */
+const PARTY4 = ['warrior', 'dwarf', 'elf', 'cleric'];   /* sessionStorage 側 (4 人分) */
+const PARTY1 = ['cleric'];                              /* localStorage 側 (主人公 1 人) */
+/* ⭐ js/skill-check.js の d20 は **Math.random 由来**で ?roadseed の PRNG とは別系統。
+   成功と失敗の**両方**を引くにはここを固定するしかない
+   (⛔ js/skill-check.js は 1 バイトも触らない / ⛔ opts.auto も ?autoplay も使わない)。 */
+const D20_WIN = 0.999;    /* → d20 = 20 (クリティカル成功) */
+const D20_LOSE = 0.0;     /* → d20 = 1  (ファンブル失敗) */
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 観測 B) 実操作 — 実クリックだけで歩く (⛔ goToPoint を evaluate から呼ばない)
 // ══════════════════════════════════════════════════════════════════════════════
-const MAX_TAPS = 16;
+const MAX_TAPS = 24;
 const TAP_SETTLE_MS = 140;
+const ARM_PAD_MS = 180;   /* ROAD_EVENTS.ARM_MS への上乗せ (#35 のゴーストクリック除け) */
 
 async function readPlay(page) {
   /* ⚠ try/catch は必須。ページが world.html を離れると evaluate は
@@ -370,6 +500,7 @@ async function readPlay(page) {
         dead: false, node: W.heroNode(), px: W.heroPx(),
         arrivals: W.arrivalCount(), last: W.lastArrival(),
         askOpen: W.askOpen(), moving: W.isMoving(),
+        road: (typeof W.roadEvent === 'function') ? W.roadEvent() : null,
         path: location.pathname, search: location.search,
       };
     });
@@ -420,11 +551,120 @@ async function tapPoint(page, id, why) {
   return tapAt(page, pt.x, pt.y, id, why);
 }
 
+/* ── 街道の出来事の器を **本物の UI 経路で**畳む ──────────────────────────────
+   ⛔ ROAD_EVENTS.close() を evaluate から呼ばない (押し口が壊れていても永久に緑になる)。
+   ⚠ 選択肢は「1 番目」で決め打ちしない —— ROAD_EVENTS の choices[].check から引く。
+   ⚠ 開いてから ARM_MS (ゴーストクリック除け) を必ず待つ。 */
+async function eventState(page) {
+  return safeEval(page, () => {
+    const RE = window.ROAD_EVENTS;
+    const box = document.getElementById('worldEventBox');
+    const ov = document.getElementById('skillCheckOverlay');
+    const t = document.getElementById('worldEventTitle');
+    const x = document.getElementById('worldEventText');
+    return {
+      open: !!(RE && typeof RE.isOpen === 'function' && RE.isOpen()),
+      boxShow: !!(box && box.classList.contains('show')),
+      display: box ? getComputedStyle(box).display : null,
+      title: t ? t.textContent : null,
+      text: x ? x.textContent : null,
+      btns: Array.prototype.slice.call(document.querySelectorAll('#worldEventBtns .worldEventBtn'))
+        .map(b => b.textContent),
+      overlayExists: !!ov,
+      overlayShow: !!(ov && ov.classList.contains('show')),
+      askOpen: !!(window.__world && window.__world.askOpen()),
+      current: (RE && typeof RE.current === 'function' && RE.current()) ? RE.current().id : null,
+    };
+  });
+}
+async function clickEventBtn(page, label) {
+  const r = await safeEval(page, (lab) => {
+    const bs = Array.prototype.slice.call(document.querySelectorAll('#worldEventBtns .worldEventBtn'));
+    const b = lab ? bs.filter(x => x.textContent === lab)[0] : bs[0];
+    if (!b) return null;
+    const q = b.getBoundingClientRect();
+    return { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+  }, label || null);
+  if (!r) return false;
+  await page.mouse.click(Math.round(r.x), Math.round(r.y));
+  return true;
+}
+/* mode: 'none' = 判定なしの選択肢を押す / 'check' = 判定つきの選択肢を押す */
+async function resolveOpenEvent(page, mode, armWait) {
+  const st0 = await eventState(page);
+  if (!st0 || !st0.open) return null;
+  const rec = { mode: mode, event: st0.current, title: st0.title, intro: st0.text,
+    btns: st0.btns, ok: false, why: '' };
+  await sleep(armWait);
+  const label = await safeEval(page, (o) => {
+    const RE = window.ROAD_EVENTS;
+    const ev = (typeof RE.byId === 'function') ? RE.byId(o.id) : null;
+    if (!ev) return null;
+    const c = (ev.choices || []).filter(x => !!x.check === o.want)[0];
+    return c ? c.label : null;
+  }, { id: st0.current, want: mode === 'check' });
+  rec.label = label;
+  if (!label) { rec.why = '選択肢が引けない (ROAD_EVENTS.byId が null)'; return rec; }
+  await clickEventBtn(page, label);
+  if (mode === 'check') {
+    try {
+      await page.waitForFunction(
+        "!!document.getElementById('skillCheckOverlay') && document.getElementById('skillCheckOverlay').classList.contains('show')",
+        { timeout: 9000, polling: 60 });
+      rec.panel = await safeEval(page, () => {
+        const ov = document.getElementById('skillCheckOverlay');
+        const rows = Array.prototype.slice.call(ov.querySelectorAll('.scRoster .scRow'));
+        return {
+          rows: rows.length,
+          names: rows.map(r => ((r.querySelector('.scName') || {}).textContent || '').trim()),
+          meta: (ov.querySelector('.scMeta') || {}).textContent || '',
+          title: (ov.querySelector('.scTitle') || {}).textContent || '',
+          flavor: (ov.querySelector('.scFlavor') || {}).textContent || '',
+          z: parseInt(getComputedStyle(ov).zIndex, 10),
+        };
+      });
+    } catch (e) { rec.panel = null; rec.why += ' 判定パネルが出ない'; }
+    /* AUTO_ROLL_MS(2000) → 演出 → RESULT_HOLD_MS(3600) で自動的に閉じる。⛔ 尺は触らない。 */
+    try {
+      await page.waitForFunction(
+        "!document.getElementById('skillCheckOverlay') || !document.getElementById('skillCheckOverlay').classList.contains('show')",
+        { timeout: 25000, polling: 100 });
+    } catch (e) { rec.why += ' 判定が閉じない'; }
+  }
+  /* 結末の 1 文 + 「先へ進む」の 1 ボタンへ変わるのを待つ。 */
+  try {
+    await page.waitForFunction(
+      "(function(){var b=document.getElementById('worldEventBtns');return !!b && b.children.length===1;})()",
+      { timeout: 12000, polling: 80 });
+  } catch (e) { rec.why += ' 結末が出ない'; }
+  const st1 = await eventState(page);
+  rec.resultTitle = st1 ? st1.title : null;
+  rec.resultText = st1 ? st1.text : null;
+  rec.overlayExists = st1 ? st1.overlayExists : null;
+  rec.doneBtns = st1 ? st1.btns : null;
+  rec.roadLast = await safeEval(page, () => {
+    const W = window.__world;
+    return (W && typeof W.roadEvent === 'function') ? W.roadEvent().last : null;
+  });
+  await sleep(armWait);
+  await clickEventBtn(page, null);
+  await sleep(200);
+  const st2 = await eventState(page);
+  rec.closed = !!(st2 && !st2.open);
+  rec.ok = !!(rec.resultText && rec.closed);
+  return rec;
+}
+
 async function measurePlay(browser, port, errs, opts) {
   opts = opts || {};
-  const out = { query: opts.query || '', taps: [] };
+  const seed = (opts.seed === undefined) ? SEED_MAIN : opts.seed;
+  const dest = opts.dest || DEST_MAIN;
+  const mode = opts.resolve || 'none';
+  const query = '?roadseed=' + seed + (opts.extraQuery || '');
+  const out = { seed: seed, dest: dest, mode: mode, query: query,
+    taps: [], back: [], arrivals: [], events: [] };
   const page = await browser.newPage();
-  const tag = '[:' + port + (opts.query || '') + ' play] ';
+  const tag = '[:' + port + query + ' play] ';
   page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
   page.on('console', mm => {
     if (mm.type() !== 'error') return;
@@ -433,11 +673,54 @@ async function measurePlay(browser, port, errs, opts) {
     if (/\/favicon\.ico$/.test(url)) return;
     errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
   });
-  await page.setViewport({ width: 1280, height: 900 });
-  await page.goto('http://localhost:' + port + PAGE_PATH + (opts.query || ''),
+  /* ⭐ party の出所を作る。⚠ localStorage はプロファイル共有なので、指定が無い走行では
+     **明示的に消す** (前の走行の残りが次の走行の期待値を汚す)。 */
+  await page.evaluateOnNewDocument((s) => {
+    const K = 'dragonfighters.partyComposition';
+    try { if (s.local) localStorage.setItem(K, JSON.stringify(s.local)); else localStorage.removeItem(K); } catch (e) {}
+    try { if (s.session) sessionStorage.setItem(K, JSON.stringify(s.session)); } catch (e) {}
+  }, { local: opts.local || null, session: opts.session || null });
+  if (typeof opts.force === 'number') {
+    await page.evaluateOnNewDocument((v) => { Math.random = function () { return v; }; }, opts.force);
+  }
+  await page.setViewport(opts.viewport || { width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + query,
     { waitUntil: 'load', timeout: 30000 });
   await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
   await settle(page);
+
+  /* ⭐⭐⭐ 器が **開いた瞬間** を同期で捕まえる。
+     ⚠⚠ MutationObserver では間に合わない —— rAF の 1 ブロックの中で「開く →
+       stopWalk() で moving=false」まで走り切るので、マイクロタスクで読むと
+       isMoving() は必ず false に見え、(3d) が永久に緑になる。
+     ⛔ これは「駆動」ではなく「計測」。歩くのは実クリックだけ。 */
+  await page.evaluate(() => {
+    window.__roadOpen = [];
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.open !== 'function') return;
+    const orig = RE.open;
+    RE.open = function (ev, cb) {
+      const rec = { id: (ev && ev.id) || null, at: null, fired: null, terrain: null,
+        moving: !!(window.__world && window.__world.isMoving()),
+        askOpenBefore: !!(window.__world && window.__world.askOpen()) };
+      try {
+        const r = window.__world.roadEvent();
+        rec.at = r.last ? r.last.at : null;
+        rec.terrain = r.last ? r.last.terrain : null;
+        rec.fired = r.fired;
+      } catch (e) {}
+      const ret = orig.apply(this, arguments);
+      try {
+        const b = document.getElementById('worldEventBox');
+        rec.boxShow = !!(b && b.classList.contains('show'));
+        rec.boxDisplay = b ? getComputedStyle(b).display : null;
+        rec.askOpenAfter = !!(window.__world && window.__world.askOpen());
+        rec.overlayExists = !!document.getElementById('skillCheckOverlay');
+      } catch (e) {}
+      window.__roadOpen.push(rec);
+      return ret;
+    };
+  });
 
   /* ⭐ 母集団 (way + step) を **ページの実体から**採る。⛔ 17 を直書きしない。 */
   out.pop = await page.evaluate(() => {
@@ -447,44 +730,107 @@ async function measurePlay(browser, port, errs, opts) {
     const sites = Object.keys(WM.NODES).filter(k => WM.NODES[k].kind === 'site');
     return { ways: ways, steps: steps, sites: sites, ids: ways.concat(steps) };
   });
-
   out.start = await readPlay(page);
-
-  /* ⭐ 行き先は **ページの findWalkPath から選ぶ** (⛔ id をドライバへ直書きしない)。
-     ⛔ enter を持つノード (港町フラン) は選ばない —— 着くと location.href で
-        town.html へ飛び、以後の測定が全部死ぬ (verify_world_steps が実際に踏んだ)。
-     ⭐ 一番遠い拠点を選ぶ = 途中の停留所を最大数踏む = (0d) の母集団が厚くなる。
-     ⚠ findWalkPath は **始点を含まない**ので path.length がそのままホップ数。 */
-  out.destPick = await page.evaluate(() => {
+  /* ⚠ findWalkPath は **始点を含まない** = path.length がそのままホップ数 (依頼書 §2-5)。 */
+  out.destPick = await safeEval(page, (d) => {
     const WM = window.WORLD_MAP, W = window.__world;
     const from = W.heroNode();
-    let best = null;
-    Object.keys(WM.NODES).forEach(function (id) {
-      const n = WM.NODES[id];
-      if (n.kind !== 'site' || n.enter !== undefined || id === from) return;
-      const p = WM.findWalkPath(from, id);
-      if (p && p.length && (!best || p.length > best.path.length)) best = { dest: id, path: p };
-    });
-    return best ? { from: from, dest: best.dest, path: best.path }
-      : { from: from, dest: null, path: null };
-  });
+    return { from: from, dest: d, path: WM.findWalkPath(from, d) };
+  }, dest);
+  const armWait = ((await safeEval(page, () => (window.ROAD_EVENTS && window.ROAD_EVENTS.ARM_MS) || 0)) || 0)
+    + ARM_PAD_MS;
+  out.armWait = armWait;
 
-  /* 押し続けて歩く。⭐ 各タップの到着点 (lastArrival) を残す = (0d) が数える。 */
-  out.arrivals = [];
-  if (out.destPick && out.destPick.dest) {
-    const dest = out.destPick.dest;
-    let lastNode = out.start.dead ? null : out.start.node;
+  async function walkTo(target, bucket) {
+    let lastNode = null;
     for (let i = 0; i < MAX_TAPS; i++) {
-      const t = await tapPoint(page, dest, dest + ' を押す');
-      out.taps.push(t);
+      const t = await tapPoint(page, target, target + ' を押す');
+      bucket.push(t);
       if (!t.ok) break;
       if (t.after.last) out.arrivals.push(t.after.last);
-      if (t.after.node === dest) break;
+      const st = await eventState(page);
+      if (st && st.open) {
+        const rec = await resolveOpenEvent(page, mode, armWait);
+        if (rec) { rec.at = t.after.last ? t.after.last.at : null; out.events.push(rec); }
+        if (!rec || !rec.closed) { t.stuck = true; break; }
+        if (opts.stopAfterEvent) break;
+      }
+      if (t.after.node === target) break;
       if (t.after.node === lastNode) break;   /* 進まなくなった */
       lastNode = t.after.node;
     }
   }
+  if (out.destPick && out.destPick.path && out.destPick.path.length) {
+    await walkTo(dest, out.taps);
+    /* 往復 ((3a) の再訪)。⭐ 帰り道でも中継点は「通りすがり」なので判定は走る。 */
+    if (opts.roundTrip && out.start && !out.start.dead && !out.taps.some(t => t.stuck)) {
+      await walkTo(out.start.node, out.back);
+    }
+  }
+  out.openLog = (await safeEval(page, () => window.__roadOpen || [])) || [];
+  out.roadEnd = await safeEval(page, () => {
+    const W = window.__world;
+    return (W && typeof W.roadEvent === 'function') ? W.roadEvent() : null;
+  });
+  out.overlayExists = await safeEval(page, () => !!document.getElementById('skillCheckOverlay'));
   out.end = await readPlay(page);
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 D) 発生率 — ⭐ 地形ごとに **同じ種で N 回振って**頻度を採る
+//   ⚠ 依頼書 §8 (3b) は「種を変えて N 回走らせ」だが、1 走行が 8 タップ x 歩行アニメで
+//     数十秒かかるため N 回の実走行は現実的でない (N=20 で 13 分)。⭐ 縛るのは
+//     「地形ごとに違う」という **向き**だけなので、発生率を決めている当の関数
+//     (ROAD_EVENTS.roll) を直接 N 回振って向きを見る。変異 alwaysfire がここで赤くなる。
+//   ⛔ 具体値 (5% / 20%) は 1 つも縛らない = 遊んで動かすレバー。
+// ══════════════════════════════════════════════════════════════════════════════
+async function measureRates(browser, port, errs, seed) {
+  const page = await browser.newPage();
+  const tag = '[:' + port + ' rates] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + '?roadseed=' + seed,
+    { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  const out = await safeEval(page, () => {
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.roll !== 'function') return null;
+    const N = 4000, terr = (RE.TERRAINS || []).slice(), freq = {}, rate = {};
+    terr.forEach(function (t) {
+      let c = 0;
+      for (let i = 0; i < N; i++) if (RE.roll(t)) c++;
+      freq[t] = c / N; rate[t] = RE.rateOf(t);
+    });
+    return { N: N, terrains: terr, freq: freq, rate: rate };
+  });
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 E) 種の署名 — ⭐ 同じ ?roadseed で開いた 2 枚のタブが同じ乱数列を返すか
+//   ⚠ 「発火した停留所の列」だけで決定論を測ると、たまたま両方 0 件で一致してしまい
+//     変異 seedignore が 2 割ほど空振りする。⭐ 署名は 32 連ぶんあるので確実に割れる。
+// ══════════════════════════════════════════════════════════════════════════════
+async function measureSeedSig(browser, port, errs, seed) {
+  const page = await browser.newPage();
+  const tag = '[:' + port + ' sig] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + '?roadseed=' + seed,
+    { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  const out = await safeEval(page, () => {
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.rnd !== 'function') return null;
+    const v = [];
+    for (let i = 0; i < 32; i++) v.push(RE.rnd());
+    return { seed: (typeof RE.seed === 'function') ? RE.seed() : null,
+      fromUrl: (typeof RE.seedFromUrl === 'function') ? RE.seedFromUrl() : null,
+      values: v };
+  });
   await page.close();
   return out;
 }
@@ -624,6 +970,13 @@ async function measureBox(browser, port, errs, opts) {
 /* ⛔ 集合の比較は「件数が同じ」で済ませない (件数だけだと入れ替えを検出できない)。 */
 const uniq = (a) => Array.from(new Set(a));
 const eqList = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+/* ⭐ 発火した停留所の列 (器が開いた順)。(0c) の決定論と (3a) の重複検出が読む。
+   ⛔ 件数だけにしない —— 「どこで / どのイベントが」まで含めて初めて列になる。 */
+const firedList = (p) => ((p && p.openLog) || []).map(o => String(o.at) + '#' + String(o.id));
+/* ⭐ (4a) の恒等ハッシュ。2026-09-03 実測 (NODES 14 / EDGES 14 / STEPS 10 / SITES 6)。
+   ⚠ tools/verify_world_steps.js (1d) は NODES/EDGES/SITES だけを 876c5f6336f96811 で
+     縛っている。こちらは **STEPS も混ぜた別の値**なので、両者は別物として並存する。 */
+const IDENT_WANT = '4c0a8a6b3d65cda0';
 
 const ASSERTS = [
   ['0a', '[装置] 素の world.html で window.SkillCheck が object かつ '
@@ -649,8 +1002,9 @@ const ASSERTS = [
         + ' / DFAbilities=' + b.abilitiesType + ' HERO_CLASSES=' + b.heroClassesType];
     }],
 
-  ['0d', '[母集団] 実操作の走行で **イベント対象の停留所 (way + step) に着いたタップ** が 1 件以上'
-    + ' (⛔ 0 件だと「起きない」が自明に真)',
+  ['0d', '[母集団] 実操作の走行で **イベント対象の停留所 (way + step) に着いたタップ** が 1 件以上、'
+    + 'かつ **実際に出来事が 1 件以上発火した** (⛔ 到着 0 件でも発火 0 件でも「起きない」が'
+    + '自明に真になり、§1〜§3 の assert が全部空振りする。変異 neverfire が番人)',
     (m) => {
       const p = m.play;
       if (!p) return [false, '実操作の観測が無い'];
@@ -660,7 +1014,8 @@ const ASSERTS = [
       const hits = (p.arrivals || []).filter(a => a && set[a.at]);
       const onSite = (p.arrivals || []).filter(a => a && !set[a.at]);
       const bad = (p.taps || []).filter(t => !t.ok);
-      return [hits.length >= 1 && bad.length === 0,
+      const fired = p.roadEnd ? p.roadEnd.fired : 0;
+      return [hits.length >= 1 && bad.length === 0 && fired >= 1,
         '母集団 ' + p.pop.ids.length + ' 件 (way ' + p.pop.ways.length
         + ' + step ' + p.pop.steps.length + ' / ⛔ site ' + p.pop.sites.length + ' は除外)'
         + ' / 行き先 ' + JSON.stringify(p.destPick && p.destPick.dest)
@@ -668,6 +1023,8 @@ const ASSERTS = [
         + ' / タップ ' + (p.taps || []).length + ' 回'
         + ' / 対象停留所への到着 ' + hits.length + ' 件'
         + ' / 対象外 (site) への到着 ' + onSite.length + ' 件'
+        + ' / 発火 ' + fired + ' 件 ' + JSON.stringify(((p.openLog || []).map(o => o.at)))
+        + ' (種 ' + p.seed + ')'
         + (bad.length ? ' / ⛔ 失敗タップ ' + bad.length + ' 件: ' + bad[0].err : '')];
     }],
 
@@ -829,6 +1186,315 @@ const ASSERTS = [
         + ' / 最大の器 ' + (cards.reduce((a, c) => (c.rect && c.rect.h > a) ? c.rect.h : a, 0)).toFixed(1) + 'px'
         + (bad.length ? ' / ⛔ ' + bad.join('  |  ') : '')];
     }],
+
+  // ── §0 装置 (残り) — 決定論 ───────────────────────────────────────────────
+  ['0c', '⭐⭐⭐ [装置] **決定論** — 同じ ?roadseed で 2 回走らせると発火した停留所の列が完全に一致し、'
+    + '同じ種で開いた 2 枚のタブが乱数 32 連まで一致する'
+    + ' (⭐ 発火列が **空でない**ことまで見る —— 空どうしの一致は自明に真。変異 seedignore が番人)',
+    (m) => {
+      const a = m.play, b = m.playB, sa = m.sigA, sb = m.sigB;
+      if (!a || !b) return [false, '実操作の観測が 2 回ぶん無い'];
+      if (!sa || !sb) return [false, '乱数の署名が採れていない (ROAD_EVENTS.rnd が無い)'];
+      const la = firedList(a), lb = firedList(b);
+      const listSame = eqList(la, lb);
+      const sigSame = eqList(sa.values, sb.values);
+      const sigVary = uniq(sa.values).length > 1;
+      const ok = la.length >= 1 && listSame && sigSame && sigVary
+        && sa.seed === sb.seed && sa.fromUrl === true && sa.seed === SEED_MAIN;
+      return [ok,
+        '種 ' + SEED_MAIN + ' (URL 由来=' + sa.fromUrl + ' / seed()=' + sa.seed + ')'
+        + ' / 発火列 A ' + JSON.stringify(la) + ' B ' + JSON.stringify(lb)
+        + ' (一致=' + listSame + ' 非空=' + (la.length >= 1) + ')'
+        + ' / 乱数 32 連の一致=' + sigSame + ' (ばらけ=' + sigVary + ')'
+        + ' / 先頭 3 連 A ' + JSON.stringify(sa.values.slice(0, 3).map(v => +v.toFixed(6)))
+        + ' B ' + JSON.stringify(sb.values.slice(0, 3).map(v => +v.toFixed(6)))];
+    }],
+
+  // ── §1 器 (残り) — どこに出るか ────────────────────────────────────────────
+  ['1a', '[器] イベント表示中は **#worldEventBox が可視**で、__world.askOpen() は false のまま'
+    + ' (⛔ #worldEnterAsk を流用していない)。⭐ 母集団ガード = 発火件数 (__world.roadEvent().fired) と'
+    + ' 実際に器が開いた回数が **一致し、1 件以上**あること'
+    + ' (⛔ 「発火したのに器が開いていない」を緑にしない = 変異 askreuse の番人)',
+    (m) => {
+      const p = m.play;
+      if (!p) return [false, '実操作の観測が無い'];
+      const log = p.openLog || [];
+      const fired = p.roadEnd ? p.roadEnd.fired : null;
+      const bad = log.filter(o => !o.boxShow || o.boxDisplay === 'none'
+        || o.askOpenAfter === true || o.askOpenBefore === true);
+      const ok = log.length >= 1 && fired === log.length && bad.length === 0
+        && !!p.end && p.end.askOpen === false;
+      return [ok,
+        '発火 ' + fired + ' 件 / 器が開いた ' + log.length + ' 回 (一致=' + (fired === log.length) + ')'
+        + ' / 走行後の __world.askOpen()=' + (p.end ? p.end.askOpen : '—')
+        + ' / 開いた瞬間の記録 ' + JSON.stringify(log.map(o => ({
+          at: o.at, id: o.id, show: o.boxShow, disp: o.boxDisplay, ask: o.askOpenAfter })))
+        + (bad.length ? ' / ⛔ 不正 ' + bad.length + ' 件' : '')];
+    }],
+
+  ['1b', '[器] **拠点 (site) では出来事が 1 件も出ない** — 通りすがりでも、押した行き先へ着いたときも'
+    + ' (入場ダイアログが優先)。⭐ 母集団ガード = 拠点への到着が 1 件以上 **かつ** 発火が 1 件以上'
+    + ' (⛔ どちらかが 0 だと「出ない」が自明に真。変異 sitefire が番人)',
+    (m) => {
+      const p = m.play;
+      if (!p) return [false, '実操作の観測が無い'];
+      const site = {}; (p.pop ? p.pop.sites : []).forEach(id => { site[id] = true; });
+      const siteArrivals = (p.arrivals || []).filter(a => a && site[a.at]);
+      const log = p.openLog || [];
+      const atSite = log.filter(o => site[o.at]);
+      const ok = siteArrivals.length >= 1 && log.length >= 1 && atSite.length === 0;
+      return [ok,
+        '拠点 ' + (p.pop ? p.pop.sites.length : 0) + ' 件 / 拠点への到着 ' + siteArrivals.length + ' 回 '
+        + JSON.stringify(uniq(siteArrivals.map(a => a.at)))
+        + ' / 発火 ' + log.length + ' 件 ' + JSON.stringify(log.map(o => o.at))
+        + (atSite.length ? ' / ⛔ 拠点で発火 ' + JSON.stringify(atSite.map(o => o.at)) : ' / 拠点での発火 0 件')];
+    }],
+
+  // ── §2 party (誰が判定するか) ──────────────────────────────────────────────
+  ['2a', '⭐⭐⭐ [party] sessionStorage に 4 人分を書いた状態で判定つきの選択肢を押すと、'
+    + '判定パネルのロスターが **4 行**出る。⛔ localStorage しか無い状態 (1 行) と'
+    + '**区別できること** (= 依頼書 §2-3 の罠 B の検出。変異 localparty が番人)',
+    (m) => {
+      const w = m.choiceWin, one = m.choiceParty1;
+      if (!w || !one) return [false, '判定つきの選択肢を押した観測が無い'];
+      if (!w.panel) return [false, '4 人分を仕込んだのに判定パネルが出ていない: ' + (w.why || '(理由不明)')];
+      if (!one.panel) return [false, '1 人分で判定パネルが出ていない: ' + (one.why || '(理由不明)')];
+      const ok = w.panel.rows === PARTY4.length && one.panel.rows === PARTY1.length
+        && w.panel.rows !== one.panel.rows;
+      return [ok,
+        'sessionStorage ' + JSON.stringify(PARTY4) + ' → ロスター ' + w.panel.rows + ' 行 '
+        + JSON.stringify(w.panel.names)
+        + ' / localStorage だけ ' + JSON.stringify(PARTY1) + ' → ' + one.panel.rows + ' 行 '
+        + JSON.stringify(one.panel.names)
+        + ' / 区別できる=' + (w.panel.rows !== one.panel.rows)
+        + ' / meta=' + JSON.stringify(String(w.panel.meta).slice(0, 60))];
+    }],
+
+  ['2b', '[party] sessionStorage を空にすると **1 行 (主人公のみ)** に落ちるが、**判定は成立する**'
+    + ' (resolveSkillCheck が null を返さない = 結末の文が出て器が閉じ、'
+    + '__world.roadEvent().last.success が真偽値になっている)',
+    (m) => {
+      const one = m.choiceParty1;
+      if (!one) return [false, '1 人分の観測が無い'];
+      const rl = one.roadLast;
+      const ok = !!one.panel && one.panel.rows === 1 && !!one.resultText && one.closed === true
+        && !!rl && typeof rl.success === 'boolean';
+      return [ok,
+        'ロスター ' + (one.panel ? one.panel.rows : '—') + ' 行 '
+        + JSON.stringify(one.panel ? one.panel.names : null)
+        + ' / 結末の文 ' + (one.resultText ? one.resultText.length + ' 文字' : '⛔ 無し')
+        + ' / 器が閉じた=' + one.closed
+        + ' / roadEvent().last=' + JSON.stringify(rl)
+        + (one.why ? ' / ⛔' + one.why : '')];
+    }],
+
+  ['2c', '⛔ [peek] world.html の配信バイトの sessionStorage.removeItem の出現数が **着手前と同じ 1 件**'
+    + ' (#23 の questDest だけ) で、localStorage への setItem / removeItem は 0 件'
+    + ' —— 一回性のキーを 1 つも消さない (exitVia を消すと帰還先が、lastResult を消すと'
+    + '酒場のリザルト画面が黙って壊れる)',
+    (m) => {
+      if (typeof m.served !== 'string' || !m.served.length)
+        return [false, 'world.html の配信バイトを読めていない'];
+      const n = (needle) => m.served.split(needle).length - 1;
+      const rm = n('sessionStorage.removeItem');
+      const lset = n('localStorage.setItem'), lrm = n('localStorage.removeItem');
+      const sset = n('sessionStorage.setItem');
+      const BASE_REMOVE = 1;   /* 2026-09-03 着手前の実測 (grep -c sessionStorage.removeItem world.html) */
+      const ok = rm === BASE_REMOVE && lset === 0 && lrm === 0;
+      return [ok,
+        'world.html 配信 ' + m.served.length + 'B / sessionStorage.removeItem ' + rm
+        + ' 件 (着手前 ' + BASE_REMOVE + ' 件) / sessionStorage.setItem ' + sset
+        + ' 件 (撤退フラグ) / localStorage.setItem ' + lset + ' 件 / localStorage.removeItem ' + lrm + ' 件'];
+    }],
+
+  // ── §3 発火の規則 ─────────────────────────────────────────────────────────
+  ['3a', '[発火] **同じ停留所では二度出ない** — 往復させて再訪させ、器が開いた停留所に重複が無い。'
+    + ' ⭐ 母集団ガード = 2 回以上着いた停留所が 1 件以上 **かつ** 発火が 1 件以上'
+    + ' (変異 revisit が番人)',
+    (m) => {
+      const r = m.round;
+      if (!r) return [false, '往復の観測が無い'];
+      const cnt = {};
+      (r.arrivals || []).forEach(a => { if (a) cnt[a.at] = (cnt[a.at] || 0) + 1; });
+      const revisited = Object.keys(cnt).filter(k => cnt[k] >= 2);
+      const log = r.openLog || [];
+      const seen = {}, dup = [];
+      log.forEach(o => { const k = String(o.at); if (seen[k]) dup.push(k); seen[k] = true; });
+      const ok = revisited.length >= 1 && log.length >= 1 && dup.length === 0;
+      return [ok,
+        '往路 ' + (r.taps || []).length + ' タップ + 復路 ' + (r.back || []).length + ' タップ'
+        + ' / 到着 ' + (r.arrivals || []).length + ' 回'
+        + ' / 2 回以上着いた停留所 ' + revisited.length + ' 件 ' + JSON.stringify(revisited.slice(0, 6))
+        + ' / 発火 ' + log.length + ' 件 ' + JSON.stringify(log.map(o => o.at))
+        + (dup.length ? ' / ⛔ 同じ停留所で 2 度 ' + JSON.stringify(uniq(dup)) : ' / 重複 0 件')];
+    }],
+
+  ['3b', '[発火] **地形ごとに発生率が異なる** — 同じ種で各地形 N 回振り、swamp の発火率 > coast の発火率。'
+    + ' ⛔ 具体値 (5% / 20%) は 1 つも縛らない = 遊んで動かすレバー。'
+    + ' ⭐ 母集団ガード = どの地形も 0 < 発火率 < 1 (⛔ 全部 1 なら「違う」が言えない。変異 alwaysfire)',
+    (m) => {
+      const r = m.rates;
+      if (!r) return [false, 'ROAD_EVENTS.roll が無い (発生率を振れない)'];
+      const f = r.freq, rate = r.rate, terr = r.terrains || [];
+      const spread = terr.length >= 2 && terr.every(t => f[t] > 0 && f[t] < 1);
+      const have = terr.indexOf('swamp') >= 0 && terr.indexOf('coast') >= 0;
+      const ok = have && spread && f.swamp > f.coast && rate.swamp > rate.coast;
+      return [ok,
+        'N=' + r.N + ' 回 / 実測の発火率 '
+        + terr.map(t => t + ':' + (f[t] * 100).toFixed(1) + '%').join(' ')
+        + ' / 表の発生率 ' + JSON.stringify(rate)
+        + ' / swamp > coast = ' + (f.swamp > f.coast)
+        + ' / 0 < 率 < 1 が全地形で成立=' + spread];
+    }],
+
+  ['3d', '[発火] **移動中には器が開かない** — 器が開いた **瞬間** の __world.isMoving() が全件 false。'
+    + ' ⭐ 瞬間を **同期で**捕まえている (MutationObserver では rAF の 1 ブロックが'
+    + '「開く → stopWalk() で moving=false」まで走り切った後に届き、永久に緑になる)。'
+    + ' 母集団ガード = 器が開いた回数が 1 件以上 (変異 movefire が番人)',
+    (m) => {
+      const p = m.play;
+      if (!p) return [false, '実操作の観測が無い'];
+      const log = p.openLog || [];
+      const bad = log.filter(o => o.moving === true);
+      const ok = log.length >= 1 && bad.length === 0;
+      return [ok,
+        '器が開いた ' + log.length + ' 回 / 開いた瞬間の isMoving() = '
+        + JSON.stringify(log.map(o => o.moving))
+        + (bad.length ? ' / ⛔ 移動中に開いた ' + bad.length + ' 件 '
+          + JSON.stringify(bad.map(o => ({ at: o.at, id: o.id }))) : ' / 移動中の開きは 0 件')];
+    }],
+
+  ['3e', '[判定] **判定を伴わない選択肢では #skillCheckOverlay が作られない** — 実走行で判定なしの'
+    + '選択肢だけを押し、結末が出た時点でも走行を終えた時点でも overlay が DOM に無い。'
+    + ' ⭐ 母集団ガード = 判定なしの選択肢を実際に押した回数が 1 件以上',
+    (m) => {
+      const p = m.play;
+      if (!p) return [false, '実操作の観測が無い'];
+      const evs = (p.events || []).filter(e => e.mode === 'none');
+      const bad = evs.filter(e => e.overlayExists === true);
+      const ok = evs.length >= 1 && bad.length === 0 && p.overlayExists === false;
+      return [ok,
+        '判定なしの選択肢を押した ' + evs.length + ' 回 '
+        + JSON.stringify(evs.map(e => ({ at: e.at, id: e.event, btn: String(e.label).slice(0, 12) })))
+        + ' / 結末時点の overlay 有無 ' + JSON.stringify(evs.map(e => e.overlayExists))
+        + ' / 走行後の overlay=' + p.overlayExists
+        + (bad.length ? ' / ⛔ 判定なしなのに overlay が作られた' : '')];
+    }],
+
+  ['3f', '[判定] **判定つきの選択肢では o.success に応じて出る文が変わる** — 同じ出来事・同じ選択肢で'
+    + ' d20 を 20 / 1 に固定して 2 回引き、出た結末が **違い**、かつ ROAD_EVENTS の'
+    + ' success / fail と **それぞれ一致する** (⛔ 「違えばよい」にしない。変異 sameresult が番人)',
+    (m) => {
+      const w = m.choiceWin, l = m.choiceLose;
+      if (!w || !l) return [false, '判定つきの選択肢を押した観測が 2 回ぶん無い'];
+      if (!w.resultText || !l.resultText)
+        return [false, '結末の文が出ていない: 成功側「' + (w.why || '') + '」 失敗側「' + (l.why || '') + '」'];
+      const evs = (m.boot && m.boot.roadEvents) ? m.boot.roadEvents.events : [];
+      const def = evs.filter(e => e.id === w.event)[0];
+      const ch = def ? (def.choices || []).filter(c => c.check)[0] : null;
+      if (!def || !ch) return [false, '発火したイベントの定義が引けない: ' + JSON.stringify(w.event)];
+      const ok = w.event === l.event && w.label === l.label
+        && w.resultText !== l.resultText
+        && w.resultText === ch.success && l.resultText === ch.fail
+        && !!w.roadLast && !!l.roadLast
+        && w.roadLast.success === true && l.roadLast.success === false;
+      return [ok,
+        'イベント ' + JSON.stringify(w.event) + ' / 選択肢 ' + JSON.stringify(String(w.label).slice(0, 16))
+        + ' / d20=20 → success=' + (w.roadLast ? w.roadLast.success : '—')
+        + ' 文=' + JSON.stringify(String(w.resultText).slice(0, 24))
+        + ' (ROAD_EVENTS.success と一致=' + (w.resultText === ch.success) + ')'
+        + ' / d20=1 → success=' + (l.roadLast ? l.roadLast.success : '—')
+        + ' 文=' + JSON.stringify(String(l.resultText).slice(0, 24))
+        + ' (ROAD_EVENTS.fail と一致=' + (l.resultText === ch.fail) + ')'
+        + ' / 2 つの文が違う=' + (w.resultText !== l.resultText)];
+    }],
+
+  // ── §4 恒等 (非退行) ──────────────────────────────────────────────────────
+  ['4a', '⭐⭐⭐ [恒等] WORLD_MAP の NODES / EDGES / STEPS / SITES が **1 件も変わっていない** — '
+    + '{nodesFP, edgesFP, stepsFP, sites} の sha1 が ' + IDENT_WANT
+    + ' (NODES 14 / EDGES 14 / STEPS 10 / SITES 6)。'
+    + ' ⚠ ここが赤くなったら「地図のデータを触った」= #45 依頼書 §11 の禁止事項を踏んだということ',
+    (m) => {
+      const b = m.boot;
+      if (!b || !b.ident) return [false, '恒等の材料が採れていない'];
+      const id = b.ident;
+      const canon = JSON.stringify({ nodes: id.nodesFP, edges: id.edgesFP,
+        steps: id.stepsFP, sites: id.sites });
+      const got = crypto.createHash('sha1').update(canon).digest('hex').slice(0, 16);
+      const counts = id.nodesFP.length === 14 && id.edgesFP.length === 14
+        && id.stepsFP.length === 10 && Object.keys(id.sites).length === 6;
+      return [got === IDENT_WANT && counts,
+        'NODES ' + id.nodesFP.length + ' / EDGES ' + id.edgesFP.length
+        + ' / STEPS ' + id.stepsFP.length + ' / SITES ' + Object.keys(id.sites).length
+        + '  sha1(先頭16)=' + got + ' (固定値 ' + IDENT_WANT + ')'
+        + (got === IDENT_WANT ? '' : '  ⛔ 実測の中身= ' + canon.slice(0, 400))];
+    }],
+
+  ['4b', '⭐⭐⭐ [恒等] __world の **既存の窓が全部残っている** — #23 / #40 / #43 が足した 25 個が'
+    + '全部 function (insets を含む) で、起動直後の返り値も今日のまま'
+    + ' (arrivalCount=0 / lastArrival=null / askOpen=false / stepIds が STEPS と同数)。'
+    + ' ⭐ #45 が足すのは roadEvent の **1 個だけ** (⛔ キー集合だけ見て済ませない = #38 の教訓)',
+    (m) => {
+      const b = m.boot;
+      if (!b || !b.seam) return [false, '__world が読めていない'];
+      const s = b.seam, why = [];
+      const KEEP = ['heroNode', 'heroPx', 'heroClass', 'spawnVia', 'worldOff', 'revealed',
+        'questDest', 'askOpen', 'isMoving', 'zoom', 'compact', 'insets', 'nodeIds', 'stepIds',
+        'lastArrival', 'arrivalCount', 'walkStepOff', 'stepMaxPx', 'clientFromPoint',
+        'goToNode', 'heroGeom', 'heroMarkOn', 'heroMarkGeom', 'clientFromWorld', 'clientFromNode'];
+      for (const k of KEEP) if (s.types[k] !== 'function') why.push('⛔ ' + k + ' が function でない (' + s.types[k] + ')');
+      if (s.types.roadEvent !== 'function') why.push('⛔ #45 の roadEvent が function でない (' + s.types.roadEvent + ')');
+      const added = s.keys.filter(k => KEEP.indexOf(k) < 0);
+      if (!eqList(added.slice().sort(), ['roadEvent'])) why.push('⛔ 足された窓が roadEvent 以外にもある: ' + JSON.stringify(added));
+      if (typeof s.heroNode !== 'string' || !s.heroNode) why.push('⛔ heroNode() が文字列でない');
+      if (s.askOpen !== false) why.push('⛔ 起動直後の askOpen() が false でない');
+      if (s.isMoving !== false) why.push('⛔ 起動直後の isMoving() が false でない');
+      if (s.arrivalCount !== 0) why.push('⛔ 起動直後の arrivalCount() が 0 でない: ' + s.arrivalCount);
+      if (s.lastArrival !== null) why.push('⛔ 起動直後の lastArrival() が null でない');
+      if (s.walkStepOff !== false) why.push('⛔ クエリ無しの walkStepOff() が false でない');
+      if (s.stepIds !== b.steps.length) why.push('⛔ stepIds() ' + s.stepIds + ' != STEPS ' + b.steps.length);
+      if (!(s.stepMaxPx > 0)) why.push('⛔ stepMaxPx() が正の数値でない');
+      if (!s.clientFromNode || typeof s.clientFromNode.x !== 'number') why.push('⛔ clientFromNode("phlan") が {x,y} を返さない');
+      if (!s.heroMarkGeom || typeof s.heroMarkGeom.headTop !== 'number') why.push('⛔ heroMarkGeom() が壊れている');
+      if (!s.heroGeom || typeof s.heroGeom.sprite !== 'number') why.push('⛔ heroGeom() が壊れている');
+      /* ⭐ #45 の窓そのものも「読むだけ」の形をしているか (on / seed / fired / last / visited)。 */
+      const re = s.roadEvent;
+      if (!re || typeof re !== 'object') why.push('⛔ roadEvent() が object を返さない');
+      else {
+        if (re.on !== true) why.push('⛔ クエリ無しの roadEvent().on が true でない: ' + re.on);
+        if (typeof re.seed !== 'number') why.push('⛔ roadEvent().seed が数値でない: ' + JSON.stringify(re.seed));
+        if (re.fired !== 0) why.push('⛔ 起動直後の roadEvent().fired が 0 でない: ' + re.fired);
+        if (re.last !== null) why.push('⛔ 起動直後の roadEvent().last が null でない');
+        if (!Array.isArray(re.visited) || re.visited.length !== 0) why.push('⛔ 起動直後の roadEvent().visited が空配列でない');
+      }
+      return [why.length === 0,
+        '窓 ' + s.keys.length + ' 個 (既存 ' + KEEP.length + ' + #45 が足した ' + JSON.stringify(added) + ')'
+        + ' / heroNode=' + JSON.stringify(s.heroNode)
+        + ' arrivalCount=' + s.arrivalCount + ' lastArrival=' + JSON.stringify(s.lastArrival)
+        + ' askOpen=' + s.askOpen + ' walkStepOff=' + s.walkStepOff
+        + ' stepIds=' + s.stepIds + '/' + b.steps.length + ' stepMaxPx=' + s.stepMaxPx
+        + ' / roadEvent()=' + JSON.stringify(s.roadEvent)
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+
+  ['4c', '[恒等] **arrivalCount は 1 ホップにつきちょうど 1 増える** (#40 の (4b) と同じ規則)。'
+    + ' ⭐ 出来事を挟んだタップでも増分は 1 のまま (⛔ 器を開くたびに二重に数えていないか)。'
+    + ' 母集団ガード = 成功したタップが 2 回以上 かつ 出来事を挟んだタップが 1 回以上',
+    (m) => {
+      const p = m.play;
+      if (!p) return [false, '実操作の観測が無い'];
+      const taps = (p.taps || []).filter(t => t.ok);
+      const deltas = taps.map(t => t.after.arrivals - t.before.arrivals);
+      const bad = deltas.filter(d => d !== 1);
+      const withEv = (p.events || []).length;
+      const ok = taps.length >= 2 && bad.length === 0 && withEv >= 1
+        && !!p.end && p.end.arrivals === taps.length;
+      return [ok,
+        '成功タップ ' + taps.length + ' 回 / 増分 ' + JSON.stringify(deltas)
+        + ' / 出来事を挟んだタップ ' + withEv + ' 回'
+        + ' / 走行後の arrivalCount=' + (p.end ? p.end.arrivals : '—')
+        + (bad.length ? ' / ⛔ 1 でない増分 ' + JSON.stringify(bad) : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -841,44 +1507,9 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //     —— 両方やらないと件数が合わなくなる。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  ['§0 装置 (残り) — 依頼書 §8', [
-    ['0c', '決定論: ?roadseed=4242 で 2 回走らせて、発火した停留所の列が完全に一致',
-      '⛔ ?roadseed が未実装 → 項目 3'],
-  ]],
-  ['§1 器 (残り) — 依頼書 §8', [
-    ['1a', 'イベント表示中は #worldEventBox が可視で、__world.askOpen() は false のまま'
-      + ' (⛔ #worldEnterAsk を使っていない)',
-      '⛔ **発火**が未実装 → 項目 3 (器そのものは (1c)(1d) が測っている)'],
-    ['1b', '拠点 (site) へ「着いた」タップではイベントが 1 件も出ない'
-      + ' (母集団ガード = 拠点へ着いたタップが 1 件以上)', '⛔ 発火が未実装 → 項目 3'],
-  ]],
-  ['§2 party (誰が判定するか) — 依頼書 §8', [
-    ['2a', '⭐⭐⭐ sessionStorage に 4 人分を書くと判定パネルのロスターが 4 行出る'
-      + ' (⛔ localStorage しか無い状態と区別できること = 罠 B の検出)',
-      '⛔ buildParty が未実装 → 項目 3'],
-    ['2b', 'sessionStorage を空にすると 1 行 (主人公のみ) に落ちるが判定は成立する'
-      + ' (resolveSkillCheck が null を返さない)', '⛔ buildParty が未実装 → 項目 3'],
-    ['2c', '⛔ world.html の配信バイトの sessionStorage.removeItem の出現数が着手前と同じ'
-      + ' (peek だけ = 一回性のキーを 1 つも消さない)', '⛔ buildParty が未実装 → 項目 3'],
-  ]],
-  ['§3 発火の規則 — 依頼書 §8', [
-    ['3a', '同じ停留所では二度出ない (往復させて再訪させ、2 回目に出ないことを見る)',
-      '⛔ 発火が未実装 → 項目 3'],
-    ['3b', '地形ごとに発生率が異なる (種を変えて N 回走らせ swamp > coast。⛔ 具体値は縛らない)',
-      '⛔ 発火が未実装 → 項目 3'],
+  ['§3 発火の規則 (残り) — 依頼書 §8', [
     ['3c', '?walkstep=0 では 1 件も出ない (母集団ガード = そのアームでもホップが 1 件以上)',
-      '⛔ 発火が未実装 → 項目 3'],
-    ['3d', '移動中 (__world.isMoving() が true) にはイベントが開かない', '⛔ 発火が未実装 → 項目 3'],
-    ['3e', '判定を伴わない選択肢では #skillCheckOverlay が作られない', '⛔ 二択が未実装 → 項目 3'],
-    ['3f', '判定を伴う選択肢では o.success に応じて出る文が変わる'
-      + ' (⭐ 種を変えて成功と失敗の**両方**を引く)', '⛔ 二択が未実装 → 項目 3'],
-  ]],
-  ['§4 恒等 (非退行) — 依頼書 §8', [
-    ['4a', 'WORLD_MAP.NODES / EDGES / STEPS が 1 件も変わっていない (恒等ハッシュ)',
-      '⛔ 項目 4 が verify_world_steps (1d) と同じハッシュで突き合わせる'],
-    ['4b', '__world の既存の窓 (heroNode / askOpen / arrivalCount / lastArrival / stepIds /'
-      + ' heroMarkGeom …) が全部残っている', '⛔ 項目 4'],
-    ['4c', 'arrivalCount は 1 ホップにつきちょうど 1 増える (#40 の (4b) と同じ規則)', '⛔ 項目 4'],
+      '⛔ 撤退アームの測定が未実装 → 項目 4'],
   ]],
   ['§5 撤退 ?roadevent=0 — 依頼書 §8', [
     ['5a', '?roadevent=0 → #worldEventBox が DOM に存在しない (⛔ display:none で残っていたら赤)',
@@ -889,6 +1520,68 @@ const PENDINGS = [
       + ' (同じ種・同じ経路で arrivalCount と最終ノードが一致)', '⛔ 撤退スイッチが未実装 → 項目 4'],
   ]],
 ];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測の集約 — ⭐ 受入条件ごとに「何を測れば足りるか」を 1 表で持つ
+//   ⚠⚠ 負のコントロールで **必要な観測を採り忘れる**と、assert が「観測が無い」で
+//     機械的に赤くなり、欠陥を検出したのか装置が欠けたのか読めなくなる (#38 の教訓)。
+//   ⚠ 実操作は 1 本あたり数十秒。必要な変異でだけ採る。
+// ══════════════════════════════════════════════════════════════════════════════
+const NEEDS = {
+  '0a': ['boot'], '0b': ['boot', 'served'], '0c': ['play', 'playB', 'sig'],
+  '0d': ['play'], '0e': ['boot'],
+  '1a': ['play'], '1b': ['play'], '1c': ['box'], '1d': ['box'],
+  '2a': ['choiceWin', 'choiceParty1'], '2b': ['choiceParty1'], '2c': ['served'],
+  '3a': ['round'], '3b': ['rates'], '3d': ['play'], '3e': ['play'],
+  '3f': ['boot', 'choiceWin', 'choiceLose'],
+  '4a': ['boot'], '4b': ['boot'], '4c': ['play'],
+};
+const ALL_KEYS = ['0a', '0b', '0c', '0d', '0e', '1a', '1b', '1c', '1d',
+  '2a', '2b', '2c', '3a', '3b', '3d', '3e', '3f', '4a', '4b', '4c'];
+
+/* ⭐ SEED_NEAR + DEST_NEAR なら **2 タップ目**に必ず 1 件出るので、判定つきの選択肢を
+   押す測定 ((2a)(2b)(3f)) はここへ畳める (⛔ 8 ホップ歩いてから測る必要は無い)。 */
+async function measureChoice(browser, port, errs, o) {
+  const p = await measurePlay(browser, port, errs, {
+    seed: SEED_NEAR, dest: DEST_NEAR, resolve: 'check', stopAfterEvent: true,
+    force: o.force, session: o.session || null, local: o.local || null,
+  });
+  const rec = (p.events || [])[0];
+  if (rec) { rec.taps = p.taps.length; rec.roadEnd = p.roadEnd; return rec; }
+  return { why: '2 タップで出来事が出なかった (種 ' + SEED_NEAR + ' / 行き先 ' + DEST_NEAR
+      + ' / タップ ' + p.taps.length + ' 回 / 発火 ' + (p.roadEnd ? p.roadEnd.fired : '—') + ' 件)',
+    resultText: null, panel: null, roadLast: null, closed: false, event: null, label: null };
+}
+
+async function collect(browser, port, errs, need) {
+  const m = {}, want = {};
+  need.forEach(k => { want[k] = true; });
+  if (want.boot) m.boot = await measureBoot(browser, port, errs, {});
+  if (want.served) m.served = (await httpGet('http://localhost:' + port + PAGE_PATH)).body;
+  if (want.box) m.box = await measureBox(browser, port, errs, { viewport: { width: 390, height: 844 } });
+  if (want.rates) m.rates = await measureRates(browser, port, errs, SEED_MAIN);
+  if (want.sig) {
+    m.sigA = await measureSeedSig(browser, port, errs, SEED_MAIN);
+    m.sigB = await measureSeedSig(browser, port, errs, SEED_MAIN);
+  }
+  if (want.play) m.play = await measurePlay(browser, port, errs, {});
+  if (want.playB) m.playB = await measurePlay(browser, port, errs, {});
+  if (want.round) m.round = await measurePlay(browser, port, errs, { roundTrip: true });
+  if (want.choiceWin) m.choiceWin = await measureChoice(browser, port, errs, { force: D20_WIN, session: PARTY4 });
+  if (want.choiceLose) m.choiceLose = await measureChoice(browser, port, errs, { force: D20_LOSE, session: PARTY4 });
+  if (want.choiceParty1) m.choiceParty1 = await measureChoice(browser, port, errs, { force: D20_WIN, local: PARTY1 });
+  return m;
+}
+function needsOf(keys) {
+  const need = [];
+  keys.forEach(k => (NEEDS[k] || ['boot']).forEach(n => { if (need.indexOf(n) < 0) need.push(n); }));
+  return need;
+}
+function runCheck(m, key) {
+  const a = ASSERT_OF[key];
+  const r = a[2](m);
+  check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -944,20 +1637,20 @@ const PENDINGS = [
 
     if (!NEGATIVE) {
       // ══ 受入条件 ═══════════════════════════════════════════════════════════
-      mark('§0 装置 / §1 器 — 搭載 (0a) / 写経 (0b) / 母集団 (0d) / 表と地形 (0e) / 層 (1c) / compact (1d)');
-      const m = {};
-      m.boot = await measureBoot(browser, PORT, errs, {});
-      /* ⭐ (0b) は **配信バイト**を見る (⛔ DOM ではない —— 写経は DOM に出ないことがある)。 */
-      m.served = (await httpGet('http://localhost:' + PORT + PAGE_PATH)).body;
-      /* ⭐ 実操作 (実クリックで歩く) の観測。(0d) が読む。
-         ⚠ ここが一番時間を食う (最大 16 タップ x 歩き)。 */
-      m.play = await measurePlay(browser, PORT, errs, {});
-      /* ⭐ 器の観測 —— compact (390x844) で 6 件を順に開き、層と矩形を測る ((1c)(1d))。 */
-      m.box = await measureBox(browser, PORT, errs, { viewport: { width: 390, height: 844 } });
-      for (const key of ['0a', '0b', '0d', '0e', '1c', '1d']) {
-        const a = ASSERT_OF[key]; const r = a[2](m);
-        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
-      }
+      mark('観測を採る — 素の world.html / 実操作 x3 (往路・再走・往復) / 器 / 発生率 / 二択 x3');
+      const m = await collect(browser, PORT, errs, needsOf(ALL_KEYS));
+
+      mark('§0 装置 — 搭載 (0a) / 写経 (0b) / 決定論 (0c) / 母集団 (0d) / 表と地形 (0e)');
+      for (const key of ['0a', '0b', '0c', '0d', '0e']) runCheck(m, key);
+      mark('§1 器 — 表示中の器 (1a) / 拠点では出ない (1b) / 層 (1c) / compact (1d)');
+      for (const key of ['1a', '1b', '1c', '1d']) runCheck(m, key);
+      mark('§2 party — 4 人分 (2a) / 1 人でも判定が成立 (2b) / peek だけ (2c)');
+      for (const key of ['2a', '2b', '2c']) runCheck(m, key);
+      mark('§3 発火の規則 — 再訪 (3a) / 地形差 (3b) / 移動中 (3d) / 判定なし (3e) / 分岐 (3f)');
+      for (const key of ['3a', '3b', '3d', '3e', '3f']) runCheck(m, key);
+      mark('§4 恒等 (非退行) — 地図データ (4a) / __world の窓 (4b) / arrivalCount (4c)');
+      for (const key of ['4a', '4b', '4c']) runCheck(m, key);
+
       if (m.boot) {
         console.log('       [記録] <script src> の並び:');
         console.log('         ' + m.boot.scriptSrcs.join(' → '));
@@ -967,7 +1660,7 @@ const PENDINGS = [
         console.log('       [記録] 器とシーム: '
           + '#worldEventBox=' + m.boot.hasEventBox
           + ' / window.ROAD_EVENTS=' + m.boot.roadEventsModule
-          + ' / __world.roadEvent=' + m.boot.hasRoadEventSeam + ' (⛔ 項目 3 で生える)');
+          + ' / __world.roadEvent=' + m.boot.hasRoadEventSeam);
       }
       if (m.boot && m.boot.roadEvents) {
         const R = m.boot.roadEvents;
@@ -986,20 +1679,14 @@ const PENDINGS = [
         R.stops.forEach(id => { const t = R.terrainOf[id]; cnt[t] = (cnt[t] || 0) + 1; });
         console.log('       [記録] 地形割り (停留所 ' + R.stops.length + ' 件): '
           + Object.keys(cnt).map(t => t + ':' + cnt[t]).join(' '));
-        console.log('       [記録] ROAD_EVENTS の API: ' + JSON.stringify(R.api));
+      }
+      if (m.rates) {
+        console.log('       [記録] roll() を各地形 ' + m.rates.N + ' 回 (⛔ 期待値ではない。向きだけ縛る): '
+          + m.rates.terrains.map(t => t + ' ' + (m.rates.freq[t] * 100).toFixed(1) + '%').join(' / '));
       }
       if (m.box) {
         console.log('       [記録] 器の層 (⛔ 105 / 20 / 10 はページから読んだ値): '
           + JSON.stringify(m.box.layer));
-        console.log('       [記録] compact ' + m.box.viewport.width + 'x' + m.box.viewport.height
-          + ' の器の矩形 (⛔ 期待値ではない。読み解き用):');
-        for (const c of (m.box.cards || [])) {
-          console.log('         ' + c.id.padEnd(20)
-            + (c.rect ? (' ' + c.rect.w.toFixed(1) + ' x ' + c.rect.h.toFixed(1)
-              + ' @ (' + c.rect.x.toFixed(1) + ',' + c.rect.y.toFixed(1) + ')') : ' (矩形なし)')
-            + '  選択肢 ' + c.nBtns + ' 個'
-            + '  はみ出し clipX=' + c.clipX + ' clipY=' + c.clipY);
-        }
       }
       if (m.play) {
         console.log('       [記録] イベント対象の停留所 (⛔ 数字は直書きせずページから数えた):');
@@ -1008,9 +1695,9 @@ const PENDINGS = [
         console.log('         site ' + m.play.pop.sites.length + ' 件 (⛔ 母集団から除外): '
           + m.play.pop.sites.join(' '));
         console.log('         合計 (way + step) = ' + m.play.pop.ids.length + ' 件');
-        console.log('       [記録] 実操作の通し (⛔ 期待値ではない。読み解き用):');
+        console.log('       [記録] 実操作の通し (種 ' + m.play.seed + ' / ⛔ 期待値ではない。読み解き用):');
         console.log('         起点 ' + JSON.stringify(m.play.start && m.play.start.node)
-          + ' → 行き先 ' + JSON.stringify(m.play.destPick && m.play.destPick.dest)
+          + ' → 行き先 ' + JSON.stringify(m.play.dest)
           + ' (findWalkPath ' + ((m.play.destPick && m.play.destPick.path)
             ? m.play.destPick.path.length : 0) + ' ホップ)');
         const set = {};
@@ -1024,6 +1711,29 @@ const PENDINGS = [
               ? ('  last=' + JSON.stringify(t.after.last)
                 + (set[t.after.last.at] ? '  ★イベント対象' : '  (site)')) : ''));
         }
+        console.log('       [記録] 発火した出来事 ' + (m.play.openLog || []).length + ' 件:');
+        for (const o of (m.play.openLog || [])) {
+          console.log('         ' + String(o.at).padEnd(20) + ' ' + String(o.terrain).padEnd(9)
+            + ' ' + String(o.id).padEnd(20) + ' 移動中=' + o.moving + ' 可視=' + o.boxShow
+            + ' askOpen=' + o.askOpenAfter);
+        }
+        for (const e of (m.play.events || [])) {
+          console.log('         → 「' + String(e.label).slice(0, 22) + '」 → 結末 '
+            + JSON.stringify(String(e.resultText).slice(0, 30)) + ' 閉じた=' + e.closed
+            + ' overlay=' + e.overlayExists);
+        }
+      }
+      if (m.choiceWin || m.choiceLose) {
+        console.log('       [記録] 判定つきの選択肢 (d20 を Math.random で固定 / ⛔ opts.auto は使わない):');
+        for (const [tag, e] of [['d20=20', m.choiceWin], ['d20= 1', m.choiceLose],
+          ['1 人 ', m.choiceParty1]]) {
+          if (!e) continue;
+          console.log('         ' + tag + '  ' + String(e.event).padEnd(20)
+            + ' ロスター ' + (e.panel ? e.panel.rows : '—') + ' 行 '
+            + JSON.stringify(e.panel ? e.panel.names : null)
+            + ' success=' + (e.roadLast ? e.roadLast.success : '—')
+            + ' 結末=' + JSON.stringify(String(e.resultText).slice(0, 24)));
+        }
       }
 
       for (const [title, rows] of PENDINGS) {
@@ -1033,7 +1743,8 @@ const PENDINGS = [
 
       mark('§9 ページエラー');
       check('(9a) 測定ページで pageerror / console.error が出ていない'
-        + ' (⭐ 項目 1 の核心 = 足した js/skill-check.js が world.html で壊れない)',
+        + ' (⭐ 足した js/skill-check.js と js/road-events.js が world.html で壊れないこと。'
+        + 'これは (0a) では捕まらない = 載っていても投げうる)',
         errs.length === 0, errs.slice(0, 6).join(' | '));
 
     } else {
@@ -1056,24 +1767,14 @@ const PENDINGS = [
         for (const k of MUT_IMPL) {
           const negErrs = [];
           const port = MUTATIONS[k].driver ? PORT : PORT_OF[k];
-          const m = {};
-          m.boot = await measureBoot(browser, port, negErrs, {});
-          /* ⭐ (0b) が読む配信バイト。安いので毎回採る —— 採り忘れると
-             「配信バイトが読めていない」で機械的に赤くなり、欠陥の検出と区別できない。 */
-          m.served = (await httpGet('http://localhost:' + port + PAGE_PATH)).body;
-          /* ⭐ (0d) / (1a)(1b) / §3 / §4 を狙う変異は **実操作の観測**が無いと
-             「実操作の観測が無い」で機械的に赤くなり、欠陥を検出したのか装置が
-             欠けているのか読めなくなる。⛔ 片方だけにしない。
-             ⚠ 実操作は 1 本あたり数十秒。必要な変異でだけ採る。
-             ⚠ (1c)(1d) は器の観測 (measureBox) —— 実操作ではない。混ぜない。 */
-          const tg = MUTATIONS[k].targets;
-          const needsPlay = tg.some(t => t === '0d' || t === '1a' || t === '1b' || /^[34]/.test(t));
-          const needsBox = tg.some(t => t === '1c' || t === '1d');
-          if (needsPlay) m.play = await measurePlay(browser, port, negErrs, {});
-          if (needsBox) {
-            m.box = await measureBox(browser, port, negErrs,
-              { viewport: { width: 390, height: 844 } });
-          }
+          /* ⭐ その変異が狙う節が読む観測 **だけ** を採る (⛔ 全部採ると 1 本 5 分かかる)。
+             ⚠ boot と served は安いので必ず採る —— 採り忘れると assert が
+               「観測が無い」で機械的に赤くなり、欠陥の検出と区別できなくなる。 */
+          const need = needsOf(MUTATIONS[k].targets);
+          if (need.indexOf('boot') < 0) need.push('boot');
+          if (need.indexOf('served') < 0) need.push('served');
+          console.log('  [neg ' + k + '] :' + port + ' 観測 ' + JSON.stringify(need));
+          const m = await collect(browser, port, negErrs, need);
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
             if (!a) {
