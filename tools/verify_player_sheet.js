@@ -1589,11 +1589,13 @@ const ASSERTS = [
     /* ★#36 §5-2 の表そのもの。⭐ 伏せる理由は「供給口が無い」「SkillCheck が無い」の 2 つだけ。 */
     const SUPPLY = ['dfSheetSecSaves', 'dfSheetSecCombat', 'dfSheetSecBody', 'dfSheetSecAttacks'];
     const SKILLC = ['dfSheetSecProficiency', 'dfSheetSecSkills'];
-    const wantHidden = {
-      'index.html': [], 'tavern.html': SUPPLY,
-      'town.html': SUPPLY.concat(SKILLC), 'world.html': SUPPLY.concat(SKILLC),
-      'title.html': SUPPLY.concat(SKILLC),
-    };
+    /* ⭐ #48: 表を「ページ名 → 伏せる区画」で持たず、**規則そのもの**から組む。
+       伏せる理由は 2 つだけ = ①供給口が無い (index 以外) ②SkillCheck が無い (載っていないページ)。
+       ⚠ 集合 {index,tavern,world} の固定は (0e) が担当する (ここで固定すると二重管理になる)。
+       ⛔ #45 の事故 = world.html へ js/skill-check.js が載ったのに、ここのハードコード表が
+          「world では技能を伏せる」のまま取り残され、着手前から赤が常態になっていた。 */
+    const hiddenWantOf = (p) => (p.file === 'index.html' ? [] : SUPPLY)
+      .concat(p.hasSkillCheck ? [] : SKILLC);
     const bad = [];
     for (const p of P) {
       const st = p.state;
@@ -1602,8 +1604,8 @@ const ASSERTS = [
          規則は inDom === (avail || blank)。⛔ #29 の規律を緩めるのではなく広げた形。
          hidden 配列だけを見ると inDom から作った値を inDom と比べる自己参照になり永久緑。 */
       if ((st.mismatch || []).length) bad.push(p.label + ' ⛔ inDom≠(avail||blank): ' + st.mismatch.join(','));
-      if (!sameSet(st.hidden || [], wantHidden[p.file]))
-        bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden) + ' (期待 ' + JSON.stringify(wantHidden[p.file]) + ')');
+      if (!sameSet(st.hidden || [], hiddenWantOf(p)))
+        bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden) + ' (期待 ' + JSON.stringify(hiddenWantOf(p)) + ')');
       // 独立した期待: 技能/習熟は SkillCheck の有無、供給口の 4 区画は index だけ
       const has = (id) => !!(p.secInDom && p.secInDom[id]);
       for (const id of SKILLC) if (has(id) !== (p.hasSkillCheck === true)) bad.push(p.label + ' ' + id + '=' + has(id));
@@ -1617,14 +1619,16 @@ const ASSERTS = [
         if (s.inDom && s.textLen < 2) bad.push(p.label + '/' + s.id + ' ⛔ DOM に居るのに中身が空 (' + s.textLen + '字)');
       }
     }
-    /* 母集団ガード: 期待は 伏せた区画 計 22 (0+4+6+6+6) / 全部出たページ 1 (index)。 */
+    /* 母集団ガード: 伏せ計 = index 0 + tavern 4 + town 6 + world 4 + title 6 = 20 / 全部出たページ 1 (index)。
+       ⚠ #45 で world.html に js/skill-check.js が載り 22 → 20 になった (#48 で更新)。
+       ⛔ allShown === 1 は動かさない (index だけが全部出る、は今も真)。 */
     const hiddenTotal = P.reduce((n, p) => n + ((p.state && p.state.hidden) || []).length, 0);
     const allShown = P.filter(p => ((p.state && p.state.hidden) || []).length === 0).length;
-    return [bad.length === 0 && hiddenTotal === 22 && allShown === 1,
+    return [bad.length === 0 && hiddenTotal === 20 && allShown === 1,
       P.map(p => p.label + ':伏' + JSON.stringify(((p.state && p.state.hidden) || []).map(s => s.replace('dfSheetSec', '')))).join(' ')
       + '  伏せた区画 計 ' + hiddenTotal + ' / 全部出たページ ' + allShown
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')
-      + (hiddenTotal === 22 && allShown === 1 ? '' : '  ⛔ 母集団ガード: 期待は 22 / 1')];
+      + (hiddenTotal === 20 && allShown === 1 ? '' : '  ⛔ 母集団ガード: 期待は 20 / 1')];
   }],
   ['2d', '技能 12 種が描かれ、合計が SkillCheck.checkScore と一致 (載っていないページでは区画ごと伏せる)', (M) => {
     const P = M.pages || [];
@@ -1649,7 +1653,10 @@ const ASSERTS = [
         if (p.secInDom && p.secInDom.dfSheetSecSkills) bad.push(p.label + ' ⛔ 技能区画が残っている');
       }
     }
-    return [bad.length === 0 && cells === 24 && withSC === 2 && withoutSC === 3,
+    /* ⭐ #48: カウンタを固定値でなく母集団から引く。cells === nSC * 12 が「12 種すべて照合した」、
+       nSC === 3 が「3 枚で照合した」。⛔ 片方だけだと空振りする (照合 0 マスでも通ってしまう)。 */
+    const nSC = P.filter(p => p.hasSkillCheck).length;
+    return [bad.length === 0 && cells === nSC * 12 && nSC === 3 && (P.length - nSC) === 2,
       'SkillCheck 有り ' + withSC + ' 枚 (照合 ' + cells + ' マス) / 無し ' + withoutSC + ' 枚は区画ごと伏せる'
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
   }],
@@ -2017,17 +2024,19 @@ const ASSERTS = [
   ['8a', '★#36 ?sheet5e=0 で 5 ページとも #29 の 5 区画へ戻る (段組も空欄枠も出ない)', (M) => {
     const R = M.retreat5e || [];
     if (R.length !== 5) return [false, '⛔ 母集団が 5 でない (' + R.length + ')'];
-    const want = { 'index.html': [], 'tavern.html': ['dfSheetSecBody'],
-      'town.html': ['dfSheetSecSkills', 'dfSheetSecBody'],
-      'world.html': ['dfSheetSecSkills', 'dfSheetSecBody'],
-      'title.html': ['dfSheetSecSkills', 'dfSheetSecBody'] };
+    /* ⭐ #48: 撤退 (?sheet5e=0 → renderV1) でも SkillCheck の有無で技能区画が決まる。
+       renderV1 も dfSheetSecSkills: !!d.skills で供給を見ているため、world では技能が出る。
+       ⇒ world の期待は ['dfSheetSecBody'] (= tavern と同じ)。 */
+    const wantOf = (p) => (p.file === 'index.html' ? [] : ['dfSheetSecBody'])
+      .concat(p.hasSkillCheck ? [] : ['dfSheetSecSkills']);
     const bad = [];
     for (const p of R) {
       const st = p.state;
       if (!st) { bad.push(p.label + ' ⛔ __state() が無い'); continue; }
       if (p.sheet5e !== false) bad.push(p.label + ' ⛔ SHEET5E=' + p.sheet5e);
       if ((st.sectionIds || []).length !== 5) bad.push(p.label + ' ⛔ 区画 ' + (st.sectionIds || []).length + ' 件');
-      if (!sameSet(st.hidden || [], want[p.file])) bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden));
+      if (!sameSet(st.hidden || [], wantOf(p))) bad.push(p.label + ' 伏せ ' + JSON.stringify(st.hidden)
+        + ' (期待 ' + JSON.stringify(wantOf(p)) + ')');
       if ((p.colsInDom || []).length !== 0) bad.push(p.label + ' ⛔ 三段組の器が残っている');
       if ((p.blankDom || []).length !== 0) bad.push(p.label + ' ⛔ 空欄枠が残っている');
       if ((p.bodyTextLen || 0) < 20) bad.push(p.label + ' ⛔ 中身が空 (' + p.bodyTextLen + '字)');
@@ -2126,7 +2135,7 @@ const ASSERTS = [
       + (distinct ? '' : '  ⛔ 母集団ガード: 2 本の腕で武器が同じだと固定文字列でも通る')
       + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
   }],
-  ['8f', '★#36 受動知覚 = 10 + SkillCheck.checkScore(知覚) / 習熟ボーナスも 2 経路 (index / tavern)', (M) => {
+  ['8f', '★#36 受動知覚 = 10 + SkillCheck.checkScore(知覚) / 習熟ボーナスも 2 経路 (index / tavern / world)', (M) => {
     const P = M.pages || [];
     if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
     const bad = []; let withSC = 0, withoutSC = 0;
@@ -2146,7 +2155,8 @@ const ASSERTS = [
         if (S.profBonus) bad.push(p.label + ' ⛔ SkillCheck が無いのに習熟ボーナスが出ている');
       }
     }
-    return [bad.length === 0 && withSC === 2 && withoutSC === 3,
+    /* ⭐ #48: #45 で world.html に js/skill-check.js が載り、2 経路照合できるページが 2 → 3 枚へ増えた。 */
+    return [bad.length === 0 && withSC === 3 && withoutSC === 2,
       P.filter(p => p.hasSkillCheck).map(p => p.label + ':受動知覚 '
         + (((p.statDom || {}).passivePerception || {}).v) + ' (期待 ' + p.passiveExpect + ')').join('  ')
       + '  SkillCheck 無し ' + withoutSC + ' 枚は習熟の区画ごと伏せる'
