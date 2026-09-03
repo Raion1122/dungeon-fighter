@@ -41,11 +41,24 @@
  *                   すべて getBoundingClientRect 由来 / placeUnscaledUi を写経しない)
  *     (0h) 母集団 … **見えている敵のうち最小のものが 70 以下** ((2f) の母集団)
  *
- * ■ 項目 3〜4 が埋めるもの (今は PENDINGS。⛔ 件数から隠さない)
- *     §3 恒等(非退行) (3a)〜(3d)
- *     §4 撤退        (4a)〜(4c)
- *   ⭐ 撤退アームの観測は既に m.ref として揃っている (§4 はここから測れる)。
- *     素のアームの事故は errs / 撤退アームの事故は m.refErrs に分けて溜めてある。
+ * ■ 項目 3 (このコミット) で足したもの — **§3 恒等 (3a)〜(3d) / §4 撤退 (4a)〜(4c)**
+ *   ⇒ **受入条件の PENDING は 0 件**になった (残る PENDING は --negative の変異 17 本 = 項目 4)。
+ *   ⭐⭐⭐ §3 の 3 本 (3a)(3b)(3c) は「素のアーム vs 撤退アーム」の**恒等**。撤退アームが
+ *     「#44 が入る前の見た目」の定義なので、緑 = 「札とバッジ以外は 1px も動かしていない」
+ *     の機械証明になる (依頼書 §1 のユーザー決定そのもの)。
+ *   ⚠⚠⚠ **恒等 assert は「片方のアームだけを壊す変更」でしか赤くならない。**
+ *     両アームを同じだけ動かす変異 (例: HP バーの dy を**無条件に** -12) は必ず**空振り**する
+ *     — 負のコントロールは素のアームも撤退アームも**同じ変異ポート**から配るため。
+ *     ⇒ (3a)(3b)(3c) を狙う変異は、必ず NAME_LABEL_ON で分岐させた形にすること
+ *       (項目 3 が実走で確かめた形は下の MUTATIONS のコメントに置いてある)。
+ *   ⭐ (3d) だけは **別ページ**で撮る (measureRoomCross)。本番の撤去点 resetNodeState() と
+ *     構築点 buildNode() を実際に通す = clearNodeArrays を通る唯一の経路。
+ *     ⛔ 本体の measure() の中で跨がない (盤面を作り直すと §0〜§2 の母集団が全部消える)。
+ *   ⭐ (4a) は依頼書 §8 の 4 条件に **5 本目 (OFF の labelArrayLen === enemies.length)** を
+ *     足してある。⚠⚠⚠ 理由 = `push(null)` は**撤退枝にしか無い**ので、素のアームしか見ない
+ *     (0d) では「null を積み忘れる欠陥 (変異 nonull)」が原理的に捕まらない。
+ *     依頼書の期待値は 1 つも弱めず、条件を 1 本 AND で足した形 (#38 の作法)。
+ *   ⭐ 撤退アームの観測は m.ref、事故は errs (素) / m.refErrs (撤退) に分けて溜めてある。
  *
  * ■ ⚠⚠⚠ §0 の全ガードに共通の規則 — **母集団が立たなかったら「スキップして緑」にしない**
  *   (依頼書 §8 に太字で書いてある)。`(0a)(0e)(0f)(0h)` のどれかが偽になったら、
@@ -189,6 +202,31 @@ const PORT = parseInt(arg('port', '9850'), 10);
 //       dyshift      from 'hpBarOffX + 2, -27);'   to 'hpBarOffX + 2, -30.0);'
 //                    → (2e) 敵の dy が -30.00 vs 撤退アームの状態列 -27.00 で赤
 //                    ⚠ '-27);' → '-30);' は**同じ長さ**なので (n0b) の検算に弾かれる。小数を足す。
+//
+//   ⭐⭐⭐ 項目 3 も **同じやり方で 6 本を一時配線して実走**し、§3/§4 の 7 本が
+//     「素で自明に緑」でないことを証明した (2026-09-03。使い捨てコピーで走らせ、本ファイルは
+//      1 バイトも変異を持たない)。⇒ 項目 4 はこの 2 本をそのまま使える:
+//       hpshift      from 'hpBarOffX, -10);'
+//                    to   'hpBarOffX, NAME_LABEL_ON ? -12.5 : -10);'
+//                    → (3a) 敵の HP バーが 2.50px ずれて赤 / (4b) も同時に赤
+//                    ⚠⚠⚠ **依頼書どおり「HP バーの dy を -10 → -12」にすると空振りする。**
+//                      負のコントロールは素も撤退も**同じ変異ポート**から配るので、
+//                      無条件に動かすと**両アームが等しく動いて恒等 assert は緑のまま**。
+//                      NAME_LABEL_ON で分岐させて初めて赤くなる (実走で両方確認済み)。
+//                    ⚠⚠ 配置関数 placeUnscaledUi の呼び出し行を**丸ごと**アンカーにしては
+//                      いけない — その式と敵の寸法データ語がドライバ本体に入った瞬間
+//                      **(0g) が赤くなる** (FORBIDDEN_IN_SELF / SELF_MARK の 2 段に引っかかる)。
+//                      短いアンカー ('hpBarOffX, -10);' = 配信バイト中 1 件) を使うこと。
+//       noclear      from 'enemyStatusElements.length = 0; enemyLabelElements.length = 0;'
+//                    to   'enemyStatusElements.length = 0; /* 11 本目を掃除しない */'
+//                    → (3d) 跨いだ後 札の配列 6 / 敵 2 で赤 (実走で確認)
+//                    ⚠⚠⚠ to を 'enemyStatusElements.length = 0;' (前半だけ) にすると
+//                      **(n0a) が赤くなる** — その文字列は素の行の**接頭辞として元から居る**ので
+//                      「素には注入文字列が無い」が破れる (2026-09-03 に実際に踏んだ。
+//                       statusdetach の空白の件と同じ形)。必ず素に無い形へ変えること。
+//   ⭐ (4a) を狙うなら badgestay がそのまま効く (実走で ④ バッジ位置 ON -46 / OFF -46 で赤)。
+//     from 'const badgeDy = NAME_LABEL_ON ? -58 : -46;'  to 'const badgeDy = -46;'
+//     → (1h) と (4a) が同時に赤になる (どちらを targets に書いてもよい)。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
   nolabel: { impl: false, file: 'index.html', targets: ['0a', '1a', '1b'],
@@ -219,8 +257,11 @@ const MUTATIONS = {
     why: 'driver_cast_circle.js の撤去ループへ enemyLabelElements を足さない (§2-2 罠A)' },
   dyshift: { impl: false, file: 'index.html', targets: ['2e'],
     why: '札の dy を -27 → -30 にする (placeUnscaledUi の上端が動く)' },
-  hpshift: { impl: false, file: 'index.html', targets: ['3a'],
-    why: 'HP バーの dy を -10 → -12 にする (恒等 assert の空振り検査)' },
+  hpshift: { impl: false, file: 'index.html', targets: ['3a', '4b'],
+    why: 'HP バーの dy を **NAME_LABEL_ON のときだけ** -10 → -12.5 にする (恒等 assert の空振り検査)'
+      + ' ⚠⚠⚠ 依頼書の「-10 → -12」(無条件) は**空振りする** — 負のコントロールは素も撤退も'
+      + ' 同じ変異ポートから配るので、両アームが等しく動いて (3a) は緑のまま。'
+      + ' 項目 3 が実走で両方 (無条件 = 緑 / 分岐 = 赤) を確認した。アンカーは上のコメント参照' },
   bothgrow: { impl: false, file: 'index.html', targets: ['2f'],
     why: '.allyLabel の素を font-size: 16px に、body.labelSmall の上書きを 11.2px に'
       + ' **同率で**膨らませる — ⭐⭐⭐ (2a)(2b)(2c) は比 0.70 のまま**緑で通る**。'
@@ -439,6 +480,9 @@ const W_BOX_RATIO_MIN = 0.68, W_BOX_RATIO_MAX = 0.75;  // (2b) 札の箱の幅�
 const W_TEXT_RATIO_MIN = 0.68, W_TEXT_RATIO_MAX = 0.72;// (2b) 名前テキストの幅の比 (固定費を含まない)
 /* (2c)(2e) の「同じ」の許容。⚠ 依頼書 §8 の ±0.6px をそのまま使う。 */
 const SAME_PX = 0.6;
+/* §3 恒等 / §4 (4b) の「完全一致」の許容。⚠ 依頼書 §8 の ±0.5px をそのまま使う。
+ *  ⭐ 4 辺すべてを見る = 位置と寸法を同時に縛る (⛔ 中心 1 点や幅だけで代用しない)。 */
+const SAME_RECT_PX = 0.5;
 /* (1f) の「札の下端が HP バーの上端より上」の許容 (依頼書 §8 = +0.5)。 */
 const TOUCH_PX = 0.5;
 /* (2f) の絶対量の上限。⭐ 依頼書 §8 の較正表 = 「100% を確実に赤にし、実機調整の余地
@@ -496,6 +540,29 @@ function refPair(m, pick) {
   try { on = pick(m) || null; } catch (e) { on = null; }
   try { off = (m && m.ref) ? (pick(m.ref) || null) : null; } catch (e) { off = null; }
   return (on && off) ? { on: on, off: off } : null;
+}
+
+/* ⭐ 項目 3 が足した — 素のアームの敵 e に対応する **撤退アームの同じ敵**を返す。
+ *  ⚠ 添字が同じでも型が違えば別物なので、必ず type まで一致を要求する
+ *    ((2e) が同じ守り方をしている。掘り方が 2 通りになると静かにズレるのでここへ畳んだ)。
+ *  ⛔ popBadge / popVisible を撤退アームに当てて母集団を作らないこと —
+ *    どちらも **札の有無**で数えるので、撤退アーム (札が 1 枚も無い) では必ず 0 体になり、
+ *    §3 が「対照が無いから赤」で永久に空振りする。 */
+function refEnemy(m, e) {
+  const rows = (m && m.ref && m.ref.enemies) || [];
+  const r = rows[e.i];
+  return (r && r.type === e.type) ? r : null;
+}
+/* 矩形の「完全一致」の測り方。4 辺の最大ずれを返す (null = どちらかが採れなかった)。 */
+function rectDelta(a, b) {
+  if (!a || !b) return null;
+  return Math.max(Math.abs(a.left - b.left), Math.abs(a.top - b.top),
+                  Math.abs(a.right - b.right), Math.abs(a.bottom - b.bottom));
+}
+/* 寸法だけの一致 ((3c) 用。⭐ 位置は動かす仕様なので測らない)。 */
+function sizeDelta(a, b) {
+  if (!a || !b) return null;
+  return Math.max(Math.abs(a.w - b.w), Math.abs(a.h - b.h));
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -601,6 +668,9 @@ async function measure(browser, port, errs, opts) {
                w: r.width, h: r.height, via: 'getBoundingClientRect' };
     };
     const safe = (f, d) => { try { return f(); } catch (e) { return d; } };
+    /* ⭐ 項目 3 が足した共通ヘルパ。⚠ 従来は out.enemies の map の中にだけ dispOf があり、
+       味方側から呼べなかった (§3/§4 は味方の器の有無も見るので外へ出す)。 */
+    const dsp = (el) => el ? (el.style.display || '') : null;
 
     // ── 母集団を本番の factory で作る ────────────────────────────────────────
     try {
@@ -707,6 +777,25 @@ async function measure(browser, port, errs, opts) {
       .filter(x => x.id !== 'warriorLabel');
     out.allyLabels = allyLabels.map(x => ({ rect: rectOf(x), bg: getComputedStyle(x).backgroundColor }));
 
+    /* ⭐ 項目 3 が足した観測 — §3 恒等 (3a)(3b) / §4 (4b) の**味方側**。
+       主人公は #player (スプライト) と #warriorHpBar (HP バー) の 2 枚。
+       ⚠ NPC 仲間 (#ally<i> / #allyHpBar<i>) は**顔ぶれが毎回ランダム**なので、
+         恒等の対照に使えるのは「両アームで同じ添字が同じ職を指したとき」だけ。
+         判定は assert 側で行い、ここでは職キーを添えて生のまま返す。 */
+    const playerEl = document.getElementById('player');
+    const warriorHp = document.getElementById('warriorHpBar');
+    out.player = {
+      rectSprite: rectOf(playerEl), rectHp: rectOf(warriorHp),
+      spriteDisplay: dsp(playerEl), hpDisplay: dsp(warriorHp),
+    };
+    out.allies = safe(() => allies.map((a, i) => {
+      const ae = document.getElementById('ally' + i);
+      const ah = document.getElementById('allyHpBar' + i);
+      return { i: i, classKey: a.classKey || null, isHero: !!a.isHero, alive: !!a.alive,
+               rectSprite: rectOf(ae), rectHp: rectOf(ah),
+               spriteDisplay: dsp(ae), hpDisplay: dsp(ah) };
+    }), []);
+
     out.rectCount = VIA['getBoundingClientRect'] || 0;
     out.rectVia = Object.keys(VIA);
     return out;
@@ -714,6 +803,89 @@ async function measure(browser, port, errs, opts) {
 
   await page.close();
   return m;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * (3d) 「部屋を 1 つ跨いだあと」の観測 — ⭐ **別ページで撮る**
+ *   ⚠ 既存の measure() は 1 部屋しか見ておらず、clearNodeArrays を一度も通らない。
+ *     ⇒ ここだけは本番の撤去点 resetNodeState() と構築点 buildNode() を実際に通す
+ *     (index.html の enterNode() が跨ぐときに呼ぶのと**同じ 2 本**。dev シーム
+ *      ?renode=N の中身も `resetNodeState(); buildNode(null);` そのもの)。
+ *   ⛔ 本体の measure() の中でやらない — 盤面を作り直すと §0〜§2 の母集団が全部消える。
+ *   ⭐ 跨ぐ前に敵を 2 体足しておく = 「clearNodeArrays に掃除すべき中身があった」を保証する
+ *     (⚠ 掃除対象が空の状態で測ると `0 === 0` で永久緑になる)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+async function measureRoomCross(browser, port, errs) {
+  const page = await browser.newPage();
+  const tag = '[:' + port + ' roomCross] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+  await page.evaluateOnNewDocument((k, v) => {
+    try { sessionStorage.setItem(k, v); } catch (e) {}
+  }, SCENARIO_KEY, SCENARIO_ID);
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForFunction(
+    () => typeof createEnemy === 'function' && typeof createEnemyDom === 'function'
+      && typeof updatePositions === 'function' && typeof resetNodeState === 'function'
+      && typeof buildNode === 'function' && typeof enemies !== 'undefined',
+    { timeout: 25000 });
+  await settle(page);
+
+  const r = await page.evaluate(() => {
+    const out = { seeded: 0, seedErr: null, crossed: false, crossErr: null, before: null, after: null };
+    /* ⭐ 添字並列の配列 11 本の長さを**記録として**採る (判定は enemies との一致で行う)。
+       ⚠ ここは「どこがズレたか」を人が読むための detail 用。⛔ この表を判定に使わない
+       (12 本目が足された日に静かに取りこぼすので、判定は下の 2 条件だけに寄せてある)。 */
+    const snap = () => {
+      const labels = (typeof window.__enemyLabels === 'function') ? window.__enemyLabels() : null;
+      const lens = {};
+      const len = (k, a) => { try { lens[k] = a.length; } catch (e) { lens[k] = null; } };
+      len('enemyElements', enemyElements); len('hpBarElements', hpBarElements);
+      len('hpFillElements', hpFillElements); len('hitSparkElements', hitSparkElements);
+      len('coinElements', coinElements); len('weaponDropElements', weaponDropElements);
+      len('armorDropElements', armorDropElements); len('alertMarkElements', alertMarkElements);
+      len('enemyBadgeElements', enemyBadgeElements); len('enemyStatusElements', enemyStatusElements);
+      lens.enemyLabelElements = Array.isArray(labels) ? labels.length : null;
+      return {
+        enemies: enemies.length,
+        labelArrayLen: Array.isArray(labels) ? labels.length : null,
+        labelDom: document.querySelectorAll('.enemyLabel').length,
+        statusSlotDom: document.querySelectorAll('.enemy-status-slot').length,
+        enemySpriteDom: document.querySelectorAll('.enemy').length,
+        arrays: lens,
+      };
+    };
+    try {
+      const tx = Math.floor(playerX / TILE_SIZE), ty = Math.floor(playerY / TILE_SIZE);
+      const plan = [{ k: 'goblin', dx: 2, dy: 0 }, { k: 'hobgoblin', dx: 3, dy: 1 }];
+      for (const p of plan) {
+        if (!ENEMY_TYPES[p.k]) { out.seedErr = '未知の敵キー ' + p.k; break; }
+        const idx = enemies.length;
+        const e = createEnemy(p.k, tx + p.dx, ty + p.dy);
+        e.everSeen = true; e.state = 'idle';
+        enemies.push(e);
+        createEnemyDom(idx, e.def, p.k);
+        out.seeded++;
+      }
+      updatePositions();
+    } catch (err) { out.seedErr = String((err && err.message) || err); }
+    out.before = snap();
+    /* ── 本番の「部屋を跨ぐ」2 本を実際に通す ── */
+    try { resetNodeState(); buildNode(null); updatePositions(); out.crossed = true; }
+    catch (err) { out.crossErr = String((err && err.message) || err); }
+    out.after = snap();
+    return out;
+  });
+
+  await page.close();
+  return r;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1234,6 +1406,287 @@ const ASSERTS = [
         + '  (上限 ' + LABEL_VS_SPRITE_MAX + ')'
         + (ok ? '' : '  ⛔ 札が敵に対して大きすぎる = ユーザーが訴えた量そのもの')];
     }],
+
+  // ── §3 恒等 (非退行) ───────────────────────────────────────────────────────
+  /* ⭐⭐⭐ §3 の 3 本は「素のアーム vs 撤退アーム」の**恒等**。撤退アームが
+   *   「#44 が入る前の見た目」の定義なので、ここが緑 = 「札とバッジ以外は 1px も
+   *   動かしていない」の機械証明になる (依頼書 §1 のユーザー決定そのもの)。
+   * ⚠⚠⚠ 恒等 assert は **片方のアームだけを壊す変更**でしか赤くならない。
+   *   両アームを同じだけ動かす変異 (例: HP バーの dy を無条件に -12) は**空振りする**
+   *   ので、変異は必ず撤退フラグで分岐させる形にすること (項目 4 への申し送り)。 */
+  ['3a', 'HP バー (味方 #warriorHpBar / 敵 .enemyHpBar) の矩形が ' + RETREAT_QUERY
+    + ' と**完全一致** (±' + SAME_RECT_PX + 'px)'
+    + ' ⭐ 70% にしたのは札だけ = HP バー (52x8 / 60x10) は 1px も動いていないことの宣言',
+    m => {
+      const hero = refPair(m, x => (x.player && x.player.rectHp) || null);
+      const rows = [];
+      for (const e of popOnScreen(m)) {
+        const r = refEnemy(m, e);
+        if (!r || !e.rectHp || !r.rectHp || !(e.rectHp.h > 0) || !(r.rectHp.h > 0)) continue;
+        rows.push({ t: e.type, d: rectDelta(e.rectHp, r.rectHp) });
+      }
+      const heroOk = !!hero && hero.on.h > 0 && hero.off.h > 0;
+      if (!heroOk || rows.length < POP_MIN) {
+        return popFail('(3a) 両アームで採れた HP バー',
+          '主人公 #warriorHpBar = ' + (hero ? (hero.on.h.toFixed(2) + 'px / 撤退 '
+            + hero.off.h.toFixed(2) + 'px') : 'どちらかのアームで採れず')
+          + ' / 突き合わせられた敵 ' + rows.length + ' 体'
+          + ' (素の画面上の敵 ' + popOnScreen(m).length + ' 体 / 撤退アームの敵 '
+          + (((m.ref && m.ref.enemies) || []).length) + ' 体)');
+      }
+      const dHero = rectDelta(hero.on, hero.off);
+      const bad = rows.filter(x => x.d > SAME_RECT_PX);
+      const ok = dHero <= SAME_RECT_PX && bad.length === 0;
+      return [ok,
+        '主人公の HP バー 4 辺の最大ずれ ' + dHero.toFixed(2) + 'px'
+        + '   敵 ' + rows.length + ' 体 '
+        + JSON.stringify(rows.map(x => x.t + ':' + x.d.toFixed(2) + 'px'))
+        + '  (許容 ' + SAME_RECT_PX + ')'
+        + (ok ? '' : '  ⛔ HP バーが動いている: '
+            + (dHero > SAME_RECT_PX ? '主人公 ' + dHero.toFixed(2) + 'px ' : '')
+            + JSON.stringify(bad.map(x => x.t + ' ' + x.d.toFixed(2) + 'px')))];
+    }],
+
+  ['3b', 'スプライト (味方 #player / 敵 .enemy) の矩形が ' + RETREAT_QUERY
+    + ' と**完全一致** (±' + SAME_RECT_PX + 'px)'
+    + ' ⭐ 依頼書 §1「大きいのは敵ではなく札」— 敵の絵は 1 体も触っていないことの宣言',
+    m => {
+      const hero = refPair(m, x => (x.player && x.player.rectSprite) || null);
+      const rows = [];
+      for (const e of popOnScreen(m)) {
+        const r = refEnemy(m, e);
+        if (!r || !e.rectSprite || !r.rectSprite
+          || !(e.rectSprite.h > 0) || !(r.rectSprite.h > 0)) continue;
+        rows.push({ t: e.type, d: rectDelta(e.rectSprite, r.rectSprite),
+          wh: e.rectSprite.w.toFixed(1) + 'x' + e.rectSprite.h.toFixed(1) });
+      }
+      const heroOk = !!hero && hero.on.h > 0 && hero.off.h > 0;
+      if (!heroOk || rows.length < POP_MIN) {
+        return popFail('(3b) 両アームで採れたスプライト',
+          '主人公 #player = ' + (hero ? (hero.on.w.toFixed(2) + 'x' + hero.on.h.toFixed(2)
+            + ' / 撤退 ' + hero.off.w.toFixed(2) + 'x' + hero.off.h.toFixed(2)) : 'どちらかのアームで採れず')
+          + ' / 突き合わせられた敵 ' + rows.length + ' 体'
+          + ' (素の画面上の敵 ' + popOnScreen(m).length + ' 体)');
+      }
+      const dHero = rectDelta(hero.on, hero.off);
+      const bad = rows.filter(x => x.d > SAME_RECT_PX);
+      const ok = dHero <= SAME_RECT_PX && bad.length === 0;
+      return [ok,
+        '主人公 #player の 4 辺の最大ずれ ' + dHero.toFixed(2) + 'px'
+        + '   敵 ' + rows.length + ' 体 '
+        + JSON.stringify(rows.map(x => x.t + '(' + x.wh + '):' + x.d.toFixed(2) + 'px'))
+        + '  (許容 ' + SAME_RECT_PX + ')'
+        + (ok ? '' : '  ⛔ スプライトが動いた/大きさが変わった: '
+            + (dHero > SAME_RECT_PX ? '主人公 ' + dHero.toFixed(2) + 'px ' : '')
+            + JSON.stringify(bad.map(x => x.t + ' ' + x.d.toFixed(2) + 'px')))];
+    }],
+
+  ['3c', '装備バッジの**寸法** (w x h) が ' + RETREAT_QUERY + ' と**完全一致** (±'
+    + SAME_RECT_PX + 'px) — ⭐ 位置 (top) は札の上へ動かすので**測らない**。'
+    + '「動かしたのは位置だけで、絵文字の大きさは 1px も変えていない」という宣言'
+    + ' (⚠ 位置が実際に動いたことは (4a) の badgeTop が測る)',
+    m => {
+      const rows = [];
+      for (const e of popOnScreen(m)) {
+        if (!e.hasBadge || e.badgeDisplay === 'none') continue;
+        const r = refEnemy(m, e);
+        if (!r || r.badgeDisplay === 'none') continue;
+        if (!e.rectBadge || !r.rectBadge || !(e.rectBadge.h > 0) || !(r.rectBadge.h > 0)) continue;
+        if (!e.rectSprite || !r.rectSprite) continue;
+        rows.push({ t: e.type, d: sizeDelta(e.rectBadge, r.rectBadge),
+          wh: e.rectBadge.w.toFixed(1) + 'x' + e.rectBadge.h.toFixed(1),
+          onDy: e.rectBadge.top - e.rectSprite.top,
+          offDy: r.rectBadge.top - r.rectSprite.top });
+      }
+      if (rows.length < POP_MIN) {
+        return popFail('(0e) バッジ持ちの敵',
+          '両アームでバッジの矩形を採れた敵が 0 体  素の画面上の敵 '
+          + JSON.stringify(popOnScreen(m).map(e => e.type + ':badge=' + e.hasBadge
+            + ':display=' + JSON.stringify(e.badgeDisplay))));
+      }
+      const bad = rows.filter(x => x.d > SAME_RECT_PX);
+      const ok = bad.length === 0;
+      return [ok,
+        'バッジ ' + rows.length + ' 枚の寸法のずれ '
+        + JSON.stringify(rows.map(x => x.t + '(' + x.wh + '):' + x.d.toFixed(2) + 'px'))
+        + '  (許容 ' + SAME_RECT_PX + ')'
+        + '   [記録・⛔ 判定しない] 位置 (バッジ上端 - スプライト上端) 素 vs 撤退: '
+        + JSON.stringify(rows.map(x => x.t + ':' + x.onDy.toFixed(1) + ' vs ' + x.offDy.toFixed(1)))
+        + (ok ? '' : '  ⛔ 寸法が変わった: ' + JSON.stringify(bad.map(x => x.t + ' ' + x.d.toFixed(2) + 'px')))];
+    }],
+
+  ['3d', '部屋を 1 つ跨いだあと enemyLabelElements.length === enemies.length かつ'
+    + ' .enemyLabel の DOM 総数 <= 敵の数'
+    + ' (⭐ clearNodeArrays の 11 本目の足し忘れと、札の DOM が enemyLayer の外へ'
+    + ' 出た場合の取りこぼしを捕まえる)',
+    m => {
+      const rc = m.roomCross;
+      if (!rc) return popFail('(3d) 部屋跨ぎの観測', 'measureRoomCross を通していない');
+      if (rc.seedErr) return popFail('(3d) 跨ぐ前の仕込み', String(rc.seedErr));
+      if (!rc.crossed) {
+        return popFail('(3d) 部屋跨ぎ',
+          '本番の撤去点/構築点が例外で落ちた: ' + rc.crossErr);
+      }
+      const b = rc.before, a = rc.after;
+      if (!b || !a) return popFail('(3d) 前後のスナップ', 'before/after のどちらかが採れなかった');
+      /* ⚠⚠⚠ 掃除すべき中身が無い状態で測ると `0 === 0` / `0 <= 0` で永久緑になる。 */
+      if (!(b.enemies >= 1) || !(b.labelArrayLen >= 1)) {
+        return popFail('(3d) 跨ぐ前の母集団',
+          '跨ぐ前の enemies=' + b.enemies + ' / 札の配列=' + JSON.stringify(b.labelArrayLen)
+          + ' — 掃除すべき中身が無い状態では clearNodeArrays の足し忘れを検出できない'
+          + '  (仕込めた敵 ' + rc.seeded + ' 体)');
+      }
+      if (!(a.enemies >= 1)) {
+        return popFail('(3d) 跨いだ後の母集団',
+          '作り直した部屋に敵が 1 体も居ない (enemies=' + a.enemies + ')'
+          + ' — 敵 0 体では長さの一致が自明に成立してしまう');
+      }
+      const okLen = a.labelArrayLen === a.enemies;
+      const okDom = a.labelDom <= a.enemies;
+      const ok = okLen && okDom;
+      return [ok,
+        '跨ぐ前 enemies=' + b.enemies + ' 札の配列=' + b.labelArrayLen + ' 札の DOM=' + b.labelDom
+        + '  →  跨いだ後 enemies=' + a.enemies + ' 札の配列=' + JSON.stringify(a.labelArrayLen)
+        + ' 札の DOM=' + a.labelDom + ' (敵スプライトの DOM=' + a.enemySpriteDom + ')'
+        + '   [記録] 添字並列 11 本の長さ ' + JSON.stringify(a.arrays)
+        + (okLen ? '' : '  ⛔ 札の配列の長さが敵の数と違う (clearNodeArrays の足し忘れ)')
+        + (okDom ? '' : '  ⛔ 札の DOM が敵の数より多い (跨いでも消えていない)')];
+    }],
+
+  // ── §4 撤退 ────────────────────────────────────────────────────────────────
+  ['4a', 'index.html' + RETREAT_QUERY + ' の 5 条件 { enemyLabelCount, allyLabelH,'
+    + ' statusIsChild, badgeTop, labelArrayLen } が **ON と OFF で対になっている**'
+    + ' ⭐⭐⭐ 撤退アームだけを見る assert は永久緑になる (実装が丸ごと壊れていても OFF は'
+    + ' 0 個 / 子でない / 100% で通る) → **素のアームの対照を同じ assert の中に同居させる**',
+    m => {
+      if (!m.ref) return popFail('(4a) 撤退アーム', RETREAT_QUERY + ' の観測が無い');
+      const on = m, off = m.ref;
+      const onShown = popOnScreen(on), offShown = popOnScreen(off);
+      if (onShown.length < POP_MIN || offShown.length < POP_MIN) {
+        return popFail('(4a) 両アームの画面上の敵',
+          '素 ' + onShown.length + ' 体 / 撤退 ' + offShown.length + ' 体');
+      }
+      // ① 札の枚数 — ON は敵の数だけ出て、OFF は 1 枚も作られない
+      const c1 = on.enemyLabelDomCount > 0 && off.enemyLabelDomCount === 0;
+      // ② 70% の効き — ON だけ body.labelSmall が付き、札の高さが OFF の 0.7 倍
+      const hp = refPair(m, x => (x.heroLabel && x.heroLabel.rect) || null);
+      const hr = (hp && hp.off.h > 0) ? (hp.on.h / hp.off.h) : null;
+      const c2 = on.bodyHasLabelSmall === true && off.bodyHasLabelSmall === false
+        && on.nameLabelOn === true && off.nameLabelOn === false
+        && hr !== null && hr >= H_RATIO_MIN && hr <= H_RATIO_MAX;
+      // ③ 状態アイコン列の親 — ON は札の子 / OFF は独立配置 (.enemy-status-slot)
+      const onChild = onShown.filter(e => e.statusIsChildOfLabel).length;
+      const offChild = offShown.filter(e => e.statusIsChildOfLabel).length;
+      const offSlotClassOk = offShown.every(e => e.statusClass === 'enemy-status-slot');
+      const c3 = onChild === onShown.length && offChild === 0 && offSlotClassOk;
+      // ④ バッジの位置 — ON は OFF より**上**へ退避している (⛔ -58 という具体値は測らない)
+      const dys = [];
+      for (const e of onShown) {
+        if (!e.hasBadge || e.badgeDisplay === 'none') continue;
+        const r = refEnemy(m, e);
+        if (!r || r.badgeDisplay === 'none') continue;
+        if (!e.rectBadge || !r.rectBadge || !e.rectSprite || !r.rectSprite) continue;
+        dys.push({ t: e.type,
+          on: e.rectBadge.top - e.rectSprite.top,
+          off: r.rectBadge.top - r.rectSprite.top });
+      }
+      if (dys.length < POP_MIN) {
+        return popFail('(4a) ④ バッジ持ちの敵',
+          '両アームでバッジの位置を採れた敵が 0 体  '
+          + JSON.stringify(onShown.map(e => e.type + ':badge=' + e.hasBadge)));
+      }
+      const c4 = dys.every(d => d.on < d.off - SAME_PX);
+      // ⑤ ⭐ 撤退アームでも添字並列が崩れていない (= push(null) が効いている)
+      //    ⚠⚠⚠ (0d) は素のアームしか見ないので、null を積み忘れる欠陥は**ここでしか捕まらない**
+      const c5 = isFiniteNum(off.labelArrayLen) && off.labelArrayLen === off.enemyCount;
+      const ok = c1 && c2 && c3 && c4 && c5;
+      return [ok,
+        '① 札の枚数 ON=' + on.enemyLabelDomCount + ' / OFF=' + off.enemyLabelDomCount
+        + ' ' + (c1 ? 'OK' : '⛔')
+        + '   ② labelSmall ON=' + on.bodyHasLabelSmall + '/OFF=' + off.bodyHasLabelSmall
+        + ' 札の高さ比 ' + (hr === null ? 'なし' : hr.toFixed(4))
+        + ' (帯 ' + H_RATIO_MIN + '〜' + H_RATIO_MAX + ') ' + (c2 ? 'OK' : '⛔')
+        + '   ③ 状態列が札の子 ON=' + onChild + '/' + onShown.length
+        + ' OFF=' + offChild + '/' + offShown.length
+        + ' OFF の class=' + JSON.stringify(offShown.map(e => e.statusClass)
+          .filter((v, i, a) => a.indexOf(v) === i)) + ' ' + (c3 ? 'OK' : '⛔')
+        + '   ④ バッジ位置 (上端 - スプライト上端) '
+        + JSON.stringify(dys.map(d => d.t + ':ON ' + d.on.toFixed(1) + ' / OFF ' + d.off.toFixed(1)))
+        + ' ' + (c4 ? 'OK (ON が上)' : '⛔')
+        + '   ⑤ OFF の札配列 ' + JSON.stringify(off.labelArrayLen) + ' / 敵 ' + off.enemyCount
+        + ' ' + (c5 ? 'OK' : '⛔ push(null) の取りこぼし = 撤退時だけ添字がずれる')];
+    }],
+
+  ['4b', RETREAT_QUERY + ' でも **HP バーとスプライトの器が全部そのまま在り**、矩形が'
+    + ' 素のアームと一致する (±' + SAME_RECT_PX + 'px)'
+    + ' ⭐「撤退のしすぎ」= 札を止めたつもりで HP バーや絵まで消した実装をここで落とす',
+    m => {
+      if (!m.ref) return popFail('(4b) 撤退アーム', RETREAT_QUERY + ' の観測が無い');
+      const off = m.ref;
+      const onShown = popOnScreen(m), offShown = popOnScreen(off);
+      if (onShown.length < POP_MIN) {
+        return popFail('(4b) 素のアームの画面上の敵', '0 体では撤退側と突き合わせられない');
+      }
+      /* ① 撤退アームの器が在ること (⛔ 「無いから比べられないので緑」にしない) */
+      const p = off.player || {};
+      const heroAlive = !!(p.rectSprite && p.rectSprite.h > 0 && p.spriteDisplay !== 'none'
+        && p.rectHp && p.rectHp.h > 0 && p.hpDisplay !== 'none');
+      const lost = offShown.filter(e => !(e.rectSprite && e.rectSprite.h > 0
+        && e.rectHp && e.rectHp.h > 0));
+      const sameCount = onShown.length === offShown.length;
+      /* ② 矩形が一致すること (味方 2 枚 + 敵 2 枚ずつ) */
+      const rows = [];
+      for (const e of onShown) {
+        const r = refEnemy(m, e);
+        if (!r) continue;
+        rows.push({ t: e.type, spr: rectDelta(e.rectSprite, r.rectSprite),
+          hp: rectDelta(e.rectHp, r.rectHp) });
+      }
+      const onP = m.player || {};
+      const dSpr = rectDelta(onP.rectSprite, p.rectSprite);
+      const dHp = rectDelta(onP.rectHp, p.rectHp);
+      if (dSpr === null || dHp === null || rows.length < POP_MIN
+        || rows.some(x => x.spr === null || x.hp === null)) {
+        return popFail('(4b) 両アームで採れた器',
+          '主人公 スプライト=' + JSON.stringify(dSpr) + ' HP バー=' + JSON.stringify(dHp)
+          + ' / 突き合わせられた敵 ' + rows.length + ' 体 (素 ' + onShown.length
+          + ' 体 / 撤退 ' + offShown.length + ' 体)');
+      }
+      const bad = rows.filter(x => x.spr > SAME_RECT_PX || x.hp > SAME_RECT_PX);
+      const ok = heroAlive && lost.length === 0 && sameCount
+        && dSpr <= SAME_RECT_PX && dHp <= SAME_RECT_PX && bad.length === 0;
+      return [ok,
+        '撤退アームの器: 主人公のスプライト/HP バー ' + (heroAlive ? '両方あり' : '⛔ 欠けている')
+        + ' / 画面上の敵 素 ' + onShown.length + ' 体 vs 撤退 ' + offShown.length + ' 体 '
+        + (sameCount ? 'OK' : '⛔')
+        + (lost.length ? '  ⛔ 器が欠けた敵: ' + JSON.stringify(lost.map(e => e.type)) : '')
+        + '   矩形のずれ: 主人公 スプライト ' + dSpr.toFixed(2) + 'px / HP バー ' + dHp.toFixed(2) + 'px'
+        + '   敵 ' + JSON.stringify(rows.map(x => x.t + ':絵 ' + x.spr.toFixed(2)
+          + '/HP ' + x.hp.toFixed(2)))
+        + '  (許容 ' + SAME_RECT_PX + ')'
+        + (bad.length ? '  ⛔ ずれた敵: ' + JSON.stringify(bad.map(x => x.t)) : '')];
+    }],
+
+  ['4c', RETREAT_QUERY + ' で pageerror / console.error が 0 件'
+    + ' (⭐ 素のアームの事故も**同じ assert の中で**見る — 撤退側だけを見ると、'
+    + '素のアームが例外だらけでも緑になる)',
+    m => {
+      const on = m.errs || [], off = m.refErrs || [];
+      /* ⚠ 「事故が 0 件」は器が動いていないと自明に真になるので、
+         **両アームが実際にダンジョンを組み上げたこと**を母集団として要求する。 */
+      const booted = !!(m.fixture && m.fixture.ok && m.fixture.renderOk)
+        && !!(m.ref && m.ref.fixture && m.ref.fixture.ok && m.ref.fixture.renderOk);
+      if (!booted) {
+        return popFail('(4c) 両アームの起動',
+          '素 ' + JSON.stringify(m.fixture && { ok: m.fixture.ok, render: m.fixture.renderOk })
+          + ' / 撤退 ' + JSON.stringify(m.ref && m.ref.fixture
+            && { ok: m.ref.fixture.ok, render: m.ref.fixture.renderOk }));
+      }
+      const ok = on.length === 0 && off.length === 0;
+      return [ok,
+        '素のアーム ' + on.length + ' 件 / 撤退アーム ' + RETREAT_QUERY + ' ' + off.length + ' 件'
+        + (ok ? '' : '\n         ' + on.concat(off).slice(0, 8).join('\n         '))];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1248,32 +1701,11 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //     (「母集団が無いので緑」は禁止 = 依頼書 §8 の太字。変異 bigonly がこれを検査する)。
 //   ⭐ 交差の判定には上の overlaps() を使う ((1h))。⛔ 中心 1 点や上端 1 点で代用しない。
 // ══════════════════════════════════════════════════════════════════════════════
-const PENDINGS = [
-  ['§3 恒等 (非退行)', [
-    ['3a', 'HP バー (味方/敵) の矩形が ' + RETREAT_QUERY + ' と**完全一致** (±0.5px)',
-      '項目 3 の担当。変異 hpshift が「恒等の空振り」を検査する'],
-    ['3b', 'スプライト #player / .enemy の矩形が ' + RETREAT_QUERY + ' と**完全一致** (±0.5px)',
-      '項目 3 の担当'],
-    ['3c', '装備バッジの**寸法** (w x h) が ' + RETREAT_QUERY + ' と**完全一致** (±0.5px)'
-      + ' — ⭐ 位置 (top) は -58 へ動かすので**測らない**。「動かしたのは位置だけ」という宣言',
-      '項目 3 の担当'],
-    ['3d', '部屋を 1 つ跨いだあと enemyLabelElements.length === enemies.length かつ'
-      + ' .enemyLabel の DOM 総数 <= 敵の数'
-      + ' (⭐ clearNodeArrays と driver_cast_circle の取りこぼしを捕まえる)',
-      '項目 3 の担当。変異 noclear / noteardown (§2-2 罠A の再現)'],
-  ]],
-  ['§4 撤退 ' + RETREAT_QUERY, [
-    ['4a', 'index.html' + RETREAT_QUERY + ' で 4 条件を測る'
-      + ' { enemyLabelCount, allyLabelH, statusIsChild, badgeTop }'
-      + ' → ON {>0, 素の 0.7 倍, true, 札より上} / OFF {0, 素と同じ, false, -46 相当}'
-      + ' ⭐⭐⭐ **撤退アームだけを見る assert は永久緑になる** → 素のアームの対照を同居させる',
-      '項目 4 の担当'],
-    ['4b', 'OFF でも **HP バーとスプライトの矩形は ON と一致**する'
-      + ' (⭐「撤退のしすぎ」= 札ごと HP バーまで壊した実装をここで落とす)', '項目 4 の担当'],
-    ['4c', 'OFF で pageerror / console.error が 0 件 (⭐ 素のアームの事故も同じ assert で見る)',
-      '項目 4 の担当'],
-  ]],
-];
+/* ⭐ 項目 3 で **受入条件の PENDING は 0 件**になった (§0〜§4 をすべて実装した)。
+ *  ⛔ 配列ごと削除しないこと — 削ると PENDING という 3 値そのものが消え、
+ *    次に受入条件を足す窓が「宣言してから実装する」型を使えなくなる。
+ *  ⚠ --negative 側の変異 17 本は MUT_TODO が別に PENDING を出す (項目 4 の担当)。 */
+const PENDINGS = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -1320,6 +1752,11 @@ const PENDINGS = [
            そうしないと noscale/dyshift が「対照が無いから赤」で空振りする。 */
       m.refErrs = [];
       m.ref = await measure(browser, RETREAT_PORT, m.refErrs, { query: RETREAT_QUERY });
+      /* ⭐ 項目 3: (4c) が両アームの事故を assert に昇格させるので、素の事故も m に載せる。 */
+      m.errs = errs;
+      /* ⭐ 項目 3: (3d) だけは **部屋を跨いだ別ページ**で撮る (本体の母集団を壊さないため)。
+         ⚠ 事故は素のアームの errs と同じ籠へ入れる = 跨ぎで例外が出たら (4c) も赤になる。 */
+      m.roomCross = await measureRoomCross(browser, PORT, errs);
       /* ⭐ (0b)(0h) の 2 経路目 = **配信バイト**。⛔ ディスクを読み直さない
          (走行中に別窓が保存すると混合ビルドを測ることになる)。 */
       const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
@@ -1370,17 +1807,46 @@ const PENDINGS = [
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
       }
 
+      mark('§3 恒等 (非退行) — ⭐ 撤退アームが「#44 が入る前の見た目」の定義。'
+        + 'ここが緑 = 札とバッジ以外は 1px も動かしていない');
+      for (const key of ['3a', '3b', '3c', '3d']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§4 撤退 ' + RETREAT_QUERY
+        + ' — ⭐⭐⭐ 撤退アームだけを見る assert は永久緑なので、素の対照を同居させる');
+      for (const key of ['4a', '4b', '4c']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
       for (const [title, rows] of PENDINGS) {
         mark(title);
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
       }
+      if (PENDINGS.length === 0) {
+        mark('未実装の受入条件 (⛔ 件数から隠さない)');
+        console.log('       受入条件の PENDING は 0 件 — §0〜§4 をすべて実装済み'
+          + '  (⚠ --negative 側の変異 ' + MUT_TODO.length + ' 本は項目 4 の担当)');
+      }
 
-      /* ⭐ 項目 1 では §4 (4c) がまだ PENDING なので、事故は **記録として**必ず出す。
-         ⛔ 黙って捨てない (silent fail-open を作らない)。§4 を実装する項目 4 が
-            (4c) で両アームの errs を assert に昇格させること。 */
-      mark('事故の記録 (⚠ assert は (4c) = 項目 4 の担当。⛔ ここで黙って捨てない)');
-      console.log('       素のアームの pageerror / console.error: ' + errs.length + ' 件'
+      /* ⭐ (4c) が assert として両アームの事故を見ているが、**中身は記録にも残す**
+         (⛔ 黙って捨てない = silent fail-open を作らない)。 */
+      mark('事故の記録 (判定は (4c)。⛔ ここで黙って捨てない)');
+      console.log('       素のアーム (部屋跨ぎのページを含む) の pageerror / console.error: '
+        + errs.length + ' 件'
         + (errs.length ? '\n         ' + errs.slice(0, 6).join('\n         ') : ''));
+      console.log('       撤退アーム ' + RETREAT_QUERY + ': '
+        + (m.refErrs ? m.refErrs.length : '—') + ' 件'
+        + (m.refErrs && m.refErrs.length ? '\n         ' + m.refErrs.slice(0, 6).join('\n         ') : ''));
+      console.log('       主人公 #player ' + (m.player && m.player.rectSprite
+        ? (m.player.rectSprite.w.toFixed(1) + 'x' + m.player.rectSprite.h.toFixed(1) + 'px')
+        : '⛔ 無い')
+        + ' / #warriorHpBar ' + (m.player && m.player.rectHp
+          ? (m.player.rectHp.w.toFixed(1) + 'x' + m.player.rectHp.h.toFixed(1) + 'px') : '⛔ 無い')
+        + ' / NPC 仲間 ' + ((m.allies || []).length) + ' 人 '
+        + JSON.stringify((m.allies || []).map(a => a.classKey + (a.isHero ? '(頭)' : ''))));
 
     } else {
       // ══ 負のコントロール ═══════════════════════════════════════════════════
@@ -1414,6 +1880,13 @@ const PENDINGS = [
              **変異が効いていなくても赤 = 空振り**に気づけなくなる。 */
           mm.refErrs = [];
           mm.ref = await measure(browser, port, mm.refErrs, { query: RETREAT_QUERY });
+          mm.errs = negErrs;
+          /* ⭐ 項目 3: (3d) を担当する変異のときだけ、部屋跨ぎのページも開く。
+             ⛔ 全変異で開くと走行時間が 1.5 倍になるだけで何も測れない
+             (跨ぎを見る assert は (3d) の 1 本しかない)。 */
+          if (MUTATIONS[k].targets.indexOf('3d') >= 0) {
+            mm.roomCross = await measureRoomCross(browser, port, negErrs);
+          }
           const servedNeg = await httpGet('http://localhost:' + port + PAGE_PATH);
           mm.roster = rosterFromBytes(servedNeg.body);
           mm.servedBytes = servedNeg.body.length;
