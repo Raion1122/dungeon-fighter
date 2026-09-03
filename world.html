@@ -495,6 +495,20 @@
     #worldEventTitle { font-size: 21px; letter-spacing: 0.05em; margin-bottom: 10px; }
     /* ⚠ 本文だけ左寄せ (3〜5 行の地の文を中央寄せにすると行頭が揃わず読みにくい)。 */
     #worldEventText { font-size: 16px; line-height: 1.7; letter-spacing: 0.02em; text-align: left; }
+    /* ★ #47 街道の実り —— 結末の下に出る「実り」の 1 行。
+       ⛔ **文言はここに書かない** —— 唯一の正は js/road-events.js の BOONS / boonLine()
+         ((0b) が world.html の配信バイトを全文検索して写経を落とす。変異 copyboon が番人)。
+       ⛔ **max-height を付けない** —— #45 の (1d)「画面内に収まる」が自明に真になる。
+       ⚠ 既定は hidden 属性 (HTML 側) —— 恩恵が無い結末では js が空文字 + hidden へ戻す。 */
+    #worldEventBoon {
+      margin-top: 13px;
+      padding: 8px 11px;
+      border: 1px solid rgba(70,48,20,0.5);
+      border-radius: 2px;
+      background: rgba(126,90,34,0.13);
+      font-size: 15px; line-height: 1.55; letter-spacing: 0.02em;
+      text-align: left; color: #4a3410;
+    }
     /* ⚠ 二択は **縦積み**。横並びだと長い選択肢が compact で割れて押し分けにくい (§9-2)。 */
     #worldEventBtns { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
     #worldEventBtns .worldEventBtn {
@@ -514,6 +528,7 @@
     body.compact #worldEventCard { padding: 16px 18px 14px; }
     body.compact #worldEventTitle { font-size: 19px; }
     body.compact #worldEventText { font-size: 15px; line-height: 1.65; }
+    body.compact #worldEventBoon { font-size: 14px; line-height: 1.5; margin-top: 11px; padding: 7px 9px; }
     body.compact #worldEventBtns .worldEventBtn { font-size: 15px; }
   </style>
 </head>
@@ -555,6 +570,7 @@
     <div id="worldEventCard">
       <div id="worldEventTitle"></div>
       <div id="worldEventText"></div>
+      <div id="worldEventBoon" hidden></div><!-- ★ #47 街道の実り。⛔ 文言はここに書かない -->
       <div id="worldEventBtns"></div>
     </div>
   </div>
@@ -1081,8 +1097,11 @@
        ⭐ ここが決めるのは「どの停留所で / 何度まで / 今開いてよいか」だけ。
          文言・地形・発生率・party・乱数の唯一の正は **js/road-events.js**。
          ⛔ 文言も確率もここへ 1 文字も写さない ((0b) が配信バイトを全文検索する)。
-       ⛔ **storage へ 1 バイトも書かない。** roadVisited は「この滞在だけ」の JS 変数で、
+       ⛔ **roadVisited / roadFiredCount は storage へ書かない** ——「この滞在だけ」の JS 変数で、
          ページを開き直せば忘れる (依頼書 §6-1)。世界の状態ではない。
+       ⭐ **storage へ出るのは #47 の roadBoon 1 キーだけ** (sessionStorage の書き口を 1 件だけ増やした)。
+         ⛔ removeItem は 1 件も増やさない —— 消費は index.html の担当
+         (verify_road_events (2c) が removeItem === 1 / localStorage 0 件を数で縛っている)。
        ⭐ 撤退 ?roadevent=0 はこの下の URLSearchParams 1 回と、器の remove() だけ (§7)。 */
     var ROAD_EVENT_ON = true;
     /* ⭐ #43 の HERO_MARK_ON (world.html:599-602) と **同じ書き方** = クエリを 1 回読むだけ。
@@ -1102,6 +1121,19 @@
       var elRoadBox = document.getElementById("worldEventBox");
       if (elRoadBox) elRoadBox.remove();
     }
+    /* ══ 撤退スイッチ ?roadboon=0 (#47 §7) ═══════════════════════════════
+       街道の実りだけが丸ごと無くなり、#45 までの姿 (結末を読んで終わり) に戻る。
+       ⭐ 上の ROAD_EVENT_ON / #43 の HERO_MARK_ON と **同じ書き方** = クエリを 1 回読むだけ。
+       ⛔ sessionStorage へ写さない (書くのは world.html の中でしか起きない)。
+       ⛔ ?roadevent=0 / ?walkstep=0 / ?world=0 と相乗りさせない —— 独立した 1 個のクエリ
+         (赤が出たときどちらの撤退か切り分けられなくなる)。
+       ⚠ 判定は **2 ページで独立**。index.html 側にも同じ名前の 1 行がある (項目 3)。
+         どちらか片方だけでも撤退になる = world 側なら「書かれない」/ index 側なら「無視する」。 */
+    var ROAD_BOON_ON = true;
+    try {
+      if (new URLSearchParams(location.search).get("roadboon") === "0") ROAD_BOON_ON = false;
+    } catch (e) {}
+
     var roadVisited = {}, roadFiredCount = 0, roadLast = null;
 
     /* 拠点では出さない = 入場ダイアログが優先 ((1b) / 変異 sitefire が番人)。
@@ -1150,7 +1182,31 @@
       var RE = window.ROAD_EVENTS;
       var text = RE.resultText(ev, choice, outcome);
       if (roadLast) { roadLast.success = outcome ? !!outcome.success : null; roadLast.text = text; }
-      RE.showResult(ev, text, null);
+      /* ★ #47 街道の実り。⛔ ROAD_BOON_ON が false なら 1 バイトも書かない (§7)。
+         ⛔ removeItem は増やさない —— 消費は index.html (verify_road_events (2c) が rm===1 を縛る)。
+         ⛔ 「もらえる条件」をここで判定しない —— 唯一の正は js/road-events.js の boonOf()
+           (⚠⚠⚠ 罠 A: check:false の枝に恩恵が付くと、既存 golden 3 本が
+            `(ev.choices||[]).filter(x => !x.check)[0]` を押して index.html まで進むので
+            maxHp が非決定的に動く。#47 §2-2 / 変異 dismissboon が番人)。 */
+      var boon = ROAD_BOON_ON ? RE.boonOf(ev, choice, outcome) : null;
+      if (boon) pushRoadBoon(boon, roadLast && roadLast.at);
+      RE.showResult(ev, text, null, boon);
+    }
+
+    /* ══ 街道の実りを次の潜行へ渡す (#47 §5-4) ═══════════════════════════
+       キーは 1 本だけ。中身は配列 (横断を繰り返すと追記される)。⭐ 上限 3 件 = 新しい方を残す。
+       ⛔ JSON.parse が壊れていたら **黙って捨てて作り直す** (前回の残骸で例外を出さない)。
+       ⛔ **removeItem を呼ばない** —— 消費 (getItem → removeItem → 適用) は index.html の担当。
+       ⛔ localStorage へ書かない (world.html の 0 件を維持。(1d) が配信バイトの数で見る)。
+       ⚠ ROAD_BOON_MAX の 3 は index.html の list.slice(0, 3) と **同じ意味**。片方だけ動かさない。 */
+    var ROAD_BOON_KEY = "dragonfighters.roadBoon", ROAD_BOON_MAX = 3;
+    function pushRoadBoon(boon, atId) {
+      var list = [];
+      try { list = JSON.parse(sessionStorage.getItem(ROAD_BOON_KEY) || "[]"); } catch (e) { list = []; }
+      if (!Array.isArray(list)) list = [];
+      list.push({ kind: boon.kind, label: boon.label, event: boon.event, at: atId || null });
+      while (list.length > ROAD_BOON_MAX) list.shift();
+      try { sessionStorage.setItem(ROAD_BOON_KEY, JSON.stringify(list)); } catch (e) {}
     }
 
     /* ══ 到着フック = ランダムイベントの器 (#40 §6-2) ═══════════════════

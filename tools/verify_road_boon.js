@@ -38,7 +38,10 @@
  *     生えた瞬間から測って PASS/FAIL する。⛔ 「まだ無いから緑」にはしない。
  *
  * ■ 項目 2〜4 が PENDINGS から ASSERTS へ移すもの
- *     §1 書き込み (街道側) … (1a)(1b)(1c)(1d)(1e)
+ *     §1 書き込み (街道側) … (1a)(1b)(1c)(1d)(1e)  ⭐ **項目 2 で移設済み**
+ *       ⚠ (1c) は「恩恵つきの結末を 4 回踏む」腕 (1 本 4 分) を避け、CAP_SEED で 3 件を
+ *         仕込んでから実走で 1 件足す形に **測定点を移した**。期待値は弱めていない
+ *         (伸びていない / 最古が落ちる / 末尾が本物 の 3 つを見る)。
  *     §2 消費と適用 (潜行側) … (2a)(2b)(2c)(2d)(2e)(2f)
  *     §3 恒等 (非退行) … (3a)
  *     §4 撤退 ?roadboon=0 … (4a)(4b)(4c)
@@ -94,6 +97,17 @@ const PORT = parseInt(arg('port', '9790'), 10);
 const BOON_KEY = 'dragonfighters.roadBoon';
 const BOON_LABEL_OK = /^[^\r\n<>&"']{1,24}$/;
 const BOON_KINDS = ['provision', 'vigilance'];
+
+/* ══ (1c) 上限の仕込み ═══════════════════════════════════════════════════════
+   ⭐ 「恩恵つきの結末を 4 回踏む」腕は 1 本 4 分かかるので、**3 件を仕込んでから
+     実走で 1 件足す**に畳む (依頼書 §8 (1c) が許している測定点の移し方)。
+   ⛔ event は **実在の EVENTS id を使わない** —— 「最古が落ちたか」を id で見分けるため。
+   ⛔ 上限の数 (3) そのものは縛らない —— 見るのは「伸び続けていない / 最古が落ちる」だけ。 */
+const CAP_SEED = JSON.stringify([
+  { kind: 'provision', label: '仕込みの糧A', event: '__cap0', at: null },
+  { kind: 'provision', label: '仕込みの糧B', event: '__cap1', at: null },
+  { kind: 'vigilance', label: '仕込みの備えC', event: '__cap2', at: null },
+]);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (負のコントロール) —— 依頼書 §8「負のコントロール」の 14 本
@@ -699,6 +713,8 @@ async function measureArm(browser, port, errs, o) {
     resolve: o.resolve || 'check', stopAfterEvent: true,
     force: o.force, session: o.session || PARTY4, local: o.local || null,
     extraQuery: o.extraQuery || '',
+    /* ⭐ (1c) の仕込み口。⛔ 既定は null = 毎回まっさらから始める。 */
+    seedBoon: o.seedBoon || null,
   });
   p.pick = (p.events || [])[0] || null;
   if (!p.pick) {
@@ -834,6 +850,140 @@ const ASSERTS = [
         + ' (勝=' + D20_WIN + ' 負=' + D20_LOSE + ')  ' + detail.join('  |  ')
         + (why.length ? '   ' + why.join(' ') : '')];
     }],
+
+  // ── §1 書き込み (街道側) — 依頼書 §8 §1 ──────────────────────────────────
+  //   ⭐ 項目 2 が PENDINGS からここへ移した。母集団は (0d) の 3 本の腕をそのまま使う。
+  ['1a', '⭐⭐⭐ 恩恵は「判定に勝った枝」だけ — ① 判定なしの枝 (既存 golden 3 本が押す枝) を'
+    + '押すと roadBoon が **無い** / ② 判定つきで失敗すると **無い** / ③ 判定つきで成功すると **1 件**',
+    (m) => {
+      const t = boonTable(m);
+      if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
+      if (t.state === 'pending') return [null, PEND_BOONS(t)];
+      const arms = [['① 判定なし', m.armNone, null, 0], ['② 判定つき失敗', m.armLose, false, 0],
+        ['③ 判定つき成功', m.armWin, true, 1]];
+      const why = [], detail = [];
+      for (const [tag, p, wantSuccess, wantN] of arms) {
+        if (!p) { why.push('⛔ ' + tag + ' の観測が無い'); continue; }
+        /* ⭐⭐⭐ 母集団ガード —— その腕が **実際に成立している**こと ((0d) と同じ条件)。
+           ⛔ 「出来事が出なかったので書かれなかった」を緑にしない。 */
+        if (!p.pick) { why.push('⛔ ' + tag + ' 母集団: ' + (p.why || '出来事が出なかった')); continue; }
+        const got = p.pick.roadLast ? p.pick.roadLast.success : undefined;
+        if (got !== wantSuccess) why.push('⛔ ' + tag + ' 母集団: success=' + got + ' (期待 ' + wantSuccess + ')');
+        const b = p.boon || {};
+        /* -1 = 書かれているが配列として読めない (⛔ 0 件と同じ扱いにしない)。 */
+        const n = (b.raw === null || b.raw === undefined) ? 0
+          : (b.parseOk && Array.isArray(b.list)) ? b.list.length : -1;
+        if (n !== wantN) why.push('⛔ ' + tag + ': roadBoon ' + n + ' 件 (期待 ' + wantN + ') raw='
+          + JSON.stringify(b.raw));
+        detail.push(tag + ' success=' + got + ' → ' + n + ' 件');
+      }
+      return [why.length === 0, detail.join('  |  ') + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['1b', '中身の形 — 配列で、各要素の kind が provision|vigilance のいずれか、'
+    + 'label が /^[^\\r\\n<>&"\']{1,24}$/ を満たし **空でない**、event が EVENTS の id',
+    (m) => {
+      const t = boonTable(m);
+      if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
+      if (t.state === 'pending') return [null, PEND_BOONS(t)];
+      const p = m.armWin;
+      if (!p) return [false, '成功アームの観測が無い'];
+      const b = p.boon || {};
+      if (!b.parseOk || !Array.isArray(b.list))
+        return [false, '⛔ 配列が読めない: raw=' + JSON.stringify(b.raw)];
+      /* ⭐⭐⭐ 母集団ガード —— 0 件だと「全要素が正しい」は自明に真になる。 */
+      if (b.list.length < 1) return [false, '⛔ 母集団: roadBoon が 0 件 (先に (0c) を見ること)'];
+      const why = [];
+      b.list.forEach((e, i) => {
+        const at = '[' + i + '] ';
+        if (!e || typeof e !== 'object') { why.push(at + '要素が object でない'); return; }
+        if (BOON_KINDS.indexOf(e.kind) < 0) why.push(at + 'kind=' + JSON.stringify(e.kind) + ' が白名簿外');
+        if (typeof e.label !== 'string' || !e.label.length)
+          why.push(at + 'label が空 ' + JSON.stringify(e.label));
+        else if (!BOON_LABEL_OK.test(e.label))
+          why.push(at + 'label が白名簿を外れる ' + JSON.stringify(e.label));
+        if (t.ids.indexOf(e.event) < 0)
+          why.push(at + 'event=' + JSON.stringify(e.event) + ' が EVENTS に無い');
+      });
+      return [why.length === 0,
+        b.list.length + ' 件 ' + JSON.stringify(b.list) + (why.length ? '   ⛔ ' + why.join(' / ') : '')];
+    }],
+
+  ['1c', '上限 3 件 — 4 件目を得ると最古が落ちて長さ 3 のまま',
+    (m) => {
+      const t = boonTable(m);
+      if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
+      if (t.state === 'pending') return [null, PEND_BOONS(t)];
+      const p = m.armCap;
+      if (!p) return [false, '上限アームの観測が無い'];
+      if (!p.pick) return [false, '⛔ 母集団: ' + (p.why || '出来事が出なかった')];
+      if (!(p.pick.roadLast && p.pick.roadLast.success === true))
+        return [false, '⛔ 母集団: 判定に成功していない (success='
+          + (p.pick.roadLast ? p.pick.roadLast.success : '—') + ')'];
+      const b = p.boon || {};
+      if (!b.parseOk || !Array.isArray(b.list))
+        return [false, '⛔ 配列が読めない: raw=' + JSON.stringify(b.raw)];
+      const seeded = JSON.parse(CAP_SEED);
+      const ids = b.list.map(e => e && e.event);
+      /* ⛔ 上限の数そのものは縛らない —— 見るのは 3 つ:
+           ① 仕込んだ件数より **伸びていない** (nocap を殺す)
+           ② **最古が落ちている** (単に追記を止めただけを殺す)
+           ③ 末尾が **実走で得た本物** (書けていないだけを殺す) */
+      const grew = b.list.length > seeded.length;
+      const oldestGone = ids.indexOf(seeded[0].event) < 0;
+      const newestIsReal = ids[ids.length - 1] === p.pick.event;
+      return [!grew && oldestGone && newestIsReal,
+        '仕込み ' + seeded.length + ' 件 ' + JSON.stringify(seeded.map(e => e.event))
+        + ' + 実走 1 件 (' + p.pick.event + ') → ' + b.list.length + ' 件 ' + JSON.stringify(ids)
+        + '  伸びた=' + grew + ' / 最古が落ちた=' + oldestGone + ' / 末尾が本物=' + newestIsReal];
+    }],
+
+  ['1d', '⛔ 恒等 — world.html の配信バイトの localStorage.setItem = 0 / localStorage.removeItem = 0 /'
+    + ' sessionStorage.removeItem = 1 (= verify_road_events (2c) と同じ数を本チケットでも独立に張る)',
+    (m) => {
+      if (typeof m.served !== 'string' || !m.served.length)
+        return [false, 'world.html の配信バイトを読めていない'];
+      const n = (needle) => m.served.split(needle).length - 1;
+      const rm = n('sessionStorage.removeItem');
+      const lset = n('localStorage.setItem'), lrm = n('localStorage.removeItem');
+      const sset = n('sessionStorage.setItem');
+      /* 2026-09-03 着手前の実測 (依頼書 §2-4)。⛔ setItem は数えない = #47 で 3 → 4 が仕様。 */
+      const BASE_REMOVE = 1;
+      return [rm === BASE_REMOVE && lset === 0 && lrm === 0,
+        'world.html 配信 ' + m.served.length + 'B / sessionStorage.removeItem ' + rm
+        + ' 件 (着手前 ' + BASE_REMOVE + ' 件) / sessionStorage.setItem ' + sset
+        + ' 件 (⛔ 数は縛らない) / localStorage.setItem ' + lset
+        + ' 件 / localStorage.removeItem ' + lrm + ' 件'];
+    }],
+
+  ['1e', '器に「携えた」の 1 行が出る (#worldEventBoon が hidden でなく空でない)。'
+    + 'かつ **恩恵の無い結末では hidden かつ空**',
+    (m) => {
+      const t = boonTable(m);
+      if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
+      if (t.state === 'pending') return [null, PEND_BOONS(t)];
+      const arms = [['① 判定なし', m.armNone, false], ['② 判定つき失敗', m.armLose, false],
+        ['③ 判定つき成功', m.armWin, true]];
+      const why = [], detail = [];
+      for (const [tag, p, wantLine] of arms) {
+        if (!p || !p.pick) { why.push('⛔ ' + tag + ' の観測が無い'); continue; }
+        const at = p.pick.boonSlotAtResult, af = p.pick.boonSlotAfterClose;
+        /* ⭐⭐⭐ 母集団ガード —— 器そのものが DOM に在ること。
+           ⛔ 無いと「出ていない」が 3 本とも自明に真になり、①② だけで永久緑になる。 */
+        if (!at || !at.found) { why.push('⛔ ' + tag + ': #worldEventBoon が DOM に無い'); continue; }
+        const shown = (at.hidden === false) && typeof at.text === 'string' && at.text.trim().length > 0;
+        if (shown !== wantLine)
+          why.push('⛔ ' + tag + ' 結末時: '
+            + (wantLine ? '1 行が出ていない' : '出てはいけない 1 行が出た') + ' ' + JSON.stringify(at));
+        /* ⭐ 閉じたあとは **どの腕でも** 空 + hidden (変異 boxleak が番人)。 */
+        if (!af || !af.found) why.push('⛔ ' + tag + ': 閉じた後の観測が無い');
+        else if (!(af.hidden === true && String(af.text || '') === ''))
+          why.push('⛔ ' + tag + ' 閉じた後に残骸: ' + JSON.stringify(af));
+        detail.push(tag + ' 結末時=' + JSON.stringify(at.text) + '/hidden=' + at.hidden
+          + ' 閉後=' + JSON.stringify(af && af.text) + '/hidden=' + (af && af.hidden));
+      }
+      return [why.length === 0, detail.join('  |  ') + (why.length ? '   ' + why.join(' ') : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -846,26 +996,7 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //     —— 全部やらないと件数が合わなくなる。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  ['§1 書き込み (街道側) — 依頼書 §8 §1', [
-    ['1a', '⭐⭐⭐ 恩恵は「判定に勝った枝」だけ — ① 判定なしの枝 (既存 golden 3 本が押す枝) を'
-      + '押すと roadBoon が **無い** / ② 判定つきで失敗すると **無い** / ③ 判定つきで成功すると **1 件**',
-      '3 経路を (0d) の 3 本の腕でそのまま突き合わせる。⚠ 母集団ガード = ①②③ がそれぞれ 1 回以上成立'
-      + ' (= (0d) が緑であること)。変異 dismissboon / failgrant / nogrant が番人'],
-    ['1b', '中身の形 — 配列で、各要素の kind が provision|vigilance のいずれか、'
-      + 'label が /^[^\\r\\n<>&"\']{1,24}$/ を満たし **空でない**、event が EVENTS の id',
-      'measurePlay の out.boon.list を 1 要素ずつ検める。変異 emptylabel が番人'],
-    ['1c', '上限 3 件 — 4 件目を得ると最古が落ちて長さ 3 のまま',
-      '⭐ 恩恵つきの結末を 4 回踏む腕を作るか、seedBoon で 3 件を仕込んでから 1 件足す。'
-      + '⛔ 上限の数 (3) そのものは縛らない (world / index を同時に変えれば緑でよい)。変異 nocap が番人'],
-    ['1d', '⛔ 恒等 — world.html の配信バイトの localStorage.setItem = 0 / localStorage.removeItem = 0 /'
-      + ' sessionStorage.removeItem = 1 (= verify_road_events (2c) と同じ数を本チケットでも独立に張る)',
-      '配信バイトを正規表現で数える。⚠ 着手前の実測は lset=0 / lrm=0 / rm=1 (依頼書 §2-4)。'
-      + '⛔ setItem は数えない (#47 で 3 → 4 に増えるのが仕様)。変異 localwrite が番人'],
-    ['1e', '器に「携えた」の 1 行が出る (#worldEventBoon が hidden でなく空でない)。'
-      + 'かつ **恩恵の無い結末では hidden かつ空**',
-      'resolveOpenEvent が採る boonSlotAtResult (結末が出ている瞬間) と boonSlotAfterClose'
-      + ' (閉じたあと) の両方で見る。変異 boxleak が番人'],
-  ]],
+  /* ⭐ §1 書き込み (街道側) は **項目 2 で ASSERTS へ移した** (1a)(1b)(1c)(1d)(1e)。 */
   ['§2 消費と適用 (潜行側) — 依頼書 §8 §2', [
     ['2a', 'index.html の起動で **キーが消える** (起動後 getItem が null)',
       '⭐ sessionStorage へ値を置いてから index.html を開き、既存のブリッジ越しに読む。変異 noconsume が番人'],
@@ -910,8 +1041,14 @@ const NEEDS = {
   '0a': ['boot'], '0b': ['boot', 'served'],
   '0c': ['boot', 'armWin'],
   '0d': ['armNone', 'armLose', 'armWin'],
+  /* §1 (項目 2) —— 母集団は (0d) の 3 本の腕をそのまま流用する。 */
+  '1a': ['boot', 'armNone', 'armLose', 'armWin'],
+  '1b': ['boot', 'armWin'],
+  '1c': ['boot', 'armCap'],
+  '1d': ['served'],
+  '1e': ['boot', 'armNone', 'armLose', 'armWin'],
 };
-const ALL_KEYS = ['0a', '0b', '0c', '0d'];
+const ALL_KEYS = ['0a', '0b', '0c', '0d', '1a', '1b', '1c', '1d', '1e'];
 
 async function collect(browser, port, errs, need) {
   const m = {}, want = {};
@@ -925,6 +1062,10 @@ async function collect(browser, port, errs, need) {
   if (want.armNone) m.armNone = await measureArm(browser, port, errs, { resolve: 'none' });
   if (want.armLose) m.armLose = await measureArm(browser, port, errs, { resolve: 'check', force: D20_LOSE });
   if (want.armWin) m.armWin = await measureArm(browser, port, errs, { resolve: 'check', force: D20_WIN });
+  /* ⭐ (1c) の上限アーム — 素の armWin と同じ腕に、CAP_SEED の 3 件を先に仕込んでおく。
+     ⛔ 恩恵つきの結末を 4 回踏ませない (1 本 4 分かかる) —— 測定点を移しただけで期待値は同じ。 */
+  if (want.armCap) m.armCap = await measureArm(browser, port, errs,
+    { resolve: 'check', force: D20_WIN, seedBoon: CAP_SEED });
   /* ⭐ (4a) の撤退アーム — 素の armWin と **同じ種・同じ行き先・同じ d20** で採る。 */
   if (want.armWinRetreat) m.armWinRetreat = await measureArm(browser, port, errs,
     { resolve: 'check', force: D20_WIN, extraQuery: '&roadboon=0' });
@@ -1045,6 +1186,13 @@ function runCheck(m, key) {
         }
         console.log('         → ' + BOON_KEY + ' = ' + JSON.stringify(p.boon ? p.boon.raw : null)
           + ' (localStorage 側=' + JSON.stringify(p.boon ? p.boon.localRaw : null) + ')');
+      }
+
+      mark('§1 書き込み (街道側) — (1a) 勝った枝だけ / (1b) 中身の形 / (1c) 上限 / (1d) 恒等 / (1e) 器の 1 行');
+      for (const key of ['1a', '1b', '1c', '1d', '1e']) runCheck(m, key);
+      if (m.armCap) {
+        console.log('       [記録] (1c) 上限アーム: 仕込み ' + CAP_SEED
+          + '\n         → 実走後 ' + JSON.stringify(m.armCap.boon ? m.armCap.boon.raw : null));
       }
 
       for (const [title, rows] of PENDINGS) {

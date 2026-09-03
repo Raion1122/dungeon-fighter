@@ -16,8 +16,12 @@
  *      (#15 B-1 と同じ規律。変異 `copytext` が番人)。
  *   ⛔ **座標を持たない。** 地形は WORLD_MAP.STEPS[id].on の両端から引く
  *      (⛔ 17 件の座標表を作らない)。停留所の実体は js/world-map.js が唯一の正。
- *   ⛔ **localStorage へ書かない。** sessionStorage も **読むだけ (peek)**。
- *      world.html の setItem / removeItem を 1 件も増やさない ((2c) が数で見る)。
+ *   ⛔ **localStorage へ書かない。** (#45 / #47 とも 0 件を維持。(1d) が配信バイトの数で見る)
+ *   ⭐ **#47 で world.html の sessionStorage.setItem を 1 件だけ増やした** (`roadBoon`)。
+ *      ⛔ **removeItem は増やさない** —— 消費は index.html の担当で、world 側は書くだけ
+ *      (verify_road_events (2c) が removeItem === 1 / localStorage 0 件を数で縛っている)。
+ *   ⛔ **このファイル自身は storage へ 1 バイトも書かない。** road-events.js が持つのは
+ *      **表 (BOONS) と引き (boonOf) だけ**で、書く決定は world.html の finishRoadEvent (#47 §2-5)。
  *   ⚠⚠⚠ **使える checkKey は 12 個だけ** (js/skill-check.js の CHECKS)。
  *      survival / medicine / nature は **存在しない** —— 書くと resolveSkillCheck が
  *      console.warn して Promise.resolve(null) を返し、**判定ごと静かに消える**。
@@ -28,8 +32,9 @@
  *
  * ■ 公開 API (window.ROAD_EVENTS)
  *   データ … EVENTS / TERRAINS / RATE / WAY_TERRAIN / SITE_TERRAIN / TERRAIN_RANK
+ *   実り   … BOONS (#47 の恩恵表) / boonOf(ev, choice, outcome)
  *   引き   … terrainOf(id) / stops() / rateOf(terrain) / eventsFor(terrain) / byId(id)
- *   器     … open(ev, onChoice) / showResult(ev, text, onDone) / close() / isOpen() /
+ *   器     … open(ev, onChoice) / showResult(ev, text, onDone, boon) / close() / isOpen() /
  *            current() / el()
  */
 (function (global) {
@@ -212,6 +217,34 @@
     }
   ];
 
+  /* ══ 街道の実り (#47 §2-9) ═══════════════════════════════════════════════
+     ⭐ **判定に勝った枝でだけ**手に入る。⛔ check:false の枝 (result) には付けない ——
+       既存 golden 3 本 (verify_world_steps:774 / world_map:683 / quest_walk:831) が
+       `(ev.choices||[]).filter(x => !x.check)[0]` を機械的に押して index.html まで進むので、
+       そこへ恩恵を付けると maxHp が非決定的に動く (#47 §2-2 / 変異 dismissboon が番人)。
+     ⚠ label は index.html の updateInfo → appendLog (innerHTML 代入) まで届くので、
+       **`/^[^\r\n<>&"']{1,24}$/` を満たす短い日本語だけ**にする (#47 §2-3)。
+     ⛔ label を world.html へ 1 文字も写さない ((0b) が配信バイトを全文検索する。変異 copyboon)。
+     ⛔ kind は 2 種だけ。増やすときは index.html の consumeRoadBoon も同時に。
+     ⭐ 割り当ての理屈 = **物か体力が残るもの = 糧 (provision) / 先を読む目が残るもの = 備え
+       (vigilance)**。⛔ 恣意ではない (#47 §2-9 に 6 件ぶんの根拠)。 */
+  var BOONS = {
+    coast_dock_quarrel: { kind: "provision", label: "干し魚の束" },
+    lake_ripple:        { kind: "provision", label: "油紙の包み" },
+    mountain_rockfall:  { kind: "provision", label: "開けた街道" },
+    woods_woodcutter:   { kind: "vigilance", label: "樵の嘘を見抜いた目" },
+    swamp_marker:       { kind: "vigilance", label: "動かされた杭の記憶" },
+    swamp_pilgrim:      { kind: "vigilance", label: "手向けを済ませた心" }
+  };
+
+  /* 恩恵を引く。⛔ ここが唯一の「もらえる条件」。3 つ全部が真のときだけ返す。 */
+  function boonOf(ev, choice, outcome) {
+    if (!ev || !choice || !choice.check) return null;      /* 判定なしの枝は対象外 */
+    if (!outcome || !outcome.success) return null;         /* 失敗 / null は対象外 */
+    var b = has(BOONS, ev.id) ? BOONS[ev.id] : null;
+    return b ? { kind: b.kind, label: b.label, event: ev.id } : null;
+  }
+
   /* 地形の一覧。⛔ 5 を直書きしない —— RATE の実体から引く。 */
   var TERRAINS = Object.keys(RATE);
 
@@ -380,6 +413,26 @@
   function isOpen() { var b = el(); return !!b && b.classList.contains("show"); }
   function current() { return openEv; }
 
+  /* ══ 「携えた」の 1 行 (#47) ═══════════════════════════════════════════════
+     ⭐ 文言を組むのは **ここだけ**。world.html は器 (#worldEventBoon) と CSS しか持たない
+       ((0b) が world.html の配信バイトを全文検索して label の写経を落とす)。
+     ⚠ 空のときは textContent を空にして **hidden も立てる** —— 片方だけだと
+       枠線だけの空箱が残る / 前の結末の残骸が読める ((1e) が両方で見る)。
+     ⛔ innerHTML を使わない (label は表由来だが、経路を作らないのが規律。#47 §2-3)。 */
+  function boonLine(boon) {
+    if (!boon || typeof boon.label !== "string" || !boon.label) return "";
+    return "→ " + boon.label + " を携えた(この先の潜行で効く)";
+  }
+  function setBoonLine(text) {
+    var b = el();
+    var n = b ? b.querySelector("#worldEventBoon") : null;
+    if (!n) return false;                     /* ⭐ 器が無くても壊れない (?roadevent=0 で消える) */
+    var s = text || "";
+    n.textContent = s;
+    n.hidden = !s;
+    return true;
+  }
+
   function close() {
     var b = el();
     openEv = null;
@@ -388,6 +441,7 @@
     b.setAttribute("aria-hidden", "true");
     var n = b.querySelector("#worldEventBtns");
     if (n) n.innerHTML = "";
+    setBoonLine("");   /* ⭐ #47: 閉じるときに「携えた」を消す (変異 boxleak が番人) */
     return true;
   }
 
@@ -402,6 +456,7 @@
     t.textContent = title || "";
     x.textContent = body || "";
     n.innerHTML = "";
+    setBoonLine("");   /* ⭐ #47: 器を描く共通口。前回の「携えた」を必ず消す (変異 boxleak) */
     for (var i = 0; i < buttons.length; i++) {
       n.appendChild(makeBtn(buttons[i]));
     }
@@ -444,13 +499,19 @@
     return ok;
   }
 
-  /* 結末の 1 文 + 「先へ進む」。onDone は器を閉じたあとに呼ぶ。 */
-  function showResult(ev, text, onDone) {
+  /* 結末の 1 文 + 「先へ進む」。onDone は器を閉じたあとに呼ぶ。
+     ⭐ 第 4 引数 boon (#47) = boonOf() が返した実り or null。⛔ 呼び手 (world.html) は
+       文言を 1 文字も知らない —— 渡すのは {kind,label,event} だけで、組むのは boonLine()。
+     ⚠ paint() が先に空へ倒すので、boon が無い結末では必ず hidden + 空になる ((1e))。 */
+  function showResult(ev, text, onDone, boon) {
     var ok = paint((ev && ev.title) || "", text, [{
       label: "先へ進む",
       on: function () { close(); if (typeof onDone === "function") onDone(); }
     }]);
-    if (ok) openEv = ev || null;
+    if (ok) {
+      openEv = ev || null;
+      setBoonLine(boonLine(boon));
+    }
     return ok;
   }
 
@@ -458,6 +519,8 @@
     /* データ (⛔ 唯一の正。world.html へ写さない) */
     EVENTS: EVENTS, TERRAINS: TERRAINS, RATE: RATE,
     WAY_TERRAIN: WAY_TERRAIN, SITE_TERRAIN: SITE_TERRAIN, TERRAIN_RANK: TERRAIN_RANK,
+    /* 街道の実り (#47) — ⛔ 表と引きだけ。書く決定は world.html の finishRoadEvent */
+    BOONS: BOONS, boonOf: boonOf,
     /* 引き */
     terrainOf: terrainOf, stops: stops, rateOf: rateOf,
     eventsFor: eventsFor, byId: byId,
