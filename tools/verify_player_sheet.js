@@ -36,13 +36,26 @@
  *     node tools/verify_player_sheet.js                    # 素
  *     node tools/verify_player_sheet.js --negative         # 負のコントロール (空振り 1 本で exit 1)
  *     node tools/verify_player_sheet.js --mutate nocha     # 単一変異で走らせる
- *     node tools/verify_player_sheet.js --port 9470 --headful
+ *     node tools/verify_player_sheet.js --port 9620 --headful
  *
- * ⚠ ポート: 既定 9470。`grep -rnoE "'9[0-9]{3}'" tools/` で 2026-08-28 に実測し、
- *   9470〜9479 が**丸ごと空き**であることを確認して選んだ。
- *   ⛔ 依頼を受けた既定値 8935 は採らなかった: 変異 7 本ぶんの 8936〜8942 が
- *   driver_choice_logslot (8940) / driver_mapeditor_waterkit (8941) と、
- *   さらに verify_ability_scores の変異ポート帯 (8931〜8936) と重なる。
+ * ⚠⚠⚠ ポート: 既定 **9620** (2026-09-03 に 9470 から移設。実装依頼書 #48 §2-11 / §6-3)。
+ *   ⭐⭐⭐ **base だけでなく「占有幅」で空きを見ること。** ここが旧コメントの間違いだった:
+ *   旧コメントは「9470〜9479 が丸ごと空き」と書いていたが、`--negative` 中は
+ *   `PORT_OF[k] = PORT + 1 + i` により **変異 1 本につきポートを 1 つ**開くので、
+ *   変異 15 本の時点で実際の占有は **9471〜9485** まで伸びており、
+ *   driver_party_view_reopen (base 9480) の帯と既に重なっていた。
+ *   ⛔ **変異を 1 本足すごとに占有が 1 つ伸びる。** 次に変異を増やす人はここを読み直すこと
+ *   (17 本 → 9621〜9637 / 18 本 → 9621〜9638 …)。
+ *
+ *   2026-09-03 実測 (9400〜9820 帯の base。検算 =
+ *     grep -hoE "arg\('port', '[0-9]+'\)" tools/*.js | grep -oE "[0-9]+" | sort -n | uniq):
+ *     9410 (verify_walk_block  変異 16 → 9426 まで) / 9412 (probe_rest_premature ⚠ 上の帯の内側) /
+ *     9440 / 9451 (+4) / 9460 (+4) / 9470 (**旧・本ドライバ**) / 9480 (⚠ 旧帯の内側) /
+ *     9490 (+10 → 9500) / 9530 / 9540 / 9573 (変異 13 → 9586) / 9600 (変異 15 → 9615) /
+ *     9760 (verify_road_events → 9774) / 9790 (verify_road_boon → 9804)
+ *   ⇒ **9615〜9760 が丸ごと空き**なので 9620 を取った。本チケット完了時の変異は 17 本
+ *     (= 9621〜9637 を占有) なので、上のどの帯とも 1 つも交わらない。
+ *   ⚠ `--port` は引数で上書きできるので、既定値を変えても手動実行の作法は変わらない。
  */
 const http = require('http');
 const fs   = require('fs');
@@ -56,7 +69,7 @@ const flag  = (n) => argv.includes('--' + n);
 const HEADFUL  = flag('headful');
 const NEGATIVE = flag('negative');
 const MUTATE   = arg('mutate', null);
-const PORT     = parseInt(arg('port', '9470'), 10);
+const PORT     = parseInt(arg('port', '9620'), 10);
 
 const SHEET_JS     = 'js/player-sheet.js';
 const ABILITIES_JS = 'js/abilities.js';
@@ -338,6 +351,14 @@ function servedSrc(mutKey, rel) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ソースからの抽出 (ブラウザを通さない 2 経路目)
 // ══════════════════════════════════════════════════════════════════════════════
+/** そのページの配信バイトに <script src="js/skill-check.js"> が載っているか。 (#48 §4-1)
+ *  ⭐ DOM ではなく **配信されたソース**を見る = 実行時の window.SkillCheck とは独立の経路。
+ *  ⚠ 変異ポートでも servedSrc(mutKey, ...) で追随する (noscworld が効くのはこのため)。 */
+function pageHasSkillCheckSrc(mutKey, file) {
+  const s = servedSrc(mutKey || null, file) || '';
+  return /<script\s+src="js\/skill-check\.js"/.test(s);
+}
+
 /** `XP_THRESHOLDS = [0, 1000, ...]` を数値配列で採る。無ければ null。 */
 function parseXpThresholds(src) {
   if (!src) return null;
@@ -1440,6 +1461,33 @@ const ASSERTS = [
       P.map(p => p.label + ':' + p.openBefore + '→' + p.openAfter + '/' + (p.bodyTextLen || 0) + '字').join(' ')
       + (bad.length ? '  ⛔ 開けていない: ' + bad.map(p => p.label).join(',') : '')];
   }],
+  ['0e', '[装置] SkillCheck を載せているページは {index, tavern, world} の 3 枚ちょうど '
+       + '(配信バイトの <script src> と 実行時の window.SkillCheck の 2 経路が一致する)', (M) => {
+    const P = M.pages || [];
+    if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
+    /* ⭐⭐⭐ **この表だけは「導出」しない。** (#48 §2-5 の罠)
+       (2c)(2d)(8a)(8f) の期待は「そのページに skill-check.js が載っているか」から導出する。
+       導出だけにすると、world.html から <script src> を剥がした瞬間に
+       「world では技能を伏せる」へ期待そのものが追随してしまい、**本物の退行なのに緑**になる。
+       ⇒ 集合そのものをここへ固定し、集合が動いたら **(0e) だけが赤くなる**ようにしてある。
+       ⛔ 次の人へ: 「ここも導出にすればいいのに」と直すと罠へ戻る。変異 noscworld が
+          「導出だけでは検出できない」ことを機械証明している。 */
+    const WANT_SC = ['index.html', 'tavern.html', 'world.html'];
+    const bad = [];
+    for (const p of P) {
+      const wantSC = WANT_SC.indexOf(p.file) >= 0;
+      // 経路① 配信バイトの <script src>
+      if (p.hasSkillCheckSrc !== wantSC) bad.push(p.label + ' src=' + p.hasSkillCheckSrc + ' (期待 ' + wantSC + ')');
+      // 経路② 実行時の window.SkillCheck  ⭐ ①の写経にしない
+      if (p.hasSkillCheck !== wantSC) bad.push(p.label + ' runtime=' + p.hasSkillCheck + ' (期待 ' + wantSC + ')');
+    }
+    const nSrc = P.filter(p => p.hasSkillCheckSrc).length;
+    const nRun = P.filter(p => p.hasSkillCheck).length;
+    return [bad.length === 0 && nSrc === 3 && nRun === 3,
+      P.map(p => p.label + ':' + (p.hasSkillCheckSrc ? 'src' : '—') + '/' + (p.hasSkillCheck ? 'run' : '—')).join(' ')
+      + '  搭載 src ' + nSrc + ' 枚 / runtime ' + nRun + ' 枚'
+      + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
+  }],
 
   // ── §1 呼び出し口 (キュー訂正版の 3 経路) ───────────────────────────────
   ['1a', 'tavern / world / title / town(compact) で #dfSheetBtn が覆われていない (elementFromPoint)', (M) => {
@@ -2163,7 +2211,7 @@ const SECTIONS = [
   ['§0 装置 — 共有モジュール単体の契約 (項目 1 で測れる分)',
     ['0s1', '0s2', '0d', '0s3', '0s4', '0s5', '0s6', '0s7', '0s8', '0s9', '0s10', '0s11', '0s12', '0s13',
      '0s14', '0s15']],
-  ['§0 装置 — 実ページの母集団 (5 枚)', ['0a', '0b', '0c']],
+  ['§0 装置 — 実ページの母集団 (5 枚)', ['0a', '0b', '0c', '0e']],
   ['§1 呼び出し口 — 3 経路 (キュー訂正版)', ['1a', '1b', '1c']],
   ['§2 中身 — 能力値 / 技能 / 伏せた区画', ['2a', '2b', '2c', '2d']],
   ['§3 言語 — 選択 UI と保存', ['3a', '3b', '3c', '3d', '3e']],
@@ -2256,6 +2304,19 @@ function emit(id, M) {
       if (m.numHead) m.numHead.label = 'index(頭=主人公 warrior)';
       m.numAlly = await probeRealPage(browser, base, PAGE_MATRIX[0], '', Object.assign({}, PO, heroSeed('mage')));
       if (m.numAlly) m.numAlly.label = 'index(頭=NPC / 主人公 mage)';
+    }
+
+    /* ── #48 §4-1: 「配信バイトに <script src="js/skill-check.js"> があるか」を採取時に載せる ──
+     *  ⭐⭐⭐ assert は M しか受け取らず **mutKey を知らない**。だから assert 側で
+     *    pageHasSkillCheckSrc() を呼ぶと素のポートのバイトを見てしまい、変異ポートで嘘になる。
+     *    ⇒ mutKey を持っている **ここ (採取時)** で測って p へ載せる。assert は p.hasSkillCheckSrc を
+     *      読むだけでよく、変異ポートでも自動的に正しい値になる (noscworld が効くのはこのため)。
+     *  ⚠ probeRealPage 由来の器だけを対象にする (m.retreat は probeRetreatPage で器の形が違う)。 */
+    for (const p of [].concat(m.pages, m.pagesBX, m.retreat5e,
+                              m.townCompact ? [m.townCompact] : [],
+                              m.numHead ? [m.numHead] : [],
+                              m.numAlly ? [m.numAlly] : [])) {
+      if (p && p.file) p.hasSkillCheckSrc = pageHasSkillCheckSrc(mutKey, p.file);
     }
 
     /* ── §3 言語: title.html の名乗りフロー (項目 3) ────────────────────
