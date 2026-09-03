@@ -286,9 +286,44 @@ const MUTATIONS = {
        + ' ⭐ 2026-08-29 の単体診断: 赤 = 8d(担当) / 8c(先制も見ているので巻き込む。allowRed)。'
        + ' 8b が緑 = セーヴと先制が別経路であることの傍証。',
   },
+
+  /* ══ #48 で足す 2 本。⭐ 「期待を実体から導出する」という設計そのものを検査する対 ══
+     noscworld  = 実体を壊す (world.html から <script src> を剥がす) → 期待も追随してしまう罠
+     stalepages = 期待を古い固定表へ戻す              → 導出が飾りでないことの証明
+     ⚠⚠⚠ evaluable / allowRed は **単体実行の実測**から決めた。机上の予測ではない。 */
+  noscworld: {
+    impl: true, file: 'world.html', targets: ['0e'],
+    from: '  <script src="js/skill-check.js"></script><!-- 街道の出来事 (#45) の d20 判定。⚠ js/abilities.js より後。撤退 ?roadevent=0 -->',
+    to:   '  <!-- #48 negative: skill-check.js を剥がした -->',
+    want: { pages: true }, evaluable: ['0e', '2c', '2d', '8f'], allowRed: ['2c', '2d', '8f'],
+    why: '⭐⭐⭐ 依頼書 §2-5 の罠の再現。world.html から js/skill-check.js を剥がす。'
+       + ' 期待を「載っている script から導出」しただけだと **期待も一緒に動く**ので、'
+       + ' (2c) の伏せ集合 / (2d) の照合マス / (8a) の撤退の伏せ集合は **すべて追随して緑のまま**になる。'
+       + ' 集合を固定した (0e) だけが「world に載っているはず」を覚えているので赤くなる。'
+       + ' ⭐ 2026-09-04 の単体診断 (実測): 赤 = 0e(担当) / 2c / 2d / 8f。'
+       + ' ⚠⚠ 依頼書 §2-5 の予測「2c/2d/8f は緑のまま」は **半分だけ外れた** — 導出した'
+       + ' hiddenWantOf / wantOf は予測どおり完全に追随して緑になったが、項目 2 が残した'
+       + ' **母集団ガードの固定値** (2c の hiddenTotal===20 / 2d の nSC===3 / 8f の withSC===3) が'
+       + ' 導出に追随しないので、そこだけが赤くなる。⇒ allowRed に載せた (保険としての赤)。'
+       + ' ⭐⭐⭐ 罠の本体は依然として真: 8a は evaluable でも targets でもないが、'
+       + ' **固定値の母集団ガードを持たないので実際に緑のまま**である'
+       + ' (単体実行で確認済み)。集合を固定した (0e) が無ければ、この退行は 8a では一生捕まらない。',
+  },
+  stalepages: {
+    impl: true, file: null, driverSide: true, targets: ['2c', '2d', '8a', '8f'],
+    stale: true,                       // ⭐ 導出ヘルパ/カウンタが STALE_ON を見て #45 以前の固定表を返す
+    want: { pages: true, retreat5e: true }, evaluable: ['2c', '2d', '8a', '8f'], allowRed: [],
+    why: '⭐ 装置側の変異: 期待を #45 以前の「world では技能を伏せる」固定表へ戻す。'
+       + ' 導出が飾りで、実は別経路で緑になっているのではないことを機械証明する'
+       + ' (= この 4 本が本当に world の実体を見ていること)。'
+       + ' ⚠ ファイル置換ではなく、モジュール直下の STALE_ON を立てる経路を通す'
+       + ' (closedread が probeOpts で測定側を切り替えているのと **対になる、期待側**の切り替え)。'
+       + ' ⭐ 2026-09-04 の単体診断 (実測): 赤 = 2c / 2d / 8a / 8f の 4 本ちょうど (巻き込み 0)。',
+  },
 };
 const MUT_ORDER = ['wipeorder', 'fixedsave', 'nocha', 'ownmod', 'blankrow', 'fixedbtn', 'closedread',
-  'savesfrom5e', 'blankdata', 'blankundeclared', 'headmix', 'emptycol', 'abilrow', 'retreatkeep', 'initfrom5e'];
+  'savesfrom5e', 'blankdata', 'blankundeclared', 'headmix', 'emptycol', 'abilrow', 'retreatkeep', 'initfrom5e',
+  'noscworld', 'stalepages'];   // ⭐ #48 で 15 → 17 本。占有ポートは 9621〜9637 へ伸びる (冒頭コメント参照)
 const MUT_IMPL  = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_TODO  = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
 
@@ -300,6 +335,19 @@ if (MUTATE !== null && !MUTATIONS[MUTATE].impl) {
   console.error('[drv] --mutate ' + MUTATE + ' はまだ実装されていない (PENDING / 項目 4 の担当)');
   process.exit(3);
 }
+
+/* ══ 装置側の変異 stalepages 用の「期待側スイッチ」 (#48 §6-2) ═══════════════
+ *  ⭐⭐⭐ closedread が probeOpts で **測定側**を切り替えているのと **対になる、期待側**の
+ *    切り替え。(2c)(2d)(8a)(8f) の期待を #45 以前 (world に js/skill-check.js が
+ *    載っていなかった頃) の固定表へ巻き戻す。
+ *  ⚠⚠ **`const` にしてはいけない。** `--negative` のループは measureAll(PORT_OF[k], k, ...) で
+ *    **測定だけ**を変異ごとに回し、assert は ASSERT_OF[id][2](mm) で **共通に**呼ぶ。
+ *    MUTATE 依存の const にすると `--negative` では永久 false になり stalepages が空振りする。
+ *    ⇒ 単体実行は下の初期化で、`--negative` は NEGATIVE ブロックが assert 評価の直前に立てる。
+ *  ⭐ 巻き戻し先が「#45 以前」であることの根拠: (0e) の WANT_SC = {index, tavern, world} に対し、
+ *    #45 以前の搭載は {index, tavern} の 2 枚だった (world.html への 1 行は #45 で入った)。 */
+const SC_PRE45 = ['index.html', 'tavern.html'];
+let STALE_ON = (MUTATE === 'stalepages');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 配信バイトの凍結 (別窓が同じリポを触っても測定が汚れないように)
@@ -1594,8 +1642,10 @@ const ASSERTS = [
        ⚠ 集合 {index,tavern,world} の固定は (0e) が担当する (ここで固定すると二重管理になる)。
        ⛔ #45 の事故 = world.html へ js/skill-check.js が載ったのに、ここのハードコード表が
           「world では技能を伏せる」のまま取り残され、着手前から赤が常態になっていた。 */
+    /* ⚠ STALE_ON (変異 stalepages) のときだけ #45 以前の固定表へ巻き戻す。⛔ 判定ロジック本体は
+       1 行も変えない — 「導出が飾りでないこと」を機械証明するための三項 1 段だけ。 */
     const hiddenWantOf = (p) => (p.file === 'index.html' ? [] : SUPPLY)
-      .concat(p.hasSkillCheck ? [] : SKILLC);
+      .concat((STALE_ON ? SC_PRE45.indexOf(p.file) >= 0 : p.hasSkillCheck) ? [] : SKILLC);
     const bad = [];
     for (const p of P) {
       const st = p.state;
@@ -1624,11 +1674,12 @@ const ASSERTS = [
        ⛔ allShown === 1 は動かさない (index だけが全部出る、は今も真)。 */
     const hiddenTotal = P.reduce((n, p) => n + ((p.state && p.state.hidden) || []).length, 0);
     const allShown = P.filter(p => ((p.state && p.state.hidden) || []).length === 0).length;
-    return [bad.length === 0 && hiddenTotal === 20 && allShown === 1,
+    const hiddenWant = STALE_ON ? 22 : 20;   // ⚠ #45 以前は 22 (world が技能を伏せていた)
+    return [bad.length === 0 && hiddenTotal === hiddenWant && allShown === 1,
       P.map(p => p.label + ':伏' + JSON.stringify(((p.state && p.state.hidden) || []).map(s => s.replace('dfSheetSec', '')))).join(' ')
       + '  伏せた区画 計 ' + hiddenTotal + ' / 全部出たページ ' + allShown
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')
-      + (hiddenTotal === 20 && allShown === 1 ? '' : '  ⛔ 母集団ガード: 期待は 20 / 1')];
+      + (hiddenTotal === hiddenWant && allShown === 1 ? '' : '  ⛔ 母集団ガード: 期待は ' + hiddenWant + ' / 1')];
   }],
   ['2d', '技能 12 種が描かれ、合計が SkillCheck.checkScore と一致 (載っていないページでは区画ごと伏せる)', (M) => {
     const P = M.pages || [];
@@ -1656,6 +1707,12 @@ const ASSERTS = [
     /* ⭐ #48: カウンタを固定値でなく母集団から引く。cells === nSC * 12 が「12 種すべて照合した」、
        nSC === 3 が「3 枚で照合した」。⛔ 片方だけだと空振りする (照合 0 マスでも通ってしまう)。 */
     const nSC = P.filter(p => p.hasSkillCheck).length;
+    /* ⚠ STALE_ON (変異 stalepages) のときだけ #45 以前の固定値 (照合 24 マス / 有り 2 枚 / 無し 3 枚)
+       へ巻き戻す。⛔ 母集団の数え方そのものは変えない。 */
+    if (STALE_ON) return [bad.length === 0 && cells === 24 && withSC === 2 && withoutSC === 3,
+      '[stale #45 以前の固定表] SkillCheck 有り ' + withSC + ' 枚 (照合 ' + cells + ' マス) / 無し '
+      + withoutSC + ' 枚  (期待 有り 2 / 無し 3 / 照合 24)'
+      + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
     return [bad.length === 0 && cells === nSC * 12 && nSC === 3 && (P.length - nSC) === 2,
       'SkillCheck 有り ' + withSC + ' 枚 (照合 ' + cells + ' マス) / 無し ' + withoutSC + ' 枚は区画ごと伏せる'
       + (bad.length ? '  ⛔ ' + bad.slice(0, 6).join(' / ') : '')];
@@ -2027,8 +2084,9 @@ const ASSERTS = [
     /* ⭐ #48: 撤退 (?sheet5e=0 → renderV1) でも SkillCheck の有無で技能区画が決まる。
        renderV1 も dfSheetSecSkills: !!d.skills で供給を見ているため、world では技能が出る。
        ⇒ world の期待は ['dfSheetSecBody'] (= tavern と同じ)。 */
+    /* ⚠ STALE_ON (変異 stalepages) のときだけ #45 以前の固定表 (world も技能を伏せる) へ巻き戻す。 */
     const wantOf = (p) => (p.file === 'index.html' ? [] : ['dfSheetSecBody'])
-      .concat(p.hasSkillCheck ? [] : ['dfSheetSecSkills']);
+      .concat((STALE_ON ? SC_PRE45.indexOf(p.file) >= 0 : p.hasSkillCheck) ? [] : ['dfSheetSecSkills']);
     const bad = [];
     for (const p of R) {
       const st = p.state;
@@ -2155,11 +2213,15 @@ const ASSERTS = [
         if (S.profBonus) bad.push(p.label + ' ⛔ SkillCheck が無いのに習熟ボーナスが出ている');
       }
     }
-    /* ⭐ #48: #45 で world.html に js/skill-check.js が載り、2 経路照合できるページが 2 → 3 枚へ増えた。 */
-    return [bad.length === 0 && withSC === 3 && withoutSC === 2,
+    /* ⭐ #48: #45 で world.html に js/skill-check.js が載り、2 経路照合できるページが 2 → 3 枚へ増えた。
+       ⚠ STALE_ON (変異 stalepages) のときだけ #45 以前の固定値 (有り 2 / 無し 3) へ巻き戻す。 */
+    const wSC = STALE_ON ? 2 : 3, woSC = STALE_ON ? 3 : 2;
+    return [bad.length === 0 && withSC === wSC && withoutSC === woSC,
       P.filter(p => p.hasSkillCheck).map(p => p.label + ':受動知覚 '
         + (((p.statDom || {}).passivePerception || {}).v) + ' (期待 ' + p.passiveExpect + ')').join('  ')
       + '  SkillCheck 無し ' + withoutSC + ' 枚は習熟の区画ごと伏せる'
+      + (STALE_ON ? '  [stale #45 以前の固定表: 期待 有り 2 / 無し 3]' : '')
+      + (withSC === wSC && withoutSC === woSC ? '' : '  ⛔ 母集団ガード: 期待は 有り ' + wSC + ' / 無し ' + woSC)
       + (bad.length ? '  ⛔ ' + bad.slice(0, 5).join(' / ') : '')];
   }],
 
@@ -2384,10 +2446,16 @@ function emit(id, M) {
            母集団 0 の述語は一律 false を返すので「偽の赤」= 空振りの見逃しになる。 */
         const mm = await measureAll(PORT_OF[k], k, mu.want || null, mu.probeOpts || null);
         const res = {};
+        /* ⭐⭐⭐ 期待側の変異 (stalepages) をここで立てる。⚠ 測定は measureAll が変異ごとに回すが、
+           assert は ASSERT_OF[id][2](mm) で **共通に**呼ばれるので、MUTATE 依存の const では
+           `--negative` で永久 false = 空振りする。⇒ 評価の直前に立て、直後に必ず戻す。
+           (closedread が probeOpts で **測定側**を切り替えているのと対になる切り替え) */
+        STALE_ON = !!MUTATIONS[k].stale;
         for (const id of ev) {
           try { res[id] = ASSERT_OF[id][2](mm); }
           catch (e) { res[id] = [false, '⛔ 述語が例外: ' + (e && e.message)]; }
         }
+        STALE_ON = false;
         for (const id of mu.targets) {
           const r = res[id] || [true, '⛔ evaluable に載っていない = この変異では測っていない'];
           check('(neg-' + k + '-' + id + ') 変異 ' + k + ' で (' + id + ') が赤くなる',
