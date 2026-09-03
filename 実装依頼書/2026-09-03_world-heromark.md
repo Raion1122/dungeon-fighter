@@ -1,10 +1,10 @@
 # #43 ワールドマップでも主人公の頭上に ▽ を出す
 
 - **起草**: 2026-09-03(計画窓) / **ステータス**: **完了**(2026-09-03)
-  `d4db293`(項目1)+ `1d076db`(項目2)+ `6ac5653`(項目3)+ **本コミット**(項目4)。
+  `d4db293`(項目1)+ `1d076db`(項目2)+ `6ac5653`(項目3)+ `05fc35a`(項目4)。
   `verify_world_heromark` **18/18 PASSED FAILED 0 PENDING 0** / `--negative` **24/24**(変異 7 本・**空振り 0**)/
   既存 golden **7 本すべて非退行・期待値の変更 0 件**。実装結果の全文は **§12**。
-  ⚠ **push は未実施**(dev-loop の orchestrator が実施 → push した窓がこの行と README を直すこと)。
+  ✅ **push 済**: `c1c85e0..05fc35a`(origin/main, 2026-09-03)。
 - **着手前の再実測**(2026-09-03): 依頼書が指す 7 行を測り直し、**2 件が 1 行ずれていた**ので訂正済
   (`:491`→**`:492`** 撤退スイッチの挿入点 / `:1075`→**`:1074`** `heroGeom:` の行)。
   残り 5 件(`:325` `.worldSign` / `:443` `#worldHero` の DOM / `:501` `SHEET_ROW_RIGHT` /
@@ -635,9 +635,11 @@ CRLF/LF 混在で複数行アンカーは必ず空振りする)。⚠ `python` �
 | 1 | `d4db293` | `world.html`(+63)/ `tools/verify_world_heromark.js`(新規 732 行) | `verify_world_heromark` **3/3 PASSED PENDING 15** |
 | 2 | `1d076db` | `tools/verify_world_heromark.js`(+522 / -26) | **9/9 PASSED PENDING 9**(§1 の 6 本を実装) |
 | 3 | `6ac5653` | `tools/verify_world_heromark.js`(+378 / -24) | **14/14 PASSED PENDING 4**(§2 / §3) |
-| 4 | 本コミット | `tools/verify_world_heromark.js` / 本依頼書 / `実装依頼書/README.md` | **18/18 PASSED FAILED 0 PENDING 0** |
+| 4 | `05fc35a` | `tools/verify_world_heromark.js` / 本依頼書 / `実装依頼書/README.md` | **18/18 PASSED FAILED 0 PENDING 0** |
 
-⚠ **push は未実施**(dev-loop の orchestrator が実施する)。
+✅ **push 済**: `c1c85e0..05fc35a`(origin/main, 2026-09-03)。
+本節のハッシュ反映と README の更新は、その直後の追補コミット 1 本で入れている
+(#42 と同じ型 —— **push した窓がその場で依頼書ヘッダと README 行を直す**)。
 
 ### 12-2. 最終の実測値
 
