@@ -4197,6 +4197,13 @@
     /* 火炎コアの中央アンカー (CSS の margin) も同じスイッチで戻す。⚠ こちらは CSS でしか
      * 取り消せない (真因が animation > inline style のカスケードなので JS では上書き不能)。 */
     if (!CAST_ANCHOR_ON) document.body.classList.add("castAnchorLegacy");
+    /* #46: 敵頭上の装備バッジ。#44 で名前札が付き、種別は**名前で分かる**ようになったので既定 OFF。
+     * ⚠ 本プロジェクトの慣習は ?slug=0 で撤退だが、今回は「廃止」なので**既定が OFF**。
+     *   復活は **?enemybadge=1**。⛔ ここを =0 に揃えないこと (揃えると既定でバッジが出てしまう)。
+     * ⛔ ENEMY_TYPES の badge: データ 44 件と CSS .enemyBadge は 1 バイトも消していない
+     *   (?enemybadge=1 で必要 / 図鑑や酒場の一覧で使う余地を残す)。
+     * ⚠ 判定はページ内で完結する (?heromark=0 / ?castanchor=0 と同じ流儀。sessionStorage へ写さない)。 */
+    const ENEMY_BADGE_ON = new URLSearchParams(window.location.search).get("enemybadge") === "1";
     /* ══ [卓上グリッド P7] 「縮まない UI」を置く**唯一の関数** ═══════════════════
      * HP バー / 名前ラベル / 「!」/ 装備バッジ / 状態アイコン列は camZ で縮まない
      * (縮むのは composeSpriteTransform を通る「絵」だけ = P7 の設計)。よって world 座標へ
@@ -11708,11 +11715,22 @@
         enemyLabelElements.push(null);            // ⚠⚠⚠ 添字並列を崩さないため null を積む
       }
       enemyStatusElements.push(st);
-      // 装備バッジ(種別が一目で分かるようにする)
-      const bd = document.createElement("div"); bd.className = "enemyBadge"; bd.id = "enemyBadge" + index;
-      if (def.badge) bd.textContent = def.badge;
-      else bd.style.display = "none";
-      enemyLayer.appendChild(bd); enemyBadgeElements.push(bd);
+      /* 装備バッジ (種別が一目で分かるようにする) = 添字並列の DOM 配列の 9 本目。
+       * #46 で**廃止**。#44 で頭上に名前札が付き、種別は名前で読めるようになったため。
+       *   既定 OFF / 復活は ?enemybadge=1 (ENEMY_BADGE_ON)。
+       * ⚠⚠⚠ OFF でも **null を push する**。push ごと飛ばすと添字並列が崩れ、
+       *   enemyBadgeElements[index] が**別の敵**を指す (#44 が 11 本目で同じ罠を踏んでいる)。
+       * ⭐ 描画側 (renderWorld の `const badgeEl = …; if (badgeEl)`) と、隠す経路 2 本
+       *   (封印中ハイドラの `_hb` / 伏兵化フォグの `_badgeEl`) は既に if でガードされているので
+       *   **変更不要** — null が入っても静かに素通りする。 */
+      if (ENEMY_BADGE_ON) {
+        const bd = document.createElement("div"); bd.className = "enemyBadge"; bd.id = "enemyBadge" + index;
+        if (def.badge) bd.textContent = def.badge;
+        else bd.style.display = "none";
+        enemyLayer.appendChild(bd); enemyBadgeElements.push(bd);
+      } else {
+        enemyBadgeElements.push(null);   // ⚠⚠⚠ 添字並列を崩さない (#46)
+      }
     }
 
     function createEnemy(typeKey, tx, ty) {

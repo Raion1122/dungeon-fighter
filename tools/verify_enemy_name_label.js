@@ -485,6 +485,22 @@ const PAGE_PATH = '/index.html';
 const TEARDOWN_PATH = '/tools/driver_cast_circle.js';
 /* 撤退のクエリ。§4 (項目 4) が本番で使う。 */
 const RETREAT_QUERY = '?namelabel=0';
+/* ⚠⚠⚠ #46 項目3 (2026-09-03) で敵頭上の**装備バッジが廃止**され、既定では 1 個も作られなくなった。
+ *   このドライバは (1h) 交差 / (3c) 寸法 / (4a) badgeTop の 3 本が**バッジの矩形を母集団**に
+ *   しているので、何もしないと 3 本とも `population: none ((0e) …)` で赤くなる (実測 27/30)。
+ * ⭐⭐⭐ 期待値は 1 つも弱めず、**装置で母集団を復元する** (#23 の教訓)。
+ *   = 全アームを #46 の撤退スイッチ **?enemybadge=1** で開く。バッジは #44 が決めた頭上の
+ *     位置 (名前札 ON なら -58 / 撤退時 -46) にそのまま出るので、30 本の受入条件は
+ *     1 本も意味が変わらない。⛔ (1h)(3c)(4a) を削るのも、母集団ガードを緩めるのも禁止。
+ * ⭐ 「バッジを消しても札と状態アイコン列は 1px も動かない」は #46 の受入条件 (3b) が
+ *   着手前 hash e3dfb4a との**恒等**で測っている (最大差 0.000px / tools/verify_walk_block.js)。
+ *   だから「バッジを出したまま札を測る」ことで #44 の測定が甘くなることはない。
+ * ⚠ ?namelabel=0 と併用するので **& で連結**する (PAGE_PATH へ焼くと ? が 2 個になって壊れる)。 */
+const BADGE_QUERY = 'enemybadge=1';
+const pageUrl = (port, query) => {
+  const q = String(query || '').replace(/^[?&]/, '');
+  return 'http://localhost:' + port + PAGE_PATH + '?' + BADGE_QUERY + (q ? '&' + q : '');
+};
 /* シナリオは **廃坑 (goblin-mine) に固定**する (依頼書 §8 (0h))。
    ⭐ 大型の敵しか出ない部屋を測ると (2f) の母集団が消えるため。 */
 const SCENARIO_KEY = 'dragonfighters.currentScenario';
@@ -808,7 +824,7 @@ async function measure(browser, port, errs, opts) {
     try { sessionStorage.setItem(k, v); } catch (e) {}
   }, SCENARIO_KEY, SCENARIO_ID);
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto('http://localhost:' + port + PAGE_PATH + (opts.query || ''),
+  await page.goto(pageUrl(port, opts.query),
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   /* ⚠ 裸の識別子で待つ。classic script 直下の const/let/function は window に載らないので
      `window.createEnemy` は常に undefined (メモリ ⑩ の教訓)。 */
@@ -1000,7 +1016,7 @@ async function measureRoomCross(browser, port, errs) {
     try { sessionStorage.setItem(k, v); } catch (e) {}
   }, SCENARIO_KEY, SCENARIO_ID);
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto('http://localhost:' + port + PAGE_PATH, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(pageUrl(port, ''), { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     () => typeof createEnemy === 'function' && typeof createEnemyDom === 'function'
       && typeof updatePositions === 'function' && typeof resetNodeState === 'function'

@@ -9,7 +9,18 @@
  *   後続の項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認でき、
  *   **最終項目の完了条件が PENDING 0** になる (手本 = tools/verify_enemy_name_label.js)。
  *
- * ■ 項目 1 (このコミット) で入ったもの — **§0 装置 (0a)〜(0d) / §1 到達性 (1a)〜(1f)**
+ * ■ 項目 3 (このコミット) で入ったもの — **§3 バッジ廃止 (3a)〜(3d) / §4 撤退 (4c)**
+ *   ⭐⭐⭐ (3b) の「恒等」は **着手前 hash (e3dfb4a) の index.html を別ポートで同時配信**して測る。
+ *     ⛔ `git show HEAD:` を基準にすると実装後は HEAD が動いて**永久緑**になる (#37 の教訓)。
+ *     基準が本当に基準かを **3 重**に検算している: ① 配信前にソースへ ENEMY_BADGE_ON が
+ *     無いこと ② 配信前にバッジ生成が 1 箇所あること ③ 測定後に基準側の .enemyBadge が
+ *     1 個以上あること。①②③のどれかが崩れたら popFail か exit 3 で止まる。
+ *   ⭐⭐⭐ 恒等の決定論は「測る直前に camZ / camX / camY / shake / 敵の座標を**全部固定**」して作る。
+ *     ⛔ 実プレイの流れのまま測ると両アームでカメラが数 px ずれ、恒等ではなく測定点が動く。
+ *   ⚠⚠⚠ (3c) は `enemyBadgeElements.length === enemies.length` で見る。⛔ `> 0` にしない —
+ *     OFF のとき中身は全部 null なので、長さ以外では添字ずれ (§2-8 の罠) を捕まえられない。
+ *
+ * ■ 項目 1 で入ったもの — **§0 装置 (0a)〜(0d) / §1 到達性 (1a)〜(1f)**
  *   ⭐ **順序が肝**。マスクを 1 マスでも触る前に「間違ったマスクを入れても壊れないことを
  *     機械が保証する」装置を先に立てる (依頼書 §4-1 の冒頭)。項目 4 がマスクを触るときには
  *     既に「到達不能が出たら赤くなる」状態になっている。
@@ -85,8 +96,8 @@
  *   `driver_cast_circle.js` の担当なので二重に縛らない。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⭐ 項目 1 で実装したのは **4 本** (popzero / island / sealgate / sealfoe)。
- *     残り 12 本は後続項目が埋める (⛔ MUT_ORDER からは消さない = 件数から隠さない)。
+ *   ⭐ 項目 3 までで実装済は **13 本**。残り 3 本 (sealrail / sealp8 / overblock) は
+ *     項目 4 が埋める (⛔ MUT_ORDER からは消さない = 件数から隠さない)。
  *
  *   mutate      | 注入する欠陥                                       | 赤くなるべき節 | 実装
  *   popzero     | n1 の乱戦+護衛スロットを空にする                    | (0b)          | 項目1
@@ -190,6 +201,36 @@ const VFX_CORE_N = 3;         // spawnConeFlames が立てる火炎コアの数 
  *  0.5w(1-z)=54.05 / 0.64h(1-z)=43.24) と、項目 2 の着手前実測 (54.0608, 43.2300) の一致。
  *  火炎コアの legacy ズレは 60x60 の半分 = (30, 30) (⚠ camZ に依存しない。ヘッダ (D))。 */
 const CAST_LEGACY = { z: 0.25, dx: 54.06, dy: 43.23, coreDx: 30.0, coreDy: 30.0 };
+
+/* ── §3 バッジ廃止 (項目 3) ───────────────────────────────────────────────────
+ * ⚠⚠⚠ (3b) の**基準は着手前 hash の index.html を別 URL で同時配信**して取る。
+ *   ⛔ `git show HEAD:` を基準にすると、実装後は HEAD が動いて**永久緑**になる (#37 の教訓)。
+ *   ⚠ 基準は起草コミット caf25d0 では**ない**。#46 項目2 (e3dfb4a) が index.html の
+ *     魔法陣まわりを触っているので、そこを基準にしないと「陣の修正ぶんの差」まで
+ *     (3b) が拾ってしまう。= **バッジを消す直前**の hash を逐語で握る。 */
+const BADGE_REF_HASH = 'e3dfb4a';
+const BADGE_REF_FILE = 'index.html';
+/* (3d) データを消していないことの期待値 (`grep -c 'badge: "' index.html` = 44)。
+ *  ⛔ 「1 件以上」では badgedata が空振りする。件数そのものを縛る。 */
+const BADGE_DATA_COUNT = 44;
+/* (4c) が実在を確かめる 2 件。⭐ 依頼書 §2-8 が名指しした「🐺 と 🏹」。
+ *  ⚠ 絵文字だけでなく**どの敵の定義から出た値か**まで縛る (別の敵に紛れて生き残るのを防ぐ)。 */
+const BADGE_EXPECT = { goblinRider: '🐺', goblinArcher: '🏹' };
+/* (3b) の恒等測定に使うフィクスチャ。⚠ n1 の rect [2,17,24,55] の内側の**絶対タイル**で置く。
+ *  ⛔ playerX 相対にしない — 素のアームと基準アームで主人公の位置が 1 タイルでも違うと
+ *    「恒等が崩れた」ではなく「測定点が動いた」で赤くなる。
+ *  ⭐ 2 体は badge 持ち (🏹 / 🐺) = (4c) の母集団も同じ 1 回の採取で立つ。 */
+const BADGE_FIXTURE = [
+  { key: 'goblin', tx: 30, ty: 10 },
+  { key: 'goblinArcher', tx: 32, ty: 10 },
+  { key: 'goblinRider', tx: 34, ty: 10 },
+];
+/* (3b) を測る camZ。⚠ 実プレイ値域 (0.25〜1) の中の 1 点を**両アームで同じ値に打つ**。
+ *  ⭐ 1 ではなく 0.8125 にしてあるのは、placeUnscaledUi の camZ 分岐を通した状態で測るため。 */
+const BADGE_FIX_Z = 0.8125;
+/* 「1px も変わらない」= 実質**完全一致**。⚠ 0 ちょうどにすると IEEE754 の最下位ビットで
+ *  誤報しうるので 0.01px にしてある (labelshift の 3px とは 300 倍の開きがある)。 */
+const BADGE_RECT_TOL = 0.01;
 
 /* ── ゲート ──────────────────────────────────────────────────────────────────
  * ⚠⚠⚠ 依頼書 §8 (1a) は「4 ゲートすべて」だが、**down は原理的に到達不能**
@@ -319,15 +360,43 @@ const MUTATIONS = {
     why: 'spawnCastCircle を常に null にする (シート未ロードと同じ = 静かに何も出さない)。'
       + ' ⭐ 母集団ガード (0c) が立たなければ §2 は「陣が 1 枚も無いのに緑」になり得る',
   },
-  // ── 項目 3 (バッジ廃止) が実装する 4 本 ─────────────────────────────────────
-  badgepush: { impl: false, file: 'index.html', targets: ['3c'],
-    why: 'バッジ OFF 時に enemyBadgeElements.push(null) をやめる (添字並列が崩れる = §2-8 の罠)' },
-  badgeleak: { impl: false, file: 'index.html', targets: ['3a'],
-    why: '既定で .enemyBadge を 1 個だけ作る' },
-  badgedata: { impl: false, file: 'index.html', targets: ['3d'],
-    why: 'ENEMY_TYPES の badge: を 1 件消す (データを消していないことの検査)' },
-  labelshift: { impl: false, file: 'index.html', targets: ['3b'],
-    why: 'バッジ廃止のついでに名前札を 3px 動かす (恒等 assert の検査)' },
+  // ── 項目 3 (バッジ廃止) が実装した 4 本 ─────────────────────────────────────
+  badgepush: {
+    impl: true, file: 'index.html', targets: ['3c'], record: ['3a', '3b', '3d'],
+    from: '        enemyBadgeElements.push(null);   // ⚠⚠⚠ 添字並列を崩さない (#46)',
+    to: '        /* badgepush: push ごと飛ばして添字並列を崩す */',
+    why: 'バッジ OFF 時に enemyBadgeElements.push(null) を**やめる** = 添字並列が崩れる (§2-8 の罠の再現)。'
+      + ' ⭐⭐⭐ (3a) は「バッジ 0 個」なので**緑のまま素通りする** — 見た目は完全に正常で、'
+      + ' enemyBadgeElements[index] が別の敵を指すという最も見つけにくい壊れ方だけが残る。'
+      + ' それを捕まえるのが (3c) の存在理由 (⛔ だから > 0 ではなく**長さ**で見る)',
+  },
+  badgeleak: {
+    impl: true, file: 'index.html', targets: ['3a'], record: ['3b', '3c', '3d'],
+    from: '      if (ENEMY_BADGE_ON) {',
+    to: '      if (ENEMY_BADGE_ON || index === 0) { /* badgeleak */',
+    why: '既定 (?enemybadge 無し) でも先頭の 1 体にだけ .enemyBadge を作る。'
+      + ' ⭐ 1 個だけ漏れる = 「だいたい消えている」を通してしまう assert を弾く'
+      + ' (⛔ (3a) を「敵の数より少ない」等で書くとここで空振りする)。'
+      + ' ⚠ push は両アームで走るので (3c) は緑のまま = (3a) と (3c) が別物である証拠',
+  },
+  badgedata: {
+    impl: true, file: 'index.html', targets: ['3d'], record: ['3a', '3b', '3c'],
+    from: '        badge: "🛒",',
+    to: '        /* badgedata: badge: を 1 件消した */',
+    why: 'ENEMY_TYPES の badge: を 1 件 (隊商の馬車 🛒) 消す。'
+      + ' ⭐ 依頼書 §4-3 の「データは 1 件も消さない」を機械で縛る — 表示を消すついでに'
+      + ' データまで削ると、?enemybadge=1 で戻したとき静かに 1 体だけ無地になる。'
+      + ' ⚠ 🐺 / 🏹 ではない 1 件を選んである = (4c) の名指しとは独立に (3d) だけが落ちる',
+  },
+  labelshift: {
+    impl: true, file: 'index.html', targets: ['3b'], record: ['3a', '3c', '3d'],
+    from: '            placeUnscaledUi(labelEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX + 2, -27);',
+    to: '            placeUnscaledUi(labelEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX + 2, -30); /* labelshift */',
+    why: 'バッジ廃止の**ついでに**名前札を 3px 上へ動かす (#44 の決定を勝手に動かす変更)。'
+      + ' ⭐⭐⭐ 恒等 assert (3b) が無いと、この種の「ついで」は誰にも見つからない'
+      + ' (バッジは 0 個のままなので (3a)、長さも合っているので (3c)、データも 44 件のままなので (3d) が'
+      + ' すべて緑を返す)。⚠ 状態アイコン列は札の子なので**一緒に**動く = 2 つとも赤になる',
+  },
   // ── 項目 4 (マスク編集) が実装する 3 本 ─────────────────────────────────────
   sealrail: { impl: false, file: 'index.html', targets: ['1f'],
     why: '規則② で空けてある マスク行18 の枕木 (グローバル col32-38 / row20) を塞ぐ' },
@@ -381,6 +450,38 @@ for (const k of MUT_SERVED) {
   MUT_SRC[k] = { file: m.file, body: body.split(m.from).join(m.to) };
 }
 
+/* ══ (3b) の**基準アーム** = 着手前 hash の index.html ═══════════════════════════
+ * ⭐⭐⭐ 別ポートで**同時に配信**する。⛔ `git show HEAD:` を基準にしない
+ *   (実装後は HEAD が動いて基準が実装後の姿になり、恒等 assert が永久緑になる = #37 の教訓)。
+ * ⚠ 改行を CRLF へ揃える。working tree の index.html はディスク上 CRLF、git の blob は
+ *   LF なので、揃えないと「テキストノードの空白の扱いで差が出る」余地が残る
+ *   (恒等を 0.01px で測るので、疑いの種は先に潰しておく)。 */
+let REF_SRC = null;
+try {
+  REF_SRC = require('child_process')
+    .execFileSync('git', ['show', BADGE_REF_HASH + ':' + BADGE_REF_FILE],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 })
+    .replace(/\r?\n/g, '\r\n');
+} catch (e) {
+  console.error('[drv] ⛔ 基準 ' + BADGE_REF_HASH + ':' + BADGE_REF_FILE
+    + ' を取り出せない: ' + ((e && e.message) || e));
+  process.exit(3);
+}
+/* ⭐⭐⭐ 基準アームが**本当に基準か**を配信前に検算する。これが無いと、間違った hash を
+ *  指した瞬間に「両アームともバッジ無し」= (3b) の恒等が自明に成立して永久緑になる。 */
+if (REF_SRC.indexOf('ENEMY_BADGE_ON') >= 0) {
+  console.error('[drv] ⛔ 基準 ' + BADGE_REF_HASH + ' が ENEMY_BADGE_ON を含む = #46 項目3 より'
+    + '**後**の hash。基準は「バッジを消す直前」でなければならない');
+  process.exit(3);
+}
+{
+  const n = REF_SRC.split('bd.className = "enemyBadge"').length - 1;
+  if (n !== 1) {
+    console.error('[drv] ⛔ 基準 ' + BADGE_REF_HASH + ' の中でバッジ生成が ' + n + ' 箇所 (期待 1)');
+    process.exit(3);
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // puppeteer / Chrome / 内蔵サーバ
 // ══════════════════════════════════════════════════════════════════════════════
@@ -416,14 +517,16 @@ const MIME = {
   '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.woff': 'font/woff',
   '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml'
 };
-function startServer(port, mutKey) {
+/* ⚠ 第 3 引数 `override` = 変異ではない差し替え配信 (今は (3b) の基準アームだけが使う)。
+ *   ⛔ MUT_SRC へ相乗りさせない — 変異の件数 (MUT_ORDER 16 本) を汚さないため。 */
+function startServer(port, mutKey, override) {
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
         const rel = u.replace(/^\/+/, '');
-        const ov = mutKey ? (MUT_SRC[mutKey] || null) : null;
+        const ov = override || (mutKey ? (MUT_SRC[mutKey] || null) : null);
         if (ov && rel === ov.file) {
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
           res.setHeader('Cache-Control', 'no-store');
@@ -717,6 +820,129 @@ function assertCircleAnchored(m, zooms) {
  *  ⛔ これは受入条件ではない (ASSERTS に入れない)。負のコントロールでしか呼ばない。 */
 function assert2aCamZ1Only(m) { return assertCircleAnchored(m, [1]); }
 
+/* ⭐ §3 の採取。**1 回の evaluate の中で同期的に**通す (仕込みと計測の間にゲームの
+ *   フレームを挟まない = オートバトルの手番で敵が動いて恒等が崩れるのを防ぐ)。
+ * ⚠⚠⚠ 順序が肝: (3a)(3c)(3d) は**素の母集団**で測る (フィクスチャを足す**前**)。
+ *   足した後に数えると「装置が作ったバッジ」まで数えてしまう。
+ * ⚠⚠ 素の object を enemies へ push しない — 添字並列の DOM 配列が 11 本ある。
+ *   本番の factory (createEnemy + createEnemyDom) をそのまま通すのが唯一安全な作り方。
+ * ⭐⭐⭐ (3b) の決定論は「測る直前に camZ / camX / camY / shake / 敵の座標を**全部固定する**」
+ *   ことで作る。⛔ computeCameraTarget に任せない (PT と仲間の位置でカメラが動き、
+ *   両アームで数 px ずれて「恒等が崩れた」と誤報する)。
+ * ⛔ updatePositions() ではなく renderWorld() を直に呼ぶ — updatePositions は
+ *   カメラのグライド分岐を持つので、呼んだ瞬間の camX/camY が非決定的になる。 */
+function BADGE_SNAPSHOT(cfg) {
+  const out = { ok: false, err: null, fixture: { ok: false, err: null, made: [], renderOk: false } };
+  try {
+    out.badgeOn = (typeof ENEMY_BADGE_ON !== 'undefined') ? !!ENEMY_BADGE_ON : null;
+    out.nameLabelOn = (typeof NAME_LABEL_ON !== 'undefined') ? !!NAME_LABEL_ON : null;
+
+    // ── (3a)(3c)(3d) = 素の母集団 ────────────────────────────────────────────
+    out.badgeDom0 = document.querySelectorAll('.enemyBadge').length;
+    out.enemyCount0 = enemies.length;
+    out.badgeArrayLen0 = enemyBadgeElements.length;
+    out.badgeNonNull0 = enemyBadgeElements.filter(b => b !== null && b !== undefined).length;
+    out.labelArrayLen0 = enemyLabelElements.length;
+    out.statusArrayLen0 = enemyStatusElements.length;
+    out.elemArrayLen0 = enemyElements.length;
+    out.enemyTypeCount = Object.keys(ENEMY_TYPES).length;
+    out.badgeDataCount = Object.keys(ENEMY_TYPES).filter(k => {
+      const d = ENEMY_TYPES[k];
+      return !!(d && typeof d.badge === 'string' && d.badge.length > 0);
+    }).length;
+    out.badgeOfKey = {};
+    for (const k of Object.keys(cfg.expect)) {
+      out.badgeOfKey[k] = (ENEMY_TYPES[k] && ENEMY_TYPES[k].badge) || null;
+    }
+    /* ⛔ CSS .enemyBadge は残す (依頼書 §4-3.4)。同一オリジンの inline <style> なので
+     *   cssRules は読める。読めなかった枚数も残す (静かに false にならないため)。 */
+    out.cssRule = false; out.cssUnreadable = 0;
+    for (const ss of Array.from(document.styleSheets)) {
+      let rules = null;
+      try { rules = ss.cssRules; } catch (e) { out.cssUnreadable++; continue; }
+      if (!rules) { out.cssUnreadable++; continue; }
+      for (const r of Array.from(rules)) {
+        if (r.selectorText && r.selectorText.indexOf('.enemyBadge') >= 0) out.cssRule = true;
+      }
+    }
+
+    // ── (3b) 恒等のための固定 ────────────────────────────────────────────────
+    shakeX = 0; shakeY = 0;
+    if (typeof setCamZoom === 'function') setCamZoom(cfg.z); else camZ = cfg.z;
+    const made = [];
+    try {
+      for (const p of cfg.fixture) {
+        if (!ENEMY_TYPES[p.key]) { out.fixture.err = '未知の敵キー ' + p.key; break; }
+        const idx = enemies.length;
+        const e = createEnemy(p.key, p.tx, p.ty);
+        e.everSeen = true; e.state = 'idle'; e.alive = true;
+        enemies.push(e);
+        createEnemyDom(idx, e.def, p.key);
+        made.push({ idx: idx, key: p.key, tx: p.tx, ty: p.ty });
+      }
+    } catch (err) { out.fixture.err = String((err && err.message) || err); }
+    out.fixture.made = made;
+    out.fixture.ok = !out.fixture.err && made.length === cfg.fixture.length;
+    /* ⭐ 状態アイコン列を**空でない**状態にする。空の flex は 0x0 になり、恒等 assert が
+     *   「点が動かない」しか見なくなる (幅と高さの差を取りこぼす)。
+     *   ⛔ 効果 id を写経せず定義の先頭から引く (定義が変わってもドライバは腐らない)。 */
+    out.statusId = null;
+    try {
+      const sid = Object.keys(STATUS_EFFECT_DEFS)[0];
+      out.statusId = sid;
+      if (sid && made.length) applyStatus(enemies[made[0].idx], sid, 5);
+    } catch (err) { out.statusErr = String((err && err.message) || err); }
+
+    /* カメラをフィクスチャの中心へ**明示的に**置く。SX(wx) = (wx - camX) * camZ なので
+     * 画面中央 W/2 へ wx を出すには camX = wx - (W/2)/camZ。⚠ 式は 1 行に閉じて記録も残す。 */
+    const first = cfg.fixture[0], last = cfg.fixture[cfg.fixture.length - 1];
+    const cwx = (first.tx + last.tx) / 2 * TILE_SIZE + TILE_SIZE / 2;
+    const cwy = first.ty * TILE_SIZE + TILE_SIZE / 2;
+    camX = cwx - (window.innerWidth / 2) / camZ;
+    camY = cwy - (window.innerHeight / 2) / camZ;
+    out.cam = { camX: camX, camY: camY, camZ: camZ,
+                vw: window.innerWidth, vh: window.innerHeight, cwx: cwx, cwy: cwy };
+    try { renderWorld(); out.fixture.renderOk = true; }
+    catch (err) { out.fixture.renderErr = String((err && err.message) || err); }
+
+    const rectOf = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, w: r.width, h: r.height };
+    };
+    out.rows = made.map(p => {
+      const lb = enemyLabelElements[p.idx] || null;
+      const st = enemyStatusElements[p.idx] || null;
+      return {
+        idx: p.idx, key: p.key, tx: p.tx, ty: p.ty,
+        label: rectOf(lb), status: rectOf(st),
+        sprite: rectOf(document.getElementById('enemy' + p.idx)),
+        hp: rectOf(document.getElementById('hpBar' + p.idx)),
+        labelText: lb ? (lb.textContent || '') : null,
+        statusKids: st ? st.childElementCount : null,
+      };
+    });
+
+    // ── (4c) = フィクスチャを足した**後**の観測 (敵の数だけ生成されているか) ──
+    out.badgeDom1 = document.querySelectorAll('.enemyBadge').length;
+    out.enemyCount1 = enemies.length;
+    out.badgeArrayLen1 = enemyBadgeElements.length;
+    out.badgeTexts = Array.from(document.querySelectorAll('.enemyBadge')).map(n => n.textContent || '');
+    out.ok = true;
+  } catch (e) {
+    out.err = (e && e.message) || String(e);
+  }
+  return out;
+}
+function badgeOf(m) { return (m && m.ok && m.badge && m.badge.ok) ? m.badge : null; }
+function badgePop(m) {
+  if (!m || !m.ok) return popFail('測定', (m && m.err) || 'SNAPSHOT が失敗');
+  return popFail('§3 の採取', (m.badge && m.badge.err) || 'BADGE_SNAPSHOT が失敗');
+}
+/* (3b) の基準アーム。⭐ **1 回だけ**測って全 assert で使い回す (git の blob は不変なので
+ *   変異ごとに測り直す必要が無い)。⚠ 素の measure と同じ手順を通す = 差は index.html だけ。 */
+let REF_MEASURE = null;
+
 async function closeDialogs(page) {
   for (let i = 0; i < 14; i++) {
     let quiet = false;
@@ -803,6 +1029,11 @@ async function measure(browser, port, errs, opts) {
   /* ⚠ §2 は SNAPSHOT の**後**に測る。camZ を 4 点動かして戻すので、先に走らせると
    *   §1 の到達性を「素の camZ ではない状態」で測ってしまう恐れがある。 */
   snap.vfx = await page.evaluate(VFX_SNAPSHOT, { zooms: VFX_ZOOMS, size: VFX_SIZE });
+  /* ⚠⚠⚠ §3 は**最後**に測る。BADGE_SNAPSHOT は enemies へ 3 体足し、camZ / camX / camY を
+   *   固定したまま返すので、先に走らせると §0 (0b) の敵の件数も §1 の到達性も汚れる。 */
+  snap.badge = await page.evaluate(BADGE_SNAPSHOT, {
+    fixture: BADGE_FIXTURE, z: BADGE_FIX_Z, expect: BADGE_EXPECT,
+  });
   if (!opts.keepPage) await page.close();
   snap.port = port;
   return snap;
@@ -1033,23 +1264,138 @@ const ASSERTS = [
         + CAST_LEGACY.coreDx + ',' + CAST_LEGACY.coreDy + ')' + (okF ? '' : ' ⛔')
         + '   tf="' + r.transform + '"'];
     }],
+
+  // ── §3 バッジ廃止 (3 点目の本体) ───────────────────────────────────────────
+  ['3a', '既定で document.querySelectorAll(".enemyBadge").length === 0'
+    + '  (⭐ CSS .enemyBadge は残っていること — ?enemybadge=1 で必要)',
+    (m) => {
+      const b = badgeOf(m); if (!b) return badgePop(m);
+      if (b.badgeOn !== false) return popFail('素のアーム',
+        'ENEMY_BADGE_ON=' + b.badgeOn + ' (既定は false でなければならない)');
+      if (!(b.enemyCount0 >= 1)) return popFail('敵', '素の母集団が 0 体 = 何も作らせずに数えている');
+      return [b.badgeDom0 === 0 && b.cssRule === true,
+        '.enemyBadge の DOM ' + b.badgeDom0 + ' 個 (敵 ' + b.enemyCount0 + ' 体)'
+        + ' / CSS .enemyBadge ' + (b.cssRule ? 'あり ⭐' : '⛔ 無い (?enemybadge=1 で無地になる)')
+        + ' (読めなかった stylesheet ' + b.cssUnreadable + ' 枚)'
+        + ' / ENEMY_BADGE_ON=' + b.badgeOn];
+    }],
+  ['3b', '恒等: バッジを消しても敵の**名前札と状態アイコン列**の getBoundingClientRect が'
+    + ' #46 前 (' + BADGE_REF_HASH + ') と 1px も変わらない'
+    + '  ⚠ 基準は着手前 hash を**別 URL で同時配信**して取る (⛔ git show HEAD: にしない)',
+    (m) => {
+      const a = badgeOf(m); if (!a) return badgePop(m);
+      const b = REF_MEASURE ? badgeOf(REF_MEASURE) : null;
+      if (!b) return popFail('基準アーム', BADGE_REF_HASH + ' の測定が取れていない');
+      /* ⭐⭐⭐ 基準アームが**本当に #46 前か**を測定の側でも確かめる。
+       *   これが無いと「両アームともバッジ無し」= 恒等が自明に成立する永久緑になる。 */
+      if (!(b.badgeDom0 > 0)) return popFail('基準アーム',
+        '#46 前のはずなのに .enemyBadge が ' + b.badgeDom0 + ' 個 (基準が基準になっていない)');
+      if (a.badgeDom0 !== 0) return popFail('素のアーム',
+        '既定でバッジが ' + a.badgeDom0 + ' 個ある (先に (3a) を見ること)');
+      if (!a.fixture.ok || !b.fixture.ok || !a.fixture.renderOk || !b.fixture.renderOk)
+        return popFail('フィクスチャ',
+          '素={ok:' + a.fixture.ok + ',render:' + a.fixture.renderOk + ',err:' + a.fixture.err + '}'
+          + ' 基準={ok:' + b.fixture.ok + ',render:' + b.fixture.renderOk + ',err:' + b.fixture.err + '}');
+      if (a.rows.length !== BADGE_FIXTURE.length || b.rows.length !== BADGE_FIXTURE.length)
+        return popFail('恒等の標本', '素 ' + a.rows.length + ' 体 / 基準 ' + b.rows.length + ' 体');
+      if (a.cam.camZ !== b.cam.camZ || a.cam.camX !== b.cam.camX || a.cam.camY !== b.cam.camY)
+        return popFail('カメラの固定', '素=' + JSON.stringify(a.cam) + ' 基準=' + JSON.stringify(b.cam));
+      const bad = [], det = [];
+      let worst = 0, worstAt = '';
+      const cmp = (tag, ra, rb) => {
+        if (!ra || !rb) { bad.push(tag + ' 器が無い (素=' + !!ra + ' / 基準=' + !!rb + ')'); return; }
+        for (const f of ['left', 'top', 'w', 'h']) {
+          const d = Math.abs(ra[f] - rb[f]);
+          if (d > worst) { worst = d; worstAt = tag + '.' + f; }
+          if (d > BADGE_RECT_TOL) bad.push(tag + '.' + f + ' 素=' + ra[f].toFixed(2)
+            + ' 基準=' + rb[f].toFixed(2) + ' Δ=' + d.toFixed(3));
+        }
+      };
+      a.rows.forEach((r, i) => {
+        const q = b.rows[i];
+        cmp(r.key + ' 札', r.label, q.label);
+        cmp(r.key + ' 状態列', r.status, q.status);
+        cmp(r.key + ' 絵', r.sprite, q.sprite);
+        cmp(r.key + ' HP', r.hp, q.hp);
+        det.push(r.key + ' 札=' + (r.label
+          ? ('(' + r.label.left.toFixed(2) + ',' + r.label.top.toFixed(2) + ' '
+            + r.label.w.toFixed(2) + 'x' + r.label.h.toFixed(2) + ')') : 'なし')
+          + ' 状態列=' + (r.status
+            ? ('(' + r.status.left.toFixed(2) + ',' + r.status.top.toFixed(2) + ' '
+              + r.status.w.toFixed(2) + 'x' + r.status.h.toFixed(2) + ')') : 'なし')
+          + ' 子=' + r.statusKids);
+      });
+      return [bad.length === 0,
+        '基準 ' + BADGE_REF_HASH + ':' + BADGE_REF_FILE + ' を :' + REF_MEASURE.port + ' で同時配信'
+        + ' (基準側のバッジ ' + b.badgeDom0 + ' 個 / 素は ' + a.badgeDom0 + ' 個)'
+        + '  camZ=' + a.cam.camZ + ' 状態=' + a.statusId
+        + '  最大差 ' + worst.toFixed(3) + 'px' + (worstAt ? ' @' + worstAt : '')
+        + ' [許容 ' + BADGE_RECT_TOL + 'px]  ' + det.join('  ')
+        + (bad.length ? '   ⛔ ' + bad.join(' / ') : '')];
+    }],
+  ['3c', 'enemyBadgeElements.length === enemies.length (添字並列が崩れていない)'
+    + '  ⛔ > 0 で見ない — OFF のとき中身は全部 null なので**長さ**でしか捕まらない',
+    (m) => {
+      const b = badgeOf(m); if (!b) return badgePop(m);
+      if (!(b.enemyCount0 >= 1)) return popFail('敵', '素の母集団が 0 体');
+      const okLen = b.badgeArrayLen0 === b.enemyCount0;
+      const okNull = b.badgeOn ? true : (b.badgeNonNull0 === 0);
+      /* ⭐ 併走する 3 本の添字並列配列も同じ長さであることを見る = 「バッジだけ」が
+       *   ずれたのか「全体がずれている」のかが detail で分かる。 */
+      const okSib = b.elemArrayLen0 === b.enemyCount0 && b.labelArrayLen0 === b.enemyCount0
+        && b.statusArrayLen0 === b.enemyCount0;
+      return [okLen && okNull && okSib,
+        'enemyBadgeElements ' + b.badgeArrayLen0 + ' 本 / enemies ' + b.enemyCount0 + ' 体'
+        + ' (うち非 null ' + b.badgeNonNull0 + ' 本、ENEMY_BADGE_ON=' + b.badgeOn + ')'
+        + '  併走: enemyElements=' + b.elemArrayLen0 + ' enemyLabelElements=' + b.labelArrayLen0
+        + ' enemyStatusElements=' + b.statusArrayLen0
+        + (okLen ? '' : '   ⛔ 添字並列が崩れている (enemyBadgeElements[index] が別の敵を指す)')
+        + (okNull ? '' : '   ⛔ OFF なのに非 null が混じっている')];
+    }],
+  ['3d', 'badge を持つ ENEMY_TYPES 定義が ' + BADGE_DATA_COUNT + ' 件のまま (データを 1 件も消していない)',
+    (m) => {
+      const b = badgeOf(m); if (!b) return badgePop(m);
+      if (!(b.enemyTypeCount > 0)) return popFail('ENEMY_TYPES', '定義が 0 件');
+      const names = Object.keys(BADGE_EXPECT);
+      const okNamed = names.every(k => b.badgeOfKey[k] === BADGE_EXPECT[k]);
+      return [b.badgeDataCount === BADGE_DATA_COUNT && okNamed,
+        'badge 持ち ' + b.badgeDataCount + ' 件 / ENEMY_TYPES ' + b.enemyTypeCount + ' 種'
+        + ' (期待 ' + BADGE_DATA_COUNT + " 件 = grep -c 'badge: \"' index.html)"
+        + '  名指し: ' + names.map(k => k + '=' + JSON.stringify(b.badgeOfKey[k])).join(' ')
+        + (okNamed ? '' : '   ⛔ 名指しの 2 件が期待と違う')];
+    }],
+
+  // ── §4 撤退 (項目 3 の担当ぶん) ────────────────────────────────────────────
+  ['4c', '?enemybadge=1 → .enemyBadge が**敵の数だけ**生成され、'
+    + Object.values(BADGE_EXPECT).join(' と ') + ' の textContent が実在する',
+    (m) => {
+      const b = badgeOf(m); if (!b) return badgePop(m);
+      /* ⭐⭐⭐ 撤退アームが**本当に撤退アームか**を先に確かめる (4b と同じ作法)。
+       *   これが無いと素のアームを測って「バッジ 0 個 = 0 体ぶん」で緑にできてしまう。 */
+      if (b.badgeOn !== true) return popFail('撤退アーム',
+        'ENEMY_BADGE_ON=' + b.badgeOn + ' (?enemybadge=1 が効いていない)');
+      if (!(b.enemyCount0 >= 1)) return popFail('敵', '素の母集団が 0 体');
+      const okBefore = b.badgeDom0 === b.enemyCount0;
+      const okAfter = b.badgeDom1 === b.enemyCount1;   // フィクスチャ 3 体を足した後も一致
+      const texts = b.badgeTexts || [];
+      const missing = Object.keys(BADGE_EXPECT)
+        .filter(k => texts.indexOf(BADGE_EXPECT[k]) < 0);
+      return [okBefore && okAfter && missing.length === 0,
+        '素の敵 ' + b.enemyCount0 + ' 体 → バッジ ' + b.badgeDom0 + ' 個'
+        + ' / フィクスチャ後 ' + b.enemyCount1 + ' 体 → ' + b.badgeDom1 + ' 個'
+        + '  配列 ' + b.badgeArrayLen1 + ' 本'
+        + '  textContent=' + JSON.stringify(texts)
+        + (missing.length ? '   ⛔ 出ていない: '
+          + missing.map(k => k + '(' + BADGE_EXPECT[k] + ')').join(' ') : '   ⭐ 🐺 / 🏹 とも実在')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
 /* ══ 未実装の受入条件 (⛔ 配列ごと削除しない — 削ると PENDING という 3 値そのものが消える) ══ */
 const PENDINGS = [
-  ['§3 バッジ廃止 (項目 3 の担当)', [
-    ['3a', '既定で .enemyBadge が 0 個', ''],
-    ['3b', '恒等: 名前札と状態アイコン列の rect が #46 前と 1px も変わらない',
-      '⚠ 基準は着手前 hash の index.html を別 URL で同時配信して取る (⛔ git show HEAD: にしない)'],
-    ['3c', 'enemyBadgeElements.length === enemies.length (添字並列が崩れていない)',
-      '⭐ §2-8 の罠を直接測る。⛔ > 0 で見ない'],
-    ['3d', 'badge を持つ ENEMY_TYPES 定義が 44 件のまま', 'データを消していない'],
-  ]],
-  ['§4 撤退 (項目 2 / 3 / 4 で分担)', [
+  ['§4 撤退 (項目 4 の担当ぶん)', [
     ['4a', '?walkblock=0 で n1 の塞がり率が 58.8% へ戻る', '項目 4'],
-    ['4c', '?enemybadge=1 で .enemyBadge が敵の数だけ生成され 🐺 / 🏹 が実在する', '項目 3'],
     ['4d', '撤退アームでも §1 の到達性 (1a)(1b) が緑',
       '項目 4 ⭐ 撤退枝にしか無いコードは素のアームだけ見る assert では捕まらない'],
   ]],
@@ -1065,6 +1411,8 @@ const PENDINGS = [
   /* ⚠ ポートは MUT_ORDER の並びで固定的に割り当てる (impl の増減で番号が動かないように)。 */
   const PORT_OF = {};
   MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
+  /* (3b) の基準アーム。⚠ 変異の後ろへ置く = 変異が 16 本から増えても衝突しない。 */
+  const REF_PORT = PORT + 1 + MUT_ORDER.length;
 
   console.log('=== verify_walk_block.js'
     + (NEGATIVE ? '  [負のコントロール]' : (MUTATE ? '  [変異 ' + MUTATE + ']' : '')) + ' ===');
@@ -1072,7 +1420,12 @@ const PENDINGS = [
   console.log('[drv]   base:' + PORT + '   対象 ' + SCENARIO_ID + '/' + NODE_ID
     + '   実装済の変異 ' + (MUT_SERVED.length ? MUT_SERVED.map(k => k + ':' + PORT_OF[k]).join(' / ') : '(無し)'));
 
+  console.log('[drv]   (3b) の基準 ' + BADGE_REF_HASH + ':' + BADGE_REF_FILE
+    + ' を :' + REF_PORT + ' で**同時配信** (' + REF_SRC.length + 'B)'
+    + '   ⛔ git show HEAD: を基準にしない = 実装後に永久緑になる');
+
   const servers = [await startServer(PORT, (MUTATE && MUT_SRC[MUTATE]) ? MUTATE : null)];
+  servers.push(await startServer(REF_PORT, null, { file: BADGE_REF_FILE, body: REF_SRC }));
   if (NEGATIVE) for (const k of MUT_SERVED) servers.push(await startServer(PORT_OF[k], k));
 
   const browser = await puppeteer.launch({
@@ -1084,6 +1437,25 @@ const PENDINGS = [
   const errs = [];
 
   try {
+    /* ⭐⭐⭐ (3b) の基準アームを**先に 1 回だけ**測る (素のアームでも変異アームでも同じ基準を
+     *   使い回す = git の blob は不変なので測り直す必要が無い)。
+     * ⚠ 事故は refErrs に分けて数える (基準アームのノイズを本編の記録へ混ぜない)。 */
+    const refErrs = [];
+    mark('§3 の基準アーム — #46 前 ' + BADGE_REF_HASH + ' の index.html を :' + REF_PORT
+      + ' で同時配信して測る (⛔ git show HEAD: にしない)');
+    REF_MEASURE = await measure(browser, REF_PORT, refErrs, {});
+    {
+      const rb = badgeOf(REF_MEASURE);
+      console.log('       基準 ok=' + (REF_MEASURE && REF_MEASURE.ok)
+        + ' node=' + (REF_MEASURE && REF_MEASURE.node)
+        + ' .enemyBadge=' + (rb ? rb.badgeDom0 : '—') + ' 個'
+        + ' / 敵 ' + (rb ? rb.enemyCount0 : '—') + ' 体'
+        + ' / ENEMY_BADGE_ON=' + (rb ? rb.badgeOn : '—') + ' (⚠ #46 前なので undefined が正しい)'
+        + ' / フィクスチャ ' + (rb ? JSON.stringify(rb.fixture.made.length) : '—') + ' 体'
+        + '  ページ事故 ' + refErrs.length + ' 件'
+        + (refErrs.length ? ': ' + refErrs.slice(0, 3).join(' | ') : ''));
+    }
+
     if (!NEGATIVE) {
       mark('§0 装置 — 母集団 (⭐ ここが立たないと §1 は全部空振りで永久緑)');
       const m = await measure(browser, PORT, errs, {});
@@ -1109,6 +1481,20 @@ const PENDINGS = [
       const mLegacy = await measure(browser, PORT, errs, { query: 'castanchor=0' });
       {
         const a = ASSERT_OF['4b']; const r = a[2](mLegacy);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§3 バッジ廃止 — ⭐ 恒等 (3b) の基準は着手前 hash ' + BADGE_REF_HASH
+        + ' を :' + REF_PORT + ' で同時配信したもの');
+      for (const key of ['3a', '3b', '3c', '3d']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§4 撤退 — ?enemybadge=1 (⚠ 慣習と逆向き。「廃止」なので既定 OFF = **=1 で復活**)');
+      const mBadgeOn = await measure(browser, PORT, errs, { query: 'enemybadge=1' });
+      {
+        const a = ASSERT_OF['4c']; const r = a[2](mBadgeOn);
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
       }
 
