@@ -785,4 +785,137 @@ SkillCheck.resolveSkillCheck(ch.checkKey, ch.dc, buildParty(), {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**結論 = 完了**(dev-loop 5 項目 / 停止 0 回)。⛔ **push は未実施**(ユーザー承認事項)。
+
+### 12-1. コミットと検証値
+
+| 項目 | commit | 触ったもの | そのときの検証 |
+|---|---|---|---|
+| 1(STEP1 装置) | `a9485f3` | `world.html` に `<script src="js/skill-check.js">` 1 行 / 新規 `tools/verify_road_events.js`(739 行・ポート 9760) | `verify_road_events` **3/3** PENDING 22 / `--negative` 3/3(`noscript` のみ実装)/ `verify_world_steps` 33/33 |
+| 2(STEP2 表と器) | `475839d` | 新規 `js/road-events.js`(イベント 6 件・地形 5 種・器の描画)/ `world.html` に `#worldEventBox` と CSS と `Noto Serif JP` | `verify_road_events` **7/7** PENDING 18 / `--negative` 6/6 空振り 0 / `verify_world_steps` 33/33 |
+| 3(STEP3 発火と判定) | `413ca36` | `world.html` の `maybeRoadEvent` / `onRoadChoice` / `finishRoadEvent` / 窓 `__world.roadEvent()` / `js/road-events.js` に種つき乱数・`buildParty`・`resultText` | `verify_road_events` **21/21** PENDING 4 / 変異 10 本 impl |
+| 4(STEP4 撤退) | `4d7db24` | `world.html` の `ROAD_EVENT_ON` と `elRoadBox.remove()` / ドライバの撤退アーム 3 本 | `verify_road_events` **25/25 PENDING 0** / `--negative` **43/43**(変異 14 本すべて赤・空振り 0) |
+| 5(既存 golden の直し + 締め) | 本コミット | `tools/verify_world_steps.js` / `verify_world_map.js` / `verify_quest_walk.js` / `verify_world_heromark.js` / 本依頼書 §12 / `README.md` | 下の 12-3 |
+
+⛔ 項目 5 では **`world.html` / `js/road-events.js` を 1 バイトも触っていない**
+(直したのは検証ドライバだけ = 機能は項目 4 の姿のまま)。
+
+### 12-2. ⚠⚠⚠ 依頼書が外していた点(⭐ ここが本チケット最大の学び)
+
+#### (a) ⚠⚠⚠ 器が**全画面モーダル**なので、既存 golden のクリックを**構造的に全部飲む**
+
+§8 の「既存 golden の非退行(実装後に必ず走らせる)」は **7 本とも基準どおり**を要求していたが、
+その非退行は **この機能自身によって成立しなくなった**。依頼書はこの副作用を 1 行も予見していない。
+
+`#worldEventBox` は `position: fixed; inset: 0`(`world.html:475`)。`.show` の間は
+**地図のどこを押しても器が受ける**。実測(項目 3 の時点):
+
+| golden | 素の基準 | #45 実装後 | 指紋 |
+|---|---|---|---|
+| `verify_world_steps` | 33/33 | **間欠**(3 回中 1 回だけ緑) | 「1px も進まなくなった」 |
+| `verify_world_map` | 57/57 | **51/57** | 「押した先が別要素(worldEventBox)」/「遷移待ちタイムアウト」 |
+| `verify_quest_walk` | 25/25 | **20/25** | 「12 回押しても着かない: mine(最後の位置=lake_n)」 |
+| `verify_world_heromark` | 18/18 | **17/18** | (3a) が `roadEvent` を「増えた 3 つ目のキー」として赤(⭐ これだけは器と無関係で、**正当な期待値更新**) |
+
+⭐⭐⭐ **#41 の `stopPropagation` 事件と同型だが、性質が 1 段悪い。**
+⭐ #41 は NPC が 96x96 の「板」になってタップを食ったので **巡回の端点をずらして避けられた**。
+今回は **全画面**なので、データをずらして避ける道が原理的に無い。
+⇒ 教訓 = **「モーダルを 1 枚足す」は、その地図を実クリックで歩く既存ドライバ全部への破壊的変更。**
+新しい `position: fixed; inset: 0` を足すチケットでは、**着手前に「そのページを実クリックする
+golden を全部列挙する」**こと(今回は 4 本 = steps / map / quest_walk / heromark)。
+
+#### (b) ⚠⚠⚠ **`?roadevent=0` では既存 golden を救えない**(ユーザー決定の前提が 1 つ崩れた)
+
+ユーザー決定(2026-09-03)は「`verify_world_map` / `verify_quest_walk` は
+**ページ URL に `?roadevent=0` を足す**。⛔ 期待値は 1 つも書き換えない」だったが、
+**その 2 本は撤退クエリを受け取れない**ことが実測で判明した:
+
+| 節 | 実体 | 意味 |
+|---|---|---|
+| `verify_world_map` (7e) | `if (r.search !== '') bad.push(...)` | 歩く当のページで `location.search === ''` を要求 |
+| `verify_quest_walk` (2d) | 同上 | 同上 |
+| `verify_quest_walk` (3a) | `s1.search === ''` | 同上 |
+
+⇒ URL にクエリを足すと **その 3 本が赤くなる** = 「期待値を書き換えない」と両立しない。
+⭐ **両立させる唯一の道は「直すのは押し口だけ」**(この 2 本のドライバ自身が
+`⛔ ?walkstep=0 を URL へ足して逃げない` と同じ規律を既に明文で持っている)。
+⇒ **3 本とも `dismissRoadEvent()`(器が開いたら「立ち去る」= 判定を伴わない選択肢を押して進む)
+で通した。期待値の変更は 0 件**、しかも **3 本とも「出荷される姿(イベントあり)」を測り続ける**
+(撤退アームで走らせると #39 の「撤退アームだけの受入条件は永久緑」に落ちる)。
+
+⚠ 器を閉じるクリックは **タップ数に数えない**((3b) の刻み回数と (4b) の `arrivalCount` 増分が狂う)。
+⚠ `ROAD_EVENTS.ARM_MS`(260ms)のゴーストクリック除けを **開くたびに 2 回**待つ
+(導入 → 結末 で `armAt` が引き直されるため)。
+
+#### (c) ⚠⚠⚠ (3c) の `if (walkStepOff) return false;` は**実質デッドコード**
+
+§6-1 の実装雛形が要求した撤退ガード(`?walkstep=0` のときは出さない)は、
+**その行を消しても振る舞いが 1 ミリも変わらない**。理由 = 撤退モードでは `goToPoint` が
+`var hop = walkStepOff ? path : path.slice(0, 1)` で **経路全部を 1 ホップで歩き切る**ので、
+`onArriveStep(last, id)` の `last === id` が必ず真になり
+`if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return; }` で抜ける
+= **`maybeRoadEvent` にそもそも到達しない**。
+⇒ 項目 4 で変異 `retreatfire`(「`?walkstep=0` でも出す」)が**空振り**した。
+⇒ #38 / #43 の作法どおり **変異のほうを直し**、`walkPath` の rAF の中から決定論的に発火させる形へ
+作り替えて赤にした。⭐ 教訓 = **「ガードを 1 行消す」変異は、そのガードに到達する経路が
+実在するときにしか欠陥にならない**(#43 の `pointer-events` = 「設定と幾何は別条件」と同型)。
+
+#### (d) 地形は **4 種では割れない** — 5 種へ増やした
+
+開発会議は「地形 4 種」と言っていたが、実データで割ると **`mountain` が 9 件 = 母集団 17 の
+半分超**になる。起草時の実測でこれを潰し、§2-5 で **5 種**(coast 2 / woods 2 / lake 5 /
+mountain 4 / swamp 4)へ増やしてある。項目 2 の実装は `TERRAIN_RANK`(低→高で
+`coast < woods < swamp < lake < mountain`、刻み点は**より辺境な側が勝つ**)だけで
+この割りを **1 件の座標も書かずに完全再現**した(⛔ 17 件の表を作っていない)。
+⭐ 教訓 = **「n 種類に分ける」は実データで割ってみるまで決めてはいけない。**
+
+#### (e) 変異 `fireevent` の作り替え(§2-6 の予告どおり・実装で確定)
+
+旧 `fireevent`(「刻み点到着で確認ダイアログを開く」)は **#45 の後は正しい振る舞い**になり、
+**欠陥を検出しない変異が 1 本残る**。⇒ 新 `fireevent` = **器の取り違え**
+(`RE.open(ev, …)` の 1 行を `elAsk.classList.add("show")` へ)。
+これで (4c) の条件②(`__world.askOpen()` が false)が今後も機械で守られる。
+実測 = 変異ポート `:9611` で (4c) が赤(`ダイアログが開いた=52 件`)。
+
+#### (f) ⚠ `verify_world_steps` 側にも `?roadseed=N` が要った
+
+依頼書は `?roadseed` を「新ドライバの決定論のシーム」としか書いていないが、
+**既存 golden 側でも必要だった**。理由 = 素の一巡で **1 件も出来事が出ない確率が約 7%**
+(∏(1-rate) = 0.95²·0.90²·0.88⁵·0.82⁴·0.80⁴)あり、そのときは変異 `fireevent` が
+**「たまたま何も起きなかった」で空振り**する。⇒ `measurePlay` の URL へ `?roadseed=45` を
+足して固定(⛔ `?roadevent=0` ではない = 機能は on のまま)。
+この種での実測 = 3 件発火(`cross_n` 桟橋のいざこざ / `lake_n__lakeside@2` 湖面のさざなみ /
+`village_s` 行き倒れの巡礼者)。
+
+### 12-3. 最終の検証値(項目 5 の完了条件)
+
+```
+node tools/verify_road_events.js              → 25/25 PASSED / FAILED 0 / PENDING 0
+node tools/verify_road_events.js --negative   → 43/43 PASSED / FAILED 0 (変異 14 本すべて赤・空振り 0)
+
+既存 golden 7 本(⛔ 期待値の変更は heromark (3a) の +1 キーのみ):
+node tools/verify_world_steps.js              → 33/33  ⭐ 3 回連続で緑(間欠だったので必須)
+node tools/verify_world_steps.js --negative   → 56/56  (変異 15 本・新 fireevent 含めて空振り 0)
+node tools/verify_world_map.js                → 57/57
+node tools/verify_quest_walk.js               → 25/25
+node tools/verify_world_heromark.js           → 18/18
+node tools/verify_town_exit.js                → 23/23
+node tools/verify_title_screen.js             → 86/86
+node tools/verify_tavern_map.js               → 43/43
+```
+
+### 12-4. 期待値を書き換えた箇所(⭐ 1 件だけ・理由つき)
+
+- `tools/verify_world_heromark.js` の `NEW_SEAM_KEYS` に **`roadEvent` を 1 個追加**。
+  §8 (4b) が「#45 が足すのは **読むだけの窓 1 個**」を最初から宣言しているので **正当な更新**。
+  ⛔ assert 本体(消えたキー 0 件 / `typeof` / 戻り値の有限性)は 1 バイトも触っていない。
+- それ以外の 6 本は **期待値の変更 0 件**(直したのは押し口と、(4c) の**見出しの文言だけ**)。
+
+### 12-5. 残っていること
+
+- **§9 の実機/実感の確認 10 項目**(iPhone 縦持ちで読めるか / 二択が押し分けられるか /
+  ゴーストクリック / `#scRollBtn` 37px / 通行料に感じないか / 近場で 95% 無風が物足りないか /
+  二度目に飛ばしたくならないか / 歩行アニメ中 / AudioContext 未解錠 / 書体 `Noto Serif JP`)。
+- **push**(ユーザー承認事項)。
+- §10 の changelog 1 行は **任意**(`world.html` はフックの `GAME_LOGIC` 外)。
+- ⛔ Phase 2「街道の実り」(結果を次の依頼へ持ち込む)は §11 のとおり **別チケット**。

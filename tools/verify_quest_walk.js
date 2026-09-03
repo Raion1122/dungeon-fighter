@@ -803,6 +803,64 @@ async function measureDepart(browser, port, errs, opts) {
  *  ⛔ 上限を外さない (無限ループは「動かなくなった実装」を隠す)。
  *  ⚠ 現行の最長経路は phlan→temple の 8 ホップ (2026-09-01 実測) なので 12 で足りる。 */
 const MAX_TAPS = 12;
+/* ══ 街道の出来事 (#45) を **本物の UI 経路で**畳む ═══════════════════════════
+ *  ⚠⚠⚠ #45 が足した #worldEventBox は `position: fixed; inset: 0` の **全画面モーダル**。
+ *    `.show` の間は地図のタップを **構造的に全部飲む**。2026-09-03 実測では本ドライバが
+ *    (2d)(3a)(3b)(3c)(9a) の 5 本で赤くなった (指紋 = 「12 回押しても着かない: mine
+ *    (最後の位置=lake_n)」)。#41 の stopPropagation 事件と同型だが、全画面なので
+ *    **データをずらして避けられない**。
+ *  ⛔ ?roadevent=0 を URL へ足して逃げられない —— (2d) と (3a) が world.html の
+ *    **location.search === ""** を assert しているので、クエリを足すとその 2 本が赤くなる
+ *    = 期待値を書き換えることになる (ユーザー決定 2026-09-03 の ⛔「期待値は 1 つも
+ *    書き換えない」に反する)。⭐ だから **直すのは押し口だけ** ——
+ *    下の clickNode が ?walkstep=0 について書いている規律とまったく同じ形。
+ *  ⛔ ROAD_EVENTS.close() を evaluate から直接呼ばない (押し口が壊れていても永久に緑)。
+ *  ⭐ 押すのは **判定を伴わない選択肢** (choices[].check が偽の側) —— #skillCheckOverlay を
+ *    作らないので 1 往復で閉じ切れる。⛔ 「1 番目」で決め打ちせず表から引く。
+ *  ⚠ 器を閉じるためのクリックは **タップ数に数えない** (assert の母集団を汚さない)。
+ *  ⚠ 器を開いてから ROAD_EVENTS.ARM_MS (#35 のゴーストクリック除け) を必ず待つ。 */
+const ROAD_ARM_PAD_MS = 180;
+async function roadEvalSafe(page, fn, arg) {
+  try { return await page.evaluate(fn, arg); } catch (e) { return null; }
+}
+async function dismissRoadEvent(page) {
+  const st = await roadEvalSafe(page, () => {
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.isOpen !== 'function' || !RE.isOpen()) return null;
+    const ev = RE.current();
+    const c = ev ? (ev.choices || []).filter(x => !x.check)[0] : null;
+    return { arm: RE.ARM_MS || 0, event: ev ? ev.id : null, label: c ? c.label : null };
+  });
+  if (!st || !st.label) return null;
+  const armWait = st.arm + ROAD_ARM_PAD_MS;
+  const press = async (label) => {
+    const r = await roadEvalSafe(page, (lab) => {
+      const bs = Array.prototype.slice.call(
+        document.querySelectorAll('#worldEventBtns .worldEventBtn'));
+      const b = lab ? bs.filter(x => x.textContent === lab)[0] : bs[0];
+      if (!b) return null;
+      const q = b.getBoundingClientRect();
+      if (!(q.width > 0 && q.height > 0)) return null;
+      return { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+    }, label || null);
+    if (!r) return false;
+    await page.mouse.click(Math.round(r.x), Math.round(r.y));
+    return true;
+  };
+  await sleep(armWait);
+  await press(st.label);
+  /* 結末の 1 文 + 「先へ進む」の **1 ボタン**へ変わるのを待つ。 */
+  try {
+    await page.waitForFunction(
+      "(function(){var b=document.getElementById('worldEventBtns');return !!b && b.children.length===1;})()",
+      { timeout: 12000, polling: 80 });
+  } catch (e) {}
+  await sleep(armWait);
+  await press(null);
+  await sleep(160);
+  return st.event;
+}
+
 async function clickNode(page, id, errs, tag) {
   let pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
   if (!pt) { errs.push(tag + ' clientFromNode が null: ' + id); return false; }
@@ -818,6 +876,8 @@ async function clickNode(page, id, errs, tag) {
     try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 60000, polling: 80 }); }
     catch (e) { errs.push(tag + ' 到着待ちタイムアウト: ' + id); return false; }
     await sleep(200);
+    /* ★ #45: 着地で街道の出来事が開いていたら、**次の押し直しの前に**畳む。 */
+    await dismissRoadEvent(page);
     let now = null;
     try { now = await page.evaluate(() => window.__world.heroNode()); }
     catch (e) { errs.push(tag + ' heroNode が読めない: ' + id + ' (' + e.message + ')'); return false; }
@@ -977,6 +1037,8 @@ async function measureWorldClicks(browser, port, errs, opts) {
       await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
       try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 30000, polling: 80 }); }
       catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); break; }
+      /* ★ #45: 街道の出来事の器が開いていたら畳む (⛔ このクリックは taps に数えない)。 */
+      await dismissRoadEvent(page);
       const now = await page.evaluate(() => window.__world.heroNode());
       if (now === id) { taps++; break; }
       if (now === lastNode) break;     /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */

@@ -49,7 +49,10 @@
  *     (4a) 記録   … lastArrival() が {at, dest, kind, arrived} を返し、刻み点で止まったら
  *                   kind="step" / arrived=false、最終目的地なら kind="node" / arrived=true
  *     (4b) 回数   … arrivalCount() が **1 ホップにつきちょうど 1** 増える
- *     (4c) 無音   … 刻み点に着いてもダイアログも遷移も起きない (器だけ = 中身は後続チケット)
+ *     (4c) 入場   … 刻み点に着いても **入場と遷移**は起きない (pathname が /world.html のまま /
+ *                   __world.askOpen() が false)。⭐ #45 (街道の出来事) が器に中身を入れた後も
+ *                   assert 本体は 1 バイトも変わっていない —— 出来事は専用の器
+ *                   (#worldEventBox) へ出るので #worldEnterAsk は今も開かない
  *   ⚠⚠⚠ phlan は enter を持つ **ただ 1 つ**のノード。そこへ「着く」と town.html へ飛び、
  *      以後の測定が全部死ぬ (2026-09-01 に実際に verify_world_map.js が全滅した)。
  *      ⛔ **行き先に入場ノードを選ばない**。⭐ 通りすがり (arrived===false) は安全なので、
@@ -109,7 +112,7 @@
  *   pathswap     | findPath 自体を findWalkPath へ差し替える                | (5a)
  *   retreatdead  | ?walkstep=0 を無視する (sessionStorage を読まない)       | (6a)(6c)
  *   retreatkills | 撤退時に STEPS のデータごと空にする (撤退のしすぎ)       | (6d)
- *   fireevent    | 刻み点到着で確認ダイアログを開く (器に中身を入れる)      | (4c)
+ *   fireevent    | 街道の出来事を #worldEnterAsk へ出す (器の取り違え)      | (4c)
  *   arrivedup    | walkPath の中からフックを呼び 1 ホップで 2 回鳴らす       | (4b)
  *   ── #42 項目 3 で追加 ──────────────────────────────────────────────────────
  *   coarsestep   | STEP_MAX_PX を 320 へ戻す (#40 の姿 = 5 マス刻み)        | (1e) のみ
@@ -228,11 +231,20 @@ const MUTATIONS = {
     why: '撤退時に WORLD_MAP.STEPS のデータごと空にする (撤退のしすぎ)',
     from: 'var STEPS = WM.STEPS || {};',
     to: 'var STEPS = WM.STEPS || {}; if (walkStepOff) { Object.keys(WM.STEPS || {}).forEach(function (__k) { delete WM.STEPS[__k]; }); }  /* MUT retreatkills */' },
-  /* ⭐ 器に中身を入れる = 刻み点 (WM.has が偽) に着いたら確認ダイアログを開く。 */
+  /* ⭐⭐⭐ #45 (2026-09-03) で **作り替えた**。
+     旧 fireevent は「刻み点到着で確認ダイアログを開く (器に中身を入れる)」だったが、
+     #45 が街道の出来事を実装した後は **それが正しい振る舞い**になってしまい、
+     「欠陥を検出しない変異」が 1 本残る (依頼書 2026-09-03_road-events.md §2-6)。
+     ⭐ 新しい狙いは **器の取り違え** = 出来事を専用の器 (#worldEventBox) ではなく
+       入場の器 (#worldEnterAsk) へ出す。これで (4c) の条件②
+       (__world.askOpen() が false) が **今後も機械で守られる**。
+     ⚠ アンカーは maybeRoadEvent の中の器を開く 1 行 (world.html:1129、リポジトリ全体で 1 件)。
+     ⚠ from と to を同じバイト長にしない (起動時ガード → exit 3)。
+     ⚠ elAsk は world.html:634 のモジュール直下 var なので、この時点で必ず引けている。 */
   fireevent: { impl: true, file: 'world.html', targets: ['4c'],
-    why: '刻み点到着で確認ダイアログを開く (器に中身を入れる)',
-    from: 'function onArriveStep(atId, destId) {',
-    to: 'function onArriveStep(atId, destId) { if (!WM.has(atId)) askEnter("temple");  /* MUT fireevent */' },
+    why: '街道の出来事を #worldEnterAsk (入場の器) へ出す = 器の取り違え',
+    from: '      RE.open(ev, function (choice) { onRoadChoice(ev, choice); });',
+    to: '      elAsk.classList.add("show"); elAsk.setAttribute("aria-hidden", "false");  /* MUT fireevent 器の取り違え */' },
   /* ⚠⚠⚠ dest を at と同じにすると arrived=true になり、1 ホップ目が phlan のとき
         onArriveNode(phlan) → location.href="town.html" で **ページごと死ぬ**。
         そうすると (4b) は「母集団が足りない」で赤くなり、欠陥を検出したのか装置が
@@ -714,6 +726,77 @@ async function waitStill(page) {
     return true;
   } catch (e) { return false; }
 }
+/* ══ 街道の出来事 (#45) を **本物の UI 経路で**畳む ═════════════════════════════
+ *  ⚠⚠⚠ #45 が足した #worldEventBox は `position: fixed; inset: 0` の **全画面モーダル**。
+ *    `.show` の間は地図のタップを **構造的に全部飲む** (指紋 = 押した先が別要素
+ *    (worldEventBox) / 命中先=worldEventCard)。#41 の stopPropagation 事件と同型だが、
+ *    全画面なので **データをずらして避けられない**。放置すると「1px も進まなくなった」で
+ *    このドライバが間欠に赤くなる (2026-09-03 実測: 3 回中 1 回だけ緑)。
+ *  ⛔ ここで ?roadevent=0 へ逃げない。**理由 = このドライバは (4c) で「刻み点で入場と
+ *    遷移は起きない」と主張する当事者**だから。撤退アームで走らせると (4c) は
+ *    「イベントが 1 件も起きない世界」を測ることになり **永久に緑**になる
+ *    (#39 で踏んだ「撤退アームだけの受入条件は永久緑」そのもの)。
+ *    ⭐ だから **出荷される姿 (イベントあり) のまま測り続け、開いたら閉じて先へ進む**。
+ *  ⛔ ROAD_EVENTS.close() を evaluate から直接呼ばない (押し口が壊れていても永久に緑)。
+ *  ⭐ 押すのは **判定を伴わない選択肢** (choices[].check が偽の側) —— #skillCheckOverlay を
+ *    作らないので 1 往復で閉じ切れる。⛔ 「1 番目」で決め打ちせず ROAD_EVENTS の表から引く。
+ *  ⚠⚠ 器を閉じるためのクリックは **地図のタップとして数えない** (out.taps へ push しない)。
+ *    数えると (3b) の刻み回数と (4b) の arrivalCount の増分が狂う。
+ *  ⚠ 器を開いてから ROAD_EVENTS.ARM_MS (#35 のゴーストクリック除け) を必ず待つ。
+ *  ⭐ 変異 fireevent のときは出来事が #worldEnterAsk へ出るので ROAD_EVENTS.isOpen() は
+ *    偽 → ここは何もせずに素通りする = (4c) の条件②がちゃんと赤くなる。 */
+const ROAD_ARM_PAD_MS = 180;
+async function roadEventOpen(page) {
+  return !!(await safeEval(page, () => !!(window.ROAD_EVENTS
+    && typeof window.ROAD_EVENTS.isOpen === 'function' && window.ROAD_EVENTS.isOpen())));
+}
+/* ボタンを **実座標でクリック**する (⛔ el.click() で押し口を迂回しない)。 */
+async function clickEventBtn(page, label) {
+  const r = await safeEval(page, (lab) => {
+    const bs = Array.prototype.slice.call(
+      document.querySelectorAll('#worldEventBtns .worldEventBtn'));
+    const b = lab ? bs.filter(x => x.textContent === lab)[0] : bs[0];
+    if (!b) return null;
+    const q = b.getBoundingClientRect();
+    if (!(q.width > 0 && q.height > 0)) return null;
+    return { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+  }, label || null);
+  if (!r) return false;
+  await page.mouse.click(Math.round(r.x), Math.round(r.y));
+  return true;
+}
+async function dismissRoadEvent(page) {
+  if (!(await roadEventOpen(page))) return null;
+  const armWait = ((await safeEval(page,
+    () => (window.ROAD_EVENTS && window.ROAD_EVENTS.ARM_MS) || 0)) || 0) + ROAD_ARM_PAD_MS;
+  const seen = await safeEval(page, () => {
+    const RE = window.ROAD_EVENTS, ev = RE.current();
+    const c = ev ? (ev.choices || []).filter(x => !x.check)[0] : null;
+    return { event: ev ? ev.id : null, label: c ? c.label : null,
+      at: (window.__world && typeof window.__world.heroNode === 'function')
+        ? window.__world.heroNode() : null };
+  });
+  if (!seen || !seen.label) {
+    return { ok: false, event: seen && seen.event, at: seen && seen.at,
+      why: '⛔ 判定なしの選択肢が引けない (ROAD_EVENTS.current() が空)' };
+  }
+  await sleep(armWait);
+  await clickEventBtn(page, seen.label);
+  /* 結末の 1 文 + 「先へ進む」の **1 ボタン**へ変わるのを待つ。 */
+  let why = '';
+  try {
+    await page.waitForFunction(
+      "(function(){var b=document.getElementById('worldEventBtns');return !!b && b.children.length===1;})()",
+      { timeout: 12000, polling: 80 });
+  } catch (e) { why += ' ⛔ 結末が出ない'; }
+  await sleep(armWait);
+  await clickEventBtn(page, null);
+  await sleep(160);
+  const closed = !(await roadEventOpen(page));
+  if (!closed) why += ' ⛔ 器が閉じない';
+  return { ok: closed && !why, event: seen.event, at: seen.at, label: seen.label, why: why.trim() };
+}
+
 /* クライアント座標を 1 点押す。⭐ 返り値に **押す前と後の全状態**を持たせる
  *  (assert 側が突き合わせる = ドライバは判定しない)。 */
 async function tapAt(page, cx, cy, id, why) {
@@ -727,9 +810,13 @@ async function tapAt(page, cx, cy, id, why) {
   await sleep(TAP_SETTLE_MS);
   const after = await readPlay(page);
   const dist = (after.dead) ? null : Math.hypot(after.px.x - before.px.x, after.px.y - before.px.y);
+  /* ★ #45: 着地で街道の出来事が開いていたら、**次のタップの前に**畳む。
+     ⚠ after を採った後に畳む — (4c) は t.after.askOpen (= #worldEnterAsk) を見るので
+       この順序でも 1 ミリも緩まない。⛔ 畳むクリックは taps に数えない。 */
+  const road = after.dead ? null : await dismissRoadEvent(page);
   return {
     ok: still && !after.dead, id: id, why: why, cx: cx, cy: cy,
-    before: before, after: after, dist: dist,
+    before: before, after: after, dist: dist, road: road,
     err: !still ? '到着待ちタイムアウト'
       : (after.dead ? 'タップ後にページが遷移した: ' + after.path : null),
   };
@@ -767,6 +854,12 @@ async function tapUntil(page, id, sink, why) {
   return { arrived: false, taps: n, err: MAX_TAPS + ' 回押しても着かない' };
 }
 
+/* ⭐ #45: 街道の出来事の乱数を **種で固定**する (?roadseed=N)。
+   ⛔ 撤退スイッチではない —— 機能は出荷される姿のまま on。固定するのは「どの停留所で
+     出るか」だけで、これが無いと出来事の出方が毎回変わり、変異 fireevent が
+     「今回はたまたま 1 件も出なかった」で空振りしうる (2026-09-03 の見積り: 素の一巡で
+     1 件も出ない確率が約 7%)。⚠ 値は「実際に走らせて出来事が 1 件以上出る種」を採ってある。 */
+const ROAD_SEED = 45;
 async function measurePlay(browser, port, errs, opts) {
   opts = opts || {};
   const out = { query: opts.query || '', taps: [], empty: [] };
@@ -781,8 +874,10 @@ async function measurePlay(browser, port, errs, opts) {
     errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
   });
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto('http://localhost:' + port + PAGE_PATH + (opts.query || ''),
-    { waitUntil: 'load', timeout: 30000 });
+  /* ⭐ 種だけ足す (機能は on のまま)。⛔ ?roadevent=0 にしない — 理由は dismissRoadEvent の頭。 */
+  out.url = 'http://localhost:' + port + PAGE_PATH + (opts.query || '')
+    + ((opts.query || '').indexOf('?') >= 0 ? '&' : '?') + 'roadseed=' + ROAD_SEED;
+  await page.goto(out.url, { waitUntil: 'load', timeout: 30000 });
   await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
   await settle(page);
 
@@ -903,6 +998,8 @@ async function measurePlay(browser, port, errs, opts) {
       }, sid);
       const stand = (nb || []).filter(x => !noGo(x))[0] || null;
       const nav = stand ? await tapUntil(page, stand, out.taps, 'D) 刻み点の隣 ' + stand + ' へ') : null;
+      /* ★ #45: 下の elementFromPoint は器が開いていると worldEventCard を掴む。念のため畳む。 */
+      await dismissRoadEvent(page);
       const pre = await page.evaluate((s) => {
         const WM = window.WORLD_MAP, W = window.__world;
         const el = document.getElementById('worldStep_' + s);
@@ -960,6 +1057,8 @@ async function measurePlay(browser, port, errs, opts) {
        (⛔ 「動かなかった」だけだと、そこが本当に線の無い所かを誰も測っていない)。 */
   if (!out.aborted && !(await alive())) out.aborted = 'F) 空撃ちの前に world.html を離れた';
   for (const p of (out.aborted ? [] : EMPTY_POINTS)) {
+    /* ★ #45: 空撃ちも「線の無い所を押す」ので、器が開いたままだと命中先が器になる。 */
+    await dismissRoadEvent(page);
     const probe = await page.evaluate((x, y) => {
       const WM = window.WORLD_MAP, W = window.__world;
       const G = WM.walkNodes(), S = WM.STEPS || {};
@@ -1824,8 +1923,16 @@ const ASSERTS = [
         + JSON.stringify((p.empty || []).map(r => (r.before.dead || r.after.dead) ? null : (r.after.arrivals - r.before.arrivals)))
         + (why.length ? '  ' + why.slice(0, 8).join(' ') : '')];
     }],
-  ['4c', '⛔ **イベントは 1 件も起きない** — 刻み点に着いてもダイアログ / 遷移が発生しない'
-    + ' (location.pathname が /world.html のまま・__world.askOpen() が false)'
+  /* ⭐⭐⭐ #45 (2026-09-03) で **見出しだけ**書き換えた。⛔ 下の判定は 1 バイトも触っていない。
+     旧見出しは「イベントは 1 件も起きない」だったが、#45 が街道の出来事を出荷したので
+     その主張は **緑でも嘘**になる。実際にこの assert が守っているのは 3 つ:
+       ① 到着で location.pathname が /world.html のまま (= 遷移していない)
+       ② __world.askOpen() が false (= #worldEnterAsk が開かない)
+       ③ 母集団: 刻み点に着いたタップが 1 件以上ある
+     ⭐ 街道の出来事は専用の器 #worldEventBox へ出るので ② は今も真。器を取り違える変異
+       fireevent が、この ② を今後も機械で守る番人。 */
+  ['4c', '⛔ **刻み点で入場と遷移は起きない** — 到着で location.pathname が /world.html のまま・'
+    + '__world.askOpen() が false (街道の出来事 #45 は #worldEnterAsk を使わない)'
     + ' ⚠ 「刻み点に着いたタップが 1 件以上ある」を同じ assert で見る (0 件だと自明に真)',
     m => {
       const p = m.play;
@@ -2236,8 +2343,19 @@ const PENDINGS = [
         console.log('         回収=' + JSON.stringify(m.play.fallback));
       }
 
-      mark('§4 到着フック (ランダムイベントの器) — ⛔ 中身は後続チケット');
+      mark('§4 到着フック (街道の出来事の器) — ⭐ 中身は #45 が入れた。器の取り違えだけを縛る');
       for (const key of ['4a', '4b', '4c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
+      if (m.play) {
+        /* ⭐ 記録だけ (⛔ 期待値ではない)。「イベントが実際に出ている姿で測れている」ことの証拠。 */
+        const fired = (m.play.taps || []).filter(t => t.road);
+        console.log('       [記録] 街道の出来事 (#45) — URL=' + JSON.stringify(m.play.url)
+          + '  畳んだ件数=' + fired.length);
+        for (const t of fired) {
+          console.log('         ' + t.road.at + '  ' + t.road.event
+            + '  「' + t.road.label + '」 → 閉じた=' + t.road.ok
+            + (t.road.why ? '  ' + t.road.why : ''));
+        }
+      }
 
       mark('§5 恒等 (非退行) — ⛔ 既存 API を 1 バイトも汚していないこと');
       for (const key of ['5a', '5b', '5c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }

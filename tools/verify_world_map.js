@@ -655,6 +655,64 @@ const HIT_EPS = 0.5;      // px。style.left/top は文字列なので丸め誤�
  *  ⚠ 現行の最長経路は phlan→temple の 8 ホップ (2026-09-01 実測) なので 12 で足りる。 */
 const MAX_TAPS = 12;
 
+/* ══ 街道の出来事 (#45) を **本物の UI 経路で**畳む ═══════════════════════════
+ *  ⚠⚠⚠ #45 が足した #worldEventBox は `position: fixed; inset: 0` の **全画面モーダル**。
+ *    `.show` の間は地図のタップを **構造的に全部飲む**。2026-09-03 実測では本ドライバが
+ *    (3b)(4b)(4c-z)(4c)(7e)(9a) の 6 本で赤くなった (指紋 = 「押した先が別要素
+ *    (worldEventBox)」/「遷移待ちタイムアウト」)。#41 の stopPropagation 事件と同型だが、
+ *    全画面なので **データをずらして避けられない**。
+ *  ⛔ ?roadevent=0 を URL へ足して逃げられない —— (7e) が world.html の
+ *    **location.search === ""** を assert しているので、クエリを足すとそこが赤くなる
+ *    = 期待値を書き換えることになる (ユーザー決定 2026-09-03 の ⛔「期待値は 1 つも
+ *    書き換えない」に反する)。⭐ だから **直すのは押し口だけ** —— 下の measureWalk が
+ *    ?walkstep=0 について書いている規律とまったく同じ形。
+ *  ⛔ ROAD_EVENTS.close() を evaluate から直接呼ばない (押し口が壊れていても永久に緑)。
+ *  ⭐ 押すのは **判定を伴わない選択肢** (choices[].check が偽の側) —— #skillCheckOverlay を
+ *    作らないので 1 往復で閉じ切れる。⛔ 「1 番目」で決め打ちせず表から引く。
+ *  ⚠ 器を閉じるためのクリックは **タップ数に数えない** (assert の母集団を汚さない)。
+ *  ⚠ 器を開いてから ROAD_EVENTS.ARM_MS (#35 のゴーストクリック除け) を必ず待つ。 */
+const ROAD_ARM_PAD_MS = 180;
+async function roadEvalSafe(page, fn, arg) {
+  try { return await page.evaluate(fn, arg); } catch (e) { return null; }
+}
+async function dismissRoadEvent(page) {
+  const st = await roadEvalSafe(page, () => {
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.isOpen !== 'function' || !RE.isOpen()) return null;
+    const ev = RE.current();
+    const c = ev ? (ev.choices || []).filter(x => !x.check)[0] : null;
+    return { arm: RE.ARM_MS || 0, event: ev ? ev.id : null, label: c ? c.label : null };
+  });
+  if (!st || !st.label) return null;
+  const armWait = st.arm + ROAD_ARM_PAD_MS;
+  const press = async (label) => {
+    const r = await roadEvalSafe(page, (lab) => {
+      const bs = Array.prototype.slice.call(
+        document.querySelectorAll('#worldEventBtns .worldEventBtn'));
+      const b = lab ? bs.filter(x => x.textContent === lab)[0] : bs[0];
+      if (!b) return null;
+      const q = b.getBoundingClientRect();
+      if (!(q.width > 0 && q.height > 0)) return null;
+      return { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+    }, label || null);
+    if (!r) return false;
+    await page.mouse.click(Math.round(r.x), Math.round(r.y));
+    return true;
+  };
+  await sleep(armWait);
+  await press(st.label);
+  /* 結末の 1 文 + 「先へ進む」の **1 ボタン**へ変わるのを待つ。 */
+  try {
+    await page.waitForFunction(
+      "(function(){var b=document.getElementById('worldEventBtns');return !!b && b.children.length===1;})()",
+      { timeout: 12000, polling: 80 });
+  } catch (e) {}
+  await sleep(armWait);
+  await press(null);
+  await sleep(160);
+  return st.event;
+}
+
 /* ⭐⭐⭐ #40 の余波 — **入場ノード (enter を持つ phlan) は押し直しループで測れない**。
  *  ⚠⚠⚠ あそこは「着いた瞬間に location.href が走る」ので、
  *    「heroNode() が一致するまで押す」形では一致する瞬間が永久に来ない (ページごと消える)。
@@ -687,6 +745,10 @@ async function walkNextTo(page, targetId, errs, tag) {
     await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
     try { await page.waitForFunction('!window.__world.isMoving()', { timeout: 40000, polling: 80 }); }
     catch (e) { errs.push(tag + '(装置) 到着待ちタイムアウト: ' + info.near); break; }
+    /* ★ #45: 着地で街道の出来事が開いていたら畳む (⛔ このクリックは taps に数えない)。
+       ⚠ break の **前**に置く —— 呼び手はこの直後に waitForNavigation 付きのクリックを
+         打つので、器が開いたままだとそこで遷移待ちタイムアウトになる。 */
+    await dismissRoadEvent(page);
     const now = await page.evaluate(() => window.__world.heroNode());
     if (now === info.near) { out.taps++; break; }
     if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
@@ -750,6 +812,8 @@ async function measureWalk(browser, port, errs, opts) {
       try {
         await page.waitForFunction('!window.__world.isMoving()', { timeout: 25000, polling: 60 });
       } catch (e) { errs.push(tag + '到着待ちタイムアウト: ' + id); break; }
+      /* ★ #45: 街道の出来事の器が開いていたら畳む (⛔ このクリックは taps に数えない)。 */
+      await dismissRoadEvent(page);
       const now = await page.evaluate(() => window.__world.heroNode());
       if (now === id) { taps++; break; }
       if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
@@ -782,6 +846,8 @@ async function measureWalk(browser, port, errs, opts) {
   /* ── (3c) 線の無い座標をタップ → 1px も動かない ─────────────────────────────
    *  ⭐ 座標はドライバが決め打ちだが、「どのノードからも 100px 以上離れている」ことと
    *     「elementFromPoint が .worldNode ではない」ことを**その場で実測**してから押す。 */
+  /* ★ #45: 空撃ちは「線の無い所」を押すので、器が開いたままだと命中先が器になる。 */
+  await dismissRoadEvent(page);
   const before = await page.evaluate(() => window.__world.heroPx());
   const voids = [];
   for (const w of [[64, 544], [1440, 960]]) {
