@@ -255,10 +255,38 @@ n1 は 39x23 の大部屋なので実プレイでは常に camZ < 1 = **常に�
 | `index.html:10721` | `zTf("translate(-50%,-64%) scale(f)")` | **含む** | ✗ **欠陥**(魔法陣) |
 | `index.html:11234` | `zTf("translate(-50%,-50%)")` | **含む** | ✗ **欠陥**(火炎ブレスの爆発コア) |
 
-`.fxFireImpactCore` は 60x60px(`index.html:1259-1260`)なので
-**camZ=0.25 で 0.5×60×0.75 = 22.5px** ズレる(未実測・式からの予測)。
-⚠ CSS 側に `body.zoomed .fxFireImpactCore { transform: scale(var(--camz,1)) }` があるが、
-**JS の inline style が勝つ**ので CSS 行は現状死んでいる。
+~~`.fxFireImpactCore` は 60x60px(`index.html:1259-1260`)なので
+**camZ=0.25 で 0.5×60×0.75 = 22.5px** ズレる(未実測・式からの予測)。~~
+
+⚠⚠⚠ **訂正(項目2 の実測 2026-09-03)— 上の予測は誤り。火炎コアは「同型の欠陥」ではない。**
+
+実ページで測ったところ、`:11234` の inline transform は **1 度も効いていなかった**:
+
+| camZ | inline style | computed transform | 中心のズレ |
+|---|---|---|---|
+| 1 | `translate(-50%, -50%)` | `matrix(0.45,0,0,0.45,0,0)` | **(+30.00, +30.00)** |
+| 0.8125 | `scale(0.8125) translate(-50%, -50%)` | 同上 | **(+30.01, +30.00)** |
+| 0.5 | `scale(0.5) translate(-50%, -50%)` | 同上 | **(+30.01, +30.00)** |
+| 0.25 | `scale(0.25) translate(-50%, -50%)` | 同上 | **(+30.01, +30.00)** |
+
+真因は合成順序ではなく **CSS のカスケード**。この要素は
+`animation: fxFireImpactCoreAnim 280ms ease-out forwards`(`index.html:1270`)で
+**`transform` を animate している**。CSS Cascade では
+**animation declarations > normal author declarations(= inline style)** なので、
+JS が `el.style.transform` に何を書いても**表示は 1px も変わらない**。
+⇒ ズレは **camZ に依存しない定数 (+30, +30)px**(`.crit` は 84px なので +42)。
+`rect.width` も常に 27px(= 60×0.45)で、**コアは camZ でも縮んでいない**。
+
+⭐ **直し方も変わった**。`zTfAnchored` へ差し替えても無意味なので、
+**CSS の `margin-left/-top` で中央アンカーを取る**。これは `index.html:2900` の CSS コメント
+「中央アンカー(margin で自分の半分だけ戻している)の絵は、既定の中心 origin のまま
+scale すれば中心が動かない」が**元々そう設計だと書いている**とおりの形。
+inline transform は削除し、「書いても効かない」理由を実測つきで注記した。
+
+⚠ CSS 側の `body.zoomed .fxFireImpactCore { transform: scale(var(--camz,1)) }` は
+**依頼書の指示どおり残した**が、上と同じ理由で **animation に負けて依然として死んでいる**。
+⇒ **残課題(別チケット候補)**: 火炎コアは camZ で縮まない。直すなら keyframes 側を
+`scale:`(個別 transform プロパティ)へ移すなどの作り替えが要る。位置の問題ではないので今回は触らない。
 
 ### 2-7. ⚠⚠⚠ 既存 golden が緑のままな理由 —— ドライバが `camZ` を掛けていない
 
@@ -412,8 +440,12 @@ camZ≠1 のとき transform は `scale(0.25) translate(-50%, -64%) scale(1)` �
 
 呼び口を 2 箇所だけ差し替える:
 
-- `index.html:10721` … `zTf(...)` → `zTfAnchored(...)`
-- `index.html:11234` … `zTf("translate(-50%, -50%)")` → `zTfAnchored("translate(-50%, -50%)")`
+- `index.html:10721` … `zTf(...)` → `zTfAnchored(...)` ✅ **実施(項目2)**
+- ~~`index.html:11234` … `zTf("translate(-50%, -50%)")` → `zTfAnchored("translate(-50%, -50%)")`~~
+  ⚠⚠⚠ **訂正(項目2)**: この差し替えは**無意味**(§2-6 の訂正表を参照。inline transform は
+  animation にカスケードで負けて 1 度も効いていない)。実際にやったのは
+  **inline transform の削除 + `.fxFireImpactCore` / `.crit` へ `margin-left/-top` を追加**。
+  ⇒ `zTfAnchored` の呼び口は**結果として 1 箇所**(魔法陣のみ)。
 
 ⛔ **動かしてはいけない値**: `CAST_CIRCLE_FOOT_FY = 0.93`、`anchorFY = 0.64`、
 `.fxCastCircle` の `transform-origin: 50% 64%`、`castCircleDiameter()` の KNEE 式。
@@ -469,7 +501,7 @@ camZ=1 での見た目まで動いて既存 golden が壊れる。
 | スイッチ | 何が戻るか | 判定位置 |
 |---|---|---|
 | **`?walkblock=0`** | n1 のマスクに今回足した `#` を無視し、2026-09-03 時点のマスクで走る | `applyPaintingBlocking` の手前で追加ぶんを外す。ページ内で完結(遷移をまたがない) |
-| **`?castanchor=0`** | `zTfAnchored` が `zTf` と同じ前置形に戻る(= 従来のズレたまま) | `zTfAnchored` の中 1 箇所。ページ内で完結 |
+| **`?castanchor=0`** | `zTfAnchored` が `zTf` と同じ前置形に戻る(= 従来のズレたまま)。⭐ **火炎コアも** #46 前の (+30,+30)px へ戻る | `zTfAnchored` の中 1 箇所 + `body.castAnchorLegacy`(§2-6 訂正のとおり、火炎コアは CSS でしか戻せない)。ページ内で完結 |
 | **`?enemybadge=1`** | バッジが**復活**する | `ENEMY_BADGE_ON`。ページ内で完結 |
 
 ⚠ 3 本とも `index.html` 内で完結し、**ページ遷移をまたがない**(`?heromark=0` と同じ流儀)。
@@ -548,8 +580,13 @@ camZ=1 での見た目まで動いて既存 golden が壊れる。
 - **(2c)** `camZ=0.25` のとき **transform の先頭が `scale(` でない**こと。
   ⚠ **部分一致の正規表現にしない** — §2-7 の 5.4 は部分一致だったので壊れていても通った。
 - **(2d)** 火炎の爆発コアも camZ=0.25 で中心が ±1.0px 以内。
-- **(2e)** 陣の見かけ直径が camZ に比例している(`rect.width ≈ w * camZ`、誤差 2%)。
+  ⭐ **実装(項目2)は 4 点 × 3 段 = 12 個すべて**で測っている(camZ に依存しない欠陥だったので、
+  1 点だけ測ると `.crit` と base の差も見えない)。
+- **(2e)** 陣の見かけ直径が camZ に比例している(~~`rect.width ≈ w * camZ`~~ → **`w * f * camZ`**、誤差 2%)。
   ⭐ 位置だけ直して大きさを壊す修正を弾く。
+  ⚠ **訂正(項目2)**: `f` = 展開アニメのコマ倍率(`castCircleFrameAt` の `scale`、実測 0.82)。
+  これを落とすと式が 18% ずれるので、ドライバは **transform に実際に書かれた値から `f` を読む**
+  (⛔ `castCircleFrameAt` を写経しない = 実装と検証が式を共有しない)。
 
 ### §3 バッジ廃止(3 点目の本体)
 
@@ -586,8 +623,8 @@ camZ=1 での見た目まで動いて既存 golden が壊れる。
 |---|---|---|
 | `zprefix` | `zTfAnchored` を前置形(`"scale(z) " + inner`)へ戻す | (2a) camZ≠1 の 3 点 / (2c) |
 | `camz1only` | camZ=1 だけを測る assert に差し替える | **(2a) が赤くならないことを確認する逆変異** ⭐ §2-7 の穴そのものを再現し、「1 点しか測らない検査では捕まらない」を機械で示す |
-| `origin00` | `.fxCastCircle` の `transform-origin` を `0 0` にする | (2a) / (2e) |
-| `fireonly` | 火炎コアだけ前置形に戻す | (2d) のみ |
+| `origin00` | `.fxCastCircle` の `transform-origin` を `0 0` にする | (2a) ~~/ (2e)~~ ⚠ **(2e) は原理的に赤くならない**(origin は rect の**位置**しか動かさず `rect.width` は `f*camZ*w` のまま。実測で確認)→ (2e) は record(判定しない記録)へ落とした |
+| `fireonly` | ~~火炎コアだけ前置形に戻す~~ ⚠ **訂正(項目2)**: 前置形へ戻す変異は**原理的に空振りする**(§2-6 の訂正)。実装は「**`.fxFireImpactCore` の margin 中央アンカーを外す**」= #46 前の (+30,+30)px へ戻す | (2d) のみ(base の 4 個が赤・`.crit` は自前の margin を持つので緑のまま) |
 | `sealgate` | ゲート `(34,3)` を `#` にする | (1a) / (1f) |
 | `sealrail` | 行18 の枕木 col32-38 を `#` にする | (1f) / (1d) or (1e) |
 | `sealp8` | `★P8 で開けた` (37,16) を `#` にする | (1a) or (1b) or (1d) ⭐ §2-4 の罠の再現 |
@@ -608,7 +645,7 @@ camZ=1 での見た目まで動いて既存 golden が壊れる。
 
 | ドライバ | 基準(2026-09-03 実測) | 備考 |
 |---|---|---|
-| `node tools/driver_cast_circle.js` | **53/53** | ⚠ **5.3 / 5.4 を直すので本数が増える**。増える方向は正常(§2-7)。期待値を書き換える前に「なぜ増えたか」を書き残すこと |
+| `node tools/driver_cast_circle.js` | 53/53 → **56/56**(項目2 で更新) | ⚠ **5.3 / 5.4 を直すので本数が増える**。増える方向は正常(§2-7)。**増えた 3 本の内訳** = 5.6/5.7/5.8 = **camZ=0.25 の腕**。⭐ このドライバのページは実測で **camZ=1** だった = 旧 5.3/5.4 が「camZ を掛け忘れていた」だけでなく **camZ≠1 を一度も走らせていなかった**のが 53/53 が緑だった真の理由 |
 | `node tools/driver_grid_p8.js` | **56/56** | §4 が n1 の連結を測っている。マスクを触るので最も赤くなりやすい |
 | `node tools/verify_enemy_name_label.js` | **30/30** | #44。バッジと同じ頭上を触る |
 | `node tools/probe_paint_overlay.js` | assert 無し(目視補助) | 拡張しても色に関与しない |

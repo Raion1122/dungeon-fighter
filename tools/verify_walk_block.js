@@ -50,6 +50,31 @@
  *     マスク行 6 の中央の空き run は**絵ローカル col14-24 = グローバル col31-41** (行 = 8)。
  *     global col29-30 は木の支柱で元から `#`。⇒ (1f) は col31-41 を保護対象にしてある。
  *
+ *   ⚠⚠⚠ (D) 依頼書 §2-6「火炎の爆発コアも同型の欠陥 (camZ=0.25 で 22.5px ズレる)」は
+ *     **誤り**。§2-6 自身が「未実測・式からの予測」と断っており、項目 2 の実測で崩れた:
+ *       ・`.fxFireImpactCore` は `animation: fxFireImpactCoreAnim` で **transform を animate** する。
+ *         CSS のカスケードは **animation declarations > normal author declarations (= inline style)**
+ *         なので、index.html の `zTf("translate(-50%,-50%)")` は **1 度も効いていなかった**
+ *         (実測: inline="translate(-50%, -50%)" / computed=matrix(0.45,0,0,0.45,0,0))。
+ *       ・したがってズレは camZ に依存せず **(+30.0, +30.0)px の定数** (crit は 84px なので +42)。
+ *         camZ = 1 / 0.8125 / 0.5 / 0.25 の 4 点とも同値。
+ *     ⇒ 直し方が変わった。呼び口を zTfAnchored へ差し替えるのではなく、**CSS の margin で
+ *       中央アンカーを取る** (index.html の 2900 行台の CSS コメントが元々そう設計だと書いている:
+ *       「中央アンカー (margin で自分の半分だけ戻している) の絵は…scale すれば中心が動かない」)。
+ *       inline transform は消し、「書いても効かない」理由を実測つきで注記した。
+ *     ⇒ 変異 `fireonly` も「前置形へ戻す」から「**margin の中央アンカーを外す**」へ変えた
+ *       (前置形へ戻す変異は**原理的に空振りする** = 何を書いても表示が 1px も変わらない)。
+ *
+ *   ⚠⚠ (E) 依頼書 §8「⚠ 計測機構」の `el.parentElement.getBoundingClientRect()` は使えない。
+ *     `#vfxLayer` は「stacking context を作らない」ため **CSS を 1 行も持たない = position:static**
+ *     (vfxHost() の注記どおり。実測 hostPos="static")。= 絶対配置の子の left/top の基準は
+ *     vfxLayer ではなく**祖先の containing block**。⇒ `left:0;top:0` の 0x0 マーカーを同じ親へ
+ *     挿して**原点そのものを実測**する (式も祖先の探索も写経しない)。
+ *
+ *   ⚠ (F) 依頼書の変異表は `origin00` → (2a)/(2e) だが、**(2e) は原理的に赤くならない**。
+ *     transform-origin は rect の**位置**しか動かさず、`rect.width` は f*camZ*w のまま
+ *     (実測でも一致)。⇒ targets を (2a) だけにし、(2e) は record (判定しない記録) へ落とした。
+ *
  * ■ ⭐ 測る対象は **廃坑 goblin-mine の n1 のみ** (依頼書 §2-2 / §11「n1 以外の 14 枚は
  *   やらない」)。n0 から `right` で入場する = 実プレイと同じ経路を通す。
  *
@@ -69,9 +94,9 @@
  *   sealgate    | ゲート (34,3) を塞ぐ                                | (1a)(1f)      | 項目1
  *   sealfoe     | 敵スロット (32,9) を塞ぐ                            | (1c)          | 項目1
  *   zprefix     | zTfAnchored を前置形へ戻す                          | (2a)(2c)      | 項目2
- *   camz1only   | camZ=1 だけを測る assert に差し替える                | (2a) の逆変異 | 項目2
- *   origin00    | .fxCastCircle の transform-origin を 0 0 に         | (2a)(2e)      | 項目2
- *   fireonly    | 火炎コアだけ前置形に戻す                            | (2d)          | 項目2
+ *   camz1only   | zprefix と**同じ欠陥**を camZ=1 だけ測る assert で   | (2a) の逆変異 | 項目2
+ *   origin00    | .fxCastCircle の transform-origin を 0 0 に         | (2a) ⚠(F)     | 項目2
+ *   fireonly    | 火炎コアの margin 中央アンカーを外す ⚠(D)           | (2d)          | 項目2
  *   nocircle    | spawnCastCircle を常に null に                      | (0c)          | 項目2
  *   badgepush   | バッジ OFF 時に push(null) をやめる                 | (3c)          | 項目3
  *   badgeleak   | 既定で .enemyBadge を 1 個だけ作る                  | (3a)          | 項目3
@@ -149,6 +174,23 @@ const BLOCK_RATIO_MAX = 0.66;
  *  「絵の側の宣言」と rect の「部屋の側の宣言」が一致することを見るための定数。 */
 const MASK_TILE_BOUNDS = [2, 17, 24, 55];
 
+/* ── §2 魔法陣 / 火炎コア (項目 2) ────────────────────────────────────────────
+ * ⭐⭐⭐ **camZ を 4 点で測る**。1 点しか測らない assert は今回の欠陥を検出できない
+ *   — それが §2-7 の穴そのもの (driver_cast_circle.js は camZ=1 の腕しか持たず、
+ *   `* camZ` も忘れていたので、実機で 54px ずれていても 53/53 で緑だった)。
+ *   逆変異 `camz1only` が「camZ=1 だけ測る assert は同じ欠陥を素通りさせる」を機械で示す。
+ * ⚠ 4 点は ZOOM_MIN=0.25 〜 1 の実プレイ値域。0.8125 は依頼書 §2-5 の実測表と同じ点。 */
+const VFX_ZOOMS = [1, 0.8125, 0.5, 0.25];
+const VFX_SIZE = 96;          // 術者 displaySize。⚠ (4b) の絶対量はこの値に紐づく
+const VFX_TOL_PX = 1.0;       // 依頼書 §8 (2a)(2d) の許容
+const VFX_DIAM_TOL = 0.02;    // (2e) の誤差 2%
+const VFX_CORE_N = 3;         // spawnConeFlames が立てる火炎コアの数 (母集団ガード)
+/* (4b) 撤退アームの**絶対量**。⭐「戻った」を「陣が出る」だけで測ると永久緑になる。
+ *  出所 = 依頼書 §2-5 の実測表 (camZ=0.25 / displaySize=96 → w=144.13 h=90.08 →
+ *  0.5w(1-z)=54.05 / 0.64h(1-z)=43.24) と、項目 2 の着手前実測 (54.0608, 43.2300) の一致。
+ *  火炎コアの legacy ズレは 60x60 の半分 = (30, 30) (⚠ camZ に依存しない。ヘッダ (D))。 */
+const CAST_LEGACY = { z: 0.25, dx: 54.06, dy: 43.23, coreDx: 30.0, coreDy: 30.0 };
+
 /* ── ゲート ──────────────────────────────────────────────────────────────────
  * ⚠⚠⚠ 依頼書 §8 (1a) は「4 ゲートすべて」だが、**down は原理的に到達不能**
  *   (ファイル冒頭の (A) を参照)。判定対象と除外を 1 箇所で宣言する。 */
@@ -195,6 +237,10 @@ const PROTECTED = protectedTiles();
  *   その直後に **門番を経由しない直書き**を差し込むことで「門番が壊れた」状態を再現する。
  *   ⚠ 差し込みは n1 の絵 (39x23) のときだけ効かせる (n0 = 33x22 には掛からない)。 */
 const SEAL_ANCHOR = 'for (const k of keys) tryBlock(k, false);';
+/* ⭐ §2 の変異アンカー。zTfAnchored の**三項演算子まるごと**を握る (1 行に閉じている)。
+ *  ⚠ index.html はディスク上 CRLF なので複数行アンカーは必ず空振りする。 */
+const ANCHOR_TF = '(CAST_ANCHOR_ON ? (inner + " scale(" + camZ + ")") : ("scale(" + camZ + ") " + inner))';
+const ANCHOR_TF_PREFIX = '("scale(" + camZ + ") " + inner)';
 const sealTo = (tx, ty, tag) => SEAL_ANCHOR
   + ' if (p.tw === 39 && p.th === 23) { obstacleTileMask[' + ty + ' * MAP_W + ' + tx + '] = 1; /* ' + tag + ' */ }';
 
@@ -232,18 +278,47 @@ const MUTATIONS = {
       + ' ⚠ 敵スポーンの救済は isTileStructuralWall しか見ないので obstacleTileMask では救われない'
       + ' ⚠⚠⚠ ここもマスクの `#` では空振りする (門番 spawnKeys が弾く)',
   },
-  // ── 項目 2 (魔法陣) が実装する 5 本 ─────────────────────────────────────────
-  zprefix: { impl: false, file: 'index.html', targets: ['2a', '2c'],
-    why: 'zTfAnchored を前置形 ("scale(z) " + inner) へ戻す (= 従来のズレたまま)' },
-  camz1only: { impl: false, file: 'tools/verify_walk_block.js', targets: ['2a'],
-    why: '(2a) を camZ=1 だけ測る形に差し替える — ⭐ §2-7 の穴そのものを再現し、'
-      + '「1 点しか測らない検査では捕まらない」を機械で示す逆変異' },
-  origin00: { impl: false, file: 'index.html', targets: ['2a', '2e'],
-    why: '.fxCastCircle の transform-origin を 0 0 にする' },
-  fireonly: { impl: false, file: 'index.html', targets: ['2d'],
-    why: '火炎の爆発コア (.fxFireImpactCore) だけ前置形に戻す' },
-  nocircle: { impl: false, file: 'index.html', targets: ['0c'],
-    why: 'spawnCastCircle を常に null にする (シート未ロードと同じ = 静かに何も出さない)' },
+  // ── 項目 2 (魔法陣 / 火炎コア) が実装した 5 本 ──────────────────────────────
+  zprefix: {
+    impl: true, file: 'index.html', targets: ['2a', '2c'], record: ['2b', '2d', '2e'],
+    from: ANCHOR_TF, to: ANCHOR_TF_PREFIX + ' /* zprefix */',
+    why: 'zTfAnchored を前置形 ("scale(z) " + inner) へ戻す (= #46 前のズレたまま)。'
+      + ' ⭐ (2b) は camZ=1 だけを見るので**緑のまま**通る = 「camZ=1 では 1 ビットも変わらない」'
+      + 'ことの裏返し。(2e) も rect.width は f*camZ*w のままなので緑 = 位置と大きさが別物である証拠',
+  },
+  camz1only: {
+    impl: true, inverse: true, file: 'index.html', targets: ['2a'],
+    from: ANCHOR_TF, to: ANCHOR_TF_PREFIX + ' /* camz1only: zprefix と同一の欠陥 */',
+    why: '⭐⭐⭐ 逆変異。zprefix と**同じ欠陥**を配りながら「camZ=1 だけを測る壊れた assert」に'
+      + '掛ける。壊れた assert は緑 (素通り) / 4 点測る本物の (2a) は赤 — この 2 つが同時に'
+      + '成り立って初めて「1 点しか測らない検査では捕まらない」= §2-7 の穴が機械で証明される',
+  },
+  origin00: {
+    impl: true, file: 'index.html', targets: ['2a'], record: ['2b', '2c', '2d', '2e'],
+    from: '      transform-origin: 50% 64%;',
+    to: '      transform-origin: 0 0; /* origin00 */',
+    why: '.fxCastCircle の transform-origin を 0 0 にする (楕円中心のフレーム内比が'
+      + ' anchorFY と食い違い、陣が足元からずれる)。⚠ 依頼書は (2e) も赤としているが'
+      + ' **原理的に赤くならない** (origin は rect の位置しか動かさず width は f*camZ*w のまま)'
+      + ' ⇒ (2e) は record へ落とした (ヘッダ (F))',
+  },
+  fireonly: {
+    impl: true, file: 'index.html', targets: ['2d'], record: ['2a', '2b', '2c', '2e'],
+    from: '      margin-left: -30px; margin-top: -30px;   /* [#46] 中央アンカー (60x60 の半分) */',
+    to: '      margin-left: 0; margin-top: 0; /* fireonly */',
+    why: '火炎の爆発コアの**中央アンカー (margin) を外す** = #46 前の (+30,+30)px ズレへ戻す。'
+      + ' ⚠⚠⚠ 依頼書の「前置形に戻す」は**原理的に空振りする** — この要素は animation が'
+      + ' transform を animate しており inline style がカスケードで負けるので、JS 側に何を'
+      + ' 書いても表示は 1px も変わらない (ヘッダ (D) の実測)。'
+      + ' ⭐ (2a)(2b)(2c)(2e) は魔法陣の節なので緑のまま = 「火炎コアだけ」が壊れる',
+  },
+  nocircle: {
+    impl: true, file: 'index.html', targets: ['0c'],
+    from: '      if (!unit || !S.loaded) return null;',
+    to: '      if (true) return null; /* nocircle */',
+    why: 'spawnCastCircle を常に null にする (シート未ロードと同じ = 静かに何も出さない)。'
+      + ' ⭐ 母集団ガード (0c) が立たなければ §2 は「陣が 1 枚も無いのに緑」になり得る',
+  },
   // ── 項目 3 (バッジ廃止) が実装する 4 本 ─────────────────────────────────────
   badgepush: { impl: false, file: 'index.html', targets: ['3c'],
     why: 'バッジ OFF 時に enemyBadgeElements.push(null) をやめる (添字並列が崩れる = §2-8 の罠)' },
@@ -507,6 +582,141 @@ function SNAPSHOT(cfg) {
   return out;
 }
 
+/* ⭐ §2 の採取。**1 回の evaluate の中で同期的に**測る。
+ *  ⚠ 間に rAF / setTimeout を挟むと陣のコマ (f.scale) が進んでしまい (2e) の期待値が動く。
+ *  ⚠⚠⚠ containing block の原点は `el.parentElement.getBoundingClientRect()` では取れない
+ *    (#vfxLayer は position:static。ファイル冒頭 (E))。left:0;top:0 の 0x0 マーカーを同じ親へ
+ *    挿して**原点そのものを実測**する。
+ *  ⭐ camZ の切替は **本番の setCamZoom()** を通す (書き込み点は index.html の 1 箇所)。
+ *    測ったら必ず元へ戻す (finally)。 */
+function VFX_SNAPSHOT(cfg) {
+  const out = { ok: false, err: null, camZ0: null, anchorFY: null, sheetLoaded: null,
+                castAnchorOn: null, legacyClass: null, circle: [], core: [] };
+  let prev = null;
+  try {
+    prev = camZ;
+    out.camZ0 = camZ;
+    out.anchorFY = MAGIC_CIRCLE_SHEET.anchorFY;
+    out.sheetLoaded = !!MAGIC_CIRCLE_SHEET.loaded;
+    out.castAnchorOn = (typeof CAST_ANCHOR_ON !== 'undefined') ? !!CAST_ANCHOR_ON : null;
+    out.legacyClass = document.body.classList.contains('castAnchorLegacy');
+    const setZ = (z) => {
+      if (typeof setCamZoom === 'function') setCamZoom(z); else camZ = z;
+      return camZ;
+    };
+    const originOf = (host) => {
+      const mk = document.createElement('div');
+      mk.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;';
+      host.appendChild(mk);
+      const r = mk.getBoundingClientRect();
+      mk.remove();
+      return { x: r.left, y: r.top };
+    };
+    for (const z of cfg.zooms) {
+      const zz = setZ(z);
+      const host = vfxHost();
+      const org = originOf(host);
+      // ── 魔法陣 ──────────────────────────────────────────────────────────────
+      const rec = { z: zz, ok: false, hostPos: getComputedStyle(host).position,
+                    orgX: org.x, orgY: org.y };
+      window.__castCircleProbe.length = 0;
+      const sim = { x: playerX, y: playerY, def: { displaySize: cfg.size, name: '(§2)装置' } };
+      const h = spawnCastCircle(sim, 'arcane', 4000);
+      const p = window.__castCircleProbe[window.__castCircleProbe.length - 1] || null;
+      if (h && h.el && p) {
+        const el = h.el;
+        const r = el.getBoundingClientRect();
+        const fy = MAGIC_CIRCLE_SHEET.anchorFY;   // 0.64 を写経しない (シート定義から引く)
+        rec.ok = true;
+        rec.transform = el.style.transform;
+        rec.originCss = getComputedStyle(el).transformOrigin;
+        rec.w = p.w; rec.h = p.h; rec.displaySize = p.displaySize;
+        rec.rectW = r.width; rec.rectH = r.height;
+        /* 楕円中心 (実画面) — rect の中の比で取る。el.style.left を読む方式にしない。 */
+        rec.anchorX = r.left + r.width * 0.50;
+        rec.anchorY = r.top + r.height * fy;
+        rec.wantX = org.x + SX(p.footWX);         // SX の式を写経せず本番の関数を呼ぶ
+        rec.wantY = org.y + SY(p.footWY);
+        rec.dx = rec.anchorX - rec.wantX;
+        rec.dy = rec.anchorY - rec.wantY;
+      }
+      if (h) h.destroy();
+      out.circle.push(rec);
+      // ── 火炎の爆発コア (.fxFireImpactCore) ──────────────────────────────────
+      /* ⚠ dirX=dirY=0 にすると 3 段すべてが originWX/WY ちょうどに立つ
+       *   = ドライバ側に `origin + dir*step*TILE_SIZE` を写経しなくて済む。 */
+      const crec = { z: zz, ok: false, n: 0, cores: [] };
+      for (const n of Array.from(document.querySelectorAll('.fxFireImpactCore'))) n.remove();
+      const cwx = playerX + cfg.size / 2, cwy = playerY + cfg.size / 2;
+      try { spawnConeFlames(cwx, cwy, 0, 0); }
+      catch (e) { crec.err = (e && e.message) || String(e); }
+      const cores = Array.from(document.querySelectorAll('.fxFireImpactCore'));
+      crec.n = cores.length;
+      for (const c of cores) {
+        const r = c.getBoundingClientRect();
+        const cs = getComputedStyle(c);
+        crec.cores.push({
+          crit: c.classList.contains('crit'),
+          inline: c.style.transform, computed: cs.transform, anim: cs.animationName,
+          rectW: r.width, rectH: r.height,
+          dx: (r.left + r.width * 0.5) - (org.x + SX(cwx)),
+          dy: (r.top + r.height * 0.5) - (org.y + SY(cwy)),
+        });
+      }
+      crec.ok = crec.cores.length > 0;
+      for (const c of cores) c.remove();
+      out.core.push(crec);
+    }
+    out.ok = true;
+  } catch (e) {
+    out.err = (e && e.message) || String(e);
+  } finally {
+    try {
+      if (prev !== null) { if (typeof setCamZoom === 'function') setCamZoom(prev); else camZ = prev; }
+    } catch (e) {}
+  }
+  return out;
+}
+
+/* transform を**分解して全部の部品を見る**。⛔ 部分一致の正規表現にしない
+ *  (§2-7 の 5.4 は `/translate\(-50%,\s*-64%\)/` だったので、壊れた
+ *   `scale(0.25) translate(-50%, -64%) scale(0.82)` を素通りさせていた)。
+ *   camZ===1 → `translate(-50%, -64%) scale(<f>)`               (後置の scale が**無い**)
+ *   camZ!==1 → `translate(-50%, -64%) scale(<f>) scale(<camZ>)` (#46: scale は**後置**) */
+function castTfParts(tf) {
+  const m = /^translate\(-50%, -(\d+(?:\.\d+)?)%\) scale\((\d+(?:\.\d+)?)\)(?: scale\((\d+(?:\.\d+)?)\))?$/
+    .exec(tf || '');
+  return m ? { fy: parseFloat(m[1]), f: parseFloat(m[2]),
+               z: (m[3] === undefined) ? null : parseFloat(m[3]) } : null;
+}
+function vfxOf(m) { return (m && m.ok && m.vfx && m.vfx.ok) ? m.vfx : null; }
+function vfxPop(m) {
+  if (!m || !m.ok) return popFail('測定', (m && m.err) || 'SNAPSHOT が失敗');
+  return popFail('§2 の採取', (m.vfx && m.vfx.err) || 'VFX_SNAPSHOT が失敗');
+}
+/* (2a) の本体。⭐ zooms を引数にしてあるのは、逆変異 camz1only が
+ *   **同じ関数を [1] だけで呼ぶ**ため = 「1 点しか測らない検査」を写経せずに再現できる。 */
+function assertCircleAnchored(m, zooms) {
+  const v = vfxOf(m);
+  if (!v) return vfxPop(m);
+  const rows = zooms.map(z => v.circle.find(r => r.z === z)).filter(Boolean);
+  if (rows.length !== zooms.length)
+    return popFail('陣の標本', '要求 camZ=' + zooms.join(',') + ' / 取れたのは '
+      + v.circle.map(r => r.z).join(','));
+  const miss = rows.filter(r => !r.ok);
+  if (miss.length) return popFail('陣', 'camZ=' + miss.map(r => r.z).join(',') + ' で 1 枚も出なかった'
+    + ' (MAGIC_CIRCLE_SHEET.loaded=' + v.sheetLoaded + ')');
+  const bad = rows.filter(r => Math.abs(r.dx) > VFX_TOL_PX || Math.abs(r.dy) > VFX_TOL_PX);
+  return [bad.length === 0,
+    rows.map(r => 'z=' + r.z + ' Δ=(' + r.dx.toFixed(2) + ',' + r.dy.toFixed(2) + ')').join('  ')
+    + '   [許容 ±' + VFX_TOL_PX.toFixed(1) + 'px]'
+    + (bad.length ? '  ⛔ 超過 z=' + bad.map(r => r.z).join(',') : '')
+    + '   tf@' + rows[rows.length - 1].z + '="' + (rows[rows.length - 1].transform || '') + '"'];
+}
+/* ⭐⭐⭐ 逆変異 camz1only 用の「壊れた assert」= camZ=1 だけを測る版。
+ *  ⛔ これは受入条件ではない (ASSERTS に入れない)。負のコントロールでしか呼ばない。 */
+function assert2aCamZ1Only(m) { return assertCircleAnchored(m, [1]); }
+
 async function closeDialogs(page) {
   for (let i = 0; i < 14; i++) {
     let quiet = false;
@@ -590,6 +800,9 @@ async function measure(browser, port, errs, opts) {
     gateDirs: GATE_DIRS, scenario: SCENARIO_ID, node: opts.node || NODE_ID,
     protectedTiles: PROTECTED,
   });
+  /* ⚠ §2 は SNAPSHOT の**後**に測る。camZ を 4 点動かして戻すので、先に走らせると
+   *   §1 の到達性を「素の camZ ではない状態」で測ってしまう恐れがある。 */
+  snap.vfx = await page.evaluate(VFX_SNAPSHOT, { zooms: VFX_ZOOMS, size: VFX_SIZE });
   if (!opts.keepPage) await page.close();
   snap.port = port;
   return snap;
@@ -719,23 +932,113 @@ const ASSERTS = [
         + (walls.length ? '  ⛔ ' + walls.map(t => '(' + t.tx + ',' + t.ty + ') ' + t.why).join(' / ') : '')
         + (outside.length ? '  ⛔ 範囲外 ' + outside.map(t => '(' + t.tx + ',' + t.ty + ')').join(' ') : '')];
     }],
+
+  // ── §2 魔法陣 / 火炎コア (2 点目の本体) ────────────────────────────────────
+  ['2a', 'camZ ∈ {' + VFX_ZOOMS.join(', ') + '} の 4 点**すべて**で、陣の楕円中心と術者の足元の'
+    + '画面座標が ±' + VFX_TOL_PX.toFixed(1) + 'px 以内 (⭐ 1 点しか測らない assert は今回の欠陥を検出できない)',
+    (m) => assertCircleAnchored(m, VFX_ZOOMS)],
+  ['2b', 'camZ=1 のとき transform が translate(-50%, -64%) scale(<f>) に**完全一致** (前置も後置も無い)',
+    (m) => {
+      const v = vfxOf(m); if (!v) return vfxPop(m);
+      const r = v.circle.find(x => x.z === 1);
+      if (!r || !r.ok) return popFail('陣 (camZ=1)', '1 枚も出なかった');
+      const q = castTfParts(r.transform);
+      const ok = !!q && q.fy === 64 && q.z === null && q.f > 0;
+      return [ok, 'transform="' + r.transform + '"  parts=' + JSON.stringify(q)
+        + (ok ? '   ⭐ 後置の scale が無い = 従来とビット等価' : '   ⛔ 期待 = translate(-50%, -64%) scale(<f>)')];
+    }],
+  ['2c', 'camZ=0.25 のとき transform の**先頭が scale( でない** (⛔ 部分一致の正規表現では見ない)',
+    (m) => {
+      const v = vfxOf(m); if (!v) return vfxPop(m);
+      const r = v.circle.find(x => x.z === 0.25);
+      if (!r || !r.ok) return popFail('陣 (camZ=0.25)', '1 枚も出なかった');
+      const tf = r.transform || '';
+      const headIsScale = /^\s*scale\(/.test(tf);
+      const q = castTfParts(tf);                 // 全体一致 (前置形なら null になる)
+      const whole = !!q && q.fy === 64 && q.z === 0.25;
+      /* ⭐ 参考: §2-7 の 5.4 と同じ**部分一致**でも見て、両者の差を detail に出す。
+       *   壊れた文字列でも部分一致は true になる = 「なぜ 53/53 が緑だったか」の実演。 */
+      const legacyPartial = /translate\(-50%,\s*-64%\)/.test(tf);
+      return [!headIsScale && whole,
+        'transform="' + tf + '"  先頭が scale(=' + headIsScale + '  全体一致=' + whole
+        + '   [参考] §2-7 と同じ部分一致だと=' + legacyPartial];
+    }],
+  ['2d', '火炎の爆発コアも 4 点すべてで中心が ±' + VFX_TOL_PX.toFixed(1) + 'px 以内 (3 段 x 4 camZ = 12 個)',
+    (m) => {
+      const v = vfxOf(m); if (!v) return vfxPop(m);
+      if (v.core.length !== VFX_ZOOMS.length)
+        return popFail('コアの標本', '測れた camZ = ' + v.core.map(r => r.z).join(','));
+      const wrongN = v.core.filter(r => r.n !== VFX_CORE_N);
+      if (wrongN.length) return popFail('火炎コア', 'camZ=' + wrongN.map(r => r.z + '→' + r.n + '個').join(',')
+        + ' (期待 ' + VFX_CORE_N + ' 個 / err=' + (wrongN[0].err || 'なし') + ')');
+      const bad = [];
+      const all = [];
+      v.core.forEach(r => r.cores.forEach(c => {
+        const tag = 'z=' + r.z + (c.crit ? '/crit' : '/base') + ' Δ=(' + c.dx.toFixed(2) + ',' + c.dy.toFixed(2) + ')';
+        all.push(tag);
+        if (Math.abs(c.dx) > VFX_TOL_PX || Math.abs(c.dy) > VFX_TOL_PX) bad.push(tag);
+      }));
+      return [bad.length === 0,
+        all.join('  ') + (bad.length ? '   ⛔ 超過 ' + bad.length + ' 個: ' + bad.join(' ') : '')
+        + '   [computed=' + (v.core[0].cores[0] || {}).computed + ' anim='
+        + (v.core[0].cores[0] || {}).anim + ' ⚠ inline transform は効かない (ヘッダ (D))]'];
+    }],
+  ['2e', '陣の見かけ直径が camZ に比例 (rect.width ≈ w * f * camZ、誤差 '
+    + (VFX_DIAM_TOL * 100).toFixed(0) + '%)  ⭐ 位置だけ直して大きさを壊す修正を弾く',
+    (m) => {
+      const v = vfxOf(m); if (!v) return vfxPop(m);
+      const rows = v.circle.filter(r => r.ok);
+      if (rows.length !== VFX_ZOOMS.length) return popFail('陣の標本', '(2a) が立っていない');
+      const det = [], bad = [];
+      for (const r of rows) {
+        /* ⛔ castCircleFrameAt を写経しない。展開アニメのコマ倍率 f は
+         *   **transform に実際に書かれた値**から読む (実装と検証が式を共有しない)。
+         *   ⚠ 前置形 (zprefix) でも translate の直後の scale が f になるよう分解する。 */
+        const mm = /translate\([^)]*\)\s*scale\((\d+(?:\.\d+)?)\)/.exec(r.transform || '');
+        const f = mm ? parseFloat(mm[1]) : null;
+        if (f === null) { bad.push('z=' + r.z + ' f が読めない'); continue; }
+        const want = r.w * f * r.z;
+        const err = Math.abs(r.rectW - want) / want;
+        det.push('z=' + r.z + ' rect=' + r.rectW.toFixed(2) + ' 期待=' + want.toFixed(2)
+          + ' (w=' + r.w.toFixed(2) + ' f=' + f + ') 誤差=' + (err * 100).toFixed(2) + '%');
+        if (err > VFX_DIAM_TOL) bad.push('z=' + r.z + ' 誤差 ' + (err * 100).toFixed(2) + '%');
+      }
+      return [bad.length === 0, det.join('  ') + (bad.length ? '   ⛔ ' + bad.join(' / ') : '')];
+    }],
+
+  // ── §4 撤退 (項目 2 の担当ぶん) ────────────────────────────────────────────
+  ['4b', '?castanchor=0 → camZ=' + CAST_LEGACY.z + ' で陣のズレが ('
+    + CAST_LEGACY.dx + ', ' + CAST_LEGACY.dy + ')px ±' + VFX_TOL_PX.toFixed(1)
+    + ' へ戻り、火炎コアも (' + CAST_LEGACY.coreDx + ', ' + CAST_LEGACY.coreDy + ')px へ戻る',
+    (m) => {
+      const v = vfxOf(m); if (!v) return vfxPop(m);
+      /* ⭐⭐⭐ 撤退アームが**本当に撤退アームか**を先に確かめる。
+       *   これが無いと「素のアームを測って緑」という永久緑が作れてしまう。 */
+      if (v.castAnchorOn !== false || v.legacyClass !== true)
+        return popFail('撤退アーム', 'CAST_ANCHOR_ON=' + v.castAnchorOn
+          + ' / body.castAnchorLegacy=' + v.legacyClass + ' (?castanchor=0 が効いていない)');
+      const r = v.circle.find(x => x.z === CAST_LEGACY.z);
+      if (!r || !r.ok) return popFail('陣', 'camZ=' + CAST_LEGACY.z + ' で 1 枚も出なかった');
+      const cRow = v.core.find(x => x.z === CAST_LEGACY.z);
+      const c = cRow ? cRow.cores.filter(x => !x.crit)[0] : null;
+      if (!c) return popFail('火炎コア', 'camZ=' + CAST_LEGACY.z + ' で base のコアが取れない');
+      const okC = Math.abs(r.dx - CAST_LEGACY.dx) <= VFX_TOL_PX
+        && Math.abs(r.dy - CAST_LEGACY.dy) <= VFX_TOL_PX;
+      const okF = Math.abs(c.dx - CAST_LEGACY.coreDx) <= VFX_TOL_PX
+        && Math.abs(c.dy - CAST_LEGACY.coreDy) <= VFX_TOL_PX;
+      return [okC && okF,
+        '陣 Δ=(' + r.dx.toFixed(2) + ',' + r.dy.toFixed(2) + ') 期待=(' + CAST_LEGACY.dx + ','
+        + CAST_LEGACY.dy + ')' + (okC ? '' : ' ⛔')
+        + '   火炎コア Δ=(' + c.dx.toFixed(2) + ',' + c.dy.toFixed(2) + ') 期待=('
+        + CAST_LEGACY.coreDx + ',' + CAST_LEGACY.coreDy + ')' + (okF ? '' : ' ⛔')
+        + '   tf="' + r.transform + '"'];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
 /* ══ 未実装の受入条件 (⛔ 配列ごと削除しない — 削ると PENDING という 3 値そのものが消える) ══ */
 const PENDINGS = [
-  ['§2 魔法陣 (項目 2 の担当)', [
-    ['2a', 'camZ ∈ {1, 0.8125, 0.5, 0.25} の 4 点すべてで陣の楕円中心と足元が ±1.0px 以内',
-      '⭐ camZ を 1 点しか測らない assert は今回の欠陥を検出できない (§2-7 の穴)'],
-    ['2b', 'camZ=1 のとき transform が translate(-50%, -64%) scale(<f>) に完全一致',
-      '従来とビット等価であることの担保'],
-    ['2c', 'camZ=0.25 のとき transform の先頭が scale( でない',
-      '⚠ 部分一致の正規表現にしない — §2-7 の 5.4 は部分一致だったので壊れていても通った'],
-    ['2d', '火炎の爆発コアも camZ=0.25 で中心が ±1.0px 以内', '.fxFireImpactCore (§2-6)'],
-    ['2e', '陣の見かけ直径が camZ に比例 (rect.width ≈ w * camZ、誤差 2%)',
-      '⭐ 位置だけ直して大きさを壊す修正を弾く'],
-  ]],
   ['§3 バッジ廃止 (項目 3 の担当)', [
     ['3a', '既定で .enemyBadge が 0 個', ''],
     ['3b', '恒等: 名前札と状態アイコン列の rect が #46 前と 1px も変わらない',
@@ -746,8 +1049,6 @@ const PENDINGS = [
   ]],
   ['§4 撤退 (項目 2 / 3 / 4 で分担)', [
     ['4a', '?walkblock=0 で n1 の塞がり率が 58.8% へ戻る', '項目 4'],
-    ['4b', '?castanchor=0 で camZ=0.25 のズレが (54.06, 43.23)px ±1.0 に戻る',
-      '項目 2 ⭐ 撤退アームでも数値を打つ'],
     ['4c', '?enemybadge=1 で .enemyBadge が敵の数だけ生成され 🐺 / 🏹 が実在する', '項目 3'],
     ['4d', '撤退アームでも §1 の到達性 (1a)(1b) が緑',
       '項目 4 ⭐ 撤退枝にしか無いコードは素のアームだけ見る assert では捕まらない'],
@@ -794,6 +1095,20 @@ const PENDINGS = [
       mark('§1 到達性 — ⭐⭐⭐ 本番の aStar だけで測る (ドライバ側に BFS は 1 行も無い)');
       for (const key of ['1a', '1b', '1c', '1d', '1e', '1f']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§2 魔法陣 / 火炎コア — ⭐⭐⭐ camZ を 4 点 (' + VFX_ZOOMS.join(' / ') + ') で測る');
+      for (const key of ['2a', '2b', '2c', '2d', '2e']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§4 撤退 — ?castanchor=0 (⭐ 撤退アームでも**数値を打つ**。'
+        + '「陣が出る」だけで測ると永久緑になる)');
+      const mLegacy = await measure(browser, PORT, errs, { query: 'castanchor=0' });
+      {
+        const a = ASSERT_OF['4b']; const r = a[2](mLegacy);
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
       }
 
@@ -851,6 +1166,27 @@ const PENDINGS = [
         for (const k of MUT_IMPL) {
           const negErrs = [];
           const mm = await measure(browser, PORT_OF[k], negErrs, {});
+          if (MUTATIONS[k].inverse) {
+            /* ⭐⭐⭐ 逆変異。zprefix と**同じ欠陥バイト**を配りながら、
+             *   「camZ=1 だけを測る壊れた assert」に掛ける。
+             *   壊れた assert = 緑 (素通り) かつ 4 点測る本物の (2a) = 赤 —
+             *   この 2 つが**同時に**成り立って初めて「1 点しか測らない検査では
+             *   捕まらない」= §2-7 の穴が機械で証明される。
+             *   ⛔ どちらか一方だけでは証明にならないので AND で判定する。 */
+            const full = ASSERT_OF['2a'][2](mm);
+            const crip = assert2aCamZ1Only(mm);
+            check('(neg-' + k + '-2a) 逆変異: 同じ欠陥を **camZ=1 だけ測る assert は素通りさせ**、'
+              + '4 点測る本物の (2a) だけが赤くなる',
+              crip[0] === true && full[0] === false,
+              '壊れた assert(camZ=1 のみ)=' + (crip[0] ? '緑 = 素通り ⭐' : '⛔ 赤 (逆変異が成立しない)')
+              + ' / 本物の (2a)=' + (full[0] ? '⛔ 緑のまま (空振り)' : '赤 ⭐')
+              + '   [camZ=1] ' + crip[1] + '   [4 点] ' + full[1]);
+            if (negErrs.length) {
+              console.log('       [記録] 変異 ' + k + ' のページ事故 ' + negErrs.length + ' 件: '
+                + negErrs.slice(0, 3).join(' | '));
+            }
+            continue;
+          }
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
             if (!a) {

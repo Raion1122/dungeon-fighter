@@ -21,7 +21,8 @@
  *   §2 幾何      … castCircleDiameter が単調 + 巨躯側で伸びが鈍る (竜と僧侶の釣り合い)
  *   §3 相        … castCircleFrameAt の 展開 → 保持 → 霧散。眼柄の 380ms でも壊れない
  *   §4 層        … 陣の z-index が敵とも味方とも比べて**小さい** + 負のコントロール
- *   §5 接地      … 楕円中心が足元 (y + displaySize*0.93) に置かれる
+ *   §5 接地      … 楕円中心が足元 (y + displaySize*0.93) に置かれる。⭐ camZ=1 と camZ=0.25 の
+ *                  **2 つの腕**で測る (#46 §2-7 で塞いだ穴 = 旧 5.3 は `* camZ` を忘れていた)
  *   §6 網羅      … 味方 / 敵キャスター / ボス / 竜のブレス の 4 経路すべてで陣が出る
  *   §7 pageerror 0
  *
@@ -283,7 +284,17 @@ function pngSize(file) {
 
   // ══ §5 接地 ════════════════════════════════════════════════════════════════
   console.log('\n§5 接地 (楕円中心が足元にあるか)');
-  const foot = await page.evaluate(() => {
+  /* ⚠⚠⚠ [#46 §2-7] 2026-09-03 まで、この節には **camZ の穴**が空いていた。
+   *   ・5.3 は `SX(wx) = (wx - camX) * camZ` (index.html:4143) なのに **`* camZ` を掛けていない**
+   *     式で照合していた。= camZ=1 でしか成立せず、camZ≠1 を**原理的に測れない**。
+   *   ・5.4 は `/translate\(-50%,\s*-64%\)/` という**部分一致**だった。壊れた
+   *     `scale(0.25) translate(-50%, -64%) scale(0.82)` も部分一致するので通ってしまう。
+   *   その結果、実機 (大部屋は常に camZ<1) で陣が右下へ 54px ずれていたのに **53/53 で緑**
+   *   のままだった。⇒ 5.3/5.4 を camZ 込み・**全体一致**へ直し、さらに **camZ≠1 の腕
+   *   (5.6〜5.8)** を足した。⭐ 本数が 53 → 56 に増えるのは正常 (穴を塞いだぶん)。 */
+  const footAt = (z) => page.evaluate((zz) => {
+    const prev = camZ;
+    if (zz !== null) { if (typeof setCamZoom === 'function') setCamZoom(zz); else camZ = zz; }
     window.__castCircleProbe.length = 0;
     const sim = { x: 1000, y: 2000, def: { displaySize: 192, name: '接地検証' } };
     const h = spawnCastCircle(sim, 'fire', 4000);
@@ -296,24 +307,44 @@ function pngSize(file) {
       transform: st ? st.transform : '',
       camX: (typeof camX !== 'undefined') ? camX : null,
       camY: (typeof camY !== 'undefined') ? camY : null,
+      camZ: (typeof camZ !== 'undefined') ? camZ : null,
       bgSize: st ? st.backgroundSize : '',
       widthPx: st ? parseFloat(st.width) : null,
     };
     if (h) h.destroy();
+    if (zz !== null) { if (typeof setCamZoom === 'function') setCamZoom(prev); else camZ = prev; }
     return res;
-  });
+  }, z);
+  /* transform を**分解して全部の部品を見る**。⛔ 部分一致の正規表現にしない。
+   *   camZ===1 → `translate(-50%, -64%) scale(<f>)`  (後置の scale が**無い**)
+   *   camZ!==1 → `translate(-50%, -64%) scale(<f>) scale(<camZ>)`  (#46: scale は**後置**) */
+  const castTfParts = (tf) => {
+    const m = /^translate\(-50%, -(\d+(?:\.\d+)?)%\) scale\((\d+(?:\.\d+)?)\)(?: scale\((\d+(?:\.\d+)?)\))?$/
+      .exec(tf || '');
+    return m ? { fy: parseFloat(m[1]), f: parseFloat(m[2]),
+                 z: (m[3] === undefined) ? null : parseFloat(m[3]) } : null;
+  };
+  const footTfOk = (tf, z) => {
+    const q = castTfParts(tf);
+    if (!q || q.fy !== 64) return false;
+    return (z === 1) ? (q.z === null) : (q.z === z);
+  };
+  const foot  = await footAt(null);    // ページが実際に居る camZ で測る
+  const footZ = await footAt(0.25);    // ⭐ camZ≠1 の腕。ここが無いと #46 の欠陥を検出できない
   const footFY = (foot.probe.footWY - foot.unitY) / foot.size;
   check('5.1 楕円中心の Y = 足元 (内容下端 0.95 のわずか上)',
         footFY > 0.85 && footFY < 0.98, `footFY=${footFY.toFixed(3)}`);
   check('5.2 楕円中心の X = 術者の中心',
         Math.abs(foot.probe.footWX - (foot.unitX + foot.size / 2)) < 0.01,
         `${foot.probe.footWX} vs ${foot.unitX + foot.size / 2}`);
-  check('5.3 DOM の left/top はワールド座標 - カメラ',
-        Math.abs(foot.left - (foot.probe.footWX - foot.camX)) < 0.51
-        && Math.abs(foot.top - (foot.probe.footWY - foot.camY)) < 0.51,
-        `left=${foot.left} top=${foot.top} cam=(${foot.camX},${foot.camY})`);
-  check('5.4 transform が楕円中心を left/top へ寄せている (translate -50%/-64%)',
-        /translate\(-50%,\s*-64%\)/.test(foot.transform), foot.transform);
+  check('5.3 DOM の left/top = SX(wx)/SY(wy) = (ワールド座標 - カメラ) * camZ  ⭐ camZ 込み',
+        foot.camZ !== null
+        && Math.abs(foot.left - (foot.probe.footWX - foot.camX) * foot.camZ) < 0.51
+        && Math.abs(foot.top - (foot.probe.footWY - foot.camY) * foot.camZ) < 0.51,
+        `left=${foot.left} top=${foot.top} cam=(${foot.camX},${foot.camY}) camZ=${foot.camZ}`);
+  check('5.4 transform 全体が translate(-50%, -64%) scale(<f>) [+ scale(camZ)] ⛔ 部分一致では見ない',
+        footTfOk(foot.transform, foot.camZ),
+        `camZ=${foot.camZ} transform="${foot.transform}" parts=${JSON.stringify(castTfParts(foot.transform))}`);
   // ⚠ 文字列比較にしない。CSSOM は inline style の数値を丸めて返すので
   //   ("1579.1174934725848px" → "1579.11px")、期待値を文字列で組むと必ず落ちる。
   const bg = foot.bgSize.split(/\s+/).map(parseFloat);
@@ -321,6 +352,17 @@ function pngSize(file) {
         Math.abs(bg[0] - foot.widthPx * sheet.cols) < 0.05
         && Math.abs(bg[1] - foot.widthPx * sheet.frameH / sheet.frameW) < 0.05,
         `${foot.bgSize} (要素幅 ${foot.widthPx.toFixed(2)}px)`);
+  /* ── ⭐ camZ≠1 の腕 (#46 で新設)。ここが 53/53 の穴だった ── */
+  check('5.6 [camZ=0.25] left/top も (ワールド座標 - カメラ) * camZ',
+        footZ.camZ === 0.25
+        && Math.abs(footZ.left - (footZ.probe.footWX - footZ.camX) * 0.25) < 0.51
+        && Math.abs(footZ.top - (footZ.probe.footWY - footZ.camY) * 0.25) < 0.51,
+        `camZ=${footZ.camZ} left=${footZ.left} top=${footZ.top} cam=(${footZ.camX},${footZ.camY})`);
+  check('5.7 [camZ=0.25] transform の**先頭が scale( でない** (#46: scale は後置)',
+        !/^\s*scale\(/.test(footZ.transform), footZ.transform);
+  check('5.8 [camZ=0.25] transform 全体が translate(-50%, -64%) scale(<f>) scale(0.25)',
+        footTfOk(footZ.transform, 0.25),
+        `transform="${footZ.transform}" parts=${JSON.stringify(castTfParts(footZ.transform))}`);
 
   // ══ §6 網羅 ════════════════════════════════════════════════════════════════
   console.log('\n§6 網羅 (敵も味方も / ボスも竜も)');

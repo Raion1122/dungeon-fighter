@@ -1260,6 +1260,18 @@
       height: 60px;
       pointer-events: none;
       z-index: 61;
+      /* ⚠⚠⚠ [#46 §2-6 の訂正] 中央アンカーは **margin** で取る。transform では取れない。
+         この要素は `animation: fxFireImpactCoreAnim` で **transform を animate している**ので、
+         JS の inline transform は**カスケードで負けて 1 度も効かない**
+         (CSS Cascade: animation declarations > normal author declarations = inline style)。
+         2026-09-03 に実ページで実測 — inline="translate(-50%,-50%)" なのに
+         computed=matrix(0.45,0,0,0.45,0,0)、中心が left/top から **(+30.0,+30.0)px** ずれる。
+         camZ = 1 / 0.8125 / 0.5 / 0.25 の 4 点とも同値 = **camZ とは無関係な定数ズレ**
+         (依頼書 §2-6 の「camZ=0.25 で 22.5px」という未実測の予測は誤り)。
+         ⇒ 2900 行台の CSS コメントが言うとおり「margin で自分の半分だけ戻す」形にすれば、
+         既定の中心 origin のまま scale されても**中心が動かない** = 全 camZ で足元に来る。
+         撤退 = ?castanchor=0 (body.castAnchorLegacy が margin を 0 へ戻す)。 */
+      margin-left: -30px; margin-top: -30px;   /* [#46] 中央アンカー (60x60 の半分) */
       border-radius: 50%;
       background: radial-gradient(circle,
         rgba(255,250,210,0.95) 0%,
@@ -1273,6 +1285,7 @@
       width: 84px;
       height: 84px;
       animation-duration: 380ms;
+      margin-left: -42px; margin-top: -42px;   /* [#46] 中央アンカー (84x84 の半分) */
     }
     @keyframes fxFireImpactCoreAnim {
       0%   { opacity: 0.95; transform: scale(0.45); }
@@ -2904,6 +2917,11 @@
     body.zoomed .fxFireImpactCore {
       transform: scale(var(--camz, 1));
     }
+    /* [#46 §7] 撤退 ?castanchor=0 — 火炎コアの中央アンカー (margin) を #46 以前へ戻す。
+       ⭐ 魔法陣側の撤退は zTfAnchored の中 1 箇所で判定する。こちらは CSS でしか戻せない
+       (真因が「animation が inline transform に勝つ」ことなので JS では取り消せない)。
+       ⚠ 特異度: (0,2,1) > .fxFireImpactCore.crit の (0,2,0) なので crit にも効く。 */
+    body.castAnchorLegacy .fxFireImpactCore { margin-left: 0; margin-top: 0; }
     /* 照準線は「起点から伸びる線」なので、軸を**起点 (左端中央)** に置く。
        ⚠ 既定の中心 origin のまま縮めると、長さ L の線が L(1-z)/2 だけ横へ滑る
        (6 タイル = 576 世界px の線なら z=0.25 で 216px のズレ)。 */
@@ -4160,6 +4178,25 @@
      * 従来の文字列と完全一致 (golden・検証シームが赤くならない)。
      * ⚠ scale は必ず**先頭**。後ろに置くと rotate/translate の適用順が変わって軌跡がずれる。 */
     function zTf(inner) { return (camZ === 1) ? inner : ("scale(" + camZ + ") " + inner); }
+    /* [#46 §4-2] 中心合わせを margin ではなく transform の translate でやる要素用の姉妹関数。
+     * ⚠ zTf() は scale を**前置**するので translate 量まで camZ 倍され、transform-origin
+     *   (.fxCastCircle は 50% 64%) 周りで楕円中心が 0.5w(1-camZ) / 0.64h(1-camZ) だけ右下へ滑る。
+     *   実測 (2026-09-03 / displaySize=96 → w=144.13 h=90.08): camZ=0.25 で (54.06, 43.23)px
+     *   = 画面上 24px の術者に対してキャラ 2.2 個分。camZ=1 では 0 なので**引いた時だけ**出る。
+     * ⭐ こちらは scale を**後置**する。平行移動は origin に依存しないので translate が先に効いて
+     *   楕円中心が left/top へ正しく着地し、しかも scale の中心は origin (= 足元) のままなので
+     *   「足元から立ち上がる」展開アニメの性質も保たれる。
+     * ⚠ camZ===1 では引数をそのまま返すので従来と 1 ビットも変わらない。
+     * ⛔ zTf 本体は 1 バイトも変えない — rotate の 2 箇所 (:10481 :10506) は translate を
+     *   含まないので前置で正しく、あちらを巻き込むと軌跡が壊れる。
+     * 撤退 = ?castanchor=0 で前置形 (= 従来のズレたまま) へ戻る。判定は**この関数の中 1 箇所**、
+     *   ページ内で完結する (?heromark=0 と同じ流儀。sessionStorage へ写さない)。 */
+    const CAST_ANCHOR_ON =
+      new URLSearchParams(window.location.search).get("castanchor") !== "0";
+    function zTfAnchored(inner) { return (camZ === 1) ? inner : (CAST_ANCHOR_ON ? (inner + " scale(" + camZ + ")") : ("scale(" + camZ + ") " + inner)); }
+    /* 火炎コアの中央アンカー (CSS の margin) も同じスイッチで戻す。⚠ こちらは CSS でしか
+     * 取り消せない (真因が animation > inline style のカスケードなので JS では上書き不能)。 */
+    if (!CAST_ANCHOR_ON) document.body.classList.add("castAnchorLegacy");
     /* ══ [卓上グリッド P7] 「縮まない UI」を置く**唯一の関数** ═══════════════════
      * HP バー / 名前ラベル / 「!」/ 装備バッジ / 状態アイコン列は camZ で縮まない
      * (縮むのは composeSpriteTransform を通る「絵」だけ = P7 の設計)。よって world 座標へ
@@ -10718,7 +10755,9 @@
         el.style.top  = SY(wy) + "px";
         el.style.backgroundPosition = (-f.frame * w) + "px 0px";
         el.style.opacity = f.opacity;
-        el.style.transform = zTf("translate(-50%, -" + (S.anchorFY * 100) + "%) scale(" + f.scale + ")");
+        // ⭐ [#46] zTf ではなく zTfAnchored。translate で中心合わせしている唯一の VFX なので、
+        //   scale を前置されると楕円中心が transform-origin (50% 64%) 周りで右下へ滑る (§2-5)。
+        el.style.transform = zTfAnchored("translate(-50%, -" + (S.anchorFY * 100) + "%) scale(" + f.scale + ")");
         if (t >= dur) { destroy(); return; }
         rafId = requestAnimationFrame(step);
       };
@@ -11231,7 +11270,11 @@
         const py = originWY + dirY * step * TILE_SIZE;
         core.style.left = SX(px) + "px";
         core.style.top  = SY(py) + "px";
-        core.style.transform = zTf("translate(-50%, -50%)");
+        /* ⛔ [#46] ここに inline transform を書かないこと。この要素は CSS animation が
+         *   transform を animate しており、**animation declaration が inline style に勝つ**ので
+         *   何を書いても 1 度も効かない (2026-09-03 実測: inline="translate(-50%,-50%)" なのに
+         *   computed=matrix(0.45,0,0,0.45,0,0))。中心合わせは .fxFireImpactCore の
+         *   margin-left/-top で取ってある (CSS 側に実測つきの注記あり)。 */
         vfxHost().appendChild(core);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
         setTimeout(() => { try { core.remove(); } catch {} }, 420);
       }
