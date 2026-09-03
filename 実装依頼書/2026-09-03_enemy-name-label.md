@@ -832,7 +832,7 @@ const overlaps = (a, b) => !(a.right <= b.left || b.right <= a.left ||
 | 1. 本番実装 全部 + §0 装置 | `1545fa6` | `index.html` / `tools/driver_cast_circle.js`(1 語) / `tavern.html`(changelog) / 新 driver | §0 **8/8 PASSED / PENDING 21** |
 | 2. §1 敵の札 + §2 70% | `d0f4124` | `tools/verify_enemy_name_label.js` のみ | **22/22 PASSED / PENDING 7** |
 | 3. §3 恒等 + §4 撤退 | `92a2f4d` | 同上 | **29/29 PASSED / PENDING 0** |
-| 4. `--negative` 変異 17 本 + 台帳 | (本コミット) | 同上 + 依頼書 2 枚 | **受入 30/30 / `--negative` 58/58 / PENDING 0** |
+| 4. `--negative` 変異 17 本 + 台帳 | `c866791` | 同上 + 依頼書 2 枚 | **受入 30/30 / `--negative` 58/58 / PENDING 0** |
 
 - **受入条件**: `node tools/verify_enemy_name_label.js` → **30/30 PASSED / FAILED 0 / PENDING 0**(exit 0)
   ⭐ 項目 4 で **(3e) を 1 本新設**したので 29 → 30(⛔ 既存の 29 本は 1 バイトも弱めていない。理由は 12-2 ⑥)。
