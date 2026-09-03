@@ -87,9 +87,22 @@
  *     §1 の母集団が原理的に立たない (#39 / 卓上グリッド P1 の「母集団はカメラの
  *     置き方だけで消える」と同型の罠)。
  *
+ * ■ 項目 4 (このコミット) で足したもの — **--negative の変異 17 本 (PENDING 0)** と
+ *   **(3e) 罠A の受け皿**
+ *   ⭐⭐⭐ 依頼書 §8 の変異表 17 行を全部実装した。⛔ 空振り 0 (赤くならなければ FAILED)。
+ *   ⚠⚠⚠ 依頼書の targets が**原理的に空振り**する変異が 3 本あったので、
+ *     **受入条件は 1 つも弱めず**に受け皿のほうを直した (#38 の作法):
+ *       nonull     (0d) → (4a)  … push(null) は撤退枝にしかない (項目 3 が (4a) に 5 本目を追加)
+ *       hpshift    無条件 → NAME_LABEL_ON で分岐 … 恒等 assert は片アームだけ壊さないと緑
+ *       noteardown (3d) → **(3e) を新設** … (3d) は本ドライバの配信 index.html しか見ておらず、
+ *                  別ドライバ (driver_cast_circle.js) の撤去ループとは無関係で永久に空振りする
+ *   ⭐ bothgrow は依頼書の字面 (.allyLabel だけ) では (2f) が見る**敵の札**が動かず空振りするので、
+ *     味方と敵の 4 本を**同率で** 1.4545 倍にする形にした (record で (2a)(2b)(2c) が緑のまま
+ *     すり抜けることを同じ走行で実証する = (2f) が存在する理由そのもの)。
+ *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⭐ 項目 4 の担当。今は **17 本とも impl: false** = --negative は 17 本ぶんの
- *     PENDING を出す (⛔ 実装を忘れた変異が件数から消えないため MUT_ORDER には全部並べる)。
+ *   ⭐ **17 本とも impl: true / PENDING 0**
+ *     (⛔ 実装を忘れた変異が件数から消えないため MUT_ORDER には全部並べたままにする)。
  *
  *   mutate      | 注入する欠陥                                              | 赤くなるべき節
  *   nolabel     | createEnemyDom の札生成ブロックを消す                       | (0a)(1a)(1b)
@@ -102,9 +115,9 @@
  *   badgestay   | バッジ dy を -58 → -46 に戻す                              | (1h) 罠B の再現
  *   statusdetach| 状態アイコン列を札の子にせず独立配置のまま                    | (1g)
  *   typekey     | 札のテキストを def.name でなく typeKey にする                | (1b)
- *   nonull      | 撤退時の enemyLabelElements.push(null) を消す                | (0d) 添字ずれ
+ *   nonull      | 撤退時の enemyLabelElements.push(null) を消す                | **(4a)** 添字ずれ
  *   noclear     | clearNodeArrays に 11 本目を足さない                        | (3d)
- *   noteardown  | driver_cast_circle.js の撤去ループへ足さない                  | (3d) 罠A の再現
+ *   noteardown  | driver_cast_circle.js の撤去ループへ足さない                  | **(3e)** 罠A の再現
  *   dyshift     | 札の dy を -27 → -30 にする                                | (2e)
  *   hpshift     | HP バーの dy を -10 → -12 にする                            | (3a) 恒等の空振り検査
  *   bothgrow    | .allyLabel の素と body.labelSmall の上書きを**同率で**膨らませる | **(2f) だけ**
@@ -178,11 +191,16 @@ const MUTATE = arg('mutate', null);
 const PORT = parseInt(arg('port', '9850'), 10);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 変異 (17 本。⭐ **項目 4 の担当** なので今は全部 impl: false)
-//   ⛔ impl: false のまま MUT_ORDER には並べる = --negative が PENDING で 17 本ぶん出すので
-//     「実装を忘れた変異」が件数から消えない。
-//   ⚠ from/to は項目 4 が `grep -cF` で「配信バイト中ちょうど 1 件」を実測してから
-//     書き入れて impl: true にすること (⛔ 当たることと赤くなることは別)。
+// 変異 (17 本。⭐ 項目 4 で **全部 impl: true / PENDING 0 / 空振り 0**)
+//   ⛔ MUT_ORDER には常に 17 本並べる = --negative が「実装を忘れた変異」を件数から隠さない。
+//   ⚠ from/to は「配信バイト中ちょうど 1 件」を実測してから書く (⛔ 当たることと赤くなることは別)。
+//     項目 4 が 15 本ぶんを `.count()` で 1 件と確認した上で実走して赤を確かめてある。
+//
+//   ⭐⭐⭐ 変異は 2 種類ある:
+//     ① from/to (または edits[]) の**逐語置換** — 16 本
+//     ② transform の**変換関数** — bigonly の 1 本。小さい敵は 20 種以上あって
+//        どの数値も名簿の中で一意にならないので、逐語アンカーが作れない。
+//        (n0a) の代わりに verifyServed で「名簿の最小値が境界をまたいだ」を検算する。
 //
 //   ⭐⭐⭐ 項目 2 が **一時的に 4 本だけ配線して実走させ、担当の節が赤くなることを確認した**
 //     (⛔ §1/§2 の assert が「素で自明に緑」でないことを自分で証明するため。確認後 impl: false へ戻した)。
@@ -229,48 +247,140 @@ const PORT = parseInt(arg('port', '9850'), 10);
 //     → (1h) と (4a) が同時に赤になる (どちらを targets に書いてもよい)。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
-  nolabel: { impl: false, file: 'index.html', targets: ['0a', '1a', '1b'],
-    why: 'createEnemyDom の札生成ブロックを消す (敵の札が 1 枚も出ない)' },
-  noscale: { impl: false, file: 'index.html', targets: ['0c', '2a', '2b'],
-    why: 'document.body.classList.add("labelSmall") を消す (70% が効かない)' },
-  nocss: { impl: false, file: 'index.html', targets: ['2c'],
-    why: 'body.labelSmall .enemyLabel { … } を消す (敵の札だけ 100% のまま)' },
-  noenemycss: { impl: false, file: 'index.html', targets: ['2d'],
-    why: '.enemyLabel { … } を丸ごと消す (className は残る = §2-7 罠C の再現)' },
-  deadshow: { impl: false, file: 'index.html', targets: ['1d'],
+  nolabel: { impl: true, file: 'index.html', targets: ['0a', '1a', '1b'],
+    from: '      if (NAME_LABEL_ON) {',
+    to:   '      if (false /* nolabel */) {',
+    why: 'createEnemyDom の札生成ブロックを通らなくする (敵の札が 1 枚も出ない)' },
+  noscale: { impl: true, file: 'index.html', targets: ['0c', '2a', '2b'],
+    from: 'if (NAME_LABEL_ON) document.body.classList.add("labelSmall");',
+    to:   'if (false) document.body.classList.add("labelSmall");',
+    why: 'document.body.classList.add("labelSmall") を効かなくする (70% が効かない)' },
+  nocss: { impl: true, file: 'index.html', targets: ['2c'],
+    from: '    body.labelSmall .enemyLabel {',
+    to:   '    body.labelSmall .enemyLabelNOCSS {',
+    why: 'body.labelSmall .enemyLabel { … } の宛先を外す (敵の札だけ 100% のまま)' },
+  noenemycss: { impl: true, file: 'index.html', targets: ['2d'],
+    from: '    .enemyLabel {',
+    to:   '    .enemyLabelDISABLED {',
+    why: '.enemyLabel { … } を丸ごと効かなくする (className は残る = §2-7 罠C の再現)' },
+  deadshow: { impl: true, file: 'index.html', targets: ['1d'],
+    from: '          if (_deadLabelEl) _deadLabelEl.style.display = "none";',
+    to:   '          if (false) _deadLabelEl.style.display = "none";',
     why: '死亡時の札 hide を消す (倒した敵の名前が床に残る)' },
-  fogshow: { impl: false, file: 'index.html', targets: ['1c'],
+  fogshow: { impl: true, file: 'index.html', targets: ['1c'],
+    from: '          if (_labelEl) _labelEl.style.display = "none";',
+    to:   '          if (false) _labelEl.style.display = "none";',
     why: '伏兵化フォグの札 hide を消す (伏兵が名前で丸見えになる)' },
-  hydrashow: { impl: false, file: 'index.html', targets: ['1e'],
+  hydrashow: { impl: true, file: 'index.html', targets: ['1e'],
+    from: 'const _hl = enemyLabelElements[index]; if (_hl) _hl.style.display = "none";',
+    to:   'const _hl = enemyLabelElements[index]; /* hydrashow: 封印中も出す */',
     why: 'ハイドラ封印中の札 hide を消す (祭壇だけの見た目が壊れる)' },
-  badgestay: { impl: false, file: 'index.html', targets: ['1h'],
+  badgestay: { impl: true, file: 'index.html', targets: ['1h'],
+    from: 'const badgeDy = NAME_LABEL_ON ? -58 : -46;',
+    to:   'const badgeDy = -46;',
     why: '装備バッジの dy を -58 → -46 に戻す (§2-5 罠B = 札と 9px 重なる)' },
-  statusdetach: { impl: false, file: 'index.html', targets: ['1g'],
-    why: '状態アイコン列を札の子にせず独立配置のままにする' },
-  typekey: { impl: false, file: 'index.html', targets: ['1b'],
+  statusdetach: { impl: true, file: 'index.html', targets: ['1g'],
+    from: 'lb.appendChild(st);',
+    to:   'enemyLayer.appendChild( st );',
+    why: '状態アイコン列を札の子にせず独立配置のままにする'
+      + ' ⚠ to の空白は必須 — 空白なしの形は else 枝に**元から居る**ので (n0a) が破れる' },
+  typekey: { impl: true, file: 'index.html', targets: ['1b'],
+    from: '        nameSpan.textContent = def.name || "";',
+    to:   '        nameSpan.textContent = typeKey || "";',
     why: '札のテキストを def.name でなく typeKey にする' },
-  nonull: { impl: false, file: 'index.html', targets: ['0d'],
-    why: '撤退時の enemyLabelElements.push(null) を消す (添字ずれ)' },
-  noclear: { impl: false, file: 'index.html', targets: ['3d'],
-    why: 'clearNodeArrays に 11 本目 (enemyLabelElements) を足さない' },
-  noteardown: { impl: false, file: 'tools/driver_cast_circle.js', targets: ['3d'],
-    why: 'driver_cast_circle.js の撤去ループへ enemyLabelElements を足さない (§2-2 罠A)' },
-  dyshift: { impl: false, file: 'index.html', targets: ['2e'],
-    why: '札の dy を -27 → -30 にする (placeUnscaledUi の上端が動く)' },
-  hpshift: { impl: false, file: 'index.html', targets: ['3a', '4b'],
+  nonull: { impl: true, file: 'index.html', targets: ['4a'],
+    from: '        enemyLabelElements.push(null);',
+    to:   '        /* nonull: null を積まない */',
+    why: '撤退時の enemyLabelElements.push(null) を消す (?namelabel=0 のときだけ添字がずれる)'
+      + ' ⚠⚠⚠ 依頼書の targets (0d) は**空振りする** — push(null) は createEnemyDom の'
+      + ' **撤退枝にしかない**ので、素のアームしか見ない (0d) では原理的に赤にならない。'
+      + ' 項目 3 が (4a) に 5 本目 (OFF の labelArrayLen === enemies.length) を AND で足し、'
+      + ' そちらへ targets を移した (受入条件は 1 つも弱めていない = #38 の作法)' },
+  noclear: { impl: true, file: 'index.html', targets: ['3d'],
+    from: 'enemyStatusElements.length = 0; enemyLabelElements.length = 0;',
+    to:   'enemyStatusElements.length = 0; /* 11 本目を掃除しない */',
+    why: 'clearNodeArrays に 11 本目 (enemyLabelElements) を足さない'
+      + ' ⚠ to を前半だけ (接頭辞) にすると素の行に元から居るので (n0a) が破れる' },
+  noteardown: { impl: true, file: 'tools/driver_cast_circle.js', targets: ['3e'],
+    from: '                       enemyLabelElements]) {',
+    to:   '                       ]) {',
+    why: 'driver_cast_circle.js の撤去ループへ enemyLabelElements を足さない (§2-2 罠A)'
+      + ' ⚠⚠⚠ 依頼書の targets (3d) は**原理的に赤にできない** — (3d) は本ドライバが配信する'
+      + ' index.html の clearNodeArrays しか見ておらず、別ドライバの撤去ループとは無関係。'
+      + ' ⇒ 項目 4 で (3e) を新設した: **配信した 2 本のソースを突き合わせて**'
+      + ' 「createEnemyDom が push する配列が全部その撤去ループに並んでいる」を検査する。'
+      + ' これなら罠A (11 本目の取りこぼし) が機械で赤になり、12 本目が増えた日にも効く' },
+  dyshift: { impl: true, file: 'index.html', targets: ['2e'],
+    from: 'hpBarOffX + 2, -27);',
+    to:   'hpBarOffX + 2, -30.0);',
+    why: '札の dy を -27 → -30 にする (置き位置の上端が動く)'
+      + ' ⚠ -30); は素と**同じ長さ**で起動時の検算に弾かれるので小数を足す' },
+  hpshift: { impl: true, file: 'index.html', targets: ['3a', '4b'],
+    from: 'hpBarOffX, -10);',
+    to:   'hpBarOffX, NAME_LABEL_ON ? -12.5 : -10);',
     why: 'HP バーの dy を **NAME_LABEL_ON のときだけ** -10 → -12.5 にする (恒等 assert の空振り検査)'
       + ' ⚠⚠⚠ 依頼書の「-10 → -12」(無条件) は**空振りする** — 負のコントロールは素も撤退も'
       + ' 同じ変異ポートから配るので、両アームが等しく動いて (3a) は緑のまま。'
-      + ' 項目 3 が実走で両方 (無条件 = 緑 / 分岐 = 赤) を確認した。アンカーは上のコメント参照' },
-  bothgrow: { impl: false, file: 'index.html', targets: ['2f'],
-    why: '.allyLabel の素を font-size: 16px に、body.labelSmall の上書きを 11.2px に'
-      + ' **同率で**膨らませる — ⭐⭐⭐ (2a)(2b)(2c) は比 0.70 のまま**緑で通る**。'
+      + ' 項目 3 が実走で両方 (無条件 = 緑 / 分岐 = 赤) を確認した' },
+  bothgrow: { impl: true, file: 'index.html', targets: ['2f'], record: ['2a', '2b', '2c'],
+    /* ⭐⭐⭐ 「素と 70% を**同率で**膨らませる」= 11px → 16px / 7.7px → 11.2px (どちらも 1.4545 倍)。
+       ⚠ 依頼書は「.allyLabel の素と body.labelSmall の上書き」とだけ書いていたが、
+         **味方の札だけ**膨らませると (2f) が測るのは敵の札なので**空振りする** (しかも
+         (2c)「3 種の高さが同じ」が壊れて別の理由で赤くなり、狙いがぼける)。
+         ⇒ 味方と敵の 4 本を同率で膨らませる形にした = (2a)(2b)(2c) は比 0.70 のまま緑、
+           絶対量を見る (2f) だけが赤 という依頼書の狙いがそのまま出る (record で実証する)。
+       ⚠ 4 本を 1 行で書けるよう !important の上書きを 1 箇所へ注入する
+         (font-size 行は「7.7px」が 2 箇所あってアンカーが一意にならない)。 */
+    from: '    .enemyLabel {',
+    to:   '    .allyLabel, .enemyLabel { font-size: 16px !important; }'
+        + ' body.labelSmall .allyLabel, body.labelSmall .enemyLabel'
+        + ' { font-size: 11.2px !important; } .enemyLabel {',
+    why: '味方と敵の札を **素も 70% も同率で** 1.4545 倍に膨らませる —'
+      + ' ⭐⭐⭐ (2a)(2b)(2c) は比 0.70 のまま**緑で通る** (record で同時に実証する)。'
       + ' §2-11(e)「両方同じだけ壊れる変更」の再現で、この 1 本のためだけに (2f) がある' },
-  bigonly: { impl: false, file: 'index.html', targets: ['0h', '2f'],
+  bigonly: { impl: true, file: 'index.html', targets: ['0h', '2f'],
+    /* ⭐ 1 行置換では書けない — 小さい敵は 20 種以上あり、どの数値も名簿の中で一意にならない。
+       ⇒ **変換関数**で配る (edits の代わりに transform を持つ変異)。
+       ⛔ 書き換えるのは ENEMY_TYPES の中だけ (味方や UI の寸法には触らない)。 */
+    transform: function (body) {
+      const W = 'display' + 'Size';                 /* [0g-data] 名簿の数値を書き換えるだけ */
+      const head = 'const ENEMY_TYPES = {';
+      const i = body.indexOf(head);
+      if (i < 0) return null;
+      const j = body.indexOf('\n    };', i);
+      if (j < 0) return null;
+      let n = 0;
+      const grown = body.slice(i, j).replace(
+        new RegExp('(' + W + ': *)(\\d+)', 'g'),
+        function (all, lead, num) {
+          if (parseInt(num, 10) >= 71) return all;
+          n++;
+          return lead + '96 /* bigonly */';
+        });
+      if (n === 0) return null;
+      return { body: body.slice(0, i) + grown + body.slice(j), note: n + ' 種を 96 へ' };
+    },
+    /* (n0a) の代わり。⭐ 「配った欠陥が素に無く変異側にだけ在る」を**名簿の最小値**で見る。 */
+    verifyServed: function (pure, mut) {
+      const a = rosterFromBytes(pure), b = rosterFromBytes(mut);
+      if (!a.ok || !b.ok) return [false, '⛔ 配信バイトから名簿を切り出せない'];
+      const mn = (r) => r.sizes.length ? Math.min.apply(null, r.sizes) : null;
+      const p = mn(a), q = mn(b);
+      const ok = p !== null && q !== null && p <= SMALL_MAX && q > SMALL_MAX;
+      return [ok, '名簿の最小 素=' + p + ' / 変異=' + q + ' (境界 ' + SMALL_MAX + ')'
+        + '  名簿 ' + a.sizes.length + ' → ' + b.sizes.length + ' 件'
+        + (ok ? '' : '  ⛔ (2f) の母集団を殺せていない')];
+    },
     why: '配信バイトの ENEMY_TYPES で 71 未満の敵の寸法を全部 96 へ書き換える'
       + ' (= (2f) の母集団を殺す) — ⭐⭐⭐ 「母集団が立たないので skip = 緑」を実装すると'
-      + ' この変異が**空振り**する。§0 の共通規則そのものを機械で検査する 1 本' },
+      + ' この変異が**空振り**する。§0 の共通規則そのものを機械で検査する 1 本。'
+      + ' ⚠ このときの (2f) は「測れないから赤」なので detail に population: none が出る' },
 };
+/* ⭐ 対照ページ (?namelabel=0) を必要とする assert。⛔ 全変異で対照を開くと走行時間が倍に
+ *  なるだけなので、targets / record にこれらを含む変異のときだけ開く。
+ *  ⚠ 逆に「対照を用意しないと popFail で必ず赤」= **変異が効いていなくても赤**になり、
+ *    空振りに気づけなくなる。だから必要な変異では**必ず**開く。 */
+const REF_ASSERTS = { '2a': 1, '2b': 1, '2e': 1, '3a': 1, '3b': 1, '3c': 1, '4a': 1, '4b': 1, '4c': 1 };
 const MUT_ORDER = ['nolabel', 'noscale', 'nocss', 'noenemycss', 'deadshow', 'fogshow',
   'hydrashow', 'badgestay', 'statusdetach', 'typekey', 'nonull', 'noclear',
   'noteardown', 'dyshift', 'hpshift', 'bothgrow', 'bigonly'];
@@ -290,7 +400,8 @@ if (MUTATE !== null && !MUTATIONS[MUTATE].impl) {
 /* ⭐⭐⭐ 配信バイトの凍結。⚠ アンカーが 1 箇所にヒットしなければここで exit 3。
  *  ⛔ リクエストのたびに fs.readFileSync しない — 別窓が index.html を保存すると
  *     走行中に「素の行」と「変異後の行」が混ざったビルドを配ってしまう。
- *  ⚠ 今は MUT_SERVED が空 (17 本とも impl: false) なのでこのループは 0 周する。 */
+ *  ⭐ 変異は 2 通り: ① from/to (または edits) の**逐語置換** ② transform の**変換関数**
+ *    (bigonly = 小さい敵の寸法を全部書き換える。逐語では一意なアンカーが作れない)。 */
 const SRC = {};
 const MUT_SRC = {};
 function editsOf(m) { return m.edits ? m.edits : [{ from: m.from, to: m.to }]; }
@@ -298,6 +409,16 @@ for (const k of MUT_SERVED) {
   const m = MUTATIONS[k];
   if (!SRC[m.file]) SRC[m.file] = fs.readFileSync(path.join(ROOT, m.file), 'utf8');
   let body = SRC[m.file];
+  if (typeof m.transform === 'function') {
+    const t = m.transform(body);
+    if (!t || typeof t.body !== 'string' || t.body === body) {
+      console.error('[drv] ⛔ 変異 ' + k + ' の transform が ' + m.file
+        + ' を 1 バイトも変えなかった → 負のコントロールが空振りする');
+      process.exit(3);
+    }
+    MUT_SRC[k] = { file: m.file, body: t.body, note: t.note || '' };
+    continue;
+  }
   const eds = editsOf(m);
   for (let i = 0; i < eds.length; i++) {
     const e = eds[i];
@@ -359,6 +480,9 @@ const MIME = {
 };
 
 const PAGE_PATH = '/index.html';
+/* (3e) が読む 2 本目のソース。⭐ **同じポートから配られたバイト**を読む =
+ *  変異 noteardown を載せた版がそのまま検査対象になる。⛔ ディスクを読み直さない。 */
+const TEARDOWN_PATH = '/tools/driver_cast_circle.js';
 /* 撤退のクエリ。§4 (項目 4) が本番で使う。 */
 const RETREAT_QUERY = '?namelabel=0';
 /* シナリオは **廃坑 (goblin-mine) に固定**する (依頼書 §8 (0h))。
@@ -616,6 +740,52 @@ function rosterFromBytes(html) {
   const reKey = /\n {6}([A-Za-z_][A-Za-z0-9_]*): \{/g;
   while ((m = reKey.exec(blk)) !== null) keys.push(m[1]);
   return { ok: true, err: null, names: names, sizes: sizes, keys: keys, bytes: blk.length };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * (3e) 罠A — 「添字並列の配列が 11 本目に増えたのに、別ドライバの撤去ループが 10 本のまま」
+ *   ⚠⚠⚠ tools/driver_cast_circle.js は フィクスチャの敵を撤去するとき配列名を**逐語で**
+ *     並べて splice + remove している。その直後の検算 6.11 は
+ *     `enemies.length === enemyElements.length` の **2 本しか**比べないので、
+ *     11 本目 (札) を足し忘れても **53/53 のまま緑**で、札の DOM だけが画面に残る
+ *     (依頼書 §2-2 の罠A)。⇒ あちらのドライバ**では原理的に検出できない**。
+ *   ⭐⭐⭐ そこで **2 本のソースを突き合わせる**: createEnemyDom が push する配列の集合が、
+ *     撤去ループの配列リストに**全部**含まれていること。⛔ 「11 本」という件数は持たない
+ *     (12 本目が増えた日に自動で効くため)。
+ *   ⚠ 依頼書は変異 noteardown の targets を (3d) と書いていたが、(3d) は本ドライバが配信する
+ *     index.html の clearNodeArrays しか見ておらず**別ドライバとは無関係**なので、
+ *     そのままでは永久に空振りする。項目 4 で (3e) を新設して受け皿にした。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+function teardownScan(indexHtml, driverSrc) {
+  const out = { ok: false, err: null, pushes: [], list: [], missing: [] };
+  if (typeof indexHtml !== 'string' || typeof driverSrc !== 'string') {
+    out.err = '配信バイトを読めていない'; return out;
+  }
+  const head = 'function createEnemyDom(';
+  const i = indexHtml.indexOf(head);
+  if (i < 0) { out.err = '配信 index.html に createEnemyDom が無い'; return out; }
+  const j = indexHtml.indexOf('\n    function ', i + head.length);
+  if (j < 0) { out.err = 'createEnemyDom の終端が見つからない'; return out; }
+  const blk = indexHtml.slice(i, j);
+  const reP = /([A-Za-z_][A-Za-z0-9_]*Elements)\.push\(/g;
+  const seen = {};
+  let mm;
+  while ((mm = reP.exec(blk)) !== null) { seen[mm[1]] = true; }
+  out.pushes = Object.keys(seen).sort();
+
+  const lhead = 'for (const arr of [';
+  const a = driverSrc.indexOf(lhead);
+  if (a < 0) { out.err = '配信 driver_cast_circle.js に撤去ループが無い'; return out; }
+  const b = driverSrc.indexOf(']) {', a);
+  if (b < 0) { out.err = '撤去ループの配列リストの終端が見つからない'; return out; }
+  const inner = driverSrc.slice(a + lhead.length, b);
+  const reL = /[A-Za-z_][A-Za-z0-9_]*/g;
+  const lst = {};
+  while ((mm = reL.exec(inner)) !== null) { lst[mm[0]] = true; }
+  out.list = Object.keys(lst).sort();
+  out.missing = out.pushes.filter(n => !lst[n]);
+  out.ok = true;
+  return out;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1553,6 +1723,27 @@ const ASSERTS = [
         + (okDom ? '' : '  ⛔ 札の DOM が敵の数より多い (跨いでも消えていない)')];
     }],
 
+  ['3e', 'createEnemyDom が push する添字並列の配列が、**tools/driver_cast_circle.js の'
+    + ' フィクスチャ撤去ループ**に 1 本残らず並んでいる (⭐ 配信した 2 本のソースの突き合わせ)'
+    + ' ⚠⚠⚠ 罠A — あちらの検算 6.11 は enemies と enemyElements の 2 本しか比べないので、'
+    + ' 11 本目 (札) を足し忘れても 53/53 のまま緑で札の DOM だけが残る。'
+    + ' ⛔ 件数 (11) は期待値に持たない = 12 本目が増えた日にも自動で効く',
+    m => {
+      const t = m.teardown;
+      if (!t || !t.ok) return popFail('(3e) 2 本のソース', (t && t.err) || '突き合わせられなかった');
+      if (t.pushes.length < 2 || t.list.length < 2) {
+        return popFail('(3e) 突き合わせる母集団',
+          'createEnemyDom の push ' + t.pushes.length + ' 本 / 撤去ループ ' + t.list.length + ' 本'
+          + ' — どちらかが空では取りこぼしを検出できない');
+      }
+      const ok = t.missing.length === 0;
+      return [ok,
+        'createEnemyDom が push する配列 ' + t.pushes.length + ' 本 / 撤去ループの配列 '
+        + t.list.length + ' 本  ' + JSON.stringify(t.pushes)
+        + (ok ? '  (取りこぼし 0)' : '  ⛔ 撤去ループに無い: ' + JSON.stringify(t.missing)
+            + ' → その DOM だけが画面に残る (罠A)')];
+    }],
+
   // ── §4 撤退 ────────────────────────────────────────────────────────────────
   ['4a', 'index.html' + RETREAT_QUERY + ' の 5 条件 { enemyLabelCount, allyLabelH,'
     + ' statusIsChild, badgeTop, labelArrayLen } が **ON と OFF で対になっている**'
@@ -1762,6 +1953,9 @@ const PENDINGS = [];
       const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
       m.roster = rosterFromBytes(served.body);
       m.servedBytes = served.body.length;
+      /* ⭐ (3e) の 2 本目 = 同じポートから配られた tools/driver_cast_circle.js。 */
+      const servedTd = await httpGet('http://localhost:' + PORT + TEARDOWN_PATH);
+      m.teardown = teardownScan(served.body, servedTd.body);
       /* ⭐ (0g) の自己検査。⛔ 「DOM で測っている」を口約束にしない。 */
       m.selfScan = selfScan();
 
@@ -1809,7 +2003,7 @@ const PENDINGS = [];
 
       mark('§3 恒等 (非退行) — ⭐ 撤退アームが「#44 が入る前の見た目」の定義。'
         + 'ここが緑 = 札とバッジ以外は 1px も動かしていない');
-      for (const key of ['3a', '3b', '3c', '3d']) {
+      for (const key of ['3a', '3b', '3c', '3d', '3e']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
       }
@@ -1828,7 +2022,8 @@ const PENDINGS = [];
       if (PENDINGS.length === 0) {
         mark('未実装の受入条件 (⛔ 件数から隠さない)');
         console.log('       受入条件の PENDING は 0 件 — §0〜§4 をすべて実装済み'
-          + '  (⚠ --negative 側の変異 ' + MUT_TODO.length + ' 本は項目 4 の担当)');
+          + '  (--negative 側の変異は ' + MUT_IMPL.length + '/' + MUT_ORDER.length
+          + ' 本が実装済み / 未実装 ' + MUT_TODO.length + ' 本)');
       }
 
       /* ⭐ (4c) が assert として両アームの事故を見ているが、**中身は記録にも残す**
@@ -1856,14 +2051,22 @@ const PENDINGS = [];
           const f = '/' + MUT_SRC[k].file;
           const pure = await httpGet('http://localhost:' + PORT + f);
           const mut = await httpGet('http://localhost:' + PORT_OF[k] + f);
-          const eds = editsOf(MUTATIONS[k]);
-          const bad = eds.filter(e =>
-            !(pure.body.split(e.to).length - 1 === 0 && mut.body.split(e.to).length - 1 === 1));
-          check('(n0a-' + k + ') 素には注入文字列が無く、変異側にちょうど 1 つある'
-            + (eds.length > 1 ? ' (置換 ' + eds.length + ' 箇所すべて)' : ''),
-            bad.length === 0,
-            f + (bad.length ? '  ⛔ 当たっていない置換: '
-              + bad.map(e => JSON.stringify(String(e.to).slice(0, 50))).join(' / ') : ''));
+          if (typeof MUTATIONS[k].verifyServed === 'function') {
+            /* ⭐ 変換関数で配る変異 (bigonly) は逐語の注入文字列を持たないので、
+               「配った欠陥が素に無く変異側にだけ在る」を**意味の側**で検算する。 */
+            const v = MUTATIONS[k].verifyServed(pure.body, mut.body);
+            check('(n0a-' + k + ') 変換で配った欠陥が素に無く、変異側にだけ在る', v[0],
+              f + '  ' + v[1] + (MUT_SRC[k].note ? '  [' + MUT_SRC[k].note + ']' : ''));
+          } else {
+            const eds = editsOf(MUTATIONS[k]);
+            const bad = eds.filter(e =>
+              !(pure.body.split(e.to).length - 1 === 0 && mut.body.split(e.to).length - 1 === 1));
+            check('(n0a-' + k + ') 素には注入文字列が無く、変異側にちょうど 1 つある'
+              + (eds.length > 1 ? ' (置換 ' + eds.length + ' 箇所すべて)' : ''),
+              bad.length === 0,
+              f + (bad.length ? '  ⛔ 当たっていない置換: '
+                + bad.map(e => JSON.stringify(String(e.to).slice(0, 50))).join(' / ') : ''));
+          }
           check('(n0b-' + k + ') 素と変異で配信バイト長が違う (同じ物を 2 回測っていない)',
             pure.body.length !== mut.body.length,
             '素=' + pure.body.length + 'B / 変異=' + mut.body.length + 'B');
@@ -1877,9 +2080,15 @@ const PENDINGS = [];
           /* ⚠⚠⚠ 対照は **変異ポートの ?namelabel=0**。素のページを対照にすると
              noscale/dyshift が「変異側だけ壊れた」ではなく「両方壊れた」に見えたり、
              逆に対照を用意しないと (2a)(2b)(2e) が popFail で必ず赤になり、
-             **変異が効いていなくても赤 = 空振り**に気づけなくなる。 */
-          mm.refErrs = [];
-          mm.ref = await measure(browser, port, mm.refErrs, { query: RETREAT_QUERY });
+             **変異が効いていなくても赤 = 空振り**に気づけなくなる。
+             ⭐ 対照が要らない変異では開かない (17 本フルで 14 ページぶんの節約)。
+             ⛔ 「要らない」の判断は REF_ASSERTS の 1 箇所だけ = 判定と同じ表を見る。 */
+          const wantRef = MUTATIONS[k].targets.concat(MUTATIONS[k].record || [])
+            .some(t => REF_ASSERTS[t]);
+          if (wantRef) {
+            mm.refErrs = [];
+            mm.ref = await measure(browser, port, mm.refErrs, { query: RETREAT_QUERY });
+          }
           mm.errs = negErrs;
           /* ⭐ 項目 3: (3d) を担当する変異のときだけ、部屋跨ぎのページも開く。
              ⛔ 全変異で開くと走行時間が 1.5 倍になるだけで何も測れない
@@ -1890,6 +2099,8 @@ const PENDINGS = [];
           const servedNeg = await httpGet('http://localhost:' + port + PAGE_PATH);
           mm.roster = rosterFromBytes(servedNeg.body);
           mm.servedBytes = servedNeg.body.length;
+          const servedNegTd = await httpGet('http://localhost:' + port + TEARDOWN_PATH);
+          mm.teardown = teardownScan(servedNeg.body, servedNegTd.body);
           mm.selfScan = selfScan();
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
@@ -1901,6 +2112,16 @@ const PENDINGS = [];
             const r = a[2](mm);
             check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + a[0] + ') が赤くなる — ' + a[1],
               r[0] === false, (r[0] ? '⛔ 緑のまま (空振り) ' : '') + r[1]);
+          }
+          /* ⭐⭐⭐ record = 「この変異では**緑のまま通ってしまう**節」を同じ走行で実証する。
+             ⛔ 判定はしない (記録)。bothgrow が「比だけ見る (2a)(2b)(2c) をすり抜けるのに
+             絶対量を見る (2f) だけが落とす」= (2f) が存在する理由そのものを紙に残すため。 */
+          for (const key of (MUTATIONS[k].record || [])) {
+            const a = ASSERT_OF[key];
+            if (!a) continue;
+            const r = a[2](mm);
+            console.log('       [記録・⛔ 判定しない] 変異 ' + k + ' でも ('
+              + key + ') は ' + (r[0] ? '緑のまま' : '⛔ 赤になった') + '  — ' + r[1]);
           }
         }
       }
