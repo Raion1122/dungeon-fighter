@@ -1083,8 +1083,25 @@
          ⛔ 文言も確率もここへ 1 文字も写さない ((0b) が配信バイトを全文検索する)。
        ⛔ **storage へ 1 バイトも書かない。** roadVisited は「この滞在だけ」の JS 変数で、
          ページを開き直せば忘れる (依頼書 §6-1)。世界の状態ではない。
-       ⚠ 撤退 ?roadevent=0 は ROAD_EVENT_ON を false にするだけで済む (項目 4)。 */
+       ⭐ 撤退 ?roadevent=0 はこの下の URLSearchParams 1 回と、器の remove() だけ (§7)。 */
     var ROAD_EVENT_ON = true;
+    /* ⭐ #43 の HERO_MARK_ON (world.html:599-602) と **同じ書き方** = クエリを 1 回読むだけ。
+       ⛔ sessionStorage へ写さない —— 出来事は world.html の中でしか起きないので、
+         ?walkstep=0 と違って遷移をまたぐ必要が無い (依頼書 §2-7)。
+       ⛔ ?roadseed=N は撤退スイッチではない (決定論のシームなので off でも読んでよい)。
+       ⛔ ?world=0 / ?questwalk=0 / ?walkstep=0 と相乗りさせない
+         (赤が出たときどちらの撤退か切り分けられなくなる)。 */
+    try {
+      if (new URLSearchParams(location.search).get("roadevent") === "0") ROAD_EVENT_ON = false;
+    } catch (e) {}
+    /* ⛔ display:none で残さない —— **器ごと DOM から消す** (#41 の ?npc=0 と同じ倒し方。
+         受入条件 (5a) が getElementById("worldEventBox") === null を要求する)。
+       ⭐ 消しても js/road-events.js は壊れない —— el() が null なら open() / paint() / close() は
+         false を返して黙って何もしない (js/road-events.js:379-411)。 */
+    if (!ROAD_EVENT_ON) {
+      var elRoadBox = document.getElementById("worldEventBox");
+      if (elRoadBox) elRoadBox.remove();
+    }
     var roadVisited = {}, roadFiredCount = 0, roadLast = null;
 
     /* 拠点では出さない = 入場ダイアログが優先 ((1b) / 変異 sitefire が番人)。

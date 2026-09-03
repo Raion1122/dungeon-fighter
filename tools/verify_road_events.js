@@ -37,6 +37,18 @@
  *   ⭐ 発火 (onArriveStep からの確率) は項目 3 の担当なので、項目 2 の時点で器を開く手段は
  *     ROAD_EVENTS.open() しか無い。measureBox がそれを使って **決定論的に**開く。
  *
+ * ■ 項目 4 (撤退スイッチ) で足したもの — **PENDING 0 になる最終項目**
+ *     (3c) 撤退モード … ?walkstep=0 では 1 件も出ない。⚠⚠⚠ guard 1 行を消す変異では空振りする
+ *                 (撤退モードでは maybeRoadEvent がそもそも呼ばれない) ので、変異 retreatfire は
+ *                 **walkPath の rAF の中から出す** = 依頼書が ⛔ と書いた設計そのものを注入する
+ *     (5a) 撤退  … ?roadevent=0 で #worldEventBox が **DOM から消える** (⛔ display:none では無い)。
+ *                 ⭐ 母集団ガード = 素のアームでは器がちょうど 1 つ在ること。変異 retreatkeep が番人
+ *     (5b) 撤退  … roadEvent().on === false かつ発火 0 件。⭐⭐⭐ §1〜§3 で使っている観測
+ *                 (器が開いた回数 / 到着した停留所 / askOpen / visited) を **そのまま撤退アームへ**
+ *                 当て、素のアームが同じ種で 1 件以上発火していることを対照に置く
+ *                 (⛔ 撤退アームだけの assert は自明に緑になる = #43 (4b) の教訓)
+ *     (5c) 撤退  … 歩行は 1 ミリも変わらない (arrivalCount / 成功タップ数 / 最終ノード / 経路が一致)
+ *
  * ■ ⛔ 項目 2 の時点で (0c) / (1a)(1b) / §2〜§5 が PENDING なのは **正常**
  *   (依頼書 §4-2「STEP1 だけを終えた時点では、イベント本体の assert は赤のままが正しい」)。
  *   ⛔ 緑にするために実装を先取りしないこと。
@@ -169,8 +181,23 @@ const MUTATIONS = {
     from: '    function isRoadSite(id) { return WM.has(id) && !!NODES[id] && NODES[id].kind === "site"; }',
     to: '    function isRoadSite(id) { if (WM.has(id) && !!NODES[id] && NODES[id].kind === "site") { roadFiredCount++; roadLast = { at: id, terrain: "neg", event: "neg", choice: null, success: null, text: null }; window.ROAD_EVENTS.open(window.ROAD_EVENTS.EVENTS[0], function () {}); } return false; }   /* [neg sitefire] 拠点でも出す */',
   },
-  retreatfire: { impl: false, file: 'world.html', targets: ['3c'],
-    why: '?walkstep=0 (撤退モード) でもイベントを出す' },
+  /* ⭐ ?walkstep=0 (撤退モード) でもイベントを出す。
+     ⚠⚠⚠ **guard 1 行 (`if (walkStepOff) return false;`) を消すだけでは空振りする** ——
+       撤退モードでは goToPoint が経路を 1 回で歩き切るので onArriveStep(last, id) は
+       last === id === 拠点 になり、必ず onArriveNode へ抜けて maybeRoadEvent がそもそも
+       呼ばれない (2026-09-03 実測)。⭐ だから注入するのは依頼書が ⛔ と書いた設計そのもの =
+       **walkPath の rAF の中から中継ノードごとに出す** (world.html の maybeRoadEvent 呼び口の
+       コメントが「⛔ walkPath の中からは呼ばない」と名指しで禁じている形)。
+     ⚠ 決定論的に出す —— 素の確率でもう一度振る型にすると 2〜7 割空振りして
+       負のコントロールそのものが間欠になる (項目 3 の実測)。
+     ⭐ onRoadChoice を **本物の callback** として渡すので器は本物と同じ手順で畳める
+       (⛔ no-op を渡すと結末が出ず、ドライバが 12 秒待たされる)。 */
+  retreatfire: {
+    impl: true, file: 'world.html', targets: ['3c'],
+    why: '?walkstep=0 (撤退モード) でもイベントを出す',
+    from: '          walked += span;',
+    to: '          walked += span; if (walkStepOff && !isRoadSite(heroNodeId) && !roadVisited[heroNodeId]) { roadVisited[heroNodeId] = true; roadFiredCount++; roadLast = { at: heroNodeId, terrain: "neg", event: "neg", choice: null, success: null, text: null }; var _nev = window.ROAD_EVENTS.EVENTS[0]; window.ROAD_EVENTS.open(_nev, function (c) { onRoadChoice(_nev, c); }); }   /* [neg retreatfire] 撤退モードでも出す */',
+  },
   /* ?roadseed を無視して Math.random を直接使う。⭐ (0c) は「発火した停留所の列」だけでなく
      **乱数 32 連の署名**も 2 枚のタブで突き合わせるので、ここは確実に赤くなる
      (⛔ 発火列だけだと、たまたま両方 0 件で一致して 2 割ほど空振りする)。 */
@@ -198,8 +225,17 @@ const MUTATIONS = {
     from: '    return outcome.success ? choice.success : choice.fail;',
     to: '    return choice.success;   /* [neg sameresult] 成功と失敗で同じ文 */',
   },
-  retreatkeep: { impl: false, file: 'world.html', targets: ['5a'],
-    why: '?roadevent=0 でも器を DOM に残す (display:none で残す)' },
+  /* ⭐ 撤退したのに器を **DOM に残す** = 「消したつもりで消えていない」の再現 (#41 の ?npc=0 と同じ罠)。
+     ⛔ (5a) が getElementById("worldEventBox") !== null を赤にできないなら、
+       display:none の残骸をいつまでも「撤退できている」と読んでしまう。
+     ⚠ 残す形は **display:none** —— CSS の既定がそもそも display:none なので、
+       「見た目は同じで DOM にだけ残る」= 目視では絶対に気づけない欠陥になる。 */
+  retreatkeep: {
+    impl: true, file: 'world.html', targets: ['5a'],
+    why: '?roadevent=0 でも器を DOM に残す (display:none で残す)',
+    from: '      if (elRoadBox) elRoadBox.remove();',
+    to: '      if (elRoadBox) elRoadBox.style.display = "none";   /* [neg retreatkeep] 器を DOM に残す */',
+  },
   nodecount: {
     impl: true, file: 'js/road-events.js', targets: ['0e'],
     why: 'イベントの母集団を way + step から刻み点だけへ狭める',
@@ -412,8 +448,21 @@ async function measureBoot(browser, port, errs, opts) {
           clientFromNode: cfn, roadEvent: re,
         };
       })(),
-      /* 後続項目 (§1 / §5) が読む器。項目 1 では **まだ無いのが正しい**。 */
+      /* §1 / §5 が読む器。⭐ (5a) は **DOM に在るか**で見る —— display:none の残骸を
+         「消えている」と読まないよう、display / visibility / 子要素まで一緒に採る
+         (⛔ 器の CSS の既定がそもそも display:none なので、表示状態では区別できない)。 */
       hasEventBox: !!document.getElementById('worldEventBox'),
+      eventBox: (function () {
+        const b = document.getElementById('worldEventBox');
+        return {
+          found: !!b,
+          count: document.querySelectorAll('#worldEventBox').length,
+          inBody: !!(b && document.body.contains(b)),
+          display: b ? getComputedStyle(b).display : null,
+          visibility: b ? getComputedStyle(b).visibility : null,
+          childIds: b ? Array.prototype.slice.call(b.querySelectorAll('[id]')).map(n => n.id) : [],
+        };
+      })(),
       hasRoadEventSeam: !!(window.__world && typeof window.__world.roadEvent === 'function'),
       roadEventsModule: typeof window.ROAD_EVENTS,
       /* ⭐ 項目 2 が足したイベント表。(0b) / (0e) が **この実体から**数える。
@@ -500,6 +549,9 @@ async function readPlay(page) {
         dead: false, node: W.heroNode(), px: W.heroPx(),
         arrivals: W.arrivalCount(), last: W.lastArrival(),
         askOpen: W.askOpen(), moving: W.isMoving(),
+        /* ⭐ (3c) の母集団ガード —— 「?walkstep=0 が本当に効いている」ことを
+           **アームの中から**確かめる (⛔ URL に書いたから効いている、で済ませない)。 */
+        walkOff: W.walkStepOff(),
         road: (typeof W.roadEvent === 'function') ? W.roadEvent() : null,
         path: location.pathname, search: location.search,
       };
@@ -732,10 +784,13 @@ async function measurePlay(browser, port, errs, opts) {
   });
   out.start = await readPlay(page);
   /* ⚠ findWalkPath は **始点を含まない** = path.length がそのままホップ数 (依頼書 §2-5)。 */
+  /* ⚠ nodePath = **撤退モードで実際に歩く経路** (findPath = ノードだけ)。
+     ⭐ (3c) の母集団ガードが「その 1 ホップがイベント対象の停留所を通っているか」を
+     ここから数える (⛔ 通っていないなら「出ない」は自明に真)。 */
   out.destPick = await safeEval(page, (d) => {
     const WM = window.WORLD_MAP, W = window.__world;
     const from = W.heroNode();
-    return { from: from, dest: d, path: WM.findWalkPath(from, d) };
+    return { from: from, dest: d, path: WM.findWalkPath(from, d), nodePath: WM.findPath(from, d) };
   }, dest);
   const armWait = ((await safeEval(page, () => (window.ROAD_EVENTS && window.ROAD_EVENTS.ARM_MS) || 0)) || 0)
     + ARM_PAD_MS;
@@ -1495,6 +1550,146 @@ const ASSERTS = [
         + ' / 走行後の arrivalCount=' + (p.end ? p.end.arrivals : '—')
         + (bad.length ? ' / ⛔ 1 でない増分 ' + JSON.stringify(bad) : '')];
     }],
+
+  // ── §3 発火の規則 (残り) — 撤退モードでは出ない ────────────────────────────
+  ['3c', '[発火] **?walkstep=0 (撤退モード) では出来事が 1 件も出ない**。'
+    + ' ⭐ 母集団ガード 4 本 = (i) 撤退が本当に効いている (__world.walkStepOff()===true) /'
+    + ' (ii) ホップが 1 件以上 / (iii) 歩いた経路が **イベント対象の停留所を 1 件以上通っている** /'
+    + ' (iv) そのアームでは roadEvent().on は **true のまま** (⛔ ?roadevent=0 で消したのではない)。'
+    + ' (⛔ どれかが欠けると「出ない」が自明に真になる。変異 retreatfire が番人)',
+    (m) => {
+      const p = m.playWalkOff;
+      if (!p) return [false, '?walkstep=0 の走行の観測が無い'];
+      if (!p.pop || !p.pop.ids.length) return [false, '母集団 (way + step) が 0 件'];
+      const set = {};
+      p.pop.ids.forEach(id => { set[id] = true; });
+      const bad = (p.taps || []).filter(t => !t.ok);
+      const hops = (p.end && !p.end.dead) ? p.end.arrivals : 0;
+      const nodePath = (p.destPick && p.destPick.nodePath) || [];
+      const crossed = nodePath.filter(id => set[id]);
+      const log = p.openLog || [];
+      const fired = p.roadEnd ? p.roadEnd.fired : null;
+      const visited = (p.roadEnd && p.roadEnd.visited) ? p.roadEnd.visited : null;
+      const offOn = !!(p.end && p.end.walkOff === true);
+      const switchOn = !!(p.roadEnd && p.roadEnd.on === true);
+      const ok = offOn && switchOn && hops >= 1 && crossed.length >= 1 && bad.length === 0
+        && fired === 0 && log.length === 0 && !!visited && visited.length === 0;
+      return [ok,
+        'クエリ ' + JSON.stringify(p.query)
+        + ' / __world.walkStepOff()=' + (p.end ? p.end.walkOff : '—')
+        + ' / roadEvent().on=' + (p.roadEnd ? p.roadEnd.on : '—') + ' (⛔ 撤退スイッチでは消していない)'
+        + ' / ホップ ' + hops + ' 回 (タップ ' + (p.taps || []).length + ' 回)'
+        + ' / 1 タップで歩いた経路 ' + JSON.stringify(nodePath)
+        + ' のうちイベント対象 ' + crossed.length + ' 件 ' + JSON.stringify(crossed)
+        + ' / 発火 ' + fired + ' 件 / 器が開いた ' + log.length + ' 回'
+        + ' / visited ' + JSON.stringify(visited)
+        + (bad.length ? ' / ⛔ 失敗タップ ' + bad.length + ' 件: ' + bad[0].err : '')
+        + (log.length ? ' / ⛔ 撤退モードで開いた ' + JSON.stringify(log.map(o => o.at)) : '')];
+    }],
+
+  // ── §5 撤退 ?roadevent=0 ──────────────────────────────────────────────────
+  ['5a', '[撤退] world.html?roadevent=0 → **#worldEventBox が DOM に存在しない**'
+    + ' (⛔ display:none で残っていたら赤 —— 器の CSS の既定がそもそも display:none なので'
+    + '「見た目」では区別できない)。⭐ 母集団ガード = **素のアームでは器がちょうど 1 つ在る**こと'
+    + ' (⛔ 撤退アームだけを見る assert は自明に緑になる)。'
+    + ' ⭐ さらに js/road-events.js と js/skill-check.js は **載ったまま**であること'
+    + ' (⛔「script ごと落ちた」で緑にしない)。変異 retreatkeep が番人',
+    (m) => {
+      const b = m.boot, r = m.bootRetreat;
+      if (!b || !r) return [false, '素 / 撤退の観測が揃っていない'];
+      const pure = b.eventBox, off = r.eventBox;
+      if (!pure || !off) return [false, '器の観測が採れていない (measureBoot.eventBox)'];
+      const why = [];
+      if (!(pure.found === true && pure.count === 1 && pure.inBody === true))
+        why.push('⛔ 素のアームで器が 1 つでない (母集団ガード)');
+      if (off.found !== false || off.count !== 0) why.push('⛔ 撤退アームで器が DOM に残っている');
+      if (r.roadEventsModule !== 'object') why.push('⛔ 撤退アームで window.ROAD_EVENTS が落ちている');
+      if (r.skillCheckType !== 'object') why.push('⛔ 撤退アームで window.SkillCheck が落ちている');
+      if (r.hasScriptTag !== true) why.push('⛔ 撤退アームで js/skill-check.js の <script> が消えている');
+      return [why.length === 0,
+        '素 ' + JSON.stringify(pure) + ' / ?roadevent=0 ' + JSON.stringify(off)
+        + ' / 撤退アームの ROAD_EVENTS=' + r.roadEventsModule
+        + ' SkillCheck=' + r.skillCheckType + ' <script skill-check>=' + r.hasScriptTag
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+
+  ['5b', '[撤退] ?roadevent=0 のとき **__world.roadEvent().on === false かつ発火 0 件**。'
+    + ' ⭐⭐⭐ §1〜§3 で使っている観測 (器が開いた回数 / 到着した停留所 / askOpen / visited) を'
+    + ' **そのまま撤退アームへ当てる** —— 母集団ガード = 撤退アームでも対象停留所への到着が'
+    + ' 1 件以上、拠点への到着が 1 件以上、**かつ素のアームでは同じ種で 1 件以上発火している**'
+    + ' (⛔ 撤退アームだけの assert は自明に緑になる = #43 (4b) と同じ設計)',
+    (m) => {
+      const p = m.playRetreat, b = m.bootRetreat, base = m.play;
+      if (!p || !base) return [false, '撤退 / 素の走行の観測が揃っていない'];
+      if (!b) return [false, '?roadevent=0 の起動時の観測が無い'];
+      if (!p.pop || !p.pop.ids.length) return [false, '母集団 (way + step) が 0 件'];
+      const set = {}; p.pop.ids.forEach(id => { set[id] = true; });
+      const site = {}; (p.pop.sites || []).forEach(id => { site[id] = true; });
+      const hits = (p.arrivals || []).filter(a => a && set[a.at]);          /* (0d) と同じ観測 */
+      const siteHits = (p.arrivals || []).filter(a => a && site[a.at]);     /* (1b) と同じ観測 */
+      const log = p.openLog || [];                                          /* (1a) と同じ観測 */
+      const bad = (p.taps || []).filter(t => !t.ok);
+      const re = p.roadEnd, seamRe = b.seam ? b.seam.roadEvent : null;
+      const baseFired = base.roadEnd ? base.roadEnd.fired : 0;
+      const why = [];
+      if (!seamRe || seamRe.on !== false) why.push('⛔ 起動直後の roadEvent().on が false でない: ' + JSON.stringify(seamRe && seamRe.on));
+      if (!re || re.on !== false) why.push('⛔ 走行後の roadEvent().on が false でない: ' + JSON.stringify(re && re.on));
+      if (!re || re.fired !== 0) why.push('⛔ 発火が 0 件でない: ' + JSON.stringify(re && re.fired));
+      if (!re || re.last !== null) why.push('⛔ roadEvent().last が null でない');
+      if (!re || !Array.isArray(re.visited) || re.visited.length !== 0) why.push('⛔ visited が空でない');
+      if (log.length !== 0) why.push('⛔ 器が ' + log.length + ' 回開いた: ' + JSON.stringify(log.map(o => o.at)));
+      if (!p.end || p.end.askOpen !== false) why.push('⛔ 走行後の askOpen() が false でない');
+      if (bad.length) why.push('⛔ 失敗タップ ' + bad.length + ' 件: ' + bad[0].err);
+      /* 母集団ガード (⛔ ここが立たないと上の 0 件は全部自明に真) */
+      if (hits.length < 1) why.push('⛔ 母集団: 対象停留所への到着が 0 件');
+      if (siteHits.length < 1) why.push('⛔ 母集団: 拠点への到着が 0 件');
+      if (baseFired < 1) why.push('⛔ 母集団: 素のアームが同じ種で 1 件も発火していない (種 ' + base.seed + ')');
+      return [why.length === 0,
+        'クエリ ' + JSON.stringify(p.query)
+        + ' / 起動直後 roadEvent()=' + JSON.stringify(seamRe)
+        + ' / 走行後 roadEvent()=' + JSON.stringify(re)
+        + ' / 器が開いた ' + log.length + ' 回 / askOpen=' + (p.end ? p.end.askOpen : '—')
+        + ' / タップ ' + (p.taps || []).length + ' 回'
+        + ' / 対象停留所への到着 ' + hits.length + ' 件 ' + JSON.stringify(uniq(hits.map(a => a.at)))
+        + ' / 拠点への到着 ' + siteHits.length + ' 件 ' + JSON.stringify(uniq(siteHits.map(a => a.at)))
+        + ' / 対照: 素のアームの発火 ' + baseFired + ' 件 ' + JSON.stringify(firedList(base))
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
+
+  ['5c', '[撤退] ?roadevent=0 でも **歩行そのものは 1 ミリも変わらない** —— 同じ種・同じ行き先で'
+    + ' arrivalCount / 成功タップ数 / 最終ノード / findWalkPath の経路が素のアームと一致する。'
+    + ' ⭐ 母集団ガード = 素のアームは 1 件以上発火し撤退アームは 0 件、かつ両方とも'
+    + ' 行き先へ着いていてホップが 2 回以上 (⛔ 0 ホップどうしの一致は自明に真)',
+    (m) => {
+      const a = m.play, b = m.playRetreat;
+      if (!a || !b) return [false, '素 / 撤退の走行の観測が揃っていない'];
+      const tapsA = (a.taps || []).filter(t => t.ok).length;
+      const tapsB = (b.taps || []).filter(t => t.ok).length;
+      const pathA = (a.destPick && a.destPick.path) || [];
+      const pathB = (b.destPick && b.destPick.path) || [];
+      const endA = a.end || {}, endB = b.end || {};
+      const firedA = a.roadEnd ? a.roadEnd.fired : null;
+      const firedB = b.roadEnd ? b.roadEnd.fired : null;
+      const why = [];
+      if (a.seed !== b.seed) why.push('⛔ 種が違う ' + a.seed + ' vs ' + b.seed);
+      if (a.dest !== b.dest) why.push('⛔ 行き先が違う ' + a.dest + ' vs ' + b.dest);
+      if (!eqList(pathA, pathB)) why.push('⛔ findWalkPath の経路が違う ' + JSON.stringify(pathA) + ' vs ' + JSON.stringify(pathB));
+      if (endA.arrivals !== endB.arrivals) why.push('⛔ arrivalCount が違う ' + endA.arrivals + ' vs ' + endB.arrivals);
+      if (tapsA !== tapsB) why.push('⛔ 成功タップ数が違う ' + tapsA + ' vs ' + tapsB);
+      if (endA.node !== endB.node) why.push('⛔ 最終ノードが違う ' + JSON.stringify(endA.node) + ' vs ' + JSON.stringify(endB.node));
+      if (endA.node !== a.dest || endB.node !== b.dest)
+        why.push('⛔ どちらかが行き先へ着いていない (' + JSON.stringify(endA.node) + ' / ' + JSON.stringify(endB.node) + ')');
+      if (!(endA.arrivals >= 2)) why.push('⛔ 母集団: ホップが 2 回未満 (' + endA.arrivals + ')');
+      if (!(firedA >= 1)) why.push('⛔ 母集団: 素のアームが 1 件も発火していない');
+      if (firedB !== 0) why.push('⛔ 撤退アームで ' + firedB + ' 件発火した');
+      return [why.length === 0,
+        '素 ' + JSON.stringify(a.query) + ' → 到着 ' + JSON.stringify(endA.node)
+        + ' arrivalCount=' + endA.arrivals + ' 成功タップ ' + tapsA + ' 回 発火 ' + firedA + ' 件'
+        + '  /  撤退 ' + JSON.stringify(b.query) + ' → 到着 ' + JSON.stringify(endB.node)
+        + ' arrivalCount=' + endB.arrivals + ' 成功タップ ' + tapsB + ' 回 発火 ' + firedB + ' 件'
+        + ' / findWalkPath ' + JSON.stringify(pathA) + ' (一致=' + eqList(pathA, pathB) + ')'
+        + (why.length ? '  ' + why.join(' ') : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1506,20 +1701,10 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //   ⚠ ASSERTS へ移したら **PENDINGS から外し、本体の配線 (§n の配列) へキーを足す**
 //     —— 両方やらないと件数が合わなくなる。
 // ══════════════════════════════════════════════════════════════════════════════
-const PENDINGS = [
-  ['§3 発火の規則 (残り) — 依頼書 §8', [
-    ['3c', '?walkstep=0 では 1 件も出ない (母集団ガード = そのアームでもホップが 1 件以上)',
-      '⛔ 撤退アームの測定が未実装 → 項目 4'],
-  ]],
-  ['§5 撤退 ?roadevent=0 — 依頼書 §8', [
-    ['5a', '?roadevent=0 → #worldEventBox が DOM に存在しない (⛔ display:none で残っていたら赤)',
-      '⛔ 撤退スイッチが未実装 → 項目 4'],
-    ['5b', '?roadevent=0 のとき __world.roadEvent().on === false かつ発火 0 件'
-      + ' (⭐ §1〜§3 の assert を撤退アームにも当てる)', '⛔ 撤退スイッチが未実装 → 項目 4'],
-    ['5c', '?roadevent=0 でも歩行そのものは 1 ミリも変わらない'
-      + ' (同じ種・同じ経路で arrivalCount と最終ノードが一致)', '⛔ 撤退スイッチが未実装 → 項目 4'],
-  ]],
-];
+/* ⭐ 2026-09-03 (項目 4) で (3c) / (5a) / (5b) / (5c) を ASSERTS へ移し、**空になった**。
+   ⛔ 空でも配列ごと削除しないこと —— 削ると PENDING という 3 値そのものが消え、
+     次に受入条件を足す人が「宣言だけして黙って緑」に戻せてしまう。 */
+const PENDINGS = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測の集約 — ⭐ 受入条件ごとに「何を測れば足りるか」を 1 表で持つ
@@ -1532,12 +1717,17 @@ const NEEDS = {
   '0d': ['play'], '0e': ['boot'],
   '1a': ['play'], '1b': ['play'], '1c': ['box'], '1d': ['box'],
   '2a': ['choiceWin', 'choiceParty1'], '2b': ['choiceParty1'], '2c': ['served'],
-  '3a': ['round'], '3b': ['rates'], '3d': ['play'], '3e': ['play'],
+  '3a': ['round'], '3b': ['rates'], '3c': ['playWalkOff'], '3d': ['play'], '3e': ['play'],
   '3f': ['boot', 'choiceWin', 'choiceLose'],
   '4a': ['boot'], '4b': ['boot'], '4c': ['play'],
+  /* ⭐ §5 は **撤退アームだけ**を見ない —— 素のアーム (boot / play) を対照として一緒に採る
+     (⛔ 撤退アームだけの assert は自明に緑になる = #43 (4b) の教訓)。 */
+  '5a': ['boot', 'bootRetreat'], '5b': ['play', 'playRetreat', 'bootRetreat'],
+  '5c': ['play', 'playRetreat'],
 };
 const ALL_KEYS = ['0a', '0b', '0c', '0d', '0e', '1a', '1b', '1c', '1d',
-  '2a', '2b', '2c', '3a', '3b', '3d', '3e', '3f', '4a', '4b', '4c'];
+  '2a', '2b', '2c', '3a', '3b', '3c', '3d', '3e', '3f', '4a', '4b', '4c',
+  '5a', '5b', '5c'];
 
 /* ⭐ SEED_NEAR + DEST_NEAR なら **2 タップ目**に必ず 1 件出るので、判定つきの選択肢を
    押す測定 ((2a)(2b)(3f)) はここへ畳める (⛔ 8 ホップ歩いてから測る必要は無い)。 */
@@ -1557,6 +1747,9 @@ async function collect(browser, port, errs, need) {
   const m = {}, want = {};
   need.forEach(k => { want[k] = true; });
   if (want.boot) m.boot = await measureBoot(browser, port, errs, {});
+  /* ⭐ 撤退アーム。⛔ sessionStorage へ写さないので **クエリを持つタブでだけ**効く
+     (?walkstep=0 と違い、開き直せば元に戻るのが仕様 = 依頼書 §2-7)。 */
+  if (want.bootRetreat) m.bootRetreat = await measureBoot(browser, port, errs, { query: '?roadevent=0' });
   if (want.served) m.served = (await httpGet('http://localhost:' + port + PAGE_PATH)).body;
   if (want.box) m.box = await measureBox(browser, port, errs, { viewport: { width: 390, height: 844 } });
   if (want.rates) m.rates = await measureRates(browser, port, errs, SEED_MAIN);
@@ -1567,6 +1760,12 @@ async function collect(browser, port, errs, need) {
   if (want.play) m.play = await measurePlay(browser, port, errs, {});
   if (want.playB) m.playB = await measurePlay(browser, port, errs, {});
   if (want.round) m.round = await measurePlay(browser, port, errs, { roundTrip: true });
+  /* ⭐ (5b)(5c) の撤退アーム — 種も行き先も素の play と **同じ**にする
+     (⛔ 違う条件で採ると「歩行が変わっていない」を比べられない)。 */
+  if (want.playRetreat) m.playRetreat = await measurePlay(browser, port, errs, { extraQuery: '&roadevent=0' });
+  /* ⭐ (3c) の撤退モード。⚠ ?walkstep=0 は sessionStorage 経由で効き続けるので、
+     **このタブだけ**で踏む (browser.newPage = 新しいタブ = 新しい sessionStorage)。 */
+  if (want.playWalkOff) m.playWalkOff = await measurePlay(browser, port, errs, { extraQuery: '&walkstep=0' });
   if (want.choiceWin) m.choiceWin = await measureChoice(browser, port, errs, { force: D20_WIN, session: PARTY4 });
   if (want.choiceLose) m.choiceLose = await measureChoice(browser, port, errs, { force: D20_LOSE, session: PARTY4 });
   if (want.choiceParty1) m.choiceParty1 = await measureChoice(browser, port, errs, { force: D20_WIN, local: PARTY1 });
@@ -1646,10 +1845,13 @@ function runCheck(m, key) {
       for (const key of ['1a', '1b', '1c', '1d']) runCheck(m, key);
       mark('§2 party — 4 人分 (2a) / 1 人でも判定が成立 (2b) / peek だけ (2c)');
       for (const key of ['2a', '2b', '2c']) runCheck(m, key);
-      mark('§3 発火の規則 — 再訪 (3a) / 地形差 (3b) / 移動中 (3d) / 判定なし (3e) / 分岐 (3f)');
-      for (const key of ['3a', '3b', '3d', '3e', '3f']) runCheck(m, key);
+      mark('§3 発火の規則 — 再訪 (3a) / 地形差 (3b) / ?walkstep=0 (3c) / 移動中 (3d) / '
+        + '判定なし (3e) / 分岐 (3f)');
+      for (const key of ['3a', '3b', '3c', '3d', '3e', '3f']) runCheck(m, key);
       mark('§4 恒等 (非退行) — 地図データ (4a) / __world の窓 (4b) / arrivalCount (4c)');
       for (const key of ['4a', '4b', '4c']) runCheck(m, key);
+      mark('§5 撤退 ?roadevent=0 — 器ごと消える (5a) / 発火 0 件 (5b) / 歩行は不変 (5c)');
+      for (const key of ['5a', '5b', '5c']) runCheck(m, key);
 
       if (m.boot) {
         console.log('       [記録] <script src> の並び:');
@@ -1721,6 +1923,23 @@ function runCheck(m, key) {
           console.log('         → 「' + String(e.label).slice(0, 22) + '」 → 結末 '
             + JSON.stringify(String(e.resultText).slice(0, 30)) + ' 閉じた=' + e.closed
             + ' overlay=' + e.overlayExists);
+        }
+      }
+      if (m.playRetreat || m.playWalkOff) {
+        console.log('       [記録] 撤退アーム (⛔ 期待値ではない。読み解き用):');
+        for (const [tag, p] of [['?roadevent=0', m.playRetreat], ['?walkstep=0 ', m.playWalkOff]]) {
+          if (!p) continue;
+          console.log('         ' + tag + '  ' + JSON.stringify(p.query)
+            + '  タップ ' + (p.taps || []).length + ' 回'
+            + ' / arrivalCount=' + (p.end ? p.end.arrivals : '—')
+            + ' / 到着 ' + JSON.stringify(p.end ? p.end.node : null)
+            + ' / walkStepOff=' + (p.end ? p.end.walkOff : '—')
+            + ' / roadEvent()=' + JSON.stringify(p.roadEnd)
+            + ' / 器が開いた ' + ((p.openLog || []).length) + ' 回');
+        }
+        if (m.bootRetreat) {
+          console.log('         器の在処 ?roadevent=0: ' + JSON.stringify(m.bootRetreat.eventBox)
+            + '  (素: ' + JSON.stringify(m.boot ? m.boot.eventBox : null) + ')');
         }
       }
       if (m.choiceWin || m.choiceLose) {
