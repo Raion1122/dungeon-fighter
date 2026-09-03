@@ -704,4 +704,229 @@ function applyRoadVigilance() {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+- **ステータス**: ✅ **完了**(dev-loop 4 項目・停止 0 回)。⛔ **push は未実施**(ユーザー承認事項)。
+- **着手前 HEAD** = `35ee8e8`(⛔ 非退行の基準はこれ)
+
+### 12-1. コミット
+
+| 項目 | commit | 件名 |
+|---|---|---|
+| 1 (装置) | `a30bb39` | #47 項目1 — 装置 tools/verify_road_boon.js (ポート 9790・§0 母集団ガード / §1-§4 は PENDING) |
+| 2 (街道側) | `c492253` | #47 項目2 — 街道側: BOONS 表 / boonOf / 「携えた」の 1 行 / roadBoon の書き込み / 撤退 ?roadboon=0 |
+| 3 (潜行側) | `abf0267` | #47 項目3 — 潜行側: roadBoon の消費 / 糧 maxHp+3 / 備え applyRoadVigilance / label ホワイトリスト / 撤退 ?roadboon=0 |
+| 4 (締め) | **本コミット** | #47 項目4 (最終) — 撤退 ?roadboon=0 の受入 3 本 / 変異 15 本 / golden 15 本の非退行 / 締め |
+
+⚠ 項目 4 が触ったのは `tools/verify_road_boon.js` と本依頼書・`実装依頼書/README.md` だけ
+(`index.html` / `tavern.html` / `audio.js` は 1 バイトも動かしていない)ので **changelog は不要**
+(`scripts/hooks/check_changelog.py:24` の `GAME_LOGIC` トリガー範囲外)。
+
+### 12-2. ⛔ 依頼書の主張が崩れた 4 件(⭐ 全部この窓が実測して訂正した)
+
+#### (1) ⭐⭐⭐ ポート 9770 は空きではなかった(§4-1 の誤り)
+
+依頼書 §4-1 は「`tools/*.js` の全ポートを実測して空きを確認済み」として **9770** を指定していたが、
+これは **base ポートだけを見た判定**だった。流用元の `tools/verify_road_events.js` は
+base **9760** + 変異 **14 本**で、`--negative` 時に `PORT + 1 + i` = **9761〜9774 を占有する**。
+⇒ **9770 はそのレンジのど真ん中**で、両方を並走させると片方が EADDRINUSE で落ちる。
+
+⇒ **9790 へ変更**(9775〜9849 は完全に空き。次に使われているのは `verify_enemy_name_label` の 9850)。
+本ドライバは base 9790 / `--negative` で **9791〜9805**(変異 15 本)を使う。
+
+⭐ **教訓**: **ポートの空きは base だけでなく「そのドライバが `--negative` で開くレンジ」まで数える。**
+
+#### (2) ⭐⭐⭐ `taintlabel` の当たり先が誤り(§8 負のコントロール表)
+
+依頼書は「`BOONS` の label を `<img src=x onerror=1>` に差し替える(`js/road-events.js`)」と
+書いていたが、これは **原理的に (2e) を赤にできない**:
+
+- (2e) の汚れた label は **ドライバ側の `IDX_SEED_TAINT` を sessionStorage へ直接置く**経路で
+  供給される。⇒ `js/road-events.js` の `BOONS` を汚しても **観測に 1 バイトも届かない**。
+- しかも `BOONS` が汚れても `index.html` の白名簿が正しく既定語へ倒すので、**実装は正しいまま** = 緑。
+
+⇒ **正しい変異は `index.html` の白名簿そのものを外すこと**:
+
+    from: '        const label = (typeof b.label === "string" && ROAD_BOON_LABEL_OK.test(b.label))'
+    to  : '        const label = (typeof b.label === "string" && (true || ROAD_BOON_LABEL_OK.test(b.label))) /* mut-taintlabel 白名簿を外す */'
+
+**実測**: 汚れた腕の `#combatLog` が 要素 **4 → 7** / `<img>` **0 → 3** になり (2e) が赤くなった
+(既定語「街道の糧」/「街道の備え」もログから消えた)。
+⭐ 罠 B(`appendLog` は `innerHTML` 代入・escape ヘルパ 0 件)を**実弾で再現できた**ことになる。
+
+⭐ **教訓**: **変異は「仕様の言葉」でなく「その assert が実際に読む値の供給口」へ当てる。**
+
+#### (3) ⭐⭐⭐ `boxleak` 1 本では paint() 側を検出できない(項目 2 のワーカーの報告が正しかった)
+
+依頼書 §8 は `boxleak` を 1 行で「`close()` / `paint()` で `#worldEventBoon` をクリアしない」と
+書いていたが、これは **別々の欠陥**で 1 本の変異では片方しか壊せない。しかも **paint() 側の掃除は
+通常の導線(open → 二択 → showResult → 先へ進む)では `close()` が先に消してしまうため、
+実クリックで歩く腕からは原理的に観測できない**。
+
+⇒ 対処は **2 つ同時に**入れた:
+
+1. **(1e) に ④ の観測を追加** —— `measurePlay` の末尾に **探針 (`paintProbe`)** を置き、本番の
+   `ROAD_EVENTS.showResult()` で「携えた」を 1 行出したあと、**`close()` を挟まずに**
+   `ROAD_EVENTS.open()` で描き直して器が空 + `hidden` に戻るかを見る。
+   ⛔ これは「駆動」ではなく **モジュールの探針**(押し口 = 閉じるボタンは 1 度も肩代わりしていない)。
+   ⚠ 実操作の観測を全部採り終えた**最後**にだけ実行する(盤面を汚すため)。
+   ⭐ 母集団ガード = 「探針が実際に 1 行を出せている」ことまで見る(出せていないと自明に緑)。
+2. **変異を `boxleak_close` / `boxleak_paint` の 2 本に割った**(⇒ 変異は 14 行 → **15 本**)。
+
+**実測(= 依頼書が求めた「実際に走らせて証明」)**:
+
+- `boxleak_close` → armWin の **閉じた後**が
+  `"→ 干し魚の束 を携えた(この先の潜行で効く)"/hidden=false` で残り、(1e) が赤。
+- `boxleak_paint` → ④ の **描き直し後**が `"→ 探針の実り を携えた(この先の潜行で効く)"` で残り、(1e) が赤。
+  ⭐⭐⭐ このとき ①②③(実クリックの 3 腕)は **全部緑のまま**だった。
+  ⇒ **「探針を足さなければこの欠陥は永久に検出できなかった」ことが機械で証明できた。**
+
+#### (4) ⭐⭐⭐ `dismissboon`(罠 A の再現)が **1 度空振りした** —— 門番が 2 本あった
+
+依頼書 §8 のとおり `boonOf` から **`!choice.check` の門番だけ**を外す変異
+(`if (!ev || !choice) return null;`)を入れたところ、**(1a) も (3a) も緑のまま**だった
+(初回 `--negative` = **46/48・FAILED 2** = この 2 本が「⛔ 緑のまま (空振り)」)。
+
+**真因**: `world.html` は判定なしの枝で `finishRoadEvent(ev, choice, null)` と
+**`outcome` に `null`** を渡す。⇒ 1 本目の門番を外しても、
+2 本目の `if (!outcome || !outcome.success) return null;` が **同じ枝をもう一度落とす**。
+⇒ 現状 **`!choice.check` は冗長な二重の門番**(将来「判定なしの枝でも outcome を作る」変更が
+入ったときにだけ効き始める保険)。
+
+⇒ 変異を「行を消す」ではなく **assert が守っている欠陥そのもの(= 判定なしの枝に恩恵が付く)**
+を 1 行で再現する形へ直した:
+
+    to: '    if (!ev || !choice) return null; if (!choice.check) outcome = { success: true }; /* mut-dismissboon 罠 A */'
+
+**実測**: (1a)① が `roadBoon 1 件 (期待 0)`、(3a) が
+`⛔ 素: 判定なしの枝だけを押したのに world 側で dragonfighters.roadBoon が書かれた` で **両方赤**。
+
+⭐ **教訓**(#38 の「条件を潰す変異は『条件が 1 本とは限らない』」の実例):
+**⛔ 変異の設計を「依頼書が名指しした 1 行を消す」で終わらせない。
+その 1 行を消して欠陥が実際に発現するかまで筋を追うこと。**
+⭐ **副産物**: この空振りは「`!choice.check` は今のところ死んだ門番」という**設計上の事実**を
+機械で明らかにした。⛔ **消してよいという意味ではない** —— #45 の golden 3 本が押す枝への
+唯一の明示的な宣言なので、`world.html` 側が outcome を渡す形に変わった瞬間に効き始める。
+
+#### ⭐ 崩れなかった主張(記録)
+
+§2-4 の予測どおり、`world.html` の `sessionStorage.setItem` は **3 → 4** に増えたが
+`verify_road_events` の (2c) は緑のまま(本チケットの (1d) も独立に緑)。
+
+### 12-3. ⚠⚠ `verify_run_chronicle` の揺れ —— **実プレイ系 golden は逐次で走らせる**
+
+この窓の着手前採取で、`verify_run_chronicle` は **他のドライバと並走させると 71/73**
+(母集団ガード (1z1) が立たない)になり、**単独実行では 73/73** になった。
+⇒ ⛔ **golden は 1 本ずつ逐次で走らせること**(並走が揺れの原因)。
+⭐ **単発の赤はまず 1 回だけ再実行する**(再実行でも赤なら本物)。
+
+### 12-4. 受入条件(`tools/verify_road_boon.js` / ポート 9790)
+
+    node tools/verify_road_boon.js
+      → 20/20 PASSED   FAILED 0   **PENDING** 0   (exit 0)
+      PASSED: (0a)(0b)(0c)(0d) (1a)(1b)(1c)(1d)(1e) (2a)(2b)(2c)(2d)(2e)(2f) (3a) (4a)(4b)(4c) (9a)
+
+⭐ **PENDING 0** = 依頼書 §8 の受入条件が 1 本も「まだ測れない」で逃げていない。
+項目 1 が 4/4 (+3 PENDING 節)、項目 2 が §1、項目 3 が §2/§3、**項目 4 が §4** を移設した。
+
+**項目 4 が移設した §4 の実測値**:
+
+| 節 | 実測 |
+|---|---|
+| (4a) | 撤退 `?roadseed=7&roadboon=0` で `coast_dock_quarrel` が **success=true**(母集団成立)。器 = `hidden:true / text:""`、`roadBoon=null`、localStorage も null。⭐ **同じ種・同じ行き先・同じ d20 の素の腕**は同じ出来事で **1 件書いている**(⛔ これが無いと撤退アームだけの assert は永久緑) |
+| (4b) | 素 maxHp=30 / **恩恵 (撤退なし) maxHp=36**(= 仕込みが効くことの母集団ガード)/ 撤退+仕込み **maxHp=30**・仲間も同一・街道の行 **0 本**・`ROAD_BOON_ON=false`・起動後のキーが **仕込みの JSON と 1 バイトも違わず残っている** |
+| (4c) | 4 本の撤退アーム(world boot / world 成功アーム / index 素 / index 仕込み)すべて **pageerror 0 件**。⚠ **CONSOLE ではなく PAGEERROR だけを数えている**(index.html は初回ロードで 404 を 1 本吐くことがあり、それは実装の欠陥ではない)。⭐ 各腕に「そのページが立ち上がっている」母集団ガードを付けた |
+
+⭐ **測定点を移した箇所**(⛔ 期待値は 1 つも緩めていない):
+(4c) は共有の errs バケツから拾うと (9a) と母集団が混ざるので、
+**撤退アームごとに専用バケツ**(`withErrs`)を持たせた。拾ったものは共有バケツへも流すので
+(9a) の母集団は 1 件も減っていない。
+
+### 12-5. 負のコントロール(`--negative`)
+
+    node tools/verify_road_boon.js --negative
+      → 48/48 PASSED   FAILED 0   **PENDING** 0   (exit 0)
+      内訳: 注入の検算 30 本 (n0a/n0b × 15) + 変異が赤くなる 17 本 + (n9a) 実装漏れ 0 = 48
+
+**変異 15 本(依頼書 §8 の 14 行 = `boxleak` を 2 本に割った)— 空振り 0**:
+
+| 変異 | 配信先 | 赤くなった節 |
+|---|---|---|
+| `nogrant` | js/road-events.js | (0c)(1a) |
+| `dismissboon` ⭐⭐⭐ 罠 A | js/road-events.js | (1a)(3a) |
+| `failgrant` | js/road-events.js | (1a) |
+| `taintlabel` ⛔ 当たり先を訂正 | **index.html** | (2e) |
+| `emptylabel` | js/road-events.js | (1b) |
+| `nocap` | world.html | (1c) |
+| `noconsume` | index.html | (2a) |
+| `nogrow` | index.html | (2b) |
+| `alwaysvigil` | index.html | (2c) |
+| `copyboon` | world.html | (0b) |
+| `localwrite` | world.html | (1d) |
+| `retreatwrite` | world.html | **(4a)** |
+| `retreatconsume` | index.html | **(4b)** |
+| `boxleak_close` ⛔ 分割 | js/road-events.js | (1e) |
+| `boxleak_paint` ⛔ 分割 | js/road-events.js | (1e) |
+
+⚠ **(4c) には変異が無い**(依頼書 §8 の表にも無い)。ページが立ち上がっているかの
+母集団ガードで「永久緑」だけは塞いである。
+
+### 12-6. 既存 golden の非退行(⛔ 15 本。着手前 HEAD = `35ee8e8` の実測が基準)
+
+⚠⚠ **`world.html` を参照するドライバは 7 本ではない。** #45 は 7 本で確認して
+`verify_player_sheet` を取りこぼし、**実物の赤を出荷した**(§2-11)。
+⛔ **1 本ずつ逐次で走らせた**(§12-3 の揺れ対策)。⚠ `tools/probe_party_size.js` は
+1 本で 15 分超かかるため orchestrator が別枠で採った(本表の外)。
+
+| ドライバ | 実測(実装後) | 基準(着手前 `35ee8e8`) | 一致 |
+|---|---|---|---|
+| `tools/verify_road_events.js` | **25/25** FAILED 0 PENDING 0 exit 0 | 25/25 | ✅ |
+| `tools/verify_world_steps.js` | **33/33** FAILED 0 PENDING 0 exit 0 | 33/33 | ✅ |
+| `tools/verify_world_map.js` | **57/57** FAILED 0 PENDING 0 exit 0 | 57/57 | ✅ |
+| `tools/verify_quest_walk.js` | **25/25** FAILED 0 PENDING 0 exit 0 | 25/25 | ✅ |
+| `tools/verify_world_heromark.js` | **18/18** FAILED 0 PENDING 0 exit 0 | 18/18 | ✅ |
+| `tools/verify_town_exit.js` | **素 23/23** PENDING 0 exit 0 | 23/23 | ✅ |
+| `tools/verify_title_screen.js` | **86/86** exit 0 | 86/86 | ✅ |
+| `tools/verify_tavern_map.js` | **43/43** FAILED 0 PENDING 0 exit 0 | 43/43 | ✅ |
+| `tools/verify_ability_scores.js` | **24/24** FAILED 0 PENDING 0 exit 0 | 24/24 | ✅ |
+| `tools/verify_darkvision.js` | **25/25** FAILED 0 PENDING 0 exit 0 | 25/25 | ✅ |
+| `tools/verify_mercenary_roster.js` | **44/44** FAILED 0 PENDING 0 exit 0 | 44/44 | ✅ |
+| `tools/verify_recruit_size.js` | **82/82 PASS** exit 0 | 82/82 | ✅ |
+| `tools/verify_run_chronicle.js` | **73/73** FAILED 0 PENDING 0 exit 0(⭐ 単独実行) | 73/73 | ✅ |
+| `tools/driver_grid_p8.js` | 1 回目 **55/1**(flake)→ **再実行 56/56 FAIL 0 exit 0** | 56/56 | ✅ |
+| `tools/verify_player_sheet.js` | **66/70** FAILED 4 = **{(2c)(2d)(8a)(8f)}** PENDING 0 exit 1 | 同じ集合(着手前から赤) | ✅ **非退行** |
+
+⛔ **期待値の変更 0 件**(どの golden の assert も 1 行も書き換えていない)。
+
+#### ⚠ `driver_grid_p8` の 1 回目の赤は flake だった(⭐ 再実行で確定)
+
+    1 回目: PASS 55 / FAIL 1  (exit 1)
+      FAIL (8e) ★noapproach → 玉座から遠いまま入室しただけでボス部屋になり (8d) が赤くなる
+                — 素={"dist":6,"at":144} / 変異=null
+    再実行: PASS 56 / FAIL 0  (exit 0)
+
+指紋 = **変異アームの観測が `null`**(= 負のコントロールのページが完走しなかった)で、
+**素のアームは正常に `dist:6 / at:144` を返している**。⇒ 実装の欠陥ではなく資源競合。
+⭐ **教訓(#34 と同じ)**: **実プレイ系ドライバの単発の赤は、まず 1 回だけ再実行する。**
+
+### 12-7. 残り = **実機体感**(§9 の 6 項目。⛔ 機械では測れない)
+
+1. 街道を横断して、**「携えた」の 1 行が羊皮紙の中で浮いていないか**(compact / iPhone 縦)
+2. 判定に勝ったとき「**得した**」と感じるか。⭐ +3 が地味すぎないか / 派手すぎないか
+3. 「備え」の初手潰しが、**戦闘のどこで効いたか分かるか**(バナー 1600ms は短くないか)
+4. 潜行開始のログ 1 行が、**開幕ナレーションに埋もれて読まれずに流れないか**
+   (⚠ `SCENARIO_NARRATIONS` の 4 段落が先に走る)
+5. 横断 1 回あたり 0.6 個という頻度が、**「たまに嬉しい」に感じられるか**(§2-9)
+6. 「街道で得たもの」が **6 件のどれだったか思い出せるか**(label が短すぎないか)
+
+⛔ **`+3` という数値と 6 件 → 2 種の割り当ては assert で縛っていない**(§8「測らないこと」)。
+遊んでから動かすレバー。動かすときは `index.html` の `+ 3` の 2 箇所(頭 / 仲間)と
+ドライバの `HP_PER_PROVISION` を **同時に**動かすこと。
+
+### 12-8. ⚠⚠⚠ `verify_player_sheet` の FAILED 4 本は #47 では直していない
+
+§11 の分岐 **(A)** がユーザー承認で確定しているとおり、
+`verify_player_sheet` の FAILED = `{(2c),(2d),(8a),(8f)}` は **着手前(`35ee8e8`)から赤**で、
+真因は #45 項目2 の `475839d`(`world.html` へ `js/skill-check.js` を載せたので習熟 / 技能の
+区画が出るようになったのに、`tools/verify_player_sheet.js:1973-1975` の期待表が
+「world では伏せる」のまま取り残された)。
+⇒ **#47 の扱いは「集合が同じなら非退行 / 増えたら #47 のせい」だけ**。
+**担当は別チケット #48**。

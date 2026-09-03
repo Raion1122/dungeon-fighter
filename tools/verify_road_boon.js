@@ -16,7 +16,7 @@
  *   `PORT + 1 + i` = **9761〜9774 を占有する**。⛔ **9770 はそのレンジのど真ん中**で、
  *   両方を並走させると片方のサーバが EADDRINUSE で落ちる (2026-09-03 実測して訂正)。
  *   9775〜9849 は完全に空き (次に使われているのは verify_enemy_name_label の 9850) なので、
- *   本ドライバは base **9790** / `--negative` で **9791〜9804** (変異 14 本) を使う。
+ *   本ドライバは base **9790** / `--negative` で **9791〜9805** (変異 15 本) を使う。
  *   `--port N` で上書き可。
  *
  * ■ 項目 1 (このコミット) で実際に測れるもの — **装置の土台だけ**
@@ -155,81 +155,145 @@ const QUEST_DEST_KEY = 'dragonfighters.questDest';
 const CROSS_SCENARIO = 'orc-fort';
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 変異 (負のコントロール) —— 依頼書 §8「負のコントロール」の 14 本
+// 変異 (負のコントロール) —— 依頼書 §8「負のコントロール」の 14 行 (= 実装 15 本)
 // ⚠ 置換文字列は必ず 1 行に閉じる (CRLF/LF 混在で複数行は原理的に一致しない)。
 // ⚠ 置換前後でバイト長を変える (同じ長さだと「当たったのに何も変わらない」を検出できない)。
 // ⚠⚠ world.html / index.html は **ディスク上 CRLF**、js/*.js と tools/*.js は **LF**。
 //    アンカーは行内文字列にすること (改行をまたがない)。
-// ⭐ 項目 1 の時点では **本体が 1 バイトも無い**ので 14 本すべて impl: false = PENDING。
-//   ⛔ 未実装分を表から隠さない —— pending() で毎回出す。
-//   ⚠ 項目 4 が impl: true にして from / to のアンカー文字列を埋める。そのとき
-//     **PENDINGS からも外して ASSERTS へ移す** —— 片方だけだと件数が合わなくなる。
+// ⭐ 項目 4 (最終) で 14 行すべてを impl: true にした。⛔ 未実装分は pending() で必ず出す。
+//
+// ⚠⚠⚠ 項目 4 が **依頼書 §8 の表を 2 箇所訂正した**(理由は §12 に記録):
+//   ① `taintlabel` の当たり先 —— 依頼書は「`js/road-events.js` の BOONS の label を
+//      `<img src=x onerror=1>` に差し替える」と書いていたが、これでは **原理的に (2e) を
+//      赤にできない**。(2e) の仕込みはドライバ側の IDX_SEED_TAINT を sessionStorage へ
+//      置く経路なので、BOONS を汚しても観測に 1 バイトも届かない。しかも BOONS が汚れても
+//      index.html の白名簿が正しく既定語へ倒すので **実装は正しいまま**。
+//      ⇒ 正しい変異は **index.html の白名簿そのものを外すこと**。
+//   ② `boxleak` を **2 本に割った** (`boxleak_close` / `boxleak_paint`)。
+//      依頼書は 1 行で「close() / paint() で #worldEventBoon をクリアしない」と書いていたが、
+//      これは **別々の欠陥**で、1 本の変異では片方しか壊せない。しかも paint() 側の掃除は
+//      通常の導線 (open → 二択 → showResult → close) では close() が先に消してしまうため、
+//      **実クリックで歩く腕からは原理的に観測できない**。⇒ (1e) に「器を閉じずに描き直す」
+//      探針 (measurePlay の paintProbe) を足し、paint() 側だけを壊した変異が赤くなることを
+//      実際に走らせて証明した。⇒ 変異は 14 行 → **15 本**。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
   nogrant: {
-    impl: false, file: 'js/road-events.js', targets: ['0c', '1a'],
+    impl: true, file: 'js/road-events.js', targets: ['0c', '1a'],
     why: 'boonOf が常に null を返す (恩恵を 1 件も配らない)',
+    from: '    return b ? { kind: b.kind, label: b.label, event: ev.id } : null;',
+    to: '    return null; /* mut-nogrant 恩恵を 1 件も配らない */',
   },
   /* ⭐⭐⭐ 依頼書 §2-2 の罠 A そのものの再現。これが赤くならない装置は、
      「既存 golden 3 本 (verify_world_steps:774 / world_map:683 / quest_walk:831 の
       `(ev.choices||[]).filter(x => !x.check)[0]`) を巻き込むかどうか」を 1 つも検出できていない。 */
+  /* ⚠⚠⚠ 項目 4 の実測で **1 度空振りした**。訂正の記録 (§12 に転記):
+       依頼書 §8 のとおり `!choice.check` の門番 **だけ**を外す変異
+       (`if (!ev || !choice) return null;`) は **緑のまま**だった。
+       真因 = **門番が 2 本ある** —— world.html は判定なしの枝で
+       `finishRoadEvent(ev, choice, null)` と **outcome に null** を渡すので、
+       1 本目を外しても 2 本目の `if (!outcome || !outcome.success) return null;` が
+       同じ枝を落とす。⇒ `!choice.check` は現状 **冗長な二重の門番**。
+     ⭐ ⇒ 変異は「行を消す」ではなく **assert が守っている欠陥そのもの**
+       (= 判定なしの枝に恩恵が付く) を 1 行で再現する形へ直した。
+       #38 の教訓「条件を潰す変異は『条件が 1 本とは限らない』」の実例。 */
   dismissboon: {
-    impl: false, file: 'js/road-events.js', targets: ['1a', '3a'],
-    why: '⭐⭐⭐ 罠 A の再現 — boonOf から !choice.check の門番を外す (判定なしの枝でも恩恵)',
+    impl: true, file: 'js/road-events.js', targets: ['1a', '3a'],
+    why: '⭐⭐⭐ 罠 A の再現 — 判定なしの枝 (outcome=null) でも恩恵が付くようにする'
+      + ' (⚠ 門番が 2 本あるので !choice.check を外すだけでは空振りする)',
+    from: '    if (!ev || !choice || !choice.check) return null;      /* 判定なしの枝は対象外 */',
+    to: '    if (!ev || !choice) return null; if (!choice.check) outcome = { success: true }; /* mut-dismissboon 罠 A */',
   },
   failgrant: {
-    impl: false, file: 'js/road-events.js', targets: ['1a'],
+    impl: true, file: 'js/road-events.js', targets: ['1a'],
     why: '!outcome.success の門番を外す (判定に負けても恩恵)',
+    from: '    if (!outcome || !outcome.success) return null;         /* 失敗 / null は対象外 */',
+    to: '    if (false) return null; /* mut-failgrant 判定に負けても恩恵 */',
   },
+  /* ⛔⛔⛔ 依頼書 §8 の「BOONS の label を差し替える」は誤り (上の訂正 ①)。
+     (2e) の汚れた label はドライバが sessionStorage へ直接置くので、当たり先は
+     **index.html の白名簿** —— ここを外すと汚れた label が updateInfo → appendLog
+     (innerHTML 代入) を素通しして #combatLog に <img> が生える。 */
   taintlabel: {
-    impl: false, file: 'js/road-events.js', targets: ['2e'],
-    why: 'BOONS の label を <img src=x onerror=1> に差し替える (罠 B の再現)',
+    impl: true, file: 'index.html', targets: ['2e'],
+    why: '⛔ 依頼書の当たり先を訂正 — index.html の label ホワイトリストを外す (罠 B の実弾)',
+    from: '        const label = (typeof b.label === "string" && ROAD_BOON_LABEL_OK.test(b.label))',
+    to: '        const label = (typeof b.label === "string" && (true || ROAD_BOON_LABEL_OK.test(b.label))) /* mut-taintlabel 白名簿を外す */',
   },
   emptylabel: {
-    impl: false, file: 'js/road-events.js', targets: ['1b'],
-    why: 'BOONS の label を空文字にする',
+    impl: true, file: 'js/road-events.js', targets: ['1b'],
+    why: 'BOONS の label を空文字にする (⭐ 当たり先 = armWin が引く coast_dock_quarrel)',
+    from: '    coast_dock_quarrel: { kind: "provision", label: "干し魚の束" },',
+    to: '    coast_dock_quarrel: { kind: "provision", label: "" }, /* mut-emptylabel */',
   },
   nocap: {
-    impl: false, file: 'world.html', targets: ['1c'],
+    impl: true, file: 'world.html', targets: ['1c'],
     why: 'pushRoadBoon の while (list.length > ROAD_BOON_MAX) を消す (上限が効かない)',
+    from: '      while (list.length > ROAD_BOON_MAX) list.shift();',
+    to: '      /* mut-nocap 上限が効かない (最古が落ちない) */',
   },
   noconsume: {
-    impl: false, file: 'index.html', targets: ['2a'],
+    impl: true, file: 'index.html', targets: ['2a'],
     why: 'consumeRoadBoon の removeItem を落とす (1 度で消えない)',
+    from: '      try { sessionStorage.removeItem("dragonfighters.roadBoon"); } catch (e) {}',
+    to: '      /* mut-noconsume 1 度で消えない (removeItem を落とす) */',
   },
   nogrow: {
-    impl: false, file: 'index.html', targets: ['2b'],
-    why: '糧の maxHp += 3 を += 0 にする (持ち込んでも何も起きない)',
+    impl: true, file: 'index.html', targets: ['2b'],
+    why: '糧の maxHp += 3 を += 0 にする (持ち込んでも頭の最大 HP が動かない)',
+    from: '          maxHp += 3; hp = maxHp;',
+    to: '          maxHp += 0; hp = maxHp; /* mut-nogrow 糧が効かない */',
   },
   alwaysvigil: {
-    impl: false, file: 'index.html', targets: ['2c'],
+    impl: true, file: 'index.html', targets: ['2c'],
     why: 'applyRoadVigilance の roadVigilance = false を消す (2 戦目以降も初手を潰す)',
+    from: '      roadVigilance = false;',
+    to: '      /* mut-alwaysvigil 1 度で消費しない (2 戦目も効く) */',
   },
   copyboon: {
-    impl: false, file: 'world.html', targets: ['0b'],
+    impl: true, file: 'world.html', targets: ['0b'],
     why: 'BOONS の label を world.html のコメントへ写経する',
+    from: '    var ROAD_BOON_KEY = "dragonfighters.roadBoon", ROAD_BOON_MAX = 3;',
+    to: '    var ROAD_BOON_KEY = "dragonfighters.roadBoon", ROAD_BOON_MAX = 3; /* mut-copyboon 干し魚の束 */',
   },
   localwrite: {
-    impl: false, file: 'world.html', targets: ['1d'],
+    impl: true, file: 'world.html', targets: ['1d'],
     why: 'pushRoadBoon を localStorage へ書き換える (world.html の 0 件を崩す)',
+    from: '      try { sessionStorage.setItem(ROAD_BOON_KEY, JSON.stringify(list)); } catch (e) {}',
+    to: '      try { localStorage.setItem(ROAD_BOON_KEY, JSON.stringify(list)); } catch (e) {} /* mut-localwrite */',
   },
   retreatwrite: {
-    impl: false, file: 'world.html', targets: ['4a'],
+    impl: true, file: 'world.html', targets: ['4a'],
     why: 'world 側の撤退門番 (ROAD_BOON_ON ? … : null) を外す (?roadboon=0 でも書く)',
+    from: '      var boon = ROAD_BOON_ON ? RE.boonOf(ev, choice, outcome) : null;',
+    to: '      var boon = RE.boonOf(ev, choice, outcome); /* mut-retreatwrite 撤退門番を外す */',
   },
   retreatconsume: {
-    impl: false, file: 'index.html', targets: ['4b'],
+    impl: true, file: 'index.html', targets: ['4b'],
     why: 'index 側の撤退門番より前に removeItem を出す (撤退なのに状態を触る)',
+    from: '      if (!ROAD_BOON_ON) return;',
+    to: '      try { sessionStorage.removeItem("dragonfighters.roadBoon"); } catch (e) {} if (!ROAD_BOON_ON) return; /* mut-retreatconsume 撤退でも状態を触る */',
   },
-  boxleak: {
-    impl: false, file: 'js/road-events.js', targets: ['1e'],
-    why: 'close() / paint() で #worldEventBoon をクリアしない (前の結末の残骸が残る)',
+  /* ⛔ 依頼書の 1 行を 2 本に割った (上の訂正 ②)。close 側と paint 側は別の欠陥で、
+     1 本の変異では片方しか壊せない。 */
+  boxleak_close: {
+    impl: true, file: 'js/road-events.js', targets: ['1e'],
+    why: 'close() で #worldEventBoon をクリアしない (閉じた後に前の「携えた」が残る)',
+    from: '    setBoonLine("");   /* ⭐ #47: 閉じるときに「携えた」を消す (変異 boxleak が番人) */',
+    to: '    /* mut-boxleak_close 閉じても「携えた」を消さない */',
+  },
+  boxleak_paint: {
+    impl: true, file: 'js/road-events.js', targets: ['1e'],
+    why: '⭐ paint() で #worldEventBoon をクリアしない (器を閉じずに描き直すと残骸が残る) '
+      + '—— 通常導線では close() が先に消すので、(1e) の paintProbe だけが捕まえられる',
+    from: '    setBoonLine("");   /* ⭐ #47: 器を描く共通口。前回の「携えた」を必ず消す (変異 boxleak) */',
+    to: '    /* mut-boxleak_paint 描き直しても「携えた」を消さない */',
   },
 };
 
 const MUT_ORDER = ['nogrant', 'dismissboon', 'failgrant', 'taintlabel', 'emptylabel', 'nocap',
   'noconsume', 'nogrow', 'alwaysvigil', 'copyboon', 'localwrite', 'retreatwrite',
-  'retreatconsume', 'boxleak'];
+  'retreatconsume', 'boxleak_close', 'boxleak_paint'];
 const MUT_IMPL = MUT_ORDER.filter(k => MUTATIONS[k].impl);
 const MUT_SERVED = MUT_IMPL.filter(k => !MUTATIONS[k].driver);
 const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
@@ -742,6 +806,30 @@ async function measurePlay(browser, port, errs, opts) {
       n: Array.isArray(list) ? list.length : null, localRaw: lraw };
   }, BOON_KEY);
   out.end = await readPlay(page);
+  /* ══ (1e)④ paint() 側の掃除を直に測る探針 (項目 4) ═══════════════════════════
+     ⭐⭐⭐ なぜ探針が要るか —— 通常の導線 (open → 二択 → showResult → 先へ進む) では
+       **close() が先に「携えた」を消す**ので、paint() 側の setBoonLine("") を消しても
+       次の導入は空のまま = **実クリックで歩く腕からは原理的に観測できない**
+       (項目 2 のワーカーが報告した (1e) の穴。依頼書 §8 の boxleak は 1 本ではこれを
+        検出できない)。⇒ **器を閉じずに描き直す**経路だけを本番の関数で通す。
+     ⛔ これは「駆動」ではなく **モジュールの探針** —— 呼ぶのは本番の showResult / open で、
+       押し口 (close ボタン) は 1 度も肩代わりしていない。
+     ⚠ 盤面を汚すので **実操作の観測を全部採り終えた最後**にだけ実行する
+       (openLog / roadEnd / boon / end はすべて上で確定済み)。 */
+  out.paintProbe = await safeEval(page, () => {
+    const RE = window.ROAD_EVENTS;
+    const n0 = document.getElementById('worldEventBoon');
+    if (!RE || typeof RE.showResult !== 'function' || typeof RE.open !== 'function' || !n0)
+      return { found: false, why: 'ROAD_EVENTS / #worldEventBoon が無い' };
+    const ev = (RE.EVENTS || [])[0];
+    if (!ev) return { found: false, why: 'EVENTS が空' };
+    RE.showResult(ev, '(探針)', null,
+      { kind: 'provision', label: '探針の実り', event: ev.id });
+    const filled = { hidden: !!n0.hidden, text: n0.textContent };
+    RE.open(ev, function () {});   /* ⛔ close() を挟まずに描き直す = paint() の掃除だけを見る */
+    const after = { hidden: !!n0.hidden, text: n0.textContent };
+    return { found: true, filled: filled, after: after };
+  });
   await page.close();
   return out;
 }
@@ -1175,7 +1263,9 @@ const ASSERTS = [
     }],
 
   ['1e', '器に「携えた」の 1 行が出る (#worldEventBoon が hidden でなく空でない)。'
-    + 'かつ **恩恵の無い結末では hidden かつ空**',
+    + 'かつ **恩恵の無い結末では hidden かつ空**。'
+    + '⭐ さらに ④ **器を閉じずに描き直しても残骸が残らない** (paint() 側の掃除。'
+    + '⛔ 通常導線では close() が先に消すので探針でしか捕まらない = 変異 boxleak_paint が番人)',
     (m) => {
       const t = boonTable(m);
       if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
@@ -1199,6 +1289,23 @@ const ASSERTS = [
           why.push('⛔ ' + tag + ' 閉じた後に残骸: ' + JSON.stringify(af));
         detail.push(tag + ' 結末時=' + JSON.stringify(at.text) + '/hidden=' + at.hidden
           + ' 閉後=' + JSON.stringify(af && af.text) + '/hidden=' + (af && af.hidden));
+      }
+      /* ④ paint() 側の掃除 —— 本番の showResult で 1 行を出したあと、**close() を挟まずに**
+         open() で描き直したときに残骸が残らないこと。⛔ ここが無いと boxleak_paint が空振り。 */
+      const pp = m.armWin && m.armWin.paintProbe;
+      if (!pp || !pp.found) {
+        why.push('⛔ ④ paint 探針の観測が無い ' + JSON.stringify(pp));
+      } else {
+        /* ⭐⭐⭐ 母集団ガード —— 探針が実際に 1 行を出せていること。
+           ⛔ 出せていないと「描き直したら空」は自明に真になる。 */
+        const filledOk = pp.filled && pp.filled.hidden === false
+          && String(pp.filled.text || '').trim().length > 0;
+        if (!filledOk) why.push('⛔ ④ 母集団: 探針が「携えた」を出せていない ' + JSON.stringify(pp.filled));
+        else if (!(pp.after && pp.after.hidden === true && String(pp.after.text || '') === ''))
+          why.push('⛔ ④ 器を閉じずに描き直したら残骸が残った ' + JSON.stringify(pp.after));
+        detail.push('④ paint 探針 出=' + JSON.stringify(pp.filled && pp.filled.text)
+          + ' → 描き直し後=' + JSON.stringify(pp.after && pp.after.text)
+          + '/hidden=' + (pp.after && pp.after.hidden));
       }
       return [why.length === 0, detail.join('  |  ') + (why.length ? '   ' + why.join(' ') : '')];
     }],
@@ -1415,6 +1522,131 @@ const ASSERTS = [
         + ' → maxHp ' + (b.index ? b.index.maxHp : '(未到達)')
         + (why.length ? '   ' + why.join(' ') : '')];
     }],
+
+  // ── §4 撤退 ?roadboon=0 — 依頼書 §8 §4 ────────────────────────────────────
+  //   ⭐ 項目 4 が PENDINGS からここへ移した。⛔ 期待値は 1 つも緩めていない。
+  //   ⚠⚠ 「撤退アームだけを見る assert は永久緑」(#39 の教訓) を避けるため、
+  //     (4a) は **素の armWin と同じ種・同じ行き先・同じ d20 の腕**と突き合わせ、
+  //     (4b) は **同じ仕込みを素の腕にも置いて maxHp が実際に動くこと**まで見る。
+  ['4a', 'world.html?roadboon=0 — 判定に **成功しても** ' + BOON_KEY + ' が書かれず、器の 1 行も出ない'
+    + ' (⚠ 母集団ガード = その腕で **判定に成功した出来事が 1 件以上**あること。'
+    + '⛔「1 件も起きなかったので書かれなかった」を通さない。変異 retreatwrite が番人)',
+    (m) => {
+      const t = boonTable(m);
+      if (t.state === 'noModule') return [false, 'window.ROAD_EVENTS が無い'];
+      if (t.state === 'pending') return [null, PEND_BOONS(t)];
+      const p = m.armWinRetreat, q = m.armWin;
+      if (!p) return [false, '撤退アームの観測が無い'];
+      const why = [];
+      /* ⭐⭐⭐ 母集団ガード ① —— 撤退アームで実際に「判定に成功した出来事」が起きたこと。 */
+      if (!p.pick) {
+        why.push('⛔ 母集団: ' + (p.why || '出来事が 1 件も出なかった'));
+      } else {
+        const got = p.pick.roadLast ? p.pick.roadLast.success : undefined;
+        if (got !== true) why.push('⛔ 母集団: 判定に成功していない (success=' + got + ')');
+        if (!(p.pick.panel && p.pick.panel.rows >= 1))
+          why.push('⛔ 母集団: 判定パネルのロスターが 0 行 (UI 経路を通っていない)');
+        /* 器の 1 行が出ていないこと。 */
+        const at = p.pick.boonSlotAtResult;
+        if (!at || !at.found) why.push('⛔ #worldEventBoon が DOM に無い (器そのものが消えている)');
+        else if (!(at.hidden === true && String(at.text || '') === ''))
+          why.push('⛔ 撤退なのに器の「携えた」が出た ' + JSON.stringify(at));
+      }
+      /* ⭐⭐⭐ 母集団ガード ② —— 素の腕 (同じ種・同じ行き先・同じ d20) では **同じ出来事**が
+         起きて 1 件書かれていること。⛔ これが無いと「撤退の腕でたまたま何も起きなかった」
+         のか「撤退が効いた」のかが読めない = 撤退アームだけの assert は永久緑になる。 */
+      if (!q || !q.pick) why.push('⛔ 母集団: 素の成功アームの観測が無い');
+      else {
+        const nq = (q.boon && q.boon.parseOk && Array.isArray(q.boon.list)) ? q.boon.list.length : -1;
+        if (nq !== 1) why.push('⛔ 母集団: 素の成功アームが ' + nq + ' 件 (期待 1 件)');
+        if (p.pick && q.pick.event !== p.pick.event)
+          why.push('⛔ 母集団: 素=' + q.pick.event + ' / 撤退=' + p.pick.event + ' で出来事が違う');
+      }
+      const b = p.boon || {};
+      if (b.raw !== null && b.raw !== undefined)
+        why.push('⛔ 撤退なのに ' + BOON_KEY + ' が書かれた ' + JSON.stringify(b.raw));
+      if (b.localRaw !== null && b.localRaw !== undefined)
+        why.push('⛔ 撤退なのに localStorage 側へ書かれた ' + JSON.stringify(b.localRaw));
+      return [why.length === 0,
+        '撤退 ' + JSON.stringify(p.query) + ' 出来事=' + JSON.stringify(p.pick ? p.pick.event : null)
+        + ' success=' + (p.pick && p.pick.roadLast ? p.pick.roadLast.success : '—')
+        + ' 器=' + JSON.stringify(p.pick ? p.pick.boonSlotAtResult : null)
+        + ' → ' + BOON_KEY + '=' + JSON.stringify(b.raw)
+        + '  |  素 ' + JSON.stringify(q ? q.query : null)
+        + ' 出来事=' + JSON.stringify(q && q.pick ? q.pick.event : null)
+        + ' → ' + JSON.stringify(q && q.boon ? q.boon.raw : null)
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['4b', 'index.html?roadboon=0 — キーを置いてから開いても ① maxHp が素と同じ ② ログに街道の行が 0 本'
+    + ' ③ **キーが消えていない** (removeItem もしない)'
+    + ' (⭐ 撤退は状態への副作用ゼロ = #46 の規律。変異 retreatconsume が番人)',
+    (m) => {
+      const a = m.idxPlain, r = m.idxBoonRetreat, g = m.idxBoon;
+      if (!a || !r) return [false, '素/撤退+仕込みアームの観測が無い'];
+      const why = [];
+      if (typeof a.maxHp !== 'number') why.push('⛔ 素の腕が起動していない (maxHp=' + JSON.stringify(a.maxHp) + ')');
+      if (typeof r.maxHp !== 'number') why.push('⛔ 撤退+仕込みの腕が起動していない (maxHp=' + JSON.stringify(r.maxHp) + ')');
+      /* ⭐⭐⭐ 母集団ガード —— **同じ仕込み**を撤退なしで開くと maxHp が実際に動くこと。
+         ⛔ これが無いと「仕込みが元から効かない」実装でも (4b) が緑になる。 */
+      if (!g || typeof g.maxHp !== 'number') why.push('⛔ 母集団: 恩恵アーム (撤退なし) の観測が無い');
+      else if (g.maxHp <= a.maxHp)
+        why.push('⛔ 母集団: 同じ仕込みを撤退なしで開いても maxHp が動かない (素=' + a.maxHp
+          + ' / 恩恵=' + g.maxHp + ') → 撤退の 0 差は自明');
+      /* ① maxHp が素と同じ (頭 + 仲間)。 */
+      if (typeof a.maxHp === 'number' && typeof r.maxHp === 'number' && a.maxHp !== r.maxHp)
+        why.push('⛔ ① maxHp が違う 素=' + a.maxHp + ' / 撤退=' + r.maxHp);
+      const ja = JSON.stringify((a.allies || []).map(x => x.cls + ':' + x.maxHp));
+      const jr = JSON.stringify((r.allies || []).map(x => x.cls + ':' + x.maxHp));
+      if (ja !== jr) why.push('⛔ ① 仲間の maxHp が違う 素=' + ja + ' / 撤退=' + jr);
+      /* ② ログに街道の行が 0 本 + 備えのフラグも立たない。 */
+      const roadLines = (r.logLines || []).filter(l => l.indexOf(ROAD_LOG_MARK) >= 0);
+      if (roadLines.length !== 0) why.push('⛔ ② 街道の行が ' + roadLines.length + ' 本 ' + JSON.stringify(roadLines));
+      if (r.roadVigilanceAtBoot !== false)
+        why.push('⛔ ② roadVigilance が立っている ' + JSON.stringify(r.roadVigilanceAtBoot));
+      /* ③ キーが **1 バイトも変わらずに** 残っている (⛔ 「null でない」では弱い)。 */
+      if (r.boonAfter !== IDX_SEED_BOON)
+        why.push('⛔ ③ キーが仕込みのまま残っていない: ' + JSON.stringify(r.boonAfter));
+      /* クエリが実際に効いていること。 */
+      if (r.roadBoonOn !== false) why.push('⛔ 撤退の腕で ROAD_BOON_ON が false でない: ' + JSON.stringify(r.roadBoonOn));
+      if (a.roadBoonOn !== true) why.push('⛔ 素の腕で ROAD_BOON_ON が true でない: ' + JSON.stringify(a.roadBoonOn));
+      return [why.length === 0,
+        '素 maxHp=' + a.maxHp + ' ' + ja
+        + ' / 恩恵 (撤退なし) maxHp=' + (g ? g.maxHp : '—')
+        + ' / 撤退+仕込み maxHp=' + r.maxHp + ' ' + jr
+        + ' (ROAD_BOON_ON=' + r.roadBoonOn + ') 街道の行 ' + roadLines.length + ' 本'
+        + ' / 起動後の ' + BOON_KEY + '=' + JSON.stringify(r.boonAfter)
+        + ' (仕込みのまま=' + (r.boonAfter === IDX_SEED_BOON) + ')'
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['4c', '両ページの撤退アームで pageerror **0 件**'
+    + ' (⚠ CONSOLE ではなく PAGEERROR だけを数える —— index.html は初回ロードで'
+    + ' 404 を 1 本吐くことがあり、それは実装の欠陥ではない)',
+    (m) => {
+      const arms = [
+        ['world.html?roadboon=0 (素)', m.bootRetreat,
+          (s) => s && s.roadEventsModule === 'object'],
+        ['world.html?roadboon=0 (成功アーム)', m.armWinRetreat,
+          (s) => s && !!s.pick && !!s.pick.resultText],
+        ['index.html?roadboon=0 (素)', m.idxPlainRetreat,
+          (s) => s && typeof s.maxHp === 'number'],
+        ['index.html?roadboon=0 (仕込み)', m.idxBoonRetreat,
+          (s) => s && typeof s.maxHp === 'number'],
+      ];
+      const why = [], detail = [];
+      for (const [tag, s, loaded] of arms) {
+        if (!s) { why.push('⛔ ' + tag + ' の観測が無い'); detail.push(tag + '=(観測なし)'); continue; }
+        /* ⭐⭐⭐ 母集団ガード —— そのページが実際に立ち上がっていること。
+           ⛔ 立ち上がっていなければ「pageerror 0 件」は自明に真。 */
+        if (!loaded(s)) why.push('⛔ ' + tag + ' 母集団: ページが立ち上がっていない');
+        const all = s.errs || [];
+        const pe = all.filter(x => x.indexOf('PAGEERROR') >= 0);
+        if (pe.length) why.push('⛔ ' + tag + ': pageerror ' + pe.length + ' 件 ' + pe[0]);
+        detail.push(tag + ' pageerror ' + pe.length + ' 件 / 参考 console ' + (all.length - pe.length) + ' 件');
+      }
+      return [why.length === 0, detail.join('  |  ') + (why.length ? '   ' + why.join(' ') : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1433,16 +1665,10 @@ const PENDINGS = [
        (2c) だけ測定点を移した: 「autoplay で 2 戦させる」腕 (分単位で揺れ、stunned は
        次ターンで消えるので取りこぼす) をやめ、**本番の applyRoadVigilance そのものを
        決定論の盤面で 2 回叩く** + **runEncounter への配線を配信バイトの構造で縛る** の 2 本立てにした。
-       ⇒ 変異 alwaysvigil (roadVigilance = false の 1 行を消す) は 2 回目で赤くなる。 */
-  ['§4 撤退 ?roadboon=0 — 依頼書 §8 §4', [
-    ['4a', 'world.html?roadboon=0 — 判定に **成功しても** roadBoon が書かれず、器の 1 行も出ない',
-      '⚠ 母集団ガード = その腕で **判定に成功した出来事が 1 件以上**あること'
-      + ' (⛔ 「1 件も起きなかったので書かれなかった」を通さない)。変異 retreatwrite が番人'],
-    ['4b', 'index.html?roadboon=0 — キーを置いてから開いても ① maxHp が素と同じ ② ログに街道の行が 0 本'
-      + ' ③ **キーが消えていない** (removeItem もしない)',
-      '⭐ 撤退は状態への副作用ゼロ (#46 の規律)。⚠ ③ が「撤退アームだけの assert は自明に緑」を殺す。変異 retreatconsume が番人'],
-    ['4c', '両ページの撤退アームで pageerror 0 件', '⭐ world.html?roadboon=0 と index.html?roadboon=0 の両方'],
-  ]],
+       ⇒ 変異 alwaysvigil (roadVigilance = false の 1 行を消す) は 2 回目で赤くなる。
+     ⭐ §4 撤退 ?roadboon=0 は **項目 4 (最終) で ASSERTS へ移した** (4a)(4b)(4c)。
+       ⇒ **PENDING 0**。⛔ この配列は空のまま残す —— 削ると PENDING という 3 値そのものが
+         消え、次のチケットが「まだ測れないもの」を黙って緑にできてしまう。 */
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1471,15 +1697,32 @@ const NEEDS = {
   '2f': ['idxPlain', 'idxPlainRetreat'],
   /* §3 (項目 3) —— 既存 golden 3 本と同じ枝を押す横断を 2 本 (素 / world 側だけ撤退)。 */
   '3a': ['crossPlain', 'crossRetreat'],
+  /* §4 撤退 (項目 4) —— ⛔ 撤退アームだけでは永久緑になるので、必ず **素の腕**も一緒に採る。
+     (4a) は素の armWin と、(4b) は素の idxPlain + 同じ仕込みの idxBoon と突き合わせる。 */
+  '4a': ['boot', 'armWin', 'armWinRetreat'],
+  '4b': ['idxPlain', 'idxBoon', 'idxBoonRetreat'],
+  '4c': ['bootRetreat', 'armWinRetreat', 'idxPlainRetreat', 'idxBoonRetreat'],
 };
 const ALL_KEYS = ['0a', '0b', '0c', '0d', '1a', '1b', '1c', '1d', '1e',
-  '2a', '2b', '2c', '2d', '2e', '2f', '3a'];
+  '2a', '2b', '2c', '2d', '2e', '2f', '3a', '4a', '4b', '4c'];
+
+/* ⭐ (4c) の母集団 —— 撤退アームの errs を **腕ごとに分けて**持つ。
+   ⛔ 共有バケツから拾うと (9a) と母集団が混ざり、どちらが赤いのか読めなくなる。
+   ⚠ 拾ったものは共有バケツへも必ず流す —— (9a) から隠さない。 */
+async function withErrs(errs, fn) {
+  const own = [];
+  const out = await fn(own);
+  own.forEach(e => errs.push(e));
+  if (out && typeof out === 'object' && !out.errs) out.errs = own;
+  return out;
+}
 
 async function collect(browser, port, errs, need) {
   const m = {}, want = {};
   need.forEach(k => { want[k] = true; });
   if (want.boot) m.boot = await measureBoot(browser, port, errs, {});
-  if (want.bootRetreat) m.bootRetreat = await measureBoot(browser, port, errs, { query: '?roadboon=0' });
+  if (want.bootRetreat) m.bootRetreat = await withErrs(errs,
+    (e) => measureBoot(browser, port, e, { query: '?roadboon=0' }));
   if (want.served) m.served = (await httpGet('http://localhost:' + port + PAGE_PATH)).body;
   if (want.servedIndex) m.servedIndex = (await httpGet('http://localhost:' + port + PAGE_INDEX)).body;
   /* ⭐ §1 (1a) の 3 経路 = ここで採る 3 本の腕がそのまま母集団になる。
@@ -1491,9 +1734,10 @@ async function collect(browser, port, errs, need) {
      ⛔ 恩恵つきの結末を 4 回踏ませない (1 本 4 分かかる) —— 測定点を移しただけで期待値は同じ。 */
   if (want.armCap) m.armCap = await measureArm(browser, port, errs,
     { resolve: 'check', force: D20_WIN, seedBoon: CAP_SEED });
-  /* ⭐ (4a) の撤退アーム — 素の armWin と **同じ種・同じ行き先・同じ d20** で採る。 */
-  if (want.armWinRetreat) m.armWinRetreat = await measureArm(browser, port, errs,
-    { resolve: 'check', force: D20_WIN, extraQuery: '&roadboon=0' });
+  /* ⭐ (4a) の撤退アーム — 素の armWin と **同じ種・同じ行き先・同じ d20** で採る。
+     ⚠ errs は (4c) のために腕ごとのバケツにも残す (共有バケツへも流すので (9a) は不変)。 */
+  if (want.armWinRetreat) m.armWinRetreat = await withErrs(errs, (e) => measureArm(browser, port, e,
+    { resolve: 'check', force: D20_WIN, extraQuery: '&roadboon=0' }));
   /* ══ §2 (潜行側・項目 3) —— index.html を 4 本の腕で開く ═══════════════════
      ⛔ 4 本とも party の仕込みは同じ (IDX_PARTY)。違うのは roadBoon とクエリだけ ——
        そうでないと (2b) の「差分」が編成の差と混ざる。 */
@@ -1505,6 +1749,10 @@ async function collect(browser, port, errs, need) {
     { tag: '恩恵', seedBoon: IDX_SEED_BOON });
   if (want.idxTaint) m.idxTaint = await measureIndex(browser, port, errs,
     { tag: '汚れたlabel', seedBoon: IDX_SEED_TAINT });
+  /* ⭐ (4b) の撤退アーム — idxBoon と **同じ仕込み**を ?roadboon=0 で開く。
+     ⛔ 仕込みを変えない —— 変えると「効かなかったのは撤退のせいか仕込みのせいか」が読めない。 */
+  if (want.idxBoonRetreat) m.idxBoonRetreat = await measureIndex(browser, port, errs,
+    { tag: '撤退+仕込み', query: '?roadboon=0', seedBoon: IDX_SEED_BOON });
   /* ══ §3 (項目 3) —— 「判定なしの枝」を押す横断を 2 本 ═══════════════════════
      ⚠ 入場は location.href = "index.html" (クエリ無し) なので、?roadboon=0 が効くのは
        **world.html のレグだけ**。それで正しい ((3a) が見たいのは「書かれない」ことなので)。 */
@@ -1670,6 +1918,32 @@ function runCheck(m, key) {
           + ' allies=' + JSON.stringify(c.index ? c.index.allies : null)
           + (c.why ? '   ⛔ ' + c.why : '')
           + (c.errs && c.errs.length ? '\n         → errs ' + JSON.stringify(c.errs.slice(0, 3)) : ''));
+      }
+
+      mark('§4 撤退 ?roadboon=0 — (4a) world 側は書かない / (4b) index 側は適用も removeItem もしない /'
+        + ' (4c) 両ページの撤退アームで pageerror 0 件');
+      for (const key of ['4a', '4b', '4c']) runCheck(m, key);
+      if (m.armWinRetreat) {
+        const p = m.armWinRetreat;
+        console.log('       [記録] world 撤退アーム ' + JSON.stringify(p.query)
+          + ' タップ ' + (p.taps || []).length + ' 回 / 発火 ' + (p.roadEnd ? p.roadEnd.fired : '—') + ' 件'
+          + '\n         → 出来事 ' + JSON.stringify(p.pick ? p.pick.event : null)
+          + ' success=' + (p.pick && p.pick.roadLast ? p.pick.roadLast.success : '—')
+          + ' / #worldEventBoon 結末時=' + JSON.stringify(p.pick ? p.pick.boonSlotAtResult : null)
+          + '\n         → ' + BOON_KEY + '=' + JSON.stringify(p.boon ? p.boon.raw : null)
+          + ' (localStorage 側=' + JSON.stringify(p.boon ? p.boon.localRaw : null) + ')');
+      }
+      for (const [tag, s] of [['boot 撤退      ', m.bootRetreat], ['index 撤退+仕込み', m.idxBoonRetreat]]) {
+        if (!s) continue;
+        console.log('       [記録] ' + tag + ' pageerror '
+          + (s.errs || []).filter(x => x.indexOf('PAGEERROR') >= 0).length + ' 件'
+          + ' / console ' + (s.errs || []).filter(x => x.indexOf('PAGEERROR') < 0).length + ' 件'
+          + (typeof s.maxHp === 'number'
+            ? ' / maxHp=' + s.maxHp + ' ROAD_BOON_ON=' + s.roadBoonOn
+              + ' 起動後の ' + BOON_KEY + '=' + JSON.stringify(s.boonAfter)
+              + ' #combatLog ' + s.logLineCount + ' 行'
+            : ' / 起動直後の ' + BOON_KEY + '=' + JSON.stringify(s.boonAtBoot))
+          + ((s.errs || []).length ? '\n         → errs ' + JSON.stringify(s.errs.slice(0, 3)) : ''));
       }
 
       for (const [title, rows] of PENDINGS) {
