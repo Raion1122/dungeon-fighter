@@ -392,14 +392,19 @@ function pngSize(file) {
   check('6.10 4 属性の色が互いに異なる', new Set(Object.values(tint)).size === 4,
         `${new Set(Object.values(tint)).size} 種`);
 
-  // ── フィクスチャの撤去 (parallel array 10 本を添字ごと落とす) ──
+  // ── フィクスチャの撤去 (parallel array 11 本を添字ごと落とす) ──
+  //    ⚠⚠ #44 (2026-09-03) で enemyLabelElements が 11 本目として増えた。⭐ この直後の
+  //    検算 6.11 は enemies.length === enemyElements.length の **2 本しか**比べないので、
+  //    ここへ足し忘れても緑のまま札の DOM だけが画面に残る (依頼書 §2-2 の罠A)。
+  //    ⛔ 期待値 (53/53) は 1 つも変えていない。
   const torn = await page.evaluate(() => {
     const idx = window.__fixtureIdx;
     if (idx === undefined) return false;
     enemies.splice(idx, 1);
     for (const arr of [enemyElements, hpBarElements, hpFillElements, hitSparkElements,
                        coinElements, weaponDropElements, armorDropElements,
-                       alertMarkElements, enemyBadgeElements, enemyStatusElements]) {
+                       alertMarkElements, enemyBadgeElements, enemyStatusElements,
+                       enemyLabelElements]) {
       const el = arr.splice(idx, 1)[0];
       if (el && el.remove) el.remove();
     }

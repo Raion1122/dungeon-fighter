@@ -300,6 +300,51 @@
       /* ラベル色も仲間と揃える (.allyLabel を継承、差分なし) */
     }
 
+    /* ══ #44 STEP1: 名前札を 70% へ ═══════════════════════════════════════════
+     * ⭐ 素の .allyLabel (上) は **1 行も触らない** — body.labelSmall が付かない状態
+     *   (= ?namelabel=0) が「従来の見た目」の定義になる。house style は
+     *   index.html:6716「camZ===1 では class も変数も付けない = 既存の見た目が 1px も動かない」。
+     * 実測 (2026-09-03 / 実 Chrome の getBoundingClientRect / 文字は「ホブゴブリン」):
+     *   font 11px  → 83 x 20px      font 7.7px → 58.7 x 14.4px  = 幅 70.7% / 高さ 72.0%
+     * ⚠ padding / letter-spacing / border も同率で落とさないと 7 割にならない
+     *   (font だけ落とすと高さが 17.4px = 87% にしかならない)。
+     * ⛔ font-size: 7.7px という具体値は受入条件で縛っていない。縛るのは
+     *   「?namelabel=0 の同じ札の 0.70 倍前後」という**比**と、(2f) の絶対量だけ。 */
+    body.labelSmall .allyLabel {
+      font-size: 7.7px;
+      letter-spacing: 0.7px;
+      padding: 0.7px 3.5px;
+      border-width: 0.7px;
+    }
+
+    /* ══ #44 STEP2: 敵の名前札 ════════════════════════════════════════════════
+     * 味方 (.allyLabel) と同じ幾何・同じ 70%。色だけ敵側の語彙へ寄せる
+     * (HP バーの塗りが #ff5f6d→#ffc371 の暖色なので、札も暖色の縁で「敵の物」と分かる)。
+     * ⚠⚠ .heroLabel は className に書かれているのに CSS が **0 行**という前例がある
+     *   (index.html:12746)。ここは必ず実体を書くこと — 書き忘れても札自体は出るので
+     *   目視では気づけない (受入条件 (2d)「敵の札の背景色が味方と違う」が機械で見る)。 */
+    .enemyLabel {
+      position: absolute;
+      font-family: 'Times New Roman', serif;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #ffe0d8;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.8);
+      z-index: 7;
+      pointer-events: none;
+      background: rgba(56,20,20,0.55);
+      padding: 1px 5px;
+      border-radius: 2px;
+      border: 1px solid rgba(255,190,170,0.32);
+      white-space: nowrap;
+    }
+    body.labelSmall .enemyLabel {
+      font-size: 7.7px;
+      letter-spacing: 0.7px;
+      padding: 0.7px 3.5px;
+      border-width: 0.7px;
+    }
+
     /* ゴブリン亜種: 共有 goblin_anim.png を色替えで差別化 (Shaman/Brute の2体のみ) */
     .enemy-goblinShaman { filter: hue-rotate(110deg) saturate(1.4) brightness(0.85); }
     .enemy-goblinBrute  { filter: hue-rotate(-40deg) saturate(1.6) brightness(0.75); }
@@ -3564,6 +3609,19 @@
     try {
       if (new URLSearchParams(window.location.search).get("field") === "0") FIELD_MODE = false;
     } catch (e) {}
+
+    /* ══ #44 撤退スイッチ ?namelabel=0 ════════════════════════════════════════
+     * OFF のとき次の 4 つが**同時に**従来へ戻る:
+     *   1. 味方・主人公の札が 100% (高さ 20px) へ戻る (body.labelSmall が付かない)
+     *   2. 敵の札が **1 枚も作られない** (enemyLabelElements は null で埋まる)
+     *   3. 状態アイコン列が従来どおり .enemy-status-slot として独立配置 (-27)
+     *   4. 装備バッジが -46 へ戻る
+     * ⚠ 判定はブート時に 1 回だけ。**ページ遷移はまたがない** (ダンジョン内で完結する
+     *   変更なので sessionStorage へ写す必要が無い)。⭐ ?heromark=0 と同じ
+     *   「各ページが独立に読む」型。?town=0 の型 (遷移をまたぐ) は採らない。 */
+    const NAME_LABEL_ON =
+      new URLSearchParams(window.location.search).get("namelabel") !== "0";
+    if (NAME_LABEL_ON) document.body.classList.add("labelSmall");
 
     // ── [地平線ビュー STEP1] 帯幾何 + カメラ地平線ロック ────────────────────
     // 目的: 「空が入る器」を作る。歩行可能行を row 13-15 の3行に絞り、カメラの縦を
@@ -11531,7 +11589,25 @@
     const armorDropElements  = [];
     const alertMarkElements  = [];
     const enemyBadgeElements = [];
-    const enemyStatusElements = [];   // status-effect v1.1: 敵は名前ラベルが無いので HP バーの上に列を置く
+    /* status-effect v1.1: 状態アイコン列。
+     * ⚠ #44 より前は「敵は名前ラベルが無いので HP バーの上に列を置く」だったが、
+     *   その前提は消えた — NAME_LABEL_ON のとき列は **名前札 (下) の子**になる
+     *   (味方 index.html:12751 と同じ作法)。撤退時だけ従来どおり独立配置。 */
+    const enemyStatusElements = [];
+    /* #44: 敵の名前札 = 添字並列の DOM 配列の **11 本目**。
+     * ⚠⚠⚠ ?namelabel=0 のときも createEnemyDom は null を push する。push ごと飛ばすと
+     *   添字がずれ、enemyLabelElements[index] が別の敵の札を指す (= 撤退時だけ全部の
+     *   頭上がおかしくなる、という最も見つけにくい壊れ方になる)。
+     * ⚠⚠ この配列を足したので、tools/driver_cast_circle.js のフィクスチャ撤去ループも
+     *   10 本 → 11 本にしてある (足し忘れると札の DOM だけが画面に残るが、あちらの
+     *   検算は enemies.length === enemyElements.length しか見ないので**緑のまま**)。 */
+    const enemyLabelElements  = [];
+
+    /* #44 検証シーム (tools/verify_enemy_name_label.js の観測口)。 */
+    if (typeof window !== "undefined") {
+      window.__enemyLabels = () => enemyLabelElements;
+      window.__nameLabelOn = () => NAME_LABEL_ON;
+    }
 
     function createEnemyDom(index, def, typeKey) {
       // 敵本体
@@ -11566,9 +11642,29 @@
       // アラートマーク
       const am = document.createElement("div"); am.className = "alertMark"; am.id = "alertMark" + index;
       am.textContent = "!"; enemyLayer.appendChild(am); alertMarkElements.push(am);
-      // status-effect v1.1: 状態アイコン列 (HPバーの直上)
-      const st = document.createElement("div"); st.className = "enemy-status-slot"; st.id = "enemyStatus" + index;
-      enemyLayer.appendChild(st); enemyStatusElements.push(st);
+      // status-effect v1.1: 状態アイコン列 (#44 以降は名前札の子 / 撤退時のみ HPバーの直上)
+      const st = document.createElement("div"); st.id = "enemyStatus" + index;
+      if (NAME_LABEL_ON) {
+        /* #44: 味方 (index.html:12750-12752) と完全に同じ作法 — 名前札の中へ入れる。
+           ⭐ updateStatusSlot は refreshStatusIcons で innerHTML を書くだけで**位置を
+             触らない** (index.html の function updateStatusSlot で確認済み) ので、
+             親を替えても従来どおり動く。 */
+        st.className = "status-slot";
+        const lb = document.createElement("div");
+        lb.className = "enemyLabel";
+        lb.id = "enemyLabel" + index;
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = def.name || "";   // ⭐ 表を写経しない。def から引く
+        lb.appendChild(nameSpan);
+        lb.appendChild(st);
+        enemyLayer.appendChild(lb);
+        enemyLabelElements.push(lb);
+      } else {
+        st.className = "enemy-status-slot";       // 従来どおり独立配置
+        enemyLayer.appendChild(st);
+        enemyLabelElements.push(null);            // ⚠⚠⚠ 添字並列を崩さないため null を積む
+      }
+      enemyStatusElements.push(st);
       // 装備バッジ(種別が一目で分かるようにする)
       const bd = document.createElement("div"); bd.className = "enemyBadge"; bd.id = "enemyBadge" + index;
       if (def.badge) bd.textContent = def.badge;
@@ -15042,6 +15138,8 @@
           armorEl.style.display = "none"; alertEl.style.display = "none";
           const _hb = enemyBadgeElements[index]; if (_hb) _hb.style.display = "none";
           const _hs = enemyStatusElements[index]; if (_hs) _hs.style.display = "none";
+          // #44 (a) 封印中のハイドラの名前札も隠す (祭壇だけの見た目を守る)
+          const _hl = enemyLabelElements[index]; if (_hl) _hl.style.display = "none";
           return;
         }
 
@@ -15061,6 +15159,10 @@
           if (_badgeEl) _badgeEl.style.display = "none";
           const _statusEl = enemyStatusElements[index];
           if (_statusEl) _statusEl.style.display = "none";
+          /* #44 (b) 伏兵化フォグの名前札も隠す。
+             ⚠⚠⚠ ここを忘れると「フォグの中の敵の名前だけ見える」= **伏兵が丸見え**になる。 */
+          const _labelEl = enemyLabelElements[index];
+          if (_labelEl) _labelEl.style.display = "none";
           return;   // 描画スキップ(forEach 次の敵へ)
         }
 
@@ -15080,9 +15182,19 @@
           // ★[P7] 上の warriorHpBar と同じ理由。.enemyHpBar は 52x8。
           placeUnscaledUi(hpBarEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX, -10);
           hpFillEl.style.width = (enemy.hp / enemy.maxHp * 100) + "%";
-          // status-effect v1.1: 状態アイコン列を HP バーの直上へ
+          /* #44 (c) 生存時: 名前札 (状態アイコン列を子に持つ) を頭上へ置く。
+             ⭐ dx は味方と同じ作法で決める — 味方は HP バー dx=18 に対し札 dx=20 (+2)。
+                敵の HP バーは dx = hpBarOffX なので、札は hpBarOffX + 2。
+             ⛔ 札の実幅を毎フレーム offsetWidth で読んで中央寄せしない
+                (レイアウトスラッシングで camera-perf STEP7 の 16.9ms/frame が壊れる)。 */
+          const labelEl = enemyLabelElements[index];
           const statusEl = enemyStatusElements[index];
-          if (statusEl) {
+          if (labelEl) {
+            labelEl.style.display = "block";
+            placeUnscaledUi(labelEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX + 2, -27);
+            updateStatusSlot(enemy, statusEl);
+          } else if (statusEl) {
+            // 撤退時 (?namelabel=0) の従来経路: 状態アイコン列を HP バーの直上へ独立配置
             statusEl.style.display = "flex";
             placeUnscaledUi(statusEl, enemy.x, enemy.y, enemy.def.displaySize, hpBarOffX, -27);
             updateStatusSlot(enemy, statusEl);
@@ -15102,6 +15214,9 @@
           hpBarEl.style.display = "none";
           const _deadStatusEl = enemyStatusElements[index];
           if (_deadStatusEl) _deadStatusEl.style.display = "none";
+          /* #44 (d) 死亡時。⚠⚠⚠ ここを忘れると「倒した敵の名前が床に残る」。 */
+          const _deadLabelEl = enemyLabelElements[index];
+          if (_deadLabelEl) _deadLabelEl.style.display = "none";
         }
 
         coinEl.style.display = enemy.coinVisible ? "block" : "none";
@@ -15137,7 +15252,14 @@
             badgeEl.style.display = "block";
             // 敵サイズの中央に合わせて少し上 (status-effect v1.1 の状態アイコン列 -27px の更に上へ)
             const offX = enemy.def.displaySize / 2 - 18;
-            placeUnscaledUi(badgeEl, enemy.x, enemy.y, enemy.def.displaySize, offX, -46);
+            /* #44 STEP3: 名前札 (-27 .. -12.6 / 高さ 14.4px 実測) の上へ退避する。
+               バッジは 34x28 (実測) なので -58 で bottom = -30 = 札の上端 -27 の 3px 上。
+               ⭐ 副次効果: 従来は バッジ(-46..-18) と 状態アイコン列(-27..-11.4) が
+                 **9px 重なっていた** (状態異常が付いた敵で目に見える)。札に統合されたので
+                 これも同時に消える。⛔ バッジの**寸法** (font-size / padding / border) は
+                 1px も変えない (ユーザー決定 = 70% にするのは名前札だけ)。 */
+            const badgeDy = NAME_LABEL_ON ? -58 : -46;
+            placeUnscaledUi(badgeEl, enemy.x, enemy.y, enemy.def.displaySize, offX, badgeDy);
           } else {
             badgeEl.style.display = "none";
           }
@@ -32990,12 +33112,13 @@
      * ⚠ 新品の配列で置き換えると、どこかが `const es = enemies` で握った瞬間に静かに古い方を
      *   見続ける事故になる。`length = 0` なら参照が 1 本でも取りこぼしが起きない。 */
     function clearNodeArrays() {
-      // 敵本体 + 添字並列の DOM 配列 10 本 (createEnemyDom が push する全部)
+      // 敵本体 + 添字並列の DOM 配列 11 本 (createEnemyDom が push する全部)  ← #44 で 10 本から
       enemies.length = 0;
       enemyElements.length = 0; hpBarElements.length = 0; hpFillElements.length = 0;
       hitSparkElements.length = 0; coinElements.length = 0;
       weaponDropElements.length = 0; armorDropElements.length = 0;
-      alertMarkElements.length = 0; enemyBadgeElements.length = 0; enemyStatusElements.length = 0;
+      alertMarkElements.length = 0; enemyBadgeElements.length = 0;
+      enemyStatusElements.length = 0; enemyLabelElements.length = 0;   // #44 (11 本目)
       // 盤面オブジェクト
       roomChests.length = 0; traps.length = 0; cages.length = 0;
       // 幾何から作られる情景・1枚絵
