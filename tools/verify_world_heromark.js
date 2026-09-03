@@ -118,14 +118,14 @@
  *     変異アンカーが index.html / town.html の同名行と衝突する心配は無い (配信しないので)。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⚠⚠ 項目 1 (このコミット) では **7 本すべて器だけ** (impl: false)。中身は項目 4 が入れる。
+ *   ⭐ 項目 4 (2026-09-03) で **7 本とも impl: true** へし、--negative を 1 回回して実測した。
  *     ⭐ 器でも MUT_ORDER には全部並べる = --negative が PENDING で 7 本ぶん出すので、
  *       「実装を忘れた変異」が件数から消えない。
  *
  *   mutate      | 注入する欠陥                                                | 赤くなるべき節
  *   markbox     | HM_GAP を 8 → 30 へ (▽ が 96px セルの外へ出る)               | (1b)
  *   markstill   | placeHero の elMark.style.top を定数へ固定 (取り残される)     | (1a)(1c)
- *   markhit     | #worldHeroMark を pointer-events: auto にする                | (2a)
+ *   markhit     | ★複合★ CSS を pointer-events: auto + ▽ をノード中心へ落とす   | (2a)
  *   markwide    | CSS --hm-w だけ 9px → 16px (JS の HM_W は 9 のまま=写経ズレ)   | (0b)
  *   marklow     | #worldHeroMark の z-index: 6 → 1                            | (1f)
  *   markalways  | 撤退の HERO_MARK_ON = false を潰す                            | (4a)(4b)
@@ -143,7 +143,14 @@
  *   ⭐ 変異が空振りしたら、**変異のほうを直す** (受入条件を弱めない = #38 の教訓)。
  *   ⭐ 下の from / to は 2026-09-03 に項目 1 が world.html 実物へ grep -cF して
  *     **7 本とも 1 件ヒット**を確認済み。⚠ ただし「当たること」と「赤くなること」は別。
- *     項目 4 が --negative を 1 回回して、空振りがあれば変異のほうを直すこと。
+ *   ⚠⚠⚠ **実際 markhit が空振りした** (2026-09-03 項目 4 の実測) — アンカーは当たり、
+ *     pointer-events="auto" まで届いていたのに ▽ が奪った点は **0 件** で (2a) は緑のまま。
+ *     ⭐⭐⭐ 真因は幾何 = ▽ は主人公の頭上 (ノード中心から 65〜78 map px 上) に浮いており、
+ *       ノードの当たり判定箱は 44px (中心 ±22 map px) なので **原理的に交差しない**。
+ *       ⇒ #38 の作法どおり **変異のほうを直した** (受入条件は 1 バイトも弱めていない):
+ *         markhit を「CSS + placeHero の top」の **2 箇所を同時に置換する複合変異**へ。
+ *     ⭐ 教訓 = 「pointer-events を切り替える変異」は、**その要素が実際に測定点と
+ *       重なる位置に居るとき**にしか欠陥にならない。設定と幾何は別条件。
  *
  * ⚠ ポート **9490** (+1..+10 が --negative 用 = 9491〜9500)。
  *   2026-09-03 実測の使用中: 9412 / 9440 / 9451(+4) / 9460 / 9470 / 9480 /
@@ -175,7 +182,7 @@ const MUTATE = arg('mutate', null);
 const PORT = parseInt(arg('port', '9490'), 10);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 変異 (項目 4 が中身を入れる。⚠ 今は器だけ = 全部 impl: false)
+// 変異 (項目 4 で 7 本とも実装済 = 全部 impl: true)
 // ⚠ 置換文字列は必ず 1 行に閉じる (CRLF/LF 混在で複数行は原理的に一致しない)。
 // ⚠ 置換前後でバイト長を変える (同じ長さだと「当たったのに何も変わらない」を検出できない)。
 // ⚠⚠ world.html は **ディスク上 CRLF** (2026-09-03 実測: 1156 CRLF / LF 単独 0)、
@@ -185,36 +192,55 @@ const MUTATIONS = {
   /* ⭐ 依頼書 §2-2 の罠そのもの = ▽ を主人公の 96px セルの **外** へ押し出す。
      HM_GAP + HM_H = 30 + 13 = 43 > HEAD_TOP = 32 なので、▽ の上端が箱の上端を突き抜ける。
      ⚠⚠⚠ (7f)/(1b) が無ければ **誰も気づかない** 種類の欠陥 = この変異が (1b) の存在証明。 */
-  markbox: { impl: false, file: 'world.html', targets: ['1b'],
+  markbox: { impl: true,  file: 'world.html', targets: ['1b'],
     why: 'HM_GAP を 8 → 30 へ (▽ が主人公の 96px セルの外へ出る)',
     from: 'var HEAD_TOP = 32, HM_GAP = 8,',
     to: 'var HEAD_TOP = 32, HM_GAP = 30,  /* MUT markbox */' },
   /* ⭐ 「位置の出所を 2 つ持つと歩くと ▽ だけ取り残される」(依頼書 §2-5) の再現。
      ⚠ left は残して top だけ固定する = 「x は追うのに y だけ死ぬ」= (1a) の y 側が赤くなる。 */
-  markstill: { impl: false, file: 'world.html', targets: ['1a', '1c'],
+  markstill: { impl: true,  file: 'world.html', targets: ['1a', '1c'],
     why: 'placeHero の elMark.style.top を定数へ固定する (歩いても ▽ が取り残される)',
     from: 'elMark.style.top  = (cy - SPRITE * FOOT + HEAD_TOP - HM_GAP - HM_H) + "px";',
     to: 'elMark.style.top = "300px";  /* MUT markstill */' },
   /* ⭐ 依頼書 §2-6 の罠 = ▽ が誰かの当たり判定を奪う。
      ⚠⚠ アンカーに `pointer-events: none;` の行そのものは使えない (world.html 内に複数ある)。
        ⇒ 同じルールの **後ろ** へ pointer-events: auto を足す (同一ルール内は後勝ち)。
-       `animation: heroMarkBob ...` の行は 2026-09-03 実測で world.html 内に 1 件だけ。 */
-  markhit: { impl: false, file: 'world.html', targets: ['2a'],
-    why: '#worldHeroMark を pointer-events: auto にする (札 / ノード / 刻み点の点を奪う)',
-    from: '      animation: heroMarkBob 1.2s ease-in-out infinite;',
-    to: '      pointer-events: auto; animation: heroMarkBob 1.2s ease-in-out infinite;  /* MUT markhit */' },
+       `animation: heroMarkBob ...` の行は 2026-09-03 実測で world.html 内に 1 件だけ。
+     ⚠⚠⚠ 2026-09-03 (項目 4) 実測 — **pointer-events だけでは空振りした**。
+       `node tools/verify_world_heromark.js --mutate markhit` の実出力:
+         「▽ の pointer-events="auto" / ▽ が奪った点 0 件」で (2a) は **PASSED のまま**。
+       理由は幾何 = ▽ は主人公の頭上 (ノード中心から 65〜78 map px 上) に浮いており、
+       ノードの当たり判定箱は 44px (中心 ±22 map px) なので **原理的に交差しない**。
+       ⇒ #38 の作法「変異アンカーが空振りしたら **変異のほうを直す**」に従い、
+         **同じファイル内の 2 箇所を同時に置換する複合変異**へ作り替えた:
+           ① CSS を pointer-events: auto にする
+           ② placeHero の ▽ の top を **ノード中心へ落とす**
+         = 「クリックを食う位置に、クリックを食う設定で置かれた ▽」= (2a) が守っている
+           **本当の複合欠陥**。⭐ (1a)(1b) も一緒に赤くなるが、--negative は
+           「期待した assert が実際に FAIL したか」を見る仕組みなので問題ない
+           (「それだけが FAIL する」ことは要求していない)。
+     ⭐ この発見は依頼書 §12 に記録済み (次のチケットの燃料)。 */
+  markhit: { impl: true,  file: 'world.html', targets: ['2a'],
+    why: '#worldHeroMark を pointer-events: auto にし、かつ ▽ をノード中心へ落とす'
+      + ' (⚠ pointer-events 単独では ▽ が頭上に浮いていて空振りする = 2026-09-03 実測)',
+    edits: [
+      { from: '      animation: heroMarkBob 1.2s ease-in-out infinite;',
+        to: '      pointer-events: auto; animation: heroMarkBob 1.2s ease-in-out infinite;  /* MUT markhit 1/2 */' },
+      { from: 'elMark.style.top  = (cy - SPRITE * FOOT + HEAD_TOP - HM_GAP - HM_H) + "px";',
+        to: 'elMark.style.top = (cy - HM_H / 2) + "px";  /* MUT markhit 2/2 = ノード中心へ落とす */' },
+    ] },
   /* ⭐⭐⭐ (0b) の存在証明 = **CSS だけ**を動かして JS の HM_W は 9 のまま残す。
      ⚠ CSS と JS の両方を動かすと (0b) は緑のまま通ってしまう (写経ズレを再現できない)。
        ⇒ 触るのは --hm-w の 1 行だけ。 */
-  markwide: { impl: false, file: 'world.html', targets: ['0b'],
+  markwide: { impl: true,  file: 'world.html', targets: ['0b'],
     why: 'CSS --hm-w だけ 9px → 16px へ (JS の HM_W は 9 のまま = 写経ズレ)',
     from: '--hm-w: 9px;',
     to: '--hm-w: 16px;  /* MUT markwide */' },
-  marklow: { impl: false, file: 'world.html', targets: ['1f'],
+  marklow: { impl: true,  file: 'world.html', targets: ['1f'],
     why: '#worldHeroMark の z-index を 6 → 1 へ (主人公 5 の下へ潜る)',
     from: '      z-index: 6;',
     to: '      z-index: 1;  /* MUT marklow */' },
-  markalways: { impl: false, file: 'world.html', targets: ['4a', '4b'],
+  markalways: { impl: true,  file: 'world.html', targets: ['4a', '4b'],
     why: '撤退 ?heromark=0 を無視する (HERO_MARK_ON を落とさない)',
     from: 'if (new URLSearchParams(location.search).get("heromark") === "0") HERO_MARK_ON = false;',
     to: 'HERO_MARK_ON = true;  /* MUT markalways */',
@@ -223,7 +249,7 @@ const MUTATIONS = {
     needsRetreat: true },
   /* ⭐ 「▽ 側は正しいのに札のほうが降りてきた」ケース。(1e) だけが捕まえる。
      ⚠⚠ ▽ を動かす変異ではないので (1a)(1b) は緑のまま = (1e) が独立に要る証明になる。 */
-  marksign: { impl: false, file: 'world.html', targets: ['1e'],
+  marksign: { impl: true,  file: 'world.html', targets: ['1e'],
     why: '.worldSign の bottom を calc(100% + 20px) へ (札が ▽ の高さまで降りてくる)',
     from: 'left: 50%; bottom: calc(100% + 76px);',
     to: 'left: 50%; bottom: calc(100% + 20px);  /* MUT marksign */' },
@@ -247,24 +273,42 @@ if (MUTATE !== null && !MUTATIONS[MUTATE].impl) {
  *     走行中に「素の行」と「変異後の行」が混ざったビルドを配ってしまう。 */
 const SRC = {};
 const MUT_SRC = {};
+/* ⭐ 変異は 1 箇所とは限らない — markhit は **CSS と JS の 2 箇所を同時に**動かさないと
+ *   欠陥が再現しない (▽ が頭上に浮いているので pointer-events だけでは空振りする)。
+ *   ⇒ 置換の組を配列で持てるようにし、単一の from/to はその 1 要素として正規化する。
+ *   ⛔ 「1 変異 = 1 置換」に固執して受入条件のほうを弱めない (#38 の教訓)。 */
+function editsOf(m) { return m.edits ? m.edits : [{ from: m.from, to: m.to }]; }
 for (const k of MUT_SERVED) {
   const m = MUTATIONS[k];
   if (!SRC[m.file]) SRC[m.file] = fs.readFileSync(path.join(ROOT, m.file), 'utf8');
-  if (m.from.indexOf('\n') >= 0) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換文字列が複数行 (CRLF/LF 混在で必ず空振りする)');
-    process.exit(3);
+  let body = SRC[m.file];
+  const eds = editsOf(m);
+  for (let i = 0; i < eds.length; i++) {
+    const e = eds[i];
+    const at = ' 変異 ' + k + (eds.length > 1 ? ' の置換 ' + (i + 1) + '/' + eds.length : '');
+    if (typeof e.from !== 'string' || typeof e.to !== 'string') {
+      console.error('[drv] ⛔' + at + ' の from/to が文字列でない');
+      process.exit(3);
+    }
+    if (e.from.indexOf('\n') >= 0) {
+      console.error('[drv] ⛔' + at + ' の置換文字列が複数行 (CRLF/LF 混在で必ず空振りする)');
+      process.exit(3);
+    }
+    if (e.from.length === e.to.length) {
+      console.error('[drv] ⛔' + at + ' の置換前後が同じ長さ → 配信の検算が誤報する');
+      process.exit(3);
+    }
+    /* ⚠ 2 本目以降は **1 本目を当てた後の body** に対して数える
+       (置換どうしがアンカーを食い合っていないことまで見る)。 */
+    const n = body.split(e.from).length - 1;
+    if (n !== 1) {
+      console.error('[drv] ⛔' + at + ' の置換対象が ' + m.file + ' 内に ' + n
+        + ' 箇所 → 負のコントロールが空振りする: ' + JSON.stringify(e.from.slice(0, 90)));
+      process.exit(3);
+    }
+    body = body.split(e.from).join(e.to);
   }
-  if (m.from.length === m.to.length) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換前後が同じ長さ → 配信の検算が誤報する');
-    process.exit(3);
-  }
-  const n = SRC[m.file].split(m.from).length - 1;
-  if (n !== 1) {
-    console.error('[drv] ⛔ 変異 ' + k + ' の置換対象が ' + m.file + ' 内に ' + n
-      + ' 箇所 → 負のコントロールが空振りする: ' + JSON.stringify(m.from.slice(0, 90)));
-    process.exit(3);
-  }
-  MUT_SRC[k] = { file: m.file, body: SRC[m.file].split(m.from).join(m.to) };
+  MUT_SRC[k] = { file: m.file, body: body };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -435,6 +479,17 @@ const HIT_POINTS = 5;                     /* 中心 + 四隅 */
 /* (3a) で「増えた」と認めるキー。⛔ これは **このチケットが足した 2 つ**であって
  *  「#42 時点のキー集合」ではない (そちらは BASE_REV の実ページから読む)。 */
 const NEW_SEAM_KEYS = ['heroMarkGeom', 'heroMarkOn'];   /* sort 済み */
+/* ── §4 の計測パラメタ (項目 4) ──────────────────────────────────────────────
+ *  (4b) が **両アームへ当てる** conjunction。⭐⭐ 撤退アームだけを見る assert は
+ *    「▽ が無い」を確かめているだけなので **永久緑**になる (#39 の教訓)。
+ *    ⇒ 素のアームで (1a)(1b)(2a) が **全部真**であることを同じ assert の中で要求し、
+ *      撤退アームで **(1a) が偽で崩れる**ことを見る。
+ *  ⛔ ここへ §4 専用の新しい判定を書かない — 既に実装済みの assert を **そのまま**
+ *    もう一方のアームへ当てるのが (4b) の役目 (判定が 2 本になると片方だけ腐る)。 */
+const RETREAT_CONJ = ['1a', '1b', '2a'];
+/* (4c) 撤退のしすぎを測るときの数値の許容差。⭐ heroPx / zoom は両アームで
+ *  **同じ起点・同じビューポート**なので本来ぴったり一致する。float の丸めぶんだけ。 */
+const SAME_EPS = 0.01;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 — ⛔ 返すのは **本番のデータ / 本番の関数 / ブラウザのレイアウト結果**だけ。
@@ -1176,6 +1231,15 @@ const ASSERTS = [
         if (!p.onScreen) off++;
         if (p.stolen) stolen.push(p.kind + '(' + p.id + '):' + p.label + '←' + p.desc);
       }
+      /* ⭐⭐⭐ **これが (2a) の本体**。⚠⚠⚠ 2026-09-03 (項目 4) の --negative で発覚 —
+         項目 3 の実装は stolen を **数えて detail に出していただけ**で why へ入れておらず、
+         複合変異 markhit が実際に 1 点奪っても (2a) は **PASSED のまま**だった。
+         ⭐ 「測っているのに判定していない」= 負のコントロールでしか見つからない種類の穴。
+         ⛔ 受入条件は 1 バイトも弱めていない (見出しが最初から主張していた条件を足しただけ)。 */
+      if (stolen.length) {
+        why.push('⛔ ▽ が ' + stolen.length + ' / ' + pts.length + ' 点を奪った: '
+          + stolen.slice(0, 4).join(' / ') + (stolen.length > 4 ? ' …' : ''));
+      }
       /* ⚠ 画面外の点は elementFromPoint が必ず null を返す = 「奪われない」が自明に真。
          ⛔ 1 点でも画面外なら母集団が欠けているので赤にする
             (tools/verify_world_steps.js の (2c) が刻み点で同じ縛りを掛けている)。 */
@@ -1274,6 +1338,112 @@ const ASSERTS = [
         + '.worldSign ' + m.signCount + ' 枚 / <line> ' + JSON.stringify(m.lineCount)
         + ' 本 = EDGES ' + JSON.stringify(m.edgeCount) + ' 本'];
     }],
+
+  // ── §4 撤退 ?heromark=0 ────────────────────────────────────────────────────
+  //   ⭐⭐ 3 本とも **素のアームを必ず同居させる**。撤退アームだけを見ると
+  //     「▽ が無いこと」を確かめているだけになり、実装ごと消えても緑のままになる。
+  //   ⚠ 撤退アームの観測は m.off (measure + measureMark + measureHits の 3 点セット)。
+  ['4a', RETREAT_QUERY + ' → document.getElementById("worldHeroMark") === null'
+    + ' (**DOM に無い**。display:none で残っていたら FAIL = town.html:471 と同じ作法)'
+    + ' ⚠ 母集団ガード = 素のアームには ▽ が居ること (両アームとも居なければ自明に緑)',
+    m => {
+      const o = m.off;
+      if (!o) return [false, '⛔ 撤退アームの観測が無い (measure を ' + RETREAT_QUERY + ' で採っていない)'];
+      const why = [];
+      /* ⚠⚠ 母集団ガード。⛔ 「素でも ▽ が居ない」なら撤退の前後で何も変わらないので、
+         「消えた」を主張できない (= 自明に緑)。 */
+      if (!m.markPresent) why.push('⛔ 母集団: 素のアームに ▽ が居ない (撤退で消える差が出ない = 自明に緑)');
+      if (m.markOn !== true) why.push('⛔ 母集団: 素のアームの heroMarkOn() が ' + JSON.stringify(m.markOn) + ' (want true)');
+      if (o.markPresent) {
+        why.push('⛔ ' + RETREAT_QUERY + ' でも #worldHeroMark が DOM に居る'
+          + (o.markRect ? ' (rect ' + o.markRect.w.toFixed(1) + 'x' + o.markRect.h.toFixed(1) + 'px)' : ''));
+      }
+      if (o.markOn !== false) why.push('⛔ ' + RETREAT_QUERY + ' で heroMarkOn() が ' + JSON.stringify(o.markOn) + ' (want false)');
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '素: ▽ =' + (m.markPresent ? 'あり' : '無い') + ' heroMarkOn()=' + JSON.stringify(m.markOn)
+        + '  /  ' + RETREAT_QUERY + ': ▽ =' + (o.markPresent ? '⛔ まだ居る' : 'DOM に無い')
+        + ' heroMarkOn()=' + JSON.stringify(o.markOn)];
+    }],
+  ['4b', '★ 素のアームを同じ assert に同居させる — (' + RETREAT_CONJ.join(') && (') + ') の'
+    + ' conjunction を **両アームへ当て**、素では全部真、' + RETREAT_QUERY + ' では (1a) が偽で崩れる'
+    + ' ⭐⭐ 撤退アームだけを見ると永久緑になる (#39 の教訓)',
+    m => {
+      const o = m.off;
+      if (!o) return [false, '⛔ 撤退アームの観測が無い (measure / measureMark / measureHits を '
+        + RETREAT_QUERY + ' で採っていない)'];
+      /* ⭐ 判定は書き下ろさず、**実装済みの assert をそのまま**もう一方のアームへ当てる。 */
+      const run = (x) => RETREAT_CONJ.map((k) => {
+        const a = ASSERT_OF[k];
+        if (!a) return { k: k, ok: false, note: '⛔ (' + k + ') が ASSERTS に無い' };
+        let r;
+        try { r = a[2](x); } catch (e) { return { k: k, ok: false, note: '⛔ 例外 ' + String(e && e.message).slice(0, 60) }; }
+        return { k: k, ok: r[0] === true, note: r[1] };
+      });
+      const bare = run(m), off = run(o);
+      const why = [];
+      const bareNg = bare.filter(r => !r.ok);
+      if (bareNg.length) {
+        why.push('⛔ 素のアームで崩れた ' + bareNg.map(r => '(' + r.k + ')').join('')
+          + ': ' + bareNg.map(r => String(r.note).slice(0, 110)).join(' | '));
+      }
+      const off1a = off.filter(r => r.k === '1a')[0];
+      if (!off1a || off1a.ok !== false) {
+        why.push('⛔ ' + RETREAT_QUERY + ' でも (1a) が真のまま = conjunction が崩れていない'
+          + ' (▽ が消えていないか、(1a) が ▽ を見ていない)');
+      }
+      const fmt = (rows) => rows.map(r => '(' + r.k + ')' + (r.ok ? '真' : '偽')).join(' ');
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '素: ' + fmt(bare) + ' (conjunction=' + (bare.every(r => r.ok) ? '真' : '偽') + ')'
+        + '  /  ' + RETREAT_QUERY + ': ' + fmt(off)
+        + ' (conjunction=' + (off.every(r => r.ok) ? '⛔ 真のまま' : '偽 = 崩れた') + ')'];
+    }],
+  ['4c', '撤退のしすぎも測る — ' + RETREAT_QUERY + ' でも .worldStep 件数 / .worldSign '
+    + EXPECT_SIGNS + ' 枚 / heroPx() / heroNode() / zoom() が素のアームと **一致**する'
+    + ' ⭐ 消えるのは ▽ だけ、を縛る',
+    m => {
+      const o = m.off;
+      if (!o) return [false, '⛔ 撤退アームの観測が無い'];
+      const why = [];
+      /* ⚠ 母集団ガード。⛔ 両アームとも 0 件 / null なら「一致」は自明に真になる。 */
+      if (!Number.isInteger(m.stepElCount) || m.stepElCount <= 0) {
+        why.push('⛔ 母集団: 素の .worldStep が ' + JSON.stringify(m.stepElCount) + ' 件');
+      }
+      if (m.signCount !== EXPECT_SIGNS) why.push('⛔ 母集団: 素の .worldSign が ' + m.signCount + ' 枚 (want ' + EXPECT_SIGNS + ')');
+      if (!m.heroNode || !m.heroPx || !isFiniteNum(m.zoom)) {
+        why.push('⛔ 母集団: 素のアームの heroNode / heroPx / zoom を読めない');
+      }
+      if (o.stepElCount !== m.stepElCount) {
+        why.push('⛔ .worldStep が 素 ' + m.stepElCount + ' 件 → 撤退 ' + o.stepElCount + ' 件');
+      }
+      if (o.signCount !== EXPECT_SIGNS || o.signCount !== m.signCount) {
+        why.push('⛔ .worldSign が 素 ' + m.signCount + ' 枚 → 撤退 ' + o.signCount + ' 枚 (want ' + EXPECT_SIGNS + ')');
+      }
+      if (o.nodeElCount !== m.nodeElCount) {
+        why.push('⛔ .worldNode が 素 ' + m.nodeElCount + ' 件 → 撤退 ' + o.nodeElCount + ' 件');
+      }
+      if (o.heroNode !== m.heroNode) {
+        why.push('⛔ heroNode() が ' + JSON.stringify(m.heroNode) + ' → ' + JSON.stringify(o.heroNode));
+      }
+      const dPx = (m.heroPx && o.heroPx && isFiniteNum(m.heroPx.x) && isFiniteNum(o.heroPx.x))
+        ? Math.max(Math.abs(m.heroPx.x - o.heroPx.x), Math.abs(m.heroPx.y - o.heroPx.y)) : Infinity;
+      if (!(dPx <= SAME_EPS)) {
+        why.push('⛔ heroPx() が ' + JSON.stringify(m.heroPx) + ' → ' + JSON.stringify(o.heroPx));
+      }
+      const dZ = (isFiniteNum(m.zoom) && isFiniteNum(o.zoom)) ? Math.abs(m.zoom - o.zoom) : Infinity;
+      if (!(dZ <= SAME_EPS)) {
+        why.push('⛔ zoom() が ' + JSON.stringify(m.zoom) + ' → ' + JSON.stringify(o.zoom));
+      }
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '.worldStep ' + m.stepElCount + '→' + o.stepElCount
+        + ' / .worldSign ' + m.signCount + '→' + o.signCount
+        + ' / .worldNode ' + m.nodeElCount + '→' + o.nodeElCount
+        + ' / heroNode ' + JSON.stringify(m.heroNode) + '→' + JSON.stringify(o.heroNode)
+        + ' / heroPx の差 ' + (isFinite(dPx) ? dPx.toFixed(4) : '—')
+        + ' / zoom の差 ' + (isFinite(dZ) ? dZ.toFixed(6) : '—') + ' (許容 ' + SAME_EPS + ')'];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1285,18 +1455,12 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //     本体の配線 (['1a','1b', …] の並び) へキーを足すこと (両方やらないと数が合わない)。
 //   ⛔ 空になっても配列ごと削除しないこと (削ると PENDING という 3 値そのものが消える)。
 // ══════════════════════════════════════════════════════════════════════════════
-const PENDINGS = [
-  ['§4 撤退 ' + RETREAT_QUERY + ' — ⭐ 撤退アームと素のアームを **対で**測る', [
-    ['4a', RETREAT_QUERY + ' → document.getElementById("worldHeroMark") === null',
-      '**DOM に無い**こと。display:none で残っていたら FAIL (town.html:471 と同じ作法) → 項目 4 の担当'],
-    ['4b', '★ 素のアームを同じ assert に同居させる — (1a) && (1b) && (2a) の conjunction を '
-      + '両アームへ当て、素では全部真、' + RETREAT_QUERY + ' では (1a) が偽で崩れる',
-      '⭐⭐ 撤退アームだけを見ると永久緑になる (#39 の教訓) → 項目 4 の担当'],
-    ['4c', '撤退のしすぎも測る — .worldStep 件数 / .worldSign 7 枚 / heroPx() / heroNode() / '
-      + 'zoom() が素のアームと一致する',
-      '消えるのは ▽ だけ、を縛る → 項目 4 の担当'],
-  ]],
-];
+/*  ⭐ 2026-09-03 項目 4 で **空になった** (§4 の 3 本を ASSERTS へ移し、変異 7 本も
+ *    全部 impl: true にしたので (0d) も PASSED へ変わる) = このドライバは PENDING 0。
+ *  ⛔ 空になっても配列ごと削除しないこと — 削ると PENDING という 3 値そのものと、
+ *    「実装を忘れた受入条件が件数から消えない」という仕組みが失われる。
+ *    後続チケットが §5 を足すときは、ここへ器だけ並べてから中身を書く。 */
+const PENDINGS = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -1358,12 +1522,21 @@ const PENDINGS = [
          ⛔ 素のアームだけ見ると「撤退したときだけ落ちる」を永久に見逃す。
          ⚠ ここで採るのは errs (事故) と [記録] だけ。§4 の assert は項目 4 の担当。 */
       const mOff = await measure(browser, PORT, errs, { query: RETREAT_QUERY });
+      m.off = mOff;
       /* ⭐ §1 の 2 経路目 (DOM 専用) と 3 経路目 (実操作)。
          ⛔ measure() の 1 フレームだけで §1 を測らない — bob のぶん間欠フレークする。 */
       m.mark = await measureMark(browser, PORT, errs, {});
       m.play = await measurePlay(browser, PORT, errs, {});
       /* ⭐ §2 の 4 経路目 (当たり判定を実際に突く)。 */
       m.hits = await measureHits(browser, PORT, errs, {});
+      /* ⭐⭐ §4 (4b) は「実装済みの assert を **両アームへ当てる**」ので、撤退アームでも
+         measureMark / measureHits を採る = 素と撤退で **2 セット**。
+         ⛔ 撤退アームを measure() の 1 フレームだけで済ませると (4b) が
+            「観測が無い」で崩れ、欠陥を検出したのか装置が欠けたのか読めなくなる。
+         ⚠ 撤退アームでは #worldHeroMark が DOM に無いので markFollow は
+           「矩形を採れたサンプルが 0 件」で偽になる = **依頼書 §8 (4b) の期待どおり**。 */
+      mOff.mark = await measureMark(browser, PORT, errs, { query: RETREAT_QUERY });
+      mOff.hits = await measureHits(browser, PORT, errs, { query: RETREAT_QUERY });
       /* ⭐ §3 の基準アーム = 着手前 HEAD のページ。
          ⚠ 事故は errs (= (9a)) へ混ぜない — 基準ページの事故は実装の事故ではないので、
            件数だけ (3a) の detail へ出す。⛔ ただし黙って捨てない。 */
@@ -1414,7 +1587,7 @@ const PENDINGS = [
         + '  z-index=' + m.heroZ);
       console.log('         札 ' + m.signCount + ' 枚 / 刻み点 ' + m.stepElCount
         + ' 枚 / .worldNode ' + m.nodeElCount + ' 枚');
-      console.log('       [記録] 撤退アーム ' + RETREAT_QUERY + ' (⛔ §4 の assert は項目 4 の担当):');
+      console.log('       [記録] 撤退アーム ' + RETREAT_QUERY + ' (⭐ §4 の assert は下で当てる):');
       console.log('         ▽ =' + (mOff.markPresent ? '⚠ まだ DOM に居る' : 'DOM に無い')
         + '  heroMarkOn()=' + JSON.stringify(mOff.markOn)
         + '  heroNode=' + JSON.stringify(mOff.heroNode)
@@ -1480,6 +1653,30 @@ const PENDINGS = [
         + JSON.stringify(m.baseSeam && m.baseSeam.keys));
       console.log('         素の window.__world = ' + JSON.stringify(m.seamKeys));
 
+      mark('§4 撤退 ' + RETREAT_QUERY + ' — ⭐ 撤退アームと素のアームを **対で**測る');
+      for (const key of ['4a', '4b', '4c']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+      {
+        /* ⭐ (4b) が両アームへ当てた 3 本の内訳を記録に残す。⛔ 「撤退で崩れた」だけでは
+           **何が**崩れたのか読めない (装置が欠けても同じ見え方になる)。 */
+        const line = (x) => RETREAT_CONJ.map((k) => {
+          let ok = null;
+          try { ok = ASSERT_OF[k][2](x)[0] === true; } catch (e) { ok = null; }
+          return '(' + k + ')' + (ok === null ? '例外' : (ok ? '真' : '偽'));
+        }).join(' ');
+        console.log('       [記録] §4 の両アーム (⛔ 期待値ではない。読み解き用):');
+        console.log('         素        : ' + line(m)
+          + '  ▽ =' + (m.markPresent ? 'あり' : '無い')
+          + '  bob サンプル ' + ((m.mark && m.mark.samples) || []).length + ' 点'
+          + '  突いた点 ' + ((m.hits && m.hits.points) || []).length + ' 点');
+        console.log('         ' + RETREAT_QUERY + ': ' + line(mOff)
+          + '  ▽ =' + (mOff.markPresent ? '⚠ まだ居る' : '無い')
+          + '  bob サンプル ' + ((mOff.mark && mOff.mark.samples) || []).length + ' 点'
+          + '  突いた点 ' + ((mOff.hits && mOff.hits.points) || []).length + ' 点');
+      }
+
       for (const [title, rows] of PENDINGS) {
         mark(title);
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
@@ -1497,8 +1694,15 @@ const PENDINGS = [
           const f = '/' + MUT_SRC[k].file;
           const pure = await httpGet('http://localhost:' + PORT + f);
           const mut = await httpGet('http://localhost:' + PORT_OF[k] + f);
-          check('(n0a-' + k + ') 素には注入文字列が無く、変異側にちょうど 1 つある',
-            pure.body.split(MUTATIONS[k].to).length - 1 === 0 && mut.body.split(MUTATIONS[k].to).length - 1 === 1, f);
+          /* ⭐ 複合変異 (markhit) は置換が 2 箇所あるので **全部**を検算する。
+             ⛔ 1 箇所だけ見ると「片方しか当たっていない変異」を素通しする。 */
+          const eds = editsOf(MUTATIONS[k]);
+          const bad = eds.filter(e =>
+            !(pure.body.split(e.to).length - 1 === 0 && mut.body.split(e.to).length - 1 === 1));
+          check('(n0a-' + k + ') 素には注入文字列が無く、変異側にちょうど 1 つある'
+            + (eds.length > 1 ? ' (置換 ' + eds.length + ' 箇所すべて)' : ''),
+            bad.length === 0,
+            f + (bad.length ? '  ⛔ 当たっていない置換: ' + bad.map(e => JSON.stringify(e.to.slice(0, 50))).join(' / ') : ''));
           check('(n0b-' + k + ') 素と変異で配信バイト長が違う (同じ物を 2 回測っていない)',
             pure.body.length !== mut.body.length, '素=' + pure.body.length + 'B / 変異=' + mut.body.length + 'B');
         }
@@ -1513,12 +1717,21 @@ const PENDINGS = [
              読めなくなる (verify_world_steps の needsRetreat と同じ理屈)。 */
           if (MUTATIONS[k].needsRetreat) {
             m.off = await measure(browser, port, negErrs, { query: RETREAT_QUERY });
+            /* ⭐⭐ (4b) は実装済みの assert を **両アームへ当てる**ので、撤退アームにも
+               素と同じ 3 点セット (measure + measureMark + measureHits) が要る。
+               ⛔ measure() だけにすると (4b) の撤退アームが「観測が無い」で偽になり、
+                  markalways を載せても **conjunction が崩れたまま = 空振り**する。 */
+            m.off.mark = await measureMark(browser, port, negErrs, { query: RETREAT_QUERY });
+            m.off.hits = await measureHits(browser, port, negErrs, { query: RETREAT_QUERY });
           }
           /* ⭐ §1 を狙う変異は **§1 と同じ観測**が要る。⛔ 素の m だけ渡すと
              「観測が無い」で機械的に赤くなり、欠陥を検出したのか装置が欠けたのか読めない。
              ⚠ 対象は targets から自動で決まる (⛔ 変異ごとに手で書き足さない)。 */
           const tg = MUTATIONS[k].targets || [];
-          if (tg.some(t => ['1a', '1b', '1c', '1d', '1e'].indexOf(t) >= 0)) {
+          /* ⚠ (4b) は (1a)(1b)(2a) の conjunction なので、**素のアームにも**
+             measureMark / measureHits が要る (⛔ でないと素側が「観測が無い」で偽になり、
+             欠陥を検出したのか装置が欠けたのか読めなくなる)。 */
+          if (tg.some(t => ['1a', '1b', '1c', '1d', '1e', '4b'].indexOf(t) >= 0)) {
             m.mark = await measureMark(browser, port, negErrs, {});
           }
           if (tg.some(t => ['1c', '1d'].indexOf(t) >= 0)) {
@@ -1527,7 +1740,7 @@ const PENDINGS = [
           /* ⭐ §2 を狙う変異 (markhit) は **当たり判定の観測**が要る (項目 3 が足した経路)。
              ⛔ 素の m だけ渡すと (2a) が「観測が無い」で機械的に赤くなり、
                 欠陥を検出したのか装置が欠けたのか読めなくなる。 */
-          if (tg.indexOf('2a') >= 0) {
+          if (tg.some(t => ['2a', '4b'].indexOf(t) >= 0)) {
             m.hits = await measureHits(browser, port, negErrs, {});
           }
           for (const key of MUTATIONS[k].targets) {
