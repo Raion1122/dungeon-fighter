@@ -20,10 +20,27 @@
  *   ・水色の面 … 戦車の乱入位置と、その体が覆うタイル (unitBodyTiles)。
  *   ・目盛り … グローバルなタイル座標 (5 タイルごと)。「(43,9) を空けて」と指せる。
  *
+ * ★[#46 §4-1 STEP A / 2026-09-03] 「絵が読めない」を直す 3 つのオプションを足した。
+ *   塗りつぶし (rgba 0.42) だと絵が隠れて「そこに何が描かれているか」が読めず、
+ *   マスクへ 1 マス足す候補を人が指せなかった。
+ *     --outline              … 塗りつぶしをやめ、通行不能マスは**枠だけ** (width 3)、
+ *                              床は**中心に緑の点**。絵はそのまま見える。
+ *     --region <c0,r0,c1,r1> … グローバルタイル座標で領域を切り出す (部屋の rect でクランプ)。
+ *     --scale <n>            … 出力を n 倍 (既定 1)。
+ *   ⚠ 依頼書 §4-1 は「2 倍にすると 1 タイル 128px」と書いているが、**現行の 1 タイルは
+ *     32px** なので 2 倍 = 64px。128px が欲しければ `--scale 4`。
+ *   ⚠⚠ **判定の出所は現行と同じ 3 述語** (mapData===2 → isDoorBlocking → obstacleTileMask)
+ *     のまま = whyOf() 1 本。⛔ blocked の行文字列をここで解釈し直さない (出所を 2 つ持たない)。
+ *   ⚠ このツールは **assert を持たない目視補助**なので、拡張しても CI の色には関与しない。
+ *   ⭐ tally / gates / foes の**数え上げは常に部屋の全域**で行う (--region は描画だけを切る)。
+ *     こうすると領域を変えてもコンソールの数字が動かず、切り出し図と全景を混同しない。
+ *   ⭐ 目盛りは領域が 20 タイル以下のとき **1 タイルごと**に出す (1 マスを指すため)。
+ *
  * 使い方:
  *   node tools/probe_paint_overlay.js                 (goblin-mine の n0 と n1 を出す)
  *   node tools/probe_paint_overlay.js --out <dir>
  *   node tools/probe_paint_overlay.js --node n1
+ *   node tools/probe_paint_overlay.js --node n1 --outline --region 29,6,40,13 --scale 4
  */
 'use strict';
 
@@ -38,6 +55,19 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv
 const PORT = parseInt(arg('port', '9098'), 10);
 const OUT = arg('out', path.join(os.tmpdir(), 'df_paint_overlay'));
 const ONLY = arg('node', null);
+/* ★[#46 §4-1 STEP A] 目視の 3 オプション。⛔ 判定 (whyOf の 3 述語) には一切触らない。 */
+const OUTLINE = argv.includes('--outline');
+const SCALE = Math.max(1, Math.min(8, parseFloat(arg('scale', '1')) || 1));
+const REGION = (() => {
+  const s = arg('region', null);
+  if (!s) return null;
+  const v = s.split(',').map(t => parseInt(t.trim(), 10));
+  if (v.length !== 4 || v.some(n => !isFinite(n))) {
+    console.error('[probe] --region は c0,r0,c1,r1 の 4 つ (グローバルタイル座標)');
+    process.exit(2);
+  }
+  return v;
+})();
 
 const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -84,22 +114,40 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * ⭐ [2026-08-22] 赤 1 色だと「このチケットで直せるマス (絵のマスク)」と
  *   「直せないマス (岩盤・閉じた扉)」が見分けられなかったので理由別に塗り分ける。
  *   判定の出所は isTileWall と同じ 3 つの述語そのもの (規則を写経しない)。 */
-function RENDER() {
+function RENDER(O) {
+  O = O || {};
+  const OUTLINE = !!O.outline;
+  const SCALE = O.scale || 1;
   const room = MAPDEF.rooms[0];
   const r1 = room.rect[0], c1 = room.rect[1], r2 = room.rect[2], c2 = room.rect[3];
   const w = c2 - c1 + 1, h = r2 - r1 + 1;
-  const CELL = 32, PAD = 24;
+  const CELL = 32 * SCALE, PAD = 24 * SCALE;
+  /* ★[#46 §4-1 STEP A] 表示域。⭐ **数え上げは常に部屋の全域**で、ここは描画の窓だけを決める。
+   *  ⚠ 座標式 (ox + (x - c1) * CELL) は 1 つも書き換えない — 原点 ox/oy を左上へずらすだけで、
+   *    窓の外のタイルは canvas の外へ落ちて自動的にクリップされる (式を 2 通り持たない)。 */
+  let vc1 = c1, vr1 = r1, vc2 = c2, vr2 = r2;
+  if (O.region) {
+    const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    vc1 = cl(Math.min(O.region[0], O.region[2]), c1, c2);
+    vr1 = cl(Math.min(O.region[1], O.region[3]), r1, r2);
+    vc2 = cl(Math.max(O.region[0], O.region[2]), c1, c2);
+    vr2 = cl(Math.max(O.region[1], O.region[3]), r1, r2);
+  }
+  const vw = vc2 - vc1 + 1, vh = vr2 - vr1 + 1;
   const cv = document.createElement('canvas');
-  cv.width = w * CELL + PAD; cv.height = h * CELL + PAD;
+  cv.width = vw * CELL + PAD; cv.height = vh * CELL + PAD;
   const g = cv.getContext('2d');
   g.fillStyle = '#111'; g.fillRect(0, 0, cv.width, cv.height);
-  const ox = PAD, oy = PAD;
+  const ox = PAD - (vc1 - c1) * CELL, oy = PAD - (vr1 - r1) * CELL;
   const p = roomPaintings.find(q => q.tx === c1 && q.ty === r1);
   if (p && p.img && p.img.naturalWidth) g.drawImage(p.img, ox, oy, w * CELL, h * CELL);
 
   /* 壁の「理由」。isTileWall と同じ順で見る (岩盤 → 扉 → obstacleTileMask)。 */
   const COLORS = { rock: 'rgba(90,110,200,0.52)', door: 'rgba(255,215,60,0.58)',
                    ring: 'rgba(255,140,20,0.46)', mask: 'rgba(220,30,30,0.42)' };
+  /* ★[#46 --outline] 枠だけモードの色。⭐ 塗りと**同じ理由分け** (whyOf) を不透明にしただけ。 */
+  const STROKE = { rock: 'rgba(120,150,255,0.95)', door: 'rgba(255,215,60,0.95)',
+                   ring: 'rgba(255,150,30,0.95)', mask: 'rgba(255,50,50,0.95)' };
   const tally = { rock: 0, door: 0, ring: 0, mask: 0, floor: 0 };
   const whyOf = (x, y) => {
     if (mapData[y] && mapData[y][x] === 2) return 'rock';
@@ -111,10 +159,25 @@ function RENDER() {
   for (let y = r1; y <= r2; y++) {
     for (let x = c1; x <= c2; x++) {
       const why = whyOf(x, y);
-      if (!why) { tally.floor++; continue; }
+      const px = ox + (x - c1) * CELL, py = oy + (y - r1) * CELL;
+      if (!why) {
+        tally.floor++;
+        /* ★[#46 --outline] 床は中心の緑の点だけ = 絵を 1 ピクセルも隠さない。 */
+        if (OUTLINE) {
+          g.beginPath();
+          g.arc(px + CELL / 2, py + CELL / 2, Math.max(1.5, CELL * 0.07), 0, Math.PI * 2);
+          g.fillStyle = 'rgba(70,240,110,0.92)'; g.fill();
+        }
+        continue;
+      }
       tally[why]++;
-      g.fillStyle = COLORS[why];
-      g.fillRect(ox + (x - c1) * CELL, oy + (y - r1) * CELL, CELL, CELL);
+      if (OUTLINE) {
+        g.strokeStyle = STROKE[why]; g.lineWidth = 3;
+        g.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3);
+      } else {
+        g.fillStyle = COLORS[why];
+        g.fillRect(px, py, CELL, CELL);
+      }
     }
   }
   // 格子 (5 タイルごとに濃く)
@@ -127,10 +190,12 @@ function RENDER() {
     g.lineWidth = 1; g.beginPath(); g.moveTo(ox, oy + y * CELL); g.lineTo(ox + w * CELL, oy + y * CELL); g.stroke();
   }
   /* 目盛りは **グローバルなタイル座標**。ユーザーが「(43,9) を空けて」と指せるように。 */
-  g.font = 'bold 11px monospace'; g.textBaseline = 'middle';
+  /* ★[#46] 表示域が狭いときは 1 タイルごとに振る (「(35,8) を塞いで」と 1 マスを指すため)。 */
+  const every = (vw <= 20 && vh <= 20) ? 1 : 5;
+  g.font = 'bold ' + Math.round(11 * Math.min(SCALE, 2.4)) + 'px monospace'; g.textBaseline = 'middle';
   g.fillStyle = '#9fd8ff';
-  for (let x = c1; x <= c2; x++) if (x % 5 === 0) g.fillText(String(x), ox + (x - c1) * CELL + 3, 11);
-  for (let y = r1; y <= r2; y++) if (y % 5 === 0) g.fillText(String(y), 2, oy + (y - r1) * CELL + CELL / 2);
+  for (let x = vc1; x <= vc2; x++) if (x % every === 0) g.fillText(String(x), ox + (x - c1) * CELL + 3, PAD * 0.5);
+  for (let y = vr1; y <= vr2; y++) if (y % every === 0) g.fillText(String(y), 2, oy + (y - r1) * CELL + CELL / 2);
 
   // 黄枠 = 出口タイル (門番が必ず通すマス。扉が閉じている間は door 色になるのが正常)
   const gates = [];
@@ -192,6 +257,8 @@ function RENDER() {
   const pb = window.__paintBlockProbe();
   return { png: cv.toDataURL('image/png'), rect: room.rect, gates: gates, chariot: chariot,
            tally: tally, foes: foes,
+           /* ★[#46] 「どこを / どの倍率で / どの描き方で」撮ったかを記録に残す。 */
+           view: [vc1, vr1, vc2, vr2], cell: CELL, outline: OUTLINE,
            node: window.__graphRun ? window.__graphRun.nodeId() : null,
            probe: { ring: pb.ring, skipGate: pb.skipGate, applied: pb.applied, ringOff: pb.ringOff } };
 }
@@ -234,11 +301,17 @@ function RENDER() {
     await closeDialogs();
 
     const shoot = async (label) => {
-      const r = await page.evaluate(RENDER);
-      const file = path.join(OUT, 'paint_overlay_' + label + '.png');
+      const r = await page.evaluate(RENDER, { outline: OUTLINE, scale: SCALE, region: REGION });
+      /* ★[#46] 全景と切り出し図が同じ名前で上書きし合わないよう、指定をファイル名へ残す。 */
+      const suffix = (OUTLINE ? '_outline' : '')
+        + (REGION ? '_r' + REGION.join('-') : '')
+        + (SCALE !== 1 ? '_x' + SCALE : '');
+      const file = path.join(OUT, 'paint_overlay_' + label + suffix + '.png');
       fs.writeFileSync(file, Buffer.from(r.png.split(',')[1], 'base64'));
       console.log('[probe] ' + file);
       console.log('        rect=' + JSON.stringify(r.rect) + ' node=' + r.node +
+                  ' 表示域=' + JSON.stringify(r.view) + ' 1タイル=' + r.cell + 'px'
+                  + (r.outline ? ' [枠だけ]' : ' [塗りつぶし]') +
                   ' ring=' + r.probe.ring + ' skipGate=' + r.probe.skipGate);
       console.log('        tally=' + JSON.stringify(r.tally));
       console.log('        gates=' + r.gates.join(' '));
