@@ -65,7 +65,12 @@
  *     (1f) computed の zIndex が #worldHero より **大きい**
  *          ⛔ 6 という数値そのものは書かない (§2-4 の「並びが違う」を関係で縛る)
  *
- * ■ 項目 3 以降が埋めるもの (今は PENDINGS)
+ * ■ 項目 3 (このコミット) が足したもの — **§2 非干渉 / §3 恒等 (非退行)**
+ *   ⭐ 観測を 2 本足した:
+ *     ④ measureHits()     … 全 14 ノード + 全刻み点マーカーの **中心 + 四隅の内側 8px の
+ *                           5 点** を elementFromPoint し、**誰が返ったか**の内訳まで持ち帰る
+ *     ⑤ measureSeamKeys() … **着手前 HEAD (c1c85e0) の world.html を別ポートで同時配信**し、
+ *                           実ブラウザから Object.keys(window.__world) を読む
  *   §2 非干渉
  *     (2a) ★ 全 14 ノード + 全刻み点マーカーの **中心 + 四隅の内側 8px の 5 点** を
  *          elementFromPoint し、返る要素が #worldHeroMark でもその子孫でもない
@@ -73,15 +78,22 @@
  *          ⭐⭐⭐ 「矩形が交差しない」ではなく **「その 1 点を奪わない」** を測る
  *            (#42 の教訓 — 押し込む向きで奪う隅が変わるので中心 1 点では捕まらない)
  *          ⚠⚠ ▽ は pointer-events: none なので「▽ が返らない」だけでは **自明に緑**。
- *            変異 markhit を赤にできることを --negative で担保する
+ *            変異 markhit を赤にできることを --negative で担保する (項目 4 の担当)。
+ *            ⭐ だからこそ detail には **検査した点の数と、各点が実際に何を返したかの内訳**
+ *              (自分自身 / 子孫 / それ以外 / null) を必ず出す = 変異時に何が動いたか読める
  *     (2b) .worldStep の DOM 件数が WORLD_MAP.STEPS と一致し .worldNode が 14 件。
  *          かつ #worldHeroMark が .worldNode も .worldStep も着ていない (classList.length === 0)
  *          ⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 が誤爆する
  *   §3 恒等 (非退行)
- *     (3a) Object.keys(window.__world) が #42 時点のキー集合をすべて含み、
+ *     (3a) Object.keys(window.__world) が **着手前 HEAD のキー集合**をすべて含み、
  *          増えたのは heroMarkOn / heroMarkGeom の 2 つだけ。
  *          ⭐ 2 つとも typeof === 'function' で、呼んで boolean / 有限値が返ることまで見る
+ *          ⭐⭐⭐ 基準は **ドライバへベタ書きしない** — 着手前 hash (c1c85e0) の world.html を
+ *            別ポート (BASE_PORT) で同時配信し、実ブラウザに読ませる (#34 の確定作法)。
+ *            ⛔ HEAD から採ると永久緑になる。⛔ キー名の配列を写経すると腐る (#38)
  *     (3b) .worldSign が 7 枚、点線 <line> が EDGES.length 本のまま
+ *
+ * ■ 項目 4 が埋めるもの (今は PENDINGS)
  *   §4 撤退 ?heromark=0
  *     (4a) document.getElementById('worldHeroMark') === null (**DOM に無い**)
  *     (4b) ★ 素のアームを同じ assert に同居させる — (1a) && (1b) && (2a) の conjunction を
@@ -255,6 +267,40 @@ for (const k of MUT_SERVED) {
   MUT_SRC[k] = { file: m.file, body: SRC[m.file].split(m.from).join(m.to) };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+ * (3a) の基準 — **着手前 HEAD の world.html を別ポートで同時配信する** (項目 3)
+ * ⭐⭐⭐ #34 の確定作法。非退行の基準は「着手前 hash を直書きし、別 URL で同時配信」。
+ *   ⛔ HEAD から採ると自分の変更ごと基準に取り込むので **永久緑**になる。
+ *   ⛔ 「#42 時点のキー集合」をキー名の配列としてドライバへ写経しない —
+ *      記録された期待値そのものが腐る (#38 の教訓)。ここでは **実ブラウザに
+ *      着手前の world.html を読ませて Object.keys(window.__world) を採る**。
+ * ⚠ c1c85e0 = #42 追補の着地コミット = #43 の着手前 HEAD (依頼書ヘッダで確認済み)。
+ * ⚠ js/world-map.js / assets は c1c85e0..HEAD で 1 バイトも動いていない
+ *   (2026-09-03 実測: git diff --stat = world.html と本ドライバの 2 ファイルのみ)
+ *   ので、**差し替えるのは world.html の 1 枚だけでよい**。
+ * ⚠ git が呼べない / blob が読めない場合は **黙って通さず (3a) を赤にする**
+ *   (silent fail-open を作らない)。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+const BASE_REV = 'c1c85e0';
+const BASE_KEY = '__baseline__';
+const BASE_PORT = PORT + 10;              /* 9500。⚠ 変異ポート 9491〜9497 と非衝突 */
+const EXTRA_SRC = {};                     /* 変異ではない差し替え配信 (startServer が見る) */
+const BASELINE = { ok: false, err: '未取得', bytes: 0 };
+if (!NEGATIVE) {
+  try {
+    const body = require('child_process').execFileSync(
+      'git', ['show', BASE_REV + ':world.html'],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (!body || body.indexOf('window.__world') < 0) {
+      throw new Error('取り出した blob に window.__world が無い');
+    }
+    EXTRA_SRC[BASE_KEY] = { file: 'world.html', body: body };
+    BASELINE.ok = true; BASELINE.err = null; BASELINE.bytes = body.length;
+  } catch (e) {
+    BASELINE.err = 'git show ' + BASE_REV + ':world.html — ' + String((e && e.message) || e).slice(0, 160);
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // puppeteer / Chrome / 内蔵サーバ
 // ══════════════════════════════════════════════════════════════════════════════
@@ -295,10 +341,13 @@ function startServer(port, mutKey) {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         const rel = u.replace(/^\/+/, '');
-        if (mutKey && MUT_SRC[mutKey] && rel === MUT_SRC[mutKey].file) {
+        /* ⭐ 差し替え配信は 2 系統 = 変異 (MUT_SRC) と 着手前 HEAD (EXTRA_SRC[BASE_KEY])。
+           ⛔ どちらもリクエストのたびに読み直さない (起動時に凍結済み)。 */
+        const ov = mutKey ? (MUT_SRC[mutKey] || EXTRA_SRC[mutKey] || null) : null;
+        if (ov && rel === ov.file) {
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(MUT_SRC[mutKey].body); return;
+          res.end(ov.body); return;
         }
         const fp = path.join(ROOT, rel);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
@@ -375,6 +424,17 @@ const TAP_SETTLE_MS = 140;
  *  ⛔ 19.72px のような幾何の期待値はドライバへ書かない (縛るのは「交差 0」だけ)。 */
 const EXPECT_NODES = 14;
 const EXPECT_SIGNS = 7;
+/* ── §2 の計測パラメタ (項目 3) ──────────────────────────────────────────────
+ *  (2a) 四隅を **内側 8px** で突く。⚠ これは幾何の期待値ではなく **突く場所**で、
+ *    依頼書 §8 (2a) が「中心 + 四隅の内側 8px の 5 点」と明記している数値
+ *    (手本 = tools/verify_world_steps.js の (2d) / SIGN_INSET = 8)。
+ *  ⭐⭐⭐ 「矩形が交差する」「中心を奪う」「隅を奪う」は **3 つとも別条件** (#42 の実測)。
+ *    押し込む向きで奪う隅が変わるので、中心 1 点だけでは原理的に捕まらない。 */
+const HIT_INSET = 8;
+const HIT_POINTS = 5;                     /* 中心 + 四隅 */
+/* (3a) で「増えた」と認めるキー。⛔ これは **このチケットが足した 2 つ**であって
+ *  「#42 時点のキー集合」ではない (そちらは BASE_REV の実ページから読む)。 */
+const NEW_SEAM_KEYS = ['heroMarkGeom', 'heroMarkOn'];   /* sort 済み */
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 — ⛔ 返すのは **本番のデータ / 本番の関数 / ブラウザのレイアウト結果**だけ。
@@ -400,6 +460,7 @@ async function measure(browser, port, errs, opts) {
 
   const m = await page.evaluate(() => {
     const W = window.__world;
+    const WM = window.WORLD_MAP;
     const safe = (f, d) => { try { return f(); } catch (e) { return d; } };
     const rectOf = (el) => {
       if (!el) return null;
@@ -441,6 +502,16 @@ async function measure(browser, port, errs, opts) {
       signCount: document.querySelectorAll('.worldSign').length,
       stepElCount: document.querySelectorAll('.worldStep').length,
       nodeElCount: document.querySelectorAll('.worldNode').length,
+      /* ── §2 / §3 の母集団 (項目 3)。⛔ 10 / 7 / 15 のような件数をドライバへ写経せず、
+            ここでは **データ側の実数**を持ち帰って assert が DOM 側と突き合わせる。 ── */
+      stepDataCount: (WM && WM.STEPS) ? Object.keys(WM.STEPS).length : null,
+      edgeCount: (WM && WM.EDGES) ? WM.EDGES.length : null,
+      /* ⚠ 点線は #worldRoutes の <line>。⛔ セレクタは勘で書かず
+           tools/verify_world_steps.js:(2b) の実装と同じものを使う。 */
+      lineCount: (function () {
+        const svg = document.getElementById('worldRoutes');
+        return svg ? svg.querySelectorAll('line').length : null;
+      })(),
     };
   });
   m.port = port;
@@ -695,6 +766,95 @@ async function measurePlay(browser, port, errs, opts) {
     await page.close();
   }
   return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// §2 の観測 (項目 3) — **当たり判定を実際に突く** 4 経路目
+//   ⭐⭐⭐ 「▽ の矩形が誰とも交差しない」ではなく **「その 1 点を奪わない」** を測る。
+//     #42 で実測して確定した通り、「矩形の交差」「中心の奪取」「隅の奪取」は 3 つとも
+//     別条件で、押し込む向きによって奪われる隅が変わる ⇒ **中心 + 四隅の 5 点**で突く。
+//   ⛔ ここでは判定しない。返すのは「どの点で誰が返ったか」の生データだけ。
+//   ⚠⚠ ▽ は pointer-events: none なので素のままでは **1 点も奪わない = 自明に緑**。
+//     だから内訳 (自分自身 / 子孫 / それ以外 / null) を全部持ち帰り、assert が detail へ
+//     出す。変異 markhit (項目 4) を載せたときに **何が動いたか**が読めるようにするため。
+// ══════════════════════════════════════════════════════════════════════════════
+function readHits(page, inset) {
+  return page.evaluate((INSET) => {
+    const WM = window.WORLD_MAP;
+    const mark = document.getElementById('worldHeroMark');
+    /* 返ってきた要素の呼び名。⛔ 無名の div を "" と書かない (読めなくなる)。 */
+    const nameOf = (el) => {
+      if (!el) return 'null';
+      if (el.id) return '#' + el.id;
+      const c = String(el.className || '');
+      return c ? '.' + c.trim().split(/\s+/).join('.') : el.tagName.toLowerCase();
+    };
+    const scan = (el, kind, id) => {
+      const r = el.getBoundingClientRect();
+      const P = INSET;
+      const pts = [['中心', r.left + r.width / 2, r.top + r.height / 2],
+                   ['左上', r.left + P, r.top + P],
+                   ['右上', r.left + r.width - P, r.top + P],
+                   ['左下', r.left + P, r.top + r.height - P],
+                   ['右下', r.left + r.width - P, r.top + r.height - P]];
+      return pts.map((q) => {
+        const x = q[1], y = q[2];
+        const onScreen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+        const top = document.elementFromPoint(x, y);
+        /* ⭐ 「▽ でもその子孫でもない」= mark.contains は自分自身も true を返す。 */
+        const stolen = !!(mark && top && (top === mark || mark.contains(top)));
+        const who = !top ? 'null'
+          : (top === el ? 'self' : (el.contains(top) ? 'descendant' : 'other'));
+        return { kind: kind, id: id, label: q[0], onScreen: onScreen,
+                 stolen: stolen, who: who, desc: nameOf(top) };
+      });
+    };
+    const nodeEls = Array.prototype.slice.call(document.querySelectorAll('.worldNode'));
+    const stepEls = Array.prototype.slice.call(document.querySelectorAll('.worldStep'));
+    const points = [];
+    for (const el of nodeEls) points.push.apply(points, scan(el, 'node', el.getAttribute('data-node')));
+    for (const el of stepEls) points.push.apply(points, scan(el, 'step', el.getAttribute('data-step')));
+    return {
+      markPresent: !!mark,
+      markPointerEvents: mark ? getComputedStyle(mark).pointerEvents : null,
+      markRect: mark ? (function () {
+        const r = mark.getBoundingClientRect();
+        return { l: r.left, t: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom };
+      })() : null,
+      nodeElCount: nodeEls.length,
+      stepElCount: stepEls.length,
+      /* ⛔ 件数をドライバへ写経せず、**データ側の実数**を持ち帰る (assert が突き合わせる)。 */
+      stepDataCount: (WM && WM.STEPS) ? Object.keys(WM.STEPS).length : null,
+      points: points,
+    };
+  }, inset);
+}
+async function measureHits(browser, port, errs, opts) {
+  opts = opts || {};
+  const page = await openPage(browser, port, errs, opts, ' hits');
+  try {
+    const d = await readHits(page, HIT_INSET);
+    d.query = opts.query || '';
+    return d;
+  } finally {
+    await page.close();
+  }
+}
+
+/* ── (3a) の基準アーム — **着手前 HEAD の world.html を実ブラウザに読ませる** ─────
+ *  ⛔ キー名の配列をドライバへ写経しない (記録された期待値そのものが腐る = #38)。
+ *  ⚠ このタブの pageerror は (9a) の errs へ混ぜない (基準ページの事故は実装の事故ではない)
+ *    — 呼び手が専用の配列を渡し、件数を (3a) の detail へ出す。 */
+async function measureSeamKeys(browser, port, errs) {
+  const page = await openPage(browser, port, errs, {}, ' base');
+  try {
+    return await page.evaluate(() => {
+      const W = window.__world;
+      return W ? Object.keys(W).slice().sort() : null;
+    });
+  } finally {
+    await page.close();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -975,36 +1135,157 @@ const ASSERTS = [
         + '  /  #worldHero z-index=' + JSON.stringify(m.heroZ)
         + (ok ? '' : '  ⛔ ▽ が主人公より上に居ない (数値でない場合も FAIL)')];
     }],
+
+  // ── §2 非干渉 (誰の当たり判定も奪わない) ──────────────────────────────────
+  ['2a', '★ 全 ' + EXPECT_NODES + ' ノード + 全刻み点マーカーの **中心 + 四隅の内側 '
+    + HIT_INSET + 'px の ' + HIT_POINTS + ' 点** を elementFromPoint し、'
+    + '返る要素が #worldHeroMark でもその子孫でもない'
+    + ' ⚠ 母集団ガード = 検査した点が (' + EXPECT_NODES + ' + STEPS 件数) x ' + HIT_POINTS
+    + ' と一致し 0 でないこと'
+    + ' ⭐⭐⭐ 「矩形が交差しない」ではなく **「その 1 点を奪わない」** を測る (#42 の教訓)',
+    m => {
+      const d = m.hits;
+      if (!d) return [false, '⛔ measureHits の観測が無い'];
+      const why = [];
+      /* ⚠⚠ 母集団ガード 4 本立て。⛔ ▽ が居ない / 点が 0 / 全部画面外 のどれでも
+         「奪われ 0 件」で緑になってしまうので、全部つぶす。 */
+      if (!d.markPresent) why.push('⛔ 母集団: #worldHeroMark が DOM に無い (奪いようが無い = 自明に緑)');
+      if (!Number.isInteger(d.stepDataCount) || d.stepDataCount <= 0) {
+        why.push('⛔ 母集団: WORLD_MAP.STEPS を読めない (' + JSON.stringify(d.stepDataCount) + ')');
+      }
+      if (d.nodeElCount !== EXPECT_NODES) {
+        why.push('⛔ 母集団: .worldNode が ' + d.nodeElCount + ' 件 (want ' + EXPECT_NODES + ')');
+      }
+      if (d.stepElCount !== d.stepDataCount) {
+        why.push('⛔ 母集団: .worldStep ' + d.stepElCount + ' 件 ≠ STEPS ' + d.stepDataCount + ' 件');
+      }
+      const want = (EXPECT_NODES + (Number.isInteger(d.stepDataCount) ? d.stepDataCount : -EXPECT_NODES)) * HIT_POINTS;
+      const pts = d.points || [];
+      if (pts.length === 0 || pts.length !== want) {
+        why.push('⛔ 母集団: 検査した点が ' + pts.length + ' 点 (want ' + want + ' 点)');
+      }
+      /* ⭐ 内訳 = 「▽ が返らない」だけでは自明に緑なので、**各点が実際に何を返したか**を
+         必ず記録する。変異 markhit (項目 4) を載せたとき何が動いたかがこれで読める。 */
+      const tally = { self: 0, descendant: 0, other: 0, null: 0 };
+      const others = {};
+      const stolen = [];
+      let off = 0;
+      for (const p of pts) {
+        tally[p.who] = (tally[p.who] || 0) + 1;
+        if (p.who === 'other') others[p.desc] = (others[p.desc] || 0) + 1;
+        if (!p.onScreen) off++;
+        if (p.stolen) stolen.push(p.kind + '(' + p.id + '):' + p.label + '←' + p.desc);
+      }
+      /* ⚠ 画面外の点は elementFromPoint が必ず null を返す = 「奪われない」が自明に真。
+         ⛔ 1 点でも画面外なら母集団が欠けているので赤にする
+            (tools/verify_world_steps.js の (2c) が刻み点で同じ縛りを掛けている)。 */
+      if (pts.length && off > 0) why.push('⛔ 母集団: 画面外の点が ' + off + ' / ' + pts.length + ' 点');
+      const topOthers = Object.keys(others).sort((a, b) => others[b] - others[a]).slice(0, 5)
+        .map(k => k + ' x' + others[k]).join(' , ');
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '検査 ' + pts.length + ' 点 (.worldNode ' + d.nodeElCount + ' 件 + .worldStep '
+        + d.stepElCount + ' 件 = STEPS ' + JSON.stringify(d.stepDataCount) + ' 件) x ' + HIT_POINTS + ' 点'
+        + '  / ▽ が奪った点 ' + stolen.length + ' 件'
+        + '  / 内訳 自分自身 ' + tally.self + ' , 子孫 ' + tally.descendant
+        + ' , それ以外 ' + tally.other + ' , null ' + tally['null'] + ' (画面外 ' + off + ')'
+        + (topOthers ? '  / それ以外の内訳: ' + topOthers : '')
+        + '  / ▽ の pointer-events=' + JSON.stringify(d.markPointerEvents)];
+    }],
+  ['2b', '.worldStep の DOM 件数が WORLD_MAP.STEPS と一致し .worldNode が ' + EXPECT_NODES + ' 件。'
+    + 'かつ #worldHeroMark が .worldNode も .worldStep も着ていない (classList.length === 0)'
+    + ' ⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 の'
+    + ' closest(".worldNode") が誤爆する (#40 §2-4 の既知の罠)',
+    m => {
+      const why = [];
+      if (!Number.isInteger(m.stepDataCount) || m.stepDataCount <= 0) {
+        why.push('⛔ 母集団: WORLD_MAP.STEPS を読めない (' + JSON.stringify(m.stepDataCount) + ')');
+      } else if (m.stepElCount !== m.stepDataCount) {
+        why.push('⛔ .worldStep が ' + m.stepElCount + ' 件 / STEPS ' + m.stepDataCount + ' 件');
+      }
+      if (m.nodeElCount !== EXPECT_NODES) {
+        why.push('⛔ .worldNode が ' + m.nodeElCount + ' 件 (want ' + EXPECT_NODES + ')');
+      }
+      if (!m.markPresent) why.push('⛔ #worldHeroMark が DOM に無い (0a を先に見ること)');
+      else if (m.markClsLen !== 0) {
+        why.push('⛔ ▽ が class を ' + m.markClsLen + ' 個着ている: "' + m.markCls + '"');
+      }
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '.worldStep ' + m.stepElCount + ' 件 = STEPS ' + JSON.stringify(m.stepDataCount) + ' 件'
+        + ' / .worldNode ' + m.nodeElCount + ' 件'
+        + ' / ▽ の class="' + m.markCls + '" (' + m.markClsLen + ' 個)'];
+    }],
+
+  // ── §3 恒等 (非退行) ──────────────────────────────────────────────────────
+  ['3a', 'Object.keys(window.__world) が **着手前 HEAD (' + BASE_REV + ') のキー集合**を'
+    + 'すべて含み、増えたのは ' + NEW_SEAM_KEYS.join(' / ') + ' の 2 つだけ'
+    + ' ⭐⭐⭐ 基準は別ポートで同時配信した着手前ページから実際に読む (⛔ キー名を写経しない)'
+    + ' ⭐ キー集合だけでは変異を検出できない (#38) ので、2 つとも typeof === "function" で'
+    + '呼んで boolean / 有限値が返ることまで見る',
+    m => {
+      const b = m.baseSeam;
+      if (!b || !b.ok || !Array.isArray(b.keys) || b.keys.length === 0) {
+        return [false, '⛔ 基準を採れない: ' + ((b && b.err) || '観測が無い')
+          + '  (git show ' + BASE_REV + ':world.html が読めているか)'];
+      }
+      const now = (m.seamKeys || []).slice().sort();
+      if (now.length === 0) return [false, '⛔ 素のページで window.__world のキーが 0 件'];
+      const missing = b.keys.filter(k => now.indexOf(k) < 0);
+      const added = now.filter(k => b.keys.indexOf(k) < 0).sort();
+      const wantAdded = NEW_SEAM_KEYS.slice().sort();
+      const addOk = JSON.stringify(added) === JSON.stringify(wantAdded);
+      /* ⭐ ここから先が #38 の教訓ぶん = **型と戻り値**まで見る。 */
+      const fnOk = m.seamTypes.heroMarkOn === 'function' && m.seamTypes.heroMarkGeom === 'function';
+      const onOk = typeof m.markOn === 'boolean';
+      const g = m.markGeom;
+      const geomOk = !!g && typeof g === 'object' && MARK_GEOM_KEYS.every(k => isFiniteNum(g[k]));
+      const why = [];
+      if (missing.length) why.push('⛔ 消えたキー ' + missing.length + ' 件: ' + missing.join(' / '));
+      if (!addOk) why.push('⛔ 増えたキーが ' + JSON.stringify(added) + ' (want ' + JSON.stringify(wantAdded) + ')');
+      if (!fnOk) why.push('⛔ 新キーが function でない: heroMarkOn=' + m.seamTypes.heroMarkOn
+        + ' / heroMarkGeom=' + m.seamTypes.heroMarkGeom);
+      if (!onOk) why.push('⛔ heroMarkOn() が boolean を返さない: ' + JSON.stringify(m.markOn));
+      if (!geomOk) why.push('⛔ heroMarkGeom() が有限の数値を返さない: ' + JSON.stringify(g));
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '基準 ' + BASE_REV + ' = ' + b.keys.length + ' キー (:' + b.port + ' で同時配信 / '
+        + b.bytes + 'B' + (b.errs ? ' / 基準ページの事故 ' + b.errs + ' 件' : '') + ')'
+        + ' → 素 ' + now.length + ' キー'
+        + ' / 消えた ' + missing.length + ' 件 / 増えた ' + JSON.stringify(added)
+        + ' / heroMarkOn()=' + JSON.stringify(m.markOn)
+        + ' heroMarkGeom()=' + JSON.stringify(g)];
+    }],
+  ['3b', '.worldSign が ' + EXPECT_SIGNS + ' 枚、点線 <line> が EDGES.length 本のまま'
+    + ' (▽ が経路や札の枚数に触っていない)'
+    + ' ⭐ セレクタは tools/verify_world_steps.js の (2b) と同じもの (#worldRoutes の <line>)',
+    m => {
+      const why = [];
+      if (m.signCount !== EXPECT_SIGNS) {
+        why.push('⛔ .worldSign が ' + m.signCount + ' 枚 (want ' + EXPECT_SIGNS + ')');
+      }
+      if (!Number.isInteger(m.edgeCount) || m.edgeCount <= 0) {
+        why.push('⛔ 母集団: WORLD_MAP.EDGES を読めない (' + JSON.stringify(m.edgeCount) + ')');
+      } else if (m.lineCount !== m.edgeCount) {
+        why.push('⛔ 点線 <line> が ' + JSON.stringify(m.lineCount) + ' 本 / EDGES ' + m.edgeCount + ' 本');
+      }
+      return [why.length === 0,
+        (why.length ? why.join(' / ') + '  ' : '')
+        + '.worldSign ' + m.signCount + ' 枚 / <line> ' + JSON.stringify(m.lineCount)
+        + ' 本 = EDGES ' + JSON.stringify(m.edgeCount) + ' 本'];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // まだ実装されていない受入条件 (⛔ 件数から隠さない = pending() で必ず出す)
-//   ⭐ 項目 2〜4 がここを 1 行ずつ ASSERTS へ移す。最終項目の完了条件 = PENDING 0。
+//   ⭐ 残りは §4 撤退の 3 本 + (0d) だけ = **項目 4 の担当**。完了条件 = PENDING 0。
 //   ⛔ ここに置いたキーは ASSERT_OF に無いので、実装したら必ず PENDINGS から外して
 //     本体の配線 (['1a','1b', …] の並び) へキーを足すこと (両方やらないと数が合わない)。
 //   ⛔ 空になっても配列ごと削除しないこと (削ると PENDING という 3 値そのものが消える)。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  ['§2 非干渉 — ⭐ ▽ が誰の当たり判定も奪わない', [
-    ['2a', '★ 全 14 ノード + 全刻み点マーカーの **中心 + 四隅の内側 8px の 5 点** を '
-      + 'elementFromPoint し、返る要素が #worldHeroMark でもその子孫でもない',
-      '⚠ 母集団ガード = 検査した点が (14 + STEPS 件数) x 5 と一致し 0 でないこと。'
-      + ' ⚠⚠ ▽ は pointer-events: none なので自明に緑 → 変異 markhit で担保する → 項目 3 の担当'],
-    ['2b', '.worldStep の DOM 件数が WORLD_MAP.STEPS と一致し .worldNode が 14 件。'
-      + 'かつ #worldHeroMark が .worldNode も .worldStep も着ていない (classList.length === 0)',
-      '⚠ 着せると verify_world_map.js:736/:1187 と verify_quest_walk.js:547 が誤爆する'
-      + ' (#40 §2-4 の既知の罠) → 項目 3 の担当'],
-  ]],
-  ['§3 恒等 (非退行) — ⛔ 既存のシームを 1 バイトも汚していないこと', [
-    ['3a', 'Object.keys(window.__world) が #42 時点のキー集合をすべて含み、'
-      + '増えたのは heroMarkOn / heroMarkGeom の 2 つだけ',
-      '⭐ キー集合だけの恒等 assert は変異を検出できない (#38) ので、2 つとも'
-      + ' typeof === "function" で呼んで boolean / 有限値が返ることまで見る → 項目 3 の担当'],
-    ['3b', '.worldSign が 7 枚、点線 <line> が EDGES.length 本のまま',
-      '▽ が経路や札の枚数に触っていないこと → 項目 3 の担当'],
-  ]],
   ['§4 撤退 ' + RETREAT_QUERY + ' — ⭐ 撤退アームと素のアームを **対で**測る', [
     ['4a', RETREAT_QUERY + ' → document.getElementById("worldHeroMark") === null',
       '**DOM に無い**こと。display:none で残っていたら FAIL (town.html:471 と同じ作法) → 項目 4 の担当'],
@@ -1034,8 +1315,16 @@ const PENDINGS = [
     + (MUT_SERVED.length ? '   ' + MUT_SERVED.map(k => k + ':' + PORT_OF[k]).join(' / ')
       : '   (変異は 1 本も実装されていない = 項目 4 の担当)'));
 
+  /* ⭐ (3a) の基準アーム。⛔ 素のポートへ相乗りさせない (混合ビルドになる)。
+     ⚠ --negative では要らない ((3a) を狙う変異は無い) ので立てない。 */
+  if (!NEGATIVE) {
+    console.log('[drv]   基準:' + BASE_PORT + '  = git show ' + BASE_REV + ':world.html  '
+      + (BASELINE.ok ? '(' + BASELINE.bytes + 'B を同時配信)' : '⛔ 取得できず → (3a) が赤: ' + BASELINE.err));
+  }
+
   const servers = [await startServer(PORT, (MUTATE && MUT_SRC[MUTATE]) ? MUTATE : null)];
   if (NEGATIVE) for (const k of MUT_SERVED) servers.push(await startServer(PORT_OF[k], k));
+  if (!NEGATIVE && BASELINE.ok) servers.push(await startServer(BASE_PORT, BASE_KEY));
 
   const browser = await puppeteer.launch({
     executablePath: browserPath, headless: !HEADFUL,
@@ -1073,6 +1362,29 @@ const PENDINGS = [
          ⛔ measure() の 1 フレームだけで §1 を測らない — bob のぶん間欠フレークする。 */
       m.mark = await measureMark(browser, PORT, errs, {});
       m.play = await measurePlay(browser, PORT, errs, {});
+      /* ⭐ §2 の 4 経路目 (当たり判定を実際に突く)。 */
+      m.hits = await measureHits(browser, PORT, errs, {});
+      /* ⭐ §3 の基準アーム = 着手前 HEAD のページ。
+         ⚠ 事故は errs (= (9a)) へ混ぜない — 基準ページの事故は実装の事故ではないので、
+           件数だけ (3a) の detail へ出す。⛔ ただし黙って捨てない。 */
+      {
+        const baseErrs = [];
+        m.baseSeam = { ok: false, err: BASELINE.err, keys: null,
+                       port: BASE_PORT, bytes: BASELINE.bytes, errs: 0 };
+        if (BASELINE.ok) {
+          try {
+            const keys = await measureSeamKeys(browser, BASE_PORT, baseErrs);
+            m.baseSeam.keys = keys;
+            m.baseSeam.ok = Array.isArray(keys) && keys.length > 0;
+            if (!m.baseSeam.ok) m.baseSeam.err = '基準ページの window.__world が読めない';
+          } catch (e) {
+            m.baseSeam.err = '基準ページを開けない: ' + String((e && e.message) || e).slice(0, 140);
+          }
+          m.baseSeam.errs = baseErrs.length;
+          if (baseErrs.length) console.log('       [記録] 基準ページの事故 ' + baseErrs.length
+            + ' 件 (⛔ (9a) には数えない): ' + baseErrs.slice(0, 3).join(' | '));
+        }
+      }
 
       for (const key of ['0a', '0b', '0c']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
@@ -1132,6 +1444,42 @@ const PENDINGS = [
           : '⛔ 行き先を選べていない'));
       }
 
+      mark('§2 非干渉 — ⭐ ▽ が誰の当たり判定も奪わない');
+      for (const key of ['2a', '2b']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+      {
+        /* ⭐ 「▽ が返らない」だけでは自明に緑なので、**各点が誰を返したか**を記録に残す。
+           ⛔ 変異 markhit (項目 4) を載せたときにここが動かないなら、それは空振り。 */
+        const h = m.hits || {};
+        const pts = h.points || [];
+        const byKind = { node: 0, step: 0 };
+        const tally = { self: 0, descendant: 0, other: 0, null: 0 };
+        for (const p of pts) {
+          byKind[p.kind] = (byKind[p.kind] || 0) + 1;
+          tally[p.who] = (tally[p.who] || 0) + 1;
+        }
+        console.log('       [記録] §2 の母集団 (⛔ 期待値ではない。読み解き用):');
+        console.log('         突いた点 ' + pts.length + ' 点 = ノード ' + byKind.node
+          + ' 点 + 刻み点 ' + byKind.step + ' 点  (中心 + 四隅の内側 ' + HIT_INSET + 'px)');
+        console.log('         返った要素の内訳: 自分自身 ' + tally.self + ' / 子孫 '
+          + tally.descendant + ' / それ以外 ' + tally.other + ' / null ' + tally['null']
+          + '   ▽ が奪った点 ' + pts.filter(p => p.stolen).length + ' 件'
+          + '   (▽ の pointer-events=' + JSON.stringify(h.markPointerEvents)
+          + ' / rect=' + (h.markRect ? h.markRect.w.toFixed(1) + 'x' + h.markRect.h.toFixed(1) + 'px' : '—') + ')');
+      }
+
+      mark('§3 恒等 (非退行) — ⛔ 既存のシームを 1 バイトも汚していないこと');
+      for (const key of ['3a', '3b']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+      console.log('       [記録] §3 の基準 (⛔ 期待値ではない。読み解き用):');
+      console.log('         基準 ' + BASE_REV + ' の window.__world = '
+        + JSON.stringify(m.baseSeam && m.baseSeam.keys));
+      console.log('         素の window.__world = ' + JSON.stringify(m.seamKeys));
+
       for (const [title, rows] of PENDINGS) {
         mark(title);
         for (const p of rows) pending('(' + p[0] + ') ' + p[1], p[2]);
@@ -1175,6 +1523,12 @@ const PENDINGS = [
           }
           if (tg.some(t => ['1c', '1d'].indexOf(t) >= 0)) {
             m.play = await measurePlay(browser, port, negErrs, {});
+          }
+          /* ⭐ §2 を狙う変異 (markhit) は **当たり判定の観測**が要る (項目 3 が足した経路)。
+             ⛔ 素の m だけ渡すと (2a) が「観測が無い」で機械的に赤くなり、
+                欠陥を検出したのか装置が欠けたのか読めなくなる。 */
+          if (tg.indexOf('2a') >= 0) {
+            m.hits = await measureHits(browser, port, negErrs, {});
           }
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
