@@ -593,13 +593,49 @@ py -m http.server 8000        # ⚠ file:// 直開きは不可 (音とfetchが�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+✅ **完了**(2026-09-04・dev-loop 4 項目・停止 0 回)
 
 - コミットハッシュ:
-- `node tools/verify_player_sheet.js` → **?/?**(0e を足した後の実測値)
-- `node tools/verify_player_sheet.js --negative` → **?/?**(変異 17 本)
+  - `26a3f24` 項目1「装置」 — base ポート 9470 → **9620** 移設 + 冒頭コメント訂正 / 導出ヘルパ `pageHasSkillCheckSrc` / `measureAll` 側で `p.hasSkillCheckSrc` を載せる / 集合固定 assert **(0e)** 新設
+  - `777cd34` 項目2「本体」 — (2c)(2d)(8a)(8f) の期待を「そのページに `<script src="js/skill-check.js">` が載っているか」からの導出へ
+  - `5d00fc5` 項目3「負のコントロール」 — 変異 **`noscworld`** / **`stalepages`** を追加。変異 15 → **17 本**
+  - 本コミット 項目4「締め」 — golden 2 本の非退行 / 本 §12 の実測記録 / 台帳へ #48 完了
+- `node tools/verify_player_sheet.js` → **73/73 PASSED / FAILED 0 / PENDING 0**(着手前 66/70 FAILED 4)
+- `node tools/verify_player_sheet.js --negative` → **111/111 PASSED / FAILED 0 / PENDING 0**(着手前 91/101 FAILED 10。変異 **17 本** PENDING 0)
 - `--mutate noscworld` 単体の実測(⭐ **どの節が赤くなったか**。予測は (0e) のみ):
+  **69/73 FAILED 4** = **(0e)(2c)(2d)(8f)**。⭐ **(8a) だけが緑のまま**(予測は外れた。理由は下の「ずれた点」1 を参照)。
+  `targets: ['0e']` / `allowRed: ['2c','2d','8f']` で宣言。
 - `--mutate stalepages` 単体の実測(予測は (2c)(2d)(8a)(8f)):
-- 依頼書からの逸脱と理由:
+  **69/73 FAILED 4** = **(2c)(2d)(8a)(8f)** ちょうど(巻き込み 0)。予測どおり。
+- 主要な実測値: (2d) 照合 **36 マス**(#45 以前の固定表なら 24)/ (2c) 伏せた区画 計 **20** / 全部出たページ **1** /
+  (8f) SkillCheck 有り **3 枚** / 無し **2 枚** / (8a) `?sheet5e=0` の world 伏せ = **["Body"]**
+- 本番ファイル: **差分 0 バイト**(`git diff --stat e54b96c..HEAD -- index.html world.html tavern.html title.html town.html js/` が空)。
+  触ったのは `tools/verify_player_sheet.js` の 1 ファイルのみ。changelog 不要・撤退スイッチ無し
+- 既存 golden の非退行(§8。⚠ **1 本ずつ逐次**で実行):
+  - `node tools/verify_ability_scores.js` → **24/24 PASSED / FAILED 0 / PENDING 0**(基準どおり)
+  - `node tools/verify_road_events.js` → **25/25 PASSED / FAILED 0 / PENDING 0**(基準どおり)
+- 依頼書からの逸脱と理由: **無し**(下記 3 件は「逸脱」ではなく、依頼書の記述が実物と食い違っていたための訂正)
 - ⚠ 依頼書の指定が実物でずれた点:
+  1. ⚠⚠⚠ **§2-5 / §8 (0e-2) / §6-1 の予測「`noscworld` では (2c)(2d)(8f) は緑のまま」は外れた。**
+     - 実測の赤 = **(0e)(2c)(2d)(8f) の 4 本**。**緑のままだったのは (8a) だけ**。
+     - 理由 = **導出ヘルパ(`hiddenWantOf` / `wantOf`)は予測どおり完全に追随して緑**になったが、
+       **依頼書 §5 自身が指定した固定値の母集団ガード**((2c) `hiddenTotal===20` / (2d) `nSC===3` /
+       (8f) `withSC===3`)が導出に追随しないので、**その 1 行だけで**赤くなる。
+     - ⇒ **依頼書は §5 で固定カウンタを要求しながら §2-5 で「緑のまま」と予測しており、自己矛盾していた。**
+     - 採った対処 = 依頼書 §6-1 の推奨(i)。`targets: ['0e']` / `allowRed: ['2c','2d','8f']`。
+     - ⭐ **罠の本体は依然として真**: **固定値ガードを持たない (8a) は実測で緑のまま**。
+       (0e) が無ければこの退行は (8a) では一生捕まらない。
+  2. **§6-2 のサンプルコード `p.file === 'tavern.html' ? [] : SKILLC` は誤り**
+     (index.html が SKILLC を伏せる側に入り、`hiddenTotal` が 22 でなく 24 になる)。
+     #45 以前の搭載は {index, tavern} の 2 枚なので `const SC_PRE45 = ['index.html','tavern.html']` を置いて
+     `SC_PRE45.indexOf(p.file) >= 0` で判定した。これで文書どおり 22。
+  3. **§4-1 の「`probeRealPage` の中で `p.hasSkillCheckSrc` を載せる」は実物と食い違った** —
+     `probeRealPage(browser, base, spec, query, opts)` は `mutKey` を受け取らないシグネチャなので中では測れない。
+     ⇒ `mutKey` を持つ **`measureAll(port, mutKey, want, popts)`** 側で載せた
+     (`m.retreat` は `probeRetreatPage` 由来で `file` を持たないため意図的に除外)。
 - 残った宿題:
+  - 依頼書 §9 の実機目視 **1 点**(`py -m http.server 8000` → `http://localhost:8000/world.html` でシートを開き、
+    習熟 / 技能の区画が出て数字が index と同じか)。⚠ これは**受入条件ではない**((8f) が 2 経路照合済み)。
+  - ⭐ **(2c)(2d)(8f) の固定値ガードは (0e) と役割が重複している**という設計上の気づき。
+    今回は依頼書どおり両方残したが、将来「集合の固定は (0e) 1 本に寄せる」判断もありうる
+    (その場合 `noscworld` の `allowRed` は空になり、罠の機械証明がより鋭くなる)。**本チケットでは変えない。**
