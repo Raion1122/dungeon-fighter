@@ -1,0 +1,373 @@
+/*
+ * js/road-events.js — 街道の出来事 (#45 Phase 1) の唯一の正
+ * ════════════════════════════════════════════════════════════════════════════
+ * 実装依頼書 `実装依頼書/2026-09-03_road-events.md` §5-1 / §5-2。検証は
+ * tools/verify_road_events.js。
+ *
+ * ★ このファイルの責務は 2 つだけ。
+ *     ① **イベント表** (6 件の日本語 + 地形 + checkKey + DC + 発生率) の唯一の正
+ *     ② **器の描画** (#worldEventBox の中身を組み立てて開閉する)
+ *   ⛔ **発火しない。** 「どの停留所で / どの確率で / 何度まで出すか」は world.html の
+ *     onArriveStep 側 (項目 3) の担当。ここは呼ばれたら描くだけ。
+ *
+ * ■ 規律 (⛔ 破ると受入条件が赤くなる)
+ *   ⛔ **文言を world.html へ 1 文字も写さない** —— (0b) が world.html の配信バイトを
+ *      全文検索して、下の title / intro / label / 結末文が 1 つでも出てきたら赤にする
+ *      (#15 B-1 と同じ規律。変異 `copytext` が番人)。
+ *   ⛔ **座標を持たない。** 地形は WORLD_MAP.STEPS[id].on の両端から引く
+ *      (⛔ 17 件の座標表を作らない)。停留所の実体は js/world-map.js が唯一の正。
+ *   ⛔ **localStorage へ書かない。** sessionStorage も **読むだけ (peek)**。
+ *      world.html の setItem / removeItem を 1 件も増やさない ((2c) が数で見る)。
+ *   ⚠⚠⚠ **使える checkKey は 12 個だけ** (js/skill-check.js の CHECKS)。
+ *      survival / medicine / nature は **存在しない** —— 書くと resolveSkillCheck が
+ *      console.warn して Promise.resolve(null) を返し、**判定ごと静かに消える**。
+ *      下の 6 件は persuasion / insight / perception / athletics / investigation /
+ *      religion の 6 種で、全部 CHECKS 内にある。
+ *   ⛔ **Product Identity 配慮**: WotC 固有 IP (Beholder / Mind Flayer / Displacer Beast 等)
+ *      を 1 つも使わない。6 件とも一般的な街道の情景。
+ *
+ * ■ 公開 API (window.ROAD_EVENTS)
+ *   データ … EVENTS / TERRAINS / RATE / WAY_TERRAIN / SITE_TERRAIN / TERRAIN_RANK
+ *   引き   … terrainOf(id) / stops() / rateOf(terrain) / eventsFor(terrain) / byId(id)
+ *   器     … open(ev, onChoice) / showResult(ev, text, onDone) / close() / isOpen() /
+ *            current() / el()
+ */
+(function (global) {
+  "use strict";
+
+  /* ══ 地形 ═══════════════════════════════════════════════════════════════
+     中継点 (kind:"way") の地形。⛔ 刻み点は書かない —— 両端から引く。 */
+  var WAY_TERRAIN = {
+    pier: "coast", cross_n: "coast", farm_n: "woods",
+    lake_n: "lake", lakeside: "lake", pass_n: "mountain", village_s: "swamp"
+  };
+  /* 拠点 (kind:"site") の地形。⚠ **刻み点の両端を引くためだけ**に要る。
+     site そのものでは発火しない (入場ダイアログが優先。(1b) が縛る)。 */
+  var SITE_TERRAIN = {
+    phlan: "coast", forest: "woods", swamp: "swamp", fort: "swamp",
+    mine: "mountain", temple: "mountain", dragon: "mountain"
+  };
+
+  /* ⭐⭐⭐ 刻み点は両端の地形が食い違うことがある (例 lakeside=lake ↔ mine=mountain)。
+     そのときは **より辺境な側が勝つ** ——「街道は険しいほうの土地の顔をしている」。
+     ⚠ この順序は依頼書 §2-5 の地形割り (coast 2 / woods 2 / lake 5 / mountain 4 /
+       swamp 4 = 17) を **そのまま再現する**ために決まっている。並べ替えると件数が動く。
+       farm_n(woods)  + pass_n(mountain)   → mountain
+       cross_n(coast) + swamp(swamp)       → swamp
+       fort(swamp)    + lakeside(lake)     → lake
+       lakeside(lake) + mine/dragon(mtn)   → mountain
+     低 → 高 の順。 */
+  var TERRAIN_RANK = ["coast", "woods", "swamp", "lake", "mountain"];
+
+  /* 地形ごとの発生率。⭐ 遊んで動かすレバー (依頼書 §8「測らないこと」)。
+     ⛔ 受入条件は具体値を縛らない —— 縛るのは (3b) の「地形ごとに違う」という向きだけ。
+     ⚠ 使うのは項目 3 の maybeRoadEvent。ここは表を持つだけで振らない。 */
+  var RATE = { coast: 0.05, woods: 0.10, lake: 0.12, mountain: 0.18, swamp: 0.20 };
+
+  /* ══ イベント表 (6 件) ═══════════════════════════════════════════════════
+     1 件 = 導入文 + 選択肢 2 つ。⭐ **必ず片方は判定なし (立ち去る)**。
+     ⭐ 判定つきの選択肢は success と fail を **必ず別の文**にする
+        (⛔ 同文だと d20 を振る意味が無い。変異 `sameresult` が番人)。
+     choices[].check … true = ev.checkKey / ev.dc で判定する / false = 判定なし
+     ⚠ dc は js/skill-check.js の DC_TIERS のキー (veryEasy 5 / easy 10 / medium 15 /
+       hard 20 / veryHard 25)。⛔ 数値を直書きしない。 */
+  var EVENTS = [
+    {
+      id: "coast_dock_quarrel", terrain: "coast", checkKey: "persuasion", dc: "easy",
+      title: "桟橋のいざこざ",
+      intro: "潮の匂いに混じって怒鳴り声が飛んでくる。荷を降ろしかけた船乗りと、"
+        + "帳面を抱えた仲買人が桟橋の真ん中で睨み合い、樽と縄が道をふさいでいた。"
+        + "どちらも一歩も引く気がない。",
+      choices: [
+        {
+          label: "間に割って入り、話をまとめる", check: true,
+          success: "双方の言い分を順に聞き、樽を数え直させると、食い違いは帳面の写し間違いだった。"
+            + "仲買人が詫びを入れ、船乗りたちは笑って荷を脇へ寄せる。"
+            + "礼にと干し魚をひと束握らされ、道が開けた。",
+          fail: "割って入った途端、二人の怒りがそろってこちらへ向いた。"
+            + "よそ者は引っ込んでいろ、と樽の陰へ押し戻される。"
+            + "結局、荷が片付くまで日陰でしばらく待たされた。"
+        },
+        {
+          label: "関わらず、荷の脇をすり抜ける", check: false,
+          result: "樽と縄の隙間を縫って桟橋を渡る。背中で怒鳴り声が続いていたが、"
+            + "振り返るころには誰かが仲裁に入っていた。"
+        }
+      ]
+    },
+    {
+      id: "woods_woodcutter", terrain: "woods", checkKey: "insight", dc: "easy",
+      title: "樵の道案内",
+      intro: "切り株に腰かけた樵が斧を膝に置き、こちらへ手を振った。"
+        + "「その先の街道は倒木でふさがっとる。沢沿いに回れば半日は縮むぞ」。"
+        + "親切そうな笑みだが、斧の刃は真新しく、足元に木屑がひとつも落ちていない。",
+      choices: [
+        {
+          label: "男の言葉の裏を読む", check: true,
+          success: "世間話を装って沢の様子を尋ねると、答えがことごとく曖昧になる。"
+            + "倒木の話は作り話で、近道の先には仲間が待っているらしい。"
+            + "踵を返すと、樵は舌打ちして森の奥へ消えた。",
+          fail: "何度うなずいても、男の話に綻びは見えなかった。"
+            + "教えられた沢沿いをしばらく進んでから、そこが行き止まりの窪地だと気づく。"
+            + "街道へ戻るのに、かえって時間を食った。"
+        },
+        {
+          label: "礼だけ言って街道を進む", check: false,
+          result: "忠告に礼を言い、そのまま街道をたどる。倒木などどこにも無かった。"
+            + "振り返ると、切り株の男はもう居ない。"
+        }
+      ]
+    },
+    {
+      id: "lake_ripple", terrain: "lake", checkKey: "perception", dc: "medium",
+      title: "湖面のさざなみ",
+      intro: "風は凪いでいるのに、岸から少し離れた水面だけが円を描いて揺れている。"
+        + "葦のあいだには、途中で断ち切られた舫い綱が浮かんでいた。",
+      choices: [
+        {
+          label: "水際に寄って、揺れの正体を見きわめる", check: true,
+          success: "波紋の中心に、沈みかけた小舟の舳先が見えた。"
+            + "船底には油紙にくるまれた荷が引っかかっている。"
+            + "長い枝で手繰り寄せると、湖水を吸っていない乾いた包みがひとつ。"
+            + "持ち主の名はどこにも書かれていなかった。",
+          fail: "覗き込んだ拍子に足元の泥が崩れ、膝まで水に浸かった。"
+            + "揺れはいつのまにか収まり、あとには濁った水と、冷えた足だけが残る。"
+        },
+        {
+          label: "岸から離れて先を急ぐ", check: false,
+          result: "揺れから目を離し、街道の乾いた側を歩く。"
+            + "しばらくして、背後で何かが水に沈む重い音がした。振り返らなかった。"
+        }
+      ]
+    },
+    {
+      id: "mountain_rockfall", terrain: "mountain", checkKey: "athletics", dc: "medium",
+      title: "山道の落石",
+      intro: "谷を渡る風に土埃が混じる。見上げれば斜面の途中が新しく崩れ、"
+        + "人の背丈ほどの岩が街道を半分ふさいでいた。荷車なら通れない。"
+        + "人ひとりなら——ぎりぎりか。",
+      choices: [
+        {
+          label: "岩に肩を入れ、街道の端へ押しのける", check: true,
+          success: "足場を固め、息を合わせて岩を押す。三度目でようやく重心が傾き、"
+            + "岩は谷側へごろりと転がり落ちた。街道は元の幅を取り戻し、"
+            + "あとから来る誰かも通れる。",
+          fail: "岩は見た目より深く土を噛んでいた。押しても軋むばかりで、"
+            + "代わりに上から小石が降ってくる。"
+            + "諦めて隙間を這い抜けたが、肩と脛に擦り傷が残った。"
+        },
+        {
+          label: "隙間を選んで慎重に抜ける", check: false,
+          result: "岩と崖のあいだの狭い隙間へ、荷物を先に通してから体を滑り込ませる。"
+            + "誰も落ちずに抜けられた。街道はふさがれたままだ。"
+        }
+      ]
+    },
+    {
+      id: "swamp_marker", terrain: "swamp", checkKey: "investigation", dc: "medium",
+      title: "沼の道しるべ",
+      intro: "水草の浮いた泥道に、白く塗られた杭が並んでいる。安全な足場を示す印だ。"
+        + "だが手前の一本だけ、打ち込まれた穴がふたつある。"
+        + "誰かが抜いて、別の向きに刺し直した跡だった。",
+      choices: [
+        {
+          label: "杭の跡と沼底を調べ、本当の道を割り出す", check: true,
+          success: "古い穴の角度と、水面下に沈んだ石畳の連なりが噛み合った。"
+            + "杭が指す先は底なしの泥、本来の道はその左手。"
+            + "硬い足場だけを踏んで、靴を濡らさずに渡りきる。"
+            + "誰が何のために杭を動かしたのかは、わからないままだ。",
+          fail: "どちらの穴が古いのか、泥に埋もれて読み取れない。"
+            + "勘を頼りに踏み出した二歩目で、腰まで沈んだ。"
+            + "引き上げるのに縄と時間を使い、装備は泥まみれになった。"
+        },
+        {
+          label: "杭を信じず、来た跡をたどって迂回する", check: false,
+          result: "杭には目もくれず、自分たちの足跡が残る硬い縁を選んで大きく回り込む。"
+            + "遠回りだったが、泥に足を取られはしなかった。"
+        }
+      ]
+    },
+    {
+      id: "swamp_pilgrim", terrain: "swamp", checkKey: "religion", dc: "easy",
+      title: "行き倒れの巡礼者",
+      intro: "枯れた葦の陰に、旅装のまま横たわった亡骸があった。"
+        + "胸の上で組まれた手には、擦り切れた巡礼の護符が握られている。"
+        + "もう何日も、誰にも見つけられていない。",
+      choices: [
+        {
+          label: "作法にのっとって手向けをする", check: true,
+          success: "護符の紋から巡礼先を読み取り、その神への短い祈りを捧げる。"
+            + "石を積んで風よけを作り、名を刻む代わりに護符を上向きに置いた。"
+            + "立ち上がると、沼の空気がわずかに軽くなった気がした。",
+          fail: "祈りの言葉は途中で怪しくなり、積んだ石はすぐに泥へ傾いた。"
+            + "手向けたつもりが形にならず、後ろ髪を引かれたまま歩き出す。"
+            + "しばらく、誰かに見られている心地が消えなかった。"
+        },
+        {
+          label: "手を合わせるだけにして立ち去る", check: false,
+          result: "何も持ち去らず、ただ黙って手を合わせる。"
+            + "巡礼者は葦の陰に横たわったまま、沼の静けさへ戻っていった。"
+        }
+      ]
+    }
+  ];
+
+  /* 地形の一覧。⛔ 5 を直書きしない —— RATE の実体から引く。 */
+  var TERRAINS = Object.keys(RATE);
+
+  // ══ 引き (データ) ═══════════════════════════════════════════════════════
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function wm() { return global.WORLD_MAP || null; }
+  function rank(t) { return TERRAIN_RANK.indexOf(t); }
+
+  /* ノード (way / site) の地形。⛔ 刻み点はここでは引けない。 */
+  function nodeTerrain(id) {
+    if (has(WAY_TERRAIN, id)) return WAY_TERRAIN[id];
+    if (has(SITE_TERRAIN, id)) return SITE_TERRAIN[id];
+    return null;
+  }
+
+  /* 停留所 id → 地形。⭐ 刻み点 ("a__b@i") は WORLD_MAP.STEPS[id].on の両端から引く。
+     ⛔ 座標も別表も持たない。 */
+  function terrainOf(id) {
+    var direct = nodeTerrain(id);
+    if (direct) return direct;
+    var W = wm();
+    if (!W || !W.STEPS || !has(W.STEPS, id)) return null;
+    var on = W.STEPS[id].on;
+    if (!on || on.length < 2) return null;
+    var a = nodeTerrain(on[0]), b = nodeTerrain(on[1]);
+    if (!a) return b || null;
+    if (!b) return a;
+    return (rank(a) >= rank(b)) ? a : b;
+  }
+
+  /* イベントが起きうる停留所 (母集団)。⭐ **実体から数える** —— way + 刻み点。
+     ⛔ site は除外 (入場ダイアログが優先。(1b) が縛る)。
+     ⛔ 17 を直書きしない ((0e) / 変異 nodecount が番人)。 */
+  function stops() {
+    var W = wm();
+    if (!W) return [];
+    var out = [], k;
+    for (k in W.NODES) if (has(W.NODES, k) && W.NODES[k].kind === "way") out.push(k);
+    for (k in (W.STEPS || {})) if (has(W.STEPS, k)) out.push(k);
+    return out;
+  }
+
+  function rateOf(terrain) {
+    return (terrain && has(RATE, terrain)) ? RATE[terrain] : 0;
+  }
+  function eventsFor(terrain) {
+    return EVENTS.filter(function (e) { return e.terrain === terrain; });
+  }
+  function byId(id) {
+    for (var i = 0; i < EVENTS.length; i++) if (EVENTS[i].id === id) return EVENTS[i];
+    return null;
+  }
+
+  // ══ 器 (#worldEventBox の描画) ═══════════════════════════════════════════
+  /* ⭐⭐⭐ 描画を js/road-events.js 側に置く理由は 2 つ。
+       ① (0b) が「world.html の配信バイトに 6 件の文言が 1 文字も出てこない」を要求する
+       ② ドライバが器を **決定論的に開いて** (1c)(1d) を測れる
+          (発火は項目 3 の担当なので、項目 2 の時点では開く手段が他に無い)
+     world.html が持つのは **マウント先の DOM と CSS だけ**。
+     ⛔ ?roadevent=0 のときは world.html 側が器ごと DOM から消す (項目 4)。
+        そのとき open() は false を返して**黙って何もしない**のが正しい姿。 */
+  var openEv = null;
+  var armAt = 0;
+
+  /* ⚠ #35 の実測: touchend → click のゴーストクリックで「開いた瞬間に選択肢が押される」。
+     器を開いてからこの時間だけ、選択肢の活性化を無視する。
+     ⚠⚠ 項目 3 のドライバが選択肢を押すときは、開いてからこの ms を待つこと。 */
+  var ARM_MS = 260;
+
+  function el() { return document.getElementById("worldEventBox"); }
+  function isOpen() { var b = el(); return !!b && b.classList.contains("show"); }
+  function current() { return openEv; }
+
+  function close() {
+    var b = el();
+    openEv = null;
+    if (!b) return false;
+    b.classList.remove("show");
+    b.setAttribute("aria-hidden", "true");
+    var n = b.querySelector("#worldEventBtns");
+    if (n) n.innerHTML = "";
+    return true;
+  }
+
+  /* 見出し + 本文 + ボタン列を描いて開く。buttons = [{label, on}]。 */
+  function paint(title, body, buttons) {
+    var b = el();
+    if (!b) return false;
+    var t = b.querySelector("#worldEventTitle");
+    var x = b.querySelector("#worldEventText");
+    var n = b.querySelector("#worldEventBtns");
+    if (!t || !x || !n) return false;
+    t.textContent = title || "";
+    x.textContent = body || "";
+    n.innerHTML = "";
+    for (var i = 0; i < buttons.length; i++) {
+      n.appendChild(makeBtn(buttons[i]));
+    }
+    armAt = Date.now() + ARM_MS;
+    b.classList.add("show");
+    b.setAttribute("aria-hidden", "false");
+    return true;
+  }
+
+  function makeBtn(spec) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "worldEventBtn";
+    btn.textContent = spec.label;
+    var used = false;
+    function go(e) {
+      if (Date.now() < armAt) return;          /* ゴーストクリック除け */
+      if (used) return;                         /* touchend と click の二重発火除け */
+      used = true;
+      if (e && e.preventDefault) e.preventDefault();
+      if (typeof spec.on === "function") spec.on();
+    }
+    btn.addEventListener("click", go);
+    btn.addEventListener("touchend", go);
+    return btn;
+  }
+
+  /* 導入 + 二択を出す。onChoice(choice, ev) が選ばれた選択肢を受け取る。
+     ⛔ ここでは判定も結末も出さない (項目 3 が onChoice の中でやる)。 */
+  function open(ev, onChoice) {
+    if (!ev) return false;
+    var list = (ev.choices || []).map(function (c) {
+      return {
+        label: c.label,
+        on: function () { if (typeof onChoice === "function") onChoice(c, ev); }
+      };
+    });
+    var ok = paint(ev.title, ev.intro, list);
+    if (ok) openEv = ev;
+    return ok;
+  }
+
+  /* 結末の 1 文 + 「先へ進む」。onDone は器を閉じたあとに呼ぶ。 */
+  function showResult(ev, text, onDone) {
+    var ok = paint((ev && ev.title) || "", text, [{
+      label: "先へ進む",
+      on: function () { close(); if (typeof onDone === "function") onDone(); }
+    }]);
+    if (ok) openEv = ev || null;
+    return ok;
+  }
+
+  global.ROAD_EVENTS = {
+    /* データ (⛔ 唯一の正。world.html へ写さない) */
+    EVENTS: EVENTS, TERRAINS: TERRAINS, RATE: RATE,
+    WAY_TERRAIN: WAY_TERRAIN, SITE_TERRAIN: SITE_TERRAIN, TERRAIN_RANK: TERRAIN_RANK,
+    /* 引き */
+    terrainOf: terrainOf, stops: stops, rateOf: rateOf,
+    eventsFor: eventsFor, byId: byId,
+    /* 器 */
+    open: open, showResult: showResult, close: close,
+    isOpen: isOpen, current: current, el: el, ARM_MS: ARM_MS
+  };
+})(typeof window !== "undefined" ? window : this);

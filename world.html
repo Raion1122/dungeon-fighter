@@ -6,7 +6,7 @@
   <title>ダンジョンファイターズ — 地方全景</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=MedievalSharp&family=Noto+Serif+JP:wght@400;600&display=swap" rel="stylesheet"><!-- ⚠ Noto Serif JP は #45 §2-4b。js/skill-check.js のパネルが font-family:'Noto Serif JP' を自前で指定しており、読み込みが無いと serif フォールバックで出ていた。⛔ CSS は足さない -->
   <!--
     world.html — 地方全景 (ワールドマップ)
     ═══════════════════════════════════════════════════════════════════════
@@ -457,6 +457,64 @@
     /* ⚠ compact (iPhone) でも読める大きさを保つ (依頼書 §9-5)。 */
     body.compact #worldEnterText { font-size: 18px; }
     body.compact #worldEnterBtns button { font-size: 16px; min-width: 96px; padding: 11px 16px; }
+
+    /* ── 街道の出来事の器 (依頼書 #45 §5-2) ──────────────────────────────
+       ⛔⛔⛔ **#worldEnterAsk を流用しない。** あれは __world.askOpen() が握っており、
+         verify_world_steps (4c) の条件②「刻み点に着いても askOpen() は false」の番人。
+         流用した瞬間に既存 golden が赤くなる (変異 askreuse が再現する)。
+       ⚠ **z-index は写経せず決めた。** world.html の層は 0/1/2/3/4/5/6/10/20
+         (#worldEnterAsk = 20)。器は **15** = 地図の上・入場ダイアログの下。
+         ⭐ 判定パネル (js/skill-check.js が挿す #skillCheckOverlay) が必ず上に来る
+           ((1c) が **ページから** その z-index を読んで突き合わせる。⛔ 直書きしない)。
+       ⛔ **文言はここに書かない** —— 唯一の正は js/road-events.js。
+         (0b) が world.html の配信バイトを全文検索し、6 件の文言が 1 つでも出たら赤にする。
+       ⚠⚠ 既定は **display:none** (#worldEnterAsk と同じ理由 —— visibility:hidden にすると
+         elementFromPoint がこの要素に食われて札のクリック点が全部奪われる)。
+       ⛔ max-height を付けて中身をスクロールさせない —— (1d) の「画面内に収まる」が
+         自明に真になる。収まらないなら文字か余白を詰めるのが正しい直し方。 */
+    #worldEventBox { display: none; position: fixed; inset: 0; z-index: 15;
+      align-items: center; justify-content: center; background: rgba(8,6,4,0.58); }
+    #worldEventBox.show { display: flex; }
+    #worldEventCard {
+      max-width: min(86vw, 420px);
+      padding: 20px 24px 18px;
+      border: 1px solid rgba(120,86,44,0.9);
+      border-radius: 3px;
+      /* ⭐ #worldEnterBox と同じ「明るいクリームの薄掛け + 羊皮紙」。
+         ⛔ opacity で薄めない (紙の斑に文字が食われる)。 */
+      background-image: linear-gradient(rgba(246,232,198,0.34), rgba(246,232,198,0.34)),
+                        url("assets/parchment_plaza.jpg");
+      background-size: auto, cover;
+      background-position: center, center;
+      background-color: #efe0bd;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.75), inset 0 0 26px rgba(120,80,30,0.28);
+      text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: #2e2113;
+    }
+    #worldEventTitle { font-size: 21px; letter-spacing: 0.05em; margin-bottom: 10px; }
+    /* ⚠ 本文だけ左寄せ (3〜5 行の地の文を中央寄せにすると行頭が揃わず読みにくい)。 */
+    #worldEventText { font-size: 16px; line-height: 1.7; letter-spacing: 0.02em; text-align: left; }
+    /* ⚠ 二択は **縦積み**。横並びだと長い選択肢が compact で割れて押し分けにくい (§9-2)。 */
+    #worldEventBtns { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+    #worldEventBtns .worldEventBtn {
+      min-height: 44px;                        /* ⚠ iOS のタップ領域 (依頼書 §9-2) */
+      padding: 10px 16px;
+      border: 1px solid rgba(70,48,20,0.9);
+      border-radius: 2px;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      font-size: 16px; letter-spacing: 0.04em; line-height: 1.35;
+      cursor: pointer;
+      color: #f4e6c4;
+      background: linear-gradient(to bottom, #6b4c22, #402c12);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+    }
+    #worldEventBtns .worldEventBtn:hover { filter: brightness(1.16); }
+    /* ⚠ compact (iPhone 縦) でも読める / 画面内に収まる ((1d) が 390x844 で測る)。 */
+    body.compact #worldEventCard { padding: 16px 18px 14px; }
+    body.compact #worldEventTitle { font-size: 19px; }
+    body.compact #worldEventText { font-size: 15px; line-height: 1.65; }
+    body.compact #worldEventBtns .worldEventBtn { font-size: 15px; }
   </style>
 </head>
 <body>
@@ -490,12 +548,24 @@
     </div>
   </div>
 
+  <!-- 街道の出来事の器 (依頼書 #45 §5-2)。⛔ 文言はここに書かない —— 唯一の正は js/road-events.js
+       ⛔⛔⛔ #worldEnterAsk を流用しない (verify_world_steps (4c) 条件②の番人)。
+       ⚠ 既定は CSS の display:none。開くのは ROAD_EVENTS.open() が .show を付けたときだけ。 -->
+  <div id="worldEventBox" aria-hidden="true">
+    <div id="worldEventCard">
+      <div id="worldEventTitle"></div>
+      <div id="worldEventText"></div>
+      <div id="worldEventBtns"></div>
+    </div>
+  </div>
+
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script><!-- 街道の出来事 (#45) の d20 判定。⚠ js/abilities.js より後。撤退 ?roadevent=0 -->
   <script src="js/save-slots.js"></script>
   <script src="js/hero-classes.js"></script>
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <script src="js/world-map.js"></script>
+  <script src="js/road-events.js"></script><!-- 街道の出来事 (#45) のイベント表と器の描画の唯一の正。⚠ js/world-map.js より後 (地形を STEPS[id].on から引く)。撤退 ?roadevent=0 -->
   <script src="audio.js"></script>
   <script>
   (function () {
