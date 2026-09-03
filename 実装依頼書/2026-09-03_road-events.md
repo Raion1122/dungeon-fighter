@@ -795,7 +795,7 @@ SkillCheck.resolveSkillCheck(ch.checkKey, ch.dc, buildParty(), {
 | 2(STEP2 表と器) | `475839d` | 新規 `js/road-events.js`(イベント 6 件・地形 5 種・器の描画)/ `world.html` に `#worldEventBox` と CSS と `Noto Serif JP` | `verify_road_events` **7/7** PENDING 18 / `--negative` 6/6 空振り 0 / `verify_world_steps` 33/33 |
 | 3(STEP3 発火と判定) | `413ca36` | `world.html` の `maybeRoadEvent` / `onRoadChoice` / `finishRoadEvent` / 窓 `__world.roadEvent()` / `js/road-events.js` に種つき乱数・`buildParty`・`resultText` | `verify_road_events` **21/21** PENDING 4 / 変異 10 本 impl |
 | 4(STEP4 撤退) | `4d7db24` | `world.html` の `ROAD_EVENT_ON` と `elRoadBox.remove()` / ドライバの撤退アーム 3 本 | `verify_road_events` **25/25 PENDING 0** / `--negative` **43/43**(変異 14 本すべて赤・空振り 0) |
-| 5(既存 golden の直し + 締め) | 本コミット | `tools/verify_world_steps.js` / `verify_world_map.js` / `verify_quest_walk.js` / `verify_world_heromark.js` / 本依頼書 §12 / `README.md` | 下の 12-3 |
+| 5(既存 golden の直し + 締め) | `4027d87` | `tools/verify_world_steps.js` / `verify_world_map.js` / `verify_quest_walk.js` / `verify_world_heromark.js` / 本依頼書 §12 / `README.md` | 下の 12-3 |
 
 ⛔ 項目 5 では **`world.html` / `js/road-events.js` を 1 バイトも触っていない**
 (直したのは検証ドライバだけ = 機能は項目 4 の姿のまま)。
