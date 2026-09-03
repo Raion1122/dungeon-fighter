@@ -9,7 +9,18 @@
  *   後続の項目が「どれを埋めるか」「黙って緑にしていないか」を一目で確認でき、
  *   **最終項目の完了条件が PENDING 0** になる (手本 = tools/verify_enemy_name_label.js)。
  *
- * ■ 項目 3 (このコミット) で入ったもの — **§3 バッジ廃止 (3a)〜(3d) / §4 撤退 (4c)**
+ * ■ 項目 4 (このコミット) で入ったもの — **§4 撤退 (4a)(4d) / 変異 sealrail・sealp8・overblock**
+ *   ⇒ これで **PENDING 0 / 変異 16 本すべて実装済**。
+ *   ⭐⭐⭐ (4a) は「塞がり率が 58.75% へ戻る」だけでは**永久緑**になる (1 マスも足さなければ
+ *     素のアームも 58.75% なので、撤退アームの数値だけ見る assert は何も検出しない)。
+ *     ⇒ ① 撤退アームが本当に撤退アームか (walkBlockOn===false) ② 足した数 walkBlockNew >= 1
+ *        ③ 撤退で実際に外れた数 skipWalkBlock === walkBlockNew ④ 素のアームとの**差**が
+ *        ちょうど walkBlockNew — の 4 つを AND で見る。①〜④ のどれが欠けても永久緑になる。
+ *   ⭐ (4d) は「撤退枝にしか無いコードは素のアームだけ見る assert では捕まらない」の実装。
+ *     ⛔ 撤退用に「#46 前のマスク」をもう 1 セット持つ形にしなかったので (門番を 1 本足す形)、
+ *       撤退アームでも到達性が本番と同じ規則で測れる。
+ *
+ * ■ 項目 3 で入ったもの — **§3 バッジ廃止 (3a)〜(3d) / §4 撤退 (4c)**
  *   ⭐⭐⭐ (3b) の「恒等」は **着手前 hash (e3dfb4a) の index.html を別ポートで同時配信**して測る。
  *     ⛔ `git show HEAD:` を基準にすると実装後は HEAD が動いて**永久緑**になる (#37 の教訓)。
  *     基準が本当に基準かを **3 重**に検算している: ① 配信前にソースへ ENEMY_BADGE_ON が
@@ -180,6 +191,14 @@ const FOE_COUNT_EXPECT = 10;
 /* (1e) の塞がり率の上限。⭐ **絶対量で打ってよい** (依頼書 §8 = 「上限はもう決まっている値」)。
  *  現行 58.8% + 余裕。相対比較にすると「両方が同じだけ壊れる変更」を検出できない。 */
 const BLOCK_RATIO_MAX = 0.66;
+/* (4a) 撤退 ?walkblock=0 の**絶対量**。出所 = 項目 1〜3 の実測 (#46 でマスクを触る前の n1) =
+ *  塞がり **527** / 面積 **897** = 58.75%。
+ *  ⚠⚠ 依頼書 §8 (4a) は「58.8%」と丸めているが**実測は 58.75%**。丸めた % に帯を張ると
+ *    ±1 マス (0.11%) の取りこぼしを素通りさせるので、**マス数そのもの**で縛る。
+ *  ⛔ ここを「素のアームより小さい」等の相対比較にしない — 両アームが同じだけ壊れる変更
+ *    (例: マスク全体を捨てる) を検出できなくなる。 */
+const WALK_BLOCK_LEGACY_BLOCKED = 527;
+const WALK_BLOCK_AREA = 897;
 /* (0d) マスクの寸法。⭐ 行数がずれた状態で座標を語ると全部 1 タイルずれる。
  *  ⛔ 数値は写経ではなく **room.rect から導く** (下の (0d) を参照)。ここは tileBounds の
  *  「絵の側の宣言」と rect の「部屋の側の宣言」が一致することを見るための定数。 */
@@ -284,6 +303,10 @@ const ANCHOR_TF = '(CAST_ANCHOR_ON ? (inner + " scale(" + camZ + ")") : ("scale(
 const ANCHOR_TF_PREFIX = '("scale(" + camZ + ") " + inner)';
 const sealTo = (tx, ty, tag) => SEAL_ANCHOR
   + ' if (p.tw === 39 && p.th === 23) { obstacleTileMask[' + ty + ' * MAP_W + ' + tx + '] = 1; /* ' + tag + ' */ }';
+/* ⭐ 複数マスを一度に塞ぐ版 (項目 4 の sealrail / sealp8)。⚠ 1 行に閉じること (CRLF)。 */
+const sealManyTo = (tiles, tag) => SEAL_ANCHOR
+  + ' if (p.tw === 39 && p.th === 23) { for (const _t of ' + JSON.stringify(tiles)
+  + ') obstacleTileMask[_t[1] * MAP_W + _t[0]] = 1; /* ' + tag + ' */ }';
 
 const MUTATIONS = {
   // ── 項目 1 が実装した 4 本 ─────────────────────────────────────────────────
@@ -397,13 +420,45 @@ const MUTATIONS = {
       + ' (バッジは 0 個のままなので (3a)、長さも合っているので (3c)、データも 44 件のままなので (3d) が'
       + ' すべて緑を返す)。⚠ 状態アイコン列は札の子なので**一緒に**動く = 2 つとも赤になる',
   },
-  // ── 項目 4 (マスク編集) が実装する 3 本 ─────────────────────────────────────
-  sealrail: { impl: false, file: 'index.html', targets: ['1f'],
-    why: '規則② で空けてある マスク行18 の枕木 (グローバル col32-38 / row20) を塞ぐ' },
-  sealp8: { impl: false, file: 'index.html', targets: ['1a', '1b', '1d'],
-    why: '★P8 で開けた (37,16) の荷車の軒下を塞ぐ (南半分へ 4 近傍で下りられなくなる = §2-4 の罠)' },
-  overblock: { impl: false, file: 'index.html', targets: ['1e', '1d'],
-    why: '暗部率 0.5 の自動規則で n1 を塗り直す (§2-3 の再現 = なぜ自動生成を採らなかったかを機械で示す)' },
+  // ── 項目 4 (マスク編集) が実装した 3 本 ─────────────────────────────────────
+  sealrail: {
+    impl: true, file: 'index.html', targets: ['1f'], record: ['1a', '1b', '1c', '1d', '1e'],
+    from: SEAL_ANCHOR,
+    to: sealManyTo([[32, 20], [33, 20], [34, 20], [35, 20], [36, 20], [37, 20], [38, 20]], 'sealrail'),
+    why: '規則② で空けてある **マスク行18 の枕木** (グローバル col32-38 / row20) を 7 マスとも塞ぐ。'
+      + ' ⭐ 枕木は「跨げる平置きの物」なので塞いではいけない (規則②)。'
+      + ' ⚠ 実測: この 7 マスを塞いでも**到達不能は出ない** (row19/row21 側に迂回路がある) ので'
+      + ' (1d)(1e) は緑のまま = 「絵の規則を破ったこと」を捕まえられるのは (1f) だけ。'
+      + ' ⛔ だから (1f) を「到達性で代用できる」と考えて消してはいけない',
+  },
+  sealp8: {
+    impl: true, file: 'index.html', targets: ['1b', '1d', '1f'], record: ['1a', '1c', '1e'],
+    from: SEAL_ANCHOR,
+    to: sealManyTo([[37, 16], [36, 17], [37, 18], [38, 19]], 'sealp8'),
+    why: '★P8 で開けた 4 マス (37,16)(36,17)(37,18)(38,19) を**全部**塞ぐ = P8 前の状態へ戻す。'
+      + ' ⚠⚠⚠ **依頼書の「(37,16) を塞ぐ」だけでは原理的に空振りする** (項目 4 の実測で確定):'
+      + ' 行16 の開き run は global col34-37、行17 は col36-39 なので **(36,16)-(36,17) が並行の'
+      + ' 4 近傍リンクとして残る**。= (37,16) は「唯一の連結点」ではない。'
+      + ' 4 マスとも塞ぐと北半 (主通路) と南半 (泉の間 = 玉座) が 4 近傍で切れ、'
+      + ' ボスと護衛 3 体が到達不能になる ((1b)) / 南半の床が丸ごと孤島になる ((1d))。'
+      + ' ⭐ (1a) は**緑のまま** — up/left/right の 3 ゲートは全部北半にあるので、'
+      + ' 「ゲートへ行ければ良い」という assert では部屋の半分が死んでも気づけない = (1b)(1d) の存在理由',
+  },
+  overblock: {
+    impl: true, file: 'index.html', targets: ['1e', '1d'], record: ['1a', '1b', '1c', '1f'],
+    from: SEAL_ANCHOR,
+    to: SEAL_ANCHOR + ' if (p.tw === 39 && p.th === 23) { for (let _r = p.ty; _r < p.ty + p.th; _r++)'
+      + ' for (let _c = p.tx; _c < p.tx + p.tw; _c++) { if (((_r * 73 + _c * 31) % 100) < 53'
+      + ' && !(_r === playerStartTy && _c === playerStartTx)) obstacleTileMask[_r * MAP_W + _c] = 1; }'
+      + ' /* overblock */ }',
+    why: '⭐⭐⭐ **なぜ「絵のピクセルから自動でマスクを起こす」を採らなかったかを機械で示す 1 本**'
+      + ' (依頼書 §2-3 の再現)。§2-3 の実測では最良の特徴量 (暗部率) でも **AUC 0.685** ='
+      + ' 3 マスに 1 マス間違え、n1 では床 488 マスのうち **261 マス (53%) を誤って塞ぐ**。'
+      + ' ⇒ ここでは「AUC 0.5 = コイン投げの規則が床の 53% を塞ぐ」を**決定論の疑似乱数**'
+      + ' ((row*73 + col*31) % 100 < 53) で再現する。⛔ 絵を読み直す実装を写経しないのが肝で、'
+      + ' 再現したいのは**手口ではなく帰結** (塞がり率が跳ね上がり、通路ごと消える)。'
+      + ' ⚠ 起点だけは除外する (起点が壁だとページが別の理由で壊れ、何を測ったのか分からなくなる)',
+  },
 };
 const MUT_ORDER = ['popzero', 'island', 'sealgate', 'sealfoe',
   'zprefix', 'camz1only', 'origin00', 'fireonly', 'nocircle',
@@ -678,7 +733,11 @@ function SNAPSHOT(cfg) {
     out.sheetLoaded = (typeof MAGIC_CIRCLE_SHEET !== 'undefined') ? !!MAGIC_CIRCLE_SHEET.loaded : null;
     out.paint = pb ? { off: pb.off, ringOff: pb.ringOff, applied: pb.applied, ring: pb.ring,
                        skipGate: pb.skipGate, skipStart: pb.skipStart, skipDoor: pb.skipDoor,
-                       skipSpawn: pb.skipSpawn, skipCorridor: pb.skipCorridor, onWall: pb.onWall } : null;
+                       skipSpawn: pb.skipSpawn, skipCorridor: pb.skipCorridor, onWall: pb.onWall,
+                       /* #46 (4a): 撤退 ?walkblock=0 の実績。⛔ ここを写経で作らない
+                        *   (出所は applyPaintingBlocking の中の 7 つ目の門番ただ 1 本)。 */
+                       walkBlockOn: pb.walkBlockOn, walkBlockNew: pb.walkBlockNew,
+                       skipWalkBlock: pb.skipWalkBlock } : null;
   } catch (e) {
     out.err = (e && e.message) || String(e);
   }
@@ -942,6 +1001,10 @@ function badgePop(m) {
 /* (3b) の基準アーム。⭐ **1 回だけ**測って全 assert で使い回す (git の blob は不変なので
  *   変異ごとに測り直す必要が無い)。⚠ 素の measure と同じ手順を通す = 差は index.html だけ。 */
 let REF_MEASURE = null;
+/* (4a) の**素のアーム**。⭐ 撤退アームの数値だけ見る assert は「1 マスも足していない」を
+ *  素通りさせる (素も撤退も 58.75% になるので恒等が自明に成立する)。⇒ 素のアームを控えて
+ *  おき、**両アームの差がちょうど walkBlockNew** であることまで (4a) が見る。 */
+let BASE_MEASURE = null;
 
 async function closeDialogs(page) {
   for (let i = 0; i < 14; i++) {
@@ -1388,18 +1451,62 @@ const ASSERTS = [
         + (missing.length ? '   ⛔ 出ていない: '
           + missing.map(k => k + '(' + BADGE_EXPECT[k] + ')').join(' ') : '   ⭐ 🐺 / 🏹 とも実在')];
     }],
+
+  // ── §4 撤退 (項目 4 の担当ぶん) ────────────────────────────────────────────
+  ['4a', '?walkblock=0 → n1 の塞がり率が #46 前の ' + WALK_BLOCK_LEGACY_BLOCKED + '/' + WALK_BLOCK_AREA
+    + ' = ' + (WALK_BLOCK_LEGACY_BLOCKED / WALK_BLOCK_AREA * 100).toFixed(2) + '% へ戻る'
+    + '  ⛔ 「戻る」だけでは**永久緑** (1 マスも足さなければ素のアームも同じ値) →'
+    + ' 素のアームとの**差**と、外れたマス数まで同時に見る',
+    (m) => {
+      if (!m.ok) return popFail('測定', m.err || 'SNAPSHOT が失敗');
+      const p = m.paint;
+      if (!p) return popFail('__paintBlockProbe', 'シームが取れない');
+      /* ⭐⭐⭐ 撤退アームが**本当に撤退アームか**を先に確かめる ((4b)(4c) と同じ作法)。 */
+      if (p.walkBlockOn !== false)
+        return popFail('撤退アーム', 'walkBlockOn=' + p.walkBlockOn + ' (?walkblock=0 が効いていない)');
+      const b = BASE_MEASURE;
+      if (!b || !b.ok || !b.paint) return popFail('素のアーム', '§0 の測定が取れていない');
+      if (b.paint.walkBlockOn !== true)
+        return popFail('素のアーム', 'walkBlockOn=' + b.paint.walkBlockOn + ' (素が既定になっていない)');
+      const legacyBlocked = m.area - m.floorN;
+      const baseBlocked = b.area - b.floorN;
+      const n = p.walkBlockNew;
+      const okNew = n >= 1;                                 // ⭐ 1 マスも足していなければ赤
+      const okSkip = p.skipWalkBlock === n;                 // 足した分が撤退で全部外れた
+      const okAbs = legacyBlocked === WALK_BLOCK_LEGACY_BLOCKED && m.area === WALK_BLOCK_AREA;
+      const okDiff = (baseBlocked - legacyBlocked) === n;   // 素との差がちょうど n マス
+      return [okNew && okSkip && okAbs && okDiff,
+        '撤退 ' + legacyBlocked + '/' + m.area + ' = ' + (legacyBlocked / m.area * 100).toFixed(2) + '%'
+        + ' (期待 ' + WALK_BLOCK_LEGACY_BLOCKED + '/' + WALK_BLOCK_AREA + ')' + (okAbs ? '' : ' ⛔')
+        + '   素 ' + baseBlocked + '/' + b.area + ' = ' + (baseBlocked / b.area * 100).toFixed(2) + '%'
+        + '   #46 で足した `#` = ' + n + ' マス' + (okNew ? '' : ' ⛔ 1 マスも足していない')
+        + '   撤退で外れた = ' + p.skipWalkBlock + ' マス' + (okSkip ? '' : ' ⛔ 足した数と合わない')
+        + '   両アームの差 = ' + (baseBlocked - legacyBlocked) + ' マス' + (okDiff ? ' ⭐' : ' ⛔')];
+    }],
+  ['4d', '⚠ 撤退アーム (?walkblock=0) でも §1 の到達性 (1a)(1b) が緑'
+    + '  ⭐ 撤退枝にしか無いコードは素のアームだけ見る assert では原理的に捕まらない',
+    (m) => {
+      if (!m.ok) return popFail('測定', m.err || 'SNAPSHOT が失敗');
+      if (!m.paint || m.paint.walkBlockOn !== false)
+        return popFail('撤退アーム',
+          'walkBlockOn=' + (m.paint ? m.paint.walkBlockOn : '取れない') + ' (?walkblock=0 が効いていない)');
+      /* ⛔ 判定式を書き直さない — §1 の本体をそのまま撤退アームの測定へ掛ける
+       *   (書き直すと「素のアームだけ厳しい / 撤退アームだけ甘い」が静かに生まれる)。 */
+      const ra = ASSERT_OF['1a'][2](m);
+      const rb = ASSERT_OF['1b'][2](m);
+      return [ra[0] === true && rb[0] === true,
+        '(1a)=' + (ra[0] ? '緑' : '⛔ 赤') + '  ' + ra[1]
+        + '   (1b)=' + (rb[0] ? '緑' : '⛔ 赤') + '  ' + rb[1]];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
-/* ══ 未実装の受入条件 (⛔ 配列ごと削除しない — 削ると PENDING という 3 値そのものが消える) ══ */
-const PENDINGS = [
-  ['§4 撤退 (項目 4 の担当ぶん)', [
-    ['4a', '?walkblock=0 で n1 の塞がり率が 58.8% へ戻る', '項目 4'],
-    ['4d', '撤退アームでも §1 の到達性 (1a)(1b) が緑',
-      '項目 4 ⭐ 撤退枝にしか無いコードは素のアームだけ見る assert では捕まらない'],
-  ]],
-];
+/* ══ 未実装の受入条件 (⛔ 配列ごと削除しない — 削ると PENDING という 3 値そのものが消える) ══
+ * ⭐ 項目 4 で **空になった** = 依頼書 §8 の (0a)〜(4d) が全部実装済という意味。
+ *   ⛔ 「PENDING が出ないから」といってこの配列と下のループを消さないこと。次のチケットが
+ *     受入条件を先に宣言したくなったとき、3 値のうち PENDING という状態ごと失われる。 */
+const PENDINGS = [];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
@@ -1459,6 +1566,7 @@ const PENDINGS = [
     if (!NEGATIVE) {
       mark('§0 装置 — 母集団 (⭐ ここが立たないと §1 は全部空振りで永久緑)');
       const m = await measure(browser, PORT, errs, {});
+      BASE_MEASURE = m;     // (4a) が「素との差 = 足した `#` の数」を見るために控える
       for (const key of ['0a', '0b', '0c', '0d']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
@@ -1473,6 +1581,14 @@ const PENDINGS = [
       mark('§2 魔法陣 / 火炎コア — ⭐⭐⭐ camZ を 4 点 (' + VFX_ZOOMS.join(' / ') + ') で測る');
       for (const key of ['2a', '2b', '2c', '2d', '2e']) {
         const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§4 撤退 — ?walkblock=0 (⭐ 今回足した `#` **だけ**を外して 2026-09-03 のマスクで走る。'
+        + '⛔ マスク全体を捨てるスイッチではない)');
+      const mWalk = await measure(browser, PORT, errs, { query: 'walkblock=0' });
+      for (const key of ['4a', '4d']) {
+        const a = ASSERT_OF[key]; const r = a[2](mWalk);
         check('(' + a[0] + ') ' + a[1], r[0], r[1]);
       }
 

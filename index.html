@@ -4204,6 +4204,15 @@
      *   (?enemybadge=1 で必要 / 図鑑や酒場の一覧で使う余地を残す)。
      * ⚠ 判定はページ内で完結する (?heromark=0 / ?castanchor=0 と同じ流儀。sessionStorage へ写さない)。 */
     const ENEMY_BADGE_ON = new URLSearchParams(window.location.search).get("enemybadge") === "1";
+    /* #46: 廃坑 n1 の絵に描かれた「段差」を通れなくする。⭐ 直したのは**コードではなくデータ**
+     *   (歩行判定 isTileWall は健全で、絵のマスクに `#` が足りていなかっただけ)。
+     * ⚠ 撤退 ?walkblock=0 = **今回足した `#` だけ**を無視して 2026-09-03 時点のマスクで走る。
+     *   ⛔ マスク全体を捨てるスイッチにしない (それは既存の ?paintblock=0 の仕事)。
+     * ⚠ 座標は**グローバルタイル** [col, row]。n1 の tileBounds = [2,17,24,55] なので
+     *   絵ローカルへ直すには -17 / -2 する (混ぜると必ず 1 タイルずれる)。
+     * ⚠ 判定はページ内で完結する (?castanchor=0 / ?enemybadge=1 と同じ流儀)。 */
+    const WALK_BLOCK_ON = new URLSearchParams(window.location.search).get("walkblock") !== "0";
+    const WALK_BLOCK_NEW_TILES = [[39, 10], [33, 11]];
     /* ══ [卓上グリッド P7] 「縮まない UI」を置く**唯一の関数** ═══════════════════
      * HP バー / 名前ラベル / 「!」/ 装備バッジ / 状態アイコン列は camZ で縮まない
      * (縮むのは composeSpriteTransform を通る「絵」だけ = P7 の設計)。よって world 座標へ
@@ -5067,8 +5076,8 @@
                ".###.............###..##...#######.###.",   //  5  ★西の広間から東へ素通しの行 (col4-16)。col2-3 = 坑口の梁
                ".###........##...........#########.###.",   //  6  col12-13 = 木の支柱 / 中央は軌道の敷かれた床 (レールは平置き = 規則②)
                ".##.........##.........##########..###.",   //  7  col12-13 = 木組み / col31-32 = 灯りの下がる木組み
-               "........##.............########....###.",   //  8  ★left ゲート = 坑口 (外光) の行。col8-9 = 鉱石を積んだトロッコ
-               ".............#...###.........###..####.",   //  9  ★東西の主通路 (col23-28 が岩の下をくぐる) / col17-19 = 立った木柵
+               "........##............#########....###.",   //  8  col8-9 = 鉱石を積んだトロッコ / ★[#46] col22 を追加 = グローバル (39,10) = 岩棚の縁の石の段差と、それを受ける木の擁壁 (右隣 (40,10) は元から #)
+               ".............#..####.........###..####.",   //  9  ★東西の主通路 (col23-28 が岩の下をくぐる) / col17-19 = 立った木柵 / ★[#46] col16 を追加 = グローバル (33,11) = 岩盤の背 (この 1 マスだけが (32,12)-(34,11) の斜めの尾根の切れ目だった)
                ".............###........###..###.......",   // 10  col16-19 = 倒れた板 = 規則②で空ける / col24-26 = 巻き上げ機 / col29-31 = 大岩
                ".##.........####.......####............",   // 11  ★right ゲート = 軌道が東へ抜ける行。★起点 (19,11) もこの行 / col23-26 = 坑道の木枠
                ".########...####...##..#####.#####.....",   // 12  col16-18 = 歯車の間へ下りる口 / col19-20 = 大きな木箱
@@ -5888,7 +5897,8 @@
     function applyPaintingBlocking(enemySpawns, playerStartTx, playerStartTy) {
       const stat = { off: PAINT_BLOCK_OFF, ringOff: PAINT_RING_OFF, entries: 0, tiles: [], applied: 0,
                      onWall: 0, skipStart: 0, skipDoor: 0, skipSpawn: 0, skipCorridor: 0,
-                     ring: 0, skipGate: 0, perEntry: [] };
+                     ring: 0, skipGate: 0, skipWalkBlock: 0, walkBlockOn: WALK_BLOCK_ON,
+                     walkBlockNew: WALK_BLOCK_NEW_TILES.length, perEntry: [] };
       paintBlockStat = stat;
       if (PAINT_BLOCK_OFF || !window.DFMapDef || !DFMapDef.paintingBlockedTilesFor) return;
       const startKey = (playerStartTx != null && playerStartTy != null)
@@ -5927,6 +5937,17 @@
           }
         } catch (e) { /* 幾何が無いページ (エディタ等) = ゲート無しで続行 */ }
       }
+      /* #46: **7 つ目の門番** = 撤退 ?walkblock=0 のときだけ立つ「今回足した `#` を無視する」口。
+       * ⭐ 門番を 1 本足す形にしてあるので、マスクの行文字列そのものは 1 つの正のまま
+       *   (撤退用に「#46 前のマスク」をもう 1 セット持つと、以後どちらが正か分からなくなる)。
+       * ⚠ WALK_BLOCK_ON のときは Set が空 = ループも走らない = 通常プレイに 1 サイクルも足さない。 */
+      const walkBlockKeys = new Set();
+      if (!WALK_BLOCK_ON) {
+        for (const [c, r] of WALK_BLOCK_NEW_TILES) {
+          if (r < 0 || r >= MAP_H || c < 0 || c >= MAP_W) continue;
+          walkBlockKeys.add(r * MAP_W + c);
+        }
+      }
       for (const p of roomPaintings) {
         const sealing = !!(p.sealRing && !PAINT_RING_OFF);
         if (!p.blocked && !sealing) continue;
@@ -5946,6 +5967,7 @@
           if (spawnKeys.has(k)) { stat.skipSpawn++; return; }
           if (corridorKeys.has(k)) { stat.skipCorridor++; return; }
           if (gateKeys.has(k))  { stat.skipGate++; return; }
+          if (walkBlockKeys.has(k)) { stat.skipWalkBlock++; return; }   // #46 撤退 ?walkblock=0
           if (obstacleTileMask[k] !== 1) stat.applied++;
           obstacleTileMask[k] = 1;
           stat.tiles.push(k);
@@ -5981,6 +6003,11 @@
         /* ★[廃坑の壁抜け] 外周封鎖の実績。ring = 実際に塞いだ外周マス数 /
          *   skipGate = 出口タイルだったので**塞がなかった**数。ドライバに規則を写経させない。 */
         ringOff: paintBlockStat.ringOff, ring: paintBlockStat.ring, skipGate: paintBlockStat.skipGate,
+        /* #46: 撤退 ?walkblock=0 の実績。walkBlockNew = 今回足した `#` の**総数** /
+         *   skipWalkBlock = 撤退で実際に外した数。⭐ 両方を出すので「1 マスも足していないのに
+         *   撤退 assert が緑」という永久緑をドライバ側で潰せる (受入 (4a))。 */
+        walkBlockOn: paintBlockStat.walkBlockOn, walkBlockNew: paintBlockStat.walkBlockNew,
+        skipWalkBlock: paintBlockStat.skipWalkBlock,
         perEntry: paintBlockStat.perEntry.map(e => Object.assign({}, e)),
         mapW: MAP_W, mapH: MAP_H,
       };
