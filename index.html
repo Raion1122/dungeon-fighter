@@ -20238,6 +20238,7 @@
       setPhase("combat");
       encounterEnemyIndices = initialEngaged.slice();
       applyMineRangedOpening();   // [sce1-events] EV-2 の②に成功していれば敵の初手を潰す
+      applyRoadVigilance();       // ★ #47 街道の実り: 街道で「備え」を得ていれば最初の交戦だけ初手を潰す
       // [sce1-events] EV-9 を踏まずにボス戦へ入った場合の保険 (本線は runGrixEvent の末尾)。
       //   ⚠ ここが「ダメージが 1 点でも入る前」の最も早い地点。冪等ラッチ付きなので二重発火しない。
       armGrixHostageRedirect();
@@ -24320,6 +24321,30 @@
       if (n > 0) {
         showBanner("🏹 射程を取っていた! 初手を潰した", 1600);
         updateInfo(`遠距離が届く位置まで詰めていた — 見張り ${n} 体の初手を潰した`);
+      }
+      return n;
+    }
+
+    /* ★ #47 街道の実り —— 街道で得た「備え」を最初の交戦で 1 度だけ使う。
+     * ⛔ 新しい戦闘機構を作らない —— 上の applyMineRangedOpening と **同じ stunned 枠**
+     *   (牙の護符 tryNegatePreemptive も使っており、ターンループ側の配線は済んでいる)。
+     * ⚠ フラグは 1 度で消費する (「最初の交戦」の話なので 2 戦目には効かない。
+     *   負のコントロール alwaysvigil = この 1 行を消すと 2 戦目でも初手が潰れる、が番人)。
+     * ⚠ roadVigilance の宣言はこのファイルのずっと下 (consumeRoadBoon の直前) にある
+     *   モジュール直下の let。呼ばれるのはゲーム中なので TDZ には掛からない。 */
+    function applyRoadVigilance() {
+      if (!roadVigilance) return 0;
+      roadVigilance = false;
+      let n = 0;
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        e.stunned = Math.max(e.stunned || 0, 1);
+        n++;
+      }
+      if (n > 0) {
+        showBanner("👁 街道で読んでいた! 初手を潰した", 1600);
+        updateInfo(`街道で得た備えが生きた — ${n} 体の初手を潰した`);
       }
       return n;
     }
@@ -33111,6 +33136,44 @@
       try { sessionStorage.removeItem("dragonfighters.pendingSummon"); } catch (e) {}
       const items = getSummonMenuItems("dungeonStart");
       if (items.some(it => it.id === pending)) executeSummon(pending);
+    })();
+
+    /* ══ 街道の実り (#47) — 街道で得たものを 1 度だけ使う ══════════════════════
+       ⭐ 上の consumePendingSummon と同型: getItem → removeItem → 適用。
+         **キーが無い = 何も起きない** (⛔ questFlags の「無い = 開放」とは逆。#47 §2-1)。
+       ⚠ ここは applyInitialLevels / applyAccessoryHpBonus より **後**でなければならない
+         (maxHp を触るので、レベル適用が済んでいないと足した分が上書きされる)。
+       ⚠⚠⚠ label は updateInfo → appendLog (innerHTML 代入) まで届く。escape ヘルパは
+         このファイルに 1 つも無いので、**入口でホワイトリストを張る** (#47 §2-3)。
+         label の出所は js/road-events.js の固定表なので外部入力ではない (= self-XSS 相当) が、
+         保存値を DOM の HTML へ流す経路を新設する以上、入口で 1 本張るのが正しい。 */
+    const ROAD_BOON_ON = new URLSearchParams(window.location.search).get("roadboon") !== "0";
+    const ROAD_BOON_LABEL_OK = /^[^\r\n<>&"']{1,24}$/;
+    const ROAD_BOON_FALLBACK = { provision: "街道の糧", vigilance: "街道の備え" };
+    let roadVigilance = false;                       /* 備え: 最初の交戦で 1 度だけ */
+    (function consumeRoadBoon() {
+      if (!ROAD_BOON_ON) return;                     /* 撤退 ?roadboon=0 —— ⛔ removeItem もしない */
+      let raw = null;
+      try { raw = sessionStorage.getItem("dragonfighters.roadBoon"); } catch (e) {}
+      if (!raw) return;
+      try { sessionStorage.removeItem("dragonfighters.roadBoon"); } catch (e) {}
+      let list = [];
+      try { list = JSON.parse(raw); } catch (e) { list = []; }
+      if (!Array.isArray(list)) return;
+      /* ⛔ この 3 は world.html の ROAD_BOON_MAX と **同じ意味**。片方だけ動かさない。 */
+      for (const b of list.slice(0, 3)) {
+        if (!b || (b.kind !== "provision" && b.kind !== "vigilance")) continue;   /* ⛔ 白名簿 */
+        const label = (typeof b.label === "string" && ROAD_BOON_LABEL_OK.test(b.label))
+          ? b.label : ROAD_BOON_FALLBACK[b.kind];
+        if (b.kind === "provision") {
+          maxHp += 3; hp = maxHp;
+          for (const a of allies) { a.maxHp = (a.maxHp || 0) + 3; a.hp = a.maxHp; }
+          updateInfo(`街道で得た『${label}』が効いている — 一行の体力が底上げされた (最大HP +3)`);
+        } else {
+          roadVigilance = true;
+          updateInfo(`街道で得た『${label}』 — 最初の敵の気配は、既に読んでいる`);
+        }
+      }
     })();
 
     /* ★[P1 再入可能化] 旧「起動時 1 回だけのスポーン一括」を関数へ括り出した。

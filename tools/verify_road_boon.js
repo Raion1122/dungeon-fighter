@@ -42,8 +42,14 @@
  *       ⚠ (1c) は「恩恵つきの結末を 4 回踏む」腕 (1 本 4 分) を避け、CAP_SEED で 3 件を
  *         仕込んでから実走で 1 件足す形に **測定点を移した**。期待値は弱めていない
  *         (伸びていない / 最古が落ちる / 末尾が本物 の 3 つを見る)。
- *     §2 消費と適用 (潜行側) … (2a)(2b)(2c)(2d)(2e)(2f)
- *     §3 恒等 (非退行) … (3a)
+ *     §2 消費と適用 (潜行側) … (2a)(2b)(2c)(2d)(2e)(2f)  ⭐ **項目 3 で移設済み**
+ *       ⚠ (2c) は「autoplay で 2 戦させる」腕を避け、**本番の applyRoadVigilance を
+ *         決定論の盤面で 2 回叩く** + **runEncounter への配線を配信バイトの構造で縛る**
+ *         へ測定点を移した。理由 = stunned は次ターンで消えるので実戦の抜き取りでは
+ *         取りこぼす / 2 戦目まで走らせると 1 本が分単位で揺れる。期待値は弱めていない。
+ *     §3 恒等 (非退行) … (3a)  ⭐ **項目 3 で移設済み**
+ *       ⚠ 入場は world.html の `location.href = "index.html"` で **クエリを足さない**ので、
+ *         ?roadboon=0 が効くのは world.html のレグだけ。(3a) はそれで正しい。
  *     §4 撤退 ?roadboon=0 … (4a)(4b)(4c)
  *
  * ■ 測り方の規律 (依頼書 §8「計測機構」/ ⚠ 既存ドライバの写経では動かない点)
@@ -108,6 +114,45 @@ const CAP_SEED = JSON.stringify([
   { kind: 'provision', label: '仕込みの糧B', event: '__cap1', at: null },
   { kind: 'vigilance', label: '仕込みの備えC', event: '__cap2', at: null },
 ]);
+
+/* ══ §2 (潜行側) の仕込み — 項目 3 ═══════════════════════════════════════════
+   ⭐ label は **BOONS に 1 つも無い合成語**にする。これで「index.html が保存された値を
+     使っている」ことが証明できる (表から引き直していたら測定用の語は DOM に出てこない)。
+   ⛔ provision / vigilance の件数をドライバへ直書きしない —— 下でこの配列から数える。 */
+const IDX_SEED_BOON = JSON.stringify([
+  { kind: 'provision', label: '測定用の糧A', event: '__probe0', at: null },
+  { kind: 'provision', label: '測定用の糧B', event: '__probe1', at: null },
+  { kind: 'vigilance', label: '測定用の備えC', event: '__probe2', at: null },
+]);
+const IDX_SEED_LIST = JSON.parse(IDX_SEED_BOON);
+const IDX_PROV_N = IDX_SEED_LIST.filter(b => b.kind === 'provision').length;
+const IDX_VIGIL_N = IDX_SEED_LIST.filter(b => b.kind === 'vigilance').length;
+/* ⚠⚠⚠ 罠 B (依頼書 §2-3) の実弾。index.html の appendLog は innerHTML 代入で、
+   escape ヘルパが 1 つも無い。⇒ 汚れた label が素通しなら #combatLog に <img> が生える。 */
+const TAINT_LABEL = '<img src=x onerror=1>';
+const IDX_SEED_TAINT = JSON.stringify(IDX_SEED_LIST
+  .map(b => ({ kind: b.kind, label: TAINT_LABEL, event: b.event, at: b.at })));
+/* 既定語 = index.html の ROAD_BOON_FALLBACK (依頼書 §6-1)。(2e)② が DOM に出ていることを見る。 */
+const BOON_FALLBACK = { provision: '街道の糧', vigilance: '街道の備え' };
+/* ログの「街道の行」を数える目印。⛔ 全文は写経しない —— 2 本の updateInfo に共通する頭だけ。 */
+const ROAD_LOG_MARK = '街道で得た';
+/* ⚠ 依頼書 §8「測らないこと」は「+3 という数値は縛るな」と書いているが、受入条件 (2b) は
+   「maxHp が **+3×件数**」と書いている (依頼書の自己矛盾)。⇒ **1 箇所だけ**定数に置き、
+   +3 を遊んで動かすときはここも同時に動かす。⛔ assert の中へ 3 を散らさない。 */
+const HP_PER_PROVISION = 3;
+/* party の唯一の正は rich な partyMembers (index.html:32936)。⛔ partyComposition だけ置くと
+   buildParty がフォールバックで別の編成を組む (2026-09-03 実測: elf + mage x2 になり
+   maxHp の差分が測れなくなった)。 */
+const IDX_PARTY = [{ classKey: 'warrior' }, { classKey: 'dwarf' }, { classKey: 'elf' }, { classKey: 'cleric' }];
+/* ══ (3a) の横断 ════════════════════════════════════════════════════════════
+   world.html の onArriveNode は「**受注中の依頼の地**だけ」確認ダイアログを開いて
+   index.html へ入れる (world.html:1049-1051)。⇒ questDest を仕込んで実クリックで入る。
+   ⛔ 行き先ノード ('fort') を直書きしない —— WORLD_MAP.SITES から引いて照合する。
+   ⚠⚠⚠ 入場は `location.href = "index.html"` で **クエリを足さない**ので、
+     `?roadboon=0` が効くのは **world.html のレグだけ**。(3a) はそれで正しい ——
+     見たいのは「判定なしの枝を押した横断では index の maxHp が動かない」だから。 */
+const QUEST_DEST_KEY = 'dragonfighters.questDest';
+const CROSS_SCENARIO = 'orc-fort';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (負のコントロール) —— 依頼書 §8「負のコントロール」の 14 本
@@ -725,6 +770,179 @@ async function measureArm(browser, port, errs, o) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 観測 C) 潜行側 — index.html を開いて「消費と適用」を読む (項目 3)
+// ⭐⭐⭐ 測り方 = sessionStorage へ値を置いてから index.html を開き、モジュール直下の
+//   let/const (maxHp / allies / roadVigilance / ROAD_BOON_ON) を **グローバル字句環境ごしに**
+//   読む。⛔ 本番へ測定専用の window シームを 1 つも足していない。
+// ⚠ index.html の run 開始 (applyInitialLevels → applyAccessoryHpBonus → consumePendingSummon
+//   → consumeRoadBoon) は **読み込み時**に走る。gameStarted は false のままでよく、
+//   「キーかマウスを押すとスタート」の前でも maxHp / #combatLog は読める (2026-09-03 実測)。
+// ⚠ index.html の console.error / 404 は (9a) の母集団ではない (世界地図側の事故を測る節)。
+//   ⇒ **自前のバケツ** out.errs に貯め、(2f) が PAGEERROR だけを 0 と縛る。
+// ══════════════════════════════════════════════════════════════════════════════
+function readIndexState(o) {
+  const g = (f) => { try { return f(); } catch (e) { return '(ERR ' + String(e && e.message).slice(0, 60) + ')'; } };
+  const logEl = document.getElementById('combatLog');
+  const lines = logEl
+    ? Array.prototype.slice.call(logEl.querySelectorAll('.logLine')).map(d => d.textContent) : [];
+  return {
+    href: location.href,
+    maxHp: g(() => maxHp), hp: g(() => hp),
+    allies: g(() => allies.map(a => ({ cls: a.classKey, maxHp: a.maxHp, hp: a.hp }))),
+    roadBoonOn: g(() => ROAD_BOON_ON),
+    roadVigilanceAtBoot: g(() => roadVigilance),
+    hasApply: g(() => typeof applyRoadVigilance),
+    boonAfter: (function () { try { return sessionStorage.getItem(o.key); } catch (e) { return '(throw)'; } })(),
+    logLines: lines,
+    logLineCount: lines.length,
+    /* ⭐⭐⭐ (2e) の本丸は **要素の総数**。⛔ .logLine の本数では injection を検出できない
+       —— 注入された <img> は logLine の **中**に生えるので行数は 1 つも変わらない。 */
+    logElemCount: logEl ? logEl.querySelectorAll('*').length : null,
+    logImgCount: logEl ? logEl.querySelectorAll('img').length : null,
+    /* ⭐ (2c) の「備え」= 決定論の盤面で **本番の applyRoadVigilance そのもの**を 2 回叩く。
+       ⛔ autoplay で 2 戦させない (分単位で揺れる / stunned は次ターンで消えるので取りこぼす)。
+       ⚠ runEncounter への配線は (2c) が **配信バイトの構造**で別途縛る (呼ばれ口の証明)。
+       ⚠ ページはこの直後に閉じるので、盤面を書き換えても他の観測を汚さない。 */
+    vigil: g(() => {
+      if (typeof applyRoadVigilance !== 'function') return { why: 'applyRoadVigilance が無い' };
+      const idx = [];
+      for (let i = 0; i < enemies.length && idx.length < 3; i++) if (enemies[i] && enemies[i].alive) idx.push(i);
+      if (!idx.length) return { idx: [], why: '⛔ 母集団: alive な敵が 0 体' };
+      encounterEnemyIndices = idx.slice();
+      idx.forEach(i => { enemies[i].stunned = 0; });
+      const n1 = applyRoadVigilance();
+      const after1 = idx.map(i => enemies[i].stunned || 0);
+      idx.forEach(i => { enemies[i].stunned = 0; });
+      const n2 = applyRoadVigilance();
+      const after2 = idx.map(i => enemies[i].stunned || 0);
+      return { idx: idx, n1: n1, after1: after1, n2: n2, after2: after2, flagAfter: roadVigilance };
+    }),
+  };
+}
+const WAIT_INDEX = 'typeof maxHp !== "undefined" && typeof allies !== "undefined"'
+  + ' && !!document.getElementById("combatLog")';
+
+function attachErrs(page, bucket, tag) {
+  page.on('pageerror', e => bucket.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;
+    bucket.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+}
+
+async function measureIndex(browser, port, _errs, opts) {
+  opts = opts || {};
+  const out = { tag: opts.tag || 'idx', query: opts.query || '', seedBoon: opts.seedBoon || null, errs: [] };
+  const page = await browser.newPage();
+  attachErrs(page, out.errs, '[:' + port + PAGE_INDEX + (opts.query || '') + ' ' + out.tag + '] ');
+  await page.evaluateOnNewDocument((s) => {
+    try { sessionStorage.setItem('dragonfighters.partyMembers', s.party); } catch (e) {}
+    try { if (s.boon) sessionStorage.setItem(s.key, s.boon); else sessionStorage.removeItem(s.key); } catch (e) {}
+  }, { party: JSON.stringify(IDX_PARTY), key: BOON_KEY, boon: opts.seedBoon || null });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_INDEX + (opts.query || ''),
+    { waitUntil: 'load', timeout: 45000 });
+  await page.waitForFunction(WAIT_INDEX, { timeout: 35000 });
+  await settle(page);
+  Object.assign(out, await page.evaluate(readIndexState, { key: BOON_KEY }));
+  await page.close();
+  return out;
+}
+
+/* ── (3a) 横断: world.html を「判定なしの枝」で歩き切り、実クリックで index.html へ入る ──
+   ⭐⭐⭐ 押す枝は既存 golden 3 本と **1 文字違わず同じ式** —— resolveOpenEvent(page,'none')
+     が (ev.choices||[]).filter(x => !x.check)[0] を引く (verify_world_steps:774 /
+     world_map:683 / quest_walk:831 と同じ)。⇒ 罠 A (依頼書 §2-2) をそのまま再現する。
+   ⛔ goToNode / askEnter を evaluate から呼ばない —— 停留所も「入る」も実クリック。 */
+async function measureCross(browser, port, _errs, opts) {
+  opts = opts || {};
+  const query = '?roadseed=' + SEED_MAIN + (opts.extraQuery || '');
+  const out = { tag: opts.tag || 'cross', query: query, taps: [], events: [], errs: [], why: '' };
+  const page = await browser.newPage();
+  attachErrs(page, out.errs, '[:' + port + query + ' ' + out.tag + '] ');
+  await page.evaluateOnNewDocument((s) => {
+    try { sessionStorage.setItem('dragonfighters.partyMembers', s.party); } catch (e) {}
+    try { sessionStorage.setItem(s.destKey, s.dest); } catch (e) {}
+    try { sessionStorage.removeItem(s.boonKey); } catch (e) {}
+  }, { party: JSON.stringify(IDX_PARTY), destKey: QUEST_DEST_KEY, dest: CROSS_SCENARIO, boonKey: BOON_KEY });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_PATH + query, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  await settle(page);
+  /* 器が開いた回数を同期で捕まえる ((3a) の母集団ガード)。⛔ 駆動ではなく計測。 */
+  await page.evaluate(() => {
+    window.__roadOpen = [];
+    const RE = window.ROAD_EVENTS;
+    if (!RE || typeof RE.open !== 'function') return;
+    const orig = RE.open;
+    RE.open = function (ev) { window.__roadOpen.push((ev && ev.id) || null); return orig.apply(this, arguments); };
+  });
+  const site = await safeEval(page, (s) => {
+    const WM = window.WORLD_MAP;
+    return { node: WM.SITES[s], sites: WM.SITES, hasNode: !!WM.NODES[WM.SITES[s]] };
+  }, CROSS_SCENARIO);
+  out.destNode = site ? site.node : null;
+  out.destHasNode = site ? site.hasNode : false;
+  const armWait = ((await safeEval(page, () => (window.ROAD_EVENTS && window.ROAD_EVENTS.ARM_MS) || 0)) || 0)
+    + ARM_PAD_MS;
+  const st0 = await readPlay(page);
+  out.startNode = st0.dead ? null : st0.node;
+  if (!out.destNode) { out.why = 'WORLD_MAP.SITES["' + CROSS_SCENARIO + '"] が引けない'; }
+  const askNow = () => safeEval(page, () => !!(window.__world && window.__world.askOpen()));
+  for (let i = 0; out.destNode && i < MAX_TAPS; i++) {
+    if (await askNow()) break;
+    const t = await tapPoint(page, out.destNode, out.destNode + ' を押す');
+    out.taps.push(t);
+    if (!t.ok) { out.why = t.err || 'タップ失敗'; break; }
+    const st = await eventState(page);
+    if (st && st.open) {
+      const rec = await resolveOpenEvent(page, 'none', armWait);
+      if (rec) out.events.push({ event: rec.event, label: rec.label, closed: rec.closed,
+        success: rec.roadLast ? rec.roadLast.success : null });
+      if (!rec || !rec.closed) { out.why = '器が閉じない'; break; }
+    }
+    if (await askNow()) break;
+    if (t.after.node === out.destNode) break;
+  }
+  out.openLog = (await safeEval(page, () => window.__roadOpen || [])) || [];
+  out.askOpen = await askNow();
+  out.boonAtWorld = await safeEval(page, (k) => {
+    try { return sessionStorage.getItem(k); } catch (e) { return '(throw)'; }
+  }, BOON_KEY);
+  if (!out.askOpen) {
+    out.why = out.why || '確認ダイアログが開かない (' + out.destNode + ' へ着けていない)';
+    await page.close(); return out;
+  }
+  const yes = await safeEval(page, () => {
+    const b = document.getElementById('worldEnterYes');
+    if (!b) return null;
+    const q = b.getBoundingClientRect();
+    return { x: q.left + q.width / 2, y: q.top + q.height / 2 };
+  });
+  if (!yes) { out.why = '#worldEnterYes が DOM に無い'; await page.close(); return out; }
+  await page.mouse.click(Math.round(yes.x), Math.round(yes.y));
+  /* ⚠ 遷移中の waitForFunction は "Execution context was destroyed" で投げる。URL で待つ。 */
+  const t0 = Date.now();
+  while (Date.now() - t0 < 30000) {
+    let u = ''; try { u = page.url(); } catch (e) {}
+    if (/\/index\.html/.test(u)) break;
+    await sleep(150);
+  }
+  try {
+    await page.waitForFunction(WAIT_INDEX, { timeout: 45000 });
+    await settle(page);
+    out.index = await page.evaluate(readIndexState, { key: BOON_KEY });
+  } catch (e) {
+    out.why = 'index.html へ着かない: ' + String(e && e.message).slice(0, 100);
+  }
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 (実装済み)  ⭐ [key, 見出し, m => [bool|null, detail]]
 //   ⭐ 述語が **null** を返したら PENDING (= 本体がまだ無いので測れない)。
 //     ⛔ 「まだ無いから true」にはしない。
@@ -984,6 +1202,219 @@ const ASSERTS = [
       }
       return [why.length === 0, detail.join('  |  ') + (why.length ? '   ' + why.join(' ') : '')];
     }],
+
+  // ── §2 消費と適用 (潜行側) — 依頼書 §8 §2 ────────────────────────────────
+  //   ⭐ 項目 3 が PENDINGS からここへ移した。母集団は measureIndex の 4 本の腕。
+  ['2a', 'index.html の起動で **キーが消える** (起動後 getItem が null)',
+    (m) => {
+      const s = m.idxBoon;
+      if (!s) return [false, '恩恵アームの観測が無い'];
+      if (typeof s.maxHp !== 'number')
+        return [false, '⛔ index.html が起動していない (maxHp=' + JSON.stringify(s.maxHp) + ')'];
+      /* ⭐⭐⭐ 母集団ガード —— 「仕込みが実際に適用された」ことまで見る。
+         ⛔ キーが null なだけなら「読まれもせずに消えた / そもそも置けていない」も通る。 */
+      const applied = (s.logLines || []).filter(l => l.indexOf(ROAD_LOG_MARK) >= 0).length;
+      const why = [];
+      if (applied < 1) why.push('⛔ 母集団: 街道の行が 1 本も出ていない (仕込みが適用されていない)');
+      if (s.boonAfter !== null) why.push('⛔ 起動後もキーが残っている: ' + JSON.stringify(s.boonAfter));
+      return [why.length === 0,
+        '仕込み ' + IDX_SEED_LIST.length + ' 件 → 起動後の ' + BOON_KEY + '='
+        + JSON.stringify(s.boonAfter) + ' / 街道の行 ' + applied + ' 本'
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['2b', '糧 — 全員 (頭 + allies) の maxHp が **+' + HP_PER_PROVISION + '×件数**、かつ hp === maxHp'
+    + ' (⭐ 2 経路 = 「キーを置いた腕」と「置かない腕」の **差分**で見る。⛔ 絶対値を写経しない)',
+    (m) => {
+      const a = m.idxPlain, b = m.idxBoon;
+      if (!a || !b) return [false, '素/恩恵アームの観測が無い'];
+      if (typeof a.maxHp !== 'number' || typeof b.maxHp !== 'number')
+        return [false, '⛔ index.html が起動していない (素 maxHp=' + JSON.stringify(a.maxHp)
+          + ' / 恩恵 maxHp=' + JSON.stringify(b.maxHp) + ')'];
+      const want = HP_PER_PROVISION * IDX_PROV_N;
+      const why = [];
+      if (IDX_PROV_N < 1) why.push('⛔ 母集団: 仕込みに provision が 0 件');
+      const dHead = b.maxHp - a.maxHp;
+      if (dHead !== want) why.push('⛔ 頭: maxHp の差 ' + dHead + ' (期待 ' + want + ')');
+      if (b.hp !== b.maxHp) why.push('⛔ 頭: hp(' + b.hp + ') !== maxHp(' + b.maxHp + ')');
+      /* ⭐ 仲間は **編成が同じことを classKey 列で確かめてから**差を取る
+         (編成が揺れていると差分そのものが意味を失う)。 */
+      const ca = (a.allies || []).map(x => x.cls).join(',');
+      const cb = (b.allies || []).map(x => x.cls).join(',');
+      if (!ca.length) why.push('⛔ 母集団: 仲間が 0 人 (差分が頭 1 人ぶんしか測れない)');
+      if (ca !== cb) why.push('⛔ 編成が違う 素=[' + ca + '] 恩恵=[' + cb + ']');
+      else (b.allies || []).forEach((x, i) => {
+        const d = x.maxHp - a.allies[i].maxHp;
+        if (d !== want) why.push('⛔ ' + x.cls + ': maxHp の差 ' + d + ' (期待 ' + want + ')');
+        if (x.hp !== x.maxHp) why.push('⛔ ' + x.cls + ': hp(' + x.hp + ') !== maxHp(' + x.maxHp + ')');
+      });
+      return [why.length === 0,
+        'provision ' + IDX_PROV_N + ' 件 → 期待 +' + want
+        + ' / 頭 ' + a.maxHp + '→' + b.maxHp + '(hp' + b.hp + ')'
+        + ' / 仲間 ' + JSON.stringify((a.allies || []).map(x => x.cls + ':' + x.maxHp))
+        + ' → ' + JSON.stringify((b.allies || []).map(x => x.cls + ':' + x.maxHp + '(hp' + x.hp + ')'))
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['2c', '備え — **最初の交戦**で交戦中の敵が stunned >= 1、かつ **2 度目の交戦では 1 体も stunned に'
+    + 'ならない** (⭐ 呼び口が runEncounter の applyMineRangedOpening の **次の行**であることも縛る)',
+    (m) => {
+      const s = m.idxBoon;
+      if (!s) return [false, '恩恵アームの観測が無い'];
+      if (typeof m.servedIndex !== 'string' || !m.servedIndex.length)
+        return [false, 'index.html の配信バイトを読めていない'];
+      const v = s.vigil;
+      const why = [];
+      /* ⭐⭐⭐ 配線の証明 —— 「関数が在る」だけでは戦闘で 1 度も呼ばれない実装が緑になる。 */
+      const wired = /applyMineRangedOpening\(\);[^\r\n]*\r?\n[ \t]*applyRoadVigilance\(\);/.test(m.servedIndex);
+      if (!wired) why.push('⛔ runEncounter の applyMineRangedOpening(); の次の行に applyRoadVigilance(); が無い');
+      if (s.hasApply !== 'function') why.push('⛔ applyRoadVigilance が関数でない: ' + s.hasApply);
+      if (s.roadVigilanceAtBoot !== true)
+        why.push('⛔ 母集団: 起動直後に roadVigilance が立っていない (' + JSON.stringify(s.roadVigilanceAtBoot)
+          + ' / 仕込みの vigilance ' + IDX_VIGIL_N + ' 件)');
+      if (!v || !Array.isArray(v.idx) || v.idx.length < 1) {
+        why.push('⛔ 母集団: 交戦させる敵が 0 体 ' + JSON.stringify(v));
+      } else {
+        if (v.n1 !== v.idx.length) why.push('⛔ 1 戦目: 潰した数 ' + v.n1 + ' (交戦中 ' + v.idx.length + ' 体)');
+        if (!(v.after1 || []).every(x => x >= 1))
+          why.push('⛔ 1 戦目: stunned が 1 未満の敵がいる ' + JSON.stringify(v.after1));
+        if (v.n2 !== 0) why.push('⛔ 2 戦目でも ' + v.n2 + ' 体潰している = フラグが 1 度で消費されていない');
+        if (!(v.after2 || []).every(x => x === 0))
+          why.push('⛔ 2 戦目: stunned が付いた ' + JSON.stringify(v.after2));
+        if (v.flagAfter !== false) why.push('⛔ 実射後も roadVigilance が立ったまま: ' + JSON.stringify(v.flagAfter));
+      }
+      return [why.length === 0,
+        'runEncounter への配線=' + wired + ' / typeof applyRoadVigilance=' + s.hasApply
+        + ' / 起動直後 roadVigilance=' + JSON.stringify(s.roadVigilanceAtBoot)
+        + ' / 実射 ' + JSON.stringify(v) + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['2d', '#combatLog に 1 行出る (⭐ 2 経路 = 供給口で置いた label と DOM のテキスト)',
+    (m) => {
+      const s = m.idxBoon;
+      if (!s) return [false, '恩恵アームの観測が無い'];
+      const lines = s.logLines || [];
+      const why = [];
+      if (!lines.length) why.push('⛔ 母集団: #combatLog が空');
+      /* ⭐ 経路 A —— ドライバが置いた label (BOONS に 1 つも無い合成語) が DOM に出ている。
+         ⛔ 「行が増えた」だけにしない —— 表から引き直す実装でも緑になってしまう。 */
+      const missing = IDX_SEED_LIST.filter(b => !lines.some(l => l.indexOf(b.label) >= 0));
+      if (missing.length) why.push('⛔ 置いた label が DOM に出ていない: '
+        + JSON.stringify(missing.map(b => b.label)));
+      /* ⭐ 経路 B —— 街道の行の本数が仕込みの件数と一致する。 */
+      const roadLines = lines.filter(l => l.indexOf(ROAD_LOG_MARK) >= 0);
+      if (roadLines.length !== IDX_SEED_LIST.length)
+        why.push('⛔ 街道の行が ' + roadLines.length + ' 本 (仕込み ' + IDX_SEED_LIST.length + ' 件)');
+      return [why.length === 0,
+        '#combatLog ' + lines.length + ' 行 / 街道の行 ' + roadLines.length + ' 本 / 置いた label '
+        + JSON.stringify(IDX_SEED_LIST.map(b => b.label)) + ' → ' + JSON.stringify(roadLines)
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['2e', '⚠ 汚れた label を使わない — label に ' + TAINT_LABEL + ' を置いて起動すると'
+    + ' ① #combatLog の **要素数が既定語のときと同じ** (タグが増えていない)'
+    + ' ② ログの文字列に既定語 (「' + BOON_FALLBACK.provision + '」/「' + BOON_FALLBACK.vigilance + '」) が出る',
+    (m) => {
+      const clean = m.idxBoon, taint = m.idxTaint;
+      if (!clean || !taint) return [false, '恩恵/汚れアームの観測が無い'];
+      const tl = taint.logLines || [];
+      const why = [];
+      /* ⭐⭐⭐ 母集団ガード —— 汚れた腕でも街道の行が仕込みの件数だけ出ていること。
+         ⛔ 0 本だと「タグが増えていない」も「既定語が出る」も測りようがない。 */
+      const roadLines = tl.filter(l => l.indexOf(ROAD_LOG_MARK) >= 0);
+      if (roadLines.length !== IDX_SEED_LIST.length)
+        why.push('⛔ 母集団: 汚れた腕の街道の行が ' + roadLines.length + ' 本 (仕込み '
+          + IDX_SEED_LIST.length + ' 件)');
+      /* ① 要素の **総数**。⛔ .logLine の本数では検出できない (注入は行の中に生える)。 */
+      if (typeof taint.logElemCount !== 'number' || typeof clean.logElemCount !== 'number')
+        why.push('⛔ #combatLog の要素数を読めていない');
+      else if (taint.logElemCount !== clean.logElemCount)
+        why.push('⛔ 要素数が違う 汚れ=' + taint.logElemCount + ' / 既定語=' + clean.logElemCount
+          + ' → タグが増えている');
+      if (taint.logImgCount !== 0) why.push('⛔ #combatLog に <img> が ' + taint.logImgCount + ' 個生えた');
+      /* ② 既定語へ倒れている。 */
+      for (const k of BOON_KINDS) {
+        if (!IDX_SEED_LIST.filter(b => b.kind === k).length) continue;
+        if (!tl.some(l => l.indexOf(BOON_FALLBACK[k]) >= 0))
+          why.push('⛔ 既定語「' + BOON_FALLBACK[k] + '」がログに出ていない (kind=' + k + ')');
+      }
+      if (tl.some(l => l.indexOf(TAINT_LABEL) >= 0))
+        why.push('⛔ 汚れた label がそのままテキストに出ている');
+      return [why.length === 0,
+        '汚れ: 行 ' + tl.length + ' 要素 ' + taint.logElemCount + ' img ' + taint.logImgCount
+        + ' / 既定語: 行 ' + (clean.logLines || []).length + ' 要素 ' + clean.logElemCount
+        + ' img ' + clean.logImgCount + ' / 汚れた腕のログ ' + JSON.stringify(roadLines)
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  ['2f', 'キーが無いとき何も起きない — maxHp が素のアームと **ちょうど同じ**、ログに街道の行が 0 本'
+    + ' (⭐ 「キーが無い」枝と「撤退」枝の 2 本を突き合わせる。⛔ 片方だけだと自明に緑)',
+    (m) => {
+      const a = m.idxPlain, r = m.idxPlainRetreat;
+      if (!a || !r) return [false, '素/素+撤退アームの観測が無い'];
+      const why = [];
+      if (typeof a.maxHp !== 'number') why.push('⛔ 素の腕が起動していない (maxHp=' + JSON.stringify(a.maxHp) + ')');
+      if (typeof r.maxHp !== 'number') why.push('⛔ 撤退の腕が起動していない (maxHp=' + JSON.stringify(r.maxHp) + ')');
+      if (a.maxHp !== r.maxHp) why.push('⛔ maxHp が違う 素=' + a.maxHp + ' / 撤退=' + r.maxHp);
+      const ja = JSON.stringify((a.allies || []).map(x => x.cls + ':' + x.maxHp));
+      const jr = JSON.stringify((r.allies || []).map(x => x.cls + ':' + x.maxHp));
+      if (ja !== jr) why.push('⛔ 仲間の maxHp が違う 素=' + ja + ' / 撤退=' + jr);
+      for (const [tag, s] of [['素', a], ['撤退', r]]) {
+        const n = (s.logLines || []).filter(l => l.indexOf(ROAD_LOG_MARK) >= 0).length;
+        if (n !== 0) why.push('⛔ ' + tag + ': 街道の行が ' + n + ' 本');
+        if (s.roadVigilanceAtBoot !== false) why.push('⛔ ' + tag + ': roadVigilance が立っている');
+        if (s.boonAfter !== null) why.push('⛔ ' + tag + ': キーが生えている ' + JSON.stringify(s.boonAfter));
+        const pe = (s.errs || []).filter(x => x.indexOf('PAGEERROR') >= 0);
+        if (pe.length) why.push('⛔ ' + tag + ': pageerror ' + pe.length + ' 件 ' + pe[0]);
+      }
+      /* ⭐ クエリが実際に効いていること (⛔ 撤退の腕が素と同じ姿なのを見逃さない)。 */
+      if (a.roadBoonOn !== true) why.push('⛔ 素の腕で ROAD_BOON_ON が true でない: ' + JSON.stringify(a.roadBoonOn));
+      if (r.roadBoonOn !== false) why.push('⛔ 撤退の腕で ROAD_BOON_ON が false でない: ' + JSON.stringify(r.roadBoonOn));
+      return [why.length === 0,
+        '素 maxHp=' + a.maxHp + ' ' + ja + ' (ROAD_BOON_ON=' + a.roadBoonOn + ')'
+        + ' / 撤退 maxHp=' + r.maxHp + ' ' + jr + ' (ROAD_BOON_ON=' + r.roadBoonOn + ')'
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
+
+  // ── §3 恒等 (非退行) — 依頼書 §8 §3 ──────────────────────────────────────
+  ['3a', '⭐⭐⭐ 既存 golden 3 本が通る経路そのものを再現 — 「判定なしの枝」を押しながら world.html を'
+    + '歩き切り、実クリックで入場して index.html へ着いたとき **maxHp が ?roadboon=0 の腕と 1 も違わない**',
+    (m) => {
+      const a = m.crossPlain, b = m.crossRetreat;
+      if (!a || !b) return [false, '横断アームの観測が無い'];
+      const why = [];
+      for (const [tag, c] of [['素', a], ['撤退', b]]) {
+        /* ⭐⭐⭐ 母集団ガード —— 横断で器が 1 回以上開いていること。
+           ⛔ 0 回だと「押す枝が無かっただけ」で (3a) は自明に緑になる。 */
+        if (!c.openLog || c.openLog.length < 1)
+          why.push('⛔ ' + tag + ' 母集団: 横断で器が 1 回も開いていない (タップ '
+            + (c.taps || []).length + ' 回 ' + (c.why || '') + ')');
+        if (!c.index || typeof c.index.maxHp !== 'number')
+          why.push('⛔ ' + tag + ': index.html へ着いていない ' + (c.why || ''));
+        /* ⭐ 罠 A の直撃点 —— 判定なしの枝しか押していないのに書かれていたら赤 (変異 dismissboon)。 */
+        if (c.boonAtWorld) why.push('⛔ ' + tag + ': 判定なしの枝だけを押したのに world 側で '
+          + BOON_KEY + ' が書かれた ' + JSON.stringify(c.boonAtWorld));
+      }
+      if (a.index && b.index) {
+        if (a.index.maxHp !== b.index.maxHp)
+          why.push('⛔ maxHp が違う 素=' + a.index.maxHp + ' / 撤退=' + b.index.maxHp);
+        const ja = JSON.stringify((a.index.allies || []).map(x => x.cls + ':' + x.maxHp));
+        const jb = JSON.stringify((b.index.allies || []).map(x => x.cls + ':' + x.maxHp));
+        if (ja !== jb) why.push('⛔ 仲間の maxHp が違う 素=' + ja + ' / 撤退=' + jb);
+        for (const [tag, c] of [['素', a], ['撤退', b]]) {
+          const n = (c.index.logLines || []).filter(l => l.indexOf(ROAD_LOG_MARK) >= 0).length;
+          if (n !== 0) why.push('⛔ ' + tag + ': index のログに街道の行が ' + n + ' 本');
+        }
+      }
+      return [why.length === 0,
+        '行き先 ' + JSON.stringify(CROSS_SCENARIO) + ' → ノード ' + JSON.stringify(a.destNode)
+        + ' / 素: 出発 ' + a.startNode + ' タップ ' + (a.taps || []).length + ' 回 器 '
+        + (a.openLog || []).length + ' 回 ' + JSON.stringify(a.openLog)
+        + ' → maxHp ' + (a.index ? a.index.maxHp : '(未到達)')
+        + ' / 撤退: タップ ' + (b.taps || []).length + ' 回 器 ' + (b.openLog || []).length + ' 回'
+        + ' → maxHp ' + (b.index ? b.index.maxHp : '(未到達)')
+        + (why.length ? '   ' + why.join(' ') : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -996,30 +1427,13 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //     —— 全部やらないと件数が合わなくなる。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  /* ⭐ §1 書き込み (街道側) は **項目 2 で ASSERTS へ移した** (1a)(1b)(1c)(1d)(1e)。 */
-  ['§2 消費と適用 (潜行側) — 依頼書 §8 §2', [
-    ['2a', 'index.html の起動で **キーが消える** (起動後 getItem が null)',
-      '⭐ sessionStorage へ値を置いてから index.html を開き、既存のブリッジ越しに読む。変異 noconsume が番人'],
-    ['2b', '糧 — 全員 (頭 + allies) の maxHp が **+3×件数**、かつ hp === maxHp',
-      '⭐ 2 経路 = 「キーを置いた腕」と「置かない腕」の **差分**で見る (⛔ 絶対値を写経しない)。変異 nogrow が番人'],
-    ['2c', '備え — **最初の交戦**で交戦中の敵が stunned >= 1、かつ **2 度目の交戦では 1 体も stunned にならない**',
-      '⭐ applyRoadVigilance は applyMineRangedOpening (index.html:24310) と同じ stunned 枠。変異 alwaysvigil が番人'],
-    ['2d', '#combatLog に 1 行出る。⭐ 2 経路 = 供給口 (置いた label) と DOM のテキスト',
-      '⛔ 「行が増えた」だけにしない —— 置いた label そのものが DOM に出ていることまで見る'],
-    ['2e', '⚠ 汚れた label を使わない — label に <img src=x onerror=1> を置いて起動すると'
-      + ' ① #combatLog の **要素数が既定語のときと同じ** (タグが増えていない)'
-      + ' ② ログの文字列に既定語 (「街道の糧」/「街道の備え」) が出る',
-      '⚠⚠⚠ 罠 B (依頼書 §2-3): appendLog は innerHTML 代入で index.html に escape ヘルパが 0 件。変異 taintlabel が番人'],
-    ['2f', 'キーが無いとき何も起きない — maxHp が素のアームと **ちょうど同じ**、ログに街道の行が 0 本',
-      '⭐ pendingSummon 型の「キーが無い = 何も起きない」。⛔ questFlags の「無い = 開放」とは逆'],
-  ]],
-  ['§3 恒等 (非退行) — 依頼書 §8 §3', [
-    ['3a', '⭐⭐⭐ 既存 golden 3 本が通る経路そのものを再現して測る — 「判定なしの枝」を押しながら'
-      + ' world.html を歩き切り、入場して index.html へ着いたとき **maxHp が ?roadboon=0 の腕と 1 も違わない**',
-      '⚠ 母集団ガード = その横断で器が **1 回以上開いている**こと (0 回だと「押す枝が無かっただけ」で自明に緑)。'
-      + '⚠⚠⚠ 罠 A (依頼書 §2-2): verify_world_steps:774 / world_map:683 / quest_walk:831 が'
-      + ' `(ev.choices||[]).filter(x => !x.check)[0]` を機械的に押して index.html まで進む。変異 dismissboon が番人'],
-  ]],
+  /* ⭐ §1 書き込み (街道側) は **項目 2 で ASSERTS へ移した** (1a)(1b)(1c)(1d)(1e)。
+     ⭐ §2 消費と適用 (潜行側) と §3 恒等 は **項目 3 で ASSERTS へ移した**
+       (2a)(2b)(2c)(2d)(2e)(2f)(3a)。⛔ 期待値は 1 つも緩めていない ——
+       (2c) だけ測定点を移した: 「autoplay で 2 戦させる」腕 (分単位で揺れ、stunned は
+       次ターンで消えるので取りこぼす) をやめ、**本番の applyRoadVigilance そのものを
+       決定論の盤面で 2 回叩く** + **runEncounter への配線を配信バイトの構造で縛る** の 2 本立てにした。
+       ⇒ 変異 alwaysvigil (roadVigilance = false の 1 行を消す) は 2 回目で赤くなる。 */
   ['§4 撤退 ?roadboon=0 — 依頼書 §8 §4', [
     ['4a', 'world.html?roadboon=0 — 判定に **成功しても** roadBoon が書かれず、器の 1 行も出ない',
       '⚠ 母集団ガード = その腕で **判定に成功した出来事が 1 件以上**あること'
@@ -1047,8 +1461,19 @@ const NEEDS = {
   '1c': ['boot', 'armCap'],
   '1d': ['served'],
   '1e': ['boot', 'armNone', 'armLose', 'armWin'],
+  /* §2 (項目 3) —— 潜行側は index.html を開く 4 本の腕で足りる (実操作は要らない)。
+     ⚠ (2c) は「関数を叩いた結果」に加えて **配信バイトの構造** (servedIndex) も読む。 */
+  '2a': ['idxBoon'],
+  '2b': ['idxPlain', 'idxBoon'],
+  '2c': ['idxBoon', 'servedIndex'],
+  '2d': ['idxBoon'],
+  '2e': ['idxBoon', 'idxTaint'],
+  '2f': ['idxPlain', 'idxPlainRetreat'],
+  /* §3 (項目 3) —— 既存 golden 3 本と同じ枝を押す横断を 2 本 (素 / world 側だけ撤退)。 */
+  '3a': ['crossPlain', 'crossRetreat'],
 };
-const ALL_KEYS = ['0a', '0b', '0c', '0d', '1a', '1b', '1c', '1d', '1e'];
+const ALL_KEYS = ['0a', '0b', '0c', '0d', '1a', '1b', '1c', '1d', '1e',
+  '2a', '2b', '2c', '2d', '2e', '2f', '3a'];
 
 async function collect(browser, port, errs, need) {
   const m = {}, want = {};
@@ -1069,6 +1494,23 @@ async function collect(browser, port, errs, need) {
   /* ⭐ (4a) の撤退アーム — 素の armWin と **同じ種・同じ行き先・同じ d20** で採る。 */
   if (want.armWinRetreat) m.armWinRetreat = await measureArm(browser, port, errs,
     { resolve: 'check', force: D20_WIN, extraQuery: '&roadboon=0' });
+  /* ══ §2 (潜行側・項目 3) —— index.html を 4 本の腕で開く ═══════════════════
+     ⛔ 4 本とも party の仕込みは同じ (IDX_PARTY)。違うのは roadBoon とクエリだけ ——
+       そうでないと (2b) の「差分」が編成の差と混ざる。 */
+  if (want.idxPlain) m.idxPlain = await measureIndex(browser, port, errs,
+    { tag: '素', seedBoon: null });
+  if (want.idxPlainRetreat) m.idxPlainRetreat = await measureIndex(browser, port, errs,
+    { tag: '素+撤退', query: '?roadboon=0', seedBoon: null });
+  if (want.idxBoon) m.idxBoon = await measureIndex(browser, port, errs,
+    { tag: '恩恵', seedBoon: IDX_SEED_BOON });
+  if (want.idxTaint) m.idxTaint = await measureIndex(browser, port, errs,
+    { tag: '汚れたlabel', seedBoon: IDX_SEED_TAINT });
+  /* ══ §3 (項目 3) —— 「判定なしの枝」を押す横断を 2 本 ═══════════════════════
+     ⚠ 入場は location.href = "index.html" (クエリ無し) なので、?roadboon=0 が効くのは
+       **world.html のレグだけ**。それで正しい ((3a) が見たいのは「書かれない」ことなので)。 */
+  if (want.crossPlain) m.crossPlain = await measureCross(browser, port, errs, { tag: '横断-素' });
+  if (want.crossRetreat) m.crossRetreat = await measureCross(browser, port, errs,
+    { tag: '横断-撤退', extraQuery: '&roadboon=0' });
   return m;
 }
 function needsOf(keys) {
@@ -1193,6 +1635,41 @@ function runCheck(m, key) {
       if (m.armCap) {
         console.log('       [記録] (1c) 上限アーム: 仕込み ' + CAP_SEED
           + '\n         → 実走後 ' + JSON.stringify(m.armCap.boon ? m.armCap.boon.raw : null));
+      }
+
+      mark('§2 消費と適用 (潜行側) — (2a) 1 度で消える / (2b) 糧 / (2c) 備え / (2d) ログ /'
+        + ' (2e) 汚れた label / (2f) キーが無いとき何も起きない');
+      for (const key of ['2a', '2b', '2c', '2d', '2e', '2f']) runCheck(m, key);
+      for (const [tag, s] of [['素          ', m.idxPlain], ['素+撤退     ', m.idxPlainRetreat],
+        ['恩恵        ', m.idxBoon], ['汚れた label', m.idxTaint]]) {
+        if (!s) continue;
+        console.log('       [記録] index ' + tag + ' ' + JSON.stringify(s.query || '(素)')
+          + ' maxHp=' + s.maxHp + '/hp=' + s.hp + ' allies=' + JSON.stringify(s.allies)
+          + '\n         → ROAD_BOON_ON=' + s.roadBoonOn
+          + ' / 起動直後 roadVigilance=' + JSON.stringify(s.roadVigilanceAtBoot)
+          + ' / 起動後の ' + BOON_KEY + '=' + JSON.stringify(s.boonAfter)
+          + '\n         → #combatLog 行=' + s.logLineCount + ' 要素=' + s.logElemCount
+          + ' img=' + s.logImgCount + ' ' + JSON.stringify(s.logLines)
+          + '\n         → 備えの実射 ' + JSON.stringify(s.vigil)
+          + (s.errs && s.errs.length ? '\n         → errs ' + JSON.stringify(s.errs.slice(0, 3)) : ''));
+      }
+
+      mark('§3 恒等 (非退行) — (3a) 既存 golden 3 本が通る経路 (判定なしの枝) を再現して index.html まで進む');
+      for (const key of ['3a']) runCheck(m, key);
+      for (const [tag, c] of [['横断-素  ', m.crossPlain], ['横断-撤退', m.crossRetreat]]) {
+        if (!c) continue;
+        console.log('       [記録] ' + tag + ' ' + JSON.stringify(c.query)
+          + ' 出発=' + c.startNode + ' → 行き先=' + JSON.stringify(c.destNode)
+          + ' (SITES["' + CROSS_SCENARIO + '"])'
+          + ' タップ ' + (c.taps || []).length + ' 回 / 器が開いた ' + (c.openLog || []).length
+          + ' 回 ' + JSON.stringify(c.openLog)
+          + '\n         → 押した枝 ' + JSON.stringify((c.events || []).map(e => e.label))
+          + ' / world 側の ' + BOON_KEY + '=' + JSON.stringify(c.boonAtWorld)
+          + ' / 確認ダイアログ=' + c.askOpen
+          + '\n         → index 側 maxHp=' + (c.index ? c.index.maxHp : '(未到達)')
+          + ' allies=' + JSON.stringify(c.index ? c.index.allies : null)
+          + (c.why ? '   ⛔ ' + c.why : '')
+          + (c.errs && c.errs.length ? '\n         → errs ' + JSON.stringify(c.errs.slice(0, 3)) : ''));
       }
 
       for (const [title, rows] of PENDINGS) {
