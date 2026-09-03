@@ -10,7 +10,21 @@
  *   **最終項目の完了条件が PENDING 0** になる
  *   (手本 = tools/verify_world_heromark.js / tools/verify_world_steps.js)。
  *
- * ■ 項目 1 (このコミット) で実際に測れるもの — **§0 装置だけ**
+ * ■ 項目 2 (このコミット) で足したもの — **§1 敵の札 (1a)〜(1h) / §2 70% (2a)〜(2f)**
+ *   ⭐ §2 は「素のアーム」と「撤退アーム ?namelabel=0」を **同じ走行の中で両方開いて**
+ *     比で測る (m.ref)。⛔ 絶対 px は 1 つも書かない。
+ *   ⭐⭐⭐ (2b) の帯は依頼書の 0.68〜0.73 では実測を通らなかった (主人公の札は 0.7346)。
+ *     真因は「縮まない固定費 6px」= border 0.7px が端末の 1px へ丸められる分 + 定数 4px。
+ *     名前テキストそのものは 36→25.2 = **ちょうど 0.7000** で正しく縮んでいる。
+ *     ⇒ 箱の帯を 0.68〜0.75 へ広げ、**同時に「テキストの幅の比 0.68〜0.72」を AND で追加**した
+ *     (⛔ CSS は 1px も触らない。詳細は W_BOX_RATIO_* のコメント)。
+ *   ⭐ (1a) の母集団は **スプライト経路** (popOnScreen)。札の有無で数えると循環して永久緑。
+ *   ⭐ (2d) は「味方と違う色」だけでなく **「自前の背景色を実際に持つ (alpha > 0)」** も見る。
+ *     ⚠ 前者だけだと変異 noenemycss (CSS を丸ごと消して透明) が緑で通ってしまう。
+ *   ⭐ (2e) の敵側の対照は **撤退アームの状態アイコン列** (撤退アームには敵の札が無いため。
+ *     どちらも同じ dy に置かれるので、dy を動かす変異 dyshift で差が出る)。
+ *
+ * ■ 項目 1 で入ったもの — **§0 装置**
  *     (0a) 母集団 … ダンジョンが起動し、**見えている生存中の敵が 1 体以上**居る
  *                   ⭐⭐⭐ これが無いと §1 の全 assert が空振りで永久緑になる
  *                   ⚠ 依頼書 §8 の ⚠ に従い「(0a)(0e)(0f) の母集団が全部同じ 1 体に
@@ -27,11 +41,11 @@
  *                   すべて getBoundingClientRect 由来 / placeUnscaledUi を写経しない)
  *     (0h) 母集団 … **見えている敵のうち最小のものが 70 以下** ((2f) の母集団)
  *
- * ■ 項目 2〜4 が埋めるもの (今は PENDINGS。⛔ 件数から隠さない)
- *     §1 敵の札      (1a)〜(1h)
- *     §2 70%         (2a)〜(2f)
+ * ■ 項目 3〜4 が埋めるもの (今は PENDINGS。⛔ 件数から隠さない)
  *     §3 恒等(非退行) (3a)〜(3d)
  *     §4 撤退        (4a)〜(4c)
+ *   ⭐ 撤退アームの観測は既に m.ref として揃っている (§4 はここから測れる)。
+ *     素のアームの事故は errs / 撤退アームの事故は m.refErrs に分けて溜めてある。
  *
  * ■ ⚠⚠⚠ §0 の全ガードに共通の規則 — **母集団が立たなかったら「スキップして緑」にしない**
  *   (依頼書 §8 に太字で書いてある)。`(0a)(0e)(0f)(0h)` のどれかが偽になったら、
@@ -156,6 +170,25 @@ const PORT = parseInt(arg('port', '9850'), 10);
 //     「実装を忘れた変異」が件数から消えない。
 //   ⚠ from/to は項目 4 が `grep -cF` で「配信バイト中ちょうど 1 件」を実測してから
 //     書き入れて impl: true にすること (⛔ 当たることと赤くなることは別)。
+//
+//   ⭐⭐⭐ 項目 2 が **一時的に 4 本だけ配線して実走させ、担当の節が赤くなることを確認した**
+//     (⛔ §1/§2 の assert が「素で自明に緑」でないことを自分で証明するため。確認後 impl: false へ戻した)。
+//     ⇒ 項目 4 はこの 4 本をそのまま使える (2026-09-03 実測・アンカーは grep -cF で 1 件):
+//       noscale      from 'if (NAME_LABEL_ON) document.body.classList.add("labelSmall");'
+//                    to   'if (false) document.body.classList.add("labelSmall");'
+//                    → (0c) body.labelSmall=false / (2a) 20.00/20.00=1.0000 / (2b) 箱もテキストも 1.0000 で赤
+//       noenemycss   from '    .enemyLabel {'   to '    .enemyLabelDISABLED {'
+//                    → (2d) 敵の札の背景が rgba(0, 0, 0, 0) になって赤
+//                    ⭐⭐⭐ **依頼書どおり「味方と違う色」だけを見ていたら緑で通っていた**
+//                      (透明も「違う色」なので)。だから (2d) に alpha > 0 を AND で足してある。
+//       statusdetach from 'lb.appendChild(st);'   to 'enemyLayer.appendChild( st );'
+//                    → (1g) child=false で赤
+//                    ⚠⚠⚠ to を 'enemyLayer.appendChild(st);' にすると **(n0a) が赤くなる**
+//                      — その文字列は else 枝に**元から居る**ので「素には注入文字列が無い」が破れる。
+//                      空白を入れて素に無い形にすること (2026-09-03 に実際に踏んだ)。
+//       dyshift      from 'hpBarOffX + 2, -27);'   to 'hpBarOffX + 2, -30.0);'
+//                    → (2e) 敵の dy が -30.00 vs 撤退アームの状態列 -27.00 で赤
+//                    ⚠ '-27);' → '-30);' は**同じ長さ**なので (n0b) の検算に弾かれる。小数を足す。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
   nolabel: { impl: false, file: 'index.html', targets: ['0a', '1a', '1b'],
@@ -374,6 +407,44 @@ const POP_MIN = 1;
 /* ⚠ 依頼書 §8 の ⚠ =「(0a)(0e)(0f) の母集団が全部同じ 1 体にならないこと」。
  *  1 体だけで測ると「その 1 体だけを特別扱いした実装」で全部通る (#39 の教訓)。 */
 const POP_DISTINCT_MIN = 2;
+
+/* ══ §2 の帯 (項目 2 が実測して決めた) ════════════════════════════════════════
+ *  ⛔ 絶対 px は 1 つも書かない。すべて **撤退アーム ?namelabel=0 の同じ札との比**。
+ *    (⭐ 依頼書の 14.4px を写経すると、フォントが変わった日に嘘の緑になる)
+ *
+ *  ── (2b) の帯を依頼書の 0.68〜0.73 から **0.68〜0.75** へ広げた理由 ──────────
+ *  ⚠⚠⚠ 依頼書 §8 (2b) の 0.68〜0.73 は、実測を通らない。両アームで実測すると
+ *    主人公の札 (テキスト「あなた」= 3 文字) は 幅 52 → 38.2 = **0.7346**
+ *    (高さは 20 → 14.38 = 0.7190 で (2a) の帯には収まる)。
+ *
+ *  ⭐⭐⭐ 真因を内訳まで実測した (2026-09-03。名前 span と札の箱を別々に採った):
+ *      名前 span の幅        36 → 25.2 = **ちょうど 0.7000**  ← 文字は正しく 70%
+ *      札の箱 - 名前 span    16 →  13                          ← 固定費が 0.81 倍しか縮まない
+ *    固定費の内訳 = padding 5+5 → 3.5+3.5 (これは 0.7 倍で正しい) と、
+ *    **border 1+1 → 1+1**(CSS は 0.7px と書いてあるが Chrome が端末の 1px へ丸める)と、
+ *    どちらのアームでも変わらない 4px の定数。⇒ **縮まない固定費が 6px 残る**。
+ *  ⭐ 固定費は文字数に依存しないので、**短い札ほど比が上がる**:
+ *      3 文字「あなた」 0.7346 /  6 文字 ≈ 0.72 /  9 文字「ジャイアントラット」 ≈ 0.708
+ *    そして #warriorLabel のテキストは実プレイでは**リーダー名に差し替わる**
+ *    (index.html の「頭上ラベルのテキストもリーダー名に」)ので、**文字数は固定できない**。
+ *  ⛔ 帯に合わせて CSS を触らない (ユーザー要望は「7 割くらい」で 0.73 はその範囲内)。
+ *  ⭐ そこで **弱めずに済ませる**: 箱の帯は実在する文字数の全域 (0.708〜0.7346) を覆う
+ *    0.68〜0.75 へ広げ、**同時に「名前テキストそのものの幅」の帯 0.68〜0.72 を AND で足した**。
+ *    テキストの比は文字数に依存しない (固定費が乗らない) ので狭く縛れる。
+ *    ⇒ 依頼書の 1 本より **条件は 1 つ増えている** = 帯を広げても検出力は落ちていない。
+ *    ⚠ どちらの条件も変異 noscale (labelSmall を付けない) で **両方 1.0 になって赤**。
+ * ══════════════════════════════════════════════════════════════════════════ */
+const H_RATIO_MIN = 0.70, H_RATIO_MAX = 0.75;          // (2a) 札の高さの比
+const W_BOX_RATIO_MIN = 0.68, W_BOX_RATIO_MAX = 0.75;  // (2b) 札の箱の幅の比 (固定費を含む)
+const W_TEXT_RATIO_MIN = 0.68, W_TEXT_RATIO_MAX = 0.72;// (2b) 名前テキストの幅の比 (固定費を含まない)
+/* (2c)(2e) の「同じ」の許容。⚠ 依頼書 §8 の ±0.6px をそのまま使う。 */
+const SAME_PX = 0.6;
+/* (1f) の「札の下端が HP バーの上端より上」の許容 (依頼書 §8 = +0.5)。 */
+const TOUCH_PX = 0.5;
+/* (2f) の絶対量の上限。⭐ 依頼書 §8 の較正表 = 「100% を確実に赤にし、実機調整の余地
+ *  (font 8.9px まで) を残す」点。⚠ この閾値は**モンスター名簿に依存している**
+ *  (rosterMin より小さい敵が将来追加されると比が上がって厳しくなる — それは正しい挙動)。 */
+const LABEL_VS_SPRITE_MAX = 0.30;
 /* (0g) の自己検査マーカー。⭐ ドライバ自身のソースで敵の寸法データ語に触れる行は
  *  **すべて**この印を同じ行に持つこと = 「これはデータとしての参照であって、
  *  箱の計算ではない」という宣言。⛔ 印を付けずに触れた行があれば (0g) は赤になる。 */
@@ -400,6 +471,32 @@ const FORBIDDEN_IN_SELF = ['place' + 'UnscaledUi(', 'S' + 'X(', 'S' + 'Y('];
 const RECT_VIA_WANT = 'getBoundingClientRect';
 
 const isFiniteNum = (v) => typeof v === 'number' && isFinite(v);
+
+/* (2d) 用。⭐ 「味方と違う色」だけを見ると、CSS を丸ごと消して**透明**になった実装が
+ *  「違う色」として緑で通ってしまう (変異 noenemycss がまさにそれ = §2-7 罠C の再現)。
+ *  ⇒ 「自前の背景色を実際に持っている (alpha > 0)」を必ず AND で見る。
+ *  ⛔ 正規表現を使わずに書く (このファイルは Edit で書くが、写経先で崩れないように)。 */
+function bgAlpha(s) {
+  if (typeof s !== 'string' || s.length === 0) return null;
+  if (s === 'transparent') return 0;
+  const i = s.indexOf('('), j = s.lastIndexOf(')');
+  if (i < 0 || j < 0 || j < i) return null;
+  const parts = s.slice(i + 1, j).split(',');
+  if (parts.length < 4) return (s.indexOf('rgb') === 0) ? 1 : null;   // rgb(...) は不透明
+  const a = parseFloat(parts[3]);
+  return isFinite(a) ? a : null;
+}
+
+/* §2 の「素のアーム × 撤退アーム」の対を 1 箇所で取り出す。
+ *  ⛔ assert ごとに m.ref を掘り直さない (掘り方が 2 通りになると静かにズレる)。
+ *  ⚠ どちらかが採れなかったら null を返す = 呼び側が popFail() で赤にする
+ *    (「対照が無いので緑」は禁止 = 依頼書 §8 の太字)。 */
+function refPair(m, pick) {
+  let on = null, off = null;
+  try { on = pick(m) || null; } catch (e) { on = null; }
+  try { off = (m && m.ref) ? (pick(m.ref) || null) : null; } catch (e) { off = null; }
+  return (on && off) ? { on: on, off: off } : null;
+}
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * (0g) ドライバ自身のソースを読んで「箱を寸法データから計算していない」を宣言する
@@ -588,6 +685,11 @@ async function measure(browser, port, errs, opts) {
         rectSprite: rectOf(el),
         rectHp: rectOf(hp),
         rectBadge: rectOf(bd),
+        /* ⭐ 項目 2 が足した観測。(2e) 用 — 撤退アームには敵の札が 1 枚も無いので、
+           **同じ dy に置かれる状態アイコン列**が唯一の対照になる (§5-3 の else 枝)。 */
+        rectStatus: rectOf(st),
+        statusDisplay: dispOf(st),
+        statusClass: st ? st.className : null,
       };
     });
 
@@ -595,6 +697,12 @@ async function measure(browser, port, errs, opts) {
     const heroLabel = document.getElementById('warriorLabel');
     out.heroLabel = { present: !!heroLabel, rect: rectOf(heroLabel),
       bg: heroLabel ? getComputedStyle(heroLabel).backgroundColor : null };
+    /* ⭐ 項目 2 が足した観測。(2b) の 2 本目の条件 = **名前テキストそのものの幅**。
+       ⚠ 札の箱の幅には「縮まない固定費」が乗る (下の W_BOX_RATIO_* のコメント参照) ので、
+         文字数に依存しない測定点として名前 span を併置する。 */
+    const heroName = document.getElementById('warriorName');
+    out.heroName = { present: !!heroName, rect: rectOf(heroName),
+      text: heroName ? (heroName.textContent || '') : null };
     const allyLabels = Array.prototype.slice.call(document.querySelectorAll('.allyLabel'))
       .filter(x => x.id !== 'warriorLabel');
     out.allyLabels = allyLabels.map(x => ({ rect: rectOf(x), bg: getComputedStyle(x).backgroundColor }));
@@ -622,6 +730,33 @@ function popBadge(m) {
 function popFog(m) {
   return (m.enemies || []).filter(e => e.alive && !e.everSeen && e.state === 'idle'
     && !e.protectedNpc && e.spriteDisplay === 'none');
+}
+/* ⭐⭐⭐ 項目 2 が足した母集団 — **スプライト経路**で「画面に出ている生存敵」を数える。
+ *  ⚠⚠⚠ popVisible は **札の有無**で数えているので、(1a)「見えている生存敵**すべて**に
+ *    札がある」をそれで測ると**循環する**: 札を作らない実装では母集団からも消えるので、
+ *    「札が無い敵」が 1 体も残らず永久緑になる。
+ *  ⇒ (1a)(1b)(1f)(1g) の母集団はこちら (敵の絵が画面に出ているか) を使い、
+ *    **2 通りの数え方が一致すること**を (1a) の中で併せて見る。 */
+function popOnScreen(m) {
+  return (m.enemies || []).filter(e => e.alive && e.spriteDisplay !== 'none');
+}
+/* (1d) の母集団 = 倒した敵。 */
+function popDead(m) {
+  return (m.enemies || []).filter(e => !e.alive);
+}
+/* (1e) の母集団 = 封印中のハイドラ。 */
+function popSealed(m) {
+  return (m.enemies || []).filter(e => e.isHydra && e.inactive);
+}
+/* (0h) と (2f) が **同じ 1 体**を指すための導出。⛔ 2 箇所で数え直さない
+ *  (数え方が 2 通りになると「(0h) は rat を見て (2f) は hobgoblin を見る」が静かに起きる)。 */
+function smallestVisible(m) {
+  let min = null;
+  for (const e of popVisible(m)) {
+    if (!isFiniteNum(e.size)) continue;                  /* [0g-data] 名簿の数値をデータとして読むだけ */
+    if (min === null || e.size < min.size) min = e;      /* [0g-data] 同上。箱は rectOf で採る */
+  }
+  return min;
 }
 
 const ASSERTS = [
@@ -743,11 +878,8 @@ const ASSERTS = [
       if (vis.length < POP_MIN) {
         return popFail('(0h) 見えている敵', '(0a) が立っていないので最小値を採れない');
       }
-      let min = null;
-      for (const e of vis) {
-        if (!isFiniteNum(e.size)) continue;
-        if (min === null || e.size < min.size) min = e;
-      }
+      /* ⭐ 導出は smallestVisible() の 1 箇所だけ ((2f) と必ず同じ 1 体を指すため)。 */
+      const min = smallestVisible(m);
       if (min === null) return popFail('(0h) 敵の寸法', '見えている敵から数値の寸法を採れなかった');
       const roster = (m.roster && m.roster.ok) ? m.roster.sizes : [];
       const rosterMin = roster.length ? Math.min.apply(null, roster) : null;
@@ -764,6 +896,344 @@ const ASSERTS = [
         + '  見えている敵の寸法 ' + JSON.stringify(vis.map(e => e.type + ':' + e.size))
         + (ok ? '' : '  ⛔ 最小の敵が ' + SMALL_MAX + ' より大きい = (2f) は自明に緑になるので測れない')];
     }],
+
+  // ── §1 敵の札 ──────────────────────────────────────────────────────────────
+  ['1a', '見えている生存敵**すべて**に札があり、テキストが enemies[i].def.name と一致'
+    + ' (DOM 経路 × ページのデータ経路)'
+    + ' ⭐ 母集団は**スプライト経路** — 札の有無で数えると循環して永久緑になる',
+    m => {
+      const shown = popOnScreen(m);
+      if (shown.length < POP_MIN) {
+        return popFail('(1a) 画面に出ている生存敵',
+          'スプライトが display:none でない生存敵が 0 体  '
+          + JSON.stringify((m.enemies || []).map(e => e.type + ':alive=' + e.alive
+            + ':sprite=' + JSON.stringify(e.spriteDisplay))));
+      }
+      const noLabel = shown.filter(e => !(e.labelPresent && e.labelDisplay !== 'none'));
+      const wrongText = shown.filter(e => e.labelPresent && e.labelNameText !== e.name);
+      /* ⭐ 2 通りの数え方 (スプライト経路 / 札経路) が一致することも同じ assert で見る。
+         ⚠ 一致しない = どちらかの母集団が静かにズレている。 */
+      const byLabel = popVisible(m).length;
+      const agree = shown.length === byLabel;
+      const ok = noLabel.length === 0 && wrongText.length === 0 && agree;
+      return [ok,
+        '画面に出ている生存敵 ' + shown.length + ' 体 '
+        + JSON.stringify(shown.map(e => e.type + '=' + (e.labelNameText === null ? 'なし' : e.labelNameText)))
+        + '  / 札経路の母集団 ' + byLabel + ' 体 (一致: ' + (agree ? 'はい' : '⛔ いいえ') + ')'
+        + (noLabel.length ? '  ⛔ 札が無い/隠れている: '
+            + JSON.stringify(noLabel.map(e => e.type + ':present=' + e.labelPresent
+              + ':display=' + JSON.stringify(e.labelDisplay))) : '')
+        + (wrongText.length ? '  ⛔ 名前が def.name と違う: '
+            + JSON.stringify(wrongText.map(e => e.labelNameText + ' ≠ ' + e.name)) : '')];
+    }],
+
+  ['1b', 'その札のテキストが (0b) の**配信バイト由来の名前集合**に含まれる'
+    + ' (⭐ 2 経路目。実装が def.name でなく type キーを書いていたらここで落ちる)',
+    m => {
+      const r = m.roster;
+      if (!r || !r.ok || !r.names.length) {
+        return popFail('(0b) 配信バイト由来の名前集合',
+          '切り出せなかった: ' + (r && r.err) + ' / 件数 ' + (r && r.names ? r.names.length : 'なし'));
+      }
+      const shown = popOnScreen(m);
+      if (shown.length < POP_MIN) {
+        return popFail('(1a) 画面に出ている生存敵', 'スプライトが出ている生存敵が 0 体');
+      }
+      const set = {};
+      for (const s of r.names) set[s] = true;
+      const bad = shown.filter(e => !(typeof e.labelNameText === 'string'
+        && e.labelNameText.length > 0 && set[e.labelNameText] === true));
+      const ok = bad.length === 0;
+      return [ok,
+        '配信バイトの名前 ' + r.names.length + ' 件と突き合わせた札 ' + shown.length + ' 枚 '
+        + JSON.stringify(shown.map(e => e.labelNameText))
+        + (ok ? '' : '  ⛔ 名前集合に無い (type キーを書いている疑い): '
+            + JSON.stringify(bad.map(e => e.type + '→' + JSON.stringify(e.labelNameText))))];
+    }],
+
+  ['1c', '伏兵化フォグで隠れている敵の札は display:none (母集団 = (0f))'
+    + ' ⭐ 札が伏兵の居場所を漏らさない',
+    m => {
+      const fog = popFog(m);
+      if (fog.length < POP_MIN) {
+        return popFail('(0f) 伏兵化フォグの敵',
+          'alive && !everSeen && state==="idle" && スプライトが none の敵が 0 体');
+      }
+      const bad = fog.filter(e => !(e.labelPresent && e.labelDisplay === 'none'));
+      const ok = bad.length === 0;
+      return [ok,
+        'フォグの敵 ' + fog.length + ' 体 '
+        + JSON.stringify(fog.map(e => e.type + ':' + JSON.stringify(e.labelDisplay)))
+        + (ok ? '' : '  ⛔ 札が漏れている: '
+            + JSON.stringify(bad.map(e => e.type + ':present=' + e.labelPresent
+              + ':display=' + JSON.stringify(e.labelDisplay))))];
+    }],
+
+  ['1d', '倒した敵の札は display:none (⭐ 名前が床に残らない)',
+    m => {
+      const dead = popDead(m);
+      if (dead.length < POP_MIN) {
+        return popFail('(1d) 倒した敵',
+          'alive === false の敵が 0 体  '
+          + JSON.stringify((m.enemies || []).map(e => e.type + ':alive=' + e.alive)));
+      }
+      const bad = dead.filter(e => !(e.labelPresent && e.labelDisplay === 'none'));
+      const ok = bad.length === 0;
+      return [ok,
+        '倒した敵 ' + dead.length + ' 体 '
+        + JSON.stringify(dead.map(e => e.type + ':' + JSON.stringify(e.labelDisplay)))
+        + (ok ? '' : '  ⛔ 札が残っている: '
+            + JSON.stringify(bad.map(e => e.type + ':' + JSON.stringify(e.labelDisplay))))];
+    }],
+
+  ['1e', '封印中のハイドラの札は出ない (⭐ 祭壇だけの見た目が壊れない)',
+    m => {
+      const sealed = popSealed(m);
+      if (sealed.length < POP_MIN) {
+        return popFail('(1e) 封印中のハイドラ',
+          'isHydra && inactive の敵が 0 体  '
+          + JSON.stringify((m.enemies || []).map(e => e.type + ':hydra=' + e.isHydra
+            + ':inactive=' + e.inactive)));
+      }
+      const bad = sealed.filter(e => !(e.labelPresent && e.labelDisplay === 'none'));
+      const ok = bad.length === 0;
+      return [ok,
+        '封印中のハイドラ ' + sealed.length + ' 体 '
+        + JSON.stringify(sealed.map(e => e.type + ':' + JSON.stringify(e.labelDisplay)))
+        + (ok ? '' : '  ⛔ 札が出ている: '
+            + JSON.stringify(bad.map(e => e.type + ':' + JSON.stringify(e.labelDisplay))))];
+    }],
+
+  ['1f', '札の下端が HP バーの上端より**上**: label.bottom <= hpBar.top + ' + TOUCH_PX
+    + ' (⭐ 味方は元から 2px 食い込んでいたが、敵は新規なので最初から正しくできる)',
+    m => {
+      const rows = popOnScreen(m).filter(e => e.rectLabel && e.rectHp
+        && e.rectLabel.h > 0 && e.rectHp.h > 0);
+      if (rows.length < POP_MIN) {
+        return popFail('(1f) 札と HP バーが両方出ている敵',
+          '画面に出ている生存敵 ' + popOnScreen(m).length + ' 体のうち、札と HP バーの矩形が'
+          + '両方 0 でないものが 0 体');
+      }
+      const bad = rows.filter(e => !(e.rectLabel.bottom <= e.rectHp.top + TOUCH_PX));
+      const ok = bad.length === 0;
+      return [ok,
+        rows.length + ' 体の「HP バー上端 - 札下端」= '
+        + JSON.stringify(rows.map(e => e.type + ':'
+          + (e.rectHp.top - e.rectLabel.bottom).toFixed(2) + 'px'))
+        + '  (正の値 = 札が上にある)'
+        + (ok ? '' : '  ⛔ 食い込んでいる: ' + JSON.stringify(bad.map(e => e.type)))];
+    }],
+
+  ['1g', '状態アイコン列が札の**子**:'
+    + " labelEl.contains(document.getElementById('enemyStatus'+i))"
+    + ' (⭐ 味方と同じ 2 段構成。独立配置のままだとバッジと 9px 重なる = §2-5 罠B)',
+    m => {
+      const shown = popOnScreen(m);
+      if (shown.length < POP_MIN) {
+        return popFail('(1a) 画面に出ている生存敵', 'スプライトが出ている生存敵が 0 体');
+      }
+      const bad = shown.filter(e => !e.statusIsChildOfLabel);
+      const ok = bad.length === 0;
+      return [ok,
+        shown.length + ' 体 '
+        + JSON.stringify(shown.map(e => e.type + ':child=' + e.statusIsChildOfLabel
+          + ':class=' + JSON.stringify(e.statusClass)))
+        + '  (.enemy-status-slot の DOM 総数 ' + m.enemyStatusSlotDomCount + ')'
+        + (ok ? '' : '  ⛔ 札の子になっていない: ' + JSON.stringify(bad.map(e => e.type)))];
+    }],
+
+  ['1h', '装備バッジの矩形と札の矩形が**交差しない** (母集団 = (0e))'
+    + ' ⛔ 中心 1 点や上端 1 点では取りこぼすので、矩形の交差で測る',
+    m => {
+      const bdg = popBadge(m).filter(e => e.rectBadge && e.rectLabel
+        && e.rectBadge.h > 0 && e.rectLabel.h > 0);
+      if (bdg.length < POP_MIN) {
+        return popFail('(0e) バッジ持ちの敵',
+          '見えている生存敵 ' + popVisible(m).length + ' 体のうち、バッジと札の矩形が'
+          + '両方 0 でないものが 0 体  '
+          + JSON.stringify(popVisible(m).map(e => e.type + ':badge=' + e.hasBadge)));
+      }
+      const bad = bdg.filter(e => overlaps(e.rectBadge, e.rectLabel));
+      const ok = bad.length === 0;
+      return [ok,
+        'バッジ持ち ' + bdg.length + ' 体の「札上端 - バッジ下端」= '
+        + JSON.stringify(bdg.map(e => e.type + ':'
+          + (e.rectLabel.top - e.rectBadge.bottom).toFixed(2) + 'px'))
+        + '  (正の値 = バッジが札より上で離れている)'
+        + (ok ? '' : '  ⛔ 交差している: ' + JSON.stringify(bad.map(e => e.type
+            + ' badge=' + JSON.stringify([e.rectBadge.top, e.rectBadge.bottom])
+            + ' label=' + JSON.stringify([e.rectLabel.top, e.rectLabel.bottom]))))];
+    }],
+
+  // ── §2 70% ────────────────────────────────────────────────────────────────
+  ['2a', '味方の札の**高さ**が ' + RETREAT_QUERY + ' の同じ札の '
+    + H_RATIO_MIN + '〜' + H_RATIO_MAX + ' 倍'
+    + ' (⭐ 絶対 px を書かない。対照は同じドライバの中で両方開いて採る)',
+    m => {
+      const p = refPair(m, x => (x.heroLabel && x.heroLabel.rect) || null);
+      if (!p) {
+        return popFail('(2a) 撤退アームの対照',
+          RETREAT_QUERY + ' 側の主人公の札を採れなかった (ref=' + (m.ref ? 'あり' : 'なし') + ')');
+      }
+      if (!(p.off.h > 0)) return popFail('(2a) 撤退アームの対照', '撤退アームの札の高さが 0');
+      const r = p.on.h / p.off.h;
+      const ok = r >= H_RATIO_MIN && r <= H_RATIO_MAX;
+      return [ok,
+        '素 ' + p.on.h.toFixed(2) + 'px / 撤退 ' + p.off.h.toFixed(2) + 'px = ' + r.toFixed(4)
+        + '  (帯 ' + H_RATIO_MIN + '〜' + H_RATIO_MAX + ')'
+        + (ok ? '' : '  ⛔ 帯の外')];
+    }],
+
+  ['2b', '味方の札の**幅**が ' + RETREAT_QUERY + ' の同じ札の '
+    + W_BOX_RATIO_MIN + '〜' + W_BOX_RATIO_MAX + ' 倍、**かつ**名前テキストそのものの幅が '
+    + W_TEXT_RATIO_MIN + '〜' + W_TEXT_RATIO_MAX + ' 倍'
+    + ' (⭐ 箱の比は縮まない固定費 6px のせいで文字数に依存する。テキストの比は依存しない'
+    + ' — 依頼書の 1 本を 2 本の AND にしたので、帯を広げても検出力は落ちていない)',
+    m => {
+      const box = refPair(m, x => (x.heroLabel && x.heroLabel.rect) || null);
+      const txt = refPair(m, x => (x.heroName && x.heroName.rect) || null);
+      if (!box || !txt) {
+        return popFail('(2b) 撤退アームの対照',
+          '箱=' + (box ? 'あり' : 'なし') + ' / 名前テキスト=' + (txt ? 'あり' : 'なし')
+          + ' (ref=' + (m.ref ? 'あり' : 'なし') + ')');
+      }
+      if (!(box.off.w > 0) || !(txt.off.w > 0)) {
+        return popFail('(2b) 撤退アームの対照',
+          '撤退アームの幅が 0 (箱 ' + box.off.w + ' / テキスト ' + txt.off.w + ')');
+      }
+      const rb = box.on.w / box.off.w;
+      const rt = txt.on.w / txt.off.w;
+      const okB = rb >= W_BOX_RATIO_MIN && rb <= W_BOX_RATIO_MAX;
+      const okT = rt >= W_TEXT_RATIO_MIN && rt <= W_TEXT_RATIO_MAX;
+      const ok = okB && okT;
+      return [ok,
+        '箱 ' + box.on.w.toFixed(2) + '/' + box.off.w.toFixed(2) + ' = ' + rb.toFixed(4)
+        + ' (帯 ' + W_BOX_RATIO_MIN + '〜' + W_BOX_RATIO_MAX + ' ' + (okB ? 'OK' : '⛔') + ')'
+        + '   テキスト ' + txt.on.w.toFixed(2) + '/' + txt.off.w.toFixed(2) + ' = ' + rt.toFixed(4)
+        + ' (帯 ' + W_TEXT_RATIO_MIN + '〜' + W_TEXT_RATIO_MAX + ' ' + (okT ? 'OK' : '⛔') + ')'
+        + '   [記録] 縮まない固定費 = 箱 - テキスト: 素 '
+        + (box.on.w - txt.on.w).toFixed(2) + 'px / 撤退 ' + (box.off.w - txt.off.w).toFixed(2) + 'px'];
+    }],
+
+  ['2c', '主人公 #warriorLabel / NPC 仲間 .allyLabel / 敵 .enemyLabel の **3 種の高さが同じ**'
+    + ' (±' + SAME_PX + 'px) ⭐「敵の札だけ 100% のまま」を捕まえる'
+    + ' ⚠ 3 種が揃わなければ比べられないので母集団ごと FAIL にする',
+    m => {
+      const hero = (m.heroLabel && m.heroLabel.rect && m.heroLabel.rect.h > 0)
+        ? m.heroLabel.rect.h : null;
+      const npc = (m.allyLabels || []).filter(a => a.rect && a.rect.h > 0).map(a => a.rect.h);
+      const en = popOnScreen(m).filter(e => e.rectLabel && e.rectLabel.h > 0)
+        .map(e => e.rectLabel.h);
+      if (hero === null || npc.length === 0 || en.length === 0) {
+        return popFail('(2c) 3 種の札',
+          '主人公=' + (hero === null ? 'なし' : hero.toFixed(2) + 'px')
+          + ' / NPC 仲間 ' + npc.length + ' 枚 / 敵 ' + en.length + ' 枚 — 3 種が揃わないと比べられない');
+      }
+      const all = [hero].concat(npc, en);
+      const spread = Math.max.apply(null, all) - Math.min.apply(null, all);
+      const ok = spread <= SAME_PX;
+      return [ok,
+        '主人公 ' + hero.toFixed(2) + 'px / NPC 仲間 '
+        + JSON.stringify(npc.map(v => +v.toFixed(2))) + ' / 敵 '
+        + JSON.stringify(en.map(v => +v.toFixed(2)))
+        + '  ばらつき ' + spread.toFixed(2) + 'px (許容 ' + SAME_PX + ')'
+        + (ok ? '' : '  ⛔ どれかの札だけ大きさが違う')];
+    }],
+
+  ['2d', '敵の札が**自前の背景色を実際に持ち** (alpha > 0)、それが味方の札と**異なる**'
+    + ' (⭐ §2-7 の .heroLabel 事故 = className だけ書いて CSS が 0 行、を捕まえる。'
+    + ' ⚠⚠⚠「違う色」だけを見ると、CSS を丸ごと消して透明になった実装が緑で通る)',
+    m => {
+      const allyBg = (m.heroLabel && m.heroLabel.bg) || null;
+      const shown = popOnScreen(m).filter(e => typeof e.labelBg === 'string' && e.labelBg.length > 0);
+      if (!allyBg || shown.length < POP_MIN) {
+        return popFail('(2d) 札の背景色',
+          '味方の札の背景=' + JSON.stringify(allyBg) + ' / 背景色を採れた敵の札 ' + shown.length + ' 枚');
+      }
+      const allyA = bgAlpha(allyBg);
+      if (!(allyA > 0)) {
+        return popFail('(2d) 味方の札の背景色',
+          '味方の札が透明 (' + JSON.stringify(allyBg) + ') なので「違う色」の対照にならない');
+      }
+      const noBg = shown.filter(e => !(bgAlpha(e.labelBg) > 0));
+      const same = shown.filter(e => e.labelBg === allyBg);
+      const ok = noBg.length === 0 && same.length === 0;
+      return [ok,
+        '味方 ' + JSON.stringify(allyBg) + ' (alpha ' + allyA + ')  敵 '
+        + JSON.stringify(shown.map(e => e.labelBg).filter((v, i, a) => a.indexOf(v) === i))
+        + (noBg.length ? '  ⛔ 背景色が無い (CSS が効いていない): '
+            + JSON.stringify(noBg.map(e => e.type + ':' + JSON.stringify(e.labelBg))) : '')
+        + (same.length ? '  ⛔ 味方と同じ色: ' + JSON.stringify(same.map(e => e.type)) : '')];
+    }],
+
+  ['2e', '札の**上端** (top) が ' + RETREAT_QUERY + ' と**同じ** (±' + SAME_PX + 'px)'
+    + ' = 配置関数の dy を動かしていない'
+    + ' ⭐ 敵の札は撤退アームに 1 枚も無いので、**同じ dy に置かれる状態アイコン列**を対照にする',
+    m => {
+      const hero = refPair(m, x => (x.heroLabel && x.heroLabel.rect) || null);
+      if (!hero) {
+        return popFail('(2e) 撤退アームの対照',
+          '主人公の札を両アームで採れなかった (ref=' + (m.ref ? 'あり' : 'なし') + ')');
+      }
+      const dHero = Math.abs(hero.on.top - hero.off.top);
+      const refRows = (m.ref && m.ref.enemies) || [];
+      const pairs = [];
+      for (const e of popOnScreen(m)) {
+        const r = refRows[e.i];
+        if (!r || r.type !== e.type) continue;              // ⚠ 添字がズレていたら比べない
+        if (!e.rectLabel || !e.rectSprite || !r.rectStatus || !r.rectSprite) continue;
+        if (!(e.rectLabel.h > 0) || !(e.rectSprite.h > 0) || !(r.rectSprite.h > 0)) continue;
+        pairs.push({ t: e.type,
+          on: e.rectLabel.top - e.rectSprite.top,
+          off: r.rectStatus.top - r.rectSprite.top });
+      }
+      if (pairs.length < POP_MIN) {
+        return popFail('(2e) 敵の dy の対照',
+          '撤退アームの状態アイコン列と突き合わせられる敵が 0 体'
+          + '  (素 ' + popOnScreen(m).length + ' 体 / 撤退アームの敵 ' + refRows.length + ' 体)');
+      }
+      const bad = pairs.filter(p => Math.abs(p.on - p.off) > SAME_PX);
+      const ok = dHero <= SAME_PX && bad.length === 0;
+      return [ok,
+        '味方の札の上端 素 ' + hero.on.top.toFixed(2) + ' / 撤退 ' + hero.off.top.toFixed(2)
+        + ' = 差 ' + dHero.toFixed(2) + 'px'
+        + '   敵の dy (札上端 - スプライト上端) 素 vs 撤退の状態列: '
+        + JSON.stringify(pairs.map(p => p.t + ':' + p.on.toFixed(2) + ' vs ' + p.off.toFixed(2)))
+        + (ok ? '' : '  ⛔ '
+            + (dHero > SAME_PX ? '味方の札の上端が動いた ' : '')
+            + (bad.length ? '敵の dy が動いた: ' + JSON.stringify(bad.map(p => p.t
+                + ' 差 ' + (p.on - p.off).toFixed(2) + 'px')) : ''))];
+    }],
+
+  ['2f', '⭐⭐⭐ **絶対量の歯止め** — 見えている最小の敵について'
+    + ' 札の高さ ÷ その敵のスプライトの高さ <= ' + LABEL_VS_SPRITE_MAX + ' (母集団 = (0h))'
+    + ' ⭐ ① 札 = CSS 由来 / ② スプライト = 敵の寸法データ由来 の**完全に独立した 2 経路**なので、'
+    + ' (2a)(2b) の「比」をすり抜ける「素と 70% を同率で膨らませる」変更をここで落とせる',
+    m => {
+      const min = smallestVisible(m);
+      if (min === null) {
+        return popFail('(0h) 見えている最小の敵',
+          '見えている敵から数値の寸法を採れなかった (見えている生存敵 ' + popVisible(m).length + ' 体)');
+      }
+      if (!(min.size <= SMALL_MAX)) {                       /* [0g-data] (0h) と同じ母集団の条件 */
+        return popFail('(0h) 最小の敵が ' + SMALL_MAX + ' 以下',
+          '最小は ' + min.type + ' = ' + min.size          /* [0g-data] 記録に出す実測値 */
+          + ' — 大きい敵しか居ない場面で測ると (2f) は自明に緑になる');
+      }
+      const lab = min.rectLabel, spr = min.rectSprite;
+      if (!lab || !spr || !(lab.h > 0) || !(spr.h > 0)) {
+        return popFail('(2f) 最小の敵の矩形',
+          '札の高さ ' + JSON.stringify(lab && lab.h) + ' / スプライトの高さ '
+          + JSON.stringify(spr && spr.h) + ' — どちらかが 0 では比が採れない');
+      }
+      const ratio = lab.h / spr.h;
+      const ok = ratio <= LABEL_VS_SPRITE_MAX;
+      return [ok,
+        '最小の敵 ' + min.type + ' — 札 ' + lab.h.toFixed(2) + 'px (CSS 由来) ÷ スプライト '
+        + spr.h.toFixed(2) + 'px (寸法データ由来) = ' + ratio.toFixed(4)
+        + '  (上限 ' + LABEL_VS_SPRITE_MAX + ')'
+        + (ok ? '' : '  ⛔ 札が敵に対して大きすぎる = ユーザーが訴えた量そのもの')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -779,44 +1249,6 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //   ⭐ 交差の判定には上の overlaps() を使う ((1h))。⛔ 中心 1 点や上端 1 点で代用しない。
 // ══════════════════════════════════════════════════════════════════════════════
 const PENDINGS = [
-  ['§1 敵の札', [
-    ['1a', '見えている生存敵**すべて**に札があり、テキストが enemies[i].def.name と一致'
-      + ' (DOM 経路 × ページのデータ経路)', '項目 2 の担当。母集団 = (0a) / 変異 nolabel'],
-    ['1b', 'その札のテキストが (0b) の**配信バイト由来の名前集合**に含まれる'
-      + ' (⭐ 2 経路目。実装が def.name でなく type キーを書いていたらここで落ちる)',
-      '項目 2 の担当。変異 typekey が証明する'],
-    ['1c', '伏兵化フォグで隠れている敵の札は display:none',
-      '項目 2 の担当。母集団 = (0f) / 変異 fogshow'],
-    ['1d', '倒した敵の札は display:none (⭐ 1 体倒してから測る)', '項目 2 の担当。変異 deadshow'],
-    ['1e', '封印中のハイドラの札は出ない', '項目 2 の担当。変異 hydrashow'],
-    ['1f', '札の下端が HP バーの上端より**上**: label.bottom <= hpBar.top + 0.5'
-      + ' (⭐ 味方は元から 2px 食い込んでいたが、**敵は新規なので最初から正しくできる**)',
-      '項目 2 の担当'],
-    ['1g', '状態アイコン列が札の**子**:'
-      + " labelEl.contains(document.getElementById('enemyStatus'+i))",
-      '項目 2 の担当。変異 statusdetach'],
-    ['1h', '装備バッジの矩形と札の矩形が**交差しない** (overlaps() が false)',
-      '項目 2 の担当。母集団 = (0e) / 変異 badgestay (§2-5 罠B の再現)'],
-  ]],
-  ['§2 70%', [
-    ['2a', '味方の札の**高さ**が ' + RETREAT_QUERY + ' の同じ札の **0.70〜0.75 倍**'
-      + ' (⭐ 絶対 px を書かない。⭐ 対照は同じドライバの中で両方開いて採る)',
-      '項目 3 の担当。変異 noscale'],
-    ['2b', '味方の札の**幅**が ' + RETREAT_QUERY + ' の同じ札の **0.68〜0.73 倍**',
-      '項目 3 の担当。変異 noscale'],
-    ['2c', '主人公 #warriorLabel / NPC 仲間 .allyLabel / 敵 .enemyLabel の **3 種の高さが同じ**'
-      + ' (±0.6px)。⭐「敵の札だけ 100% のまま」を捕まえる', '項目 3 の担当。変異 nocss'],
-    ['2d', '敵の札の background-color が味方の札と**異なる**'
-      + ' (⭐ §2-7 の .heroLabel 事故 = className だけ書いて CSS が 0 行、を捕まえる)',
-      '項目 3 の担当。変異 noenemycss'],
-    ['2e', '札の**上端** (top) が ' + RETREAT_QUERY + ' と**同じ** (±0.6px)'
-      + ' = placeUnscaledUi の dy を動かしていない', '項目 3 の担当。変異 dyshift'],
-    ['2f', '⭐⭐⭐ **絶対量の歯止め** — **見えている最小の敵**について'
-      + ' 札の高さ ÷ その敵のスプライトの高さ <= 0.30'
-      + ' (① 札 = CSS 由来 / ② スプライト = 敵の寸法データ由来 の **完全に独立した 2 経路**)',
-      '項目 3 の担当。母集団 = (0h)。⚠ 母集団が立たなければ popFail() で赤にする。'
-      + ' 変異 bothgrow (比をすり抜ける膨張) と bigonly (母集団殺し) の 2 本が証明する'],
-  ]],
   ['§3 恒等 (非退行)', [
     ['3a', 'HP バー (味方/敵) の矩形が ' + RETREAT_QUERY + ' と**完全一致** (±0.5px)',
       '項目 3 の担当。変異 hpshift が「恒等の空振り」を検査する'],
@@ -881,6 +1313,13 @@ const PENDINGS = [
       // ══ 受入条件 ═══════════════════════════════════════════════════════════
       mark('§0 装置 — 母集団と 2 経路 (⭐ ここが立たないと §1〜§4 は全部空振りで永久緑)');
       const m = await measure(browser, PORT, errs, {});
+      /* ⭐⭐⭐ §2 の対照 = **同じドライバの中で撤退アームも開く**。
+         ⚠ 事故は別の配列で受ける (素のアームの (4c) と混ぜない = 項目 4 が両方使う)。
+         ⚠ 撤退アームは配信バイトが素と同じ RETREAT_PORT。負のコントロールでは
+           **変異ポートの ?namelabel=0** を対照にする (下の負のコントロール側を参照) —
+           そうしないと noscale/dyshift が「対照が無いから赤」で空振りする。 */
+      m.refErrs = [];
+      m.ref = await measure(browser, RETREAT_PORT, m.refErrs, { query: RETREAT_QUERY });
       /* ⭐ (0b)(0h) の 2 経路目 = **配信バイト**。⛔ ディスクを読み直さない
          (走行中に別窓が保存すると混合ビルドを測ることになる)。 */
       const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
@@ -911,6 +1350,25 @@ const PENDINGS = [
       console.log('         主人公の札 ' + (m.heroLabel.present && m.heroLabel.rect
         ? (m.heroLabel.rect.w.toFixed(1) + 'x' + m.heroLabel.rect.h.toFixed(1) + 'px  bg=' + m.heroLabel.bg)
         : '⛔ 無い') + '   NPC 仲間の札 ' + m.allyLabels.length + ' 枚');
+      console.log('         撤退アーム ' + RETREAT_QUERY + ' — 主人公の札 '
+        + (m.ref && m.ref.heroLabel && m.ref.heroLabel.rect
+          ? (m.ref.heroLabel.rect.w.toFixed(1) + 'x' + m.ref.heroLabel.rect.h.toFixed(1) + 'px')
+          : '⛔ 無い')
+        + ' / .enemyLabel の DOM 総数 ' + (m.ref ? m.ref.enemyLabelDomCount : '—')
+        + ' / .enemy-status-slot の DOM 総数 ' + (m.ref ? m.ref.enemyStatusSlotDomCount : '—')
+        + ' / 事故 ' + (m.refErrs ? m.refErrs.length : '—') + ' 件');
+
+      mark('§1 敵の札 — 正しい敵に / 正しい名前で / 他の頭上 UI と重ならずに 出ているか');
+      for (const key of ['1a', '1b', '1c', '1d', '1e', '1f', '1g', '1h']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
+
+      mark('§2 70% — ⛔ 絶対 px を書かず、撤退アーム ' + RETREAT_QUERY + ' の同じ札との比で測る');
+      for (const key of ['2a', '2b', '2c', '2d', '2e', '2f']) {
+        const a = ASSERT_OF[key]; const r = a[2](m);
+        check('(' + a[0] + ') ' + a[1], r[0], r[1]);
+      }
 
       for (const [title, rows] of PENDINGS) {
         mark(title);
@@ -950,6 +1408,12 @@ const PENDINGS = [
           const negErrs = [];
           const port = MUTATIONS[k].driver ? PORT : PORT_OF[k];
           const mm = await measure(browser, port, negErrs, {});
+          /* ⚠⚠⚠ 対照は **変異ポートの ?namelabel=0**。素のページを対照にすると
+             noscale/dyshift が「変異側だけ壊れた」ではなく「両方壊れた」に見えたり、
+             逆に対照を用意しないと (2a)(2b)(2e) が popFail で必ず赤になり、
+             **変異が効いていなくても赤 = 空振り**に気づけなくなる。 */
+          mm.refErrs = [];
+          mm.ref = await measure(browser, port, mm.refErrs, { query: RETREAT_QUERY });
           const servedNeg = await httpGet('http://localhost:' + port + PAGE_PATH);
           mm.roster = rosterFromBytes(servedNeg.body);
           mm.servedBytes = servedNeg.body.length;
