@@ -2461,6 +2461,22 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.7);
       transform: translate(-50%, 0);
     }
+    /* ══ #49 判定行 ═══════════════════════════════════════════════════════
+     * ⚠⚠⚠ 上へ逃がすのに transform を使ってはいけない。.rollPop は
+     *   animation: rollRise (と .crit/.skill の rollCritBurst) が全キーフレームで
+     *   transform を書いており、CSS アニメーションは !important でない宣言に勝つ。
+     *   margin-top はアニメーションが触っていないので効く。 */
+    .rollPop.hasVerdict { margin-top: -16px; }
+    .rollPop .verdictLine {
+      display: block;
+      margin-top: 2px;
+      font-size: 11px;
+      opacity: 0.95;
+    }
+    .rollPop .verdictLine .need { font-weight: 700; }
+    .rollPop .verdictLine .win  { font-size: 13px; font-weight: 700; color: #ffd980; }
+    .rollPop .verdictLine .lose { font-size: 13px; font-weight: 700; color: #9a9aa6; }
+    .rollPop .verdictLine .marg { font-size: 11px; opacity: 0.80; }
     .rollPop .big {
       font-size: 18px;
       font-weight: 700;
@@ -3640,6 +3656,15 @@
     const NAME_LABEL_ON =
       new URLSearchParams(window.location.search).get("namelabel") !== "0";
     if (NAME_LABEL_ON) document.body.classList.add("labelSmall");
+
+    /* ══ #49 撤退スイッチ ?rolltarget=0 ══════════════════════════════════
+     * OFF のとき、判定行の append を一切行わない = 吹き出しは #49 以前の
+     * 3 行構成へ完全に戻る (.hasVerdict も付かないので margin-top も戻る)。
+     * ⚠ 判定はブート時に 1 回だけ。ページ遷移はまたがない
+     *   (ダンジョン内で完結するので ?namelabel=0 / ?heromark=0 と同じ型。
+     *    ?town=0 の sessionStorage 型は採らない)。 */
+    const ROLL_TARGET_ON =
+      new URLSearchParams(window.location.search).get("rolltarget") !== "0";
 
     // ── [地平線ビュー STEP1] 帯幾何 + カメラ地平線ロック ────────────────────
     // 目的: 「空が入る器」を作る。歩行可能行を row 13-15 の3行に絞り、カメラの縦を
@@ -19352,11 +19377,54 @@
     //    「全戦闘が無言で即死」を繰り返す。ここへ代入を足すだけのミラーに留める。
     let encounterRound = 1;
 
+    /* #49: ロールの吹き出しへ「必要な出目」と「成功/失敗+超過幅」の 1 行を足す。
+     * ⭐ 呼び口 204 箇所は 1 バイトも触らない。生成点 3 関数の innerHTML 直前でここを通す。
+     * ⚠ 勝敗は必ず type から引く (合計 vs 目標 の算術から引くと、ナチュラル20 の脅威と
+     *   無抵抗の自動命中で「CRIT! なのに 失敗 -3」と出る)。
+     * ⚠ 修正項は読まない (セーヴは saveModDD が "+3装+2" の 2 項を返すため)。
+     *   必要出目は 出目 N・合計 T・目標 D の 3 つだけで出る: raw = D - T + N。
+     * 戻り値: 変えなかったときは元の html を === で同一のまま返す (呼び側が判定に使う)。*/
+    function rollTargetLine(html, type) {
+      if (!ROLL_TARGET_ON) return html;
+      if (!html) return html;
+      if (type !== "hit" && type !== "miss" && type !== "crit" && type !== "fumble") return html;
+
+      const mNat = html.match(/1d20\(<b>(\d+)<\/b>\)/);
+      const mTot = html.match(/=\s*(?:<span class="big">)?(-?\d+)/);
+      const mTgt = html.match(/vs\s+(AC|DC)\s+(\d+)/);
+      if (!mNat || !mTot || !mTgt) return html;
+
+      const nat = +mNat[1], total = +mTot[1], kind = mTgt[1], target = +mTgt[2];
+      const raw    = target - total + nat;         // 必要出目 (素の値)
+      const floorN = (kind === "AC") ? 2 : 1;      // ⚠ 攻撃は nat1 が自動ミス / セーヴには特例なし
+      const need   = (raw > 20) ? null : Math.max(floorN, raw);   // null = 20 でも届かない
+
+      const won    = (type === "hit" || type === "crit");
+      const margin = total - target;
+      // ⚠ type と算術が食い違うとき (nat20 の脅威 / 無抵抗の自動命中) は超過幅を出さない。
+      //   矛盾した数字を出すくらいなら数字を落とす。
+      const showMargin = (won === (margin >= 0));
+
+      const needTxt = (need === null)
+        ? (kind === "AC" ? '<b class="need">会心のみ</b>' : '<b class="need">届かない</b>')
+        : '出目 <b class="need">' + need + '+</b>';
+      const verdict = won ? '<b class="win">成功</b>' : '<b class="lose">失敗</b>';
+      const margTxt = showMargin
+        ? ' <span class="marg">' + (margin >= 0 ? "+" : "") + margin + '</span>'
+        : '';
+
+      return html + '<span class="verdictLine">' + needTxt + ' → ' + verdict + margTxt + '</span>';
+    }
+    // 検証シーム (純関数なので本番挙動に影響しない。__composeSpriteTransform と同じ型)
+    window.__rollTargetFmt = rollTargetLine;
+
     // ── ポップアップ(ワールド座標→スクリーン座標) ──
     function showRollAtPlayer(html, type) {
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
-      pop.innerHTML = html;
+      const html2 = rollTargetLine(html, type);
+      pop.innerHTML = html2;
+      if (html2 !== html) pop.classList.add("hasVerdict");   // 1行ぶん上へ逃がす (margin-top)
       pop.style.left = SX(playerX + 48) + "px";
       pop.style.top  = SY(playerY - 24) + "px";
       document.body.appendChild(pop);
@@ -19366,7 +19434,9 @@
       const e = enemies[idx];
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
-      pop.innerHTML = html;
+      const html2 = rollTargetLine(html, type);
+      pop.innerHTML = html2;
+      if (html2 !== html) pop.classList.add("hasVerdict");   // 1行ぶん上へ逃がす (margin-top)
       pop.style.left = SX(e.x + e.def.displaySize / 2) + "px";
       pop.style.top  = SY(e.y - 32) + "px";
       document.body.appendChild(pop);
@@ -19383,7 +19453,9 @@
       }
       const pop = document.createElement("div");
       pop.className = "rollPop " + type;
-      pop.innerHTML = html;
+      const html2 = rollTargetLine(html, type);
+      pop.innerHTML = html2;
+      if (html2 !== html) pop.classList.add("hasVerdict");   // 1行ぶん上へ逃がす (margin-top)
       pop.style.left = SX(ally.x + ally.def.displaySize / 2) + "px";
       pop.style.top  = SY(ally.y - 24) + "px";
       document.body.appendChild(pop);

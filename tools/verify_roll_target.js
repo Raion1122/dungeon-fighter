@@ -494,6 +494,13 @@ async function measurePlay(browser, port, errs, opts) {
         let vc = -1, hv = false;
         try { vc = node.querySelectorAll('.verdictLine').length; } catch (e) {}
         try { hv = node.classList.contains('hasVerdict'); } catch (e) {}
+        /* ⭐ (5b)(5c) の計測。⚠ **挿入された瞬間**に採る (吹き出しは 1300ms で消えるので
+           あとからまとめて測ることができない)。⚠ marginTop を読むのは罠 C の回避
+           (transform は rollRise が全キーフレームで書くので、実装が正しくても
+            間違っていても同じ値が返る = 永久緑)。 */
+        let mt = null, w = -1;
+        try { mt = window.getComputedStyle(node).marginTop; } catch (e) {}
+        try { w = node.offsetWidth; } catch (e) {}
         const cls = node.className || '';
         window.__rtSeen.push({
           cls: cls,
@@ -501,6 +508,8 @@ async function measurePlay(browser, port, errs, opts) {
           text: (node.textContent || '').slice(0, 200),
           verdictLines: vc,
           hasVerdictClass: hv,
+          marginTop: mt,
+          offsetWidth: w,
           ann: annOf(cls, inner),
           t: Date.now(),
         });
@@ -544,6 +553,35 @@ async function measurePlay(browser, port, errs, opts) {
       '<span class="label">HIT</span>1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14', 'hit');
   } catch (e) { out.seamProbe = { ok: false, out: null, err: String((e && e.message) || e) }; }
 
+  /* ── (4c) #37 の年代記シームのスパイ (罠 D の回帰検査) ──────────────────
+     ⭐ RunChronicle は classic script 直下の const なので window に載らない。
+       **文字列形式の evaluate** はグローバル eval なので裸名で届く (2026-06-08 の実測)。
+     ⭐ 差し替えるのはオブジェクトの**メソッド 1 本**だけ。呼び口は
+       `RunChronicle.usedSkill(...)` = 呼ぶたびにプロパティを引くので、差し替え後が効く。
+     ⚠ 戦闘が始まる**前**に仕込む (gameStarted の直後にここへ来る)。
+     ⚠ 呼び元の切り分けにスタックを使う (showRollAtAlly 経由かどうか)。⛔ 判定には
+       使わない — 仲間が技を撃つかは run の運なので、判定は「1 件以上拾えた」だけ。 */
+  try {
+    out.chSpy = await page.evaluate(
+      '(() => { try {' +
+      '  window.__rtSkills = [];' +
+      '  if (window.__rtSkillSpy) return "already";' +
+      '  if (typeof RunChronicle === "undefined" || !RunChronicle' +
+      '      || typeof RunChronicle.usedSkill !== "function") return "no RunChronicle";' +
+      '  const orig = RunChronicle.usedSkill;' +
+      '  RunChronicle.usedSkill = function (n) {' +
+      '    try {' +
+      '      let via = ""; try { via = (new Error()).stack || ""; } catch (e2) {}' +
+      '      window.__rtSkills.push({ name: String(n), ally: via.indexOf("showRollAtAlly") >= 0 });' +
+      '    } catch (e3) {}' +
+      '    return orig.apply(RunChronicle, arguments);' +
+      '  };' +
+      '  window.__rtSkillSpy = true;' +
+      '  let on = null; try { on = !!CHRONICLE_ON; } catch (e4) {}' +
+      '  return "ok:CHRONICLE_ON=" + on;' +
+      '} catch (e) { return "err:" + String((e && e.message) || e); } })()');
+  } catch (e) { out.chSpy = 'err:' + String((e && e.message) || e); }
+
   /* ── 出るまでポーリング ────────────────────────────────────────────────── */
   if (out.started) {
     const t0 = Date.now();
@@ -569,15 +607,37 @@ async function measurePlay(browser, port, errs, opts) {
       seen: Array.isArray(window.__rtSeen) ? window.__rtSeen : null,
       ov: window.__rtOverflow || 0,
       obs: !!window.__rtObserver,
+      sk: Array.isArray(window.__rtSkills) ? window.__rtSkills : null,
     }));
     out.seen = got.seen || [];
     out.overflow = got.ov;
     out.observerOk = !!got.obs && Array.isArray(got.seen);
+    out.skills = got.sk;    // (4c) 年代記が拾った技名 (null = スパイが立たなかった)
   } catch (e) {
     out.err = (out.err ? out.err + ' / ' : '') + '観測結果を読めない: ' + String((e && e.message) || e);
   }
   await page.close();
   return out;
+}
+
+/* ⭐⭐⭐ 撤退アーム専用の実プレイ。⚠ (6a)(6b) の母集団は「注釈対象になりうる .rollPop」で、
+ *   これは戦闘の運で 0 枚になりうる (2026-09-04 の実走: 素のアームは 48.8 秒で 8 枚、
+ *   撤退アームは 150 秒で 2 枚 = 同じ盤面でも 4 倍以上ばらつく)。
+ *   ⛔ 0 枚を「判定行が無いから緑」にはしない (popFail が赤を返す) が、
+ *     **偽の赤も出したくない**ので、0 枚のときだけ 1 回だけ引き直す
+ *     ([[project_headless_verification]] の「単発の赤はまず 1 回再実行」を装置へ内蔵)。
+ *   ⚠ 引き直すのは母集団が 0 のときだけ。⛔ 「判定行が出てしまった」ときに引き直さない
+ *     (それをやると負のコントロールが空振りする)。 */
+async function measureRetreat(browser, port, errs, opts) {
+  let best = await measurePlay(browser, port, errs, opts);
+  const annOf = (p) => popsOf(p).filter(isAnnotatable).length;
+  if (best.started && best.observerOk && annOf(best) === 0) {
+    errs.push('[ref :' + port + '] 注釈対象が 0 枚だったので 1 回だけ引き直す (母集団の運)');
+    const again = await measurePlay(browser, port, errs, opts);
+    if (annOf(again) > annOf(best)) { again.retried = true; best = again; }
+    else { best.retried = true; }
+  }
+  return best;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -600,9 +660,167 @@ function isAnnotatable(row) {
   const h = row.html || '';
   return RE_NAT.test(h) && RE_TOT.test(h) && RE_TGT.test(h);
 }
-function popPops(m) { return (m && m.play && Array.isArray(m.play.seen)) ? m.play.seen : []; }
+function popsOf(play) { return (play && Array.isArray(play.seen)) ? play.seen : []; }
+function popPops(m) { return popsOf(m && m.play); }
 function popAnnotatable(m) { return popPops(m).filter(isAnnotatable); }
 function popWithVerdict(m) { return popPops(m).filter(r => r && r.verdictLines > 0); }
+/* ⭐ 撤退アーム (?rolltarget=0) 側。(6a)(6b) だけが読む。 */
+function refPops(m) { return popsOf(m && m.ref); }
+function refWithVerdict(m) { return refPops(m).filter(r => r && r.verdictLines > 0); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// §1〜§4 の合成入力 (⭐ 実プレイに頼らない計測。依頼書 §6「計測機構」)
+//   ⛔ 期待値は 1 つも書かない。**入力の 4 数 (nat/total/kind/target) だけ**を持ち、
+//      必要出目も超過幅もドライバが計算する (raw = target - total + nat)。
+//   ⚠ 依頼書 §2-2 の罠 A = 判定行の HTML は 4 形態ある。a1/a2/a3/a4 がその 4 形態。
+//   ⭐ fumble は**実プレイで 2 走とも 0 枚**だった (項目 1 の実測) ので、
+//      (2c) の fumble 側はここでしか測れない。
+// ══════════════════════════════════════════════════════════════════════════════
+/* ⭐ (1a)〜(1h) が使う定数。⛔ need の literal は assert 側に散らさない。
+ *  ⚠ 依頼書 §4-3 のクランプ表 — vs AC と vs DC で**規則が違う**。片方の写経は禁止。
+ *    raw ≤ 1 → AC は 2 / DC は 1     (攻撃は nat1 が自動ミス。セーヴに特例なし)
+ *    raw > 20 → AC は「会心のみ」 / DC は「届かない」 */
+const FLOOR_AC = 2, FLOOR_DC = 1, CAP_RAW = 20;
+
+const FMT_CASES = {
+  /* ── 注釈されるもの (§4-5 の AND を 4 本とも満たす) ── */
+  a1: { type: 'hit', nat: 12, total: 18, kind: 'AC', target: 14, form: 'A-1 (.big あり)',
+    html: '<span class="label">HIT</span>1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14' },
+  a2: { type: 'hit', nat: 12, total: 18, kind: 'AC', target: 14, form: 'A-2 (.big なし)',
+    html: '1d20(<b>12</b>)+6 = 18<br>vs AC 14' },
+  a3: { type: 'hit', nat: 12, total: 18, kind: 'AC', target: 14, form: 'A-3 (<br> なし)',
+    html: '1d20(<b>12</b>)+6 = 18 vs AC 14' },
+  a4: { type: 'hit', nat: 14, total: 19, kind: 'DC', target: 15, form: 'A-4 (修正 2 項のセーヴ)',
+    html: '1d20(<b>14</b>)+3装+2 = 19<br>vs DC 15' },
+  lowAC: { type: 'hit', nat: 12, total: 30, kind: 'AC', target: 14, form: 'クランプ下限 (AC)',
+    html: '1d20(<b>12</b>)+18 = 30<br>vs AC 14' },
+  lowDC: { type: 'hit', nat: 12, total: 30, kind: 'DC', target: 14, form: 'クランプ下限 (DC)',
+    html: '1d20(<b>12</b>)+18 = 30<br>vs DC 14' },
+  capAC: { type: 'miss', nat: 5, total: 7, kind: 'AC', target: 25, form: 'クランプ上限 (AC)',
+    html: '1d20(<b>5</b>)+2 = 7<br>vs AC 25' },
+  capDC: { type: 'miss', nat: 5, total: 7, kind: 'DC', target: 25, form: 'クランプ上限 (DC)',
+    html: '1d20(<b>5</b>)+2 = 7<br>vs DC 25' },
+  miss1: { type: 'miss', nat: 5, total: 11, kind: 'AC', target: 14, form: '外れ (整合)',
+    html: '<span class="label">MISS</span>1d20(<b>5</b>)+6 = 11<br>vs AC 14' },
+  crit1: { type: 'crit', nat: 20, total: 26, kind: 'AC', target: 14, form: '会心 (整合)',
+    html: '<span class="label">CRIT!</span>1d20(<b>20</b>)+6 = <span class="big">26</span><br>vs AC 14' },
+  fumb1: { type: 'fumble', nat: 1, total: 7, kind: 'AC', target: 14, form: 'ファンブル (整合)',
+    html: '1d20(<b>1</b>)+6 = 7<br>vs AC 14' },
+  /* ⚠ 罠 B — type と算術が食い違う 2 形。⭐ 超過幅を出してはいけない側。 */
+  critLow: { type: 'crit', nat: 20, total: 11, kind: 'AC', target: 14, form: '矛盾 (nat20 の脅威)',
+    html: '<span class="label">CRIT!</span>1d20(<b>20</b>)+6 = 11<br>vs AC 14' },
+  missHigh: { type: 'miss', nat: 8, total: 18, kind: 'AC', target: 14, form: '矛盾 (合計は届いているが外れ)',
+    html: '<span class="label">MISS</span>1d20(<b>8</b>)+10 = 18<br>vs AC 14' },
+
+  /* ── 注釈されないもの (out === input) ── */
+  xSkill: { keep: true, type: 'skill', form: 'type=skill (vs AC を含むのに対象外)',
+    html: '<span class="label">SKILL</span>1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14' },
+  xInit: { keep: true, type: 'init', form: 'type=init (vs AC を含むのに対象外)',
+    html: '<span class="label">SKILL</span>1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14' },
+  xBuff: { keep: true, type: 'buff', form: 'type=buff (vs AC を含むのに対象外)',
+    html: '<span class="label">SKILL</span>1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14' },
+  /* ⭐ FUMBLE! の実形 (index.html:22050 等の 12 箇所。`=` も `vs` も無い)。
+     ⚠ type="fumble" は**白名簿に載っている** ので、これが素通りするのは
+       §4-5 の「= 合計」「vs 目標」の AND が効いている証拠になる。 */
+  xFumble: { keep: true, type: 'fumble', form: 'FUMBLE! の実形 (= も vs も無い)',
+    html: '<span class="label">FUMBLE!</span>1d20(<b>1</b>)+6' },
+  /* ⭐ INITIATIVE の実形 (index.html:20399 / :31465 …)。⚠ 本番テンプレは `1d20(${n})` で
+       **`<b>` を付けない** (項目 1 のメモは `<b>8</b>` と書いていたが実テンプレは素の数値)。
+     ⭐ 下の xInitHit は同じ形を**白名簿に載っている type** で通す = 「vs が無い」という
+       AND の 1 本だけを孤立させて測る (type 白名簿に頼らない検査)。 */
+  xInit2: { keep: true, type: 'init', form: 'INITIATIVE の実形 (vs が無い / 本番テンプレ)',
+    html: '<span class="label">INITIATIVE</span>1d20(8)+1 = <span class="big">9</span>' },
+  xInitHit: { keep: true, type: 'hit', form: 'INITIATIVE の形 + 白名簿の type (vs が無いことだけを測る)',
+    html: '<span class="label">INITIATIVE</span>1d20(<b>8</b>)+1 = <span class="big">9</span>' },
+  xHelpless: { keep: true, type: 'crit', form: 'HELPLESS! の実形 (index.html:22072)',
+    html: '<span class="label">HELPLESS!</span>無抵抗の敵に自動命中 ×2' },
+};
+const FMT_ORDER = Object.keys(FMT_CASES);
+/* 注釈されるはずのケース = (4a)(4b) の母集団。 */
+const FMT_ANNOT = FMT_ORDER.filter(k => !FMT_CASES[k].keep);
+
+/* ⭐⭐⭐ 期待値は**計算**で作る (依頼書 §4-2/§4-3。⛔ 依頼書の "8" を写経しない)。
+ *   need === null は「20 でも届かない」= 数値を出さない側。 */
+function expNeed(c) {
+  const raw = c.target - c.total + c.nat;
+  if (raw > CAP_RAW) return null;
+  return Math.max(c.kind === 'AC' ? FLOOR_AC : FLOOR_DC, raw);
+}
+function expWon(c) { return c.type === 'hit' || c.type === 'crit'; }
+function expMargin(c) { return c.total - c.target; }
+function expShowMargin(c) { return expWon(c) === (expMargin(c) >= 0); }
+function expMarginTxt(c) { const g = expMargin(c); return (g >= 0 ? '+' : '') + g; }
+
+/* class 名で中身を取り出す (⭐ 縛るのは class 名だけ。文言は縛らない)。 */
+function inner(out, tag, cls) {
+  const m = String(out == null ? '' : out)
+    .match(new RegExp('<' + tag + ' class="' + cls + '">([^<]*)</' + tag + '>'));
+  return m ? m[1] : null;
+}
+function hasCls(out, cls) { return String(out == null ? '' : out).indexOf('class="' + cls + '"') >= 0; }
+function needTxtOf(out) { return inner(out, 'b', CLS_NEED); }
+function margTxtOf(out) { return inner(out, 'span', CLS_MARG); }
+
+/* シームの生の結果を取り出す。⛔ 例外や非文字列を「入力と同じ」に丸めない
+ *  (丸めると (3a)〜(3d) が自明に緑になる)。 */
+function fmtRow(m, id) { return (m && m.fmt && m.fmt[id]) ? m.fmt[id] : null; }
+/* [ok, detail] を返す共通ガード。ok が false ならそのまま assert の戻りに使う。 */
+function fmtGuard(m, ids) {
+  if (!m || !m.fmt) return popFail('シームの合成入力', 'measureFmt が走っていない');
+  for (const id of ids) {
+    const r = fmtRow(m, id);
+    if (!r) return popFail('合成入力 ' + id, 'ケースが記録されていない');
+    if (!r.ok || typeof r.out !== 'string') {
+      return popFail('合成入力 ' + id, 'シームが文字列を返さなかった: ' + (r.err || '—'));
+    }
+  }
+  return null;
+}
+const fmtOut = (m, id) => fmtRow(m, id).out;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 合成入力を window.__rollTargetFmt へ通す (⭐ 実プレイ不要 = 並走に強い)
+//   ⚠ ?autoplay を付けない = ゲームを開始しない。純関数はブート時に載るので読める。
+// ══════════════════════════════════════════════════════════════════════════════
+async function measureFmt(browser, port, errs, opts) {
+  opts = opts || {};
+  const page = await browser.newPage();
+  const tag = '[fmt :' + port + '] ';
+  page.on('pageerror', e => errs.push(tag + 'PAGEERROR ' + e.message));
+  page.on('console', mm => {
+    if (mm.type() !== 'error') return;
+    let url = '';
+    try { url = (mm.location() && mm.location().url) || ''; } catch (e) {}
+    if (/\/favicon\.ico$/.test(url)) return;
+    errs.push(tag + 'CONSOLE ' + mm.text() + (url ? ' <' + url + '>' : ''));
+  });
+  await page.evaluateOnNewDocument((k, v) => {
+    try { sessionStorage.setItem(k, v); } catch (e) {}
+  }, SCENARIO_KEY, SCENARIO_ID);
+  const url = 'http://localhost:' + port + PAGE_PATH
+    + (opts.query ? String(opts.query).replace(/^&/, '?') : '');
+  const res = {};
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    /* ⚠ シームが載るのを待つ。⛔ 待たずに測ると「未実装」と「まだ読み込み中」を取り違える。
+       ⭐ 失敗しても止めない — (0a) が赤を出し、各 assert は fmtGuard で population: none。 */
+    try {
+      await page.waitForFunction(
+        '(typeof window["' + SEAM_NAME + '"] === "function") || document.readyState === "complete"',
+        { timeout: 30000 });
+    } catch (e) { /* (0a) が記録する */ }
+    for (const id of FMT_ORDER) {
+      const c = FMT_CASES[id];
+      res[id] = await evalFmt(page, c.html, c.type);
+      res[id].input = c.html;
+      res[id].type = c.type;
+    }
+  } catch (e) {
+    errs.push(tag + 'FMT ' + String((e && e.message) || e));
+  }
+  await page.close();
+  return res;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 — [id, 見出し, m => [ok, detail]]
@@ -704,6 +922,265 @@ const ASSERTS = [
         + '  例: ' + JSON.stringify(sample)
         + (ok ? '' : '  ⛔ 判定行が 1 枚も出ていない = 依頼書 §5-3/§5-4 が未実装')];
     }],
+
+  // ── §1 必要出目 ───────────────────────────────────────────────────────────
+  /* ⭐ 共通の型: ドライバが raw = target - total + nat を**自分で計算**し、
+     `<b class="need">` の中身と突き合わせる。⛔ 依頼書の "8" を写経しない。 */
+  ...[['1a', 'a1'], ['1b', 'a2'], ['1c', 'a3'], ['1d', 'a4'],
+      ['1e', 'lowAC'], ['1f', 'lowDC']].map(([id, key]) => [id,
+    (() => { const c = FMT_CASES[key];
+      return '[必要出目] ' + c.form + ' — ' + JSON.stringify(c.html.slice(0, 64))
+        + ' / type="' + c.type + '" → <b class="' + CLS_NEED + '"> が '
+        + '**目標 - 合計 + 出目 をドライバが計算した値**と一致する'; })(),
+    m => {
+      const g = fmtGuard(m, [key]); if (g) return g;
+      const c = FMT_CASES[key];
+      const want = String(expNeed(c)) + '+';
+      const got = needTxtOf(fmtOut(m, key));
+      /* ⭐ (1e)/(1f) は「AC と DC で下限の規則が違う」ことも同時に縛る (§2-11)。 */
+      let extra = '', ok = (got === want);
+      if (id === '1f') {
+        const g2 = fmtGuard(m, ['lowAC']); if (g2) return g2;
+        const acTxt = needTxtOf(fmtOut(m, 'lowAC'));
+        extra = '  / vs AC の同条件 = ' + JSON.stringify(acTxt);
+        if (acTxt === got) { ok = false; extra += '  ⛔ AC と DC が同じ値 = クランプ下限が 1 本しかない'; }
+      }
+      return [ok, 'raw = ' + c.target + ' - ' + c.total + ' + ' + c.nat
+        + ' = ' + (c.target - c.total + c.nat) + ' → 期待 ' + JSON.stringify(want)
+        + ' / 実測 ' + JSON.stringify(got) + extra];
+    }]),
+
+  ...[['1g', 'capAC'], ['1h', 'capDC']].map(([id, key]) => [id,
+    '[必要出目] ' + FMT_CASES[key].form + ' — raw > ' + CAP_RAW
+      + ' のとき <b class="' + CLS_NEED + '"> は**数値を出さない**'
+      + (id === '1h' ? '  ⭐ かつ vs AC の表記と異なる (救済の有無が違う)' : ''),
+    m => {
+      const g = fmtGuard(m, [key]); if (g) return g;
+      const c = FMT_CASES[key];
+      const raw = c.target - c.total + c.nat;
+      const got = needTxtOf(fmtOut(m, key));
+      const numeric = /^\d+\+$/.test(String(got));
+      let ok = (expNeed(c) === null) && got !== null && got !== '' && !numeric;
+      let extra = '';
+      if (id === '1h') {
+        const g2 = fmtGuard(m, ['capAC']); if (g2) return g2;
+        const acTxt = needTxtOf(fmtOut(m, 'capAC'));
+        extra = '  / vs AC の同条件 = ' + JSON.stringify(acTxt);
+        if (acTxt === got) { ok = false; extra += '  ⛔ AC と DC が同じ表記 = 上限の分岐が 1 本しかない'; }
+      }
+      return [ok, 'raw = ' + raw + ' (> ' + CAP_RAW + ') → 実測 ' + JSON.stringify(got)
+        + (numeric ? '  ⛔ 数値のまま出ている (クランプ上限の分岐が無い)' : '') + extra];
+    }]),
+
+  // ── §2 勝敗と超過幅 ───────────────────────────────────────────────────────
+  ...[['2a', ['a1']], ['2b', ['miss1']], ['2c', ['crit1', 'fumb1']]].map(([id, keys]) => [id,
+    '[勝敗] ' + keys.map(k => 'type="' + FMT_CASES[k].type + '" → class="'
+      + (expWon(FMT_CASES[k]) ? CLS_WIN : CLS_LOSE) + '" を含み class="'
+      + (expWon(FMT_CASES[k]) ? CLS_LOSE : CLS_WIN) + '" を含まない').join(' / ')
+      + '  ⭐ 勝敗は type から引く (算術から引くと罠 B)',
+    m => {
+      const g = fmtGuard(m, keys); if (g) return g;
+      const bad = [], notes = [];
+      for (const k of keys) {
+        const out = fmtOut(m, k), won = expWon(FMT_CASES[k]);
+        const wantCls = won ? CLS_WIN : CLS_LOSE, badCls = won ? CLS_LOSE : CLS_WIN;
+        const ok = hasCls(out, wantCls) && !hasCls(out, badCls);
+        notes.push(k + '(' + FMT_CASES[k].type + '): ' + (ok ? '○' : '⛔')
+          + ' ' + JSON.stringify(String(out).slice(FMT_CASES[k].html.length)));
+        if (!ok) bad.push(k);
+      }
+      return [bad.length === 0, notes.join('  ')];
+    }]),
+
+  ['2d', '[超過幅] `<span class="' + CLS_MARG + '">` の中身が **合計 - 目標** と一致する'
+    + ' (⭐ 数値はドライバが計算する。⛔ 依頼書の +4 / -3 を写経しない)',
+    m => {
+      const keys = ['a1', 'miss1'];
+      const g = fmtGuard(m, keys); if (g) return g;
+      const bad = [], notes = [];
+      for (const k of keys) {
+        const c = FMT_CASES[k], want = expMarginTxt(c), got = margTxtOf(fmtOut(m, k));
+        notes.push(k + ': ' + c.total + ' - ' + c.target + ' = 期待 ' + JSON.stringify(want)
+          + ' / 実測 ' + JSON.stringify(got));
+        if (got !== want) bad.push(k);
+      }
+      return [bad.length === 0, notes.join('  ')];
+    }],
+
+  ...[['2e', 'critLow'], ['2f', 'missHigh']].map(([id, key]) => [id,
+    '[矛盾] ' + FMT_CASES[key].form + ' — class="'
+      + (expWon(FMT_CASES[key]) ? CLS_WIN : CLS_LOSE) + '" は出るが class="' + CLS_MARG
+      + '" は出ない  ⭐ 矛盾した数字を出すくらいなら数字を落とす (§4-4)',
+    m => {
+      const g = fmtGuard(m, [key]); if (g) return g;
+      const c = FMT_CASES[key], out = fmtOut(m, key);
+      const wantCls = expWon(c) ? CLS_WIN : CLS_LOSE;
+      const ok = hasCls(out, wantCls) && !hasCls(out, CLS_MARG);
+      return [ok, 'type="' + c.type + '" / 合計 ' + c.total + ' vs 目標 ' + c.target
+        + ' (算術の勝敗 = ' + (expMargin(c) >= 0 ? '成功' : '失敗')
+        + ' / type の勝敗 = ' + (expWon(c) ? '成功' : '失敗') + ')'
+        + '  → ' + JSON.stringify(String(out).slice(c.html.length))
+        + (hasCls(out, CLS_MARG) ? '  ⛔ 超過幅が出ている (勝敗を算術から引いている疑い)' : '')];
+    }]),
+
+  // ── §3 対象外 (触らないもの) ──────────────────────────────────────────────
+  ...[['3a', ['xSkill', 'xInit', 'xBuff']], ['3b', ['xFumble']],
+      ['3c', ['xInit2', 'xInitHit']], ['3d', ['xHelpless']]].map(([id, keys]) => [id,
+    '[対象外] ' + keys.map(k => FMT_CASES[k].form).join(' / ')
+      + ' → **出力が入力と完全一致** (out === input)',
+    m => {
+      const g = fmtGuard(m, keys); if (g) return g;
+      const bad = [], notes = [];
+      for (const k of keys) {
+        const c = FMT_CASES[k], out = fmtOut(m, k), ok = (out === c.html);
+        notes.push(k + ': ' + (ok ? '○ 同一' : '⛔ ' + JSON.stringify(String(out).slice(0, 120))));
+        if (!ok) bad.push(k);
+      }
+      return [bad.length === 0, notes.join('  ')];
+    }]),
+
+  // ── §4 恒等 (非退行) ──────────────────────────────────────────────────────
+  ['4a', '[恒等] 注釈された出力は**入力を前方一致プレフィックスとして含む** (out.startsWith(input))'
+    + '  ⭐ 既存 3 行が 1 文字も変わっていないことの機械証明 — 注釈対象 '
+    + FMT_ANNOT.length + ' ケース全部',
+    m => {
+      const g = fmtGuard(m, FMT_ANNOT); if (g) return g;
+      const bad = [];
+      for (const k of FMT_ANNOT) {
+        const c = FMT_CASES[k], out = fmtOut(m, k);
+        if (!(out.startsWith(c.html) && out.length > c.html.length)) bad.push(k);
+      }
+      return [bad.length === 0, FMT_ANNOT.length + ' ケース中 ' + (FMT_ANNOT.length - bad.length)
+        + ' 件が前方一致' + (bad.length ? '  ⛔ 崩れた: ' + bad.join(',')
+          + '  例: ' + JSON.stringify(String(fmtOut(m, bad[0])).slice(0, 130)) : '')];
+    }],
+
+  ['4b', '[恒等] 追加分は `<span class="' + CLS_VERDICT_LINE + '">` で始まり `</span>` で終わる'
+    + ' **1 塊のみ** (out.slice(input.length) を検査 / 判定行は出力全体でも 1 個)',
+    m => {
+      const g = fmtGuard(m, FMT_ANNOT); if (g) return g;
+      const open = '<span class="' + CLS_VERDICT_LINE + '">';
+      const bad = [];
+      for (const k of FMT_ANNOT) {
+        const c = FMT_CASES[k], out = fmtOut(m, k);
+        if (!out.startsWith(c.html)) { bad.push(k + '(前方一致でない)'); continue; }
+        const tail = out.slice(c.html.length);
+        const nOpen = countOf(out, open);
+        if (!(tail.startsWith(open) && tail.endsWith('</span>')
+              && countOf(tail, open) === 1 && nOpen === 1)) bad.push(k);
+      }
+      return [bad.length === 0, FMT_ANNOT.length + ' ケース中 ' + (FMT_ANNOT.length - bad.length)
+        + ' 件が「1 塊の追記」'
+        + (bad.length ? '  ⛔ 崩れた: ' + bad.join(',') : '')
+        + '  例: ' + JSON.stringify(String(fmtOut(m, 'a1')).slice(FMT_CASES.a1.html.length))];
+    }],
+
+  ['4c', '[恒等] #37 の年代記シーム: 実プレイで RunChronicle が技名を 1 件以上拾えている'
+    + '  ⭐ 罠 D の回帰検査 (showRollAtAlly の SKILL 検出より**後**に注釈しているか)',
+    m => {
+      const p = m.play;
+      if (!p || !p.started) return popFail('(4c) 実プレイの起動', (p && p.err) || '—');
+      if (!Array.isArray(p.skills)) {
+        return popFail('(4c) 年代記スパイ', 'RunChronicle.usedSkill を差し替えられなかった: '
+          + (p.chSpy || '—'));
+      }
+      const names = p.skills.map(s => s && s.name).filter(Boolean);
+      const viaAlly = p.skills.filter(s => s && s.ally).length;
+      const ok = names.length >= 1;
+      return [ok, '拾った技名 ' + names.length + ' 件 (うち showRollAtAlly 経由 ' + viaAlly + ' 件)'
+        + '  spy=' + JSON.stringify(p.chSpy || null)
+        + '  例: ' + JSON.stringify(names.slice(0, 5))
+        + (ok ? '' : '  ⛔ 1 件も拾えていない = 罠 D (SKILL 検出より前に注釈した) の疑い')];
+    }],
+
+  // ── §5 レイアウト ─────────────────────────────────────────────────────────
+  ['5a', '[レイアウト] 実プレイで `.' + CLS_VERDICT_LINE + '` を持つ `.rollPop` は'
+    + ' **hasVerdict class を持つ**',
+    m => {
+      const p = m.play;
+      if (!p || !p.started || !p.observerOk) return popFail('(5a) 実プレイの観測', (p && p.err) || '—');
+      const v = popWithVerdict(m);
+      if (v.length < POP_MIN) return popFail('(5a) 判定行つきの .rollPop', '(0d) が 0 枚');
+      const bad = v.filter(r => !r.hasVerdictClass);
+      return [bad.length === 0, '判定行つき ' + v.length + ' 枚 / hasVerdict つき '
+        + (v.length - bad.length) + ' 枚'
+        + (bad.length ? '  ⛔ class が付いていない ' + bad.length + ' 枚: '
+          + JSON.stringify(String(bad[0].cls)) : '')];
+    }],
+
+  ['5b', '[レイアウト] `.rollPop.hasVerdict` の getComputedStyle().marginTop が**負の値**'
+    + '  ⚠ transform では検査しない (罠 C。rollRise の値が返って永久緑になる)',
+    m => {
+      const p = m.play;
+      if (!p || !p.started || !p.observerOk) return popFail('(5b) 実プレイの観測', (p && p.err) || '—');
+      const v = popWithVerdict(m);
+      if (v.length < POP_MIN) return popFail('(5b) 判定行つきの .rollPop', '(0d) が 0 枚');
+      const vals = v.map(r => parseFloat(r.marginTop));
+      const bad = vals.filter(x => !(x < 0));
+      const uniq = Array.from(new Set(v.map(r => String(r.marginTop))));
+      return [bad.length === 0, '判定行つき ' + v.length + ' 枚の marginTop = ' + JSON.stringify(uniq)
+        + (bad.length ? '  ⛔ 負でないものが ' + bad.length + ' 枚 (margin-top が効いていない'
+          + ' = transform で逃がしている疑い)' : '')];
+    }],
+
+  ['5c', '[レイアウト] `.' + CLS_VERDICT_LINE + '` を持つ `.rollPop` の offsetWidth が 200px 未満'
+    + '  ⭐ white-space: nowrap で横に膨らんでいないことの検査 (§2-7)',
+    m => {
+      const p = m.play;
+      if (!p || !p.started || !p.observerOk) return popFail('(5c) 実プレイの観測', (p && p.err) || '—');
+      const v = popWithVerdict(m);
+      if (v.length < POP_MIN) return popFail('(5c) 判定行つきの .rollPop', '(0d) が 0 枚');
+      const ws = v.map(r => r.offsetWidth);
+      const bad = ws.filter(w => !(w > 0 && w < 200));
+      const mx = Math.max.apply(null, ws), mn = Math.min.apply(null, ws);
+      return [bad.length === 0, '判定行つき ' + v.length + ' 枚の offsetWidth = ' + mn + '〜' + mx + 'px'
+        + (bad.length ? '  ⛔ 200px 以上 (または 0) が ' + bad.length + ' 枚 = 横へ連結している疑い' : '')];
+    }],
+
+  // ── §6 撤退 ───────────────────────────────────────────────────────────────
+  ['6a', '[撤退] ' + RETREAT_QUERY + ' で実プレイ → `.rollPop` は ' + POP_MIN
+    + ' 枚以上出るが `.' + CLS_VERDICT_LINE + '` は **0 枚**'
+    + '  ⭐⭐⭐ 母集団ガードを同じページで同時に測る (0 枚だけでは自明に緑になる)',
+    m => {
+      const r = m.ref;
+      if (!r || !r.started || !r.observerOk) {
+        return popFail('(6a) 撤退アームの実プレイ', (r && r.err) || 'measurePlay(ref) が走っていない');
+      }
+      const pops = refPops(m), v = refWithVerdict(m);
+      if (pops.length < POP_MIN) {
+        return popFail('(6a) 撤退アームの .rollPop', '吹き出しが 1 枚も出ていない = 空振り');
+      }
+      const ann = pops.filter(isAnnotatable);
+      if (ann.length < POP_MIN) {
+        return popFail('(6a) 撤退アームの注釈対象',
+          pops.length + ' 枚のうち §4-5 の AND を満たすものが 0 枚 = 「判定行が 0」が自明に成立する');
+      }
+      return [v.length === 0, '撤退アーム: .rollPop ' + pops.length + ' 枚 / 注釈対象 '
+        + ann.length + ' 枚 / 判定行 ' + v.length + ' 枚'
+        + (v.length ? '  ⛔ ' + RETREAT_QUERY + ' でも判定行が出ている' : '')];
+    }],
+
+  ['6b', '[撤退] ' + RETREAT_QUERY + ' のページで hasVerdict class が **0 個**'
+    + ' (margin-top も #49 以前へ戻る)',
+    m => {
+      const r = m.ref;
+      if (!r || !r.started || !r.observerOk) {
+        return popFail('(6b) 撤退アームの実プレイ', (r && r.err) || 'measurePlay(ref) が走っていない');
+      }
+      const pops = refPops(m);
+      if (pops.length < POP_MIN) {
+        return popFail('(6b) 撤退アームの .rollPop', '吹き出しが 1 枚も出ていない = 空振り');
+      }
+      const ann = pops.filter(isAnnotatable);
+      if (ann.length < POP_MIN) {
+        return popFail('(6b) 撤退アームの注釈対象',
+          pops.length + ' 枚のうち §4-5 の AND を満たすものが 0 枚 = 自明に緑');
+      }
+      const hv = pops.filter(x => x.hasVerdictClass);
+      return [hv.length === 0, '撤退アーム: .rollPop ' + pops.length + ' 枚 / 注釈対象 '
+        + ann.length + ' 枚 / hasVerdict ' + hv.length + ' 個'
+        + (hv.length ? '  ⛔ ' + RETREAT_QUERY + ' でも class が付いている' : '')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -719,64 +1196,24 @@ const SECTIONS = [
 
   { title: '§1 必要出目 (⭐ 判定は `<b class="' + CLS_NEED + '">` の中身)'
       + ' — ⭐ 期待文字列は写経でなく **計算** (raw = 目標 - 合計 + 出目) で組む',
-    keys: [], pend: [
-      ['1a', '基本形 (A-1): `1d20(<b>12</b>)+6 = <span class="big">18</span><br>vs AC 14` / "hit" → `出目 8+`'
-        + ' (⭐ 2 経路照合: ドライバ側が 14 - 18 + 12 = 8 を自分で計算する)', '項目 2 が実装'],
-      ['1b', '`.big` が無い形 (A-2) でも同じ `出目 8+` が出る', '項目 2 が実装'],
-      ['1c', '`<br>` が無い形 (A-3 = `= 18 vs AC 14`) でも同じ `出目 8+` が出る', '項目 2 が実装'],
-      ['1d', '修正が 2 項の形 (A-4 = `+3装+2`) でも正しい必要出目が出る', '項目 2 が実装'],
-      ['1e', 'クランプ下限 (AC): raw = -2 → `出目 2+` (1 ではない)', '項目 2 が実装'],
-      ['1f', 'クランプ下限 (DC): raw = -2 → `出目 1+`  ⭐ (1e) と同じ値になったら赤', '項目 2 が実装'],
-      ['1g', 'クランプ上限 (AC): raw = 23 → `会心のみ`', '項目 2 が実装'],
-      ['1h', 'クランプ上限 (DC): raw = 23 → `届かない`', '項目 2 が実装'],
-    ] },
+    keys: ['1a', '1b', '1c', '1d', '1e', '1f', '1g', '1h'], pend: [] },
 
   { title: '§2 勝敗と超過幅 — ⭐ 勝敗は必ず type から引く (算術から引くと罠 B を踏む)',
-    keys: [], pend: [
-      ['2a', 'type="hit" → class="' + CLS_WIN + '" を含み class="' + CLS_LOSE + '" を含まない', '項目 2 が実装'],
-      ['2b', 'type="miss" → class="' + CLS_LOSE + '" を含み class="' + CLS_WIN + '" を含まない', '項目 2 が実装'],
-      ['2c', 'type="crit" → win / type="fumble" → lose', '項目 2 が実装'],
-      ['2d', '超過幅: 合計 18 / 目標 14 / "hit" → `+4`、合計 11 / 目標 14 / "miss" → `-3`'
-        + ' (⭐ 数値はドライバが total - target を自分で計算する)', '項目 2 が実装'],
-      ['2e', '⚠ 矛盾ケース (合計 11 / 目標 14 / "crit") で win は出るが class="' + CLS_MARG + '" が出ない', '項目 2 が実装'],
-      ['2f', '逆の矛盾ケース (合計 18 / 目標 14 / "miss") で lose かつ marg なし', '項目 2 が実装'],
-    ] },
+    keys: ['2a', '2b', '2c', '2d', '2e', '2f'], pend: [] },
 
   { title: '§3 対象外 (触らないもの) — ⛔ 出力が入力と**完全一致** (out === input)',
-    keys: [], pend: [
-      ['3a', 'type="skill" / "init" / "buff" は vs AC を含む HTML でも out === input', '項目 2 が実装'],
-      ['3b', '`FUMBLE!` の実形 (= が無い) → out === input', '項目 2 が実装'],
-      ['3c', '`INITIATIVE` の実形 (vs が無い) → out === input', '項目 2 が実装'],
-      ['3d', '`HELPLESS!` の実形 (無抵抗の敵に自動命中 ×2) → out === input', '項目 2 が実装'],
-    ] },
+    keys: ['3a', '3b', '3c', '3d'], pend: [] },
 
   { title: '§4 恒等 (非退行) — ⭐ 既存 3 行が 1 文字も変わっていないことの機械証明',
-    keys: [], pend: [
-      ['4a', '注釈された出力は入力を**前方一致プレフィックス**として含む (out.startsWith(input))', '項目 2 が実装'],
-      ['4b', '追加分は `<span class="' + CLS_VERDICT_LINE + '">` で始まり `</span>` で終わる 1 塊のみ', '項目 2 が実装'],
-      ['4c', '#37 の年代記シーム: 実プレイで RunChronicle が技名を 1 件以上拾えている (罠 D の回帰検査)', '項目 2 が実装'],
-    ] },
+    keys: ['4a', '4b', '4c'], pend: [] },
 
   { title: '§5 レイアウト — ⚠ transform では検査しない (罠 C。アニメーション中の値を読むと永久緑)',
-    keys: [], pend: [
-      ['5a', '実プレイで .' + CLS_VERDICT_LINE + ' を持つ .rollPop は hasVerdict class を持つ', '項目 2 が実装'],
-      ['5b', '.rollPop.hasVerdict の getComputedStyle().marginTop が**負の値**である', '項目 2 が実装'],
-      ['5c', '.' + CLS_VERDICT_LINE + ' を持つ .rollPop の offsetWidth が 200px 未満', '項目 2 が実装'],
-    ] },
+    keys: ['5a', '5b', '5c'], pend: [] },
 
   { title: '§6 撤退 ' + RETREAT_QUERY + ' — ⭐⭐⭐ 「0 枚」だけでは自明に緑になりうるので'
       + ' 同じページで (0c) の母集団ガードを必ず同時に測る',
-    keys: [], pend: [
-      ['6a', RETREAT_QUERY + ' で実プレイ → .rollPop は 1 枚以上出るが .' + CLS_VERDICT_LINE + ' は 0 枚', '項目 2 が実装'],
-      ['6b', RETREAT_QUERY + ' のページで hasVerdict class が 0 個', '項目 2 が実装'],
-    ] },
+    keys: ['6a', '6b'], pend: [] },
 ];
-/* ⭐ (1a)〜(1h) を実装するとき使う定数。⛔ need の literal は assert 側に散らさない。
- *  ⚠ 依頼書 §4-3 のクランプ表 — vs AC と vs DC で**規則が違う**。片方の写経は禁止。
- *    raw ≤ 1 → AC は 2 / DC は 1     (攻撃は nat1 が自動ミス。セーヴに特例なし)
- *    raw > 20 → AC は「会心のみ」 / DC は「届かない」 */
-const FLOOR_AC = 2, FLOOR_DC = 1, CAP_RAW = 20;
-
 // ══════════════════════════════════════════════════════════════════════════════
 // 本体
 // ══════════════════════════════════════════════════════════════════════════════
@@ -820,7 +1257,19 @@ const FLOOR_AC = 2, FLOOR_DC = 1, CAP_RAW = 20;
          (走行中に別窓が保存すると混合ビルドを測ることになる)。 */
       const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
       const m = { gen: genPointScan(served.body), servedBytes: served.body.length, errs: errs };
+      /* ⭐ §1〜§4 は純関数へ合成入力を直接食わせる (実プレイに頼らない = 並走に強い)。
+         ⛔ 実プレイより**先**に採る — 実プレイは 90〜150 秒かかるので、
+            そこで転んでも §1〜§4 の記録が残る。 */
+      m.fmt = await measureFmt(browser, PORT, errs, {});
       m.play = await measurePlay(browser, PORT, errs, {});
+      /* ⭐ (6a)(6b) の撤退アーム。⚠ 別ポート (RETREAT_PORT) から素の index.html を配り、
+            ?rolltarget=0 を足して実プレイする。⛔ 「判定行 0 枚」だけでは自明に緑なので
+            同じページで .rollPop と「注釈対象になりうる枚数」も同時に測る。 */
+      if (needRetreat) {
+        m.refErrs = [];
+        m.ref = await measureRetreat(browser, RETREAT_PORT, m.refErrs, { query: RETREAT_QUERY });
+        for (const e of m.refErrs) errs.push(e);
+      }
 
       for (const sec of SECTIONS) {
         if (sec.keys.length === 0 && sec.pend.length === 0) continue;
@@ -852,8 +1301,17 @@ const FLOOR_AC = 2, FLOOR_DC = 1, CAP_RAW = 20;
           + ' / "rollPop " + type ' + m.gen.nCls + ' / html2 ' + m.gen.nNew
           + ' / 素の html ' + m.gen.nOld + ')'
         : '⛔ ' + m.gen.err));
-      console.log('       クランプ規則 (項目 2 が使う): AC の下限 ' + FLOOR_AC
+      console.log('       クランプ規則: AC の下限 ' + FLOOR_AC
         + ' / DC の下限 ' + FLOOR_DC + ' / 上限 raw > ' + CAP_RAW);
+      console.log('       撤退アーム ' + (m.ref
+        ? ':' + RETREAT_PORT + RETREAT_QUERY + '  起動 ' + (m.ref.started ? 'OK' : '⛔ NG')
+          + '  .rollPop ' + refPops(m).length + ' 枚 / 注釈対象 '
+          + refPops(m).filter(isAnnotatable).length + ' 枚 / 判定行 ' + refWithVerdict(m).length + ' 枚'
+        : '— (needRetreat=false)'));
+      console.log('       合成入力 ' + FMT_ORDER.length + ' ケース (注釈対象 ' + FMT_ANNOT.length
+        + ' / 対象外 ' + (FMT_ORDER.length - FMT_ANNOT.length) + ')  追記の実物 = '
+        + JSON.stringify(m.fmt && m.fmt.a1 && typeof m.fmt.a1.out === 'string'
+          ? m.fmt.a1.out.slice(FMT_CASES.a1.html.length) : null));
 
       mark('事故の記録 (判定は (4c) = 項目 2 の担当。⛔ ここで黙って捨てない)');
       console.log('       素のアームの pageerror / console.error: ' + errs.length + ' 件'
@@ -892,12 +1350,13 @@ const FLOOR_AC = 2, FLOOR_DC = 1, CAP_RAW = 20;
           const port = MUTATIONS[k].driver ? PORT : PORT_OF[k];
           const servedNeg = await httpGet('http://localhost:' + port + PAGE_PATH);
           const mm = { gen: genPointScan(servedNeg.body), servedBytes: servedNeg.body.length, errs: negErrs };
+          mm.fmt = await measureFmt(browser, port, negErrs, {});
           mm.play = await measurePlay(browser, port, negErrs, {});
           const wantRef = MUTATIONS[k].targets.concat(MUTATIONS[k].record || [])
             .some(t => REF_ASSERTS[t]);
           if (wantRef) {
             mm.refErrs = [];
-            mm.ref = await measurePlay(browser, port, mm.refErrs, { query: RETREAT_QUERY });
+            mm.ref = await measureRetreat(browser, port, mm.refErrs, { query: RETREAT_QUERY });
           }
           for (const key of MUTATIONS[k].targets) {
             const a = ASSERT_OF[key];
