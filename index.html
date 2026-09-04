@@ -3380,12 +3380,47 @@
 
     // ── シナリオ別シームレステクスチャ (ワールド座標アンカーで連続描画) ──
     // 新シナリオの素材を追加するときは下の SCENARIO_TEX に1行足すだけでよい
+    /* ══ 街道の襲撃 (#51 §6-1) — 潜行側の入口 ═════════════════════════════════════
+     * ⭐ world.html が書いた積荷 dragonfighters.roadBattle を **最優先で消費する**。
+     *   consumeRoadBoon / consumePendingSummon と同型: getItem → removeItem → 適用。
+     *   **キーが無い = 通常の潜行**(⛔ questFlags の「無い = 開放」とは逆)。
+     * ⛔ currentScenario / generatedScenario は **読まない・書かない**。酒場が焼いた本命の
+     *   クエストを 1 バイトも汚さない (#51 §2-8 の罠 F。誰も元へ戻さないので、上書きすると
+     *   その後クエスト地へ入場したときに襲撃シナリオが起動する)。
+     * ⚠⚠ ここまで **上げてある**理由 = すぐ下の _scenIdForTex (どのテクスチャ/情景を敷くか) と
+     *   _builtinScenId (既定 6 シナリオの分岐グラフを載せるか) が、どちらもこの値を要るから。
+     *   下の生成クエスト解決まで下ろすと、街道の襲撃に **本命クエストの地形と分岐グラフ**が載る。
+     * ⛔ 撤退 ?ambush=0 のときは読みも消しもしない (#51 §6-6。判定は 2 ページで独立)。 */
+    const ROAD_AMBUSH_ON = new URLSearchParams(window.location.search).get("ambush") !== "0";
+    let _roadBattle = null;
+    (function consumeRoadBattle() {
+      if (!ROAD_AMBUSH_ON) return;
+      let raw = null;
+      try { raw = sessionStorage.getItem("dragonfighters.roadBattle"); } catch (e) {}
+      if (!raw) return;
+      try { sessionStorage.removeItem("dragonfighters.roadBattle"); } catch (e) {}
+      let o = null;
+      try { o = JSON.parse(raw); } catch (e) { o = null; }
+      if (o && typeof o === "object" && !Array.isArray(o)) _roadBattle = o;
+    })();
+    /* このランが街道の襲撃かどうか。⭐ 下流 (敗北条件 / 報酬 / 消耗) はこの 1 つだけを見る。 */
+    const roadAmbushRun = !!_roadBattle;
+
     // 生成クエスト (酒場の掲示板) があれば themeId をテクスチャ/情景のテーマ選択に優先採用
     let _genScenForTex = null;
     try {
       const _gtRaw = sessionStorage.getItem("dragonfighters.generatedScenario");
       _genScenForTex = _gtRaw ? JSON.parse(_gtRaw) : null;
     } catch (e) { _genScenForTex = null; }
+    /* ★ 街道の襲撃 (#51): テクスチャ / 幾何 / 分岐グラフの引き当てを **7.9-3 隊商護衛と同じ扱い**へ倒す。
+     * ⭐ 1 行で済むのは、下の _scenIdForTex (themeId) も _builtinScenId (既定シナリオか) も
+     *   RUN のグラフ出所 (_genScenForTex.run) も MAPDEF の解決も、**すべてこの 1 変数だけ**を
+     *   見ているから。⛔ 4 つの式をそれぞれ書き換えない (書き換えた瞬間に「片側だけ効く」状態が生まれる)。
+     * ⛔ sessionStorage の generatedScenario は読みも書きもしていない —— 差し替えるのは
+     *   **このページの局所変数**だけ ((2b) が走行の前後で storage の 2 キーを縛る)。
+     * ⚠ _roadBattle は run も mapDef も持たないので RUN=null / MAPDEF.isCustom=false =
+     *   7.9-3 と同じ「単一マップの屋外」に落ちる。 */
+    if (_roadBattle) _genScenForTex = _roadBattle;
     const _scenIdForTex = (_genScenForTex && _genScenForTex.themeId)
       ? _genScenForTex.themeId
       : (sessionStorage.getItem("dragonfighters.currentScenario") || "goblin-mine");
@@ -10164,7 +10199,43 @@
       _genScenario = _gsRaw ? JSON.parse(_gsRaw) : null;
     } catch (e) { _genScenario = null; }
     let scenarioId, currentScenario;
-    if (_genScenario) {
+    if (_roadBattle) {
+      /* ══ 街道の襲撃 (#51 §6-1) — **シナリオ解決の最優先** ══════════════════════
+       * ⭐ 消費そのものは上 (_scenIdForTex の直前) で済んでいる。ここは組み立てるだけ。
+       * ⛔ progress / cleared に載る経路へは流さない —— scenarioId は既定 6 シナリオにも
+       *   "generated-quest" にも一致しない "road-ambush" 固定なので、反復可のまま。
+       * ⚠ 敵キーの検疫は生成クエストと **同じ式**を使う (未知キーが混ざると
+       *   spawnWave / createEnemy が落ちる)。⛔ 空フォールバックは張らない ——
+       *   街道の襲撃で spawns が空になるのは積荷が壊れているときだけで、そこで
+       *   goblin-mine の座標へ落とすと「ゴブリン鉱山の敵が街道に湧く」化けバグになる。
+       * ⛔ magicItemChance は上書きしない (既定 1% のまま) / ⛔ fangReward は使わない
+       *   (闇市の通貨なので街道では出さない)。 */
+      scenarioId = "road-ambush";
+      const _ambSpawns = (Array.isArray(_roadBattle.spawns) ? _roadBattle.spawns : [])
+        .filter(s => Array.isArray(s) && ENEMY_TYPES[s[0]]);
+      currentScenario = {
+        /* ⭐ 見出しは積荷が持っていればそれを使う (#52 が AMBUSH_FIELD を差し替えるときに
+           index.html を触らずに済む)。無ければこの既定で通す。 */
+        title: (typeof _roadBattle.title === "string" && _roadBattle.title) ? _roadBattle.title
+                                                                           : "街道の襲撃",
+        flavor: (typeof _roadBattle.flavor === "string" && _roadBattle.flavor) ? _roadBattle.flavor
+          : "傾いた幌車のまわりで、影が跳ねている。",
+        perceptionDC: _roadBattle.perceptionDC || 14,
+        trapCount: _roadBattle.trapCount || 0,
+        hiddenChestCount: _roadBattle.hiddenChestCount || 0,
+        clearXp: _roadBattle.clearXp || 0,
+        // ⭐ #51 §2-9: trapCount / hiddenChestCount が 0 = 金貨の湧き口が 1 つも無いので
+        //    クリア報酬で払う。素通し口は showResult の earnedGold に 1 本だけ足してある。
+        clearGold: _roadBattle.clearGold || 0,
+        spawns: _ambSpawns,
+        source: null,
+        fangReward: 0,
+        wagonSpawns: Array.isArray(_roadBattle.wagonSpawns) ? _roadBattle.wagonSpawns : null,
+        waves: Array.isArray(_roadBattle.waves) ? _roadBattle.waves : null,
+        magicItemChance: null,
+        closingFlavor: null,
+      };
+    } else if (_genScenario) {
       scenarioId = "generated-quest";
       const _safeSpawns = (Array.isArray(_genScenario.spawns) ? _genScenario.spawns : [])
         .filter(s => Array.isArray(s) && ENEMY_TYPES[s[0]]);   // 未知敵キーを除外 (クラッシュ防止)
@@ -20640,9 +20711,11 @@
         //   ここで gameOver を立てると下の VICTORY 分岐 (!(hp<=0||gameOver)) はスキップされ、
         //   index.html の setInterval 監視 (dungeonCleared/gameOver) が showResult(false) を発火する。
         //   ⚠️ PC 全員生存 (hp>0) でも馬車全損なら敗北 = escortWagonLost() を単独の敗北条件にする。
+        //   ★ #51 街道の襲撃: 敗北にするかどうかは escortWagonLossEndsRun() の 1 本だけが決める
+        //      (7.9-3 = true で従来どおり / 街道の襲撃 = false で文だけ出して続行)。
         if (!gameOver && hp > 0 && escortWagonLost()) {
           updateInfo("隊商は失われた…");
-          gameOver = true;
+          if (escortWagonLossEndsRun()) gameOver = true;
         }
 
         if (!(hp <= 0 || gameOver)) {
@@ -31731,6 +31804,15 @@
       return wagonIndices.every(i => !enemies[i] || !enemies[i].alive);
     }
 
+    /* ★ 街道の襲撃 (#51 §6-2): 護衛対象の全損が **潜行そのものの敗北になるか**。
+     * ⭐ 7.9-3「隊商護衛」(闇市の稀少クエスト) は従来どおり敗北 = true。⛔ 1 バイトも変えない。
+     * ⭐ 街道の襲撃は **通りすがり**なので false —— 文だけ出して潜行は続く。
+     *   ここで全滅扱いにすると「本命のクエストへ向かう途中で潜行が終わる」という、
+     *   プレイヤーから見て理不尽な打ち切りになる (罰は §6-3 の「金貨が入らない」で与える)。
+     * ⚠ 値をここへ 1 本に絞ってあるのは、敗北確定の枝 (STEP7) を読む側が
+     *   「どのクエストか」を知らずに済むようにするため。⛔ 枝側に条件を書き足さない。 */
+    function escortWagonLossEndsRun() { return !roadAmbushRun; }
+
     // pool 未指定時の既定。⚠️ 企画書の 4 種のうち Wolf / Worg は ENEMY_TYPES に存在しない (実検索で 0 ヒット。
     //   唯一の「狼」は goblinRider の flavor 文「狼にまたがる突撃槍兵」)。実在キーのみで構成する。
     const WAVE_DEFAULT_POOL = ["goblin", "goblinArcher", "hobgoblin", "goblinRider"];
@@ -33247,6 +33329,42 @@
       }
     })();
 
+    /* ══ 街道の消耗 (#51 §6-4) — 街道の襲撃で負った傷を本命の潜行へ持ち越す ══════════
+     * ⭐ 上の consumePendingSummon / consumeRoadBoon と同型: getItem → removeItem → 適用。
+     *   **キーが無い = 何も起きない**。
+     * ⚠⚠⚠ 位置が仕様の一部 (#51 §2-10):
+     *   ① applyAccessoryHpBonus より **後** —— 前に置くと `hp = maxHp` で上書きされて消える
+     *   ② consumePendingSummon より **前** —— 後に置くと召喚が編成へ入って allies の添字がずれる
+     *   ③ consumeRoadBoon より **前** —— #47 の「糧」(hp = maxHp) が傷を癒やす形になる。
+     *      これは事故ではなく設計 (「街道で得た糧が効いている」という既存の文言と意味が一致する)。
+     * ⛔ 人数が食い違ったら **丸ごと捨てる** (部分適用しない)。編成が変わった後の比率は
+     *   誰の傷なのか決められないので、黙って半端に適用するより何もしないほうが正しい。
+     * ⭐ 下限 1 HP。0 で保存すると次の潜行が開始即死になる。 */
+    (function consumeRoadWounds() {
+      if (!ROAD_AMBUSH_ON) return;                   /* 撤退 ?ambush=0 —— ⛔ removeItem もしない */
+      let raw = null;
+      try { raw = sessionStorage.getItem("dragonfighters.roadWounds"); } catch (e) {}
+      if (!raw) return;
+      try { sessionStorage.removeItem("dragonfighters.roadWounds"); } catch (e) {}
+      let o = null;
+      try { o = JSON.parse(raw); } catch (e) { o = null; }
+      if (!o || !Array.isArray(o.hp)) return;
+      const n = 1 + allies.length;                   /* [player, ...allies] */
+      if (o.n !== n || o.hp.length !== n) return;    /* ⛔ 人数不一致は丸ごと捨てる */
+      const want = [];
+      for (let i = 0; i < n; i++) {
+        const r = Number(o.hp[i]);
+        if (!isFinite(r)) return;                    /* ⛔ 1 つでも壊れていたら丸ごと捨てる */
+        want.push(Math.max(0, Math.min(1, r)));
+      }
+      const put = (m, r) => Math.max(1, Math.min(m, Math.round(m * r)));   /* ⭐ 下限 1 HP */
+      hp = put(maxHp, want[0]);
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        a.hp = put(a.maxHp || 1, want[i + 1]);
+      }
+    })();
+
     // ── 闇市 召喚 (M8): 出発時に酒場で選んだ召喚スクロールを消費してユニットを編成へ ──
     // チャージ消費は index 側に一本化 (酒場は選択を pendingSummon へ載せるだけ)。allies 構築・
     // レベル適用が済んだ後に追加するので、召喚ユニットは装備/呪文/レベル処理に巻き込まれない。
@@ -33296,6 +33414,14 @@
         }
       }
     })();
+
+    /* ★ 街道の襲撃 (#51 §6-1): 判定に成功して回り込めていたら、最初の交戦で敵の初手を潰す。
+     * ⭐ #47 の「街道の備え」と **同じ roadVigilance / applyRoadVigilance** に相乗りする。
+     *   ⛔ 新しい戦闘機構を作らない (依頼書 §6-1)。⛔ 2 本目のフラグを増やさない ——
+     *     増やすと「片方だけ消費されて片方が残る」状態が生まれる。
+     * ⚠ consumeRoadBoon の **後**に置く = 「街道で得たもの」が全部済んでから奇襲を立てる読み順。
+     *   (#47 の備えを既に持っていた場合でも、フラグは 1 つなので 2 重には効かない。) */
+    if (roadAmbushRun && _roadBattle.surprise === true) roadVigilance = true;
 
     /* ★[P1 再入可能化] 旧「起動時 1 回だけのスポーン一括」を関数へ括り出した。
      *   **呼び出し順・呼び出し回数は 1 つも変えていない**ので、起動時の挙動は 1 bit も変わらない。 */
@@ -36390,6 +36516,44 @@
     const resultBtnEl     = document.getElementById("resultBtn");
     let resultShown = false;
     let resultEndingPending = false;   // dragon-lair クリア時: 結果ボタンを playEnding へ誘導
+
+    /* ══ 街道の襲撃 (#51 §6-4) — 消耗を次の潜行へ持ち越す ══════════════════════════
+     * ⭐ 持つのは **比率** (hp / maxHp)。生の HP を持ち越すと、次の潜行で装備やレベルが
+     *   変わって maxHp が動いた瞬間に意味が壊れる。
+     * ⭐ n = [player, ...allies] の人数。消費側 (consumeRoadWounds) はここが食い違ったら
+     *   丸ごと捨てる ——「誰の傷か」を決められない状態で半端に適用しないため。
+     * ⛔ 下限クランプはここではなく **消費側**に置く。保存値は「このランの実測」であって、
+     *   救済は次のランの都合だから (ここでクランプすると 0 で死んだ仲間が「9% 残っていた」に化ける)。 */
+    function writeRoadWounds() {
+      const r = (h, m) => {
+        const v = (Number(m) > 0) ? Number(h) / Number(m) : 1;
+        return Math.max(0, Math.min(1, isFinite(v) ? v : 1));
+      };
+      const ratios = [r(hp, maxHp)].concat(allies.map(a => r(a.hp, a.maxHp)));
+      try {
+        sessionStorage.setItem("dragonfighters.roadWounds",
+          JSON.stringify({ n: ratios.length, hp: ratios }));
+      } catch (e) { /* sessionStorage 失敗は無視 */ }
+    }
+
+    /* ══ 街道の襲撃 (#51 §6-5) — 負けたら街まで戻す ══════════════════════════════
+     * ⛔ roadWounds は書かない (負けの代償は「街道の一往復」であって傷ではない)。
+     * ⚠⚠⚠ **依頼書 §6-5 の「roadReturn を removeItem すれば spawnFor のフォールバックで
+     *   港町へ戻る」は実測で崩れた。** world.html は spawnFor("dungeon", currentScenario) を
+     *   呼び、その currentScenario は酒場が焼いた **本命のクエスト id** のまま (index は
+     *   書き換えない = 罠 F)。js/world-map.js の SITES にはその id が載っているので、
+     *   キーを消すと phlan ではなく **目的地の前へワープする** = 負けたほうが得になる。
+     *   (2026-09-04 実測: spawnFor("dungeon","lizard-swamp") → "swamp")
+     * ⇒ 消すのではなく **帰り先そのものを港町へ書き換える**。world.html 側は walkNodes() に
+     *   在る id をそのまま採り、使ったら空文字で潰すので一回性は 1 バイトも変わらない。
+     * ⛔ js/world-map.js / world.html は 1 バイトも触らない (sha1 と配信バイトが固定されている)。
+     * ⚠ 万一この id が地図から消えても world.html 側は「walkNodes に無い」で従来の
+     *   spawnFor へ落ちるだけ = 静かに壊れるのではなく従来の挙動へ退化する。 */
+    const ROAD_RETURN_HOME = "phlan";
+    function resetRoadReturnHome() {
+      try { sessionStorage.setItem("dragonfighters.roadReturn", ROAD_RETURN_HOME); } catch (e) {}
+    }
+
     function showResult(win) {
       if (window.__diag) window.__diag.beat("result", win);   // 自動デバッグ: 結果発火 (二重検出のためガード前)
       if (resultShown) return;
@@ -36410,7 +36574,15 @@
       let reward = null;
       if (win) {
         // 勝利: このランで拾った金貨と装備を永続化
-        const earnedGold = coins;
+        /* ★ 街道の襲撃 (#51 §6-3): クリア報酬の金貨。⭐ 素通しは **この 1 本だけ** ——
+         *   街道の襲撃は trapCount / hiddenChestCount が 0 = 宝箱が 1 つも無く、敵の撃破では
+         *   coins が増えないので、ここが無いと勝っても金貨が 0 になる (#51 §2-9 の実測)。
+         * ⛔ 馬車を守れなかったときは 0 (罰は数値ではなく結末で与える)。
+         * ⚠ 既存 6 シナリオ / 従来の生成クエスト / 7.9-3 は clearGold を持たないので
+         *   常に 0 = 1 バイトも変わらない (escortWagonLost() も馬車の無い盤面では常に false)。 */
+        const clearGold = (currentScenario && currentScenario.clearGold > 0 && !escortWagonLost())
+          ? currentScenario.clearGold : 0;
+        const earnedGold = coins + clearGold;
         const newTotalGold = persistent.gold + earnedGold;
         // ✨ クリア報酬: 既定 1% でマジックアイテム抽選 (「クリア報酬の宝箱」)。付与は currentWeaponIndex に反映。
         //    闇市・稀少ボス「単眼の暴君」戦のみ currentScenario.magicItemChance(=0.25) で確率を上書き。
@@ -36519,6 +36691,13 @@
           resultRewardEl.innerHTML +=
             '<br><span style="font-size:13px">' + chDefeatLine + "</span>";
         }
+      }
+      /* ══ 街道の襲撃の後始末 (#51 §6-4 / §6-5) ══════════════════════════════════
+         ⭐ 勝ち = 傷を負って先へ進む / 負け = 無傷だが街まで戻される、という非対称な 2 本。
+         ⛔ 街道の襲撃でない潜行では 1 命令も走らない (roadAmbushRun が偽)。 */
+      if (roadAmbushRun) {
+        if (win) writeRoadWounds();
+        else resetRoadReturnHome();
       }
       // 最終ボス(dragon-lair)クリア時のみ、結果ボタンをエンディングへ誘導する。
       // autoplay/自動巡回検証は従来どおり「酒場に戻る」で直行(=検証が完走する)。

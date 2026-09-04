@@ -299,6 +299,45 @@ const PARTY_MEMBERS = [
 const D20_WIN = 0.999;    /* → d20 = 20 (クリティカル成功) */
 const D20_LOSE = 0.0;     /* → d20 = 1  (ファンブル失敗) */
 
+/* ── 潜行側 (index.html) の測定パラメタ — 項目 3 が足した §2 / (3c) / (5b) ──────
+ * ⭐⭐⭐ 測り方 = sessionStorage へ値を置いてから index.html を開き、モジュール直下の
+ *   let/const (scenarioId / currentScenario / hp / maxHp / allies / roadAmbushRun …) を
+ *   **グローバル字句環境ごしに**読む (verify_road_boon の観測 C と同じ型)。
+ *   ⛔ 本番へ測定専用の window シームを 1 つも足していない。
+ * ⚠ index.html の run 開始 (formation 構築 → applyAccessoryHpBonus → consumeRoadWounds →
+ *   consumePendingSummon → consumeRoadBoon) は **読み込み時**に走る。gameStarted は false の
+ *   ままでよく、「キーかマウスを押すとスタート」の前でも hp / currentScenario は読める。 */
+const PAGE_INDEX = '/index.html';
+const WAIT_INDEX = 'typeof maxHp !== "undefined" && typeof allies !== "undefined"'
+  + ' && typeof currentScenario !== "undefined" && !!document.getElementById("combatLog")';
+const KEY_LAST = 'dragonfighters.lastResult';
+const KEY_EXIT_VIA = 'dragonfighters.exitVia';
+/* ⭐ 本命のクエスト。⛔ 街道の襲撃は **この 2 キーを 1 バイトも動かしてはいけない** ((2b) の罠 F)。
+ * ⚠⚠⚠ MAIN_SCEN は js/world-map.js の SITES に **実在する** id を選ぶ —— (3c) の対照
+ *   「roadReturn を消しただけでは spawnFor が目的地の前へ立たせる」を測るのに要る
+ *   (2026-09-04 実測: spawnFor("dungeon","lizard-swamp") は phlan ではなく swamp を返す)。 */
+const MAIN_SCEN = 'lizard-swamp';
+const MAIN_GEN = JSON.stringify({ title: '本命の依頼', themeId: 'lizard-swamp',
+  clearXp: 111, spawns: [['goblin', 30, 14]] });
+/* ⭐ 7.9-3 (闇市の隊商護衛) の腕。⛔ tavern.html は 1 バイトも触らないので、ドライバが
+ *   同じ形のペイロードを置いて **同じ配線**を通す ((2g) の対照 = 従来どおり敗北すること)。
+ * ⚠ 敵キー / 座標は index.html の検疫を通る実在値 (未知キーだと spawns が空になって化ける)。 */
+const ESCORT_GEN = JSON.stringify({ title: '隊商護衛', themeId: 'caravan-road',
+  clearXp: 300, trapCount: 0, hiddenChestCount: 0,
+  wagonSpawns: [{ tx: 9, ty: 14 }],
+  waves: [{ count: 3, pool: ['goblin', 'goblinArcher'] }],
+  spawns: [['goblin', 14, 13], ['goblinArcher', 15, 13], ['goblin', 14, 14]] });
+/* ⭐ (2c) が使う消耗の比率。⛔ ドライバが roadWounds を組み立てるのではなく、
+ *   **本番の showResult(true) に書かせた JSON をそのまま**次の起動へ渡す (2 経路の突き合わせ)。 */
+const WOUND_RATIOS = [0.62, 1, 0.31, 0.85];
+const WOUND_TOL = 0.03;      /* hp は整数なので 1/maxHp ぶんの丸めが必ず乗る */
+/* ── (4b) world.html の storage の数 (⛔ 着手前の実測。緩めない) ────────────────
+ * 2026-09-04 実測 = sessionStorage.removeItem 1 件 (questDest) / localStorage 0 件。
+ * ⭐ 罠 D (#51 §2-6) の番人。index.html 側は removeItem を使ってよいが world 側は不可。 */
+const BASE_WORLD_SREMOVE = 1;
+const BASE_WORLD_LSET = 0;
+const BASE_WORLD_LREMOVE = 0;
+
 /* ── (0d) 基準列 ─────────────────────────────────────────────────────────────
  * ⚠⚠⚠ **固定値**。2026-09-04 / HEAD = bdc6880 (襲撃機能が 1 バイトも無い木) の実測。
  *   採取: world.html?roadseed=<種> → __world が立つまで待つ → 400ms → RE.rnd() を 32 回。
@@ -1032,6 +1071,165 @@ async function measureResume(browser, port, errs, opts) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 観測 G) 潜行側 (index.html) — §2 (2a)〜(2g) / §3 (3c) / §5 (5b)
+//   ⭐⭐⭐ 駆動は **本番の関数を叩くだけ** (showResult / escortWagonLost /
+//     escortWagonLossEndsRun)。⛔ 測定専用のシームを index.html へ 1 つも足していない。
+//   ⛔ ?autoplay を使わない —— 分単位で揺れるうえ、勝敗を選べない。
+//   ⚠ 1 ページ = 1 回の showResult (resultShown のラッチがあるので 2 回目は黙って無視される)。
+// ══════════════════════════════════════════════════════════════════════════════
+/* ⚠ この関数は puppeteer がページへ**丸ごと送る**。ドライバのスコープを 1 つも掴まないこと
+   (掴むと "X is not defined" になり、症状は「値が全部 null」= 実装の欠陥に見える)。 */
+function readIndexAmbush(K) {
+  const g = (f) => { try { return f(); } catch (e) { return '(ERR ' + String(e && e.message).slice(0, 60) + ')'; } };
+  const s = (k) => { try { return sessionStorage.getItem(k); } catch (e) { return '(throw)'; } };
+  return {
+    href: location.href,
+    scenarioId: g(() => scenarioId),
+    ambushOn: g(() => ROAD_AMBUSH_ON),
+    ambushRun: g(() => roadAmbushRun),
+    theme: g(() => _scenIdForTex),
+    scen: g(() => ({
+      title: currentScenario.title,
+      waves: Array.isArray(currentScenario.waves) ? currentScenario.waves.length : null,
+      wagons: Array.isArray(currentScenario.wagonSpawns) ? currentScenario.wagonSpawns.length : null,
+      spawns: Array.isArray(currentScenario.spawns) ? currentScenario.spawns.length : null,
+      clearXp: currentScenario.clearXp || 0,
+      clearGold: currentScenario.clearGold || 0,
+      trap: currentScenario.trapCount, chest: currentScenario.hiddenChestCount,
+    })),
+    /* ⭐ 盤面に馬車が **実際に湧いたか** ((2f)(2g) の母集団)。⛔ ペイロードの件数では代用しない
+       —— wagonSpawns を素通ししても spawnWagon が落ちれば 0 体になる。 */
+    wagons: g(() => wagonIndices.length),
+    wagonLost: g(() => escortWagonLost()),
+    /* ⭐ (2g) が読む値の**唯一の供給口**。⛔ typeof で守る (未実装のときに ReferenceError で
+       他の観測ごと落とさない)。 */
+    endsRun: g(() => (typeof escortWagonLossEndsRun === 'function')
+      ? escortWagonLossEndsRun() : '(escortWagonLossEndsRun が無い)'),
+    coins: g(() => coins),
+    hp: g(() => hp), maxHp: g(() => maxHp),
+    allies: g(() => allies.map(a => ({ cls: a.classKey, hp: a.hp, maxHp: a.maxHp }))),
+    store: { battle: s(K.battle), ret: s(K.ret), wounds: s(K.wounds),
+      scen: s(K.scen), gen: s(K.gen), last: s(K.last) },
+  };
+}
+const IDX_KEYS = { battle: KEY_BATTLE, ret: KEY_RETURN, wounds: KEY_WOUNDS,
+  scen: KEY_SCEN, gen: KEY_GENSCEN, last: KEY_LAST };
+/* [player, ...allies] の hp/maxHp。⛔ 生の hp では比べない (maxHp は編成で変わる)。 */
+function ratiosOf(v) {
+  if (!v || typeof v.maxHp !== 'number' || !Array.isArray(v.allies)) return null;
+  const r = (h, m) => ((typeof m === 'number' && m > 0) ? h / m : null);
+  return [r(v.hp, v.maxHp)].concat(v.allies.map(a => r(a.hp, a.maxHp)));
+}
+/* reward.gold は lastResult にしか出ない (画面の innerHTML は整形済み)。 */
+function rewardOf(v) {
+  const raw = (v && v.store) ? v.store.last : null;
+  if (!raw) return null;
+  try { return (JSON.parse(raw) || {}).reward || null; } catch (e) { return null; }
+}
+async function measureIndexAmbush(browser, port, errs, opts) {
+  opts = opts || {};
+  const out = { tag: opts.tag || 'idx', query: opts.query || '', errs: [],
+    seeded: { battle: !!opts.battle, wounds: opts.wounds || null,
+      scen: opts.scen || null, gen: !!opts.gen } };
+  const page = await browser.newPage();
+  hookErrors(page, out.errs, '[:' + port + PAGE_INDEX + (opts.query || '') + ' ' + out.tag + '] ');
+  /* ⭐ 仕込みは **遷移前**。⚠ 指定が無いキーは明示的に消す (前の走行の残りが次の期待値を汚す)。 */
+  await page.evaluateOnNewDocument((s) => {
+    const set = (k, v) => {
+      try { if (v === null || v === undefined) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) {}
+    };
+    set(s.kMem, s.mem); set(s.kComp, s.comp);
+    set(s.kBattle, s.battle); set(s.kWounds, s.wounds);
+    set(s.kScen, s.scen); set(s.kGen, s.gen); set(s.kRet, s.ret);
+    set(s.kLast, null);
+  }, { kMem: KEY_PARTY_MEM, kComp: KEY_PARTY_COMP, kBattle: KEY_BATTLE, kWounds: KEY_WOUNDS,
+    kScen: KEY_SCEN, kGen: KEY_GENSCEN, kRet: KEY_RETURN, kLast: KEY_LAST,
+    mem: JSON.stringify(PARTY_MEMBERS), comp: JSON.stringify(PARTY4),
+    battle: opts.battle || null, wounds: opts.wounds || null,
+    scen: opts.scen || null, gen: opts.gen || null, ret: opts.ret || null });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_INDEX + (opts.query || ''),
+    { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(WAIT_INDEX, { timeout: 45000 });
+  await settle(page);
+  out.boot = await page.evaluate(readIndexAmbush, IDX_KEYS);
+  /* ⭐ 消耗を「作る」= 本番の hp をこのランで削る。⛔ roadWounds を直に書かない
+     (書き出しの経路そのものを (2c) が測るため)。 */
+  if (Array.isArray(opts.hpSet)) {
+    out.hpApplied = await safeEval(page, (rs) => {
+      const put = (m, r) => Math.max(1, Math.min(m, Math.round(m * r)));
+      hp = put(maxHp, rs[0]);
+      for (let i = 0; i < allies.length; i++) {
+        allies[i].hp = put(allies[i].maxHp, (rs[i + 1] === undefined) ? 1 : rs[i + 1]);
+      }
+      return { hp: hp, maxHp: maxHp, allies: allies.map(a => ({ hp: a.hp, maxHp: a.maxHp })) };
+    }, opts.hpSet);
+  }
+  /* ⭐ 馬車の全損。⛔ ダメージ計算を再実装しない —— alive を落として本番の
+     escortWagonLost() が真になることまで確かめる。 */
+  if (opts.killWagon) {
+    out.killed = await safeEval(page, () => {
+      const idx = wagonIndices.slice();
+      idx.forEach(i => { if (enemies[i]) { enemies[i].alive = false; enemies[i].hp = 0; } });
+      return { n: idx.length, lost: escortWagonLost() };
+    });
+  }
+  if (typeof opts.result === 'boolean') {
+    out.resultCall = await safeEval(page, (w) => {
+      try { showResult(w); return 'ok'; } catch (e) { return 'ERR ' + ((e && e.message) || e); }
+    }, opts.result);
+    await sleep(500);
+    out.after = await page.evaluate(readIndexAmbush, IDX_KEYS);
+  }
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 H) (3c) 負けたら港町 — world → index (敗北) → world → world
+//   ⭐⭐⭐ 注入元を **index.html の敗北そのもの**にしてある (measureResume のように
+//     ドライバが roadReturn を書き換えるのではなく、本番の showResult(false) に書かせる)。
+//   ⭐ 3 つ目の開き直しが **対照**: 「キーを消しただけ」なら spawnFor が返すのは
+//     SITES[currentScenario] = 本命クエストの地であって phlan ではない、という実測を残す。
+// ══════════════════════════════════════════════════════════════════════════════
+async function measureDefeatReturn(browser, port, errs, opts) {
+  opts = opts || {};
+  const out = { battleSeeded: !!opts.battle };
+  const page = await openWorld(browser, port, errs,
+    { tag: 'defeat', comp: PARTY4, mem: PARTY_MEMBERS });
+  /* 刻み点 (WM.has が偽) と、本命クエストの地の両方を **実体から**引く。⛔ 写経しない。 */
+  out.pick = await safeEval(page, (o) => {
+    const WM = window.WORLD_MAP, g = WM.walkNodes();
+    return { step: Object.keys(g).filter(k => !WM.has(k))[0] || null,
+      site: (WM.SITES || {})[o.scen] || null, nWalk: Object.keys(g).length };
+  }, { scen: MAIN_SCEN });
+  out.seeded = await safeEval(page, (o) => {
+    const s = (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} };
+    s(o.kRet, o.step || ''); s(o.kVia, 'dungeon'); s(o.kScen, o.scen); s(o.kBattle, o.battle);
+    try { sessionStorage.removeItem(o.kWounds); } catch (e) {}
+    const g = (k) => { try { return sessionStorage.getItem(k); } catch (e) { return null; } };
+    return { ret: g(o.kRet), scen: g(o.kScen), battle: !!g(o.kBattle) };
+  }, { kRet: KEY_RETURN, kVia: KEY_EXIT_VIA, kScen: KEY_SCEN, kBattle: KEY_BATTLE,
+    kWounds: KEY_WOUNDS, step: (out.pick && out.pick.step) || '',
+    scen: MAIN_SCEN, battle: opts.battle || '' });
+  await page.goto('http://localhost:' + port + PAGE_INDEX, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(WAIT_INDEX, { timeout: 45000 });
+  await settle(page);
+  out.idxBoot = await page.evaluate(readIndexAmbush, IDX_KEYS);
+  out.resultCall = await safeEval(page, () => {
+    try { showResult(false); return 'ok'; } catch (e) { return 'ERR ' + ((e && e.message) || e); }
+  });
+  await sleep(500);
+  out.idxAfter = await page.evaluate(readIndexAmbush, IDX_KEYS);
+  await reopenWorld(page, port, '');
+  out.back = await readResume(page);
+  await reopenWorld(page, port, '');
+  out.again = await readResume(page);
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 小道具
 // ══════════════════════════════════════════════════════════════════════════════
 function eqNums(a, b) {
@@ -1064,6 +1262,34 @@ const STORE_KEYS = ['battle', 'ret', 'wounds', 'scen', 'gen', 'boon'];
 function dirtyKeys(store) {
   const s = store || {};
   return STORE_KEYS.filter(k => s[k] !== null && s[k] !== undefined);
+}
+/* ⭐⭐⭐ (0d) と (4a) の本体。**同じ物差しを 2 度使う**のがこの節の設計 ——
+ *  (0d) は「装置が立った時点」で、(4a) は「本実装が入った後」で同じ固定基準列と突き合わせる。
+ *  ⛔ 走行時に基準を採り直さない (BASE_RND は 2026-09-04 / bdc6880 の実測固定値)。 */
+function rndIdentity(m) {
+  const rows = m.rnd || [];
+  if (!rows.length) return popFail('rnd の観測', 'measureRnd が 1 種も返していない');
+  const det = [];
+  let ok = true, calls = 0;
+  for (const r of rows) {
+    const base = BASE_RND[r.seed];
+    const p = r.plain, s = r.split;
+    const pOk = !!(p && eqNums(p.values, base));
+    const sOk = !!(s && eqNums(s.values, base));
+    if (s) calls += s.calls;
+    if (!pOk || !sOk) ok = false;
+    det.push('種 ' + r.seed + ': 素=' + (pOk ? '一致' : '⛔不一致@' + firstDiff(p ? p.values : null, base))
+      + ' 挟込=' + (sOk ? '一致' : '⛔不一致@' + firstDiff(s ? s.values : null, base))
+      + ' (ambRoll ' + (s ? s.calls : 0) + ' 回'
+      + (s && s.rolls && s.rolls.length ? ' → ' + JSON.stringify(s.rolls) : '')
+      + (s && s.ambSeed !== null && s.ambSeed !== undefined ? ' / ambSeed=' + s.ambSeed : '')
+      + ')');
+  }
+  /* ③ 静的 — world.html が ambRoll を経由せず rnd() を直接叩く形の罠 B を塞ぐ。 */
+  const worldRnd = (typeof m.served === 'string') ? nOf(m.served, 'rnd' + '(') : -1;
+  const staticOk = worldRnd === BASE_WORLD_RND;
+  if (!staticOk) ok = false;
+  return [ok, { det: det, calls: calls, worldRnd: worldRnd }];
 }
 /* 器の矩形が画面に収まっているか (verify_road_events (1d) と同じ物差し)。 */
 function boxWhy(v) {
@@ -1213,35 +1439,16 @@ const ASSERTS = [
     + ' ③world.html の配信バイトの rnd 呼び出しが ' + BASE_WORLD_RND + ' 件'
     + '  ⭐⭐⭐ 罠 B (依頼書 §2-4) の検出器。②が無いと sharedrng は無傷に見える',
     (m) => {
-      const rows = m.rnd || [];
-      if (!rows.length) return popFail('(0d) rnd の観測', 'measureRnd が 1 種も返していない');
-      const det = [];
-      let ok = true, calls = 0;
-      for (const r of rows) {
-        const base = BASE_RND[r.seed];
-        const p = r.plain, s = r.split;
-        const pOk = !!(p && eqNums(p.values, base));
-        const sOk = !!(s && eqNums(s.values, base));
-        if (s) calls += s.calls;
-        if (!pOk || !sOk) ok = false;
-        det.push('種 ' + r.seed + ': 素=' + (pOk ? '一致' : '⛔不一致@' + firstDiff(p ? p.values : null, base))
-          + ' 挟込=' + (sOk ? '一致' : '⛔不一致@' + firstDiff(s ? s.values : null, base))
-          + ' (ambRoll ' + (s ? s.calls : 0) + ' 回'
-          + (s && s.rolls && s.rolls.length ? ' → ' + JSON.stringify(s.rolls) : '')
-          + (s && s.ambSeed !== null && s.ambSeed !== undefined ? ' / ambSeed=' + s.ambSeed : '')
-          + ')');
-      }
-      /* ③ 静的 — world.html が ambRoll を経由せず rnd() を直接叩く形の罠 B を塞ぐ。 */
-      const worldRnd = (typeof m.served === 'string') ? nOf(m.served, 'rnd' + '(') : -1;
-      const staticOk = worldRnd === BASE_WORLD_RND;
-      if (!staticOk) ok = false;
-      return [ok,
-        det.join(' | ')
-        + ' / world.html の rnd 呼び出し = ' + worldRnd + ' 件 (着手前 ' + BASE_WORLD_RND + ' 件)'
-        + '  [記録] ambRoll を呼べた合計 ' + calls + ' 回'
-        + (calls === 0 ? ' (⚠ 本番未実装のあいだは 0 = 挟み込みレグはまだ罠 B を測っていない。'
+      const r = rndIdentity(m);
+      if (typeof r[1] === 'string') return r;    /* popFail はそのまま返す */
+      const d = r[1];
+      return [r[0],
+        d.det.join(' | ')
+        + ' / world.html の rnd 呼び出し = ' + d.worldRnd + ' 件 (着手前 ' + BASE_WORLD_RND + ' 件)'
+        + '  [記録] ambRoll を呼べた合計 ' + d.calls + ' 回'
+        + (d.calls === 0 ? ' (⚠ 本番未実装のあいだは 0 = 挟み込みレグはまだ罠 B を測っていない。'
           + '(0a) が赤いことでそれが分かる)' : '')
-        + (ok ? '' : '  ⛔ 既存の乱数列が動いた = 罠 B (依頼書 §2-4)。'
+        + (r[0] ? '' : '  ⛔ 既存の乱数列が動いた = 罠 B (依頼書 §2-4)。'
           + 'ambRnd 専用ストリームを使わず rnd() を共有している疑い')];
     }],
 
@@ -1484,6 +1691,244 @@ const ASSERTS = [
         + (ok ? '' : '  ⛔ ' + bad.join(' ; '))];
     }],
 
+  // ── §2 潜行側 (index.html) — 項目 3 が実装 ───────────────────────────────
+  ['2a', '消費 — roadBattle が **removeItem** され、waves が 1 件の ad-hoc シナリオが立つ。'
+    + '⭐ scenarioId は "road-ambush" 固定 / テーマは積荷の themeId / 盤面 (spawns・wagonSpawns) が'
+    + '素通しされ、**馬車が実際に湧いている** (⛔ ペイロードの件数で代用しない —— 素通ししても'
+    + ' spawnWagon が落ちれば 0 体になる)。⭐ 積荷は **world.html が実際に書いた bytes** をそのまま使う',
+    (m) => {
+      const L = legOf(m, 'idxAmbush');
+      if (!m.realBattle) return popFail('(2a) 積荷', '歩行で書かれた roadBattle の実物が採れていない');
+      if (!L || !L.boot) return popFail('(2a) 潜行側の起動', 'index.html を開けていない');
+      let payload = null;
+      try { payload = JSON.parse(m.realBattle); } catch (e) { payload = null; }
+      if (!payload) return popFail('(2a) 積荷', 'roadBattle の JSON を解けない');
+      const b = L.boot, sc = b.scen || {};
+      const consumed = b.store.battle === null;
+      const idOk = b.scenarioId === 'road-ambush';
+      const runOk = b.ambushRun === true;
+      const waveOk = sc.waves === 1;
+      const fieldOk = sc.wagons >= 1 && sc.spawns >= 1;
+      const themeOk = b.theme === payload.themeId;
+      const wagonOk = typeof b.wagons === 'number' && b.wagons >= 1;
+      const xpOk = sc.clearXp === (payload.clearXp || 0);
+      const ok = consumed && idOk && runOk && waveOk && fieldOk && themeOk && wagonOk && xpOk;
+      return [ok,
+        '積荷 (world.html が書いた実物) = ' + m.realBattle.slice(0, 120)
+        + ' / 起動後の roadBattle = ' + JSON.stringify(b.store.battle) + '(消えた=' + consumed + ')'
+        + ' / scenarioId = ' + JSON.stringify(b.scenarioId)
+        + ' roadAmbushRun = ' + JSON.stringify(b.ambushRun)
+        + ' / themeId = ' + JSON.stringify(b.theme) + '(積荷と一致=' + themeOk + ')'
+        + ' / currentScenario = ' + JSON.stringify(sc)
+        + ' / 実際に湧いた馬車 = ' + b.wagons + ' 体'
+        + (ok ? '' : '  ⛔ '
+          + (!consumed ? 'roadBattle が消えていない (2 回目の潜行でも襲撃が立つ) ' : '')
+          + (!idOk ? 'scenarioId が "road-ambush" でない ' : '')
+          + (!runOk ? 'roadAmbushRun が真になっていない ' : '')
+          + (!waveOk ? 'waves が 1 件でない ' : '')
+          + (!fieldOk ? '盤面 (spawns / wagonSpawns) が素通しされていない ' : '')
+          + (!themeOk ? 'テーマが積荷の themeId になっていない ' : '')
+          + (!wagonOk ? '馬車が 1 体も湧いていない ' : '')
+          + (!xpOk ? 'clearXp が素通しされていない' : ''))];
+    }],
+
+  ['2b', '本命が汚れない — 走行の **前も後も** currentScenario / generatedScenario が'
+    + '仕込んだ値と **1 バイトも違わない** (⭐ 罠 F。酒場が焼いた本命のクエストを襲撃で上書きすると、'
+    + '次にクエスト地へ入場したとき襲撃シナリオが起動する。変異 overwritescen)',
+    (m) => {
+      const L = legOf(m, 'idxAmbush');
+      if (!L || !L.boot) return popFail('(2b) 潜行側の起動', 'index.html を開けていない');
+      if (L.boot.ambushRun !== true) {
+        return popFail('(2b) 襲撃の腕', 'roadAmbushRun が真でない = 襲撃として起動していない');
+      }
+      const bootOk = L.boot.store.scen === MAIN_SCEN && L.boot.store.gen === MAIN_GEN;
+      const a = L.after;
+      const afterOk = !!(a && a.store.scen === MAIN_SCEN && a.store.gen === MAIN_GEN);
+      const ok = bootOk && afterOk;
+      return [ok,
+        '仕込み currentScenario = ' + JSON.stringify(MAIN_SCEN)
+        + ' / generatedScenario = ' + MAIN_GEN.length + 'B'
+        + ' / 起動直後 = ' + JSON.stringify(L.boot.store.scen)
+        + ' + ' + JSON.stringify(String(L.boot.store.gen || '').length + 'B') + '(一致=' + bootOk + ')'
+        + ' / showResult 後 = ' + JSON.stringify(a ? a.store.scen : null)
+        + ' + ' + JSON.stringify(String((a && a.store.gen) || '').length + 'B') + '(一致=' + afterOk + ')'
+        + (ok ? '' : '  ⛔ 街道の襲撃が本命のクエストを書き換えた')];
+    }],
+
+  ['2c', '消耗の往復 — 勝利後に roadWounds が書かれ、**次の起動でその比率どおりの hp** で始まる。'
+    + '⭐ 2 経路で突き合わせる: ①showResult(true) が書いた JSON の比率 と ②次の起動の'
+    + ' 実際の hp/maxHp。⛔ 対照 (roadWounds なし) では全員 hp = maxHp であることも AND'
+    + ' (変異 woundtoolate = 適用を consumeRoadBoon の後へ動かすと ①だけ緑になる)',
+    (m) => {
+      const w = legOf(m, 'idxAmbush'), r = legOf(m, 'idxWoundRead'), c = legOf(m, 'idxPlain');
+      if (!w || !w.after) return popFail('(2c) 書き出しの腕', '勝利の showResult を走らせていない');
+      if (!w.hpApplied) return popFail('(2c) 消耗そのもの', 'このランで hp を削れていない');
+      const raw = w.after.store.wounds;
+      if (!raw) {
+        return [false, '⛔ 勝利しても roadWounds が書かれていない (store = '
+          + JSON.stringify(w.after.store.wounds) + ')'];
+      }
+      let J = null;
+      try { J = JSON.parse(raw); } catch (e) { J = null; }
+      if (!J || !Array.isArray(J.hp)) return [false, '⛔ roadWounds が解けない: ' + String(raw).slice(0, 80)];
+      const madeRatios = ratiosOf(w.hpApplied) || [];
+      const nOk = J.n === madeRatios.length && J.hp.length === madeRatios.length;
+      const writeOk = nOk && J.hp.every((v, i) => Math.abs(v - madeRatios[i]) <= WOUND_TOL);
+      if (!r || !r.boot) return popFail('(2c) 読み込みの腕', '次の起動を走らせていない');
+      const got = ratiosOf(r.boot) || [];
+      const readOk = got.length === J.hp.length
+        && got.every((v, i) => typeof v === 'number' && Math.abs(v - J.hp[i]) <= WOUND_TOL);
+      const ctrl = c ? (ratiosOf(c.boot) || []) : [];
+      const ctrlOk = ctrl.length >= 1 && ctrl.every(v => v === 1);
+      const consumed = r.boot.store.wounds === null;
+      const ok = writeOk && readOk && ctrlOk && consumed;
+      return [ok,
+        '① このランで削った比率 = ' + JSON.stringify(madeRatios.map(v => +v.toFixed(3)))
+        + ' → 書かれた JSON = ' + raw
+        + ' (n 一致=' + nOk + ' / 比率一致=' + writeOk + ')'
+        + '  ② 次の起動の hp/maxHp = ' + JSON.stringify(got.map(v => (typeof v === 'number' ? +v.toFixed(3) : v)))
+        + ' (一致=' + readOk + ' / 許容 ±' + WOUND_TOL + ')'
+        + ' / 起動後に roadWounds が消えた=' + consumed
+        + '  ③ 対照 (roadWounds なし) = ' + JSON.stringify(ctrl) + ' (全員 1 = ' + ctrlOk + ')'
+        + (ok ? '' : '  ⛔ '
+          + (!writeOk ? '書かれた比率がこのランの消耗と合わない ' : '')
+          + (!readOk ? '次の起動の hp が比率どおりでない ' : '')
+          + (!consumed ? 'roadWounds が消費されていない (毎回の潜行で傷が復活する) ' : '')
+          + (!ctrlOk ? '対照が hp = maxHp になっていない (母集団が壊れている)' : ''))];
+    }],
+
+  ['2d', '下限 — 比率 **0** を注入しても hp は **1 以上**。⭐ 同時に「1 未満へ落ちていない」だけでなく'
+    + '「ちゃんと減っている (hp < maxHp)」も見る (⛔ クランプを maxHp 側へ倒して緑にする逃げ道を塞ぐ。'
+    + '変異 woundzero)',
+    (m) => {
+      const L = legOf(m, 'idxWoundZero');
+      if (!L || !L.boot) return popFail('(2d) 下限の腕', 'index.html を開けていない');
+      const v = L.boot;
+      const units = [{ hp: v.hp, maxHp: v.maxHp }].concat(v.allies || []);
+      if (units.length < 2) return popFail('(2d) 編成', '人数が ' + units.length + ' 人 (期待 >= 2)');
+      const aliveOk = units.every(u => typeof u.hp === 'number' && u.hp >= 1);
+      const hurtOk = units.every(u => typeof u.maxHp === 'number' && u.maxHp > 1 && u.hp < u.maxHp);
+      const consumed = v.store.wounds === null;
+      const ok = aliveOk && hurtOk && consumed;
+      return [ok,
+        '注入 = 比率 0 x ' + units.length + ' 人 / 起動後の hp/maxHp = '
+        + JSON.stringify(units.map(u => u.hp + '/' + u.maxHp))
+        + ' (全員 >= 1 = ' + aliveOk + ' / 全員 < maxHp = ' + hurtOk + ')'
+        + ' / roadWounds 消費済み=' + consumed
+        + (ok ? '' : '  ⛔ '
+          + (!aliveOk ? 'hp が 0 以下 = 次の潜行が開始即死になる ' : '')
+          + (!hurtOk ? '比率 0 なのに減っていない (消耗が 1 も適用されていない) ' : '')
+          + (!consumed ? 'roadWounds が消えていない' : ''))];
+    }],
+
+  ['2e', '人数不一致は丸ごと捨てる — n を偽装すると消耗が **1 も適用されない** (全員 hp = maxHp)。'
+    + '⭐ 母集団 = 同じ比率 (0) で n が正しければ (2d) の腕が実際に減っていること'
+    + ' (⛔ 「減らなかった」だけでは「そもそも消費経路が死んでいる」と区別がつかない。変異 woundpartial)',
+    (m) => {
+      const bad = legOf(m, 'idxWoundBadN'), good = legOf(m, 'idxWoundZero');
+      if (!good || !good.boot) return popFail('(2e) 対照', 'n が正しい腕を走らせていない');
+      const gu = [{ hp: good.boot.hp, maxHp: good.boot.maxHp }].concat(good.boot.allies || []);
+      if (!gu.every(u => u.hp < u.maxHp)) {
+        return popFail('(2e) 対照の消耗', 'n が正しい腕でも hp が減っていない = 消費経路が死んでいる');
+      }
+      if (!bad || !bad.boot) return popFail('(2e) 偽装の腕', 'index.html を開けていない');
+      const v = bad.boot;
+      const units = [{ hp: v.hp, maxHp: v.maxHp }].concat(v.allies || []);
+      const intactOk = units.every(u => u.hp === u.maxHp);
+      const ok = intactOk;
+      return [ok,
+        '対照 (n = 実人数 / 比率 0) = ' + JSON.stringify(gu.map(u => u.hp + '/' + u.maxHp))
+        + '  ⇄  偽装 (n を実人数と食い違わせる / 比率 0) = '
+        + JSON.stringify(units.map(u => u.hp + '/' + u.maxHp))
+        + ' (全員 hp = maxHp = ' + intactOk + ')'
+        + ' / 偽装した JSON = ' + JSON.stringify(bad.seeded.wounds)
+        + (ok ? '' : '  ⛔ 人数が食い違うのに先頭から部分適用している')];
+    }],
+
+  ['2f', '馬車全損で金貨が 0 — 馬車を殺して勝つと **clearGold 分が入らない**。'
+    + '⭐ 2 本立て: 守り切った腕は coins + clearGold / 全損の腕は coins ちょうど'
+    + ' (⛔ 片方だけ見ない。変異 goldalways)',
+    (m) => {
+      const alive = legOf(m, 'idxAmbush'), lost = legOf(m, 'idxWagonLost');
+      if (!alive || !alive.after) return popFail('(2f) 守り切った腕', '勝利の showResult を走らせていない');
+      if (!lost || !lost.after) return popFail('(2f) 全損の腕', '勝利の showResult を走らせていない');
+      const gold = (alive.boot.scen || {}).clearGold || 0;
+      if (!(gold > 0)) return popFail('(2f) clearGold', '積荷の clearGold が 0 = 差が出ようがない');
+      if (!(alive.boot.wagons >= 1 && lost.boot.wagons >= 1)) {
+        return popFail('(2f) 馬車', '盤面に馬車が湧いていない (alive ' + alive.boot.wagons
+          + ' / lost ' + lost.boot.wagons + ')');
+      }
+      if (!(lost.killed && lost.killed.lost === true)) {
+        return popFail('(2f) 全損', 'escortWagonLost() が真になっていない: ' + JSON.stringify(lost.killed));
+      }
+      const rA = rewardOf(alive.after), rL = rewardOf(lost.after);
+      if (!rA || !rL) return popFail('(2f) lastResult', 'reward を読めない');
+      const aliveOk = rA.gold === (alive.boot.coins || 0) + gold;
+      const lostOk = rL.gold === (lost.boot.coins || 0);
+      const gapOk = rA.gold > rL.gold;
+      const ok = aliveOk && lostOk && gapOk;
+      return [ok,
+        '積荷の clearGold = ' + gold
+        + ' / 守り切った (馬車 ' + alive.boot.wagons + ' 体・全損=' + alive.boot.wagonLost + ') gold = '
+        + rA.gold + ' (拾った coins ' + alive.boot.coins + ' + clearGold ' + gold + ' = ' + aliveOk + ')'
+        + ' / 全損 (殺した ' + lost.killed.n + ' 体) gold = ' + rL.gold
+        + ' (拾った coins ' + lost.boot.coins + ' ちょうど = ' + lostOk + ')'
+        + (ok ? '' : '  ⛔ '
+          + (!aliveOk ? 'クリア報酬の金貨が入っていない ' : '')
+          + (!lostOk ? '馬車を守れなかったのに金貨が入った ' : '')
+          + (!gapOk ? '守っても守らなくても同額' : ''))];
+    }],
+
+  ['2g', '馬車全損で gameOver が立たない — 街道の襲撃は文だけ出して潜行を続ける。'
+    + '⛔ 7.9-3 (闇市の隊商護衛) は **従来どおり敗北**する = **両方**測る。'
+    + '⭐ 値の供給口 escortWagonLossEndsRun() を 2 つの腕で読み、'
+    + '**その値が実際に敗北確定の枝で使われている**ことを配信バイトの局所性で確かめる'
+    + ' (変異 gameoveramb / gameovernever)',
+    (m) => {
+      const amb = legOf(m, 'idxAmbush'), esc = legOf(m, 'idxEscort');
+      if (!amb || !amb.boot || !esc || !esc.boot) {
+        return popFail('(2g) 2 つの腕', '襲撃 / 7.9-3 のどちらかを走らせていない');
+      }
+      if (typeof amb.boot.endsRun !== 'boolean' || typeof esc.boot.endsRun !== 'boolean') {
+        return [false, '⛔ escortWagonLossEndsRun() が本番に無い (襲撃側 = '
+          + JSON.stringify(amb.boot.endsRun) + ' / 7.9-3 側 = ' + JSON.stringify(esc.boot.endsRun) + ')'];
+      }
+      if (!(amb.boot.wagons >= 1 && esc.boot.wagons >= 1)) {
+        return popFail('(2g) 馬車', '盤面に馬車が湧いていない (襲撃 ' + amb.boot.wagons
+          + ' / 7.9-3 ' + esc.boot.wagons + ') = 敗北条件そのものが立たない');
+      }
+      const ambOk = amb.boot.endsRun === false;
+      const escOk = esc.boot.endsRun === true;
+      /* ⭐ 呼ばれ口の証明 — 「隊商は失われた…」の直後の枝がこの関数を通っているか。
+         ⛔ 値だけ見ていると、枝から呼び口を外す変異 (if (true) …) が素通りする。 */
+      const src = (typeof m.servedIndex === 'string') ? m.servedIndex : '';
+      /* ⚠⚠ アンカーは **呼び口の実体** (updateInfo の 1 行) にする。⛔ 文言だけで探すと
+         14058 行目の注記コメント (「15285「隊商は失われた…」= 馬車全損での敗北」) に先に
+         当たり、260B 先には枝が 1 つも無いので恒久的に赤くなる (2026-09-04 に実際に踏んだ)。 */
+      const ANCHOR = 'updateInfo("隊商は失われた…");';
+      const nAnchor = nOf(src, ANCHOR);
+      const at = src.indexOf(ANCHOR);
+      const near = at >= 0 ? src.slice(at, at + 260) : '';
+      const nearOk = nAnchor === 1 && near.indexOf('escortWagonLossEndsRun()') >= 0
+        && near.indexOf('gameOver = true;') >= 0;
+      const nDef = nOf(src, 'function escortWagonLossEndsRun(');
+      const defOk = nDef === 1;
+      const ok = ambOk && escOk && nearOk && defOk;
+      return [ok,
+        '街道の襲撃 escortWagonLossEndsRun() = ' + amb.boot.endsRun + ' (期待 false / 馬車 '
+        + amb.boot.wagons + ' 体)'
+        + '  ⇄  7.9-3 隊商護衛 = ' + esc.boot.endsRun + ' (期待 true / 馬車 ' + esc.boot.wagons + ' 体)'
+        + ' / 7.9-3 の scenarioId = ' + JSON.stringify(esc.boot.scenarioId)
+        + ' / 敗北確定の枝が供給口を通っている = ' + nearOk
+        + ' (定義 ' + nDef + ' 件 / 呼び口のアンカー ' + nAnchor + ' 件)'
+        + (ok ? '' : '  ⛔ '
+          + (!ambOk ? '街道の襲撃でも潜行が終わる ' : '')
+          + (!escOk ? '7.9-3 の敗北条件が消えた ' : '')
+          + (!nearOk ? '「隊商は失われた…」の直後の枝が escortWagonLossEndsRun() を通っていない '
+            + '(実測 260B: ' + JSON.stringify(near.replace(/\s+/g, ' ').slice(0, 140)) + ') ' : '')
+          + (!defOk ? '供給口の定義が ' + nDef + ' 件' : ''))];
+    }],
+
   // ── §3 帰還 (world.html 単独で証明できる 3 本。(3c) は index 側なので項目 3) ──
   ['3a', '襲撃地点に戻る — roadReturn に **刻み点** (⭐ WM.has() が false = 罠 E がまさに落とす形) を'
     + '置いて world.html を開くと、__world.heroNode() がその刻み点になる。'
@@ -1555,6 +2000,50 @@ const ASSERTS = [
           + (!fallbackOk ? '従来の spawnFor の結果 (phlan) に戻っていない' : ''))];
     }],
 
+  ['3c', '負けたら港町 — 襲撃で全滅すると roadWounds が **書かれず**、帰った先が **phlan**。'
+    + '⭐⭐⭐ 対照を 2 本取る: ①勝っていれば立っていたはずの襲撃地点 (刻み点) と違う'
+    + ' ②**もう一度開き直したときの spawnFor の答え**とも違う —— ⚠⚠⚠ 依頼書 §6-5 の'
+    + '「キーを消せば spawnFor のフォールバックで港町へ戻る」は実測で崩れており'
+    + ' (currentScenario は本命クエストのままなので SITES に当たって目的地の前に立つ)、'
+    + '②はその実測をそのまま記録に残す (変異 woundonlose / nospawnresume)',
+    (m) => {
+      const r = m.defeat;
+      if (!r) return popFail('(3c) 敗北の観測', 'measureDefeatReturn が値を返していない');
+      if (!r.battleSeeded) return popFail('(3c) 積荷', 'roadBattle の実物が採れていない');
+      const step = r.pick ? r.pick.step : null;
+      const site = r.pick ? r.pick.site : null;
+      if (!step || !site) {
+        return popFail('(3c) 母集団', '刻み点 = ' + JSON.stringify(step)
+          + ' / SITES[' + MAIN_SCEN + '] = ' + JSON.stringify(site));
+      }
+      if (!r.idxBoot || r.idxBoot.ambushRun !== true) {
+        return popFail('(3c) 襲撃として起動', 'roadAmbushRun = '
+          + JSON.stringify(r.idxBoot ? r.idxBoot.ambushRun : null));
+      }
+      if (r.resultCall !== 'ok') return popFail('(3c) 敗北', 'showResult(false) が走っていない: ' + r.resultCall);
+      const noWounds = r.idxAfter && r.idxAfter.store.wounds === null;
+      const back = r.back || {}, again = r.again || {};
+      const homeOk = back.node === 'phlan';
+      const notStep = back.node !== step;
+      const notFallback = again.node === site && site !== 'phlan';
+      const ok = !!noWounds && homeOk && notStep && notFallback;
+      return [ok,
+        '襲撃した刻み点 = ' + JSON.stringify(step)
+        + ' / 敗北後の roadWounds = ' + JSON.stringify(r.idxAfter ? r.idxAfter.store.wounds : null)
+        + '(書かれていない=' + noWounds + ')'
+        + ' / roadReturn = ' + JSON.stringify(r.idxAfter ? r.idxAfter.store.ret : null)
+        + ' / **帰った先** = ' + JSON.stringify(back.node) + ' (期待 phlan)'
+        + ' / もう一度開き直すと = ' + JSON.stringify(again.node)
+        + '  ⭐ = spawnFor("dungeon", ' + JSON.stringify(MAIN_SCEN) + ') = '
+        + JSON.stringify(site) + ' ≠ phlan'
+        + '  ⇒ 「キーを消すだけ」では港町へ戻らない (依頼書 §6-5 の前提が崩れている実測)'
+        + (ok ? '' : '  ⛔ '
+          + (!noWounds ? '負けたのに roadWounds を書いた ' : '')
+          + (!homeOk ? '港町フランに戻っていない ' : '')
+          + (!notStep ? '襲撃地点に立っている (負けの代償が消えている) ' : '')
+          + (!notFallback ? '対照 (spawnFor の答え) が採れていない = 測定が成り立っていない' : ''))];
+    }],
+
   ['3d', '依頼の目印が残る — 帰還のために立ち位置を差し替えても questDest を 1 バイトも消さない'
     + ' (⛔ world.html の removeItem は questDest の 1 本だけ = そこを増やさない)',
     (m) => {
@@ -1576,6 +2065,48 @@ const ASSERTS = [
         + ' __world.questDest() = ' + JSON.stringify(back.questDest)
         + ' / もう一度開いた後 = ' + JSON.stringify((again.store || {}).quest)
         + (ok ? '' : '  ⛔ 帰還の処理が依頼の目印を巻き添えにした')];
+    }],
+
+  ['4a', '既存の引きが不変 (本検査) — (0d) と **同じ固定基準列**を、本実装が全部入った木で'
+    + 'もう一度突き合わせる。⭐⭐⭐ 罠 B (依頼書 §2-4) の本番。'
+    + '⛔ (0d) と同じ関数を通す = 片方だけ緩める逃げ道を作らない (変異 sharedrng)',
+    (m) => {
+      const r = rndIdentity(m);
+      if (typeof r[1] === 'string') return r;
+      const d = r[1];
+      return [r[0],
+        d.det.join(' | ')
+        + ' / world.html の rnd 呼び出し = ' + d.worldRnd + ' 件 (着手前 ' + BASE_WORLD_RND + ' 件)'
+        + '  [記録] 挟み込みで ambRoll を呼べた合計 ' + d.calls + ' 回'
+        + (d.calls === 0 ? '  ⚠⚠ 0 回 = 挟み込みレグが罠 B を 1 度も測っていない'
+          + ' ((0a) が緑なのにここが 0 なら装置の故障)' : '')
+        + (r[0] ? '' : '  ⛔ 街道の襲撃を入れたことで既存の乱数列が動いた')];
+    }],
+
+  ['4b', 'world.html の storage の数 — 配信バイトの sessionStorage.removeItem が **依然 ' + BASE_WORLD_SREMOVE
+    + ' 件**・localStorage は setItem / removeItem とも 0 件。'
+    + '⭐ 罠 D (依頼書 §2-6) の番人 —— roadReturn の消費に removeItem を使うと即赤になる'
+    + ' (⛔ 基準値を緩めない。変異 worldremove)。⚠ index.html 側は removeItem を使ってよい'
+    + ' = 制約は world.html だけ、を明示的に記録する',
+    (m) => {
+      if (typeof m.served !== 'string' || !m.served.length) {
+        return popFail('(4b) 配信バイト', 'world.html を読めていない');
+      }
+      const rm = nOf(m.served, 'sessionStorage.removeItem');
+      const lset = nOf(m.served, 'localStorage.setItem');
+      const lrm = nOf(m.served, 'localStorage.removeItem');
+      const ok = rm === BASE_WORLD_SREMOVE && lset === BASE_WORLD_LSET && lrm === BASE_WORLD_LREMOVE;
+      /* ⭐ 記録のみ — index.html 側の removeItem は制約の外 (⛔ 判定しない)。 */
+      const idxRm = (typeof m.servedIndex === 'string')
+        ? nOf(m.servedIndex, 'removeItem("dragonfighters.roadBattle")') : -1;
+      return [ok,
+        'world.html 配信 ' + m.served.length + 'B / sessionStorage.removeItem = ' + rm
+        + ' 件 (着手前 ' + BASE_WORLD_SREMOVE + ')'
+        + ' / localStorage.setItem = ' + lset + ' 件 (着手前 ' + BASE_WORLD_LSET + ')'
+        + ' / localStorage.removeItem = ' + lrm + ' 件 (着手前 ' + BASE_WORLD_LREMOVE + ')'
+        + '  [記録・⛔判定しない] index.html の roadBattle removeItem = ' + idxRm + ' 件'
+        + ' (index 側は removeItem を使ってよい = 制約は world.html だけ)'
+        + (ok ? '' : '  ⛔ world.html の storage の使い方が着手前と変わった (罠 D)')];
     }],
 
   // ── §4 恒等 (このうち (4c) だけが項目 2 の担当) ───────────────────────────
@@ -1603,6 +2134,80 @@ const ASSERTS = [
         + ' / 地形割り ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 = '
         + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')];
     }],
+
+  // ── §5 撤退 ?ambush=0 (⚠⚠⚠ 撤退アームだけを受入条件にしない = #39 の「永久緑」の轍) ──
+  ['5a', 'world.html' + RETREAT_QUERY + ' → 襲撃が **0 件**・storage に 0 バイト。'
+    + '⭐ 母集団 = 同じ種を素で歩けば発火すること。'
+    + '⭐⭐ 「既存の出来事は従来どおり出る」は **恒等**で測る —— 襲撃が元から出ない種で'
+    + '素の腕と撤退の腕を歩かせ、到着列と街道の出来事の件数が **完全に一致**すること'
+    + ' (⛔ 「0 件でなければよい」では、撤退が既存の出来事まで消しても気づけない)',
+    (m) => {
+      const base = legOf(m, 'fireNone'), off = legOf(m, 'retreatFire');
+      const q0 = legOf(m, 'quiet'), q1 = legOf(m, 'retreatQuiet');
+      if (!base || base.ambushOpens < 1) {
+        return popFail('(5a) 対照', '素の腕 (同じ種) で襲撃が発火していない');
+      }
+      if (!off) return popFail('(5a) 撤退の腕', '走っていない');
+      const walked = (off.arrivals || []).length;
+      if (walked < 2) {
+        return popFail('(5a) 撤退の歩行', '到着 ' + walked + ' 件 (期待 >= 2) — 停留所を踏んでいない');
+      }
+      const dirty = dirtyKeys(off.storagePost);
+      const preDirty = dirtyKeys(off.storagePre);
+      const quietOk = !!(q0 && q1
+        && JSON.stringify(q0.arrivals) === JSON.stringify(q1.arrivals)
+        && q0.roadOpens === q1.roadOpens && q1.ambushOpens === 0);
+      const ok = off.ambushOpens === 0 && dirty.length === 0 && preDirty.length === 0 && quietOk;
+      return [ok,
+        '素 (種 ' + base.seed + ') 襲撃 ' + base.ambushOpens + ' 件'
+        + '  ⇄  ' + RETREAT_QUERY + ' (種 ' + off.seed + ') 襲撃 ' + off.ambushOpens + ' 件'
+        + ' / 到着 ' + walked + ' 件 / 生えたキー = ' + JSON.stringify(dirty)
+        + ' (走行前 ' + JSON.stringify(preDirty) + ')'
+        + '  / 恒等: 出ない種 ' + (q0 ? q0.seed : '—') + ' → ' + (q0 ? q0.dest : '—')
+        + ' 素 [到着 ' + (q0 ? q0.arrivals.length : '—') + ' / 出来事 ' + (q0 ? q0.roadOpens : '—') + ']'
+        + ' ⇄ 撤退 [到着 ' + (q1 ? q1.arrivals.length : '—') + ' / 出来事 ' + (q1 ? q1.roadOpens : '—') + ']'
+        + ' 一致=' + quietOk
+        + (ok ? '' : '  ⛔ '
+          + (off.ambushOpens ? '撤退したのに襲撃が出た ' : '')
+          + (dirty.length ? '撤退したのにキーが生えた ' : '')
+          + (!quietOk ? '撤退が既存の街道の出来事まで変えた (到着列 or 件数が素と違う)' : ''))];
+    }],
+
+  ['5b', 'index.html' + RETREAT_QUERY + ' → roadBattle を注入しても **通常の潜行**が立つ。'
+    + '⛔ キーを消しもしない (撤退を解けば元どおり襲撃が立つ) / roadWounds も読まない。'
+    + '⚠ 判定は 2 ページで独立 (world.html は index へクエリを足さないので、この腕は'
+    + '「URL に直接付けたとき」だけの話 = #47 ?roadboon=0 と同じ作法)',
+    (m) => {
+      const L = legOf(m, 'idxRetreat');
+      if (!L || !L.boot) return popFail('(5b) 撤退の腕', 'index.html を開けていない');
+      if (!m.realBattle) return popFail('(5b) 積荷', 'roadBattle の実物が採れていない');
+      const ctrl = legOf(m, 'idxAmbush');
+      if (!ctrl || !ctrl.boot || ctrl.boot.ambushRun !== true) {
+        return popFail('(5b) 対照', '素の腕で襲撃シナリオが立っていない');
+      }
+      const b = L.boot;
+      const offOk = b.ambushOn === false && b.ambushRun === false;
+      const idOk = b.scenarioId === 'goblin-mine';
+      const keptBattle = b.store.battle === m.realBattle;
+      const keptWounds = b.store.wounds !== null;
+      const units = [{ hp: b.hp, maxHp: b.maxHp }].concat(b.allies || []);
+      const intact = units.length >= 2 && units.every(u => u.hp === u.maxHp);
+      const ok = offOk && idOk && keptBattle && keptWounds && intact;
+      return [ok,
+        'ROAD_AMBUSH_ON = ' + JSON.stringify(b.ambushOn) + ' / roadAmbushRun = ' + JSON.stringify(b.ambushRun)
+        + ' / scenarioId = ' + JSON.stringify(b.scenarioId) + ' (期待 goblin-mine)'
+        + ' [対照: 撤退なしでは ' + JSON.stringify(ctrl.boot.scenarioId) + ']'
+        + ' / roadBattle が残っている = ' + keptBattle
+        + ' / roadWounds が残っている = ' + keptWounds
+        + ' (' + JSON.stringify(b.store.wounds) + ')'
+        + ' / hp = ' + JSON.stringify(units.map(u => u.hp + '/' + u.maxHp)) + ' (無傷=' + intact + ')'
+        + (ok ? '' : '  ⛔ '
+          + (!offOk ? '撤退スイッチが効いていない ' : '')
+          + (!idOk ? '通常の潜行が立っていない ' : '')
+          + (!keptBattle ? 'roadBattle を消した (撤退中は読みも消しもしない、が規律) ' : '')
+          + (!keptWounds ? 'roadWounds を消した ' : '')
+          + (!intact ? '撤退中なのに消耗が適用された' : ''))];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1619,36 +2224,18 @@ const SECTIONS = [
   { title: '§1 街道側 (js/road-events.js + world.html) — ⭐ 項目 2 が実装',
     keys: ['1a', '1b', '1c', '1d', '1e', '1f', '1g'], pend: [] },
 
-  { title: '§2 潜行側 (index.html) — ⛔ 項目 3 の担当',
-    keys: [], pend: [
-      ['2a', '消費 — roadBattle が removeItem され、waves が 1 件のシナリオが立つ', '項目 3'],
-      ['2b', '本命が汚れない — 走行の前後で currentScenario / generatedScenario が **1 バイトも変わらない**', '項目 3'],
-      ['2c', '消耗の往復 — 勝利後に roadWounds が書かれ、次の起動でその比率どおりの hp で始まる'
-        + ' (⭐ 書かれた JSON の比率 と 実際の hp/maxHp の 2 経路で突き合わせる)', '項目 3'],
-      ['2d', '下限 — 比率 0 を注入しても hp は **1 以上**', '項目 3'],
-      ['2e', '人数不一致は丸ごと捨てる — n を偽装すると消耗が 1 も適用されない', '項目 3'],
-      ['2f', '馬車全損で金貨が 0 — 馬車を殺して勝つと clearGold 分が入らない', '項目 3'],
-      ['2g', '馬車全損で gameOver が立たない (⛔ 7.9-3 側は従来どおり立つ = **両方**測る)', '項目 3'],
-    ] },
+  { title: '§2 潜行側 (index.html) — ⭐ 項目 3 が実装',
+    keys: ['2a', '2b', '2c', '2d', '2e', '2f', '2g'], pend: [] },
 
-  { title: '§3 帰還 — ⭐ (3a)(3b)(3d) は world.html 単独で証明できるので項目 2 が実装'
-      + ' / ⛔ (3c) は index.html の書き出しに依存するので項目 3',
-    keys: ['3a', '3b', '3d'], pend: [
-      ['3c', '負けたら港町 — 敗北で帰ると phlan、かつ roadWounds が**書かれていない**', '項目 3'],
-    ] },
+  { title: '§3 帰還 — ⭐ (3a)(3b)(3d) は world.html 単独 / (3c) は index.html の敗北から測る',
+    keys: ['3a', '3b', '3c', '3d'], pend: [] },
 
-  { title: '§4 恒等 (非退行) — ⭐ (4c) だけ項目 2 が実装 (world.html / road-events.js を触るのは項目 2)',
-    keys: ['4c'], pend: [
-      ['4a', '既存の引きが不変 — (0d) を本実装後にもう一度 (⭐ 罠 B の本検査)', '項目 3'],
-      ['4b', 'world.html の storage の数 — sessionStorage.removeItem が**依然 1 件**・localStorage 0 件', '項目 3'],
-    ] },
+  { title: '§4 恒等 (非退行) — ⭐ 全部そろった (4a) が罠 B の本検査',
+    keys: ['4a', '4b', '4c'], pend: [] },
 
-  { title: '§5 撤退 ' + RETREAT_QUERY + ' — ⛔ 項目 3 の担当'
+  { title: '§5 撤退 ' + RETREAT_QUERY + ' — ⭐ 項目 3 が実装'
       + ' (⚠⚠⚠ 撤退アームだけを受入条件にしない = #39 の「永久緑」の轍)',
-    keys: [], pend: [
-      ['5a', 'world.html' + RETREAT_QUERY + ' → 襲撃 0 件・キー 0 バイト・既存の出来事は従来どおり出る', '項目 3'],
-      ['5b', 'index.html' + RETREAT_QUERY + ' → roadBattle を注入しても通常の潜行が立つ', '項目 3'],
-    ] },
+    keys: ['5a', '5b'], pend: [] },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1691,7 +2278,9 @@ const SECTIONS = [
     } else {
       // ══ 受入条件 ═══════════════════════════════════════════════════════════
       const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
-      const m = { served: served.body, errs: errs, legs: {} };
+      /* ⭐ (2g) の「呼ばれ口の証明」と (4b) の記録が読む index.html の配信バイト。 */
+      const servedIndex = await httpGet('http://localhost:' + PORT + PAGE_INDEX);
+      const m = { served: served.body, servedIndex: servedIndex.body, errs: errs, legs: {} };
 
       m.boot = await measureBoot(browser, PORT, errs);
       m.rnd = [];
@@ -1747,6 +2336,64 @@ const SECTIONS = [
          ⛔ 歩かない (立ち位置の決定は起動時の 1 度きりなので、歩行は測定に寄与しない)。 */
       m.resume = await measureResume(browser, PORT, errs, {});
 
+      /* ══ §5 (5a) 撤退の歩行 2 本 ═══════════════════════════════════════════
+         ⭐ 1 本目 = 出る種で「出ない」ことを見る (母集団 = fireNone が発火していること)。
+         ⭐ 2 本目 = **出ない種で恒等**を見る (撤退が既存の街道の出来事まで消していないか)。
+         ⛔ クエリなので追加のポートを取らない。 */
+      if (m.seedPick.used !== null) {
+        m.legs.retreatFire = await measureAmbush(browser, PORT, errs,
+          { label: '撤退 ' + RETREAT_QUERY + ' (出る種)', seed: m.seedPick.used, dest: DEST_FIRE,
+            mode: 'none', extraQuery: '&ambush=0' });
+      }
+      if (quietSeed !== null) {
+        m.legs.retreatQuiet = await measureAmbush(browser, PORT, errs,
+          { label: '撤退 ' + RETREAT_QUERY + ' (出ない種)', seed: quietSeed, dest: DEST_QUIET,
+            mode: 'none', extraQuery: '&ambush=0' });
+      }
+
+      /* ══ §2 / (3c) / (5b) 潜行側 ═══════════════════════════════════════════
+         ⭐⭐⭐ 注入する積荷は **world.html が実際に書いた bytes そのもの**
+           (⛔ ドライバが JSON を組み立てない = 街道側と潜行側の食い違いをここで捕まえる)。 */
+      m.realBattle = (function () {
+        const L = legOf(m, 'fireWin');
+        return (L && L.storagePost && L.storagePost.battle) ? L.storagePost.battle : null;
+      })();
+      if (m.realBattle) {
+        /* ① 襲撃の潜行 → hp を削る → 勝利。(2a)(2b)(2c①)(2f 守り切った腕)(2g 襲撃の腕) */
+        m.legs.idxAmbush = await measureIndexAmbush(browser, PORT, errs,
+          { tag: 'amb', battle: m.realBattle, scen: MAIN_SCEN, gen: MAIN_GEN,
+            hpSet: WOUND_RATIOS, result: true });
+        /* ② 馬車を全損させて勝つ。(2f 全損の腕) */
+        m.legs.idxWagonLost = await measureIndexAmbush(browser, PORT, errs,
+          { tag: 'wagonlost', battle: m.realBattle, scen: MAIN_SCEN,
+            killWagon: true, result: true });
+        /* ③ ①が書いた roadWounds をそのまま次の潜行へ。(2c②) */
+        const woundsJson = (m.legs.idxAmbush.after || {}).store
+          ? m.legs.idxAmbush.after.store.wounds : null;
+        if (woundsJson) {
+          m.legs.idxWoundRead = await measureIndexAmbush(browser, PORT, errs,
+            { tag: 'woundread', wounds: woundsJson, scen: 'goblin-mine' });
+        }
+        /* ⑧ 撤退 ?ambush=0。(5b) */
+        m.legs.idxRetreat = await measureIndexAmbush(browser, PORT, errs,
+          { tag: 'retreat', query: RETREAT_QUERY, battle: m.realBattle,
+            wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+        /* ⑨ (3c) 敗北 → 帰還。⛔ 注入元は index.html の showResult(false) 自身。 */
+        m.defeat = await measureDefeatReturn(browser, PORT, errs, { battle: m.realBattle });
+      }
+      /* ④ 対照 (roadWounds なし)。(2c③) */
+      m.legs.idxPlain = await measureIndexAmbush(browser, PORT, errs,
+        { tag: 'plain', scen: 'goblin-mine' });
+      /* ⑤ 比率 0。(2d) と (2e) の対照 */
+      m.legs.idxWoundZero = await measureIndexAmbush(browser, PORT, errs,
+        { tag: 'woundzero', wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+      /* ⑥ n を偽装。(2e) ⚠ hp の本数は正しいまま = 「先頭から部分適用」だけを捕まえる形 */
+      m.legs.idxWoundBadN = await measureIndexAmbush(browser, PORT, errs,
+        { tag: 'woundbadn', wounds: JSON.stringify({ n: 99, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+      /* ⑦ 7.9-3 隊商護衛。(2g の対照 = 従来どおり敗北すること) */
+      m.legs.idxEscort = await measureIndexAmbush(browser, PORT, errs,
+        { tag: 'escort', gen: ESCORT_GEN, scen: 'generated-quest' });
+
       for (const sec of SECTIONS) {
         if (sec.keys.length === 0 && sec.pend.length === 0) continue;
         mark(sec.title);
@@ -1792,8 +2439,40 @@ const SECTIONS = [
             + (v.rect ? Math.round(v.rect.w) + 'x' + Math.round(v.rect.h) : '—')).join(' | ')
           + ' / 閉じたあと = ' + JSON.stringify(m.box.afterClose));
       }
+      if (m.defeat) {
+        const D = m.defeat;
+        console.log('       [敗北→帰還] 刻み点 = ' + JSON.stringify((D.pick || {}).step)
+          + ' / SITES[' + MAIN_SCEN + '] = ' + JSON.stringify((D.pick || {}).site)
+          + ' / showResult(false) = ' + JSON.stringify(D.resultCall)
+          + '\n         index 起動 = ' + JSON.stringify({ id: (D.idxBoot || {}).scenarioId,
+            run: (D.idxBoot || {}).ambushRun, wagons: (D.idxBoot || {}).wagons })
+          + '\n         敗北後の storage = ' + JSON.stringify((D.idxAfter || {}).store)
+          + '\n         帰還後 = ' + JSON.stringify((D.back || {}).node)
+          + ' / もう一度 = ' + JSON.stringify((D.again || {}).node));
+      }
       for (const k of Object.keys(m.legs)) {
         const L = m.legs[k];
+        /* ⭐ 潜行側 (index.html) の腕は歩かないので別の書式で記録する。
+           ⛔ 歩行の書式へ流すと L.taps が undefined で落ちる。 */
+        if (!Array.isArray(L.taps)) {
+          console.log('       [潜行 ' + k + '] ' + L.tag + L.query
+            + '  仕込み = ' + JSON.stringify(L.seeded)
+            + '\n         起動 = ' + JSON.stringify({ id: L.boot && L.boot.scenarioId,
+              on: L.boot && L.boot.ambushOn, run: L.boot && L.boot.ambushRun,
+              theme: L.boot && L.boot.theme, wagons: L.boot && L.boot.wagons,
+              endsRun: L.boot && L.boot.endsRun, coins: L.boot && L.boot.coins,
+              scen: L.boot && L.boot.scen })
+            + '\n         hp = ' + JSON.stringify(L.boot ? ratiosOf(L.boot) : null)
+            + (L.hpApplied ? ' / 削った後 = ' + JSON.stringify(ratiosOf(L.hpApplied)) : '')
+            + (L.killed ? ' / 馬車を殺した = ' + JSON.stringify(L.killed) : '')
+            + '\n         storage(起動後) = ' + JSON.stringify(L.boot && L.boot.store)
+            + (L.after ? '\n         showResult=' + JSON.stringify(L.resultCall)
+              + ' storage(後) = ' + JSON.stringify(L.after.store)
+              + ' / reward = ' + JSON.stringify(rewardOf(L.after)) : '')
+            + (L.errs && L.errs.length ? '\n         ⚠ errs ' + L.errs.length + ' 件: '
+              + L.errs.slice(0, 3).join(' | ') : ''));
+          continue;
+        }
         console.log('       [歩行 ' + k + '] ' + L.label + '  種=' + L.seed + ' → ' + L.dest
           + '  タップ ' + L.taps.length + ' / 到着 ' + L.arrivals.length
           + ' / 器 ' + L.opens.length + ' (襲撃 ' + L.ambushOpens + ' / 出来事 ' + L.roadOpens + ')'
