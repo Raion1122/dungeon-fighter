@@ -69,10 +69,20 @@
  *     撤退アームを見る (6a)(6b) もまだ PENDING のため)。番号だけ先に予約してある。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⭐ 項目 1 の時点では **16 本とも impl: false / 全部 PENDING** (中身は項目 3 の担当)。
- *     ⛔ 実装を忘れた変異が件数から消えないよう MUT_ORDER には最初から 16 本並べる。
+ *   ⭐ 項目 3 で **16 本すべて impl: true**。1 本ずつ別ポート (9881〜9896) から
+ *     「欠陥入りの index.html」を配り、担当の assert が**実際に赤くなる**ことを機械証明する。
+ *   ⚠⚠⚠ 依頼書 §8 の変異プランのうち **3 本はそのままでは空振りした**(項目 2/3 の実測):
+ *     ① onlyplayer  … 差し替え 3 行は 3 箇所とも同一文字列 → from/to も edits[] も
+ *                      一意にならず起動時検算で exit 3。⇒ transform で 2 本目以降だけ戻す。
+ *     ② looseanchor … 「mTot を条件から外す」だけでは (3b)(3c) は緑のまま
+ *                      (FUMBLE! は `=` も `vs` も無く、INITIATIVE は `vs` が無い)。
+ *                      ⇒ AND を **2 本**外す (§8 の「条件が 1 本とは限らない」)。
+ *     ③ skillmangle … 「SKILL 検出より前に注釈する」だけでは原理的に (4c) を赤にできない
+ *                      (白名簿が "skill" を弾き html が同一のまま返るため)。
+ *                      ⇒ 白名簿 + AND + append/prepend + 検出位置の **4 点同時**に壊し、
+ *                        (4c) は 2 経路照合へ**強化**した (⛔ 期待値は緩めていない)。
  *   ⚠ from/to は **配信バイト中ちょうど 1 件**を実測してから書く (⛔ 当たることと
- *     赤くなることは別)。項目 3 は下の `plan` を出発点にして、必ず自分で数え直すこと。
+ *     赤くなることは別)。
  *   ⚠ 置換文字列は **1 行に閉じる** (index.html はディスク上 CRLF なので複数行アンカーは
  *     必ず空振りする。tools/*.js は LF)。
  *   ⚠ 置換前後で **長さを変える** (同じ長さだと「当たったのに何も変わらない」を検出できない)。
@@ -115,57 +125,201 @@ const PORT = parseInt(arg('port', '9880'), 10);
 //     機械で守られる唯一の形。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
-  noseam: { impl: false, file: 'index.html', targets: ['0a'],
-    plan: 'window.__rollTargetFmt = rollTargetLine; の代入行を消す',
+  noseam: { impl: true, file: 'index.html', targets: ['0a'],
+    from: 'window.__rollTargetFmt = rollTargetLine;',
+    to: 'window.__rollTargetFmtREMOVED = rollTargetLine; /* neg:noseam */',
     why: '検証シーム window.__rollTargetFmt を消す (装置そのものが立たない)' },
-  onlyplayer: { impl: false, file: 'index.html', targets: ['0b'],
-    plan: 'showRollAtEnemy / showRollAtAlly の pop.innerHTML = html2; を素の pop.innerHTML = html; へ戻す'
-      + ' ⚠ 2 箇所あるので edits[] を使う (1 箇所ずつでは一意にならない)',
+
+  /* ⚠⚠⚠ 依頼書 §8 の「edits[] を使う」は**実物では成立しない**。
+   *   `pop.innerHTML = html2;` の 3 行は **3 箇所とも完全に同一文字列**なので、
+   *   from/to でも edits[] でも「置換対象がちょうど 1 件」の起動時検算に必ず引っかかり
+   *   exit 3 で止まる (項目 2 の実測)。⇒ **transform で 2 本目以降だけ**を素へ戻す。 */
+  onlyplayer: { impl: true, file: 'index.html', targets: ['0b'],
+    transform: (body) => {
+      const NEW = 'pop.innerHTML = html2;';
+      const OLD = 'pop.innerHTML = html; /* neg:onlyplayer */';
+      const at = [];
+      for (let i = 0; ; ) {
+        const p = body.indexOf(NEW, i); if (p < 0) break;
+        at.push(p); i = p + NEW.length;
+      }
+      if (at.length < 2) return null;   // 2 本目が無ければ「元へ戻す」が成り立たない
+      let out = '', prev = 0;
+      for (let n = 1; n < at.length; n++) {          // ⭐ 1 本目 (showRollAtPlayer) は残す
+        out += body.slice(prev, at[n]) + OLD;
+        prev = at[n] + NEW.length;
+      }
+      out += body.slice(prev);
+      return { body: out, note: '生成点 ' + at.length + ' 本のうち 2 本目以降 '
+        + (at.length - 1) + ' 本を素の代入へ戻した' };
+    },
+    verifyServed: (pure, mut) => {
+      const c = (h, n) => h.split(n).length - 1;
+      const nPure = c(pure, 'pop.innerHTML = html2;');
+      const nMut = c(mut, 'pop.innerHTML = html2;');
+      const nOld = c(mut, 'pop.innerHTML = html; /* neg:onlyplayer */');
+      /* ⛔ 「3 本」を写経しない。素の本数 N に対し 変異側は 1 本 + 素の代入 N-1 本。 */
+      const ok = nPure >= 2 && nMut === 1 && nOld === nPure - 1
+        && c(pure, 'pop.innerHTML = html; /* neg:onlyplayer */') === 0;
+      return [ok, '素 html2×' + nPure + ' → 変異 html2×' + nMut + ' + 素の代入×' + nOld];
+    },
     why: 'showRollAtEnemy / showRollAtAlly の差し替えを元へ戻す (敵と仲間の吹き出しだけ注釈が抜ける)' },
-  verdictbymath: { impl: false, file: 'index.html', targets: ['2e', '2f'],
-    plan: 'const won = (type === "hit" || type === "crit"); を const won = (total >= target); にする',
+
+  verdictbymath: { impl: true, file: 'index.html', targets: ['2e', '2f'],
+    from: 'const won    = (type === "hit" || type === "crit");',
+    to: 'const won    = (total >= target); /* neg:verdictbymath */',
     why: '⭐ 罠 B の再現 — 勝敗を type でなく 合計 vs 目標 の算術から引く'
       + ' (CRIT! の吹き出しに「失敗 -3」と出る事故が現実に起きる)' },
-  singlemod: { impl: false, file: 'index.html', targets: ['1d'],
-    plan: '合計の正規表現を 1 項限定 (\\+\\d+ = 前提) にする',
+
+  /* ⚠ 「\\+\\d+ = を前提にする」だけでは A-4 も通ってしまう ("+3装+2 = 19" の "+2 = " が当たる)。
+   *   1 項限定を本当に再現するには **`)` の直後の 1 項**まで縛る必要がある。 */
+  singlemod: { impl: true, file: 'index.html', targets: ['1d'],
+    from: 'const mTot = html.match(/=\\s*(?:<span class="big">)?(-?\\d+)/);',
+    to: 'const mTot = html.match(/\\)\\+\\d+ =\\s*(?:<span class="big">)?(-?\\d+)/); /* neg:singlemod */',
     why: '⭐ 罠 A の再現 — セーヴの saveModDD が返す "+3装+2" の 2 項を読めなくする' },
-  nobr: { impl: false, file: 'index.html', targets: ['1c'],
-    plan: 'vs の正規表現に <br> を必須にする',
+
+  nobr: { impl: true, file: 'index.html', targets: ['1c'],
+    from: 'const mTgt = html.match(/vs\\s+(AC|DC)\\s+(\\d+)/);',
+    to: 'const mTgt = html.match(/<br>vs\\s+(AC|DC)\\s+(\\d+)/); /* neg:nobr */',
     why: '⭐ 罠 A-3 の再現 — <br> の無い形 (混乱の暴走) が落ちる' },
-  samefloor1: { impl: false, file: 'index.html', targets: ['1e'],
-    plan: 'const floorN = (kind === "AC") ? 2 : 1; を const floorN = 1; にする',
+
+  samefloor1: { impl: true, file: 'index.html', targets: ['1e'],
+    from: 'const floorN = (kind === "AC") ? 2 : 1;',
+    to: 'const floorN = 1; /* neg:samefloor1 */',
     why: '⭐ §2-11 の再現 — クランプ下限を AC/DC ともに 1 に固定 (攻撃の nat1 自動ミスを無視)' },
-  samefloor2: { impl: false, file: 'index.html', targets: ['1f'],
-    plan: '同上を const floorN = 2; にする',
+
+  samefloor2: { impl: true, file: 'index.html', targets: ['1f'],
+    from: 'const floorN = (kind === "AC") ? 2 : 1;',
+    to: 'const floorN = 2; /* neg:samefloor2 */',
     why: '⭐ §2-11 の再現 — クランプ下限を AC/DC ともに 2 に固定 (セーヴに無い特例を持ち込む)' },
-  nocap: { impl: false, file: 'index.html', targets: ['1g', '1h'],
-    plan: 'const need = (raw > 20) ? null : … の分岐を消して常に Math.max(floorN, raw) にする',
+
+  nocap: { impl: true, file: 'index.html', targets: ['1g', '1h'],
+    from: 'const need   = (raw > 20) ? null : Math.max(floorN, raw);',
+    to: 'const need   = Math.max(floorN, raw); /* neg:nocap */',
     why: 'raw > 20 の分岐を消して「出目 23+」を出す (会心のみ / 届かない が消える)' },
-  xformlift: { impl: false, file: 'index.html', targets: ['5b'],
-    plan: '.rollPop.hasVerdict { margin-top: -16px; } を transform: translate(-50%,-16px) にする',
+
+  xformlift: { impl: true, file: 'index.html', targets: ['5b'],
+    from: '.rollPop.hasVerdict { margin-top: -16px; }',
+    to: '.rollPop.hasVerdict { transform: translate(-50%, -16px); } /* neg:xformlift */',
     why: '⭐ 罠 C の再現 — CSS アニメーション (rollRise / rollCritBurst) が全キーフレームで'
       + ' transform を書いているので !important でない宣言は 100% 効かない' },
-  sidebyside: { impl: false, file: 'index.html', targets: ['5c'],
-    plan: '.rollPop .verdictLine の display: block を display: inline にする',
-    why: '判定行を縦でなく横へ連結する (white-space: nowrap で吹き出しが横に膨らむ)' },
-  clobber: { impl: false, file: 'index.html', targets: ['4a'],
-    plan: 'return html + …  を  vs AC 14 の**置換**にする',
-    why: '追加行を append でなく既存行の置換にする (既存 3 行が 1 文字変わる)' },
-  skillmangle: { impl: false, file: 'index.html', targets: ['4c'],
-    plan: 'showRollAtAlly で #37 の SKILL 検出ブロック**より前**に注釈を挟む',
-    why: '⭐ 罠 D の再現 — 仲間の技が年代記 (RunChronicle.usedSkill) から消える' },
-  alltypes: { impl: false, file: 'index.html', targets: ['3a'],
-    plan: 'if (type !== "hit" && … ) return html; の白名簿判定を消す',
+
+  /* ⚠⚠⚠ 中の `display: block;` は index.html 全体で非一意なので当て先にできない。
+   *   規則の**開き括弧の行**を掴み、!important の宣言を先頭へ差し込む
+   *   (同じ宣言ブロック内なら !important が後続の display: block に勝つ)。 */
+  sidebyside: { impl: true, file: 'index.html', targets: ['5c'],
+    from: '    .rollPop .verdictLine {',
+    to: '    .rollPop .verdictLine { display: inline !important; /* neg:sidebyside */',
+    why: '判定行を縦でなく横へ連結する (判定行が独立した行でなくなる / 吹き出しが横に膨らむ)' },
+
+  clobber: { impl: true, file: 'index.html', targets: ['4a'],
+    from: "return html + '<span class=\"verdictLine\">' + needTxt + ' → ' + verdict + margTxt + '</span>';",
+    to: "return html.replace(/vs\\s+(AC|DC)\\s+(\\d+)/, '<span class=\"verdictLine\">' + needTxt + ' → '"
+      + " + verdict + margTxt + '</span>'); /* neg:clobber */",
+    why: '追加行を append でなく既存行 (vs AC 14) の置換にする (既存 3 行が壊れる)' },
+
+  /* ⭐⭐⭐ 罠 D の再現は「順番を入れ替える」だけでは**原理的に赤にできない**。
+   *   rollTargetLine は type 白名簿で "skill" を弾き html を同一のまま返すので、
+   *   検出が html2 を読んでも `class="label">SKILL` も `class="big">` も無傷のまま
+   *   (項目 2 の実測)。⇒ **注釈が SKILL の吹き出しに実際に触る**ところまで作らないと
+   *   欠陥が発生しない。よって transform で次を同時に壊す:
+   *     ① type 白名簿を外す         (SKILL も注釈対象になる)
+   *     ② アンカーの AND を外す     (SKILL の実形は 1d20 / = / vs を 1 つも持たない)
+   *     ③ append を **prepend** にし、注釈側に class="big"> と class="label">SKILL を含める
+   *     ④ #37 の SKILL 検出を注釈より**後ろ**へ動かし html2 を読ませる
+   *   ⭐ ③ で label も混ぜるのは、SKILL 以外 (仲間の攻撃ロール) でも検出が誤発火するようにして
+   *     「仲間が技を使ったかどうかの run の運」に負のコントロールを預けないため。 */
+  skillmangle: { impl: true, file: 'index.html', targets: ['4c'],
+    transform: (body) => {
+      const notes = [];
+      const rep = (from, to, label) => {
+        if (body.split(from).length - 1 !== 1) return false;
+        body = body.split(from).join(to); notes.push(label); return true;
+      };
+      if (!rep('if (type !== "hit" && type !== "miss" && type !== "crit" && type !== "fumble") return html;',
+        'if (false) return html; /* neg:skillmangle-1 白名簿を外す */', '①白名簿')) return null;
+      if (!rep('const mNat = html.match(/1d20\\(<b>(\\d+)<\\/b>\\)/);',
+        'const mNat = html.match(/1d20\\(<b>(\\d+)<\\/b>\\)/) || ["", "0"]; /* neg:skillmangle-2 */',
+        '②mNat')) return null;
+      if (!rep('const mTot = html.match(/=\\s*(?:<span class="big">)?(-?\\d+)/);',
+        'const mTot = html.match(/=\\s*(?:<span class="big">)?(-?\\d+)/) || ["", "0"]; /* neg:skillmangle-3 */',
+        '②mTot')) return null;
+      if (!rep('const mTgt = html.match(/vs\\s+(AC|DC)\\s+(\\d+)/);',
+        'const mTgt = html.match(/vs\\s+(AC|DC)\\s+(\\d+)/) || ["", "AC", "0"]; /* neg:skillmangle-4 */',
+        '②mTgt')) return null;
+      if (!rep('if (!mNat || !mTot || !mTgt) return html;',
+        '/* neg:skillmangle-5 AND を外す */', '②AND')) return null;
+      if (!rep("return html + '<span class=\"verdictLine\">' + needTxt + ' → ' + verdict + margTxt + '</span>';",
+        "return '<span class=\"verdictLine\">' + needTxt + ' → ' + verdict + margTxt"
+        + " + '<b class=\"big\">判定</b><span class=\"label\">SKILL</span></span>' + html;"
+        + " /* neg:skillmangle-6 前置 */", '③前置')) return null;
+      /* ④ #37 の検出ブロックを丸ごと外し、注釈の**後ろ**へ html2 を読む形で置き直す。 */
+      const CR = '\r\n';
+      const DET =
+        "      if (html && html.indexOf('class=\"label\">SKILL') >= 0) {" + CR +
+        "        const m = html.match(new RegExp('class=\"big\">([^<]*)'));" + CR +
+        '        if (m && m[1]) RunChronicle.usedSkill(m[1]);' + CR +
+        '      }' + CR;
+      if (body.split(DET).length - 1 !== 1) return null;
+      body = body.split(DET).join('');
+      const ANCHOR = '      const html2 = rollTargetLine(html, type);';
+      const at = body.lastIndexOf(ANCHOR);     // ⭐ showRollAtAlly = 3 関数のうち最後
+      if (at < 0) return null;
+      body = body.slice(0, at + ANCHOR.length) + CR +
+        "      if (html2 && html2.indexOf('class=\"label\">SKILL') >= 0) { /* neg:skillmangle-7 */" + CR +
+        "        const m = html2.match(new RegExp('class=\"big\">([^<]*)'));" + CR +
+        '        if (m && m[1]) RunChronicle.usedSkill(m[1]);' + CR +
+        '      }' + body.slice(at + ANCHOR.length);
+      notes.push('④検出を注釈後へ移動');
+      return { body: body, note: notes.join(' / ') };
+    },
+    verifyServed: (pure, mut) => {
+      const c = (h, n) => h.split(n).length - 1;
+      const READS_NEW = "if (html2 && html2.indexOf('class=\"label\">SKILL') >= 0)";
+      const READS_OLD = "if (html && html.indexOf('class=\"label\">SKILL') >= 0)";
+      const ok = c(pure, 'neg:skillmangle') === 0 && c(mut, 'neg:skillmangle') === 7
+        && c(pure, READS_OLD) === 1 && c(mut, READS_OLD) === 0
+        && c(pure, READS_NEW) === 0 && c(mut, READS_NEW) === 1;
+      return [ok, '注入マーカー 素 ' + c(pure, 'neg:skillmangle') + ' / 変異 '
+        + c(mut, 'neg:skillmangle') + ' 箇所  SKILL 検出が読む変数: 素=html('
+        + c(pure, READS_OLD) + ') 変異=html2(' + c(mut, READS_NEW) + ')'];
+    },
+    why: '⭐ 罠 D の再現 — 注釈が #37 の SKILL 検出**より前**に入り、年代記が'
+      + ' 技名でなく注釈の中身 (class="big">判定) を拾う' },
+
+  alltypes: { impl: true, file: 'index.html', targets: ['3a'],
+    from: 'if (type !== "hit" && type !== "miss" && type !== "crit" && type !== "fumble") return html;',
+    to: 'if (false) return html; /* neg:alltypes 白名簿を外す */',
     why: 'type の白名簿を外して skill / init / buff も注釈する (対象外が壊れる)' },
-  looseanchor: { impl: false, file: 'index.html', targets: ['3b', '3c'],
-    plan: 'if (!mNat || !mTot || !mTgt) return html; の mTot を条件から外す',
-    why: '⭐ §4-5 の AND を 1 本外す — 「= 合計」が無い FUMBLE! / INITIATIVE まで注釈する'
-      + ' ⚠ 条件を潰す変異は「条件が 1 本とは限らない」(§4-5 の AND は 4 本ある)' },
-  retreatdead: { impl: false, file: 'index.html', targets: ['6a', '6b'],
-    plan: 'if (!ROLL_TARGET_ON) return html; を消す',
+
+  /* ⚠⚠⚠ 依頼書は「mTot を条件から外す」と書いているが、それだけでは **(3b)(3c) は緑のまま**。
+   *   実測: FUMBLE! の実形は `=` も `vs` も両方無く、INITIATIVE の形は `vs` が無い。
+   *   ⇒ AND を **2 本**外す (§8 の「条件が 1 本とは限らない」がまさにこれ)。
+   *   ⚠ 素の `if (!mNat || !mTot || !mTgt)` を消すだけだと mTot が null のまま
+   *     `mTot[1]` で TypeError になり「測れないから赤」に化けるので、
+   *     既定値を与えて **注釈が実際に出てしまう**形にする。 */
+  looseanchor: { impl: true, file: 'index.html', targets: ['3b', '3c'],
+    edits: [
+      { from: 'const mTot = html.match(/=\\s*(?:<span class="big">)?(-?\\d+)/);',
+        to: 'const mTot = html.match(/=\\s*(?:<span class="big">)?(-?\\d+)/) || ["", "0"]; /* neg:looseanchor-1 */' },
+      { from: 'const mTgt = html.match(/vs\\s+(AC|DC)\\s+(\\d+)/);',
+        to: 'const mTgt = html.match(/vs\\s+(AC|DC)\\s+(\\d+)/) || ["", "AC", "0"]; /* neg:looseanchor-2 */' },
+      { from: 'if (!mNat || !mTot || !mTgt) return html;',
+        to: 'if (!mNat) return html; /* neg:looseanchor-3 AND を 2 本外す */' },
+    ],
+    why: '⭐ §4-5 の AND を 2 本外す — 「= 合計」も「vs 目標」も無い FUMBLE! /'
+      + ' INITIATIVE まで注釈する' },
+
+  retreatdead: { impl: true, file: 'index.html', targets: ['6a', '6b'],
+    from: 'if (!ROLL_TARGET_ON) return html;',
+    to: 'if (false && !ROLL_TARGET_ON) return html; /* neg:retreatdead */',
     why: '撤退スイッチの判定を消して常に注釈する (?rolltarget=0 が効かない)' },
-  retreatall: { impl: false, file: 'index.html', targets: ['0d'],
-    plan: 'const ROLL_TARGET_ON = … を const ROLL_TARGET_ON = false; にする',
+
+  /* ⚠ 宣言は 2 行 (`const ROLL_TARGET_ON =` / 次行が式)。const の行は他所と紛れるので
+   *   **式の行**を差し替える。 */
+  retreatall: { impl: true, file: 'index.html', targets: ['0d'],
+    from: 'new URLSearchParams(window.location.search).get("rolltarget") !== "0";',
+    to: 'false; /* neg:retreatall 常に OFF */',
     why: '逆に常に false にして注釈を一切しない (⭐ (0d) の母集団ガードそのものを検査する)' },
 };
 const MUT_ORDER = ['noseam', 'onlyplayer', 'verdictbymath', 'singlemod', 'nobr',
@@ -178,6 +332,11 @@ const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].impl);
 /* ⭐ 対照ページ (?rolltarget=0) を必要とする assert。⛔ 全変異で対照を開くと走行時間が
  *  倍になるだけなので、targets / record にこれらを含む変異のときだけ開く (項目 3 が使う)。 */
 const REF_ASSERTS = { '6a': 1, '6b': 1 };
+/* ⭐ 実プレイ (?autoplay で戦闘を回す) を必要とする assert。⛔ これ以外しか見ない変異では
+ *  measurePlay を回さない。実測 1 走 ≒ 90 秒 なので、16 本すべてで回すと 25 分かかるが
+ *  実際に実プレイが要るのは 5 本だけ ((6a)(6b) は撤退アーム = REF_ASSERTS 側)。
+ *  ⚠ 母集団の意味は変わらない — 走らせないのは「その assert が読まないデータ」だけ。 */
+const PLAY_ASSERTS = { '0a': 1, '0c': 1, '0d': 1, '4c': 1, '5a': 1, '5b': 1, '5c': 1 };
 
 if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
   console.error('[drv] 未知の --mutate: ' + MUTATE + '  (' + MUT_ORDER.join(' / ') + ')');
@@ -498,8 +657,21 @@ async function measurePlay(browser, port, errs, opts) {
            あとからまとめて測ることができない)。⚠ marginTop を読むのは罠 C の回避
            (transform は rollRise が全キーフレームで書くので、実装が正しくても
             間違っていても同じ値が返る = 永久緑)。 */
-        let mt = null, w = -1;
-        try { mt = window.getComputedStyle(node).marginTop; } catch (e) {}
+        let mt = null, w = -1, vw = -1, cw = -1;
+        try {
+          const cs = window.getComputedStyle(node);
+          mt = cs.marginTop;
+          /* ⭐ (5c) の 2 本目 = 「判定行が**独立した行**になっている」。
+             ブロックの子は器の内容幅いっぱいに広がるので vw === cw。横へ連結すると
+             判定行は自分の文字幅しか持たないので vw < cw になる。
+             ⛔ display の値そのものは読まない (実装手段を縛らない)。 */
+          const vl = node.querySelector ? node.querySelector('.verdictLine') : null;
+          if (vl) {
+            vw = vl.offsetWidth;
+            cw = node.clientWidth
+              - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+          }
+        } catch (e) {}
         try { w = node.offsetWidth; } catch (e) {}
         const cls = node.className || '';
         window.__rtSeen.push({
@@ -510,6 +682,8 @@ async function measurePlay(browser, port, errs, opts) {
           hasVerdictClass: hv,
           marginTop: mt,
           offsetWidth: w,
+          verdictWidth: vw,
+          contentWidth: cw,
           ann: annOf(cls, inner),
           t: Date.now(),
         });
@@ -667,6 +841,23 @@ function popWithVerdict(m) { return popPops(m).filter(r => r && r.verdictLines >
 /* ⭐ 撤退アーム (?rolltarget=0) 側。(6a)(6b) だけが読む。 */
 function refPops(m) { return popsOf(m && m.ref); }
 function refWithVerdict(m) { return refPops(m).filter(r => r && r.verdictLines > 0); }
+
+/* ⭐⭐⭐ (4c) の 2 経路目 — 「プレイヤーが実際に見た技名」を DOM から取り出す。
+ *  ⛔ 本番と同じ読み方 (html の**先頭から**最初の class="big">) をしてはいけない。
+ *    罠 D は「注釈が検出点より前に入る」欠陥なので、同じ読み方をすると変異が両経路を
+ *    等しく汚し、突き合わせが**循環して永久緑**になる ([[project-headless-verification]] の
+ *    「実装とドライバが同じ誤りをしていると緑になる」①)。
+ *  ⭐ 独立性の根拠 = **SKILL ラベルより後ろ**を読むこと。吹き出しの見た目上、技名は
+ *    必ずラベルの後ろに出る。前置された偽の class="big"> はこの経路に入らない。 */
+const SKILL_LABEL = 'class="label">SKILL';
+const RE_BIG = /class="big">([^<]*)/;
+function domSkillNameOf(html) {
+  const h = String(html || '');
+  const at = h.indexOf(SKILL_LABEL);
+  if (at < 0) return null;
+  const m = h.slice(at + SKILL_LABEL.length).match(RE_BIG);
+  return (m && m[1]) ? m[1] : null;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // §1〜§4 の合成入力 (⭐ 実プレイに頼らない計測。依頼書 §6「計測機構」)
@@ -1075,8 +1266,9 @@ const ASSERTS = [
         + '  例: ' + JSON.stringify(String(fmtOut(m, 'a1')).slice(FMT_CASES.a1.html.length))];
     }],
 
-  ['4c', '[恒等] #37 の年代記シーム: 実プレイで RunChronicle が技名を 1 件以上拾えている'
-    + '  ⭐ 罠 D の回帰検査 (showRollAtAlly の SKILL 検出より**後**に注釈しているか)',
+  ['4c', '[恒等] #37 の年代記シーム: 実プレイで RunChronicle が技名を 1 件以上拾えており、'
+    + 'かつ **showRollAtAlly 経由で拾った名前が、画面に出た吹き出しの技名と一致する**'
+    + '  ⭐ 罠 D の回帰検査 (SKILL 検出より**後**に注釈しているか) — 2 経路照合',
     m => {
       const p = m.play;
       if (!p || !p.started) return popFail('(4c) 実プレイの起動', (p && p.err) || '—');
@@ -1085,12 +1277,38 @@ const ASSERTS = [
           + (p.chSpy || '—'));
       }
       const names = p.skills.map(s => s && s.name).filter(Boolean);
-      const viaAlly = p.skills.filter(s => s && s.ally).length;
-      const ok = names.length >= 1;
-      return [ok, '拾った技名 ' + names.length + ' 件 (うち showRollAtAlly 経由 ' + viaAlly + ' 件)'
+      const allyNames = p.skills.filter(s => s && s.ally).map(s => String(s.name));
+      /* ── 経路① 年代記が拾った名前 (母集団ガード。⛔ ここは弱めない) ── */
+      if (names.length < 1) {
+        return [false, '拾った技名 0 件  spy=' + JSON.stringify(p.chSpy || null)
+          + '  ⛔ 1 件も拾えていない = 罠 D (SKILL 検出より前に注釈した) の疑い'];
+      }
+      /* ── 経路② 観測した吹き出しの DOM (SKILL ラベルより**後ろ**の class="big">) ── */
+      const dom = {};
+      let nSkillPops = 0;
+      for (const r of popPops(m)) {
+        const nm = domSkillNameOf(r.html);
+        if (nm === null) continue;
+        nSkillPops++; dom[nm] = (dom[nm] || 0) + 1;
+      }
+      if (allyNames.length < 1) {
+        return popFail('(4c) showRollAtAlly 経由の記録',
+          '年代記は ' + names.length + ' 件拾ったが showRollAtAlly 由来が 0 件 '
+          + '(仲間が 1 度も技を撃たなかった run) — 2 経路照合が測れない');
+      }
+      if (nSkillPops < 1) {
+        return popFail('(4c) SKILL ラベルつきの .rollPop',
+          '観測 ' + popPops(m).length + ' 枚のうち ' + SKILL_LABEL + ' を持つものが 0 枚');
+      }
+      const bad = allyNames.filter(n => !dom[n]);
+      const ok = bad.length === 0;
+      return [ok, '拾った技名 ' + names.length + ' 件 (うち showRollAtAlly 経由 '
+        + allyNames.length + ' 件)  画面に出た SKILL 吹き出し ' + nSkillPops + ' 枚 = '
+        + JSON.stringify(Object.keys(dom).slice(0, 6))
         + '  spy=' + JSON.stringify(p.chSpy || null)
-        + '  例: ' + JSON.stringify(names.slice(0, 5))
-        + (ok ? '' : '  ⛔ 1 件も拾えていない = 罠 D (SKILL 検出より前に注釈した) の疑い')];
+        + (ok ? '  ○ 全部一致' : '  ⛔ 画面に出ていない名前を年代記が拾っている: '
+          + JSON.stringify(Array.from(new Set(bad)).slice(0, 5))
+          + ' = 罠 D (注釈が SKILL 検出より前に入った)')];
     }],
 
   // ── §5 レイアウト ─────────────────────────────────────────────────────────
@@ -1123,8 +1341,16 @@ const ASSERTS = [
           + ' = transform で逃がしている疑い)' : '')];
     }],
 
+  /* ⚠⚠⚠ 依頼書 §8 (5c) は幅 200px だけを縛っているが、**実測でそれだけでは
+   *   `sidebyside` (判定行を横へ連結する) を赤にできない**。素の吹き出しは 118〜126px で、
+   *   判定行を inline にしても `vs AC 13` の行へ乗るだけなので 200px に届かない。
+   *   ⇒ 期待値は 1 つも緩めず、AND を 1 本**増やす**:
+   *     「判定行が独立した行になっている」= 判定行の幅が吹き出しの内容幅と一致する。
+   *   ⭐ 依頼書 §4-1 の「判定は横でなく縦(1 行追加)に足す」を機械で守る形。
+   *   ⛔ display の値そのものは読まない (block / flex / grid など実装手段を縛らない)。 */
   ['5c', '[レイアウト] `.' + CLS_VERDICT_LINE + '` を持つ `.rollPop` の offsetWidth が 200px 未満'
-    + '  ⭐ white-space: nowrap で横に膨らんでいないことの検査 (§2-7)',
+    + ' **かつ** 判定行が独立した行になっている (判定行の幅 === 吹き出しの内容幅)'
+    + '  ⭐ 横に膨らんでいない (§2-7) / 横へ連結していない (§4-1) の 2 本',
     m => {
       const p = m.play;
       if (!p || !p.started || !p.observerOk) return popFail('(5c) 実プレイの観測', (p && p.err) || '—');
@@ -1133,8 +1359,20 @@ const ASSERTS = [
       const ws = v.map(r => r.offsetWidth);
       const bad = ws.filter(w => !(w > 0 && w < 200));
       const mx = Math.max.apply(null, ws), mn = Math.min.apply(null, ws);
-      return [bad.length === 0, '判定行つき ' + v.length + ' 枚の offsetWidth = ' + mn + '〜' + mx + 'px'
-        + (bad.length ? '  ⛔ 200px 以上 (または 0) が ' + bad.length + ' 枚 = 横へ連結している疑い' : '')];
+      /* 計測できていない (verdictWidth < 0) 枚があれば「測れないから赤」= popFail 相当。 */
+      const unmeasured = v.filter(r => !(r.verdictWidth > 0 && r.contentWidth > 0));
+      if (unmeasured.length) {
+        return popFail('(5c) 判定行の幅',
+          v.length + ' 枚中 ' + unmeasured.length + ' 枚で .verdictLine の幅を採れていない');
+      }
+      const notOwnLine = v.filter(r => Math.abs(r.verdictWidth - r.contentWidth) > 1);
+      const pairs = Array.from(new Set(v.map(r => r.verdictWidth + '/' + r.contentWidth)));
+      return [bad.length === 0 && notOwnLine.length === 0,
+        '判定行つき ' + v.length + ' 枚の offsetWidth = ' + mn + '〜' + mx + 'px'
+        + '  判定行幅/内容幅 = ' + JSON.stringify(pairs.slice(0, 6))
+        + (bad.length ? '  ⛔ 200px 以上 (または 0) が ' + bad.length + ' 枚 = 横に膨らんでいる' : '')
+        + (notOwnLine.length ? '  ⛔ 判定行が内容幅いっぱいでないものが ' + notOwnLine.length
+          + ' 枚 = 独立した行になっていない (横へ連結している)' : '')];
     }],
 
   // ── §6 撤退 ───────────────────────────────────────────────────────────────
@@ -1351,9 +1589,14 @@ const SECTIONS = [
           const servedNeg = await httpGet('http://localhost:' + port + PAGE_PATH);
           const mm = { gen: genPointScan(servedNeg.body), servedBytes: servedNeg.body.length, errs: negErrs };
           mm.fmt = await measureFmt(browser, port, negErrs, {});
-          mm.play = await measurePlay(browser, port, negErrs, {});
-          const wantRef = MUTATIONS[k].targets.concat(MUTATIONS[k].record || [])
-            .some(t => REF_ASSERTS[t]);
+          /* ⭐ その変異が見る assert が実プレイを読むときだけ回す (1 走 ≒ 90 秒)。
+             ⛔ 「読まないデータを採らない」だけで、母集団の扱いは 1 つも変えていない。 */
+          const wants = MUTATIONS[k].targets.concat(MUTATIONS[k].record || []);
+          const wantPlay = wants.some(t => PLAY_ASSERTS[t]);
+          const wantRef = wants.some(t => REF_ASSERTS[t]);
+          console.log('       [変異 ' + k + ' :' + port + '] 実プレイ '
+            + (wantPlay ? 'あり' : 'なし (fmt のみ)') + ' / 撤退アーム ' + (wantRef ? 'あり' : 'なし'));
+          if (wantPlay) mm.play = await measurePlay(browser, port, negErrs, {});
           if (wantRef) {
             mm.refErrs = [];
             mm.ref = await measureRetreat(browser, port, mm.refErrs, { query: RETREAT_QUERY });
