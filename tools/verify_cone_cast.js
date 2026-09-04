@@ -427,6 +427,43 @@ const BOARD_WANT = BOARD_MIN_SAMPLES + 40;
 const BOARD_MAX_TRIES = 2000;
 const BOARD_SEED0 = 20260904;
 
+/* ── §3 (STEP3) の合成盤面 ────────────────────────────────────────────────────
+ * ⚠⚠⚠ 「距離 4〜8 なら円錐の外」は **偽**。円錐は斜め方向の step3 lat=±2 で
+ *   (5,±1) = chebyshev 5 のマスまで届く。よって (3a)(3b) の盤面は
+ *   **ドライバ側の独立な幾何で「円錐に入らないオフセット」を先に作り、そこからだけ選ぶ**。
+ * ⚠⚠ (3c) の測定点を移した経緯 (依頼書 §12 へ記録すること):
+ *   依頼書 §8 の文言は「対象が隣接 (1 マス) なのに円錐へ入らない盤面」だが、
+ *   **8 方向にすると隣接 8 マスは必ずどれかの円錐の step1 に入る**ので、その盤面は
+ *   原理的に作れない (円錐の被覆は chebyshev<=3 を全部覆う = 下の coneSet で実測できる)。
+ *   → 依頼書が定める作法「assert を緩めず**測定点を移す**」に従い、
+ *     「**円錐の実効射程内 (0〜3 マス) では 1 件も詰め寄らない**」+
+ *     「そのうち**円錐が立たない盤面 (術者と同じマス) では allyBasicAttack へ落ちる**」へ移した。
+ *     ⭐ 変異 advadjacent (dist > CONE_REACH_TILES を外す) は距離 0 の盤面で必ず赤くなる。 */
+const ADV_FAR  = [4, 5, 6, 7, 8];    // (3a) 円錐の外だが medium(8 マス) の内 → 詰め寄る
+const ADV_OUT  = [9, 10, 11, 12];    // (3b) medium の外 → 歩かない
+const ADV_NEAR = [0, 1, 2, 3];       // (3c) 円錐の実効射程の内 → 歩かない
+const ADV_SPEC = []
+  .concat(ADV_FAR.map(d => ({ tag: 'far', dist: d, outside: true, spell: 'allyBurningHands' })))
+  .concat(ADV_OUT.map(d => ({ tag: 'out', dist: d, outside: true, spell: 'allyBurningHands' })))
+  .concat(ADV_NEAR.map(d => ({ tag: 'near', dist: d, outside: false, spell: 'allyBurningHands' })));
+/* ⛔ 「見つかった盤面だけ緑」にしない = 距離ごとの下限を先に決めておく (母集団ガード)。
+ *  ⚠ 境界 (8 = medium ちょうど / 9 = medium の 1 つ外) は**必ず**要る。 */
+const ADV_FAR_REQUIRED = [4, 8];
+const ADV_OUT_REQUIRED = [9];
+const ADV_NEAR_REQUIRED = [0, 1];
+
+/* ⭐ (4b) 用。**同じ seed 列 = 同じ盤面**を 2 つの呪文に見せる。 */
+const RATE_WANT = 120;
+const RATE_MIN_ATTEMPTS = 100;
+const RATE_SPELLS = [
+  { fn: 'allyBurningHands', key: 'バーニングハンズ' },
+  { fn: 'allyConeOfCold', key: 'コーンオブコールド' },
+];
+/* (4a) が配信ソースから切り出す 2 関数の見出し。⭐ ⛔ ディスクを読み直さない。 */
+const CONE_FN_HEADS = ['async function allyBurningHands(ally, enemyIdx) {',
+  'async function allyConeOfCold(ally, enemyIdx) {'];
+const LEGACY_DIR_MARK = 'const directions = [';
+
 /* ⭐ 実プレイの母集団 (依頼書 §8 (0c))。 */
 const PLAY_MIN_ATTEMPTS = 5;
 const PLAY_ENOUGH_ATTEMPTS = 8;   // これだけ出たら打ち切る (⭐ 打ち切りは測りたい対象そのもので数える)
@@ -742,6 +779,170 @@ function installBoard(page, boardOpts) {
   }, SEAM_NAME, boardOpts || {});
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// STEP3 の観測装置 (§3 (3a)〜(3d) と §4 (4b) が読む)
+//   ⭐ driver_action_priority.js の __warQuiet の流儀 — **演出だけ黙らせ、判断は 1 行も触らない**。
+//     allyAdvanceTowardPoint / allyBasicAttack をスタブへ差し替えて「どちらへ落ちたか」を採る。
+//   ⛔ hasLineOfSight / tileChebyshev / getRange / pickConeDirection は差し替えない
+//     (STEP3 の判断そのもの。ここを黙らせたら測っているものが消える)。
+// ══════════════════════════════════════════════════════════════════════════════
+function installAdvance(page) {
+  return page.evaluate((SEAM) => {
+    const TILE = TILE_SIZE;
+    const REACH = 3;   /* ⛔ 本番の CONE_REACH_TILES を読まない (腐った鏡どうしの一致を避ける)。
+                          依頼書 §2-4 の実測「円錐は術者起点で前方 3 マス」。 */
+    const D8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    /* 円錐が覆うオフセット集合 (ドライバ側の独立な幾何)。
+       ⚠⚠⚠ 斜め方向の step3 lat=±2 は (5,±1) = **chebyshev 5** まで届く。
+         よって「距離 4〜8 なら円錐の外」は偽。ここから引いて盤面を選ぶ。 */
+    const coneSet = new Set();
+    for (const d of D8) {
+      for (let step = 1; step <= REACH; step++) {
+        for (let lat = -step + 1; lat <= step - 1; lat++) {
+          coneSet.add((d[0] * step + (-d[1]) * lat) + ',' + (d[1] * step + d[0] * lat));
+        }
+      }
+    }
+    const open = [];
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) if (!isTileWall(tx, ty)) open.push([tx, ty]);
+    }
+    const cx = (t) => t[0] * TILE + TILE / 2;
+    const cy = (t) => t[1] * TILE + TILE / 2;
+    const cheb = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+
+    /* 実マップの上で「距離 dist / 視線が通る / (指定あれば) 円錐の外」の 1 組を探す。 */
+    function findPair(dist, outside) {
+      if (dist === 0) {
+        for (const c of open) if (hasLineOfSight(cx(c), cy(c), cx(c), cy(c))) return { c: c, t: c, inCone: false };
+        return null;
+      }
+      for (const c of open) {
+        for (const t of open) {
+          if (cheb(c, t) !== dist) continue;
+          const off = (t[0] - c[0]) + ',' + (t[1] - c[1]);
+          const inCone = coneSet.has(off);
+          if (outside && inCone) continue;
+          if (!hasLineOfSight(cx(c), cy(c), cx(t), cy(t))) continue;
+          return { c: c, t: t, inCone: inCone };
+        }
+      }
+      return null;
+    }
+
+    /* 演出だけ黙らせる。⛔ 判断・ダイス・射程・視線は 1 行も触らない。 */
+    const QUIET = ['allyAdvanceTowardPoint', 'allyBasicAttack', 'sleepMs', 'flashAction',
+      'showRollAtAlly', 'showRollAtEnemy', 'startAllyAttackAnim', 'spawnCastOrb', 'dfPlayCast',
+      'spawnConeFlames', 'spawnConeCrystals', 'spawnFireImpactBurst', 'spawnGroundFx',
+      'updateInfo', 'showDmgAt', 'triggerEnemyDamageFlash', 'noteDisplacementHit',
+      'defeatEnemy', 'tryDisplacement', 'renderWorld', 'renderWorldWithShake', 'moveEnemies'];
+    function quiet(T) {
+      const saved = {};
+      for (const nm of QUIET) saved[nm] = window[nm];
+      const nop = function () {};
+      window.allyAdvanceTowardPoint = function () { T.push('ADV'); return Promise.resolve(); };
+      window.allyBasicAttack = function () { T.push('BASIC'); return Promise.resolve(); };
+      window.sleepMs = function () { return Promise.resolve(); };
+      window.dfPlayCast = function () { return Promise.resolve(); };
+      window.flashAction = nop; window.startAllyAttackAnim = nop; window.spawnCastOrb = nop;
+      window.spawnConeFlames = nop; window.spawnConeCrystals = nop;
+      window.spawnFireImpactBurst = nop; window.spawnGroundFx = nop;
+      window.showRollAtAlly = nop; window.showRollAtEnemy = nop; window.showDmgAt = nop;
+      window.triggerEnemyDamageFlash = nop; window.noteDisplacementHit = nop;
+      window.renderWorld = nop; window.renderWorldWithShake = nop; window.moveEnemies = nop;
+      window.updateInfo = function (msg) { T.push('I:' + msg); };
+      window.tryDisplacement = function () { return false; };
+      window.defeatEnemy = function (i) { if (enemies[i]) enemies[i].alive = false; };
+      return function () {
+        for (const nm of QUIET) {
+          if (saved[nm] !== undefined) window[nm] = saved[nm];
+          else { try { delete window[nm]; } catch (e) {} }
+        }
+      };
+    }
+
+    const mkAlly = (t) => ({ alive: true, classKey: 'mage', level: 5, mp: 30, int: 4,
+      facing: 'right', x: t[0] * TILE + TILE / 2 - 48, y: t[1] * TILE + TILE / 2 - 48,
+      spellSlots: {}, buffs: {}, def: { name: '術者', displaySize: 96 } });
+    const mkFoe = (t) => ({ alive: true, inactive: false, stunned: 0, hp: 999, maxHp: 999,
+      poisonRemaining: 0, x: t[0] * TILE + TILE / 2 - 48, y: t[1] * TILE + TILE / 2 - 48,
+      def: { name: '的', displaySize: 96, hp: 999, ac: 13, dex: 0, con: 0 } });
+
+    window.__coneAdv = {
+      info: function () {
+        return { open: open.length, mapW: MAP_W, mapH: MAP_H, coneOffsets: coneSet.size,
+          seam: typeof window[SEAM],
+          hasBH: typeof window.allyBurningHands, hasCC: typeof window.allyConeOfCold,
+          hasAdvance: typeof window.allyAdvanceTowardPoint,
+          hasBasic: typeof window.allyBasicAttack };
+      },
+
+      /* spec = [{ tag, dist, outside, spell }] → 1 件ずつ盤面を作って呪文を 1 回だけ走らせる。 */
+      run: async function (spec) {
+        const out = [];
+        for (const s of spec) {
+          const pair = findPair(s.dist, !!s.outside);
+          if (!pair) { out.push({ tag: s.tag, dist: s.dist, found: false, spell: s.spell }); continue; }
+          allies.length = 0; enemies.length = 0;
+          const ally = mkAlly(pair.c);
+          allies.push(ally);
+          playerX = pair.c[0] * TILE; playerY = pair.c[1] * TILE;
+          enemies.push(mkFoe(pair.t));
+          /* [記録・⛔ 判定に使わない] この盤面で本番の探索が null かどうか。 */
+          let prodNull = null;
+          try {
+            const C = window[SEAM];
+            if (C && typeof C.pickConeDirection === 'function') {
+              prodNull = !C.pickConeDirection(Math.floor((ally.x + 48) / TILE),
+                Math.floor((ally.y + 48) / TILE));
+            }
+          } catch (e) { prodNull = null; }
+          const T = [];
+          const unquiet = quiet(T);
+          let err = null;
+          try { await window[s.spell](ally, 0); }
+          catch (e) { err = String((e && e.message) || e); }
+          finally { unquiet(); }
+          out.push({ tag: s.tag, dist: s.dist, found: true, spell: s.spell,
+            caster: pair.c, target: pair.t, inCone: !!pair.inCone, prodNull: prodNull,
+            adv: T.indexOf('ADV') >= 0, basic: T.indexOf('BASIC') >= 0,
+            trace: T.filter(x => x === 'ADV' || x === 'BASIC'), err: err });
+        }
+        return out;
+      },
+
+      /* (4b): **同じ seed 列 = 同じ盤面**を 2 つの呪文に見せて、既存シーム __aoeStats で
+         発射率を採る。⭐ noteAoeOutcome は STEP3 の分岐より前で呼ばれるので、
+         詰め寄りに落ちた手番も attempts に入る = 分母が揃う。 */
+      spellRates: async function (seed0, want, maxTries, spells) {
+        const res = {};
+        const prevStats = window.__aoeStats;
+        for (const sp of spells) {
+          window.__aoeStats = {};
+          let n = 0, errs = 0, first = null;
+          for (let s = seed0, tries = 0; n < want && tries < maxTries; s++, tries++) {
+            const r = window.__coneProbe.sample(s);
+            if (!r) continue;
+            n++;
+            const ally = allies[allies.length - 1];
+            const T = [];
+            const unquiet = quiet(T);
+            try { await window[sp.fn](ally, 0); }
+            catch (e) { errs++; if (!first) first = String((e && e.message) || e); }
+            finally { unquiet(); }
+          }
+          const st = window.__aoeStats[sp.key] || null;
+          res[sp.fn] = { n: n, key: sp.key, attempts: st ? st.attempts : 0,
+            cast: st ? st.cast : 0, demoted: st ? st.demoted : 0, errs: errs, firstErr: first };
+        }
+        window.__aoeStats = prevStats;
+        return res;
+      },
+    };
+    return window.__coneAdv.info();
+  }, SEAM_NAME);
+}
+
 /* ── 合成盤面の測定 (⛔ autoplay を付けない = 実プレイに頼らない) ────────────── */
 async function measureBoard(browser, port, errs, opts) {
   opts = opts || {};
@@ -786,6 +987,19 @@ async function measureBoard(browser, port, errs, opts) {
       out.samples = r.samples; out.tries = r.tries;
     } catch (e) {
       out.err = (out.err ? out.err + ' / ' : '') + '合成盤面を回せない: ' + String((e && e.message) || e);
+    }
+    /* ── §3 (STEP3) の盤面 + §4 (4b) の発射率 ── */
+    try {
+      out.advInfo = await installAdvance(page);
+      out.adv = await page.evaluate((spec) => window.__coneAdv.run(spec), ADV_SPEC);
+    } catch (e) { out.advErr = String((e && e.message) || e); }
+    /* ⭐ (4b) は素のアームだけが読む (撤退アームでは走らせない = 走行時間を倍にしない)。 */
+    if (!opts.query) {
+      try {
+        out.rates = await page.evaluate((s0, want, tries, sp) =>
+          window.__coneAdv.spellRates(s0, want, tries, sp),
+        BOARD_SEED0, RATE_WANT, BOARD_MAX_TRIES, RATE_SPELLS);
+      } catch (e) { out.ratesErr = String((e && e.message) || e); }
     }
   }
   await page.close();
@@ -919,6 +1133,33 @@ async function measurePlayOnce(browser, port, errs, opts) {
 // 標本の集計 (⛔ ここで判定しない。母集団の切り出しと材料づくりだけ)
 // ══════════════════════════════════════════════════════════════════════════════
 function boardSamples(m) { return (m && m.board && Array.isArray(m.board.samples)) ? m.board.samples : []; }
+/* 撤退アーム (?conecast=0) の標本。§1 / (3d) / (6a) が読む。 */
+function refSamples(m) { return (m && m.ref && Array.isArray(m.ref.samples)) ? m.ref.samples : []; }
+/* STEP3 の観測。arm = 'board' (素) / 'ref' (撤退)。 */
+function advCases(m, arm, tag) {
+  const b = m ? m[arm] : null;
+  const list = (b && Array.isArray(b.adv)) ? b.adv : [];
+  return tag ? list.filter(c => c.tag === tag) : list;
+}
+/* 返り値の同一性 (方向・タイル集合・count)。⛔ party は比べない
+   = 旧探索は partyInCone を持たないので、そこを比べると型の違いで必ず落ちる。 */
+function pickEq(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.dx === b.dx && a.dy === b.dy && a.count === b.count && a.key === b.key;
+}
+/* (4a): 配信ソースから 1 関数の本文を切り出す (次の 4 スペース宣言まで)。 */
+function fnBodyOf(src, head) {
+  const i = src.indexOf(head);
+  if (i < 0) return null;
+  const rest = src.slice(i + head.length);
+  const m = rest.search(/\r?\n {4}(?:async function |function |\/\/ ══)/);
+  return m < 0 ? rest : rest.slice(0, m);
+}
+function pageErrorsOf(m) {
+  const all = (m && Array.isArray(m.errs)) ? m.errs : [];
+  return all.filter(e => String(e).indexOf('PAGEERROR') >= 0);
+}
 function boardTally(m) {
   const s = boardSamples(m);
   const t = {
@@ -1068,6 +1309,295 @@ const ASSERTS = [
           + ' — localStorage["dragonfighters.knownSpells"] と ["dragonfighters.partySkills"] の'
           + ' **両方**を遷移前に仕込む必要がある (依頼書 §2-7)')];
     }],
+
+  // ── §1 STEP1 の恒等 (振る舞いを 1 ビットも変えていない) ──────────────────────
+  ['1a', RETREAT_QUERY + ' のアームで、全標本 (' + BOARD_MIN_SAMPLES + ' 件以上) について'
+    + ' pickConeDirection の返り値 (方向・タイル集合・count) が'
+    + ' **ドライバ側が独立に書いた旧アルゴリズムの再実装**と完全一致する',
+    m => {
+      const r = m.ref;
+      if (!r || !r.booted) return popFail('(1a) 撤退アームの起動', (r && r.err) || 'measureBoard が走っていない');
+      const s = refSamples(m);
+      if (s.length < BOARD_MIN_SAMPLES) {
+        return popFail('(1a) 撤退アームの標本', s.length + ' 件 (< ' + BOARD_MIN_SAMPLES + '): ' + (r.err || '—'));
+      }
+      const bad = [];
+      let legCast = 0, prodCast = 0, prodErr = 0;
+      for (const x of s) {
+        if (x.legacy) legCast++;
+        if (x.prod) prodCast++;
+        if (x.prodErr) prodErr++;
+        if (!pickEq(x.legacy, x.prod)) bad.push({ seed: x.seed, caster: x.caster, legacy: x.legacy, prod: x.prod, prodErr: x.prodErr });
+      }
+      const ok = bad.length === 0;
+      return [ok,
+        '標本 ' + s.length + ' 件  旧アルゴリズムの鏡が撃てた ' + legCast + ' 件 ' + pct(legCast, s.length)
+        + ' / 本番が撃てた ' + prodCast + ' 件 ' + pct(prodCast, s.length)
+        + '  不一致 ' + bad.length + ' 件  (本番シームが読めなかった標本 ' + prodErr + ' 件)'
+        + (ok ? '' : '  ⛔ 先頭 3 件 = ' + JSON.stringify(bad.slice(0, 3)))];
+    }],
+
+  ['1b', RETREAT_QUERY + ' のアームで「味方入りの方向」が **1 件も選ばれていない**'
+    + ' (拒否権が絶対に戻っている)',
+    m => {
+      const r = m.ref;
+      if (!r || !r.booted) return popFail('(1b) 撤退アームの起動', (r && r.err) || '—');
+      const s = refSamples(m);
+      if (s.length < BOARD_MIN_SAMPLES) return popFail('(1b) 撤退アームの標本', s.length + ' 件');
+      const cast = s.filter(x => x.prod);
+      if (cast.length === 0) {
+        return popFail('(1b) 撤退アームで撃てた標本', '0 件 — 「1 件も選ばれていない」が自明に緑になる');
+      }
+      const dirty = cast.filter(x => (x.prod.party || 0) > 0);
+      const ok = dirty.length === 0;
+      return [ok, '撃てた標本 ' + cast.length + ' 件中、味方入りの方向 ' + dirty.length + ' 件'
+        + (ok ? '' : '  ⛔ 先頭 3 件 = ' + JSON.stringify(dirty.slice(0, 3).map(x => ({ seed: x.seed, prod: x.prod }))))];
+    }],
+
+  ['1c', RETREAT_QUERY + ' のアームで **斜め方向が 1 件も選ばれていない**',
+    m => {
+      const r = m.ref;
+      if (!r || !r.booted) return popFail('(1c) 撤退アームの起動', (r && r.err) || '—');
+      const s = refSamples(m);
+      if (s.length < BOARD_MIN_SAMPLES) return popFail('(1c) 撤退アームの標本', s.length + ' 件');
+      const cast = s.filter(x => x.prod);
+      if (cast.length === 0) return popFail('(1c) 撤退アームで撃てた標本', '0 件 — 自明に緑になる');
+      const diag = cast.filter(x => x.prod.dx !== 0 && x.prod.dy !== 0);
+      const ok = diag.length === 0;
+      return [ok, '撃てた標本 ' + cast.length + ' 件中、斜め方向 ' + diag.length + ' 件'
+        + '  (参考: 素のアームの斜め ' + boardSamples(m).filter(x => x.prod && x.prod.dx !== 0 && x.prod.dy !== 0).length + ' 件)'
+        + (ok ? '' : '  ⛔ 先頭 3 件 = ' + JSON.stringify(diag.slice(0, 3).map(x => ({ seed: x.seed, prod: x.prod }))))];
+    }],
+
+  // ── §2 STEP2 発射率 ─────────────────────────────────────────────────────────
+  ['2a', '素のアームの発射率 (= pickConeDirection が非 null を返す割合) が **撤退アームの 3 倍以上**'
+    + '  ⛔ 実プレイの % を写経しない (合成盤面なので絶対値は違って当然)。比だけを縛る',
+    m => {
+      const b = m.board, r = m.ref;
+      if (!b || !b.booted) return popFail('(2a) 素のアームの起動', (b && b.err) || '—');
+      if (!r || !r.booted) return popFail('(2a) 撤退アームの起動', (r && r.err) || '—');
+      const sb = boardSamples(m), sr = refSamples(m);
+      if (sb.length < BOARD_MIN_SAMPLES) return popFail('(2a) 素のアームの標本', sb.length + ' 件');
+      if (sr.length < BOARD_MIN_SAMPLES) return popFail('(2a) 撤退アームの標本', sr.length + ' 件');
+      const cb = sb.filter(x => x.prod).length, cr = sr.filter(x => x.prod).length;
+      const rb = cb / sb.length, rr = cr / sr.length;
+      const ok = (rb > 0) && (rr > 0 ? rb >= rr * 3 : true);
+      return [ok,
+        '素 ' + cb + '/' + sb.length + ' = ' + pct(cb, sb.length)
+        + '  撤退 ' + cr + '/' + sr.length + ' = ' + pct(cr, sr.length)
+        + '  比 = ' + (rr > 0 ? (rb / rr).toFixed(2) + ' 倍' : (rb > 0 ? '∞ (撤退が 0 件)' : '—'))
+        + ' (期待 >= 3.00 倍)'
+        + (ok ? '' : '  ⛔ ' + (rb <= 0 ? '素のアームで 1 件も撃てていない' : '3 倍に届いていない'))];
+    }],
+
+  ['2b', '素のアームで、**清潔な方向 (partyInCone === 0) が実在する標本では必ず清潔な方向が選ばれている**'
+    + ' (2 段構えの順序が守られている)'
+    + '  ⭐ 母集団 = ドライバ側の独立実装 hasCleanDir が true を返した標本',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(2b) 素のアームの起動', (b && b.err) || '—');
+      const sb = boardSamples(m);
+      if (sb.length < BOARD_MIN_SAMPLES) return popFail('(2b) 素のアームの標本', sb.length + ' 件');
+      const pop = sb.filter(x => x.clean === true);
+      if (pop.length < BOARD_MIN_DIFF) {
+        return popFail('(2b) 清潔な方向が実在する標本',
+          pop.length + ' 件 (< ' + BOARD_MIN_DIFF + ') — この盤面では順序を測れない');
+      }
+      const bad = pop.filter(x => !x.prod || (x.prod.party || 0) > 0);
+      const ok = bad.length === 0;
+      return [ok, '母集団 (清潔な方向が実在) ' + pop.length + ' 件中、'
+        + '清潔でない方向を選んだ/撃てなかった ' + bad.length + ' 件'
+        + '  [記録] 素のアーム全体で味方入りを選んだ ' + sb.filter(x => x.prod && (x.prod.party || 0) > 0).length + ' 件'
+        + (ok ? '' : '  ⛔ 先頭 3 件 = ' + JSON.stringify(bad.slice(0, 3).map(x => ({ seed: x.seed, caster: x.caster, prod: x.prod }))))];
+    }],
+
+  ['2c', '素のアームで、**敵 0 体の方向は 1 件も選ばれていない** (呪文を空撃ちしない)',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(2c) 素のアームの起動', (b && b.err) || '—');
+      const sb = boardSamples(m);
+      if (sb.length < BOARD_MIN_SAMPLES) return popFail('(2c) 素のアームの標本', sb.length + ' 件');
+      const cast = sb.filter(x => x.prod);
+      if (cast.length === 0) return popFail('(2c) 撃てた標本', '0 件 — 自明に緑になる');
+      const empty = cast.filter(x => !(x.prod.count >= 1));
+      const ok = empty.length === 0;
+      return [ok, '撃てた標本 ' + cast.length + ' 件中、敵 0 体の方向 ' + empty.length + ' 件'
+        + (ok ? '' : '  ⛔ 先頭 3 件 = ' + JSON.stringify(empty.slice(0, 3).map(x => ({ seed: x.seed, prod: x.prod }))))];
+    }],
+
+  // ── §3 STEP3 「届かないときは詰め寄る」 ─────────────────────────────────────
+  ['3a', '「対象が 4〜8 マス・視線が通る・円錐の外」の合成盤面で、allyBurningHands が'
+    + ' **allyAdvanceTowardPoint を呼び、allyBasicAttack を呼ばない**'
+    + '  ⭐ 演出だけ黙らせ、射程/視線/円錐の判断は 1 行も触らない',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(3a) 素のアームの起動', (b && b.err) || '—');
+      if (b.advErr) return popFail('(3a) STEP3 の観測装置', b.advErr);
+      const found = advCases(m, 'board', 'far').filter(c => c.found);
+      const miss = ADV_FAR_REQUIRED.filter(d => !found.some(c => c.dist === d));
+      if (miss.length) {
+        return popFail('(3a) 盤面', '距離 ' + miss.join('/') + ' マスの「円錐の外・視線が通る」盤面が'
+          + '実マップ上に見つからない (作れた距離 = ' + JSON.stringify(found.map(c => c.dist)) + ')');
+      }
+      const bad = found.filter(c => !(c.adv && !c.basic));
+      const ok = bad.length === 0;
+      return [ok, found.map(c => c.dist + 'マス→' + (c.adv ? 'ADV' : '') + (c.basic ? 'BASIC' : '')
+        + (!c.adv && !c.basic ? '(詠唱した)' : '')).join(' / ')
+        + (ok ? '' : '  ⛔ ' + JSON.stringify(bad.slice(0, 3)))];
+    }],
+
+  ['3b', '「対象が 9 マス以上 (= medium の 8 マスの外)」では **allyAdvanceTowardPoint を呼ばず'
+    + ' allyBasicAttack へ落ちる** (無限に歩き続けない)',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(3b) 素のアームの起動', (b && b.err) || '—');
+      if (b.advErr) return popFail('(3b) STEP3 の観測装置', b.advErr);
+      const found = advCases(m, 'board', 'out').filter(c => c.found);
+      const miss = ADV_OUT_REQUIRED.filter(d => !found.some(c => c.dist === d));
+      if (miss.length) {
+        return popFail('(3b) 盤面', '距離 ' + miss.join('/') + ' マスの「視線が通る」盤面が見つからない'
+          + ' (作れた距離 = ' + JSON.stringify(found.map(c => c.dist)) + ')');
+      }
+      const bad = found.filter(c => !(c.basic && !c.adv));
+      const ok = bad.length === 0;
+      return [ok, found.map(c => c.dist + 'マス→' + (c.adv ? 'ADV' : '') + (c.basic ? 'BASIC' : '')
+        + (!c.adv && !c.basic ? '(詠唱した)' : '')).join(' / ')
+        + (ok ? '' : '  ⛔ ' + JSON.stringify(bad.slice(0, 3)))];
+    }],
+
+  ['3c', '「対象が円錐の実効射程内 (0〜3 マス)」では **1 件も allyAdvanceTowardPoint を呼ばない**。'
+    + 'うち **円錐が 1 方向も立たない盤面 (術者と同じマス) は allyBasicAttack へ落ちる** (その場で足踏みしない)'
+    + '  ⚠ 依頼書 §8 の「隣接 1 マスなのに円錐へ入らない」は 8 方向では原理的に作れないので測定点を移した'
+    + ' (隣接 8 マスは必ずどれかの円錐の step1 に入る)',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(3c) 素のアームの起動', (b && b.err) || '—');
+      if (b.advErr) return popFail('(3c) STEP3 の観測装置', b.advErr);
+      const found = advCases(m, 'board', 'near').filter(c => c.found);
+      const miss = ADV_NEAR_REQUIRED.filter(d => !found.some(c => c.dist === d));
+      if (miss.length) {
+        return popFail('(3c) 盤面', '距離 ' + miss.join('/') + ' マスの盤面が見つからない'
+          + ' (作れた距離 = ' + JSON.stringify(found.map(c => c.dist)) + ')');
+      }
+      const walked = found.filter(c => c.adv);
+      const zero = found.filter(c => c.dist === 0);
+      const zeroBad = zero.filter(c => !(c.basic && !c.adv));
+      const ok = walked.length === 0 && zeroBad.length === 0;
+      return [ok, found.map(c => c.dist + 'マス' + (c.inCone ? '(円錐内)' : '(円錐外)') + '→'
+        + (c.adv ? 'ADV' : '') + (c.basic ? 'BASIC' : '')
+        + (!c.adv && !c.basic ? '詠唱' : '')).join(' / ')
+        + (ok ? '' : '  ⛔ ' + (walked.length ? '詰め寄った ' + walked.length + ' 件 ' : '')
+          + (zeroBad.length ? '距離 0 で allyBasicAttack へ落ちていない ' + JSON.stringify(zeroBad) : ''))];
+    }],
+
+  ['3d', RETREAT_QUERY + ' では (3a) の盤面でも **allyAdvanceTowardPoint を呼ばない**'
+    + ' (2026-09-04 以前の挙動へ完全に戻る)',
+    m => {
+      const r = m.ref;
+      if (!r || !r.booted) return popFail('(3d) 撤退アームの起動', (r && r.err) || '—');
+      if (r.advErr) return popFail('(3d) STEP3 の観測装置 (撤退アーム)', r.advErr);
+      const found = advCases(m, 'ref', 'far').filter(c => c.found);
+      const miss = ADV_FAR_REQUIRED.filter(d => !found.some(c => c.dist === d));
+      if (miss.length) {
+        return popFail('(3d) 盤面', '距離 ' + miss.join('/') + ' マスの盤面が撤退アームで作れない'
+          + ' (作れた距離 = ' + JSON.stringify(found.map(c => c.dist)) + ')');
+      }
+      const bad = found.filter(c => c.adv || !c.basic);
+      const ok = bad.length === 0;
+      return [ok, found.map(c => c.dist + 'マス→' + (c.adv ? 'ADV' : '') + (c.basic ? 'BASIC' : '')
+        + (!c.adv && !c.basic ? '(詠唱した)' : '')).join(' / ')
+        + (ok ? '' : '  ⛔ ' + JSON.stringify(bad.slice(0, 3)))];
+    }],
+
+  // ── §4 コーンオブコールドにも同じ改善が効く ────────────────────────────────
+  ['4a', '配信ソース上で、allyBurningHands / allyConeOfCold の本文に `' + LEGACY_DIR_MARK + '` が **0 件**'
+    + ' かつ pickConeDirection の呼び出しが在る (旧探索ブロックが 2 本とも残っていない)',
+    m => {
+      const src = m ? m.served : null;
+      if (typeof src !== 'string' || src.length < 100000) {
+        return popFail('(4a) 配信ソース', '配信バイトが読めていない (' + (src ? src.length : 'null') + 'B)');
+      }
+      const rows = CONE_FN_HEADS.map(h => {
+        const body = fnBodyOf(src, h);
+        const name = h.replace('async function ', '').replace('(ally, enemyIdx) {', '');
+        return { fn: name, found: body !== null, bytes: body ? body.length : 0,
+          legacyDirs: body ? (body.split(LEGACY_DIR_MARK).length - 1) : -1,
+          helper: body ? (body.split('pickConeDirection(').length - 1) : 0 };
+      });
+      const ok = rows.every(r => r.found && r.legacyDirs === 0 && r.helper >= 1);
+      return [ok, JSON.stringify(rows)
+        + '  [記録] 配信全体の `' + LEGACY_DIR_MARK + '` = '
+        + (src.split(LEGACY_DIR_MARK).length - 1) + ' 件 (allyLightningBolt の 8 方向は別物なので残る)'
+        + (ok ? '' : '  ⛔ 旧探索ブロックが残っている / ヘルパーを呼んでいない')];
+    }],
+
+  ['4b', '同じ合成盤面 (同じ seed 列) で、コーンオブコールドの発射率もバーニングハンズと **同じ値**になる'
+    + '  ⭐ 探索が 1 本のヘルパーへ寄っていることの機械的証明',
+    m => {
+      const b = m.board;
+      if (!b || !b.booted) return popFail('(4b) 素のアームの起動', (b && b.err) || '—');
+      if (b.ratesErr || !b.rates) return popFail('(4b) 発射率の観測', b.ratesErr || 'rates が採れていない');
+      const bh = b.rates.allyBurningHands, cc = b.rates.allyConeOfCold;
+      if (!bh || !cc) return popFail('(4b) 発射率の観測', JSON.stringify(b.rates));
+      if (bh.attempts < RATE_MIN_ATTEMPTS || cc.attempts < RATE_MIN_ATTEMPTS) {
+        return popFail('(4b) 母集団', 'attempts = ' + bh.attempts + ' / ' + cc.attempts
+          + ' (< ' + RATE_MIN_ATTEMPTS + ') — noteAoeOutcome が呼ばれていない疑い: '
+          + JSON.stringify({ bh: bh, cc: cc }));
+      }
+      const ok = bh.attempts === cc.attempts && bh.cast === cc.cast;
+      return [ok,
+        'バーニングハンズ ' + bh.cast + '/' + bh.attempts + ' = ' + pct(bh.cast, bh.attempts)
+        + '  コーンオブコールド ' + cc.cast + '/' + cc.attempts + ' = ' + pct(cc.cast, cc.attempts)
+        + '  (盤面 ' + bh.n + ' / ' + cc.n + ' 件、実行時の例外 ' + bh.errs + ' / ' + cc.errs + ' 件'
+        + (bh.firstErr || cc.firstErr ? ' 先頭 = ' + JSON.stringify(bh.firstErr || cc.firstErr) : '') + ')'
+        + (ok ? '' : '  ⛔ 発射率が違う = 探索が 1 本に寄っていない')];
+    }],
+
+  // ── §5 実プレイ (母集団と非退行の確認のみ) ─────────────────────────────────
+  ['5a', (PLAY_MAX_MS / 1000) + ' 秒の実プレイで __aoeStats["' + AOE_KEY_BH + '"].cast >= 1'
+    + '  ⭐ 「1 発以上撃った」だけを見る (率は合成盤面で測る)',
+    m => {
+      const p = m.play;
+      if (!p || !p.started) return popFail('(5a) 実プレイの起動', (p && p.err) || 'measurePlay が走っていない');
+      if (!p.stats) return popFail('(5a) 観測シーム', 'window.__aoeStats が undefined のまま');
+      const e = p.stats[AOE_KEY_BH] || null;
+      const attempts = e ? (e.attempts || 0) : 0;
+      if (attempts < PLAY_MIN_ATTEMPTS) {
+        return popFail('(5a) 実プレイの母集団', AOE_KEY_BH + ' の attempts = ' + attempts
+          + ' (< ' + PLAY_MIN_ATTEMPTS + ') — (0c)(0d) を先に見ること');
+      }
+      const cast = e ? (e.cast || 0) : 0;
+      const ok = cast >= 1;
+      return [ok, AOE_KEY_BH + ': ' + JSON.stringify(e)
+        + '  観測 ' + (p.elapsedMs / 1000).toFixed(1) + ' 秒'
+        + (ok ? '' : '  ⛔ ' + attempts + ' 回選ばれて 1 度も発射できていない (= 報告された症状そのもの)')];
+    }],
+
+  ['5b', 'pageerror が 0 件',
+    m => {
+      const bad = pageErrorsOf(m);
+      const p = m.play;
+      const ok = bad.length === 0;
+      return [ok, 'pageerror ' + bad.length + ' 件'
+        + '  (参考: 実プレイの console.error ' + ((p && p.consoleErrs) ? p.consoleErrs.length : 0) + ' 件)'
+        + (ok ? '' : '  ⛔ ' + bad.slice(0, 4).join(' | '))];
+    }],
+
+  // ── §6 撤退 ────────────────────────────────────────────────────────────────
+  ['6a', 'index.html' + RETREAT_QUERY + ' で (1a)(1b)(1c)(3d) が全部成立する'
+    + '  ⚠⚠⚠ これだけを受入条件にしない — 素のアームの (2a)(2b)(2c)(3a)(3b)(3c) と**対**で見ること',
+    m => {
+      const keys = ['1a', '1b', '1c', '3d'];
+      const rows = keys.map(k => {
+        const a = ASSERT_OF[k];
+        if (!a) return { key: k, ok: false, detail: '⛔ ASSERTS に無い' };
+        const r = a[2](m);
+        return { key: k, ok: !!r[0], detail: r[1] };
+      });
+      const ok = rows.every(r => r.ok);
+      return [ok, rows.map(r => '(' + r.key + ')' + (r.ok ? '○' : '✕')).join(' ')
+        + (ok ? '' : '  ⛔ ' + rows.filter(r => !r.ok).map(r => '(' + r.key + ') ' + r.detail).join('  ||  '))];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1082,75 +1612,23 @@ const SECTIONS = [
     keys: ['0a', '0b', '0c', '0d'], pend: [] },
 
   { title: '§1 STEP1 の恒等 (振る舞いを 1 ビットも変えていない) — アーム ' + RETREAT_QUERY,
-    keys: [], pend: [
-      ['1a', RETREAT_QUERY + ' のアームで、全標本 (' + BOARD_MIN_SAMPLES + ' 件以上) について'
-        + ' pickConeDirection の返り値 (方向・タイル集合・count) が'
-        + ' **ドライバ側が独立に書いた旧アルゴリズムの再実装**と完全一致する',
-        '項目 2 の担当。⭐ 鏡は既に installBoard の legacyPick として在る'
-        + ' (依頼書 §2-2 の擬似コードから起こした = 本番のソースを見ていない)。'
-        + ' 標本ごとに { dx, dy, count, key(タイル集合) } を突き合わせるだけでよい'],
-      ['1b', '同じアームで「味方入りの方向」が **1 件も選ばれていない** (拒否権が絶対に戻っている)',
-        '項目 2 の担当。prod.party > 0 の件数が 0 であること'],
-      ['1c', '同じアームで **斜め方向が 1 件も選ばれていない**',
-        '項目 2 の担当。prod.dx !== 0 && prod.dy !== 0 の件数が 0 であること'],
-    ] },
+    keys: ['1a', '1b', '1c'], pend: [] },
 
   { title: '§2 STEP2 — 発射率が上がる (⛔ 実プレイの % を写経しない。合成盤面で測る)',
-    keys: [], pend: [
-      ['2a', '素のアームの発射率 (= pickConeDirection が非 null を返す割合) が **撤退アームの 3 倍以上**',
-        '項目 2 の担当。⭐ 実測の期待は 5.6% → 65% だが **合成盤面なので絶対値は違って当然**。'
-        + ' ⛔ 依頼書の % を写経しない — 比だけを縛る'],
-      ['2b', '素のアームで選ばれた方向のうち、**清潔な方向 (partyInCone === 0) が実在する標本では'
-        + '必ず清潔な方向が選ばれている** (2 段構えの順序が守られている)',
-        '項目 2 の担当。⭐ (2a) と独立の 2 経路目。「味方入りを許す」を「常に味方入りを選ぶ」と'
-        + '取り違える実装を捕まえる。母集団 = sample.clean === true の標本'
-        + ' (hasCleanDir はドライバ側の独立実装)'],
-      ['2c', '素のアームで、**敵 0 体の方向は 1 件も選ばれていない** (空撃ちしない)',
-        '項目 2 の担当。prod.count >= 1 を全標本で要求する'],
-    ] },
+    keys: ['2a', '2b', '2c'], pend: [] },
 
   { title: '§3 STEP3 — 届かないときは詰め寄る (⭐ 呼び出しはスタブで観測する。判断は 1 行も触らない)',
-    keys: [], pend: [
-      ['3a', '「対象が 4〜8 マス・視線が通る」合成盤面で、allyBurningHands が'
-        + ' **allyAdvanceTowardPoint を呼び、allyBasicAttack を呼ばない**',
-        '項目 2 の担当。⭐ driver_action_priority.js の __warQuiet の流儀'
-        + ' (演出だけ黙らせ、判断は 1 行も触らない)。⚠ 現状 allyBurningHands には射程チェックが'
-        + ' 1 行も無い (依頼書 §2-4) ので、この盤面は今は必ず allyBasicAttack へ落ちる'],
-      ['3b', '「対象が 9 マス以上 (= medium の外)」では **allyAdvanceTowardPoint を呼ばず'
-        + ' allyBasicAttack へ落ちる** (無限に歩き続けない)',
-        '項目 2 の担当。⚠ getRange("medium").tiles は 8 (index.html:19018)'],
-      ['3c', '「対象が隣接 (1 マス) なのに円錐へ入らない」盤面では **allyBasicAttack へ落ちる**'
-        + ' (その場で足踏みしない)',
-        '項目 2 の担当。⚠ 真後ろに居るなど、隣接でも円錐に入らない形を作る'],
-      ['3d', RETREAT_QUERY + ' では (3a) の盤面でも **allyAdvanceTowardPoint を呼ばない**',
-        '項目 2 の担当。撤退アーム = 2026-09-04 以前の挙動へ完全に戻る'],
-    ] },
+    keys: ['3a', '3b', '3c', '3d'], pend: [] },
 
   { title: '§4 コーンオブコールドにも同じ改善が効く (探索が 1 本に寄っていることの機械的証明)',
-    keys: [], pend: [
-      ['4a', '配信ソース上で、allyBurningHands / allyConeOfCold の本文に `const directions = [` が **0 件**'
-        + ' (旧探索ブロックが残っていない)',
-        '項目 2 の担当。⭐ 配信バイト (m.served) を読む assert (⛔ ディスクを読み直さない)。'
-        + ' ⚠ 起草時の実測 = index.html:27017-27058 と 27212-27253 が 1 文字違わぬ写し'],
-      ['4b', '同じ合成盤面で、コーンオブコールドの発射率もバーニングハンズと**同じ値**になる',
-        '項目 2 の担当。⭐ 探索が 1 本のヘルパーへ寄っていれば同値になるはず'],
-    ] },
+    keys: ['4a', '4b'], pend: [] },
 
   { title: '§5 実プレイ (母集団と非退行の確認のみ。⛔ 率は合成盤面で測る)',
-    keys: [], pend: [
-      ['5a', (PLAY_MAX_MS / 1000) + ' 秒の実プレイで __aoeStats["' + AOE_KEY_BH + '"].cast >= 1',
-        '項目 2 の担当。⭐ **「1 発以上撃った」だけを見る** (率は非決定論なのでフレークする)'],
-      ['5b', 'pageerror が 0 件',
-        '項目 2 の担当。⚠ console.error は別枠で記録してある (out.consoleErrs)。'
-        + ' ?diag=1 の combat-stall は warn なので素では console.error に出ない'],
-    ] },
+    keys: ['5a', '5b'], pend: [] },
 
   { title: '§6 撤退 ' + RETREAT_QUERY
       + ' — ⚠⚠⚠ **(6a) だけを受入条件にしない** (#39 の「撤退アームだけの受入条件は永久緑」の轍)',
-    keys: [], pend: [
-      ['6a', 'index.html' + RETREAT_QUERY + ' で (1a)(1b)(1c)(3d) が全部成立する',
-        '項目 2 の担当。⭐ 素のアームの (2a)(2b)(2c)(3a)(3b)(3c) と**対**で見ること'],
-    ] },
+    keys: ['6a'], pend: [] },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1240,6 +1718,23 @@ const SECTIONS = [
           + '\n           neo   =' + JSON.stringify(r.neo)
           + '\n           prod  =' + JSON.stringify(r.prod));
       }
+
+      mark('[記録] STEP3 の盤面と §4 の発射率 (⛔ 期待値ではない。読み解き用)');
+      for (const arm of ['board', 'ref']) {
+        const bb = m[arm];
+        if (!bb) { console.log('       ' + arm + ': —'); continue; }
+        console.log('       ' + arm + ' (' + (arm === 'ref' ? RETREAT_QUERY : '素')
+          + ') 装置 = ' + JSON.stringify(bb.advInfo || null) + (bb.advErr ? '  ⛔ ' + bb.advErr : ''));
+        for (const c of (bb.adv || [])) {
+          console.log('         [' + c.tag + '] 距離 ' + c.dist
+            + (c.found ? ' 術者' + JSON.stringify(c.caster) + '→的' + JSON.stringify(c.target)
+              + ' 円錐内=' + c.inCone + ' 本番探索null=' + c.prodNull
+              + '  → ' + (c.trace.length ? c.trace.join(',') : '(どちらも呼ばれず=詠唱した)')
+              + (c.err ? '  err=' + c.err : '')
+              : '  ⛔ 盤面が作れない'));
+        }
+      }
+      console.log('       (4b) 発射率 = ' + JSON.stringify(m.board ? (m.board.rates || m.board.ratesErr || null) : null));
 
       mark('[記録] 実プレイ (⛔ 期待値ではない。母集団の材料)');
       const p = m.play;

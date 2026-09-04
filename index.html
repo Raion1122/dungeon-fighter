@@ -26809,6 +26809,80 @@
       if (ok) e.cast++; else e.demoted++;
     }
 
+    /* ── #50 円錐 AoE の方向探索 ────────────────────────────────────────────────
+     * burning-hands / cone-of-cold が持っていた同一の探索ブロックを 1 本へ寄せたもの。
+     * ⚠ 円錐は術者起点なので origin の自由度がゼロ = 箱型の pickAoeOrigin では救済されない
+     *   (計画書 dev-meetings/2026-07-19 §6 の P2)。救済は「方向を増やす」「味方の拒否権を
+     *   2 段にする」の 2 つだけで作る。
+     * ⚠⚠⚠ 味方は **元々 1 ダメージも受けない** (下流の被害者列挙は enemiesInArea = 敵のみ。
+     *   酒場の説明文も『PT 巻き込みなし』)。よって拒否権は誤射を防いでいるのではなく
+     *   **絵面のためだけ**に発射率を 5.6% まで落としていた (依頼書 #50 §2-5 の実測)。
+     *   → 清潔な方向を **先に** 探し、1 つも無いときだけ味方入りを許す 2 段構えにする。
+     */
+    const CONE_REACH_TILES = 3;   // ⚠ coneTilesFrom の上限と STEP3 の距離判定が **この 1 本**を読む
+    const CONE_DIRS_4 = [
+      { dx:  1, dy:  0 }, { dx: -1, dy:  0 }, { dx:  0, dy:  1 }, { dx:  0, dy: -1 },
+    ];
+    // ★#50: 斜め 4 方向。⛔ 4 方向版を消さない (?conecast=0 の撤退で使う)
+    const CONE_DIRS_8 = CONE_DIRS_4.concat([
+      { dx: 1, dy: 1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: -1, dy: -1 },
+    ]);
+    /* ★#50 撤退スイッチ ?conecast=0 — 探索を 2026-09-04 以前(4 方向・拒否権が絶対)へ戻す。
+     * ⚠ 判定はこの 1 箇所だけ。ページ内で完結する (?castanchor=0 / ?rolltarget=0 と同じ流儀。
+     *   sessionStorage へは写さない = index.html は自分の search を読むだけでよい)。 */
+    const CONE_CAST_ON =
+      new URLSearchParams(window.location.search).get("conecast") !== "0";
+
+    function coneTilesFrom(aTX, aTY, d) {
+      const tiles = [];
+      for (let step = 1; step <= CONE_REACH_TILES; step++) {
+        const halfWidth = step;   // 1, 2, 3
+        for (let lat = -halfWidth + 1; lat <= halfWidth - 1; lat++) {
+          tiles.push({ tx: aTX + d.dx * step + (-d.dy) * lat,
+                       ty: aTY + d.dy * step + (d.dx)  * lat });
+        }
+      }
+      return tiles;
+    }
+
+    /* 返り = { d, tiles, count, partyInCone } / 撃てなければ null。
+     * ⚠ 「敵 0 体の方向」は両パスとも採らない (呪文を空撃ちさせない)。 */
+    function pickConeDirection(aTX, aTY) {
+      const dirs = CONE_CAST_ON ? CONE_DIRS_8 : CONE_DIRS_4;
+      // pass 0 = 味方が 1 人も入らない方向だけ / pass 1 = 味方入りも許す (★#50)
+      const passes = CONE_CAST_ON ? [0, 1] : [0];
+      for (const pass of passes) {
+        let best = null, bestCount = 0;
+        for (const d of dirs) {
+          const tiles = coneTilesFrom(aTX, aTY, d);
+          let party = 0, cnt = 0, rejected = false;
+          for (const t of tiles) {
+            if (partyInArea(t.tx, t.ty, 1, 1)) {
+              party++;
+              if (pass === 0) { rejected = true; break; }   // 清潔パスは 1 人でも即棄却 (従来と同じ短絡)
+            }
+            cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;
+          }
+          if (rejected) continue;
+          if (cnt <= 0) continue;
+          if (cnt > bestCount) { best = { d, tiles, count: cnt, partyInCone: party }; bestCount = cnt; }
+        }
+        if (best) return best;
+      }
+      return null;
+    }
+    // ⚠ classic script 直下の const は window に自動で載らない → 検証シームを明示公開する
+    //    (先例: window.pickLeaderAction / window.apGateP)。
+    //    ⛔ 本番の判断ロジックには計測用の分岐を 1 行も足さない = ここは露出だけ。
+    if (typeof window !== "undefined") {
+      window.__cone = {
+        pickConeDirection: pickConeDirection,
+        coneTilesFrom: coneTilesFrom,
+        CONE_CAST_ON: CONE_CAST_ON,
+        CONE_REACH_TILES: CONE_REACH_TILES,
+      };
+    }
+
     // ─── Phase 2-I A: ファイアボール (3x3 範囲、5d6+INT 火炎、DEX セーヴ半減) ───
     async function allyFireball(ally, enemyIdx) {
       const skill = MAGE_SKILLS["fireball"];
@@ -27015,45 +27089,32 @@
       const aTX = Math.floor(aCX / TILE_SIZE);
       const aTY = Math.floor(aCY / TILE_SIZE);
 
-      // 4 方向の円錐 (前方 3 タイル分、横幅 1→3→5 タイル拡張)
-      const directions = [
-        { dx:  1, dy:  0 },
-        { dx: -1, dy:  0 },
-        { dx:  0, dy:  1 },
-        { dx:  0, dy: -1 },
-      ];
-      // 円錐内のタイル一覧 (方向 d / 距離 step / 横ずれ lat に対応)
-      function coneTiles(d) {
-        const tiles = [];
-        for (let step = 1; step <= 3; step++) {
-          const halfWidth = step;   // 1, 2, 3
-          for (let lat = -halfWidth + 1; lat <= halfWidth - 1; lat++) {
-            const tx = aTX + d.dx * step + (-d.dy) * lat;
-            const ty = aTY + d.dy * step + (d.dx)  * lat;
-            tiles.push({ tx, ty });
-          }
-        }
-        return tiles;
-      }
-      let best = null, bestCount = 0;
-      for (const d of directions) {
-        const tiles = coneTiles(d);
-        let safe = true;
-        let cnt = 0;
-        for (const t of tiles) {
-          if (partyInArea(t.tx, t.ty, 1, 1)) { safe = false; break; }
-          cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;
-        }
-        if (!safe) continue;
-        if (cnt > bestCount) { best = { d, tiles }; bestCount = cnt; }
-      }
+      // ★#50 方向探索は共通ヘルパー pickConeDirection へ寄せた (依頼書 #50 STEP1/STEP2)。
+      //    ⭐ 8 方向 + 「清潔な方向を先に / 無いときだけ味方入りを許す」2 段構え。
+      const best = pickConeDirection(aTX, aTY);
+      const bestCount = best ? best.count : 0;
       // [地平線ビュー STEP7] 円錐は術者起点で origin 自由度がゼロなので、箱型の窓拡張では
       // **救済されない** (計画書 §6 の P2)。降格が残ることを承知で出す代わりに、
       // 降格率だけは観測できるようにしておく (オートバトルでは降格が無言で起きるため)。
       const coneOk = !!best && bestCount > 0;
       noteAoeOutcome(skill.name, coneOk, "cone");
       if (!coneOk) {
-        // 4 方向すべて NG → 通常基本攻撃にフォールバック
+        /* ★#50 円錐が 1 方向も立たない。理由は 2 つに分かれる:
+         *   (i) 敵が円錐の 3 マスより遠い → **詰め寄る** (allyFireball と同じ形)。
+         *       ⚠ 呪文の宣言射程 medium は 8 マスだが円錐の実効射程は 3 マス。
+         *          この食い違いが降格の 35% を作っていた (依頼書 #50 §2-4/§2-5)。
+         *   (ii) 円錐の内側なのに敵が 1 体も入らない (術者と同じマス等) → 従来どおり通常攻撃。
+         * ⚠ 撤退モードでは (i) を採らない = 2026-09-04 以前の挙動へ完全に戻す。 */
+        if (CONE_CAST_ON && target && target.alive) {
+          const ex = target.x + target.def.displaySize / 2;
+          const ey = target.y + target.def.displaySize / 2;
+          const rangeTiles = getRange(skill.range).tiles;
+          const dist = tileChebyshev(aCX, aCY, ex, ey);
+          if (dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)) {
+            await allyAdvanceTowardPoint(ally, ex, ey);
+            return;
+          }
+        }
         await allyBasicAttack(ally, enemyIdx);
         return;
       }
@@ -27215,44 +27276,32 @@
       const aTX = Math.floor(aCX / TILE_SIZE);
       const aTY = Math.floor(aCY / TILE_SIZE);
 
-      // 4 方向の円錐 (前方 3 タイル分、横幅 1→3→5 タイル拡張)
-      const directions = [
-        { dx:  1, dy:  0 },
-        { dx: -1, dy:  0 },
-        { dx:  0, dy:  1 },
-        { dx:  0, dy: -1 },
-      ];
-      function coneTiles(d) {
-        const tiles = [];
-        for (let step = 1; step <= 3; step++) {
-          const halfWidth = step;   // 1, 2, 3
-          for (let lat = -halfWidth + 1; lat <= halfWidth - 1; lat++) {
-            const tx = aTX + d.dx * step + (-d.dy) * lat;
-            const ty = aTY + d.dy * step + (d.dx)  * lat;
-            tiles.push({ tx, ty });
-          }
-        }
-        return tiles;
-      }
-      let best = null, bestCount = 0;
-      for (const d of directions) {
-        const tiles = coneTiles(d);
-        let safe = true;
-        let cnt = 0;
-        for (const t of tiles) {
-          if (partyInArea(t.tx, t.ty, 1, 1)) { safe = false; break; }
-          cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;
-        }
-        if (!safe) continue;
-        if (cnt > bestCount) { best = { d, tiles }; bestCount = cnt; }
-      }
+      // ★#50 方向探索は共通ヘルパー pickConeDirection へ寄せた (依頼書 #50 STEP1/STEP2)。
+      //    ⭐ 8 方向 + 「清潔な方向を先に / 無いときだけ味方入りを許す」2 段構え。
+      const best = pickConeDirection(aTX, aTY);
+      const bestCount = best ? best.count : 0;
       // [地平線ビュー STEP7] 円錐は術者起点で origin 自由度がゼロなので、箱型の窓拡張では
       // **救済されない** (計画書 §6 の P2)。降格が残ることを承知で出す代わりに、
       // 降格率だけは観測できるようにしておく (オートバトルでは降格が無言で起きるため)。
       const coneOk = !!best && bestCount > 0;
       noteAoeOutcome(skill.name, coneOk, "cone");
       if (!coneOk) {
-        // 4 方向すべて NG → 通常基本攻撃にフォールバック
+        /* ★#50 円錐が 1 方向も立たない。理由は 2 つに分かれる:
+         *   (i) 敵が円錐の 3 マスより遠い → **詰め寄る** (allyFireball と同じ形)。
+         *       ⚠ 呪文の宣言射程 medium は 8 マスだが円錐の実効射程は 3 マス。
+         *          この食い違いが降格の 35% を作っていた (依頼書 #50 §2-4/§2-5)。
+         *   (ii) 円錐の内側なのに敵が 1 体も入らない (術者と同じマス等) → 従来どおり通常攻撃。
+         * ⚠ 撤退モードでは (i) を採らない = 2026-09-04 以前の挙動へ完全に戻す。 */
+        if (CONE_CAST_ON && target && target.alive) {
+          const ex = target.x + target.def.displaySize / 2;
+          const ey = target.y + target.def.displaySize / 2;
+          const rangeTiles = getRange(skill.range).tiles;
+          const dist = tileChebyshev(aCX, aCY, ex, ey);
+          if (dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)) {
+            await allyAdvanceTowardPoint(ally, ex, ey);
+            return;
+          }
+        }
         await allyBasicAttack(ally, enemyIdx);
         return;
       }
