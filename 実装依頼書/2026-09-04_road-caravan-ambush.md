@@ -667,6 +667,135 @@ null は**失敗ではない** —— #45 の作法どおり「判定なしの�
 
 ---
 
-## 12. 実装結果
+## 12. 実装結果(実装窓が実測で埋めた)
 
-(実装窓が埋める)
+- **着地**: dev-loop 4 項目・停止 0 回。基準 hash = `fffd49c`(#50 締め)。
+  `357e0ae`(項目1 装置)→ `4dbdd25`(項目1 追補)→ `74ebbbf`(項目2 街道側)→
+  `6f4d755`(項目3 潜行側)→ 本コミット(項目4 締め)。
+- **受入条件**: `node tools/verify_road_ambush.js` = **28/28 PASSED / FAILED 0 / PENDING 0**(exit 0)。
+  `pageerror / console.error` **0 件**。
+- **負のコントロール**: `node tools/verify_road_ambush.js --negative` = **65/65 PASSED /
+  FAILED 0 / PENDING 0**(exit 0)。**変異 20 本すべてが担当節を実際に赤にした**(空振り 0)。
+- **触ったファイル**: `js/road-events.js` / `world.html` / `index.html` /
+  `tools/verify_road_ambush.js`(新規)。⛔ `tavern.html` / `js/world-map.js` は 1 バイトも触っていない。
+
+### 12-1. ⚠⚠⚠ 依頼書の主張が実測で崩れた点(全 12 件)
+
+| # | 依頼書の主張 | 実測 | どうしたか |
+|---|---|---|---|
+| ① | **§4 (0b)** は「写経していないので緑」 | **赤が正しい**。検索対象が 0 本のとき「1 つも出てこない」は**自明に真**になり母集団が立たない | #48 の則で **assert を緩めず予測のほうを訂正**。母集団ガード(`MIN_STRINGS = 4`)を入れて `popFail` を返す形にした |
+| ② | **§6-1** 「`roadBattle` の消費はシナリオ解決の手前(`:10170`)」 | **遅すぎる**。`_scenIdForTex`(テーマ)と `_builtinScenId`(分岐グラフ)が両方この値を要る | 消費を **テクスチャ解決の直前(`:3383`)へ上げた**。下ろすと襲撃に**本命クエストの地形と分岐グラフが載る** |
+| ③ | **§6-5** 「敗北時に `roadReturn` を `removeItem` すれば `spawnFor` のフォールバックで港町へ戻る」 | **成立しない**。`currentScenario` は本命クエスト id のままなので `SITES` に当たる。実測 `spawnFor("dungeon","lizard-swamp")` → **`"swamp"`** = 負けたのに目的地の前へワープ | 消すのではなく `roadReturn` へ **`"phlan"` を書く**形へ訂正((3c) がこの実測をそのまま記録に残す) |
+| ④ | **§2-12** 「`verify_player_sheet` は FAILED 4 本 `{(2c)(2d)(8a)(8f)}` が着手前から赤」 | **解消済み**(#48 が着地したため) | 非退行の基準を **FAILED 0** に引き上げた |
+| ⑤ | **§2-12** golden 母集団 **13 本** | `grep -l "world\.html" tools/*.js` = **15 本**(うち 1 本は `verify_road_ambush` 自身) ⇒ **golden は 14 本** | 14 本を 1 本ずつ逐次で回した(§12-3) |
+| ⑥ | (依頼書に無い制約 — §8 は観測用の窓を足す前提で書かれている) | **`__world` に窓を 1 つも足せない**。`verify_road_events` (4b) が `__world` の窓を「既存 25 + `roadEvent` = **ちょうど 26 個**」で**集合固定**している(2026-09-04 に `roadAmbush` を足して赤にして戻した) | 分類は `ev.id === RE.AMBUSH.id` を**ページの中で**見て、書かれた値は `sessionStorage` を直に読む形にした |
+| ⑦ | (依頼書に無い制約) | `js/road-events.js` に `return ((t ^ (t >>> 14)) >>> 0) / 4294967296;` を **2 本目として書けない** —— `verify_road_events` の変異 `seedignore` の逐語アンカーが 2 ヒットして**起動時検算 exit 3**。0 本にしても exit 3 | `ambRnd` の最終行を **2 行に割った**。⛔ 共通ヘルパへ畳むのも不可 |
+| ⑧ | (依頼書に無い実測) | `showResult` も `paint()` を通るので **結末画面でも `armAt` がリセットされる** | 器を畳む前に毎回 `ARM_MS + 200ms` 待つ。踏んだ症状は「街道の出来事を畳めなかった」で歩行が 2 タップ目で停止 |
+| ⑨ | **§5-5** 盤面(座標 / themeId / waves)を world.html に書く前提 | 隣窓 #52 が「盤面を 1 つの名前つき定数へ束ねてほしい」と依頼 | `js/road-events.js` に **`AMBUSH_FIELD`** を新設し、world.html は**丸ごと写して `at` / `surprise` を足すだけ**。⚠ `df-mapdef.js resolve()` 規則④で `themeId:"caravan-road"` にできるのは**カスタム幾何を持たない今だけ** |
+| ⑩ | **§8** 変異 `woundtoolate` = 「適用を `consumeRoadBoon` の**後**へ動かす」 | **1 行置換にならない**(ブロックの移動)= そのままでは空振り | #48 の則で assert を 1 文字も緩めず、**欠陥そのものの再現**へ書き直した = 「適用した hp が後から `hp = maxHp` で上書きされる」。実測で (2c) の②だけが `[1,1,0.31,0.854]` になり赤 |
+| ⑪ | **§8** 変異 `nospawnresume` の担当節 = **(3a)** | **(3a)(3c) の 2 つ**。項目 3 で敗北の帰還も同じ resume 枝を通るようになった(③の訂正の副作用) | 担当節を広げた。実測 = (3a) は `phlan`、(3c) は `swamp`(= spawnFor の答え)で両方赤 |
+| ⑫ | **§8** 変異 `gameoveramb` / `gameovernever` は別々の当て先 | **同じアンカー(`escortWagonLossEndsRun()` の定義行)を共有**する | 共有のまま実装した。各変異は素のソースから**独立に**組むので一意性検算はそれぞれ 1 件で通る |
+
+### 12-2. 負のコントロール 20 本 — どの変異がどの節を赤にしたか(**実走で確定**)
+
+⭐⭐⭐ 担当節は机上で書かず、**1 本ずつ実走して**確定した。⛔ 空振り 0 本。
+
+| 変異 | 配信先 | 担当節 | 赤くなった実測 |
+|---|---|---|---|
+| `sharedrng` | `js/road-events.js` | (0d)(4a) | 挟み込みレグが 3 種とも **`⛔不一致@16`**(= `ambRoll` を 8 回呼んだ直後から列がずれる)。⭐ 素の boot 列は 3 種とも一致したまま = **挟み込みが無いと罠 B は無傷に見える**ことの実証 |
+| `helpnocheck` | `js/road-events.js` | (0a)(1a) | (0a) `choices 2 件 (判定つき 0 / 判定なし 2)`・成功文≠失敗文=false / (1a) 判定つきの 3 腕とも「選択肢が引けない」。記録 (0e) も赤 |
+| `intoevents` | `js/road-events.js` | (4c) | `EVENTS 7 件` = `["road_caravan_ambush", null]` が 7 行目に生えた。記録 (0a) は**緑のまま**(= 件数を直書きしなくても並びで捕まる) |
+| `boxleak` | `js/road-events.js` | (1g) | `intro:2btn success:3btn fail:4btn result:5btn` = 結末画面に前の二択が残る。器の高さも 325 → 438px へ膨らむ |
+| `worldremove` | `world.html` | (4b) | `sessionStorage.removeItem = 2 件 (着手前 1)`。記録 (3b) も赤(`roadReturn = null` = キーごと消えた) |
+| `nospawnresume` | `world.html` | (3a)(3c) | (3a) 帰還後 = `"phlan"`(注入した刻み点でない)/ (3c) 帰った先 = `"swamp"`(期待 `phlan`)。記録 (3b) は母集団が立たず `popFail` |
+| `resumesticky` | `world.html` | (3b) | 帰還直後の `roadReturn = "forest__farm_n@1"`(空文字になっていない)・2 回目も同じ刻み点に立つ |
+| `dismisswrite` | `world.html` | (1b) | 見捨てた腕の走行後に `["battle","ret"]` が生えた(⭐ 走行前は `[]`)。記録 (1a) も赤 |
+| `nullfight` | `world.html` | (1a) | 判定 null の腕で結末が `null`(= `resultText` が落ちる)。⭐ 変異ページ側に `PAGEERROR Cannot read properties of null (reading 'success')` が 1 件出る |
+| `nosurprise` | `world.html` | (1d) | d20=20 / d20=1 の**両方**で `surprise=true` = 割れない |
+| `nopartyguard` | `world.html` | (1f) | 編成なしでも襲撃 **1 件**(対照の編成ありと同数) |
+| `copytext` | `world.html` | (0b) | 写経ヒット 1 本 = `choices[1].label="見つからぬよう街道を外れて通り過ぎる"` |
+| `overwritescen` | `index.html` | (2b) | 起動直後・`showResult` 後とも `currentScenario = "road-ambush"`(仕込みは `"lizard-swamp"`) |
+| `woundzero` | `index.html` | (2d) | `hp/maxHp = ["0/50","0/56","0/42","0/41"]` = 次の潜行が開始即死 |
+| `woundpartial` | `index.html` | (2e) | `n` を 99 に偽装しても `["1/50","1/56","1/42","1/41"]` = 先頭から部分適用された |
+| `woundtoolate` | `index.html` | (2c) | 書き出し①は正しいのに、読み込み②が `[1,1,0.31,0.854]`(主人公だけ全快)。記録 (2d) も赤 |
+| `woundonlose` | `index.html` | (3c) | 敗北後に `roadWounds = {"n":4,"hp":[1,1,1,1]}` が書かれ、`roadReturn` も襲撃地点のまま(⭐ `if/else` なので `resetRoadReturnHome()` も同時に止まる) |
+| `goldalways` | `index.html` | (2f) | 全損の腕でも `gold = 80` = 守り切った腕と同額 |
+| `gameoveramb` | `index.html` | (2g) | 街道の襲撃側 `escortWagonLossEndsRun() = true`(期待 false) |
+| `gameovernever` | `index.html` | (2g) | 7.9-3 側 `escortWagonLossEndsRun() = false`(期待 true) |
+
+**装置側の締め**: `(n0a-*)` 20 本 = 「素には注入文字列が無く、変異側にちょうど 1 つ」/
+`(n0b-*)` 20 本 = 「素と変異で配信バイト長が違う」/ `(n9a)` = PENDING の変異 0 件 /
+`(n9b)` = 変異表 20 行そろっている。合計 **65 assert**。
+
+**⭐ 実装で足した仕掛け** — `LEG_NEED` / `LEG_DEP` / `legsFor()` / `collect()`。
+変異ごとに **targets ∪ record が読む値の供給レグだけ**を走らせる(20 本 x 全レグは実時間で
+現実的でない)。⛔ 母集団は 1 つも削っていない —— 対照の腕(`idxPlain` / `idxZero` /
+`fireNone` など)も表に含めてある。受入条件(`--negative` なし)は**常に全レグ**。
+
+### 12-3. 既存 golden の非退行 — **14 本すべて緑・期待値の書き換え 0 件**
+
+⛔ 母集団は数え直した: `grep -l "world\.html" tools/*.js` = **15 本**、うち 1 本は
+`verify_road_ambush` 自身 ⇒ **golden は 14 本**(依頼書 §2-12 の「13 本」は古い)。
+`grep -l "road-events\|roadBoon" tools/*.js` = **5 本**で、全部この 15 本の内側。
+⚠⚠⚠ **1 本ずつ逐次**で回した(並走させると偽の赤が出る)。**単発の赤による再実行は 0 回**
+(`verify_run_chronicle` の既知 flake も出なかった)。**14 本とも exit 0**。
+
+| ドライバ | 実測(2026-09-04 / 項目 4 の締めで実行) | 依頼書 / 申し送りの基準 |
+|---|---|---|
+| `verify_road_events` | **25/25 PASSED FAILED 0 PENDING 0** | 25/25(一致) |
+| `verify_road_boon` | **20/20 PASSED FAILED 0 PENDING 0** | 20/20(一致) |
+| `verify_world_steps` | **33/33 PASSED FAILED 0 PENDING 0** | 33/33(一致) |
+| `verify_world_map` | **57/57 PASSED FAILED 0 PENDING 0** | ⭐ 基準が無かった本数(申し送りの 10 本に入っていなかった)。FAILED 0 |
+| `verify_quest_walk` | **25/25 PASSED FAILED 0 PENDING 0** | 25/25(一致) |
+| `verify_world_heromark` | **18/18 PASSED FAILED 0 PENDING 0** | ⭐ 未実行だった 3 本の 1 つ。FAILED 0 |
+| `verify_town_exit` | **素 23/23 PASSED / PENDING 0** | ⭐ 未実行だった 3 本の 1 つ。FAILED 0 |
+| `verify_title_screen` | **86/86 passed** | ⭐ 未実行だった 3 本の 1 つ。FAILED 0 |
+| `verify_ability_scores` | **24/24 PASSED FAILED 0 PENDING 0** | 24/24(一致) |
+| `verify_darkvision` | **25/25 PASSED FAILED 0 PENDING 0** | 25/25(一致) |
+| `verify_mercenary_roster` | **44 PASSED / 0 FAILED / 0 PENDING (44/44)** | 44/44(一致) |
+| `verify_player_sheet` | **73/73 PASSED FAILED 0 PENDING 0** | ⭐ 依頼書 §2-12 の「FAILED 4 本が着手前から赤」は**解消済み**(#48 が着地)。基準は **FAILED 0** |
+| `verify_recruit_size` | **82/82 PASS** | 82/82(一致) |
+| `verify_run_chronicle` | **73 PASSED / 0 FAILED / 0 PENDING** | 73/73(一致) |
+
+⭐ 項目 4 は **本番ファイルを 1 バイトも触っていない**(`git status` = `tools/verify_road_ambush.js`
+と本依頼書・台帳のみ)。⇒ この 14 本は「項目 1〜3 が着地した木」に対する非退行の実測であり、
+着手前 = 着手後。⇒ **changelog は不要**(`scripts/hooks/check_changelog.py` の
+`GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` に 1 つも当たらない)。
+
+### 12-4. ⚠ 残課題(**未対処**。#51 では直さないと決めたもの)
+
+1. ⚠⚠ **勝利が `progress.cleared` に載る。** `index.html` は `lastResult` に
+   `{ scenarioId: "road-ambush", cleared: true }` を書き(`:36711` 付近)、`tavern.html:5058` の
+   ガードは `!== "generated-quest"` なので**通ってしまう** → `progress.cleared.add("road-ambush")`。
+   - **解放は 1 つも動かない**(読み手は `progress.cleared.has("dragon-lair")`(`:3579`)と
+     `has(sc.unlockAfter)`(`:5489`)= 既定 6 シナリオの id しか見ない)= **実害なし**。
+   - ⚠ ただし**ガードの外**にある `plazaStateTV.totalQuestsCleared`(`:5053`)は **+1 される** ——
+     闇市「怪しい扉」の常設化カウンタが街道の襲撃 1 回でも進む。
+   - ⚠ 発火するのは「襲撃に勝った後、別の潜行を挟まずに酒場へ入ったとき」だけ(`lastResult` は
+     次の潜行で上書きされ、酒場は読んだら `removeItem` する)。
+   - ⛔ **`tavern.html` は本チケットの禁止ファイル**なので手を付けていない。§6-1 の
+     「⛔ `progress.cleared` に載る経路へ流さない」とは食い違うので、直すなら別チケット。
+2. **撤退ボタンで襲撃から抜けると `roadWounds` は書かれず `roadReturn` も襲撃地点のまま** =
+   「無傷で襲撃地点へ戻る」。既存の「撤退はペナルティなし」設計どおりだが、実機体感の確認項目。
+3. ⛔ `probe_party_size` は #23 以前から壊れている(酒場の出発先が world.html になった時点で
+   遷移横取りが死んだ)。**#51 では直していない**(依頼書 §11 のとおり)。
+
+### 12-5. 実機で確かめてほしいこと(§9 の 7 項目 + 実装で増えた 2 件)
+
+⚠ ローカルは **http 起動が必須**(`file://` 直開きだとナレ音声だけ無音)。
+
+1. 襲撃の器が iPhone 縦(390x844)で読めるか。導入文の長さは適切か
+   (⭐ 機械では 4 枚とも収まっている = 導入 325px / 結末 228・203・203px)
+2. 「助けに入る」→ d20 → 結末 → 戦闘 の間が長すぎないか(ページ遷移を挟む)
+3. ページ遷移で BGM が不自然に切れないか
+4. **帰還後、襲撃した場所に立っているか**(港町ではない)
+5. **傷を負ったまま本命のダンジョンへ入る**手応え。きつすぎないか
+6. `AMBUSH_RATE = 0.06` の頻度。横断 1 回あたり何回出るか
+   (⭐ 参考実測 = `DEST_FIRE` の経路で襲撃を振る停留所は **2 つだけ**。拠点と押した行き先では振らない)
+7. 馬車を守れなかったときの「金貨が入らない」が、罰として伝わるか
+   (⭐ 実測 = 守り切ると `clearGold 80`、全損だと `0`)
+8. ⭐ **奇襲(判定成功)と乱戦(判定失敗)の差が体感できるか** —— 中身は #47 の
+   `applyRoadVigilance` そのまま(最初の交戦で敵の初手を 1 ターン潰す)なので、
+   「1 ターンぶん」で足りるかは実プレイでしか分からない
+9. ⭐ 街道の襲撃の戦場が `caravan-road` の屋外テーマのままで見劣りしないか
+   (⚠ 卓上マップは **#52** の担当。`AMBUSH_FIELD` の差し替え 1 つで移せるようにしてある)

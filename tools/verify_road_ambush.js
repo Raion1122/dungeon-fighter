@@ -33,6 +33,19 @@
  *   ⛔ 負のコントロール (--negative の 20 本) は **項目 4 の担当**。
  *      名前と担当節だけ下の MUT_TODO に並べてある (ポートは 1 つも開かない)。
  *
+ * ■ 項目 4 (締め) で足したもの — **負のコントロール 20 本 (--negative)**
+ *   ⭐ 依頼書 §8 の変異表 20 行を全部 from/to の逐語置換として実装し、**担当の節が
+ *     実際に赤くなる**ことを機械で確かめる (緑のままなら「その受入条件は何も検出していない」
+ *     証拠なので FAILED)。⭐ (n9a)(n9b) が「実装漏れ 0 件 / 20 行そろっている」を締める。
+ *   ⚠⚠ **依頼書どおりでは赤にできず作り替えた変異が 1 本** = woundtoolate
+ *     (「適用を consumeRoadBoon の後へ動かす」は 1 行置換にならない → 欠陥そのものの
+ *      再現「適用した hp が後から maxHp で上書きされる」へ書き直した。⛔ assert は 1 文字も
+ *      緩めていない)。
+ *   ⚠⚠ **担当節を広げた変異が 1 本** = nospawnresume ((3a) → (3a)(3c))。項目 3 の実装で
+ *     敗北の帰還も同じ resume 枝を通るようになったため。⭐ 実走で確定した (⛔ 机上ではない)。
+ *   ⭐ 走らせるレグは LEG_NEED / LEG_DEP から **targets ∪ record の和集合**で決める
+ *     (20 本 x 全レグは実時間で 1 時間を超える。⛔ 母集団は 1 つも削っていない)。
+ *
  * ■ 項目 2 (街道側の実装) で足したもの — **§1 (1a)〜(1g) と §4 の (4c)**
  *     (1a) 4 経路 … 判定なし / 判定つき成功 / 判定つき失敗 / **判定が null** を実際に押す。
  *                   ⭐ 4 本目 (null) は js/skill-check.js を 1 バイトも触らず、ページの中で
@@ -110,11 +123,13 @@
  *     (#47 / #48 の「ポートは base でなく --negative で開くレンジで数える」の実践)。
  *   2026-09-04 実測 (`grep -rhoE "9[0-9]{3}" tools/*.js | sort -n | uniq | tail -25`) =
  *   既存の最大は **9960** (verify_cone_cast の撤退アーム) / 9999 は別用途。**9970〜9990 は衝突 0 本**。
- *   ⭐ 項目 1 が実際に listen するのは **9970 の 1 本だけ** (変異が 1 本も実装されていないため)。
+ *   ⭐ 受入条件 (--negative なし) が listen するのは **9970 の 1 本だけ**。
+ *     --negative では 9971〜9990 を **20 本ぶん**開く (2026-09-04 実測でも衝突 0 本)。
  *
  * ■ 使い方
  *     node tools/verify_road_ambush.js               受入条件
- *     node tools/verify_road_ambush.js --negative    負のコントロール (⛔ 項目 4 が実装する)
+ *     node tools/verify_road_ambush.js --negative    負のコントロール (変異 20 本)
+ *     node tools/verify_road_ambush.js --negative --mut sharedrng,copytext   一部だけ (デバッグ用)
  *     node tools/verify_road_ambush.js --headful     目で見る
  * exit 0=FAILED 0 / 1=FAILED あり / 2=環境不足 / 3=装置を作れなかった (測定不能)
  */
@@ -136,37 +151,199 @@ const NEGATIVE = flag('negative');
 const PORT = parseInt(arg('port', '9970'), 10);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 負のコントロール (--negative) — ⛔ **項目 4 の担当**。この項目では名前と担当節だけ。
-//   ⛔ 20 本を表から隠さない (--negative が「実装を忘れた変異」を件数から隠さないため、
-//      PENDING として毎回出す)。⭐ ポートは 1 つも開かない (from/to がまだ無い)。
-//   ⚠⚠ 項目 4 が from/to を埋めるときの作法 (verify_cone_cast の起動時検算をそのまま写す):
+// 負のコントロール (--negative) — ⭐ 項目 4 で **20 本すべて実装** = PENDING 0
+//   ⛔ 20 本を表から隠さない (--negative が「実装を忘れた変異」を件数から隠さない)。
+//   ⚠⚠ 作法 (verify_cone_cast の起動時検算をそのまま写した。下の検算ループが強制する):
 //      ① 置換文字列は **1 行**に閉じる (world.html は CRLF / js/*.js は LF)
-//      ② 置換前後で **バイト長を変える**
+//      ② 置換前後で **バイト長を変える** (同じ長さだと配信の検算が誤報する)
 //      ③ 当て先は **ちょうど 1 箇所**。0 or 2 箇所なら走らせる前に exit 3
 //      ④ 変異は「仕様の言葉」ではなく **その assert が実際に読む値の供給口**へ当てる
+//   ⭐⭐⭐ targets = 「赤くなること」を判定する節 / record = 「ついでにどうなったか」を
+//      記録するだけの節 (⛔ 判定しない)。**担当節は机上で書かず実走で確定した**。
+//   ⚠⚠⚠ **同じアンカーを 2 本の変異が共有してよい** (worldremove / resumesticky と
+//      gameoveramb / gameovernever)。各変異は素のソースから独立に組むので、
+//      一意性検算はそれぞれ 1 件で通る。
 // ══════════════════════════════════════════════════════════════════════════════
-const MUT_TODO = [
-  ['sharedrng', ['0d', '4a'], '⭐ 罠 B の再現: ambRnd をやめて rnd() を呼ぶ'],
-  ['helpnocheck', ['0a', '1a'], '⭐ 罠 C の再現: 「助けに入る」を check:false にする'],
-  ['intoevents', ['4c'], '⭐ 罠 A の再現: AMBUSH を EVENTS へ push する'],
-  ['worldremove', ['4b'], '⭐ 罠 D の再現: roadReturn の消費を removeItem にする'],
-  ['overwritescen', ['2b'], '⭐ 罠 F の再現: currentScenario を襲撃で上書き'],
-  ['nospawnresume', ['3a'], '⭐ 罠 E の再現: roadReturn を見ずに spawnFor だけ使う'],
-  ['resumesticky', ['3b'], 'roadReturn を空文字で潰さない'],
-  ['dismisswrite', ['1b'], '見捨てた枝でも roadBattle を書く'],
-  ['nullfight', ['1a'], 'resolveSkillCheck が null でも戦闘へ行く'],
-  ['nosurprise', ['1d'], 'surprise を常に true'],
-  ['woundzero', ['2d'], '下限クランプを外す'],
-  ['woundpartial', ['2e'], '人数不一致でも先頭から適用'],
-  ['woundonlose', ['3c'], '敗北時にも roadWounds を書く'],
-  ['woundtoolate', ['2c'], '消耗の適用を consumeRoadBoon の後へ動かす'],
-  ['goldalways', ['2f'], '馬車全損でも clearGold を入れる'],
-  ['gameoveramb', ['2g'], '街道の襲撃でも gameOver を立てる'],
-  ['gameovernever', ['2g'], '7.9-3 でも gameOver を立てない'],
-  ['nopartyguard', ['1f'], 'hasRealParty() を外す'],
-  ['copytext', ['0b'], 'AMBUSH の文言を world.html のコメントへ写経'],
-  ['boxleak', ['1g'], '器を閉じずに描き直す'],
-];
+const MUTATIONS = {
+  /* ⭐ 罠 B (依頼書 §2-4) の再現。⚠ 当て先は ambRnd の**中身**ではなく ambRoll の
+     **引き口** —— ambRnd の式を書き換えると verify_road_events の変異 seedignore の
+     逐語アンカー (`return ((t ^ (t >>> 14)) >>> 0) / 4294967296;`) の件数が動いて
+     あちらが起動時検算で exit 3 になる (#51 項目 2 が実際に踏んだ制約)。 */
+  sharedrng: { file: 'js/road-events.js', targets: ['0d', '4a'],
+    from: '  function ambRoll() { return ambRnd() < AMBUSH_RATE; }',
+    to: '  function ambRoll() { return rnd() < AMBUSH_RATE; /* neg:sharedrng 共有ストリーム */ }',
+    why: '⭐ 罠 B の再現: ambRnd をやめて rnd() を呼ぶ (既存 golden の決定論が 1 つずれる)' },
+
+  /* ⭐ 罠 C (依頼書 §2-5) の再現。⚠ 「助けに入る」を判定なしにすると、既存 golden 3 本
+     (verify_world_steps:774 / verify_world_map:683 / verify_quest_walk:831) が押す
+     `filter(x => !x.check)[0]` が **戦闘へ行く枝**になる。⭐ その 3 本は AMBUSH を
+     見ない (EVENTS に入れていない) ので、番人はこちらの (0a)(1a) しか居ない。 */
+  helpnocheck: { file: 'js/road-events.js', targets: ['0a', '1a'], record: ['0e'],
+    from: '        label: "茂みから回り込み、隙を突く", check: true,',
+    to: '        label: "茂みから回り込み、隙を突く", check: false,  /* neg:helpnocheck */',
+    why: '⭐ 罠 C の再現: 「助けに入る」を check:false にする' },
+
+  /* ⭐ 罠 A (依頼書 §2-3) の再現。⚠ 当て先は「表そのもの」ではなく **文の位置** ——
+     AMBUSH の定義の直後で EVENTS へ push する。⛔ EVENTS のリテラルへ足す形は
+     複数行になるので作法①に反する。 */
+  intoevents: { file: 'js/road-events.js', targets: ['4c'], record: ['0a'],
+    from: '  var PARTY_KEY = "dragonfighters.partyComposition";',
+    to: '  EVENTS.push(AMBUSH); /* neg:intoevents */ var PARTY_KEY = "dragonfighters.partyComposition";',
+    why: '⭐ 罠 A の再現: AMBUSH を EVENTS へ push する (pickEvent の引きが動く)' },
+
+  /* ⭐ 器を閉じずに描き直す。⚠⚠ 当て先は close() ではなく **paint() の側** ——
+     close() を壊しても (1g) の afterClose しか動かないが、paint() を壊すと
+     「結末の画面に前の二択が残る」= プレイヤーが実際に見る壊れ方になる。
+     ⚠ `    n.innerHTML = "";` は close() 側の `if (n) n.innerHTML = "";` と字面が
+       重なるので、次行を足した 2 行アンカーで paint() 側へ絞る (LF ファイル)。 */
+  boxleak: { file: 'js/road-events.js', targets: ['1g'], multiline: true,
+    from: '    n.innerHTML = "";\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
+    to: '    /* neg:boxleak 前のボタンを消さない */\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
+    why: '器を閉じずに描き直す (結末の画面に前の二択のボタンが残る)' },
+
+  /* ⭐ 依頼書 §2-6 の罠 D。⛔ world.html で removeItem を 2 本目にすると
+     verify_road_events (2c) も同時に赤くなる (件数で縛られている)。 */
+  worldremove: { file: 'world.html', targets: ['4b'], record: ['3b'],
+    from: '    if (ambResume) { try { sessionStorage.setItem(ROAD_RETURN_KEY, ""); } catch (e) {} }',
+    to: '    if (ambResume) { try { sessionStorage.removeItem(ROAD_RETURN_KEY); } catch (e) {} } /* neg:worldremove */',
+    why: '⭐ 罠 D の再現: roadReturn の消費を removeItem にする' },
+
+  /* ⭐ 依頼書 §2-7 の罠 E。⚠⚠ 担当節は (3a) だけでなく **(3c) も**。項目 3 の実装で
+     敗北の帰還も同じ resume 枝を通るようになった (roadReturn へ "phlan" を書く形へ
+     訂正したため) ので、この枝を潰すと負けたときも spawnFor の答え (= 目的地の前) に
+     立つ = (3c) も赤くなる。⭐ 机上ではなく実走で確定した (依頼書 §12)。 */
+  nospawnresume: { file: 'world.html', targets: ['3a', '3c'], record: ['3b'],
+    from: '    if (ambResume && Object.prototype.hasOwnProperty.call(WM.walkNodes(), ambResume)) {',
+    to: '    if (false /* neg:nospawnresume */ && Object.prototype.hasOwnProperty.call(WM.walkNodes(), ambResume)) {',
+    why: '⭐ 罠 E の再現: roadReturn を見ずに spawnFor だけ使う' },
+
+  resumesticky: { file: 'world.html', targets: ['3b'], record: ['3a'],
+    from: '    if (ambResume) { try { sessionStorage.setItem(ROAD_RETURN_KEY, ""); } catch (e) {} }',
+    to: '    if (ambResume) { /* neg:resumesticky 空文字で潰さない */ }',
+    why: 'roadReturn を空文字で潰さない (襲撃地点に立ち続ける)' },
+
+  /* ⚠⚠ (1b) は走行前 storagePre も見ているので「元から在った値を残す」形の変異は
+     **空振りする**。⇒ 見捨てた枝で **実際に setItem する**形にする (項目 3 の申し送り)。 */
+  dismisswrite: { file: 'world.html', targets: ['1b'], record: ['1a'],
+    from: '      if (!fight) { RE.showResult(ev, text, null, null); return; }',
+    to: '      if (!fight) { writeAmbushBattle(atId, false); /* neg:dismisswrite */ RE.showResult(ev, text, null, null); return; }',
+    why: '見捨てた枝でも roadBattle / roadReturn を書く' },
+
+  nullfight: { file: 'world.html', targets: ['1a'],
+    from: '      var fight = !!(choice && choice.check && outcome);',
+    to: '      var fight = !!(choice && choice.check); /* neg:nullfight null でも戦う */',
+    why: 'resolveSkillCheck が null でも戦闘へ行く (null を失敗と取り違える)' },
+
+  nosurprise: { file: 'world.html', targets: ['1d'],
+    from: '      writeAmbushBattle(atId, !!outcome.success);',
+    to: '      writeAmbushBattle(atId, true); /* neg:nosurprise 常に奇襲 */',
+    why: 'surprise を常に true (d20 を振る意味が消える)' },
+
+  nopartyguard: { file: 'world.html', targets: ['1f'],
+    from: '      if (!hasRealParty()) return false;                /* ⭐ 編成が無いなら出さない (§5-3) */',
+    to: '      if (false) return false;  /* neg:nopartyguard 編成の門番を外す */',
+    why: 'hasRealParty() を外す (受注なしで歩いていても戦闘へ飛ぶ)' },
+
+  /* ⭐ (0b) の番人。⚠⚠ ヒットの判定は **文言の全文一致** (indexOf) なので、断片ではなく
+     **選択肢のラベル 1 本を丸ごと**写す。⭐ 素の world.html には AMBUSH の文言が
+     1 つも無い (本番のコメントは「街道**での**襲撃」と書き分けてある = 2026-09-04 実測)。 */
+  copytext: { file: 'world.html', targets: ['0b'],
+    from: '    var ROAD_BATTLE_KEY = "dragonfighters.roadBattle";',
+    to: '    var ROAD_BATTLE_KEY = "dragonfighters.roadBattle"; /* neg:copytext 見つからぬよう街道を外れて通り過ぎる */',
+    why: '⭐ AMBUSH の文言を world.html へ写経する' },
+
+  /* ⭐ 罠 F (依頼書 §2-8) の再現。⛔ 「currentScenario を読む」ではなく **書く**形。 */
+  overwritescen: { file: 'index.html', targets: ['2b'],
+    from: '      scenarioId = "road-ambush";',
+    to: '      scenarioId = "road-ambush"; try { sessionStorage.setItem("dragonfighters.currentScenario", "road-ambush"); } catch (e) {} /* neg:overwritescen */',
+    why: '⭐ 罠 F の再現: currentScenario を襲撃で上書きする' },
+
+  woundzero: { file: 'index.html', targets: ['2d'],
+    from: 'const put = (m, r) => Math.max(1, Math.min(m, Math.round(m * r)));',
+    to: 'const put = (m, r) => Math.min(m, Math.round(m * r)); /* neg:woundzero 下限なし */',
+    why: '下限 1 HP のクランプを外す (次の潜行が開始即死になる)' },
+
+  woundpartial: { file: 'index.html', targets: ['2e'],
+    from: '      if (o.n !== n || o.hp.length !== n) return;    /* ⛔ 人数不一致は丸ごと捨てる */',
+    to: '      if (o.hp.length !== n) return; /* neg:woundpartial n を見ない */',
+    why: '人数が食い違っても先頭から適用する' },
+
+  /* ⚠⚠ 依頼書 §8 の「適用を consumeRoadBoon の後へ動かす」は **1 行置換にならない**
+     (ブロックの移動)。⇒ #48 の作法どおり assert を緩めず **欠陥そのものを再現**する形へ
+     書き直した = 適用した hp が後から maxHp で上書きされる (consumeRoadBoon の「糧」が
+     後に来たときに実際に起きる姿)。⭐ 依頼書 §12 へ転記済み。 */
+  woundtoolate: { file: 'index.html', targets: ['2c'], record: ['2d'],
+    from: '        a.hp = put(a.maxHp || 1, want[i + 1]);',
+    to: '        a.hp = put(a.maxHp || 1, want[i + 1]); hp = maxHp; /* neg:woundtoolate 後から全快 */',
+    why: '⭐ 消耗を適用した後で hp が全快で上書きされる (適用位置が遅すぎる欠陥の再現)' },
+
+  woundonlose: { file: 'index.html', targets: ['3c'],
+    from: '        if (win) writeRoadWounds();',
+    to: '        if (win || true) writeRoadWounds(); /* neg:woundonlose */',
+    why: '敗北時にも roadWounds を書く (負けても傷だけ持ち越す)' },
+
+  goldalways: { file: 'index.html', targets: ['2f'],
+    from: '        const clearGold = (currentScenario && currentScenario.clearGold > 0 && !escortWagonLost())',
+    to: '        const clearGold = (currentScenario && currentScenario.clearGold > 0 /* neg:goldalways */)',
+    why: '馬車全損でも clearGold を入れる (守っても守らなくても同額)' },
+
+  /* ⭐⭐⭐ (2g) の 2 本は **供給口 (関数の return)** へ当てる。⛔ 敗北確定の枝側を
+     `if (true)` に潰す形でも赤くなるが、それは (2g) の**静的アンカー**が赤くなるだけで
+     値の腕は緑のまま = 検出の筋が違う (項目 3 の申し送り)。 */
+  gameoveramb: { file: 'index.html', targets: ['2g'],
+    from: '    function escortWagonLossEndsRun() { return !roadAmbushRun; }',
+    to: '    function escortWagonLossEndsRun() { return true; /* neg:gameoveramb */ }',
+    why: '街道の襲撃でも gameOver を立てる (通りすがりの襲撃で潜行が終わる)' },
+
+  gameovernever: { file: 'index.html', targets: ['2g'],
+    from: '    function escortWagonLossEndsRun() { return !roadAmbushRun; }',
+    to: '    function escortWagonLossEndsRun() { return false; /* neg:gameovernever */ }',
+    why: '7.9-3 (闇市の隊商護衛) でも gameOver を立てない (既存の敗北条件が消える)' },
+};
+const MUT_ORDER = ['sharedrng', 'helpnocheck', 'intoevents', 'boxleak', 'worldremove',
+  'nospawnresume', 'resumesticky', 'dismisswrite', 'nullfight', 'nosurprise', 'nopartyguard',
+  'copytext', 'overwritescen', 'woundzero', 'woundpartial', 'woundtoolate', 'woundonlose',
+  'goldalways', 'gameoveramb', 'gameovernever'];
+const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].from);
+/* ⭐ デバッグ用 —— `--mut sharedrng,copytext` で一部だけ回す。⛔ 既定は全 20 本。 */
+const MUT_PICK = arg('mut', null);
+const MUT_RUN = MUT_PICK ? MUT_PICK.split(',').map(s => s.trim()).filter(Boolean) : MUT_ORDER;
+for (const k of MUT_RUN) {
+  if (!Object.prototype.hasOwnProperty.call(MUTATIONS, k)) {
+    console.error('[drv] 未知の --mut: ' + k + '  (' + MUT_ORDER.join(' / ') + ')');
+    process.exit(3);
+  }
+}
+
+/* ⭐⭐⭐ 配信バイトの凍結 (起動時検算)。⚠ アンカーが 1 箇所にヒットしなければ **ここで exit 3**。
+ *  ⛔ リクエストのたびに readFileSync しない —— 別窓が保存すると走行中に
+ *     「素の行」と「変異後の行」が混ざったビルドを配ってしまう。 */
+const SRC = {};
+const MUT_SRC = {};
+for (const k of MUT_ORDER) {
+  const mu = MUTATIONS[k];
+  if (!mu.from) continue;
+  if (!SRC[mu.file]) SRC[mu.file] = fs.readFileSync(path.join(ROOT, mu.file), 'utf8');
+  const body = SRC[mu.file];
+  const at = ' 変異 ' + k;
+  if (typeof mu.from !== 'string' || typeof mu.to !== 'string') {
+    console.error('[drv] ⛔' + at + ' の from/to が文字列でない'); process.exit(3);
+  }
+  if (!mu.multiline && (mu.from.indexOf('\n') >= 0 || mu.to.indexOf('\n') >= 0)) {
+    console.error('[drv] ⛔' + at + ' の置換文字列が複数行 (CRLF/LF 混在で必ず空振りする)');
+    process.exit(3);
+  }
+  if (mu.from.length === mu.to.length) {
+    console.error('[drv] ⛔' + at + ' の置換前後が同じ長さ → 配信の検算が誤報する'); process.exit(3);
+  }
+  const n = body.split(mu.from).length - 1;
+  if (n !== 1) {
+    console.error('[drv] ⛔' + at + ' の置換対象が ' + mu.file + ' 内に ' + n
+      + ' 箇所 → 負のコントロールが空振りする: ' + JSON.stringify(mu.from.slice(0, 100)));
+    process.exit(3);
+  }
+  MUT_SRC[k] = { file: mu.file, body: body.split(mu.from).join(mu.to) };
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // puppeteer / Chrome / 内蔵サーバ
@@ -208,13 +385,21 @@ const PAGE_PATH = '/world.html';
 /* 撤退のクエリ (依頼書 §7)。§5 (5a) が項目 3/4 で使う。⭐ クエリなので追加のポートを取らない。 */
 const RETREAT_QUERY = '?ambush=0';
 
-function startServer(port) {
+/* ⭐ mutKey を渡すと、そのポートだけ **1 ファイルを変異後のバイトへ差し替えて**配る。
+   ⛔ 素のポート (PORT) には絶対に渡さない = 受入条件は常に素の木で測る。 */
+function startServer(port, mutKey) {
   return new Promise((resolve, reject) => {
     const srv = http.createServer((req, res) => {
       try {
         let u = decodeURIComponent(req.url.split('?')[0]);
         if (u === '/') u = '/index.html';
         const rel = u.replace(/^\/+/, '');
+        const ov = mutKey ? (MUT_SRC[mutKey] || null) : null;
+        if (ov && rel === ov.file) {
+          res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(ov.body); return;
+        }
         const fp = path.join(ROOT, rel);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
           res.statusCode = 404; res.end('404'); return;
@@ -2217,6 +2402,209 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 //   ⛔ keys と pend の両方に同じキーを置かないこと (数が合わなくなる)。
 //   ⛔ 節ごと削除しないこと — 削ると「宣言してから実装する」型そのものが消える。
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測レグの選択 — ⭐ どの assert がどのレグを要るか
+//   ⚠⚠⚠ 受入条件 (--negative なし) は **常に全レグ**を走らせる。ここが効くのは
+//     負のコントロールだけ —— 20 本 x 全レグは実時間で 1 時間を超えるので、
+//     **その変異の targets ∪ record が読む値の供給レグだけ**を走らせる。
+//   ⛔ 「速いから」で母集団を削らない = 和集合を必ず取る (対照の腕もこの表に入っている)。
+//   ⭐ 'scan' は種の走査 **+ 出る種を決めるための歩行 (fireNone)** まで含む
+//     (種を実際に歩いて確かめないと以降の腕が組めないため、分けられない)。
+// ══════════════════════════════════════════════════════════════════════════════
+const LEG_NEED = {
+  '0a': ['boot'], '0b': ['boot'], '0c': ['scan', 'walkQuiet'], '0d': ['rnd'],
+  '0e': ['scan', 'walkWin', 'walkLose'],
+  '1a': ['scan', 'walkWin', 'walkLose', 'walkNull'], '1b': ['scan'],
+  '1c': ['boot', 'scan', 'walkWin', 'walkLose'], '1d': ['scan', 'walkWin', 'walkLose'],
+  '1e': ['scan', 'walkWin'], '1f': ['scan', 'walkNoParty'], '1g': ['box'],
+  '2a': ['idxAmb'], '2b': ['idxAmb'], '2c': ['idxAmb', 'idxWoundRead', 'idxPlain'],
+  '2d': ['idxZero'], '2e': ['idxZero', 'idxBadN'], '2f': ['idxAmb', 'idxWagon'],
+  '2g': ['idxAmb', 'idxEscort'],
+  '3a': ['resume'], '3b': ['resume'], '3c': ['defeat'], '3d': ['resume'],
+  '4a': ['rnd'], '4b': [], '4c': ['boot'],
+  '5a': ['scan', 'walkQuiet', 'walkRetFire', 'walkRetQuiet'], '5b': ['idxRetreat', 'idxAmb'],
+};
+/* レグどうしの依存。⭐ 潜行側の腕は **world.html が実際に書いた roadBattle** を使うので、
+   必ず walkWin (= scan) を先に通す (⛔ ドライバが JSON を組み立てない、が §2 の設計)。 */
+const LEG_DEP = {
+  walkWin: ['scan'], walkLose: ['scan'], walkNull: ['scan'], walkNoParty: ['scan'],
+  walkQuiet: ['scan'], walkRetFire: ['scan'], walkRetQuiet: ['scan'],
+  idxAmb: ['walkWin'], idxWagon: ['walkWin'], idxRetreat: ['walkWin'],
+  idxWoundRead: ['idxAmb'], defeat: ['walkWin'],
+};
+const ALL_LEGS = ['boot', 'rnd', 'scan', 'walkWin', 'walkLose', 'walkNull', 'walkNoParty',
+  'walkQuiet', 'box', 'resume', 'walkRetFire', 'walkRetQuiet', 'idxAmb', 'idxWagon',
+  'idxWoundRead', 'idxRetreat', 'defeat', 'idxPlain', 'idxZero', 'idxBadN', 'idxEscort'];
+function legsFor(keys) {
+  if (!keys) return new Set(ALL_LEGS);
+  const need = new Set();
+  const add = (t) => {
+    if (need.has(t)) return;
+    need.add(t);
+    for (const d of (LEG_DEP[t] || [])) add(d);
+  };
+  for (const k of keys) for (const t of (LEG_NEED[k] || [])) add(t);
+  return need;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測をまとめて採る — ⭐ 素のポートでも変異ポートでも **同じ関数**を通す
+//   ⛔ NEGATIVE を見て測り方を分岐させない (#48 の「期待側を切り替えると黙って空振り」の裏返し)。
+// ══════════════════════════════════════════════════════════════════════════════
+async function collect(browser, port, errs, keys) {
+  const need = legsFor(keys);
+  const served = await httpGet('http://localhost:' + port + PAGE_PATH);
+  /* ⭐ (2g) の「呼ばれ口の証明」と (4b) の記録が読む index.html の配信バイト。 */
+  const servedIndex = await httpGet('http://localhost:' + port + PAGE_INDEX);
+  const m = { served: served.body, servedIndex: servedIndex.body, errs: errs, legs: {},
+    legsRun: Array.from(need) };
+
+  if (need.has('boot')) m.boot = await measureBoot(browser, port, errs);
+  if (need.has('rnd')) {
+    m.rnd = [];
+    for (const s of RND_SEEDS) m.rnd.push(await measureRnd(browser, port, errs, s));
+  }
+  m.seedPick = { cands: [], used: null, quiet: null, fallback: null, tries: [] };
+  if (need.has('scan')) {
+    m.scan = await measureScan(browser, port, errs);
+    /* ⭐ 歩行の腕。種を分類できたときだけ 3 経路 + 静けさの 4 本を走らせる。
+       ⛔ 分類できないとき (= 本番未実装) でも **1 本は歩かせる** —— 歩行ハーネスそのものが
+          立っていることを記録に残すため (⛔ ただし (0c)(0e) は緑にしない)。 */
+    const cands = (m.scan && m.scan.fire) ? m.scan.fire.slice(0, FIRE_TRIES) : [];
+    const quietSeed = (m.scan && m.scan.quiet && m.scan.quiet.length) ? m.scan.quiet[0].seed : null;
+    m.seedPick = { cands: cands, used: null, quiet: quietSeed,
+      fallback: cands.length ? null : SEED_FALLBACK, tries: [] };
+    if (cands.length) {
+      /* ⭐ 候補を上から順に 1 本ずつ歩かせ、**実際に器が開いた種**を採る。
+         ⛔ 「緑になるまで試す」ではない —— 開かなければ (0c)(0e) は赤のまま。 */
+      for (const c of cands) {
+        const leg = await measureAmbush(browser, port, errs,
+          { label: '判定なし', seed: c.seed, dest: DEST_FIRE, mode: 'none' });
+        m.legs.fireNone = leg;
+        m.seedPick.tries.push({ seed: c.seed, first: c.first, opens: leg.ambushOpens });
+        if (leg.ambushOpens >= 1) { m.seedPick.used = c.seed; break; }
+      }
+      if (m.seedPick.used !== null) {
+        /* ⭐ (1e) の腕だけが「先へ進む」を押して index.html まで見届ける
+           (⛔ 他の腕で押すと window.__ambOpen ごと消えて (0c)(0e)(1a) が偽の赤になる)。 */
+        if (need.has('walkWin')) {
+          m.legs.fireWin = await measureAmbush(browser, port, errs,
+            { label: '判定つき成功 (+ 先へ進む)', seed: m.seedPick.used, dest: DEST_FIRE,
+              mode: 'check', force: D20_WIN, advance: true });
+        }
+        if (need.has('walkLose')) {
+          m.legs.fireLose = await measureAmbush(browser, port, errs,
+            { label: '判定つき失敗', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_LOSE });
+        }
+        /* ⭐ (1a) の 4 本目 = 判定が null を返す腕。⛔ 失敗扱いにせず、戦闘へも行かない。 */
+        if (need.has('walkNull')) {
+          m.legs.fireNull = await measureAmbush(browser, port, errs,
+            { label: '判定つき + 判定が null', seed: m.seedPick.used, dest: DEST_FIRE,
+              mode: 'check', nullRoll: true, skipPanel: true });
+        }
+        /* ⭐ (1f) = 同じ種で編成だけ抜く。⛔ 対照 (fireNone) が発火していることが母集団。 */
+        if (need.has('walkNoParty')) {
+          m.legs.noParty = await measureAmbush(browser, port, errs,
+            { label: '編成なし', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'none', noParty: true });
+        }
+      }
+    } else {
+      m.legs.fireNone = await measureAmbush(browser, port, errs,
+        { label: '判定なし (⚠ 出る種が無いので既定の種で歩行ハーネスだけ通す)',
+          seed: SEED_FALLBACK, dest: DEST_FIRE, mode: 'none' });
+    }
+    if (need.has('walkQuiet') && quietSeed !== null) {
+      m.legs.quiet = await measureAmbush(browser, port, errs,
+        { label: '出ない種', seed: quietSeed, dest: DEST_QUIET, mode: 'none' });
+    }
+  }
+  /* ⭐ (1g) 器の幾何。⛔ 歩かない (器は ROAD_EVENTS.open / showResult で直に開く) ——
+     測るのは **幾何と層だけ**で、「いつ出るか」は (0c)(1a) の担当。 */
+  if (need.has('box')) {
+    m.box = await measureBoxAmbush(browser, port, errs, { viewport: { width: 390, height: 844 } });
+  }
+  /* ⭐ (3a)(3b)(3d) 帰還。index.html が書くはずの roadReturn をドライバが同じ形で置く。
+     ⛔ 歩かない (立ち位置の決定は起動時の 1 度きりなので、歩行は測定に寄与しない)。 */
+  if (need.has('resume')) m.resume = await measureResume(browser, port, errs, {});
+
+  /* ══ §5 (5a) 撤退の歩行 2 本 ═══════════════════════════════════════════
+     ⭐ 1 本目 = 出る種で「出ない」ことを見る (母集団 = fireNone が発火していること)。
+     ⭐ 2 本目 = **出ない種で恒等**を見る (撤退が既存の街道の出来事まで消していないか)。
+     ⛔ クエリなので追加のポートを取らない。 */
+  if (need.has('walkRetFire') && m.seedPick.used !== null) {
+    m.legs.retreatFire = await measureAmbush(browser, port, errs,
+      { label: '撤退 ' + RETREAT_QUERY + ' (出る種)', seed: m.seedPick.used, dest: DEST_FIRE,
+        mode: 'none', extraQuery: '&ambush=0' });
+  }
+  if (need.has('walkRetQuiet') && m.seedPick.quiet !== null) {
+    m.legs.retreatQuiet = await measureAmbush(browser, port, errs,
+      { label: '撤退 ' + RETREAT_QUERY + ' (出ない種)', seed: m.seedPick.quiet, dest: DEST_QUIET,
+        mode: 'none', extraQuery: '&ambush=0' });
+  }
+
+  /* ══ §2 / (3c) / (5b) 潜行側 ═══════════════════════════════════════════
+     ⭐⭐⭐ 注入する積荷は **world.html が実際に書いた bytes そのもの**
+       (⛔ ドライバが JSON を組み立てない = 街道側と潜行側の食い違いをここで捕まえる)。 */
+  m.realBattle = (function () {
+    const L = legOf(m, 'fireWin');
+    return (L && L.storagePost && L.storagePost.battle) ? L.storagePost.battle : null;
+  })();
+  if (m.realBattle) {
+    /* ① 襲撃の潜行 → hp を削る → 勝利。(2a)(2b)(2c①)(2f 守り切った腕)(2g 襲撃の腕) */
+    if (need.has('idxAmb')) {
+      m.legs.idxAmbush = await measureIndexAmbush(browser, port, errs,
+        { tag: 'amb', battle: m.realBattle, scen: MAIN_SCEN, gen: MAIN_GEN,
+          hpSet: WOUND_RATIOS, result: true });
+    }
+    /* ② 馬車を全損させて勝つ。(2f 全損の腕) */
+    if (need.has('idxWagon')) {
+      m.legs.idxWagonLost = await measureIndexAmbush(browser, port, errs,
+        { tag: 'wagonlost', battle: m.realBattle, scen: MAIN_SCEN,
+          killWagon: true, result: true });
+    }
+    /* ③ ①が書いた roadWounds をそのまま次の潜行へ。(2c②) */
+    if (need.has('idxWoundRead')) {
+      const woundsJson = (m.legs.idxAmbush && m.legs.idxAmbush.after && m.legs.idxAmbush.after.store)
+        ? m.legs.idxAmbush.after.store.wounds : null;
+      if (woundsJson) {
+        m.legs.idxWoundRead = await measureIndexAmbush(browser, port, errs,
+          { tag: 'woundread', wounds: woundsJson, scen: 'goblin-mine' });
+      }
+    }
+    /* ⑧ 撤退 ?ambush=0。(5b) */
+    if (need.has('idxRetreat')) {
+      m.legs.idxRetreat = await measureIndexAmbush(browser, port, errs,
+        { tag: 'retreat', query: RETREAT_QUERY, battle: m.realBattle,
+          wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+    }
+    /* ⑨ (3c) 敗北 → 帰還。⛔ 注入元は index.html の showResult(false) 自身。 */
+    if (need.has('defeat')) {
+      m.defeat = await measureDefeatReturn(browser, port, errs, { battle: m.realBattle });
+    }
+  }
+  /* ④ 対照 (roadWounds なし)。(2c③) */
+  if (need.has('idxPlain')) {
+    m.legs.idxPlain = await measureIndexAmbush(browser, port, errs,
+      { tag: 'plain', scen: 'goblin-mine' });
+  }
+  /* ⑤ 比率 0。(2d) と (2e) の対照 */
+  if (need.has('idxZero')) {
+    m.legs.idxWoundZero = await measureIndexAmbush(browser, port, errs,
+      { tag: 'woundzero', wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+  }
+  /* ⑥ n を偽装。(2e) ⚠ hp の本数は正しいまま = 「先頭から部分適用」だけを捕まえる形 */
+  if (need.has('idxBadN')) {
+    m.legs.idxWoundBadN = await measureIndexAmbush(browser, port, errs,
+      { tag: 'woundbadn', wounds: JSON.stringify({ n: 99, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
+  }
+  /* ⑦ 7.9-3 隊商護衛。(2g の対照 = 従来どおり敗北すること) */
+  if (need.has('idxEscort')) {
+    m.legs.idxEscort = await measureIndexAmbush(browser, port, errs,
+      { tag: 'escort', gen: ESCORT_GEN, scen: 'generated-quest' });
+  }
+  return m;
+}
+
 const SECTIONS = [
   { title: '§0 装置 (先に母集団を確かめる) — ⭐ ここが立たないと §1〜§5 は全部空振りで永久緑',
     keys: ['0a', '0b', '0c', '0d', '0e'], pend: [] },
@@ -2245,20 +2633,23 @@ const SECTIONS = [
   const puppeteer = loadPuppeteer();
   const profile = require('./_pptr_profile')('df_roadamb_');
   const browserPath = findBrowser();
-  /* ⚠ ポートは **MUT_TODO の並び**で固定的に割り当てる (実装の増減で番号が動かないように)。
+  /* ⚠ ポートは **MUT_ORDER の並び**で固定的に割り当てる (実装の増減で番号が動かないように)。
      PORT_OF[k] = PORT + 1 + i → 9971〜9990 が変異 20 本ぶんの予約。
-     ⭐ 項目 1 は 1 本も実装していないので **listen するのは base の 9970 だけ**。 */
+     ⭐ 受入条件 (--negative なし) が listen するのは base の 9970 だけ。 */
   const PORT_OF = {};
-  MUT_TODO.forEach((row, i) => { PORT_OF[row[0]] = PORT + 1 + i; });
+  MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
 
   console.log('=== verify_road_ambush.js' + (NEGATIVE ? '  [負のコントロール]' : '') + ' ===');
   console.log('[drv] serving ' + ROOT);
   console.log('[drv]   base:' + PORT + '   撤退アーム: 同じポートの ' + RETREAT_QUERY
     + ' (クエリなので追加のポートを取らない)');
-  console.log('[drv]   変異の予約: ' + (PORT + 1) + '〜' + (PORT + MUT_TODO.length)
-    + ' (' + MUT_TODO.length + ' 本 / ⛔ 項目 4 の担当なので 1 本も listen しない)');
+  console.log('[drv]   変異の予約: ' + (PORT + 1) + '〜' + (PORT + MUT_ORDER.length)
+    + ' (' + MUT_ORDER.length + ' 本 / 実装済 ' + (MUT_ORDER.length - MUT_TODO.length) + ' 本'
+    + (NEGATIVE ? ' / 今回 listen する: ' + MUT_RUN.map(k => k + ':' + PORT_OF[k]).join(' ')
+      : ' / ⛔ 受入条件では 1 本も listen しない') + ')');
 
-  const servers = [await startServer(PORT)];
+  const servers = [await startServer(PORT, null)];
+  if (NEGATIVE) for (const k of MUT_RUN) servers.push(await startServer(PORT_OF[k], k));
   const browser = await puppeteer.launch({
     executablePath: browserPath, headless: !HEADFUL,
     args: ['--user-data-dir=' + profile, '--no-sandbox', '--no-first-run',
@@ -2269,130 +2660,78 @@ const SECTIONS = [
   const errs = [];
   try {
     if (NEGATIVE) {
-      // ══ 負のコントロール = ⛔ 項目 4 の担当。名前と担当節だけ並べる ═══════════
-      mark('負のコントロール (⛔ 項目 4 が実装する。いまは 1 本も注入しない)');
-      for (const row of MUT_TODO) {
-        pending('(neg-' + row[0] + ') 変異 ' + row[0] + ' → (' + row[1].join(')(') + ') が赤くなる',
-          row[2] + '   [予約ポート ' + PORT_OF[row[0]] + ']');
+      // ══ 負のコントロール ═══════════════════════════════════════════════════
+      /* ① 配信の検算 — 変異が **素のポートに無く、変異ポートにだけ**在ること。
+         ⛔ ここを飛ばすと「実は素の木を 2 回測っていた」に気づけない。 */
+      mark('変異が素の配信に無く、変異ポートにだけ載っていること');
+      for (const k of MUT_RUN) {
+        const f = '/' + MUT_SRC[k].file;
+        const pure = await httpGet('http://localhost:' + PORT + f);
+        const mut = await httpGet('http://localhost:' + PORT_OF[k] + f);
+        check('(n0a-' + k + ') 素には注入文字列が無く、変異側にちょうど 1 つある',
+          nOf(pure.body, MUTATIONS[k].to) === 0 && nOf(mut.body, MUTATIONS[k].to) === 1,
+          f + '  素 ' + nOf(pure.body, MUTATIONS[k].to) + ' 件 / 変異 '
+          + nOf(mut.body, MUTATIONS[k].to) + ' 件');
+        check('(n0b-' + k + ') 素と変異で配信バイト長が違う (同じ物を 2 回測っていない)',
+          pure.body.length !== mut.body.length,
+          '素=' + pure.body.length + 'B / 変異=' + mut.body.length + 'B');
+      }
+
+      /* ② 欠陥を注入すると担当の節が **赤くなる**こと。
+         ⛔ 「緑のまま」= その受入条件が何も検出していない証拠なので、そこで FAILED を出す。 */
+      mark('欠陥を注入すると担当の節が赤くなること');
+      for (const k of MUT_RUN) {
+        const M = MUTATIONS[k];
+        const negErrs = [];
+        const port = PORT_OF[k];
+        const wants = M.targets.concat(M.record || []);
+        const legs = Array.from(legsFor(wants));
+        console.log('       [変異 ' + k + ' :' + port + '] ' + M.file
+          + '  担当 (' + M.targets.join(')(') + ')'
+          + ((M.record || []).length ? ' / 記録 (' + M.record.join(')(') + ')' : '')
+          + '  走らせるレグ = ' + legs.join(','));
+        const mm = await collect(browser, port, negErrs, wants);
+        for (const key of M.targets) {
+          const a = ASSERT_OF[key];
+          if (!a) {
+            check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + key + ') が赤くなる',
+              false, '⛔ (' + key + ') が ASSERTS に無い = 配線漏れ');
+            continue;
+          }
+          const r = a[2](mm);
+          check('(neg-' + k + '-' + key + ') 変異 ' + k + ' で (' + a[0] + ') が赤くなる — ' + M.why,
+            r[0] === false, (r[0] ? '⛔ 緑のまま (空振り) ' : '') + String(r[1]).slice(0, 420));
+        }
+        for (const key of (M.record || [])) {
+          const a = ASSERT_OF[key];
+          if (!a) continue;
+          const r = a[2](mm);
+          console.log('       [記録・⛔ 判定しない] 変異 ' + k + ' で ('
+            + key + ') は ' + (r[0] ? '緑のまま' : '⛔ 赤になった')
+            + '  — ' + String(r[1]).slice(0, 260));
+        }
+        if (negErrs.length) {
+          console.log('       [記録] pageerror/console.error ' + negErrs.length + ' 件: '
+            + negErrs.slice(0, 3).join(' | '));
+        }
+      }
+
+      /* ③ 実装漏れ。⛔ 件数から隠さない (最終項目の完了条件 = PENDING 0)。 */
+      mark('変異の実装漏れ');
+      if (MUT_TODO.length) {
+        for (const k of MUT_TODO) {
+          pending('(neg-' + k + ') 変異 ' + k + ' → ('
+            + MUTATIONS[k].targets.join(')(') + ') が赤くなる', MUTATIONS[k].why);
+        }
+      } else {
+        check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
+          true, MUT_ORDER.join(' / '));
+        check('(n9b) [装置] 依頼書 §8 の変異表 20 行がすべて表に在る',
+          MUT_ORDER.length === 20, MUT_ORDER.length + ' 本');
       }
     } else {
       // ══ 受入条件 ═══════════════════════════════════════════════════════════
-      const served = await httpGet('http://localhost:' + PORT + PAGE_PATH);
-      /* ⭐ (2g) の「呼ばれ口の証明」と (4b) の記録が読む index.html の配信バイト。 */
-      const servedIndex = await httpGet('http://localhost:' + PORT + PAGE_INDEX);
-      const m = { served: served.body, servedIndex: servedIndex.body, errs: errs, legs: {} };
-
-      m.boot = await measureBoot(browser, PORT, errs);
-      m.rnd = [];
-      for (const s of RND_SEEDS) m.rnd.push(await measureRnd(browser, PORT, errs, s));
-      m.scan = await measureScan(browser, PORT, errs);
-
-      /* ⭐ 歩行の腕。種を分類できたときだけ 3 経路 + 静けさの 4 本を走らせる。
-         ⛔ 分類できないとき (= 本番未実装) でも **1 本は歩かせる** —— 歩行ハーネスそのものが
-            立っていることを記録に残すため (⛔ ただし (0c)(0e) は緑にしない)。 */
-      const cands = (m.scan && m.scan.fire) ? m.scan.fire.slice(0, FIRE_TRIES) : [];
-      const quietSeed = (m.scan && m.scan.quiet && m.scan.quiet.length) ? m.scan.quiet[0].seed : null;
-      m.seedPick = { cands: cands, used: null, quiet: quietSeed,
-        fallback: cands.length ? null : SEED_FALLBACK, tries: [] };
-      if (cands.length) {
-        /* ⭐ 候補を上から順に 1 本ずつ歩かせ、**実際に器が開いた種**を採る。
-           ⛔ 「緑になるまで試す」ではない —— 開かなければ (0c)(0e) は赤のまま。 */
-        for (const c of cands) {
-          const leg = await measureAmbush(browser, PORT, errs,
-            { label: '判定なし', seed: c.seed, dest: DEST_FIRE, mode: 'none' });
-          m.legs.fireNone = leg;
-          m.seedPick.tries.push({ seed: c.seed, first: c.first, opens: leg.ambushOpens });
-          if (leg.ambushOpens >= 1) { m.seedPick.used = c.seed; break; }
-        }
-        if (m.seedPick.used !== null) {
-          /* ⭐ (1e) の腕だけが「先へ進む」を押して index.html まで見届ける
-             (⛔ 他の腕で押すと window.__ambOpen ごと消えて (0c)(0e)(1a) が偽の赤になる)。 */
-          m.legs.fireWin = await measureAmbush(browser, PORT, errs,
-            { label: '判定つき成功 (+ 先へ進む)', seed: m.seedPick.used, dest: DEST_FIRE,
-              mode: 'check', force: D20_WIN, advance: true });
-          m.legs.fireLose = await measureAmbush(browser, PORT, errs,
-            { label: '判定つき失敗', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_LOSE });
-          /* ⭐ (1a) の 4 本目 = 判定が null を返す腕。⛔ 失敗扱いにせず、戦闘へも行かない。 */
-          m.legs.fireNull = await measureAmbush(browser, PORT, errs,
-            { label: '判定つき + 判定が null', seed: m.seedPick.used, dest: DEST_FIRE,
-              mode: 'check', nullRoll: true, skipPanel: true });
-          /* ⭐ (1f) = 同じ種で編成だけ抜く。⛔ 対照 (fireNone) が発火していることが母集団。 */
-          m.legs.noParty = await measureAmbush(browser, PORT, errs,
-            { label: '編成なし', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'none', noParty: true });
-        }
-      } else {
-        m.legs.fireNone = await measureAmbush(browser, PORT, errs,
-          { label: '判定なし (⚠ 出る種が無いので既定の種で歩行ハーネスだけ通す)',
-            seed: SEED_FALLBACK, dest: DEST_FIRE, mode: 'none' });
-      }
-      if (quietSeed !== null) {
-        m.legs.quiet = await measureAmbush(browser, PORT, errs,
-          { label: '出ない種', seed: quietSeed, dest: DEST_QUIET, mode: 'none' });
-      }
-      /* ⭐ (1g) 器の幾何。⛔ 歩かない (器は ROAD_EVENTS.open / showResult で直に開く) ——
-         測るのは **幾何と層だけ**で、「いつ出るか」は (0c)(1a) の担当。 */
-      m.box = await measureBoxAmbush(browser, PORT, errs, { viewport: { width: 390, height: 844 } });
-      /* ⭐ (3a)(3b)(3d) 帰還。index.html が書くはずの roadReturn をドライバが同じ形で置く。
-         ⛔ 歩かない (立ち位置の決定は起動時の 1 度きりなので、歩行は測定に寄与しない)。 */
-      m.resume = await measureResume(browser, PORT, errs, {});
-
-      /* ══ §5 (5a) 撤退の歩行 2 本 ═══════════════════════════════════════════
-         ⭐ 1 本目 = 出る種で「出ない」ことを見る (母集団 = fireNone が発火していること)。
-         ⭐ 2 本目 = **出ない種で恒等**を見る (撤退が既存の街道の出来事まで消していないか)。
-         ⛔ クエリなので追加のポートを取らない。 */
-      if (m.seedPick.used !== null) {
-        m.legs.retreatFire = await measureAmbush(browser, PORT, errs,
-          { label: '撤退 ' + RETREAT_QUERY + ' (出る種)', seed: m.seedPick.used, dest: DEST_FIRE,
-            mode: 'none', extraQuery: '&ambush=0' });
-      }
-      if (quietSeed !== null) {
-        m.legs.retreatQuiet = await measureAmbush(browser, PORT, errs,
-          { label: '撤退 ' + RETREAT_QUERY + ' (出ない種)', seed: quietSeed, dest: DEST_QUIET,
-            mode: 'none', extraQuery: '&ambush=0' });
-      }
-
-      /* ══ §2 / (3c) / (5b) 潜行側 ═══════════════════════════════════════════
-         ⭐⭐⭐ 注入する積荷は **world.html が実際に書いた bytes そのもの**
-           (⛔ ドライバが JSON を組み立てない = 街道側と潜行側の食い違いをここで捕まえる)。 */
-      m.realBattle = (function () {
-        const L = legOf(m, 'fireWin');
-        return (L && L.storagePost && L.storagePost.battle) ? L.storagePost.battle : null;
-      })();
-      if (m.realBattle) {
-        /* ① 襲撃の潜行 → hp を削る → 勝利。(2a)(2b)(2c①)(2f 守り切った腕)(2g 襲撃の腕) */
-        m.legs.idxAmbush = await measureIndexAmbush(browser, PORT, errs,
-          { tag: 'amb', battle: m.realBattle, scen: MAIN_SCEN, gen: MAIN_GEN,
-            hpSet: WOUND_RATIOS, result: true });
-        /* ② 馬車を全損させて勝つ。(2f 全損の腕) */
-        m.legs.idxWagonLost = await measureIndexAmbush(browser, PORT, errs,
-          { tag: 'wagonlost', battle: m.realBattle, scen: MAIN_SCEN,
-            killWagon: true, result: true });
-        /* ③ ①が書いた roadWounds をそのまま次の潜行へ。(2c②) */
-        const woundsJson = (m.legs.idxAmbush.after || {}).store
-          ? m.legs.idxAmbush.after.store.wounds : null;
-        if (woundsJson) {
-          m.legs.idxWoundRead = await measureIndexAmbush(browser, PORT, errs,
-            { tag: 'woundread', wounds: woundsJson, scen: 'goblin-mine' });
-        }
-        /* ⑧ 撤退 ?ambush=0。(5b) */
-        m.legs.idxRetreat = await measureIndexAmbush(browser, PORT, errs,
-          { tag: 'retreat', query: RETREAT_QUERY, battle: m.realBattle,
-            wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
-        /* ⑨ (3c) 敗北 → 帰還。⛔ 注入元は index.html の showResult(false) 自身。 */
-        m.defeat = await measureDefeatReturn(browser, PORT, errs, { battle: m.realBattle });
-      }
-      /* ④ 対照 (roadWounds なし)。(2c③) */
-      m.legs.idxPlain = await measureIndexAmbush(browser, PORT, errs,
-        { tag: 'plain', scen: 'goblin-mine' });
-      /* ⑤ 比率 0。(2d) と (2e) の対照 */
-      m.legs.idxWoundZero = await measureIndexAmbush(browser, PORT, errs,
-        { tag: 'woundzero', wounds: JSON.stringify({ n: 4, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
-      /* ⑥ n を偽装。(2e) ⚠ hp の本数は正しいまま = 「先頭から部分適用」だけを捕まえる形 */
-      m.legs.idxWoundBadN = await measureIndexAmbush(browser, PORT, errs,
-        { tag: 'woundbadn', wounds: JSON.stringify({ n: 99, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
-      /* ⑦ 7.9-3 隊商護衛。(2g の対照 = 従来どおり敗北すること) */
-      m.legs.idxEscort = await measureIndexAmbush(browser, PORT, errs,
-        { tag: 'escort', gen: ESCORT_GEN, scen: 'generated-quest' });
+      const m = await collect(browser, PORT, errs, null);
 
       for (const sec of SECTIONS) {
         if (sec.keys.length === 0 && sec.pend.length === 0) continue;
@@ -2488,6 +2827,9 @@ const SECTIONS = [
       console.log('       ' + errs.length + ' 件'
         + (errs.length ? '\n         ' + errs.slice(0, 8).join('\n         ') : ''));
     }
+  } catch (e) {
+    /* ⛔ 例外を黙って捨てない —— 捨てると「0/0 PASSED」で exit 0 = 永久緑になる。 */
+    check('(fatal) ドライバが例外なく完走する', false, e.message + '\n' + (e.stack || ''));
   } finally {
     try { await browser.close(); } catch (e) {}
     for (const s of servers) { try { s.close(); } catch (e) {} }
