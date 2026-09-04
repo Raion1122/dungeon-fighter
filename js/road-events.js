@@ -340,6 +340,113 @@
     return list[Math.floor(rnd() * list.length) % list.length];
   }
 
+  // ══ 街道の襲撃 (#51) ═══════════════════════════════════════════════════════
+  /* ⛔ **EVENTS に入れない。** 入れると pickEvent の引きが動き、verify_road_events が
+       固定種 (SEED_NEAR) で発火させる 1 件が変わって、(3f) が結末を突き合わせる前に
+       ページが index.html へ落ちる (#51 §2-3。変異 intoevents が番人)。
+     ⛔ **rndState を 1 ビットも触らない。** あれは単一の可変状態なので、1 回引くだけで
+       既存 golden の決定論が全部 1 つずれる (#51 §2-4。変異 sharedrng が番人)。
+       ⇒ 下の ambState を持つ **専用ストリーム**から引く。
+     ⭐ 選択肢は 2 つ。**判定なしの枝は必ず「見捨てて通り過ぎる」側**にする ——
+       既存 golden 3 本 (verify_world_steps:774 / verify_world_map:683 / verify_quest_walk:831) が
+       `filter(x => !x.check)[0]` を機械的に押すので、そちらが戦闘だと横断のたびに
+       index.html へ落ちる (#51 §2-5。変異 helpnocheck が番人)。
+     ⭐ 判定が決めるのは「戦うかどうか」ではなく「**どう戦うか**」
+       (成功 = 奇襲 / 失敗 = 正面からの乱戦)。⛔ 失敗で戦闘が消える設計にしない。
+     ⚠ checkKey は js/skill-check.js の CHECKS 12 個から選ぶ (survival / nature は
+       存在せず、書くと resolveSkillCheck が null を返して判定ごと静かに消える)。 */
+
+  /* 1 停留所あたりの発生率。⭐ 遊んで動かすレバー (⛔ 受入条件は具体値を縛らない)。
+     ⛔ **公開しない** —— world.html が確率を 1 つも知らない状態を保つ
+       (#45 の「5% / 20% を world.html へ写さない」= 変異 alwaysfire と同じ規律)。 */
+  var AMBUSH_RATE = 0.06;
+  /* 種をずらす salt。⭐ rnd() と **同じ種から別の列**を作るための唯一の仕掛け。
+     ⚠⚠ 加算で 0x6D2B79F5 を使ってはいけない —— mulberry32 の増分と同じ値なので
+       ambRnd の列が rnd の列を **1 つずらしただけ**になる (相関した 2 本になる)。
+       ⇒ **XOR** で混ぜる。
+     ⭐ この値は「出る種 / 出ない種」の並びを決めるので、tools/verify_road_ambush.js の
+       (0c) が SCAN_SEEDS の先頭 11 種で両方の腕を作れるかに直に効く
+       (2026-09-04 実測 = 種 9 は 1 停留所目で出る / 種 7 は 12 回とも出ない)。 */
+  var AMB_SALT = 0x51ED270B;
+  var ambState = 0, ambSeed0 = 0, ambReady = false;
+  function ambEnsure() {
+    if (ambReady) return;
+    ensureRnd();                 /* ⭐ 種の唯一の正は seedInfo。⛔ rndState は読むだけ */
+    ambSeed0 = (seedInfo.seed ^ AMB_SALT) >>> 0;
+    ambState = ambSeed0;
+    ambReady = true;
+  }
+  /* mulberry32 (rnd と同じ式・**別の状態**)。⛔ ここで rndState を触らない。
+     ⚠⚠⚠ **最後の 1 行を rnd() と同じ字面にしないこと。**
+       tools/verify_road_events.js の変異 `seedignore` は
+       `return ((t ^ (t >>> 14)) >>> 0) / 4294967296;` を**逐語**アンカーにしており、
+       同じ行が 2 本あると起動時検算 (ちょうど 1 件ヒット) に落ちて **exit 3** になる
+       (2026-09-04 に実際に踏んだ)。⇒ ここでは 2 行に割ってある。
+     ⛔ 共通ヘルパへ畳んで rnd() 側の 1 行を消すのも不可 (今度は 0 件ヒットで同じく exit 3)。 */
+  function ambRnd() {
+    ambEnsure();
+    ambState = (ambState + 0x6D2B79F5) >>> 0;
+    var t = ambState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    var u = (t ^ (t >>> 14)) >>> 0;
+    return u / 4294967296;
+  }
+  /* 1 停留所ぶん振る。⭐ 呼び手 (world.html) は確率を 1 つも知らない。 */
+  function ambRoll() { return ambRnd() < AMBUSH_RATE; }
+  /* 襲撃ストリームの初期種 (⛔ 可変状態ではない = 何度呼んでも同じ値)。記録用。 */
+  function ambSeed() { ambEnsure(); return ambSeed0; }
+
+  /* ★ 襲撃の盤面。⛔ **ここだけが座標とテーマの唯一の正**。world.html はこのオブジェクトを
+       丸ごと roadBattle へ載せるだけで、座標も themeId も 1 つも知らない
+       (#45 の「文言を world.html へ写さない」と同じ規律を、数値へ広げたもの)。
+     ⚠ #52 (街道の卓上マップ) が**このオブジェクトを丸ごと差し替える**。
+     ⚠ themeId を屋外テーマ (caravan-road) にできるのは「カスタム幾何を持たない今だけ」——
+       js/df-mapdef.js の resolve() 規則④が屋外テーマ x カスタム幾何を禁じており
+       (地平線レンダラが flags.bandMask ではなく themeId から引かれるため、mapDef で
+        bandMask を切っても空と丘だけがカスタム幾何の上に残る)、卓上マップを載せる #52 では
+       **非屋外テーマへ移す**必要がある。
+     ⚠⚠ 座標は 7.9-3「隊商護衛」(tavern.html:8158-8180) の出荷値をそのまま使う。屋外テーマの
+       歩行帯は row 13-15 の 3 行で、馬車は displaySize 240 = 3x3 タイルを占めるので
+       中心は必ず ty:14 (ty:13 だと ty12 = 帯の外 = 壁を踏む)。
+     ⚠⚠ 敵キーは index.html の ENEMY_TYPES 実在のものだけ
+       (goblin / goblinArcher / hobgoblin / goblinRider)。未知キーは _safeSpawns の検疫で
+       無言消去され、spawns が空になると **goblin-mine へフォールバック**して
+       ゴブリン鉱山の敵が湧く化けバグになる。
+     ⭐ waves は **1 件だけ** (ユーザー決定 = 1 波・短期決戦。⛔ 7.9-3 の 3 波にしない)。
+     ⭐ trapCount / hiddenChestCount が 0 なので金貨の湧き口が無い ⇒ clearGold で払う
+       (#51 §2-9。素通し口は項目 3 が index.html へ 1 本足す)。 */
+  var AMBUSH_FIELD = {
+    themeId: "caravan-road",
+    wagonSpawns: [{ tx: 9, ty: 14 }],
+    spawns: [["goblin", 14, 13], ["goblinArcher", 15, 13], ["goblin", 14, 14]],
+    waves: [{ count: 3, pool: ["goblin", "goblinArcher"] }],
+    trapCount: 0, hiddenChestCount: 0,
+    clearXp: 250, clearGold: 80
+  };
+
+  var AMBUSH = {
+    id: "road_caravan_ambush", checkKey: "perception", dc: "medium",
+    title: "街道の襲撃",
+    intro: "街道の先で悲鳴と車輪の軋みが上がった。荷を積んだ幌車が轍を外れて傾き、"
+      + "その周りを小柄な影がいくつも跳ね回っている。護衛らしき男が槍を杖にして"
+      + "ようやく立っているのが、木立の隙間から見えた。",
+    choices: [
+      {
+        label: "茂みから回り込み、隙を突く", check: true,
+        success: "斜面の茂みを伝って幌車の裏へ回り込む。影たちは荷の紐と格闘していて、"
+          + "背後の草がひとつ揺れたことにも気づかない。こちらが先に踏み込んだ。",
+        fail: "足元の枯枝が乾いた音を立てた。影がいっせいに振り向き、"
+          + "幌車を放り出して駆けてくる。正面からぶつかるしかない。"
+      },
+      {
+        label: "見つからぬよう街道を外れて通り過ぎる", check: false,
+        result: "草いきれの中を身を低くして進み、幌車を大きく迂回する。"
+          + "背中で悲鳴が細くなり、やがて風の音に紛れて聞こえなくなった。"
+      }
+    ]
+  };
+
   // ══ party — 誰が判定するか (依頼書 §2-3 の罠 B) ════════════════════════════
   /* ⚠⚠⚠ **4 人分は sessionStorage / localStorage は主人公 1 人だけ。**
        tavern.html:6948 / :7034 が sessionStorage へ 4 人分を書き、
@@ -526,6 +633,10 @@
     eventsFor: eventsFor, byId: byId,
     /* 種つき乱数 (⭐ 決定論のシーム。⛔ Math.random を発火判定で直接使わない) */
     rnd: rnd, seed: seed, seedFromUrl: seedFromUrl, roll: roll, pickEvent: pickEvent,
+    /* 街道の襲撃 (#51) — ⛔ 公開するのはこの 4 つだけ。
+       ⛔ AMBUSH_RATE と ambRnd は公開しない (world.html に確率も生の乱数も渡さない)。
+       ⛔ AMBUSH を EVENTS へ混ぜない (罠 A)。 */
+    AMBUSH: AMBUSH, AMBUSH_FIELD: AMBUSH_FIELD, ambRoll: ambRoll, ambSeed: ambSeed,
     /* party と結末の文 (⭐ 罠 B と null 結末の唯一の正) */
     buildParty: buildParty, resultText: resultText,
     /* 器 */

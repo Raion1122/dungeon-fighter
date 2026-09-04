@@ -33,6 +33,26 @@
  *   ⛔ 負のコントロール (--negative の 20 本) は **項目 4 の担当**。
  *      名前と担当節だけ下の MUT_TODO に並べてある (ポートは 1 つも開かない)。
  *
+ * ■ 項目 2 (街道側の実装) で足したもの — **§1 (1a)〜(1g) と §4 の (4c)**
+ *     (1a) 4 経路 … 判定なし / 判定つき成功 / 判定つき失敗 / **判定が null** を実際に押す。
+ *                   ⭐ 4 本目 (null) は js/skill-check.js を 1 バイトも触らず、ページの中で
+ *                     resolveSkillCheck を「null を返す関数」へ差し替えて作る
+ *                     (= 未知の checkKey / 代表者が選べない で実際に起きる姿)。
+ *                     ⚠ null は **失敗ではない** = 結末は出るが戦闘へは行かない。
+ *     (1b) 見捨てた … storage が **走行前も走行後も空**。⭐ 走行前を AND で見るのは
+ *                   「元から在った値が残っているだけ」を「書いていない」と読み違えないため。
+ *     (1c) 助けた   … waves 1 件 / roadBattle.at と roadReturn が**器が開いた停留所そのもの**で、
+ *                   細分化グラフ (NODES ∪ STEPS) に実在する。盤面が空でないことも AND。
+ *     (1d) 奇襲     … 同じ種・同じ停留所で d20=20 / d20=1 の surprise が true / false に割れる。
+ *     (1e) 遷移先   … 「先へ進む」を押して index.html / search === ""。
+ *                   ⚠⚠⚠ **押す腕は fireWin ただ 1 本**。遷移すると window.__ambOpen ごと
+ *                     消えるので、他の腕でも押すと ambushOpens が 0 になり (0c)(0e)(1a) が
+ *                     **偽の赤**になる。⇒ captureOpens() を **遷移の前に**必ず通す。
+ *     (1f) 編成なし … 同じ種で partyMembers だけ抜くと襲撃 0 件。母集団 = 対照が発火すること。
+ *     (1g) 器       … compact 390x844 で **導入 + 結末 3 種**の 4 枚。閉じたあとボタン 0 個まで。
+ *     (4c) 恒等     … EVENTS の [id, terrain] の並びと停留所の地形分布が着手前の固定表と一致。
+ *   ⛔ (3c) は index.html 側の書き出しに依存するので **PENDING のまま**残した (項目 3 の担当)。
+ *
  * ■ ⭐⭐⭐ 項目 1 の時点で赤いのが**正しい** assert
  *   本番 (js/road-events.js / world.html) にはまだ AMBUSH も ambRoll も無いので:
  *     (0a) … window.ROAD_EVENTS.AMBUSH が undefined → **正しい赤**
@@ -321,6 +341,26 @@ const RND_SEEDS = Object.keys(BASE_RND).map(Number);
  *  world.html が ambRoll を経由せず ROAD_EVENTS.rnd() を直接叩く形の罠 B を塞ぐ唯一の関門。 */
 const BASE_WORLD_RND = 0;
 
+/* ── (4c) 既存 6 件の基準 ────────────────────────────────────────────────────
+ * ⚠⚠ **固定値**。2026-09-04 の着手前 (HEAD = 4dbdd25 / 襲撃機能を 1 バイトも入れていない木) で
+ *   `grep -n 'id: "\|terrain: "' js/road-events.js` と依頼書 §2-5 から採った実測。
+ *   ⛔ 実行時に自分で採り直さない (採り直した瞬間に「自分と自分を比べる」形になり永久緑)。
+ * ⭐ 2 本立てにしてある理由:
+ *   ① EVENTS の [id, terrain] の並び … AMBUSH を EVENTS へ push する罠 A (変異 intoevents) は
+ *      **7 件目が生える**ので、件数を直書きしなくても並びの不一致で捕まる。
+ *   ② 停留所の地形の分布 … 地形は WORLD_MAP.STEPS[id].on の両端から TERRAIN_RANK 順で
+ *      引かれるので、ランクを並べ替えたり刻み点の粒度が動いたりすると **ここだけが動く**。
+ *      (依頼書 §2-5 = coast 2 / woods 2 / lake 5 / mountain 4 / swamp 4 = 17) */
+const BASE_EVENT_ROWS = [
+  ['coast_dock_quarrel', 'coast'],
+  ['woods_woodcutter', 'woods'],
+  ['lake_ripple', 'lake'],
+  ['mountain_rockfall', 'mountain'],
+  ['swamp_marker', 'swamp'],
+  ['swamp_pilgrim', 'swamp'],
+];
+const BASE_STOP_TERRAIN = { coast: 2, woods: 2, lake: 5, mountain: 4, swamp: 4 };
+
 /* ── (0c) 種の走査 ───────────────────────────────────────────────────────────
  * ⭐ 1 種 = 1 回の page.goto。ambRoll() を SCAN_K 回引いた列で分類する:
  *     出る種   = どこかで true (⭐ 早く出る種ほど歩数が少なくて済むので firstFire 昇順で選ぶ)
@@ -500,7 +540,8 @@ async function clickEventBtn(page, label) {
    ⛔ ROAD_EVENTS.close() を evaluate から呼ばない (押し口が壊れていても永久に緑になる)。
    ⛔ 「先へ進む」は押さない —— 押すと (判定つきの枝では) index.html へ遷移してしまい、
       §0 の観測 (結末の文 / storage) が採れなくなる。遷移は (1e) の担当 = 項目 2。 */
-async function resolveOpenBox(page, mode, armWait, evDef) {
+async function resolveOpenBox(page, mode, armWait, evDef, opts) {
+  opts = opts || {};
   const st0 = await eventState(page);
   if (!st0 || !st0.open) return null;
   const rec = { mode: mode, event: st0.current, title: st0.title, intro: st0.text,
@@ -519,7 +560,10 @@ async function resolveOpenBox(page, mode, armWait, evDef) {
   rec.label = label;
   if (!label) { rec.why = '選択肢が引けない (id=' + st0.current + ')'; return rec; }
   await clickEventBtn(page, label);
-  if (mode === 'check') {
+  /* ⭐ opts.skipPanel = 「判定つきの枝を押すが、判定パネルは出ない」腕 ((1a) の null 経路)。
+     ⛔ ここで待つと 9 秒を無駄にしたうえで why に「パネルが出ない」が残り、
+       null が**欠陥ではなく設計**であることが記録から読めなくなる。 */
+  if (mode === 'check' && !opts.skipPanel) {
     try {
       await page.waitForFunction(
         "!!document.getElementById('skillCheckOverlay') && document.getElementById('skillCheckOverlay').classList.contains('show')",
@@ -618,6 +662,20 @@ async function measureBoot(browser, port, errs) {
       dcTiers: (SC && SC.DC_TIERS) ? Object.keys(SC.DC_TIERS) : null,
       /* ⭐ 記録のみ (⛔ 判定しない) — AMBUSH が EVENTS に混ざっていないか。判定は (4c) の担当。 */
       eventIds: (RE && RE.EVENTS) ? RE.EVENTS.map(e => e.id) : null,
+      /* ⭐ (4c) の材料 — id と terrain の対。⛔ 件数を直書きせず**実体から並べる**。 */
+      eventRows: (RE && RE.EVENTS) ? RE.EVENTS.map(e => [e.id, e.terrain || null]) : null,
+      /* ⭐ (4c) の材料 — 停留所の地形の分布。⛔ 17 も 5 も直書きせず実体から数える
+         (地形は WORLD_MAP.STEPS[id].on の両端から引かれるので、TERRAIN_RANK を
+          並べ替えると件数が動く = ここが番人になる)。 */
+      stopTerrain: (RE && typeof RE.stops === 'function' && typeof RE.terrainOf === 'function')
+        ? (function () {
+          const h = {};
+          RE.stops().forEach(function (s) { const t = RE.terrainOf(s) || '(none)'; h[t] = (h[t] || 0) + 1; });
+          return h;
+        })()
+        : null,
+      /* ⭐ (1c) の材料 — 細分化グラフ (NODES ∪ STEPS) の id。⛔ ドライバへ写経しない。 */
+      walkNodeIds: (WM && typeof WM.walkNodes === 'function') ? Object.keys(WM.walkNodes()) : null,
       pop: WM ? {
         ways: Object.keys(WM.NODES).filter(k => WM.NODES[k].kind === 'way').length,
         sites: Object.keys(WM.NODES).filter(k => WM.NODES[k].kind === 'site').length,
@@ -711,6 +769,35 @@ async function measureScan(browser, port, errs) {
 //   ⭐ 分類 (襲撃 か 街道の出来事 か) は **ページの中で ev.id === RE.AMBUSH.id** を見る。
 //   ⚠ 途中で街道の出来事 (#45 の 6 件) が開いたら判定なしの枝で畳んで歩き続ける。
 // ══════════════════════════════════════════════════════════════════════════════
+/* window.__ambOpen (器が開いた瞬間の記録) を out へ吸い出す。
+   ⚠⚠⚠ **遷移の前に必ず呼ぶこと。** index.html へ移ると window.__ambOpen ごと消えるので、
+     後から採ると ambushOpens が 0 になり (0c)(0e)(1a) が**偽の赤**になる。 */
+async function captureOpens(page, out) {
+  out.opens = (await safeEval(page, () => window.__ambOpen || [])) || [];
+  out.ambushOpens = out.opens.filter(o => o.isAmbush).length;
+  out.roadOpens = out.opens.filter(o => !o.isAmbush).length;
+  out.opensCaptured = true;
+}
+/* 結末の「先へ進む」を押して遷移まで見届ける ((1e) の腕だけが使う)。
+   ⚠⚠ **押す前に armWait を待つ。** showResult も paint() を通るので、結末画面でも
+     armAt がリセットされる (項目 1 が実際に踏んだ)。
+   ⛔ waitForNavigation に頼らず location を polling する —— 遷移の途中で evaluate が
+     "Execution context was destroyed" を投げるが、safeEval が null で受けて次の周へ回る。 */
+async function advanceFromResult(page, armWait) {
+  const out = { pressed: false, nav: null, polls: 0 };
+  await sleep(armWait);
+  out.pressed = await clickEventBtn(page, null);
+  for (let i = 0; i < 60; i++) {
+    await sleep(250);
+    out.polls++;
+    const n = await safeEval(page, () => ({ path: location.pathname, search: location.search,
+      ready: document.readyState }));
+    if (n) out.nav = n;
+    if (n && /\/index\.html$/.test(n.path)) break;
+  }
+  return out;
+}
+
 async function measureAmbush(browser, port, errs, opts) {
   opts = opts || {};
   const seed = opts.seed;
@@ -718,9 +805,10 @@ async function measureAmbush(browser, port, errs, opts) {
   const mode = opts.mode || 'none';
   const query = '?roadseed=' + seed + (opts.extraQuery || '');
   const out = { label: opts.label || '', seed: seed, dest: dest, mode: mode, query: query,
-    taps: [], arrivals: [], opens: [], ambushOpens: 0, roadOpens: 0, amb: null };
+    taps: [], arrivals: [], opens: [], ambushOpens: 0, roadOpens: 0, amb: null,
+    opensCaptured: false, noParty: !!opts.noParty, nullRoll: !!opts.nullRoll };
   const page = await openWorld(browser, port, errs, {
-    tag: 'walk', query: query, force: opts.force,
+    tag: 'walk', query: query, force: opts.force, viewport: opts.viewport,
     comp: opts.noParty ? null : PARTY4, mem: opts.noParty ? null : PARTY_MEMBERS,
   });
   out.storagePre = await readAmbStorage(page);
@@ -750,6 +838,19 @@ async function measureAmbush(browser, port, errs, opts) {
       return ret;
     };
   });
+  /* ⭐ (1a) の 4 本目 = **判定が null を返す腕**。js/skill-check.js は 1 バイトも触らず、
+     ページの中で resolveSkillCheck を「null を返す関数」に差し替える (未知の checkKey /
+     代表者が選べない、で実際に起きる姿の再現)。
+     ⚠ null は **失敗ではない** —— 結末の文は出るが戦闘へは行かないのが正しい
+     (依頼書 §5-4。変異 nullfight が番人)。 */
+  if (opts.nullRoll) {
+    out.nullStub = await safeEval(page, () => {
+      const SC = window.SkillCheck;
+      if (!SC || typeof SC.resolveSkillCheck !== 'function') return false;
+      SC.resolveSkillCheck = function () { return Promise.resolve(null); };
+      return true;
+    });
+  }
   /* AMBUSH の実体 (結末の文の突き合わせ用)。⛔ ドライバへ写経しない。 */
   out.evDef = await safeEval(page, () => {
     const RE = window.ROAD_EVENTS;
@@ -781,10 +882,16 @@ async function measureAmbush(browser, port, errs, opts) {
       if (st && st.open) {
         const isAmb = !!(st.ambushId && st.current === st.ambushId);
         if (isAmb) {
-          out.amb = await resolveOpenBox(page, mode, armWait, out.evDef);
+          out.amb = await resolveOpenBox(page, mode, armWait, out.evDef,
+            { skipPanel: !!opts.skipPanel });
           out.storagePost = await readAmbStorage(page);
           out.endAtOpen = await readPlay(page);
-          break;   /* ⭐ 襲撃を観測したらそこで止める (「先へ進む」は押さない = §0 の範囲) */
+          /* ⚠⚠⚠ **opens はここで採る** (遷移すると window.__ambOpen ごと消える)。 */
+          await captureOpens(page, out);
+          /* ⭐ 「先へ進む」を押すのは (1e) の腕だけ。⛔ 既定では押さない ——
+             押すと index.html へ移り、§0 の観測 (結末の文 / storage) が採れなくなる。 */
+          if (opts.advance) out.advance = await advanceFromResult(page, armWait);
+          break;   /* ⭐ 襲撃を観測したらそこで止める */
         }
         const r = await dismissRoadEvent(page, armWait);
         if (!r || !r.closed) { out.stuck = '街道の出来事を畳めなかった'; break; }
@@ -796,11 +903,130 @@ async function measureAmbush(browser, port, errs, opts) {
   } else {
     out.stuck = '行き先まで経路が無い: ' + JSON.stringify(out.destPick);
   }
-  out.opens = (await safeEval(page, () => window.__ambOpen || [])) || [];
-  out.ambushOpens = out.opens.filter(o => o.isAmbush).length;
-  out.roadOpens = out.opens.filter(o => !o.isAmbush).length;
+  if (!out.opensCaptured) await captureOpens(page, out);
   if (!out.storagePost) out.storagePost = await readAmbStorage(page);
   out.end = await readPlay(page);
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 E) (1g) 器の幾何 — compact (390x844) で襲撃の器と **3 つの結末画面**を測る
+//   ⭐ AMBUSH は EVENTS に入っていないので verify_road_events (1d) は 1 度も測らない。
+//     **ここで測らないと誰も測らない。**
+//   ⭐ 導入 (二択) だけでなく結末 (1 ボタン) も測る —— 器を閉じずに描き直す欠陥
+//     (変異 boxleak) は「前の選択肢が残る」= ボタン数で出る。
+//   ⛔ 文言をドライバへ写経しない (結末の文は AMBUSH の実体から引く)。
+//   ⛔ ここで測るのは **幾何と層だけ**。「いつ出るか」は測らない (それは (0c)(1a) の仕事)。
+// ══════════════════════════════════════════════════════════════════════════════
+async function measureBoxAmbush(browser, port, errs, opts) {
+  opts = opts || {};
+  const vp = opts.viewport || { width: 390, height: 844 };
+  const page = await openWorld(browser, port, errs,
+    { tag: 'box ' + vp.width + 'x' + vp.height, viewport: vp, query: opts.query || '' });
+  const out = await safeEval(page, () => {
+    const RE = window.ROAD_EVENTS;
+    const res = { compact: document.body.classList.contains('compact'),
+      moduleOk: !!(RE && typeof RE.open === 'function' && typeof RE.showResult === 'function'),
+      views: [], afterClose: null };
+    if (!RE || !RE.AMBUSH) return res;
+    const A = RE.AMBUSH;
+    const snap = (tag, opened) => {
+      const box = document.getElementById('worldEventBox');
+      const card = box ? box.querySelector('#worldEventCard') : null;
+      const btns = card ? Array.prototype.slice.call(card.querySelectorAll('.worldEventBtn')) : [];
+      const r = card ? card.getBoundingClientRect() : null;
+      return { tag: tag, opened: !!opened, isOpen: RE.isOpen(),
+        display: box ? getComputedStyle(box).display : null,
+        rect: r ? { x: r.left, y: r.top, w: r.width, h: r.height,
+          right: r.right, bottom: r.bottom } : null,
+        clipY: card ? (card.scrollHeight - card.clientHeight) : null,
+        clipX: card ? (card.scrollWidth - card.clientWidth) : null,
+        nBtns: btns.length,
+        btnRects: btns.map(b => {
+          const q = b.getBoundingClientRect();
+          return { label: b.textContent, x: q.left, y: q.top, right: q.right, bottom: q.bottom };
+        }),
+        vw: window.innerWidth, vh: window.innerHeight };
+    };
+    res.views.push(snap('intro', RE.open(A, function () {})));
+    const cCheck = (A.choices || []).filter(c => c.check)[0] || {};
+    const cPlain = (A.choices || []).filter(c => !c.check)[0] || {};
+    [['success', cCheck.success], ['fail', cCheck.fail], ['result', cPlain.result]]
+      .forEach(row => { res.views.push(snap(row[0], RE.showResult(A, row[1], null, null))); });
+    RE.close();
+    res.afterClose = { isOpen: RE.isOpen(),
+      nBtns: document.querySelectorAll('#worldEventBtns .worldEventBtn').length };
+    return res;
+  });
+  await page.close();
+  return Object.assign({ viewport: vp }, out || {});
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 F) (3a)(3b)(3d) 帰還 — roadReturn を storage へ直に注入して world.html を開き直す
+//   ⭐ 項目 3 (index.html 側) が未実装でも街道側だけで測れる形にしてある
+//     (index が書くはずの値を、ドライバが同じ形で置くだけ)。
+//   ⚠⚠⚠ **evaluateOnNewDocument で注入しない。** reload のたびに再注入されて
+//     (3b) の一回性が **原理的に**測れなくなる (永久緑)。⇒ 1 度開いてから evaluate で置く。
+//   ⭐⭐⭐ 注入する停留所は **WM.has() が false になる刻み点**を実体から選ぶ ——
+//     罠 E の核心は「NODES にしか居ない fail-safe に刻み点が落ちる」ことなので、
+//     way ノードを注入すると **罠 E をすり抜けたまま緑**になる。
+// ══════════════════════════════════════════════════════════════════════════════
+const RESUME_QUEST = 'lizard-swamp';   /* js/world-map.js の SITES に実在する依頼先 */
+const RESUME_SCEN = 'road-ambush';     /* ⭐ SITES に無い = spawnFor は phlan へ倒れる */
+
+async function readResume(page) {
+  return safeEval(page, (K) => {
+    const W = window.__world, WM = window.WORLD_MAP;
+    const g = (k) => { try { return sessionStorage.getItem(k); } catch (e) { return null; } };
+    return {
+      node: W.heroNode(), px: W.heroPx(),
+      spawnVia: W.spawnVia(), questDest: W.questDest(),
+      /* ⛔ #51 は __world に窓を足さない (verify_road_events (4b) が窓の集合を固定している)。
+         ⇒ 帰還の観測は heroNode / heroPx / sessionStorage の実体だけで組む。 */
+      hasNode: WM.has(W.heroNode()),
+      store: { ret: g(K.ret), quest: g(K.quest), scen: g(K.scen), via: g(K.via) },
+    };
+  }, { ret: KEY_RETURN, quest: 'dragonfighters.questDest', scen: KEY_SCEN, via: 'dragonfighters.exitVia' });
+}
+async function reopenWorld(page, port, query) {
+  await page.goto('http://localhost:' + port + PAGE_PATH + (query || ''),
+    { waitUntil: 'load', timeout: 30000 });
+  await page.waitForFunction('!!window.WORLD_MAP && !!window.__world', { timeout: 20000 });
+  await settle(page);
+}
+async function measureResume(browser, port, errs, opts) {
+  opts = opts || {};
+  const query = opts.query || '';
+  const out = { query: query };
+  const page = await openWorld(browser, port, errs,
+    { tag: 'resume', query: query, comp: PARTY4, mem: PARTY_MEMBERS });
+  /* ⭐ 注入する刻み点を **実体から**選ぶ (⛔ ドライバへ id を写経しない)。 */
+  out.pick = await safeEval(page, () => {
+    const WM = window.WORLD_MAP;
+    const g = WM.walkNodes();
+    const step = Object.keys(g).filter(k => !WM.has(k))[0] || null;
+    return { step: step, hasNode: step ? WM.has(step) : null, inWalk: !!(step && g[step]),
+      nWalk: Object.keys(g).length, nNodes: Object.keys(WM.NODES).length };
+  });
+  /* ① 対照 = 何も注入していない素の姿 */
+  out.control = await readResume(page);
+  /* ② index.html が帰りに書くはずの値を置く (⛔ evaluateOnNewDocument は使わない) */
+  out.seeded = await safeEval(page, (o) => {
+    const g = (k) => { try { return sessionStorage.getItem(k); } catch (e) { return null; } };
+    const s = (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} };
+    s(o.kRet, o.at); s(o.kVia, 'dungeon'); s(o.kScen, o.scen); s(o.kQuest, o.quest);
+    return { ret: g(o.kRet), via: g(o.kVia), scen: g(o.kScen), quest: g(o.kQuest) };
+  }, { kRet: KEY_RETURN, kVia: 'dragonfighters.exitVia', kScen: KEY_SCEN,
+    kQuest: 'dragonfighters.questDest',
+    at: (out.pick && out.pick.step) || '', scen: RESUME_SCEN, quest: RESUME_QUEST });
+  /* ③ 開き直す = 帰還 */
+  await reopenWorld(page, port, query);
+  out.back = await readResume(page);
+  /* ④ もう一度開き直す = 一回性 */
+  await reopenWorld(page, port, query);
+  out.again = await readResume(page);
   await page.close();
   return out;
 }
@@ -821,6 +1047,46 @@ function firstDiff(a, b) {
 }
 function nOf(hay, needle) { return String(hay).split(needle).length - 1; }
 const legOf = (m, k) => (m.legs && m.legs[k]) ? m.legs[k] : null;
+/* 襲撃の器が **開いた停留所**。⛔ ドライバが期待する id を持たない (実体の記録から引く)。 */
+function openedAt(L) {
+  if (!L || !Array.isArray(L.opens)) return null;
+  const r = L.opens.filter(o => o.isAmbush)[0];
+  return r ? r.at : null;
+}
+/* sessionStorage の roadBattle を解く。⛔ 壊れていたら null (握り潰して緑にしない)。 */
+function battleOf(L) {
+  const raw = (L && L.storagePost) ? L.storagePost.battle : null;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+/* readAmbStorage が返す 6 キーのうち「値が生えている」ものの名前。 */
+const STORE_KEYS = ['battle', 'ret', 'wounds', 'scen', 'gen', 'boon'];
+function dirtyKeys(store) {
+  const s = store || {};
+  return STORE_KEYS.filter(k => s[k] !== null && s[k] !== undefined);
+}
+/* 器の矩形が画面に収まっているか (verify_road_events (1d) と同じ物差し)。 */
+function boxWhy(v) {
+  const why = [];
+  if (!v.opened || !v.isOpen) why.push('開かない');
+  if (!v.rect || v.rect.w <= 0 || v.rect.h <= 0) why.push('矩形が無い');
+  else {
+    if (v.rect.x < -0.5 || v.rect.right > v.vw + 0.5)
+      why.push('fitsX 違反 x=' + v.rect.x.toFixed(1) + ' right=' + v.rect.right.toFixed(1) + ' vw=' + v.vw);
+    if (v.rect.y < -0.5 || v.rect.bottom > v.vh + 0.5)
+      why.push('fitsY 違反 y=' + v.rect.y.toFixed(1) + ' bottom=' + v.rect.bottom.toFixed(1) + ' vh=' + v.vh);
+  }
+  if (v.clipY > 1 || v.clipX > 1)
+    why.push('中身が器からはみ出して隠れている clipX=' + v.clipX + ' clipY=' + v.clipY);
+  const wantBtns = (v.tag === 'intro') ? 2 : 1;
+  if (v.nBtns !== wantBtns)
+    why.push('ボタンが ' + v.nBtns + ' 個 (期待 ' + wantBtns + ' = ⭐ 器を閉じずに描き直していないか)');
+  for (const q of (v.btnRects || [])) {
+    if (q.x < -0.5 || q.right > v.vw + 0.5 || q.y < -0.5 || q.bottom > v.vh + 0.5)
+      why.push('ボタンが画面外: ' + JSON.stringify(String(q.label).slice(0, 10)));
+  }
+  return why;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 受入条件 — [id, 見出し, m => [ok, detail]]
@@ -1012,6 +1278,331 @@ const ASSERTS = [
         + (ok ? '' : '  ⛔ 3 経路の全部で襲撃が発火し、正しい結末の文が出るまでは'
           + ' (1a)(1d)(2c) は空振りする')];
     }],
+
+  // ── §1 街道側 ────────────────────────────────────────────────────────────
+  ['1a', '4 経路を**実際に押して**観測する — 判定なし / 判定つき成功 / 判定つき失敗 /'
+    + ' **判定が null**。押す札は AMBUSH の実体から引き (⛔ 「1 番目」で決め打ちしない)、'
+    + '結末の文・判定パネルの有無・**戦闘へ行ったかどうか**の 3 つを同時に見る。'
+    + '  ⚠⚠ null は **失敗ではない** = 結末は出るが戦闘へは行かない (依頼書 §5-4 / 変異 nullfight)',
+    (m) => {
+      const want = [
+        ['fireNone', 'none', 'result', false, '判定なし (見捨てる)'],
+        ['fireWin', 'check', 'success', true, '判定つき成功'],
+        ['fireLose', 'check', 'fail', true, '判定つき失敗'],
+        ['fireNull', 'check', 'result', false, '判定つき + 判定が null'],
+      ];
+      const rows = want.map(w => {
+        const L = legOf(m, w[0]);
+        const a = L ? L.amb : null;
+        const def = L ? L.evDef : null;
+        const wantLabel = def
+          ? (((def.choices || []).filter(c => !!c.check === (w[1] === 'check'))[0]) || {}).label
+          : null;
+        /* 判定パネルは「判定つき かつ 判定が生きている」腕だけに出る。 */
+        const wantPanel = (w[1] === 'check' && w[0] !== 'fireNull');
+        const panelOk = wantPanel ? !!(a && a.panel && a.panel.rows >= 1) : !(a && a.panel);
+        const fought = !!(L && L.storagePost && L.storagePost.battle);
+        return { tag: w[4], leg: w[0], ran: !!L, fired: !!(L && L.ambushOpens >= 1),
+          label: a ? a.label : null, wantLabel: wantLabel,
+          labelOk: !!(a && wantLabel && a.label === wantLabel),
+          matched: a ? a.matched : null, wantMatch: w[2],
+          panelRows: (a && a.panel) ? a.panel.rows : null, panelOk: panelOk,
+          fought: fought, wantFight: w[3],
+          ok: !!(L && L.ambushOpens >= 1 && a && a.matched === w[2]
+            && wantLabel && a.label === wantLabel && panelOk && fought === w[3]) };
+      });
+      if (!rows.some(r => r.ran)) return popFail('(1a) 4 経路の歩行', '1 本も走っていない');
+      if (!rows.some(r => r.fired)) {
+        return popFail('(1a) 襲撃の発火',
+          '4 経路とも器が 1 度も開かない / 走った腕 = ' + rows.filter(r => r.ran).map(r => r.tag).join(' , '));
+      }
+      const ok = rows.every(r => r.ok);
+      return [ok, rows.map(r => '[' + r.tag + '] '
+        + (r.ran ? (r.fired ? '発火○' : '発火✕') : '未実行')
+        + ' 押した札=' + JSON.stringify(String(r.label || '').slice(0, 12))
+        + (r.labelOk ? '(実体一致)' : '(⛔実体と不一致 期待 ' + JSON.stringify(String(r.wantLabel || '').slice(0, 12)) + ')')
+        + ' 結末=' + JSON.stringify(r.matched) + '(期待 ' + r.wantMatch + ')'
+        + ' パネル=' + (r.panelRows === null ? 'なし' : r.panelRows + ' 行') + (r.panelOk ? '' : '⛔')
+        + ' 戦闘へ=' + r.fought + '(期待 ' + r.wantFight + ')').join('  |  ')
+        + (ok ? '' : '  ⛔ 4 経路のどれかが期待どおりに動いていない')];
+    }],
+
+  ['1b', '見捨てたときは storage に **1 バイトも書かない** — roadBattle も roadReturn も'
+    + ' roadWounds も生えない。⭐ 走行前も空だったこと (storagePre) を AND で見る'
+    + ' (⛔ 「元から在った値が残っているだけ」を「書いていない」と読み違えないため。変異 dismisswrite)',
+    (m) => {
+      const L = legOf(m, 'fireNone');
+      if (!L) return popFail('(1b) 見捨てる腕', '走っていない');
+      if (L.ambushOpens < 1) return popFail('(1b) 襲撃の発火', '見捨てる腕で器が 1 度も開いていない');
+      const preDirty = dirtyKeys(L.storagePre);
+      const postDirty = dirtyKeys(L.storagePost);
+      const ok = preDirty.length === 0 && postDirty.length === 0;
+      return [ok,
+        '腕 = 種 ' + L.seed + ' → ' + L.dest + ' / 襲撃 ' + L.ambushOpens + ' 件 / 押した札 = 判定なし'
+        + ' / 走行前に生えていたキー = ' + JSON.stringify(preDirty)
+        + ' / 走行後に生えていたキー = ' + JSON.stringify(postDirty)
+        + ' (見た 6 キー: ' + STORE_KEYS.join(' , ') + ')'
+        + (ok ? '' : '  ⛔ 見捨てた枝で storage が動いた')];
+    }],
+
+  ['1c', '助けたときだけ書かれる — roadBattle の waves が **1 件**、roadBattle.at と roadReturn が'
+    + '**器が開いた停留所そのもの**で、かつ細分化グラフ (NODES ∪ STEPS) に実在する。'
+    + '⭐ 盤面 (spawns / wagonSpawns / themeId) が空でないことも AND で見る'
+    + ' (⛔ 中身は測らない —— spawns が空だと goblin-mine へフォールバックして化ける)。'
+    + '⭐ currentScenario / generatedScenario が world 側で 1 バイトも動いていないこと (罠 F の街道側)',
+    (m) => {
+      const walk = (m.boot && Array.isArray(m.boot.walkNodeIds)) ? m.boot.walkNodeIds : null;
+      if (!walk) return popFail('(1c) 停留所の母集団', 'WORLD_MAP.walkNodes() を読めていない');
+      const rows = ['fireWin', 'fireLose'].map(k => {
+        const L = legOf(m, k);
+        const b = battleOf(L);
+        const at = openedAt(L);
+        const ret = (L && L.storagePost) ? L.storagePost.ret : null;
+        const wavesOk = !!(b && Array.isArray(b.waves) && b.waves.length === 1);
+        const atOk = !!(b && at && b.at === at);
+        const retOk = !!(at && ret === at);
+        const inGraph = !!(at && walk.indexOf(at) >= 0);
+        const fieldOk = !!(b && Array.isArray(b.spawns) && b.spawns.length >= 1
+          && Array.isArray(b.wagonSpawns) && b.wagonSpawns.length >= 1
+          && typeof b.themeId === 'string' && b.themeId.length > 0);
+        const cleanOk = !!(L && L.storagePost && L.storagePost.scen === null && L.storagePost.gen === null);
+        return { leg: k, ran: !!L, fired: !!(L && L.ambushOpens >= 1), at: at, ret: ret,
+          nWaves: b && Array.isArray(b.waves) ? b.waves.length : null,
+          keys: b ? Object.keys(b) : null,
+          wavesOk, atOk, retOk, inGraph, fieldOk, cleanOk,
+          ok: wavesOk && atOk && retOk && inGraph && fieldOk && cleanOk };
+      });
+      if (!rows.some(r => r.fired)) return popFail('(1c) 助ける腕', '判定つきの腕で器が 1 度も開いていない');
+      const ok = rows.every(r => r.ok);
+      return [ok, rows.map(r => '[' + r.leg + '] 発火=' + r.fired
+        + ' 開いた停留所=' + JSON.stringify(r.at) + '(グラフ内=' + r.inGraph + ')'
+        + ' roadBattle.at 一致=' + r.atOk + ' roadReturn=' + JSON.stringify(r.ret) + '(一致=' + r.retOk + ')'
+        + ' waves=' + r.nWaves + ' 件' + (r.wavesOk ? '' : '⛔')
+        + ' 盤面(spawns/wagonSpawns/themeId)=' + r.fieldOk
+        + ' 本命が無傷=' + r.cleanOk
+        + ' キー=' + JSON.stringify(r.keys)).join('  |  ')
+        + '  [記録] 停留所の母集団 ' + walk.length + ' 箇所'];
+    }],
+
+  ['1d', '奇襲は成否で変わる — 同じ種・同じ停留所で d20=20 と d20=1 を撃つと'
+    + ' roadBattle.surprise が **true / false** に割れる (⛔ 片方だけ見ない。変異 nosurprise)',
+    (m) => {
+      const w = legOf(m, 'fireWin'), l = legOf(m, 'fireLose');
+      const bw = battleOf(w), bl = battleOf(l);
+      if (!bw || !bl) {
+        return popFail('(1d) 2 本の roadBattle',
+          '成功 ' + (bw ? '有' : '無') + ' / 失敗 ' + (bl ? '有' : '無')
+          + ' — 両方が書かれないと「割れる」を測れない');
+      }
+      const sameSeed = !!(w && l && w.seed === l.seed);
+      const sameAt = bw.at === bl.at;
+      const ok = bw.surprise === true && bl.surprise === false && sameSeed && sameAt;
+      return [ok,
+        '成功 (d20=20 / Math.random=' + D20_WIN + ') surprise=' + JSON.stringify(bw.surprise)
+        + ' / 失敗 (d20=1 / Math.random=' + D20_LOSE + ') surprise=' + JSON.stringify(bl.surprise)
+        + ' / 同じ種=' + sameSeed + ' (種 ' + (w ? w.seed : '—') + ')'
+        + ' 同じ停留所=' + sameAt + ' (' + JSON.stringify(bw.at) + ')'
+        + (ok ? '' : '  ⛔ 成否で surprise が割れていない')];
+    }],
+
+  ['1e', '遷移先 — 結末の「先へ進む」を押すと **location.search === "" の index.html** へ移る'
+    + ' (⛔ クエリを 1 文字も足していない = world → index の唯一の入場口と同じ形)',
+    (m) => {
+      const L = legOf(m, 'fireWin');
+      const adv = L ? L.advance : null;
+      if (!adv) return popFail('(1e) 「先へ進む」の押下', '遷移する腕を走らせていない');
+      if (!adv.pressed) return popFail('(1e) 「先へ進む」の押下', 'ボタンを押せなかった');
+      if (!battleOf(L)) return popFail('(1e) 戦闘の積荷', 'roadBattle が書かれていないので遷移する理由が無い');
+      const nav = adv.nav || {};
+      const pathOk = /\/index\.html$/.test(String(nav.path || ''));
+      const qOk = nav.search === '';
+      const ok = pathOk && qOk;
+      return [ok,
+        '押した=' + adv.pressed + ' / ' + adv.polls + ' 回の観測で location = '
+        + JSON.stringify(nav.path) + JSON.stringify(nav.search)
+        + ' (readyState=' + JSON.stringify(nav.ready) + ')'
+        + (ok ? '' : '  ⛔ ' + (!pathOk ? 'index.html へ移っていない ' : '')
+          + (!qOk ? 'クエリが付いている (⛔ 依頼書 §5-4 / world.html:1083 の規律違反)' : ''))];
+    }],
+
+  ['1f', '編成が無ければ出ない — partyMembers を空にして同じ種で歩くと襲撃が **0 件**'
+    + ' (⭐ 母集団 = 同じ種に編成を積めば発火すること。⛔ 「出なかった」だけでは'
+    + '歩けていないのと区別がつかない。変異 nopartyguard)',
+    (m) => {
+      const base = legOf(m, 'fireNone'), off = legOf(m, 'noParty');
+      if (!base || base.ambushOpens < 1) {
+        return popFail('(1f) 対照の腕', '編成ありの同じ種で襲撃が発火していない');
+      }
+      if (!off) return popFail('(1f) 編成なしの腕', '走っていない');
+      const walked = (off.arrivals || []).length;
+      if (walked < 2) {
+        return popFail('(1f) 編成なしの歩行',
+          '到着 ' + walked + ' 件 (期待 >= 2) — 停留所を踏んでいないので「出ない」を測れていない');
+      }
+      const dirty = dirtyKeys(off.storagePost);
+      const ok = off.ambushOpens === 0 && dirty.length === 0;
+      return [ok,
+        '編成あり (種 ' + base.seed + ') 襲撃 ' + base.ambushOpens + ' 件 / 到着 ' + (base.arrivals || []).length + ' 件'
+        + '  ⇄  編成なし (種 ' + off.seed + ') 襲撃 ' + off.ambushOpens + ' 件 / 到着 ' + walked + ' 件'
+        + ' / 出来事 ' + off.roadOpens + ' 件 (⭐ 街道の出来事は従来どおり出てよい)'
+        + ' / 生えたキー = ' + JSON.stringify(dirty)
+        + (ok ? '' : '  ⛔ 編成が無いのに襲撃が出た or storage が動いた')];
+    }],
+
+  ['1g', '器が compact (390x844) に収まる — **導入 (二択) と 3 つの結末画面**をすべて測る。'
+    + '⭐ AMBUSH は EVENTS に入っていないので verify_road_events (1d) は 1 度も測らない'
+    + ' = **ここで測らないと誰も測らない**。⛔ 中身を隠して「収まった」ことにしていないか'
+    + ' (scrollHeight vs clientHeight) とボタンの矩形も同じ視野に入れ、'
+    + '閉じたあとにボタンが 1 つも残らないことまで見る (変異 boxleak)',
+    (m) => {
+      const x = m.box;
+      if (!x) return popFail('(1g) 器の観測', 'measureBoxAmbush が値を返していない');
+      if (!x.moduleOk) return popFail('(1g) 器の口', 'ROAD_EVENTS.open / showResult が関数でない');
+      const views = x.views || [];
+      if (views.length < 4) {
+        return popFail('(1g) 器の腕',
+          '測れた画面が ' + views.length + ' 枚 (期待 4 = 導入 + 結末 3 種) — AMBUSH の実体が足りない');
+      }
+      if (!x.compact) {
+        return [false, 'compact になっていない (viewport '
+          + x.viewport.width + 'x' + x.viewport.height + ')'];
+      }
+      const bad = [];
+      for (const v of views) {
+        const why = boxWhy(v);
+        if (why.length) bad.push(v.tag + ' → ' + why.join(' / '));
+      }
+      const ac = x.afterClose || {};
+      const closeOk = ac.isOpen === false && ac.nBtns === 0;
+      if (!closeOk) bad.push('閉じたあと isOpen=' + ac.isOpen + ' 残ったボタン ' + ac.nBtns + ' 個');
+      const ok = bad.length === 0;
+      return [ok,
+        'viewport ' + x.viewport.width + 'x' + x.viewport.height + ' compact=' + x.compact
+        + ' / 測った画面 ' + views.length + ' 枚 (' + views.map(v => v.tag + ':' + v.nBtns + 'btn').join(' ') + ')'
+        + ' / 器の高さ = ' + views.map(v => v.rect ? Math.round(v.rect.h) : '—').join(' , ') + 'px'
+        + ' / 閉じたあと isOpen=' + ac.isOpen + ' ボタン ' + ac.nBtns + ' 個'
+        + (ok ? '' : '  ⛔ ' + bad.join(' ; '))];
+    }],
+
+  // ── §3 帰還 (world.html 単独で証明できる 3 本。(3c) は index 側なので項目 3) ──
+  ['3a', '襲撃地点に戻る — roadReturn に **刻み点** (⭐ WM.has() が false = 罠 E がまさに落とす形) を'
+    + '置いて world.html を開くと、__world.heroNode() がその刻み点になる。'
+    + '⭐ 対照 (注入なし) / フォールバック (消費後) の **どちらとも違う**ことまで見る'
+    + ' (⛔ 「たまたま同じ場所だった」を緑にしない。変異 nospawnresume)',
+    (m) => {
+      const r = m.resume;
+      if (!r) return popFail('(3a) 帰還の観測', 'measureResume が値を返していない');
+      const step = r.pick ? r.pick.step : null;
+      if (!step) return popFail('(3a) 刻み点', '細分化グラフに刻み点が 1 つも無い');
+      if (r.pick.hasNode !== false || r.pick.inWalk !== true) {
+        return popFail('(3a) 刻み点の性質',
+          'WM.has=' + r.pick.hasNode + ' walkNodes 内=' + r.pick.inWalk
+          + ' — 罠 E が落とす形 (NODES に居ない / 細分化グラフには居る) になっていない');
+      }
+      const back = r.back || {}, ctrl = r.control || {}, again = r.again || {};
+      const onStep = back.node === step;
+      const diffCtrl = back.node !== ctrl.node;
+      const diffFall = back.node !== again.node;
+      const pxOk = !!(back.px && isFinite(back.px.x) && isFinite(back.px.y));
+      const ok = onStep && diffCtrl && diffFall && pxOk;
+      return [ok,
+        '注入した刻み点 = ' + JSON.stringify(step) + ' (WM.has=' + r.pick.hasNode
+        + ' / 細分化グラフ ' + r.pick.nWalk + ' 箇所 ⊃ NODES ' + r.pick.nNodes + ' 箇所)'
+        + ' / 対照 (注入なし) = ' + JSON.stringify(ctrl.node)
+        + ' / **帰還後** = ' + JSON.stringify(back.node) + ' (WM.has=' + back.hasNode + ')'
+        + ' 座標 = ' + JSON.stringify(back.px)
+        + ' / 消費後 (フォールバック) = ' + JSON.stringify(again.node)
+        + ' / spawnVia = ' + JSON.stringify(back.spawnVia)
+        + (ok ? '' : '  ⛔ '
+          + (!onStep ? '襲撃地点に立っていない (罠 E = 港町へ化けている疑い) ' : '')
+          + (!diffCtrl ? '対照と同じ場所なので注入が効いた証拠にならない ' : '')
+          + (!diffFall ? 'フォールバックと同じ場所 ' : '')
+          + (!pxOk ? '座標が引けていない (NODES から引いている疑い)' : ''))];
+    }],
+
+  ['3b', '一回性 — もう一度 world.html を開くと roadReturn は **空文字**で (⛔ removeItem ではない)、'
+    + '立ち位置は従来の spawnFor へ戻る (変異 resumesticky)',
+    (m) => {
+      const r = m.resume;
+      if (!r) return popFail('(3b) 帰還の観測', 'measureResume が値を返していない');
+      const back = r.back || {}, again = r.again || {};
+      const step = r.pick ? r.pick.step : null;
+      if (back.node !== step) {
+        return popFail('(3b) 帰還そのもの',
+          '1 回目の帰還で刻み点に立てていない (heroNode=' + JSON.stringify(back.node) + ')'
+          + ' — 「消費された」を測る前提が立たない');
+      }
+      const backStore = (back.store || {}).ret;
+      const againStore = (again.store || {}).ret;
+      const emptied = backStore === '';           /* ⭐ null ではなく空文字 = 罠 D の作法 */
+      const stillEmpty = againStore === '';       /* 2 回目も書き戻していない */
+      const notNull = backStore !== null && againStore !== null;
+      const fellBack = again.node !== step;
+      const fallbackOk = again.node === 'phlan';  /* ⭐ spawnFor の fail-safe へ戻っている */
+      const ok = emptied && stillEmpty && notNull && fellBack && fallbackOk;
+      return [ok,
+        '帰還直後の roadReturn = ' + JSON.stringify(backStore)
+        + ' / もう一度開いた後 = ' + JSON.stringify(againStore)
+        + ' (⭐ どちらも null でない = removeItem ではなく空文字で消している)'
+        + ' / 立ち位置 ' + JSON.stringify(back.node) + ' → ' + JSON.stringify(again.node)
+        + ' (exitVia=dungeon / currentScenario=' + JSON.stringify(RESUME_SCEN)
+        + ' は SITES に無いので spawnFor は phlan へ倒れる)'
+        + (ok ? '' : '  ⛔ '
+          + (!emptied ? '空文字で消えていない ' : '')
+          + (!stillEmpty ? '2 回目に書き戻している ' : '')
+          + (!notNull ? 'キーごと消えている (⛔ removeItem を使った疑い = 罠 D) ' : '')
+          + (!fellBack ? '2 回目もまだ襲撃地点に立つ ' : '')
+          + (!fallbackOk ? '従来の spawnFor の結果 (phlan) に戻っていない' : ''))];
+    }],
+
+  ['3d', '依頼の目印が残る — 帰還のために立ち位置を差し替えても questDest を 1 バイトも消さない'
+    + ' (⛔ world.html の removeItem は questDest の 1 本だけ = そこを増やさない)',
+    (m) => {
+      const r = m.resume;
+      if (!r) return popFail('(3d) 帰還の観測', 'measureResume が値を返していない');
+      const seeded = (r.seeded || {}).quest;
+      if (seeded !== RESUME_QUEST) {
+        return popFail('(3d) 目印の仕込み',
+          'questDest を置けていない (' + JSON.stringify(seeded) + ')');
+      }
+      const back = r.back || {}, again = r.again || {};
+      const storeOk = (back.store || {}).quest === RESUME_QUEST;
+      const readOk = back.questDest === RESUME_QUEST;
+      const stillOk = (again.store || {}).quest === RESUME_QUEST;
+      const ok = storeOk && readOk && stillOk;
+      return [ok,
+        '仕込み = ' + JSON.stringify(seeded)
+        + ' / 帰還後 storage = ' + JSON.stringify((back.store || {}).quest)
+        + ' __world.questDest() = ' + JSON.stringify(back.questDest)
+        + ' / もう一度開いた後 = ' + JSON.stringify((again.store || {}).quest)
+        + (ok ? '' : '  ⛔ 帰還の処理が依頼の目印を巻き添えにした')];
+    }],
+
+  // ── §4 恒等 (このうち (4c) だけが項目 2 の担当) ───────────────────────────
+  ['4c', '既存 6 件が同じ — EVENTS の [id, terrain] の並びと、停留所の地形の分布が'
+    + '**着手前の固定表**と一致する。⭐ AMBUSH を EVENTS へ push する罠 A (変異 intoevents) は'
+    + '7 件目が生えるので、件数を直書きしなくても並びの不一致で捕まる',
+    (m) => {
+      const b = m.boot;
+      if (!b) return popFail('(4c) 起動', 'measureBoot が値を返していない');
+      const rows = b.eventRows;
+      if (!Array.isArray(rows)) return popFail('(4c) EVENTS', 'ROAD_EVENTS.EVENTS を読めていない');
+      const got = JSON.stringify(rows), wantRows = JSON.stringify(BASE_EVENT_ROWS);
+      const rowsOk = got === wantRows;
+      const hist = b.stopTerrain;
+      if (!hist) return popFail('(4c) 地形割り', 'ROAD_EVENTS.stops / terrainOf を読めていない');
+      const keys = Object.keys(BASE_STOP_TERRAIN).sort();
+      const gotKeys = Object.keys(hist).sort();
+      const histOk = JSON.stringify(gotKeys) === JSON.stringify(keys)
+        && keys.every(k => hist[k] === BASE_STOP_TERRAIN[k]);
+      const nStops = Object.keys(hist).reduce((s, k) => s + hist[k], 0);
+      const ok = rowsOk && histOk;
+      return [ok,
+        'EVENTS ' + rows.length + ' 件 = ' + (rowsOk ? '着手前と一致' : '⛔ 不一致')
+        + (rowsOk ? '' : '\n           実測 ' + got + '\n           基準 ' + wantRows)
+        + ' / 地形割り ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 = '
+        + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -1025,17 +1616,8 @@ const SECTIONS = [
   { title: '§0 装置 (先に母集団を確かめる) — ⭐ ここが立たないと §1〜§5 は全部空振りで永久緑',
     keys: ['0a', '0b', '0c', '0d', '0e'], pend: [] },
 
-  { title: '§1 街道側 (js/road-events.js + world.html) — ⛔ 項目 2 の担当',
-    keys: [], pend: [
-      ['1a', '3 経路 — 判定なし / 判定つき成功 / 判定つき失敗 の**全部**を実際に押して観測する', '項目 2'],
-      ['1b', '見捨てたときは 1 バイトも書かない — roadBattle も roadReturn も生えない', '項目 2'],
-      ['1c', '助けたときだけ書かれる — roadBattle に waves が **1 件**、roadReturn が刻み点 id', '項目 2'],
-      ['1d', '奇襲は成否で変わる — d20=20 と d20=1 で roadBattle.surprise が **true / false** に割れる', '項目 2'],
-      ['1e', '遷移先 — location.search === "" の index.html (⛔ クエリを足していない)', '項目 2'],
-      ['1f', '編成が無ければ出ない — partyMembers を空にすると襲撃が 0 件', '項目 2'],
-      ['1g', '器が 390x844 に収まる (⭐ EVENTS に入れていないので verify_road_events (1d) は襲撃を測らない'
-        + ' = **ここで測らないと誰も測らない**)', '項目 2'],
-    ] },
+  { title: '§1 街道側 (js/road-events.js + world.html) — ⭐ 項目 2 が実装',
+    keys: ['1a', '1b', '1c', '1d', '1e', '1f', '1g'], pend: [] },
 
   { title: '§2 潜行側 (index.html) — ⛔ 項目 3 の担当',
     keys: [], pend: [
@@ -1049,19 +1631,16 @@ const SECTIONS = [
       ['2g', '馬車全損で gameOver が立たない (⛔ 7.9-3 側は従来どおり立つ = **両方**測る)', '項目 3'],
     ] },
 
-  { title: '§3 帰還 — ⛔ 項目 3 の担当',
-    keys: [], pend: [
-      ['3a', '襲撃地点に戻る — 勝って帰ると __world.heroNode() が**襲撃した刻み点**', '項目 3'],
-      ['3b', '一回性 — もう一度 world.html を開くと roadReturn は空で、従来の spawnFor に戻る', '項目 3'],
+  { title: '§3 帰還 — ⭐ (3a)(3b)(3d) は world.html 単独で証明できるので項目 2 が実装'
+      + ' / ⛔ (3c) は index.html の書き出しに依存するので項目 3',
+    keys: ['3a', '3b', '3d'], pend: [
       ['3c', '負けたら港町 — 敗北で帰ると phlan、かつ roadWounds が**書かれていない**', '項目 3'],
-      ['3d', '依頼の目印が残る — 帰還後も questDest が生きている', '項目 3'],
     ] },
 
-  { title: '§4 恒等 (非退行) — ⛔ 項目 3 の担当',
-    keys: [], pend: [
+  { title: '§4 恒等 (非退行) — ⭐ (4c) だけ項目 2 が実装 (world.html / road-events.js を触るのは項目 2)',
+    keys: ['4c'], pend: [
       ['4a', '既存の引きが不変 — (0d) を本実装後にもう一度 (⭐ 罠 B の本検査)', '項目 3'],
       ['4b', 'world.html の storage の数 — sessionStorage.removeItem が**依然 1 件**・localStorage 0 件', '項目 3'],
-      ['4c', '既存 6 件が同じ — EVENTS の id 集合・件数・地形割りが着手前と一致', '項目 3'],
     ] },
 
   { title: '§5 撤退 ' + RETREAT_QUERY + ' — ⛔ 項目 3 の担当'
@@ -1137,10 +1716,20 @@ const SECTIONS = [
           if (leg.ambushOpens >= 1) { m.seedPick.used = c.seed; break; }
         }
         if (m.seedPick.used !== null) {
+          /* ⭐ (1e) の腕だけが「先へ進む」を押して index.html まで見届ける
+             (⛔ 他の腕で押すと window.__ambOpen ごと消えて (0c)(0e)(1a) が偽の赤になる)。 */
           m.legs.fireWin = await measureAmbush(browser, PORT, errs,
-            { label: '判定つき成功', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_WIN });
+            { label: '判定つき成功 (+ 先へ進む)', seed: m.seedPick.used, dest: DEST_FIRE,
+              mode: 'check', force: D20_WIN, advance: true });
           m.legs.fireLose = await measureAmbush(browser, PORT, errs,
             { label: '判定つき失敗', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_LOSE });
+          /* ⭐ (1a) の 4 本目 = 判定が null を返す腕。⛔ 失敗扱いにせず、戦闘へも行かない。 */
+          m.legs.fireNull = await measureAmbush(browser, PORT, errs,
+            { label: '判定つき + 判定が null', seed: m.seedPick.used, dest: DEST_FIRE,
+              mode: 'check', nullRoll: true, skipPanel: true });
+          /* ⭐ (1f) = 同じ種で編成だけ抜く。⛔ 対照 (fireNone) が発火していることが母集団。 */
+          m.legs.noParty = await measureAmbush(browser, PORT, errs,
+            { label: '編成なし', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'none', noParty: true });
         }
       } else {
         m.legs.fireNone = await measureAmbush(browser, PORT, errs,
@@ -1151,6 +1740,12 @@ const SECTIONS = [
         m.legs.quiet = await measureAmbush(browser, PORT, errs,
           { label: '出ない種', seed: quietSeed, dest: DEST_QUIET, mode: 'none' });
       }
+      /* ⭐ (1g) 器の幾何。⛔ 歩かない (器は ROAD_EVENTS.open / showResult で直に開く) ——
+         測るのは **幾何と層だけ**で、「いつ出るか」は (0c)(1a) の担当。 */
+      m.box = await measureBoxAmbush(browser, PORT, errs, { viewport: { width: 390, height: 844 } });
+      /* ⭐ (3a)(3b)(3d) 帰還。index.html が書くはずの roadReturn をドライバが同じ形で置く。
+         ⛔ 歩かない (立ち位置の決定は起動時の 1 度きりなので、歩行は測定に寄与しない)。 */
+      m.resume = await measureResume(browser, PORT, errs, {});
 
       for (const sec of SECTIONS) {
         if (sec.keys.length === 0 && sec.pend.length === 0) continue;
@@ -1173,11 +1768,30 @@ const SECTIONS = [
       console.log('       DC_TIERS = ' + JSON.stringify(b.dcTiers));
       console.log('       EVENTS の id = ' + JSON.stringify(b.eventIds));
       console.log('       停留所の実体 = ' + JSON.stringify(b.pop) + ' / 起点 = ' + b.heroNode);
-      console.log('       __world.roadAmbush = ' + b.roadAmbushSeam + ' (⛔ 依頼書は要求していない)');
+      console.log('       __world.roadAmbush = ' + b.roadAmbushSeam
+        + '  ⛔⛔⛔ **undefined が正しい** —— verify_road_events (4b) が __world の窓を'
+        + ' 「既存 25 + #45 の roadEvent = ちょうど 26 個」で集合固定しているので、'
+        + '#51 は窓を 1 つも足せない (2026-09-04 に足して赤にして戻した)。項目 3 / 項目 4 も同じ。');
       console.log('       種の走査 = ' + JSON.stringify(m.seedPick)
         + ' / supported=' + (m.scan ? m.scan.supported : null)
         + (m.scan && m.scan.why ? ' (' + m.scan.why + ')' : '')
         + ' / 走査 ' + (m.scan ? m.scan.probed : 0) + ' 種');
+      if (m.resume) {
+        const R = m.resume;
+        console.log('       [帰還] 注入した刻み点 = ' + JSON.stringify(R.pick)
+          + '\n         対照 = ' + JSON.stringify((R.control || {}).node)
+          + ' / 帰還後 = ' + JSON.stringify((R.back || {}).node)
+          + ' / 消費後 = ' + JSON.stringify((R.again || {}).node)
+          + '\n         storage 帰還後 = ' + JSON.stringify((R.back || {}).store)
+          + '\n         storage 消費後 = ' + JSON.stringify((R.again || {}).store)
+          + '\n         spawnVia 帰還後 = ' + JSON.stringify((R.back || {}).spawnVia));
+      }
+      if (m.box) {
+        console.log('       [器 ' + m.box.viewport.width + 'x' + m.box.viewport.height + '] compact='
+          + m.box.compact + ' / ' + (m.box.views || []).map(v => v.tag + ' ' + v.nBtns + 'btn '
+            + (v.rect ? Math.round(v.rect.w) + 'x' + Math.round(v.rect.h) : '—')).join(' | ')
+          + ' / 閉じたあと = ' + JSON.stringify(m.box.afterClose));
+      }
       for (const k of Object.keys(m.legs)) {
         const L = m.legs[k];
         console.log('       [歩行 ' + k + '] ' + L.label + '  種=' + L.seed + ' → ' + L.dest
@@ -1188,6 +1802,8 @@ const SECTIONS = [
           + '  終点 = ' + (L.end && !L.end.dead ? L.end.node : '(離脱 ' + (L.end || {}).path + ')'));
         console.log('         storage(後) = ' + JSON.stringify(L.storagePost));
         if (L.amb) console.log('         襲撃の器 = ' + JSON.stringify(L.amb).slice(0, 400));
+        if (L.advance) console.log('         「先へ進む」= ' + JSON.stringify(L.advance));
+        if (L.nullRoll) console.log('         判定 null の仕込み = ' + JSON.stringify(L.nullStub));
       }
       mark('[記録] pageerror / console.error');
       console.log('       ' + errs.length + ' 件'

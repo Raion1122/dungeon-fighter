@@ -728,6 +728,22 @@
        ⭐ dragonfighters.currentScenario は removeItem が全文 grep で 0 件なので peek でよい。 */
     var EXIT_VIA_KEY = "dragonfighters.exitVia";
     var SCENARIO_KEY = "dragonfighters.currentScenario";
+    /* ★ 街道での襲撃から帰ってきたときの立ち位置 (#51 §5-6)。⛔ このキーは **書く**が、
+       消し方は **空文字での上書き**。removeItem を 2 本目として足すと verify_road_events (2c) が
+       配信バイトの件数 (BASE_REMOVE = 1) で即赤になる (#51 §2-6 の罠 D)。 */
+    var ROAD_RETURN_KEY = "dragonfighters.roadReturn";
+    /* ══ 撤退スイッチ ?ambush=0 (#51 §7) ═══════════════════════════════
+       ⭐ ROAD_EVENT_ON / ROAD_BOON_ON / #43 の HERO_MARK_ON と **同じ書き方** =
+         URLSearchParams を 1 回読むだけ。⛔ sessionStorage へ写さない (ページ内完結)。
+       ⚠⚠ **ここで読む理由** = 下の立ち位置の決定がこの旗を要るから。撤退時は
+         roadReturn を **読みも消しもしない** ((5a)「キーを 1 バイトも書かない」)。
+       ⚠ 判定は **2 ページで独立**。index.html 側にも同じ名前の 1 行が要る (項目 3)。
+         world.html は index.html へクエリを足さないので、?ambush=0 は world のレグにしか効かない。
+       ⛔ ?roadevent=0 / ?roadboon=0 / ?walkstep=0 / ?world=0 と相乗りさせない。 */
+    var AMBUSH_ON = true;
+    try {
+      if (new URLSearchParams(location.search).get("ambush") === "0") AMBUSH_ON = false;
+    } catch (e) {}
     /* ⚠ 名前のとおり **読むだけ**。⛔ この関数に removeItem を足さないこと。 */
     function peekSession(key) {
       try { return sessionStorage.getItem(key); } catch (e) { return null; }
@@ -737,9 +753,29 @@
     /* ⚠ 「キー自体が無い」= タイトルから来た。空文字も同じ扱いにする。
        それ以外の未知の値は js/world-map.js 側の fail-safe (phlan) へ落ちる。 */
     var spawnVia = (exitVia === null || exitVia === "") ? "title" : exitVia;
-    var heroNodeId = WM.spawnFor(spawnVia, scenarioId);
-    if (!WM.has(heroNodeId)) heroNodeId = "phlan";
-    var heroPx = { x: NODES[heroNodeId].x, y: NODES[heroNodeId].y };
+    /* ★ 街道での襲撃から帰ってきたら、襲われた停留所に立つ (#51 §5-6 / 罠 E)。
+       ⛔ js/world-map.js の spawnFor は **1 バイトも触らない**
+         (verify_quest_walk (5a) が {nodesFP, edges, sites} の sha1 を 876c5f6336f96811 で固定)。
+         変えるのは **呼び口**だけ (#23 の型 =「行き先はページの静的な属性ではなく状態の関数」)。
+       ⚠⚠ 母集団は NODES ではなく **細分化グラフ** WM.walkNodes() (= NODES ∪ STEPS)。
+         襲撃は刻み点でも起きるので WM.has() では引けない —— だから再開のときは
+         下の fail-safe (WM.has が偽なら phlan) を **通さない**。通すと刻み点から帰った瞬間に
+         港町へ飛ぶ = 罠 E がそのまま復活する。
+       ⛔ ここで removeItem を呼ばない (罠 D)。消費は **空文字での上書き**。 */
+    var ambResume = AMBUSH_ON ? peekSession(ROAD_RETURN_KEY) : null;
+    var heroNodeId;
+    if (ambResume && Object.prototype.hasOwnProperty.call(WM.walkNodes(), ambResume)) {
+      heroNodeId = ambResume;
+    } else {
+      ambResume = null;                          /* ⭐ 「使わなかった」を後段へ伝える */
+      heroNodeId = WM.spawnFor(spawnVia, scenarioId);
+      if (!WM.has(heroNodeId)) heroNodeId = "phlan";
+    }
+    /* ⚠ NODES ではなく walkNodes() から引く (刻み点は NODES に居ない)。
+       walkNodes() ⊇ NODES なので従来の経路の値は 1 px も変わらない。 */
+    var heroPx = (function () { var g = WM.walkNodes()[heroNodeId]; return { x: g.x, y: g.y }; })();
+    /* 一回性 —— 使ったら空にする。⛔ removeItem ではなく空文字 (罠 D)。 */
+    if (ambResume) { try { sessionStorage.setItem(ROAD_RETURN_KEY, ""); } catch (e) {} }
     var facingLeft = false;
 
     /* ══ 描画 ═══════════════════════════════════════════════════════════ */
@@ -1209,6 +1245,112 @@
       try { sessionStorage.setItem(ROAD_BOON_KEY, JSON.stringify(list)); } catch (e) {}
     }
 
+    /* ══ 街道での襲撃 (#51 §5-2 〜 §5-6) ═══════════════════════════════════
+       ⭐ ここが決めるのは「どの停留所で / 何度まで / 今開いてよいか」と
+         「押した枝のあと何を持って潜行へ行くか」だけ。**表・文言・確率・盤面
+         (座標 / themeId / 敵キー / 報酬) の唯一の正は js/road-events.js**。
+         ⛔ 1 文字も 1 つの数値もここへ写さない ((0b) が配信バイトを全文検索する)。
+       ⛔ **乱数は ROAD_EVENTS.ambRoll だけを通す。** 生の乱数をここから引くと、
+         既存 golden の決定論が乗っているイベント側のストリームを進めてしまう
+         (#51 §2-4 の罠 B / 変異 sharedrng)。⭐ 装置は world.html の配信バイトを
+         静的にも数えるので、ここに乱数の呼び口があるだけで赤になる。
+       ⛔ removeItem を 1 件も増やさない (罠 D)。消すのは空文字での上書き。
+       ⭐ 撤退 ?ambush=0 の読み口は上の AMBUSH_ON 1 箇所だけ (立ち位置の決定より前に要る)。 */
+    var ROAD_BATTLE_KEY = "dragonfighters.roadBattle";
+    var PARTY_MEMBERS_KEY = "dragonfighters.partyMembers";
+    var ambVisited = {}, ambFiredCount = 0, ambLast = null;
+
+    /* ⚠ ワールドマップは受注なしでも歩ける。編成が無いまま戦闘へ飛ばすと index.html の
+         buildParty が**フォールバックで別編成を組む** = 黙って壊れる (#51 §5-3 の罠 G)。
+       ⛔ partyComposition で代用しない (職業キーだけでは rich な編成にならない)。
+       ⛔ peek のみ —— ここでも 1 つも消さない。 */
+    function hasRealParty() {
+      var raw = null, a = null;
+      try { raw = sessionStorage.getItem(PARTY_MEMBERS_KEY); } catch (e) { raw = null; }
+      try { a = JSON.parse(raw || "null"); } catch (e) { a = null; }
+      return Array.isArray(a) && a.length >= 1;
+    }
+
+    /* ⛔ maybeRoadEvent より **前**に振り、出たらそちらは振らない
+       (同じ停留所で器が 2 つ開くのを防ぐ)。
+       ⚠ 門の順序は意味を持つ —— isRoadSite を ambVisited より前に置くこと。
+         逆にすると通りすがりの拠点で「訪問済み」の印だけが付く。 */
+    function maybeRoadAmbush(atId) {
+      if (!AMBUSH_ON) return false;                     /* 撤退 ?ambush=0 (§7) */
+      if (walkStepOff) return false;                    /* ⚠ 撤退モードは 1 回で全経路を歩く */
+      if (moving) return false;                         /* 歩行アニメの最中に開かない */
+      if (isRoadSite(atId)) return false;               /* 拠点は入場ダイアログが優先 */
+      if (ambVisited[atId]) return false;               /* この滞在で 2 度目 */
+      ambVisited[atId] = true;
+      if (!hasRealParty()) return false;                /* ⭐ 編成が無いなら出さない (§5-3) */
+      var RE = window.ROAD_EVENTS;
+      if (!RE || !RE.AMBUSH || typeof RE.ambRoll !== "function") return false;
+      if (!RE.ambRoll()) return false;                  /* 発生率の表は js/road-events.js */
+      ambFiredCount++;
+      ambLast = { at: atId, choice: null, success: null, text: null, fight: false };
+      RE.open(RE.AMBUSH, function (choice) { onAmbushChoice(choice, atId); });
+      return true;
+    }
+
+    /* 二択が押されたとき。判定つきなら d20 を振る。
+       ⚠⚠ SkillCheck.resolveSkillCheck は **null を返しうる** (未知の checkKey /
+         代表者が選べない)。null は **失敗ではない** —— 見捨てたのと同じ扱いにして
+         **戦闘へ行かない**。⛔ 黙って何も出さないのは禁止 (結末の文は必ず出す)。
+       ⛔ opts.auto も ?autoplay も使わない (UI を出さず即解決してしまう)。 */
+    function onAmbushChoice(choice, atId) {
+      var RE = window.ROAD_EVENTS, ev = RE.AMBUSH;
+      if (ambLast) ambLast.choice = (choice && choice.label) || null;
+      var SC = window.SkillCheck;
+      if (!choice || !choice.check || !SC || typeof SC.resolveSkillCheck !== "function") {
+        finishRoadAmbush(choice, null, atId);
+        return;
+      }
+      SC.resolveSkillCheck(ev.checkKey, ev.dc, RE.buildParty(),
+                           { title: ev.title, flavor: ev.intro })
+        .then(function (o) { finishRoadAmbush(choice, o, atId); });
+    }
+
+    /* 結末の 1 文 →「先へ進む」→ 潜行。⭐ **新しい UI を 1 つも作らない** ——
+       showResult の第 3 引数 onDone が「先へ進む」で実際に呼ばれる (#51 §2-2 で実読確認)。
+       ⛔ 保存も遷移も **判定つきの枝で結果が出たときだけ**。見捨てた枝と null の枝は
+         結末を読んで閉じるだけ = storage に 1 バイトも書かない ((1b) が縛る)。
+       ⛔ 第 4 引数 (実り) は渡さない —— 街道の実りは #47 の 6 件だけの仕掛け。 */
+    function finishRoadAmbush(choice, outcome, atId) {
+      var RE = window.ROAD_EVENTS, ev = RE.AMBUSH;
+      var text = RE.resultText(ev, choice, outcome);
+      var fight = !!(choice && choice.check && outcome);
+      if (ambLast) {
+        ambLast.success = outcome ? !!outcome.success : null;
+        ambLast.text = text;
+        ambLast.fight = fight;
+      }
+      if (!fight) { RE.showResult(ev, text, null, null); return; }
+      writeAmbushBattle(atId, !!outcome.success);
+      /* ⛔ クエリを足さない —— world → index の唯一の入場口と同じ形 ((1e) が縛る)。 */
+      RE.showResult(ev, text, function () { location.href = "index.html"; }, null);
+    }
+
+    /* 積荷と帰り道を書く (§5-5)。⭐ **盤面を 1 つも知らない** ——
+       js/road-events.js の AMBUSH_FIELD を丸ごと写して at / surprise を足すだけ。
+       ⇒ #52 (街道の卓上マップ) は AMBUSH_FIELD を差し替えるだけで済む
+         (#45 の「文言を world.html へ写さない」を数値へ広げたもの)。
+       ⛔ currentScenario / generatedScenario / questDest / exitVia / lastResult /
+         partyMembers には 1 バイトも触らない (#51 §2-8 の罠 F)。
+       ⛔ localStorage へ書かない (world.html の 0 件を維持)。
+       ⛔ removeItem を呼ばない (罠 D)。roadReturn は index.html が敗北時に消す。 */
+    function writeAmbushBattle(atId, surprise) {
+      var RE = window.ROAD_EVENTS;
+      var F = RE ? RE.AMBUSH_FIELD : null;
+      if (!F) return false;
+      var payload = {}, k;
+      for (k in F) if (Object.prototype.hasOwnProperty.call(F, k)) payload[k] = F[k];
+      payload.at = atId || null;
+      payload.surprise = !!surprise;
+      try { sessionStorage.setItem(ROAD_BATTLE_KEY, JSON.stringify(payload)); } catch (e) {}
+      try { sessionStorage.setItem(ROAD_RETURN_KEY, atId || ""); } catch (e) {}
+      return true;
+    }
+
     /* ══ 到着フック = ランダムイベントの器 (#40 §6-2) ═══════════════════
        ⭐ **器だけ**。⛔ ここでイベントを起こさない (後続チケットの担当。
          (4c) が「刻み点に着いても何も起きない」ことを機械で縛っている)。
@@ -1232,6 +1374,9 @@
          ⛔ onArriveNode 自体は 1 バイトも変えていない。変えたのは **呼ぶ条件**だけ。
          ⛔ 通りすがりでイベントを起こさない ((4c) が縛る)。 */
       if (lastArrival.arrived && WM.has(atId)) { onArriveNode(atId); return; }   /* ⭐ 入場が優先 */
+      /* ★ 街道での襲撃 (#51 §5-2)。⛔ **街道の出来事より前**に振る —— 出たらそちらは
+         振らない (同じ停留所で器が 2 つ開くのを防ぐ)。 */
+      if (maybeRoadAmbush(atId)) return;
       /* ★ 街道の出来事 (#45 §6-1)。⛔ walkPath の中からは呼ばない —— 撤退時は
          中継ノードを通過するので回数が合わなくなる (変異 arrivedup が縛る)。 */
       maybeRoadEvent(atId);
@@ -1353,6 +1498,13 @@
         return { on: ROAD_EVENT_ON, seed: (RE && RE.seed) ? RE.seed() : null,
                  fired: roadFiredCount, last: roadLast, visited: Object.keys(roadVisited) };
       },
+      /* ⛔⛔⛔ **#51 は __world に窓を 1 つも足さない。**
+         tools/verify_road_events.js の (4b) が「__world の窓は既存 25 個 + #45 の roadEvent の
+         **ちょうど 26 個**」を集合で固定しており、`roadAmbush` を 1 本足しただけで
+         `⛔ 足された窓が roadEvent 以外にもある` で赤くなる (2026-09-04 に実際に踏んだ)。
+         ⭐ 襲撃の観測は窓を作らなくても採れる —— ドライバは ROAD_EVENTS.open を包んで
+           `ev.id === RE.AMBUSH.id` で判別し、書かれたものは sessionStorage を直に読む。
+         ⚠ 項目 3 / 項目 4 も **ここへ窓を足さないこと**。 */
       /* ワールド px → クライアント座標。⚠ **同じ rect と同じ zoom** から導く (別式で書き直さない)。
          ドライバが「ノードを実際にクリックする」ために要る。 */
       clientFromWorld: function (x, y) {
