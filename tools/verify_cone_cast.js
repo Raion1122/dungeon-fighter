@@ -97,8 +97,12 @@
  *   ⛔ 他のドライバのポートは 1 つも触らない。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
- *   ⭐ 項目 3 で **14 本すべて impl: true** にする。1 本ずつ別ポートから
- *     「欠陥入りの index.html」を配り、担当の assert が**実際に赤くなる**ことを機械証明する。
+ *   ⭐ 項目 3 で **14 本すべて impl: true** にした (2026-09-04 実走 = 41/41 PASSED / PENDING 0)。
+ *     1 本ずつ別ポートから「欠陥入りの index.html」を配り、担当の assert が
+ *     **実際に赤くなる**ことを機械証明する。
+ *   ⭐⭐⭐ 変異を 1 本ずつ独立に注入している (#34 の「全部同時に注入すると互いを覆い隠す」)。
+ *     ⭐ 各変異の record に (0a) を入れてあるので、**変異ページがちゃんと起動したこと**が
+ *       毎回ログに出る = 「構文を壊して全部赤」という偽の緑を見分けられる。
  *   ⚠⚠⚠ 変異は「仕様の言葉」ではなく「その assert が実際に読む値の供給口」へ当てる
  *     (#47 の taintlabel の教訓)。**注入点がちょうど 1 箇所見つからなければ走らせる前に exit 3**。
  *   ⚠ 「1 行消す」で終わらせず、消して欠陥が実際に発現するかまで筋を追う。
@@ -144,86 +148,235 @@ function mutLines(body, fn) {
   return { body: lines.join(eol), hits: hits };
 }
 
+/* ── 関数本体の中の 1 箇所だけを差し替える (項目 3 の transform 用) ────────────
+ * ⚠⚠ noadvance / alwaysadvance / advadjacent / coldstale の当て先は
+ *   **allyBurningHands と allyConeOfCold の両方**に 1 文字違わぬ形で在る (2026-09-04 実測:
+ *   `await allyAdvanceTowardPoint(ally, ex, ey);` = 19 箇所 / STEP3 の条件式 = 2 箇所 /
+ *   `const best = pickConeDirection(aTX, aTY);` = 2 箇所)。
+ *   ⇒ from/to の逐語置換は起動時検算「出現数がちょうど 1」で必ず exit 3 になる。
+ *   関数の見出しから探して**狙った 1 本だけ**を差し替えること。
+ * 返り = { body, at } / 見出しか当て先が無ければ null (呼び出し側が exit 3 にする)。 */
+function replaceInFn(body, head, from, to) {
+  const h = body.indexOf(head);
+  if (h < 0) return null;
+  const p = body.indexOf(from, h);
+  if (p < 0) return null;
+  return { body: body.slice(0, p) + to + body.slice(p + from.length), at: p };
+}
+/* 素/変異の出現数を数える小道具 (verifyServed 用)。 */
+function nOf(hay, needle) { return hay.split(needle).length - 1; }
+
 // ══════════════════════════════════════════════════════════════════════════════
-// 変異 (依頼書 §8 の変異表 14 行。⭐ 項目 1 では **全部 impl: false = PENDING**)
+// 変異 (依頼書 §8 の変異表 14 行。⭐ 項目 3 で **14 本すべて impl: true** = PENDING 0)
 //   ⛔ MUT_ORDER には常に 14 本並べる = --negative が「実装を忘れた変異」を件数から隠さない。
-//   ⭐ `plan` = 項目 3 への申し送り (どこへ何を当てる予定か)。⚠ **実測で数え直してから**
-//     from/to へ昇格させること。plan のまま impl: true にしてはいけない。
+//   ⭐ 当て先は**すべて実測で数え直してから** from/to / transform へ落とした
+//     (`await allyAdvanceTowardPoint(ally, ex, ey);` は 19 箇所 / STEP3 の条件式と
+//      `const best = pickConeDirection(aTX, aTY);` は 2 箇所 = 逐語置換では一意にならない)。
+//   ⚠⚠⚠ **3 本は依頼書の指定どおりでは赤にできず、変異のほうを作り替えた**
+//     (nobreak / zerofoe = 指定どおりだと完全な no-op / only4dir = 担当節を (2b) へ移した)。
+//     ⛔ assert は 1 文字も緩めていない。経緯は各エントリ直上のコメント (依頼書 §12 へ転記)。
 //
 //   ⭐⭐⭐ 依頼書 §2-2 / §2-4 / §4 の ⚠⚠ が、それぞれ vetoback / reachdrift / nobreak
 //     としてこの表に内蔵されている。起草中にしか見えなかった知見が、実装後も
 //     機械で守られる唯一の形。
 // ══════════════════════════════════════════════════════════════════════════════
 const MUTATIONS = {
-  vetoback: { impl: false, file: 'index.html', targets: ['2a'],
-    plan: 'STEP1 の `const passes = CONE_CAST_ON ? [0, 1] : [0];` を `[0]` 固定へ。'
-      + ' ⚠ only4dir と効果が重なるので **片方だけ注入して (2a) が赤くなるか**を 1 本ずつ確かめる',
+  /* ⭐ 依頼書 §2-2 の罠そのもの。⚠ only4dir と効果が重なるので、**片方だけ**注入して
+   *   (2a) が赤くなるかを 1 本ずつ確かめている (targets はどちらも (2a) の 1 つだけ)。 */
+  vetoback: { impl: true, file: 'index.html', targets: ['2a'], record: ['0a', '2b'],
+    from: 'const passes = CONE_CAST_ON ? [0, 1] : [0];',
+    to: 'const passes = [0]; /* neg:vetoback 味方入りパスを消す */',
     why: '⭐ 依頼書 §2-2 の罠の再現 — 味方入りパスを消す (「起きえない誤射」を防ぐために発射率を捨てる)' },
 
-  only4dir: { impl: false, file: 'index.html', targets: ['2a'],
-    plan: 'STEP1 の `const dirs = CONE_CAST_ON ? CONE_DIRS_8 : CONE_DIRS_4;` を CONE_DIRS_4 固定へ',
+  /* ⚠⚠⚠ 【作り替えた変異 3/3 — 依頼書 §12 へ転記すること】
+   *   依頼書 §8 は only4dir の担当節を (2a) としているが、**(2a) では原理的に捕まらない**
+   *   (項目 3 の実走で確認。⛔ 机上ではなく測った値):
+   *     素 (4 方向・2 段) 184/240 = 76.7% / 撤退 (4 方向・拒否権が絶対) 57/240 = 23.8%
+   *     = **3.23 倍** → (2a) の「3 倍以上」を割らないので緑のまま。
+   *   ⭐ 理由 = この合成盤面では **拒否権の寄与が斜めの寄与を圧倒する**。素の実装
+   *     (8 方向・2 段) は 212/240 = 88.3% = 3.71 倍なので、斜めを消して落ちる幅
+   *     (88.3% → 76.7%) は 3 倍の敷居をまたげない。
+   *     ⚠ 依頼書 §2-5 の**実プレイ値でも同じ**: 拒否権だけ外す 51.9% / 現行 5.6% = 9.3 倍。
+   *       つまり「斜めを消す」は実プレイでも (2a) では捕まらない = 盤面のせいではない。
+   *   ⇒ #38/#43/#45 の作法どおり **assert は 1 文字も緩めず、変異の担当節を移した**。
+   *     斜めを消したときに確実に壊れるのは (2b) —— ドライバの独立実装 hasCleanDir は
+   *     **8 方向**で清潔な方向を探すので、「清潔な方向が斜めにしか無い」標本
+   *     (実測 131 - 57 = 74 件) では 4 方向の清潔パスが必ず空振りし、
+   *     pass 1 で味方入りを掴む (または 1 方向も立たない) = (2b) が赤くなる。
+   *   ⭐ (2a) は record に残してあるので、3.23 倍という**空振りの実測値**が毎回ログに出る。 */
+  only4dir: { impl: true, file: 'index.html', targets: ['2b'], record: ['0a', '1c', '2a'],
+    from: 'const dirs = CONE_CAST_ON ? CONE_DIRS_8 : CONE_DIRS_4;',
+    to: 'const dirs = CONE_DIRS_4; /* neg:only4dir 斜めを消す */',
     why: '斜め 4 方向を消す (依頼書 §2-5 の実測 = これだけでは 20.4% 止まり)' },
 
-  dirtyfirst: { impl: false, file: 'index.html', targets: ['2b'],
-    plan: 'STEP1 の passes を `[1, 0]` へ逆順にする',
+  dirtyfirst: { impl: true, file: 'index.html', targets: ['2b'], record: ['0a'],
+    from: 'const passes = CONE_CAST_ON ? [0, 1] : [0];',
+    to: 'const passes = CONE_CAST_ON ? [1, 0] : [0]; /* neg:dirtyfirst 味方入りを先に採る */',
     why: '常に味方入りを先に採る (「味方入りを許す」を「常に味方入りを選ぶ」と取り違える実装)' },
 
-  nobreak: { impl: false, file: 'index.html', targets: ['1a'],
-    plan: 'STEP1 の `if (pass === 0) { rejected = true; break; }` から break を落として'
-      + ' `rejected = true;` だけにする',
-    why: '⭐ 依頼書 §4 の ⚠⚠ の再現 — 清潔パスの短絡を消すと cnt が最後まで足され、'
-      + ' 従来コード (break した時点の中途半端な cnt) と最良方向の選び方がずれる' },
+  /* ⚠⚠⚠ 【作り替えた変異 1/2 — 依頼書 §12 へ転記すること】
+   *   依頼書 §8 の指定は「清潔パスの `break` を消して cnt を最後まで足す」だが、
+   *   **break を消すだけでは 1 ビットも振る舞いが変わらない**:
+   *     for (const t of tiles) { if (party) { party++; if (pass===0) { rejected = true; break; } } cnt += ...; }
+   *     if (rejected) continue;          ← ★ break を消しても rejected は true のまま
+   *   ⇒ 途中まで足した cnt は **どちらにせよ `continue` で捨てられる**。
+   *     味方入りパス (pass 1) は rejected を立てないので元から全タイル合計。
+   *     つまり「清潔パスと味方入りパスで cnt がずれる」という §4 の ⚠⚠ は**成立しない**。
+   *   ⇒ #38/#43/#45 の作法どおり **assert を緩めず変異のほうを作り替えた**:
+   *     「短絡**も棄却も**落として cnt を最後まで足し、その方向を採る」= §4 が本当に
+   *     危険だと言いたかった形 (中途半端どころか味方入りの方向がそのまま最良になる)。
+   *     これなら撤退アームで旧探索の鏡と食い違うので (1a) が赤くなる。 */
+  nobreak: { impl: true, file: 'index.html', targets: ['1a'], record: ['0a', '1b'],
+    from: 'if (pass === 0) { rejected = true; break; }',
+    to: 'if (pass === 0) { /* neg:nobreak 短絡も棄却も落として cnt を最後まで足す */ }',
+    why: '⭐ 依頼書 §4 の ⚠⚠ の再現 (作り替え版) — 清潔パスの短絡と棄却を落とすと'
+      + ' 味方入りの方向が全タイル合計の cnt のまま採られ、旧探索と最良方向がずれる' },
 
-  zerofoe: { impl: false, file: 'index.html', targets: ['2c'],
-    plan: 'STEP1 の `if (cnt <= 0) continue;` を消す',
+  /* ⚠⚠⚠ 【作り替えた変異 2/2 — 依頼書 §12 へ転記すること】
+   *   依頼書 §8 の指定は「`if (cnt <= 0) continue;` を消す」だが、**消すだけでは無害**。
+   *   直後の採用条件が `if (cnt > bestCount)` で bestCount の初期値が 0 なので、
+   *   cnt === 0 の方向は `0 > 0` が偽 → **どのみち best にならない** (空撃ちが起きない)。
+   *   ⇒ 「敵 0 体の方向を採る」を本当に起こすには **best への昇格まで**書く必要がある。
+   *     ⭐ `best = best || {…}` なので、敵の居る方向が 1 つでもあれば通常の
+   *       `cnt > bestCount` が上書きする = 変異が汚すのは「どの方向にも敵が居ない標本」だけ。 */
+  zerofoe: { impl: true, file: 'index.html', targets: ['2c'], record: ['0a'],
+    from: 'if (cnt <= 0) continue;',
+    to: 'if (cnt <= 0) { best = best || { d, tiles, count: cnt, partyInCone: party }; continue; }'
+      + ' /* neg:zerofoe 敵 0 体の方向も採る */',
     why: '敵 0 体の方向を採る (呪文を空撃ちする)' },
 
-  noadvance: { impl: false, file: 'index.html', targets: ['3a'],
-    plan: 'STEP3 の `await allyAdvanceTowardPoint(ally, ex, ey);` を allyBasicAttack へ戻す。'
-      + ' ⚠ allyBurningHands 側と allyConeOfCold 側で**同じ行が 2 本**になる見込み →'
-      + ' from/to が一意にならないので transform + mutLines で狙った 1 本だけ差し替える',
+  noadvance: { impl: true, file: 'index.html', targets: ['3a'], record: ['0a'],
+    transform: (body) => {
+      const r = replaceInFn(body,
+        'async function allyBurningHands(ally, enemyIdx) {',
+        'await allyAdvanceTowardPoint(ally, ex, ey);',
+        'await allyBasicAttack(ally, enemyIdx); /* neg:noadvance */');
+      if (!r) return null;
+      return { body: r.body, note: 'allyBurningHands の詰め寄り 1 本だけを通常攻撃へ戻した' };
+    },
+    verifyServed: (pure, mut) => {
+      const ADV = 'await allyAdvanceTowardPoint(ally, ex, ey);';
+      const ok = nOf(pure, 'neg:noadvance') === 0 && nOf(mut, 'neg:noadvance') === 1
+        && nOf(mut, ADV) === nOf(pure, ADV) - 1;
+      return [ok, '素 advance×' + nOf(pure, ADV) + ' → 変異 advance×' + nOf(mut, ADV)
+        + '  (⛔ 本数を写経しない。素 N に対し変異は N-1)'];
+    },
     why: '「詰め寄る」を消す (依頼書 §2-5 の残り 35% が回収されない)' },
 
-  alwaysadvance: { impl: false, file: 'index.html', targets: ['3b'],
-    plan: 'STEP3 の `dist <= rangeTiles` を条件から外す',
+  alwaysadvance: { impl: true, file: 'index.html', targets: ['3b'], record: ['0a'],
+    transform: (body) => {
+      const r = replaceInFn(body,
+        'async function allyBurningHands(ally, enemyIdx) {',
+        'dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)',
+        'dist > CONE_REACH_TILES && hasLineOfSight(aCX, aCY, ex, ey) /* neg:alwaysadvance */');
+      if (!r) return null;
+      return { body: r.body, note: 'allyBurningHands の射程判定 dist <= rangeTiles を外した' };
+    },
+    verifyServed: (pure, mut) => {
+      const FULL = 'dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)';
+      const ok = nOf(pure, 'neg:alwaysadvance') === 0 && nOf(mut, 'neg:alwaysadvance') === 1
+        && nOf(mut, FULL) === nOf(pure, FULL) - 1;
+      return [ok, '素 射程判定つき条件×' + nOf(pure, FULL) + ' → 変異×' + nOf(mut, FULL)
+        + ' (コーンオブコールド側は素のまま)'];
+    },
     why: '射程外でも歩き続ける (medium=8 マスの外の敵へ無限に寄る)' },
 
-  advadjacent: { impl: false, file: 'index.html', targets: ['3c'],
-    plan: 'STEP3 の `dist > CONE_REACH_TILES` を条件から外す',
-    why: '隣接しているのに円錐へ入らない盤面でも歩く (その場で足踏みする)' },
+  advadjacent: { impl: true, file: 'index.html', targets: ['3c'], record: ['0a'],
+    transform: (body) => {
+      const r = replaceInFn(body,
+        'async function allyBurningHands(ally, enemyIdx) {',
+        'dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)',
+        'dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey) /* neg:advadjacent */');
+      if (!r) return null;
+      return { body: r.body, note: 'allyBurningHands の近接判定 dist > CONE_REACH_TILES を外した' };
+    },
+    verifyServed: (pure, mut) => {
+      const FULL = 'dist > CONE_REACH_TILES && dist <= rangeTiles && hasLineOfSight(aCX, aCY, ex, ey)';
+      const ok = nOf(pure, 'neg:advadjacent') === 0 && nOf(mut, 'neg:advadjacent') === 1
+        && nOf(mut, FULL) === nOf(pure, FULL) - 1;
+      return [ok, '素 近接判定つき条件×' + nOf(pure, FULL) + ' → 変異×' + nOf(mut, FULL)];
+    },
+    why: '円錐が 1 方向も立たない近距離 (術者と同じマス) でも歩く (その場で足踏みする)' },
 
-  reachdrift: { impl: false, file: 'index.html', targets: ['3a', '3c'],
-    plan: 'coneTilesFrom の `step <= CONE_REACH_TILES` を `step <= 4` の直書きへ'
-      + ' (CONE_REACH_TILES は 3 のまま)',
+  /* ⭐ (3a) の盤面はドライバ側の独立な幾何 coneSet (上限 3) で「円錐の外」を選んでいる。
+   *   coneTilesFrom だけ上限 4 にすると、その盤面が**本番側では円錐の内**になり
+   *   「詠唱した」= ADV も BASIC も呼ばれず (3a) が赤くなる。
+   *   ⚠ (3c) は距離 0 (術者と同じマス) が主役で上限を伸ばしても変わらないので **record (記録のみ)**。
+   *     依頼書 §8 の担当節が「(3a) or (3c)」なのはこのため。 */
+  reachdrift: { impl: true, file: 'index.html', targets: ['3a'], record: ['0a', '3c'],
+    from: 'for (let step = 1; step <= CONE_REACH_TILES; step++) {',
+    to: 'for (let step = 1; step <= 4; step++) { /* neg:reachdrift 上限だけ 4 へ直書き */',
     why: '⭐ 依頼書 §4 の「⚠ coneTilesFrom の上限と STEP3 の距離判定が **この 1 本**を読む」の再現 —'
       + ' 円錐の実効射程と STEP3 の距離判定が食い違う' },
 
-  retreatdead: { impl: false, file: 'index.html', targets: ['6a'],
-    plan: '`const CONE_CAST_ON =` の**次行の式**を `true;` へ (const の行は他所と紛れるので式の行を狙う)',
+  retreatdead: { impl: true, file: 'index.html', targets: ['6a'], record: ['0a', '1a', '1b', '1c', '3d'],
+    from: 'new URLSearchParams(window.location.search).get("conecast") !== "0";',
+    to: 'true; /* neg:retreatdead 撤退スイッチを殺す */',
     why: '撤退スイッチを殺す (?conecast=0 が効かない)' },
 
-  coldstale: { impl: false, file: 'index.html', targets: ['4a', '4b'],
-    plan: 'allyConeOfCold の `const best = pickConeDirection(aTX, aTY);` だけを旧探索ブロックへ戻す'
-      + ' (transform + mutLines で 4 方向 + 拒否権の写しを差し込む)',
+  coldstale: { impl: true, file: 'index.html', targets: ['4a', '4b'], record: ['0a'],
+    transform: (body) => {
+      const CR = body.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+      const HEAD = 'async function allyConeOfCold(ally, enemyIdx) {';
+      /* 旧探索 (4 方向 / 味方の拒否権が絶対 / break で短絡) をコーンオブコールドにだけ戻す。
+         ⛔ 本番のヘルパーを呼ばない = 探索が 2 本に割れた状態を作る。 */
+      const OLD = [
+        'const directions = [ /* neg:coldstale 旧探索へ差し戻す */',
+        '        { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 } ];',
+        '      const coneTilesOld = (d) => {',
+        '        const tiles = [];',
+        '        for (let step = 1; step <= 3; step++) {',
+        '          for (let lat = -step + 1; lat <= step - 1; lat++) {',
+        '            tiles.push({ tx: aTX + d.dx * step + (-d.dy) * lat,',
+        '                         ty: aTY + d.dy * step + (d.dx) * lat });',
+        '          }',
+        '        }',
+        '        return tiles;',
+        '      };',
+        '      let best = null, bestCount = 0;',
+        '      for (const d of directions) {',
+        '        const tiles = coneTilesOld(d);',
+        '        let safe = true, cnt = 0;',
+        '        for (const t of tiles) {',
+        '          if (partyInArea(t.tx, t.ty, 1, 1)) { safe = false; break; }',
+        '          cnt += enemiesInArea(t.tx, t.ty, 1, 1).length;',
+        '        }',
+        '        if (!safe) continue;',
+        '        if (cnt > bestCount) { best = { d: d, tiles: tiles, count: cnt, partyInCone: 0 };'
+          + ' bestCount = cnt; }',
+        '      }',
+      ].join(CR);
+      let r = replaceInFn(body, HEAD, 'const best = pickConeDirection(aTX, aTY);', OLD);
+      if (!r) return null;
+      r = replaceInFn(r.body, HEAD, 'const bestCount = best ? best.count : 0;',
+        '/* neg:coldstale bestCount は上の旧探索で決まる */');
+      if (!r) return null;
+      return { body: r.body, note: 'allyConeOfCold だけ 4 方向 + 拒否権の旧探索へ戻した' };
+    },
+    verifyServed: (pure, mut) => {
+      const CALL = 'const best = pickConeDirection(aTX, aTY);';
+      const DIRS = 'const directions = [';
+      const ok = nOf(pure, 'neg:coldstale') === 0 && nOf(mut, 'neg:coldstale') === 2
+        && nOf(mut, CALL) === nOf(pure, CALL) - 1
+        && nOf(mut, DIRS) === nOf(pure, DIRS) + 1;
+      return [ok, 'ヘルパー呼び出し 素×' + nOf(pure, CALL) + ' → 変異×' + nOf(mut, CALL)
+        + '   `' + DIRS + '` 素×' + nOf(pure, DIRS) + ' → 変異×' + nOf(mut, DIRS)];
+    },
     why: 'コーンオブコールドだけ 1 本化から取り残される (探索が 2 本に戻る)' },
 
-  seamonly: { impl: false, file: 'index.html', targets: ['0a'],
-    plan: '`window.__cone = {` の行を `window.__coneREMOVED = {` へ',
+  seamonly: { impl: true, file: 'index.html', targets: ['0a'],
+    from: 'window.__cone = {',
+    to: 'window.__coneREMOVED = { /* neg:seamonly */',
     why: '⭐ 検証シームを消す (装置そのものが立たない = (0a) の存在理由)' },
 
-  noknown: { impl: false, file: 'driver', targets: ['0c', '0d'],
-    plan: '⭐ **ドライバ側の変異** — 仕込む knownSpells から "burning-hands" を抜く'
-      + ' (seedPayload({ dropKnown: true }) が既に実装済)。'
-      + ' ⚠ 期待側でなく**測定側**を切り替えるので playOpts で渡す'
-      + ' (#48 の「driverSide の変異で --negative が空振りする罠」を踏まないこと)',
-    why: '仕込みが 1 つ欠けると全 assert が空振りすることの機械証明' },
+  /* ⭐ ここから 2 本は**ドライバ側**の変異。⚠ 期待側でなく**測定側**を切り替える (#48 の罠)。
+   *   ⛔ MUTATE を見て本番の判断ロジックが分岐する書き方は 1 行もしていない
+   *      (seedPayload({dropKnown}) / installBoard({flat}) という測定の引数を渡すだけ)。 */
+  noknown: { impl: true, file: 'driver', targets: ['0c', '0d'],
+    why: '仕込み (knownSpells) が 1 つ欠けると equippedSkills に入らず全 assert が空振りすることの機械証明' },
 
-  flatpop: { impl: false, file: 'driver', targets: ['0b'],
-    plan: '⭐ **ドライバ側の変異** — 合成盤面の生成を「敵と味方を同じ 1 マスに固める」へ潰す'
-      + ' (boardOpts { flat: true } が既に実装済)。'
-      + ' ⚠ 全員が同じマスに乗ると円錐 (step >= 1) にそのマスが入らないので敵 0 体 →'
-      + ' legacy も neo も null → 差 0 件で (0b) が赤くなる、という筋を項目 3 で実測すること',
-    why: '差の出ない盤面で測ると (2a)(2b) が自明に緑になる、を機械証明する' },
+  flatpop: { impl: true, file: 'driver', targets: ['0b'],
+    why: '差の出ない盤面 (敵も味方も術者も同じ 1 マス) で測ると (2a)(2b) が自明に緑になる、を機械証明する' },
 };
 const MUT_ORDER = ['vetoback', 'only4dir', 'dirtyfirst', 'nobreak', 'zerofoe',
   'noadvance', 'alwaysadvance', 'advadjacent', 'reachdrift', 'retreatdead',
