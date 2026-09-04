@@ -648,12 +648,81 @@ puppeteer-core 骨格をそのまま流用する。
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**dev-loop 4 項目・停止 0 回。** 締めの実測日 = 2026-09-04。
 
-- コミット:
-- `node tools/verify_roll_target.js` → ?/?
-- `node tools/verify_roll_target.js --negative` → ?/?(変異 16 本)
-- 既存 golden 3 本の非退行:
-- 依頼書からの逸脱と理由:
-- 依頼書の指定が実物でずれた点:
-- 残った宿題:
+### 12-1. コミット
+
+| 項目 | hash | 内容 |
+|---|---|---|
+| 起草 | `e61c871` | 本依頼書 + 台帳への #49 行追加 |
+| 項目1 | `bbcb091` | 装置 `tools/verify_roll_target.js`(§0 (0a)〜(0d) / port 9880) |
+| 項目2 | `066e5fb` | 判定行の本体実装 / 受入 §1〜§6 を緑に(30/30) |
+| 項目3 | `3a2f28a` | 負のコントロール 16 本 / `--negative` を全緑(53/53) |
+| 項目4 | 本節を書いたコミット | golden 3 本の非退行 / §12 の実測記録 / 台帳の更新 |
+
+### 12-2. 受入条件 — `tools/verify_roll_target.js`(新規 1,661 行)
+
+    node tools/verify_roll_target.js             → 30/30 PASSED   FAILED 0   PENDING 0   (exit 0)
+    node tools/verify_roll_target.js --negative  → 53/53 PASSED   FAILED 0   PENDING 0   (exit 0)
+
+- assert **30 本** / 変異 **16 本**。PENDING 0 = (n9a)「PENDING の変異が 0 件(16 本すべて実装済)」が機械確認。
+- 装置が印字した追記の実物:
+  `<span class="verdictLine">出目 <b class="need">8+</b> → <b class="win">成功</b> <span class="marg">+4</span></span>`
+- ポート: base **9880** / 変異 **9881〜9896** / 予備 9897 / 撤退アーム **9898**。
+  他ドライバとの衝突 0 本(他のポート帯には一切触れていない)。
+
+### 12-3. 既存 golden 3 本の非退行(⭐ 1 本ずつ順に実行。headless の並走なし)
+
+| golden | 実装前(`e61c871`)の基準 | 実装後(本コミット直前)の実測 | 判定 |
+|---|---|---|---|
+| `node tools/driver_action_priority.js` | PASSED 92 / FAILED 0 / PENDING 0 | **PASSED 92 / FAILED 0 / PENDING 0** | 一致 |
+| `node tools/driver_cast_circle.js` | 56/56 PASS | **56/56 PASS**(NG 行 0) | 一致 |
+| `node tools/verify_enemy_name_label.js` | 30/30 PASSED / FAILED 0 / PENDING 0 | **30/30 PASSED / FAILED 0 / PENDING 0** | 一致 |
+
+⭐ **判定は数字ではなく「落ちている項目の集合」で見た** — 3 本とも FAILED / NG 行が **0** なので集合は空。
+再実行を要した単発の赤も **0 件**(3 本とも 1 回目で緑)。
+⛔ **golden の期待値は 1 文字も書き換えていない** — `git diff --numstat e61c871 HEAD` に
+`tools/driver_action_priority.js` / `tools/driver_cast_circle.js` / `tools/verify_enemy_name_label.js` は
+**1 本も出てこない**。
+
+### 12-4. 変更範囲の実測(`git diff --numstat e61c871 HEAD`)
+
+      75      3   index.html                    ← 本体(CSS + 撤退スイッチ + 純関数 + 3 関数の差し替え)
+       1      1   tavern.html                   ← changelog 1 行(§10)
+    1661      0   tools/verify_roll_target.js   ← 新規
+
+⭐ **呼び口 204 箇所は無改修** — `grep -c -E "showRollAt(Player|Enemy|Ally)\(" index.html` = **204** のまま。
+DOM 生成点の 3 関数だけを差し替えた(§2-1 の設計どおり)。
+
+### 12-5. 依頼書からの逸脱と理由
+
+**無し。** 表示仕様(§4)・実装方針(§5)・撤退スイッチ(§7)・やらないこと(§11)は依頼書のまま実装した。
+逸脱ではなく **「依頼書の指定が実物とずれていた」** 点が 6 件あり、下記のとおり装置側で吸収している
+(いずれも受入条件を**緩めず**、必要な箇所は**強めて**解いた)。
+
+### 12-6. ⭐ 依頼書の指定が実物でずれた点(次のチケットの資産)
+
+1. **§8 変異表 `onlyplayer`** — 「`edits[]` で 2 箇所」とあったが、実物は **3 箇所とも同一文字列**で
+   一意にならず **exit 3**。→ `transform` 方式へ変更した。
+   ⭐ 教訓 = **変異アンカーの「箇所数」は起草時の目視ではなく、実際に置換して一意になるかで決まる。**
+2. **§8 変異表 `looseanchor`** — 「`mTot` を条件から外す」だけでは **(3b)(3c) は緑のまま**だった。
+   AND を **2 本**外して初めて赤くなる(`FUMBLE!` は `=` も `vs` も持たない / `INITIATIVE` は `vs` を持たない)。
+   ⭐ 教訓 = **§4-5 の AND 4 本のうち「実際にその標本を弾いている条件」は標本ごとに違う。**
+3. **§8 変異表 `skillmangle`** — 「SKILL 検出より前に注釈する」形では、白名簿が `"skill"` を弾くため
+   **原理的に (4c) を赤にできない**。→ **4 点同時変異** + **(4c) を 2 経路照合へ強化**して解いた。
+4. **§8 (5c)** — 「`offsetWidth` 200px 未満」だけでは `sidebyside` を検出できない
+   (素 115〜126px / inline 化しても 160〜168px で、**変異の前後とも閾値の同じ側**に居る)。→ **AND を 1 本追加**。
+   ⭐ 教訓 = **閾値 1 本だけの assert は空振りしうる。必ず変異を当ててから確定する。**
+5. **項目1 の観測メモにあった `INITIATIVE` の実形 `1d20(<b>8</b>)` は誤り** —
+   本番テンプレは `1d20(${n})` で **`<b>` を付けない**。
+6. **⭐⭐⭐ 装置の観測打ち切りを「`.rollPop` 総数 20 枚」にすると (0d) が「測れない」赤になる** —
+   交戦の頭でイニシアチブが人数ぶん一斉に出るため、**観測した 24 枚が全部 init** で窓が閉じ、
+   注釈対象が 1 枚も入らない。→ 打ち切りは **§4-5 の AND を満たす吹き出しの数(8 枚)**にした。
+   ⭐ 教訓 = **母集団の打ち切りは「全体の枚数」でなく「測りたい母集団の枚数」で切る。**
+
+### 12-7. 残った宿題
+
+- **§9 の実機/実感の確認 6 項目**(機械では測れない)。筆頭 = **1. iPhone 縦持ちで 4 行が 1.3 秒で読めるか**。
+  読めなければ**寿命(1300ms)は動かさず文言を削る**(`出目 8+ → 成功` まで落とす)。
+- 撤退 = **`?rolltarget=0`**。実測で `.rollPop` は 50 枚出るが `.verdictLine` は **0 枚** /
+  `hasVerdict` class も **0 個**(母集団ガードを同じページで同時に測っているので自明な緑ではない)。
