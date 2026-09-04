@@ -55,6 +55,11 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv
 const PORT = parseInt(arg('port', '9098'), 10);
 const OUT = arg('out', path.join(os.tmpdir(), 'df_paint_overlay'));
 const ONLY = arg('node', null);
+/* ★[#52] 街道の襲撃 (#51 の roadBattle 積荷) の戦場を撮るモード。
+ *   分岐グラフを持たない **単一部屋 + mapDef 経路**なので __graphRun を通らない。
+ *   ⭐ 積荷は world.html の window.ROAD_EVENTS.AMBUSH_FIELD から**引く** (⛔ 写経しない)。
+ *     node tools/probe_paint_overlay.js --ambush --outline --scale 2 */
+const AMBUSH = argv.includes('--ambush');
 /* ★[#46 §4-1 STEP A] 目視の 3 オプション。⛔ 判定 (whyOf の 3 述語) には一切触らない。 */
 const OUTLINE = argv.includes('--outline');
 const SCALE = Math.max(1, Math.min(8, parseFloat(arg('scale', '1')) || 1));
@@ -255,7 +260,39 @@ function RENDER(O) {
     }
   } catch (e) {}
   const pb = window.__paintBlockProbe();
-  return { png: cv.toDataURL('image/png'), rect: room.rect, gates: gates, chariot: chariot,
+  /* ★[#52] 「絵が本当に採用されたか」を数字でも残す。⭐ 屋外テーマ x カスタム幾何は
+   *   df-mapdef.js resolve() 規則④で排他なので、isCustom=false / fieldMode=true なら
+   *   **絵は 1 枚も出ていない** (画像が黒いのではなく、そもそも貼られていない)。
+   * ⭐ 到達可能マスは **本番の isTileWall** で 4 近傍 BFS する (規則を写経しない)。 */
+  const extra = (() => {
+    try {
+      const key = (x, y) => y * 1000 + x;
+      const st = [[MAPDEF.start.tx, MAPDEF.start.ty]];
+      const seen = new Set([key(st[0][0], st[0][1])]);
+      let open = 0;
+      for (let y = r1; y <= r2; y++) for (let x = c1; x <= c2; x++) if (!isTileWall(x, y)) open++;
+      while (st.length) {
+        const cur = st.pop();
+        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cur[0] + d[0], ny = cur[1] + d[1];
+          if (nx < c1 || nx > c2 || ny < r1 || ny > r2) continue;
+          if (isTileWall(nx, ny) || seen.has(key(nx, ny))) continue;
+          seen.add(key(nx, ny)); st.push([nx, ny]);
+        }
+      }
+      return { theme: (typeof _scenIdForTex !== 'undefined') ? _scenIdForTex : null,
+               scenarioId: (typeof scenarioId !== 'undefined') ? scenarioId : null,
+               isCustom: !!MAPDEF.isCustom,
+               fieldMode: (typeof FIELD_MODE !== 'undefined') ? FIELD_MODE : null,
+               painting: room.painting || null,
+               start: { tx: MAPDEF.start.tx, ty: MAPDEF.start.ty },
+               startWall: isTileWall(MAPDEF.start.tx, MAPDEF.start.ty),
+               open: open, reachable: seen.size,
+               wagons: (typeof wagonIndices !== 'undefined') ? wagonIndices.length : null,
+               wagonProbe: (window.__wagonProbe || []).slice() };
+    } catch (e) { return { err: String(e && e.message).slice(0, 120) }; }
+  })();
+  return { png: cv.toDataURL('image/png'), rect: room.rect, gates: gates, chariot: chariot, extra: extra,
            tally: tally, foes: foes,
            /* ★[#46] 「どこを / どの倍率で / どの描き方で」撮ったかを記録に残す。 */
            view: [vc1, vr1, vc2, vr2], cell: CELL, outline: OUTLINE,
@@ -273,13 +310,37 @@ function RENDER(O) {
   });
   fs.mkdirSync(OUT, { recursive: true });
   try {
+    /* ★[#52] 襲撃の積荷は **world.html の本番から引く**。⛔ 座標も themeId も写経しない
+     *   (写すと「道具と実装が同じ誤りを共有して永久に緑」になる)。 */
+    let ambPayload = null;
+    if (AMBUSH) {
+      const wp = await browser.newPage();
+      await wp.goto('http://localhost:' + PORT + '/world.html', { waitUntil: 'load', timeout: 30000 });
+      await sleep(600);
+      const F = await wp.evaluate(() => {
+        const f = (window.ROAD_EVENTS || {}).AMBUSH_FIELD || null;
+        return f ? JSON.parse(JSON.stringify(f)) : null;
+      });
+      await wp.close();
+      if (!F) { console.error('[probe] ⛔ ROAD_EVENTS.AMBUSH_FIELD が取れない'); process.exit(3); }
+      ambPayload = Object.assign({}, F, { at: 'pier', surprise: false });
+    }
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
-    await page.evaluateOnNewDocument(() => {
-      try { sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine');
-            sessionStorage.removeItem('dragonfighters.generatedScenario'); } catch (e) {}
+    await page.evaluateOnNewDocument((s) => {
+      try {
+        if (s.battle) {
+          sessionStorage.setItem('dragonfighters.roadBattle', s.battle);
+          sessionStorage.setItem('dragonfighters.partyComposition', s.comp);
+          sessionStorage.removeItem('dragonfighters.currentScenario');
+        } else {
+          sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine');
+        }
+        sessionStorage.removeItem('dragonfighters.generatedScenario');
+      } catch (e) {}
       try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
-    });
+    }, { battle: ambPayload ? JSON.stringify(ambPayload) : null,
+         comp: JSON.stringify(['warrior', 'dwarf', 'elf', 'cleric']) });
     await page.goto('http://localhost:' + PORT + '/index.html?diag=1&intel=0',
       { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction("typeof isTileWall === 'function'", { timeout: 25000 });
@@ -321,7 +382,11 @@ function RENDER(O) {
                   (bad.length ? ' ' + JSON.stringify(bad) : ''));
       console.log('        foeTiles=' + r.foes.map(f => f.key + '(' + f.tx + ',' + f.ty + ')').join(' '));
       console.log('        chariot=' + JSON.stringify(r.chariot));
+      /* ★[#52] 絵が採用されたかの数字。⭐ isCustom=false なら**絵は貼られていない**。 */
+      if (r.extra) console.log('        extra=' + JSON.stringify(r.extra));
     };
+    /* ★[#52] 襲撃は分岐グラフを持たない単一部屋なので、ここで 1 枚撮って終わり。 */
+    if (AMBUSH) { await shoot('road_ambush'); await browser.close(); srv.close(); return; }
     if (!ONLY || ONLY === 'n0') await shoot('n0');
     if (!ONLY || ONLY === 'n1') {
       await page.evaluate(() => { window.__ov = window.__graphRun.enter('n1', 'right'); });

@@ -416,10 +416,72 @@
      ⭐ waves は **1 件だけ** (ユーザー決定 = 1 波・短期決戦。⛔ 7.9-3 の 3 波にしない)。
      ⭐ trapCount / hiddenChestCount が 0 なので金貨の湧き口が無い ⇒ clearGold で払う
        (#51 §2-9。素通し口は項目 3 が index.html へ 1 本足す)。 */
+  /* ══ #52 街道の卓上マップ — codex 納品の 1 枚絵 (29x19) を戦場にする ══════════
+     ⭐ 差し替えたのは **このオブジェクトだけ**。world.html は座標も themeId も 1 つも
+       知らないので、盤面の移設は index.html の消費側を 1 バイトも触らずに済んでいる。
+     ⚠⚠⚠ themeId が "caravan-road" から **"bandits-forest" へ移った**のは好みではなく
+       原理的な制約: df-mapdef.js の resolve() 規則④が屋外テーマ x カスタム幾何を排他に
+       しており (地平線レンダラが flags.bandMask ではなく themeId から引かれる)、
+       屋外テーマのままだと mapDef が isCustom=false へ落ちて **1 枚絵が出ない**。
+       ⛔ index.html の FIELD_THEMES から caravan-road を外して回避しない
+       (7.9-3「隊商護衛」が丸ごと壊れる。あちらは屋外テーマのままが正)。
+     ⭐ テーマを移しても**敵の顔ぶれは変わらない**。THEME_DEFAULT_ENEMIES は
+       enemySlots の「おまかせ」を埋めるときだけ使われ、ここは spawns と waves を
+       明示しているので 1 体も差し替わらない (⛔ 盗賊が出ると早合点して waves を書き換えない)。
+     ⭐ themeId が屋外でなくなった副作用として、index.html:10516 の
+       campfireSpot (_scenIdForTex === "caravan-road" のときだけ立つ焚火) が
+       **街道の襲撃では出なくなる**。絵に焚火は描かれていないので、これが正しい
+       (7.9-3 は themeId が caravan-road のままなので従来どおり出る)。
+     ⚠ 座標系: 絵は global rect [4,21,22,49] (19 行 x 29 列) に貼るので
+       **global = 絵ローカル + (col 21, row 4)**。⛔ ローカル座標を直接書かない。
+       絵の中の目印: 街道の通し行 = ローカル row 9 = global ty 13 /
+       石橋 = ローカル col 9-10 = global tx 30-31 / 描かれた幌車 = ローカル col 16-19。
+     ⚠⚠ 馬車 (caravanWagon) は displaySize 240 = **3x3 タイル**を占める。
+       findSafeFootprintTile が 3x3 とも非壁でないと勝手に移設するので、
+       中心は「rows 8-10 が 3 行とも空いている列」= ローカル col 15-20 に限られる
+       (実測。ローカル col 12-13 は南の石積みが row10 を走るので footprint が欠ける)。 */
+  /* ⭐⭐⭐ テーマ名は **ここ 1 箇所**が正。下の 2 つ (積荷の themeId = index.html の
+     _scenIdForTex / mapDef.themeId = df-mapdef.js resolve() の判定) は必ず同じ値にする。
+     ⚠ 片方だけ屋外テーマにすると壊れ方が変わる:
+       ・積荷側だけ屋外 → FIELD_MODE=true のまま卓上マップが載り、**空と丘が絵の上に描かれる**
+       ・mapDef 側だけ屋外 → resolve() が既定幾何へ落とし、**絵が 1 枚も出ない**
+     ⭐ 1 変数にしてあるので、負のコントロール fieldtheme はこの 1 行を差し替えるだけで
+       「屋外テーマへ戻したら何が起きるか」を両側同時に再現できる。 */
+  var AMBUSH_THEME = "bandits-forest";
   var AMBUSH_FIELD = {
-    themeId: "caravan-road",
-    wagonSpawns: [{ tx: 9, ty: 14 }],
-    spawns: [["goblin", 14, 13], ["goblinArcher", 15, 13], ["goblin", 14, 14]],
+    themeId: AMBUSH_THEME,
+    /* 1 部屋 = 絵そのもの。⛔ gates も corridors も持たない (waves の防衛戦で完結し、
+       出口へ歩く必要が無い)。⚠ role:"boss" は validate() が「ちょうど 1 つ」を要求するため
+       (bossSlot は null = ボスは湧かない)。⚠ rect は index.html の tileBounds と同じ値
+       (paintingAspectFits が縦横比の完全一致を要求する)。 */
+    mapDef: {
+      schema: "df-map/1",
+      id: "road-ambush", name: "街道の襲撃",
+      grid: { w: 72, h: 28, tile: 96 },
+      themeId: AMBUSH_THEME,
+      rooms: [
+        { id: "r0", role: "boss", rect: [4, 21, 22, 49],
+          enemySlots: [], bossSlot: null,
+          painting: { theme: "bandits-forest", key: "road_ambush" },
+          scenery: null }
+      ],
+      corridors: [],
+      start: { tx: 26, ty: 13 },
+      objective: { kind: "visitRooms", count: null },
+      tiles: null, props: null, graph: null, doors: null,
+      flags: { bandMask: false }
+    },
+    /* 起点 = 街道の西寄り (絵ローカル 5,9)。⚠ mapDef.start と同じ値にする
+       (index.html は MAPDEF.start を唯一の出所にしており、起点タイルは問答無用で
+        床へ彫られる = マスクで塞いだマスを起点にすると無言で穴が開く)。 */
+    start: { tx: 26, ty: 13 },
+    /* 護衛対象の幌車 = 絵ローカル (15,9)。描かれた幌車 (ローカル 16-19) の**西隣**に置き、
+       2 台目の荷車として読ませる (⛔ 絵の幌車へ重ねると二重に見える)。 */
+    wagonSpawns: [{ tx: 36, ty: 13 }],
+    /* 襲撃者 = 描かれた幌車の東と南 (絵ローカル 18,10 / 20,8 / 19,9)。
+       ⚠ 3 マスとも blocked マスクで '.' であること (敵スポーンは applyPaintingBlocking の
+         門番を通るので塞がれないが、逆に「マスクで塞いだマスに敵を置くと穴が開く」)。 */
+    spawns: [["goblin", 39, 14], ["goblinArcher", 41, 12], ["goblin", 40, 13]],
     waves: [{ count: 3, pool: ["goblin", "goblinArcher"] }],
     trapCount: 0, hiddenChestCount: 0,
     clearXp: 250, clearGold: 80

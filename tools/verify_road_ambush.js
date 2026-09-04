@@ -300,10 +300,76 @@ const MUTATIONS = {
     to: '    function escortWagonLossEndsRun() { return false; /* neg:gameovernever */ }',
     why: '7.9-3 (闇市の隊商護衛) でも gameOver を立てない (既存の敗北条件が消える)' },
 };
+/* ══ #52 街道の卓上マップ (10 本) ══════════════════════════════════════════════
+   ⭐ index.html は **CRLF**、js/road-events.js は **LF**。複数行アンカーは改行を間違えると
+     置換対象 0 件で起動時 exit 3 になる (それが番人)。 */
+const M52_ROW8 = '               "......................######.",   //  8  石積みが row8 へ降りる東側 + 東の森。橋 (9-10) は空ける';
+const M52_ROW9 = '               ".............................",   //  9  ★街道の通し行。ここが 1 マスでも切れると詰む (規則④)';
+const M52_ROW0 = '               ".............................",   //  0  外周 (フェザー帯) — 規則①。塞ぐのは sealRing の仕事';
+const M52_ROW18 = '               ".............................",   // 18  外周 (フェザー帯) — 規則①';
+Object.assign(MUTATIONS, {
+  /* ⭐⭐⭐ 罠 A の本体。テーマ名を 1 変数に寄せてあるので、この 1 行で
+     「積荷側 (FIELD_MODE) と mapDef 側 (resolve 規則④)」の両方が同時に屋外へ倒れる。 */
+  fieldtheme: { file: 'js/road-events.js', targets: ['6c', '6d'],
+    from: '  var AMBUSH_THEME = "bandits-forest";',
+    to: '  var AMBUSH_THEME = "caravan-road";   /* neg:fieldtheme */',
+    why: '⭐ 罠 A の再現: themeId を屋外テーマへ戻す (絵が 1 枚も出ず、空と丘だけが描かれる)' },
+
+  /* ⭐⭐⭐ 罠 A の裏。「屋外テーマを外せば卓上マップが載る」という回避が 7.9-3 を壊すこと。 */
+  fieldset: { file: 'index.html', targets: ['9a'],
+    from: '    const FIELD_THEMES = new Set(["caravan-road"]);',
+    to: '    const FIELD_THEMES = new Set([]);   /* neg:fieldset */',
+    why: '⭐ 罠 A の裏: FIELD_THEMES から caravan-road を外す (7.9-3 隊商護衛が全損する)' },
+
+  aspectskew: { file: 'js/road-events.js', targets: ['6b'],
+    from: '        { id: "r0", role: "boss", rect: [4, 21, 22, 49],',
+    to: '        { id: "r0", role: "boss", rect: [4, 21, 22, 48],   /* neg:aspectskew */',
+    why: 'rooms[0].rect と tileBounds を食い違わせる (絵が縦横比の違う枠へ引き伸ばされる)' },
+
+  bridgefill: { file: 'index.html', targets: ['7a', '7b'], multiline: true,
+    from: M52_ROW8 + '\r\n' + M52_ROW9,
+    to: '               ".........##...........######.",   //  8  neg:bridgefill\r\n'
+      + '               ".........##..................",   //  9  neg:bridgefill',
+    why: '橋の 4 マスを塞ぐ (街道が切れ、東西が最初から分断される)' },
+
+  roadcut: { file: 'index.html', targets: ['7a'],
+    from: M52_ROW9,
+    to: '               "....................#........",   //  9  neg:roadcut',
+    why: '街道の通し行を 1 マスだけ塞ぐ (迂回はできるので「経路が在るか」だけでは捕まらない)' },
+
+  ringmark: { file: 'index.html', targets: ['7d'],
+    from: M52_ROW0,
+    to: '               "#............................",   //  0  neg:ringmark',
+    why: 'マスクの外周に # を書く (sealRing の仕事を二重管理にする)' },
+
+  maskshort: { file: 'index.html', targets: ['7e'],
+    from: M52_ROW18,
+    to: '               "............................",   // 18  neg:maskshort (1 桁足りない)',
+    why: '⭐ blocked の 1 行を 1 桁削る (DFMapDef がマスクを丸ごと捨てる = 母集団が消える)' },
+
+  srcbake: { file: 'js/road-events.js', targets: ['6b'],
+    from: '          painting: { theme: "bandits-forest", key: "road_ambush" },',
+    to: '          painting: { src: "assets/room_caravan-road_ambush.jpg" },   /* neg:srcbake */',
+    why: 'painting に theme+key ではなく src を焼き込む (差し替えに追従できなくなる)' },
+
+  nosealring: { file: 'index.html', targets: ['7c'],
+    from: '             sealRing: true,   /* 街道の外周 1 タイルを通行不能に = 歩ける「壁抜けの帯」を作らない */',
+    to: '             sealRing: false,  /* neg:nosealring */',
+    why: '外周封鎖を外す (絵のフェザー帯を歩けてしまう)' },
+
+  gateadd: { file: 'index.html', targets: ['6b'],
+    from: '             tileBounds: [4, 21, 22, 49], node: true,      // 19 行 x 29 列。⚠ 行が先',
+    to: '             tileBounds: [4, 21, 22, 49], node: true, gates: { left: [0, 9] },   /* neg:gateadd */',
+    why: 'gates を足す (1 部屋で完結する戦場なのに出口の矢印と扉が出る)' },
+});
 const MUT_ORDER = ['sharedrng', 'helpnocheck', 'intoevents', 'boxleak', 'worldremove',
   'nospawnresume', 'resumesticky', 'dismisswrite', 'nullfight', 'nosurprise', 'nopartyguard',
   'copytext', 'overwritescen', 'woundzero', 'woundpartial', 'woundtoolate', 'woundonlose',
-  'goldalways', 'gameoveramb', 'gameovernever'];
+  'goldalways', 'gameoveramb', 'gameovernever',
+  /* ⭐ #52 街道の卓上マップ (10 本)。⛔ 既存 20 本の**並びは動かさない**
+     (ポートは並び順で 9971〜 と固定的に割り当てられるので、間に挿すと番号がずれる)。 */
+  'fieldtheme', 'fieldset', 'aspectskew', 'bridgefill', 'roadcut',
+  'ringmark', 'maskshort', 'srcbake', 'nosealring', 'gateadd'];
 const MUT_TODO = MUT_ORDER.filter(k => !MUTATIONS[k].from);
 /* ⭐ デバッグ用 —— `--mut sharedrng,copytext` で一部だけ回す。⛔ 既定は全 20 本。 */
 const MUT_PICK = arg('mut', null);
@@ -428,6 +494,33 @@ function httpGet(url) {
     }).on('error', rej);
   });
 }
+/* ★[#52 (6a)] 焼き上がりの JPEG を **バイトで**取る。⛔ utf8 で読むと寸法が読めない。 */
+function httpGetBin(url) {
+  return new Promise((res, rej) => {
+    http.get(url, r => {
+      const chunks = [];
+      r.on('data', c => chunks.push(c));
+      r.on('end', () => res({ status: r.statusCode, buf: Buffer.concat(chunks) }));
+    }).on('error', rej);
+  });
+}
+/* JPEG の SOF マーカーから寸法を読む。⭐ 焼き付けツールの数値を写経せず**配信物そのもの**を測る。
+   ⚠ SOF0/1/2/3/5/6/7/9/10/11/13/14/15 だけが寸法を持つ (DHT/DQT/SOS 等は読み飛ばす)。 */
+function jpegSize(buf) {
+  if (!buf || buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xFF) { i++; continue; }
+    const mk = buf[i + 1];
+    if (mk === 0xD8 || mk === 0x01 || (mk >= 0xD0 && mk <= 0xD7)) { i += 2; continue; }
+    const len = buf.readUInt16BE(i + 2);
+    const isSOF = (mk >= 0xC0 && mk <= 0xCF) && mk !== 0xC4 && mk !== 0xC8 && mk !== 0xCC;
+    if (isSOF) return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+    if (mk === 0xDA) return null;                 // 走査開始 = ここより先に SOF は無い
+    i += 2 + len;
+  }
+  return null;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 判定 (PASSED / FAILED / PENDING の 3 値)
@@ -493,6 +586,48 @@ const D20_LOSE = 0.0;     /* → d20 = 1  (ファンブル失敗) */
  *   consumePendingSummon → consumeRoadBoon) は **読み込み時**に走る。gameStarted は false の
  *   ままでよく、「キーかマウスを押すとスタート」の前でも hp / currentScenario は読める。 */
 const PAGE_INDEX = '/index.html';
+/* ★[#52] 焼き上がりの配信先。⛔ make_grid_map.py の台帳を写経せず、**この 1 本**だけを持つ。 */
+const JPG_PATH = '/assets/room_caravan-road_ambush.jpg';
+/* ★[#52 (9a)] 7.9-3「隊商護衛」の観測値。⭐⭐⭐ **#52 を 1 バイトも適用していない木**
+   (c0a9134 = #53 起草のコミット / #52 の変更はまだ 1 つも入っていない) を実ブラウザで
+   走らせて採った固定値。⛔ 実装後に採り直すと「自分と自分を比べる」形になり永久緑になる
+   (#51 (0d) で実証済みの型)。⚠ 値を更新するときは必ず #52 以前の木で採り直すこと。 */
+const ESCORT_BASE = {
+  theme: 'caravan-road', fieldMode: true, isFieldTheme: true,
+  isCustom: false, mapdefId: 'df-default-field', bandMask: true,
+  openRows: '13:67 14:67 15:67', wagons: 1,
+};
+/* 盤面レグの取り出し。⛔ 無ければ null (捏造しない)。 */
+function boardOf(m) {
+  const L = legOf(m, 'board');
+  return (L && L.board) ? L.board : null;
+}
+/* 本番から引いたマスク。⭐ ドライバは行文字列を 1 つも持たない。 */
+function maskOf(m) {
+  const b = boardOf(m);
+  if (!b) return { ok: false, why: 'board レグが走っていない' };
+  const cat = b.catalog;
+  if (!cat) return { ok: false, why: 'painting の参照が無い (theme+key が引けない)' };
+  if (cat.err) return { ok: false, why: 'DFMapDef がマスクを捨てた: ' + cat.err };
+  const rows = cat.rows;
+  if (!Array.isArray(rows) || rows.length < 2) return { ok: false, why: 'blocked が行文字列の配列でない' };
+  const widths = Array.from(new Set(rows.map(r => (typeof r === 'string' ? r.length : -1))));
+  if (widths.length !== 1 || widths[0] < 2) return { ok: false, why: '行の桁数が揃っていない: ' + JSON.stringify(widths) };
+  return { ok: true, rows: rows, cols: widths[0] };
+}
+/* ⚠⚠⚠ §7 の母集団ガード。**(7e) を AND で内包する**ためにここを通す。
+   ⛔ これが無いと「1 つも無い」型の assert (7c)(7d) がマスク欠損で自明に真になる。 */
+function guardMask(m, tag) {
+  const b = boardOf(m);
+  if (!b) return popFail(tag + ' 盤面の観測', 'board レグが走っていない');
+  const mk = maskOf(m);
+  if (!mk.ok) return [false, '⛔ 母集団が立っていない (マスクが採れない): ' + mk.why
+    + '  ⇒ この節は (7e) と一緒に赤にする (skip で緑にしない)'];
+  if (!b.geo) return [false, '⛔ 幾何を測れていない (rect が無い)'];
+  if (!(b.geo.open >= 200)) return [false, '⛔ 歩けるマスが ' + b.geo.open + ' 件しかない'
+    + ' (卓上バトルマップとして母集団が立っていない)'];
+  return null;
+}
 const WAIT_INDEX = 'typeof maxHp !== "undefined" && typeof allies !== "undefined"'
   + ' && typeof currentScenario !== "undefined" && !!document.getElementById("combatLog")';
 const KEY_LAST = 'dragonfighters.lastResult';
@@ -1290,6 +1425,21 @@ function readIndexAmbush(K) {
        他の観測ごと落とさない)。 */
     endsRun: g(() => (typeof escortWagonLossEndsRun === 'function')
       ? escortWagonLossEndsRun() : '(escortWagonLossEndsRun が無い)'),
+    /* ★[#52 (9a)] 7.9-3「隊商護衛」が無傷であることの挟み込み用。⛔ 屋外の帯マスクも
+       地平線レンダラも **themeId から**引かれるので、テーマ / FIELD_MODE / 帯マスク /
+       実際に歩ける行 の 4 点で締める (「両方 true だから緑」で済ませない)。 */
+    fieldMode: g(() => FIELD_MODE), isFieldTheme: g(() => IS_FIELD_THEME),
+    isCustom: g(() => MAPDEF.isCustom), mapdefId: g(() => MAPDEF.id),
+    bandMask: g(() => !!(MAPDEF.flags && MAPDEF.flags.bandMask)),
+    openRows: g(() => {
+      const o = [];
+      for (let r = 0; r < MAP_H; r++) {
+        let n = 0;
+        for (let c = 0; c < MAP_W; c++) if (!isTileWall(c, r)) n++;
+        if (n > 0) o.push(r + ':' + n);
+      }
+      return o.join(' ');
+    }),
     coins: g(() => coins),
     hp: g(() => hp), maxHp: g(() => maxHp),
     allies: g(() => allies.map(a => ({ cls: a.classKey, hp: a.hp, maxHp: a.maxHp }))),
@@ -1366,6 +1516,169 @@ async function measureIndexAmbush(browser, port, errs, opts) {
     await sleep(500);
     out.after = await page.evaluate(readIndexAmbush, IDX_KEYS);
   }
+  await page.close();
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 観測 I) #52 街道の卓上マップ — 盤面そのもの
+//   ⭐⭐⭐ 測るのは **本番の isTileWall / __paintBlockProbe / DFMapDef** だけ。
+//     ⛔ マスクの行文字列も座標もドライバへ写経しない (写すと実装とドライバが同じ誤りを
+//        共有して**両方緑**になる)。マスクは DFMapDef.paintingBlockedFor から**引く**。
+//   ⭐ 「橋が唯一の渡り」もマスクから**導出**する: 塞がれている割合が高い列 = 障壁 (小川)、
+//     その列で開いているマス = 渡り。⛔ 「col 9-10 / rows 8-9」を書き写さない。
+// ══════════════════════════════════════════════════════════════════════════════
+function readBoard() {
+  const g = (f) => { try { return f(); } catch (e) { return '(ERR ' + String(e && e.message).slice(0, 80) + ')'; } };
+  const room = (typeof MAPDEF !== 'undefined' && MAPDEF && Array.isArray(MAPDEF.rooms))
+    ? MAPDEF.rooms[0] : null;
+  const rect = (room && Array.isArray(room.rect)) ? room.rect.slice() : null;
+  const cat = g(() => {
+    const pg = room && room.painting;
+    if (!pg || !window.DFMapDef) return null;
+    const b = DFMapDef.paintingBlockedFor(pg.theme, pg.key);
+    let gates = null, gateErr = null;
+    try {
+      const gt = DFMapDef.paintingGatesFor(pg.theme, pg.key);
+      gates = (gt && gt.gates && typeof gt.gates === 'object') ? Object.keys(gt.gates) : [];
+      gateErr = gt ? gt.error : null;
+    } catch (e) { gates = null; gateErr = String(e && e.message).slice(0, 60); }
+    return { theme: pg.theme, key: pg.key,
+             src: DFMapDef.paintingSrcFor(pg.theme, pg.key),
+             bounds: DFMapDef.paintingBoundsFor(pg.theme, pg.key),
+             rows: (b && Array.isArray(b.rows)) ? b.rows.slice() : null,
+             err: b ? b.error : null, gates: gates, gateErr: gateErr };
+  });
+  /* ⭐ 幾何の計測はすべて本番の isTileWall。extra = 追加で塞ぐマス (橋の実験用)。 */
+  const geo = g(() => {
+    if (!rect) return null;
+    const [r1, c1, r2, c2] = rect;
+    const K = (c, r) => r * 4096 + c;
+    const comps = (extra) => {
+      const seen = new Set(); const sizes = [];
+      const blocked = (c, r) => isTileWall(c, r) || (extra && extra.has(K(c, r)));
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+        if (blocked(c, r) || seen.has(K(c, r))) continue;
+        const st = [[c, r]]; seen.add(K(c, r)); let n = 0;
+        while (st.length) {
+          const cur = st.pop(); n++;
+          for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nc = cur[0] + d[0], nr = cur[1] + d[1];
+            if (nc < c1 || nc > c2 || nr < r1 || nr > r2) continue;
+            if (blocked(nc, nr) || seen.has(K(nc, nr))) continue;
+            seen.add(K(nc, nr)); st.push([nc, nr]);
+          }
+        }
+        sizes.push(n);
+      }
+      return sizes.sort((a, b) => b - a);
+    };
+    let open = 0;
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (!isTileWall(c, r)) open++;
+    /* 起点から 4 近傍で届くマス。⛔ 斜めを踏まない (本番の aStar と同じ)。 */
+    const st = [[MAPDEF.start.tx, MAPDEF.start.ty]];
+    const seen = new Set([K(st[0][0], st[0][1])]);
+    while (st.length) {
+      const cur = st.pop();
+      for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nc = cur[0] + d[0], nr = cur[1] + d[1];
+        if (nc < c1 || nc > c2 || nr < r1 || nr > r2) continue;
+        if (isTileWall(nc, nr) || seen.has(K(nc, nr))) continue;
+        seen.add(K(nc, nr)); st.push([nc, nr]);
+      }
+    }
+    /* 「通し行」= 外周 1 タイルを除いた内側が 1 マスも塞がっていない行。
+       ⭐ 何行目かは**書かない** —— 在るかどうかだけを見る (街道の位置は好みで動かせる)。 */
+    const unbroken = [];
+    for (let r = r1 + 1; r <= r2 - 1; r++) {
+      let ok = true;
+      for (let c = c1 + 1; c <= c2 - 1 && ok; c++) if (isTileWall(c, r)) ok = false;
+      if (ok) unbroken.push(r - r1);
+    }
+    /* 障壁の列 (= 小川) と渡り (= 橋) をマスクから導出する。 */
+    let barrierCols = [], crossing = [];
+    const rows = cat && Array.isArray(cat.rows) ? cat.rows : null;
+    if (rows && rows.length) {
+      const H = rows.length, W = rows[0].length;
+      /* ⚠ 外周のフェザー帯に隣接する列は障壁ではない (東の樹林帯を「小川」と誤検出して
+         連結成分が 3 つに割れた実測がある)。内側の列だけを見る。 */
+      for (let c = 2; c <= W - 3; c++) {
+        let n = 0;
+        for (let r = 0; r < H; r++) if (rows[r].charAt(c) === '#') n++;
+        if (n >= Math.ceil(H * 0.6)) barrierCols.push(c);
+      }
+      for (const c of barrierCols) {
+        for (let r = 0; r < H; r++) {
+          if (rows[r].charAt(c) !== '#' && !isTileWall(c1 + c, r1 + r)) crossing.push([c, r]);
+        }
+      }
+    }
+    const extra = new Set(crossing.map(([c, r]) => K(c1 + c, r1 + r)));
+    return { open: open, reachable: seen.size, unbroken: unbroken,
+             comps: comps(null), compsNoBridge: crossing.length ? comps(extra) : null,
+             barrierCols: barrierCols, crossing: crossing,
+             ringOpen: (() => {
+               let n = 0;
+               for (let c = c1; c <= c2; c++) { if (!isTileWall(c, r1)) n++; if (!isTileWall(c, r2)) n++; }
+               for (let r = r1 + 1; r <= r2 - 1; r++) { if (!isTileWall(c1, r)) n++; if (!isTileWall(c2, r)) n++; }
+               return n;
+             })() };
+  });
+  return {
+    href: location.href,
+    scenarioId: g(() => scenarioId), theme: g(() => _scenIdForTex),
+    isFieldTheme: g(() => IS_FIELD_THEME), fieldMode: g(() => FIELD_MODE),
+    isCustom: g(() => MAPDEF.isCustom), mapdefId: g(() => MAPDEF.id),
+    bandMask: g(() => !!(MAPDEF.flags && MAPDEF.flags.bandMask)),
+    rect: rect, painting: g(() => (room && room.painting) ? room.painting : null),
+    catalog: cat,
+    paintings: g(() => roomPaintings.map(p => ({
+      tx: p.tx, ty: p.ty, tw: p.tw, th: p.th, seal: !!p.sealRing,
+      rows: p.blocked ? p.blocked.length : null,
+      cols: (p.blocked && p.blocked[0]) ? p.blocked[0].length : null,
+      src: String((p.img && p.img.src) || '').split('/').pop() }))),
+    probe: g(() => {
+      const pb = window.__paintBlockProbe ? window.__paintBlockProbe() : null;
+      return pb ? { entries: pb.entries, applied: pb.applied, ring: pb.ring,
+                    skipGate: pb.skipGate, skipStart: pb.skipStart, skipSpawn: pb.skipSpawn,
+                    onWall: pb.onWall, perEntry: pb.perEntry } : null;
+    }),
+    start: g(() => ({ tx: START_TX, ty: START_TY })),
+    startWall: g(() => isTileWall(START_TX, START_TY)),
+    spawns: g(() => ENEMY_SPAWNS.map(s => ({ k: s[0], tx: s[1], ty: s[2], wall: isTileWall(s[1], s[2]) }))),
+    wagons: g(() => wagonIndices.length),
+    wagonAt: g(() => wagonIndices.map(i => {
+      const e = enemies[i];
+      return e ? { tx: Math.round(e.x / TILE_SIZE), ty: Math.round(e.y / TILE_SIZE) } : null;
+    })),
+    wagonProbe: g(() => (window.__wagonProbe || []).map(w => ({ raw: w.raw, tx: w.tx, ty: w.ty, outcome: w.outcome }))),
+    geo: geo,
+  };
+}
+/* 盤面の観測レグ。⭐ 積荷は **world.html が実際に書いた bytes** を渡す (ドライバが組まない)。 */
+async function measureBoard(browser, port, errs, opts) {
+  opts = opts || {};
+  const out = { tag: opts.tag || 'board', query: opts.query || '', errs: [] };
+  const page = await browser.newPage();
+  hookErrors(page, out.errs, '[:' + port + PAGE_INDEX + (opts.query || '') + ' ' + out.tag + '] ');
+  await page.evaluateOnNewDocument((s) => {
+    const set = (k, v) => {
+      try { if (v === null || v === undefined) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) {}
+    };
+    set(s.kMem, s.mem); set(s.kComp, s.comp); set(s.kBattle, s.battle);
+    set(s.kScen, null); set(s.kGen, null); set(s.kWounds, null); set(s.kLast, null);
+  }, { kMem: KEY_PARTY_MEM, kComp: KEY_PARTY_COMP, kBattle: KEY_BATTLE, kScen: KEY_SCEN,
+    kGen: KEY_GENSCEN, kWounds: KEY_WOUNDS, kLast: KEY_LAST,
+    mem: JSON.stringify(PARTY_MEMBERS), comp: JSON.stringify(PARTY4), battle: opts.battle || null });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto('http://localhost:' + port + PAGE_INDEX + (opts.query || ''),
+    { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(WAIT_INDEX, { timeout: 45000 });
+  await settle(page);
+  /* 絵の読み込みは当たり判定に**関係しない** (blocked は img.onload を待たない) が、
+     (6b) の「貼られた src」を見たいので少しだけ待つ。 */
+  await sleep(900);
+  out.board = await page.evaluate(readBoard);
   await page.close();
   return out;
 }
@@ -2393,6 +2706,264 @@ const ASSERTS = [
           + (!keptWounds ? 'roadWounds を消した ' : '')
           + (!intact ? '撤退中なのに消耗が適用された' : ''))];
     }],
+
+  // ══ #52 街道の卓上マップ ══════════════════════════════════════════════════
+  // ── §6 絵が実際に出ている ────────────────────────────────────────────────
+  ['6a', '[#52] 焼き上がりが配信されている — ' + JPG_PATH + ' が 200 で返り、寸法が'
+    + ' **マスクの桁数 x 行数の整数倍**で縦横とも同じ倍率'
+    + ' (⭐ 台帳 (make_grid_map.py) の数値を写経せず、配信物とマスクだけで締める)',
+    (m) => {
+      const j = m.jpg;
+      if (!j) return [false, 'JPEG を取得していない (レグが走っていない)'];
+      if (j.status !== 200) return [false, 'status = ' + j.status + ' ⛔ 焼き上がりが配信されていない'];
+      if (!j.size) return [false, 'JPEG として読めない (' + j.bytes + ' bytes)'];
+      const mk = maskOf(m);
+      if (!mk.ok) return [false, 'マスクが採れないので倍率を検算できない: ' + mk.why];
+      const kx = j.size.w / mk.cols, ky = j.size.h / mk.rows.length;
+      const ok = Number.isInteger(kx) && Number.isInteger(ky) && kx === ky && kx >= 32;
+      return [ok, j.size.w + 'x' + j.size.h + ' / マスク ' + mk.cols + 'x' + mk.rows.length
+        + ' → 1 マス ' + kx + 'x' + ky + 'px (' + j.bytes + ' bytes)'
+        + (ok ? '' : '  ⛔ 焼き上がりがマスクの整数倍になっていない')];
+    }],
+
+  ['6b', '[#52] 貼られている — 街道の襲撃で 1 枚絵が **ちょうど 1 枚**積まれ、貼り先の rect が'
+    + ' カタログの tileBounds と**同じ値** / painting は theme+key の参照 (⛔ src の焼き込みでない) /'
+    + ' ゲートを 1 つも宣言していない (1 部屋完結)',
+    (m) => {
+      const b = boardOf(m);
+      if (!b) return popFail('(6b) 盤面の観測', 'board レグが走っていない');
+      const cat = b.catalog;
+      const ps = Array.isArray(b.paintings) ? b.paintings : [];
+      const one = ps.length === 1;
+      const p = ps[0] || {};
+      const rectOfPaint = one ? [p.ty, p.tx, p.ty + p.th - 1, p.tx + p.tw - 1] : null;
+      const bounds = cat && Array.isArray(cat.bounds) ? cat.bounds : null;
+      const same = !!(rectOfPaint && bounds && rectOfPaint.join(',') === bounds.join(','));
+      const rectSame = !!(Array.isArray(b.rect) && bounds && b.rect.join(',') === bounds.join(','));
+      const byRef = !!(b.painting && b.painting.theme && b.painting.key);
+      const noGate = !!(cat && Array.isArray(cat.gates) && cat.gates.length === 0);
+      const ok = one && same && rectSame && byRef && noGate;
+      return [ok,
+        '絵 ' + ps.length + ' 枚 / 貼り先 rect = ' + JSON.stringify(rectOfPaint)
+        + ' / tileBounds = ' + JSON.stringify(bounds) + ' / rooms[0].rect = ' + JSON.stringify(b.rect)
+        + ' / painting = ' + JSON.stringify(b.painting)
+        + ' / gates = ' + JSON.stringify(cat ? cat.gates : null)
+        + ' / src = ' + JSON.stringify(ps.map(x => x.src))
+        + (ok ? '' : '  ⛔ '
+          + (!one ? '絵が 1 枚ではない ' : '')
+          + (!same ? '貼り先の rect が tileBounds と違う ' : '')
+          + (!rectSame ? 'rooms[0].rect が tileBounds と違う (縦横比が食い違う) ' : '')
+          + (!byRef ? 'painting が theme+key の参照になっていない ' : '')
+          + (!noGate ? 'gates を宣言している (1 部屋完結なのに出口が出る)' : ''))];
+    }],
+
+  ['6c', '[#52] ⭐⭐⭐ **罠 A の本検査** — MAPDEF.isCustom === true'
+    + ' (⛔ false なら絵は 1 枚も出ない。屋外テーマ x カスタム幾何は resolve() 規則④で排他)',
+    (m) => {
+      const b = boardOf(m);
+      if (!b) return popFail('(6c) 盤面の観測', 'board レグが走っていない');
+      const ok = b.isCustom === true;
+      return [ok, 'isCustom = ' + JSON.stringify(b.isCustom) + ' / mapDef.id = ' + JSON.stringify(b.mapdefId)
+        + ' / themeId = ' + JSON.stringify(b.theme) + ' / scenarioId = ' + JSON.stringify(b.scenarioId)
+        + (ok ? '' : '  ⛔ カスタム幾何として採用されていない = 絵も情景の停止も効いていない')];
+    }],
+
+  ['6d', '[#52] 空と丘が描かれていない — FIELD_MODE === false かつ 帯マスク false'
+    + ' (= themeId が屋外テーマでない)',
+    (m) => {
+      const b = boardOf(m);
+      if (!b) return popFail('(6d) 盤面の観測', 'board レグが走っていない');
+      const ok = b.fieldMode === false && b.isFieldTheme === false && b.bandMask === false;
+      return [ok, 'FIELD_MODE = ' + JSON.stringify(b.fieldMode)
+        + ' / IS_FIELD_THEME = ' + JSON.stringify(b.isFieldTheme)
+        + ' / bandMask = ' + JSON.stringify(b.bandMask) + ' / themeId = ' + JSON.stringify(b.theme)
+        + (ok ? '' : '  ⛔ 屋外の地平線レンダラが生きている = カスタム幾何の上に空と丘が乗る')];
+    }],
+
+  // ── §7 マスクが通っている ───────────────────────────────────────────────
+  //   ⚠⚠⚠ (7a)〜(7d) はすべて (7e) を **AND で内包**する。母集団 (マスクそのもの) が
+  //     立っていないと「1 つも無い」型の assert は自明に真になる (#51 (0b) の轍)。
+  ['7a', '[#52] 街道が東西に貫通している — 外周 1 タイルを除いた内側が **1 マスも塞がっていない行**が'
+    + ' 少なくとも 1 行ある (⭐ 何行目かは縛らない = 街道の位置は好みで動かせる)',
+    (m) => {
+      const gd = guardMask(m, '(7a)');
+      if (gd) return gd;
+      const b = boardOf(m), G = b.geo;
+      const ok = Array.isArray(G.unbroken) && G.unbroken.length >= 1;
+      return [ok, '通し行 (絵ローカルの行番号) = ' + JSON.stringify(G.unbroken)
+        + ' / 歩けるマス ' + G.open
+        + (ok ? '' : '  ⛔ 端から端まで切れずに歩ける行が 1 行も無い = 街道が途切れている')];
+    }],
+
+  ['7b', '[#52] 橋が唯一の渡り — 素の盤面は **ひとつながり**で、マスクから導いた「障壁の列で'
+    + '開いているマス」(= 渡り) を塞ぐと **2 つ以上に割れる**'
+    + ' (⭐ 橋の座標はドライバに書かず、塞がれた割合の高い列から導出する)',
+    (m) => {
+      const gd = guardMask(m, '(7b)');
+      if (gd) return gd;
+      const b = boardOf(m), G = b.geo;
+      const one = Array.isArray(G.comps) && G.comps.length === 1;
+      const has = Array.isArray(G.crossing) && G.crossing.length >= 1;
+      const split = Array.isArray(G.compsNoBridge) && G.compsNoBridge.length >= 2;
+      const ok = one && has && split;
+      return [ok, '素の連結成分 = ' + JSON.stringify(G.comps)
+        + ' / 障壁の列 = ' + JSON.stringify(G.barrierCols)
+        + ' / 渡り ' + (G.crossing || []).length + ' マス ' + JSON.stringify(G.crossing)
+        + ' → 塞ぐと ' + JSON.stringify(G.compsNoBridge)
+        + (ok ? '' : '  ⛔ '
+          + (!one ? '素の盤面が最初から分断されている ' : '')
+          + (!has ? '渡りが 1 マスも無い (母集団ゼロ) ' : '')
+          + (!split ? '渡りを塞いでも割れない = 別の道がある' : ''))];
+    }],
+
+  ['7c', '[#52] 孤立ゼロ — 歩けるマスが全部、起点から 4 近傍で到達可能。かつ **外周封鎖が'
+    + '効いている** (sealRing が 1 マス以上塞いでいる = 絵のフェザー帯を歩けない)',
+    (m) => {
+      const gd = guardMask(m, '(7c)');
+      if (gd) return gd;
+      const b = boardOf(m), G = b.geo;
+      const pb = b.probe || {};
+      const reach = G.reachable === G.open;
+      const sealed = (pb.ring || 0) > 0;
+      const ok = reach && sealed;
+      return [ok, '歩けるマス ' + G.open + ' / 起点から到達 ' + G.reachable
+        + ' / sealRing が塞いだ外周 ' + pb.ring + ' マス (出口として除外 ' + pb.skipGate + ')'
+        + ' / 外周で歩けるマス ' + G.ringOpen
+        + (ok ? '' : '  ⛔ '
+          + (!reach ? '到達できない歩けるマスがある (孤立) ' : '')
+          + (!sealed ? '外周が 1 マスも塞がれていない (sealRing が効いていない)' : ''))];
+    }],
+
+  ['7d', '[#52] マスクの外周に `#` が無い — 外周を塞ぐのは sealRing の仕事'
+    + ' (絵の外周 1 タイルは描画のフェザー帯)',
+    (m) => {
+      const gd = guardMask(m, '(7d)');
+      if (gd) return gd;
+      const mk = maskOf(m);
+      const bad = [];
+      for (let c = 0; c < mk.cols; c++) {
+        if (mk.rows[0].charAt(c) === '#') bad.push([c, 0]);
+        if (mk.rows[mk.rows.length - 1].charAt(c) === '#') bad.push([c, mk.rows.length - 1]);
+      }
+      for (let r = 0; r < mk.rows.length; r++) {
+        if (mk.rows[r].charAt(0) === '#') bad.push([0, r]);
+        if (mk.rows[r].charAt(mk.cols - 1) === '#') bad.push([mk.cols - 1, r]);
+      }
+      return [bad.length === 0, '外周の `#` = ' + bad.length + ' 件 ' + JSON.stringify(bad.slice(0, 8))
+        + (bad.length ? '  ⛔ 外周は sealRing が塞ぐ (マスクで塞ぐと二重管理になる)' : '')];
+    }],
+
+  ['7e', '[#52] ⭐ 寸法一致 (母集団そのもの) — blocked の行数と各行の桁数が tileBounds の'
+    + ' 高さ・幅と厳密に一致し、DFMapDef がマスクを **捨てていない**'
+    + '  ⚠⚠⚠ ここが赤なら (7a)〜(7d) は自明に真になるので、4 本ともこれを AND で内包している',
+    (m) => {
+      const b = boardOf(m);
+      if (!b) return popFail('(7e) 盤面の観測', 'board レグが走っていない');
+      const mk = maskOf(m);
+      const cat = b.catalog || {};
+      const bounds = Array.isArray(cat.bounds) ? cat.bounds : null;
+      const th = bounds ? (bounds[2] - bounds[0] + 1) : null;
+      const tw = bounds ? (bounds[3] - bounds[1] + 1) : null;
+      const dimOk = !!(mk.ok && th === mk.rows.length && tw === mk.cols);
+      const applied = !!(b.probe && b.probe.applied > 0);
+      const ok = dimOk && !cat.err && applied;
+      return [ok, 'blocked = ' + (mk.ok ? (mk.rows.length + ' 行 x ' + mk.cols + ' 桁') : ('採れない: ' + mk.why))
+        + ' / tileBounds = ' + JSON.stringify(bounds) + ' (' + th + ' 行 x ' + tw + ' 桁)'
+        + ' / DFMapDef の error = ' + JSON.stringify(cat.err)
+        + ' / 実際に塞いだマス = ' + (b.probe ? b.probe.applied : null)
+        + (ok ? '' : '  ⛔ '
+          + (!dimOk ? '寸法が食い違う (マスクは丸ごと捨てられる) ' : '')
+          + (cat.err ? 'DFMapDef がマスクを捨てた ' : '')
+          + (!applied ? 'マスクが 1 マスも塞いでいない' : ''))];
+    }],
+
+  // ── §9 恒等 (非退行) ────────────────────────────────────────────────────
+  ['9a', '[#52] ⭐⭐⭐ 7.9-3「隊商護衛」が無傷 — **#52 適用前の木 (c0a9134) で採った固定値**と'
+    + '一致し、かつ **#52 の盤面を通した後にもう一度測っても同じ** (挟み込み)'
+    + '  ⛔ 「両方 true だから緑」で済ませない。⭐ 罠 A の裏 = FIELD_THEMES を触っていないことの証明',
+    (m) => {
+      const pre = legOf(m, 'idxEscort'), post = legOf(m, 'idxEscortPost');
+      if (!pre || !pre.boot) return popFail('(9a) 7.9-3 の観測', 'idxEscort レグが走っていない');
+      const shape = (v) => (v && v.boot) ? {
+        theme: v.boot.theme, fieldMode: v.boot.fieldMode, isFieldTheme: v.boot.isFieldTheme,
+        isCustom: v.boot.isCustom, mapdefId: v.boot.mapdefId, bandMask: v.boot.bandMask,
+        openRows: v.boot.openRows, wagons: v.boot.wagons,
+      } : null;
+      const a = shape(pre), b = shape(post);
+      const baseOk = !!a && JSON.stringify(a) === JSON.stringify(ESCORT_BASE);
+      const sandOk = !!b && JSON.stringify(a) === JSON.stringify(b);
+      const ok = baseOk && sandOk;
+      return [ok, '前 = ' + JSON.stringify(a) + '\n         後 = ' + JSON.stringify(b)
+        + '\n         基準 (c0a9134) = ' + JSON.stringify(ESCORT_BASE)
+        + (ok ? '' : '  ⛔ '
+          + (!baseOk ? '#52 適用前の固定値と違う ' : '')
+          + (!sandOk ? '#52 の盤面を通した後で値が変わった (挟み込みで検出)' : ''))];
+    }],
+
+  ['9b', '[#52] #51 の §1〜§5 が全部緑のまま (座標を動かしても導線は変わらない)',
+    (m) => {
+      const keys = ['1a', '1b', '1c', '1d', '1e', '1f', '1g',
+        '2a', '2b', '2c', '2d', '2e', '2f', '2g', '3a', '3b', '3c', '3d',
+        '4a', '4b', '4c', '5a', '5b'];
+      const red = [];
+      for (const k of keys) {
+        const a = ASSERT_OF[k];
+        if (!a) { red.push(k + '(配線漏れ)'); continue; }
+        let r;
+        try { r = a[2](m); } catch (e) { r = [false, 'throw ' + (e && e.message)]; }
+        if (!r[0]) red.push(k);
+      }
+      return [red.length === 0, '#51 の ' + keys.length + ' 本のうち赤 = ' + red.length
+        + (red.length ? ' → ' + JSON.stringify(red) : ' (全部緑)')];
+    }],
+
+  // ── §10 撤退 ────────────────────────────────────────────────────────────
+  ['10a', '[#52] ?ambush=0 → 従来どおり襲撃が出ない (⭐ (5a)(5b) が既に縛っているので、'
+    + 'ここは **盤面が 1 枚絵にならない**ことだけを見る)',
+    (m) => {
+      const r = legOf(m, 'idxRetreat');
+      if (!r || !r.boot) return popFail('(10a) 撤退の観測', 'idxRetreat レグが走っていない');
+      const b = r.boot;
+      const ctrl = legOf(m, 'board');
+      /* ⚠⚠ 依頼書起草時の予測「撤退なら isCustom=false」は **実測で崩れた** (2026-09-05)。
+         撤退の対照ランは廃坑で、廃坑は分岐グラフのノード mapDef を持つので isCustom は
+         **元から true**。⇒ isCustom では締められないので、
+         「街道のテーマでも街道の scenarioId でもない」で締める (assert は緩めていない —
+          対照 = 襲撃側の theme / scenarioId を board レグから引いて突き合わせる)。 */
+      const ambTheme = (ctrl && ctrl.board) ? ctrl.board.theme : null;
+      const ok = b.ambushOn === false && b.ambushRun === false
+        && b.scenarioId !== 'road-ambush' && b.theme !== ambTheme && b.theme === 'goblin-mine';
+      return [ok, 'ROAD_AMBUSH_ON = ' + JSON.stringify(b.ambushOn)
+        + ' / roadAmbushRun = ' + JSON.stringify(b.ambushRun)
+        + ' / scenarioId = ' + JSON.stringify(b.scenarioId)
+        + ' / themeId = ' + JSON.stringify(b.theme)
+        + ' [対照: 襲撃側は ' + JSON.stringify(ambTheme) + ']'
+        + ' [記録・⛔判定しない] isCustom = ' + JSON.stringify(b.isCustom)
+        + ' (廃坑は分岐グラフのノード mapDef を持つので元から true)'
+        + (ok ? '' : '  ⛔ 撤退中なのに街道の襲撃が立っている')];
+    }],
+
+  ['10b', '[#52] ?mapdef=0 → **絵が消えて従来の幾何へ戻る** (⛔ クラッシュしない)。'
+    + '⭐ 街道の絵は node:true なので従来経路では貼られない = 森の山場/ボスの絵に置き換わる',
+    (m) => {
+      const off = legOf(m, 'boardOff');
+      if (!off || !off.board) return popFail('(10b) ?mapdef=0 の観測', 'boardOff レグが走っていない');
+      const b = off.board;
+      const ps = Array.isArray(b.paintings) ? b.paintings : [];
+      const roadPainted = ps.some(p => String(p.src).indexOf('caravan-road_ambush') >= 0);
+      const errs = (off.errs || []).filter(e => /pageerror/.test(e));
+      const ok = b.isCustom === false && !roadPainted && errs.length === 0
+        && b.scenarioId === 'road-ambush';
+      return [ok, 'isCustom = ' + JSON.stringify(b.isCustom)
+        + ' / mapDef.id = ' + JSON.stringify(b.mapdefId)
+        + ' / scenarioId = ' + JSON.stringify(b.scenarioId)
+        + ' / 貼られた絵 = ' + JSON.stringify(ps.map(p => p.src))
+        + ' / pageerror ' + errs.length + ' 件'
+        + (ok ? '' : '  ⛔ '
+          + (b.isCustom !== false ? '?mapdef=0 が効いていない ' : '')
+          + (roadPainted ? '街道の絵が従来経路で貼られている (node:true が抜けている) ' : '')
+          + (errs.length ? '例外が出た' : ''))];
+    }],
 ];
 const ASSERT_OF = {};
 for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
@@ -2423,6 +2994,19 @@ const LEG_NEED = {
   '3a': ['resume'], '3b': ['resume'], '3c': ['defeat'], '3d': ['resume'],
   '4a': ['rnd'], '4b': [], '4c': ['boot'],
   '5a': ['scan', 'walkQuiet', 'walkRetFire', 'walkRetQuiet'], '5b': ['idxRetreat', 'idxAmb'],
+  /* ── #52 街道の卓上マップ ─────────────────────────────────────────────── */
+  '6a': ['board'], '6b': ['board'], '6c': ['board'], '6d': ['board'],
+  '7a': ['board'], '7b': ['board'], '7c': ['board'], '7d': ['board'], '7e': ['board'],
+  /* ⭐ (9a) は挟み込み = **escort → board → escortPost** の順で走らせる必要がある。
+     順序は collect() の呼び出し位置が決めるので、ここでは要るレグを並べるだけ。 */
+  '9a': ['idxEscort', 'board', 'idxEscortPost'],
+  /* (9b) は §1〜§5 の assert を全部呼び直すので、母集団も全部要る。 */
+  '9b': ['boot', 'rnd', 'scan', 'walkWin', 'walkLose', 'walkNull', 'walkNoParty', 'walkQuiet',
+    'box', 'resume', 'walkRetFire', 'walkRetQuiet', 'idxAmb', 'idxWagon', 'idxWoundRead',
+    'idxRetreat', 'defeat', 'idxPlain', 'idxZero', 'idxBadN', 'idxEscort'],
+  /* ⭐ (10a) は「撤退の腕」だけでなく **襲撃側の腕 (board)** も要る = 対照が無いと
+     「撤退が効いている」を襲撃と区別できない (#39 の永久緑の轍)。 */
+  '10a': ['idxRetreat', 'board'], '10b': ['boardOff'],
 };
 /* レグどうしの依存。⭐ 潜行側の腕は **world.html が実際に書いた roadBattle** を使うので、
    必ず walkWin (= scan) を先に通す (⛔ ドライバが JSON を組み立てない、が §2 の設計)。 */
@@ -2431,10 +3015,14 @@ const LEG_DEP = {
   walkQuiet: ['scan'], walkRetFire: ['scan'], walkRetQuiet: ['scan'],
   idxAmb: ['walkWin'], idxWagon: ['walkWin'], idxRetreat: ['walkWin'],
   idxWoundRead: ['idxAmb'], defeat: ['walkWin'],
+  /* ★[#52] 盤面のレグも **world.html が実際に書いた積荷**を使うので walkWin が要る。
+     ⭐ (9a) の挟み込みは「escort → board → escortPost」の順で走らせる = 依存を張っておく。 */
+  board: ['walkWin'], boardOff: ['walkWin'], idxEscortPost: ['idxEscort', 'board'],
 };
 const ALL_LEGS = ['boot', 'rnd', 'scan', 'walkWin', 'walkLose', 'walkNull', 'walkNoParty',
   'walkQuiet', 'box', 'resume', 'walkRetFire', 'walkRetQuiet', 'idxAmb', 'idxWagon',
-  'idxWoundRead', 'idxRetreat', 'defeat', 'idxPlain', 'idxZero', 'idxBadN', 'idxEscort'];
+  'idxWoundRead', 'idxRetreat', 'defeat', 'idxPlain', 'idxZero', 'idxBadN', 'idxEscort',
+  'board', 'boardOff', 'idxEscortPost'];
 function legsFor(keys) {
   if (!keys) return new Set(ALL_LEGS);
   const need = new Set();
@@ -2597,10 +3185,30 @@ async function collect(browser, port, errs, keys) {
     m.legs.idxWoundBadN = await measureIndexAmbush(browser, port, errs,
       { tag: 'woundbadn', wounds: JSON.stringify({ n: 99, hp: [0, 0, 0, 0] }), scen: 'goblin-mine' });
   }
-  /* ⑦ 7.9-3 隊商護衛。(2g の対照 = 従来どおり敗北すること) */
+  /* ⑦ 7.9-3 隊商護衛。(2g の対照 = 従来どおり敗北すること) / ⭐ (9a) の挟み込みの **前**の腕 */
   if (need.has('idxEscort')) {
     m.legs.idxEscort = await measureIndexAmbush(browser, port, errs,
       { tag: 'escort', gen: ESCORT_GEN, scen: 'generated-quest' });
+  }
+  /* ══ #52 盤面 ══════════════════════════════════════════════════════════
+     ⭐⭐⭐ 積荷は **world.html が実際に書いた bytes**。⛔ ドライバが座標を組み立てない。
+     ⚠ 順序が意味を持つ: idxEscort (前) → board (#52 の機能を通す) → idxEscortPost (後)。
+       (9a) はこの 3 本の挟み込みで「7.9-3 が無傷」を見る。 */
+  if (need.has('board') && m.realBattle) {
+    m.legs.board = await measureBoard(browser, port, errs, { tag: 'board', battle: m.realBattle });
+  }
+  if (need.has('boardOff') && m.realBattle) {
+    m.legs.boardOff = await measureBoard(browser, port, errs,
+      { tag: 'mapdefoff', battle: m.realBattle, query: '?mapdef=0' });
+  }
+  if (need.has('idxEscortPost')) {
+    m.legs.idxEscortPost = await measureIndexAmbush(browser, port, errs,
+      { tag: 'escortPost', gen: ESCORT_GEN, scen: 'generated-quest' });
+  }
+  /* ★[#52 (6a)] 焼き上がりそのもの。⭐ HTTP なのでレグ (ブラウザ) を消費しない。 */
+  if (need.has('board')) {
+    const j = await httpGetBin('http://localhost:' + port + JPG_PATH);
+    m.jpg = { status: j.status, bytes: j.buf.length, size: jpegSize(j.buf) };
   }
   return m;
 }
@@ -2624,6 +3232,20 @@ const SECTIONS = [
   { title: '§5 撤退 ' + RETREAT_QUERY + ' — ⭐ 項目 3 が実装'
       + ' (⚠⚠⚠ 撤退アームだけを受入条件にしない = #39 の「永久緑」の轍)',
     keys: ['5a', '5b'], pend: [] },
+
+  // ══ #52 街道の卓上マップ ══════════════════════════════════════════════════
+  { title: '§6 絵が実際に出ている (#52) — ⭐⭐⭐ (6c) が罠 A (屋外テーマ x カスタム幾何) の本検査',
+    keys: ['6a', '6b', '6c', '6d'], pend: [] },
+
+  { title: '§7 マスクが通っている (#52) — ⚠⚠⚠ (7a)〜(7d) は母集団ガードとして (7e) を'
+      + ' AND で内包する (「1 つも無い」型は母集団 0 で自明に真になるため)',
+    keys: ['7e', '7a', '7b', '7c', '7d'], pend: [] },
+
+  { title: '§9 恒等 (非退行) (#52) — ⭐ (9a) は **#52 適用前の固定値** + 挟み込みの 2 段',
+    keys: ['9a', '9b'], pend: [] },
+
+  { title: '§10 撤退 (#52) — ?ambush=0 (襲撃ごと出ない) / ?mapdef=0 (絵だけ消えて幾何が戻る)',
+    keys: ['10a', '10b'], pend: [] },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2726,8 +3348,10 @@ const SECTIONS = [
       } else {
         check('(n9a) [装置] PENDING の変異が 0 件 (' + MUT_ORDER.length + ' 本すべて実装済)',
           true, MUT_ORDER.join(' / '));
-        check('(n9b) [装置] 依頼書 §8 の変異表 20 行がすべて表に在る',
-          MUT_ORDER.length === 20, MUT_ORDER.length + ' 本');
+        /* ⭐ #51 の 20 行 + #52 の 10 行。⛔ 本数を減らして通さない
+           (「実装を忘れた変異」を件数から隠さない、が #48 以来の則)。 */
+        check('(n9b) [装置] 依頼書の変異表 30 行 (#51 20 + #52 10) がすべて表に在る',
+          MUT_ORDER.length === 30, MUT_ORDER.length + ' 本');
       }
     } else {
       // ══ 受入条件 ═══════════════════════════════════════════════════════════

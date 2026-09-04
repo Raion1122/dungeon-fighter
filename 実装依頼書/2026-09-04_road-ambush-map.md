@@ -1,8 +1,9 @@
 # #52 街道の卓上マップ — codex 納品の 1 枚絵を DF の格子へ乗せる
 
 - **起草**: 2026-09-04(計画窓) / **ステータス**: **承認済**(2026-09-04 ユーザー承認)
-- **着手**: ⏸ **保留 — #51 の着地待ち**(2026-09-04)。#51 が作る `AMBUSH_FIELD` を差し替える
-  チケットなので、差し替え先が存在しない状態では着手できない。
+- **着手**: ✅ **完了(2026-09-05 実装窓)**。#51 は `702830b` で全項目着地済み = 待ちは解けていた。
+  実測結果と、依頼書の主張が崩れた 6 件は **§12** に全部書いてある(⛔ §6 の `node: false` は
+  **逆で `node: true` が正しい**。写経する前に §12-1 ① を読むこと)。
 - ⚠ **着手前にもう一度測ること** — 起草時の基準は `bdc6880`。#51 が着地すると
   `index.html` / `js/road-events.js` が動くので、§2 の行番号と `AMBUSH_FIELD` の実在を測り直す:
   `git diff --stat bdc6880..HEAD -- index.html js/road-events.js js/df-mapdef.js`
@@ -480,4 +481,161 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**実装日**: 2026-09-05(実装窓) / **非退行の基準 hash**: `c0a9134`(#53 起草のコミット。
+起草時の想定 `86069f9` から 1 本進んでいた — 隣窓が #53 の依頼書をコミットしたため)
+
+### 12-0. 着手時に測り直した母集団
+
+| 対象 | 依頼書の記載 | **実測(2026-09-05)** |
+|---|---|---|
+| `grep -l "world\.html" tools/*.js` | 14 本 | **15 本**(`verify_ability_scores.js` が増えていた) |
+| `AMBUSH_FIELD` の実在 | 「実在する」 | ✅ `js/road-events.js:419`。`themeId` / `wagonSpawns` / `spawns` / `waves` / `trapCount` / `hiddenChestCount` / `clearXp` / `clearGold` の 8 キー |
+| 素材の 6 数値(`--fit`) | phase (42.05,35.45) / period (50.525,49.635) / cells (29,19) | ✅ **1 桁も違わず再現**(md5 `9c5435d432b02353a27fd547690373ae`) |
+| `git diff --stat 86069f9..HEAD -- index.html js/road-events.js js/df-mapdef.js` | — | **差分 0**(#51 着地から本番 3 ファイルは 1 バイトも動いていない) |
+
+⭐ 「毎回数え直す」則が**また 1 回効いた**(14 → 15)。
+
+### 12-1. ⚠⚠⚠ 依頼書の主張が実測で崩れた点(6 件)
+
+⛔ どれも **assert を緩めず、予測のほうを訂正**した。
+
+| # | 依頼書の主張 | 実測 | 対処 |
+|---|---|---|---|
+| ① | **§6 のひな型が `node: false`**(「⛔ node:true にしない」と明記) | ⭐⭐⭐ **逆で、`node: true` が必須**。`index.html:5630` の**従来経路**(非カスタム幾何)は `ROOM_PAINTINGS_DEF[_scenIdForTex]` を `Object.values` で舐めて `def.node` を持たない絵を**全部貼る**。`node:false` だと `?graph=0` や分岐 lint 落ちで `RUN=null` になったシナリオ 2(森)の単一マップへ**街道の絵が貼られる**。一方 **mapDef 経路(`:5645`)は `node` を見ない**(`paintingSrcFor(theme,key)` で直に引く)ので #52 には 1 命令も影響しない | `node: true` を付けた。(10b) が `?mapdef=0` で「街道の絵は貼られず、森の山場/ボスの絵に置き換わる」ことを機械で見ている |
+| ② | **§8 (7b) 「橋のマスを `#` にすると南北が分断される」** | ⭐ **東西**が正しい。小川は**南北に流れる**ので、橋は東西を繋いでいる。実測 = 橋の 4 マスを塞ぐと **228 / 123** の 2 成分に割れる(南北ではない) | assert の文言を「2 つ以上に割れる」へ一般化。⛔ 判定は緩めていない |
+| ③ | **§8 (10a) の含意「撤退なら卓上マップが載らない」を `isCustom` で見る** | ⚠⚠ **撤退の対照ランは廃坑で、廃坑は分岐グラフのノード `mapDef` を持つので `isCustom` は元から `true`**(`index.html:4598` の `RUN ? { mapDef: RUN.byId[entry].mapDef } : …`)。`isCustom` では締められない | テーマと `scenarioId` で締め、`isCustom` は**記録**へ落とした(⛔ 判定に使わない) |
+| ④ | **負のコントロール `nosealring` → (7c) が赤くなる** | ⚠ **そのままでは空振りする**。`sealRing` を外しても孤立は 1 つも生まれない(外周が歩けるようになるだけで連結性は変わらない)。実測 = 歩けるマス 355 → **443**、`ring` 88 → **0**、孤立は前後とも 0 | (7c) に「**外周封鎖が効いている(`__paintBlockProbe().ring > 0`)**」を AND した。これで `nosealring` が赤になる(実走で確認) |
+| ⑤ | **§8 (6a) 「寸法が `29*48 x 19*48` = 1392 x 912 であること」** | ⭐ 数値の直書きは**台帳(`make_grid_map.py`)の写経**になる(台帳が間違っていたら両方同じ誤りで緑) | 「**配信された JPEG の寸法が、本番から引いたマスクの桁数 x 行数の整数倍で、縦横とも同じ倍率**」へ書き換えた。実測 1392x912 / マスク 29x19 → **1 マス 48x48px** |
+| ⑥ | **§8 の変異表は 20 行**(`(n9b)` が本数を固定) | #52 の 10 本を足すと **30 行**になる | `(n9b)` を 30 へ更新。⛔ 本数を減らして通さない |
+
+### 12-2. 実装で判明した制約(依頼書に無かったもの・3 件)
+
+1. ⚠⚠ **馬車 (`caravanWagon`) は displaySize 240 = 3x3 タイルを占める**。`findSafeFootprintTile` が
+   3x3 とも非壁でないと**勝手に移設する**ので、中心に置けるのは「rows 8-10 が 3 行とも
+   空いている列」= **絵ローカル col 15-20 だけ**(実測)。col 12-13 は南の石積みが row10 を
+   走るので footprint が欠ける。⇒ 幌車は絵ローカル **(15,9) = global (36,13)**。
+   ⭐ 描かれた幌車(ローカル col 16-19)の**西隣**に置き、2 台目の荷車として読ませる。
+2. ⭐ **`campfireSpot` はテーマ移設で自然に消える**。`index.html:10516` / `:33970` が
+   `_scenIdForTex === "caravan-road"` のときだけ焚火を置くので、`bandits-forest` へ移した
+   街道の襲撃では出なくなる(絵に焚火は描かれていないのでこれが正しい)。
+   ⭐ 7.9-3 は themeId が `caravan-road` のままなので**従来どおり出る**。
+3. ⚠ **障壁の列の導出は外周寄り 2 列を除かないと誤検出する**。初版は「塞がれた割合 60% 以上の
+   列」を小川とみなしたが、**東端の樹林帯(col 27)まで拾って**連結成分が `[222,123,1]` と
+   3 つに割れた。⇒ `2 <= c <= W-3` に限定して `[9,10]` へ収束した。
+
+### 12-3. テーマ名を 1 変数へ寄せた(`AMBUSH_THEME`)
+
+罠 A は「積荷側の `themeId`(= `FIELD_MODE`)」と「`mapDef.themeId`(= `resolve()` 規則④)」の
+**2 箇所**に効く。片方だけ屋外にすると壊れ方が変わる:
+
+- 積荷側だけ屋外 → `FIELD_MODE=true` のまま卓上マップが載り、**空と丘が絵の上に描かれる**
+- mapDef 側だけ屋外 → `resolve()` が既定幾何へ落とし、**絵が 1 枚も出ない**
+
+⇒ `js/road-events.js` に `var AMBUSH_THEME = "bandits-forest";` を置き、2 箇所ともこれを引く。
+⭐ おかげで負のコントロール `fieldtheme` が **1 行の逐語置換**で両側同時に倒せる。
+
+### 12-4. 盤面の実測値(本番から採った値)
+
+| 項目 | 値 |
+|---|---|
+| 焼き上がり | `assets/room_caravan-road_ambush.jpg` **1392 x 912**(1 マス 48px / 0.46 MB) |
+| 焼きの検算 | 縦 ドリフト **2.78** / 位相 **1.00** / score比 **94.7%** — 横 ドリフト **0.00** / 位相 **1.00** / score比 **100.0%**(すべて許容内) |
+| 貼り先 | `tileBounds` = `rooms[0].rect` = **[4, 21, 22, 49]**(19 行 x 29 列) |
+| テーマ | `themeId` = `bandits-forest` / `FIELD_MODE` = **false** / `isCustom` = **true** |
+| マスク | 塞いだマス **196**(うち外周 `sealRing` が **88**、出口として除外 4) |
+| 歩けるマス | **355**(= 起点から 4 近傍で到達 355 = **孤立ゼロ**) |
+| 街道の通し行 | 絵ローカル **row 9** のみ(= global ty 13) |
+| 橋 | 絵ローカル col 9-10 x rows 8-9 の **4 マス**。塞ぐと **228 / 123** の 2 成分に割れる |
+| 起点 | global **(26, 13)** = 絵ローカル (5, 9) |
+| 幌車 | global **(36, 13)** = 絵ローカル (15, 9)。`outcome: "asis"`(移設なし) |
+| 敵 | `goblin (39,14)` / `goblinArcher (41,12)` / `goblin (40,13)` — **3 体とも非壁** |
+| `?mapdef=0` | `isCustom=false` / `mapDef.id="df-default-dungeon"` / 貼られる絵は森の `1_bs.jpg` と `2.png` / **pageerror 0 件** |
+
+### 12-5. (9a) の基準列をどこから採ったか
+
+⭐ **#52 を 1 バイトも適用していない木(`c0a9134`)を実ブラウザで走らせて採った**
+(⛔ 実装後に採ると「自分と自分を比べる」形になり永久緑。#51 (0d) で実証済みの型):
+
+    { theme: "caravan-road", fieldMode: true, isFieldTheme: true, isCustom: false,
+      mapdefId: "df-default-field", bandMask: true,
+      openRows: "13:67 14:67 15:67", wagons: 1 }
+
+比較は **固定基準列との一致 + 挟み込み**(`idxEscort` → `board`(#52 の機能) → `idxEscortPost`)の 2 段。
+⭐ 変異 `fieldset`(`FIELD_THEMES` から `caravan-road` を外す)を当てると、この 8 項目のうち
+**5 項目が同時に化ける**(`fieldMode` false / `isFieldTheme` false / `mapdefId` `df-default-dungeon` /
+`bandMask` false / `openRows` が row5-22 の 18 行へ)= 罠 A の裏が確かに 7.9-3 を壊すことの実証。
+
+### 12-6. 装置の結果 / 非退行
+
+**#52 の装置**(すべて 2026-09-05 実測):
+
+| 実行 | 結果 |
+|---|---|
+| `node tools/verify_road_ambush.js`(素) | **41/41 PASSED / FAILED 0 / PENDING 0**(#51 の 28 本 + #52 の 13 本) |
+| `node tools/verify_road_ambush.js --negative` | **97/97 PASSED / FAILED 0 / PENDING 0**(変異 **30 本**とも空振り 0。`(n9a)`(実装漏れ 0)/`(n9b)`(表 30 行)が機械確認) |
+
+#52 が足した節と負のコントロールの対応(**10 本とも担当節を実際に赤にした**):
+
+| 変異 | 赤くなった節 | 実測の中身 |
+|---|---|---|
+| `fieldtheme` | (6c)(6d) | `isCustom=false` / `mapDef.id="df-default-field"` / `FIELD_MODE=true` / `bandMask=true` = **罠 A の再現** |
+| `fieldset` | (9a) | 7.9-3 が `mapdefId="df-default-dungeon"` / `bandMask=false` / `openRows` が 3 行 → **18 行**へ = **罠 A の裏** |
+| `aspectskew` | (6b) | 貼り先 `[4,21,22,48]` ≠ tileBounds `[4,21,22,49]` |
+| `bridgefill` | (7a)(7b) | 通し行 **0 行** / 素の連結成分が最初から `[228,123]` |
+| `roadcut` | (7a) | 通し行 **0 行**(歩けるマスは 354 = 1 マスしか減っていないのに捕まる) |
+| `ringmark` | (7d) | 外周の `#` **2 件** |
+| `maskshort` | (7e) | `blocked[18] の桁数 28 が tileBounds の幅 29 と違います` → マスクが丸ごと捨てられ、塞いだマスが 196 → **88**(sealRing だけ) |
+| `srcbake` | (6b) | 絵 **0 枚** / `painting=null` |
+| `nosealring` | (7c) | 歩けるマス 355 → **443** / `ring` 88 → **0** |
+| `gateadd` | (6b) | `gates=["left"]` |
+
+⭐ `maskshort` が (7e) だけでなく (7a)〜(7d) も同時に赤にすることを確認した = **依頼書 §8 の
+「(7a)〜(7d) は (7e) を AND で内包せよ」が実際に効いている**(母集団ガード無しなら
+(7c)(7d) は緑のまま残っていた)。
+
+**既存 golden(⛔ 並走させず 1 本ずつ逐次。期待値の変更 0 件)**:
+
+| ドライバ | 結果 | ドライバ | 結果 |
+|---|---|---|---|
+| `verify_ability_scores` | 24/24 | `verify_road_events` | 25/25 |
+| `verify_darkvision` | 25/25 | `verify_run_chronicle` | 73/73 |
+| `verify_mercenary_roster` | 44/44 | `verify_title_screen` | 86/86 |
+| `verify_player_sheet` | **73/73 FAILED 0** | `verify_town_exit` | 素 23/23 |
+| `verify_quest_walk` | 25/25 | `verify_world_heromark` | 18/18 |
+| `verify_recruit_size` | 82/82 | `verify_world_map` | 57/57 |
+| `verify_road_boon` | 20/20 | `verify_world_steps` | 33/33 |
+
+絵と幾何を触るので追加で見たもの:
+
+| ドライバ | 結果 |
+|---|---|
+| `driver_mapdef_step1` | **208/208 PASS**(⭐ golden 8 件の mapCanvas SHA が 8 通りとも不変 = `caravan-road` の特殊扱いも無傷) |
+| `driver_graph_p7` | **60/60 PASS** |
+| `driver_field_step7` | **79/79 PASS** |
+| `driver_paint_blocked`(既定 = goblin-mine) | **65/65 PASS** |
+| `driver_paint_blocked --stage bandits-forest` | **62 PASS / FAIL 3** ⚠ ただし**#52 の責任ではない**(下記) |
+
+⚠⚠ **`driver_paint_blocked --stage bandits-forest` の赤 3 件は着手前から赤だった。**
+⛔ 「たぶん既存」で済ませず、**`c0a9134`(#52 を 1 バイトも適用していない木)を一時 worktree に
+展開して同じコマンドを走らせ、62 PASS / FAIL 3 が完全に同一であることを実測した**:
+
+- `(4a)` 現行のマスクが門前ガードに触れている(`spawn=1`)
+- `(8a)` グラフの組み直しが `n=1/1 entry=n7 boss=n7`(森は `S2_FOLDED` で 1 ノードへ畳まれている)
+- `(8d)` ノードに貼られた絵が `bandits-forest/n7big` で、判定式 `/\/n\d+$/` に当たらない
+
+⭐ **これは #53 の依頼書 §2 が予告していた既存の齟齬そのもの**(`--stage` の既定が
+`goblin-mine` なので今日まで誰も踏んでいなかった)。#53 が「赤を実見してから直す」と
+決めている箇所なので、**#52 では 1 バイトも触っていない**。
+
+⚠ なお `driver_mapdef_step1` は **前回実行が残した壊れた baseline worktree**
+(`%TEMP%/df_mapdef1_baseline`。`index.html` が消えていて再利用判定を通らず、
+`worktree add` が「既に在る」で落ちる)のせいで起動できなかった。⭐ ドライバ自身の
+復旧枝と同じ `git worktree remove --force` で解消(#52 の変更とは無関係)。
+
+### 12-7. 残課題(未対処)
+
+- **実機体感 5 件**(§9 の 1〜5)。特に **② 幌車のスプライトが絵の幌車と二重に見えないか** —
+  絵の幌車はローカル col 16-19、スプライトは col 15 中心で幅 2.1 タイル(col 14-16)なので
+  **col 16 で 1 マスだけ重なる**。実機で「2 台の荷車」に見えるかを確認する。
+- **`progress.cleared` の混入**(#51 §12-4 の残課題)は **#52 でも未対処**。`tavern.html` が
+  禁止ファイルなので手を付けていない。別チケットの担当。
