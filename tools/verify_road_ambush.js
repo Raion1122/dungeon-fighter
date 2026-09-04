@@ -334,7 +334,17 @@ const SCAN_SEEDS = [7, 282, 20260904, 1, 2, 3, 4, 5, 6, 8, 9, 10,
 const SCAN_K = 12;         /* 1 走行で踏みうる「襲撃を振る停留所」の上限の目安 */
 const SCAN_WANT_FIRE = 2;  /* これだけ集まったら打ち切る */
 const SCAN_WANT_QUIET = 2;
-const SCAN_EARLY = 2;      /* firstFire がこれ以下の種を「早く出る種」として優先する */
+/* ⚠⚠⚠ **DEST_FIRE の経路で襲撃を振る停留所は 2 つしか無い** (2026-09-04 実測)。
+ *   pier → swamp の到着列は ["phlan", "cross_n", "cross_n__swamp@1", "swamp"] で、
+ *     phlan … 通りすがりの **拠点** = isRoadSite() で落ちる (振らない)
+ *     swamp … 押した行き先 = onArriveStep が onArriveNode へ倒す (振らない)
+ *   ⇒ ambRoll() を消費するのは cross_n と cross_n__swamp@1 の **2 回だけ**。
+ * ⭐ だから「早く出る種」は firstFire <= 1 で選ぶ。⛔ 2 以上を選ぶと歩き切っても発火せず、
+ *   (0c)(0e) が「腕が立たない」で赤くなる (装置のせいで本番が疑われる = 最悪の形)。 */
+const SCAN_EARLY = 1;
+/* ⭐ 出る種の候補を上から順に試す本数。1 本目が空振りしても装置のせいで諦めない。
+ *  ⛔ 「緑になるまで試す」ではない —— (0c) は実際に器が開いたことを要求し続ける。 */
+const FIRE_TRIES = 3;
 
 /* ── 歩行 ────────────────────────────────────────────────────────────────────
  * ⚠ 行き先に phlan を選ばない (着いた瞬間に town.html へ飛び、以後の測定が全部死ぬ)。
@@ -915,6 +925,8 @@ const ASSERTS = [
       return [ok,
         '走査 ' + sc.probed + ' 種 → 出る種 ' + sc.fire.length + ' / 出ない種 ' + sc.quiet.length
         + ' (先頭: ' + JSON.stringify(sc.rows.slice(0, 6)) + ')'
+        + '  / 出る種の試行 = ' + JSON.stringify((m.seedPick || {}).tries || [])
+        + ' 採用 = ' + JSON.stringify((m.seedPick || {}).used)
         + '  / 歩行[出る種 ' + (fireLeg ? fireLeg.seed : '—') + '→' + (fireLeg ? fireLeg.dest : '—')
         + '] 襲撃 ' + (fireLeg ? fireLeg.ambushOpens : '—') + ' 件'
         + ' / 出来事 ' + (fireLeg ? fireLeg.roadOpens : '—') + ' 件'
@@ -1110,17 +1122,26 @@ const SECTIONS = [
       /* ⭐ 歩行の腕。種を分類できたときだけ 3 経路 + 静けさの 4 本を走らせる。
          ⛔ 分類できないとき (= 本番未実装) でも **1 本は歩かせる** —— 歩行ハーネスそのものが
             立っていることを記録に残すため (⛔ ただし (0c)(0e) は緑にしない)。 */
-      const fireSeed = (m.scan && m.scan.fire && m.scan.fire.length) ? m.scan.fire[0].seed : null;
+      const cands = (m.scan && m.scan.fire) ? m.scan.fire.slice(0, FIRE_TRIES) : [];
       const quietSeed = (m.scan && m.scan.quiet && m.scan.quiet.length) ? m.scan.quiet[0].seed : null;
-      m.seedPick = { fire: fireSeed, quiet: quietSeed,
-        fallback: (fireSeed === null) ? SEED_FALLBACK : null };
-      if (fireSeed !== null) {
-        m.legs.fireNone = await measureAmbush(browser, PORT, errs,
-          { label: '判定なし', seed: fireSeed, dest: DEST_FIRE, mode: 'none' });
-        m.legs.fireWin = await measureAmbush(browser, PORT, errs,
-          { label: '判定つき成功', seed: fireSeed, dest: DEST_FIRE, mode: 'check', force: D20_WIN });
-        m.legs.fireLose = await measureAmbush(browser, PORT, errs,
-          { label: '判定つき失敗', seed: fireSeed, dest: DEST_FIRE, mode: 'check', force: D20_LOSE });
+      m.seedPick = { cands: cands, used: null, quiet: quietSeed,
+        fallback: cands.length ? null : SEED_FALLBACK, tries: [] };
+      if (cands.length) {
+        /* ⭐ 候補を上から順に 1 本ずつ歩かせ、**実際に器が開いた種**を採る。
+           ⛔ 「緑になるまで試す」ではない —— 開かなければ (0c)(0e) は赤のまま。 */
+        for (const c of cands) {
+          const leg = await measureAmbush(browser, PORT, errs,
+            { label: '判定なし', seed: c.seed, dest: DEST_FIRE, mode: 'none' });
+          m.legs.fireNone = leg;
+          m.seedPick.tries.push({ seed: c.seed, first: c.first, opens: leg.ambushOpens });
+          if (leg.ambushOpens >= 1) { m.seedPick.used = c.seed; break; }
+        }
+        if (m.seedPick.used !== null) {
+          m.legs.fireWin = await measureAmbush(browser, PORT, errs,
+            { label: '判定つき成功', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_WIN });
+          m.legs.fireLose = await measureAmbush(browser, PORT, errs,
+            { label: '判定つき失敗', seed: m.seedPick.used, dest: DEST_FIRE, mode: 'check', force: D20_LOSE });
+        }
       } else {
         m.legs.fireNone = await measureAmbush(browser, PORT, errs,
           { label: '判定なし (⚠ 出る種が無いので既定の種で歩行ハーネスだけ通す)',
