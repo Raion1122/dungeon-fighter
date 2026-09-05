@@ -2917,10 +2917,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場の卓に座る顔ぶれが変わる</b> — 訪れるたびに違う冒険者が席に着く。かつて共に戦った顔がまた現れることもある。</li>
         <li><b>若い司祭を説得できると族長の巣が変わる</b> — 参道で言葉が通じれば巣の司祭が 1 人減り、しくじると護衛が 1 人増える。話しかけずに通り過ぎた時は何も変わらない。</li>
         <li><b>沼の参道で若い司祭と話せる</b> — 槍を構えない若い蛇神司祭に、碑文(歴史)・信仰の矛盾(宗教)・脅し(威圧)のどれかで語りかけられる。通じれば道を譲り、しくじれば襲ってくる。</li>
         <li><b>沼の参道がまるごと 1 枚の戦場に</b> — シナリオ3「蛇神の参道」が、浅い水に石畳が透ける広い参道の地図そのものを歩く戦場になった。</li>
-        <li><b>街道の襲撃に専用の戦場が付いた</b> — 停まった幌車と石橋のある街道の地図の上で戦えるようになった。</li>
       </ul>
     </div>
     <script>
@@ -7293,6 +7293,47 @@
     elf:     ["assets/elf_walk.png",     "assets/elf_male_walk.png",        "assets/elf_male_walk.png",      "assets/elf_male_walk.png"],
     rogue:   ["assets/rogue_walk.png",   "assets/rogue_male_walk.png",      "assets/rogue_male_walk.png",    "assets/rogue_male_walk.png"],
   };
+  /* ════════════ #54 STEP2: 今日の卓の顔ぶれ ════════════════════════════════
+     酒場の卓に座る 4 人 (patronA-D) を、**酒場を開くたびに**引き直す。
+     ⭐ 引くのは pickCompanion() = 傭兵名簿 (#38) と同じ口。よって
+       **名簿が空なら必ず makeNpcMember() に落ちる = 従来と 1 バイトも変わらない**。
+     ⛔ js/npc-crowd.js の配置データ (tile / dx / dy) は 1 バイトも触らない。
+       差し替えるのは **描画時に引くスプライト**と、誰が座っているかだけ
+       (依頼書 §2-7 の不変条件 (I1)(I2)(I5) と golden 4 本を守るため)。
+     ⭐ スプライトは PARTY_PORTRAIT_SPRITES を引く。**今日までの 4 人は同じ表の
+       variant = 1 と完全一致**する (dwarf/rogue/cleric/elf) ので、その 4 職を
+       引いた場合は現在と同じ絵になる = 恒等が保証される (依頼書 §12-0c)。
+     ⚠ 撤退 ?recruittalk=0 では 1 人も引かない = 従来の固定 4 人がそのまま座る。
+     ⚠ const に畳まない (isRecruitOn() と同じ理由の TDZ 回避)。呼ぶたびに読む。 */
+  const RECRUIT_SEATS = ["patronA", "patronB", "patronC", "patronD"];
+  function isRecruitTalkOn() {
+    try { return new URLSearchParams(location.search).get("recruittalk") !== "0"; } catch (e) { return true; }
+  }
+  /* 席 key → その席に座っている member。撤退時と抽選前は null。 */
+  let todaysPatrons = null;
+  function drawTodaysPatrons() {
+    if (!isRecruitTalkOn()) return null;
+    /* 職業は 6 職から重複なしで 4 つ。⛔ 同じ職が 2 席に座ると「誰を誘ったか」が
+       絵で区別できなくなる (変種スプライトは職ごとに 1 枚しか使っていないため)。 */
+    const pool = ALL_CLASS_KEYS.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    const used = new Set();
+    const out = {};
+    RECRUIT_SEATS.forEach(function (key, i) { out[key] = pickCompanion(pool[i], used); });
+    return out;
+  }
+  /* member → 歩行シート。⚠ PARTY_PORTRAIT_SPRITES は職ごとに 4 枠だが実体は
+     [0]=正規 / [1..3]=同じ NPC 用シートなので、範囲外は末尾へ丸める。 */
+  function patronSpriteOf(m) {
+    if (!m) return null;
+    const arr = PARTY_PORTRAIT_SPRITES[m.classKey];
+    if (!arr || !arr.length) return null;
+    return arr[Math.min(Math.max(m.variant || 0, 0), arr.length - 1)];
+  }
+  /* ════════════ #54 STEP2 ここまで ════════════════════════════════════════ */
   const PM_ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
   const PM_CLASS_EMOJI = { warrior: "🗡️", dwarf: "⛏️", cleric: "✨", mage: "🔮", elf: "🏹", rogue: "🗝️" };
   const PM_REVEAL_INTERVAL = 720;   // 各カラム確定の間隔 (ms)。テンポ調整レバー。
@@ -8976,6 +9017,9 @@
         console.warn("[tavern] js/npc-crowd.js が読めていない → NPC を出さない");
         return;
       }
+      /* ★[#54] 今日の卓の顔ぶれを 1 回だけ引く。⚠ forEach の中で引かない
+         (席ごとに別の抽選になり、同じ人が 2 席に座る)。 */
+      todaysPatrons = drawTodaysPatrons();
       var layer = document.createElement("div");
       layer.id = "npcLayer";
       /* ⭐ 主人公より **前** に挿す。z-index が同じ 3 なので DOM 順で主人公が手前に来る。 */
@@ -8991,7 +9035,11 @@
         el.setAttribute("data-npc", n.key);        /* ⚠ ドライバはここから key を読む */
         el.style.width  = SPRITE + "px";
         el.style.height = SPRITE + "px";
-        el.style.backgroundImage = 'url("' + n.sprite + '")';
+        /* ★[#54] 座っている人の職業でシートを引く。⛔ n.sprite (データ) は書き換えない
+           = verify_npc_crowd が読む配置データは 1 バイトも動かない。 */
+        var seatMember = todaysPatrons ? todaysPatrons[n.key] : null;
+        var seatSprite = patronSpriteOf(seatMember) || n.sprite;
+        el.style.backgroundImage = 'url("' + seatSprite + '")';
         el.style.backgroundSize  = (SPRITE * 6) + "px " + (SPRITE * 4) + "px";
         layer.appendChild(sh);
         layer.appendChild(el);

@@ -48,7 +48,7 @@
       say: "無事の帰還を祈っておこう。" },
     { key: "patronD", kind: "stand", tile: [10, 5], dx:  14, dy:   6, face: "left",
       sprite: "assets/elf_male_walk.png", hold: 3,
-      say: "森の依頼なら、私に一言あってもよかろうに。" },
+      say: "次の潜りは、腕の立つ連れが要るな。" },
     { key: "drunk",   kind: "stand", tile: [ 1, 5], dx:  16, dy:   0, face: "right",
       sprite: "assets/warrior_npcfemale_walk.png", hold: 5,
       say: "……もう一杯だけ。もう一杯だけだ。" },
