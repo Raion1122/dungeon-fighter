@@ -12772,6 +12772,32 @@
       cleric: ["cure-light-wounds", "shield-of-faith", "turn-undead"],   // turn-undead は地下神殿の要のため初期習得
       elf:    ["aimed-shot", "magic-arrow", "hunters-mark", "cure-minor"],
     };
+    /* ★[#54] 魔法使いのスリープ常備。⚠ 撤退 ?magesleep=0 で従来 (sleep 無し) へ戻る。
+     * ⛔⛔ **枠 (SKILL_SLOT_CURVE / SPELL_SLOT_CURVE_MAGE) は 1 ビットも触らない。**
+     * ⭐⭐⭐ 起草時の見立て「Lv1 の枠は 1 個なので slice の後に足し戻す」は**誤り**だった
+     *   (依頼書 §12-0b の実測で訂正)。SKILL_SLOT_CURVE は
+     *   `["warrior","dwarf","rogue"].includes(...)` に守られた**マーシャル職専用**で、
+     *   魔法使いは slice を 1 度も通らない。Lv1 の呪文枠は SPELL_SLOT_CURVE_MAGE[1] = **3**。
+     *   本当の関門は **この DEFAULT_KNOWN に sleep が無いこと** = isSpellKnown() の完全ゲート。
+     * ⭐ 移行コードは要らない。loadKnownSpells() が DEFAULT_KNOWN と localStorage の
+     *   **和集合を毎ロード取る (自己修復)** ので、既存セーブでも自動的に既知になる。
+     * ⛔ 一般機構にしない — 魔法使いの sleep 1 件だけの穴 (依頼書 §11)。
+     * ⚠ const に畳まず関数にする。この行より前から呼ばれても TDZ で落ちないため
+     *   (tavern.html の isRecruitOn() と同じ作法)。 */
+    function isMageSleepOn() {
+      try { return new URLSearchParams(window.location.search).get("magesleep") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* 呪文リストの **index 1** に sleep を挿す。⭐⭐⭐ 位置が効く:
+     *   呪文枠は先頭から `take = min(n, upperCap - used)` で配られ、Lv1 は upperCap = 3。
+     *   末尾に置くと枠が尽きて**黙って落ちる** (受入 sleeplast がこれを守る)。 */
+    function withInnateSleepList(list) {
+      if (!isMageSleepOn() || !Array.isArray(list) || list.includes("sleep")) return list;
+      const out = list.slice();
+      out.splice(1, 0, "sleep");
+      return out;
+    }
+    DEFAULT_KNOWN.mage = withInnateSleepList(DEFAULT_KNOWN.mage);
 
     // 習得済み呪文コーデックス { mage:[...], cleric:[...], elf:[...] }。defaults を毎ロード和集合 (自己修復)。
     function loadKnownSpells() {
@@ -21203,6 +21229,14 @@
         defaultSkills: [],
       },
     };
+    /* ★[#54] 魔法使いのスリープ常備 — NPC キャスターの枠配分。
+     * defaultCasterMap() が defaultSkills の**順に** 2 枠ずつ積み、initAllySpellSlots() が
+     * upperCap (= SPELL_SLOT_CURVE_MAGE[Lv]、Lv1 は 3) で切る。よって順序だけで配分が決まる:
+     *   従来 [mm, fb, as]        → {magic-missile:2, fire-bolt:1}          (arcane-shield は 0 枠)
+     *   本件 [mm, sleep, fb, as] → {magic-missile:2, sleep:1}              ★ユーザー決定 (A)
+     * ⚠ 主人公が魔法使いのときは**この経路を通らない** (酒場の partySkills が権威)。
+     *   そちらは tavern.html の loadSelections() 側で常備を確保している。 */
+    CLASS_DEFS.mage.defaultSkills = withInnateSleepList(CLASS_DEFS.mage.defaultSkills);
 
 
     // 僧侶スキル (Phase 1)

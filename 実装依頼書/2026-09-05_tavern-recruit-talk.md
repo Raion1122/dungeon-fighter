@@ -23,8 +23,9 @@
 プレイヤーは「この人を連れて行く」と**指名できない**。一方で酒場には冒険者が 4 人立っているのに、
 彼らは `say:` の一言を返すだけで仲間にはならない。**この 2 つが繋がっていない。**
 
-あわせて、序盤の魔法使いが**スリープを撃てない**。呪文も関数も実装済みなのに、
-初期装備スキルに入っておらず、しかも Lv1 の枠が 1 個しかないため足しても効かない(§2-3)。
+あわせて、序盤の魔法使いが**スリープを撃てない**。呪文も関数も実装済みで、Lv1 の呪文枠も 3 個あるのに、
+**`DEFAULT_KNOWN.mage` に sleep が無く `isSpellKnown` の完全ゲートで落ちる**うえ、
+枠は `magic-missile ×2 + fire-bolt ×1` で埋まりきっている(§2-3)。
 
 **ユーザー決定(2026-09-05)**:
 
@@ -98,31 +99,52 @@
 
 ⇒ §8 の負のコントロール `compnotmembers` として装置に内蔵する。
 
-### 2-3. ⚠⚠⚠ 罠 B — Lv1 の枠は **1 個**。`defaultSkills` に sleep を足しても効かない
+### 2-3. ⚠⚠⚠ 罠 B — 魔法使いは **`SKILL_SLOT_CURVE` の管轄外**。関門は `isSpellKnown` の完全ゲート
 
-    const SKILL_SLOT_CURVE = [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5];   // index = Lv
-    → Lv1 = 1 枠 / Lv3 = 2 / Lv5 = 3 / Lv10 = 5
+⛔⛔ **起草時の記述は誤りだった**(実装窓が STEP0 で実測して訂正。予測のほうを訂正している)。
+誤: 「Lv1 の枠は 1 個。slice が 4 箇所あるので、slice の後に足し戻す」
+正: 以下のとおり **別系統**であり、slice は mage に 1 度も効かない。
 
-mage の `defaultSkills` は 3 個(`magic-missile` / `fire-bolt` / `arcane-shield`)だが、
-Lv1 では `slice(0, 1)` で切られ **実際に使えるのは先頭の `magic-missile` だけ**。
-⇒ **4 番目に `sleep` を足しても Lv6 まで枠外**で眠り続ける。
+| 項目 | 実測 |
+|---|---|
+| `SKILL_SLOT_CURVE` の適用先 | **マーシャル職のみ**(`["warrior","dwarf","rogue"].includes(...)` が 3 箇所。うち 1 つは `if (!...) continue`) |
+| キャスターの頭の枠 | **3 固定**(`headSkillSlots` の三項演算子の else 側) |
+| 魔法使いの呪文枠の正 | **`SPELL_SLOT_CURVE_MAGE = [0,3,4,5,6,8,9,10,12,13,15]`** ⇒ **Lv1 は 3 枠** |
+| 本当の関門 | **`isSpellKnown` の完全ゲート**(6 箇所)。`DEFAULT_KNOWN.mage` に sleep が無い |
+| Lv1 NPC 魔法使いの実体 | **`{magic-missile: 2, fire-bolt: 1}`**(arcane-shield は枠が尽きて 0) |
+| MP | **Phase 2-J で廃止**。`sleep` の `mpCost: 6` は名残で障害ではない |
 
-⭐ **これがユーザーの言う「これがないとうまく進まない」の構造的な理由。**
+⭐ 同じ鎖(`knownSpells` → `partySkills` → `allocMap` → `equippedSkills`)は
+**#50 の `tools/verify_cone_cast.js:618-650` が既に文書化**しており、バーニングハンズで同じ穴を踏んでいる。
 
-**切り詰めは 4 箇所ある**(全部を守らないと片手落ち):
+⭐⭐⭐ **一般形の教訓**: CLAUDE.md §2-1「その語で grep して 0 件」を未実装の根拠にするな、には**裏返し**がある —
+**「その語で grep して N 件あっても、その N 件が対象に効くとは限らない」**。
+呼び口を数えたら、**その呼び口のガード条件まで読む**こと。起草はこれを怠って §2-3 を丸ごと外した。
 
-| 経路 | 識別子 | 対象 |
+#### ⚠⚠ 実装窓が追加で見つけた「写し」2 件(⭐ index.html だけ直しても片手落ち)
+
+| 写し | 場所 | 効く相手 |
 |---|---|---|
-| 主人公の暫定 | `const heroSkillSlots = skillSlotsForLevel(` | ⚠ **`partySkillsMap.warrior` と `WARRIOR_SKILLS` に固定**。mage では素通り |
-| 頭(酒場カスタム) | `partySkillsMap[leaderClassKey].filter(...).slice(0, headSkillSlots)` | 主人公が頭のとき |
-| 頭(クラス既定) | `[...def.defaultSkills].slice(0, headSkillSlots)` | NPC が頭のとき |
-| 仲間 | `ally.equippedSkills.slice(0, skillSlotsForLevel(ally.level \|\| headLevel))` | ⭐ **最後に必ず通る** |
+| `DEFAULT_KNOWN_TV` | `tavern.html`(「index.html DEFAULT_KNOWN と同期」と自ら明記) | 酒場の巻物一覧の `[習得済み]` 表示 |
+| `PARTY_SLOTS[mage].defaults` | `tavern.html` | `selection.partySkills.mage` の初期値 = **主人公が魔法使いのときの権威** |
 
-⇒ ⭐⭐⭐ **4 箇所の slice を個別に直さない。** 「slice を全部通した**後**に、mage なら sleep を
-足し戻す」**1 関数**を作り、各経路の末尾で 1 回だけ呼ぶ。これなら枠カーブに 1 ビットも触らない。
+⚠⚠⚠ さらに **`partySkills` は localStorage に永続化**され、読み込み時に `slot.defaults` を
+**置換する(和集合ではない)**。⇒ `defaults` を変えるだけでは **既存セーブに 1 ミリも効かない**。
+⭐ `knownSpells` だけが「毎ロード和集合(自己修復)」なので、起草の「移行コードは不要」は
+**knownSpells については正しく、partySkills については誤り**。
 
-⛔ **一般機構化しない。** 「職業ごとの常備スキル」を作ると次に僧侶にも戦士にも欲しくなり、
-枠の意味が消える。**mage の sleep 1 件だけの穴**に留める(会議でノエルが付けた条件)。
+#### ⭐⭐⭐ 配分は「順序」で決まる。しかも **経路ごとに譲る呪文が違う**
+
+呪文枠は先頭から `take = Math.min(n, upperCap - used)` で配られ、Lv1 は `upperCap = 3`。
+⇒ sleep は **index 1** に挿す(末尾に置くと枠が尽きて**黙って落ちる**)。
+
+| 経路 | 積み方 | 従来 | (A) 適用後 | 譲るのは |
+|---|---|---|---|---|
+| NPC 仲間(`defaultCasterMap`) | **2 枠ずつ** | `{mm:2, fb:1}` | **`{mm:2, sleep:1}`** | fire-bolt |
+| 主人公(酒場の `partySkills`) | **1 枠ずつ** | `{mm:1, fb:1, as:1}` | **`{mm:1, sleep:1, fb:1}`** | arcane-shield |
+
+⭐ 「同じ (A) でも譲る呪文が違う」のは積み方の差。⛔ 片方の実測をもう片方の根拠にしないこと。
+
 
 ### 2-4. 受注フローの実測(⭐ 声掛けを「受注前」にした理由)
 
@@ -544,6 +566,10 @@ STEP0 の実走が唯一の正。
   **仲間 3 人が健在なのに主人公だけ落ちて敗北**している。これはリーダー AI / 前衛の立ち位置の
   問題であって、本チケットが作る欠陥ではない。⚠ ただし**ソロ潜行を許すと直撃する**ので、
   #54 の実機確認で「ソロで詰まないか」を見た結果しだいでは、次の一手の最有力候補になる。
+- ⛔ **`scroll-sleep` の再編成**(ユーザー決裁 2026-09-05 = **今は残す**)。
+  sleep を初期習得にすると common の巻物枠が 1 つ実質死ぬが、⭐ **壊れない**ことは確認済
+  (`learnScroll` が `{learned:false, already:true}` を返し、一覧が `[習得済み]` を出す)。
+  巻物の再編成は #54 のスコープを広げるので**別チケット**。
 - ⛔ **`実装依頼書/README.md` への行追加**(#53 着地後)。用意してある行:
 
     | 54 | [2026-09-05_tavern-recruit-talk.md](2026-09-05_tavern-recruit-talk.md) | **承認済**(2026-09-05) / **着手は #53 着地待ち** | 0% | 酒場の卓に座る冒険者へ**受注前に**声を掛けて同行候補にし、受注するとマッチング画面にその顔が映る + 魔法使いの sleep 常備。⭐ 骨格は #38 `DFRoster` に既にあり、足りないのは**選択権だけ**。⚠⚠⚠ 積む先は `partyMembers`(`partyComposition` は後方互換の写し)。⚠⚠⚠ Lv1 の枠は 1 個なので `defaultSkills` に sleep を足しても効かない(slice の**後**に足し戻す)。撤退 `?recruittalk=0` / `?magesleep=0` の 2 本 |
@@ -702,3 +728,48 @@ Lv1 の枠 3 個は `magic-missile ×2 + fire-bolt ×1` で**埋まりきって�
 (データ側を読んで比較する自己整合な作り)ので、**`say` の文面を書き換えても緑のまま**。
 ⛔ 逆に「吹き出しを抽選した人物の `line` にする」と、データと食い違って**必ず赤くなる**。
 ⇒ STEP2 では `say` を**職業に依らない中立な文面**へ書き換える(⛔ `tile` / `dx` / `dy` は触らない)。
+
+
+---
+
+### 12-1. STEP1 着地 — 魔法使いのスリープ常備((A) 採用)
+
+**仕様判断**: ユーザー決裁 2026-09-05 = **(A) `magic-missile ×2 + sleep ×1`** / 巻物は**今は残す**。
+
+#### 触った 4 箇所(⛔ 枠のカーブは 1 ビットも触っていない)
+
+| ファイル | 変更 |
+|---|---|
+| `index.html` | `isMageSleepOn()` / `withInnateSleepList()` を新設し、**`DEFAULT_KNOWN.mage`** に sleep を挿す(完全ゲートを通す) |
+| `index.html` | **`CLASS_DEFS.mage.defaultSkills`** に sleep を index 1 で挿す(NPC キャスターの枠配分) |
+| `tavern.html` | **`DEFAULT_KNOWN_TV.mage`**(写し)に同じ処理 — 片方だけだと「戦闘では撃てるのに酒場では未習得に見える」 |
+| `tavern.html` | `loadSelections()` の末尾で **保存済み `partySkills.mage`** にも常備を確保(⚠ これが無いと既存セーブに効かない) |
+
+⭐ `DEFAULT_KNOWN` 側は移行コード不要(`loadKnownSpells` が毎ロード和集合を取る自己修復)。
+⚠ `partySkills` 側は**置換**なので、上表 4 行目が要る。
+
+#### 実測(プローブ 11/11 PASS)
+
+    [実測] NPC 魔法使い(素)   skills=["magic-missile","sleep"]  slots={"magic-missile":2,"sleep":1}
+    [実測] NPC 魔法使い(撤退) skills=["magic-missile","fire-bolt"] slots={"magic-missile":2,"fire-bolt":1}
+    [実測] 酒場 partySkills.mage  素=[mm,sleep,fb,as] / 撤退=[mm,fb,as]
+    [実測] 主人公=魔法使い slots  素={"magic-missile":1,"sleep":1,"fire-bolt":1}
+                                  撤退={"magic-missile":1,"fire-bolt":1,"arcane-shield":1}
+
+| 受入 | 結果 |
+|---|---|
+| (1a) 主人公が魔法使いのとき呪文枠に sleep | ✅ |
+| (1b) NPC 仲間の魔法使いの `equippedSkills` に sleep | ✅ |
+| (1c) `magic-missile` を失っていない | ✅ |
+| (1c2) (A) の配分どおり NPC = `{mm:2, sleep:1}` | ✅ |
+| (1d) `SKILL_SLOT_CURVE` が 1 ビットも変わっていない | ✅ `[0,1,1,2,2,3,3,4,4,5,5]` |
+| (1d2) `SPELL_SLOT_CURVE_MAGE` が 1 ビットも変わっていない | ✅ `[0,3,4,5,6,8,9,10,12,13,15]` |
+| (1e) 魔法使い以外の職の `equippedSkills` が不変 | ✅ 素と撤退で一致 |
+| (1f) 既存セーブの `partySkills` にも常備が入る | ✅ index 1 |
+| (1g) 酒場側の習得ゲートにも sleep | ✅ |
+| (4b) 撤退 `?magesleep=0` で 3 経路とも sleep 無し | ✅ |
+| (Z) pageerror 0 件 | ✅ |
+
+⚠⚠ **譲る呪文が経路で違う**(NPC = fire-bolt / 主人公 = arcane-shield)。積み方が 2 枠ずつと
+1 枠ずつで違うため。⭐ ユーザー決裁 (A) の「Lv1 で fire-bolt が出なくなる」は **NPC 経路の話**で、
+主人公経路では **fire-bolt は残り arcane-shield が譲る**(= (A) の意図より損失が小さい)。

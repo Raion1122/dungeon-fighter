@@ -2917,10 +2917,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>魔法使いが最初からスリープを唱える</b> — 序盤の群れを眠らせて切り抜けられるようになった。</li>
         <li><b>酒場の卓に座る顔ぶれが変わる</b> — 訪れるたびに違う冒険者が席に着く。かつて共に戦った顔がまた現れることもある。</li>
         <li><b>若い司祭を説得できると族長の巣が変わる</b> — 参道で言葉が通じれば巣の司祭が 1 人減り、しくじると護衛が 1 人増える。話しかけずに通り過ぎた時は何も変わらない。</li>
         <li><b>沼の参道で若い司祭と話せる</b> — 槍を構えない若い蛇神司祭に、碑文(歴史)・信仰の矛盾(宗教)・脅し(威圧)のどれかで語りかけられる。通じれば道を譲り、しくじれば襲ってくる。</li>
-        <li><b>沼の参道がまるごと 1 枚の戦場に</b> — シナリオ3「蛇神の参道」が、浅い水に石畳が透ける広い参道の地図そのものを歩く戦場になった。</li>
       </ul>
     </div>
     <script>
@@ -4656,6 +4656,21 @@
     cleric: ["cure-light-wounds", "shield-of-faith", "turn-undead"],   // turn-undead は地下神殿の要のため初期習得
     elf:    ["aimed-shot", "magic-arrow", "hunters-mark", "cure-minor"],
   };
+  /* ★[#54] 魔法使いのスリープ常備 — 酒場側の写し。⚠ 撤退 ?magesleep=0 で従来へ戻る。
+   * ⚠⚠ index.html の DEFAULT_KNOWN と**二重定義**なので、片方だけ直すと
+   *   「戦闘では撃てるのに酒場の巻物一覧では未習得に見える」食い違いが出る。
+   * ⭐ 位置が効く理由と枠の話は index.html 側の同名関数のコメントが正。 */
+  function isMageSleepOnTV() {
+    try { return new URLSearchParams(location.search).get("magesleep") !== "0"; }
+    catch (e) { return true; }
+  }
+  function withInnateSleepListTV(list) {
+    if (!isMageSleepOnTV() || !Array.isArray(list) || list.includes("sleep")) return list;
+    const out = list.slice();
+    out.splice(1, 0, "sleep");
+    return out;
+  }
+  DEFAULT_KNOWN_TV.mage = withInnateSleepListTV(DEFAULT_KNOWN_TV.mage);
   const SCROLL_KIND_LABEL_TV = { mage: "巻物", cleric: "聖典", elf: "森の書" };
 
   function loadKnownSpellsTV() {
@@ -4937,6 +4952,19 @@
         }
       }
     } catch (e) { /* ignore */ }
+    /* ★[#54] 魔法使いのスリープ常備 — **主人公が魔法使いのときの経路**。
+     * ⚠⚠ ここが要る理由: partySkills は localStorage に永続化され、上の読み込みは
+     *   slot.defaults を**置換する** (和集合ではない)。⇒ defaults を変えるだけでは
+     *   **既存セーブに 1 ミリも効かない** (依頼書 §12-1 の実測)。
+     * ⭐⭐⭐ index 1 に挿すのが効く理由: この配列は normalizePartySkillsMap() が
+     *   { id: 個数 } へ畳み、initLeaderSpellSlots() が**先頭から** upperCap (Lv1 = 3) まで
+     *   配る。主人公経路は 1 枠ずつなので、末尾に置くと 4 番目になって**黙って落ちる**。
+     *     従来 [mm, fb, as]        → {mm:1, fb:1, arcane-shield:1}
+     *     本件 [mm, sleep, fb, as] → {mm:1, sleep:1, fb:1}   (arcane-shield が枠を譲る)
+     *   ⚠ NPC 経路 (index.html の defaultCasterMap) は 2 枠ずつなので配分が別になる。
+     *     そちらは {mm:2, sleep:1}。**同じ (A) でも譲る呪文が違う**のは枠の積み方の差。
+     * ⚠ sleep は MAGE_SKILLS_UI に既に在るので、上の validIds フィルタには落ちない。 */
+    if (partySkills.mage) partySkills.mage = withInnateSleepListTV(partySkills.mage);
     // 行動の優先度 { classKey: { general, mob, boss, travel } }。値は skillId または null。
     const actionPriority = {};
     for (const slot of PARTY_SLOTS) {
