@@ -2166,6 +2166,12 @@
      * ⚠ ここへ足さないと「正しく載っている絵」が起動のたびに warning を出し続け、
      *   graph-* 警告そのものが信用されなくなる (driver_graph_p6 (2c) が実際に赤くなった)。 */
     { w: 52, h: 26, label: "ノード大部屋 52×26 (2:1)" },
+    /* ★[#53 2026-09-05] 同じ理由で **山場ノード**の大部屋 (lizard-swamp/n4 = 30×21)。
+     * ⚠⚠ 依頼書 §3 は「js/df-mapdef.js は触らない / paintingAspectFits は既存のまま通る」と
+     *   書いていたが、**実測で崩れた**: 起動時 (カタログ登録より前) の lintRun がこの一覧へ落ちるので、
+     *   足さないと 30×21 が毎回 graph-painting-aspect の warning を出し、
+     *   driver_graph_p6 (2c-lizard-swamp) が赤くなる (#11 が 52×26 で踏んだのと同じ穴)。 */
+    { w: 30, h: 21, label: "ノード大部屋 30×21 (10:7)" },
   ];
   /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
    *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、

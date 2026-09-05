@@ -81,6 +81,8 @@ const BOSS_ENTRY_TX = BOSS_C1 + 2, GUARD_MIN_TX = 39;
 const TILE_PX = 96, ENGAGE_PX = 400;
 /* ボス部屋が骨格 (9x6) でないシナリオを sid → true で拾う。ループ後の装置 assert が使う。 */
 const bigBossRooms = {};
+/* ★[#53] 道中ノードの大部屋。(1z2) の装置 assert が「例外が広がっていない」ことを見る。 */
+const bigMidRooms = {};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -412,11 +414,21 @@ const TOUR_SRC = `(async () => {
         sh.paintFit.length === 2 &&
         sh.paintFit.every(p => p.theme === sid && p.src && p.same === true),
         JSON.stringify(sh.paintFit));
-      const midOk = sh.nodes.filter(n => n.id !== 'n7')
-        .every(n => n.rect[0] === RECT_R1 && n.rect[1] === MID_C1 && n.rect[2] === RECT_R2 && n.rect[3] === MID_C2);
+      /* ★[#53 2026-09-05] **道中ノードにも (1j2) と同じ 2 択を許す**。
+       * ⚠ 期待値を緩めているのではない。大部屋を許す条件は #11 とまったく同じ
+       *   「その部屋の絵の tileBounds と rect が完全一致していること」((1i2) が測る) で、
+       *   「絵の無い大部屋」「絵と寸法の違う大部屋」はここで赤くなる。
+       * ⚠ 例外が黙って広がらないよう、ループの後に装置 assert (1z2) を 1 本置く。 */
+      const midNodes = sh.nodes.filter(n => n.id !== 'n7');
+      const midSkeleton = (n) => (n.rect[0] === RECT_R1 && n.rect[1] === MID_C1 &&
+                                  n.rect[2] === RECT_R2 && n.rect[3] === MID_C2);
+      const midPaintSame = (n) => sh.paintFit.some(p => p.node === n.id && p.same === true);
+      const midOk = midNodes.every(n => midSkeleton(n) || midPaintSame(n));
+      bigMidRooms[sid] = midNodes.filter(n => !midSkeleton(n)).map(n => n.id);
       const b = sh.nodes.find(n => n.id === 'n7').rect;
-      check('(1j-' + sid + ') 道中 7 ノードは 7 列 x 6 行の骨格どおり', midOk,
-        sh.nodes.filter(n => n.id !== 'n7').map(n => n.id + '=' + n.rect.join(',')).join(' '));
+      check('(1j-' + sid + ') 道中 7 ノードは 7 列 x 6 行の骨格か、絵と矩形が完全一致する大部屋', midOk,
+        midNodes.map(n => n.id + '=' + n.rect.join(',') +
+                          (midSkeleton(n) ? '' : (midPaintSame(n) ? '(絵一致)' : '(絵なし)'))).join(' '));
       /* ★[#11] ボス部屋だけは「9x6 の骨格」か「1 枚絵で丸ごと覆った大部屋」の 2 択。
        * ⚠ 期待値を緩めているのではない。大部屋を許す条件は
        *   **その部屋の絵の tileBounds と rect が完全一致していること** ((1i2) が測る) なので、
@@ -538,6 +550,18 @@ const TOUR_SRC = `(async () => {
     const big = Object.keys(bigBossRooms).filter(k => bigBossRooms[k]);
     check('(1z) ボス部屋が骨格 (9x6) でないのは bandits-forest だけ',
       big.length === 1 && big[0] === 'bandits-forest', '大部屋=' + (big.join(',') || 'なし'));
+  }
+
+  /* ⚠⚠ 装置 assert その 2: (1j) が許した「大部屋の道中ノード」という例外が、**黙って
+   *   他シナリオ・他ノードへ広がっていない**ことを 1 本で押さえる (上の (1z) と同じ理由)。
+   *   ⚠ 2026-09-05 時点で道中の大部屋は lizard-swamp/n4 (30x21) の**ちょうど 1 つだけ**。
+   *     別のノードを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。 */
+  mark('§1z2 大部屋の道中ノードはちょうど 1 シナリオ 1 ノードだけ (例外が広がっていない装置 assert)');
+  {
+    const bigMid = Object.keys(bigMidRooms).filter(k => (bigMidRooms[k] || []).length);
+    const shape = bigMid.map(k => k + '/' + bigMidRooms[k].join('+')).join(' ');
+    check('(1z2) 道中ノードが骨格 (7x6) でないのは lizard-swamp/n4 だけ',
+      shape === 'lizard-swamp/n4', '大部屋=' + (shape || 'なし'));
   }
 
   // ── §6 撤退スイッチ ?graph=0 ────────────────────────────────────────────────

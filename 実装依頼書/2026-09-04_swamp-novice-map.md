@@ -820,3 +820,134 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 **STEP1 の完了条件の判定**: `--check` の 3 指標が両軸とも OK ✅ /
 `index.html` の差分 **0 行** ✅(`git status` = `tools/make_grid_map.py` の変更と
 `assets/room_lizard-swamp_n4_map.jpg` の新規のみ)
+
+---
+
+### 12-2. STEP2 完了 — n4 を大部屋へ差し替え(⭐ 司祭はまだ入れていない)
+
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `b42eada`(= STEP1 着地後)
+
+#### 入れたもの
+
+| 場所 | 中身 |
+|---|---|
+| `index.html` `ROOM_PAINTINGS_DEF["lizard-swamp"].n4big` | `tileBounds [3,10,23,39]` / `node: true` / `sealRing` / `outdoor` / 21 行 x 30 列のマスク |
+| `index.html` `SWAMP_MAP_OFF` | `BANDIT_MAP_OFF` の隣(`:4024`)。⚠ TDZ を避けるため `RUN` の即時評価より前 |
+| `index.html` `buildLizardSwampRun()` の `n4` | `SWAMP_MAP_OFF ? 旧 7x6 : 大部屋` の 2 択 |
+| `tools/probe_swamp_map.js` | **新規**。4 近傍 BFS の連結検査 + 反実仮想 `--cut` |
+| `js/df-mapdef.js` | ⚠ **依頼書 §3 の「触らない」が崩れた**。下の (b) |
+| `tools/driver_graph_p6.js` | ⚠ **依頼書 §2-11 が挙げていなかった golden**。下の (a) |
+| `tools/driver_paint_blocked.js` | (8d) の正規表現(§7-3 の前倒し)。下の (c) |
+| `tools/goldens/grid_s2.json` | `--update-golden`。差分は **`lizard-swamp/n4` の 1 件だけ**(下記) |
+| `tavern.html` | changelog 1 行(プレイヤー向け要約) |
+
+#### ⭐ rect [3,10,23,39] の選び方(依頼書 §5-1 が触れていなかった要点)
+
+**「30x21 が MAP に収まる位置ならどこでもよい」ではない。** n4 は**自分の出口を持つ**ので、
+`buildP6Run` が固定している `P6_RIGHT = [39,13]`(`:36109` / `ex("n7","right",P6_RIGHT,"n4")`)と
+`nodeGateTile()` の返り値が 1 タイルも違ってはいけない(`:34254` 直上の注記
+「食い違うと矢印は絵の口に立つのに扉は辺の中点に立つ = **開かない扉**」)。
+
+- `nodeGateTile` は `gates` が無ければ**辺の中点**を返す ⇒ `midR = floor((3+23)/2) = 13`、`c2 = 39`
+  ⇒ **(39,13) = P6_RIGHT** に一致 ✓
+- 左辺の中点 (10,13) が入場口。`NODE_ENTRY_INSET = 2` で **start = (12,13)**
+- ⇒ **`gates` は書かない**(既定と同値を書くと出所が 2 つになるだけ。しかも
+  `paintingGateOf` が `nodeGateTile` の先頭で先に効くので、書いた側が黙って勝つ)
+- ⭐ **森 n7big で同じ問題が出なかったのは、あちらが出口 0 本のボス部屋だったから**。
+  写経すると必ず踏む(起草窓が `git show HEAD:index.html` で独立に裏取り済み)
+
+#### ⚠⚠⚠ 崩れた前提 3 件(すべて実走で発覚)
+
+**(a) `driver_graph_p6` (1j) が赤くなる — §2-11 の一覧に無かった golden**
+
+`(1j-<sid>) 道中 7 ノードは 7 列 x 6 行の骨格どおり` が **n4 = 30x21** で落ちた。
+⭐ これは #11 が**ボス部屋について**すでに解いた問題で、当時 (1j2) として
+「9x6 の骨格か、**絵と矩形が完全一致する大部屋**」の 2 択へ言い直してある。
+⇒ **同じ言い直しを道中ノードへ**適用した(期待値は緩めていない: 大部屋を許す条件は
+「その部屋の絵の tileBounds と rect が完全一致」で、これは (1i2) が別に測っている)。
+⚠ 例外が黙って広がらないよう、#11 の `(1z)` と対になる**装置 assert `(1z2)`**
+「道中ノードが骨格でないのは `lizard-swamp/n4` だけ」を 1 本足した。
+⇒ **245 → 246 本**(増えた 1 本が (1z2))。
+
+**(b) `js/df-mapdef.js` を触らずには通らない — §3 の「⛔ 触らない」が崩れた**
+
+`(2c-lizard-swamp) 起動時の console に [graph] 警告が出ない` が
+`graph-painting-aspect: 幅30x高さ21 … 縦横比が一致しません` で落ちた。
+真因は `LINT_PAINTING_ASPECTS`(`:2154`)= **カタログが引けない起動時だけの退避一覧**に
+30x21 が無いこと。⭐ #11 も同じ穴を踏んで `{ w: 52, h: 26 }` を足しており、
+コメントに「足さないと正しく載っている絵が毎回 warning を出し、graph-* 警告そのものが
+信用されなくなる」と明記されている。⇒ **`{ w: 30, h: 21 }` を 1 行足した**。
+⛔ `paintingAspectFits` の判定式そのものは 1 バイトも触っていない。
+
+**(c) (8d) の正規表現は STEP2 の時点で直した(§7-3 の前倒し)**
+
+依頼書は「STEP4 で赤を実見してから直す」としていたが、**赤は STEP2 の実走で
+`--stage lizard-swamp` と `--stage bandits-forest` の両方に出た**(実見の条件は満たした)。
+コミット境界に既知の赤を残さないほうが良いので、ここで `/\/n\d+[a-z]*$/` へ広げた。
+⭐ 緩めすぎていないことの実測: `n4big` / `n7big` / `n0` / `n4` / `n7` は通り、
+旧在庫 `1` / `2` と街道の `road_ambush` は**引き続き弾く**。
+
+#### マスクの実測(§5-1 の 5 規則を絵に当て直した結果)
+
+    py tools/paint_blocked_grid.py --theme lizard-swamp --key n4big     # 作業画像 + 赤の重ね塗り
+    node tools/probe_bandit_map.js --grid  --scen lizard-swamp --node n4
+    node tools/probe_swamp_map.js  --bfs
+    node tools/probe_swamp_map.js  --bfs --cut 24                       # 反実仮想
+
+- **口は 3 つだけ**: 北 = 祠への石段(絵ローカル col 7-8)/ 東の広場(col 20-23)/
+  南 = 桟橋へ降りる石畳(col 21-22)。参道 row 8-10 は西端から東端まで 1 マスも切らさない
+- ⭐ **col 8-18 の「浅水に沈んだ石畳」は歩ける**(絵の中で解決した渡り = 依頼書 §4-2)。
+  親柱の外の水は塞ぐ
+- **歩けるマス 110 / 入場地点からひとつながり 108 / 連結成分 3 = [1, 108, 1]**
+- 孤立 2 マス = **(24,3) と (24,23)**。これは `sealRing` の門番が `["up","down","left","right"]`
+  の 4 方向すべてを `nodeGateTile` で引いて縁に残す穴(`index.html:6120`)。
+  四方を塞がれているので**到達不能 = 実害なし**(街道 `:5315` の「行き止まりなので実害なし」と同じ)。
+  ⭐ この事実は起草窓が先に指摘し、実装窓が BFS で裏取りした
+- ⭐ **「参道が唯一の東西の渡り」の裏取り**: `--cut 24` で global 列を 1 本潰すと
+  **54 + 51 の 2 成分に割れる**
+- スロット 4 つはすべて `isTileWall=false`・入場から aStar で 9 / 9 / 24 / 23 歩
+
+#### `outdoor: true` の実測(§5-3 が「実測せずに出荷しない」と書いた件)
+
+    node tools/probe_swamp_map.js --bfs        # __outdoorRevealProbe を出す
+    node tools/probe_bandit_map.js --ai --scen lizard-swamp --node n4
+
+- `__outdoorRevealProbe()` = `{off:false, rooms:1, tiles:630, rects:[[10,3,39,23]]}`
+  ⇒ **絵の 630 タイルすべてがめくられている**(= フラグは確かに効いた)
+- `DETECTION_RANGE = 1200px = 12.50 タイル`
+- **入場直後の heroAI の最寄り目標 = `lizardRaider` (20,12) / 8.06 タイル**
+  ⇒ 浅水の見張り 2 体との戦闘から始まる
+- 敵どうしの距離: 見張り 2 体は 1.43 タイル(同じ戦闘)/ 広場の 2 体とは **13.18〜15.07 タイル**
+  = `DETECTION_RANGE` の外 ⇒ **別の戦闘**として起きる(森 n7big と同じ組み立て)
+- ⚠ 森が警告した「屋外だと部屋中の敵が最初から索敵対象になる」は、
+  **盤面が横 30 タイルあるので実質的に効かない**(広場の 2 体は 22〜23 タイル先で圏外)
+
+#### 撤退スイッチ `?swampmap=0` の実測
+
+    node tools/probe_swamp_map.js --bfs --qs "swampmap=0"
+    → paint=n4 / rect=[11,33,16,39] / start=(36,13)
+      / slots=(34,13)(35,15)(38,12)(39,14) / 屋外めくり rooms=0 tiles=0
+
+⇒ **大部屋化より前の姿へ完全に戻る**(絵・矩形・起点・スロット・屋外フラグの 5 つとも)。
+
+#### golden の再測定(⚠ STEP0 の表と同じ順で並べる)
+
+| ドライバ | 着手前 (STEP0) | STEP2 後 | 判定 |
+|---|---|---|---|
+| `driver_graph_p7.js` | 60/60 | **60/60** | 変化なし |
+| `driver_graph_p6.js` | 245/245 | **246/246** | ⭐ +1 = 新設した装置 assert `(1z2)` |
+| `driver_paint_blocked.js`(既定 goblin-mine) | 65 / FAIL 0 | **65 / FAIL 0** | 変化なし |
+| `driver_paint_blocked.js --stage lizard-swamp` | 65 / FAIL 0 | **65 / FAIL 0** | ⭐ (8d) を直したので据え置きで緑 |
+| `driver_paint_blocked.js --stage bandits-forest` | 62 / FAIL 3 | **63 / FAIL 2** | ⭐ (8d) が緑へ。残る (4a)(8a) は `S2_FOLDED` 由来の既存 |
+| `driver_grid_s2.js` | 111/111 | **111/111** | ⚠ golden を更新(下記) |
+| `driver_grid_p7.js` | 44 / FAIL 0 | **44 / FAIL 0** | 変化なし |
+| `driver_graph_kinds.js` | 66/66 | **66/66** | 変化なし |
+
+⭐ **`tools/goldens/grid_s2.json` の差分は `lizard-swamp/n4` ただ 1 件**(`rect` と `enemySlots`)。
+キーの増減 0 / 他 38 本の mapDef は 1 バイトも動いていないことを JSON 比較で確認済み。
+⚠ `--update-golden` の直後に**もう一度素で走らせて 111/111** を確認した(非決定な値を
+焼き付けていないことの証明)。
+
+**STEP2 の完了条件の判定**: `driver_paint_blocked --stage lizard-swamp` の §3 が緑
+(`(8b)` = 全ノードで起点が歩け全部屋に到達 / `?paintblock=0` との一致も緑)✅ —
+それどころか **65/65 全緑**になった。⭐ 司祭はまだ 1 バイトも入れていない(STEP3)。

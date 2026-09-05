@@ -761,12 +761,19 @@ async function bootPage(browser, url, scen, errs, opts) {
         check('(8c) ★全ノードが mapDef 経路 (isCustom) で絵を貼っている',
           W.every(n => n.err || n.isCustom === true),
           JSON.stringify(W.map(n => n.id + ':' + n.isCustom)));
-        /* ⚠ ラベルに具体的なキー名 (n4/n7) を書かないこと。判定式は「ノード用 = /\/n\d+$/」で
+        /* ⚠ ラベルに具体的なキー名 (n4/n7) を書かないこと。判定式は「ノード用 = /\/n\d+[a-z]*$/」で
          *   あって列挙ではないので、★P3 で n0 が増えても式は正しいままラベルだけが嘘になる
          *   (2026-08-17 に実際にそうなった)。測っているのは「旧単一マップ用の在庫
-         *   (キー 1 / 2) がノードへ漏れていないこと」。 */
+         *   (キー 1 / 2) がノードへ漏れていないこと」。
+         * ★[#53 2026-09-05] 末尾に [a-z]* を足して **大部屋版のキー (n4big / n7big)** を通す。
+         *   ⚠⚠ これは #53 が作った欠陥ではなく、**森の n7big (#11) が先に破っていた既存の齟齬**。
+         *     --stage の既定が goblin-mine なので今日まで誰も踏んでいなかった。
+         *     2026-09-05 に --stage bandits-forest と --stage lizard-swamp の**両方で赤を実見**
+         *     してから広げた (⛔ 赤を見ずに正規表現を緩めない)。
+         *   ⭐ 緩めすぎていないことの実測: n4big / n7big / n0 / n4 / n7 は通り、
+         *     旧在庫 "1" / "2" と街道の "road_ambush" は**引き続き弾く**。 */
         check('(8d) ★ノードに貼られた絵はノード用 (キー n<番号>) だけ (山場/ボスの絵が漏れていない)',
-          W.every(n => n.err || (n.paints || []).every(p => p === null || /\/n\d+$/.test(p))),
+          W.every(n => n.err || (n.paints || []).every(p => p === null || /\/n\d+[a-z]*$/.test(p))),
           JSON.stringify(W.map(n => n.id + ':' + JSON.stringify(n.paints))));
       }
       await page.close();
