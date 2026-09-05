@@ -10647,10 +10647,51 @@
      * ⚠ MAPDEF が**既にそのノードのもの**であることが前提 (buildNode が差し替えた直後に呼ぶ)。
      * ⚠ mapDef 由来のスロットに questFlagOn のフィルタは掛けない (4 要素目が無いので常に通る)。
      *   噂フラグで出し分ける敵は ★[P6] の台帳から来て、**そこにだけ**フィルタが掛かる。 */
+    /* ★[#53 STEP4] 若い司祭との交渉の「報い」。n4 で決めた結果を **n7 の顔ぶれ**へ効かせる。
+     * ⭐ ここが本件で唯一の新規配線。理由は buildNode が**ノード入場のたび**
+     *   ENEMY_SPAWNS = nodeSpawnsFor(nodeId) を作り直すこと。n4 で立てたフラグを n7 で読める。
+     * ⚠⚠ questFlagOn (`function questFlagOn` で引く) は**酒場の questFlags しか見ない**ので sceneFlags には
+     *   使えない。SCENARIO_NODE_EXTRAS 経由にもできない (mapDef 由来のスロットにフィルタは
+     *   掛からない)。⇒ ここに 1 本置くのが唯一の形。
+     * ⛔ 判定は必ず `=== true` / `=== false`。`if (flag)` だと **null (未接触) が false と同じ扱い**に
+     *   なり、話しかけてもいないのに護衛が 1 体増える。
+     * ⚠ list を破壊しない (splice しない)。呼び出し側は毎回作り直しているが、破壊的にすると
+     *   「同じ配列を 2 度通すと 2 体消える」型の事故を後から作れてしまう。 */
+    function applySwampNoviceOutcome(nodeId, list) {
+      if (SWAMP_MAP_OFF) return list;            // ★撤退スイッチはマップも司祭も報いも一緒に戻す
+      if (nodeId !== "n7") return list;
+      if (scenarioId !== "lizard-swamp") return list;
+      const swayed = sceneFlags.s3_novice_swayed;
+      if (swayed === true) {
+        /* 説得できた = 参道の若い司祭が族長へ報せに行かなかった ⇒ 巣の司祭が 1 枚減る。
+         * ⚠ **先頭 1 体だけ**落とす。type で全部消すと「司祭が 1 体も居ない巣」になる。 */
+        const out = [];
+        let dropped = false;
+        for (const sp of list) {
+          if (!dropped && sp && sp[0] === "lizardPriest") { dropped = true; continue; }
+          out.push(sp);
+        }
+        return out;
+      }
+      if (swayed === false) {
+        /* しくじった = 若い司祭が先回りして報せた ⇒ 護衛が 1 体増える。
+         * ⚠ 座標は n7 の小部屋 (rect [11,32,16,40]) の中で、入場地点 (34,13) から
+         *   ENGAGE_PX(400px) より遠い床。(39,16) = 5.83 タイル = 560px。
+         *   ⛔ 依頼書 §7-1 の「7 タイル以上」は **9x6 の小部屋では原理的に満たせない**
+         *     (部屋の対角がそもそも 6.7 タイル)。守るべき値は driver_graph_p6 (3c) と
+         *     同じ ENGAGE_PX = 400px。 */
+        return list.concat([["lizardRaider", 39, 16]]);
+      }
+      return list;                               // null (未接触) = 素のまま
+    }
+
     function nodeSpawnsFor(nodeId) {
       if (!RUN || !window.DFMapDef) return [];
       const rnd = makeNodeRng(nodeId + "/spawns");
-      const base = rescueCustomSpawns(DFMapDef.spawnsFromMapDef(MAPDEF, rnd));
+      /* ⚠⚠ フィルタは **makeNodeRng の後・spawnsFromMapDef の直後**に挿すこと。
+       *   前に挿すと乱数列がずれて他ノードのスポーンまで動く (spawnDetourChests が
+       *   「必ず最後」なのと同じ理屈)。 */
+      const base = applySwampNoviceOutcome(nodeId, rescueCustomSpawns(DFMapDef.spawnsFromMapDef(MAPDEF, rnd)));
       const ex = nodeExtrasFor(nodeId);
       if (!ex || !Array.isArray(ex.spawns)) return base;
       return base.concat(ex.spawns.filter(sp => questFlagOn(sp[3])));

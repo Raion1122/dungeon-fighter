@@ -1062,3 +1062,117 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 **STEP3 の完了条件の判定**: 4 分岐のうち **成功 / 失敗の 2 本は本番関数へ食わせて実測**、
 **判定なし(0 番)/ Esc は `SkillCheck` を 1 度も呼ばない経路**として実装。
 ⚠ 「?autoplay が 1 番目を引いて完走する」の実走は **STEP4 の `verify_swamp_novice.js`** で測る。
+
+---
+
+### 12-4. STEP4 完了 — n7 の顔ぶれ ±1 + 受入ドライバ
+
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `fa8243c`
+
+#### 入れたもの
+
+| 場所 | 中身 |
+|---|---|
+| `index.html` `applySwampNoviceOutcome()` | `nodeSpawnsFor` の直前。⭐ 本件で唯一の新規配線 |
+| `index.html` `nodeSpawnsFor()` | `spawnsFromMapDef` の**直後**に 1 本挿す(`makeNodeRng` より後) |
+| `tools/verify_swamp_novice.js` | **新規**。base port 9910 / 変異 9911〜9924 / 負のコントロール 14 本 |
+| `tavern.html` | changelog 1 行 |
+
+#### ⚠ 崩れた前提 1 件 — 「入場地点から 7 タイル以上」は n7 では**原理的に満たせない**
+
+依頼書 §7-1 は増える `lizardRaider` を「入場地点から 7 タイル以上離す」と書いていたが、
+n7 は 9x6 の小部屋(`P6_BOSSR = [11,32,16,40]`)で、**入場 (34,13) から部屋の隅までが 6.7 タイル**しかない。
+⇒ 守るべき値は `driver_graph_p6` (3c) が実際に使っている **`ENGAGE_PX = 400px`**。
+配置 **(39,16) = 5.83 タイル = 560px** はこれを満たす(既存の護衛 (39,12) が 489px なのと同水準)。
+
+#### 7-2 ナレーション 3 本 — STEP3 で入れ終わっていた
+
+発見 = `runNoviceDialog` の冒頭 / 成功・失敗 = `applyNoviceResult` の 2 本。
+どれも `showDMMessage` で、`audio.js` は 1 バイトも触っていない(§7-2 の条件どおり)。
+
+#### 7-3 (8d) の正規表現 — STEP2 で前倒し済み(§12-2 の (c))
+
+#### 受入ドライバ `tools/verify_swamp_novice.js`
+
+    node tools/verify_swamp_novice.js              → **PASS 33 / FAIL 0**
+    node tools/verify_swamp_novice.js --negative   → **変異 14 / 14 が検出成功** (exit 0)
+
+⭐ 測り方は依頼書 §8 のとおり「**盤面はマスクから直に / 分岐は n7 の実スポーンから**」。
+マスクは**配信した index.html を自前でパース**して組み、`js/df-mapdef.js` の関数を 1 行も借りない。
+⭐ 4 分岐は**本番の `runNoviceDialog` を通す**。`showCharChoice` と
+`SkillCheck.resolveSkillCheck` を差し替えて「どの枝か」「何回振ったか」を数える。
+⚠ これが成立するのは、**グローバルの関数宣言は window に載る**から(2026-09-05 実測。
+`ROOM_PAINTINGS_DEF` / `sceneFlags` / `enemies` は `let`/`const` なので載らないが、
+`page.evaluate` の中では裸の識別子として読める)。
+
+主な実測値:
+
+| assert | 実測 |
+|---|---|
+| (0d) n7 の素の顔ぶれ | `["lizardChieftain","lizardPriest","lizardWarrior"]` |
+| (1e) 入場から最寄りの敵 | 774px = 8.06 タイル |
+| (1f) BFS | 歩ける 110 / 到達 108 / 孤立は `(24,3)(24,23)` の 2 点だけ |
+| (1g) 従来経路の絵 | `["room_lizard-swamp_1_bs.jpg","room_lizard-swamp_2.png"]` = **n4big は漏れない** |
+| (2a) `?autoplay` | `resolve` 呼び出し **0 回** / フラグ `null` のまま |
+| (3a)(3b)(3c) | null=`[族長,司祭,戦士]` / true=`[族長,戦士]` / false=`[族長,司祭,襲撃者,戦士]` |
+| (3e) 母集団 | 34 ノード(沼 7 + 廃坑 2 + 森 1 + 砦/神殿/竜巣 各 8)/ 差分 0 |
+| (4b) | 他 5 テーマの絵の台帳が `cdaaf91` と完全一致 |
+| (5a)(5b) | `?swampmap=0` で rect・paint・スロット・司祭 0 体・n7 の顔ぶれが全部素へ戻る |
+
+#### ⭐⭐⭐ 負のコントロールで**ドライバの穴が 1 つ見つかった**(nostart)
+
+初回の `--negative` は **13/14**。空振りしたのは `nostart`(`start` の指定を落とす変異)で、
+依頼書が期待した **(1c) では捕まらない**ことが実測で分かった:
+
+- (1c) は「起点タイルがマスクで `.`」を見る。既定の起点 **(36,13)** は
+  この絵では**たまたま参道の上 = マスク `.`** なので、**穴が開かず (1c) は緑のまま通る**
+- 実際に赤くなったのは (1e)(入場から最寄りの敵が 96px = 1 タイル)だけだった
+
+⇒ **assert を 1 本足した**: **(1c2) `start` が入場口(左辺の中点)+ `NODE_ENTRY_INSET(2)` と一致する**。
+期待値はドライバ側で rect から独立に組む(実装の `nodeGateTile` を借りない)。
+⚠ これで `nostart` は (1c2)(1e) の 2 本で赤くなる。
+⭐ **教訓**: 「この変異はこの assert で捕まるはず」という**起草時の対応表も実測で崩れる**。
+負のコントロールは「赤くなったか」だけでなく **「期待した assert が赤くなったか」**まで見ること
+(このドライバは `MUT_EXPECT` でそれを機械化してある)。
+
+⚠ **同じ型がもう 1 件あった**: `flagonpriest`(罠 C の再現)は依頼書が **(0c)** で捕まると
+書いていたが、(0c) は `type === "swampNovice"` を数えるので **`lizardPriest` にフラグが立っても
+件数は 1 のまま = 緑**。実際に赤くなるのは **(2e)**(静的検査)と **(2d)(2d2)**
+(= 対話が n4 の `lizardPriest` に当たって別人を敵対化させる)だった。
+⇒ `MUT_EXPECT.flagonpriest` を実測に合わせて `['2e','2d']` へ直した。
+
+#### ⚠ 変異 `rngbefore` は**作れなかった**(依頼書 §8 の 14 本のうち 1 本を差し替え)
+
+依頼書は「フィルタを `makeNodeRng` より前に挿す = 乱数列がずれる」を負のコントロールに挙げていたが、
+**`applySwampNoviceOutcome` は `Math.random` を 1 度も引かない**ので、前に挿しても
+乱数列は 1 ビットも動かない = **観測できる差が出ない**(空振りの変異になる)。
+⇒ 同じ (3e) を守る別の変異 **`anynode`**(`nodeId !== "n7"` の門番を落として**全ノード**に
+報いが効くようにする)へ差し替えた。実測でも (3e) だけが赤くなる。
+⭐ 「差が出ない変異」を負のコントロールに置くと、**空振りしているのに緑**になって
+検出力を過大評価する。⛔ 起草時の変異一覧も実測で 1 本ずつ確かめること。
+
+#### ⭐ 依頼書に無い assert を 2 本足した(STEP3 で追加した配線の検出器)
+
+- **(2f)** 再入場: `s3_novice_swayed=true` で n4 を組み直すと司祭は `passiveNpc` のまま姿が消えている
+- **(2g)** 再入場: `false` で組み直すと司祭は**敵対のまま**
+
+⚠ これが無いと「一度退かせた司祭が、引き返して戻ると立っている」に気づけない
+(依頼書は再入場の復元に触れていなかった)。
+
+#### 既存 golden の非退行(⚠ STEP0 の表と同じ順)
+
+| ドライバ | 着手前 (STEP0) | STEP4 後 | 判定 |
+|---|---|---|---|
+| `driver_graph_p7.js` | 60/60 | **60/60** | 変化なし |
+| `driver_graph_p6.js` | 245/245 | **246/246** | ⭐ +1 = 新設した装置 assert (1z2) |
+| `driver_paint_blocked.js`(既定 goblin-mine) | 65 / FAIL 0 | **65 / FAIL 0** | 変化なし |
+| `driver_paint_blocked.js --stage lizard-swamp` | 65 / FAIL 0 | **65 / FAIL 0** | 変化なし(8d を直したので据え置きで全緑) |
+| `driver_paint_blocked.js --stage bandits-forest` | 62 / FAIL 3 | **63 / FAIL 2** | ⭐ 改善。残る (4a)(8a) は `S2_FOLDED` 由来の既存 |
+| `driver_grid_s2.js` | 111/111 | **111/111** | golden は STEP2/STEP3 で `lizard-swamp/n4` のみ更新 |
+| `driver_grid_p7.js` | 44 / FAIL 0 | **44 / FAIL 0** | 変化なし |
+| `driver_graph_kinds.js` | 66/66 | **66/66** | 変化なし |
+| `tools/verify_swamp_novice.js`(新規) | — | **31 / FAIL 0** | 負のコントロール込み |
+
+⚠ 走らせるときのポートの注意: `driver_paint_blocked.js` は既定ポート + 1〜5 を変異用に使うので、
+他のドライバと**並走させるならポートを 10 以上離す**(2026-09-05 に 9536 と 9537 が衝突して
+出力が混ざった)。
