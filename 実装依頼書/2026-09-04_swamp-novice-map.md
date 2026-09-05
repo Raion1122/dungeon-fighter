@@ -8,7 +8,7 @@
   **承認と同時に実施した**(起草時の判断を訂正)。理由 = 承認時点で `git status` がクリーン・
   `origin/main..HEAD` = **0 本** = 並走窓がゼロで、保留の根拠だった「相手が同じファイルを add する事故」が
   存在しない。一方で「承認済なのに索引に無いチケット」は**着手順の唯一の正から漏れて忘れられる**。
-- **触るファイル**: `codex1/requests/2026-09-04_swamp-approach-map.md`(新規・発注文) /
+- **触るファイル**: `codex1/requests/2026-09-05_swamp-approach-map.md`(新規・発注文) /
   `tools/make_grid_map.py`(GRIDS へ 1 キー) / `assets/room_lizard-swamp_n4_map.jpg`(新規・焼き上がり) /
   `index.html` / `tools/verify_swamp_novice.js`(新規) / `tavern.html`(changelog の 1 行のみ)
 - ⛔ **触らないファイル**: なし(2026-09-04 時点で `git status` はクリーン / `origin/main..HEAD` = 0 本 = 並走窓なし)
@@ -280,7 +280,7 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 
 | ファイル | 変更 |
 |---|---|
-| `codex1/requests/2026-09-04_swamp-approach-map.md` | **新規**。発注文(⛔ ユーザー承認が別途要る) |
+| `codex1/requests/2026-09-05_swamp-approach-map.md` | **新規**。発注文(⛔ ユーザー承認が別途要る) |
 | `codex1/maps/swamp-approach-v1.png` | 納品物(codex1 が置く) |
 | `tools/make_grid_map.py` | `GRIDS` へ 1 キー(`swamp-approach`) |
 | `assets/room_lizard-swamp_n4_map.jpg` | **新規**。焼き上がり(⛔ PNG ではなく **jpg**) |
@@ -571,6 +571,14 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 - **(1d)** 敵スポーン全体の座標が**マスクで `.`** かつ本番の `isTileWall` が false(2 経路)
 - **(1e)** 入場地点から最寄りの敵まで **7 タイル(672px)以上**
 - **(1f)** 4 方向 BFS で入場地点から **全部屋・全スポーン・出口ゲート**へ到達できる(孤立ゼロ)
+- **(1g)** ★ `node: true` が効いている — 従来経路(非カスタム幾何 = 単一マップ)が走る状態で
+  `lizard-swamp` を開き、貼られた絵に **`n4big` が 1 枚も含まれない**こと
+  (⭐ `index.html:5630` の従来経路は `Object.values` で `def.node` を**持たない絵を全部**貼るので、
+  `node` を落とすと `?graph=0` や分岐 lint 落ちで `RUN=null` になった時の**単一マップへ
+  大部屋の絵が絶対座標のまま漏れる**。#52 の (10b) と同型で、
+  そちらでは依頼書が実際に `node: false` と書いていた)
+  ⚠ 単一マップへ落とすトリガは `?graph=0` を想定しているが、**実装時に 1 回実測して選ぶこと**。
+  測るべきは手段ではなく「**従来経路が走る状態で `n4big` が貼られない**」。
 
 ### §2 司祭(STEP3)
 
@@ -632,6 +640,7 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 | `sealoff` | `sealRing` を落とす | (1f) |
 | `switchsplit` | 撤退スイッチをマップ側だけに効かせ、司祭は残す | (5a) |
 | `n4wipe` | 既存の小さい `n4` エントリを消す | (4a) |
+| `nonode` | `n4big` の def から **`node: true` を落とす**(#52 の依頼書が実際に間違えた形) | (1g) |
 
 ⭐ **§2-4 / §2-5 / §2-6 の 3 つの罠は `flagonpriest` / `autoplayfirst` / `density1`+`nostart` として
 必ず内蔵する。** これが「起草中にしか見つからない知見」が実装後まで生き残る唯一の形。
@@ -705,15 +714,47 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 
 ### 12-0. STEP0 の着手前実測(⚠ **着手して最初にやること**)
 
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `cdaaf91`(= #52 着地後。⛔ `c0a9134` ではない)
+
 | ドライバ | 着手前の本数 | 備考 |
 |---|---|---|
-| `driver_graph_p7.js` | | |
-| `driver_graph_p6.js` | | |
-| `driver_paint_blocked.js`(既定 goblin-mine) | | |
-| `driver_paint_blocked.js --stage lizard-swamp` | | |
-| `driver_paint_blocked.js --stage bandits-forest` | | ⭐ (8d) が赤かどうか |
-| `driver_grid_s2.js` | | |
-| `driver_grid_p7.js` | | |
-| `driver_graph_kinds.js` | | |
+| `driver_graph_p7.js` | **60/60 PASS** | exit 0 |
+| `driver_graph_p6.js` | **245/245 PASS** | exit 0 |
+| `driver_paint_blocked.js`(既定 goblin-mine) | **65 PASS / FAIL 0** | exit 0 |
+| `driver_paint_blocked.js --stage lizard-swamp` | **65 PASS / FAIL 0** | ⭐⭐⭐ **着手前から全部緑**。下の 12-0a |
+| `driver_paint_blocked.js --stage bandits-forest` | **62 PASS / FAIL 3** | exit 1。⚠ **着手前から赤**。下の 12-0b |
+| `driver_grid_s2.js` | **111/111 PASS** | exit 0 |
+| `driver_grid_p7.js` | **44 PASS / FAIL 0** | exit 0 |
+| `driver_graph_kinds.js` | **66/66 PASS**(`--mutate nokind`) | exit 0 |
 
 ⭐ 着手前に赤い assert があれば**本件の責任ではない**。ここに記録して切り分ける。
+
+#### 12-0a. ⭐ `--stage lizard-swamp` は着手前から 65/65 緑(§2-11 の予測どおり)
+
+依頼書 §2-10 が心配していた 2 本を名指しで実測した:
+
+| assert | 実測 |
+|---|---|
+| `(8a)` `:746` 本番のシナリオグラフを 1 ノード残らず組み直せた | **PASS** — `n=8/8 entry=n0 boss=n7 err=[]` |
+| `(8d)` ノードに貼られた絵はノード用だけ | **PASS** — `["n0:[null]","n1:[null]","n2:[null]",…]`(まだどのノードにも絵が無い) |
+
+⇒ **沼は 8 ノードすべて残っている**ことが機械で取れた。§8 の完了条件
+「`--stage lizard-swamp` の §3 が緑」は**据え置きでよい**。
+
+#### 12-0b. ⚠ `--stage bandits-forest` の赤 3 件は #53 の責任ではない
+
+⛔ 「たぶん既存」で済ませず、**#52 適用前の木(`c0a9134`)を一時 worktree に展開して
+同じコマンドを走らせ、62 PASS / FAIL 3 が完全に同一であることを実測した**(2026-09-05):
+
+- `(4a)` 現行のマスクが門前ガードに触れている(`spawn=1`)
+- `(8a)` `:746` が `n=1/1 entry=n7 boss=n7` — ⭐⭐⭐ **森が `S2_FOLDED` で 1 ノードへ畳まれている**ため
+- `(8d)` `["n7:[\"bandits-forest/n7big\"]"]` — `/\/n\d+$/` に当たらない(§2-10 の罠 G)
+
+⭐⭐⭐ **森の `(8a)` の赤は畳み込み由来なので、沼には一切かからない**(沼は畳まない = §11)。
+⇒ (8d) の正規表現を `/\/n\d+[a-z]*$/` へ広げれば **`--stage lizard-swamp` は全体で緑にできる**。
+⚠ ただし**森は (8a) が残るので `--stage bandits-forest` は緑にならない**。
+これは #53 の完了条件に含めない(§2-10 が言う「既存の齟齬」の残り半分)。
+
+⚠⚠ `driver_paint_blocked` の `(8a)` は **2 本ある**(`:741` は「分岐マップ (RUN) が組めている」)。
+森で見えた赤は `:746` のほうなので、**行を読み分けないと「沼でも同じ赤が出る」と誤読する**
+(実装窓が実際に一度そう誤読し、STEP0 の実走で訂正した)。
