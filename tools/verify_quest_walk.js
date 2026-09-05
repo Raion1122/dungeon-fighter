@@ -677,6 +677,12 @@ async function measureDepart(browser, port, errs, opts) {
      手本 = verify_recruit_size.js:222。 */
   await page.evaluateOnNewDocument(() => {
     try { localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
+    /* ⚠[#54] 単身出発の確認 (#soloConfirm) を飛ばす。誰も誘っていない状態で
+             「引き受ける」を押すと一度だけ確認が出るので、仕込まないと受注が
+             止まる (実測: 受注=null / steps=table>btnAccept で停止)。
+             ⭐ prologueSeen / prepOnboardingSeen と同じ「一度きりの案内」枠。
+             ⛔ 確認そのものは tools/verify_recruit_talk.js が測る。 */
+    try { localStorage.setItem('dragonfighters.soloWarnSeen', '1'); } catch (e) {}
   });
   const blocked = [];
   await page.setRequestInterception(true);

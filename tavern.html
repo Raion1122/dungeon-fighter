@@ -242,6 +242,43 @@
     }
 
     /* 会話モーダル */
+    /* ★[#54] 勧誘ダイアログ。⛔ #dialog (依頼カード) を流用しない —
+       あちらは clientName / metaReward / metaEnemies を前提にしており、
+       verify_quest_walk / verify_recruit_size が中身を測っている。 */
+    /* ★[#54] 単身出発の確認 (ユーザー決定 C)。⭐ #recruitDialog より上に出す。
+       ⛔ ゲートではない — 「一人で行く」を押せば必ず出発できる。 */
+    #soloConfirm {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(4,6,10,0.78); z-index: 101; backdrop-filter: blur(2px);
+    }
+    #soloBox {
+      position: relative; width: min(440px, 90vw);
+      padding: 28px 32px;
+      background: var(--parchment-bg); border: 3px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow); color: var(--parchment-ink);
+    }
+    #soloBox .soloHead { font-size: 19px; font-weight: 700; margin-bottom: 12px; }
+    #soloBox .soloBody { line-height: 1.8; margin-bottom: 18px; }
+    #recruitDialog {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(4,6,10,0.72); z-index: 100; backdrop-filter: blur(2px);
+    }
+    #recruitBox {
+      position: relative; width: min(460px, 90vw); max-height: 80vh;
+      padding: 28px 32px;
+      background: var(--parchment-bg); border: 3px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow); color: var(--parchment-ink);
+      overflow-y: auto;
+    }
+    #recruitName { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+    #recruitRole { font-size: 13px; opacity: 0.75; margin-bottom: 14px; }
+    #recruitQuote {
+      border-left: 3px solid var(--parchment-border);
+      padding: 6px 0 6px 12px; margin-bottom: 16px; line-height: 1.7;
+    }
+    #recruitSlots { font-size: 13px; opacity: 0.8; margin-bottom: 14px; }
     #dialog {
       position: fixed;
       inset: 0;
@@ -2510,6 +2547,7 @@
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
+  <script src="js/recruit-candidates.js"></script><!-- 同行候補 (#54)。酒場で声を掛けた相手を次の潜行まで保管。⛔ キーの前置詞は dragonfighters. のまま。撤退 ?recruittalk=0 -->
   <script src="js/mercenary-roster.js"></script><!-- 傭兵名簿 (#38)。一度共に戦った冒険者が次の依頼にも来る。⛔ キーの前置詞は dragonfighters. のまま (save-slots の keysOf が総なめ)。撤退 ?roster=0 -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界の唯一の正 (#39)。マッチングカードと傭兵名簿が読む。⚠ js/player-sheet.js より前。撤退 ?darkvision=0 (表示のみ) -->
@@ -2765,6 +2803,36 @@
       </div>
     </div>
 
+    <!-- ★[#54] 酒場の卓の冒険者へ声を掛ける器。⚠ 既定は display:none
+         (elementFromPoint に写ると NPC の札を測る golden 4 本が濁る)。 -->
+    <!-- ★[#54] 単身出発の確認。⚠ 既定は display:none。⛔ ゲートではない。 -->
+    <div id="soloConfirm">
+      <div id="soloBox">
+        <div class="soloHead">一人で行くのか?</div>
+        <div class="soloBody">
+          誰にも声を掛けていない。卓に座っている冒険者に頼めば、同道してくれるだろう。<br>
+          ——それでも、単身で潜るというなら止めはしない。
+        </div>
+        <div class="choices">
+          <button class="btn decline" id="btnSoloBack">酒場へ戻る</button>
+          <button class="btn accept"  id="btnSoloGo">一人で行く</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="recruitDialog">
+      <div id="recruitBox">
+        <div id="recruitName"></div>
+        <div id="recruitRole"></div>
+        <div id="recruitQuote"></div>
+        <div id="recruitSlots"></div>
+        <div class="choices">
+          <button class="btn decline" id="btnRecruitNo">やめておく</button>
+          <button class="btn accept"  id="btnRecruitYes">同道を頼む</button>
+        </div>
+      </div>
+    </div>
+
     <div id="prep">
       <div id="prepBox">
         <h2 id="prepTitle">出発の準備</h2>
@@ -2917,10 +2985,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場の冒険者を次の冒険に誘える</b> — 卓に座っている者へ声を掛けると、同道を申し出て次の潜行についてくる。</li>
         <li><b>魔法使いが最初からスリープを唱える</b> — 序盤の群れを眠らせて切り抜けられるようになった。</li>
         <li><b>酒場の卓に座る顔ぶれが変わる</b> — 訪れるたびに違う冒険者が席に着く。かつて共に戦った顔がまた現れることもある。</li>
         <li><b>若い司祭を説得できると族長の巣が変わる</b> — 参道で言葉が通じれば巣の司祭が 1 人減り、しくじると護衛が 1 人増える。話しかけずに通り過ぎた時は何も変わらない。</li>
-        <li><b>沼の参道で若い司祭と話せる</b> — 槍を構えない若い蛇神司祭に、碑文(歴史)・信仰の矛盾(宗教)・脅し(威圧)のどれかで語りかけられる。通じれば道を譲り、しくじれば襲ってくる。</li>
       </ul>
     </div>
     <script>
@@ -4219,8 +4287,12 @@
   //   5人以上を試したくなったら **別の調査チケット** を切ること。
   // ⚠ フォールバックで黙らない理由: 生成クエストが difficulty を持たないのは既知だが、ここで黙って
   //   3 を返すと「将来 difficulty を持つ生成クエストが増えた」時に誰も気づかない。必ず1行出す。
+  /* ★[#54] 同行できる NPC の上限の**唯一の正**。recruitCountOf() の clamp 上限と、
+     酒場で誘える人数の両方がここを読む。⛔ 数字を 2 箇所に焼かない
+     (片方だけ動かすと「4 人目を誘えたのに出発したら 3 人」が黙って起きる)。 */
+  const RECRUIT_MAX = 3;
   function recruitCountOf(sc) {
-    const MIN = 1, MAX = 3, FALLBACK = 3;
+    const MIN = 1, MAX = RECRUIT_MAX, FALLBACK = RECRUIT_MAX;
     let n = FALLBACK;
     if (sc && typeof sc.recruit === "number" && isFinite(sc.recruit)) {
       n = Math.floor(sc.recruit);
@@ -5076,6 +5148,13 @@
           DFRoster.recordRun(r.roster.ids, r.roster.survived === true);
         }
       } catch (e) { console.warn("[roster] 帰還時の書き戻しに失敗", e); }
+      /* ★[#54] 同行候補は帰還でいったん解散する (勝敗を問わない)。
+         ⭐ 顔は名簿 (DFRoster) に残るので、次の潜行でまた卓に座り得る。
+         ⚠ DFRecruits.clear() はゲートしない — ?recruittalk=0 で潜った回にも消す。
+           残すと、スイッチを戻したときに古い候補が幽霊のように復活する。
+         ⛔ ここで例外を投げない (名簿と同じ理由: 酒場が開かないほうが害が大きい)。 */
+      try { if (window.DFRecruits) DFRecruits.clear(); }
+      catch (e) { console.warn("[recruit] 帰還時の解散に失敗", e); }
       if (r && r.cleared && r.scenarioId) {
         // 闇市アンロック: クリア累計を計数し、閾値で「怪しい扉」を常設化 (生成/固定どちらのクリアも計上)
         plazaStateTV.totalQuestsCleared = (plazaStateTV.totalQuestsCleared || 0) + 1;
@@ -5637,9 +5716,116 @@
   dialogEl.addEventListener("click", (e) => {
     if (e.target === dialogEl) closeDialog();
   });
+  /* ★[#54] 単身出発の確認 (ユーザー決定 C 2026-09-05)。
+     ⚠⚠ **openPrep() の中に入れない。** openPrep は検証ドライバが直接呼ぶ状態遷移で、
+       そこに待ちを挟むと 7 本のドライバが黙ってハングする。⇒ **UI のクリック経路にだけ**置く。
+     ⭐ 一度きり (prologueSeen / prepOnboardingSeen と同じ作法)。仕組みを一度伝えたら
+       あとは邪魔しない。⛔ ゲートではない — 「一人で行く」で必ず出発できる。
+     ⚠ 実害の根拠 (依頼書 §9): 4 人編成ですら沼で 6/6 敗北し、しかも仲間 3 人が健在なまま
+       主人公だけ先に落ちている。ソロには肩代わりの余地がゼロなので、
+       「気づかずに単身で潜って死ぬ」を一度だけ止める。 */
+  const SOLO_WARN_KEY = "dragonfighters.soloWarnSeen";
+  function needsSoloWarning() {
+    if (!isRecruitTalkOn()) return false;          /* 撤退時は従来の自動編成 = ソロにならない */
+    if (recruitCountNow() > 0) return false;
+    try { if (localStorage.getItem(SOLO_WARN_KEY) === "1") return false; } catch (e) {}
+    return true;
+  }
+  function closeSoloConfirm() {
+    document.getElementById("soloConfirm").style.display = "none";
+  }
+  document.getElementById("btnSoloBack").addEventListener("click", () => {
+    closeSoloConfirm();
+    closeDialog();          /* 依頼カードも閉じて酒場へ戻す (誘いに行けるように) */
+  });
+  document.getElementById("btnSoloGo").addEventListener("click", () => {
+    try { localStorage.setItem(SOLO_WARN_KEY, "1"); } catch (e) {}
+    closeSoloConfirm();
+    if (currentScenario) openPrep(currentScenario);
+  });
   document.getElementById("btnAccept").addEventListener("click", () => {
     if (!currentScenario || !isUnlocked(currentScenario)) return;
+    if (needsSoloWarning()) {
+      document.getElementById("soloConfirm").style.display = "flex";
+      return;
+    }
     openPrep(currentScenario);
+  });
+
+  /* ════════════ #54 STEP3: 声を掛けて同行候補にする ════════════════════════
+     ⛔ #dialog (依頼カード) を流用しない。あちらは clientName / metaReward /
+       metaEnemies を前提にしており、verify_quest_walk / verify_recruit_size が
+       中身を測っている。⇒ 専用の #recruitDialog を持つ。
+     ⚠ 上限は RECRUIT_MAX (= recruitCountOf の clamp 上限)。受注時にシナリオの
+       recruitCountOf(sc) が下回ったら **先頭から切る** (regeneratePartyMembers)。 */
+  let recruitPending = null;                 /* いま声を掛けている相手 */
+  const RECRUIT_YES_LINES = [
+    "同道させてもらおう。",
+    "よろしくたのむ。剣は錆びついてはおらん。",
+    "ちょうど退屈していたところだ。",
+    "その依頼、私も噛ませてもらう。",
+  ];
+  function recruitClassLabel(k) {
+    const s = PARTY_SLOTS.find(x => x && x.classKey === k);
+    return s ? s.name : k;
+  }
+  function recruitCountNow() {
+    try { return (window.DFRecruits && DFRecruits.count()) || 0; } catch (e) { return 0; }
+  }
+  function openRecruitDialog(m) {
+    if (!m) return;
+    recruitPending = m;
+    const already = !!(window.DFRecruits && DFRecruits.has(m.name));
+    const n = recruitCountNow();
+    const full = !already && n >= RECRUIT_MAX;
+    document.getElementById("recruitName").textContent = m.name || "名も無き冒険者";
+    document.getElementById("recruitRole").textContent =
+      recruitClassLabel(m.classKey) + (m.trait ? " — " + m.trait : "");
+    document.getElementById("recruitQuote").textContent =
+      already ? "……ああ、さっきの話だな。支度はできている。"
+              : (full ? "見たところ、もう手は足りているのではないか?"
+                      : (m.line || "……何か用か?"));
+    /* ⛔ 人数は RECRUIT_MAX から引き算した表示にする。保管庫の中身を数えるのは
+       DFRecruits.count() 側 = 実体が唯一の正 (renderRecruitCountLine と同じ作法)。 */
+    document.getElementById("recruitSlots").textContent =
+      "同行の約束: " + n + " / " + RECRUIT_MAX + " 人" +
+      (full ? "  (これ以上は連れて行けない)" : "");
+    const yes = document.getElementById("btnRecruitYes");
+    yes.textContent = already ? "約束を取り消す" : "同道を頼む";
+    yes.disabled = full;
+    yes.style.opacity = full ? "0.4" : "1";
+    yes.style.cursor  = full ? "not-allowed" : "pointer";
+    document.getElementById("recruitDialog").style.display = "flex";
+  }
+  function closeRecruitDialog() {
+    document.getElementById("recruitDialog").style.display = "none";
+    recruitPending = null;
+  }
+  document.getElementById("btnRecruitNo").addEventListener("click", closeRecruitDialog);
+  document.getElementById("recruitDialog").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("recruitDialog")) closeRecruitDialog();
+  });
+  document.getElementById("btnRecruitYes").addEventListener("click", () => {
+    const m = recruitPending;
+    if (!m || !window.DFRecruits) { closeRecruitDialog(); return; }
+    if (DFRecruits.has(m.name)) {          /* 取り消し */
+      DFRecruits.remove(m.name);
+      closeRecruitDialog();
+      return;
+    }
+    const res = DFRecruits.add(m, RECRUIT_MAX);
+    closeRecruitDialog();
+    /* ⛔ 失敗を握り潰さない。⭐ 承諾の一言は吹き出しではなくトーストで出す
+       (吹き出しは優先度 3 段 + クールダウンの単一キューなので、割り込むと
+        既存の雑談が詰まる — 依頼書 §7 の注意)。 */
+    if (res.ok) {
+      const line = RECRUIT_YES_LINES[Math.floor(Math.random() * RECRUIT_YES_LINES.length)];
+      showScrollToastTV("🤝 " + m.name + "「" + line + "」");
+    } else if (res.reason === "full") {
+      showScrollToastTV("これ以上は連れて行けない(上限 " + RECRUIT_MAX + " 人)");
+    } else if (res.reason !== "already") {
+      console.warn("[tavern] 同行候補に追加できなかった: " + res.reason);
+    }
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -6066,6 +6252,18 @@
     let partySize = PARTY_SIZE;
     if (isRecruitOn() && prepScenario) partySize = 1 + recruitCountOf(prepScenario);
     partySize = devPartySizeOverride(partySize);   // #14 調査シーム。?party 無しでは恒等 (本番は素通り)
+    /* ★[#54] 誘った人が居ればその人たちで組む。⭐⭐⭐ 誰も誘っていなければ **ソロ**。
+       ⛔ 従来の自動抽選には落とさない — 落とすと「誘う意味が無い」(依頼書 §6-4)。
+       ⚠ これは大きな挙動変更なので、?recruittalk=0 で従来へ完全に戻ることが完了条件。
+       ⚠ partySize - 1 = このシナリオが許す NPC 数。声掛けは受注前でシナリオが未定なので
+         上限 RECRUIT_MAX まで誘えるが、受注時に足りなければ **先頭から切る**。
+       ⚠⚠ 積む先は selection.partyMembers (rich)。⛔ partyComposition は主人公 1 人
+         しか保持しない後方互換の写しなので、そちらに積んではいけない (依頼書 §2-2)。 */
+    if (isRecruitTalkOn()) {
+      const cands = (window.DFRecruits ? DFRecruits.all() : []).slice(0, Math.max(0, partySize - 1));
+      selection.partyMembers = orderFormation([makeHeroMember(heroKey)].concat(cands));
+      return;
+    }
     selection.partyMembers = orderFormation(buildParty(heroKey, partySize));
   }
 
@@ -9092,17 +9290,51 @@
            NPC の頭上のタイルを拾い、押すたびに主人公が歩き出す。 */
         el.addEventListener("click", function (ev) {
           if (ev && ev.stopPropagation) ev.stopPropagation();   /* [nostop] 1 行に閉じたまま保つ */
-          npcBubbleShow(u);
+          npcTapped(u);
         });
         /* ⚠ タッチ端末では click が来ないことがある (#26 パーティ演出の実例)。
            ⛔ preventDefault はしない (スクロール/ズームを殺さない)。touchend と click が
            両方来ても npcBubbleShow() が先に前を消すので **吹き出しは 1 枚のまま**。 */
         el.addEventListener("touchend", function (ev) {
           if (ev && ev.stopPropagation) ev.stopPropagation();
-          npcBubbleShow(u);
+          npcTapped(u);
         });
       });
 
+      /* ★[#54] 押された NPC の振り分け。卓の 4 人 (todaysPatrons に居る席) だけ勧誘へ、
+         それ以外 (店主 / 酔漢 / 給仕 / 荷運び) と撤退時は **従来どおり一言**。
+         ⚠ 撤退 ?recruittalk=0 では todaysPatrons が null なので、全員が一言の枝へ落ちる。 */
+      function npcTapped(u) {
+        var seat = (todaysPatrons && u && u.n) ? todaysPatrons[u.n.key] : null;
+        if (!seat) { npcBubbleShow(u); return; }
+        approachThenRecruit(u, seat);
+      }
+      /* 立ち位置は不変条件 (I2)「stand の tile は距離 2 以内に歩けるマスを持つ」から
+         **実行時に導出する**。⛔ enter を手で書かない (依頼書 §6-2)。
+         ⭐ 候補が複数あるときは主人公に近いマスを採る (無駄に部屋を横断させない)。 */
+      function nearestWalkableTo(tile) {
+        if (!tile) return null;
+        var best = null, bestD = Infinity;
+        for (var dc = -2; dc <= 2; dc++) {
+          for (var dr = -2; dr <= 2; dr++) {
+            if (Math.abs(dc) + Math.abs(dr) > 2) continue;
+            var c = tile[0] + dc, r = tile[1] + dr;
+            if (!TVM.inBounds(c, r) || !TVM.isWalkable(c, r)) continue;
+            var d = Math.abs(c - hero.c) + Math.abs(r - hero.r);
+            if (d < bestD) { bestD = d; best = { c: c, r: r }; }
+          }
+        }
+        return best;
+      }
+      /* ⚠ 歩けない / 経路が無いときは **その場で対話を開く** (fail-open)。
+         goToTable() の if (!ok) と同じ作法 — 押したのに何も起きないのが最悪。 */
+      function approachThenRecruit(u, seat) {
+        var cell = nearestWalkableTo(u.n.tile);
+        if (!cell) { openRecruitDialog(seat); return; }
+        if (hero.c === cell.c && hero.r === cell.r) { openRecruitDialog(seat); return; }
+        var ok = walkTo(cell.c, cell.r, function () { openRecruitDialog(seat); });
+        if (!ok) openRecruitDialog(seat);
+      }
       function npcPlace(u, cx, cy) {
         /* ⭐ placeHero() と同じ 2 行。⛔ 別式で書き直さない。 */
         u.el.style.left = (cx + u.dx - SPRITE / 2) + "px";

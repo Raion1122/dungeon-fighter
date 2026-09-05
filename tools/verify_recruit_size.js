@@ -204,6 +204,15 @@ function judgeNoOverflow(rows, cap) {
           遷移先で前ページの書き込みを消してしまう。
           2 つの接頭辞のどちらにも当たらないマーカーで 1 回に絞る。 */
   const PURGE_MARK = '__dfPurgedOnce';
+  /* ⚠⚠[#54] このドライバは **自動編成モデル**(主人公 1 + 抽選 NPC)を測る。
+   * #54 で既定の編成は「酒場で声を掛けた相手だけ」に変わり、誰も誘っていなければ
+   * **ソロ**になった (ユーザー決定)。⇒ 自動編成はもう既定の腕には現れない。
+   * ⛔ assert を緩めない / 期待人数を書き換えない。**assert が走る母集団を移す** —
+   *   自動編成は今も `?recruittalk=0` で生きており、そこでは着手前と 1 assert も減らない。
+   * ⭐ 勧誘モデル側は tools/verify_recruit_talk.js が測る。 */
+  function withAutoParty(p) {
+    return p + (p.indexOf('?') >= 0 ? '&' : '?') + 'recruittalk=0';
+  }
   async function openPage(pathQuery, opts) {
     opts = opts || {};
     const page = await browser.newPage();
@@ -248,7 +257,7 @@ function judgeNoOverflow(rows, cap) {
       } catch (e) { try { r.continue(); } catch (e2) {} }
     });
 
-    await page.goto('http://localhost:' + PORT + pathQuery, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto('http://localhost:' + PORT + withAutoParty(pathQuery), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(opts.settle || 900);
     return page;
   }

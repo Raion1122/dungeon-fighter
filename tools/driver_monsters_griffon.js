@@ -38,6 +38,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+/* ⚠[#54] &magesleep=0 — このドライバは **敵の行動**を観測して数える。#54 で Lv8 の
+ * 魔法使いが sleep を常備するようになり、敵が眠って行動サンプルが枯れる
+ * (実測: ミノタウロスの attack entries が 0 件になり、比較の分母が消えた)。
+ * ⛔ assert を緩めるのではなく、**交絡している新機能を実験的に統制する**。
+ * ⭐ sleep 自体は tools/verify_recruit_talk.js が別途測る。 */
 const ROOT = path.resolve(__dirname, '..');
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv[i + 1]) ? argv[i + 1] : d; };
@@ -152,7 +157,7 @@ function seedInit(spawns) {
   pageA.on('pageerror', e => pageErrors.push('[A] ' + e.message));
   const aErrBefore = pageErrors.length;
   await pageA.evaluateOnNewDocument(seedInit(NEAR));
-  await pageA.goto('http://localhost:' + PORT + '/index.html?autoplay=20',
+  await pageA.goto('http://localhost:' + PORT + '/index.html?autoplay=20&magesleep=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   let grifSeen = false;
@@ -247,7 +252,7 @@ function seedInit(spawns) {
   const pageC = await browser.newPage();
   pageC.on('pageerror', e => pageErrors.push('[C] ' + e.message));
   await pageC.evaluateOnNewDocument(seedInit(CHIM));
-  await pageC.goto('http://localhost:' + PORT + '/index.html?autoplay=20', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await pageC.goto('http://localhost:' + PORT + '/index.html?autoplay=20&magesleep=0', { waitUntil: 'domcontentloaded', timeout: 30000 });
   let chimFlight = { off: false, n: 0, f: null, m: null, r: null };
   for (let i = 0; i < 80; i++) {
     const r = await pageC.evaluate(() => {

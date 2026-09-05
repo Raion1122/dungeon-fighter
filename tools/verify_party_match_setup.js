@@ -317,11 +317,23 @@ function seed() {
   } catch (e) {}
 }
 
+/* ⚠⚠[#54] このドライバは **自動編成モデル**(主人公 1 + 抽選 NPC)を測る。
+ * #54 で既定の編成は「酒場で声を掛けた相手だけ」に変わり、誰も誘っていなければ
+ * **ソロ**になった (ユーザー決定)。⇒ 自動編成はもう既定の腕には現れない。
+ * ⛔ assert を緩めない / 期待人数を書き換えない。**assert が走る母集団を移す** —
+ *   自動編成は今も `?recruittalk=0` で生きており、そこでは着手前と 1 assert も減らない。
+ * ⭐ 勧誘モデル側 (誘った人が編成に出る / 誰も誘わなければソロ) は
+ *   tools/verify_recruit_talk.js が測る。
+ * ⭐ 教訓の出所 = [[project_headless_verification]]「assert が通る条件でなく
+ *   **assert が走る母集団**を疑え」。 */
+function withAutoParty(p) {
+  return p + (p.indexOf('?') >= 0 ? '&' : '?') + 'recruittalk=0';
+}
 async function openTavern(browser, viewport, qs) {
   const page = await browser.newPage();
   page.on('pageerror', (e) => pageErrors.push(viewport.name + ' :: ' + e.message));
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
-  const url = 'http://localhost:' + PORT + '/tavern.html' + (qs ? ('?' + qs) : '');
+  const url = 'http://localhost:' + PORT + withAutoParty('/tavern.html' + (qs ? ('?' + qs) : ''));
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.evaluate(seed);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });

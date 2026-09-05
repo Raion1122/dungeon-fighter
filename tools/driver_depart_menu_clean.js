@@ -105,6 +105,12 @@ async function openClean(browser, urlPath, opts) {
       //    このキーは「前口上を見たか」だけを持ち、df.devMode とは無関係。(A6) で dev が焼かれていない
       //    ことを別途 assert しているので、dev ゲートの測定は汚れない。
       localStorage.setItem('dragonfighters.prologueSeen', '1');
+      /* ⚠[#54] 単身出発の確認 (#soloConfirm) を飛ばす。誰も誘っていない状態で
+               「引き受ける」を押すと一度だけ確認が出るので、仕込まないと受注が
+               止まる (実測: 受注=null / steps=table>btnAccept で停止)。
+               ⭐ prologueSeen / prepOnboardingSeen と同じ「一度きりの案内」枠。
+               ⛔ 確認そのものは tools/verify_recruit_talk.js が測る。 */
+      localStorage.setItem('dragonfighters.soloWarnSeen', '1');
       if (o2.seedDev) localStorage.setItem('df.devMode', '1');
       // index.html の測定用。開始画面を実際に見られるシナリオを指定する ((E) の解説を参照)
       if (o2.scen) sessionStorage.setItem('dragonfighters.currentScenario', o2.scen);

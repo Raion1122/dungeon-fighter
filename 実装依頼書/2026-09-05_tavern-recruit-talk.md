@@ -773,3 +773,75 @@ Lv1 の枠 3 個は `magic-missile ×2 + fire-bolt ×1` で**埋まりきって�
 ⚠⚠ **譲る呪文が経路で違う**(NPC = fire-bolt / 主人公 = arcane-shield)。積み方が 2 枠ずつと
 1 枠ずつで違うため。⭐ ユーザー決裁 (A) の「Lv1 で fire-bolt が出なくなる」は **NPC 経路の話**で、
 主人公経路では **fire-bolt は残り arcane-shield が譲る**(= (A) の意図より損失が小さい)。
+
+---
+
+### 12-2. STEP3 着地 — 声を掛けて同行候補にする + 単身出発の確認(ユーザー決定 C)
+
+#### 実装
+
+| ファイル | 変更 |
+|---|---|
+| `js/recruit-candidates.js` | **新規**。同行候補の保管庫 `window.DFRecruits`。⛔ 上限をここに持たない(`add(member, cap)` で受け取る) |
+| `tavern.html` | `#recruitDialog`(勧誘)/ `#soloConfirm`(単身確認)/ `RECRUIT_MAX` の持ち上げ / NPC タップの振り分け / `regeneratePartyMembers` / 帰還時の解散 |
+
+⭐ **`#choiceDialog` は酒場に存在しなかった**(index.html 側の器)。`openDialog` は依頼カード専用で
+`clientName` / `metaReward` / `metaEnemies` を前提にしており、`verify_quest_walk` /
+`verify_recruit_size` が中身を測っている ⇒ **専用の `#recruitDialog` を新設**した。
+
+⭐ **`recruitCountOf` の `MAX` は関数ローカル**で外から読めなかった。ドライバの変異アンカーに
+使われていないことを確認したうえで **`RECRUIT_MAX` をモジュール定数へ持ち上げ**、
+clamp 上限と勧誘上限が同じ 1 箇所を読むようにした(⛔ 数字 3 の写経を避ける)。
+
+⚠⚠ **単身確認は `openPrep()` の中に入れていない。** あそこは検証ドライバが直接呼ぶ状態遷移で、
+待ちを挟むと 7 本が黙ってハングする ⇒ **UI のクリック経路にだけ**置いた。
+
+#### 実測(プローブ 9/9 PASS)
+
+| 受入 | 結果 |
+|---|---|
+| (2a) 卓の冒険者に話しかけると勧誘ダイアログ | ✅ A/B/C とも |
+| (2b) 受注後の `partyMembers` に誘った人(名前一致) | ✅ |
+| (2c) 誘っていない人は含まれない | ✅ 主人公 1 + 誘った 3 = 4 人ちょうど |
+| (2d) 誰も誘わず受注 → 主人公 1 人(ソロ) | ✅ |
+| (2g) 上限 3 人・4 人目は押せない | ✅ 「同行の約束: 3 / 3 人」 |
+| (4a) 撤退 `?recruittalk=0` で従来の自動編成(4 人) | ✅ |
+| (4a2) 撤退では従来どおり一言だけ | ✅ |
+| (Z) pageerror 0 件 | ✅ |
+
+#### ⚠ `?recruit=0`(#7 の撤退スイッチ)についての訂正
+
+実装窓は一度「`?recruit=0` が死んだ」と報告したが、**誤り**。#54 の下では
+`partySize = PARTY_SIZE (4)` ⇒ 上限 3 = `RECRUIT_MAX` となり、意味は
+「**依頼の重さで誘った仲間の上限を減らさない**」として正しく生きている。
+赤かったのは golden が旧モデルの人数を期待していたからで、**コード修正は不要だった**。
+
+---
+
+### 12-3. ⭐⭐⭐ golden 7 本の赤 — 切り分けと処理(⛔ 1 つも緩めていない)
+
+「候補 0 人ならソロ」は**出発人数を変える**ので、依頼書が予告した `verify_recruit_size` 1 本では
+済まなかった。**7 本・約 62 assert** が赤くなった。1 本ずつ真因を測って処理した。
+
+| ドライバ | 真因 | 処理 |
+|---|---|---|
+| `driver_monsters_chimera` / `griffon` | ⭐⭐⭐ **STEP3 ではなく STEP1**。両者は `partyMembers` を**自分で仕込む**ので `regeneratePartyMembers` を通らない。真因は **Lv8 の魔法使いが敵を眠らせ、敵の行動サンプルが枯れた**こと(決定打 = `mino=0/0 entries=0` = 敵が 1 度も攻撃していない) | URL に `&magesleep=0` を付けて**交絡を実験的に統制** |
+| `verify_npc_crowd` | 卓の 4 人が「押すと吹き出し」から「押すと勧誘」に変わった(意図)+ ダイアログが残って以降のクリックを塞ぐ(連鎖) | §3 の測定を `?recruittalk=0` の腕へ移設 |
+| `verify_recruit_size` / `verify_mercenary_roster` / `driver_party_view_reopen` / `verify_party_match_setup` | 自動編成モデルを測っており、それが既定の腕から消えた | URL 構築点 1 箇所ずつに `withAutoParty()` |
+| `verify_quest_walk` / `driver_depart_menu_clean` | 実際に「引き受ける」を押すので**単身確認**に止められた(`受注=null`) | `soloWarnSeen` を仕込む(`prologueSeen` と同じ「一度きりの案内」枠) |
+
+⭐⭐ **一度失敗した直し方も記録する**: `verify_npc_crowd` で最初に「4 席を母集団から外す」を
+試したが、**酒場 compact で画面内に押せる 2 人目が居なくなり (3b) が `second=null` で落ちた**
+= 母集団が痩せて別の赤を生んだ。⇒ 撤回して腕の移設にした。
+⭐ 教訓 = 「母集団を絞る」直し方は、**絞った先の母集団がまだ十分かを測ってから**採ること。
+
+#### 最終状態(24 本)
+
+**基準と完全一致 20 本。**残り 4 本はすべて **#54 以前からの状態**:
+
+| ドライバ | 状態 |
+|---|---|
+| `driver_equip_compact_ios` | 着手前から赤(`cdaaf91` でも同じ。§12-0 参照) |
+| `driver_monsters_umberhulk` | 着手前から 21/22(凝視クールダウン) |
+| `probe_party_size` | 中身は全 OK。ラッパのタイムアウトで exit 124 |
+| `driver_monsters_griffon` | ⭐ **統計的フレーク**(3 回走らせて 15/17 → 17/17 → 17/17)。`magesleep=0` の統制でサンプルは 0/4 → 0/12 へ回復済み。zone 重みが front=1.25 なので「rear/mid を 1 回以上」は元々出にくい ⇒ **別チケットの題材**(サンプル数を増やすか、率で測る) |

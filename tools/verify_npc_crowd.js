@@ -869,7 +869,21 @@ async function measureBubble(browser, port, o) {
   const ctx = await newPage(browser, o.view);
   const P0 = { stageId: o.stageId, mapGlobal: o.mapGlobal, listKey: o.listKey, tvGlobal: o.tvGlobal };
   try {
-    await ctx.page.goto('http://localhost:' + port + '/' + o.file, { waitUntil: 'load', timeout: 40000 });
+    /* ⚠⚠[#54] §3 だけ **?recruittalk=0** の腕で測る。
+       #54 で酒場の卓の 4 人 (patronA-D) は「押すと吹き出し」ではなく
+       「押すと勧誘ダイアログ」に変わった。⛔ assert を緩めるのではなく、
+       **この節が測りたい機構 (吹き出しの単一キュー / touchend / stopPropagation) が
+       8 人全員に生きている腕**へ移す。#54 と §3 は直交しているので、これは
+       coverage の縮小ではなく **母集団の回復**である:
+         - 素の腕のまま 4 席を母集団から外すと、酒場/compact で画面内に押せる
+           2 人目が居なくなり (3b) が「second=null」で落ちた = 母集団が痩せた失敗
+         - この腕なら 8 人全員が吹き出すので、着手前と **1 assert も減らない**
+       ⭐ 勧誘側 (卓の 4 人を押すとダイアログが開く) は tools/verify_recruit_talk.js が測る。
+       ⚠ 街 (town.html) には patron が居ないので、付けても付けなくても同じ挙動。
+         ⛔ それでも 4 アーム全部に付ける — 片方だけ付けると「どちらの腕の数字か」が
+           ログから読めなくなる。 */
+    const BUB_QS = '?recruittalk=0';
+    await ctx.page.goto('http://localhost:' + port + '/' + o.file + BUB_QS, { waitUntil: 'load', timeout: 40000 });
     await ctx.page.waitForFunction(o.ready, { timeout: 25000 });
     await settle(ctx.page);
     await sleep(300);
