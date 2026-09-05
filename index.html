@@ -9825,6 +9825,34 @@
         spellDC: 14, spellCooldownTurns: 2,
         xp: 200,
       },
+      /* ★[#53] 若き蛇神司祭 — 戦わずに話しかけられる唯一のリザードマン。
+       * ⚠⚠⚠ **lizardPriest の def にフラグを立ててはいけない** (依頼書 §2-4 罠 C)。
+       *   あちらは n4 に 1 体・n7 に 1 体立っているので、def を触ると**盤上の司祭が全部**
+       *   会話可能になり、ボス部屋の護衛まで交渉 1 回で消える。⇒ キーを 1 つ足す。
+       * ⭐ スプライトは lizardPriest_anim.png を流用し、幾何 (sheetW/H frameW/H cols
+       *   rowOffset displaySize) を**完全一致**させる (ズレると描画が破綻する)。
+       * ⚠ 戦闘値も lizardPriest と同値。「交渉に失敗したら普通の司祭として戦える」が要件。 */
+      swampNovice: {
+        name: "若き蛇神司祭",
+        flavor: "蛇神への供物を捧げるのをためらう、まだ若い祭祀",
+        badge: "🐍",
+        sprite: "assets/lizardPriest_anim.png?v=2",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 84,
+        hp: 12, speed: 0.75,
+        hasAttackAnim: true,
+        meleeRange: 130, hitRange: 540,
+        attackDuration: 36, attackHitFrame: 18, attackCooldown: 55,
+        str: 0, dex: 1, atkBonus: 4, ac: 13,
+        dmgDice: "2d6", dmgBonus: 1, critRange: 20, critMult: 2,
+        range: "spellSingle",
+        spellcaster: true, spells: ["fireBolt", "magicMissile", "scorchingRay", "shatter"],
+        projectile: "fireBolt",
+        spellDC: 14, spellCooldownTurns: 2,
+        isSwampNovice: true,   // ★initSwampNovice が inactive + passiveNpc にする目印
+        xp: 200,
+      },
       // ボス: リザードマン族長 (Sce3 ROOM 5 玉座)
       // 専用スプライト (2026-05-25 案 A3 手動運用テンプレ準拠 2 段階フローで生成)。
       // 骨面冠+両手で斧+血塗りタトゥー、SD chibi pixel-art-hybrid 画風。
@@ -10476,6 +10504,12 @@
       // EV-2 の②「遠距離攻撃が届く位置まで、ゆっくり近づく」に成功 = 次の戦闘の初手を取る
       mine_ranged_opening: false,
       servant_rescued: false,   // EV-5 成功 = 捕らわれた従者を救出した (ボス戦の Redirect 無効化)
+      /* ★[#53] 沼 n4 の若い蛇神司祭との交渉。⚠ 既存 2 件と違い **3 値**なので null 始まり
+       *   (true=退いた / false=敵対化 / null=未接触)。
+       * ⚠⚠ 読む側は必ず `=== true` / `=== false` で見ること。`if (flag)` だと
+       *   **null と false が同じ扱い**になり、「話しかけていない」と「失敗した」が
+       *   区別できずに n7 の顔ぶれが勝手に増える。 */
+      s3_novice_swayed: null,
     };
     // [sce1-events] シナリオ1 (既定クエスト) でだけイベントを出すゲート。
     //   生成クエスト (酒場/闇市の掲示板) は scenarioId が別 ID なので false になる。
@@ -23865,6 +23899,160 @@
       }
     }
 
+    /* ══ [#53] Sce3 山場 n4: 若き蛇神司祭 (swampNovice) ═══════════════════════
+     * 参道の脇に立つ「まだ血に染まっていない」司祭。inactive + passiveNpc なので
+     * **クリアをブロックしない** (isNodeSettled が passiveNpc を除外する)。
+     * 器は initCaelum / initHydra と同型 = 接近 tick 400ms + 多重起動フラグを async の前に確定。
+     * ⚠ 撤退は SWAMP_MAP_OFF ただ 1 本 (マップと司祭が同じスイッチで戻る)。司祭は
+     *   大部屋版の enemySlots にしか居ないので、?swampmap=0 では**そもそも湧かない**。 */
+    let noviceIdx = -1, noviceResolved = false;
+    const NOVICE_APPROACH_RADIUS = ALTAR_APPROACH_RADIUS;   // 220。⛔ 新しい数字を発明しない
+    /* DC は SCE1_WATCH_DC / SCE1_SERVANT_DC と同値 (13)。⛔ 新しい難易度帯を作らない。
+     * ⚠ 定数を参照せず 13 を持つのは、あちらが「シナリオ1 の」定数だから
+     *   (名前で借りると sce1 の調整がシナリオ3 へ黙って波及する)。 */
+    const SWAMP_NOVICE_DC = 13;
+    /* 判定つきの選択肢だけを持つ表。★ここに無い index (=0「通り過ぎる」) が「判定なし」。
+     * ⚠⚠ 0 番を判定なしにするのは **?autoplay が index 0 を自動選択する**ため (依頼書 §2-5 罠 D)。
+     *   巡回検証が「交渉に失敗して乱戦」へ落ちない = 決定論を保つ。
+     * ⭐ 得意クラスが mage / cleric / warrior に散る = 編成が結果に効く (依頼書 §2-9)。 */
+    const SWAMP_NOVICE_CHECKS = {
+      1: { check: "history",      title: "歴史判定", classes: ["mage"],
+           flavor: "石柱の碑文をたどり、この参道が本来だれに捧げられた道かを読み解く…" },
+      2: { check: "religion",     title: "宗教判定", classes: ["cleric"],
+           flavor: "供物の並べ方と古い祭祀の作法の食い違いを、静かに指摘する…" },
+      3: { check: "intimidation", title: "威圧判定", classes: ["warrior"],
+           flavor: "血に濡れた得物を見せ、次はお前だと言外に告げる…" },
+    };
+
+    function initSwampNovice() {
+      noviceIdx = -1;
+      noviceResolved = false;
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.def || !e.def.isSwampNovice) continue;
+        noviceIdx = ei;
+        /* ★再入場の復元: 交渉の結果は sceneFlags が唯一の記憶なので、そこから姿を作り直す。
+         * ⚠ ここで作らないと「一度退かせた司祭が、引き返して戻ると立っている」になる。 */
+        if (sceneFlags.s3_novice_swayed === true) {
+          e.inactive = true; e.passiveNpc = true;
+          noviceResolved = true;                        // 二度と対話を開かない
+          if (enemyElements[ei]) setEnemyVfx(ei, undefined, "0");   // 視覚だけ消す (passiveNpc は維持)
+          continue;
+        }
+        if (sceneFlags.s3_novice_swayed === false) {
+          e.inactive = false; e.passiveNpc = false;     // 敵対化したまま = 普通の司祭として戦う
+          noviceResolved = true;
+          continue;
+        }
+        e.inactive = true;
+        e.passiveNpc = true;            // 戦わない間はクリア判定からも除外
+        const el = enemyElements[ei];
+        if (el) {
+          el.classList.add("swamp-novice");
+          /* ⚠ CSS 規則は足さない。カエルムの .caelum-spirit も**規則を 1 つも持たない目印**で、
+           *   見た目は setEnemyVfx が全部やっている (2026-09-05 実測: grep で規則 0 件)。
+           *   ⇒ 依頼書 §3 ⑨「CSS 1 クラス」は**不要だった**。 */
+          setEnemyVfx(ei, "brightness(1.15) saturate(0.7)", "0.92");   // まだ血に染まっていない = 淡い
+        }
+      }
+    }
+
+    // 接近tick: 若い司祭に十分近づいたら対話を1回だけ起動 (戦闘外でのみ)。
+    async function tryApproachNovice() {
+      if (!gameStarted || gameOver || noviceResolved || noviceIdx < 0) return;
+      if (encounterActive || encounterRunning) return;
+      if (hp <= 0) return;
+      const e = enemies[noviceIdx];
+      if (!e || !e.alive || !e.inactive) return;
+      /* ⚠ 添字は**別ノードでは別人を指す**。def で本人確認してから半径を測る
+       *   (caelum / hydra は 1 シナリオ 1 ノードなので気づかれていない既存の穴)。 */
+      if (!e.def || !e.def.isSwampNovice) return;
+      const pCX = playerX + 48, pCY = playerY + 58;
+      const ds = e.def.displaySize || TILE_SIZE;
+      const ecx = e.x + ds / 2, ecy = e.y + ds / 2;
+      if (Math.hypot(pCX - ecx, pCY - ecy) > NOVICE_APPROACH_RADIUS) return;
+      noviceResolved = true;            // 多重起動防止 (async 前に確定)
+      await runNoviceDialog();
+    }
+    setInterval(tryApproachNovice, 400);
+
+    // 対話本体: 遭遇ナレ → 4択 → 判定 → 退く / 敵対化。
+    async function runNoviceDialog() {
+      showDMMessage("参道の脇、開けた敷石の上に若い司祭が立っている。供物を抱えたまま、こちらを見ても槍を構えない。", 4200);
+      await sleepMs(1200);
+      skillCheckActive = true;   // 判定パネルと相互排他 (runMineWatchEvent と同方針)
+      let choice = null;
+      try {
+        choice = await showCharChoice(
+          "若い司祭が、供物を抱えたまま立ち尽くしている。",
+          [{ label: "そのまま通り過ぎる" },
+           { label: "碑文を読み解く(歴史)" },
+           { label: "信仰の矛盾を突く(宗教)" },
+           { label: "脅す(威圧)" }],
+          "何も言わずに離れる (Esc)");
+      } catch (e) { choice = null; }
+      const spec = (choice === null) ? null : (SWAMP_NOVICE_CHECKS[choice] || null);
+      if (!spec) {                 // ★判定なし = SkillCheck を 1 度も呼ばない (ダイス演出も出ない)
+        skillCheckActive = false;
+        showDMMessage("君たちは何も言わずに脇を通り過ぎた。司祭は供物を抱えたまま、動かなかった…", 2800);
+        return;                    // s3_novice_swayed は null のまま = 未接触
+      }
+      const party = buildPerceptionParty();
+      let res = null;
+      if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
+        dialogPaused = true;       // 判定中は探索を停止 (runRoomSearchCheck と同方針)
+        try {
+          res = await SkillCheck.resolveSkillCheck(spec.check, SWAMP_NOVICE_DC, party, {
+            title: spec.title,
+            flavor: spec.flavor,
+            // ★DC ではなく加算側に効かせる (js/skill-check.js の contract。DC を動かすと表示 DC まで変わる)
+            extraBonus: sceneClassBonus(spec.classes),
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        dialogPaused = false;
+      }
+      skillCheckActive = false;
+      await applyNoviceResult(res, choice);
+    }
+
+    /* 結果の適用。⚠ 判定が成立しなかった (エンジン未読込 / PT 消滅) ときは**安全側**に倒す
+     *   = 何も起きない。ここで敵対化させると「判定を受けていないのに罰だけ受ける」になる
+     *   (applyMineWatchResult と同じ判断)。 */
+    async function applyNoviceResult(res, choice) {
+      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+      if (!res) {
+        showDMMessage("言葉は続かなかった。司祭は供物を抱えたまま、じっとこちらを見ている…", 2600);
+        return;                                  // s3_novice_swayed は null のまま
+      }
+      if (res.success) {
+        sceneFlags.s3_novice_swayed = true;
+        showBanner("🐍 若い司祭は退いた", 1700);
+        updateInfo(`${rep} の言葉が届いた (${res.total} ≧ DC ${res.dc}) — 若い司祭は供物を置き、沼へ姿を消した`);
+        /* ⚠ 台詞は**司祭自身の迷い**だけに絞る。「炎の支配者」の伏線は既に 6 箇所で
+         *   回収済みなので (依頼書 §2-8 罠 F)、ここで説明させると 7 回目の繰り返しになる。 */
+        showDMMessage(choice === 3
+          ? "「……ぼくは、まだ供物を捧げていない。捧げたく、ない。」若い司祭は震える手で供物を置き、葦の奥へ走り去った…"
+          : "「……この道は、こんな血の匂いのする道ではなかった。」若い司祭は供物を置き、静かに参道を降りていった…", 4200);
+        await sleepMs(900);
+        const el = enemyElements[noviceIdx];      // passiveNpc は維持 (クリア非ブロック)、視覚だけ消す
+        if (el) { el.style.transition = "opacity 1.2s"; setEnemyVfx(noviceIdx, undefined, "0"); }
+        return;
+      }
+      sceneFlags.s3_novice_swayed = false;
+      showBanner("🐍 若い司祭が槍を構えた", 1700);
+      updateInfo(`${rep} の言葉は届かなかった (${res.total} < DC ${res.dc}) — 若い司祭は供物を投げ捨て、槍を構えた`);
+      showDMMessage("「……あなたたちも、同じだ。」若い司祭は供物を投げ捨て、震えたまま槍を構えた…", 3600);
+      const e = enemies[noviceIdx];
+      if (e) { e.passiveNpc = false; e.inactive = false; e.everSeen = true; }
+      const el = enemyElements[noviceIdx];
+      if (el) {
+        el.classList.remove("swamp-novice");
+        setEnemyVfx(noviceIdx, "brightness(1.5) saturate(1.2)", "1");   // 淡さを解いて実体化
+        nodeTimeout(() => { setEnemyVfx(noviceIdx, ""); }, 700);        // ★[P1] 添字を跨いで書き戻さない
+      }
+    }
+
     // ── Phase 2-B: 確率脱走 (檻近くで戦闘 → 5秒ごとに 20% で自動解放) ──
     // 戦闘開始から 5 秒経過したら、5 秒ごとに、戦闘地点 (player) と檻の距離が 800px 以内の
     // 閉じた檻について 20% で自動解放判定。発動したら openCage() を呼ぶ (咆哮 → ワープ → 第三勢力化)。
@@ -33580,6 +33768,9 @@
       initGuardians();   // Sce4 隠し要素: 休眠する古代王国の守護者を inactive 化
       initCaelum();      // Sce5 隠し要素: 神官の霊カエルムを inactive 化 + 聖域演出 (接近で対話)
       initHydra();       // Sce3 隠し要素: 沼の守護神ハイドラを封印 (inactive+passiveNpc、祭壇接近3択で覚醒)
+      initSwampNovice(); // ★[#53] Sce3 山場 n4: 若き蛇神司祭を inactive+passiveNpc 化 (接近で 4 択)
+                         //   ⚠ Math.random を 1 度も引かないので、後続の乱数列は 1 ビットも動かない。
+                         //   ⛔ spawnDetourChests より後に置かない (あれは「必ず最後」)。
       spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
       initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
       spawnDetourChests();  // ★[P9] 寄り道スポットの宝箱。⚠ **必ず最後**に呼ぶ (下の注記)
@@ -36288,7 +36479,17 @@
                       /* ★東の広場の 2 体 = 絵ローカル (24,8)(25,10)。浅水の見張りとは
                        *   14 タイル離れており DETECTION_RANGE 12.5 タイルを超えるので
                        *   **別の戦闘**になる (森 n7big と同じ組み立て)。 */
-                      [34, 11, "lizardHunter"], [35, 13, "lizardPriest"]] },
+                      [34, 11, "lizardHunter"], [35, 13, "lizardPriest"],
+                      /* ★[#53 STEP3] 若い司祭 = 絵ローカル (23,9) の開けた敷石。
+                       * ⚠⚠ **広場の 2 体のすぐ脇に置くのが要件**。対話 tick は
+                       *   `!encounterActive` のときしか回らないので、離れた場所へ置くと
+                       *   「戦闘が終わった時にはもう半径 220px の外」で一度も開かない
+                       *   (実測: DETECTION_RANGE は 12.5 タイル = 広場の戦闘は参道の col 22
+                       *    付近で始まるので、道中で落ち着いて話しかけられる区間は存在しない)。
+                       * ⭐ inactive + passiveNpc なので heroAI の標的にならず
+                       *   (findNearestAliveEnemy が inactive を飛ばす)、
+                       *   isNodeSettled も passiveNpc を数えない = クリアを止めない。 */
+                      [33, 12, "swampNovice"]] },
         n5: { name: "苔むした岩場" },
         n6: { name: "蛇神の祭壇" },
         n7: { name: "族長の巣",

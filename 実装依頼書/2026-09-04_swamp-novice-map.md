@@ -982,3 +982,83 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 **STEP2 の完了条件の判定**: `driver_paint_blocked --stage lizard-swamp` の §3 が緑
 (`(8b)` = 全ノードで起点が歩け全部屋に到達 / `?paintblock=0` との一致も緑)✅ —
 それどころか **65/65 全緑**になった。⭐ 司祭はまだ 1 バイトも入れていない(STEP3)。
+
+---
+
+### 12-3. STEP3 完了 — 若き蛇神司祭 `swampNovice`
+
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `2352b6c`
+
+#### 入れたもの(すべて `index.html`。他ファイルは触っていない)
+
+| 場所 | 中身 |
+|---|---|
+| `ENEMY_TYPES.swampNovice` | `lizardPriest` の直後。幾何と戦闘値は**完全に同値**、`isSwampNovice: true` だけ足した |
+| `initSwampNovice()` | `inactive + passiveNpc` 化 + 淡い vfx。⭐ **再入場の復元も持つ**(下記) |
+| `tryApproachNovice()` + `setInterval(…, 400)` | 接近 tick。半径は `NOVICE_APPROACH_RADIUS = ALTAR_APPROACH_RADIUS`(220)を**参照**(⛔ 数字を発明しない) |
+| `runNoviceDialog()` | 4 択 → `SkillCheck.resolveSkillCheck` |
+| `applyNoviceResult()` | 成功=退く / 失敗=敵対化 / `res` が無い=**何も起きない**(安全側) |
+| `SWAMP_NOVICE_DC = 13` / `SWAMP_NOVICE_CHECKS` | 判定つきの枝だけを持つ表(0 番は表に無い = 判定なし) |
+| `sceneFlags.s3_novice_swayed: null` | 3 値。⚠ 読む側は `=== true` / `=== false` |
+| `spawnNodeEntities()` | `initHydra()` の直後に 1 行 |
+| `buildLizardSwampRun()` の n4 slots | `[33, 12, "swampNovice"]` を 5 番目に追加 |
+
+#### ⭐ 配置 (33,12) の根拠(依頼書が書いていなかった制約)
+
+対話 tick は `!encounterActive && !encounterRunning` のときしか回らない。
+一方 `DETECTION_RANGE = 12.5 タイル`(STEP2 実測)なので、**広場の戦闘は参道の col 22 付近で始まる**。
+⇒ 「道中の落ち着いた区間で話しかける」窓は**存在しない**。話せるのは
+**広場の 2 体を倒した直後、その場で**しかない。したがって司祭は
+**広場の 2 体のすぐ脇 (33,12)**(`lizardHunter` から 1.41 タイル / `lizardPriest` から 2.24 タイル)に置く。
+⛔ 「参道の脇の静かな場所」に離して置くと、戦闘が終わった時にはもう半径 220px の外で
+**一度も対話が開かない**。
+
+#### ⚠⚠ 崩れた前提 1 件
+
+**依頼書 §3 ⑨「CSS 1 クラス」は不要だった。** 写経元の `.caelum-spirit` を実測すると
+**CSS 規則を 1 つも持たない**(`grep -rn "caelum-spirit"` = `classList.add` と `remove` の 2 件のみ)。
+見た目は `setEnemyVfx`(`function setEnemyVfx` で引く)が全部やっている。
+⇒ `swamp-novice` も**目印のクラスだけ**足し、CSS は 1 行も書いていない。
+
+#### ⭐ 依頼書に無かったが必要だった配線 2 件
+
+1. **再入場の復元**(`initSwampNovice` の冒頭)。`sceneFlags.s3_novice_swayed` が
+   `true` なら姿を消したまま・`false` なら敵対のまま復元する。無いと
+   「一度退かせた司祭が、引き返して戻ると立っている」になる。
+2. **`tryApproachNovice` の本人確認**(`if (!e.def.isSwampNovice) return;`)。
+   添字は**別ノードでは別人を指す**。⭐ カエルム / ハイドラは 1 シナリオ 1 ノードなので
+   この穴が露出していないだけで、同じ形の既存の穴が向こうにもある。
+
+#### 実測(`node tools/probe_swamp_map.js`)
+
+    node tools/probe_swamp_map.js --bfs --settle
+      若い司祭 = {"i":4,"alive":true,"inactive":true,"passiveNpc":true,"tx":33,"ty":12,
+                  "cls":"enemy enemy-swampNovice swamp-novice"}
+      ★司祭以外を全滅させた後の isNodeSettled() = {"killed":4,"settled":true}
+      歩けるマス 110 / 到達 108 (STEP2 と同一 = マスクに穴を開けていない)
+      slot swampNovice (33,12) isTileWall=false / 起点から aStar 22 歩
+
+    node tools/probe_swamp_map.js --bfs --outcome success
+      → {"flag":true,"inactive":true,"passiveNpc":true,"vfxOpacity":"0"}
+    node tools/probe_swamp_map.js --bfs --outcome fail
+      → {"flag":false,"inactive":false,"passiveNpc":false,"vfxOpacity":"1"}
+
+    node tools/probe_bandit_map.js --ai --scen lizard-swamp --node n4
+      → 入場直後の heroAI 最寄り目標は **lizardRaider のまま**(司祭は inactive なので
+        findNearestAliveEnemy が飛ばす)
+
+⚠⚠ **透明度は `enemies[i].vfxOpacity` で測ること。** `setEnemyVfx` は `el.style` へ直に書かず、
+描画ループが毎フレーム反映するので、直後に `el.style.opacity` を読むと `""` のままで
+「効いていない」と誤読する(2026-09-05 に実際に踏んで、プローブの測定点を直した)。
+
+#### golden の再測定
+
+| ドライバ | STEP2 後 | STEP3 後 | 判定 |
+|---|---|---|---|
+| `driver_graph_p6.js` | 246/246 | **246/246** | 変化なし(5 体目でも (3e) 等は緑) |
+| `driver_paint_blocked.js --stage lizard-swamp` | 65 / FAIL 0 | **65 / FAIL 0** | 変化なし |
+| `driver_grid_s2.js` | 111/111 | **111/111** | ⚠ golden 更新。差分は `lizard-swamp/n4` の 1 件のみ(5 番目のスロット) |
+
+**STEP3 の完了条件の判定**: 4 分岐のうち **成功 / 失敗の 2 本は本番関数へ食わせて実測**、
+**判定なし(0 番)/ Esc は `SkillCheck` を 1 度も呼ばない経路**として実装。
+⚠ 「?autoplay が 1 番目を引いて完走する」の実走は **STEP4 の `verify_swamp_novice.js`** で測る。

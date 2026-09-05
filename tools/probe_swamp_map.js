@@ -108,10 +108,11 @@ async function bootPage(browser, url, scen) {
   const qs = arg('qs', '');
   const page = await bootPage(browser, 'http://localhost:' + PORT + (qs ? '?' + qs : ''), SCEN);
   const cut = parseInt(arg('cut', '-1'), 10);
+  const SETTLE = process.argv.includes('--settle');   // ★破壊的: 司祭以外を殺して isNodeSettled() を見る
 
   /* ★実プレイの入口関数を通す。⚠⚠ buildNode(nd.mapDef) を直に呼ぶのは**間違い**
    *   (probe_bandit_map.js の注記と同じ理由 = MAPDEF.isCustom が付かず旧在庫の絵が貼られる)。 */
-  const out = await page.evaluate((nodeId, via, cutCol) => {
+  const out = await page.evaluate(async (nodeId, via, cutCol, settleTest, outcomeArm) => {
     if (typeof RUN === 'undefined' || !RUN || !RUN.byId || !RUN.byId[nodeId]) {
       return { err: 'RUN に ' + nodeId + ' が無い' };
     }
@@ -173,6 +174,24 @@ async function bootPage(browser, url, scen) {
     try { res.outdoor = (typeof window.__outdoorRevealProbe === 'function')
                         ? window.__outdoorRevealProbe() : null; }
     catch (e) { res.outdoor = 'THREW ' + e.message; }
+    /* ★[#53 STEP3] 若い司祭の初期状態と「クリアを止めないこと」。
+     * ⚠ settle の検査は**本番の isNodeSettled() を呼ぶ**。自前で
+     *   `enemies.every(...)` と書き写すと、実装が変わっても永久に緑のままになる。
+     * ⚠ 司祭以外を殺すのは**この使い捨てページの中だけ**の破壊的操作なので、
+     *   BFS とスロット検査を全部終えた後で行うこと (ここが最後)。 */
+    res.novice = null;
+    try {
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.def || !e.def.isSwampNovice) continue;
+        const el = enemyElements[i];
+        res.novice = { i: i, type: e.def.name, alive: !!e.alive,
+                       inactive: !!e.inactive, passiveNpc: !!e.passiveNpc,
+                       tx: Math.round(e.x / TILE_SIZE), ty: Math.round(e.y / TILE_SIZE),
+                       cls: el ? el.className : null };
+        break;
+      }
+    } catch (e) { res.novice = 'THREW ' + e.message; }
     /* スロットが「歩ける・起点から到達できる」ことを本番の aStar で見る。 */
     res.slotCheck = [];
     for (const s of (room.enemySlots || [])) {
@@ -182,8 +201,44 @@ async function bootPage(browser, url, scen) {
       catch (e) { steps = 'THREW'; }
       res.slotCheck.push({ tx: s[0], ty: s[1], type: s[2], wall: wall, steps: steps });
     }
+    /* ★[#53 STEP3] 4 分岐のうち「成功」「失敗」を**本番の applyNoviceResult に食わせて**
+     *   結果の状態だけを見る。⛔ 判定の乱数は通していないので「判定が正しいか」の検査ではない
+     *   (それは STEP4 の tools/verify_swamp_novice.js の仕事)。ここは配線の煙感知器。 */
+    res.outcome = null;
+    if (outcomeArm) {
+      try {
+        const fake = outcomeArm === 'success'
+          ? { success: true,  total: 18, dc: 13, rep: { name: "テスト" } }
+          : { success: false, total: 7,  dc: 13, rep: { name: "テスト" } };
+        await applyNoviceResult(fake, outcomeArm === 'success' ? 1 : 3);
+        const nv = enemies[res.novice ? res.novice.i : -1];
+        res.outcome = { arm: outcomeArm, flag: sceneFlags.s3_novice_swayed,
+                        inactive: nv ? !!nv.inactive : null,
+                        passiveNpc: nv ? !!nv.passiveNpc : null,
+                        /* ⚠⚠ 透明度は **enemies[i].vfxOpacity** を見る。setEnemyVfx(:15158) は
+                         *   el.style へ直に書かず、描画ループ (updateEnemyDamageFlash) が
+                         *   毎フレーム反映するので、直後に el.style.opacity を読むと
+                         *   まだ "" のままで「効いていない」と誤読する (2026-09-05 に実際に踏んだ)。 */
+                        vfxOpacity: nv ? nv.vfxOpacity : null,
+                        styleOpacity: (res.novice && enemyElements[res.novice.i])
+                                 ? enemyElements[res.novice.i].style.opacity : null };
+      } catch (e) { res.outcome = 'THREW ' + e.message; }
+    }
+    /* ★司祭以外を全滅させてから本番の isNodeSettled() を呼ぶ = 「passiveNpc がクリアを
+     *   止めない」の実測。⛔ これ以降このページの盤面は信用しない (最後に置くこと)。 */
+    res.settle = null;
+    if (settleTest) {
+      try {
+        let killed = 0;
+        for (const e of enemies) {
+          if (!e || !e.def || e.def.isSwampNovice) continue;
+          if (e.alive) { e.alive = false; e.hp = 0; killed++; }
+        }
+        res.settle = { killed: killed, settled: isNodeSettled() };
+      } catch (e) { res.settle = 'THREW ' + e.message; }
+    }
     return res;
-  }, NODE, arg('via', 'right'), cut);
+  }, NODE, arg('via', 'right'), cut, SETTLE, arg('outcome', null));
 
   if (out.err) { console.error('[probe] ' + out.err); await browser.close(); srv.close(); process.exit(3); }
   console.log('[probe] ' + SCEN + '/' + NODE + '  name=' + out.name + '  paint=' + out.paint +
@@ -194,6 +249,9 @@ async function bootPage(browser, url, scen) {
   console.log('  孤立したマス (' + out.isolated.length + '): ' +
               (out.isolated.length ? JSON.stringify(out.isolated) : 'なし'));
   console.log('  屋外めくり (__outdoorRevealProbe) = ' + JSON.stringify(out.outdoor));
+  console.log('  若い司祭 (swampNovice) = ' + JSON.stringify(out.novice));
+  if (out.outcome) console.log('  ★applyNoviceResult の結果 = ' + JSON.stringify(out.outcome));
+  if (out.settle) console.log('  ★司祭以外を全滅させた後の isNodeSettled() = ' + JSON.stringify(out.settle));
   if (cut >= 0) {
     console.log('  ⚠ 下の slot 行の aStar は**反実仮想を適用しない実盤面**で測っている' +
                 ' (aStar は本番の盤面を読むため)。割れたかどうかは上の連結成分で見ること。');
