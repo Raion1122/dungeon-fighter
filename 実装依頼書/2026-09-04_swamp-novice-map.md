@@ -1176,3 +1176,50 @@ n7 は 9x6 の小部屋(`P6_BOSSR = [11,32,16,40]`)で、**入場 (34,13) から
 ⚠ 走らせるときのポートの注意: `driver_paint_blocked.js` は既定ポート + 1〜5 を変異用に使うので、
 他のドライバと**並走させるならポートを 10 以上離す**(2026-09-05 に 9536 と 9537 が衝突して
 出力が混ざった)。
+
+---
+
+### 12-5. 締めの実測(`?autoplay` 完走スモークと、その対比の取り方)
+
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `04cfd45`(push 済)
+
+    node tools/auto_debug_run.js --scen lizard-swamp --runs 3 --browser "<chrome>"
+      → 完了 true / 3 ラン / critical 0 / warn 0 / フリーズ 0 / 404 は favicon のみ
+        [defeat R5] [defeat R7] [defeat R7]   (2 本目: [defeat R3] [defeat R2] [defeat R5])
+
+⭐ **#53 が壊しうるもの(対話でノードが片付かなくなる = 巡回が止まる)は起きていない。**
+`?autoplay` は選択肢 index 0(判定なし)を引くので、判定にも報いにも入らない((2a) の実測どおり)。
+
+⚠ ただし **6 ラン中 6 敗**。レポート JSON を読むと `R` は**部屋番号ではなく戦闘ラウンド数**で、
+どのランも `finalLeaderHp: 0` / `partyAlive: 3` = **仲間 3 人が生きているのに主人公だけ落ちて敗北**。
+15 秒で終わったランは n4 に到達すらしていない。
+⇒ **#53 の責任ではない**と切り分けられる根拠:
+
+- `driver_grid_s2` の golden 差分が **`lizard-swamp/n4` の 1 件だけ**(残り 38 の mapDef はバイト一致)
+- 着手前(`cdaaf91`)比の `index.html` の**削除行は 3 行だけ**(n4 の 2 行 + `nodeSpawnsFor` の 1 行)
+- autoplay ではフラグが `null` のままなので n7 も素
+
+⇒ 「主人公だけ先に落ちる」は**別チケットの題材**(リーダー AI / 前衛の立ち位置)。
+
+#### ⚠⚠ 起草窓の指摘で崩れた実装窓の前提 1 件(⭐ 記録しないと次の窓が同じ調査をやり直す)
+
+実装窓は「`auto_debug_run.js` は追加クエリを渡せない(`--scen` は `encodeURIComponent` される)ので
+**ドライバ側に口を足す工事が要る**」と判断したが、**誤り**。
+**`--qs` の口は #11 が既に作っている**(`tools/auto_debug_run.js:38` の `EXTRA_QS` / `:115` で URL へ連結)。
+
+    node tools/auto_debug_run.js --scen lizard-swamp --runs 3 --qs "swampmap=0"
+
+⭐ 埋め込む先が違っただけで、`--scen` に `&` を混ぜようとした観察(encodeURIComponent に食われる)自体は正しい。
+⚠⚠ **ただし本物の穴が 1 つある**: フリーズ復帰の URL(`:147`)は `?autodebug=resume` **だけ**で、
+`--qs` も `--scen` も落ちる。⇒ 復帰が起きたランは**黙ってスイッチ無しの腕へ戻る**ので、
+対比を取るときは `critical 0`(= 復帰が起きていない)まで確認してから比べること。
+⭐ 併せて #50 の教訓: 非決定論オートプレイの効果測定は**ペア比較でしか効かず**、
+±1 体規模の差は **N=60 でもノイズに埋もれた**実績がある(`project_scenario3_balance`)。
+
+⚠⚠ **追記(2026-09-05 夕、実装窓)**: 上の「`critical 0` を確認してから比べる」だけでは足りない。
+`tools/auto_debug_run.js` が書くレポート JSON は **`--qs` も URL も記録しない**(実測: `campaign` =
+`{total, done, cycle, cycleIdx, speed}` / 各ラン = `{idx, scenarioId, rounds, outcome,
+finalLeaderHp, partyAlive, ...}` のみ)。⇒ **走らせた後にレポートを見ても、どちらの腕だったか
+判別できない。** しかも出力先 `--out`(`:40`)の既定は固定パスなので、**後の腕が前の腕を上書きする**。
+⭐ 対処 = 腕ごとに `--out` を分ける + 起動コマンドを手元に残す。
+実際この日に回した 3 ラン(`defeat R4 / R6 / R3`、critical 0、warn 0)は**腕を特定できず対比に使えなかった**。
