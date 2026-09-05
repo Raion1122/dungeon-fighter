@@ -559,3 +559,146 @@ STEP0 の実走が唯一の正。
 ⚠ §8 の golden 8 本を**着手前に 1 回**走らせ、本数をここに記録する。
 特に `verify_recruit_size` は本件で赤くなる見込みがあるので、**着手前の本数**が無いと
 「本件が壊した」のか「元から赤い」のか切り分けられない。
+
+**実測日**: 2026-09-05(実装窓) / **基準の木**: `8852c98`(= `00c486d` 起草 + `8852c98` #53 §12-5 の記録。
+`index.html` / `tavern.html` は `04cfd45` から 1 バイトも動いていない)
+
+#### ⭐⭐⭐ 母集団を数え直した — §8 の 8 本は**部分集合**だった
+
+依頼書は golden を 8 本と名指ししたが、**#54 は「候補 0 人ならソロ」= 出発人数が変わる改造**なので、
+人数と装備スキルを測るドライバは全部が候補になる。`grep -l` で数え直した結果:
+
+    grep -l "tavern\.html"     tools/*.js   → 45 本(⚠ コメントも拾うので過大)
+    grep -l "partyMembers"     tools/*.js   → 21 本
+    grep -l "equippedSkills"   tools/*.js   →  6 本
+
+⇒ §8 の 8 本に、`partyMembers` / `equippedSkills` を測る 16 本を足して **24 本**で基準を採った。
+⭐ 根拠 = [[project_headless_verification]] の「**前のチケットが数えた本数を信じるな**」
+(#45/#46 が 7 本と思っていた母集団の実測は 13 本で、取りこぼした 1 本が**赤いまま出荷**されていた)。
+
+#### 基準(素の腕のみ / `--negative` は回していない)
+
+| ドライバ | exit | 基準 |
+|---|---|---|
+| `verify_npc_crowd` | 0 | **32/32** PASSED / FAILED 0 / PENDING 0 |
+| `verify_recruit_size` | 0 | **82/82** PASS ⭐ 2026-08-23 の記録 82 は**腐っていない** |
+| `verify_mercenary_roster` | 0 | **44/44**(0 FAILED / 0 PENDING) |
+| `verify_party_match_setup` | 0 | **36** PASSED / 0 FAILED / 0 PENDING |
+| `verify_quest_walk` | 0 | **25/25** PASSED |
+| `driver_party_view_reopen` | 0 | **35/35** PASSED |
+| `driver_depart_menu_clean` | 0 | **41/41** PASS |
+| `verify_tavern_map` | 0 | **43/43** PASSED |
+| `driver_action_priority` | 0 | **92** PASSED / 0 FAILED |
+| `verify_darkvision` | 0 | **25/25** PASSED |
+| `verify_player_sheet` | 0 | **73/73** PASSED ⭐ #47 で赤かった件は解消済 |
+| `verify_run_chronicle` | 0 | **73** PASSED / 0 FAILED |
+| `verify_road_boon` | 0 | **20/20** PASSED |
+| `verify_cone_cast` | 0 | **19/19** PASSED |
+| `verify_road_ambush` / `verify_save_slots` / `driver_field_step7` / `driver_heromark_signplate` / `driver_trap_weaponize` / `driver_monsters_chimera` / `driver_monsters_griffon` | 0 | 全て exit 0 |
+
+#### ⚠⚠ 着手前から赤い / 止まる 3 本(⛔ 後で見つけても本件のせいにしない)
+
+1. **`driver_monsters_umberhulk`** — **21/22**。FAILED = `(3) 再発火: 同一 enemyIdx が2回以上 gaze
+   (gazeCooldown 明けに再発火) — maxGazesPerEnemy=1`。⭐ アンバーハルクの凝視クールダウンの話で
+   **#54 とは無関係**。
+
+2. **`driver_equip_compact_ios`** — exit 1。`準備画面 (#prep) が可視にならなかった — 演出の進行に失敗`。
+   ⭐⭐⭐ **フレークではない**(同じ地点で 2 回再現)。さらに **`cdaaf91`(#52 = #53 より前)の木を
+   `--root` で配信しても同じ地点で落ちる** ⇒ **#52 / #53 / #54 のいずれでもなく、もっと古い赤**。
+   ⚠ 仮説(未検証・本チケットでは追わない): ドライバは画面中央を 45 回タップして演出を送る実装だが、
+   #35 のマッチング演出が `#pmDepart`「出発する」の明示タップ待ちになったため、
+   **中央タップでは進まなくなった** = 壊れているのは機能ではなく**ドライバ側の進め方**の疑い。
+   ⇒ 別チケットの題材(§11 の #56 候補と同じ扱い)。
+   ⚠⚠ **本チケットは `openPrep` を触る**ので、締めで赤くても**本件の仕業ではない**基準がここ。
+
+3. **`probe_party_size`** — exit 124。⭐ **中身は全 OK**(`(2a)(2b)(2z1)〜(2z5)(4z0)` 全て OK が出ている)。
+   出力を終えた後に終了せず、実装窓のラッパの **600 秒タイムアウト**で切られただけ。
+   ⇒ 赤ではない。締めで比べるときは**タイムアウト前提**で回すこと。
+
+---
+
+### 12-0b. ⭐⭐⭐ §2-3(スリープ常備)の中核の前提が崩れた — 予測のほうを訂正する
+
+⛔ assert を緩めていない。**依頼書の予測が誤りで、本番コードのほうが正しい。**
+すべて `git show HEAD:index.html`(`8852c98`)の実測。
+
+#### (1) `SKILL_SLOT_CURVE` は魔法使いに適用されない(マーシャル職専用)
+
+- `headSkillSlots = ["warrior","dwarf","rogue"].includes(leaderClassKey) ? skillSlotsForLevel(headLevel) : 3`
+  ⇒ **キャスターの頭は 3 固定**。枠カーブを読まない。
+- 依頼書が「⭐ 最後に必ず通る」とした仲間の slice ループは、冒頭が
+  `if (!["warrior","dwarf","rogue"].includes(ally.classKey)) continue;`
+  ⇒ **mage は 1 度も通らない**。
+- 魔法使いの枠の正は **`SPELL_SLOT_CURVE_MAGE = [0,3,4,5,6,8,9,10,12,13,15]`**
+  ⇒ **Lv1 の枠は 1 個ではなく 3 個**。
+
+#### (2) `withInnateSleep` を slice の後に挿す案は、魔法使いに届かない
+
+仲間 mage の `equippedSkills` の**最終的な書き手**は `initAllySpellSlots` で、
+`ally.equippedSkills = Object.keys(allocMap)` と**丸ごと上書き**する(slice 群より後段)。
+
+#### (3) ⭐⭐⭐ 本当の関門は `isSpellKnown` の完全ゲート
+
+    const DEFAULT_KNOWN = { mage: ["magic-missile", "fire-bolt", "arcane-shield"], ... };
+
+`sleep` が入っていないので、`initLeaderSpellSlots` / `initAllySpellSlots` の両方が
+`if (!isSpellKnown(classKey, id)) continue;   // 完全ゲート` で落とす。
+⭐ **先行事例**: #50 の `tools/verify_cone_cast.js:618-650` が同じ鎖
+(`knownSpells` → `partySkills` → `allocMap` → `equippedSkills`)を既に文書化しており、
+バーニングハンズで**同じ穴**を踏んでいる。⇒ 写経すべきはこちら。
+
+#### (4) 「Lv1 では magic-missile だけ」も違う
+
+`defaultCasterMap` が defaultSkills の `mpCost > 0` を **2 枠ずつ**積み、`upperCap = 3` で切るので、
+Lv1 の NPC 魔法使いの実体は **`{magic-missile: 2, fire-bolt: 1}` /
+`equippedSkills = ["magic-missile","fire-bolt"]`**(arcane-shield は 0 枠で落ちる)。
+⭐ ついでに **MP は Phase 2-J で完全廃止**(`maxMp = 0`)なので、`sleep` の `mpCost: 6` は**名残**であり障害ではない。
+
+#### ⇒ 受入条件・変異への波及
+
+- (1d)「`SKILL_SLOT_CURVE` が 1 ビットも変わっていない」は番人として残せるが、
+  **「枠で解決していない証拠」にはならない**。効く番人は **`SPELL_SLOT_CURVE_MAGE` の凍結**。
+- 変異 `sleepbeforeslice` / `curvebump` は**別機構**を叩いており、`MUT_EXPECT` が空振りする。
+  ⇒ **`nosleepknown`(`DEFAULT_KNOWN.mage` から sleep を抜く)/ `magecurvebump`
+  (`SPELL_SLOT_CURVE_MAGE[1]` を 3→4)** へ差し替える。
+
+#### ⏸ 仕様判断待ち(起草窓 + ユーザーへ送付済 2026-09-05)
+
+Lv1 の枠 3 個は `magic-missile ×2 + fire-bolt ×1` で**埋まりきっている**。sleep を入れるには
+何かが 1 枠譲る必要がある。(A) `mm×2 + sleep×1` / (B) `mm×1 + fb×1 + sleep×1` /
+(C) `SPELL_SLOT_CURVE_MAGE[1]` を 3→4。**実装窓の推奨は (A)**
+(Lv1 では fire-bolt と magic-missile が**両方とも単体攻撃**で役割が重複しており、失うものが最小)。
+
+⚠ 併せて: `SCROLL_CATALOG` に **`scroll-sleep`(common)が実在**する。sleep を初期習得にすると
+この巻物は「習得済み」表示の空振り品になる(⭐ `learnScroll` は `{learned:false, already:true}` を返し、
+一覧は `[習得済み]` を出すので**事故にはならない**)。扱いは STEP1 で決める。
+
+---
+
+### 12-0c. ⭐ STEP2 の分岐は依頼書の内部矛盾だった(実装窓が決着させた)
+
+§5 は「`DFRoster.all()` から 4 人を抽選して patronA-D の見た目(**名前・職業**)に反映」と書きつつ、
+同じ節で「⛔ `sprite` は触らない」と書いている。**職業はスプライトが表しているので両立しない。**
+
+⇒ 実測で決着: `tavern.html` に **`PARTY_PORTRAIT_SPRITES[classKey][variant]`** が既にあり、
+**現在の卓の 4 人はこの表の `variant = 1` と完全一致**する。
+
+| 席 | 現在のスプライト | = 表の |
+|---|---|---|
+| `patronA` | `dwarf_warrior_walk.png` | `dwarf[1]` |
+| `patronB` | `rogue_male_walk.png` | `rogue[1]` |
+| `patronC` | `cleric_npcmale_walk.png` | `cleric[1]` |
+| `patronD` | `elf_male_walk.png` | `elf[1]` |
+
+⇒ **職業に応じて `PARTY_PORTRAIT_SPRITES` を引く**形にすれば、(dwarf,1)(rogue,1)(cleric,1)(elf,1) を
+引いた場合に**現在と 1 バイトも変わらない**(= 恒等が保証される)。新しい表は要らない。
+⭐ 「⛔ sprite を触らない」の禁止は**幾何**(tile / dx / dy)に向けられたものと解釈する。
+スプライト画像の差し替えは `el.style.width/height = SPRITE` 固定なので**矩形を変えない**
+⇒ 不変条件 (I5) と golden 4 本に触れない。
+
+⚠ ただし `say:` は席ごとの性格台詞で、職業が変わると食い違う(例: `patronD`
+「森の依頼なら、私に一言あってもよかろうに」= エルフ前提)。
+⭐ `verify_npc_crowd` は**吹き出しの文面を `js/npc-crowd.js` の `say` と突き合わせる**
+(データ側を読んで比較する自己整合な作り)ので、**`say` の文面を書き換えても緑のまま**。
+⛔ 逆に「吹き出しを抽選した人物の `line` にする」と、データと食い違って**必ず赤くなる**。
+⇒ STEP2 では `say` を**職業に依らない中立な文面**へ書き換える(⛔ `tile` / `dx` / `dy` は触らない)。
