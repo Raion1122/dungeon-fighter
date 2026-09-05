@@ -46,35 +46,40 @@
 
 ## 2. 着手前の実測(この窓が本番コードと実ファイルで確かめた事実)
 
-### 2-1. 行番号の実測(⚠ すべて `grep -n` で取り直した。会議中の記述は 6 件ズレていた)
+### 2-1. 参照先の実測(⚠ 行番号は動く。**識別子で引くこと**)
 
-| ファイル:行 | 何 |
-|---|---|
-| `index.html:3675` | `const FIELD_THEMES = new Set(["caravan-road"]);` |
-| `index.html:4010` | `const BANDIT_MAP_OFF = (() => {` — 撤退スイッチの型 |
-| `index.html:4965` | `const ROOM_PAINTINGS_DEF = {` |
-| `index.html:5957` | `function applyPaintingBlocking(enemySpawns, playerStartTx, playerStartTy)` |
-| `index.html:9193` | `// 友好・無視ルートでは戦わず passiveNpc のまま (勝利判定から除外)。` |
-| `index.html:9655` | `lizardRaider: {`(失敗側で +1 する敵) |
-| `index.html:9674` | `lizardPriest: {` / `:9675` `flavor: "ファラクサスを蛇神として崇める異教の祭祀"` |
-| `index.html:9698` | `lizardChieftain.flavor = "蛇神を祀る沼の主、ファラクサスの忠実なる走狗"` |
-| `index.html:9718` | `lizardChieftain.deathLine = "…炎の…御方よ…我が血を…捧げ…ます…"` |
-| `index.html:10328` | `function questFlagOn(flagName)` |
-| `index.html:10339` | `let sceneFlags = {` — 潜行内フラグの器 |
-| `index.html:10465` | `function nodeExtrasFor(nodeId)` |
-| `index.html:10477` | `/* ★[P2] ノード別の敵スポーン (P1 が残した穴 #3)。` |
-| `index.html:10481` | `function nodeSpawnsFor(nodeId)` |
-| `index.html:13261` | `function showCharChoice(message, candidates, cancelLabel, opts)` |
-| `index.html:23541` | `function initCaelum()` ← **主たる写経元** |
-| `index.html:23558` | `async function tryApproachCaelum()` / `:23574` `runCaelumDialog()` |
-| `index.html:23633` | `function initHydra()` / `:23662` `tryApproachAltar()` / `:23678` `runAltarDialog()` |
-| `index.html:33428` | `function spawnNodeEntities()` |
-| `index.html:33912` | `function buildNode(mapDef, nodeId)` / `:33941` `if (RUN && nodeId) ENEMY_SPAWNS = nodeSpawnsFor(nodeId);` |
-| `index.html:35942` | `function p6Node(scenId, themeId, id, name, rect, opt)` |
-| `index.html:36072` | `rect: [1, 10, 26, 61], paint: "n7big", density: 0,` ← 森の前例 |
-| `index.html:36114` | `function buildLizardSwampRun()` / `:36124` `n4: { name: "蛇神の参道",` / `:36129` `n7: { name: "族長の巣",` |
-| `tavern.html:3091` | 依頼人の台詞「族長は『炎の支配者』とやらの命を受けているとか」 |
-| `tavern.html:3224-3225` | 酒場 talk の success / crit(「炎の支配者」「赤き竜」) |
+⚠⚠⚠ **起草時の行番号はもう使えない。** #52(`cdaaf91`)が `index.html:5273` に 61 行、
+本件 STEP2 がさらに 2 箇所(`SWAMP_MAP_OFF` と `n4big`)に足したことで、
+ズレが **3 区間に割れた**(0 / +14 / +135)。STEP3/4 でまた動く。
+⇒ **この表の左列は `grep -n` の当て先であって、行番号ではない。**
+行番号が要るときは必ず識別子で引き直すこと。
+(⭐ 起草窓が dc41303 で実測 → 実装窓が 18 件すべてを `grep -n` で再確認済み、2026-09-05)
+
+| 引く識別子(`grep -n` の当て先) | 何 | 参考行(`dc41303`) |
+|---|---|---|
+| `const FIELD_THEMES` | 屋外テーマの集合(罠 A) | 3675 |
+| `const BANDIT_MAP_OFF` | 撤退スイッチの型 | 4010 |
+| `const ROOM_PAINTINGS_DEF` | 絵の台帳 | 4979 |
+| `function applyPaintingBlocking` | マスク適用 | 6092 |
+| `友好・無視ルートでは戦わず` | passiveNpc は勝利判定から除外 | 9328 |
+| `lizardRaider: {` | 失敗側で +1 する敵 | 9790 |
+| `lizardPriest: {` | 罠 C の対象(この def にフラグを立てない) | 9808 |
+| `lizardChieftain: {` の `flavor:` / `deathLine:` | ⚠ `lizardChieftain.flavor` という**代入文は存在しない**(def 内のプロパティ) | 9831 / 9833 / 9853 |
+| `function questFlagOn` | 酒場フラグしか読まない | 10463 |
+| `let sceneFlags` | 潜行内フラグの器 | 10474 |
+| `function nodeExtrasFor` | | 10600 |
+| `function nodeSpawnsFor` | ⭐ 唯一の新規配線 | 10616 |
+| `function showCharChoice` | 選択ダイアログ | 13396 |
+| `function initCaelum` | ← **主たる写経元** | 23676 |
+| `function tryApproachCaelum` / `function runCaelumDialog` | 接近と 3 択 | 23693 / 23709 |
+| `function initHydra` / `function tryApproachAltar` / `function runAltarDialog` | 祭壇側の写経元 | 23768 / 23797 / 23813 |
+| `function spawnNodeEntities` | | 33563 |
+| `function buildNode` | 入場のたび `ENEMY_SPAWNS` を作り直す | 34047 |
+| `function p6Node` | | 36077 |
+| `paint: "n7big"` | 森の前例(rect と paint の書き方) | 36207 |
+| `function buildLizardSwampRun` | | 36249 |
+| `tavern.html` 「族長は『炎の支配者』とやらの命を受けているとか」 | 依頼人の台詞(罠 F) | 3091 |
+| `tavern.html` 酒場 talk の success / crit | 「炎の支配者」「赤き竜」(罠 F) | 3224-3225 |
 
 ### 2-2. ⚠⚠⚠ 罠 A — `lizard-swamp` は屋外テーマ**ではない**(#52 の罠は本件にかからない)
 
@@ -230,6 +235,8 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 | `driver_graph_p6.js` (G2) 5 本のグラフが相互に異なる | **緑** | slots が変わっても相異は保たれる |
 | `driver_paint_blocked.js` §3 (3a〜3e) 6 テーマ BFS | ⭐ **本件の主検出器** | `:601` `for (const th of THEMES)`。新マスクで「全部屋・ボススロットへ到達」「`?paintblock=0` と到達可否が完全一致」を測る |
 | `driver_paint_blocked.js` (8d) | ⚠ `--stage lizard-swamp` で**赤**(§2-10) | 上記 |
+| `driver_graph_p6.js` (1j) 道中 7 ノードの骨格 | ⚠ **赤**(STEP2 の実走。着手前の読解では拾えていなかった) | `(1j-<sid>)` は道中ノードが 7 列 x 6 行であることを要求する。n4 を 30x21 にすると破れる。⭐ 森 `n7big` で出なかったのは**ボス部屋 = (1j) の母集団の外**だったため。⇒ #11 が (1j2) でボス部屋に施した言い直し(「骨格か、絵と矩形が完全一致する大部屋」)を道中へも適用し、例外が広がらないよう装置 assert **(1z2)** を新設(245 → 246 本) |
+| `driver_graph_p6.js` (2c) 起動時 lintRun | ⚠ **赤**(STEP2 の実走) | `js/df-mapdef.js` の `LINT_PAINTING_ASPECTS` に 30x21 が無く `graph-painting-aspect` が出る。#11 が 52x26 で踏んだ穴と同型。⇒ `{ w: 30, h: 21 }` を 1 行追加(`paintingAspectFits` の判定式そのものは無変更) |
 
 **再測定コマンド**:
 
@@ -244,6 +251,10 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 **STEP0 で必ず着手前に 1 回全部走らせ、その本数を §12-0 へ記録すること。**
 着手前に赤い assert があれば、それは本件の責任ではない = 先に記録して切り分ける
 (#51 は依頼書の「FAILED 4 本が着手前から赤」が実は解消済みで、基準がまるごと古かった)。
+
+⭐⭐⭐ **実際に上の 2 件がこの読解から漏れた**(2026-09-05 の STEP2 で実走して発覚)。
+「式を読解して緑と判断した」は実走の代わりにならない。
+⇒ STEP0 の着手前実走は**省略できない**という結論の、この依頼書自身の中の実例。
 
 ### 2-12. codex1 の在庫確認(沼のマップは無い)
 
@@ -289,8 +300,14 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 | `tools/probe_swamp_map.js` | **新規**(任意)。敵座標を本番の `isTileWall` で確認する調査プローブ |
 | `tools/driver_paint_blocked.js` | (8d) の正規表現を `/\/n\d+[a-z]*$/` へ(§2-10。⚠ **赤を実見してから**) |
 | `tavern.html` | ⚠ **changelog の 1〜2 行だけ**。ロジックは 1 バイトも触らない |
+| `js/df-mapdef.js` | `LINT_PAINTING_ASPECTS` へ `{ w: 30, h: 21 }` を **1 行**(⚠ `paintingAspectFits` の判定式は 1 バイトも触らない) |
+| `tools/driver_graph_p6.js` | (1j) を「骨格か、絵と矩形が完全一致する大部屋」へ言い直し + 装置 assert (1z2) を新設(245 → 246 本) |
 
-⛔ **`js/df-mapdef.js` は触らない**。`paintingAspectFits` も `resolve()` も既存のまま通る。
+⛔ ~~`js/df-mapdef.js` は触らない~~ → **訂正(STEP2 の実測)**。`LINT_PAINTING_ASPECTS` への
+1 行追加が**必須**だった(無いと起動時 lintRun の `graph-painting-aspect` で
+`(2c-lizard-swamp)` が赤)。⭐ 起草時の「`paintingAspectFits` も `resolve()` も既存のまま通る」は
+**判定式については正しく、台帳への登録については誤り**だった。
+⛔ ただし**判定式そのものは今も触らない**(触ってよいのは台帳 1 行だけ)。
 ⛔ **`js/road-events.js` / `world.html` は触らない**(#51/#52 の領分)。
 ⛔ **`実装依頼書/README.md` の #53 行は、#52 が着地してから足す**(行の文面は §11 に用意した)。
 
@@ -350,6 +367,20 @@ n7 の入場時に読める。ただし既存のフラグ機構は使えない:
 後で赤が出たときに「マスクのせい」か「司祭のせい」かが切り分けられない。
 
 ### 5-1. `ROOM_PAINTINGS_DEF["lizard-swamp"]` に `n4big` を**追加**(既存 `n4` は残す)
+
+⚠⚠⚠ **`tileBounds` / `rect` は「絵が MAP に収まる位置」ならどこでもよい、ではない。**
+`nodeGateTile()`(`function nodeGateTile` で引く)は `paintingGateOf()` が無ければ
+`mainRoomRect(mapDef)` = **この rect** の辺の中点を返す。n4 は n7 への出口を持つので、
+**右辺の中点が `P6_RIGHT = [39, 13]` と 1 タイルも違ってはいけない**
+(`nodeGateTile` 直上のコメントが明文で警告している:
+「戻り値の tx/ty は exits[].at と 1 タイルも違ってはいけない。食い違うと矢印は絵の口に
+立つのに扉は辺の中点に立つ、という**開かない扉**が生まれる」)。
+⇒ 21 行 x 30 列なら `midR = floor((r1+r2)/2) = 13` かつ `c2 = 39` を満たす
+**[3, 10, 23, 39] が唯一解**。⛔ ここを勝手に動かすと `graph-gate-not-floor` /
+`graph-dir-mismatch` が鳴る。
+⭐ 森 `n7big` で同じ問題が出なかったのは、あちらが**ボス = 出口 0 本**だったから
+(写経が効かない箇所)。⇒ `gates` は**書かない**(既定と同値を書くと出所が 2 つになり、
+しかも `paintingGateOf` が `nodeGateTile` の先頭で先に効くので書いた側が黙って勝つ)。
 
     n4big: { src: "assets/room_lizard-swamp_n4_map.jpg",
              tileBounds: [<r1>, <c1>, <r2>, <c2>], node: true,
