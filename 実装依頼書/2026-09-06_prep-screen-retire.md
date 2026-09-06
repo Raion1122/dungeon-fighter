@@ -538,15 +538,126 @@ tavern.html:5855 のコメントはこう名乗っている:
 
 ---
 
-## 13. 実装結果
+## 13. 実装結果 — ✅ 全 STEP 着地(2026-09-06 実装窓 `claude-aa`)
 
-(実装窓が埋める)
+### コミット(起草窓が実物で照合済み・作業ツリー clean)
 
-⭐ 次のチケットの燃料になるので、**依頼書が外していた点を必ず書く**:
+    1d5e050  #55 起草 — 依頼書 + 会議記録(起草窓)
+    bab54cc  #55 出発準備画面の廃止 — 設定をマッチング画面へ一本化      tavern.html +399/-47
+    ae58eed  #55 検証 — 受入ドライバ verify_prep_retire + 母集団の移設(7 本)   tools/ 8 ファイル
 
-- コミットハッシュ / `verify_prep_retire` の結果(`N/N` と `--negative M/M`)
-- 母集団 17 本の**着手後の FAILED 集合**(着手前との差)
-- 依頼書からの逸脱と、その理由
-- ⚠ **依頼書の指定が実物でずれた点**(行番号 / 節の置き場所 / ドロワーの収まり)
-- `driver_equip_compact_ios` を**作り直したか退役させたか**、その判断根拠
-- 残った宿題(iOS 実機の目視 = §10 の 7 項目)
+⭐ `index.html` は変更リストに **不在**(§3 の禁止どおり)。changelog も追記済み。
+
+### 受入 `verify_prep_retire`(base 10050)
+
+- 素 **30/30 PASSED / FAILED 0 / PENDING 0**
+- `--negative` **12/12(空振り 0)**。うち 9 本が担当ラベル**だけ**を赤くした。
+  巻き添えは `nointel` → (1a)(1c)(1d) と `intelinheader` → (1c)(1d)(2b) の 2 本だけで、
+  どちらも構造上避けられない(ボタンごと消す / 帯ごとヘッダへ移す)
+- ⭐ **`intelghost` が (1b) だけを赤くした** = §9 が「写経 assert では捕まらない」と名指しした
+  経路が実際に守られていることの実証
+
+### 母集団 17 本 → **18 本**(`verify_prep_retire` が `#prep` と `pmDepart` の両方を含むため)
+
+    着手前 FAILED = driver_dev_gate / driver_equip_compact_ios / probe_party_size / sweep_recruit_balance
+    着手後 FAILED = probe_party_size / sweep_recruit_balance          (16/18 緑)
+
+⇒ **緑を赤にした本は 0**。差は「改善 2 本 + 新規 1 本」だけ。
+
+### 3 分類の適用結果
+
+**【型1】依頼書は 1 本と見ていたが、実際は 7 本。** 着手前は `#prep` が出ていたので隠れており、
+STEP3 を当てた瞬間に 6 本が一斉に赤くなった(`driver_action_priority` / `driver_depart_menu_clean` /
+`driver_party_view_reopen` / `verify_party_match_setup` / `verify_quest_walk` / `verify_recruit_size`)。
+⭐ 引き渡し文の「B 群 14 本はどれも準備画面の可視を待っている疑い」は**当たり**だった。
+
+- `driver_equip_compact_ios` … **作り直し**(退役させず)。測る先を `#equipWeaponList` から
+  引き出しの `#pmDrawerEquip_weapon` / `#pmDrawerBag_weapon` へ移設。**測る中身は不変**。
+  進め方も修正(画面中央のクリックでは #35 以後もう演出が進まない)→ exit 0
+- 5 本 … URL へ `?prepskip=0` を足して母集団移設(#54 の `?recruittalk=0` と同型)→ 全部 exit 0
+- ⭐⭐⭐ `verify_quest_walk` … **URL 方式が原理的に使えない。** (4c) が `d.seam.search === ''`、
+  (4d) が `=== '?autoplay=10'` と**酒場の `location.search` そのもの**を assert しており、
+  `?prepskip=0` を足した瞬間にその 2 本が崩れる。しかも (4d) は `reachedPrep === true` も要求する。
+  ⇒ **配信バイト側で `PREP_SKIP_ON` を倒す**方式へ(本番ファイルは 1 バイトも無改変。
+  アンカーが 1 箇所でなければ**走る前に exit 3**)→ 25/25 exit 0
+
+⛔ **assert は 1 つも緩めていない。** すべて「母集団を移す」側で解いた。
+
+**【型2】`driver_dev_gate`(exit 2)は偽の赤。** baseline worktree
+`C:\...\Temp\df_devgate_baseline` が 2026-09-04 のディスク掃除で中身ごと消えており、
+`tavern.html` が無い → 再利用判定に落ちず `worktree add` が「already exists」で失敗していた。
+`git worktree remove --force` で掃除 → **52/52 PASSED / exit 0**。
+⇒ ポート由来ではなく**環境残骸**だが、扱いは型2 と同じ(直して消える = 記録不要の赤)。
+
+**【型3】2 本。赤の理由は 1 行で同じ。**
+`probe_party_size` / `sweep_recruit_balance` は **`recruittalk` の語を 1 度も持たない**。
+#54 で既定の編成が「声を掛けた相手だけ」= ソロに変わったのに、この 2 本だけ `?recruittalk=0`
+(自動編成モデル)へ母集団を移していないため、装置ガードが `partySize got=1 want=4` / `want=5` で
+崩れ、そこから先が全滅している。⇒ **#55 とは無関係**(どちらも `#prep` の可視を待たず
+`departToScenario()` を直接呼ぶ)。直し方は #54 が確立済み → **#56 候補**。
+
+⭐ `probe_s2_clear` は途中 exit=2 だったが、これは「本番に差分があると測らない」という #18 専用の
+設計ガードで、**コミット後に緑へ戻った**(作業中はどのチケットでも赤)。
+
+### ⚠ 依頼書が外していた点(次チケットの燃料)
+
+1. ⭐⭐⭐ **§2-10 の型1 は 1 本ではなく 7 本**(上記)。「着手前から赤い 1 本」だけを見ていると、
+   **蓋をした瞬間に一斉に赤くなる群**を見落とす。
+2. ⭐⭐⭐ **依頼書が名指ししていない罠 — z-index。** `#skillCheckOverlay` は **105**、
+   `#partyMatchOverlay` は **210**。事前情報チェックをマッチング画面から撃つと
+   **判定カードが暗幕の下に出て見えない**。`js/skill-check.js` は `index.html` と共有なので触らず、
+   `tavern.html` 側で `#skillCheckOverlay { z-index: 220 !important; }` を上書き(tavern.html:2250)。
+   向こうの規則は JS が実行時に `<head>` へ足す = 後勝ちなので `!important` が要る。
+   ⭐ **一般形 = 「機能を別のオーバーレイの上へ移す」ときは z-index の重なり順を必ず測る。**
+3. ⭐⭐⭐ **§9「⛔ 測らないこと = 見た目の寸法・余白」は、この件では危険な指示だった。**
+   帯(`#pmBrief`)と募集の口(`#pmRerollRow`)を足した結果 `#pmInner` が **1108px** に伸び、
+   844/900px の画面から **`#pmDepart` が画面外へ押し出された**。これは #35 の受入 (4c) /
+   #39 の (3c) が既に守っていた**既存の不変条件**で、両方が実測で赤くなった。
+   ⇒ 中身は削らず `#pmInner` を `max-height:100% + overflow-y:auto`、
+   `#pmDepart` を `position:sticky; bottom:0`(tavern.html:2291)に。
+   ⛔ `#pmDrawer` の `max-height`(42vh / 縦持ち 30vh)は**動かしていない**
+   (#35 の変異 M6 が「外すと (4c) が赤くなる」を守っている値)。
+   ⭐ **教訓 = 「寸法は測らない」と書いてよいのは、その寸法を守る既存 golden が居るときだけ。**
+4. **§9 の受入ドライバ既定シナリオに `orc-fort` は使えない。**
+   ① `locked:true`(`unlockAfter: bandits-forest`)なので新規セーブでは `#btnAccept` のハンドラが
+   `isUnlocked()` で黙って return し、症状は「導線が `prologueOverlay` のまま 120 秒」。
+   ② `SCENARIO_INTEL` に `unlocksFlag` を持つのは **goblin-mine / bandits-forest / lizard-swamp の 3 本だけ**で、
+   `orc-fort` には無いので §1 が原理的に測れない。⇒ `goblin-mine` を既定に。
+   ⭐ **これは §9 の (0c)(0d) を書いたおかげで露見した**(母集団ガードの効用の実例)。
+5. **実装で足した罠つぶし 2 件(依頼書に記載なし)**:
+   - 装備を替えるたび引き出しごと描き直すので `<details>` が畳まる = 連続して着せ替えられない
+     → `pmFoldOpen` で開閉を記憶
+   - 装身具チップの `cycleAccessoryTV` が `renderCharLoadout` 直結 = 引き出しから押すと
+     `#prep` が `display:none` なので「押しても何も起きない」ように見える → repaint を引数化
+6. ✅ **§2-1 の行番号 15 件はズレ 0**。母集団 17 本と同番 2 組(8831 / 8893)も再現。
+   §2-2「廃止点は 1 行」も実物どおりで、`prepEl.style.display` への代入は今も 2 箇所だけ。
+7. **計測器側で踏んだ自分のバグ 4 件**(記録として): CRLF ファイルに `'\n'` の複数行アンカー /
+   `?prepskip=0?recruittalk=0` の二重 `?` / `TAVERN_PATH` へ埋め込む順序 /
+   `verify_recruit_size.js` が**改行混在**(CRLF 1108 + LF 9 = #54 の編集由来)で
+   CRLF 正規化したアンカーが 0 ヒット。
+
+### 残っている宿題
+
+**実機 7 項目(§10)。** 最重要は **iPhone 縦持ちで引き出しの 5 段(スキル / 傾向 / 装備 / 書庫 / 召喚)が
+読めるか**。sticky 化でヘッドレスの (4c)(3c) は緑だが、手触りは実機でしか分からない。
+切り分けは `?prepskip=0`。⚠ ローカルは **http 起動が必須**。
+⚠ 併せて **#54 の実機 6 項目(ソロで潜って詰まないか)も未消化**。
+
+### #56 候補(3 件)
+
+- **(a)** `probe_party_size` / `sweep_recruit_balance` の母集団移設(`?recruittalk=0` を足すだけ。#54 が確立済み)
+- **(b)** intel の「再挑戦できてしまう」是正(§12)。
+  ⭐ 起草窓の追加実測: このフラグは**隠し要素の spawn そのものをゲート**している
+  (`["shadowBeast", 41, 17, "s2_beast_intel"]` @ index.html:10265 /
+  `["hydra", 35, 13, "s3_hydra_intel"]` @ index.html:10290)。
+  ⇒ 再挑戦できる = **隠しボスへの到達を確定で買える**。情報のおまけではない
+- **(c)** 「主人公だけ先に落ちる」(§12)。
+  ⭐⭐⭐ 起草窓の追加実測: これは**脆さではなく仕様**。
+  `index.html:18848` = `// ── パーティ生存 / 全滅 判定 (Q1=B GO 条件: 主人公死亡 or 全滅) ──`。
+  増幅要因は (i) `zonePullFor` の既定 `{ front: 0.75, mid: 1.0, rear: 1.25 }` =
+  前衛は実効距離 25% 短く扱われ最も狙われる × `PARTY_ZONES` の warrior/dwarf = front、
+  (ii) #54 のソロ潜行(仲間 0 人なら攻撃の 100% が主人公へ)。
+  ⭐ **潰した仮説**: 「僧侶が主人公を回復しない」は**誤り** —
+  `findLowestHpPartyMember()` は leader を候補に含め HP 比の昇順で選び、
+  `allyCureWounds` も `target.kind === "leader"` を処理済み。罠も主人公・仲間の両方が踏む
+  (index.html:25800 / :25829)
