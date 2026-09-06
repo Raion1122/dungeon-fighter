@@ -210,6 +210,14 @@ function judgeNoOverflow(rows, cap) {
    * ⛔ assert を緩めない / 期待人数を書き換えない。**assert が走る母集団を移す** —
    *   自動編成は今も `?recruittalk=0` で生きており、そこでは着手前と 1 assert も減らない。
    * ⭐ 勧誘モデル側は tools/verify_recruit_talk.js が測る。 */
+  /* ⚠⚠ #55: 出発準備画面 (#prep) は既定の導線から外れた。
+     このドライバが測るものは **今も ?prepskip=0 で生きている** ので、
+     assert を緩めず **assert が走る母集団をそちらへ移す**
+     (すぐ下の ?recruittalk=0 と同型の移設)。 */
+  function withPrepScreen(p) {
+    if (String(p).indexOf('tavern.html') < 0) return p;   /* index.html 等には付けない */
+    return p + (String(p).indexOf('?') >= 0 ? '&' : '?') + 'prepskip=0';
+  }
   function withAutoParty(p) {
     return p + (p.indexOf('?') >= 0 ? '&' : '?') + 'recruittalk=0';
   }
@@ -257,7 +265,7 @@ function judgeNoOverflow(rows, cap) {
       } catch (e) { try { r.continue(); } catch (e2) {} }
     });
 
-    await page.goto('http://localhost:' + PORT + withAutoParty(pathQuery), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto('http://localhost:' + PORT + withPrepScreen(withAutoParty(pathQuery)), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(opts.settle || 900);
     return page;
   }

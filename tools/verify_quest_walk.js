@@ -302,6 +302,27 @@ const MIME = {
 };
 
 const WORLD_PATH = '/world.html';
+/* ⚠⚠⚠ #55: 出発準備画面 (#prep) は既定の導線から外れ、
+   ?prepskip=0 が唯一の入口になった。このドライバが測るものは
+   **今もそこで生きている** ので、assert を緩めず母集団をそちらへ移す。
+   ⛔ ただし **URL にクエリを足す方式は使えない**。(4c) は
+     `d.seam.search === ''`、(4d) は `=== '?autoplay=10'` と **酒場の
+     location.search そのもの**を assert しており、?prepskip=0 を足した瞬間に
+     その 2 本が崩れる (2026-09-06 に実測)。
+   ⭐ で —— **配信バイト側で撤退スイッチを倒す**。URL を汚さずに
+     同じ母集団へ移れる。本番ファイルは 1 バイトも書き換えない。
+   ⚠ アンカーがちょうど 1 箇所でなければ **走らせる前に exit 3**
+     (腐ったアンカーで「倒したつもり」のまま緑にならないように)。 */
+const PREPSKIP_FROM = '    try { return new URLSearchParams(window.location.search).get("prepskip") !== "0"; }';
+const PREPSKIP_TO   = '    try { return false; }   /* #55: 検証は従来の 2 段 (準備画面) を測る */';
+function forcePrepScreen(src) {
+  const n = src.split(PREPSKIP_FROM).length - 1;
+  if (n !== 1) {
+    console.error('[driver] PREP_SKIP_ON のアンカーが ' + n + ' 箇所 (期待 1)。腐っています。');
+    process.exit(3);
+  }
+  return src.replace(PREPSKIP_FROM, PREPSKIP_TO);
+}
 const TAVERN_PATH = '/tavern.html';
 const INDEX_PATH = '/index.html';
 
@@ -318,11 +339,16 @@ function startServer(port, mutKey) {
         if (mutKey && MUT_SRC[mutKey] && rel === MUT_SRC[mutKey].file) {
           res.setHeader('Content-Type', MIME[path.extname(rel).toLowerCase()] || 'text/plain');
           res.setHeader('Cache-Control', 'no-store');
-          res.end(MUT_SRC[mutKey].body); return;
+          res.end(rel === 'tavern.html' ? forcePrepScreen(MUT_SRC[mutKey].body) : MUT_SRC[mutKey].body); return;
         }
         const fp = path.join(ROOT, rel);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
           res.statusCode = 404; res.end('404'); return;
+        }
+        if (rel === 'tavern.html') {   /* #55: 撤退スイッチを配信バイトで倒す */
+          res.setHeader('Content-Type', MIME['.html'] || 'text/html;charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(forcePrepScreen(fs.readFileSync(fp, 'utf8'))); return;
         }
         res.setHeader('Content-Type', MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream');
         res.setHeader('Cache-Control', 'no-store');
@@ -702,6 +728,9 @@ async function measureDepart(browser, port, errs, opts) {
   });
 
   const WAIT_TAVERN = "typeof scenarios !== 'undefined' && typeof departToScenario === 'function'";
+  /* ⚠ #55: クエリを継ぎ足した **後** で ?prepskip=0 を付ける。
+     TAVERN_PATH の側に埋め込むと '?prepskip=0?questwalk=0' という
+     壊れた URL になる (2026-09-06 に実測して踏んだ)。 */
   await page.goto('http://localhost:' + port + TAVERN_PATH + (o.query || ''), { waitUntil: 'load', timeout: 30000 });
   await page.waitForFunction(WAIT_TAVERN, { timeout: 20000 });
   /* (4c) 用: **同じタブで**クエリ無しへ開き直す (sessionStorage へ写せているかの検査)。 */

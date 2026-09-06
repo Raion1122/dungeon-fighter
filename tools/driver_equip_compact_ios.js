@@ -20,6 +20,20 @@
  * 負のコントロール (HEAD を git worktree に切り出して同じ assert を落とす):
  *   git worktree add --detach <dir> HEAD
  *   node tools/driver_equip_compact_ios.js --port 8835 --root <dir> --label HEAD
+ *
+ * ══ ⚠⚠⚠ 2026-09-06 (#55) 作り直し ═══════════════════════════════════════════
+ *   #55「出発準備画面の廃止」で **#prep は二度と可視にならない**。このドライバは
+ *   「#prep が可視になる」を待っていたので、着手前から exit 1 で赤かった
+ *   (実装依頼書 #55 §2-10 の実測)。⛔ 退役させない —— 装備 UI の iPhone 検査は
+ *   #55 後こそ必要になる (着せ替えの口が引き出し 1 つに集約されたため)。
+ *
+ *   ⭐ 測る場所を移した: 準備画面の #equipWeaponList → **マッチング画面の引き出しの
+ *     装備段** (#pmDrawerEquip_weapon / #pmDrawerBag_weapon)。測る中身 (道具袋が
+ *     所持品と同じ行に居ないか / 名前が 1 行に収まるか / タップ域) は 1 つも変えていない。
+ *   ⚠⚠ 進め方も変えた。**画面中央のクリックでは演出は進まない** (#35 以後、閉じる口は
+ *     #pmDepart ただ 1 つ)。出発の口が出るまで待ってからカードを押す。
+ *   ⚠ ?recruittalk=0 を必ず付ける。#54 で既定の編成は「声を掛けた相手だけ」= ソロに
+ *     なったので、付けないと (0) の母集団 (パーティ 4 人) が原理的に立たない。
  */
 const http = require('http');
 const fs = require('fs');
@@ -49,10 +63,13 @@ const SHOT_DIR = arg('shots', path.join(os.tmpdir(), 'df_pptr'));
       代わりに (0) が「パーティ人数 (= #7 が動かした値)」と
       「タブ枚数がそれに引きずられていないこと」を **両方の実数** で押さえる。
       タブを人数連動に変えた誰かが居れば (0) が赤くなる。
-   負のコントロール: --scenario goblin-mine を渡すと party=2 になり (0) が落ちる。 */
+   負のコントロール: --scenario goblin-mine を渡すと party=2 になり (0) が落ちる。
+
+   ⚠⚠ 2026-09-06 (#55): #prep を出さなくなったので **#charTabs はもう描かれない**。
+     上の「タブは人数非依存」という知見は #prep 側の話として残すが、(0) が数えるのは
+     **マッチング画面のカード枚数 (= パーティ人数)** へ移した。EXPECT_TABS は退役。 */
 const PREP_SCENARIO = arg('scenario', 'orc-fort');
 const EXPECT_PARTY = parseInt(arg('party', '4'), 10);   // orc-fort (★3) = 主人公1 + NPC3
-const EXPECT_TABS  = parseInt(arg('tabs', '6'), 10);    // 全 6 職固定 (パーティ人数と無関係)
 
 const IPHONE = { name: 'iphone_port', width: 390, height: 844 };
 const DESKTOP = { name: 'desktop', width: 1280, height: 900 };
@@ -181,56 +198,80 @@ function measureFn(listId, bagId) {
 let step = 0;
 const mark = (m) => console.log('[drv] ' + (++step) + ' ' + m);
 
+/* #55: 「主人公のカードの引き出しの装備段を開いた状態」まで進める。
+ * ⚠ openPrep() を await してはいけない。マッチング演出は **タップを待って止まる** ので
+ *   headless では evaluate ごと永久に固まる。⭐ しかも #55 後は openPrep の末尾が
+ *   departToScenario() = **ページごと index.html へ飛ぶ**。発火だけさせてポーリングする。
+ * ⛔ 画面中央は叩かない。#35 以後そこは死んでいる (旧実装が赤かった原因そのもの)。 */
+const TAVERN_URL = () => `http://localhost:${PORT}/tavern.html?recruittalk=0`;
+
 async function openEquipScreen(page, viewport) {
   mark('viewport ' + viewport.name);
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
-  await page.goto(`http://localhost:${PORT}/tavern.html`, { waitUntil: 'domcontentloaded', timeout: 25000 });
+  await page.goto(TAVERN_URL(), { waitUntil: 'domcontentloaded', timeout: 25000 });
   mark('goto#1 ok → seed');
   await page.evaluate(seed);
-  await page.goto(`http://localhost:${PORT}/tavern.html`, { waitUntil: 'domcontentloaded', timeout: 25000 });
+  await page.goto(TAVERN_URL(), { waitUntil: 'domcontentloaded', timeout: 25000 });
   mark('goto#2 ok → waitForFunction');
   await page.waitForFunction("typeof openPrep==='function' && typeof scenarios!=='undefined'", { timeout: 20000 });
   mark('openPrep 到達 → 呼び出し');
-  // ⚠ openPrep() を await してはいけない。受注ナレ → パーティ・マッチング演出 の順で
-  //   進み、マッチング演出は **タップを待って止まる** 仕様 (project_party_match_cinematic)。
-  //   headless では誰もタップしないので evaluate ごと永久に固まる (3 分ハングの原因)。
-  //   発火だけさせて、画面中央をタップし続けて #prep が出るまで進める。
   await page.evaluate((scId) => {
     const sc = scenarios.find(s => s.id === scId);
     if (!(selection.partyComposition && selection.partyComposition.length)) selection.partyComposition = ['warrior'];
     Promise.resolve(openPrep(sc)).catch(() => {});
   }, PREP_SCENARIO);
-  const isPrepShown = () => page.evaluate(() => {
-    const p = document.getElementById('prep');
-    if (!p || getComputedStyle(p).display === 'none') return false;
-    const l = document.getElementById('equipWeaponList');
-    return !!l && l.children.length > 0 && l.getBoundingClientRect().width > 1;
-  });
-  let shown = false;
-  for (let i = 0; i < 45 && !shown; i++) {
-    shown = await isPrepShown();
-    if (shown) break;
-    // 演出のタップ送り (PM_TAP_GATE=500ms 以上あける)
-    await page.mouse.click(Math.round(viewport.width / 2), Math.round(viewport.height / 2));
-    await sleep(550);
+
+  /* 受注ナレ (#prologueOverlay) を送りながら、出発の口 (#pmDepart) が出るまで待つ。
+     ⚠ #pmDepart の hidden が外れる = 全員確定 + 猶予明け = カードを押せる状態。 */
+  let ready = false;
+  for (let i = 0; i < 200 && !ready; i++) {
+    const st = await page.evaluate(() => {
+      const q = (id) => document.getElementById(id);
+      const dep = q('pmDepart');
+      const ov = q('partyMatchOverlay');
+      const prol = q('prologueOverlay');
+      const prolVis = !!(prol && getComputedStyle(prol).display !== 'none');
+      if (prolVis) prol.click();
+      return {
+        ready: !!(dep && !dep.hidden && dep.getClientRects().length > 0),
+        cinema: !!(ov && ov.style.display === 'flex'),
+        prol: prolVis,
+      };
+    });
+    ready = st.ready;
+    if (!ready) await sleep(300);
   }
-  if (!shown) throw new Error('準備画面 (#prep) が可視にならなかった — 演出の進行に失敗');
-  mark('準備画面 可視 → タブ固定');
-  const tabs = await page.evaluate(() => {
-    const ov = document.getElementById('prologueOverlay');
-    if (ov) ov.style.display = 'none';
-    window.__equipTV.setTab('warrior');
-    const t = document.getElementById('charTabs');
-    // 何枚あるか **そのものを数える**。「在庫のどれかに当たるか」式にすると枚数が減っても緑になる。
+  if (!ready) throw new Error('マッチング画面の出発の口 (#pmDepart) が出なかった — 演出の進行に失敗');
+  mark('出発の口 可視 → 主人公のカードを押す');
+
+  /* 主人公のカード (先頭) を押して引き出しを開き、装備段を開く。 */
+  await page.evaluate(() => {
+    const cols = document.querySelectorAll('#pmColumns .pmColumn');
+    if (cols[0]) cols[0].click();
+  });
+  await sleep(320);
+  await page.evaluate(() => {
+    const eq = document.getElementById('pmDrawerEquip');
+    if (eq) eq.open = true;
+  });
+  await sleep(400);
+
+  const pop = await page.evaluate(() => {
+    const cols = document.querySelectorAll('#pmColumns .pmColumn');
+    const drawer = document.getElementById('pmDrawer');
+    const eq = document.getElementById('pmDrawerEquip');
     return {
-      n: t ? t.children.length : -1,
+      n: cols.length,                                     // カード枚数 = パーティ人数
       prepId: (typeof prepScenario === 'object' && prepScenario) ? prepScenario.id : null,
       members: (selection.partyMembers || []).length,
+      drawerOpen: !!(drawer && !drawer.hidden),
+      equipOpen: !!(eq && eq.open),
+      title: ((document.getElementById('pmDrawerTitle') || {}).textContent || '').trim(),
     };
   });
-  await sleep(600);
-  mark('計測可能 (charTabs=' + tabs.n + ' / prepScenario=' + tabs.prepId + ' / party=' + tabs.members + ')');
-  return tabs;
+  mark('計測可能 (カード=' + pop.n + ' / prepScenario=' + pop.prepId + ' / party=' + pop.members
+    + ' / 引き出し=' + pop.drawerOpen + ' / 装備段=' + pop.equipOpen + ' / ' + pop.title + ')');
+  return pop;
 }
 
 (async () => {
@@ -249,10 +290,12 @@ async function openEquipScreen(page, viewport) {
 
   // ═══ iPhone 390x844 ═══════════════════════════════════════════════════════
   const tabsIphone = await openEquipScreen(page, IPHONE);
+  /* #55: 測る先は引き出しの装備段。⛔ #prep 側の id (equipWeaponList 等) は
+     ?prepskip=0 でしか描かれないので、ここで掴むと永久に空になる。 */
   const ip = {
-    weapon: await page.evaluate(measureFn, 'equipWeaponList', 'bagWeaponSection'),
-    shield: await page.evaluate(measureFn, 'equipShieldList', 'bagShieldSection'),
-    armor:  await page.evaluate(measureFn, 'equipArmorList',  'bagArmorSection'),
+    weapon: await page.evaluate(measureFn, 'pmDrawerEquip_weapon', 'pmDrawerBag_weapon'),
+    shield: await page.evaluate(measureFn, 'pmDrawerEquip_shield', 'pmDrawerBag_shield'),
+    armor:  await page.evaluate(measureFn, 'pmDrawerEquip_armor',  'pmDrawerBag_armor'),
   };
   console.log('[iPhone 390x844] ' + JSON.stringify(ip, null, 1));
 
@@ -263,9 +306,15 @@ async function openEquipScreen(page, viewport) {
   /* ⭐⭐ 母集団ガード。#7 でパーティ人数が依頼ごとに変わるようになったので、
      「いちばん枠が要る状態で測っているか」を **実数そのもの**で押さえる。
      これが無いと、将来また人数が減ったときに狭い画面を見て黙って緑になる。 */
-  check(`(0) 前提: いちばん枠が要る状態で測っている (${PREP_SCENARIO} = パーティ ${EXPECT_PARTY} 人 / キャラタブは全 ${EXPECT_TABS} 職固定)`,
-        tabsIphone.prepId === PREP_SCENARIO && tabsIphone.members === EXPECT_PARTY && tabsIphone.n === EXPECT_TABS,
-        `prepScenario=${tabsIphone.prepId} / partyMembers=${tabsIphone.members} (期待 ${EXPECT_PARTY}) / charTabs=${tabsIphone.n} (期待 ${EXPECT_TABS} = 人数非依存)`);
+  /* #55: 母集団ガードを引き出し側へ移した。⭐ 「カード枚数 = パーティ人数」なので
+     旧 (0) の「タブは人数非依存」という主張はもう成立しない (タブが無い)。
+     代わりに **引き出しと装備段が本当に開いているか**を数で押さえる —— これが無いと
+     以降の全 assert が「要素が無いので違反 0 件」で静かに緑になる。 */
+  check(`(0) 前提: いちばん枠が要る状態で測っている (${PREP_SCENARIO} = パーティ ${EXPECT_PARTY} 人 / 引き出しの装備段が開いている)`,
+        tabsIphone.prepId === PREP_SCENARIO && tabsIphone.members === EXPECT_PARTY
+        && tabsIphone.n === EXPECT_PARTY && tabsIphone.drawerOpen === true && tabsIphone.equipOpen === true,
+        `prepScenario=${tabsIphone.prepId} / partyMembers=${tabsIphone.members} (期待 ${EXPECT_PARTY})`
+        + ` / カード=${tabsIphone.n} / 引き出し=${tabsIphone.drawerOpen} / 装備段=${tabsIphone.equipOpen}`);
   check('(1) 前提: 道具袋が可視 = 欠陥の発生条件を再現している', wp.bagVisible === true,
         'bagVisible=' + wp.bagVisible);
   check('(2) 前提: 所持品カードが 2 件以上並んでいる', ownedItems.length >= 2,
@@ -296,34 +345,37 @@ async function openEquipScreen(page, viewport) {
   }
 
   // 機能非退行: 所持品カードのタップで装備が切り替わる (DOM を1段深くしても壊れていない)
+  // ⚠ #55: 「装備中」サマリは引き出しの段の先頭 (#pmDrawerEquipSummary) を見る。
+  //   ⛔ #equipEquippedSummary (準備画面側) を見ると、押しても更新されないので永久に赤くなる。
   const equipSwap = await page.evaluate(() => {
     const before = window.__equipTV.getSel('warrior').weapon;
-    const list = document.getElementById('equipWeaponList');
+    const list = document.getElementById('pmDrawerEquip_weapon');
+    if (!list) return { before, after: before, cardName: null, summary: '', why: 'リストが無い' };
     const card = Array.from(list.querySelectorAll('.equipItem'))
       .find(el => !el.classList.contains('locked'));
     const cardName = card ? card.querySelector('.eName').textContent.trim() : null;
     if (card) card.click();
     const after = window.__equipTV.getSel('warrior').weapon;
-    const sum = document.getElementById('equipEquippedSummary');
-    return { before, after, cardName, summary: sum ? sum.textContent : '' };
+    const sum = document.getElementById('pmDrawerEquipSummary');
+    return { before, after, cardName, summary: sum ? sum.textContent : '', why: '' };
   });
-  check('(11) 所持品カードのタップで装備が切り替わる',
+  check('(11) 所持品カードのタップで装備が切り替わり、段の先頭の「装備中」に反映される',
         equipSwap.before !== equipSwap.after && equipSwap.cardName &&
         equipSwap.summary.indexOf(equipSwap.cardName) >= 0,
-        `weapon ${equipSwap.before}→${equipSwap.after} card="${equipSwap.cardName}"`);
+        `weapon ${equipSwap.before}→${equipSwap.after} card="${equipSwap.cardName}" ${equipSwap.why}`);
 
   const shotIphone = path.join(SHOT_DIR, `equipcompact_${LABEL}_iphone.png`);
   await page.evaluate(() => {
-    const t = document.getElementById('charTabs');
-    const p = t ? t.closest('.prepPanel') : null;
-    if (p) p.scrollIntoView({ block: 'start' });
+    /* #55: 目視の対象は引き出しの装備段。⛔ #charTabs は #prep の中で、もう出ない。 */
+    const eq = document.getElementById('pmDrawerEquip');
+    if (eq) eq.scrollIntoView({ block: 'start' });
   });
   await sleep(250);
   await page.screenshot({ path: shotIphone, fullPage: false });
 
   // ═══ desktop 1280x900 (非退行) ════════════════════════════════════════════
   await openEquipScreen(page, DESKTOP);
-  const dt = await page.evaluate(measureFn, 'equipWeaponList', 'bagWeaponSection');
+  const dt = await page.evaluate(measureFn, 'pmDrawerEquip_weapon', 'pmDrawerBag_weapon');
   console.log('[desktop 1280x900] ' + JSON.stringify(dt, null, 1));
   const dtOwned = dt.items.filter(it => !/購入可|所持なし|両手武器/.test(it.name));
   console.log('── desktop 1280x900 (非退行) ──');
@@ -338,9 +390,9 @@ async function openEquipScreen(page, viewport) {
 
   const shotDesktop = path.join(SHOT_DIR, `equipcompact_${LABEL}_desktop.png`);
   await page.evaluate(() => {
-    const t = document.getElementById('charTabs');
-    const p = t ? t.closest('.prepPanel') : null;
-    if (p) p.scrollIntoView({ block: 'start' });
+    /* #55: 目視の対象は引き出しの装備段。⛔ #charTabs は #prep の中で、もう出ない。 */
+    const eq = document.getElementById('pmDrawerEquip');
+    if (eq) eq.scrollIntoView({ block: 'start' });
   });
   await sleep(250);
   await page.screenshot({ path: shotDesktop, fullPage: false });

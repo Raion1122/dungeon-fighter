@@ -425,9 +425,19 @@ function seed() {
 
 const PREP_SCENARIO = 'goblin-mine';
 
+/* ⚠⚠ #55: 出発準備画面 (#prep) は既定の導線から外れた。
+   このドライバが測るものは **今も ?prepskip=0 で生きている** ので、
+   assert を緩めず **assert が走る母集団をそちらへ移す**
+   (#54 が ?recruittalk=0 で行ったのと同型)。
+   ⭐ 教訓の出所 = project_headless_verification
+     「assert が通る条件でなく **assert が走る母集団**を疑え」。 */
+function withPrepScreen(p) {
+  if (String(p).indexOf('tavern.html') < 0) return p;   /* index.html 等には付けない */
+  return p + (String(p).indexOf('?') >= 0 ? '&' : '?') + 'prepskip=0';
+}
 async function openPrepScreen(browser, viewport, opts) {
   opts = opts || {};
-  const qs = opts.qs ? ('?' + opts.qs) : '';
+  const qs = withPrepScreen('tavern.html' + (opts.qs ? ('?' + opts.qs) : '')).slice('tavern.html'.length);
   const page = await browser.newPage();
   page.on('pageerror', e => pageErrors.push(viewport.name + ' :: ' + e.message));
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });

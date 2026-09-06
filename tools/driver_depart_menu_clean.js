@@ -91,6 +91,16 @@ function check(name, cond, detail) {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const pageErrors = [];
 
+/* ⚠⚠ #55: 出発準備画面 (#prep) は既定の導線から外れた。
+   このドライバが測るものは **今も ?prepskip=0 で生きている** ので、
+   assert を緩めず **assert が走る母集団をそちらへ移す**
+   (#54 が ?recruittalk=0 で行ったのと同型)。
+   ⭐ 教訓の出所 = project_headless_verification
+     「assert が通る条件でなく **assert が走る母集団**を疑え」。 */
+function withPrepScreen(p) {
+  if (String(p).indexOf('tavern.html') < 0) return p;   /* index.html 等には付けない */
+  return p + (String(p).indexOf('?') >= 0 ? '&' : '?') + 'prepskip=0';
+}
 async function openClean(browser, urlPath, opts) {
   const o = opts || {};
   const page = await browser.newPage();
@@ -116,7 +126,7 @@ async function openClean(browser, urlPath, opts) {
       if (o2.scen) sessionStorage.setItem('dragonfighters.currentScenario', o2.scen);
     } catch (e) {}
   }, { seedDev: !!o.seedDev, scen: o.scen || null });
-  await page.goto('http://localhost:' + PORT + urlPath, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await page.goto('http://localhost:' + PORT + withPrepScreen(urlPath), { waitUntil: 'domcontentloaded', timeout: 45000 });
   await sleep(o.wait || 900);
   return page;
 }
@@ -277,7 +287,7 @@ const PROBE_START = (visSrc) => {
     page = await openClean(browser, '/tavern.html', { seedDev: true });
     let pc0 = await page.evaluate(PROBE_PREP, VIS_FN);
     check('(C1) 種が効いている (測定の前提): dev-mode が付いている', pc0.devClass === true, 'lsDev=' + pc0.lsDev);
-    await page.goto('http://localhost:' + PORT + '/tavern.html?dev=0', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto('http://localhost:' + PORT + withPrepScreen('/tavern.html?dev=0'), { waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(900);
     let pc1 = await page.evaluate(PROBE_PREP, VIS_FN);
     check('(C2) ?dev=0 で localStorage の df.devMode が消える', pc1.lsDev === null, 'lsDev=' + pc1.lsDev);
@@ -288,7 +298,7 @@ const PROBE_START = (visSrc) => {
     check('(C5) 解除後の準備画面で 🛡🏹 行が見えない', pc2.evadeRowVis === false);
     check('(C6) 解除後の準備画面で ⚡ 行が見えない', pc2.autoRowVis === false);
     // 焼き込みが URL 無しでも継続しないこと (次回起動も OFF)
-    await page.goto('http://localhost:' + PORT + '/tavern.html', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto('http://localhost:' + PORT + withPrepScreen('/tavern.html'), { waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(700);
     let pc3 = await page.evaluate(PROBE_PREP, VIS_FN);
     check('(C7) 素の URL で再訪しても OFF のまま (毎回 ?dev=0 が要らない)', pc3.devClass === false && pc3.lsDev === null);
