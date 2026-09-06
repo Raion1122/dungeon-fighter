@@ -2026,6 +2026,15 @@
       flex-direction: column;
       align-items: center;
       gap: 18px;
+      /* ⚠⚠⚠ #55: 下ごしらえ帯と募集の口を足したぶん中身が縦に伸び、
+         844px / 900px の画面から **出発の口が押し出された**
+         (verify_darkvision (3c) / verify_party_match_setup (4c) が実測。#pmInner 1108px)。
+         ⭐ 中身は縮めない —— intel も敵の情報も「引き出しを開いたまま読める」ことが
+           #55 の受入条件 ((1c)(2b))。代わりに **器をスクロールさせる**。
+         ⛔ #pmDrawer の max-height (42vh / 縦持ち 30vh) は動かさない ——
+           #35 の変異 M6 が「あれを外すと (4c) が赤くなる」を守っている値。 */
+      max-height: 100%;
+      overflow-y: auto;
     }
     #pmHeader { text-align: center; font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif; }
     #pmPlace {
@@ -2215,6 +2224,56 @@
     .pmSkills { margin-top: 8px; width: 100%; display: flex; gap: 7px; font-size: 11.5px; line-height: 1.35; align-items: baseline; }
     .pmSkillsLabel { flex: 0 0 30px; color: #7a6e52; }
     .pmSkillsVal { flex: 1 1 auto; color: #cfc19a; word-break: break-word; }
+    /* ══ #55: マッチング画面の「下ごしらえ」帯 (敵情報 + 事前情報チェック) ═════════
+       ⚠⚠ #pmHeader の中には置かない。縦持ちで #pmInner.pmDrawerOpen #pmHeader が
+         display:none になるので、引き出しを開いた瞬間に消える (受入条件 (1c)(2b))。
+       ⚠ 引き出し (最大 30vh) と出発の口を画面内に残すため、帯そのものは低く抑える。 */
+    #pmBrief {
+      width: 100%; display: flex; flex-direction: column; gap: 8px;
+      padding: 10px 14px; text-align: left;
+      background: var(--pm-panel); border: 1px solid var(--pm-border); border-radius: 10px;
+    }
+    #pmBrief[hidden] { display: none !important; }
+    .pmBriefHead { font-size: 12.5px; letter-spacing: 2px; color: #cbb98a; margin-bottom: 4px; }
+    .pmBriefHead span { letter-spacing: 0; opacity: 0.65; font-size: 11px; }
+    #pmEnemyInfo { font-size: 13px; line-height: 1.5; color: #e6d9b4; word-break: break-word; }
+    #pmIntelPanel[hidden] { display: none !important; }
+    /* ⚠ 指で押すのでタップ領域 44px。⛔ .intelBtn 本体は書き換えない (準備画面の見た目を動かさない)。 */
+    #pmIntelPanel .intelBtn { min-height: 44px; }
+    /* 判定結果は行が増えるので帯の中だけで巻き取る (出発の口を画面外へ押し出さない)。 */
+    #pmIntelResultList { max-height: 17vh; overflow-y: auto; }
+    #pmIntelResultList .intelResult { font-size: 12px; }
+    /* ⭐⭐⭐ 判定カード #skillCheckOverlay は z-index 105 で、マッチング画面 (210) の **下**。
+       そのままではボタンを押しても盤面が見えない (依頼書が名指ししていない罠)。
+       ⛔ js/skill-check.js は書き換えない (index.html と共有している)。酒場の中だけで上書きする。
+       ⚠ 向こうの規則は JS が実行時に <head> へ足す = 後勝ちなので !important が要る。 */
+    #skillCheckOverlay { z-index: 220 !important; }
+    /* #55: 「募集をかけ直す」は出発の口の **手前**。⚠ 押し間違いで潜らないよう間隔を空ける。 */
+    #pmRerollRow { display: flex; justify-content: center; margin-bottom: 2px; }
+    #pmRerollRow[hidden] { display: none !important; }
+    #pmBtnReroll {
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      min-height: 44px; padding: 10px 20px; font-size: 13px; letter-spacing: 1px; cursor: pointer;
+      color: #f0e6cc; background: rgba(255,245,210,0.10);
+      border: 1px solid var(--pm-border); border-radius: 8px;
+    }
+    #pmBtnReroll:active { transform: translateY(1px); }
+    /* #55: 引き出しの折り畳み段 (装備 / 書庫 / 召喚)。⭐ 既定は畳む —— 縦持ちの 30vh に
+       5 段を収めるための唯一の手 (受入条件 (3a))。 */
+    .pmDrawerFold > summary { cursor: pointer; min-height: 30px; list-style: none; }
+    .pmDrawerFold > summary::-webkit-details-marker { display: none; }
+    .pmDrawerFold > summary::before { content: "▸ "; color: var(--pm-gold); }
+    .pmDrawerFold[open] > summary::before { content: "▾ "; }
+    .pmDrawerFoldBody { padding-top: 6px; }
+    /* 引き出しの中の装備リストも暗幕へ馴染ませる (#pmDrawer .skillItem と同じ理由)。
+       ⛔ .equipItem / .equipSlotChip 本体は 1 行も書き換えない (準備画面の見た目は不変)。 */
+    #pmDrawer .equipItem { background: rgba(255,245,210,0.10); color: #f0e6d0; border-color: rgba(224,180,60,0.16); }
+    #pmDrawer .equipItem .eName { color: #f4ecd8; }
+    #pmDrawer .equipItem .eSpec { color: #cbbd98; }
+    #pmDrawer .equipSlotChip { background: rgba(255,245,210,0.12); border-color: rgba(224,180,60,0.30); box-shadow: none; }
+    #pmDrawer .equipSlotChip .slotLabel { color: #b8a878; }
+    #pmDrawer .equipSlotChip .slotVal { color: #f4ecd8; }
+    #pmDrawer .equipLabel, #pmDrawer .equipTierLabel, #pmDrawer .bagLabel { color: #b8a878; }
     /* #35 STEP1: 出発の口。「画面のどこを叩いても出発する」を廃した代わりの明示ボタン。 */
     #pmDepart {
       font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
@@ -2224,6 +2283,12 @@
       box-shadow: 0 0 18px rgba(224,180,60,0.35);
     }
     #pmDepart[hidden] { display: none !important; }
+    /* #55: 器がスクロールするようになったので、出発の口だけは最下部へ貼り付ける。
+       ⭐ これで「引き出しを開いたままでも出発の口が画面内に残る」(#35 (4c) /
+         #39 (3c)) を、中身を削らずに守れる。
+       ⚠ sticky は overflow を持つ祖先 (= #pmInner) に対して効く。
+       ⚠ 最下部までスクロールすれば通常位置へ戻るので、下の #pmHint を永久には覚わない。 */
+    #pmDepart { position: sticky; bottom: 0; z-index: 2; }
     #pmDepart:active { transform: translateY(1px); }
     /* #35 STEP3: 「押しに行く」操作になったので、押せることが見えるまで仕上げる。
        ⛔ 高さは変えない (compact で出発の口が画面内に残る条件 (4c) の余白は 66px しかない)。 */
@@ -2743,6 +2808,33 @@
       <!-- #35 STEP1: 引き出しの器。中身 (スキル段 / 傾向段) は STEP2 で組む。
            ⚠ 開閉は hidden 属性で行う。CSS で display を書き足すときは [hidden] 側を必ず残すこと。 -->
       <div id="pmDrawer" hidden></div>
+      <!-- #55: 下ごしらえ帯 (敵情報 + 事前情報チェック)。
+           ⚠⚠ #pmHeader の **外** に置くこと。縦持ちでは #pmInner.pmDrawerOpen #pmHeader が
+             display:none になるので、ヘッダの中に入れると引き出しを開いた瞬間に消える。
+           ⚠ 判定の状態 (prepIntelUsed / prepIntelSuccess) と runPrepIntel は準備画面と共有。
+             ここは **2 つ目の描き先**にすぎない (⛔ 判定ロジックの写しを作らない)。
+           ⛔ ?pmsetup=0 のときは JS が hidden にする (あの姿では背景タップ=出発なので押せない)。 -->
+      <div id="pmBrief" hidden>
+        <div>
+          <div class="pmBriefHead">敵情報</div>
+          <div id="pmEnemyInfo"></div>
+        </div>
+        <div id="pmIntelPanel">
+          <div class="pmBriefHead">🔮 事前情報 <span>(各 1回・出目しだい)</span></div>
+          <div class="intelBtnRow">
+            <button type="button" class="btn intelBtn" id="pmBtnIntelExamine">🔍 依頼を吟味する<span class="intelSkill">捜査</span></button>
+            <button type="button" class="btn intelBtn" id="pmBtnIntelTalk">💬 周囲に聞き込む<span class="intelSkill">説得</span></button>
+            <button type="button" class="btn intelBtn" id="pmBtnIntelPray">🙏 神に祈る<span class="intelSkill">宗教</span></button>
+          </div>
+          <div id="pmIntelResultList"></div>
+        </div>
+      </div>
+      <!-- #55: 「募集をかけ直す」の移設先。⚠ 出発の口の **手前**。
+           ⛔ #prep 側の #btnReroll は消さない (?prepskip=0 で従来の 2 段へ戻すため)。
+              どちらの口も doRecruitReroll() ただ 1 本へ入る。 -->
+      <div id="pmRerollRow" hidden>
+        <button type="button" id="pmBtnReroll">📣 募集をかけ直す</button>
+      </div>
       <!-- #35 STEP1: 出発の口。背景タップでの出発を廃止した代わりの明示ボタン。
            ⚠ hidden を外すのは【全員確定 (phase==="done") かつ猶予明け (gateOpen)】の 1 点だけ。
              「確定を見ずに飛ばす」を作らないという既存の不変条件を守るため。
@@ -2986,10 +3078,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>出発の準備がマッチング画面にまとまった</b> — 仲間が集う画面で装備・スキル・下調べまで済ませて、そのまま出発できる。</li>
         <li><b>一人で潜ろうとすると引き止められる</b> — 誰にも声を掛けずに依頼を受けると、酒場の主が一度だけ考え直させてくれる。</li>
         <li><b>酒場の冒険者を次の冒険に誘える</b> — 卓に座っている者へ声を掛けると、同道を申し出て次の潜行についてくる。</li>
         <li><b>魔法使いが最初からスリープを唱える</b> — 序盤の群れを眠らせて切り抜けられるようになった。</li>
-        <li><b>酒場の卓に座る顔ぶれが変わる</b> — 訪れるたびに違う冒険者が席に着く。かつて共に戦った顔がまた現れることもある。</li>
       </ul>
     </div>
     <script>
@@ -4885,9 +4977,12 @@
   }
   // 出発時に連れて行く召喚ユニットの選択 (itemId or null)。消費は index 側 (pendingSummon 経由)。
   let selectedSummonItemId = null;
-  function renderSummonMenu() {
-    const section = document.getElementById("summonSection");
-    const listEl  = document.getElementById("summonList");
+  /* ⚠ #55: opts で描き先を差し替えられるようにした (既定は準備画面の #summonSection)。
+       ⛔ selectedSummonItemId は 1 つのまま = どちらの面で選んでも同じ値を指す。 */
+  function renderSummonMenu(opts) {
+    opts = (opts && opts.sectionEl) ? opts : {};
+    const section = opts.sectionEl || document.getElementById("summonSection");
+    const listEl  = opts.listEl    || document.getElementById("summonList");
     if (!section || !listEl) return;
     const items = getSummonMenuItemsTV("dungeonStart");
     if (items.length === 0) { section.style.display = "none"; selectedSummonItemId = null; return; }
@@ -4909,7 +5004,11 @@
             (r.id ? ` <span class="sCat">残 ${r.count}</span>` : "") +
           `</span>` +
         `</div>`;
-      item.addEventListener("click", () => { selectedSummonItemId = r.id; renderSummonMenu(); });
+      item.addEventListener("click", () => {
+        selectedSummonItemId = r.id;
+        renderSummonMenu();                          // 準備画面側
+        if (pmLoadoutRepaint) pmLoadoutRepaint();    // #55: 引き出し側 (開いていれば)
+      });
       listEl.appendChild(item);
     }
   }
@@ -5844,22 +5943,32 @@
   // 出発時に sessionStorage 経由で index.html へ渡す (departToScenario)。
   let prepIntelSuccess = false;
 
+  /* #55: 敵の顔ぶれの文字列。⛔ 組み立てを 2 箇所に書かない —— 準備画面とマッチング画面で
+     食い違うと「どちらが本当か」が分からなくなる (受入条件 (2a) は実体から引いて突き合わせる)。 */
+  function scenarioEnemyInfoText(sc) {
+    if (!sc || !Array.isArray(sc.enemies)) return "";
+    return sc.enemies.map(e => (e.boss ? `【${e.name}】` : e.name)).join(" / ");
+  }
+
   async function openPrep(sc) {
     prepScenario = sc;
     document.getElementById("prepTitle").textContent = `出発の準備 — ${sc.place}`;
     document.getElementById("prepSub").textContent = `「${sc.title}」に挑む`;
-    const info = sc.enemies.map(e => (e.boss ? `【${e.name}】` : e.name)).join(" / ");
+    const info = scenarioEnemyInfoText(sc);
     document.getElementById("prepEnemyInfo").textContent = info;
     // 事前情報チェックを準備ごとにリセット (固定シナリオのみパネル表示)
     prepIntelUsed = { examine: false, talk: false, pray: false };
     prepIntelSuccess = false;   // tavern-intel v1.0: クエストごとに一発勝負 (再挑戦不可)
-    const intelListEl = document.getElementById("intelResultList");
-    if (intelListEl) intelListEl.innerHTML = "";
-    ["btnIntelExamine", "btnIntelTalk", "btnIntelPray"].forEach((id) => {
-      const b = document.getElementById(id); if (b) b.disabled = false;
+    /* #55: 描き先が 2 面 (準備画面 / マッチング画面) になったので、リセットも両方へ。
+       ⛔ 状態 (prepIntelUsed / prepIntelSuccess) は 1 組のまま = どちらで押しても同じ判定。 */
+    intelResultListEls().forEach((el) => { el.innerHTML = ""; });
+    Object.keys(PREP_INTEL_ACTIONS).forEach((k) => {
+      intelBtnEls(k).forEach((b) => { b.disabled = false; });
     });
     const intelPanelEl = document.getElementById("prepIntelPanel");
     if (intelPanelEl) intelPanelEl.style.display = SCENARIO_INTEL[sc.id] ? "" : "none";
+    const pmIntelPanelEl = document.getElementById("pmIntelPanel");
+    if (pmIntelPanelEl) pmIntelPanelEl.hidden = !SCENARIO_INTEL[sc.id];
     // 主人公を activeCharTab に固定し、仲間を新規抽選 (Q3=A: 出発のたび再抽選)
     activeCharTab = selection.partyComposition[0] || "warrior";
     regeneratePartyMembers();
@@ -5873,7 +5982,14 @@
     dialogEl.style.display = "none";
     // 受注ナレ (依頼人の語り口調 + セリフ) を全画面で語ってから準備画面へ。受注スティンガー音声はナレ内で再生。
     await playQuestAcceptNarration(sc);
+    /* #55: 案内の行き先がマッチング画面になったので、演出の **前** に語る。
+       ⛔ dragonfighters.prepOnboardingSeen のキー名は変えない (既読の人に二度語らせない)。 */
+    if (PREP_SKIP_ON) await maybePlayPrepOnboarding();
     await playPartyMatchCinematic(sc);  // 仲間が集うマッチング演出 (確定済みの仲間を順に開示・タップでスキップ)
+    /* ⭐⭐⭐ #55: 「出発準備画面を出す」唯一の行をここで飛ばす。
+       演出は #pmDepart を押されて閉じている = プレイヤーはもう「出発する」を押している。
+       ⛔ onDepart (演出を閉じるだけ) も departToScenario の中身も書き換えない。 */
+    if (PREP_SKIP_ON) { departToScenario(); return; }
     await maybePlayPrepOnboarding();   // 初回のみ: 準備画面の遊び方を語り部が案内 (スキップ可)
     prepEl.style.display = "flex";
   }
@@ -5994,7 +6110,10 @@
     return [selection.equipAccessory1 || "none", selection.equipAccessory2 || "none"];
   }
   // スロットのアクセサリーを次候補へ巡回 (もう片方が使用中の非none id は除外 = 同一不可)
-  function cycleAccessoryTV(slotIdx) {
+  /* ⚠ #55: repaint を受け取るようにした (既定は従来どおり準備画面の再描画)。
+     引き出しの装備段から押されたときに renderCharLoadout だけを呼ぶと、
+     #prep は display:none なので **押しても何も起きない** ように見える。 */
+  function cycleAccessoryTV(slotIdx, repaint) {
     const ids = heroAccessoryIds();
     const other = ids[slotIdx === 0 ? 1 : 0];
     const cand = unlockedAccessoriesTV().filter(a => a.id === "none" || a.id !== other);
@@ -6004,7 +6123,7 @@
     if (slotIdx === 0) selection.equipAccessory1 = next.id;
     else               selection.equipAccessory2 = next.id;
     saveSelections();
-    renderCharLoadout();
+    (repaint || renderCharLoadout)();
   }
   // 主人公の職業を変えると classReq 付きアクセ (囁きの護符など) が装備不能になる。
   //   所持台帳 accessoryIds は単調なので外しても失われない。放置すると装身具チップに
@@ -6320,13 +6439,27 @@
 
   // 「募集をかけ直す」ボタン (出発前に何度でも募集し直せる)。人数は prepScenario から
   // regeneratePartyMembers() が引き直すので、押しても **顔ぶれだけ変わり人数は変わらない**。
+  /* #55: 押す口が 2 つ (準備画面 #btnReroll / マッチング画面 #pmBtnReroll) になったので、
+     実体はこの 1 本。⛔ 抽選 (regeneratePartyMembers) の写しを作らない。
+     ⚠ マッチング画面が開いていればカード列も作り直す
+       (顔ぶれが変わったのに札が古いままになる)。 */
+  let pmRebuildRef = null;   /* 演出が開いている間だけ「カード列を作り直す関数」が入る */
+  function doRecruitReroll() {
+    regeneratePartyMembers();
+    renderPartyPreview();
+    if (pmRebuildRef) pmRebuildRef();
+  }
   (function bindRerollBtn() {
     const btn = document.getElementById("btnReroll");
-    if (!btn) return;
-    btn.addEventListener("click", () => {
-      regeneratePartyMembers();
-      renderPartyPreview();
-    });
+    if (btn) btn.addEventListener("click", () => doRecruitReroll());
+    const pmBtn = document.getElementById("pmBtnReroll");
+    if (pmBtn) {
+      /* ⚠⚠ #pmDepart と同じ作法で click / touchend の両方。
+         ⚠ 伝播を止める —— 止めないと指がそのまま背景 (= 開示スキップ) へ抜ける。 */
+      const h = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); sfx("button"); doRecruitReroll(); };
+      pmBtn.addEventListener("click", h);
+      pmBtn.addEventListener("touchend", h);
+    }
   })();
 
   // 「編成を見る」ボタン (受注直後のマッチング画面を、準備画面からいつでも開き直す)。
@@ -6388,11 +6521,24 @@
     }));
   }
 
+  /* ⚠ #55: 押す口が 2 つ (準備画面 #prep / マッチング画面 #pmBrief) になった。
+       ⛔ 判定そのもの (runPrepIntel) と状態 (prepIntelUsed / prepIntelSuccess) は 1 組のまま。
+         複製すると departToScenario の questFlags が片方しか見なくなる。 */
   const PREP_INTEL_ACTIONS = {
-    examine: { check: "investigation", title: "捜査判定", flavor: "敵の備えと弱点を探る…",     btn: "btnIntelExamine" },
-    talk:    { check: "persuasion",    title: "説得判定", flavor: "酒場で噂を集める…",          btn: "btnIntelTalk" },
-    pray:    { check: "religion",      title: "宗教判定", flavor: "神に祈り、危険を感じ取る…", btn: "btnIntelPray" },
+    examine: { check: "investigation", title: "捜査判定", flavor: "敵の備えと弱点を探る…",     btn: "btnIntelExamine", pmBtn: "pmBtnIntelExamine" },
+    talk:    { check: "persuasion",    title: "説得判定", flavor: "酒場で噂を集める…",          btn: "btnIntelTalk",    pmBtn: "pmBtnIntelTalk" },
+    pray:    { check: "religion",      title: "宗教判定", flavor: "神に祈り、危険を感じ取る…", btn: "btnIntelPray",    pmBtn: "pmBtnIntelPray" },
   };
+  /* その種別の「押せる口」全部 / 結果の「描き先」全部。
+     ⚠ 片方しか無い状況でも落ちないよう、実在する要素だけを返す。 */
+  function intelBtnEls(kind) {
+    const act = PREP_INTEL_ACTIONS[kind];
+    if (!act) return [];
+    return [act.btn, act.pmBtn].map((id) => document.getElementById(id)).filter(Boolean);
+  }
+  function intelResultListEls() {
+    return ["intelResultList", "pmIntelResultList"].map((id) => document.getElementById(id)).filter(Boolean);
+  }
   const PREP_INTEL_VOICE = { success: "skillcheck_success", fail: "skillcheck_fail", crit: "skillcheck_crit", fumble: "skillcheck_fumble" };
 
   async function runPrepIntel(kind) {
@@ -6406,18 +6552,20 @@
     if (!window.SkillCheck || !SkillCheck.resolveSkillCheck) return;
     // 先にロック (連打防止)。解決不能なら巻き戻す。
     prepIntelUsed[kind] = true;
-    const btn = document.getElementById(act.btn);
-    if (btn) btn.disabled = true;
+    const btns = intelBtnEls(kind);                    /* #55: 2 面分をまとめてロック */
+    btns.forEach((b) => { b.disabled = true; });
     const res = await SkillCheck.resolveSkillCheck(act.check, intel.dc, party, {
       title: act.title, flavor: act.flavor, voiceIds: PREP_INTEL_VOICE,
     });
-    if (!res) { prepIntelUsed[kind] = false; if (btn) btn.disabled = false; return; }
+    if (!res) { prepIntelUsed[kind] = false; btns.forEach((b) => { b.disabled = false; }); return; }
     const node = intel[kind];
     let text = res.success ? node.success : node.fail;
     if (res.success && res.crit && node.crit) text = node.success + " " + node.crit;
     const repName = (res.rep && res.rep.name) || "誰か";
-    const list = document.getElementById("intelResultList");
-    if (list) {
+    /* #55: 結果は「今ある描き先すべて」へ。⚠ DOM は共有できないので面ごとに作るが、
+       文言は同じ res / text から作るので両面が食い違わない。 */
+    const lists = intelResultListEls();
+    lists.forEach((list) => {
       const box = document.createElement("div");
       box.className = "intelResult " + (res.success ? "success" : "fail");
       const who = document.createElement("div");
@@ -6429,11 +6577,11 @@
       box.appendChild(who);
       box.appendChild(body);
       list.appendChild(box);
-    }
+    });
     // tavern-intel v1.0: 初めて成功した時だけ「噂」を1本足す。この噂がフィールドの隠し中ボスを開放する。
     if (res.success && !prepIntelSuccess) {
       prepIntelSuccess = true;
-      if (intel.unlockNarration && list) {
+      if (intel.unlockNarration) lists.forEach((list) => {
         const rumor = document.createElement("div");
         rumor.className = "intelResult success";
         const head = document.createElement("div");
@@ -6444,15 +6592,24 @@
         rumor.appendChild(head);
         rumor.appendChild(body);
         list.appendChild(rumor);
-      }
+      });
     }
   }
 
   (function bindPrepIntelButtons() {
-    const map = { btnIntelExamine: "examine", btnIntelTalk: "talk", btnIntelPray: "pray" };
-    Object.keys(map).forEach((id) => {
-      const b = document.getElementById(id);
-      if (b) b.addEventListener("click", () => runPrepIntel(map[id]));
+    /* #55: 押す口は 2 面。⚠⚠ マッチング画面側は click と touchend の **両方**に張る
+       (#pmDepart と同じ作法。片方だけだと iOS で押せない端末が出る)。
+       ⛔ 準備画面側は click のまま = 従来の振る舞いを 1 バイトも変えない。 */
+    Object.keys(PREP_INTEL_ACTIONS).forEach((kind) => {
+      const act = PREP_INTEL_ACTIONS[kind];
+      const b = document.getElementById(act.btn);
+      if (b) b.addEventListener("click", () => runPrepIntel(kind));
+      const pb = document.getElementById(act.pmBtn);
+      if (pb) {
+        const h = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); runPrepIntel(kind); };
+        pb.addEventListener("click", h);
+        pb.addEventListener("touchend", h);
+      }
     });
   })();
 
@@ -6489,8 +6646,13 @@
   // ── 装備セクション 共通レンダ (filter 対応・未所持カウント表示) ──
   // v7.1: 所持品リスト (2段構成の下段)。装備中(currentSel)は上段サマリに出すので除外。
   //   owned = 所持セット(dfIsOwnedTier)。盾ロック中はロック表示のみ。未所持は「未所持も表示」時のみ。
+  /* ⚠ #55: opts.charKey / opts.repaint を足した。既定は従来どおり (activeCharTab +
+       準備画面の再描画) なので、既存の呼び口は 1 行も変えなくても挙動が変わらない。
+     ⛔ マッチング画面の引き出し用に「もう 1 つの装備リスト描画」を書かない。 */
   function renderEquipSlot(listEl, items, kind, currentSel, opts) {
     opts = opts || {};
+    const eqKey    = opts.charKey || activeCharTab;
+    const eqRepaint = opts.repaint || renderCharLoadout;
     if (!listEl) return;
     listEl.innerHTML = "";
     if (kind === "shield" && opts.shieldLocked) {
@@ -6517,9 +6679,9 @@
         `<span class="eSpec">${owned ? rangeTag + it.spec : "未所持"}</span>`;
       if (owned) {
         item.addEventListener("click", () => {
-          if (!dfEquip(activeCharTab, kind, i)) return;   // 両手武器装備中の盾など → 弾く
+          if (!dfEquip(eqKey, kind, i)) return;   // 両手武器装備中の盾など → 弾く
           saveSelections();
-          renderCharLoadout();
+          eqRepaint();
         });
       }
       listEl.appendChild(item);
@@ -6541,8 +6703,13 @@
   }
 
   // ── v7.1: 装備中サマリ (2段構成の上段。武器/盾or🔒/鎧/装身具×2(主人公)/道具placeholder) ──
-  function renderEquippedSummary(charKey) {
-    const el = document.getElementById("equipEquippedSummary");
+  /* ⚠ #55: targetEl / repaint を足した (既定は準備画面の #equipEquippedSummary)。
+       引き出しの装備段の **先頭**でこれを呼ぶ。理由 = 縦持ちでは
+       #pmInner.pmDrawerOpen .pmEquip がカード側の装備表示を畳むので、ここに出さないと
+       「今なにを装備しているか」が見えないまま着せ替えることになる (受入条件 (3b))。 */
+  function renderEquippedSummary(charKey, targetEl, repaint) {
+    const el = targetEl || document.getElementById("equipEquippedSummary");
+    const sumRepaint = repaint || renderCharLoadout;
     if (!el) return;
     const pool = CHAR_EQUIP[charKey];
     if (!pool) { el.style.display = "none"; el.innerHTML = ""; return; }
@@ -6570,14 +6737,14 @@
     };
     chip("武器", wp.name, getItemColorClass(wp.name, wp.rarity));
     chip("盾", locked ? "🔒 両手武器装備中" : sh.name, locked ? "" : getItemColorClass(sh.name, sh.rarity),
-      { locked, onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); renderCharLoadout(); } } });
+      { locked, onClick: () => { if (sel.shield !== 0) { dfEquip(charKey, "shield", 0); saveSelections(); sumRepaint(); } } });
     chip("鎧", ar.name, getItemColorClass(ar.name, ar.rarity));
     if (isHero) {
       normalizeHeroAccessories();          // 職業変更で装備不能になった classReq アクセを外す
       const ids = heroAccessoryIds();
       for (let s = 0; s < 2; s++) {
         const def = accDefTV(ids[s]);
-        chip("装身具" + (s + 1), def.name, def.id !== "none" ? "item-special" : "", { onClick: () => cycleAccessoryTV(s) });
+        chip("装身具" + (s + 1), def.name, def.id !== "none" ? "item-special" : "", { onClick: () => cycleAccessoryTV(s, sumRepaint) });
       }
     }
     chip("道具", "準備中", "", { placeholder: true });
@@ -6611,7 +6778,8 @@
   let tavernInventoryBag = loadInventoryBag();
 
   // 道具袋の中身を表示。クリックで「装備に切り替え + 道具袋から取り除く」
-  function renderBagSlot(listEl, sectionEl, classKey, kind, pool) {
+  function renderBagSlot(listEl, sectionEl, classKey, kind, pool, repaint) {
+    const bagRepaint = repaint || renderCharLoadout;   /* #55: 引き出しからも同じ関数を呼ぶ */
     if (!listEl || !sectionEl) return;
     const slot = (tavernInventoryBag[classKey] || {})[kind] || [];
     if (slot.length === 0) {
@@ -6645,7 +6813,7 @@
         const i = tavernInventoryBag[classKey][kind].indexOf(idx);
         if (i >= 0) tavernInventoryBag[classKey][kind].splice(i, 1);
         saveInventoryBag(tavernInventoryBag);
-        renderCharLoadout();
+        bagRepaint();
       });
       listEl.appendChild(itemEl);
     }
@@ -6730,10 +6898,14 @@
   }
 
   // ── 📜 スクロール書庫: 未読スクロールを一覧し「読む」で永続習得 ──
-  function renderScrollLibrary() {
-    const section = document.getElementById("scrollLibrarySection");
-    const listEl  = document.getElementById("scrollLibraryList");
-    const hint    = document.getElementById("scrollLibraryHint");
+  /* ⚠ #55: opts で描き先を差し替えられるようにした (既定は準備画面の独立パネル)。
+       ⛔ 「読む→永続習得」の判定 learnScroll は 1 本のまま。ここは描き先が増えただけ。
+     ⚠ opts に Event が渡っても壊れないよう、sectionEl を持つ物だけを opts と見なす。 */
+  function renderScrollLibrary(opts) {
+    opts = (opts && opts.sectionEl) ? opts : {};
+    const section = opts.sectionEl || document.getElementById("scrollLibrarySection");
+    const listEl  = opts.listEl    || document.getElementById("scrollLibraryList");
+    const hint    = opts.hintEl    || document.getElementById("scrollLibraryHint");
     if (!section || !listEl) return;
     const ids = Object.keys(scrollStockTV).filter(id => SCROLL_CATALOG_TV[id] && scrollStockTV[id] > 0);
     if (ids.length === 0) { section.style.display = "none"; return; }
@@ -6772,6 +6944,8 @@
         renderCharTabs();
         renderCharLoadout();     // アクティブタブが該当職なら習得呪文を魔法欄へ即時反映
         renderScrollLibrary();   // 独立パネル側の在庫減/[習得済み]表示を更新
+        // #55: マッチング画面の引き出しが開いていれば、そちらの書庫段と魔法段も描き直す。
+        if (pmLoadoutRepaint) pmLoadoutRepaint();
       });
       listEl.appendChild(item);
     }
@@ -6866,6 +7040,17 @@
   //   以降の分岐は全部その値を見る (2 箇所で URL を読むと片方だけ直って食い違う)。
   // ⚠ ?actionpri=0 とは別物。両方指定しても矛盾しない。
   // ⚠ ページ遷移をまたがない (演出も準備画面も tavern.html の中で完結する)。
+  /* ══ #55 撤退スイッチ ?prepskip=0 ════════════════════════════
+     OFF = 従来どおり「マッチング演出 → 出発準備画面」の 2 段へ戻る。
+     ⚠ 判定はここ 1 箇所だけ (PM_SETUP_ON の作法。2 箇所で URL を読むと片方だけ直って食い違う)。
+     ⚠ ページ遷移をまたがない (演出も準備画面も tavern.html の中で完結する)。
+     ⚠ ?pmsetup=0 / ?actionpri=0 とは別物。ただし ?pmsetup=0 は「背景タップ=出発」の
+       昔の姿なので、実際に使うときは ?prepskip=0 と対で渡すこと。 */
+  const PREP_SKIP_ON = (function () {
+    try { return new URLSearchParams(window.location.search).get("prepskip") !== "0"; }
+    catch (e) { return true; }
+  })();
+
   const PM_SETUP_ON = (function () {
     try { return new URLSearchParams(window.location.search).get("pmsetup") !== "0"; }
     catch (e) { return true; }
@@ -7362,11 +7547,13 @@
     "——遠く西の剣の海岸、地の底に広がるアンダーダーク。まだ見ぬ地の物語は、いつかまた。",
   ];
 
-  // 準備画面 初回オンボーディング: 準備画面を初めて開いた時のみ、語り部口調で遊び方を短く案内する。
-  // 文面は実UI (主人公えらぶ→募集に応じた仲間→募集をかけ直す→出発) に対応。説明書臭くせず2段落に収める。
+  // 初回オンボーディング: 受注して仲間が集う画面を初めて見る時のみ、語り部口調で遊び方を短く案内する。
+  // ⚠ #55 で準備画面 (#prep) を出さなくなったので、文面の行き先も **マッチング画面** へ直した。
+  //   ⛔ 「支度が済めば、扉の向こうへ」のような "別画面がこの後ある" 言い方は残さない
+  //      (存在しない画面の説明になる)。札・募集のかけ直し・出発の口はどちらの経路にも在る。
   const PREP_ONBOARDING_NARRATION = [
     "まずは旗頭を選ぶがよい。お主が誰として戦うか——それがこの一行の芯となる。",
-    "残る仲間は、酒場に募集をかけて集める。依頼が重いほど多くの者が名乗りを上げよう。顔ぶれが気に入らねば「募集をかけ直す」がよい。支度が済めば、扉の向こうへ。出発だ。",
+    "残る仲間は、酒場に募集をかけて集める。依頼が重いほど多くの者が名乗りを上げよう。集うた者の札を押せば、技も装備も傾向もその場で整えられる。顔ぶれが気に入らねば「募集をかけ直す」がよい。下調べを済ませ、支度が整うたら「出発する」を押すがよい。",
   ];
 
   function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -7689,6 +7876,28 @@
     pmCols.forEach((c) => { if (c && c.refresh) c.refresh(); });
   }
 
+  /* #55: 引き出しの折り畳み段。⭐ 既定は畳む (details に open を付けない)。
+     ⚠ タップ領域を稼ぐため summary に min-height を CSS で与えてある。
+     ⚠⚠ 開閉を pmFoldOpen へ覚える。装備を替えると引き出しごと描き直すので、
+       覚えておかないと **1 つ替えるたびに段が畳まる** = 連続して着せ替えられない。
+     ⚠ 覚えるのは画面を開いている間だけ (ページを離れたら既定の「畳む」へ戻る)。 */
+  const pmFoldOpen = {};
+  function pmDrawerFold(id, label) {
+    const sec = document.createElement("details");
+    sec.className = "pmDrawerSec pmDrawerFold";
+    sec.id = id;
+    sec.open = !!pmFoldOpen[id];
+    sec.addEventListener("toggle", () => { pmFoldOpen[id] = sec.open; });
+    const sm = document.createElement("summary");
+    sm.className = "pmDrawerSecHead";
+    sm.textContent = label;
+    sec.appendChild(sm);
+    const body = document.createElement("div");
+    body.className = "pmDrawerFoldBody";
+    sec.appendChild(body);
+    return { sec, body };
+  }
+
   function pmRenderDrawer(idx) {
     const drawer = document.getElementById("pmDrawer");
     if (!drawer) return;
@@ -7762,6 +7971,99 @@
     // ── 傾向段。⛔ renderActionPriority そのものは呼ばない (準備画面の DOM へ直接書くため)。
     //   同じ組み立てをここへ書き出し、値の読み書きだけを selection.actionPriority で共有する。
     //   ⚠ 候補の絞り込みは apEquippedIdsFor を必ず流用する (二重化すると #19 と食い違う)。
+    /* ══ #55: 装備段 / 書庫段 / 召喚段 ══════════════════════════
+       準備画面 (#prep) を出さなくなったので、着せ替えと書庫と召喚の口はここが唯一。
+       ⛔ 部品を書き直さない —— renderEquipSlot / renderEquippedSummary / renderBagSlot /
+         renderScrollLibrary / renderSummonMenu に「描き先」と「描き直し先」を渡して
+         **同じ関数**を呼ぶ。写しを作ると準備画面側と食い違う。
+       ⭐ 既定は畳む (<details> に open を付けない)。縦持ちの引き出しは 30vh しか無いので、
+         5 段を収める唯一の手 (受入条件 (3a))。
+       ⚠ 書庫 / 召喚は **主人公のカードだけ**。どちらもパーティ全体で 1 つの状態であって、
+         同行 NPC ごとに変わらない (受入条件 (4b))。 */
+    const pmRepaint = function () { saveSelections(); pmRenderDrawer(pmDrawerIdx); pmRefreshCards(); };
+    const equipPool = CHAR_EQUIP[classKey];
+    if (equipPool) {
+      const fold = pmDrawerFold("pmDrawerEquip", "装備を替える");
+      /* ⚠⚠ 段の先頭に「現在の装備」を出す。縦持ちでは
+         #pmInner.pmDrawerOpen .pmEquip がカード側の装備表示を畳むので、
+         ここに出さないと何を着ているか見えないまま着せ替えることになる。 */
+      const sumWrap = document.createElement("div");
+      sumWrap.className = "equippedSummaryWrap";
+      const sumLabel = document.createElement("div");
+      sumLabel.className = "equipTierLabel";
+      sumLabel.textContent = "装備中";
+      const sumEl = document.createElement("div");
+      sumEl.className = "equippedSummary";
+      sumEl.id = "pmDrawerEquipSummary";
+      sumWrap.appendChild(sumLabel);
+      sumWrap.appendChild(sumEl);
+      fold.body.appendChild(sumWrap);
+      renderEquippedSummary(classKey, sumEl, pmRepaint);
+
+      const sel = getEquipSelection(classKey);
+      const shieldLocked = dfShieldLocked(classKey);
+      const clampSel = (i, arr) => Math.min(Math.max(0, i | 0), arr.length - 1);
+      const KINDS = [
+        { kind: "weapon", bag: "weapons", label: "武器", pool: equipPool.weapons, cur: clampSel(sel.weapon, equipPool.weapons) },
+        { kind: "shield", bag: "shields", label: "盾",       pool: equipPool.shields, cur: clampSel(sel.shield, equipPool.shields) },
+        { kind: "armor",  bag: "armors",  label: "防具", pool: equipPool.armors,  cur: clampSel(sel.armor,  equipPool.armors) },
+      ];
+      for (const k of KINDS) {
+        const grp = document.createElement("div");
+        grp.className = "equipGroup";
+        const lab = document.createElement("div");
+        lab.className = "equipLabel";
+        lab.textContent = k.label;
+        const col = document.createElement("div");
+        col.className = "equipListCol";
+        const listEl = document.createElement("div");
+        listEl.className = "equipList";
+        listEl.id = "pmDrawerEquip_" + k.kind;
+        const bagSec = document.createElement("div");
+        bagSec.className = "bagSection";
+        bagSec.id = "pmDrawerBag_" + k.kind;   /* 検証が道具袋を掘り当てられるよう id を振る */
+        bagSec.style.display = "none";
+        const bagLab = document.createElement("div");
+        bagLab.className = "bagLabel";
+        bagLab.textContent = "🎒 道具袋";
+        const bagList = document.createElement("div");
+        bagList.className = "equipList bagList";
+        bagSec.appendChild(bagLab);
+        bagSec.appendChild(bagList);
+        col.appendChild(listEl);
+        col.appendChild(bagSec);
+        grp.appendChild(lab);
+        grp.appendChild(col);
+        fold.body.appendChild(grp);
+        renderEquipSlot(listEl, k.pool, k.kind, k.cur, { charKey: classKey, repaint: pmRepaint, shieldLocked });
+        renderBagSlot(bagList, bagSec, classKey, k.bag, k.pool, pmRepaint);
+      }
+      drawer.appendChild(fold.sec);
+    }
+    if (m.isHero) {
+      /* 書庫段 —— スクロールの「読む」= 永続習得の唯一の口。 */
+      const lib = pmDrawerFold("pmDrawerLibrary", "📜 スクロール書庫");
+      const libHint = document.createElement("span");
+      libHint.className = "pmDrawerHint";
+      libHint.id = "pmDrawerScrollHint";
+      const libList = document.createElement("div");
+      libList.className = "skillList";
+      libList.id = "pmDrawerScrollList";
+      lib.body.appendChild(libHint);
+      lib.body.appendChild(libList);
+      drawer.appendChild(lib.sec);
+      renderScrollLibrary({ sectionEl: lib.sec, listEl: libList, hintEl: libHint });
+
+      /* 召喚段 —— 闇市の召喚スクロールを持っているときだけ出る。 */
+      const sum = pmDrawerFold("pmDrawerSummon", "🔮 召喚同行");
+      const sumList = document.createElement("div");
+      sumList.className = "skillList";
+      sumList.id = "pmDrawerSummonList";
+      sum.body.appendChild(sumList);
+      drawer.appendChild(sum.sec);
+      renderSummonMenu({ sectionEl: sum.sec, listEl: sumList });
+    }
+
     if (!ACTION_PRIORITY_UI_ON) return;
     if (!selection.actionPriority) selection.actionPriority = {};
     const row = selection.actionPriority[classKey] ||
@@ -7964,6 +8266,11 @@
     const hintEl = document.getElementById("pmHint");
     const drawerEl = document.getElementById("pmDrawer");
     const departEl = document.getElementById("pmDepart");
+    /* #55: 下ごしらえ帯 (敵情報 + 事前情報) と「募集をかけ直す」の移設先。
+       ⛔ ?pmsetup=0 (従来の姿 = 背景タップで出発) のときは出さない ——
+         あの姿ではボタンを押した瞬間に画面が閉じて出発してしまう。 */
+    const briefEl  = document.getElementById("pmBrief");
+    const rerollEl = document.getElementById("pmRerollRow");
     // null = 従来の姿 (出発の口も引き出しも出さない)。
     const departBtn = setupOn ? departEl : null;
     const drawerBox = setupOn ? drawerEl : null;
@@ -7992,6 +8299,8 @@
     // #35: カードと引き出しの上のタップは overlay まで上げない (指がそのまま出発を叩くのを防ぐ)。
     //   ⛔ ?pmsetup=0 では「どこを叩いても出発」の昔の姿へ戻すので、ここも通さない。
     if (setupOn) { cols.forEach(c => pmBindCardTaps(c.el)); pmSwallowTaps(drawerBox); }
+    /* #55: 帯の中の指は overlay まで上げない (押した指が開示スキップへ抜けないように)。 */
+    if (setupOn) { pmSwallowTaps(briefEl); pmSwallowTaps(rerollEl); }
     // #35 STEP2: 引き出しが参照する「今出ているカード」。⛔ 別の配列へ写さない。
     //   閉じるのは前回の開きっぱなしを持ち越さないため (pmLoadoutRepaint も null へ)。
     pmCols = cols;
@@ -8008,6 +8317,20 @@
     if (hintEl) { hintEl.classList.remove("show"); hintEl.classList.remove("pmWait"); hintEl.textContent = review ? hintReview : "タップでスキップ"; }
     // #35: 開くたびに出発の口と引き出しを初期状態へ戻す (前回の残りを見せない)。
     if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
+    /* #55: 敵の顔ぶれと事前情報のパネル。
+       ⚠ 敵の文字列は scenarioEnemyInfoText が唯一の正 (準備画面と同じ関数)。
+       ⚠ 判定の状態は openPrep がリセット済み。review ではリセットしないので、
+         一度押した判定は押したままの姿で戻ってくる。 */
+    if (briefEl) {
+      briefEl.hidden = !setupOn;
+      const enemyEl = document.getElementById("pmEnemyInfo");
+      if (enemyEl) enemyEl.textContent = scenarioEnemyInfoText(sc);
+      const ip = document.getElementById("pmIntelPanel");
+      if (ip) ip.hidden = !(sc && SCENARIO_INTEL[sc.id]);
+    }
+    /* 募集のかけ直しは、出発の口と同じ「全員確定後」にだけ出す。
+       ⚠ 開示中に列を差し替えると revealQueue の参照先が消えて開示が止まる。 */
+    if (rerollEl) rerollEl.hidden = true;
     if (departEl) {
       departEl.hidden = true;
       // ⚠ review の行き先は【出発ではなく準備画面】。同じボタンでラベルだけ出し分ける
@@ -8034,6 +8357,9 @@
           // #35: 出発の口を開けるのはこの 1 点だけ = 全員確定 (phase==="done") かつ猶予明け。
           //   ⛔ ここより前に hidden を外すと「確定を見ずに飛ばす」が復活する。
           if (departBtn) departBtn.hidden = false;
+          /* #55: 「募集をかけ直す」も同じ 1 点で開ける (確定を見ずに引き直せない)。
+             ⛔ review は「見るだけ」なので出さない (行き先が準備画面だから)。 */
+          if (setupOn && !review && rerollEl) rerollEl.hidden = false;
         }, PM_TAP_GATE));
       };
       const step = () => {
@@ -8064,6 +8390,12 @@
         pmCloseDrawer();
         // #35: 次に開いた時に「確定前なのに出発の口が見えている」状態を作らない。
         if (departEl) departEl.hidden = true;
+        /* #55: 帯と募集の口も畳む。⚠⚠ pmRebuildRef を必ず null へ戻す ——
+           戻さないと、閉じた後に準備画面で募集をかけ直したとき、
+           もう存在しない列を作り直しに行ってカードが消える。 */
+        pmRebuildRef = null;
+        if (briefEl) briefEl.hidden = true;
+        if (rerollEl) rerollEl.hidden = true;
         if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
         overlay.classList.add("fading");
         setTimeout(() => {
@@ -8103,6 +8435,26 @@
       };
       // #35: カードのハンドラから phase を読めるようにする (値は写さず読み口だけ差し替える)。
       pmPhaseRef = () => phase;
+      /* #55: 「募集をかけ直す」からカード列を作り直す口。
+         ⚠ 全員確定後 (phase==="done") だけ。開示中に列を差し替えると
+           revealQueue が指す列が消えて開示が止まる。
+         ⛔ 顔ぶれの抽選はここでやらない (doRecruitReroll が唯一の正)。 */
+      pmRebuildRef = function () {
+        if (closed || phase !== "done") return;
+        const raw2 = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
+        if (!raw2.length) return;
+        pmCloseDrawer();
+        const hero2 = raw2.find(x => x && x.isHero);
+        const others2 = raw2.filter(x => x && !x.isHero);
+        const ordered2 = hero2 ? [hero2].concat(others2) : raw2.slice();
+        if (subEl) subEl.textContent = pmSubTextFor(others2.length);
+        colsEl.innerHTML = "";
+        const cols2 = ordered2.map((mm, i) => buildPmColumn(mm, i));
+        cols2.forEach((c) => { colsEl.appendChild(c.el); c.fill(false); });
+        if (setupOn) cols2.forEach(c => pmBindCardTaps(c.el));
+        pmCols = cols2;
+        pmOrdered = ordered2;
+      };
       bindTaps();
       // review は開示するものが無いので待たずに待機フェーズへ入る (PM_TAP_GATE はここから数え始める)。
       if (review) finishReveal();
