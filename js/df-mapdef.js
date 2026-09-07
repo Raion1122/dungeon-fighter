@@ -2172,6 +2172,13 @@
      *   足さないと 30×21 が毎回 graph-painting-aspect の warning を出し、
      *   driver_graph_p6 (2c-lizard-swamp) が赤くなる (#11 が 52×26 で踏んだのと同じ穴)。 */
     { w: 30, h: 21, label: "ノード大部屋 30×21 (10:7)" },
+    /* ★[#58 2026-09-07] 同じ理由で **側枝ノード**の大部屋 (lizard-swamp/n6 = 34×22)。
+     * ⚠⚠ 依頼書 #58 §3 は「js/df-mapdef.js は触らない」と書いていたが、#53 とまったく同じ形で
+     *   **実測で崩れた**: 起動時 (カタログ登録より前) の lintRun がこの一覧へ落ちるので、
+     *   足さないと 34×22 が毎回 graph-painting-aspect の warning を出し、
+     *   driver_graph_p6 (2c-lizard-swamp) が赤くなる。
+     * ⛔ 触ったのはこの在庫 1 行だけで、resolve() の規則には手を入れていない。 */
+    { w: 34, h: 22, label: "ノード大部屋 34×22 (17:11)" },
   ];
   /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
    *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、

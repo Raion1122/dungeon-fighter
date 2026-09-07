@@ -83,6 +83,11 @@ const TILE_PX = 96, ENGAGE_PX = 400;
 const bigBossRooms = {};
 /* ★[#53] 道中ノードの大部屋。(1z2) の装置 assert が「例外が広がっていない」ことを見る。 */
 const bigMidRooms = {};
+/* ★[#58 2026-09-07] ノードへ 1 枚絵を貼っているシナリオの台帳 (書いていないシナリオの既定は
+ *   n4 / n7 の 2 つ)。⚠ 期待値を緩めるための表ではない — ここに書いた顔ぶれと 1 ノードでも
+ *   違えば (1i) が赤くなるし、どの絵が載っているかは (1i2) が押さえたまま。
+ *   ⚠ 別のノードへ絵を貼ったら、ここを意図的に更新すること (git diff に載る)。 */
+const EXPECT_PAINTED = { 'lizard-swamp': 'n4,n6,n7' };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -408,10 +413,15 @@ const TOUR_SRC = `(async () => {
        *   「自テーマの絵で、覆う矩形が部屋 rect と完全一致」で押さえている。 */
       const pk = sh.nodes.map(n => n.painting ? n.painting.key : 'null').join(',');
       const painted = sh.nodes.filter(n => n.painting).map(n => n.id).join(',');
-      check('(1i-' + sid + ') 1 枚絵を持つのは n4 / n7 のちょうど 2 ノード',
-        painted === 'n4,n7', painted + '  keys=' + pk);
-      check('(1i2-' + sid + ') その 2 枚は自テーマの絵で、覆う矩形が部屋 rect と完全一致',
-        sh.paintFit.length === 2 &&
+      /* ★[#58 2026-09-07] 沼の側枝 n6 も卓上マップ 1 枚 (34x22) を丸ごと貼るようになったので、
+       *   「n4 / n7 のちょうど 2 つ」という**数え方**を上の EXPECT_PAINTED 台帳へ移した。
+       *   ⚠ 期待値は緩めていない: 台帳に無いノードが絵を持てば painted が食い違って赤くなる。 */
+      const wantPainted = EXPECT_PAINTED[sid] || 'n4,n7';
+      const wantN = wantPainted.split(',').length;
+      check('(1i-' + sid + ') 1 枚絵を持つのは ' + wantPainted + ' のちょうど ' + wantN + ' ノード',
+        painted === wantPainted, painted + '  keys=' + pk);
+      check('(1i2-' + sid + ') その ' + wantN + ' 枚は自テーマの絵で、覆う矩形が部屋 rect と完全一致',
+        sh.paintFit.length === wantN &&
         sh.paintFit.every(p => p.theme === sid && p.src && p.same === true),
         JSON.stringify(sh.paintFit));
       /* ★[#53 2026-09-05] **道中ノードにも (1j2) と同じ 2 択を許す**。
@@ -554,14 +564,14 @@ const TOUR_SRC = `(async () => {
 
   /* ⚠⚠ 装置 assert その 2: (1j) が許した「大部屋の道中ノード」という例外が、**黙って
    *   他シナリオ・他ノードへ広がっていない**ことを 1 本で押さえる (上の (1z) と同じ理由)。
-   *   ⚠ 2026-09-05 時点で道中の大部屋は lizard-swamp/n4 (30x21) の**ちょうど 1 つだけ**。
+   *   ⚠ 2026-09-07 時点で道中の大部屋は lizard-swamp の **n4 (30x21) と n6 (34x22) の 2 つだけ**。
    *     別のノードを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。 */
   mark('§1z2 大部屋の道中ノードはちょうど 1 シナリオ 1 ノードだけ (例外が広がっていない装置 assert)');
   {
     const bigMid = Object.keys(bigMidRooms).filter(k => (bigMidRooms[k] || []).length);
     const shape = bigMid.map(k => k + '/' + bigMidRooms[k].join('+')).join(' ');
-    check('(1z2) 道中ノードが骨格 (7x6) でないのは lizard-swamp/n4 だけ',
-      shape === 'lizard-swamp/n4', '大部屋=' + (shape || 'なし'));
+    check('(1z2) 道中ノードが骨格 (7x6) でないのは lizard-swamp の n4 と n6 だけ',
+      shape === 'lizard-swamp/n4+n6', '大部屋=' + (shape || 'なし'));
   }
 
   // ── §6 撤退スイッチ ?graph=0 ────────────────────────────────────────────────
