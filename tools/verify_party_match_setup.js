@@ -128,6 +128,10 @@ const NEG_EXPECT = {
   M5: ['(5b)'],
   M6: ['(4c)'],
   M7: ['(3b)'],
+  /* ⭐ #60 で追加。(1f) は #29 以来 **どの変異にも守られていなかった** (7 本のうち
+     review のラベルに触れる物が 1 本も無かった)。⇒ 「review でも通常と同じラベルを出す」
+     = (1f) が守っている不変条件そのものを壊す 1 本を足して、空白地帯を塞ぐ。 */
+  M8: ['(1f)'],
 };
 /* ⭐⭐⭐ `--only` を付けない `--negative` は、7 本を同時に入れると互いを覆い隠すので
      **自分自身を 1 タグずつ子プロセスで呼び直す**。これで「空振り 0」が 1 コマンドで再現できる。
@@ -153,9 +157,11 @@ if (NEGATIVE && !ONLY.length) {
   process.exit(0);
 }
 if (NEGATIVE) {
+  /* ⚠ #60 (2026-09-08): close() が「どの口で閉じたか」を受け取るようになり、
+     この行が close("depart") へ変わった。⭐ 変異の意味は不変 = 「背景タップでも閉じる」。 */
   mutate('M1 (全確定後の背景タップで閉じる挙動を戻す)',
-    'if (!setupOn && gateOpen) close();',
-    'if (gateOpen) close();');
+    'if (!setupOn && gateOpen) close("depart");',
+    'if (gateOpen) close("depart");');
   mutate('M2 (伝播止めから touchend の行だけ削る)',
     '    el.addEventListener("touchend", (ev) => { ev.stopPropagation(); });',
     '');
@@ -196,6 +202,11 @@ if (NEGATIVE) {
     '    const nameOf = (id) => { const hit = slot.skillPool.find(sk => sk.id === id); return hit ? hit.name : id; };',
     '    const nameOf = (id) => { const hit = slot.skillPool.find(sk => sk.id === id); return hit ? hit.name : id; };\r\n'
     + '    equippedIds.length = 0; slot.skillPool.forEach(sk => equippedIds.push(sk.id));');
+  /* M8 ⭐ (#60 で新設) — review でも通常と同じラベルを出す = 「押したら潜れる」と読める
+       嘘の導線が復活する。⛔ ラベルの中身は書かない (行き先の名前を写経しない形を保つ)。 */
+  mutate('M8 (review でも #pmDepart のラベルを通常と同じにする)',
+    '      departEl.textContent = review ? "酒場へ戻る" : "出発する";',
+    '      departEl.textContent = "出発する";   /* M8 */');
 }
 
 function loadPuppeteer() {
@@ -818,13 +829,18 @@ async function clickPoint(page, x, y) {
       '押した点の命中先=' + (hit1b ? hit1b.hit : '(取れず)') + ' → 900ms 後 display=' + s1bClose.display
       + ' / 準備画面 prep=' + s1b.prepVis);
 
-    /* ── (1f) review モード: 同じ #pmDepart のラベルが「準備へ戻る」 ──
+    /* ── (1f) review モード: 同じ #pmDepart のラベルが通常と **違う** ──
        ⚠ 依頼書は review モード (準備画面の「🎴 編成を見る」) を知らない。
-          orchestrator 補正: 通常 = 「出発する」/ review = 「準備へ戻る」。close() は共通。 */
+          orchestrator 補正: 通常 = 出発の口 / review = 出発しない口。close() は共通。
+       ⚠⚠ #60 (2026-09-08): 元は両方のラベルを逐語で持っていたが、review の行き先が
+          「準備画面」→「酒場」へ変わって赤くなった (準備画面は #55 で廃止済 = 行き先が無かった)。
+          ⛔ 新しい文字列を写経して緑にするのは禁止 —— この assert が守っていたのは
+            「**review と通常でラベルが出し分けられている**」1 点なので、そこへ言い直す。
+          ⭐ 「どちらも空でない」を AND する (空文字どうしを一致と読む偽の緑を作らない)。 */
     console.log('\n-- (1f) review モード (編成を見る) --');
     const hasBtn = await page.evaluate(() => !!document.getElementById('btnPartyView'));
     if (!hasBtn) {
-      pending('(1f) review モードでは #pmDepart が「準備へ戻る」になり、押すと準備画面へ戻る',
+      pending('(1f) review モードでは #pmDepart のラベルが通常と別物になり、押すと準備画面へ戻る',
         '#btnPartyView が無い (review 導線そのものが存在しない)');
     } else {
       await page.evaluate(() => { const b = document.getElementById('btnPartyView'); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'center' }); });
@@ -840,8 +856,9 @@ async function clickPoint(page, x, y) {
       }
       let r2 = r1;
       if (rDep) { await clickCenterOf(page, 'pmDepart'); await sleep(1100); r2 = await page.evaluate(PROBE, VIS_FN); }
-      check('(1f) review モードでは #pmDepart が「準備へ戻る」になり、押すと準備画面へ戻る (通常は「出発する」)',
-        normalLabel === '出発する' && r1.overlayVis === true && r1.depText === '準備へ戻る'
+      check('(1f) review モードでは #pmDepart のラベルが通常と別物になり、押すと準備画面へ戻る',
+        normalLabel.length > 0 && r1.depText.length > 0 && normalLabel !== r1.depText
+        && r1.overlayVis === true
         && !!rDep && r2.display === 'none' && r2.prepVis === true,
         '通常の文言="' + normalLabel + '" / review の文言="' + r1.depText + '" / 開けた=' + r1.overlayVis
         + ' 猶予明け=' + !!rDep + ' → 閉じた後 display=' + r2.display + ' prep=' + r2.prepVis);

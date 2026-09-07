@@ -2257,16 +2257,21 @@
        ⛔ js/skill-check.js は書き換えない (index.html と共有している)。酒場の中だけで上書きする。
        ⚠ 向こうの規則は JS が実行時に <head> へ足す = 後勝ちなので !important が要る。 */
     #skillCheckOverlay { z-index: 220 !important; }
-    /* #55: 「募集をかけ直す」は出発の口の **手前**。⚠ 押し間違いで潜らないよう間隔を空ける。 */
-    #pmRerollRow { display: flex; justify-content: center; margin-bottom: 2px; }
+    /* #55: 「募集をかけ直す」は出発の口の **手前**。⚠ 押し間違いで潜らないよう間隔を空ける。
+       #60: 同じ行に「🍺 酒場へ戻る」が並ぶ。⚠ 隣り合う 2 つの口を gap で離す
+            (出発の口との間隔は #pmInner の gap 18px + この行の margin-bottom で確保済み)。 */
+    #pmRerollRow { display: flex; justify-content: center; gap: 14px; margin-bottom: 2px; }
     #pmRerollRow[hidden] { display: none !important; }
-    #pmBtnReroll {
+    /* ⛔ #60: 戻るの口を #pmDepart のような金色にしない —— 出発が主・帰るのが副の導線で、
+       見た目で張り合わせると押し間違いが増える。地味な方の兄弟として #pmBtnReroll と同じ姿。 */
+    #pmBtnReroll, #pmBtnBackTavern {
       font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
       min-height: 44px; padding: 10px 20px; font-size: 13px; letter-spacing: 1px; cursor: pointer;
       color: #f0e6cc; background: rgba(255,245,210,0.10);
       border: 1px solid var(--pm-border); border-radius: 8px;
     }
-    #pmBtnReroll:active { transform: translateY(1px); }
+    #pmBtnReroll:active, #pmBtnBackTavern:active { transform: translateY(1px); }
+    #pmBtnBackTavern[hidden] { display: none !important; }
     /* #55: 引き出しの折り畳み段 (装備 / 書庫 / 召喚)。⭐ 既定は畳む —— 縦持ちの 30vh に
        5 段を収めるための唯一の手 (受入条件 (3a))。 */
     .pmDrawerFold > summary { cursor: pointer; min-height: 30px; list-style: none; }
@@ -2873,11 +2878,17 @@
               どちらの口も doRecruitReroll() ただ 1 本へ入る。 -->
       <div id="pmRerollRow" hidden>
         <button type="button" id="pmBtnReroll">📣 募集をかけ直す</button>
+        <!-- #60: 潜らずに酒場へ引き返す口。⚠ 出す条件は #pmDepart と同じ
+             【全員確定 (phase==="done") かつ猶予明け (gateOpen)】。
+             ⛔ 確定前に出すと「確定を見ずに帰る」ができてしまう (受入条件 (1e))。
+             ⚠ 撤退 ?pmback=0 では JS が hidden のまま残す (= 従来どおり出発だけ)。 -->
+        <button type="button" id="pmBtnBackTavern" hidden>🍺 酒場へ戻る</button>
       </div>
       <!-- #35 STEP1: 出発の口。背景タップでの出発を廃止した代わりの明示ボタン。
            ⚠ hidden を外すのは【全員確定 (phase==="done") かつ猶予明け (gateOpen)】の 1 点だけ。
              「確定を見ずに飛ばす」を作らないという既存の不変条件を守るため。
-           ⚠ ラベルは review モードでは「準備へ戻る」へ差し替わる (行き先が出発ではないため)。
+           ⚠ ラベルは review モードでは「酒場へ戻る」へ差し替わる (行き先が出発ではないため)。
+             ⚠ #60 で「準備へ戻る」から改めた —— その準備画面は #55 で廃止済 = 行き先が無かった。
              ⛔ id は変えない — 既存 golden 5 本がこの id で出発の口を掴む。 -->
       <button id="pmDepart" type="button" hidden>出発する</button>
       <div id="pmHint">タップでスキップ</div>
@@ -3117,10 +3128,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間の顔ぶれを見てから酒場へ引き返せる</b> — 出発の画面から、潜らずに酒場へ戻れるようになった。</li>
         <li><b>スリープが敵の群れの多い方へ飛ぶようになった</b> — 眠りの霧は最も多く眠らせられる場所へ落ちる。範囲に仲間が入ったときは吹き出しに「味方は無傷」と添えて出る。</li>
         <li><b>範囲魔法が仲間ごと敵の群れへ撃ち込まれるようになった</b> — 味方は炎も雷も浴びて無傷。火球・氷嵐・矢の雨は敵が最も多く入る場所へ落ちる。</li>
         <li><b>僧侶の金縛りが早く・多く使えるようになった</b> — ターンアンデッドと同じ Lv3 で覚え、Lv7 からは 1 回の潜行で 2 度使える。アンデッド以外が相手なら真っ先に唱える。</li>
-        <li><b>沼地の族長の巣が新しい地図になった</b> — 沼に沈んだ神殿の大広間をそのまま歩ける。族長は東の玉座の壇で待ち構える。</li>
       </ul>
     </div>
     <script>
@@ -6049,11 +6060,17 @@
     /* #55: 案内の行き先がマッチング画面になったので、演出の **前** に語る。
        ⛔ dragonfighters.prepOnboardingSeen のキー名は変えない (既読の人に二度語らせない)。 */
     if (PREP_SKIP_ON) await maybePlayPrepOnboarding();
-    await playPartyMatchCinematic(sc);  // 仲間が集うマッチング演出 (確定済みの仲間を順に開示・タップでスキップ)
+    // 仲間が集うマッチング演出 (確定済みの仲間を順に開示・タップでスキップ)。
+    // ⭐⭐⭐ #60: 戻り値は「どの口で閉じたか」("depart" / "back")。
+    const how = await playPartyMatchCinematic(sc);
     /* ⭐⭐⭐ #55: 「出発準備画面を出す」唯一の行をここで飛ばす。
        演出は #pmDepart を押されて閉じている = プレイヤーはもう「出発する」を押している。
-       ⛔ onDepart (演出を閉じるだけ) も departToScenario の中身も書き換えない。 */
-    if (PREP_SKIP_ON) { departToScenario(); return; }
+       ⛔ onDepart (演出を閉じるだけ) も departToScenario の中身も書き換えない。
+       ⭐⭐⭐ #60: 「🍺 酒場へ戻る」で閉じたときだけ、潜らずにここで終わる。
+         受注は **巻き戻さない** (prepScenario も prepIntelUsed もそのまま) ので、
+         再入場は openPartyMatchReview() 一本。⛔ 依頼札を押し直す経路で戻さない
+         —— openPrep は冒頭で prepIntelUsed をリセットする = 事前情報が引き直せる。 */
+    if (PREP_SKIP_ON) { if (how === "back") return; departToScenario(); return; }
     await maybePlayPrepOnboarding();   // 初回のみ: 準備画面の遊び方を語り部が案内 (スキップ可)
     prepEl.style.display = "flex";
   }
@@ -7126,6 +7143,18 @@
      ⚠ ページ遷移をまたがない (演出は tavern.html の中で完結する)。 */
   const PM_FIT_ON = (function () {
     try { return new URLSearchParams(window.location.search).get("pmfit") !== "0"; }
+    catch (e) { return true; }
+  })();
+
+  /* ══ #60 撤退スイッチ ?pmback=0 ════════════════
+     OFF = マッチング画面の「🍺 酒場へ戻る」が出ない = 従来どおり出発の口だけ。
+     ⚠ 判定はここ 1 箇所だけ (PREP_SKIP_ON / PM_SETUP_ON と同じ作法。2 箇所で URL を
+       読むと片方だけ直って食い違う)。以降は backBtn が null かどうかを見る。
+     ⭐⭐⭐ 撤退しても「潜れなくなる」ことは絶対に無い —— openPrep 側の分岐は
+       how === "back" のときだけ return し、演出は "back" を返す口が消えるだけだから。
+     ⚠ ページ遷移をまたがない (演出は tavern.html の中で完結する)。 */
+  const PM_BACK_ON = (function () {
+    try { return new URLSearchParams(window.location.search).get("pmback") !== "0"; }
     catch (e) { return true; }
   })();
   if (!PM_FIT_ON) { try { document.body.classList.add("pmFitOff"); } catch (e) {} }
@@ -8387,7 +8416,7 @@
   //
   // opts.review = true → 「見るだけ」モード (準備画面の 🎴 編成を見る から開き直す時)。
   //   受注直後の演出と違い、全カラムを最初から確定表示にし、開示アニメも効果音も出さない。
-  //   ⚠ 閉じた先は【出発ではなく準備画面】なので、待ち文言も「準備へ戻る」側へ差し替える。
+  //   ⚠ 閉じた先は【出発ではなく酒場】なので、待ち文言も「酒場へ戻る」側へ差し替える。
   //     ここを出発の文言のままにすると、押した人は潜れると思って押す = 嘘の導線になる。
   //   ⚠ #35 STEP3: 文言は hintWait / hintReview が唯一の正 (背景タップで出発しなくなったので、
   //     「タップして〜」という言い方そのものが実挙動と合わない)。
@@ -8409,18 +8438,27 @@
          あの姿ではボタンを押した瞬間に画面が閉じて出発してしまう。 */
     const briefEl  = document.getElementById("pmBrief");
     const rerollEl = document.getElementById("pmRerollRow");
+    /* #60: 潜らずに酒場へ引き返す口。⚠ 撤退 ?pmback=0 / 従来の姿 (?pmsetup=0) /
+       review モード (もともと出発しない) では null = 1 度も出さない。 */
+    const backEl   = document.getElementById("pmBtnBackTavern");
     // null = 従来の姿 (出発の口も引き出しも出さない)。
     const departBtn = setupOn ? departEl : null;
     const drawerBox = setupOn ? drawerEl : null;
+    const backBtn   = (setupOn && PM_BACK_ON && !review) ? backEl : null;
     // #35 STEP3: 待ち文言。⚠⚠⚠ 背景タップでは【もう出発しない】(STEP1 で廃止した) ので、
-    //   「タップして出発」「タップして準備へ戻る」はどちらも嘘の導線になる。
+    //   「タップして出発」「タップして戻る」はどちらも嘘の導線になる。
     //   実挙動 = カードを押すと設定でき、画面を出る口は下のボタン 1 つだけ。
     //   ⛔ ?pmsetup=0 のときは背景タップが本当に出口なので、従来の文言のまま残す。
+    //   ⚠⚠⚠ #60: review の行き先は **酒場**。準備画面は #55 で廃止済なので
+    //     「準備へ戻る」は行き先そのものが無い嘘の導線だった。
     const hintWait   = setupOn ? "カードを押して設定 ・ 下のボタンで出発"       : "タップして出発";
-    const hintReview = setupOn ? "カードを押して設定 ・ 下のボタンで準備へ戻る" : "タップして準備へ戻る";
-    if (!overlay || !colsEl) return Promise.resolve();
+    const hintReview = setupOn ? "カードを押して設定 ・ 下のボタンで酒場へ戻る" : "タップして酒場へ戻る";
+    /* ⭐⭐⭐ #60: 返り値は「どの口で閉じたか」。⛔ 早期 return の 2 本は必ず "depart" ——
+       ここを "back" にすると「overlay が無い / 応募者ゼロ」で **出発が黙って死ぬ**
+       (依頼書 #60 §2-1 / 受入 (1c2)(1c3) / 変異 m1 が唯一の検出器)。 */
+    if (!overlay || !colsEl) return Promise.resolve("depart");
     const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
-    if (!raw.length) return Promise.resolve();
+    if (!raw.length) return Promise.resolve("depart");
     // 表示上のみ [主人公, 仲間…] に整える (乱数・戦闘隊列は非改変)。主人公=即確定、以降を順に開示。
     const hero = raw.find(m => m && m.isHero);
     const others = raw.filter(m => m && !m.isHero);
@@ -8469,11 +8507,12 @@
     /* 募集のかけ直しは、出発の口と同じ「全員確定後」にだけ出す。
        ⚠ 開示中に列を差し替えると revealQueue の参照先が消えて開示が止まる。 */
     if (rerollEl) rerollEl.hidden = true;
+    if (backEl) backEl.hidden = true;   /* #60: 出すのは猶予明けの 1 点だけ */
     if (departEl) {
       departEl.hidden = true;
-      // ⚠ review の行き先は【出発ではなく準備画面】。同じボタンでラベルだけ出し分ける
+      // ⚠ review の行き先は【出発ではなく酒場】。同じボタンでラベルだけ出し分ける
       //   (close() の中身は共通。id を変えると既存 golden が掴めなくなる)。
-      departEl.textContent = review ? "準備へ戻る" : "出発する";
+      departEl.textContent = review ? "酒場へ戻る" : "出発する";
     }
     setTimeout(() => { if (hintEl) hintEl.classList.add("show"); }, 400);
 
@@ -8498,6 +8537,9 @@
           /* #55: 「募集をかけ直す」も同じ 1 点で開ける (確定を見ずに引き直せない)。
              ⛔ review は「見るだけ」なので出さない (行き先が準備画面だから)。 */
           if (setupOn && !review && rerollEl) rerollEl.hidden = false;
+          /* #60: 「🍺 酒場へ戻る」も **まったく同じ 1 点** で開ける。
+             ⛔ ここより前に hidden を外すと「確定を見ずに帰る」が作れてしまう (受入 (1e))。 */
+          if (backBtn) backBtn.hidden = false;
         }, PM_TAP_GATE));
       };
       const step = () => {
@@ -8516,7 +8558,10 @@
         if (any) sfx("levelUp");
         finishReveal();
       };
-      const close = () => {
+      /* ⭐⭐⭐ #60: close() は「どの口で閉じたか」を受け取り、そのまま promise へ記名する。
+         ⛔ 無記名に戻すと openPrep が押された口を区別できず、「酒場へ戻る」で閉じた
+           その場で潜る (依頼書 §2-1 の最大の罠 / 変異 m3)。 */
+      const close = (how) => {
         if (closed) return;
         closed = true;
         clearTimers();
@@ -8534,13 +8579,14 @@
         pmRebuildRef = null;
         if (briefEl) briefEl.hidden = true;
         if (rerollEl) rerollEl.hidden = true;
+        if (backEl) { backEl.hidden = true; }
         if (drawerEl) { drawerEl.hidden = true; drawerEl.innerHTML = ""; }
         overlay.classList.add("fading");
         setTimeout(() => {
           overlay.style.display = "none";
           overlay.classList.remove("fading");
           overlay.setAttribute("aria-hidden", "true");
-          resolve();
+          resolve(how === "back" ? "back" : "depart");
         }, 520);
       };
       // 開示中のタップ = 残りを即確定 (従来どおり。ここは変えない)。
@@ -8551,14 +8597,27 @@
       const onTap = () => {
         if (closed) return;
         if (phase === "reveal") { skipRest(); return; }
-        if (!setupOn && gateOpen) close();
+        //   ⚠ ?pmsetup=0 の背景タップは【出発】の口。⛔ ここを "back" にしない。
+        if (!setupOn && gateOpen) close("depart");
       };
       // #35: 出発の口。確定前 / 猶予中は hidden なので指では押せないが、
       //   プログラム経由の click でも閉じないよう phase と gateOpen を必ず見る。
+      //   ⚠ #60: review では同じボタンが「酒場へ戻る」なので "back" で閉じる
+      //     (呼び口 openPartyMatchReview は await しないので実害は無いが、記名は嘘をつかない)。
       const onDepart = (ev) => {
         if (ev && ev.stopPropagation) ev.stopPropagation();
         if (closed || phase !== "done" || !gateOpen) return;
-        close();
+        close(review ? "back" : "depart");
+      };
+      /* #60: 「🍺 酒場へ戻る」。⚠⚠ #pmDepart と同じ作法で
+         ① click / touchend の両建て (片方だけだと iOS で押せない端末が出る)
+         ② stopPropagation (止めないと指がそのまま背景 = 開示スキップへ抜ける)
+         ③ phase / gateOpen を必ず見る (hidden でもプログラム経由の click は飛んでくる)。 */
+      const onBack = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        if (closed || phase !== "done" || !gateOpen) return;
+        sfx("button");
+        close("back");
       };
       // iOS Safari 対策で touchend も拾う (click 非発火の端末があると、自動クローズが無い今は詰む)。
       // touch→click の二重発火は PM_TAP_GATE と closed ガードが吸収する。
@@ -8566,10 +8625,12 @@
       const bindTaps = () => {
         overlay.addEventListener("click", onTap); overlay.addEventListener("touchend", onTap);
         if (departBtn) { departBtn.addEventListener("click", onDepart); departBtn.addEventListener("touchend", onDepart); }
+        if (backBtn) { backBtn.addEventListener("click", onBack); backBtn.addEventListener("touchend", onBack); }
       };
       const unbindTaps = () => {
         overlay.removeEventListener("click", onTap); overlay.removeEventListener("touchend", onTap);
         if (departBtn) { departBtn.removeEventListener("click", onDepart); departBtn.removeEventListener("touchend", onDepart); }
+        if (backBtn) { backBtn.removeEventListener("click", onBack); backBtn.removeEventListener("touchend", onBack); }
       };
       // #35: カードのハンドラから phase を読めるようにする (値は写さず読み口だけ差し替える)。
       pmPhaseRef = () => phase;

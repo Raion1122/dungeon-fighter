@@ -182,10 +182,13 @@ if (NEGATIVE) {
   mutate('switchdead (PREP_SKIP_ON が常に true = 撤退スイッチが死ぬ)',
     '    try { return new URLSearchParams(window.location.search).get("prepskip") !== "0"; }',
     '    try { return true; }');
-  /* switchtwice — prepskip を 2 箇所で読み、片方だけ直す。 */
+  /* switchtwice — prepskip を 2 箇所で読み、片方だけ直す。
+     ⚠ #60 (2026-09-08): この 1 行に「酒場へ戻るで閉じたか」の分岐が入ってアンカーが動いた。
+       ⭐ 変異の意味は不変 = 「PREP_SKIP_ON を見ずに、その場で URL を読み直す (向きが逆)」。
+       ⛔ 分岐の中身は保ったまま条件式だけ差し替える (別の欠陥を混ぜない)。 */
   mutate('switchtwice (出発の分岐だけ別の読み方をする = 片方だけ直る)',
-    '    if (PREP_SKIP_ON) { departToScenario(); return; }',
-    '    if (new URLSearchParams(location.search).get("prepskip") !== "1") { departToScenario(); return; }');
+    '    if (PREP_SKIP_ON) { if (how === "back") return; departToScenario(); return; }',
+    '    if (new URLSearchParams(location.search).get("prepskip") !== "1") { if (how === "back") return; departToScenario(); return; }');
 }
 
 function loadPuppeteer() {

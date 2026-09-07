@@ -498,10 +498,106 @@ if (PREP_SKIP_ON) { if (how === "back") return; departToScenario(); return; }
 
 ### 14-0. 母集団の素の基準(STEP0 で採る)
 
+**測定日 2026-09-08 / 基準コミット `8b0108a`(作業ツリー clean を確認してから採取)/ 全本直列**。
+非退行の判定は **exit / 集計行 / FAIL 行の集合**の完全一致で見る(#57 / #58 の作法)。
+
+| ドライバ | exit | 集計行(逐語) | FAIL 行 |
+|---|---|---|---|
+| `driver_action_priority` | 0 | `[driver] RESULT: PASSED 92 / FAILED 0 / PENDING 0` | なし |
+| `driver_depart_menu_clean` | 0 | `══════════ 結果: 41/41 PASS ══════════` | なし |
+| `driver_equip_compact_ios` | 0 | `=== WORKTREE: 31/31 PASS ===` | なし |
+| `driver_party_view_reopen` | 0 | `========== 結果: 35/35 PASSED / 0 FAILED / 0 PENDING ==========` | なし |
+| `verify_darkvision` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | なし |
+| `verify_hold_person` | 0 | `31/31 PASSED   FAILED 0   PENDING 0` | なし |
+| `verify_party_match_setup` | 0 | `[driver] RESULT: PASSED 36 / FAILED 0 / PENDING 0   (合計 36)` | なし |
+| `verify_pm_drawer_fit` | 0 | `75/79 PASSED   FAILED 0   PENDING 4` | なし |
+| `verify_prep_retire` | 0 | `30/30 PASSED   FAILED 0   PENDING 0` | なし |
+| `verify_quest_walk` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | なし |
+| `verify_recruit_size` | 0 | `══════════ 結果: 82/82 PASS ══════════` | なし |
+
+⭐ **着手前は 11 本すべて緑**(§4 が警戒していた「着手前から赤い 2 本」= `verify_walk_block` /
+`driver_speech_v2` は **index.html の swampNovice 由来**で、`#pmDepart` も `patronLabel` も
+掴んでいない ⇒ 本チケットの母集団に入らない。⛔ 触っていない)。
+
+**書き換えた本の「書き換え前 / 書き換え後」**(§9-3 (B) の要求):
+
+| 道具 | 書き換え **前**(STEP1 適用直後) | 書き換え **後** |
+|---|---|---|
+| `driver_party_view_reopen` | `34/35 PASSED / 1 FAILED / 0 PENDING`(`(1d)` が赤) | `35/35 PASSED / 0 FAILED / 0 PENDING` = **素の基準と一致** |
+| `verify_party_match_setup` | `PASSED 35 / FAILED 1 / PENDING 0`(`(1f)` が赤) | `PASSED 36 / FAILED 0 / PENDING 0   (合計 36)` = **素の基準と一致** |
+
+**STEP1 着地後の再実走(2026-09-08)**: 母集団 11 本すべてが **exit 0 / 集計行が素の基準と逐語一致 /
+FAIL 行 0** = 非退行を 3 点すべてで確認。
+
+**受入 `tools/verify_party_promises.js`(base 10161)**: 素 **13/13 PASSED / FAILED 0 / PENDING 0**。
+変異は **m1 → (1c2)(1c3) / m3 → (1b) / m6 → (1e)(1e2)(1d)** で **空振り 0**。
+既存の変異も健在を確認: `verify_party_match_setup` **M1 → (1a)(2z)(2a)(2b)** ・
+**M8(新設)→ (1f)** / `verify_prep_retire` **switchtwice → (7a)** /
+`driver_party_view_reopen` **N1 → (1d)(4c)** ・ **N5 → (1b)(1c)(1d)(1e)(5e)(5f)**。
+
 ### 14-1. 依頼書が崩れた点
+
+1. **§9-3 (B)「意図して書き換える 5 本」のうち、STEP1 で実際に赤くなったのは 2 本だけ**。
+   `driver_party_view_reopen` (1d) / `verify_party_match_setup` (1f) の 2 本。残り 3 本
+   (`verify_prep_retire` (5a) / `verify_recruit_size` (D1) / `verify_recruit_size:421` の `tavSrc`)は
+   **「募集をかけ直す」のラベルを変える STEP2 の担当**で、STEP1 では 1 assert も動かない
+   (実測: `verify_prep_retire` 30/30 / `verify_recruit_size` 82/82 のまま)。
+
+2. ⭐⭐⭐ **orchestrator が §2-11 の表の外で見つけた `driver_party_view_reopen:535` (4c) は、
+   実測でも「素は緑のまま空振りへ落ちる」だった。** `n1b.hint.indexOf('準備へ戻る') < 0` は、
+   逐語の語が本番から消えた瞬間に **恒真**になる。⛔ 素の色を見ているかぎり気づけない。
+   ⇒ 逐語をやめ **`n1b.hint !== o1.hint`**(§1 で実測した review の待ち文言そのものと比べる)へ
+   言い直した。副産物として **N1 が (1d) だけでなく (4c) も赤くする**ようになり、
+   検出力は減るどころか増えた(実走で確認 = `33/35 PASSED / 2 FAILED`)。
+
+3. ⚠⚠⚠ **§2-11 の表に無い「壊れる golden」が 2 本あった —— assert ではなく *変異アンカー* が腐る型。**
+   - `verify_party_match_setup.js:157` M1 のアンカー `if (!setupOn && gateOpen) close();`
+     (§5-1 の記名化で `close("depart")` へ変わる)
+   - `verify_prep_retire.js:187` switchtwice のアンカー `if (PREP_SKIP_ON) { departToScenario(); return; }`
+     (§5-2 の分岐で変わる)
+
+   どちらも **素の実走では緑のまま**で、`--negative` を叩いて初めて **exit 3**(アンカー腐敗)になる。
+   ⭐⭐⭐ **一般形 = 「その行を文字列で握っている検証器」は assert だけでなく *変異アンカー* にも居る。**
+   ⇒ 本番の 1 行を書き換えたら、必ず `grep -rn -F '<旧行>' tools/*.js` を通す
+   (この 2 本はまさにそれで見つけた。⛔ 素の実走だけでは 1 度も赤くならない)。
+
+4. ⭐⭐ **`verify_party_match_setup` の (1f) は #29 以来どの変異にも守られていなかった。**
+   同ドライバの変異 7 本のうち review のラベルに触れる物が **0 本**。⇒ 言い直しのついでに
+   **M8(review でも通常と同じラベルを出す)を新設**して空白地帯を塞いだ。
+   §2-13 の「前のチケットが測らなかった所が golden の空白地帯になる」の実例がもう 1 件増えた。
+
+5. ⭐⭐⭐ **§10 の M1 は、受入条件 (1c)(通常の出発)だけでは原理的に空振りする。**
+   早期 return の 2 本は通常の導線では **1 度も通らない**ため。⇒ 腕を 2 つ新設して初めて赤くなった:
+   - **(1c2)** `#partyMatchOverlay` を DOM から外してから受注する(= `!overlay` の枝)
+   - **(1c3)** 受注ナレの最中に `selection.partyMembers` を空にする(= `!raw.length` の枝。
+     ⭐ 描画は済んだ後なので render 系が空配列で落ちる副作用を持ち込まない)
+
+   実測: M1 で赤くなったのは **(1c2)(1c3) の 2 本だけ**((1c) は緑のまま)。
+   ⭐ 一般形 = #59 の「その変異が現れる盤面を先に作ってから注入する」の **早期 return 版**。
+
+6. ⭐ **M6 は担当の (1e)(1e2) に加えて (1d)(`?pmback=0`)も赤くする。**
+   「確定前から出す」置換が撤退スイッチの判定より **下流**で `hidden` を外すため。
+   ⛔ 机上の担当表では書けない値(実走で確定 = `10/13 PASSED / 3 FAILED`)。
+
+7. ⭐ **`departToScenario` は `window` 経由で差し替えられる**(script 直下の `function` 宣言 =
+   グローバル束縛そのもの。裸の呼び出し側も差し替えを見る)。⇒ (1b)(1c) を **門番の外側**
+   (`PREP_SKIP_ON` / `isRecruitTalkOn()` の上流)で測る手段が実在した。
+   ⛔ 「画面がどう閉じたか」で測っていたら #58 の永久緑を踏んでいた。
+
+8. ⚠ **§2-9 の「10161 は空き」は正しかった**(実リッスン 0 本・`ERR_UNSAFE_PORT` も出ず)。
+   ⇒ `verify_party_promises` は **10161**(変異の子 10162〜10164)。
+   ⭐ memory のポート台帳どおり **次の新規ドライバは 10181 以降**。
+
+9. ⚠ **iPhone 390×844 では「🍺 酒場へ戻る」は画面の外**(実測 `backRect.top=1128` / `innerH=844`)。
+   `#pmDepart` は sticky なので画面内に残る((1a2) で実測済)が、戻るの口はスクロールしないと見えない。
+   ⭐ これは #55 の `#pmBtnReroll` から続く既存の性質で、§9-4 が「寸法は測らない」と決めているので
+   **assert しない**。⇒ 14-2 の実機体感へ送る。
 
 ### 14-2. 残り = 実機体感
 
+0. ⭐ **iPhone 縦持ちで「🍺 酒場へ戻る」が画面の外**(14-1 の 9)。指でスクロールしないと届かない。
+   #55 の「募集をかけ直す」も同じ性質なので、直すなら 2 つまとめて(帯を sticky にする等)。
+   ⛔ 本チケットでは寸法を assert しないと決めたので手を付けていない。
 1. 「酒場へ戻る」が**出発の口と押し間違わない**間隔か
 2. 戻る → 常設パネル → 編成を見る、で**同じ顔ぶれが出る**か
 3. 解散の確認が**縦持ちで画面内に収まる**か
