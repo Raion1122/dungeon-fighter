@@ -438,4 +438,142 @@ py tools/add_changelog.py "<b>僧侶の金縛りが早く・多く使えるよ�
 
 ## 14. 実装結果 — 着地後の実測(実装窓が記入)
 
-(着手後に記入)
+### 14-0. 母集団の素の基準(STEP0 実測)
+
+**基準コミット = `2c42441`(作業ツリー clean で実測)。** ⛔ 130 本は回していない。
+
+**母集団の取り方(⭐ 1 本の grep で決めない = 和集合)**:
+
+```bash
+# A = 依頼書 §2-11 の語(機能の語)                                        … 4 本
+grep -ln "__aoeStats\|pickAoeOrigin\|clericAI\|hold-person\|allyFireball\|allySleep\|conecast" tools/*.js
+# B = この項目で触る識別子                                                … 3 本 (A の部分集合)
+grep -ln "CLERIC_SLOTS_TABLE\|CLERIC_SKILLS_UI\|turn-undead\|holdperson\|holdslots" tools/*.js
+# C = 導線の語(スロットの読み口・呪文の実行点)                          … 5 本
+grep -ln "maxSpellSlots\|spellSlots\|allyTurnUndead\|allyHoldPerson\|turnUndead\|executeSkillOn" tools/*.js
+```
+
+⇒ **A ∪ B ∪ C = 6 本**。⭐ **C にしか無い 2 本**(`verify_recruit_talk` / `verify_run_chronicle`)は
+「hold-person」も「clericAI」も 1 度も書かないが、**`maxSpellSlots` を読む**ので今回の表変更を
+確実に通り抜ける(`verify_run_chronicle` は `spellSlotsMax` を直接 assert している)。
+⚠ 上限の確認 = `grep -ln "cleric" tools/*.js` は **27 本**、`ls tools/{verify,driver,probe}_*.js` は
+**130 本**(依頼書 §2-11 の「129 本」から 1 本増。#58 が `verify_swamp_lair.js` を足したため)。
+
+| ドライバ | port | exit | 総括行(逐語) | FAIL 行 |
+|---|---|---|---|---|
+| `driver_field_step7` | 8807 | **0** | `=== driver_field_step7  79/79 PASS ===` | (なし) |
+| `verify_cone_cast` | 9940 | **0** | `19/19 PASSED   FAILED 0   **PENDING** 0` | (なし) |
+| `verify_hold_person` | 10101 | **0** | `31/31 PASSED   FAILED 0   PENDING 0` | (なし) |
+| `driver_action_priority` | 8843 | **0** | `[driver] RESULT: PASSED 92 / FAILED 0 / PENDING 0` | (なし) |
+| `verify_recruit_talk` | 10020 | **0** | `25/25 PASSED   FAILED 0   **PENDING** 0` | (なし) |
+| `verify_run_chronicle` | 8897 | **0** | `[run-chronicle] 73 PASSED / 0 FAILED / 0 PENDING` | (なし) |
+| ⚠ `verify_walk_block`(**着手前から赤**) | 9410 | **1** | `22/23 PASSED   FAILED 1   **PENDING** 0` | `(3d) badge を持つ ENEMY_TYPES 定義が 44 件のまま` — badge 持ち **45 件** / 期待 44 |
+| ⚠ `driver_speech_v2`(**着手前から赤**) | 8799 | **1** | `[driver] RESULT: 45/46 passed` | `(A1) 全 50 敵種に enemy.cry.<type> がある (ENEMY_TYPES 51 件中)` |
+
+⭐ **総括行の書式は実測で 4 種類**あった(`N/M PASS` / `N/M PASSED FAILED..` /
+`[driver] RESULT: PASSED N / FAILED M /..` / `[name] N PASSED / M FAILED /..`)。
+⛔ `PASSED` で grep すると `driver_field_step7` の 1 種が落ちる。**`PASS` で拾うこと**。
+
+⚠ 赤 2 本は **#55 の 3 分類で「型 3(真に無関係)」**。理由 = どちらも
+**「在庫の総数を写経した検出器」が #53 の `swampNovice` で腐ったもの**(`ENEMY_TYPES` が
+44→45 / 50→51 に増えたのに期待値が据置)。#59 の変更とは 1 行も接触しない。
+⛔ 緑にしにいっていない(依頼書 §12 のとおり別チケット送り)。
+
+### 14-1. STEP4 の着地(dev-loop 項目 1 = STEP0 + STEP4)
+
+**変更 5 箇所**(⛔ STEP1〜3 = `pickAoeOrigin` / `partyInArea` / `allySleep` / `showRollAtAlly` は
+1 バイトも開いていない):
+
+| # | ファイル | 識別子 | 変更 |
+|---|---|---|---|
+| 1 | `index.html` | `CLERIC_SLOTS_TABLE["hold-person"]` | `[0,0,0,0,0,1,1,1,2,2,2]` → **`[0,0,0,1,1,1,1,2,2,2,2]`**(turn-undead 行を実際に読んで 1 文字も違わないことを確認してから写した) |
+| 2 | `index.html` | `HOLD_SLOTS_ON` | 撤退 `?holdslots=0` の **URL を読む唯一の判定点**(`CONE_CAST_ON` と同じ流儀・ページ内完結) |
+| 3 | `index.html` | `CLERIC_SKILLS["hold-person"].levelReq` | `5` → **`3`**(⭐ 依頼書が数え落としていた鏡。§14-2 の (3)) |
+| 4 | `index.html` | `clericAI` | `2b` の枝を `tryHoldPerson()` に畳み、**turn-undead の前**(`2a`)で呼ぶ。`?holdslots=0` のときだけ従来位置(`2b`)で呼ぶ |
+| 5 | `tavern.html` | `CLERIC_SLOTS_TABLE` / `CLERIC_SKILLS_UI` | 表の鏡を同一数列へ + `levelReq: 5` → **`3`** |
+
+⭐ **確率ゲートは掛けていない**(#57 の設計を踏襲)。安全性は §2-9 の構造保証が本当に成り立つことを
+`pickHoldPersonTarget` / `holdPersonImmune` を**実際に読んで**確かめた上で、受入でも機械化した
+(下の (B2))。
+
+**検証**(使い捨て probe `probe_holdslots.js` / port 10151。⛔ repo には入れていない):
+
+```
+=== probe_holdslots  17/17 PASS ===
+  OK (A1) hold=[0,0,0,1,1,1,1,2,2,2,2] turn=[0,0,0,1,1,1,1,2,2,2,2]
+  OK (A2) Lv3=1 Lv7=2 / Lv7 全枚数=19   (#57 着地時は 18 枚で hold は 1 = 5.6%)
+  OK (A4) Lv3 eq=["cure-light-wounds","shield-of-faith","turn-undead","hold-person"]
+  OK (B1)  生者+アンデッドの盤面 → {"hold":1,"turn":0}  オークだけ held=true
+  OK (B2)  アンデッドのみ → pickHoldPersonTarget=-1 {"hold":0,"turn":1}  ★構造保証の機械化
+  OK (R1)  ?holdslots=0 → hold=[0,0,0,0,0,1,1,1,2,2,2] Lv3=undefined Lv7=1 / 全枚数=18
+  OK (R2)  ?holdslots=0 → levelReq=5
+  OK (R4)  ?holdslots=0 → 同じ盤面で {"hold":0,"turn":1} = 梯子が #57 着地時へ戻る
+  OK (M1)  index と tavern の hold-person 行が完全一致
+```
+
+**非退行**: 母集団 6 本すべて **exit / 総括行 / FAIL 行の集合が §14-0 と完全一致**(赤は 0 → 0)。
+
+### 14-2. 依頼書の主張のうち、着手前の実測で崩れた / 補正したもの
+
+1. ⭕ **§2-8「Lv7 で 18 枚中 1 枚 = 5.6%」は崩れていない。** 自分で数え直して
+   `4+2+1+1+2+3+2+2+1 = 18`、hold-person = 1(5.56%)。**着地後は 19 枚中 2 枚 = 10.5%**。
+2. ⭐⭐⭐ **§2-7 B-β「呪文スロットの回復はダンジョン制覇時のみ(休憩では戻らない)= 1 ラン 1 発」は
+   機構の説明として崩れた。** 実体は `applyRoomClearHeal` の `restoreLowestSlot` が
+   **ボス部屋以外の部屋制圧ごとに、キャスター 1 人につき 1 枠だけ**戻している
+   (順位 = `levelReq * 1000 + mpCost` が最小の未満タン)。
+   ⭐ ただし**結論は生き残る** — hold-person は順位 5007 で 9 本中 7 番目、
+   上位 6 本が全部満タンでないと 1 枚も戻らないので、実プレイでは事実上 1 ラン 1 発だった。
+3. ⭐⭐⭐ **§2-10「鏡は 3 枚」は tavern.html の中だけの話で、`levelReq` の鏡は 4 枚目がある。**
+   `index.html` の **`CLERIC_SKILLS["hold-person"].levelReq: 5`** が `CLERIC_SKILLS_UI` の**原本**
+   (tavern 側のコメントが「index.html の CLERIC_SKILLS と二重定義。片方だけ直すと食い違う」と
+   名指しで警告している)。依頼書 §7-3 は tavern しか名指ししていなかった。
+   **実測で切り分けた結果**:
+   - `initAllySpellSlots` / `recalcLeaderSpellSlots` の `levelReq` チェックは **mage/elf の `else` 枝だけ**。
+     僧侶は `isAutoSlotClass` → `getClericSlots` = `CLERIC_SLOTS_TABLE` のみ ⇒ **配分には 1 枚も効かない**。
+   - 効くのは ① 酒場の表示(`renderSpellSlotItem` の `lvOk`)と ② `restoreLowestSlot` の順位のみ。
+   - **5→3 で順位は動かない**(hold-person 5007→3007。前の turn-undead 3006 と後の
+     cure-serious 5008 を跨がないため順序は不変)⇒ **挙動の変化ゼロ**を確認した上で揃えた。
+4. ⚠ **§2-11「129 本」は実測 130 本**(#58 の `verify_swamp_lair.js`)。
+5. ⚠ **§2-11 の `verify_cone_cast` の記録値「41/41」は実測 19/19。**
+   本文にある「素 184/240 = 76.7%」も実測は **212/240 = 88.3%**(撤退 57/240 = 23.8% は一致)。
+   ⛔ 期待値は 1 つも触っていない(このドライバは比 3.00 倍以上しか縛っていないので緑のまま)。
+6. ⭐⭐ **母集団は §2-11 の 4 本では痩せる。** 導線の語(`maxSpellSlots`)で **+2 本**
+   (`verify_recruit_talk` / `verify_run_chronicle`)。⇒ **6 本**が正しい。
+
+### 14-3. `verify_hold_person`(#57 の受入)をどう扱ったか
+
+⭕ **赤くならなかった。素のまま 31/31 PASSED / FAILED 0 / exit 0。**
+⇒ #55 の 3 分類のどれにも当たらず、**assert を 1 つも触っていない**(緩めても移してもいない)。
+
+**赤くならなかった理由**(推測でなくドライバのヘッダの逐語):
+
+> ── ⛔ 測らないこと (依頼書 §12。実装窓が善意で縛りにいかないよう明記する) ──
+> ・ホールドパーソンの発射率 (clericAI の梯子の位置は実機体感で動かす)
+
+さらに (2c) の名前自体が
+「⭐ 他の枝が成立しない盤面 = 全員満タン / アンデッド不在 で通すので、梯子の**順番**には依存しない」
+と宣言している。⇒ **#57 が「次に動かす予定のレバー」を最初から測定対象から外していた**ので、
+Lv5 解禁・Lv7 で 1 枚という前提の assert が 1 本も存在しなかった。
+⭐ **一般形 = 「次に動かすと分かっているパラメータ」を受入から明示的に除外しておくと、
+次のチケットが golden を 1 本も緩めずに済む。**
+⚠ 逆に言えば **梯子の順と表の数値は #57 の受入では 1 つも守られていない**ので、
+今回は使い捨て probe(§14-1)でその 2 つを機械化した。項目 4 の受入ドライバへ移設する価値がある。
+
+### 14-4. 仕様を広げた / 狭めた点(⛔ 黙って動かしていないことの明示)
+
+- **広げた 1 件** = `index.html` の `CLERIC_SKILLS["hold-person"].levelReq` も 3 へ(§14-2 の (3))。
+  理由 = tavern の `CLERIC_SKILLS_UI` の**原本**であり、コード自身が二重定義の警告を書いているため。
+  **挙動の変化がゼロであることを実測してから**入れた。撤退 `?holdslots=0` でも 5 へ戻す。
+- **依頼書どおり狭めたまま 1 件** = 撤退スイッチ `?holdslots=0` の判定は **`index.html` の 1 箇所だけ**
+  (§8 のとおり)。⇒ **`tavern.html?holdslots=0` では酒場の表示だけ Lv3 / 自動 1 のまま残る。**
+  戦闘側は正しく #57 着地時へ戻るので、撤退中は「酒場の表示と戦闘の枚数が食い違う」ことになる。
+  ⭐ 撤退スイッチは緊急の切り戻し用で、`?conecast=0` も同じ性質(index 側だけ)なので流儀は揃っている。
+
+### 14-5. changelog
+
+```
+<li><b>僧侶の金縛りが早く・多く使えるようになった</b> — ターンアンデッドと同じ Lv3 で覚え、Lv7 からは 1 回の潜行で 2 度使える。アンデッド以外が相手なら真っ先に唱える。</li>
+```
+
+⚠ 依頼書 §11 の文面(「1 回の潜行で複数回使える」)は Lv3〜6 では**枚数が 1 枚**なので不正確。
+実測どおり「**Lv7 から** 2 度」に直した。(A) 側の火球の 1 行は**項目 2/3 の担当**なので足していない。
