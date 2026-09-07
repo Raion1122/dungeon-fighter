@@ -466,6 +466,39 @@ function installProbe() {
         rings: window.__hpProbe.rings(),
       };
     },
+    /* ★ 本番の AI の梯子を実際に通す。⭐ 盤面は「**他の枝が成立しない**」ように作る
+       (全員満タン = 回復の枝が消える / アンデッド不在 = ターンアンデッドの枝が消える)
+       ので、梯子の**順番**には依存しない = 依頼書 §12「梯子の位置は測らない」を破らない。
+       ⛔ clericAI の条件を 1 行も写経しない。本番の clericAI をそのまま呼ぶ。
+       ⚠ これが無いと「枠には入っているが AI が一度も撃たない」= #50 と同じ
+         『配線は正しいのに実プレイでは死んでいる』欠陥を 1 assert も捕まえられない。 */
+    aiCast: async function () {
+      const cleric = allies.find((a) => a.classKey === 'cleric');
+      if (!cleric || !lane) return { err: 'cleric/lane なし' };
+      if (typeof clericAI !== 'function') return { err: 'clericAI が無い' };
+      cleric.alive = true;
+      if (typeof initAllySpellSlots === 'function') initAllySpellSlots(cleric, 'cleric', 10, null);
+      setUnit(cleric, lane.tx0, lane.ty);
+      /* 味方を全員満タンにして回復の枝を消す (⛔ clericAI の閾値を写経しない = 満タンなら
+         どんな閾値でも回復は成立しない、という形にする)。 */
+      try { hp = maxHp; } catch (e) {}
+      for (const a of allies) { a.hp = a.maxHp; if (a !== cleric) { a.x = -999999; a.y = -999999; } }
+      const idx = enemies.length;
+      const e = createEnemy('orc', lane.tx0 + 2, lane.ty);
+      enemies.push(e); createEnemyDom(idx, e.def, e.type);
+      e.alive = true; e.maxHp = 400; e.hp = 400;
+      const before = { stunned: e.stunned || 0, held: hasStatus(e, 'held'),
+        slot: (cleric.spellSlots || {})['hold-person'] };
+      let ran = 0;
+      for (let k = 0; k < 8 && !hasStatus(e, 'held'); k++) {
+        try { await clericAI(cleric); ran++; }
+        catch (err) { return { err: 'clericAI 例外: ' + String((err && err.message) || err), ran: ran }; }
+        if (typeof initAllySpellSlots === 'function') initAllySpellSlots(cleric, 'cleric', 10, null);
+      }
+      return { idx: idx, ran: ran, before: before,
+        after: { stunned: e.stunned || 0, held: hasStatus(e, 'held') },
+        rings: window.__hpProbe.rings().regLen };
+    },
     /* 眠り (sleep) の敵を 1 体作る = (2b) の対照。
        ⛔ 編成に魔法使いが居ないので、スリープの **効果側だけ** を本番と同じ形で立てる
          (allySleep の呪文枠 / 2x2 選定は (2b) の主張と無関係)。 */
@@ -775,6 +808,16 @@ function installProbe() {
       check('(2a) ★★ 命中直後に stunned===4 かつ held===true。4 ターン後に両方が同時に消える',
         false, 'population: none — (3c) が命中しなかったので測れない');
     }
+
+    /* ── (2c) 本番の AI が実際に撃つか ── */
+    const aiCase = await ix.evaluate(() => window.__hpProbe.aiCast());
+    check('(2c) ★★ 本番の AI (clericAI) が **実際にホールド・パーソンを撃つ** '
+      + '(⭐ 他の枝が成立しない盤面 = 全員満タン / アンデッド不在 で通すので、梯子の**順番**には '
+      + '依存しない。⛔ 発射「率」は測らない = 依頼書 §12。⚠ これが無いと「枠には入っているが '
+      + 'AI が一度も撃たない」= #50 と同じ欠陥を 1 assert も捕まえられない)',
+      !aiCase.err && aiCase.after && aiCase.after.held === true && aiCase.after.stunned === 4
+      && aiCase.ran >= 1 && (aiCase.before || {}).held === false,
+      JSON.stringify(aiCase));
 
     /* ── (4c) 上限 ── */
     const capCase  = await ix.evaluate(() => window.__hpProbe.cast('orc', { count: 8, tries: 8 }));
