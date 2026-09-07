@@ -3117,10 +3117,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>僧侶の金縛りが早く・多く使えるようになった</b> — ターンアンデッドと同じ Lv3 で覚え、Lv7 からは 1 回の潜行で 2 度使える。アンデッド以外が相手なら真っ先に唱える。</li>
         <li><b>沼地の族長の巣が新しい地図になった</b> — 沼に沈んだ神殿の大広間をそのまま歩ける。族長は東の玉座の壇で待ち構える。</li>
         <li><b>沼地の蛇神の祭壇が新しい地図になった</b> — 水没した聖堂をそのまま歩ける。封じられた守護神は水に囲まれた祭壇の上に居る。</li>
         <li><b>僧侶がホールド・パーソンを覚えた</b> — 敵1体を金の輪で縛り上げ、4ターン動けなくする。縛られた相手への攻撃は必ず急所に入る。</li>
-        <li><b>酒場の卓の顔ぶれが一目で分かるように</b> — 話しかけなくても、職業と名前が頭の上に出る。約束した相手には握手の印が付く。</li>
       </ul>
     </div>
     <script>
@@ -4182,7 +4182,11 @@
     { id: "turn-undead", name: "ターンアンデッド", category: "神聖", range: "medium", mpCost: 6, levelReq: 3, flavor: "アンデッドを畏怖行動不能 + 低HP浄化" },
     /* ★[#57] ⚠⚠ index.html の CLERIC_SKILLS と**二重定義**。片方だけ直すと
        「戦闘では撃てるのに酒場の呪文一覧に出ない」食い違いが出る (DEFAULT_KNOWN と同じ罠)。 */
-    { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 5, flavor: "敵1体を 4ターン 金縛り (アンデッド/ボスには無効)" },
+    /* ★[#59] levelReq 5 → 3 (turn-undead と同格)。⚠ ここが Lv 表示の唯一の口:
+       renderSpellSlotItem の lvOk = currentLv >= sk.levelReq が false だと、
+       CLERIC_SLOTS_TABLE が「自動 1」を返していても [Lv5 必要] の赤札 + .full で
+       灰色に落ちるため、表を直しただけでは Lv3-4 の僧侶が「1 枚持っているのに使えなさそう」に見える。 */
+    { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 3, flavor: "敵1体を 4ターン 金縛り (アンデッド/ボスには無効)" },
   ];
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
   const MAGE_SKILLS_UI = [
@@ -4813,8 +4817,10 @@
     "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
     "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],
     "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
-    /* ★[#57] ⚠⚠ index.html の CLERIC_SLOTS_TABLE と**二重定義**。数字を揃えること。 */
-    "hold-person":          [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],
+    /* ★[#57]/[#59] ⚠⚠ index.html の CLERIC_SLOTS_TABLE と**二重定義**。数字を揃えること。
+       ★[#59] turn-undead と同一の数列へ (Lv3 解禁 / Lv7 で 2 枚)。
+       ⚠ 撤退 ?holdslots=0 の判定は index.html 側だけなので、酒場の表示はここでは戻らない。 */
+    "hold-person":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
   };
   function isCasterClassTV(classKey) {
     return classKey === "cleric" || classKey === "mage" || classKey === "elf";

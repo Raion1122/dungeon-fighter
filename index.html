@@ -12641,12 +12641,30 @@
       "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
       "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],   // Lv3 解禁 (単体武器 +1d6)
       "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // Lv3 解禁 (対アンデッド)
-      /* ★[#57] ⭐⭐⭐ ここが **唯一のバランスレバー**。Lv5-7 で 1 回 / Lv8-10 で 2 回。
-         スロットが希少だからこそ「単体 4 ターン + 長射程」の強さを許している。
+      /* ★[#59] ⭐⭐⭐ turn-undead と **1 文字も違わない数列**へ揃えた (Lv3 解禁 / Lv7 で 2 枚)。
+         根拠 =「同じ Lv3 帯の妨害呪文と同格の資源配分にした」の一言で済む
+         (恣意的にレバーを動かしたことにならない)。
+         #57 着地時は [0,0,0,0,0,1,1,1,2,2,2] で、Lv7 の僧侶の全 18 枚中 1 枚 = 5.6% しか無く、
+         しかもスロットは部屋制圧で「最低位の 1 枠」しか戻らない (applyRoomClearHeal の
+         restoreLowestSlot は levelReq*1000+mpCost が最小の未満タンを 1 つだけ埋める) ため、
+         実質 1 ラン 1 発で実プレイに一度も出なかった。
          ⚠⚠ tavern.html の CLERIC_SLOTS_TABLE と二重定義 — 数字を必ず揃えること。 */
-      "hold-person":          [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],   // Lv5 解禁 (単体 4T 金縛り)
+      "hold-person":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // ★[#59] turn-undead と同一
       // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
     };
+    /* ★[#59] 撤退スイッチ ?holdslots=0 — hold-person の資源配分・解禁 Lv・梯子の位置を
+     *   #57 着地時 (Lv5 解禁 / Lv7 で 1 枚 / turn-undead の後ろ) へ戻す。
+     * ⭐⭐⭐ **URL を読むのはこの 1 箇所だけ**。適用点 (この直下のテーブル / CLERIC_SKILLS の
+     *   levelReq / clericAI の梯子) は全部この const を参照する
+     *   (?conecast=0 の CONE_CAST_ON と同じ流儀。sessionStorage へは写さない)。
+     * ⛔ #57 の ?holdperson=0 とは **別物**。両立する:
+     *     ?holdperson=0  … DEFAULT_KNOWN.cleric から落として呪文ごと消す
+     *     ?holdslots=0   … 呪文は在るまま #57 着地時のバランスへ戻す */
+    const HOLD_SLOTS_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("holdslots") !== "0"; }
+      catch (e) { return true; }
+    })();
+    if (!HOLD_SLOTS_ON) CLERIC_SLOTS_TABLE["hold-person"] = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2];
     function isCasterClass(classKey) {
       return classKey === "cleric" || classKey === "mage" || classKey === "elf";
     }
@@ -21651,10 +21669,17 @@
       "hold-person": {
         name: "ホールド・パーソン", category: "妨害", target: "single",
         holdTurns: 4, range: "long",
-        mpCost: 7, levelReq: 5,
+        mpCost: 7, levelReq: 3,   // ★[#59] turn-undead と同格 (⚠ tavern の CLERIC_SKILLS_UI が鏡)
         flavor: "敵1体を 4ターン 金縛りにする (アンデッド/ボスには無効、MP 7)",
       },
     };
+    /* ★[#59] 撤退 ?holdslots=0 では #57 着地時の levelReq へ戻す (判定は HOLD_SLOTS_ON の 1 箇所)。
+     * ⚠ 僧侶は自動配分職なので levelReq はスロット配分を **1 枚も左右しない**
+     *   (initAllySpellSlots の levelReq チェックは mage/elf の else 枝だけ)。効くのは
+     *   ① 酒場の表示 (鏡の CLERIC_SKILLS_UI) と ② restoreLowestSlot の「位の代理」順位のみ。
+     *   ⭐ 5→3 で順位は動かない (hold-person は 5007→3007 で、前の turn-undead 3006 と
+     *   後の cure-serious 5008 を跨がないため順序は不変)。 */
+    if (!HOLD_SLOTS_ON) CLERIC_SKILLS["hold-person"].levelReq = 5;
 
     // 魔法使いスキル (Phase 2)
     const MAGE_SKILLS = {
@@ -29231,6 +29256,27 @@
         if (healId) { await allyCureWounds(ally, low, healId); return true; }
       }
 
+      /* ★[#57]/[#59] ホールド・パーソン: 射程内 (long=12) に「効く相手」がいてスロットあり。
+         ⛔ 緊急回復より先に出させない (梯子の順そのものが優先度)。
+         ⭐ 対象の絞りは pickHoldPersonTarget に畳んである (⛔ 条件をここへ写経しない)。
+         ⭐ turn-undead と同じく確率ゲートは掛けない —— 撃てる場面で撃たないと 1 戦に 1 度も出ない。
+         ★[#59] #57 では turn-undead の**後ろ** (2b) に置いていたのを **前**へ移した。
+           ⭐⭐⭐ 安全性は確率でなく**構造**が保証する: pickHoldPersonTarget は
+           アンデッドとボス (と護衛対象・既に held・射程外・視線なし) を全部外し、
+           残りが居なければ -1 を返す ⇒ アンデッドだけの部屋では黙って次の枝へ落ちる。
+           = 「アンデッド戦ではターンアンデッド、それ以外では金縛り」が自動で成立し、
+             turn-undead は 1 枚も損しない。
+         ⚠ ?holdslots=0 のときは #57 着地時の位置 (turn-undead の後ろ) で試す。 */
+      const tryHoldPerson = async () => {
+        if (!ally.equippedSkills.includes("hold-person") || !hasSpellSlot(ally, "hold-person")) return false;
+        const hpIdx = pickHoldPersonTarget(ally);
+        if (hpIdx < 0) return false;
+        await allyHoldPerson(ally, hpIdx);
+        return true;
+      };
+      // 2a. ★[#59] 既定 (?holdslots=0 でない) では turn-undead より **先**に試す。
+      if (HOLD_SLOTS_ON && await tryHoldPerson()) return true;
+
       // 2. ターンアンデッド: 射程内に生存アンデッドがいてスロットあり
       if (ally.equippedSkills.includes("turn-undead") && hasSpellSlot(ally, "turn-undead")) {
         const tuRange = getRange(CLERIC_SKILLS["turn-undead"].range).tiles;
@@ -29242,15 +29288,8 @@
         if (undeadInRange) { await allyTurnUndead(ally); return true; }
       }
 
-      /* ★[#57] 2b. ホールド・パーソン: 射程内 (long=12) に「効く相手」がいてスロットあり。
-         ⛔ 緊急回復より先に出させない (梯子の順そのものが優先度)。
-         ⭐ 対象の絞りは pickHoldPersonTarget に畳んである (⛔ 条件をここへ写経しない)。
-         ⭐ turn-undead と同じく確率ゲートは掛けない —— スロットが希少 (Lv5-7 で 1 回) なので、
-           撃てる場面で撃たないと 1 戦に 1 度も出ない。⚠ 発射率は実機体感で動かす余地。 */
-      if (ally.equippedSkills.includes("hold-person") && hasSpellSlot(ally, "hold-person")) {
-        const hpIdx = pickHoldPersonTarget(ally);
-        if (hpIdx >= 0) { await allyHoldPerson(ally, hpIdx); return true; }
-      }
+      // 2b. ★[#59] 撤退時だけ #57 着地時の位置 (turn-undead の後ろ) で試す。
+      if (!HOLD_SLOTS_ON && await tryHoldPerson()) return true;
 
       // 3. ブレス: PT の大半が未バフ & 脅威度 10 以上 & スロットあり (スロット希少性で実質1戦1回)
       if (ally.equippedSkills.includes("bless") && hasSpellSlot(ally, "bless") && threat.score >= 10) {
