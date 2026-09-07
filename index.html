@@ -27713,6 +27713,17 @@
     const AOE_WIDE_WINDOW = IS_FIELD_THEME;
     let __aoeWideProbe = 0;   // 拡張窓の候補を評価した回数 (既存6シナリオでの非退行の直接証明)
 
+    /* ★[#59] 撤退スイッチ ?aoecover=0 — 範囲呪文の狙いを 2026-09-07 以前
+     *   (= 味方が範囲に入る着弾点を絶対に採らない「拒否権」) へ戻す。
+     * ⚠ URL を読むのは**この 1 箇所だけ**。ページ内で完結する (?conecast=0 の CONE_CAST_ON と
+     *   同じ流儀。sessionStorage へは写さない)。
+     * ⚠⚠⚠ 味方は **元々 1 ダメージも受けない** (下流の被害者列挙は enemiesInArea = 敵のみ。
+     *   酒場の説明文も『PT 巻き込みなし』)。よって拒否権は誤射を防いでいるのではなく、
+     *   **絵面のためだけ**に発射率と巻き込み数を落としていた (依頼書 #59 §2-6)。
+     * ⇒ 素では 3 系統 (箱型 / 直線 / splash) の拒否権を外す。円錐 (#50 の 2 段構え) は対象外。 */
+    const AOE_COVER_ON =
+      new URLSearchParams(window.location.search).get("aoecover") !== "0";
+
     // 拡張窓のガード: 「この箱で実際に当たる敵」のうち 1 体でも術者から届くか。
     // 主ターゲットに対する既存の検査と同じ式を使う (上のコメント参照)。
     function aoeBoxReachable(aCX, aCY, foeIdxs, rangeTiles) {
@@ -27726,7 +27737,12 @@
     }
 
     // allowZeroFoes: cordon-of-arrows のみ true (敵0体の設置を許す従来仕様)
-    function pickAoeOrigin(spellId, aCX, aCY, targetTX, targetTY, S, rangeTiles, allowZeroFoes) {
+    /* ★[#59] 末尾 2 引数は既定 undefined。⇒ **8 引数の呼びは 2026-09-07 以前と 1 バイト同一**
+     *   (検証ドライバ driver_field_step7 の legacy 比較 / (F4) 味方誤射 assert はこの経路を測る)。
+     *   coverMode  … 本番の箱型 5 呪文だけが AOE_COVER_ON を渡す = 掃引版へ委譲する入口。
+     *   allowParty … 掃引版 pickAoeBestOrigin だけが true を渡す = 拒否権を「計上のみ」へ落とす。 */
+    function pickAoeOrigin(spellId, aCX, aCY, targetTX, targetTY, S, rangeTiles, allowZeroFoes, coverMode, allowParty) {
+      if (coverMode) return pickAoeBestOrigin(spellId, aCX, aCY, targetTX, targetTY, S, rangeTiles, allowZeroFoes);
       const span = S - 1;
       let best = null, bestCount = allowZeroFoes ? -1 : 0, bestWide = false;
       let rangeRejected = 0, partyRejected = 0;
@@ -27740,7 +27756,14 @@
             if (wide) __aoeWideProbe++;
             const c = { tx: targetTX + dx, ty: targetTY + dy };
             // ⚠️ 従来窓の評価順 (partyInArea → enemiesInArea) は 1 命令も変えない。
-            if (partyInArea(c.tx, c.ty, S, S)) { partyRejected++; continue; }   // 拒否権は維持
+            // ★[#59] 系統1/3 = 箱型。allowParty (掃引版からの呼び) のときだけ拒否権を
+            //   「計上のみ」へ落とす。⭐ partyRejected の計上は残す (観測シームが死ぬと受入が測れない)。
+            //   ⛔ 8 引数の呼び (検証ドライバ / ?aoecover=0 の撤退) は下の従来行をそのまま通る。
+            if (!allowParty) {
+              if (partyInArea(c.tx, c.ty, S, S)) { partyRejected++; continue; }   // 拒否権は維持
+            } else if (partyInArea(c.tx, c.ty, S, S)) {
+              partyRejected++;
+            }
             const foeIdxs = enemiesInArea(c.tx, c.ty, S, S);
             const cnt = foeIdxs.length;
             // 拡張分だけ、術者から実際に届くことを要求する (従来窓には掛けない
@@ -27762,6 +27785,76 @@
         e.rangeRejected += rangeRejected; e.partyRejected += partyRejected;
       }
       return { best: ok ? best : null, count: bestCount, wide: bestWide };
+    }
+
+    /* ★[#59] STEP2 — 箱型 AoE の「最多巻き込み」狙点 (依頼書 §5)
+     * ────────────────────────────────────────────────────────────────────────
+     * ■ 何が問題だったか
+     *   中心候補は「主ターゲットを含む S×S の窓」だけだった。つまり **誰を狙うか**は
+     *   pickClosestEngagedEnemyFromAlly が決めた最寄りの 1 体で固定で、その 1 体の周りしか
+     *   探さない。隣に 3 体固まっていても火球はそちらへ落ちない。
+     *
+     * ⛔ pickClosestEngagedEnemyFromAlly は **15 呼び口** (ほぼ全職の狙点) が通る 1 本なので
+     *    1 文字も触らない。マジック・ミサイルの狙いまで変わってしまう。
+     * ⛔ pickAoeOrigin の本体 (窓の作り方・評価順) も組み替えない。掃引はその **外側**。
+     *
+     * ■ 候補 = 主ターゲット + 生存敵すべてのタイル (除外は enemiesInArea と同じ:
+     *   !alive / inactive / isEscortObjective)
+     * ■ 採用 = 巻き込み数が最大のもの。同数なら **術者に近い方** (⭐ 揺れ防止。
+     *   これが無いと毎ターン着弾点が踊る)
+     * ■ ⭐ 増やした候補には必ず aoeBoxReachable (射程 **+ 視線**) を掛ける。掛け忘れると
+     *   射程外・壁越しへ撃つ。主ターゲット由来の候補だけは従来どおり無検査 =
+     *   「従来撃てた標本は必ず撃てる」上位互換を壊さない。
+     * ■ ⭐ 掃引中は観測シームを止め、決まった中心で **もう一度だけ** 回す。
+     *   ⇒ window.__aoeStats の attempts / cast / demoted は従来どおり「1 詠唱 1 件」のまま
+     *   (探索は Math.random を 1 度も引かないので、再実行しても結果は同一)。
+     * ■ 計算量 = 敵 N 体 × 窓 S² (N は高々十数体 / S² は 9〜25) = 数百回。DOM は 1 枚も増えない。
+     */
+    function pickAoeBestOrigin(spellId, aCX, aCY, targetTX, targetTY, S, rangeTiles, allowZeroFoes) {
+      const centers = [{ tx: targetTX, ty: targetTY, legacy: true }];
+      const seen = {};
+      seen[targetTX + "," + targetTY] = 1;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive) continue;
+        if (isEscortObjective(e)) continue;
+        const tx = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
+        const ty = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
+        const k = tx + "," + ty;
+        if (seen[k]) continue;
+        seen[k] = 1;
+        centers.push({ tx: tx, ty: ty, legacy: false });
+      }
+
+      const prevStats = window.__aoeStats;
+      let bestC = null, bestCount = -Infinity, bestDist = Infinity;
+      try {
+        window.__aoeStats = undefined;   // 掃引ぶんは計上しない (attempts の意味を保つ)
+        for (let n = 0; n < centers.length; n++) {
+          const c = centers[n];
+          const r = pickAoeOrigin(spellId, aCX, aCY, c.tx, c.ty, S, rangeTiles, allowZeroFoes, false, true);
+          if (!r || !r.best) continue;
+          if (!c.legacy &&
+              !aoeBoxReachable(aCX, aCY, enemiesInArea(r.best.tx, r.best.ty, S, S), rangeTiles)) continue;
+          const bx = (r.best.tx + S / 2) * TILE_SIZE, by = (r.best.ty + S / 2) * TILE_SIZE;
+          const d = (bx - aCX) * (bx - aCX) + (by - aCY) * (by - aCY);
+          if (r.count > bestCount || (r.count === bestCount && d < bestDist)) {
+            bestC = c; bestCount = r.count; bestDist = d;
+          }
+        }
+      } finally { window.__aoeStats = prevStats; }
+
+      const pick = bestC || { tx: targetTX, ty: targetTY };
+      return pickAoeOrigin(spellId, aCX, aCY, pick.tx, pick.ty, S, rangeTiles, allowZeroFoes, false, true);
+    }
+    // ⚠ classic script 直下の const / function は window に自動で載らない → 検証シームを明示公開する
+    //    (先例: window.__cone / window.pickLeaderAction)。⛔ 本番の判断ロジックには計測用の分岐を足さない。
+    if (typeof window !== "undefined") {
+      window.__aoeCover = {
+        AOE_COVER_ON: AOE_COVER_ON,
+        pickAoeBestOrigin: pickAoeBestOrigin,
+        pickAoeOrigin: pickAoeOrigin,
+      };
     }
 
     // 箱型でない AoE (直線 / 円錐 / splash) 用の観測シーム。
@@ -27872,7 +27965,7 @@
       // ⚠️ 窓拡張の理屈と射程/LoS ガードは pickAoeOrigin の頭のコメントを読むこと。
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
-      const best = pickAoeOrigin("fireball", aCX, aCY, targetTX, targetTY, 3, rangeTiles, false).best;
+      const best = pickAoeOrigin("fireball", aCX, aCY, targetTX, targetTY, 3, rangeTiles, false, AOE_COVER_ON).best;
       if (!best) {
         // 発動できる安全な範囲なし → 通常基本攻撃 (スリング) にフォールバック
         await allyBasicAttack(ally, enemyIdx);
@@ -27974,7 +28067,9 @@
         for (let step = 1; step <= 3; step++) {
           const tx = aTX + d.dx * step;
           const ty = aTY + d.dy * step;
-          if (partyInArea(tx, ty, 1, 1)) { blocked = true; break; }
+          // ★[#59] 系統2/3 = 直線。素では味方が線上に居ても方向を捨てない
+          //   (味方は元々 0 ダメージ)。?aoecover=0 のときだけ従来どおり棄却する。
+          if (!AOE_COVER_ON && partyInArea(tx, ty, 1, 1)) { blocked = true; break; }
           lineIdxs.push(...enemiesInArea(tx, ty, 1, 1));
         }
         if (blocked) continue;
@@ -28169,7 +28264,7 @@
       // 5x5 候補: ターゲットを含む 25 通りの origin (屋外は「含まない箱」まで窓拡張)。
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
-      const best = pickAoeOrigin("ice-storm", aCX, aCY, targetTX, targetTY, 5, rangeTiles, false).best;
+      const best = pickAoeOrigin("ice-storm", aCX, aCY, targetTX, targetTY, 5, rangeTiles, false, AOE_COVER_ON).best;
       if (!best) {
         // 発動できる安全な範囲なし → 通常基本攻撃にフォールバック
         await allyBasicAttack(ally, enemyIdx);
@@ -29874,7 +29969,7 @@
       // 3x3 候補: ターゲットを含む 9 通りの origin (屋外は「含まない箱」まで窓拡張)。
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
-      const best = pickAoeOrigin("hail-of-thorns", aCX, aCY, targetTX, targetTY, 3, rangeTiles, false).best;
+      const best = pickAoeOrigin("hail-of-thorns", aCX, aCY, targetTX, targetTY, 3, rangeTiles, false, AOE_COVER_ON).best;
       if (!best) {
         // 安全に撃てる範囲なし → 通常弓攻撃にフォールバック
         await allyBasicAttack(ally, enemyIdx);
@@ -29957,7 +30052,7 @@
       // 5x5 候補: ターゲットを含む 25 通りの origin (屋外は「含まない箱」まで窓拡張)。
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
-      const best = pickAoeOrigin("conjure-volley", aCX, aCY, targetTX, targetTY, 5, rangeTiles, false).best;
+      const best = pickAoeOrigin("conjure-volley", aCX, aCY, targetTX, targetTY, 5, rangeTiles, false, AOE_COVER_ON).best;
       if (!best) {
         await allyBasicAttack(ally, enemyIdx);
         return;
@@ -30150,7 +30245,8 @@
       const pTX = Math.floor(ex / TILE_SIZE);
       const pTY = Math.floor(ey / TILE_SIZE);
       // [地平線ビュー STEP7] splash は探索ですらない (主弾タイル固定) ので窓拡張の対象外。
-      const splashOk = !partyInArea(pTX - 1, pTY - 1, 3, 3);
+      // ★[#59] 系統3/3 = splash。素では味方が 3x3 に居ても飛散させる (味方は元々 0 ダメージ)。
+      const splashOk = AOE_COVER_ON || !partyInArea(pTX - 1, pTY - 1, 3, 3);
       noteAoeOutcome(skill.name + "(splash)", splashOk, "splash");
       if (splashOk) {
         const splashIdxs = enemiesInArea(pTX - 1, pTY - 1, 3, 3).filter(i => i !== enemyIdx);
@@ -30241,7 +30337,7 @@
       // ⚠️ この呪文だけは敵 0 体の設置も許す (設置罠なので) = allowZeroFoes true。
       const targetTX = Math.floor(ex / TILE_SIZE);
       const targetTY = Math.floor(ey / TILE_SIZE);
-      const best = pickAoeOrigin("cordon-of-arrows", aCX, aCY, targetTX, targetTY, 3, rangeTiles, true).best;
+      const best = pickAoeOrigin("cordon-of-arrows", aCX, aCY, targetTX, targetTY, 3, rangeTiles, true, AOE_COVER_ON).best;
       if (!best) {
         // 安全な設置先なし → 通常弓攻撃にフォールバック
         await allyBasicAttack(ally, enemyIdx);
