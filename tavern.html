@@ -2426,6 +2426,35 @@
       pointer-events: auto;
       cursor: pointer;
     }
+    /* ★[#57] 卓の 4 人の頭上の名札 (職業アイコン + 名前 + 約束済みなら 🤝)。
+       ⛔⛔ 次の 3 条件を崩さないこと (依頼書 §2-8 = 既存 golden 4 本を 1 本も動かさない根拠):
+         (1) .npcUnit の **子** にする — .npcUnit は JS が 96x96 に固定するので、はみ出す子は
+             親の getBoundingClientRect() を広げない ⇒ verify_npc_crowd (1a) の測る矩形が不変
+         (2) z-index を **4 未満** にする (席札 .tavernSign が 4)
+             ⇒ verify_npc_crowd (2b) / verify_tavern_map (2a) の elementFromPoint は札を返し続ける
+         (3) pointer-events: none ⇒ #41 の「NPC がタップを食う板」を再発させない
+       ⭐ 保険がもう 1 枚ある: .npcUnit は filter を持つので **stacking context を作る** =
+         この子は構造的に親の z-index 3 を超えられない。⛔ それに寄りかからず (2) は宣言でも守る
+         (将来 filter を外した日に静かに壊れないため)。
+       ⚠ font-size / top の px は実機で調整する余地。⛔ 受入条件で数値を固定しない (依頼書 §12)。 */
+    .patronLabel {
+      position: absolute;
+      left: 50%;
+      top: -18px;                 /* 頭の少し上。親からはみ出すが親の矩形は広がらない */
+      transform: translateX(-50%);
+      z-index: 3;                 /* [#57] 3 条件の (2)。4 以上にしない (席札が 4) */
+      pointer-events: none;       /* [#57] 3 条件の (3)。#41 の「NPC がタップを食う板」の再発防止 */
+      white-space: nowrap;
+      font-size: 12px;
+      line-height: 1.25;
+      padding: 1px 7px 2px;
+      color: #f0e6cf;
+      background: rgba(24,18,10,0.78);
+      border: 1px solid rgba(160,124,60,0.75);
+      border-radius: 3px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    body.compact .patronLabel { font-size: 11px; padding: 1px 6px 2px; top: -16px; }
     /* 足元の楕円影。⭐ 主人公の影より一回り小さくして「脇役」に見せる */
     .npcShadow {
       position: absolute;
@@ -3088,10 +3117,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>僧侶がホールド・パーソンを覚えた</b> — 敵1体を金の輪で縛り上げ、4ターン動けなくする。縛られた相手への攻撃は必ず急所に入る。</li>
+        <li><b>酒場の卓の顔ぶれが一目で分かるように</b> — 話しかけなくても、職業と名前が頭の上に出る。約束した相手には握手の印が付く。</li>
         <li><b>仲間の設定欄が画面いっぱいに開くように</b> — 装備・スキル・傾向の一覧が細い帯に潰れなくなり、いちばん下の行まで読めるようになりました。</li>
         <li><b>出発の準備がマッチング画面にまとまった</b> — 仲間が集う画面で装備・スキル・下調べまで済ませて、そのまま出発できる。</li>
-        <li><b>一人で潜ろうとすると引き止められる</b> — 誰にも声を掛けずに依頼を受けると、酒場の主が一度だけ考え直させてくれる。</li>
-        <li><b>酒場の冒険者を次の冒険に誘える</b> — 卓に座っている者へ声を掛けると、同道を申し出て次の潜行についてくる。</li>
       </ul>
     </div>
     <script>
@@ -4151,6 +4180,9 @@
     { id: "shield-of-faith",   name: "シールド・オブ・フェイス", category: "防御", range: "medium", mpCost: 3, flavor: "味方1人 AC +2 (3ターン)" },
     { id: "striking", name: "ストライキング", category: "バフ", range: "medium", mpCost: 5, levelReq: 3, flavor: "味方1人の武器に +1d6 ダメージ (3ターン)" },
     { id: "turn-undead", name: "ターンアンデッド", category: "神聖", range: "medium", mpCost: 6, levelReq: 3, flavor: "アンデッドを畏怖行動不能 + 低HP浄化" },
+    /* ★[#57] ⚠⚠ index.html の CLERIC_SKILLS と**二重定義**。片方だけ直すと
+       「戦闘では撃てるのに酒場の呪文一覧に出ない」食い違いが出る (DEFAULT_KNOWN と同じ罠)。 */
+    { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 5, flavor: "敵1体を 4ターン 金縛り (アンデッド/ボスには無効)" },
   ];
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
   const MAGE_SKILLS_UI = [
@@ -4781,6 +4813,8 @@
     "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
     "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],
     "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
+    /* ★[#57] ⚠⚠ index.html の CLERIC_SLOTS_TABLE と**二重定義**。数字を揃えること。 */
+    "hold-person":          [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],
   };
   function isCasterClassTV(classKey) {
     return classKey === "cleric" || classKey === "mage" || classKey === "elf";
@@ -4846,6 +4880,18 @@
     return out;
   }
   DEFAULT_KNOWN_TV.mage = withInnateSleepListTV(DEFAULT_KNOWN_TV.mage);
+  /* ★[#57] 僧侶のホールド・パーソンを初期習得へ — 酒場側の写し。
+   * ⚠⚠ index.html の DEFAULT_KNOWN と**二重定義**。片方だけ直すと「戦闘では撃てるのに
+   *   酒場の聖典一覧では未習得に見える」食い違いが出る (#54 の sleep とまったく同じ罠)。
+   * ⚠ 撤退 ?holdperson=0 で従来 (hold-person 無し) へ戻る。判定は index 側と同じ 1 か所。
+   * ⭐ 位置は末尾でよい —— 僧侶は **自動配分職** で、枠は CLERIC_SLOTS_TABLE が Lv 別に
+   *   直接くれる (魔法使いのように「先頭から take」で切られる経路を通らない)。 */
+  function isHoldPersonOnTV() {
+    try { return new URLSearchParams(location.search).get("holdperson") !== "0"; }
+    catch (e) { return true; }
+  }
+  if (isHoldPersonOnTV() && DEFAULT_KNOWN_TV.cleric.indexOf("hold-person") < 0)
+    DEFAULT_KNOWN_TV.cleric = DEFAULT_KNOWN_TV.cleric.concat(["hold-person"]);
   const SCROLL_KIND_LABEL_TV = { mage: "巻物", cleric: "聖典", elf: "森の書" };
 
   function loadKnownSpellsTV() {
@@ -5923,10 +5969,12 @@
     if (!m || !window.DFRecruits) { closeRecruitDialog(); return; }
     if (DFRecruits.has(m.name)) {          /* 取り消し */
       DFRecruits.remove(m.name);
+      refreshPatronLabelFor(m);            /* ★[#57] 頭上札の 🤝 を外す */
       closeRecruitDialog();
       return;
     }
     const res = DFRecruits.add(m, RECRUIT_MAX);
+    if (res.ok) refreshPatronLabelFor(m);  /* ★[#57] 頭上札に 🤝 を足す (⛔ 失敗時は付けない) */
     closeRecruitDialog();
     /* ⛔ 失敗を握り潰さない。⭐ 承諾の一言は吹き出しではなくトーストで出す
        (吹き出しは優先度 3 段 + クールダウンの単一キューなので、割り込むと
@@ -7773,6 +7821,36 @@
   /* ════════════ #54 STEP2 ここまで ════════════════════════════════════════ */
   const PM_ZONE_LABEL = { front: "前衛", mid: "中衛", rear: "後衛" };
   const PM_CLASS_EMOJI = { warrior: "🗡️", dwarf: "⛏️", cleric: "✨", mage: "🔮", elf: "🏹", rogue: "🗝️" };
+
+  /* ════════════ #57 STEP1 — 卓の 4 人の頭上に職業と名前 ══════════════════════
+     ⭐ 誰が座っているかは todaysPatrons に**実行時に確定している**のに画面へ出ていなかった。
+       出すのは「職業アイコン + 名前」だけ。⛔ Lv は出さない (出発時に assignCompanionLevels()
+       が確定するので酒場の表示が嘘になる) / ⛔ 性格も出さない (対話ダイアログの見せ場を残す)。
+     ⚠ 撤退 ?patronlabel=0。⚠ const に畳まない — 呼ぶたびに読む (isRecruitTalkOn と同じ
+       TDZ 回避の作法)。 */
+  function isPatronLabelOn() {
+    try { return new URLSearchParams(location.search).get("patronlabel") !== "0"; }
+    catch (e) { return true; }
+  }
+  /* 札の文字を作る **唯一の場所**。⛔ 2 箇所に書かない — 約束の付け外しで食い違う。
+     ⭐ 表を写経せず PM_CLASS_EMOJI と member の実体から引く。 */
+  function patronLabelPaint(lb, m) {
+    if (!lb || !m) return;
+    let promised = false;
+    try { promised = !!(window.DFRecruits && DFRecruits.has(m.name)); } catch (e) {}
+    lb.textContent = (promised ? "🤝 " : "") + (PM_CLASS_EMOJI[m.classKey] || "") + " " + (m.name || "");
+  }
+  /* 約束の付け外しで 🤝 を引き直す。⛔ 要素を作り直さない (参照が切れる)。
+     ⚠ 席は member の **同一性** で引く (名前で引くと同名が居た日に両方光る)。 */
+  function refreshPatronLabelFor(m) {
+    if (!m || !todaysPatrons) return;
+    for (const k of Object.keys(todaysPatrons)) {
+      if (todaysPatrons[k] !== m) continue;
+      const lb = document.querySelector('.patronLabel[data-patron="' + k + '"]');
+      if (lb) patronLabelPaint(lb, m);
+    }
+  }
+  /* ════════════ #57 STEP1 ここまで ════════════════════════════════════════ */
   const PM_REVEAL_INTERVAL = 720;   // 各カラム確定の間隔 (ms)。テンポ調整レバー。
   // 全員が揃った後は【自動で閉じない】= 明示タップ待ち (4人のステータスをじっくり確認できるように)。
   // 確定した瞬間だけ短く入力を殺すのは、スキップ用の連打で読み飛ばす事故と、iOS の touch→click
@@ -9677,6 +9755,20 @@
         var seatSprite = patronSpriteOf(seatMember) || n.sprite;
         el.style.backgroundImage = 'url("' + seatSprite + '")';
         el.style.backgroundSize  = (SPRITE * 6) + "px " + (SPRITE * 4) + "px";
+        /* ★[#57] 頭上の名札。⛔⛔⛔ CSS 側の 3 条件 (.patronLabel の注記) と**対で**読むこと。
+           ⚠ 卓の 4 人 (todaysPatrons に居る席) だけ。店主 / 酔漢 / 給仕 / 荷運びには出さない。
+           ⚠ ?recruittalk=0 (#54 の撤退) では todaysPatrons が null なので自動的に 1 枚も出ない
+             = 撤退の二重化ではなく「上流が消えれば下流も消える」正しい依存。
+           ⭐ 追従のコードは要らない —— .npcUnit の **子** なので npcPlace() が親を動かせば
+             そのまま付いてくる。⛔ npcBubbleFollow を写経して 2 本目の追従経路を作らない。 */
+        if (isPatronLabelOn() && seatMember) {
+          var lb = document.createElement("div");
+          lb.className = "patronLabel";
+          lb.setAttribute("data-patron", n.key);   /* ⚠ ドライバはここから席 key を読む */
+          lb.title = recruitClassLabel(seatMember.classKey);
+          patronLabelPaint(lb, seatMember);
+          el.appendChild(lb);
+        }
         layer.appendChild(sh);
         layer.appendChild(el);
         var hold = (n.kind === "stand") ? (((n.hold || 0) % 6) + 6) % 6 : 0;

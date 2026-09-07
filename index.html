@@ -675,6 +675,67 @@
       border-radius: 18px;
       z-index: 1;     /* 床より上、敵 (z-index:2) より下 */
     }
+    /* ══ ★[#57] 金縛りの輪「聖印の檻」(VFX 案 IV) ══════════════════════════════
+     * 環 2 本 + 足元の回る魔法陣 + 天へ伸びる光条。色は金。⭐ CSS のみ・アセット追加 0 枚。
+     *
+     * ⭐⭐⭐ 「掛かっている」に見せる肝 = **同じ楕円を 2 枚**出し、clip-path で
+     *   上半分 (--back / z-index 1) を敵の**後ろ**へ、下半分 (--front / z-index 3) を敵の**前**へ置く。
+     *   .enemy の z-index は **2** (このファイルの .enemy 規則で実測。⛔ コメントを信じず実 CSS を引いた)。
+     *   #enemyLayer は stacking context を作らない透明ラッパなので、1 と 3 は大域でそのまま解決される。
+     *
+     * ⚠⚠⚠ **transform を CSS animation で動かさないこと。** 位置合わせは JS が毎フレーム
+     *   el.style.transform へ書くが、**animation declaration は inline style に勝つ** (#46 の実測)
+     *   ので、transform を animate した瞬間にカメラ追従が黙って死ぬ。
+     *   ⇒ 回転は **::before / ::after** 側でやる (別ボックスなので衝突しない)。
+     *   ⭐ opacity だけを animate する分には安全 (animation はその property しか奪わない)。
+     *
+     * ⭐⭐ 光量のレバーは **--holdGlow 1 本だけ**。box-shadow も opacity も全部ここから導く。
+     *   実機で「明るすぎて敵が読めない」と分かったら**この 1 行だけ**動かす。
+     *   ⛔ 案の作り直しはしない (依頼書 §1 で了解済みの弱点②)。 */
+    .hrFx {
+      --holdGlow: 0.85;              /* ⭐ 唯一のレバー (0 = 消灯 / 1 = 最大) */
+      --holdGold: 255, 214, 120;
+      position: absolute;
+      pointer-events: none;
+      will-change: transform;
+    }
+    /* 環。⭐ 正方形で作って JS が scaleY で潰す (楕円のまま作ると ::before の回転が歪む)。 */
+    .hrRing {
+      border: 2px solid rgba(var(--holdGold), calc(0.95 * var(--holdGlow)));
+      border-radius: 50%;
+      box-shadow: 0 0 calc(14px * var(--holdGlow)) rgba(var(--holdGold), calc(0.70 * var(--holdGlow))),
+            inset 0 0 calc(10px * var(--holdGlow)) rgba(var(--holdGold), calc(0.50 * var(--holdGlow)));
+    }
+    .hrRing--back  { clip-path: inset(0 0 50% 0); }   /* 上半分 = 敵の後ろ (z-index 1) */
+    .hrRing--front { clip-path: inset(50% 0 0 0); }   /* 下半分 = 敵の前   (z-index 3) */
+    /* 足元の回る魔法陣。⭐ 回転は ::before / ::after が持つ (親の transform は位置合わせ専用)。 */
+    .hrDisc { opacity: calc(0.9 * var(--holdGlow)); }
+    .hrDisc::before, .hrDisc::after {
+      content: ""; position: absolute; inset: 0;
+      border-radius: 50%;
+      animation: hrSpin 5.5s linear infinite;
+    }
+    .hrDisc::before {
+      border: 2px dashed rgba(var(--holdGold), 0.9);
+      box-shadow: 0 0 calc(12px * var(--holdGlow)) rgba(var(--holdGold), 0.55);
+    }
+    .hrDisc::after {
+      inset: 24%;
+      border: 1px solid rgba(var(--holdGold), 0.75);
+      animation-duration: 8.5s;
+      animation-direction: reverse;
+    }
+    @keyframes hrSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    /* 天へ伸びる光条。⭐ 脈動は **opacity だけ** を animate する (transform には触らない)。 */
+    .hrBeam {
+      background: linear-gradient(to top,
+        rgba(var(--holdGold), calc(0.45 * var(--holdGlow))) 0%,
+        rgba(var(--holdGold), calc(0.18 * var(--holdGlow))) 45%,
+        rgba(var(--holdGold), 0) 100%);
+      filter: blur(1px);
+      animation: hrPulse 1.9s ease-in-out infinite;
+    }
+    @keyframes hrPulse { 0%, 100% { opacity: 0.40; } 50% { opacity: 1; } }
     .groundFx.sleep {
       background: radial-gradient(ellipse at center,
         rgba(180,90,220,0.50) 0%,
@@ -11641,6 +11702,88 @@
       }
     }
 
+    /* ══════════ ★[#57] 金縛りの輪「聖印の檻」 ══════════════════════════════════
+     * ⭐⭐⭐ 規約は speechBubbles / groundFxElements と同じ **レジストリ + 毎フレーム再配置**。
+     *   ⛔ 敵 DOM の**添字並列配列** (createEnemyDom が push する 11 本) には 1 本も足さない ——
+     *     #44 と #46 が「OFF のとき null を push し忘れて別の敵を指す」罠を 2 回踏んでいる。
+     *     レジストリは添字を一切持たない (unit の参照で握る) ので、その罠が**構造的に**起きない。
+     *   ⛔ spawnGroundFx も使わない —— .groundFx は z-index 1 =「敵 (z2) より下」なので、
+     *     輪が敵の下へ潜って「掛かっている」に見えない (依頼書 §2-7 の罠 A)。
+     * ⚠ 掃除の条件は「held でなくなった / 死んだ」の 2 つだけ。⛔ 残ターンをここで数えない
+     *   (数えると tickStatusEffects と 2 か所で数えることになり、必ずいつかずれる)。 */
+    const holdRings = [];      // { unit, els: [HTMLElement, ...] }
+    const HOLD_RING_MAX = 4;   // ⚠ 同時本数の上限。超えたら古いものから消す (iOS 負荷の歯止め)
+
+    /* 部品表。z = 大域の重なり順 (敵 = 2) / fy = 箱の高さに対する縦アンカー /
+       ty = translate の Y% (= transform-origin の Y%) / sy = 縦の潰し (楕円の見え) */
+    const HOLD_RING_PARTS = [
+      { cls: "hrFx hrDisc",                          z: 1, fy: 0.93, ty: 50,  sy: 0.46 },
+      { cls: "hrFx hrBeam",                          z: 1, fy: 0.93, ty: 100, sy: 1    },
+      { cls: "hrFx hrRing hrRing--hi hrRing--back",  z: 1, fy: 0.46, ty: 50,  sy: 0.34 },
+      { cls: "hrFx hrRing hrRing--hi hrRing--front", z: 3, fy: 0.46, ty: 50,  sy: 0.34 },
+      { cls: "hrFx hrRing hrRing--lo hrRing--back",  z: 1, fy: 0.76, ty: 50,  sy: 0.34 },
+      { cls: "hrFx hrRing hrRing--lo hrRing--front", z: 3, fy: 0.76, ty: 50,  sy: 0.34 },
+    ];
+
+    function removeHoldRing(i) {
+      const r = holdRings[i];
+      if (!r) return;
+      for (const el of r.els) { try { el.remove(); } catch (e) {} }
+      holdRings.splice(i, 1);
+    }
+    /* unit は敵オブジェクト ({x, y, def, alive} を持つもの)。⛔ 添字は握らない。 */
+    function spawnHoldRing(unit) {
+      if (!unit || !unit.def) return null;
+      for (let i = holdRings.length - 1; i >= 0; i--) if (holdRings[i].unit === unit) removeHoldRing(i);
+      /* ⚠ 上限を超えたら **古いものから** 落とす。⛔ 新しい方を捨てない
+         (今かかった敵だけ光らないのは、プレイヤーから見て嘘になる)。 */
+      while (holdRings.length >= HOLD_RING_MAX) removeHoldRing(0);
+      const size = unit.def.displaySize || 96;
+      /* ⭐ 見かけ径は詠唱の陣と同じ式を使う (箱を大きく使う巨躯と、小さくしか使わない人型で
+         「体に対する大きさ」が 3 倍ずれるのを吸収する式。⛔ displaySize に単純比例させない)。 */
+      const diam = castCircleDiameter(size);
+      const els = [];
+      for (const p of HOLD_RING_PARTS) {
+        const el = document.createElement("div");
+        el.className = p.cls;
+        el.style.zIndex = String(p.z);
+        el.style.transformOrigin = "50% " + p.ty + "%";
+        if (p.cls.indexOf("hrDisc") >= 0) {
+          el.style.width = diam + "px"; el.style.height = diam + "px";
+        } else if (p.cls.indexOf("hrBeam") >= 0) {
+          el.style.width = (diam * 0.28) + "px"; el.style.height = (size * 1.5) + "px";
+        } else {
+          const d = diam * 0.70;
+          el.style.width = d + "px"; el.style.height = d + "px";
+        }
+        enemyLayer.appendChild(el);
+        els.push(el);
+      }
+      holdRings.push({ unit: unit, els: els });
+      return holdRings[holdRings.length - 1];
+    }
+    /* renderWorld から毎フレーム (updateGroundFx / updateSpeechBubbles と同じ場所)。 */
+    function updateHoldRings() {
+      for (let i = holdRings.length - 1; i >= 0; i--) {
+        const r = holdRings[i];
+        const u = r.unit;
+        if (!u || !u.alive || !hasStatus(u, "held")) { removeHoldRing(i); continue; }
+        const size = (u.def && u.def.displaySize) || 96;
+        const cx = u.x + size / 2;
+        for (let k = 0; k < r.els.length; k++) {
+          const p = HOLD_RING_PARTS[k];
+          const el = r.els[k];
+          el.style.left = SX(cx) + "px";
+          el.style.top  = SY(u.y + size * p.fy) + "px";
+          /* ⭐ zTfAnchored = scale を**後置**する (translate を先に効かせて中心を left/top へ
+             正しく着地させ、scale の中心は transform-origin のまま)。
+             ⛔ zTf にすると引いたとき中心が origin 周りへ滑る (#46 §2-5 の実測)。 */
+          el.style.transform = zTfAnchored("translate(-50%, -" + p.ty + "%)"
+            + (p.sy === 1 ? "" : " scaleY(" + p.sy + ")"));
+        }
+      }
+    }
+
     // ══════════ セリフ吹き出し (speech-bubble v1: index.html 専用) ══════════
     // tavern.html には同期しない (戦闘ランタイムを持たない。status-effect v1.1 と同じ方針)。
     // 表示は groundFx と同じ「レジストリ + 毎フレーム再配置」方式 →
@@ -12330,6 +12473,10 @@
       "shield-of-faith":      [0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3],
       "striking":             [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2],   // Lv3 解禁 (単体武器 +1d6)
       "turn-undead":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // Lv3 解禁 (対アンデッド)
+      /* ★[#57] ⭐⭐⭐ ここが **唯一のバランスレバー**。Lv5-7 で 1 回 / Lv8-10 で 2 回。
+         スロットが希少だからこそ「単体 4 ターン + 長射程」の強さを許している。
+         ⚠⚠ tavern.html の CLERIC_SLOTS_TABLE と二重定義 — 数字を必ず揃えること。 */
+      "hold-person":          [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],   // Lv5 解禁 (単体 4T 金縛り)
       // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
     };
     function isCasterClass(classKey) {
@@ -12798,6 +12945,24 @@
       return out;
     }
     DEFAULT_KNOWN.mage = withInnateSleepList(DEFAULT_KNOWN.mage);
+    /* ★[#57] 僧侶のホールド・パーソンを初期習得へ。
+     * ⭐ turn-undead と同じ「初期習得」に揃える (僧侶の非回復呪文はどちらも初期習得なので、
+     *   ここだけ聖典巻物にすると作法が 2 つになる)。⚠ Lv5 まで枠が 0 なので**実質 Lv5 で覚える**。
+     * ⭐⭐⭐ ここが撤退スイッチの **唯一の判定点**。?holdperson=0 で hold-person が
+     *   DEFAULT_KNOWN.cleric から落ちる → isSpellKnown() の完全ゲートに掛かり
+     *   initAllySpellSlots が allocMap から削る → equippedSkills に入らない → clericAI も
+     *   apTryPreferred も撃たない → 輪も出ない。⛔ 2 か所目で URL を読まないこと
+     *   (片方だけ直って食い違う。#35 の PM_FIT_ON と同じ作法)。
+     * ⚠⚠ tavern.html の DEFAULT_KNOWN_TV とは**二重定義**。片方だけ直すと
+     *   「戦闘では撃てるのに酒場の聖典一覧では未習得に見える」食い違いが出る。
+     * ⭐ 移行コードは要らない — loadKnownSpells() が DEFAULT_KNOWN と localStorage の
+     *   **和集合を毎ロード取る (自己修復)** ので、既存セーブでも自動的に既知になる。 */
+    function isHoldPersonOn() {
+      try { return new URLSearchParams(window.location.search).get("holdperson") !== "0"; }
+      catch (e) { return true; }
+    }
+    if (isHoldPersonOn() && DEFAULT_KNOWN.cleric.indexOf("hold-person") < 0)
+      DEFAULT_KNOWN.cleric = DEFAULT_KNOWN.cleric.concat(["hold-person"]);
 
     // 習得済み呪文コーデックス { mage:[...], cleric:[...], elf:[...] }。defaults を毎ロード和集合 (自己修復)。
     function loadKnownSpells() {
@@ -15477,6 +15642,7 @@
       renderLighting();
       updateGroundFx();
       updateSpeechBubbles();   // ★ speech-bubble: カメラ追従のため毎フレーム再配置
+      updateHoldRings();       // ★[#57] 金縛りの輪: 同上 (⛔ 3 本目の掃除ループを別の場所に作らない)
       // [隊商護衛] 護衛対象マーカーもカメラ追従なので毎フレーム更新する。
       // ⚠️ renderWorld は resize イベント経由で ESCORT_MARKER_ON 等の let 宣言より前に呼ばれ得る
       //    (TDZ)。起動中の数フレームだけ静かに skip されるのが正しい挙動だが、「静かに失敗し続ける」
@@ -15592,8 +15758,15 @@
           enemyEl.style.top  = SY(enemy.y) + "px";
           updateEnemyDamageFlash(enemyEl, enemy);
           updateEnemyAnim(enemy, enemyEl);
-          // ステータスエフェクト連動: スリープ (stunned > 0)
-          enemyEl.classList.toggle("fx-sleep", (enemy.stunned || 0) > 0);
+          /* ステータスエフェクト連動: スリープ (stunned > 0)。
+             ★[#57] ⚠⚠ **金縛りの敵には紫の眠りオーラを出さない。**
+               依頼書 §6-4 は「言い分けが要るのは STUNNED の文字 1 箇所だけ」と書いていたが、
+               実測 (2026-09-07 の目視) で **2 箇所目**が見つかった —— stunned を真実の源に
+               している fx-sleep のオーラで、金縛りの敵が「眠っている」ように見えてしまう。
+               ⭐ 金縛りの見せ方は金の輪 (聖印の檻) が持つので、紫は held のときだけ譲る。
+               ⚠ 切替点はここ 1 箇所きり (grep で実測)。fx-sleep を読むドライバは 0 本。 */
+          enemyEl.classList.toggle("fx-sleep",
+            (enemy.stunned || 0) > 0 && !hasStatus(enemy, "held"));
           // ステータスエフェクト連動: 鈍足 (アイスストーム slowedRemaining > 0)
           enemyEl.classList.toggle("fx-frost", (enemy.slowedRemaining || 0) > 0);
 
@@ -19074,6 +19247,11 @@
         }
         if (skillId === "bless")       { await allyBless(actor);      return true; }
         if (skillId === "turn-undead") { await allyTurnUndead(actor); return true; }
+        /* ★[#57] ⭐ この 1 行で **頭と仲間の両方**に効く (executeLeaderSkill が同じ関数を呼ぶ)。
+           ⛔⛔ この関数の **シグネチャ行は 1 文字も変えないこと** ——
+             tools/driver_action_priority.js:131 が逐語アンカーで計測シームを注入しており、
+             変えると既存 golden (92/92) が起動時検算で落ちる。枝を足すのは関数の**中**。 */
+        if (skillId === "hold-person") { await allyHoldPerson(actor, targetIdx); return true; }
         if (skillId === "striking") {
           // 前衛/近接の未バフ PT 員を選んで武器強化
           const cands = [];
@@ -21293,6 +21471,21 @@
         mpCost: 6, levelReq: 3,
         flavor: "射程内アンデッドを畏怖させ行動不能 + 低HP個体を浄化",
       },
+      /* ── ★[#57] ホールド・パーソン (単体を金縛り。アンデッド / ボスには無効) ──────────
+       * ⭐ 僧侶は「敵を対象に取れるのが turn-undead 1 個だけ、しかもアンデッド限定」で、
+       *   オーク / 盗賊 / リザードフォークが相手のときは回復とバフしか撃たない置物だった。
+       * ⚠ range: "long" = **12 タイル** (RANGE の実測: melee 1 / medium 8 / long 12)。
+       *   僧侶の他の呪文はすべて medium (8) なので、この 1 本だけ 4 マス長い。
+       *   ⭐ スロットが希少 (CLERIC_SLOTS_TABLE) なので強くてよい、というのが会議の合意。
+       * ⚠ target: "single" = **敵対象**。AP_FRIENDLY_TARGETS に入れない
+       *   (入れると apTryPreferred が射程内の交戦敵を要求しなくなる)。
+       * ⛔ AP_TRAVEL_CASTABLE には足さない — 道中詠唱に許すのは「敵を対象に取らない呪文」だけ。 */
+      "hold-person": {
+        name: "ホールド・パーソン", category: "妨害", target: "single",
+        holdTurns: 4, range: "long",
+        mpCost: 7, levelReq: 5,
+        flavor: "敵1体を 4ターン 金縛りにする (アンデッド/ボスには無効、MP 7)",
+      },
     };
 
     // 魔法使いスキル (Phase 2)
@@ -21951,6 +22144,13 @@
     const STATUS_EFFECT_DEFS = {
       // --- 新規デバフ (配列が真実の源) ---
       prone:      { icon: "⬇",  label: "転倒",           type: "debuff", defaultDuration: 1 },
+      /* ★[#57] 金縛り (ホールド・パーソン)。役割分担が肝:
+           行動不能の **実体**   … 既存の target.stunned (AI・tick・描画がそのまま動く)
+           「これは hold だ」の印 … この配列の held
+         ⛔ これが無いとスリープと区別が付かず、眠っている敵にも金の輪が出る。
+         ⚠⚠⚠ **先頭キーにしない** — tools/verify_walk_block.js:950 が
+           Object.keys(STATUS_EFFECT_DEFS)[0] を「適当な効果 id」として引いている。 */
+      held:       { icon: "⛓",  label: "金縛り",         type: "debuff" },
       // --- 既存デバフ (フラット変数から派生。ここは表示定義のみ) ---
       stun:       { icon: "💫", label: "スタン",         type: "debuff" },
       confused:   { icon: "😵", label: "混乱",           type: "debuff" },
@@ -26802,6 +27002,110 @@
       await sleepMs(600);
     }
 
+    /* ══════════ ★[#57] 僧侶のホールド・パーソン ══════════════════════════════════
+     * 単体 / 4 ターン / 長射程 (long = 12 タイル)。アンデッドとボスには無効。
+     * ⭐ 僧侶は「敵を対象に取れるのが turn-undead 1 個だけ、しかもアンデッド限定」で、
+     *   オーク / 盗賊 / リザードフォークが相手のときは回復とバフしか撃たない置物だった。
+     * ⭐⭐⭐ **自動クリティカルの配線は要らない。** helpless = target.stunned > 0 は
+     *   PT→敵 の攻撃解決 15 箇所に**すでに全部配られている**ので、stunned を立てれば
+     *   自動的に効く。⛔ helpless を含む 15 箇所には 1 バイトも触らないこと。
+     *   ⛔ 「近接だけに限る」もやらない —— 既存 15 箇所は射程を一切見ていないので、
+     *     限定すると出荷済みの挙動を 15 箇所で弱める退行になる (依頼書 §2-4)。 */
+
+    /* 「効かない相手」の判定は **ここ 1 箇所**。撃つ側も選ぶ側も無駄打ち判定も全部ここを通る
+       (⛔ 3 箇所に写経しない = 片方だけ直って食い違う事故を構造的に消す)。
+       ⭐ ボスは既存の唯一の口 `def.isBoss || def.boss` で判定する (⛔ 新しい判定を作らない)。
+       ⚠ 「激怒/召喚/恐怖オーラのゲートに乗せたくないので isBoss を付けない」強敵には**効く**。
+         ⭐ それは意図的に「ボス扱いしない強敵」なので、縛れてよい (依頼書 §2-9)。 */
+    function holdPersonImmune(t) {
+      return !t || isUndeadEnemy(t) || !!(t.def && (t.def.isBoss || t.def.boss));
+    }
+    /* 射程内・視線ありで、まだ金縛りでない「効く相手」のうち最寄りを返す。居なければ -1。 */
+    function pickHoldPersonTarget(ally) {
+      const skill = CLERIC_SKILLS["hold-person"];
+      if (!ally || !ally.def || !skill) return -1;
+      const rangeTiles = getRange(skill.range).tiles;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        if (isEscortObjective(e)) continue;    // 護衛対象は PT の妨害呪文の対象外 (sleep と同じ作法)
+        if (holdPersonImmune(e)) continue;
+        if (hasStatus(e, "held")) continue;    // ⭐ 既に金縛りの敵へ二重掛けしない
+        const ecx = e.x + e.def.displaySize / 2;
+        const ecy = e.y + e.def.displaySize / 2;
+        const d = tileChebyshev(aCX, aCY, ecx, ecy);
+        if (d > rangeTiles) continue;
+        if (!hasLineOfSight(aCX, aCY, ecx, ecy)) continue;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+    async function allyHoldPerson(ally, enemyIdx) {
+      const skill = CLERIC_SKILLS["hold-person"];
+      let t = enemies[enemyIdx];
+      /* 指定が死体 / 範囲外の添字なら自分で選び直す (⛔ 黙って手番を捨てない)。 */
+      if (!t || !t.alive) { enemyIdx = pickHoldPersonTarget(ally); t = enemies[enemyIdx]; }
+      if (!t || !t.alive) return;
+      const tgtDef = t.def;
+      const ex = t.x + tgtDef.displaySize / 2;
+      const ey = t.y + tgtDef.displaySize / 2;
+      const aCX = ally.x + ally.def.displaySize / 2;
+      const aCY = ally.y + ally.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      /* 射程外 / 視線なし → 1 タイル前進して手番を終える (既存 ally 呪文と同じ作法)。 */
+      if (tileChebyshev(aCX, aCY, ex, ey) > rangeTiles || !hasLineOfSight(aCX, aCY, ex, ey)) {
+        await allyAdvanceTowardPoint(ally, ex, ey);
+        return;
+      }
+      // 発動確定 → スロット消費
+      ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
+      if (ally.spellSlots && skill._slotId && ally.spellSlots[skill._slotId] != null) {
+        ally.spellSlots[skill._slotId] = Math.max(0, ally.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(ally.el, "skill");
+      const dfx = ex - aCX;
+      if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
+      showRollAtAlly(ally, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(ally);
+      /* ⚠ element は既存の 4 キー (fire / ice / arcane / holy) から選ぶ。⛔ 新しい語を発明すると
+         .fxCastAura--<key> も .fxCastCircle--<key> も当たらず、黙って白い陣になる。 */
+      await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2500 });
+
+      /* ⭐ 効かない相手には **黙って外さない**。ルールを説明せずにルールが伝わる。 */
+      if (holdPersonImmune(t)) {
+        showRollAtAlly(ally, `<span class="label">NO EFFECT</span>金縛りは通じない`, "miss");
+        updateInfo(`${ally.def.name}: ホールド・パーソン — ${tgtDef.name} には通じない`);
+        await sleepMs(700);
+        return;
+      }
+      /* ⚠ 抵抗は **命中ロール** (sleep と同じ型)。⛔ セーヴ機構を新設しない —— saveAbility は
+         宣言だけで消費点が 0 件なので、建てるなら魔法使いの 5 呪文も同時に直す別チケット。 */
+      const atkBonus = spellAtkBonus(ally);
+      const natD20   = d20();
+      const atkTotal = natD20 + atkBonus;
+      const hit = (natD20 !== 1) && (natD20 >= effectiveCritRange(ally) || atkTotal >= effectiveEnemyAc(t));
+      if (hit) {
+        /* ⭐⭐⭐ **2 つを同時に立てる**。
+             stunned … 行動不能の実体 (AI・tick・描画・helpless が全部そのまま動く)
+             held    … 「これは hold だ」の印 (⛔ 無いとスリープと区別が付かず輪が誤って出る)
+           ⚠ applyStatus は内部で +1 して保持するので、敵ターン冒頭の tickStatusEffects と
+             同じターンの stunned 減衰が揃い、4 ターン後に **両方が同時に** 切れる。 */
+        t.stunned = Math.max(t.stunned || 0, skill.holdTurns);
+        applyStatus(t, "held", skill.holdTurns);
+        spawnHoldRing(t);
+        showRollAtEnemy(enemyIdx, `<span class="label">HELD!</span>金縛り ${skill.holdTurns}T`, "skill");
+        updateInfo(`${ally.def.name}: ホールド・パーソン! ${tgtDef.name} を ${skill.holdTurns}ターン 金縛り`);
+      } else {
+        showRollAtAlly(ally,
+          `<span class="label">RESIST</span>d20(${natD20})+${atkBonus} vs AC ${effectiveEnemyAc(t)}`, "miss");
+        updateInfo(`${ally.def.name}: ホールド・パーソン — ${tgtDef.name} は抵抗した`);
+      }
+      await sleepMs(800);
+    }
+
     // ══════════ 魔法使いスキル (Phase 2) ══════════
     // 呪文の命中補正 = atkBonus + INT (BAB + 能力値)
     function spellAtkBonus(ally) {
@@ -28770,6 +29074,16 @@
         if (undeadInRange) { await allyTurnUndead(ally); return true; }
       }
 
+      /* ★[#57] 2b. ホールド・パーソン: 射程内 (long=12) に「効く相手」がいてスロットあり。
+         ⛔ 緊急回復より先に出させない (梯子の順そのものが優先度)。
+         ⭐ 対象の絞りは pickHoldPersonTarget に畳んである (⛔ 条件をここへ写経しない)。
+         ⭐ turn-undead と同じく確率ゲートは掛けない —— スロットが希少 (Lv5-7 で 1 回) なので、
+           撃てる場面で撃たないと 1 戦に 1 度も出ない。⚠ 発射率は実機体感で動かす余地。 */
+      if (ally.equippedSkills.includes("hold-person") && hasSpellSlot(ally, "hold-person")) {
+        const hpIdx = pickHoldPersonTarget(ally);
+        if (hpIdx >= 0) { await allyHoldPerson(ally, hpIdx); return true; }
+      }
+
       // 3. ブレス: PT の大半が未バフ & 脅威度 10 以上 & スロットあり (スロット希少性で実質1戦1回)
       if (ally.equippedSkills.includes("bless") && hasSpellSlot(ally, "bless") && threat.score >= 10) {
         const members = [];
@@ -30714,6 +31028,10 @@
           return tileChebyshev(aCX, aCY, ecx, ecy) <= tuRange && hasLineOfSight(aCX, aCY, ecx, ecy);
         });
       }
+      /* ★[#57] ホールド・パーソン: 射程内に「効く相手」が 1 体も居なければ無駄打ち。
+         ⭐ 述語は pickHoldPersonTarget 1 本に畳んである (⛔ アンデッド/ボス/既に held の
+           3 条件をここへ写経すると、片方だけ直った日に静かに食い違う)。 */
+      if (skillId === "hold-person") return pickHoldPersonTarget(unit) < 0;
       // ハンターズ・マーク: 最寄り敵が既に烙印済みなら無駄 (elfAI の 2.7 と同じ条件)
       if (skillId === "hunters-mark") {
         const ti = pickClosestEngagedEnemyFromAlly(unit);
@@ -32770,8 +33088,12 @@
       // スタン判定: 盾バッシュ等でスタン状態なら1ターン行動不能
       if (enemy.stunned && enemy.stunned > 0) {
         enemy.stunned -= 1;
-        showRollAtEnemy(idx, `<span class="label">STUNNED</span>行動不能`, "miss");
-        updateInfo(`${def.name} はスタン中!`);
+        /* ★[#57] 眠っているのか金縛りなのかを言い分ける。⚠⚠ **ここ 1 箇所だけ**。
+           ⛔ helpless を持つ 15 箇所の表示 (HELPLESS HIT! 等) には触らない (依頼書 §2-4)。 */
+        const __heldNow = hasStatus(enemy, "held");
+        showRollAtEnemy(idx, __heldNow ? `<span class="label">HELD</span>金縛り`
+                                       : `<span class="label">STUNNED</span>行動不能`, "miss");
+        updateInfo(`${def.name} は${__heldNow ? "金縛りで動けない!" : "スタン中!"}`);
         await sleepMs(900);
         return;
       }
@@ -33924,6 +34246,7 @@
       decorations.length = 0; sceneryPlacements.length = 0; roomPaintings.length = 0;
       // 一過性の追従リスト (DOM は #vfxLayer / #enemyLayer 側で一掃済み。ここは記録の方を落とす)
       groundFxElements.length = 0; speechBubbles.length = 0; spellLightSources.length = 0;
+      holdRings.length = 0;   // ★[#57] 忘れると前の潜行の輪が記録として残る (DOM は enemyLayer 側で一掃済み)
       // 敵の添字を握っている参照 (遷移後は必ず無効)
       wagonIndices.length = 0; encounterEnemyIndices.length = 0;
       // 隠し要素のハンドル (どれも「そのノードにしか居ない」もの)
