@@ -553,13 +553,16 @@ const TOUR_SRC = `(async () => {
   /* ⚠⚠ 装置 assert: (1j2) が許した「大部屋のボス部屋」という例外が、**黙って他シナリオへ
    *   広がっていない**ことを 1 本で押さえる。これが無いと (1j2) は
    *   「全シナリオが大部屋になった」でも緑のままになる (例外を許した検出器の典型的な穴)。
-   *   ⚠ 2026-08-22 時点で大部屋は bandits-forest/n7 (52x26) の**ちょうど 1 つだけ**。
-   *     別のシナリオを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。 */
-  mark('§1z 大部屋のボス部屋はちょうど 1 シナリオだけ (例外が広がっていない装置 assert)');
+   *   ⚠ 2026-09-07 時点で大部屋は bandits-forest/n7 (52x26) と lizard-swamp/n7 (29x20) の
+   *     **ちょうど 2 つだけ** (#58 項目3 で沼のボス部屋を卓上マップ 1 枚にした)。
+   *     別のシナリオを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。
+   *   ⚠ 並びは Object.keys の挿入順 (= --scenarios の指定順) に依るので、
+   *     突き合わせは sort してから行う。 */
+  mark('§1z 大部屋のボス部屋はちょうど 2 シナリオだけ (例外が広がっていない装置 assert)');
   {
-    const big = Object.keys(bigBossRooms).filter(k => bigBossRooms[k]);
-    check('(1z) ボス部屋が骨格 (9x6) でないのは bandits-forest だけ',
-      big.length === 1 && big[0] === 'bandits-forest', '大部屋=' + (big.join(',') || 'なし'));
+    const big = Object.keys(bigBossRooms).filter(k => bigBossRooms[k]).sort();
+    check('(1z) ボス部屋が骨格 (9x6) でないのは bandits-forest と lizard-swamp だけ',
+      big.join(',') === 'bandits-forest,lizard-swamp', '大部屋=' + (big.join(',') || 'なし'));
   }
 
   /* ⚠⚠ 装置 assert その 2: (1j) が許した「大部屋の道中ノード」という例外が、**黙って
