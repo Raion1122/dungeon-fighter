@@ -1,0 +1,420 @@
+# #58 沼地から旧グラを追放する — n6 に flooded-crypt / n7 に族長の巣の卓上マップ
+
+- **起草**: 2026-09-07(計画窓) / **ステータス**: **承認済**(2026-09-07 ユーザー承認)
+- **会議**: `dev-meetings/2026-09-07_swamp-map-refresh.md`(第1段の合意 + 第2段の決裁 + 実測 T1〜T7)
+- **モックアップ**: https://claude.ai/code/artifact/866a59ed-075e-4abd-824e-a192d76ee252
+- **codex 発注**: `codex1/requests/2026-09-07_chieftain-lair-map.md` — ⭐ **納品済**
+  (`codex1/assets/maps/chieftain-lair-v1.png` / 1536x1024 / ユーザー承認のうえ採用)
+- **触るファイル**: `tools/make_grid_map.py`(GRIDS 2 件追加) / `assets/`(焼き上がり 2 枚) /
+  `index.html` / `tools/verify_swamp_lair.js`(新規)
+
+---
+
+## ⛔⛔⛔ 着手条件 — `index.html` は隣窓が #57 を実装中
+
+**2026-09-07 実測**: `git status` = `M index.html` / `M tavern.html` / `?? tools/verify_hold_person.js`
+⇒ **隣窓が #57 を実装中**。
+
+| STEP | 着手できるか |
+|---|---|
+| **STEP1**(焼き込み) | ⭐ **今すぐ着手できる**。触るのは `tools/make_grid_map.py` と `assets/` だけ |
+| **STEP2 以降**(定義の差し替え) | ⛔ **#57 の着地待ち**。`ROOM_PAINTINGS_DEF` も `buildLizardSwampRun` も `index.html` |
+
+- ⛔ **`tavern.html` は本チケットで一度も開かない。**
+- ⛔ `git add .` 禁止・**ファイル単位 add**・`git diff --cached <file>` を読んでから commit。
+- ⚠⚠ ファイル単位 add でも「相手が同じファイルを add する」事故は防げない。
+  **`index.html` に触る前に `git log --oneline -1` で #57 の着地を確かめること。**
+- ⚠ **作業ツリーを `grep -rn` してはいけない。** 測るときは `git show HEAD:index.html > /tmp/idx.html`。
+
+---
+
+## 1. 目的
+
+沼地の 8 ノードのうち、**卓上マップは n4「蛇神の参道」の 1 つだけ**(#53)。
+残りは旧世代のまま。ユーザーの指示は「**MAP は、旧グラは一切使わない方向で**」。
+
+**⭐ 実測すると、生きている旧グラは 1 枚しかなかった**(§2-2)。
+`buildP6Run` が n7 に旧 6x6 の床絵を自動で貼っている、その 1 箇所だけ。
+
+**ユーザー決定(2026-09-07)**:
+
+- ⭐ **A = n6「蛇神の祭壇」に `flooded-crypt`(発注ゼロ)** / **B = n7「族長の巣」に新規発注のマップ**
+  ⇒ 沼の山場 3 つ(n4 参道 / n6 祭壇 / n7 巣)が全部 codex 卓上マップになり、
+  **live 経路から旧グラが消える**
+- ⭐ 不採用 = 「山場 `1` とボス部屋 `2` の絵を刷新」(**分岐マップでは表示されない**。§2-2)
+- ⭐ 不採用 = 「8 ノード全部の大部屋化」(630 タイルの盤面が並ぶと潜行が倍以上に伸びる)
+- ⭐ 不採用 = 「n1/n2/n3 の統合」(並列の分岐なので「選んだ意味」が絵から消える)
+- ⭐ 不採用 = `ancient-ruin-dungeon-player.png` を沼へ(乾いた遺跡 = Sce4/5 へ取っておく)
+- ⭐ **n7 の玉座が「額縁」に見える件は、承認のうえ採用**
+  (ボススプライトが上に立って覆うので実害小。§2-6)
+
+---
+
+## 2. 着手前の実測(この窓が本番コードと実ファイルで確かめた事実)
+
+⚠ **すべて `git show HEAD:index.html` から測った**(隣窓が作業ツリーを編集中のため)。
+⚠ 行番号は `b1143ac` 時点。**識別子で引くこと**。
+
+### 2-1. 参照先
+
+| 引く識別子 | ファイル | 何 | 参考行 |
+|---|---|---|---|
+| `const ROOM_PAINTINGS_DEF = {` | index.html | 絵の在庫 | 4979 |
+| `"lizard-swamp": {` (ROOM_PAINTINGS 内) | index.html | 沼の在庫。`n4big` が手本 | 5355 |
+| `n4big: { src: "assets/room_lizard-swamp_n4_map.jpg",` | index.html | ⭐ **#53 の完成形。写経元** | 5419 |
+| `n7big: { src: "assets/room_bandits-forest_n7_map.jpg",` | index.html | ⭐ **ボスノードを大部屋化した唯一の前例** | 5237 |
+| `function buildP6Run` | index.html | ⚠ `paint` の既定を決める 1 行がここ | 36376 |
+| `function buildLizardSwampRun` | index.html | 沼の 8 ノード | 36515 |
+| `rect: [1, 10, 26, 61], paint: "n7big", density: 0,` | index.html | ⭐ 森ボスの実物 | 36473 |
+| `rect: [3, 10, 23, 39], paint: "n4big", density: 0,` | index.html | ⭐ 沼 n4 の実物 | 36540 |
+| `const SCENARIO_NODE_EXTRAS = {` | index.html | ⚠⚠⚠ **ハイドラの座標**(§2-5) | 10613 |
+| `const MAP_W = 72;` / `const MAP_H = 28;` | index.html | 盤面の上限 | 3361 |
+| `const NODE_ENTRY_INSET = 2;` | index.html | 入場の踏み込み | 35336 |
+| `const P6_UP = [36, 11], P6_DOWN = [36, 16], P6_RIGHT = [39, 13];` | index.html | 既定のゲート | 36388 |
+| `"swamp-approach": {` | tools/make_grid_map.py | ⭐ GRIDS の書き方の手本 | 174 |
+
+**再測定コマンド**:
+
+    git show HEAD:index.html > /tmp/idx.html && grep -n '<識別子>' /tmp/idx.html
+
+### 2-2. ⭐⭐⭐ 生きている旧グラは n7 の 1 枚だけ(候補④が無効だった理由)
+
+**第1段の決裁は「山場 `1` とボス部屋 `2` の絵を刷新」だったが、実測で無効と判明した。**
+
+| # | 測ったこと | 結果 |
+|---|---|---|
+| T1 | `paint: "..."` の全出現 | **7 箇所**。すべてノードキー。**数字キー `1`/`2` を呼ぶ箇所は 0 件** |
+| T2 | 数字キーを貼るのは誰か | `loadRoomPaintings` の**従来経路のみ** = `const defs = MAPDEF.isCustom ? null : ROOM_PAINTINGS_DEF[_scenIdForTex];` |
+| T3 | 従来経路が通る条件 | `MAPDEF.isCustom === false` = **`?graph=0`(単一マップ)と生成クエストだけ** |
+| T4 | 設計の明文(`index.html:35973`) | 「**★P7: 1 枚絵は n4(山場)と n7(ボス)の 2 つだけ貼る。旧単一マップ用の在庫(20x16 / 22x18)は縦横比が違うので載らない**」 |
+| **T5** | ⭐⭐⭐ **旧グラの正体** | `buildP6Run` の 1 行 — `const paint = d.paint != null ? d.paint : ((id === "n4" \|\| id === "n7") ? id : null);` |
+
+⇒ **n4 は #53 が `paint:"n4big"` で上書き済。n7 は指定が無いので旧 6x6 の床絵
+(`room_lizard-swamp_n7.jpg` / tileBounds `[11,32,16,40]`)を自動で貼る。これが唯一の生きた旧グラ。**
+
+⛔ **`1` / `2` を差し替えてはいけない。** 触ると「プレイヤーに見える変化が 1 つも無いのに
+`index.html` を触る」= CLAUDE.md が名指しで禁じる型になり、**changelog に書ける要約が実在しない**。
+
+### 2-3. 沼のノード接続(実測)
+
+    n0 (start) ─┬─→ n1 (combat) ─┬─→ n4 (combat) ─→ n7 (boss)
+                │                 └─→ n5 (rest)
+                ├─→ n2 (search) ──→ n6 (event)
+                └─→ n3 (loot)
+
+⭐ **ボスへの道は n0→n1→n4→n7 の一本。** n6 は行き止まりの側枝
+⇒ **A(n6)は「寄り道の報酬」で、全員が見る場所ではない**。発注ゼロなので損はしない。
+
+### 2-4. 焼き込み格子の実測(2 枚とも測り済み)
+
+| 素材 | 実測 | 異方性 | 判定 |
+|---|---|---|---|
+| `codex1/maps/flooded-crypt-player.png` | cells **(34, 22)** / phase **(21.95, 7.15)** / period **(44.170, 44.290)** | **0.271%** | ⭐ 台帳で 2 番目に良い |
+| `codex1/assets/maps/chieftain-lair-v1.png` | cells **(29, 20)** / phase **(21.10, 5.20)** / period **(51.175, 49.895)** | **2.53%** | ⚠ 台帳で 2 番目に悪い(⭐ 出荷済みの廃坑 7.75% より良い) |
+
+⭐ **どちらも `MAP_W=72 / MAP_H=28` の内側**(34<72, 22<28 / 29<72, 20<28)。
+⭐ 後者は **3 つの探索中心(48 / 51 / 53)で同じ値が再現**した = 測定誤差ではない。
+
+**再測定コマンド**:
+
+    py tools/make_grid_map.py --fit "C:/Users/PC_User/Desktop/codex1/maps/flooded-crypt-player.png" --fit-around 48
+    py tools/make_grid_map.py --fit "C:/Users/PC_User/Desktop/codex1/assets/maps/chieftain-lair-v1.png" --fit-around 48
+
+⛔ **検算の 3 指標(ドリフト 4.0 / 位相 2.0 / score 70%)を緩めない。**
+NG なら素材ではなく**台帳の 6 数値を疑い、`--fit` で測り直す**。
+
+### 2-5. ⚠⚠⚠ 最大の罠 — n6 を大部屋化するとハイドラが別の場所に湧く
+
+    "lizard-swamp": {
+      // 封印中のハイドラ (inactive + passiveNpc)。部屋の中心 = 祭壇
+      n6: { spawns: [["hydra", 36, 13, "s3_hydra_intel"]] },
+    },
+
+**(36, 13) は 7x6 の小部屋の中心**。大部屋化するとこの global 座標は**絵の別の場所**を指す。
+
+⭐ **同じ罠を森が既に踏んで記録している**(`SCENARIO_NODE_EXTRAS` の冒頭コメント):
+
+> 旧 (36,13) は 7x6 の小部屋の中心だが、52x26 の大部屋では**絵ローカル (26,12) =
+> 北東の岩場の内側**にあたる (依頼書 #11 が「起点の床保証がここに無言で穴を開ける」と
+> 名指ししたまさにそのタイル)。⚠ 座標も一緒に移すこと
+
+⇒ ⛔ **`rect` を入れたら `SCENARIO_NODE_EXTRAS["lizard-swamp"].n6` の座標も必ず移す。**
+**移し先 = 絵の右手の「水に囲まれた八角形の祭壇」の中心**(封印された守護神の座として設計した場所)。
+⚠ **第 4 要素の噂フラグ `s3_hydra_intel` は 1 文字も変えない**(掴んでいなければ 0 体が正常)。
+
+### 2-6. n7 の既存の敵配置(全部移設が要る)
+
+    n7: { name: "族長の巣",
+          slots: [[39, 12, "lizardWarrior"], [39, 15, "lizardPriest"]],
+          boss: [40, 13, "lizardChieftain"] },
+
+⚠ **`P6_RIGHT = [39, 13]`** = n4 から n7 への出口ゲート。**既存 slots はその真上と真下**。
+大部屋にすると全部意味が変わるので、**3 体とも絵の上へ置き直す**。
+
+⭐ 置き先の設計(発注文で確保させた場所):
+- **ボス** = 東の壇の上(玉座の位置)
+- **護衛 2 体** = 壇の手前の開けた床、互いに 2〜4 マス離す
+
+### 2-7. ⭐ 写経元 — ボスノードの大部屋化は森が唯一の前例
+
+    : { name: "盗賊団のアジト",
+        rect: [1, 10, 26, 61], paint: "n7big", density: 0,
+        start: { tx: 12, ty: 15 },
+        slots: [...], boss: [57, 12, "scar"] },
+
+**必ず守る 5 つ**(森 n7big と 沼 n4big が両方明記している):
+
+1. ⚠⚠⚠ **`density: 0`**。既定 1 のままだと**既に描き込まれた絵の上へ scenery が湧く**
+2. ⚠⚠⚠ **`start` を入場地点へ寄せる**。`buildNode` は「起点の床保証」で起点タイルを
+   **問答無用に床へ彫る**ので、既定 `(36,13)` のままだと**blocked マスクに無言で穴が開く**
+3. ⚠⚠⚠ **`node: true` が必須**(#52 の実測 —「無いと従来経路が別シナリオへ貼る」)
+4. ⚠ **`rect` は `tileBounds` と同値**(`paintingAspectFits` が縦横比の**完全一致**を要求)
+5. ⚠ 敵スポーンは `applyPaintingBlocking` の門番を通る = **マスクで塞いだタイルに敵を置くと
+   絵の中に穴が開く**。座標は必ずマスクで `.` のマスにする
+
+### 2-8. changelog の要否
+
+`scripts/hooks/check_changelog.py:24` の `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")`
+⇒ **鳴る**(STEP2 以降で `index.html` を触る)。**プレイヤー向けの要約は実在する**:
+
+    <li><b>沼地の祭壇と族長の巣が新しい地図になった</b> — 水没した聖堂と、沼に沈んだ大広間。どちらも卓上の地図をそのまま歩ける。</li>
+
+⚠ **STEP1 だけのコミットでは鳴らない**(`tools/` と `assets/` のみ)。
+
+### 2-9. 母集団(既存 golden)
+
+⚠ **着手前に必ず素で回して基準を採ること**(下表は起草時点の見込みで、実測ではない)。
+
+| ドライバ | なぜ母集団か |
+|---|---|
+| `verify_swamp_novice` | ⭐⭐⭐ **#53 の受入。n4big と沼グラフの当事者。最優先** |
+| `driver_graph_p6` / `driver_graph_p7` | 分岐グラフの幾何。`(2c-lizard-swamp)` が居る |
+| `driver_paint_blocked` | ⭐ 絵と blocked マスクの整合。⚠ `--stage lizard-swamp` を明示 |
+| `driver_mapdef_step1` | mapCanvas の SHA。絵の追加で動く可能性 |
+| `driver_grid_s2` | 卓上グリッド |
+| `verify_codex_map_skill` | ⭐ `--fit` が既存台帳を復元するかを測る = GRIDS を触るので必ず |
+
+⚠ **同じポートを使うドライバが混ざる**(#55 の実測)⇒ **必ず直列**。
+⚠ `driver_paint_blocked --stage bandits-forest` は **#52 の時点で着手前から赤 3 本**
+(`n7big` と `/\/n\d+$/` の既存齟齬。#53 が `/\/n\d+[a-z]*$/` へ広げた)。
+**着手前の色を必ず採ってから比べること。**
+
+---
+
+## 3. 変更範囲
+
+| ファイル | 変更 | #57 待ちか |
+|---|---|---|
+| `tools/make_grid_map.py` | `GRIDS` に `swamp-crypt` と `chieftain-lair` の 2 件を追加 | ⭐ **不要** |
+| `assets/room_lizard-swamp_n6_map.jpg` / `_n7_map.jpg` | 焼き上がり 2 枚(新規) | ⭐ **不要** |
+| `index.html` | `ROOM_PAINTINGS_DEF` に `n6big` / `n7big` / `buildLizardSwampRun` の n6・n7 / `SCENARIO_NODE_EXTRAS` のハイドラ座標 / 撤退スイッチ / changelog | ⛔ **待つ** |
+| `tools/verify_swamp_lair.js` | 新規(受入ドライバ) | ⭐ 不要(ただし assert は index.html 着地後でないと緑にならない) |
+
+⛔ **`tavern.html` は開かない。**
+⛔ **`js/df-mapdef.js` は触らない**(`resolve()` の規則は #52 / #53 の領分)。
+⛔ **既存の `n4` / `n4big` / `n7`(旧 6x6)のエントリを消さない** — 撤退スイッチの行き先として生かす。
+
+---
+
+## 4. STEP1 — 2 枚を焼く(⭐ #57 と並行できる)
+
+### 4-1. `GRIDS` へ追加(`tools/make_grid_map.py` の `"swamp-approach"` の隣)
+
+    "swamp-crypt": {
+        "src": "flooded-crypt-player.png",       # ⚠ 探索先は §4-1 の注記で確かめる
+        "out": "room_lizard-swamp_n6_map",       # ★貼り先 = 沼グラフの n6「蛇神の祭壇」(#58)
+        "desc": "蛇神の祭壇 (石造 3 部屋 + 右手に水に囲まれた八角形の祭壇 + 南の階段)",
+        "phase": (21.95, 7.15),
+        "period": (44.170, 44.290),
+        "cells": (34, 22),
+        "tile": 48,               # ⛔ 64 にしない
+        # 異方性 (44.290-44.170)/44.23 = 0.271% = 台帳で 2 番目に良い
+    },
+    "chieftain-lair": {
+        "src": "chieftain-lair-v1.png",
+        "out": "room_lizard-swamp_n7_map",       # ★貼り先 = 沼グラフの n7「族長の巣」(#58)
+        "desc": "族長の巣 (沼に沈んだ石造神殿の大広間 + 東西に貫く乾いた石畳 + 東の玉座の壇)",
+        "phase": (21.10, 5.20),
+        "period": (51.175, 49.895),
+        "cells": (29, 20),
+        "tile": 48,
+        # 異方性 (51.175-49.895)/50.535 = 2.53% = 台帳で 2 番目に悪いが
+        #   出荷済みの廃坑 7.75% より良い (ユーザー承認済 2026-09-07)
+    },
+
+⚠ **`src` の探索先が `codex1/maps/` か `codex1/assets/maps/` かを着手時に確かめる**
+(既存 7 件がどちらを指しているかを読む。⛔ 憶測でパスを書かない)。
+⚠ `flooded-crypt-player.png` は **`codex1/maps/`**、`chieftain-lair-v1.png` は
+**`codex1/assets/maps/`** に在る(2026-09-07 実測)。**置き場が違うことに注意**。
+
+### 4-2. 焼いて検算
+
+    py tools/make_grid_map.py --name swamp-crypt
+    py tools/make_grid_map.py --name chieftain-lair
+    py tools/make_grid_map.py --check assets/room_lizard-swamp_n6_map.jpg --tile 48
+    py tools/make_grid_map.py --check assets/room_lizard-swamp_n7_map.jpg --tile 48
+
+⛔ **3 指標を緩めない。** NG なら `--fit` で台帳の数値を測り直す。
+
+### 4-3. ⭐ この STEP だけで一度コミットしてよい
+
+`tools/` と `assets/` のみ = **changelog フックは鳴らない**・**#57 と衝突しない**。
+
+---
+
+## 5. STEP2 — n6「蛇神の祭壇」に貼る(⛔ #57 の着地後)
+
+1. `ROOM_PAINTINGS_DEF["lizard-swamp"]` に **`n6big`** を追加(`n4big` を写経元にする)
+   - `src: "assets/room_lizard-swamp_n6_map.jpg"` / **`node: true`** / `sealRing: true`
+   - ⛔ **`outdoor: true` は付けない**(n4 の参道と違い、こちらは**屋根のある地下聖堂**)
+   - `tileBounds` は **22 行 x 34 列**。⚠ **行が先**
+   - ⚠ 入場は n2 から。**左辺の中点 + `NODE_ENTRY_INSET`(2)** が入場地点になる
+2. `buildLizardSwampRun` の `n6: { name: "蛇神の祭壇" }` を
+   `{ name: "蛇神の祭壇", rect: <tileBounds と同値>, paint: "n6big", density: 0, start: {...} }` へ
+3. ⚠⚠⚠ **`SCENARIO_NODE_EXTRAS["lizard-swamp"].n6` のハイドラ座標を移す**(§2-5)
+   - 移し先 = **右手の八角形の祭壇の中心**
+   - ⚠ **第 4 要素 `s3_hydra_intel` は 1 文字も変えない**
+4. **blocked マスク**(22 行 x 34 列)を書く。作法は `n4big` の 5 規則に**当て直す**
+   (⛔ 写経しない。絵が違う):
+   - (1) 外周に `#` を書かない(`sealRing` が別に塞ぐ)
+   - (2) 平置きの物は塞がない / 立っている物は塞ぐ
+   - (3) **水は塞ぐ**。⚠ ただし祭壇を囲む水に渡りがあるかを絵で確かめる
+   - (4) **入場口から祭壇までのレーンを明示的に空ける**
+   - (5) 敵を置くタイルは必ず `.`
+5. **撤退スイッチ `?swampcrypt=0`** — 従来(絵なし・タイル描画)へ戻る
+
+---
+
+## 6. STEP3 — n7「族長の巣」に貼る(⛔ #57 の着地後)
+
+STEP2 と同型。差分だけ:
+
+1. `ROOM_PAINTINGS_DEF["lizard-swamp"]` に **`n7big`**
+   - `tileBounds` は **20 行 x 29 列**
+   - ⛔ **`outdoor` は付けない**(屋根のある大広間。⚠ 絵に天井の抜けがあれば要検討)
+2. `buildLizardSwampRun` の `n7` に `rect` / `paint: "n7big"` / `density: 0` / `start`
+3. ⚠ **`slots` 2 体と `boss` を絵の上へ置き直す**(§2-6)
+   - **ボス** = 東の壇の上(玉座) / **護衛 2 体** = 壇の手前の開けた床、2〜4 マス離す
+   - ⚠ **全タイルを本番の `isTileWall` で確認**する
+     (`node tools/probe_bandit_map.js --places --scen lizard-swamp --node n7` が #53 で流用実績あり)
+4. ⚠⚠ **入場地点から護衛までの距離を測る。** #53 は「入場から 8 タイル(768px)離す = 交戦距離
+   melee 400px より遠いので**入場ナレの最中に乱戦が始まらない**」を守っている
+5. **撤退スイッチ `?swamplair=0`** — 従来(旧 6x6 の床絵)へ戻る
+   ⭐ **これが「旧グラへ戻る唯一の口」**なので、旧エントリ `n7` を消さないこと
+
+---
+
+## 7. STEP4 — 受入ドライバ + 非退行
+
+`tools/verify_swamp_lair.js`(新規)。**base ポートは 10121**
+(⚠ 10080 は Chrome が `ERR_UNSAFE_PORT`。#56 の実測。#57 が 10101 を予約している想定なので離す)。
+
+---
+
+## 8. 撤退スイッチ(⭐ 2 本に分ける)
+
+| スイッチ | 何が戻るか | 判定位置 |
+|---|---|---|
+| **`?swampcrypt=0`** | n6 が絵なし(タイル描画)へ。ハイドラ座標も旧 `(36,13)` へ | `index.html`。遷移をまたがない |
+| **`?swamplair=0`** | n7 が**旧 6x6 の床絵**へ = 旧グラへ戻る | 同上 |
+
+⚠ **2 本に分ける理由** = A(発注ゼロ)と B(納品物)は独立で、片方だけ戻せる必要がある。
+⚠⚠ **ハイドラ座標はスイッチと連動させる**(`?swampcrypt=0` で `rect` だけ戻して座標を戻し忘れると、
+**小部屋の中心に居るはずのハイドラが消える**)。
+
+---
+
+## 9. 受入条件 — `tools/verify_swamp_lair.js`(新規・base 10121)
+
+### §0 装置(先に母集団を確かめる)
+
+- **(0a)** n6 と n7 の**両方**で `paintedTileMask` が 0 枚でない
+  ⭐⭐⭐ **これが 0 だと §1〜§3 が全部空振りで永久緑になる**
+- **(0b)** 絵の src が **`ROOM_PAINTINGS_DEF` の実体から**引かれている(表の写経でない)
+- **(0c)** ハイドラの噂フラグ `s3_hydra_intel` を**掴んだ状態**の標本が 1 件以上ある
+  (掴んでいないとハイドラは 0 体が正常なので、§2 が空振りする)
+
+### §1 絵と幾何
+
+- **(1a)** ★★ n6 の `rect` と `tileBounds` が**同値**(`paintingAspectFits` を通る)。n7 も同様
+- **(1b)** 両方に **`node: true`** が付いている(#52 の罠)
+- **(1c)** 両方の `density` が **0**
+- **(1d)** `start` が**入場地点**(辺の中点 + `NODE_ENTRY_INSET`)と一致し、
+  **既定 `(36,13)` ではない**
+
+### §2 ハイドラ(⚠⚠⚠ 最重要)
+
+- **(2a)** ★★ ハイドラが**祭壇のタイルに湧く**。⭐ 2 経路で突き合わせる =
+  ①`SCENARIO_NODE_EXTRAS` の座標 ②実際に生成された敵の tx/ty
+- **(2b)** その座標が本番の `isTileWall` で**床**である
+- **(2c)** 噂フラグを掴んでいなければ **0 体**(既存の挙動が変わっていない)
+
+### §3 n7 の敵配置
+
+- **(3a)** ボスと護衛 2 体が**全部床**の上にいる(本番の `isTileWall` で確認)
+- **(3b)** 入場地点から護衛まで **melee 交戦距離(400px = 4.17 タイル)より遠い**
+- **(3c)** 護衛どうしが 2〜4 タイル
+
+### §4 通行
+
+- **(4a)** ★★ n7 の**入場地点から玉座の壇まで、本番の 4 近傍経路探索で到達できる**
+  ⛔ ドライバの中に MASK を書き写さない(両方同じ誤りだと永久に気づけない)
+- **(4b)** n6 の**入場地点から祭壇まで**同様
+
+### §5 恒等(非退行)
+
+- **(5a)** **n4big が 1 バイトも変わっていない**(#53 の領分)
+- **(5b)** 旧エントリ `n4`(7x6)と `n7`(6x6)が**残っている**(撤退の行き先)
+- **(5c)** `?swampcrypt=0` / `?swamplair=0` で従来の姿へ戻る
+- **(5d)** §2-9 の母集団が**着手前の基準どおり**・**期待値の変更 0 件**(⚠ 直列)
+
+### §6 負のコントロール(`--negative`)— 変異は最低 7 本
+
+| # | 変異 | 担当節 |
+|---|---|---|
+| M1 | ⭐⭐⭐ **ハイドラ座標を旧 `(36,13)` のまま**にする | (2a)(2b) |
+| M2 | `density` を 1 に戻す | (1c) |
+| M3 | `start` を既定 `(36,13)` に戻す | (1d) + (4a) |
+| M4 | `node: true` を落とす | (1b) |
+| M5 | `rect` と `tileBounds` を 1 タイルずらす | (1a) |
+| M6 | 護衛を入場地点の隣へ置く | (3b) |
+| M7 | 玉座への通路を 1 マス塞ぐ | (4a) |
+
+⚠ **変異は「注入できたか」でなく「測っている場所に現れるか」まで設計する**(#54 の教訓)。
+空振りしたら **assert を緩めず、担当節を測れる場所へ移す**。
+
+---
+
+## 10. 実機体感
+
+1. **n6 の聖堂が「沼」に見えるか**(石造の屋内。参道と地続きに感じるか)
+2. **n7 の玉座が玉座に見えるか** — ⚠ **族長のスプライトが上に立って隠れる想定**。
+   隠れなかったら見え方を再検討
+3. **異方性 2.53% の二重グリッドが目に見えるか**(廃坑 7.75% が出荷できているので大丈夫な想定)
+4. **n7 の盤面が広すぎてボスまで遠くないか**(29x20 = 580 タイル)
+5. **n6 へ寄り道する動機が伝わるか**(行き止まりの側枝なので)
+
+---
+
+## 11. やらないこと(別チケット送り)
+
+- ⛔ **山場 `1` / ボス部屋 `2` の絵の差し替え**(§2-2。分岐マップでは表示されない)
+- ⛔ **道中 4 ノード(n0/n1/n2/n3)と n5 の大部屋化**(会議が却下。テンポが壊れる)
+- ⛔ **`ancient-ruin-dungeon-player.png` の取り込み** — Sce4(砦)/ Sce5(地下神殿)へ取っておく。
+  ⭐ **別チケットの候補**(乾いた石造 7 部屋 + 床の魔法陣 3 つ = 「召喚の祭壇」に合う)
+- ⛔ **n7 の玉座の描き直し発注(v2)**(ユーザーが承認のうえ現物を採用)
+- ⛔ **`js/df-mapdef.js` の `resolve()` に手を入れる**
+
+---
+
+## 12. ⛔ 測らないこと
+
+- **絵の見た目・色・階調** — 実機で見てから判断する余地を残す
+- **異方性そのもの** — 検算の 3 指標が門番。⛔ 異方性に閾値を足さない
+- **n6 へ寄り道する頻度** — 側枝なので低くて当然
+
+---
+
+## 13. `実装依頼書/README.md` へ足す行(✅ 2026-09-07 追加済)
+
+    | 58 | [2026-09-07_swamp-map-refresh.md](2026-09-07_swamp-map-refresh.md) | 起草(未承認) | 0% | 沼地から**生きている旧グラを追放**する。A = n6「蛇神の祭壇」に納品済みの `flooded-crypt`(**発注ゼロ** / 34x22 / 異方性 0.271%)/ B = n7「族長の巣」に新規発注の `chieftain-lair-v1`(29x20 / 異方性 2.53%)。撤退 `?swampcrypt=0` / `?swamplair=0`。⭐⭐⭐ **生きた旧グラは n7 の 1 枚だけ** — `buildP6Run` の `const paint = d.paint != null ? d.paint : ((id === "n4" \|\| id === "n7") ? id : null);` が自動で貼っている。⛔ **山場 `1` / ボス部屋 `2` は分岐マップで表示されない**(`MAPDEF.isCustom === false` の従来経路だけが数字キーを貼る = `?graph=0` と生成クエスト専用)ので触らない — 触ると「プレイヤーに見える変化ゼロで index.html を触る」型になる。⚠⚠⚠ **最大の罠 = n6 を大部屋化するとハイドラ `(36,13)` が別の場所に湧く**(森が #11 で踏んで記録した罠と同型。`SCENARIO_NODE_EXTRAS` の座標も一緒に移す。⛔ 噂フラグ `s3_hydra_intel` は 1 文字も変えない)。⭐ 写経元は森 n7big(ボスノード大部屋化の唯一の前例)と沼 n4big。⚠ `density:0` / `start` を入場地点へ / `node:true` / `rect == tileBounds` の 4 つが必須。⛔ **STEP2 以降は #57 の着地待ち**(`index.html` が衝突)。⭐ **STEP1(焼き込み)だけは `tools/` と `assets/` のみなので並行できる**。会議 = `dev-meetings/2026-09-07_swamp-map-refresh.md`。発注 = `codex1/requests/2026-09-07_chieftain-lair-map.md`(**納品済**)。モックアップ = https://claude.ai/code/artifact/866a59ed-075e-4abd-824e-a192d76ee252 |
