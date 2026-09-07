@@ -27529,6 +27529,21 @@
         }
         return out;
       };
+      /* ★[#59] STEP3 — スリープの狙点 (依頼書 §6-1)
+       * ■ 何が問題だったか
+       *   中心候補は「最寄りの敵 1 体を含む 2x2 の 4 通り」だけ。隣に群れが固まっていても
+       *   最寄り 1 体の周りしか探さないので、眠らせられる数が構造的に頭打ちだった。
+       * ■ 素では **全生存敵** を中心候補へ広げる (敵 1 体につき 2x2 の 4 通り)。
+       * ⛔ 上のローカル enemiesInArea (2x2 固定・inactive 除外を持たない) は差し替えない。
+       *    候補の列挙もそのローカル版と同じ除外 (!alive / isEscortObjective) で揃える
+       *    = 「数え方」と「探し方」の母集団を食い違わせない。
+       * ⭐ 同数なら **術者に近い方** を採る (揺れ防止。無いと毎ターン着弾点が踊る)。
+       *    STEP2 の pickAoeBestOrigin と同じ決着の付け方。
+       * ⭐ 増やした候補には aoeBoxReachable (射程 **+ 視線**) を掛ける。掛け忘れると
+       *    射程外・壁越しへ撃つ。従来の 4 通りは無検査のまま = 従来撃てた標本は必ず撃てる。
+       * ⚠ ?aoecover=0 では従来の 4 通り・従来の評価順 (同数なら先着) へ戻る。
+       * ⭐ allySleep は拒否権を 1 つも持っていない (依頼書 §2-2 の 3 系統に無い) ので、
+       *    ここで変わるのは **狙点だけ**。撃てる/撃てないの判定は 1 行も動かない。 */
       const candidates = [
         { tx: targetTX,     ty: targetTY     },
         { tx: targetTX - 1, ty: targetTY     },
@@ -27536,10 +27551,46 @@
         { tx: targetTX - 1, ty: targetTY - 1 },
       ];
       let best = candidates[0], bestCount = enemiesInArea(best.tx, best.ty).length;
-      for (let i = 1; i < candidates.length; i++) {
-        const c = candidates[i];
-        const cnt = enemiesInArea(c.tx, c.ty).length;
-        if (cnt > bestCount) { best = c; bestCount = cnt; }
+      if (!AOE_COVER_ON) {
+        for (let i = 1; i < candidates.length; i++) {
+          const c = candidates[i];
+          const cnt = enemiesInArea(c.tx, c.ty).length;
+          if (cnt > bestCount) { best = c; bestCount = cnt; }
+        }
+      } else {
+        const seen = {};
+        for (let i = 0; i < candidates.length; i++) {
+          candidates[i].legacy = true;
+          seen[candidates[i].tx + "," + candidates[i].ty] = 1;
+        }
+        for (let i = 0; i < enemies.length; i++) {
+          const e = enemies[i];
+          if (!e || !e.alive) continue;
+          if (isEscortObjective(e)) continue;
+          const eTX = Math.floor((e.x + e.def.displaySize / 2) / TILE_SIZE);
+          const eTY = Math.floor((e.y + e.def.displaySize / 2) / TILE_SIZE);
+          for (let dy = -1; dy <= 0; dy++) {
+            for (let dx = -1; dx <= 0; dx++) {
+              const k = (eTX + dx) + "," + (eTY + dy);
+              if (seen[k]) continue;
+              seen[k] = 1;
+              candidates.push({ tx: eTX + dx, ty: eTY + dy, legacy: false });
+            }
+          }
+        }
+        let bestDist = Infinity;
+        best = null; bestCount = -1;
+        for (let i = 0; i < candidates.length; i++) {
+          const c = candidates[i];
+          const foeIdxs = enemiesInArea(c.tx, c.ty);
+          if (!c.legacy && !aoeBoxReachable(aCX, aCY, foeIdxs, rangeTiles)) continue;
+          const bx = (c.tx + 1) * TILE_SIZE, by = (c.ty + 1) * TILE_SIZE;   // 2x2 の中心
+          const d = (bx - aCX) * (bx - aCX) + (by - aCY) * (by - aCY);
+          if (foeIdxs.length > bestCount || (foeIdxs.length === bestCount && d < bestDist)) {
+            best = c; bestCount = foeIdxs.length; bestDist = d;
+          }
+        }
+        if (!best) { best = candidates[0]; bestCount = enemiesInArea(best.tx, best.ty).length; }
       }
       const affectedIdxs = enemiesInArea(best.tx, best.ty);
       if (affectedIdxs.length === 0) return;  // 範囲に敵なし
@@ -27555,7 +27606,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SKILL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        `<span class="label">SKILL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体${aoeSafeAllyTag(best.tx, best.ty, 2, 2)}`,
         "skill");
       startAllyAttackAnim(ally);
       await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 2400 });
@@ -27635,6 +27686,45 @@
         }
       }
       return false;
+    }
+    /* ★[#59] STEP3 — 「無傷」表示 (依頼書 §6-2)
+     * STEP1/2 で「味方が範囲に入る着弾点」を採るようになったので、その絵が **誤射のバグ** に
+     * 見えないよう文字で言い添える。⛔ 光り物・オーラ・新しい DOM は 1 枚も足さない
+     *   (#57 の金の輪の実機体感が未確認 = 同時 4 体の描画負荷が判っていない段階で光源を増やさない)。
+     * ⚠ showRollAtAlly の呼び口は 113 本。⛔ showRollAtAlly 自体には 1 行も足さない
+     *   (足すと通常攻撃やカウンターの吹き出しにまで出る)。AoE の 8 箇所だけが下の断片を後置きする。
+     * ⚠ ?aoecover=0 (拒否権が絶対 = 味方は範囲に入らない) では出さない。
+     * ⭐ partyCountInArea は partyInArea と **同じ述語** を数える (> 0 ⇔ partyInArea が true)。
+     *   ⛔ partyInArea の定義は 1 文字も触らない (依頼書 §2-3)。 */
+    function partyCountInArea(originTX, originTY, sizeTilesX, sizeTilesY) {
+      let n = 0;
+      const lTX = Math.floor((playerX + 48) / TILE_SIZE);
+      const lTY = Math.floor((playerY + 58) / TILE_SIZE);
+      if (lTX >= originTX && lTX < originTX + sizeTilesX &&
+          lTY >= originTY && lTY < originTY + sizeTilesY) n++;
+      if (typeof allies !== "undefined") {
+        for (const a of allies) {
+          if (!a || !a.alive) continue;
+          const aTX = Math.floor((a.x + a.def.displaySize / 2) / TILE_SIZE);
+          const aTY = Math.floor((a.y + a.def.displaySize / 2) / TILE_SIZE);
+          if (aTX >= originTX && aTX < originTX + sizeTilesX &&
+              aTY >= originTY && aTY < originTY + sizeTilesY) n++;
+        }
+      }
+      return n;
+    }
+    function aoeSafeAllyTagN(n) {
+      if (!AOE_COVER_ON || !(n > 0)) return "";
+      return `<br>(味方 ${n} 名は無傷)`;
+    }
+    function aoeSafeAllyTag(originTX, originTY, sizeTilesX, sizeTilesY) {
+      return aoeSafeAllyTagN(partyCountInArea(originTX, originTY, sizeTilesX, sizeTilesY));
+    }
+    // 直線 (lightning-bolt) 用。箱ではないので術者起点の 1x1 を steps 分だけ足す。
+    function aoeLineSafeAllyTag(aTX, aTY, dx, dy, steps) {
+      let n = 0;
+      for (let s = 1; s <= steps; s++) n += partyCountInArea(aTX + dx * s, aTY + dy * s, 1, 1);
+      return aoeSafeAllyTagN(n);
     }
     // ⚠️ この関数は PT の AoE 専用の被害者列挙 (ally* 呪文 9 種 + tickCordonZones が唯一の呼び出し元)。
     //    敵の AoE は enemyCastAoE が別に持っており、こちらは通らない。
@@ -27854,6 +27944,9 @@
         AOE_COVER_ON: AOE_COVER_ON,
         pickAoeBestOrigin: pickAoeBestOrigin,
         pickAoeOrigin: pickAoeOrigin,
+        partyCountInArea: partyCountInArea,
+        aoeSafeAllyTag: aoeSafeAllyTag,
+        aoeLineSafeAllyTag: aoeLineSafeAllyTag,
       };
     }
 
@@ -27983,7 +28076,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体${aoeSafeAllyTag(best.tx, best.ty, 3, 3)}`,
         "skill");
       startAllyAttackAnim(ally);
       // 詠唱: 火球が手元で膨張 (700ms)
@@ -28100,7 +28193,7 @@
       if (best.dx !== 0) ally.facing = best.dx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 直線 ${lineEnemyIdxs.size}体`,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 直線 ${lineEnemyIdxs.size}体${aoeLineSafeAllyTag(aTX, aTY, best.dx, best.dy, 3)}`,
         "skill");
       startAllyAttackAnim(ally);
       spawnCastOrb(ally, "rgba(180,220,255,1)", 600);
@@ -28282,7 +28375,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体${aoeSafeAllyTag(best.tx, best.ty, 5, 5)}`,
         "skill");
       startAllyAttackAnim(ally);
       // 詠唱: 氷塊が手元で凝結 (650ms)
@@ -29987,7 +30080,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体${aoeSafeAllyTag(best.tx, best.ty, 3, 3)}`,
         "skill");
       startAllyAttackAnim(ally, 1200);
       await sleepMs(1100);
@@ -30068,7 +30161,7 @@
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">奥義</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体`,
+        `<span class="label">奥義</span><span class="big">${skill.name}</span> 範囲 ${affectedIdxs.length}体${aoeSafeAllyTag(best.tx, best.ty, 5, 5)}`,
         "skill");
       startAllyAttackAnim(ally, 1700);
       await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1500 });
@@ -30188,7 +30281,7 @@
       const dfx = ex - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
-      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span>`, "skill");
+      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span>${aoeSafeAllyTag(Math.floor(ex / TILE_SIZE) - 1, Math.floor(ey / TILE_SIZE) - 1, 3, 3)}`, "skill");
       startAllyAttackAnim(ally, 1500);
       await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 1300 });
 
@@ -30352,7 +30445,7 @@
       const dfx = ex - aCX;
       if (Math.abs(dfx) > 2) ally.facing = dfx > 0 ? "right" : "left";
 
-      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span> 設置`, "skill");
+      showRollAtAlly(ally, `<span class="label">SPELL</span><span class="big">${skill.name}</span> 設置${aoeSafeAllyTag(best.tx, best.ty, 3, 3)}`, "skill");
       startAllyAttackAnim(ally, 1100);
       await sleepMs(1000);
 
