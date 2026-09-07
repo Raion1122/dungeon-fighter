@@ -407,6 +407,209 @@ STEP2 と同型。差分だけ:
 
 ---
 
+## 12-0. 着手前の母集団の実測(項目1 で採取)
+
+**2026-09-07 / 基準コミット `079ff3a`(#57 着地後・作業ツリー clean)。全 43 本を直列で実走。**
+⚠ §2-9 の表は起草時点の見込み。**下が実測**で、こちらが正。
+
+### 数え方(⭐ 1 本の grep で決めない = #55 の教訓)
+
+    for f in tools/driver_*.js tools/verify_*.js; do
+      grep -qE 'lizard-swamp|n4big|n7big|ROOM_PAINTINGS|paintedTileMask|make_grid_map|GRIDS|buildP6Run|buildLizardSwampRun' "$f" && basename "$f"; done
+
+- **機能の語** = `lizard-swamp` / `n4big` / `n7big` / `ROOM_PAINTINGS` / `paintedTileMask` /
+  `make_grid_map` / `GRIDS`、**導線の語** = `buildP6Run` / `buildLizardSwampRun`
+  ⇒ **41 本**(`driver_paint_blocked` は `--stage` 3 通りで数えて実走 **43 本**)。
+- ⭐ **§2-9 の 6 本は実測 41 本の 1/7 でしかない**。特に `driver_field_*`(屋外景観)7 本と
+  `driver_doors_*` 3 本、`driver_wall_*` 3 本が表から丸ごと落ちていた。
+- ⚠ 上限の確認: `MAPDEF|isCustom` まで広げると **+9 本 = 50 本**
+  (`doors_p8` / `graph_run` / `mapdef_step3` / `mapeditor` / `mapeditor_props` /
+   `mapeditor_railkit` / `mapeditor_waterkit` / `speech_boss` / `speech_engine`)。
+  41 本はその部分集合、と言えて初めて「41 で足りる」と主張できる。
+- ⛔ `probe_*` / `sweep_*` は golden ではないので母集団に入れない(6 本該当したが除外)。
+
+### 素の基準(⭐ 実装後はこの表と突き合わせる)
+
+| ドライバ | exit | 集計行 | FAIL 行の集合 |
+|---|---|---|---|
+| driver_bgm_mine | 0 | 37/37 PASS | — |
+| driver_dev_gate2 | 0 | 結果: 62/62 PASS | — |
+| driver_doors_p2 | **1** | 結果: 33/34 PASS | **(6c)** ★既存 6 シナリオすべてで扉が立つ — `bandits-forest:0` |
+| driver_doors_p5 | 0 | 結果: 30/30 PASS | — |
+| driver_doors_p6 | 0 | 結果: 39/39 PASS | — |
+| driver_field_scale | 0 | working: 49/49 PASS | — |
+| driver_field_step1 | 0 | 95/95 PASS | — |
+| driver_field_step1_geo | 0 | 71/71 PASS | — |
+| driver_field_step2 | 0 | RESULT: 64/64 ALL PASS | — |
+| driver_field_step3 | 0 | RESULT: 65/65 ALL PASS | — |
+| driver_field_step6 | **1** | 58/59 PASS | **(C-bandits-forest)** ★`?graph=auto` が出口を自動選択して entry から前進した — `entry=n7 訪問=0` |
+| driver_field_step7 | 0 | 79/79 PASS | — |
+| driver_field_verge_gap | 0 | RESULT: 39/39 ALL PASS | — |
+| driver_graph_p6 | 0 | 結果: 246/246 PASS | — |
+| driver_graph_p7 | 0 | 結果: 60/60 PASS | — |
+| driver_graph_sce1 | 0 | 106/106 PASS | — |
+| driver_grid_p3b | 0 | PASS 43 / FAIL 0 | — |
+| driver_grid_p4 | **3** | (集計行なし) | **変異アンカー腐敗** — `n1ringonly` の置換対象が見つからない(廃坑 n1 のマスク行)。素の節は 1 つも走らない |
+| driver_grid_p5 | 0 | PASS 103 / FAIL 0 | — |
+| driver_grid_p7 | 0 | PASS 44 / FAIL 0 | — |
+| driver_grid_p8 | 0 | PASS 56 / FAIL 0 | — |
+| driver_grid_s2 | 0 | 111/111 PASS | — |
+| driver_mapdef_step1 | 0 | 208/208 PASS | — |
+| driver_mapdef_step2 | 0 | 74/74 PASS | — |
+| driver_mapeditor_painting | 0 | PASS 106 / FAIL 0 | — |
+| driver_mine_wall | **1** | 57/58 PASS | **(3b)** `bandits-forest`: 歩けるマス数が `?paintring=0` と 1 マスも変わらない — `素=266 / off=414` |
+| driver_paint_blocked(既定 `--stage goblin-mine`) | 0 | PASS 65 / FAIL 0 | — |
+| **driver_paint_blocked `--stage lizard-swamp`** | **0** | **PASS 65 / FAIL 0** | — ⭐ **本チケットの当事者。着手前は完全な緑** |
+| driver_paint_blocked `--stage bandits-forest` | **1** | PASS 63 / FAIL **2** | **(4a)** ★現行のマスクは 1 マスも門前ガードに触れていない / **(8a)** 装置: 本番のシナリオグラフを 1 ノード残らず組み直せた(`n=1/1 entry=n7 boss=n7`) |
+| driver_spawn_not_on_gate | 0 | 51/51 PASS | — |
+| driver_speech_hooks | 0 | RESULT: 13/13 passed | — |
+| driver_wall_face | 0 | 54/54 PASS | — |
+| driver_wall_props | 0 | 29/29 PASS | — |
+| driver_wallbox | 0 | 28/28 PASS | — |
+| verify_codex_map_skill | **1** | 16/17 PASSED / FAILED 1 | **(3a)** 焼き直しと `assets/` の SHA が全件一致するが **検算 NG: `stag-tavern`** |
+| verify_prep_retire | 0 | 30/30 PASSED | — |
+| verify_quest_walk | 0 | 25/25 PASSED | — |
+| verify_recruit_size | 0 | 結果: 82/82 PASS | — |
+| verify_road_ambush | 0 | 41/41 PASSED | — |
+| **verify_swamp_novice** | **0** | **PASS 33 / FAIL 0** | — ⭐ **#53 の受入。着手前は完全な緑** |
+| verify_tavern_map | 0 | 43/43 PASSED | — |
+| verify_town_map | 0 | 85 / 85 | — |
+| verify_walk_block | **1** | 22/23 PASSED / FAILED 1 | **(3d)** badge を持つ `ENEMY_TYPES` 定義が 44 件のまま — 実測 **45 件**。名指し `goblinRider="🐺"` / `goblinArcher="🏹"` |
+
+### 着手前から赤 = **6 本**(#55 の 3 分類で仕分け済み)
+
+| ドライバ | 型 | 赤の理由(1 行) | #58 との関係 |
+|---|---|---|---|
+| `driver_doors_p2` (6c) | **3** | 森グラフが `bandits-forest:0` を返す(扉が 1 枚も立たない) | 無関係(森) |
+| `driver_field_step6` (C-bandits-forest) | **3** | 同上。森が entry=n7 の 1 ノードしか組めず前進しない | 無関係(森) |
+| `driver_mine_wall` (3b) | **3** | 同上。森の絵が貼られず `?paintring=0` と差が出ない | 無関係(森) |
+| `driver_paint_blocked --stage bandits-forest` (4a)(8a) | **3** | 同上。`n=1/1 entry=n7 boss=n7` | 無関係(森) |
+| `driver_grid_p4` (exit 3) | **3** | 変異 `n1ringonly` のアンカー腐敗(**廃坑 n1** のマスク行が動いている)。素の節が 1 つも走らない | 無関係(廃坑) |
+| `verify_walk_block` (3d) | **3** | `badge` 持ちの `ENEMY_TYPES` が 44 → **45** に増えている(`goblinRider` / `goblinArcher`) | 無関係 |
+
+- ⭐⭐⭐ **森の 4 本は同じ 1 つの根**: `bandits-forest` のグラフが **n7 の 1 ノードしか組めない**
+  (`n=1/1 entry=n7 boss=n7`)。⛔ **4 本を別々の赤として数えないこと**。#58 は沼なので触らない。
+- ⭐ **§2-9 の見込みは 2 件外れていた**:
+  - 「`driver_paint_blocked --stage bandits-forest` は着手前から赤 **3 本**」→ 実測 **2 本**((4a)(8a))。
+  - 「`verify_walk_block` 22/23 は #53 の `swampNovice` 由来」→ **違う**。真因は
+    **badge 持ちの敵定義が 1 件増えたこと**で、沼とも #53 とも関係がない。
+  - ⚠ `driver_speech_v2` は母集団の grep に**掛からない**(45/46 の件は #58 の母集団外)。
+
+### ⚠⚠ 環境由来の偽の赤 6 本(**型2**。掃除したら全部緑になった = 記録に残さない類)
+
+初回の実走で `driver_dev_gate2` / `field_step1_geo` / `field_step2` / `field_step3` /
+`field_step6` / `field_verge_gap` の **6 本が exit 1 or 3 で 0〜1 秒で即死**した。
+
+    fatal: 'C:/Users/PC_User/AppData/Local/Temp/df_step2_baseline' already exists
+
+真因 = **前セッションが残した git worktree が `%TEMP%` に居座っている**(`git worktree list` に
+13 個登録されていた)。これらのドライバは `worktree add` を無条件に呼ぶので、既存ディレクトリで死ぬ。
+
+    git worktree remove --force "C:/Users/PC_User/AppData/Local/Temp/df_<名前>" ; git worktree prune
+
+⇒ 掃除後に再走して **6 本中 5 本が緑**(残り 1 本 = `field_step6` の森の赤 = 上表の型3)。
+⭐⭐⭐ **「0 秒で死ぬ赤」を「昔から赤い」と記録してはいけない。** 記録すると次のチケットが
+本物の赤と混ぜて読む(#55 の型2 そのもの)。⚠ ただし**走行中の worktree を消すと
+その run が偽の赤になる**ので、掃除はスイープの合間に行い、`node` プロセスの不在を確かめてから。
+
+### 実装後に比べるときの注意
+
+- ⚠⚠ **必ず直列**。母集団の内部にポート同番が **3 組**ある:
+  `driver_field_step1`×`driver_speech_engine`=8796 / `driver_grid_p3b`×`driver_mapdef_step3`=8951 /
+  `verify_recruit_size`×`verify_town_map`=8897。並列にすると確実に exit 3。
+- ⚠ 総括行の書式は 5 種類ある。`PASSED` で grep すると 6 本が空になる。**`PASS` で拾う**。
+- ⚠ 遅い本が 3 つある: `driver_field_step6` **1416s** / `driver_grid_p8` 284s /
+  `driver_field_step7` 245s。全 43 本の直列で **約 55 分**。
+
+---
+
+## 12-1. STEP1 の実装結果(2026-09-07)
+
+- `tools/make_grid_map.py` の `GRIDS` に **`swamp-crypt`** と **`chieftain-lair`** を追加。
+  焼き上がり = `assets/room_lizard-swamp_n6_map.jpg` (**1632x1056** = 34x22 @48px) /
+  `assets/room_lizard-swamp_n7_map.jpg` (**1392x960** = 29x20 @48px)。検算は**両方とも 3 指標 OK**。
+
+| 素材 | 縦線 | 横線 |
+|---|---|---|
+| n6 (flooded-crypt) | ドリフト **1.50** / 位相 1.00 / score比 **99.2%** | ドリフト 2.07 / 位相 1.00 / score比 98.5% |
+| n7 (chieftain-lair) | ドリフト 1.91 / 位相 1.00 / score比 96.8% | ドリフト 2.32 / 位相 1.00 / score比 97.6% |
+
+### ⚠⚠⚠ §4-1 の 6 数値のうち **n6 の縦(phase 21.95 / period 44.170)は誤りだった**
+
+そのまま焼くと **縦の累積ドリフト 101.46 world-px(許容 4.0)= 25 倍の NG**。
+⛔ 3 指標は 1 つも緩めていない。**測り直した**結果が下:
+
+    "phase":  (20.35, 7.15),      # ← 21.95 から訂正
+    "period": (44.280, 44.290),   # ← 44.170 から訂正
+
+- ⭐⭐⭐ **`--fit` を何度回しても 44.170 が返る**(探索中心を 44 / 45 / 45.5 / 46 / 47 と
+  振っても同じ)。⛔ **再現性は正しさの裏付けにならない。**
+  真因 = `--fit` の探索窓は中心 ±8% なので `--fit-around 48` の下端が **44.16**。
+  本物 44.28 と 0.1px しか違わない**偽の極大 44.17 が窓の縁に立っており**、
+  全画像(上下の余白込み)の応答では偽のほうが score でわずかに勝つ(44.20 で 6.41 / 44.30 で 6.13)。
+- ⭐⭐⭐ **見分け方 = 焼いてから `--check` し、周期を面で振る**。
+  44.30〜44.50 に「どこを採っても OK」の **basin** が在り、44.15〜44.25 は drift 10.34 で全滅、
+  44.90/44.95 には drift 3.76 の**ナイフエッジの偽の合格**もあった(cells が 34→33 に変わる)。
+  ⛔ **最初に見つかった OK を採らない。** basin かナイフエッジかを見てから採る。
+- ⭐ サニティチェック: 本物なら**縦横がほぼ同値**になる(44.280 vs 44.290 = **異方性 0.023%**、
+  台帳 9 枚で最良)。偽の 44.170 は横と 0.271% ずれていた。
+  ⚠ ⛔ 異方性が小さいことだけを根拠にしない(0.271% でも十分小さく見える)。
+- ⚠ `chieftain-lair` の 6 数値(2.53%)は §4-1 のまま**無修正で通った**。
+
+### ⚠ `src` の置き場が違う件(§4-1 の注記どおり)
+
+`bake()` は `os.path.join(SRC_DIR, spec["src"])` の一本道(`tools/make_grid_map.py:323`)。
+`chieftain-lair-v1.png` は `codex1/assets/maps/` = **SRC_DIR の外**なので
+`"src": r"..\assets\maps\chieftain-lair-v1.png"` で逃がした(実測で開けることを確認済)。
+⭐ `verify_codex_map_skill` の **(0b)** は `os.path.exists(os.path.join(SRC_DIR, src))` で
+判定するので、この相対パスでも**緑のまま**。⛔ codex1 側のファイルは移動も複製もしていない。
+
+### ⭐ STEP2 / STEP3 のための絵ローカル座標(実測)
+
+**n6「蛇神の祭壇」= 34 列 x 22 行**
+
+| 何 | 絵ローカル (col,row) |
+|---|---|
+| 左の瓦礫部屋(入場側) | cols 1-7 / rows 6-18。西壁 col 1 の rows 11-13 に石段 |
+| **入場地点**(左辺の中点 + `NODE_ENTRY_INSET` 2) | **(2, 11)** — 瓦礫部屋の床。⭐ 壁ではない |
+| 扉(左の部屋 ↔ 中央の柱の間) | col 9 / rows 10-12 |
+| 中央の柱の間 | cols 10-20 / rows 6-18。丸柱 6 本 = (12,7)(18,7)(12,11)(18,11)(12,15)(18,15) |
+| 扉(中央 ↔ 水の部屋) | col 22 / rows 10-12 |
+| **西の水帯** | **cols 23-25 / rows 5-18** |
+| 中央の乾いた参道(南北に貫く) | cols 26-29 / rows 4-19 |
+| **★祭壇の中心**(ハイドラの移し先) | **(28, 11)**。八角形の外形 = cols 25-30 / rows 9-14、内側の開けた床 = cols 27-29 / rows 10-13、四隅に円形の台 (26,10)(29,10)(26,13)(29,13) |
+| 祭壇へ登る石段 | 北 = cols 27-29 / row 9 、南 = cols 27-29 / row 14 |
+| 東の水帯 | cols 30-32 / rows 5-18 |
+| 北東の小部屋(石板・松明) | cols 26-30 / rows 0-4。col 28 / rows 4-5 の階段で水の部屋へ降りる |
+| 南の階段(部屋の外へ) | cols 13-17 / rows 19-21 |
+
+⚠⚠⚠ **§2-5 の (3)「祭壇を囲む水に渡りがあるか」への答え = 渡りは無い。**
+入場 (2,11) から祭壇 (28,11) へ行くには **西の水帯 cols 23-25 を 3 マス渡るしかない**。
+⇒ マスクの規則 (4)「入場口から祭壇までのレーンを明示的に空ける」を守るには、
+**`(23..25, 10..12)` を `.`(浅瀬として通す)にする**必要がある。⛔ 水を一律 `#` にすると詰む。
+
+**n7「族長の巣」= 29 列 x 20 行**
+
+| 何 | 絵ローカル (col,row) |
+|---|---|
+| **入場地点**(左辺の中点 + `NODE_ENTRY_INSET` 2) | **(2, 10)** — 乾いた石畳の帯の上 |
+| **東西に貫く乾いた石畳** | **rows 9-10**(全幅 col 0-28 で連続。乾き率 0.28 / 0.24 = 全行で最大) |
+| 浅い水(西〜中央) | cols 1-21 / rows 4-16(rows 9-10 の帯を除く) |
+| 東の乾いた広場(壇) | cols 21-28 / rows 4-16(乾き率は col 24 が最大 0.33) |
+| **★玉座**(ボスの置き先) | **(26, 9)**。石の「額縁」状の構造 = cols 25-28 / rows 8-11、座の内側 = cols 26-27 / rows 9-11 |
+| **★壇の手前の開けた床**(護衛 2 体) | **(24, 8)** と **(24, 12)** — どちらも汚れの無い乾いた石畳。互いに **4 タイル**(§9 (3c) の 2〜4 に収まる) |
+| 北壁沿いの障害物 | rows 0-3(壺・武器架・骨・蛇の意匠) |
+| 南壁沿いの障害物 | rows 16-19(ワニの頭骨・蛇・瓦礫) |
+
+⭐ **(3b) の見積もり**: 入場 (2,10) → 護衛 (24,8) は **22 タイル = 2112px**。
+melee 交戦距離 400px(4.17 タイル)よりはるかに遠いので、入場ナレの最中に乱戦は始まらない。
+⚠ ただし**必ず本番の `isTileWall` で測り直すこと**(上表は絵から読んだ値で、マスク確定前)。
+
+⭐ **§2-6 の「玉座が額縁に見える」は現物でも額縁に見える**(ユーザー承認済)。
+座の内側 (26-27, 9-11) は水色がかっており、族長スプライトが立てば隠れる想定。
+
+---
+
 ## 12. ⛔ 測らないこと
 
 - **絵の見た目・色・階調** — 実機で見てから判断する余地を残す
