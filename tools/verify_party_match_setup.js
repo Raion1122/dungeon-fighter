@@ -58,9 +58,12 @@
  *          → **(4a) が赤くなる**こと (同職 2 枚のカードが同期しない)。
  *   M5 ⭐: close() から pmCloseDrawer() を外す (依頼書 §5-3)
  *          → **(5b) が赤くなる**こと (pmLoadoutRepaint が残り準備画面が更新されない)。
- *   M6   : #pmDrawer の max-height / overflow-y を外す (依頼書 §6)
- *          → **(4c) が赤くなる**こと。⚠⚠⚠ 42vh だけ消しても 390px では
- *            @media (max-width:720px) の 30vh が勝つので**両方**潰す (2 アンカー・同 tag)。
+ *   M6   : #pmDepart から position:sticky を外す (#56 で張り替え)
+ *          → **(4c) が赤くなる**こと。
+ *          ⚠⚠⚠ 旧 M6 (#pmDrawer の max-height / overflow-y を外す) は **#55 が
+ *            #pmDepart を sticky にした時点で空振りになっていた** (2026-09-07 実走で確認)。
+ *            守っていた不変条件がもう存在しなかった。さらに #56 がその 2 行を本番から
+ *            消したので、旧アンカーを残すと exit 3 (アンカー腐敗) へ悪化する。
  *   M7   : 傾向の候補を apEquippedIdsFor でなく slot.skillPool 全部にする (依頼書 §2-9)
  *          → **(3b) が赤くなる**こと。
  *   ⭐ M1 / M2 / M5 が §2 の罠 A / B / D の再現。
@@ -174,15 +177,17 @@ if (NEGATIVE) {
   mutate('M5 (close() から pmCloseDrawer() を外す = pmLoadoutRepaint が残る)',
     '        //   描き直し先が引き出しのまま残り、準備画面のスキル選択が一切反映されなくなる。\r\n        pmCloseDrawer();',
     '        //   描き直し先が引き出しのまま残り、準備画面のスキル選択が一切反映されなくなる。');
-  /* M6 — 依頼書 §6。⚠⚠⚠ 42vh を消すだけでは compact の (4c) は赤くならない。
-       390px では @media (max-width:720px) の 30vh が勝つので **両方**潰す。
-       ⭐ tag は label の先頭語なので、2 本とも 'M6 ' で始めれば --only M6 で同時に入る。 */
-  mutate('M6 (基底の #pmDrawer から max-height / overflow-y を外す)',
-    '      max-height: 42vh;\r\n      overflow-y: auto;\r\n',
-    '');
-  mutate('M6 (compact の #pmDrawer から max-height を外す ← 390px ではこちらが勝つ)',
-    '      #pmDrawer { max-height: 30vh; padding: 10px 11px; }',
-    '      #pmDrawer { padding: 10px 11px; }');
+  /* M6 (#56 で張り替え) — 今 (4c) を守っている実体は **#pmDepart の position:sticky**。
+       ⚠⚠⚠ 旧 M6 は「#pmDrawer から max-height / overflow-y を外す」だったが、
+         #55 が #pmDepart を sticky にし #pmInner をスクロール容器にした時点で
+         「引き出しが伸びても出発の口は画面内」になり、**注入しても (4c) が赤くならない
+         空振り**へ落ちていた (2026-09-07 実走: exit 1 / 空振り: M6→(4c))。
+         さらに #56 がその 2 行を本番から消したので、旧アンカーは exit 3 になる。
+       ⭐ そこで「引き出しの高さ」ではなく「出発の口を貼り付けている仕組み」を潰す 1 本へ
+         張り替えた。⛔ assert 本体 ((4c)/(4d) を含む 36 本) は 1 行も触っていない。 */
+  mutate('M6 (#pmDepart から position:sticky を外す ← これが (4c) を守っている実体)',
+    '    #pmDepart { position: sticky; bottom: 0; z-index: 2; }',
+    '    #pmDepart { position: static; }');
   /* M7 — 依頼書 §2-9。傾向の候補を「枠に入れている技」でなく skillPool 全部にする。
      ⚠⚠ `const equippedIds = apEquippedIdsFor(slot, classKey);` は renderActionPriority と
        pmRenderDrawer の 2 箇所で完全一致 = exit 3。引き出し側だけを狙う一意な行は
@@ -429,17 +434,34 @@ async function clickCenterOf(page, id) {
 
 /* セレクタ版。先に見つかったものの中心を実マウスで叩く。
    ⚠ 引き出しを開けば #pmInner の高さが変わり、align-items:center なのでカードの中心も動く。
-     座標を使い回さず、叩く直前に毎回測り直すこと。 */
+     座標を使い回さず、叩く直前に毎回測り直すこと。
+   ⚠⚠⚠ #56 以後の追加: 引き出しを開くと #pmInner が【引き出しの頭まで自動スクロール】するので、
+     次に叩きたいカードは器の外 (rect.top が負) へ流れている。座標クリックは画面外へ落ちて
+     別の物 (実測では pmZone) に当たり、(3a) が「pmOpen=1 なのに self=false」で赤くなった。
+     ⇒ 叩く前に、**画面外にいるときだけ** 器をスクロールして対象を画面内へ戻す。
+     ⛔ 見えているときは 1px も動かさない (#56 より前と同じ挙動をそのまま残すため)。
+     ⛔ assert 本体は 1 行も変えていない。直したのは「指を届かせる」計測装置の側だけ。 */
 async function clickCenterOfSel(page, selectors) {
   const rc = await page.evaluate((sels) => {
     let e = null;
     for (const s of sels) { e = document.querySelector(s); if (e) break; }
     if (!e) return null;
-    const r = e.getBoundingClientRect();
+    let r = e.getBoundingClientRect();
+    let scrolled = 0;
+    if (r.top < 0 || r.bottom > window.innerHeight) {
+      const inner = document.getElementById('pmInner');
+      if (inner && inner.scrollHeight > inner.clientHeight) {
+        const before = inner.scrollTop;
+        inner.scrollTop += r.top - inner.getBoundingClientRect().top;
+        scrolled = inner.scrollTop - before;
+        r = e.getBoundingClientRect();
+      }
+    }
     if (!(r.width > 0 && r.height > 0)) return null;
     const x = r.left + r.width / 2, y = r.top + r.height / 2;
     const hit = document.elementFromPoint(x, y);
-    return { x: x, y: y, hit: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)' };
+    return { x: x, y: y, scrolled: scrolled,
+      hit: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)' };
   }, selectors);
   if (!rc) return null;
   await page.mouse.click(Math.round(rc.x), Math.round(rc.y));

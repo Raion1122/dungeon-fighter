@@ -2125,9 +2125,16 @@
          スキル 1 行 ([分類]名前 [射程] [MP n] + フレーバー文) が原理的に入らない。
        ⚠ 開閉は hidden 属性。素の #pmDrawer に display を書くと hidden が効かなくなるので、
          [hidden] 側の display:none !important を必ず残すこと。
-       ⚠⚠⚠ max-height + overflow-y は必須。戦士は技が 10 本あり、#partyMatchOverlay は
-         align-items:center の固定オーバーレイなので、中身が伸びると上下が画面外へはみ出して
-         出発の口が押せなくなる。—— 受入条件 (4c) / 変異 M6。
+       ⚠⚠⚠ #56: 引き出しは【縮まない・自分ではスクロールしない】。スクロールは #pmInner ただ 1 本。
+         ⭐ ここから消したのは max-height: 42vh と overflow-y: auto の 2 行。
+         ⚠⚠⚠ 本体は overflow-y の方 —— max-height だけ消しても 1px も直らない
+           (実測 A3 = iPhone 390px で 22px のまま)。理由 = overflow-y:auto を持つ flex 子は
+           自動最小サイズ (min-height:auto) が 0 になり、#pmInner の収縮を 1 人で全部吸うから。
+           兄弟の #pmBrief は overflow:visible なので min-content に守られ 1px も譲っていない。
+         ⛔ flex-shrink: 0 は書かない —— overflow を visible へ戻した時点で min-height:auto が
+           最小サイズを守るので、足しても 1px も変わらない (実測 A4 == A5)。
+         ⚠ 中身が伸びても出発の口が押せるのは #pmDepart の position:sticky が守っているから。
+           ⛔ あれを消さないこと (#56 の受入条件 (4a) / 変異 stickydead)。
        ⚠ 配色の作り込みは STEP3。ここにあるのは器の形と読める最低限だけ。 */
     #pmDrawer {
       width: 100%;
@@ -2135,10 +2142,12 @@
       background: var(--pm-panel);
       border: 1px solid var(--pm-border);
       border-radius: 10px;
-      max-height: 42vh;
-      overflow-y: auto;
       text-align: left;
     }
+    /* #56 撤退 ?pmfit=0: #35 当時の「引き出しの中でスクロール」へ戻す。
+       ⭐ 既定を新しい姿にして、古い姿を上書き規則で復元する向きにしてある
+         (JS が落ちてもクラスが付かない = 直った姿のまま = fail-open が安全側)。 */
+    body.pmFitOff #pmDrawer { max-height: 42vh; overflow-y: auto; }
     #pmDrawer[hidden] { display: none !important; }
     /* どのカードの引き出しかを示す。—— 受入条件 (3a) はこれがちょうど 1 枚であることを見る。
        ⛔ 既存の .pmColumn 規則は書き換えない (上書き規則を足すだけ)。 */
@@ -2318,9 +2327,10 @@
       #pmColumns { grid-template-columns: repeat(2, 1fr); }
       .pmColumn { min-height: 0; padding: 12px 10px; }
       #pmPlace { font-size: 18px; letter-spacing: 2px; }
-      /* 縦持ちはカードだけで画面の半分を使うので、引き出しはさらに低くする。
-         引き出しを開いたままでも出発の口が画面内に残ることが条件 (4c)。 */
-      #pmDrawer { max-height: 30vh; padding: 10px 11px; }
+      /* 縦持ちの余白詰め。⚠ #56 で max-height: 30vh は【撤退時だけ】へ移した。
+         出発の口が画面内に残る条件 (4c) は #pmDepart の sticky が守っている。 */
+      #pmDrawer { padding: 10px 11px; }
+      body.pmFitOff #pmDrawer { max-height: 30vh; }
       #pmDrawer .skillList { grid-template-columns: 1fr; }
       /* 縦持ちはカードだけで画面の 7 割を使うので、引き出しを開いている間は
          飾りの見出しとカードの明細を畳む。—— 受入条件 (4c)。 */
@@ -3078,10 +3088,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間の設定欄が画面いっぱいに開くように</b> — 装備・スキル・傾向の一覧が細い帯に潰れなくなり、いちばん下の行まで読めるようになりました。</li>
         <li><b>出発の準備がマッチング画面にまとまった</b> — 仲間が集う画面で装備・スキル・下調べまで済ませて、そのまま出発できる。</li>
         <li><b>一人で潜ろうとすると引き止められる</b> — 誰にも声を掛けずに依頼を受けると、酒場の主が一度だけ考え直させてくれる。</li>
         <li><b>酒場の冒険者を次の冒険に誘える</b> — 卓に座っている者へ声を掛けると、同道を申し出て次の潜行についてくる。</li>
-        <li><b>魔法使いが最初からスリープを唱える</b> — 序盤の群れを眠らせて切り抜けられるようになった。</li>
       </ul>
     </div>
     <script>
@@ -7056,6 +7066,16 @@
     catch (e) { return true; }
   })();
 
+  /* ══ #56 撤退スイッチ ?pmfit=0 ════════════════
+     OFF = 引き出しが自分の中でスクロールする #35 当時の姿へ戻る (自動スクロールもしない)。
+     ⚠ 判定はここ 1 箇所だけ (PM_SETUP_ON / PREP_SKIP_ON と同じ作法)。
+     ⚠ ページ遷移をまたがない (演出は tavern.html の中で完結する)。 */
+  const PM_FIT_ON = (function () {
+    try { return new URLSearchParams(window.location.search).get("pmfit") !== "0"; }
+    catch (e) { return true; }
+  })();
+  if (!PM_FIT_ON) { try { document.body.classList.add("pmFitOff"); } catch (e) {} }
+
   // ── #19 STEP7 撤退スイッチ ?actionpri=0 ───────────────────────────────────
   // 設定欄そのものを消す。⚠ 保存済みの値は消さない (スイッチを外せばそのまま戻る)。
   // ⚠ ページ遷移をまたがない。index.html は自分で同じクエリを読む (先例 = ?heromark=0)。
@@ -7827,6 +7847,10 @@
   //   カードは 2 枚だが編集先は 1 つ —— それを隠すと事故になるので、
   //   見出しは職業を主にし、注記を出し、もう一枚のカードも必ず描き直す。
   let pmDrawerIdx = -1;   // 開いているカードの番号 (-1 = 閉じている)
+  /* ★#56 引き出しを開く【前】の #pmInner のスクロール位置。閉じたらここへ戻す。
+     ⚠ 覚え直すのは「閉じている状態から開いた」ときだけ。カード A → B と渡り歩いた
+       途中の位置で上書きすると、閉じたときに元の場所へ戻れなくなる (受入条件 (3c))。 */
+  let pmScrollBeforeOpen = null;
   let pmCols = [];        // 今出ているカード ({ el, fill, refresh })
   let pmOrdered = [];     // カードの並び (番号 → メンバー)
 
@@ -7849,12 +7873,35 @@
   function pmOpenDrawer(idx) {
     const drawer = document.getElementById("pmDrawer");
     if (!drawer || !pmOrdered[idx]) return;
+    const inner = document.getElementById("pmInner");
+    /* ★#56 ⚠⚠⚠ 開く前のスクロール位置は【DOM を 1 バイトも触る前】に採ること。
+       縦持ちでは下の inner.classList.add("pmDrawerOpen") が付いた瞬間に
+       #pmHeader と .pmEquip が display:none になり、器が縮んでブラウザが
+       scrollTop を**丸めてしまう** (2026-09-07 実測: 100 の位置で開いたのに
+       採れた値は 32。閉じたとき 32 へ戻って「勝手に飛ぶ」ように見えた)。
+       ⛔ この 1 行を pmRenderDrawer の後ろへ動かさないこと。—— 受入条件 (3b)(3c)。 */
+    const wasClosed = (pmDrawerIdx < 0);
+    if (PM_FIT_ON && inner && wasClosed) pmScrollBeforeOpen = inner.scrollTop;
     pmDrawerIdx = idx;
     pmCols.forEach((c, i) => { if (c && c.el) c.el.classList.toggle("pmOpen", i === idx); });
     drawer.hidden = false;
-    const inner = document.getElementById("pmInner");
     if (inner) inner.classList.add("pmDrawerOpen");
     pmRenderDrawer(idx);
+    /* ★#56: 開いた引き出しの頭を器 (#pmInner) の上端へ寄せる。
+       ⭐ 「上端そろえ」であって最小スクロールではない —— 設定に使える縦を最大化するのが
+         このチケットの目的そのもの。カードは上へスクロールすれば戻る。
+       ⚠ requestAnimationFrame について ——【Chrome では無くても動く】。2026-09-07 に
+         「rAF 抜きで即時実行」を注入して実測したら受入 75/79 が全緑で、1px も変わらなかった
+         (getBoundingClientRect() が同期レイアウトを強制するので rect は常に正しい)。
+         ⭐ それでも残しているのは、**実機が iOS Safari** で、ヘッドレス Chrome の装置では
+           要不要を判定できないから。⛔ 「効いている」と読まないこと。
+       ⛔ drawer.scrollIntoView() は使わない (スクロール可能な祖先を全部動かすので、
+         裏の tavern.html の document まで動いてしまう)。 */
+    if (PM_FIT_ON && inner) {
+      requestAnimationFrame(function () {
+        inner.scrollTop += drawer.getBoundingClientRect().top - inner.getBoundingClientRect().top;
+      });
+    }
     // ⚠⚠⚠ 開いている間だけ、スキル枠を変えた後の描き直し先を引き出しへ向ける。
     //   ⛔ pmCloseDrawer で必ず null へ戻す (戻さないと準備画面が二度と更新されない)。
     pmLoadoutRepaint = function () { saveSelections(); pmRenderDrawer(pmDrawerIdx); pmRefreshCards(); };
@@ -7869,6 +7916,13 @@
     if (inner) inner.classList.remove("pmDrawerOpen");
     const drawer = document.getElementById("pmDrawer");
     if (drawer) { drawer.hidden = true; drawer.innerHTML = ""; }
+    /* ★#56: 開く前の位置へ戻す。⚠ 先に中身を消しておかないと、ブラウザが縮んだ内容に
+       合わせて scrollTop を丸めるので戻し切れない (だから順序を入れ替えないこと)。 */
+    if (PM_FIT_ON && inner && pmScrollBeforeOpen != null) {
+      const back56 = pmScrollBeforeOpen;
+      pmScrollBeforeOpen = null;
+      requestAnimationFrame(function () { inner.scrollTop = back56; });
+    }
   }
 
   // 同職 2 枚の同期はこれ。片方の引き出しで技を足したら、もう一枚も同じ値になる。
