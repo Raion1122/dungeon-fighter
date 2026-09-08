@@ -3264,10 +3264,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>森と沼地にも 4 人目が同行するように</b> — 依頼の格に関わらず、仲間は常に 3 人まで連れて行ける。</li>
         <li><b>沼地が卓上マップ 3 枚の構成に</b> — 参道・祭壇・族長の巣だけになり、通り過ぎるだけの小部屋が無くなった。</li>
         <li><b>誰と約束したか札の色で分かる</b> — 同道を約した相手の頭上札が金の枠になり、出発前の顔ぶれにも「酒場で声を掛けた」と添う。</li>
         <li><b>誰と約束したか一目で分かる</b> — 酒場に「同行の約束」の一覧が付き、一人ずつ断ることもできる。</li>
-        <li><b>同行の約束をその場で解散できる</b> — 声を掛けた仲間との約束を、出発前にまとめて解ける。</li>
       </ul>
     </div>
     <script>
@@ -3391,7 +3391,9 @@
        * **初見が最初に触るクエストが最も過酷**になる。80 走行のペア比較で一方向に出た:
        *   クリア率 55% → 15% / XP 中央 2,090 → 580 / ペア比較 OLDのみ 9 対 NEWのみ 1。
        * ⚠ ★の数と人数の連動そのものは他 5 シナリオで保つ。ここだけの例外。
-       * ⚠ clamp は recruitCountOf() の Math.max(1, Math.min(3, n)) が担当 (ここでは外せない)。 */
+       * ⚠ clamp は recruitCountOf() の Math.max(1, Math.min(3, n)) が担当 (ここでは外せない)。
+       * ★[#61 / 2026-09-08] ★連動を廃止したので、この上書きは RECRUIT_MAX と同値 = 恒等になった。
+       *   ⛔ 消さないこと。「この依頼だけ人数を変える」口が生きていることの唯一の実例。 */
       recruit: 3,
       recommendedLevel: 3,
       reward: "金貨 50枚 + 装備",
@@ -4531,8 +4533,13 @@
              variant: v.variant, level: v.level, mercId: v.id };
   }
   // ════════════ 依頼の重さ → 応募人数 (実装依頼書 #7 quest-recruit-size / STEP2) ════════════
-  /* 撤退スイッチ ?recruit=0 : 依頼の重さに関わらず従来どおり PARTY_SIZE (主人公1 + NPC3 = 4人)
-       で編成する。**既定は ON** (URL 無指定 = ★の数で応募人数が変わる)。
+  /* ⚠⚠ ★[#61 / 2026-09-08] **意味が反転した**。関数の中身は 1 文字も変えていないが、
+       読み手 (recruitCountOf) の側で真偽の使い道が入れ替わっている:
+         旧 (#7): ON  = ★の数で応募人数が変わる / ?recruit=0 = 一律 PARTY_SIZE (4人)
+         新 (#61): ON = **常に 主人公1 + NPC RECRUIT_MAX = 4人** (★連動の廃止)
+                   ?recruit=0 = **★連動へ戻す** (= #7 の姿。recruitCountLegacy を通る)
+     ⭐ 名前は据え置く。`?recruit=0` は verify_recruit_size / sweep_recruit_balance /
+       probe_party_size / probe_s2_clear の 4 本が逐語で打っており、改名すると全部が空振りする。
      ⚠ モジュール直下の const にしない。regeneratePartyMembers() は上流の関数から
        この行より前に呼ばれ得るので、const だと TDZ で ReferenceError になる
        (このリポジトリで実際に踏んだ罠。isHeroLockOff() と同じ作法で毎回 location.search を読む)。 */
@@ -4568,6 +4575,8 @@
     return v;
   }
   // 依頼の重さから「募集に応じた冒険者 (NPC) の数」を決める。
+  // ⚠⚠ ★[#61] 下の 1./2./3. は **?recruit=0 のときだけ通る旧規則** (= recruitCountLegacy)。
+  //   既定の規則は recruitCountOf の直上コメントが正 (★連動は廃止・常に RECRUIT_MAX)。
   //   1. sc.recruit が数値      → その値を使う          (クエスト個別の上書き。器だけ先に作る)
   //   2. sc.difficulty が文字列 → "★" の数を数える      (固定6シナリオ)
   //   3. どちらも無い           → 既定 3 + [DIAG] を1行  (生成クエスト = 闇市ポドルプラザ)
@@ -4583,12 +4592,31 @@
      酒場で誘える人数の両方がここを読む。⛔ 数字を 2 箇所に焼かない
      (片方だけ動かすと「4 人目を誘えたのに出発したら 3 人」が黙って起きる)。 */
   const RECRUIT_MAX = 3;
+  /* ★[#61 / 2026-09-08] 依頼の重さ(★の数)と同行人数の連動を**廃止**した。
+   *   全シナリオが主人公 1 + NPC RECRUIT_MAX = 4 人で出発する。
+   *   ⭐ 変わるのは bandits-forest / lizard-swamp の 2 本だけ (他 4 本は元から NPC 3)。
+   *   ⚠ ★ 表示 (sc.difficulty) は**画面に残す**。募集人数と切れても「敵の強さ」の
+   *     表示としては正しい (2026-09-08 ユーザー決定)。
+   *   ⚠ `recruit:` の個別上書き (#8 の goblin-mine = 3) は**読む経路を残す**。
+   *     いまは RECRUIT_MAX と同値で恒等だが、将来「この依頼だけ 2 人」を作れる口を潰さない。
+   *   ⚠⚠ ?recruit=0 は **★連動へ戻す**スイッチになった (#7 のときと意味が逆)。 */
   function recruitCountOf(sc) {
+    const MIN = 1, MAX = RECRUIT_MAX;
+    if (sc && typeof sc.recruit === "number" && isFinite(sc.recruit)) {
+      return Math.max(MIN, Math.min(MAX, Math.floor(sc.recruit)));   // 個別上書きは今も効く
+    }
+    if (!isRecruitOn()) return recruitCountLegacy(sc);               // ?recruit=0 = ★連動へ戻す
+    return MAX;                                                      // ★[#61] 既定 = 常に上限
+  }
+  /* ★[#61] ?recruit=0 のときだけ通る旧経路 (#7 / #8 の姿をそのまま移植)。
+   *   ⛔ 中身を書き換えないこと — verify_recruit_size の (C) 群が
+   *     「★の数へ戻る」ことをここで測る。
+   *   ⚠ `recruit:` の分岐は**呼び口 (recruitCountOf) が先に処理する**ので、ここには来ない。
+   *     clamp・[DIAG] の文言・FALLBACK の値は移植前と 1 文字も変えていない。 */
+  function recruitCountLegacy(sc) {
     const MIN = 1, MAX = RECRUIT_MAX, FALLBACK = RECRUIT_MAX;
     let n = FALLBACK;
-    if (sc && typeof sc.recruit === "number" && isFinite(sc.recruit)) {
-      n = Math.floor(sc.recruit);
-    } else if (sc && typeof sc.difficulty === "string") {
+    if (sc && typeof sc.difficulty === "string") {
       n = (sc.difficulty.match(/★/g) || []).length;
     } else {
       console.log("[DIAG] recruit: fallback used (no difficulty) id="
@@ -6632,8 +6660,10 @@
     //   ⭐ クエストを選び直したときに作り直すのは openPrep 経路が唯一の正
     //     (openPrep は prepScenario = sc を代入した **後** に本関数を呼ぶ)。他の呼び口は
     //     「空なら作る」の遅延初期化なので、人数が変わっても再抽選しない。
+    // ★[#61] isRecruitOn() の判定は recruitCountOf() の中へ移した。ここでは常に呼ぶ。
+    //   既定で 1 + RECRUIT_MAX = 4 人、?recruit=0 のときだけ ★の数へ戻る。
     let partySize = PARTY_SIZE;
-    if (isRecruitOn() && prepScenario) partySize = 1 + recruitCountOf(prepScenario);
+    if (prepScenario) partySize = 1 + recruitCountOf(prepScenario);
     partySize = devPartySizeOverride(partySize);   // #14 調査シーム。?party 無しでは恒等 (本番は素通り)
     /* ★[#54] 誘った人が居ればその人たちで組む。⭐⭐⭐ 誰も誘っていなければ **ソロ**。
        ⛔ 従来の自動抽選には落とさない — 落とすと「誘う意味が無い」(依頼書 §6-4)。
