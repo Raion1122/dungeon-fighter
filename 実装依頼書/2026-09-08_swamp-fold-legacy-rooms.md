@@ -411,3 +411,193 @@
 ## 12. 実装結果
 
 (実装窓が埋める)
+
+### 12-0. 着手前の実測(実装窓 / 2026-09-08 / dev-loop 項目1「測るだけ」)
+
+⛔ この節を書いた時点で `index.html` / `tavern.html` / `tools/*.js` は **1 バイトも触っていない**
+(作業ツリーは本ファイル以外 clean)。幾何は `ROOM_PAINTINGS_DEF` / `RUN` を **実行時に**書き換える
+使い捨てドライバ(`%TEMP%/df_pptr/df62_measure.js`。repo に入れない)で測った。
+⭐ 実行時注入が効くのは `DFMapDef.setPaintingCatalog(ROOM_PAINTINGS_DEF)`(`index.html:5978`)が
+**同一オブジェクトを持つ**ため。`paintingGatesFor` は呼ぶたびにそこを読み直す。
+
+#### (A) 母集団の基準(すべて素・逐次実走。並走させると偽の赤が出るので 1 本ずつ)
+
+| ドライバ | exit | 総括行 | §8 の記録との差 |
+|---|---|---|---|
+| `node tools/driver_graph_p6.js` | 0 | `══ 結果: 246/246 PASS ══` | 一致 |
+| `node tools/driver_graph_p6.js --scenarios lizard-swamp` | **1** | `══ 結果: 72/73 PASS ══` | ⭐ **素で 1 本赤**(下記) |
+| `node tools/verify_swamp_novice.js` | 0 | `PASS 33 / FAIL 0` | #53 の 33/33 と一致 |
+| `node tools/verify_swamp_lair.js` | 0 | `PASS 25 / FAIL 0` | #58 の 25/25 と一致 |
+| `node tools/driver_spawn_not_on_gate.js` | 0 | `[drv] 51/51 PASS` | 新規記録 |
+| `node tools/driver_graph_p7.js` | 0 | `══ 結果: 60/60 PASS ══` | 新規記録 |
+| `node tools/driver_paint_blocked.js` | 0 | `PASS 65 / FAIL 0` | 新規記録 |
+
+**唯一の FAIL 行(全文)**:
+
+    - (1z) ボス部屋が骨格 (9x6) でないのは bandits-forest と lizard-swamp だけ  — 大部屋=lizard-swamp
+
+`--scenarios lizard-swamp` の 73 本の内訳(assert ID を実走から採った):
+
+- ノード到達 `T-lizard-swamp-{n0,n1,n2,n3,n4,n6,n7}` … **7 本**(⚠ **n5 は無い** = 8 ノードだが 7 本)
+- lizard-swamp 本体 … **41 本**
+  `{1a,1b,1c,1d,1e,1f,1g,1h,1i,1i2,1j,1j2}` `{2a,2b,2c}` `{3a〜3e}` `{4a〜4e}` `{5a〜5g}` `{6a,6b,6c}`
+  + `7{T,a,b}-lizard-swamp-{0,1}`
+- 横断 `(1z)` `(1z2)` `(E1)` `(G1)` `(G2)` … 5 本 / 変異母集団 `0a〜0e × {nop6,nohoardgate,nocagenode,noextraspawn}` … 20 本
+
+#### (B) 幾何の確定値(すべて本番の `isTileWall` / `aStar` / `nodeGateTile` / `hasLineOfSight` で測った)
+
+**前提の裏取り**: `gates` の座標系は **絵ローカル `[列, 行]`**(`js/df-mapdef.js:810` の
+`ROOM_PAINTINGS_DEF[theme][key].gates = { right: [25, 4], … }`。`paintingGateTileFor` は
+`tx = rect[1] + floor(c*rw/tw)` / `ty = rect[0] + floor(r*rh/th)`。ノードの絵は rect == tileBounds
+なので**恒等写像** = n4big のコメントどおり `(col,row) + (10, 3)`)。
+
+##### (B-1) n4big の `gates.up` — **確定**
+
+コピペする 1 行(`ROOM_PAINTINGS_DEF["lizard-swamp"].n4big` の中、`sealRing:` の近く):
+
+    gates: { up: [8, 0] },       /* ★[#62] 北の口 = 祠へ登る石段の東列 (絵ローカル col 8 / 行 0) */
+
+| 項目 | 実測 |
+|---|---|
+| 出口タイル(global) | **(18, 3)** = `nodeGateTile(MAPDEF,"up")` の戻り値と `exits[].at` が一致 |
+| そのタイルの `isTileWall` | 扉を開けた状態で **false(床)**。素は扉が立つので true(下記) |
+| 立つ扉 | `{id:"gate-up", tx:18, ty:3, orientation:"horizontal", state:"closed"}`(施錠でも隠しでもない) |
+| 石段の手前 (18,4) | `isTileWall=false` / 入場 (12,13) から本番 aStar **15 歩** |
+| 扉を開けた後 (18,3) | `isTileWall=false` / 入場から本番 aStar **16 歩** |
+| 旧 up 中点 (24,3) | `gates.up` を足すと **sealRing が塞ぐ**(`isTileWall=true`)⇒ n4 の孤立点が **2 → 1** に減る |
+| `DFMapDef.lintRun`(畳んだ 3 ノード形) | **error 0 / warning 0** |
+
+⭐ **もう 1 つの候補 `[7, 0]` = (17,3) も同じく成立する**(扉 closed / 開ければ床 / 手前 (17,4) は
+aStar 14 歩・開後 15 歩)。**どちらでもよいので依頼書の `[8, 0]` を採る**。
+⚠ 採らなかった側の列は sealRing に塞がれる(`[8,0]` を採ると (17,3) が壁)。
+
+##### (B-2) n6 の `down`(南の石段)— **gates を足す必要は無い**(依頼書 §2-3 の予想どおり)
+
+| 項目 | 実測 |
+|---|---|
+| `nodeGateTile(n6,"down")` | **(26, 24)**(既定の辺の中点 `midC = floor((10+43)/2) = 26`) |
+| (26,24) の `isTileWall` | **false(床)** — sealRing の門番がゲートとして残している |
+| n4 から `up` で抜けた時の入場地点 | **(26, 22)**(= ゲート + `NODE_ENTRY_INSET(2)`)。`isTileWall=false` |
+| (26,23) | `isTileWall=false`(石段が縦に通っている) |
+| 入場 (26,22) → 祭壇のハイドラ (38,14) | 本番 aStar **20 歩** = 到達可能 |
+| n6 に立つ扉 | **0 枚**(行き止まりで `exits` が空。引き返し口には扉を立てない仕様) |
+
+⇒ **`gates: { down: [15, 21] }` は不要。n6big は 1 ビットも触らない。**
+(参考: 従来どおり `right` で抜けて左から入ると入場は (12,13) = 変化なし)
+
+##### (B-3) n4 の入場 (12,13) から出口ゲートへの `aStar`
+
+| 経路 | 素(扉あり) | 扉を開けた後 |
+|---|---|---|
+| (12,13) → n6 行きゲート (18,3) | **到達不能**(扉 `closed`) | **16 歩** |
+| (12,13) → (18,4) = ゲートの 1 つ内側 | **15 歩** | 15 歩 |
+| (12,13) → n7 行きゲート (39,13) | **到達不能**(扉 `locked`) | 施錠なので `openDoorAt` では開かない = 到達不能のまま |
+| (12,13) → (38,13) = ゲートの 1 つ内側 | **26 歩** | 26 歩 |
+
+⭐ **これは畳む前から同じ**。基準 = `driver_spawn_not_on_gate` の (3g) が素で
+`{"to":"n7","at":[39,13],"wall":true,"door":true}` を**緑で**記録している。
+
+##### (B-4) 移設する 7 体の座標 — **確定(そのまま貼れる形)**
+
+⭐ **推奨 = 案A**。11 体を丸ごと注入して本番の門番で検算済み(下表)。
+
+    /* ★[#62] 旧 n1/n2/n3 の 7 体を参道へ移設。体数も種類も変えていない
+     *   (lizardWarrior x4 / lizardRaider x1 / lizardHunter x2)。
+     * ⚠ 全タイル マスク '.' かつ本番 isTileWall=false かつ入場から aStar 到達可能を実測済。 */
+    // ── 西群 (浅水の見張り) へ +3 = 旧 n1 の 3 体 ──
+    [19, 11, "lizardWarrior"], [20, 13, "lizardWarrior"], [21, 12, "lizardRaider"],
+    // ── 東群 (東の広場) へ +4 = 旧 n2 + 旧 n3 の 4 体 ──
+    [34, 13, "lizardWarrior"], [36, 11, "lizardHunter"],
+    [36, 13, "lizardWarrior"], [37, 12, "lizardHunter"],
+
+| at | type | マスク | 本番 `isTileWall` | 入場から aStar | 入場からの距離 |
+|---|---|---|---|---|---|
+| (19,11) | lizardWarrior | `.` | false | 9 歩 | **7.28 タイル / 699px** |
+| (20,13) | lizardWarrior | `.` | false | 8 歩 | 8.00 タイル / 768px |
+| (21,12) | lizardRaider | `.` | false | 10 歩 | 9.06 タイル / 870px |
+| (34,13) | lizardWarrior | `.` | false | 22 歩 | 22.00 タイル |
+| (36,11) | lizardHunter | `.` | false | 26 歩 | 24.08 タイル |
+| (36,13) | lizardWarrior | `.` | false | 24 歩 | 24.00 タイル |
+| (37,12) | lizardHunter | `.` | false | 26 歩 | 25.02 タイル |
+
+**既存の 2 群(実測。移設先を決める基準)**
+
+- 西群「浅水の見張り」= (20,12) lizardRaider / (21,13) lizardWarrior … 入場から 8.06 / 9.00 タイル
+- 東群「東の広場」= (34,11) lizardHunter / (35,13) lizardPriest … 入場から 22.09 / 23.00 タイル
+- 若い司祭 `swampNovice` (33,12)(⚠ 動かさない)… 入場から 21.02 タイル
+- **2 群の間隔 = 13.04〜15.13 タイル**(`DETECTION_RANGE` 1200px ÷ `TILE_SIZE` 96 = **12.5 タイル**)
+
+**11 体を注入した状態の検算(本番の門番)**
+
+    foeCount=11  types={lizardWarrior:5, lizardRaider:2, lizardHunter:3, lizardPriest:1}
+    badMask=[]  badWall=[]  unreachable=[]         ← マスク '#' 0 件 / 壁 0 件 / 到達不能 0 件
+    ringOpen=[]                                     ← sealRing に穴が開いていない
+    isolated=[[24,23]]  isolatedOutsideMidpoints=[] ← 孤立は down 辺の中点だけ (実害なし)
+    minDist(入場→最寄りの敵) = 699px (7.28 タイル) ≧ 672px
+    西群 5 体 vs 東群 6 体 の最短 = 13.00 タイル ( > 12.5 )
+    doors = gate-up(18,3) closed / gate-right(39,13) locked
+
+**代案(北の石段に伏兵を置く形)** — 西群 +3 を石段へ移すだけ。同じく検算済み
+(`badMask/badWall/unreachable/ringOpen` すべて 0、`minDist = 774px = 8.06 タイル`、西群 vs 東群 13.00 タイル):
+
+    [18, 5, "lizardWarrior"], [18, 6, "lizardWarrior"], [17, 6, "lizardRaider"],
+
+⭐ 絵の「祠へ登る石段」に伏兵が立つので §9-2 の体感が強くなる。
+⚠ ただし**別々の戦闘にはならない**(下記の崩れた点 3)。
+
+---
+
+### ⭐ 起草が崩れた点(実測で 7 件)
+
+1. **⭐ `--scenarios lizard-swamp` は素で 1 本赤くなる**(exit 1)。§2-7 は「内訳はこれで切り分けて取れる」
+   と書いたが、`(1z)` は **5 シナリオ全部を母集団に取る横断 assert** なので、絞ると bandits-forest が
+   消えて必ず落ちる。⇒ 切り分けには使えるが、**この 1 本は「絞ったせいの赤」**。素の 246/246 と混同しないこと。
+
+2. **⭐⭐⭐ `verify_swamp_lair` は「1 本も赤くならないはず」ではない — (5a) が `n4big` を逐語で凍結している。**
+   `tools/verify_swamp_lair.js:639` は
+   `sliceEntry(indexText, 'n4big: { src: "assets/room_lizard-swamp_n4_map.jpg"')` を
+   `BASELINE_REV = '079ff3a'` の同じ切り出しと**全文一致**で比べている(改行の格納形式だけ正規化)。
+   ⇒ **`gates:` を 1 行足した瞬間に (5a) が赤くなる**。
+   ⛔ 期待値を写経して緩めない。**基準 rev を #62 着手前のコミットへ進める**か、
+   凍結範囲を「マスク行だけ」へ言い直すこと(どちらにしたかを §12 に理由つきで書く)。
+
+3. **⭐⭐⭐ 「3 群目を既存 2 群から 13 タイル以上離す」は n4big では原理的に不可能。**
+   実測(本番の `isTileWall` / `aStar`):
+   - マスクが `.` のタイルは 205、そのうち**歩けるのは 109**(残りは sealRing の外周と扉)
+   - 「入場から 7 タイル以上 かつ ゲート以外 かつ 歩ける」= **81 タイル**
+   - そのうち `dG1 ≧ 13 かつ dG2 ≧ 13` = **6 タイルあるが 6 つとも `isTileWall = true`**
+     (全部 rect の外周 = sealRing。置けない)⇒ **実質 0**
+   - 総当たりで「互いに 12.5 タイル以上」の 3 つ組は **5 組**見つかるが、**5 組とも (24,23) を含む**。
+     (24,23) は down 辺の中点で、本番 aStar で**到達不能な孤立点**(`probe_swamp_map --bfs` の
+     `連結成分 = 3 [1,108,1]`)。敵を置くと `graph-spawn-on-gate` と同じ「倒せない敵」= クリア不能。
+     ⇒ **実質 0 組**。
+   ⭐ 一般形 = **廊下の長さが足りない**。入場の 7 タイル空けを引くと使える span は col 19〜38 の
+   **19 タイル**で、12.5 タイル間隔の 3 群には **25 タイル**要る。
+   ⇒ **本チケットで作れるのは 2 群まで**(西 5 体 / 東 6 体)。「11 体が一度に襲ってくる」は
+   これで回避できている(2 群の間隔 13.00 タイル > 12.5)。
+
+4. **⭐⭐ 受入 (2d)(2e)「出口ゲートまで本番の `aStar` で到達可能」は素では必ず false。**
+   出口ゲートのタイルには**閉じた扉 / 施錠扉**が立つので `isTileWall = true`(実測:
+   `gate-up(18,3)=closed` / `gate-right(39,13)=locked`)。⇒ assert は
+   「**扉を開けてから到達可能**」か「**ゲートの 1 つ内側のタイルへ到達可能**」へ言い直すこと。
+   基準 = `driver_spawn_not_on_gate` (3g) が素で `{"at":[39,13],"wall":true,"door":true}` を**緑で**記録している。
+
+5. **⚠ `verify_swamp_novice` の変異アンカー 2 本が、本チケットの編集面に逐語で乗っている**(#60 の型)。
+   素の実走は緑のまま `--negative` だけが exit 3 になるので、**着手前に必ず控える**:
+   - `oldn4` … `        n4big: { src: "assets/room_lizard-swamp_n4_map.jpg",`(先頭 8 スペース)
+   - `spawnonwall` … `              slots: [[20, 12, "lizardRaider"], [21, 13, "lizardWarrior"],`(先頭 14 スペース)
+   ⇒ **この 2 行はバイト単位で残す**。`gates` は n4big の**別の行**へ、移設した 7 体は
+   `slots:` の**続きの行**へ書く。(`density1` / `switchsplit` / `n4wipe` の 3 本は今回の編集面に無い)
+
+6. **⭐ n6 の `down` に `gates` を足す必要は無かった**(§2-3 の「既定のままで通る可能性が高い」が的中)。
+   (26,24) は本番の `isTileWall` で床、入場は (26,22)、祭壇まで aStar 20 歩。
+
+7. **⭐ `gates.up` を足すと副作用で「孤立点」が 1 つ減る。**
+   旧 up 中点 (24,3) がゲートでなくなり sealRing が塞ぐので、n4 の孤立は (24,3)(24,23) の **2 → (24,23) の 1** へ。
+   `verify_swamp_novice` (1f)(1f2) は「孤立は**辺の中点だけ**」という形なので**緑のまま**(実測で確認済)。
+
+⚠ 補足(数値の出所): `TILE_SIZE = 96`(`index.html:3421`)/ `DETECTION_RANGE = 1200`(`:17563`)
+⇒ **12.5 タイル**。索敵は `距離 < DETECTION_RANGE` **かつ** `hasLineOfSight`(`:18082`)の AND。
+代案(石段)の伏兵は、パーティが石段の口 (18,11) を通る瞬間に**距離 5〜7 タイル + LOS 開通**で
+必ず起きるため、西群と**同時に起きる**(= 3 群目にはならない)。東群からは完全に独立
+(15.1〜18.4 タイル / LOS なし)。
