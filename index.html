@@ -4120,6 +4120,35 @@
       try { return new URLSearchParams(window.location.search).get("swamplair") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[#62 沼地の畳み込み] 沼地を **8 ノード → 3 ノード**にして、卓上バトルマップ
+     *   3 枚 (参道 n4 / 祭壇 n6 / 族長の巣 n7) だけでシナリオ3 を完結させる配線の撤退スイッチ。
+     *   ?swampfold=0 で **畳む前の 8 ノード構成へ完全に戻る**
+     *   (n0 沼の渡し / n1 泥濘の道 / n2 朽ちた桟橋 / n3 沈んだ小舟 / n5 苔むした岩場 が戻り、
+     *    entry も n0 へ戻る)。
+     * ⭐ 起案は「7 列 x 6 行のタイル床に壁リングを立てただけの旧タイプの MAP は廃止」という
+     *   ユーザー決定 (2026-09-08 開発会議)。手本は廃坑 P8 (5 → 2) と森 #16 (8 → 1)。
+     * ⚠ 大部屋 3 枚そのものは**このスイッチでは戻らない**。それぞれ
+     *   ?swampmap=0 (n4) / ?swampcrypt=0 (n6) / ?swamplair=0 (n7) が担当する。
+     * ⚠⚠ **置き場所が SWAMP_LAIR_OFF の隣なのは同じ理由**。RUN (:4618 の即時評価) から
+     *   buildLizardSwampRun が呼ばれるので、そこより後で宣言すると一時的死角 (TDZ) で
+     *   ReferenceError になり、黙って従来の姿へ落ちる。
+     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?swamplair=0 と同じ扱い)。 */
+    const SWAMP_FOLD_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("swampfold") === "0"; }
+      catch (e) { return false; }
+    })();
+    /* ★[#62] 「沼地は畳まれているか」の**唯一の真偽**。3 箇所 (グラフの形 / 兼務の台帳 /
+     *   移設した 7 体) がすべてこれ 1 本を読む。
+     * ⚠⚠ **?swampmap=0 でも畳みを外す** (森 S2_FOLDED が ?banditmap=0 で外れるのと同じ理由)。
+     *   あちらは「#53 より前の姿へ戻る」退避口で、そのとき n4 は **7x6 の小部屋 (P6_MID)** に
+     *   戻る。畳みだけを残すと (a) 移設した 7 体の座標 (19..37, 11..13) が rect の外へ落ち、
+     *   (b) n4big に足した gates.up が引かれないので出口 (18,3) が rect の外に立つ、という
+     *   **どちらの版でもない不整合な状態**になる (lint の graph-gate-not-floor が鳴る)。
+     * ⚠ ?swampcrypt=0 / ?swamplair=0 は畳みを外さない。あちらが戻すのは n6 / n7 の**部屋の
+     *   幾何だけ**で、入場口はその部屋自身の辺の中点から引き直されるので畳みと両立する。
+     * ⚠ 派生はここ 1 箇所で作る。各所で `SWAMP_FOLD_OFF || SWAMP_MAP_OFF` と書き下すと、
+     *   片方を足し忘れた中間状態が生まれる。 */
+    const SWAMP_FOLDED = !SWAMP_FOLD_OFF && !SWAMP_MAP_OFF;
     /* ★[#16 シナリオ2 の畳み込み] 森を **8 ノード → 1 ノード**にして、卓上バトルマップ
      *   1 枚 (52x26) だけでシナリオ2 を完結させる配線の撤退スイッチ。?s2fold=0 で
      *   **畳む前の 8 ノード構成へ完全に戻る** (n0〜n6 の小部屋 / 分岐 / n6 の檻)。
@@ -4160,10 +4189,23 @@
      * ⚠⚠ **置き場所がここなのは TDZ 回避**。applyNodeKindExclusions は宣言より前の
      *   index.html:4502 (MAPDEF 構築直後) から呼ばれるので、4500 行台に const で置くと
      *   一時的死角で ReferenceError になる (2026-08-23 に実際に踏みかけた)。
-     * ⚠ 畳んだシナリオだけが載る。他 5 シナリオはこの表を 1 度も引かない。 */
-    const NODE_EXTRA_SPAWN_KINDS = S2_FOLDED
+     * ⚠ 畳んだシナリオだけが載る。畳んでいない 4 シナリオはこの表を 1 度も引かない。
+     * ⚠⚠ ★[#62] 三項のままでは 2 シナリオを同時に持てないので、**台帳を組み立てる形**へ
+     *   変えた。⛔ ただし **森の 3 行は 1 バイトも動かしていない** — driver_grid_s2 の変異
+     *   nosearchkind / nolootkind が `? { "bandits-forest": …` の行を**逐語で握っている**
+     *   ので、整形し直すと素は緑のまま --negative だけが exit 3 (アンカー腐敗) になる。 */
+    const NODE_EXTRA_SPAWN_KINDS = (() => {
+      const t = S2_FOLDED
       ? { "bandits-forest": { n7: ["search", "loot"] } }
       : {};
+      /* ★[#62] 沼を畳むと search (n2 朽ちた桟橋) と loot (n3 沈んだ小舟) が消えるので、
+       *   罠と玄室の宝箱の湧き口を n4 (蛇神の参道) へ兼務させる。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。
+       * ⚠ 畳んでいないとき (?swampfold=0 / ?swampmap=0) は載せない。旧構成では n2 が
+       *   search / n3 が loot を持っているので、n4 に兼務させると旧構成が別物になる。 */
+      if (SWAMP_FOLDED) t["lizard-swamp"] = { n4: ["search", "loot"] };
+      return t;
+    })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
      *   ?detour=0    … 台帳ごと無効 (矢印も宝箱も出ない = P8 と同じ盤面)
      *   ?detour=tour … ?autoplay / ?graph=auto でも未訪問スポットを選び続ける
@@ -5510,11 +5552,24 @@
          *   exits[].at が一致し、扉と矢印が同じタイルに立つ (:34249 の不変条件)。
          *   左辺の中点 (10,13) も同じ理屈で入場口になり、どちらも**絵の参道の上**に落ちる。
          *   ⛔ したがって gates は書かない (既定と同じ値を書くと出所が 2 つになる)。
+         *   ⚠⚠ ★[#62] **この「gates は書かない」は left / right のこと**。#62 で足したのは
+         *     **up ただ 1 本**で、理由は既定 (辺の中点) が絵の上では通れないから:
+         *     up の既定 = midC = floor((10+39)/2) = 24 → 絵ローカル col 14 →
+         *     マスク行 1〜6 は '#' (北の沼) なので、そこへ扉を立てても祠へ登れない。
+         *     ⭐ 絵の側は北の口を**既に持っている** (col 7-8 = 祠へ登る石段が行 0-7 を縦に貫通)
+         *     ので、gates.up でそこへ寄せる。手本は廃坑 n1 の gates: { left:…, up:… }。
+         *     ⚠ 副作用: 旧 up 中点 (24,3) はゲートでなくなり sealRing が塞ぐ
+         *       (= n4 の「孤立点」が (24,3)(24,23) の 2 から (24,23) の 1 へ減る。実害なし)。
          * 写像: 絵ローカル (col,row) + (10, 3) = global (森 n7big の "+ (10, 1)" と同じ書き方)。 */
         n4big: { src: "assets/room_lizard-swamp_n4_map.jpg",
              tileBounds: [3, 10, 23, 39], node: true,      // 21 行 x 30 列。⚠ 行が先
              sealRing: true,   /* 外周 1 タイルを通行不能に = 歩ける「壁抜けの帯」を作らない */
              outdoor: true,    /* 沼の参道は屋外。入った瞬間から盤面の全体が見えているのが正しい */
+             gates: { up: [8, 0] },   /* ★[#62] 北の口 = 祠へ登る石段の東列 (絵ローカル col 8 / 行 0)
+                                       *   → global (18,3)。⚠ 上の注記のとおり **up だけ**。
+                                       *   ⭐ 候補は col 7 / col 8 の 2 列で、どちらでも成立する
+                                       *     (本番の isTileWall / aStar で実測)。採らなかった側は
+                                       *     sealRing に塞がれるので、8 を採ると (17,3) が壁になる。 */
              /*  ★障害物 (21 行 x 30 列)。作法は森 n7big / 街道 road_ambush と同じ 5 規則。
               *   ⭐ **写経ではなく毎回この 5 つを絵に当て直した**結果:
               *   (1) 外周には '#' を書かない (描画のフェザー帯)。外周は sealRing が別に塞ぐ
@@ -37232,7 +37287,28 @@
      * 隠し要素 = 沼の守護神 (古代ハイドラ)。封印中は inactive + passiveNpc なので
      * n6 の「敵 0」制約と両立する (祭壇へ近づくと 3 択が開く)。 */
     function buildLizardSwampRun() {
-      return buildP6Run("lizard-swamp", "lizard-swamp", {
+      /* ★[#62] 旧 n1「泥濘の道」/ n2「朽ちた桟橋」/ n3「沈んだ小舟」に居た **7 体**を
+       *   参道 (n4) へ移設したぶん。⭐ **体数も種類も変えていない**
+       *   (lizardWarrior x4 / lizardRaider x1 / lizardHunter x2 = 旧 3 + 2 + 2)。
+       * ⚠ 全タイルを本番の isTileWall / aStar で確認済 (2026-09-08):
+       *   マスクは全部 '.'、壁 0 件、入場 (12,13) から全員へ到達可能、
+       *   入場からの最短は (19,11) の 7.28 タイル (699px) ≧ 7 タイル (672px)
+       *   = melee 交戦距離 400px より遠いので入場ナレの最中に乱戦が始まらない。
+       * ⭐ **2 群が上限**。西群 5 体 (col 19-21) と東群 6 体 (col 33-37) の最短は
+       *   13.00 タイルで DETECTION_RANGE 12.5 タイルを超えるので**別々の戦闘**になる。
+       *   ⛔ 3 群目は n4big では**原理的に置けない** — 入場の 7 タイル空けを引くと使える
+       *   span が col 19〜38 の 19 タイルしかなく、12.5 タイル間隔の 3 群には 25 タイル要る
+       *   (総当たりで見つかる 3 つ組は全部 down 辺の中点 (24,23) = 孤立点を含む)。
+       * ⚠ 畳んでいないとき (?swampfold=0 / ?swampmap=0) は 1 体も足さない。旧構成では
+       *   この 7 体は n1/n2/n3 に居るので、足すと二重に湧く。 */
+      const FOLD_MOVED_N4 = SWAMP_FOLDED
+        ? [/* ── 西群「浅水の見張り」へ +3 = 旧 n1 の 3 体 ── */
+           [19, 11, "lizardWarrior"], [20, 13, "lizardWarrior"], [21, 12, "lizardRaider"],
+           /* ── 東群「東の広場」へ +4 = 旧 n2 + 旧 n3 の 4 体 ── */
+           [34, 13, "lizardWarrior"], [36, 11, "lizardHunter"],
+           [36, 13, "lizardWarrior"], [37, 12, "lizardHunter"]]
+        : [];
+      const run = buildP6Run("lizard-swamp", "lizard-swamp", {
         n0: { name: "沼の渡し" },
         n1: { name: "泥濘の道",
               slots: [[34, 12, "lizardWarrior"], [34, 14, "lizardWarrior"],
@@ -37283,7 +37359,9 @@
                        * ⭐ inactive + passiveNpc なので heroAI の標的にならず
                        *   (findNearestAliveEnemy が inactive を飛ばす)、
                        *   isNodeSettled も passiveNpc を数えない = クリアを止めない。 */
-                      [33, 12, "swampNovice"]] },
+                      /* ★[#62] 畳んだときだけ、旧 n1/n2/n3 の 7 体がここへ続く
+                       *   (中身と検算は関数先頭の FOLD_MOVED_N4 の注記)。 */
+                      [33, 12, "swampNovice"]].concat(FOLD_MOVED_N4) },
         n5: { name: "苔むした岩場" },
         n6: SWAMP_CRYPT_OFF
           /* -- ?swampcrypt=0 の行き先 = 大部屋化より前の姿そのまま (7x6 / 絵なし / density 1) */
@@ -37343,6 +37421,49 @@
                *   行 9-10 の石畳をまっすぐ来れば必ず正面から対峙する。 */
               boss: [36, 12, "lizardChieftain"] },
       });
+      if (!SWAMP_FOLDED) return run;      // ?swampfold=0 / ?swampmap=0 = 8 ノードの旧構成
+      /* ★[#62] 8 ノード → 3 ノード。旧タイプの小部屋 (n0 沼の渡し / n1 泥濘の道 /
+       *   n2 朽ちた桟橋 / n3 沈んだ小舟 / n5 苔むした岩場 = 7x6 のタイル床) をノードごと廃止し、
+       *   卓上大部屋 3 枚だけでシナリオ3 を構成する。
+       *
+       *     n4 蛇神の参道 (start = entry)
+       *      ├ right → n7 族長の巣 (boss)         ← 本道
+       *      └ up    → n6 蛇神の祭壇 (行き止まり)  ← 隠し要素 (ハイドラ) への寄り道
+       *
+       * ⛔ **n4/n6/n7 の mapDef はここで組み直さない** — buildP6Run が作ったものを
+       *   そのまま取り出す。組み直すと「畳んだ版と畳んでいない版で幾何が違う」中間状態が
+       *   生まれ、#53 (verify_swamp_novice) / #58 (verify_swamp_lair) が測っている対象が
+       *   別物になる (森 #16 とまったく同じ理由)。
+       * ⚠ id は "n4"/"n6"/"n7" のまま。上記 2 本の SNAP_FN が id を名指ししており、
+       *   変えると 0 件ヒットで**偽の緑**になる。
+       * ⚠ n4 の kind は "start" (entry になるので)。kind:"boss" はグラフに**ちょうど 1 つ** =
+       *   n7 だけ (validate / lintRun がそれを要求する)。
+       * ⚠⚠ **exits の順は right → n7 が先**。?graph=auto と ?autoplay はどちらも
+       *   opts[0] を選ぶ (chooseExit / showCharChoice) ので、up を先にすると自動進行が
+       *   行き止まりの祭壇へ入ってボスに永久に到達しなくなる。
+       * ⭐ up の at は n4big の gates.up と**必ず同じ値** (18,3) にする。食い違うと
+       *   「矢印は絵の石段・扉は辺の中点」という開かない扉が生まれる。
+       * ⚠ n6 側に gates は要らない — 既定の down 辺の中点 (26,24) が絵の南の石段の上に
+       *   落ちており (本番の isTileWall で床)、入場は (26,22)、祭壇まで aStar 20 歩で届く。
+       * ⚠ n2 (search) と n3 (loot) が消えるので、罠と玄室の宝箱は NODE_EXTRA_SPAWN_KINDS が
+       *   n4 へ兼務を宣言している (この 2 つはセット)。
+       * ⚠ n5 の kind:"rest" (入室で全快) は**復活させない** (廃坑 P8 / 2026-09-08 ユーザー決定。
+       *   補填は難易度・XP の再調整チケットへ回す)。 */
+      const pick = (id) => run.nodes.find(n => n.id === id);
+      const n4 = pick("n4"), n6 = pick("n6"), n7 = pick("n7");
+      return {
+        entry: "n4",
+        nodes: [
+          { id: "n4", kind: "start", mapDef: n4.mapDef,
+            /* ⭐ right → n7 は buildP6Run が作ったものをそのまま持ち上げる (at = P6_RIGHT
+             *   [39,13] = n4big の右辺の中点。#53 がそう選んである)。 */
+            exits: n4.exits.concat([
+              { to: "n6", dir: "up", at: [18, 3],
+                hint: { text: "北の石段が、霧の向こうの祠へ続いている" } },
+            ]) },
+          n6, n7,
+        ],
+      };
     }
 
     /* ── シナリオ4「廃墟の砦 — オーク将軍ガロック」 ────────────────────────────
