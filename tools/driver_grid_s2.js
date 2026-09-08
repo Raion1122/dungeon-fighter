@@ -12,6 +12,9 @@
  *   ⑤ density:0 が効いて情景が 1 個も湧かない (絵に既に草も倒木も描かれているため)。
  *   ⑥ 他 4 シナリオの mapDef は 1 バイトも変わっていない (STEP3「配線だけ」の非退行)。
  *      加えて n0〜n6 (残影の獣 / 罠 / 宝箱 / 湧き水) も無改修。
+ *      ★[#62] 沼地 lizard-swamp は既定で 3 ノードへ畳まれたので、8 ノードの mapDef を
+ *      測る腕だけ **?swampfold=0** へ移した (#16 で §11/§12 を ?s2fold=0 へ移したのと同型)。
+ *      ⛔ golden は焼き直していない — 撤退腕は d1aef29 採取の値と 8/8 完全一致。
  *
  * ── 負のコントロール (同一 run に内包。配信をメモリ上で差し替える) ──────────────
  *   port   | mutate      | 注入する欠陥                                  | 赤くなるべき節
@@ -81,7 +84,18 @@ const BRIDGE = [[30, 15], [31, 15], [30, 16], [31, 16]];   // 唯一の渡り
 const RING_OPEN_OK = [GATE_LEFT, [35, 1], [35, 26], [61, 13]];
 const ZOOM_MIN = 0.25;
 /* 他 4 シナリオ = 上書きを 1 つも書いていない = STEP3 の既定値が 1 ビットも動いていない証拠 */
-const UNTOUCHED = ['lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
+const UNTOUCHED = ['orc-fort', 'undead-temple', 'dragon-lair'];
+/* ★[#62] 沼地は既定で **3 ノード (n4/n6/n7)** へ畳まれた。#16 (森) のときに §11/§12 を
+ *   ?s2fold=0 へ移したのと**同じ型**で、8 ノードの mapDef を測る腕だけ ?swampfold=0 へ移す。
+ * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が
+ *   撤退先として 1 バイトも変わらずに残る」は #58 の受入条件そのもので、畳んだ今も
+ *   要求され続ける。⛔ したがって --update-golden で焼き直さない
+ *   (2026-09-08 実測: ?swampfold=0 の腕は golden (d1aef29 採取) と 8/8 完全一致)。
+ * ⚠ 既定の腕が本当に畳まれていることは (8y) の装置 assert で直接見る。これが無いと
+ *   「沼が畳まれていなくても緑」= 腕の移設が免罪符になる。 */
+const SWAMP_SCEN = 'lizard-swamp';
+const SWAMP_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+const SWAMP_FOLDED_IDS = ['n4', 'n6', 'n7'];
 const S2_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -671,22 +685,40 @@ function ringOpenCount(m) {
 
   // ── §8 他 4 シナリオの mapDef が不変 ─────────────────────────────────────
   mark('§8 他 4 シナリオの mapDef が 1 バイトも変わっていない');
-  const others = await page.evaluate((scens) => {
+  const dumpDefs = (scens) => (p) => p.evaluate((ss) => {
     const out = {};
-    for (const s of scens) {
+    for (const s of ss) {
       const run = buildScenarioRun(s);
-      out[s] = {};
-      for (const nd of run.nodes) out[s][nd.id] = JSON.stringify(nd.mapDef);
+      out[s] = { ids: run.nodes.map(n => n.id), entry: run.entry, defs: {} };
+      for (const nd of run.nodes) out[s].defs[nd.id] = JSON.stringify(nd.mapDef);
     }
     return out;
-  }, UNTOUCHED);
+  }, scens);
+  const others = await dumpDefs(UNTOUCHED)(page);
   for (const s of UNTOUCHED) {
-    for (const id of Object.keys(others[s])) {
-      G.check(check, '(8-' + s + '/' + id + ') mapDef が golden と一致', s + '/' + id, others[s][id]);
+    for (const id of Object.keys(others[s].defs)) {
+      G.check(check, '(8-' + s + '/' + id + ') mapDef が golden と一致', s + '/' + id, others[s].defs[id]);
     }
+  }
+  /* ★[#62] 沼地の 8 ノードは ?swampfold=0 の腕で測り続ける (assert 本体も golden のキーも不変)。
+   * ⚠ 先に「既定の腕では本当に畳まれている」を装置 assert で見てから移す。 */
+  const swampOff = await bootPage(browser, PURE + '?swampfold=0', errsAll);
+  const swampNow = (await dumpDefs([SWAMP_SCEN])(page))[SWAMP_SCEN];
+  const swampOld = (await dumpDefs([SWAMP_SCEN])(swampOff))[SWAMP_SCEN];
+  check('(8y) 装置 assert: 既定の腕では ' + SWAMP_SCEN + ' が ' +
+        JSON.stringify(SWAMP_FOLDED_IDS) + ' の 3 ノードへ畳まれ entry=n4 (= 測る腕を移した理由が実在する)',
+        JSON.stringify(swampNow.ids) === JSON.stringify(SWAMP_FOLDED_IDS) && swampNow.entry === 'n4',
+        'ids=' + JSON.stringify(swampNow.ids) + ' entry=' + swampNow.entry);
+  check('(8y2) 装置 assert: ?swampfold=0 の腕では 8 ノード / entry=n0 が実在する',
+        JSON.stringify(swampOld.ids) === JSON.stringify(SWAMP_KEEP_NODES) && swampOld.entry === 'n0',
+        'ids=' + JSON.stringify(swampOld.ids) + ' entry=' + swampOld.entry);
+  for (const id of SWAMP_KEEP_NODES) {
+    G.check(check, '(8-' + SWAMP_SCEN + '/' + id + ') mapDef が golden と一致',
+            SWAMP_SCEN + '/' + id, swampOld.defs[id]);
   }
   /* ⚠ golden が「壊れた状態を焼き付けた」場合に備えて、同じ母集団が相互に異なることを要求 */
   G.distinct(check, '(8z) lizard-swamp の 8 ノードの mapDef が相互に異なる', 'lizard-swamp/');
+  await swampOff.close();
 
   // ══════════════════════════════════════════════════════════════════════════
   // §9 撤退スイッチ — **同じ assert 本体**を当てて赤になること

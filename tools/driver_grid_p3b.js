@@ -506,32 +506,67 @@ async function readNode(page) {
     // ══ §3c 他 5 シナリオは 1 部屋も開放しない (identity) ═════════════════════
     mark('§3c 屋外の絵を持たないシナリオでは 1 マスも開放しない');
     {
-      const rows = [];
+      /* ★[#16] シナリオ2 は 1 ノードへ畳まれ、**起点がそのまま outdoor の大部屋 n7** に
+       *   なった (52x26 = 1352 マス)。そこで「全部 0/0」という一様な期待値を
+       *   **シナリオごとの名指しの期待表** (OUTDOOR_ENTRY_EXPECT) へ置き換えた。
+       *
+       * ★[#62] その名指しの表そのものが**畳みのたびに腐る**と判明した。
+       *   #62 が沼地を 3 ノードへ畳んだ結果、起点が n4 = `n4big` (元から outdoor:true・
+       *   rect 21x30 = 630 マス) になり、(3i) は `lizard-swamp:1/630 ≠ 0/0` で、
+       *   (3i2) は `=== 1` に対して 2 本で赤くなった。
+       *   ⛔ 表へ `'lizard-swamp': '1/630'` と書き足し `=== 2` へ直すのは**写経**で、
+       *      F2〜F4 (砦 / 神殿 / 竜の巣の畳み) のたびに同じ日が来る。
+       *   ⇒ 期待値を**絵の側の元データから実行時に導く**。突き合わせる相手は
+       *      `ROOM_PAINTINGS_DEF[theme][key].outdoor` + 部屋 rect の面積 (マップ境界で
+       *      クランプするところまで実装の revealOutdoorRooms と同じ数え方)。
+       *      ⭐ これで「実装の答え (__outdoorRevealProbe)」と「絵の台帳から導いた答え」の
+       *        **2 経路の一致**になり、どちらか片方が壊れた日に必ず赤くなる。
+       * ⚠ 実装の `DFMapDef.paintingOutdoorFor()` は**使わない** — 実装の誤りを一緒に信じる。 */
+      const rows = [], want = [], notes = [];
+      let catOk = 0;
       for (const sc of OTHER_STAGES) {
         const p = await bootPage(browser, base, '?diag=1&intel=0', errs, { scen: sc });
         const r = await readNode(p);
+        const e = await p.evaluate(() => {
+          /* ⚠ classic script 直下の const は window に載らないので **裸の識別子**で読む。 */
+          const cat = (typeof ROOM_PAINTINGS_DEF !== 'undefined') ? ROOM_PAINTINGS_DEF : null;
+          if (!cat) return { cat: false };
+          let rooms = 0, tiles = 0; const keys = [];
+          for (const room of (MAPDEF.rooms || [])) {
+            const pg = room && room.painting;
+            if (!pg || !Array.isArray(room.rect)) continue;
+            const def = cat[pg.theme] && cat[pg.theme][pg.key];
+            if (!def || def.outdoor !== true) continue;
+            const r1 = Math.max(0, room.rect[0]), c1 = Math.max(0, room.rect[1]);
+            const r2 = Math.min(MAP_H - 1, room.rect[2]), c2 = Math.min(MAP_W - 1, room.rect[3]);
+            rooms++; tiles += Math.max(0, r2 - r1 + 1) * Math.max(0, c2 - c1 + 1);
+            keys.push(pg.theme + '/' + pg.key);
+          }
+          return { cat: true, rooms, tiles, keys,
+                   node: (typeof currentNodeId !== 'undefined' ? currentNodeId : null) };
+        });
+        if (e.cat) catOk++;
         rows.push(sc + ':' + r.outdoor.rooms + '/' + r.outdoor.tiles);
+        want.push(sc + ':' + (e.cat ? e.rooms + '/' + e.tiles : 'カタログ読めず'));
+        notes.push(sc + '@' + e.node + '=' + ((e.keys && e.keys.length) ? e.keys.join('+') : '屋外の絵なし'));
         await p.close();
       }
-      /* ★[#16] シナリオ2 は 1 ノードへ畳まれ、**起点がそのまま outdoor の大部屋 n7** に
-       *   なった (52x26 = 1352 マス)。「屋外の起点は廃坑 n0 の絵だけ」という前提は
-       *   ここで崩れる。
-       * ⚠ **緩めていない** — 「全部 0/0」という一様な期待値を、**シナリオごとの
-       *   名指しの期待値**へ置き換えた (0/0 のままだと畳みを見落とし、
-       *   `every(:0/0)` だと逆にシナリオ2 の 1352 マスを説明できない)。
-       *   ここが赤くなったら「どのシナリオの起点が屋外になったか」を必ず確かめること。 */
-      const OUTDOOR_ENTRY_EXPECT = {
-        'bandits-forest': '1/1352',   // ★[#16] 畳んだ n7 = 卓上バトルマップ 52x26
-        'lizard-swamp': '0/0', 'orc-fort': '0/0', 'undead-temple': '0/0', 'dragon-lair': '0/0',
-      };
-      const wantRows = OTHER_STAGES.map(sc => sc + ':' + OUTDOOR_ENTRY_EXPECT[sc]);
-      check('(3i) ★他 5 シナリオの起点の開放が契約どおり (屋外の起点はシナリオ2 の n7 だけ)',
-        rows.join(' ') === wantRows.join(' '), '実測 ' + rows.join(' ') + ' / 期待 ' + wantRows.join(' '));
-      /* ⚠ 母集団ガード: 0/0 でないものが**ちょうど 1 本**であること。
-       *   全部が非 0 になったら「outdoor が全シナリオへ漏れた」= 別の壊れ方。 */
-      check('(3i2) ★屋外の起点を持つのは 5 本中ちょうど 1 本',
-        rows.filter(s => !/:0\/0$/.test(s)).length === 1,
-        rows.filter(s => !/:0\/0$/.test(s)).join(' ') || '0 本');
+      check('(3i0) 装置 assert: 5 本すべてで絵の台帳 (ROOM_PAINTINGS_DEF) が読めた ' +
+        '(読めないと期待値が実装からの写経に化ける)',
+        catOk === OTHER_STAGES.length, catOk + '/' + OTHER_STAGES.length + ' 本');
+      check('(3i) ★他 5 シナリオの起点の開放が、絵の台帳から導いた期待値と 2 経路で一致する',
+        rows.join(' ') === want.join(' '),
+        '実装 ' + rows.join(' ') + ' / 台帳 ' + want.join(' ') + '  — ' + notes.join(' '));
+      /* ⚠ 母集団ガード。⛔ 旧「ちょうど 1 本」は畳みのたびに腐る定数だった。
+       *   ⭐ 言い直し = **両側の腕が実在する**こと (屋外の起点も、屋内の起点も 1 本以上)。
+       *   屋外が 0 本なら (3i) は「全部 0/0 = 全部 0/0」の自明な一致に落ちる。
+       *   屋内が 0 本なら「outdoor が全シナリオへ漏れた」= #16 が警戒した壊れ方。 */
+      const outdoorRows = rows.filter(s => !/:0\/0$/.test(s));
+      check('(3i2) ★母集団ガード: 屋外の起点を持つシナリオと持たないシナリオが**どちらも 1 本以上**ある ' +
+        '(⛔ 「ちょうど 1 本」の定数は撤去)',
+        outdoorRows.length >= 1 && outdoorRows.length < OTHER_STAGES.length,
+        '屋外の起点 ' + outdoorRows.length + '/' + OTHER_STAGES.length + ' 本: ' +
+        (outdoorRows.join(' ') || 'なし'));
       check('(3j) ★母集団の identity: 5 本すべて測れている (空振りしていない)',
         rows.length === OTHER_STAGES.length, rows.length + ' 本');
     }

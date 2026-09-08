@@ -72,9 +72,24 @@ const PORT = parseInt(arg('port', '9040'), 10);
  * ⚠⚠ **他の扉ドライバと違って orc-fort を使えない**。あちらは施錠 (全ノードに母集団がある) を
  *   測るが、隠し扉の候補は 1 シナリオに 2 枚しか無く、orc-fort はその両方が外れて
  *   **隠し扉 0 枚**になる (n6 の除外で母集団が消えた。実測: 素の orc-fort は hidden 0/7)。
- *   沼地 (lizard-swamp) は n1→n5 が隠れるので §1/§6 の母集団が立つ。⚠ 起点 n0 側には隠し扉が
- *   無い舞台を選んでいる = §2〜§5 が「自分で 1 枚隠す」前提を邪魔されない。 */
-const STAGE = 'lizard-swamp';
+ *   ⚠ 起点 (entry) 側には隠し扉が無い舞台を選ぶ = §2〜§5 が「自分で 1 枚隠す」前提を邪魔されない。
+ *
+ * ★[#62] **舞台を 1 本の名前で焼くのをやめ、起動時に台帳から導く**。
+ *   旧: `const STAGE = 'lizard-swamp';`(選定根拠 = 沼地は n1→n5 が隠れるので母集団が立つ)。
+ *   #62 が沼地を 3 ノードへ畳んだ結果、沼の扉は 2 枚・**隠し扉 0 枚**になり
+ *   (n4→n6 は WANT_NO_SECRET で除外 / n4→n7 は本道)、(1a)(3c)(3e)(5a)(5b)(6a) が赤くなった。
+ *   ⛔ 別の名前へ書き換えるだけでは F2〜F4 (砦 / 神殿 / 竜の巣の畳み) でまた同じ日が来る。
+ *   ⇒ §0b で候補を全部スキャンし、**下の 4 条件を満たす最初の舞台**を選ぶ。
+ *     ① 隠し扉が 1 枚以上立っている (§1(1a) / §6(6a) の母集団)
+ *     ② 扉が 4 枚以上ある (同上)
+ *     ③ **entry ノードに隠し扉が立っていない** (§2〜§5 が自分で 1 枚隠す前提)
+ *     ④ entry ノードの前進出口が 2 本以上ある (§2(2a) / §4 が 2 本使う)
+ *   2026-09-08 実測: goblin-mine 0/1 (除外) / bandits-forest 0/0 / lizard-swamp 0/2 /
+ *     orc-fort 0/7 / undead-temple 2/7 (⚠ ③ 違反 = n0/gate-down が hidden) /
+ *     **dragon-lair 1/7 (①〜④ すべて満たす = 旧沼地と同じ profile: hidden は n1→n5 の 1 枚だけ)**。
+ *   ⭐ 畳まれた沼地は §7 (6 シナリオ横断) が引き続き測る = 覆いは 1 つも減っていない。 */
+const STAGE_CANDIDATES = ['lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair', 'bandits-forest'];
+let STAGE = null;         // ★§0b が台帳から決める (⛔ ここに名前を焼かない)
 // 不変条件は 6 シナリオ全部で成り立たなければ意味が無い (§7)。
 const ALL_SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
                    'orc-fort', 'undead-temple', 'dragon-lair'];
@@ -110,8 +125,13 @@ function wantHidden(mapDefId, doorId) {
   return mulberry32(hashStr(String(mapDefId) + '/hidden/' + doorId))() < WANT_HIDDEN_CHANCE;
 }
 // P5 の規則 (発見後の遷移先を予言するのに要る)。⚠ あちらは **plain な node id** で引く。
-function wantLocked(nodeId, doorId) {
-  return mulberry32(hashStr(String(nodeId) + '/lock/' + doorId))() < WANT_LOCK_CHANCE;
+/* ⚠⚠ [#62 で修理] seed は **mapDef.id ("dragon-lair/n0")** であって素の node id ("n0") ではない
+ *   (実装 = doorLockedByRng / 契約 = driver_doors_p5 の同名関数と同じ)。旧版は
+ *   `wantLocked(currentNodeId, …)` と素の node id を渡しており、舞台が lizard-swamp/n0 の間だけ
+ *   **たまたま答えが一致していた** (どちらも closed)。舞台を替えた瞬間に (3c)(3e) が
+ *   `state=locked 期待=closed` で赤くなって露見した = 測定器側の欠陥。 */
+function wantLocked(mapDefId, doorId) {
+  return mulberry32(hashStr(String(mapDefId) + '/lock/' + doorId))() < WANT_LOCK_CHANCE;
 }
 
 /* ★不変条件の突き合わせ。scan (実装が全ノードで作った扉 + グラフの形) を受け、
@@ -436,6 +456,48 @@ const SCAN_FN = () => {
       allOk, detail.join(' '));
   }
 
+  // ── §0b 舞台の選定 (⛔ 名前を焼かず台帳から導く) ────────────────────────────
+  /* ★[#62] §1〜§6 が立つ舞台を実測から決める。畳み系のチケット (#16 の森 / #62 の沼 /
+   *   これから来る F2〜F4) が「その 1 本」を潰すたびに 6 本が赤くなるのを断つ。
+   * ⚠ 選定条件はドライバ側の要求そのもの (①②=母集団 / ③④=§2〜§5 の前提)。
+   *   条件を満たす舞台が 1 つも無ければ (0b) が赤くなる = 黙って空振りしない。 */
+  mark('§0b 舞台の選定 (台帳から導く)');
+  const STAGE_CENSUS = [];
+  {
+    for (const scen of STAGE_CANDIDATES) {
+      const errs = [];
+      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0', scen, errs);
+      const scan = await p.evaluate(SCAN_FN);
+      const fwd = await p.evaluate(() => {
+        const g = window.__graphRun;
+        return g.exits().filter(o => !o.back).length;
+      });
+      for (const e of errs) errsAll.push('§0b(' + scen + '): ' + e);
+      await p.close();
+      const I = invariantCheck(scan);
+      const entryNode = scan.nodes.find(n => n.id === scan.entry) || null;
+      const entryHidden = entryNode
+        ? entryNode.doors.filter(d => d.state === 'hidden').length : -1;
+      STAGE_CENSUS.push({
+        scen, nHidden: I.nHidden, nDoors: I.nDoors, entry: scan.entry, entryHidden, fwd,
+        ok: I.nHidden >= 1 && I.nDoors >= 4 && entryHidden === 0 && fwd >= 2,
+      });
+    }
+    const picked = STAGE_CENSUS.find(r => r.ok) || null;
+    /* ⚠ 条件を満たす舞台が無くても**打ち切らない**。負のコントロール nosecretroll
+     *   (隠し扉を 1 枚も立てなくする) はまさにこの状態を作るので、打ち切ると
+     *   「(1a)(6a)(7a) が赤くなる」という設計上の期待が観測できなくなる。
+     *   ⇒ (0b) を赤にしたうえで、**扉がいちばん多い舞台**へ退避して §1〜§7 を最後まで走らせる。 */
+    const fallback = STAGE_CENSUS.slice().sort((a, b) => b.nDoors - a.nDoors)[0] || null;
+    STAGE = picked ? picked.scen : (fallback ? fallback.scen : STAGE_CANDIDATES[0]);
+    const line = STAGE_CENSUS.map(r => r.scen + ':hidden' + r.nHidden + '/扉' + r.nDoors +
+      '/entry=' + r.entry + '(hidden' + r.entryHidden + '・前進' + r.fwd + ')' +
+      (r.ok ? '★' : '')).join(' ');
+    check('(0b) ★舞台が台帳から選べる (隠し扉 1 枚以上 / 扉 4 枚以上 / entry に隠し扉なし / entry の前進出口 2 本以上)',
+      !!picked, '選定=' + STAGE + (picked ? '' : ' ★条件を満たす舞台なし → 扉が最多の舞台へ退避') +
+      ' — ' + line);
+  }
+
   // ── §1 抽選 (決定論・RNG 非消費・不変条件) ────────────────────────────────
   mark('§1 隠し扉の抽選と不変条件 (' + STAGE + ')');
   {
@@ -566,7 +628,11 @@ const SCAN_FN = () => {
       try { await runRoomSearchCheck(); }
       finally { SkillCheck.resolveSkillCheck = orig; }
       const after = doorsForRender().find(x => x.id === d.id) || {};
-      return { d: { id: d.id }, nodeId: currentNodeId, roomIdx, party, calls,
+      return { d: { id: d.id }, nodeId: currentNodeId,
+               /* ★[#62] 施錠抽選の seed は mapDef.id。素の node id を返して比べると
+                *   舞台によって黙って外れる (旧版はそれで (3c)(3e) を偽の緑にしていた)。 */
+               mapDefId: ((RUN.byId[currentNodeId] || {}).mapDef || {}).id || null,
+               roomIdx, party, calls,
                state: after.state || null, blocked: isTileWall(d.tx, d.ty),
                exits: g.exits().map(o => o.to), target: target.to,
                saved: ((nodeState[currentNodeId] || {}).doorStates || {})[d.id] || null,
@@ -579,7 +645,7 @@ const SCAN_FN = () => {
   {
     const F = await searchProbe(false);
     const S = await searchProbe(true);
-    const wantNext = (S.d && S.nodeId) ? (wantLocked(S.nodeId, S.d.id) ? 'locked' : 'closed') : null;
+    const wantNext = (S.d && S.mapDefId) ? (wantLocked(S.mapDefId, S.d.id) ? 'locked' : 'closed') : null;
 
     check('(3a) 母集団ガード: 部屋の中に居て・PT が居て・探索判定が**ちょうど 1 回**振られた',
       !!F.d && F.roomIdx >= 0 && F.party >= 1 && F.calls === 1 &&

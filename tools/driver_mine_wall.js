@@ -593,25 +593,68 @@ function HEAVY_TABLE() {
         { name: 'graph0(単一マップ)', scen: 'goblin-mine', q: '?diag=1&intel=0&graph=0' },
         { name: 'minefold0(旧5ノード)', scen: 'goblin-mine', q: '?diag=1&intel=0&minefold=0' },
       ];
+      /* ★[#62] 「どの舞台で外周封鎖が効くか」を**名前で分岐するのをやめ、絵の台帳から導く**。
+       *
+       * 旧の形: `minefold0` だけ「変わること」を測り、**残り全部**は「1 マスも変わらない」。
+       *   その前提は「他 5 シナリオは開始ノードに絵が 1 枚も無い (entries=0)」だった。
+       *   ⇒ 畳み系のチケットが起点を大部屋 (= sealRing 付きの絵) へ置き換えるたびに崩れる:
+       *      #16 (森 n7 / HEAD でも赤いまま出荷されていた) → #62 (沼 n4 / 素=109 vs off=203)。
+       *   ⛔ lizard-swamp だけを例外表へ書き足すのは写経で、F2〜F4 でまた同じ日が来る。
+       *   ⛔ 期待値も緩めていない — 「変わらない」を「変わってよい」にしたのではなく、
+       *      **「絵が sealRing と blocked マスクを宣言しているノードでだけ変わる」**という
+       *      本来の不変条件へ言い直した (宣言していないのに変わったら今も赤くなる)。
+       *   ⚠ この言い直しの必然の帰結として、#16 由来で HEAD でも赤かった bandits-forest も
+       *      緑になる (期待値を緩めたのではなく、腐った前提を台帳由来の規則へ置き換えた結果)。
+       * ⚠ 判定は絵の側の元データ (ROOM_PAINTINGS_DEF[theme][key].sealRing / .blocked) から採り、
+       *   実装の答え (__paintBlockProbe().perEntry[].sealRing = A.sealed) とは (3b-z) で
+       *   **2 経路の一致**を要求する。片方だけが壊れた日に必ず赤くなる。 */
+      const SEAL_EXPECT = () => {
+        /* ⚠ classic script 直下の const は window に載らないので **裸の識別子**で読む。 */
+        const cat = (typeof ROOM_PAINTINGS_DEF !== 'undefined') ? ROOM_PAINTINGS_DEF : null;
+        if (!cat) return { cat: false };
+        let nSeal = 0; const keys = [];
+        for (const room of ((typeof MAPDEF !== 'undefined' && MAPDEF.rooms) || [])) {
+          const pg = room && room.painting;
+          if (!pg) continue;
+          const def = cat[pg.theme] && cat[pg.theme][pg.key];
+          if (!def) continue;
+          keys.push(pg.theme + '/' + pg.key +
+            (def.sealRing === true ? '(seal' + (Array.isArray(def.blocked) ? '+mask' : '・マスク無し') + ')' : ''));
+          if (def.sealRing === true && Array.isArray(def.blocked)) nSeal++;
+        }
+        return { cat: true, nSeal, keys };
+      };
       for (const c of cases) {
         const a = await bootPage(browser, PORT, c.q, errs, { scen: c.scen });
         const A = await a.evaluate(WALKABLE_TOTAL);
+        const E = await a.evaluate(SEAL_EXPECT);
         await a.close();
         const b = await bootPage(browser, PORT, c.q + '&paintring=0', errs, { scen: c.scen });
         const B = await b.evaluate(WALKABLE_TOTAL);
         await b.close();
-        if (c.name.indexOf('minefold0') === 0) {
+        const detail = '素=' + A.walkable + ' / off=' + B.walkable + ' ring=' + A.ring +
+          ' entries=' + A.entries + ' 台帳=' + (E.cat ? (E.keys.join('+') || '絵なし') : '読めず');
+        check('(3b-z) ' + c.name + ': 装置 assert — 絵の台帳が読め、sealRing の枚数が実装の答えと一致する',
+          E.cat === true && E.nSeal === A.sealed,
+          '台帳 ' + (E.cat ? E.nSeal : '読めず') + ' 枚 / 実装 ' + A.sealed + ' 枚 — ' + (E.cat ? E.keys.join('+') : ''));
+        if (E.cat && E.nSeal > 0) {
           /* ⚠ 旧 5 ノード構成の n1 も同じ絵 (paint:"n1") を使うので、**そちらにも効くのが正しい**
-           *   (外周の岩を歩ける欠陥は旧構成でも同じ)。ここだけは「変わること」を測る。 */
-          check('(3d) ' + c.name + ': 外周封鎖が効く (同じ絵なので旧構成でも直る)',
-            A.walkable < B.walkable && A.ring > 0,
-            '素=' + A.walkable + ' / off=' + B.walkable + ' ring=' + A.ring);
+           *   (外周の岩を歩ける欠陥は旧構成でも同じ)。sealRing を宣言した絵では「変わること」を測る。 */
+          check('(3d) ' + c.name + ': 外周封鎖が効く (絵が sealRing + blocked マスクを宣言している)',
+            A.walkable < B.walkable && A.ring > 0, detail);
         } else {
-          check('(3b) ' + c.name + ': 歩けるマス数が ?paintring=0 と 1 マスも変わらない',
-            A.walkable === B.walkable && A.ring === 0,
-            '素=' + A.walkable + ' / off=' + B.walkable + ' ring=' + A.ring + ' entries=' + A.entries);
+          check('(3b) ' + c.name + ': 歩けるマス数が ?paintring=0 と 1 マスも変わらない ' +
+            '(絵が sealRing を宣言していない)',
+            A.walkable === B.walkable && A.ring === 0, detail);
         }
       }
+      /* ⚠ 母集団ガード: 「変わる側」と「変わらない側」の**両方の腕が実在する**こと。
+       *   片側が 0 本になったら、上のループは片方の規則を一度も検査していない。 */
+      const sealedCases = results.filter(r => /^\(3d\) /.test(r.name)).length;
+      const plainCases = results.filter(r => /^\(3b\) /.test(r.name)).length;
+      check('(3b2) ★母集団ガード: 外周封鎖が効く舞台と効かない舞台がどちらも 1 本以上ある',
+        sealedCases >= 1 && plainCases >= 1,
+        '効く ' + sealedCases + ' 本 / 効かない ' + plainCases + ' 本 (計 ' + cases.length + ' 本)');
     }
     /* ★★マスクを持たない絵が母集団に居るケースを 1 つ必ず測る。
      * ⚠⚠ 上の 5 シナリオは**開始ノードに絵が 1 枚も無い** (entries=0 / paintings=0) ので、

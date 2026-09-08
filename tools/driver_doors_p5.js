@@ -60,9 +60,13 @@ const PORT = parseInt(arg('port', '9030'), 10);
 /* 舞台。⚠ 廃坑 (goblin-mine) は n1 が event でダイアログ待ちに入るので使わない
  *   (driver_doors_p2 / driver_doors_p8 / driver_graph_p7 と同じ判断)。 */
 const STAGE = 'orc-fort';
-/* §1x 専用の 2 舞台目。⚠ 廃坑 (goblin-mine) を避ける理由は上と同じ (n1 の event でダイアログ待ち)。
- *   lizard-swamp は driver_doors_p6 が本舞台として使っており、ブート経路が実測済み。 */
-const STAGE2 = 'lizard-swamp';
+/* §1x が測る舞台の**台帳**。⚠ 廃坑 (goblin-mine) を外す理由は上と同じ (n1 の event でダイアログ待ち)。
+ * ★[#62] 旧 `STAGE2 = 'lizard-swamp'` の 1 本固定をやめた。畳み系のチケット (#16 の森 /
+ *   #62 の沼 / これから来る F2〜F4) が来るたびに「その 1 本」の扉が減って母集団ガードが腐るため。
+ *   ⇒ 廃坑以外を全部測り、扉の枚数は**実測して台帳にする**(下限定数は書かない)。
+ *   2026-09-08 実測: orc-fort 7 / lizard-swamp 2 (畳み後) / undead-temple 7 /
+ *   dragon-lair 7 / bandits-forest 0 (#16 で 1 ノードへ畳み済) = 計 23 枚。 */
+const LOCK_STAGES = ['orc-fort', 'lizard-swamp', 'undead-temple', 'dragon-lair', 'bandits-forest'];
 // 「塞ぐか」の契約。⚠ 実装の doorBlocks を読まず**ここに書き下す** (通すのは open と broken だけ)
 const WANT_BLOCK = { closed: true, locked: true, open: false, broken: false, hidden: true };
 // 施錠の抽選率。⚠ 実装の DOOR_LOCK_CHANCE を読まずここに書き下す (実装が 0 になっても気づける)
@@ -396,12 +400,25 @@ async function bootPage(browser, url, scen, errs, opts) {
       await p.close();
       return R;
     };
-    const A = await collect(STAGE);
-    const Z = await collect(STAGE2);
+    /* ★[#62] 舞台を 2 つ手で選ぶのをやめ、**扉の台帳から導く**形へ言い直した。
+     *   ⛔ 旧: STAGE2 = 'lizard-swamp' 固定 + `common.length >= 4` の**下限定数**。
+     *      沼を 3 ノードへ畳んだ #62 で共通組が 1 へ落ちて (1x-a) が赤くなった。
+     *      下限を 1 へ下げるのは写経で、F2〜F4 (砦 / 神殿 / 竜の巣) の畳みのたびにまた腐る。
+     *   ⭐ 新: 廃坑以外の 5 舞台を全部測って台帳を作り、母集団ガードを
+     *      「**扉を 1 枚以上持つ舞台の全ペア**が (node id, door id) を 1 組以上共有する」
+     *      = 台帳から導かれる形にした。**下限定数は 1 つも書かない**。
+     *   ⭐ 規則検査 (1x-b) の母集団は 2 舞台 14 枚 → 5 舞台 **23 枚**へ増えた
+     *      (畳んだ後の沼の 2 枚もここで規則を検査される = 覆いが減っていない)。 */
+    const CENSUS = {};
+    for (const s of LOCK_STAGES) CENSUS[s] = await collect(s);
+    const doorCount = (s) => Object.keys(CENSUS[s].per)
+      .reduce((a, k) => a + CENSUS[s].per[k].length, 0);
+    const withDoors = LOCK_STAGES.filter(s => doorCount(s) > 0);
 
-    // ① 2 舞台とも「自分の mapDef.id」で書き下した規則どおりか
+    // ① 測った全舞台が「自分の mapDef.id」で書き下した規則どおりか
     const mism = [];
-    for (const R of [A, Z]) {
+    for (const s of LOCK_STAGES) {
+      const R = CENSUS[s];
       for (const nid of Object.keys(R.per)) {
         for (const d of R.per[nid]) {
           if (d.state !== (wantLocked(R.ids[nid], d.id) ? 'locked' : 'closed')) {
@@ -410,26 +427,51 @@ async function bootPage(browser, url, scen, errs, opts) {
         }
       }
     }
-    // ② 同じ (node id, door id) で state が違う組
-    const common = [], diff = [];
-    for (const nid of Object.keys(A.per)) {
-      if (!Z.per[nid]) continue;
-      for (const d of A.per[nid]) {
-        const e = Z.per[nid].find(x => x.id === d.id);
-        if (!e) continue;
-        common.push(nid + '/' + d.id);
-        if (e.state !== d.state) diff.push(nid + '/' + d.id + ':' + d.state + '≠' + e.state);
+    // ② 扉を持つ舞台の全ペアで「同じ (node id, door id) なのに state が違う組」を数える
+    const pairs = [];
+    for (let i = 0; i < withDoors.length; i++) {
+      for (let j = i + 1; j < withDoors.length; j++) {
+        const A = CENSUS[withDoors[i]], Z = CENSUS[withDoors[j]];
+        let common = 0; const diff = [];
+        for (const nid of Object.keys(A.per)) {
+          if (!Z.per[nid]) continue;
+          for (const d of A.per[nid]) {
+            const e = Z.per[nid].find(x => x.id === d.id);
+            if (!e) continue;
+            common++;
+            if (e.state !== d.state) diff.push(nid + '/' + d.id + ':' + d.state + '≠' + e.state);
+          }
+        }
+        pairs.push({ a: withDoors[i], z: withDoors[j], common, diff });
       }
     }
-    check('(1x-a) 母集団ガード: 2 舞台に共通する (node id, door id) が 4 組以上ある',
-      common.length >= 4, STAGE + ' vs ' + STAGE2 + ' で共通 ' + common.length + ' 組');
-    check('(1x-b) ★2 舞台とも「mapDef.id + door id」の規則どおりに施錠されている',
+    const noCommon = pairs.filter(p => p.common === 0);
+    const withDiff = pairs.filter(p => p.diff.length > 0);
+    const totalDiff = pairs.reduce((a, p) => a + p.diff.length, 0);
+    const censusLine = LOCK_STAGES.map(s => s + ':' + doorCount(s) + '枚').join(' / ');
+
+    check('(1x-z) 装置 assert: 扉を 1 枚以上持つ舞台が 2 つ以上ある (ペア比較が成立する)',
+      withDoors.length >= 2, '台帳 ' + censusLine);
+    check('(1x-a) 母集団ガード: 扉を持つ舞台の全ペアが (node id, door id) を 1 組以上共有する ' +
+      '(⛔ 下限定数は撤去し台帳から導出)',
+      pairs.length > 0 && noCommon.length === 0,
+      'ペア ' + pairs.length + ' 組 / 共通 0 のペア ' + noCommon.length +
+      (noCommon.length ? ': ' + noCommon.map(p => p.a + 'x' + p.z).join(' ') : '') +
+      ' / 台帳 ' + censusLine);
+    check('(1x-b) ★測った ' + LOCK_STAGES.length + ' 舞台すべてで「mapDef.id + door id」の規則どおりに施錠されている',
       mism.length === 0,
-      '食い違い ' + mism.length + ' 枚' + (mism.length ? ': ' + mism.slice(0, 4).join(' ') : ''));
+      '扉 ' + LOCK_STAGES.reduce((a, s) => a + doorCount(s), 0) + ' 枚 / 食い違い ' + mism.length +
+      ' 枚' + (mism.length ? ': ' + mism.slice(0, 4).join(' ') : ''));
     check('(1x-c) ★★施錠される扉がシナリオごとに違う (seed に mapDef.id が入っている証明)',
-      diff.length >= 1,
-      '違う組 ' + diff.length + '/' + common.length +
-      (diff.length ? ': ' + diff.slice(0, 3).join(' ') : ' ← 素の node id へ退行している疑い'));
+      totalDiff >= 1,
+      '違う組 ' + totalDiff + ' / 共通 ' + pairs.reduce((a, p) => a + p.common, 0) +
+      (totalDiff ? ': ' + (withDiff[0] ? withDiff[0].diff.slice(0, 3).join(' ') : '')
+                 : ' ← 素の node id へ退行している疑い'));
+    check('(1x-c2) ★★共通組を持つ舞台ペアの過半で state が食い違う ' +
+      '(素の node id へ退行すると 0 ペアになる)',
+      withDiff.length * 2 > pairs.length,
+      '食い違うペア ' + withDiff.length + '/' + pairs.length + ' — ' +
+      pairs.map(p => p.a + 'x' + p.z + ':' + p.diff.length + '/' + p.common).join(' '));
   }
 
   // ── §2 locked は塞ぐ / 退避スイッチ ?locks=0 ──────────────────────────────
