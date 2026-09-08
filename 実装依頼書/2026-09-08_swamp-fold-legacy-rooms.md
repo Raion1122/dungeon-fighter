@@ -601,3 +601,251 @@ aStar 14 歩・開後 15 歩)。**どちらでもよいので依頼書の `[8, 0
 代案(石段)の伏兵は、パーティが石段の口 (18,11) を通る瞬間に**距離 5〜7 タイル + LOS 開通**で
 必ず起きるため、西群と**同時に起きる**(= 3 群目にはならない)。東群からは完全に独立
 (15.1〜18.4 タイル / LOS なし)。
+
+---
+
+### 12-1. 着地の要約(dev-loop 5 項目)
+
+| 項目 | 内容 | commit |
+|---|---|---|
+| 1 | 着手前の基準採取 + 幾何の実測(`index.html` は未改変) | `cbfb4e6` |
+| 2 | STEP1〜4 の本実装 + changelog | `fc3dd60` |
+| 3 | 受入 `tools/verify_swamp_fold.js`(新規・base **10181**) | `11d052a` |
+| 4 | 依頼書が名指しした既存 golden 4 本の言い直し + 測定器の修理 3 件 | `365ab98` |
+| 5 | 依頼書の母集団リスト**外**で赤くなった 5 本の言い直し | `2d147e5` |
+| 5 | 本節(§12)+ 台帳 `実装依頼書/README.md` の更新 | 本行を書いたコミット |
+
+**実装の中身**(§4〜§7 のとおり + 実測で変えた点):
+
+- `SWAMP_FOLD_OFF`(`?swampfold=0`)を `SWAMP_LAIR_OFF` の隣に新設。
+  ⚠ ただし **単独では成立せず**、`SWAMP_FOLDED = !SWAMP_FOLD_OFF && !SWAMP_MAP_OFF` の
+  派生を挟んだ(§12-2 の崩れ 8。`?swampmap=0` で n4 が 7x6 へ戻ると移設 7 体も出口も rect の外へ落ちる)。
+- `NODE_EXTRA_SPAWN_KINDS` を 2 シナリオ同時に持てる形へ組み替え(森のぶんは 1 ビットも変えていない)。
+- `ROOM_PAINTINGS_DEF["lizard-swamp"].n4big` へ `gates: { up: [8, 0] }` を 1 行追加。
+- `buildLizardSwampRun()` を **n4(entry・start)→ [0] right→n7(boss) / [1] up→n6(行き止まり)** の 3 ノードへ。
+  ⚠ **exits の順そのものが仕様**(`chooseExit` は `opts[0]` を取るので `right→n7` を先に置かないと
+  自動進行がボスへ永久に到達しない)。
+
+### 12-2. ⭐⭐⭐ 起草が崩れた点 — 通算 **29 件**
+
+⭐ このリポでは「崩れた主張を数えて残す」ことが受入の一部。**1〜7 は §12-0**(項目1 の実測)。
+以下はその続き。
+
+### 項目2 の本実装で崩れた 8 件(8〜15)
+
+8. ⭐⭐⭐ **§4「4 本のスイッチは独立」は成立しない** — `?swampmap=0` で n4 が 7x6(`P6_MID`)へ戻るため、
+   畳みだけ残すと移設 7 体も出口 (18,3) も **rect の外へ落ちる**。⇒ 森と同型の派生
+   **`SWAMP_FOLDED = !SWAMP_FOLD_OFF && !SWAMP_MAP_OFF`** を挟んだ。
+9. ⭐⭐⭐ **exits の順そのものが仕様** — `chooseExit` は `RUN.auto` でも `?autoplay` でも **`opts[0]`**。
+   `up→n6`(行き止まり)を先に置くと**自動進行がボスへ永久に到達しない**。**`right→n7` を先**に置く。
+10. ⭐⭐⭐ **受入 (1d)「console に `[graph]` 警告が出ない」は語で拾うと必ず赤くなる** —
+    `[graph] 分岐グラフで起動します` は **console.log の成功行**。⇒ `m.type()` で warning/error に絞る。
+11. ⭐⭐⭐ **`driver_graph_p6` は赤で済まず FATAL(exit 9)で死ぬ**(`:468` が `byId.n0.slots` を読む)。
+    ⇒ 直すまで **orc-fort / undead-temple / dragon-lair が 1 本も測れない** = 非退行の空白地帯。
+12. ⭐⭐⭐ **§8 の母集団 6 本では足りない** — 和集合で数えると **39 本**。リスト外から新規の赤が **5 本**。
+13. **§2-6「畳むと消えるもの」に隠し扉が抜けている** — 畳んだ沼の**隠し扉は 0 枚**になる
+    (唯一の行き止まり n4→n6 が `WANT_NO_SECRET` で除外)。`driver_doors_p6` の舞台選定の根拠が消える。
+14. §2-7「`verify_swamp_lair` は 1 本も赤くならないはず」→ **(5a) が赤**(項目1 の予告どおり)。
+15. 負のコントロールに **`?swampmap=0` との組み合わせ**が要る(片方だけ効いた中間状態を検出できない)
+    ⇒ 変異 `mapoff` を追加(§8 の表には無かった 7 本目)。
+
+### 項目3(受入の実装)で崩れた 5 件(16〜20)
+
+16. ⭐⭐⭐ **lint の error は「`RUN` を `null` にして単一マップへ退避させる」**(`index.html:4703`)。
+    ⇒ `graph-spawn-on-gate` や entry 不在のような欠陥は **assert 1 本でなく 25 本が一斉に赤くなる**。
+    §8 (1d) が想定した「1 本が赤くなる」ではない。⇒ golden の赤を読むときは
+    **「グラフの中身が違う」と「RUN そのものが落ちた」を必ず切り分ける**。
+17. ⭐⭐⭐ **`START_TX/START_TY` は「パーティが立つ場所」ではない** — `buildNode` が書く `MAPDEF.start`
+    そのもので、`placeNodeParty("up")` で別の縁から入っても**動かない**。実際の入場地点は
+    **`playerX/playerY`**(`nodeGateTile`→`NODE_ENTRY_INSET`→`snapToWalkable` の結果)。
+18. ⭐⭐ **§12-0 の「罠 8 / 玄室宝箱 6」は再現しない数字** — SNAP_FN 経由で n4 を組み直すと **罠 4 / 宝箱 3**。
+    8/6 は「起動時の初回ビルド」限定の値。⇒ **数を焼かず `>0` と対照腕の `0`** で測る。
+19. **§8 (5b)「4 本のスイッチが独立」は 3 本に分解が要る** — `?swampcrypt=0` / `?swamplair=0` は
+    畳みを外さない(3 ノード / entry=n4 のまま)。畳みに干渉するのは **`?swampmap=0` だけ**。
+20. **`?swampmap=0` の n4 の `paint` は `null` ではなく `"n4"`**(旧在庫の小さい床絵)。
+
+### 項目4(依頼書が名指しした 4 本)で崩れた 4 件(21〜24)
+
+21. ⭐⭐⭐ **§8「既存 golden の非退行」に挙げた 6 本では足りない** — 「機能の語」+「導線の語」の
+    和集合で **39 本**。リスト外から新規の赤が **5 本**出た(= 項目5 の仕事)。
+22. **`verify_swamp_novice` の赤の理由が §8 の予想と違う** — 「n4 に敵を足すので体数の assert が
+    赤くなる」ではなく、**(3e) の母集団ガード `scanned >= 30`**(6 シナリオの全ノードを数えており、
+    沼が 8→3 ノードになった時点で 30 を割った)。⛔ 29 へ下げるのは写経で F2〜F4 でまた腐る
+    ⇒ **下限を撤去して台帳から導出**へ言い直した。
+23. ⭐⭐⭐ **`verify_swamp_lair` (5a) の基準 rev は進めてはいけない** — 進めるとチケット 1 本ごとに
+    守る時間幅がリセットされ、#58 の「隣の領分を巻き添えにしていない」という主張が消える。
+    ⇒ 逐語全文凍結を**「絵の幾何」へ言い直し**(src / tileBounds / node / sealRing / outdoor /
+    マスク 21 行)+ **(5a2) を新設**(`079ff3a` から増えたキーは `gates` ちょうど 1 つ・減ったキーは 0)。
+24. ⭐⭐⭐ **測定器が #58 以来腐っていた(#62 の退行ではない)** —
+    `verify_swamp_novice --negative` は **exit 3 で死んでおり**、変異 `sealoff` のアンカー
+    `sealRing: true, /* 外周 1 タイル…` が `index.html` に **3 箇所**あって空振りし、
+    **`MUT_ORDER` の sealoff 以降 4 本(sealoff / switchsplit / n4wipe / nonode)が
+    一度も走っていなかった**。n4big にしか無い `outdoor` 行へ張り替えて 4 本とも実走・命中。
+    加えて変異 `anynode` は (3e) の母集団ガード落ちで**偽陽性に化けていた**ので実差分で赤くなる形へ。
+
+### 項目5(リスト外の 5 本)で崩れた 5 件(25〜29)
+
+25. ⭐⭐⭐ **`driver_grid_s2` に `--update-golden` は不要だった。** 依頼は「golden の差分を 1 件ずつ
+    読んでから焼き直せ」だったが、実測すると **`?swampfold=0` の腕は golden(`d1aef29` 採取)と
+    lizard-swamp 8 ノード**すべて完全一致**。⇒ #16 が §11/§12 を `?s2fold=0` へ移したのと同じ
+    **腕の移設**だけで済み、`tools/goldens/grid_s2.json` は **1 バイトも変えていない**。
+26. ⭐⭐⭐ **`driver_doors_p6` の移設先「undead-temple が唯一の候補」は誤り。**
+    実測すると **dragon-lair も (1a) を満たす**(hidden 1/7)。さらにドライバ `:71-76` が明記する
+    選定条件「**entry 側に隠し扉が無い舞台**」(§2〜§5 が自分で 1 枚隠す前提)を満たすのは
+    **dragon-lair だけ** — undead-temple は **n0/gate-down が hidden** で条件違反。
+    dragon-lair は旧沼地と profile が完全一致(hidden は n1→n5 の 1 枚だけ / entry は素通し)。
+27. ⭐⭐ **`driver_doors_p6` の `wantLocked` が素の node id を seed にしていた**(実装は `mapDef.id`)。
+    舞台が `lizard-swamp/n0` の間だけ**たまたま答えが一致**しており、舞台を替えた瞬間に
+    (3c)(3e) が `state=locked 期待=closed` で赤くなって露見した。**#62 の退行ではなく測定器の欠陥**。
+28. **`driver_doors_p5 (1x-a)` の腐りは「下限 4」だけが原因ではない** — `STAGE2 = 'lizard-swamp'` の
+    **1 本固定**も同じ根。⇒ 下限定数を撤去したうえで、廃坑以外の 5 舞台の扉台帳から
+    「扉を持つ舞台の**全ペア**が (node id, door id) を 1 組以上共有する」を導出する形へ。
+29. ⚠ **`driver_mine_wall` の「57/58 が基準・#16 由来の赤は別チケットの領分」は成り立たない** —
+    bandits-forest の赤と lizard-swamp の赤は**同一の腐り**(「他 5 シナリオは開始ノードに絵が
+    1 枚も無い」という前提が畳みで死ぬ)。lizard-swamp だけ例外表へ書き足すのは写経なので、
+    判定を絵の台帳(`sealRing` + `blocked` マスクの宣言)から導く形へ言い直した。
+    **その必然の帰結として #16 由来の赤も緑になった**(期待値を緩めたのではない)。
+
+### 12-3. 測定器の欠陥と修理(#62 が触った範囲の外も含む)
+
+| # | 欠陥 | いつから | 修理 |
+|---|---|---|---|
+| 1 | `verify_swamp_novice --negative` が **exit 3** で停止し、変異 4 本(sealoff / switchsplit / n4wipe / nonode)が**一度も走っていなかった** | **#58 以来** | アンカーを `index.html` に 3 箇所ある `sealRing: true, …` から、n4big にしか無い `outdoor` 行へ張り替え。4 本とも実走・命中 |
+| 2 | 同ドライバの変異 `anynode` が (3e) の母集団ガード落ちで**偽陽性**に化けていた | #58 以来 | 実差分で赤くなる形へ |
+| 3 | `driver_graph_p6` が畳みで **FATAL(exit 9)**。orc-fort / undead-temple / dragon-lair が 1 本も測れない | #62 で顕在化 | `:468` の `byId.n0` 前提を直し、lizard-swamp を `?swampfold=0` の腕へ移設。246 → **247** |
+| 4 | `driver_doors_p6` の `wantLocked` が **素の node id** を seed にしていた(実装は `mapDef.id`) | P6 出荷時から | `mapDef.id` を返させて突き合わせ(§12-2 の 27) |
+| 5 | `driver_doors_p5 (1x-a)` / `verify_swamp_novice (3e)` / `driver_spawn_not_on_gate` の **下限定数** | 畳みのたびに腐る構造 | 3 本とも**撤去して台帳から導出** |
+| 6 | `driver_grid_p3b (3i)(3i2)` の**名指しの期待表**と `=== 1` | #16 が作った時点から | 絵の台帳(`outdoor` + rect 面積)から導出し、実装の `__outdoorRevealProbe` と **2 経路**で突き合わせ |
+| 7 | `driver_mine_wall (3b)` の「他 5 シナリオは絵を持たない」前提 | #16 以来(HEAD でも 1 本赤) | 絵の台帳(`sealRing` + `blocked`)から分岐を導出 |
+
+⭐ **一般解 =「母集団の下限や舞台の名前を定数で焼く assert は、畳み系のチケットが来るたびに必ず腐る。
+下げる/書き換えるのではなく、台帳から導出する形へ言い直すこと。」**(#62 で **6 本**を同じ型で直した)
+
+### 12-4. 撤退スイッチの実際の姿
+
+| スイッチ | 畳みを外すか | 実測 |
+|---|---|---|
+| **`?swampfold=0`** | ✅ 外す | **8 ノード / entry=n0**。旧 n0〜n5 が戻る |
+| ⚠ **`?swampmap=0`** | ✅ **外す**(依頼書は「外さない」と書いていた) | n4 が 7x6(`P6_MID`)へ戻るので `SWAMP_FOLDED` が false になり、畳みも同時に外れる |
+| `?swampcrypt=0` | ❌ 外さない | 3 ノード / entry=n4 のまま(n6 の絵だけ戻る) |
+| `?swamplair=0` | ❌ 外さない | 3 ノード / entry=n4 のまま(n7 の絵だけ戻る) |
+
+### 12-5. 残った宿題 = 実機体感(依頼書 §9 の 6 項目)
+
+⚠ ローカルは **http 起動が必須**(`file://` では音が出ない)。⛔ ここは自動検証で代替できない。
+
+1. 沼地へ出発 → **いきなり参道(大部屋)から始まる**か。タイル床の小部屋を一度も通らないか
+2. 参道の**北の石段が「祠へ続く道」に見える**か(矢印と扉がその上に立つか)
+3. 祭壇へ入ったとき、**南の石段から入って自然か**(背中側から入る形になる)
+4. 参道の敵 11 体が**一度に襲ってこない**か
+   ⚠ 3 群は**原理的に不可能**と実測済み(§12-0 の崩れ 3)。**2 群(西 5 / 東 6・間隔 13.00 タイル)が上限**
+5. 罠と宝箱が参道で出るか
+6. **走行時間**が短くなった体感(8 部屋 → 3 部屋)
+
+⭐ ⛔ 難易度・XP の再調整は**本チケットの範囲外**(#61 の 4 人化と `rest` 消失と部屋減が同時に効くので、
+合算してから 1 度で測る = §11 のとおり)。
+
+### 12-6. 受入 `tools/verify_swamp_fold.js`(新規・base **10181**)
+
+- **素 30/30 PASS(exit 0)**
+- **`--negative` 変異 7/7 命中・空振り 0**(すべて `→ OK (検出できた)`):
+
+| 変異 | 期待した赤 | 実際に命中 |
+|---|---|---|
+| `nofold` | `0a` `1a` `1b` `1c` | 4/4(波及して 11 本が赤) |
+| `nogate` | `2a` `2e` | 2/2 |
+| `nokinds` | `3d` | 1/1 |
+| `dropfoes` | `3a` `5a` | 2/2 |
+| `spawnongate` | `1d` `3c` | 2/2(⭐ lint error で **25 本が一斉に赤**。§12-2 の 16) |
+| `entryn0` | `0a` `1a` | 2/2(同上 25 本) |
+| ⭐ `mapoff`(§8 の表に無かった 7 本目) | `5c` | 1/1 |
+
+- **ポート台帳**: **10181 を `verify_swamp_fold` が占有**(変異 10182〜10188)。
+  ⭐ **次の新規ドライバは 10201 以降**(10201 / 10203 / 10205 は #62 の使い捨てプローブが一時使用)。
+
+### 言い直した受入節(依頼書 §8 → 実際に測れる形へ)
+
+- **(2d)(2e)**: ゲートには `gate-up`(closed)/ `gate-right`(**locked**)が立つので素では必ず到達不能
+  ⇒ 「1 つ内側へ到達(15 歩 / 26 歩)」+「`openDoorAt` で開けた後はゲートへ到達(16 歩)」へ。
+- **(1d)**: `m.type()` で **error / warning に絞る**(`[graph] 分岐グラフで起動します` は成功ログ)。
+- **(3a) の 3 群** → **(3f)「群が 2 つで群間 > `DETECTION_RANGE`」**(実測 群=[5,6] / 13.00 > 12.5)。
+- **(5b) の「4 本は独立」** → (5b) 大部屋 3 枚 / **(5c) `?swampmap=0` は畳みと連動** /
+  (5d) crypt・lair は無干渉、の 3 本へ。
+
+### 12-7. 母集団の非退行(2026-09-08 / 全部**直列**で実走。並列は偽の赤を生む)
+
+### (A) 依頼書 §8 が名指しした 6 本 + 受入 + 項目4 が直した 4 本
+
+| ドライバ | 着手前 | 着地後 | exit |
+|---|---|---|---|
+| `node tools/driver_graph_p6.js` | 246/246 | **247/247** | 0 |
+| `node tools/verify_swamp_novice.js` | 33/33 | **33/33** | 0 |
+| `node tools/verify_swamp_novice.js --negative` | ⛔ **exit 3(#58 以来死んでいた)** | **14/14 命中・空振り 0** | 0 |
+| `node tools/verify_swamp_lair.js` | 25/25 | **26/26**((5a2) 新設) | 0 |
+| `node tools/verify_swamp_lair.js --negative` | 8/8 | **10/10 命中・空振り 0**(`n4mask` / `n4key` 新設) | 0 |
+| `node tools/driver_spawn_not_on_gate.js` | 51/51 | **55/55**(母集団 38→**46 ノード** / 112→**128 体**) | 0 |
+| `node tools/verify_swamp_fold.js` | — | **30/30** | 0 |
+| `node tools/verify_swamp_fold.js --negative` | — | **7/7 命中・空振り 0** | 0 |
+| `node tools/driver_graph_p7.js` | 60/60 | **60/60** | 0 |
+| `node tools/driver_paint_blocked.js` | 65/65 | **65/65** | 0 |
+
+### (B) 依頼書の母集団リスト**外**で赤くなった 5 本(項目5(A) `2d147e5` で言い直し)
+
+| ドライバ | 着手前(HEAD) | 畳んだ直後 | 言い直し後 | 直し方 |
+|---|---|---|---|---|
+| `driver_grid_s2` | 緑 | **104/106 exit 1** | **113/113 exit 0** | **腕の移設**(§8 の lizard-swamp を `?swampfold=0` で測る)。⭐ **golden は 1 バイトも焼き直していない** — 撤退腕は `d1aef29` 採取の値と **8/8 完全一致**。装置 (8y)(8y2) を新設 |
+| `driver_doors_p5` | 30/30 | **29/30** | **32/32 exit 0** | `common.length >= 4` の**下限定数**と `STAGE2` の 1 本固定を撤去し、5 舞台の扉台帳から導出。規則検査の母集団 14 枚 → **23 枚** |
+| `driver_doors_p6` | 39/39 | **33/39** | **40/40 exit 0** | 舞台名の直書きをやめ **§0b で台帳から選定**(実測で `dragon-lair`)+ `wantLocked` の seed を `mapDef.id` へ修理 |
+| `driver_grid_p3b` | 43/43 | **41/43** | **44/44 exit 0** | `OUTDOOR_ENTRY_EXPECT` の名指し表と `=== 1` を撤去し、絵の台帳(`outdoor` + rect 面積)から導出。実装の `__outdoorRevealProbe` と **2 経路**で突き合わせ。(3i0) 新設 |
+| `driver_mine_wall` | **57/58**(#16 由来の赤 1 本) | **56/58** | **66/66 exit 0** | 判定を絵の台帳(`sealRing` + `blocked`)から導出。⚠ その帰結として **#16 由来の赤も同時に解消**((3b-z) 7 本 + (3b2) を新設) |
+
+**リスト外 5 本の負のコントロール**(いずれも exit 1 = 命中・空振り 0):
+
+    node tools/driver_doors_p6.js --mutate nosecretroll   → (0b)(1a)(7a)(7d) が赤
+    node tools/driver_doors_p6.js --mutate noleafguard    → 32/40
+    node tools/driver_doors_p6.js --mutate nofilter       → 38/40
+    node tools/driver_doors_p6.js --mutate nofind         → 35/40
+    node tools/driver_doors_p6.js --mutate noorder        → 39/40
+    node tools/driver_doors_p6.js --mutate noexclude      → 36/40
+    node tools/driver_doors_p5.js --mutate nolockroll     → (1x-b)(1x-c)(1x-c2) が赤 = 27/32
+    node tools/driver_grid_p3b.js --mutate nobootreveal   → (3i)(3i2) が赤 = 29 PASS / 8 FAIL
+    driver_grid_s2 / driver_mine_wall は**同一 run 内蔵**の変異が全 PASS
+      ((3a)〜(3g) 7 本 / (5-noring)(5-ringall)(5-centeronly)(5-nofallback)(5-nomass) 5 本)
+
+### (C) 「緑のまま」を抜き取りで再確認した 10 本(項目2 が数えた 20 本の部分集合)
+
+`driver_graph_kinds` **66/66** / `driver_mapdef_step1` **208/208** / `driver_graph_sce1` **106/106** /
+`driver_wall_face` **54/54** / `driver_wallbox` **28/28** / `driver_wall_props` **29/29** /
+`driver_field_step1_geo` **71/71** / `verify_recruit_size` **82/82** / `driver_bgm_mine` **37/37** /
+`driver_speech_hooks` **13/13** — **全部 exit 0・記録どおり**。
+
+⚠ 走らせていない 10 本(`driver_dev_gate2` / `verify_road_ambush` / `verify_quest_walk` /
+`verify_prep_retire` / `driver_field_step7` / `driver_field_scale` / `driver_field_step1` /
+`driver_field_step2` / `driver_field_step3` / `driver_field_verge_gap`)は項目2 が緑を実測済み。
+⚠ `driver_field_step6` は **40 分超でも完走しない**ので走らせていない(同族 7 本が緑で代替)。
+
+### (D) 既知の腐り(⛔ #62 の赤ではない・緑にしにいかない)
+
+| ドライバ | 結果 | FAIL 行 |
+|---|---|---|
+| `driver_doors_p2` | 33/34 exit 1 | `(6c) ★既存 6 シナリオすべてで扉が立つ — goblin-mine:1 bandits-forest:0 lizard-swamp:2 orc-fort:3 undead-temple:3 dragon-lair:3` |
+| `driver_grid_p8` | 55/56 exit 1 | `(6d) ★★他 4 シナリオの n7 (9x6) は大部屋ではないので入室即ボス部屋 = 恒等 — {"inBoss":false,"size":{"w":29,"h":20},"bigRoom":true}` |
+
+⭐ **どちらも HEAD と同一の FAIL 行 1 本のまま**(件数も文面も増えていない)。
+⚠ `verify_walk_block` / `driver_speech_v2` も着手前から赤い(型3 = 真に無関係)。
+
+⭐⭐⭐ **結論: #62 が「緑を赤にした本」は 0 本。** 赤くなった 9 本はすべて仕様変更の正しい帰結で、
+**期待値の写経も、下限を下げる緩和も、golden の焼き直しも 1 件も行っていない。**
+
+### 12-8. 撤退の実走(最後にもう一度)
+
+    node <使い捨てプローブ>   # ?swampfold=0 の腕で lizard-swamp の mapDef を golden と突き合わせ
+
+    === arm "(素)"                     ids=["n4","n6","n7"]                                entry=n4
+    === arm "?swampfold=0"             ids=["n0","n1","n2","n3","n4","n5","n6","n7"]       entry=n0
+       golden 一致=8 / 不一致=[] / 未測定=[]
+    === arm "?swampfold=0&swampmap=0"  ids=["n0","n1","n2","n3","n4","n5","n6","n7"]       entry=n0
+
+⭐ **`?swampfold=0` は 8 ノード / entry=n0 へ戻り、8 ノードの mapDef は `d1aef29`(#58)採取の
+golden と 1 バイトも違わない。** 同じことを受入の (5a) と `driver_grid_s2` の (8-lizard-swamp/*) が
+恒久的に見張る。
