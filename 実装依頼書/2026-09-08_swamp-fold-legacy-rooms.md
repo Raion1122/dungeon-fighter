@@ -163,6 +163,13 @@
     node tools/verify_swamp_novice.js
     node tools/verify_swamp_lair.js
 
+⚠⚠ **「赤くなる本数」を grep で見積もらないこと**(#60 の実測 2026-09-08 / 実装窓からの申し送り)。
+#60 は「ラベルを変えると golden 5 本が赤くなる」と起草したが、**実際に赤くなったのは 2 本**だった
+(残り 3 本は別のボタン id / 別の URL の腕を掴んでいた)。⇒ 上の表の「lizard-swamp のぶんが
+赤くなる」も**予想**。着手したら `node tools/driver_graph_p6.js` を素で走らせ、
+**実際に赤くなった assert の ID を控えてから**言い直すこと。
+⭐ 数えるときは語の grep で止めず、**ノード id を掴んでいる箇所と URL の腕**まで読む。
+
 ### 2-8. changelog の要否
 
 `scripts/hooks/check_changelog.py` の `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` を

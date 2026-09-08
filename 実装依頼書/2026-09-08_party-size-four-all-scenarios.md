@@ -104,6 +104,14 @@ HP バー 4 枚 / カメラ)は **既に 4 本で出荷済み** = 本チケッ�
 ⭐ 同じ表を `tools/sweep_recruit_balance.js` の `SCEN_TABLE.newNpc` も持つ。こちらは
 **golden ではなく 80 走行の調査ツール**なので、本チケットでは**直さない**(§11)。
 
+⚠⚠ **「赤くなる本数」を grep で見積もらないこと**(#60 の実測 2026-09-08 / 実装窓からの申し送り)。
+#60 は「ラベルを変えると golden 5 本が赤くなる」と起草したが、**実際に赤くなったのは 2 本**で、
+残り 3 本は `#btnReroll`(準備画面)や `?recruittalk=0` の腕を掴んでいて **1 本も動かなかった**。
+⇒ 上の「(A) 群が赤くなる」も**予想であって実測ではない**。着手したらまず
+`node tools/verify_recruit_size.js` を素で走らせ、**実際に赤くなった assert の ID を控えてから**
+言い直しにかかること。⛔ 予想のまま書き換えると「動いてもいない assert を直した」ことになる。
+⭐ 数えるときは語の grep で止めず、**`getElementById` の引数と URL 構築関数の腕**まで読む。
+
 ### 2-4. ⚠ 罠: `verify_prep_retire.js` のコメントは**既に事実と違う**
 
 `tools/verify_prep_retire.js` の冒頭に「★1 = recruitCountOf 1 なので `?recruittalk=0` で
