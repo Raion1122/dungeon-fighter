@@ -248,10 +248,15 @@
     /* ★[#54] 単身出発の確認 (ユーザーが実装中に直接決定。依頼書 §12-2b)。
        ⭐ #recruitDialog より上に出す。
        ⛔ ゲートではない — 「一人で行く」を押せば必ず出発できる。 */
+    /* ⚠⚠ #60 STEP2: この器はマッチング画面 (#partyMatchOverlay = 210) の **上** に出る
+       必要がある —— 「🤝 約束を解散する」の確認をこの 1 枚で出すため。
+       ⭐ #skillCheckOverlay を 220 へ上げたのと同じ理由。⛔ 器を増やさない。
+       ⚠ #tavern は position:relative だが z-index を持たない = 積み重ね文脈を作らないので、
+         この子が root の文脈で 210 の上に載る (実測で確認)。 */
     #soloConfirm {
       position: fixed; inset: 0; display: none;
       align-items: center; justify-content: center;
-      background: rgba(4,6,10,0.78); z-index: 101; backdrop-filter: blur(2px);
+      background: rgba(4,6,10,0.78); z-index: 230; backdrop-filter: blur(2px);
     }
     #soloBox {
       position: relative; width: min(440px, 90vw);
@@ -2951,8 +2956,11 @@
     <!-- ★[#54] 単身出発の確認。⚠ 既定は display:none。⛔ ゲートではない。 -->
     <div id="soloConfirm">
       <div id="soloBox">
-        <div class="soloHead">一人で行くのか?</div>
-        <div class="soloBody">
+        <!-- ⚠ #60 STEP2: この 2 つは openConfirmSheet() が書き替える差し替え口。
+             ⭐ 既定の文面 (= 単身出発の確認) は **この markup が唯一の正**。
+                起動時に控えて、指定が無ければそのまま書き戻す。 -->
+        <div class="soloHead" id="soloConfirmHead">一人で行くのか?</div>
+        <div class="soloBody" id="soloConfirmBody">
           誰にも声を掛けていない。卓に座っている冒険者に頼めば、同道してくれるだろう。<br>
           ——それでも、単身で潜るというなら止めはしない。
         </div>
@@ -3128,10 +3136,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>同行の約束をその場で解散できる</b> — 声を掛けた仲間との約束を、出発前にまとめて解ける。</li>
         <li><b>仲間の顔ぶれを見てから酒場へ引き返せる</b> — 出発の画面から、潜らずに酒場へ戻れるようになった。</li>
         <li><b>スリープが敵の群れの多い方へ飛ぶようになった</b> — 眠りの霧は最も多く眠らせられる場所へ落ちる。範囲に仲間が入ったときは吹き出しに「味方は無傷」と添えて出る。</li>
         <li><b>範囲魔法が仲間ごと敵の群れへ撃ち込まれるようになった</b> — 味方は炎も雷も浴びて無傷。火球・氷嵐・矢の雨は敵が最も多く入る場所へ落ちる。</li>
-        <li><b>僧侶の金縛りが早く・多く使えるようになった</b> — ターンアンデッドと同じ Lv3 で覚え、Lv7 からは 1 回の潜行で 2 度使える。アンデッド以外が相手なら真っ先に唱える。</li>
       </ul>
     </div>
     <script>
@@ -5907,22 +5915,57 @@
     try { if (localStorage.getItem(SOLO_WARN_KEY) === "1") return false; } catch (e) {}
     return true;
   }
+  /* ★[#60 STEP2] 確認シートの器。⛔ **新しいダイアログを作らない** ——
+     #54 の「単身出発の確認」(#soloConfirm) を **はい / いいえ の汎用シート**へ一般化し、
+     「🤝 約束を解散する」の確認もこの 1 枚で出す。
+     ⭐ 既定の文面は markup が持ったまま (起動時に控えて、指定が無ければ書き戻す)
+       ⇒ 単身出発の確認は 1 文字も変わらない (verify_recruit_talk が測っている挙動)。
+     ⛔ ボタンの id (btnSoloBack / btnSoloGo) は変えない —— verify_pm_drawer_fit /
+       verify_prep_retire / verify_recruit_talk の 3 本がこの id で押している。 */
+  const soloConfirmEl = document.getElementById("soloConfirm");
+  const soloHeadEl    = document.getElementById("soloConfirmHead");
+  const soloBodyEl    = document.getElementById("soloConfirmBody");
+  const soloBackBtn   = document.getElementById("btnSoloBack");
+  const soloGoBtn     = document.getElementById("btnSoloGo");
+  const CONFIRM_SHEET_DEFAULT = {
+    head:   soloHeadEl  ? soloHeadEl.textContent  : "",
+    body:   soloBodyEl  ? soloBodyEl.innerHTML    : "",
+    cancel: soloBackBtn ? soloBackBtn.textContent : "",
+    ok:     soloGoBtn   ? soloGoBtn.textContent   : "",
+  };
+  let confirmSheetPending = null;   /* 開いている間だけ { onOk, onCancel } が入る */
+  /* 引数なし (null) で開くと **単身出発の確認そのもの** = 既定の文面・既定の行き先。 */
+  function openConfirmSheet(o) {
+    if (!soloConfirmEl) return;
+    const c = o || {};
+    if (soloHeadEl)  soloHeadEl.textContent  = c.head     || CONFIRM_SHEET_DEFAULT.head;
+    if (soloBodyEl)  soloBodyEl.innerHTML    = c.bodyHtml || CONFIRM_SHEET_DEFAULT.body;
+    if (soloBackBtn) soloBackBtn.textContent = c.cancel   || CONFIRM_SHEET_DEFAULT.cancel;
+    if (soloGoBtn)   soloGoBtn.textContent   = c.ok       || CONFIRM_SHEET_DEFAULT.ok;
+    confirmSheetPending = { onOk: c.onOk || null, onCancel: c.onCancel || null };
+    soloConfirmEl.style.display = "flex";
+  }
   function closeSoloConfirm() {
-    document.getElementById("soloConfirm").style.display = "none";
+    if (soloConfirmEl) soloConfirmEl.style.display = "none";
+    confirmSheetPending = null;
   }
   document.getElementById("btnSoloBack").addEventListener("click", () => {
+    const p = confirmSheetPending;
     closeSoloConfirm();
+    if (p && p.onCancel) { p.onCancel(); return; }
     closeDialog();          /* 依頼カードも閉じて酒場へ戻す (誘いに行けるように) */
   });
   document.getElementById("btnSoloGo").addEventListener("click", () => {
-    try { localStorage.setItem(SOLO_WARN_KEY, "1"); } catch (e) {}
+    const p = confirmSheetPending;
     closeSoloConfirm();
+    if (p && p.onOk) { p.onOk(); return; }
+    try { localStorage.setItem(SOLO_WARN_KEY, "1"); } catch (e) {}
     if (currentScenario) openPrep(currentScenario);
   });
   document.getElementById("btnAccept").addEventListener("click", () => {
     if (!currentScenario || !isUnlocked(currentScenario)) return;
     if (needsSoloWarning()) {
-      document.getElementById("soloConfirm").style.display = "flex";
+      openConfirmSheet(null);   /* 引数なし = markup の既定文面 (単身出発の確認) */
       return;
     }
     openPrep(currentScenario);
@@ -6530,14 +6573,74 @@
     renderPartyPreview();
     if (pmRebuildRef) pmRebuildRef();
   }
+  /* ════════════ ★[#60 STEP2] 「📣 募集をかけ直す」→「🤝 約束を解散する」 ════════
+     ⭐⭐⭐ このボタンは **壊れていたのではなく、#54 の日に意味を失った恒等写像**だった:
+       isRecruitTalkOn() が既定 ON のとき regeneratePartyMembers() は DFRecruits.all() を
+       そのまま組み直して return する ⇒ 押しても顔ぶれは必ず同じ (依頼書 #60 §2-2)。
+     ⛔ 「本当に機能させる」(= DFRecruits を無視して自動抽選へ戻す) は採らない。
+       #54 が作った「声を掛ける意味」がその場で無に帰る (#54 依頼書 §6-4 が名指しで禁止)。
+     ⛔ doRecruitReroll() は消さない —— ?recruittalk=0 の従来経路 (準備画面の #btnReroll と
+       この口の両方) が今も使う唯一の抽選口。**押す口の行き先だけ**を切り替える。
+     ⚠ ラベルは markup を書き換えず JS で差し替える —— markup の開始タグは
+       verify_prep_retire の noreroll 変異が逐語で掴んでいる (アンカーを腐らせない)。 */
+  const PM_REROLL_LABEL  = "📣 募集をかけ直す";
+  const PM_DISBAND_LABEL = "🤝 約束を解散する";
+  function pmRerollLabel() { return isRecruitTalkOn() ? PM_DISBAND_LABEL : PM_REROLL_LABEL; }
+  /* ナレが名指しする「呼び名」= ラベルから頭の飾り (絵文字) を落としたもの。
+     ⭐ ボタンとナレで文字列を 2 度書かない ⇒ 片方だけ直して食い違う事故が原理的に起きない
+       (verify_recruit_size の (S10) が守ってきた不変条件そのもの)。 */
+  function pmRerollWord() { return pmRerollLabel().replace(/^\S+\s*/, ""); }
+  /* 約束を解く実体。⛔ 名簿の消し方を写経しない —— DFRecruits.clear() が唯一の正。
+     ⚠ 解いた後は 抽選 → プレビュー → カード列 の順で引き直す (依頼書 §6-1 の並び)。 */
+  function doPromiseDisband() {
+    try { if (window.DFRecruits) DFRecruits.clear(); } catch (e) {}   /* ★ 約束を解く実体 */
+    regeneratePartyMembers();
+    renderPartyPreview();
+    if (pmRebuildRef) pmRebuildRef();
+    /* 卓の頭上札から 🤝 を落とす。#57 の札は約束の実体を見て描くので、解いたら引き直す。
+       ⛔ 札を作り直さない (参照が切れる) —— patronLabelPaint が唯一の描き口。
+       ⚠ ?recruittalk=0 では todaysPatrons が null なので自動的に 1 枚も触らない。 */
+    try {
+      if (todaysPatrons) Object.keys(todaysPatrons).forEach((k) => {
+        const lb = document.querySelector('.patronLabel[data-patron="' + k + '"]');
+        if (lb) patronLabelPaint(lb, todaysPatrons[k]);
+      });
+    } catch (e) {}
+  }
+  /* ⚠ 3 人まとめて消えるので確認を 1 枚挟む。⛔ 新しいダイアログは作らず openConfirmSheet を使う。
+     ⭐ 解散した後の安全網は既にある —— needsSoloWarning() (#54) が出発時に
+       「一人で行くのか」を必ず出す ⇒ こちら側の確認は 1 枚で十分 (依頼書 §6-3)。 */
+  function askPromiseDisband() {
+    const n = recruitCountNow();
+    openConfirmSheet({
+      head: "同行の約束を解くか?",
+      bodyHtml: "いま同道を約した " + n + " 名との約束を、まとめて解く。<br>"
+        + "——気が変わったなら、酒場でもう一度声を掛ければよい。",
+      cancel: "やめておく",
+      ok: "解散する",
+      onOk: doPromiseDisband,
+      /* ⚠ 空の onCancel を必ず渡す。省くと既定の枝 (= 依頼カードも閉じる closeDialog) が
+         走ってしまう —— こちらは演出の上に重ねた確認なので「閉じるだけ」が正しい。 */
+      onCancel: function () {},
+    });
+  }
   (function bindRerollBtn() {
     const btn = document.getElementById("btnReroll");
     if (btn) btn.addEventListener("click", () => doRecruitReroll());
     const pmBtn = document.getElementById("pmBtnReroll");
     if (pmBtn) {
+      /* #60: ラベルと行き先を **この 1 箇所**で決める。
+         ⛔ ?recruittalk=0 では従来の「📣 募集をかけ直す」のまま ——
+           あの経路では自動抽選が生きているので「解散」に意味が無い (依頼書 §6-4)。 */
+      pmBtn.textContent = pmRerollLabel();
+      const disbandMode = isRecruitTalkOn();
       /* ⚠⚠ #pmDepart と同じ作法で click / touchend の両方。
          ⚠ 伝播を止める —— 止めないと指がそのまま背景 (= 開示スキップ) へ抜ける。 */
-      const h = (ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); sfx("button"); doRecruitReroll(); };
+      const h = (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        sfx("button");
+        if (disbandMode) askPromiseDisband(); else doRecruitReroll();
+      };
       pmBtn.addEventListener("click", h);
       pmBtn.addEventListener("touchend", h);
     }
@@ -7656,7 +7759,11 @@
   //      (存在しない画面の説明になる)。札・募集のかけ直し・出発の口はどちらの経路にも在る。
   const PREP_ONBOARDING_NARRATION = [
     "まずは旗頭を選ぶがよい。お主が誰として戦うか——それがこの一行の芯となる。",
-    "残る仲間は、酒場に募集をかけて集める。依頼が重いほど多くの者が名乗りを上げよう。集うた者の札を押せば、技も装備も傾向もその場で整えられる。顔ぶれが気に入らねば「募集をかけ直す」がよい。下調べを済ませ、支度が整うたら「出発する」を押すがよい。",
+    /* ⚠⚠ #60 STEP2: ボタン名を **名指し**している行。⛔ 語を写経しない ——
+       マッチング画面の口は既定 ON では「🤝 約束を解散する」に変わるので、
+       文字列を 2 度書くと「語りかけの先に無いボタンがある」食い違いが残る。
+       ⇒ pmRerollWord() (ラベルと同じ源) から引く。 */
+    "残る仲間は、酒場に募集をかけて集める。依頼が重いほど多くの者が名乗りを上げよう。集うた者の札を押せば、技も装備も傾向もその場で整えられる。顔ぶれが気に入らねば「" + pmRerollWord() + "」がよい。下調べを済ませ、支度が整うたら「出発する」を押すがよい。",
   ];
 
   function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }

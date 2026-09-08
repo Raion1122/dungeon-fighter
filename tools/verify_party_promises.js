@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
- * verify_party_promises.js — 実装依頼書 #60 STEP1
- *   「マッチング画面から酒場へ戻る」(演出 promise の記名化 + 🍺 酒場へ戻る)
+ * verify_party_promises.js — 実装依頼書 #60 STEP1 + STEP2
+ *   STEP1「マッチング画面から酒場へ戻る」(演出 promise の記名化 + 🍺 酒場へ戻る)
+ *   STEP2「📣 募集をかけ直す」→「🤝 約束を解散する」(DFRecruits.clear() + 確認シート)
  * ═══════════════════════════════════════════════════════════════════════════
  *   node tools/verify_party_promises.js [--headful] [--port N] [--browser <path>]
  *   node tools/verify_party_promises.js --negative              ← 負のコントロール (1 本ずつ)
@@ -10,11 +11,14 @@
  * ── 測っているもの (依頼書 §9-0 / §9-1 のうち STEP1 の分) ────────────────────
  *   §0 装置 (⭐⭐⭐ これが無いと全 assert が空振りで永久緑)
  *   §1 「🍺 酒場へ戻る」— 出る条件 / 押した先 / 撤退 / 非退行
+ *   §2 「🤝 約束を解散する」— 押した先 (DFRecruits.count()=0) / 撤退 (?recruittalk=0)
  *
  * ── ⛔ 測らないこと (依頼書 §9-4) ─────────────────────────────────────────
  *   ・戻るボタンの座標・余白・文字サイズ。⚠ ただし #56 の前科があるので
  *     「**出発の口が画面内に残る**」だけは (1a2) で必ず測る。
- *   ・STEP2 (解散) / STEP3 (常設パネル) / STEP4 (札の色分け) は別項目。
+ *   ・確認シートの文面・寸法。⛔ 語を写経しない (ラベルを動かすたび嘘になる)。
+ *     測るのは「1 枚挟まる」「マッチング画面の **上** に出て指が当たる」の 2 つだけ。
+ *   ・STEP3 (常設パネル) / STEP4 (札の色分け) は別項目。
  *
  * ── ⚠ 計測機構 (踏みやすい罠) ───────────────────────────────────────────────
  *  - ⭐⭐⭐ **門番の下流で測らない** (#58 の教訓)。本件の門番は PREP_SKIP_ON と
@@ -44,6 +48,7 @@
  *   **実際に赤くなったラベル**を書いてある。
  *     m1 … 早期 return の 2 本を "back" にする  → 出発が黙って死ぬ
  *     m3 … resolve() を無記名に戻す            → 戻るを押してもその場で潜る
+ *     m5 … 解散で DFRecruits.clear() を呼ばない → 押しても約束が消えない
  *     m6 … 戻るボタンを確定前から出す          → 確定を見ずに帰れる
  */
 'use strict';
@@ -105,6 +110,13 @@ function mutate(file, label, anchor, patch) {
 const NEG_EXPECT = {
   m1: ['(1c2)', '(1c3)'],
   m3: ['(1b)'],
+  /* ⭐ m5 は担当の (2a) だけ。確認シートは開くし押せるので (2z)(2c) は緑のまま
+     —— 「押せた」と「約束が消えた」を分けて測っているのでここが分離できる。 */
+  m5: ['(2a)'],
+  /* ⭐⭐ m5w は §10 の表に無い新設。#60 で「ボタン名を名指しするナレ」を 1 つの源から
+     引く形へ直したので、**写経へ戻す**変異で (2d) が本当に効くことを押さえる
+     (#57 の M8 新設と同じ趣旨 = 言い直した assert を裸のまま残さない)。 */
+  m5w: ['(2d)'],
   /* ⭐ m6 は (1d) も赤くする —— 「確定前から出す」置換が撤退スイッチ (?pmback=0) の
      判定より下流で hidden を外すので、撤退の腕でも戻るの口が出てしまう。机上では書けない。 */
   m6: ['(1e)', '(1e2)', '(1d)'],
@@ -140,6 +152,17 @@ if (NEGATIVE) {
   mutate('/tavern.html', 'm1 (早期 return b: 応募者ゼロを "back" にする)',
     'if (!raw.length) return Promise.resolve("depart");',
     'if (!raw.length) return Promise.resolve("back");   /* m1 */');
+  /* ── m5: 解散の実体から DFRecruits.clear() を落とす。
+        ⭐ 押す口も確認シートも生きたまま「約束だけ消えない」= いちばん気づきにくい壊れ方。
+        ⚠ その後の regeneratePartyMembers() が DFRecruits.all() を組み直すので、
+          カード列も元のままになる ⇒ (2a) の 2 経路 (名簿の実数 / 画面のカード枚数) 両方が赤くなる。 */
+  mutate('/tavern.html', 'm5 (解散で DFRecruits.clear() を呼ばない)',
+    '    try { if (window.DFRecruits) DFRecruits.clear(); } catch (e) {}   /* ★ 約束を解く実体 */',
+    '    /* m5: clear() を呼ばない */');
+  /* ── m5w: 受注ナレのボタン名を **写経へ戻す** = 語りかけの先に無い口ができる。 */
+  mutate('/tavern.html', 'm5w (受注ナレのボタン名を固定文字列で写経する)',
+    '顔ぶれが気に入らねば「" + pmRerollWord() + "」がよい。',
+    '顔ぶれが気に入らねば「募集をかけ直す」がよい。');
   /* ── m3: close() の resolve を無記名へ戻す = 呼び出し側が押された口を区別できない。 */
   mutate('/tavern.html', 'm3 (resolve を無記名へ戻す)',
     'resolve(how === "back" ? "back" : "depart");',
@@ -234,6 +257,10 @@ const PROBE = (visSrc) => {
   const dep  = q('pmDepart');
   const back = q('pmBtnBackTavern');
   const hint = q('pmHint');
+  const roll = q('pmBtnReroll');
+  const conf = q('soloConfirm');
+  const cOk  = q('btnSoloGo');
+  const cNo  = q('btnSoloBack');
   const cols = Array.prototype.slice.call(document.querySelectorAll('#pmColumns .pmColumn'));
   return {
     display:    ov ? (ov.style.display || '') : '(なし)',
@@ -251,7 +278,15 @@ const PROBE = (visSrc) => {
     backText:   back ? (back.textContent || '').trim() : '(なし)',
     backRect:   rect(back),
     backHit:    hitOf(back),
-    rerollVis:  vis(q('pmBtnReroll')),
+    rerollVis:  vis(roll),
+    rerollText: roll ? (roll.textContent || '').trim() : '(なし)',
+    /* ⭐⭐⭐ 約束の実数は **門番 (isRecruitTalkOn / PREP_SKIP_ON) の外側** = 名簿そのものから採る。
+       ⛔ 画面のカード枚数だけで測ると、門番が例外扱いする経路で永久緑になる (#58 の教訓)。 */
+    recruitN:   (function () { try { return (window.DFRecruits && DFRecruits.count()) || 0; } catch (e) { return -1; } })(),
+    confVis:    vis(conf),
+    confHit:    hitOf(cOk),
+    confOk:     cOk ? (cOk.textContent || '').trim() : '(なし)',
+    confNo:     cNo ? (cNo.textContent || '').trim() : '(なし)',
     hint:       hint ? (hint.textContent || '') : '',
     hintWait:   !!(hint && hint.classList.contains('pmWait')),
     prepVis:    vis(q('prep')),
@@ -655,6 +690,123 @@ async function clickCenterOf(page, id) {
         '箱=' + JSON.stringify(f1.depRect) + ' 画面高=' + f1.innerH + ' 命中先=' + f1.depHit);
     }
     await pageF.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 G — ★STEP2 「🤝 約束を解散する」
+     *   ⭐⭐⭐ 約束の実数は **DFRecruits.count()** = 門番 (isRecruitTalkOn / PREP_SKIP_ON) の
+     *     外側から採る (#58 の教訓「門番が例外扱いする対象を門番の下流で測らない」)。
+     *     ⛔ 画面のカード枚数だけで測ると、名簿を消さずにカードだけ描き直す実装で緑になる。
+     *   ⭐ 「押せた」(2z) と「効いた」(2a) を分けて測る。分けないと m5 が両方を巻き込み、
+     *     どこが壊れたのか読めなくなる (#54 の「測っている場所に現れるか」の系)。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('\n====== 腕G: 約束の解散 (0c) / (2z) / (2c) / (2a) / (2d) ======');
+    let defaultRerollLabel = '(未測定)';
+    const pageG = await openTavern(browser, DESK, '');
+    const rcG = await seedRecruits(pageG, 2);
+    await startPrep(pageG, SCENARIO);
+    const advG = await advance(pageG, 90000);
+    if (advG.reached !== 'cinema') {
+      ['(0c)', '(2z)', '(2c)', '(2a)', '(2d)'].forEach((l) =>
+        pending(l + ' 腕G の測定', '演出まで到達しなかった (reached=' + advG.reached
+          + ' steps=' + advG.steps.join('>') + ')'));
+    } else {
+      await pageG.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
+      const g0 = await waitGate(pageG, 12000);
+      defaultRerollLabel = g0.rerollText;
+      console.log('       猶予明け: ラベル="' + g0.rerollText + '" 約束=' + g0.recruitN
+        + ' 人 / カード ' + g0.nFilled + '/' + g0.nCols + ' 枚');
+
+      /* ── (0c) 母集団ガード: 解散する対象が実在する ── */
+      check('(0c) [装置] 解散を測る時点で約束が 1 件以上ある (0 件だと (2a) は空振りで永久緑)',
+        rcG.ok === true && g0.recruitN >= 1 && g0.nCols >= 2,
+        '名簿 ' + g0.recruitN + ' 人 (焼き込み ' + JSON.stringify(rcG) + ') / カード ' + g0.nCols + ' 枚');
+
+      /* ── (2z) 押すと確認が 1 枚挟まり、マッチング画面 (z=210) の **上** で指が当たる ──
+         ⛔ 文面は測らない (依頼書 §9-4)。測るのは「挟まった」「押せる」の 2 つだけ。 */
+      const gHit = await clickCenterOf(pageG, 'pmBtnReroll');
+      await sleep(250);
+      const g1 = await pageG.evaluate(PROBE, VIS_FN);
+      console.log('       1 度目の押下: ' + JSON.stringify(gHit) + ' 確認=' + g1.confVis
+        + ' 命中先=' + g1.confHit + ' ("' + g1.confNo + '" / "' + g1.confOk + '")');
+      check('(2z) [装置] 解散の口を押すと確認が 1 枚挟まり、演出の上で指が当たる (器を増やしていない)',
+        !!gHit && gHit.hit === 'pmBtnReroll' && g1.confVis === true
+        && g1.confHit === 'btnSoloGo' && g1.display === 'flex',
+        '口の命中先=' + (gHit ? gHit.hit : 'なし') + ' 確認=' + g1.confVis
+        + ' 確認ボタンの命中先=' + g1.confHit + ' 演出=' + g1.display);
+
+      /* ── (2c) 「やめておく」では約束が 1 件も減らない (確認が飾りでない証明) ── */
+      const gNo = await clickCenterOf(pageG, 'btnSoloBack');
+      await sleep(250);
+      const g2 = await pageG.evaluate(PROBE, VIS_FN);
+      check('(2c) 確認で断ると約束は 1 件も減らず、演出も開いたまま',
+        !!gNo && g2.confVis === false && g2.recruitN === g0.recruitN
+        && g2.nCols === g0.nCols && g2.display === 'flex',
+        '約束 ' + g0.recruitN + '→' + g2.recruitN + ' 人 / カード ' + g0.nCols + '→' + g2.nCols
+        + ' 枚 / 演出=' + g2.display);
+
+      /* ── (2a) ★受入条件 ── */
+      await clickCenterOf(pageG, 'pmBtnReroll');
+      await sleep(250);
+      const gOk = await clickCenterOf(pageG, 'btnSoloGo');
+      await sleep(450);
+      const g3 = await pageG.evaluate(PROBE, VIS_FN);
+      const gBody = await pageG.evaluate(() => {
+        const ms = (selection.partyMembers || []);
+        return { n: ms.length, hero: ms.filter((m) => m && m.isHero).length };
+      });
+      console.log('       解散後: 約束=' + g3.recruitN + ' 人 / カード ' + g3.nFilled + '/' + g3.nCols
+        + ' 枚 / 実体 ' + JSON.stringify(gBody));
+      check('(2a) ★★受入条件: 解散すると DFRecruits.count() が 0 になり、カード列が主人公 1 枚になる',
+        !!gOk && g3.confVis === false && g3.recruitN === 0
+        && g3.nCols === 1 && g3.nFilled === 1 && gBody.n === 1 && gBody.hero === 1,
+        '名簿=' + g3.recruitN + ' 人 / カード=' + g3.nFilled + '/' + g3.nCols
+        + ' 枚 / 実体=' + JSON.stringify(gBody));
+
+      /* ── (2d) 受注ナレが名指しする口の名 == 実際に出るボタンのラベル ──
+         ⭐ 語そのものは写経しない。ナレの「」で括られた語の集合に、ボタンのラベルから
+           飾り (先頭の絵文字) を落とした語が居るか、だけを見る。
+         ⚠ これは verify_recruit_size (S10) の **既定 ON 側の腕**。あちらは ?recruittalk=0
+           でしか回らないので、既定の姿は誰も測っていなかった (#60 で塞いだ空白地帯)。 */
+      const g4 = await pageG.evaluate(() => {
+        const out = { narr: '', quoted: [], label: '', threw: '' };
+        try {
+          out.narr = (PREP_ONBOARDING_NARRATION || []).join('\n');
+          out.quoted = (out.narr.match(/「([^」]+)」/g) || []).map((s) => s.slice(1, -1));
+          const b = document.getElementById('pmBtnReroll');
+          out.label = b ? (b.textContent || '').trim() : '(なし)';
+        } catch (e) { out.threw = String((e && e.message) || e); }
+        return out;
+      });
+      const g4word = g4.label.replace(/^\S+\s*/, '');
+      check('(2d) 受注ナレが名指しする口の名が、実際に出るボタンのラベルと一致 (語りかけの先に無い口を作らない)',
+        g4.threw === '' && g4word.length > 0 && g4.quoted.indexOf(g4word) >= 0,
+        'ボタン="' + g4.label + '" → 語="' + g4word + '" / ナレが名指しする語 = '
+        + JSON.stringify(g4.quoted));
+    }
+    await pageG.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 H — 撤退 ?recruittalk=0 ではラベルも行き先も従来のまま
+     *   ⭐ 「募集」の語を写経するだけにしない。**既定の腕と文字列が違う**ことも併せて見る
+     *      (両腕を同じラベルにする実装は片面だけでは捕まらない)。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('\n====== 腕H: 撤退 ?recruittalk=0 (2b) ======');
+    const pageH = await openTavern(browser, DESK, '?recruittalk=0');
+    await startPrep(pageH, SCENARIO);
+    const advH = await advance(pageH, 90000);
+    if (advH.reached !== 'cinema') {
+      pending('(2b) ?recruittalk=0 ではラベルが「募集をかけ直す」のまま',
+        '演出まで到達しなかった (reached=' + advH.reached + ')');
+    } else {
+      await pageH.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
+      const h1 = await waitGate(pageH, 12000);
+      console.log('       撤退の腕: ラベル="' + h1.rerollText + '" / 既定の腕="' + defaultRerollLabel + '"');
+      check('(2b) ★受入条件: ?recruittalk=0 ではラベルが「募集をかけ直す」のまま (既定の腕とは別の語)',
+        h1.rerollVis === true && /募集/.test(h1.rerollText) && h1.rerollText.indexOf('解散') < 0
+        && defaultRerollLabel !== '(未測定)' && h1.rerollText !== defaultRerollLabel,
+        '撤退="' + h1.rerollText + '" / 既定="' + defaultRerollLabel + '"');
+    }
+    await pageH.close();
 
     /* ══ ページエラー ══════════════════════════════════════════════════ */
     console.log('\n====== ページエラー ======');

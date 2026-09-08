@@ -416,10 +416,34 @@ function judgeNoOverflow(rows, cap) {
       recruitLits.length === 1 && /^\s*recruit:\s*3$/.test(recruitLits[0]),
       '件数=' + recruitLits.length + ' / ' + JSON.stringify(recruitLits));
     /* (S10) 項目3: ボタン名とナレの言い回しを揃えた。揃えないと「仲間を引き直す」と
-       語りかけるナレの先に「募集をかけ直す」ボタンがある、という食い違いが残る。 */
-    check('(S10) tavern.html に旧「仲間を引き直す」が 1 箇所も残っていない (ナレ文を含む)',
-      !/仲間を引き直す/.test(tavSrc) && /「募集をかけ直す」/.test(tavSrc),
-      '旧文言の残存 = ' + (tavSrc.match(/仲間を引き直す/g) || []).length + ' 件');
+       語りかけるナレの先に「募集をかけ直す」ボタンがある、という食い違いが残る。
+       ⚠⚠ #60 STEP2 (2026-09-08) で **言い直した**。マッチング画面の口は ?recruittalk 既定 ON では
+         「🤝 約束を解散する」へ変わるので、ラベルの語を写経した検査はそのままでは嘘になる。
+         ⛔ さらに悪いことに、旧式の tavSrc 正規表現は **コメントに当たって偽の緑**になる
+           (「募集をかけ直す」は CSS の注釈など複数のコメントにも居る)。
+         ⇒ 守っていた不変条件「**ナレが名指しする口の名 == 実際に出るボタンのラベル**」を、
+           ソースの写経ではなく **実行時の 2 経路突き合わせ**で測る形へ移す。
+         ⭐ 旧語「仲間を引き直す」の不在は据え置き (残留検出なので写経が正しい)。
+         ⚠ このドライバは ?recruittalk=0 の腕 = ここで測るのは **撤退側の姿**。
+           既定 ON 側は verify_party_promises の (2d) が測る (#60 で塞いだ空白地帯)。 */
+    const s10 = await pageS.evaluate(() => {
+      const out = { quoted: [], label: '', threw: '' };
+      try {
+        const narr = (PREP_ONBOARDING_NARRATION || []).join('\n');   /* ⚠ 裸の識別子で読む */
+        out.quoted = (narr.match(/「([^」]+)」/g) || []).map((s) => s.slice(1, -1));
+        const b = document.getElementById('pmBtnReroll');
+        out.label = b ? (b.textContent || '').trim() : '(なし)';
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    /* 先頭の飾り (絵文字) を落とした「呼び名」がナレの「」の中に居ることを見る。 */
+    const s10word = s10.label.replace(/^\S+\s*/, '');
+    check('(S10) 受注ナレが名指しする口の名が実際のボタンのラベルと一致 (旧「仲間を引き直す」も不在)',
+      !/仲間を引き直す/.test(tavSrc) && s10.threw === ''
+        && s10word.length > 0 && s10.quoted.indexOf(s10word) >= 0,
+      'ボタン="' + s10.label + '" → 語="' + s10word + '" / ナレが名指しする語 = '
+      + JSON.stringify(s10.quoted) + ' / 旧文言の残存 = '
+      + (tavSrc.match(/仲間を引き直す/g) || []).length + ' 件');
     await pageS.close();
 
     /* ══════════════════════════════════════════════════════════════════════
