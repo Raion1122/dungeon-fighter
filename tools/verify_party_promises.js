@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * verify_party_promises.js — 実装依頼書 #60 STEP1 + STEP2
+ * verify_party_promises.js — 実装依頼書 #60 STEP1〜STEP4 (受入ドライバ)
  *   STEP1「マッチング画面から酒場へ戻る」(演出 promise の記名化 + 🍺 酒場へ戻る)
  *   STEP2「📣 募集をかけ直す」→「🤝 約束を解散する」(DFRecruits.clear() + 確認シート)
  * ═══════════════════════════════════════════════════════════════════════════
@@ -13,6 +13,12 @@
  *   §1 「🍺 酒場へ戻る」— 出る条件 / 押した先 / 撤退 / 非退行
  *   §2 「🤝 約束を解散する」— 押した先 (DFRecruits.count()=0) / 撤退 (?recruittalk=0)
  *   §3 「同行の約束」常設パネル — 常設バッジ / 一覧 / 個別に断る / 編成を見る
+ *   §4 🤝 を見て分かる強さへ — 頭上札の .promised / カードの出自 / 撤退 ?promisemark=0
+ *      ⭐ 「class が付いた」だけでは足りない —— **色が実際に変わったか** を
+ *        getComputedStyle で見る (#57 の「言い分けは文字だけでなく VFX」の同型。
+ *        効かない CSS を書いても class 名だけ見る assert は緑になる)。
+ *      ⛔ 文字サイズの **値** は縛らない (#57 の実機体感 ① が未消化)。代わりに
+ *        「.promised が font-size を動かしていない」= 素の札と同値、だけを縛る。
  *      ⭐⭐⭐ (3a) の中核 = **再入場で prepIntelUsed が保持される** (openPrep 経由に戻すと
  *        吟味・聞き込み・祈りが無限に引き直せる穴が開く)。門番 (PREP_SKIP_ON /
  *        isRecruitTalkOn) の **外側** = 変数そのものを読んで測る。
@@ -60,6 +66,7 @@
  *     m2 … 再入場を openPrep 経由へ戻す        → 事前情報が引き直せる
  *     m7 … 編成を見るに btnPartyView の id を使う → 準備画面の同名ボタンと衝突
  *     m8 … バッジを RECRUIT_MAX からの引き算で作る → 名簿と画面がズレても気づけない
+ *     m4 … 札を卓の 4 席以外の NPC にも出す → 「声を掛けられる相手」の見分けが壊れる
  */
 'use strict';
 
@@ -143,6 +150,12 @@ const NEG_EXPECT = {
   m7: ['(3a)', '(3b)', '(3z)'],
   /* ⭐ m8 は「実体を数えない」バッジ。名簿 (DFRecruits.count()) との突き合わせだけが検出器。 */
   m8: ['(3d)'],
+  /* ⭐⭐ m4 は依頼書 §10 の最後の 1 本。札を卓の 4 席以外へも出すと「声を掛けられる相手」の
+     見分けが逆に壊れる (依頼書 §2-3 / §8-1 が名指しで禁じた設計)。
+     ⚠ 「.promised が正しく付いているか」だけを見る assert では **空振りする** ——
+       増えた札は約束していないので .promised は付かず、色の対応は保たれたままだから。
+       ⇒ (4a) は「色分けが名簿と一致」と「4 席以外に札が増えていない」を **対** で縛る。 */
+  m4: ['(4a)'],
 };
 
 if (NEGATIVE && !ONLY.length) {
@@ -216,6 +229,12 @@ if (NEGATIVE) {
   mutate('/tavern.html', 'm8 (バッジを RECRUIT_MAX からの引き算で作る)',
     '    el.textContent = "🤝 " + recruitCountNow() + " / " + RECRUIT_MAX;',
     '    el.textContent = "🤝 " + (RECRUIT_MAX - RECRUIT_SEATS.filter((k) => !(todaysPatrons && todaysPatrons[k] && window.DFRecruits && DFRecruits.has(todaysPatrons[k].name))).length) + " / " + RECRUIT_MAX;   /* m8 */');
+  /* ── m4: 頭上札を卓の 4 席以外の NPC (店主 / 酔漢 / 給仕 / 荷運び) にも出す。
+        ⛔ 依頼書 §2-3 / §8-1 が名指しで禁じた設計 —— 札が「声を掛けられる相手」の
+          目印である性質が壊れる。⚠ 置換文字列は 1 行に収める (CRLF/LF 混在対策)。 */
+  mutate('/tavern.html', 'm4 (卓の 4 席以外の NPC にも札を出す)',
+    '        if (isPatronLabelOn() && seatMember) {',
+    '        if (isPatronLabelOn()) { if (!seatMember) seatMember = { name: "M4-" + n.key, classKey: "warrior" };   /* m4 */');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -332,6 +351,22 @@ const PROBE = (visSrc) => {
     confHit:    hitOf(cOk),
     confOk:     cOk ? (cOk.textContent || '').trim() : '(なし)',
     confNo:     cNo ? (cNo.textContent || '').trim() : '(なし)',
+    /* ★[#60 STEP4] カードの出自。⭐ 「見えているか」と「名簿に居るか」を **別々に**返し、
+       assert 側で対応を突き合わせる (⛔ 文言そのものは写経しない —— ラベルを動かすたび嘘になる)。 */
+    cards: cols.map((c) => {
+      const nm = c.querySelector('.pmName');
+      const og = c.querySelector('.pmOrigin');
+      return { name: nm ? (nm.textContent || '').trim() : '',
+               hero: c.classList.contains('pmHeroCol'),
+               state: c.getAttribute('data-state'),
+               originExists: !!og, originVis: vis(og),
+               originText: og ? (og.textContent || '').trim() : '' };
+    }),
+    originTotal: document.querySelectorAll('#pmColumns .pmOrigin').length,
+    /* ⭐ 変異の届かない側 (js/recruit-candidates.js) の 1 経路。 */
+    recruitNames: (function () {
+      try { return (window.DFRecruits ? DFRecruits.all() : []).map((m) => m.name); } catch (e) { return []; }
+    })(),
     hint:       hint ? (hint.textContent || '') : '',
     hintWait:   !!(hint && hint.classList.contains('pmWait')),
     prepVis:    vis(q('prep')),
@@ -388,7 +423,36 @@ const PPROBE = (visSrc) => {
     recruitN: (function () { try { return (window.DFRecruits && DFRecruits.count()) || 0; } catch (e) { return -1; } })(),
     /* ⛔ id の衝突検出。document.getElementById は先頭しか返さないので querySelectorAll で数える。 */
     dupPartyView: document.querySelectorAll('[id="btnPartyView"]').length,
-    labels: labels.map((l) => ({ seat: l.getAttribute('data-patron'), text: (l.textContent || '').trim() })),
+    /* ★[#60 STEP4] 札 1 枚ぶんの実測。
+       ⭐ has は **DFRecruits (js/recruit-candidates.js)** から採る = この道具が凍結も変異も
+         しない場所。⇒ 「class」と「🤝 の文字」と「名簿」の 3 経路で突き合わせられる
+         (#58 の「両方を動かす変異で永久緑」を原理的に踏まない)。
+       ⭐ border / bg / font は **getComputedStyle** = 実際に効いた CSS。
+         ⛔ font は「値」ではなく「素の札と同じか」だけに使う (依頼書 §9-4)。 */
+    labels: labels.map((l) => {
+      const cs = getComputedStyle(l);
+      const u  = l.closest ? l.closest('.npcUnit') : null;
+      const ur = u ? u.getBoundingClientRect() : null;
+      const seat = l.getAttribute('data-patron');
+      let has = null;
+      try {
+        const m = (typeof todaysPatrons === 'object' && todaysPatrons) ? todaysPatrons[seat] : null;
+        has = m ? !!(window.DFRecruits && DFRecruits.has(m.name)) : null;
+      } catch (e) { has = null; }
+      return { seat: seat, text: (l.textContent || '').trim(),
+               promised: l.classList.contains('promised'), has: has,
+               border: cs.borderTopColor, bg: cs.backgroundColor, font: cs.fontSize,
+               unitW: ur ? Math.round(ur.width * 100) / 100 : null,
+               unitH: ur ? Math.round(ur.height * 100) / 100 : null };
+    }),
+    /* ⛔ .patronLabel[data-patron] ではなく **全 .patronLabel** を数える
+       (「4 席以外に札が増えていない」は data-patron の有無に依らず成り立つべき)。 */
+    labelTotal: document.querySelectorAll('.patronLabel').length,
+    seatKeys: (function () {
+      try { return (typeof todaysPatrons === 'object' && todaysPatrons) ? Object.keys(todaysPatrons) : []; }
+      catch (e) { return []; }
+    })(),
+    originTotal: document.querySelectorAll('.pmOrigin').length,
     /* 左上の既存の縦列を覆っていないか (#12 の教訓 = 矩形でなく elementFromPoint で見る)。 */
     townExists: !!q('townExit'), townHit: hitOf(q('townExit')),
     rosterExists: !!q('rosterEntry'), rosterHit: hitOf(q('rosterEntry')),
@@ -461,6 +525,30 @@ async function seedRecruits(page, n) {
     } catch (e) { out.why = String((e && e.message) || e); }
     return out;
   }, n);
+}
+
+/* ★[#60 STEP4] 卓に **座っている本人** から約束を焼く。
+   ⛔ pickCompanion で新顔を作ると席に居ないので、札の色分けを 1 枚も測れない (空振り)。
+   ⭐ 上限は本番の RECRUIT_MAX を裸で読む (⛔ 3 を写経しない)。 */
+async function seedSeatPromises(page, want) {
+  return page.evaluate((n) => {
+    const out = { picked: [], count: 0, why: '' };
+    try {
+      DFRecruits.clear();
+      const keys = Object.keys(todaysPatrons || {});
+      keys.forEach((k) => {
+        if (out.picked.length >= n) return;
+        const m = todaysPatrons[k];
+        if (!m) return;
+        if (DFRecruits.add(m, RECRUIT_MAX).ok) {
+          refreshPatronLabelFor(m);
+          out.picked.push({ seat: k, name: m.name });
+        }
+      });
+      out.count = DFRecruits.count();
+    } catch (e) { out.why = String((e && e.message) || e); }
+    return out;
+  }, want);
 }
 
 /* 受注 → 目的の状態まで進める。
@@ -668,6 +756,27 @@ async function clickCenterOf(page, id) {
         && a2.backHit === 'pmBtnBackTavern',
         'depVis=' + a2.depVis + ' backVis=' + a2.backVis + ' 命中先=' + a2.backHit
         + ' 箱=' + JSON.stringify(a2.backRect));
+
+      /* ── (4c) ★STEP4: カードの出自「🤝 …」 ──
+         ⭐ 判定は **DFRecruits の実体 (recruitNames)** と画面の 2 経路の対応で見る。
+         ⛔ 文言そのもの (「酒場で声を掛けた」) は写経しない —— ラベルを動かすたび嘘になる
+           (#60 §2-11 の教訓)。縛るのは「🤝 で始まる非空の 1 行が出る」まで。
+         ⚠ 器 (.pmOrigin) は全カードにあり、**見えるのは声を掛けた仲間のカードだけ**。 */
+      const recSet = new Set(a2.recruitNames || []);
+      const shown  = (a2.cards || []).filter((c) => c.originVis);
+      console.log('       カードの出自: ' + JSON.stringify((a2.cards || []).map(
+        (c) => c.name + (c.hero ? '(主)' : '') + ':' + (c.originVis ? '"' + c.originText + '"' : '—')))
+        + ' / 名簿=' + JSON.stringify(a2.recruitNames));
+      check('(4c) ★★受入条件: マッチング画面のカードの出自が、酒場で声を掛けた仲間のカードにだけ出る '
+        + '(⛔ 主人公には出ない。⭐ 名簿の実体と 2 経路で突き合わせ)',
+        (a2.cards || []).length >= 2 && (a2.recruitNames || []).length >= 1
+        && a2.cards.every((c) => c.originExists === true)
+        && a2.cards.every((c) => c.originVis === (!c.hero && recSet.has(c.name)))
+        && shown.length === a2.recruitNames.length
+        && shown.every((c) => c.originText.indexOf('🤝') === 0 && c.originText.length > 2),
+        'カード=' + JSON.stringify((a2.cards || []).map((c) => ({ n: c.name, hero: c.hero, v: c.originVis })))
+        + ' / 器=' + a2.originTotal + ' 個 / 出た=' + shown.length + ' 件'
+        + ' / 名簿=' + JSON.stringify(a2.recruitNames));
 
       /* ── (1b) ★中核: 戻るを押しても departToScenario が呼ばれない ── */
       const hit = await clickCenterOf(pageA, 'pmBtnBackTavern');
@@ -1030,6 +1139,54 @@ async function clickCenterOf(page, id) {
         '2 人の時 画面=' + i1.badgeN + ' 名簿=' + i1.recruitN + ' ("' + i1.badgeText + '")'
         + ' / 1 人の時 画面=' + i2.badgeN + ' 名簿=' + i2.recruitN + ' ("' + i2.badgeText + '")'
         + ' / 上限 画面=' + i1.badgeMax + ' 本番=' + i1.max);
+
+      /* ══ ★STEP4 (4a)(4a2)(4a3) — 頭上札の色分け ═══════════════════════════
+         ⭐⭐ 依頼書 §9-1 (4a) は「札が変わったか」と「4 席以外に増えていないか」を
+           **対** で書けと指定している。片方だけだと変異 m4 が空振りする
+           (増えた札は約束していないので .promised は付かず、色の対応は保たれるため)。 */
+      const seatSet = new Set(i1.seatKeys || []);
+      const nPromised = (i1.labels || []).filter((l) => l.promised).length;
+      console.log('       札: 総数=' + i1.labelTotal + ' 席=' + JSON.stringify(i1.seatKeys)
+        + ' / ' + JSON.stringify((i1.labels || []).map(
+          (l) => l.seat + (l.promised ? '[金]' : '[素]') + (l.has ? '(約)' : '') + ' "' + l.text + '"')));
+      check('(4a) ★★受入条件: 約束済みの席の札にだけ .promised が付く '
+        + '(class / 🤝 の文字 / 名簿 の 3 経路が一致)。⛔ 卓の 4 席以外に札が 1 枚も増えていない',
+        (i1.seatKeys || []).length === 4
+        && i1.labelTotal === i1.seatKeys.length
+        && (i1.labels || []).length === i1.labelTotal
+        && i1.labels.every((l) => seatSet.has(l.seat))
+        && i1.labels.every((l) => l.has !== null && l.promised === l.has
+             && (l.text.indexOf('🤝') === 0) === l.has)
+        && nPromised === i1.recruitN && i1.recruitN === 2,
+        '札 ' + i1.labelTotal + ' 枚 / 卓 ' + (i1.seatKeys || []).length + ' 席 / 金枠 '
+        + nPromised + ' 枚 / 名簿 ' + i1.recruitN + ' 人 / '
+        + JSON.stringify((i1.labels || []).map((l) => ({ s: l.seat, p: l.promised, h: l.has, t: l.text }))));
+
+      /* ⭐ 「class が付いた」だけでは足りない —— **効かない CSS** を書いても緑になる
+         (#57 の「言い分けは文字だけでなく VFX」の同型)。実際に効いた色を見る。
+         ⛔ 文字サイズの **値** は縛らない (#57 実機体感 ① の余地)。素の札と同値かだけ見る。 */
+      const prL = (i1.labels || []).filter((l) => l.promised)[0];
+      const npL = (i1.labels || []).filter((l) => !l.promised)[0];
+      check('(4a2) ★ .promised が実際に色 (枠と背景) を変えている。一方で **文字サイズも .npcUnit の '
+        + '矩形も 1px も動かない** (⛔ サイズの値そのものは縛らない)',
+        !!prL && !!npL && prL.border !== npL.border && prL.bg !== npL.bg
+        && prL.font === npL.font && prL.font !== ''
+        && prL.unitW !== null && prL.unitW === npL.unitW && prL.unitH === npL.unitH,
+        '金枠 border=' + (prL && prL.border) + ' bg=' + (prL && prL.bg) + ' font=' + (prL && prL.font)
+        + ' 親=' + (prL && prL.unitW) + 'x' + (prL && prL.unitH)
+        + '  //  素 border=' + (npL && npL.border) + ' bg=' + (npL && npL.bg)
+        + ' font=' + (npL && npL.font) + ' 親=' + (npL && npL.unitW) + 'x' + (npL && npL.unitH));
+
+      const gL = (i2.labels || []).filter((l) => l.seat === gone.seat)[0];
+      const sL = stay ? (i2.labels || []).filter((l) => l.seat === stay.seat)[0] : null;
+      check('(4a3) 個別に断ると その席の .promised が外れ、残した席は付いたまま '
+        + '(付け外しが patronLabelPaint の 1 箇所で回っている証拠)',
+        !!gL && !!sL && gL.promised === false && gL.has === false
+        && sL.promised === true && sL.has === true
+        && i2.labelTotal === i1.labelTotal,
+        '断った席 promised=' + (gL && gL.promised) + ' has=' + (gL && gL.has)
+        + ' / 残した席 promised=' + (sL && sL.promised) + ' has=' + (sL && sL.has)
+        + ' / 札の総数 ' + i1.labelTotal + '->' + i2.labelTotal);
     }
     await pageI.close();
 
@@ -1131,7 +1288,118 @@ async function clickCenterOf(page, id) {
       && k1.labels.length >= 2,
       'badge=' + k1.badgeExists + ' パネル=' + k1.ovExists + ' / #townExit 命中=' + k1.townHit
       + ' #rosterEntry 命中=' + k1.rosterHit + ' / 頭上札=' + k1.labels.length + ' 枚');
+
+    /* ── (4b3) ★2 本のスイッチの独立 —— ?promises=0 は **札の色分けを消さない** ──
+       ⭐ 撤退 assert は「対」で書かないと永久緑 (#37 の教訓)。「消える側」だけでなく
+         「消えない側」も同じ腕で押さえる。 */
+    const kSeed = await seedSeatPromises(pageK, 2);
+    const k2 = await pageK.evaluate(PPROBE, VIS_FN);
+    check('(4b3) ★受入条件: ?promises=0 (バッジとパネルの撤退) でも 頭上札の色分けは **残る** '
+      + '(⭐ ?promises=0 と ?promisemark=0 は独立)',
+      kSeed.count === 2 && k2.badgeExists === false && k2.ovExists === false
+      && k2.labelTotal === 4
+      && (k2.labels || []).length === 4
+      && k2.labels.filter((l) => l.promised).length === 2
+      && k2.labels.every((l) => l.has !== null && l.promised === l.has),
+      '名簿=' + kSeed.count + ' / badge=' + k2.badgeExists + ' パネル=' + k2.ovExists
+      + ' / 札 ' + k2.labelTotal + ' 枚 金枠 ' + (k2.labels || []).filter((l) => l.promised).length + ' 枚 '
+      + JSON.stringify((k2.labels || []).map((l) => ({ s: l.seat, p: l.promised, h: l.has }))));
     await pageK.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 M — ★STEP4 撤退 ?promisemark=0
+     *   ⭐ 消える物 (色分け / カードの出自) と **消えない物** (🤝 の前置 = #57 の
+     *     出荷済み分 / バッジとパネル = STEP3) を同じ腕で対にして測る。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('');
+    console.log('====== 腕M: 撤退 ?promisemark=0 ((4b)(4b2)) ======');
+    const pageM = await openTavern(browser, DESK, '?promisemark=0');
+    await waitPatrons(pageM, 20000);
+    const mSeed = await seedSeatPromises(pageM, 2);
+    /* ⚠⚠ バッジの数字は **パネルを開いた時点**で引き直される設計 (依頼書 §14-7 の 6)。
+       ドライバが保管庫を直接焼いただけでは古いままなので、本番と同じ口 (バッジを押す) を
+       通してから読む。⛔ 「他は不変」を古い表示で測ると偽の赤になる (実走で 1 度踏んだ)。 */
+    const mOpen = await clickCenterOf(pageM, 'promisesBadge');
+    await sleep(300);
+    const m1 = await pageM.evaluate(PPROBE, VIS_FN);
+    console.log('       撤退: 札 ' + m1.labelTotal + ' 枚 / '
+      + JSON.stringify((m1.labels || []).map((l) => l.seat + (l.promised ? '[金]' : '[素]') + ' "' + l.text + '"'))
+      + ' / badge="' + m1.badgeText + '"');
+    check('(4b) ★受入条件: ?promisemark=0 で 札の色分け (.promised) が 1 枚も付かない。'
+      + '⛔ #57 の 🤝 前置と STEP3 のバッジ / パネルは **残る** (他は不変)',
+      mSeed.count === 2 && m1.labelTotal === 4 && (m1.labels || []).length === 4
+      && m1.labels.every((l) => l.promised === false)
+      && m1.labels.filter((l) => l.text.indexOf('🤝') === 0).length === 2
+      && m1.labels.every((l) => (l.text.indexOf('🤝') === 0) === l.has)
+      && m1.badgeExists === true && m1.badgeVis === true && m1.badgeN === m1.recruitN
+      && m1.ovExists === true && m1.ovVis === true && !!mOpen && mOpen.hit === 'promisesBadge'
+      && m1.rows === m1.recruitN,
+      '名簿=' + mSeed.count + ' / 金枠=' + (m1.labels || []).filter((l) => l.promised).length + ' 枚'
+      + ' / 🤝 の札=' + (m1.labels || []).filter((l) => l.text.indexOf('🤝') === 0).length + ' 枚'
+      + ' / badge 在=' + m1.badgeExists + ' "' + m1.badgeText + '" 名簿=' + m1.recruitN
+      + ' / パネル 在=' + m1.ovExists + ' 開いた=' + m1.ovVis + ' 行=' + m1.rows);
+
+    await clickCenterOf(pageM, 'promisesClose');
+    await sleep(300);
+    await startPrep(pageM, SCENARIO);
+    const advM = await advance(pageM, 90000);
+    if (advM.reached !== 'cinema') {
+      pending('(4b2) ?promisemark=0 ではカードの出自の器 (.pmOrigin) が 1 個も作られない',
+        '演出まで到達しなかった (reached=' + advM.reached + ')');
+    } else {
+      await pageM.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
+      const m2 = await waitGate(pageM, 12000);
+      console.log('       撤退のカード: 器=' + m2.originTotal + ' 個 / '
+        + JSON.stringify((m2.cards || []).map((c) => c.name + ':' + c.originExists)));
+      check('(4b2) ★受入条件: ?promisemark=0 ではカードの出自が **要素ごと作られない** '
+        + '(.pmOrigin が 0 個。?darkvision=0 の .pmSight と同じ作法)',
+        (m2.cards || []).length >= 2 && m2.originTotal === 0
+        && m2.cards.every((c) => c.originExists === false && c.originVis === false)
+        && (m2.recruitNames || []).length >= 1,
+        'カード=' + (m2.cards || []).length + ' 枚 / .pmOrigin=' + m2.originTotal + ' 個'
+        + ' / 名簿=' + JSON.stringify(m2.recruitNames));
+    }
+    await pageM.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 N — ⭐⭐⭐ 撤退 3 本すべて OFF でも **潜れる** (ゲームが詰まない)
+     *   ⚠ 撤退スイッチの最大の事故は「外したら進行不能」。#60 は 3 本足したので、
+     *     全部 OFF の姿を 1 度だけ実走して出発まで通す。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('');
+    console.log('====== 腕N: 撤退 3 本すべて OFF でも潜れる (4z) ======');
+    const pageN = await openTavern(browser, DESK, '?pmback=0&promises=0&promisemark=0');
+    await waitPatrons(pageN, 20000);
+    const nSeed = await seedSeatPromises(pageN, 2);
+    const n0 = await pageN.evaluate(PPROBE, VIS_FN);
+    await startPrep(pageN, SCENARIO);
+    const advN = await advance(pageN, 90000);
+    if (advN.reached !== 'cinema') {
+      pending('(4z) 撤退 3 本すべて OFF でも従来どおり潜れる', '演出まで到達しなかった (reached=' + advN.reached + ')');
+    } else {
+      await pageN.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
+      const n1 = await waitGate(pageN, 12000);
+      const nHit = await clickCenterOf(pageN, 'pmDepart');
+      await waitClosed(pageN, 4000);
+      await sleep(300);
+      const n2 = await pageN.evaluate(PROBE, VIS_FN);
+      console.log('       3 本 OFF: badge=' + n0.badgeExists + ' 金枠='
+        + (n0.labels || []).filter((l) => l.promised).length + ' 枚 / 戻る=' + n1.backVis
+        + ' 出自の器=' + n1.originTotal + ' / departs=' + n2.departs);
+      check('(4z) ★★★ 撤退 3 本すべて OFF (?pmback=0&promises=0&promisemark=0) でも '
+        + '従来どおり潜れる (⛔ 撤退で進行不能にならない)。追加物は 3 種とも消えている',
+        nSeed.count === 2
+        && n0.badgeExists === false && n0.ovExists === false
+        && (n0.labels || []).length === 4 && n0.labels.every((l) => l.promised === false)
+        && n1.backVis === false && n1.originTotal === 0
+        && n1.depVis === true && !!nHit && n2.departs === 1,
+        'バッジ=' + n0.badgeExists + ' パネル=' + n0.ovExists
+        + ' 金枠=' + (n0.labels || []).filter((l) => l.promised).length + ' 枚'
+        + ' / 戻る 可視=' + n1.backVis + ' 出自の器=' + n1.originTotal + ' 個'
+        + ' / 出発 可視=' + n1.depVis + ' 命中=' + (nHit ? nHit.hit : 'なし')
+        + ' departToScenario=' + n2.departs + ' 回');
+    }
+    await pageN.close();
 
     const pageL = await openTavern(browser, PHONE, '');
     await waitPatrons(pageL, 20000);

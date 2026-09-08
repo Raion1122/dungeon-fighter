@@ -2207,6 +2207,11 @@
     .pmZone { font-size: 11px; color: #8a7c5a; margin-top: 2px; letter-spacing: 1px; }
     /* ★#39: 視界 (short 形「視界 12」)。⛔ .pmZone の規則も文言も変えない / min-height: 296px も変えない。 */
     .pmSight { font-size: 11px; color: #a8996e; margin-top: 2px; letter-spacing: 1px; }
+    /* ★[#60 STEP4] カードの出自の 1 行 (「🤝 酒場で声を掛けた」)。
+       ⛔ .pmZone / .pmSight / .pmColumn の min-height: 296px は 1 行も変えない。
+       ⚠ カードの縦を伸ばしすぎない (#56 の前科) ので 1 行・11px に留める。
+       ⚠ 撤退 ?promisemark=0 では **要素ごと作らない** (?darkvision=0 の .pmSight と同じ作法)。 */
+    .pmOrigin { font-size: 11px; color: #d8b968; margin-top: 8px; letter-spacing: 0.5px; text-align: center; }
     .pmEquip { margin-top: 12px; width: 100%; display: flex; flex-direction: column; gap: 5px; }
     .pmEquipRow { display: flex; gap: 7px; font-size: 11.5px; align-items: baseline; line-height: 1.35; }
     .pmEquipLabel { flex: 0 0 30px; color: #7a6e52; }
@@ -2555,6 +2560,21 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
     body.compact .patronLabel { font-size: 11px; padding: 1px 6px 2px; top: -16px; }
+    /* ★[#60 STEP4] 約束済みの席の札だけ **枠を金・背景を濃く**。
+       ⛔ 光り物 (glow / box-shadow) は足さない —— #57 の --holdGlow が実機未確認のまま
+         (依頼書 §8-1)。⛔ font-size / padding / top には 1 文字も触らない ——
+         #57 の実機体感 ①「頭上札の 12px が読めるか」が **未消化**なので動かす余地を残す
+         (依頼書 §9-4「札の文字サイズは assert しない」と対)。
+       ⭐ 変えるのは **色だけ** ⇒ 札の箱も .npcUnit の矩形も 1px も動かない
+         (= verify_hold_person (1d) の 3 経路突き合わせが不変)。
+       ⚠ --pm-gold はマッチング演出の器スコープの変数なのでここでは読めない
+         同じ金 (#e0b43c) を直値で書く。⛔ :root へ変数を昇格させない (影響範囲が跳ねる)。
+       ⚠ 付け外しの唯一の口は patronLabelPaint()。撤退 ?promisemark=0 では付かない。 */
+    .patronLabel.promised {
+      color: #ffe7b4;
+      background: rgba(12,8,3,0.92);
+      border-color: #e0b43c;
+    }
     /* 足元の楕円影。⭐ 主人公の影より一回り小さくして「脇役」に見せる */
     .npcShadow {
       position: absolute;
@@ -3244,10 +3264,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>誰と約束したか札の色で分かる</b> — 同道を約した相手の頭上札が金の枠になり、出発前の顔ぶれにも「酒場で声を掛けた」と添う。</li>
         <li><b>誰と約束したか一目で分かる</b> — 酒場に「同行の約束」の一覧が付き、一人ずつ断ることもできる。</li>
         <li><b>同行の約束をその場で解散できる</b> — 声を掛けた仲間との約束を、出発前にまとめて解ける。</li>
         <li><b>仲間の顔ぶれを見てから酒場へ引き返せる</b> — 出発の画面から、潜らずに酒場へ戻れるようになった。</li>
-        <li><b>スリープが敵の群れの多い方へ飛ぶようになった</b> — 眠りの霧は最も多く眠らせられる場所へ落ちる。範囲に仲間が入ったときは吹き出しに「味方は無傷」と添えて出る。</li>
       </ul>
     </div>
     <script>
@@ -7386,6 +7406,17 @@
     try { return new URLSearchParams(window.location.search).get("promises") !== "0"; }
     catch (e) { return true; }
   })();
+  /* ══ #60 撤退スイッチ ?promisemark=0 ════════════
+     OFF = 頭上札の色分け (.promised) と マッチングカードの出自 (「🤝 酒場で声を掛けた」) が
+     出ない = #57 の 🤝 前置だけの姿へ戻る。⛔ 🤝 の前置そのものは #57 の出荷済み分なので
+     このスイッチでは消さない (消すと #57 を撤退させたことになる)。
+     ⚠ 判定はここ 1 箇所だけ (PREP_SKIP_ON / PM_SETUP_ON / PM_BACK_ON / PROMISES_ON と同じ作法。
+       2 箇所で URL を読むと片方だけ直って食い違う)。以降は PROMISE_MARK_ON を見る。
+     ⚠ ページ遷移をまたがない (札もカードも tavern.html の中で完結する)。 */
+  const PROMISE_MARK_ON = (function () {
+    try { return new URLSearchParams(window.location.search).get("promisemark") !== "0"; }
+    catch (e) { return true; }
+  })();
   if (!PM_FIT_ON) { try { document.body.classList.add("pmFitOff"); } catch (e) {} }
 
   // ── #19 STEP7 撤退スイッチ ?actionpri=0 ───────────────────────────────────
@@ -8107,6 +8138,11 @@
     let promised = false;
     try { promised = !!(window.DFRecruits && DFRecruits.has(m.name)); } catch (e) {}
     lb.textContent = (promised ? "🤝 " : "") + (PM_CLASS_EMOJI[m.classKey] || "") + " " + (m.name || "");
+    /* ★[#60 STEP4] 約束済みの札だけ金枠へ。⛔ 2 箇所目の付け口を作らない ——
+       初期描画 (initNpcCrowd) も付け外し (refreshPatronLabelFor) も必ずここを通る。
+       ⚠ 文字 (🤝 の前置) は #57 の出荷済み分なので ?promisemark=0 でも残す。
+         このスイッチが消すのは **色分けだけ**。 */
+    lb.classList.toggle("promised", promised && PROMISE_MARK_ON);
   }
   /* 約束の付け外しで 🤝 を引き直す。⛔ 要素を作り直さない (参照が切れる)。
      ⚠ 席は member の **同一性** で引く (名前で引くと同名が居た日に両方光る)。 */
@@ -8721,6 +8757,10 @@
     if (sightEl) sightEl.className = "pmSight";
     const equipEl = document.createElement("div"); equipEl.className = "pmEquip";
     const skillsEl = document.createElement("div"); skillsEl.className = "pmSkills";
+    /* ★[#60 STEP4] 出自の 1 行の器。⚠ 撤退 ?promisemark=0 では要素ごと作らない
+       (= .pmOrigin が 0 個になる。?darkvision=0 の .pmSight と同じ作法)。 */
+    const originEl = PROMISE_MARK_ON ? document.createElement("div") : null;
+    if (originEl) { originEl.className = "pmOrigin"; originEl.hidden = true; }
     el.appendChild(wrap);
     el.appendChild(nameEl);
     el.appendChild(classEl);
@@ -8728,6 +8768,7 @@
     if (sightEl) el.appendChild(sightEl);
     el.appendChild(equipEl);
     el.appendChild(skillsEl);
+    if (originEl) el.appendChild(originEl);
 
     let filled = false;
     // #35: 枠に入れている技の行。同職 2 枚の同期 (pmRefreshCards) がここを呼び直す。
@@ -8768,6 +8809,19 @@
         row.appendChild(lab); row.appendChild(val);
         equipEl.appendChild(row);
       });
+      /* ★[#60 STEP4] 「酒場で声を掛けた」仲間だけ出自を出す。
+         ⚠⚠ 判定は DFRecruits.has(m.name) = **名前引き**。同名の別人が名簿に居ると
+           両方に付く。⭐ 卓は 4 席・上限は RECRUIT_MAX (3 人) なので実害の出る確率は
+           無視できる ⇒ **許容する** (依頼書 §8-2 が明記)。
+         ⛔⛔ ここで名簿の同一性システム (メンバーへ id を振る) を作らない —— 規模が跳ね、
+           localStorage に貯まっている既存の候補の移行まで抱えることになる (依頼書 §13)。
+         ⚠ 主人公のカードには出さない (声を掛けた相手ではない)。 */
+      if (originEl) {
+        let fromTavern = false;
+        try { fromTavern = !m.isHero && !!(window.DFRecruits && DFRecruits.has(m.name)); } catch (e) {}
+        originEl.textContent = fromTavern ? "🤝 酒場で声を掛けた" : "";
+        originEl.hidden = !fromTavern;
+      }
       renderSkills();
     }
     return { el, fill, refresh: renderSkills };
