@@ -12,6 +12,13 @@
  *   §0 装置 (⭐⭐⭐ これが無いと全 assert が空振りで永久緑)
  *   §1 「🍺 酒場へ戻る」— 出る条件 / 押した先 / 撤退 / 非退行
  *   §2 「🤝 約束を解散する」— 押した先 (DFRecruits.count()=0) / 撤退 (?recruittalk=0)
+ *   §3 「同行の約束」常設パネル — 常設バッジ / 一覧 / 個別に断る / 編成を見る
+ *      ⭐⭐⭐ (3a) の中核 = **再入場で prepIntelUsed が保持される** (openPrep 経由に戻すと
+ *        吟味・聞き込み・祈りが無限に引き直せる穴が開く)。門番 (PREP_SKIP_ON /
+ *        isRecruitTalkOn) の **外側** = 変数そのものを読んで測る。
+ *      ⭐ 人数は **2 経路**で突き合わせる —— 画面のバッジの文字 と DFRecruits.count()。
+ *        ⚠ 後者は js/recruit-candidates.js 側 = **この道具が凍結も変異もしない場所**なので、
+ *          「両方を動かす変異」で永久緑になる #58 の型を原理的に踏まない。
  *
  * ── ⛔ 測らないこと (依頼書 §9-4) ─────────────────────────────────────────
  *   ・戻るボタンの座標・余白・文字サイズ。⚠ ただし #56 の前科があるので
@@ -50,6 +57,9 @@
  *     m3 … resolve() を無記名に戻す            → 戻るを押してもその場で潜る
  *     m5 … 解散で DFRecruits.clear() を呼ばない → 押しても約束が消えない
  *     m6 … 戻るボタンを確定前から出す          → 確定を見ずに帰れる
+ *     m2 … 再入場を openPrep 経由へ戻す        → 事前情報が引き直せる
+ *     m7 … 編成を見るに btnPartyView の id を使う → 準備画面の同名ボタンと衝突
+ *     m8 … バッジを RECRUIT_MAX からの引き算で作る → 名簿と画面がズレても気づけない
  */
 'use strict';
 
@@ -109,7 +119,10 @@ function mutate(file, label, anchor, patch) {
      ラベルを見てから書き換える (下の値は 2026-09-08 の実走で採ったもの)。 */
 const NEG_EXPECT = {
   m1: ['(1c2)', '(1c3)'],
-  m3: ['(1b)'],
+  /* ⭐ m3 は (1b) だけでなく (3a) も赤くする —— 記名を外すと「戻る」で潜ってしまうので、
+     腕J が「戻ってから常設パネルを開く」ところまで到達できない。⛔ 机上では書けない値
+     (実走で確定 = 25/27)。 */
+  m3: ['(1b)', '(3a)'],
   /* ⭐ m5 は担当の (2a) だけ。確認シートは開くし押せるので (2z)(2c) は緑のまま
      —— 「押せた」と「約束が消えた」を分けて測っているのでここが分離できる。 */
   m5: ['(2a)'],
@@ -120,6 +133,16 @@ const NEG_EXPECT = {
   /* ⭐ m6 は (1d) も赤くする —— 「確定前から出す」置換が撤退スイッチ (?pmback=0) の
      判定より下流で hidden を外すので、撤退の腕でも戻るの口が出てしまう。机上では書けない。 */
   m6: ['(1e)', '(1e2)', '(1d)'],
+  /* ⭐⭐⭐ m2 は本チケットの中核。openPrep は冒頭で prepIntelUsed をリセットするので、
+     再入場の口をそちらへ戻すと事前情報が引き直せる。 */
+  m2: ['(3a)'],
+  /* ⭐ m7 は 3 本を赤くする (実走で確定): ① 新しい口 (#promisesViewParty) が消えて押せない
+     = (3a)(3b) ② #btnPartyView が 2 個になる = (3z) (driver_party_view_reopen が壊れる前触れ)。
+     ⭐ (3b) は机上では書けない —— 「未受注では出さない」の assert が **器の在否**も
+       見ているので、id ごと消える変異に反応する。 */
+  m7: ['(3a)', '(3b)', '(3z)'],
+  /* ⭐ m8 は「実体を数えない」バッジ。名簿 (DFRecruits.count()) との突き合わせだけが検出器。 */
+  m8: ['(3d)'],
 };
 
 if (NEGATIVE && !ONLY.length) {
@@ -171,6 +194,28 @@ if (NEGATIVE) {
   mutate('/tavern.html', 'm6 (戻るの口を確定前から出す)',
     'if (backEl) backEl.hidden = true;   /* #60: 出すのは猶予明けの 1 点だけ */',
     'if (backEl) { backEl.hidden = false; if (rerollEl) rerollEl.hidden = false; }   /* m6 */');
+
+  /* ── m2: 再入場を openPrep 経由へ戻す。
+        ⭐⭐⭐ 依頼書 §2-4 が名指しした穴。openPrep は冒頭で prepIntelUsed /
+          prepIntelSuccess をリセットするので、吟味・聞き込み・祈りが無限に引き直せる。
+        ⚠ 演出そのものは openPrep からも開くので「開いたか」だけでは捕まらない
+          —— (3a) が **prepIntelUsed の中身**まで見て初めて赤くなる。 */
+  mutate('/tavern.html', 'm2 (再入場を openPrep 経由へ戻す)',
+    '      openPartyMatchReview();   /* ⭐⭐⭐ 再入場はこれ一本 */',
+    '      if (prepScenario) openPrep(prepScenario);   /* m2 */');
+  /* ── m7: 「編成を見る」に既存の #btnPartyView の id を使う。
+        ⚠ 同 id が 2 つできると document.getElementById が先頭 (= こちら) を返し、
+          tools/driver_party_view_reopen.js の ?prepskip=0 経路が壊れる (依頼書 §2-5)。
+        ⭐ この道具の中では「新しい口が消えて押せない」+「id が 2 個」の 2 面で現れる。 */
+  mutate('/tavern.html', 'm7 (編成を見るに btnPartyView の id を使う)',
+    '        <button type="button" id="promisesViewParty">🎴 編成を見る</button>',
+    '        <button type="button" id="btnPartyView">🎴 編成を見る</button>   <!-- m7 -->');
+  /* ── m8: バッジの数字を RECRUIT_MAX から「空いている席」を引いて作る。
+        ⭐ 名簿を 1 度も数えないので、名簿と画面がズレても画面だけ正しく見える。
+        ⇒ §9-2 の 2 経路突き合わせ (バッジの文字 vs DFRecruits.count()) だけが検出器。 */
+  mutate('/tavern.html', 'm8 (バッジを RECRUIT_MAX からの引き算で作る)',
+    '    el.textContent = "🤝 " + recruitCountNow() + " / " + RECRUIT_MAX;',
+    '    el.textContent = "🤝 " + (RECRUIT_MAX - RECRUIT_SEATS.filter((k) => !(todaysPatrons && todaysPatrons[k] && window.DFRecruits && DFRecruits.has(todaysPatrons[k].name))).length) + " / " + RECRUIT_MAX;   /* m8 */');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -295,6 +340,60 @@ const PROBE = (visSrc) => {
     innerH:     window.innerHeight,
     innerW:     window.innerWidth,
     path:       location.pathname,
+  };
+};
+
+/* ★STEP3 の観測プローブ。⭐ 人数は **2 経路**で返す:
+     ① badgeN … 画面のバッジの文字から数字だけを抜いたもの (本番の描画結果)
+     ② recruitN … DFRecruits.count() = js/recruit-candidates.js 側の実体
+   ⚠⚠ ② は **この道具が凍結も変異もしていないファイル**から採る。#58 の教訓
+     (「定義と実体の 2 経路突き合わせは両方を動かす変異を捕まえられない」) を、
+     片側を変異の届かない場所へ置くことで原理的に回避している。 */
+const PPROBE = (visSrc) => {
+  const vis = eval(visSrc);
+  const q = (id) => document.getElementById(id);
+  const rect = (e) => {
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
+             right: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  const hitOf = (e) => {
+    if (!e) return '(なし)';
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return '(寸法0)';
+    const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return h ? String(h.id || h.className || h.tagName) : '(なし)';
+  };
+  const badge = q('promisesBadge');
+  const ov    = q('promisesOverlay');
+  const view  = q('promisesViewParty');
+  const close = q('promisesClose');
+  const rows  = Array.prototype.slice.call(document.querySelectorAll('#promisesBody .promiseRow'));
+  const drops = Array.prototype.slice.call(document.querySelectorAll('#promisesBody .promiseDrop'));
+  const labels= Array.prototype.slice.call(document.querySelectorAll('.patronLabel[data-patron]'));
+  const bText = badge ? (badge.textContent || '').trim() : '(なし)';
+  const mm    = bText.match(/(-?[0-9]+)\s*\/\s*(-?[0-9]+)/);
+  return {
+    badgeExists: !!badge, badgeVis: vis(badge), badgeText: bText,
+    badgeN:   mm ? parseInt(mm[1], 10) : null,
+    badgeMax: mm ? parseInt(mm[2], 10) : null,
+    badgeHit: hitOf(badge), badgeRect: rect(badge),
+    ovExists: !!ov, ovVis: vis(ov),
+    viewExists: !!view, viewVis: vis(view), viewHit: hitOf(view), viewRect: rect(view),
+    closeVis: vis(close), closeHit: hitOf(close), closeRect: rect(close),
+    rows: rows.length,
+    dropNames: drops.map((d) => d.getAttribute('data-drop')),
+    /* ⭐ 変異の届かない側の 1 経路。 */
+    recruitN: (function () { try { return (window.DFRecruits && DFRecruits.count()) || 0; } catch (e) { return -1; } })(),
+    /* ⛔ id の衝突検出。document.getElementById は先頭しか返さないので querySelectorAll で数える。 */
+    dupPartyView: document.querySelectorAll('[id="btnPartyView"]').length,
+    labels: labels.map((l) => ({ seat: l.getAttribute('data-patron'), text: (l.textContent || '').trim() })),
+    /* 左上の既存の縦列を覆っていないか (#12 の教訓 = 矩形でなく elementFromPoint で見る)。 */
+    townExists: !!q('townExit'), townHit: hitOf(q('townExit')),
+    rosterExists: !!q('rosterEntry'), rosterHit: hitOf(q('rosterEntry')),
+    max: (function () { try { return RECRUIT_MAX; } catch (e) { return -1; } })(),
+    innerH: window.innerHeight, innerW: window.innerWidth,
   };
 };
 
@@ -425,6 +524,32 @@ async function waitClosed(page, budgetMs) {
   return await page.evaluate(PROBE, VIS_FN);
 }
 /* 要素の中心を実マウスで叩く (指の当たり方に一番近い経路)。命中先も返す。 */
+/* セレクタ版。⚠ 一覧の「断る」は id を持たない (名前で引く) のでこちらを使う。 */
+async function clickCenterOfSel(page, sel) {
+  const rc = await page.evaluate((s) => {
+    const e = document.querySelector(s);
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return null;
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, hit: hit ? String(hit.id || hit.className || hit.tagName) : '(なし)' };
+  }, sel);
+  if (!rc) return null;
+  await page.mouse.click(rc.x, rc.y);
+  return rc;
+}
+/* 卓の顔ぶれが確定して頭上札が出るまで待つ。⛔ 固定 sleep にしない。 */
+async function waitPatrons(page, budgetMs) {
+  try {
+    await page.waitForFunction(
+      "typeof todaysPatrons !== 'undefined' && todaysPatrons && "
+      + "document.querySelectorAll('.patronLabel[data-patron]').length >= 2",
+      { timeout: budgetMs || 20000 });
+    return true;
+  } catch (e) { return false; }
+}
+
 async function clickCenterOf(page, id) {
   const rc = await page.evaluate((elId) => {
     const e = document.getElementById(elId);
@@ -807,6 +932,220 @@ async function clickCenterOf(page, id) {
         '撤退="' + h1.rerollText + '" / 既定="' + defaultRerollLabel + '"');
     }
     await pageH.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 I — ★STEP3 常設バッジ / 一覧 / 個別に断る
+     *   ⭐⭐ 既定の腕 (?recruittalk 無指定) で測る —— 母集団 12 本のうち 5 本が
+     *     明示的に ?recruittalk=0 を付けており、**既定 ON の姿は golden の空白地帯**
+     *     だった (#60 項目2 の実測)。
+     *   ⭐ 約束は **卓に座っている本人** (todaysPatrons) から焼く。⛔ pickCompanion で
+     *     新顔を作ると席に居ないので、札から 🤝 が消えることを測れない (空振り)。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('');
+    console.log('====== 腕I: 常設バッジ / 一覧 / 個別に断る ((0d)(3b)(3c)(3d)) ======');
+    const pageI = await openTavern(browser, DESK, '');
+    const iSeated = await waitPatrons(pageI, 20000);
+    const i0 = await pageI.evaluate(PPROBE, VIS_FN);
+    console.log('       素の酒場: badge="' + i0.badgeText + '" 命中先=' + i0.badgeHit
+      + ' 箱=' + JSON.stringify(i0.badgeRect) + ' / 町=' + i0.townHit + ' 名簿=' + i0.rosterHit);
+
+    /* ── (0d) 装置 + 「酒場の絵を隠さない」の実測 ──
+       ⛔ 矩形の重なりでは見えない。**その点で実際に何が拾われるか**で見る (#12 の教訓)。 */
+    check('(0d) [装置] 常設バッジが酒場に居て指が当たり、左上の既存の縦列を 1 つも覆っていない',
+      iSeated === true && i0.badgeExists === true && i0.badgeVis === true
+      && i0.badgeHit === 'promisesBadge'
+      && i0.townExists === true && i0.townHit === 'townExit'
+      && i0.rosterExists === true && i0.rosterHit === 'rosterEntry',
+      '札が出た=' + iSeated + ' badge命中=' + i0.badgeHit + ' / #townExit 命中=' + i0.townHit
+      + ' / #rosterEntry 命中=' + i0.rosterHit);
+
+    /* 卓の 4 席のうち 2 人と約束する。⭐ 上限は本番の RECRUIT_MAX を裸で読む (⛔ 3 を写経しない)。 */
+    const iSeed = await pageI.evaluate(() => {
+      const out = { picked: [], count: 0, why: '' };
+      try {
+        DFRecruits.clear();
+        const keys = Object.keys(todaysPatrons || {});
+        keys.forEach((k) => {
+          if (out.picked.length >= 2) return;
+          const m = todaysPatrons[k];
+          if (!m) return;
+          if (DFRecruits.add(m, RECRUIT_MAX).ok) {
+            refreshPatronLabelFor(m);
+            out.picked.push({ seat: k, name: m.name });
+          }
+        });
+        out.count = DFRecruits.count();
+      } catch (e) { out.why = String((e && e.message) || e); }
+      return out;
+    });
+    console.log('       席から約束を焼く: ' + JSON.stringify(iSeed));
+
+    const iOpen = await clickCenterOf(pageI, 'promisesBadge');
+    await sleep(300);
+    const i1 = await pageI.evaluate(PPROBE, VIS_FN);
+    console.log('       パネル: 開いた=' + i1.ovVis + ' 行=' + i1.rows + ' badge="' + i1.badgeText
+      + '" 名簿=' + i1.recruitN + ' / 編成を見る 在=' + i1.viewExists + ' 可視=' + i1.viewVis);
+
+    if (!iSeed.count || !i1.ovVis) {
+      ['(3b)', '(3c)', '(3d)'].forEach((l) =>
+        pending(l + ' 腕I の測定', '約束を焼けなかった / パネルが開かなかった ('
+          + JSON.stringify(iSeed) + ' ovVis=' + i1.ovVis + ')'));
+    } else {
+      /* ── (3b) 未受注では「編成を見る」を出さない ── */
+      const iPrepSc = await pageI.evaluate(() => (typeof prepScenario === 'undefined' || !prepScenario) ? null : prepScenario.id);
+      check('(3b) ★受入条件: prepScenario が null (未受注) では「編成を見る」が出ない (器はある)',
+        iPrepSc === null && i1.viewExists === true && i1.viewVis === false
+        && i1.closeVis === true && i1.closeHit === 'promisesClose',
+        'prepScenario=' + iPrepSc + ' / 編成を見る 在=' + i1.viewExists + ' 可視=' + i1.viewVis
+        + ' / 閉じる 命中=' + i1.closeHit);
+
+      /* ── (3c) 個別に断る ── */
+      const gone = iSeed.picked[0], stay = iSeed.picked[1];
+      const labOf = (s, seat) => { const f = (s.labels || []).filter((x) => x.seat === seat)[0]; return f ? f.text : '(なし)'; };
+      const beforeGone = labOf(i1, gone.seat), beforeStay = labOf(i1, stay ? stay.seat : '');
+      const iDrop = await clickCenterOfSel(pageI, '#promisesBody .promiseDrop[data-drop="' + gone.name + '"]');
+      await sleep(350);
+      const i2 = await pageI.evaluate(PPROBE, VIS_FN);
+      const afterGone = labOf(i2, gone.seat), afterStay = labOf(i2, stay ? stay.seat : '');
+      console.log('       断った後: 名簿=' + i1.recruitN + '->' + i2.recruitN + ' 行=' + i1.rows + '->' + i2.rows
+        + ' / 札 "' + beforeGone + '" -> "' + afterGone + '" / 残 "' + beforeStay + '" -> "' + afterStay + '"');
+      check('(3c) ★★受入条件: 個別に断ると DFRecruits.count() が 1 減り、その席の札から 🤝 が消える '
+        + '(⭐ 他の席の 🤝 は残る)',
+        !!iDrop && iDrop.hit === 'promiseDrop' && i2.recruitN === i1.recruitN - 1
+        && i2.rows === i1.rows - 1
+        && beforeGone.indexOf('🤝') === 0 && afterGone.indexOf('🤝') < 0 && afterGone !== '(なし)'
+        && beforeStay.indexOf('🤝') === 0 && afterStay.indexOf('🤝') === 0,
+        '命中先=' + (iDrop ? iDrop.hit : 'なし') + ' 名簿 ' + i1.recruitN + '->' + i2.recruitN
+        + ' 行 ' + i1.rows + '->' + i2.rows + ' 断った席の札 "' + beforeGone + '"->"' + afterGone
+        + '" 残した席の札 "' + beforeStay + '"->"' + afterStay + '"');
+
+      /* ── (3d) ★2 経路の突き合わせ (依頼書 §9-2) ──
+         ⭐ 画面のバッジの文字 と DFRecruits.count() を **2 つの人数** (2 人 / 1 人) で照合する。
+         ⚠ 片側 (DFRecruits) は js/recruit-candidates.js = この道具が凍結も変異もしない場所。 */
+      check('(3d) ★受入条件: バッジの数字が名簿の実体と一致する (2 つの人数で・2 経路)',
+        i1.badgeN !== null && i2.badgeN !== null
+        && i1.badgeN === i1.recruitN && i2.badgeN === i2.recruitN
+        && i1.recruitN === 2 && i2.recruitN === 1
+        && i1.badgeMax === i1.max && i1.max > 0,
+        '2 人の時 画面=' + i1.badgeN + ' 名簿=' + i1.recruitN + ' ("' + i1.badgeText + '")'
+        + ' / 1 人の時 画面=' + i2.badgeN + ' 名簿=' + i2.recruitN + ' ("' + i2.badgeText + '")'
+        + ' / 上限 画面=' + i1.badgeMax + ' 本番=' + i1.max);
+    }
+    await pageI.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 J — ★★★ 戻る → 常設パネル →「編成を見る」で再入場
+     *   ⭐⭐⭐ 本項目の中核 (3a)。門番 (PREP_SKIP_ON / isRecruitTalkOn) の **外側** =
+     *     prepIntelUsed という変数そのものを読む。⛔ 「画面がどう開いたか」で測ると、
+     *     openPrep 経由でも演出は開くので永久緑になる (#58 の型)。
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('');
+    console.log('====== 腕J: 戻る → 編成を見る の再入場 ((3a)(3z)) ======');
+    const pageJ = await openTavern(browser, DESK, '');
+    await waitPatrons(pageJ, 20000);
+    await seedRecruits(pageJ, 2);
+    await startPrep(pageJ, SCENARIO);
+    const advJ = await advance(pageJ, 90000);
+    if (advJ.reached !== 'cinema') {
+      ['(3a)', '(3z)'].forEach((l) =>
+        pending(l + ' 腕J の測定', '演出まで到達しなかった (reached=' + advJ.reached + ')'));
+    } else {
+      await pageJ.evaluate(() => { const o = document.getElementById('partyMatchOverlay'); if (o) o.click(); });
+      await waitGate(pageJ, 12000);
+      /* 事前情報を「使い切った」状態を作る。⭐ 本番の変数そのものを立てる —— 準備画面は
+         #55 で廃止済みなので、UI から使い切る導線は既に存在しない。 */
+      const jMark = await pageJ.evaluate(() => {
+        try { prepIntelUsed.examine = true; prepIntelUsed.talk = true; return JSON.parse(JSON.stringify(prepIntelUsed)); }
+        catch (e) { return { threw: String((e && e.message) || e) }; }
+      });
+      const jBack = await clickCenterOf(pageJ, 'pmBtnBackTavern');
+      const jClosed = await waitClosed(pageJ, 4000);
+      await sleep(250);
+      const jOpen = await clickCenterOf(pageJ, 'promisesBadge');
+      await sleep(300);
+      const j1 = await pageJ.evaluate(PPROBE, VIS_FN);
+      console.log('       戻った後のパネル: 開いた=' + j1.ovVis + ' 編成を見る 可視=' + j1.viewVis
+        + ' 命中=' + j1.viewHit + ' 箱=' + JSON.stringify(j1.viewRect)
+        + ' / #btnPartyView の個数=' + j1.dupPartyView);
+
+      /* ── (3z) 装置: id を衝突させていない + パネルの口が画面内で押せる ──
+         ⛔ id に btnPartyView を使うと document.getElementById が先頭を返し、
+           tools/driver_party_view_reopen.js の ?prepskip=0 経路が壊れる (依頼書 §2-5)。
+         ⚠ #56 の前科 (器を潰して口が画面外へ出た) があるので「画面内」も併せて測る。 */
+      check('(3z) [装置] 「編成を見る」は別 id で、#btnPartyView は文書内に 1 個のまま。'
+        + 'パネルの 2 つの口は画面内で指が当たる',
+        j1.dupPartyView === 1 && j1.viewExists === true && j1.viewVis === true
+        && j1.viewHit === 'promisesViewParty' && j1.closeHit === 'promisesClose'
+        && !!j1.viewRect && j1.viewRect.top >= 0 && j1.viewRect.bottom <= j1.innerH + 1
+        && !!j1.closeRect && j1.closeRect.top >= 0 && j1.closeRect.bottom <= j1.innerH + 1,
+        '#btnPartyView=' + j1.dupPartyView + ' 個 / 編成を見る 在=' + j1.viewExists
+        + ' 可視=' + j1.viewVis + ' 命中=' + j1.viewHit + ' 箱=' + JSON.stringify(j1.viewRect)
+        + ' / 閉じる 命中=' + j1.closeHit + ' 箱=' + JSON.stringify(j1.closeRect)
+        + ' / 画面高=' + j1.innerH);
+
+      const jView = await clickCenterOf(pageJ, 'promisesViewParty');
+      const j2 = await waitGate(pageJ, 12000);
+      const jAfter = await pageJ.evaluate(() => {
+        const out = { used: null, sc: null, threw: '' };
+        try {
+          out.used = JSON.parse(JSON.stringify(prepIntelUsed));
+          out.sc = prepScenario ? prepScenario.id : null;
+        } catch (e) { out.threw = String((e && e.message) || e); }
+        return out;
+      });
+      console.log('       再入場: 演出=' + j2.overlayVis + ' depVis=' + j2.depVis
+        + ' / prepIntelUsed ' + JSON.stringify(jMark) + ' -> ' + JSON.stringify(jAfter.used)
+        + ' / prepScenario=' + jAfter.sc + ' / departs=' + j2.departs);
+
+      /* ── (3a) ★★★受入条件 ──
+         ⭐ 「開いた」だけでは足りない (openPrep 経由でも開く)。**中身が保たれたか**まで見る。
+         ⭐ 「保たれた」だけでも足りない (押せなければ何も起きず自明に保たれる) ので
+           **演出が実際に開いたこと**と対で縛る。 */
+      check('(3a) ★★★受入条件: 戻る →「編成を見る」で再入場しても prepIntelUsed が保持される '
+        + '(⛔ openPrep 経由に戻すと事前情報が引き直せる)',
+        jClosed.display === 'none' && !!jBack && !!jView && jView.hit === 'promisesViewParty'
+        && j2.overlayVis === true && j2.depVis === true && j2.departs === 0
+        && jAfter.threw === '' && !!jAfter.used
+        && jAfter.used.examine === true && jAfter.used.talk === true
+        && jAfter.sc !== null,
+        '演出が開いた=' + j2.overlayVis + ' (depVis=' + j2.depVis + ') 潜行=' + j2.departs + ' 回'
+        + ' / 事前情報 ' + JSON.stringify(jMark) + ' -> ' + JSON.stringify(jAfter.used)
+        + ' / 受注=' + jAfter.sc);
+    }
+    await pageJ.close();
+
+    /* ══════════════════════════════════════════════════════════════════
+     * 腕 K — 撤退 ?promises=0 / 腕 L — iPhone 幅で札が画面内に居る
+     * ══════════════════════════════════════════════════════════════════ */
+    console.log('');
+    console.log('====== 腕K: 撤退 ?promises=0 (3e) / 腕L: iPhone 幅 (0d2) ======');
+    const pageK = await openTavern(browser, DESK, '?promises=0');
+    await waitPatrons(pageK, 20000);
+    const k1 = await pageK.evaluate(PPROBE, VIS_FN);
+    console.log('       撤退: badge 在=' + k1.badgeExists + ' パネル 在=' + k1.ovExists
+      + ' / 町=' + k1.townHit + ' 名簿=' + k1.rosterHit + ' 札=' + k1.labels.length + ' 枚');
+    check('(3e) ★受入条件: ?promises=0 でバッジもパネルも DOM ごと消え、酒場の他は不変',
+      k1.badgeExists === false && k1.ovExists === false
+      && k1.townExists === true && k1.townHit === 'townExit'
+      && k1.rosterExists === true && k1.rosterHit === 'rosterEntry'
+      && k1.labels.length >= 2,
+      'badge=' + k1.badgeExists + ' パネル=' + k1.ovExists + ' / #townExit 命中=' + k1.townHit
+      + ' #rosterEntry 命中=' + k1.rosterHit + ' / 頭上札=' + k1.labels.length + ' 枚');
+    await pageK.close();
+
+    const pageL = await openTavern(browser, PHONE, '');
+    await waitPatrons(pageL, 20000);
+    const l1 = await pageL.evaluate(PPROBE, VIS_FN);
+    console.log('       compact: badgeRect=' + JSON.stringify(l1.badgeRect) + ' 命中=' + l1.badgeHit
+      + ' 画面=' + l1.innerW + 'x' + l1.innerH);
+    check('(0d2) [装置] iPhone 390x844 でも常設バッジが画面内に収まり、指が当たる '
+      + '(⛔ 寸法そのものは縛らない)',
+      l1.badgeExists === true && !!l1.badgeRect && l1.badgeRect.top >= 0
+      && l1.badgeRect.bottom <= l1.innerH + 1 && l1.badgeRect.left >= 0
+      && l1.badgeRect.right <= l1.innerW + 1 && l1.badgeHit === 'promisesBadge',
+      '箱=' + JSON.stringify(l1.badgeRect) + ' 画面=' + l1.innerW + 'x' + l1.innerH
+      + ' 命中=' + l1.badgeHit);
+    await pageL.close();
 
     /* ══ ページエラー ══════════════════════════════════════════════════ */
     console.log('\n====== ページエラー ======');
