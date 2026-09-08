@@ -79,9 +79,20 @@ const MUTATIONS = {
   // (1d) 敵スポーンをマスクの '#' のマスへ移す
   spawnonwall: [['              slots: [[20, 12, "lizardRaider"], [21, 13, "lizardWarrior"],',
                  '              slots: [[20, 5, "lizardRaider"], [21, 13, "lizardWarrior"],']],
-  // (1f2) 外周の封鎖が消える
-  sealoff: [['             sealRing: true,   /* 外周 1 タイルを通行不能に = 歩ける「壁抜けの帯」を作らない */',
-             '             /* ★変異sealoff */']],
+  /* (1f2) 外周の封鎖が消える
+   * ⚠⚠⚠ ★[#62 2026-09-08 測定器の修理] 旧アンカーは n4big の "sealRing: true," の 1 行だったが、
+   *   #58 が n6big / n7big に**同じ書式の行**を足したので **index.html に 3 箇所**ヒットし、
+   *   「1 ファイル / 3 箇所 → 空振り」で --negative が exit 3 で停止していた。
+   *   ⇒ **素の実走は 33/33 で緑のまま**、MUT_ORDER の sealoff 以降 4 本
+   *      (sealoff / switchsplit / n4wipe / nonode) が**一度も走っていなかった**。
+   * ⭐ 張り替え先は n4big にしか無い outdoor 行。JS のオブジェクトリテラルは
+   *   **後から書いた同名キーが勝つ**ので、sealRing: true, の**後ろ**に sealRing: false, を
+   *   足せば注入する欠陥は旧アンカーと同一 (index.html の addPainting は sealRing: !!sealRing =
+   *   false と「書いていない」は同値)。⛔ 検出力は 1 ミリも緩めていない。
+   * ⚠ 恒久則 (memory/project_headless_verification): エントリを増やす変更のときは
+   *   既存ドライバの変異アンカーを grep -c -F で数え直す。 */
+  sealoff: [['             outdoor: true,    /* 沼の参道は屋外。入った瞬間から盤面の全体が見えているのが正しい */',
+             '             outdoor: true, sealRing: false,   /* ★変異sealoff (後勝ちで外周の封鎖を消す) */']],
   // (5a) 撤退スイッチがマップにだけ効き、司祭は旧盤面にも残る
   switchsplit: [['              slots: [[34, 13, "lizardRaider"], [35, 15, "lizardWarrior"],',
                  '              slots: [[34, 13, "swampNovice"], [35, 15, "lizardWarrior"],']],
@@ -639,11 +650,21 @@ async function runSuite(browser, port, label) {
   const otherDiffs = [];
   let scanned = 0;
   const perScen = {};
+  const graphBySid = {};
   for (const sid of SCENS) {
     const p = sid === 'lizard-swamp' ? page3 : await bootPage(browser, base + '/index.html?diag=1', sid, errs);
-    /* ⚠ RUN の形は { graph: {entry, nodes}, byId } (2026-09-05 実測)。RUN.nodes は存在しない。 */
-    const ids = await p.evaluate(() => (typeof RUN !== 'undefined' && RUN && RUN.byId) ? Object.keys(RUN.byId) : []);
-    for (const id of ids) {
+    /* ⚠ RUN の形は { graph: {entry, nodes}, byId } (2026-09-05 実測)。RUN.nodes は存在しない。
+     * ★[#62] 母集団の**形**も一緒に採る (下のガードが下限の定数を捨てて導出へ移るため)。
+     *   entry / boss は __graphRun の本番 API から引く (byId のキー集合とは別経路)。 */
+    const gm = await p.evaluate(() => {
+      if (typeof RUN === 'undefined' || !RUN || !RUN.byId) return { ids: [], entry: null, boss: null };
+      let entry = null, boss = null;
+      try { const g = window.__graphRun, gr = g.graph();
+            entry = gr ? gr.entry : null; boss = g.bossNodeId(); } catch (e) {}
+      return { ids: Object.keys(RUN.byId), entry: entry, boss: boss };
+    });
+    graphBySid[sid] = gm;
+    for (const id of gm.ids) {
       if (sid === 'lizard-swamp' && id === 'n7') continue;      // ここだけは変わってよい
       const a = await p.evaluate(SNAP_FN, id, null);
       const b = await p.evaluate(SNAP_FN, id, true);
@@ -655,12 +676,32 @@ async function runSuite(browser, port, label) {
     if (p !== page3) await p.close();
   }
   /* ⚠⚠ 母集団のガードは**実測してから**置く。初版は「40 ノード以上」と勘で書いて空振りした
-   *   (実測 34 = 沼 7 + 廃坑 2 + 森 1 + 砦/神殿/竜巣 各 8。森と廃坑は畳まれている)。
-   *   ⇒ 縛るのは「6 シナリオが 1 本残らず寄与していること」+ 実測に基づく下限。 */
+   *   (2026-09-05 実測 34 = 沼 7 + 廃坑 2 + 森 1 + 砦/神殿/竜巣 各 8)。
+   *
+   * ★[#62 2026-09-08] その実測値 (下限 30) が沼の畳み (7 → 2) で割れた。
+   *   ⛔ **30 を 29 へ下げるのは写経** — 畳みは F2 砦 / F3 神殿 / F4 竜の巣と続くので、
+   *      定数はそのたびに下げることになり、ガードは仕様変更に自動追従して意味を失う。
+   *   ⇒ **下限を捨てて母集団そのものを導出**する。この節が守りたい不変条件は
+   *      「**6 シナリオの全ノードを 1 つ残らず見た。見なかったのは意図的な除外 1 件だけ**」。
+   *   ① 6 シナリオが 1 本残らず寄与している (従来どおり)
+   *   ② 各シナリオのグラフが**本物** = ids が空でなく、本番 API が返す entry と boss を
+   *      どちらも含む (⭐ ids は RUN.byId / entry・boss は __graphRun = **別経路**。
+   *      RUN が単一マップへ落ちた・byId が空という「測っていないから 0 件」を直接殺す)
+   *   ③ 走査数が「全ノード数 − 除外」に一致し、除外は**ちょうど 1 件** (沼の n7)。
+   *      ⭐ 沼が n7 を失えば除外 0 件で赤くなる = 除外の口も同時に見張っている。 */
   const scenCovered = SCENS.filter(sid => (perScen[sid] || 0) > 0).length;
+  const totalIds = SCENS.reduce((a, sid) => a + ((graphBySid[sid] || {}).ids || []).length, 0);
+  const skipped = totalIds - scanned;
+  const badGraph = SCENS.filter(sid => {
+    const g = graphBySid[sid] || {};
+    const ids = g.ids || [];
+    return !ids.length || !g.entry || ids.indexOf(g.entry) < 0 || !g.boss || ids.indexOf(g.boss) < 0;
+  });
   check('3e', 'n7 以外・沼地以外のノードのスポーンがフラグに依らず 1 件も変わらない',
-    otherDiffs.length === 0 && scenCovered === SCENS.length && scanned >= 30,
-    '見たノード=' + scanned + ' 内訳=' + JSON.stringify(perScen) +
+    otherDiffs.length === 0 && scenCovered === SCENS.length &&
+    badGraph.length === 0 && skipped === 1 && scanned === totalIds - 1,
+    '見たノード=' + scanned + '/' + totalIds + ' (除外' + skipped + ') 内訳=' + JSON.stringify(perScen) +
+    (badGraph.length ? ' ⛔グラフが立っていない=' + badGraph.join(',') : '') +
     (otherDiffs.length ? ' 差分=' + JSON.stringify(otherDiffs.slice(0, 3)) : ''));
 
   // ── §4 恒等 (非退行) ───────────────────────────────────────────────────────

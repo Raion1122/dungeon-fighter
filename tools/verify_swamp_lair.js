@@ -21,7 +21,8 @@
  *   §4 通行  §5 恒等と撤退
  *
  * ── 負のコントロール (--negative。配信をメモリ上で差し替える) ────────────────────
- *   hydraold / density1 / startdefault / nonode / boundsoff / guardnear / throneseal / bosswall
+ *   hydraold / density1 / startdefault / nonode / boundsoff / guardnear / throneseal / bosswall /
+ *   n4mask / n4key   (★[#62] 後ろ 2 本は言い直した (5a)(5a2) の負のコントロール)
  *   ⚠ 変異の置換文字列は**必ず 1 行**(index.html は CRLF なので \n を含むと必ず空振り)。
  *   ⚠ 置換前後で**バイト長をずらす**(同じ長さだと差し替わったか確認できない)。
  *   ⚠ マスク行をアンカーにするときは**行末コメントまで含めて 1 行**にする
@@ -29,7 +30,7 @@
  *
  * 使い方:
  *   node tools/verify_swamp_lair.js               # 素の 1 本 (exit 0=全 PASS / 1=FAIL)
- *   node tools/verify_swamp_lair.js --negative    # 変異 8 本 (port 10122〜10129) が期待どおり赤くなるか
+ *   node tools/verify_swamp_lair.js --negative    # 変異 10 本 (port 10122〜10131) が期待どおり赤くなるか
  *   node tools/verify_swamp_lair.js --negative --only throneseal   # 1 本だけ確かめる
  *   node tools/verify_swamp_lair.js --mutate hydraold --port 10122
  * ⚠ base ポートは **10121**。10101〜10109 は #57 の verify_hold_person が占有。
@@ -100,6 +101,17 @@ const MUTATIONS = {
    *     (2b2) の「絵に穴が開いた」側の 2 本。 */
   bosswall: [['              boss: [36, 12, "lizardChieftain"] },',
               '              boss: [36, 11, "lizardChieftain"] },   /* bosswall */']],
+  /* M9 ★[#62] (5a) を言い直したので、**言い直した後の (5a) が本当に検出するか**を証明する
+   *   負のコントロールを新設した (旧 (5a) は変異に 1 本も守られていなかった)。
+   *   n4big のマスクを 1 マスだけ開ける = #58 が恐れた「隣の領分を巻き添えにした」形そのもの。
+   * ⚠ 行末コメントまで含めて 1 行で指す (n4big / n6big / n7big に同じ書式の行がある)。 */
+  n4mask: [['               ".####################..######.",   // 11  ★南の親柱。口は col 21-22 の 1 つだけ = 桟橋へ降りる石畳',
+            '               ".###################...######.",   // 11 ★変異n4mask']],
+  /* M10 ★[#62] (5a2) の負のコントロール。gates 以外のキーを n4big へ足す。
+   *   ⭐ parsePaintings は既知のフィールドしか読まないので (5a) は緑のまま = (5a2) が
+   *     無ければ**この退行は一生捕まらない**ことを機械で示す。 */
+  n4key: [['             outdoor: true,    /* 沼の参道は屋外。入った瞬間から盤面の全体が見えているのが正しい */',
+           '             outdoor: true, mutKey: 1,   /* ★変異n4key */']],
 };
 /* 変異 → 赤くなるべき assert id。
  * ⚠⚠⚠ 机上で書かない。1 本ずつ実走して**実際に赤くなった id** を書く (#57 の教訓)。 */
@@ -112,6 +124,8 @@ const MUT_EXPECT = {
   guardnear:    ['3b', '3c'],
   throneseal:   ['4a', '4c'],
   bosswall:     ['3a', '2b2'],
+  n4mask:       ['5a'],
+  n4key:        ['5a2'],
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
 const MUTATE = arg('mutate', null);
@@ -636,13 +650,75 @@ async function runSuite(browser, port, label) {
    *   ⛔ これは緩和ではない (中身は 1 文字も許していない)。⛔ 逆に「行数が同じなら OK」に
    *     しない — 正規化した後の**全文一致**を要求し続ける。 */
   const norm = (s) => (s === null || s === undefined) ? s : s.replace(/\r\n/g, '\n');
-  const curN4 = norm(sliceEntry(indexText, 'n4big: { src: "assets/room_lizard-swamp_n4_map.jpg"'));
-  const baseN4 = baseText ? norm(sliceEntry(baseText, 'n4big: { src: "assets/room_lizard-swamp_n4_map.jpg"')) : null;
-  check('5a', '★n4big (#53 の領分) が着手前 ' + BASELINE_REV + ' と 1 文字も変わっていない (改行の格納形式のみ正規化)',
-    !!curN4 && !!baseN4 && curN4 === baseN4,
+  /* ★[#62 2026-09-08] ここは**言い直した**。⛔ 基準 rev を進める道は採っていない。
+   *
+   * ■ 何が起きたか
+   *   初版は n4big のエントリを**バイト全文**で 079ff3a と突き合わせていた。#62 が
+   *   gates: { up: [8, 0] }, (+ その注記コメント) を 1 つ足した瞬間に赤くなった
+   *   (現行 3635 文字 / 基準 3221 文字)。
+   *
+   * ■ なぜ「基準 rev を進める」を採らなかったか
+   *   rev を #62 着地後へ進めると、この assert が守っていた**時間の幅がその都度リセット**され、
+   *   「#58 の大部屋化が #53 の領分を巻き添えにしていない」という主張そのものが消える。
+   *   ⇒ チケットが 1 本通るたびに rev を進める運用は、恒等 assert を**永久に何も守らない**器にする。
+   *
+   * ■ 何を凍結すべきだったか (= #58 が本当に守りたかった不変条件)
+   *   #58 の関心は「n6 / n7 を大部屋にした作業が、隣の n4big の**絵の幾何**を壊していないか」。
+   *   壊れると困るのは src / tileBounds / node / sealRing / outdoor / **マスク 21 行**であって、
+   *   注記コメントの文面ではない。⇒ 凍結範囲を**絵の幾何そのもの**へ寄せる。
+   *   ⛔ これは緩和ではない: マスクは 21 行**全部を逐語**で突き合わせたままだし、
+   *     「気づかないうちにキーが増減した」は下の (5a2) が別に捕まえる。
+   *
+   * ■ (5a2) が要る理由
+   *   (5a) だけにすると「gates 以外の未知のキーを足す」変更が無言で通る。⇒ 079ff3a からの
+   *   **キーの増減**を集合で突き合わせ、増えたのは gates ちょうど 1 つ・減ったのは 0 と縛る。
+   *   ⭐ 次に n4big へ何かを足すときは、この 1 行を意図的に更新することになる (git diff に載る)。 */
+  const N4_MARK = 'n4big: { src: "assets/room_lizard-swamp_n4_map.jpg"';
+  const curN4 = norm(sliceEntry(indexText, N4_MARK));
+  const baseN4 = baseText ? norm(sliceEntry(baseText, N4_MARK)) : null;
+  const baseCat = baseText ? parsePaintings(baseText) : null;
+  const geomOf = (e) => e ? JSON.stringify({
+    src: e.src, bounds: e.bounds, node: e.node, seal: e.seal, outdoor: e.outdoor, rows: e.rows,
+  }) : null;
+  const curGeom = geomOf(swamp.n4big);
+  const baseGeom = baseCat ? geomOf((baseCat[THEME] || {}).n4big) : null;
+  check('5a', '★n4big (#53 の領分) の絵の幾何 (src / tileBounds / node / sealRing / outdoor / マスク ' +
+        ((swamp.n4big && swamp.n4big.rows) || []).length + ' 行) が着手前 ' + BASELINE_REV + ' と 1 文字も変わっていない',
+    !!curGeom && !!baseGeom && curGeom === baseGeom,
     baseErr ? ('baseline を読めない: ' + baseErr)
-            : ('現行=' + (curN4 ? curN4.length : 0) + ' 文字 / 基準=' + (baseN4 ? baseN4.length : 0) + ' 文字' +
-               (curN4 === baseN4 ? ' 同一' : ' ⛔差分あり')));
+            : (curGeom === baseGeom ? ('同一 (' + (curGeom ? curGeom.length : 0) + ' 文字)')
+                                    : ('⛔差分あり 現行=' + curGeom + ' / 基準=' + baseGeom)));
+  /* n4big のトップレベルのキー名だけを取り出す (コメントと入れ子は捨てる)。 */
+  const topKeysOf = (entry) => {
+    if (!entry) return null;
+    const body = stripComments(entry);
+    const keys = []; let depth = 0, i = 0, atKey = true;
+    while (i < body.length) {
+      const ch = body[i];
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const q = ch; i++;
+        while (i < body.length && body[i] !== q) { if (body[i] === '\\') i++; i++; }
+        i++; continue;
+      }
+      if (ch === '{' || ch === '[') { depth++; i++; atKey = (depth === 1); continue; }
+      if (ch === '}' || ch === ']') { depth--; i++; continue; }
+      if (ch === ',') { atKey = (depth === 1); i++; continue; }
+      if (depth === 1 && atKey && /[A-Za-z_$]/.test(ch)) {
+        const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(body.slice(i));
+        if (m) { keys.push(m[1]); i += m[0].length; atKey = false; continue; }
+      }
+      i++;
+    }
+    return keys.sort();
+  };
+  const curKeys = topKeysOf(curN4), baseKeys = topKeysOf(baseN4);
+  const added = (curKeys && baseKeys) ? curKeys.filter(k => baseKeys.indexOf(k) < 0) : null;
+  const removed = (curKeys && baseKeys) ? baseKeys.filter(k => curKeys.indexOf(k) < 0) : null;
+  check('5a2', '★n4big で ' + BASELINE_REV + ' から増えたキーは gates ちょうど 1 つ、減ったキーは 0 (#62 の意図した差分だけ)',
+    !!added && !!removed && added.join(',') === 'gates' && removed.length === 0,
+    baseErr ? ('baseline を読めない: ' + baseErr)
+            : ('現行=' + (curKeys || []).join(',') + ' / 基準=' + (baseKeys || []).join(',') +
+               ' 増=' + JSON.stringify(added) + ' 減=' + JSON.stringify(removed)));
   check('5b', '撤退の行き先である旧エントリが残っている (n4 = [11,33,16,39] / n7 = [11,32,16,40])',
     !!swamp.n4 && JSON.stringify(swamp.n4.bounds) === JSON.stringify([11, 33, 16, 39]) &&
     !!swamp.n7 && JSON.stringify(swamp.n7.bounds) === JSON.stringify([11, 32, 16, 40]),

@@ -14,6 +14,11 @@
  * ⚠⚠ 「0 件」は**機能の故障ではなく母集団への未到達**を先に疑う、という流儀に合わせ、
  *   各節は「そのノードへ実際に入った」ことを (T*) で先に確かめてから中身を測る。
  *
+ * ⚠⚠⚠ **畳まれたシナリオは撤退スイッチの腕で測る** (下の FOLDED 表)。共通骨格 8 ノードは
+ *   畳んだ後も buildP6Run の中に生きており、撤退先として同じ形であり続けるのが契約。
+ *   森 = ?s2fold=0 (#16 で 1 ノードへ) / 沼地 = ?swampfold=0 (#62 で 3 ノードへ)。
+ *   ⭐ 既定側 (実際に遊ばれる姿) は装置 assert (1s2fold-*) (1swampfold-*) が直接見る。
+ *
  * ── 負のコントロール (同一 run に内包。配信をメモリ上で差し替える) ──────────────
  *   port      | mutate        | 注入する欠陥                        | 赤くなるべき節
  *   PORT      | (素)          | —                                   | —
@@ -348,8 +353,21 @@ const TOUR_SRC = `(async () => {
    *   **assert 本体は 1 文字も変えず、測る腕だけ ?s2fold=0 へ移す**。骨格は畳んだ後も
    *   buildP6Run の中に生きており、撤退先として同じ形であり続けなければならない。
    * ⚠ 移しっぱなしにすると「畳みが黙って外れた」ことに気づけないので、
-   *   下で装置 assert (1s2fold) を 1 本足して既定側が 1 ノードであることを直接見る。 */
-  const P6_ARM = (sid) => (sid === 'bandits-forest' ? '&s2fold=0' : '');
+   *   下で装置 assert (1fold-<sid>) を 1 本足して既定側の姿を直接見る。
+   *
+   * ★[#62 2026-09-08] 沼地も既定で **8 ノード → 3 ノード**へ畳まれた (参道 / 祭壇 / 巣)。
+   *   ⚠⚠ 期待値の写経で緑にしていない。#16 とまったく同じ**腕の移設**で、共通骨格 8 ノードは
+   *     `?swampfold=0` に生きている。⛔ (1c)(1d)(1f)(1g)(1h) を「3 件 / entry=n4」へ書き換えるのは、
+   *     この検出器が守っている契約 (buildP6Run の共通骨格) を消すのと同じなのでやらない。
+   *   ⭐⭐ 畳んだ姿そのものは**受入ドライバ verify_swamp_fold (base 10181) が全面的に測る**。
+   *     本ドライバの担当は「共通骨格が撤退先として同じ形で生き続けていること」。
+   *   ⚠ 畳むシナリオが増えたら **この表に 1 行足すだけ**で済む形にした
+   *     (F2 砦 / F3 神殿 / F4 竜の巣が控えている。#16 の if 直書きのままだと分岐が増え続ける)。 */
+  const FOLDED = {
+    'bandits-forest': { arm: '&s2fold=0',    sw: '?s2fold',    nodes: 1, entry: 'n7' },
+    'lizard-swamp':   { arm: '&swampfold=0', sw: '?swampfold', nodes: 3, entry: 'n4' },
+  };
+  const P6_ARM = (sid) => (FOLDED[sid] ? FOLDED[sid].arm : '');
 
   for (const sid of SCENS) {
     const S = SCEN[sid];
@@ -370,14 +388,18 @@ const TOUR_SRC = `(async () => {
     check('(1b-' + sid + ') scenarioId が素のまま (生成クエストに化けていない)',
       sh.scen === sid, 'scenarioId=' + sh.scen);
     check('(1c-' + sid + ') ノードが 8 件', sh.nodes.length === 8, '件数=' + sh.nodes.length);
-    /* ⭐⭐ 装置 assert — 上の 8 件は ?s2fold=0 の腕で測っている。腕を移したまま既定側を
-     *   見ないでいると、畳みが黙って外れても (1c) が緑のまま通ってしまう。 */
-    if (sid === 'bandits-forest') {
+    /* ⭐⭐ 装置 assert — 上の 8 件は撤退スイッチの腕で測っている。腕を移したまま既定側を
+     *   見ないでいると、畳みが黙って外れても (1c) が緑のまま通ってしまう。
+     * ⚠ 名前は (1s2fold-bandits-forest) のまま据え置く (#16 の依頼書 §12 の記録と、
+     *   他窓の非退行チェックがこの id を掴んでいる)。#62 の沼は (1swampfold-lizard-swamp)。 */
+    if (FOLDED[sid]) {
+      const F = FOLDED[sid];
       const w2 = [], e2 = [];
       const pf = await bootPage(browser, base + '/index.html?diag=1', sid, w2, e2);
       const shf = await pf.evaluate(SHAPE_SRC);
-      check('(1s2fold-' + sid + ') ★装置: 既定 (?s2fold なし) では 1 ノードへ畳まれている',
-            shf.active === true && shf.nodes.length === 1 && shf.entry === 'n7',
+      check('(1' + F.sw.slice(1) + '-' + sid + ') ★装置: 既定 (' + F.sw + ' なし) では ' +
+            F.nodes + ' ノードへ畳まれている',
+            shf.active === true && shf.nodes.length === F.nodes && shf.entry === F.entry,
             '件数=' + shf.nodes.length + ' entry=' + shf.entry);
       await pf.close();
     }
@@ -568,7 +590,9 @@ const TOUR_SRC = `(async () => {
   /* ⚠⚠ 装置 assert その 2: (1j) が許した「大部屋の道中ノード」という例外が、**黙って
    *   他シナリオ・他ノードへ広がっていない**ことを 1 本で押さえる (上の (1z) と同じ理由)。
    *   ⚠ 2026-09-07 時点で道中の大部屋は lizard-swamp の **n4 (30x21) と n6 (34x22) の 2 つだけ**。
-   *     別のノードを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。 */
+   *     別のノードを大部屋にしたら、ここを意図的に更新すること (git diff に載る)。
+   *   ⚠ ★[#62] 沼は ?swampfold=0 の腕 (8 ノード骨格) で数えている。畳んだ既定の姿では
+   *     n0/n1/n2/n3/n5 がそもそも居ないので、この装置 assert の母集団は撤退側にしか無い。 */
   mark('§1z2 大部屋の道中ノードはちょうど 1 シナリオ 1 ノードだけ (例外が広がっていない装置 assert)');
   {
     const bigMid = Object.keys(bigMidRooms).filter(k => (bigMidRooms[k] || []).length);

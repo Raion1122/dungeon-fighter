@@ -58,9 +58,17 @@ const SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
  * ⚠ これは母集団ガード。ここが崩れたら「0 件」は**測っていないから 0**かもしれない。 */
 /* ★[#16] シナリオ2 は既定で 1 ノードへ畳まれた (卓上バトルマップ 1 枚で完結)。
  *   ここは**既定の腕 = 実際に遊ばれる姿**の期待値なので 1。8 ノードの骨格は
- *   ?s2fold=0 の腕で別に測る (下の S2_FOLD_ARM)。 */
-const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 1, 'lizard-swamp': 8,
+ *   ?s2fold=0 の腕で別に測る (下の FOLD_ARM)。
+ * ★[#62 2026-09-08] 沼地も既定で 3 ノードへ畳まれた (参道 n4 / 祭壇 n6 / 巣 n7)。
+ *   ⚠ ここは「実際に遊ばれる姿」の**契約表**なので、畳んだ実測値へ意図的に更新する
+ *     (git diff に載る)。骨格 8 ノードは ?swampfold=0 の腕で引き続き測る。 */
+const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 1, 'lizard-swamp': 3,
                          'orc-fort': 8, 'undead-temple': 8, 'dragon-lair': 8 };
+/* 畳まれたシナリオの「撤退の腕」= 共通骨格 8 ノードが撤退先として生きていることを測る側。
+ * ⚠⚠ 既定の腕を測るのをやめたのではない — (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に当たったまま。
+ *   ここは**母集団を増やす**ための第 2 の腕で、旧タイプの小部屋に spawn-on-gate 欠陥が
+ *   潜り込むことを畳んだ後も見張り続ける。 */
+const FOLD_ARM = { 'bandits-forest': '?s2fold=0', 'lizard-swamp': '?swampfold=0' };
 const S2_NODE = 'n4';
 const S2_GATE = [39, 13];            // n4 → n7 の出口ゲート (P6_RIGHT)。扉が立つタイル
 const S2_MAGE = [38, 13];            // 修正後の banditMage。ゲートの 1 マス西
@@ -358,7 +366,10 @@ function blockedLines(m) {
 
   // ── §1 不変条件: 6 シナリオ全ノードで「歩けないマスに湧く敵 = 0 体」 ──────────
   mark('§1 6 シナリオ全ノードの敵スポーンを本番 isTileWall で測る');
-  let s2Measure = null, lintMeasure = null, totalSpawns = 0, totalNodes = 0;
+  let s2Measure = null, lintMeasure = null;
+  /* ★[#62] 母集団の台帳。合計は**ここから導出**する (下の (1e) を参照)。
+   *   1 エントリ = 1 腕 = { id: 見出し, nodes: 測れたノード数, spawns: 測れた湧きの体数 }。 */
+  const arms = [];
   for (const sid of SCENS) {
     const page = await bootPage(browser, 'http://localhost:' + PORT, sid, errsAll);
     const m = await measureAllNodes(page);
@@ -367,7 +378,7 @@ function blockedLines(m) {
       await page.close(); continue;
     }
     const spawns = m.nodes.reduce((a, n) => a + n.spawns.length, 0);
-    totalSpawns += spawns; totalNodes += m.nodes.length;
+    arms.push({ id: sid, nodes: m.nodes.length, spawns: spawns });
     /* ⚠ 母集団ガード。ノード数と湧き総数が想定どおりでないと「0 件」は
      *   「測っていないから 0」かもしれない。 */
     check('(1a-' + sid + ') ノード数 ' + NODES_EXPECTED[sid] + ' 件を測れている',
@@ -378,32 +389,55 @@ function blockedLines(m) {
           blockedLines(m).length === 0, blockedLines(m).join(' / ') || '0 体');
     check('(1d-' + sid + ') 本番グラフが lintRun を通る (落ちると単一マップへ黙って退行)',
           m.lint && m.lint.ok === true, JSON.stringify(m.lint));
-    if (sid === 'bandits-forest') {
+    if (FOLD_ARM[sid]) {
       /* ★[#16] 本ドライバの主題 (n4 の出口ゲートに湧く banditMage) は **8 ノードの骨格**の話で、
        *   その骨格は畳んだ今 ?s2fold=0 の腕に生きている。§2 §3 §4 の素材はそちらから採る。
        * ⚠ 既定の腕を測るのをやめたのではない — 上の (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に
-       *   当たったまま。ここで **両方の腕を測る**ようにして母集団を増やしている。 */
-      const pf = await bootPage(browser, 'http://localhost:' + PORT + '?s2fold=0', sid, errsAll);
+       *   当たったまま。ここで **両方の腕を測る**ようにして母集団を増やしている。
+       * ★[#62] 沼地も同じ形にした (?swampfold=0)。畳んで遊ばれなくなった旧タイプの小部屋も、
+       *   撤退先として生きている以上「出口ゲートに敵が湧く」欠陥を見張り続ける必要がある。 */
+      const q = FOLD_ARM[sid];
+      const pf = await bootPage(browser, 'http://localhost:' + PORT + q, sid, errsAll);
       const mf = await measureAllNodes(pf);
       const spawnsF = mf.err ? 0 : mf.nodes.reduce((a, n) => a + n.spawns.length, 0);
-      totalSpawns += spawnsF; totalNodes += (mf.err ? 0 : mf.nodes.length);
-      check('(1a2-' + sid + ') [?s2fold=0] 8 ノードの骨格が撤退先として生きている',
+      arms.push({ id: sid + q, nodes: mf.err ? 0 : mf.nodes.length, spawns: spawnsF });
+      check('(1a2-' + sid + ') [' + q + '] 8 ノードの骨格が撤退先として生きている',
             !mf.err && mf.nodes.length === 8, mf.err || ('実測 ' + mf.nodes.length + ' 件'));
-      check('(1b2-' + sid + ') [?s2fold=0] 敵スポーンを 1 体以上測れている (母集団ガード)',
+      check('(1b2-' + sid + ') [' + q + '] 敵スポーンを 1 体以上測れている (母集団ガード)',
             spawnsF > 0, spawnsF + ' 体');
-      check('(1c2-' + sid + ') [?s2fold=0] 歩けないマスに湧く敵が 0 体',
+      check('(1c2-' + sid + ') [' + q + '] 歩けないマスに湧く敵が 0 体',
             !mf.err && blockedLines(mf).length === 0,
             mf.err || (blockedLines(mf).join(' / ') || '0 体'));
-      check('(1d2-' + sid + ') [?s2fold=0] 本番グラフが lintRun を通る',
+      check('(1d2-' + sid + ') [' + q + '] 本番グラフが lintRun を通る',
             !!mf.lint && mf.lint.ok === true, JSON.stringify(mf.lint));
-      s2Measure = await measureS2Node(pf, S2_NODE, S2_ENTRY);
-      lintMeasure = await measureLint(pf);
+      if (sid === 'bandits-forest') {
+        s2Measure = await measureS2Node(pf, S2_NODE, S2_ENTRY);
+        lintMeasure = await measureLint(pf);
+      }
       await pf.close();
     }
     await page.close();
   }
-  check('(1e) 6 シナリオ合計で十分な母集団を測れている',
-        totalNodes >= 40 && totalSpawns >= 60, 'ノード ' + totalNodes + ' 件 / 湧き ' + totalSpawns + ' 体');
+  /* ★[#62 2026-09-08] (1e) を**言い直した**。旧: `totalNodes >= 40 && totalSpawns >= 60`。
+   * ■ なぜ 40 を 38 へ下げなかったか
+   *   畳みは F2 砦 / F3 神殿 / F4 竜の巣と続く。定数の下限は**そのたびに下げる**ことになり、
+   *   ガードは仕様変更に自動追従して何も守らなくなる (= 母集団が痩せても気づけない)。
+   * ■ 何を測るべきだったか
+   *   この節が守りたいのは「(1c) の **0 体** が、測っていないから 0 ではないこと」。
+   *   ⇒ 合計を**台帳から導出**し、縛るのは
+   *     ① 腕が 1 本も欠けていない (6 シナリオ + 畳んだシナリオの撤退の腕。並び順まで一致)
+   *     ② どの腕も **1 ノード以上・1 体以上**を寄与している (0 の腕が紛れていない)
+   *   ⭐ 旧 assert より**強い**: シナリオが 1 本 m.err で落ちて 0 件寄与になる事故は、
+   *     旧「>= 40」では他が多ければ緑になり得たが、①②はどちらも必ず赤くなる。 */
+  const wantArms = [];
+  for (const sid of SCENS) { wantArms.push(sid); if (FOLD_ARM[sid]) wantArms.push(sid + FOLD_ARM[sid]); }
+  const totalNodes = arms.reduce((a, x) => a + x.nodes, 0);
+  const totalSpawns = arms.reduce((a, x) => a + x.spawns, 0);
+  check('(1e) 母集団の腕がすべて寄与している (合計は台帳から導出。⛔ 下限の定数を持たない)',
+        arms.map(a => a.id).join(',') === wantArms.join(',') &&
+        arms.every(a => a.nodes > 0 && a.spawns > 0),
+        'ノード ' + totalNodes + ' 件 / 湧き ' + totalSpawns + ' 体 / 腕 ' + arms.length + '/' + wantArms.length +
+        ' = ' + arms.map(a => a.id + ':' + a.nodes + 'n' + a.spawns + 'e').join(' '));
 
   // ── §2 検出器: lint の graph-spawn-on-gate ────────────────────────────────
   mark('§2 lint (graph-spawn-on-gate) が汚したグラフで鳴る');
