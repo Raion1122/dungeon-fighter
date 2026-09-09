@@ -109,7 +109,12 @@ const MINE = 'goblin-mine';
 /* ── ドライバが独立に持つ期待値 ────────────────────────────────────────────
  * ⭐ index.html の XP_THRESHOLDS を写経したものではなく、D&D 3.5 の累積式
  *   「Lv N の累積XP = (N-1)*N/2 * 1000」から出している (両方同時に間違えないため)。
- * ⭐ 期待 NPC 数と★は #8 の装置 assert 2 と同じ独立表。仕様を変えたらここが赤くなる。 */
+ * ⭐ 期待 NPC 数と★は #8 の装置 assert 2 と同じ独立表。仕様を変えたらここが赤くなる。
+ * ⚠⚠ ★[#61 / 2026-09-08] **npc は「腕」で意味が変わった**。★連動が recruitCountLegacy() へ
+ *   隔離され、`?recruit=0` のときだけ通るようになったので:
+ *     ・qs:recruit=0 の腕 … 期待 = S2_EXPECT.npc (= ★の数。この表は #8 から 1 文字も変えていない)
+ *     ・それ以外の腕     … 期待 = 本番の RECRUIT_MAX (kick.max。★とは無関係に常に上限)
+ *   ⛔ 「2 を 3 に書き換える」= 期待値の写経は採らない。**当てる腕を入れ替えた**だけ。 */
 function expectLevelFromXp(xp) {
   let lv = 1;
   for (let n = 2; n <= 10; n++) if (xp >= (n - 1) * n / 2 * 1000) lv = n;
@@ -283,6 +288,9 @@ const KICK = (sid) => {
     if (!sc) { out.err = 'scenario not found: ' + sid; return out; }
     out.stars = (String(sc.difficulty || '').match(/★/g) || []).length;
     out.decided = (typeof recruitCountOf === 'function') ? recruitCountOf(sc) : null;
+    /* ★[#61] 腕ごとの期待値を出すのに要る。★連動の廃止で「既定腕の期待 NPC 数」は
+       ★の数ではなく **本番の上限 (RECRUIT_MAX)** になった。⛔ 3 をドライバへ焼かない。 */
+    out.max = (typeof RECRUIT_MAX === 'number') ? RECRUIT_MAX : null;
     prepScenario = sc;
     regeneratePartyMembers();
     out.tavernNpc = (selection.partyMembers || []).filter(m => m && !m.isHero).length;
@@ -548,11 +556,16 @@ async function runOnce(browser, arm, idx, neg) {
     if (kick.err) { rec.err = '酒場: ' + kick.err; return rec; }
 
     /* (0a) 腕が本当に割れているか */
+    /* ★[#61] 期待 NPC 数は **腕で分かれる**。?recruit=0 = ★連動へ戻る (S2_EXPECT.npc) /
+       それ以外 = 常に上限 (本番の RECRUIT_MAX = kick.max)。
+       ⚠ max が読めていない (null) 走行を ok にしない — 読めないまま緑になる測定器は最悪。 */
+    const wantNpc = arm.expectRecruitOn ? kick.max : S2_EXPECT.npc;
     rec.asserts['0a_recruitArm'] = {
-      got: { recruitOn: kick.recruitOn, decided: kick.decided, stars: kick.stars },
-      want: { recruitOn: arm.expectRecruitOn, decided: S2_EXPECT.npc, stars: S2_EXPECT.stars },
+      got: { recruitOn: kick.recruitOn, decided: kick.decided, stars: kick.stars, max: kick.max },
+      want: { recruitOn: arm.expectRecruitOn, decided: wantNpc, stars: S2_EXPECT.stars },
       ok: kick.recruitOn === arm.expectRecruitOn
-          && kick.decided === S2_EXPECT.npc && kick.stars === S2_EXPECT.stars };
+          && typeof kick.max === 'number' && kick.max > 0
+          && kick.decided === wantNpc && kick.stars === S2_EXPECT.stars };
 
     let landed = null;
     try { await page.waitForFunction(waitIndex, { timeout: 60000 }); landed = page.url(); }
