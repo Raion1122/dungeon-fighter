@@ -60,6 +60,17 @@ const PORT = parseInt(arg('port', '9030'), 10);
 /* 舞台。⚠ 廃坑 (goblin-mine) は n1 が event でダイアログ待ちに入るので使わない
  *   (driver_doors_p2 / driver_doors_p8 / driver_graph_p7 と同じ判断)。 */
 const STAGE = 'orc-fort';
+/* ★[#63 2026-09-09] 砦が既定で **2 ノード**へ畳まれ、出口が right→n7 の 1 本だけになった
+ *   ＝ この舞台に立つ扉が **1 枚**になり、§1 の母集団ガード ((1a) 2 枚以上 / (1c0)(1c)(1d)
+ *   4 枚以上) が一斉に崩れた。
+ * ⛔ 閾値は緩めない。測っているのは「施錠の抽選が mapDef.id + door id のハッシュで決まる」
+ *   という**仕組み**で、それには複数の扉を持つ分岐グラフが要る。⇒ #16/#62/#63 で他の
+ *   ドライバに使ったのと同じ**腕の移設**で、測る腕だけ ?fortfold=0 (= 8 ノードの共通骨格) へ移す。
+ * ⚠⚠ ★これは #62 が予告していた腐り方そのもの。あちらは §1x の LOCK_STAGES を台帳化して
+ *   「F2〜F4 が来ても下限定数が腐らない」形にしたが、**§1 以降が使う STAGE の 1 本固定は
+ *   直っていなかった**。F3 神殿 / F4 竜の巣を畳むときも、この腕に各シナリオの退避口を
+ *   足すことになる (そのとき LOCK_STAGES の実測値も更新する)。 */
+const STAGE_ARM = '&fortfold=0';
 /* §1x が測る舞台の**台帳**。⚠ 廃坑 (goblin-mine) を外す理由は上と同じ (n1 の event でダイアログ待ち)。
  * ★[#62] 旧 `STAGE2 = 'lizard-swamp'` の 1 本固定をやめた。畳み系のチケット (#16 の森 /
  *   #62 の沼 / これから来る F2〜F4) が来るたびに「その 1 本」の扉が減って母集団ガードが腐るため。
@@ -297,7 +308,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 施錠の抽選');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const S = await page.evaluate(() => {
       nodeBusy = true;                       // ★本編と同じ「選択処理中」= 400ms tick を止める
       const snap = () => doorsForRender().map(d => d.id + ':' + d.state).sort();
@@ -478,7 +489,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 locked は塞ぐ + 退避スイッチ');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const B = await page.evaluate(() => {
       nodeBusy = true;
       const d = doorsForRender()[0];
@@ -508,7 +519,7 @@ async function bootPage(browser, url, scen, errs, opts) {
 
     // 退避スイッチ ?locks=0 … ★これが「新機能を見ている」ことの装置 assert
     const errs2 = [];
-    const p2 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs2);
+    const p2 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0' + STAGE_ARM, STAGE, errs2);
     const L = await p2.evaluate(() => {
       nodeBusy = true;
       /* ⚠⚠ 現在ノードだけ見ると空振りする (起点 n0 の 3 枚は素でもどれも施錠されない)。
@@ -542,7 +553,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3〜§5 突破の 3 経路 (開錠 / 体当たり / 力ずく)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const T = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -606,7 +617,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§6 施錠が進行を止めない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const G = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -640,7 +651,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§7 出口選択 → 施錠判定 → 目標決定 の順序');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const C = await page.evaluate(async () => {
       nodeBusy = true;                       // ★本編も nodeBusy の内側で commitExit を await する
       const g = window.__graphRun;
@@ -675,7 +686,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§8 突破した扉は再入場でも施錠へ戻らない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
     const R = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;

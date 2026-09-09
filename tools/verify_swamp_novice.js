@@ -712,11 +712,27 @@ async function runSuite(browser, port, label) {
   let baseCat = null, baseErr = null;
   try { baseCat = parsePaintings(execFileSync('git', ['show', BASELINE_REV + ':index.html'], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }).toString('utf8')); }
   catch (e) { baseErr = String(e && e.message || e); }
-  const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp');
+  /* ★[#63 2026-09-09] 後続チケットが**正当に**他テーマの絵を変えたぶんの例外表。
+   * ⛔ assert を消さない・BASELINE_REV を進めない — 進めると「#53 は沼以外の絵を
+   *   1 バイトも触っていない」という主張そのものが消える。
+   * ⭐⭐⭐ 一般解 = 「他テーマは固定コミットと完全一致」の型は、**畳み系のチケットが
+   *   1 本着地するたびに腐る** (#62 の教訓と同型)。例外表にしておけば「何を・いつ・なぜ
+   *   許したか」が git diff に残り、次に腐ったときも同じ形で足せる。
+   * ⚠ 例外は**タダでは置けない** — (4b2) が「その例外が本当に差分を持つ」ことを要求するので、
+   *   変更が巻き戻された日に例外のほうが赤くなる (古い免罪符が黙って残らない)。 */
+  const THEME_EXCEPTIONS = {
+    'orc-fort': '#63 (2026-09-09) 砦を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
+  };
+  const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;
-  check('4b', '他 5 テーマの ROOM_PAINTINGS_DEF が着手前 (' + BASELINE_REV + ') と完全一致',
+  check('4b', '他テーマ (例外表を除く ' + otherThemes.length + ' 件) の ROOM_PAINTINGS_DEF が着手前 (' + BASELINE_REV + ') と完全一致',
     !!baseCat && themeDiff.length === 0,
     baseErr ? ('baseline を読めない: ' + baseErr) : ('比較=' + otherThemes.length + ' テーマ' + (themeDiff && themeDiff.length ? ' 差分=' + themeDiff.join(',') : '')));
+  const exKeys = Object.keys(THEME_EXCEPTIONS);
+  const exDead = baseCat ? exKeys.filter(t => JSON.stringify(cat[t]) === JSON.stringify(baseCat[t])) : null;
+  check('4b2', '★装置: 例外表のテーマが実際に着手前と差分を持つ (= 古い免罪符が黙って残っていない)',
+    !!baseCat && exKeys.length > 0 && exDead.length === 0,
+    '例外=' + JSON.stringify(THEME_EXCEPTIONS) + (exDead && exDead.length ? ' ⛔差分の無い例外=' + exDead.join(',') : ''));
   let oldStock = 0;
   for (const t of Object.keys(cat)) for (const k of Object.keys(cat[t])) if (!cat[t][k].node) oldStock++;
   check('4c', '旧在庫 (node を持たないキー) の総数が 12 のまま', oldStock === 12, '実測=' + oldStock);
