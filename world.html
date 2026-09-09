@@ -391,6 +391,22 @@
     body.compact .worldSignName { font-size: 14px; }
     body.compact .worldSignDesc { font-size: 10px; }
 
+    /* ★[#64 STEP3] 依頼の封蝋。⛔ box-shadow のアニメは iPhone で落ちるので transform + opacity だけ。
+       ⚠ 位置の基準は .worldSign (position: absolute) の内側。 */
+    .worldSeal {
+      position: absolute; left: 50%; top: -14px;
+      width: 18px; height: 18px; margin-left: -9px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #d4402f, #8e1b14 70%, #5a0f0a);
+      border: 1px solid #3a0a06;
+      pointer-events: none;                   /* ⚠ 札のクリックを奪わない (verify_world_map (7d)) */
+      animation: worldSealPulse 2s ease-in-out infinite;
+    }
+    @keyframes worldSealPulse {
+      0%, 100% { transform: scale(1);    opacity: 0.92; }
+      50%      { transform: scale(1.12); opacity: 1; }
+    }
+
     /* ── 画面上の帯 ─────────────────────────────────────────────────── */
     #worldTitle {
       position: fixed; left: 0; right: 0; top: 0;
@@ -410,6 +426,27 @@
       color: #cbb98c;
     }
     body.compact #worldTitle { font-size: 16px; }
+
+    /* ★[#64 STEP4] キャラ選択画面 (title.html) へ戻る道。
+       ⛔ #worldHud という id にしない —— insets() が拾って地図の幾何がずれる (依頼書 §2-5)。
+       ⛔ #worldTitle の中に入れない —— あちらは pointer-events: none で、外すと札 7 枚が押せなくなる。
+       ⚠ z-index は **12** = 帯 (#worldTitle 10) より上・出来事の器 (#worldEventBox 15) と
+         入場ダイアログ (#worldEnterAsk 20) より下。層は 0/1/2/3/4/5/6/10/15/20 を実測して決めた。
+       ⛔ 座標は受入条件で縛られていない (依頼書 §9-8)。縛られているのは「押せること」と
+         「札の elementFromPoint を奪わないこと」の 2 つだけ。 */
+    #worldBack {
+      position: fixed; z-index: 12;
+      left: 10px; top: calc(8px + env(safe-area-inset-top, 0px));
+      min-height: 44px;                       /* 指で押せる高さ */
+      padding: 6px 12px;
+      font-family: 'MedievalSharp', 'Cinzel', serif; font-size: 14px;
+      color: #f5e8c8;
+      background: linear-gradient(to bottom, var(--wood-mid, #6b5334), var(--wood-dark, #3f2f1c));
+      border: 2px solid var(--parchment-gold, #c8a45a);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #worldBack:active { transform: translateY(1px); }
 
     /* ── 入場の確認ダイアログ (依頼書 #23 §6-3) ──────────────────────────
        ⚠⚠ **既定は display:none。** visibility:hidden にすると (3e) / #21 の (7d) の
@@ -549,6 +586,12 @@
   <div id="worldTitle">地方全景
     <small>行き先をタップ / 街道の点線をたどって歩く</small>
   </div>
+
+  <!-- ★[#64 STEP4] キャラ選択画面へ戻る道。⛔ id を worldHud にしない (insets() の予約 id)。
+       ⛔ #worldTitle の子にしない (あちらは pointer-events: none)。
+       ⚠ ?titleback=0 のときは JS が **DOM ごと remove** する。display:none で残さない
+         (elementFromPoint に写って受入条件が濁る)。 -->
+  <button type="button" id="worldBack">← はじめの画面へ</button>
 
   <!-- 入場の確認 (依頼書 #23 §6-3)。⛔ 文言はここに書かない —— 地名の唯一の正は
        js/world-map.js の label で、JS が読んで #worldEnterText へ流し込む。
@@ -886,6 +929,79 @@
     var questDest = null;
     try { questDest = sessionStorage.getItem("dragonfighters.questDest"); } catch (e) {}
 
+    /* ══ 受注中の依頼の可視化 (実装依頼書 #64 STEP2 / STEP3) ═══════════════════
+       ⛔⛔⛔ **このページは器を読むだけ。書かない・消さない。**
+         tools/verify_road_events.js (2c) が world.html の**配信バイト**を文字列カウントし、
+         localStorage への 書き / 消し の語を **0 件**、session 側の 消し の語を **1 件**に
+         恒等固定している。⚠⚠ **コメントに書いただけでも 1 件と数えられて赤くなる**ので、
+         この節では語そのものを避けている (既存コメント :1236 / :1339 が同じ理由で避けている)。
+         ⭐ 読み (getItem) は縛られていない (既存が 3 箇所ある)。session への書きも自由。
+       ⛔ __world に窓を 1 つも足さない (窓は 26 個で恒等固定・依頼書 §2-7)。観測は DOM から。
+       ⚠ 撤退 ?questmark=0 は ?titleback=0 と**独立**。相乗りさせない。 */
+    var QUEST_MARK_OFF_KEY = "dragonfighters.questMarkOff";
+    try {
+      if (new URLSearchParams(location.search).get("questmark") === "0") {
+        sessionStorage.setItem(QUEST_MARK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    function isQuestMarkOn() {
+      try { return sessionStorage.getItem(QUEST_MARK_OFF_KEY) !== "1"; } catch (e) { return true; }
+    }
+    var ACTIVE_QUEST_KEY = "dragonfighters.activeQuest";
+    function readActiveQuest() {
+      if (!isQuestMarkOn()) return null;
+      try {
+        var o = JSON.parse(localStorage.getItem(ACTIVE_QUEST_KEY) || "null");
+        return (o && typeof o === "object" && o.place) ? o : null;
+      } catch (e) { return null; }
+    }
+    function questSubline() {
+      var q = readActiveQuest();
+      if (!q) return null;
+      return q.title ? ("受注中 — " + q.place + "「" + q.title + "」")
+                     : ("受注中 — " + q.place);
+    }
+    /* ⛔ 行を増やさない。既存の <small> の textContent を差し替えるだけ ——
+       insets() が #worldTitle の offsetHeight を実測しており、行が増えると地図の幾何が動く。 */
+    function applyQuestSubline(titleId) {
+      var line = questSubline();
+      if (!line) return;                       /* ⛔ 未受注では既定の文言に 1 文字も触らない */
+      var el = document.getElementById(titleId);
+      var sm = el ? el.querySelector("small") : null;
+      if (!sm) return;
+      sm.textContent = line;                   /* ⭐ 差し替え。⛔ appendChild しない */
+    }
+    /* ⚠ layout() より **前**に呼ぶ (高さは変わらない設計だが順序を揃える)。 */
+    applyQuestSubline("worldTitle");
+
+    /* ══ はじめの画面へ戻る道 (実装依頼書 #64 STEP4) ═══════════════════════════
+       ⛔ location.replace にしない —— href なら履歴に前のページが残り、タイトルで
+          気が変わったときに戻ってこられる (title.html:445 の逆をやる)。
+       ⛔ js/save-slots.js は 1 行も触らない。進行はスロット選択時に switchTo() が
+          必ず先に snapshot() を焼くので守られる (依頼書 §2-12)。
+       ⚠ 押し口は click と touchend の 2 本 (click 非発火端末の保険・#5 の罠)。
+       ⛔ 確認ダイアログは作らない (進行が消えないので押しても損が無い)。 */
+    var TITLE_BACK_OFF_KEY = "dragonfighters.titleBackOff";
+    try {
+      if (new URLSearchParams(location.search).get("titleback") === "0") {
+        sessionStorage.setItem(TITLE_BACK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var titleBackOff = false;
+    try { titleBackOff = sessionStorage.getItem(TITLE_BACK_OFF_KEY) === "1"; } catch (e) {}
+    (function initTitleBack() {
+      var el = document.getElementById("worldBack");
+      if (!el) return;
+      /* ⛔ display:none で残さない — elementFromPoint に写って受入条件が濁る (#25 の作法)。 */
+      if (titleBackOff) { if (el.parentNode) el.parentNode.removeChild(el); return; }
+      var run = function (ev) {
+        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        location.href = "title.html";
+      };
+      el.addEventListener("click", run);
+      el.addEventListener("touchend", run);
+    })();
+
     /* このノードの札を出すか。⭐ 拠点でない中継点は常に true (元から札が無いので影響しない)。 */
     function isNodeRevealed(id) {
       if (questWalkOff) return true;
@@ -957,6 +1073,18 @@
             ds.className = "worldSignDesc";
             ds.textContent = n.desc;
             sign.appendChild(ds);
+          }
+          /* ★[#64 STEP3] 受注中の目的地の印。⭐ 出す条件は questDest **だけ**。
+             ⛔ 器 (activeQuest) から出さない —— 器は localStorage で questDest は sessionStorage
+                なので、タブを開き直すと「印は出るのに押しても入れない」が起きる (依頼書 §2-4 の罠 B)。
+             ⭐ 判定式は入場条件 (onArriveNode) と **同じもの** = 印が出る ⟺ 入れる。
+             ⛔ .worldSign の class を持つ要素を増やさない (verify_quest_walk が DOM を数えて 7 と比べる)。
+                封蝋は sign の **子**なので枚数は動かない。
+             ⛔ js/world-map.js に seal: などのフィールドを足さない ((4a) が sha1 で恒等固定)。 */
+          if (isQuestMarkOn() && !questWalkOff && questDest && WM.scenarioOfNode(id) === questDest) {
+            var seal = document.createElement("span");
+            seal.className = "worldSeal";
+            sign.appendChild(seal);
           }
           el.appendChild(sign);
         }

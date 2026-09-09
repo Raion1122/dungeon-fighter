@@ -3264,10 +3264,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>はじめの画面へ戻れるようになった</b> — 街と世界地図の左上のボタンから、記録の選び直しができる。進行は消えない。</li>
+        <li><b>依頼の地に赤い封蝋の印が付く</b> — 世界地図で向かうべき場所がひと目で分かる。</li>
+        <li><b>受注中の依頼が画面にずっと出るようになった</b> — 地図と街と酒場の見出しの下に、いま受けている依頼の名前が表示される。</li>
         <li><b>廃墟の砦が卓上マップ 2 枚の戦場に</b> — 細切れの小部屋を廃し、崩れた城門から練兵場までを 1 枚の大きな盤面で戦い抜いて将軍の間へ挑む構成になった。</li>
-        <li><b>森と沼地にも 4 人目が同行するように</b> — 依頼の格に関わらず、仲間は常に 3 人まで連れて行ける。</li>
-        <li><b>沼地が卓上マップ 3 枚の構成に</b> — 参道・祭壇・族長の巣だけになり、通り過ぎるだけの小部屋が無くなった。</li>
-        <li><b>誰と約束したか札の色で分かる</b> — 同道を約した相手の頭上札が金の枠になり、出発前の顔ぶれにも「酒場で声を掛けた」と添う。</li>
       </ul>
     </div>
     <script>
@@ -3377,6 +3377,74 @@
   </div>
 
 <script>
+  /* ══ 受注中の依頼の器 (実装依頼書 #64 STEP1) ═══════════════════════════════
+   * ⭐ この 3 ファイル (tavern / world / town) は独立したページなので、読み口の写しを
+   *    それぞれが持つ。⛔ 共有 JS ファイルを新設しない (読み込み順の依存を増やさない)。
+   * ⚠⚠ この節は **consumeResult() より前**に置くこと。あちらは IIFE で即実行され、
+   *    帰還時に clearActiveQuest() を呼ぶ。function 宣言は巻き上がるが var の**代入**は
+   *    巻き上がらないので、後ろに置くと ACTIVE_QUEST_KEY が undefined のまま消しに行く
+   *    (#37 の CHRONICLE_SHELF_KEY に同型の既存注意がある)。
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  /* ★[#64] 受注中の依頼の可視化。⚠⚠ クエリはページ遷移をまたがないので、
+     **見た時点で sessionStorage へ写して**全ページで読む (?town=0 と同じ作法)。
+     ⛔ ?titleback=0 と相乗りさせない (赤が出たときどちらの撤退か切り分けられない)。 */
+  var QUEST_MARK_OFF_KEY = "dragonfighters.questMarkOff";
+  try {
+    if (new URLSearchParams(location.search).get("questmark") === "0") {
+      sessionStorage.setItem(QUEST_MARK_OFF_KEY, "1");
+    }
+  } catch (e) {}
+  function isQuestMarkOn() {
+    try { return sessionStorage.getItem(QUEST_MARK_OFF_KEY) !== "1"; } catch (e) { return true; }
+  }
+
+  /* ★[#64] 受注中の依頼。⭐ **名前を出すためだけ**の器。
+     ⛔ 入場の可否を器で決めない —— それは questDest の仕事 (依頼書 §2-4 の罠 B)。
+     ⭐ キーは dragonfighters. で始まるので DFSlots のスロット保存に自動で乗る。
+        KEEP には入れない = スロットごとに独立する。 */
+  var ACTIVE_QUEST_KEY = "dragonfighters.activeQuest";
+  function writeActiveQuest(sc) {
+    if (!isQuestMarkOn() || !sc) return;
+    try {
+      localStorage.setItem(ACTIVE_QUEST_KEY, JSON.stringify({
+        id: sc.id || null,
+        place: sc.place || "",
+        title: sc.title || "",
+        at: Date.now(),
+      }));
+    } catch (e) {}
+  }
+  function clearActiveQuest() {
+    /* ⭐ 撤退中でも消す。消すのは常に安全側 (fail-safe)。 */
+    try { localStorage.removeItem(ACTIVE_QUEST_KEY); } catch (e) {}
+  }
+  function readActiveQuest() {
+    if (!isQuestMarkOn()) return null;
+    try {
+      var o = JSON.parse(localStorage.getItem(ACTIVE_QUEST_KEY) || "null");
+      return (o && typeof o === "object" && o.place) ? o : null;
+    } catch (e) { return null; }
+  }
+
+  /* ★[#64 STEP2] 受注中の副行。⛔ 未受注なら null を返し、既定の文言に 1 文字も触らない。
+     ⛔ 行を増やさない —— 既存の <small> の textContent を差し替えるだけ
+        (world.html の insets() が #worldTitle の offsetHeight を実測している・依頼書 §2-11)。 */
+  function questSubline() {
+    var q = readActiveQuest();
+    if (!q) return null;
+    return q.title ? ("受注中 — " + q.place + "「" + q.title + "」")
+                   : ("受注中 — " + q.place);
+  }
+  function applyQuestSubline(titleId) {
+    var line = questSubline();
+    if (!line) return;                       /* ⛔ 未受注では触らない */
+    var el = document.getElementById(titleId);
+    var sm = el ? el.querySelector("small") : null;
+    if (!sm) return;
+    sm.textContent = line;                   /* ⭐ 差し替え。⛔ appendChild しない */
+  }
+
   // ─────────────────────────────────────────────────────────────
   // シナリオ定義
   // ─────────────────────────────────────────────────────────────
@@ -5463,6 +5531,8 @@
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
     if (!resultRaw) return;
     sessionStorage.removeItem("dragonfighters.lastResult");
+    clearActiveQuest();            /* ★[#64] ⭐ クリア/敗北/撤退の 3 経路すべてがここへ来る
+                                      (依頼書 §2-9)。⛔ 消し口を増やさない。 */
     try {
       const r = JSON.parse(resultRaw);
       /* 年代記 (#37): lastResult に相乗りしてきた記録を受け取る。
@@ -6234,6 +6304,9 @@
 
   async function openPrep(sc) {
     prepScenario = sc;
+    writeActiveQuest(sc);          /* ★[#64] ⭐ 呼び口 4 本すべてがここを通る (依頼書 §2-8)。
+                                      ⛔ btnAccept 側に置くと闇市の生成クエストが乗らない。
+                                      ⛔ await を足さない (:6066 の警告 = ドライバがハングする)。 */
     document.getElementById("prepTitle").textContent = `出発の準備 — ${sc.place}`;
     document.getElementById("prepSub").textContent = `「${sc.title}」に挑む`;
     const info = scenarioEnemyInfoText(sc);
@@ -10492,6 +10565,11 @@
       if (document.visibilityState === "hidden") snap("visibilitychange");
     });
   })();
+
+  /* ★[#64 STEP2] 酒場の副行。⚠⚠ 呼ぶ位置は **consumeResult() より後**でなければならない。
+     帰還した回では consumeResult() が器を消すので、前に呼ぶと消えたはずの依頼名が
+     1 回だけ残って出る。⛔ 未受注なら applyQuestSubline が即 return して既定の文言のまま。 */
+  applyQuestSubline("title");
 </script>
 </body>
 </html>

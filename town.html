@@ -266,6 +266,28 @@
       color: #cbb98c;
     }
 
+    /* ★[#64 STEP4] キャラ選択画面 (title.html) へ戻る道。
+       ⛔⛔ #townHud の中に button を足さない —— verify_town_exit (1a) が
+          「#townHud の button 数 == FACILITIES.length」を、driver_heromark_signplate (B7a) が
+          「4 つとも押せる」を **4 直書き**で持っており、2 本が同時に赤くなる (依頼書 §2-3)。
+          ⇒ 独立した固定要素にする。
+       ⛔ #townTitle の中に入れない (あちらは pointer-events: none。外すと看板が押せなくなる)。
+       ⚠ z-index は **12** = 帯 (#townTitle 10) と #townHud (11) より上。層は 1/2/3/4/5/10/11 を実測。
+       ⛔ 座標は受入条件で縛られていない (依頼書 §9-8)。 */
+    #townBack {
+      position: fixed; z-index: 12;
+      left: 10px; top: calc(8px + env(safe-area-inset-top, 0px));
+      min-height: 44px;                       /* 指で押せる高さ */
+      padding: 6px 12px;
+      font-family: 'MedievalSharp', 'Cinzel', serif; font-size: 14px;
+      color: #f5e8c8;
+      background: linear-gradient(to bottom, var(--wood-mid, #6b5334), var(--wood-dark, #3f2f1c));
+      border: 2px solid var(--parchment-gold, #c8a45a);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #townBack:active { transform: translateY(1px); }
+
     /* compact 用の施設ボタン列。⚠ デスクトップでは出さない (看板が十分大きいので) */
     #townHud {
       position: fixed; left: 0; right: 0; bottom: 0;
@@ -377,6 +399,12 @@
   </div>
   <div id="townHud"></div>
 
+  <!-- ★[#64 STEP4] キャラ選択画面へ戻る道。⛔ #townHud の中へ入れない (golden 2 本が赤)。
+       ⛔ #townTitle の子にしない (あちらは pointer-events: none)。
+       ⚠ ?titleback=0 のときは JS が **DOM ごと remove** する。display:none で残さない
+         (elementFromPoint に写って受入条件が濁る)。 -->
+  <button type="button" id="townBack">← はじめの画面へ</button>
+
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
   <script src="js/save-slots.js"></script>
   <script src="js/hero-classes.js"></script>
@@ -447,6 +475,76 @@
     try {
       if (new URLSearchParams(location.search).get("townbgm") === "0") TOWN_BGM_ID = "tavern";
     } catch (e) {}
+
+    /* ══ 受注中の依頼の可視化 (実装依頼書 #64 STEP2) ═══════════════════════════
+       ⛔ このページは器を **読むだけ**。書かない・消さない (書き = openPrep / 消し = consumeResult、
+          どちらも tavern.html の 1 箇所ずつ・依頼書 §2-8 / §2-9)。
+       ⭐ 3 ファイルは独立したページなので読み口の写しをそれぞれが持つ (共有 JS を新設しない)。
+       ⚠ 撤退 ?questmark=0 は ?titleback=0 と**独立**。相乗りさせない。 */
+    var QUEST_MARK_OFF_KEY = "dragonfighters.questMarkOff";
+    try {
+      if (new URLSearchParams(location.search).get("questmark") === "0") {
+        sessionStorage.setItem(QUEST_MARK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    function isQuestMarkOn() {
+      try { return sessionStorage.getItem(QUEST_MARK_OFF_KEY) !== "1"; } catch (e) { return true; }
+    }
+    var ACTIVE_QUEST_KEY = "dragonfighters.activeQuest";
+    function readActiveQuest() {
+      if (!isQuestMarkOn()) return null;
+      try {
+        var o = JSON.parse(localStorage.getItem(ACTIVE_QUEST_KEY) || "null");
+        return (o && typeof o === "object" && o.place) ? o : null;
+      } catch (e) { return null; }
+    }
+    function questSubline() {
+      var q = readActiveQuest();
+      if (!q) return null;
+      return q.title ? ("受注中 — " + q.place + "「" + q.title + "」")
+                     : ("受注中 — " + q.place);
+    }
+    /* ⛔ 行を増やさない。既存の <small> の textContent を差し替えるだけ ——
+       insets() が #townTitle の offsetHeight を実測しており、行が増えると看板の位置が動く
+       (verify_town_exit (1b) の「札は全部 #townTitle の下端より下」)。 */
+    function applyQuestSubline(titleId) {
+      var line = questSubline();
+      if (!line) return;                       /* ⛔ 未受注では既定の文言に 1 文字も触らない */
+      var el = document.getElementById(titleId);
+      var sm = el ? el.querySelector("small") : null;
+      if (!sm) return;
+      sm.textContent = line;                   /* ⭐ 差し替え。⛔ appendChild しない */
+    }
+    /* ⚠ layout() より **前**に呼ぶ (高さは変わらない設計だが順序を揃える)。 */
+    applyQuestSubline("townTitle");
+
+    /* ══ はじめの画面へ戻る道 (実装依頼書 #64 STEP4) ═══════════════════════════
+       ⛔ location.replace にしない —— href なら履歴に前のページが残り、タイトルで
+          気が変わったときに戻ってこられる。
+       ⛔ js/save-slots.js は 1 行も触らない。進行はスロット選択時に switchTo() が
+          必ず先に snapshot() を焼くので守られる (依頼書 §2-12)。
+       ⚠ 押し口は click と touchend の 2 本 (click 非発火端末の保険)。
+       ⛔ 確認ダイアログは作らない。 */
+    var TITLE_BACK_OFF_KEY = "dragonfighters.titleBackOff";
+    try {
+      if (new URLSearchParams(location.search).get("titleback") === "0") {
+        sessionStorage.setItem(TITLE_BACK_OFF_KEY, "1");
+      }
+    } catch (e) {}
+    var titleBackOff = false;
+    try { titleBackOff = sessionStorage.getItem(TITLE_BACK_OFF_KEY) === "1"; } catch (e) {}
+    (function initTitleBack() {
+      var el = document.getElementById("townBack");
+      if (!el) return;
+      /* ⛔ display:none で残さない — elementFromPoint に写って受入条件が濁る (#25 の作法)。 */
+      if (titleBackOff) { if (el.parentNode) el.parentNode.removeChild(el); return; }
+      var run = function (ev) {
+        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        location.href = "title.html";
+      };
+      el.addEventListener("click", run);
+      el.addEventListener("touchend", run);
+    })();
 
     var TM = window.TOWN_MAP;
     if (!TM) { location.replace("tavern.html"); return; }   // 保険: データが無ければ従来の酒場へ
