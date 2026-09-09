@@ -1,25 +1,47 @@
 #!/usr/bin/env node
 /*
- * tools/verify_recruit_size.js — 「依頼の重さ (★の数) で応募人数が変わる」の検証ドライバ
+ * tools/verify_recruit_size.js — 「同行 NPC の人数がどう決まるか」の検証ドライバ
  * ═══════════════════════════════════════════════════════════════════════════
- * 実装依頼書 `実装依頼書/2026-08-20_quest-recruit-size.md` (#7) の受入条件を測る。
+ * 実装依頼書 `実装依頼書/2026-08-20_quest-recruit-size.md` (#7) の受入条件を測る道具として
+ * 生まれ、`実装依頼書/2026-09-08_party-size-four-all-scenarios.md` (#61) で **言い直した**。
  *
  *   node tools/verify_recruit_size.js [--headful] [--port N]
  *
+ * ── ⭐⭐⭐ #61 (2026-09-09) で何が変わったか ────────────────────────────────
+ *   本番が「★の数 → 同行人数」の連動を**廃止**し、既定は **常に NPC = RECRUIT_MAX** に
+ *   なった。旧規則 (#7 の姿) は `recruitCountLegacy()` として温存され、**`?recruit=0` の
+ *   ときだけ**通る。⚠⚠ `?recruit=0` の意味は**反転した** (旧: ★連動を切る / 新: ★連動へ戻す)。
+ *
+ *   ⛔ **期待表は 1 文字も書き換えていない。腕 (URL) と期待表の対応を入れ替えただけ**:
+ *     ・EXPECTED_NPC_RECRUIT (★の数の表) … 旧 = 既定腕 → 新 = **`?recruit=0` 腕**
+ *     ・一律の表 (全部 RECRUIT_MAX)       … 旧 = `?recruit=0` 腕 → 新 = **既定腕**
+ *       ⭐ 旧 `legacyExpectation(ids, PARTY_SIZE)` (= 全部 PARTY_SIZE-1) を
+ *          `uniformExpectation(ids, RECRUIT_MAX)` へ改名した。出所を「編成の総人数」から
+ *          「同行上限そのもの」へ寄せた = #61 の主張と同じ言葉で書く。
+ *   ⛔ **「表の 2 を 3 に書き換える」直し方は採っていない** (依頼書 §2-3)。
+ *
+ * ── 各群が今**何を主張しているか** ─────────────────────────────────────────
+ *   (A) 群 … 既定 (URL 無指定 = 実プレイヤーが踏む経路) で **6 本すべてが NPC = RECRUIT_MAX**。
+ *             ★の数とは**無関係**に上限まで連れて行ける。
+ *             ⚠ 一律の主張は「空虚な主張」になりやすいので (Az5) が
+ *               「★が RECRUIT_MAX 未満のシナリオが実在する」= 廃止に意味がある母集団を押さえる。
+ *   (C) 群 … `?recruit=0` で **★の数へ戻る** (撤退スイッチが生きていることの検査)。
+ *             「?recruit=0 で緑」だけでは何も証明しないので、(Cz3)(Cz4)(Cz6) が
+ *             「同じ判定関数」「同じ観測」で **腕を替えると期待値が変わる** を測る。
+ *   (D) 群 … 応募人数の行 / 「募集をかけ直す」。⚠ 既定では 6 本とも同数に潰れるので、
+ *             2 つの対象の対比は **`recruit:` の注入 (RECRUIT_MAX と異なる値)** で作る。
+ *   (F) 群 … 生成クエスト (闇市)。既定は **DIAG を出さない** (旧規則を通っていない証拠) →
+ *             (F5)。`[DIAG] recruit: fallback used` は **`?recruit=0` 腕へ移った** → (FL) 群。
+ *   (G) 群 … `recruit:` の個別上書きが**今も効く**。⚠ 既定は元から RECRUIT_MAX なので、
+ *             RECRUIT_MAX と**同じ値**を注入しても不可視 = 空振り。注入値は RECRUIT_MAX-1。
+ *
  * ── 実装状況 (段階的に足していく骨組み) ────────────────────────────────────
  *   ✅ 受入条件 1. : 固定 6 シナリオの出発時パーティ人数 = 1 + 期待値
- *                    ⭐ **STEP2 (項目2) で既定 ON になった**ので (A) は URL 無指定で測る。
- *                       = 「実プレイヤーが踏む URL でそうなる」を直接の物差しにしている。
+ *                    ⭐ (A) は URL 無指定で測る = 「実プレイヤーが踏む URL でそうなる」。
  *   ✅ 受入条件 2. : どのクエストでもパーティが 4 人を超えない
- *   ✅ 受入条件 7. : `?recruit=0` (撤退スイッチ) を付けると 6 件とも従来どおり PARTY_SIZE 人。
- *                    ⭐⭐⭐ 予告どおり STEP2 で (C) が赤へ反転したので、**期待値ではなく
- *                       測定点 (URL) を張り替えた**。legacyExpectation / EXPECTED_NPC_RECRUIT は
- *                       STEP1 から 1 文字も変えていない。
- *                       「?recruit=0 で緑」だけでは何も証明しないので、(Cz3)(Cz4)(Cz6) が
- *                       「同じ判定関数」「同じ観測」で **スイッチを外すと期待値が変わる** を測る。
- *   ✅ 受入条件 8. : STEP1 完了時点 (既定 OFF) で既存 golden 全緑 — 項目1 で実測済み。
- *                    STEP2 の非退行は golden 側 (tools/_golden.js) と triage 一覧が担当。
- *   ✅ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在 → (F)
+ *   ✅ 受入条件 7. : `?recruit=0` (撤退スイッチ) を付けると 6 件とも ★の数へ戻る。
+ *   ✅ 受入条件 8. : 既存 golden 全緑 — 項目1 / 項目2 で実測済み。
+ *   ✅ 受入条件 3. : 生成クエスト (闇市) の NPC 3 人 + `[DIAG] recruit: fallback used` の実在 → (F)(FL)
  *                    ⭐⭐ 「ログが出た」は件数の絶対値では測らない。観測の直前に consoleLines の
  *                       件数を採り、**差分だけ**を見る (「X したから今の状態」と「元から同じ状態」は
  *                       区別できない)。区間を 3 つに割って「どの操作が出したか」まで確定させる。
@@ -29,6 +51,11 @@
  *                       「元から 3 だった」と区別できず (Gz1) も原理的に赤くなる。
  *                       → **期待値を緩めず、まだ recruit: を持たない bandits-forest へ移した**。
  *                       goblin-mine 側は (G4)(G5) が「ソースの値が効いている」を別途押さえる。
+ *                    ⚠⚠ [#61 で注入値を移した] 旧: recruit: 3 を注入していた。#61 で既定が
+ *                       RECRUIT_MAX (=3) に固定されたので、**3 を注入しても 3 のまま = 不可視**
+ *                       (実測 「注入前 NPC3 → 注入後 NPC3」で (G)(Gz2) が赤)。
+ *                       → **注入値を RECRUIT_MAX-1 へ**。個別上書きの経路は今も生きている
+ *                       (実測 既定腕で recruit:2 → 2 / 9 → 3 / 0 → 1 / 撤去 → 3)。
  *   ✅ 受入条件 5. : 隊列順が front → mid → rear のまま → (H)
  *                    ⚠ 全員 front の隊列は自明にソート済 = 何も証明しない。(Hz1) が
  *                       「zone が 2 種類以上ある行が実在する」を装置 assert で押さえる。
@@ -137,8 +164,13 @@ const pageErrors = [];
 const consoleLines = [];
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 期待表 (依頼書「受入条件」の表そのもの)。⚠ ここは STEP2 でも 1 文字も変えなかった。
- * 変えたのは「どの URL でこの表を当てるか」だけ (STEP1: ?recruit=1 / STEP2: 無指定)。
+ * ★の数から導いた期待表 (#7 依頼書「受入条件」の表そのもの)。
+ * ⚠⚠ **ここは #7 STEP2 でも #61 でも 1 文字も変えていない。**
+ *   変えたのは毎回「どの URL でこの表を当てるか」だけ:
+ *     #7 STEP1 = ?recruit=1 / #7 STEP2 = 無指定 / **#61 = ?recruit=0**
+ *   ⭐ #61 で本番が ★連動を `recruitCountLegacy()` へ隔離し、それが `?recruit=0` でのみ
+ *     通るようになったので、この表は **撤退腕 (C) の期待値**として引き続き 1 語も緩めずに
+ *     生きている。⛔ 「森と沼の 2 を 3 に書き換える」= 期待値の写経は採らない。
  * ══════════════════════════════════════════════════════════════════════════ */
 const SCENARIO_IDS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
 const EXPECTED_NPC_RECRUIT = {
@@ -152,11 +184,20 @@ const EXPECTED_NPC_RECRUIT = {
   'undead-temple':  3,   // ★★★
   'dragon-lair':    3,   // ★★★★ だが clamp(n,1,3)
 };
-/* 従来動作 (募集人数が効いていない状態) の期待表。partySize はドライバに直書きせず
-   ブラウザから読んだ PARTY_SIZE を渡す = 「実装が書いた数字」でなく元データから組み立てる。 */
-function legacyExpectation(ids, partySize) {
+/* ★[#61] 既定 (★連動を廃止した後) の期待表 = **6 本すべてが NPC = RECRUIT_MAX**。
+   ⛔ 3 を直書きしない。npcMax には**ブラウザから裸の識別子で読んだ RECRUIT_MAX** を渡す
+      = 「ドライバが書いた数字」ではなく本番の定数から組み立てる (依頼書 §8 (0b))。
+   ⚠⚠ この表は**意図的に 1 種類の値へ潰れている** (それが #61 の仕様そのもの)。
+      潰れた表との一致は自明になりやすいので、非自明性は別の 3 本が背負う:
+        (Az5)  ★が RECRUIT_MAX 未満のシナリオが実在する = 廃止に意味がある母集団
+        (Cz3)  同じ判定関数にこの表を通すと ?recruit=0 の観測は落ちる (恒真でない)
+        (Cz6)  腕を替えると人数が動く id が、★の表から導いた集合とちょうど一致する
+   ⭐ #7 時代の名前は legacyExpectation(ids, partySize) = 全部 partySize-1 だった。
+      値は同じ 3 だが、出所を「編成の総人数-1」から「同行上限そのもの」へ寄せて改名した。
+      (両者が食い違っていないことは (A5) が 総人数 == PARTY_SIZE で別途押さえる) */
+function uniformExpectation(ids, npcMax) {
   const o = {};
-  ids.forEach(id => { o[id] = partySize - 1; });
+  ids.forEach(id => { o[id] = npcMax; });
   return o;
 }
 
@@ -287,6 +328,12 @@ function judgeNoOverflow(rows, cap) {
           scenarios:          typeof scenarios,
           PARTY_SIZE:         typeof PARTY_SIZE,
           recruitCountOf:     typeof recruitCountOf,
+          /* ★[#61] 同行上限そのもの。期待値を写経しないための唯一の出所 ((S11) が読めたことを測る)。
+             ⚠ classic script 直下の const なので **裸の識別子**でしか読めない。 */
+          typeofRECRUIT_MAX:  typeof RECRUIT_MAX,
+          RECRUIT_MAX:        (typeof RECRUIT_MAX === 'number') ? RECRUIT_MAX : null,
+          /* ★[#61] ★連動の旧規則。?recruit=0 のときだけ通る = (C)(FL) 群の受け皿。 */
+          recruitCountLegacy: typeof recruitCountLegacy,
           isRecruitOn:        typeof isRecruitOn,
           buildParty:         typeof buildParty,
           buildPartyArity:    (typeof buildParty === 'function') ? buildParty.length : -1,
@@ -324,6 +371,22 @@ function judgeNoOverflow(rows, cap) {
       } catch (e) { out.threw = String((e && e.message) || e); }
       return out;
     }, ids);
+  }
+
+  /* シナリオ定義の `recruit:` を **ランタイムで**差し替える (value=null で撤去)。
+     ⛔ ソースを書き換えて測ってはいけない — (S9) が「表に recruit: の具体値は 1 件だけ」を
+        静的に見張っているので、テスト用に書き足すと (S9) が赤くなる。
+     ⭐[#61] (G) 節だけでなく (D) 節も使うのでここへ引き上げた (中身は #7 のまま無変更)。 */
+  async function setRecruit(page, id, value) {
+    return page.evaluate((cfg) => {
+      const sc = scenarios.find(s => s.id === cfg.id);
+      if (!sc) return { found: false };
+      const had = Object.prototype.hasOwnProperty.call(sc, 'recruit');
+      if (cfg.value === null) delete sc.recruit; else sc.recruit = cfg.value;
+      return { found: true, hadBefore: had,
+               hasNow: Object.prototype.hasOwnProperty.call(sc, 'recruit'),
+               now: sc.recruit };
+    }, { id, value });
   }
 
   const dump = (rows) => rows.map(r => r.id + '(' + r.difficulty + ')=計' + r.total + '人/NPC' + r.npc + '/決定' + r.decided).join('  ');
@@ -380,6 +443,9 @@ function judgeNoOverflow(rows, cap) {
     const pageS = await openPage('/tavern.html');
     const obsS = await observeDepartSizes(pageS, []);
     console.log('       seam = ' + JSON.stringify(obsS.seam));
+    /* ★[#61] 既定腕の期待値の**唯一の出所**。⛔ ここで 3 を直書きしたら「期待値の写経」になる。
+       ⚠ 読めなかったら null のまま先へ進む = 以降が総崩れで赤くなる (黙って緑にはならない)。 */
+    const LIVE_MAX = obsS.seam.RECRUIT_MAX;
     check('(S1) [装置] scenarios / recruitCountOf / departToScenario を裸の識別子で読めた',
       obsS.seam.scenarios === 'object' && obsS.seam.recruitCountOf === 'function'
       && obsS.seam.departToScenario === 'function' && obsS.seam.regenerate === 'function'
@@ -391,10 +457,18 @@ function judgeNoOverflow(rows, cap) {
       && SCENARIO_IDS.length === Object.keys(EXPECTED_NPC_RECRUIT).length,
       'scenarios=' + JSON.stringify(obsS.seam.allIds));
     const distinct = new Set(Object.values(EXPECTED_NPC_RECRUIT));
-    check('(Sz) [装置] 期待表が 1 種類の値に潰れていない (全部同値なら一致は自明で無意味)',
+    check('(Sz) [装置] ★の数の期待表 ((C) 腕で使う) が 1 種類の値に潰れていない (潰れると撤退腕の一致が自明になる)',
       distinct.size >= 2, '期待値の種類=' + JSON.stringify([...distinct]));
-    check('(S4) URL 無指定で isRecruitOn() が true (STEP2: 既定 ON になっている)',
+    check('(S4) URL 無指定で isRecruitOn() が true (★[#61] = ★連動を廃止した既定の姿になっている)',
       obsS.seam.recruitOn === true, 'isRecruitOn()=' + obsS.seam.recruitOn);
+    /* ★[#61] 既定腕の期待値を「ドライバが書いた 3」ではなく本番の定数から組み立てるための装置。
+       ⚠ RECRUIT_MAX-1 を (G) の注入値に使うので **2 以上**であることまで要る
+         (1 だと注入値が 0 になり clamp 下限に食われて (G) が (G3) と同じものを測ってしまう)。 */
+    check('(S11) [装置] RECRUIT_MAX を裸の識別子で 2 以上の数値として読めた + recruitCountLegacy が実在する',
+      obsS.seam.typeofRECRUIT_MAX === 'number' && typeof LIVE_MAX === 'number' && LIVE_MAX >= 2
+      && obsS.seam.recruitCountLegacy === 'function',
+      'RECRUIT_MAX=' + LIVE_MAX + ' (typeof ' + obsS.seam.typeofRECRUIT_MAX + ') / recruitCountLegacy='
+      + obsS.seam.recruitCountLegacy);
     // tavern.html / index.html のソース側の静的検査
     const tavSrc = fs.readFileSync(path.join(ROOT, 'tavern.html'), 'utf8');
     const idxSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
@@ -448,9 +522,14 @@ function judgeNoOverflow(rows, cap) {
 
     /* ══════════════════════════════════════════════════════════════════════
      * (A) 受入条件 1. / 2. : **URL 無指定** (= 実プレイヤーが踏む経路) で 6 シナリオの出発人数
-     *   ⭐ STEP2 で既定 ON になったので ?recruit=1 を外した。期待表は据え置き。
+     *   ⭐⭐⭐ ★[#61] **主張を言い直した**。旧: 「★の数と NPC 数が一致する」/
+     *      新: 「**★の数と無関係に 6 本すべてが NPC = RECRUIT_MAX**」。
+     *      ⛔ 期待表の値を書き換えたのではなく、当てる表を EXPECTED_NPC_RECRUIT から
+     *        uniformExpectation(RECRUIT_MAX) へ差し替えた (★の表は (C) 腕へ移した)。
+     *   ⚠ 一律の主張は空虚になりやすいので (Az5) が「★が上限未満のシナリオが実在する」を、
+     *     (A5) が「一律の値が PARTY_SIZE とも食い違っていない」を押さえる。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (A) 受入条件 1. 2. : URL 無指定 (既定 ON) で 6 シナリオの出発人数 ---');
+    console.log('\n--- (A) 受入条件 1. 2. : URL 無指定 (既定) で 6 シナリオの出発人数 = 一律 RECRUIT_MAX ---');
     const pageA = await openPage('/tavern.html');
     const obsA = await observeDepartSizes(pageA, SCENARIO_IDS);
     /* ⚠ location.href への代入は **同期では飛ばない**。evaluate が返った直後に
@@ -472,19 +551,38 @@ function judgeNoOverflow(rows, cap) {
       obsA.rows.length === 6 && obsA.rows.every(r => r.npc === r.decided),
       obsA.rows.map(r => r.id + ' npc' + r.npc + '/決定' + r.decided).join(' '));
 
-    const vA = judgePartySizes(obsA.rows, EXPECTED_NPC_RECRUIT);
+    /* ⭐ 「★連動を廃止した」ことに意味がある母集団か? を先に測る。全 6 本が元から ★3 以上なら
+       「一律 RECRUIT_MAX」は何も変えていないのと同じで、(A) は空虚な主張になる (依頼書 §8 (0c))。
+       ⚠ 表からではなく **本番の sc.difficulty 文字列**から数える (2 経路)。 */
+    const starOf = (d) => (String(d === undefined ? '' : d).match(/★/g) || []).length;
+    const belowMax = obsA.rows.filter(r => starOf(r.difficulty) >= 1 && starOf(r.difficulty) < LIVE_MAX);
+    check('(Az5) [装置] ★の数が RECRUIT_MAX 未満のシナリオが 2 件以上実在する (= 一律 RECRUIT_MAX が空虚な主張でない)',
+      belowMax.length >= 2 && obsA.rows.every(r => starOf(r.difficulty) >= 1),
+      '★ の数 = ' + obsA.rows.map(r => r.id + ':★' + starOf(r.difficulty)).join(' ')
+      + ' / 上限未満 = ' + belowMax.length + ' 件');
+
+    const EXPECTED_UNIFORM = uniformExpectation(SCENARIO_IDS, LIVE_MAX);
+    const vA = judgePartySizes(obsA.rows, EXPECTED_UNIFORM);
     PROD_VERDICT = vA.ok;
-    check('(A) ★受入条件1: 6 シナリオの出発パーティが 1 + 期待値 になる',
-      vA.ok, vA.diffs.length ? vA.diffs.join(' / ') : '差分なし');
+    check('(A) ★[#61] 既定では 6 シナリオすべてが NPC = RECRUIT_MAX (' + LIVE_MAX + ') — ★の数と無関係に上限まで連れて行ける',
+      vA.ok, vA.diffs.length ? vA.diffs.join(' / ') : '差分なし (全 ' + obsA.rows.length + ' 件)');
     const nA = judgeNoOverflow(obsA.rows, 4);
     check('(A2) ★受入条件2: どのクエストでもパーティが 4 人を超えない',
       nA.ok, nA.over.length ? '超過: ' + nA.over.join(' ')
         : '超過なし (最大 ' + Math.max.apply(null, obsA.rows.map(r => r.total)) + ' 人)');
     check('(A3) 主人公はどのクエストでもちょうど 1 人 (NPC だけが増減している)',
       obsA.rows.every(r => r.heroes === 1), obsA.rows.map(r => r.id + ':' + r.heroes).join(' '));
-    check('(A4) ★4 の dragon-lair が clamp されて NPC 3 (上限 3 を外していない)',
-      (obsA.rows.find(r => r.id === 'dragon-lair') || {}).npc === 3,
+    check('(A4) ★4 の dragon-lair でも NPC は ' + LIVE_MAX + ' 止まり (上限 RECRUIT_MAX を外していない)',
+      (obsA.rows.find(r => r.id === 'dragon-lair') || {}).npc === LIVE_MAX,
       'difficulty=' + (obsA.rows.find(r => r.id === 'dragon-lair') || {}).difficulty);
+    /* ★[#61] 「1 + RECRUIT_MAX」と「PARTY_SIZE」は別々の定数。既定でこの 2 つが食い違うと
+       『4 人目を誘えたのに出発したら 3 人』が黙って起きる。⭐ 一律の期待値を RECRUIT_MAX から
+       導いたことの裏取りでもある (PARTY_SIZE-1 から導いていた #7 の形との橋渡し)。 */
+    check('(A5) ★[#61] 既定の総人数が 6 本とも PARTY_SIZE (' + obsA.partySize + ') = 1 + RECRUIT_MAX (2 つの定数が食い違っていない)',
+      obsA.rows.length === 6 && obsA.rows.every(r => r.total === obsA.partySize)
+      && obsA.partySize === LIVE_MAX + 1,
+      'PARTY_SIZE=' + obsA.partySize + ' / 1+RECRUIT_MAX=' + (LIVE_MAX + 1)
+      + ' / 総人数 = ' + obsA.rows.map(r => r.total).join(','));
     await pageA.close();
 
     /* ══════════════════════════════════════════════════════════════════════
@@ -516,9 +614,12 @@ function judgeNoOverflow(rows, cap) {
     console.log('       観測: ' + JSON.stringify(obsB));
     check('(Bz2) [装置] 「出発する」ボタンを実際に押した + 受注したのは goblin-mine',
       obsB.clicked === true && obsB.prepId === 'goblin-mine', 'prepScenario=' + obsB.prepId);
-    /* ⚠ #8 で goblin-mine に recruit: 3 が入り総数は 4。数字を直書きすると期待表と
-       二重管理になる → EXPECTED_NPC_RECRUIT から導いて出所を 1 本にする。 */
-    const B_NPC   = EXPECTED_NPC_RECRUIT['goblin-mine'];
+    /* ⚠ 数字を直書きすると期待値が二重管理になる → 出所を 1 本にする。
+       ⚠⚠ ★[#61] 出所を **EXPECTED_NPC_RECRUIT['goblin-mine'] から LIVE_MAX へ移した**。
+         ここは既定腕 (URL 無指定) の実クリック導線なので、当てるべきは ★の表ではなく
+         一律 RECRUIT_MAX の方。値はたまたま同じ 3 だが、意味の違う表から引いていると
+         次に ★の表が動いたとき (C) 腕の変更が既定腕の assert を巻き添えにする。 */
+    const B_NPC   = LIVE_MAX;
     const B_TOTAL = B_NPC + 1;   // 主人公 1 + NPC
     check('(B) 実クリック導線でも goblin-mine は主人公1 + NPC' + B_NPC + ' = ' + B_TOTAL + ' 人 (近道と一致)',
       obsB.npc === B_NPC && obsB.total === B_TOTAL,
@@ -528,14 +629,17 @@ function judgeNoOverflow(rows, cap) {
     await pageB.close();
 
     /* ══════════════════════════════════════════════════════════════════════
-     * (C) 受入条件 7. : 撤退スイッチ ?recruit=0 を付けると従来どおり PARTY_SIZE 人へ戻る
-     *   ⭐⭐⭐ STEP1 ではここが「URL 無指定 = 受入条件 8 (挙動不変)」だった。予告どおり
-     *      STEP2 で赤へ反転したので、**期待値ではなく測定点 (URL) を張り替えた**。
-     *      legacyExpectation は 1 文字も変えていない = 「赤を機械的に緩める」経路が原理的に無い。
+     * (C) 撤退スイッチ ?recruit=0 : **★の数に応じた人数へ戻る** (= #7 の姿)
+     *   ⚠⚠ ★[#61] **スイッチの意味が反転した**。旧: 「★連動を切って一律 PARTY_SIZE 人」/
+     *      新: 「★連動へ戻す」(本番の recruitCountLegacy を通る)。
+     *   ⭐⭐⭐ これで **2 度目の腕の張り替え**。#7 STEP2 で (C) が赤へ反転したときも、今回も、
+     *      直したのは期待値ではなく **どの表をどの腕に当てるか**だけ。
+     *      EXPECTED_NPC_RECRUIT は #7 から 1 文字も変わっていない
+     *      = 「赤を機械的に緩める」経路が原理的に無い。
      *   ⚠ 「?recruit=0 で緑」だけでは何も証明しない (何も起きなくても一致する)。
      *      (Cz3)(Cz4) が **判定関数の共有**を、(Cz6) が **数値そのものが動くこと**を押さえる。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (C) 受入条件 7. : ?recruit=0 (撤退スイッチ) = 従来どおり ---');
+    console.log('\n--- (C) ?recruit=0 (撤退スイッチ) = ★の数へ戻る ---');
     const pageC = await openPage('/tavern.html?recruit=0');
     const obsC = await observeDepartSizes(pageC, SCENARIO_IDS);
     console.log('       観測: ' + dump(obsC.rows));
@@ -545,26 +649,35 @@ function judgeNoOverflow(rows, cap) {
     check('(Cz2) [装置] ?recruit=0 では isRecruitOn() が false (撤退スイッチが効いている)',
       obsC.seam.recruitOn === false, 'isRecruitOn()=' + obsC.seam.recruitOn);
 
-    const legacy = legacyExpectation(SCENARIO_IDS, obsC.partySize);
-    const vC = judgePartySizes(obsC.rows, legacy);
-    check('(C) ★受入条件7: ?recruit=0 なら 6 シナリオ全部が従来どおり ' + obsC.partySize + ' 人',
-      vC.ok, vC.diffs.length ? vC.diffs.join(' / ') : '差分なし');
+    check('(Cz7) [装置] ?recruit=0 の腕でも ★の数は同じ (スイッチが difficulty そのものを書き換えていない)',
+      obsC.rows.length === 6
+      && obsC.rows.every(r => starOf(r.difficulty) === starOf((obsA.rows.find(a => a.id === r.id) || {}).difficulty)),
+      obsC.rows.map(r => r.id + ':★' + starOf(r.difficulty)).join(' '));
+    /* ★[#61] 当てる表を uniformExpectation から EXPECTED_NPC_RECRUIT へ **入れ替えた**
+       (#7 の表そのもの。goblin-mine の 3 は #8 の recruit: 3 / dragon-lair の 3 は ★4 の clamp)。 */
+    const vC = judgePartySizes(obsC.rows, EXPECTED_NPC_RECRUIT);
+    check('(C) ★[#61] ?recruit=0 なら 6 シナリオが ★の数へ戻る (撤退スイッチが飾りでない)',
+      vC.ok, vC.diffs.length ? vC.diffs.join(' / ')
+        : '差分なし (' + SCENARIO_IDS.map(id => id + ':' + EXPECTED_NPC_RECRUIT[id]).join(' ') + ')');
     const nC = judgeNoOverflow(obsC.rows, 4);
     check('(C2) 受入条件2 は ?recruit=0 でも成り立つ (4 人を超えない)',
       nC.ok, nC.over.length ? '超過: ' + nC.over.join(' ') : '超過なし');
 
     /* ⭐⭐⭐ 共有が空振りしていない証明:
        **同じ judgePartySizes に (A) の期待表を通すと (C) の観測は落ちる**。
-       これが緑にならない = 「どんな入力でも true を返す壊れた関数」を掴んでいる、ということ。 */
-    const vCwrong = judgePartySizes(obsC.rows, EXPECTED_NPC_RECRUIT);
+       これが緑にならない = 「どんな入力でも true を返す壊れた関数」を掴んでいる、ということ。
+       ⚠⚠ ★[#61] 「(A) の期待表」の中身が入れ替わったので、ここへ渡す表も
+         EXPECTED_NPC_RECRUIT → EXPECTED_UNIFORM へ差し替えた (**向きが反転しただけ**)。
+         ⭐ 2 表の値が違うままなので、この「恒真でない証明」は入れ替え後もそのまま生きる。 */
+    const vCwrong = judgePartySizes(obsC.rows, EXPECTED_UNIFORM);
     /* ⚠⚠ [#8 で測定点を移した] 旧: diffs.length >= 3 (件数の直書き)。#8 で goblin-mine が
        既定 3 / 撤退 3 と揃って差分から抜け、2 件に減って原理的に赤くなった。
-       **件数を緩めるのではなく**、期待表と legacyExpectation から「食い違うはずの id」を
+       **件数を緩めるのではなく**、2 つの期待表から「食い違うはずの id」を
        導出して**集合ごと**突き合わせる = どの id が動くかまで固定するので厳しくなる。
+       ⚠ ★[#61] 導出の基準を PARTY_SIZE-1 から **RECRUIT_MAX** へ移した (既定腕の期待値と同じ出所)。
        ⚠ C_SHOULD_DIFFER.length > 0 が母集団ガード (全シナリオが揃うと空振りで緑になるのを防ぐ)。 */
-    const C_LEGACY_NPC    = obsA.partySize - 1;
-    const C_SHOULD_DIFFER = SCENARIO_IDS.filter(id => EXPECTED_NPC_RECRUIT[id] !== C_LEGACY_NPC);
-    check('(Cz3) [装置] 同じ判定関数に募集ONの期待表を通すと ?recruit=0 の観測は落ちる (恒真でない証明)',
+    const C_SHOULD_DIFFER = SCENARIO_IDS.filter(id => EXPECTED_NPC_RECRUIT[id] !== LIVE_MAX);
+    check('(Cz3) [装置] 同じ判定関数に既定腕の一律表を通すと ?recruit=0 の観測は落ちる (恒真でない証明)',
       vCwrong.ok === false && C_SHOULD_DIFFER.length > 0
         && vCwrong.diffs.length === C_SHOULD_DIFFER.length
         && C_SHOULD_DIFFER.every(id => vCwrong.diffs.some(d => d.indexOf(id + ':') === 0)),
@@ -593,8 +706,9 @@ function judgeNoOverflow(rows, cap) {
      *   ・「この依頼に応じた冒険者: N 人」の 1 行
      *   ⭐⭐ N は **画面の文字列** と **実体の配列長** の 2 経路で突き合わせる。
      *      片方の写経にすると「定数を書いただけ」でも緑になる。
-     *   ⚠ ★1 (NPC1) と ★3 (NPC3) の 2 シナリオで測る。1 シナリオだけだと
-     *      「N を直書きした実装」と区別できない ((Dz6) がそれを押さえる)。
+     *   ⚠ **人数の違う 2 つの対象**で測る。1 つだけだと「N を直書きした実装」と区別できない。
+     *      ⚠⚠ ★[#61] ★連動の廃止で 6 本とも同数に潰れたので、対比は
+     *        `recruit:` の個別上書き (RECRUIT_MAX-1) の注入で作る ((Dz8) が注入の実効を測る)。
      *   ⚠⚠ この行は #partyPreview の **外側** にある必要がある (中に入れると (B2) が赤くなる)。
      *      (Dz4) が「実際に外側にある」を測るので、内側へ移した瞬間にここで落ちる。
      * ══════════════════════════════════════════════════════════════════════ */
@@ -672,8 +786,18 @@ function judgeNoOverflow(rows, cap) {
        orc-fort と同数 = (Dz7)「2 つの対象で N が実際に違う」が原理的に赤くなった。
        → **期待値を緩めず、期待表で値の異なる ★2 = bandits-forest へ相手を移す**。
        「★3 が 3 人」自体は (A) が 6 シナリオぶん測っているので失われない。
-       準備画面の DOM は生きているので prepScenario を差し替えて本番描画を通す。 */
-    const probeD2 = await probeRecruitUi(pageD, 'bandits-forest', REROLL_PRESSES);
+       準備画面の DOM は生きているので prepScenario を差し替えて本番描画を通す。
+       ⚠⚠⚠ ★[#61] **今度は ★2 でも足りなくなった**。★連動の廃止で 6 本とも NPC=RECRUIT_MAX に
+         潰れ、(D3)(Dz7) が「画面 N=3 / 実体 NPC=3」で赤くなった (2026-09-09 実測)。
+         ⛔ 期待値を 3 へ写経すると (Dz7) が永久に空振りする (2 つの N が同じになるので
+           「N を直書きした実装」と区別できない)。
+         → **本番に実在する腕**で対比を作る = `recruit:` の個別上書き (RECRUIT_MAX と異なる値) を
+           ランタイム注入する。⭐ 「(D) の行が定数ではなく本当に人数を読んでいる」という
+           元の主張はそのままに、対比の作り方だけを移した。 */
+    const D2_ID  = 'bandits-forest';
+    const D2_INJ = LIVE_MAX - 1;                       // ⚠ 上限と違う値でなければ対比にならない
+    const d2Inj  = await setRecruit(pageD, D2_ID, D2_INJ);
+    const probeD2 = await probeRecruitUi(pageD, D2_ID, REROLL_PRESSES);
     const showP = (p) => p.id + ': ラベル"' + p.btnLabel + '" / 行"' + (p.samples[p.samples.length - 1] || {}).line
       + '" / 実体NPC' + (p.samples[p.samples.length - 1] || {}).npc + ' / 顔ぶれ' + new Set(p.samples.map(s => s.sig)).size + '種';
     console.log('       ' + showP(probeD1));
@@ -701,7 +825,7 @@ function judgeNoOverflow(rows, cap) {
     const vR2 = judgeReroll(probeD2.samples);
     check('(D6a) ★受入条件6: ★1 goblin-mine で ' + REROLL_PRESSES + ' 回かけ直しても人数は変わらず、顔ぶれは変わる',
       vR1.ok, '人数の種類=' + JSON.stringify(vR1.counts) + ' / 顔ぶれ ' + vR1.sigKinds + ' 種 (11 サンプル中)');
-    check('(D6b) ★受入条件6: ★3 orc-fort でも同じ (人数不変 / 顔ぶれ可変)',
+    check('(D6b) ★受入条件6: ' + D2_ID + ' (recruit:' + D2_INJ + ' を注入した腕) でも同じ (人数不変 / 顔ぶれ可変)',
       vR2.ok, '人数の種類=' + JSON.stringify(vR2.counts) + ' / 顔ぶれ ' + vR2.sigKinds + ' 種 (11 サンプル中)');
     check('(Dz6) [装置] judgeReroll は空/単一サンプルでは false (空で緑になる測定器ではない)',
       judgeReroll([]).ok === false && judgeReroll([{ npc: 1, sig: 'a' }]).ok === false
@@ -711,20 +835,24 @@ function judgeNoOverflow(rows, cap) {
     /* ★★ 2 経路の突き合わせ: 画面の文字列 N ⇔ 実体 selection.partyMembers の NPC 数 */
     const lastD1 = probeD1.samples[probeD1.samples.length - 1];
     const lastD2 = probeD2.samples[probeD2.samples.length - 1];
-    check('(D2) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (★1 goblin-mine)',
+    check('(Dz8) [装置] ' + D2_ID + ' への recruit:' + D2_INJ + ' 注入が実際に効いた (効かないと (D3)(Dz7) は全部空振り)',
+      d2Inj.found === true && d2Inj.hadBefore === false && d2Inj.hasNow === true
+      && d2Inj.now === D2_INJ && D2_INJ >= 1 && D2_INJ !== LIVE_MAX,
+      JSON.stringify(d2Inj) + ' / 注入値=' + D2_INJ + ' vs RECRUIT_MAX=' + LIVE_MAX);
+    check('(D2) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (既定の goblin-mine = RECRUIT_MAX)',
       probeD1.lineN !== null && probeD1.lineN === lastD1.npc
-      && lastD1.npc === EXPECTED_NPC_RECRUIT['goblin-mine'],
+      && lastD1.npc === LIVE_MAX,
       '画面 N=' + probeD1.lineN + ' / 実体 NPC=' + lastD1.npc + ' / 行 = "' + lastD1.line + '"');
-    check('(D3) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (★2 bandits-forest)',
+    check('(D3) 「この依頼に応じた冒険者: N 人」の N が実体と一致 (recruit:' + D2_INJ + ' を注入した ' + D2_ID + ')',
       probeD2.lineN !== null && probeD2.lineN === lastD2.npc
-      && lastD2.npc === EXPECTED_NPC_RECRUIT['bandits-forest'],
+      && lastD2.npc === D2_INJ,
       '画面 N=' + probeD2.lineN + ' / 実体 NPC=' + lastD2.npc + ' / 行 = "' + lastD2.line + '"');
-    /* ⭐ 期待表の側でも 2 つが違う値であることを要求する。そうしないと「たまたま両方が
-       同じ値に動いた」ときに、この装置 assert ごと空振りしていることに気づけない。 */
+    /* ⭐ 期待値の側でも 2 つが違う値であることを要求する。そうしないと「たまたま両方が
+       同じ値に動いた」ときに、この装置 assert ごと空振りしていることに気づけない。
+       ⚠ ★[#61] 出所を「★の表の 2 要素」から「RECRUIT_MAX と注入値」へ移した (★連動は廃止済)。 */
     check('(Dz7) [装置] 2 つの対象で N が実際に違う (N を直書きした実装では緑にならない)',
-      probeD1.lineN !== probeD2.lineN
-        && EXPECTED_NPC_RECRUIT['goblin-mine'] !== EXPECTED_NPC_RECRUIT['bandits-forest'],
-      'goblin-mine N=' + probeD1.lineN + ' / bandits-forest N=' + probeD2.lineN);
+      probeD1.lineN !== probeD2.lineN && LIVE_MAX !== D2_INJ,
+      'goblin-mine N=' + probeD1.lineN + ' / ' + D2_ID + '(注入) N=' + probeD2.lineN);
     check('(D4) 応募人数の行は「募集をかけ直す」のたびに更新されている (押した後も実体と一致)',
       probeD1.samples.every(s => { const m = /(\d+)\s*人/.exec(s.line); return m && parseInt(m[1], 10) === s.npc; })
       && probeD2.samples.every(s => { const m = /(\d+)\s*人/.exec(s.line); return m && parseInt(m[1], 10) === s.npc; }),
@@ -826,6 +954,10 @@ function judgeNoOverflow(rows, cap) {
      *      区間1 = 生成クエストを **作るだけ**            → 0 行 (作っただけでは出ない)
      *      区間2 = 本番の再抽選 + 出発処理               → **ちょうど 1 行**
      *      区間3 = 経路B (recruitCountOf の直呼び)        → 1 行
+     * ⚠⚠ ★[#61] **この節は 2 つに割れた**。既定の腕 (この (F) 節) は「生成クエストも上限まで
+     *    連れて行ける」+「DIAG が 1 行も出ない」(= 旧規則を通っていない証拠) だけを測り、
+     *    **DIAG が出ることの検査は (FL) 節 (?recruit=0 の腕) へ移した**。
+     *    区間の割り方 (作るだけ / 出発 / 経路B) と差分の採り方は両節でそのまま使う。
      * ⭐ 負のコントロールは **difficulty を持つ固定シナリオ**。同じページ・同じ観測関数で
      *    DIAG が 1 行も出ないことを見て、「無条件に出しているだけ」ではないと確定させる。
      * ⭐ 依頼書「なぜフォールバックで黙らないのか」の眼目は
@@ -833,7 +965,7 @@ function judgeNoOverflow(rows, cap) {
      *    (Fz1) が「buildPlazaSynthetic の戻り値は difficulty を持たない」を前提として測るので、
      *    持つようになった日にここが赤くなる = DIAG の存在意義そのものを守る。
      * ══════════════════════════════════════════════════════════════════════ */
-    console.log('\n--- (F) 受入条件 3. : 生成クエスト (闇市) は NPC 3 人 + [DIAG] の実在 ---');
+    console.log('\n--- (F) 受入条件 3. : 既定の腕 — 生成クエスト (闇市) は NPC 上限 + DIAG は 0 行 ---');
     /* ⚠ 先頭固定で照合する。部分一致にすると別の [DIAG] 行を拾って永久に緑になる。 */
     const DIAG_PREFIX = '[DIAG] recruit: fallback used';
     const DIAG_EXPECT = '[DIAG] recruit: fallback used (no difficulty) id=generated-quest -> 3';
@@ -936,22 +1068,22 @@ function judgeNoOverflow(rows, cap) {
                                   && p.hasRecruit === false && p.generated === true),
       '前提を満たさない件数 = ' + buildF.probes.filter(p => p.hasDifficulty || p.hasRecruit).length
       + ' / 家系 = ' + buildF.probes.map(p => p.familyId).join(', '));
-    check('(Fz2) [装置] 負のコントロール: difficulty を持つ固定シナリオでは DIAG が 1 行も出ない (無条件に出しているのではない)',
-      diagFneg.length === 0 && obsFneg.rows.length === 1 && obsFneg.rows[0].wrote === true,
-      'DIAG=' + diagFneg.length + ' 行 / goblin-mine NPC=' + (obsFneg.rows[0] || {}).npc);
-    check('(Fz3) [装置] 生成クエストを 6 件 **作っただけ** では DIAG は出ない (人数を決めた時だけ出る)',
-      diagF1.length === 0, 'DIAG=' + diagF1.length + ' 行');
-
-    check('(F) ★受入条件3: 生成クエスト (闇市) の出発パーティが 主人公1 + NPC3 = 4 人',
-      departF.row && departF.row.wrote === true && departF.row.npc === 3
-      && departF.row.total === 4 && departF.row.heroes === 1,
-      departF.row ? ('計' + departF.row.total + '人 / NPC' + departF.row.npc + ' / 主人公' + departF.row.heroes) : '観測なし');
-    check('(F2) ★受入条件3: 出発の再抽選で DIAG が **ちょうど 1 行** 出た + 文面が依頼書の指定どおり',
-      diagF2.length === 1 && diagF2[0] === DIAG_EXPECT,
-      '出た行 = ' + JSON.stringify(diagF2) + ' / 期待 = "' + DIAG_EXPECT + '"');
-    check('(F3) 経路B (recruitCountOf 直呼び) も 3 を返し、同じく DIAG を 1 行出す',
-      decideF.decided === 3 && diagF3.length === 1 && diagF3[0] === DIAG_EXPECT,
-      'decided=' + decideF.decided + ' / DIAG=' + diagF3.length + ' 行');
+    check('(F) ★受入条件3: 生成クエスト (闇市) の出発パーティが 主人公1 + NPC' + LIVE_MAX + ' = ' + (LIVE_MAX + 1) + ' 人 (経路A/B 一致)',
+      departF.row && departF.row.wrote === true && departF.row.npc === LIVE_MAX
+      && departF.row.total === LIVE_MAX + 1 && departF.row.heroes === 1
+      && decideF.decided === LIVE_MAX,
+      departF.row ? ('計' + departF.row.total + '人 / NPC' + departF.row.npc + ' / 主人公'
+        + departF.row.heroes + ' / 経路B=' + decideF.decided) : '観測なし');
+    /* ★[#61] **既定腕の新しい主張**。DIAG は recruitCountLegacy の中にしか無いので、
+       「既定で 1 行も出ない」= ★連動の旧規則を 1 度も通っていないことの直接の証拠になる。
+       ⭐ 4 区間すべてで 0 行を要求する (どこか 1 区間で漏れていたら赤くなる)。
+       ⚠ 「DIAG が出る」側の検査は捨てていない — (FL) 群が ?recruit=0 の腕で測る。 */
+    check('(F5) ★[#61] 既定の腕では DIAG が 4 区間すべてで 0 行 (★連動の旧規則 recruitCountLegacy を通っていない)',
+      diagFneg.length === 0 && diagF1.length === 0 && diagF2.length === 0 && diagF3.length === 0,
+      '負のコントロール=' + diagFneg.length + ' / 作るだけ=' + diagF1.length
+      + ' / 出発=' + diagF2.length + ' / 経路B=' + diagF3.length + ' 行'
+      + ' (固定シナリオの観測 ' + obsFneg.rows.length + ' 件 wrote='
+      + ((obsFneg.rows[0] || {}).wrote) + ')');
     check('(F4) 受入条件2 は生成クエストでも成り立つ (4 人を超えない)',
       judgeNoOverflow(departF.row ? [departF.row] : [], 4).ok,
       '計 ' + (departF.row ? departF.row.total : '-') + ' 人');
@@ -960,6 +1092,113 @@ function judgeNoOverflow(rows, cap) {
       'generatedScenario=' + (departF.row && departF.row.wroteGenerated)
       + ' / currentScenario=' + (departF.row && departF.row.wroteScenario));
     await pageF.close();
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * (FL) ★[#61] `[DIAG] recruit: fallback used` の **測定点を ?recruit=0 の腕へ移した**
+     *   旧: 既定腕で「出発の再抽選で DIAG がちょうど 1 行」を測っていた ((F2)(F3))。
+     *   #61 で本番の既定は recruitCountLegacy を通らなくなり、DIAG は既定腕では
+     *   **1 行も出なくなった** (2026-09-09 実測「出た行 = []」)。
+     *   ⛔ 「0 行でよい」と期待値を書き換えるのは assert の放棄。DIAG が守っている眼目
+     *     =「将来 difficulty を持つ生成クエストが増えた日に気づける」は ?recruit=0 の腕で
+     *     そのまま生きている ⇒ **文面も件数も緩めず、測定点だけを移す** (依頼書 §8 (3b))。
+     *   ⭐ 負のコントロールも **recruit: を持たないシナリオ**へ移した。goblin-mine は
+     *     `recruit: 3` が recruitCountOf の入口で短絡するので legacy の difficulty 枝を
+     *     一度も通らない = 「difficulty があるから黙る」の証明にならなかった。
+     * ══════════════════════════════════════════════════════════════════════ */
+    console.log('\n--- (FL) ?recruit=0 の腕: [DIAG] recruit: fallback used が出る ---');
+    const pageFL = await openPage('/tavern.html?recruit=0');
+    /* ⚠ recruit: を持たない = 本当に recruitCountLegacy の difficulty 枝を通るシナリオを選ぶ */
+    const FL_NEG_ID = 'bandits-forest';
+    const baseFLneg = consoleLines.length;
+    const obsFLneg  = await observeDepartSizes(pageFL, [FL_NEG_ID]);
+    await sleep(500);
+    const diagFLneg = diagSince(baseFLneg);
+
+    // ── 区間1: 生成クエストを **作るだけ** ──
+    const baseFL1 = consoleLines.length;
+    const buildFL = await pageFL.evaluate(() => {
+      const out = { threw: '', seam: {}, probe: null };
+      try {
+        out.seam = { QuestGen: typeof QuestGen, buildPlazaSynthetic: typeof buildPlazaSynthetic,
+                     recruitCountLegacy: typeof recruitCountLegacy,
+                     recruitOn: (typeof isRecruitOn === 'function') ? isRecruitOn() : null };
+        const q = QuestGen.generateQuest(3, { source: 'plaza' });
+        q._sentence = QuestGen.buildSentence(q);
+        const s = buildPlazaSynthetic(q);              // ★本番の 生成クエスト → シナリオ 変換
+        window.__synthTV = s;
+        out.probe = { id: s.id,
+                      hasDifficulty: Object.prototype.hasOwnProperty.call(s, 'difficulty'),
+                      hasRecruit:    Object.prototype.hasOwnProperty.call(s, 'recruit'),
+                      generated:     !!s.__generated };
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    await sleep(500);
+    const diagFL1 = diagSince(baseFL1);
+
+    // ── 区間2: 本番の再抽選 + 出発処理 (人数を決めるのはここ) ──
+    const baseFL2 = consoleLines.length;
+    const departFL = await pageFL.evaluate(() => {
+      const out = { threw: '', row: null };
+      try {
+        const s = window.__synthTV;
+        prepScenario = s;
+        regeneratePartyMembers();             // ★本番の再抽選 (ここで recruitCountOf が走る)
+        sessionStorage.removeItem('dragonfighters.partyMembers');
+        departToScenario();                   // ★本番の出発処理
+        const raw = sessionStorage.getItem('dragonfighters.partyMembers');
+        let arr = null; try { arr = JSON.parse(raw); } catch (e) {}
+        const ok = Array.isArray(arr);
+        out.row = { id: s.id, wrote: raw !== null, total: ok ? arr.length : -1,
+                    npc: ok ? arr.length - 1 : -1 };
+      } catch (e) { out.threw = String((e && e.message) || e); }
+      return out;
+    });
+    await sleep(600);
+    const diagFL2 = diagSince(baseFL2);
+
+    // ── 区間3: 経路B (決める関数そのもの) ──
+    const baseFL3 = consoleLines.length;
+    const decideFL = await pageFL.evaluate(() => {
+      try { return { threw: '', decided: recruitCountOf(window.__synthTV) }; }
+      catch (e) { return { threw: String((e && e.message) || e), decided: null }; }
+    });
+    await sleep(500);
+    const diagFL3 = diagSince(baseFL3);
+
+    console.log('       seam = ' + JSON.stringify(buildFL.seam) + ' / 生成 = ' + JSON.stringify(buildFL.probe));
+    console.log('       負のコントロール ' + FL_NEG_ID + ' = NPC' + ((obsFLneg.rows[0] || {}).npc)
+      + ' (★の数へ戻っている)');
+    console.log('       DIAG 行数: 負のコントロール=' + diagFLneg.length + ' / 作るだけ=' + diagFL1.length
+      + ' / 出発=' + diagFL2.length + ' / 経路B=' + diagFL3.length);
+    if (diagFL2.length) console.log('       DIAG 実文 = "' + diagFL2[0] + '"');
+
+    check('(FLz0) [装置] ?recruit=0 の腕で isRecruitOn()=false / recruitCountLegacy が実在 / 生成クエストを作れた + 例外なし',
+      buildFL.threw === '' && departFL.threw === '' && decideFL.threw === '' && obsFLneg.threw === ''
+      && buildFL.seam.recruitOn === false && buildFL.seam.recruitCountLegacy === 'function'
+      && !!buildFL.probe && buildFL.probe.id === 'generated-quest'
+      && buildFL.probe.hasDifficulty === false && buildFL.probe.hasRecruit === false
+      && buildFL.probe.generated === true,
+      'seam=' + JSON.stringify(buildFL.seam) + ' / probe=' + JSON.stringify(buildFL.probe)
+      + ' / threw=' + (buildFL.threw || departFL.threw || decideFL.threw || obsFLneg.threw || 'なし'));
+    check('(Fz2) [装置] 負のコントロール: recruit: を持たず difficulty を持つ ' + FL_NEG_ID + ' は legacy を通っても DIAG を出さない (無条件に出しているのではない)',
+      diagFLneg.length === 0 && obsFLneg.rows.length === 1 && obsFLneg.rows[0].wrote === true
+      && obsFLneg.rows[0].npc === EXPECTED_NPC_RECRUIT[FL_NEG_ID],
+      'DIAG=' + diagFLneg.length + ' 行 / ' + FL_NEG_ID + ' NPC=' + ((obsFLneg.rows[0] || {}).npc)
+      + ' (期待 ' + EXPECTED_NPC_RECRUIT[FL_NEG_ID] + ' = ★の数)');
+    check('(Fz3) [装置] 生成クエストを **作っただけ** では DIAG は出ない (人数を決めた時だけ出る)',
+      diagFL1.length === 0, 'DIAG=' + diagFL1.length + ' 行');
+    check('(F2) ★[#61] ?recruit=0 の腕なら出発の再抽選で DIAG が **ちょうど 1 行** 出る + 文面が依頼書の指定どおり',
+      diagFL2.length === 1 && diagFL2[0] === DIAG_EXPECT,
+      '出た行 = ' + JSON.stringify(diagFL2) + ' / 期待 = "' + DIAG_EXPECT + '"');
+    check('(F3) ★[#61] ?recruit=0 の腕で経路B (recruitCountOf 直呼び) も ' + LIVE_MAX + ' を返し、同じく DIAG を 1 行出す',
+      decideFL.decided === LIVE_MAX && diagFL3.length === 1 && diagFL3[0] === DIAG_EXPECT,
+      'decided=' + decideFL.decided + ' / DIAG=' + diagFL3.length + ' 行');
+    check('(F6) ★[#61] 生成クエストの人数は両腕で同じ (difficulty が無い = ★連動の有無に左右されない)',
+      !!departFL.row && departFL.row.wrote === true && !!departF.row
+      && departFL.row.npc === departF.row.npc && departFL.row.npc === LIVE_MAX,
+      '既定 NPC' + (departF.row && departF.row.npc) + ' / ?recruit=0 NPC' + (departFL.row && departFL.row.npc));
+    await pageFL.close();
 
     /* ══════════════════════════════════════════════════════════════════════
      * (G) 受入条件 4. : シナリオ定義に `recruit: 3` を注入すると goblin-mine でも NPC 3 人
@@ -980,22 +1219,18 @@ function judgeNoOverflow(rows, cap) {
        「注入で 3 になった」と「元から 3 だった」を区別できない (= 空振り)。
        まだ recruit: を持たない bandits-forest へ移す。素の期待値も期待表から導く。 */
     const G_ID   = 'bandits-forest';
-    const G_BASE = EXPECTED_NPC_RECRUIT[G_ID];   // 素の NPC 数 (★★☆ = 2)
-    async function setRecruit(page, id, value) {
-      return page.evaluate((cfg) => {
-        const sc = scenarios.find(s => s.id === cfg.id);
-        if (!sc) return { found: false };
-        const had = Object.prototype.hasOwnProperty.call(sc, 'recruit');
-        if (cfg.value === null) delete sc.recruit; else sc.recruit = cfg.value;
-        return { found: true, hadBefore: had,
-                 hasNow: Object.prototype.hasOwnProperty.call(sc, 'recruit'),
-                 now: sc.recruit };
-      }, { id, value });
-    }
+    /* ⚠⚠ [#61 で注入値を移した] 素の NPC 数は **★の数ではなく RECRUIT_MAX** になった
+       (★連動の廃止)。旧: G_BASE = EXPECTED_NPC_RECRUIT[G_ID] (=2) / 注入値 3。
+       → 素も注入後も 3 で **注入が観測に一切現れない** = (G)(Gz2) が空振りのまま赤くなる
+         (2026-09-09 実測「注入前 NPC3 → 注入後 NPC3」)。
+       ⛔ 期待値を写経して緑にするのではなく、**RECRUIT_MAX と異なる値を注入する**形へ移す。
+         これで「★連動は無くなったが `recruit:` の個別上書きは今も効く」を初めて可視化できる。 */
+    const G_BASE = LIVE_MAX;          // 素の NPC 数 = 上限 (★の数とは無関係)
+    const G_INJ  = LIVE_MAX - 1;      // 注入値。⚠ 上限と違う値でなければ観測に現れない
     const gPre   = await setRecruit(pageG, G_ID, null);          // 注入前の状態を読むだけ (delete は no-op)
     const gObs0  = await observeDepartSizes(pageG, [G_ID]);      // (1) 素のまま
-    await setRecruit(pageG, G_ID, 3);
-    const gObs3  = await observeDepartSizes(pageG, [G_ID]);      // (2) recruit: 3
+    await setRecruit(pageG, G_ID, G_INJ);
+    const gObs3  = await observeDepartSizes(pageG, [G_ID]);      // (2) recruit: RECRUIT_MAX-1
     await setRecruit(pageG, G_ID, 9);
     const gObs9  = await observeDepartSizes(pageG, [G_ID]);      // (3) recruit: 9 (clamp 上限)
     await setRecruit(pageG, G_ID, 0);
@@ -1007,7 +1242,7 @@ function judgeNoOverflow(rows, cap) {
     const gNpc  = gAll.map(o => (o.rows[0] || {}).npc);
     const gDec  = gAll.map(o => (o.rows[0] || {}).decided);
     console.log('       注入前の recruit プロパティ = ' + JSON.stringify(gPre));
-    console.log('       NPC 数 (素/3/9/0/撤去) = ' + JSON.stringify(gNpc));
+    console.log('       NPC 数 (素/' + G_INJ + '/9/0/撤去) = ' + JSON.stringify(gNpc));
     console.log('       経路B recruitCountOf     = ' + JSON.stringify(gDec));
 
     check('(Gz0) [装置] 5 回の観測すべてで例外なし・実際に踏んだ・出発処理が書いた',
@@ -1017,14 +1252,17 @@ function judgeNoOverflow(rows, cap) {
     check('(Gz1) [装置] 注入前の ' + G_ID + ' は recruit プロパティを持っていない (#8 で値を入れたのは goblin-mine だけ = (G5) と 2 経路で一致)',
       gPre.found === true && gPre.hadBefore === false,
       'found=' + gPre.found + ' / hadBefore=' + gPre.hadBefore);
-    check('(G) ★受入条件4: recruit: 3 を注入すると ' + G_ID + ' の NPC が ' + G_BASE + ' → 3 になる (個別上書きが効く)',
-      gNpc[0] === G_BASE && gNpc[1] === 3,
+    check('(Gz5) [装置] 注入値が上限と違う (★[#61] 同値だと「元から上限だった」と区別できず永久緑になる)',
+      G_INJ >= 1 && G_INJ !== G_BASE && G_BASE === LIVE_MAX,
+      '素=RECRUIT_MAX' + G_BASE + ' / 注入値=' + G_INJ);
+    check('(G) ★受入条件4: recruit: ' + G_INJ + ' を注入すると ' + G_ID + ' の NPC が ' + G_BASE + ' → ' + G_INJ + ' になる (★連動を廃止しても個別上書きは効く)',
+      gNpc[0] === G_BASE && gNpc[1] === G_INJ,
       '注入前 NPC' + gNpc[0] + ' → 注入後 NPC' + gNpc[1]);
     check('(G2) 上書きでも clamp(n,1,3) は外れない: recruit: 9 でも NPC 3 止まり (器が 5 人パーティを作れない)',
       gNpc[2] === 3, 'recruit:9 → NPC' + gNpc[2]);
     check('(G3) 上書きでも clamp の下限が効く: recruit: 0 でも NPC 1 (0 人パーティにならない)',
       gNpc[3] === 1, 'recruit:0 → NPC' + gNpc[3]);
-    check('(Gz2) [装置] recruit を撤去すると NPC ' + G_BASE + ' へ戻る (『元から 3 だった』でも『ページが壊れた』でもない)',
+    check('(Gz2) [装置] recruit を撤去すると素の NPC ' + G_BASE + ' へ戻る (注入が往復する = 片道の書き換えでもページ崩壊でもない)',
       gDel.hasNow === false && gNpc[4] === G_BASE,
       '撤去後 hasRecruit=' + gDel.hasNow + ' / NPC' + gNpc[4]);
     check('(Gz3) [装置] 経路B (recruitCountOf) も 5 回すべてで経路A と同じ値を返す',
@@ -1035,10 +1273,15 @@ function judgeNoOverflow(rows, cap) {
 
     /* ★[#8] (G) を bandits-forest へ移したぶん、goblin-mine 側の確認をここが受け持つ。
        ⭐ 「ソースに書いた」だけでは効いている証明にならない → 本番の出発処理まで通して測る。
-       ⭐ (S9) は静的・(G5) はランタイム = 2 経路で「値は goblin-mine だけ」を突き合わせる。 */
+       ⭐ (S9) は静的・(G5) はランタイム = 2 経路で「値は goblin-mine だけ」を突き合わせる。
+       ⚠⚠ ★[#61] ここは **恒等になった** — ★連動を廃止した今、goblin-mine は recruit: 3 が
+         無くても既定 RECRUIT_MAX (=3) なので、この 2 本だけでは「ソースの値が効いている」を
+         もう証明できない。⛔ それでも消さない: (S9)+(G5) は「値がどこに何件あるか」を固定し、
+         他シナリオへ勝手に増えたら赤くなる**構造の不変条件**として生きている。
+         「値が効いている」ことの生きた証明は、上の (G)(Gz5) (RECRUIT_MAX と違う値の注入) が担う。 */
     const gMine    = await observeDepartSizes(pageG, ['goblin-mine']);
     const gMineRow = gMine.rows[0] || {};
-    check('(G4) ★#8: goblin-mine はソースの recruit: 3 が効いて素で NPC 3 (★1 の 1 ではない)',
+    check('(G4) ★#8: goblin-mine はソースの recruit: 3 が効いて素で NPC 3 (⚠[#61] 既定と同値 = 恒等)',
       gMine.threw === '' && gMineRow.wrote === true
         && gMineRow.npc === 3 && gMineRow.decided === 3,
       'NPC' + gMineRow.npc + ' / recruitCountOf=' + gMineRow.decided + ' / ' + (gMine.threw || 'ok'));
