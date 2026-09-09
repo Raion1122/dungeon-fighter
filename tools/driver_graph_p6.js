@@ -366,6 +366,10 @@ const TOUR_SRC = `(async () => {
   const FOLDED = {
     'bandits-forest': { arm: '&s2fold=0',    sw: '?s2fold',    nodes: 1, entry: 'n7' },
     'lizard-swamp':   { arm: '&swampfold=0', sw: '?swampfold', nodes: 3, entry: 'n4' },
+    /* ★[#63 2026-09-09] 砦も既定で **8 ノード → 2 ノード**へ畳まれた (練兵場 n4 / 将軍の間 n7)。
+     *   ⭐ #62 が用意した受け皿どおり **1 行足すだけ**で装置 assert (1fortfold-orc-fort) が立つ。
+     *   ⛔ (1c) 以下の「8 件」を「2 件」へ書き換えない — 共通骨格は ?fortfold=0 に生きている。 */
+    'orc-fort':       { arm: '&fortfold=0',  sw: '?fortfold',  nodes: 2, entry: 'n4' },
   };
   const P6_ARM = (sid) => (FOLDED[sid] ? FOLDED[sid].arm : '');
 

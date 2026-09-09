@@ -83,8 +83,11 @@ const BRIDGE = [[30, 15], [31, 15], [30, 16], [31, 16]];   // 唯一の渡り
  *                       midR=floor((1+26)/2)=13 なので (35,1) / (35,26) / (61,13)。 */
 const RING_OPEN_OK = [GATE_LEFT, [35, 1], [35, 26], [61, 13]];
 const ZOOM_MIN = 0.25;
-/* 他 4 シナリオ = 上書きを 1 つも書いていない = STEP3 の既定値が 1 ビットも動いていない証拠 */
-const UNTOUCHED = ['orc-fort', 'undead-temple', 'dragon-lair'];
+/* 他 4 シナリオ = 上書きを 1 つも書いていない = STEP3 の既定値が 1 ビットも動いていない証拠
+ * ★[#63] 砦を外した。既定で 2 ノード (n4/n7) へ畳まれ、n4/n7 は上書きを持つようになったので
+ *   「上書きを 1 つも書いていない」母集団ではなくなった。⭐ 8 ノードの mapDef は
+ *   下の ?fortfold=0 の腕で**同じ golden キー (orc-fort/n0〜n7) のまま**測り続ける。 */
+const UNTOUCHED = ['undead-temple', 'dragon-lair'];
 /* ★[#62] 沼地は既定で **3 ノード (n4/n6/n7)** へ畳まれた。#16 (森) のときに §11/§12 を
  *   ?s2fold=0 へ移したのと**同じ型**で、8 ノードの mapDef を測る腕だけ ?swampfold=0 へ移す。
  * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が
@@ -96,6 +99,16 @@ const UNTOUCHED = ['orc-fort', 'undead-temple', 'dragon-lair'];
 const SWAMP_SCEN = 'lizard-swamp';
 const SWAMP_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
 const SWAMP_FOLDED_IDS = ['n4', 'n6', 'n7'];
+/* ★[#63] 砦は既定で **2 ノード (n4 練兵場 / n7 将軍の間)** へ畳まれた。#16 (森) / #62 (沼) と
+ *   **同じ型**で、8 ノードの mapDef を測る腕だけ ?fortfold=0 へ移す。
+ * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が撤退先として
+ *   1 バイトも変わらずに残る」は #63 の受入条件 (7c) そのもので、畳んだ今も要求され続ける。
+ *   ⛔ したがって --update-golden で焼き直さない。
+ * ⚠ 既定の腕が本当に畳まれていることは (8w) の装置 assert で直接見る。これが無いと
+ *   「砦が畳まれていなくても緑」= 腕の移設が免罪符になる。 */
+const FORT_SCEN = 'orc-fort';
+const FORT_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+const FORT_FOLDED_IDS = ['n4', 'n7'];
 const S2_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -719,6 +732,24 @@ function ringOpenCount(m) {
   /* ⚠ golden が「壊れた状態を焼き付けた」場合に備えて、同じ母集団が相互に異なることを要求 */
   G.distinct(check, '(8z) lizard-swamp の 8 ノードの mapDef が相互に異なる', 'lizard-swamp/');
   await swampOff.close();
+  /* ★[#63] 砦の 8 ノードは ?fortfold=0 の腕で測り続ける (assert 本体も golden のキーも不変)。
+   * ⚠ 先に「既定の腕では本当に畳まれている」を装置 assert で見てから移す。 */
+  const fortOff = await bootPage(browser, PURE + '?fortfold=0', errsAll);
+  const fortNow = (await dumpDefs([FORT_SCEN])(page))[FORT_SCEN];
+  const fortOld = (await dumpDefs([FORT_SCEN])(fortOff))[FORT_SCEN];
+  check('(8w) 装置 assert: 既定の腕では ' + FORT_SCEN + ' が ' +
+        JSON.stringify(FORT_FOLDED_IDS) + ' の 2 ノードへ畳まれ entry=n4 (= 測る腕を移した理由が実在する)',
+        JSON.stringify(fortNow.ids) === JSON.stringify(FORT_FOLDED_IDS) && fortNow.entry === 'n4',
+        'ids=' + JSON.stringify(fortNow.ids) + ' entry=' + fortNow.entry);
+  check('(8w2) 装置 assert: ?fortfold=0 の腕では 8 ノード / entry=n0 が実在する',
+        JSON.stringify(fortOld.ids) === JSON.stringify(FORT_KEEP_NODES) && fortOld.entry === 'n0',
+        'ids=' + JSON.stringify(fortOld.ids) + ' entry=' + fortOld.entry);
+  for (const id of FORT_KEEP_NODES) {
+    G.check(check, '(8-' + FORT_SCEN + '/' + id + ') mapDef が golden と一致',
+            FORT_SCEN + '/' + id, fortOld.defs[id]);
+  }
+  G.distinct(check, '(8z2) orc-fort の 8 ノードの mapDef が相互に異なる', 'orc-fort/');
+  await fortOff.close();
 
   // ══════════════════════════════════════════════════════════════════════════
   // §9 撤退スイッチ — **同じ assert 本体**を当てて赤になること

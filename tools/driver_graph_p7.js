@@ -62,6 +62,15 @@ const BOSS_RECT = [11, 32, 16, 40];      // ボス   9 列 x 6 行
 const OLD_BOUNDS = { '1': [5, 24, 20, 43], '2': [5, 47, 22, 68] };
 // §4 の巡回に使うシナリオ。⚠ 廃坑は n1 が event でダイアログ待ちに入るので使わない
 const TOUR_SCEN = 'orc-fort';
+/* ★[#63 2026-09-09] 砦が既定で **2 ノード (n4/n7) の卓上大部屋 2 枚**へ畳まれた。
+ *   本ドライバの §2 / §4 が測っているのは **lintRun / paintingAspectFits の判定**と
+ *   「7x6 の道中 + 9x6 のボスに旧在庫の絵が伸縮なしで載ること」であって、砦の現在の
+ *   遊ばれ方ではない。⇒ #16 (森) / #62 (沼) と**同じ腕の移設**で、測る腕だけ
+ *   ?fortfold=0 へ移す。⭐ そうすれば (2z) の n1 も (4d) の rect も (4e) の絵の src も
+ *   **1 文字も書き換えずに済む** (旧 7x6 / 9x6 と旧絵は撤退の腕に生き続ける)。
+ * ⛔ TOUR_SCEN を undead-temple へ移す案は採らない — F3 で神殿も畳むので同じ問題が再発する。
+ * ⚠ 他 3 箇所の ?graph=0 の腕 (:370 / :449 / :500) は単一マップ版なので畳みの影響を受けない。 */
+const TOUR_ARM = '&fortfold=0';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -275,7 +284,7 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
    *   台にすべきなのは「7x6 の道中 + 9x6 のボス」を持つ分岐グラフ = §4 と同じ TOUR_SCEN。
    *   §1 は ROOM_PAINTINGS_DEF を 6 テーマ分読むだけなのでシナリオに依存しない。
    * ⚠ 台が成り立っていることは (2z) が測る (装置 assert)。 */
-  const page1 = await bootPage(browser, base + '/index.html?diag=1&intel=0', TOUR_SCEN, errs1);
+  const page1 = await bootPage(browser, base + '/index.html?diag=1&intel=0' + TOUR_ARM, TOUR_SCEN, errs1);
   const CAT = await page1.evaluate((themes) => {
     const out = { themes: {}, catalogSet: !!DFMapDef.getPaintingCatalog() };
     for (const t of themes) {
@@ -388,7 +397,7 @@ const PAINT_SNAP = `roomPaintings.map(p => ({
   mark('§4 分岐版の巡回 (' + TOUR_SCEN + ')');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', TOUR_SCEN, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + TOUR_ARM, TOUR_SCEN, errs);
     const T = await page.evaluate(`(async () => {
       const g = window.__graphRun, snap = () => ({
         at: g.nodeId(),

@@ -62,13 +62,17 @@ const SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
  * ★[#62 2026-09-08] 沼地も既定で 3 ノードへ畳まれた (参道 n4 / 祭壇 n6 / 巣 n7)。
  *   ⚠ ここは「実際に遊ばれる姿」の**契約表**なので、畳んだ実測値へ意図的に更新する
  *     (git diff に載る)。骨格 8 ノードは ?swampfold=0 の腕で引き続き測る。 */
+/* ★[#63 2026-09-09] 砦も既定で 2 ノードへ畳まれた (練兵場 n4 / 将軍の間 n7)。
+ *   ⚠ ここは「実際に遊ばれる姿」の**契約表**なので、畳んだ実測値へ意図的に更新する
+ *     (git diff に載る)。骨格 8 ノードは ?fortfold=0 の腕で引き続き測る。 */
 const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 1, 'lizard-swamp': 3,
-                         'orc-fort': 8, 'undead-temple': 8, 'dragon-lair': 8 };
+                         'orc-fort': 2, 'undead-temple': 8, 'dragon-lair': 8 };
 /* 畳まれたシナリオの「撤退の腕」= 共通骨格 8 ノードが撤退先として生きていることを測る側。
  * ⚠⚠ 既定の腕を測るのをやめたのではない — (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に当たったまま。
  *   ここは**母集団を増やす**ための第 2 の腕で、旧タイプの小部屋に spawn-on-gate 欠陥が
  *   潜り込むことを畳んだ後も見張り続ける。 */
-const FOLD_ARM = { 'bandits-forest': '?s2fold=0', 'lizard-swamp': '?swampfold=0' };
+const FOLD_ARM = { 'bandits-forest': '?s2fold=0', 'lizard-swamp': '?swampfold=0',
+                   'orc-fort': '?fortfold=0' };   /* ★[#63] 砦の旧タイプ 8 部屋も見張り続ける */
 const S2_NODE = 'n4';
 const S2_GATE = [39, 13];            // n4 → n7 の出口ゲート (P6_RIGHT)。扉が立つタイル
 const S2_MAGE = [38, 13];            // 修正後の banditMage。ゲートの 1 マス西
