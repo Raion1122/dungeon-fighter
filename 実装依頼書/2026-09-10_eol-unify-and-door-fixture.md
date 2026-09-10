@@ -727,3 +727,131 @@ scratchpad に 58 本ぶんの完全なログを残してある(⛔ リポジト
   git が「次に触ったとき CRLF になる」と warning を出すが、blob は LF なので差分は出ない。
 - ⚠⚠ **node 孤児 20 本(StartTime 06:38)は項目2 の実走中もずっと生きていた**が、
   `EADDRINUSE` は 1 度も出ていない(項目1 と同じ)。項目2 は孤児を **1 本も増やしていない**(走行後も 20 本)。
+
+### 12-2. STEP3 の着地(項目3)
+
+- **触ったファイル** = `tools/_doors_fixture.js`(**新規**)/ `tools/driver_doors_p2.js` /
+  `driver_doors_p5.js` / `driver_doors_p8.js` の **4 本ちょうど**。
+  ⛔ 本番 5 ファイル・`.gitattributes`・`tools/check_tree_eol.py`・`tools/verify_road_ambush.js` は 1 バイトも触っていない。
+- `grep -c fortfold` = **0**(3 本とも。新設の `_doors_fixture.js` も 0)/ `STAGE_ARM` = **0**(3 本とも)。
+
+| ドライバ | 着手前(§12-0) | **着地** | 差 |
+|---|---|---|---|
+| `driver_doors_p2` | EXIT=1 / **33/34** / FAIL=(6c) | **EXIT=0 / 40/40** | (6c) が緑へ + assert **+6** |
+| `driver_doors_p5` | EXIT=0 / 32/32 | **EXIT=0 / 35/35** | assert **+3**(§1x の 5 本は素で緑のまま) |
+| `driver_doors_p8` | EXIT=0 / 15/15 | **EXIT=0 / 18/18** | assert **+3** |
+
+**負のコントロール = 15 変異すべてが赤(空振り 0)**:
+
+| ドライバ | 変異 | 集計 | FAIL |
+|---|---|---|---|
+| p2 | nodoorsoff / showhidden / imgafterdoor | 39/40 各 | (6a) / (2d) / (3c) |
+| p2 | noblock / noopen / usedirsvia | 38 / 37 / 38 | (4b)(4d) / (5b)(5c)(5d) / **(6e)(6f)** |
+| p5 | nolockroll | 29/35 | (0n-b)(1c)(1d)(1x-b)(1x-c)(1x-c2) |
+| p5 | noforce / nodmg / nofloor / goalfirst | 29 / 34 / 34 / 34 | (4a)(5a)(5c)(6a)(8a)(8b) / (5b) / (5d) / (7b) |
+| p8 | nosavedoor / norestoredoor / sharemapdef | 15 / 17 / 16 (/18) | (1b)(1c)(4c) / (1c) / (2b)(2c) |
+| p8 | **eagernodestate** | 16/18 | **(3a)(3b)**(⚠ 下の崩れた点 9 を直すまで空振りだった) |
+
+**空振り検査(合成ノードの注入を殺したら赤くなるか)** — `FX.install` を空の報告を返すだけの
+no-op へ差し替えて実走(測り終えてハッシュ一致で復元済み):
+
+| ドライバ | 注入あり | **注入を殺すと** | 赤くなった assert |
+|---|---|---|---|
+| p2 | 40/40 | **27/40** | (0f)(0n)(1a)(2a-視野)(2b)(2f)(3a)(4a)(5a)(5b)(6e-装置)(6e)(6f) = **13 本** |
+| p5 | 35/35 | **28/35** | (0f)(0n-b)(1a)(1c0)(1c)(1d)(2c) = **7 本** |
+| p8 | 18/18 | **13/18** | (0f)(0n)(1a)(1d)(3c) = **5 本** |
+
+**回帰(扉に触る近縁 6 本)** — §12-0 と**完全一致**:
+`driver_doors_p1` 44/44 ・`driver_doors_p6` 40/40 ・`verify_fort_fold` 30/30 ・
+`verify_swamp_fold` 30/30 ・`driver_spawn_not_on_gate` 59/59 ・`driver_graph_p7` 60/60(全部 EXIT=0)。
+`py tools/check_tree_eol.py` = **EXIT=0**(ship 22/22・hook 2/2・致命 0)。`git status` は 4 本だけ。
+
+#### ⭐⭐⭐ 依頼書が崩れた点(項目3)
+
+1. **⛔⛔⛔ 依頼書が触れていない致命的な罠 — `drawDoors` は画面外の扉を捨てる。**
+   `index.html:9263` が `sx + TILE < 0 || sx > W || …` でカリングする。畳んだ卓上大部屋は
+   **30x20 マス = 2880x1920px** あり、左右のゲートは **29 タイル(2784px)離れている**ので、
+   既定の 1280x800 では**片方が必ず画面外**。合成ノードを足しただけでは §2(画素)と §3(描画順)は
+   緑にならない。実測: `per["gate-right"]=0` / `rotates=1` vs `doors=2` / `lockedVsClosed=71`(閾値 100)。
+   ⇒ 測る前に**視野合わせ**(`FX.frameDoors` = 扉の外接矩形が入るまで viewport を広げ、カメラを
+   その中心へ置く)を挟み、装置 assert **(2a-視野)**「扉が 1 枚残らず画面内にある」で見張る。
+   ⭐ **ズーム(`camZ`)を下げて畳み込む案は不可** — 扉の絵が縮んで塗り面積が (2b) の 400px /
+   (2f) の 100px を割り、**閾値を下げる羽目になる**(= §6-4 が禁じている解き方)。
+
+2. **⛔⛔ 「`RUN.byId` へ合成ノードを足す」だけでは p2 §5 / p8 §1 が測れない。**
+   `g.pick` / `g.enter` は**実在ノードの `exits`** を読むので、`rebuildNodeDoors('fx0')` で盤面へ
+   載せた扉は往復(`enterNode`)の瞬間に消える。⇒ 器を **2 つ**にした:
+   **`nodes`**(合成ノードを足す)+ **`attach`**(実在ノードへ合成の出口を 1 本足す)。
+   ⭐ 一般形 = **「その場で母集団を作る」は、測る節が本編の入口を通るかどうかで作り方が変わる。**
+
+3. **⛔ 雛形の `exits: [{ dir, to }]` は `at` が抜けている。**
+   `exitsWithReturn`(`index.html:35686`)は `ex.at[0]` / `ex.at[1]` を読むので、`at` の無い合成の
+   出口が `g.exits()` に載ると**例外**になる。⚠ 実在ノードの `at` は `{tx,ty}` ではなく **配列 `[tx,ty]`**。
+
+4. **⛔ 雛形は `RUN.parent` に触れていないが、無いと変異 `usedirsvia` が空振りする。**
+   `nodeExitDirs`(`:34863`)は `RUN.parent[node.id]` が真のときだけ `DIR_OPPOSITE[nodeEnteredVia]` を
+   足す。合成ノードに親を登録しないと (6e) の欠陥注入が扉の集合を 1 枚も動かさない。
+
+5. **⛔ §6-4 の「扉 2 枚以上を要求する母集団ガード = (3b)(4a)(5a)(5b)(6e)(6f)」は名前が違う。**
+   実測で枚数を要求しているのは **(1a)(2b)(3a)(4a)(5a)(5b)(6e)(6f)**。
+   **(3b) は `imgBefore > 20`(扉より前の `drawImage` 数)で枚数とは無関係**、
+   逆に依頼書が挙げていない **(1a)**「出口の向きの数だけ扉が立つ」が `dirs.length >= 2` を持っていた。
+   ⭐ #60 の教訓(「語で数えると外れる」)がそのまま再現した。
+
+6. **⛔ (6e)(6f) は「合成ノードの扉を見る形へ移す」だけでは足りない。**
+   旧実装は `g.enter` で**実際に 2 通りの向きから入って**いたが、畳んだ砦で唯一の子は**ボス部屋**。
+   測定のために 2 回入ると戦闘と演出の副作用を引き込む。⇒ `nodeEnteredVia` を直接 2 通りに振る形へ。
+   ⭐ `nodeEnteredVia` は top-level `let`(`:35323`)だが **classic script のグローバル字句環境**に
+   あるので `page.evaluate` から代入できる(実測)。代入が実装へ届いたことは
+   装置 assert **(6e-装置)** の `wrote` が見張る。
+
+7. **⛔⛔ (6c) の言い直しに `gateTileOf`(辺の中点)を使うと 6 舞台横断では成立しない。**
+   廃坑 n0 は絵の口(`ROOM_PAINTINGS_DEF` の `gates`)を持ち、扉は **(45,7)** に立つが辺の中点は
+   **(52,13)**。横断できる契約は「**扉のタイル = 出口の `at`**」ただ 1 つ
+   (`index.html:35470` が「戻り値の tx/ty は exits[].at と 1 タイルも違ってはいけない」と書いている
+   不変条件)。⇒ (6c) は「**枚数 = 出口の異なる向きの数**」かつ「**タイル = at**」へ言い直した。
+   ⭐ 森の 0 枚は**規則どおりの 0 枚**であって欠陥ではない。旧 assert は扉の仕組みではなく
+   **舞台の形(ノード数)**を測っていた。空振り止めは **(6c-z)**「扉を持つ舞台が 2 つ以上」。
+   6 舞台の実測台帳: `goblin-mine 扉1/出口1 ・ bandits-forest 0/0 ・ lizard-swamp 2/2 ・
+   orc-fort 1/1 ・ undead-temple 3/3 ・ dragon-lair 3/3`(食い違い **0**)。
+
+8. **⛔ §6-2 の「p5 で直すのは §1」は 1 箇所足りない。** §2 の **(2c)** も母集団
+   `offFlat.length >= 4` を持っており、`?locks=0` の **2 枚目のページにも fixture が要る**。
+
+9. **⛔⛔⛔ 依頼書が予告していない空振りを 1 件、自分で作った(p8 §3)。**
+   fixture を §1 だけに入れた最初の版で、変異 `eagernodestate` が **17/17 PASS のまま緑**になった。
+   原因 = 畳んだ砦では §3 の対象(未訪の子 = ボス部屋)が**出口 0 本**なので
+   `rebuildNodeDoors` が `nodeDoors=null` のまま抜け、`applySavedDoorStates` は先頭の
+   `if (!nodeDoors …) return;` で戻って**変異行に到達しない**。
+   ⇒ §3 にも `attach` を入れ、装置 assert **(3c)**「対象に扉が 1 枚以上立っている」を新設。
+   ⭐⭐⭐ **一般形 = 早期 return を持つ関数を変異の的にするときは、「return より手前の条件が
+   成立していること」を装置 assert で固定する。**さもないと母集団を動かした日に静かに空振りへ落ちる
+   (§2-2 の「門番の下流で測るな」と同型で、今回は**自分の変更が門番の手前を壊した**形)。
+
+10. **⚠ 行末の混在は増えるどころか減った。** 撤去した `STAGE_ARM` の注記ブロックが LF 行だったため、
+    p2 = `crlf 755 / lf 9` → **`875 / 1`**、p8 = `450 / 8` → **`494 / 1`**、p5 = `734 / 0` → **`779 / 0`**。
+    新設の `tools/_doors_fixture.js` は **CRLF 226 行**(`.gitattributes` の `* text=auto eol=crlf` に揃えた)。
+
+#### 項目4(受入 `tools/verify_eol_doorfix.js`)への申し送り
+
+- **合成ノードの注入コードの最終形**は `tools/_doors_fixture.js`。node 側の口は 3 つだけ:
+  `install(page, {nodes, attach})` / `noel(page)` / `frameDoors(page)`。
+  定数 `FX_NODE_IDS = ['fx0','fx1','fx2','fx3']` / `FX_MAP_PREFIX = 'fixture65/'` /
+  `FX_DIRS = ['left','right']` / `FX_EXIT_PREFIX = 'fx65exit/'` / `FX_SAME_ID = 'fxsame'` を export 済み。
+  ⇒ 受入 (0c)(2b)(2d)(2e) は**この module を require して同じ器を使える**(写経しないこと)。
+- **§8 の変異 `fixturemiss` は「注入を消す」で正しく赤くなる**(上の空振り検査で実証。p2 で 13 本 /
+  p5 で 7 本 / p8 で 5 本が赤)。
+- **§8 の変異 `armback`** は `driver_doors_p5` へ `STAGE_ARM` を戻す形でよい。現在 3 本とも
+  `fortfold` / `STAGE_ARM` の語が **0 件**なので (2a) はそのまま成立する。
+- **§8 (2b)** の期待値(`mapDef.id + "/lock/" + doorId` のハッシュ < 0.25)の実測答え合わせ:
+  `fixture65/fx0` = closed,closed / `fx1` = closed,closed / **`fx2` = locked,locked** /
+  `fx3` = closed,closed ⇒ **8 枚中 2 枚が locked**((2d)「1 枚以上あり全部ではない」を満たす)。
+- **§8 (3a)** `driver_doors_p5` の §1x は **1 バイトも触っていない**。素で
+  `(1x-z)(1x-a)(1x-b)(1x-c)(1x-c2)` の 5 本とも緑(台帳 = `orc-fort:1枚 / lizard-swamp:2枚 /
+  undead-temple:7枚 / dragon-lair:7枚 / bandits-forest:0枚`、扉 17 枚 / 食い違い 0)。
+- **3 本の最終的な assert の本数**: p2 = **40**(旧 34 + (0f)(0n)(2a-視野)(6c-z)(6c-b)(6e-装置))/
+  p5 = **35**(旧 32 + (0f)(0n-a)(0n-b))/ p8 = **18**(旧 15 + (0f)(0n)(3c))。
+- ⚠⚠ **受入が p2 を走らせるなら所要 20.6 秒 / p5 16.7 秒 / p8 6.7 秒**。§2 の視野合わせで
+  viewport が 3120x800 になるが、画素ループは 77ms で終わる(実測)。
+- ⚠⚠ node 孤児 20 本(StartTime 06:38)は項目3 の実走中もずっと生きていたが `EADDRINUSE` は 1 度も
+  出ていない。項目3 は孤児を **1 本も増やしていない**。
