@@ -659,3 +659,71 @@ scratchpad に 58 本ぶんの完全なログを残してある(⛔ リポジト
 ...\scratchpad\sweep.txt         ... 1 行 = ドライバ名 / exit / 集計行 / FAIL / 秒
 ...\scratchpad\logs\<name>.log   ... 各ドライバの stdout+stderr 全文
 ```
+
+### 12-1. STEP2 の着地(項目2)
+
+- **コミット** = `9c899ab`(`.gitattributes` / `tools/check_tree_eol.py` / `tools/verify_road_ambush.js` の **3 本ちょうど**)
+- 17 ファイルの CRLF 化は **blob を 1 つも動かしていない**(変換前後で index の OID が 18 本とも完全一致)
+
+| 検証 | 実測 |
+|---|---|
+| `py tools/check_tree_eol.py` | **EXIT=0** / ship **22/22**・hook **2/2**・致命 **0 件** |
+| `git status --porcelain` | **空** |
+| `scripts/hooks/pre-commit` | CR 総数 **0**・先頭 `#!/bin/sh`・`sh` で直起動して **rc=0**(bad interpreter にならない) |
+| `node tools/verify_road_ambush.js` | **41/41 PASSED / EXIT=0**(⭐ EXIT=3 にならない) |
+| `node tools/verify_road_ambush.js --negative` | **97/97 PASSED**。`n0a-boxleak` = 素 0 件 / 変異 **1 件**(空振り解消)、`neg-boxleak-1g` が赤 |
+| 回帰(項目1 の基準と突き合わせ) | `verify_road_events` 25/25 ・`verify_road_boon` 20/20 ・`verify_npc_crowd` 33/33 ・`verify_quest_visibility` 39/39 ・`driver_doors_p5` 32/32 ・`driver_doors_p8` 15/15 ・`driver_field_step7` 79/79 = **全部 EXIT=0 で §12-0 と完全一致** |
+| 着手前から赤い 2 本 | `driver_doors_p2` **33/34**(FAIL は `(6c)` ただ 1 本・数字まで一致)/ `driver_grid_p4` **EXIT=3**(`n1ringonly` の空振り)= **どちらも #65 とは無関係のまま** |
+
+#### ⭐⭐⭐ 依頼書が崩れた点(項目2)
+
+1. **⭐⭐⭐「行末だけ直せば `git status` は clean」は半分しか正しくない。**
+   17 本を CRLF にした直後、`git diff` は **clean(rc=0)** なのに `git status` は **17 本を ` M` と報告**した。
+   原因 = git の index は**ファイルサイズ**で stat-dirty を判定し、`DATA_CHANGED` が立つと
+   **内容比較をせずに "needs update" を返す**(`git update-index --refresh` が 17 本すべてに `needs update`)。
+   CRLF 化はサイズが必ず変わるので、この経路に必ず引っかかる。
+   ⇒ **対処 = ファイル単位の `git add`**。clean フィルタが CRLF→LF に戻すので **blob OID は 1 つも動かない**
+   (18 本の OID が変換前後で完全一致することを確認済み)。
+   ⛔ `git add --renormalize` も `git reset --hard` も `git stash` も**要らない**。
+   ⚠ この一手を知らないと「差分が出た」と読んで STEP2 を止めてしまう(§5-2 が「出たら止めろ」と書いているため)。
+
+2. **⚠⚠ `scripts/hooks/check_changelog.py` は着手時点で CRLF だった。**
+   §2-6 は `pre-commit` の CR = 0 だけを実測しており、同ディレクトリのもう 1 本は測っていなかった。
+   ⇒ §2-6 の「同じディレクトリなのでまとめて LF にする」に従って **LF へ直した**(blob は元から LF なので差分 0)。
+   ⭐ つまり「`scripts/hooks/` 配下は LF のまま」は**着手前には成立していなかった**。
+
+3. **⚠ §2-8 の拡張子表は不完全。** 10 種しか挙げていないが、実測の追跡ファイルは **14 区分**ある。
+   欠けていたのは **`.vbs` 2 / `.bat` 1 / `.gitignore` 1 / 拡張子なし 1**(= `scripts/hooks/pre-commit`)。
+   ⭐ ただし**バイナリの主張は生きている** — 追跡 837 本を `py` で NUL 走査した結果、
+   binary は **png 230 / mp3 92 / jpg 41 = 363 本ちょうど**で、3 種以外に binary は無い。
+   (§12-0 (g)-3 が `tools/*.js = 156` の誤りを既に 1 件見つけている。この表は **2 度目**の崩れ。)
+
+4. **⛔ §8 (1b) は書いてあるままでは通らない。**
+   `.gitattributes` を入れた状態で隔離ツリーを作って byte 比較した実測 =
+   **一致 465 / 不一致 374(追跡 839 本)**。⭐ **不一致は 374 本すべて `other`**
+   (md / txt / py / jsonl / json / `.gitignore`)で、**ship 22/22 と hook 2/2 は全部一致**。
+   ⇒ 本チケットの目的(変異アンカーと golden が本番と隔離ツリーで同じ振る舞いをする)は**達成済み**だが、
+   「**追跡ファイル全部**で byte 一致」という文面のままでは 374 件で落ちる。
+   ⇒ **項目4 の判断が要る**: (1b) を ship+hook へ絞るか、374 本も CRLF 化するか。
+   ⚠ 後者は `tools/goldens/*.json` を含むので、畳み系と同じく golden の退行リスクを伴う。
+   ⭐ `py tools/check_tree_eol.py --all` が、その 374 本をそのまま列挙する(既定は報告のみ・`--all` で EXIT=1)。
+
+5. **⚠ §9 の「ページエラー 0」は素の観測では成立しない。404 が 2 種出る。**
+   - ① Chrome の origin レベル `favicon.ico` … `py -m http.server` が 404 を返す。
+     ⭐ **読み込み順に付いて回る**(順を逆にしたら未変更の `index.html` 側へ移り、`title.html` は 0 になった)
+     ⇒ **ファイル由来ではない**ことを対照で確認済み。
+   - ② `battle.html` の `assets/knight_anim.png` … **git 未追跡・実体もなし**の欠損アセット(着手前から)。
+   ⇒ どちらも行末とは無関係。3 ページとも **HTTP 200 / `document.title` 正常 / DOM 構築済み**
+   (`title.html` body 10 要素・`battle.html` body 2 要素・`map-editor.html` は**両方の順で 0 件**)。
+
+#### 項目3 以降への申し送り
+
+- `.gitattributes` の中身 = `* text=auto eol=crlf` + `*.png|*.jpg|*.mp3 binary` + **`scripts/hooks/* text eol=lf`**。
+- `tools/check_tree_eol.py` の使い方:
+  `py tools/check_tree_eol.py [ツリーの根] [--all] [--list] [--json] [--min-text N]`。
+  既定の根 = このスクリプトを含むリポジトリ根。**隔離ツリーの根をそのまま渡せる**(実測で EXIT=0)。
+  終了コードは **0 / 1 / 2 の 3 本とも実走で確認済み**(`--all` → 1、非リポジトリ → 2、`--min-text 99999` → 2)。
+- ⚠⚠ `tools/verify_road_ambush.js` 自身は **worktree が LF のまま**(`other` = 報告のみ)。
+  git が「次に触ったとき CRLF になる」と warning を出すが、blob は LF なので差分は出ない。
+- ⚠⚠ **node 孤児 20 本(StartTime 06:38)は項目2 の実走中もずっと生きていた**が、
+  `EADDRINUSE` は 1 度も出ていない(項目1 と同じ)。項目2 は孤児を **1 本も増やしていない**(走行後も 20 本)。
