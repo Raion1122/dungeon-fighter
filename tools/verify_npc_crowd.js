@@ -13,7 +13,7 @@
  * ■ 実装状況 (⭐ 項目 4 = 完了。PENDING 0)
  *     §0 (0a-town)(0a-tavern)(0b)(0b-dom)(0c)(0d)(0e)              … 実装済
  *     §1 (1z)(1a)(1b)(1c)(1d)(1e)(1f) / §2 (2a)(2b)(2c)(2d)        … 実装済
- *     §3 (3a)(3a-touch)(3a-life)(3b)(3c)(3d)                       … 実装済 (項目 3)
+ *     §3 (3a)(3a-touch)(3a-life)(3b)(3c)(3c-pick)(3d)              … 実装済 (項目 3 / 3c-pick は #64)
  *     §4 恒等 (4a)(4b)(4c)(4d)                                     … 実装済
  *     §5 撤退 (5a)(5b)(5c)                                         … 実装済 (項目 4)
  *     負のコントロール 13 本                                        … 実装済 (項目 4)
@@ -43,6 +43,13 @@
  *   ⚠ ① の押し所は **「押した点のタイルが歩けて、主人公の足元でない」**点に限る。
  *     歩けないタイルを押しても walkTo() が false を返して動かないので、
  *     stopPropagation が無くても ① が緑になってしまう (依頼書の罠の親戚)。
+ *   ⭐⭐⭐ [2026-09-10 / #64] 腕 ③ の押し所は **白リスト**で選ぶ
+ *     (pickEmptyTile: 「その点の elementFromPoint が舞台 #<stageId> そのものか子孫」)。
+ *     ⛔ 「.npcUnit / 吹き出し / 札 のどれでもなければ空き」という **名指しの黒リスト**へ戻すと、
+ *       画面固定 UI (position: fixed) を素通しする。#64 が town.html へ足した #townBack が
+ *       街/compact でタイル [5,0] を覆い、押した瞬間に title.html へ飛んでここが赤くなった。
+ *     ⭐ 白リストが空振りしていないことは (3c-pick) が **合成の position:fixed を被せて**証明する
+ *       (実在の #townBack の位置に依存しない = 実機で戻るボタンを動かしても腐らない)。
  *
  * ■ ⚠⚠⚠ (0a) を注入で緑にしてはいけない
  *   このドライバは、まだ結線されていないページの **データ層**を測るために
@@ -832,36 +839,112 @@ function bubbleSnap(cfg) {
 }
 
 /* 対照 ③ の押し所 = NPC も吹き出しも札も乗っていない、歩ける空きタイル (ページの中で走る)。
- * ⭐ 座標は本番の clientFromTile() から採る (⛔ 幾何を書き直さない)。 */
+ * ⭐ 座標は本番の clientFromTile() から採る (⛔ 幾何を書き直さない)。
+ *
+ * ⭐⭐⭐ [2026-09-10 / #64] 押し所の選び方を **黒リストから白リストへ言い直した**。
+ *   旧 = 「.npcUnit / .npcBubble / 札 のどれでもなければ空きタイル」= **名指しの黒リスト**。
+ *     → 舞台の外から画面を覆う UI (position: fixed) を素通しする。#64 が town.html へ足した
+ *       #townBack (画面左上 (10,8) の 144x44 「はじめの画面へ」) の下のタイル [5,0] が
+ *       「主人公からいちばん遠い候補」として選ばれ、押した瞬間に title.html へ遷移して
+ *       heroTile() が null になった = (3c) の腕 ③ が赤くなった。
+ *   新 = **白リスト**「その点の elementFromPoint が 舞台 (#<cfg.stageId>) そのものか、その子孫」。
+ *     舞台に届いていない点は、そもそも「空きタイル」ではない。
+ *     ⭐ 名前を数え上げないので、**将来どんな画面固定 UI が増えても腐らない**。
+ *   ⚠ 黒リストは **消さない**。.npcUnit / 吹き出し / 札 は舞台の **子孫**なので白リストを通る。
+ *     「舞台の中にあるが押しても主人公が動かないもの」は別の理由で弾き続ける必要がある。
+ *   ⭐ 弾いた件数と相手の id を返す = (3c-pick) が「白リストが空振りしていない」ことを機械で示す。 */
 function pickEmptyTile(cfg) {
-  const out = { err: [] };
+  const out = { err: [], offStage: 0, offStageIds: [], blocked: 0, nearSkip: 0 };
   try {
     const TV = window[cfg.tvGlobal], M = window[cfg.mapGlobal];
+    /* ⭐ 白リストの錨。⛔ 舞台が取れないときに素通しへ倒さない (倒すと白リストが死んでも緑のまま)。 */
+    const stage = document.getElementById(cfg.stageId);
+    out.stageId = cfg.stageId;
+    out.hasStage = !!stage;
     const hero = TV.heroTile();
     out.hero = hero;
+    /* ⭐⭐⭐ [2026-09-10] elementFromPoint は **その瞬間**しか見ていない。
+       巡回 NPC (街 strollB は (16,11)⇄(19,11)) は数百 ms で隣のマスへ来るので、
+       「選んだ時点で空いていた」タイルが **押す時点では NPC の下**になり、
+       stopPropagation に食われて (3c) の腕 ③ が **間欠的に**赤くなる
+       (2026-09-10 実測: 街/desktop でいちばん遠い候補 [19,11] は strollB の折返し点そのもの)。
+       ⛔ 期待は緩めない。押し所のほうを **経路上の全マスとその 8 近傍**まで避ける。
+       ⚠ NPC_CROWD が無い世界 (変異 nosrc) でも投げない = 避けないだけ。 */
+    const near = {};
+    try {
+      const N = window.NPC_CROWD, list = (N && N[cfg.listKey]) || [];
+      list.forEach(function (n) {
+        (N.cellsOf(n) || []).forEach(function (cell) {
+          for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+            near[(cell[0] + dc) + ',' + (cell[1] + dr)] = true;
+          }
+        });
+      });
+    } catch (e) { out.err.push('near: ' + String(e && e.message)); }
+    out.nearCells = Object.keys(near).length;
     let best = null, seen = 0;
     for (let r = 0; r < M.ROWS; r++) for (let c = 0; c < M.COLS; c++) {
       if (c === hero.c && r === hero.r) continue;
       let w = false; try { w = !!M.isWalkable(c, r); } catch (e) { w = false; }
       if (!w) continue;
+      if (near[c + ',' + r]) { out.nearSkip++; continue; }
       const p = TV.clientFromTile(c, r);
       const x = Math.round(p.x), y = Math.round(p.y);
       if (!(x >= 2 && y >= 2 && x < window.innerWidth - 2 && y < window.innerHeight - 2)) continue;
       seen++;
       const hit = document.elementFromPoint(x, y);
       if (!hit) continue;
+      const hid = String(hit.id || hit.className || hit.tagName);
+      /* ── 白リスト: 舞台そのものか、その子孫か (⛔ 届いていないなら空きタイルではない) ── */
+      let onStage = false;
+      try { onStage = !!(stage && (hit === stage || stage.contains(hit))); } catch (e) { onStage = false; }
+      if (!onStage) {
+        out.offStage++;
+        if (out.offStageIds.indexOf(hid) < 0 && out.offStageIds.length < 8) out.offStageIds.push(hid);
+        continue;
+      }
+      /* ── 黒リスト (据置): 舞台の子孫でも、押すと主人公が動かないもの ── */
       let bad = true;
       try { bad = !!(hit.closest && hit.closest('.npcUnit, .npcBubble, ' + cfg.signSel)); } catch (e) { bad = true; }
-      if (bad) continue;
+      if (bad) { out.blocked++; continue; }
       const d = Math.abs(c - hero.c) + Math.abs(r - hero.r);
-      if (!best || d > best.d) best = { c: c, r: r, x: x, y: y, d: d,
-                                        hit: String(hit.id || hit.className || hit.tagName) };
+      if (!best || d > best.d) best = { c: c, r: r, x: x, y: y, d: d, hit: hid };
     }
     out.inView = seen;
     if (best) { out.x = best.x; out.y = best.y; out.tile = [best.c, best.r];
                 out.hitId = best.hit; out.dist = best.d; }
   } catch (e) { out.err.push(String(e && e.message)); }
   return out;
+}
+
+/* [装置] 合成の position: fixed を 1 枚、指定の client 座標へ被せる (ページの中で走る)。
+ * ⭐ (3c-pick) が「白リストが実際に候補を弾くか」を **実在の #townBack に依存せずに**測るための種。
+ *   ⛔ pointer-events: none にしない (elementFromPoint に写らなくなり、種として意味を失う)。
+ *   ⛔ 舞台の子にしない (子にすると白リストを通ってしまい、種として意味を失う)。 */
+function putFixedProbe(cfg) {
+  try {
+    const old = document.getElementById(cfg.id);
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    const d = document.createElement('div');
+    d.id = cfg.id;
+    d.style.cssText = 'position:fixed;z-index:2147483000;background:transparent;'
+      + 'left:' + (cfg.x - cfg.half) + 'px;top:' + (cfg.y - cfg.half) + 'px;'
+      + 'width:' + (cfg.half * 2) + 'px;height:' + (cfg.half * 2) + 'px;';
+    document.body.appendChild(d);
+    const hit = document.elementFromPoint(cfg.x, cfg.y);
+    return { ok: true, hitId: String((hit && (hit.id || hit.className || hit.tagName)) || '') };
+  } catch (e) { return { ok: false, hitId: null, err: String(e && e.message) }; }
+}
+
+/* [装置] 種を片付ける。⛔ 残したまま先へ進むと、以降の elementFromPoint と
+ * page.mouse.click を全部この種が食う (⑥ の click より後ろに置いてあるとはいえ、
+ * 同じタブで ⑧ 以降を足したときに黙って壊れる)。 */
+function dropFixedProbe(id) {
+  try {
+    const el = document.getElementById(id);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    return !document.getElementById(id);
+  } catch (e) { return false; }
 }
 
 async function measureBubble(browser, port, o) {
@@ -954,12 +1037,31 @@ async function measureBubble(browser, port, o) {
     catch (e) { out.idleErr = String(e && e.message); }
     out.emptySpot = await ctx.page.evaluate(pickEmptyTile, Object.assign({ signSel: o.signSel }, P0));
     if (out.emptySpot && out.emptySpot.x !== undefined) {
+      /* ⛔⛔ pickEmptyTile と click の間に **観測を挟まない**。挟むとその分だけ巡回 NPC が進み、
+         選んだ点が NPC の下へ潜って腕 ③ が間欠的に赤くなる (2026-09-10 実測: 種の測定を
+         ここへ置いたら 街/desktop [19,11] が 3 回に 1 回落ちた)。装置の測定は ⑦ へ。 */
       const h0 = await ctx.page.evaluate(bubbleSnap, P0);
       await ctx.page.mouse.click(out.emptySpot.x, out.emptySpot.y);
       await sleep(150);
       const h1 = await ctx.page.evaluate(bubbleSnap, P0);
       out.ctlEmpty = { tile: out.emptySpot.tile, before: h0.hero, after: h1.hero, moving: h1.moving,
                        how: 'page.mouse.click(' + out.emptySpot.x + ',' + out.emptySpot.y + ')' };
+    }
+    /* ⑦ [装置] (3c-pick) — 「舞台に届かない点は空きタイルではない」という **白リストが
+       実際に候補を弾いているか**を、合成の position:fixed を被せて確かめる。
+       ⭐ 主人公が止まる (= カメラが止まる) のを待ってから ①基準 → ②種を被せて選び直し の順で採る。
+       ⛔ 実在の #townBack だけを根拠にすると、実機で戻るボタンを地図の外へ動かした瞬間に
+         「欠陥が無いのに赤」になる。合成の種は舞台の外側の器なので永久に効く。
+       ⚠ 押し終えたあとに置く = ここでいくら時間を使っても腕 ③ の判定には影響しない。 */
+    try { await ctx.page.waitForFunction(o.idle, { timeout: 12000 }); }
+    catch (e) { out.idleErr2 = String(e && e.message); }
+    out.emptyProbeBase = await ctx.page.evaluate(pickEmptyTile, Object.assign({ signSel: o.signSel }, P0));
+    if (out.emptyProbeBase && out.emptyProbeBase.x !== undefined) {
+      const PROBE_ID = '__drvFixedProbe';
+      out.probeIn = await ctx.page.evaluate(putFixedProbe,
+        { id: PROBE_ID, x: out.emptyProbeBase.x, y: out.emptyProbeBase.y, half: 30 });
+      out.emptyProbe = await ctx.page.evaluate(pickEmptyTile, Object.assign({ signSel: o.signSel }, P0));
+      out.probeOut = await ctx.page.evaluate(dropFixedProbe, PROBE_ID);
     }
   } catch (e) { out.err = String(e && e.message); }
   finally { try { await ctx.page.close(); } catch (e) {} }
@@ -1701,6 +1803,51 @@ const ASSERT_OF = {};
               + ' isMoving=' + r.emptyX.moving : 'なし') + (r.empty ? ' =動いた' : ' ⛔ 動かない');
       }).join('  //  ')];
     }],
+  ['3c-pick', '[装置] ★★★ (3c) の腕 ③ の **押し所選びが空振りしていない** —'
+    + ' 押し所は **白リスト**「その点の elementFromPoint が舞台 (#tavernStage / #townStage) そのものか、'
+    + 'その子孫」で選ぶ。その白リストが実際に候補を弾いていることを **2 経路**で示す:'
+    + ' ① 合成の position:fixed を「選ばれた点」へ被せると、その候補が弾かれて **別のタイルが選ばれる** (4 面すべて)'
+    + ' ② 街/compact は **素の状態でも** 舞台に届かない候補が 1 件以上あり、その id に townBack が含まれる'
+    + ' (#64 が足した戻るボタンが、スマートフォン幅で歩ける地図に重なっているという実測)'
+    + ' (⛔ 名指しの黒リスト「.npcUnit / 吹き出し / 札 でなければ空き」へ戻すと画面固定 UI を素通しして (3c) が赤くなる。'
+    + ' ⚠ ② は 2026-09-10 時点の #townBack の位置を焼いている — 実機で戻るボタンを地図の外へ動かしたら、'
+    + '**期待を緩めるのではなく ① だけへ言い直す**こと。⚠ ?titleback=0 の腕では ② は 0 件が正しい)',
+    (m) => {
+      const PID = '__drvFixedProbe';
+      const rows = BUB4(m).map(function (x) {
+        const b = x[1] || {}, sp = b.emptySpot || {};
+        const ba = b.emptyProbeBase || {}, pb = b.emptyProbe || {};
+        const ids = (sp.offStageIds || []).join(',');
+        const pids = (pb.offStageIds || []).join(',');
+        const seeded = !!(b.probeIn && b.probeIn.hitId === PID);
+        const caught = pids.indexOf(PID) >= 0;
+        const moved = !!(Array.isArray(ba.tile) && Array.isArray(pb.tile)
+                         && (ba.tile[0] !== pb.tile[0] || ba.tile[1] !== pb.tile[1]));
+        /* ① 合成の種 — 4 面すべてで要る */
+        const armA = (sp.hasStage === true) && Array.isArray(sp.tile) && (sp.inView > 0)
+                     && Array.isArray(ba.tile) && seeded && caught && moved && (b.probeOut === true);
+        /* ② 実在の #townBack — 街/compact の素の腕でだけ要る */
+        const needB = (x[0] === '街/compact');
+        const armB = !needB || ((sp.offStage >= 1) && ids.indexOf('townBack') >= 0);
+        return { name: x[0], hasStage: sp.hasStage, inView: sp.inView, off: sp.offStage,
+                 blocked: sp.blocked, near: sp.nearSkip, ids: ids, tile: ba.tile, ptile: pb.tile,
+                 spot: sp.tile, seeded: seeded, caught: caught, moved: moved, cleaned: b.probeOut,
+                 needB: needB, ok: armA && armB };
+      });
+      const ok = rows.every(function (r) { return r.ok; });
+      return [ok, rows.map(function (r) {
+        return r.name + ' 舞台=' + r.hasStage + ' 画面内の候補 ' + r.inView
+          + ' / 舞台に届かず捨てた ' + r.off + ' [' + (r.ids || '無し') + ']'
+          + ' / 舞台の中で弾いた ' + r.blocked + ' / 巡回の経路±1 で避けた ' + r.near
+          + ' (腕 ③ の押し所は ' + TILE_S(r.spot) + ')'
+          + ' ① 種を被せる ' + (r.seeded ? 'ok' : '⛔ 被せられていない')
+          + ' → 選び直し ' + TILE_S(r.tile) + '→' + TILE_S(r.ptile)
+          + (r.caught ? ' (種を弾いた)' : ' ⛔ 種を弾いていない')
+          + (r.moved ? '' : ' ⛔ 同じタイルのまま') + (r.cleaned === true ? ' 片付け ok' : ' ⛔ 種が残った')
+          + (r.needB ? (' ② 素で townBack を弾いた=' + ((r.off >= 1 && r.ids.indexOf('townBack') >= 0)
+              ? 'true' : '⛔ false')) : ' ② 要求なし');
+      }).join('  //  ')];
+    }],
   ['3d', '吹き出しの pointer-events が **none** (⭐ ついでに z-index が 3 以下 = 札の 4 を超えない)'
     + ' — ⚠ 押せる吹き出しにすると、札の上へ乗った瞬間に既存 golden 4 本の elementFromPoint が濁る',
     (m) => {
@@ -1891,7 +2038,7 @@ const SECTIONS = [
   ['§0 装置 — 先に母集団を確かめる', ['0a-town', '0a-tavern', '0b', '0b-dom', '0c', '0d', '0e']],
   ['§1 データの不変条件',            ['1z', '1a', '1b', '1c', '1d', '1e', '1f']],
   ['§2 描画',                        ['2a', '2b', '2c', '2d']],
-  ['§3 吹き出し',                    ['3a', '3a-touch', '3a-life', '3b', '3c', '3d']],
+  ['§3 吹き出し',                    ['3a', '3a-touch', '3a-life', '3b', '3c', '3c-pick', '3d']],
   ['§4 恒等 — 非退行',               ['4a', '4b', '4c', '4d']],
   ['§5 撤退 ?npc=0 — ⭐ 撤退アームと素のアームを **対で**測る', ['5a', '5b', '5c']],
 ];
