@@ -37,6 +37,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+/* ★[#65] 扉の測定台を撤退スイッチから降ろすための「合成ノード」の器 (doors_p2/p5/p8 で共有)。
+ *   なぜ自作マップ (MAPDEF.doors) では駄目なのか等の罠は tools/_doors_fixture.js の冒頭。 */
+const FX = require('./_doors_fixture');
 
 /* ⚠⚠ path.resolve 必須。'/' 区切りのままだと下の startsWith が必ず false になり
  *   全部 404 (症状はタイムアウトだけで原因が見えない)。 */
@@ -58,14 +61,16 @@ const PORT = parseInt(arg('port', '9020'), 10);
  *   (driver_doors_p2 / driver_graph_p7 と同じ判断)。本ドライバは実際にノードを
  *   往復するので、ここを外すと (1c) がタイムアウトで落ちる。 */
 const STAGE = 'orc-fort';
-/* ★[#63 2026-09-09] 砦が既定で **2 ノード**へ畳まれ、出口が right→n7 の 1 本だけになった
- *   ＝ この舞台に立つ扉が **1 枚**になり、(1a) の母集団ガード「扉が 2 枚以上」と
- *   (1d)「子ノードにも扉がある」が崩れた。
- * ⛔ 閾値は緩めない。測っているのは「開けた扉は開いたまま / 保存はノードごと」という
- *   **仕組み**で、それには複数の扉を持つ分岐グラフが要る。⇒ #16/#62/#63 で他のドライバに
- *   使ったのと同じ**腕の移設**で、測る腕だけ ?fortfold=0 (= 8 ノードの共通骨格) へ移す。
- * ⚠ F3 神殿 / F4 竜の巣を畳むときも、この腕に各シナリオの退避口を足すことになる。 */
-const STAGE_ARM = '&fortfold=0';
+/* ★[#65 2026-09-10] 舞台の退避スイッチ (旧地図へ戻す腕) を降ろした。
+ * ⛔ 旧: #63 が砦を卓上マップ 2 枚へ畳んだ結果、出口が 1 本 = 扉 1 枚になり、
+ *   (1a)「扉が 2 枚以上」と (1d)「子ノードにも扉がある」が崩れた。そこで全ブートに
+ *   「畳む前の 8 ノード構成へ戻すスイッチ」を足して緑へ戻していた。
+ * ⚠⚠ その形は F3 神殿 / F4 竜の巣を畳んだ日に同じ壊れ方をし、逃げ場が無くなる。
+ * ⭐ 新: 母集団を **その場で作る** (tools/_doors_fixture.js の attach)。実在ノードへ
+ *   合成の出口を 1 本ずつ足すので、往復 (enterNode) を挟んでも扉が 2 枚のまま残る。
+ *   ⛔ 合成ノードを rebuildNodeDoors で盤面へ載せるだけでは駄目 — g.pick / g.enter は
+ *     **実在ノードの exits** を読むので、往復した瞬間に合成の扉が消える。
+ *   ⭐ 合成が別経路を通っていないことは (0n) ノエルの条件が見張る。 */
 /* ★[P5 追随 2026-08-15] 全ブートに **?locks=0** を付けてある。本ドライバの主張は
  *   「**開けた**扉が開いたまま残る / MAPDEF を汚さない」で、施錠 (locked) の突破は
  *   driver_doors_p5 が測る。⚠ 期待値は 1 文字も書き換えていない (母集団を旧経路へ固定しただけ)。
@@ -266,7 +271,13 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 往復しても開いたまま (保存と復元)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    /* ★[#65] 母集団はその場で作る。attach = 実在ノードへ合成の出口を 1 本ずつ足す
+     *   (⚠ 末尾へ足すので「未踏の出口の 1 本目」は本物のまま = 下の g.pick は本編と同じ枝を選ぶ)。 */
+    const fx = await FX.install(page, { nodes: true, attach: true });
+    /* ★ノエルの条件は**扉を 1 枚も開けていない今**測る (開けた扉は nodeState へ保存され、
+     *   applySavedDoorStates が実在ノード側にだけ当て直すので後から測ると必ず食い違う)。 */
+    const noel = await FX.noel(page);
     const R = await page.evaluate(async () => {
       const OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };
       const g = window.__graphRun;
@@ -295,6 +306,18 @@ async function bootPage(browser, url, scen, errs, opts) {
     for (const e of errs) errsAll.push('§1: ' + e);
     await page.close();
 
+    /* ── ★[#65] 装置 assert (合成が立ったか / 合成が本物と同じ経路か) ────────────── */
+    check('(0f) 装置 assert: #65 の合成 fixture が立っている ' +
+      '(これが空だと (1a)(1c)(1d) は「扉 1 枚を検査して全部緑」に戻る)',
+      fx.ok === true && fx.nodes.length === FX.FX_NODE_IDS.length &&
+      fx.attached.length >= 1 && fx.doors >= 2,
+      'ok=' + fx.ok + ' 合成ノード=' + fx.nodes.join(',') + ' 合成の出口=' + fx.attached.join(',') +
+      ' 今のノードの扉=' + fx.doors + (fx.why ? ' / ' + fx.why : ''));
+    check('(0n) ★★[ノエルの条件] 実在ノードと**同じ mapDef.id**を与えた合成ノードは、扉の ' +
+      'id / state / タイル / 板の向きが 1 文字も違わない (= 合成が別経路を通っていない)',
+      noel.ok === true && noel.dirs.length >= 2 && noel.real === noel.fx,
+      '実在(' + noel.realId + ' / ' + noel.mapId + ')=[' + noel.real + '] 合成=[' + noel.fx + ']' +
+      (noel.why ? ' / ' + noel.why : ''));
     check('(1a) 母集団ガード: 未踏の出口があり、選ぶ前は扉が 2 枚以上・全部 closed',
       !!R.ex && R.before.length >= 2 && R.before.every(s => /:closed$/.test(s)) && !!R.openedId,
       R.ex ? '扉=[' + R.before.join(' ') + '] 開けた=' + R.openedId : '未踏の出口なし');
@@ -325,7 +348,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 mapDef.doors を汚さない (複製で持つ)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const M = await page.evaluate(() => {
       const authored = [{ id: 'a0', tx: 1, ty: 2, orientation: 'vertical',
                           state: 'closed', requiredKey: null }];
@@ -363,7 +386,13 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3 復元が未訪ノードの nodeState を作らない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    /* ★[#65] ここにも fixture が要る。⚠⚠ 畳んだ舞台では未訪の子 (ボス部屋) が**出口 0 本**で、
+     *   rebuildNodeDoors が nodeDoors=null のまま抜ける ⇒ applySavedDoorStates は先頭の
+     *   `if (!nodeDoors ...) return;` で戻り、**変異 eagernodestate の行まで到達しない**
+     *   = 負のコントロールが空振りする (2026-09-10 実測: 17/17 PASS のまま緑だった)。
+     *   ⇒ attach で子ノードにも扉を 1 枚立て、復元の経路を必ず通す。 */
+    const fx3 = await FX.install(page, { nodes: true, attach: true });
     const N = await page.evaluate(() => {
       const g = window.__graphRun;
       const orderOf = () => g.exits().map(o => o.to + (o.back ? '(back)' : '')).join(' ');
@@ -373,10 +402,13 @@ async function bootPage(browser, url, scen, errs, opts) {
       if (!fresh.length) return { fresh: null };
       const target = fresh[0];
       rebuildNodeDoors(target);              // ★buildNode がやるのと同じ呼び方 (入る前)
+      /* ★[#65] 装置: 対象に扉が 1 枚も立たないと applySavedDoorStates が即 return し、
+       *   この節は「復元を 1 度も通さずに緑」になる。枚数を持ち帰って (3c) で見張る。 */
+      const targetDoors = doorsForRender().length;
       const created = !!nodeState[target];
       const visited = !!(nodeState[target] && nodeState[target].visited);
       rebuildNodeDoors(currentNodeId);       // 後始末
-      return { fresh: target, created: created, visited: visited,
+      return { fresh: target, created: created, visited: visited, targetDoors: targetDoors,
                before: before, after: orderOf() };
     });
     for (const e of errs) errsAll.push('§3: ' + e);
@@ -384,11 +416,16 @@ async function bootPage(browser, url, scen, errs, opts) {
 
     check('(3a) ★入る前の rebuildNodeDoors が未訪ノードの nodeState を作らない',
       !!N.fresh && N.created === false,
-      N.fresh ? '対象=' + N.fresh + ' 生成された=' + N.created + ' visited=' + N.visited
+      N.fresh ? '対象=' + N.fresh + ' 生成された=' + N.created + ' visited=' + N.visited +
+                ' / 対象の扉=' + N.targetDoors + ' 枚 (0 だと復元の経路を通らない)'
               : '母集団なし (未訪の子ノード)');
     check('(3b) ★その結果、出口の並び (未踏の枝が先 = 決定論 DFS) が変わらない',
       !!N.fresh && N.before === N.after,
       '前=[' + (N.before || '') + '] 後=[' + (N.after || '') + ']');
+    check('(3c) 装置 assert: 対象ノードに扉が 1 枚以上立っている ' +
+      '(0 枚だと applySavedDoorStates が即 return して復元の経路を 1 行も通らない)',
+      !!N.fresh && N.targetDoors >= 1 && fx3.attached.length >= 1,
+      '対象=' + N.fresh + ' の扉=' + N.targetDoors + ' 枚 / 合成の出口=' + fx3.attached.join(','));
   }
 
   // ── §4 書き込み点が 1 つ = マスクが必ず追随する ───────────────────────────
@@ -398,7 +435,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§4 setDoorState = 書き込みの唯一点');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
     const W = await page.evaluate((states) => {
       const home = currentNodeId;
       /* ⚠ 母集団: 情景 (倒木など) が既に塞いでいるタイルの扉を選ぶと、open にしても

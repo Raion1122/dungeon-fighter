@@ -40,6 +40,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+/* ★[#65] 扉の測定台を撤退スイッチから降ろすための「合成ノード」の器 (doors_p2/p5/p8 で共有)。
+ *   なぜ自作マップ (MAPDEF.doors) では駄目なのか等の罠は tools/_doors_fixture.js の冒頭。 */
+const FX = require('./_doors_fixture');
 
 /* ⚠⚠ path.resolve 必須。'/' 区切りのままだと下の startsWith が必ず false になり
  *   全部 404 (症状はタイムアウトだけで原因が見えない)。 */
@@ -60,17 +63,17 @@ const PORT = parseInt(arg('port', '9030'), 10);
 /* 舞台。⚠ 廃坑 (goblin-mine) は n1 が event でダイアログ待ちに入るので使わない
  *   (driver_doors_p2 / driver_doors_p8 / driver_graph_p7 と同じ判断)。 */
 const STAGE = 'orc-fort';
-/* ★[#63 2026-09-09] 砦が既定で **2 ノード**へ畳まれ、出口が right→n7 の 1 本だけになった
- *   ＝ この舞台に立つ扉が **1 枚**になり、§1 の母集団ガード ((1a) 2 枚以上 / (1c0)(1c)(1d)
- *   4 枚以上) が一斉に崩れた。
- * ⛔ 閾値は緩めない。測っているのは「施錠の抽選が mapDef.id + door id のハッシュで決まる」
- *   という**仕組み**で、それには複数の扉を持つ分岐グラフが要る。⇒ #16/#62/#63 で他の
- *   ドライバに使ったのと同じ**腕の移設**で、測る腕だけ ?fortfold=0 (= 8 ノードの共通骨格) へ移す。
- * ⚠⚠ ★これは #62 が予告していた腐り方そのもの。あちらは §1x の LOCK_STAGES を台帳化して
- *   「F2〜F4 が来ても下限定数が腐らない」形にしたが、**§1 以降が使う STAGE の 1 本固定は
- *   直っていなかった**。F3 神殿 / F4 竜の巣を畳むときも、この腕に各シナリオの退避口を
- *   足すことになる (そのとき LOCK_STAGES の実測値も更新する)。 */
-const STAGE_ARM = '&fortfold=0';
+/* ★[#65 2026-09-10] 舞台の退避スイッチ (旧地図へ戻す腕) を降ろした。
+ * ⛔ 旧: #63 が砦を卓上マップ 2 枚へ畳んだ結果、この舞台に立つ扉が **1 枚**になり、
+ *   §1 の母集団ガード ((1a) 2 枚以上 / (1c0)(1c)(1d) 4 枚以上) が一斉に崩れた。
+ *   そこで「畳む前の 8 ノード構成へ戻すスイッチ」を全ブートに足して緑へ戻していた。
+ * ⚠⚠ その形は F3 神殿 / F4 竜の巣を畳んだ日に同じ壊れ方をし、しかも**逃げ場が無い**。
+ *   畳んだ舞台の扉は 砦 1 枚 / 沼 2 枚しかなく、4 枚以上を要求できる舞台が本番から消える。
+ * ⭐ 新: 母集団を **その場で作る** (tools/_doors_fixture.js)。RUN.byId へ合成ノードを
+ *   足すと、実在ノードと 1 バイトも違わない経路で扉が立ち、畳みの影響を受けない。
+ *   ⛔ 自作マップ (MAPDEF.doors) では駄目 — rebuildNodeDoors が早期 return して
+ *     施錠の抽選 doorLockedByRng を 1 度も引かない = §1 が測りたいものを測れない。
+ *   ⭐ 合成が別経路を通っていないことは (0n-a) ノエルの条件が見張る。 */
 /* §1x が測る舞台の**台帳**。⚠ 廃坑 (goblin-mine) を外す理由は上と同じ (n1 の event でダイアログ待ち)。
  * ★[#62] 旧 `STAGE2 = 'lizard-swamp'` の 1 本固定をやめた。畳み系のチケット (#16 の森 /
  *   #62 の沼 / これから来る F2〜F4) が来るたびに「その 1 本」の扉が減って母集団ガードが腐るため。
@@ -308,7 +311,13 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 施錠の抽選');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    /* ★[#65] 母集団はその場で作る。合成ノード 4 つ x 出口 2 本 = 扉 8 枚が
+     *   下の `for (const id of Object.keys(RUN.byId))` に自動で拾われる。 */
+    const fx = await FX.install(page, { nodes: true });
+    /* ★ノエルの条件は**扉を 1 枚も開けていない今**測る (開けた扉は nodeState へ保存され、
+     *   applySavedDoorStates が実在ノード側にだけ当て直すので後から測ると必ず食い違う)。 */
+    const noel = await FX.noel(page);
     const S = await page.evaluate(() => {
       nodeBusy = true;                       // ★本編と同じ「選択処理中」= 400ms tick を止める
       const snap = () => doorsForRender().map(d => d.id + ':' + d.state).sort();
@@ -361,8 +370,41 @@ async function bootPage(browser, url, scen, errs, opts) {
     const nLocked = flat.filter(x => x.state === 'locked').length;
     const noMapId = flat.filter(x => !x.mapId).length;
 
-    check('(1a) 母集団ガード: このノードに扉が 2 枚以上立っている',
-      S.built.length >= 2, '扉=' + gotStates.join(' '));
+    /* ── ★[#65] 装置 assert (合成が立ったか / 合成が本物と同じ経路か) ────────────── */
+    const FXN = FX.FX_NODE_IDS.length * FX.FX_DIRS.length;
+    check('(0f) 装置 assert: #65 の合成ノードが ' + FX.FX_NODE_IDS.length +
+      ' 件立ち、合成の扉が ' + FXN + ' 枚ある (これが 0 だと以下は「0 枚を検査して全部緑」)',
+      fx.ok === true && fx.nodes.length === FX.FX_NODE_IDS.length && fx.fxDoors === FXN,
+      'ok=' + fx.ok + ' ノード=' + fx.nodes.join(',') + ' 合成の扉=' + fx.fxDoors +
+      (fx.why ? ' / ' + fx.why : ''));
+    check('(0n-a) ★★[ノエルの条件] 実在ノードと**同じ mapDef.id**を与えた合成ノードは、扉の ' +
+      'id / state / タイル / 板の向きが 1 文字も違わない (= 合成が別経路を通っていない)',
+      noel.ok === true && noel.dirs.length >= 1 && noel.real === noel.fx,
+      '実在(' + noel.realId + ' / ' + noel.mapId + ')=[' + noel.real + '] 合成=[' + noel.fx + ']' +
+      (noel.why ? ' / ' + noel.why : ''));
+    /* ⚠ (0n-a) は「両方とも closed」でも一致する。抽選が本当に効いていることを別に見る。 */
+    const fxSplit = [];
+    for (const fid of FX.FX_NODE_IDS) {
+      for (const d of (S.perNode[fid] || [])) {
+        for (const rid of Object.keys(S.perNode)) {
+          if (FX.FX_NODE_IDS.indexOf(rid) >= 0) continue;
+          const e = (S.perNode[rid] || []).find(x => x.id === d.id);
+          if (e && e.state !== d.state) fxSplit.push(rid + '/' + d.id + ':' + e.state + '≠' + fid + ':' + d.state);
+        }
+      }
+    }
+    check('(0n-b) 装置 assert: 同じ door id でも mapDef.id が違えば state が割れる ' +
+      '((0n-a) が「どれも closed だから一致した」ではないことの裏取り)',
+      fxSplit.length >= 1,
+      '割れた組 ' + fxSplit.length + (fxSplit.length ? ': ' + fxSplit.slice(0, 3).join(' ') : ''));
+    /* ★[#65] 旧 (1a) は「**このノード**に扉が 2 枚以上」= 舞台の形そのものを母集団に
+     *   していた。#63 が砦を畳んで扉 1 枚になった瞬間に崩れ、退避の腕で緑へ戻していた。
+     *   ⇒ 母集団を合成ノードから引く。畳みでノードが減っても 1 枚も減らない。 */
+    const FXA = FX.FX_NODE_IDS[0];
+    check('(1a) 母集団ガード: #65 の合成ノードに扉が 2 枚以上立っている (⛔ 舞台の形に依存しない)',
+      (S.perNode[FXA] || []).length >= 2,
+      '合成 ' + FXA + ' の扉=' + (S.perNode[FXA] || []).map(d => d.id + ':' + d.state).join(' ') +
+      ' / 今のノード ' + S.nodeId + ' の扉=' + gotStates.join(' '));
     check('(1b) ★どの扉も**塞ぐ側**から始まる (closed か locked = fail-safe)',
       flat.length > 0 && flat.every(x => WANT_BLOCK[x.state] === true),
       flat.map(x => x.node + '/' + x.door + ':' + x.state).join(' '));
@@ -489,7 +531,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 locked は塞ぐ + 退避スイッチ');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const B = await page.evaluate(() => {
       nodeBusy = true;
       const d = doorsForRender()[0];
@@ -519,7 +561,9 @@ async function bootPage(browser, url, scen, errs, opts) {
 
     // 退避スイッチ ?locks=0 … ★これが「新機能を見ている」ことの装置 assert
     const errs2 = [];
-    const p2 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0' + STAGE_ARM, STAGE, errs2);
+    const p2 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0', STAGE, errs2);
+    /* ★[#65] ここも母集団は合成ノードから (offFlat >= 4 / wouldLock >= 1 を舞台に依存させない)。 */
+    const fxL = await FX.install(p2, { nodes: true });
     const L = await p2.evaluate(() => {
       nodeBusy = true;
       /* ⚠⚠ 現在ノードだけ見ると空振りする (起点 n0 の 3 枚は素でもどれも施錠されない)。
@@ -546,14 +590,15 @@ async function bootPage(browser, url, scen, errs, opts) {
     const wouldLock = offFlat.filter(x => wantLocked(x.mapId, x.door)).length;
     check('(2c) ★退避スイッチ ?locks=0 で施錠が 1 枚も立たない (母集団 ' + wouldLock + ' 枚)',
       wouldLock >= 1 && offFlat.length >= 4 && offFlat.every(x => x.state === 'closed'),
-      '扉 ' + offFlat.length + ' 枚 / locked ' + offFlat.filter(x => x.state === 'locked').length + ' 枚');
+      '扉 ' + offFlat.length + ' 枚 / locked ' + offFlat.filter(x => x.state === 'locked').length +
+      ' 枚 / #65 合成の扉 ' + fxL.fxDoors + ' 枚');
   }
 
   // ── §3〜§5 突破の 3 経路 (forced は検証シーム専用。本編からは絶対に渡さない) ──
   mark('§3〜§5 突破の 3 経路 (開錠 / 体当たり / 力ずく)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const T = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -617,7 +662,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§6 施錠が進行を止めない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const G = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -651,7 +696,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§7 出口選択 → 施錠判定 → 目標決定 の順序');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const C = await page.evaluate(async () => {
       nodeBusy = true;                       // ★本編も nodeBusy の内側で commitExit を await する
       const g = window.__graphRun;
@@ -686,7 +731,7 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§8 突破した扉は再入場でも施錠へ戻らない');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
     const R = await page.evaluate(async () => {
       nodeBusy = true;
       const g = window.__graphRun;

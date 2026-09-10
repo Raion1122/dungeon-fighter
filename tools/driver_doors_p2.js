@@ -45,6 +45,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+/* ★[#65] 扉の測定台を撤退スイッチから降ろすための「合成ノード」の器 (doors_p2/p5/p8 で共有)。
+ *   なぜ自作マップ (MAPDEF.doors) では駄目なのか等の罠は tools/_doors_fixture.js の冒頭。 */
+const FX = require('./_doors_fixture');
 
 /* ⚠⚠ path.resolve 必須。'/' 区切りのままだと下の startsWith が必ず false になり
  *   全部 404 (症状はタイムアウトだけで原因が見えない)。 */
@@ -67,15 +70,21 @@ const SCENARIOS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
 /* 画素・向き・描画順を測る舞台。⚠ 廃坑 (goblin-mine) は n1 が event でダイアログ待ちに
  *   入るので使わない (driver_graph_p7 と同じ判断)。 */
 const STAGE = 'orc-fort';
-/* ★[#63 2026-09-09] 砦が既定で **2 ノード**へ畳まれ、扉が 1 枚になったので、
- *   舞台に「扉が 2 枚以上」を要求する母集団ガード ((3b)(4a)(5a)(5b)(6e)(6f)) と
- *   描画の assert ((2f)(3a)) が一斉に崩れた。
- * ⛔ 閾値は緩めない。測っているのは扉の**描画と同定の仕組み**で、それには複数の扉を持つ
- *   分岐グラフが要る。⇒ #16/#62/#63 と同じ**腕の移設**で ?fortfold=0 (8 ノードの共通骨格) へ。
- * ⚠ (6c)「既存 6 シナリオすべてで扉が立つ」は**この移設では緑にならない** — あちらは
- *   6 シナリオを横断して数えており、森が #16 で 1 ノードへ畳まれて扉 0 枚のまま
- *   **2026-09-09 の着手前から赤い** (#63 とは無関係の既存の赤)。 */
-const STAGE_ARM = '&fortfold=0';
+/* ★[#65 2026-09-10] 舞台の退避スイッチ (旧地図へ戻す腕) を降ろした。
+ * ⛔ 旧: #63 が砦を卓上マップ 2 枚へ畳んだ結果、この舞台に立つ扉が **1 枚**になり、
+ *   「扉が 2 枚以上」を要求する母集団ガード ((1a)(2b)(3a)(4a)(5a)(5b)) と、
+ *   出口を持つ子ノードを要求する (6e)(6f) が一斉に崩れた。そこで全ブートに
+ *   「畳む前の 8 ノード構成へ戻すスイッチ」を足して緑へ戻していた。
+ * ⚠⚠ その形は F3 神殿 / F4 竜の巣を畳んだ日に同じ壊れ方をし、逃げ場が無くなる。
+ * ⭐ 新: 母集団を **その場で作る** (tools/_doors_fixture.js)。
+ *   ・nodes  … RUN.byId へ合成ノードを足す ((6e)(6f) が使う)
+ *   ・attach … 実在ノードへ合成の出口を 1 本足す (今のノードの扉が 2 枚以上になる)
+ *   ⛔ 自作マップ (MAPDEF.doors) を持たせる案は駄目 — rebuildNodeDoors が早期 return し、
+ *     扉の出所そのもの (byDir → nodeGateTile) を通らなくなる = §1 が測る対象が消える。
+ *   ⭐ 合成が別経路を通っていないことは (0n) ノエルの条件が見張る。
+ * ⚠⚠⚠ 画素 (§2) と描画順 (§3) は **視野合わせ (FX.frameDoors) が必須**。
+ *   drawDoors (index.html:9263) は画面外の扉を捨てるので、卓上大部屋の左右のゲート
+ *   (29 タイル = 2784px 離れている) は既定の 1280x800 では片方が必ず落ちる。 */
 /* ★[P5 追随 2026-08-15] 全ブートに **?locks=0** を付けてある。本ドライバの主張は
  *   「**閉じた**扉が見える / 塞ぐ / 選ぶと開く」で、施錠 (locked) は driver_doors_p5 が測る。
  * ⚠ 期待値は 1 文字も書き換えていない。母集団 (初期状態) を旧経路へ固定しただけ
@@ -317,7 +326,12 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§1 扉の一覧の出所');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    /* ★[#65] 実在ノードへ合成の出口を 1 本足す = このノードの扉が 2 枚以上になる。
+     *   ⚠ 末尾へ足すので「未踏の出口の 1 本目」は本物のまま (§5 の g.pick が本編と同じ枝を選ぶ)。 */
+    const fx = await FX.install(page, { nodes: true, attach: true });
+    /* ★ノエルの条件は**扉を 1 枚も開けていない今**測る。 */
+    const noel = await FX.noel(page);
     const S = await page.evaluate(() => {
       const node = RUN.byId[currentNodeId];
       const dirs = [];
@@ -352,6 +366,18 @@ async function bootPage(browser, url, scen, errs, opts) {
     for (const e of errs) errsAll.push('§1: ' + e);
     await page.close();
 
+    /* ── ★[#65] 装置 assert (合成が立ったか / 合成が本物と同じ経路か) ────────────── */
+    check('(0f) 装置 assert: #65 の合成 fixture が立っている ' +
+      '(これが空だと以下の母集団ガードは「扉 1 枚」へ戻って一斉に赤くなる)',
+      fx.ok === true && fx.nodes.length === FX.FX_NODE_IDS.length &&
+      fx.attached.length >= 1 && fx.doors >= 2,
+      'ok=' + fx.ok + ' 合成ノード=' + fx.nodes.join(',') + ' 合成の出口=' + fx.attached.join(',') +
+      ' 今のノードの扉=' + fx.doors + (fx.why ? ' / ' + fx.why : ''));
+    check('(0n) ★★[ノエルの条件] 実在ノードと**同じ mapDef.id**を与えた合成ノードは、扉の ' +
+      'id / state / タイル / 板の向きが 1 文字も違わない (= 合成が別経路を通っていない)',
+      noel.ok === true && noel.dirs.length >= 2 && noel.real === noel.fx,
+      '実在(' + noel.realId + ' / ' + noel.mapId + ')=[' + noel.real + '] 合成=[' + noel.fx + ']' +
+      (noel.why ? ' / ' + noel.why : ''));
     check('(1a) ★出口の向きの数だけ扉が立つ (母集団 = 向き ' + S.dirs.length + ' 件)',
       S.dirs.length >= 2 && S.doors.length === S.dirs.length,
       'dirs=' + S.dirs.join(',') + ' doors=' + S.doors.length);
@@ -393,7 +419,11 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§2 扉タイルの画素 / state ごとの塗り面積');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    await FX.install(page, { nodes: true, attach: true });
+    /* ★[#65] 視野合わせ。drawDoors は画面外の扉を捨てるので、寄せずに測ると
+     *   per[画面外の扉]=0 で (2b) が、rotate 数が足りず (3a) が**偽の赤**になる。 */
+    const fit2 = await FX.frameDoors(page);
     const P = await page.evaluate((states) => {
       const g = mapCanvas.getContext('2d');
       const W = mapCanvas.width, H = mapCanvas.height;
@@ -451,6 +481,11 @@ async function bootPage(browser, url, scen, errs, opts) {
 
     /* ★測定器そのもののガード。同じ状態を 2 回描いて差が出るなら、以下の全部が
      *   「扉のせい」ではなくなる (時刻ゆらぎ・非同期アセットの混入)。 */
+    check('(2a-視野) 装置 assert: 扉が 1 枚残らず画面内にある (drawDoors の画面外カリングで母集団が欠けていない)',
+      fit2.ok === true && fit2.doors >= 2 && fit2.onScreen.length === fit2.doors,
+      '扉 ' + fit2.doors + ' 枚中 画面内 ' + fit2.onScreen.length + ' 枚 (' + fit2.onScreen.join(',') +
+      ') / 視野 ' + fit2.vw + 'x' + fit2.vh + ' cam=' + fit2.camX + ',' + fit2.camY +
+      (fit2.why ? ' / ' + fit2.why : ''));
     check('(2a) ★測定器の健全性: 同条件の再描画が完全一致 (時刻ゆらぎが混ざっていない)',
       P.selfDiff === 0, '差分画素=' + P.selfDiff);
     const C = P.out.closed;
@@ -477,7 +512,9 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§3 描画順');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    await FX.install(page, { nodes: true, attach: true });
+    const fit3 = await FX.frameDoors(page);   // ★[#65] 画面外カリングで rotate 数が欠けないように
     const O = await page.evaluate(() => {
       const g = mapCanvas.getContext('2d');
       /* ⚠ 扉の目印は ctx.rotate。index.html で ctx.rotate を呼ぶのは扉の描画だけ
@@ -530,7 +567,9 @@ async function bootPage(browser, url, scen, errs, opts) {
     await page.close();
 
     check('(3a) ★扉の描画が実際に走っている (rotate = 扉 1 枚につき 1 回)',
-      O.rotates === O.doors && O.doors >= 2, 'rotate=' + O.rotates + ' 扉=' + O.doors);
+      O.rotates === O.doors && O.doors >= 2 && fit3.onScreen.length === O.doors,
+      'rotate=' + O.rotates + ' 扉=' + O.doors + ' 画面内=' + fit3.onScreen.length +
+      ' 視野=' + fit3.vw + 'x' + fit3.vh);
     /* ⚠ 母集団ガード。扉より前に画像パスが 1 つも走っていなければ、下の (3c) は
      *   「順序が正しい」ではなく「比べる相手が居ない」で緑になってしまう。 */
     check('(3b) 母集団ガード: 扉より前に drawImage が走っている (比べる相手が居る)',
@@ -553,7 +592,8 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§4 通行判定 (P3)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    await FX.install(page, { nodes: true, attach: true });   // ★[#65] 母集団 (扉 2 枚以上)
     const R = await page.evaluate((states) => {
       const doors = doorsForRender();
       /* ⚠ 母集団の確認。情景 (倒木など) が既に塞いでいるタイルの扉を選ぶと、開けても
@@ -611,7 +651,10 @@ async function bootPage(browser, url, scen, errs, opts) {
   mark('§5 出口選択で開く (P4)');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    /* ★[#65] attach で扉が 2 枚になる。⚠ 合成の出口は node.exits の**末尾**なので、
+     *   下の `g.exits().filter(!back)[0]` が選ぶのは**本物の枝**のまま。 */
+    await FX.install(page, { nodes: true, attach: true });
     const K = await page.evaluate(async () => {
       const g = window.__graphRun;
       const snapshot = () => doorsForRender().map(d => d.id + ':' + d.state).sort();
@@ -682,16 +725,66 @@ async function bootPage(browser, url, scen, errs, opts) {
       warns.some(w => /dev 専用パラメータ \?doors/.test(w)),
       '状態=' + locked.states.join(',') + ' 警告=' + warns.filter(w => /\?doors/.test(w)).length);
 
-    // (6c) 既存 6 シナリオすべてに扉が立ち、mapDef は汚れていない
-    const per = [];
+    /* ── (6c) 既存 6 シナリオ ─────────────────────────────────────────────────
+     * ⛔ 旧: 「6 シナリオすべてで扉が **1 枚以上**立つ」。#16 が森を 1 ノードへ畳んだ
+     *   (= 出口 0 本 → 扉 0 枚) 日から**ずっと赤**で、2026-09-10 の着手前も
+     *   goblin-mine:1 bandits-forest:0 lizard-swamp:2 orc-fort:1 undead-temple:3
+     *   dragon-lair:3 で FAIL していた。
+     * ⛔ 閾値を下げて緑にしない。⭐ #62 が §1x でやったのと同じ「**台帳から導出**」へ言い直す:
+     *   規則は「扉は**出口の向き 1 本につき 1 枚**立ち、そのタイルは出口の at と一致する」。
+     *   後半は index.html:35470 が「**戻り値の tx/ty は exits[].at と 1 タイルも違ってはいけない**」
+     *   と書いている不変条件そのもの (食い違うと『開かない扉』が生まれる)。
+     *   ⇒ 森の 0 枚は**規則どおりの 0 枚**であって欠陥ではない。旧 assert は舞台の形
+     *     (ノード数) を測っていたのであって、扉の仕組みを測っていなかった。
+     * ⚠⚠ タイルの契約に gateTileOf (辺の中点) を使わないこと。廃坑 n0 は絵の口 (gates) を
+     *   持ち、扉は (45,7) に立つが辺の中点は (52,13) = **6 舞台横断では成立しない**
+     *   (2026-09-10 実測)。横断できる契約は「出口の at と一致」ただ 1 つ。
+     * ⭐ 空振り止め = (6c-z)。扉を持つ舞台が 2 つ未満なら、この節は何も測っていない。 */
+    const CENSUS = [];
     for (const scen of SCENARIOS) {
       const p = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', scen, errs);
-      const r = await p.evaluate(() => ({ n: doorsForRender().length, mapdef: MAPDEF.doors }));
+      const r = await p.evaluate(() => {
+        const nd = RUN && RUN.byId[currentNodeId];
+        /* 同じ向きの 2 本目は扉にならない (rebuildNodeDoors の byDir は先着優先)。 */
+        const seen = [], want = [];
+        for (const ex of ((nd && nd.exits) || [])) {
+          if (!ex || !ex.dir || seen.indexOf(ex.dir) >= 0) continue;
+          seen.push(ex.dir);
+          want.push({ dir: ex.dir, tx: ex.at[0], ty: ex.at[1] });
+        }
+        return { node: currentNodeId, want: want, mapdef: MAPDEF.doors,
+                 doors: doorsForRender().map(d => ({ id: d.id, tx: d.tx, ty: d.ty })) };
+      });
       await p.close();
-      per.push(scen + ':' + r.n + (r.mapdef === null ? '' : '(汚染!)'));
+      CENSUS.push({ scen: scen, r: r });
     }
-    check('(6c) ★既存 6 シナリオすべてで扉が立つ (自動生成が本番へ載っている)',
-      per.length === SCENARIOS.length && per.every(x => /:[1-9]\d*$/.test(x)), per.join(' '));
+    const withDoors = CENSUS.filter(c => c.r.doors.length > 0);
+    const censusLine = CENSUS.map(c => c.scen + ':扉' + c.r.doors.length + '/出口' +
+                                  c.r.want.length).join(' ');
+    const ruleNg = [];
+    for (const c of CENSUS) {
+      if (c.r.doors.length !== c.r.want.length) {
+        ruleNg.push(c.scen + ' 扉 ' + c.r.doors.length + '≠出口 ' + c.r.want.length); continue;
+      }
+      for (const w of c.r.want) {
+        const d = c.r.doors.find(x => x.id === 'gate-' + w.dir);
+        if (!d) { ruleNg.push(c.scen + ' gate-' + w.dir + ' が立っていない'); continue; }
+        if (d.tx !== w.tx || d.ty !== w.ty) {
+          ruleNg.push(c.scen + ' gate-' + w.dir + '@' + d.tx + ',' + d.ty +
+                      '≠出口 ' + w.tx + ',' + w.ty);
+        }
+      }
+    }
+    const dirty = CENSUS.filter(c => c.r.mapdef !== null).map(c => c.scen);
+    check('(6c-z) 装置 assert: 扉を 1 枚以上持つ舞台が 2 つ以上ある (この節が空振りしていない)',
+      CENSUS.length === SCENARIOS.length && withDoors.length >= 2, '台帳 ' + censusLine);
+    check('(6c) ★★扉は「出口の向き 1 本につき 1 枚」立ち、そのタイルが出口の at と 1 タイルも ' +
+      '違わない (⛔ 下限定数は撤去し台帳から導出。出口 0 本の舞台の 0 枚は規則どおり)',
+      CENSUS.length === SCENARIOS.length && ruleNg.length === 0,
+      '食い違い ' + ruleNg.length + (ruleNg.length ? ': ' + ruleNg.slice(0, 4).join(' / ') : '') +
+      ' / 台帳 ' + censusLine);
+    check('(6c-b) ★どの舞台でも自動生成が MAPDEF を汚していない (書き出しに実行時の扉が混ざらない)',
+      dirty.length === 0, dirty.length ? '汚染=' + dirty.join(',') : '6 舞台とも MAPDEF.doors=null');
 
     // (6d) 分岐を持たない従来経路 (?graph=0) では 1 枚も立たない
     const p2 = await bootPage(browser, base + '/index.html?graph=0&diag=1&intel=0', STAGE, errs);
@@ -702,38 +795,57 @@ async function bootPage(browser, url, scen, errs, opts) {
       old.n === 0 && old.run === false && old.mask === null, '枚数=' + old.n);
 
     /* ★(6e) 実際に踏んだ欠陥の検出器。扉は当たり判定に載った = 盤面の一部なので、
-     *   「どちらから入ったか」に依存すると別経路で戻ったときに宝箱と罠の抽選まで変わる。 */
-    const p3 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0' + STAGE_ARM, STAGE, errs);
-    const det = await p3.evaluate(async () => {
+     *   「どちらから入ったか」に依存すると別経路で戻ったときに宝箱と罠の抽選まで変わる。
+     * ★[#65] 母集団を「出口を持つ子ノード」から **合成ノード**へ移した。
+     *   ⛔ 旧: グラフから「出口が 1 本以上あり、出口に無い向きが 2 つ以上ある子ノード」を
+     *     探し、g.enter で 2 通りの向きから入っていた。畳んだ舞台には**そんな子ノードが
+     *     1 つも無い** (砦は n7 = ボスだけで出口 0 本) ので、母集団なしで永久に赤くなる。
+     *   ⭐ 新: 合成ノードは親を持つ (install が RUN.parent へ登録する) ので、入場方向
+     *     nodeEnteredVia を 2 通りに振って rebuildNodeDoors を呼べば同じ欠陥を捕まえられる。
+     *     欠陥 (変異 usedirsvia) は nodeExitDirs 経由で DIR_OPPOSITE[nodeEnteredVia] を
+     *     扉の集合へ混ぜるので、振った向きごとに扉のタイル集合が変わる。
+     *   ⚠ 唯一の子であるボス部屋へ測定のために 2 回入る旧経路は取らない (戦闘と演出の
+     *     副作用を測定へ引き込むため)。
+     *   ⚠ nodeEnteredVia は index.html:35323 の top-level let。classic script の
+     *     グローバル字句環境にあるので page.evaluate から代入できる (2026-09-10 実測)。
+     *     ⭐ 代入が実装へ届いたことは (6e-装置) の wrote が見張る。 */
+    const p3 = await bootPage(browser, base + '/index.html?diag=1&intel=0&locks=0&secret=0', STAGE, errs);
+    const fx3 = await FX.install(p3, { nodes: true });
+    const det = await p3.evaluate((fxId) => {
       const OPP = { up: 'down', down: 'up', left: 'right', right: 'left' };
-      const g = window.__graphRun;
-      const graph = g.graph(), parent = g.parent();
-      /* ⚠⚠ 入場方向は**出口に無い向き**の裏返しから選ぶ。適当に 'down'/'left' を入れると、
-       *   その裏返しが既に出口に在るノードでは欠陥を入れても集合が変わらず、
-       *   検出器が永久に緑になる (実際 n1 の出口が {up,right} でそうなった)。 */
-      let child = null, node = null, novel = null;
-      for (const n of graph.nodes) {
-        if (!parent[n.id]) continue;
-        const ex = new Set((n.exits || []).map(e => e.dir).filter(Boolean));
-        const nv = ['up', 'down', 'left', 'right'].filter(d => !ex.has(d));
-        if (ex.size >= 1 && nv.length >= 2) { child = n.id; node = n; novel = nv; break; }
-      }
-      if (!child) return { child: null };
-      const via1 = OPP[novel[0]], via2 = OPP[novel[1]];
-      const snap = () => doorsForRender().map(d => d.tx + ',' + d.ty).sort().join(' ');
-      await g.enter(child, via1); const a = snap();
-      const rooms = MAPDEF.rooms.map(r => r.rect.slice());
-      await g.enter(child, via2); const b = snap();
-      return {
-        child: child, a: a, b: b, via1: via1, via2: via2, rooms: rooms,
-        exitDirs: Array.from(new Set((node.exits || []).map(e => e.dir).filter(Boolean))),
+      const nd = RUN.byId[fxId];
+      if (!nd) return { child: null, exitDirs: [] };
+      const exitDirs = [];
+      for (const ex of (nd.exits || [])) if (ex.dir && exitDirs.indexOf(ex.dir) < 0) exitDirs.push(ex.dir);
+      /* ⚠⚠ 振る向きは**出口に無い向き**の裏返しから選ぶ。出口に在る向きを使うと、
+       *   欠陥を入れても集合が変わらず検出器が永久に緑になる (旧実装の注記と同じ理由)。 */
+      const novel = ['up', 'down', 'left', 'right'].filter(d => exitDirs.indexOf(d) < 0);
+      if (exitDirs.length < 1 || novel.length < 2) return { child: null, exitDirs: exitDirs };
+      const snap = () => {
+        rebuildNodeDoors(fxId);
+        return doorsForRender().map(d => d.tx + ',' + d.ty).sort().join(' ');
       };
-    });
+      const keep = nodeEnteredVia;
+      const via1 = OPP[novel[0]], via2 = OPP[novel[1]];
+      nodeEnteredVia = via1; const a = snap();
+      nodeEnteredVia = via2; const b = snap();
+      const wrote = (nodeEnteredVia === via2);      // ★ let への代入が実装へ届いたか
+      nodeEnteredVia = keep;
+      rebuildNodeDoors(currentNodeId);              // ★盤面を現在ノードへ戻す
+      return { child: fxId, a: a, b: b, via1: via1, via2: via2, wrote: wrote,
+               parentSet: !!RUN.parent[fxId], exitDirs: exitDirs,
+               rooms: MAPDEF.rooms.map(r => r.rect.slice()) };
+    }, FX.FX_NODE_IDS[0]);
     await p3.close();
+    check('(6e-装置) 入場方向の受け皿が生きている (合成ノードに親があり、nodeEnteredVia を 2 通りに振れた)',
+      !!det.child && det.parentSet === true && det.wrote === true && det.via1 !== det.via2,
+      '合成ノード ' + fx3.nodes.length + ' 件 / 測る節点=' + det.child + ' 親あり=' + det.parentSet +
+      ' 代入が届いた=' + det.wrote + ' via=' + det.via1 + '/' + det.via2 +
+      ' 出口=' + (det.exitDirs || []).join(','));
     check('(6e) ★★扉の集合が node id だけで決まる (入場方向に依存しない = 盤面の抽選が漏れない)',
       !!det.child && !!det.a && det.a === det.b,
       det.child ? 'node=' + det.child + ' via' + det.via1 + '=[' + det.a + '] via' +
-                  det.via2 + '=[' + det.b + ']' : '母集団なし (出口に無い向きが 2 つある子ノード)');
+                  det.via2 + '=[' + det.b + ']' : '母集団なし (合成ノードが立っていない)');
     /* ★直接の不変条件: 扉のタイル集合 = **出口の向きから導いた gate タイル**そのもの。
      *   (6e) が「2 回とも同じ」だけを見るのに対し、こちらは「正しい集合か」を見る。 */
     const wantSet = det.child
