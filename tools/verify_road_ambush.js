@@ -195,10 +195,14 @@ const MUTATIONS = {
      close() を壊しても (1g) の afterClose しか動かないが、paint() を壊すと
      「結末の画面に前の二択が残る」= プレイヤーが実際に見る壊れ方になる。
      ⚠ `    n.innerHTML = "";` は close() 側の `if (n) n.innerHTML = "";` と字面が
-       重なるので、次行を足した 2 行アンカーで paint() 側へ絞る (LF ファイル)。 */
+       重なるので、次行を足した 2 行アンカーで paint() 側へ絞る。
+     ⚠⚠⚠ #65 で作業ツリーの行末を CRLF へ一本化した (js/road-events.js も CRLF)。
+       改行を '\n' のままにすると 2 行アンカーが空振りし、起動時検算が EXIT=3 で落ちて
+       **素の assert が 1 本も走らなくなる** (#64 が踏んだ偽の赤の正体)。
+       ⇒ 下の bridgefill (:329 付近) と同じく '\r\n' を明示する。 */
   boxleak: { file: 'js/road-events.js', targets: ['1g'], multiline: true,
-    from: '    n.innerHTML = "";\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
-    to: '    /* neg:boxleak 前のボタンを消さない */\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
+    from: '    n.innerHTML = "";\r\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
+    to: '    /* neg:boxleak 前のボタンを消さない */\r\n    setBoonLine("");   /* ⭐ #47: 器を描く共通口。',
     why: '器を閉じずに描き直す (結末の画面に前の二択のボタンが残る)' },
 
   /* ⭐ 依頼書 §2-6 の罠 D。⛔ world.html で removeItem を 2 本目にすると

@@ -1,0 +1,33 @@
+# ダンジョンファイターズ — 行末の一本化
+# 出典: 実装依頼書/2026-09-10_eol-unify-and-door-fixture.md §5-1 (#65)
+#
+# 【方針】blob は従来どおり LF のまま。取り出し (checkout) のときだけ CRLF にする。
+#   ⇒ git の差分は 1 件も出ないまま、本番の作業ツリーと
+#      `git worktree add` / `git clone` が吐くツリーが byte 同一になる。
+#   ⭐ この PC の core.autocrlf=true は元から CRLF を吐いていた
+#      (= 隔離ツリー / クローンで全員が既に受け取っている姿)。
+#      異常だったのは本番の作業ツリーが LF で残っていた側。
+#   ⛔ LF へ揃える案は採らない。「全員が受け取る姿」を変えることになり、
+#      この .gitattributes を失った瞬間に静かに崩れるため (依頼書 §2-4)。
+
+* text=auto eol=crlf
+
+# --- バイナリ (行末を変換しない) --------------------------------------------
+# 2026-09-10 実測: 追跡 837 本を py で NUL バイト走査した結果、binary は
+#   png 230 / mp3 92 / jpg 41 = 計 363 本 の 3 拡張子のみ。それ以外に binary は無い。
+*.png binary
+*.jpg binary
+*.mp3 binary
+
+# --- ⚠⚠⚠ 例外: git フック は必ず LF ----------------------------------------
+# 依頼書 §2-6 の罠②。scripts/hooks/pre-commit は `#!/bin/sh` で始まるシェルスクリプトで、
+# `git config core.hooksPath scripts/hooks` 経由で git が直接起動する。
+# shebang 行の行末が CRLF になると Git Bash が `bad interpreter: /bin/sh^M` で落ち、
+# 更新情報 (changelog) ガードが黙って死ぬ。
+# ⛔ しかも「落ちたこと」に気づけないまま素通りする種類の故障。
+# ⇒ このディレクトリだけ eol=lf で明示除外する。
+#   (check_changelog.py は `py` から起動されるので CRLF でも動くが、
+#    同じディレクトリなのでまとめて LF にする)
+# ⭐ 例外表ではなく振る舞いで見張ること = 受入 (1d) が
+#    「pre-commit が LF で先頭が shebang」を直接測っている。
+scripts/hooks/* text eol=lf
