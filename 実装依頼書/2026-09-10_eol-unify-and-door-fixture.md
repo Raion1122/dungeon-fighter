@@ -459,4 +459,203 @@ STEP2 の対象外であることを実測済み)。
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の基準(STEP1)
+
+- **測定日**: 2026-09-10 / **HEAD** = `85a90f3` / 作業ツリー **clean**
+- ⛔ 本番コードも `tools/` のドライバも **1 バイトも触っていない**(項目1 は色を控えるだけ)
+- ⚠⚠ **本番ツリーでそのまま実走**。§2-3 のとおり隔離ツリーは CRLF 化するので、この時点で
+  `git worktree add` を使うと偽の赤が出る(#64 が踏んだ罠)
+- ⚠⚠ 検証ドライバを `timeout` で**包んでいない**。完了は終了コードでなく集計行で判定した
+- **総所要 = 73 分**(58 本・逐次・PowerShell スイープ)。⭐ 項目5 の再走もほぼ同じと見てよい
+
+#### (a) 母集団の引き方
+
+「STEP2 で行末が反転する 17 ファイル」を名指しし、かつ `readFile*` を呼ぶ `tools/*.js`:
+
+```bash
+# (1) 17 ファイルを名指しするか (§4 の書き方 = 素の名前)
+grep -lE "road-events|df-mapdef|npc-crowd|world-map|town-map|tavern-map|save-slots|skill-check|player-sheet|hero-classes|abilities|class-sight|mercenary-roster|recruit-candidates|title\.html|battle\.html|map-editor\.html" tools/*.js | sort   # -> 61 本
+# (2) そのうち readFile* を呼ぶもの
+grep -lE "readFile(Sync)?\(" tools/*.js | sort                                     # -> 98 本
+comm -12 (1) (2)                                                                   # -> 55 本
+```
+
+⇒ **母集団 = 55 本**。orchestrator の実測(55 本)と**集合まで完全一致**。
+
+⭐ **ただし 3 本は「読んでいない」。** `verify_fort_fold` / `verify_swamp_fold` / `verify_swamp_lair` は
+日本語コメント行(`⚠⚠ df-mapdef.js の paintingBlockedTilesFor も …`)で語に当たっているだけで、
+実際にはこの 17 ファイルを 1 本も読まない。**厳密な「読む」母集団は 52 本**
+(`js/<name>.js` の**パス形**で引き直すと 52 本)。⭐ 3 本とも緑なので **多いほう(55 本)を採用**して実走した。
+
+⭐ 取りこぼしを 2 経路で潰した(#62 / #64 の「見積もりは常に不足」への対処):
+
+- **`readdir` で `js/` を丸ごと読む本**: `verify_mercenary_roster`(`:90` が `js/` の `.js` を全件読む)= 母集団内。
+  ほかに `probe_party_size` / `verify_codex_map_skill` / `_pptr_profile`(共通ヘルパ)
+- **ファイルのバイトを hash / 長さで縛る本**: `createHash` を持つ 16 本を全部当たったが、
+  ⭐ **どれもハッシュしているのは実行時のデータ**(canvas の dataURL・ページから取った map JSON)で、
+  **ファイルのテキストではない** ⇒ 行末では動かない。⇒ 母集団を増やす必要なし
+
+#### (b) 一覧表 — 母集団 55 本(全件。省略なし)
+
+| ドライバ | exit | 集計行 | FAIL した assert | 秒 |
+|---|---|---|---|---|
+| `driver_bgm_title` | 0 | `16/16 PASS` | — | 4.7 |
+| `driver_depart_menu_clean` | 0 | `結果: 41/41 PASS` | — | 125.9 |
+| `driver_dev_gate` | 0 | `[driver] RESULT: 52/52 passed` | — | 25.5 |
+| `driver_dev_gate2` | 0 | `結果: 62/62 PASS` | — | 26.6 |
+| `driver_doors_p1` | 0 | `PASS 44 / FAIL 0` | — | 0.1 |
+| `driver_doors_p2` | **1** | `結果: 33/34 PASS` | **(6c)** — `goblin-mine:1 bandits-forest:0 lizard-swamp:2 orc-fort:1 undead-temple:3 dragon-lair:3` | 20.4 |
+| `driver_doors_p5` | 0 | `結果: 32/32 PASS` | — | 16.7 |
+| `driver_doors_p6` | 0 | `結果: 40/40 PASS` | — | 25.3 |
+| `driver_doors_p8` | 0 | `結果: 15/15 PASS` | — | 6.8 |
+| `driver_field_step7` | 0 | `=== driver_field_step7  79/79 PASS ===` | — | 245.3 |
+| `driver_graph_kinds` | 0 | `[drv] 66/66 PASS   (--mutate nokind)` | — | 37.4 |
+| `driver_graph_p7` | 0 | `結果: 60/60 PASS` | — | 4.2 |
+| `driver_grid_p3b` | 0 | `PASS 44 / FAIL 0` | — | 16.6 |
+| `driver_grid_p4` | **3** | **集計行が出ない**(exit 3 = 装置を作れなかった ⇒ 素の assert が 1 本も走らない) | ⛔ 変異 `n1ringonly` の置換対象が見つからず**空振り** | 0.5 |
+| `driver_grid_p5` | 0 | `PASS 103 / FAIL 0` | — | 173.1 |
+| `driver_grid_p7` | 0 | `PASS 44 / FAIL 0` | — | 25.7 |
+| `driver_grid_p9` | 0 | `[drv] 52/52 PASS` | — | 406.1 |
+| `driver_heromark_signplate` | 0 | `46 / 46`(⭐ PASS の語を含まない書式) | — | 13.6 |
+| `driver_mapdef_step1` | 0 | `=== 208/208 PASS ===` | — | 18.7 |
+| `driver_mapdef_step2` | 0 | `74/74 PASS` | — | 115.6 |
+| `driver_mapdef_step3` | 0 | `122/122 PASS` | — | 113.8 |
+| `driver_mapeditor` | **1** | `[driver] 176/179 PASS  (FAIL 3)` | `§2 12b` / `§3 12a` / `§3 12b`(いずれも地図エディタの実マウス操作) | 2.7 |
+| `driver_mapeditor_painting` | **1** | `PASS 105 / FAIL 1  (合計 106)` | `§1 1d2`(label 13 種 vs サイズ 12 種) | 8.3 |
+| `driver_mapeditor_pointer` | 0 | `PASS 31 / FAIL 0  (合計 31)` | — | 20.6 |
+| `driver_mapeditor_props` | 0 | `PASS 71 / FAIL 0  (合計 71)` | — | 3.6 |
+| `driver_mapeditor_railkit` | 0 | `PASS 134 / FAIL 0  (合計 134)` | — | 8.3 |
+| `driver_mapeditor_texture` | 0 | `PASS 30 / FAIL 0  (合計 30)` | — | 3.6 |
+| `driver_mapeditor_waterkit` | 0 | `PASS 138 / FAIL 0  (合計 138)` | — | 8.0 |
+| `driver_paint_blocked` | 0 | `PASS 65 / FAIL 0` | — | 6.6 |
+| `driver_party_view_reopen` | 0 | `結果: 35/35 PASSED / 0 FAILED / 0 PENDING` | — | 72.1 |
+| `driver_spawn_not_on_gate` | 0 | `[drv] 59/59 PASS` | — | 4.2 |
+| `verify_ability_scores` | 0 | `24/24 PASSED   FAILED 0   PENDING 0` | — | 3.2 |
+| `verify_darkvision` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | — | 79.3 |
+| `verify_fort_fold` | 0 | `PASS 30 / FAIL 0` | — | 1.2 |
+| `verify_mercenary_roster` | 0 | `[mercenary-roster] 44 PASSED / 0 FAILED / 0 PENDING (44/44)` | — | 18.6 |
+| `verify_npc_crowd` | 0 | `33/33 PASSED   FAILED 0   PENDING 0` | — | 71.8 |
+| `verify_party_promises` | 0 | `35/35 PASSED   FAILED 0   PENDING 0` | — | 248.9 |
+| `verify_player_sheet` | 0 | `73/73 PASSED   FAILED 0   PENDING 0` | — | 56.6 |
+| `verify_quest_visibility` | 0 | `素 39/39 PASSED  (PENDING 0)` | — | 16.6 |
+| `verify_quest_walk` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | — | 209.8 |
+| `verify_recruit_talk` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | — | 62.9 |
+| `verify_road_ambush` | 0 | `41/41 PASSED` | — | 67.1 |
+| `verify_road_boon` | 0 | `20/20 PASSED   FAILED 0   PENDING 0` | — | 69.9 |
+| `verify_road_events` | 0 | `25/25 PASSED   FAILED 0   PENDING 0` | — | 84.0 |
+| `verify_run_chronicle` | 0 | `[run-chronicle] 73 PASSED / 0 FAILED / 0 PENDING` | — | 227.0 |
+| `verify_swamp_fold` | 0 | `PASS 30 / FAIL 0` | — | 2.1 |
+| `verify_swamp_lair` | 0 | `PASS 26 / FAIL 0` | — | 2.5 |
+| `verify_swamp_novice` | 0 | `PASS 34 / FAIL 0` | — | 9.8 |
+| `verify_tavern_map` | 0 | `43/43 PASSED   FAILED 0   PENDING 0` | — | 21.2 |
+| `verify_title_screen` | 0 | `[title-screen] RESULT: 86/86 passed` | — | 66.4 |
+| `verify_town_exit` | 0 | `素 23/23 PASSED  (PENDING 0)` | — | 7.1 |
+| `verify_town_map` | 0 | `85 / 85`(⭐ PASS の語を含まない書式) | — | 51.1 |
+| `verify_world_heromark` | 0 | `18/18 PASSED   FAILED 0   PENDING 0` | — | 9.5 |
+| `verify_world_map` | 0 | `57/57 PASSED   FAILED 0   PENDING 0` | — | 75.3 |
+| `verify_world_steps` | 0 | `33/33 PASSED   FAILED 0   PENDING 0` | — | 53.8 |
+
+⇒ **緑 51 本 / 赤 4 本**。
+
+#### (c) 突き合わせ用の 3 本(母集団外・#64 の「着手前から赤 4 本」の残り)
+
+| ドライバ | exit | 集計行 | FAIL した assert | 秒 |
+|---|---|---|---|---|
+| `sweep_recruit_balance` | **1** | 集計行なし。**装置崩れ 4/4**(母集団ガード OLD 0/2 / NEW 0/2) | `4_partySize(got=1 want=4)` ほか(#61 以降の腐り) | 153.6 |
+| `probe_party_size` | **終了せず** | 集計行なし | ⚠ **941.5 秒で終了せず**、手で停止(#64 は 900 秒で打ち切り = 同じ振る舞い) | 941.5 |
+| `driver_monsters_umberhulk` | **1** | `[driver] RESULT: 21/22 passed` | umber hulk の gaze 再発火(1 件) | 209.9 |
+
+#### (d) 着手前から赤いドライバ = **7 本**(#64 の記録との突き合わせ)
+
+| ドライバ | 着手前(2026-09-10 実測) | #64 の記録 | 一致? |
+|---|---|---|---|
+| `driver_mapeditor` | EXIT=1 **176/179** | EXIT=1 176/179 | ✅ **完全一致** |
+| `sweep_recruit_balance` | EXIT=1 **装置崩れ 4/4**(`4_partySize(got=1 want=4)`) | EXIT=1 装置崩れ 4/4 同左 | ✅ **完全一致** |
+| `probe_party_size` | **終了せず**(941.5 秒で手で停止) | EXIT=124(900 秒打ち切り) | ✅ **同じ振る舞い**(⚠ 終了コードは打ち切り方の違いで別値) |
+| `driver_monsters_umberhulk` | EXIT=1 **21/22** | EXIT=1 21/22 | ✅ **完全一致** |
+| `driver_doors_p2` | EXIT=1 **33/34**、FAIL=**(6c)** | (#64 の 4 本には**無い**) | ⚠ §8 と §6-4 が予告済み |
+| `driver_grid_p4` | **EXIT=3**(0.5 秒) | (#64 の 4 本には**無い**) | ⛔ **記録に無い赤** |
+| `driver_mapeditor_painting` | EXIT=1 **105/106** | (#64 の 4 本には**無い**) | ⛔ **記録に無い赤** |
+
+⭐ **#64 の「着手前から赤 4 本」は 4 本とも再現した**(数字まで一致)。
+⛔ **ただしそれが全部ではない。** #64 の母集団は「`tavern.html` / `world.html` / `town.html` を読む 59 本」で、
+本チケットの母集団(17 ファイルを読む 55 本)とは**別の集合**。重なっていない領域に赤が 3 本あった。
+⇒ ⭐⭐⭐ **一般解 = 前チケットの「既知の赤」表は、母集団が変わった瞬間に不完全になる。**
+**期待表に合わせて数字を書き換えず、母集団ごとに取り直す。**
+
+**赤 3 本の中身**(いずれも #65 とは無関係。行末にも扉にも触れていない領域):
+
+- `driver_doors_p2` **(6c)** … `bandits-forest:0` = 森に扉が 1 枚も立たない。**#16 の森畳み以来**(§6-4 が言い直し対象に指名済み)
+- `driver_grid_p4` … 変異 `n1ringonly` の置換対象(`index.html` の地図行)が**見つからず空振り** ⇒ 起動時検算で **exit 3**。
+  ⚠⚠ **素の assert が 1 本も走っていない**(§2-4 が言う「偽の赤の正体」と**同型**。ただし原因は行末ではなく地図行の腐り)
+- `driver_mapeditor_painting` **(§1 1d2)** … label が 13 種あるのにサイズの種類数が 12(`部屋n7big 30×20` と `部屋n4big 30×20` の重複)
+
+#### (e) §8 が名指しする 5 本 — 予想と実測
+
+| ドライバ | 依頼書 §8 の予想 | **実測** | 判定 |
+|---|---|---|---|
+| `verify_road_ambush` | **41/41 exit 0** | **41/41 PASSED / exit 0**(67.1 秒) | ✅ **的中** |
+| `driver_doors_p2` | **(6c) は着手前から FAIL** | **33/34 / exit 1**、FAIL は **(6c) ただ 1 本** | ✅ **的中** |
+| `driver_doors_p5` | (予想なし) | **32/32 / exit 0**(16.7 秒) | — |
+| `driver_doors_p8` | (予想なし) | **15/15 / exit 0**(6.8 秒) | — |
+| `verify_road_events` | (予想なし) | **25/25 / exit 0**(84.0 秒) | — |
+
+⭐ **§8 の予想は 2 件とも当たった。訂正すべき予想は無い。**
+
+#### (f) ついでに確かめた STEP2 の前提(全部そのまま生きている)
+
+- **17 ファイルは全部 LF**、`index.html` / `tavern.html` / `town.html` / `world.html` / `audio.js` は
+  **全部 CRLF** ⇒ §2-3 のとおり
+- `scripts/hooks/pre-commit` は **LF・CR 0 個** ⇒ §2-6 のとおり(`.gitattributes` の除外は必須のまま)
+- 複数行アンカーは **2 本**とも §2-4 のとおり:
+  `boxleak`(`verify_road_ambush.js:199-202`)は `\n` = **LF**(コメントにも「(LF ファイル)」と明記)⇒ STEP2 で空振りする。
+  `bridgefill`(`:329`)は `\r\n` を明示 ⇒ そのまま通る
+
+#### (g) ⭐⭐⭐ STEP1 で崩れた点(項目5 / 次の窓への申し送り)
+
+**1. ⚠⚠⚠ 集計行の書式は 3 つではなく 7 つ以上。しかも 2 つは `PASS` の語を含まない。**
+
+手順書は「集計行は `PASS` で grep する。`PASSED` では 3 書式のうち 2 つが 0 件になる」と書いていたが、
+**`PASS` で grep しても 2 書式が 0 件になる**。実測した書式:
+
+```
+[driver] RESULT: PASSED N / FAILED 0 / PENDING 0
+[title-screen] RESULT: 86/86 passed              <- 小文字 passed
+========== 結果: N/M PASS ==========
+=== driver_field_step7  79/79 PASS ===
+[drv] 66/66 PASS   (--mutate nokind)
+PASS 44 / FAIL 0                                 <- N/M 形ですらない
+[mercenary-roster] 44 PASSED / 0 FAILED / 0 PENDING (44/44)
+  46 / 46                                        <- PASS の語が 1 つも無い
+```
+
+⇒ ⭐ **対処 = 完全なログをドライバごとにファイルへ残し、集計行は後段で抽出し直す。**
+この形なら書式が増えても**走り直さずに**回収できる(実際 STEP1 で 2 度直したが再走 0 回)。
+⛔ スイープ中に集計行だけ拾って捨てる作りにすると、書式漏れのたびに 73 分を焼く。
+
+**2. ⚠⚠ 12 時間前の node 孤児が 20 本残っていた**(`StartTime` = 06:38 / 実行 740 分)。
+
+スイープ開始時点で、本スイープと無関係な `node.exe` が **20 本**生存していた。
+⚠ ドライバは起動時にポートを最大 14 本予約するので、これは**偽の赤の火種**そのもの。
+⭐ 今回は実害が出なかった(赤 4 本はすべて `EADDRINUSE` ではなく中身の理由で赤)が、
+⇒ **項目5 の再走前に `Get-Process node` を必ず確認すること。**
+
+**3. ⚠ §2-8 の「`tools/*.js` = 156 本」は誤り。** 実測 `git ls-files "tools/*.js"` = **141 本**。
+156 は**リポジトリ全体の追跡 `.js`**(`git ls-files "*.js"`)の数。
+⭐ 母集団の割合を語るときの分母がずれるだけで、本チケットの判断には影響しない。
+
+**4. ⚠⚠⚠ 行末を `grep -c` で測ると嘘が返る。**
+
+LF しか無い `js/*.js` に対しても CR を数える grep が**行数と同じ値**を返し、
+「17 ファイルは既に CRLF」という**真逆の結論**が一度出た。`py` でバイトを数え直して §2-3 が正しいと確認。
+⇒ ⭐ メモリ [[feedback_crlf_python_patch]] の「改行は `py` か `od -c` で測る」は**今回も的中**。
+⛔ 行末の判定に grep を使わないこと。
+
+#### (h) 生ログの置き場
+
+scratchpad に 58 本ぶんの完全なログを残してある(⛔ リポジトリ内には置いていない):
+
+```
+...\scratchpad\sweep.txt         ... 1 行 = ドライバ名 / exit / 集計行 / FAIL / 秒
+...\scratchpad\logs\<name>.log   ... 各ドライバの stdout+stderr 全文
+```
