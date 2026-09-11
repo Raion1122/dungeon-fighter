@@ -722,6 +722,7 @@ async function runSuite(browser, port, label) {
    *   変更が巻き戻された日に例外のほうが赤くなる (古い免罪符が黙って残らない)。 */
   const THEME_EXCEPTIONS = {
     'orc-fort': '#63 (2026-09-09) 砦を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
+    'undead-temple': '#66 (2026-09-11) 神殿を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

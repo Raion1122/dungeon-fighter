@@ -12,7 +12,8 @@
  *              行末変換が blob を 1 本も動かしていない
  *    §2 扉   … 3 本のドライバに `fortfold` が 1 件も無い / 合成ノードの扉が規則どおり /
  *              ノエルの条件 / 抽選が効いている / Math.random を引かない
- *    §3 恒等 … driver_doors_p5 の §1x が 1 バイトも変わっていない / 本番 5 ファイルの blob が HEAD と同一
+ *    §3 恒等 … driver_doors_p5 の §1x が基準の assert を 1 本も失っていない (逐語差分は例外表で明示) /
+ *              本番 5 ファイルの blob が HEAD と同一
  *
  * ■ ⭐⭐⭐ 測り方の 3 原則 (これが本ドライバの背骨)
  *    ① **期待の行末を `.gitattributes` の写経で書かない**。ドライバが書き下すのは
@@ -151,10 +152,11 @@ function wantLocked(seed, doorId) {
 function seedOf(mapId, nodeId) { return MUTATE === 'seedplain' ? String(nodeId) : String(mapId); }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 負のコントロール (8 本。⭐ 「注入できたか」ではなく「**測っている場所に赤が現れるか**」まで設計する)
+// 負のコントロール (9 本。⭐ 「注入できたか」ではなく「**測っている場所に赤が現れるか**」まで設計する)
+//   ★[#66 項目7] 9 本目 p5cut を追加 = 逐語凍結をやめた (3a) の負のコントロール
 // ══════════════════════════════════════════════════════════════════════════════
 const MUT_ORDER = ['eolrevert', 'attrdrop', 'hookscrlf', 'anchorlf', 'armback',
-                   'fixturemiss', 'fixturefake', 'seedplain'];
+                   'fixturemiss', 'fixturefake', 'seedplain', 'p5cut'];
 const MUT_WHY = {
   eolrevert:   'js/road-events.js を LF へ戻す (配信物なので CRLF が正)',
   attrdrop:    '.gitattributes の配信物 CRLF 宣言 3 行のうち `js/*.js text eol=crlf` を消す',
@@ -164,6 +166,7 @@ const MUT_WHY = {
   fixturemiss: '合成ノードの注入を消す',
   fixturefake: '合成ノードをやめ **MAPDEF.doors を持つ自作マップ**で扉を作る (§2-2 の罠の再現)',
   seedplain:   'ドライバ側の規則の seed を mapDef.id でなく素の node id にする',
+  p5cut:       'driver_doors_p5 の §1x から assert を 1 本 ((1x-c2)) 落とす',
 };
 /* その変異で **赤くなるべき** assert の接頭辞。⭐ 空振りしていないことの唯一の判定基準。
  * ⚠ 依頼書 §8 の表からの差分は 2 件。どちらも**実測で崩れた**もので、緩めた訳ではない:
@@ -185,6 +188,10 @@ const MUT_EXPECT = {
   fixturemiss: ['(0c', '(2b', '(2d'],
   fixturefake: ['(2b', '(2c', '(2d'],
   seedplain:   ['(2b'],
+  /* ★[#66 項目7] 逐語凍結をやめた (3a) の負のコントロール。旧 (3a) は変異を 1 本も
+   *   持っておらず「何も守っていない」と区別が付かなかった。⚠ 接頭辞は `(3a)` まで
+   *   書く — `(3a` だと (3a2) にも当たり、緑のままの (3a2) で空振り判定になる。 */
+  p5cut:       ['(3a)'],
 };
 /* その変異で「同時に**緑のままである**べき」assert。
  * ⭐ これが無いと「効きすぎて全部赤 = 何を検出したのか分からない」変異を通してしまう。 */
@@ -197,6 +204,7 @@ const MUT_KEEP_GREEN = {
   fixturemiss: ['(1a', '(2c', '(2e'],
   fixturefake: ['(1a', '(1b'],
   seedplain:   ['(0c', '(1a', '(2e'],
+  p5cut:       ['(3a2)', '(2a', '(3b'],
 };
 if (MUTATE !== null && MUT_ORDER.indexOf(MUTATE) < 0) {
   console.error('[drv] 未知の --mutate: ' + MUTATE + '  (' + MUT_ORDER.join(' / ') + ')');
@@ -211,6 +219,9 @@ const P = { TREE: 'tree', ANCHOR_SRC: 'anchor-src', ANCHOR_TGT: 'anchor-target',
 const EOLREVERT_FILE = 'js/road-events.js';
 
 function rawRead(rel) { return fs.readFileSync(path.join(ROOT, rel.replace(/\//g, path.sep))); }
+
+/* 変異 p5cut の注入点。⚠ 健在チェック (auditMutations) と注入で**同じ文字列**を使う。 */
+const P5CUT_ANCHOR = "check('(1x-c2) ";
 
 /* 作業ツリーのバイトを読む唯一の口。⚠ purpose ごとに変異の当たる範囲が違う (冒頭の注記)。 */
 function readTracked(rel, purpose) {
@@ -233,6 +244,11 @@ function readTracked(rel, purpose) {
     const s = buf.toString('utf8');
     buf = Buffer.from(s.replace("const STAGE = 'orc-fort';",
       "const STAGE = 'orc-fort';\nconst STAGE_ARM = '&fortfold=0';   /* \u2605\u5909\u7570armback */"), 'utf8');
+  }
+  /* \u2605[#66 \u9805\u76ee7] \u00a71x \u304b\u3089 assert \u3092 1 \u672c\u843d\u3068\u3059\u3002id \u3054\u3068\u6d88\u3055\u306a\u3044\u3068 ids1x \u304c\u62fe\u3063\u3066\u3057\u307e\u3046\u3002 */
+  if (MUTATE === 'p5cut' && rel === 'tools/driver_doors_p5.js' && purpose === P.DRIVER_SRC) {
+    const s = buf.toString('utf8');
+    buf = Buffer.from(s.replace(P5CUT_ANCHOR, "if (false) check('(1xCUT) \u2605\u5909\u7570p5cut "), 'utf8');
   }
   return buf;
 }
@@ -361,6 +377,9 @@ function auditMutations() {
   const p5 = rawRead('tools/driver_doors_p5.js').toString('utf8');
   const nStage = p5.split("const STAGE = 'orc-fort';").length - 1;
   st.armback = { ok: nStage === 1, note: "driver_doors_p5 の `const STAGE = 'orc-fort';` " + nStage + ' 箇所' };
+
+  const nCut = p5.split(P5CUT_ANCHOR).length - 1;
+  st.p5cut = { ok: nCut === 1, note: 'driver_doors_p5 の §1x の ' + P5CUT_ANCHOR + ' ' + nCut + ' 箇所' };
 
   const fxOk = typeof FX.install === 'function' && typeof FX.noel === 'function' &&
                FX.FX_NODE_IDS.length >= 2 && FX.FX_DIRS.length >= 2;
@@ -771,6 +790,27 @@ function slice1x(src) {
   const end = src.lastIndexOf('\n', next) + 1;
   return src.slice(start, end);
 }
+/* §1x に並ぶ assert の id を**切り出したブロックから読む**。⛔ 名前を書き下さない
+ * (基準側にも本番側にも同じ関数を当てるので、増えた / 減ったが機械で出る)。 */
+function ids1x(src) {
+  const out = []; const re = /check\('(\([^)]*\))/g; let m;
+  while ((m = re.exec(src))) out.push(m[1]);
+  return out;
+}
+/* ★[#66 項目7 2026-09-12] §1x を逐語で凍結していた (3a) の言い直し。
+ * ⛔ **基準 rev (P5_BASE_REF) は進めない。** 進めるとチケット 1 本ごとに守る時間幅が
+ *   リセットされ、「#65 は §1x を 1 バイトも触っていない」という主張そのものが消える
+ *   (#62 の verify_swamp_lair (5a) で確立した裁定と同型)。
+ * ⚠ しかし #66 が神殿を畳んだ結果 §1x の母集団 (実在の扉) が痩せ、(1x-c2) の「過半」が
+ *   割れた。#66 項目7 はそれを**広げる向き**に直した (5 舞台 27 枚 / assert 5 → 6 本)。
+ * ⇒ 守りたい不変条件へ言い直す = 「**基準に在った assert が 1 本も消えていない**」+
+ *   「逐語の差分があるなら例外表に理由が載っている」。
+ * ⚠ 「撤退スイッチの腕を持たない」は §2 の (2a) が 3 本のドライバ全体で見ているので重ねない。 */
+const P5_1X_EXCEPTIONS = {
+  '#66 項目7 (2026-09-12)':
+    '神殿の畳みで痩せた §1x の母集団を #65 の合成の出口で 5 舞台 27 枚へ作り直し、' +
+    '(1x-c2) の「食い違うペアが過半」を台帳導出の被覆 (扉を持つ舞台が 1 つ残らず食い違う) へ言い直した',
+};
 function sectionIdentity() {
   console.log('--- §3 恒等 (非退行) ---');
   const cur = slice1x(readTracked('tools/driver_doors_p5.js', P.DRIVER_SRC).toString('utf8'));
@@ -778,12 +818,24 @@ function sectionIdentity() {
   try { old = slice1x(gitStr(['show', P5_BASE_REF + ':tools/driver_doors_p5.js'])); } catch (e) {}
   const ids = ['(1x-z)', '(1x-a)', '(1x-b)', '(1x-c)', '(1x-c2)'];
   const hasAll = !!cur && ids.every((i) => cur.indexOf(i) >= 0);
-  check('(3a) ★ `driver_doors_p5` の §1x が ' + P5_BASE_REF + ' (#65 着手直前の origin/main) から ' +
-    '**1 バイトも変わっていない** + [装置] ブロックが ' + ids.length + ' 本の assert を含む',
-    !!cur && !!old && hasAll && cur === old,
+  const curIds = cur ? ids1x(cur) : [];
+  const oldIds = old ? ids1x(old) : [];
+  const lost = oldIds.filter((i) => curIds.indexOf(i) < 0);
+  const verbatim = !!cur && !!old && cur === old;
+  const exKeys = Object.keys(P5_1X_EXCEPTIONS);
+  check('(3a) ★ `driver_doors_p5` の §1x が ' + P5_BASE_REF + ' (#65 着手直前の origin/main) の ' +
+    'assert を **1 本も失っていない** (id は基準側から導出 / ⛔ 基準 rev は進めない) + ' +
+    '[装置] ブロックが ' + ids.length + ' 本の assert を含む',
+    !!cur && !!old && hasAll && oldIds.length >= ids.length &&
+    lost.length === 0 && curIds.length >= oldIds.length,
     cur ? ('本番 ' + cur.length + 'B / ' + P5_BASE_REF + ' ' + (old ? old.length + 'B' : '取得失敗') +
-           ' / 同一=' + (cur === old) + ' / assert=' +
+           ' / assert ' + oldIds.length + ' → ' + curIds.length + ' / 失われた id ' + lost.length +
+           (lost.length ? ': ' + lost.join(' ') : '') + ' / 逐語一致=' + verbatim + ' / 装置=' +
            ids.filter((i) => cur.indexOf(i) >= 0).length + '/' + ids.length) : '§1x を切り出せない');
+  check('(3a2) ★装置: §1x に基準からの逐語差分があるなら例外表に理由が 1 件以上ある / ' +
+    '差分が無いなら例外表は空 (= 古い免罪符が黙って残らない)',
+    !!cur && !!old && (verbatim === (exKeys.length === 0)),
+    '逐語一致=' + verbatim + ' / 例外 ' + exKeys.length + ' 件=' + JSON.stringify(P5_1X_EXCEPTIONS));
 
   const bad = [];
   for (const rel of PROD_FILES) {

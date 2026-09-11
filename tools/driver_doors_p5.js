@@ -438,6 +438,17 @@ async function bootPage(browser, url, scen, errs, opts) {
     const collect = async (stage) => {
       const errs = [];
       const p = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', stage, errs);
+      /* ★[#66 項目7 2026-09-12] 母集団を **#65 の合成の出口**で作り直した。
+       *   ⛔ 旧: 実在の扉だけを数えていたので、畳みのたびに舞台の扉が減り、2026-09-12 実測で
+       *      砦 1 / 沼 2 / 神殿 1 / 竜の巣 7 / 森 **0** 枚。全 6 ペアの共通鍵が **1 本ずつ**まで
+       *      痩せ、森は withDoors から丸ごと落ちていた。共通鍵 1 本 = **1 ビット**しか情報が
+       *      無いので、どう書き直しても「舞台ごとに独立」を (1x-c) より強くは言えない。
+       *   ⭐ 合成の出口は **実在ノードへ**足すので mapDef.id は舞台本来のもの。§1x が測りたい
+       *      「同じ (node id, door id) でも舞台が違えば state が違う」がそのまま成り立つ。
+       *      ⛔ 合成**ノード** (fx0..fx3) では駄目 — mapDef.id が 'fixture65/…' で舞台に依らず、
+       *        どの舞台でも同じ答えになって測りたい差が消える。
+       *   ⭐ 実測: 扉 11 → **27 枚** / 扉を持つ舞台 4 → **5** / 共通鍵 6 → **23**。 */
+      const fx = await FX.install(p, { nodes: false, attach: true });
       const R = await p.evaluate(() => {
         nodeBusy = true;
         const per = {}, ids = {};
@@ -451,6 +462,7 @@ async function bootPage(browser, url, scen, errs, opts) {
       });
       for (const e of errs) errsAll.push('§1x(' + stage + '): ' + e);
       await p.close();
+      R.fx = fx;
       return R;
     };
     /* ★[#62] 舞台を 2 つ手で選ぶのをやめ、**扉の台帳から導く**形へ言い直した。
@@ -502,7 +514,33 @@ async function bootPage(browser, url, scen, errs, opts) {
     const withDiff = pairs.filter(p => p.diff.length > 0);
     const totalDiff = pairs.reduce((a, p) => a + p.diff.length, 0);
     const censusLine = LOCK_STAGES.map(s => s + ':' + doorCount(s) + '枚').join(' / ');
+    /* ★[#66 項目7 2026-09-12] ③ どの舞台も「**自分の** mapDef.id で抽選されている証拠」を
+     *   1 つ以上持っているか = 他のどれかの舞台と共通鍵で食い違っているか。
+     *   ⛔ 旧 (1x-c2) は「食い違うペアが**過半**」(`withDiff.length * 2 > pairs.length`)。
+     *      ペア数は舞台数の 2 乗で増える**母集団の形**なので、これも #62 が (1x-a) から
+     *      撤去した下限定数と同じ型の焼き込みだった。神殿を畳んだ #66 で扉が 7 → 1 枚へ
+     *      減り 4/6 → **3/6** で過半を割って赤くなった (本番は 1 バイトも壊れていない)。
+     *      ⛔ 「過半 → 1 組以上」へ下げるのは写経で、F4 竜の巣でまた腐る。
+     *   ⛔ 「共通鍵を 2 組以上持つペアに限れば全ペアで食い違う」も**実測で否決**した。
+     *      2026-09-12 実測: 素の台帳では母集団が **0 ペア** (= 永久緑の空 assert) になり、
+     *      合成の出口を足した台帳でも 6 ペア中 3 ペア (砦x神殿 / 砦x竜 / 神殿x竜) が
+     *      食い違わない。抽選率 0.25 では 1 鍵あたり 62.5% が一致するので、
+     *      「全ペア」を要求する形は鍵数がいくつでも安定しない。
+     *   ⭐ 採った形 = **被覆**。集計の閾値でなく「台帳に載る舞台を 1 つ残らず」と言うので、
+     *      畳みで扉が増えようが減ろうが腐らず、舞台が増えれば自動で厳しくなる。
+     *      素の node id へ退行すると**全舞台が沈黙**して全件赤になる。 */
+    const mute = withDoors.filter(s => !pairs.some(p => (p.a === s || p.z === s) && p.diff.length > 0));
+    const fxBad = LOCK_STAGES.filter(s => {
+      const f = CENSUS[s].fx;
+      return !(f && f.ok && Array.isArray(f.attached) && f.attached.length > 0);
+    });
 
+    check('(1x-y) 装置 assert: 合成の出口が全舞台に立ち、扉 0 枚の舞台が 1 つも無い ' +
+      '(母集団が畳みに依存しない)',
+      fxBad.length === 0 && withDoors.length === LOCK_STAGES.length,
+      '合成に失敗した舞台 ' + fxBad.length + (fxBad.length ? ': ' + fxBad.join(' ') : '') +
+      ' / 扉を持つ舞台 ' + withDoors.length + '/' + LOCK_STAGES.length + ' / 合成の出口 ' +
+      LOCK_STAGES.map(s => s + ':' + (((CENSUS[s].fx || {}).attached) || []).length + '本').join(' '));
     check('(1x-z) 装置 assert: 扉を 1 枚以上持つ舞台が 2 つ以上ある (ペア比較が成立する)',
       withDoors.length >= 2, '台帳 ' + censusLine);
     check('(1x-a) 母集団ガード: 扉を持つ舞台の全ペアが (node id, door id) を 1 組以上共有する ' +
@@ -520,10 +558,12 @@ async function bootPage(browser, url, scen, errs, opts) {
       '違う組 ' + totalDiff + ' / 共通 ' + pairs.reduce((a, p) => a + p.common, 0) +
       (totalDiff ? ': ' + (withDiff[0] ? withDiff[0].diff.slice(0, 3).join(' ') : '')
                  : ' ← 素の node id へ退行している疑い'));
-    check('(1x-c2) ★★共通組を持つ舞台ペアの過半で state が食い違う ' +
-      '(素の node id へ退行すると 0 ペアになる)',
-      withDiff.length * 2 > pairs.length,
-      '食い違うペア ' + withDiff.length + '/' + pairs.length + ' — ' +
+    check('(1x-c2) ★★扉を持つ舞台が **1 つ残らず**、他の舞台と共通鍵で state が食い違う ' +
+      '(⛔ 「過半」の定数は撤去し台帳から導出。素の node id へ退行すると全舞台が沈黙する)',
+      withDoors.length >= 2 && mute.length === 0,
+      '沈黙した舞台 ' + mute.length + '/' + withDoors.length +
+      (mute.length ? ': ' + mute.join(' ') : '') + ' / 食い違うペア ' + withDiff.length + '/' +
+      pairs.length + ' — ' +
       pairs.map(p => p.a + 'x' + p.z + ':' + p.diff.length + '/' + p.common).join(' '));
   }
 
