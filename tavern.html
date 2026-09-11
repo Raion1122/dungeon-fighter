@@ -2560,6 +2560,13 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
     body.compact .patronLabel { font-size: 11px; padding: 1px 6px 2px; top: -16px; }
+    /* ★ 左向きの席 (patronB / patronD) は .npcUnit に scaleX(-1) が掛かるので、
+       子であるこの札まで鏡文字になる。札だけ二重反転して文字を立て直す。
+       ⭐ 反転は札自身の中心で起きるだけなので getBoundingClientRect は 1px も動かない
+         (= verify_hold_person (1d) / verify_party_promises の測る箱が不変)。
+       ⛔ font-size / padding / top / z-index / pointer-events には 1 文字も触れない
+         (#57 の 3 条件と #60 の注記を崩さない)。 */
+    .npcUnit.faceLeft .patronLabel { transform: translateX(-50%) scaleX(-1); }
     /* ★[#60 STEP4] 約束済みの席の札だけ **枠を金・背景を濃く**。
        ⛔ 光り物 (glow / box-shadow) は足さない —— #57 の --holdGlow が実機未確認のまま
          (依頼書 §8-1)。⛔ font-size / padding / top には 1 文字も触らない ——
@@ -3264,10 +3271,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場の卓の仲間候補の名札が読めるようになった</b> — 左を向いて座っている人の名前が裏返しに表示されていたのを直した。</li>
         <li><b>地下神殿が 2 枚の大部屋になった</b> — 細かい小部屋を抜けて回る形をやめ、納骨堂から儀式の広間までを一続きの広い床で戦い抜く。</li>
         <li><b>はじめの画面へ戻れるようになった</b> — 街と世界地図の左上のボタンから、記録の選び直しができる。進行は消えない。</li>
         <li><b>依頼の地に赤い封蝋の印が付く</b> — 世界地図で向かうべき場所がひと目で分かる。</li>
-        <li><b>受注中の依頼が画面にずっと出るようになった</b> — 地図と街と酒場の見出しの下に、いま受けている依頼の名前が表示される。</li>
       </ul>
     </div>
     <script>
@@ -10427,6 +10434,10 @@
         u.el.style.left = (cx + u.dx - SPRITE / 2) + "px";
         u.el.style.top  = (cy + u.dy - SPRITE * FOOT) + "px";
         u.el.style.transform = u.left ? "scaleX(-1)" : "none";
+        /* ★ 左向きの席は親が scaleX(-1) なので、頭上の名札まで面が反転して鏡文字になる。
+         *   打ち消しは CSS 側 (.npcUnit.faceLeft .patronLabel) の二重反転で行う。
+         * ⛔ ここで札へ直接 transform を書かない —— 追従の経路を 2 本にしない (#57 の注記)。 */
+        u.el.classList.toggle("faceLeft", !!u.left);
         u.el.style.backgroundPosition = (-u.frame * SPRITE) + "px " + (-SHEET_ROW_RIGHT * SPRITE) + "px";
         u.sh.style.left = (cx + u.dx) + "px";
         u.sh.style.top  = (cy + u.dy) + "px";
