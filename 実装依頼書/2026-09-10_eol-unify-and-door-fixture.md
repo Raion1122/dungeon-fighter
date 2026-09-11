@@ -1107,6 +1107,40 @@ no-op へ差し替えて実走(測り終えてハッシュ一致で復元済み)
     git は eol を無視する)。⇒ **eol 属性だけを見て binary を判定してはいけない**。
     `text` 属性か NUL 走査で切ること。
 
+**⭐⭐⭐ stat-dirty の後始末(項目3b で新たに判明。§8 (1e) と項目4 に直結)**
+
+行末を変換すると **index が覚えている stat のサイズが古いまま**残る。実測(`driver_doors_p5.js`):
+
+| 見たもの | 値 |
+|---|---|
+| index のエントリ OID | `f74cbb63…` |
+| `HEAD:<path>` の blob | `f74cbb63…` |
+| 作業ツリーを clean フィルタに通した OID(`git hash-object`) | `f74cbb63…` |
+| 生バイトの OID(`git hash-object --no-filters`) | `f74cbb63…` |
+| index が覚えている **stat サイズ** | **48235**(CRLF 時代) |
+| ディスクの実サイズ | **47456**(LF 化後) |
+
+⇒ **4 つの OID が全部同じ = 内容は完全に一致**。違うのは stat のサイズだけ。
+`git status` は安いほうの経路(stat 比較)で打ち切るので ` M` を出し、
+`git diff` は内容比較まで進むので **空**になる。これが食い違いの正体。
+
+⚠⚠⚠ **`git status` を何度走らせても ` M` は消えない。**
+`git update-index --refresh` も **`needs update` と報告するだけで直さない**
+(サイズ不一致は「確実に変更あり」と見なす安い経路に乗るため)。
+
+✅ **後始末の正しい打ち方**(内容が同一であることを OID で確かめてから):
+
+    git status --porcelain -z | <" M" のパスだけ抽出> | git update-index -z --stdin
+
+⭐ `git update-index <path>` は**既存エントリの再登録**なので、
+ハッシュが同じなら index の内容は 1 ビットも動かず **stat だけ**が更新される
+(実測 = 84 本を通した後、`git status` / `git diff` / `git diff --cached` の 3 つとも空)。
+⛔ `git add -A` は使わないこと(無関係な変更を巻き込む)。
+
+⚠ **項目4 への含意**: 受入 (1e) を `git status --porcelain` が空、で書くと
+**「後始末を打った人の手元でだけ緑」**になる。⇒ (1e-1) `git diff --stat` が空 /
+(1e-2) blob OID が HEAD と一致、で書くこと(どちらも stat に依存しない)。
+
 **⚠ 環境の気づき(項目3b とは無関係だが記録)**
 
 `git worktree list` に **過去チケットの baseline ツリーが 10 本**残っている
