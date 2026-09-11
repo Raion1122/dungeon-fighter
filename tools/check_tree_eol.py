@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """ツリーの行末が .gitattributes の宣言どおりかを検査する道具。
 
-出典: 実装依頼書/2026-09-10_eol-unify-and-door-fixture.md 5-3 (#65)
+出典: 実装依頼書/2026-09-10_eol-unify-and-door-fixture.md 5-3 (#65 項目3b で裁定 (C) へ改訂)
 
 肝 = 本番ツリーにも隔離ワークツリーにも同じものを当てられること。
 #64 は git worktree add が core.autocrlf=true の下で 389 ファイルを CRLF 化し、
@@ -18,15 +18,25 @@ LF を含む変異アンカーが全部空振りして偽の EXIT=3 を出した
 「CR 行数 = 総行数」という真逆の答えが返る (#65 項目1 が実際に踏んだ)。
 ここでは 'rb' で読んだバイトを数える。
 
-判定の強さ:
+裁定 (C) = 既定 LF + 配信物だけ CRLF (2026-09-11 / #65 項目3b):
+  ⭐⭐⭐ .gitattributes は「全部同じにする」ものではなく
+     **道具が実際に書き出す姿を宣言する**もの、という原理で決めた。
+     (例: tools/_golden.js:157 は常に LF で書くので tools/goldens/ は LF が正)
+  ⇒ 2026-09-11 実測で **追跡 840 本 = binary 363 / テキスト 477 が全部宣言どおり**に
+     なった (食い違い 0)。ship 22 / hook 2 / other 453。
+
+判定の強さ (⭐ 裁定 (C) で other を「報告のみ」から**致命へ格上げ**した):
   ship  ... 配信物 (ブラウザが実際に読む root/*.html, root/*.js, js/**/*.js, **/*.css)
             食い違いは致命。行末が動くと変異アンカーと golden が黙って空振りする。
   hook  ... scripts/hooks/* (git が core.hooksPath 経由で起動するシェルスクリプト)
             食い違いは致命。shebang が CRLF になると Git Bash が
             bad interpreter で落ち、changelog ガードが黙って死ぬ (2-6)。
-  other ... md / txt / jsonl / py / json ほか
-            既定では報告のみ。依頼書 8「測らないこと」の方針で、
-            将来ツールが LF で書き出しても止めない。--all で致命へ格上げできる。
+  other ... md / txt / jsonl / py / json ほか。**致命**。
+            ⭐ 旧 (全部 CRLF) の宣言では other が 374 本も食い違っていたので
+            「報告のみ」にするしかなかった。裁定 (C) は宣言をディスクに合わせたので
+            食い違いは 0 本 = 縛れる。ここを緩いままにすると 453 本が
+            **黙って漂流できる穴**になる。
+            ⛔ 緑にするために検査対象を狭めないこと。逃がすなら --lenient で明示的に。
 
 終了コード:
   0 ... 一致 (致命カテゴリに食い違いなし)
@@ -111,11 +121,18 @@ def main(argv=None):
     ap.add_argument("root", nargs="?", default=None,
                     help="検査するツリーの根 (既定 = このスクリプトを含むリポジトリの根)")
     ap.add_argument("--all", action="store_true",
-                    help="md/txt/jsonl など配信物以外の食い違いも致命として扱う")
+                    help="(裁定 (C) 以降は既定と同じ。後方互換のため残してある no-op)")
+    ap.add_argument("--lenient", action="store_true",
+                    help="other (md/txt/jsonl/py/json) の食い違いを報告のみに落とす "
+                         "= 裁定 (C) 以前の既定。⛔ 常用しない")
     ap.add_argument("--list", action="store_true", help="一致したファイルも 1 行ずつ出す")
     ap.add_argument("--json", action="store_true", help="機械可読なサマリを最後に 1 行出す")
-    ap.add_argument("--min-text", type=int, default=1,
-                    help="検査対象のテキストファイルがこの本数を下回ったら環境不備 (既定 1)")
+    # ⭐ 2026-09-11 実測 = テキスト 477 本。既定 1 では「0 本を検査して全部緑」を
+    #   実質塞げていなかった (1 本でも通る)。実測の 8 割強を下限にして本当の番人にする。
+    #   ⚠ 依頼書 8 (0a) の「700 本以上」は誤り — 700 は binary 込みでも届かない数で、
+    #     png/jpg/mp3 を除いた実測は 477 本 (#65 項目3b で訂正)。
+    ap.add_argument("--min-text", type=int, default=400,
+                    help="検査対象のテキストファイルがこの本数を下回ったら環境不備 (既定 400)")
     args = ap.parse_args(argv)
 
     root = args.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -190,7 +207,9 @@ def main(argv=None):
               "= 0 本を検査して全部緑になる形" % (counts["text"], args.min_text))
         return EXIT_ENV
 
-    fatal_cats = ("ship", "hook", "other") if args.all else ("ship", "hook")
+    # ⭐ 裁定 (C): 宣言がディスクと一致しているので 3 カテゴリとも致命が既定。
+    #   --all は「other も致命」を意味していた旧フラグ = 今は既定と同じ (no-op)。
+    fatal_cats = ("ship", "hook") if args.lenient else ("ship", "hook", "other")
     fatal = [b for b in bad if b[0] in fatal_cats]
     advisory = [b for b in bad if b[0] not in fatal_cats]
 
