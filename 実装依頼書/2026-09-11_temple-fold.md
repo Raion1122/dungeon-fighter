@@ -470,4 +470,281 @@ OK 領域は「位相 + 20 × 周期 ≒ 1023」を保つ**斜めの稜線**な�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の基準(STEP1)
+
+- **測定日**: 2026-09-11(実装窓・項目1)
+- **着手直前の `HEAD`** = `0b9034d` / 作業ツリー **clean** / 未 push **3 本** / `origin/main` = `8566218`
+  (orchestrator の実測値と**完全一致**)
+- ⛔ 本番コード(`index.html` / `tavern.html` / `audio.js`)も `tools/` の既存ファイルも
+  **1 バイトも触っていない**。走行後に `git status --porcelain` を取り直して確認済み
+- ⚠⚠ 検証ドライバを `timeout` で**包んでいない**(§4-4)。完了は終了コードでなく集計行で判定した
+- ⚠⚠ **本番ツリーでそのまま逐次実走**。⛔ `git worktree` の隔離ツリーは使っていない
+  (`git worktree list` に残る 10 本の `df_*_baseline` は各ドライバが自分で作る物 = 触っていない)
+- **総所要 = 202 分**(母集団 131 本・逐次・PowerShell スイープ / 18:49:50 → 22:12:33)
+  + 母集団外 6 本 = 2.5 分 + フレーク確認の単独再走 1 本 = 3.7 分
+- **生ログ**(⭐ 項目5 はこの表ではなく**生ログ**と突き合わせること):
+  `…\scratchpad\step1_baseline\<name>.log`(137 本 + `driver_mine_wall_RERUN.log`)
+  / 一覧 = `baseline_all.tsv` / `baseline_table.tsv` / 非緑の抜粋 = `nongreen.txt`
+
+#### (a) 母集団の引き方と実測本数 — 下限 35 本に対し **実測 132 本**
+
+⭐ §2-6 の **35 本**(`grep -l "undead-temple\|dragon-lair" tools/*.js`)は**舞台名の名指し**で、
+#64 の一般解どおり「**#66 で変更するファイルを読むか**」で引き直すと **132 本**になった(**3.8 倍**)。
+
+引き方(`tools/*.js` のうち `verify_` / `driver_` / `probe_` / `sweep_` で始まる **138 本**が対象。
+⛔ ヘルパ `_golden.js` / `_pptr_profile.js` / `_doors_fixture.js` / `auto_debug_run.js` /
+`sim_plaza_entry.js` は「単体で `node <file>` として走るドライバ」ではないので除外):
+
+1. #66 で変更するファイル = `index.html` / `tavern.html` / `tools/make_grid_map.py` /
+   `tools/driver_graph_p6.js` / `assets/room_undead-temple_n4_map.jpg` `_n7_map.jpg`
+2. 各ドライバから**ブロックコメントと行コメントを落としてから**これらの語を探す
+   (⚠ `grep -l` はコメントも拾う = #47 の罠)
+
+実測の内訳:
+
+| 区分 | 本数 | 備考 |
+|---|---|---|
+| `index.html` または `tavern.html` を**コードで**参照 | **132** | ⇒ これが母集団 |
+| ↳ うち `tools/make_grid_map.py` も読む | 7 | `verify_codex_map_skill` / `verify_tavern_map` / `verify_town_map` / `verify_road_ambush` / `driver_grid_p4` / `driver_grid_p5` / `driver_grid_p7` |
+| ↳ うち `driver_graph_p6` を名指し | 4 | `driver_graph_p6` 自身 / `driver_graph_p7` / `driver_heromark_signplate` / `probe_s2_fold` |
+| **コメントでのみ**言及(母集団外) | 2 | `verify_world_steps` / `verify_world_heromark` |
+| 参照なし(母集団外) | 4 | `driver_bgm_title` / `driver_doors_p1` / `probe_town_mask` / `verify_road_events` |
+
+⭐ 母集団外の 6 本も**念のため実走した**(#47「取りこぼした 1 本が赤いまま出荷された」の再発防止)。
+**6 本とも EXIT=0**(下表の末尾)。
+
+⚠ **実走したのは 131 本。** `probe_party_size` は §4-5 のとおり**既知の無限走行**なので
+**走らせず「未測定(既知の無限走行)」と記録する**(#65 は 941.5 秒で手停止 / #64 は 900 秒で打ち切り)。
+
+#### (b) 全ドライバの色(137 本 = 母集団 131 実走 + 母集団外 6)
+
+⚠ 集計行は原文のまま(装飾の罫線だけ縮めてある)。**秒**は逐次実走時の実測。
+
+| ドライバ | exit | 集計行 | FAIL 行 | 秒 |
+|---|---|---|---|---|
+| `driver_action_priority` | 0 | `[driver] RESULT: PASSED 92 / FAILED 0 / PENDING 0` | — | 127 |
+| `driver_bgm_mine` | 0 | `37/37 PASS` | — | 11 |
+| `driver_bgm_town` | 0 | `17/17 PASS` | — | 2 |
+| `driver_cast_circle` | 0 | `56/56 PASS` | — | 4 |
+| `driver_choice_logslot` | 0 | `[drv] 29/29 PASS   (--mutate nope)` | — | 5 |
+| `driver_cleanup_phase1` | 0 | `[driver] RESULT: 28/28 passed` | — | 18 |
+| `driver_cleric_sprites` | 0 | `[driver] RESULT: 85/85 passed` | — | 1 |
+| `driver_depart_menu_clean` | 0 | `══ 結果: 41/41 PASS ══` | — | 126 |
+| `driver_dev_gate` | 0 | `[driver] RESULT: 52/52 passed` | — | 25 |
+| `driver_dev_gate2` | 0 | `══ 結果: 62/62 PASS ══` | — | 27 |
+| `driver_diag_watchdog` | 0 | `PASS 34 / FAIL 0` | — | 661 |
+| `driver_doors_p2` | 0 | `══ 結果: 40/40 PASS ══` | — | 21 |
+| `driver_doors_p5` | 0 | `══ 結果: 35/35 PASS ══` | — | 17 |
+| `driver_doors_p6` | 0 | `══ 結果: 40/40 PASS ══` | — | 25 |
+| `driver_doors_p8` | 0 | `══ 結果: 18/18 PASS ══` | — | 7 |
+| `driver_elf_sprites` | 0 | `[driver] RESULT: 87/87 passed` | — | 1 |
+| `driver_encounter_mopup` | 0 | `[drv] 36/36 PASS` | — | 355 |
+| `driver_equip_compact_ios` | 0 | `=== WORKTREE: 31/31 PASS ===` | — | 46 |
+| `driver_field_scale` | 0 | `[drv] working: 49/49 PASS` | — | 24 |
+| `driver_field_step0` | 0 | `=== 測定妥当性 33/33 PASS ===` | — | 703 |
+| `driver_field_step05_hud` | 0 | `=== 測定妥当性 6/6 PASS ===` | — | 44 |
+| `driver_field_step1_geo` | 0 | `=== 71/71 PASS ===` | — | 100 |
+| `driver_field_step2` | 0 | `RESULT: 64/64  ALL PASS` | — | 39 |
+| `driver_field_step3` | 0 | `RESULT: 65/65  ALL PASS` | — | 69 |
+| `driver_field_step5` | 0 | `=== driver_field_step5  48/48 PASS ===` | — | 5 |
+| `driver_field_step6_png` | 0 | `RESULT: 16/16  ALL PASS` | — | 20 |
+| `driver_field_step7` | 0 | `=== driver_field_step7  79/79 PASS ===` | — | 245 |
+| `driver_field_verge_gap` | 0 | `RESULT: 39/39  ALL PASS` | — | 24 |
+| `driver_field_wagon` | 0 | `=== 測定妥当性 18/18 PASS ===` | — | 594 |
+| `driver_fix4_help_bonus` | 0 | `[driver] RESULT: 13/13 passed` | — | 4 |
+| `driver_graph_arrows` | 0 | `[drv] 80/80 PASS   (--mutate nope)` | — | 14 |
+| `driver_graph_kinds` | 0 | `[drv] 66/66 PASS   (--mutate nokind)` | — | 37 |
+| **`driver_graph_p6`** | 0 | `══ 結果: 248/248 PASS ══` | — | 41 |
+| **`driver_graph_p7`** | 0 | `══ 結果: 60/60 PASS ══` | — | 4 |
+| `driver_graph_reentry` | 0 | `[drv] 57/57 PASS   (--mutate nodom / cycles=5)` | — | 2 |
+| `driver_graph_run` | 0 | `[drv] 99/99 PASS   (--mutate nosave)` | — | 49 |
+| `driver_graph_sce1` | 0 | `[drv] 106/106 PASS` | — | 209 |
+| `driver_grid_p3b` | 0 | `PASS 44 / FAIL 0` | — | 17 |
+| **`driver_grid_p4`** | **3** | **集計行が出ない**(変異アンカー空振りで素の assert が 1 本も走らない) | ⛔ | 0 |
+| `driver_grid_p5` | 0 | `PASS 103 / FAIL 0` | — | 170 |
+| `driver_grid_p7` | 0 | `PASS 44 / FAIL 0` | — | 26 |
+| **`driver_grid_p8`** | **1** | `PASS 55 / FAIL 1` | `(6d)` | 288 |
+| `driver_grid_p9` | 0 | `[drv] 52/52 PASS` | — | 465 |
+| `driver_grid_s2` | 0 | `[drv] 116/116 PASS` | — | 5 |
+| `driver_heromark_signplate` | 0 | `46 / 46`(⭐ PASS の語を含まない) | — | 14 |
+| `driver_leader_ai` | 0 | `[driver] RESULT: 42/42 passed` | — | 32 |
+| `driver_log_compact` | 0 | `[driver] RESULT: 29/29 passed` | — | 5 |
+| `driver_mapdef_step1` | 0 | `=== 208/208 PASS ===` | — | 19 |
+| `driver_mapdef_step2` | 0 | `74/74 PASS` | — | 116 |
+| `driver_mapdef_step3` | 0 | `122/122 PASS` | — | 114 |
+| **`driver_mapeditor_painting`** | **1** | `PASS 105 / FAIL 1  (合計 106)` | `§1 1d2` | 8 |
+| `driver_mapeditor_pointer` | 0 | `PASS 31 / FAIL 0  (合計 31)` | — | 21 |
+| `driver_mapeditor_props` | 0 | `PASS 71 / FAIL 0  (合計 71)` | — | 4 |
+| `driver_mapeditor_railkit` | 0 | `PASS 134 / FAIL 0  (合計 134)` | — | 8 |
+| `driver_mapeditor_texture` | 0 | `PASS 30 / FAIL 0  (合計 30)` | — | 4 |
+| `driver_mapeditor_waterkit` | 0 | `PASS 138 / FAIL 0  (合計 138)` | — | 8 |
+| `driver_mine_wall` | **0**(再走) | `66/66 PASS` ⚠ スイープ中は 1 度だけ `64/66`(下記 (d) のフレーク) | — | 221 |
+| `driver_monsters_chimera` | 0 | `[driver] RESULT: 17/17 passed` | — | 34 |
+| `driver_monsters_griffon` | 0 | `[driver] RESULT: 17/17 passed` | — | 71 |
+| `driver_monsters_hobgoblin` | 0 | `[driver] RESULT: 14/14 passed` | — | 57 |
+| `driver_monsters_kobold` | 0 | `[driver] RESULT: 12/12 passed` | — | 10 |
+| `driver_monsters_orc` | 0 | `[driver] RESULT: 7/7 passed` | — | 12 |
+| **`driver_monsters_umberhulk`** | **1** | `[driver] RESULT: 21/22 passed` | 1 本 | 204 |
+| `driver_paint_blocked` | 0 | `PASS 65 / FAIL 0` | — | 7 |
+| `driver_paint_grid` | 0 | `PASS 21 / FAIL 0` | — | 2 |
+| `driver_party_view_reopen` | 0 | `結果: 35/35 PASSED / 0 FAILED / 0 PENDING` | — | 72 |
+| `driver_rogue_sprites` | 0 | `[driver] RESULT: 49/49 passed` | — | 1 |
+| `driver_room_search_roll` | 0 | `[driver] RESULT: 39/39 passed` | — | 1 |
+| **`driver_sce1_events`** | **1** | `[drv] RESULT: 211/214 passed` | `(2)` `(4d)` `(N2-隣)` | 48 |
+| `driver_scroll_autoskip` | 0 | `[driver] RESULT: 9/9 passed` | — | 4 |
+| `driver_skillcheck_roster` | 0 | `[driver] RESULT: 13/13 passed` | — | 4 |
+| `driver_spawn_not_on_gate` | 0 | `[drv] 59/59 PASS` | — | 4 |
+| `driver_speech_boss` | 0 | `[driver] RESULT: 19/19 passed` | — | 16 |
+| `driver_speech_engine` | 0 | `[driver] RESULT: 17/17 passed` | — | 14 |
+| `driver_speech_hooks` | 0 | `[driver] RESULT: 13/13 passed` | — | 134 |
+| **`driver_speech_v2`** | **1** | `[driver] RESULT: 45/46 passed` | `(A1)` | 43 |
+| `driver_trap_disarm` | 0 | `[driver] RESULT: 44/44 passed` | — | 1 |
+| `driver_trap_weaponize` | 0 | `[driver] RESULT: 43/43 passed` | — | 1 |
+| `driver_wall_face` | 0 | `[drv] 54/54 PASS` | — | 32 |
+| `driver_wall_props` | 0 | `[drv] 29/29 PASS` | — | 16 |
+| `driver_wallbox` | 0 | `28/28 PASS` | — | 6 |
+| `driver_warrior_variants_sprite` | 0 | `[driver] RESULT: 50/50 passed` | — | 1 |
+| **`probe_bandit_map`** | **3** | `[probe] --mapdefs / --places / --grid / --ai のどれかを指定` | ⛔ 使い方 | 0 |
+| `probe_boss_latch` | 0 | `[prb] 5/5 PASS` | — | 45 |
+| **`probe_n4_stall`** | **1** | `[probe] 試行 1: 停滞は観測されませんでした` | ⭐ 正常 | 97 |
+| `probe_p9_tour` | 0 | `→ 4 か所すべて回れた: 4 / 4` | — | **1675** |
+| `probe_paint_overlay` | 0 | `tally={"rock":0,"door":0,"ring":118,"mask":411,"floor":368}` | — | 4 |
+| `probe_rest_premature` | 0 | `[probe] 休憩 4 回中、周囲に未参戦の生存敵がいたのは 1 回` | — | 207 |
+| **`probe_s2_fold`** | **3** | `[probe] --kinds / --lint のどちらかを指定` | ⛔ 使い方 | 0 |
+| `probe_s4_relocate` | 0 | `[probe] raw: …\probe_s4_relocate.json` | — | 2 |
+| **`probe_swamp_map`** | **3** | `[probe] --bfs を指定してください` | ⛔ 使い方 | 0 |
+| `verify_ability_scores` | 0 | `24/24 PASSED   FAILED 0   **PENDING** 0` | — | 3 |
+| `verify_aoe_coverage` | 0 | `28/28 PASSED   FAILED 0   PENDING 0` | — | 2 |
+| **`verify_codex_map_skill`** | **1** | `16/17 PASSED   FAILED 1   **PENDING** 0` | `(3a)` | 14 |
+| `verify_cone_cast` | 0 | `19/19 PASSED   FAILED 0   **PENDING** 0` | — | 80 |
+| `verify_darkvision` | 0 | `25/25 PASSED   FAILED 0   **PENDING** 0` | — | 79 |
+| `verify_enemy_name_label` | 0 | `30/30 PASSED   FAILED 0   **PENDING** 0` | — | 2 |
+| `verify_eol_doorfix` | 0 | `素 25/25 PASSED` | — | 5 |
+| `verify_fort_fold` | 0 | `PASS 30 / FAIL 0` | — | 1 |
+| `verify_hold_person` | 0 | `31/31 PASSED   FAILED 0   PENDING 0` | — | 10 |
+| `verify_mercenary_roster` | 0 | `[mercenary-roster] 44 PASSED / 0 FAILED / 0 PENDING` | — | 19 |
+| `verify_npc_crowd` | 0 | `33/33 PASSED   FAILED 0   **PENDING** 0` | — | 72 |
+| `verify_party_four` | 0 | `PASS 17 / FAIL 0` | — | 7 |
+| `verify_party_match_setup` | 0 | `[driver] RESULT: PASSED 36 / FAILED 0 / PENDING 0` | — | 100 |
+| `verify_party_promises` | 0 | `35/35 PASSED   FAILED 0   PENDING 0` | — | 249 |
+| `verify_player_sheet` | 0 | `73/73 PASSED   FAILED 0   **PENDING** 0` | — | 56 |
+| `verify_pm_drawer_fit` | 0 | `75/79 PASSED   FAILED 0   PENDING 4` | — | 70 |
+| `verify_prep_retire` | 0 | `30/30 PASSED   FAILED 0   PENDING 0` | — | 147 |
+| `verify_quest_visibility` | 0 | `素 39/39 PASSED  (PENDING 0)` | — | 16 |
+| `verify_quest_walk` | 0 | `25/25 PASSED   FAILED 0   **PENDING** 0` | — | 207 |
+| `verify_recruit_size` | 0 | `══ 結果: 91/91 PASS ══` | — | 72 |
+| `verify_recruit_talk` | 0 | `25/25 PASSED   FAILED 0   **PENDING** 0` | — | 65 |
+| `verify_road_ambush` | 0 | `41/41 PASSED` | — | 70 |
+| `verify_road_boon` | 0 | `20/20 PASSED   FAILED 0   **PENDING** 0` | — | 72 |
+| `verify_roll_target` | 0 | `30/30 PASSED   FAILED 0   **PENDING** 0` | — | 140 |
+| `verify_run_chronicle` | 0 | `[run-chronicle] 73 PASSED / 0 FAILED / 0 PENDING` | — | 220 |
+| `verify_save_slots` | 0 | `[save-slots] RESULT: 30/30 passed` | — | 5 |
+| `verify_swamp_fold` | 0 | `PASS 30 / FAIL 0` | — | 3 |
+| `verify_swamp_lair` | 0 | `PASS 26 / FAIL 0` | — | 3 |
+| `verify_swamp_novice` | 0 | `PASS 34 / FAIL 0` | — | 11 |
+| `verify_tavern_map` | 0 | `43/43 PASSED   FAILED 0   **PENDING** 0` | — | 23 |
+| `verify_title_screen` | 0 | `[title-screen] RESULT: 86/86 passed` | — | 69 |
+| `verify_town_exit` | 0 | `素 23/23 PASSED  (PENDING 0)` | — | 8 |
+| `verify_town_map` | 0 | `85 / 85`(⭐ PASS の語を含まない) | — | 54 |
+| **`verify_walk_block`** | **1** | `22/23 PASSED   FAILED 1   **PENDING** 0` | `(3d)` | 16 |
+| `verify_world_map` | 0 | `57/57 PASSED   FAILED 0   **PENDING** 0` | — | 80 |
+| **`driver_field_step6`** | **1** | `=== 56/59 PASS ===` | `(C-bandits-forest)` `(C-lizard-swamp)` `(C-orc-fort)` | **1649** |
+| `driver_field_step1` | 0 | `=== 95/95 PASS ===` | — | 78 |
+| **`driver_mapeditor`** | **1** | `[driver] 176/179 PASS  (FAIL 3)` | `§2 12b` `§3 12a` `§3 12b` | 3 |
+| `probe_s2_clear` | 0 | `[probe] ✓ 全 3 走行が装置 assert を通りました` | — | 167 |
+| **`sweep_recruit_balance`** | **1** | `[sweep] ⛔ 装置 assert が崩れた走行が 4/4 件あります` | 装置崩れ | 135 |
+| `probe_party_size` | — | **未測定(既知の無限走行)** — §4-5 のとおり走らせていない | — | — |
+| `driver_bgm_title` ※外 | 0 | `16/16 PASS` | — | 2 |
+| `driver_doors_p1` ※外 | 0 | `PASS 44 / FAIL 0` | — | 0 |
+| `probe_town_mask` ※外 | 0 | `到達できないマス = 0 件 (0 件が正常)` | — | 1 |
+| `verify_road_events` ※外 | 0 | `25/25 PASSED   FAILED 0   **PENDING** 0` | — | 86 |
+| `verify_world_heromark` ※外 | 0 | `18/18 PASSED   FAILED 0   **PENDING** 0` | — | 10 |
+| `verify_world_steps` ※外 | 0 | `33/33 PASSED   FAILED 0   **PENDING** 0` | — | 55 |
+
+⇒ **緑 121 本 / 赤 15 本 / 未測定 1 本**(母集団 132 本のうち実走 131)。母集団外 6 本は全部緑。
+
+#### (c) 着手前から赤い **15 本** — 赤の理由 1 行つき(#55 の 3 分類)
+
+| ドライバ | exit | 型 | 赤の理由(1 行) |
+|---|---|---|---|
+| `driver_grid_p4` | 3 | **3**(無関係) | 変異 `n1ringonly` のアンカー(廃坑 n1 のマスク行 `// 9 ★東西の主通路…`)が腐って**置換対象 0 箇所** ⇒ 起動時検算で即死。⚠⚠ **素の assert が 1 本も走っていない** |
+| `driver_grid_p8` | 1 | **3** | `(6d)`「他 4 シナリオの n7 (9x6) は大部屋ではない」— 砦 #63 で n7 が 30x20 になったので `bigRoom:true` |
+| `driver_mapeditor_painting` | 1 | **3** | `§1 1d2` label 13 種に対しサイズの種類数 12(`部屋n4big 30×20` と `部屋n7big 30×20` が同寸) |
+| `driver_monsters_umberhulk` | 1 | **3** | 21/22。umber hulk の gaze 再発火 1 件(#64/#65 と同一) |
+| `driver_sce1_events` | 1 | **3** | `(2)(4d)(N2-隣)` `sceneFlags` の期待表が 3 本固定なのに `s3_novice_swayed`(#53 沼の若い司祭)が増えて **4 本** |
+| `driver_speech_v2` | 1 | **3** | `(A1)` `swampNovice` に `enemy.cry.<type>` が無い(#53 で敵種だけ増えた) |
+| `verify_codex_map_skill` | 1 | **3**(⚠ 要注意) | `(3a)` 既存 4 件の焼き直し SHA 照合で **`stag-tavern` だけ不一致**。⚠⚠ **`tools/make_grid_map.py` を読む唯一の受入ドライバ** = STEP2 で `GRIDS` に 2 エントリ足す本チケットの隣人 |
+| `verify_walk_block` | 1 | **3** | `(3d)` badge を持つ `ENEMY_TYPES` が期待 44 件に対し **45 件**(`goblinRider`/`goblinArcher` を名指し) |
+| `driver_field_step6` | 1 | **1 の予兆** | `(C-bandits-forest)(C-lizard-swamp)(C-orc-fort)` の 3 本。⭐⭐⭐ **畳んだシナリオは入口ノードがそのまま戦闘部屋になり「前進した」が成立しない**(#63 §13-4)。⇒ **#66 が神殿を畳むと `(C-undead-temple)` が 4 本目として必ず赤くなる**。⛔ `?templefold=0` で緑にするのは Part C の注記が禁止 |
+| `driver_mapeditor` | 1 | **3** | 176/179。`map-editor.html` の実マウス操作 3 本(#64/#65 と同一) |
+| `sweep_recruit_balance` | 1 | **3** | 装置崩れ 4/4(`4_partySize(got=1 want=4)` = #61 以降の腐り。#65 と同一) |
+| `probe_bandit_map` | 3 | **—** | ⭐ **赤ではない**。調査プローブで、引数なしは「使い方の誤り = exit 3」が仕様 |
+| `probe_s2_fold` | 3 | **—** | 同上(`--kinds` / `--lint` 必須) |
+| `probe_swamp_map` | 3 | **—** | 同上(`--bfs` 必須) |
+| `probe_n4_stall` | 1 | **—** | ⭐ **赤ではない**。「停滞が観測されなかった」= 健全。exit 1 が正常系 |
+
+#### (d) 予想と実測の食い違い — ⭐ **assert ではなく予測のほうを訂正した**
+
+§4-5 / orchestrator が名指しした「着手前から壊れている 6 本」との突き合わせ:
+
+| 予想 | **実測** | 判定 |
+|---|---|---|
+| `driver_grid_p4` EXIT=3 | **EXIT=3**(0 秒・集計行なし) | ✅ 的中 |
+| `driver_mapeditor` 176/179 | **176/179 / EXIT=1** | ✅ 的中 |
+| `driver_mapeditor_painting` 105/106 | **PASS 105 / FAIL 1 / EXIT=1** | ✅ 的中 |
+| `sweep_recruit_balance` 装置崩れ 4/4 | **装置崩れ 4/4 / EXIT=1** | ✅ 的中 |
+| `driver_monsters_umberhulk` 21/22 | **21/22 / EXIT=1** | ✅ 的中 |
+| `probe_party_size` 終了しない | **走らせていない**(既知の無限走行として母集団から外した) | ✅ 指示どおり |
+
+⛔ **ただし「6 本」は全部ではなかった。訂正 3 件:**
+
+1. ⭐⭐⭐ **赤は 6 本ではなく 15 本(うち「本物の赤」11 本 + 「調査プローブの正常な非 0」4 本)。**
+   予想に無かった赤 = `driver_grid_p8` / `driver_sce1_events` / `driver_speech_v2` /
+   `verify_codex_map_skill` / `verify_walk_block` / `driver_field_step6` の **6 本**
+   + プローブ 4 本。⇒ #65 が言う「**前チケットの『既知の赤』表は、母集団が変わった瞬間に不完全になる**」の
+   3 例目。本チケットの母集団(132 本)は #65 の母集団(55 本)の **2.4 倍**で、重なっていない領域に赤が居た。
+2. ⭐⭐ **`driver_doors_p2` は緑だった**(`結果: 40/40 PASS` / EXIT=0)。
+   #62 のメモと #65 の §12-0 は `33/34`(`(6c)`)で赤と記録しているが、**#65 の項目4 が扉の測定台を
+   撤退スイッチから降ろした**ので回収済み。⛔ 「昔から赤い」を引き継がないこと。
+   同様に `driver_doors_p5` / `p8` も緑(35/35 / 18/18)。
+3. ⭐⭐ **`driver_field_step6` は完走する。** メモの「40 分超でも完走しない」は**古い**。
+   実測 **1649 秒(27.5 分)で EXIT=1 / 56/59**。⇒ #66 の項目5 でも回せる(ただし 28 分掛かる)。
+
+**⚠ フレーク 1 本(⛔ 既知の赤には数えない)**: `driver_mine_wall` が母集団スイープ中に 1 度だけ
+`64/66 / EXIT=1` になった。FAIL は `(4z)` `(4z2)` = **「戦車が実際に乱入した」母集団ガードが `[] sawAt=-`**
+= #47 の言う「**偽の赤の指紋 = 値が違うのではなく観測そのものが無い**」そのもの。
+**単独再走で `66/66 / EXIT=0`(221 秒)**。⇒ 型2(偽の赤)として扱い、既知の赤には数えない。
+
+#### (e) ⭐ 測って分かった罠
+
+- ⭐⭐⭐ **集計行の書式は 7 種どころか 14 種以上**(判定を出す 129 本の実測)。しかも
+  **最多の 27 本が `[driver] RESULT: 92/92 passed` = 小文字の `passed`** なので、
+  **大文字 `PASS` の grep では 137 本中 35 本(26%)の集計が空になる**
+  (小文字 27 本 + 集計行そのものを持たない調査プローブ 8 本)。
+  ⇒ **判定は必ず `exit code` を主、集計行を従にする**。⛔ 語で拾うのは補助にしかならない。
+- ⭐⭐ **`FAIL` の語で FAIL 行を拾うと偽陽性が 6 本出る。** `verify_save_slots (7)` の
+  `1:FAIL(=OK)`(撤退スイッチが効いた証拠)/ `driver_field_step1_geo` `driver_field_step2` の
+  「baseline で**必ず FAIL** する」という説明文 / `… FAILED 0 …` を含む総括行。
+  ⇒ **FAIL 行は「行頭が `FAIL`/`FAILED`/`NG`」で拾い、総括行は別に扱う。**
+- ⭐⭐ **母集団 131 本の逐次実走は 202 分。** 内訳の偏りが極端で、**上位 6 本で 78 分**:
+  `probe_p9_tour` 1675s / `driver_field_step6` 1649s / `driver_field_step0` 703s /
+  `driver_diag_watchdog` 661s / `driver_field_wagon` 594s / `driver_grid_p9` 465s。
+  ⇒ 項目5 の再走を計画するときは**この 6 本を別枠**にすること(残り 125 本は合計 124 分)。
+- ⚠⚠ **`py` の `print` は cp932 で落ちる**(em dash)。ログ解析スクリプトは
+  `PYTHONIOENCODING=utf-8` を付けて起動する。⚠ 落ちるのは print だけでファイル書き込みは成功している。
+- ⚠⚠ **並走窓の痕跡を 1 件検出した。** 走行中(3.4 時間)に
+  `実装依頼書/2026-09-11_dragon-lair-fold.md`(#67)が**未追跡ファイルとして出現**した。
+  計画窓が #67 を起草している。⛔ **`git add .` は絶対に使わない**(本項目は
+  `実装依頼書/2026-09-11_temple-fold.md` の 1 ファイルだけをパス指定で commit した)。
+- ⭐ **`driver_graph_p6` は `FOLDED` 表に 1 行足すだけの受け皿を既に持っている**(`:366`)。
+  `'undead-temple': { arm: '&templefold=0', sw: '?templefold', nodes: 2, entry: 'n4' }` を足せば
+  装置 assert `(1templefold-undead-temple)` が自動で立つ。⛔ `(1c)` 以下の「8 件」を「2 件」へ
+  書き換えるのは**誤り**(共通骨格は `?templefold=0` に生きている)。
+  ⇒ §2-6 の「`driver_graph_p6` は腐る」は**正しい**が、直し方は**期待表の書き換えではなく 1 行の追記**。
+- ⭐ **§2-6 の「`driver_graph_p7` は腐らない」は的中**(`TOUR_SCEN = 'orc-fort'` /
+  `TOUR_ARM = '&fortfold=0'` を実測)。着手前 `60/60 PASS`。
+- ⭐ **新規ドライバの base 10261 は空いている**(既存の最大 = `verify_eol_doorfix` の 10241)。
+  §8 の指定どおりで問題なし。
+- ⭐ **§2 の定数はすべて実測で裏が取れた**: `CAELUM_TALK_RADIUS = 150`(`index.html:24336`)/
+  `TILE_SIZE = 96`(`:3421`)/ `FORT_FOLD_OFF`(`:4160`)・`FORT_FOLDED`(`:4172`)/
+  `NODE_EXTRA_SPAWN_KINDS` の砦の行(`:4233`)/ `buildUndeadTempleRun`(`:37706`)。
