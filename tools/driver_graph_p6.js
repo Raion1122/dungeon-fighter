@@ -370,6 +370,10 @@ const TOUR_SRC = `(async () => {
      *   ⭐ #62 が用意した受け皿どおり **1 行足すだけ**で装置 assert (1fortfold-orc-fort) が立つ。
      *   ⛔ (1c) 以下の「8 件」を「2 件」へ書き換えない — 共通骨格は ?fortfold=0 に生きている。 */
     'orc-fort':       { arm: '&fortfold=0',  sw: '?fortfold',  nodes: 2, entry: 'n4' },
+    /* ★[#66 2026-09-12] 神殿も既定で **8 ノード → 2 ノード**へ畳まれた (儀式の広間 n4 / 召喚の祭壇 n7)。
+     *   ⭐ #62 が用意した受け皿どおり **1 行足すだけ**で装置 assert (1templefold-undead-temple) が立つ。
+     *   ⛔ (1c) 以下の「8 件」を「2 件」へ書き換えない — 共通骨格は ?templefold=0 に生きている。 */
+    'undead-temple':  { arm: '&templefold=0', sw: '?templefold', nodes: 2, entry: 'n4' },
   };
   const P6_ARM = (sid) => (FOLDED[sid] ? FOLDED[sid].arm : '');
 

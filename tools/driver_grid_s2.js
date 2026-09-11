@@ -87,7 +87,10 @@ const ZOOM_MIN = 0.25;
  * ★[#63] 砦を外した。既定で 2 ノード (n4/n7) へ畳まれ、n4/n7 は上書きを持つようになったので
  *   「上書きを 1 つも書いていない」母集団ではなくなった。⭐ 8 ノードの mapDef は
  *   下の ?fortfold=0 の腕で**同じ golden キー (orc-fort/n0〜n7) のまま**測り続ける。 */
-const UNTOUCHED = ['undead-temple', 'dragon-lair'];
+/* ★[#66] 神殿を外した。既定で 2 ノード (n4/n7) へ畳まれ、n4/n7 は上書きを持つようになったので
+ *   「上書きを 1 つも書いていない」母集団ではなくなった。⭐ 8 ノードの mapDef は
+ *   下の ?templefold=0 の腕で**同じ golden キー (undead-temple/n0〜n7) のまま**測り続ける。 */
+const UNTOUCHED = ['dragon-lair'];
 /* ★[#62] 沼地は既定で **3 ノード (n4/n6/n7)** へ畳まれた。#16 (森) のときに §11/§12 を
  *   ?s2fold=0 へ移したのと**同じ型**で、8 ノードの mapDef を測る腕だけ ?swampfold=0 へ移す。
  * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が
@@ -109,6 +112,20 @@ const SWAMP_FOLDED_IDS = ['n4', 'n6', 'n7'];
 const FORT_SCEN = 'orc-fort';
 const FORT_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
 const FORT_FOLDED_IDS = ['n4', 'n7'];
+/* ★[#66 2026-09-12] 神殿は既定で **2 ノード (n4 儀式の広間 / n7 召喚の祭壇)** へ畳まれた。
+ *   #16 (森) / #62 (沼) / #63 (砦) と**同じ型**で、8 ノードの mapDef を測る腕だけ
+ *   ?templefold=0 へ移す。
+ * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が撤退先として
+ *   1 バイトも変わらずに残る」は畳んだ今も要求され続ける。
+ *   ⛔⛔ したがって **--update-golden で焼き直さない**。道具の FAIL 行は
+ *   「意図した変更なら --update-golden」と案内してくるが、それに従うと
+ *   undead-temple/n0〜n3,n5,n6 の **6 キーが golden から消え**、(G0) が 33 件で緑になる
+ *   = 6 部屋ぶんの非退行がこの日から誰にも測られなくなる (#62/#63 がやらなかったのと同じ理由)。
+ * ⚠ 既定の腕が本当に畳まれていることは (8v) の装置 assert で直接見る。これが無いと
+ *   「神殿が畳まれていなくても緑」= 腕の移設が免罪符になる。 */
+const TEMPLE_SCEN = 'undead-temple';
+const TEMPLE_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+const TEMPLE_FOLDED_IDS = ['n4', 'n7'];
 const S2_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -750,6 +767,24 @@ function ringOpenCount(m) {
   }
   G.distinct(check, '(8z2) orc-fort の 8 ノードの mapDef が相互に異なる', 'orc-fort/');
   await fortOff.close();
+  /* ★[#66] 神殿の 8 ノードは ?templefold=0 の腕で測り続ける (assert 本体も golden のキーも不変)。
+   * ⚠ 先に「既定の腕では本当に畳まれている」を装置 assert で見てから移す。 */
+  const templeOff = await bootPage(browser, PURE + '?templefold=0', errsAll);
+  const templeNow = (await dumpDefs([TEMPLE_SCEN])(page))[TEMPLE_SCEN];
+  const templeOld = (await dumpDefs([TEMPLE_SCEN])(templeOff))[TEMPLE_SCEN];
+  check('(8v) 装置 assert: 既定の腕では ' + TEMPLE_SCEN + ' が ' +
+        JSON.stringify(TEMPLE_FOLDED_IDS) + ' の 2 ノードへ畳まれ entry=n4 (= 測る腕を移した理由が実在する)',
+        JSON.stringify(templeNow.ids) === JSON.stringify(TEMPLE_FOLDED_IDS) && templeNow.entry === 'n4',
+        'ids=' + JSON.stringify(templeNow.ids) + ' entry=' + templeNow.entry);
+  check('(8v2) 装置 assert: ?templefold=0 の腕では 8 ノード / entry=n0 が実在する',
+        JSON.stringify(templeOld.ids) === JSON.stringify(TEMPLE_KEEP_NODES) && templeOld.entry === 'n0',
+        'ids=' + JSON.stringify(templeOld.ids) + ' entry=' + templeOld.entry);
+  for (const id of TEMPLE_KEEP_NODES) {
+    G.check(check, '(8-' + TEMPLE_SCEN + '/' + id + ') mapDef が golden と一致',
+            TEMPLE_SCEN + '/' + id, templeOld.defs[id]);
+  }
+  G.distinct(check, '(8z3) undead-temple の 8 ノードの mapDef が相互に異なる', 'undead-temple/');
+  await templeOff.close();
 
   // ══════════════════════════════════════════════════════════════════════════
   // §9 撤退スイッチ — **同じ assert 本体**を当てて赤になること

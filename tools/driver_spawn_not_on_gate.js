@@ -54,25 +54,35 @@ const PORT = parseInt(arg('port', '9360'), 10);
 // ══════════════════════════════════════════════════════════════════════════════
 const SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
                'orc-fort', 'undead-temple', 'dragon-lair'];
-/* 分岐グラフのノード数。6 シナリオとも buildP6Run の 8 ノード。廃坑だけ P8 で 2 ノードへ畳んだ。
- * ⚠ これは母集団ガード。ここが崩れたら「0 件」は**測っていないから 0**かもしれない。 */
-/* ★[#16] シナリオ2 は既定で 1 ノードへ畳まれた (卓上バトルマップ 1 枚で完結)。
- *   ここは**既定の腕 = 実際に遊ばれる姿**の期待値なので 1。8 ノードの骨格は
- *   ?s2fold=0 の腕で別に測る (下の FOLD_ARM)。
- * ★[#62 2026-09-08] 沼地も既定で 3 ノードへ畳まれた (参道 n4 / 祭壇 n6 / 巣 n7)。
- *   ⚠ ここは「実際に遊ばれる姿」の**契約表**なので、畳んだ実測値へ意図的に更新する
- *     (git diff に載る)。骨格 8 ノードは ?swampfold=0 の腕で引き続き測る。 */
-/* ★[#63 2026-09-09] 砦も既定で 2 ノードへ畳まれた (練兵場 n4 / 将軍の間 n7)。
- *   ⚠ ここは「実際に遊ばれる姿」の**契約表**なので、畳んだ実測値へ意図的に更新する
- *     (git diff に載る)。骨格 8 ノードは ?fortfold=0 の腕で引き続き測る。 */
-const NODES_EXPECTED = { 'goblin-mine': 2, 'bandits-forest': 1, 'lizard-swamp': 3,
-                         'orc-fort': 2, 'undead-temple': 8, 'dragon-lair': 8 };
-/* 畳まれたシナリオの「撤退の腕」= 共通骨格 8 ノードが撤退先として生きていることを測る側。
+/* ★[#66 2026-09-12] **畳んだ姿のノード数を定数で焼くのをやめた** (旧 NODES_EXPECTED)。
+ *   #16/#62/#63 は「実際に遊ばれる姿の契約表だから、畳んだ実測値へ意図的に更新する」と書いて
+ *   この表を畳みのたびに書き換えてきた。⇒ #66 (神殿) でまた (1a-undead-temple) が赤くなった。
+ *   これは #62 の一般解「**母集団の下限や舞台名を定数で焼く assert は畳み系チケットのたびに
+ *   腐る**」そのもので、⛔「2 件」へ焼き直すのは同じ誤りの繰り返し (F4 竜の巣で 5 回目になる)。
+ *
+ *   ⇒ 期待値は**台帳 (FOLD_ARM) と、そこから引いた撤退の腕の実測**から導出する:
+ *     ① 台帳に載るシナリオ … 既定の腕のノード id 集合が、撤退の腕 (骨格) の id 集合の
+ *        **空でない真部分集合**。畳みはノードを**選び出す**だけで新しい id を発明せず、
+ *        必ず骨格より小さい。⭐ 件数を 1 つも書かないので、次に何ノードへ畳んでも腐らない。
+ *     ② 台帳に無いシナリオ (まだ畳まれていない) … 既定がそのまま骨格。P6 の 5 本は
+ *        buildP6Run を共有するので、id 集合は P6_SKELETON と一致しなければならない。
+ *   ⚠ 母集団ガードとしての強さは落ちていない。「(1c) の 0 体が、測っていないから 0 ではない」は
+ *     ①②の「既定の id 集合が空でない」+ (1b) の「湧きが 1 体以上」+ (1e) が押さえたまま。
+ *     むしろ①は「畳んだのに骨格に無い id が現れた」も新たに捕まえる。
+ * ⚠ 廃坑だけ buildP6Run を使わない (buildGoblinMineRun。撤退 ?minefold=0 は n0/n1/n4/n5/n7)。
+ *   ①は件数を書かないのでそのまま当たる。 */
+const P6_SKELETON = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+/* 畳まれたシナリオの「撤退の腕」の台帳。**2 役**: 骨格が撤退先として生きていることを測る腕
+ * であり、同時に上の (1a) が期待値を導出する台帳でもある。
  * ⚠⚠ 既定の腕を測るのをやめたのではない — (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に当たったまま。
  *   ここは**母集団を増やす**ための第 2 の腕で、旧タイプの小部屋に spawn-on-gate 欠陥が
- *   潜り込むことを畳んだ後も見張り続ける。 */
-const FOLD_ARM = { 'bandits-forest': '?s2fold=0', 'lizard-swamp': '?swampfold=0',
-                   'orc-fort': '?fortfold=0' };   /* ★[#63] 砦の旧タイプ 8 部屋も見張り続ける */
+ *   潜り込むことを畳んだ後も見張り続ける。
+ * ★[#66] 神殿 (?templefold=0) と廃坑 (?minefold=0) を足した。廃坑は #16 以来
+ *   NODES_EXPECTED に 2 と焼かれていただけで撤退の腕を 1 度も測っておらず、
+ *   旧タイプ 5 部屋が見張りの外に落ちていた。 */
+const FOLD_ARM = { 'goblin-mine': '?minefold=0', 'bandits-forest': '?s2fold=0',
+                   'lizard-swamp': '?swampfold=0', 'orc-fort': '?fortfold=0',
+                   'undead-temple': '?templefold=0' };
 const S2_NODE = 'n4';
 const S2_GATE = [39, 13];            // n4 → n7 の出口ゲート (P6_RIGHT)。扉が立つタイル
 const S2_MAGE = [38, 13];            // 修正後の banditMage。ゲートの 1 マス西
@@ -383,30 +393,50 @@ function blockedLines(m) {
     }
     const spawns = m.nodes.reduce((a, n) => a + n.spawns.length, 0);
     arms.push({ id: sid, nodes: m.nodes.length, spawns: spawns });
-    /* ⚠ 母集団ガード。ノード数と湧き総数が想定どおりでないと「0 件」は
-     *   「測っていないから 0」かもしれない。 */
-    check('(1a-' + sid + ') ノード数 ' + NODES_EXPECTED[sid] + ' 件を測れている',
-          m.nodes.length === NODES_EXPECTED[sid], '実測 ' + m.nodes.length + ' 件');
+    /* ★[#66] (1a) の期待値は**撤退の腕から導出**するので、骨格を先に測っておく。
+     *   台帳に載らないシナリオ (まだ畳まれていない) は骨格 = 既定なので腕を立てない。 */
+    const q = FOLD_ARM[sid] || null;
+    let pf = null, mf = null, spawnsF = 0;
+    if (q) {
+      pf = await bootPage(browser, 'http://localhost:' + PORT + q, sid, errsAll);
+      mf = await measureAllNodes(pf);
+      spawnsF = mf.err ? 0 : mf.nodes.reduce((a, n) => a + n.spawns.length, 0);
+    }
+    const ids = m.nodes.map(n => n.id);
+    const skel = (q && mf && !mf.err) ? mf.nodes.map(n => n.id) : P6_SKELETON;
+    const inSkel = ids.length > 0 && ids.every(i => skel.indexOf(i) >= 0);
+    /* ⚠ 母集団ガード。ノード集合と湧き総数が想定どおりでないと「0 件」は
+     *   「測っていないから 0」かもしれない。⛔ 件数の定数は持たない (冒頭の注記)。 */
+    check('(1a-' + sid + ') 既定の腕のノード集合が' +
+          (q ? '骨格 (' + q + ') の空でない真部分集合' : '共通骨格 n0〜n7 と一致') +
+          ' (⛔ 件数を定数で焼かない)',
+          inSkel && (q ? ids.length < skel.length : ids.length === skel.length),
+          '既定=' + JSON.stringify(ids) + ' / 骨格=' + JSON.stringify(skel));
     check('(1b-' + sid + ') 敵スポーンを 1 体以上測れている (母集団ガード)',
           spawns > 0, spawns + ' 体');
     check('(1c-' + sid + ') 歩けないマスに湧く敵が 0 体',
           blockedLines(m).length === 0, blockedLines(m).join(' / ') || '0 体');
     check('(1d-' + sid + ') 本番グラフが lintRun を通る (落ちると単一マップへ黙って退行)',
           m.lint && m.lint.ok === true, JSON.stringify(m.lint));
-    if (FOLD_ARM[sid]) {
+    if (q) {
       /* ★[#16] 本ドライバの主題 (n4 の出口ゲートに湧く banditMage) は **8 ノードの骨格**の話で、
        *   その骨格は畳んだ今 ?s2fold=0 の腕に生きている。§2 §3 §4 の素材はそちらから採る。
        * ⚠ 既定の腕を測るのをやめたのではない — 上の (1a)(1b)(1c)(1d) は既定 (畳んだ姿) に
        *   当たったまま。ここで **両方の腕を測る**ようにして母集団を増やしている。
        * ★[#62] 沼地も同じ形にした (?swampfold=0)。畳んで遊ばれなくなった旧タイプの小部屋も、
-       *   撤退先として生きている以上「出口ゲートに敵が湧く」欠陥を見張り続ける必要がある。 */
-      const q = FOLD_ARM[sid];
-      const pf = await bootPage(browser, 'http://localhost:' + PORT + q, sid, errsAll);
-      const mf = await measureAllNodes(pf);
-      const spawnsF = mf.err ? 0 : mf.nodes.reduce((a, n) => a + n.spawns.length, 0);
+       *   撤退先として生きている以上「出口ゲートに敵が湧く」欠陥を見張り続ける必要がある。
+       * ★[#66] 腕そのもの (pf / mf / spawnsF) は (1a) の導出のため上で測り終えている。 */
       arms.push({ id: sid + q, nodes: mf.err ? 0 : mf.nodes.length, spawns: spawnsF });
-      check('(1a2-' + sid + ') [' + q + '] 8 ノードの骨格が撤退先として生きている',
-            !mf.err && mf.nodes.length === 8, mf.err || ('実測 ' + mf.nodes.length + ' 件'));
+      /* ★[#66] 「8 ノード」を焼くのをやめた。⭐ P6 の 5 本は buildP6Run を共有するので
+       *   骨格 = P6_SKELETON (n0〜n7) を要求し続ける — これは**畳みで動かない契約**なので
+       *   腐らない。廃坑だけ自前の buildGoblinMineRun なので、件数を書かずに
+       *   「既定を丸ごと含み、真に多い」で測る。 */
+      const isP6 = (sid !== 'goblin-mine');
+      check('(1a2-' + sid + ') [' + q + '] 骨格が撤退先として生きている' +
+            (isP6 ? ' (buildP6Run の共通骨格 n0〜n7)' : ' (既定を丸ごと含み、真に多い)'),
+            !mf.err && (isP6 ? JSON.stringify(skel) === JSON.stringify(P6_SKELETON)
+                             : (skel.length > ids.length && inSkel)),
+            mf.err || ('骨格=' + JSON.stringify(skel) + ' / 既定=' + JSON.stringify(ids)));
       check('(1b2-' + sid + ') [' + q + '] 敵スポーンを 1 体以上測れている (母集団ガード)',
             spawnsF > 0, spawnsF + ' 体');
       check('(1c2-' + sid + ') [' + q + '] 歩けないマスに湧く敵が 0 体',
