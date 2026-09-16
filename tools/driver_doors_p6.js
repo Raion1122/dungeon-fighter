@@ -30,7 +30,12 @@
  * ── 負のコントロール (同一 run に内包。配信をメモリ上で差し替える) ──────────────
  *   port   | mutate        | 注入する欠陥                                   | 赤くなるべき節
  *   PORT   | (素)          | —                                              | —
- *   PORT+1 | nosecretroll  | 隠し扉の抽選を殺す (1 枚も隠れない)             | §1 (1a) §6 (6a) §7 (7a)
+ *   PORT+1 | nosecretroll  | 隠し扉の抽選を殺す (1 枚も隠れない)             | §0b (0b) §1 (1a)(1c) §7 (7a)(7d)
+ *          ⚠⚠ [#67 2026-09-16 実測で訂正] **(6a) は nosecretroll では赤くならない。**
+ *          (6a) の母集団 nWould は実装ではなく**ドライバ側の規則 wantHidden** から数えるので、
+ *          実装の抽選を殺しても nWould は減らず、hidden===0 はむしろ (6a) が要求する側。
+ *          ⇒ この表の「§6 (6a)」は最初から誤り。#67 以前に (6a) が赤く見えていたのは
+ *          畳みで舞台の母集団が 0 枚になっていたためで、負のコントロールの成果ではない。
  *   PORT+2 | noleafguard   | 「行き止まりだけ」の制限を外す (本道も隠れる)    | §7 (7c)(7d)(7g)(7h)
  *   PORT+3 | nofilter      | hidden の出口を選択肢から落とさない             | §2 (2b)
  *   PORT+4 | nofind        | 探索判定に成功しても hidden を解かない          | §3 (3c)(3d)(3e) §4 (4c)
@@ -89,7 +94,24 @@ const PORT = parseInt(arg('port', '9040'), 10);
  *     **dragon-lair 1/7 (①〜④ すべて満たす = 旧沼地と同じ profile: hidden は n1→n5 の 1 枚だけ)**。
  *   ⭐ 畳まれた沼地は §7 (6 シナリオ横断) が引き続き測る = 覆いは 1 つも減っていない。 */
 const STAGE_CANDIDATES = ['lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair', 'bandits-forest'];
+/* ★★★[#67 2026-09-16] **畳みが 6 枚目 (竜の巣) に達し、既定の腕には隠し扉が 1 枚も残らなくなった。**
+ *   #62 が用意した「舞台を台帳から導く」受け皿は正しく働いたが、**候補が全滅した**:
+ *   2026-09-16 実測 (竜を畳んだ直後) = lizard-swamp 0/2 ・orc-fort 0/1 ・undead-temple 0/1 ・
+ *   dragon-lair 0/1 ・bandits-forest 0/0 ⇒ (0b)(1a)(5a)(5b)(6a)(7a) の 6 本が赤。
+ *   ⭐ 原因は欠陥ではなく**構造**: 隠せる扉は「行き先が行き止まり (exits 0) かつ非ボス」だけなので、
+ *     全シナリオが 1〜3 ノードへ畳まれた今、既定の腕には**隠せる候補が原理的に存在しない**。
+ * ⛔ 閾値を下げる / 「隠し扉 0 枚でよい」に緩めるのは写経で、P6 の仕組みを誰も測らなくなる。
+ * ⇒ **母集団を増やす** = 撤退の腕 (?<x>fold=0) も候補に入れる。旧タイプの 8 ノードは
+ *   撤退先として生きており、そこに隠し扉の仕組みがそのまま載っている。
+ *   ⭐ これは driver_spawn_not_on_gate の FOLD_ARM (#62/#66) / driver_grid_s2 の腕の移設と**同型**。
+ *   ⚠ 既定の腕を測るのをやめたのではない — §7 は既定と撤退の**両方**を走査する
+ *     (畳んだ姿で「ボスへ到達できる」「詰むノードが無い」は今も要求され続ける)。 */
+const FOLD_ARM = { 'goblin-mine': '&minefold=0', 'bandits-forest': '&s2fold=0',
+                   'lizard-swamp': '&swampfold=0', 'orc-fort': '&fortfold=0',
+                   'undead-temple': '&templefold=0', 'dragon-lair': '&dragonfold=0' };
+const ARMS_OF = (scen) => (FOLD_ARM[scen] ? ['', FOLD_ARM[scen]] : ['']);
 let STAGE = null;         // ★§0b が台帳から決める (⛔ ここに名前を焼かない)
+let STAGE_Q = '';         // ★§0b が決める腕 ('' = 既定 / '&<x>fold=0' = 撤退)
 // 不変条件は 6 シナリオ全部で成り立たなければ意味が無い (§7)。
 const ALL_SCENS = ['goblin-mine', 'bandits-forest', 'lizard-swamp',
                    'orc-fort', 'undead-temple', 'dragon-lair'];
@@ -464,22 +486,27 @@ const SCAN_FN = () => {
   mark('§0b 舞台の選定 (台帳から導く)');
   const STAGE_CENSUS = [];
   {
-    for (const scen of STAGE_CANDIDATES) {
+    /* ★[#67] 候補は (舞台 × 腕)。**既定の腕を先に全部試してから**撤退の腕へ落ちる
+     *   = 実際に遊ばれる姿で測れるなら必ずそちらを選ぶ (腕の移設は最後の手段)。 */
+    const PAIRS = [];
+    for (const scen of STAGE_CANDIDATES) PAIRS.push({ scen, q: '' });
+    for (const scen of STAGE_CANDIDATES) if (FOLD_ARM[scen]) PAIRS.push({ scen, q: FOLD_ARM[scen] });
+    for (const { scen, q } of PAIRS) {
       const errs = [];
-      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0', scen, errs);
+      const p = await bootPage(browser, base + '/index.html?diag=1&intel=0' + q, scen, errs);
       const scan = await p.evaluate(SCAN_FN);
       const fwd = await p.evaluate(() => {
         const g = window.__graphRun;
         return g.exits().filter(o => !o.back).length;
       });
-      for (const e of errs) errsAll.push('§0b(' + scen + '): ' + e);
+      for (const e of errs) errsAll.push('§0b(' + scen + q + '): ' + e);
       await p.close();
       const I = invariantCheck(scan);
       const entryNode = scan.nodes.find(n => n.id === scan.entry) || null;
       const entryHidden = entryNode
         ? entryNode.doors.filter(d => d.state === 'hidden').length : -1;
       STAGE_CENSUS.push({
-        scen, nHidden: I.nHidden, nDoors: I.nDoors, entry: scan.entry, entryHidden, fwd,
+        scen, q, nHidden: I.nHidden, nDoors: I.nDoors, entry: scan.entry, entryHidden, fwd,
         ok: I.nHidden >= 1 && I.nDoors >= 4 && entryHidden === 0 && fwd >= 2,
       });
     }
@@ -489,20 +516,21 @@ const SCAN_FN = () => {
      *   「(1a)(6a)(7a) が赤くなる」という設計上の期待が観測できなくなる。
      *   ⇒ (0b) を赤にしたうえで、**扉がいちばん多い舞台**へ退避して §1〜§7 を最後まで走らせる。 */
     const fallback = STAGE_CENSUS.slice().sort((a, b) => b.nDoors - a.nDoors)[0] || null;
-    STAGE = picked ? picked.scen : (fallback ? fallback.scen : STAGE_CANDIDATES[0]);
-    const line = STAGE_CENSUS.map(r => r.scen + ':hidden' + r.nHidden + '/扉' + r.nDoors +
+    const use = picked || fallback || { scen: STAGE_CANDIDATES[0], q: '' };
+    STAGE = use.scen; STAGE_Q = use.q || '';
+    const line = STAGE_CENSUS.map(r => r.scen + (r.q || '') + ':hidden' + r.nHidden + '/扉' + r.nDoors +
       '/entry=' + r.entry + '(hidden' + r.entryHidden + '・前進' + r.fwd + ')' +
       (r.ok ? '★' : '')).join(' ');
     check('(0b) ★舞台が台帳から選べる (隠し扉 1 枚以上 / 扉 4 枚以上 / entry に隠し扉なし / entry の前進出口 2 本以上)',
-      !!picked, '選定=' + STAGE + (picked ? '' : ' ★条件を満たす舞台なし → 扉が最多の舞台へ退避') +
-      ' — ' + line);
+      !!picked, '選定=' + STAGE + (STAGE_Q || ' (既定の腕)') +
+      (picked ? '' : ' ★条件を満たす舞台なし → 扉が最多の舞台へ退避') + ' — ' + line);
   }
 
   // ── §1 抽選 (決定論・RNG 非消費・不変条件) ────────────────────────────────
   mark('§1 隠し扉の抽選と不変条件 (' + STAGE + ')');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + STAGE_Q, STAGE, errs);
     const scan = await page.evaluate(SCAN_FN);
     const D = await page.evaluate(() => {
       nodeBusy = true;
@@ -563,7 +591,7 @@ const SCAN_FN = () => {
   mark('§2 未発見の隠し扉は出口ごと消える');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + STAGE_Q, STAGE, errs);
     const X = await page.evaluate(() => {
       nodeBusy = true;
       const g = window.__graphRun;
@@ -599,7 +627,7 @@ const SCAN_FN = () => {
   mark('§3 探索判定で発見する (専用ロールを足さない)');
   const searchProbe = async (ok) => {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + STAGE_Q, STAGE, errs);
     const R = await page.evaluate(async (ok) => {
       nodeBusy = true;
       gameStarted = true; gameOver = false;
@@ -671,7 +699,7 @@ const SCAN_FN = () => {
   mark('§4 再入場での保存と再ロールの禁止');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + STAGE_Q, STAGE, errs);
     const R = await page.evaluate(async () => {
       nodeBusy = true;
       gameStarted = true; gameOver = false;
@@ -749,7 +777,7 @@ const SCAN_FN = () => {
   mark('§5 隠し扉は出口を見せる前に決着する');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + STAGE_Q, STAGE, errs);
     const O = await page.evaluate(async () => {
       gameStarted = true; gameOver = false; dungeonCleared = false;
       dialogPaused = false; skillCheckActive = false;
@@ -797,7 +825,7 @@ const SCAN_FN = () => {
   mark('§6 退避スイッチ ?secret=0');
   {
     const errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0', STAGE, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&intel=0&secret=0' + STAGE_Q, STAGE, errs);
     const scan = await page.evaluate(SCAN_FN);
     const off = await page.evaluate(() =>
       (window.__graphRun.secretsOff ? window.__graphRun.secretsOff() : null));
@@ -828,15 +856,22 @@ const SCAN_FN = () => {
   // ── §7 6 シナリオ全ノードで不変条件が成り立つ ─────────────────────────────
   mark('§7 6 シナリオ全ノードで詰みが無い');
   {
+    /* ★[#67] 母集団を「6 シナリオ」から「**6 シナリオ × (既定 + 撤退の腕)**」へ広げた。
+     * ⚠ 既定の腕を落としたのではない — 畳んだ姿でも「詰むノードが無い」「ボスへ到達できる」は
+     *   要求され続ける。増やしたのは、畳みで**隠し扉そのものが存在しなくなった**ため
+     *   (7a) の母集団が空になったから (⛔ 0 枚を許すのではなく、在る場所も一緒に測る)。 */
     const rows = [];
     for (const scen of ALL_SCENS) {
-      const errs = [];
-      const page = await bootPage(browser, base + '/index.html?diag=1&intel=0', scen, errs);
-      const scan = await page.evaluate(SCAN_FN);
-      for (const e of errs) errsAll.push('§7(' + scen + '): ' + e);
-      await page.close();
-      rows.push({ scen, scan, I: invariantCheck(scan) });
+      for (const q of ARMS_OF(scen)) {
+        const errs = [];
+        const page = await bootPage(browser, base + '/index.html?diag=1&intel=0' + q, scen, errs);
+        const scan = await page.evaluate(SCAN_FN);
+        for (const e of errs) errsAll.push('§7(' + scen + q + '): ' + e);
+        await page.close();
+        rows.push({ scen: scen + q, scan, I: invariantCheck(scan) });
+      }
     }
+    const WANT_ROWS = ALL_SCENS.reduce((a, s) => a + ARMS_OF(s).length, 0);
     const totHidden = rows.reduce((a, r) => a + r.I.nHidden, 0);
     const totDoors = rows.reduce((a, r) => a + r.I.nDoors, 0);
     const badStuck = rows.filter(r => r.I.bad.stuck.length);
@@ -852,8 +887,9 @@ const SCAN_FN = () => {
      *     そのうち 1 枚以上隠れている」へ言い直す。次の畳み込みでも側さない。
      * ⚠ 廃坑は n1 が kind:"boss" なので隠せる扉が原理的に 0 枚 (規則②)。
      *   従って「各シナリオで 1 枚以上」にはしない — してしまうと仕様を誤って測る。 */
-    check('(7a) 母集団ガード: 6 シナリオ全部でグラフが読めて、合計 1 枚以上隠れている',
-      rows.length === ALL_SCENS.length && rows.every(r => r.scan.nodes.length >= 1) &&
+    check('(7a) 母集団ガード: 6 シナリオ × 腕 (既定 + 撤退) ' + WANT_ROWS +
+      ' 本全部でグラフが読めて、合計 1 枚以上隠れている',
+      rows.length === WANT_ROWS && rows.every(r => r.scan.nodes.length >= 1) &&
       totDoors >= 4 && totHidden >= 1,
       rows.map(r => r.scen + ':' + r.I.nHidden + '/' + r.I.nDoors).join(' ') +
       '  (ノード ' + rows.map(r => r.scan.nodes.length).join(',') + ')');

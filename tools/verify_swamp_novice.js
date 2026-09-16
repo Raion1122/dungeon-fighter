@@ -723,6 +723,10 @@ async function runSuite(browser, port, label) {
   const THEME_EXCEPTIONS = {
     'orc-fort': '#63 (2026-09-09) 砦を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
     'undead-temple': '#66 (2026-09-11) 神殿を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
+    /* ★[#67 2026-09-16] 竜の巣。⭐ 依頼書 §2-6 は「腐るのは 3 本」と予見していたが
+     *   この (4b) が 4 本目だった = **畳みで腐る golden は撤退スイッチの語では引けない**
+     *   (#66 の教訓がそのまま再現)。⛔ BASELINE_REV を進めない。 */
+    'dragon-lair': '#67 (2026-09-16) 竜の巣を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

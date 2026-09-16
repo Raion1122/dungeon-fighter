@@ -374,6 +374,12 @@ const TOUR_SRC = `(async () => {
      *   ⭐ #62 が用意した受け皿どおり **1 行足すだけ**で装置 assert (1templefold-undead-temple) が立つ。
      *   ⛔ (1c) 以下の「8 件」を「2 件」へ書き換えない — 共通骨格は ?templefold=0 に生きている。 */
     'undead-temple':  { arm: '&templefold=0', sw: '?templefold', nodes: 2, entry: 'n4' },
+    /* ★[#67 2026-09-16] 竜の巣も既定で **8 ノード → 2 ノード**へ畳まれた (骨の谷 n4 / ファラクサスの巣 n7)。
+     *   ⭐ #62 が用意した受け皿どおり **1 行足すだけ**で装置 assert (1dragonfold-dragon-lair) が立つ。
+     *   ⛔ (1c) 以下の「8 件」を「2 件」へ書き換えない — 共通骨格は ?dragonfold=0 に生きている。
+     *   ⚠⚠ この 1 行が無いと §3 の byId.n0.slots が TypeError になり **exit 9 (FATAL)** で
+     *     dragon-lair 以降が 1 本も測られない (#62 が沼で踏んだのと同じ死に方)。 */
+    'dragon-lair':    { arm: '&dragonfold=0', sw: '?dragonfold', nodes: 2, entry: 'n4' },
   };
   const P6_ARM = (sid) => (FOLDED[sid] ? FOLDED[sid].arm : '');
 

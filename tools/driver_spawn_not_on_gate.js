@@ -79,10 +79,15 @@ const P6_SKELETON = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
  *   潜り込むことを畳んだ後も見張り続ける。
  * ★[#66] 神殿 (?templefold=0) と廃坑 (?minefold=0) を足した。廃坑は #16 以来
  *   NODES_EXPECTED に 2 と焼かれていただけで撤退の腕を 1 度も測っておらず、
- *   旧タイプ 5 部屋が見張りの外に落ちていた。 */
+ *   旧タイプ 5 部屋が見張りの外に落ちていた。
+ * ★[#67 2026-09-16] 竜の巣 (?dragonfold=0) を足した。⭐ #66 が NODES_EXPECTED を廃止して
+ *   台帳導出にしてあるので **足すのはこの 1 行だけ**で、(1a-dragon-lair) の期待値が
+ *   「既定 2 ノードは骨格 8 ノードの空でない真部分集合」へ自動で言い直る (件数は 1 つも書かない)。
+ *   ⭐ 同時に (1a2/1b2/1c2/1d2-dragon-lair) の 4 本が増え、旧タイプ 8 部屋が
+ *   撤退先として見張られ続ける (#62 が沼で、#66 が神殿でやったのと同型)。 */
 const FOLD_ARM = { 'goblin-mine': '?minefold=0', 'bandits-forest': '?s2fold=0',
                    'lizard-swamp': '?swampfold=0', 'orc-fort': '?fortfold=0',
-                   'undead-temple': '?templefold=0' };
+                   'undead-temple': '?templefold=0', 'dragon-lair': '?dragonfold=0' };
 const S2_NODE = 'n4';
 const S2_GATE = [39, 13];            // n4 → n7 の出口ゲート (P6_RIGHT)。扉が立つタイル
 const S2_MAGE = [38, 13];            // 修正後の banditMage。ゲートの 1 マス西

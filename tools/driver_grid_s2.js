@@ -90,7 +90,14 @@ const ZOOM_MIN = 0.25;
 /* ★[#66] 神殿を外した。既定で 2 ノード (n4/n7) へ畳まれ、n4/n7 は上書きを持つようになったので
  *   「上書きを 1 つも書いていない」母集団ではなくなった。⭐ 8 ノードの mapDef は
  *   下の ?templefold=0 の腕で**同じ golden キー (undead-temple/n0〜n7) のまま**測り続ける。 */
-const UNTOUCHED = ['dragon-lair'];
+/* ★[#67 2026-09-16] 竜の巣を外した。既定で 2 ノード (n4/n7) へ畳まれ、n4/n7 は上書きを
+ *   持つようになったので「上書きを 1 つも書いていない」母集団ではなくなった。⭐ 8 ノードの
+ *   mapDef は下の ?dragonfold=0 の腕で**同じ golden キー (dragon-lair/n0〜n7) のまま**測り続ける。
+ * ⚠⚠⚠ **これで畳みが 5 枚目に達し、この配列は空になった。** 空でも消さない —
+ *   次に「まだ畳まれていない舞台」が増えた日にここへ戻すのが正しい形だから。
+ *   ⭐ 空になったことで下の for が 1 回も回らない = §8 が黙って痩せる危険があるので、
+ *   受け皿として (8t)(8t2) を新設した (依頼書 §6-6)。 */
+const UNTOUCHED = [];
 /* ★[#62] 沼地は既定で **3 ノード (n4/n6/n7)** へ畳まれた。#16 (森) のときに §11/§12 を
  *   ?s2fold=0 へ移したのと**同じ型**で、8 ノードの mapDef を測る腕だけ ?swampfold=0 へ移す。
  * ⭐ golden のキーも assert 本体も 1 文字も変えていない — 「畳む前の 8 部屋が
@@ -126,7 +133,36 @@ const FORT_FOLDED_IDS = ['n4', 'n7'];
 const TEMPLE_SCEN = 'undead-temple';
 const TEMPLE_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
 const TEMPLE_FOLDED_IDS = ['n4', 'n7'];
+/* ★[#67 2026-09-16] 竜の巣は既定で **2 ノード (n4 骨の谷 / n7 ファラクサスの巣)** へ畳まれた。
+ *   #16 (森) / #62 (沼) / #63 (砦) / #66 (神殿) と**同じ型**で、8 ノードの mapDef を測る腕だけ
+ *   ?dragonfold=0 へ移す。⭐ golden のキーも assert 本体も 1 文字も変えていない。
+ *   ⛔⛔ **--update-golden で焼き直さない** — 焼くと dragon-lair/n0〜n3,n5,n6 の 6 キーが
+ *   golden から消え、(G0) が 33 件で緑になる = 6 部屋ぶんの非退行がこの日から誰にも
+ *   測られなくなる (#66 が神殿でまったく同じ罠を実測している)。
+ * ⚠ 既定の腕が本当に畳まれていることは (8u) の装置 assert で直接見る。 */
+const DRAGON_SCEN = 'dragon-lair';
+const DRAGON_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'];
+const DRAGON_FOLDED_IDS = ['n4', 'n7'];
 const S2_KEEP_NODES = ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
+/* ★[#67] §8 + §11 が golden と突き合わせる母集団の**台帳**。⛔ 下限を「39」や舞台名で焼かない —
+ *   ここから導出する (#62 の一般解 = 母集団の下限や舞台名を定数で焼く assert は畳みのたびに腐る)。
+ * ⚠⚠ 台帳から下限を出すだけでは**循環**する (台帳を 1 行消せば下限も一緒に下がる)。
+ *   ⇒ (8t2) で **本番 index.html が持つ畳みの撤退スイッチの本数**と突き合わせる。
+ *   こちらは実装側の台帳なので、6 枚目の畳みが着地した日に必ず赤くなる
+ *   (#67 の着手時点で実際に 5 スイッチ vs 腕 4 本 = 赤くなる形)。 */
+const GOLDEN_POP = [
+  { key: 's2-',                keyNodes: S2_KEEP_NODES,     sw: 's2fold' },
+  { key: SWAMP_SCEN + '/',     keyNodes: SWAMP_KEEP_NODES,  sw: 'swampfold' },
+  { key: FORT_SCEN + '/',      keyNodes: FORT_KEEP_NODES,   sw: 'fortfold' },
+  { key: TEMPLE_SCEN + '/',    keyNodes: TEMPLE_KEEP_NODES, sw: 'templefold' },
+  { key: DRAGON_SCEN + '/',    keyNodes: DRAGON_KEEP_NODES, sw: 'dragonfold' },
+];
+const GOLDEN_MIN = GOLDEN_POP.reduce((a, e) => a + e.keyNodes.length, 0);
+/* ⚠ 本ドライバが golden を持たない撤退スイッチ。⭐ 例外は**タダでは置けない**:
+ *   (8t2) は「本番のスイッチ = 台帳の腕 + この例外」の**完全一致**を要求するので、
+ *   廃坑に golden を足した日にはこの行を消さないと赤くなる (古い免罪符が黙って残らない)。
+ *   ⚠ 廃坑は buildP6Run を使わない (buildGoblinMineRun) ので §8 の母集団に最初から居ない。 */
+const GOLDEN_SKIP_SW = ['minefold'];
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -785,6 +821,54 @@ function ringOpenCount(m) {
   }
   G.distinct(check, '(8z3) undead-temple の 8 ノードの mapDef が相互に異なる', 'undead-temple/');
   await templeOff.close();
+  /* ★[#67] 竜の巣の 8 ノードは ?dragonfold=0 の腕で測り続ける (assert 本体も golden のキーも不変)。
+   * ⚠ 先に「既定の腕では本当に畳まれている」を装置 assert で見てから移す。 */
+  const dragonOff = await bootPage(browser, PURE + '?dragonfold=0', errsAll);
+  const dragonNow = (await dumpDefs([DRAGON_SCEN])(page))[DRAGON_SCEN];
+  const dragonOld = (await dumpDefs([DRAGON_SCEN])(dragonOff))[DRAGON_SCEN];
+  check('(8u) 装置 assert: 既定の腕では ' + DRAGON_SCEN + ' が ' +
+        JSON.stringify(DRAGON_FOLDED_IDS) + ' の 2 ノードへ畳まれ entry=n4 (= 測る腕を移した理由が実在する)',
+        JSON.stringify(dragonNow.ids) === JSON.stringify(DRAGON_FOLDED_IDS) && dragonNow.entry === 'n4',
+        'ids=' + JSON.stringify(dragonNow.ids) + ' entry=' + dragonNow.entry);
+  check('(8u2) 装置 assert: ?dragonfold=0 の腕では 8 ノード / entry=n0 が実在する',
+        JSON.stringify(dragonOld.ids) === JSON.stringify(DRAGON_KEEP_NODES) && dragonOld.entry === 'n0',
+        'ids=' + JSON.stringify(dragonOld.ids) + ' entry=' + dragonOld.entry);
+  for (const id of DRAGON_KEEP_NODES) {
+    G.check(check, '(8-' + DRAGON_SCEN + '/' + id + ') mapDef が golden と一致',
+            DRAGON_SCEN + '/' + id, dragonOld.defs[id]);
+  }
+  G.distinct(check, '(8z4) dragon-lair の 8 ノードの mapDef が相互に異なる', 'dragon-lair/');
+  await dragonOff.close();
+
+  /* ★[#67] ⚠⚠⚠ **空母集団の受け皿** (依頼書 §6-6)。UNTOUCHED が 0 件になったので、
+   *   上の for が 1 回も回らなくても誰も気づかない形になった。#59 が名指しした
+   *   「前のチケットが受入から外した項目は次で golden の空白地帯になる」の実例そのもの。
+   * ⭐ (8t) = golden と突き合わせた mapDef の**総数**が台帳 GOLDEN_POP の下限を割っていない。
+   *   ⛔ 下限をシナリオ名でも件数でも焼かない (台帳の keyNodes の合計から導出)。
+   *   ⚠ 数え方は「(8-…)/(11-…) という **golden 照合にしか使っていない id** を results から拾う」。
+   *     G.check を通った本数そのものなので、腕が 1 本 0 件寄与に落ちれば必ず割る。
+   *     (8y)(8w)(8v)(8u) のような装置 assert は id の形が違うので混ざらない。 */
+  const goldenPop = results.filter(r => /^\((?:8|11)-/.test(r.name)).length;
+  check('(8t) ★装置: golden と突き合わせた mapDef が台帳 GOLDEN_POP の下限 ' + GOLDEN_MIN +
+        ' 件を割っていない (⛔ 下限は定数でなく ' +
+        GOLDEN_POP.map(e => e.key + e.keyNodes.length).join(' + ') + ' から導出)',
+        goldenPop >= GOLDEN_MIN, '実測 ' + goldenPop + ' 件 / 下限 ' + GOLDEN_MIN +
+        ' 件 / UNTOUCHED=' + JSON.stringify(UNTOUCHED));
+  /* ⭐⭐⭐ (8t) だけでは**循環する** — 台帳から 1 行消すと下限も一緒に下がるので、
+   *   「畳まれた舞台を §8 から黙って落とす」は捕まらない (#67 が UNTOUCHED で実際にやれた形)。
+   *   ⇒ **本番 index.html の撤退スイッチ**という外側の台帳と突き合わせる。
+   * ⚠ 配信から読む (fs で作業ツリーを直接読むと --mutate が効かない = 本ファイル冒頭の作法)。 */
+  const prodSw = await page.evaluate(async () => {
+    const t = await (await fetch('index.html')).text();
+    const m = t.match(/get\("([A-Za-z0-9]*fold)"\)/g) || [];
+    return Array.from(new Set(m.map(s => s.replace(/^get\("/, '').replace(/"\)$/, '')))).sort();
+  });
+  const wantSw = GOLDEN_POP.map(e => e.sw).concat(GOLDEN_SKIP_SW).sort();
+  check('(8t2) ★★装置: 本番 index.html が持つ畳みの撤退スイッチが、台帳 GOLDEN_POP の腕 + ' +
+        '既知の除外 ' + JSON.stringify(GOLDEN_SKIP_SW) + ' と完全一致 ' +
+        '(= 6 枚目の畳みが着地したら必ずここが赤くなる)',
+        JSON.stringify(prodSw) === JSON.stringify(wantSw),
+        '本番=' + JSON.stringify(prodSw) + ' 台帳+除外=' + JSON.stringify(wantSw));
 
   // ══════════════════════════════════════════════════════════════════════════
   // §9 撤退スイッチ — **同じ assert 本体**を当てて赤になること
