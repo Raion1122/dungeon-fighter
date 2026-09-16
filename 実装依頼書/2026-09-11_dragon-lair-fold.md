@@ -1564,6 +1564,7 @@ n4 も同じく**本番 `aStar` で 10 体すべて到達可能**、出口ゲー
 | `driver_mapeditor_painting` | `PASS 105 / FAIL 1` `(§1 1d2)` label 15 / サイズ 14 | `(§1 1d2)` label **17** / サイズ **16** | ⭐ **衝突は砦の `部屋n4big 30×20` vs `部屋n7big 30×20` の 1 組のまま**。項目2 (f) の先読み表どおり |
 | `verify_codex_map_skill` | `16/17` `(3a)` `stag-tavern` の検算 NG | 同左。SHA は **15 件全件一致**(`dragon-vale=3a131f5b` / `dragon-nest=cf596fbc` を含む) | 変化なし |
 | `probe_n4_stall` | exit 1 =「停滞は観測されませんでした」 | 同左(104 秒) | ⭐ **これは赤ではない**(正常系) |
+| `driver_field_step6` | `=== 55/59 PASS ===`(`(C-bandits-forest)(C-lizard-swamp)(C-orc-fort)(C-undead-temple)`) | **`=== 55/59 PASS ===`** / 同じ 4 本 | ⭐⭐⭐ **増えなかった**(予告は外れた。下記 (k)) |
 
 #### (g) 緑のままを実測で確かめた 18 本
 
@@ -1573,6 +1574,22 @@ n4 も同じく**本番 `aStar` で 10 体すべて到達可能**、出口ゲー
 `driver_grid_p7` 44/44 / `driver_mapdef_step1` 208/208 / `_step2` 74/74 / `_step3` 122/122 /
 `driver_room_search_roll` 39/39 / `driver_trap_disarm` 44/44 / `verify_fort_fold` 30/30 /
 `verify_swamp_fold` 30/30 / `verify_swamp_lair` 26/26 /(+ 直した `verify_temple_fold` 24/24)
+
+⚠ 集計行は書式が揃わないので、**判定トークン + assert id** で突き合わせた原文は
+`…\scratchpad\item3\logs\<name>.log`。非緑 5 本の集計行だけ原文で引く:
+
+    driver_grid_s2              110/113 PASS          (着手前 119/119)
+    driver_spawn_not_on_gate     66/67 PASS           (着手前 67/67)
+    verify_swamp_novice         PASS 33 / FAIL 1      (着手前 34/34)
+    driver_grid_p8              PASS 55 / FAIL 1      (着手前と同じ)
+    driver_mapeditor_painting   PASS 105 / FAIL 1     (着手前と同じ)
+    verify_codex_map_skill      16/17 PASSED          (着手前と同じ)
+
+⭐⭐⭐ **`hoard` を条件付きで生やしたことは `driver_grid_s2` §8 がそのまま証明している。**
+`(8-…)` は **24 PASS / 2 FAIL**で、PASS の 24 本は `lizard-swamp/n0〜n7` `orc-fort/n0〜n7`
+`undead-temple/n0〜n7` の mapDef が `JSON.stringify` で **1 バイトも変わっていない**こと。
+FAIL は `dragon-lair/n4` と `/n7` の 2 本だけ(= 畳んだ本人)。
+⇒ 依頼書 §2-2 の罠(`hoard: null` を全 mapDef に足すと一斉に赤くなる)を**踏んでいない**。
 
 ⭐ **起動時 lint は鳴っていない。** `driver_graph_p6` の `(2a-dragon-lair)` `(2b-)` `(2c-)` が
 3 本とも PASS = `LINT_PAINTING_ASPECTS` へ足した **31×20 / 30×19** が効いている(#11 / #53 / #58 / #66 に続く 5 例目)。
@@ -1592,12 +1609,70 @@ n4 も同じく**本番 `aStar` で 10 体すべて到達可能**、出口ゲー
 - ⚠ 「全敵を手で `alive=false` にして `isNodeSettled()` を見る」測り方は**使えなかった**
   (本番の撃破経路を通らないので `false` のまま)。⭐ 勝敗は**本番の経路で倒して観測する**のが正。
 
+#### (j) ⭐⭐⭐ 全ドライバ横断の「逐語アンカー腐敗」走査(⭐ 実走 1 本ぶんの時間で 139 本ぶん数えられる)
+
+`tools/*.js` の **25 文字以上の文字列リテラル**を全部取り出し、着手前(`5cd8f6f`)と今とで
+`index.html` / `js/df-mapdef.js` / `tavern.html` の中の**出現数がどう変わったか**を数えた。
+`--negative` の変異アンカーはどれもこの形のリテラルなので、**変異を 1 本も走らせずに腐敗を数えられる**。
+
+| 対象 | 1 → 0(腐敗) | 1 → 複数(曖昧化) |
+|---|---|---|
+| `index.html` | **0 件** | **0 件** |
+| `js/df-mapdef.js` | **0 件** | **0 件** |
+| `tavern.html` | **0 件** | **0 件** |
+
+⭐ **走査そのものの負のコントロール**も通した。直す前の姿(`hoard` を `density/start` と同じ行へ書いた形)を
+メモリ上で作って同じ走査を当てると **2 件**検出する:
+
+    verify_fort_fold.js    '                                  density: d.density, start: d.start }),'
+    verify_temple_fold.js  '                                  density: d.density, start: d.start }),'
+
+⭐⭐⭐ **`verify_fort_fold` はこのアンカーを持っているのに、起動時のアンカー検算を持っていない**
+(`anchorAudit` は `verify_temple_fold` にしか無い)。⇒ 素の実走は **30/30 で緑のまま**通り、
+`--negative` を走らせた日に初めて空振りが分かる。**この走査でしか事前に見つけられない型**。
+
+##### ⚠⚠⚠ 項目5 への警告 — 依頼書 §8 が指定した変異アンカー 2 本は**既に使えない**
+
+「1 → 複数」ではなく「**2 → 3**」「**3 → 4**」なので上の表には出ないが、実測で次が分かった:
+
+| リテラル | `5cd8f6f` | 現在 | 影響 |
+|---|---|---|---|
+| `          { id: "n4", kind: "start", mapDef: n4.mapDef, exits: n4.exits },` | **2** | **3** | `verify_fort_fold` の `gateshift` が `n !== 1` で **exit 3**(⛔ #66 が神殿を足した時点で既に壊れている = 着手前から) |
+| `              start: { tx: 12, ty: 13 },` | **3** | **4** | `verify_swamp_novice` の `nostart` が **exit 3**(実測: `node tools/verify_swamp_novice.js --mutate nostart` → 「1 ファイル / 4 箇所」)。⛔ こちらも着手前から |
+
+⇒ **`verify_dragon_fold`(項目5)は §8 が挙げた `gateshift` / `startdefault` を
+この 2 本のリテラルで作ってはいけない。** 竜にしか無い行(例 `rect: [4, 10, 22, 39], paint: "n7big", density: 0,`
+や `hoard: [[26, 10], [27, 10], [26, 11], [27, 11]] }`)を握ること。
+⭐ 畳みが 4 枚目に達したことで、「共通骨格の 1 行」はもう**一意なアンカーにならない**。
+
+#### (k) ⭐⭐⭐ `driver_field_step6` —— **「畳むと (C-*) が 1 本増える」という予告は外れた**
+
+§12-0 (c-2) と項目2 (j) は「#67 が竜を畳むと `(C-dragon-lair)` が **5 本目**として必ず増える」と
+書いていた。**28.2 分かけて実走したら、増えなかった。**
+
+    $ node tools/driver_field_step6.js
+    === 55/59 PASS ===        (EXIT=1 / 1693 秒 = 28.2 分)
+      FAIL (C-bandits-forest) ★?graph=auto が出口を自動選択して entry から前進した — entry=n7 現在=n7 訪問=0 前進=せず
+      FAIL (C-lizard-swamp)   … entry=n4 現在=n4 訪問=0 前進=せず
+      FAIL (C-orc-fort)       … entry=n4 現在=n4 訪問=0 前進=せず
+      FAIL (C-undead-temple)  … entry=n4 現在=n4 訪問=0 前進=せず
+      PASS (C-dragon-lair) ★?graph=auto が出口を自動選択して entry から前進した
+                           — entry=n4 現在=n7 訪問=2 前進=246s
+      PASS (C-dragon-lair) 屋外テーマではない / 経路探索が実際に走った (69 回) / pageerror 0
+
+⭐ 集計は **55/59 = 着手前(§12-0 (b))とまったく同じ**。落ちている 4 本も**同じ 4 本**。
+
+⭐⭐⭐ **一般則の訂正**: `(C-*)` が落ちる原因は「**畳んだこと**」ではなく
+「**入口ノードを観測窓のうちに片付けられないこと**」。竜の畳んだ n4 は 10 体を 2 群に割ってあるので
+`?graph=auto` が **246 秒で n4 → n7 へ前進**し、素直に緑になった
+(神殿 n4 は 11 体・42 秒の観測で訪問 0 / 砦 n4 は 45 秒で訪問 0)。
+⇒ 「畳んだシナリオは必ず Part C を落とす」という読みは**畳み 4 枚目で反証された**。
+
 #### (i) やり残し / 申し送り
 
 - ⛔ **`tools/verify_dragon_fold.js`(base 10281)は未着手** = 項目5。
 - ⛔ (e) の 4 本の言い直し = 項目4。⭐ **`verify_swamp_novice (4b)` を忘れないこと**(依頼書に無い 4 本目)。
-- ⚠ `driver_field_step6` は `(C-dragon-lair)` が **5 本目**として増える見込み(§12-0 (c-2) の予告どおり)。
-  **これは退行ではない** —— 畳んだシナリオは入口ノードがそのまま戦闘部屋になり「前進した」が成立しない。
-  ⛔ `?dragonfold=0` で緑にするのは Part C の注記が禁止している。
+- ⭐⭐⭐ **`driver_field_step6` の予告は外れた(実測済・下記 (k))。** `(C-dragon-lair)` は**増えない**ので
+  項目4 / 項目5 が身構える必要は無い。
 - ▶ **難易度**: 4 人 PT はボス戦で全滅する(両腕とも)。砦 #63 の「n4 で全滅」とは別の場所。
   測定台 `sweep_recruit_balance` / `probe_party_size` が両方壊れているので、道具の修理を内包する別チケットへ。
