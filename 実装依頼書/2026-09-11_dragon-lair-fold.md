@@ -1676,3 +1676,245 @@ FAIL は `dragon-lair/n4` と `/n7` の 2 本だけ(= 畳んだ本人)。
   項目4 / 項目5 が身構える必要は無い。
 - ▶ **難易度**: 4 人 PT はボス戦で全滅する(両腕とも)。砦 #63 の「n4 で全滅」とは別の場所。
   測定台 `sweep_recruit_balance` / `probe_party_size` が両方壊れているので、道具の修理を内包する別チケットへ。
+
+### 12-3. 項目4 — 畳みで腐った既存 golden の言い直し
+
+- **測定日**: 2026-09-16(実装窓・項目4)/ **着手直前の `HEAD`** = **`41add2a`**(項目3c の着地)・作業ツリー clean
+- **触ったファイル** = `tools/driver_graph_p6.js` / `tools/driver_grid_s2.js` /
+  `tools/driver_spawn_not_on_gate.js` / `tools/verify_swamp_novice.js` /
+  **`tools/driver_doors_p6.js`(依頼書にも項目3 にも無い 5 本目)** + 本節。
+  ⛔ **本番コード(`index.html` / `js/df-mapdef.js` / `tavern.html`)は 1 バイトも触っていない**
+  (`verify_eol_doorfix (3b)` が「本番 5 ファイルの blob が HEAD と同一」で実測)。⇒ changelog は不要。
+  ⛔ `tools/goldens/grid_s2.json` も 1 バイトも触っていない(`git diff --stat tools/goldens/` が空)。
+- **生ログ**: `…\scratchpad\logs_A\`(着手前の走査 21 本)/ `logs_B\`(直した 5 本)/
+  `logs_C\`(負のコントロール 6 本)/ `logs_D\`(アンカー腐敗の実測 3 本)。
+
+#### (a) 母集団の引き方と実測本数
+
+⛔ **撤退スイッチの語で引かない**(#66 の教訓)。⭐ 本項目が変えたのは `tools/*.js` だけなので、
+3 段 union のうち段2「変更したファイルをコードで読む本」は**実測 0 本**になる — ここが #67 の他の項目と違う。
+
+| 段 | 引き方 | 本数 |
+|---|---|---|
+| **(i)** | 舞台名 `dragon-lair`(`grep -l "dragon-lair" tools/*.js`) | **36** |
+| **(ii)** | 変更した 5 本の `tools/*.js` を**コードで読む本** | **0**(全部コメント / assert のラベル文字列の中だけ) |
+| **(iii)** | その測定器のソースを読む測定器 | **2**(`verify_enemy_name_label` / `verify_eol_doorfix`) |
+| | **union** | **38** |
+
+(ii) の内訳(`grep -n` の全ヒットを 1 件ずつ読んだ): `probe_bandit_map:4` / `probe_s2_fold:5,32` /
+`verify_fort_fold:24` / `verify_swamp_fold:718`(assert のラベル本文)/ `verify_swamp_lair:214` /
+`driver_graph_p7:50` / `driver_heromark_signplate:17` / `probe_swamp_map:4,206` —— **どれも `require` でも
+`readFileSync` でもない**。(iii) の 2 本も、凍結しているのは `driver_cast_circle.js` と
+`driver_doors_p2/p5/p8.js` で、本項目が触った 5 本は**含まれない**(ただし `verify_eol_doorfix` は
+追跡ファイル**全部**の行末と blob を見るので母集団に入る)。
+
+**(i) 36 本の実走の分担**(⭐ `probe_party_size` を除く **35 本すべてを HEAD で実走済み**):
+
+- **項目3 が実走済み = 16 本**(§12-2 (e)(f)(g))
+- **項目4 がこの日に実走 = 20 本**(`logs_A`。所要 17.2 分・直列)
+- **未実走 = 1 本** = `probe_party_size`(§12-0 (f) の既知の無限走行)
+
+#### (b) ⭐⭐⭐ 4 本ではなく **5 本**だった —— `driver_doors_p6` が腐っていた
+
+`logs_A` の 20 本のうち **非緑は `driver_doors_p6` ただ 1 本**(`34/40 PASS` / EXIT=1)。
+残り 19 本は集計行まで §12-0 (b) の着手前と**完全一致**した。
+
+    driver_bgm_mine 37/37 / driver_dev_gate2 62/62 / driver_doors_p2 40/40 / driver_doors_p5 36/36 /
+    driver_field_scale 49/49 / driver_field_step1 95/95 / _step1_geo 71/71 / _step2 64/64 /
+    _step3 65/65 / _step7 79/79 / _verge_gap 39/39 / driver_mine_wall 66/66 /
+    driver_monsters_orc 7/7 / driver_wall_face 54/54 / driver_wallbox 28/28 /
+    probe_bandit_map --mapdefs EXIT=0 / verify_party_four 17/17 / verify_recruit_size 91/91 /
+    verify_enemy_name_label 30/30 / verify_eol_doorfix 27/27
+
+⭐ **`driver_doors_p6` の赤 6 本**(`(0b)(1a)(5a)(5b)(6a)(7a)`)**は型1 = #67 が構造的に殺した型**で、
+無関係な既存の赤ではない(#55 の 3 分類)。落ちた理由:
+
+    FAIL (0b) 選定=lizard-swamp ★条件を満たす舞台なし → 扉が最多の舞台へ退避
+              — lizard-swamp:hidden0/扉2 orc-fort:hidden0/扉1 undead-temple:hidden0/扉1
+                dragon-lair:hidden0/扉1 bandits-forest:hidden0/扉0
+    FAIL (7a) — goblin-mine:0/1 bandits-forest:0/0 lizard-swamp:0/2 orc-fort:0/1
+                undead-temple:0/1 dragon-lair:0/1  (ノード 2,1,3,2,2,2)
+
+⭐⭐⭐ **真因は欠陥ではなく構造**。隠せる扉は「行き先が行き止まり(`exits 0`)かつ非ボス」だけなので、
+6 シナリオ全部が 1〜3 ノードへ畳まれた今、**既定の腕には隠せる候補が原理的に 1 枚も無い**。
+#62 が入れた「舞台を台帳から導く」受け皿は正しく働いた(名前を焼いていれば FATAL だった)が、
+**候補が全滅する**ところまでは想定していなかった。
+⇒ #66 の裁定どおり**閾値を下げず母集団を作り直した** = 撤退の腕(`&<x>fold=0`)を候補と §7 の走査に足す。
+
+⚠⚠ **依頼書 §2-6 の「腐るのは 3 本」も、項目3 の「4 本」も、どちらも過少だった。**
+項目3 の 4 本目(`verify_swamp_novice`)は §2-6 の見落とし、5 本目(`driver_doors_p6`)は
+**項目3 が走らせた範囲の外**にあった。⭐ 一般則 = **「前の項目が数えた本数」も信じない**
+(#47 の「前のチケットの完了報告を出発点にするな」が、**同じチケットの前の項目**にも当てはまる)。
+
+#### (c) 5 本それぞれの前後の集計行(⭐ 原文)
+
+| ドライバ | 着手前(§12-0 (b)) | 項目3 のあと | **項目4 のあと** | assert の増減 |
+|---|---|---|---|---|
+| `driver_graph_p6` | `══ 結果: 249/249 PASS ══` | **EXIT=9**(`:498` で `byId.n0.slots` の FATAL) | `══ 結果: 250/250 PASS ══` EXIT=0 | **+1**(`(1dragonfold-dragon-lair)`) |
+| `driver_grid_s2` | `[drv] 119/119 PASS` | `110/113` EXIT=1 | `[drv] 124/124 PASS` EXIT=0 | **+5**(`(8u)(8u2)(8z4)(8t)(8t2)`) |
+| `driver_spawn_not_on_gate` | `[drv] 67/67 PASS` | `66/67` EXIT=1 | `[drv] 71/71 PASS` EXIT=0 | **+4**(`(1a2/1b2/1c2/1d2-dragon-lair)`) |
+| `verify_swamp_novice` | `PASS 34 / FAIL 0` | `PASS 33 / FAIL 1` `(4b)` | `PASS 34 / FAIL 0` EXIT=0 | ±0 |
+| **`driver_doors_p6`** | `══ 結果: 40/40 PASS ══` | (項目3 は走らせていない) → **項目4 が実測 `34/40` EXIT=1** | `══ 結果: 40/40 PASS ══` EXIT=0 | ±0(**母集団が 12→57 ノードへ増えた**) |
+
+⭐ **どれも assert が 1 本も減っていない**(#66 の「言い直した結果 assert が減っていたら失敗」)。
+
+**直し方(全部「腕の移設」/「母集団の追加」。⛔ 期待値も golden も 1 つも緩めていない)**:
+
+1. `driver_graph_p6` —— `FOLDED` 表へ 1 行 `'dragon-lair': { arm: '&dragonfold=0', …, nodes: 2, entry: 'n4' }`。
+   ⭐ これだけで `P6_ARM('dragon-lair')` が撤退の腕を当て、`(1c-dragon-lair) ノードが 8 件 — 件数=8` が
+   戻り、**FATAL ごと消えた**。⛔ 「8 件」を「2 件」に書き換えていない。
+2. `driver_spawn_not_on_gate` —— `FOLD_ARM` へ 1 行。⭐ `NODES_EXPECTED` は #66 が廃止済みなので
+   これ 1 行で `(1a-dragon-lair)` の期待値が「既定 2 ノードは骨格 8 ノードの真部分集合」へ自動で言い直った:
+
+       PASS (1a-dragon-lair) 既定の腕のノード集合が骨格 (?dragonfold=0) の空でない真部分集合
+            — 既定=["n4","n7"] / 骨格=["n0","n1","n2","n3","n4","n5","n6","n7"]
+       PASS (1e) 腕 12/12 = … dragon-lair:2n13e dragon-lair?dragonfold=0:8n13e
+            (ノード 57 件 / 湧き 182 体)
+
+3. `driver_grid_s2` —— `UNTOUCHED` から竜を抜き(**0 件**になった)、`?dragonfold=0` の腕を新設。
+   golden のキーは 39 件のまま 1 バイトも動いていない:`(G0) 今回 39 件 / golden 39 件`。
+   ⛔ `--update-golden` は 1 度も打っていない。
+4. `verify_swamp_novice` —— `THEME_EXCEPTIONS` へ `'dragon-lair'` を 1 行。#66 と**同じ形がそのまま使えた**。
+   ⭐ 例外はタダではない:`(4b2)` が「例外表のテーマが実際に着手前と差分を持つ」を要求しており、
+   3 件すべて緑 = 古い免罪符が残っていない。⛔ `BASELINE_REV`(`cdaaf91`)は進めていない。
+5. `driver_doors_p6` —— `FOLD_ARM` / `ARMS_OF()` / `STAGE_Q` を新設し、
+   §0b の候補を **(舞台 × 腕)** へ、§7 の走査を **6 シナリオ × (既定 + 撤退)** へ広げた。
+   ⭐ **既定の腕を先に全部試してから撤退の腕へ落ちる**ので、将来また既定に隠し扉が生えたら自動で戻る。
+
+       ── 着手前 ──  (7a) FAIL  ノード 12 / 扉 6 / hidden 0 / 行 6
+       ── 項目4 ──  (7a) PASS  ノード 57 / 扉 45 / hidden 5 / 行 12
+                     (0b) PASS  選定=lizard-swamp&swampfold=0 (hidden1/扉7/entry=n0・前進3)
+                     (7i) 母集団 1 シナリオ / 扉 1 枚 → **6 シナリオ / 扉 6 枚**
+                     (7f) ユニークな配置 4/6 → **8/12**
+
+#### (d) ⭐ `driver_grid_s2` の空母集団の受け皿(依頼書 §6-6)
+
+`UNTOUCHED` が **0 件**になったので `for (const s of UNTOUCHED) { … G.check(…) }` が 1 回も回らない。
+⇒ §6-6 の 3 要求をこう組んだ:
+
+| 要求 | assert | 実測 |
+|---|---|---|
+| 畳んだ腕で竜が `["n4","n7"]` / `entry==="n4"` | **(8u)** | `ids=["n4","n7"] entry=n4` |
+| `?dragonfold=0` で 8 ノード / `entry==="n0"` | **(8u2)** | `ids=["n0"…"n7"] entry=n0` |
+| `G.check` の回数が下限を割らない | **(8t)** | **実測 39 件 / 下限 39 件 / UNTOUCHED=[]** |
+
+**⭐ 下限の導出式(⛔ シナリオ名も件数も焼いていない)**:
+
+```js
+const GOLDEN_POP = [
+  { key: 's2-',             keyNodes: S2_KEEP_NODES,     sw: 's2fold'     },  // 7
+  { key: 'lizard-swamp/',   keyNodes: SWAMP_KEEP_NODES,  sw: 'swampfold'  },  // 8
+  { key: 'orc-fort/',       keyNodes: FORT_KEEP_NODES,   sw: 'fortfold'   },  // 8
+  { key: 'undead-temple/',  keyNodes: TEMPLE_KEEP_NODES, sw: 'templefold' },  // 8
+  { key: 'dragon-lair/',    keyNodes: DRAGON_KEEP_NODES, sw: 'dragonfold' },  // 8
+];
+const GOLDEN_MIN = GOLDEN_POP.reduce((a, e) => a + e.keyNodes.length, 0);   // = 39
+// 実測は「golden 照合にしか使っていない id」を results から数える
+const goldenPop = results.filter(r => /^\((?:8|11)-/.test(r.name)).length;
+```
+
+⚠⚠ **ただしこれだけでは循環する。** 台帳から 1 行消せば下限も一緒に下がるので、
+「畳まれた舞台を §8 から黙って落とす」= **#67 の着手時点で `UNTOUCHED` に対して実際にやれた形**は
+捕まらない。⇒ **外側の台帳(本番 `index.html` の撤退スイッチ)**と突き合わせる assert を併設した:
+
+    PASS (8t2) ★★装置: 本番 index.html が持つ畳みの撤退スイッチが、台帳 GOLDEN_POP の腕 +
+               既知の除外 ["minefold"] と完全一致 (= 6 枚目の畳みが着地したら必ずここが赤くなる)
+               — 本番=["dragonfold","fortfold","minefold","s2fold","swampfold","templefold"]
+                 台帳+除外=同左
+
+⭐ **(8t2) は #67 の着手時点なら赤かった**(本番 5 スイッチ vs 台帳 4 腕 + 除外 1)。
+⭐ 除外 `minefold` は**タダではない** —— (8t2) は完全一致を要求するので、廃坑に golden を足した日には
+この行を消さないと赤くなる(古い免罪符が黙って残らない。`verify_swamp_novice` の `THEME_EXCEPTIONS` と同型)。
+⚠ 読み口は **`fs` ではなく配信**(`page.evaluate(fetch('index.html'))`)。作業ツリーを直接読むと
+`--mutate` が効かない(本ファイル冒頭の作法)。
+
+#### (e) 負のコントロールの再検算(⭐ 母集団を触ったので必ず撃ち直す)
+
+| 走らせたもの | EXIT | 赤くなった assert |
+|---|---|---|
+| `driver_doors_p6 --mutate nosecretroll` | 1 | `35/40` = `(0b)(1a)(1c)(7a)(7d)` |
+| `driver_doors_p6 --mutate noleafguard` | 1 | `36/40` = `(7g)(7h)(7c)(7d)` —— ⭐ **5 舞台で**ボス到達不能を検出 |
+| `driver_doors_p6 --mutate noexclude` | 1 | `36/40` = `(1c)(1l)(7i)(7d)` —— ⭐ (7i) が **5 舞台**で違反を挙げた |
+| `driver_grid_s2 --mutate nobridge` | 0 | ⭐ このドライバは変異 7 本を**同一 run 内の別ポートで配る**設計で、負のコントロールは `(3a)〜(3g)` の方。7 本とも緑 = 検出力は落ちていない |
+| `driver_graph_p6 --mutate nop6` | 1 | `208/211` = `(1a-orc-fort)(6c-orc-fort)(G1)` |
+| `driver_spawn_not_on_gate --mutate regressnolint` | 1 | `55/64` =(`(1c2-bandits-forest)(2b)(2c)(2d)(3a)(3b)` ほか 9 本) |
+
+⭐⭐ **`noleafguard` / `noexclude` は #67 以前より強くなった**。畳む前は 1 舞台でしか撃てなかった欠陥が、
+撤退の腕を足したことで **5 舞台すべてで**検出されるようになっている(母集団の追加が検出力に直結した実例)。
+
+⚠⚠⚠ **実測でヘッダの記述を 1 件訂正した** —— `driver_doors_p6` の負のコントロール表は
+`nosecretroll → §6 (6a)` と書いていたが、**(6a) は nosecretroll では原理的に赤くならない**。
+(6a) の母集団 `nWould` は実装ではなく**ドライバ側の規則 `wantHidden`** から数えるので、実装の抽選を
+殺しても `nWould` は減らず、`nHidden === 0` はむしろ (6a) が要求する側だから。
+⇒ #67 以前に (6a) が赤く見えていたのは**畳みで舞台の母集団が 0 枚になっていたため**で、
+負のコントロールの成果ではない。ヘッダの表を実測値へ書き直した。
+⭐ (6a) には**今も変異が無い**(= `?secret=0` が効かなくなる欠陥を撃つ腕が存在しない)。⛔ #67 の範囲外なので足していない。
+
+#### (f) ⚠⚠⚠ アンカー腐敗 2 件 —— **記録して項目5 へ申し送る**(直していない)
+
+**実測(`logs_D`)**:
+
+    $ node tools/verify_swamp_novice.js --mutate nostart
+    [drv] ⛔ 変異 nostart の置換対象が 1 ファイル / 4 箇所 → 負のコントロールが空振りする  (EXIT=3)
+    $ node tools/verify_fort_fold.js --mutate gateshift
+    [drv] ⛔ 変異 gateshift の置換対象が 1 ファイル / 3 箇所 → 負のコントロールが空振りする  (EXIT=3)
+    $ node tools/verify_swamp_novice.js --negative
+    … density1: 期待 ["1b"] / 実際に赤 ["1b"] → OK  →  nostart で EXIT=3 (**残り 13 本が 1 度も走らない**)
+
+**リテラルの出現数を 4 リビジョンで数え直した**(⭐ 項目3 の申し送りを鵜呑みにせず自分で測った):
+
+| アンカー | `da7cce6` | `7008057`(#66) | `5cd8f6f`(#67 項目2) | `41add2a`(現在) |
+|---|---|---|---|---|
+| `              start: { tx: 12, ty: 13 },` | **3** | 3 | 3 | **4** |
+| `          { id: "n4", kind: "start", mapDef: n4.mapDef, exits: n4.exits },` | **1** | **2** | 2 | **3** |
+
+**判断 = 直さず記録して項目5 へ渡す。理由は 3 つ、どれも実測で裏付けた。**
+
+1. ⭐⭐⭐ **#67 は「壊した」のではなく「既に壊れていたものを 1 増やした」だけ。**
+   門番は `hits.length !== 1 || n !== 1` という**二値**なので、3→4 も 2→3 も
+   **観測される結果は完全に同じ(EXIT=3・変異が 1 度も走らない)**。
+   `nostart` は `da7cce6`(2026-09-10 = #65 着手直前)の時点で既に **3**、
+   `gateshift` は **#66 が神殿を足した `7008057` で 2 になった時点**で死んでいる。
+   ⇒ #67 は**悪化させていない**(依頼の分岐の後者)。
+2. ⭐⭐⭐ **単一行アンカーでは直せないことを実測で確かめた。** 置換エンジンは
+   `if (from.indexOf('\n') >= 0) … exit 3` で**複数行アンカーを明示的に禁止**している。
+   そのうえで本番の 4 箇所 / 3 箇所を数えたところ:
+   - `start:` の 4 箇所のうち**砦 / 神殿 / 竜には固有の末尾コメントが付いており 3 本とも一意**
+     (`… /* 崩れた城門の 2 タイル内側 */` `… /* 西の大扉の 2 タイル内側 */` `… /* 西辺の岩床の 2 タイル内側 */`)。
+     **沼だけがコメント無し**で、他 3 本の**接頭辞**になっている ⇒ 沼を名指しする 1 行が存在しない。
+   - `{ id: "n4", kind: "start", … }` は **3 箇所が完全同形**で、**直前の 2 行のコメントまで同一**
+     (`index.html:38003 / 38145 / 38277`)。⇒ 1 行では砦を名指しできない。
+   ⇒ 直すには「測定点を別の行へ移す」= **負のコントロールの設計変更**が要る。これは
+   *言い直し*ではなく*作り直し*で、本項目(既存 golden の言い直し)の範囲を超える。
+3. ⭐ **項目5 が同じ問題を必ず解く。** `verify_dragon_fold` の `gateshift` / `startdefault` は
+   まさにこの 2 本のリテラルを使えない(項目3 §12-2 (j) の警告)。項目5 が竜で解いた形を
+   そのまま砦・沼へ横展開するのが、3 本バラバラに当てるより安全で安い。
+
+⛔ **したがって `verify_fort_fold` / `verify_swamp_novice --negative` は着手前と同じ EXIT=3 のままである。**
+素の実走は両方とも緑(`verify_fort_fold` 30/30 は項目3 が / `verify_swamp_novice` 34/34 は本項目が実測)。
+
+#### (g) 崩れた依頼書 / 前項目の主張 — **3 件**(⛔ 予測のほうを訂正した)
+
+| 主張 | 実測 | 判定 |
+|---|---|---|
+| 依頼書 §2-6「腐るのは 3 本」/ 項目3「4 本」 | **5 本**。5 本目 `driver_doors_p6` は項目3 が走らせた範囲の外に居た | **訂正** |
+| 依頼書 §6-6「下限 = 撤退 5 シナリオ x 8 ノード + 廃坑」 | 廃坑は `driver_grid_s2` の golden に**最初から 1 キーも無い**(`buildP6Run` を使わないため)。森は n0〜n6 の **7 件**。正しい下限は **7+8+8+8+8 = 39** | **訂正** |
+| `driver_doors_p6` のヘッダ「`nosecretroll` → §6 (6a)」 | (6a) の母集団はドライバ側の `wantHidden` から数えるので**実装の抽選を殺しても赤くならない**。ヘッダを実測値へ書き直した | **訂正** |
+
+#### (h) やり残し / 申し送り
+
+- ⛔ **`tools/verify_dragon_fold.js`(base 10281)は未着手** = 項目5。
+- ⭐⭐⭐ **項目5 が使える「竜にしか無い一意な 1 行」**(2026-09-16 に `index.html` で出現数 1 を実測):
+
+      rect: [4, 10, 22, 39], paint: "n7big", density: 0,
+      rect: [4, 9, 23, 39], paint: "n4big", density: 0,
+      start: { tx: 12, ty: 13 },   /* 西辺の岩床の 2 タイル内側 */
+      hoard: [[26, 10], [27, 10], [26, 11], [27, 11]] }
+      if (DRAGON_FOLDED) t["dragon-lair"] = { n4: ["search", "loot"] };
+      const DRAGON_FOLDED = !DRAGON_FOLD_OFF;
+
+  ⛔ `{ id: "n4", kind: "start", mapDef: n4.mapDef, exits: n4.exits },`(3 箇所)と
+  `              start: { tx: 12, ty: 13 },`(4 箇所・沼が接頭辞)は**使えない**。
+- ⭐ 項目5 が `verify_dragon_fold` を作ったら、`driver_grid_s2 (8t2)` の台帳と競合しないか一度だけ見ること
+  (あちらは本番のスイッチ名だけを見るので、新ドライバが増えても影響しないはず)。
+- ▶ `verify_fort_fold` の `gateshift` / `verify_swamp_novice` の `nostart` の**アンカー作り直し**((f))。
