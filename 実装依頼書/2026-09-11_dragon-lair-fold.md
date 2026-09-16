@@ -1918,3 +1918,177 @@ const goldenPop = results.filter(r => /^\((?:8|11)-/.test(r.name)).length;
 - ⭐ 項目5 が `verify_dragon_fold` を作ったら、`driver_grid_s2 (8t2)` の台帳と競合しないか一度だけ見ること
   (あちらは本番のスイッチ名だけを見るので、新ドライバが増えても影響しないはず)。
 - ▶ `verify_fort_fold` の `gateshift` / `verify_swamp_novice` の `nostart` の**アンカー作り直し**((f))。
+
+### 12-4. 項目5 — 受入ドライバ verify_dragon_fold
+
+- **測定日**: 2026-09-16(実装窓・項目5)/ **着手直前の `HEAD`** = **`b3d2d74`**(項目4b の着地)・作業ツリー clean
+- **触ったファイル** = **`tools/verify_dragon_fold.js`(新規・1122 行)** + 本節のみ。
+  ⛔ **本番コード(`index.html` / `js/df-mapdef.js` / `tavern.html`)は 1 バイトも触っていない**
+  (`git status --porcelain` が着手前から `?? tools/verify_dragon_fold.js` の 1 行だけ)。⇒ changelog は不要。
+- **生ログ**: `…\scratchpad\item5\`(`probe_dragon5.js` / `probe1.log` = 下見 / `count_anchors.py` /
+  `plain1.log` `plain2.log` `plain3.log` = 素 3 回 / `neg1.log` = 変異 9 本 /
+  `grid_s2_pre.log` `eol_pre.log` = 隣人 2 本)。
+- **ポート**: base **10281** / 変異の子 **10282〜10290**(9 本)。
+  ⇒ **次の新規ドライバの base は 10301 以降**。⛔ 10080 は Chrome の `ERR_UNSAFE_PORT`。
+
+#### (a) 素の集計行(⭐ 原文)— 35/35 を **4 回**
+
+    $ node tools/verify_dragon_fold.js
+    ════════════════════════════════════════
+      PASS 35 / FAIL 0
+    ════════════════════════════════════════
+                                  (EXIT=0。plain1 / plain2 / plain3 の 3 回とも同一)
+
+`--negative` の先頭で回る「素の 1 本 (基準)」でも FAIL 0(`⛔ 素の実行で FAIL がある` は 1 度も出ていない)
+⇒ **合計 4 回とも緑**。⭐ #67 項目1 の「同じ色が 2 回続くフレークが実在する」を踏まえ、2 回では止めなかった。
+
+⚠ `[drv] 例外 / console.error·warning = 1 ["ERROR Failed to load resource: … 404 …"]` が毎回出るが、
+これは**ブラウザが勝手に取りに行く `/favicon.ico`**(`ls favicon.ico` = 存在しない)。
+判定に使う (1d) は `[graph]` を含む warning/error だけに絞ってあるので影響しない。
+
+**35 本の内訳**: §0 = 0a 0b 0c 0d 0e / §1 = 1a 1b 1c 1d / §2 = 2a 2b 2c 2d 2e /
+§3 = 3a 3b 3c 3d 3e 3f / §4 = 4a 4b 4c / §5 = 5a 5b 5c 5d 5e / §6 = 6a 6b 6c / §7 = 7a 7b / §8 = 8a 8a2。
+
+#### (b) 選んだ変異アンカーと出現数の実測(⭐ 着手前に `py` で数えた)
+
+    $ py count_anchors.py            (index.html を newline='' で読み、str.count で数える)
+    density1       1        dropfoes       1        gateshift      1
+    hoardnull      1        hoardwide      1        nofold         1
+    nokinds        1        rectshift      1        startdefault   1
+    REF_n4start    3    ← 依頼書 §8 が gateshift に指定していた行(使えない)
+    REF_start12    4    ← 依頼書 §8 が startdefault に指定していた行(使えない)
+
+⭐ **項目4 (f) の実測(3 箇所 / 4 箇所)をそのまま再現できた。** 9 本すべて「竜にしか無い 1 行」:
+
+| 変異 | アンカー(原文) |
+|---|---|
+| `nofold` | `    const DRAGON_FOLDED = !DRAGON_FOLD_OFF;` |
+| `nokinds` | `      if (DRAGON_FOLDED) t["dragon-lair"] = { n4: ["search", "loot"] };` |
+| `dropfoes` | `      const FOLD_MOVED_DRAGON = DRAGON_FOLDED` |
+| `hoardwide` | `          if (MAPDEF && Array.isArray(MAPDEF.hoard)) return MAPDEF.hoard;` |
+| `hoardnull` | `      if (opt.hoard != null) md.hoard = opt.hoard;` |
+| `gateshift` | `      if (!DRAGON_FOLDED) return run;     // ?dragonfold=0 = 8 ノードの旧構成` |
+| `rectshift` | `              rect: [4, 9, 23, 39], paint: "n4big", density: 0,` |
+| `startdefault` | `              start: { tx: 12, ty: 13 },   /* 西辺の岩床の 2 タイル内側 */` |
+| `density1` | `                                  density: d.density, start: d.start }),` |
+
+⭐ **`gateshift` は依頼書の指定を捨てて「撤退の早期 return の行へ `else { … }` を生やす」形にした。**
+既存の `exits` を写像するだけなので 1 行に収まる(`_gs.exits = _gs.exits.map(e => ({… at:[e.at[0], e.at[1]+1] …}))`)。
+⚠ `density1` のアンカーだけは `verify_fort_fold` / `verify_temple_fold` と**共有**している
+(buildP6Run の `nd()`)。変異ごとに原本を読み直す実装なので互いを食わない(#56 の作法)。
+
+⭐ さらに **(0e) として起動時のアンカー検算を内蔵**した(`verify_temple_fold` 由来)。
+⛔ `verify_fort_fold` にはこれが無く、そのせいで「素は 30/30 緑・`--negative` だけ EXIT=3」が
+1 チケット生き延びた(項目3 (j) / 項目4 (f))。⇒ **畳み系の新規ドライバには必ず持たせること。**
+
+#### (c) 変異 9 本で**実際に赤くなった** assert id(⭐ 原文。⛔ 机上で書いていない)
+
+    $ node tools/verify_dragon_fold.js --negative          (EXIT=0 / 10 走行)
+      負のコントロール 9 / 9 が検出成功
+       ・nofold        期待 ["0a"]  / 赤 ["0a","0b","1a","2a","2c","2d","2e","3a","3b","3c","3d",
+                                          "4a","4b","5a","5b","5c","5d","5e","6a","7a","8a2"]
+       ・nokinds       期待 ["4a"]  / 赤 ["4a","4b"]
+       ・dropfoes      期待 ["2a"]  / 赤 ["2a"]
+       ・hoardwide     期待 ["3b"]  / 赤 ["3b","3c"]
+       ・hoardnull     期待 ["8a2"] / 赤 ["8a2"]
+       ・gateshift     期待 ["5c"]  / 赤 ["5c"]
+       ・rectshift     期待 ["5a"]  / 赤 ["5a","5b","5c"]
+       ・startdefault  期待 ["5b"]  / 赤 ["2c","5b","5d"]
+       ・density1      期待 ["5e"]  / 赤 ["5e"]
+
+⭐ **`dropfoes` / `hoardnull` / `gateshift` / `density1` が 1 本ずつ**しか赤くしない
+= **節が分離している**証拠(1 つの変異が全部を赤くする「爆風だけの装置」ではない)。
+⭐ `nofold` で緑のまま残ったのは **14 本**(0c 0d 0e 1b 1c 1d 2b 3e 3f 4c 6b 6c 7b 8a)。
+旧 8 ノード構成でも「歩けること」自体は成り立つので **(6b)(6c) が緑なのは正しい**。
+
+#### (d) ⚠⚠⚠ 崩れた依頼書の主張 — **2 件**(⛔ 予測のほうを訂正した)
+
+| 主張 | 実測 | 判定 |
+|---|---|---|
+| §8 (8a)「他 5 シナリオの mapDef が 1 バイトも変わっていない」は「**`hoard` を無条件に生やしていないことの検査でもある**」 | ⚠⚠⚠ **両立しない。** (8a) は**両腕の差**なので、`p6Node` が無条件にキーを生やす欠陥は**両方の腕へ等しく**効いて差が出ない。実測でも変異 `hoardnull` で **(8a) は PASS のまま**(ハッシュは両腕とも `bandits-forest 976d03ab:717 → 67026816:730` と等しく動いた)。⇒ **絶対量の (8a2) を新設**し、そちらだけが赤くなった(畳んだ腕 10 件 / 撤退の腕 16 件 vs 正しくは 1 件 / 0 件) | **訂正** |
+| §8 の負のコントロール表「`hoardwide` → §3 (3b)(3c)(**3d**)」 | **(3d) は赤くならなかった。** 西 45% 規則へ落ちたとき、種つき乱数がミミックを **(11,8)** へ置き、入場 (12,13) から **489.5px = 半径の 2.45 倍**で (3d) の敷居(2 倍)を上回った。⇒ (3d) は「入場の隣に湧く」欠陥の番人として正しいが、**この変異では発火しない**。担当は (3b)(3c) | **訂正** |
+
+⭐ 一般則(#44 の再演): **恒等 assert は「片方のアームだけを壊す変更」でしか赤くならない。**
+「無条件に載せる」型の欠陥は**絶対量**でしか捕まらない。
+⭐ もう 1 つ(#57 の再演): **負のコントロールの赤は机上で書くと必ず外れる。** 今回も 9 本中 2 本で外れた。
+
+#### (e) 依頼書 §8 から変えた点 — **6 件**(⛔ 弱めたものは 1 つも無い)
+
+| id | 変えた点 | 理由 |
+|---|---|---|
+| **(8a2)** 新設 | 「`hoard` キーを持つ mapDef が 6 シナリオ全ノードで**畳んだ竜の n7 ただ 1 つ**、撤退の腕では 0 件」 | (d) のとおり (8a) では原理的に測れない。⭐ 依頼書 §2-2 の罠(全 mapDef に `hoard:null` が生えて `driver_grid_s2 §8` が一斉に赤くなる)の番人はこちら |
+| **(2c)** 強化 | 「スロットがマスクの `.` に載る」+「マスクの `#` が 1 つも歩けるようになっていない」の **2 本立て** | ⚠ `isTileWall` だけでは**永久緑**(`applyPaintingBlocking` の門番 `skipSpawn` が敵スポーンを必ず素通しさせる = #58 の教訓) |
+| **(2e)** 追加 | 「n4 の敵が 2 群に割れ、群間の最短 > `DETECTION_RANGE`」 | 依頼書 §9-2 が**設計の制約として決めている**値なので、決定を記録する assert として置いた(⛔ 決定の先取りではない)。実測 **群 [5,5] / 群間 15.13 タイル > 12.5** |
+| **(1d)** 追加 | 起動時 lint が error 0 / warning 0 | `LINT_PAINTING_ASPECTS` へ足した 31x20 / 30x19 が効いていることを、このドライバ単体でも読めるようにする |
+| **(0e)** 追加 | 変異アンカーの起動時検算 | `verify_fort_fold` にこれが無かったせいで空振りが 1 チケット生き延びた((b) の注記) |
+| **(4c)** 追加 | 他 4 シナリオの兼務宣言が 1 ビットも動いていない | fort / temple と同じ形 |
+
+⚠ **(6a) には変異が無い(宣言された穴)。** 竜は `inactive` な敵を 1 体も置かないので、竜側のどんな欠陥でも
+原理的に赤くならない。⭐ ただし「空集合を測って緑」だけは母集団ガード(各ノードに敵が実在する =
+実測 `["n4:10","n7:3"]`)を同居させて塞いである。⛔ この穴は隠さずここに書く。
+
+#### (f) ⭐ 写経していないことの実測(期待値の出所)
+
+| 測っているもの | 出所 | 実測値 |
+|---|---|---|
+| ノード数 / id / entry | **3 経路** = `RUN.graph` / `buildScenarioRun("dragon-lair")` / `buildDragonLairRun()` | どれも `entry=n4 ids=["n4","n7"] kinds=["start","boss"]` |
+| 敵の顔ぶれ | `?dragonfold=0` の **n1+n2+n3+n4 の合計** | 旧 10 体 `{orc:5,skeleton:2,minotaur:3}` = 畳んだ n4 10 体 |
+| 入場地点 | rect からの**独立式**(辺の中点 + `NODE_ENTRY_INSET`) | n4 (20 行 偶数) `[11,13]` / n7 (**19 行 奇数**) `[12,13]` — 2 枚とも実際に立ったタイル・`mapDef.start` と 3 経路一致 |
+| 出口タイル | **3 経路** = `exits[].at` / `nodeGateTile(md,"right")` / rect の右辺の中点 | `[39,13]` で一致 |
+| 交戦距離 | 本番の `RANGE.melee.engagePx` | 400px = 4.17 タイル(n4 最寄り 5.00 / n7 最寄り 11.18) |
+| 群の閾値 | 本番の `DETECTION_RANGE / TILE_SIZE` | 1200 / 96 = 12.5 タイル |
+| ミミックの半径 | 本番の `MIMIC_APPROACH_RADIUS` | 200px(実測の距離 1452.7px = **7.26 倍**) |
+| 西 45% の比 | **配信バイトの `westLimit` の行を正規表現で読む** | `0.45` ⇒ 旧 n7 rect `[11,32,16,40]` から westLimit = col 35、宝箱 4 個とも内側 |
+| マスク | **配信した `index.html` を自前でパース** | n4big 20 行 x 31 列(開き 297 / 塞ぎ 323)/ n7big 19 行 x 30 列(開き 324 / 塞ぎ 246) |
+
+⭐ **(6c) は出口ゲートに閉じた扉が立つので `aStar` が素で `null` を返す**(#66 が神殿で踏んだのと同型。
+下見でも `gate:null` を再現した)⇒ 扉の**手前**まで測って扉のタイルを末尾へ足す形にした。
+実測 `{"via":"door-front","steps":28,"front":[38,13]}`。
+
+#### (g) 隣人 2 本の非退行(⭐ 項目4 (h) の申し送りに応えた)
+
+    $ node tools/driver_grid_s2.js        → [drv] 124/124 PASS              (EXIT=0)
+        PASS (G0) golden のキー集合が今回の実行と完全一致 — 今回 39 件 / golden 39 件
+    $ node tools/verify_eol_doorfix.js    → 素 27/27 PASSED                 (EXIT=0)
+        PASSED (3b) ★★本番 5 ファイルの blob が HEAD と同一 — 食い違い 0 本
+
+⭐ **`driver_grid_s2 (8t2)` の台帳(本番の撤退スイッチ名だけを見る)とは競合しなかった** =
+項目4 (h) の見立てどおり。`verify_eol_doorfix` も、新規 `tools/*.js` が `.gitattributes` の既定 LF に
+従っている限り無傷(本ドライバは **純 LF / CR 0 バイト**を `py` で実測済み)。
+
+#### (h) ⚠⚠⚠ 横展開は**やらなかった** — 理由は「安い」が実測で崩れたから
+
+項目4 (f) は「竜で解いた形を `verify_fort_fold` / `verify_swamp_novice` へ横展開するのが一番安い」と
+見立てていた。⭐ **着手前に数えたら、その見立ての前提が 2 つ崩れた。**
+
+1. ⚠⚠⚠ **`verify_fort_fold` で死んでいるのは `gateshift` 1 本ではなく `addn6` と `gateshift` の 2 本。**
+   実測 = `grep -n -F '{ id: "n4", kind: "start", mapDef: n4.mapDef, exits: n4.exits },' tools/verify_fort_fold.js`
+   → **91 行 (addn6) と 94 行 (gateshift) の 2 箇所**が同じ 3 箇所アンカーを共有している。
+   `MUT_ORDER` は `… dropfoes, addn6, gateshift …` なので **`--negative` は gateshift へ届く前に
+   addn6 で EXIT=3** になる。⇒ 項目4 の記録(`--mutate gateshift` 単独での実測)は正しいが**不完全**。
+2. ⚠⚠ **竜で使った形は `addn6` には移植できない。** 竜の `gateshift` は「既存の `exits` を写像するだけ」
+   なので `if (!DRAGON_FOLDED) return run; else { … }` の 1 行に収まったが、`addn6` は
+   **返り値の `nodes` 配列へ要素を挿す**変異で、返り値のオブジェクトリテラルはその行より後に作られる。
+   ⇒ 1 行アンカーでは書き換えられず、**負のコントロールの設計変更**が要る。
+3. ⚠ 直した瞬間に「**一度も走ったことのない 3 本**」(`rectshift` / `startdefault` / `density1`)が初めて走る。
+   そこが赤なら EXIT=3 が EXIT=1 に変わるだけで、#67 の範囲外の修理を抱え込む。
+   `verify_swamp_novice` は更に重い(**13 本**が未走 / `nostart` を 1 行で言い直せる口が
+   **コメント行しか無い** —— 沼の `start:` 行は末尾コメントを持たず他 3 本の接頭辞)。
+4. ⭐ どちらも **#67 の着手前から壊れている**もので、#67 は 1 ビットも悪化させていない(項目4 (f) の裁定)。
+
+⇒ **単独チケット向き**と判断した。⭐ 設計は本節がそのまま使える —
+**「舞台固有の 1 行アンカー」+「(0e) 起動時アンカー検算」**の 2 点セット
+(実測: `grep -c anchorAudit` は `verify_temple_fold` = 2 / `verify_dragon_fold` = 2 /
+**`verify_fort_fold` = 0 / `verify_swamp_novice` = 0**)。
+
+#### (i) やり残し / 申し送り
+
+- ▶ **項目6(母集団の非退行 + §12 総括 + 台帳)**: 本項目で**新たに赤くなった本は 0 本**。
+  触ったのは `tools/verify_dragon_fold.js`(新規)だけなので、母集団の段2「変更したファイルをコードで読む本」は
+  **0 本**(項目4 と同じ事情)。段1(舞台名 `dragon-lair`)と段3(測定器のソースを読む測定器)は項目3/項目4 の
+  union をそのまま使える。⭐ 新ドライバ自身を母集団へ足すこと。
+- ▶ **`verify_fort_fold` / `verify_swamp_novice` のアンカー作り直し**は (h) のとおり別チケット。
+  ⚠ 依頼書 §11 の「やらないこと」には無いが、#67 の範囲外(項目4 の裁定を踏襲)。
+- ⭐ **ポート台帳**: `verify_dragon_fold` = **10281〜10290**。次の新規ドライバは **10301 以降**。
+- ⚠ 難易度は #67 の範囲外のまま(項目3 (i) の申し送り = 4 人 PT はボス戦で全滅。
+  ⭐ `?dragonfold=0` でも同じなのでラスボスの難易度そのもの)。
