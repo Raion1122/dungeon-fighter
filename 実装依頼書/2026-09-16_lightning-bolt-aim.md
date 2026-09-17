@@ -966,3 +966,97 @@ R4 `CONE_CAST_ON`(:28430-28445)/ R5 `allyLightningBolt`(:28575-28690)と、`tave
   - アンカー: `anchor_table.py` / `anchors_before.tsv` / `anchors_after2.tsv` / `anchor_diff2.txt`
   - 検証: `bres_check.py` / `board_sim.py`
   - 書き換え: `patch68.py` / `patch68b.py`
+
+### 12-2. 既存 golden の言い直し(項目3)
+
+- **測定日**: 2026-09-17(実装窓 `b0fa1865`・dev-loop 項目3)/ HEAD = `e2927c3`(項目2)・作業ツリー clean。⛔ push していない。
+- **結論 = 言い直し不要**。#68 の本体変更で腐った既存ドライバは **0 本**。`tools/` は 0 バイト(この項目で触ったのは本書だけ)。
+- LISTEN(8000〜11000): 着手前 13:04:07 = `127.0.0.1:9010`(pid 19412)/ `127.0.0.1:9180`(pid 4764)の 2 件、chrome 0 本、node 24 本(MCP)。後始末の確認 13:12:26 も**同じ**。ドライバはどれも自分のサーバとブラウザを閉じて終わり、落としたプロセスは無い。
+
+#### (a) 腐りうる本の引き方 — 4 経路の union = **4 本**(= 段1 と同じ)
+
+| 経路 | 引き方 | 当たり | 読んだ結果 |
+|---|---|---|---|
+| ① 段1 | 項目1 の `stage1_roster.txt` | 4 本 | `driver_action_priority` / `driver_field_step7` / `verify_aoe_coverage` / `verify_cone_cast` |
+| ② 語(**コメントを落としてから**) | `scan68_item3.py`。25 語 × `tools/*.js` 145 本 | 下の箇条 | 段1 の外で当たった本は、どれも #68 と無関係な文脈 |
+| ③ 11 字以下の文字列リテラル + **正規表現リテラル** | `lit_scan_i3.py`(項目2 のアンカー表は 12 字以上の文字列だけ = その穴)。`a23e002` と作業ツリーで出現数 / マッチ数が変わったものを全部出した | 392 行(`function` / 空白 / `null` などの雑音を除くと 143 行) | 143 行を全部読んだ。どれも「ログの見出し文字列」「DOM から読んだ文字列に当てる正規表現」「#68 が触らない関数の切り出し」。**index.html / tavern.html の本文を数えて assert する本は 0** |
+| ④ 呪文 UI の描画 | `.skillItem` / `sFlavor` / `spellCountItem` / `renderSpellSlotItem` / `MAGE_SKILLS_UI` | 2 本(`driver_action_priority` / `verify_party_match_setup`) | 押す位置は実行時の DOM 矩形から取る(`clickCenterOfSel`)か `.click()`。flavor の文言は比べていない ⇒ flavor が長くなって折り返しが変わっても壊れない |
+
+経路②の内訳:
+
+- `lightning-bolt` 2 本 / `allyLightningBolt` 3 本 / `ライトニングボルト` 1 本 / `__aoeStats` 3 本 / `noteAoeOutcome` 2 本 / `MAGE_SKILLS` 1 本 / `__aoeCover` 1 本 / `mageAI` 2 本 / `cone-of-cold` 1 本 / `step <= 3` 1 本 / `directions` 1 本 ⇒ **全部段1 の 4 本の中**。
+- `aoeLineSafeAllyTag` / `spawnLightningBolt` / `changelog`(大文字小文字無視)/ `更新情報` / `はじめの画面` / `line3` / `boltaim` ほか #68 の新名 / `Object.keys(MAGE_SKILLS)` ⇒ **0 本**。
+  ⚠ `changelog` は素の grep だと 9 本出るが、全部コメント(changelog ガードの注記)。changelog の件数や先頭行を比べる本は無い。
+- `flavor` 32 本:生成クエストの `flavor: ''`、敵定義の flavor、部屋イベントの flavor。**`MAGE_SKILLS` や酒場の呪文 UI の flavor を読む本は 0**。
+- `直線` 3 本 / `spellAoE` 2 本:段1 以外は `driver_grid_p5`。見ているのは射程表 `WANT_RANGE.spellAoE = 10` と「直線レーン」(歩数の計測用の床)で、#68 は射程表を触っていない。
+- `'line'` 6 本:段1 以外は world 系と傭兵名簿の `line`(台詞)で、呪文とは関係ない。
+- 実プレイの乱数経路:LB を装備させる本は `driver_field_step7`(Part R)と `verify_aoe_coverage` だけ。本番の NPC 既定装備(`defaultSkills`)と `DEFAULT_KNOWN.mage` にも LB は無い ⇒ 実プレイで偶然 LB が出るようになる本は増えない。
+
+#### (b) 走らせた本(HEAD・直列・`timeout` なし・走行の直前ごとに `procs=0 ports=`)
+
+| 本 | 腕 | 走行 | exit | 集計 | 基準(`base68b`) |
+|---|---|---|---|---|---|
+| `driver_field_step7` | 素 | 本項目 `i3a` 245.5 秒 | 0 | `79/79 PASS` | 0 / `79/79` |
+| `driver_action_priority` | 素 | `i3a` 121.6 秒 | 0 | `PASSED 92 / FAILED 0 / PENDING 0` | 0 / 92 |
+| `driver_action_priority` | `--negative` | `i3a` **0.1 秒** | **1** | 注入前の事前検査で停止((c)) | 基準に無い |
+| `verify_aoe_coverage` | 素 | 項目2 のログ | 0 | `28/28 PASSED FAILED 0 PENDING 0` | 0 / 28/28 |
+| `verify_aoe_coverage` | `--negative` | 項目2 のログ | 0 | `10 本すべて担当ラベルが赤`。m8 = 注入 → (1c)(6b) 赤 | 同じ |
+| `verify_cone_cast` | 素 | 項目2 のログ | 0 | `19/19` | 同じ |
+| `verify_cone_cast` | `--negative` | 項目2 のログ | 0 | `41/41`。`coldstale` の `const directions = [` = 素×1 → 変異×2 | 同じ |
+
+- 項目2 のログを引用してよい根拠:4 本のログ(12:47〜12:52)は `index.html` / `tavern.html` の最終更新(12:33:55 / 12:32:32)より後に書かれている。しかも `e2927c3` の後の作業ツリーは clean ⇒ HEAD と同じ本番を測っている。
+- 突き合わせ = `py fp68_i3.py compare ..\baseline68\result_base68b.FINAL.tsv result_i3.FINAL.tsv base68b_vs_i3`(共通 6 本):
+  - exit:緑→赤 **0** / 赤→緑 0
+  - 経路① assert id:新しい FAIL id **0** / 消えた id 0 / 増えた id 0
+  - 経路② 判定行の多重集合:新しい FAIL 行 **0** / 消えた PASS 行 0 / 増えた PASS 行 0
+- `driver_field_step7` のログ全文の差(数字を `#` に正規化)は 2 箇所だけ:
+  - `[profile]` の掃除の行 1 行
+  - Part R の実プレイで観測された呪文名(基準 `ice-storm` → 今回 `conjure-volley`)
+  - `(P2)` の `line 68.0% / cone 80.5% / splash 86.8%` は基準と同じ値(ドライバ自前の旧 3 マスの写し = §12-0 (k) の予想どおり)。
+- 赤くなった本が 0 本なので、「単独 3 回の再走」は発生しなかった。
+
+#### (c) `driver_action_priority --negative` の exit 1 — ⛔ #68 のせいではない(#35 `97f350d` 以来の死んだ変異)
+
+- ログ:`[driver] 負のコントロール N3 の注入点が 2 箇所 (期待 1)。アンカーが腐っています:` / `const equippedIds = apEquippedIdsFor(slot, classKey);`。ブラウザを起こす前の事前検査で止まり、変異は 1 本も走らない。
+- **切り分け 1 = 版ごとの注入点の数**(`ap_neg_anchors_i3.py`。ドライバ `:170-318` と同じ判定規則)
+
+| 注入点 | `97f350d^` | `97f350d` | `157a9ca` | `98419b0` | `a23e002` | `e2927c3` | 作業ツリー |
+|---|---|---|---|---|---|---|---|
+| **N3**(tavern の部分文字列) | 1 | **2** | 2 | 2 | 2 | 2 | 2 |
+| SEAM / BUFF / N1 / N2 / N4〜N11(index の行) | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+  ⇒ 腐らせたのは **#35 項目2 `97f350d`(2026-08-29)**。引き出し `#pmDrawer` に同じ行を足した(`tavern.html:7560` / `:8745`)。#68 は 13 個の注入点をどれも動かしていない。
+- **切り分け 2 = 実走**:`git show 98419b0:index.html` / `98419b0:tavern.html` を scratchpad の `root98419b0\` へ書き出し、同じドライバ(`tools/` は `98419b0..HEAD` で差分なし)を `--negative` で向けた ⇒ **同じ exit 1・同じ文面**。
+- ⛔ 直していない:#68 由来ではない(「#68 由来と確定した本だけを直す」)。しかもこのドライバは `allyLightningBolt` をスタブに差し替えるので、N3 を直しても #68 の挙動はこの変異群の射程外。⇒ 別チケット候補として申し送る。
+
+#### (d) 言い直し
+
+- 言い直した本は **0 本**。assert 数は前後で同じ:
+  - `driver_field_step7` 79
+  - `driver_action_priority` 92
+  - `verify_aoe_coverage` 28 + 変異 10 本
+  - `verify_cone_cast` 19 + 変異 14 本(41 判定)
+- `verify_aoe_coverage` の m8 は、項目2 の実測どおり生きている(アンカー 1 箇所、注入すると (1c)(6b) が赤)。§2-6 の ② に当たらないので触らない。
+
+#### (e) 崩れた主張
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | 指示「`driver_action_priority --negative` は基準に無い。赤なら #68 のせいか切り分ける」 | 赤(exit 1)だが **#68 より前から**。`97f350d`(#35)以来、事前検査で止まって変異 11 本がどれも走っていない = **#19 の N1〜N6 と #34 の N7〜N11 は 2026-08-29 から誰にも測られていない**。項目1 の名簿に `--negative` 腕が無かったので、これまで見えていなかった |
+| 2 | 指示「語 `flavor` は 36 本ヒット」 | コメントを落とすと **32 本**。`MAGE_SKILLS` / 酒場の呪文 UI の flavor を読む本は 0 |
+| 3 | §2-6「`driver_field_step7` は変更不要。記録の line は旧仕様を測り続ける」 | **当たり**(`(P2)` line 68.0% は同じ値)。⚠ ただし Part R は魔法使いに LB を装備させて 240 秒実プレイするのに、観測されたキーは基準・今回とも **1 件(箱型)だけ**で、LB は一度も記録されていない = この本は #68 の実挙動を実質測っていない(`(R2)` は「キー 1 件以上」しか見ない) |
+| 4 | 項目2「アンカー表(12 字以上)で変化 3 件、どれもアンカーではない」 | 当たり。11 字以下と正規表現まで広げると変化は 392 行出るが、#68 の本文を数える assert は 0 |
+
+⭐ 当たったもの:LISTEN は着手前も後も lghub の 9010 / 9180 だけ。段1 の 4 本が腐りうる本の全部(4 経路の union が増えなかった)。
+
+#### (f) 項目4/5 へ
+
+- ⭐ 項目5:`driver_action_priority --negative` を名簿に足すなら、**着手前(`98419b0`)から exit 1(事前検査)** の「非緑のまま」として数える。⛔ 緑→赤に数えない。
+- ⭐ 項目4:`verify_bolt_aim` の変異の注入点を「ファイル全体の部分文字列」で数えると、同じ行が別の関数に写された日に N3 と同じ死に方をする(#35 は酒場 UI の行を 1 行写しただけで #19/#34 の変異 11 本を止めた)。⇒ **行単位 + 関数本体の範囲で数える**ほうが腐りにくい。
+- ⚠ `driver_field_step7` は実測 JSON を別セッションの scratchpad(`d59476b7-…\scratchpad\field_step7_metrics.json`)へ書く。着手前からの既定値で、基準の走行も同じ。
+- 生ログ・スクリプト = `C:\Users\PC_User\AppData\Local\Temp\claude\c--Users-PC-User-Desktop------------\b0fa1865-6afd-4eba-a0b1-818df2247585\scratchpad\item3\`
+  - 走査:`sweep68_i3.py` / `fp68_i3.py`(項目1 の写しで、出力先だけ変えた)/ `runlist_i3.txt` / `progress_i3a.txt` / `result_i3a.FINAL.tsv` / `result_i3.FINAL.tsv`(+ 項目2 の 4 本)
+  - 比較:`compare68_base68b_vs_i3.txt` / `summary68_i3.tsv` / `fp68_ids_i3.tsv` / `fp68_lines_i3.tsv` / `diff_field_step7.txt`
+  - 生ログ:`logs\i3a\*.log` / `logs\i3b\driver_action_priority_negative_98419b0.log`
+  - 引き方:`scan68_item3.py` → `scan68_item3.txt` / `lit_scan_i3.py` → `lit_scan_i3.txt` / `lit_scan_i3_filtered.txt`
+  - 切り分け:`ap_neg_anchors_i3.py` → `ap_neg_anchors_i3.txt` / `root98419b0\`
