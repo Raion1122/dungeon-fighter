@@ -459,4 +459,212 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の基準(項目1 / 2026-09-18・実装窓)
+
+⛔ この項目では `index.html` / `tavern.html` / `tools/` を **1 バイトも変更していない**(測っただけ)。
+
+#### (a) 状態
+
+    git log --oneline -1   →  9174c39 #70 起草 — 使わない魔法・特技の見分け + 僧侶の除外 (依頼書 + 台帳)
+    git status --porcelain →  (空 = clean)
+    git log --oneline origin/main..HEAD → 9174c39 の 1 本だけ (origin/main = 3f87f65)
+
+- `実装依頼書/README.md` の **#68 行 = ✅ 完了**(`a23e002`+`e2927c3`+`e42b7ea`+`d9c8cbf`+`78c7474`)を確認。⇒ **着手可**。
+- 隣窓(起草窓)の `9174c39` が触ったのは `2026-09-18_spell-off-visibility.md`(新規)と `README.md`(+1 行)だけ =
+  本チケットの `index.html` / `tavern.html` / 本書とは衝突しない。
+
+#### (b) 母集団 — 3 段 union = **134 本**(⭐ 段1・段3・名指しは union を 1 本も増やさなかった)
+
+`tools/*.js` は **146 本** = 走れるドライバ(接頭辞 `driver_` / `verify_` / `probe_` / `sweep_`)**141 本** + ヘルパー 5 本
+(`_doors_fixture.js` / `_golden.js` / `_pptr_profile.js` / `auto_debug_run.js` / `sim_plaza_entry.js`)。ヘルパーは #67/#68 と同じく母集団から外した。
+
+| 段 | 引き方 | 本数 |
+|---|---|---|
+| **段1** | `grep -ln "hold-person\|holdPerson\|allyHoldPerson\|pickHoldPersonTarget\|HOLD_RING\|spawnHoldRing\|ホールド・パーソン" tools/*.js` | **2**(コメントを落としても同じ 2 本)|
+| **段2** | `index.html` / `tavern.html` を**コードで**読む本(コメントを落としてから判定) | **134**(index 128 / tavern 46)|
+| (参考) | 段2 を素の grep で引くと | 136(コメントだけで触れる `verify_world_heromark` / `verify_world_steps` の 2 本が混ざる)|
+| **段3** | `grep -ln "'tools/driver_\|'tools/verify_" tools/*.js` | **2** |
+| 名指し | §8「既存 golden の非退行」の 5 本 | 5(全部 段2 の部分集合)|
+| | **union** | **134** |
+| | 母集団外(段2 に入らないドライバ) | **7** |
+
+- **段1 の 2 本** = `verify_aoe_coverage.js` / `verify_hold_person.js`(⭐ §4-2 の起草時の予想と一致)。
+- **段3 の 2 本** = `verify_enemy_name_label.js` / `verify_eol_doorfix.js`。
+- **名指し 5 本** = `verify_bolt_aim` / `verify_hold_person` / `verify_aoe_coverage` / `driver_action_priority` / `verify_cone_cast`。
+- **母集団外 7 本** = `driver_bgm_title` / `driver_doors_p1` / `probe_town_mask` / `verify_codex_map_skill` /
+  `verify_road_events` / `verify_world_heromark` / `verify_world_steps`(#68 と同じ 7 本)。
+- ⭐ **#68 の union 133 本との差は `verify_bolt_aim.js` の 1 本だけ**(#68 項目4 が新設した本)。本数は台帳(`tools/` の実体)から導出しており、⛔ 定数で焼いていない。
+
+**確定リスト(134 本・アルファベット順。`.js` は省略)**:
+
+    driver_action_priority / driver_bgm_mine / driver_bgm_town / driver_cast_circle / driver_choice_logslot / driver_cleanup_phase1
+    driver_cleric_sprites / driver_depart_menu_clean / driver_dev_gate / driver_dev_gate2 / driver_diag_watchdog / driver_doors_p2
+    driver_doors_p5 / driver_doors_p6 / driver_doors_p8 / driver_elf_sprites / driver_encounter_mopup / driver_equip_compact_ios
+    driver_field_scale / driver_field_step0 / driver_field_step05_hud / driver_field_step1 / driver_field_step1_geo / driver_field_step2
+    driver_field_step3 / driver_field_step5 / driver_field_step6 / driver_field_step6_png / driver_field_step7 / driver_field_verge_gap
+    driver_field_wagon / driver_fix4_help_bonus / driver_graph_arrows / driver_graph_kinds / driver_graph_p6 / driver_graph_p7
+    driver_graph_reentry / driver_graph_run / driver_graph_sce1 / driver_grid_p3b / driver_grid_p4 / driver_grid_p5
+    driver_grid_p7 / driver_grid_p8 / driver_grid_p9 / driver_grid_s2 / driver_heromark_signplate / driver_leader_ai
+    driver_log_compact / driver_mapdef_step1 / driver_mapdef_step2 / driver_mapdef_step3 / driver_mapeditor / driver_mapeditor_painting
+    driver_mapeditor_pointer / driver_mapeditor_props / driver_mapeditor_railkit / driver_mapeditor_texture / driver_mapeditor_waterkit / driver_mine_wall
+    driver_monsters_chimera / driver_monsters_griffon / driver_monsters_hobgoblin / driver_monsters_kobold / driver_monsters_orc / driver_monsters_umberhulk
+    driver_paint_blocked / driver_paint_grid / driver_party_view_reopen / driver_rogue_sprites / driver_room_search_roll / driver_sce1_events
+    driver_scroll_autoskip / driver_skillcheck_roster / driver_spawn_not_on_gate / driver_speech_boss / driver_speech_engine / driver_speech_hooks
+    driver_speech_v2 / driver_trap_disarm / driver_trap_weaponize / driver_wall_face / driver_wall_props / driver_wallbox
+    driver_warrior_variants_sprite / probe_bandit_map / probe_boss_latch / probe_n4_stall / probe_p9_tour / probe_paint_overlay
+    probe_party_size / probe_rest_premature / probe_s2_clear / probe_s2_fold / probe_s4_relocate / probe_swamp_map
+    sweep_recruit_balance / verify_ability_scores / verify_aoe_coverage / verify_bolt_aim / verify_cone_cast / verify_darkvision
+    verify_dragon_fold / verify_enemy_name_label / verify_eol_doorfix / verify_fort_fold / verify_hold_person / verify_mercenary_roster
+    verify_npc_crowd / verify_party_four / verify_party_match_setup / verify_party_promises / verify_player_sheet / verify_pm_drawer_fit
+    verify_prep_retire / verify_quest_visibility / verify_quest_walk / verify_recruit_size / verify_recruit_talk / verify_road_ambush
+    verify_road_boon / verify_roll_target / verify_run_chronicle / verify_save_slots / verify_swamp_fold / verify_swamp_lair
+    verify_swamp_novice / verify_tavern_map / verify_temple_fold / verify_title_screen / verify_town_exit / verify_town_map
+    verify_walk_block / verify_world_map
+
+#### (c) 基準値は **#68 項目5 の凍結 TSV を流用**する(⭐ ユーザー決定 2026-09-18)
+
+§4-3 の ⭐ は「HEAD が 1 本でも動いていたら採り直す」だが、HEAD は動いた(`78c7474` → `9174c39`)のに
+**ドライバが読むファイルは 1 バイトも動いていない**。⇒ 流用してよい、とユーザーが決定。**根拠は鵜呑みにせず自分で追試した**:
+
+    git diff --name-status 78c7474..HEAD
+      M  実装依頼書/2026-09-16_hold-person-pair.md
+      A  実装依頼書/2026-09-18_spell-off-visibility.md
+      M  実装依頼書/README.md          ← ⭐ 実装依頼書/ 配下の .md 3 本だけ
+
+    git rev-parse 78c7474:index.html   = 6548a3905a76ffec23f285ec9bdac2fcf543c5be
+    git rev-parse HEAD:index.html      = 6548a3905a76ffec23f285ec9bdac2fcf543c5be   ← 一致
+    git rev-parse 78c7474:tavern.html  = 32d3b2f9abc9863bd5c402e5a69fa8d80a818fca
+    git rev-parse HEAD:tavern.html     = 32d3b2f9abc9863bd5c402e5a69fa8d80a818fca   ← 一致
+    git rev-parse 78c7474:tools        = af906aa2b749f878bd3753dc3274a053e1a726a1
+    git rev-parse HEAD:tools           = af906aa2b749f878bd3753dc3274a053e1a726a1   ← 一致 (ツリー OID)
+
+**流用する凍結 TSV**(#68 項目5 = `78c7474`・2026-09-17 23:00:41 → 2026-09-18 03:12:22・**251.7 分**):
+
+- 結果 = `result_after68.FINAL.tsv`(**147 行** = ヘッダ + 147 走行。列 = `idx / name / group / exit / secs / start / end / pre_check / log`)
+- 名簿 = `runlist_i5.txt`(**147 腕** = `<group>|<file.js>|<args>`。distinct **140 本**)
+- 指紋 ① = `fp68_ids_after68.tsv`(`book / id / n_pass / n_fail / n_other`)/ 指紋 ② = `fp68_lines_after68.tsv`(`book / status / count / key_norm`)
+- 突き合わせ器 = `fp68_i5.py`(`compare <前.tsv> <後.tsv> <label>`)/ 走査器 = `sweep68_i5.py`
+- **凍結 TSV の色** = exit 0 **129** / 非緑 **18**。非緑 18 本 =
+  `driver_mapeditor_painting(1)` / `driver_grid_p4(3)` / `driver_grid_p8(1)` / `driver_mapeditor(1)` /
+  `driver_monsters_chimera(1)` / `driver_monsters_griffon(1)` / `driver_monsters_hobgoblin(1)` / `driver_sce1_events(1)` /
+  `driver_speech_engine(1)` / `driver_speech_v2(1)` / `probe_bandit_map(3)` / `probe_s2_fold(3)` / `probe_swamp_map(3)` /
+  `sweep_recruit_balance(1)` / `verify_walk_block(1)` / `driver_field_step6(1)` / `verify_codex_map_skill(1)` /
+  **`driver_action_priority_negative(1)`**。
+  ⚠ このうち `probe_*` の 3 本の `exit 3 / 0.0 秒`は**引数の使い方ガード**(名簿は `--places` / `--kinds` / `--bfs` の腕で走っている)、
+  `driver_action_priority_negative` は **#35 `97f350d` 以来の N3 アンカー腐敗**(#69 のせいではない)。
+
+**⭐ 流用は「#68 が実際に走らせた本」まで — #69 の母集団との差分を機械で取った**(`diff_cover69.py`):
+
+    TSV rows = 147   runlist arms = 147   distinct books = 140
+    #69 population = 134   outside = 7
+    MISSING books (#69 pop not covered by TSV) = 1 -> ['probe_party_size.js']
+    MISSING outside = 0 -> []
+    EXTRA books in TSV (not in #69 pop/outside) = 0 -> []
+    MISSING named arms = 1 -> [('verify_hold_person.js', '--negative')]
+
+| 差分 | 扱い | 結果 |
+|---|---|---|
+| **`probe_party_size.js`**(本) | ⭐ #68 項目5 は**別記録**で単独実走していた(600 秒の明示打ち切り。名簿から外してあるだけ) | `probe_party_size_note.txt` = 2026-09-18 03:12:22 開始 / 600.0 秒で自力終了せず / taskkill 後 exit 1 / ログ 46 行。**既知の安定赤** ⇒ 再走しない |
+| **`verify_hold_person.js --negative`**(腕) | #68 の名簿に無い = **本当に未測定** ⇒ **今の HEAD で実走した** | **exit 0 / 79 秒 / 変異 8 本すべて担当ラベルが赤くなった(空振り 0)** = #57 の記録値 8/8 と一致 |
+
+    node tools/verify_hold_person.js --negative     # ⛔ timeout で包まない
+      → [driver] --negative OK: 8 本すべて担当ラベルが赤くなりました (空振り 0)   EXIT=0  secs=79
+      (最後の変異 nocap の素の集計 = 30/31 PASSED / FAILED 1 = (4c)。これは nocap の担当ラベルで、正常)
+
+⇒ **#69 の着手前の基準 = 148 走行(流用 147 + 実走 1)・緑 130 / 非緑 18。**
+⚠ 走査中に起草窓が `9174c39` を積んだが、本番と `tools/` は 0 バイト(上の OID)なので基準は有効。
+
+#### (d) 名指し 5 本の基準値(凍結 TSV から引いた実測。⚠ 走って違ったら期待値を書き換える前に理由を突き止める)
+
+| 本 | 腕 | exit | 秒 | 事前検査 |
+|---|---|---|---|---|
+| `verify_bolt_aim` | 素 | **0** | 2233.4(約 37 分) | `procs=0 ports=` |
+| `verify_bolt_aim` | `--negative` | **0** | 82.7 | 同 |
+| `verify_hold_person` | 素 | **0** | 9.9 | 同 |
+| `verify_hold_person` | `--negative` | **0** | **79**(⭐ 本項目で実走) | `procs=0 ports=` |
+| `verify_aoe_coverage` | 素 | **0** | 2.6 | 同 |
+| `verify_aoe_coverage` | `--negative` | **0** | 26.1 | 同 |
+| `driver_action_priority` | 素 | **0** | 121.4 | 同 |
+| `driver_action_priority` | `--negative` | **1** ⚠ | 0.1 | 同(**#35 以来の既知。#69 のせいではない**)|
+| `verify_cone_cast` | 素 | **0** | 73.3 | 同 |
+| `verify_cone_cast` | `--negative` | **0** | 190.4 | 同 |
+
+#### (e) 実プレイプローブ(§2-8 / §4-5)— **本番 0 バイト**で `window.allyHoldPerson` を包んだ
+
+計測機構 = 配信スナップショット(frozen bytes)をそのまま配り、`page.evaluateOnNewDocument` で
+「`window.allyHoldPerson` が生えたら包む」インストーラを注入。⛔ `index.html` / `tavern.html` / `tools/` は無改変。
+候補の述語は本番 `pickHoldPersonTarget` の **6 条件を同じ順**で写し(死亡 / 護衛 / 免疫 / held / 射程 / 視線)、
+2 体目の判定だけ `tileChebyshev(1体目, 候補) <= spread` を足した。⭐ 装置として `window.d20` も同じ手口で包み、
+**全 9 走行で 14〜93 回**呼ばれた = 「トップレベル関数の差し替えが効く」証拠(0 回なら「詠唱されなかった」と読み違える)。
+
+- 舞台 = `goblin-mine` 5 / `bandits-forest` 2 / `lizard-swamp` 2(⛔ アンデッドだけの `undead-temple` は使わない)
+- 編成 = 主人公=戦士 + **僧侶(NPC)** + ドワーフ + 魔法使い の 4 人 / `?autoplay=30&diag=1` / 1 走行 **150 秒**
+- **9 走行すべて起動成功・包み成功・ページ例外 0**(唯一の console error は `[DIAG][stall] 探索停滞` 1 件 = 診断ログ)
+
+| | 値 |
+|---|---|
+| 走行数 | **9**(起動 9 / 包み 9)|
+| `allyHoldPerson` 呼び出し 合計 | **32**(うち射程内+視線で**実際に詠唱**したもの = **32** = 前進して終わった手番は 0)|
+| **(a) 1 走行あたりの詠唱回数** | **3.56**(走行別 4 / 3 / 4 / 3 / 2 / 2 / 5 / 3 / 6)|
+| **(b) 6 マス以内に「効く 2 体目の候補」が居た詠唱の割合** | **75.0%(24 / 32)**。舞台別 = 廃坑 68.8%(11/16)/ 森 71.4%(5/7)/ 沼 88.9%(8/9)。**マップ平均 76.4%** |
+| 1 体目が免疫だった詠唱 / 既に held | **0 / 0** |
+| 術者 | `cleric(npc)` のみ(主人公が僧侶の経路はこの編成では出ない)|
+| `spread` / `rangeTiles` の実測 | **6 / 12**(素の腕)|
+
+- **詠唱は 0 回ではない** ⇒ §8 §2 の走行数 N は「素の腕で詠唱合計 10 回以上」を満たすのに **3 走行で足りる**
+  (3 × 3.56 ≒ 10.7)。⭐ ただし舞台ごとの率を出すなら **1 舞台あたり 3 走行 × 3 舞台 = 9 走行**が実測どおりの下限。
+- ⭐⭐⭐ **新発見 1 — 6 マス(spread)の制限は実プレイではほとんど拘束しない。**
+  射程内の「効く他の相手」全 **52 件**のうち、1 体目から **7 マス以上だったのは 3 件だけ**(全部 8 マス)。
+  距離の分布 = 0 マス 1 / 1 マス 17 / 2 マス 16 / 3 マス 6 / 4 マス 4 / 5 マス 5。
+  ⇒ (b) 75.0% と「射程内に効く他が居た割合」75.0% が**同値**になる。
+  ⇒ **変異 `nospread` は実プレイでは空振りする**。§8 (1c) の合成盤面が唯一の口(依頼書の設計はこの点で正しい)。
+- ⭐⭐⭐ **新発見 2 — 2 体目の候補は 24 件中 11 件が「同じ遭遇の外」の敵。**
+  `encounterEnemyIndices` の中に 1 体目以外の生存者が居た詠唱は **17 / 32** しかないのに、
+  6 マス以内に効く候補が居た詠唱は **24 / 32**。内訳 = (候補あり × 同遭遇に他が居ない)**11** /
+  (候補あり × 同遭遇にも居る)**13** / (候補なし × 同遭遇には居る)**4**。
+  ⇒ 2 体化すると「まだ交戦していない隣の群れ」に掛かる場面が出る。**実装上の誤りではない**が §9 の体感確認の観点に足す。
+- 候補が落ちた理由の内訳(詠唱ごとの合計)= `range 106 / los 30 / immune 18 / held 8 / escort 0`。
+  ⇒ 効く相手を落としているのは**ほぼ射程と視線**。免疫(アンデッド・ボス)は 18 件。
+- ⚠ **この (b) は上限寄りの推定**: プローブは `allyHoldPerson` に入った瞬間(= `dfPlayCast` の 2500ms **前**)に候補を数える。
+  実装後の 2 体目選択は詠唱演出の**後**に走るので、その間に敵が動く / 死ぬぶんだけ実際は下がりうる。
+  ⇒ §8 (2b)「候補が居たのに 1 体だった詠唱の件数」を記録する設計は、まさにこの差を拾う。**⛔ 件数で合否を決めない**。
+- ⚠ **崩れた仕込み**: `partyMembers` に `level: 7` を書いたため、`xp=3000` の腕でも僧侶は **Lv7・枠 2 枚**になった
+  (9 走行すべて `slots.hold-person = 2`)。⇒ **「Lv3(枠 1 枚)の腕」は実測できていない**。Lv3 の (a) は未測定。
+
+#### (f) 依頼書・引き渡しメモの主張を HEAD で測り直した結果
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | 引き渡しメモ「#68 の着地で `index.html` は +75 行ずれた ⇒ 依頼書の `:NNNNN` を使うな」 | ⭐ **半分だけ正しい**。#68 の編集点より**上**(ホールド・パーソン一帯)は **1 行もずれていない**: `pickHoldPersonTarget` **:27667** / `allyHoldPerson` **:27689** / `executeSkillOn` の分岐 **:19850** / `holdPersonImmune` **:27663** / `applyStatus(t,"held"…)` **:27740** / `spawnHoldRing(t);` **:27741** / `HOLD_RING_MAX` **:12293** / `showRollAtEnemy` **:20514** / `showRollAtAlly` **:20526** / index flavor **:22083** / tavern flavor **:4419** — **全部 §2 の記載どおり**。ずれたのは編集点より**下**だけ: `clericAI` :29876→**:29951**(+75)/ `apTryPreferred` :31922→**:31971**(+49)/ `apIsWastedCast` :31880→**:31923**(+43)/ 敵ターンの `"held"` :33939→**:34014**(+75) |
+| 2 | §2-1「`"held"` は 5 箇所 / `hold-person\|holdPerson\|HoldPerson` は 29 行」 | ✅ **5 箇所**(:12348 / :16365 / :27679 / :27740 / **:34014**)/ ✅ **29 行** |
+| 3 | §2-4「変異アンカー 4 本はちょうど 1 箇所」 | ✅ 4 本とも `hits=1`(`applyStatus(t, "held", skill.holdTurns);` / `spawnHoldRing(t);` / `holdPersonImmune` の return 行 / `const HOLD_RING_MAX = 4;`)|
+| 4 | §2-7「flavor を文字で縛る tools は 0 本 / 他の配信ファイルに文言 0 件」 | ✅ `grep -rn "敵1体を" tools/` = **0 件** / `ホールド・パーソン` を含む配信ファイルは `index.html` と `tavern.html` の **2 本だけ** |
+| 5 | §2-6「`long` = 12 タイル / `RANGE_LEGACY_TABLE.long` = 6」 | ✅ :20100 `long: { tiles: 12 …}` / :20109 `long: [6, 576]` ⇒ spread は素 **6** / `?dndrange=0` で **3** |
+| 6 | §2-9「(4a2) は `immRings.regLen === 1` を直接 assert している」 | ✅ `tools/verify_hold_person.js:872-874`。`installProbe` は部屋に元から居る敵を退けていない(`:383-398` の lane 探索まで見て確認)⇒ §6 の言い直しが要る可能性は残る |
+| 7 | §2-11「`#69` / `#70` の番号は tools で 0 件」 | ✅ 今も **0 件**(当たるのは `実装依頼書/*.md` と `README.md` だけ)|
+| 8 | §2-11「新規ドライバの base は 10331」 | ✅ `tools/*.js` の base 一覧(10200 以上)= 10201 / 10221 / 10241 / 10261 / 10281 / **10301**(`verify_bolt_aim`)。**10331 は未使用** |
+| 9 | §4-2「段1 は `verify_hold_person` / `verify_aoe_coverage` の 2 本」 | ✅ 一致(コメントを落としても同じ)|
+| 10 | §4-3「凍結 TSV は HEAD が動いたら採り直す」 | ⚠ **ユーザー決定で覆った**((c) の OID 追試が根拠)。ただし**流用は #68 が走らせた腕まで** ⇒ 差分 1 腕を実走した |
+| 11 | §2-3「`showRollAt*` はずらして並べる仕組みを持たない」 | ✅ `:20514-20525` / `:20526-` とも `pop.style.left/top` に単位の座標をそのまま代入するだけ |
+| 12 | §8「盤面の横一列は連続した床 **13 マス以上**」 | ⚠ 既存 `verify_hold_person.js:390` の lane 探索は **10 マス以上**。13 マスの行が廃坑に在るかは**未確認** ⇒ 項目4 は自分で探して装置 assert を置くこと |
+
+#### (g) 素材の絶対パス(⚠ scratchpad はセッション固有 = 消える。数値は上に写してある)
+
+このセッション(`0d276b08-6c0c-453b-a44e-0d2212caa78c`)の
+`C:\Users\PC_User\AppData\Local\Temp\claude\c--Users-PC-User-Desktop------------\0d276b08-6c0c-453b-a44e-0d2212caa78c\scratchpad\baseline69\`
+
+- 母集団 = `pick_pop69.py` / `population69.txt`(134)/ `population69.json` / `population69_report.txt` / `stage1_roster69.txt` / `outside69.txt`(7)
+- 差分 = `diff_cover69.py` / `diff_cover69_report.txt` / `missing69.txt`
+- 差分の本の実走 = `logs/verify_hold_person_negative.log`
+- 実プレイプローブ = `probe_holdpair69.js`(使い捨て・port **10345**)/ `probe_holdpair69_a.tsv`(32 行 + ヘッダ)/
+  `probe_holdpair69_a.json` / `probe_holdpair69_a.summary.txt` / `logs/probe_a.log` / 下見 = `probe_holdpair69_smoke.*`
+- ⭐ **#68 の凍結物はこのセッションへコピー済**(#68 の scratchpad が消えても項目5 が使える)=
+  `from68/result_after68.FINAL.tsv` / `from68/runlist_i5.txt` / `from68/fp68_ids_after68.tsv` /
+  `from68/fp68_lines_after68.tsv` / `from68/summary68_after68.tsv` / `from68/compare68_base68b_vs_after68.txt` /
+  `from68/probe_party_size_note.txt` / `from68/fp68_i5.py` / `from68/sweep68_i5.py`
+- 原本 = `C:\Users\PC_User\AppData\Local\Temp\claude\c--Users-PC-User-Desktop------------\b0fa1865-6afd-4eba-a0b1-818df2247585\scratchpad\item5\`
+
+#### (h) 後始末
+
+- 走行の前後とも `pwsh -NoProfile -File check_foreign.ps1` = **`procs=0 ports=`**(自分が起こしたもの以外は 1 本も居ない / 残していない)。
+- ⛔ 検証ドライバを `timeout` で包んでいない。⛔ 並列に走らせていない(全部直列)。
