@@ -22130,7 +22130,7 @@
         dmgDice: "5d6", useInt: false, range: "spellAoE",
         mpCost: 6, levelReq: 3,
         saveAbility: "dex",
-        flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減、MP 6)",
+        flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減、MP 6)",
       },
       "cone-of-cold": {
         name: "コーンオブコールド", category: "attack", target: "cone3",
@@ -28176,6 +28176,14 @@
       for (let s = 1; s <= steps; s++) n += partyCountInArea(aTX + dx * s, aTY + dy * s, 1, 1);
       return aoeSafeAllyTagN(n);
     }
+    // ★#68 直線のマス列を受け取る版。ライトニングボルトは素も撤退も、探索で採った列 (boltLineTiles の戻り) を
+    //   そのまま渡す (⛔ 向きと歩数から列を引き直さない = ダメージと表示が別の列を数える事故を防ぐ)。
+    //   ⚠ 上の aoeLineSafeAllyTag は window.__aoeCover の公開のために残す (撤退の列 = 単位ベクトル 3 歩と同じ数を返す)。
+    function aoeTilesSafeAllyTag(tiles) {
+      let n = 0;
+      for (const t of tiles) n += partyCountInArea(t.tx, t.ty, 1, 1);
+      return aoeSafeAllyTagN(n);
+    }
     // ⚠️ この関数は PT の AoE 専用の被害者列挙 (ally* 呪文 9 種 + tickCordonZones が唯一の呼び出し元)。
     //    敵の AoE は enemyCastAoE が別に持っており、こちらは通らない。
     //    → ここに isObjective 除外を入れると「PT の AoE は馬車を巻き込まない / 敵の AoE は巻き込む」が
@@ -28436,6 +28444,11 @@
      *   sessionStorage へは写さない = index.html は自分の search を読むだけでよい)。 */
     const CONE_CAST_ON =
       new URLSearchParams(window.location.search).get("conecast") !== "0";
+    /* ★#68 撤退スイッチ ?boltaim=0 — ライトニングボルトを 2026-09-16 以前
+     *   (術者から 3 マス・8 方向の筋・壁を見ない) へ戻す。
+     * ⚠ 判定はこの 1 箇所だけ。ページ内で完結する (?conecast=0 と同じ流儀。sessionStorage へは写さない)。 */
+    const BOLT_AIM_ON =
+      new URLSearchParams(window.location.search).get("boltaim") !== "0";
 
     function coneTilesFrom(aTX, aTY, d) {
       const tiles = [];
@@ -28579,7 +28592,69 @@
       await sleepMs(700);
     }
 
-    // ─── Phase 2-I B: ライトニングボルト (直線 3 タイル、5d6 雷、DEX セーヴ半減) ───
+    /* ── #68 ライトニングボルトの直線 ──────────────────────────────
+     * ★#68 マス列を返すヘルパー。探索・ダメージ・無傷表示・描画の終点は **この関数が返した 1 本の列** を読む
+     *   (依頼書 #68 §2-3: 「3」が 4 箇所に直書きされていて、探索だけ延ばすと撃てても旧 3 マスにしか当たらなかった)。
+     * 入力 = 術者のタイル (aTX, aTY) / 向きの整数ベクトル (dx, dy) / 長さ L (チェビシェフ) / 壁で止めるか。
+     * 出力 = 術者の次のマスから始まる [{ tx, ty }, ...]。チェビシェフ距離 L を超えたら打ち切る。
+     *   stopAtWall なら isTileWall が真のマスの **手前** で打ち切る (そのマスは含めない)。
+     * ⭐ 終点は整数倍 (aTX + dx·m, aTY + dy·m)。歩き方は hasLineOfSight と同じ Bresenham。
+     *   この歩き方の判定は終点ベクトルの正の整数倍に対して不変なので、(aTX + dx, aTY + dy) を誤差 0 で必ず通り、
+     *   敵のマスまでの列は hasLineOfSight が術者→敵で調べるマスと 1 マスも違わない (視線が通れば壁で止まる前に届く)。
+     *   ⛔ 終点を L / max(|dx|,|dy|) 倍して丸めない (狙った敵のマスを外すことがある)。
+     * ⚠ 撤退 (?boltaim=0) は L=3・8 方向の単位ベクトル・壁を見ない = 2026-09-16 以前の 3 マスループと同じ列。 */
+    function boltLineTiles(aTX, aTY, dx, dy, L, stopAtWall) {
+      const tiles = [];
+      const k = Math.max(Math.abs(dx), Math.abs(dy));
+      if (!(k > 0) || !(L > 0)) return tiles;
+      const m = Math.ceil(L / k);
+      const ex = aTX + dx * m, ey = aTY + dy * m;
+      const adx = Math.abs(ex - aTX), ady = Math.abs(ey - aTY);
+      const sx = aTX < ex ? 1 : -1, sy = aTY < ey ? 1 : -1;
+      let err = adx - ady;
+      let tx = aTX, ty = aTY;
+      while (tx !== ex || ty !== ey) {
+        const e2 = 2 * err;
+        if (e2 > -ady) { err -= ady; tx += sx; }
+        if (e2 <  adx) { err += adx; ty += sy; }
+        if (Math.max(Math.abs(tx - aTX), Math.abs(ty - aTY)) > L) break;
+        if (stopAtWall && isTileWall(tx, ty)) break;
+        tiles.push({ tx: tx, ty: ty });
+      }
+      return tiles;
+    }
+    /* ★#68 素の候補の向き。交戦中の生存敵 (護衛対象を除く = pickClosestEngagedEnemyFromAlly と同じ母集団) のうち、
+     *   チェビシェフ距離 ≤ L かつ視線が通る敵へ向けた整数ベクトルを、既約化して重複を除いて返す。
+     * ⭐ 並び = encounterEnemyIndices の順。採用は「敵数が最大・同数なら先勝ち」なので乱数を引かない。
+     * ⚠ 絞るのは向きだけ。貫通で巻き込む敵は従来どおり enemiesInArea (全 enemies) が数える。 */
+    function boltAimRays(aCX, aCY, L) {
+      const aTX = Math.floor(aCX / TILE_SIZE);
+      const aTY = Math.floor(aCY / TILE_SIZE);
+      const rays = [];
+      const seenDirs = new Set();
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive) continue;
+        if (isEscortObjective(e)) continue;
+        const eCX = e.x + e.def.displaySize / 2;
+        const eCY = e.y + e.def.displaySize / 2;
+        if (tileChebyshev(aCX, aCY, eCX, eCY) > L) continue;
+        if (!hasLineOfSight(aCX, aCY, eCX, eCY)) continue;
+        let dx = Math.floor(eCX / TILE_SIZE) - aTX;
+        let dy = Math.floor(eCY / TILE_SIZE) - aTY;
+        if (dx === 0 && dy === 0) continue;
+        let g = Math.abs(dx), h = Math.abs(dy);
+        while (h) { const r = g % h; g = h; h = r; }
+        dx /= g; dy /= g;
+        const key = dx + "," + dy;
+        if (seenDirs.has(key)) continue;
+        seenDirs.add(key);
+        rays.push({ dx: dx, dy: dy });
+      }
+      return rays;
+    }
+
+    // ─── Phase 2-I B: ライトニングボルト (★#68 敵へ向けて直線 10 タイル = spellAoE の射程・壁で止まる、5d6 雷、DEX セーヴ半減) ───
     async function allyLightningBolt(ally, enemyIdx) {
       const skill = MAGE_SKILLS["lightning-bolt"];
       const target = enemies[enemyIdx];
@@ -28590,8 +28665,7 @@
       const aTX = Math.floor(aCX / TILE_SIZE);
       const aTY = Math.floor(aCY / TILE_SIZE);
 
-      // 8 方向の直線候補 (上/下/左/右 + 4 斜め、3 タイル先まで)
-      // 各方向で「PT 不在 + 敵数」を評価
+      // 撤退 (?boltaim=0) の候補 = 8 方向の筋 (上/下/左/右 + 4 斜め、3 タイル先まで)
       const directions = [
         { dx:  1, dy:  0, name: "right"    },
         { dx: -1, dy:  0, name: "left"     },
@@ -28602,21 +28676,24 @@
         { dx: -1, dy: -1, name: "up-left"    },
         { dx: -1, dy:  1, name: "down-left"  },
       ];
+      // ★#68 素 = 長さは宣言射程から導出 (⛔ 10 を直書きしない。?dndrange=0 で 5) / 候補は敵へ向けた整数ベクトル。
+      const boltLen = BOLT_AIM_ON ? getRange(skill.range).tiles : 3;
+      const rays = BOLT_AIM_ON ? boltAimRays(aCX, aCY, boltLen) : directions;
+      // 各候補でマス列を 1 回だけ引き、「PT 不在 + 敵数」を評価する。
+      // ⚠ ダメージ・無傷表示・描画の終点は採用した候補の tiles を読む (⛔ 下流でマス列や「3」を持ち直さない)
       let best = null, bestCount = 0;
-      for (const d of directions) {
-        // 3 タイルの直線 (aTX+dx, aTY+dy) から (aTX+3dx, aTY+3dy)
+      for (const d of rays) {
         let blocked = false;
         const lineIdxs = [];
-        for (let step = 1; step <= 3; step++) {
-          const tx = aTX + d.dx * step;
-          const ty = aTY + d.dy * step;
+        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON);
+        for (const { tx, ty } of tiles) {
           // ★[#59] 系統2/3 = 直線。素では味方が線上に居ても方向を捨てない
           //   (味方は元々 0 ダメージ)。?aoecover=0 のときだけ従来どおり棄却する。
           if (!AOE_COVER_ON && partyInArea(tx, ty, 1, 1)) { blocked = true; break; }
           lineIdxs.push(...enemiesInArea(tx, ty, 1, 1));
         }
         if (blocked) continue;
-        if (lineIdxs.length > bestCount) { best = d; bestCount = lineIdxs.length; }
+        if (lineIdxs.length > bestCount) { best = { dx: d.dx, dy: d.dy, tiles: tiles }; bestCount = lineIdxs.length; }
       }
       // [地平線ビュー STEP7] 直線も術者起点で origin 自由度ゼロ = 窓拡張では救済されない。
       const boltOk = !!best && bestCount > 0;
@@ -28626,13 +28703,9 @@
         await allyBasicAttack(ally, enemyIdx);
         return;
       }
-      // 直線範囲内の全敵
+      // 直線範囲内の全敵 — ★#68 探索で採った列 (best.tiles) そのもの (⛔ ここで「3」やマス列を持ち直さない)
       const lineEnemyIdxs = new Set();
-      for (let step = 1; step <= 3; step++) {
-        const tx = aTX + best.dx * step;
-        const ty = aTY + best.dy * step;
-        for (const i of enemiesInArea(tx, ty, 1, 1)) lineEnemyIdxs.add(i);
-      }
+      for (const t of best.tiles) for (const i of enemiesInArea(t.tx, t.ty, 1, 1)) lineEnemyIdxs.add(i);
 
       // MP 消費 + 詠唱
       ally.mp = Math.max(0, ally.mp - (skill.mpCost || 0));
@@ -28643,15 +28716,17 @@
       if (best.dx !== 0) ally.facing = best.dx > 0 ? "right" : "left";
 
       showRollAtAlly(ally,
-        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 直線 ${lineEnemyIdxs.size}体${aoeLineSafeAllyTag(aTX, aTY, best.dx, best.dy, 3)}`,
+        `<span class="label">SPELL</span><span class="big">${skill.name}</span> 直線 ${lineEnemyIdxs.size}体${aoeTilesSafeAllyTag(best.tiles)}`,
         "skill");
       startAllyAttackAnim(ally);
       spawnCastOrb(ally, "rgba(180,220,255,1)", 600);
       await dfPlayCast(ally, { name: skill.name, element: 'arcane' }, { duration: 620 });
 
-      // 稲妻発射: ally から 3 タイル先までライン描画 + 全敵にダメージ
-      const endWX = aCX + best.dx * 3 * TILE_SIZE;
-      const endWY = aCY + best.dy * 3 * TILE_SIZE;
+      // 稲妻発射 + 全敵にダメージ。★#68 素 = 列の最後のマスの中心まで描く (壁の手前で止まって見える)
+      //   / 撤退 = 旧式のまま (術者の中心から 3 タイル先)
+      const boltEnd = BOLT_AIM_ON ? best.tiles[best.tiles.length - 1] : null;
+      const endWX = boltEnd ? (boltEnd.tx + 0.5) * TILE_SIZE : aCX + best.dx * 3 * TILE_SIZE;
+      const endWY = boltEnd ? (boltEnd.ty + 0.5) * TILE_SIZE : aCY + best.dy * 3 * TILE_SIZE;
       spawnLightningBolt(aCX, aCY - 8, endWX, endWY);
       await sleepMs(200);
 

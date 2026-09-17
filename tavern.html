@@ -3271,10 +3271,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ライトニングボルトが敵を狙えるように</b> — 直線を 3 マスから 10 マスへ延ばし、斜めや半端な位置の敵にも向きを合わせて撃つ。壁は貫通しない。</li>
         <li><b>竜の巣が卓上マップ 2 枚になった</b> — 溶岩の谷と竜の寝床を、マス目入りの大きな一枚絵の上で歩けるようになった。宝箱は竜の寝床の手前にまとめて並ぶ。</li>
         <li><b>酒場の卓の仲間候補の名札が読めるようになった</b> — 左を向いて座っている人の名前が裏返しに表示されていたのを直した。</li>
         <li><b>地下神殿が 2 枚の大部屋になった</b> — 細かい小部屋を抜けて回る形をやめ、納骨堂から儀式の広間までを一続きの広い床で戦い抜く。</li>
-        <li><b>はじめの画面へ戻れるようになった</b> — 街と世界地図の左上のボタンから、記録の選び直しができる。進行は消えない。</li>
       </ul>
     </div>
     <script>
@@ -4426,7 +4426,7 @@
     { id: "arcane-shield",  name: "アーケイン・シールド", category: "防御", range: "self", mpCost: 3, flavor: "自分に AC +4 (3T)" },
     // Phase 2-I: 新規 3 呪文 (派手 fx + 動的光源、PT 巻き込みなし)
     { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "spellAoE",   mpCost: 7, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
-    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
     { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
     { id: "burning-hands",  name: "バーニングハンズ", category: "攻撃", range: "medium", mpCost: 4, levelReq: 1, flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
     // STEP2: アイスストーム (5x5 範囲 + 鈍足)

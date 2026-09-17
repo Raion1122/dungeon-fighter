@@ -779,3 +779,190 @@ R4 `CONE_CAST_ON`(:28430-28445)/ R5 `allyLightningBolt`(:28575-28690)と、`tave
 - ⭐ 項目5 の非退行で**赤に数えない本**: (e)(c) の 4 本(使い方ガード 3 本 + `probe_n4_stall`)。**フレークとして単独再走してから判定する本**: `driver_monsters_hobgoblin` / `driver_monsters_griffon` / `driver_speech_engine` / `driver_wall_props` / `driver_monsters_kobold` / `verify_run_chronicle` と、`driver_field_step6` の `(C-undead-temple)`。
 - ⭐ 項目2/3 で本体を書くときの地雷: m8 のアンカー行(:28615)を**逐語のまま 1 箇所**に保つ / `BOLT_AIM_ON` の行に `get("conecast")` を写経しない(`retreatdead` のアンカーが 2 箇所になる)/ LB 本文の `const directions = [` を消すかどうかで `verify_cone_cast` の `coldstale` の検算の数字(素×1)が動く = 項目5 で `--negative` の中身まで見る。
 - ⭐ `driver_field_step7 (P2)` の line 68.0% はドライバ自前の写しなので、#68 の後も同じ値のはず(動いたら理由を突き止める)。
+
+### 12-1. 本体の実装(項目2)
+
+- **測定日**: 2026-09-17(実装窓 `b0fa1865`・dev-loop 項目2)/ 基準 = `a23e002`(項目1)。
+- 触ったのは `index.html` / `tavern.html` / 本書だけ。⛔ `tools/` は 0 バイト。`mageAI` の梯子・`fallbackOrder`・円錐/箱型/splash・バーニングハンズの演出(`:12245` / 着手後 `:29012`)は diff に 1 行も出ていない。
+- 編集は `py` でバイト単位(置換ごとに出現数 1 を assert、1 件以外なら書き込み前に exit)。行末は `index.html` CRLF **39539 = LF 39539**、`tavern.html` CRLF **10586 = LF 10586**(changelog は 1 行足して 1 行落とすので数は同じ)。本書は LF のまま。
+
+#### (a) 変えた箇所(行番号は着手後)
+
+| 行 | 何 |
+|---|---|
+| `index.html:22133` | `MAGE_SKILLS["lightning-bolt"].flavor` = `"敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減、MP 6)"` |
+| `:28179`-`:28186` | **新** `aoeTilesSafeAllyTag(tiles)` = 列を受け取る無傷表示。既存の `aoeLineSafeAllyTag` と `window.__aoeCover` への公開は残した |
+| `:28447`-`:28451` | **新** 撤退スイッチ `BOLT_AIM_ON`(`CONE_CAST_ON` の直後。§5-1 のコメントと形のまま) |
+| `:28595`-`:28625` | **新** `boltLineTiles(aTX, aTY, dx, dy, L, stopAtWall)` = マス列ヘルパー |
+| `:28626`-`:28655` | **新** `boltAimRays(aCX, aCY, L)` = 素の候補の向き |
+| `:28657` | 見出しコメント(直線 3 タイル → 敵へ向けて直線 10 タイル・壁で止まる) |
+| `:28658` `allyLightningBolt` | 探索 `:28668`-`:28697` / ダメージ対象 `:28708` / 無傷表示 `:28719` / 描画の終点 `:28727`-`:28730` |
+| `tavern.html:4429` | flavor の鏡 = `"敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし"` |
+| `tavern.html:3274` | changelog = §10 の文面そのまま(`py tools/add_changelog.py`。4 件維持) |
+
+- 関数名 `allyLightningBolt` は不変(`driver_action_priority.js:1232` のスタブ一覧 / `window[fnName]` 呼びが読む)。
+- `noteAoeOutcome(skill.name, boltOk, "line")` と、不発時に `allyBasicAttack` へ落ちて枠を減らさない挙動は不変。
+- `best` は方向オブジェクトそのもの(`name` 付き)から `{ dx, dy, tiles }` へ変わった。`best.name` を読む箇所は元から 0 件。
+
+#### (b) マス列ヘルパーの仕様と、撤退で旧挙動を再現する根拠
+
+- `boltLineTiles` は整数倍の終点 `(aTX + dx·m, aTY + dy·m)`(`m = ceil(L / max(|dx|,|dy|))`)へ、`hasLineOfSight` と同じ Bresenham で歩く。
+  チェビシェフ距離が `L` を超えたら打ち切り、`stopAtWall` なら `isTileWall` が真のマスの手前で打ち切る。終点は丸めない。
+- ⭐ この Bresenham の判定(`2err > -ady` / `2err < adx`)は、終点ベクトルを正の整数倍しても変わらない
+  (err も ady / adx も同じ倍率で伸びる)。したがって:
+  - 既約ベクトル `(dx, dy)` の格子点を誤差 0 で周期的に通る。
+  - 術者→敵の `hasLineOfSight` が調べるマス列は、ヘルパーの列の**先頭部分と完全に一致**する
+    ⇒ 視線が通る敵は、壁で止まる前に必ず列に入る。
+- **数値検証**(`bres_check.py`、|DX|,|DY| ≤ 12 × L ∈ {3, 5, 10} = **1872 通り**)で `bad 0`:
+  - 敵のマスが列に入る ⇔ チェビシェフ ≤ L
+  - 列の先頭 = LOS の経路
+  - 列のチェビシェフ距離は単調増加で、最後が L
+- **撤退**(`L = 3`・8 方向の単位ベクトル・`stopAtWall = false`)の列は 8 方向すべてで `[(dx,dy),(2dx,2dy),(3dx,3dy)]` = 旧 3 マスループと同じ(同じ検証で `bad 0`)。
+- **探索**: `boltLen = BOLT_AIM_ON ? getRange(skill.range).tiles : 3`(`skill.range === "spellAoE"` を実測)。
+  候補は `rays = BOLT_AIM_ON ? boltAimRays(...) : directions`。
+  各候補の列を**共通ループ 1 本**で歩き、m8 のアンカー行(逐語・10 スペース)はそのループの中に 1 箇所だけ残る。
+- **素の候補**:
+  - 母集団 = `encounterEnemyIndices` のうち、生存かつ護衛対象でない敵。
+  - 条件 = `tileChebyshev ≤ L` かつ `hasLineOfSight` が真。
+  - 向き = `(ex − aTX, ey − aTY)` を gcd で既約化し、重複を除く。並びは `encounterEnemyIndices` 順で、同数なら先勝ち(`>`)。
+- **ダメージ・無傷表示・描画**は採用した `best.tiles` だけを読む。探索とダメージが別々に「3」を持つ形は無い(本体に残る `3` は `boltLen` の撤退値と、撤退の描画終点の 2 つ)。
+
+#### (c) 撤退の腕の描画終点 — 旧式のまま
+
+- 素 = **列の最後のマスの中心** `((t.tx + 0.5)·T, (t.ty + 0.5)·T)`(依頼書 (1h))。
+- 撤退 = 旧式 `aCX + best.dx * 3 * TILE_SIZE` のまま。
+  理由: 旧式は術者の**中心ピクセル**起点で、術者がタイル中心に居ないとき(移動のスライド中など)はタイル中心とずれる。旧挙動の完全再現を優先した。
+- 1 行の分岐 `const boltEnd = BOLT_AIM_ON ? best.tiles[best.tiles.length - 1] : null;` で切り替える(変異 `endstale` の注入点)。
+
+#### (d) アンカー表(`anchor_table.py`。`tools/*.js` 全 145 本の 12 字以上の文字列リテラルを、`index.html` / `tavern.html` での出現数で前後比較)
+
+| 範囲 | 着手前 | 着手後 | 変化 |
+|---|---|---|---|
+| 全 145 本(出現 ≥ 1 の行) | 2843 | 2841 | **3 件** |
+| 名指し 4 本(`verify_aoe_coverage` / `verify_cone_cast` / `driver_action_priority` / `driver_field_step7`) | 268 | 266 | **2 件**(下表)。他の 264 件は出現数が 1 つも変わっていない |
+
+変わった 3 件と、測定が壊れない理由(ソースで確認):
+
+| 本:行 | リテラル | 数 | 理由 |
+|---|---|---|---|
+| `verify_cone_cast.js:328` | `        for (let step = 1; step <= 3; step++) {` | 1→0 | 変異 `coldstale` の**注入する側の文面**(`OLD` 配列 `:323`-`:346`)。`verifyServed`(`:356`-`:364`)が数えるのは `neg:coldstale` / `const best = pickConeDirection(aTX, aTY);` / `const directions = [` の 3 つだけ |
+| `verify_cone_cast.js:337` | `      for (const d of directions) {` | 1→0 | 同上 |
+| `verify_road_events.js:1320` | `'sessionStorage '` | 16→17 | assert の detail 文字列。`BOLT_AIM_ON` のコメント(§5-1 の指定文面)に当たっただけ。この本は母集団外(`index.html` を読まない) |
+
+- ⚠ 初回の書き込み直後は **9 件**だった。残り 6 件は全部コメントか変数名の偶然一致(`'allyLightningBolt'` ×4 がコメント中の関数名 / `driver_cast_circle` の罫線 `──` / `driver_mapeditor` の `'    const seen = new Set();'`)で、実害は無かった。それでも差分を小さくするため、コメントの語・罫線の長さ・変数名(`seen` → `seenDirs`)を直して 3 件にした。
+- 逐語アンカーの個別の数:
+
+| アンカー | 前 | 後 |
+|---|---|---|
+| m8 `          if (!AOE_COVER_ON && partyInArea(tx, ty, 1, 1)) { blocked = true; break; }` | 1(:28615) | **1**(:28692) |
+| `retreatdead` `new URLSearchParams(window.location.search).get("conecast") !== "0";` | 1 | **1** |
+| `reachdrift` `for (let step = 1; step <= CONE_REACH_TILES; step++) {` | 1 | **1** |
+| `zerofoe` `if (cnt <= 0) continue;` | 1 | **1** |
+| `coldstale` の検算 `const directions = [` | 1(:28595) | **1**(:28669) |
+| `function allyLightningBolt` | 1 | **1** |
+| `get("boltaim")` | 0 | **1**(:28451) |
+| `for (let step = 1; step <= 3; step++)` | 4(:12245 :28610 :28631 :28937) | **2**(:12245 `spawnConeFlames` / :29012 `allyBurningHands`。どちらも無変更) |
+
+- ⚠ `grep -c boltaim index.html` は **4 行**(判定 1 + コメント 3 = :28447 / :28605 / :28668)。(0a) は語でなく `get("boltaim")` の数で測ること。
+
+#### (e) 検証
+
+1. **ページが壊れていない**:
+   - 合成盤面プローブの 4 腕(素 / `?boltaim=0` / `?aoecover=0` / `?dndrange=0`)すべてで、盤面を叩いた後も含めて **pageerror 0 / console.error 0**。
+   - `verify_aoe_coverage` の `(7a)`(index の 2 腕と tavern を開いた後のページエラー 0)も OK。
+2. **合成盤面プローブ**(`probe_board68.js`、port 10331)= **25/25 OK**。
+   - 作法は `verify_aoe_coverage` の `installProbe` を写した。
+   - goblin-mine には 14×4 の自然な床が無かったので、最長の床の行 (25,14) の周りを `mapData = 0` で掘った(プローブの中だけ)。
+   - 判定 = `__aoeStats["ライトニングボルト"]` の attempts / cast / demoted と、敵 HP の減り。
+
+| # | 盤面(術者からの相対) | 素 | `?boltaim=0` | ほか |
+|---|---|---|---|---|
+| (a) | 敵 (4,1) | cast 1 | demoted 1 | |
+| (b) | 敵 (7,0) | cast 1 | demoted 1 | |
+| (c) | 敵 (11,0) | demoted 1 | demoted 1 | |
+| (d) | 壁 (3,0) / 敵 (5,0) | demoted 1 | | |
+| (e) | 敵 (3,0) + (8,0) | cast 1・**2 体とも HP 減** | | 吹き出し `直線 2体` |
+| (f) | 味方 (3,0) / 敵 (6,0) | cast 1 `(味方 1 名は無傷)` | | `?aoecover=0` demoted 1 |
+| (f2) | 味方 (2,1) / 敵 (4,2)(斜め) | cast 1 `(味方 1 名は無傷)` | | `?aoecover=0` demoted 1 |
+| (g) | 敵 (6,0) / 敵 (4,0) | cast / cast | | `?dndrange=0`(L=5)で **demoted 1 / cast 1** |
+| (h) | 敵 (7,0) | 終点 (3408,1392) = タイル (35,14) の中心 = 10 マス先 | | |
+| (h2) | 敵 (4,1) | 終点 (3408,1584) = タイル (35,16) の中心 | | |
+| (hw) | 壁 (6,0) / 敵 (3,0) | 終点 (2928,1392) = タイル (30,14) = **壁の手前** | | |
+| (r3) | 敵 (3,0) | cast 1(終点 10 マス先) | cast 1・終点 2736 = `aCX + 3·96`(旧式) | |
+| (r3d) | 敵 (2,2) | cast 1 | cast 1 | |
+| wall2 | 敵 A (2,0) / 壁 (4,0) / 敵 B (6,0) | cast 1・hit = [A] | | `nowall` の検出用((f)-1) |
+| range3 | A (5,0) / C (7,1) / B (11,1) | cast 1・hit = [A] | | `norange` の検出用((f)-2) |
+
+3. **実プレイの煙試験**(起草窓の `probe68_spells.js` を複製し、`PROBE_QS` だけ足した。LB ×8 単独・廃坑・90 秒・各 1 回):
+
+| 腕 | attempts | cast | 率 |
+|---|---|---|---|
+| 素(port 10341) | 7 | **5** | 71% |
+| `?boltaim=0`(port 10342) | 11 | 2 | 18% |
+| 素・診断つき再走(port 10343) | 5 | **4** | 80% |
+
+   - 起草時の着手前(LB 単独)は 15 回選ばれて 0 回、2 回目は 24 回中 8 回(33%)。
+   - 診断つき再走の不発 1 件は、**交戦中の唯一の敵が `hasLineOfSight = false`**(d = (1,−3)、cheb 3)= 仕様どおりの不発。撃てた 4 件はどれも、交戦中で L 以内かつ LOS 真の敵が居た。
+   - どの走行も pageErrors は空。
+4. **アンカーを掴む既存ドライバ**(直列・`timeout` なし):
+
+| 本 | 結果 | 項目1 の基準 |
+|---|---|---|
+| `verify_aoe_coverage` | exit 0 `28/28 PASSED FAILED 0 PENDING 0`。(1c) 素 cast 1 / 撤退 demoted 1、(6b) `SPELLライトニングボルト 直線 2体(味方 1 名は無傷)` | 28/28 |
+| `verify_aoe_coverage --negative` | exit 0 `--negative OK: 10 本すべて担当ラベルが赤くなりました (空振り 0)`。**m8 = 注入成功 → 赤 (1c),(6b)**。m2s = (4a),(4b) | 10/10 |
+| `verify_cone_cast` | exit 0 `19/19 PASSED FAILED 0 **PENDING** 0` | 19/19 |
+| `verify_cone_cast --negative` | exit 0 `41/41 PASSED FAILED 0 **PENDING** 0`。`n0a-coldstale` = ヘルパー呼び出し 素×2 → 変異×1 / `const directions = [` **素×1 → 変異×2** | 41/41 |
+
+   ⇒ 色も中身も項目1 の基準と同じ。
+5. **後始末**: 8000〜11000 の LISTEN は着手前も後も `127.0.0.1:9010`(pid 19412)/ `127.0.0.1:9180`(pid 4764)の 2 件だけ。chrome 0 本。node は MCP サーバだけ。
+
+#### (f) 依頼書の主張で崩れた点
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | §8 負のコントロール「`nowall` → (1d) が赤」 | ⚠ **(1d) の盤面では赤くならない**。素の候補は `hasLineOfSight` が真の敵だけなので、壁の向こうの 1 体は `stopAtWall` を外しても候補に入らず demoted のまま。⇒ 盤面 **wall2**(A (2,0) / 壁 (4,0) / B (6,0)、素は A だけ被弾。`nowall` なら B も被弾するはず)で見る必要がある |
+| 2 | §8「`norange` → (1c) が赤」 | ⚠ **(1c) の盤面では赤くならない**。候補の距離上限を外しても、列の歩きが L で打ち切るので 11 マス先の 1 体には届かず demoted のまま。⇒ 盤面 **range3**(A (5,0) / C (7,1) / B (11,1))。素は A だけ被弾。`norange` なら B への向き (11,1) の列が A と C の 2 体を通り、それが採られて C も被弾するはず(py の模擬で確認。敵 2 体の盤面では検出できる配置が 0 件) |
+| 3 | §5-4「既存の `aoeLineSafeAllyTag` は撤退経路が使う」 | 撤退も**同じ `aoeTilesSafeAllyTag(best.tiles)`** を通した。撤退の列 = 単位ベクトル 1〜3 歩なので数は同じ。撤退だけ `aoeLineSafeAllyTag(..., 3)` を呼ぶと、本体に 3 つ目の「3」と 2 本目の列の引き直しが生まれるため(§2-3 の罠の型)。`aoeLineSafeAllyTag` は定義と `window.__aoeCover` の公開を残した(本番の呼び口は 0 件になった) |
+| 4 | §8 (0a)「`boltaim` の判定がちょうど 1 箇所」 | 語 `boltaim` の行は **4**(コメント 3)。判定 `get("boltaim")` は 1 |
+| 5 | (指示に無い)合成盤面は `verify_aoe_coverage` の作法で組める | ⚠ **不発の盤面で CDP が 240 秒ハングする**。不発 → `allyBasicAttack` → 射程外なら `allyAdvanceTowardPoint` の rAF が背景タブで止まる。`verify_aoe_coverage` の盤面は射程外の不発を作らないので踏んでいなかった。⇒ `allyBasicAttack` / `allyAdvanceTowardPoint` を即解決にする(`noteAoeOutcome` はその前に記録済み = 判定に影響しない) |
+| 6 | (指示に無い)lane(最長の床の行)で盤面が組める | goblin-mine の lane は 21 マスの 1 行だけで、`dy = 1, 2` と壁の盤面に要る 14×4 の床が無い。プローブは掘って組んだ |
+
+⭐ 当たったもの:
+- §2-3 の「3」の 4 箇所の行番号(:28610 / :28631 / :28646 / :28653-:28654)
+- `CONE_CAST_ON` :28437 / `allyLightningBolt` :28583 / m8 アンカー :28615 / flavor 2 枚の位置
+- `spellAoE.tiles` = 10(`?dndrange=0` で 5)
+- `aCX` は術者の中心ピクセル
+- `add_changelog.py` は CRLF を保つ(読み込みで LF 化 → Windows の書き出しで CRLF に戻る = `tavern.html` 10586 = 10586)
+
+#### (g) 項目3/4 へ
+
+- 変異を 1 行の置換で入れる注入点(すべて `index.html` / `tavern.html` で**出現数 1** を実測):
+
+| 変異 | 逐語行 | 置換の例 |
+|---|---|---|
+| `reach3` / `hardcode10` | `      const boltLen = BOLT_AIM_ON ? getRange(skill.range).tiles : 3;` | `? 3 : 3` / `? 10 : 3` |
+| `rays8` | `      const rays = BOLT_AIM_ON ? boltAimRays(aCX, aCY, boltLen) : directions;` | `      const rays = directions;` |
+| `nowall` | `        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON);` | 末尾の引数を `false`(別案 = ヘルパー内 `        if (stopAtWall && isTileWall(tx, ty)) break;`) |
+| `dmgray` | `      for (const t of best.tiles) for (const i of enemiesInArea(t.tx, t.ty, 1, 1)) lineEnemyIdxs.add(i);` | `aTX + best.dx * s` の 3 歩ループへ |
+| `norange` | `        if (tileChebyshev(aCX, aCY, eCX, eCY) > L) continue;` | 行を無効化 |
+| `vetogone` | m8 と同じ行 | `!AOE_COVER_ON &&` → `false &&` |
+| `switchdead` | `      new URLSearchParams(window.location.search).get("boltaim") !== "0";` | `      true;` |
+| `endstale` | `      const boltEnd = BOLT_AIM_ON ? best.tiles[best.tiles.length - 1] : null;` | `      const boltEnd = null;` |
+| `flavor3` | `tavern.html` の `flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし"` | `"直線 3 タイル …"` へ |
+
+- 素のアンカー表(着手後)は scratchpad `item2\anchors_after2.tsv`。項目5 はこれと突き合わせれば、#68 の後に足したアンカーの腐敗を拾える。
+- 実プレイの 2 経路目((2b))は次の順で再計算すること(`probe68_spells_diag.js` の `cands` に全部の材料がある):
+  1. `encounterEnemyIndices`(全 `enemies` ではない)
+  2. 生存・非護衛
+  3. cheb ≤ L
+  4. `hasLineOfSight`
+  5. gcd で既約化
+  6. Bresenham で壁の手前まで
+  7. `enemiesInArea` と同じ条件(非 inactive)で数える
+- 生ログ・スクリプト = `C:\Users\PC_User\AppData\Local\Temp\claude\c--Users-PC-User-Desktop------------\b0fa1865-6afd-4eba-a0b1-818df2247585\scratchpad\item2\`
+  - 盤面: `probe_board68.js` / `.log`
+  - 実プレイ: `smoke_base.log` / `smoke_boltaim0.log` / `smoke_diag.log`
+  - 既存ドライバ: `aoe_cov.log` / `aoe_cov_neg.log` / `cone_cast.log` / `cone_cast_neg.log`
+  - アンカー: `anchor_table.py` / `anchors_before.tsv` / `anchors_after2.tsv` / `anchor_diff2.txt`
+  - 検証: `bres_check.py` / `board_sim.py`
+  - 書き換え: `patch68.py` / `patch68b.py`
