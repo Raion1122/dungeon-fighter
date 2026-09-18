@@ -3271,10 +3271,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>ホールド・パーソンが 2 体に掛かるように</b> — 僧侶の金縛りが、狙った敵のすぐ近くにいるもう 1 体にも掛かる。抵抗は 1 体ずつ判定し、結果はそれぞれの敵の頭上に出る。</li>
         <li><b>ライトニングボルトが敵を狙えるように</b> — 直線を 3 マスから 10 マスへ延ばし、斜めや半端な位置の敵にも向きを合わせて撃つ。壁は貫通しない。</li>
         <li><b>竜の巣が卓上マップ 2 枚になった</b> — 溶岩の谷と竜の寝床を、マス目入りの大きな一枚絵の上で歩けるようになった。宝箱は竜の寝床の手前にまとめて並ぶ。</li>
         <li><b>酒場の卓の仲間候補の名札が読めるようになった</b> — 左を向いて座っている人の名前が裏返しに表示されていたのを直した。</li>
-        <li><b>地下神殿が 2 枚の大部屋になった</b> — 細かい小部屋を抜けて回る形をやめ、納骨堂から儀式の広間までを一続きの広い床で戦い抜く。</li>
       </ul>
     </div>
     <script>
@@ -4416,8 +4416,21 @@
        renderSpellSlotItem の lvOk = currentLv >= sk.levelReq が false だと、
        CLERIC_SLOTS_TABLE が「自動 1」を返していても [Lv5 必要] の赤札 + .full で
        灰色に落ちるため、表を直しただけでは Lv3-4 の僧侶が「1 枚持っているのに使えなさそう」に見える。 */
-    { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 3, flavor: "敵1体を 4ターン 金縛り (アンデッド/ボスには無効)" },
+    { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 3, flavor: "敵2体まで 4ターン 金縛り (2体目は1体目の近く。アンデッド/ボスには無効)" },
   ];
+  /* ★[#69] 撤退 ?holdpair=0 — ホールド・パーソンの説明文を **1 体版** へ戻す。
+   * ⚠⚠ index.html の HOLD_PAIR_ON と同じクエリを **ページ内で** 読む
+   *   (isHoldPersonOnTV と同じ作法。ページ遷移はまたがない = 依頼書 §7)。
+   * ⚠⚠ index.html の CLERIC_SKILLS と二重定義の flavor なので、片方だけ直すと
+   *   「戦闘の説明と酒場の説明が食い違う」(#57 / #54 が踏んだ罠)。 */
+  function isHoldPairOnTV() {
+    try { return new URLSearchParams(location.search).get("holdpair") !== "0"; }
+    catch (e) { return true; }
+  }
+  if (!isHoldPairOnTV()) {
+    const hpUiTV = CLERIC_SKILLS_UI.filter(function (s) { return s.id === "hold-person"; })[0];
+    if (hpUiTV) hpUiTV.flavor = "敵1体を 4ターン 金縛り (アンデッド/ボスには無効)";
+  }
   // 魔法使いスキル (index.html MAGE_SKILLS と同期)
   const MAGE_SKILLS_UI = [
     { id: "magic-missile",  name: "マジックミサイル", category: "攻撃", range: "spellSingle", mpCost: 3, flavor: "必中の魔力矢 3d4+1" },

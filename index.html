@@ -13075,6 +13075,17 @@
       catch (e) { return true; }
     })();
     if (!HOLD_SLOTS_ON) CLERIC_SLOTS_TABLE["hold-person"] = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2];
+    /* ★[#69] 撤退スイッチ ?holdpair=0 — ホールド・パーソンを 1 体だけに戻す (2026-09-16 以前)。
+     * ⭐⭐⭐ **URL を読むのはこの 1 箇所だけ**。適用点 (allyHoldPerson の 2 体目選択 /
+     *   CLERIC_SKILLS の flavor) は全部この const を参照する。
+     *   ⚠ tavern.html の flavor だけは同じクエリを **ページ内で** 読む (遷移はまたがない = 依頼書 §7)。
+     * ⚠ 結果の吹き出しを敵の頭上へ出す変更 (依頼書 §2-3) は **撤退しても戻さない**
+     *   (1 体なら重ならないので害が無い。分岐を増やさない)。
+     * ⛔ ?holdperson=0 (呪文ごと消す) / ?holdslots=0 (#59 の配分) / ?dndrange=0 とは独立。 */
+    const HOLD_PAIR_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("holdpair") !== "0"; }
+      catch (e) { return true; }
+    })();
     function isCasterClass(classKey) {
       return classKey === "cleric" || classKey === "mage" || classKey === "elf";
     }
@@ -22080,7 +22091,7 @@
         name: "ホールド・パーソン", category: "妨害", target: "single",
         holdTurns: 4, range: "long",
         mpCost: 7, levelReq: 3,   // ★[#59] turn-undead と同格 (⚠ tavern の CLERIC_SKILLS_UI が鏡)
-        flavor: "敵1体を 4ターン 金縛りにする (アンデッド/ボスには無効、MP 7)",
+        flavor: "敵2体まで 4ターン 金縛りにする (2体目は1体目の近く。アンデッド/ボスには無効、MP 7)",
       },
     };
     /* ★[#59] 撤退 ?holdslots=0 では #57 着地時の levelReq へ戻す (判定は HOLD_SLOTS_ON の 1 箇所)。
@@ -22090,6 +22101,11 @@
      *   ⭐ 5→3 で順位は動かない (hold-person は 5007→3007 で、前の turn-undead 3006 と
      *   後の cure-serious 5008 を跨がないため順序は不変)。 */
     if (!HOLD_SLOTS_ON) CLERIC_SKILLS["hold-person"].levelReq = 5;
+    /* ★[#69] 撤退 ?holdpair=0 では #57/#59 着地時の **1 体版** flavor へ戻す
+     *   (判定は HOLD_PAIR_ON の 1 箇所。tavern.html は同じクエリをページ内で読む)。
+     * ⚠ 文言に「6 マス」を入れない —— ?dndrange=0 では long が 6 マスになり spread は 3 なので、
+     *   数字を書くと片方の腕で嘘になる (spread は射程の半分から導出。依頼書 §2-6)。 */
+    if (!HOLD_PAIR_ON) CLERIC_SKILLS["hold-person"].flavor = "敵1体を 4ターン 金縛りにする (アンデッド/ボスには無効、MP 7)";
 
     // 魔法使いスキル (Phase 2)
     const MAGE_SKILLS = {
@@ -27663,8 +27679,15 @@
     function holdPersonImmune(t) {
       return !t || isUndeadEnemy(t) || !!(t.def && (t.def.isBoss || t.def.boss));
     }
-    /* 射程内・視線ありで、まだ金縛りでない「効く相手」のうち最寄りを返す。居なければ -1。 */
-    function pickHoldPersonTarget(ally) {
+    /* 射程内・視線ありで、まだ金縛りでない「効く相手」のうち最寄りを返す。居なければ -1。
+       ★[#69] opts を渡すと **2 体目の選び方** になる:
+         opts.exclude … 除外する添字 (= 1 体目)
+         opts.near    … 近さの基準にする敵 (= 1 体目)。術者ではなく **この敵に** 最も近い候補を返す
+         opts.within  … near からの上限マス (Chebyshev)。5e: 追加の対象は互いに 30ft 以内
+       ⛔ opts なしの挙動は #57 から 1 ビットも変えない
+         (clericAI / apIsWastedCast / verify_aoe_coverage が 1 引数で呼ぶ)。
+       ⛔ 候補の 6 条件 (死亡 / 護衛 / 免疫 / held / 射程 / 視線) を 2 体目用の別関数へ書き写さない。 */
+    function pickHoldPersonTarget(ally, opts) {
       const skill = CLERIC_SKILLS["hold-person"];
       if (!ally || !ally.def || !skill) return -1;
       const rangeTiles = getRange(skill.range).tiles;
@@ -27674,14 +27697,23 @@
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         if (!e || !e.alive) continue;
+        if (opts && i === opts.exclude) continue;   // ★[#69] 1 体目は 2 体目の候補から外す
         if (isEscortObjective(e)) continue;    // 護衛対象は PT の妨害呪文の対象外 (sleep と同じ作法)
         if (holdPersonImmune(e)) continue;
         if (hasStatus(e, "held")) continue;    // ⭐ 既に金縛りの敵へ二重掛けしない
         const ecx = e.x + e.def.displaySize / 2;
         const ecy = e.y + e.def.displaySize / 2;
-        const d = tileChebyshev(aCX, aCY, ecx, ecy);
+        let d = tileChebyshev(aCX, aCY, ecx, ecy);
         if (d > rangeTiles) continue;
         if (!hasLineOfSight(aCX, aCY, ecx, ecy)) continue;
+        /* ★[#69] 2 体目は近さの基準を **1 体目** へ替える。射程と視線は上のとおり
+           **術者から** 測ったまま (依頼書 §5-2)。 */
+        if (opts && opts.near) {
+          const n = opts.near;
+          const nd = tileChebyshev(n.x + n.def.displaySize / 2, n.y + n.def.displaySize / 2, ecx, ecy);
+          if (nd > opts.within) continue;
+          d = nd;
+        }
         if (d < bestD) { bestD = d; best = i; }
       }
       return best;
@@ -27717,34 +27749,58 @@
          .fxCastAura--<key> も .fxCastCircle--<key> も当たらず、黙って白い陣になる。 */
       await dfPlayCast(ally, { name: skill.name, element: 'holy' }, { duration: 2500 });
 
-      /* ⭐ 効かない相手には **黙って外さない**。ルールを説明せずにルールが伝わる。 */
-      if (holdPersonImmune(t)) {
-        showRollAtAlly(ally, `<span class="label">NO EFFECT</span>金縛りは通じない`, "miss");
-        updateInfo(`${ally.def.name}: ホールド・パーソン — ${tgtDef.name} には通じない`);
-        await sleepMs(700);
-        return;
+      /* ★[#69] 対象を 1〜2 体に広げる。2 体目は 1 体目から **射程の半分** (素 6 マス = 30ft) 以内の
+         「効く相手」のうち 1 体目に最も近い敵。居なければ 1 体だけ。
+         ⭐ 枠と MP は上で **1 回ぶんしか減らしていない** (2 体でも 1 回。依頼書 §2-7)。
+         ⭐ 6 を直書きしない —— 射程 (long) の半分として導出する。?dndrange=0 では long=6 ⇒ spread=3 (依頼書 §2-6)。
+         ⭐ 1 体目が免疫 (NO EFFECT) でも 2 体目は選ぶ —— #19 と主人公の経路がボスを渡した
+           無駄打ちを半分救う (依頼書 §2-2)。
+         ⚠⚠ 結果の吹き出しは **その敵の頭上**。showRollAt* はずらして並べる仕組みを持たないので、
+           2 体ぶんを術者の頭上に出すと同じ座標に重なって読めない (依頼書 §2-3)。
+           ⛔ showRollAtEnemy / showRollAtAlly の本体は触らない (呼び口で出し分ける)。
+         ⛔⛔ applyStatus(t, "held", …) と spawnHoldRing(t) の行は **1 本ずつのまま**。2 体目のために
+           書き写すと verify_hold_person の変異アンカー (nohold / ringground) が 2 件になり、
+           #57 の負のコントロールが exit 3 で黙って死ぬ (依頼書 §2-4)。 */
+      const holdTargets = [enemyIdx];
+      if (HOLD_PAIR_ON) {
+        const j2 = pickHoldPersonTarget(ally, {
+          exclude: enemyIdx, near: t, within: Math.floor(rangeTiles / 2),
+        });
+        if (j2 >= 0) holdTargets.push(j2);
       }
-      /* ⚠ 抵抗は **命中ロール** (sleep と同じ型)。⛔ セーヴ機構を新設しない —— saveAbility は
-         宣言だけで消費点が 0 件なので、建てるなら魔法使いの 5 呪文も同時に直す別チケット。 */
       const atkBonus = spellAtkBonus(ally);
-      const natD20   = d20();
-      const atkTotal = natD20 + atkBonus;
-      const hit = (natD20 !== 1) && (natD20 >= effectiveCritRange(ally) || atkTotal >= effectiveEnemyAc(t));
-      if (hit) {
-        /* ⭐⭐⭐ **2 つを同時に立てる**。
-             stunned … 行動不能の実体 (AI・tick・描画・helpless が全部そのまま動く)
-             held    … 「これは hold だ」の印 (⛔ 無いとスリープと区別が付かず輪が誤って出る)
-           ⚠ applyStatus は内部で +1 して保持するので、敵ターン冒頭の tickStatusEffects と
-             同じターンの stunned 減衰が揃い、4 ターン後に **両方が同時に** 切れる。 */
-        t.stunned = Math.max(t.stunned || 0, skill.holdTurns);
-        applyStatus(t, "held", skill.holdTurns);
-        spawnHoldRing(t);
-        showRollAtEnemy(enemyIdx, `<span class="label">HELD!</span>金縛り ${skill.holdTurns}T`, "skill");
-        updateInfo(`${ally.def.name}: ホールド・パーソン! ${tgtDef.name} を ${skill.holdTurns}ターン 金縛り`);
-      } else {
-        showRollAtAlly(ally,
-          `<span class="label">RESIST</span>d20(${natD20})+${atkBonus} vs AC ${effectiveEnemyAc(t)}`, "miss");
-        updateInfo(`${ally.def.name}: ホールド・パーソン — ${tgtDef.name} は抵抗した`);
+      for (const hIdx of holdTargets) {
+        t = enemies[hIdx];              // ⚠ 変数名は t のまま (変異アンカーが t を逐語で掴む)
+        if (!t) continue;
+        const tDef = t.def;
+        /* ⭐ 効かない相手には **黙って外さない**。ルールを説明せずにルールが伝わる。 */
+        if (holdPersonImmune(t)) {
+          showRollAtEnemy(hIdx, `<span class="label">NO EFFECT</span>金縛りは通じない`, "miss");
+          updateInfo(`${ally.def.name}: ホールド・パーソン — ${tDef.name} には通じない`);
+          continue;
+        }
+        /* ⚠ 抵抗は **命中ロール** (sleep と同じ型)。⛔ セーヴ機構を新設しない —— saveAbility は
+           宣言だけで消費点が 0 件なので、建てるなら魔法使いの 5 呪文も同時に直す別チケット。
+           ⭐ ロールは **対象ごとに 1 回** 引く (⛔ 1 回引いて 2 体で共有しない)。 */
+        const natD20   = d20();
+        const atkTotal = natD20 + atkBonus;
+        const hit = (natD20 !== 1) && (natD20 >= effectiveCritRange(ally) || atkTotal >= effectiveEnemyAc(t));
+        if (hit) {
+          /* ⭐⭐⭐ **2 つを同時に立てる**。
+               stunned … 行動不能の実体 (AI・tick・描画・helpless が全部そのまま動く)
+               held    … 「これは hold だ」の印 (⛔ 無いとスリープと区別が付かず輪が誤って出る)
+             ⚠ applyStatus は内部で +1 して保持するので、敵ターン冒頭の tickStatusEffects と
+               同じターンの stunned 減衰が揃い、4 ターン後に **両方が同時に** 切れる。 */
+          t.stunned = Math.max(t.stunned || 0, skill.holdTurns);
+          applyStatus(t, "held", skill.holdTurns);
+          spawnHoldRing(t);
+          showRollAtEnemy(hIdx, `<span class="label">HELD!</span>金縛り ${skill.holdTurns}T`, "skill");
+          updateInfo(`${ally.def.name}: ホールド・パーソン! ${tDef.name} を ${skill.holdTurns}ターン 金縛り`);
+        } else {
+          showRollAtEnemy(hIdx,
+            `<span class="label">RESIST</span>d20(${natD20})+${atkBonus} vs AC ${effectiveEnemyAc(t)}`, "miss");
+          updateInfo(`${ally.def.name}: ホールド・パーソン — ${tDef.name} は抵抗した`);
+        }
       }
       await sleepMs(800);
     }
