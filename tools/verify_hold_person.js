@@ -396,6 +396,12 @@ function installProbe() {
       else run = 0;
     }
   }
+  /* ★[#69] installProbe の時点で盤面に立っている敵 = **部屋に元から居る敵**。
+     ⭐ #69 で 1 回の詠唱が 2 体に掛かるようになったので、合成盤面の 1 体目から
+       射程の半分 (素 6 マス = 30ft) 以内に部屋の敵が居ると **2 体目として巻き込まれる**。
+       ⇒ 免疫の盤面 (§3 / (4a2)) では撃つ前にこれを退け、盤面を「ドライバが置いた敵だけ」にする。
+     ⛔ 添字でなく参照で持つ (cast が enemies に push しても指す先が動かない)。 */
+  const roomEnemies = enemies.slice();
 
   window.__hpProbe = {
     info: function () {
@@ -414,6 +420,29 @@ function installProbe() {
         ringMax: (typeof HOLD_RING_MAX !== 'undefined') ? HOLD_RING_MAX : null,
         hasCast: typeof allyHoldPerson === 'function',
       };
+    },
+    /* ★[#69] 部屋に元から居る敵を盤面の外へ退ける (⛔ **cast の前**に呼ぶ)。
+       ⛔ alive を倒さない —— 倒すと撃破処理 (XP / 死亡演出 / 遭遇の更新) が走って別の交絡を生む。
+       ⭐ 戻り値は「元から居た体数 / 退けた体数 / 退けたあと **術者の立ち位置から射程以内に
+         残っている元からの敵**」。これを assert に噛ませると、装置が空振り (部屋の敵が 0 体 /
+         退け残りが在る) のまま緑になるのを塞げる = 盤面を変えた側で装置を測る。 */
+    banishRoomEnemies: function () {
+      const FAR = -999999;
+      let moved = 0;
+      for (const e of roomEnemies) { if (!e) continue; e.x = FAR; e.y = FAR; moved++; }
+      if (!lane) return { err: 'lane なし', total: roomEnemies.length, moved: moved, near: null };
+      /* 検算は「動かした」ではなく「**もう届かない**」で行う (術者は lane の左端に立つ)。 */
+      const rangeTiles = (typeof getRange === 'function' && typeof CLERIC_SKILLS === 'object'
+        && CLERIC_SKILLS['hold-person']) ? getRange(CLERIC_SKILLS['hold-person'].range).tiles : 12;
+      const cx = lane.tx0 * TILE + TILE / 2, cy = lane.ty * TILE + TILE / 2;
+      let near = 0;
+      for (const e of roomEnemies) {
+        if (!e || !e.alive) continue;
+        const s = (e.def && e.def.displaySize) || 96;
+        if (tileChebyshev(cx, cy, e.x + s / 2, e.y + s / 2) <= rangeTiles) near++;
+      }
+      return { total: roomEnemies.length, moved: moved, near: near, rangeTiles: rangeTiles,
+        alive: roomEnemies.filter((e) => e && e.alive).length };
     },
     /* 僧侶を lane の左端へ、指定した型の敵をその右隣へ並べて撃つ。
        ⭐ 判定は 1 行も再実装しない。本番の allyHoldPerson をそのまま呼ぶ。 */
@@ -845,6 +874,12 @@ function installProbe() {
     /* ── (3a)(3b) 免疫 — 盤面を作り直す (上で clearNodeArrays したため) ── */
     const ix2 = await openIndex(browser, '');
     await ix2.evaluate(installProbe);
+    /* ★[#69] 撃つ **前** に、部屋に元から居る敵を盤面の外へ退ける。
+       ⚠ これが無いと、1 体目 (ドライバが置いたオーク) の射程半分 = 6 マス以内に居る部屋の敵が
+         **2 体目** として掛かり、輪が 2 本になって (4a2) が落ちる (依頼書 §2-9 / §6 が予告した穴)。
+       ⭐ 期待値を 1 → 2 へ書き換えるのは「期待値いじり」。正は **盤面をドライバの置いたものだけにして、
+         輪が出るべき敵が盤面から決まるようにする**こと。⛔ alive は倒さない。 */
+    const banish = await ix2.evaluate(() => window.__hpProbe.banishRoomEnemies());
     const castUndead = await ix2.evaluate(() => window.__hpProbe.cast('skeleton',   { tries: 8 }));
     const castBoss   = await ix2.evaluate(() => window.__hpProbe.cast('goblinKing', { tries: 8 }));
     const castLive   = await ix2.evaluate(() => window.__hpProbe.cast('orc',        { tries: 8 }));
@@ -868,10 +903,33 @@ function installProbe() {
       && castBoss.after[0].stunned === 0 && castBoss.after[0].held === false,
       'ボス ' + JSON.stringify(castBoss.after));
 
+    /* ★[#69] 盤面に立っているのは **ドライバが置いた 3 体だけ** (部屋の敵は上で退けた)。
+       ⇒ 「輪が出るべき敵」は、置いた型からドライバが独立に決められる = アンデッド (skeleton) と
+         ボス (goblinKing) は免疫 / 生者 (orc) だけが掛かる。
+       ⛔ 1 を直書きしない (#69 で 2 体目が掛かるようになったので、数字を書き換えるだけの直しは
+         「盤面から決まる」性質を捨てて嘘になる)。
+       ⛔ holdPersonImmune を呼んで期待値にしない (本番の述語を写経すると 1 経路になる)。 */
+    const immBoard = [
+      { key: 'skeleton',   made: castUndead.made || [], immune: true  },   // アンデッド
+      { key: 'goblinKing', made: castBoss.made   || [], immune: true  },   // ボス (def.isBoss)
+      { key: 'orc',        made: castLive.made   || [], immune: false },   // 生者
+    ];
+    const immExpect = immBoard.filter((b) => !b.immune)
+      .reduce((a, b) => a.concat(b.made), []).slice().sort((a, b) => a - b);
     const immRings = await ix2.evaluate(() => window.__hpProbe.rings());
-    check('(4a2) 免疫の相手には輪が出ない = 輪の本数が held の敵の数とちょうど一致する',
-      immRings.regLen === immRings.owners.filter((o) => o.held === true).length && immRings.regLen === 1,
-      JSON.stringify(immRings));
+    const immOwners = immRings.owners.map((o) => o.idx).slice().sort((a, b) => a - b);
+    check('(4a2) 免疫の相手には輪が出ない = 輪の本数が held の敵の数とちょうど一致し、'
+      + 'その持ち主が **免疫でない生者ちょうど 1 体** と完全一致する '
+      + '(⭐[#69] 本数は直書きせず盤面から導く: 撃つ前に部屋の敵を退けてあるので盤面は '
+      + 'ドライバが置いた 3 体だけ ⇒ 免疫でないのは orc の 1 体だけ、が盤面から決まる。'
+      + '⚠ 退けないと 1 体目の 6 マス以内の部屋の敵が 2 体目として掛かり輪が増える)',
+      immRings.regLen === immRings.owners.filter((o) => o.held === true).length
+      && immOwners.join(',') === immExpect.join(',') && immExpect.length === 1
+      && banish.total >= 1 && banish.moved === banish.total && banish.near === 0,
+      JSON.stringify(immRings) + ' / 免疫でない添字=' + JSON.stringify(immExpect)
+      + ' / 置いた=' + JSON.stringify(immBoard.map((b) => b.key + ':' + JSON.stringify(b.made)
+        + (b.immune ? '(免疫)' : '(生者)')))
+      + ' / 退けた=' + JSON.stringify(banish));
 
     await ix2.close();
 
