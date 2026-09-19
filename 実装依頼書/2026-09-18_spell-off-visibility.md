@@ -3,6 +3,9 @@
 - **起草**: 2026-09-18(起草窓 `claude-f8` / セッション `6fb3c892`) / **ステータス**: **承認済**(2026-09-18 ユーザー承認)
 - **着手**: ⏸ **#69 の着地後**(同じ `index.html` / `tavern.html` を触る)。⭐ 僧侶の除外枠を他へ回さない既定(§1)も承認済み。
   ⚠ 本書の行番号は `d9c8cbf` 時点。#68 は `78c7474` で着地済み(`index.html` は +75 行)で、#69 でも動く ⇒ **識別子で引き直してから**着手する。
+- **訂正(2026-09-19 起草窓)**: #69 着地後の HEAD `92e66c6` で実装窓が着手前プローブを回し、本書の主張が **3 件**崩れた。
+  実装窓の報告を起草窓が**独立に追試して確認済み** ⇒ 該当箇所(§2-3 ③ / §2-4 / §2-7 / §5-5 / §5-6 / §8 の変異表)を本書内で訂正した。
+  ⭐ 3 件とも「1 行だと思っていたものが **2 行**」「1 箇所だと思っていたものが **2 箇所**」「名指し 11 本に対し grep は **13 本**」= **逐語と本数の取り違え**。
 - **基準コミット**: `d9c8cbf`(#68 項目4。`index.html` / `tavern.html` は `e42b7ea` から不変)。起草時の作業ツリーは clean。
 - **触るファイル**: `index.html` / `tavern.html` / `tools/verify_spell_off.js`(新規) / `実装依頼書/README.md`
 - ⛔ **着手順**: #68 の着地後。さらに **#69(承認済・⏸)と同時に走らせない**(同じ `index.html` / `tavern.html` を触る)。
@@ -79,7 +82,12 @@
 
 **③ NPC の魔法使い・エルフは、全部 0 にすると既定の呪文を撃つ**
 
-- `index.html:34902`: `const hasPreset = !!(partySkillsMap && Array.isArray(partySkillsMap[ally.classKey]) && partySkillsMap[ally.classKey].length > 0);`
+- `index.html` の `hasPreset`(HEAD `92e66c6` で `:34958`〜`:34959`。起草時 `d9c8cbf` は `:34902`)。
+  ⚠⚠ **1 行ではなく 2 行にまたがる**(2026-09-19 に実装窓が報告 → 起草窓が追試):
+
+      const hasPreset = !!(partySkillsMap && Array.isArray(partySkillsMap[ally.classKey])
+        && partySkillsMap[ally.classKey].length > 0);
+
 - `hasPreset` が偽だと `defaultCasterMap` `:34721`(`defaultSkills` の呪文を 2 枠ずつ)へ戻る。**空配列 = 未設定**と同じ扱い。
 - 主人公本人は `heroMap` を使うので効かない。**NPC の仲間だけ**が既定の呪文を撃つ。
 - 一方、酒場は空配列を「全部外した状態」として尊重している(`:5415` のコメント「空配列でも尊重する … AI もスキル使用しない」)= **2 ファイルで解釈が逆**。
@@ -92,7 +100,8 @@
 
 ### 2-4. ⚠⚠ 酒場を読み込み直すと、呪文職の配分が 5 個に切り詰められる
 
-- `tavern.html:5420`: 保存された `partySkills` を読むとき、**職を問わず** `.slice(0, skillSlotsForLevel(10))` = **5 件**で切る。
+- `tavern.html` の `loadSelections`(HEAD `92e66c6` で `:5433`。起草時 `d9c8cbf` は `:5420`): 保存された `partySkills` を読むとき、**職を問わず** `.slice(0, skillSlotsForLevel(10))` = **5 件**で切る。
+  ⚠⚠ **この逐語は `tavern.html` に 2 箇所ある**(`:5433` = 直す本体 / `:5443` = 戦士の旧キー移行 = ⛔ 触らない)⇒ 逐語で引くと 2 件。唯一に引く語は §5-6 に実測値を置いた。
   コメントは「最大枠(5)まで保持」で、これは戦士などの特技枠(`SKILL_SLOT_CURVE` `:4767` = `[0,1,1,2,2,3,3,4,4,5,5]`)の上限。
 - 呪文職の配列は**同じ呪文を個数ぶん重複して持つ**(`:7269` のコメント)。呪文の上限は別の表:
   - 魔法使い `SPELL_SLOT_CURVE_MAGE` `:5065` = `[0,3,4,5,6,8,9,10,12,13,15]` ⇒ **Lv4 で 6、Lv10 で 15**
@@ -131,6 +140,10 @@
 ### 2-7. 既存の検査が掴んでいるもの(⚠ 赤くなる本数は予想であって実測ではない)
 
 素で走らせ、**実際に赤くなった assert の ID を控えてから**言い直す(#60 の教訓)。
+
+⚠⚠ **以下の名指しは 11 本だが、§4 の 8 語 grep は HEAD `92e66c6` で 13 本を返す**。増分 = `driver_monsters_chimera` /
+`driver_monsters_griffon` で、どちらも **`magesleep`** の語で入る(2026-09-19 に実装窓が報告 → 起草窓が追試)。
+⛔ **本数を定数で焼かず、毎回 grep で導出する**こと。
 
 - `#pmDrawer` を読む本 = **5 本**: `driver_equip_compact_ios` / `verify_darkvision` / `verify_party_match_setup` / `verify_pm_drawer_fit` / `verify_prep_retire`。
   - 実座標クリックを持つのは `verify_party_match_setup`(`mouse.click` 4 箇所)と `verify_darkvision`(1 箇所)。
@@ -240,17 +253,22 @@
   差し込んだ一覧を保存せずに酒場を離れると、次は印があるので差し込まれず、**保存済みの一覧にスリープが無いまま**になる(変異 `markonload`)。
 - 移行の限界(書いておく): 印の無い古いセーブで、#70 より前にスリープを 0 にしていた人は、#70 の後の最初の 1 回だけスリープが戻る。保存後は守られる。
 
-### 5-5. NPC の全部 0(`index.html:34902`)
+### 5-5. NPC の全部 0(`index.html` の `hasPreset` = HEAD `92e66c6` で `:34958`〜`:34959`)
 
 - `isSpellOffOn()` が真なら、`hasPreset` を `Array.isArray(partySkillsMap[ally.classKey])` だけで決める(`length > 0` を外す)。
+- ⚠⚠ **`hasPreset` は 2 行にまたがる**(§2-3 ③)⇒ 変異 `presetlen` のアンカーも **2 行の逐語**で書く。1 行で探すと **0 件 = exit 3**。
 - ⚠ 主人公の経路(`heroMap`)と `defaultCasterMap` の本体は触らない。
 
-### 5-6. 読み込み時の切り詰めを職ごとに(`tavern.html:5420`)
+### 5-6. 読み込み時の切り詰めを職ごとに(`tavern.html` の `loadSelections` = HEAD `92e66c6` で `:5433`)
 
 - `isSpellOffOnTV()` が真なら、上限を職で分ける:
   - 呪文職で自動でない(魔法使い・エルフ) … `getMaxSpellSlotsForClassTV(classKey, 10) + skillSlotsForLevel(10)`(= 魔法使い 20 / エルフ 15。呪文と入れ外しの特技が同じ配列に入るため)
   - それ以外 … 従来どおり `skillSlotsForLevel(10)`(= 5)
-- ⛔ 上限を実際に配れる数より小さくしない。⚠ `:5430` の旧キー移行(戦士専用)は触らない。
+- ⛔ 上限を実際に配れる数より小さくしない。⚠ 旧キー移行(戦士専用 = HEAD `92e66c6` で `:5443`。起草時 `:5430`)は触らない。
+- ⚠⚠ **変異 `slice5` のアンカーに `.slice(0, skillSlotsForLevel(10))` 単体を使わない**(2 箇所 = exit 3)。
+  起草窓が HEAD `92e66c6` で数えた**ちょうど 1 箇所の語**(どれでも可):
+  `.filter(id => validIds.has(id))` / `partySkills[slot.classKey] = migrated;` / 行頭空白を含む `^\s+\.slice\(0, skillSlotsForLevel\(10\)\)` /
+  (⛔ 触らない移行側を名指すなら)`old.slice(0, skillSlotsForLevel(10))`。
 
 ---
 
@@ -351,8 +369,8 @@
 | `apcand` | `apEquippedIdsFor` が除外を見ない(`getClericSlotsTV` を通さず表を読む) | (1d) |
 | **`sleepevery`** | ⭐ スリープを印に関係なく毎回差し込む(§2-3 ②の再現) | (2a) |
 | **`markonload`** | ⭐ 印を `saveSelections` でなく読み込みの中で書く(§5-4 の罠) | (2a2) |
-| **`presetlen`** | ⭐ `hasPreset` に `length > 0` を戻す(§2-3 ③の再現) | (3d) |
-| **`slice5`** | ⭐ 呪文職も 5 件で切る(§2-4 の再現) | (2b) |
+| **`presetlen`** | ⭐ `hasPreset` に `length > 0` を戻す(§2-3 ③の再現)。⚠⚠ アンカーは **2 行の逐語**(§5-5) | (3d) |
+| **`slice5`** | ⭐ 呪文職も 5 件で切る(§2-4 の再現)。⚠⚠ `.slice(0, skillSlotsForLevel(10))` 単体は **2 箇所** ⇒ §5-6 の唯一語で引く | (2b) |
 | **`noprefix`** | ⭐ 除外キーを `dragonfighters.` で始まらない名前で保存する(§2-6 の罠) | (4a) |
 | `offfull` | Lv 不足・未習得の行にも印を付ける | (1a) |
 | `offselected` | 入れ外しの行で選択中にも印を付ける | (1b) |
@@ -408,3 +426,182 @@
 ## 12. 実装結果
 
 (実装窓が埋める)
+
+### 12-0. 着手前の基準取り(STEP1 / 2026-09-19・実装窓 `claude-a1` セッション `f2b13284-7fe6-4bea-8786-32a2a9f856c0`)
+
+⛔ **本番(`index.html` / `tavern.html` / `audio.js`)も `tools/` も 1 バイトも触っていない**(測っただけ)。
+使い捨ての計測スクリプトは scratchpad
+`…\Temp\claude\c--Users-PC-User-Desktop------------\f2b13284-7fe6-4bea-8786-32a2a9f856c0\scratchpad\base70\` に置いた。
+
+#### (a) 基準
+
+| 測ったもの | 実測 |
+|---|---|
+| `git log --oneline -1` | `92e66c6 #69 項目5 — 母集団 150 走行の非退行 …` |
+| `git status --short` | **0 行**(着手時点) |
+| `git log origin/main..HEAD --oneline` | **0 行**(未 push 0) |
+| `index.html` | **39,595 行** / bytes 2,513,353 / lone LF **0** = 純 CRLF |
+| `tavern.html` | **10,599 行** / bytes 640,584 / lone LF **0** = 純 CRLF |
+| 本依頼書 `.md` | ⚠ **純 LF**(LF 428 / CR **0**)⇒ 追記は LF で書くこと |
+
+⇒ **#69 は着地済みで、#70 と並走していない**。
+⭐ 窓の身元は名前でなく `~/.claude/sessions/<pid>.json` の `sessionId` で引いた:
+実装窓 = `claude-a1` / `f2b13284-…`(pid 28300)、起草窓 = `claude-cc` / `0e9709e5-…`(pid 9600)。
+⚠⚠ **着手中に起草窓が本依頼書を編集していた**(11:27:30・未コミット +25/-7)。
+内容は本書 §2-3③ / §2-4 / §2-7 / §5-5 / §5-6 / §8 の訂正で、全文を読んだうえで
+**本コミットに同梱**した(git はファイル単位でしか commit できないため)。起草窓へはコミット前に通告済み。
+⇒ ⭐ **以後この `.md` の持ち主は実装窓**。起草窓からの追記は直接編集でなくメッセージで受ける。
+
+#### (b) 母集団 — 3 段の union で **140 本**(⛔ 本数は定数で焼かず毎回導出する)
+
+`tools/*.js` = **147 本**。判定は**コメントを落としてから**行った(#66 の教訓)。導出器 = `base70/pop70.py`。
+
+| 段 | 引き方 | 本数 |
+|---|---|---|
+| 段1 | 触る語 8 つ(`pmDrawer` / `partySkills` / `spellCountItem` / `skillItem` / `getClericSlots` / `withInnateSleep` / `magesleep` / `clericSpellsOff`) | **13** |
+| 段2 | `index.html` / `tavern.html` をコードで読む本 | **138** |
+| 段3 | 他の `tools/*.js` を**ソースとして読む**測定器 | **5** |
+| — | **union** | **140** |
+
+- 段1 の 13 本は**すべて段2 の真部分集合**(増分 0)。⚠ 本書 §2-7 の名指し 11 本に対し grep は 13 本
+  (`driver_monsters_chimera` / `driver_monsters_griffon` が `&magesleep=0` の**実コード**で入る。コメントではない)。
+- ⭐⭐⭐ **union を増やしたのは段3 だけ**(**+2 本** = `verify_world_heromark` / `verify_world_steps`)。
+  この 2 本は `index.html` / `tavern.html` を**コメントでしか**言及しないので段2 では落ちるが、
+  `verify_world_steps` → `verify_quest_walk`、`verify_world_heromark` → `verify_world_steps` とソースを読むため入る。
+  ⇒ ⛔ **「段2 だけで足りる」と結論しない**(#67 では段3 が union を 1 本も増やさなかったが、#70 では 2 本効いた)。
+- 段3 の内訳: `verify_enemy_name_label`→`driver_cast_circle` / `verify_eol_doorfix`→`driver_doors_p2,p5,p8`+`verify_road_ambush` /
+  `verify_hold_person`→`driver_action_priority`+`verify_walk_block` / `verify_world_heromark`→`verify_world_steps` /
+  `verify_world_steps`→`verify_quest_walk`。
+- コメントだけの言及で**母集団外**とした本 = 4 本(`_doors_fixture` / `sim_plaza_entry` / `verify_world_heromark` / `verify_world_steps`。
+  後ろ 2 本は段3 で拾い直している)。
+- 一覧の実体: `base70/pop70_union.txt`(140 行)/ 段ごとの内訳 `base70/pop70_stages.json`。
+
+#### (c) 流用の可否 = **可**。根拠は blob OID(⛔ コミット数では判定しない)
+
+#69 項目5 の非退行走査(150 走行・269.0 分)は **`d0325a6`(#69 項目4)の木**で採られていた。
+`d0325a6` → `92e66c6` の差分は **`実装依頼書/*.md` 2 ファイルだけ**(`git diff --name-status` で確認)。
+
+    $ git rev-parse d0325a6:index.html   92e66c6:index.html
+    6fa9e220df9c76470a31fdd685767eef310c3147   (両方とも同じ)
+    $ git rev-parse d0325a6:tavern.html  92e66c6:tavern.html
+    f3315071fe5ee6e3feb5a5df2590a57f8fb19e9a   (同上)
+    $ git rev-parse d0325a6:audio.js     92e66c6:audio.js
+    b3aaa1fd2b93a379877fd6b861e01213386e5c61   (同上)
+    $ git rev-parse d0325a6:tools        92e66c6:tools     ← ツリー
+    406aead025a003eff9a3f08c105874fd351eb5bf   (同上)
+
+さらに**作業ツリーの実体**とも突き合わせた(`git hash-object index.html tavern.html audio.js` = 上の 3 つと一致)。
+⭐ 決め手は #69 の走査が自分で残していた `state_before.txt` で、そこに焼かれた 4 つの OID が
+**上とすべて一致**した ⇒ ドライバが見る世界は byte 同一。
+
+- 凍結した基準: **`base70/baseline70.tsv`**(列 = `name` / `arg` / `exit` / `secs` / `in_pop70` / `source` / `summary` / `note`)。
+  = #69 の 150 走行 + **#70 で母集団に増えた本の実走 3 行** + #69 が単独実走した `probe_party_size` の記録 1 行 = **154 行**。
+  union 140 本を **149 走行**(素 140 + 追加の腕 9)で**漏れなく**覆う(「union のうち基準に 1 行も無い本 = **0**」を機械で確認)。
+- 2 経路の突き合わせ材料も自分の scratchpad へ退避済み(前セッションの scratchpad は消えうるため):
+  `base70/from69/fp68_ids_after69.tsv`(assert id の指紋)/ `base70/from69/fp68_lines_after69.tsv`(**判定行の多重集合**)/
+  `summary68_after69.tsv` / `result_after69.FINAL.tsv` / `runlist69.txt` / `population69.txt` / `outside69.txt` / `state_before.txt`。
+  ⭐ 原本と md5 一致を確認(`61ca77ee7823b994d6be10dcc1443bcb`)。
+
+**増えた本 3 本だけを実走した**(腕の粒度で突き合わせ。導出器 `base70/diff70.py`):
+
+| 本 | 腕 | exit | 秒 | 所見 |
+|---|---|---|---|---|
+| `_golden.js` | (素) | 0 | 0.1 | **ライブラリ**(`module.exports` のみ)。出力 0 行・assert 0 本 = **色を持たない** |
+| `_pptr_profile.js` | (素) | 0 | 0.1 | **ライブラリ**。引数なしは使い方を出して exit 0。assert 0 本 |
+| `auto_debug_run.js` | `--runs 2 --scen goblin-mine --port 10347 --timeout-min 3` | **1** | 426.0 | 調査ランナー。exit = 「N ラン完走したか」。1 ラン **254 秒**で 3 分予算に入らず 1/2 ⇒ exit 1。**時間予算依存で検出器ではない** |
+
+⚠ `probe_party_size` は #69 の母集団に在り、#69 が**単独実走**(600 秒打ち切り → exit 1)したので流用した。
+⚠ 逆に #69 が回して **#70 の母集団外**の本 = 5 本(`driver_bgm_title` / `driver_doors_p1` / `probe_town_mask` /
+`verify_codex_map_skill` / `verify_road_events`)。#69 の `outside69.txt` 7 本のうち残り 2 本は上記のとおり **#70 では母集団内**。
+
+#### (c2) 着手前の色 — 母集団 149 走行のうち **緑 129 / 非緑 20**
+
+⛔ **非緑 20 をそのまま「赤 20」と読まないこと**(#67 の教訓)。内訳:
+
+- **引数ガードの即死 exit 3 = 正常が 3 本**: `probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map`。
+  引数付きの腕(`--places` / `--kinds` / `--bfs`)は**どれも exit 0**。
+- **健全なときに exit 1 を返す本が 1 本**: `probe_n4_stall`(「停滞は観測されませんでした」)。
+- **既知フレーク(両方向に転ぶ)**: `probe_n4_stall` / `driver_field_wagon` / `driver_monsters_chimera` /
+  `driver_monsters_hobgoblin` / `driver_monsters_griffon`。⇒ ⚠ **1 回の色で退行と判定しない**。
+- **着手前から赤(#70 の責任ではない)**: `driver_action_priority --negative`(#35 `97f350d` 以来。本書 §2-7 のとおり
+  変異 N3 のアンカーが `tavern.html` に 2 箇所。**HEAD でも 2 箇所のまま**)/ `probe_party_size`(600 秒で自力終了しない)。
+- **そのほかの安定した非緑**: `driver_mapeditor_painting` / `driver_grid_p4`(exit 3) / `driver_grid_p8` / `driver_mapeditor` /
+  `driver_monsters_umberhulk` / `driver_sce1_events` / `driver_speech_engine` / `driver_speech_v2` /
+  `sweep_recruit_balance` / `verify_walk_block` / `driver_field_step6`(1860.6 秒 = **この所要が正常**)。
+- ⭐ 名指しで見る本(§8)は**全部緑**: `verify_party_match_setup` / `verify_pm_drawer_fit` / `verify_darkvision` /
+  `verify_prep_retire` / `driver_equip_compact_ios` / `verify_recruit_talk` / `verify_save_slots` /
+  `verify_mercenary_roster` / `driver_action_priority`(素) / `verify_hold_person`(素 + `--negative`) /
+  `verify_aoe_coverage`(素 + `--negative`) / `verify_cone_cast`(素 + `--negative`) / `verify_bolt_aim`(素 + `--negative`)。
+- ⚠⚠ **母集団の全数再走は 269.0 分**(#69 実測)。この機械は #68 比 **約 2.6 倍遅い** ⇒ 項目5 は **270〜300 分**を見込む。
+  ⛔ 並列で回さない(Chrome 競合で偽の赤)。
+
+#### (d) §2-3 の 3 経路 + §2-4 の切り詰めを本番 0 バイトで再現 — **5/5 すべて再現した**
+
+計測器 = `base70/repro70.js`(scratchpad の使い捨て。`localStorage` を仕込んで本番の関数をそのまま呼ぶ)。
+生ログ = `base70/repro70_out.txt`。ポートは酒場 10348 / 本体 10349(どちらも走行後に解放を確認)。
+⭐ `③` の `hasPreset` は**自分で書き写さず `index.html` の実バイトから逐語で取り出して** `new Function` で組んだ
+(書き写すと「実装とドライバが同じ誤りを持つ」事故になる)。
+
+**① 僧侶は選べない — 再現した(2 経路とも)**
+
+- 酒場側: `renderSpellSlotItem({id:"cure-light-wounds",…}, "cleric", …)` の返す行は
+  **`button` 0 個 / `.spellAuto` あり / `.spellCountCtrl` なし**。
+  対照に同じ関数へ `"mage"` / `magic-missile` を通すと **`button` 2 個(± ボタン)**。
+  ⇒ 僧侶の行には「使わない」を表す操作系が**1 つも無い**。
+- 本体側: `initAllySpellSlots(a, "cleric", 5, map)` を 3 腕で回した:
+
+      map なし     -> {"cure-light-wounds":3,"shield-of-faith":2,"turn-undead":1,"hold-person":1}
+      空配列       -> (同一)
+      ["bless"]    -> (同一)
+
+  ⇒ **`partySkills` を 1 ビットも見ていない**。
+
+**② 魔法使いのスリープが戻る — 再現した**
+
+      保存した一覧        {"mage":["magic-missile","fire-bolt","arcane-shield"]}
+      同タブで開き直した後 ["magic-missile","sleep","fire-bolt","arcane-shield"]   ← index 1 に差し込まれた
+      localStorage        {"mage":["magic-missile","fire-bolt","arcane-shield"]}   ← 保存側は変わらない
+
+⭐ **読み込みは保存し直さない**(`localStorage` は仕込んだまま)。⇒ ユーザーが保存し直すまでデータは壊れない。
+
+**③ NPC の全部 0 — 再現した(エルフも)**
+
+      partySkills.mage = []            -> hasPreset=false / equippedSkills=["magic-missile","sleep","fire-bolt","arcane-shield"]
+                                          maxSpellSlots={"magic-missile":2,"sleep":2,"fire-bolt":2,"arcane-shield":2} (合計 8)
+      対照 mage=["magic-missile"]      -> hasPreset=true  / equippedSkills=["magic-missile"] / max={"magic-missile":1}
+      partySkills.elf  = []            -> hasPreset=false / equippedSkills=["aimed-shot","magic-arrow","cure-minor"]
+
+**§2-4 の切り詰め — 再現した。ただし ⚠⚠ 素の観測は 5 個ではなく 6 個**
+
+`xp=45000`(Lv10 相当)で魔法使いに **12 個**配分して保存 → 同タブで開き直すと:
+
+      素で開き直す                 -> 6 個 ["magic-missile","sleep","magic-missile","magic-missile","magic-missile","fire-bolt"]
+      ?magesleep=0 で開き直す      -> 5 個 ["magic-missile","magic-missile","magic-missile","magic-missile","fire-bolt"]
+      一覧に元から sleep を入れる  -> 5 個 ["sleep","magic-missile","magic-missile","magic-missile","magic-missile"]
+      (魔法使い Lv10 の呪文上限 = 15 / skillSlotsForLevel(10) = 5 / localStorage 側は 12 個のまま)
+
+⭐⭐⭐ **切り詰め(`slice(0,5)`)の「後ろ」で #54 のスリープ差し込みが 1 個足すので、
+2 つの欠陥が合成されて観測値が 6 になる。** 切り詰め自体は確かに 5 件。
+
+#### 崩れた主張(⚠ #70 を実装する前に必ず読むこと)
+
+| # | 本書の主張 | HEAD `92e66c6` の実測 |
+|---|---|---|
+| 1 | §2-3③ / §5-5: `hasPreset` は **1 行** | ⚠⚠ **2 行**(`index.html:34958`〜`:34959`)。1 行で探すと 0 件 = 変異 `presetlen` が exit 3 ⇒ **起草窓が本書内で訂正済み** |
+| 2 | §2-4 / §5-6: `.slice(0, skillSlotsForLevel(10))` の逐語で 1 箇所 | ⚠⚠ **2 箇所**(`:5433` = 直す本体 / `:5443` = 戦士の旧キー移行 = ⛔ 触らない)⇒ **起草窓が唯一語つきで訂正済み** |
+| 3 | §2-7: 母集団の第1段は名指し **11 本** | **13 本**(`driver_monsters_chimera` / `driver_monsters_griffon` が `magesleep` で入る)⇒ **起草窓が訂正済み** |
+| 4 | ⭐ §4-4 / §8 (2b)(5a): 12 個配分 → 開き直し → **5 個** | ⚠⚠ **素の腕では 6 個**(上記)。⇒ **受入の期待値は「5」と書けない。** `?magesleep=0` を掛けた腕か、一覧に元から `sleep` を入れた腕でのみ 5。⛔ 「6 に直す」でなく「**スリープ差し込みを止めた腕で 5**」と書く(2 つの欠陥の合成を assert に畳み込まない) |
+| 5 | ⭐ §8 (0c)(3a): 僧侶の `maxSpellSlots` の期待値 | ⚠ `getClericSlots(5)` は **8 キー**返すが、`initAllySpellSlots` が `isSpellKnown` で**完全ゲート**するので仲間の `maxSpellSlots` は **4 キー**(`cure-light-wounds` / `shield-of-faith` / `turn-undead` / `hold-person`)。⇒ **期待集合を組むとき習得ゲートも掛けないと (3a) が外れる**。⭐ (0c)「2 個以上」は 4 で成立 |
+| 6 | §2-9: `index.html` 39,539 行 / `tavern.html` 10,586 行 | **39,595 行 / 10,599 行**(#69 で +56 / +13)。両方とも純 CRLF は不変 |
+| 7 | — | ⭐ 読み込みは `localStorage` を**保存し直さない**(12 個のまま残る)⇒ §5-4 の「移行の限界」は思ったより軽い。ユーザーが保存するまで元データは無傷 |
+| 8 | — | ⚠ `defaultCasterMap("elf", 5)` は `["aimed-shot","magic-arrow","cure-minor"]` を返すが、酒場の `PARTY_SLOTS` のエルフ既定は `["aimed-shot","hunters-mark","cure-minor"]` = **2 ファイルで既定が一致していない**。本チケットでは触らない(§11 行き候補) |
+
+#### ポート / 後始末 / 次への申し送り
+
+- 今回使ったポート **10347**(`auto_debug_run` のプローブ)/ **10348**(酒場)/ **10349**(本体)は**すべて解放済み**
+  (`Get-NetTCPConnection` で LISTEN 0 件 / `tools` を読む node 0 本を確認)。
+  ⚠ **8765 はユーザー自身のローカル再生サーバ**なので落としていない。
+- 新規ドライバ `tools/verify_spell_off.js` の **base 10351 は空き**(`tools/*.js` の先客の最大は 10343。
+  `1035x` の grep ヒットは LCG 定数 `1103515245` でポートではない)。変異帯 10352〜10363 も空き。
+- 作業ツリーは本コミット前後で **`実装依頼書/2026-09-18_spell-off-visibility.md` の 1 ファイルだけ**が M
+  (= 本番 0 バイト。`git hash-object index.html tavern.html audio.js` が HEAD の blob と一致することを再確認済み)。
