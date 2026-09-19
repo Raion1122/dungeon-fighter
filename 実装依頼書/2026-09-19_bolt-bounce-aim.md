@@ -329,10 +329,28 @@ Bresenham の丸めのせいで、敵へ真っ直ぐの筋は壁の角をかす�
 - `verify_bolt_aim`(素 / `--negative`)・`verify_cone_cast`・`verify_aoe_coverage`・`driver_action_priority`
 - 母集団 **142 本**(§2-8 の定義で導出し直す)を全数・同じ順で直列再走し、**2 経路**
   (assert id の指紋 + 判定行の多重集合)で着手前と突き合わせる。
+- ⭐⭐⭐ **比較器を使う前に「変えていないはずの本で差 0 になるか」を先に通す**。#70 項目3 では、
+  赤く見えた 3 回が**すべて比較器側の欠陥**だった(空白の畳み漏れ / 後ろが空の ` -- ` / 空白 3 個以上の
+  detail 区切り)。⇒ **1〜2 本だけが差を出す形は、まず比較器を疑う**(本物の退行はもっと素直に出る)。
+- 所要の見積もり(2026-09-19 にこの機械で実測した秒数):
+  `verify_bolt_aim` 素 **2,230.7s**(⚠ 実プレイ 24 走行)/ `--negative` 82.8s /
+  `verify_hold_pair` 素 904.0s / `verify_prep_retire --negative` 1,871.7s /
+  `verify_recruit_talk --negative` 810.4s / `verify_party_match_setup --negative` 798.1s /
+  `verify_pm_drawer_fit --negative` 629.3s ⇒ **全数は 270〜300 分**。
 - ⚠ **1 回の色で退行と判定しない**。両方向に転ぶフレーク = `probe_n4_stall` / `driver_field_wagon` /
   `monsters_chimera` / `monsters_hobgoblin` / `monsters_griffon`。
 - ⚠⚠ この機械は #69 実測で **約 2.6 倍遅い**。全数再走は **270 分以上**を見込む。
 - ⚠ `driver_action_priority --negative` は #35 以来**着手前から exit 1**。本チケットの責任ではない。
+
+### ⚠⚠⚠ 「既存 golden が守っている」を受入から外す根拠にしない
+
+外すと書く前に、**その本が何を測っているかを 1 行読む**。#70 項目3 の実測で、緑の内訳を読んだら
+**5 件が誰も測っていない空白地帯**だった(`verify_save_slots (5z)` は自分で蒔いたキーを同じ evaluate 内で
+数えるだけ / `verify_mercenary_roster (5b)` は既定配分が 5 件以下なので切り詰めに原理的に当たらない /
+僧侶の行・NPC の `hasPreset`・酒場のスリープ差し込みは読む tools が 0 本)。
+⇒ 本チケットで言えば、**「(1d)(1d2) が壁止めを守っている」も STEP1 で色と中身を見てから**書くこと
+(§2-7 の「腐らない見込み」は起草窓の**読みだけ**の予想)。#59 の「前のチケットが受入から外した項目は
+次で golden の空白地帯になる」と同じ根。
 
 ### ⛔ 測らないこと
 
