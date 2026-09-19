@@ -201,7 +201,9 @@
 4. **§2-3 の 3 経路と §2-4 の切り詰めを、本番 0 バイトで再現**して §12-0 に書く(ドライバ側で `localStorage` を仕込んでページを開く):
    - ② スリープ: 魔法使いの一覧からスリープを抜いて保存 → 酒場を開き直す → 一覧にスリープが戻っている。
    - ③ NPC: `partySkills.mage = []` で NPC の魔法使いを含む編成 → `index.html` で NPC 魔法使いの `equippedSkills` が既定の呪文。
-   - 切り詰め: `xp` を Lv10 相当にして魔法使いに 12 個配分 → 酒場を開き直す → 5 個。
+   - 切り詰め: `xp` を Lv10 相当にして魔法使いに 12 個配分 → 酒場を開き直す → **素の腕では 6 個**
+     (`.slice` が 5 件へ切った**後ろ**の `:5470` で #54 のスリープ差し込みが index 1 へ 1 個足すため = **欠陥 2 つの合成**)。
+     ⇒ 切り詰めだけを見る腕は `?magesleep=0` で **5 個**、または一覧に元から `sleep` を含めて **5 個**。
    ⚠ 再現しなければ、その経路は直さずに §12-0 へ理由を書いて止まる(起草の読み違いの可能性)。
 
 ---
@@ -330,6 +332,8 @@
   ⭐ 対照を同居させる: `localStorage` を空にした初回は、スリープが一覧の **index 1** に差し込まれる(#54 の挙動を保つ)。
 - **(2a2)** 印の無い状態で酒場を開き、**何も保存せずに**読み込み直す → スリープは差し込まれたまま(⭐ 読み込みで印を書く欠陥 = `markonload` の網)。
 - **(2b)** `xp` を Lv10 相当にして魔法使いに **12 個**配分・保存 → 読み込み直し → **12 個**。戦士は 5 件で切られたまま(絶対量)。
+  ⚠⚠ **12 個の一覧に `sleep` を必ず含める**(または `?magesleep=0` の腕で測る)。含めないと直した後も
+  `withInnateSleepListTV` が index 1 へ 1 個足して **13 個**になり、(2b) が理由なく赤くなる。
 - **(2c)** 僧侶の除外リストは読み込み直しても残る。
 
 ### §3 ゲーム本体の配分
@@ -348,7 +352,9 @@
 
 ### §5 撤退
 
-- **(5a)** 酒場 `?spelloff=0`: 印 0 個 / 僧侶の行に切り替えボタン無し / (2a) でスリープが戻る / (2b) で 5 個に切られる。
+- **(5a)** 酒場 `?spelloff=0`: 印 0 個 / 僧侶の行に切り替えボタン無し / (2a) でスリープが戻る /
+  (2b) の配分が **6 個**(= 5 件への切り詰め + スリープ差し込み 1)。
+  ⚠ 「5 個」で書かない。切り詰め単体を見る腕は `?magesleep=0` を足して **5 個**。
   ⭐ 素の腕の §1・§2 と**同じ assert 本体**を当てて崩れることで見る。
 - **(5b)** 本体 `?spelloff=0`: (3a) の除外が効かない / (3d) で既定の呪文。
 
@@ -605,3 +611,82 @@
   `1035x` の grep ヒットは LCG 定数 `1103515245` でポートではない)。変異帯 10352〜10363 も空き。
 - 作業ツリーは本コミット前後で **`実装依頼書/2026-09-18_spell-off-visibility.md` の 1 ファイルだけ**が M
   (= 本番 0 バイト。`git hash-object index.html tavern.html audio.js` が HEAD の blob と一致することを再確認済み)。
+
+### 12-1. STEP2 の実装(項目2 / 2026-09-19・実装窓 `claude-a1` セッション `f2b13284-…`)
+
+§5 の 6 節 + §7 の撤退スイッチ + §10 の changelog を **1 コミット**に畳んだ。
+⛔ `CLERIC_SLOTS_TABLE` / `SKILL_SLOT_CURVE` / `SPELL_SLOT_CURVE_*` / `index.html` の `withInnateSleepList` /
+`initAllySpellSlots` の本体 / `clericAI` の梯子 / `#pmDrawer` の `max-height` と `overflow` /
+`tavern.html` の戦士の旧キー移行 は **1 文字も触っていない**。
+
+#### (a) 置いた場所と逐語(⚠ 行番号は本コミット時点。使う前に識別子で引き直すこと)
+
+| 何 | ファイル:行 | 逐語(変異アンカーの候補) |
+|---|---|---|
+| 撤退の判定 | `tavern.html:5151` | `function isSpellOffOnTV() {` / `get("spelloff") !== "0"` |
+| 撤退の判定 | `index.html:13102` | `function isSpellOffOn() {` |
+| 除外リスト(酒場) | `tavern.html:5161`〜 | `const CLERIC_OFF_KEY_TV = "dragonfighters.clericSpellsOff";` / `function clericSpellsOffTV() {` / `function saveClericSpellsOffTV(ids) {` / `function isClericSpellOffTV(id) {` |
+| 除外リスト(本体) | `index.html:13110`〜 | `function clericSpellsOffIds() {` |
+| **配分表の口(酒場)** | `tavern.html:5192` | `if (isSpellOffOnTV()) for (const id of clericSpellsOffTV()) delete out[id];` |
+| **配分表の口(本体)** | `index.html:13128` | `if (isSpellOffOn()) for (const id of clericSpellsOffIds()) delete out[id];` |
+| スリープの印 | `tavern.html:5252`〜 | `const MAGE_SLEEP_SEEDED_KEY_TV = "dragonfighters.mageSleepSeeded";` / `function mageSleepSeededTV() {` / `function markMageSleepSeededTV() {` |
+| 差し込みの条件 | `tavern.html:5587` | `if (partySkills.mage && !(isSpellOffOnTV() && mageSleepSeededTV()))` |
+| 印を書く口 | `tavern.html:5621` | `markMageSleepSeededTV();`(⭐ `saveSelections` の中。⛔ 読み込みの中には無い) |
+| 切り詰めの職別化 | `tavern.html:5540` / `:5546` | `const keepCap = (isSpellOffOnTV() && isCasterClassTV(slot.classKey) && !isAutoSlotClassTV(slot.classKey))` / `.slice(0, keepCap);` |
+| 印(個数の行 / 僧侶の行) | `tavern.html:7419`〜 | `const clericOff = isAuto && isClericSpellOffTV(sk.id);` / `const isOff = isSpellOffOnTV() && (isAuto ? clericOff : (usable && cnt <= 0));` / `const autoShown = (isAuto && known && !clericOff) ? autoFromTable : 0;` |
+| 僧侶の切り替えボタン | `tavern.html:7445` | `class="clericOffBtn"` |
+| 印(入れ外しの行) | `tavern.html:7568` | `const isOff = isSpellOffOnTV() && !selected;` |
+| NPC の全部 0 | `index.html:34990`〜`:34991` | ⚠⚠ **2 行**: `const hasPreset = !!(partySkillsMap && Array.isArray(partySkillsMap[ally.classKey])` + 改行 + `          && (isSpellOffOn() || partySkillsMap[ally.classKey].length > 0));` |
+
+- **印の DOM**: 行に `skillOff` クラス + 名前の `span.sName` の**末尾**に `<span class="offTag">使わない</span>`。
+  ⚠ `.offTag` は **inline のまま**(inline-block にしない)= インライン要素の padding/border は行ボックスの高さを
+  変えないので、引き出しの縦が 1px も伸びない。枠線も太さを変えず**色だけ**替えた(2px のまま = 中身が 1px もずれない)。
+- **CSS**: `tavern.html:655`〜(素の羊皮紙 `.skillItem.skillOff` / `.skillItem .offTag` / `.clericOffBtn`)、
+  `:893`〜(縦持ちの文字サイズ)、`:2363`〜(`#pmDrawer` の上書き = 暗幕の上で読める色)。
+- **新キー 2 本**: `dragonfighters.clericSpellsOff`(呪文 ID の配列)/ `dragonfighters.mageSleepSeeded`(`"1"`)。
+  どちらも `dragonfighters.` 始まり ⇒ `js/save-slots.js` の `keysOf()` の前方一致に載る。
+
+#### (b) ⚠⚠ 起草時の見立てが変わった点
+
+| # | 元 | 実装後 |
+|---|---|---|
+| 1 | §5-6 の変異 `slice5` は `.slice(0, skillSlotsForLevel(10))` が **2 箇所**なので唯一語が要る | 本体を `.slice(0, keepCap);` へ言い直したので、`.slice(0, skillSlotsForLevel(10))` は **1 箇所**(⛔ 触らない戦士の旧キー移行 `:5556`)だけになった。⇒ 変異 `slice5` のアンカーは `.slice(0, keepCap);` か `const keepCap = (isSpellOffOnTV()` で引く(どちらも実測 1 箇所) |
+| 2 | §2-7: 本チケットは `apEquippedIdsFor` の**中**を触る | ⭐ **1 バイトも触らなかった**。`apEquippedIdsFor` は `getClericSlotsTV` を通るので (1d) は自動で効く ⇒ 変異 N3 のアンカー `const equippedIds = apEquippedIdsFor(slot, classKey);` は **2 箇所のまま**(実測 2) |
+| 3 | §8 (0a) 「`spelloff` の判定がちょうど 1 箇所」 | **判定**(`get("spelloff")`)は各ファイル 1 箇所。ただし `spelloff` の**語**は `tavern.html` に 4 / `index.html` に 2(残りはコメント)⇒ ⛔ 語で数えない |
+
+#### (c) 自己確認(scratchpad の使い捨て `selfcheck70.js`。⛔ `tools/` には置いていない)
+
+素 / `?spelloff=0` の両腕を 1 回ずつ、**本番の関数をそのまま呼んで** 56 点 ——
+`SELFCHECK 56/56  ALL GREEN` / pageerror 0 件。主な実測:
+
+    1c 押すと保存      stored=["shield-of-faith"] / 除外中は 自動 0 + 印 / もう一度押すと auto=2 へ戻る
+    1d #19 の候補      all=["cure-light-wounds","shield-of-faith"] -> off=["cure-light-wounds"]
+    2a  スリープ       初回 ["magic-missile","sleep","fire-bolt","arcane-shield"](index 1)→ 0 にして保存 → 開き直しても 0
+    2a2 markonload     読み込みでは印を書かない(印=null)/ 無保存の開き直しでは差し込まれたまま
+    2b  切り詰め       12 個(sleep 込み)→ 素で **12 個** / ?spelloff=0 で **5 個** / 戦士は 8 → 5 件のまま
+    3a  僧侶の除外     {clw:3, sof:2, tu:1, hp:1}(合計 7)→ {clw:3, tu:1, hp:1}(合計 **5**)= 枠を他へ回していない
+    3b/3c             レベルアップ・先頭の経路でも消えたまま(⭐ 口 1 点の証拠)
+    3d  NPC の全部 0   mage=[] → hasPreset=true / equippedSkills=[](素)、?spelloff=0 で既定 4 呪文へ戻る
+
+行末は両ファイルとも **lone LF 0 = 純 CRLF のまま**(`py` のバイト数えで実測。
+`index.html` 2,516,148 bytes / CRLF 39,627、`tavern.html` 651,187 bytes / CRLF 10,751)。
+
+#### (d) 既存 golden(名指しのうち 11 腕)を実装直後に直列で再走 — **緑→赤 0**
+
+| 本 | 着手前(§12-0c2) | 実装後 |
+|---|---|---|
+| `verify_save_slots` | 30/30 exit 0 | 30/30 exit 0 |
+| `verify_pm_drawer_fit` | 75/79 PENDING 4 exit 0 | 75/79 PENDING 4 exit 0 |
+| `verify_party_match_setup` | 36/36 exit 0 | 36/36 exit 0 |
+| `driver_equip_compact_ios` | 31/31 exit 0 | 31/31 exit 0 |
+| `verify_darkvision` | 25/25 exit 0 | 25/25 exit 0 |
+| `verify_prep_retire` | 30/30 exit 0 | 30/30 exit 0 |
+| `verify_recruit_talk` | 25/25 exit 0 | 25/25 exit 0 |
+| `verify_hold_person`(素) | 31/31 exit 0 | 31/31 exit 0 |
+| `verify_hold_person --negative` | exit 0 | exit 0(8 本すべて担当ラベルが赤・空振り 0) |
+| `verify_mercenary_roster` | 44/44 exit 0 | 44/44 exit 0 |
+| `driver_action_priority`(素) | 92/92 exit 0 | 92/92 exit 0 |
+
+⚠ `driver_action_priority --negative` は**着手前から** exit 1(#35 以来)。本チケットは `apEquippedIdsFor` を
+触っていないのでアンカーは 2 箇所のまま ⇒ **#70 の責任ではない**。⛔ ついでに直さない(§11)。
+⚠ 母集団 140 本の全数再走は**項目5** の担当(270〜300 分)。ここで回したのは名指しの 11 腕だけ。

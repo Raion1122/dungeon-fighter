@@ -13094,6 +13094,25 @@
       return classKey === "cleric";
     }
     // 僧侶の Lv N 時点でのスロット配分 → { skillId: 個数, ... }
+    /* ★[#70] 撤退スイッチ ?spelloff=0 — 僧侶の「使わない」除外と NPC の「全部 0」を
+       2026-09-18 以前へ戻す (tavern.html 側は isSpellOffOnTV)。
+       ⚠ const に畳まず**関数**にする。この行より前の関数から呼ばれても TDZ で落ちないため
+         (#54 isMageSleepOn と同じ作法)。
+       ⚠ 各ページが独立に読む (ページ遷移はまたがない)。 */
+    function isSpellOffOn() {
+      try { return new URLSearchParams(window.location.search).get("spelloff") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#70] 酒場が保存した僧侶の除外リスト (依頼書 §5-3)。
+       ⭐ **呼ぶたびに localStorage を読む**。キャッシュすると、酒場から戻った直後や
+         ドライバが仕込んでから initAllySpellSlots を呼んだときに効かない。
+       ⛔ 前置詞 "dragonfighters." を変えない (js/save-slots.js の keysOf が前方一致で総なめ)。 */
+    function clericSpellsOffIds() {
+      try {
+        const a = JSON.parse(localStorage.getItem("dragonfighters.clericSpellsOff") || "null");
+        return Array.isArray(a) ? a.filter(id => typeof id === "string") : [];
+      } catch (e) { return []; }
+    }
     function getClericSlots(lv) {
       const out = {};
       const cap = Math.max(0, Math.min(10, lv));
@@ -13101,6 +13120,12 @@
         const n = table[cap] || 0;
         if (n > 0) out[id] = n;
       }
+      /* ★[#70] 僧侶の「使わない」はここ **1 点**で消す (tavern.html の getClericSlotsTV と対)。
+         ⭐⭐⭐ ここ 1 点なら、仲間の初期化 / 仲間のレベルアップ / 先頭の初期化 / 先頭のレベルアップ /
+            上限の合計の **5 つの呼び口すべて**に効く。
+         ⛔ initAllySpellSlots など呼び口の側で消さない —— レベルアップと先頭の経路が漏れる
+            (変異 initonly の網)。⛔ 消した枠は他の呪文へ回さない (依頼書 §1 の既定)。 */
+      if (isSpellOffOn()) for (const id of clericSpellsOffIds()) delete out[id];
       return out;
     }
     // 任意クラスの Lv N 時点での「総スロット数上限」 (魔法使い/エルフは自由配分の上限値)
@@ -34955,8 +34980,15 @@
           : ((typeof ally.level === "number" && ally.level > 0) ? ally.level : playerLv);
         // 職業別プリセット: 主人公 ally、または当該職に酒場プリセットがある NPC は酒場配分(heroMap)を使う。
         // mage/elf でプリセット未設定の NPC のみデフォルト配分にフォールバック (cleric は autoSlot なので影響なし)。
+        /* ★[#70] 「全部 0」を**未設定**と同じ扱いにしない (依頼書 §5-5 / §2-3 ③)。
+           ⚠⚠ 従来は length > 0 を要求していたため、プレイヤーが呪文を全部外すと hasPreset が偽になり、
+             NPC の魔法使い・エルフだけ defaultCasterMap の既定呪文へ戻っていた (酒場は空配列を
+             「全部外した」として尊重しているので、2 ファイルで解釈が逆だった)。
+           ⚠ 主人公の経路 (heroMap) と defaultCasterMap の本体は触らない。
+           ✅ 既定の編成は変わらない —— 酒場の PARTY_SLOTS[].defaults は 6 職とも空でないので、
+             空配列はプレイヤーが全部外したときにしか生まれない。 */
         const hasPreset = !!(partySkillsMap && Array.isArray(partySkillsMap[ally.classKey])
-          && partySkillsMap[ally.classKey].length > 0);
+          && (isSpellOffOn() || partySkillsMap[ally.classKey].length > 0));
         const map = (ally.isHero || hasPreset) ? heroMap : defaultCasterMap(ally.classKey, aLv);
         initAllySpellSlots(ally, ally.classKey, aLv, map);
       }

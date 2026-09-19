@@ -647,6 +647,37 @@
     .skillItem.selected .sName,
     .skillItem.selected .sFlavor { color: #2a0a3a; }
     .skillItem.selected .sCat    { color: #5a2085; }
+    /* ★[#70] 「使わない」の印。⛔ 段を増やさない —— 印は名前の行の**中**に置く。
+       ⚠⚠ .offTag は **inline** のまま (inline-block にしない)。インライン要素の padding/border は
+         行ボックスの高さを変えないので、引き出しの縦 (#pmDrawer) が 1px も伸びない。
+       ⚠ 枠線は太さを変えず**色だけ**替える (2px のまま = 中身が 1px もずれない)。
+       ⚠ 色そのものは受入条件で測らない (依頼書 §8「測らないこと」)。目で決める。 */
+    .skillItem.skillOff { border-left-color: rgba(139,32,16,0.45); background: rgba(139,32,16,0.07); }
+    .skillItem .offTag {
+      margin-left: 6px;
+      padding: 0 5px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      border-radius: 3px;
+      border: 1px solid rgba(139,32,16,0.45);
+      background: rgba(139,32,16,0.13);
+      color: #8b2010;
+    }
+    .clericOffBtn {
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 3px 8px;
+      border: 1.5px solid var(--parchment-border);
+      border-radius: 4px;
+      background: var(--parchment-bg);
+      color: var(--parchment-ink);
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .clericOffBtn:hover { background: #e0c890; }
     #skillSlotCounter {
       font-size: 13px;
       color: var(--parchment-ink-soft);
@@ -859,6 +890,8 @@
       }
       .skillItem .sName { font-size: 18px; margin-bottom: 4px; }
       .skillItem .sCat { font-size: 14px; letter-spacing: 1.5px; margin-right: 6px; }
+      .skillItem .offTag { font-size: 13px; }   /* ★[#70] 縦持ちでも読める大きさへ */
+      .clericOffBtn { font-size: 14px; padding: 5px 10px; }
       .skillItem .sFlavor { font-size: 16px; }
       #skillSlotCounter { font-size: 18px; }
       #skillSlotTitle { font-size: 18px; letter-spacing: 3px; }
@@ -2324,6 +2357,20 @@
     #pmDrawer .spcBtn:hover:not(:disabled) { background: rgba(255,245,210,0.28); }
     #pmDrawer .spcNum { color: #f4ecd8; }
     #pmDrawer .spellAuto { color: var(--pm-gold); border-color: var(--pm-gold-soft); }
+    /* ★[#70] 「使わない」の印を暗幕の上で読める色へ。⚠⚠ 上と同じ罠 —— 選択中は #2a0a3a /
+       #5a2085 という暗い紫が焼かれているので、選択の有無**両方**を明示しないと
+       「読める枠に読めない字」になる。素の #8b2010 は暗幕の上でほぼ黒。 */
+    #pmDrawer .skillItem .offTag,
+    #pmDrawer .skillItem.selected .offTag {
+      color: #ffb09a; border-color: rgba(230,120,100,0.6); background: rgba(200,70,50,0.22);
+    }
+    #pmDrawer .skillItem.skillOff {
+      border-left-color: rgba(230,120,100,0.55); background: rgba(200,70,50,0.10);
+    }
+    #pmDrawer .clericOffBtn {
+      background: rgba(255,245,210,0.14); color: #f0e6d0; border-color: rgba(224,180,60,0.35);
+    }
+    #pmDrawer .clericOffBtn:hover { background: rgba(255,245,210,0.28); }
     /* 傾向段の <select>。⚠ 半透明の明るい背景を暗幕へ置くと、ネイティブの候補リスト側が
        「白地に薄字」になって読めなくなる端末がある → 不透明の暗色を option まで明示する。 */
     #pmDrawer .apSel { color: #f0e6d0; background: #241c14; border-color: rgba(224,180,60,0.35); }
@@ -3271,10 +3318,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>使わない魔法・特技がひと目で分かるように</b> — マッチング画面の設定で、個数 0 や外した技に「使わない」と出る。僧侶も呪文ごとに使わないを選べる。スリープを 0 にしても戻らず、高 Lv の魔法使いの配分も減らなくなった。</li>
         <li><b>ホールド・パーソンが 2 体に掛かるように</b> — 僧侶の金縛りが、狙った敵のすぐ近くにいるもう 1 体にも掛かる。抵抗は 1 体ずつ判定し、結果はそれぞれの敵の頭上に出る。</li>
         <li><b>ライトニングボルトが敵を狙えるように</b> — 直線を 3 マスから 10 マスへ延ばし、斜めや半端な位置の敵にも向きを合わせて撃つ。壁は貫通しない。</li>
         <li><b>竜の巣が卓上マップ 2 枚になった</b> — 溶岩の谷と竜の寝床を、マス目入りの大きな一枚絵の上で歩けるようになった。宝箱は竜の寝床の手前にまとめて並ぶ。</li>
-        <li><b>酒場の卓の仲間候補の名札が読めるようになった</b> — 左を向いて座っている人の名前が裏返しに表示されていたのを直した。</li>
       </ul>
     </div>
     <script>
@@ -5095,6 +5142,42 @@
     return classKey === "cleric" || classKey === "mage" || classKey === "elf";
   }
   function isAutoSlotClassTV(classKey) { return classKey === "cleric"; }
+  /* ★[#70] 撤退スイッチ ?spelloff=0 — 「使わない」の印 / 僧侶の除外 / スリープの印 /
+     読み込みの切り詰めの職別化 を、2026-09-18 以前へ戻す (index.html 側は isSpellOffOn)。
+     ⚠ const に畳まず**関数**にする。この行より前の関数から呼ばれても TDZ で落ちないため
+       (#54 isMageSleepOnTV / isRecruitOn と同じ作法)。
+     ⚠ 各ページが独立に読む (ページ遷移はまたがない)。酒場を ?spelloff=0 で開いても、
+       前に保存した除外リストは消さない —— 素の index.html へ行けばそちらでは効く。 */
+  function isSpellOffOnTV() {
+    try { return new URLSearchParams(location.search).get("spelloff") !== "0"; }
+    catch (e) { return true; }
+  }
+  /* ★[#70] 僧侶の「使わない」= 呪文 ID の配列 (依頼書 §5-3)。
+     ⛔⛔ selection には入れない —— selection はこの行よりずっと後ろの const で、
+        ここ (getClericSlotsTV より前) から読むと読み込み中に呼ばれた日に TDZ で落ちる。
+     ⭐ **呼ぶたびに localStorage を読む**関数に持つ (ドライバが仕込んでから呼んでも効く)。
+     ⛔ 前置詞 "dragonfighters." を変えない。js/save-slots.js の keysOf() が LIVE_PREFIX の
+        前方一致で総なめするので、この前置詞ならスロット切替にも新規ゲームにも付いてくる。 */
+  const CLERIC_OFF_KEY_TV = "dragonfighters.clericSpellsOff";
+  function clericSpellsOffTV() {
+    try {
+      const a = JSON.parse(localStorage.getItem(CLERIC_OFF_KEY_TV) || "null");
+      if (!Array.isArray(a)) return [];
+      let valid = null;
+      try {
+        const slot = PARTY_SLOTS.find(s => s && s.classKey === "cleric");
+        if (slot && Array.isArray(slot.skillPool)) valid = new Set(slot.skillPool.map(sk => sk.id));
+      } catch (e) { valid = null; }
+      if (!valid) valid = new Set(Object.keys(CLERIC_SLOTS_TABLE));
+      return a.filter(id => typeof id === "string" && valid.has(id));
+    } catch (e) { return []; }
+  }
+  function saveClericSpellsOffTV(ids) {
+    try { localStorage.setItem(CLERIC_OFF_KEY_TV, JSON.stringify(ids)); } catch (e) {}
+  }
+  function isClericSpellOffTV(id) {
+    return isSpellOffOnTV() && clericSpellsOffTV().indexOf(id) >= 0;
+  }
   function getClericSlotsTV(lv) {
     const out = {};
     const cap = Math.max(0, Math.min(10, lv));
@@ -5102,6 +5185,11 @@
       const n = table[cap] || 0;
       if (n > 0) out[id] = n;
     }
+    /* ★[#70] 僧侶の「使わない」はここ **1 点**で消す (index.html の getClericSlots と対)。
+       ⛔ 呼び口 (上限の合計 getMaxSpellSlotsForClassTV / #19 の候補 apEquippedIdsFor) の側で
+          消さない —— 口が増えるたびに漏れる (変異 initonly / apcand の網)。
+       ⛔ 消した枠は他の呪文へ回さない (依頼書 §1 の既定 = 枠の総数がその分だけ減る)。 */
+    if (isSpellOffOnTV()) for (const id of clericSpellsOffTV()) delete out[id];
     return out;
   }
   function getMaxSpellSlotsForClassTV(classKey, lv) {
@@ -5155,6 +5243,21 @@
     return out;
   }
   DEFAULT_KNOWN_TV.mage = withInnateSleepListTV(DEFAULT_KNOWN_TV.mage);
+  /* ★[#70] 「スリープはもう差し込んだ」の印 (依頼書 §5-4)。
+     ⭐⭐⭐ 書くのは saveSelections **だけ**。⛔ 読み込み (loadSelections) の中で書かない ——
+        差し込んだ一覧を保存せずに酒場を離れると、次は印があるので差し込まれず、
+        保存済みの一覧にスリープが無いまま固定される (変異 markonload の網)。
+     ⚠ ?magesleep=0 のときは差し込み自体が無いので印も書かない (#54 とは独立)。
+     ⛔ 前置詞 "dragonfighters." を変えない (save-slots.js の keysOf が前方一致で総なめ)。 */
+  const MAGE_SLEEP_SEEDED_KEY_TV = "dragonfighters.mageSleepSeeded";
+  function mageSleepSeededTV() {
+    try { return localStorage.getItem(MAGE_SLEEP_SEEDED_KEY_TV) !== null; }
+    catch (e) { return false; }
+  }
+  function markMageSleepSeededTV() {
+    if (!isSpellOffOnTV() || !isMageSleepOnTV()) return;
+    try { localStorage.setItem(MAGE_SLEEP_SEEDED_KEY_TV, "1"); } catch (e) {}
+  }
   /* ★[#57] 僧侶のホールド・パーソンを初期習得へ — 酒場側の写し。
    * ⚠⚠ index.html の DEFAULT_KNOWN と**二重定義**。片方だけ直すと「戦闘では撃てるのに
    *   酒場の聖典一覧では未習得に見える」食い違いが出る (#54 の sleep とまったく同じ罠)。
@@ -5427,10 +5530,20 @@
             // skillPool 内の ID だけ受け入れる (旧 ID はマイグレーション)
             // 空配列でも尊重する (ユーザが全スキルを外した状態 → AI もスキル使用しない)
             const validIds = new Set(slot.skillPool.map(sk => sk.id));
+            /* ★[#70] 読み込み時の切り詰めを**職ごと**に (依頼書 §5-6)。
+               ⚠⚠ 従来は職を問わず skillSlotsForLevel(10) = 5 件で切っていた。呪文職の配列は
+                 「同じ呪文を個数ぶん重複して持つ」ので、魔法使い Lv4 以上 / エルフ Lv6 以上は
+                 上限いっぱいに配分して保存しても、酒場を開き直すだけで先頭 5 個へ痩せていた。
+               ⭐ 呪文と入れ外しの特技が**同じ配列**に入るので、呪文職の上限は両者の和。
+                 魔法使い = 15 + 5 = 20 / エルフ = 10 + 5 = 15。
+               ⛔ 上限を実際に配れる数より小さくしない。⛔ 下の戦士の旧キー移行は触らない。 */
+            const keepCap = (isSpellOffOnTV() && isCasterClassTV(slot.classKey) && !isAutoSlotClassTV(slot.classKey))
+              ? getMaxSpellSlotsForClassTV(slot.classKey, 10) + skillSlotsForLevel(10)
+              : skillSlotsForLevel(10);
             const migrated = ps[slot.classKey]
               .map(id => id === "sneak-attack" ? "shadow-step" : id)
               .filter(id => validIds.has(id))
-              .slice(0, skillSlotsForLevel(10));  // 最大枠(5)まで保持。Lv上限はUI/戦闘で動的適用しデータ消失を防ぐ
+              .slice(0, keepCap);  // ★[#70] 職別の上限まで保持 (従来は一律 5)。Lv上限はUI/戦闘で動的適用しデータ消失を防ぐ
             partySkills[slot.classKey] = migrated;
           }
         }
@@ -5467,7 +5580,12 @@
      *   ⚠ NPC 経路 (index.html の defaultCasterMap) は 2 枠ずつなので配分が別になる。
      *     そちらは {mm:2, sleep:1}。**同じ (A) でも譲る呪文が違う**のは枠の積み方の差。
      * ⚠ sleep は MAGE_SKILLS_UI に既に在るので、上の validIds フィルタには落ちない。 */
-    if (partySkills.mage) partySkills.mage = withInnateSleepListTV(partySkills.mage);
+    /* ★[#70] 「スリープを 0 にしても次の読み込みで戻る」を止める (依頼書 §5-4 / §2-3 ②)。
+       ⚠ 印がまだ無い間 (= #70 より前のセーブ / 新規) は従来どおり差し込む。保存した瞬間に印が付き、
+         以後は 0 が守られる。⇒ 移行の限界 = 印の無い古いセーブでは #70 後の最初の 1 回だけ戻る。
+       ⚠ ?spelloff=0 では毎回差し込む (2026-09-18 以前の姿)。?magesleep=0 とは独立。 */
+    if (partySkills.mage && !(isSpellOffOnTV() && mageSleepSeededTV()))
+      partySkills.mage = withInnateSleepListTV(partySkills.mage);
     // 行動の優先度 { classKey: { general, mob, boss, travel } }。値は skillId または null。
     const actionPriority = {};
     for (const slot of PARTY_SLOTS) {
@@ -5500,6 +5618,7 @@
       localStorage.setItem("dragonfighters.equipShieldIdx", String(selection.equipShield));
       localStorage.setItem("dragonfighters.equipArmorIdx",  String(selection.equipArmor));
       localStorage.setItem("dragonfighters.partySkills", JSON.stringify(selection.partySkills));
+      markMageSleepSeededTV();   // ★[#70] 印は**保存と一緒に**書く (§5-4。読み込みの中では書かない)
       localStorage.setItem("dragonfighters.allyEquip",  JSON.stringify(selection.allyEquip));
       localStorage.setItem("dragonfighters.partyComposition", JSON.stringify(selection.partyComposition));
       localStorage.setItem("dragonfighters.actionPriority", JSON.stringify(selection.actionPriority));
@@ -7292,9 +7411,20 @@
     const lvOk = currentLv >= lvReq;
     const known = isSpellKnownTV(classKey, sk.id);   // 完全ゲート: スクロール未習得は選択不可
     const usable = lvOk && known;
-    const autoShown = (isAuto && known) ? autoFromTable : 0;
+    /* ★[#70] 「使わない」の印 (依頼書 §5-2)。
+       ・個数の行 … 使えて (usable) 個数 0 = **自分で 0 にした**行だけ。
+       ・僧侶の行 … 除外リストに入っている行だけ (そのとき 自動 0 も揃える)。
+       ⛔ Lv 不足・未習得 (.full) には付けない —— それは「選んでいない」ではなく「選べない」で、
+          既存の [LvN 必要] 表示が既に言っている (混ぜると印の意味が 2 つになる)。 */
+    const clericOff = isAuto && isClericSpellOffTV(sk.id);
+    const isOff = isSpellOffOnTV() && (isAuto ? clericOff : (usable && cnt <= 0));
+    const offTag = isOff ? ` <span class="offTag">使わない</span>` : "";
+    /* ⚠ 「自動 N」の N は CLERIC_SLOTS_TABLE を**直接**読んでいる (getClericSlotsTV を通らない)。
+         除外をここでも見ないと、配分からは消えているのに行だけ「自動 2」と言い続ける (変異 tablerow)。 */
+    const autoShown = (isAuto && known && !clericOff) ? autoFromTable : 0;
     const item = document.createElement("div");
-    item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!usable ? " full" : "");
+    item.className = "skillItem spellCountItem" + (cnt > 0 ? " selected" : "") + (!usable ? " full" : "") +
+      (isOff ? " skillOff" : "");
     const rangeTag = RANGE_LABEL[sk.range] || "";
     const lvLock = !lvOk ? ` <span class="sCat" style="color:#8b2010">[Lv${lvReq} 必要]</span>` : "";
     const mpTag = sk.mpCost ? ` <span class="sCat" style="color:#2b5d8e">[1 スロット]</span>` : "";
@@ -7303,18 +7433,36 @@
         `<div style="flex:1;">` +
           `<span class="sName"><span class="sCat">[${sk.category}]</span>${sk.name}` +
           (rangeTag ? ` <span class="sCat" style="color:#5a2085">[${rangeTag}]</span>` : "") +
-          mpTag + lvLock +
+          mpTag + lvLock + offTag +
           `</span>` +
           `<span class="sFlavor">${sk.flavor}</span>` +
         `</div>` +
         (isAuto
-          ? `<div class="spellAuto">自動 <b>${autoShown}</b></div>`
+          ? `<div class="spellAuto">自動 <b>${autoShown}</b></div>` +
+            /* ★[#70] 僧侶だけ個数の UI を持たないので、ここに「使う / 使わない」の 1 ボタンを足す。
+               ⛔ 段 (行) を増やさない —— 自動 N の**隣**に置く (#pmDrawer の縦は 30vh しか無い)。 */
+            (isSpellOffOnTV() && usable
+              ? `<button type="button" class="clericOffBtn">${clericOff ? "使う" : "使わない"}</button>`
+              : "")
           : `<div class="spellCountCtrl">` +
               `<button type="button" class="spcBtn spcMinus" ${cnt <= 0 ? "disabled" : ""}>−</button>` +
               `<span class="spcNum">${cnt}</span>` +
               `<button type="button" class="spcBtn spcPlus" ${(!usable || totalUsed >= totalMax) ? "disabled" : ""}>＋</button>` +
             `</div>`) +
       `</div>`;
+    if (isAuto) {
+      /* ★[#70] 押した結果の唯一の正は localStorage。getClericSlotsTV / index.html の
+         getClericSlots が**呼ぶたびに**読むので、ここでは保存と描き直しだけでよい。 */
+      const btnOff = item.querySelector(".clericOffBtn");
+      if (btnOff) btnOff.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const cur = clericSpellsOffTV();
+        const at = cur.indexOf(sk.id);
+        if (at >= 0) cur.splice(at, 1); else cur.push(sk.id);
+        saveClericSpellsOffTV(cur);
+        repaintAfterSkillChange();
+      });
+    }
     if (!isAuto) {
       const btnMinus = item.querySelector(".spcMinus");
       const btnPlus  = item.querySelector(".spcPlus");
@@ -7416,10 +7564,13 @@
   // ── スキル/魔法 共通レンダ (mpCost で自動分類) ──
   function renderSkillItem(sk, equippedSet, full, classKey) {
     const selected = equippedSet.has(sk.id);
+    /* ★[#70] 入れ外しの行の「使わない」= **未選択** (依頼書 §5-2)。⛔ 選択中には付けない。 */
+    const isOff = isSpellOffOnTV() && !selected;
     const item = document.createElement("div");
     item.className = "skillItem" +
       (selected ? " selected" : "") +
-      (full && !selected ? " full" : "");
+      (full && !selected ? " full" : "") +
+      (isOff ? " skillOff" : "");
     const rangeTag = RANGE_LABEL[sk.range] || "";
     const reactiveTag = sk.reactive ? ` <span class="sCat" style="color:#8b2010">[自動発動]</span>` : "";
     const mpTag = sk.mpCost ? ` <span class="sCat" style="color:#2b5d8e">[MP ${sk.mpCost}]</span>` : "";
@@ -7428,6 +7579,7 @@
       (rangeTag ? ` <span class="sCat" style="color:#5a2085">[${rangeTag}]</span>` : "") +
       mpTag +
       reactiveTag +
+      (isOff ? ` <span class="offTag">使わない</span>` : "") +
       `</span>` +
       `<span class="sFlavor">${sk.flavor}</span>`;
     item.addEventListener("click", () => {
