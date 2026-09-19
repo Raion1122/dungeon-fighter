@@ -1082,7 +1082,7 @@
 | 26 | §12-2 (a) | #69 は**素の腕だけ**指紋を採った | `fp68_lines_after69.tsv` には **`_negative` の本が 5 本**入っていた ⇒ 負の腕も 2 経路で突き合わせられる |
 | 27 | §12-2 (c) | 再実装した抽出器は「素の 13 本で差 0」だから使える | 母集団の残り 128 本で **10 個の書式**を落としていた(上表 (d))⇒ **13 本の自己検証では足りない** |
 | 28 | 項目5 の申し送り | 残りは「~116 本 + 新規 2 腕」 | 実測 **129 + 2 = 131 腕**(導出値。⛔ 見積もりを定数にしない) |
-| 29 | 別件の申し送り | エルフ既定は `index.html:21948` / `tavern.html:4525` | 実測 **`index.html:21973` / `tavern.html:4572`**(行番号が古い) |
+| 29 | 別件の申し送り | エルフ既定は `index.html:21948` / `tavern.html:4525` | **基準コミット違い**(崩れではない)。起草窓が測った `eaa0626` では `21948` / `4525` が正で、項目2 `90e93af` が `index.html` を +25 行・`tavern.html` を +47 行ずらした結果、`bb80d30` 時点では **`index.html:21973` / `tavern.html:4572`** が正 |
 | 30 | §12-0 (c2) | `driver_speech_engine` は「**安定した**非緑」 | **両方向に転ぶフレーク**(4 走行で 1 → 0 → 1 → 1) |
 | 31 | §12-0 (c2) | 既知フレークは 5 本(`probe_n4_stall` / `field_wagon` / `chimera` / `hobgoblin` / `griffon`) | **`verify_run_chronicle` も**フレーク(装置 assert が「生きた敵が残っている瞬間」に依存)⇒ 既知フレークは **7 本**へ |
 
@@ -1135,6 +1135,10 @@
 - **エルフの既定装備が 2 ファイルで割れている。**
   `index.html:21973` `CLASS_DEFS.elf.defaultSkills = ["aimed-shot","magic-arrow","cure-minor"]` に対し、
   `tavern.html:4572` の `PARTY_SLOTS` エルフ既定 = `["aimed-shot","hunters-mark","cure-minor"]`
+  (⚠ **行番号は `bb80d30` 時点**。起草窓が `eaa0626` で測った値は `index.html:21948` / `tavern.html:4525` で、
+  どちらもその基準では正しい。項目2 が `index.html` を +25 行・`tavern.html` を +47 行ずらしたための差 ——
+  ⭐ **行番号を書くときは必ず基準コミットを添える**。これは #70 が 31 件目の「崩れ」として数えるべきものではなく、
+  依頼書が毎回踏む「行番号は必ずズレる」型の再確認)
   ⇒ `magic-arrow` ↔ `hunters-mark` が入れ替わっている。
   ⭐ `DEFAULT_KNOWN`(`index.html:13552`)と `DEFAULT_KNOWN_TV`(`tavern.html:5229`)は
   **両方とも `["aimed-shot","magic-arrow","hunters-mark","cure-minor"]` で一致** =
