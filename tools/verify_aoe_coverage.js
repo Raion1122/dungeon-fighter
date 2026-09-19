@@ -624,6 +624,13 @@ function areaFromPops(pops) {
     const iOn  = await pOn.evaluate(installProbe);
     const pOff = await openIndex(browser, '?aoecover=0');
     const iOff = await pOff.evaluate(installProbe);
+    /* ★#71 項目3 追加 (2026-09-20) — **反射 (柱2) を止めた**撤退腕。
+     * ⚠ なぜこの腕が要るのか: #71 柱2 で稲妻が壁で 1 回跳ね返るようになったため、?aoecover=0 だけの腕では
+     *   「味方を避けて遠くの壁で回り込む筋」が見つかってしまい、**味方の拒否権が効いているのに cast する**。
+     *   ⇒ 拒否権そのもの (= 降格するか) は**反射を止めた腕で測る**。⛔ 期待値を弱めたのではなく腕を 1 本足した。
+     * ⭐ この腕は空振りしない = ?boltbounce=0 が効いていなければ ?aoecover=0 と同じ結果 (cast) になって赤くなる。 */
+    const pOffB = await openIndex(browser, '?aoecover=0&boltbounce=0');
+    const iOffB = await pOffB.evaluate(installProbe);
 
     const L = iOn.lane;
     const MAGE = 1, NEAR = 4, CL = [9, 10, 11];
@@ -697,13 +704,29 @@ function areaFromPops(pops) {
       const r = await window.__ap.cast('allyLightningBolt', b.made[0]); return { b: b, r: r }; }, specL);
     const lOff = await pOff.evaluate(async (s) => { const b = window.__ap.board(s);
       const r = await window.__ap.cast('allyLightningBolt', b.made[0]); return { b: b, r: r }; }, specL);
+    const lOffB = await pOffB.evaluate(async (s) => { const b = window.__ap.board(s);
+      const r = await window.__ap.cast('allyLightningBolt', b.made[0]); return { b: b, r: r }; }, specL);
     const lsOn = byKind(lOn.r.stats, 'line'), lsOff = byKind(lOff.r.stats, 'line');
-    check('(1c) ★ 直線 (ライトニングボルト): 味方が線上に居ても方向を捨てない '
-      + '(⚠ 撤退では従来どおり降格すること = 2 経路の突き合わせ)',
-      !!lsOn && lsOn.e.cast === 1 && lsOn.e.demoted === 0
-      && !!lsOff && lsOff.e.cast === 0 && lsOff.e.demoted === 1,
-      '素 ' + (lsOn ? lsOn.key + ' ' + JSON.stringify(lsOn.e) : 'なし')
-      + '  ‖  撤退 ' + (lsOff ? lsOff.key + ' ' + JSON.stringify(lsOff.e) : 'なし'));
+    const lsOffB = byKind(lOffB.r.stats, 'line');
+    /* この盤面で作った敵のうち HP が減った数。⭐ 味方を貫く直進なら 3/4 マス先の 2 体とも通るが、
+     *   拒否権で迂回させられた反射の筋は 1 体しか通らない = 「拒否権が効いた量」を絶対値で測れる。 */
+    const hitN = (o) => (o.b.made || []).filter((i) => (((o.r.hpDelta || [])[i]) || 0) > 0).length;
+    const hOn = hitN(lOn), hOff = hitN(lOff), hOffB = hitN(lOffB);
+    check('(1c) ★★ 直線 (ライトニングボルト): 味方が線上に居ても方向を捨てない '
+      + '(⚠ 撤退では従来どおり降格すること = 2 経路の突き合わせ) '
+      + '⭐ #71 項目3 で腕を 1 本**足した** (2026-09-20): 柱2 (壁での反射) が入ったので ?aoecover=0 だけの腕では '
+      + '「味方を避けて壁で回り込む筋」が見つかり、拒否権が効いていても cast してしまう。'
+      + '⇒ **降格するか否かは ?aoecover=0&boltbounce=0 の腕で測る**。⛔ 期待値を弱めたのではない — '
+      + '素 = 味方を貫いて 2 体とも被弾 / ?aoecover=0 = 拒否権で迂回させられ被弾が減る / '
+      + '反射も止める = 迂回路が無く降格、の **3 段**に増やした。',
+      !!lsOn && lsOn.e.cast === 1 && lsOn.e.demoted === 0 && hOn >= 2
+      && !!lsOff && lsOff.e.cast === 1 && lsOff.e.demoted === 0 && hOff < hOn
+      && !!lsOffB && lsOffB.e.cast === 0 && lsOffB.e.demoted === 1
+      && iOffB.coverOn === false,
+      '素 ' + (lsOn ? lsOn.key + ' ' + JSON.stringify(lsOn.e) : 'なし') + ' 被弾 ' + hOn + ' 体'
+      + '  ‖  ?aoecover=0 ' + (lsOff ? lsOff.key + ' ' + JSON.stringify(lsOff.e) : 'なし') + ' 被弾 ' + hOff + ' 体'
+      + '  ‖  ?aoecover=0&boltbounce=0 ' + (lsOffB ? lsOffB.key + ' ' + JSON.stringify(lsOffB.e) : 'なし')
+      + ' 被弾 ' + hOffB + ' 体 (coverOn=' + iOffB.coverOn + ')');
 
     /* 盤面 S: 主人公を主弾のマスへ置く (= splash の 3x3 に必ず入る)。 */
     const specS = { mage: 1, hero: 5, cleric: null, enemies: [{ off: 5 }, { off: 6 }] };
