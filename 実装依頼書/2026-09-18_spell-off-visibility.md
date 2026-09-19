@@ -690,3 +690,109 @@
 ⚠ `driver_action_priority --negative` は**着手前から** exit 1(#35 以来)。本チケットは `apEquippedIdsFor` を
 触っていないのでアンカーは 2 箇所のまま ⇒ **#70 の責任ではない**。⛔ ついでに直さない(§11)。
 ⚠ 母集団 140 本の全数再走は**項目5** の担当(270〜300 分)。ここで回したのは名指しの 11 腕だけ。
+
+### 12-2. 既存 golden の言い直し(STEP3 / 2026-09-19・実装窓 `claude-a1` セッション `f2b13284-…`)
+
+⛔ **本番(`index.html` / `tavern.html` / `audio.js`)も `tools/` も 1 バイトも触っていない**(走らせて突き合わせただけ。
+前後とも `git hash-object index.html tavern.html` が HEAD の blob と一致)。
+**結論 = 言い直した golden は 0 本。** ⭐ ただしそれは**全数を実際に走らせた証拠**があるときだけ正当なので、以下に証拠を置く。
+使い捨ての走査器・比較器は scratchpad `…\scratchpad\step3\`(`sweep70c.py` / `fp70.py` / `cmp70.py` / `logs/` / `result70c.tsv`)。
+
+#### (a) 走らせた腕 — §8 末尾の名指し 13 本を**素と `--negative` の両腕で全数** + `verify_hold_pair`
+
+⭐ `verify_hold_pair`(#69 の受入)は §8 の名指しに無いが、**`initAllySpellSlots` → `getClericSlots`
+(= 項目2 が中を書き換えた口)を通る残りの 1 本**なので足した(名指し 13 本のうち同じ口を通るのは
+`verify_hold_person` / `verify_aoe_coverage` の 2 本だけ)。
+⛔ **並列にしていない**(全 25 腕を直列)。⛔ **`timeout` で包んでいない**(#64)。⛔ 8765(ユーザーの試遊サーバ)は触っていない。
+
+| 本 | 腕 | exit | 秒 | 基準 exit | 指紋(assert id / 判定行) | 総括・備考 |
+|---|---|---|---|---|---|---|
+| `verify_save_slots` | (素) | 0 | 6.0 | 0 | **id 0 / 行 0** | [save-slots] RESULT: 30/30 passed |
+| `verify_aoe_coverage` | (素) | 0 | 2.5 | 0 | **id 0 / 行 0** | 28/28 PASSED   FAILED 0   PENDING 0 |
+| `verify_hold_person` | (素) | 0 | 9.9 | 0 | **id 0 / 行 0** | 31/31 PASSED   FAILED 0   PENDING 0 |
+| `verify_mercenary_roster` | (素) | 0 | 18.6 | 0 | **id 0 / 行 0** | [mercenary-roster] 44 PASSED / 0 FAILED / 0 PENDING  (44/44) |
+| `verify_aoe_coverage` | --negative | 0 | 25.4 | 0 | —(#69 は素の腕だけ指紋を採った) | 27/28 PASSED FAILED 1 / 10 本すべて担当ラベルが赤 (空振り 0) |
+| `driver_equip_compact_ios` | (素) | 0 | 46.0 | 0 | **id 0 / 行 0** | === WORKTREE: 31/31 PASS === |
+| `verify_recruit_talk` | (素) | 0 | 62.9 | 0 | **id 0 / 行 0** | 25/25 PASSED   FAILED 0   **PENDING** 0 |
+| `verify_pm_drawer_fit` | (素) | 0 | 70.0 | 0 | **id 0 / 行 0** | 75/79 PASSED   FAILED 0   PENDING 4 |
+| `verify_cone_cast` | (素) | 0 | 93.1 | 0 | **id 0 / 行 0** | 19/19 PASSED   FAILED 0   **PENDING** 0 |
+| `verify_darkvision` | (素) | 0 | 79.5 | 0 | **id 0 / 行 0** | 25/25 PASSED   FAILED 0   **PENDING** 0 |
+| `verify_hold_person` | --negative | 0 | 79.1 | 0 | —(#69 は素の腕だけ指紋を採った) | 30/31 PASSED FAILED 1 / 8 本すべて担当ラベルが赤 (空振り 0) |
+| `verify_bolt_aim` | --negative | 0 | 82.8 | 0 | —(#69 は素の腕だけ指紋を採った) | 10 本すべて担当ラベルが赤 (空振り 0) |
+| `verify_party_match_setup` | (素) | 0 | 99.7 | 0 | **id 0 / 行 0** | [driver] RESULT: PASSED 36 / FAILED 0 / PENDING 0   (合計 36) |
+| `driver_action_priority` | (素) | 0 | 121.8 | 0 | **id 0 / 行 0** | [driver] RESULT: PASSED 92 / FAILED 0 / PENDING 0 |
+| `driver_action_priority` | --negative | 1 | 0.1 | 1 | —(#69 は素の腕だけ指紋を採った) | ⚠ **着手前から exit 1**(#35 以来。N3 のアンカーが 2 箇所) |
+| `verify_prep_retire` | (素) | 0 | 146.8 | 0 | **id 0 / 行 0** | 30/30 PASSED   FAILED 0   PENDING 0 |
+| `verify_cone_cast` | --negative | 0 | 190.4 | 0 | —(#69 は素の腕だけ指紋を採った) | 41/41 PASSED FAILED 0 (変異 14 本とも実装済) |
+| `verify_pm_drawer_fit` | --negative | 0 | 629.3 | — | —(#69 は素の腕だけ指紋を採った) | **9 本すべて担当ラベルが赤 (空振り 0)** |
+| `verify_party_match_setup` | --negative | 0 | 798.1 | — | —(#69 は素の腕だけ指紋を採った) | **8 本すべて担当ラベルが赤 (空振り 0)** |
+| `verify_recruit_talk` | --negative | 0 | 810.4 | — | —(#69 は素の腕だけ指紋を採った) | **負のコントロール 11/11 本が期待どおり** |
+| `verify_darkvision` | --negative | 0 | 280.6 | — | —(#69 は素の腕だけ指紋を採った) | **38/38 PASSED FAILED 0 (変異 12 本)** |
+| `verify_prep_retire` | --negative | 0 | 1871.7 | — | —(#69 は素の腕だけ指紋を採った) | **12 本すべて担当ラベルが赤 (空振り 0)** |
+| `verify_bolt_aim` | (素) | 0 | 2230.7 | 0 | **id 0 / 行 0** | 23/23 PASSED   FAILED 0   PENDING 0 |
+| `verify_hold_pair` | --negative | 0 | 22.4 | 0 | —(#69 は素の腕だけ指紋を採った) | 17/21 PASSED FAILED 1 / 12 本すべて担当ラベルが赤 (空振り 0) |
+| `verify_hold_pair` | (素) | 0 | 904.0 | 0 | **id 0 / 行 0** | 21/21 PASSED   FAILED 0   PENDING 0 |
+
+**計 25 腕 / 8,681.8 秒 = 144.7 分**(14 本 = 名指し 13 + `verify_hold_pair`)。
+
+#### (b) 凍結 TSV との突き合わせ — **緑→赤 0**(2 経路とも差 0)
+
+基準 = 項目1 が凍結した `base70/baseline70.tsv`(154 行)と `from69/fp68_ids_after69.tsv` /
+`from69/fp68_lines_after69.tsv`。⛔ 記録値を写経せず、機械で突き合わせた(`cmp70.py`)。
+
+- **exit**: 基準に行のある 20 腕すべてで exit が一致。うち唯一の非 0 = `driver_action_priority --negative`(exit 1)は
+  **着手前と同じ**で、メッセージも `負のコントロール N3 の注入点が 2 箇所 (期待 1)` と逐語まで同一。
+  ⇒ **#70 の責任ではない**(項目2 は `apEquippedIdsFor` を 1 バイトも触っておらず、アンカーは **2 箇所のまま**=実測)。⛔ 直していない。
+- **経路1(assert id の指紋)/ 経路2(判定行の多重集合)**: 素の 13 本すべてで **差 0**。
+  ⇒ 「本数が同じで中身が入れ替わる退行」も否定できた(#67 項目4〜6 の教訓)。
+- **`--negative` の 10 腕**: #69 は素の腕しか指紋を採っていないので exit と総括行で突き合わせた。
+  基準のある 5 腕(aoe / hold_person / bolt_aim / cone_cast / hold_pair)は**総括行まで一致**。
+  基準の無い 5 腕(pm_drawer_fit / party_match_setup / recruit_talk / darkvision / prep_retire)は
+  **全部 exit 0 で「空振り 0」**= 項目2 の変更で**腐った変異アンカーは 1 本も無い**(#56 の「負のコントロールは前のチケットの変更で静かに空振りへ落ちる」の網)。
+- ⚠ 所要はほぼ基準どおり(`verify_bolt_aim` 素 **2,230.7 秒** 対 基準 2,238.0 / `verify_hold_pair` 素 904.0 対 903.9)
+  ⇒ **40 分級の本も基準と同じ条件で採られている**(基準も同じこの機械の #69 走査)。
+
+#### (c) ⭐⭐⭐ 比較器そのものを先に検証した(これが無いと「差 0」は主張できない)
+
+#69 の抽出器は現存しない(前セッションの scratchpad ごと消えた)ので、**凍結された指紋から正規化規則を逆算**して再実装した:
+① 先頭の判定トークン(`OK`/`PASS`/`NG`/`FAILED`…)を落とす → ② detail を切る(**` -- ` / ` — ` で**、ただし
+**後ろが空なら切らない**。または**空白 3 個以上**)→ ③ 空白の連なりを 1 つへ畳む → ④ 数字 1 文字を `#` へ → ⑤ 120 字で切る。
+別書式の PENDING 行(`  --  (2b-v4) 本文   [PENDING] 理由`)と、**括弧なしの裸タグ id**(`nowall` / `dmgray` …)も拾う。
+
+- 検証 = **素の 13 本すべてで id も判定行も差 0**。⇒ 以後に出る差は本物の信号。
+- ⚠⚠⚠ **途中で 3 回、赤く見えたのは私の比較器の側だった**(空白の畳み漏れ / 後ろが空の ` -- ` / 空白 3 個以上の detail 区切り)。
+  どれも **1〜2 本だけが差を出す**形で現れた。⇒ ⭐ **「1 本だけ差が出た」はまず比較器を疑う**(本物の退行は普通もっと素直に出る)。
+
+#### (d) 言い直しが 0 本でよい理由 — 項目2 の設計が既存の逐語をどう避けたか(実測つき)
+
+| 項目2 が変えたもの | 腐りうる既存 golden | 実測 |
+|---|---|---|
+| `.slice(0, skillSlotsForLevel(10))` → `.slice(0, keepCap);` | この逐語を握る本 | `tools/*.js` に `skillSlotsForLevel` を持つ本は `verify_mercenary_roster` 1 本だけで、**逐語では握っていない**。`keepCap` は 0 本 |
+| 行に `skillOff` クラス + `<span class="offTag">使わない</span>` | 引き出しの寸法を測る `verify_pm_drawer_fit` | `.offTag` が **inline** なので行ボックスが伸びない ⇒ 素 **75/79 PENDING 4** が判定行まで基準と同一。`--negative` 9 本も全部赤 |
+| 僧侶の行に `<button class="clericOffBtn">` | 「押し所を選ぶ」**黒リスト**(#64 の腐り方) | 該当本は**黒リストを持っていない** —— `verify_party_match_setup` は名指しセレクタ(`#pmDrawer .skillItem.full:not(.selected)`)、`verify_pm_drawer_fit` と `verify_mercenary_roster` は**白リスト**(`closest('#pmDepart')` / 自分自身かその子孫)。⇒ UI が 1 つ増えても腐らない |
+| 新キー `dragonfighters.mageSleepSeeded` が `saveSelections` のたび増える | `localStorage` のキー集合を数える本 | **数えている本は実在しない**((e) 参照)。`verify_save_slots (5z)` の `beforeLocal === 4` は `localStorage.clear()` の**直後に自分で蒔いた 4 キー**を同じ evaluate 内で数えるだけで、本番が書いたキーは 1 つも見ない。`(8z1)` は `liveKeys >= 20` の**下限** ⇒ どちらも増分に無反応 |
+| `hasPreset` の 2 行 / `getClericSlots(TV)` の中 1 点 | それを読む本 | `hasPreset` は 0 本。`getClericSlotsTV` は `driver_action_priority` の 1 本だけで、**除外リストが空なら戻り値は不変** ⇒ 92/92 が判定行まで同一 |
+
+⛔ 閾値は 1 つも緩めていない。⛔ `?spelloff=0` を付けて緑に見せた腕は 1 つも無い(全 25 腕が素のスイッチ既定)。
+
+#### (e) ⚠ 空白地帯 — どの既存 golden もその振る舞いを守っていない
+
+⭐ 語の grep だけを根拠にせず(CLAUDE.md #39 §2-1)、**振る舞いでも裏を取った**:
+
+1. **新しい保存キーがスロットへ載ること** … `js/save-slots.js` の `keysOf()` は前方一致の総なめなので
+   `dragonfighters.clericSpellsOff` / `…mageSleepSeeded` は自動で載るが、**「載っている」ことを確かめる assert は 1 本も無い**
+   (上表のとおり `verify_save_slots` は自分で蒔いたキーしか数えない)。⇒ §8 **(4a)** が初めての網。
+2. **読み込みの切り詰め(職別上限)** … `verify_mercenary_roster (5b)` は `partySkills` の**バイト同一**を見るが、
+   既定配分は 5 件以下で `slice(0,5)` に当たらない ⇒ **職別上限の退行を原理的に捕まえられない**。⇒ §8 **(2b)**。
+3. **僧侶の行(`自動 N` / `spellAuto`)** … 読む本が 0。#70 以前はまったく無測定。⇒ §8 **(1c)**。
+4. **NPC の空配列(`hasPreset`)** … 読む本が 0。⇒ §8 **(3d)**。
+5. **酒場側のスリープ差し込み(`withInnateSleepListTV`)** … `verify_recruit_talk` の変異は
+   **`index.html` 側の `withInnateSleepList`** を狙っており、`tavern.html` の `loadSelections` の差し込みは誰も見ていない。⇒ §8 **(2a)(2a2)**。
+
+#### (f) ポートと後始末
+
+- 着手前の LISTEN = **8765**(ユーザーの試遊サーバ `python -m http.server`・PID 19452)/ 9010・9180(Logitech G HUB)。
+- 走査後も**まったく同じ 3 本のみ**(PID も同一)。9000〜10500 帯に残骸 0、`node.exe` / `python.exe` の
+  ドライバプロセス **0 本**。⛔ 8765 は落としていない。
+- 割り当てられた 10347 / 10348 / 10349 は**使わなかった**(各ドライバが自分の持ち分を使うため)。
+  ⇒ 項目4 の新規ドライバ base **10351** は引き続き空き。
