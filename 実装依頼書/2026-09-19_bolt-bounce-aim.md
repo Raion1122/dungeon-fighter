@@ -354,8 +354,18 @@ Bresenham の丸めのせいで、敵へ真っ直ぐの筋は壁の角をかす�
   `verify_hold_pair` 素 904.0s / `verify_prep_retire --negative` 1,871.7s /
   `verify_recruit_talk --negative` 810.4s / `verify_party_match_setup --negative` 798.1s /
   `verify_pm_drawer_fit --negative` 629.3s ⇒ **全数は 270〜300 分**。
-- ⚠ **1 回の色で退行と判定しない**。両方向に転ぶフレーク = `probe_n4_stall` / `driver_field_wagon` /
-  `monsters_chimera` / `monsters_hobgoblin` / `monsters_griffon`。
+- ⭐⭐⭐ **その自己検証は「これから当てる母集団と同じ広さ」で通す。狭い自己検証は嘘の安心を与える。**
+  #70 項目3 の比較器は**素の 13 本でしか自己検証しておらず**、母集団 141 本に当てたら **10 個の書式を
+  落としていた**(`✅`/`❌` マーカー / 小文字 `ok` / **数字始まりの裸 id**(#67 と同型)/ `§` 見出しの
+  2 トークン id / `[…] ✓ tag OK` / `--- FAILED ---` の再掲ブロック / マーカー直後の空白なし /
+  alternation を長い順にしないと `PASSED` が `PASS`+`ED` に割れる、等)。
+  ⇒ **使う比較器は #70 項目5 の拡張版**(実装窓のセッション `scratchpad/item5/fp70e.py`)。
+  ⛔ 項目3 版(`step3/fp70.py`)は使わない。
+- ⚠ **1 回の色で退行と判定しない**。両方向に転ぶフレークは **7 本**(#70 項目5 で 2 本増えた):
+  `probe_n4_stall` / `driver_field_wagon` / `monsters_chimera` / `monsters_hobgoblin` / `monsters_griffon` /
+  **`verify_run_chronicle`**(装置 `(1z1)` が「alive が残っている瞬間」に依存)/
+  **`driver_speech_engine`**(`camX レンジ` の閾値。⚠ #70 §12-0 が「安定した非緑」と分類したのは**誤り**だった)。
+  ⭐⭐⭐ **「安定した赤」も安定とは限らない**(#68 の教訓の再確認)。
 - ⚠⚠ この機械は #69 実測で **約 2.6 倍遅い**。全数再走は **270 分以上**を見込む。
 - ⚠ `driver_action_priority --negative` は #35 以来**着手前から exit 1**。本チケットの責任ではない。
 
