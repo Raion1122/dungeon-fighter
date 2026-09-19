@@ -23,6 +23,17 @@
  *   ⭐ 撤退 (L=3・8 方向・壁なし) は Bresenham を使わず「単位ベクトル × 1,2,3」で書く = 旧コードの仕様そのもの。
  *   ⇒ (0d) 撤退の腕で再計算器と実物が全件一致 = 再計算器そのものが正しいことの証明。
  *
+ * ■ ⚠⚠⚠ 2026-09-20 (#71 項目3) — **再計算器を #71 仕様へ再ベースした**
+ *   #71 (柱1 = 候補を射程内の全既約方向へ / 柱2 = 壁で 1 回反射) で素 23/23 → 15/23 になった。
+ *   8 本の赤の根は **1 つ** = この oracleBolt が #68 仕様を抱いたままだったこと。
+ *   ⭐⭐⭐ 一般則: **独立再計算器を持つ golden は、仕様を変えるチケットで必ず腐る。**
+ *     「どの assert が腐るか」ではなく「その測定器は**仕様のどの版**を抱いているか」で見る。
+ *   ⇒ oracleBolt(s, mode, opts) の opts で候補生成 (rays) と歩き方 (bounce) をパラメータ化した。
+ *     #68 の枝は rays:false として残っているので (1c2) はその腕へ移設、(1g)(4a)(4b)(0d) は無傷。
+ *   ⇒ 盤面の腕を 3 本足した: rays0 (?boltrays=0) / bnc0 (?boltbounce=0) / covb (?aoecover=0&boltbounce=0)。
+ *   ⇒ 言い直した assert = (0a)(1c2)(1d)(1g)(1h)(4a)(0g) の 7 本。**どれも条件の個数は前より増えている**
+ *     (減らしたら言い直しではなく弱体化。前後の個数は 12-0 の表に載せた)。
+ *
  * ■ ⛔ 依頼書 §8 から変えた点 (⭐ どれも期待値を弱めていない = 条件を足す / 測定点を移す)
  *   (1c2) 新設 … §8 は変異 norange の担当を (1c)「敵 1 体をチェビシェフ 11 マス」にしていたが、
  *                 ⚠ **その盤面では原理的に赤くならない**。列の歩きが L で打ち切るので、距離上限を外しても
@@ -117,10 +128,13 @@ const MUTATIONS = {
   rays8: { file: 'index.html', scope: FN_BOLT,
     from: '      const rays = BOLT_AIM_ON ? boltAimRays(aCX, aCY, boltLen) : directions;',
     to:   '      const rays = directions;   /* ★変異rays8 */' },
-  /* 壁で止めない。 */
+  /* 壁で止めない。⚠ #71 柱2 で呼び口が 2 行に割れたのでアンカーを 1 行目へ取り直した (項目3・2026-09-20)。
+   * ⛔ 触るのは第 6 引数 stopAtWall だけ。第 7 引数 (反射回数) は次の行のまま
+   *   = 本番の stopAtWall の意味は 1 ミリも変えていない (反射は「壁に当たる」が前提なので
+   *     stopAtWall=false の腕では自然に起きなくなるだけ)。 */
   nowall: { file: 'index.html', scope: FN_BOLT,
-    from: '        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON);',
-    to:   '        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, false);   /* ★変異nowall */' },
+    from: '        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON,',
+    to:   '        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, false,   /* ★変異nowall */' },
   /* ⭐ 探索は新経路のまま、ダメージだけ旧 3 マスの筋で集める (依頼書 §2-3 の罠の再現)。 */
   dmgray: { file: 'index.html', scope: FN_BOLT,
     from: '      for (const t of best.tiles) for (const i of enemiesInArea(t.tx, t.ty, 1, 1)) lineEnemyIdxs.add(i);',
@@ -155,6 +169,9 @@ const MUTATIONS = {
  *   reach3     … (1a)(1b)(1c2)(1e)(1f)(1g)(1h)(5a)   ⭐ 長さ 3 は素の盤面の大半を殺す
  *   rays8      … (1a)(1f)(1g)(1h)
  *   nowall     … (1d2)(1f)(1h)                        ⚠ (1d) は緑のまま (依頼書 §8 の担当は外れ = 項目2 の予告どおり)
+ *   ⚠⚠ 2026-09-20 (#71 項目3): **上の一覧は #68 の実走の記録で、#71 の盤面では当てにならない。**
+ *     (1c2) は腕が ?boltrays=0 へ移り / (1d)(1g)(1h)(4a) は言い直された。
+ *     ⇒ **NEG_EXPECT は #71 で 1 本ずつ実走して採り直すこと**。⛔ 机上で担当を決めない。
  *   dmgray     … (1c2)(1e)(1f)
  *   norange    … (1c2)(1f)                            ⚠ (1c) は緑のまま (同上)
  *   hardcode10 … (5a)                                 ⭐ 最も鋭い (素の長さは同じ 10 なので §5 だけが見分ける)
@@ -408,12 +425,20 @@ function pageBoard() {
   window.__basic = 0;
   window.allyBasicAttack = function () { window.__basic++; return Promise.resolve(); };
   window.allyAdvanceTowardPoint = function () { return Promise.resolve(); };
-  /* ⭐ (1h) 描画の終点は spawnLightningBolt が受け取った引数そのもの。 */
+  /* ⭐ (1h)(4a) 描画の観測口。⚠⚠ #71 柱2 で allyLightningBolt は **spawnLightningBoltPath しか呼ばない**
+   *   (spawnLightningBolt は 2 点で呼ぶ薄いラッパへ降格) ⇒ 4 引数版をフックしても呼び出し 0 回になる。
+   *   ⇒ **頂点列を受け取る口**を観測する (項目3 で言い直し)。4 引数版のフックは記録用に残す。 */
   window.__bolts = [];
   const _sb = window.spawnLightningBolt;
   window.spawnLightningBolt = function (fx, fy, tx, ty) {
     window.__bolts.push({ fx: fx, fy: fy, tx: tx, ty: ty });
     return _sb.apply(null, arguments);
+  };
+  window.__paths = [];
+  const _sp = window.spawnLightningBoltPath;
+  window.spawnLightningBoltPath = function (pts) {
+    try { window.__paths.push((pts || []).map(function (p) { return { x: p.x, y: p.y }; })); } catch (e) {}
+    return _sp.apply(null, arguments);
   };
   window.__pops = [];
   try {
@@ -479,7 +504,8 @@ function pageBoard() {
         made.push(idx);
       }
       encounterEnemyIndices = made.slice();
-      window.__aoeStats = {}; window.__bolts.length = 0; window.__pops.length = 0; window.__basic = 0;
+      window.__aoeStats = {}; window.__bolts.length = 0; window.__paths.length = 0;
+      window.__pops.length = 0; window.__basic = 0;
       const key = MAGE_SKILLS['lightning-bolt'].name;
       const before = made.map((i) => enemies[i].hp);
       let snap = null, snapErr = null, err = null;
@@ -491,26 +517,48 @@ function pageBoard() {
       for (const i of made) { enemies[i].alive = false; enemies[i].hp = 0; }
       return { err: err, snapErr: snapErr, key: key,
         stats: st ? { attempts: st.attempts, cast: st.cast, demoted: st.demoted } : null,
-        made: made, hit: hit, snap: snap, bolts: window.__bolts.slice(), pops: window.__pops.slice(),
-        basic: window.__basic };
+        made: made, hit: hit, snap: snap, bolts: window.__bolts.slice(), paths: window.__paths.slice(),
+        pops: window.__pops.slice(), basic: window.__basic };
     },
   };
   return { org: org, carved: carved, carvedN: carvedN, blockedAfter: blockedIn(org.x, org.y),
     MAP_W: MAP_W, MAP_H: MAP_H, T: T,
     boltAim: (typeof BOLT_AIM_ON !== 'undefined') ? BOLT_AIM_ON : null,
+    boltRays: (typeof BOLT_RAYS_ON !== 'undefined') ? BOLT_RAYS_ON : null,
+    boltBounce: (typeof BOLT_BOUNCE_ON !== 'undefined') ? BOLT_BOUNCE_ON : null,
     cover: (typeof AOE_COVER_ON !== 'undefined') ? AOE_COVER_ON : null,
     L: getRange(MAGE_SKILLS['lightning-bolt'].range).tiles,
     fnBolt: typeof window.allyLightningBolt, fnSpawn: typeof window.spawnLightningBolt,
+    fnPath: typeof window.spawnLightningBoltPath,
     flavor: MAGE_SKILLS['lightning-bolt'].flavor };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * ⭐⭐⭐ 独立再計算器 — 依頼書 §5-2 / §5-3 の仕様だけから書く (本番のヘルパーを呼ばない)
- *   mode 'aim'    = 素: 候補 = 交戦中・生存・非護衛・チェビシェフ ≤ L・視線が通る敵への既約ベクトル (交戦順・重複除去)
- *                   直線 = 整数倍の終点への Bresenham。L 超で打ち切り、壁のマスの手前で打ち切り。
- *   mode 'legacy' = 撤退: 8 方向 (旧コードの並び)・単位ベクトル × 1,2,3・壁を見ない。
+ * ⭐⭐⭐ 独立再計算器 — 仕様だけから書く (本番のヘルパーを 1 つも呼ばない)
+ *
+ * ⚠⚠⚠ 2026-09-20 (#71 項目3) に **仕様の 3 世代目へ再ベース**した。
+ *   ⭐⭐⭐ 教訓 = **独立再計算器を持つ golden は、仕様を変えるチケットで必ず腐る。**
+ *     「どの assert が腐るか」ではなく「**その測定器は仕様のどの版を抱いているか**」で見ること。
+ *     #71 では (1c2)(1f)(1g)(1d)(2b) が一斉に赤くなったが、根は 1 つ = ここが #68 仕様のままだった。
+ *   ⇒ 新規に書き直さず **候補生成を opts.rays・歩き方を opts.bounce へパラメータ化**した。
+ *     #68 の枝は rays=false として**そのまま残っている**(= 撤退 ?boltrays=0 の腕の再計算に使える)。
+ *
+ *   oracleBolt(s, mode, opts)
+ *     mode 'aim'  … 素の系統。opts の既定 = { rays: true, bounce: 1 } = **本番の素の姿**。
+ *       - rays: true  (#71 柱1) … 候補 = 射程内の全既約整数方向 (|dx| ≤ L / |dy| ≤ L / gcd = 1。
+ *                                  L=10 で 256 本)。**並びは dy 昇順 → dx 昇順**。敵も視線も見ない。
+ *       - rays: false (#68)     … 候補 = 交戦中・生存・非護衛・チェビシェフ ≤ L・視線が通る敵への
+ *                                  既約ベクトル (交戦順・重複除去)。⇒ 撤退 ?boltrays=0 の腕。
+ *       - bounce: 1   (#71 柱2) … 壁で 1 回まで反射。横だけ変わるステップで壁なら dx 反転 /
+ *                                  縦だけなら dy 反転 / 斜めなら横隣が壁で dx・縦隣が壁で dy・
+ *                                  どちらも壁でない (角) なら両方反転。**長さは歩いたマス数**。
+ *       - bounce: 0             … 壁の手前で止まる (⇒ 撤退 ?boltbounce=0 の腕)。
+ *     mode 'legacy' … 撤退 ?boltaim=0: 8 方向 (旧コードの並び)・単位ベクトル × 1,2,3・壁を見ない。
+ *                     ⛔ この枝は #71 で 1 バイトも触っていない ((4a)(4b)(0d) の生命線)。
  *   共通: 列の途中に味方が居れば AOE_COVER_ON が偽のときだけ捨てる / 数えるのは非 inactive・非護衛の生存敵 /
  *         採用 = 敵数が最大 (同数は先勝ち) / 成否 = 最大が 1 以上。
+ *         ⭐ 敵数は**重複込み**で数える (反射で同じマスを 2 度通ると本番の lineIdxs も 2 回積む) が、
+ *           被弾集合は Set で潰す (本番の lineEnemyIdxs が Set)。⚠ ここを揃えないと反射盤面で 1 件ずつ外れる。
  * ══════════════════════════════════════════════════════════════════════════════ */
 const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [1, 1], [-1, -1], [-1, 1]];
 function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const r = a % b; a = b; b = r; } return a; }
@@ -561,15 +609,26 @@ function demotedWhy(s) {
   return { why: why, nearEngaged: near, nonEngagedReachable: other.length,
     casterOnWall: g.wall(s.m.tx, s.m.ty), engInOnWall: engIn.filter((f) => g.wall(f.tx, f.ty)).length };
 }
-function oracleBolt(s, mode) {
+function oracleBolt(s, mode, opts) {
   const aim = mode === 'aim';
+  const o = opts || {};
+  const raysAll = (o.rays === undefined) ? true : !!o.rays;          // #71 柱1 (既定 = 素)
+  const maxB = aim ? ((o.bounce === undefined) ? 1 : (o.bounce | 0)) : 0;   // #71 柱2 (既定 = 素)
   const L = aim ? s.L : 3;
   const mx = s.m.tx, my = s.m.ty;
   const G = geoOf(s);
   const wall = G.wall, cheb = G.cheb, los = G.los;
   const byI = new Map(s.foes.map((f) => [f.i, f]));
   let rays = [];
-  if (aim) {
+  if (aim && raysAll) {
+    /* #71 柱1 — 射程内の全既約整数方向。⛔ 敵も視線も見ない (届かない筋は敵数 0 で自然に落ちる)。 */
+    for (let dy = -L; dy <= L; dy++) for (let dx = -L; dx <= L; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      if (gcd(dx, dy) !== 1) continue;
+      rays.push([dx, dy]);
+    }
+  } else if (aim) {
+    /* #68 の枝 (= 撤退 ?boltrays=0)。⛔ 消さない。 */
     const seen = new Set();
     for (const i of s.enc) {
       const f = byI.get(i);
@@ -584,42 +643,68 @@ function oracleBolt(s, mode) {
       seen.add(k); rays.push([dx, dy]);
     }
   } else rays = DIR8;
+  /* 歩き方。返りは { tiles, bends } — bends は反射した「壁の手前のマス」(描画の中間頂点と同じ出所)。
+   * ⭐ 長さは「歩いたマス数」で数える (⛔ 起点からのチェビシェフ距離だと折り返しで永遠に止まらない)。 */
   const lineOf = (d) => {
-    const out = [];
-    if (!aim) { for (let k = 1; k <= 3; k++) out.push([mx + d[0] * k, my + d[1] * k]); return out; }
-    const n = Math.max(Math.abs(d[0]), Math.abs(d[1]));
-    const mul = Math.ceil(L / n);
-    const ex = mx + d[0] * mul, ey = my + d[1] * mul;
-    const adx = Math.abs(ex - mx), ady = Math.abs(ey - my);
-    const sx = mx < ex ? 1 : -1, sy = my < ey ? 1 : -1;
-    let err = adx - ady, x = mx, y = my;
-    while (x !== ex || y !== ey) {
-      const e2 = 2 * err;
-      if (e2 > -ady) { err -= ady; x += sx; }
-      if (e2 < adx) { err += adx; y += sy; }
-      if (cheb(x, y) > L) break;
-      if (wall(x, y)) break;
-      out.push([x, y]);
+    const tiles = [], bends = [];
+    if (!aim) { for (let k = 1; k <= 3; k++) tiles.push([mx + d[0] * k, my + d[1] * k]); return { tiles: tiles, bends: bends }; }
+    const k = Math.max(Math.abs(d[0]), Math.abs(d[1]));
+    if (!(k > 0) || !(L > 0)) return { tiles: tiles, bends: bends };
+    let curX = mx, curY = my, ddx = d[0], ddy = d[1];
+    let bounces = 0, guard = 0;
+    while (tiles.length < L && guard < 64) {
+      guard++;
+      const m = Math.ceil((L - tiles.length) / k);
+      const ex = curX + ddx * m, ey = curY + ddy * m;
+      const adx = Math.abs(ex - curX), ady = Math.abs(ey - curY);
+      const sx = curX < ex ? 1 : -1, sy = curY < ey ? 1 : -1;
+      let err = adx - ady;
+      let tx = curX, ty = curY, px = curX, py = curY;
+      let xch = false, ych = false, hitWall = false;
+      while ((tx !== ex || ty !== ey) && tiles.length < L) {
+        px = tx; py = ty;
+        const e2 = 2 * err;
+        if (e2 > -ady) { err -= ady; tx += sx; }
+        if (e2 < adx) { err += adx; ty += sy; }
+        xch = (tx !== px); ych = (ty !== py);
+        if (wall(tx, ty)) { hitWall = true; break; }   // aim の腕は常に壁で止める (本番の stopAtWall = BOLT_AIM_ON)
+        tiles.push([tx, ty]);
+      }
+      if (!hitWall) break;
+      if (bounces >= maxB) break;
+      if (xch && !ych) { ddx = -ddx; }
+      else if (ych && !xch) { ddy = -ddy; }
+      else {
+        const wallX = wall(tx, py);   // 横隣
+        const wallY = wall(px, ty);   // 縦隣
+        if (wallX) ddx = -ddx;
+        if (wallY) ddy = -ddy;
+        if (!wallX && !wallY) { ddx = -ddx; ddy = -ddy; }
+      }
+      bounces++;
+      curX = px; curY = py;
+      bends.push([px, py]);
     }
-    return out;
+    return { tiles: tiles, bends: bends };
   };
   const live = s.foes.filter((f) => !f.inactive && !f.escort);
   let best = null, bestCount = 0;
   for (const d of rays) {
-    const tiles = lineOf(d);
+    const ln = lineOf(d);
     let blocked = false, cnt = 0;
     const idx = [];
-    for (const t of tiles) {
+    for (const t of ln.tiles) {
       if (!s.aoeCover && s.party.some((p) => p.tx === t[0] && p.ty === t[1])) { blocked = true; break; }
       for (const f of live) if (f.tx === t[0] && f.ty === t[1]) { cnt++; idx.push(f.i); }
     }
     if (blocked) continue;
-    if (cnt > bestCount) { best = { d: d, tiles: tiles, idx: idx }; bestCount = cnt; }
+    if (cnt > bestCount) { best = { d: d, tiles: ln.tiles, bends: ln.bends, idx: idx }; bestCount = cnt; }
   }
+  /* ⭐ count は重複込み (本番の bestCount = lineIdxs.length) / hit は Set (本番の lineEnemyIdxs)。 */
   return { ok: bestCount > 0, count: bestCount, rays: rays.length, oob: G.oob,
-    hit: best ? best.idx.slice().sort((a, b) => a - b) : [],
+    hit: best ? Array.from(new Set(best.idx)).sort((a, b) => a - b) : [],
     last: (best && best.tiles.length) ? best.tiles[best.tiles.length - 1] : null,
-    dir: best ? best.d : null, L: L };
+    bends: best ? best.bends.slice() : [], dir: best ? best.d : null, L: L };
 }
 const sameSet = (a, b) => JSON.stringify((a || []).slice().sort((x, y) => x - y)) === JSON.stringify((b || []).slice().sort((x, y) => x - y));
 
@@ -648,7 +733,12 @@ const B = {
   g6:     { foes: [[6, 0]] },                                   // (5a) ?dndrange=0 の L=5 を 1 超える
   g4:     { foes: [[4, 0]] },                                   // (5a) L=5 以内
 };
-const BOARD_ARMS = { base: '', ret: '?boltaim=0', cov: '?aoecover=0', dnd: '?dndrange=0' };
+/* ⭐ #71 項目3 で 3 腕を追加した (⛔ 既存 4 腕は 1 文字も変えない)。
+ *   rays0 … ?boltrays=0     = #68 の候補生成へ戻す腕。(1c2) の距離上限の枝はここにしか無い。
+ *   bnc0  … ?boltbounce=0   = 反射を止める腕。(1d) の壁止めはここで測る。
+ *   covb  … ?aoecover=0&boltbounce=0 = 味方の拒否権を、反射で回り込まれない条件で測る ((1g) の横)。 */
+const BOARD_ARMS = { base: '', ret: '?boltaim=0', cov: '?aoecover=0', dnd: '?dndrange=0',
+  rays0: '?boltrays=0', bnc0: '?boltbounce=0', covb: '?aoecover=0&boltbounce=0' };
 
 async function openBoardPage(browser, port, qs, errs) {
   const page = await browser.newPage();
@@ -723,6 +813,8 @@ async function runSynthetic(browser, port, label, R) {
   console.log('\n[drv] ══ 合成盤面 ' + label + ' (port ' + port + ') ══');
   const served = await httpGetText(port, '/index.html');
   out.served = { judge: served.split('get("boltaim")').length - 1,
+    judgeRays: served.split('get("boltrays")').length - 1,
+    judgeBnc: served.split('get("boltbounce")').length - 1,
     def: served.split('async function allyLightningBolt(').length - 1, bytes: Buffer.byteLength(served, 'utf8') };
   const A = {};
   let tav = null;
@@ -740,11 +832,15 @@ async function runSynthetic(browser, port, label, R) {
   const T = A.base.info.T;
 
   /* ── §0 装置 ─────────────────────────────────────────────────────────────── */
-  R.check('(0a)', '[装置] 配信 index.html に撤退の判定 get("boltaim") がちょうど 1・allyLightningBolt の定義が 1、ページで関数として読める'
-    + ' (⚠ 語 boltaim の行はコメント込みで 4 あるので判定の形で数える)',
-    out.served.judge === 1 && out.served.def === 1 && A.base.info.fnBolt === 'function',
-    'get("boltaim")=' + out.served.judge + ' / async function allyLightningBolt(=' + out.served.def
-    + ' / typeof=' + A.base.info.fnBolt + ' / 配信 ' + out.served.bytes + ' B');
+  R.check('(0a)', '[装置] 配信 index.html に撤退の判定 get("boltaim") / get("boltrays") / get("boltbounce") が**それぞれちょうど 1**・'
+    + 'allyLightningBolt の定義が 1、ページで allyLightningBolt と spawnLightningBoltPath が関数として読める'
+    + ' (⚠ 語 boltaim は 5 / boltrays は 3 / boltbounce は 3 箇所あるので**判定の形**で数える。⛔ 語の件数で数えない)',
+    out.served.judge === 1 && out.served.judgeRays === 1 && out.served.judgeBnc === 1
+    && out.served.def === 1 && A.base.info.fnBolt === 'function' && A.base.info.fnPath === 'function',
+    'get("boltaim")=' + out.served.judge + ' get("boltrays")=' + out.served.judgeRays
+    + ' get("boltbounce")=' + out.served.judgeBnc + ' / async function allyLightningBolt(=' + out.served.def
+    + ' / typeof allyLightningBolt=' + A.base.info.fnBolt + ' spawnLightningBoltPath=' + A.base.info.fnPath
+    + ' / 配信 ' + out.served.bytes + ' B');
 
   const r0b = await run('base', 'b1b');
   out.seam = r0b.stats ? r0b.stats.attempts : 0;
@@ -762,7 +858,7 @@ async function runSynthetic(browser, port, label, R) {
     infos.join(' / '));
 
   /* ── §1 合成盤面 ─────────────────────────────────────────────────────────── */
-  const base = {}, ret = {}, cov = {}, dnd = {};
+  const base = {}, ret = {}, cov = {}, dnd = {}, rz = {}, bnc = {}, cvb = {};
   base.b1a = await run('base', 'b1a'); ret.b1a = await run('ret', 'b1a');
   R.check('(1a)', '★ 敵 1 体を筋から外れた (4,1) に置く → 素 cast 1 / 撤退 ?boltaim=0 demoted 1',
     isCast(base.b1a) && isDem(ret.b1a),
@@ -778,15 +874,37 @@ async function runSynthetic(browser, port, label, R) {
     isDem(base.b1c), '素 ' + brief(base.b1c) + ' / L=' + A.base.info.L);
 
   base.range3 = await run('base', 'range3');
-  const rg = base.range3.made;
-  R.check('(1c2)', '★★ 距離上限の番人: A (5,0) / C (7,1) / B (11,1) → 素 cast 1 で被弾は A だけ'
-    + ' (⭐ 上限を外すと B への向きが A と C を通って採られ C も被弾する。⚠ (1c) の 1 体盤面では原理的に赤くならない)',
-    isCast(base.range3) && sameSet(base.range3.hit, [rg[0]]),
-    brief(base.range3) + ' / A,C,B=' + JSON.stringify(rg));
+  rz.range3 = await run('rays0', 'range3');
+  const rg = rz.range3.made;
+  R.check('(1c2)', '★★ 距離上限の番人 — **#71 項目3 で測る腕を ?boltrays=0 へ移した**: A (5,0) / C (7,1) / B (11,1) →'
+    + ' 撤退 ?boltrays=0 (= #68 の候補生成) で cast 1・被弾は A だけ'
+    + ' (⭐ 上限「チェビシェフ ≤ L」を外すと B への向きが A と C を通って採られ C も被弾する)'
+    + ' ⚠ 素 (#71 柱1) の候補は |dx|,|dy| ≤ L の全既約方向を**構成的に**作るので距離の枝がそもそも無く、'
+    + ' しかも (8,1) の筋が A と C を同時に貫くため旧文面「素で被弾は A だけ」は成立しない'
+    + ' (素側の距離の番人は (1c) と (5a) が持つ)',
+    A.rays0.info.boltRays === false && A.base.info.boltRays === true
+    && isCast(rz.range3) && sameSet(rz.range3.hit, [rg[0]]),
+    'BOLT_RAYS_ON 素=' + A.base.info.boltRays + ' 撤退=' + A.rays0.info.boltRays
+    + ' / ?boltrays=0 ' + brief(rz.range3) + ' / A,C,B=' + JSON.stringify(rg)
+    + ' ‖ 参考: 素 ' + brief(base.range3));
 
   base.b1d = await run('base', 'b1d');
-  R.check('(1d)', '術者と敵 (5 マス先・筋の上) の間に壁 1 マス → 素 demoted 1 (壁で止まる)',
-    isDem(base.b1d), '素 ' + brief(base.b1d));
+  bnc.b1d = await run('bnc0', 'b1d');
+  const o1d = base.b1d.snap ? oracleBolt(base.b1d.snap, 'aim') : null;
+  const p1d = (base.b1d.paths || [])[0] || null;
+  R.check('(1d)', '★★ 壁止めと反射の番人 — **#71 項目3 で言い直し**: 術者と敵 (5,0) の間に壁 (3,0) →'
+    + ' ① 反射を止めた腕 ?boltbounce=0 では**候補 256 本をもってしても demoted** (= 直進の筋は壁の手前で止まり、'
+    + ' 壁の向こうへは 1 マスも届かない) ② 素 (反射あり) では cast し、被弾集合 == 独立再計算'
+    + ' ③ 採用した列は**実際に折れている** (折れ点 ≥ 1・描画の頂点 == 折れ点 + 2)'
+    + ' (⚠ 旧文面「素でも demoted」は #71 柱2 で成立しなくなった = 遠くの壁で跳ね返って届く。'
+    + ' ⭐ 旧 (1d) は候補が 0 本になるだけで壁止めを 1 ミリも測っていない空白地帯だったので、①で本物の番人にした)',
+    isDem(bnc.b1d) && isCast(base.b1d) && !!o1d && !o1d.oob && o1d.ok
+    && sameSet(base.b1d.hit, o1d.hit) && o1d.bends.length >= 1
+    && (base.b1d.paths || []).length === 1 && !!p1d && p1d.length === o1d.bends.length + 2,
+    '?boltbounce=0 ' + brief(bnc.b1d) + ' (BOLT_BOUNCE_ON=' + A.bnc0.info.boltBounce + ')'
+    + ' ‖ 素 ' + brief(base.b1d) + ' 再計算 ' + (o1d ? (o1d.ok ? 'cast' : 'demoted') + JSON.stringify(o1d.hit)
+      + ' 折れ点 ' + o1d.bends.length + ' dir=' + JSON.stringify(o1d.dir) : 'なし')
+    + ' / 描画の頂点 ' + (p1d ? p1d.length : 'なし'));
 
   base.wall2 = await run('base', 'wall2');
   const w2 = base.wall2.made;
@@ -802,6 +920,7 @@ async function runSynthetic(browser, port, label, R) {
 
   base.b1g = await run('base', 'b1g'); base.b1g2 = await run('base', 'b1g2');
   cov.b1g = await run('cov', 'b1g'); cov.b1g2 = await run('cov', 'b1g2');
+  cvb.b1g = await run('covb', 'b1g'); cvb.b1g2 = await run('covb', 'b1g2');
   base.b1hw = await run('base', 'b1hw');
 
   /* (1f) ⭐⭐ 2 経路: 素の盤面 10 枚すべてで、実物の成否と被弾集合 == ドライバの独立再計算 */
@@ -822,12 +941,19 @@ async function runSynthetic(browser, port, label, R) {
     + ' (⭐ 本番の boltLineTiles / boltAimRays / hasLineOfSight / enemiesInArea を 1 つも呼ばない)',
     fBad === 0, fRows.join(' / '));
 
-  R.check('(1g)', '★ 味方を唯一の候補直線の途中に置く (横 (3,0)・斜め (2,1)) → 素 cast 1 / ?aoecover=0 で demoted 1',
-    A.cov.info.cover === false && A.base.info.cover === true
-    && isCast(base.b1g) && isCast(base.b1g2) && isDem(cov.b1g) && isDem(cov.b1g2),
-    'AOE_COVER_ON 素=' + A.base.info.cover + ' 撤退=' + A.cov.info.cover
-    + ' / 横 素 ' + brief(base.b1g) + ' ‖ ' + brief(cov.b1g)
-    + ' / 斜め 素 ' + brief(base.b1g2) + ' ‖ ' + brief(cov.b1g2)
+  R.check('(1g)', '★ 味方の拒否権 — **#71 項目3 で横の腕を ?aoecover=0&boltbounce=0 へ移した**:'
+    + ' 味方を候補直線の途中に置く (横 (3,0)・斜め (2,1)) → 素はどちらも cast 1 /'
+    + ' ?aoecover=0 で**斜めは demoted 1** / ?aoecover=0&boltbounce=0 で**横も斜めも demoted 1**'
+    + ' (⚠ 横は #71 柱2 の反射があると「味方を避けて遠くの壁で回り込む筋」が見つかって cast してしまうので、'
+    + ' 拒否権そのものは反射を止めた腕で測る。⭐ 斜めは反射があっても回り込めないので素の腕に残した = 2 腕で測る)',
+    A.cov.info.cover === false && A.covb.info.cover === false && A.base.info.cover === true
+    && isCast(base.b1g) && isCast(base.b1g2)
+    && isDem(cov.b1g2)
+    && isDem(cvb.b1g) && isDem(cvb.b1g2),
+    'AOE_COVER_ON 素=' + A.base.info.cover + ' cov=' + A.cov.info.cover + ' covb=' + A.covb.info.cover
+    + ' (covb の BOLT_BOUNCE_ON=' + A.covb.info.boltBounce + ')'
+    + ' / 横 素 ' + brief(base.b1g) + ' ‖ cov ' + brief(cov.b1g) + ' ‖ covb ' + brief(cvb.b1g)
+    + ' / 斜め 素 ' + brief(base.b1g2) + ' ‖ cov ' + brief(cov.b1g2) + ' ‖ covb ' + brief(cvb.b1g2)
     + ' / 吹き出し ' + JSON.stringify((base.b1g.pops || [])[0] || null));
 
   const hRows = [];
@@ -835,16 +961,24 @@ async function runSynthetic(browser, port, label, R) {
   for (const k of ['b1b', 'b1a', 'b1hw']) {
     const r = base[k];
     const o = r.snap ? oracleBolt(r.snap, 'aim') : null;
-    const bolt = (r.bolts || [])[0] || null;
+    const pts = (r.paths || [])[0] || null;
+    const last = pts ? pts[pts.length - 1] : null;
     const exp = (o && o.last) ? { x: (o.last[0] + 0.5) * T, y: (o.last[1] + 0.5) * T } : null;
-    const good = isCast(r) && (r.bolts || []).length === 1 && !!exp && !!bolt
-      && Math.abs(bolt.tx - exp.x) < 0.5 && Math.abs(bolt.ty - exp.y) < 0.5;
+    const expN = o ? (o.bends.length + 2) : null;
+    const endOk = !!exp && !!last && Math.abs(last.x - exp.x) < 0.5 && Math.abs(last.y - exp.y) < 0.5;
+    const nOk = !!pts && pts.length === expN;
+    const good = isCast(r) && (r.paths || []).length === 1 && endOk && nOk;
     if (!good) hBad++;
-    hRows.push(k + (good ? ' ✓' : ' ✗') + ' 受け取った終点 ' + (bolt ? '(' + Math.round(bolt.tx) + ',' + Math.round(bolt.ty) + ')' : 'なし')
+    hRows.push(k + (good ? ' ✓' : ' ✗') + ' 頂点列の最後 ' + (last ? '(' + Math.round(last.x) + ',' + Math.round(last.y) + ')' : 'なし')
       + ' / 列の最後のマス ' + (o && o.last ? JSON.stringify(o.last) + ' の中心 (' + exp.x + ',' + exp.y + ')' : 'なし')
-      + ' / 呼び出し ' + (r.bolts || []).length + ' 回');
+      + ' / 頂点数 ' + (pts ? pts.length : 'なし') + ' 期待 ' + expN + ' (折れ点 ' + (o ? o.bends.length : '-') + ' + 2)'
+      + ' / 呼び出し ' + (r.paths || []).length + ' 回');
   }
-  R.check('(1h)', '★★ spawnLightningBolt が受け取った終点 == 被弾計算に使ったマス列の最後のマスの中心 (横 7 / 斜め (4,1) / 壁の手前)',
+  R.check('(1h)', '★★ **#71 項目3 で言い直し**: 描画に渡した頂点列 (spawnLightningBoltPath の引数) について'
+    + ' ① **最後の頂点 == 被弾計算に使ったマス列の最後のマスの中心** かつ ② **頂点列の長さ == 折れ点の数 + 2**'
+    + ' (横 7 / 斜め (4,1) / 壁の手前 の 3 盤面。折れ点は独立再計算が自分で歩いて数えた数)'
+    + ' ⚠ 旧文面は 4 引数の spawnLightningBolt をフックしていたが、#71 柱2 で allyLightningBolt は'
+    + ' spawnLightningBoltPath しか呼ばなくなり**呼び出し 0 回**で赤くなっていた (構造的な腐り)',
     hBad === 0, hRows.join(' / '));
 
   /* ── §3 文言 ─────────────────────────────────────────────────────────────── */
@@ -862,17 +996,23 @@ async function runSynthetic(browser, port, label, R) {
   for (const k of ['r3', 'r3d']) {
     const r = ret[k];
     const o = r.snap ? oracleBolt(r.snap, 'legacy') : null;
-    const bolt = (r.bolts || [])[0] || null;
+    const pts = (r.paths || [])[0] || null;
+    const last = pts ? pts[pts.length - 1] : null;
     const exp = (o && o.dir && r.snap) ? { x: r.snap.aCX + o.dir[0] * 3 * T, y: r.snap.aCY + o.dir[1] * 3 * T } : null;
-    const good = isCast(r) && !!o && o.ok && sameSet(r.hit, o.hit) && !!bolt && !!exp
-      && Math.abs(bolt.tx - exp.x) < 0.5 && Math.abs(bolt.ty - exp.y) < 0.5;
+    /* ⭐ #71 項目3: 撤退の腕も観測口を頂点列へ移した。撤退は折れないので **頂点はちょうど 2 点**
+     *   (= 術者 + 旧式の終点)。⛔ ここで assert を減らさず「2 点であること」を足した。 */
+    const good = isCast(r) && !!o && o.ok && sameSet(r.hit, o.hit) && !!last && !!exp
+      && (r.paths || []).length === 1 && pts.length === 2
+      && Math.abs(last.x - exp.x) < 0.5 && Math.abs(last.y - exp.y) < 0.5;
     if (!good) legBad++;
     legRows.push(k + (good ? ' ✓ ' : ' ✗ ') + brief(r) + ' 旧仕様の再計算 ' + (o ? JSON.stringify(o.hit) : 'なし')
-      + ' 終点 ' + (bolt ? '(' + Math.round(bolt.tx) + ',' + Math.round(bolt.ty) + ')' : 'なし')
-      + ' 旧式 ' + (exp ? '(' + exp.x + ',' + exp.y + ')' : 'なし'));
+      + ' 頂点列の最後 ' + (last ? '(' + Math.round(last.x) + ',' + Math.round(last.y) + ')' : 'なし')
+      + ' 旧式 ' + (exp ? '(' + exp.x + ',' + exp.y + ')' : 'なし')
+      + ' 頂点数 ' + (pts ? pts.length : 'なし') + ' (期待 2)');
   }
   R.check('(4a)', '★★ ?boltaim=0 で BOLT_AIM_ON=false・(1a)(1b) が demoted に戻り、旧挙動で撃てる (3,0)/(2,2) は cast'
-    + ' (被弾集合 = 旧仕様の再計算 / 終点 = 旧式の術者の中心 + 3 マス)',
+    + ' (被弾集合 = 旧仕様の再計算 / **頂点列の最後** = 旧式の術者の中心 + 3 マス / 頂点は折れず 2 点)'
+    + ' ⚠ #71 項目3 で観測口を spawnLightningBolt → spawnLightningBoltPath へ移した (呼び出し 0 回で赤くなっていた)',
     A.ret.info.boltAim === false && A.base.info.boltAim === true && isDem(ret.b1a) && isDem(ret.b1b) && legBad === 0,
     'BOLT_AIM_ON 素=' + A.base.info.boltAim + ' 撤退=' + A.ret.info.boltAim
     + ' / (1a) ' + brief(ret.b1a) + ' / (1b) ' + brief(ret.b1b) + ' / ' + legRows.join(' / '));
@@ -884,7 +1024,8 @@ async function runSynthetic(browser, port, label, R) {
     A.dnd.info.L === 5 && isDem(dnd.g6) && isCast(dnd.g4),
     'getRange(spellAoE).tiles=' + A.dnd.info.L + ' / 6 マス ' + brief(dnd.g6) + ' / 4 マス ' + brief(dnd.g4));
 
-  R.check('(0g)', '[装置] 合成盤面の 5 ページ (index 4 腕 + tavern) でページエラー / console.error が 0 件 (favicon の 404 は除外)',
+  R.check('(0g)', '[装置] 合成盤面の ' + (Object.keys(BOARD_ARMS).length + 1) + ' ページ (index '
+    + Object.keys(BOARD_ARMS).length + ' 腕 + tavern) でページエラー / console.error が 0 件 (favicon の 404 は除外)',
     errs.length === 0, errs.slice(0, 4).join('  |  ') || '(なし)');
 
   for (const p of pages) await p.close().catch(() => {});
@@ -908,6 +1049,20 @@ const POLL_MS = 1000;
 const PLAY_SCENS = ['goblin-mine', 'bandits-forest'];
 const LB_REPS = 5, MIX_REPS = 2;
 const POP_MIN_TOTAL = 20;   // (0c) 素の LB×8 の全走行の attempts 合計の下限
+/* ⭐⭐⭐ (2b) の閾値 — #71 項目3 (2026-09-20) に **実測してから置き直した**。⛔ #68 の値を惰性で残さない。
+ *   実測 (再ベース後・素 1 回) = 合算 **67/67 = 100.0%** (廃坑 56/56 / 森 11/11) / 写しの失敗 0。
+ *   (⚠ 再ベース前は 54/62 = 87.1% だった = oracle が #68 仕様を抱いていた分の食い違い)
+ *   ⇒ 合算の率 0.95 → **0.98** / 試行の下限 20 → **30** (実測 67 の 2.2 倍の余裕) /
+ *     **マップごとの下限を新設** (⚠ #68 の教訓「率の閾値は重み付け (合算かマップ平均か) まで書く」)。
+ *   ⚠⚠ **(0c) の POP_MIN_TOTAL は 20 のまま据え置く。これは惰性ではなく実測に基づく判断**:
+ *     #71 は cast 率を上げる変更なので**戦闘が早く終わり、魔法使いの手番 = 試行そのものが減る**
+ *     (#68 の教訓「成功率を上げる変更は試行回数の下限 assert を自分で痩せさせる」)。
+ *     実測で **森の LB×8 素は 5 走行で attempts 合計 8** (1/1/4/1/1) まで痩せた (#68 期は 17)。
+ *     合計は 50 なので 20 は満たすが、**ここを引き上げると #71 の成功そのものが赤を呼ぶ**。⛔ 上げない。 */
+const AGREE_MIN_TRIALS = 30;      // (2b) 合算の試行下限 (実測 67)
+const AGREE_MIN_PER_MAP = 5;      // (2b) マップごとの試行下限 (実測の最小 = 森 11)
+const AGREE_MIN_RATE = 0.98;      // (2b) 合算の一致率 (実測 100.0%)
+const AGREE_MIN_MAP_RATE = 0.90;  // (2b) マップごとの一致率 (実測 100.0%。薄い森で 1 件の取りこぼしは許す)
 const LV = 5, XP = 500 * LV * (LV - 1);   // 10000 = Lv5 (cone-of-cold の levelReq)
 const PLAY_PARTY = [
   { classKey: 'warrior', isHero: true, name: '勇者', level: LV },
@@ -1125,11 +1280,27 @@ async function runPlay(browser, port, R) {
 
   const aN = sum(allBase, (r) => r.j.n), aAg = sum(allBase, (r) => r.j.aimAgree), aLeg = sum(allBase, (r) => r.j.legAgree);
   const aSnapBad = sum(allBase, (r) => r.j.snapErr + r.j.oob);
-  R.check('(2b)', '★★ 素の腕の全試行 (LB×8 と混成) で、ドライバの再計算 (L=宣言射程・交戦中の敵へ向けて・視線・壁で止める)'
-    + ' と実物の成否の一致率 ≥ 95% (試行 ≥ 20)',
-    aN >= 20 && aSnapBad === 0 && aAg / aN >= 0.95,
-    '一致 ' + aAg + '/' + aN + ' = ' + (aN ? (100 * aAg / aN).toFixed(1) : '-') + '% / 写しの失敗 ' + aSnapBad
-    + ' / 参考: 旧仕様の再計算との一致 ' + aLeg + '/' + aN
+  const agreeMaps = PLAY_SCENS.map((scen) => {
+    const rs = allBase.filter((r) => r.spec.scen === scen);
+    return { name: tag({ spec: { scen: scen, rep: '' } }).replace(/#$/, ''), runs: rs.length,
+      n: sum(rs, (r) => r.j.n), ag: sum(rs, (r) => r.j.aimAgree) };
+  });
+  const agreeMapsOk = agreeMaps.length === PLAY_SCENS.length
+    && agreeMaps.every((m) => m.n >= AGREE_MIN_PER_MAP && m.ag / m.n >= AGREE_MIN_MAP_RATE);
+  R.check('(2b)', '★★ 素の腕の全試行 (LB×8 と混成) で、ドライバの再計算 (#71 仕様 = L は宣言射程・候補は射程内の全既約方向・'
+    + '壁で 1 回反射) と実物の成否の一致率が **合算 (pooled) で ≥ ' + (100 * AGREE_MIN_RATE).toFixed(0) + '%** かつ'
+    + ' **マップごとにも ≥ ' + (100 * AGREE_MIN_MAP_RATE).toFixed(0) + '%** (試行 合算 ≥ ' + AGREE_MIN_TRIALS
+    + ' / マップごと ≥ ' + AGREE_MIN_PER_MAP + ' / 写しの失敗 0)'
+    + ' ⚠⚠ **重み付けを明記する** (#68 の教訓) — pooled だけだと試行数の多い廃坑へ寄る (実測で廃坑が全体の 83.6%) ので'
+    + ' 森単独の率も課す。⛔ どちらか片方だけにしない。'
+    + ' ⭐ 閾値は #71 項目3 の実測 (2026-09-20: 合算 67/67 = 100.0% / 廃坑 56/56 / 森 11/11 / 写しの失敗 0) から置き直した'
+    + ' (#68 の 0.95・試行 ≥ 20 を惰性で残していない。⚠ マップ単位は試行が薄い (森 11) ので 1 件の取りこぼしは許す幅にした)',
+    aN >= AGREE_MIN_TRIALS && aSnapBad === 0 && aAg / aN >= AGREE_MIN_RATE && agreeMapsOk,
+    '合算 ' + aAg + '/' + aN + ' = ' + (aN ? (100 * aAg / aN).toFixed(1) : '-') + '% / 写しの失敗 ' + aSnapBad
+    + ' / マップ別 ' + agreeMaps.map((m) => m.name + ' ' + m.ag + '/' + m.n
+      + ' = ' + (m.n ? (100 * m.ag / m.n).toFixed(1) + '%' : '-') + ' (走行 ' + m.runs + ')').join(' / ')
+    + ' / 参考: 旧仕様 (#68) の再計算との一致 ' + aLeg + '/' + aN
+    + ' = ' + (aN ? (100 * aLeg / aN).toFixed(1) : '-') + '%'
     + ' / 走行別 ' + allBase.map((r) => tag(r) + r.spec.loadout + ' ' + r.j.aimAgree + '/' + r.j.n).join(' '));
 
   /* (2c) ⭐ 2026-09-17 のユーザー決定で **記録だけ** (PASS/FAIL を出さない = 総括の分母に入らない)。
