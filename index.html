@@ -12006,15 +12006,33 @@
       setTimeout(() => { try { pillar.remove(); } catch {} }, 850);
     }
 
-    // 稲妻 SVG ライン (jagged path) — Phase 2-I 派手版: メイン稲妻 5 本 + 分岐 6 本 + 余韻線
+    /* 稲妻 SVG ライン (jagged path) — Phase 2-I 派手版: メイン稲妻 5 本 + 分岐 6 本 + 余韻線
+     * ★#71 柱2 = 頂点列を受け取る折れ線版が本体。4 引数版 spawnLightningBolt は
+     *   頂点 2 点で呼ぶ薄いラッパ (⛔ 既存 3 呼び口のシグネチャは変えない)。
+     * points = [{ x, y }, ...] (ワールド座標。最低 2 点)。bbox は全頂点 + 90px 余白。 */
     function spawnLightningBolt(fromWX, fromWY, toWX, toWY) {
+      spawnLightningBoltPath([{ x: fromWX, y: fromWY }, { x: toWX, y: toWY }]);
+    }
+    function spawnLightningBoltPath(points) {
+      const pts = (points || []).filter(p => p && isFinite(p.x) && isFinite(p.y));
+      if (pts.length < 2) return;
+      const fromWX = pts[0].x, fromWY = pts[0].y;
+      const toWX = pts[pts.length - 1].x, toWY = pts[pts.length - 1].y;
       const svgNS = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(svgNS, "svg");
       svg.classList.add("fxLightningSvg");
-      const minX = Math.min(fromWX, toWX) - 90;
-      const minY = Math.min(fromWY, toWY) - 90;
-      const w = Math.abs(toWX - fromWX) + 180;
-      const h = Math.abs(toWY - fromWY) + 180;
+      // ★#71 全頂点の bbox + 90px 余白 (今までの式の一般化。2 点なら 1 px も変わらない)
+      let bbMinX = pts[0].x, bbMaxX = pts[0].x, bbMinY = pts[0].y, bbMaxY = pts[0].y;
+      for (const p of pts) {
+        if (p.x < bbMinX) bbMinX = p.x;
+        if (p.x > bbMaxX) bbMaxX = p.x;
+        if (p.y < bbMinY) bbMinY = p.y;
+        if (p.y > bbMaxY) bbMaxY = p.y;
+      }
+      const minX = bbMinX - 90;
+      const minY = bbMinY - 90;
+      const w = (bbMaxX - bbMinX) + 180;
+      const h = (bbMaxY - bbMinY) + 180;
       svg.setAttribute("width", w);
       svg.setAttribute("height", h);
       svg.style.left = SX(minX) + "px";
@@ -12022,21 +12040,27 @@
 
       // jagged path 生成 (ジグザグ振幅と位置オフセットを変えて 5 本生成)
       // jitter: 振幅、curveOff: メインラインからの全体オフセット
+      // ★#71 区間ごとに走らせて頂点で繋ぐ (直交ベクトルも区間ごと)
       function genPathD(jitter, curveOff) {
         const segs = 8;
-        const dx = (toWX - fromWX) / segs;
-        const dy = (toWY - fromWY) / segs;
-        // 進行方向に直交するベクトル
-        const len = Math.hypot(toWX - fromWX, toWY - fromWY) || 1;
-        const nx = -(toWY - fromWY) / len;
-        const ny =  (toWX - fromWX) / len;
-        let d = `M ${fromWX - minX + nx * curveOff} ${fromWY - minY + ny * curveOff}`;
-        for (let i = 1; i <= segs; i++) {
-          const jx = (Math.random() - 0.5) * jitter;
-          const jy = (Math.random() - 0.5) * jitter;
-          const x = fromWX + dx * i + jx + nx * curveOff - minX;
-          const y = fromWY + dy * i + jy + ny * curveOff - minY;
-          d += ` L ${x} ${y}`;
+        let d = "";
+        for (let s = 0; s < pts.length - 1; s++) {
+          const aX = pts[s].x, aY = pts[s].y, bX = pts[s + 1].x, bY = pts[s + 1].y;
+          const dx = (bX - aX) / segs;
+          const dy = (bY - aY) / segs;
+          // 進行方向に直交するベクトル
+          const len = Math.hypot(bX - aX, bY - aY) || 1;
+          const nx = -(bY - aY) / len;
+          const ny =  (bX - aX) / len;
+          if (s === 0) d = `M ${aX - minX + nx * curveOff} ${aY - minY + ny * curveOff}`;
+          else d += ` L ${aX - minX + nx * curveOff} ${aY - minY + ny * curveOff}`;
+          for (let i = 1; i <= segs; i++) {
+            const jx = (Math.random() - 0.5) * jitter;
+            const jy = (Math.random() - 0.5) * jitter;
+            const x = aX + dx * i + jx + nx * curveOff - minX;
+            const y = aY + dy * i + jy + ny * curveOff - minY;
+            d += ` L ${x} ${y}`;
+          }
         }
         return d;
       }
@@ -12071,14 +12095,18 @@
 
       // 分岐稲妻 (メインラインの中間点から枝分かれする短い稲妻 6 本)
       const segs = 8;
-      const dxMain = (toWX - fromWX) / segs;
-      const dyMain = (toWY - fromWY) / segs;
       for (let b = 0; b < 6; b++) {
+        // ★#71 分岐は折れ線のどれか 1 区間から生やす (頂点 2 点なら従来と同じ区間)
+        const si = Math.floor(Math.random() * (pts.length - 1));
+        const segAX = pts[si].x, segAY = pts[si].y;
+        const segBX = pts[si + 1].x, segBY = pts[si + 1].y;
+        const dxMain = (segBX - segAX) / segs;
+        const dyMain = (segBY - segAY) / segs;
         const startSeg = 2 + Math.floor(Math.random() * 5);   // 中間付近から
-        const branchFromX = fromWX + dxMain * startSeg;
-        const branchFromY = fromWY + dyMain * startSeg;
+        const branchFromX = segAX + dxMain * startSeg;
+        const branchFromY = segAY + dyMain * startSeg;
         // 分岐先: 進行方向に直交する側面へランダムに伸ばす
-        const dirAng = Math.atan2(toWY - fromWY, toWX - fromWX);
+        const dirAng = Math.atan2(segBY - segAY, segBX - segAX);
         const perp = dirAng + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2)
                             + (Math.random() - 0.5) * 0.9;
         const blen = 50 + Math.random() * 80;
@@ -12118,8 +12146,20 @@
       vfxHost().appendChild(svg);   // ★[P1] 一過性VFXは #vfxLayer へ (遷移時に一掃)
 
       // 動的光源 (始点 / 中央 / 終点の 3 つ、全体に強烈なフラッシュ)
-      const midX = (fromWX + toWX) / 2;
-      const midY = (fromWY + toWY) / 2;
+      // ★#71 中央 = 折れ線の道のりの中点 (頂点 2 点なら (from + to) / 2 と完全に一致)
+      let pathLen = 0;
+      for (let s = 0; s < pts.length - 1; s++) pathLen += Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
+      let midX = toWX, midY = toWY, walked = 0;
+      for (let s = 0; s < pts.length - 1; s++) {
+        const segLen = Math.hypot(pts[s + 1].x - pts[s].x, pts[s + 1].y - pts[s].y);
+        if (walked + segLen >= pathLen / 2) {
+          const t = segLen > 0 ? (pathLen / 2 - walked) / segLen : 0;
+          midX = pts[s].x + (pts[s + 1].x - pts[s].x) * t;
+          midY = pts[s].y + (pts[s + 1].y - pts[s].y) * t;
+          break;
+        }
+        walked += segLen;
+      }
       addSpellLight({
         worldX: midX, worldY: midY,
         inner: 260, outer: 640,
@@ -28538,6 +28578,9 @@
      * ⚠ 判定はこの 1 箇所だけ。⛔ stopAtWall の意味は変えない (反射回数だけを 0 にする)。 */
     const BOLT_BOUNCE_ON =
       new URLSearchParams(window.location.search).get("boltbounce") !== "0";
+    /* ★#71 柱2 = 壁での反射は 1 回まで。実測で 2 回目の上積みは 0 (依頼書 §2-3 腕 7)。
+     * ⛔ 増やさない (折り返しが増えても当たる敵は増えず、見栄えだけが騒がしくなる)。 */
+    const BOLT_MAX_BOUNCE = 1;
 
     function coneTilesFrom(aTX, aTY, d) {
       const tiles = [];
@@ -28692,23 +28735,60 @@
      *   敵のマスまでの列は hasLineOfSight が術者→敵で調べるマスと 1 マスも違わない (視線が通れば壁で止まる前に届く)。
      *   ⛔ 終点を L / max(|dx|,|dy|) 倍して丸めない (狙った敵のマスを外すことがある)。
      * ⚠ 撤退 (?boltaim=0) は L=3・8 方向の単位ベクトル・壁を見ない = 2026-09-16 以前の 3 マスループと同じ列。 */
-    function boltLineTiles(aTX, aTY, dx, dy, L, stopAtWall) {
+    /* ★#71 柱2 第 7 引数 maxBounces (既定 0) = 壁に当たったとき跳ね返って歩き直す回数。
+     * ⛔⛔ stopAtWall の意味は変えない。stopAtWall === true && maxBounces === 0 は
+     *   #68 の姿と 1 マスも違わない列を返す (歩数 = 起点からのチェビシェフ距離なので、
+     *   「L マス集めたら止める」は「チェビシェフ > L で打ち切る」と同値。ランダム壁 400 盤面 ×
+     *   全既約方向で不一致 0 を実測済み)。
+     * ⭐ 長さは「歩いたマス数」で数える (⛔ 起点からのチェビシェフ距離だと折り返しで永遠に止まらない)。
+     * ⭐ 反射の規則 = 横だけ変わるステップで壁なら dx 反転 / 縦だけなら dy 反転 /
+     *   斜めなら横隣が壁で dx・縦隣が壁で dy・どちらも壁でない (角) なら両方反転。折った後は
+     *   今居るマス (壁の手前) から残りの長さで歩き直す。
+     * ⭐ 垂直入射では 180° 逆走して術者の足元へ帰ってくるが、これは AD&D 1 版のライトニングボルト
+     *   そのもの (本作の LB は PT 巻き込みなし = 味方 0 ダメージ)。⛔ 逆走を抑制しない。
+     * ⭐ 折れ点は歩きながら覚えて返り値の .bends に載せる (描画はこれを読む = ⛔ 反射を計算し直さない)。 */
+    function boltLineTiles(aTX, aTY, dx, dy, L, stopAtWall, maxBounces) {
       const tiles = [];
+      const bends = [];
+      tiles.bends = bends;
       const k = Math.max(Math.abs(dx), Math.abs(dy));
       if (!(k > 0) || !(L > 0)) return tiles;
-      const m = Math.ceil(L / k);
-      const ex = aTX + dx * m, ey = aTY + dy * m;
-      const adx = Math.abs(ex - aTX), ady = Math.abs(ey - aTY);
-      const sx = aTX < ex ? 1 : -1, sy = aTY < ey ? 1 : -1;
-      let err = adx - ady;
-      let tx = aTX, ty = aTY;
-      while (tx !== ex || ty !== ey) {
-        const e2 = 2 * err;
-        if (e2 > -ady) { err -= ady; tx += sx; }
-        if (e2 <  adx) { err += adx; ty += sy; }
-        if (Math.max(Math.abs(tx - aTX), Math.abs(ty - aTY)) > L) break;
-        if (stopAtWall && isTileWall(tx, ty)) break;
-        tiles.push({ tx: tx, ty: ty });
+      const maxB = maxBounces > 0 ? maxBounces : 0;
+      let curX = aTX, curY = aTY;
+      let ddx = dx, ddy = dy;
+      let bounces = 0, guard = 0;
+      while (tiles.length < L && guard < 64) {
+        guard++;
+        const m = Math.ceil((L - tiles.length) / k);
+        const ex = curX + ddx * m, ey = curY + ddy * m;
+        const adx = Math.abs(ex - curX), ady = Math.abs(ey - curY);
+        const sx = curX < ex ? 1 : -1, sy = curY < ey ? 1 : -1;
+        let err = adx - ady;
+        let tx = curX, ty = curY, px = curX, py = curY;
+        let xch = false, ych = false, hitWall = false;
+        while ((tx !== ex || ty !== ey) && tiles.length < L) {
+          px = tx; py = ty;
+          const e2 = 2 * err;
+          if (e2 > -ady) { err -= ady; tx += sx; }
+          if (e2 <  adx) { err += adx; ty += sy; }
+          xch = (tx !== px); ych = (ty !== py);
+          if (stopAtWall && isTileWall(tx, ty)) { hitWall = true; break; }
+          tiles.push({ tx: tx, ty: ty });
+        }
+        if (!hitWall) break;
+        if (bounces >= maxB) break;
+        if (xch && !ych) { ddx = -ddx; }
+        else if (ych && !xch) { ddy = -ddy; }
+        else {
+          const wallX = isTileWall(tx, py);   // 横隣
+          const wallY = isTileWall(px, ty);   // 縦隣
+          if (wallX) ddx = -ddx;
+          if (wallY) ddy = -ddy;
+          if (!wallX && !wallY) { ddx = -ddx; ddy = -ddy; }
+        }
+        bounces++;
+        curX = px; curY = py;
+        bends.push({ tx: px, ty: py });
       }
       return tiles;
     }
@@ -28792,7 +28872,9 @@
       for (const d of rays) {
         let blocked = false;
         const lineIdxs = [];
-        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON);
+        // ★#71 柱2 = 壁で跳ね返る (?boltbounce=0 で従来どおり壁の手前で止まる)。
+        const tiles = boltLineTiles(aTX, aTY, d.dx, d.dy, boltLen, BOLT_AIM_ON,
+                                    BOLT_BOUNCE_ON ? BOLT_MAX_BOUNCE : 0);
         for (const { tx, ty } of tiles) {
           // ★[#59] 系統2/3 = 直線。素では味方が線上に居ても方向を捨てない
           //   (味方は元々 0 ダメージ)。?aoecover=0 のときだけ従来どおり棄却する。
@@ -28834,7 +28916,14 @@
       const boltEnd = BOLT_AIM_ON ? best.tiles[best.tiles.length - 1] : null;
       const endWX = boltEnd ? (boltEnd.tx + 0.5) * TILE_SIZE : aCX + best.dx * 3 * TILE_SIZE;
       const endWY = boltEnd ? (boltEnd.ty + 0.5) * TILE_SIZE : aCY + best.dy * 3 * TILE_SIZE;
-      spawnLightningBolt(aCX, aCY - 8, endWX, endWY);
+      /* ★#71 柱2 = 折れ点で曲がる折れ線を描く。頂点 = 術者 + 採った列が歩きながら覚えた折れ点 + 列の最後のマス。
+       * ⛔ ここで反射を計算し直さない (best.tiles.bends が唯一の出所)。頂点数 = 折れ点の数 + 2。 */
+      const boltPts = [{ x: aCX, y: aCY - 8 }];
+      for (const b of (best.tiles.bends || [])) {
+        boltPts.push({ x: (b.tx + 0.5) * TILE_SIZE, y: (b.ty + 0.5) * TILE_SIZE });
+      }
+      boltPts.push({ x: endWX, y: endWY });
+      spawnLightningBoltPath(boltPts);
       await sleepMs(200);
 
       const intMod = ally.int || 4;
