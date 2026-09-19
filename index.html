@@ -28530,6 +28530,14 @@
      * ⚠ 判定はこの 1 箇所だけ。ページ内で完結する (?conecast=0 と同じ流儀。sessionStorage へは写さない)。 */
     const BOLT_AIM_ON =
       new URLSearchParams(window.location.search).get("boltaim") !== "0";
+    /* ★#71 撤退スイッチ ?boltrays=0 — 候補の向きを #68 の姿 (交戦中の敵へ向けたベクトル + 視線フィルタ) へ戻す。
+     * ⚠ 判定はこの 1 箇所だけ。ページ内で完結する (?boltaim=0 と同じ流儀。sessionStorage へは写さない)。 */
+    const BOLT_RAYS_ON =
+      new URLSearchParams(window.location.search).get("boltrays") !== "0";
+    /* ★#71 撤退スイッチ ?boltbounce=0 — 稲妻の壁での反射を止め、壁の手前で止まる従来の姿へ戻す。
+     * ⚠ 判定はこの 1 箇所だけ。⛔ stopAtWall の意味は変えない (反射回数だけを 0 にする)。 */
+    const BOLT_BOUNCE_ON =
+      new URLSearchParams(window.location.search).get("boltbounce") !== "0";
 
     function coneTilesFrom(aTX, aTY, d) {
       const tiles = [];
@@ -28712,6 +28720,24 @@
       const aTX = Math.floor(aCX / TILE_SIZE);
       const aTY = Math.floor(aCY / TILE_SIZE);
       const rays = [];
+      /* ★#71 柱1 = 射程内の「全既約整数方向」を候補にする (|dx| <= L / |dy| <= L / gcd(|dx|,|dy|) === 1。L=10 で 256 本)。
+       *   並びは dy 昇順 → dx 昇順で固定するので、採用規則「敵数が最大・同数なら先勝ち」は従来どおり乱数を引かない。
+       * ⭐ 敵の居場所も視線も見ない = 壁の向こうを狙う筋も候補に入るが、列は boltLineTiles が stopAtWall で
+       *   壁の手前まで刈るので、届かない筋は敵数 0 として自然に落ちる (⛔ ここで視線を数え直さない)。
+       * ⛔ これ以上広げない (角度を細かくしても整数マスの列は増えない)。
+       * ⚠ 撤退 (?boltrays=0) は下の #68 の姿へ 1 マスも違わず戻る。 */
+      if (BOLT_RAYS_ON) {
+        for (let dy = -L; dy <= L; dy++) {
+          for (let dx = -L; dx <= L; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            let g = Math.abs(dx), h = Math.abs(dy);
+            while (h) { const r = g % h; g = h; h = r; }
+            if (g !== 1) continue;
+            rays.push({ dx: dx, dy: dy });
+          }
+        }
+        return rays;
+      }
       const seenDirs = new Set();
       for (const i of encounterEnemyIndices) {
         const e = enemies[i];
