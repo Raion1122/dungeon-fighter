@@ -36,6 +36,20 @@
 
 ## 2. 着手前の実測(起草窓が `e8f230e` の本番コードとヘッドレスで確かめた事実)
 
+> ⚠⚠⚠ **行番号の読み方(2026-09-20 に全参照を引き直した)**
+> 本節以下の行番号は **基準 `a93e0fd`**(= #71 着地後の `origin/main`)へ更新済み。
+> ⛔ **行番号は従、識別子(逐語)が主。** 着手時は必ず逐語で引き直してから使うこと。
+>
+> - `index.html` は #71 項目2(`515122f` / `a137740`)で **一律 +40** ずれた(起草時 `7dae29e` → 現在)。
+> - `tavern.html` は #71 で**ずれていない**(変更は changelog の 2 行追加 / 2 行削除で差し引き 0。**10,751 行で不変**)。
+> - ⚠ ただし `tavern.html` には **起草時からの誤りが 5 箇所**あり、2026-09-20 に訂正した
+>   (`:4622`→`:4621` / `:7428`→`:7429` / `:7850`→`:7839` / `:8800`→`:8798` / `:8801`→`:8799`)。
+>   ⭐ これは**ドリフトではなく最初から違っていた**もの。⇒ 着手時の引き直しは「動いたか」ではなく
+>   **「そもそも合っているか」**を見ること。
+> - ⭐⭐⭐ **「その語で一意に引ける」も要約である。アンカーに採る前に件数を数える。**
+>   例: `getLevelFromXP(inventory.xp)` は `tavern.html` に **8 箇所**あって一意にならない。
+>   `const lv = getLevelFromXP(inventory.xp);` まで含めて **ちょうど 1 件**。
+
 ### 2-1. ⚠⚠⚠ 実測: Lv2 の魔法使いは、11 個配分しても 1 枚も持てない
 
 ユーザー提供のスクリーンショットと**同じ配分**(スリープ 1 + ライトニングボルト 11、主人公 Lv7)を作り、
@@ -48,26 +62,36 @@
 | 4 | `["sleep","lightning-bolt"]` | `{sleep:1, lightning-bolt:5}` |
 | 7 | `["sleep","lightning-bolt"]` | `{sleep:1, lightning-bolt:9}` |
 
-落としているのは `initAllySpellSlots` の **`if (lv < lvReq) continue;`**(`index.html:13974`〜`:13975`。
-`initLeaderSpellSlots` 側は `:20035`〜`:20036`)。`continue` なので**その呪文の配分が丸ごと飛ぶ**。
-`lightning-bolt` の `levelReq: 3` は `index.html:22172`(⚠ 1 行ずつ出して確認した実測値)。
+落としているのは `initAllySpellSlots` の **`if (lv < lvReq) continue;`**(`index.html:14014`〜`:14015`。
+`initLeaderSpellSlots` 側は `:20075`〜`:20076`)。`continue` なので**その呪文の配分が丸ごと飛ぶ**。
+`lightning-bolt` の `levelReq: 3` は `index.html:22212`。
+
+⭐ **アンカー(逐語・基準 `a93e0fd`)**: `if (lv < lvReq) continue;` は `index.html` に **2 件**
+(ally 側 `:14015` / leader 側 `:20076`)。`"lightning-bolt": {` は **1 件**(`:22209`、`levelReq` は `:22212`)。
+⚠ `index.html` は**オブジェクトキー形式**なので `grep 'id: "lightning-bolt"'` は **0 件**を返す
+(`id:` 形式は `tavern.html` だけ)。⛔ 0 件を不在の根拠にしない。
 
 ⭐ **本体は正しい** —— 判定に使っているのは**その仲間自身の Lv**(`ally.level`)であって主人公 Lv ではない。
 
 ### 2-2. ⚠⚠⚠ 真の欠陥: 引き出しは「主人公の Lv」で判定している
 
-同じ関数の中に、**正しい情報と間違った情報が 43 行違いで同居**している(`tavern.html`):
+同じ関数の中に、**正しい情報と間違った情報が 41 行違いで同居**している(`tavern.html`・基準 `a93e0fd`):
 
     :8757   title.textContent = slot.name + " — " + (m.isHero ? "あなた" : (m.name || slot.name));
             ↑ m = その回に実際に来る本人 (m.level を持っている)
-    :8800   const lv = getLevelFromXP(inventory.xp);              ← ⚠ 主人公の Lv
-    :8801   const totalMax = getMaxSpellSlotsForClassTV(classKey, lv);
+    :8798   const lv = getLevelFromXP(inventory.xp);              ← ★ 真因はこの 1 行 (主人公の Lv)
+    :8799   const totalMax = getMaxSpellSlotsForClassTV(classKey, lv);
+    :8800   const arr = Array.isArray(selection.partySkills[classKey]) ? selection.partySkills[classKey] : [];
+    :8801   const totalUsed = isAutoSlotClassTV(classKey) ? totalMax : arr.length;
     :8802   magics.forEach(sk => listEl.appendChild(renderSpellSlotItem(sk, classKey, totalUsed, totalMax, lv)));
 
 `renderSpellSlotItem`(`:7404`)は受け取った `currentLv` で
-`const lvOk = currentLv >= (sk.levelReq || 1);` を判定し、偽なら `.full`(選択不可)+ `[LvN 必要]` の赤バッジを出す(`:7428`)。
+`const lvOk = currentLv >= lvReq;`(**`:7411`**)を判定し、偽なら `.full`(選択不可)+ `[LvN 必要]` の赤バッジを出す
+(**`:7429`** の `const lvLock = !lvOk ? ... [Lv${lvReq} 必要] ... : "";`)。
 ⇒ **主人公が Lv7 なら、Lv2 の仲間の行にも `[Lv3 必要]` が出ず、11 個置けてしまう。**
-もう 1 つの呼び口 `:7850` も同じく `getLevelFromXP(inventory.xp)`。
+もう 1 つの判定は **`:7839`** の `const playerLv = getLevelFromXP(inventory.xp);`。
+⚠ 起草時に書いた `:7850` は**その値を受け取る `renderSpellSlotItem` の呼び口**であって判定行ではない
+(2026-09-20 に逐語で引き直して訂正)。
 
 ⭐ **正しい関数は既にある**: `memberLevelOf(classKey)`(`tavern.html:4850`)。準備画面の表示 Lv はこちらを使っており、
 コメント(`:4835`)にも「準備画面が表示 Lv を引くとき」と明記されている。**引き出しだけが主人公 Lv を見ている。**
@@ -96,7 +120,7 @@
 ### 2-5. ⚠⚠ 名前は職業と無関係な共有プールから引かれる(= 同名・別職が生まれる)
 
     tavern.html:4584  const NPC_NAMES = [ ... 16 名 ... ];        // ⚠ 職業と無関係な共有プール
-    tavern.html:4622  function pickUniqueName(usedSet) { ... }    // ⚠ 一意なのは **1 編成の中だけ**
+    tavern.html:4621  function pickUniqueName(usedSet) { ... }    // ⚠ 一意なのは **1 編成の中だけ**
     tavern.html:4627  function makeNpcMember(classKey, usedSet) { ... name: pickUniqueName(usedSet) ... }
 
 ⇒ 別の回・別の職に同じ名前が付く。⚠ これが効いている既知の穴が **2 つ**:
@@ -123,8 +147,9 @@
 - `scripts/hooks/check_changelog.py:24` `GAME_LOGIC = ("index.html","tavern.html","audio.js")` ⇒ **鳴る**(`tavern.html` を触る)。
   書けるプレイヤー向けの要約は実在する(§10)。
 - `tavern.html` は**純 CRLF**(⛔ 改行を `grep` で測らない。`py` のバイト数えで確認すること)。
-- ポート: #71 が **10371〜10383** を予約済み、起草窓のプローブが 10391 を使用 ⇒ 本チケットの新規ドライバは **base 10401**
-  (変異 10402〜10413)。⚠ 着手時に空きを再確認する。
+- ポート: #71 が **10371〜10383** を使用済み、起草窓の #72 プローブが **10391 帯**を使用済み ⇒ 本チケットの
+  新規ドライバは **base 10401**(変異 10402〜10413)。⚠ 着手時に空きを再確認する。
+  ⭐ #71 項目5 の申し送り: **10401 の次に空くのは 10411 以降**。⛔ 10391 を空きとして再利用しない。
 
 ---
 
@@ -134,7 +159,7 @@
 |---|---|
 | `tavern.html` | 柱1 表示(カード / 引き出し見出し / 声掛け)・柱2 判定 Lv の是正・柱3 名前プールの職業別化・changelog |
 | `tools/verify_member_identity.js` | 新規(base 10401) |
-| `実装依頼書/README.md` | ⛔ #71 着地後に #72 行を足す(文面は §11) |
+| `実装依頼書/README.md` | ✅ **2026-09-20 に起草窓が #72 行を追加済み**(#71 着地により制約は解除)|
 
 ⛔ `index.html` は触らない(§2-1 で本体側は正しいと確認済み)。⛔ `js/recruit-candidates.js` と
 `js/mercenary-roster.js` は**読むだけ**に留める(保存形を変えない。§5-3 参照)。
@@ -143,7 +168,7 @@
 
 ## 4. STEP1 — 着手前の基準取り(本番も tools も 1 バイトも触らない)
 
-1. `git log --oneline -1` / `git status --short` を記録。**#71 が着地していること**を確認する。
+1. `git log --oneline -1` / `git status --short` を記録。**#71 は 2026-09-20 に着地済み**(`a93e0fd` = `origin/main`)。
 2. 母集団を 3 段の union で導出(⛔ 本数を定数で焼かない):
    - 触る語 — `grep -ln "pmDrawer\|pmName\|pmClass\|renderSpellSlotItem\|memberLevelOf\|NPC_NAMES\|pickUniqueName\|DFRecruits\|DFRoster" tools/*.js`
    - `tavern.html` を読む本
@@ -167,10 +192,16 @@
 
 ### 5-2. 柱2: 引き出しの判定 Lv を本人へ(撤退 `?drawerlv=0`)
 
-`tavern.html:8800` と `:7850` の **2 箇所**:
+**`tavern.html:8798` と `:7839` の 2 箇所**(⚠ 起草時は `:8800` / `:7850` と書いていたが、
+**どちらも判定行ではなかった**。2026-09-20 に逐語で引き直して訂正):
 
-    const lv = getLevelFromXP(inventory.xp);      // 変更前
-    const lv = memberLevelOf(classKey);           // 変更後 (⚠ 主人公なら memberLevelOf が主人公 Lv を返す)
+    :8798   const lv       = getLevelFromXP(inventory.xp);   // 変更前 ← アンカー (この逐語で 1 件)
+            const lv       = memberLevelOf(classKey);        // 変更後
+    :7839   const playerLv = getLevelFromXP(inventory.xp);   // 変更前 ← アンカー (この逐語で 1 件)
+            const playerLv = memberLevelOf(slot.classKey);   // 変更後
+
+⚠ `:7839` 側の引数は周辺が使っている **`slot.classKey`**(`:7831` / `:7850` で実測)。`:8798` 側は `classKey`。
+⚠ 主人公なら `memberLevelOf` が `getLevelFromXP(inventory.xp)` を返すので、**主人公の挙動は不変**。
 
 - ⚠ `memberLevelOf`(`:4850`)は「主人公なら `getLevelFromXP(inventory.xp)`、NPC なら clamp 済の本人 Lv」を返す
   ⇒ **主人公が呪文職のときの挙動は 1 ビットも変わらない**(これを §8 の恒等 assert にする)。
@@ -320,7 +351,7 @@
 - ⛔ **Lv 不足の呪文を一覧から消す**(§1 の不採用理由)。
 - ⛔ **既存の名簿データの移行**(§5-3)。
 - ⛔ **`DEFAULT_KNOWN.mage` にライトニングボルトを足す**(スクロール設計と衝突する。必要になれば別チケットで諮る)。
-- ⛔ **`実装依頼書/README.md` の #72 行**は #71 着地後に足す。文面:
+- ✅ **`実装依頼書/README.md` の #72 行は 2026-09-20 に起草窓が追加済み**(#71 が `a93e0fd` で着地したため)。起草時の文面は下記(⚠ 実際に足した行は「承認済・着手可」と行番号の注記を加えた版):
 
       | 72 | [2026-09-19_member-identity-level.md](2026-09-19_member-identity-level.md) | 起草(未承認) | 0% | 誰が来るのか分かるようにする。マッチングのカード・引き出しの見出し・声掛けに **名前/職業/Lv** を出す + 引き出しの Lv 判定を**主人公 Lv から本人の Lv へ**(⚠⚠⚠ 実測: 仲間が Lv2 だと 11 個配分しても `equippedSkills` が `["sleep"]` になり LB が丸ごと消える)+ **名前とジョブを固定**(⚠ 同名別職が `DFRecruits` の名前キーを壊していた)。撤退 `?whois=0` / `?drawerlv=0` / `?namejob=0`。受入 `tools/verify_member_identity.js`(base 10401) |
 
