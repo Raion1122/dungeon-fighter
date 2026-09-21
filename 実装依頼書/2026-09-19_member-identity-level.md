@@ -638,3 +638,134 @@
 6. ポート: プローブは **10414 / 10415 / 10416 / 10417 / 10418** を使い、全部解放済み。`tools/*.js` に `1040x`〜`1042x` の先客は無い
    (⚠ 10401〜10413 は項目4 の予約)。
 7. 既知フレーク **9 本**・既知の赤は `baseline72.tsv` の非 0 exit の腕で突き合わせる(散文の一覧を使わない)。
+
+---
+
+### 12-0 追補(項目2a / 2026-09-21・実装窓 セッション `b34987cb-…`)— 柱2 + (α)(β)(γ) + 撤退 `?drawerlv=0`
+
+⭐ 行番号は **本コミット後の `tavern.html`**(純 CRLF・10,848 行・bare LF 0・bare CR 0 を `py` のバイト数えで確認)。⛔ 使う前に逐語で引き直すこと。
+変更ファイル = `tavern.html` + 本 `.md` のみ(`index.html` / `js/` / `tools/` は 1 バイトも触っていない)。changelog = §10 の 2 行目を `py tools/add_changelog.py` で追加。
+
+#### (1) 撤退スイッチ `?drawerlv=0`
+
+- 判定の逐語 = `try { return new URLSearchParams(location.search).get("drawerlv") !== "0"; }` — **1 件**(`:4500`。関数 `function isDrawerLvOn() {` `:4499`)。
+  const に畳まず呼ぶたびに URL を読む(`isPatronLabelOn` / `isHoldPairOnTV` と同じ TDZ 回避の作法)。
+- `isDrawerLvOn()` の出現 = **6 件**: 定義 `:4499` / (α) の撤退 `:4511` `if (!isDrawerLvOn()) {` / `skillLimitForClass` `:4904` /
+  準備画面の判定 `:7885` / (β) の有効条件 `:8021` `function isEarlyLevelOn() { return isDrawerLvOn(); }` / 引き出しの判定 `:8891`。
+- 0 で戻るもの = (α)(β)(γ) の 3 つとも。⭐ 実測: 着手前 `0e8370d` の `tavern.html` を CRLF に戻して影の配信(`/__base__/tavern.html`)したページと
+  `?drawerlv=0` の現行ページで、全カードの引き出し innerHTML・カード列 innerHTML・`JSON.stringify(selection)`(新顔の level 無し)・
+  `JSON.stringify(MAGE_SKILLS_UI)` が **完全一致**(probe ident (d) 名簿の魔法使い Lv2 + 新顔 2 人 / (d2) 同職 2 人)。
+  比較器の負の対照 = スイッチ ON では同じ盤面で食い違う(d-neg)。影の配信は影のページに新ヘルパが無いことで確認(0c-ident)。
+
+#### (2) ヘルパ(Lv の引き方を 1 つの口へ)
+
+| ヘルパ | 行 | 中身 |
+|---|---|---|
+| `levelOfMember(m)` | `:4877` | 主人公 → `getLevelFromXP(inventory.xp)` / NPC で数値 level → `clampCompanionLevel(level, 主人公 Lv)` / 未確定・m 無し → 主人公 Lv(= 0e8370d の `memberLevelOf` 後半そのまま) |
+| `memberLevelOf(classKey)` | `:4885` | `return levelOfMember(ms.find(x => x && x.classKey === classKey));` へ委譲して残す(`verify_mercenary_roster (2e)(2z3)` が職キーで呼ぶ)。0e8370d の実装を写した旧版とランダム編成 2,000 通り × 6 職 × 3 腕で **食い違い 0**(probe sample (i)) |
+| `lowestLevelOfClass(classKey)` | `:4896` | (γ) その職の `levelOfMember` の最小。その職が居なければ主人公 Lv |
+| `skillLimitForClass(classKey)` | `:4903` | `skillSlotsForLevel(isDrawerLvOn() ? lowestLevelOfClass(classKey) : memberLevelOf(classKey))` |
+
+- ⭐ **`skillLimitForClass` を最低 Lv 側へ寄せた理由**: 本体 `index.html` は技(非呪文)も同職の全員へ同じ `partySkills[classKey]` を渡し、
+  **各自の Lv で** `slice(0, skillSlotsForLevel(ally.level || headLevel))` する(`index.html:35079`〜`:35081` / `:35117`)。
+  ⇒ 先頭 1 人の Lv で枠を出すと、低 Lv の同職は後ろの技を出撃で黙って失う = 呪文と同じ型。(γ) の「置いたものは全員が必ず持てる」と整合させた。
+  単独の職では `lowestLevelOfClass` = `memberLevelOf` なので値は変わらない。実測 (probe core f4): 主人公の戦士 Lv7 + 仲間の戦士 Lv2 →
+  両カードとも `スキル (3/1)`(`?drawerlv=0` で `(3/4)`)。⚠ 既に上限を超えて置かれている技は消さない(`3/1` のまま表示・外せる)。
+- `clampCompanionLevel` の呼び口コメント(`:4856`)の ② を `levelOfMember()` へ書き換えた(呼ぶのは assignCompanionLevels と levelOfMember の 2 つ)。
+
+#### (3) 判定 2 箇所(実装後の逐語)
+
+- 引き出し `function pmRenderDrawer(idx)`(`:8831`): `const lv = isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp);` `:8891`(1 件)。
+  直後の `const totalMax = getMaxSpellSlotsForClassTV(classKey, lv);` も同じ Lv = **枠の上限も最低 Lv 基準**。
+- 準備画面 `function renderCharLoadout()`(`:7822`): `const playerLv = isDrawerLvOn() ? lowestLevelOfClass(slot.classKey) : getLevelFromXP(inventory.xp);` `:7885`(1 件)。
+  見えるのは `?prepskip=0` だけ(probe prep: LB `[Lv3 必要]` + `.full`・`&drawerlv=0` で出ない)。
+- 旧逐語 `const lv = getLevelFromXP(inventory.xp);` / `const playerLv = getLevelFromXP(inventory.xp);` は **0 件**。
+  `getLevelFromXP(inventory.xp)` は 8 → **9 件**(`:4878` levelOfMember / `:7667` apEquippedIdsFor / `:7885` / `:8031` fixCompanionLevelsEarly /
+  `:8072` 出発 / `:8175` 自動デバッグ / `:8891` / `:9707` `:9984` 闇市)。
+
+#### (4) (α) 呪文表の levelReq 同期
+
+- `MAGE_SKILLS_UI` の 3 行へ `levelReq`: fireball **3**(`:4488`)/ lightning-bolt **3**(`:4489`)/ cone-of-cold **5**(`:4490`)。
+  本体の値は `index.html` の `"fireball": {` `:22202`(`levelReq: 3` `:22205`)/ `"lightning-bolt": {` `:22209`(`:22212`)/ `"cone-of-cold": {` `:22216`(`:22219`)で実測。
+- 撤退 = `:4511` `if (!isDrawerLvOn()) {` … `delete s.levelReq;`(isHoldPairOnTV と同じ「行に新しい値・撤退で戻す」作法)。
+- ⭐ **`.levelReq` の読み手の全数**: `tavern.html` は `renderSpellSlotItem` の `const lvReq = sk.levelReq || 1;`(`:7455`)**1 件だけ**
+  (`lvReq|levelReq` の grep は表の行・#59 のコメント・この 1 行のみ)。`js/*.js` は **0 件**(`levelReq` / `skillPool` / `SKILLS_UI` / `mpCost` いずれも 0)。
+  skill オブジェクトを返す `getSkillTV`(`:5347`)の呼び手は `.name` しか読まない / `apEquippedIdsFor`・`pmEquippedSkillNames`・`loadSelections` の validIds は
+  id だけ ⇒ **自動装備・行動の優先度の候補・保存の読み込みは不変**。
+- 影響: `renderSpellSlotItem` を呼ぶ 2 箇所(引き出し / 準備画面)で、判定 Lv が 3 未満なら LB・ファイアボール、5 未満ならコーンオブコールドの行に
+  `[LvN 必要]` + `.full` + ＋無効。⚠ **主人公の魔法使い本人にも効く**(主人公 Lv1 では主人公の 1 枚だけが変わる = probe ident (c-info))。
+  本体の `initLeaderSpellSlots` も同じ `if (lv < lvReq) continue;` なので是正の向き。
+- ⚠ 既知: `verify_bolt_aim.js:162`〜`:165` の変異 `flavor3` が LB 行を 1 行まるごと握っているので、`--negative` は **exit 3**
+  (2.0 秒・§0e のアンカー検算で停止 = 他の 9 変異も走らない)。⛔ 本項目では直していない(項目3)。
+
+#### (5) (β) 新顔の Lv をマッチング画面で決める
+
+- ヘルパ(`:8009`〜`:8050`): `function isEarlyLevelOn() { return isDrawerLvOn(); }`(`:8021` = **有効条件の唯一の口**。項目2b が `?whois` を足すときはここを広げる)/
+  `let earlyLvQuest = null;`(`:8022`)/ `let earlyLvByPerson = new Map();`(`:8023`)/ `const earlyLvFixed = new WeakSet();`(`:8024`)/
+  `function earlyQuestKeyOf(sc, questLevel)`(`:8025`・鍵 = `[sc.id, sc.place, sc.title, questLevel].join("|")`)/ `function fixCompanionLevelsEarly(sc)`(`:8028`)。
+- 抽選は **`assignCompanionLevels()` そのもの**(同じ帯・同じ clamp。写しを作らない)。振るのは「level を持たない非主人公」だけ
+  (名簿の顔 = mercId + level と、level を持って来た顔 = 検証の仕込みには触らない ⇒ `verify_party_match_setup (5a)` の「selection が 1 バイトも変わらない」も生存)。
+  「職|名前」で覚え、同じ依頼なら覚えた Lv を返す。依頼の鍵が変われば覚えを捨てて振り直す(自分で決めた顔も振り直す)。
+- 呼び口 = 2 件: `function playPartyMatchCinematic(sc, opts)`(`:9208`)の `fixCompanionLevelsEarly(sc);`(`:9247`・カードを描く前・review でも呼ぶ)/
+  `pmRebuildRef`(募集のかけ直し)の `:9431`(probe reroll: `?recruittalk=0` の「📣 募集をかけ直す」で作り直した新顔にも Lv)。出発では呼ばない。
+- 出発 `function departToScenario(autoplayOverride)`(`:8053`):
+  `const toRoll = isEarlyLevelOn() ? selection.partyMembers.filter(m => !earlyLvFixed.has(m)) : selection.partyMembers;`(`:8074`)→
+  `assignCompanionLevels(toRoll, questLevelOf(prepScenario, heroLv), heroLv);`(`:8075`)。名簿登録(`DFRoster.enroll`)は従来どおりこの **後**。
+  マッチング画面を通らずに `departToScenario()` を直に呼ぶ既存ドライバでは WeakSet が空 ⇒ 全員を従来どおり振る(乱数の消費も同じ)。
+  自動デバッグ `:8176` `assignCompanionLevels(selection.partyMembers, heroLv, heroLv);` は無改変。
+- 目印 = **ページの中の WeakSet と Map だけ**(⛔ member へフィールドを足していない)。保存形の実測(probe beta (g1)〜(g4)):
+  出発で焼かれる `sessionStorage` `dragonfighters.partyMembers` の各メンバーのキー集合 = 着手前と同じ(主人公 `classKey,isHero,level,line,name,trait,variant,zone` / NPC は + `mercId`)・
+  名簿 `dragonfighters.mercRoster` の各人 = `classKey,id,level,line,name,runs,trait,variant`(着手前と同じ)・同行候補 `dragonfighters.recruitCandidates` は
+  マッチング画面を 4 回開いても **1 バイトも変わらない**・マッチング画面の時点の member のキー = 同行候補のキー + `level` だけ。
+- 本番の `openPrep` 経路の実測(probe beta・主人公 Lv7): 画面の時点で新顔 3 人に Lv(bandits-forest = tier1 [2,4])→ 酒場へ戻って同じ依頼を 2 回受け直しても
+  3 回とも同じ Lv → 別の依頼(lizard-swamp = tier2、Lv7 で clamp ⇒ [5,7])で振り直し → 出発後の sessionStorage と名簿の Lv = 画面の Lv。
+- ⚠ 覚えはこのページの中だけ。酒場を出て(街/地図へ)戻ってから同じ依頼を受けると振り直される(同じ訪問の中で #60 の「酒場へ戻る」から受け直す限りは振り直さない)。
+  ⇒ ユーザー決定の文言は満たすが、ページ遷移をまたぐ持ち越しは作っていない(保存キーを増やさないため)。⚠ 鍵は 1 つだけ: A → B → A と受け直すと A も振り直し。
+
+#### (6) (γ) 同職は最も低い Lv(probe core)
+
+- 主人公の魔法使い Lv7 + 仲間 Lv2 → **両方**のカードで LB `[Lv3 必要]`・上限 4(f1)/ 仲間 Lv2 と Lv4 → Lv4 の人の引き出しでも `[Lv3 必要]`(f2)/
+  主人公 Lv7 + 仲間 Lv4 → LB は置けるがアイスストームは両方で `[Lv7 必要]`(f3)/ 戦士 2 人 → 技の枠 `(3/1)`(f4)。`?drawerlv=0` では全部主人公 Lv7(f1-off / f4 off)。
+
+#### (7) `apEquippedIdsFor`(`:7665`・僧侶)— ⛔ 触っていない(判断を親へ)
+
+- `:7667` `const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));` は **同じ欠陥**(主人公 Lv で僧侶の自動配分を引く)。効く先 = 引き出しの傾向段の候補と、
+  カードの「技」行(`pmEquippedSkillNames` `:8736` が流用)。仲間の僧侶 Lv2 × 主人公 Lv7 なら、その人が持たない Lv3+ の呪文(ターンアンデッド / ホールド・パーソン /
+  ストライキング / キュア・モデレート)が候補とカードに出る。一方で引き出しの行(`renderSpellSlotItem`)は本項目で Lv2 判定になった ⇒ **同じ画面で行とカードが食い違う**。
+- 直すなら 1 行(`getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp))`)。⚠ 準備画面の行動の優先度 (#19) も読むので
+  `driver_action_priority` 等を母集団へ足して測る必要がある ⇒ 本項目の範囲外として親へ。
+
+#### (8) 受入プローブ(`scratchpad/item2a/probe72_2a.js`・ポート 10421〜10426・全部解放済み)
+
+| mode | port | 結果 | 見たもの |
+|---|---|---|---|
+| core | 10421 | **15/15** | (a-new) マッチングで**実際に振られた**新顔 Lv2 で LB `[Lv3 必要]` + `.full` + ＋無効・押しても増えない / (a-roster) 名簿の顔 level=2 も同じ / (b) 振られた Lv4・名簿 Lv3 なら置ける / (2e) Lv2 の上限 4 で＋無効(主人公 Lv7 なら 10)/ review と出発で振り直さない(出発後 level=2)/ (f1)〜(f4) / off の腕は欠陥の再現 |
+| ident | 10422 | **8/8** | (c) 主人公だけの魔法使い(仲間は非呪文職)で 4 枚全部が 0e8370d と完全一致(Lv7 / Lv5)/ (c-npc) 仲間の僧侶・エルフ Lv2 の 2 枚だけが変わる / (c-info) 主人公 Lv1 は (α) で主人公の 1 枚が変わる / (d)(d2) `?drawerlv=0` 完全一致 / (d-neg) |
+| beta | 10423 | **11/11** | 本番の `openPrep` → 酒場へ戻る → 受け直し → 出発((5) の実測)/ (e-off) 影と off は従来どおり出発で振る / (g1)〜(g4) 保存形 |
+| sample | 10424 | **5/5** | (h) 8 依頼 × 600 回 × 主人公 Lv10 / Lv3 で値の集合 = §2-3 の BAND ∩ ≤主人公 Lv(tier1 {2,3,4} / tier2 {5..8} / tier3 {9,10} / tier4 {10}・Lv3 は clamp)/ 3 人が独立に振られる(全員同じ 91/900 = 0.101 ≒ 1/9)/ off では 1 人も振らない / (i) memberLevelOf 恒等 |
+| prep | 10425 | **1/1** | `?prepskip=0` の準備画面でも LB `[Lv3 必要]`・`&drawerlv=0` で出ない |
+| reroll | 10426 | **1/1** | `?recruittalk=0` の「📣 募集をかけ直す」で作り直した新顔にもカードを描く前に Lv |
+
+- ⚠ 測定の罠(1 件): `page.setRequestInterception` の `abort()` を既定(`'failed'`)のままにすると、出発の遷移がエラーページへ差し替わり `sessionStorage` が null で読める
+  ⇒ `abort('aborted')`(`verify_recruit_size` と同じ作法)で直した。
+
+#### (9) 既存 golden の色(`scratchpad/item2a/golden2a.tsv`・比較器 = 項目1 の `gate72.py --pair`・基準 = `item1/baseline72.tsv`)
+
+| 本 | 腕 | 色 | 基準との突き合わせ |
+|---|---|---|---|
+| verify_mercenary_roster | 素 | 44/44 exit 0 | id 指紋 44=44 / 判定行 44=44 **差 0** |
+| verify_mercenary_roster | --negative | exit 0(10 本とも赤) | 440=440 **差 0** |
+| verify_recruit_size | 素 | 91/91 exit 0 | **差 0** |
+| sweep_recruit_balance | 素 | exit 1(装置 assert 崩れ 4/4) | **基準と同じ赤**(同じ 4 行 `4_partySize(got=1 …)` / `2_recruitCountOf(got=3 want=2)`)。比較器の盲点の腕 = 総括行で突き合わせ |
+| verify_bolt_aim | --negative | **exit 3**(§0e で `flavor3` のアンカー腐敗) | **想定内の赤**(本項目 (α) が LB 行を書き換えた)。⛔ 直していない = 項目3 |
+| verify_party_match_setup | 素 | 36/36 | **差 0** |
+| verify_pm_drawer_fit | 素 | 75/79 PENDING 4 | **差 0** |
+| verify_darkvision / verify_spell_off / driver_party_view_reopen / verify_recruit_talk / verify_party_promises | 素 | 25/25・51/51・35/35・25/25・35/35 | 全部 **差 0** |
+
+#### (10) 崩れた主張 — 項目2a で新たに **3 件**
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | §5-2「主人公なら `memberLevelOf` が主人公 Lv を返す ⇒ 主人公が呪文職のときの挙動は 1 ビットも変わらない」/ §8 (2d) | ユーザー決定 (α)(γ) の後は**条件付き**。(α) で主人公の魔法使い Lv1〜2 は LB・ファイアボール、Lv1〜4 はコーンオブコールドに `[LvN 必要]` が出る(ident (c-info))。(γ) で同職の仲間が低 Lv なら主人公の引き出しも縛られる(core f1)。⇒ 恒等は「主人公 Lv ≥ 5(コーンオブコールド未習得なら ≥ 3)かつ同職の仲間なし」でだけ成り立つ(ident (c)(c2) はこの条件で 4 枚完全一致) |
+| 2 | 項目2a の指示 (c)「主人公だけの魔法使い(同職の仲間なし)の引き出し DOM が着手前とテキスト完全一致」 | 主人公の 1 枚は一致するが、**同じ画面の仲間の僧侶・エルフ**の引き出しは変わる(柱2 は魔法使い専用ではなく呪文職の NPC 全員に効く)⇒ 全枚一致は仲間を非呪文職にした腕でだけ成り立つ(ident (c) / (c-npc)) |
+| 3 | §1 / §2 / §8 は LB(魔法使い)だけを受入に挙げている | 同じ是正が僧侶・エルフの NPC にも出る: エルフ Lv2 は枠 2(`SPELL_SLOT_CURVE_ELF[2]`)なので既定配分 3 個で＋が全部無効 / 僧侶 Lv2 はターンアンデッド・ホールド・パーソンに `[Lv3 必要]`(ident (c-npc))。本体の切り方と一致する是正だが §8 に名前が無い = 項目4 の受入の空白地帯候補 |

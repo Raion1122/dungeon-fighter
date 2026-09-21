@@ -3318,10 +3318,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。</li>
         <li><b>ライトニングボルトが壁で跳ね返る</b> — 狭い坑道では稲妻が壁を蹴って折れ、物陰の敵にも届く。</li>
         <li><b>魔法使いが稲妻を撃てる場面が増えた</b> — 敵の真正面が塞がっていても、斜めに通る筋を探して撃つ。</li>
         <li><b>使わない魔法・特技がひと目で分かるように</b> — マッチング画面の設定で、個数 0 や外した技に「使わない」と出る。僧侶も呪文ごとに使わないを選べる。スリープを 0 にしても戻らず、高 Lv の魔法使いの配分も減らなくなった。</li>
-        <li><b>ホールド・パーソンが 2 体に掛かるように</b> — 僧侶の金縛りが、狙った敵のすぐ近くにいるもう 1 体にも掛かる。抵抗は 1 体ずつ判定し、結果はそれぞれの敵の頭上に出る。</li>
       </ul>
     </div>
     <script>
@@ -4485,13 +4485,34 @@
     { id: "sleep",          name: "スリープ",       category: "妨害", range: "spellAoE", mpCost: 6, flavor: "命中で敵を 2T 眠らせる" },
     { id: "arcane-shield",  name: "アーケイン・シールド", category: "防御", range: "self", mpCost: 3, flavor: "自分に AC +4 (3T)" },
     // Phase 2-I: 新規 3 呪文 (派手 fx + 動的光源、PT 巻き込みなし)
-    { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "spellAoE",   mpCost: 7, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
-    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
-    { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
+    { id: "fireball",       name: "ファイアボール",   category: "攻撃", range: "spellAoE",   mpCost: 7, levelReq: 3, flavor: "3x3 範囲 5d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, levelReq: 3, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },
+    { id: "cone-of-cold",   name: "コーンオブコールド", category: "攻撃", range: "medium", mpCost: 8, levelReq: 5, flavor: "前方円錐 4d6 冷気 + 凍結 1T (CON セーヴ半減)、PT 巻き込みなし" },
     { id: "burning-hands",  name: "バーニングハンズ", category: "攻撃", range: "medium", mpCost: 4, levelReq: 1, flavor: "前方円錐 3d6+INT 火炎 (DEX セーヴ半減)、PT 巻き込みなし" },
     // STEP2: アイスストーム (5x5 範囲 + 鈍足)
     { id: "ice-storm",      name: "アイスストーム",   category: "攻撃", range: "spellAoE",   mpCost: 9, levelReq: 7, flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減)、PT 巻き込みなし" },
   ];
+  /* ★[#72 §5-2] 撤退スイッチ ?drawerlv=0 — 引き出しの Lv 判定 (柱2) を着手前 (0e8370d) の姿へ戻す。
+     戻るのは 3 つとも: (α) 下の呪文表の levelReq 同期 / (β) 新顔の Lv をマッチング画面で決める
+     (fixCompanionLevelsEarly) / (γ) 同職は最も低い Lv で縛る (lowestLevelOfClass)。
+     ⚠ const に畳まない。呼ぶたびに URL を読む (isPatronLabelOn / isHoldPairOnTV と同じ TDZ 回避の作法)。 */
+  function isDrawerLvOn() {
+    try { return new URLSearchParams(location.search).get("drawerlv") !== "0"; }
+    catch (e) { return true; }
+  }
+  /* ★[#72 §5-2 (α)] 上の fireball / lightning-bolt / cone-of-cold の levelReq (3 / 3 / 5) は
+     本体 index.html の MAGE_SKILLS と同値 (2026-09-21 ユーザー決定)。
+     ⚠⚠ 酒場の鏡だけが d433c3b 以来この 3 つを持っていなかった ⇒ renderSpellSlotItem の
+       `sk.levelReq || 1` で常に Lv1 扱いになり、[LvN 必要] が一度も出ないまま置けてしまい、
+       出撃すると本体の initAllySpellSlots が配分ごと黙って捨てていた (依頼書 §12-0 (7))。
+     ⭐ .levelReq を読むのは酒場では renderSpellSlotItem の 1 箇所だけ (js/ は 0 件)。
+     ⚠ 撤退 ?drawerlv=0 では 3 行から levelReq を外して足す前 (0e8370d) の姿へ戻す
+       (isHoldPairOnTV と同じ「新しい値を行に書き、撤退で戻す」作法)。 */
+  if (!isDrawerLvOn()) {
+    MAGE_SKILLS_UI.forEach(function (s) {
+      if (s.id === "fireball" || s.id === "lightning-bolt" || s.id === "cone-of-cold") delete s.levelReq;
+    });
+  }
   // ドワーフスキル (index.html DWARF_SKILLS と同期)
   const DWARF_SKILLS_UI = [
     // ── classes.md 仕様 攻撃系 3 ──
@@ -4832,7 +4853,7 @@
   /* 仲間 (NPC) の Lv を「主人公 Lv 以下・10 以下」に収める **唯一の口** (傭兵名簿 #38 項目2)。
      ⭐ 呼ぶのは 2 箇所だけ:
         ① assignCompanionLevels()  … 出発時に実 Lv を確定するとき
-        ② memberLevelOf()          … 準備画面が表示 Lv (= スキルスロット数) を引くとき
+        ② levelOfMember()          … 準備画面・引き出しが Lv を引くとき (★[#72] memberLevelOf / lowestLevelOfClass もここ経由)
      ⚠⚠ ② が要る理由: DFRoster.recordRun() は生還のたびに名簿の Lv を上げるが、**主人公 Lv では
         clamp しない** (名簿には主人公 Lv を超えた値を保存してよい —— 主人公が育てば追いつく)。
         そのため pickCompanion() が名簿の Lv を載せた瞬間から assignCompanionLevels() が
@@ -4846,18 +4867,42 @@
     const lv = Math.floor(Number(level));
     return Math.max(1, Math.min(cap, isFinite(lv) && lv > 0 ? lv : 1));
   }
-  // クラス → そのパーティメンバーのレベル (主人公=永続XP由来 / NPC=ティア帯Lv)
-  function memberLevelOf(classKey) {
-    const ms = (typeof selection !== "undefined" && selection && selection.partyMembers) || [];
-    const m = ms.find(x => x && x.classKey === classKey);
+  /* ★[#72 §5-2] メンバー本人 → その人の Lv。**Lv の引き方の唯一の口**。
+       主人公             … 永続 XP 由来 (getLevelFromXP)
+       NPC で数値の level … clampCompanionLevel(level, 主人公 Lv) (出発時と同じ関数)
+       未確定 / m が無い  … 主人公 Lv へフォールバック
+     ⭐ memberLevelOf(classKey) はここへ委譲するだけで残す (職で先頭 1 人を引く従来の口。
+       tools/verify_mercenary_roster.js の (2e)(2z3) が職キーで呼ぶ)。
+     ⚠ 中身は 0e8370d の memberLevelOf の後半そのまま ⇒ memberLevelOf の値は 1 ビットも変わらない。 */
+  function levelOfMember(m) {
     const heroLv = getLevelFromXP(inventory.xp);
     if (m && m.isHero) return heroLv;
     // ⚠ 名簿の Lv が主人公 Lv を超えていることがあるので、出発時と **同じ関数** で clamp して返す。
     if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);
     return heroLv;   // 未確定は主人公Lvにフォールバック
   }
-  // クラス別スキルスロット上限 (Lv 連動)
-  function skillLimitForClass(classKey) { return skillSlotsForLevel(memberLevelOf(classKey)); }
+  // クラス → そのパーティメンバーのレベル (主人公=永続XP由来 / NPC=ティア帯Lv)
+  function memberLevelOf(classKey) {
+    const ms = (typeof selection !== "undefined" && selection && selection.partyMembers) || [];
+    return levelOfMember(ms.find(x => x && x.classKey === classKey));
+  }
+  /* ★[#72 §5-2 (γ)] その職の **最も低い** Lv (2026-09-21 ユーザー決定)。
+     同じ職が 2 人以上いるとき、引き出しの判定 Lv と枠の上限 (呪文も技も) はこれで縛る
+     = 置いたものは全員が必ず持てる。⚠ 主人公 Lv7 + 仲間の魔法使い Lv2 なら主人公も LB を置けない (承知済み)。
+     ⭐ 本体 index.html は同職の全員へ同じ partySkills[classKey] を渡し、各自の Lv で切る
+       (呪文 = initAllySpellSlots の `if (lv < lvReq) continue;` / 技 = slice(0, skillSlotsForLevel(ally.level)))。
+       ⇒ 最も低い人に合わせておけば、誰の分も出撃で黙って切られない。
+     ⚠ その職が編成に居なければ memberLevelOf と同じく主人公 Lv。 */
+  function lowestLevelOfClass(classKey) {
+    const ms = (typeof selection !== "undefined" && selection && selection.partyMembers) || [];
+    const same = ms.filter(x => x && x.classKey === classKey);
+    if (!same.length) return levelOfMember(null);
+    return Math.min.apply(null, same.map(levelOfMember));
+  }
+  // クラス別スキルスロット上限 (Lv 連動)。★[#72 (γ)] 同職が複数なら最も低い Lv で縛る (撤退 ?drawerlv=0 で従来の先頭 1 人)。
+  function skillLimitForClass(classKey) {
+    return skillSlotsForLevel(isDrawerLvOn() ? lowestLevelOfClass(classKey) : memberLevelOf(classKey));
+  }
   const inventory = loadInventory();
 
   // ══════════════════════════════════════════════════════════════
@@ -7836,7 +7881,8 @@
     renderSkillSubsection(skillListEl, skillSection, skills, equippedSet, full, slot.classKey);
     // Phase 2-J: 呪文職 (cleric/mage/elf) は magic セクションを ±UI で描画
     if (isCasterClassTV(slot.classKey)) {
-      const playerLv = getLevelFromXP(inventory.xp);
+      /* ★[#72 §5-2] 判定 Lv と枠の上限は **その職の最も低い Lv** (γ)。⚠ 撤退 ?drawerlv=0 では従来どおり主人公 Lv。 */
+      const playerLv = isDrawerLvOn() ? lowestLevelOfClass(slot.classKey) : getLevelFromXP(inventory.xp);
       const totalMax = getMaxSpellSlotsForClassTV(slot.classKey, playerLv);
       // partySkills の現在の合計 (僧侶は自動なので 0 を出して上限と比較しない)
       const list = Array.isArray(selection.partySkills[slot.classKey]) ? selection.partySkills[slot.classKey] : [];
@@ -7960,6 +8006,49 @@
     return heroLevel;
   }
 
+  /* ★[#72 §5-2 (β)] 新顔の Lv を **マッチング画面を開いた時点** で決める (2026-09-21 ユーザー決定)。
+     ⚠⚠ これまで新顔の Lv は出発の瞬間 (下の departToScenario) まで存在せず、画面の判定も表示も
+       主人公 Lv へ落ちていた (依頼書 §12-0 (8))。
+     ⭐ 抽選は assignCompanionLevels() そのもの (同じ帯・同じ clamp) —— ⛔ 写しを作らない。
+     ⭐ 決めた Lv は「依頼 × 人 (職|名前)」で覚え、出発では振り直さない (earlyLvFixed)。
+       同じ依頼を開き直しただけなら同じ Lv。依頼が変われば覚えを捨ててその依頼の帯で振り直す。
+     ⚠ 覚えはこのページの中だけ (保存しない)。⛔ member へ目印のフィールドを足さない ——
+       selection.partyMembers は出発で sessionStorage へ JSON のまま焼かれ、名簿 (DFRoster.enroll) /
+       同行候補 (DFRecruits) の保存形も member の形を前提にしている。書くのは既存の level だけ。
+     ⚠ 振るのは level を持たない顔だけ。名簿の顔 (mercId + level) は出発時の clamp に任せる
+       (assignCompanionLevels と同じ扱い)。level を持って来た顔 (検証の仕込み等) にも触らない。
+     ⚠ 有効条件は isEarlyLevelOn() の 1 箇所 (今は ?drawerlv=0 と連動)。 */
+  function isEarlyLevelOn() { return isDrawerLvOn(); }
+  let earlyLvQuest = null;                // 覚えている依頼の鍵 (earlyQuestKeyOf)
+  let earlyLvByPerson = new Map();        // 「職|名前」→ その依頼で振った Lv
+  const earlyLvFixed = new WeakSet();     // マッチング画面で Lv を決めた member (出発で振り直さない)
+  function earlyQuestKeyOf(sc, questLevel) {
+    return [sc.id || "", sc.place || "", sc.title || "", questLevel].join("|");
+  }
+  function fixCompanionLevelsEarly(sc) {
+    if (!isEarlyLevelOn() || !sc) return;
+    const ms = (selection && selection.partyMembers) || [];
+    const heroLv = getLevelFromXP(inventory.xp);
+    const ql = questLevelOf(sc, heroLv);
+    const qKey = earlyQuestKeyOf(sc, ql);
+    const changed = (earlyLvQuest !== qKey);
+    if (changed) { earlyLvQuest = qKey; earlyLvByPerson = new Map(); }
+    const fresh = [];
+    ms.forEach(m => {
+      if (!m || m.isHero) return;
+      const mine = earlyLvFixed.has(m);
+      const hasLv = typeof m.level === "number" && m.level > 0;
+      if (hasLv && !mine) return;              // 名簿の顔 / level を持って来た顔 = 触らない
+      if (hasLv && mine && !changed) return;   // この依頼で決めた顔 = そのまま
+      const k = m.classKey + "|" + m.name;
+      if (earlyLvByPerson.has(k)) m.level = earlyLvByPerson.get(k);
+      else fresh.push(m);
+      earlyLvFixed.add(m);
+    });
+    assignCompanionLevels(fresh, ql, heroLv);   // ⭐ 今と同じ抽選 (fresh は非主人公・名簿外)
+    fresh.forEach(m => earlyLvByPerson.set(m.classKey + "|" + m.name, m.level));
+  }
+
   // 出発処理 (共通)。autoplayOverride に数値を渡すと autoplay=N を強制付与
   function departToScenario(autoplayOverride) {
     if (!prepScenario) return;
@@ -7981,7 +8070,9 @@
     // ティア連動: 仲間レベルをクエストのティア帯で抽選 (主人公=永続Lv維持)
     try {
       const heroLv = getLevelFromXP(inventory.xp);
-      assignCompanionLevels(selection.partyMembers, questLevelOf(prepScenario, heroLv), heroLv);
+      /* ★[#72 §5-2 (β)] マッチング画面で Lv を決めた新顔は振り直さない (撤退 ?drawerlv=0 では従来どおり全員)。 */
+      const toRoll = isEarlyLevelOn() ? selection.partyMembers.filter(m => !earlyLvFixed.has(m)) : selection.partyMembers;
+      assignCompanionLevels(toRoll, questLevelOf(prepScenario, heroLv), heroLv);
     } catch (e) {}
     /* 傭兵名簿 (#38 STEP2): まだ名簿に居ない NPC を登録し、発行された id を **書き戻してから**
        sessionStorage へ焼く。これで index.html 側にも mercId が渡り、帰還時に誰が同行したかが引ける。
@@ -8795,7 +8886,9 @@
     const magics = slot.skillPool.filter(sk => sk.mpCost > 0 && isSpellKnownTV(classKey, sk.id));
     plain.forEach(sk => listEl.appendChild(renderSkillItem(sk, equippedSet, full, classKey)));
     if (isCasterClassTV(classKey)) {
-      const lv = getLevelFromXP(inventory.xp);
+      /* ★[#72 §5-2] 真因の 1 行。判定 Lv と枠の上限は主人公でなく **その職の最も低い Lv** (γ)。
+         同職が 1 人なら開いた本人 m の Lv と同じ。⚠ 撤退 ?drawerlv=0 では従来どおり主人公 Lv。 */
+      const lv = isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp);
       const totalMax = getMaxSpellSlotsForClassTV(classKey, lv);
       const arr = Array.isArray(selection.partySkills[classKey]) ? selection.partySkills[classKey] : [];
       const totalUsed = isAutoSlotClassTV(classKey) ? totalMax : arr.length;
@@ -9149,6 +9242,9 @@
     if (!overlay || !colsEl) return Promise.resolve("depart");
     const raw = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
     if (!raw.length) return Promise.resolve("depart");
+    /* ★[#72 §5-2 (β)] 新顔の Lv はカードを描く **前** にここで決める (出発では振り直さない)。
+       ⚠ review でも呼ぶ —— 同じ依頼なら覚えた Lv をそのまま返すだけ (振り直さない)。 */
+    fixCompanionLevelsEarly(sc);
     // 表示上のみ [主人公, 仲間…] に整える (乱数・戦闘隊列は非改変)。主人公=即確定、以降を順に開示。
     const hero = raw.find(m => m && m.isHero);
     const others = raw.filter(m => m && !m.isHero);
@@ -9332,6 +9428,7 @@
         if (closed || phase !== "done") return;
         const raw2 = (selection.partyMembers && selection.partyMembers.length) ? selection.partyMembers : [];
         if (!raw2.length) return;
+        fixCompanionLevelsEarly(sc);   /* ★[#72 (β)] 募集をかけ直した顔も、カードを描く前に Lv を決める */
         pmCloseDrawer();
         const hero2 = raw2.find(x => x && x.isHero);
         const others2 = raw2.filter(x => x && !x.isHero);
