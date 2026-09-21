@@ -1384,3 +1384,121 @@ changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った
 3. **項目4(受入)へ**: `.pmClass` を読むなら (0b) と同じ形(職名 = 先頭テキストノード・Lv = `.pmClass .pmLv`・「剥いだ残り = 職名」を装置に)。装置が空振りしないことは `item3/unit3.js` の型(ドライバのソースから関数を切り出して合成 DOM に当てる)で安く示せる。
 4. **項目5(母集団)へ**: 本項目で色が動いた腕 = `verify_party_match_setup` 素 / `--negative`・`verify_darkvision` 素 / `--negative`・`verify_bolt_aim` 素 / `--negative`(いずれも着手前の赤 → 基準と差 0 へ)。⭐ 走査は **コミット後の clean な木** で。`verify_mercenary_roster --negative` の差 4 は (7) の揺れ(在籍 8〜12)。
 5. 道具(`…/scratchpad/item3/`): `run3.py`(直列走行・TSV)/ `gate3.py`(`gate72.pair` を phase 別に)/ `patch3.py`(置換 11 箇所)/ `chk_flavor3.py` / `chk_anchors_js.py`(`--disk`)/ `comment_only.py`(`--selftest`)/ `unit3.js`。ログ = `pre/` `wip/` `post/`。ポートは新しく取っていない(`unit3.js` は about:blank)。**10401〜10413 は未使用**(項目4 予約)。
+
+---
+
+### 12-0 追補(項目4 / 2026-09-22・実装窓 セッション `b34987cb-…`)— 受入 `tools/verify_member_identity.js` の新設 + `verify_mercenary_roster (0c)` のラベルの括弧
+
+⛔ 本番(`index.html` / `tavern.html` / `audio.js`)と `js/` は **1 バイトも触っていない**(証拠 = 本コミットの変更は `tools/verify_member_identity.js`(新規)・`tools/verify_mercenary_roster.js`(2 行)・本 `.md` の 3 本だけ)。
+⭐ 行番号は HEAD `837d36d` の `tavern.html`(純 CRLF・10,994 行)。⛔ 使う前に逐語で引き直すこと。作業物 = `…/b34987cb-…/scratchpad/item4/`(`try*.log` / `explore/` / `wip_*.log`)。
+
+#### (1) 道具の形
+
+- `node tools/verify_member_identity.js`(素)/ `--negative`(変異 12 本)/ `--mutate <key>`(変異 1 本 × 全ユニットの手回し = 担当表を実走で決める口)/ `--units a,b`(素の一部)。
+  ポート = **10401**(素)/ 変異 **10402〜10413**(`MUTATIONS` の並び順)。exit 0 / 1(FAIL・空振り)/ 2(環境・例外)/ 3(変異アンカーの腐敗)。
+- 型 = `verify_bolt_bounce` と同じ(ブラウザ 1 つ・変異ごとに配信スナップショットだけを差し替えるサーバ・**範囲つきの行単位アンカー監査**・`--negative` の先頭で「素の基準」を走らせ赤なら変異を走らせない・起動確認 = (0c))。
+- 14 ユニット / 26 ページ。1 ユニット = 1〜4 ページで、データを置くだけ。判定は最後の `judge()` が **走ったユニットの分だけ** 出す(`--negative` は変異ごとに要るユニットだけ走らせる)。
+- 仕込み = 項目1〜3 のプローブの型(document-start で `dragonfighters.*` を消してから仕込む・`__pmTest.play` でマッチング画面だけを開く・出発の遷移は `abort('aborted')`・viewport は幅と高さだけ)。
+  全呪文を習得にした `knownSpells` は **meta ユニットがページの `PARTY_SLOTS` から読んで** 作る(⛔ 呪文 ID を写経しない)。
+- 行末 = **純 LF**(`.gitattributes` の既定 `* text=auto eol=lf` = `tools/verify_bolt_bounce.js` と同じ。`py` のバイト数えで CRLF 0)。`node --check` 通過。
+
+#### (2) assert 一覧(28 本 = §0 6 + §1 4 + §2 10 + §3 5 + §4 2 + (0f))
+
+| id | 腕 | 何を見るか(値) |
+|---|---|---|
+| (0a) | 全部 | 開いた引き出し 73 回すべてで `pmDrawerIdx` = 押したカード・測る直前に `#pmDrawer` へ置いた番兵が消えた・行 ≥ 1(呪文職は個数の行 ≥ 1) |
+| (0b) | 既定 | 主人公 Lv = ページの `getLevelFromXP(21000)` = 7(> 仕込みの Lv2)/ 職名 = `PARTY_SLOTS` / 名前表 = `NPC_NAMES_BY_CLASS`(6 職 × **`DFRoster.CAP − 1 + RECRUIT_MAX + 1` = 15**・ページの定数から)/ 本体 `index.html` の LB の `levelReq` がファイルから 1 箇所で読める(= 3) |
+| (0c) | 全部 | 26 ページすべて `document.title` が空でなく、#72 のヘルパ 8 つ(`levelOfMember` `shownLevelOf` `lowestLevelOfClass` `isWhoisOn` `isDrawerLvOn` `isNameJobOn` `pickClassNameTV` `fixCompanionLevelsEarly`)が在る |
+| (0d) | 全部 | 番兵: カード列 `#pmColumns`(マッチングを開くたび)/ 声掛けの `#recruitRole`(開くたび)へ置いた番兵を本番の口が消した・書き換えた。以降は値(テキストの逐語 / 行の class / localStorage の文字列)で比べる |
+| (0e) | 素のみ | 変異 12 本の注入点が原本の「属する範囲」の中でちょうど 1 行(素の側でも赤で見える = `verify_bolt_aim (0e)` と同じ設計) |
+| (0f) | 全部 | pageerror / console.error 0(favicon の 404 だけ除外) |
+| (1a) | A1 / A0 | カード `.pmClass` = 先頭テキストノード「職名」+ `.pmLv` 1 個「Lv本人」・剥いだ残り = 職名・`levelOfMember` と一致。本人の Lv = 主人公 XP / 名簿の顔 = min(保存 Lv, 主人公 Lv)(保存 Lv9 の僧侶 → Lv7)/ 新顔 = マッチングで振られた Lv。A0 では `.pmLv` 0 個 |
+| (1b) | A1 / A0 | 見出し「職名 — 名前 LvN」(主人公は「あなた」)= 先頭テキストノード + `.pmDrawerLv` の逐語 + `levelOfMember(開いた本人)`。A0 では Lv 無し |
+| (1c) | A1 / A0 | 声掛け: 名簿の顔(満杯の名簿 = 卓 4 席とも名簿の顔)=「職名 LvN — 性格」・保存 Lv9 のドワーフ(本物の `drawTodaysPatrons` で引いた)=「ドワーフ Lv7 — …」/ 初めての顔(空の名簿)= Lv 無し / A0 = 名簿の顔でも Lv 無し |
+| (1d) | A1 vs A0 | 同じ乱数の種で `#rosterBody` innerHTML(3,501 字)・`#rosterSub`・頭上札 4 枚・卓の席が完全一致 |
+| (2a) | A2 / A0 | 主人公 Lv7 × 名簿の魔法使い Lv2: LB に `[Lv3 必要]` + `.full` + ＋無効(3 = **本体 `index.html` をファイルから読んだ値**・酒場の表も同値)/ A0 はバッジ無し(欠陥の再現) |
+| (2b) | A2 / A0 | その状態で LB の ＋ → 個数不変 / A0 は +1 |
+| (2c) | A2 | 名簿の魔法使い Lv3: バッジ無し・＋ で +1 |
+| (2d) | A2 vs A0 | 主人公が魔法使い Lv7・仲間は戦士/ドワーフ/盗賊: 4 枚の引き出しの innerHTML が完全一致(条件 = 主人公 Lv ≥ 5 を assert に含む) |
+| (2e) | A2 / A0 | 仲間 Lv2 の上限 `getMaxSpellSlotsForClassTV(魔法使い, 2)` = 4 まで埋める → マジックミサイルの ＋ 無効・押しても不変(主人公基準なら 10)/ A0 は ＋ 有効で +1 |
+| (2f) | A2 / N / A1 | A2: 主人公の魔法使い Lv7 + 仲間 Lv2 で **両方** の引き出しの LB に `[Lv3 必要]` + `.full`。注記の逐語: N で 2 人 =「⚠ 魔法使い 2 人に共通・判定は低い方の Lv2」/ 3 人 =「⚠ 魔法使い 3 人に共通・判定は最も低い Lv2」/ A2・A1 は「⚠ この設定は 魔法使い 2 人に共通で適用されます」 |
+| (2g) | A2 | 新顔の魔法使い: マッチングの同期区間の乱数 0.999 で振られた Lv(= 同じページの `assignCompanionLevels` で求めた帯の上端 4)が画面の時点で在り、出発の乱数を 0(= 振り直せば必ず帯の下端 2)に固定しても `sessionStorage` の level が 4 のまま |
+| (2h) | A2 / A0 | 名簿の僧侶 Lv2 / エルフ Lv2(全呪文習得)の `[LvN 必要]` + `.full` の行の集合 = `skillPool` の levelReq > 本人の Lv から導いた集合 / A0 は主人公 Lv から導いた集合(集合どうしが違う盤面) |
+| (2i) | A2 | 主人公の僧侶 Lv7 + 名簿の僧侶 Lv2: 各カードの「技」行 = `getClericSlotsTV(本人 Lv)` の名前の「・」連結(2 経路目 = `CLERIC_SLOTS_TABLE` の直読み − 除外)・2 人の集合が違う |
+| (2j) | A2 | 保存済みの `actionPriority.cleric` general/boss = `hold-person`: M(マッチング → 僧侶 Lv2 の引き出し → 全員の引き出し)の 4 時点 / H(主人公が僧侶 + 名簿の僧侶 Lv2 を **本番の `openPrep`**・両方の僧侶の引き出し)の 3 時点で localStorage と select が `hold-person`(装置: Lv2 の自動配分に `hold-person` が無い) |
+| (2k) | 既定 | (α) `MAGE_SKILLS_UI` の levelReq = 本体 `index.html` の値(本体に levelReq がある 5 呪文: fireball 3 / LB 3 / cone 5 / burning-hands 1 / ice-storm 7) |
+| (3a) | A3 / A3+`recruittalk=0` | 新顔の名前 ∈ その職の `NPC_NAMES_BY_CLASS`(`makeNpcMember` 1,200 / `pickCompanion` 1,200 / 卓 1,600 / `buildParty` 3,600 / `regeneratePartyMembers` 900) |
+| (3b) | 同上 | 名前 → 職業が単射(90 種・2 職に出た名前 0)+ どの職も 15 名を全部使う |
+| (3b') | 同上 | 旧規則の名簿 8 人(共有 16 名の先頭 8 名を表と別の職で本番の `DFRoster.enroll`)+ 約束 2 人で、新顔が名簿・約束の名前を使わない(衝突 0)/ 上限の盤面(名簿に魔法使い CAP−1 = 11 人 + 約束に魔法使いの新顔 RECRUIT_MAX = 3 人)で新しい魔法使いは表の 15 番目の 1 名だけ |
+| (3c) | A0 | 新顔の名前はすべて共有 16 名・2 職に出た名前 16・旧規則の名簿と同名の新顔が出る(= 従来の姿・比較器の負の対照を兼ねる) |
+| (3d) | A3 | 本番の口で作った名簿(旧規則の同名 2 人を含む 9 人・`recordRun` 済み)と約束の文字列が、読み込み・卓の抽選 200 回・`makeNpcMember` / `pickCompanion` 各 360 回の後もバイト一致 / 声掛けで足した 1 件のキー集合と型 = 本番の `makeNpcMember` で作った約束と同じ / 出発後: 既存 9 人はバイト一致(同名 2 人も残る)・新しい 2 人のキー = 既存のキー・`partyMembers` のキー = `makeHeroMember` + level / `makeNpcMember` + level + mercId |
+| (4a) | A0 | ① カード・見出しに Lv 無し ② `MAGE_SKILLS_UI` から (α) の levelReq(fireball / LB / cone)が外れている ③ 魔法使い・僧侶・エルフの判定と枠の上限が主人公 Lv ④ 新顔の Lv は画面では無く出発で帯の中に振られる ⑤ 僧侶のカード = 主人公 Lv の集合 ⑥ 名前は共有 16 名 |
+| (4b) | A1 vs A0 | 最悪の見出し「ドワーフ — ガウェイン Lv10」を含む編成で、カード rect.h・職業行 h・引き出し rect.h / scrollHeight / clientHeight・見出し h が **4 画面**(1280x900 / 1366x768 / 390x844 / 390x667)で完全一致(装置: A1 は `.pmLv` 4 + 見出しの Lv 4・A0 は 0) |
+
+#### (3) 依頼書 §8 の原案からの読み替え(⭐ どれも期待値を弱めていない)
+
+1. **注記の新しい文面は §2 の腕では測れない** ⇒ (2f) の注記は N(`?namejob=0`)の腕へ。注記の条件は `(isWhoisOn() && isDrawerLvOn())`(`tavern.html:8997`)なので `?whois=0` を含む §2 の腕では従来の文面が正しい。⇒ (2f) は「A2 と A1 では従来の文面」も同時に assert した(撤退の片側だけが 0 のときに「低い方」が漏れない網)。
+2. **(1b) の 2 経路目は「仕込んだ m.level」でなく `levelOfMember(開いた本人)`** — 主人公の `m.level` は出発まで `undefined`・保存 Lv9 の名簿の顔は Lv7 と出る((7) の 2)。期待値は盤面(保存 Lv と主人公 Lv の min)から導き、`levelOfMember` と見出しの文字の両方と突き合わせた。
+3. **(2d) の恒等は条件付き**(項目2a の崩れた主張 1・2)⇒ 仲間を呪文を持たない職にし、主人公 Lv ≥ 5 を assert の条件に入れた。
+4. **(2a)(2c)(2k) の期待値の出所は本体 `index.html`**(ファイルから正規表現で読む)。⭐ 酒場の表から導くと、変異 `lvreqdrop`(LB の levelReq を外す)で「バッジが無い = 期待もバッジ無し」になって **空振りする**(期待値と実装が同じ誤りを持つ型)。ユーザー決定 (α) は「本体と同値」なので、本体を oracle にした。
+5. **(2g) は「出発で振り直せば必ず別の値になる」盤面で測る** — 乱数任せだと振り直しても 1/3 で同じ値になり、「振り直さない」を示せない。⇒ マッチングの同期区間 = 0.999(帯の上端)・出発 = 0(帯の下端)に固定し、上端 ≠ 下端を装置に入れた。上端/下端は同じページの `assignCompanionLevels` を空の顔に当てて求めた(⛔ 帯 [2,4] を写経しない)。
+6. **(4a) は影の配信ではなく「0e8370d の性質」6 つ**(指示で許可)。影との DOM 完全一致は項目2a〜2c のプローブで既に示してあるので、受入では **性質の逆向き**(撤退で何が戻るか)を独立に言う。
+7. **(3d) の「従来の形」は写経せず本番の工場から導く** — `partyMembers` のキー = `makeHeroMember` / `makeNpcMember` のキー + level (+ mercId)、名簿の新しい人のキー = 既存の人のキー、約束のキー = 本番の `makeNpcMember` で作った約束のキー。
+8. **openPrep を 1 腕だけ通す** — §8 計測機構の「⛔ openPrep を経由して編成を仕込まない」は `selection.partyMembers` への仕込みが消えるという意味。(2j) H は項目2b2 の副作用の引き金(openPrep の見えない準備画面の描画)そのものを測るので、顔ぶれは `dragonfighters.recruitCandidates`(約束 = openPrep が組み直す元)で仕込んだ。
+9. **(4b) は 4 画面**(指示の最低 2 画面を超えた)— DIMS ユニットは 4 画面 × 2 腕 = 8 ページで 54.0 秒((5))。
+10. **§8 の変異表の担当は実走で差し替えた**((4))。
+
+#### (4) 変異の担当表(⭐ 机上で書かず `--mutate <key>` で全ユニットを 1 本ずつ実走・HEAD `837d36d` の上・ログ `item4/explore/`)
+
+| 変異 | 注入点(`tavern.html`・範囲の先頭) | 何をする | 全ユニットで赤くなった集合 | `--negative` のユニット / 担当 |
+|---|---|---|---|---|
+| `lvhero` | `:9023` `pmRenderDrawer` | 判定 Lv を主人公へ(§2-2 の欠陥) | (2a)(2b)(2e)(2h)(2f) | P2,P0 / (2a)(2b)(2e)(2h) |
+| `capfromhero` | `:9024` 同上 | 枠の上限だけ主人公 Lv | **(2e) だけ**(最も鋭い) | P2,P0 / (2e) |
+| `lvreqdrop` | `:4497` `MAGE_SKILLS_UI` | (α) LB の levelReq を外す | (2a)(2b)(2f)(2k)(4a) ※ | P2,P0 / (2a)(2b)(2k)(4a) |
+| `lvnoshow` | `:9310` `buildPmColumn` | カードの Lv の文字を消す | (1a) | P1,P0 / (1a) |
+| `headnolv` | `:8970` `pmRenderDrawer` | 見出しの Lv の文字を消す | (1b) | P1,P0 / (1b) |
+| `sharedpool` | `:4720` `pickUniqueName` | 職業別の表を使わない | (3a)(3b)(3b') | S3 / (3a)(3b)(3b') |
+| `noexcl` | `:4709` `pickClassNameTV` | 名簿・約束の名前を避けない | **(3b') だけ**(柱3 の 2 本目を分けて測れた) | S3 / (3b') |
+| `earlyoff` | `:8135` `fixCompanionLevelsEarly` | (β) 画面で Lv を決めない | (1a)(1b)(2g) | P1,P0,P2g / (1a)(1b)(2g) |
+| `cardhero` | `:7772` `apEquippedIdsFor` | 僧侶のカードを主人公 Lv の集合へ | (2i) | P2i / (2i) |
+| `apclamp` | `:7771` 同上 | 傾向段の候補を最低 Lv へ(2b の副作用①) | (2j)(4a) ※ | P2j / (2j) |
+| `rosterwrite` | `:4698` `namesTakenTV` | 名前を避けるついでに名簿を書き換える(= §5-3 が禁じた移行) | (3d) | S3d / (3d) |
+| `switchdead` | `:4510` `:4519` `:4527`(3 行) | 撤退判定 3 本を常に真 | (1a)(1b)(1c)(2a)(2b)(2e)(2h)(2f)(3c)(4a)(4b) | P0,P1 / (1a)(1b)(3c)(4a) |
+
+- ※ `lvreqdrop` の (4a) = ② が「既定の腕の表と比べて (α) の levelReq が A0 で外れている」を見るので、既定の腕の LB から levelReq が消えると崩れる巻き添え。`apclamp` の (4a) = ⑤ A0 の僧侶のカードも `auto` の行を通るので最低 Lv の集合になる巻き添え。
+- `switchdead` で (1d) だけ緑 = 傭兵名簿パネルは表示の柱を持たない(恒等の網として正しい)。
+- **候補から外した変異**(ポート 12 本の上限): `notesw`(注記の条件)・`notelv`・`dialoglv`(声掛けの条件)・`rerolldepart`(出発の `toRoll` を全員に)。⇒ (2f) の注記・(1c)・(2g) の「振り直さない」半分には専用の変異が無い。代わりに assert 自身が **腕の間の対照** を持つ((2f) は N と A2/A1 で文面が逆・(1c) は名簿の顔と初めての顔と A0 で逆・(2g) は出発の乱数を固定して「振り直せば必ず別の値」)。`earlyoff` は (2g) を「画面に Lv が無い」側で赤くする。
+- ⭐ 範囲つきの行単位監査が **自分の誤りを実行前に捕まえた**: `lvnoshow` の範囲を最初 `playPartyMatchCinematic`(`:9354`)と書いたら `(0e)` が赤(範囲内 0 行・全体 1 行)。カードの行は `buildPmColumn(m, i)`(`:9234`)の中だった。
+
+#### (5) 色(未コミットの木・`837d36d` + 本項目の 3 ファイル)
+
+| 腕 | 色 | 所要 |
+|---|---|---|
+| 素 | **exit 0・28/28 PASSED** | 156.3 秒(26 ページ。重いユニット = P2j 30 秒(openPrep)/ DIMS 54 秒 / P2f 21 秒) |
+| `--negative` | **exit 0・負のコントロール 12 / 12 が検出成功**(空振り 0・起動確認 12/12 OK)・素の基準 22/22 | 216.2 秒 |
+
+- 素の最終の色(**コミット後の clean な木で 3 回**)と `--negative` の最終の色は、本コミットの後に追補する(下の (8))。
+
+#### (6) `verify_mercenary_roster (0c)` のラベルの括弧(親の判断・項目3 の申し送り 4)
+
+- 前: `(= 名簿が満杯でも名前が衝突しない、の根拠)` / 後: `(= CAP を写経していないことの装置。名前が衝突しない根拠はこの大小ではなく tavern.html の除外 namesTakenTV / pickClassNameTV = #72)`。assert id `(0c)`・比較の式・`上限を写経していない — ` までは 1 文字も変えていない。
+- 直前のコメントの最後の 1 行「⛔ ラベルの文字列は変えていない …」は **嘘になるので** 「⭐ [#72 項目4] ラベルの括弧(` — ` の後ろ)だけを事実に合わせて言い直した …」へ置き換えた(変更は 2 行・`git diff --stat` = 2 insertions / 2 deletions・純 LF のまま 1,603 行)。
+- 実走(未コミットの木): **exit 0・44/44**。基準 `item1/from71/logs/verify_mercenary_roster_base.log` と `item1/gate72.py --pair` で **経路1(assert id の指紋)44 = 44 差 0 / 経路2(判定行の多重集合)44 = 44 差 0**(判定行は ` — ` の前で切るので括弧は指紋に入らない)。
+
+#### (7) 崩れた主張 — 項目4 で新たに **3 件**(累計 **42**)
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | 項目4 の指示「§2 判定 Lv(柱2。`?whois=0&namejob=0` の腕で): … (2f) … 注記「⚠ 魔法使い 2 人に共通・判定は低い方の Lv2」の逐語」 | 注記の新しい文面は `(isWhoisOn() && isDrawerLvOn())` のときだけ(`:8997`)。§2 の腕(`?whois=0`)では **従来の文面「⚠ この設定は 魔法使い 2 人に共通で適用されます」が正しい**。⇒ 新しい文面は N(`?namejob=0`)の腕で測り、§2 の腕では従来の文面を assert した((3) の 1) |
+| 2 | 依頼書 §8 (1b)「⭐ 2 経路: 見出しのテキストと、**仕込んだ `m.level`** の一致」 | 主人公の `m.level` は出発まで `undefined`、名簿の保存 Lv9 の顔は見出しに Lv7(clamp)。仕込んだ `m.level` と一致するのは「非主人公かつ保存 Lv ≤ 主人公 Lv」のときだけ。⇒ 2 経路目は `levelOfMember(開いた本人)`(項目2b の実装どおり)+ 盤面から導いた min(保存 Lv, 主人公 Lv) |
+| 3 | 項目4 の指示「(4b) … **4 画面は重いので**、少なくとも 1280x900 と 390x844 の 2 画面で」 | 4 画面 × 2 腕 = 8 ページで 54.0 秒(素の全体 156.3 秒)。⇒ 4 画面とも測った((3) の 9)。⚠ 見積もりの鮮度(この機械の遅さが効くのは実プレイを回す本で、酒場の DOM だけを読む本では効かなかった) |
+
+- 根: 1 = 撤退スイッチの組み合わせの読み落とし(注記は表示 × 判定の交差)/ 2 = 「保存値 = 表示値」の取り違え(clamp と主人公の undefined)/ 3 = 見積もりの鮮度。
+
+#### ▶ 項目5 への申し送り
+
+1. **新しいドライバ** `tools/verify_member_identity.js`: 素 **28/28**(約 156 秒・26 ページ)/ `--negative` **12/12**(約 216 秒)。**`tavern.html` を配信し `index.html` をファイルとして読む**(index は配信しない)⇒ 母集団の段2(`tavern.html` を読む本)に入る。`git` の状態は見ない(未コミットの木でも同じ色)。
+2. **逐語で握る `tavern.html` の行 = 14 行**(変異 12 本・`switchdead` は 3 行)。**`tavern.html` を触るチケットはこれを数える**(`(0e)` が素でも赤で見える = `verify_bolt_aim` と同じ)。
+3. ポート: **10401〜10413 を使用**。`tools/*.js` で 10384 以上の数字を持つのはこの本の 10401 / 10413 だけ(実測)。⭐ 次の新規ドライバは **10441 以降**(項目1〜2c のプローブが 10414〜10440 を実使用 = #71 の「プローブが使った帯を空きと書かない」に倣う)。
+4. `verify_mercenary_roster`: (0c) のラベルの括弧が変わった(指紋は不変・差 0)。`--negative` の既知の揺れ((2e)(2z3) の差 4・在籍 8〜12)は本項目と無関係。
+5. 乱数に依存する assert は (1a)(1b) の新顔の Lv(値は何でもよい = 振られたことだけを見る)と (3a)(3b) の被覆(1 職 15 名 × 約 400 回で漏れる確率 ≈ 0)だけ。卓の顔ぶれ ((1c)(1d)) と (2g) は乱数を固定している。

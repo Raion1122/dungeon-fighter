@@ -664,9 +664,9 @@ const PROBE_FN = function () {
        居る名前を使わない** (namesTakenTV / pickClassNameTV) = 衝突しない根拠は「CAP < 16」ではなく、この除外。
        ⭐ assert の中身 (CAP を実体から読む・NPC_NAMES より小さい) は生きている。NPC_NAMES (共有 16 名) は ?namejob=0 の
          戻り先として残してある (probe1.namePool = 16)。
-       ⛔ ラベルの文字列は変えていない (本項目の約束 = コメント行だけ・コードは 1 文字も変えない。判定行も基準ログと逐語のまま)。 */
+       ⭐ [#72 項目4] ラベルの括弧 (` — ` の後ろ) だけを事実に合わせて言い直した (assert id・比較の式は不変。判定行は ` — ` の前で切るので指紋は動かない)。 */
     check('(0c) 上限を写経していない — DFRoster.CAP を実体から読み、それが NPC_NAMES (実体) より小さい '
-        + '(= 名簿が満杯でも名前が衝突しない、の根拠)',
+        + '(= CAP を写経していないことの装置。名前が衝突しない根拠はこの大小ではなく tavern.html の除外 namesTakenTV / pickClassNameTV = #72)',
       typeof probe1.cap === 'number' && probe1.cap >= 1
         && typeof probe1.namePool === 'number' && probe1.cap < probe1.namePool,
       'CAP=' + probe1.cap + ' / NPC_NAMES=' + probe1.namePool + ' 要素');
