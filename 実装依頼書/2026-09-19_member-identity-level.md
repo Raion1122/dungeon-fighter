@@ -1208,6 +1208,7 @@ changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った
 | `probe_s2_clear` | 素 | exit 2(2.0 秒) | 基準 exit 0 | ⚠ **未コミットの木では走らない**: 自己ガード「本番に差分があります。#18 は本番を 1 バイトも変えない調査チケットです」(`git diff HEAD` を見る)。コミット後の clean な木で再走 → (9-b) |
 
 - ⛔ `tools/` は 1 バイトも直していない。本項目で **増えた赤は 0**。赤は 2b からの型1 の 2 本(`verify_party_match_setup (0b)` / `verify_darkvision (3a)`)と既知の `sweep_recruit_balance` だけ。
+- **(9-b)** `probe_s2_clear` をコミット `58e7eaa` の後の clean な木で再走: **exit 0・「✓ 全 3 走行が装置 assert を通りました」**(100.0 秒)・基準と経路1 4 = 4 / 経路2 4 = 4 **差 0**。⇒ 母集団 25 腕すべてで本項目由来の赤 0。
 - 走らせなかった本(理由): `verify_bolt_aim` 素(2,241 秒)/ `verify_hold_pair` 素(904 秒)= 名前を注入してそのまま使い、酒場の名前の生成口を通らない / `verify_cone_cast` / `driver_leader_ai` = `tavern.html` を読まない(`driver_leader_ai` の「ミラ」は「ミラー」の部分一致)/ `probe_party_size` = 基準で 600 秒打ち切りの既知の赤。⇒ 項目5 の全数走査で色を採る。
 - ⚠ 既知フレーク 9 本は本項目の golden に含めていない。
 
