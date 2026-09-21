@@ -916,3 +916,172 @@ changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った
    - (7) の網: 仲間の僧侶 Lv2 のカードの「技」行 = `CLERIC_SLOTS_TABLE[id][2] > 0` から導く集合(呪文名に「・」が入るので「技」行を「・」で割らない)。
 4. **項目5(母集団)**: 本項目で新しく読まれうる要素 = `.pmClass` の文字 / `#pmDrawerTitle` の文字 / `#recruitRole` / `apEquippedIdsFor` の行。golden は §(8) の 19 腕で色を控えた(比較器 `item2b/gate2b.py` = `item1/gate72.py` の `pair` を無改変 import)。⚠ 走査はコミット後の clean な木で。
 5. ポート: プローブは **10427〜10432** を使い全部解放済み(`depart` は 10427 を再利用)。**10401〜10413 は未使用**(項目4 予約)。
+
+---
+
+### 12-0 追補(項目2b2 / 2026-09-22・実装窓 セッション `b34987cb-…`)— 項目2b (7) の副作用の直し: カードの「技」行は本人の Lv・傾向の候補は主人公 Lv(保存値を消さない)+ 同職の注記の言い換え + changelog の 2a 行を進化
+
+⭐ 行番号は **本コミット後の `tavern.html`**(純 CRLF・**10,934 行**・bare LF 0・bare CR 0 を `py` のバイト数えで確認)。⛔ 使う前に逐語で引き直すこと。
+変更ファイル = `tavern.html`(+35/-15)+ 本 `.md` のみ(`index.html` / `audio.js` / `js/` / `tools/` は 1 バイトも触っていない)。
+置換は `scratchpad/item2b2/patch72_2b2.py`(7 箇所・各アンカーの件数 1 を assert・`wb`)。影 = 着手前 `fcde6a9` の `tavern.html` を `item2b2/base_tavern_fcde6a9.html` へ退避(blob `798e31c` を `git hash-object` で一致確認)。
+
+#### (1) 親の決定と実装の形(実装後の逐語)
+
+親の決定(2026-09-22): ① カードの「技」行は **そのカードの本人の Lv**(僧侶 = 自動配分職)/ ② 傾向欄の候補は **2b の前 = `f5fe8bc` と同じ主人公 Lv**(保存値を消さない。低 Lv の僧侶に使えない呪文が候補に残るのは許容 =「指示は傾向です」)。
+
+| 何 | 逐語 | 行 |
+|---|---|---|
+| 関数 | `function apEquippedIdsFor(slot, classKey, ownLv) {`(3 引数目 `ownLv` は省略可) | `:7700` |
+| 傾向段の候補 = 主人公 Lv | `      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));` ⭐ **`f5fe8bc` の逐語そのもの**(1 件) | `:7711` |
+| カード用の Lv | `      const pool = (typeof ownLv === "number" && ownLv > 0) ? getClericSlotsTV(ownLv) : auto;` | `:7712` |
+| 絞り込み(1 本のまま) | `        .filter(sk => (pool[sk.id] \|\| 0) > 0 && isSpellKnownTV(classKey, sk.id))` | `:7714` |
+| カード | `function pmEquippedSkillNames(classKey, m) {` / `const ownLv = (m && isAutoSlotClassTV(classKey) && isDrawerLvOn()) ? levelOfMember(m) : undefined;` / `try { ids = apEquippedIdsFor(slot, classKey, ownLv) \|\| []; } catch (e) { ids = []; }` | `:8786` / `:8789` / `:8791` |
+| カードの呼び口 | `const names = pmEquippedSkillNames(m.classKey, m);`(`renderSkills` = `fill` と同期 `pmRefreshCards` の両方がここを通る) | `:9218` |
+| 同職の注記 | `note.textContent = (isWhoisOn() && isDrawerLvOn())` → `"⚠ " + slot.name + " " + sameCount + " 人に共通・判定は" + (sameCount === 2 ? "低い方の" : "最も低い") + " Lv" + lowestLevelOfClass(classKey)` / 撤退時は従来の `"⚠ この設定は " + … + " 人に共通で適用されます"` | `:8937`〜`:8939` |
+
+- 旧逐語(2b)`getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp))` は **0 件**。
+- ⭐ `driver_action_priority` の負のコントロール N3 のアンカー `const equippedIds = apEquippedIdsFor(slot, classKey);` は **2 件のまま・逐語不変**(`:7815` 準備画面 / `:9075` 引き出し。どちらも Lv を渡さない = 主人公 Lv)。
+- 出現数: `isDrawerLvOn()` 7 → **8 件**(`:4509` 定義 / `:4530` (α) / `:4933` `skillLimitForClass` / `:7930` 準備画面 / `:8067` (β) / **`:8789` カード** / **`:8937` 注記** / `:8963` 引き出し。2b の `:7706` は消えた)。`isWhoisOn()` 5 → **6 件**(`:8937` 注記を追加)。`getLevelFromXP(inventory.xp)` は 9 行のまま。
+- 正規化の行(触っていない): 準備画面 `:7851` / 引き出し `:9120` の `if (row[sit.key] && ids.indexOf(row[sit.key]) < 0) { row[sit.key] = null; dirty = true; }`。
+
+設計の候補(採否):
+
+| 候補 | 絞り込みの口 | `apcand` のアンカー | 採否 |
+|---|---|---|---|
+| **A. `apEquippedIdsFor` に省略可の `ownLv`・主人公 Lv の行は `f5fe8bc` の逐語のまま** | 1 本(`pmEquippedSkillNames` の注記「唯一の正は apEquippedIdsFor」を保つ) | **生き返る**(`fcde6a9` 0 件 → 1 件 = `f5fe8bc` と同じ) | **採用** |
+| B. カード専用の関数を別に書く | 2 本(同じ `.filter` の写し = 口が増えるたびに漏れる型) | 生き返る | 不採用 |
+| C. `ownLv` を 1 行の式に畳む(`getClericSlotsTV(ownLv == null ? 主人公 Lv : ownLv)`) | 1 本 | 腐ったまま(項目3 の言い直しが要る) | 不採用 |
+
+#### (2) (a) 保存済みの僧侶の傾向が消えない(probe keep **10/10**・port 10434)
+
+仕込み: `dragonfighters.actionPriority` = `{"cleric":{"general":"hold-person","mob":null,"boss":"hold-person","travel":null}}`・主人公 Lv7・仲間の僧侶 Lv2(`hold-person` は Lv2 の集合に無い)。読む点 = `localStorage` の general/boss と画面の `select`。
+
+| 腕 | 経路 | 現行 | `?drawerlv=0` | 影 `fcde6a9`(負の対照) |
+|---|---|---|---|---|
+| M | マッチング(`__pmTest.play`)→ 僧侶の引き出し → 全員の引き出し | 3 時点とも `hold-person`・select も `hold-person` (a1) | 同じ (a1-dl0) | 僧侶の引き出しを開いた瞬間に `[null,null]` を保存 (a1-neg) |
+| H | 主人公の僧侶 + 名簿の僧侶 Lv2 を **本番の `openPrep`** で → 両方の僧侶の引き出し | 残る・両方の select が `hold-person` (a2) | — | **`openPrep` の時点で既に `null`**(見えない準備画面の描画 = 主人公の職のタブの正規化)(a2-neg) |
+| P | `?prepskip=0` の準備画面で「僧侶」のタブを押す | 残る・`#apRows` の select が `hold-person` (a3) / 主人公が僧侶でも残る (a3-hero) | — | タブを押した瞬間に `null` (a3-neg) |
+
+⭐ 2b の副作用①は **マッチング画面を開くだけでなく `openPrep` の見えない描画でも起きていた**(H 腕の影)= 主人公が僧侶なら、依頼を受けて低 Lv の僧侶が来た時点で消えていた。
+
+#### (3) (b)(c) カードの「技」行 = 本人の Lv(probe cards **12/12**・port 10435)
+
+期待値は **同じページの `getClericSlotsTV(本人の Lv)`** から導き(本人の Lv = 主人公は XP、仲間は `min(level, 主人公 Lv)`)、2 経路目 = `CLERIC_SLOTS_TABLE[id][Lv] > 0` の直読み − 除外リスト。⛔ 写経しない。僧侶の呪文 9 種を習得済みにした盤面。
+
+| 腕 | 結果 |
+|---|---|
+| (b1) 主人公の僧侶 Lv7 + 仲間の僧侶 Lv2 | 主人公のカード = Lv7 の 9 呪文 / 仲間 = Lv2 の 3 呪文(キュア・ライトウーンズ・ブレス・シールド・オブ・フェイス) |
+| (b-sync) 同職 2 枚の同期 | 仲間の引き出しで「ブレス」の「使わない」を押す → 両カードが描き直され、**各カードは自分の Lv の集合** からブレスだけが消える(主人公 8 呪文 / 仲間 2 呪文)→ 主人公の引き出しから戻すと元どおり |
+| (b1-dl0) `?drawerlv=0` | 両カードとも主人公 Lv7 の集合(従来) |
+| (b1-neg) 影 `fcde6a9` | 主人公のカードも Lv2 の 3 呪文(= 2b の副作用②の再現) |
+| (b1-whois0) `?whois=0` | 本人の Lv(この直しは `?drawerlv=0` の側) |
+| (c1) 主人公は戦士 Lv7・仲間の僧侶 Lv2 と Lv4 | Lv2 のカード = 3 呪文 / Lv4 のカード = 7 呪文(`?drawerlv=0` では両方 Lv7 の集合) |
+| (c2) 仲間の僧侶 1 人 Lv2 | 3 呪文 |
+
+#### (4) (d) 撤退の恒等(probe ident **5/5**・port 10436)
+
+| 比較 | 盤面 | 結果 |
+|---|---|---|
+| (d1) 現行 `?drawerlv=0` vs `f5fe8bc` `?drawerlv=0` | 低 Lv の僧侶 / 主人公の僧侶 + 仲間の僧侶 Lv2 / 同職の魔法使い + 僧侶 Lv4(名簿の顔だけ) | 表示の Lv(`.pmLv` / `.pmDrawerLv` と直前の `" "`)を両方から剥いで(現行 8 個 / 影 0 個)、カード列・全員の引き出し・`selection`・`MAGE_SKILLS_UI`・保存済みの傾向が **完全一致** |
+| (d2) 現行 `?whois=0&drawerlv=0` vs `0e8370d` | 上の 2 盤面 + 新顔 2 人の盤面 | **剥がさずに完全一致** |
+| (d3) [記録] 現行 `?whois=0` vs `f5fe8bc` | 低 Lv の僧侶(Lv2 / Lv4) | 引き出し(傾向段の候補を含む)・`selection`・保存済みの傾向は一致。違うのは **主人公より低 Lv の僧侶のカードの「技」行だけ**(= 本項目の直し。`f5fe8bc` は主人公 Lv の集合) |
+| (d-neg) 比較器の負の対照 | 現行(既定)vs `f5fe8bc` `?drawerlv=0` | 剥いでも引き出し 3 枚とカードが食い違う = 比較器は空振りしない |
+
+- ⚠ (d1) を名簿の顔だけで測った理由: 現行の `?drawerlv=0` は `?whois` が ON なので (β) が生きて、新顔に画面の時点で Lv を振る(`isEarlyLevelOn() = isDrawerLvOn() \|\| isWhoisOn()`)。`f5fe8bc` の `?drawerlv=0` は振らない ⇒ 新顔を入れると `selection` が別物になる(差は 2b の (β) の拡張由来で本項目ではない)。新顔を含む恒等は (d2) で押さえた。
+
+#### (5) 同職の注記 — **採用**(言い換え・追記ではない)
+
+採った文面: 同職 2 人 =「⚠ 魔法使い 2 人に共通・判定は低い方の Lv2」/ 3 人 =「⚠ 魔法使い 3 人に共通・判定は最も低い Lv2」(Lv = `lowestLevelOfClass` = 行の判定 Lv)。`?whois=0` / `?drawerlv=0` では従来の「⚠ この設定は 魔法使い 2 人に共通で適用されます」(`?drawerlv=0` では判定が主人公 Lv に戻るので「低い方」が嘘になる)。
+
+- ⭐ **先に `tools/*.js` でこの注記の文面を読む assert を数えた** = **1 本 1 assert**: `verify_party_match_setup (4b)`(`:1042`〜`:1050`。注記が出るか + 文面に `'2'` を含むか。新しい文面も「2 人」を含む)。`pmDrawerNote` / `人に共通` / `sameCount` を逐語で握る変異アンカーは 0 本。
+- 実装前の測定(probe **notepre**・port 10433): 現行の引き出しの注記へ候補を仮に差し、6 職名 × 2/3 人 × Lv2/Lv10 = 24 組 × 画面ごとに注記 `rect.h`・引き出し `rect.h` / `scrollHeight` / `clientHeight` と文字の自然幅(nowrap)を測った。注記の置き場 = desktop 1010px / 390px 326px、フォント 12px。
+
+| 候補 | 例(Lv2) | 最大幅 Lv2 / Lv10 | 従来(最大 270.9px)より広い組 | 高さが変わる組(4 画面 / isMobile 2 画面) | 採否 |
+|---|---|---|---|---|---|
+| **K1** | ⚠ 魔法使い 2 人に共通・判定は低い方の Lv2 | **243.4 / 248.2** | **0/12** | **0 / 0** | **採用**(親の例文) |
+| K2 | ⚠ この設定は魔法使い 2 人に共通・判定は低い方の Lv2 | 303.4 / 308.2 | 12/12 | 0 / 0 | 不採用(「同じ幅以内」を満たさない) |
+| K3 | ⚠ 魔法使い 2 人に共通・低い方の Lv2 で判定 | 246.4 / 251.2 | 0/12 | 0 / 0 | 次点 |
+| ADD(追記) | 従来の文面 +「(判定はいちばん低い Lv2)」 | 411.2 / 416 | 12/12 | **390px で 12/12 が 18→36px**(desktop は 0) | 不採用(= 2b の実測の再現 = 測定は空振りしない) |
+
+- 実装後の本物(probe **note**・port 10433): **4/4**(192 ページ・772 秒)。
+  - (e-note-text) 本物の文面が 6 職 × 2/3 人 × Lv2/Lv10 × 4 画面 = **96 組すべて** で期待と一致(職名 = `PARTY_SLOTS[].name`・Lv = 盤面から導いた最低 Lv と `lowestLevelOfClass` の 2 経路)。例「⚠ 戦士 2 人に共通・判定は低い方の Lv2」「⚠ 戦士 2 人に共通・判定は低い方の Lv10」「⚠ 戦士 3 人に共通・判定は最も低い Lv2」。
+  - (e-note-h) 同じ 96 組で、**同じ引き出しの注記を従来の文面へ戻したとき** と注記 `rect.h`(18)・引き出し `rect.h` / `scrollHeight` / `clientHeight` が **1px も変わらない**(食い違い 0 組。注記の置き場 desktop 1010px / 390px 326px)。
+  - (e-note-off) `?whois=0` / `?drawerlv=0` は 1280x900・390x844 × 6 職 × 2/3 人 = **48 組すべて従来の文面**。
+  - (e-note-mobile) [記録] `isMobile` / `hasTouch` を付けた 390x844 / 390x667 でも 48/48 で高さ不変・文面一致。
+
+#### (6) (f) カードの高さ(probe cards・4 画面・viewport は幅と高さだけ)
+
+| 画面 | 主人公が戦士 + 仲間の僧侶 Lv2(項目1 の編成・僧侶 9 呪文習得) 現行 = 2b / 2a | 主人公の僧侶 Lv7 + 仲間の僧侶 Lv2 現行 / 2b / 2a |
+|---|---|---|
+| 1280x900 | 319.1 ×4 = 319.1 ×4 / 396.7 ×4 | 396.7 ×4 / 319.1 ×4 / 396.7 ×4 |
+| 1366x768 | 同上 | 同上 |
+| 390x844 | 312.1・312.1・343.1・343.1 = 同 / 312.1・312.1・467.2・467.2 | 467.2・467.2・312.1・312.1 / 343.1・343.1・312.1・312.1 / 467.2・467.2・312.1・312.1 |
+| 390x667 | 同上 | 同上 |
+
+- (f1) 主人公が戦士の編成: **全カード(主人公のカードを含む)の高さと「技」行が 2b と 4 画面で完全一致**(仲間の僧侶のカードは 2b と同じ Lv2 の集合)。
+- (f2) [記録] 主人公が僧侶 + 低 Lv の仲間の僧侶: 主人公のカードは 9 呪文の行に戻るので **2b より高く、2a(`f5fe8bc`)と同じ高さ**(desktop は 4 枚とも 396.7・compact は主人公の段の 2 枚が 467.2)。⚠ 数値は僧侶の呪文 9 種を習得済みにした盤面(項目1 (11) の 334.6 は既定の習得)。
+
+#### (7) `tools/*.js` の逐語アンカーの全数(⭐ 項目1 の走査器の盲点を 1 つ潰した)
+
+- `item2b2/anchors2b2.py`: 全 `tools/*.js` の文字列リテラル(14 字以上)のうち `fcde6a9` か現行の `tavern.html` に現れるもの **1,565 個** について出現回数を比べた ⇒ **変わったのは 1 個だけ** = `verify_spell_off.js:221` 変異 `apcand` の from `'      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));'`(`fcde6a9` 0 件 → 現行 **1 件** = `f5fe8bc` 1 件)。他のアンカー(N3 の 2 件を含む)は件数不変。
+- ⚠⚠ **走査器の盲点**: 最初に項目1 の `anchors72.py` と同じ正規表現(単引用符・二重引用符・バッククォートの 3 枝を 1 本の交替にしたもの)で走らせたら **993 個しか拾わず、`apcand` も見えなかった**。真因 = バッククォートの枝が **行をまたげる** ので、コメントの中の Markdown 風のバッククォート(`` `dragonfighters.clericSpellsOff` `` 等)どうしを 1 つのリテラルとして組にし、その間の引用符リテラルを **丸ごと飲み込む**(finditer は重ならない)。3 種を独立に走査すると 1,565 個。
+- ⇒ 項目1 の `anchors72.py` を同じ直しで `0e8370d` に当て直した(`item2b2/anchors72_fixed.py`・出力 `anchors72_fixed_diff.txt`): 項目1 (12) の表の元になった 34 件に対し **49 件(+15 件・9 本)**。増えた分(`0e8370d` の件数 → 現行の件数):
+  - `verify_mercenary_roster.js:228` `if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);`(1 → 1。2a で `levelOfMember` へ移ったが逐語は健在)/ `:268` `full = roster.length >= DFRoster.CAP;`(`pickCompanion`・1 → 1)/ `:314` `        m.level = clampCompanionLevel(m.level, heroLevel);`(`assignCompanionLevels`・1 → 1)
+  - `verify_party_four.js:95` `    if (prepScenario) partySize = 1 + recruitCountOf(prepScenario);`(`regeneratePartyMembers`・1 → 1)
+  - `verify_spell_off.js:217` `    const autoShown = (isAuto && known && !clericOff) ? autoFromTable : 0;` / `:255` `    const isOff = isSpellOffOnTV() && (isAuto ? clericOff : (usable && cnt <= 0));`(`renderSpellSlotItem`・各 1 → 1)
+  - `verify_prep_retire.js:171` `    if (m.isHero) {`(4 → 4)/ `verify_hold_person.js:608` `?recruittalk=0` / `driver_field_step7.js:956` / `verify_bolt_aim.js:164`〜`:165` / `:987`(`lightning-bolt` と flavor3 の断片 `',   mpCost: 6, flavor: '` = 1 → **0**。2a からの既知の腐敗)
+  - ⇒ flavor3 の断片以外は **全部健在**。⚠ **項目2c(柱3)は `pickCompanion` / `assignCompanionLevels` を触るなら `verify_mercenary_roster.js:268` / `:314` も握られている**(項目1 の表 #4 の計測シーム 4 本 `:145`〜`:162` とは別)。
+
+#### (8) 既存 golden の色(`scratchpad/item2b2/golden2b2.tsv`・比較器 = 項目1 の `gate72.py --pair`(`item2b2/gate2b2.py`)・基準 = `item1/baseline72.tsv`)
+
+20 腕を直列で実走(`golden2b2.py`・2b の 19 腕 + `verify_bolt_aim --negative`・所要約 51 分)。
+
+| 本 | 腕 | 色 | 基準との突き合わせ(経路1 = assert id の指紋 / 経路2 = 判定行の多重集合) | 型 / 2b との比較 |
+|---|---|---|---|---|
+| `verify_party_match_setup` | 素 | exit 1・35/36 | 差 2 / 2 = **(0b) だけ** PASS→FAIL | 2b からの型1(`.pmClass` の職名に Lv)= 2b と同じ。⭐ 注記の文面を読む **(4b) は緑**(「注記="⚠ 盗賊 2 人に共通・判定は低い方の Lv5" / 食い違い 0 件」) |
+| `verify_party_match_setup` | --negative | exit 0(8 本とも担当が赤・空振り 0) | 差 16 = 8 腕の (0b) だけ | 2b と同じ |
+| `verify_darkvision` | 素 / --negative | exit 1・24/25 / exit 1・37/38 | 差 2 / 3(+RECAP)= **(3a) だけ** | 2b からの型1 = 2b と同じ(編成に僧侶が居ないので「技」行は不変) |
+| **`verify_spell_off`** | **--negative** | **exit 0・12 本とも担当が赤(空振り 0)** | **差 0 / 0**(624 = 624 / 665 = 665) | ⭐ **2b の赤(12 変異すべて exit 3)が消えた** = 変異 `apcand` のアンカーが生き返った |
+| `verify_spell_off` | 素 | exit 0・51/51 | 差 0 / 0 | — |
+| `driver_action_priority` | 素 / --negative | exit 0・92/92 / exit 1 | 差 0 / 0・`--negative` のログは基準と **バイト同一**(「負のコントロール N3 の注入点が 2 箇所 (期待 1)」= #35 以来の既知の赤) | N3 のアンカーの逐語は不変(2 件のまま) |
+| `verify_mercenary_roster` | 素 / --negative | exit 0・44/44 / exit 0(10 本とも担当が赤) | 差 0 / 差 4 | `--negative` の差 4 は 2b と同じ `alwaysroster` の腕の担当外 (2e)(2z3) の揺れ(基準 FAIL → 今回 PASS・名簿の人数の乱数)。本項目から経路なし |
+| `verify_pm_drawer_fit` | 素 / --negative | exit 0・75/79 PENDING 4 / exit 0(9 本とも担当が赤) | 差 0 / 0・0 / 0 | — |
+| `verify_recruit_talk` / `verify_party_promises` / `driver_party_view_reopen` / `verify_recruit_size` / `verify_hold_person` / `verify_prep_retire` / `driver_equip_compact_ios` | 素 | 25/25・35/35・35/35・91/91・31/31・30/30・31/31 すべて exit 0 | すべて **差 0 / 0** | — |
+| `verify_bolt_aim` | --negative | exit 3(2.0 秒・§0e で `flavor3` のアンカー腐敗) | 基準 197 id → 9 | 2a からの既知(型1・項目3)。本項目は触っていない |
+
+- ⛔ `tools/` は 1 バイトも直していない。赤は全部 2a / 2b からの持ち越し(型1)で、本項目で **増えた赤は 0**・**消えた赤が 1**(`verify_spell_off --negative`)。
+- ⚠ 既知フレーク 9 本は本項目の golden に含めていない(名指し + 本項目の行を読む本だけ)。
+- 実座標で叩く golden(`verify_party_match_setup` (3a)〜(4b) / `verify_pm_drawer_fit` の 4 画面)は、本項目のカード(僧侶 Lv3 と Lv4 が別々の集合)と新しい注記の盤面で緑のまま。
+
+#### (9) changelog(新しい行は足さず、項目2a の行を進化)
+
+- 前: `<li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。</li>`
+- 後(`:3330`・`py` のバイト置換で件数 1 を assert): `<li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。同じ職が複数いるときは、いちばん低いレベルで判定 (注記に表示)。僧侶のカードには、その人が実際に使える呪文が並ぶ。</li>`
+- ⭐ 副作用①(保存した傾向が消える)の直しは書いていない: 2b は未 push(`origin/main` = `0e8370d`)で、プレイヤーはその欠陥を一度も見ていない ⇒ 「消えなくなった」はプレイヤーにとって真実の変化ではない。書いたのは出荷版(`0e8370d`)から見て本当に変わる 2 点(注記 / 僧侶のカード)だけ。
+- `tools/*.js` で `changelogList` やこの行の文面を読む本は 0 本。
+
+#### (10) 崩れた主張 — 項目2b2 で新たに **5 件**(累計 **27**)
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | キュー(2b の申し送り)/ 親「`verify_spell_off --negative` の変異 `apcand` は 2b で腐っている — この項目でさらに動くのは構わない(項目3 が最終形へ言い直す)」/ 2b (8)「項目3 で `:7706` の行へ言い直す」 | 傾向の候補を `f5fe8bc` の主人公 Lv へ戻したので、アンカーの行は `f5fe8bc` の逐語のまま **生き返った**(0 → 1 件・(7))。golden も `verify_spell_off --negative` が exit 0・12 本とも担当が赤・基準と差 0 へ戻った((8)) ⇒ **項目3 の `apcand` の言い直しは不要** |
+| 2 | 項目1 (12)「逐語で読んでいる assert の全数(`anchors72.py` = 全 149 本から機械で探した結果)」 | 走査器の正規表現の盲点(バッククォートの枝が行をまたいで引用符リテラルを飲み込む)で **15 件(9 本)を落としていた**((7))。いまは全部健在(flavor3 の断片を除く)だが、表は全数ではなかった |
+| 3 | 親の (f)「主人公カードの高さが 2b と同じ」 | 主人公が戦士の編成では成立 (f1)。**主人公の僧侶 + 低 Lv の仲間の僧侶** では主人公のカードが 9 呪文の行に戻るので 2b より高く、2a と同じ高さ (f2) = 条件付き |
+| 4 | 親の (d)「`?drawerlv=0` で `f5fe8bc` と DOM 完全一致」 | `?drawerlv=0` 単独では表示(`?whois`)が ON なので `.pmLv` / `.pmDrawerLv` が残り、字義どおりには一致しない。さらに (β) も ON のまま(`isEarlyLevelOn() = isDrawerLvOn() \|\| isWhoisOn()`)なので、新顔を含む盤面では `selection` も `f5fe8bc` の `?drawerlv=0` と違う。成立するのは「表示の Lv を剥いで・名簿の顔だけの盤面で」(d1)と、`?whois=0&drawerlv=0` = `0e8370d`(d2) |
+| 5 | 2b (7)「保存済みの僧侶の傾向は、仲間の僧侶 Lv2 が居る編成で **僧侶の引き出しを開いた瞬間に** `null` へ書き戻され」 | 引き金はもう 1 つあった: 主人公が僧侶なら **本番の `openPrep` の見えない準備画面の描画だけで**(何も開かずに)消えていた(keep (a2-neg))。⇒ 受入で副作用①の網を張るなら、引き出しを開く腕だけでなく `openPrep` の腕が要る |
+
+- 根: 1 = 前の項目の予測(直し方で結果が変わる)/ 2 = 測定器の盲点(要約の欠落)/ 3・4 = 親の受入条件の字義が盤面・スイッチの組み合わせで条件付き / 5 = 副作用の引き金の数え落とし。
+
+#### ▶ 項目2c / 3 / 4 / 5 への申し送り
+
+1. **項目3(golden の言い直し)**: 言い直しが要るのは 2b からの型1 = `verify_party_match_setup (0b)` / `verify_darkvision (3a)`(素・`--negative` とも)と 2a からの `verify_bolt_aim --negative`(`flavor3`)。本項目の golden((8))で確かめた赤はこの 3 本だけで、増えた赤は 0。
+   ⭐ `verify_spell_off --negative` の `apcand` は本項目で生き返った(言い直し不要)。注記の文面を読む `verify_party_match_setup (4b)` は「注記が出る + 文面に `'2'`」なので新しい文面でも緑。
+2. **項目2c(柱3)**: ⚠ `pickCompanion` / `assignCompanionLevels` / `levelOfMember` を触るなら、項目1 の表に無かったアンカー `verify_mercenary_roster.js:268`(`full = roster.length >= DFRoster.CAP;`)/ `:314`(`        m.level = clampCompanionLevel(m.level, heroLevel);`)/ `:228`(`if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);`)と `verify_party_four.js:95` も握られている((7))。changelog は柱1 の行(`仲間の名前・職業・レベルがひと目で分かるように`)を進化させる(2a の行は本項目で進化済み)。
+3. **項目4(受入 `tools/verify_member_identity.js`)**:
+   - (a) の網: `dragonfighters.actionPriority` に `hold-person`(general/boss)を仕込み、主人公 Lv7 + 仲間の僧侶 Lv2 で ① マッチング → 僧侶の引き出し ② **主人公が僧侶で本番の `openPrep`**(何も開かずに消える経路)③ `?prepskip=0` の準備画面の僧侶のタブ、の後も `localStorage` が残ること。
+   - (b)(c) の網: カードの「技」行 = `getClericSlotsTV(本人の Lv)` から導いた集合(本人の Lv = 主人公は XP・仲間は `min(level, 主人公 Lv)`)。⚠ 呪文名に「・」が入るので「・」で割らずに連結文字列で比べる。同期は引き出しの `.clericOffBtn` を押して両カードを描き直させる。
+   - 注記の網: `#pmDrawerNote` の textContent = `"⚠ " + 職名 + " " + n + " 人に共通・判定は" + (n === 2 ? "低い方の" : "最も低い") + " Lv" + 最低 Lv`(`?whois=0` / `?drawerlv=0` では従来の文面)。
+   - 変異の候補(逐語は本コミットで取り直し済み): `cardhero` = `:7712` の `? getClericSlotsTV(ownLv) : auto;` を `? auto : auto;` に(カードが主人公 Lv へ戻る = (b) が赤)/ `cardlow` = `:8789` の `levelOfMember(m)` を `lowestLevelOfClass(classKey)` に(2b の形 = 主人公のカードが低 Lv)/ `apclamp` = `:7711` を `lowestLevelOfClass(classKey)` 版に(= 2b の副作用① = (a) が赤。⚠ この行は `verify_spell_off` の `apcand` と同じアンカー = 別の本なので衝突はしないが、同じ本の中で 2 変異に使うなら原本に対して健在チェック)/ `notelv` = `:8938` の `lowestLevelOfClass(classKey)` を `levelOfMember(m)` に(開いた本人の Lv = 同職で嘘)/ `notesw` = `:8937` の `(isWhoisOn() && isDrawerLvOn())` を `(isWhoisOn())` に(`?drawerlv=0` で「低い方」が残る)。
+   - 寸法: viewport は幅と高さだけ(`isMobile` / `hasTouch` で値が変わる)。僧侶の習得状況でカードの高さが変わる(9 呪文習得 396.7 / 既定 334.6)。
+4. **項目5(母集団)**: 本項目で新しく読まれうる要素 = `.pmSkillsVal`(僧侶のカードの行)/ `#pmDrawerNote` の文 / `apEquippedIdsFor` の 3 引数目。⭐ 「逐語で握る本」を数えるときは引用符 3 種を **独立に** 走査すること(`item2b2/anchors2b2.py` / `anchors72_fixed.py`)。1 本の交替の正規表現はバッククォートの枝が行をまたいで他を飲み込む。
+5. プローブ = `…/scratchpad/item2b2/probe72_2b2.js`(mode notepre / note ポート 10433・keep 10434・cards 10435・ident 10436・全部解放済み)/ 影 `item2b2/base_tavern_fcde6a9.html`(798e31c)+ `item2b/base_tavern_f5fe8bc.html`(2092fc5)・`item2b/base_tavern_0e8370d.html`(4243b34)/ `golden2b2.py` `gate2b2.py` / 置換 `patch72_2b2.py`。**10401〜10413 は未使用**(項目4 予約)。

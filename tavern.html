@@ -3327,7 +3327,7 @@
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
         <li><b>仲間の名前・職業・レベルがひと目で分かるように</b> — マッチング画面のカードと設定の見出しにレベルを表示。一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。</li>
-        <li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。</li>
+        <li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。同じ職が複数いるときは、いちばん低いレベルで判定 (注記に表示)。僧侶のカードには、その人が実際に使える呪文が並ぶ。</li>
         <li><b>ライトニングボルトが壁で跳ね返る</b> — 狭い坑道では稲妻が壁を蹴って折れ、物陰の敵にも届く。</li>
         <li><b>魔法使いが稲妻を撃てる場面が増えた</b> — 敵の真正面が塞がっていても、斜めに通る筋を探して撃つ。</li>
       </ul>
@@ -7697,15 +7697,21 @@
   //                       (renderSpellSlotItem が「自動 0」と描くものは枠に入っていない)
   //   それ以外          … selection.partySkills[classKey]
   // 並び順はどちらも skillPool 順に揃える (重複呪文はここで畳む)。
-  function apEquippedIdsFor(slot, classKey) {
+  function apEquippedIdsFor(slot, classKey, ownLv) {
     if (isAutoSlotClassTV(classKey)) {
-      /* ★[#72 項目2b] 僧侶の自動配分も引き出しの判定と同じ Lv = (γ) その職の最も低い Lv (撤退 ?drawerlv=0 で主人公 Lv)。
-         ⚠ 主人公 Lv のままだと、仲間の僧侶 Lv2 が持てない Lv3+ の呪文がカードの「技」行 (pmEquippedSkillNames) と
-           傾向段の候補に出て、同じ画面の引き出しの行 (renderSpellSlotItem = Lv2 判定) と食い違う。
-         ⭐ 僧侶が 1 人だけ・主人公が僧侶・その職が居ない、のどれでも lowestLevelOfClass は従来と同じ値。 */
-      const auto = getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp));
+      /* ★[#72 項目2b2] 僧侶の自動配分の Lv は **読み手で分ける** (2026-09-22 親の決定 = 項目2b の副作用の直し)。
+         ・傾向段の候補 (ownLv を渡さない = 準備画面 renderActionPriority / 引き出しの傾向段 / #19) … **主人公 Lv**
+           = f5fe8bc と同じ (下の const auto の 1 行はその逐語 = tools/verify_spell_off.js の変異 apcand のアンカー)。
+           ⚠⚠ 最も低い Lv へ絞ると、既存の正規化 (「保存済みの ID が今の候補に無い → おまかせへ戻し null を保存」) が、
+             低 Lv の仲間の僧侶が来ただけで **保存済みの僧侶の傾向 (ホールド・パーソン等) を消す** (?drawerlv=0 でも戻らない)。
+           傾向は「傾向」なので、低 Lv の僧侶に使えない呪文が候補に残るのは許容する (#72 以前と同じ)。
+         ・カードの「技」行 … pmEquippedSkillNames が **そのカードの本人の Lv** を ownLv に渡す。本体 index.html は僧侶の呪文を
+           各自の Lv で自動配分する ⇒ カードはその人が戦闘で実際に持つ集合 (主人公 Lv7 なら Lv7 の集合 / 仲間 Lv2 なら Lv2 の集合)。
+         ⛔ どちらの Lv でも getClericSlotsTV を通す (#70 の「使わない」はその中の 1 点で効く)。 */
+      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));
+      const pool = (typeof ownLv === "number" && ownLv > 0) ? getClericSlotsTV(ownLv) : auto;
       return slot.skillPool
-        .filter(sk => (auto[sk.id] || 0) > 0 && isSpellKnownTV(classKey, sk.id))
+        .filter(sk => (pool[sk.id] || 0) > 0 && isSpellKnownTV(classKey, sk.id))
         .map(sk => sk.id);
     }
     const list = Array.isArray(selection.partySkills[classKey]) ? selection.partySkills[classKey] : [];
@@ -8770,14 +8776,19 @@
   let pmCols = [];        // 今出ているカード ({ el, fill, refresh })
   let pmOrdered = [];     // カードの並び (番号 → メンバー)
 
-  // カードに出す「今この職が枠に入れている技」。
-  // ⭐ 唯一の正は apEquippedIdsFor (引き出しの傾向段と同じ母集団)。
+  // カードに出す「今この人が枠に入れている技」。
+  // ⭐ 唯一の正は apEquippedIdsFor (引き出しの傾向段と同じ絞り込み)。
   //   ⛔ selection.partySkills を直接読んで別の絞り方をしない (僧侶は自動配分で入り口が違う)。
-  function pmEquippedSkillNames(classKey) {
+  /* ★[#72 項目2b2] m = そのカードの本人。僧侶 (自動配分職) は **本人の Lv** (levelOfMember = Lv の唯一の口) で自動配分を引く
+     (主人公のカードは主人公 Lv・Lv2 の仲間のカードは Lv2 の集合)。同職 2 枚の同期 (pmRefreshCards) でも各カードが
+     自分の m を渡すので混ざらない。⚠ 傾向段の候補は主人公 Lv のまま (apEquippedIdsFor の注記) ⇒ 低 Lv の僧侶では
+     候補のほうがカードより多いことがある (傾向は傾向)。⚠ 撤退 ?drawerlv=0 では従来どおり主人公 Lv (Lv を渡さない)。 */
+  function pmEquippedSkillNames(classKey, m) {
     const slot = PARTY_SLOTS.find(s => s && s.classKey === classKey);
     if (!slot) return [];
+    const ownLv = (m && isAutoSlotClassTV(classKey) && isDrawerLvOn()) ? levelOfMember(m) : undefined;
     let ids = [];
-    try { ids = apEquippedIdsFor(slot, classKey) || []; } catch (e) { ids = []; }
+    try { ids = apEquippedIdsFor(slot, classKey, ownLv) || []; } catch (e) { ids = []; }
     return ids.map((id) => { const sk = slot.skillPool.find(x => x.id === id); return sk ? sk.name : id; });
   }
 
@@ -8842,6 +8853,7 @@
   }
 
   // 同職 2 枚の同期はこれ。片方の引き出しで技を足したら、もう一枚も同じ値になる。
+  // ★[#72 項目2b2] ⚠ 僧侶は各カードが **本人の Lv** で引き直す (renderSkills が自分の m を渡す) ので、Lv が違えば同じ値にはならない。
   function pmRefreshCards() {
     pmCols.forEach((c) => { if (c && c.refresh) c.refresh(); });
   }
@@ -8888,7 +8900,7 @@
     title.textContent = slot.name + " — " + (m.isHero ? "あなた" : (m.name || slot.name));
     /* ★[#72 §5-1] 見出しの後ろに **開いた本人の** Lv (「魔法使い — ロルフ Lv2」/「魔法使い — あなた Lv7」)。
        ⚠ 行の判定 (γ) は同職の **最も低い** Lv なので、同職 2 人のときは見出しの Lv と行の [LvN 必要] が食い違いうる
-         (注記に「低い Lv で判定」を足すと縦持ち 390px で折り返して引き出しが 18px 伸びるので足していない = 依頼書 §12-0 追補 2b)。
+         ⇒ 下の注記 (pmDrawerNote) が判定の Lv を言う (項目2b2。追記は縦持ち 390px で折り返したので、同じ幅以内の言い換え)。
        ⛔「あなた」は残す (verify_pm_drawer_fit の findHeroCard が /あなた/ で引く)。⚠ ?whois=0 では要素ごと作らない。 */
     const titleLv = isWhoisOn() ? shownLevelOf(m) : null;
     if (titleLv != null) {
@@ -8916,7 +8928,15 @@
       const note = document.createElement("div");
       note.className = "pmDrawerNote";
       note.id = "pmDrawerNote";
-      note.textContent = "⚠ この設定は " + slot.name + " " + sameCount + " 人に共通で適用されます";
+      /* ★[#72 項目2b2] 同職が 2 人以上なら行の判定と枠の上限は **その職の最も低い Lv** ((γ))。見出しは開いた本人の Lv なので、
+         注記で判定の Lv を言う (見出し「ミラ Lv4」と行「[Lv3 必要]」が食い違って見える理由)。
+         ⚠ **追記ではなく言い換え**: 従来の文面の後ろへ足すと縦持ち 390px で 18→36px に折り返した (項目2b)。この文面は従来より狭く
+           (最大 248px < 従来 271px・置き場 326px)、6 職 × 2/3 人 × Lv2/Lv10 × 4 画面で注記・引き出しの高さが従来の文面と
+           1px も変わらないことを実測した (依頼書 §12-0 追補 2b2)。⛔ 文を長くするときは測り直すこと。
+         ⚠ 撤退 ?whois=0 (表示) / ?drawerlv=0 (判定が主人公 Lv に戻る = 「低い方」が嘘になる) では従来の文面。 */
+      note.textContent = (isWhoisOn() && isDrawerLvOn())
+        ? "⚠ " + slot.name + " " + sameCount + " 人に共通・判定は" + (sameCount === 2 ? "低い方の" : "最も低い") + " Lv" + lowestLevelOfClass(classKey)
+        : "⚠ この設定は " + slot.name + " " + sameCount + " 人に共通で適用されます";
       drawer.appendChild(note);
     }
 
@@ -9195,7 +9215,7 @@
     function renderSkills() {
       skillsEl.innerHTML = "";
       if (!filled) return;
-      const names = pmEquippedSkillNames(m.classKey);
+      const names = pmEquippedSkillNames(m.classKey, m);   // ★[#72 項目2b2] m = このカードの本人 (僧侶は本人の Lv の集合)
       const lab = document.createElement("span"); lab.className = "pmSkillsLabel"; lab.textContent = "技";
       const val = document.createElement("span"); val.className = "pmSkillsVal";
       val.textContent = names.length ? names.join("・") : "—";
