@@ -2237,6 +2237,10 @@
     .pmName { font-size: 15px; font-weight: 700; color: #f0e6cc; text-align: center; line-height: 1.3; }
     .pmName.pmHeroName { color: var(--pm-gold); }
     .pmClass { font-size: 12px; color: #b8a878; margin-top: 3px; }
+    /* ★[#72 §5-1] 職業の行の後ろの Lv (「魔法使い Lv2」)。⚠⚠ 同じ行の inline のまま・font-size は継ぐ
+       (行もカードも 1px も伸ばさない = 実座標で叩く golden を守る #56 の教訓。4 画面で実測 0px)。
+       ⭐ 色と太さだけで読ませる。⚠ 撤退 ?whois=0 では要素ごと作らない。 */
+    .pmLv { color: #e8dcc0; font-weight: 700; }
     .pmZone { font-size: 11px; color: #8a7c5a; margin-top: 2px; letter-spacing: 1px; }
     /* ★#39: 視界 (short 形「視界 12」)。⛔ .pmZone の規則も文言も変えない / min-height: 296px も変えない。 */
     .pmSight { font-size: 11px; color: #a8996e; margin-top: 2px; letter-spacing: 1px; }
@@ -2306,6 +2310,10 @@
       font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
       font-size: 15px; letter-spacing: 2px; color: var(--pm-gold); line-height: 1.35;
     }
+    /* ★[#72 §5-1] 見出しの後ろの Lv (「魔法使い — ロルフ Lv2」)。⚠ 字間だけ 0 に詰める —— 縦持ち 390px の見出しの
+       置き場は 228px しか無く、最長の「ドワーフ — ガウェイン Lv10」が字間 2px のままだと 227px (余白 1px)。
+       詰めて 8px 空ける (折り返すと引き出しが伸びる = 実座標の golden を壊す)。font-size は継ぐ。 */
+    .pmDrawerLv { letter-spacing: 0; }
     /* ⚠ 指で押すのでタップ領域を 44px 以上に保つ */
     .pmDrawerClose {
       flex: 0 0 auto; min-height: 44px; min-width: 88px; padding: 10px 16px;
@@ -3318,10 +3326,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>仲間の名前・職業・レベルがひと目で分かるように</b> — マッチング画面のカードと設定の見出しにレベルを表示。一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。</li>
         <li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。</li>
         <li><b>ライトニングボルトが壁で跳ね返る</b> — 狭い坑道では稲妻が壁を蹴って折れ、物陰の敵にも届く。</li>
         <li><b>魔法使いが稲妻を撃てる場面が増えた</b> — 敵の真正面が塞がっていても、斜めに通る筋を探して撃つ。</li>
-        <li><b>使わない魔法・特技がひと目で分かるように</b> — マッチング画面の設定で、個数 0 や外した技に「使わない」と出る。僧侶も呪文ごとに使わないを選べる。スリープを 0 にしても戻らず、高 Lv の魔法使いの配分も減らなくなった。</li>
       </ul>
     </div>
     <script>
@@ -4495,9 +4503,20 @@
   /* ★[#72 §5-2] 撤退スイッチ ?drawerlv=0 — 引き出しの Lv 判定 (柱2) を着手前 (0e8370d) の姿へ戻す。
      戻るのは 3 つとも: (α) 下の呪文表の levelReq 同期 / (β) 新顔の Lv をマッチング画面で決める
      (fixCompanionLevelsEarly) / (γ) 同職は最も低い Lv で縛る (lowestLevelOfClass)。
+     ★[#72 項目2b] ⚠ ただし (β) だけは ?whois=0 も併せたときに切れる (表示の柱1 も同じ Lv を要るため・isEarlyLevelOn)。
+       僧侶の自動配分 (apEquippedIdsFor = カードの「技」行と傾向段の候補) も (γ) と同じ Lv で、?drawerlv=0 で主人公 Lv へ戻る。
      ⚠ const に畳まない。呼ぶたびに URL を読む (isPatronLabelOn / isHoldPairOnTV と同じ TDZ 回避の作法)。 */
   function isDrawerLvOn() {
     try { return new URLSearchParams(location.search).get("drawerlv") !== "0"; }
+    catch (e) { return true; }
+  }
+  /* ★[#72 §5-1] 撤退スイッチ ?whois=0 — 名前・職業・Lv の表示 (柱1) を項目2a の後 (f5fe8bc) の姿へ戻す。
+     戻るもの = マッチングのカードの Lv (.pmLv) / 引き出しの見出しの Lv (.pmDrawerLv) / 声掛けダイアログの「職業 Lv◯」。
+     ⚠ 新顔の Lv をマッチング画面で決める (β) の有効条件 isEarlyLevelOn() にも参加する
+       (?drawerlv=0 でも表示が ON なら画面の時点で本当の Lv を出すため)。?whois=0&drawerlv=0 で 0e8370d の姿。
+     ⚠ const に畳まない。呼ぶたびに URL を読む (isDrawerLvOn と同じ TDZ 回避の作法)。 */
+  function isWhoisOn() {
+    try { return new URLSearchParams(location.search).get("whois") !== "0"; }
     catch (e) { return true; }
   }
   /* ★[#72 §5-2 (α)] 上の fireball / lightning-bolt / cone-of-cold の levelReq (3 / 3 / 5) は
@@ -4880,6 +4899,16 @@
     // ⚠ 名簿の Lv が主人公 Lv を超えていることがあるので、出発時と **同じ関数** で clamp して返す。
     if (m && typeof m.level === "number" && m.level > 0) return clampCompanionLevel(m.level, heroLv);
     return heroLv;   // 未確定は主人公Lvにフォールバック
+  }
+  /* ★[#72 §5-1] 画面に **出す** Lv (マッチングのカード / 引き出しの見出し)。値の出所は levelOfMember(m) だけ
+     (⛔ m.level を直に出さない —— 主人公の m.level は出発まで undefined・名簿の Lv は主人公 Lv を超えうる)。
+     ⚠ 決まっていない Lv は出さない (null): 主人公でもなく数値の level も持たない顔 = Lv が未確定。
+       levelOfMember は未確定を主人公 Lv へ落とすので、そのまま出すと嘘の Lv になる。
+       (マッチング画面では fixCompanionLevelsEarly がカードを描く前に振るので、実際には全員に出る。) */
+  function shownLevelOf(m) {
+    if (!m) return null;
+    if (m.isHero || (typeof m.level === "number" && m.level > 0)) return levelOfMember(m);
+    return null;
   }
   // クラス → そのパーティメンバーのレベル (主人公=永続XP由来 / NPC=ティア帯Lv)
   function memberLevelOf(classKey) {
@@ -6414,8 +6443,14 @@
     const n = recruitCountNow();
     const full = !already && n >= RECRUIT_MAX;
     document.getElementById("recruitName").textContent = m.name || "名も無き冒険者";
+    /* ★[#72 §5-1] 名簿の顔 (以前一緒に戦った顔 = mercId + 数値の level) にだけ「職業 Lv◯」を先頭に出す。
+       Lv は levelOfMember(m) = 主人公 Lv で clamp 済み = マッチング画面のカードに出る値と同じ
+       (⚠ 傭兵名簿パネルは保存値の m.level を出すので、名簿の Lv が主人公 Lv を超えているときだけ両者が違う)。
+       ⛔ 初めての顔 (level を持たない) には出さない —— 依頼を受ける前なので Lv が未定 (2026-09-21 ユーザー決定 β)。
+       ⚠ 撤退 ?whois=0 では従来の「職業 — 性格」。 */
+    const recruitLv = (isWhoisOn() && m.mercId != null && typeof m.level === "number" && m.level > 0) ? levelOfMember(m) : null;
     document.getElementById("recruitRole").textContent =
-      recruitClassLabel(m.classKey) + (m.trait ? " — " + m.trait : "");
+      recruitClassLabel(m.classKey) + (recruitLv != null ? " Lv" + recruitLv : "") + (m.trait ? " — " + m.trait : "");
     document.getElementById("recruitQuote").textContent =
       already ? "……ああ、さっきの話だな。支度はできている。"
               : (full ? "見たところ、もう手は足りているのではないか?"
@@ -7664,7 +7699,11 @@
   // 並び順はどちらも skillPool 順に揃える (重複呪文はここで畳む)。
   function apEquippedIdsFor(slot, classKey) {
     if (isAutoSlotClassTV(classKey)) {
-      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));
+      /* ★[#72 項目2b] 僧侶の自動配分も引き出しの判定と同じ Lv = (γ) その職の最も低い Lv (撤退 ?drawerlv=0 で主人公 Lv)。
+         ⚠ 主人公 Lv のままだと、仲間の僧侶 Lv2 が持てない Lv3+ の呪文がカードの「技」行 (pmEquippedSkillNames) と
+           傾向段の候補に出て、同じ画面の引き出しの行 (renderSpellSlotItem = Lv2 判定) と食い違う。
+         ⭐ 僧侶が 1 人だけ・主人公が僧侶・その職が居ない、のどれでも lowestLevelOfClass は従来と同じ値。 */
+      const auto = getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp));
       return slot.skillPool
         .filter(sk => (auto[sk.id] || 0) > 0 && isSpellKnownTV(classKey, sk.id))
         .map(sk => sk.id);
@@ -8017,8 +8056,9 @@
        同行候補 (DFRecruits) の保存形も member の形を前提にしている。書くのは既存の level だけ。
      ⚠ 振るのは level を持たない顔だけ。名簿の顔 (mercId + level) は出発時の clamp に任せる
        (assignCompanionLevels と同じ扱い)。level を持って来た顔 (検証の仕込み等) にも触らない。
-     ⚠ 有効条件は isEarlyLevelOn() の 1 箇所 (今は ?drawerlv=0 と連動)。 */
-  function isEarlyLevelOn() { return isDrawerLvOn(); }
+     ⚠ 有効条件は isEarlyLevelOn() の 1 箇所。★[#72 項目2b] ?drawerlv=0 と ?whois=0 の **両方** が 0 のときだけ切れる
+       (表示だけ ON でもマッチング画面の時点で本当の Lv を出すため)。 */
+  function isEarlyLevelOn() { return isDrawerLvOn() || isWhoisOn(); }
   let earlyLvQuest = null;                // 覚えている依頼の鍵 (earlyQuestKeyOf)
   let earlyLvByPerson = new Map();        // 「職|名前」→ その依頼で振った Lv
   const earlyLvFixed = new WeakSet();     // マッチング画面で Lv を決めた member (出発で振り直さない)
@@ -8846,6 +8886,18 @@
     title.className = "pmDrawerTitle";
     title.id = "pmDrawerTitle";
     title.textContent = slot.name + " — " + (m.isHero ? "あなた" : (m.name || slot.name));
+    /* ★[#72 §5-1] 見出しの後ろに **開いた本人の** Lv (「魔法使い — ロルフ Lv2」/「魔法使い — あなた Lv7」)。
+       ⚠ 行の判定 (γ) は同職の **最も低い** Lv なので、同職 2 人のときは見出しの Lv と行の [LvN 必要] が食い違いうる
+         (注記に「低い Lv で判定」を足すと縦持ち 390px で折り返して引き出しが 18px 伸びるので足していない = 依頼書 §12-0 追補 2b)。
+       ⛔「あなた」は残す (verify_pm_drawer_fit の findHeroCard が /あなた/ で引く)。⚠ ?whois=0 では要素ごと作らない。 */
+    const titleLv = isWhoisOn() ? shownLevelOf(m) : null;
+    if (titleLv != null) {
+      title.appendChild(document.createTextNode(" "));
+      const titleLvEl = document.createElement("span");
+      titleLvEl.className = "pmDrawerLv";
+      titleLvEl.textContent = "Lv" + titleLv;
+      title.appendChild(titleLvEl);
+    }
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "pmDrawerClose";
@@ -9164,6 +9216,20 @@
         nameEl.textContent = m.name || classJa;
       }
       classEl.textContent = classJa;
+      /* ★[#72 §5-1] 職業の行に本人の Lv (「魔法使い Lv2」・主人公は「戦士 Lv7」)。
+         ⚠⚠ 行を足さない (カードが縦に伸びると実座標で叩く golden が壊れる = #56)。同じ行へ inline の
+           <span class="pmLv"> を置くだけ。⭐ 別の span にしたのは: 色と太さで Lv を読ませるため + 職業名 (先頭の
+           テキストノード) と Lv を構造で分けて測れるため (受入 / 言い直しで正規表現の切り出しに頼らない)。
+         ⛔ 名前の行 (nameEl / .pmName) は触らない (verify_party_promises (4c) / driver_party_view_reopen (3b) が読む)。
+         ⚠ 撤退 ?whois=0 では **要素ごと作らない** (.pmLv が 0 個 = f5fe8bc と同じ DOM)。 */
+      const cardLv = isWhoisOn() ? shownLevelOf(m) : null;
+      if (cardLv != null) {
+        classEl.appendChild(document.createTextNode(" "));
+        const lvEl = document.createElement("span");
+        lvEl.className = "pmLv";
+        lvEl.textContent = "Lv" + cardLv;
+        classEl.appendChild(lvEl);
+      }
       zoneEl.textContent = PM_ZONE_LABEL[m.zone] || m.zone;
       if (sightEl) sightEl.textContent = DFSight.sightLabel(m.classKey, true);
       equipEl.innerHTML = "";

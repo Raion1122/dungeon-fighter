@@ -769,3 +769,150 @@
 | 1 | §5-2「主人公なら `memberLevelOf` が主人公 Lv を返す ⇒ 主人公が呪文職のときの挙動は 1 ビットも変わらない」/ §8 (2d) | ユーザー決定 (α)(γ) の後は**条件付き**。(α) で主人公の魔法使い Lv1〜2 は LB・ファイアボール、Lv1〜4 はコーンオブコールドに `[LvN 必要]` が出る(ident (c-info))。(γ) で同職の仲間が低 Lv なら主人公の引き出しも縛られる(core f1)。⇒ 恒等は「主人公 Lv ≥ 5(コーンオブコールド未習得なら ≥ 3)かつ同職の仲間なし」でだけ成り立つ(ident (c)(c2) はこの条件で 4 枚完全一致) |
 | 2 | 項目2a の指示 (c)「主人公だけの魔法使い(同職の仲間なし)の引き出し DOM が着手前とテキスト完全一致」 | 主人公の 1 枚は一致するが、**同じ画面の仲間の僧侶・エルフ**の引き出しは変わる(柱2 は魔法使い専用ではなく呪文職の NPC 全員に効く)⇒ 全枚一致は仲間を非呪文職にした腕でだけ成り立つ(ident (c) / (c-npc)) |
 | 3 | §1 / §2 / §8 は LB(魔法使い)だけを受入に挙げている | 同じ是正が僧侶・エルフの NPC にも出る: エルフ Lv2 は枠 2(`SPELL_SLOT_CURVE_ELF[2]`)なので既定配分 3 個で＋が全部無効 / 僧侶 Lv2 はターンアンデッド・ホールド・パーソンに `[Lv3 必要]`(ident (c-npc))。本体の切り方と一致する是正だが §8 に名前が無い = 項目4 の受入の空白地帯候補 |
+
+---
+
+### 12-0 追補(項目2b / 2026-09-22・実装窓 セッション `b34987cb-…`)— 柱1 表示 + 撤退 `?whois=0` + (β) の有効条件 + 僧侶の自動配分
+
+⭐ 行番号は **本コミット後の `tavern.html`**(純 CRLF・10,914 行・bare LF 0・bare CR 0 を `py` のバイト数えで確認)。⛔ 使う前に逐語で引き直すこと。
+変更ファイル = `tavern.html`(+71/-5)+ 本 `.md` のみ(`index.html` / `js/` / `tools/` は 1 バイトも触っていない)。
+changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。」)を `py tools/add_changelog.py` で追加(4 件維持・最古の #70 の行が落ちた)。
+
+#### (1) 撤退スイッチ `?whois=0`
+
+- 判定の逐語 = `try { return new URLSearchParams(location.search).get("whois") !== "0"; }` — **1 件**(`:4519`。関数 `function isWhoisOn() {` `:4518` = `isDrawerLvOn` `:4509` の直後)。const に畳まず呼ぶたびに URL を読む(isDrawerLvOn と同じ TDZ 回避の作法)。
+- `isWhoisOn()` の出現 = **5 件**: 定義 `:4518` / 声掛け `:6451` / (β) の有効条件 `:8061` / 引き出しの見出し `:8893` / カード `:9225`。
+- 0 で戻るもの = カードの `.pmLv`・見出しの `.pmDrawerLv`・声掛けの「職業 Lv◯」の 3 つ(どれも **要素ごと・文字ごと作らない**)。
+- (β) の有効条件 = `function isEarlyLevelOn() { return isDrawerLvOn() || isWhoisOn(); }`(`:8061`・1 件)⇒ 新顔の Lv をマッチング画面で決めるのが止まるのは `?drawerlv=0` と `?whois=0` の **両方** が 0 のときだけ。
+- `isDrawerLvOn()` の出現は 6 → **7 件**(`:4509` 定義 / `:4530` (α) の撤退 / `:4933` `skillLimitForClass` / **`:7706` `apEquippedIdsFor`(本項目 (7))** / `:7924` 準備画面 / `:8061` (β) / `:8943` 引き出し)。
+- 実測(probe ident **7/7**):
+  - `?whois=0` と 影 `f5fe8bc`(`/__base__/`): 名簿の魔法使い Lv2 + 新顔 2 人(マッチングで振る。`play` の同期部分だけ決定論の乱数に差し替えて両頁を同じ Lv に振った)/ 同職 2 人 + 新顔 で、カード列 innerHTML・4 枚の引き出し innerHTML・`selection`(振られた Lv 含む)・`MAGE_SKILLS_UI` が **完全一致**((f1)(f2))。
+  - `?whois=0&drawerlv=0` と 影 `0e8370d`(`/__base0__/`): 名簿の魔法使い Lv2 + 新顔の僧侶/エルフ / 同職 2 人 + 仲間の僧侶 Lv2 で **完全一致**((f4)(f5)。新顔は画面の時点で振られない = level 無し)。
+  - 比較器の負の対照 (f-neg): スイッチ ON では同じ盤面で 4 枚とも食い違う。影の配信の検算 (0c-ident): `f5fe8bc` は `isWhoisOn` 無し・`lowestLevelOfClass` 有り / `0e8370d` はどちらも無し。
+  - ⚠ **(f3) `?whois=0` 単独は「主人公 Lv より低い仲間の僧侶」が居ると `f5fe8bc` と違う**: 違うのは僧侶のカードの「技」行と僧侶の引き出しの傾向段だけ(= (7) は柱2 側 = `?drawerlv=0` に属するため。`selection` は一致)。
+
+#### (2) 表示の DOM(実装後の逐語)
+
+| 画面 | 形 | 行 |
+|---|---|---|
+| マッチングのカード | `.pmClass` = テキストノード「職名」+ テキストノード `" "` + `<span class="pmLv">Lv◯</span>`。例「魔法使い Lv2」/ 主人公「戦士 Lv7」。`.pmName`(名前の行)は無改変 | `classEl.textContent = classJa;` `:9218` の直後 `:9219`〜`:9232`(`const cardLv = isWhoisOn() ? shownLevelOf(m) : null;` `:9225` / `lvEl.className = "pmLv";` `:9229`)。CSS `.pmLv { color: #e8dcc0; font-weight: 700; }` `:2243` |
+| 引き出しの見出し | `#pmDrawerTitle` = テキストノード「職名 — 名前(主人公は あなた)」+ `" "` + `<span class="pmDrawerLv">Lv◯</span>`。Lv = **開いた本人** | `title.textContent = slot.name + " — " + …` `:8888` の直後 `:8889`〜`:8900`(`const titleLv = isWhoisOn() ? shownLevelOf(m) : null;` `:8893` / `titleLvEl.className = "pmDrawerLv";` `:8897`)。CSS `.pmDrawerLv { letter-spacing: 0; }` `:2316` |
+| 酒場の声掛け | `#recruitRole` の textContent = `職名 + " Lv" + ◯ + " — " + 性格`(**名簿の顔だけ**)/ 初めての顔は従来の `職名 + " — " + 性格` | `const recruitLv = (isWhoisOn() && m.mercId != null && typeof m.level === "number" && m.level > 0) ? levelOfMember(m) : null;` `:6451` / 代入 `:6452`〜`:6453` |
+
+- **Lv の出所**: カードと見出しは `function shownLevelOf(m)` `:4908`(主人公か数値の level を持つ顔なら `levelOfMember(m)`、未確定なら `null` = 出さない)。声掛けは上の条件のときだけ `levelOfMember(m)`。⛔ `m.level` をそのまま出す箇所は 0(probe card (a-hero): 主人公の `m.level` は `undefined` のままカードに「戦士 Lv7」/ (a-clamp): 名簿の保存 Lv9 の僧侶は主人公 Lv7 のとき「僧侶 Lv7」)。
+- ⚠ マッチング画面では `fixCompanionLevelsEarly` がカードを描く前に振るので、`shownLevelOf` が `null` を返す顔は実際には出ない(`null` は保険)。
+
+#### (3) カードの設計判断 — `.pmClass` の **中** の inline `<span class="pmLv">`
+
+| 候補 | 高さ | 読みやすさ | 受入での測りやすさ | 採否 |
+|---|---|---|---|---|
+| 兄弟の新しい行(`.pmClass` の下) | ✗ 縦 flex で 1 行増える = カードが伸びる | ○ | ○ | 不採用 |
+| `.pmClass` の textContent へ直に「 Lv2」 | ○ 0px | △ 職名と同じ色・太さで埋もれる | △ 正規表現で切り出すしかない | 不採用 |
+| **`.pmClass` の中の `<span class="pmLv">`** | **○ 0px(4 画面で実測)** | **○ 色 `#e8dcc0` + 太字で Lv だけ立つ** | **○ 職名 = 先頭テキストノード / Lv = `.pmLv` を構造で分けて読める** | **採用** |
+| CSS `::after { content: attr(data-lv) }` | ○ | ○ | ✗ textContent に出ない = 受入が逐語を読めず、`verify_darkvision (3a)` / `verify_party_match_setup (0b)` を「変わっていない」と **誤って緑** にする | 不採用 |
+
+- ⚠ `.pmClass` の textContent が「魔法使い Lv2」になるので **`verify_party_match_setup (0b)` と `verify_darkvision (3a)` は型1 の赤**((8))。⭐ 言い直し(項目3)は「`.pmClass` の先頭テキストノード」または「`.pmClass` から `.pmLv` を除いた文字」で職名を取れば、元の意味(職業の並び / 着手前と 1 文字も違わない)をそのまま保てる。
+- 見出しも同じ形(テキスト + `<span class="pmDrawerLv">`)。字間だけ 0: 縦持ち 390px の見出しの置き場は **228px**(引き出しの幅 − 閉じるボタン − gap)で、最長の「ドワーフ — ガウェイン Lv10」は字間 2px のままだと **227px(余白 1px)**。字間 0 で **219px**(実測 sw)。
+
+#### (4) 注記(`pmDrawerNote`)へ「低い Lv で判定」を **足さなかった** 理由
+
+- pre probe(現行 DOM への仮の追記・本番は無傷): 候補 4 つ(「(いちばん低い Lv に合わせて判定)」「(判定はいちばん低い Lv)」「(低い Lv で判定)」「・判定は最も低い Lv」)が **すべて**、縦持ち 390px で注記 **18 → 36px**(2 行)・引き出し **+18px**。desktop 2 画面は 1 行のまま(注記の幅 1010px)。「ドワーフ 3 人」の文でも同じ ⇒ 指示どおり足していない。
+- その結果、同職 2 人以上では **見出しの Lv と行の `[LvN 必要]` が食い違う**(probe card (b-dup): 主人公 Lv7 / ロルフ Lv2 / ミラ Lv4 で、ミラの見出し「魔法使い — ミラ Lv4」+ LB 行 `[Lv3 必要]`・`.full`)。注記「⚠ この設定は 魔法使い 3 人に共通で適用されます」は従来どおり出る。
+
+#### (5) 寸法(probe dims 5/5 + pre)— 測り方は項目1 (11) と同じ(viewport は幅と高さだけ・演出を最初からその寸法で開く)
+
+| 画面 | カード rect.h | 引き出し rect.h(戦士・魔法使い・僧侶・エルフ) | 見出し h | 声掛けダイアログ(名簿の顔 120 組) |
+|---|---|---|---|---|
+| 1280x900 | 334.6 ×4 | 639.7 / 580.3 / 518.5 / 501.6 | 20.3 | 全組 不変 |
+| 1366x768 | 334.6 ×4 | 同上 | 20.3 | 全組 不変 |
+| 390x844 | 312.1・312.1・358.6・358.6 | 965.2 / 919.8 / 748.8 / 715.1 | 20.3 | ⚠ **8 組が +20.0px** |
+| 390x667 | 同上 | 同上 | 20.3 | ⚠ 同じ 8 組が +20.0px |
+
+- 表の値 = 項目1 の編成(戦士★ / 魔法使い ロルフ Lv2 / 僧侶 リタ Lv2 / エルフ エル Lv2・配分 sleep+LB・主人公 Lv7)を `?drawerlv=0` で開いた腕 (A)。**項目1 の基準寸法と 4 画面とも完全一致**、Lv を出す現行と出さない影 `f5fe8bc` で カード rect.h・職業行 h(18)・引き出し rect.h / scrollHeight / clientHeight・見出し h が **完全一致**。
+- 同じ一致を 4 画面 × さらに 3 編成で確認: (B) 既定・僧侶を主人公と同じ Lv7 / (C) 最長の名前 + 全員 Lv10(見出し「ドワーフ — あなた Lv10」「ドワーフ — ガウェイン Lv10」「魔法使い — ベルント Lv10」sw 185 / 219 / 203・h 20.3)/ (D) 同職 2 人(注記つきの引き出し)。
+- ⚠⚠ **(E) = 項目1 の編成を既定で(僧侶 Lv2 < 主人公 Lv7)開くと、カードが縮む**: desktop 334.6 → **319.1**(4 枚)・compact 358.6 → **327.6**(僧侶の段の 2 枚)。**Lv の文字ではなく (7) の効果**(僧侶の「技」行が「キュア・ライトウーンズ・シールド・オブ・フェイス・ターンアンデッド・ホールド・パーソン」→「キュア・ライトウーンズ・シールド・オブ・フェイス」)。引き出しの寸法は影と一致。
+  ⚠ E の僧侶の引き出し 501.6(desktop)/ 715.1(compact)は **影 `f5fe8bc` も同じ** = 項目2a の時点で項目1 の 518.5 / 748.8 から変わっていた(2a の申し送りには無い。項目1 の数字と一致するのは `?drawerlv=0` の腕)。
+- ⚠ 測り方の注意: 同じ編成でも 390px を `isMobile: true, hasTouch: true` で開くとカード 343.1 / 引き出し 1444.9 など **別の値** になる(pre と dims 1 回目)。項目1 の基準と比べるときは viewport に幅と高さだけを渡すこと。
+- ⚠⚠ **声掛けダイアログは 390px で不変ではない**: 6 職 × 性格 10 × Lv{2,10} の 120 組のうち **8 組**(ドワーフ/魔法使い × 「無口で何を考えているか読めない」は Lv2 でも・Lv10 では 魔法使い × 「やたらお調子者で場を和ませる」「酒好きで宵越しの金を持たない」「夢見がちで英雄譚に憧れている」/ エルフ × 「無口…」)で役割の行が 2 行に折り返し、`#recruitBox` が **293.4 → 313.4px**(差は全部ちょうど 1 行)。役割の行の幅は **281px**(`width: min(460px, 90vw)` − padding 32×2 − 枠)。
+  - 不変にする手は「性格を `…` で切る」か「Lv を名前の行へ移す」しか無く、どちらも指示(「職業 Lv◯」を先頭・性格は従来どおり後ろ)と食い違う ⇒ **自然な折り返しのまま** にした。
+  - 根拠: 声掛けダイアログを押す既存 golden は `verify_recruit_talk` / `verify_hold_person` の 2 本で、**どちらも `el.click()`**(実座標クリック 0 本)。名簿の顔を卓に座らせてダイアログを開く既存 golden は 0 本(`mercRoster` を仕込むのは `verify_mercenary_roster` だけで、ダイアログは開かない)。`#recruitRole` を読む既存 golden も 0 本。
+  - ⇒ 親の (e)「声掛けダイアログが 4 画面で不変」は **desktop 2 画面では成立・縦持ち 2 画面では 8/120 組で不成立**(崩れた主張 1)。⛔ ユーザーが「折り返さない」を望むなら別の見た目(Lv を名前の行へ / 性格を省略)を諮ること。
+
+#### (6) 声掛けダイアログ(probe dialog 9/9)
+
+- 名簿を満杯(12 人 = 6 職 × 2)にすると `pickCompanion` の新顔の枝が消え、卓の 4 席が全員名簿の顔になる(装置 (c-0))。そのうえで `todaysPatrons` の実物の席に `openRecruitDialog` を開いた:
+  「戦士 Lv2 — 無口で何を考えているか読めない」「魔法使い Lv5 — 血の気が多くすぐ突っ込む」「僧侶 Lv7 — 金にがめついが約束は守る」「エルフ Lv2 — 無口で…」(Lv = 仕込んだ level を主人公 Lv7 で clamp した値 = `levelOfMember(m)` の 2 経路一致)。
+- (c-clamp) 本物の抽選 `drawTodaysPatrons()` で引いた **保存 Lv9** のイレーナ(ドワーフ)は「ドワーフ Lv7 — やたらお調子者で場を和ませる」= カードと同じ clamp 済みの値。⚠ **傭兵名簿パネルは保存値の「Lv9」** を出す(`.mrMeta` は無改変)⇒ 名簿の Lv が主人公 Lv を超えるときだけ 2 つの表示が食い違う(崩れた主張 4)。
+- (c-new) 名簿が空 = 4 席とも新顔(level も mercId も無い)⇒ Lv 無しの「職名 — 性格」。(c-off) `?whois=0` は名簿の顔でも Lv 無し。
+- (d) 決定論の乱数(ページの最初から)で卓の顔ぶれを影と揃え、**傭兵名簿パネル(`#rosterBody` innerHTML 3,309 字 / `#rosterSub`)・卓の頭上札 4 枚(`.patronLabel` の文字・class・`data-patron`・pointer-events)が ON でも `?whois=0` でも `f5fe8bc` と完全一致**。`?whois=0` のダイアログ(名前・役割・台詞・約束の行)も完全一致。
+
+#### (7) `apEquippedIdsFor`(僧侶の自動配分)— 親の追加(項目2a の申し送り)
+
+- 逐語: `const auto = getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp));` `:7706`(関数 `function apEquippedIdsFor(slot, classKey) {` `:7700`)。旧逐語 `const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));` は **0 件**。
+- probe cleric: 主人公 Lv7 × 仲間の僧侶 Lv2(呪文 9 種を習得済みにした盤面)で、カードの「技」行 = `CLERIC_SLOTS_TABLE[id][2] > 0` から導いた集合「キュア・ライトウーンズ・ブレス・シールド・オブ・フェイス」と一致・傾向段の候補も同じ 3 id・`[LvN 必要]` の付く 6 呪文はどちらにも出ない((g1)(g2)(g3))。`?drawerlv=0` と影 `f5fe8bc` は 9 呪文 = 直す前の欠陥の再現((g-off)(g-base))。主人公が僧侶で同職なし = 影と同じ((g-hero))。
+- ⚠ **主人公の僧侶 Lv7 + 仲間の僧侶 Lv2 では、主人公のカードの「技」行も Lv2 の 3 呪文**((g-dup))。本体 `index.html` の僧侶は自動配分を **各自の Lv で** 組む(主人公は戦闘で 9 呪文を持つ)が、`pmEquippedSkillNames(classKey)` は **職単位** で 1 つの列しか返せない ⇒ (γ) と同じく「全員が必ず持つ集合」を出した。傾向(`selection.actionPriority.cleric`)も職単位なので、候補を最低 Lv に揃えるのは (γ) と整合する。
+- ⚠⚠ **副作用(記録・判断材料)**: 傾向段は既存の正規化 `if (row[sit.key] && ids.indexOf(row[sit.key]) < 0) { row[sit.key] = null; dirty = true; }`(引き出し `:9100` / 準備画面 `:7845`)で「今の候補に無い保存値を おまかせ へ戻して保存」する。(7) で僧侶の候補が最低 Lv の集合に減るので、**保存済みの僧侶の傾向(例: ホールド・パーソン)は、仲間の僧侶 Lv2 が居る編成で僧侶の引き出しを開いた瞬間に `null` へ書き戻され、`localStorage` `dragonfighters.actionPriority` にも保存される**(probe cleric (g-ap): ON `["hold-person","hold-person"]` → `[null,null]` / `?drawerlv=0` と影 `f5fe8bc` は残る)。仲間の僧侶が居なくなっても戻らない(値が消える)。⇒ 主人公が僧侶 Lv7 で仲間の僧侶 Lv2 を連れた回に、主人公の「ボスにはホールド・パーソン」の指示も消える。(γ)「全員が必ず持てるものだけ」と同じ向きだが、**保存値を壊す** 点は 2a の「既に上限を超えて置かれている技は消さない」と逆 ⇒ 親 / ユーザーの判断材料(⛔ 本項目では正規化に手を入れていない)。
+- ⚠ **カードの高さ**: (5) の (E)。
+
+#### (8) 既存 golden の色(`scratchpad/item2b/golden2b.tsv`・比較器 = 項目1 の `gate72.py --pair`・基準 = `item1/baseline72.tsv`)
+
+| 本 | 腕 | 色 | 基準との突き合わせ(経路1 = assert id の指紋 / 経路2 = 判定行の多重集合) | 型 |
+|---|---|---|---|---|
+| `verify_party_match_setup` | 素 | **exit 1・35/36** | 差 2 / 2 = **(0b) だけ** PASS→FAIL(「カード=["戦士 Lv5","僧侶 Lv3","僧侶 Lv4","魔法使い Lv3"] / 実体=["戦士","僧侶","僧侶","魔法使い"]」) | **型1**(`tools/verify_party_match_setup.js:746`〜`:750`・`.pmClass` の並び === `PARTY_SLOTS[].name`。職業行に Lv が入った)⇒ 項目3 |
+| `verify_party_match_setup` | --negative | exit 0(8 本とも担当が赤・空振り 0) | 差 16 = 8 腕それぞれの (0b) PASS→FAIL だけ | 型1 の持ち越し(担当ラベルは全部赤のまま) |
+| `verify_darkvision` | 素 | **exit 1・24/25** | 差 2 / 3(+RECAP)= **(3a) だけ** PASS→FAIL(「#0 .pmClass "戦士 Lv5" ≠ "戦士" …」4 枚とも `.pmClass` だけ。`.pmName` / `.pmEquipRow` / `.pmSkillsVal` は一致) | **型1**(`tools/verify_darkvision.js:1179`〜`:1211`・比較 `:1198`・抽出 `:677` / `:825`)⇒ 項目3 |
+| `verify_darkvision` | --negative | **exit 1・37/38** | 差 2 / 3 = (3a) だけ | 型1(素と同じ 1 本) |
+| `verify_spell_off` | 素 | exit 0・51/51 | 差 0 / 0 | — |
+| `verify_spell_off` | --negative | **exit 1(2.0 秒)・12 変異すべて exit 3** | 基準 624 id → 0(変異が 1 本も走らない) | **型1 = 変異 `apcand` のアンカー腐敗**。`tools/verify_spell_off.js:219`〜`:222` が `'      const auto = getClericSlotsTV(getLevelFromXP(inventory.xp));'` を握り、各変異の子プロセスが **全変異のアンカーを原本で健在チェック** するので 1 本の腐敗で 12 本とも exit 3 ⇒ 項目3 で本項目 (7) の `:7706` の行へ言い直す |
+| `driver_action_priority` | 素 | exit 0・92/92 | 差 0 / 0 | — |
+| `driver_action_priority` | --negative | exit 1(2.0 秒) | 基準と逐語で同じ「負のコントロール N3 の注入点が 2 箇所 (期待 1)」(#35 以来) | 既知の赤 |
+| `verify_mercenary_roster` | 素 | exit 0・44/44 | 差 0 / 0 | — |
+| `verify_mercenary_roster` | --negative | exit 0(10 本とも担当が赤・空振り 0) | 差 4 = 変異 `alwaysroster` の腕の **担当外** (2z3)(2e) が基準 FAIL → 今回 PASS | 乱数の揺れ: (2e) の区画は `grow()`(乱数の出発)で育てた名簿の人数で分岐し、同じ走行の中でも腕ごとに 9〜12 人と揺れる。基準の腕は 11 人 → 変異が Lv1 の新顔を足して付随赤 / 今回と再走 1 回は 12 人(満杯)で付随赤なし。担当ラベル (0a)(5a) は両方赤。本項目の変更から (2e) への経路は無い(`memberLevelOf` / `skillLimitForClass` は無改変) |
+| `verify_pm_drawer_fit` | 素 / --negative | exit 0・75/79 PENDING 4 / 9 本とも担当が赤 | 差 0 / 0・0 / 0 | — |
+| `verify_recruit_talk` / `verify_party_promises` / `driver_party_view_reopen` / `verify_recruit_size` / `verify_hold_person` / `verify_prep_retire` / `driver_equip_compact_ios` | 素 | 25/25・35/35・35/35・91/91・31/31・30/30・31/31 すべて exit 0 | すべて **差 0 / 0** | — |
+
+- 実座標クリックの golden(`verify_party_match_setup` (3a)〜(4b) / `verify_pm_drawer_fit` の 4 画面)は、カードの Lv と (7) の縮みの両方を含む盤面(`verify_party_match_setup` の編成 = 主人公 戦士 Lv5 + 僧侶 Lv3・Lv4 + 魔法使い Lv3)で緑のまま。
+- ⛔ `tools/` は 1 バイトも直していない。赤の 3 本(素 2 + `verify_spell_off --negative`)はすべて型1 = 項目3 の言い直し対象(2a からの `verify_bolt_aim --negative` exit 3 と合わせて 4 本)。
+- ⚠ 既知フレーク 9 本は本項目の golden に含めていない(名指し + 本項目の行を読む本だけ)。
+
+#### (9) 受入プローブ(`scratchpad/item2b/probe72_2b.js`・ポート 10427〜10432・全部解放済み)
+
+| mode | port | 結果 | 見たもの |
+|---|---|---|---|
+| pre | 10427 | 記録 | 実装前に候補の文字を現行 DOM へ仮に足した 4 画面の高さ(カード 0px / 見出し 0px・最悪 227/228px / 注記 390px で +18px / ダイアログ 390px で一部 +20px) |
+| card | 10428 | **14/14** | (a-new) マッチングで **実際に振られた** 新顔 Lv2 のカード「魔法使い Lv2」/ (a-hero) 主人公「戦士 Lv7」(`m.level` は undefined のまま)/ (b-new)(b-hero) 見出し「魔法使い — ヨナ Lv2」「戦士 — あなた Lv7」(見出しの文字と `levelOfMember` の 2 経路)/ (a-roster)(b-roster) 名簿の顔 / (a-clamp) 保存 Lv9 → Lv7 / (a-off)(b-off) `?whois=0` で `.pmLv` 0 個・見出しに Lv 無し / (a-name) `.pmName` は ON と OFF で同一 / (a-dl0) `?drawerlv=0` でも表示は同じ / (b-dup) 見出しと行の食い違い |
+| dialog | 10429 | **9/9** | (6) |
+| dims | 10430 | **5/5** | (5)(うち 2 本は [記録]: (e-7) カードの縮み / (e-dialog-compact) 8/120 組) |
+| ident | 10431 | **7/7** | (1) |
+| depart | 10427 | **3/3** | (f6) `?whois=0&drawerlv=0` と `0e8370d` は本番の `openPrep` → 出発で同じ挙動(画面で振らず出発で帯 [2,4])・出発で焼くキー集合と名簿のキー集合も同じ / (f7) `?drawerlv=0` 単独は表示 ON なので画面で振り出発で振り直さない |
+| cleric | 10432 | **10/10**(g-ap 含む) | (7) |
+
+#### (10) 崩れた主張 — 項目2b で新たに **7 件**(累計 **22**)
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | 項目1 (11)「`" Lv10"` を DOM で足しても **4 画面とも** 高さ 0px(`#recruitRole` 20→20・ダイアログ 266.2→266.2)」・親の (e)「声掛けダイアログが 4 画面で不変」 | 項目1 の声掛けの実測は **既定の 1280x900・卓の 1 席だけ** だった。縦持ち 390px では名簿の顔 120 組中 8 組で +20.0px((5))。カード・見出しは 4 画面とも 0px で成立 |
+| 2 | 親の (e)「カードの高さを 1px も変えない」 | Lv の表示では 0px で成立。ただし親の追加 (7) で、主人公 Lv より低い仲間の僧侶が居るとカードが **縮む**(334.6→319.1 / 358.6→327.6)((5) E) |
+| 3 | 親の (f)「`?whois=0` で `f5fe8bc` と DOM 完全一致」 | (7) は `?drawerlv=0` 側なので、主人公 Lv より低い仲間の僧侶が居る盤面では僧侶の「技」行と傾向段が違う((1) f3)。それ以外の盤面では完全一致 |
+| 4 | §2-4 / §5-1「傭兵名簿パネルは ⇒ ここだけ既に 3 点そろっている(触らない)」 | パネルは保存値の Lv、カード・見出し・声掛けは主人公 Lv で clamp した Lv ⇒ 名簿の Lv が主人公 Lv を超えると食い違う(イレーナ 保存 Lv9 → 声掛け Lv7)((6)) |
+| 5 | 項目1 (11)「見出しの `scrollWidth` = `clientWidth` = 97〜148px で、器にまだ余白がある」 | 測った名前が短かっただけ。縦持ちの置き場 228px に対し最長の「ドワーフ — ガウェイン Lv10」は字間 2px のままで 227px(余白 1px)⇒ Lv の字間を 0 にして 219px((3)) |
+| 6 | 項目2a の申し送り / 親「(7) は 1 行・`?drawerlv=0` で従来に戻ること」 | 表示は 1 行で揃い `?drawerlv=0` で戻る。ただし既存の傾向の正規化を通して **保存済みの僧侶の傾向を `null` へ書き換えて保存する**(g-ap)⇒ 一度書き換わると `?drawerlv=0` でも戻らない((7)) |
+| 7 | 親の (e) の基準寸法「引き出し desktop 639.7/580.3/**518.5**/501.6・compact 965.2/919.8/**748.8**/715.1」(= 項目1・`0e8370d`) | `f5fe8bc`(2a 後)の既定では、項目1 の編成の僧侶 Lv2 の引き出しが **501.6 / 715.1** に変わっていた(2a の申し送りに無い)。項目1 の数字がそのまま出るのは `?drawerlv=0` の腕だけ((5)) |
+
+#### ▶ 項目2c / 3 / 4 / 5 への申し送り
+
+1. **項目3(golden の言い直し)= 型1 の赤 3 本 + 2a の 1 本**:
+   - `verify_party_match_setup.js:746`〜`:750` (0b): 職名は `.pmClass` の **先頭テキストノード**(または `.pmLv` を除いた文字)で取る。`--negative` の 8 腕の (0b) も同時に直る。
+   - `verify_darkvision.js:677` / `:825` の `cls: txt(c.querySelector('.pmClass'))` → 同じく職名だけを取り、(3a) `:1198` の 1 文字比較の意味(着手前と職名が同じ)を保つ。⭐ Lv の比較は影(着手前)に無いので (3a) の外で。
+   - `verify_spell_off.js:219`〜`:222` 変異 `apcand`: from = `'      const auto = getClericSlotsTV(isDrawerLvOn() ? lowestLevelOfClass(classKey) : getLevelFromXP(inventory.xp));'`(`tavern.html:7706`・1 件)。to は「`getClericSlotsTV` を通さず `CLERIC_SLOTS_TABLE` を直読み」の意味を保ち、Lv の式は from と同じにする(担当が赤くなるかを実走で確かめる)。
+   - 2a の `verify_bolt_aim.js:162`〜`:165` 変異 `flavor3`(LB 行)。
+2. **項目2c(柱3)**: 本項目は `pickCompanion` の 4 行(`verify_mercenary_roster` の計測シーム)を触っていない(素 44/44 で確認)。changelog の柱1 行 = `<li><b>仲間の名前・職業・レベルがひと目で分かるように</b> — マッチング画面のカードと設定の見出しにレベルを表示。一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。</li>`(`tavern.html` の `changelogList` の先頭)を進化させる。
+3. **項目4(受入 `tools/verify_member_identity.js`)**:
+   - DOM の形: カード `.pmColumn .pmClass` の先頭テキストノード = 職名 / `.pmClass .pmLv` の textContent = `"Lv" + n`(`?whois=0` では `.pmLv` が 0 個)。見出し `#pmDrawerTitle` = `職名 + " — " + (主人公は "あなた" / 名前) + " " + <span class="pmDrawerLv">Lv n</span>`。声掛け `#recruitRole` = `職名 + " Lv" + n + " — " + 性格`(名簿の顔 = `mercId != null` かつ数値の `level` のときだけ)。
+   - 期待値の導き方: 主人公 Lv は XP から(21000 = Lv7 / 45000 = Lv10)、名簿の顔は `min(保存 level, 主人公 Lv)`、新顔はマッチング画面で振られた `selection.partyMembers[i].level`(2 経路目 = `levelOfMember(pmOrdered[i])`)。
+   - 仕込み: 卓の 4 席を名簿の顔にするには **名簿を満杯(CAP 12・6 職 × 2)** にする(新顔の枝が消える)。保存 Lv > 主人公 Lv の席は本物の `drawTodaysPatrons()` を引き直して得る。影との DOM 比較で卓を揃えるには `evaluateOnNewDocument` で決定論の `Math.random` を入れる(卓・名簿パネル・頭上札が一致した)。新顔の Lv を影と揃えるには `__pmTest.play` の **同期部分だけ** 決定論の乱数に差し替える。
+   - 寸法: viewport は **幅と高さだけ**(`isMobile` / `hasTouch` を付けると値が変わる)。声掛けダイアログは 390px で 8/120 組が +20px(受入で「不変」を assert しないこと。するなら desktop だけ)。
+   - 変異の候補(逐語は本コミットで取り直し済み): `lvnoshow` = `lvEl.textContent = "Lv" + cardLv;`(`:9230`)/ `headnolv` = `titleLvEl.textContent = "Lv" + titleLv;`(`:8898`)/ 撤退の `switchdead` = `get("whois") !== "0"`(`:4519`・1 件)/ 声掛け = `const recruitLv = (isWhoisOn() && m.mercId != null && typeof m.level === "number" && m.level > 0) ? levelOfMember(m) : null;`(`:6451`)。
+   - (7) の網: 仲間の僧侶 Lv2 のカードの「技」行 = `CLERIC_SLOTS_TABLE[id][2] > 0` から導く集合(呪文名に「・」が入るので「技」行を「・」で割らない)。
+4. **項目5(母集団)**: 本項目で新しく読まれうる要素 = `.pmClass` の文字 / `#pmDrawerTitle` の文字 / `#recruitRole` / `apEquippedIdsFor` の行。golden は §(8) の 19 腕で色を控えた(比較器 `item2b/gate2b.py` = `item1/gate72.py` の `pair` を無改変 import)。⚠ 走査はコミット後の clean な木で。
+5. ポート: プローブは **10427〜10432** を使い全部解放済み(`depart` は 10427 を再利用)。**10401〜10413 は未使用**(項目4 予約)。
