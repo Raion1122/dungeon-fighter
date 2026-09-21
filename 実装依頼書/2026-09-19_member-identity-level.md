@@ -1085,3 +1085,154 @@ changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った
    - 寸法: viewport は幅と高さだけ(`isMobile` / `hasTouch` で値が変わる)。僧侶の習得状況でカードの高さが変わる(9 呪文習得 396.7 / 既定 334.6)。
 4. **項目5(母集団)**: 本項目で新しく読まれうる要素 = `.pmSkillsVal`(僧侶のカードの行)/ `#pmDrawerNote` の文 / `apEquippedIdsFor` の 3 引数目。⭐ 「逐語で握る本」を数えるときは引用符 3 種を **独立に** 走査すること(`item2b2/anchors2b2.py` / `anchors72_fixed.py`)。1 本の交替の正規表現はバッククォートの枝が行をまたいで他を飲み込む。
 5. プローブ = `…/scratchpad/item2b2/probe72_2b2.js`(mode notepre / note ポート 10433・keep 10434・cards 10435・ident 10436・全部解放済み)/ 影 `item2b2/base_tavern_fcde6a9.html`(798e31c)+ `item2b/base_tavern_f5fe8bc.html`(2092fc5)・`item2b/base_tavern_0e8370d.html`(4243b34)/ `golden2b2.py` `gate2b2.py` / 置換 `patch72_2b2.py`。**10401〜10413 は未使用**(項目4 予約)。
+
+---
+
+### 12-0 追補(項目2c / 2026-09-22・実装窓 セッション `b34987cb-…`)— 柱3 名前とジョブの固定 + 撤退 `?namejob=0` + 名簿・約束の名前を新顔に使わない + changelog の柱1 行を進化
+
+⭐ 行番号は **本コミット後の `tavern.html`**(純 CRLF・**10,994 行**・bare LF 0・bare CR 0 を `py` のバイト数えで確認)。⛔ 使う前に逐語で引き直すこと。
+変更ファイル = `tavern.html`(+63/-3)+ 本 `.md` のみ(`index.html` / `audio.js` / `js/` / `tools/` は 1 バイトも触っていない)。
+置換は `scratchpad/item2c/patch72_2c.py`(4 箇所・各アンカーの件数 1 を assert・`wb`・置換後に入れた語を読み返して数えた)。
+影 = 着手前 `a79ae83` の `tavern.html` を `item2c/base_tavern_a79ae83.html` へ退避(作業ツリーの複製。`git hash-object` = HEAD の blob `bdabc28`・CRLF 10,934 行)。
+
+#### (1) 撤退スイッチ `?namejob=0`
+
+- 判定の逐語 = `try { return new URLSearchParams(location.search).get("namejob") !== "0"; }` — **1 件**(`:4527`。関数 `function isNameJobOn() {` `:4526` = `isWhoisOn` の直後)。const に畳まず呼ぶたびに URL を読む(`isDrawerLvOn` / `isWhoisOn` と同じ TDZ 回避の作法)。
+- `isNameJobOn` の出現 = **2 行**(定義 `:4526` / `pickUniqueName` の中 `:4720`)。
+- 0 で戻るもの = ① 新顔の名前を職業別の表から引く ② 名簿と約束に居る名前を新顔に使わない、の 2 つ。0 のときは `pickUniqueName` の従来の本体 4 行(`a79ae83` と逐語同じ)を通る = **乱数の消費順も同じ**((6) の (3c) で実証)。
+
+#### (2) 名前の表(全文・`const NPC_NAMES_BY_CLASS = {` `:4643`)
+
+| 職 | 名前(15 名。**太字** = 旧 `NPC_NAMES` の 16 名) |
+|---|---|
+| 戦士 `warrior` | **イレーナ** **ミラ** **セシリア** **リーゼ** **ニカ** **ソフィ** アデラ ゲルダ ヒルデ マルタ ヴェラ オルガ ザラ カーラ ブリタ |
+| ドワーフ `dwarf` | **ダグ** **トルガ** ハルガン ブルム ゴルム ドラン カルグ グンナル ケルド ボドリ オルドル スヴェン ロッグ ヨルム ガンド |
+| 僧侶 `cleric` | **ヨナ** **ガウェイン** シメオン ダミアン ゲオルク トビアス パウル イグナツ ラザロ ルーカス テオ アベル ヨアヒム サウル ペトル |
+| 魔法使い `mage` | **オズ** **ベルント** ゼノン カスパル イザーク エメリク ヘルマン ユリウス アルド マグヌス ロタール オットー ルドルフ ヘクター ギデオン |
+| エルフ `elf` | **ファルケ** **ブラン** エリオン タリシン ロシエル セラン ナイエル ネリス ラエル エルダン フィラン ソレル ヴァレン アエリス ティリク |
+| 盗賊 `rogue` | **ロルフ** **クヌート** ヴィンス ディーノ キース マルコ ラッセル ゲイル フィン ジェド ザック ベック ドミニク サイラス ティボー |
+
+- 90 名・表どうしで重複 0・旧 16 名は全員残した(馴染みの名前を消さない)。**NPC の絵に合わせた**: 仲間の戦士の絵は女性(`assets/warrior_npcfemale_walk.png`)、他の 5 職の仲間の絵は男性 ⇒ 旧 16 名の女性名 6 つは戦士へ、男性名 10 は 2 つずつ他の 5 職へ。
+- 候補の検算(`item2c/names72.py`): 新しく足した 74 名は `*.html` / `js/*.js` に **0 回**(ゲーム内の他の固有名詞と衝突しない。最初の案の「リアン」は `tavern.html:3808` の敵「祈りを捧げる従軍司祭リアン」と重なったので「ネリス」へ、「イルマ」は「タイルマップ」の部分文字列だったので「ブリタ」へ替えた)。名前どうしの部分一致 0。最長は旧名の「ガウェイン」(5 字)で、新しい名前はすべて 4 字以下。
+- ⚠ 旧 `NPC_NAMES`(16 名・`:4632`)は **撤退先としてそのまま残した**(`tools/verify_mercenary_roster.js:461` / `(0c)` が `NPC_NAMES.length` を読む = 16 > CAP 12 で生存)。
+
+#### (3) 1 職あたりの数の導出(式と実測)
+
+| 量 | 実測 / 読んだ実装 |
+|---|---|
+| ① 1 編成に同じ職の **新顔** が何人来うるか | `?recruittalk=0` の `buildParty`(4 人): 仲間の同職は **最大 2 人**(6 主人公職 × 20,000 編成で 1 人 66〜67% / 2 人 33〜34% / 3 人以上 0)・主人公込みでも最大 2。既定の卓 `drawTodaysPatrons` は 6 職から **重複なし 20,000/20,000**。声掛けで同職を 3 人誘えるが(`DFRecruits.add` に職の検査なし)、誘った人はもう名前を持っている = 新しい名前は要らない |
+| ② 名簿に同じ職が最大何人入りうるか | **職ごとの上限は無い**(`js/mercenary-roster.js` の `enroll` の門番は `if (r.list.length >= CAP) return null;` だけ)。実測: 魔法使いだけで 12 人(= CAP)入り、13 人目は `null`。⭐ ただし **新顔が作られるのは `pickCompanion` の新顔の枝 = 名簿が満杯でないとき(在籍 ≤ CAP − 1 = 11)** か、満杯かつその職の未使用の名簿の顔が 0 人のときだけ(`:4758`〜`:4763`) |
+| ③ 除外で使えなくなる名前 | 名簿の全員(≤ 11・どの職でも)+ 約束の新顔(≤ `RECRUIT_MAX` = 3。名簿の顔の約束は名簿と重なるので数えない)+ この編成で使った名前 |
+
+- 式: その職で塞がる名前の数 E ≤ **(CAP − 1) + RECRUIT_MAX = 11 + 3 = 14**(既定の卓。卓は同職が 1 席だけなので「この編成で使った同職の新顔」は 0)/ E ≤ (CAP − 1) + (同職の仲間の最大 2 − 1) = 12(`?recruittalk=0`・約束は使われない)。満杯の枝(n ≤ 0)ではその職の名簿の新規則の顔はこの編成で使用済みの 1 人まで + 旧規則の名前(旧 16 名のうちその職の表に入った数 ≤ 6)+ 約束 3 ≤ 10。
+  ⇒ **N ≥ E + 1 = 15 = CAP − 1 + RECRUIT_MAX + 1**。表の各職 15 名はこの式の値(受入プローブ (n0b) はページの `DFRoster.CAP` / `RECRUIT_MAX` から導いて 15 と照合)。
+- 実測(probe excl (3b'-B)): 名簿に魔法使い 11 人(表の 1〜11 番目)+ 約束に魔法使いの新顔 3 人(12〜14 番目)= 導出の上限の盤面で、新しく作られた魔法使い **2,298 人がすべて 15 番目の「ギデオン」**・名簿 / 約束との衝突 0。⇒ 15 名なら通常のプレイで ① の段が空になることは無い。
+- ⚠ 依頼書 §5-3 の「1 職あたり 4 名以上(例 6 × 6)」は **除外を入れない場合の編成内の一意** の話で、名簿との一意まで求めると足りない((10) の 1)。
+
+#### (4) 除外の仕様と退避(実装後の逐語)
+
+| 何 | 逐語 | 行 |
+|---|---|---|
+| 名簿と約束の名前 | `function namesTakenTV() {` … `DFRoster.all()` と `DFRecruits.all()` の `name`(どの職でも・読むだけ) | `:4696`(約束の行 `:4699`) |
+| 職の表から 1 名 | `function pickClassNameTV(list, usedSet) {` … `let pool = list.filter(function (n) { return !usedSet.has(n) && !taken.has(n); });`(`:4709`)→ 空なら `list.filter(… !usedSet.has(n))` → 空なら `list` → `pool[Math.floor(Math.random() * pool.length)]` | `:4707` |
+| 入口 | `function pickUniqueName(usedSet, classKey) {` / `const byClass = (classKey && isNameJobOn()) ? NPC_NAMES_BY_CLASS[classKey] : null;` / 表が無ければ従来の 4 行 | `:4719` / `:4720` |
+| 呼び口 | `name: pickUniqueName(usedSet, classKey),`(`makeNpcMember` の中・`pickUniqueName` の呼び口はこの 1 件だけ) | `:4730` |
+
+- 乱数は **1 名につき 1 回だけ**(⛔ 引き直しのループを作らない = 無限ループの余地が無い)。退避は ① 誰とも重ならない → ② 名簿・約束の人との同名は許す(この編成の中では一意)→ ③ 同じ職の名前の重複も許す(旧 `guard < 50` と同じ「重複したまま返す」)。**どの段でも職の表の外へは出ない** ⇒ 退避しても名前 → 職業の単射は崩れない。
+- 約束(`DFRecruits`)の名前も避ける理由: 親の指示は「名簿に居る名前」だが、`DFRecruits.has(name)`(マッチングのカードの「🤝 酒場で声を掛けた」`:9335` / 頭上札の 🤝 `patronLabelPaint`)は名前引きなので、約束した新顔(まだ名簿に居ない)と同名の新顔が卓に座ると、その別人にも 🤝 が付く。依頼書 §5-3 の「`DFRecruits.has(name)` が人物を一意に決める」を成り立たせるには約束も避ける必要がある。
+- `?roster=0` / `?recruittalk=0` ではそれぞれの `all()` が空を返す = その保管庫は使われていないので避けない。
+- 引数の順を `(usedSet, classKey)` にした理由 = 1 引数の既存の呼び(`tools/verify_mercenary_roster.js:306` の変異 `alwaysroster` が注入する `pickUniqueName(usedNames)`)を壊さないため。1 引数では従来どおり共有 16 名(probe excl (3b'-B2) `one` = 旧 16 名のどれか)。
+- ⛔ `pickCompanion` の 4 行(計測シーム `:4753` / `:4761` / `:4763` / `:4764`)・`full = roster.length >= DFRoster.CAP;`(`:4758`)・出発の clamp `m.level = clampCompanionLevel(m.level, heroLevel);`(`:8097`)・`levelOfMember` の clamp 行(`:4960`)・`verify_party_four.js:95` が握る `if (prepScenario) partySize = 1 + recruitCountOf(prepScenario);`(`:7018`)は **1 文字も触っていない**(除外は `pickUniqueName` / `makeNpcMember` の側だけ)。
+
+#### (5) 名前の生成口の全数と `index.html` の写しの到達性
+
+| 生成口 | 呼ばれ方 | 本項目 |
+|---|---|---|
+| `tavern.html` `pickUniqueName` `:4719` | 呼び口 1 件 = `makeNpcMember` `:4730`(+ tools の変異 `alwaysroster` が 1 引数で注入) | 職の表 + 除外 |
+| `tavern.html` `makeNpcMember` `:4727` | `pickCompanion` の 4 枝(名簿 OFF / 例外 / 満杯かつ 0 人 / 新顔)= `makeNpcMember(classKey, usedNames)` **4 件** | 変更なし(中の `pickUniqueName` へ職を渡すだけ) |
+| `tavern.html` `pickCompanion` `:4752` | `buildParty` の 2 件(`:4878` / `:4885`)・`drawTodaysPatrons` の 1 件(`:8581`) | 無改変 |
+| `buildParty` `:4863` | `regeneratePartyMembers` の `?recruittalk=0` の枝 `:7032` | 無改変 |
+| `drawTodaysPatrons` `:8570` | 酒場の初期化 `todaysPatrons = drawTodaysPatrons();` `:10736` | 無改変 |
+| #41 の酒場・街の NPC 群 `js/npc-crowd.js` | 名前を持たない(配置と台詞だけ)。`town.html` / `world.html` / `battle.html` に名前の生成は 0 件 | 対象外 |
+| **`index.html` の写し** `NPC_NAMES` `:13448` / `pickUniqueName` `:13478` / `makeNpcMember` `:13484` / `buildParty` `:13493` | 呼び口は `formation = orderFormation(buildParty(heroOld));` `:34991` の 1 件だけ = `sessionStorage` の `dragonfighters.partyMembers` が無い / 壊れているときのフォールバック | ⛔ 触っていない(依頼書 §3) |
+
+- **実プレイでは写しに届かない**: `index.html` へ入る口は ① 酒場の `departToScenario`(`partyMembers` を `:8197` で書いてから `:8260` world / `:8263` index へ遷移)② 自動デバッグ `departAutoDebug`(`:8283` で書いてから `:8286`)③ `world.html:1247`(目的地の入場。`questDest` が要る = 酒場が `:8254` で `partyMembers` の **後** に書く)④ `world.html:1458`(街道の襲撃の戦闘。`hasRealParty()` `:1395` が真のときだけ `:1413`)の 4 つで、どれも `partyMembers` が同じタブに在る。消す口は 0 件(`removeItem("dragonfighters.partyMembers")` は全 html / js で 0)。
+- 実測(probe store `reach`・port 10440): (r1) 本番の `departToScenario` は遷移(world.html)の前に `partyMembers` を焼く / (r2) 同じタブで `index.html` を開くと `allies` の `npcName` は `partyMembers` そのもの(「僧侶 ラザロ / エルフ ソレル / 魔法使い ユリウス」= 新しい表の名前)/ (r3) `partyMembers` の無い新しいタブで `index.html` を **直に** 開いたときだけ写しが組む(「エルフ ロルフ / 僧侶 ブラン / 魔法使い ヨナ」= 共有 16 名・新しい表と職が食い違う)。⇒ 直起動・検証ドライバだけの道 = **blocked にしない**。
+
+#### (6) 受入プローブ(`scratchpad/item2c/probe72_2c.js`・ポート 10437〜10440・全部解放済み)
+
+| mode | port | 結果 | 見たもの |
+|---|---|---|---|
+| names | 10437 | **14/14** | (n0b) 表の実物(6 職 × 15 名・重複 0・旧 16 名を含む・15 = ページの CAP / RECRUIT_MAX から導出)/ (3a) `makeNpcMember` / `pickCompanion` 各 18,000・卓 24,000・`buildParty` 54,000・`regeneratePartyMembers` 13,500 の新顔がすべてその職の表(表はページの実物と照合)/ (3a-load) 本番の酒場の読み込み 24 回 × 4 席と頭上札 / (3b) 名前 → 職業が単射(90 種・2 職に出た名前 0)/ (3b-cover) どの職も 15 名を全部使う / (3c-neg) `?namejob=0` と影は共有 16 名で単射でない(16 名全部が 6 職に出る = 比較器は空振りしない) |
+| excl | 10438 | **16/16** | (3b'-A) 名簿に旧規則の顔 8 人(ロルフ × 魔法使い / 戦士・ミラ = 盗賊・オズ = 僧侶 …)+ 約束 2 人で新顔 20,961 人の衝突 0(影 11,777 / 21,217・`?namejob=0` 11,779 / 21,083 = 負の対照)/ (3b'-B) 導出の上限の盤面 / (3b'-B2) 退避 ②③ が即座に返り職の表の中 / (3b'-C) 名簿を魔法使い 12 人で満杯 → 卓 2,000 回が 4 席とも埋まり魔法使いの席は毎回名簿の顔 / (3b'-D) 満杯(戦士 6 + ドワーフ 6)で `buildParty` 12,000 回 / (3b'-E)[記録] 8 人編成 × 名簿に盗賊 11 人 = 退避 ② の発生 0・止まらない / (① 実測)(② 実測) / (3b-loop) 600 日の遊びの模擬(卓 → 声掛け → 出発で名簿へ → 満杯で見送り)で新顔 701 人の衝突 0・単射・名簿に同名 2 人の日 0(`?recruittalk=0` も 401 人で同じ。影は 334 衝突・16 名全部が複数職・同名の日 299 / 300)/ (3d-read) 生成で保存物は 1 バイトも変わらない |
+| ident | 10439 | **6/6** | (3c) `?namejob=0` = `a79ae83`: 決定論の乱数(ページの最初から + evaluate の頭で入れ直し)で、卓の init の 4 席と頭上札・卓 300 回・`makeNpcMember` / `pickCompanion` 各 240・`buildParty` 360 の列(1,140 件・名前 2,760 個)が **完全一致**(旧規則の名簿 5 人 + 約束 1 人を仕込んだ盤面)/ (3c-rt0) `&recruittalk=0` の `buildParty` / `regeneratePartyMembers` の列 960 件も一致 / (4a) `?whois=0&drawerlv=0&namejob=0` = `0e8370d`: 同じ列 + `buildParty` の新顔の編成でマッチング画面のカード列・4 枚の引き出し・`selection` が完全一致(`&recruittalk=0` も)/ (3c-neg) スイッチ ON は同じ乱数で 2 件目から食い違う |
+| store | 10440 | **13/13**(store 5・reach 4・dims 4) | (3d) 保存物 ((7)) / (r1)〜(r3) ((5)) / 寸法 ((8)) |
+
+#### (7) (3d) 名簿・約束の保存物は 1 バイトも変わらない(probe store)
+
+- 旧規則の顔 8 人(ロルフ × 2 職・recordRun で runs / level も動かした)の名簿と、約束 2 人(名簿の顔 1 + 旧規則の新顔「リーゼ = 魔法使い」)を本番の口で作り、その保存文字列を仕込んだ。
+- 酒場の読み込み・卓 300 回・新顔 1,200 人のあとも `mercRoster` / `recruitCandidates` の文字列が仕込みと **バイト一致**(現行 / 影とも)。
+- 本物のダイアログ(`openRecruitDialog` → `#btnRecruitYes`)で卓の新顔を誘う: 既存の約束 2 件はバイト一致・足した 1 件のキー集合と値の型 `classKey:string,isHero:boolean,line:string,name:string,trait:string,variant:number,zone:string` は影 `a79ae83` と同じ。
+- 本番の `departToScenario`: 名簿の既存 8 人はバイト一致(**旧規則の同名 2 人も残る = 移行しない**・同名の組 1)・新しく載った 2 人のキー集合 `classKey,id,level,line,name,runs,trait,variant` と `sessionStorage` の `partyMembers` 4 人のキー集合・型は影と同じ。新しく載った人(魔法使い アルド)は名簿の誰とも同名にならない。
+- ⭐ member へフィールドを足していない・保存キーを増やしていない(読むのは `DFRoster.all()` / `DFRecruits.all()` だけ)。
+
+#### (8) 寸法(probe store `dims`・viewport は幅と高さだけ)
+
+- 90 名 × 4 画面(1280x900 / 1366x768 / 390x844 / 390x667)・主人公 Lv10・仲間 Lv10(名簿の顔の形)で、**カードの高さ・名前の行の高さ・引き出しの見出しの高さ・引き出しの高さ** が「1 文字の名前(ダ)」の同じ編成と **360 / 360 で完全一致**。見出しの最長は 4 画面とも「魔法使い — ベルント Lv10」sw 203(項目2b の最悪「ドワーフ — ガウェイン Lv10」219 / 置き場 228 より短い。ガウェインは僧侶へ移ったので「ドワーフ — ガウェイン」はもう出ない)。
+  ⚠ 見出しは中身に合わせて縮む要素なので `sw ≤ cw` は弱い(常に等しい)。効いている判定は **高さの一致**(折り返したら 20.3 から伸びる)。
+- 声掛けダイアログ(1280x900 / 390x844): 90 名で `#recruitName` の高さ・`#recruitBox` の高さが 1 文字の名前と同じ(崩れ 0)。
+- [記録] 卓の頭上札 `.patronLabel` の幅: 90 名の最大は旧名の「ガウェイン」(1280x900 で 78.4 / 390x844 で 58.2)= 旧 16 名の最長を超える名前 0。
+
+#### (9) 既存 golden の色(`scratchpad/item2c/golden2c.tsv`・比較器 = 項目1 の `gate72.py --pair`(`item2c/gate2c.py`)・基準 = `item1/baseline72.tsv`)
+
+25 腕を直列で実走(`golden2c.py`・所要約 44 分)。母集団 = 名指し 8 本 + 名前の生成口・表示を読む本(`anchors2c.py` の識別子走査)+ 名前をリテラルで持つ本のうち `tavern.html` を読む軽いもの + `--negative` 4 本。
+
+| 本 | 腕 | 色 | 基準との突き合わせ(経路1 = assert id の指紋 / 経路2 = 判定行の多重集合) | 型 / 備考 |
+|---|---|---|---|---|
+| `verify_mercenary_roster` | 素 | exit 0・44/44 | 差 0 / 0 | ⭐ 計測シーム 4 本(`:4753` / `:4761` / `:4763` / `:4764` を逐語で握る)は生存 = 素の腕が exit 3 にならない。`(0c)` も緑(16 > 12) |
+| `verify_mercenary_roster` | --negative | exit 0(10 本とも担当が赤・空振り 0) | 差 4 = 変異 `alwaysroster` の腕の **担当外** (2z3)(2e) が基準 FAIL → 今回 PASS | 2b / 2b2 と同じ乱数の揺れ(`grow()` の名簿の人数)。`alwaysroster` の注入 `pickUniqueName(usedNames)`(1 引数)は本項目の後も動き、担当 (0a)(5a) は赤 |
+| `verify_recruit_talk` | 素 / --negative | 25/25 / 変異 11/11 が期待どおり | 差 0 / 0 | 卓の 4 席は新しい表の名前(「ゲイル/rogue」「オズ/mage」「サウル/cleric」…) |
+| `verify_recruit_size` | 素 | exit 0・91/91 | 差 0 / 0 | (D) の「11 サンプル中 2 種類以上」も緑。⚠ 根拠コメント `:723`「名前は NPC_NAMES 16 個から一様」は腐った(assert は生存) |
+| `verify_party_four` | 素 / --negative | 17/17 / 負のコントロール 5/5 | 差 0 / 0 | `:95` のアンカー健在 |
+| `verify_party_promises` | 素 | exit 0・35/35 | 差 0 / 0 | `seedRecruits` の `pickCompanion` は約束の名前を避けるようになったが緑 |
+| `driver_party_view_reopen` | 素 | exit 0・35/35 | 差 0 / 0 | — |
+| `verify_party_match_setup` | 素 | exit 1・35/36 | 差 2 / 2 = **(0b) だけ** | 2b からの型1(本項目で増えていない) |
+| `sweep_recruit_balance` | 素 | exit 1(装置 assert 崩れ 4/4) | 基準と **逐語で同じ 4 行**(`4_partySize(got=1 …)` / `2_recruitCountOf(got=3 want=2)`) | 既知の赤(比較器の盲点の腕 = 総括行で突き合わせ) |
+| `verify_hold_person` | 素 / --negative | 31/31 / 8 本とも担当が赤 | 差 0 / 0 | 頭上札(`todaysPatrons`)を読む本 |
+| `verify_prep_retire` | 素 | exit 0・30/30 | 差 0 / 0 | `.pmName` を読む本 |
+| `verify_darkvision` | 素 | exit 1・24/25 | 差 2 / 3 = **(3a) だけ** | 2b からの型1(`.pmName` は固定の注入名なので不変・`.pmClass` の Lv だけ) |
+| `verify_spell_off` | 素 | exit 0・51/51 | 差 0 / 0 | `makeNpcMember` を直に呼ぶ本(名前が職の表から出るようになったが緑) |
+| `verify_npc_crowd` / `verify_quest_walk` | 素 | 33/33 / 25/25 | 差 0 / 0 | — |
+| `verify_road_ambush` / `verify_road_boon` | 素 | 41/41 / 20/20 | 差 0 / 0 | — |
+| `driver_heromark_signplate` / `driver_equip_compact_ios` / `verify_aoe_coverage` / `verify_bolt_bounce` | 素 | 46 id / 31/31 / 28/28 / 15/15 | 差 0 / 0 | 名前をリテラルで持つ本(注入名をそのまま使う) |
+| `probe_s2_clear` | 素 | exit 2(2.0 秒) | 基準 exit 0 | ⚠ **未コミットの木では走らない**: 自己ガード「本番に差分があります。#18 は本番を 1 バイトも変えない調査チケットです」(`git diff HEAD` を見る)。コミット後の clean な木で再走 → (9-b) |
+
+- ⛔ `tools/` は 1 バイトも直していない。本項目で **増えた赤は 0**。赤は 2b からの型1 の 2 本(`verify_party_match_setup (0b)` / `verify_darkvision (3a)`)と既知の `sweep_recruit_balance` だけ。
+- 走らせなかった本(理由): `verify_bolt_aim` 素(2,241 秒)/ `verify_hold_pair` 素(904 秒)= 名前を注入してそのまま使い、酒場の名前の生成口を通らない / `verify_cone_cast` / `driver_leader_ai` = `tavern.html` を読まない(`driver_leader_ai` の「ミラ」は「ミラー」の部分一致)/ `probe_party_size` = 基準で 600 秒打ち切りの既知の赤。⇒ 項目5 の全数走査で色を採る。
+- ⚠ 既知フレーク 9 本は本項目の golden に含めていない。
+
+#### (10) 崩れた主張 — 項目2c で新たに **6 件**(累計 **33**)
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | §5-3「例: 6 職 × 6 名 = 36 名」「⇒ **1 職あたり 4 名以上**にする」 | 4〜6 名で守れるのは **編成の中の一意** だけ。名簿の名前も避けて「名前が人物を 1 人に決める」まで求めると、名簿に同じ職が 11 人(職ごとの上限は無い)+ 約束 3 人で 14 名がふさがる ⇒ **15 名が要る**((3))。6 名では名簿に同職 6 人で尽きる |
+| 2 | §5-3「(**卓は 4 席・同職が複数来る可能性がある**ため)」 | 卓の 4 席は 6 職から **重複なし**(20,000 / 20,000)。同職の新顔が 1 編成に 2 人来うるのは `?recruittalk=0` の `buildParty` だけ(最大 2)。声掛けで同職を 3 人誘えるが、誘った人は既に名前を持つ |
+| 3 | §5-3「`pickUniqueName(usedSet)` → **`pickUniqueName(classKey, usedSet)`** とし」 | この順にすると既存の 1 引数の呼び(`tools/verify_mercenary_roster.js:306` の変異 `alwaysroster` が注入する `pickUniqueName(usedNames)`)で `usedSet` が `undefined` になり `usedSet.has` で例外 = 編成ごと例外(ドライバの注記が「§1 §3d §4 まで巻き添えで全滅して何を検出したのか判らなくなる」と避けている形)⇒ **`(usedSet, classKey)`** にした |
+| 4 | §5-3「`NPC_NAMES` を職業別の名前リストへ **置き換える**」 | 置き換えると撤退 `?namejob=0` の戻り先と `verify_mercenary_roster (0c)` の `NPC_NAMES.length` が消える ⇒ **残して足した**(親の指示どおり) |
+| 5 | §7「判定位置 = `tavern.html` の **定数** 3 本」 | 3 本とも **呼ぶたびに URL を読む関数**(`isWhoisOn` / `isDrawerLvOn` / `isNameJobOn`)。`pickUniqueName` は `regeneratePartyMembers` → `pickCompanion` → `makeNpcMember` 経由で上流から先に呼ばれうるので、const に畳むと TDZ(`pickCompanion` の注記と同じ理由) |
+| 6 | `js/mercenary-roster.js:34`〜`:37`「上限が 12 人である理由 … **12 < 16 なので、名簿が満杯でも名前が衝突しない**」/ `verify_mercenary_roster (0c)` の見出し「(= 名簿が満杯でも名前が衝突しない、の根拠)」 | **着手前から不成立**: 新顔は名簿の名前を避けていなかった(影 `a79ae83` で名簿 8 人 + 約束 2 人の盤面の新顔 21,217 人中 **11,777 人** が同名 / 600 日の模擬で名簿に同名 2 人の日 **299 / 300**)。本項目で衝突を無くしたのは表の大きさではなく **除外**。⛔ `js/` と `tools/` は触っていない(注記の言い直しは項目3 / 5 の判断)。`(0c)` の assert 自体は 16 > 12 で緑のまま |
+
+- 根: 1・2 = 数の根拠の取り違え(編成の中の一意と人物の一意)/ 3 = 既存の呼び口の数え落とし / 4 = 撤退先と golden の読み手の数え落とし / 5 = 作法の記述の鮮度 / 6 = モジュールの注記が測られていなかった。
+- ⭐ 残る穴(移行しない決定のため・記録): 名簿に **旧規則の同名 2 人**(例: ロルフ = 魔法使い と ロルフ = 戦士)が既に居る場合、その 2 人どうしの `DFRecruits.has(name)` の曖昧さは残る(同じ抽選の卓には `usedNames` で同時に座らないが、片方を約束した日に、別の日の卓にもう片方が座ると 🤝 が付く)。新しく作られる顔からは生まれない。
+
+#### ▶ 項目3 / 4 / 5 への申し送り
+
+1. **項目3(golden の言い直し)**: 本項目で **増えた赤は 0**(golden 25 腕・(9))。言い直しの対象は 2b / 2a からの型1 の 3 本のまま(`verify_party_match_setup (0b)` / `verify_darkvision (3a)` / `verify_bolt_aim --negative` の `flavor3`)。 腐ったのは注記・コメントだけ: `js/mercenary-roster.js:34`〜`:37` / `verify_mercenary_roster (0c)` の見出し / `verify_recruit_size.js:723` の「名前は NPC_NAMES 16 個から一様」(assert は 1 職 15 名でも生存)/ `js/recruit-candidates.js:31`〜`:34`(「卓の 4 人の中では name で一意」= いまは名簿・約束とも一意)。⛔ js は読むだけの約束なので、直すなら別の判断。
+2. **項目4(受入 `tools/verify_member_identity.js`)**:
+   - (3a)(3b): 表は `NPC_NAMES_BY_CLASS` をページから読む(⛔ 写経しない)。数の期待 = `DFRoster.CAP - 1 + RECRUIT_MAX + 1`。生成口 = `makeNpcMember` / `pickCompanion` / `drawTodaysPatrons`(既定)/ `buildParty` / `regeneratePartyMembers`(`?recruittalk=0`)+ 本番の酒場の読み込みの `todaysPatrons`。
+   - (3b') 除外の網: 名簿へ旧規則の顔(`DFRoster.enroll` で別の職に旧名)+ 約束(`DFRecruits.add`)を仕込み、新顔の名前がそれらと重ならない。上限の盤面(同職 11 + 約束 3)で新顔が 15 番目の 1 名に落ちる。遊びの模擬(卓 → 約束 → 出発の `enroll` → 見送り)が一番強い網(影では同名の日 299 / 300)。
+   - (3c): 決定論の乱数はページの最初から(`evaluateOnNewDocument`)入れれば卓の init まで揃う。その後の列は evaluate の頭で入れ直す(非同期の `Math.random` 消費を挟まない)。
+   - 変異の候補(逐語は本コミットで取り直し済み・各 1 件): `sharedpool` = `const byClass = (classKey && isNameJobOn()) ? NPC_NAMES_BY_CLASS[classKey] : null;`(`:4720`)の `NPC_NAMES_BY_CLASS[classKey]` を `null` に((3a)(3b) が赤)/ `noexcl` = `let pool = list.filter(function (n) { return !usedSet.has(n) && !taken.has(n); });`(`:4709`)の `&& !taken.has(n)` を外す((3b') が赤・(3a)(3b) は緑のまま = 柱3 の 2 本目を分けて測れる)/ `nocands` = `namesTakenTV` の約束の行(`:4699`)を外す(約束の網だけが赤)/ `switchdead` = `get("namejob") !== "0"`(`:4527`)/ `rosterwrite` は `js/mercenary-roster.js` 側(本項目は触っていない)。
+   - 寸法: 新しい名前はすべて 4 字以下で、見出し・カード・声掛け・頭上札とも旧 16 名の最長(ガウェイン)を超えない((8))。
+3. **項目5(母集団)**: 本項目で新しく読まれうるもの = `NPC_NAMES_BY_CLASS` / `isNameJobOn` / `namesTakenTV` / `pickClassNameTV` / `?namejob`。`tools/*.js` で読む本は **0 本**(`item2c/anchors2c.py`・引用符 3 種を独立に走査)。14 字以上の文字列リテラル 1,566 個のうち `a79ae83` → 現行で件数が変わったのは 6 個で、どれも URL の断片・メッセージ・`index.html` への注入の断片(`'?recruittalk=0'` × 4 本・`'sessionStorage '`・`' }); } catch (e) {}'`)= `tavern.html` のアンカーではない。名前をリテラルで持つ本は 9 本(「ミラ」= 魔法使いの注入 7 本・「ロルフ」= 戦士の注入 1 本・「ブラン」は「フロストブランド」の部分一致)で、どれも **注入した名前をそのまま使う** ので表と職が食い違っても赤くならない。
+4. ポート: プローブは **10437〜10440** を使い全部解放済み。**10401〜10413 は未使用**(項目4 予約)。プローブ = `…/scratchpad/item2c/probe72_2c.js` / 置換 `patch72_2c.py` / 走査 `anchors2c.py` `names72.py` / golden `golden2c.py` `gate2c.py` `golden2c.tsv` / 影 `item2c/base_tavern_a79ae83.html`(bdabc28)。

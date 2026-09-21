@@ -3326,7 +3326,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>仲間の名前・職業・レベルがひと目で分かるように</b> — マッチング画面のカードと設定の見出しにレベルを表示。一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。</li>
+        <li><b>仲間の名前・職業・レベルがひと目で分かるように</b> — マッチング画面のカードと設定の見出しにレベルを表示。一度一緒に戦った仲間は、酒場で声を掛けたときにもレベルが分かる。新しく出会う冒険者は名前ごとに職業が決まり、名簿の仲間や同行を約束した相手と同じ名前の新顔も現れない。</li>
         <li><b>レベルの足りない呪文は置けなくなった</b> — これまでは置けてしまい、出撃すると黙って外れていた。同じ職が複数いるときは、いちばん低いレベルで判定 (注記に表示)。僧侶のカードには、その人が実際に使える呪文が並ぶ。</li>
         <li><b>ライトニングボルトが壁で跳ね返る</b> — 狭い坑道では稲妻が壁を蹴って折れ、物陰の敵にも届く。</li>
         <li><b>魔法使いが稲妻を撃てる場面が増えた</b> — 敵の真正面が塞がっていても、斜めに通る筋を探して撃つ。</li>
@@ -4519,6 +4519,14 @@
     try { return new URLSearchParams(location.search).get("whois") !== "0"; }
     catch (e) { return true; }
   }
+  /* ★[#72 §5-3] 撤退スイッチ ?namejob=0 — 名前とジョブの固定 (柱3) を項目2b2 の後 (a79ae83) の姿へ戻す。
+     戻るもの = ① 新顔の名前を職業別の表 NPC_NAMES_BY_CLASS から引く ② 名簿と同行の約束に居る名前を新顔に使わない、の 2 つ。
+     0 のときは共有 16 名 (NPC_NAMES) から従来の pickUniqueName の本体そのままで引く (乱数の消費順も同じ)。
+     ⚠ const に畳まない。呼ぶたびに URL を読む (isDrawerLvOn / isWhoisOn と同じ TDZ 回避の作法)。 */
+  function isNameJobOn() {
+    try { return new URLSearchParams(location.search).get("namejob") !== "0"; }
+    catch (e) { return true; }
+  }
   /* ★[#72 §5-2 (α)] 上の fireball / lightning-bolt / cone-of-cold の levelReq (3 / 3 / 5) は
      本体 index.html の MAGE_SKILLS と同値 (2026-09-21 ユーザー決定)。
      ⚠⚠ 酒場の鏡だけが d433c3b 以来この 3 つを持っていなかった ⇒ renderSpellSlotItem の
@@ -4623,6 +4631,29 @@
   const PARTY_SIZE  = 4;   // 主人公1 + NPC3 (コードで変更可、推奨 2〜6)
   const NPC_NAMES = ["ロルフ", "イレーナ", "ガウェイン", "ミラ", "ダグ", "セシリア", "ブラン", "ヨナ",
                      "クヌート", "リーゼ", "オズ", "ファルケ", "ニカ", "ベルント", "ソフィ", "トルガ"];
+  /* ★[#72 §5-3] 柱3: 職業別の名前表 (2026-09-19 ユーザー決定「名前とジョブは固定にしよう」)。
+     ⭐ ある名前は必ず 1 つの職にだけ載る (表どうしで重複なし) ⇒ 新顔の「名前 → 職業」が単射になる。
+     ⭐ 旧 NPC_NAMES の 16 名は全員どこかの職に残した (馴染みの名前を消さない)。NPC の絵に合わせて、
+       女性名は戦士 (NPC の戦士の絵は女性) へ、男性名はそれ以外の 5 職へ振った。
+     ⭐ 1 職 15 名 = (DFRoster.CAP − 1) + RECRUIT_MAX + 1。新顔を作れるのは名簿が満杯でないとき
+       (在籍 ≤ CAP − 1 = 11 人・職ごとの上限は無い) で、同行の約束 (≤ RECRUIT_MAX 人) の名前も避けるので、
+       同じ職の名前が最大 14 個ふさがっても 1 つは必ず残る (導出と実測 = 依頼書 §12-0 追補 (項目2c))。
+     ⚠ 旧 NPC_NAMES は ?namejob=0 の撤退先としてそのまま残す (tools/verify_mercenary_roster.js (0c) が .length を読む)。
+     ⚠ index.html の NPC_NAMES / buildParty の複製は触らない (sessionStorage に partyMembers が無い直起動だけのフォールバック)。 */
+  const NPC_NAMES_BY_CLASS = {
+    warrior: ["イレーナ", "ミラ", "セシリア", "リーゼ", "ニカ", "ソフィ", "アデラ", "ゲルダ",
+              "ヒルデ", "マルタ", "ヴェラ", "オルガ", "ザラ", "カーラ", "ブリタ"],
+    dwarf:   ["ダグ", "トルガ", "ハルガン", "ブルム", "ゴルム", "ドラン", "カルグ", "グンナル",
+              "ケルド", "ボドリ", "オルドル", "スヴェン", "ロッグ", "ヨルム", "ガンド"],
+    cleric:  ["ヨナ", "ガウェイン", "シメオン", "ダミアン", "ゲオルク", "トビアス", "パウル", "イグナツ",
+              "ラザロ", "ルーカス", "テオ", "アベル", "ヨアヒム", "サウル", "ペトル"],
+    mage:    ["オズ", "ベルント", "ゼノン", "カスパル", "イザーク", "エメリク", "ヘルマン", "ユリウス",
+              "アルド", "マグヌス", "ロタール", "オットー", "ルドルフ", "ヘクター", "ギデオン"],
+    elf:     ["ファルケ", "ブラン", "エリオン", "タリシン", "ロシエル", "セラン", "ナイエル", "ネリス",
+              "ラエル", "エルダン", "フィラン", "ソレル", "ヴァレン", "アエリス", "ティリク"],
+    rogue:   ["ロルフ", "クヌート", "ヴィンス", "ディーノ", "キース", "マルコ", "ラッセル", "ゲイル",
+              "フィン", "ジェド", "ザック", "ベック", "ドミニク", "サイラス", "ティボー"],
+  };
   const NPC_TRAITS = ["無口で何を考えているか読めない", "やたらお調子者で場を和ませる", "慎重で石橋を叩いて渡る",
     "血の気が多くすぐ突っ込む", "理屈っぽいが頼りになる", "酒好きで宵越しの金を持たない", "信心深く事あるごとに祈る",
     "皮肉屋だが面倒見はいい", "金にがめついが約束は守る", "夢見がちで英雄譚に憧れている"];
@@ -4658,7 +4689,36 @@
   function makeHeroMember(classKey) {
     return { classKey, isHero: true, zone: PARTY_ZONES[classKey], name: null, trait: null, line: null, variant: 0 };
   }
-  function pickUniqueName(usedSet) {
+  /* ★[#72 §5-3] 名簿 (DFRoster) と同行の約束 (DFRecruits) に居る人の名前 (どの職でも)。
+     ⭐ 新顔にこの名前を使わない ⇒ DFRecruits.has(name) / 名簿の名前が 1 人を指す
+       (旧規則の顔 = 別の職で同じ名前の人とも重ならない)。⛔ 名簿・約束は読むだけ (書き換えない・移行しない)。
+     ⚠ ?roster=0 / ?recruittalk=0 では all() が空を返す = その保管庫は使われていないので避けない。 */
+  function namesTakenTV() {
+    const s = new Set();
+    try { if (window.DFRoster) DFRoster.all().forEach(function (m) { if (m && m.name) s.add(m.name); }); } catch (e) {}
+    try { if (window.DFRecruits) DFRecruits.all().forEach(function (m) { if (m && m.name) s.add(m.name); }); } catch (e) {}
+    return s;
+  }
+  /* 職の表から 1 名。乱数は 1 回だけ (⛔ 引き直しのループを作らない = 無限ループの余地が無い)。
+     ① この編成でも名簿・約束でも使っていない名前 (通常のプレイではここで必ず決まる = 1 職 15 名の根拠)
+     ② 退避: 名簿・約束の人との同名は許す (この編成の中では一意のまま)
+     ③ 退避: 同じ職の名前の重複も許す (旧 pickUniqueName の guard < 50 と同じ「重複したまま返す」)
+     ⭐ どの退避でも職の表の外へは出ない ⇒ 名前 → 職業の単射は退避しても崩れない。 */
+  function pickClassNameTV(list, usedSet) {
+    const taken = namesTakenTV();
+    let pool = list.filter(function (n) { return !usedSet.has(n) && !taken.has(n); });
+    if (!pool.length) pool = list.filter(function (n) { return !usedSet.has(n); });
+    if (!pool.length) pool = list;
+    const n = pool[Math.floor(Math.random() * pool.length)];
+    usedSet.add(n);
+    return n;
+  }
+  /* ★[#72 §5-3] classKey は省略可の 2 引数目。省略時と ?namejob=0 は共有 16 名の従来の本体 (下の 4 行は a79ae83 と逐語同じ)。
+     ⚠ 引数の順を (usedSet, classKey) にしたのは、1 引数で呼ぶ既存の口 (tools/verify_mercenary_roster.js の
+       変異 alwaysroster が注入する pickUniqueName(usedNames)) を壊さないため。 */
+  function pickUniqueName(usedSet, classKey) {
+    const byClass = (classKey && isNameJobOn()) ? NPC_NAMES_BY_CLASS[classKey] : null;
+    if (byClass && byClass.length) return pickClassNameTV(byClass, usedSet);
     let n, guard = 0;
     do { n = NPC_NAMES[Math.floor(Math.random() * NPC_NAMES.length)]; } while (usedSet.has(n) && ++guard < 50);
     usedSet.add(n);
@@ -4667,7 +4727,7 @@
   function makeNpcMember(classKey, usedSet) {
     return {
       classKey, isHero: false, zone: PARTY_ZONES[classKey],
-      name: pickUniqueName(usedSet),
+      name: pickUniqueName(usedSet, classKey),
       trait: pickRandom("trait", NPC_TRAITS),
       line: pickRandom("line", NPC_LINES),
       variant: pickVariant(classKey),
