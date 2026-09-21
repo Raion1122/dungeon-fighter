@@ -159,10 +159,13 @@ const MUTATIONS = {
   endstale: { file: 'index.html', scope: FN_BOLT,
     from: '      const boltEnd = BOLT_AIM_ON ? best.tiles[best.tiles.length - 1] : null;',
     to:   '      const boltEnd = null;   /* ★変異endstale */' },
-  /* tavern.html の flavor だけ「3 タイル」のまま (酒場の鏡の直し忘れ = #57 の教訓)。 */
+  /* tavern.html の flavor だけ「3 タイル」のまま (酒場の鏡の直し忘れ = #57 の教訓)。
+   * ⚠ 2026-09-22 (#72 項目3): #72 項目2a (α) が鏡の LB 行へ `levelReq: 3, ` を足した (本体 index.html と同値へ) ので
+   *   from を現行の行へ取り直した (旧 from は原本に 0 行 = §0e で exit 3、残り 9 変異も 1 本も走っていなかった)。
+   *   ⭐ to にも `levelReq: 3` を残す = 変異が動かすのは flavor の文字だけ (Lv の判定・引き出しの [Lv3 必要] は素のまま)。 */
   flavor3: { file: 'tavern.html', scope: '  const MAGE_SKILLS_UI = [',
-    from: '    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },',
-    to:   '    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },   /* ★変異flavor3 */' },
+    from: '    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, levelReq: 3, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },',
+    to:   '    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, levelReq: 3, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },   /* ★変異flavor3 */' },
 };
 /* 変異 → 赤くなるべき assert (担当)。⚠⚠⚠ 机上で書かない。1 本ずつ実走して実際に赤くなった集合を見て決める。
  * ── 2026-09-17 の実走 (#68 項目4・素の合成盤面 17/17 の上) で実際に赤くなった集合 (巻き添えも残す) ──

@@ -301,7 +301,20 @@ const PROBE = (visSrc) => {
     nFilled:    cols.filter((c) => c.dataset.state === 'filled').length,
     nOpen:      cols.filter((c) => c.classList.contains('pmOpen')).length,
     names:      cols.map((c) => txt(c.querySelector('.pmName'))),
-    classesJa:  cols.map((c) => txt(c.querySelector('.pmClass'))),
+    /* ★[#72 項目3] .pmClass は #72 柱1 から「職名」テキスト + " " + <span class="pmLv">Lv n</span> (tavern.html の
+       classEl)。(0b) が比べるのは **職名** なので、職名 = .pmClass の **先頭テキストノード** で取る。
+       ⛔ .pmLv を黙って捨てない: .pmLv を剥いだ残り (classRest) と .pmLv の文字 (classLv) も採り、(0b) の装置条件にする。 */
+    classesJa:  cols.map((c) => {
+      const e = c.querySelector('.pmClass'); const f = e ? e.firstChild : null;
+      return (f && f.nodeType === 3) ? String(f.nodeValue).trim() : '';
+    }),
+    classRest:  cols.map((c) => {
+      const e = c.querySelector('.pmClass'); if (!e) return '';
+      const k = e.cloneNode(true);
+      Array.prototype.forEach.call(k.querySelectorAll('.pmLv'), (n) => n.remove());
+      return txt(k);
+    }),
+    classLv:    cols.map((c) => Array.prototype.map.call(c.querySelectorAll('.pmClass .pmLv'), (n) => txt(n))),
     depExists:  !!dep,
     depHidden:  dep ? !!dep.hidden : null,
     depVis:     vis(dep),
@@ -743,11 +756,27 @@ async function clickPoint(page, x, y) {
 
     const sReady = await page.evaluate(PROBE, VIS_FN);
     const normalLabel = sReady.depText;
+    /* ★[#72 項目3] (0b) の言い直し (型1)。旧 = `.pmClass` の textContent の並び === 実体の職名の並び。
+       #72 柱1 で職業の行に「 Lv n」が入り、職名が同じでも textContent が食い違って赤になった
+       (2026-09-22 @3be110c 実測「カード=["戦士 Lv5","ドワーフ Lv2","エルフ Lv3","魔法使い Lv4"] /
+        実体=["戦士","ドワーフ","エルフ","魔法使い"]」)。
+       ⭐ 期待値は弱めない: 比べる相手 (selection → PARTY_SLOTS の職名) はそのまま、測定点だけを
+         「.pmClass の先頭テキストノード」へ移した。⛔ .pmLv を黙って無視しないため装置条件を 2 つ足す (旧 3 条件 → 5 条件):
+         ① restOk  … .pmLv を剥いだ残りの文字 === 先頭テキストノード (職名の後ろに Lv 以外の何かが紛れたら赤)
+         ② lvShape … .pmLv は 1 枚のカードに 0〜1 個で、文字は「Lv + 数字」だけ (職名が .pmLv の中へ逃げたら赤)
+       ⚠ ?whois=0 では .pmLv が 0 個 = ① は textContent そのもの・② は空で真 (= 旧と同じ判定へ戻る)。 */
+    const restOk = sReady.classRest.length === sReady.classesJa.length
+      && sReady.classRest.every((t, i) => t === sReady.classesJa[i]);
+    const lvShape = sReady.classLv.length === sReady.classesJa.length
+      && sReady.classLv.every((a) => a.length <= 1 && a.every((t) => /^Lv\d+$/.test(t)));
     check('(0b) [装置] 全確定後のカードの職業の並びが selection.partyMembers の職業と一致 (表を写経していない証明)',
       sorted(sReady.classesJa) === sorted(truth.classJa) && sReady.nCols === truth.keys.length
-      && sReady.nFilled === sReady.nCols,
+      && sReady.nFilled === sReady.nCols && restOk && lvShape,
       'カード=' + JSON.stringify(sReady.classesJa) + ' / 実体=' + JSON.stringify(truth.classJa)
-      + ' / 確定 ' + sReady.nFilled + '/' + sReady.nCols);
+      + ' / 確定 ' + sReady.nFilled + '/' + sReady.nCols
+      + ' / .pmLv=' + JSON.stringify(sReady.classLv)
+      + (restOk ? '' : ' ⛔ .pmLv を剥いだ残り=' + JSON.stringify(sReady.classRest) + ' が職名と違う')
+      + (lvShape ? '' : ' ⛔ .pmLv が「Lv+数字」0〜1 個の形でない'));
 
     /* ── (1a) ★本丸: 全確定後に背景 (#pmColumns の中心) を叩いても出発しない ── */
     const hit1a = await clickCenterOf(page, 'pmColumns');

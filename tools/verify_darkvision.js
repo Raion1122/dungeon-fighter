@@ -818,11 +818,23 @@ async function probeTavernNR(browser, base, label, vp, opts) {
     }
     o.cards = await page.evaluate(() => {
       const txt = (e) => (e ? String(e.textContent || '').trim() : '');
+      /* ★[#72 項目3] .pmClass は #72 柱1 から「職名」+ " " + <span class="pmLv">Lv n</span>。(3a) が守るのは
+         「視界 (#39) を足しても既存の器の文字が着手前と 1 文字も違わない」なので、#72 が足した .pmLv は
+         .pmSight と同じく「足したもの = 比べる相手ではない」として **剥いでから** 比べる (cls)。
+         ⛔ 剥いだことを黙らせない: 剥ぐ前 (clsFull) と .pmLv の文字 (lv) も採り、(3a) の装置条件にする。 */
+      const noLv = (e) => {
+        if (!e) return '';
+        const k = e.cloneNode(true);
+        Array.prototype.forEach.call(k.querySelectorAll('.pmLv'), (n) => n.remove());
+        return txt(k);
+      };
       return Array.prototype.map.call(document.querySelectorAll('#pmColumns .pmColumn'), (c) => ({
         state: c.dataset.state || '',
         classKey: c.dataset.classKey || '',
         name:   txt(c.querySelector('.pmName')),
-        cls:    txt(c.querySelector('.pmClass')),
+        cls:    noLv(c.querySelector('.pmClass')),
+        clsFull: txt(c.querySelector('.pmClass')),
+        lv:     Array.prototype.map.call(c.querySelectorAll('.pmClass .pmLv'), (e) => txt(e)),
         zone:   txt(c.querySelector('.pmZone')),
         /* ⭐ (3a) の対象。⛔ .pmSight は入れない (それは足したもの = 比べる相手ではない)。 */
         equip:  Array.prototype.map.call(c.querySelectorAll('.pmEquipRow'), (r) => txt(r)),
@@ -1200,6 +1212,24 @@ const ASSERTS = [
         + ' ≠ ' + JSON.stringify(y.equip));
       if (x.skills !== y.skills) bad.push('#' + i + ' .pmSkillsVal "' + x.skills + '" ≠ "' + y.skills + '"');
     }
+    /* ★[#72 項目3] .pmClass から剥いだ .pmLv の装置 (⛔ 黙って捨てない)。旧 (3a) は .pmClass の textContent を
+       そのまま比べていたので、#72 柱1 の「 Lv n」で型1 の赤になった (2026-09-22 @3be110c 実測
+       「#0 .pmClass "戦士 Lv5" ≠ "戦士" …」4 枚とも .pmClass だけ・.pmName / .pmEquipRow / .pmSkillsVal は一致)。
+       比べる相手 (着手前 hash の同時配信) と「1 文字も違わない」はそのまま。剥いだものが「 Lv n」ちょうど 1 つで
+       あることを 3 条件で確かめる:
+         ① 現行の .pmLv は 1 枚に 0〜1 個・文字は「Lv + 数字」だけ
+         ② 剥ぐ前の文字 === 剥いだ残り + (" " + Lv) (= 剥いだのは Lv の文字だけ・他に何も紛れていない)
+         ③ 基準 (着手前) のカードに .pmLv は 1 枚も無い (下の .pmSight の現場確認と同じ型) */
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i], lv = x.lv || [];
+      if (lv.length > 1 || !lv.every((t) => /^Lv\d+$/.test(t))) {
+        bad.push('#' + i + ' .pmLv が「Lv+数字」0〜1 個の形でない ' + JSON.stringify(lv));
+      } else if (x.clsFull !== (lv.length ? x.cls + ' ' + lv[0] : x.cls)) {
+        bad.push('#' + i + ' .pmClass の剥ぐ前 "' + x.clsFull + '" ≠ 剥いだ残り "' + x.cls + '" + ' + JSON.stringify(lv));
+      }
+    }
+    const bLv = b.filter(y => (y.lv || []).length > 0).length;
+    if (bLv !== 0) bad.push('⛔ 基準 (' + M.baseRef + ') のカードに .pmLv が ' + bLv + ' 枚ある = 基準が着手前ではない');
     /* ⭐ 基準が「本当に着手前」であることの現場確認: 基準側に .pmSight は 1 枚も無いはず。 */
     const bSight = b.filter(x => x.hasSight).length;
     if (bSight !== 0) bad.push('⛔ 基準 (' + M.baseRef + ') のカードに .pmSight が ' + bSight
@@ -1207,7 +1237,9 @@ const ASSERTS = [
     return [bad.length === 0, bad.length ? '⛔ ' + bad.slice(0, 6).join(' / ')
       : '基準 ' + M.baseRef + ' と現行を同時配信して突き合わせ: ' + a.length + ' 枚 × 4 器 ('
         + a.map(x => x.classKey).join(',') + ') が 1 文字も違わない'
-        + '  (現行の .pmSight ' + a.filter(x => x.hasSight).length + ' 枚 / 基準 0 枚)'];
+        + '  (現行の .pmSight ' + a.filter(x => x.hasSight).length + ' 枚 / 基準 0 枚)'
+        + '  (現行の .pmLv ' + a.filter(x => (x.lv || []).length > 0).length + ' 枚 [#72] は剥いで比べた: '
+        + a.map(x => (x.lv || []).join('') || '-').join(',') + ' / 基準 0 枚)'];
   }],
   ['3b', '.mrMeta から視界の部分を除いた文字列が着手前と一致 (「戦士 / Lv3 / 同行 5 回」)', (M) => {
     if (M.baseErr) return [false, '⛔ 基準 (' + M.baseRef + ') が配れない: ' + M.baseErr];

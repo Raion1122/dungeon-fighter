@@ -25,13 +25,18 @@
  *
  * ── 持たないもの (意図的) ──────────────────────────────────────────────────
  *   ⛔ 装備        … 権威は tavern.html の allyEquip[classKey]
- *   ⛔ Lv の確定   … assignCompanionLevels() が出発時に確定する唯一の口 (#38)
+ *   ⛔ Lv の確定   … assignCompanionLevels() が確定する唯一の口 (#38)。
+ *     ⚠ [#72 で更新] 新顔の Lv は出発時ではなくマッチング画面で振る
+ *     (fixCompanionLevelsEarly がこれを呼ぶ・出発では振り直さない)
  *   ⛔ 新顔の生成  … 呼び出し側 (tavern.html の pickCompanion / makeNpcMember) の仕事
  *
  * ── ⚠ 「同一人物」の判定は name ──────────────────────────────────────────
  *   名簿から来た人は mercId を持つが、新顔は持たない。両方を 1 つの器で扱うため、
- *   一意キーは **name** にする。⭐ pickUniqueName() が 1 回の抽選内で名前を重複させない
- *   ので、卓の 4 人の中では name で一意になる。
+ *   一意キーは **name** にする。⭐ tavern.html の pickUniqueName() は 1 回の抽選内で名前を重複させず、
+ *   さらに [#72 で更新] 新顔には **名簿と同行の約束に居る名前を使わない** (namesTakenTV / pickClassNameTV・
+ *   名前は職ごとの表 NPC_NAMES_BY_CLASS から) ので、新しく作られる顔は卓の 4 人の中だけでなく
+ *   名簿・約束の人とも name で一意になる。
+ *   ⚠ 例外 = #72 より前に名簿へ入った同名の 2 人 (移行しない決定) どうしは name で区別できない。
  *
  * 公開API: window.DFRecruits
  *   KEY / enabled() / load() / save(list) / all() / has(name) /

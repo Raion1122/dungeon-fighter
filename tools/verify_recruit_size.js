@@ -720,11 +720,16 @@ function judgeNoOverflow(rows, cap) {
        を採る。⚠ 本番のボタンを **実際に click** する (ハンドラを写経しない)。 */
     const REROLL_PRESSES = 10;
     /* ⭐ 「顔ぶれが変わる」は乱数依存なので **1 回では測れない**。
-       goblin-mine は NPC 1 人で、名前は NPC_NAMES 16 個から一様 (usedNames は buildParty ごとに新規)、
-       職業は mid の 3 職から一様 → 1 回のかけ直しで **まったく同じ NPC** が出る確率は 1/48。
-       10 回押して 11 サンプルすべてが同一になる確率は (1/48)^10 ≒ 6e-17。
-       → 「11 サンプル中に 2 種類以上の顔ぶれがある」なら実質フレークしない。
-       (NPC 3 人の orc-fort はさらに小さいので同じ閾値で足りる) */
+       ⚠ [#72 項目3 で書き直し] 旧文面「goblin-mine は NPC 1 人で、名前は NPC_NAMES 16 個から一様 (usedNames は
+         buildParty ごとに新規)、職業は mid の 3 職から一様 → … 1/48 … (1/48)^10 ≒ 6e-17」は前提が 2 つとも古い:
+         ・NPC の人数 … #8 で goblin-mine が 3 人、#61 で全依頼が RECRUIT_MAX 人 (★2 の腕は recruit: 注入で RECRUIT_MAX-1 人)。
+           sig は NPC 全員の「名前|職」の並びなので、同じ顔ぶれになるには全員が揃う必要がある。
+         ・名前 … #72 から新顔の名前は **職ごとの表 NPC_NAMES_BY_CLASS (1 職 15 名)** から、その編成で使った名前と
+           名簿・同行の約束に居る名前を除いて一様 (tavern.html pickUniqueName → pickClassNameTV / namesTakenTV)。
+           職が同じ新顔でも前回と同じ名前になるのは 1 席あたり 1/15 前後 (除外で母数が減れば少し上がる。名簿の顔が
+           引かれた席 = pickCompanion の名簿の枝は名前が固定される)。
+       → 「11 サンプル中に 2 種類以上の顔ぶれがある」の閾値は変えない (assert は無改変)。
+         実測 = 11 サンプル中 11 種 (★1 NPC 3 人 / ★2 注入 2 人とも・#71 の基準 b3643c8 と #72 項目2c の後で同じ)。 */
     async function probeRecruitUi(page, scId, presses) {
       return page.evaluate((cfg) => {
         const out = { threw: '', id: cfg.scId || '(現状のまま)', samples: [], clicked: 0,

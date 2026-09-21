@@ -656,6 +656,15 @@ const PROBE_FN = function () {
       '在籍 ' + (probe1.roster ? probe1.roster.list.length : 'null') + ' 人 / next='
         + (probe1.roster ? probe1.roster.next : '-'));
 
+    /* ⚠ [#72 項目3] 下のラベルの括弧「(= 名簿が満杯でも名前が衝突しない、の根拠)」は **#72 の着手前から不成立** だった:
+         旧 pickUniqueName() が避けていたのは「その編成で使った名前」だけで、名簿に居る名前は新顔にも使っていた
+         (影 a79ae83 の実測 = 名簿 8 人 + 約束 2 人の盤面で新顔 21,217 人中 11,777 人が同名 / 600 日の模擬で名簿に同名 2 人の日
+          299 / 300・依頼書 #72 §12-0 追補 2c (10) の 6)。
+       #72 からは tavern.html が新顔の名前を **職ごとの表 NPC_NAMES_BY_CLASS (1 職 15 名)** から引き、**名簿と同行の約束に
+       居る名前を使わない** (namesTakenTV / pickClassNameTV) = 衝突しない根拠は「CAP < 16」ではなく、この除外。
+       ⭐ assert の中身 (CAP を実体から読む・NPC_NAMES より小さい) は生きている。NPC_NAMES (共有 16 名) は ?namejob=0 の
+         戻り先として残してある (probe1.namePool = 16)。
+       ⛔ ラベルの文字列は変えていない (本項目の約束 = コメント行だけ・コードは 1 文字も変えない。判定行も基準ログと逐語のまま)。 */
     check('(0c) 上限を写経していない — DFRoster.CAP を実体から読み、それが NPC_NAMES (実体) より小さい '
         + '(= 名簿が満杯でも名前が衝突しない、の根拠)',
       typeof probe1.cap === 'number' && probe1.cap >= 1
