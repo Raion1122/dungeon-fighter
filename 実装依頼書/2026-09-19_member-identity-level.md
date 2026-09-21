@@ -1237,3 +1237,150 @@ changelog = 親の指示の文面(§10 の 1 行目 +「一度一緒に戦った
    - 寸法: 新しい名前はすべて 4 字以下で、見出し・カード・声掛け・頭上札とも旧 16 名の最長(ガウェイン)を超えない((8))。
 3. **項目5(母集団)**: 本項目で新しく読まれうるもの = `NPC_NAMES_BY_CLASS` / `isNameJobOn` / `namesTakenTV` / `pickClassNameTV` / `?namejob`。`tools/*.js` で読む本は **0 本**(`item2c/anchors2c.py`・引用符 3 種を独立に走査)。14 字以上の文字列リテラル 1,566 個のうち `a79ae83` → 現行で件数が変わったのは 6 個で、どれも URL の断片・メッセージ・`index.html` への注入の断片(`'?recruittalk=0'` × 4 本・`'sessionStorage '`・`' }); } catch (e) {}'`)= `tavern.html` のアンカーではない。名前をリテラルで持つ本は 9 本(「ミラ」= 魔法使いの注入 7 本・「ロルフ」= 戦士の注入 1 本・「ブラン」は「フロストブランド」の部分一致)で、どれも **注入した名前をそのまま使う** ので表と職が食い違っても赤くならない。
 4. ポート: プローブは **10437〜10440** を使い全部解放済み。**10401〜10413 は未使用**(項目4 予約)。プローブ = `…/scratchpad/item2c/probe72_2c.js` / 置換 `patch72_2c.py` / 走査 `anchors2c.py` `names72.py` / golden `golden2c.py` `gate2c.py` `golden2c.tsv` / 影 `item2c/base_tavern_a79ae83.html`(bdabc28)。
+
+---
+
+### 12-0 追補(項目3 / 2026-09-22・実装窓 セッション `b34987cb-…`)— 既存 golden の言い直し(型1 の 3 本)+ 名指し 6 本の非退行 + 腐ったコメントの訂正
+
+⛔ 本番(`index.html` / `tavern.html` / `audio.js`)は **1 バイトも触っていない**(証拠 = `git diff --stat 3be110c..249af2f -- index.html tavern.html audio.js` が空・blob `6b5cf38` / `05b986a` / `b3aaa1f` が前後で同一)。
+変更ファイル = `tools/` 5 本(言い直し 3 本 + コメントだけ 2 本)+ `js/` 2 本(**コメントだけ**)+ 本 `.md`。コミット = `249af2f`(コード)+ 本追補(`.md` のみ)。
+⭐ 行番号は `249af2f` の `tools/*.js`(純 LF)/ `js/*.js`(純 CRLF)。⛔ 使う前に逐語で引き直すこと。作業物 = `…/b34987cb-…/scratchpad/item3/`。
+置換 = `item3/patch3.py`(11 箇所・各 old の件数 1 を assert・バイトで読み書き・ファイルの改行 LF / CRLF に合わせる)。
+
+#### (1) 着手前の色(HEAD `3be110c`・clean な木・`item3/pre.tsv`)
+
+| 本 | 腕 | 色(所要) | 赤い assert id と理由(ログの逐語) |
+|---|---|---|---|
+| `verify_party_match_setup` | 素 | exit 1・**35/36**(100.0 秒) | `[FAILED]  (0b) [装置] 全確定後のカードの職業の並びが selection.partyMembers の職業と一致 (表を写経していない証明)  -- カード=["戦士 Lv5","ドワーフ Lv2","エルフ Lv3","魔法使い Lv4"] / 実体=["戦士","ドワーフ","エルフ","魔法使い"] / 確定 4/4` |
+| `verify_party_match_setup` | --negative | exit 0・8 本とも担当が赤(800.1 秒) | 8 腕すべてで `(0b)` が担当外の赤(`赤くなったラベル=(0b),(1a),…` 〜 `(0b),(1f)`)。基準と差 16 = 8 腕の `(0b)` PASS→FAIL だけ |
+| `verify_darkvision` | 素 | exit 1・**24/25**(80.0 秒) | `FAILED (3a) ★.pmName / .pmClass / .pmEquipRow / .pmSkillsVal のテキストが着手前と 1 文字も違わない  — ⛔ #0 .pmClass "戦士 Lv5" ≠ "戦士" / #1 .pmClass "ドワーフ Lv5" ≠ "ドワーフ" / #2 .pmClass "エルフ Lv5" ≠ "エルフ" / #3 .pmClass "盗賊 Lv5" ≠ "盗賊"` |
+| `verify_darkvision` | --negative | exit 1・**37/38**(282.1 秒) | 同じ `(3a)` 1 本(12 変異はすべて担当が赤) |
+| `verify_bolt_aim` | --negative | **exit 3**(2.0 秒) | `⛔ flavor3     tavern.html:null  範囲の先頭 1 箇所 (13 行) / 範囲内 0 行 / ファイル全体 0 行` → `[drv] ⛔ 変異アンカーが 1 本腐っている (flavor3) → 負のコントロールが空振りするので走らせない`(残り 9 変異も 1 本も走っていない) |
+| `verify_bolt_aim` | 素 | **exit 1・22/23**(2,242.8 秒) | `NG  (0e) [装置] 変異 10 本の注入点が、原本の「属する範囲」の中でちょうど 1 行 (⭐ 腐ると --negative が走る前に exit 3。素の側でも赤で見えるようにする)`。⚠⚠ **素も赤だった**((8) の 1)。実プレイの節 (1a)〜(5a) は基準と全部同じ(経路1 差 3 = `(0e)` PASS→FAIL + 監査行 `OK flavor3` の消失) |
+
+- 比較器 = 項目1 の `item1/gate72.py`(`fp72e.py` を無改変 import)を phase 別に回す `item3/gate3.py`(`item2c/gate2c.py` の写し)。基準 = `item1/baseline72.tsv`。
+- ⭐ 赤は **予想どおりの 3 本 + 予想に無かった `verify_bolt_aim` 素 1 腕**。どれも型1(本番の #72 の変更そのものが測定点を動かした)で、本番の欠陥ではない。
+
+#### (2) 言い直し 3 本 — 前後の逐語と「なぜ弱めていないか」
+
+⭐ 3 本とも **比べる相手と期待値は 1 文字も変えていない**。変えたのは「どこを読むか(測定点)」だけで、剥いだもの(`.pmLv`)を黙って捨てないための **装置条件を足した**(条件の数は増えただけ・減った条件は 0)。
+⛔ assert のラベル(= 判定行の id と本文)は 3 本とも逐語で不変 ⇒ 2 経路の指紋はラベルを軸に基準と突き合わせられる。
+
+**① `tools/verify_party_match_setup.js` (0b)**(PROBE `:307`〜`:317` / 判定 `:768`〜`:779`)
+
+- 前(`3be110c`): 抽出 `classesJa:  cols.map((c) => txt(c.querySelector('.pmClass'))),` / 条件 `sorted(sReady.classesJa) === sorted(truth.classJa) && sReady.nCols === truth.keys.length && sReady.nFilled === sReady.nCols`(**3 条件**)
+- 後(`249af2f`):
+  - 抽出 `classesJa` = `.pmClass` の **先頭テキストノード**(`(f && f.nodeType === 3) ? String(f.nodeValue).trim() : ''`)/ `classRest` = `.pmClass` を複製して `.pmLv` を全部外した残りの textContent / `classLv` = `.pmClass .pmLv` の文字の並び
+  - 条件 `sorted(sReady.classesJa) === sorted(truth.classJa) && sReady.nCols === truth.keys.length && sReady.nFilled === sReady.nCols && restOk && lvShape`(**5 条件**)。
+    `restOk` = `classRest[i] === classesJa[i]`(全カード)/ `lvShape` = 各カードの `.pmLv` が 0〜1 個で `/^Lv\d+$/`。
+- なぜ弱めていないか: 比べる相手(`selection.partyMembers` → `PARTY_SLOTS[].name` の職名)は同じ。職名は前と同じく「カードに描かれた文字」から取る(写経しない)。
+  旧が捕まえられた食い違い(職名の後ろに何かが足された / 職名が違う)は `restOk` と `sorted(...)` で今も捕まる。新しく入った `.pmLv` は「職名の後ろに `" " + LvN` がちょうど 1 つ」の形でだけ許す。
+  `?whois=0` では `.pmLv` が 0 個 ⇒ `restOk` は textContent そのもの・`lvShape` は空で真 = 旧と同じ判定に戻る。
+
+**② `tools/verify_darkvision.js` (3a)**(抽出 `:825`〜`:837` / 判定 `:1191`〜`:1242` 付近・比較の行 `if (x.cls !== y.cls)` `:1210` は無改変)
+
+- 前: 抽出 `cls:    txt(c.querySelector('.pmClass')),` を着手前 `f80a03c` の同時配信と 1 文字比較(#72 の `" Lv5"` で 4 枚とも赤)。
+- 後: `cls:    noLv(c.querySelector('.pmClass')),`(`.pmLv` を剥いだ残り)+ `clsFull`(剥ぐ前)+ `lv`(`.pmLv` の文字)。(3a) に装置 3 条件を足した:
+  ① 現行の `.pmLv` は 1 枚に 0〜1 個・`/^Lv\d+$/` / ② `clsFull === (lv.length ? cls + ' ' + lv[0] : cls)`(剥いだのは Lv の文字だけ)/ ③ 基準のカードに `.pmLv` が 0 枚(`.pmSight` の「基準が本当に着手前か」と同じ型)。
+  成功時の詳細に `(現行の .pmLv 4 枚 [#72] は剥いで比べた: Lv5,Lv5,Lv5,Lv5 / 基準 0 枚)` を出す(黙って捨てない)。
+- なぜ弱めていないか: (3a) が守るのは「視界 (#39) を足しても既存の 4 器(`.pmName` / `.pmClass` / `.pmEquipRow` / `.pmSkillsVal`)の文字が着手前と 1 文字も違わない」。#72 の `.pmLv` は `.pmSight` と同じ「後から足したもの」なので、`.pmSight` を比べる相手から外していたのと同じ扱いで剥ぐ。職名の文字そのものは今も着手前と 1 文字比較。
+- ⚠ `:677`(`openPrep` 経由の演出のカード)の `cls` は **触っていない**: 読み手は (0d) の詳細の表示だけ(`(職: ドワーフ Lv5)`)で、`fp72e` は詳細を ` — ` で切るので 2 経路のどちらにも入らない((8) の 2)。
+
+**③ `tools/verify_bolt_aim.js` 変異 `flavor3`**(`:162`〜`:168`)
+
+- 前 from: `'    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },'`(原本に **0 行**)
+- 後 from: `'    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, levelReq: 3, flavor: "敵へ向けて直線 10 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },'`
+- 後 to: `'    { id: "lightning-bolt", name: "ライトニングボルト", category: "攻撃", range: "spellAoE",   mpCost: 6, levelReq: 3, flavor: "直線 3 タイル 5d6 雷 (DEX セーヴ半減)、PT 巻き込みなし" },   /* ★変異flavor3 */'`
+- 原本での健在チェック(`item3/chk_flavor3.py`・§0e と同じ規則): scope `  const MAGE_SKILLS_UI = [` は 1 箇所(`tavern.html:4490`〜`:4502`・13 行)、新しい from は **ちょうど 1 行**(`:4497`・範囲内)、旧 from は 0 行。
+- なぜ弱めていないか: 変異の意味(「鏡の flavor だけ 3 タイルのまま」)は同じ。to にも `levelReq: 3` を残した = 変異が動かすのは flavor の文字だけ(Lv の判定・`[Lv3 必要]` は素のまま)。担当表 `NEG_EXPECT.flavor3 = ['(3a)']` は無改変。
+
+#### (3) 装置条件が空振りしないことの単体確認(`item3/unit3.js`・合成 DOM・**15/15**)
+
+⭐ 写経しない: ドライバのソースから PROBE 関数 / (0b) の `restOk`・`lvShape` と条件式 / darkvision のカード抽出関数 / (3a) の assert 関数を **文字列で切り出して** about:blank の合成カードに当てた(切り出しに失敗したら exit 3)。
+
+| 合成カード(4 枚のうち 1 枚を崩す) | (0b) | (3a) | 期待 |
+|---|---|---|---|
+| 職名 + `" "` + `.pmLv`(本番の形) | 緑 | 緑 | 緑 |
+| `.pmLv` 無し(`?whois=0` の形) | 緑 | 緑 | 緑 |
+| 職名の後ろにゴミ(`戦士 <span class="pmLv">Lv5</span>X`) | 赤(rest=`"戦士 X"`) | 赤 | 赤 |
+| 職名が `.pmLv` の中へ逃げた | 赤(先頭テキストノード = 空) | 赤(器が空 + 形) | 赤 |
+| `.pmLv` が 2 個 | 赤(`lvShape`) | 赤(形) | 赤 |
+| `.pmLv` の中身が `Lv5!` | 赤(`lvShape`) | 赤(形) | 赤 |
+| 職名が違う(魔法使い → 盗賊) | 赤(`sorted`) | 赤(`.pmClass "盗賊" ≠ "魔法使い"`) | 赤 |
+| (3a) のみ: 基準側にも `.pmLv` | — | 赤(`基準のカードに .pmLv が 4 枚ある = 基準が着手前ではない`) | 赤 |
+
+#### (4) 腐ったコメントの訂正(⛔ コメント行だけ・コードは 1 文字も変えない)
+
+| 場所 | 前 | 後(要旨) |
+|---|---|---|
+| `js/mercenary-roster.js:34`〜`:44`(冒頭の「上限が 12 人である理由」) | `NPC_NAMES は 16 要素しかなく … 12 < 16 なので、名簿が満杯でも名前が衝突しない。` | #72 の着手前から不成立(新顔は名簿の名前を避けていなかった・実測 11,777 / 21,217)。#72 からは職ごとの表 `NPC_NAMES_BY_CLASS`(1 職 15 名)+ 名簿・約束の名前を使わない(`namesTakenTV` / `pickClassNameTV`)= 根拠は除外。⚠ 逆向きの依存: 1 職 15 名 = `CAP - 1 + RECRUIT_MAX + 1` ⇒ CAP を増やすなら表も増やす |
+| `js/mercenary-roster.js:62`〜`:63`(`var CAP = 12;` `:64` の直前) | `/* 在籍の上限。⭐ NPC_NAMES = 16 より小さいことが「名前が衝突しない」の根拠。 */` | 「成り立っていなかった(冒頭参照。根拠は tavern.html の除外 = namesTakenTV)」 |
+| `js/recruit-candidates.js:28`〜`:30` | `⛔ Lv の確定   … assignCompanionLevels() が出発時に確定する唯一の口 (#38)` | 「確定する唯一の口」+「#72 から新顔の Lv は出発時ではなくマッチング画面で振る(`fixCompanionLevelsEarly` がこれを呼ぶ・出発では振り直さない)」⭐ 親の一覧に無かった 5 件目((8) の 3) |
+| `js/recruit-candidates.js:33`〜`:39` | `⭐ pickUniqueName() が 1 回の抽選内で名前を重複させないので、卓の 4 人の中では name で一意になる。` | 抽選内の一意 + #72 から新顔は名簿・約束の名前を使わない ⇒ 名簿・約束の人とも name で一意。⚠ 例外 = #72 より前に名簿へ入った同名の 2 人(移行しない決定) |
+| `tools/verify_mercenary_roster.js:659`〜`:667`((0c) `:668` の直前) | (コメント無し。ラベルの括弧が `(= 名簿が満杯でも名前が衝突しない、の根拠)`) | ラベルの括弧が着手前から不成立であること・根拠は除外であること・assert の中身は生きていること・**ラベルの文字列は変えていない理由**(コードは 1 文字も変えない約束)をコメントで添えた((8) の 4) |
+| `tools/verify_recruit_size.js:722`〜`:732`((D) の根拠) | `goblin-mine は NPC 1 人で、名前は NPC_NAMES 16 個から一様 … 1/48 … (1/48)^10 ≒ 6e-17` | 前提が 2 つとも古い(NPC は #8 で 3 人・#61 で全依頼 RECRUIT_MAX 人 / 名前は #72 から職ごとの表から除外つきで一様)。閾値は変えない。実測 = 11 サンプル中 11 種(★1 NPC 3 人 / ★2 注入 2 人・基準 `b3643c8` と 2c の後で同じ)((8) の 5) |
+
+- **コメントだけであることの証明**(`item3/comment_only.py`): HEAD の blob と作業ツリーから JS のコメントを剥ぎ(文字列 `''` `""` `` ` `` と正規表現リテラルの中は剥がない)、空白を畳んだトークン列を比べた ⇒ `js/mercenary-roster.js` / `js/recruit-candidates.js` / `tools/verify_mercenary_roster.js` / `tools/verify_recruit_size.js` の 4 本とも **IDENTICAL**。
+  比較器の負の対照(`--selftest`): コメントを変えると IDENTICAL・コードを 1 文字変えると DIFFERENT・文字列の中の `//` を変えると DIFFERENT。言い直した 3 本は DIFFERENT(= 比較器は変更を見逃さない)。
+- `git diff --numstat 3be110c..249af2f -- js/` = `mercenary-roster.js` +11 / −3・`recruit-candidates.js` +8 / −3。`-` 行と `+` 行はすべて `/* … */` の中(冒頭の見出しコメントの行と、`var CAP` 直前の 2 行コメント)。`js/` は置換後も **純 CRLF**(`mercenary-roster.js` CRLF 260 / LF 260・`recruit-candidates.js` CRLF 128 / LF 128・bare 0)。
+- 機械検査される文字列を踏んでいないこと(`item3/chk_anchors_js.py --disk`): `tools/*.js` の 14 字以上の文字列リテラル(引用符 3 種を独立に走査)のうち `js/` 2 本 + `tavern.html` + `index.html` に現れる **1,198 個**の出現回数が HEAD と作業ツリーで **1 つも変わらない**(`badprefix` の `var KEY = "dragonfighters.mercRoster";` を含む)。
+  ⚠ 下書きの段階では `recruit-candidates.js` の字下げ 20 空白が 16 空白の文字列リテラル 1 個と一致して 0→1 になった ⇒ 字下げを 5 空白へ直して 0 件にした(その字下げを読む本は無いが、数を 0 に揃えた)。
+
+#### (5) 作業中の色(未コミットの木 `3be110c+dirty`・`item3/wip.tsv`)
+
+| 本 | 腕 | 色 | 基準と(経路1 / 経路2) |
+|---|---|---|---|
+| `verify_bolt_aim` | --negative | exit 0・**10 / 10 が検出成功**(144.0 秒) | 197 = 197 / 229 = 229 **差 0**(着手前は exit 3 で 9 id) |
+| `verify_party_match_setup` | 素 | exit 0・36/36 | **差 0 / 0** |
+| `verify_darkvision` | 素 | exit 0・25/25 | **差 0 / 0** |
+| `verify_mercenary_roster` | 素 | exit 0・44/44(js のコメントを変えた後の確認) | **差 0 / 0** |
+
+#### (6) 最終の色 — 名指し 6 本 + `verify_bolt_aim`(⭐ コミット `249af2f` の後の **clean な木**・`item3/post.tsv`・13 腕を直列)
+
+| 本 | 素(所要) | 素 vs 基準(経路1 / 経路2) | `--negative`(所要) | neg vs 基準(経路1 / 経路2) |
+|---|---|---|---|---|
+| `verify_party_match_setup` | exit 0・**36/36**(100.0 秒) | 36 = 36 / 36 = 36 **差 0** | exit 0・8 本とも担当が赤(800.2 秒) | 288 = 288 / 288 = 288 **差 0**(着手前は差 16) |
+| `verify_darkvision` | exit 0・**25/25**(80.0 秒) | 25 = 25 / 25 = 25 **差 0** | exit 0・**38/38**(282.1 秒) | 38 = 38 / 38 = 38 **差 0** |
+| `verify_pm_drawer_fit` | exit 0・75/79 PENDING 4(70.0 秒) | 79 = 79 / 79 = 79 **差 0** | exit 0・9 本とも担当が赤(630.1 秒) | 720 = 720 / 822 = 822 **差 0** |
+| `verify_mercenary_roster` | exit 0・44/44(20.0 秒) | 44 = 44 / 44 = 44 **差 0** | exit 0・10 本とも担当が赤(190.0 秒) | 440 = 440 / 440 = 440 **差 4**(= `alwaysroster` の腕の担当外 (2z3)(2e) が基準 FAIL → 今回 PASS・(7)) |
+| `verify_recruit_talk` | exit 0・25/25(64.0 秒) | 25 = 25 / 25 = 25 **差 0** | exit 0・**11/11 本が期待どおり**(812.2 秒) | 36 = 36 / 36 = 36 **差 0** |
+| `verify_recruit_size` | exit 0・91/91(72.0 秒) | 91 = 91 / 91 = 91 **差 0** | (`--negative` を持たない) | — |
+| `verify_bolt_aim` | exit 0・**23/23**(2,242.7 秒) | 33 = 33 / 33 = 33 **差 0**(着手前は `(0e)` だけ赤の 22/23) | exit 0・**10 / 10 が検出成功**(144.0 秒) | 197 = 197 / 229 = 229 **差 0** |
+
+- **`--negative` の全変異の担当の色**(本コミット後):
+  - `verify_bolt_aim`(10 本・`負のコントロール 10 / 10 が検出成功`): reach3 担当 (1b),(5a) / 赤 (1a),(1b),(1c2),(1d),(1e),(1f),(1g),(1h),(5a)・rays8 (1a) / 赤 (1a),(1d),(1f),(1g),(1h)・nowall (1d2) / 赤 (1d),(1d2),(1f),(1h)・dmgray (1e),(1f) / 赤 (1c2),(1d),(1d2),(1e),(1f)・norange (1c2) / 赤 (1c2)・hardcode10 (5a) / 赤 (5a)・vetogone (1g) / 赤 (1g)・switchdead (4a) / 赤 (0a),(1a),(1b),(4a)・endstale (1h) / 赤 (1h)・**flavor3 (3a) / 赤 (3a)**(起動確認は 10 本とも OK)。
+  - `verify_party_match_setup`(8 本): M1 → (1a),(2z),(2a),(2b) / M2 → (2b-2) / M3 → (3d),(4a) / M4 → (4a) / M5 → (5b) / M6 → (4c) / M7 → (3b) / M8 → (1f)(担当はすべて赤)。⭐ 着手前は 8 腕すべてに担当外の `(0b)` が混じっていた ⇒ **0 腕**。
+  - `verify_darkvision`(12 本): `neg-shadowsight` / `flatsight` / `emptysight` / `wrongft` / `elfdark` / `dropsheetrow` / `dropcardsight` / `droprostersight` / `droptitlesight` / `legacydrop`(対象外の確認)/ `noretreat` / `retreatkills` がすべて PASSED(= 担当の節が赤)。(3a) を担当する変異は元から無い(素の節として毎回測られる)。
+  - `verify_pm_drawer_fit`(9 本): maxonly / ovback / maxback (1a-v1)・compactback (1a-v3)・noscroll (3a-v1)・norestore (3b-v3)・stickydead (4a-v1)・switchdead / switchtwice (6a-v1) がすべて担当を赤。
+  - `verify_mercenary_roster`(10 本): badprefix → (3a),(3c),(3b) / nolevelclamp → (2e) / fadeclose → (4c) / noretreatswitch → (6a),(5a) / nocap → (3d) / reuseid → (3e) / defeatgrows → (2b),(2f2) / alwaysroster → (0a),(5a) / noclamp → (2c) / switchleak → (3c)。⭐ `badprefix` の注入先 `js/mercenary-roster.js` は本項目でコメントを変えたファイル ⇒ **アンカーは健在**(注入されて担当が赤)。
+  - `verify_recruit_talk`: `負のコントロール: 11/11 本が期待どおり`。
+
+#### (7) `verify_mercenary_roster --negative` の揺れの記録(2b 以来の既知)
+
+- 10 腕それぞれの `(2z1) [母集団] §2 の名簿に 1 人以上いる  -- 在籍 N 人`: badprefix **12** / nolevelclamp **12** / fadeclose **8** / noretreatswitch **12** / nocap **11** / reuseid **11** / defeatgrows **9** / alwaysroster **12** / noclamp **11** / switchleak **11** ⇒ **8〜12 人**(⚠ 2b の記録「9〜12」より下へ 1 人広い)。
+- `alwaysroster` の腕は今回 **12 人(満杯)** ⇒ 担当外の (2z3)(2e) は緑 = 基準の腕(`item1/run72` @`0e8370d`・在籍 11 人で (2z3)(2e) が赤)と差 4。2b / 2b2 / 2c の golden と同じ向き・同じ 4 行。担当の (0a)(5a) は両方とも赤。
+- 本項目の変更(`js/` 2 本と `tools/verify_mercenary_roster.js` は **コメントだけ**)からこの区画への経路は無い(`comment_only.py` で IDENTICAL)。
+
+#### (8) 崩れた主張 — 項目3 で新たに **6 件**(累計 **39**)
+
+| # | 主張 | 実測 |
+|---|---|---|
+| 1 | 項目1 §12-0 (12) の 7「(LB 行へ `levelReq: 3` を足すと)`--negative` が exit 3。**素は緑のまま** = #60 の型」/ キュー「型1 の赤 = 3 本(`verify_bolt_aim` は `--negative`)」 | `verify_bolt_aim` は §0e の監査を **素でも** `(0e)` として判定する(`R.check('(0e)', …, AUDIT_BAD.length === 0, …)` `:1427` 付近)⇒ **素も 2a から赤**(着手前 22/23・2,242.8 秒)。2a〜2c は素を走らせていなかった(2c「未走 = `verify_bolt_aim` 素」)。言い直し後は **23/23・基準と差 0**((6)) |
+| 2 | キュー / 2b の申し送り「`verify_darkvision` (3a)(抽出 `:677` / `:825`・比較 `:1198`)」 | (3a) が読むのは `:825`(`probeTavernNR` の決定論の編成)だけ。`:677`(`openPrep` 経由の演出)の `cls` は (0d) の詳細の表示にしか使われず、`fp72e` は詳細を ` — ` で切るので 2 経路のどちらにも入らない ⇒ 触っていない |
+| 3 | 2c の申し送り「腐ったのは注記・コメントだけ」(4 箇所) | 5 箇所目 = `js/recruit-candidates.js:28`「`assignCompanionLevels()` が **出発時に** 確定する唯一の口」。2a の (β) で新顔の Lv はマッチング画面で振る(`fixCompanionLevelsEarly` → `assignCompanionLevels`)⇒ 本項目で訂正 |
+| 4 | 項目3 の指示「`tools/verify_mercenary_roster.js` の (0c) の **見出しコメント**」 | (0c) の「見出し」はコメントではなく `check()` の **ラベルの文字列 = コード**。「コメント行だけ・コードは 1 文字も変えない」を守り、ラベルは残して直前にコメントを添えた ⇒ **ログのラベルには古い括弧「(= 名簿が満杯でも名前が衝突しない、の根拠)」が表示され続ける**(括弧は ` — ` の後ろなので 2 経路の指紋には入らない = 変えても指紋は動かない。直すかは判断待ち) |
+| 5 | 2c の申し送り「`verify_recruit_size.js:723` の『名前は NPC_NAMES 16 個から一様』が腐った」 | 同じ根拠コメントのもう 1 つの前提「goblin-mine は NPC 1 人」は **#8(NPC 3 人)/ #61(全依頼 RECRUIT_MAX 人)の時点で既に古かった**(同じドライバの `:785`〜`:796` がそう書いている)⇒ 1/48 の見積もりは #72 以前から不成立。両方を書き直した(実測 = 11 サンプル中 11 種) |
+| 6 | メモ `project_headless_verification.md`(#55 の節)「`verify_recruit_size.js` = CRLF 1108 + LF 9(混在)」 | いまは **純 LF**(LF 1,392 / CRLF 0 / bare CR 0・#65 の行末の一本化の後)。`tools/*.js` の 5 本はすべて純 LF・`js/*.js` の 2 本は純 CRLF(`.gitattributes` の宣言どおり) |
+
+- 根: 1 = 「素 / --negative のどちらが何を判定するか」の読み落とし(装置の監査が素にも出ている)/ 2 = 行番号の一覧の粒度(抽出点と比較点の対応を読んでいない)/ 3・5 = 腐ったコメントの数え落とし(語で探すと、同じ段落の別の前提を見落とす)/ 4 = 「見出し」がコメントかコードかの取り違え / 6 = メモの鮮度。
+
+#### ▶ 項目4 / 5 への申し送り
+
+1. **言い直した assert の新しい逐語と行(`249af2f`)**:
+   - `verify_party_match_setup` (0b): PROBE `classesJa` `:307`(先頭テキストノード)/ `classRest` `:311` / `classLv` `:317`・条件 `const restOk = …` `:768` / `const lvShape = …` `:770` / `check('(0b) [装置] …'` `:772`(`&& restOk && lvShape,` `:774`)。ラベルは不変。
+   - `verify_darkvision` (3a): 抽出 `const noLv = (e) => {` `:825` / `cls:    noLv(c.querySelector('.pmClass')),` `:835` / `clsFull` `:836` / `lv` `:837`・判定 `['3a', …` `:1191` / `if (x.cls !== y.cls)` `:1210`(無改変)/ 装置 `} else if (x.clsFull !== (lv.length ? x.cls + ' ' + lv[0] : x.cls)) {` `:1227` / `const bLv = …` `:1231`。
+   - `verify_bolt_aim` `flavor3`: `:166`〜`:168`(from / to とも `levelReq: 3, ` 入り)。アンカー = `tavern.html:4497`(scope `:4490`〜`:4502`)。
+2. **変異アンカーの健在状況(本コミット後の実走)**: `verify_bolt_aim` §0e 10 / 10 OK / `verify_party_match_setup` M1〜M8 / `verify_darkvision` 12 本 / `verify_pm_drawer_fit` 9 本 / `verify_mercenary_roster` 10 本(`js/mercenary-roster.js` の `badprefix` / `noretreatswitch-2` / `nocap-1〜3` / `reuseid-1〜3` / `defeatgrows` を含む)/ `verify_recruit_talk` 11 本 — **全部健在・空振り 0**。
+3. **項目4(受入)へ**: `.pmClass` を読むなら (0b) と同じ形(職名 = 先頭テキストノード・Lv = `.pmClass .pmLv`・「剥いだ残り = 職名」を装置に)。装置が空振りしないことは `item3/unit3.js` の型(ドライバのソースから関数を切り出して合成 DOM に当てる)で安く示せる。
+4. **項目5(母集団)へ**: 本項目で色が動いた腕 = `verify_party_match_setup` 素 / `--negative`・`verify_darkvision` 素 / `--negative`・`verify_bolt_aim` 素 / `--negative`(いずれも着手前の赤 → 基準と差 0 へ)。⭐ 走査は **コミット後の clean な木** で。`verify_mercenary_roster --negative` の差 4 は (7) の揺れ(在籍 8〜12)。
+5. 道具(`…/scratchpad/item3/`): `run3.py`(直列走行・TSV)/ `gate3.py`(`gate72.pair` を phase 別に)/ `patch3.py`(置換 11 箇所)/ `chk_flavor3.py` / `chk_anchors_js.py`(`--disk`)/ `comment_only.py`(`--selftest`)/ `unit3.js`。ログ = `pre/` `wip/` `post/`。ポートは新しく取っていない(`unit3.js` は about:blank)。**10401〜10413 は未使用**(項目4 予約)。
