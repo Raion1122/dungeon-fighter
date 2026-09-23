@@ -469,3 +469,243 @@ IIFE の冒頭付近(`DEFAULTS` の近く)に 1 本:
 ## 12. 実装結果
 
 (実装窓が埋める)
+
+### 12-0. STEP1 基準取り(項目1) — 2026-09-24 / 基準 `fd67cfe`
+
+#### (1) 着手前の状態
+
+- `git log --oneline -1` → `fd67cfe #73 引き渡し — 台帳へ | 73 | 行を追加 …`
+- `git status --short` → **出力 0 行(clean)**
+- `git ls-remote origin main` → `fd67cfe24d870024bb49b217317b5592bc9cc546	refs/heads/main`
+  ⇒ HEAD = `origin/main`・未 push 0。**#72 は着地済み** = §7 の ⏸ 着手条件は満たされた。
+
+#### (2) 逐語アンカーの引き直し(⭐ 件数を数えてから採った)
+
+`audio.js` の 6 本は **すべて `grep -cF` = 1 件**。行番号も `0e8370d` から **1 行も動いていない**
+(#72 は `audio.js` を触っていないため)。
+
+| アンカー(逐語) | 件数 | 実行番号 | 依頼書 |
+|---|---|---|---|
+| `narration: function (c, d, t)` | **1** | 231 | 231 一致 |
+| `narration: 0,` | **1** | 245 | 245 一致 |
+| `function loadVoiceManifest(` | **1** | 521 | 521 一致 |
+| `function getVoiceDuration(` | **1** | 598 | 598 一致 |
+| `var isUi = (name === "button" \|\| name === "narration");` | **1** | 717 | 717 一致 |
+| `volRow("ボイス音量"` | **1** | 835 | 835 一致 |
+
+`audio.js` のその他の参照点も**全部一致**: 13(`DEFAULTS` の `voice: 0.95`)/ 92(`duckForVoice`)/
+97+105(`applyVolumes`)/ 123(`getNoiseBuf`)/ 141(`tone`)/ 159(`noise`)/ 512+546(voice バス)/
+656(`playSampled`)/ 669(録音素材の route)/ 712(`playSfx`)/ 746(`renderOffline`)/ 816(`openSettings`)/
+885(VOICEVOX クレジット)/ 916(公開 `loadVoiceManifest`)/ 925(`__renderSfxOffline`)。
+
+`loadVoiceManifest` の呼び口 2 箇所:
+
+- `index.html:3279` — **一致**
+- `tavern.html:9678` — 依頼書 `:9435` から **+243 行**(#72 で動いた)
+
+`index.html` は **1 行も動いていない**: 3255 / 14252 / 14711 / 14731 / 14741–14742 / 14748 / 14760 /
+39713–39726 すべて依頼書どおり。
+
+`tavern.html` は #72 で **+197〜+243 行**動いた:
+
+| 依頼書 | 実行番号 | 何 |
+|---|---|---|
+| 8202 | **8399** | `function voice(id)` |
+| 8217 | **8414** | `sfx("narration")`(タイプ音) |
+| (記載なし) | **8427** | `async function playNarration` |
+| 8241–8250 | **8439–8448** | 声ペースの枝 |
+| 8243 | **8440** | `voice(voiceId)`(声ペース) |
+| 8251–8259 | **8449–8457** | テキストペースの枝 |
+| 8253 | **8450** | `voice(voiceId)`(テキストペース) |
+| 8323 | **8520** | `GameAudio.playVoice("quest_accept_00" + …)` |
+| 9435 | **9678** | `GameAudio.loadVoiceManifest(…)` |
+| 9512 | **9755** | `voice(voiceId)` |
+| 9706 | **9949** | `voice("plaza_quest_accept")` |
+| 9816 | **10059** | `voice("plaza_buy_highvalue")` |
+
+`tavern.html` の行数: 依頼書 10,751 → 実測 **10,994**(+243)。
+
+⚠ **§2-1 の grep の書き方が実際と違う。** `grep -rn "['\"]narration['\"]"` が返すのは **4 行**だが、
+その中身は `audio.js:669` / `audio.js:717` / `index.html:14711` / `tavern.html:8414` で、
+表に載っている `audio.js:231` / `:245` は**引用符が付いていないのでこの grep には出ない**。
+表の 4 行そのものは実在するので**設計への影響なし**。
+⭐ 副産物 = `:669`(録音素材の route・§2-8 罠5 の現場)は引用符付き grep で**必ず出る** ⇒ 罠5 の番人は語で引ける。
+
+⚠⚠ **§2-2 の「呼び口 11 箇所」は 11 箇所すべて実在するが、母集団としては痩せている(実測 16 箇所)。**
+表に無い 5 箇所:
+
+| ファイル:行 | 何 | 依頼書の扱い |
+|---|---|---|
+| `index.html:14741`–`:14742` | `GameAudio.getVoiceDuration(voiceId)`(導入 `playNarration` の主時計) | §2-3 が触れている(表には無い) |
+| `tavern.html:8436`–`:8437` | 同(酒場 `playNarration`) | §2-3 が触れている(表には無い) |
+| `index.html:14539` | `GameAudio.getVoiceDuration(line.voiceId)`(`narrate()` = DM バナーの表示尺) | ⚠ **どこにも無い** |
+| `index.html:14870` | `GameAudio.preloadVoice(ids)`(**エピローグ** `ending_epilogue_*`) | ⚠ **どこにも無い**(§2-5 は `:39726` だけ) |
+| `tavern.html:9712` | `GameAudio.preloadVoice(ids)`(**酒場の前口上** `dungeon_intro_prologue_*`) | ⚠ **どこにも無い** |
+
+⭐⭐⭐ **設計の結論は崩れない — むしろ強くなる。** 16 箇所すべてが `playVoiceClip` / `getVoiceDuration` /
+`preloadVoiceClips` の 3 関数へ行き着き、3 つとも `voiceManifest` を見る(`audio.js:555` / `:575` / `:605`)。
+`voiceManifest` の読み手は `audio.js` の外に **0 件**(実測)。⇒ §5-2 の 1 行で **16 箇所**が落ちる。
+
+⚠ 受入への影響 2 件:
+
+- **事前読み込みの口は 1 つではなく 3 つ**(`index:39726` / `index:14870` / `tavern:9712`)。
+  §8 の変異 `preloadleak` と (1d) が「導入の 1 箇所」だけを見ていると**残り 2 つを見逃す**。
+- `index.html:14539` は、声を止めると DM バナーの表示尺が「声の尺 + 600ms」から `line.ms || 2600` の
+  既定へ落ちる = **意図した(が依頼書に書かれていない)振る舞いの変化**。
+
+#### (3) 依頼書の主張の実測
+
+| 主張 | 結果 |
+|---|---|
+| 朗読 mp3 = **69 件 / 485.1 秒 / 話者 7 種** | **一致**(69 / 485.1 / 話者 ID = 84, 86, 13, 11, 16, 21, 53 の 7 種)。分類 × 話者の内訳も §2-1 の表と**完全一致**(dungeon/84=31、event/84=9・86=7・13=2、quest/84=6・13=4・11=2・16=1・21=1・53=1、plaza/86=5) |
+| `sfx-manifest.json` = **8 キー・`narration` 無し** | **一致**(`door_open` / `hit_blocked` / `hit_bone` / `hit_flesh` / `item_get` / `ui_cancel` / `ui_confirm` / `ui_tap`。`'narration' in m` = `False`) |
+| 語 `penvoice` の先客 **0 件** | **一致**(`.html` / `.js` 全文 grep = 0) |
+| `audio.js` が URL を読んだ前例 **0 件** | **一致**(`location` / `URLSearchParams` の grep = **0 行**) |
+| `audio.js` は**純 CRLF 947 / 947** | **一致**(CRLF=947 / LF=947 / bareCR=0。`py` でバイト実測) |
+| `tavern.html` は純 CRLF 10,751 / 10,751 | **行数だけ変化**: CRLF=**10,994** / LF=10,994 / bareCR=0(純 CRLF は維持) |
+| #72 の受入が changelog を握っていない | **一致**。`tools/verify_member_identity.js` に対し `changelog`(**大小無視**)/ `changelogList` / `更新情報` / `<li><b>` が**すべて 0 件** ⇒ #73 の changelog 追記で #72 の受入は赤くならない |
+| 声に依存する既存 golden は `probe_party_size.js` の **1 本だけ** | **一致**。`:651` の注記と `:868` の `window.GameAudio.getVoiceDuration = function () { return 0; };` を逐語で確認。段1 に入る他 4 本が当たった語は `openSettings` / `narration` だけで、**声の API は握っていない** |
+| ポート base **10441** / 変異 **10442–10450** が空き | **一致**(下記) |
+
+ポートの再確認:
+
+- `tools/*.js` が宣言する base の最大は **10413**(`verify_member_identity.js` = 10401)。
+- #72 のプローブは scratchpad 側で **10414–10440** を実使用(実測。`tools/` の grep には現れない)。
+- **10441–10450 は `tools/*.js` / scratchpad / `%TEMP%\df_pptr` のどこにも 0 件。**
+  ⚠ 10448 だけ 1 件出るが、`tools/verify_road_ambush.js:680` の乱数 literal `0.9779461044818163` の
+  **部分文字列**であってポートではない。
+- `Get-NetTCPConnection -State Listen` で **10380–10460 に待ち受け 0 件**。
+- **Chrome の制限ポートではない** — 10441 で実際に配信し `goto` が通った(`ERR_UNSAFE_PORT` なし)。
+  ⛔ 10xxx の制限ポートは 10080 のみ。
+- ⇒ **base 10441 / 変異 10442–10450 を確定。**
+
+#### (4) 母集団 — 3 段の union = **148 本**(⛔ 本数は導出。台帳 = `%TEMP%\df_pen73\population.tsv` 148 行)
+
+| 段 | 引き方(実行したもの) | 件数 |
+|---|---|---|
+| 段1 | `grep -ln "narration\|playVoice\|getVoiceDuration\|preloadVoice\|loadVoiceManifest\|__renderSfxOffline\|openSettings" tools/*.js` | **5** |
+| 段2 | `audio.js` を読み込む配信ページ(実測 = `index.html` / `tavern.html` / `title.html` / `town.html` / `world.html` の **5 枚**)のいずれか、または `audio.js` 自体を参照する本 | **148** |
+| 段3 | 測定器のソースを読む測定器(`readFileSync` の引数が `tools/` または `verify_`/`driver_`/`probe_`/`sweep_`) | **0** |
+| | **UNION** | **148**(`tools/*.js` 全 **150** 本のうち) |
+
+- **段1 ⊂ 段2**(差 0)。段1 の 5 本と当たった語:
+  `driver_bgm_town.js`(`openSettings` ×1)/ `driver_dev_gate.js`(`openSettings` ×9)/
+  `driver_diag_watchdog.js`(`narration` ×1)/ `probe_n4_stall.js`(`narration` ×2)/
+  `probe_party_size.js`(`getVoiceDuration` ×2)。
+- union の外 = **2 本**: `driver_doors_p1.js`(素の node・`js/df-mapdef.js` の純関数だけ)/
+  `verify_codex_map_skill.js`(素の node・`py` を回すだけ)。どちらも `audio.js` を載せるページへ入らない。
+  ⭐ ⇒ 依頼書の「ほぼ全数になる見込み」は **一致**(148 / 150)。
+- union の内訳: ブラウザを立てる本 **143** / 素の node またはモジュール **5**
+  (`_doors_fixture.js` / `_golden.js` / `driver_heromark_signplate.js` / `sim_plaza_entry.js` / `verify_recruit_talk.js`)。
+- `--negative` を持つ本 = **48**。本番ソースを逐語で `readFileSync` する本 = **45**。
+- ⭐⭐ **`audio.js` の *ソース* を `readFileSync` する本 = 4 本** —
+  `driver_bgm_mine.js` / `driver_bgm_title.js` / `driver_bgm_town.js` / `driver_dev_gate.js`。
+  この 4 本は `audio.js` の逐語を**変異の注入点**に使っているので、**§5 の編集で注入点が腐りうる最有力**。
+  ⚠ `driver_bgm_town.js` は `emptycredit` = **VOICEVOX クレジット行(`audio.js:885`)を空にする変異**を持つ
+  ⇒ §5-6 の「クレジット行は残す」は、この変異アンカーの生存条件でもある。
+- ⭐ `openSettings` を 9 回叩く `driver_dev_gate.js` は §5-5(つまみの名前)の近傍だが、assert は
+  `#wipeSaveSection` / `#btnWipeSave` / `#btnWipeConfirm` と `GameAudio.openSettings()` の**出現回数**だけで、
+  **つまみのラベルも行数も見ていない**。`ボイス音量` / `setVoiceVolume` を grep する本は `tools/*.js` に **0 本**
+  ⇒ §6 の「言い直し 0 本」の見込みは支持される(⚠ 実走で確かめること)。
+- ⚠⚠ union の内部で **20 組のポート衝突**(最大は 8831 = `driver_dev_gate` / `driver_equip_compact_ios` /
+  `driver_field_step2` / `driver_leader_ai` の **4 本**)⇒ **並列は確実に偽の赤(exit 3)。直列が唯一の解**
+  (TSV のヘッダに全 20 組を記録)。
+- ⏸ **全数走査(着手前の色)は本項目では回していない**(項目1b の担当)。
+
+#### (5) 本番での再現(⛔ 本番も `tools/` も 1 バイトも触っていない)
+
+装置 = `%TEMP%\df_pptr\driver_pen73_step1.js`(使い捨て・⛔ `tools/` には置かない)。
+puppeteer-core **23.11.1** + 実 Chrome(`C:/Program Files/Google/Chrome/Application/chrome.exe`)を
+`headless:true --no-sandbox --disable-gpu --autoplay-policy=no-user-gesture-required` で直駆動。
+配信 `py -m http.server 10441`。⚠ **`?autoplay` は付けていない**。
+シナリオは `goblin-mine`(`sessionStorage["dragonfighters.currentScenario"]`)。
+腕は `evaluateOnNewDocument` で `window.GameAudio` に **setter を仕掛け**、`audio.js:946` の
+`global.GameAudio = GameAudio;` が走った瞬間に対象メソッドだけ差し替える(⇒ 本番ファイルは無改造)。
+声 id は `manifest.json` から**導出**(`dungeon_intro_goblin-mine_0`–`_3` /
+3.381 + 10.912 + 6.016 + 6.656 = **26.965 秒**)。
+観測は 20ms 毎に `#dmHint` の文字列・`show` クラス・`#dmBody` の文字数をサンプリングし、
+段落境界(`#dmBody` の文字数が**減った**点)から「打ち終わり → 次段落開始」= **保持(hold)** を導出。
+
+| 腕 | クリック | `assets/voice/` 要求 | `getVoiceDuration(実在id)` | `loadVoiceManifest` 差替 | `playVoice` 差替 | 1文字目 ms | 第1段落後のヒント | 段落ごとの保持 ms | 語り総尺 ms |
+|---|---|---|---|---|---|---|---|---|---|
+| **素**(無改造) | 関門のみ | **5**(manifest + mp3 4) | **3.381 / 10.912 / 6.016 / 6.656** | 0 | 0 | **43** | ♪ 語りに耳をかたむけよう… | 421 / 900 / 740 | **27,224** |
+| `nomanifest` | 関門のみ | **0** | **0 / 0 / 0 / 0** | 1 回 | 0 | 34 | **クリックで続ける** | **2600 / 2600 / 2600** | 23,232 |
+| `nomanifest` | 250ms 毎(**7** 回) | **0** | **0 / 0 / 0 / 0** | 1 回 | 0 | 33 | **クリックで続ける** | **140 / 240 / 241** | **3,441** |
+| `durleak` | 関門のみ | **5** | **3.381 …**(生きている) | 0 | **4 回吸収** | 53 | ♪ 語りに耳をかたむけよう… | 440 / 919 / 760 | **27,226** |
+| `durleak` | 250ms 毎(**92** 回) | **5** | **3.381 …** | 0 | **4 回吸収** | 43 | ♪ 語りに耳をかたむけよう… | 400 / **10,820** / **5,920** | **27,225** |
+
+ページエラーは **全腕 0 件**。`document.title` = `ダンジョンファイターズ - 剣盾画像版`
+(= ページが実際に描けたことも併せて確認・§8 (0a) の趣旨)。
+
+**(5-1) §2-2 の再現 = ✅ 成立。**
+`GameAudio.loadVoiceManifest` を no-op にしただけで:
+
+- `assets/voice/` への要求が **5 → 0 件**(`manifest.json` も取りに行かない)
+- `getVoiceDuration(実在 id)` が **3.381 → 0**(4 id すべて)
+- ヒントが 4 段落すべて **「クリックで続ける」**。**「♪ 語りに耳をかたむけよう…」は一度も出ない**
+- 放置の保持 = **2,600ms**(= `NARRATION_PARA_GAP_MS` 2500 + 観測の刻み)
+- **クリックで送れる**: 保持 **2,600 → 140〜241ms** / 総尺 **23,232 → 3,441ms**
+
+⇒ 依頼書の「3 関数が揃って no-op になり、既存のテキストペース経路へ落ちる」は**本番で成立**。
+⭐ `playVoiceClip` / `getVoiceDuration` / `preloadVoiceClips` を**個別に触っていない**のに 3 つとも死んだ
+= **関門が 1 箇所であること**の直接の証拠(§5-2 の設計を支持)。
+
+**(5-2) §2-4 罠1 の再現 = ✅ 成立(依頼書より実害が大きい)。**
+`playVoice` **だけ**を no-op にした腕で:
+
+- ヒントは 4 段落すべて **「♪ 語りに耳をかたむけよう…」**。**「クリックで続ける」は一度も出ない**。
+  そして **音は 1 つも鳴っていない**(`playVoice` の 4 回すべてを no-op が吸収)。
+- **クリックが一切効かない**: 250ms 毎に **92 回**叩いても総尺は **27,225ms**、
+  無クリックの **27,226ms** と **差 1ms**。⇒ 声の尺(26,965ms)が主時計のまま。
+- ⭐ **保持秒数(= 変異 `durleak` の担当 assert の閾値の根拠)**:
+  - 放置(クリック無し)の**無音保持** = **440 / 919 / 760 ms**。
+    これは `durMs` の**残り 15%** — `charMs = durMs × 0.85 / 文字数` を 30〜200ms にクランプするので、
+    打ちに 85% が使われる(`index.html:14751` / `tavern.html:8442`)。
+    ⇒ 依頼書の「**声の長さぶん**、無音のまま全文が保持され」は**厳密には過大**。保持だけなら 15% ぶん。
+  - ⚠⚠ **クリックすると保持が爆発する** = **400 / 10,820 / 5,920 ms**。
+    クリックは `typeNarrationParagraph` の `narrationSkipRequested` だけを消費して全文を即表示し、
+    そのあと `while (Date.now() - startMs < durMs) await sleepMs(40);` が**声の残り全部**を保持する。
+    **最悪 10.8 秒、全文が出たまま何も起きない。**
+  - 実害の総量 = 導入 4 段落で **27.2 秒に固定**。テキストペースなら放置 **23.2 秒** / クリック送り **3.4 秒**
+    ⇒ **クリック送りとの差 = 23.8 秒**。
+- ⭐⭐⭐ **§8 (1c) の閾値設計への警告**:「段落が打ち終わったあとのクリックで **1 秒以内**に次の段落が始まる」を
+  **第1段落だけで測ると `durleak` は緑で通る**(第1段落の保持は **400ms** < 1,000ms)。
+  ⇒ (1c) は **全段落**で測ること。ヒントの文字列(「♪ 語りに耳をかたむけよう…」が**一度も出ない**)は
+  全段落で頑健なので、**ヒント文字列を主・秒数を従**にするのが安全。
+
+⚠⚠⚠ **崩れた主張がもう 1 件 — §8 (1d) は localhost では永久緑。**
+罠2(事前読み込みで最大 4 秒止まる)の実測:
+
+- 事前読み込みが走る腕の「開始のクリック → 1 文字目」= **43 / 53 / 43 ms**
+- 走らない腕(`nomanifest`)= **34 / 33 ms**
+- ⇒ 差は **約 10〜20ms**。mp3 4 本が localhost から来るので、**4 秒どころか 50ms 未満**で終わる。
+- ⭐ `durleak` 腕は `playVoice` が no-op なのに mp3 を **4 本要求している**
+  ⇒ **要求元は `preloadVoiceClips` 単独**(= 事前読み込みは確かに走っている)。それでも 53ms。
+  **率ではなく「触れているバイトが動いたか」で帰属を取った**形。
+- ⇒ **(1d) の「≤ 500ms」は素でも `preloadleak` でも緑**になり、**変異を 1 つも捕まえられない**。
+  ⭐ 代わりに **構造で測る**:「**1 文字目が出るまでに `assets/voice/` への要求が 0 件**」
+  (`preloadleak` では 4 件出る)。または CDP `Network.emulateNetworkConditions` で帯域を絞る。
+  ⛔ 秒数の閾値だけに頼らない。
+
+**⭐ 素の腕の健全性(これが無いと「声が止まった」が後で自明に緑になる)**: 素の腕で
+`assets/voice/` への要求 **5 件**(manifest + mp3 4 本)/ `getVoiceDuration` が manifest の値
+(3.381 / 10.912 / 6.016 / 6.656)を返す / 語り総尺 **27,224ms ≒ 26,965ms**(声が主時計)
+⇒ **着手前は確かに声が鳴っている。**
+
+#### 成果物(項目1b 以降と起草窓が読む)
+
+| パス | 中身 |
+|---|---|
+| `%TEMP%\df_pen73\population.tsv` | 母集団 **148 行**(段の内訳・s1 で当たった語・ポート・`--negative` 有無・`BASELINE` 依存・起動コマンド案・ポート衝突 20 組) |
+| `%TEMP%\df_pen73\step1_arms.json` | 5 腕の生データ(DOM サンプル列・段落ごとの保持を含む) |
+| `%TEMP%\df_pen73\build_population.py` | 母集団の導出器(⛔ 本数を定数で焼かない) |
+| `%TEMP%\df_pptr\driver_pen73_step1.js` | 再現装置(使い捨て・⛔ `tools/` には置かない) |
+
+#### ⇒ 判定
+
+**§4-4(§2-2 の再現)と §4-5(§2-4 罠1 の再現)はどちらも成立。STEP2 へ進んでよい。**
+⚠ ただし §8 の受入設計は次の 3 点を織り込むこと:
+
+1. **事前読み込みの口は 3 箇所**(`index.html:39726` / `index.html:14870` / `tavern.html:9712`)。
+2. **(1c) は全段落で測る**(第1段落だけだと `durleak` が **400ms** で緑を抜ける)。
+3. **(1d) の秒数閾値は localhost では効かない** ⇒「1 文字目までに `assets/voice/` 要求 0 件」へ言い直す。
