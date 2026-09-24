@@ -709,3 +709,210 @@ puppeteer-core **23.11.1** + 実 Chrome(`C:/Program Files/Google/Chrome/Applicat
 1. **事前読み込みの口は 3 箇所**(`index.html:39726` / `index.html:14870` / `tavern.html:9712`)。
 2. **(1c) は全段落で測る**(第1段落だけだと `durleak` が **400ms** で緑を抜ける)。
 3. **(1d) の秒数閾値は localhost では効かない** ⇒「1 文字目までに `assets/voice/` 要求 0 件」へ言い直す。
+
+---
+
+### 12-0b. 着手前の全数走査(項目1b) — 2026-09-24 / 基準 `9a96cc0`(本番コードは `fd67cfe` と 1 バイト同一)
+
+⛔ **本番コードも `tools/` も 1 バイトも触っていない。** `git diff --stat fd67cfe HEAD -- index.html tavern.html audio.js js tools` = **空**
+(`9a96cc0` は項目1 の依頼書 `.md` 240 行追加のみ)。走査中も作業ツリーは clean。
+
+#### (1) 走った腕の総数(⛔ 定数で焼かず `population.tsv` から導出)
+
+| | 件数 | 導出 |
+|---|---|---|
+| 素の腕 | **148** | `population.tsv` の全行(ファイルの並び順のまま = 項目5 が同じ順で再走できる) |
+| `--negative` の腕 | **3** | 下記の交点のうち `has_negative=yes` のもの |
+| | **151 腕** | 導出器 = `arms73.py` / 台帳 = `%TEMP%\df_pen73\armlist73.json` |
+
+`--negative` を足す交点は 2 つの規則の和で、**この場で本文から測り直した**(⛔ 項目1 の「4 本」を写していない):
+① 依頼書 §8 の名指し `probe_party_size.js` ② `audio.js` の *ソース* を `readFileSync` する本
+= `driver_bgm_mine` / `driver_bgm_title` / `driver_bgm_town` / `driver_dev_gate`(**再測でも 4 本**)。
+
+- 足せた = **3 本** … `driver_bgm_title` / `driver_bgm_town` / `probe_party_size`
+- ⚠ 足さなかった = **2 本** … `driver_bgm_mine` / `driver_dev_gate` は `--negative` フラグを持たない。
+  **負のコントロールを素の腕に内蔵している**ため(`driver_bgm_mine` = `MUT_ORDER` を `PORT+1..+3` へ同時配信 /
+  `driver_dev_gate` = `--baseline` の git worktree `df_devgate_baseline` @ `7bfa00b` を `/__baseline/` で同時配信)。
+  ⇒ **素の腕が既に変異を検査しているので、付けないことで信号は 1 ビットも減っていない。**
+
+#### (2) 所要時間と緑・赤の内訳
+
+| | 実測 |
+|---|---|
+| 腕 | **151**(直列。⛔ 並列は禁止 = union 内に**ポート衝突 20 組**) |
+| 所要 | **298.1 分 = 4.97 時間** / **1 腕あたり 118.5 秒** |
+| 緑 / 赤 | **133 / 18**(赤 **11.9%**) |
+| 判定行 合計 | **6,616** 行(PASS **6,563** / FAIL **33** / PENDING **4**) |
+| assert id 合計 | **6,600** |
+| 打ち切り | **1 腕**のみ = `probe_party_size`(素)を 600 秒で `taskkill /T /F`(#72 基準の 600.2 秒と同じ扱い) |
+| 腕の後の居残り Chrome | **0 腕**(毎腕後に `df_*` プロファイルの chrome を実測して掃いた。1 件も出なかった) |
+
+⭐ 依頼書 §8 の見積り「ほぼ全数・**6 時間前後**」に対し実測 **4.97 時間**。⚠ ただし
+**総分でなく「腕数 × 腕あたり」で見積もること**(#72 の教訓)。最長 5 腕 =
+`verify_bolt_aim` 2,239.3s / `driver_field_step6` 2,100.9s / `probe_p9_tour` 1,706.6s /
+`auto_debug_run` 1,101.6s / `verify_hold_pair` 904.4s ⇒ **この 5 腕だけで全体の 45%**。
+
+#### (3) 赤 18 腕の 3 分類 — **型1 = 0 / 型2 = 0 / 型3 = 18**
+
+赤は **2 軸**で分類した(⛔ 「フレーク」の 1 語で片付けない)。
+軸A = 3 走行での色の安定性 / 軸B = #55 の 3 型。各腕を **追加 2 回**再走した(`rerun73.py`・pass1/pass2 を別ディレクトリへ)。
+
+- **型1(このチケットが構造的に殺す)= 0 本。** ⭐ 机上判断ではない: `tools/*.js` **150 本**を
+  `getVoiceDuration|playVoiceClip|loadVoiceManifest|preloadVoice` で引いて **当たったのは `probe_party_size.js` の 1 本だけ**で、
+  それも assert ではない(下の (5) 参照)⇒ **#73 が殺す assert は母集団に存在しない。**
+- **型2(exit=3 / ポート由来の偽の赤)= 0 本。** ⚠⚠ **exit=3 を「ポート = 偽の赤」と読むのは誤り。**
+  exit=3 の 4 腕はいずれも**本自身の早期終了**で、直列で 3 回とも同じ exit=3・**指紋も 3 回完全一致**。
+  例 `driver_grid_p4` = 変異 `n1ringonly` の置換対象(地図行リテラル)が本文から消えて**負のコントロールが空振り**。
+- **型3(真に無関係)= 18 本。** 全 18 本に赤の理由を 1 行で付けた(下表)。
+
+| 腕 | exit 素/再1/再2 | 軸A | 指紋 | #72 基準 | 赤の理由(1 行) |
+|---|---|---|---|---|---|
+| `driver_field_step6` 素 | 1/1/1 | (赤,赤) | ⚠**不安定** 57/2→56/3→55/4 | 1 | `?graph=auto` が出口を自動選択せず entry から前進しない(bandits-forest / lizard-swamp) |
+| `driver_field_verge_gap` 素 | 1/**0**/**0** | **フレーク** | ⚠不安定 38/2→39/0→39/0 | 0 | 負のコントロール (B3) の判定が揺れる(baseline 側 bbox x0=272 が穴矩形 x0=280 の外) |
+| `driver_grid_p4` 素 | 3/3/3 | (赤,赤) | 一致 | 3 | 変異 `n1ringonly` の置換対象が本文から消え負のコントロールが空振り(**ポートではない**) |
+| `driver_grid_p8` 素 | 1/1/1 | (赤,赤) | 一致 55/1 | 1 | 音声と無関係(#72 基準でも赤) |
+| `driver_mapeditor` 素 | 1/1/1 | (赤,赤) | 一致 176/3 | 1 | 音声と無関係(#72 基準でも赤) |
+| `driver_mapeditor_painting` 素 | 1/1/1 | (赤,赤) | 一致 105/1 | 1 | 音声と無関係(#72 基準でも赤) |
+| `driver_monsters_griffon` 素 | 1/1/**0** | **フレーク** | ⚠不安定 14/3→15/2→17/0 | 0 | #72 が非決定と実証済みの本(単独 5 走行 17/14/14/17/17) |
+| `driver_monsters_umberhulk` 素 | 1/1/1 | (赤,赤) | 一致 21/1 | 1 | 音声と無関係(#72 基準でも赤) |
+| `driver_sce1_events` 素 | 1/1/1 | (赤,赤) | 一致 211/3 | 1 | 音声と無関係(#72 基準でも赤) |
+| `driver_speech_engine` 素 | 1/**0**/1 | **フレーク** | ⚠不安定 16/1→17/0→16/1 | 0 | (4) カメラが動かない(camX レンジ **0.0px**・`follow=000000`)= **台詞ではなくカメラ追従の非決定** |
+| `driver_speech_v2` 素 | 1/1/1 | (赤,赤) | 一致 45/1 | 1 | 音声と無関係(#72 基準でも赤) |
+| `probe_bandit_map` 素 | 3/3/3 | (赤,赤) | 一致 | 3 | 本自身の早期終了(**ポートではない**) |
+| `probe_party_size` 素 | 1/1/1 | (赤,赤) | 一致 13/7 | 1 | 自力で終わらない本。600 秒で打ち切り。判定は `--negative` 側だけが行う |
+| `probe_s2_fold` 素 | 3/3/3 | (赤,赤) | 一致 | 3 | 本自身の早期終了(**ポートではない**) |
+| `probe_swamp_map` 素 | 3/3/3 | (赤,赤) | 一致 | 3 | 本自身の早期終了(**ポートではない**) |
+| `sweep_recruit_balance` 素 | 1/1/1 | (赤,赤) | 一致 | 1 | 装置 assert が崩れた走行が 4/4 件(#72 基準でも同じ総括行) |
+| `verify_walk_block` 素 | 1/1/1 | (赤,赤) | 一致 22/1 | 1 | 音声と無関係(#72 基準でも赤) |
+| `probe_party_size` `--negative` | 1/1/1 | (赤,赤) | 一致 15/7 | — | 15/22。7 NG すべて**ワールドマップ挿入で導線が腐った**ことに由来(現在地 = `world.html` / 以降どのシナリオも 計1人) |
+
+軸A 集計: **(赤,赤) 15 / (緑,緑) 1 / 混在 2**。
+
+#### (4) フレーク(色が動いた本)= **3 本** / 指紋が動いた本 = **4 本**
+
+- **色が動いた 3 本** = `driver_field_verge_gap`(素の赤が外れ値)/ `driver_monsters_griffon` / `driver_speech_engine`。
+- ⭐⭐ **色が動かないのに指紋が動く本が 1 本ある** = `driver_field_step6`(exit は 3 回とも 1 のまま、FAIL が **2→3→4** と単調に増える)。
+  ⇒ **exit code だけ見ていると「安定した赤」に見えるが、指紋を golden にすると項目5 で必ず偽の差が出る。**
+  ⛔ 項目5 はこの 4 本の指紋を非退行の根拠に使わないこと(exit code で見る)。
+- ⭐⭐ さらに **#72 基準では赤だったのにここでは緑になった本が 3 本** =
+  `driver_monsters_hobgoblin`(14/14)/ `driver_monsters_kobold`(12/12)/ `probe_n4_stall`。
+  ⇒ **非決定な本は「基準の色」という単一の値を持たない**(#72 の教訓の再確認)。
+  本走査で非決定と実証できた本は合計 **7 本**(上の 4 + この 3)。⚠ #72 が数えた既知フレーク **9 本**とは集合が違う
+  = **フレークの一覧そのものが要約であり、走行ごとに引き直すべきもの**。
+
+#### (5) ⚠⚠⚠ 崩れた主張 — §8 が名指した golden は**声を測っていない**
+
+依頼書 §8「既存 golden の非退行」は `tools/probe_party_size.js`(素 / `--negative`)を
+「声に依存する唯一の golden」として名指しているが、**実測で 2 つとも崩れた**。
+
+1. ⭐⭐⭐ **この本は声を *測って* いない。声を *無効化* している。**
+   `tools/probe_party_size.js:868`(`PLAY_PREP`)は
+   `window.GameAudio.getVoiceDuration = function () { return 0; };` で**声の尺を 0 に潰し**、
+   導入ナレをテキストペースへ落として連打で送るためのものである(同 `:651` のコメントが明言)。
+   結果を入れる `o.voicePatched` は **どの assert からも参照されていない**(出現は `:864` と `:868` の 2 箇所だけ)。
+   ⇒ **§5-2 で `loadVoiceManifest` を止めると `getVoiceDuration` は元から 0 を返すので、この差し替えは no-op になる。
+   本は今までどおり動き、#73 の変化を 1 ビットも検出しない。**
+2. ⭐⭐⭐ **`tools/*.js` 150 本のうち、声の API に触る本はこの 1 本だけ**
+   (`grep -lE "getVoiceDuration|playVoiceClip|loadVoiceManifest|preloadVoice" tools/*.js` → 1 件)。
+   ⇒ **#73 の変化を捕まえられる既存 golden は 1 本も存在しない。声の信号は新規 `tools/verify_pen_narration.js` が
+   全部背負う。** 項目5 は既存 golden の緑を「声が正しい」の根拠にしてはならない(**原理的に永久緑**)。
+3. **両腕が着手前から赤**(素 = 600 秒で打ち切り / `--negative` = 15/22)。
+   `--negative` の 7 NG は 3 走行とも**完全に同一**(P15/F7・指紋一致)= **決定的な既存の腐り**で、
+   真因は**ワールドマップの挿入**((1e) の観測値が `現在地 = http://localhost:9345/world.html`。
+   以降 (2b)(2z1)(2z2)(2z3)(2z4)(4d) がすべて「計1人」= 編成に到達していない)。
+   ⇒ 項目5 はこの赤を #73 の退行と読んではならない。⚠ 逆に**緑になったら**それは #73 とは無関係の別の変化。
+
+#### (6) ⚠⚠ 崩れた主張 — `emptycredit` は VOICEVOX クレジット行の変異では**ない**
+
+§12-0 (4) は «`driver_bgm_town.js` は `emptycredit` = **VOICEVOX クレジット行(`audio.js:885`)を空にする変異**を持つ
+⇒ §5-6 の「クレジット行は残す」は、この変異アンカーの生存条件でもある» と書いているが、**両方とも違う**。
+
+- 実体(`tools/driver_bgm_town.js:97-99`)は **`BGM_FILES.mine_depths` の行**の `credit: "魔王魂"` を `""` にする変異で、
+  赤くなるのは (4a)「全 9 件の credit が空文字でない」。実走の観測値も
+  `dungeon_normal="魔王魂" … pharaxus_stage="ユーフルカ" … mine_depths=""` = **BGM のトラック別クレジット**であって、
+  `audio.js:885` の `cred.textContent`(ナレーション音声の VOICEVOX 表記)ではない。
+- `audio.js:885` を**アンカーに使っている本は 1 本も無い**。§5-6 / §11 の「クレジット行を残す」は
+  **配布物としての要件**であって、変異アンカーの生存条件ではない。
+
+⇒ **§5 が本当に腐らせうる `audio.js` の逐語は次の 2 種類だけ**(4 本すべて実走で緑・アンカー生存を確認済み):
+
+| 本 | 素 / `--negative` | `audio.js` のアンカー | §5 との距離 |
+|---|---|---|---|
+| `driver_bgm_mine` | 37/37 緑 | `BGM_FILES.mine_depths` の行(`badsrc`) | 遠い |
+| `driver_bgm_title` | 16/16 緑 / 14/14 緑 | `BGM_FILES.title` の行(`badsrc` / `shadow` の 2 変異が共有) | 遠い |
+| `driver_bgm_town` | 17/17 緑 / 15/15 緑 | `BGM_FILES` の `town` / `mine_depths` / `tavern_room` の **3 行**(`badsrc` / `emptycredit` / `shadow`) | 遠い |
+| `driver_dev_gate` | 52/52 緑 | 正規表現 `/function closeSettings\(\)\s*\{[\s\S]{0,300}_settingsCleanup\[i\]\(\)/`(`:312`) | ⚠ **近い** |
+
+- ⭐ **`BGM_FILES` の 5 行は空白まで逐語**で参照されている ⇒ §5 でこの表を**整形し直すと 4 本の変異が同時に腐る**。触らないこと。
+- ⭐⭐ `driver_dev_gate` の唯一の `audio.js` assert は **300 文字の窓**。実測の内訳 = **現在 123 文字使用 / 余裕 177 文字**。
+  ⚠ §5-5(つまみの名前)の編集点は `audio.js:835`(`ボイス音量` / `setVoiceVolume`)で、
+  窓が張るのは `closeSettings`(`:809`)〜`_settingsCleanup[i]()`(`:811-812`)⇒ **編集点は窓の外**。
+  ⛔ ただし `closeSettings` の**中**に行を足す設計に変えると、余裕 177 文字を食って (`:312`) が黙って赤くなる。
+
+#### (7) 2 経路の指紋の作り方(⭐ 項目5 が同じ形で再現するための定義)
+
+抽出器 = `fp73.py` = **#72 の `item1/fp72e.py` の逐語コピー**(sha256 `818535166700358c…` で同一性を確認済。
+#70/#71/#72 で実証済みのものを作り直さない)。1 腕の標準出力から:
+
+- **経路① assert id の指紋** = 各 assert の `(識別子, 合否)` を **並び順のまま**列にし、
+  `id\t合否` を `\n` で連結 → sha256 の先頭 16 桁。列の長さは `route1_n`。
+  id の採り方 = 括弧つき `(0a)` / 節見出しつき `§0 0a` / 裸トークン。⛔ **裸の数字だけは id と読まない**
+  (総括行 `PASS 30 / FAIL 0` が判定行に混ざるのを防ぐ = #67 の教訓)。
+- **経路② 判定行の多重集合** = `(status, 正規化本文) → 件数` の Counter を key でソートして連結 → sha256 先頭 16 桁。
+  正規化 = ` — ` 以降と 3 連空白以降を落とし、空白を 1 つに畳み、**数字を全部 `#` へ**(観測値の揺れを吸う)。
+  **順序ゆらぎに強い**のがこちらの役目。件数は `route2_n`。
+- 実体は 1 腕 1 ファイル: 標準出力 = `%TEMP%\df_pen73\baseline\<arm_id>.txt` /
+  指紋の全量(id 列 + 多重集合)= `%TEMP%\df_pen73\fp\<arm_id>.json`。
+  ⇒ 項目5 は**ハッシュの不一致で気づき、JSON の差分で構造差と値差へ分類**する。
+- ⚠⚠ **総括行の書式は 3〜5 種類ある**ので、合否は **exit code を主**・判定行を従にした
+  (`summary_line` 列は人が読むためだけのもの。`PASSED` で grep すると母集団の記録が痩せる = #56 の教訓)。
+- ⚠⚠⚠ **指紋が効かない腕が 16 腕ある**(判定行 0 行 ⇒ 経路①②とも空文字の sha `e3b0c44298fc1c14`):
+  `_doors_fixture` / `_golden` / `_pptr_profile`(モジュールなので直接起動しても何も出ない)/
+  `auto_debug_run` / `probe_n4_stall` / `probe_p9_tour` / `probe_paint_overlay` / `probe_rest_premature` /
+  `probe_s4_relocate` / `probe_town_mask` / `sim_plaza_entry` / `sweep_recruit_balance` /
+  `driver_grid_p4` / `probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map`。
+  ⇒ **この 16 腕は exit code だけが比較材料**。⭐ 151 腕中 **136 個**しか異なる指紋が無いのはこのため
+  (16 腕が同じ空ハッシュを共有 ⇒ 151 − 16 + 1 = 136)。
+
+#### (8) 凍結 TSV のパスと列の意味
+
+**`%TEMP%\df_pen73\baseline_frozen.tsv`**(151 行 + ヘッダ・LF・UTF-8)。1 腕 = 1 行を**走り終えるたび追記**しており、
+再起動時は済んだ腕を SKIP する(⇒ 中断で失うのは最大 1 腕)。
+
+| 列 | 意味 |
+|---|---|
+| `arm_id` | `<本の名前>_base` / `<本の名前>_negative`(⭐ 項目5 の突き合わせキー) |
+| `book` / `arg` | `tools/<book>` と引数(空 / `--negative`) |
+| `exit_code` | **合否の主**。0 = 緑 |
+| `pass_count` / `fail_count` / `pending_count` | 判定行の status 別件数(**従**) |
+| `duration_sec` | 秒。項目5 の見積りに使う |
+| `route1_n` / `route1_fingerprint` | 経路① = assert id の並びの長さと sha256 先頭 16 桁 |
+| `route2_n` / `route2_fingerprint` | 経路② = 判定行の多重集合の件数と sha256 先頭 16 桁 |
+| `summary_line` | 総括行(5 書式を拾い、取れなければ最後の非空行)。**人が読むためだけ** |
+| `strays_killed` | その腕の後に掃いた居残り Chrome の数(全 151 腕で **0**) |
+| `killed` | `taskkill@<秒>s` = 打ち切った腕(`probe_party_size_base` のみ) |
+| `started_at` | ISO-8601 ローカル |
+| `stdout_path` / `fp_json` | 標準出力の実体 / 指紋の全量 JSON |
+
+#### (9) 成果物
+
+| パス | 中身 |
+|---|---|
+| `%TEMP%\df_pen73\baseline_frozen.tsv` | **凍結 TSV 151 行**(項目5 が読む正) |
+| `%TEMP%\df_pen73\baseline\<arm_id>.txt` | 全 151 腕の標準出力の実体 |
+| `%TEMP%\df_pen73\fp\<arm_id>.json` | 全 151 腕の 2 経路の指紋の全量 |
+| `%TEMP%\df_pen73\armlist73.json` | 腕 151 の導出結果(`--negative` を足した / 足さなかった理由つき) |
+| `%TEMP%\df_pen73\rerun\rerun_pass{1,2}.tsv` + `pass{1,2}/` + `pass{1,2}_fp/` | 赤 18 腕の追加 2 回の再走 |
+| `%TEMP%\df_pen73\classify73.json` | 赤の 2 軸分類・フレーク一覧・指紋が動いた本 |
+| `scratchpad\item1b\{arms73,sweep73,rerun73,classify73,fp73}.py` | 導出器 / 走行器 / 再走器 / 分類器 / 指紋抽出器 |
+
+#### ⇒ 判定
+
+**着手前の色は凍結できた(151 腕 / 298.1 分 / 緑 133・赤 18、赤はすべて型3)。STEP2 へ進んでよい。**
+⚠ 項目5 へ申し送る 3 点:
+
+1. **既存 golden は #73 の声の変化を 1 本も検出しない**((5))⇒ 緑を「声が正しい」の根拠にしない。声は新規受入が全部背負う。
+2. **指紋を非退行の根拠に使えない腕が 20 腕ある** = 判定行 0 行の **16 腕** + 指紋が走行ごとに動く **4 腕**
+   (`driver_field_step6` / `driver_field_verge_gap` / `driver_monsters_griffon` / `driver_speech_engine`)。
+3. **`audio.js` の逐語アンカーは `BGM_FILES` の 5 行と `closeSettings` の 300 文字窓(余裕 177 文字)だけ**((6))。
+   この 2 つを避ければ既存の変異は 1 つも腐らない。
