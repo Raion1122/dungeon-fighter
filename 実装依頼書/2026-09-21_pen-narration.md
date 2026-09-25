@@ -916,3 +916,93 @@ puppeteer-core **23.11.1** + 実 Chrome(`C:/Program Files/Google/Chrome/Applicat
    (`driver_field_step6` / `driver_field_verge_gap` / `driver_monsters_griffon` / `driver_speech_engine`)。
 3. **`audio.js` の逐語アンカーは `BGM_FILES` の 5 行と `closeSettings` の 300 文字窓(余裕 177 文字)だけ**((6))。
    この 2 つを避ければ既存の変異は 1 つも腐らない。
+
+### 12-3. STEP3 既存 golden(項目3) — 2026-09-25 / 基準 `2f31ce6`(実装 = `d80ca9b` + `2f31ce6`)
+
+⭐ **言い直した本数 = 0 本**(assert の書き換え 0 件)。見込み(§6)どおり。**実装で赤くなった既存 golden は 0 本**。
+⛔ `tools/` も本番も 1 バイトも触っていない(本節の依頼書 `.md` だけ)。実装の差分は
+`git diff --stat fd67cfe 2f31ce6 -- index.html tavern.html audio.js js tools` = **`audio.js` 31 行 + `tavern.html` 2 行(changelog の `<li>` 1 本の入れ替え)だけ**。
+
+#### (1) 対象の導出(⛔ 定数で焼かず、この場で `tools/*.js` を引き直した)
+
+| 段 | 規則 | 件数 | 本 |
+|---|---|---|---|
+| 1 | 触る語 `narration\|playVoice\|getVoiceDuration\|preloadVoice\|loadVoiceManifest\|__renderSfxOffline\|openSettings\|voiceManifest\|語りに耳\|ボイス音量\|setVoiceVolume\|typeNarrationParagraph\|changelogList` | **5** | `driver_bgm_town` / `driver_dev_gate` / `driver_diag_watchdog` / `probe_n4_stall` / `probe_party_size` |
+| 2 | `audio.js` の**ソースを `readFileSync` する本** | **6** | `driver_bgm_mine` / `driver_bgm_title` / `driver_bgm_town` / `driver_dev_gate` + ⚠ **`verify_mercenary_roster`**(配信スナップショット `FROZEN` へ読む)/ **`verify_eol_doorfix`**(行末のバイト検査) |
+| 2' | `audio.js` を名指すが読まない本(`git diff` / コメント / 実行時の `GameAudio`) | 3 | `probe_s2_clear` / `verify_title_screen` / `verify_world_map` |
+| 3 | changelog を逐語で握る本(`changelog\|更新情報\|<li><b>`) | **0** | 当たり 10 本はすべて**コメント**(「changelog ガードに掛かるので本番へシームを置かない」の類)。変異アンカーではない |
+| 3' | 段3 の当たりのうち `tavern.html` を HEAD と突き合わせる本 | 1 | `driver_cleric_sprites`(N6 は cleric ポートレート行だけを見る) |
+| 4 | **語りの UI を実行時に通る本** `prologueOverlay\|dmNarration\|voice` | 24(新規 **20**) | `driver_action_priority` / `driver_depart_menu_clean` / `driver_equip_compact_ios` / `driver_party_view_reopen` / `verify_darkvision` / `verify_member_identity` / `verify_npc_crowd` / `verify_party_match_setup` / `verify_party_promises` / `verify_player_sheet` / `verify_pm_drawer_fit` / `verify_prep_retire` / `verify_quest_visibility` / `verify_quest_walk` / `verify_recruit_size` / `verify_recruit_talk` / `verify_save_slots` / `verify_spell_off` / `verify_tavern_map` / `verify_town_map` |
+| | **和集合** | **33 本** | 全 33 本が `population.tsv`(148 本)に在ることを確認 |
+
+- ⚠⚠ **崩れた主張 = §12-0b の「`audio.js` のソースを読む本は 4 本」**。`readFileSync` の引数が**変数**(`['index.html', …, 'audio.js'].forEach`)の本と、
+  **バイト**で読む本(`rawRead`)が落ちていた ⇒ **実測 6 本**(+ `verify_mercenary_roster` / `verify_eol_doorfix`)。
+  どちらも実装後に緑・指紋一致なので実害は無いが、**項目5 は 4 本と写さないこと**。
+- ⭐ 段4 はタスクの 3 段に**足した**段。声を止めると受注ナレ(`#prologueOverlay`)が**音声ペース → テキストペース**へ落ちるので、
+  連打で送る本の**タイミングが動く**。ここが「語りに触れる本」の実体(下の (3) で所要が実際に半減した)。
+
+腕の数: 素 **33** + `--negative` **7** = **40 腕**。
+`--negative` は「フラグを持つ本 ∩ 段1〜2'」の 7 本 = 凍結あり 3(`driver_bgm_title` / `driver_bgm_town` / `probe_party_size`)
++ 凍結なし 4(`verify_mercenary_roster` / `verify_eol_doorfix` / `probe_s2_clear` / `verify_world_map`)。
+- ⚠ 段4 の 20 本の `--negative` は走らせていない。理由は**構造で閉じている**:
+  実装が消した/書き換えた逐語(`audio.js` の `freq: 880` の旧レシピ・`isUi ? buses.ui : buses.sfx`・`ボイス音量`・`setVoiceVolume` /
+  `tavern.html` から落ちた changelog 行「稲妻を撃てる場面」・足した行「語りがペンの音」)を `tools/*.js` 全本で引いて **0 件** ⇒
+  **実装の差分に乗っている変異アンカーは 1 本も無い**。実行時の挙動(タイミング)は素の腕が見ている。項目5 の全数で素と同じ順に回る。
+
+#### (2) 着手前(`baseline_frozen.tsv`)→ 実装後(`2f31ce6`)
+
+直列 1 腕ずつ・毎腕後に `df_*` の居残り Chrome を掃除(全腕 **0**)。指紋は `fp73.py`(項目1b と同じ抽出器・`sweep73.run_one` を再利用)。
+
+| 腕 | 着手前 exit/P/F | 実装後 exit/P/F | 色 | 経路① | 経路② | 秒 |
+|---|---|---|---|---|---|---|
+| `driver_bgm_town` 素 | 0/17/0 | 0/17/0 | 同 | 一致 | 一致 | 3 |
+| `driver_bgm_town` `--negative` | 0/15/0 | 0/15/0 | 同 | 一致 | 一致 | 10 |
+| `driver_dev_gate` 素 | 0/52/0 | 0/52/0 | 同 | 一致 | 一致 | 26 |
+| `probe_party_size` 素 | 1/13/7 | 1/13/7 | 同(赤のまま) | 一致 | 一致 | 600(打ち切り) |
+| `probe_party_size` `--negative` | 1/15/7 | 1/15/7 | 同(赤のまま) | 一致 | 一致 | 5 |
+| `driver_bgm_mine` 素 | 0/37/0 | 0/37/0 | 同 | 一致 | 一致 | 12 |
+| `driver_bgm_title` 素 | 0/16/0 | 0/16/0 | 同 | 一致 | 一致 | 3 |
+| `driver_bgm_title` `--negative` | 0/14/0 | 0/14/0 | 同 | 一致 | 一致 | 13 |
+| `verify_mercenary_roster` 素 | 0/44/0 | 0/44/0 | 同 | 一致 | 一致 | 19 |
+| `verify_eol_doorfix` 素 | 0/27/0 | 0/27/0 | 同 | 一致 | 一致 | 6 |
+| `probe_s2_clear` 素 | 0/4/0 | 0/4/0 | 同 | 一致 | 一致 | 103 |
+| `verify_title_screen` 素 | 0/86/0 | 0/86/0 | 同 | 一致 | 一致 | 66 |
+| `verify_world_map` 素 | 0/57/0 | 0/57/0 | 同 | 一致 | 一致 | 73 |
+| `driver_cleric_sprites` 素 | 0/85/0 | 0/85/0 | 同 | 一致 | 一致 | 2 |
+| `probe_n4_stall` 素 | 0/—/— | **1**/—/— | ⚠**動いた** | (判定行 0) | (判定行 0) | 144 |
+| `driver_diag_watchdog` 素 | 0/34/0 | 0/34/0 | 同 | 一致 | 一致 | 696 |
+| 段4 の 20 本 素 | 全 0 / 計 P935 | 全 0 / 計 P935 | 20/20 同 | **20/20 一致** | **20/20 一致** | 計 941 |
+| `verify_mercenary_roster` `--negative` | (凍結なし) | 0 / P424 F16 | 緑 | — | — | 188 |
+| `verify_eol_doorfix` `--negative` | (凍結なし) | 0 / P9 | 緑 | — | — | 43 |
+| `verify_world_map` `--negative` | (凍結なし) | 0 / P44 | 緑 | — | — | 88 |
+| `probe_s2_clear` `--negative` | (凍結なし) | **1** | 赤 | — | — | 81 |
+
+⇒ 凍結と比べられる **36 腕**: 色が同じ **35** / 動いた **1**(`probe_n4_stall`)。指紋を持つ 34 腕は**経路①②とも 34/34 一致**。
+`verify_mercenary_roster --negative` の F16 は変異が期待どおり赤くした判定行(exit 0 = 全変異が発火)。
+
+#### (3) 色が動いた/凍結の無い赤 — 再走 + 影のツリーで切り分け(⛔ 「フレーク」で片付ける前に測った)
+
+影のツリー = `git worktree add --detach %TEMP%\df_pen73\shadow_fd67cfe fd67cfe`(作業ツリー clean・`index.html` と当該 `tools/*.js` は現 HEAD と sha1 一致・
+`audio.js` / `tavern.html` だけが着手前の姿)。使い終えて `git worktree remove` 済。
+
+| 腕 | 実装後(HEAD)3 走行 | 着手前(影 `fd67cfe`)| 凍結 / #72 基準 | 判定 |
+|---|---|---|---|---|
+| `probe_n4_stall` 素 | exit **1 / 0 / 0** | exit **1 / 1 / 1** | 0 / 1 | **両ツリーで揺れる = 非決定**(本は「停滞を捉えたら exit 0」の調査プローブで受入を持たない・`?autoplay` で声の経路を通らない)。§12-0b (4) の既知の非決定 7 本の 1 本。**#73 の退行ではない** |
+| `probe_s2_clear` `--negative` | exit **1 / 1 / 1** | exit **1 / 1 / 1** | 凍結なし | **両ツリーで同一に赤 = 着手前からの腐り**。6 変異中 5 本は発火、⛔ `wipeblind` だけ 6 走行すべて「赤くなった節: なし」(決着 = defeat)。**#73 の退行ではない** |
+
+- ⭐ `wipeblind` の空振りの形(本チケットの範囲外・直さない): 目隠しは「仲間の生存数を常に 0」と報告させるが、
+  (2a) は ±1 の許容・(2b) は「死んだ瞬間に仲間が生きていた」ときしか矛盾を作れない ⇒ **全滅で終わる走行では検査力 0**。
+  今の砦/森の難度では敗北が全滅で終わるので 6/6 空振り。⇒ 別チケット候補(変異を「敗北時に仲間が生存している走行」へ当てる設計へ)。
+
+#### (4) ⭐ 実装で実際に動いたもの = 所要時間(語りが音声ペースでなくなった)
+
+段4 の 20 本は assert も指紋も 1 つも動かず、**所要だけが 1,772.5 秒 → 941.2 秒(−47%)**。
+例 `verify_party_promises` 249→40 秒 / `verify_party_match_setup` 100→43 秒 / `verify_quest_walk` 212→98 秒 / `verify_prep_retire` 147→60 秒。
+= 受注ナレが VOICEVOX の尺でなくテキストペースで送れるようになった(§2-3 の「声なしの経路」へ落ちた)ことの**副次的な実測**。
+⚠ 項目5 の見積りは §12-0b の 1 腕 118.5 秒より**短くなる**(段4 だけで約 14 分縮む)。
+
+#### ⇒ 判定
+
+**言い直し 0 本。対象 33 本 40 腕(+ 切り分けの再走 10 腕)で、実装が赤くした既存 golden は 0 本。** 項目4(新規受入)へ進んでよい。
+所要 = 本走 3,122.9 秒 + 再走 947.5 秒 = **約 68 分**。成果物 = `%TEMP%\df_pen73\item3\{run1,run2,rr_head{1,2},rr_shadow{1,2,3}}\`(`after.tsv` + 標準出力 + 指紋 JSON)/
+走行器 `scratchpad\item3\run3.py`・比較器 `cmp3.py`。
