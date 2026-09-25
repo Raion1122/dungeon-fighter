@@ -486,3 +486,113 @@ sfx の素材に触る検証道具は**この 1 本だけ**(`grep -ln "sfx-manif
 **§4-4(罠A・罠B の再現)は成立。STEP2 へ進んでよい。** 設計が変わる崩れは無い。
 項目1b(全数走査)への申し送り = 母集団 147 本 / 153 腕(`population74.tsv` / `armlist74.json`)・直列のみ・8765 を止める。
 項目2 への申し送り = 罠F(LF 固定)・`raw/inbox/narration/` の新設・§2-4 の読み替え。
+
+### 12-1. 着手前の全数走査(項目1b) — 2026-09-25〜26 / 基準 `19d731b`(本番コードは `5051a2b` と 1 バイト同一)
+
+⛔ **本番コードも `tools/` も 1 バイトも触っていない。** 走査の前後で `git status --short` = **0 行**・HEAD = `19d731b`(`9c6197a` と `19d731b` は依頼書 `.md` と台帳だけ)。
+試遊サーバ 8765 は**走査の間ずっと止めていた**(`auto_debug_run.js` が 8765 を自前で立てるため)。走り終えてから立て直した(下の (7))。
+
+#### (1) 走った腕 = **153 腕**(素 147 + `--negative` 6。⛔ 定数で焼かず §12-0 (4) の `armlist74.json` から導出)
+
+- 並び順 = `item1/armlist74.json` の順(= `population74.tsv` の順 + `--negative` 6 腕が末尾)。項目5 も同じ順で走る。
+- `--negative` の 6 腕 = `driver_bgm_title` / `driver_bgm_town` / `probe_s2_clear` / `verify_eol_doorfix` / `verify_mercenary_roster` / `verify_pen_narration`(導出規則は §12-0 (4))。
+- ⚠⚠ **直列のみ**(union 内にポート衝突 20 組)。
+
+#### (2) 所要時間と中断
+
+| | 実測 |
+|---|---|
+| 腕の合計時間(`duration_sec` の和) | **301.9 分 = 5.03 時間** / **1 腕あたり 118.4 秒**(#73 は 151 腕 298.1 分・118.5 秒) |
+| 実時間 | 1 回目 20:42:30 → 21:40:52(30 腕)+ 再開 21:43:33 → 翌 01:47:56(**244.4 分**・123 腕) |
+| ⚠ 中断 | 1 回目の走行器が**窓の終了とともにプロセスごと止まった**。31 腕目 `driver_field_step6`(素)が START のまま DONE 無し ⇒ **失った腕 = 1**(TSV に行が無いので再開時に頭から走り直した。標準出力は `wb` で上書きされるので途中の残骸は残っていない)。再開前の居残り(走行器・Chrome)は 0 |
+| 打ち切り | **1 腕**のみ = `probe_party_size`(素)を 600 秒で `taskkill /T /F`(#72・#73 と同じ扱い) |
+| 腕の後の居残り Chrome | **0 腕**(全 153 腕で `strays_killed = 0`) |
+| 最長 6 腕 | `verify_bolt_aim` 2,243.4s / `driver_field_step6` 1,769.9s / `probe_p9_tour` 1,731.7s / `auto_debug_run` 1,039.4s / `verify_pen_narration --negative` 911.4s / `verify_hold_pair` 904.7s |
+
+#### (3) 緑・赤の内訳
+
+| | 実測 |
+|---|---|
+| 緑 / 赤 | **135 / 18**(赤 **11.8%**) |
+| 判定行 合計 | **7,224** 行(PASS **7,103** / FAIL **74** / PENDING **4**)・assert id 合計 **7,181** |
+| 判定行 0 行(指紋が効かない)腕 | **15 腕** = `_golden` / `_pptr_profile` / `auto_debug_run` / `driver_grid_p4` / `probe_bandit_map` / `probe_n4_stall` / `probe_p9_tour` / `probe_paint_overlay` / `probe_rest_premature` / `probe_s2_fold` / `probe_s4_relocate` / `probe_swamp_map` / `probe_town_mask` / `sweep_recruit_balance` / `probe_s2_clear --negative` ⇒ **exit code だけが比較材料** |
+| 異なる経路②の指紋 | **139 個**(= 153 − 15 + 1) |
+
+⭐ `--negative` の FAIL は**変異で赤くなるべき判定**が数えられたもの(`verify_mercenary_roster --negative` F17・`verify_pen_narration --negative` F33 はどちらも exit 0 = 空振り 0)。FAIL 合計 74 のうち 50 はこの 2 腕。
+
+#### (4) 赤 18 腕の分類 — **型1 = 0 / 型2 = 0 / 型3 = 18**(軸A = 追加 2 回の再走 `rerun74.py`・計 107.4 分)
+
+- **型1(#74 が構造的に殺す)= 0。** 赤 18 腕に sfx の素材・`playSampled`・`narration` を測る本は無い(§12-0 (4): sfx の素材に触る本は `verify_pen_narration` の 1 本だけで、素・`--negative` とも緑)。
+- **型2(exit=3 のポート由来の偽の赤)= 0。** exit=3 の 4 腕は**本自身の早期終了**で、3 回とも同じ exit=3・指紋一致: `driver_grid_p4` = 変異 `n1ringonly` の置換対象が本文に無い(負のコントロールの空振り)/ `probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map` = 引数が要る道具を素で起動した使用法エラー。
+- **型3(無関係)= 18。**
+
+| arm_id | exit 凍結/再1/再2 | 軸A | 凍結 P/F | #73 凍結 | 指紋(再1 / 再2) | 赤の理由(1 行) |
+|---|---|---|---|---|---|---|
+| `driver_field_step6_base` | 1/1/1 | (赤,赤) | 56/3 | 1(57/2) | 一致 / ⚠**不一致 55/4** | `?graph=auto` が entry から前進しない(#73 と同じ)。FAIL 数が走行ごとに動く |
+| `driver_grid_p4_base` | 3/3/3 | (赤,赤) | 0/0 | 3 | 一致 / 一致 | 変異 `n1ringonly` の置換対象が本文に無い(**ポートではない**) |
+| `driver_grid_p8_base` | 1/1/1 | (赤,赤) | 55/1 | 1(55/1) | 一致 / 一致 | 音声と無関係(#72・#73 基準でも赤) |
+| `driver_mapeditor_base` | 1/1/1 | (赤,赤) | 176/3 | 1(176/3) | 一致 / 一致 | 同上 |
+| `driver_mapeditor_painting_base` | 1/1/1 | (赤,赤) | 105/1 | 1(105/1) | 一致 / 一致 | 同上 |
+| `driver_monsters_griffon_base` | 1/1/1 | (赤,赤) | 15/2 | 1(14/3) | ⚠**不一致 16/1** / 一致 | 非決定の本(#72 で実証済み)。今回は色は動かず FAIL 数だけ動いた |
+| `driver_monsters_umberhulk_base` | 1/1/1 | (赤,赤) | 21/1 | 1(21/1) | 一致 / 一致 | 音声と無関係 |
+| `driver_sce1_events_base` | 1/1/1 | (赤,赤) | 211/3 | 1(211/3) | 一致 / 一致 | 音声と無関係 |
+| `driver_speech_engine_base` | 1/1/1 | (赤,赤) | 16/1 | 1(16/1) | 一致 / 一致 | カメラ追従の非決定(#73 では 1/0/1 のフレーク)。今回は 3 回とも赤 |
+| `driver_speech_v2_base` | 1/1/1 | (赤,赤) | 45/1 | 1(45/1) | 一致 / 一致 | 音声と無関係 |
+| `probe_bandit_map_base` | 3/3/3 | (赤,赤) | 0/0 | 3 | 一致 / 一致 | 使用法エラー(`--mapdefs` 等が要る)。**ポートではない** |
+| `probe_n4_stall_base` | 1/**0**/**0** | **フレーク** | 0/0 | **0** | 一致 / 一致(判定行 0) | 停滞の**再現プローブ**(`tools/probe_n4_stall.js:414` = 停滞を捕まえたら exit 0 / 捕まえなければ 1)。凍結の走行は「停滞は観測されませんでした」 |
+| `probe_party_size_base` | 1/1/1 | (赤,赤) | 13/7 | 1(13/7) | 一致 / 一致 | 自力で終わらない本。600 秒で打ち切り(ワールドマップ挿入で導線が腐っている = #73 §12-0b (5)) |
+| `probe_s2_fold_base` | 3/3/3 | (赤,赤) | 0/0 | 3 | 一致 / 一致 | 使用法エラー(`--kinds` / `--lint`)。**ポートではない** |
+| `probe_swamp_map_base` | 3/3/3 | (赤,赤) | 0/0 | 3 | 一致 / 一致 | 使用法エラー(`--bfs`)。**ポートではない** |
+| `sweep_recruit_balance_base` | 1/1/1 | (赤,赤) | 0/0 | 1 | 一致 / 一致 | 装置 assert が崩れた走行(#72・#73 と同じ総括) |
+| `verify_walk_block_base` | 1/1/1 | (赤,赤) | 22/1 | 1(22/1) | 一致 / 一致 | 音声と無関係 |
+| `probe_s2_clear_negative` | 1/1/1 | (赤,赤) | 0/0 | —(#73 に無い腕) | 一致 / 一致 | 変異 `wipeblind` が赤くならない(全滅決着で検査力 0 = #73 の別チケット候補)。**#74 と無関係** |
+
+軸A 集計: **(赤,赤) 17 / (緑,緑) 1(`probe_n4_stall`)/ 混在 0**。
+
+#### (5) フレークと指紋
+
+- **色が動いた本 = 1 本** = `probe_n4_stall`(凍結 1 → 再走 0/0)。⭐ 判定行 0 行の本なので exit だけが材料で、しかも **exit の意味が「停滞を再現できたか」**(緑 = 停滞を捕まえた)。⛔ 項目5 はこの本の色の変化を #74 の退行とも改善とも読まない。
+- **色は動かず指紋が動いた本 = 2 本** = `driver_field_step6`(FAIL 3 → 3 → 4)/ `driver_monsters_griffon`(FAIL 2 → 1 → 2)。⛔ 項目5 はこの 2 本の指紋を非退行の根拠に使わない(exit で見る)。
+- **#73 の凍結と色が違う腕 = 2 本** = `driver_field_verge_gap`(#73 赤 → 今回 緑)/ `probe_n4_stall`(#73 緑 → 今回 赤)。どちらも #73 で非決定と実証済み。
+  #73 でフレークだった `driver_monsters_hobgoblin`(14/14)/ `driver_monsters_kobold`(12/12)は今回 緑。
+- ⇒ 項目5 で「指紋を根拠にしない」腕 = 判定行 0 行の **15 腕** + 指紋が動く **2 腕** = **17 腕**。
+  非決定の既知候補(今回 + #73)= `probe_n4_stall` / `driver_field_step6` / `driver_monsters_griffon` / `driver_field_verge_gap` / `driver_speech_engine` / `driver_monsters_hobgoblin` / `driver_monsters_kobold`。⚠ この一覧は要約。赤が出たら再走で測り直すこと。
+
+#### (6) 凍結 TSV・走行器・項目5 の手順
+
+置き場 = scratchpad `…/39a966a8-5807-4d8e-b6cc-9c0f2f680fb2/scratchpad/item1b/`(以下 `item1b/`)。
+
+| パス | 中身 |
+|---|---|
+| `item1b/baseline_frozen74.tsv` | **凍結 TSV 153 行 + ヘッダ**(LF・UTF-8・18 列・キー = `arm_id`)。**項目5 が読む正** |
+| `item1b/baseline/<arm_id>.txt` | 全 153 腕の標準出力 |
+| `item1b/fp/<arm_id>.json` | 全 153 腕の 2 経路の指紋の全量(経路① id 列 / 経路② 多重集合) |
+| `item1b/rerun/rerun_pass{1,2}.tsv` + `pass{1,2}/` + `pass{1,2}_fp/` | 赤 18 腕の追加 2 回 |
+| `item1b/classify74.json` | 赤の分類・判定行 0 行の腕・#73 との色の差 |
+| `item1b/{sweep74,rerun74,classify74,fp74}.py` | 走行器 / 再走器 / 分類器 / 指紋抽出器(`fp74.py` = #73 `fp73.py` = #72 `fp72e.py` の逐語コピー) |
+| `item1b/sweep74.log` / `rerun74.log` | 走行ログ(`=== RESUME …` の行が中断と再開の境目) |
+
+列 = `arm_id` / `book` / `arg` / `exit_code`(**合否の主**・0 = 緑)/ `pass_count` / `fail_count` / `pending_count`(従)/ `duration_sec` /
+`route1_n` / `route1_fingerprint`(経路① = assert id と合否の並び → sha256 先頭 16 桁)/ `route2_n` / `route2_fingerprint`(経路② = 正規化した判定行の多重集合 → sha256 先頭 16 桁)/
+`summary_line`(人が読むためだけ)/ `strays_killed` / `killed`(`taskkill@600s` = 打ち切り)/ `started_at` / `stdout_path` / `fp_json`。指紋の作り方は #73 §12-0b (7) と同一。
+
+**走行器の使い方**(`py` で起動・直列・TSV に行がある腕は SKIP して再開する = 中断で失うのは最大 1 腕):
+
+```
+py item1b/sweep74.py                                # 凍結の走行(済・153 腕とも SKIP になる)。⛔ 項目5 では使わない
+py item1b/sweep74.py --out <dir>                    # ⭐ 項目5: <dir>/after74.tsv・<dir>/after/・<dir>/fp_after/ へ同じ 153 腕を同じ順で書く
+py item1b/sweep74.py --list                         # 腕の一覧
+py item1b/sweep74.py --rerun <out.tsv> <arm_id>...  # 色が動いた腕だけ別 TSV へ再走(標準出力は既定の baseline/ に上書きされる点に注意 ⇒ 項目5 では --out と併用)
+```
+
+項目5 の突き合わせ: ① 試遊サーバ 8765 を止める ② `--out <dir>` で走らせる(⛔ `<dir>` に `item1b/` 自身を指さない)③ `arm_id` をキーに `baseline_frozen74.tsv` と `after74.tsv` を結び、**exit code で色の遷移**(緑→赤 を 1 本ずつ)④ 経路①②のハッシュ不一致を `fp/` と `fp_after/` の JSON 差分で**構造差と値差へ分類** ⑤ 緑→赤 は再走 2 回で (5) の非決定候補かどうかを測る(⛔ 一覧に載っているだけで片付けない)⑥ 8765 を立て直す。
+
+#### (7) 試遊サーバ 8765
+
+起動コマンドは `ゲームを起動.vbs` と同じもの = `cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)`(隠しウィンドウ)。
+走査と再走が終わってから立て直した(ブラウザは開いていない)。
+
+#### ⇒ 判定
+
+**着手前の色は凍結できた(153 腕 / 301.9 分 / 緑 135・赤 18、赤はすべて型3)。STEP2 へ進んでよい。**
+項目5 への申し送り: ① 指紋を根拠にしない腕 17(判定行 0 行 15 + 指紋が動く 2)② `probe_n4_stall` は再現プローブで色が揺れる ③ `probe_s2_clear --negative` は着手前から赤(`wipeblind`)④ 罠F(`build_sfx.py` が CRLF を書く)を踏むと `verify_eol_doorfix` が赤くなる見込み(§12-0 (7))。
