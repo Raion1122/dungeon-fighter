@@ -13,6 +13,12 @@
   var DEFAULTS = { master: 0.8, bgm: 0.6, sfx: 0.9, voice: 0.95, muted: false, textSpeed: 70, screenShake: true };
   var _cache = null;
 
+  // #73 語りをペンの音へ。?penvoice=0 で従来 (VOICEVOX 朗読 + 3 文字ごとの「ピッ」+「ボイス音量」) へ戻す。
+  //   ⚠ audio.js が URL を読むのはこれが初めて。ページ遷移はまたがない (各ページが独立に読む)。
+  var PEN_NARRATION = (function () {
+    try { return new URLSearchParams(global.location.search).get("penvoice") !== "0"; } catch (e) { return true; }
+  })();
+
   function clamp(v, lo, hi) { v = +v; if (isNaN(v)) return lo; return v < lo ? lo : (v > hi ? hi : v); }
   function normalize(s) {
     s = s || {};
@@ -519,6 +525,7 @@
   var currentVoiceSrc = null;  // 再生中の BufferSource (新ナレ開始時に停止)
 
   function loadVoiceManifest(url, baseDir) {
+    if (PEN_NARRATION) return;   // #73 manifest を読まない ⇒ playVoice / getVoiceDuration / preloadVoice が揃って no-op
     if (typeof fetch !== "function" || !url) return;
     voiceBaseDir = baseDir || "";
     try {
