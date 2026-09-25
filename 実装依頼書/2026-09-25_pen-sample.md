@@ -726,3 +726,87 @@ pageerror は全 8 腕 0 件。⇒ (a)〜(f) すべて成立。罠A・罠B は�
 1. §2-9 / §7 は `sampledpen` の退役だけを挙げていたが、**`switchdead` の担当が 1 件増える**((0c) が撤退の腕でも録音を見るようになったため)。
 2. (0c) は「在る」だけの言い直しでは**素の腕が未 decode で合成へ落ちた緑と区別できない** ⇒ 「全粒 decode 済」と「スイッチ無しの対照で粒が鳴る」を条件へ足した(依頼書の文言より強い)。
 3. #73 の header の「変異 9 本 / 10442〜10450」は 8 本 / 10442〜10449 へ。
+
+### 12-4. 新規受入 verify_pen_sample.js(項目4) — 2026-09-26 / 基準 `9fc7ae6`
+
+⛔ `index.html` / `tavern.html` / `audio.js` は開いていない(changelog 不要)。足したのは `tools/verify_pen_sample.js`(新規・LF 816 行)だけ。
+走行ログは scratchpad `item4/`(`base_{1,2,3}.log` / `neg.log` / `mut_<変異>.log`)。
+
+#### (1) 装置
+
+- ポート = 素 **10451** / 変異 **10452〜10458**(着手時に `tools/` の grep 0 件・待ち受け 0 件を再確認)。8765 は無接触。
+- 配信は内蔵 http。`audio.js` / `sfx-manifest.json` / `CREDITS.md` を起動時に凍結し、変異はメモリ上で差し替える(本番は無改造)。
+  `flatgrain` / `leadpad` は **同じ URL のまま** 配信 mp3 を ffmpeg で作り直して配る(`os.tmpdir()/df_pen74_<pid>_*`・終了時に削除。実走後 0 個を確認)。
+- ユニット 4 本: META(http・node)/ GRAIN(空ページで全粒を `decodeAudioData`)/ PLAY(index / tavern × smp・`?pensample=0`・`?penvoice=0`・fb = manifest から narration を抜いた配信〔puppeteer の要求差し替え〕= 8 腕)/ GATE(index / tavern の開始の関門 → 1 文字目)。`?autoplay` は不使用。
+- 観測 = #73 本の PAGE_PROBES と同じ作法(最初の 5 個の Gain に名前 / connect で出口 / `Response.arrayBuffer` → `decodeAudioData` → `AudioBufferSourceNode.buffer` の setter で buffer の出所 URL)+ **AudioParam の目標値の記録**((2c)・下の崩れた主張 1)。
+- PLAY は `playSfx` の前に `GameAudio.preloadSfx(["narration"])` を呼び、**全粒の decode を待つ**(実測は 8 腕とも待ち 0ms = 読み込み時点で 33/33)。⇒ eager の有無は (2e) だけが測る(`lazy` の担当が (2e) 1 本に絞れた理由)。
+
+#### (2) assert 一覧 = **19 本**(素 19/19 × 3 回)
+
+| id | 中身(実測値は素の 1 回目) |
+|---|---|
+| (0a) | manifest 200・N = **33**(実体から導出)・20 ≤ N ≤ 40・全粒 200 |
+| (0b) | `git ls-files sfx-pipeline/raw` = 0 件 |
+| (0c) | 変異 7 本の注入点が原本でちょうど 1 箇所(busui `audio.js:699` / nogate `audio.js:687` / nocredit `CREDITS.md:13` / lazy・nonarr = manifest の `"narration":` ×1〔lazy は preload = eager も〕/ flatgrain・leadpad = 粒 33/33 実在 + ffmpeg 有り)。腐ったら `--negative` / `--mutate` は exit 3(実証済み) |
+| (0f) | 開いたページ 11/11 起動・pageerror 0 |
+| (1a) | 長さ 40〜420ms: **65.0〜395.0ms** |
+| (1b) | −40dBFS 初到達 ≤ 15ms: **0.2〜8.7ms** |
+| (1c) | 峰 ≤ −1.0 dBFS: 最大 **−1.47** |
+| (1d) | 峰の幅 ≥ 6dB: **−15.08〜−1.47 = 13.61dB** |
+| (1e) | decode の numberOfChannels = 1 **かつ** 配信バイトの MPEG フレームヘッダ = 44100Hz・mono(channelMode 3) |
+| (2a) | 全粒 decode 済で `playSfx("narration")` 1 回 = BufferSource 1(出所 = manifest の粒)・出所無し 0・Oscillator 0(index / tavern) |
+| (2b) | 出口 = `["voice"]`・button = ui・hit = sfx・配線(master→destination / bgm→master / voice→master) |
+| (2c) | 「語り 音量」つまみ → 37: **録音の出口のバス** と voice バスの目標値 0.95 → 0.37・master 0.8 / sfx 0.9 / ui 0.81 不変 |
+| (2d) | 200 回で選ばれた粒の**出所 URL** = **33 種**(≥ N/2 = 16.5)・200 回とも粒 1 つ |
+| (2e) | 開始のクリック → 1 文字目の時点で全 33 粒の要求が発行済み(関門の時点で既に 33) |
+| (3a) | fb: 合成 3 画(出所無しの buffer 3・Oscillator 0)・voice×3・粒の要求 0 |
+| (4a) | `?pensample=0`: 全粒 decode 済でも合成 3 画・voice×3・粒 0 |
+| (4b) | `?penvoice=0`: 全粒 decode 済でも Oscillator 1・BufferSource 0・`["ui"]` |
+| (5a) | 配信 `CREDITS.md` の narration 行 = `OtoLogic` / `CC BY 4.0`(仮置きでない)・manifest の 9 ID 全部に行 |
+| (5b) | 設定モーダルに `効果音  OtoLogic (CC BY 4.0)`(smp / `?pensample=0` × index / tavern) |
+
+⛔ 測らない(§8): volume / pitchVar・粒の正確な本数・しきい値・重なり・音色。
+
+#### (3) 変異の担当(⭐ 実走で決めた = `--mutate <key>` で全ユニットを 1 本ずつ)
+
+| 変異 | 注入 | §8 の机上の表 | 実走で赤 | 赤の中身 |
+|---|---|---|---|---|
+| `busui` | 出口 `buses.voice` → `buses.ui` | (2b)(2c) | **(2b)(2c)** | 出口 `["ui"]` / (2c) = voice は 0.37 へ動くが**出口の ui は 0.81 のまま** |
+| `nogate` | 関門の行を消す | (4b) | **(4a)(4b)** | `?pensample=0` / `?penvoice=0` の両腕で bs1・粒 1・voice |
+| `flatgrain` | 全粒の峰を −6dBFS へ(再エンコード) | (1d) | **(1d)** | 峰 −7.21〜−5.65 = 幅 **1.56dB**((1c) は −5.65 で緑のまま) |
+| `lazy` | manifest の `narration.preload` を削除 | (2e) | **(2e)** | 関門 0 → 1 文字目 **1/33**(最初の `sfx("narration")` が 1 本だけ取りに行く) |
+| `nonarr` | manifest から `narration` を削除 | (0a)(2a) | **(0a)(1a)〜(1e)(2a)〜(2e)(4a)(4b) = 13** | N = 0。§1 / §2 / §4 は「N ≥ 1・全粒 decode 済」を自前の条件に持つので空振りせず赤。(3a)(5a)(5b)(0b)(0c)(0f) は緑 |
+| `leadpad` | 全粒の頭に 150ms の無音(再エンコード) | (1b) | **(1a)(1b)** | 初到達 150.1〜158.7ms / 長さ 215〜545ms(最長 395 + 150 が上限 420 を超える) |
+| `nocredit` | `CREDITS.md` の `\| OtoLogic \| CC BY 4.0 \|` → 仮置き | (5a) | **(5a)** | narration 行 = `["inbox(手動)","(要 inbox の出典記入)"]` |
+
+- ⭐ **机上の表と違ったのは 3/7**(`nogate` +(4a) / `nonarr` +11 / `leadpad` +(1a))。どれも本番の欠陥ではなく、測定の範囲が机上より広いことによる。
+- ⭐ **NEG_GREEN 相当のガード** = `--negative` は全ユニットを走らせ、**赤の集合が担当と完全一致**(担当の外が 1 つでも赤 = 「担当が絞れていない」・担当が 1 つでも緑 = 「空振り」・素にある assert が出ない = 「判定が出ていない」・(0f) 赤 = 起動確認 NG)を要求し、外れたら exit 1。
+  ガード自体の検査: 写しで `busui` の担当を (2b) だけにして走らせ → `担当が絞れていない (2c)`・**exit 1**(写しは削除済み)。アンカーを 1 本壊した写し → `⛔ busui audio.js:null ×0`・**exit 3**。
+
+#### (4) 実行結果と所要
+
+| 走行 | 結果 | 所要 |
+|---|---|---|
+| 素 1 / 2 / 3 回目 | **19/19・exit 0** ×3 | 14.4 / 14.4 / 14.4 秒 |
+| `--negative`(7 本・全ユニット) | 素の基準 19/19 + **7/7 検出・空振り 0・漏れ 0・exit 0** | 114.5 秒 |
+
+- 指紋: 判定行を「ms の数値」と ctx の時刻を落として正規化 → 3 回とも sha256 先頭 16 桁 **`2a730c8b1d075154`**(id と合否の並びは `e0c56106f79d2d3e`)で一致。
+- 居残り: Chrome 0・`df_pen74_*` 0・作業ツリーは新規 1 本だけ。
+
+#### (5) ⚠ 崩れた主張
+
+1. ⚠⚠ **(2c) の測り方 — `gain.value` は鳴っていないバスでは動かない。** つまみを 37 へ動かすと `GameSettings.voice` は 0.37 になるのに、voice バスの `gain.value` は 600ms 待っても **0.95 のまま**(index / tavern・ctx は running)。
+   Chrome は入力の無いノードの AudioParam を描画スレッドで進めないため(項目2 の `check74.js` で 0.37 が読めたのは測る直前まで何かが鳴っていたからと読める)。
+   ⇒ `AudioParam.setTargetAtTime` / `value =` を包んで **audio.js が書いた目標値** を読む。⛔ `gain.value` で測ると素が赤(1 回目の実走で (2c) だけ赤 = これで発覚)。
+2. ⚠⚠ **§8 (2c) の文言「voice バスの利得が変わる」は `busui` を捕まえない。** 出口を ui へ戻しても voice バス自体はつまみで 0.95 → 0.37 と動く(`busui` の実測)。
+   ⇒ 「**録音が流れ込むバス**((2b) で観測した出口)の利得も 0.95 → 0.37」を足した(期待値は弱めず条件を足した)。これで `busui` の担当が §8 どおり (2b)(2c) になる。
+3. ⚠ **(1e)「44.1kHz」は `decodeAudioData` では測れない。** decode は文脈の sampleRate へリサンプルするので、decode 側の `sampleRate` は常に文脈の値(項目2 の「ページ内 decodeAudioData で同じ値」の 44.1kHz は自明に一致していた)。
+   ⇒ チャンネル数は decode、サンプルレートとモノラルは **配信バイトの MPEG フレームヘッダ**(node で ID3v2 を飛ばして最初のフレーム)で測る 2 経路にした。
+4. ⚠ §8 の変異表は 3/7 が実測と違った(上の (3))。担当は実走の集合を `NEG_EXPECT` に書いた。
+5. (補足)`lazy` の注入点は逐語では差せない — `"preload": "eager",` は manifest に **2 件**(ui_tap と narration)。JSON を読んで `narration.preload` だけを消す(注入点の検算は「`"narration":` ×1 かつ preload = eager」)。
+6. (補足)(2d) は依頼書の申し送りどおり **buffer の出所 URL** で数えた(長さなら上限 18 種)。実測 33 種 / 200 回。
+
+#### ⇒ 判定
+
+**受入 19/19 × 3・`--negative` 7/7(空振り 0・漏れ 0)。項目5(全数走査)へ進んでよい。**
+項目5 への申し送り: この本は母集団に**新規で入る**(凍結 TSV `item1b/baseline_frozen74.tsv` に行が無い = 着手前の色が無い)⇒ 突き合わせでは「新規・緑」として別枠で数える。所要は素 約 15 秒・`--negative` 約 115 秒。
