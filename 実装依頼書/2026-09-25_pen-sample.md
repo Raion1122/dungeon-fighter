@@ -360,3 +360,129 @@ sfx の素材に触る検証道具は**この 1 本だけ**(`grep -ln "sfx-manif
 ## 12. 実装結果
 
 (実装窓が埋める)
+
+### 12-0. 着手前の基準取り(項目1) — 2026-09-25 / 基準 `9c6197a`
+
+⛔ **本番も `tools/` も 1 バイトも触っていない。** 使い捨ての道具は全部 scratchpad
+(`…/39a966a8-…/scratchpad/item1/`)に置いた。走り終わった時点で作業ツリーは clean。
+
+#### (1) 着手前の状態
+
+- `git log --oneline -1` → `9c6197a #74 依頼書 — ペンの音を録音へ …`
+- `git status --short` → **0 行(clean)**
+- `git diff --stat 5051a2b HEAD` = 依頼書 `.md` と台帳 `README.md` の 2 本だけ ⇒ **本番コードは基準 `5051a2b` と 1 バイト同一**
+  (`HEAD:audio.js` の blob = `b34af25…`)。§2 の行番号はそのまま読める。
+- 行末(`py` でバイト実測): `audio.js` 純 CRLF 972/972 / `tavern.html` 純 CRLF 10,994/10,994 /
+  `sfx-manifest.json` 純 LF(111 行)/ `CREDITS.md` 純 LF(15 行)/ `sfx-sources.json` 純 LF(64 行)/ 本書 純 LF(362 行)。
+
+#### (2) 逐語アンカー(⭐ 件数を数えてから採った)
+
+| アンカー(逐語) | 件数 | 実測の行 | 本書 |
+|---|---|---|---|
+| `function playSampled(` | **1** | `audio.js:681` | 一致 |
+| `var route = (def.bus === "ui" \|\| name === "button" \|\| name === "narration")` | **1** | `audio.js:694` | 一致 |
+| `var route = (PEN_NARRATION && name === "narration")` | **1** | `audio.js:743` | 一致 |
+| `if (i % 3 === 0) sfx("narration")` | **index 1 / tavern 1** | `index.html:14711` / `tavern.html:8414` | 一致 |
+| `cred.textContent = "ナレーション音声` | **1** | `audio.js:910` | 一致 |
+| `def write_credits(` | **1**(呼び口 1) | 定義 `build_sfx.py:156` / 呼び口 `:146` | 一致 |
+
+その他の行番号も**全部一致**: `audio.js` 18(`PEN_NARRATION`)/ 31(`textSpeed` の clamp)/ 221(`penStrokes` の cutoff)/
+664(`eagerPreloadSfx`)/ 685(粒のランダム選択)/ 687(「初回は fetch だけ」)/ 737(`playSfx`)/ 740(`playSampled` を先に試す)/
+834(`closeSettings`)/ 841(`openSettings`)/ 971(`global.GameAudio`)、`index.html` 14703(文字送りの間隔)、
+`tavern.html` 8400(`sfx()` ラッパ)、`build_sfx.py` 73(`pack_meta`)/ 78(仮置き文字列)、`check_changelog.py:24`、`.gitignore:11`。
+⚠ `index.html` の `sfx()` ラッパだけ **3252**(本書は 3253)。設計への影響なし。
+`grep '"narration"'` = `audio.js` 694 / 742 / 743 + 呼び口 2 = §2-2 のとおり(`js/*.js` は 0)。
+
+#### (3) ポート
+
+- `tools/*.js` が宣言する base の最大は **10441**(`verify_pen_narration`)。帯 10442〜10450 は同書の変異。
+- **10451〜10458 を名指す箇所は `tools/` にも `%TEMP%` の `.js` にも 0 件**(`10448` / `10462` の一致は `verify_road_ambush.js:680/686` の乱数 literal の部分文字列)。
+- `Get-NetTCPConnection -State Listen` で **10380〜10470 に待ち受け 0 件**。**8765 は待ち受け中(PID 34768 = ユーザーの試遊サーバ)** — 触っていない。
+- **10451 で実際に配信 → goto が通った**(下の (5) の再現装置。`ERR_UNSAFE_PORT` なし)⇒ **base 10451 / 変異 10452〜10458 を確定**。
+
+#### (4) 母集団 — 3 段の union = **147 本 / 153 腕**(⛔ 本数は導出。台帳 = scratchpad `item1/population74.tsv`)
+
+導出器 `item1/build_population74.py`(⛔ 定数を焼かない。コメントを落としてから判定)。
+
+| 段 | 引き方 | 件数 |
+|---|---|---|
+| 段1 | #74 が触る語: `narration` / `playSampled` / `preloadSfx` / `sfxManifest` / `__sfxManifestLoaded` / `sfx-manifest` / `assets/sfx` / `CREDITS` / `playSfx` / `openSettings` / `changelog` / `verify_pen_narration` / `pensample` / `penvoice` / `VOICEVOX` / `sfx-pipeline` | **7** |
+| 段2 | `audio.js` を読み込む配信ページ(実測 5 枚 = index / tavern / title / town / world)または `audio.js` 自体を参照 | **147** |
+| 段3 | 測定器のソースを読む測定器(`readFileSync` の引数 or 文字列に `tools/` / `verify_` / `driver_` / `probe_` / `sweep_`) | **2**(`verify_enemy_name_label` / `verify_eol_doorfix`) |
+| | **UNION** | **147**(`tools/*.js` 全 **151** 本のうち) |
+
+- 段1 = `driver_bgm_title`(playSfx)/ `driver_bgm_town`(openSettings)/ `driver_dev_gate`(openSettings)/ `driver_diag_watchdog`(narration)/
+  `probe_n4_stall`(narration)/ `verify_pen_narration`(narration, playSampled, sfx-manifest, assets/sfx, playSfx, openSettings, penvoice)/ `verify_title_screen`(playSfx)。
+  **段1 ⊂ 段2 / 段3 ⊂ 段2**(union を 1 本も増やさなかった)。⚠ コード中で `changelog` を握る本は **0 本**(`grep -l` の 10 本はコメントのみ)。
+- ⭐ **sfx の素材に触る本は `verify_pen_narration` の 1 本だけ**(`sfx-manifest\|assets/sfx\|playSampled\|preloadSfx\|sfxManifest\|CREDITS\|sfx-pipeline\|build_sfx` を `tools/*` 全体で)= §2-9 と一致。
+- union の外 = **4 本**: `_doors_fixture.js`(ドライバが require するモジュール・`index.html` はコメントだけ)/ `driver_doors_p1.js` / `sim_plaza_entry.js`(コメントだけ)/ `verify_codex_map_skill.js`。
+  #73 の 148 本との差 = −`_doors_fixture` −`sim_plaza_entry`(#73 はコメント込みで数えた)+`verify_pen_narration`(#73 で新設)。
+- `audio.js` を**ソースとして読む**本 = **8**: `driver_bgm_mine` / `driver_bgm_title` / `driver_bgm_town` / `driver_dev_gate` / `probe_s2_clear`(`git diff HEAD -- … audio.js` を表示)/
+  `verify_eol_doorfix`(行末)/ `verify_mercenary_roster`(配信スナップショット)/ `verify_pen_narration`。
+- **腕 = 素 147 + `--negative` 6 = 153**。`--negative` の腕 = union ∩ `--negative` を持つ ∩(`audio.js` をソースで読む or #74 の信号語を握る)=
+  `driver_bgm_title` / `driver_bgm_town` / `probe_s2_clear` / `verify_eol_doorfix` / `verify_mercenary_roster` / `verify_pen_narration`。
+  (`driver_bgm_mine` / `driver_dev_gate` は `--negative` を持たない。)
+  - `tavern.html` をソースで読み `--negative` を持つ本 **11 本**は腕を足さなかった(台帳の `neg_tavern_optional`)。理由 = #74 が `tavern.html` に触るのは
+    `add_changelog.py` の 1 行だけ(`<li>` +1 / −1 = 行数不変)で、`changelog` をコードで握る本が 0 本。⚠ 項目5 で赤が出たらここを疑う。
+- ⚠⚠ union 内の**ポート衝突 20 組**(最大 8831 = 4 本 / 8801 = 4 本)⇒ **全数走査は直列のみ**。
+- ⚠⚠ **`auto_debug_run.js` は 8765 を自前で立てる**(`arg('port','8765')`)⇒ 走査前に試遊サーバ 8765 を止め、終わったら立て直す。
+  `verify_title_screen.js` の 8765 は `.vbs` の中身を正規表現で見ているだけ(待ち受けない)。
+- 所要の見込み: #73 の着手前走査 = 151 腕 298.1 分 ⇒ **153 腕でおよそ 300〜330 分**(`--negative` が 3 → 6 腕。`verify_pen_narration --negative` 単独で約 912 秒)。
+
+#### (5) 本番での再現(⛔ 本番ファイルは無改造。配信する `sfx-manifest.json` だけをメモリ上で書き換えた)
+
+装置 = scratchpad `item1/repro74.js`(puppeteer-core + 実 Chrome headless・自前の http サーバ 10451・`?autoplay` なし)。
+`narration` の代役の粒 = 既存の `ui/ui_tap_1.mp3`(0.0909s)/ `ui/ui_confirm_1.mp3`(0.2898s)/ `ui/ui_cancel_1.mp3`(0.0610s)。
+⭐ mapping は **§5-2 の案どおり `bus: "voice"`** で足した(= 台帳で voice と書いても出口が ui へ行くかを見る)。
+観測 = `createBufferSource` / `createOscillator` の生成数・`start` 時の `buffer.duration`・名前付き 5 バスへの `connect` 先。unlock 後 300ms 待ってから `playSfx("narration")` を 700ms おきに 3 回。
+
+| ページ | manifest | URL | `/assets/sfx/*.mp3` 要求(読込時) | `playSfx("narration")` 3 回 = [BufferSource, Oscillator, 出口] | button / hit |
+|---|---|---|---|---|---|
+| index | 素(narration 無し) | 素 | 1 | 3 回とも [3, 0, voice×3] | ui / sfx |
+| index | 素 | `?penvoice=0` | 1 | 3 回とも [0, 1, ui](「ピッ」) | ui / sfx |
+| index | **+narration(eager)** | 素 | **3** | 3 回とも **[1, 0, ui]**(粒の長さ = 代役のどれか) | ui / sfx |
+| index | **+narration(eager)** | **`?penvoice=0`** | **3** | 3 回とも **[1, 0, ui]** | ui / sfx |
+| index | +narration(preload 無し) | 素 | 1 | **1・2 回目 [3, 0, voice×3](合成)→ 3 回目 [1, 0, ui]** | ui / sfx |
+| tavern | 上と同じ 5 腕 | | 1 / 1 / 3 / 3 / 1 | 素・`?penvoice=0`・eager 2 腕は index と同じ | ui / sfx |
+
+ページエラーは全 10 腕 0 件。
+
+- **罠A(§2-3)= ✅ 再現**: 録音が鳴ると出口は **ui バス**。mapping の `bus: "voice"` は `audio.js:694` の `name === "narration"` に負ける。
+- **罠B(§2-4)= ✅ 再現**: `?penvoice=0` でも **BufferSource 1・Oscillator 0** = 録音が鳴り、「ピッ」(Oscillator 1)は戻らない(index / tavern とも)。
+- **罠E(§2-7)= ✅ 再現(index)**: preload 無しでは最初の 2 回が合成 3 画(voice)、3 回目から録音。eager では読込時に粒 3 本の要求が出て 1 回目から録音。
+  ⚠ tavern の preload 無しの腕は 1 回目から録音だったが、これは**代役の `ui_tap_1.mp3` が既存の `ui_tap`(eager)と URL を共有**しているから
+  (`sfxBufCache` は URL が鍵)。本物の粒は URL を共有しないので結論は変わらない。
+- ⇒ **§4-4 は成立。STEP2 へ進んでよい。**
+
+#### (6) 素材と `build_sfx.py`(⛔ 書き込みなしで測った)
+
+- ZIP `Downloads/Felt_Tip_Pen03-mp3.zip` = **457,283 バイト・2026-09-25 20:06:03**・中身 **14 本 すべて 44.1kHz ステレオ MP3**・ライセンス文書なし(§2-1 と一致)。
+  展開先は scratchpad `item1/zip/`(⛔ `sfx-pipeline/raw/` へは置いていない = 項目2 の担当)。
+- 02(Write) = **9.394s**。§2-5 の 2 コマンド: 全体 **`input_i` −21.15 / `input_tp` −3.17 / `target_offset` 0.60**・1 粒(0.30s から 0.12s)**`input_i` −inf / `target_offset` inf** ⇒ **罠C を再現**。
+- 切り出しの再現(10ms RMS・ピーク包絡比・scratchpad `item1/seg.py` = 本書とは別実装): −18/−28/25 = **31 粒**(80/100/380ms・峰の幅 14.2dB・画の間隔の中央 245ms)/
+  −20/−30/25 = 33 / −16/−26/25 = 32 / −18/−28/40 = 31。先頭無音(−40 dBFS 初到達)= **136.6ms**。⇒ 実装差で ±1 揺れる = §2-8「定数で焼かない・20〜40」を支持。
+- `build_sfx.py` を**書き込みなしで**実行(scratchpad `item1/dry_build_sfx.py` = `Path.write_text` と `normalize_*` を差し替え、書くはずだった内容を現物と比較):
+  - 全体: **built 0 / skipped 8 / inbox 待ち 18**・`normalize_*` の呼び出し 0 回・manifest と `CREDITS.md` の**内容は現物と完全一致**(8 行)⇒ §2-6 と一致。
+  - `--only ui_tap`: `CREDITS.md` が **1 行(ui_tap)だけ**になる(1,121 → 417 バイト)・manifest は不変 ⇒ **罠D を再現**。
+- `git ls-files sfx-pipeline/raw` = **0 件**。`sfx-pipeline/raw/` にあるのは `packs/` だけで **`inbox/` はこの PC に無い**(項目2 が作る)。
+
+#### (7) ⚠ 崩れた主張(番号付き)
+
+1. ⚠⚠⚠ **§2-6「全体で回すのは安全」は内容についてだけ正しい — Windows では行末が壊れる(新しい罠 = 罠F)。**
+   `build_sfx.py` は `Path.write_text(...)` で書く。Windows の Python は改行を **CRLF に変換**する(scratchpad で実測: `'a\nb\n'` → `b'a\r\nb\r\n'`)。
+   ⇒ 全体で回すと `sfx-manifest.json`(2,606 → 2,717 バイト)と `CREDITS.md`(1,121 → 1,136 バイト)が **CRLF で書き直される**。
+   `.gitattributes` はどちらも **`eol=lf`**(`git check-attr` で確認)で、`tools/check_tree_eol.py` は other の食い違いを**致命**にしている(今は 863 本すべて一致)。
+   `verify_eol_doorfix`(§1 が `git ls-files` の全テキストを測る)も赤くなる見込み。
+   ⇒ 項目2 は `build_sfx.py` の書き出しを **LF 固定**(`write_text(..., newline="\n")` か `write_bytes`)にしてから回すこと。直後に `py tools/check_tree_eol.py` で確かめる。
+   ⭐ `build_sfx.py` は §3 で触るファイルなので、**設計の変更もユーザー判断も要らない**。
+2. ⚠ **§2-4 の「#73 受入の (4a) … が崩れる」は誤り。** (4a) は `__renderSfxOffline`(合成レシピのオフライン描画)で、`playSampled` を通らない —
+   §2-9 自身が「(4a) は崩れない」と書いている(本書の中で食い違っていた)。罠B で実際に崩れるのは **(2b)(2c) の off 腕**(`?penvoice=0` で BufferSource 1・Oscillator 0 になる = (5) の実測)と、それを束ねる **(5a)**。§7 の方針(関門で `?penvoice=0` の腕から録音を外す)で戻る。
+3. (軽微)`index.html` の `sfx()` ラッパは `:3253` でなく **`:3252`**。
+4. (補足・崩れではない)§2-1 の「峰 −3.2 dBFS」はステレオの true peak。`-ac 1` でモノラルへ下ろすと同相成分が足されて峰は **−0.45 dBFS**(実測)。
+   §2-8 の「峰 −14.6〜−0.4」はモノラル側の値と読める。⇒ 項目2 の `grains` は **モノラル化の後に loudnorm**(§5-3 の順)を守れば (1c) の −1.0 dBFS は TP −1.5 で守られる。
+
+#### ⇒ 判定
+
+**§4-4(罠A・罠B の再現)は成立。STEP2 へ進んでよい。** 設計が変わる崩れは無い。
+項目1b(全数走査)への申し送り = 母集団 147 本 / 153 腕(`population74.tsv` / `armlist74.json`)・直列のみ・8765 を止める。
+項目2 への申し送り = 罠F(LF 固定)・`raw/inbox/narration/` の新設・§2-4 の読み替え。
