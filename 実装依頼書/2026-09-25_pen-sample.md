@@ -670,7 +670,8 @@ pageerror は全 8 腕 0 件。⇒ (a)〜(f) すべて成立。罠A・罠B は�
 
 #### (7) コミット後の `verify_eol_doorfix`
 
-(コミット直後に追記)
+コミット `8a1b8e2` の直後(作業ツリー clean)に再走: **素 27/27 PASSED・exit 0** / **`--negative` 9/9 実行・空振り 0・exit 0**(着手前の凍結と同じ色)。`py tools/check_tree_eol.py` → RESULT: OK。
+⇒ (5) の赤は未コミットの差分由来と確定(型3)。
 
 #### (8) ⚠ 崩れた主張
 
