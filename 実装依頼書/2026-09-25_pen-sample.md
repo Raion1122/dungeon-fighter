@@ -679,3 +679,50 @@ pageerror は全 8 腕 0 件。⇒ (a)〜(f) すべて成立。罠A・罠B は�
 2. §12-0 (7)-2 の「罠B で (5a) が崩れる」⇒ 関門込みの実装では **(5a) は緑**。赤くなるのは (0c)(0e)(2b)(2c) の 4 つ。
 3. §2-9 の表に **(0e)** が無い(`sampledpen` の注入点が消えるので装置 assert も赤くなる)。
 4. (補足)§2-5 の懸念どおり loudnorm は単発の dynamic モードで、峰の最大は −0.45 → **−1.47 dBFS** に下がったが幅は 14.15 → **13.61 dB** とほぼ保たれた(罠C の潰れは起きない)。
+
+### 12-3. #73 受入の言い直し(項目3) — 2026-09-26 / 基準 `0a68b04`
+
+⛔ `index.html` / `tavern.html` / `audio.js` は開いていない(changelog 不要)。触ったのは `tools/verify_pen_narration.js`(LF 988 → 1049 行・LF を保った)だけ。使い捨てのログは scratchpad `item3/`。
+
+#### (1) 着手前の色(`0a68b04`)
+
+- 素: **15/19・exit 1**(170.3 秒)。赤 = (0c)(0e)(2b)(2c)(§12-2 (6) と同じ 4 つ・理由も同じ)。
+- `--negative`: 起動時の (0e) 検算で `sampledpen` のアンカー腐敗(`narration 有り` ×0)⇒ **exit 3**(変異は 1 本も走らない)。
+
+#### (2) 言い直した所
+
+| 対象 | 前 | 後 | 条件の個数(前 → 後) |
+|---|---|---|---|
+| 素の腕の URL | 撤退スイッチ無し | **`?pensample=0`**(`ON_QS`・`qsOf(mode)`)。NARR_IDX / NARR_TAV / PARTS / WAVE の 4 ユニット全部。off の腕 `?penvoice=0` はそのまま(`pensample=0` を足さない = 罠B の関門を off の腕でも踏ませる) | — |
+| **(0c)** | 配信 manifest に `narration` が**無い** | 配信 manifest に `narration`(粒 ≥1)が在り、撤退の 2 腕(素 `?pensample=0` / off `?penvoice=0`)では **全粒が decode 済なのに** `playSfx("narration")` の BufferSource に**録音の粒が入らない** / 対照 = スイッチ無しの腕(PARTS に新設した `smp`)では粒が**ちょうど 1 つ**入る(index / tavern) | **4 → 14**(status・配列・非空・粒 ≥1 の 4 + 撤退 2 腕 × 2 ページ × 〔全粒 decode 済・粒が入らない〕の 8 + 対照 2 ページの 2) |
+| **(2b)(2c)** | 素の腕 = スイッチ無し | 素の腕 = `?pensample=0`。**述語は 1 文字も変えていない**(BufferSource 3・Oscillator 0 / 3 画すべて voice) | (2b) 4 → 4 / (2c) 変化なし |
+| **(0e)** | 変異 9 本・注入点 13 行 | 変異 **8 本**・注入点 **12 行**(`sampledpen` の json 1 行が退役で抜けた分だけ)。残り 8 本の注入点は引き続き「原本でちょうど 1 件」 | 13 → 12(退役分) |
+| 変異 `sampledpen` | 担当 (0c)(2b)(2c) | **退役**(理由をコード注記)。json 変異の機構は残す(使う変異なし) + `NEG_EXPECT` と `MUTATIONS` の突き合わせ番人を追加 | — |
+| `switchdead` の担当 | 12 件 | **13 件 = +(0c)**(実走で決めた。`PEN_NARRATION` が常に真 ⇒ `?penvoice=0` の腕でも関門を通って粒が 1 つ入る) | — |
+
+- 観測の仕組み(`PAGE_PROBES` に追加・本番は無改造): `Response.prototype.arrayBuffer` で ArrayBuffer に出所 URL を、`BaseAudioContext.prototype.decodeAudioData` で AudioBuffer に出所 URL を紐付け(⚠ decode で ab が detach されるので**呼ぶ前に**引く)、`AudioBufferSourceNode.prototype.buffer` の setter で「BufferSource に入った buffer の出所」を記録。合成の雑音 buffer は出所 null。
+- PARTS は 3 腕とも、`playSfx` の前に**全粒の decode を待つ**(最大 15 秒・実測は 3 腕とも待ち 0ms = 読み込み時点で 33/33 済)。⭐ 待たないと「未 decode で合成へ落ちた」だけの素の腕の緑があり得る(`playSampled` の `if (!buf) { sfxFetchBuf(file); return false; }`)。
+- ポート: 素 10441 / 変異 **10442〜10449**(`switchdead` は 10450 → 10449)。
+
+#### (3) (0c) の検査力の確認(一回限り・コミットしていない)
+
+`tools/_tmp_vpn_item3.js`(本体の写し + 変異 `nogate` = 関門 `audio.js:687` を消す)を `--mutate nogate --units PARTS` で走らせて削除: **赤 = (0c)(2b)(2c)**(on / off の両腕で粒 1/1・bs1)。⇒ 言い直した (0c) は関門の撤去を捕まえる。この変異は依頼書どおり項目4 の新受入 `nogate` が正式に負う(この本には入れない)。
+
+#### (4) 実行結果
+
+| 走行 | 結果 | 所要 |
+|---|---|---|
+| 素 1 回目 | **19/19・exit 0** | 171.9 秒 |
+| 素 2 回目 | **19/19・exit 0** | 171.8 秒 |
+| 素 3 回目 | **19/19・exit 0** | 172.2 秒 |
+| `--negative`(8 本) | 素の基準 19/19 + **8/8 検出・空振り 0・exit 0** | 917.0 秒 |
+| `--negative --only switchdead`(担当に (0c) を足した後の再走) | 素の基準 19/19 + 担当 13 件すべて赤・✓ OK・exit 0 | 284.2 秒 |
+
+- 指紋: 3 回とも (0c) の詳細は同一(index / tavern とも on 粒 0/3・off 0/0・smp 1/1・decode 33/33)。(2b)(2c) も同一。揺れたのは (4b) の「完全一致の件数」と「自己比較で揺れたレシピ」の一覧だけ(#73 で既知の Chrome オフライン描画の ~6e-8 の揺れ・許容 1e-6 の内)。
+- 変異ごとの赤(`--negative`): manifestleak (1a)(1a')(1b)(1c)(1d) / durleak (1a')(1b)(1c)〔(1a) 緑のまま〕/ preloadleak (1a)(1a')(1d)〔(1b)(1c) 緑のまま〕/ blipback (2a)(2b)(2c)(4a) / uiroute (2c) / sliderdead (3a) / oldchanged (4a) / switchdead (0a)(0c)(1a)(1a')(1b)(1c)(1d)(2a)(2b)(2c)(3a)(4a)(5a)。**#73 時点の担当表と switchdead の (0c) 以外は同じ**(注入点は +4〜+6 行ずれたが逐語で当たる)。
+
+#### (5) ⚠ 崩れた主張
+
+1. §2-9 / §7 は `sampledpen` の退役だけを挙げていたが、**`switchdead` の担当が 1 件増える**((0c) が撤退の腕でも録音を見るようになったため)。
+2. (0c) は「在る」だけの言い直しでは**素の腕が未 decode で合成へ落ちた緑と区別できない** ⇒ 「全粒 decode 済」と「スイッチ無しの対照で粒が鳴る」を条件へ足した(依頼書の文言より強い)。
+3. #73 の header の「変異 9 本 / 10442〜10450」は 8 本 / 10442〜10449 へ。

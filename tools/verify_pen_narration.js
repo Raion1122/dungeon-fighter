@@ -3,7 +3,7 @@
  * verify_pen_narration.js — 実装依頼書 #73「語りをペンの音へ」の受入ドライバ (依頼書 §8 を §12-0 / §12-0b / §12-3 / §12-4 で読み替え)
  * ════════════════════════════════════════════════════════════════════════════════
  *   node tools/verify_pen_narration.js                          # 素 (全ユニット)
- *   node tools/verify_pen_narration.js --negative               # 変異 9 本 (port 10442〜10450)。先に素の基準を走らせる
+ *   node tools/verify_pen_narration.js --negative               # 変異 8 本 (port 10442〜10449)。先に素の基準を走らせる
  *   node tools/verify_pen_narration.js --negative --only durleak,uiroute
  *   node tools/verify_pen_narration.js --mutate durleak         # 変異 1 本を載せて全ユニットを手回し (担当表を実走で決める用)
  *   node tools/verify_pen_narration.js --units WAVE,PARTS       # 素の一部だけ (デバッグ用。判定は走ったユニットの分だけ出る)
@@ -11,7 +11,15 @@
  *
  * ■ 方針 — 「声が鳴らない」を 2 経路 (ネットワークに mp3 の要求が出ない / 声の長さが 0 として扱われる) で、
  *   「ペンの音になった」を 2 経路 (オフライン描画の波形 / ページ内で実際に作られる音の部品と出口のバス) で突き合わせる。
- *   素の腕 = 撤退スイッチなし / off の腕 = ?penvoice=0 (audio.js の PEN_NARRATION。逐語 get("penvoice") が 1 箇所)。
+ *   素の腕 = ?pensample=0 / off の腕 = ?penvoice=0 (audio.js の PEN_NARRATION。逐語 get("penvoice") が 1 箇所)。
+ *
+ * ■ #74 (ペンの音を録音へ・依頼書 2026-09-25_pen-sample.md §7 / §12-3) による言い直し
+ *   - #74 で sfx-manifest.json に narration (録音の粒 N 本・preload eager) が入り、撤退スイッチの無い腕は playSampled が録音を鳴らす。
+ *     ⇒ この本は「#73 の合成のペン」を測る本として残す = **素の腕の URL に ?pensample=0 を足す** (ON_QS)。off の腕 ?penvoice=0 はそのまま。
+ *   - (0c) は「narration が無い」から「narration が在り、撤退の 2 腕 (?pensample=0 / ?penvoice=0) では全粒が decode 済なのに録音を鳴らさない」へ。
+ *     対照 = スイッチ無しの腕 (PARTS の smp) で同じ配信スナップショットの録音が実際に 1 粒鳴る (⭐ 未 decode で合成へ落ちた緑を締め出す)。
+ *   - 変異 sampledpen (manifest に narration を足す) は退役 = narration は既に在り、関門が効く限り素の腕 (?pensample=0) は赤くならない = 検査力 0。
+ *     その役 (録音の関門と出口) は #74 の新受入 tools/verify_pen_sample.js の nogate / busui が負う。
  *
  * ■ ユニット
  *   META     … 配信物を http で読む: (0b) 声 id の導出 / (0c) sfx-manifest.json に narration が無い / (0d) get("penvoice") が 1 箇所 / (0e) 変異アンカー
@@ -19,17 +27,20 @@
  *               250ms 毎のクリックで送る (素 / off の 2 腕)。⚠ ?autoplay は声の経路を丸ごと迂回する (依頼書 §2-6 罠3)
  *   NARR_TAV … tavern.html を直に開き (⛔ openPrep を経由しない)、A = 酒場の前口上 (initTavernPrologue・関門あり・クリック送りの口が
  *               元から無い = 2.5 秒の自動送りのみ) → B = 依頼人の語り playQuestAcceptNarration(goblin-mine) (quest_dialog_*・クリック送りあり)
- *   PARTS    … index / tavern × 素 / off を開いて GameAudio.playSfx("narration") を 1 回: 部品 (BufferSource / Oscillator) と出口のバス /
- *               設定モーダルのつまみ (名前と、動かすと GameSettings.voice が変わるか)
+ *   PARTS    … index / tavern × 素 / off / smp (スイッチ無し = #74 の録音・(0c) の対照) を開いて、録音の全粒の decode を待ってから
+ *               GameAudio.playSfx("narration") を 1 回: 部品 (BufferSource / Oscillator)・BufferSource に入った buffer の出所 URL・出口のバス /
+ *               設定モーダルのつまみ (名前と、動かすと GameSettings.voice が変わるか)。⚠ smp の腕は (0c) にだけ使う
  *   WAVE     … 軽量ページ (audio.js だけを読む) で __renderSfxOffline を固定種で描く: (2a) 波形 / (4a) off の narration が 0e8370d と一致 /
  *               (4b) narration 以外の全レシピが 0e8370d と一致 (許容 1e-6・自己比較の揺れも実測して併記)
  *
  * ■ 測っているもの (依頼書 §12-4 の表が正)
  *   §0 (0a) off の腕で manifest が読まれ、実在 id で getVoiceDuration > 0・ページが描けた (document.title / 開始の関門)
  *      (0b) 期待する id は assets/voice/manifest.json から導出 (⛔ 写経しない)。導入 / 前口上 / 依頼人の 3 群が 1 件以上・file と durationSec を持つ
- *      (0c) 配信された assets/sfx/sfx-manifest.json に narration キーが無い (あれば playSampled が合成レシピより先に鳴る = 罠5)
+ *      (0c) [#74 で言い直し] 配信された assets/sfx/sfx-manifest.json に narration (粒 1 本以上) が在り、撤退の 2 腕 (素 = ?pensample=0 / off = ?penvoice=0) では
+ *           全粒が decode 済なのに playSfx("narration") の BufferSource に録音の粒が入らない / 対照 smp (スイッチ無し) では粒がちょうど 1 つ入る
+ *           (index / tavern)。⭐ これが無いと §2 の素の腕 (合成 3 画) が「録音が未 decode で合成へ落ちた」だけの緑になり得る (罠5 の裏返し)
  *      (0d) 配信された audio.js に逐語 get("penvoice") がちょうど 1 箇所 (⛔ 語 penvoice の件数で数えない)
- *      (0e) 変異 9 本の注入点が原本でちょうど 1 箇所  (0f) 開いたページが全部起動し pageerror 0
+ *      (0e) 変異 8 本の注入点が原本でちょうど 1 箇所 (#74 で sampledpen を退役 = 9 → 8 本)  (0f) 開いたページが全部起動し pageerror 0
  *   §1 (1a) 声の mp3 (クリップ) の要求: 素 = 0 件 (導入 + 前口上 + 依頼人) / off = 導入・前口上・依頼人のそれぞれで 1 件以上
  *      (1a') manifest.json の要求: 素 = 0 件 (loadVoiceManifest の呼び口は通った上で) / off = 1 件以上   ⭐ mp3 と manifest を分けて数える
  *      (1b) manifest の id で getVoiceDuration(id) === 0 (素) / > 0 (off)
@@ -60,9 +71,9 @@
  *   - ⛔ このドライバを timeout コマンドで包まない (打ち切ると node が孤児としてポートを掴む)。
  *   - 後始末はこのドライバが起動したもの (内蔵 http サーバとこのブラウザ・プロファイル) だけ。⛔ 8765 (ユーザーの試遊サーバ) に触らない。
  *
- * ■ ポート = **10441** (素) / 変異 **10442〜10450** (9 本・MUTATIONS の並び順)。
- * ■ 所要 (2026-09-25 この機械の実測) = 素 約 170 秒 (19 assert・前口上の自動送り 47 秒 / 声ペース 62 秒が大半) /
- *   --negative 約 912 秒 (素の基準 170 秒 + 変異 9 本。声が戻る変異 3 本は各 約 230 秒)。
+ * ■ ポート = **10441** (素) / 変異 **10442〜10449** (8 本・MUTATIONS の並び順。#74 で sampledpen を退役し switchdead は 10450 → 10449)。
+ * ■ 所要 (2026-09-25 この機械の実測・#74 言い直し後 2026-09-26 も同じ) = 素 約 170 秒 (#74 後 171.8〜172.2 秒) (19 assert・前口上の自動送り 47 秒 / 声ペース 62 秒が大半) /
+ *   --negative 約 912 秒 (素の基準 170 秒 + 変異 9 本。声が戻る変異 3 本は各 約 230 秒) / #74 後 917 秒 (変異 8 本)。
  */
 'use strict';
 
@@ -88,6 +99,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const SCEN = 'goblin-mine';     // 導入の語り (index) と依頼人の語り (tavern) の舞台。声 id は manifest から導出する
 const OLD_REV = '0e8370d';      // 着手前の audio.js (依頼書 §8 (4a))
+const ON_QS = '?pensample=0';   // #74: 素の腕 = 録音を外した「#73 の合成のペン」(audio.js の PEN_SAMPLE)。off の腕 ?penvoice=0 には足さない
+/* 腕 → URL のクエリ: on = 素 (?pensample=0) / off = 撤退 (?penvoice=0) / smp = スイッチ無し (#74 の録音。PARTS の (0c) 対照だけ) */
+const qsOf = (mode) => mode === 'off' ? '?penvoice=0' : (mode === 'smp' ? '' : ON_QS);
 const HINT_VOICE = '\u266a \u8a9e\u308a\u306b\u8033\u3092\u304b\u305f\u3080\u3051\u3088\u3046\u2026';   // ♪ 語りに耳をかたむけよう…
 const HINT_TEXT = '\u30af\u30ea\u30c3\u30af\u3067\u7d9a\u3051\u308b';                                    // クリックで続ける
 const HINT_BEGIN = '\u25b6 \u30af\u30ea\u30c3\u30af\u3057\u3066\u7269\u8a9e\u3092\u59cb\u3081\u308b';   // ▶ クリックして物語を始める
@@ -132,7 +146,10 @@ const IDS = {
  *   file の edits[] = { from: 原本にちょうど 1 箇所ある逐語 (1 行の中), to: 置き換え }。
  *   ⚠⚠⚠ 逐語は #73 実装後 (HEAD 1df0eca・audio.js は 2f31ce6 の姿) で取り直したもの。依頼書 §8 の逐語 (0e8370d) は使っていない。
  *   ⭐ 撤退スイッチで分岐する形にしてある (PEN_NARRATION を見る) ⇒ off の腕は変異の影響を受けない = 恒等を壊さない。
- *   json = 配信スナップショットの JSON を変換する変異 (sampledpen)。
+ *   json = 配信スナップショットの JSON を変換する変異 (現在は使う変異なし。機構だけ残す)。
+ *   ⛔ #74 で sampledpen (manifest に ui_tap を写して narration を足す) を退役: #74 で narration が配信 manifest に入ったので
+ *      注入点 (narration が無いこと) が成り立たず、足しても素の腕 (?pensample=0) は audio.js の関門で録音を鳴らさない = 検査力 0。
+ *      録音の関門 / 出口を壊す欠陥は #74 の新受入 tools/verify_pen_sample.js の nogate / busui が捕まえる。
  * ══════════════════════════════════════════════════════════════════════════════ */
 const GATE_FROM = 'if (PEN_NARRATION) return;   // #73 manifest を読まない';
 const GATE_TO = '/* ★変異: loadVoiceManifest の関門を外す */   // #73 manifest を読まない';
@@ -164,8 +181,6 @@ const MUTATIONS = {
   oldchanged: { units: ['WAVE'], files: { 'audio.js': [
     { from: 'tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 });   // 従来',
       to: 'tone(c, d, t, { type: "sine", freq: 881, dur: 0.012, peak: 0.05, a: 0.001 });   /* ★変異oldchanged */ // 従来' }] } },
-  /* 罠5: sfx-manifest.json に narration の録音素材を足す (配信スナップショット上で・ui_tap の定義を写す)。 */
-  sampledpen: { units: ['PARTS'], json: { file: F_SFXMAN, copyFrom: 'ui_tap', key: 'narration' } },
   /* 撤退スイッチを常に真にする (逐語 get("penvoice") は残す)。 */
   switchdead: { units: ['NARR_IDX', 'NARR_TAV', 'PARTS', 'WAVE'], files: { 'audio.js': [
     { from: 'return new URLSearchParams(global.location.search).get("penvoice") !== "0";',
@@ -177,8 +192,9 @@ const MUTATIONS = {
  *   preloadleak  … (1a)(1a')(1d)  ⭐ (1b)(1c) は緑のまま (尺 0 = テキストペースへ落ちる)
  *   blipback     … (2a)(2b)(2c)(4a)  ⚠ (2c) = 画が 1 つ ["voice"] しか出ない / (4a) = 対照「素は旧版と異なる」が崩れる
  *   uiroute … (2c)   sliderdead … (3a)   oldchanged … (4a)
- *   sampledpen   … (0c)(2b)(2c) (+ 全ユニットなら (5a))  ⭐ 実ページは sfx-manifest を先読みするので録音素材が実際に鳴る (bs1・ui バス) = 番人 (0c) だけでなく挙動でも赤
- *   switchdead   … (0a)(1a)(1a')(1b)(1c)(1d)(2a)(2b)(2c)(3a)(4a)(5a)  ⭐ off の腕を持つ assert が総崩れ ((3b) はつまみが両腕とも生きているので緑)
+ *   (sampledpen … #74 で退役。上の MUTATIONS の注記)
+ *   switchdead   … (0a)(0c)(1a)(1a')(1b)(1c)(1d)(2a)(2b)(2c)(3a)(4a)(5a)  ⭐ off の腕を持つ assert が総崩れ ((3b) はつまみが両腕とも生きているので緑)
+ *                  ⭐ (0c) は #74 の言い直しで増えた担当 (2026-09-26 実走): PEN_NARRATION が常に真 ⇒ ?penvoice=0 の腕でも関門を通り録音の粒が 1 つ入る
  * --negative では変異ごとに units だけを走らせ、その units で出る赤を担当にした (units に無い assert は出ない = 担当に入れない)。 */
 const NEG_EXPECT = {
   manifestleak: ['(1a)', "(1a')", '(1b)', '(1c)', '(1d)'],
@@ -188,8 +204,7 @@ const NEG_EXPECT = {
   uiroute:      ['(2c)'],
   sliderdead:   ['(3a)'],
   oldchanged:   ['(4a)'],
-  sampledpen:   ['(0c)', '(2b)', '(2c)'],
-  switchdead:   ['(0a)', '(1a)', "(1a')", '(1b)', '(1c)', '(1d)', '(2a)', '(2b)', '(2c)', '(3a)', '(4a)', '(5a)'],
+  switchdead:   ['(0a)', '(0c)', '(1a)', "(1a')", '(1b)', '(1c)', '(1d)', '(2a)', '(2b)', '(2c)', '(3a)', '(4a)', '(5a)'],
 };
 /* ⭐ 担当が絞られていることの番人: この assert が赤くなったら「変異の作りが間違っている」(依頼書 §8 の durleak の注記)。 */
 const NEG_GREEN = {
@@ -198,6 +213,7 @@ const NEG_GREEN = {
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
 if (MUT_ORDER.length > 9) { console.error('[vpn] 変異は 9 本まで (ポート 10442〜10450)'); process.exit(3); }
+if (Object.prototype.hasOwnProperty.call(NEG_EXPECT, 'sampledpen') || MUT_ORDER.some((k) => !NEG_EXPECT[k])) { console.error('[vpn] NEG_EXPECT と MUTATIONS が揃っていない'); process.exit(3); }
 if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(MUTATIONS, MUTATE)) {
   console.error('[vpn] 未知の --mutate: ' + MUTATE + '  (' + MUT_ORDER.join(' / ') + ')'); process.exit(3);
 }
@@ -342,10 +358,34 @@ function PAGE_PROBES(scen) {
   const rnd = function () { st |= 0; st = (st + 0x6D2B79F5) | 0; let t = Math.imul(st ^ (st >>> 15), 1 | st); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   window.__seed = function (n) { st = n >>> 0; Math.random = rnd; };
   /* 音の部品とバス (AudioContext のみ。OfflineAudioContext は数えない)。 */
-  window.__probe = { bs: 0, osc: 0, edges: [], busEdges: [], bus: {} };
+  window.__probe = { bs: 0, osc: 0, edges: [], busEdges: [], bus: {}, decoded: [], srcBufs: [] };
   try {
     const AC = window.AudioContext;
     const BAC = window.BaseAudioContext || AC;
+    /* #74 (0c): decode した AudioBuffer に出所 URL (pathname) を紐付け、BufferSource に入った buffer の出所を記録する
+     * (fetch → Response.arrayBuffer → decodeAudioData の順 = audio.js の sfxFetchBuf)。合成の雑音 buffer は出所 null。 */
+    const abUrl = new WeakMap(), bufUrl = new WeakMap();
+    if (window.Response && Response.prototype.arrayBuffer) {
+      const oAB = Response.prototype.arrayBuffer;
+      Response.prototype.arrayBuffer = function () {
+        let u = null; try { u = new URL(this.url).pathname; } catch (e) {}
+        return oAB.apply(this, arguments).then(function (ab) { try { if (u) abUrl.set(ab, u); } catch (e) {} return ab; });
+      };
+    }
+    if (AC && BAC && BAC.prototype.decodeAudioData) {
+      const oDec = BAC.prototype.decodeAudioData;
+      BAC.prototype.decodeAudioData = function (ab) {
+        const u = (ab && typeof ab === 'object') ? abUrl.get(ab) : undefined;   // ⚠ decode で ab は detach される = 先に引く
+        const p = oDec.apply(this, arguments);
+        if (u && p && typeof p.then === 'function') return p.then(function (b) { try { bufUrl.set(b, u); window.__probe.decoded.push(u); } catch (e) {} return b; });
+        return p;
+      };
+    }
+    if (AC && window.AudioBufferSourceNode) {
+      const dB = Object.getOwnPropertyDescriptor(AudioBufferSourceNode.prototype, 'buffer');
+      if (dB && dB.set) Object.defineProperty(AudioBufferSourceNode.prototype, 'buffer', { configurable: true, enumerable: dB.enumerable, get: dB.get,
+        set: function (v) { try { if (this.context instanceof AC) window.__probe.srcBufs.push((v && bufUrl.get(v)) || null); } catch (e) {} return dB.set.call(this, v); } });
+    }
     if (AC && BAC) {
       const oBS = BAC.prototype.createBufferSource, oOsc = BAC.prototype.createOscillator, oGain = BAC.prototype.createGain;
       BAC.prototype.createBufferSource = function () { const n = oBS.apply(this, arguments); if (this instanceof AC) window.__probe.bs++; return n; };
@@ -497,8 +537,10 @@ const UNITS = {
   async META(ctx) {
     const a = await httpGet(ctx.port, F_AUDIO), s = await httpGet(ctx.port, F_SFXMAN);
     let sfx = null; try { sfx = JSON.parse(s.body); } catch (e) {}
+    const nf = (sfx && sfx.narration && Array.isArray(sfx.narration.files)) ? sfx.narration.files : [];
     ctx.D.META = { audioStatus: a.status, penvoiceCount: countOf(a.body, 'get("penvoice")'), penvoiceWordCount: countOf(a.body, 'penvoice'),
-      sfxStatus: s.status, sfxKeys: sfx ? Object.keys(sfx) : null };
+      sfxStatus: s.status, sfxKeys: sfx ? Object.keys(sfx) : null,
+      narrUrls: nf.map((f) => '/assets/sfx/' + f) };   // #74 (0c): 録音の粒の配信 URL (index / tavern とも loadSfxManifest(..., "assets/sfx/"))
   },
   async NARR_IDX(ctx) {
     const D = {};
@@ -506,7 +548,7 @@ const UNITS = {
       const page = await newPage(ctx, 'index:' + mode, SCEN);
       const o = { mode };
       try {
-        await page.goto('http://127.0.0.1:' + ctx.port + '/index.html' + (mode === 'off' ? '?penvoice=0' : ''), { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.goto('http://127.0.0.1:' + ctx.port + '/index.html' + qsOf(mode), { waitUntil: 'domcontentloaded', timeout: 60000 });
         Object.assign(o, await passGate(page, 'index'));
         /* 250ms 毎にクリック (クリック送りの口がある語り)。 */
         let clicking = true, clicks = 0;
@@ -536,7 +578,7 @@ const UNITS = {
       const page = await newPage(ctx, 'tavern:' + mode, null);
       const o = { mode };
       try {
-        await page.goto('http://127.0.0.1:' + ctx.port + '/tavern.html' + (mode === 'off' ? '?penvoice=0' : ''), { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.goto('http://127.0.0.1:' + ctx.port + '/tavern.html' + qsOf(mode), { waitUntil: 'domcontentloaded', timeout: 60000 });
         /* A = 前口上 (クリック送りの口が元から無い = 触らずに 2.5 秒の自動送りを待つ)。 */
         Object.assign(o, await passGate(page, 'tavern'));
         const tA = Date.now();
@@ -579,23 +621,29 @@ const UNITS = {
   async PARTS(ctx) {
     const D = {};
     for (const kind of ['index', 'tavern']) {
-      for (const mode of ['on', 'off']) {
+      for (const mode of ['on', 'off', 'smp']) {
         const page = await newPage(ctx, 'parts:' + kind + ':' + mode, kind === 'index' ? SCEN : null);
         const o = { kind, mode };
         try {
-          await page.goto('http://127.0.0.1:' + ctx.port + '/' + kind + '.html' + (mode === 'off' ? '?penvoice=0' : ''), { waitUntil: 'load', timeout: 60000 });
+          await page.goto('http://127.0.0.1:' + ctx.port + '/' + kind + '.html' + qsOf(mode), { waitUntil: 'load', timeout: 60000 });
           await page.waitForFunction(() => !!(window.GameAudio && window.GameSettings && document.body), { timeout: 30000, polling: 50 });
           await sleep(300);
-          Object.assign(o, await page.evaluate(async (LP, LV) => {
+          Object.assign(o, await page.evaluate(async (LP, LV, NU) => {
             const r = { title: document.title };
             GameAudio.unlock();
             await new Promise((res) => setTimeout(res, 250));
             const P = window.__probe;
+            /* #74 (0c): 録音の全粒が decode 済になるまで待つ (最大 15 秒・3 腕とも同じ待ち)。⭐ 未 decode だと playSampled は合成へ落ちる
+             * = 関門が無くても素の腕が合成 3 画になり得る ⇒ 「鳴らさない」は全粒が decode 済の上でだけ意味を持つ。 */
+            const nDec = () => NU.filter((u) => P.decoded.indexOf(u) >= 0).length;
+            const tW = Date.now();
+            while (NU.length && nDec() < NU.length && Date.now() - tW < 15000) await new Promise((res) => setTimeout(res, 50));
+            r.narrDecoded = nDec(); r.narrTotal = NU.length; r.decodeWaitMs = Date.now() - tW;
             r.busEdges = P.busEdges.slice(); r.busNames = Object.keys(P.bus);
             /* ⭐ 観測先を空へ戻してから本番の口 (playSfx) だけに書かせる。同期実行なので BGM の setInterval は割り込まない。 */
-            P.bs = 0; P.osc = 0; P.edges = [];
+            P.bs = 0; P.osc = 0; P.edges = []; P.srcBufs = [];
             GameAudio.playSfx('narration');
-            r.bs = P.bs; r.osc = P.osc; r.edges = P.edges.slice();
+            r.bs = P.bs; r.osc = P.osc; r.edges = P.edges.slice(); r.srcBufs = P.srcBufs.slice();
             P.edges = []; GameAudio.playSfx('button'); r.button = P.edges.slice();
             P.edges = []; GameAudio.playSfx('hit'); r.hit = P.edges.slice();
             /* 設定モーダル。 */
@@ -616,7 +664,7 @@ const UNITS = {
             r.found = !!sl; r.after = G().voice; r.otherAfter = [G().master, G().sfx, G().bgm];
             try { GameAudio.closeSettings(); } catch (e) {}
             return r;
-          }, LABEL_PEN, LABEL_VOICE));
+          }, LABEL_PEN, LABEL_VOICE, (ctx.D.META || {}).narrUrls || []));
         } catch (e) { o.err = String((e && e.message) || e).slice(0, 300); }
         await closePage(ctx, page);
         D[kind + ':' + mode] = o;
@@ -627,7 +675,7 @@ const UNITS = {
   async WAVE(ctx) {
     const open = async (tag, file, off) => {
       const page = await newPage(ctx, 'wave:' + tag, null);
-      await page.goto('http://127.0.0.1:' + ctx.port + '/' + file + (off ? '?penvoice=0' : ''), { waitUntil: 'load', timeout: 60000 });
+      await page.goto('http://127.0.0.1:' + ctx.port + '/' + file + qsOf(off ? 'off' : 'on'), { waitUntil: 'load', timeout: 60000 });
       await page.waitForFunction(() => !!(window.GameAudio && window.GameSettings), { timeout: 30000 });
       return page;
     };
@@ -737,9 +785,22 @@ function judge(ctx, R) {
       IDS.intro.length > 0 && IDS.prologue.length > 0 && IDS.quest.length > 0 && all.every((i) => !!VOICE_MAN[i].file && VOICE_MAN[i].durationSec > 0),
       '導入 ' + IDS.intro.length + ' / 前口上 ' + IDS.prologue.length + ' / 依頼人 ' + IDS.quest.length + ' (manifest 全 ' + Object.keys(VOICE_MAN).length + ' 件)');
     const M = D.META || {};
-    R.check('(0c)', '[装置] ★ 罠5: 配信された assets/sfx/sfx-manifest.json に narration キーが無い (あれば playSampled が合成レシピより先に鳴り §2 が無意味)',
-      M.sfxStatus === 200 && Array.isArray(M.sfxKeys) && M.sfxKeys.length > 0 && M.sfxKeys.indexOf('narration') < 0,
-      'status ' + M.sfxStatus + ' キー ' + J(M.sfxKeys));
+    if (ran('PARTS')) {
+      /* #74 で言い直し (旧: 「narration キーが無い」= #74 で正が反転)。⭐ 条件は旧 4 → 新 4 + 撤退 2 腕 × 2 ページ × 2 (全粒 decode 済・粒が入らない) + 対照 2 ページ = 14。 */
+      const NU = M.narrUrls || [];
+      const isNarr = (u) => !!u && NU.indexOf(u) >= 0;
+      const P0 = (k) => PT[k] || {};
+      const pg = ['index', 'tavern'];
+      const gated = (k) => P0(k).narrTotal === NU.length && P0(k).narrDecoded === NU.length && Array.isArray(P0(k).srcBufs) && !P0(k).srcBufs.some(isNarr);
+      const ctrl = (k) => Array.isArray(P0(k).srcBufs) && P0(k).srcBufs.filter(isNarr).length === 1 && P0(k).srcBufs.length === 1;
+      R.check('(0c)', '[装置] ★ #74 (罠5 の裏返し): 配信された assets/sfx/sfx-manifest.json に narration (粒 1 本以上) が在り、撤退の 2 腕 (素 ?pensample=0 / off ?penvoice=0) では'
+        + ' 全粒が decode 済なのに playSfx("narration") の BufferSource に録音の粒が入らない / 対照 = スイッチ無しの腕では粒がちょうど 1 つ入る (index / tavern)',
+        M.sfxStatus === 200 && Array.isArray(M.sfxKeys) && M.sfxKeys.length > 0 && NU.length >= 1
+          && pg.every((k) => gated(k + ':on') && gated(k + ':off')) && pg.every((k) => ctrl(k + ':smp')),
+        'status ' + M.sfxStatus + ' キー ' + (M.sfxKeys || []).length + ' 件 / narration 粒 ' + NU.length + ' 本 ‖ '
+        + pg.map((k) => k + ' ' + ['on', 'off', 'smp'].map((m) => m + ' decode ' + P0(k + ':' + m).narrDecoded + '/' + P0(k + ':' + m).narrTotal
+          + ' (' + P0(k + ':' + m).decodeWaitMs + 'ms) 粒 ' + (P0(k + ':' + m).srcBufs || []).filter(isNarr).length + '/' + (P0(k + ':' + m).srcBufs || []).length).join(' ')).join(' / ') + E('PARTS'));
+    }
     R.check('(0d)', '[装置] 撤退の判定は配信された audio.js に逐語 get("penvoice") がちょうど 1 箇所 (⛔ 語 penvoice の件数では数えない)',
       M.audioStatus === 200 && M.penvoiceCount === 1,
       'get("penvoice") ×' + M.penvoiceCount + ' (参考: 語 penvoice ×' + M.penvoiceWordCount + ')');
