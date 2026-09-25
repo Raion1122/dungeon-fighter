@@ -209,6 +209,21 @@
     if (harmony) tone(c, dest, when, { type: type, freq: f * (harmony === 2 ? MAJ3 : MIN3), dur: dur, peak: gain * 0.65 }); // ツインリード
   }
 
+  // #73 ペンで紙に書く音。呼び口は 3 文字に 1 回なので、1 回で 3 画 (= 3 文字ぶん) を文字送りの間隔で刻む。
+  //   ⚠ 音色の数値は耳で詰めてよい (§8「測らないこと」)。
+  function penStrokes(c, d, t) {
+    var step = 0.07;
+    try { step = Math.max(0.03, Math.min(0.2, (GameSettings.get().textSpeed || 70) / 1000)); } catch (e) {}
+    for (var k = 0; k < 3; k++) {
+      var tk = t + k * step + Math.random() * step * 0.25;       // 筆の走りのゆらぎ
+      noise(c, d, tk, {
+        filter: "bandpass",
+        cutoff: 2800 + Math.random() * 1600, cutoffTo: 1800 + Math.random() * 800,   // 紙を擦る「シャッ」
+        q: 1.4, dur: 0.025 + Math.random() * 0.03, peak: 0.07 + Math.random() * 0.04, a: 0.004,
+      });
+    }
+  }
+
   // ===== Section E: SFX ライブラリ ==========================================
   var SFX = {
     hit: function (c, d, t) { noise(c, d, t, { dur: 0.09, peak: 0.28, cutoff: 1400, cutoffTo: 500 }); tone(c, d, t, { freq: 150, glideTo: 90, dur: 0.08, peak: 0.18 }); },
@@ -234,7 +249,10 @@
     levelUp: function (c, d, t) { arp(c, d, t, { type: "square", root: 60, steps: [0, 4, 7, 12], stepDur: 0.09, peak: 0.2, dur: 0.16 }); tone(c, d, t + 0.36, { type: "triangle", freq: mtof(72), dur: 0.25, peak: 0.18, a: 0.01 }); },
     coin: function (c, d, t) { tone(c, d, t, { freq: mtof(83), dur: 0.06, peak: 0.18 }); tone(c, d, t + 0.06, { freq: mtof(88), dur: 0.12, peak: 0.18 }); },
     button: function (c, d, t) { tone(c, d, t, { freq: 660, dur: 0.03, peak: 0.12, a: 0.001 }); },
-    narration: function (c, d, t) { tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 }); },
+    narration: function (c, d, t) {
+      if (PEN_NARRATION) { penStrokes(c, d, t); return; }
+      tone(c, d, t, { type: "sine", freq: 880, dur: 0.012, peak: 0.05, a: 0.001 });   // 従来 (⛔ 値を 1 つも変えない)
+    },
     // 素材別ヒット音 + スイング (レイヤリング playLayered 用)。tone/noise 経由でゆらぎ自動適用。
     sword_swing: function (c, d, t) { noise(c, d, t, { dur: 0.22, peak: 0.30, filter: "bandpass", cutoff: 500, cutoffTo: 3200, q: 1.1, a: 0.05 }); noise(c, d, t + 0.02, { dur: 0.16, peak: 0.16, filter: "bandpass", cutoff: 2400, cutoffTo: 5200, q: 0.8, a: 0.03 }); noise(c, d, t + 0.07, { dur: 0.18, peak: 0.12, filter: "lowpass", cutoff: 1600, cutoffTo: 500, q: 0.7, a: 0.02 }); },
     hit_flesh: function (c, d, t) { noise(c, d, t, { dur: 0.09, peak: 0.26, cutoff: 1200, cutoffTo: 420 }); tone(c, d, t, { freq: 140, glideTo: 80, dur: 0.08, peak: 0.16 }); },
@@ -722,7 +740,7 @@
     if (playSampled(name, opts)) return;                       // サンプル素材があれば優先
     var recipe = SFX[name] || SFX[SFX_ALIAS[name]]; if (!recipe) return;
     var isUi = (name === "button" || name === "narration");
-    var route = isUi ? buses.ui : buses.sfx;
+    var route = (PEN_NARRATION && name === "narration") ? buses.voice : (isUi ? buses.ui : buses.sfx);   // #73
     var pv = (SFX_VAR[name] != null) ? SFX_VAR[name] : (isUi ? 0 : 0.04);
     var pp = _sfxPitch, pg = _sfxGain;
     _sfxPitch = 1 + (Math.random() * 2 - 1) * pv;              // ピッチ ±pv
@@ -839,7 +857,7 @@
     box.appendChild(volRow("マスター音量", function () { return GameSettings.get().master; }, function (v) { GameAudio.setMasterVolume(v); }));
     box.appendChild(volRow("BGM 音量", function () { return GameSettings.get().bgm; }, function (v) { GameAudio.setBgmVolume(v); }));
     box.appendChild(volRow("効果音 音量", function () { return GameSettings.get().sfx; }, function (v) { GameAudio.setSfxVolume(v); }));
-    box.appendChild(volRow("ボイス音量", function () { return GameSettings.get().voice; }, function (v) { GameAudio.setVoiceVolume(v); }));
+    box.appendChild(volRow(PEN_NARRATION ? "語り 音量" : "ボイス音量", function () { return GameSettings.get().voice; }, function (v) { GameAudio.setVoiceVolume(v); }));
     // ミュート
     var mk = document.createElement("label"); mk.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;";
     var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.muted;
