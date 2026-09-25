@@ -1006,3 +1006,125 @@ puppeteer-core **23.11.1** + 実 Chrome(`C:/Program Files/Google/Chrome/Applicat
 **言い直し 0 本。対象 33 本 40 腕(+ 切り分けの再走 10 腕)で、実装が赤くした既存 golden は 0 本。** 項目4(新規受入)へ進んでよい。
 所要 = 本走 3,122.9 秒 + 再走 947.5 秒 = **約 68 分**。成果物 = `%TEMP%\df_pen73\item3\{run1,run2,rr_head{1,2},rr_shadow{1,2,3}}\`(`after.tsv` + 標準出力 + 指紋 JSON)/
 走行器 `scratchpad\item3\run3.py`・比較器 `cmp3.py`。
+
+### 12-4. 受入(項目4) — 2026-09-25 / 基準 `1df0eca`(実装 = `d80ca9b` + `2f31ce6`)
+
+新規 **`tools/verify_pen_narration.js`**(base **10441** / 変異 **10442〜10450**)。⛔ 本番 3 ファイルは 1 バイトも触っていない
+(変異は内蔵 http サーバの**配信スナップショット**だけを書き換える)。書式は `tools/verify_member_identity.js` に揃えた
+(`--negative` / `--mutate <key>` / `--only` / `--units`・exit 0 = 期待どおり / 1 = FAIL・空振り / 2 = 環境・例外 / 3 = 変異アンカーの腐敗)。
+
+#### (1) assert 一覧 = **19 本**(素で全部出る)
+
+| id | ユニット | 何を見るか |
+|---|---|---|
+| (0a) | NARR | off の腕で manifest.json が読まれ、導出 id で `getVoiceDuration > 0`・`document.title`・開始の関門 |
+| (0b) | META | 声 id を `assets/voice/manifest.json` から導出(導入 `dungeon_intro_goblin-mine_*` 4 / 前口上 `dungeon_intro_prologue_*` 7 / 依頼人 `quest_dialog_goblin-mine_*` 2) |
+| (0c) | META | **配信された** `sfx-manifest.json` に `narration` が無い(罠5) |
+| (0d) | META | 配信された `audio.js` に逐語 `get("penvoice")` が 1 箇所(参考: 語 `penvoice` は 2) |
+| (0e) | META | 変異 9 本の注入点が原本でちょうど 1 箇所 |
+| (0f) | 全部 | 開いたページが全部起動・pageerror 0 |
+| (1a) | NARR | **声の mp3** の要求: 素 0 件 / off は導入・前口上・依頼人の**それぞれ**で 1 件以上 |
+| (1a') | NARR | **manifest.json** の要求(mp3 と分けて数える): 素 0 件(`loadVoiceManifest` の呼び口は通った上で)/ off 1 件以上 |
+| (1b) | NARR | 導出 13 id で `getVoiceDuration === 0`(素)/ `> 0`(off) |
+| (1c) | NARR | 罠1: **全段落**のヒント文字列(主)+ 保持秒数(従)+ 段落数 = id 数 / off は全段落が「♪」 |
+| (1d) | NARR | 罠2: 1 文字目が出た時点の mp3 要求 0 件(事前読み込みの口に全 id で到達した上で)/ off は 1 件以上 |
+| (2a) | WAVE | 波形: 素 200 種すべて ZCR > 0.08 かつ山 3 / off 5 種 ZCR 0.0399±0.004 かつ山 1 |
+| (2b) | PARTS | `playSfx("narration")` 1 回: 素 BufferSource 3・Osc 0 / off Osc 1・BS 0(index / tavern の実ページ) |
+| (2c) | PARTS | 出口: 素 voice ×3 / off ui。button = ui / hit = sfx は不変・バスの名前付けの配線確認つき |
+| (3a) | PARTS | モーダル: 素「語り 音量」のみ / off「ボイス音量」のみ(index / tavern の実ページ) |
+| (3b) | PARTS | そのつまみで `GameSettings.voice` 0.95 → 0.37・他の音量は不変(両腕) |
+| (4a) | WAVE | off の narration = `0e8370d` 版と**差 0**(2 種)・無音でない・旧版の素も同じ / 対照: 素は旧版と異なる |
+| (4b) | WAVE | narration 以外 28 レシピ × 両腕 × 2 種 = 112 比較が ≤ 1e-6 + 自己比較 112 件も ≤ 1e-6 |
+| (5a) | NARR + PARTS (+ WAVE) | 上の各節の**従来側**(off)の期待 10 項目が全部成り立つ |
+
+#### (2) 素 3 回 — **3 回とも 19/19 exit 0・指紋一致**
+
+| 走行 | 結果 | 所要 | 導入 素 保持 ms | 前口上 素 保持 ms | 依頼人 素 保持 ms |
+|---|---|---|---|---|---|
+| 1 | 19/19 | 170.5 秒 | 180 / 240 / 240 | 2600 ×6 | 240 |
+| 2 | 19/19 | 170.1 秒 | 239 / 301 / 239 | 2600 ×6 | 242 |
+| 3 | 19/19 | 170.4 秒 | 180 / 241 / 240 | 2594〜2601 | 240 |
+
+- 指紋(`(id, 合否)` を並び順のまま連結した sha256 先頭 16 桁)= **`af96064e3d1322a9` が 3 回とも同一**。
+- 所要の内訳: 前口上(素)47 秒 + 前口上(off・声ペース)62 秒 + 依頼人(off)21 秒 + 導入(off)27 秒 が大半。PARTS 4 秒 / WAVE 2 秒。
+- ⭐ 素の 1 文字目 = 14〜23ms(mp3 0 件)/ off = 33〜64ms(導入 mp3 4 件・前口上 7 件)⇒ 秒数の差は 20〜40ms しか無い(下の言い直し 2)。
+
+#### (3) `--negative`(1 回・**9/9 検出・空振り 0・exit 0・912.2 秒**)— 依頼書の期待 → 実測の担当
+
+⚠ 担当は机上で決めず、`--mutate <key>` で **全ユニット**を 1 本ずつ実走して決めた(`--negative` は変異ごとに必要なユニットだけ走らせる)。
+
+| 変異 | 注入点(`1df0eca` の逐語) | 依頼書 §8 の期待 | 実測の担当(`--negative`) | 緑のままであるべき(番人) |
+|---|---|---|---|---|
+| `manifestleak` | `audio.js:546` 関門 | (1a)(1b) | **(1a)(1a')(1b)(1c)(1d)** | — |
+| `durleak` ⭐ | `:546` + `:579` + `:599` | **(1c) だけ** | **(1a')(1b)(1c)** | **(1a)** ✓ 緑のまま |
+| `preloadleak` | `:546` + `:579` + `:623` | (1a)(1d) | **(1a)(1a')(1d)** | **(1b)(1c)** ✓ 緑のまま |
+| `blipback` | `:253` | (2a)(2b) | **(2a)(2b)(2c)(4a)** | — |
+| `uiroute` | `:743` | (2c) | **(2c)** | — |
+| `sliderdead` | `:860` | (3a) | **(3a)** | — |
+| `oldchanged` | `:254` | (4a) | **(4a)** | — |
+| `sampledpen` | `sfx-manifest.json`(配信上で `ui_tap` を写す) | (0c) | **(0c)(2b)(2c)** | — |
+| `switchdead` | `:19` | (5a) | **(0a)(1a)(1a')(1b)(1c)(1d)(2a)(2b)(2c)(3a)(4a)(5a)** | — |
+
+表と食い違った担当の理由(全部実測):
+
+- ⭐⭐ **`durleak` は「(1c) だけ」ではなく (1a')(1b)(1c)**。`getVoiceDuration` を生かすので **(1b) は必ず赤**
+  (素の 13 id が manifest の尺をそのまま返す)。(1a') は関門を外したので manifest.json を読むから赤。
+  ⭐ **守るべき本質は成立**: **(1a) = mp3 の要求は 0 件のまま緑**(`NEG_GREEN` で番人にした = 赤くなったら変異の作りが間違い)。
+  ⇒ 担当は「声の再生」側でなく「尺」側に絞られている。実害の姿も再現: 素の腕が全段落「♪」・クリックしても保持
+  3241 / 10662 / 5921ms(導入)・4000ms(依頼人)で 250ms 毎 104 クリックが効かない。
+- `preloadleak` は (1b)(1c) が緑のまま(`getVoiceDuration` が 0 ⇒ テキストペースへ落ちる)= 担当が罠2 に絞られている。これも番人にした。
+- `manifestleak` は関門を外すと声が丸ごと戻るので §1 の 5 本すべて。
+- `blipback` の (2c) = 正弦は画が 1 つなので出口が `["voice"]` の 1 本(3 本でない)。(4a) = 対照「素の narration は旧版と異なる」が崩れる(差 0)。
+- ⭐ `sampledpen` の (2b)(2c) = **実ページは `sfx-manifest.json` を先読みするので、足した録音素材が実際に鳴る**
+  (素も off も BufferSource 1・出口 ui)。番人 (0c) だけでなく**挙動でも赤**になる = 罠5 は本物。
+  (全ユニットで回すと off の腕も録音素材になるので (5a) も赤。`--negative` は PARTS だけなので担当には入れていない。)
+- `switchdead` は off の腕を持つ assert が総崩れ。(3b) だけ緑 = 名前が変わってもつまみ自体は両腕で生きている。
+
+#### (4) 依頼書 §8 から言い直した点と根拠の数値
+
+1. **(1c) は全段落・文字列が主** — 第1段落だけだと `durleak` の保持が **400ms** で緑を抜ける(§12-0 (5-2))。
+   「クリックで 1 秒以内」は**クリック送りの口がある語り**(`index.html` の導入 + `tavern.html` の依頼人 `playQuestAcceptNarration`)にだけ当てた。
+   ⚠ **酒場の前口上(`initTavernPrologue`)には元からクリック送りの口が無い**(関門の `begin` を外した後は 2.5 秒の自動送りだけ)
+   ⇒ 前口上は「保持 2000〜3200ms = テキストペースの固定間隔」で見る(実測 2594〜2601ms)。
+2. **(1d) は秒数で測らない** — localhost では事前読み込み有り 43ms / 無し 34ms(§12-0)、本受入でも off 33〜64ms / 素 14〜23ms で
+   「≤ 500ms」は**永久緑**。⇒ **「1 文字目が出た時点の mp3 要求 0 件」**(構造)+「事前読み込みの口に全 id で到達した」
+   (`GameAudio.preloadVoice` の呼び口を包んで記録)で測る。`preloadleak` で 4 件 / 7 件になり赤。
+3. **事前読み込みの口は 3 つだが検出力があるのは 2 つ** — `index.html:39726`(導入)/ `tavern.html:9712`(前口上)。
+   `index.html:14870`(エピローグ)は manifest に `ending_epilogue_*` が **0 件**(未録音)なので `?penvoice=0` でも mp3 を取りに行かない
+   (項目2a で実測)⇒ 受入の対象から外した。
+4. **(1a) は mp3 と manifest を分けて数える** — `assets/voice/` 配下には `manifest.json` 自身もある。
+   mp3 = (1a) / manifest = **(1a')**(新設)。`durleak` は manifest を読むが mp3 は取りに行かない ⇒ (1a) 緑・(1a') 赤で分離できた。
+5. **`durleak` の担当は表と食い違う** — 上の (3) のとおり (1a')(1b)(1c)。本質(mp3 0 = (1a) 緑)は番人で固定。
+6. **(2a) の閾値** — ZCR > **0.08**(項目2b 実測 素 0.158〜0.198 / 200 種・off 0.03986 = 理論 0.0399 ⇒ 余裕約 2 倍)。
+   本受入の 3 走行も素 **0.1582〜0.1984**・off **0.03986** で同値。山の数え方 = 5ms 窓 RMS 包絡を両端 0 で挟み、極大が emax の 25% 超を候補、
+   隣との谷が「低い方の山の 50%」を超えたら併合(プロミネンス)⇒ **200/200 で 3**。⛔ ヒステリシス(25%/8%)は 200 種中 6 種で 2 と数える(項目2b)ので不採用。
+   種は mulberry32 の **1〜200**(素)/ **1〜5**(off)。
+7. **(4a) は厳密一致** — off の narration vs `0e8370d` 版 = **差 0**(種 7 / 12345)。旧版を `?penvoice` 無しで開いても差 0(旧版は撤退スイッチを知らない)。
+   ⭐ **`0e8370d` / `59fce15` / `fd67cfe` の `audio.js` は同じ blob `b3aaa1fd2b93a379877fd6b861e01213386e5c61`**(`git rev-parse` で確認)
+   ⇒ 依頼書の「`0e8370d` 版」と項目2b が使った「`59fce15` 版」は同一物。HEAD の `audio.js` は `b34af2555156…`。
+8. **(4b) は厳密一致にできない ⇒ 許容 1e-6** — 同じ走行で**自己比較**(同じ版・同じ種で 2 回描く)を 112 件測り、
+   **最大 5.96e-8**。揺れたのは多音源レシピ 8 種(crit / buff / bossDeath / hiddenFound / cageOpen / levelUp / sword_swing / hit_bone)で、
+   両版とも揺れる(版の差ではなく Chrome のオフライン描画の加算順)。両版比較 112 件は**最大 5.96e-8・完全一致 87 件**。
+   ⇒ 許容 1e-6 は自己比較の揺れの約 17 倍で、`oldchanged`(freq 880→881)は (4a) 側で差 0.087 として出る。
+9. **声の信号はこの受入が全部背負う** — 既存 golden は声の変化を 1 本も検出しない(§12-0b (5)・§12-3)。
+
+計測機構で足したもの:
+- **`?autoplay` 無し**で `index.html` を開き、開始の関門をクリックで越える(罠3)。酒場は `tavern.html` を直に開き、前口上 → `playQuestAcceptNarration(goblin-mine)` を
+  直に呼ぶ(⛔ `openPrep` を経由しない)。腕ごとに別の BrowserContext(`prologueSeen` が無い状態から)。
+- バスの特定 = `evaluateOnNewDocument` で `createGain` / `AudioNode.prototype.connect` を包み、最初の 5 個の Gain に `master/bgm/sfx/ui/voice`。
+  **配線の装置確認**(`master→destination` / `bgm→master` / `voice→master`)を (2c) に入れた = 名前付けが外れたら赤。
+- 観測先は測る直前に空へ戻す(`#dmBody` / サンプル列 / 部品の計数)。⛔ `audio.js` に検証用の口は足していない(`__renderSfxOffline` / `sfxNames` だけ使う)。
+- Chrome は `--autoplay-policy=no-user-gesture-required --mute-audio`。
+
+#### (5) 起動と成果物
+
+    node tools/verify_pen_narration.js              # 素 約 170 秒 / 19 assert
+    node tools/verify_pen_narration.js --negative   # 約 912 秒 / 変異 9 本
+
+- 走行ログ = `%TEMP%\df_pen73\item4_plain{1,2,3}.txt` / `item4_neg1.txt` / `item4_mut_<変異>.txt`(担当を決めた手回し 9 本)。
+- 走行後の居残り Chrome 0 / ポート 10441〜10450 の待ち受け 0。8765(ユーザーの試遊サーバ)には触っていない(走行後も稼働)。
+
+#### ⇒ 判定
+
+**受入 19/19(素 3 回・指紋一致)/ 負のコントロール 9/9(空振り 0・`durleak` の (1a) と `preloadleak` の (1b)(1c) は緑のまま)。**
+`audio.js` の欠陥は見つからなかった。項目5(全数走査)へ進んでよい。
