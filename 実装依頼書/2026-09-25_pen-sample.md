@@ -596,3 +596,85 @@ py item1b/sweep74.py --rerun <out.tsv> <arm_id>...  # 色が動いた腕だけ�
 
 **着手前の色は凍結できた(153 腕 / 301.9 分 / 緑 135・赤 18、赤はすべて型3)。STEP2 へ進んでよい。**
 項目5 への申し送り: ① 指紋を根拠にしない腕 17(判定行 0 行 15 + 指紋が動く 2)② `probe_n4_stall` は再現プローブで色が揺れる ③ `probe_s2_clear --negative` は着手前から赤(`wipeblind`)④ 罠F(`build_sfx.py` が CRLF を書く)を踏むと `verify_eol_doorfix` が赤くなる見込み(§12-0 (7))。
+
+### 12-2. 素材化 + audio.js(項目2) — 2026-09-26 / 基準 `010822a`
+
+⛔ `index.html` は開いていない。`penStrokes` / `SFX.narration` / `playSfx` の合成側(`:749` の `var route = (PEN_NARRATION && name === "narration")`)は無改造。
+使い捨ての道具は scratchpad `item2/`(`measure.py` / `check74.js` / `golden/`)。本番 `tools/` には何も足していない。
+
+#### (1) STEP2 — パイプライン(`build_sfx.py` / `sfx_common.py` / `sfx-sources.json`)
+
+- 元素材: `sfx-pipeline/raw/inbox/narration/Felt_Tip_Pen03-02(Write).mp3`(147,250 バイト・`raw/inbox/` はこの項目で新設・gitignore = コミットしない)。
+- `sfx_common.py` に 3 関数: `decode_normalized_mono`(`aformat=channel_layouts=mono,loudnorm=I=-16:TP=-1.5,aresample=44100` = **モノラル化 → 全体を 1 回 loudnorm**・`silenceremove` なし)/
+  `segment_grains`(§2-8 の方式 = 10ms RMS・包絡の最大比・ヒステリシス・併合・長さで捨てる。**純 Python**=numpy を依存に足していない)/ `write_grain_mp3`(`preMs` 前から切り、直線フェード → 128kbps モノラル 44.1kHz mp3)。
+  ⛔ 粒は `normalize_single` を通らない(罠C)。
+- `build_sfx.py`: ① `grains` モード(`build_grains`)。**ハッシュの params に `grains` を足すのは `grains` を持つ ID だけ**(全 ID に `grains: null` を足すと既存 8 ID のハッシュが変わり作り直しになる)。
+  粒の数は切るまで決まらないので skip 判定は前回 manifest の `files` で行い、粒が減ったら余った古い粒のファイルを消す。
+  ② mapping の `source` / `license` / `credit` を `pack_meta()` より優先。③ **`write_credits(manifest)` = 最終 manifest の全 ID から**(罠D)。
+  ④ **罠F の直し方 = `write_text(..., encoding="utf-8", newline="\n")`**(manifest / CREDITS / sfx-report の 3 箇所)。
+- mapping `narration` は §5-2 の値そのまま(`grains` = `hiDb −18 / loDb −28 / mergeMs 25 / minMs 40 / maxMs 400 / preMs 5 / fadeInMs 2 / fadeOutMs 20`・**調整なし**)。
+- 全体実行: `built=1 skipped(冪等)=8 inbox待ち=18`(narration: grains **33 粒**)。既存 12 本の mp3 は md5 すべて一致・`git status` で modified になったのは manifest / CREDITS だけ(差分は narration の追加のみ)。
+  再実行 = `built=0 skipped=9`(粒・manifest・CREDITS の md5 不変 = 冪等)。`--only ui_tap` でも `CREDITS.md` は 9 行のまま(罠D が消えた)。`py tools/check_tree_eol.py` → **RESULT: OK**。
+
+#### (2) 粒の実測(ffmpeg で 33 本 + ページ内 `decodeAudioData` で同じ値)
+
+| 項目 | 実測 | 範囲 |
+|---|---|---|
+| 本数 N | **33**(§2-8 の 31 と違うのは loudnorm 後の包絡で切るため。項目1 の再現でも 31/33/32/31 と揺れた) | 20〜40 ✅ |
+| 長さ min / 中央 / max | **65 / 125 / 395 ms** | 40〜400 ✅(max は切り出し 390 + `preMs` 5) |
+| 先頭の −40 dBFS 超え | 最大 **8.7ms** | ≤ 15 ✅ |
+| 峰 max / min / 幅 | **−1.47 / −15.08 dBFS / 13.61 dB** | ≤ −1.0 ✅ / ≥ 6 ✅ |
+| 形式 | 全粒 モノラル 44.1kHz | ✅ |
+| 合計 | 121,385 バイト(2,133〜7,567) | — |
+
+- ⭐ Chrome の `decodeAudioData` の長さは ffmpeg と一致(LAME のギャップレス情報が効き、符号化遅延の無音は付かない)。
+- ⚠ **粒の長さは 33 本で 18 種類しかない**(105.6ms が 6 本 など)⇒ (2d)「選ばれた粒が N/2 種以上」を **buffer の長さで識別すると上限 18 で、N/2 = 16.5 をぎりぎりしか超えない**。項目4 は buffer の同一性(`sfxBufCache` の URL か AudioBuffer の参照)で数えること。
+
+#### (3) STEP3 — `audio.js`(+8 行 −2 行・CRLF 978/978 を保った)
+
+| 行(実装後) | 変更 |
+|---|---|
+| 21〜24 | `var PEN_SAMPLE = (function () { … get("pensample") !== "0" … })();`(`PEN_NARRATION` の直後) |
+| 687 | 関門 `if (name === "narration" && !(PEN_NARRATION && PEN_SAMPLE)) return false;   // #74 撤退の腕では録音を鳴らさない (罠B)` |
+| 699〜700 | 出口 `var route = (name === "narration") ? buses.voice` / `: ((def.bus === "ui" \|\| name === "button") ? buses.ui : buses.sfx);` |
+| 916 | クレジット行の末尾へ `　｜　効果音  OtoLogic (CC BY 4.0)`(`PEN_SAMPLE` で出し分けない) |
+
+#### (4) 使い捨て検証 `item2/check74.js`(実ページ・`?autoplay` なし・自前ポート 10461・8765 は無接触)
+
+| ページ | 腕 | 読込時の粒の要求 | `playSfx("narration")` ×3 = [BufferSource, Oscillator, 出口] | button / hit | 200 回の散らばり | 「語り 音量」→ 37 | クレジット |
+|---|---|---|---|---|---|---|---|
+| index / tavern | 素 | **33 / 33** | 3 回とも **[1, 0, voice]**(buffer 長は粒のどれか) | ui / sfx | 長さ **18 種**(= 全種) | voice 0.95→**0.37**・sfx 0.9 / ui 0.81 不変 | ✅ |
+| index / tavern | `?pensample=0` | 33 | **[3, 0, voice×3]**(#73 の合成) | ui / sfx | 0 | 同上 | ✅ |
+| index / tavern | `?penvoice=0` | 33 | **[0, 1, ui]**(「ピッ」・録音 0) | ui / sfx | 0 | 同上 | ✅ |
+| index / tavern | manifest から narration を消す | 0 | **[3, 0, voice×3]**(fallback) | ui / sfx | 0 | 同上 | ✅ |
+
+pageerror は全 8 腕 0 件。⇒ (a)〜(f) すべて成立。罠A・罠B は項目1 の再現(出口 ui / `?penvoice=0` で録音)から**反転**した。
+
+#### (5) 既存 golden(着手前 = 凍結 TSV `item1b/baseline_frozen74.tsv`)
+
+| 本 | 着手前 | 項目2 後 |
+|---|---|---|
+| `driver_bgm_mine` / `driver_bgm_title` / `driver_bgm_town` / `driver_dev_gate` / `driver_dev_gate2` / `verify_mercenary_roster` / `verify_title_screen` | 緑 | **緑**(exit 0) |
+| `driver_bgm_title --negative` / `driver_bgm_town --negative` | 緑 | **緑** |
+| `verify_eol_doorfix`(素・`--negative`) | 緑 | コミット前は赤 = (1e-1)「`git diff HEAD` が宣言外を含まない」と (3b)「本番 5 ファイルの blob が HEAD と同一」。**作業ツリーと HEAD の差を測る本**なので未コミットの間だけ赤い。コミット後の再走は下の (7) |
+| `verify_pen_narration`(素) | 緑 28/28 相当 | **赤 15/19・exit 1** — 下の (6) |
+
+#### (6) 赤くなった #73 受入 `tools/verify_pen_narration.js` の assert(⛔ 言い直しは項目3)
+
+- **(0c)** 配信 manifest に `narration` キーがある(= 本チケットの正)。
+- **(0e)** 変異 `sampledpen` の注入点(manifest に `ui_tap` をコピーして `narration` を足す)が成り立たない(`narration` が既に在る)。⚠ §2-9 の表に無かった赤。
+- **(2b)** 素の腕が `bs1/osc0`(期待 bs3)— off の腕は `bs0/osc1` で期待どおり。
+- **(2c)** 素の腕の出口が `["voice"]` 1 本(期待 3 画すべて voice)— off / button / hit は期待どおり。
+- ✅ **(5a) は緑**(関門で `?penvoice=0` から録音が外れた = 罠B の直しが効いている)。§12-0 (7)-2 の「(5a) が崩れる」は**関門が無い場合**の話で、関門込みでは崩れない。
+- (2a)(3a)(3b)(4a)(4b)(1a)〜(1d)(0f) は緑。
+
+#### (7) コミット後の `verify_eol_doorfix`
+
+(コミット直後に追記)
+
+#### (8) ⚠ 崩れた主張
+
+1. §2-8 / §1 の「約 31 粒」⇒ 実装では **33 粒**(同じしきい値でも、loudnorm 後の包絡で切るので揺れる)。範囲 20〜40 の中 = 設計どおり(定数で焼かない)。
+2. §12-0 (7)-2 の「罠B で (5a) が崩れる」⇒ 関門込みの実装では **(5a) は緑**。赤くなるのは (0c)(0e)(2b)(2c) の 4 つ。
+3. §2-9 の表に **(0e)** が無い(`sampledpen` の注入点が消えるので装置 assert も赤くなる)。
+4. (補足)§2-5 の懸念どおり loudnorm は単発の dynamic モードで、峰の最大は −0.45 → **−1.47 dBFS** に下がったが幅は 14.15 → **13.61 dB** とほぼ保たれた(罠C の潰れは起きない)。

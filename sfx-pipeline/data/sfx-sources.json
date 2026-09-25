@@ -55,6 +55,10 @@
     "quest_accept":   { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.0, "bus": "sfx", "candidates": ["raw/inbox/quest_accept/*"] },
     "door_open":      { "category": "ui", "takes": 1, "volume": 0.8, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/door_open/*", "kenney_rpg_audio/**/doorOpen*"] },
     "item_get":       { "category": "ui", "takes": 1, "volume": 0.85, "pitchVar": 0.04, "bus": "sfx", "candidates": ["raw/inbox/item_get/*", "kenney_rpg_audio/**/handleCoins*"] },
+    "narration":      { "category": "ui", "takes": 1, "volume": 0.4, "pitchVar": 0.05, "bus": "voice", "preload": "eager", "candidates": ["raw/inbox/narration/*"],
+                        "grains": { "hiDb": -18, "loDb": -28, "mergeMs": 25, "minMs": 40, "maxMs": 400, "preMs": 5, "fadeInMs": 2, "fadeOutMs": 20 },
+                        "source": "OtoLogic", "license": "CC BY 4.0", "credit": "OtoLogic (https://otologic.jp) — 1 画ずつ切り出し・音量正規化の加工あり",
+                        "_note": "#74 ペンの実録 (Felt_Tip_Pen03-02(Write)) を 1 画ずつ。全体を 1 回 loudnorm してから切る (粒ごとは -inf で測れない = 依頼書 §2-5)。出口は audio.js が voice バスへ決める (bus はここでは台帳の記録)" },
 
     "fire_loop":      { "category": "ambient", "takes": 1, "loop": true, "volume": 0.6, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.1, "loopEndOffset": 0.1, "flicker": { "min": 0.7, "max": 1.0, "period": 2.5 }, "candidates": ["raw/inbox/fire_loop/*"] },
     "tavern_amb":     { "category": "ambient", "takes": 1, "loop": true, "volume": 0.35, "pitchVar": 0.0, "bus": "sfx", "loopStart": 0.2, "loopEndOffset": 0.2, "candidates": ["raw/inbox/tavern_amb/*"] },

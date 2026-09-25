@@ -18,6 +18,10 @@
   var PEN_NARRATION = (function () {
     try { return new URLSearchParams(global.location.search).get("penvoice") !== "0"; } catch (e) { return true; }
   })();
+  // #74 ペンの音を録音へ。?pensample=0 で #73 の合成ペン (3 画の帯域雑音) へ戻す。?penvoice=0 は従来 (朗読 +「ピッ」) のまま。
+  var PEN_SAMPLE = (function () {
+    try { return new URLSearchParams(global.location.search).get("pensample") !== "0"; } catch (e) { return true; }
+  })();
 
   function clamp(v, lo, hi) { v = +v; if (isNaN(v)) return lo; return v < lo ? lo : (v > hi ? hi : v); }
   function normalize(s) {
@@ -680,6 +684,7 @@
   // サンプル素材で1発再生。未ロード/未存在/ループ定義は false を返し、呼び元が合成へ落ちる。
   function playSampled(name, opts) {
     if (!sfxManifest || !buses) return false;
+    if (name === "narration" && !(PEN_NARRATION && PEN_SAMPLE)) return false;   // #74 撤退の腕では録音を鳴らさない (罠B)
     var def = sfxManifest[name];
     if (!def || !def.files || !def.files.length || def.loop) return false;
     var file = def.files[(Math.random() * def.files.length) | 0];
@@ -691,7 +696,8 @@
       src.playbackRate.value = 1 + (Math.random() * 2 - 1) * pv;
       var g = ctx.createGain();
       g.gain.value = (def.volume != null ? def.volume : 1) * (1 + (Math.random() * 2 - 1) * 0.08);
-      var route = (def.bus === "ui" || name === "button" || name === "narration") ? buses.ui : buses.sfx;
+      var route = (name === "narration") ? buses.voice                            // #74 「語り 音量」を通す (罠A)
+        : ((def.bus === "ui" || name === "button") ? buses.ui : buses.sfx);
       src.connect(g); g.connect(route);
       src.onended = function () { try { src.disconnect(); g.disconnect(); } catch (e) {} };
       src.start(0);
@@ -907,7 +913,7 @@
     }
     // クレジット表記 (VOICEVOX 利用規約: キャラクター名のクレジット表示が必須)
     var cred = document.createElement("div");
-    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  魔王魂 / ユーフルカ";
+    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  魔王魂 / ユーフルカ　｜　効果音  OtoLogic (CC BY 4.0)";
     cred.style.cssText = "margin-top:14px;padding-top:8px;border-top:1px solid rgba(139,105,20,0.3);font-size:11px;color:#6a5418;text-align:center;letter-spacing:0.02em;";
     box.appendChild(cred);
     ov.appendChild(box);
