@@ -1,6 +1,6 @@
 # #75 敵の体質(眠らない・炎/冷気/雷が効きにくい・効かない)を戦いに効かせる
 
-- **起草**: 2026-09-28(計画窓 = 起草窓) / **ステータス**: **承認済**(2026-09-28 ユーザー承認)
+- **起草**: 2026-09-28(計画窓 = 起草窓) / **ステータス**: **✅ 完了**(2026-09-28 ユーザー承認 → 2026-09-29 実装窓で完了・§12-6)
 - **着手**: 実装窓は**窓更新を挟んでから**着手する(2026-09-28 ユーザー指示)
 - **触るファイル**: `index.html` / `tools/verify_enemy_traits.js`(新規)
 - ⛔ **触らないファイル**: `tavern.html` / `audio.js` / `js/*.js`(§2-6 で開く必要が無いことを確認済み)
@@ -635,3 +635,214 @@ base ポート **10459** / 変異 **10460〜10466**(`MUTATIONS` の並び順)。
 - 素 × 3(PowerShell から直列): **15/15 PASSED   FAILED 0   PENDING 0** × 3・exit 0・所要 3.8 / 3.8 / 3.7 秒。
 - `--negative`: 素の基準 15/15 + 変異 7 本 → **負のコントロール 7 / 7 が検出成功(赤 = 担当に完全一致)**・exit 0・所要 **26.7 秒**。
 - 項目5 へ: 母集団に足す腕は 2 本(素 / `--negative`)。ポート 10459〜10466。
+
+### 12-4. 勝率の記録(項目4)
+
+決裁どおり**記録するだけ**で、難易度は調整していない。道具 = `tools/probe_s5s6_clear.js`(コミット `7402153`・新規。`probe_s2_clear.js` 本体は触っていない)。
+
+- 走らせた版: 本番 = `7cf1333`(走行中の HEAD は `954fb34` = 項目3 の tools 追加だけ。`git diff 7cf1333 HEAD -- index.html tavern.html audio.js js/` は空)。道具は起動時に本番の差分が空であることを確かめている。
+- 設定: 酒場 → `prepScenario` → `regeneratePartyMembers()` → `departToScenario()`(本番の出発)、`?autoplay=15`、**4 人編成**(`?recruittalk=0` = 従来の自動抽選で上限 `RECRUIT_MAX`=3 人を連れる)、XP は酒場の推奨 Lv に合わせて焼く(S5 = Lv8 = 28000 / S6 = Lv10 = 45000)。1 走行の上限は 1200 秒(打ち切りは「打ち切り」として数える。今回 0 件)。
+- 腕: ON = 既定 / OFF = `?enemytraits=0`(`evaluateOnNewDocument` + `history.replaceState` で index 側の `location.search` を着弾前に書き換え、着地後に `ENEMY_TRAITS_ON` と `window.__dfEnemyTraits.on` を読んで確かめた = 装置 assert 0f)。
+- 並べ方: ペアごとに ON/OFF を 1 走行ずつ、奇数ペアは ON 先・偶数ペアは OFF 先の交互。S5 と S6 もペアの中で交互。N = 各 10 ペア = **40 走行、装置 assert の崩れ 0 件**。
+- 体質の効いた回数 = 道具が着地直後に本番の `updateInfo` を包み、`resolveElementDefense` の文言(「〜は通用しない!」= IMMUNE /「〜を和らげた (ダメージ半減)」= RESIST)と `allySleep` の「N体は眠らない」を数えたもの(本番には何も置いていない)。OFF 腕で 3 つとも 0 回であることを装置 assert 0h で確かめた(20/20 で 0 回)。
+
+| シナリオ | 腕 | 走行 | クリア | 敗北 | 停滞 | 打ち切り | ボス部屋到達 | 到達ノード(分布) | 所要秒 平均 (クリア/敗北) | IMMUNE 合計 (内訳) | RESIST 合計 (内訳) | スリープ詠唱 / 眠らない体数 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| S5 undead-temple | ON | 10 | **8/10** | 2 | 0 | 0 | 10/10 | n4>n7 ×10 | 165 (170/142) | 0 | 6(炎 6) | 21 / 40 |
+| S5 undead-temple | OFF | 10 | **10/10** | 0 | 0 | 0 | 10/10 | n4>n7 ×10 | 163 (163/—) | 0 | 0 | 25 / 0 |
+| S6 dragon-lair | ON | 10 | **0/10** | 10 | 0 | 0 | 10/10 | n4>n7 ×10 | 196 (—/196) | 0 | 0 | 14 / 1 |
+| S6 dragon-lair | OFF | 10 | **0/10** | 10 | 0 | 0 | 10/10 | n4>n7 ×10 | 184 (—/184) | 0 | 0 | 24 / 0 |
+
+ペアごとの決着(左 = ON / 右 = OFF、c = クリア / d = 敗北):
+- S5: p1 cc / p2 cc / p3 **dc** / p4 cc / p5 cc / p6 cc / p7 cc / p8 cc / p9 **dc** / p10 cc
+- S6: 10 ペアとも dd
+
+所見:
+1. **S5(地下神殿)は ON 8/10・OFF 10/10**。差は 2 走行ぶんで、N=10 では偶然と区別できない(Fisher の正確検定 両側 p≈0.47)。体質は確かに働いている: ON でスリープ 21 回のうち「眠らない」が延べ **40 体**(スケルトン・ゾンビ・レイスなど)、レイスへの炎の RESIST が 6 回。ON の敗北 2 件はどちらもボス部屋 n7 で主人公が倒れた(仲間 3 人は生存・リッチ生存)。
+2. **S6(竜の巣)は ON も OFF も 0/10**。全走行がボス部屋 n7 に届き、ファラクサスの前で主人公が倒れて終わる(仲間は 1〜3 人生存 = 全滅ではなく主人公落ち)。⚠ 今回の 40 走行ではファラクサスへの炎の IMMUNE が **0 回**(スモーク 1 走行で 1 回だけ観測)= 自動抽選の 4 人編成では炎がファラクサスへ飛ぶ場面がほぼ無く、**体質の有無と無関係に**竜の巣は Lv10・4 人で勝てていない。S6 の 0/10 は #75 の前から在る難易度の話(別チケット候補)。
+3. 到達ノードはどの腕も全走行 `n4>n7`(畳んだ 2 枚の卓上マップ)で、ボス部屋まで必ず届く。差が出るのはボス戦の中だけ。
+4. 所要時間は ON がわずかに長い(S5 +2 秒・S6 +12 秒)が、⚠ 同時に項目3 の検証が走っていて CPU を分け合っていたので、絶対値は割り引いて読む(ON/OFF は交互に走らせたので比較は公平)。
+5. 体質が効いた場面の大半は「スリープが効かない」(S5 で延べ 40 体)。属性の半減・無効は S5 のレイスへの炎だけで、冷気・雷の RESIST/IMMUNE は 40 走行で 0 回(自動抽選の編成に冷気・雷の使い手がほぼ出ない)。
+
+道具の使い方:
+
+    node tools/probe_s5s6_clear.js --scen undead-temple,dragon-lair --pairs 10 \
+         --tsv <out.tsv> --detail <dir> --port 10470 --max 1200
+
+- 中断しても同じコマンドで再開できる(TSV にある `run_id` = `<scen>:p<N>:<ON|OFF>` を SKIP)。1 走行 ≒ 2〜4 分、40 走行で約 2 時間(今回の実測)。
+- 腕を変えたいとき: `--arm-on "xp:45000+qs:recruittalk=0"` `--arm-off "xp:45000+qs:recruittalk=0+qs:enemytraits=0"`(`+` で連結。キー = recruit / recruittalk / dndrange / mopup / s2fold / enemytraits)。
+- ⚠ `?recruittalk=0` を外すと、#54 以降は**ソロで出発する**(誰も誘っていないため)。Lv10 ソロの竜の巣はボス部屋に届く前に約 60 秒で全滅し、体質の場面に届かない(スモークで実測)。`probe_s2_clear.js` の既定腕も同じ理由でソロになっている。
+- 結果の置き場(scratchpad `item4/`): `winrate75.tsv`(40 行・32 列)/ `winrate75.log` / `detail/<run_id>.json` / 集計 `agg75.py`。
+
+⚠ probe_s2_clear の既定腕も #54 以降は酒場で誰も誘わないとソロで出発する(本チケットの道具は `?recruittalk=0` で 4 人に戻している)
+
+### 12-5. 母集団の非退行(項目5) — 2026-09-29 / 本番 = HEAD `7402153`(`index.html` / `tavern.html` は `7cf1333` と同一)
+
+⛔ 本番も `tools/` も 1 バイトも触っていない(走査・再走の前後で `git status --short` = **0 行**・HEAD = `7402153`)。変えたのは本書 §12 と台帳の `| 75 |` 行だけ。
+#75 の本番の差分 = `git diff --name-only 1951914 HEAD` のうち配信物 = **`index.html`(+88 / −5)と `tavern.html`(changelog 1 行)の 2 本だけ**(他は `tools/verify_enemy_traits.js` / `tools/probe_s5s6_clear.js` / 本書)。
+成果物 = scratchpad `…/77bd3943-0319-4699-9438-549ec95bd6b8/scratchpad/item5/`(以下 `item5/`)。道具は #74 の `sweep75.py` / `fp74.py` / `cmp75.py` / `pair75.py` / `mkshadow.py` をコピーして直したもの(`fp74.py` は sha256 `818535166700358c` のまま = 指紋の定義は #72〜#74 と同一)。
+
+#### (1) 腕の導出 = **154 腕**(⛔ 定数で焼いていない。`item5/build_arms.py`)
+
+| 枠 | 腕 | 導出 | 着手前の色 |
+|---|---|---|---|
+| 素 | **148** | #74 の実装後走査 `after74.tsv` の素の腕すべて(同じ順)= union 147 本 + `verify_pen_sample`。148 本とも HEAD に実在することを assert | `after74.tsv` の同じ腕(§12-0 (11) の判定どおり `13c2a42..1951914` は docs だけ) |
+| `--negative`(選び直し) | **4** | 下の (2) の機械選別 | **なし** ⇒ 影のツリーで対照(下の (6)) |
+| 新規 | **2** | `verify_enemy_traits` の素 / `--negative` | なし(緑であること) |
+
+- `tools/probe_s5s6_clear.js` は足していない(項目4 の判断 = 記録用・決定的な合否なし)。
+- #74 の `--negative` 7 腕(`driver_bgm_title` / `driver_bgm_town` / `probe_s2_clear` / `verify_eol_doorfix` / `verify_mercenary_roster` / `verify_pen_narration` / `verify_pen_sample`)は #74 の署名で選ばれた腕なので外した(下の (2) の選別にも掛からない)。
+
+#### (2) `--negative` の選び直し(`item5/sel2.py` → `item5/select_neg75.json`)
+
+- 対象 = HEAD の `tools/*.js` のうち、**コメント行を落としたコード**に `--negative` を持ち、かつ `index.html` / `tavern.html` を読む本 = **28 本**(`--negative` を扱う本 30 本 − ページを読まない 2 本。`verify_enemy_traits` は選別器の**正のコントロール**として残した)。
+- 各本の文字列リテラル・テンプレートの断片・正規表現リテラルの字面(8 文字以上・複数行は行へも割る)を、`index.html` / `tavern.html` の **`1951914` の blob と HEAD の blob**(どちらも作業ツリーと同じ CRLF へ変換。HEAD 側は作業ツリーとバイト一致を assert)に当てた。
+  変異アンカーとして使える字面 = **どちらかの版で件数がちょうど 1**。そのうえで次のどれかに当たれば「#75 の差分に掛かる」:
+  ① 件数が変わった ② 旧版の 1 件が削除行に乗る ③ 新版の 1 件が追加行に乗る ④ **1 件が #75 の差分を含む関数の中に在る**(`index.html` のみ。関数の範囲 = 直前の `function` 宣言行から次の宣言行まで)。
+- ⭐ **①〜③ だけだと選ばれるのは正のコントロール(`verify_enemy_traits` = 7 変異のアンカーを全部拾った)だけで、既存の本は 0 本。** #75 の差分は既存の本のアンカーの**行そのもの**には 1 つも掛かっていない。
+  ④ を足すと **4 本**:
+
+| 本 | 掛かった字面(例) | #75 の差分を含む関数 |
+|---|---|---|
+| `verify_aoe_coverage` | `const splashOk = AOE_COVER_ON \|\| !partyInArea(…)` ほか 2 | `allyFireball` ほか範囲呪文 |
+| `verify_bolt_aim` | `async function allyLightningBolt(` ほか 7 | `allyLightningBolt`(#5 の挿入) |
+| `verify_bolt_bounce` | `BOLT_BOUNCE_ON ? BOLT_MAX_BOUNCE : 0);` ほか 3 | `allyLightningBolt` |
+| `verify_cone_cast` | `async function allyBurningHands(ally, enemyIdx) {` / `…allyConeOfCold(…` / `const directions = [` | `allyBurningHands`(#8)/ `allyConeOfCold`(#6) |
+
+  - `tavern.html` の変更は changelog の `<li>` 1 行だけで関数の中ではない ⇒ ④ は `index.html` に限った(`tavern.html` にも当てると、関数宣言の無い HTML 部分が 1 つの範囲になり、十数本が雑音で選ばれる)。
+
+#### (3) 走査と所要
+
+- 走行器 = `item5/sweep_75.py`(`sweep75.py` のコピー。読む表 = `item5/armlist_75.json`・出力 = `item5/run/after75.tsv`(154 行 + ヘッダ・18 列)/ `after/` / `fp_after/`。済んだ `arm_id` を SKIP して再開できる形のまま)。直列・毎腕後に `df_*` の居残り Chrome を掃除(**全 154 腕で 0**)。打ち切り = `probe_party_size`(素)の 600 秒だけ(着手前と同じ扱い)。
+- 2026-09-29 01:26:05 → 06:10:57(**284.9 分**・中断なし)。素 148 腕の合計 **276.2 分**(着手前 `after74.tsv` の同じ 148 腕 277.7 分)。腕あたり 1.84 分。
+- 最長 6 腕: `verify_bolt_aim` 2,242.5s / `driver_field_step6` 1,697.8s / `probe_p9_tour` 1,656.6s / `verify_hold_pair` 904.6s / `driver_diag_watchdog` 734.3s / `auto_debug_run` 721.2s。
+- ⚠ **試遊サーバ 8765**: 走査の前に LISTEN を実測 = **pid 5200**(`python.exe -m http.server 8765`・親 pid 29056 = `py -m http.server 8765`)。両方を止めてから走査し、走査と再走をすべて終えてから立て直した(下の (7))。`auto_debug_run`(素)は既定ポート 8765 のまま **exit 0**(721.2 秒)。
+
+#### (4) 色の遷移(exit code が主)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | **128** | — |
+| 赤→赤 | **15** | `driver_field_step6`(54/59)/ `driver_grid_p4`(exit 3)/ `driver_grid_p8`(55/56)/ `driver_mapeditor`(176/179)/ `driver_mapeditor_painting`(105/106)/ `driver_monsters_hobgoblin`(12/14)/ **`driver_sce1_events`(211/214・着手前と同じ 3 件)** / `driver_speech_v2`(45/46)/ `probe_bandit_map` `probe_s2_fold` `probe_swamp_map`(exit 3・引数なしでは走らない)/ `probe_n4_stall`(停滞が観測されない)/ `probe_party_size`(13/20・600 秒で打ち切り)/ `sweep_recruit_balance`(装置 4/4 崩れ)/ `verify_walk_block`(22/23) |
+| **緑→赤** | **0** | — |
+| 赤→緑 | **5** | `driver_field_step2`(63/64 → 64/64・`D2-dragon-lair`)/ `driver_monsters_griffon`(14/17 → 17/17)/ `driver_monsters_umberhulk`(21/22 → 22/22・`再発火` の 1 件)/ `driver_speech_engine`(16/17 → 17/17・`カメラが実際に動いた`)/ `verify_world_heromark`(17/18 → 18/18・`(1c)`) |
+| exit の値だけ変化 | 0 | — |
+| 新規(着手前の色なし) | **6** | 下の表 |
+
+| 新規の腕 | exit | 総括 | 秒 |
+|---|---|---|---|
+| `verify_enemy_traits`(素) | 0 | **15/15 PASSED FAILED 0 PENDING 0** | 4.0 |
+| `verify_enemy_traits --negative` | 0 | **7 本すべて担当ラベルだけが赤(空振り 0・漏れ 0)** | 28.0 |
+| `verify_aoe_coverage --negative` | 0 | 10 本すべて担当ラベルが赤(空振り 0) | 29.0 |
+| `verify_bolt_aim --negative` | 0 | 10 本すべて担当ラベルが赤(空振り 0) | 143.1 |
+| `verify_bolt_bounce --negative` | 0 | 8 本すべて担当ラベルが赤(空振り 0) | 68.0 |
+| `verify_cone_cast --negative` | 0 | 41/41 PASSED(変異 14 本すべて実装済) | 191.1 |
+
+- 赤→緑 5 本はどれも §12-0 (11) の「赤の腕」に居た本で、赤の中身は着手前も「観測できなかった / 1 回きりの揺れ」の形(`D2` の画素ハッシュ・`(1c)` の 1px も進まない・`再発火` と `カメラが動いた` の観測)。#75 は属性ダメージと眠りしか触っていない = **非決定の側へ転んだだけ**と読む(#75 が直したものではない)。
+- ⭐ 名指しの golden 7 本 = aoe_coverage 28/28・cone_cast 19/19・bolt_aim 23/23・bolt_bounce 15/15・road_boon 20/20・action_priority 92/0 / **`driver_sce1_events` 211/214 のまま・FAIL は `(2)` / `(4d)` / `(N2-隣)` の同じ 3 件**(§12-0 (9) の「動いたら #75 を疑う」に該当せず)。
+
+#### (5) 2 経路の突き合わせ(`item5/cmp_75.py -v`)
+
+指紋を比べられる腕 = **132**(素 148 − 判定行 0 行の 14 腕 − 指紋が走行ごとに動く 2 腕〔`driver_field_step6` / `driver_monsters_griffon`〕。⛔ この 16 腕は exit だけで見た。#74 と同じ扱い)。
+
+| | 一致 | 不一致 |
+|---|---|---|
+| 経路① assert id の並び | **127 / 132** | `driver_field_step2` / `driver_monsters_hobgoblin` / `driver_monsters_umberhulk` / `driver_speech_engine` / `verify_world_heromark` |
+| 経路② 判定行の多重集合 | **126 / 132** | 上の 5 本 + `driver_grid_p5` |
+
+| 腕 | 分類 | 中身 |
+|---|---|---|
+| `driver_field_step2` | 構造差(失敗の再掲行が消えた)= 赤→緑 | `D2-dragon-lair mapCanvas SHA が golden と一致` が FAIL → PASS |
+| `driver_monsters_umberhulk` / `driver_speech_engine` / `verify_world_heromark` | 値差(id の並びは同一・合否だけ反転)= 赤→緑 | それぞれ `再発火` / `カメラが実際に動いた` / `(1c)` が FAIL → PASS(RECAP 行が消えた分だけ経路②の行数が 1 減る) |
+| `driver_monsters_hobgoblin` | 値差(赤→赤のまま、赤い assert が入れ替わった) | 着手前 = `(e)` 2 件(孤立配置で観測 0 件)→ 今回 = `(d)` 2 件(密集配置で pack / disciplined の内訳 0 件)。⭐ どちらも「装置が 1 件も観測できなかった」形で、**#74 §12-5 (5) の 12 対でも本番・影の両方に両形が出ていた**(本番 `(e)`×5・`(d)`×2 / 影 `(e)`×3・`(d)`×3)= #75 の前から在る非決定。ホブゴブリンは体質の表(`ENEMY_TRAITS` 8 キー)の外 |
+| `driver_grid_p5` | 構造差(経路②のキー)・経路①は一致・緑のまま | 本文の職業名 `ally:cleric` → `ally:warrior`(抽選の編成)。#73 以来の既知 |
+
+- ⚠ **新規の `verify_enemy_traits` は指紋の抽出器 `fp74.py` に見えない**(判定行が `✓ (0a) …` の形で、抽出器が拾うのは `PASS` / `FAIL` / `OK` 系)⇒ 経路①②とも空。この本は exit + 総括行(15/15・7/7)で見た。
+
+#### (6) 緑→赤の帰属 = 0 本 / 着手前の色の無い `--negative` 4 腕は影のツリーで対照
+
+- 緑→赤は **0 本**なので、帰属を決める対比較(Fisher)の対象は無い。
+- 着手前の色の無い `--negative` 4 腕(と装置の確認用に `verify_enemy_traits` の素)を、本番と**影のツリー**で交互に 1 対ずつ走らせた(`item5/pair_75.py rr_neg 1 …`・直列・毎回 `df_*` 掃除)。
+  - 影 = `item5/shadow/`(作業ツリーを `.git` と `source_images` を除いて**実体コピー**・`tools/` も実体)→ `item5/mkshadow_75.py` で **`index.html` と `tavern.html` だけ** `1951914` の blob を `git check-attr eol`(= crlf)どおりに CRLF へ変換して置いた。
+    ⭐ 検算: 「HEAD の blob を同じ変換にかけたもの == 作業ツリーのバイト」が **2/2 一致**・影の `index.html` の `enemytraits` = **0 件**(本番 2 件)・他の配信ページ(`audio.js` / `title.html` / `town.html` / `world.html`)は作業ツリーとバイト一致・`tools/` 191 本 = 191 本。
+
+| 腕 | 本番(`7402153`) | 影(`1951914` 相当) | 経路① / ② |
+|---|---|---|---|
+| `verify_aoe_coverage --negative` | exit 0・P270 / F20・28.8s | exit 0・P270 / F20・28.7s | **完全一致**(290 id / 310 行) |
+| `verify_bolt_aim --negative` | exit 0・P165 / F32・142.9s | exit 0・P165 / F32・143.1s | **完全一致**(197 id / 229 行) |
+| `verify_bolt_bounce --negative` | exit 0・P111 / F23・67.4s | exit 0・P111 / F23・67.4s | **完全一致**(134 id / 157 行) |
+| `verify_cone_cast --negative` | exit 0・41/41 | exit 0・41/41 | **完全一致**(41 id / 41 行) |
+| `verify_enemy_traits`(素・装置) | exit 0・15/15 | **exit 3**(変異 `immunefloor` の注入点 0 件) | —(影が本当に #75 の前のバイトを配っている証拠) |
+
+  ⇒ 4 本とも**本番と影で判定行の並びと多重集合まで同一**、走査の 1 回とも同一。#75 の差分を含む関数に変異を当てる本でも、変異の担当と検出は 1 件も動いていない。
+
+#### (7) 試遊サーバ 8765
+
+走査と再走をすべて終えてから、`ゲームを起動.vbs` と同じコマンド(`cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)`)を `Invoke-CimMethod Win32_Process Create` でデタッチ起動(ReturnValue 0・cmd の pid 34780)。
+`netstat -ano` = **`TCP 0.0.0.0:8765 LISTENING 9600`** / **`TCP [::]:8765 LISTENING 9600`** ・ `http://localhost:8765/title.html` = **200**。居残りの Chrome(`df_*`)/ node(`tools/`)= **0**。
+
+#### (8) ⚠ 崩れた主張
+
+1. §12-0 (11)「`--negative` を持つ本 51 本・変異の口を持つ本 47 本」⇒ 51 は**コメント込みの語の出現**(HEAD で 53)。コードで `--negative` を扱う本は **30 本**、うちページを読むのは 28 本(`verify_enemy_traits` を含む)。
+2. §12-0 (11) / 申し送りの選び方「アンカー文字列を `1951914` と #75 後の `index.html` に当てて**件数が変わるか**で判定」⇒ その規則(①〜③)で選ばれる既存の本は **0 本**(#75 の差分は既存アンカーの行に 1 つも掛からない)。差分を**含む関数の中**のアンカー(④)まで広げて 4 本。⇒ 件数の変化だけで選ぶと「変異の当たる関数の中身が変わった」本を落とす。
+3. 申し送り「影のツリーは `index.html` だけを `1951914` へ戻す」⇒ #75 は `tavern.html` の changelog も 1 行変えている ⇒ **2 本とも**戻した(本番の差分をすべて戻さないと「#75 の前」にならない)。
+4. §12-0 (11) の「既知の非決定」一覧は**またも要約**: 今回の赤→緑 5 本のうち `driver_monsters_umberhulk`(`再発火`)と `driver_speech_engine`(`カメラが実際に動いた`)は一覧に無かった(どちらも着手前の赤の腕には載っている)。
+
+#### ⇒ 判定
+
+**154 腕(素 148 + 選び直した `--negative` 4 + 新規 2)で、#75 に帰属する緑→赤は 0。** 緑→赤 0・赤→緑 5(非決定の側へ転んだだけ)・赤→赤 15(`driver_sce1_events` は 211/214 のまま)。
+指紋を比べられる 132 腕で経路① 127・経路② 126 が一致し、差 6 本は赤→緑 4・赤い assert の入れ替わり 1(`hobgoblin`・#74 で両形とも観測済)・既知の抽選の本文 1 で説明が付く。
+着手前の色の無い `--negative` 4 腕は、影のツリーとの対で判定行まで同一。新規受入は素 15/15・`--negative` 7/7。
+
+### 12-6. 総括
+
+**何を実装したか(プレイヤー向け)**
+
+1. 敵に 5e SRD どおりの**体質**が付いた。アンデッド 7 種(スケルトン・ゾンビ・スケルトンアーチャー・レイス・リッチ・カエルム・ウィル・オ・ウィスプ)と構造体 3 種(ストーンゴーレム・動く鎧・石の軍団兵)は**スリープで眠らない**。
+2. 赤竜ファラクサスに**炎は効かない**(0・`IMMUNE`)。カエルムは冷気 0、ウィスプは雷 0。レイス・カエルム・ウィスプ・リッチは炎/冷気/雷のいくつかを**半分**にする(`RESIST`)。弱点(2 倍)は 0 件(ユーザー決定)。
+3. 範囲呪文は**敵ごと**に判定する(ファラクサスとゴブリンを巻き込めばゴブリンだけ減る)。表示・ログの数字は判定後の値。
+4. 撤退 **`?enemytraits=0`** で体質を消す。
+
+- 実装 = `index.html` だけ(`resolveElementDefense` + 体質の表 `ENEMY_TRAITS` + 属性の 11 か所への挿入 + `allySleep` の免疫)+ changelog 1 行。項目2 の逸脱なし。
+- 受入 `tools/verify_enemy_traits.js`(新規・base **10459** / 変異 10460〜10466)= 素 **15/15**(項目3 で 3 回 + 項目5 で 2 回)/ `--negative` **7/7**(空振り 0・漏れ 0。項目3 + 項目5)。
+- 名指しの golden 7 本 = 着手前と同色同数(項目2・項目5 とも)。
+- 勝率の記録(§12-4)= S5 ON 8/10・OFF 10/10(p≈0.47)/ S6 ON・OFF とも 0/10(体質と無関係)。調整はしていない(決裁どおり)。
+- 母集団の非退行 = **154 腕**で **#75 に帰属する緑→赤 0**(§12-5)。
+
+**崩れた主張 = 19 件**(§12-0 = 8 / §12-2 = 0 / §12-3 = 7 / §12-4 = 0 / §12-5 = 4)
+
+| # | 依頼書・申し送りの主張 | 実測 | 出典 |
+|---|---|---|---|
+| 1 | §8「`d20` / `rollDiceDD` を固定すれば乱数が止まる」 | 11 か所のうち 7 か所は `Math.random` 直振り ⇒ `Math.random` を固定 | §12-0 (6)-1 |
+| 2 | §2-3「`dmg = resolveElementDefense(…).dmg`」をそのまま差す | #3・#11 は `const dmg`(`let` に)/ #1 は `sdmg`・#2 は `extra` | §12-0 (6)-2 |
+| 3 | §2-3 罠 1「底上げの後・HP 行の直前」 | 7 か所では間に `tryDisplacement` ⇒ その**後**に差す | §12-0 (6)-3 |
+| 4 | §2-4「stunned を書く効果が他に 15 種類」 | **13 か所**(パーティ発 12 + 敵発 1) | §12-0 (6)-4 |
+| 5 | 行の指し違い(`:29344` / `:22233` / `:842-857`) | `:29330` / `:22234` / `:836〜857` | §12-0 (6)-5 |
+| 6 | §2-1「`undead: true` が 7 行」を grep で数える | プロパティは 7 だが `grep -c` はコメントを拾って 8 | §12-0 (6)-6 |
+| 7 | §8 盤面「ゴブリン・オーク・スケルトンを並べている」 | 流用元にスケルトン/オークが出るのはホールド・パーソンの節だけ | §12-0 (6)-7 |
+| 8 | §8「`probe_s2_clear` の `--arm qs:` を S5/S6 へ広げる」 | 舞台固定・白リスト・腕 1 つ ⇒ 新しい道具 | §12-0 (6)-8 |
+| 9 | §8 (1a)「炎の 5 経路」 | 余波の炎を足して **6 経路** | §12-3 (4)-1 |
+| 10 | §8 (2a)「5 種」 | 眠らない **10 種**すべて | §12-3 (4)-2 |
+| 11 | §8 (1b)(1c) を属性の代表で撃つ | 飛び散りの変異を捕まえるには **14 通り全部** | §12-3 (4)-3 |
+| 12 | §8 `immunefloor`「免疫が `Math.max(1, …)` を返す」 | 罠 1 の姿は `Math.max(1, 0)` | §12-3 (4)-4 |
+| 13 | §8 の変異の担当表 | 実測へ置き換え(予想より広がった 5 本) | §12-3 (4)-5 |
+| 14 | 項目2 の申し送り「(2c) 凍結は乱数 0.95 で測れる」 | 凍結はセーヴ失敗でしか付かない ⇒ 0.02 で撃つ | §12-3 (4)-6 |
+| 15 | 反射はそのまま呼べる | `gameOver` が true だと黙って抜ける ⇒ 呼び出しの間だけ false | §12-3 (4)-7 |
+| 16 | §12-0 (11)「`--negative` を持つ本 51 本」 | コメント込みの語の数。コードで扱う本は 30 本 | §12-5 (8)-1 |
+| 17 | `--negative` は「アンカーの件数が変わるか」で選べる | その規則では既存の本 0 本 ⇒ 差分を含む関数の中まで広げて 4 本 | §12-5 (8)-2 |
+| 18 | 影は `index.html` だけ戻す | `tavern.html` も #75 の本番差分 ⇒ 2 本とも戻した | §12-5 (8)-3 |
+| 19 | §12-0 (11) の既知の非決定の一覧 | 赤→緑 5 本のうち 2 本が一覧に無い = 一覧は要約 | §12-5 (8)-4 |
+
+**残**
+
+- **§9 の実機確認(ユーザー担当・そのまま)**: ① iPhone で、アンデッドにスリープを撃った時の「効かない」表示とファラクサスへの炎の `IMMUNE` が読めるか ② 範囲呪文で `IMMUNE` と `RESIST` の吹き出しが何体ぶんも重なった時にうるさすぎないか。⚠ http 起動が必須。
+
+**別チケット候補(本チケットでは直さない)**
+
+- **S6 竜の巣が Lv10・4 人で 0/10**(ON も OFF も・体質と無関係。ファラクサスの前で主人公が倒れる)= 難易度の宿題(§12-4 所見 2)。
+- **A-2 伝承判定と AI**(魔法使いの AI に体質を読ませる)。今は自動抽選の編成だとファラクサスへ炎/冷気/雷がほぼ飛ばず、体質が効く場面の大半は「スリープが効かない」(§12-4 所見 5)。
+- **`probe_s2_clear` の既定腕がソロで出発する**(#54 以降、酒場で誰も誘わないと 1 人)。`probe_s5s6_clear` は `?recruittalk=0` で 4 人に戻している。
+- 母集団の指紋の抽出器 `fp74.py` が `✓ (id)` 形式の判定行を拾わない ⇒ `verify_enemy_traits` は 2 経路の比較から漏れる(exit と総括行だけで見ている)。
+- #74 から継続: `driver_field_step2` の `D2-dragon-lair` / `driver_monsters_hobgoblin` の観測 0 件(赤い assert が `(e)` と `(d)` の間で入れ替わる)/ `probe_s2_clear --negative` の `wipeblind` / `probe_party_size` の両腕 / `auto_debug_run.js` のポート 8765 固定。
+
+**次の新規ドライバ base = 10471**(#75 が使ったのは 10459〜10466 = `verify_enemy_traits`・10470 = `probe_s5s6_clear`)。
