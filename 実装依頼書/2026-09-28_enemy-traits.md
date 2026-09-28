@@ -529,3 +529,42 @@ awk '/^    const ENEMY_TYPES = \{/{f=1;next} f&&/^    \};/{exit} f&&/^      [A-Z
 
 - base **10459** / 変異 **10460〜10467**: `netstat -ano` で LISTEN 0 件。`tools/*.js` の `arg('port', …)` の台帳の最大は `verify_pen_sample` 10451(変異 〜10458)。`grep -E "104(59|6[0-7])" tools/*.js tools/*.py` のヒットは `verify_road_ambush.js:686` の乱数表の小数 1 件だけ(ポートではない)。✅
 - golden 7 本のポート = aoe_coverage 10141 / cone_cast 9940 / bolt_aim 10301 / bolt_bounce 10371 / sce1_events 8845 / road_boon 9790 / action_priority 8843 = **互いに衝突なし・8765 を使わない**(各本が自前のサーバを立てる)。試遊サーバ 8765 は LISTEN 中(pid 5200・ユーザーのもの)で、止めていない。
+
+### 12-2. 本番実装(項目2)
+
+触ったのは `index.html`(+88 / −5・CRLF のまま 39,742 → 39,825 行、bare LF 0)と `tavern.html` の `changelogList` 1 行の差し替え(+1 / −1・既定 4 件維持・CRLF のまま)だけ。`audio.js` / `js/*.js` / `tools/` は触っていない。
+
+#### (1) 実装後の行番号(項目2 のコミット時点)
+
+| 何 | 行 |
+|---|---|
+| `resolveElementDefense(enemyIdx, element, dmg)` | 17064〜17082(`resolvePhysDefense` 17046 の直後)。免疫の `return { immune: true, resisted: false, dmg: 0 };` = 17077 |
+| `ENEMY_TRAITS_ON` / `ENEMY_TRAITS` / `enemyElementMult` / `enemySleepImmune` / `window.__dfEnemyTraits` | 27487〜27524(`isUndeadEnemy` 27484 の直後)。定数 27491〜27492 / 表 27493〜27502 / `pharaxus` 27498 / `enemyElementMult` 27504 / `enemySleepImmune` 27513 / 窓 27521 |
+| #1 余波 | 23177 `sdmg = resolveElementDefense(i, swIsFire ? "fire" : "lightning", sdmg).dmg;`(HP 行 23178) |
+| #2 追加属性 | 23211〜23214(fire/cold/lightning だけ通す・HP 行 23215) |
+| #3 ファイアボルト | 28110 `const`→`let` / 28118(HP 行 28119) |
+| #4 ファイアボール | 28788(HP 行 28789) |
+| #5 ライトニングボルト | 29021(HP 行 29022) |
+| #6 コーンオブコールド | 29119(HP 行 29120・凍結は後ろのまま) |
+| #7 アイスストーム | 29207(HP 行 29208) |
+| #8 バーニングハンズ | 29316(HP 行 29317) |
+| #9 ライトニングアロー本命中 | 31122(`if (!tryDisplacement(enemyIdx)) {` の中・HP 行 31123) |
+| #10 同 飛び散り | 31161(HP 行 31162) |
+| #11 反射 | 32811 `const`→`let` / 32813 `if (spell.fireAcid) …`(HP 行 32814) |
+| `allySleep` | 28133。免疫カウンタ 28257〜28261 / 免疫の `continue` 28265(ループ先頭) / 眠りの書き込み 28270(不変)/ 吹き出し・ログ 28277〜28287 |
+
+- 11 か所すべて「最後の底上げの後・`tryDisplacement` の後・HP 行の直前」。`__tookFireAcid` の行は 1 行も動かしていない(#1 は HP の後・他は HP の前のまま)。
+- 表示とログは 11 か所すべて HP 行より後で、同じ変数を読む(目視で確認)⇒ 判定後の値が出る。
+
+#### (2) 依頼書からの逸脱
+
+- なし(STEP1〜3 は §4〜§6 のコードどおり)。細部の決めごと:
+  - スリープの吹き出しのラベルは `hits > 0 ? "SLEEP!" : (全員免疫 ? "IMMUNE" : "RESIST")`。「全員免疫」= 命中 0・抵抗 0・免疫 ≥ 1。
+  - 免疫の敵には命中ロールを振らない ⇒ アンデッドが混ざる範囲では、後ろの敵が引く `d20` が 1 つずつ前へずれる(§6 の指定どおり。乱数の消費順が変わるのは意図した変化)。
+  - ログは末尾に ` / N体は眠らない (名前, …)` を足す。「範囲 N体」の書式は不変。
+
+#### (3) 検証
+
+- 使い捨て検証(scratchpad `item2/probe_traits.js`・port 10461・`Math.random` を 0.95 に固定)= **43/43 PASS**:窓と表(8 キー・全キー実在・OFF で on=false)/ ファラクサス × ファイアボルトで減り 0・IMMUNE・表示 0 / OFF で 36 通る / ゴブリンは ON=OFF / 7 呪文 × レイスで `max(1, floor(素/2))`・表示 = 減り / ファイアボールでゴブリン 18・ファラクサス 0 / スケルトン・ゾンビ・リッチ・レイス・ストーンゴーレムにスリープで stunned 不変 + IMMUNE / ゴブリンは眠る / OFF でスケルトンが眠る / 不意打ちはスケルトンにも stunned / ページのエラー 0。
+- 名指し golden 7 本(素・直列)= 着手前と同色同数:aoe_coverage 28/28・cone_cast 19/19・bolt_bounce 15/15・road_boon 20/20・action_priority 92/0・bolt_aim 23/23(2,238 秒)/ driver_sce1_events 211/214(FAIL は着手前と同じ (2)/(4d)/(N2-隣) の 3 件だけ)。
+- ログ = scratchpad `item2/<本>.log` / `item2/golden7_summary.txt`(`run_golden7.ps1`)。

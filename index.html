@@ -17061,6 +17061,26 @@
       return { immune: false, resisted: false, dmg: dmg };
     }
 
+    /* ★[#75] 属性の防御。{immune, resisted, dmg} を返す (resolvePhysDefense と同じ形)。
+       ⚠⚠ 呼び口では「最低 1 の底上げ」の後、HP を引く行の直前で呼ぶ (依頼書 §2-3 罠 1)。
+       immune のとき dmg は 0。呼び口は return / continue せず 0 を引いてよい
+       (撃破判定・ハイドラの __tookFireAcid の順序を動かさないため)。 */
+    function resolveElementDefense(enemyIdx, element, dmg) {
+      const e = enemies[enemyIdx];
+      const m = enemyElementMult(e, element);
+      if (m === 1) return { immune: false, resisted: false, dmg: dmg };
+      const nm = (e && e.def && e.def.name) || "敵";
+      const jp = { fire: "炎", cold: "冷気", lightning: "雷" }[element] || element;
+      if (m === 0) {
+        showRollAtEnemy(enemyIdx, `<span class="label">IMMUNE</span>${jp}が効かない!`, "miss");
+        updateInfo(`${nm}: ${jp}は通用しない!`);
+        return { immune: true, resisted: false, dmg: 0 };
+      }
+      showRollAtEnemy(enemyIdx, `<span class="label">RESIST</span>${jp}を和らげた`, "hit");
+      updateInfo(`${nm}: ${jp}を和らげた (ダメージ半減)`);
+      return { immune: false, resisted: true, dmg: applyPhysResistHalving(dmg) };
+    }
+
     // 残像エフェクト DOM を spawn (520ms で自動 fade-out)
     function spawnDisplaceAfterimage(enemyIdx) {
       const e = enemies[enemyIdx];
@@ -23154,6 +23174,7 @@
           const saved = saveTotal >= dc;
           let sdmg = Math.max(1, sr.total);
           if (saved) sdmg = Math.max(1, Math.floor(sdmg / 2));
+          sdmg = resolveElementDefense(i, swIsFire ? "fire" : "lightning", sdmg).dmg;   // ★[#75] 体質 (底上げの後)
           e.hp = Math.max(0, e.hp - sdmg);
           // ハイドラ: 炎の余波も「火で焼き切った」扱い (首の永久切除を許可。主対象の追加属性と同じ規則)
           if (swIsFire) e.__tookFireAcid = true;
@@ -23187,6 +23208,10 @@
         }
         // ハイドラ: 炎/酸の追撃属性は「火で焼き切った」扱い (首の永久切除を許可)
         if (bonusType === "fire" || bonusType === "acid") target.__tookFireAcid = true;
+        // ★[#75] 体質 (底上げの後)。炎・冷気・雷だけ判定し、聖・酸は素通し
+        if (bonusType === "fire" || bonusType === "cold" || bonusType === "lightning") {
+          extra = resolveElementDefense(targetIdx, bonusType, extra).dmg;
+        }
         target.hp = Math.max(0, target.hp - extra);
         triggerEnemyDamageFlash(targetIdx);
         // 属性エフェクト (suppressFx 指定時はスキップ)
@@ -27459,6 +27484,44 @@
     function isUndeadEnemy(e) {
       return !!(e && ((e.def && e.def.undead) || e.type === "skeleton"));
     }
+    /* ★[#75] 敵の体質 (5e SRD 5.1)。⚠ 撤退 ?enemytraits=0 で表ごと無効 = 従来どおり全部等倍・全部眠る。
+       ⭐ 表に無い敵は体質なし (= 等倍・眠る)。値は SRD のまま、弱点 (2 倍) は SRD の該当が本作に居ないので 0 件 (ユーザー決定)。
+       ⭐ 眠りの免疫は「アンデッド (isUndeadEnemy)」と「表の sleepImmune」の和。アンデッドを表に書き写さない。
+       ⛔ ここを読むのは resolveElementDefense / enemySleepImmune の 2 本だけ。呼び口で表を直接引かない。 */
+    const ENEMY_TRAITS_ON =
+      new URLSearchParams(window.location.search).get("enemytraits") !== "0";
+    const ENEMY_TRAITS = {
+      wraith:         { resist: ["fire", "cold", "lightning"] },
+      lich:           { resist: ["cold", "lightning"] },
+      caelum:         { resist: ["fire", "lightning"], immune: ["cold"] },       // Ghost
+      ghostFlame:     { resist: ["fire", "cold"], immune: ["lightning"] },      // Will-o'-Wisp
+      pharaxus:       { immune: ["fire"] },                                      // Adult Red Dragon
+      stoneGolem:     { sleepImmune: true },                                     // 構造体 = 魅了に免疫
+      animatedArmor:  { sleepImmune: true },
+      stoneLegionary: { sleepImmune: true },                                     // 独自。ゴーレムと揃える (依頼書 §2-7)
+    };
+    /* 属性の倍率。0 = 効かない / 0.5 = 効きにくい / 1 = 等倍。element は "fire" | "cold" | "lightning"。 */
+    function enemyElementMult(e, element) {
+      if (!ENEMY_TRAITS_ON || !e) return 1;
+      const tr = ENEMY_TRAITS[e.type];
+      if (!tr) return 1;
+      if (tr.immune && tr.immune.indexOf(element) >= 0) return 0;
+      if (tr.resist && tr.resist.indexOf(element) >= 0) return 0.5;
+      return 1;
+    }
+    /* ★[#75] 敵の眠りの免疫。⚠ 味方用 sleepImmune(unit) とは別物 (写経しない)。読むのは allySleep だけ。 */
+    function enemySleepImmune(e) {
+      if (!ENEMY_TRAITS_ON || !e) return false;
+      if (isUndeadEnemy(e)) return true;
+      const tr = ENEMY_TRAITS[e.type];
+      return !!(tr && tr.sleepImmune);
+    }
+    /* ★[#75] 検証用の窓 (classic script 直下の const/function は window に載らないので明示的に載せる)。
+       resolveElementDefense は関数宣言 = 巻き上げ済み。ENEMY_TRAITS_ON / ENEMY_TRAITS はこの直上で評価済み。 */
+    window.__dfEnemyTraits = {
+      on: ENEMY_TRAITS_ON, table: ENEMY_TRAITS, mult: enemyElementMult,
+      sleepImmune: enemySleepImmune, resolve: resolveElementDefense,
+    };
     // frightened (-2) ペナルティ。allyAtkBuff/currentPlayerAtkBonus に内包して to-hit へ反映。
     // 攻撃ロールから引く状態異常ペナルティの合計 (恐怖 + 転倒)。全攻撃サイトがこの2関数を経由する。
     function allyAtkStatusPenalty(ally) {
@@ -28044,7 +28107,7 @@
       let allRolls = [];
       for (let i = 0; i < times; i++) allRolls = allRolls.concat(rollDiceDD(n, sides).rolls);
       const intBonus = (ally.int || 0) * times;
-      const dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + intBonus);
+      let dmg = Math.max(1, allRolls.reduce((a, b) => a + b, 0) + intBonus);   // ★[#75] const → let (体質で上書きする)
 
       // Phase 2-I: 着弾はフレイムタンインパクト fx (中央フラッシュ + 炎柱)
       const fxY = target.y + (tgtDef.displaySize || 64) / 2;
@@ -28052,6 +28115,7 @@
       spawnFireImpactBurst(ex, fxY, { size: 170, light: true });   // フォグ貫通の爆発 (単発)
 
       target.__tookFireAcid = true;   // ハイドラ: ファイアボルトの炎で首切除可
+      dmg = resolveElementDefense(enemyIdx, "fire", dmg).dmg;   // ★[#75] 体質 (底上げの後)
       target.hp = Math.max(0, target.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
       noteDisplacementHit(enemyIdx);
@@ -28190,9 +28254,15 @@
       const atkBonus = spellAtkBonus(ally);
       let hits = 0, resists = 0;
       const hitNames = [];
+      // ★[#75] 眠らない体質 (アンデッド・構造体)。5e の Sleep は効かない相手に判定しない = 命中ロールも振らない。
+      //   ⛔ 免疫はここ (allySleep の命中ループ) だけで判定する。stunned への書き込み全般に条件を付けない
+      //      (不意打ち・ターン・アンデッド・凍結なども同じ stunned を使う。依頼書 §2-4)。
+      let immune = 0;
+      const immuneNames = [];
       for (const idx of affectedIdxs) {
         const t = enemies[idx];
         if (!t.alive) continue;
+        if (enemySleepImmune(t)) { immune++; immuneNames.push(t.def.name); continue; }
         const natD20 = d20();
         const atkTotal = natD20 + atkBonus;
         const hit = (natD20 !== 1) && (natD20 >= effectiveCritRange(ally) || atkTotal >= effectiveEnemyAc(t));
@@ -28204,12 +28274,17 @@
           resists++;
         }
       }
+      // ★[#75] 免疫がいた時だけ「/ 効かない N」を足す。全員が免疫なら IMMUNE、1 体でも眠れば従来どおり SLEEP!。
+      //   ⚠ 「範囲 N体」の書式は verify_aoe_coverage (4a) が読むので崩さない。
+      const allImmune = hits === 0 && resists === 0 && immune > 0;
+      const sleepLabel = hits > 0 ? "SLEEP!" : (allImmune ? "IMMUNE" : "RESIST");
       showRollAtAlly(ally,
-        `<span class="label">${hits > 0 ? "SLEEP!" : "RESIST"}</span>` +
-        `命中 ${hits} / 抵抗 ${resists}<br>範囲 ${affectedIdxs.length}体`,
+        `<span class="label">${sleepLabel}</span>` +
+        `命中 ${hits} / 抵抗 ${resists}${immune > 0 ? ` / 効かない ${immune}` : ""}<br>範囲 ${affectedIdxs.length}体`,
         hits > 0 ? "skill" : "miss");
       const hitNamesStr = hitNames.length > 0 ? hitNames.join(", ") : "—";
-      updateInfo(`${ally.def.name}: 範囲スリープ → ${hits}体睡眠 (${hitNamesStr}) / ${resists}体抵抗`);
+      const immuneStr = immune > 0 ? ` / ${immune}体は眠らない (${immuneNames.join(", ")})` : "";
+      updateInfo(`${ally.def.name}: 範囲スリープ → ${hits}体睡眠 (${hitNamesStr}) / ${resists}体抵抗${immuneStr}`);
       await sleepMs(900);
     }
 
@@ -28710,6 +28785,7 @@
         // 残影回避判定 (Phase 2-A)
         if (tryDisplacement(idx)) continue;
         t.__tookFireAcid = true;   // ハイドラ: ファイアボールの炎で首切除可 (per-target)
+        dmg = resolveElementDefense(idx, "fire", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -28942,6 +29018,7 @@
         if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
         dmg = Math.max(1, dmg);
         if (tryDisplacement(idx)) continue;
+        dmg = resolveElementDefense(idx, "lightning", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -29039,6 +29116,7 @@
         if (halvedSave) { dmg = Math.floor(dmg / 2); halved++; }
         dmg = Math.max(1, dmg);
         if (tryDisplacement(idx)) continue;
+        dmg = resolveElementDefense(idx, "cold", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -29126,6 +29204,7 @@
         dmg = Math.max(1, dmg);
         // 残影回避判定 (Phase 2-A)
         if (tryDisplacement(idx)) continue;
+        dmg = resolveElementDefense(idx, "cold", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後) ⭐ アイスストームは画面の説明どおり冷気 (依頼書 §2-7)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -29234,6 +29313,7 @@
         dmg = Math.max(1, dmg);
         if (tryDisplacement(idx)) continue;
         t.__tookFireAcid = true;   // ハイドラ: バーニングハンズの炎で首切除可 (per-target)
+        dmg = resolveElementDefense(idx, "fire", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後)
         t.hp = Math.max(0, t.hp - dmg);
         triggerEnemyDamageFlash(idx);
         noteDisplacementHit(idx);
@@ -31039,6 +31119,7 @@
         for (let i = 0; i < times; i++) for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
         dmg = Math.max(1, dmg + dexMod);
         if (!tryDisplacement(enemyIdx)) {
+          dmg = resolveElementDefense(enemyIdx, "lightning", dmg).dmg;   // ★[#75] 体質 (回避の後・底上げの後)
           target.hp = Math.max(0, target.hp - dmg);
           triggerEnemyDamageFlash(enemyIdx);
           noteDisplacementHit(enemyIdx);
@@ -31077,6 +31158,7 @@
           if (halvedSave) dmg = Math.floor(dmg / 2);
           dmg = Math.max(1, dmg);
           if (tryDisplacement(idx)) continue;
+          dmg = resolveElementDefense(idx, "lightning", dmg).dmg;   // ★[#75] 体質 (敵ごと・回避の後・底上げの後) (飛び散り)
           t.hp = Math.max(0, t.hp - dmg);
           triggerEnemyDamageFlash(idx);
           noteDisplacementHit(idx);
@@ -32726,8 +32808,9 @@
       // 反射ダメージを術者へ (術の本来威力を1体=術者に集約。セーヴなしで丸ごと反射)
       const ecx = enemy.x + enemy.def.displaySize / 2;
       spawnFireballExplosion(ecx, enemy.y + enemy.def.displaySize / 2);
-      const dmg = Math.max(1, spell.rollDamage());
+      let dmg = Math.max(1, spell.rollDamage());   // ★[#75] const → let (体質で上書きする)
       if (spell.fireAcid) enemy.__tookFireAcid = true;     // 火/酸はハイドラ首切除フラグを尊重
+      if (spell.fireAcid) dmg = resolveElementDefense(enemyIdx, "fire", dmg).dmg;   // ★[#75] 体質 (底上げの後)。反射は炎のときだけ判定 (冷気・雷の反射経路は無い)
       enemy.hp = Math.max(0, enemy.hp - dmg);
       triggerEnemyDamageFlash(enemyIdx);
       showDmgAt(ecx, enemy.y, dmg, true);
