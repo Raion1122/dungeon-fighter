@@ -568,3 +568,70 @@ awk '/^    const ENEMY_TYPES = \{/{f=1;next} f&&/^    \};/{exit} f&&/^      [A-Z
 - 使い捨て検証(scratchpad `item2/probe_traits.js`・port 10461・`Math.random` を 0.95 に固定)= **43/43 PASS**:窓と表(8 キー・全キー実在・OFF で on=false)/ ファラクサス × ファイアボルトで減り 0・IMMUNE・表示 0 / OFF で 36 通る / ゴブリンは ON=OFF / 7 呪文 × レイスで `max(1, floor(素/2))`・表示 = 減り / ファイアボールでゴブリン 18・ファラクサス 0 / スケルトン・ゾンビ・リッチ・レイス・ストーンゴーレムにスリープで stunned 不変 + IMMUNE / ゴブリンは眠る / OFF でスケルトンが眠る / 不意打ちはスケルトンにも stunned / ページのエラー 0。
 - 名指し golden 7 本(素・直列)= 着手前と同色同数:aoe_coverage 28/28・cone_cast 19/19・bolt_bounce 15/15・road_boon 20/20・action_priority 92/0・bolt_aim 23/23(2,238 秒)/ driver_sce1_events 211/214(FAIL は着手前と同じ (2)/(4d)/(N2-隣) の 3 件だけ)。
 - ログ = scratchpad `item2/<本>.log` / `item2/golden7_summary.txt`(`run_golden7.ps1`)。
+
+### 12-3. 新規受入(項目3)
+
+`tools/verify_enemy_traits.js`(新規・LF)。触ったのはこのドライバと本節だけ(本番・他の `tools/` は 0 バイト)。
+base ポート **10459** / 変異 **10460〜10466**(`MUTATIONS` の並び順)。総括行は `N/N PASSED   FAILED n   PENDING 0`、exit 0 / 1(赤・空振り・担当の漏れ)/ 2(環境・例外)/ 3(変異の注入点がちょうど 1 箇所でない。⭐ 起動時に 7 変異すべてを原本で検算するので、素の走行でもアンカーの腐敗は exit 3 で出る)。
+成果物(ログ)= scratchpad `…/77bd3943-0319-4699-9438-549ec95bd6b8/scratchpad/item3/`。
+
+#### (1) 作り
+
+- 盤面 = 項目2 の `probe_traits.js`(← `verify_aoe_coverage` の `openIndex` / `installProbe` / `board`)。敵は `createEnemy` → `enemies.push` → `createEnemyDom`・maxHp 400。
+- 乱数 = `Math.random` を定数に固定(崩れ 1)。既定 0.95(d20 = 20 ⇒ 命中・クリティカル確定・セーヴは必ず成功 = 敵の能力値でダメージが割れない)、凍結 (2c) だけ 0.02(d20 = 1 ⇒ セーヴ失敗)。
+- 2 腕 = 同じ配信スナップショットから `index.html` と `index.html?enemytraits=0` を別ページで開く。被験 9 種 × 14 通り × 2 腕を全部撃つ。
+- **14 通りの経路**(11 か所を属性で割った組): P1 余波 fire / lightning(`applyWeaponSpecialEffects` を `{shockwaveDice, shockwaveType}` で直叩き・盤面 [ゴブリン=対象, 被験] で隣の被験が受ける)/ P2 追加属性 fire / cold / lightning(`{bonusDmgDice, bonusDmgType}`)/ P3〜P8 = `ally*` 直叩き / P9 ライトニングアロー本命中 / P10 同 飛び散り(盤面 [ゴブリン=本命, 被験])/ P11 反射(`__plaza.addChargeItem("ring_spell_turning")` → `__plaza.tryReflect(idx, {rollDamage: () => 24, fireAcid: true})`。⚠ `gameOver` が true だと抜けるので呼び出しの間だけ false)。
+- 期待値の 2 経路: ① ページの窓 `__dfEnemyTraits` ② ドライバが独立に持つ表 `SRD`(§2-2 を書き写した 11 キー)。ダメージの期待値は ② × 「同じ乱数・同じ経路でゴブリンに撃った減り(= 素)」から出す。① と ② は (0c) で全 51 種 × 3 属性 + 眠りを突き合わせる。
+- 表示の観測 = `window.showDmgAt` を包み、被験の中心 x に出た数字だけを拾う(P10 は本命ゴブリンの表示も出るため)。
+
+#### (2) assert 一覧(15 件)
+
+| id | 中身 |
+|---|---|
+| (0a) | [装置] 14 通り + スリープ + 凍結 + 不意打ちがゴブリンに実際に効いた・反射が発動した(`tryReflect` が true)。実測の素: P1f 6 / P1l 6 / P2* 12 / P3 36 / P4 18 / P5 15 / P6 12 / P7 11 / P8 12 / P9 66 / P10 8 / P11 24 |
+| (0b) | 窓が在り `on === true`・表のキー 8 個・全キーが `ENEMY_TYPES` に実在・OFF の腕で `on === false` |
+| (0c) | 表のキー集合 = SRD のキー(属性持ち 5 + 構造体 3)・全 51 種 × 炎/冷気/雷の倍率 + 眠りの免疫がページとドライバで一致 |
+| (0d) | [装置] 2 腕とも起動・pageerror 0(`--negative` の起動確認) |
+| (1a) | ファラクサスに炎の **6 経路**(P1f / P2f / P3 / P4 / P8 / P11)→ 減り 0 + IMMUNE |
+| (1b) | レイスに 14 通り → 減り = `max(1, floor(素/2))` + RESIST |
+| (1c) | カエルム・ウィスプ・リッチに 14 通り → SRD の倍率どおり(0 は IMMUNE / 半分は RESIST / 等倍は吹き出しなし) |
+| (1d) | ファイアボールでゴブリン + ファラクサス → ゴブリン 18(= 素)・ファラクサス 0 |
+| (1e) | (1a)〜(1c) の全 62 走行で被験への最後の表示 = HP の減り・ファラクサスへの炎で正の数を出さない |
+| (2a) | 眠らない **10 種**(アンデッド 7 + 構造体 3)に単独でスリープ → stunned 増えない・吹き出し IMMUNE で「効かない 1」・ログ「1体は眠らない」 |
+| (2b) | ゴブリン + スケルトン → stunned [2, 0]・吹き出し SLEEP! で「効かない 1」 |
+| (2c) | スケルトンへの `applySurpriseStun` と凍結(d20 = 1)が stunned を付ける(対照のゴブリンも付く) |
+| (3a) | ゴブリン / オーク / ハイドラ / ガーゴイル × 14 通り = 56 組で ON と OFF の減りが 1 の差も無い・IMMUNE/RESIST なし |
+| (3b) | ハイドラ(`hydraHeads` 3 / `headHpMax` 10 / hp 5 を自前で入れる)をファイアボルトで倒す → 首 2(生えない)・コーンオブコールドなら 4(生える)。両腕で同じ |
+| (4a) | (1a)(1b)(1c)(1d)(2a)(2b) の**同じ述語関数**を OFF の腕の観測へ当て、6 本すべて偽 + OFF の窓 `on === false` |
+
+#### (3) 負のコントロールの担当(予想 = 依頼書 §8 / 実測 = `--mutate` で実走)
+
+| 変異 | 注入(`index.html` の配信スナップショットだけ) | §8 の予想 | 実測の赤 |
+|---|---|---|---|
+| `immunefloor` | `resolveElementDefense` の免疫 `dmg: 0` → `dmg: Math.max(1, 0)` | (1a) | (1a)(1c)(1d)(1e) |
+| `stunguard` | `allySleep` の免疫行を外し、眠り・凍結・不意打ちの stunned 書き込み 3 か所に `if (!enemySleepImmune(t))` | (2c) | (2a)(2b)(2c) |
+| `onesite` | 飛び散り (#10) の挿入行を外す | (1c) または (0a) | (1b)(1c) |
+| `aoeabort` | ファイアボールで範囲に炎の効かない敵が 1 体でも居れば全員 0 | (1d) | (1a)(1d) |
+| `preshow` | ファイアボルトの表示にだけ判定前の値を渡す | (1e) | (1e) |
+| `tabletypo` | 表のキー `pharaxus` → `pharaxsus` | (0b) | (0b)(0c)(1a)(1d)(1e) |
+| `switchdead` | `ENEMY_TRAITS_ON` を常に true(条件の末尾に true を OR で足す) | (4a) | (0b)(4a) |
+
+- ⭐ `--negative` は「赤の集合 = 担当」の**完全一致**を要求する(担当の外が赤くなっても exit 1)。予想の節はすべて実測の赤に含まれる(空振り 0)。
+- 予想より広がった理由: `immunefloor` はカエルム/ウィスプの 0 と範囲の 0 も 1 に化ける / `stunguard` は眠りの書き込みにも条件を付けたので、免疫の敵に命中ロールが振られて吹き出しとログから「効かない」が消える / `onesite` はレイスの飛び散りでも半分にならない / `aoeabort` はファラクサス単独のファイアボールで `resolveElementDefense` を通らないので IMMUNE が出ない / `switchdead` は (0b) が OFF の窓の `on === false` も見ている。
+- `onesite` で (0a) は赤くならない(ゴブリンの減りは挿入の有無で変わらない)⇒ 担当は (1b)(1c)。
+
+#### (4) 崩れた主張・依頼書から変えた点
+
+1. **§8 (1a)「炎の 5 経路」** → 余波の炎(P1f・熔鉄の戦鎚)も炎の経路なので **6 経路**にした(足しただけ・緩めていない)。
+2. **§8 (2a)「5 種」** → 眠らない **10 種**すべて(ドライバの SRD 表から導出)。
+3. **§8 (1c)/(1b) の経路** → 属性ごとの代表ではなく **14 通り全部**を撃つ(`onesite` の飛び散りは (1b)(1c) でしか捕まらないため)。
+4. **§8 負のコントロール `immunefloor`「免疫が `Math.max(1, …)` を返す」** → 最初 `Math.max(1, dmg)`(= 素のダメージがそのまま通る姿)で書いたが、罠 1 の姿は「0 が底上げで 1 になる」なので `Math.max(1, 0)` に直した(実測: ファラクサスの減りが全経路 1)。
+5. **§8 の担当表** → 上の (3) の実測へ置き換え(予想の節はすべて含む)。
+6. 項目2 の申し送り「(2c) 凍結は未検証」→ 凍結はセーヴ失敗でしか付かないので、乱数 0.95(セーヴ必ず成功)では**永久に観測できない**。凍結だけ 0.02(d20 = 1)で撃つ。対照のゴブリンにも付くことを (0a)(2c) で確かめている。
+7. 反射 `tryReflectEnemySpell` は `gameOver` を見て抜ける(`installProbe` は隔離のため `gameOver = true`)⇒ 呼び出しの間だけ false にする。`(0a)` で戻り値 true を確かめている。
+
+#### (5) 走行結果と所要(2026-09-28・HEAD 7cf1333・項目4 の走行と並走中)
+
+- 素 × 3(PowerShell から直列): **15/15 PASSED   FAILED 0   PENDING 0** × 3・exit 0・所要 3.8 / 3.8 / 3.7 秒。
+- `--negative`: 素の基準 15/15 + 変異 7 本 → **負のコントロール 7 / 7 が検出成功(赤 = 担当に完全一致)**・exit 0・所要 **26.7 秒**。
+- 項目5 へ: 母集団に足す腕は 2 本(素 / `--negative`)。ポート 10459〜10466。
