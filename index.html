@@ -338,6 +338,8 @@
       border: 1px solid rgba(255,190,170,0.32);
       white-space: nowrap;
     }
+    /* ★[#76] 伝承判定で見抜いた脅威度 (5e SRD 5.1 の CR)。名前の後ろに小さく「CR1/4」。 */
+    .enemyCr { margin-left: .35em; font-size: .8em; opacity: .85; }
     body.labelSmall .enemyLabel {
       font-size: 7.7px;
       letter-spacing: 0.7px;
@@ -12803,6 +12805,7 @@
         lb.appendChild(st);
         enemyLayer.appendChild(lb);
         enemyLabelElements.push(lb);
+        loreDecorateLabel(index);   // ★[#76] 見抜いた種類の敵が後から作られた (増援・召喚) → 札に脅威度
       } else {
         st.className = "enemy-status-slot";       // 従来どおり独立配置
         enemyLayer.appendChild(st);
@@ -21665,6 +21668,7 @@
         // ── 闇市 一般消費アイテムの自動発動 (M9) ──
         applyBattleStartConsumables();   // 影渡りの薬 / 呪われた曲刀 / セリアの手鏡
         tryNegatePreemptive(units);      // 牙の護符: 先制された時のみ
+        await runLoreCheck();             // ★[#76] 伝承判定。⚠ ボスの分岐の外 (リッチ・ファラクサス戦でも振る = 依頼書 §2-2 罠 1)
         await tryStealthSurprise();       // 第7弾: 隠密の接近（不意打ち）。stealth 得意PTのみ・非ボス敵の初手を封じる
         consumeSce1Surprise();            // [sce1-events] EV-9「積荷を渡すふり」成功の先制。★上の stunned=0 リセット(16157)より後でしか払い出せない
 
@@ -27522,6 +27526,185 @@
       on: ENEMY_TRAITS_ON, table: ENEMY_TRAITS, mult: enemyElementMult,
       sleepImmune: enemySleepImmune, resolve: resolveElementDefense,
     };
+    /* ★[#76] 伝承判定 (5e の知識判定)。⚠ 撤退 ?lore=0 で判定も知識も消える = 従来どおり AI は体質を知らない。
+       ⭐ 敵キー → 技能。獣・怪物 (自然) は表に載せない = 振らない (会議決定: 嘘の技能で振らない)。
+       ⛔ detectEnemyFamily を流用しない (ボス戦で呼ばれない・構造体を generic に落とす = 依頼書 §2-1)。 */
+    const LORE_ON = new URLSearchParams(window.location.search).get("lore") !== "0";
+    const LORE_SKILL_OF = {
+      // 歴史 (人型)
+      goblin: "history", goblinArcher: "history", goblinShaman: "history", goblinBrute: "history",
+      goblinRider: "history", goblinKing: "history", goblinChariot: "history", hobgoblin: "history",
+      kobold: "history", orc: "history", orcGrunt: "history", orcArcher: "history", orcShaman: "history",
+      orcBerserker: "history", garrock: "history", bandit: "history", banditArcher: "history",
+      banditMage: "history", banditHeavy: "history", scar: "history", lizardWarrior: "history",
+      lizardHunter: "history", lizardRaider: "history", lizardPriest: "history", swampNovice: "history",
+      lizardChieftain: "history",
+      // 宗教 (アンデッド)
+      skeleton: "religion", zombie: "religion", skeletonArcher: "religion", wraith: "religion",
+      lich: "religion", caelum: "religion", ghostFlame: "religion",
+      // 魔法学 (竜・構造体・元素・異形。hydra は会議決定 = 依頼書 §2-8)
+      pharaxus: "arcana", stoneGolem: "arcana", animatedArmor: "arcana", stoneLegionary: "arcana",
+      gargoyle: "arcana", sovereignEye: "arcana", hydra: "arcana",
+    };
+    /* 呪文 → 体質の表と同じ属性語。⚠ 演出の dfPlayCast の element ('ice' 等) を読まない (依頼書 §2-2 罠 3)。 */
+    const SPELL_ELEMENT = {
+      "fire-bolt": "fire", "fireball": "fire", "burning-hands": "fire",
+      "lightning-bolt": "lightning", "lightning-arrow": "lightning",
+      "cone-of-cold": "cold", "ice-storm": "cold",
+    };
+    const LORE_KNOWN = new Set();   // 思い出した敵キー (この冒険の間だけ)
+    const LORE_TRIED = new Set();   // 振った敵キー (失敗しても 2 度は振らない)
+    const LORE_NOBODY_SAID = new Set();   // 「正体を知る者はいない」を出した技能 (1 回の冒険に 1 行まで)
+    const LORE_SLEEP_BOOST = 2;     // 主人公: 「眠る」と知っている敵が 2 体以上ならスリープの重みを 2 倍
+    const LORE_SKILL_ORDER = ["history", "religion", "arcana"];   // 1 戦で振る順 (技能ごとに最大 1 回)
+    function loreKnows(e) { return LORE_ON && !!e && LORE_KNOWN.has(e.type); }
+    /* ⭐ enemyElementMult は関数宣言の名前で呼ぶ (検証が window.enemyElementMult を包んで器を確かめる = 依頼書 §8 (2e))。 */
+    function loreMult(e, spellId) {
+      const el = SPELL_ELEMENT[spellId];
+      return (el && loreKnows(e)) ? enemyElementMult(e, el) : 1;
+    }
+    function loreSleepUseless(e) { return loreKnows(e) && enemySleepImmune(e); }
+    /* ★[#76] 脅威度 = 5e SRD 5.1 の CR そのまま (ユーザー決定)。SRD に元が無い敵は載せない = 出さない。
+       ⭐ 出所: Dropbox の raw/srd/monsters/<slug>.md の cr: (依頼書 §2-10 の表)。値は小数で持ち、表示で分数へ。 */
+    const LORE_CR = {
+      rat: 0.125, goblin: 0.25, goblinArcher: 0.25, goblinRider: 0.25, hobgoblin: 0.5, kobold: 0.125,
+      skeleton: 0.25, skeletonArcher: 0.25, zombie: 0.25, wraith: 5, lich: 21, caelum: 4, ghostFlame: 2,
+      pharaxus: 10, stoneGolem: 10, animatedArmor: 1, gargoyle: 2, minotaur: 3, hydra: 8, mimic: 2,
+      plagueFrog: 0.25, ruinSpider: 1, chimera: 6, griffon: 2,
+      orc: 0.5, orcGrunt: 0.5, orcArcher: 0.5, bandit: 0.125, banditArcher: 0.125, banditHeavy: 0.5, scar: 2,
+      lizardWarrior: 0.5, lizardHunter: 0.5, lizardRaider: 0.5,
+    };
+    function loreCrText(type) {   // 0.125 → "1/8"。表に無ければ "" (= 出さない)
+      const cr = LORE_CR[type];
+      if (cr == null) return "";
+      return ({ 0.125: "1/8", 0.25: "1/4", 0.5: "1/2" })[cr] || String(cr);
+    }
+    /* ★[#76] 名前札 (#44) に脅威度を 1 つ足す。?namelabel=0 (札が null) なら何もしない。二重に足さない。
+       ⚠ createEnemyDom は起動時 (spawnNodeEnemies) にこの塊より先に走る = const の TDZ ⇒ LORE_READY (var) で門を立てる。 */
+    function loreDecorateLabel(index) {
+      if (!LORE_READY) return false;
+      if (!LORE_ON) return false;
+      const lb = enemyLabelElements[index];
+      if (!lb) return false;
+      const e = enemies[index];
+      if (!loreKnows(e)) return false;
+      const txt = loreCrText(e.type);
+      if (!txt) return false;
+      if (lb.querySelector(".enemyCr")) return false;   // 既に付いている = 何もしない
+      const crSpan = document.createElement("span");
+      crSpan.className = "enemyCr";
+      crSpan.textContent = "CR" + txt;
+      const nameSpan = lb.querySelector("span");   // 名前の <span> (札の最初の子)
+      if (nameSpan) nameSpan.insertAdjacentElement("afterend", crSpan);
+      else lb.insertBefore(crSpan, lb.firstChild);
+      return true;
+    }
+    /* 体質から「特徴」の短文を作る (ログ用)。?enemytraits=0 なら体質が無い = 「眠りの術が効く」。 */
+    function loreTraitText(e) {
+      const JP = { fire: "炎", cold: "冷気", lightning: "雷" };
+      const immune = [], resist = [];
+      for (const el of ["fire", "cold", "lightning"]) {
+        const m = enemyElementMult(e, el);
+        if (m === 0) immune.push(JP[el]);
+        else if (m < 1) resist.push(JP[el]);
+      }
+      const parts = [];
+      if (enemySleepImmune(e)) parts.push("眠りの術が効かない");
+      if (immune.length) parts.push(immune.join("と") + "が効かない");
+      if (resist.length) parts.push(resist.join("と") + "を和らげる");
+      if (!parts.length) parts.push("眠りの術が効く");
+      return parts.join("、");
+    }
+    /* ★[#76] 伝承判定の本体。runEncounter の行動順の後・tryStealthSurprise の直前で 1 回。
+       ⭐ 技能ごとに 1 回 (1 戦で最大 3 回)。習熟を持つ者だけの配列を渡す (依頼書 §2-2 罠 4)。
+       ⭐ パネルは出さない (opts.auto)。出目は代表の頭上のロール吹き出し + ログ 1 行。
+       ⚠ buildPerceptionParty() は写しを返す (主人公は hp>0 && !gameOver のときだけ先頭)。頭上に出すための
+          unit は写しへ足さず、ここで同じ順に並べた対応表で引く (写しに DOM を持つ ally を入れない)。 */
+    async function runLoreCheck() {
+      if (!LORE_ON) return;
+      if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return;
+      const bySkill = {};
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive || isEscortObjective(e)) continue;
+        const skill = LORE_SKILL_OF[e.type];
+        if (!skill || LORE_TRIED.has(e.type)) continue;
+        const g = bySkill[skill] || (bySkill[skill] = { types: [], rep: {}, dc: 10 });
+        if (g.types.indexOf(e.type) < 0) { g.types.push(e.type); g.rep[e.type] = e; }
+        if (isBossLikeDef(e.def)) g.dc = 15;   // 雑魚 10 / ボス格 15。複数の種類なら最大
+      }
+      const profs = SkillCheck.CLASS_PROFICIENCIES || {};
+      const checks = SkillCheck.CHECKS || {};
+      for (const skill of LORE_SKILL_ORDER) {
+        const g = bySkill[skill];
+        if (!g) continue;
+        const label = (checks[skill] && checks[skill].label) || skill;
+        const all = buildPerceptionParty();
+        const units = [];
+        if (hp > 0 && !gameOver) units.push("player");
+        for (const a of allies) if (a.alive) units.push(a);
+        const unitOf = new Map();
+        all.forEach((m, k) => unitOf.set(m, units[k]));
+        const party = all.filter(m => (profs[m.classKey] || []).indexOf(skill) >= 0);
+        if (party.length === 0) {
+          // 振らない。LORE_TRIED にも入れない (仲間が入れ替われば次の戦いで振れる)
+          if (!LORE_NOBODY_SAID.has(skill)) {
+            LORE_NOBODY_SAID.add(skill);
+            updateInfo(`📜 この敵の正体を知る者はいない (${label}の心得が要る)`);
+          }
+          continue;
+        }
+        let res = null;
+        try {
+          res = await SkillCheck.resolveSkillCheck(skill, g.dc, party, { auto: true });
+        } catch (err) { res = null; }
+        if (!res) continue;
+        for (const t of g.types) LORE_TRIED.add(t);
+        if (res.success) for (const t of g.types) LORE_KNOWN.add(t);
+        const repName = (res.rep && res.rep.name) || getLeaderName();
+        const unit = res.rep ? unitOf.get(res.rep) : null;
+        const rollType = res.crit ? "crit" : res.fumble ? "fumble" : res.success ? "hit" : "miss";
+        const html = `<span class="label">LORE</span>${label} 1d20(<b>${res.roll}</b>)${signedDD(res.bonus)}` +
+                     ` = <span class="big">${res.total}</span> vs DC ${res.dc}`;
+        if (unit === "player") showRollAtPlayer(html, rollType);
+        else if (unit && unit.def) showRollAtAlly(unit, html, rollType);
+        if (res.success) {
+          const lines = g.types.map(t => {
+            const e = g.rep[t];
+            const cr = loreCrText(t);
+            return `${e.def.name}${cr ? ` (脅威度 ${cr})` : ""}: ${loreTraitText(e)}`;
+          });
+          updateInfo(`📜 ${repName}は伝承を思い出した — ${lines.join(" / ")}`);
+          for (let i = 0; i < enemies.length; i++) {
+            if (enemies[i] && enemies[i].alive && g.types.indexOf(enemies[i].type) >= 0) loreDecorateLabel(i);
+          }
+        } else {
+          updateInfo(`📜 ${repName}は思い出せない… (${label} ${res.total} < DC ${res.dc})`);
+        }
+        await sleepMs(400);
+      }
+    }
+    /* 主人公・魔法使い用: 交戦中で未スタンの生存敵 (護衛対象を除く)。 */
+    function loreEngagedAwake() {
+      return encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive
+        && !isEscortObjective(enemies[i]) && (enemies[i].stunned || 0) <= 0);
+    }
+    /* 主人公: 未スタンの交戦敵が 1 体以上いて、全員「眠らない」と知っている = スリープは無駄。 */
+    function loreSleepAllUseless() {
+      const pool = loreEngagedAwake();
+      return pool.length > 0 && pool.every(i => loreSleepUseless(enemies[i]));
+    }
+    /* 主人公: 「眠る」と知っている未スタンの交戦敵の数。 */
+    function loreSleepSureCount() {
+      return loreEngagedAwake().filter(i => loreKnows(enemies[i]) && !enemySleepImmune(enemies[i])).length;
+    }
+    /* ★[#76] 検証用の窓 (const は window に載らないので明示的に載せる)。 */
+    window.__dfLore = {
+      on: LORE_ON, skillOf: LORE_SKILL_OF, cr: LORE_CR, crText: loreCrText, decorate: loreDecorateLabel,
+      spellElement: SPELL_ELEMENT, known: LORE_KNOWN, tried: LORE_TRIED, knows: loreKnows, mult: loreMult,
+      sleepUseless: loreSleepUseless, run: runLoreCheck, nobodySaid: LORE_NOBODY_SAID, sleepBoost: LORE_SLEEP_BOOST,
+    };
+    var LORE_READY = true;   // ⚠ var = 巻き上げで起動時は undefined (loreDecorateLabel の TDZ 避け)
     // frightened (-2) ペナルティ。allyAtkBuff/currentPlayerAtkBonus に内包して to-hit へ反映。
     // 攻撃ロールから引く状態異常ペナルティの合計 (恐怖 + 転倒)。全攻撃サイトがこの2関数を経由する。
     function allyAtkStatusPenalty(ally) {
@@ -28185,11 +28368,14 @@
         { tx: targetTX,     ty: targetTY - 1 },
         { tx: targetTX - 1, ty: targetTY - 1 },
       ];
-      let best = candidates[0], bestCount = enemiesInArea(best.tx, best.ty).length;
+      /* ★[#76] 狙点の評価だけ「伝承で眠らないと知っている敵」を数えない。撃つ・撃たない / affectedIdxs は不変。
+         ⚠ 何も知らなければ = .length と同じ値 (aoeBoxReachable は全員の集合のまま)。 */
+      const sleepWorth = (idxs) => idxs.filter(i => !loreSleepUseless(enemies[i])).length;
+      let best = candidates[0], bestCount = sleepWorth(enemiesInArea(best.tx, best.ty));
       if (!AOE_COVER_ON) {
         for (let i = 1; i < candidates.length; i++) {
           const c = candidates[i];
-          const cnt = enemiesInArea(c.tx, c.ty).length;
+          const cnt = sleepWorth(enemiesInArea(c.tx, c.ty));
           if (cnt > bestCount) { best = c; bestCount = cnt; }
         }
       } else {
@@ -28221,11 +28407,12 @@
           if (!c.legacy && !aoeBoxReachable(aCX, aCY, foeIdxs, rangeTiles)) continue;
           const bx = (c.tx + 1) * TILE_SIZE, by = (c.ty + 1) * TILE_SIZE;   // 2x2 の中心
           const d = (bx - aCX) * (bx - aCX) + (by - aCY) * (by - aCY);
-          if (foeIdxs.length > bestCount || (foeIdxs.length === bestCount && d < bestDist)) {
-            best = c; bestCount = foeIdxs.length; bestDist = d;
+          const worth = sleepWorth(foeIdxs);
+          if (worth > bestCount || (worth === bestCount && d < bestDist)) {
+            best = c; bestCount = worth; bestDist = d;
           }
         }
-        if (!best) { best = candidates[0]; bestCount = enemiesInArea(best.tx, best.ty).length; }
+        if (!best) { best = candidates[0]; bestCount = sleepWorth(enemiesInArea(best.tx, best.ty)); }
       }
       const affectedIdxs = enemiesInArea(best.tx, best.ty);
       if (affectedIdxs.length === 0) return;  // 範囲に敵なし
@@ -30379,7 +30566,12 @@
       // 2. スリープ: 未スタンの敵が 2体以上 & 50%確率
       const hasSleep = ally.equippedSkills.includes("sleep");
       const sleepCost = MAGE_SKILLS["sleep"]?.mpCost || 0;
-      if (hasSleep && hasSpellSlot(ally, "sleep") && unstunnedEnemies.length >= 2 && Math.random() < apGateP(ally, "sleep", 0.5)) {
+      // ★[#76] 伝承で「眠らない」と知っている敵は数に入れない。「眠る」と知っている敵が 2 体以上なら確率ゲートを外す。
+      //   ⚠ 何も知らなければ sleepPool === unstunnedEnemies・sure === false = 従来と同じ順で乱数を引く (依頼書 §2-2 罠 2)。
+      const sleepPool = unstunnedEnemies.filter(i => !loreSleepUseless(enemies[i]));
+      const sure = sleepPool.filter(i => loreKnows(enemies[i])).length >= 2;
+      if (hasSleep && hasSpellSlot(ally, "sleep") && sleepPool.length >= 2
+          && (sure || Math.random() < apGateP(ally, "sleep", 0.5))) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
         if (tgtIdx >= 0) {
           await allySleep(ally, tgtIdx);
@@ -30418,6 +30610,13 @@
         if (attackSpells.length > 0) {
           const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
           if (tgtIdx < 0) return false;
+          // ★[#76] 伝承で対象に「効かない」と知っている属性の呪文を外す。空ならスリングへ。
+          //   ⚠ 範囲呪文も対象 (最寄りの 1 体) だけで判定する。何も知らなければ何も外さない (乱数 0)。
+          const loreTgt = enemies[tgtIdx];
+          for (let k = attackSpells.length - 1; k >= 0; k--) {
+            if (loreMult(loreTgt, attackSpells[k]) === 0) attackSpells.splice(k, 1);
+          }
+          if (attackSpells.length === 0) return false;
           // 選択優先順: threatScore が高ければ強力な範囲呪文を優先、低ければ単体や火球を優先
           //   - threatScore ≥ 30 + Fireball 候補にあり → Fireball
           //   - threatScore ≥ 25 + Lightning Bolt or Cone of Cold → 優先
@@ -30436,6 +30635,17 @@
             }
           }
           if (!spellId) spellId = attackSpells[0];
+          // ★[#76] 選んだ呪文より効き目 (loreMult) の高い候補が残っていれば、最も高いものへ差し替える
+          //   (同じ効き目なら下の順)。効きにくい → 等倍 / 将来の弱点 → 弱点。何も知らなければ全部 1 = 不変。
+          {
+            const loreOrder = ["ice-storm", "lightning-bolt", "cone-of-cold", "fireball", "burning-hands", "magic-missile", "fire-bolt"];
+            let loreBest = loreMult(loreTgt, spellId);
+            for (const p of loreOrder) {
+              if (!attackSpells.includes(p)) continue;
+              const m = loreMult(loreTgt, p);
+              if (m > loreBest) { loreBest = m; spellId = p; }
+            }
+          }
           if (spellId === "magic-missile")        await allyMagicMissile(ally, tgtIdx);
           else if (spellId === "fire-bolt")       await allyFireBolt(ally, tgtIdx);
           else if (spellId === "fireball")        await allyFireball(ally, tgtIdx);
@@ -31309,7 +31519,8 @@
       if (ally.equippedSkills.includes("lightning-arrow") && hasSpellSlot(ally, "lightning-arrow")
           && threat.score >= 18) {
         const tgtIdx = pickClosestEngagedEnemyFromAlly(ally);
-        if (tgtIdx >= 0) {
+        // ★[#76] 伝承で対象に雷が「効かない」と知っていれば撃たずに次の枝へ (効きにくい 0.5 は撃つ)。
+        if (tgtIdx >= 0 && loreMult(enemies[tgtIdx], "lightning-arrow") !== 0) {
           await allyLightningArrow(ally, tgtIdx);
           return true;
         }
@@ -32470,6 +32681,13 @@
         //   ⭐ 乗算だけなので Math.random() の消費回数は変わらない (driver_leader_ai G2 は非退行)。
         w = Math.min(LEADER_W_MAX, Math.max(LEADER_W_FLOOR, w));
         if (apPrefId && id === apPrefId) w *= AP_BOOST;
+        // ★[#76] 伝承: 効き目の倍率とスリープの倍率 (クランプの後・AP_BOOST と同じ位置)。乗算だけ = 乱数は 1 回のまま。
+        //   ⚠ 倍率 0 の候補は playerAttackTurn のフィルタで外してある (0 を掛けると床に戻され warn が出る)。
+        if (tgt) {
+          const loreM = loreMult(tgt, id);
+          if (loreM > 0) w *= loreM;
+          if (id === "sleep" && loreSleepSureCount() >= 2) w *= LORE_SLEEP_BOOST;
+        }
         w = Math.pow(w, 1 / T);
         if (!isFinite(w) || w <= 0) { nonFinite++; w = LEADER_W_FLOOR; }
         weights.push(w);
@@ -32642,6 +32860,9 @@
             if (sk.acBonusAmount && playerBuffs.acBonusRemaining > 0) return false;
             if (id === "evasion" && playerBuffs.evasionRemaining > 0) return false;
             if (id === "lucky" && playerBuffs.luckyRemaining > 0) return false;
+            // ★[#76] 伝承: 対象に効かないと知っている属性の呪文 / 眠らないと知っている敵しか居ないスリープを外す
+            if (loreMult(enemies[targetIdx], id) === 0) return false;
+            if (id === "sleep" && loreSleepAllUseless()) return false;
             return true;
           });
         }

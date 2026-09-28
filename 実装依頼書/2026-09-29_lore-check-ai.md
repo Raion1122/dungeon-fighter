@@ -644,3 +644,92 @@ AI は `mageAI` / `elfAI` を直接呼び、呼ばれた `ally*` 関数を記録
 - 項目3: `gameOver` と主人公(崩れ 2)/ (2c)(2d) は装備と threatScore を選んで差を作る(崩れ 5・6)/ (2e) は `window.enemyElementMult` の包みが効く・ダメージは半減する(崩れ 7)/ (0d) の SRD は BOM 付き CRLF・`cr:` は小数 / (2g) の主人公の対象は「武器の射程内で HP が最も低い敵」(`:32585〜32607`)で最寄りではない・射程内に居ないと `pickLeaderAction` を呼ばずに前進する / (2h) は `?aoecover=0` だと候補が対象の周り 4 通りだけ(撤退の腕で当てるなら盤面の置き方に注意)。
 - 項目4: スイッチ表は 4 本(崩れ 10)。
 - 項目5: `after75.tsv` を着手前の色に使う / 影は新しい置き場で `BASE = c4ec84b` / 8765 の承認。
+
+### 12-2. 本番実装(項目2)
+
+touched: `index.html`(+228 / −7・CRLF のまま 39,825 → 40,046 行・bare LF 0)と `tavern.html` の `changelogList` 1 行(`py tools/add_changelog.py` で §10 の文面・既定 4 件維持・CRLF のまま)だけ。`js/*.js` / `audio.js` / `title/town/world.html` / `tools/` は 0 バイト。
+パッチは scratchpad `…/f5deb037-…/scratchpad/item2/patch.py`(13 か所・各アンカー `str.count == 1` を確かめて置換・LF で処理して CRLF へ戻す)。
+
+#### (1) 実装後の行番号(項目2 のコミット時点)
+
+| 何 | 行 |
+|---|---|
+| `.enemyCr` の CSS | 342(`.enemyLabel` 326 の塊の直後・`body.labelSmall .enemyLabel` の直前) |
+| `createEnemyDom` / 札への呼び口 `loreDecorateLabel(index);` | 12758 / 12808(`enemyLabelElements.push(lb);` の直後 = 添字が引ける位置) |
+| `runEncounter` / `detectEnemyFamily` の呼び口(else の中)/ 行動順のログ / **`await runLoreCheck();`** / `tryStealthSurprise()` | 21484 / 21508 / 21665 / **21671** / 21672 |
+| `buildPerceptionParty` / `tryStealthSurprise` | 25217 / 25403 |
+| `enemyElementMult` / `window.__dfEnemyTraits` | 27508 / 27525 |
+| STEP1 の塊 | 27529〜27707: `LORE_ON` 27532 / `LORE_SKILL_OF` 27533 / `SPELL_ELEMENT` 27550 / `LORE_KNOWN` 27555(`LORE_TRIED` / `LORE_NOBODY_SAID` / `LORE_SLEEP_BOOST` / `LORE_SKILL_ORDER` が続く)/ `loreKnows` 27560 / `loreMult` 27562 / `loreSleepUseless` 27566 / `LORE_CR` 27569 / `loreCrText` 27577 / `loreDecorateLabel` 27584 / `loreTraitText` 27603 / `runLoreCheck` 27623 / `loreEngagedAwake` 27688 / `loreSleepAllUseless` 27693 / `loreSleepSureCount` 27698 / `window.__dfLore` 27702 / `var LORE_READY` 27707 |
+| `allySleep` / `sleepWorth` / `affectedIdxs` / 免疫の `continue`(#75 のアンカー)/ stunned の書き込み | 28316 / 28373(評価 5 か所がこれを通る)/ 28417 / 28452 / 28457 |
+| `evaluateThreat` / `clericAI`(不変) | 30394 / 30414 |
+| `mageAI` / `sleepPool` / スリープの条件 2 行目 / `loreTgt`(効かない呪文を外す)/ `loreOrder`(差し替え) | 30537 / 30571 / 30574 / 30615 / 30641 |
+| `elfAI` / ライトニング・アローの条件 | 31488 / 31523 |
+| `isBossLikeDef` / `pickLeaderAction` / `AP_BOOST` の行 / `loreM` | 32325 / 32589 / 32683 / 32687 |
+| `playerAttackTurn` / 候補のフィルタ 2 行 / `choices` | 32735 / 32864〜32865 / 32872 |
+
+#### (2) §4〜§7 からの逸脱(振る舞いはすべて仕様どおり)
+
+1. **`var LORE_READY` の門を足した**(`loreDecorateLabel` の先頭)。`createEnemyDom` は起動時の `spawnNodeEnemies()`(トップレベルの `withNodeRng(…, spawnNodeEnemies)`)で**STEP1 の塊より先に**走るため、`const LORE_ON` などを読むと TDZ の ReferenceError でページが死ぬ。`var` は巻き上げで起動時 `undefined` = 何もしない。
+2. **`unit` は写しへ足さず、`runLoreCheck` の中の対応表(`Map`)で引く**(§12-0 崩れ 2 の推奨どおり)。`buildPerceptionParty()` 本体は無改造、写しの形も不変。対応は「主人公(`hp > 0 && !gameOver`)→ 生存仲間の順」で本体と同じ条件で並べる。
+3. **吹き出し**は `<span class="label">LORE</span>{技能} 1d20(<b>n</b>){+b} = <span class="big">total</span> vs DC d`、type = 出目 20 `crit` / 1 `fumble` / 成功 `hit` / 失敗 `miss`(§12-0 崩れ 3)⇒ #49 の判定行「出目 N+ → 成功/失敗 ±m」が付く(実測)。
+4. **技能の順は固定** `LORE_SKILL_ORDER = history → religion → arcana`(決定論のため。1 戦で最大 3 回)。判定を振ったら `sleepMs(400)`(吹き出しを見せる間。乱数は引かない)。
+5. **「正体を知る者はいない」の 1 行は技能ごとに 1 回の冒険に 1 行まで**を `LORE_NOBODY_SAID`(Set)で持つ。窓 `__dfLore` に `nobodySaid` / `sleepBoost` を足した(§4 の窓の中身に追加だけ)。
+6. **`mageAI` の差し替え**は「効き目が最大の候補(同値なら `fallbackOrder` と同じ順の先着)」。§5-2 の「最初のその候補」と §2-6 の「倍率が最大」が食い違うが、今のデータ(0 / 0.5 / 1)ではどちらでも同じ結果。`fallbackOrder` は else の中の定義を動かさず、同じ並びを `loreOrder` として持った(`verify_cone_cast` / `driver_action_priority` の説明が指す行を動かさないため)。
+7. **`pickLeaderAction` の倍率**は `if (tgt) { … }` の中で `loreM > 0` のときだけ掛ける(0 はフィルタで外してあるが、ドライバが直接呼んだとき 0 を掛けて warn を出さない保険)。`LORE_SLEEP_BOOST` は「眠ると知っている未スタンの交戦敵 ≥ 2」で掛ける。主人公のフィルタの「全員眠らない」は未スタンの交戦敵が **1 体以上**いるときだけ真(0 体で真にすると何も知らない時にもスリープが消える = 罠 2)。
+8. 特徴の文(`loreTraitText`)は体質の窓の関数(`enemyElementMult` / `enemySleepImmune`)から作る。`?enemytraits=0` では体質が無い = 「眠りの術が効く」。
+
+#### (3) 使い捨て検証(scratchpad `item2/probe_lore.js`・port 10491・自前 http・8765 不使用)= **33/33 PASS**・ページのエラー 0
+
+盤面 = `verify_enemy_traits` の `openIndex` / `installProbe` / `board`(2 行の床の区間を探して 2x2 を置けるようにした)+ `ally*` の非同期関数を記録器へ差し替える(`verify_cone_cast` の `quiet` の形)+ `SkillCheck.resolveSkillCheck` を包んで (技能, DC, 渡された編成の classKey, auto) を記録。主人公を編成に入れるため `run()` の間だけ `gameOver = false`。
+
+- ① ボス戦: リッチ + スケルトンで `runEncounter` を回し `tryStealthSurprise` で止める → 宗教の判定が 1 回・DC 15(`boss_appear` の枝でも振る)。`?lore=0` では 0 回。
+- ② 習熟者だけ: 宗教 → `[cleric]` / 歴史 → `[mage]` / 3 技能の混成 → `history:mage, religion:cleric, arcana:mage` の 3 回(主人公の戦士は一度も混ざらない)。僧侶が居ない → 呼び出し 0・「正体を知る者はいない」1 行・`tried` に入らない・同じ冒険の 2 戦目は行を繰り返さない。獣だけ → 呼び出し 0・ログ 0。
+- ③ 成功(出目 20)→ `known` にスケルトン・その場の 2 体の札に `.enemyCr` がちょうど 1 つ(`CR1/4`)・ログ 1 行「📜 リタは伝承を思い出した — スケルトン (脅威度 1/4): 眠りの術が効かない」・吹き出しは `LORE` + 判定行「出目 6+ → 成功 +14」。失敗(出目 1)→ `tried` だけ・札なし・「思い出せない… (宗教 5 < DC 10)」・type fumble。2 戦目は振らない。ゴブリン + ゴブリンキング → DC 15・キングの札に CR なし・キングだけならログに「脅威度」なし。後から作った知っている種類の敵 → 札に CR が 1 つ・`decorate` 2 回でも 1 つ。
+- ④ AI: スケルトン 3 体を知る → 20 手番で `allySleep` 0(知らない = 11)/ ゴブリンを知る × 乱数 0.99 → スリープ(知らない = 撃たない)/ ファラクサスを知る × fireball + MM(threat ≥ 30)→ MM(知らない = fireball)・fire-bolt だけ → `false`(スリング)/ カエルムを知る × cone + fireball(hp 5 = threat < 25)→ fireball(知らない = cone)/ リッチを知る → cone(0.5)から fireball(1)へ差し替え / `window.enemyElementMult` を包んでゴブリン×炎 = 2 → 知っていれば fire-bolt(知らない = MM)= 器が効く / ウィスプを知る × エルフ → LA を撃たない(知らない = 撃つ)・リッチ(雷 0.5)なら撃つ / 狙点: ゴブリン 2 体(近い)+ スケルトン 3 体(遠い 2x2)→ 知っていればゴブリン側に落ちて 2 体眠る・知らなければスケルトン側(範囲 3 体・誰も眠らない)。主人公(魔法使い)`playerAttackTurn` の `choices`: ファラクサスを知る → fire-bolt が無い / スケルトンだけを知る → sleep が無い(知らなければ両方ある)。重み: 眠ると知るゴブリン 2 体で sleep の選択 178/400(知らない = 114/400)・乱数はちょうど 1 回/呼び出し・`__leaderPickWarns` 0。
+- ⑤ **何も知らない恒等**: 6 盤面 × 3 装備 × hp 2 通りの `mageAI` 8 手番・6 盤面の `elfAI` 8 手番・4 盤面の `pickLeaderAction` 30 回(計 47 列・非自明 42 列)で、呼ばれた `ally*` の列と `Math.random` の回数が `?lore=0` の腕と**全列一致**。
+- ⑥ `?lore=0`: `__dfLore.on === false`・`run()` の呼び出し 0・`known` 0・札なし・`runEncounter` で判定なし。
+
+#### (4) 名指し golden 11 本(素・HEAD `19cf889` + 本変更の作業ツリー)= 着手前と**同色同数**
+
+| 本 | exit | 総括行 | 秒 | 着手前(§12-0 (5)) |
+|---|---|---|---|---|
+| `driver_leader_ai` | 0 | RESULT: 42/42 passed | 32 | 同じ |
+| `driver_action_priority` | 0 | PASSED 92 / FAILED 0 / PENDING 0 | 65 | 同じ |
+| `verify_aoe_coverage` | 0 | 28/28 PASSED | 3 | 同じ |
+| `verify_cone_cast` | 0 | 19/19 PASSED | 86 | 同じ |
+| `verify_hold_person` | 0 | 31/31 PASSED | 10 | 同じ |
+| `verify_hold_pair` | 0 | 21/21 PASSED | 904 | 同じ(0・21/21・904) |
+| `verify_spell_off` | 0 | 51/51 PASSED | 6 | 同じ |
+| `verify_enemy_traits` | 0 | 15/15 PASSED(`--negative` 7/7・担当に完全一致・exit 0・28 秒) | 4 | 同じ |
+| `driver_sce1_events` | 1 | RESULT: 211/214 passed | 48 | 同じ。FAIL は着手前と同じ (2) / (4d) / (N2-隣) の 3 件だけ(型3) |
+| `driver_skillcheck_roster` | 0 | RESULT: 13/13 passed | 4 | 同じ |
+| `verify_enemy_name_label` | 0 | 30/30 PASSED | 2 | 同じ |
+
+- `driver_sce1_events` は言い直し不要だった(同色同数・FAIL の 3 件は着手前と同じ文面)。
+- ログ = scratchpad `item2/golden/<本>.log`。
+
+#### (5) 項目3 の変異アンカー(`py` の `str.count` で各 1 件・`item2/anchors.py` → `anchors.txt`)
+
+`index.html` は CRLF。下はどれも 1 行の中で閉じる逐語(改行を含まない)。
+
+| 変異 | アンカー(逐語) | 行 |
+|---|---|---|
+| `bossbranch` | 呼び口 `        await runLoreCheck();             // ★[#76] 伝承判定。⚠ ボスの分岐の外 (リッチ・ファラクサス戦でも振る = 依頼書 §2-2 罠 1)` を消し、`        const fam = detectEnemyFamily(initialEngaged);` の後ろへ移す(`runEncounter` は async なので移した先でも `await` が書ける。行数を保つなら移し先は同じ行の末尾へ連結し、元の行は空行かコメントへ) | 21671 / 21508 |
+| `rngparity` | `          && (sure || Math.random() < apGateP(ally, "sleep", 0.5))) {`(条件の 2 行目)/ 1 行目 `      if (hasSleep && hasSpellSlot(ally, "sleep") && sleepPool.length >= 2` | 30574 / 30573 |
+| `iceword` | `"cone-of-cold": "cold", "ice-storm": "cold",` | 27553 |
+| `nogate` | `        const party = all.filter(m => (profs[m.classKey] || []).indexOf(skill) >= 0);` | 27648 |
+| `reroll` | `        for (const t of g.types) LORE_TRIED.add(t);` | 27662 |
+| `alwaysknow` | `    function loreKnows(e) { return LORE_ON && !!e && LORE_KNOWN.has(e.type); }` | 27560 |
+| `familyreuse` | `        const skill = LORE_SKILL_OF[e.type];` | 27630 |
+| `switchdead` | `new URLSearchParams(window.location.search).get("lore") !== "0";` | 27532 |
+| `crguess` | `      lizardWarrior: 0.5, lizardHunter: 0.5, lizardRaider: 0.5,`(同じ行の末尾に `goblinKing: 1,` を足す) | 27575 |
+| `crdecimal` | `      return ({ 0.125: "1/8", 0.25: "1/4", 0.5: "1/2" })[cr] || String(cr);` | 27580 |
+| `crdup` | `      if (lb.querySelector(".enemyCr")) return false;   // 既に付いている = 何もしない` | 27593 |
+
+- 既存のアンカーも各 1 件のまま(実測): `verify_enemy_traits` の stunguard `        if (enemySleepImmune(t)) { immune++; immuneNames.push(t.def.name); continue; }`(28452)と書き込み `          t.stunned = Math.max(t.stunned || 0, skill.stunTarget);`(28457)/ `driver_action_priority` N1 の `if (apPrefId && id === apPrefId) w *= AP_BOOST;`(32683・クランプの直後の隣接は保った)/ `driver_field_step7` の `if (wide && !aoeBoxReachable(aCX, aCY, foeIdxs, rangeTiles))`(28702・不変)。
+- ⚠ `rngparity` の注入の仕方: 2 行目を `(Math.random() < apGateP(…) || sure)` へ入れ替えるだけでは、**何も知らない時は同じ回数**(2 体未満なら 1 行目で短絡)なので (3a) が赤くならない。1 行目の先頭で引く形(例: 1 行目を `      if (Math.random() < 2 && hasSleep && …` に = 2 体未満・スロット切れでも 1 回引く)にすること。
+
+#### (6) 崩れた主張の追加
+
+13. **§4「`loreDecorateLabel` は `createEnemyDom` の札を作った直後に呼ぶ」をそのまま書くとページが起動時に死ぬ**(TDZ)。`createEnemyDom` は起動時 `spawnNodeEnemies()` で STEP1 の塊より前に走る。⇒ `var LORE_READY` の門(逸脱 1)。呼び口も `lb.appendChild(nameSpan)` の直後ではなく `enemyLabelElements.push(lb)` の直後(札を配列から引くため)。
+14. **§5-4「`sleep` は交戦中の未スタンの生存敵が全員 `loreSleepUseless` なら外す」**を `every` で素直に書くと、未スタンの敵が 0 体のとき(全員眠っている)に**何も知らなくても**スリープが候補から消える(空配列の `every` は真)= 罠 2 に触れる。⇒ 1 体以上を条件に足した(逸脱 7)。
