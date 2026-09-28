@@ -1,6 +1,6 @@
 # #74 ペンの音を録音へ — フェルトペンの実録を 1 画ずつ鳴らす
 
-- **起草**: 2026-09-25(起草窓 `claude-c6`) / **ステータス**: **承認済**(2026-09-25 ユーザー承認)
+- **起草**: 2026-09-25(起草窓 `claude-c6`) / **ステータス**: **完了**(2026-09-25 ユーザー承認 → 2026-09-28 実装窓が項目1〜5 を着地。総括は §12-6)
 - ⚠ **素材 = OtoLogic・CC BY 4.0・クレジット必須**(§2-1)。起草窓が 2026-09-25 にウェブで特定した**推定**で、ユーザーの最終確認待ち。
   §5-2 の `source` / `license` / `credit` と §6-3 のクレジット行はこの前提で埋めてある。⚠ 出所が違うと分かったら、着地前にこの 3 つとクレジット行を差し替える。
 - **触るファイル**: `audio.js`(本体) / `sfx-pipeline/scripts/build_sfx.py` + `sfx_common.py`(粒の切り出し) / `sfx-pipeline/data/sfx-sources.json` /
@@ -810,3 +810,156 @@ pageerror は全 8 腕 0 件。⇒ (a)〜(f) すべて成立。罠A・罠B は�
 
 **受入 19/19 × 3・`--negative` 7/7(空振り 0・漏れ 0)。項目5(全数走査)へ進んでよい。**
 項目5 への申し送り: この本は母集団に**新規で入る**(凍結 TSV `item1b/baseline_frozen74.tsv` に行が無い = 着手前の色が無い)⇒ 突き合わせでは「新規・緑」として別枠で数える。所要は素 約 15 秒・`--negative` 約 115 秒。
+
+### 12-5. 母集団の非退行(項目5) — 2026-09-26 着手 → ⏸ 一時中止 → 2026-09-28 再開・完了 / 基準 `13c2a42`
+
+⛔ 本番も `tools/` も `assets/` も `sfx-pipeline/` も 1 バイトも触っていない(走査・再走の前後で `git status --short` = **0 行**・HEAD = `13c2a42`)。
+#74 の実装差分 = `git diff --name-only 010822a 13c2a42` = `audio.js` / `tavern.html`(changelog 1 行)/ `assets/sfx/CREDITS.md` / `assets/sfx/sfx-manifest.json` / `assets/sfx/ui/narration_1..33.mp3` /
+`sfx-pipeline/{data/sfx-sources.json, scripts/build_sfx.py, scripts/sfx_common.py}` / `tools/verify_pen_narration.js`(項目3)/ `tools/verify_pen_sample.js`(項目4)/ 本書。
+成果物 = scratchpad `…/39a966a8-5807-4d8e-b6cc-9c0f2f680fb2/scratchpad/item5/`(以下 `item5/`)。
+
+#### (1) 走った腕 = **155 腕** = 凍結の 153 腕(同じ腕・同じ順)+ 新規受入 `verify_pen_sample` の素 / `--negative` の 2 腕(別枠)
+
+- 腕の表 = `item5/armlist75.json`(`item5/build_arms75.py` が `item1/armlist74.json` の 153 腕に、`git diff --diff-filter=A 9c6197a HEAD -- tools/` で**足された本**のうち union 規則と `--negative` 規則を満たすものを足して導出。⛔ 155 を定数で焼いていない)。
+- 走行器 = `item5/sweep75.py`(`item1b/sweep74.py` と同じ本体で、読む腕の表だけ `armlist75.json`)。`--out item5/run` ⇒ `item5/run/after74.tsv`(155 行 + ヘッダ・18 列)/ `after/` / `fp_after/`。直列・毎腕後に `df_*` の居残り Chrome を掃除(**全 155 腕で 0**)。
+- 打ち切り = `probe_party_size`(素)の 600 秒だけ(着手前と同じ扱い)。
+
+#### (2) 中断と再開(⏸ 2026-09-26 ユーザー指示「後日続きをやるので、いったん一時中止」)
+
+| | 実測 |
+|---|---|
+| 1 回目 | 2026-09-26 04:56:53 → 07:20:42。**92 腕済**(最後に DONE = 92 腕目 `probe_n4_stall` 素)。93 腕目 `probe_p9_tour`(素)が START のまま停止 ⇒ **失った腕 = 1**(TSV に行が無いので再開時に頭から走り直した) |
+| 停止中 | 走行器・ドライバ・Chrome の残存 0・作業ツリー clean(orchestrator が 2026-09-28 に実測) |
+| 再開 | 2026-09-28 13:11:18 → 15:33:46(**142.5 分**・93〜155 腕目の 63 腕)。`RESUME: 92 arms already done -> SKIP` |
+| 腕の合計時間 | **285.3 分**(共通 153 腕 **283.0 分**・凍結 301.9 分 → **−18.9 分**。うち約 −15 分は下の `verify_pen_narration --negative` が 1 秒で落ちた分) |
+| 最長 6 腕 | `verify_bolt_aim` 2,245.8s / `probe_p9_tour` 1,730.6s / `driver_field_step6` 1,584.9s / `auto_debug_run` 1,074.4s / `verify_hold_pair` 904.7s / `driver_diag_watchdog` 677.3s |
+
+⚠ 試遊サーバ 8765 は再開の時点で**すでに LISTEN していなかった**(止める対象なし)。走査と再走の間は空けたままにし、全部終えてから立て直した(下の (7))。
+
+#### (3) 色の遷移(exit code が主)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | **131** | — |
+| 赤→赤 | **18** | 着手前の赤 18 腕がそのまま(§12-1 (4) の表と同じ 18 腕。`probe_n4_stall` も今回は赤) |
+| **緑→赤** | **4** | `driver_field_step2`(素)/ `driver_monsters_hobgoblin`(素)/ `verify_world_heromark`(素)/ `verify_pen_narration --negative` ⇒ 下の (5) で**4 本とも #74 に帰属しない**と決着 |
+| 赤→緑 | **0** | — |
+| exit の値だけ変化 | 0 | — |
+| 新規(別枠) | **2** | `verify_pen_sample` 素 **19/19 PASSED・exit 0**(16.0 秒)/ `--negative` **7/7 検出・空振り 0・exit 0**(123.0 秒) |
+
+- 一時中止の時点(92 腕)での緑→赤は 2 本(`driver_field_step2` / `driver_monsters_hobgoblin`)。残り 63 腕で `verify_world_heromark` と `verify_pen_narration --negative` の 2 本が増えた。
+- 判定行の合計(共通 153 腕): 凍結 PASS 7,103 / FAIL 74 / PENDING 4 → 実装後 **PASS 7,011 / FAIL 47 / PENDING 4**(減った分の大半は `verify_pen_narration --negative` が 1 秒で落ちた = 判定行 127 → 8)。
+
+#### (4) 2 経路の突き合わせ
+
+指紋を比べられる腕 = **136**(153 − 判定行 0 行の 15 腕 − 指紋が走行ごとに動く 2 腕〔`driver_field_step6` / `driver_monsters_griffon`〕。⛔ この 17 腕は exit だけで見た。§12-1 (5) の申し送りどおり)。
+
+| | 一致 | 不一致 |
+|---|---|---|
+| 経路① assert id の並び | **130 / 136** | `driver_field_step2` / `driver_monsters_hobgoblin` / `verify_world_heromark` / `verify_pen_narration`(素)/ `verify_pen_narration --negative` / `verify_mercenary_roster --negative` |
+| 経路② 判定行の多重集合 | **129 / 136** | 上の 6 本 + `driver_grid_p5` |
+
+差の分類(⛔ 正規化して消していない。全量は `item1b/fp/<arm_id>.json` と `item5/run/fp_after/<arm_id>.json`・比較器 `item5/cmp75.py -v`):
+
+| 腕 | 分類 | 中身 |
+|---|---|---|
+| `verify_pen_narration`(素) | **構造差 = 予定した型1** | (0c) の判定行が「narration キーが無い」→「narration(粒 ≥1)が在り、撤退の 2 腕では録音を鳴らさない」へ(§12-3 (2))+ 退役した `sampledpen` の行が消えた(経路① 28 → 27)。色は緑のまま **19/19** |
+| `verify_pen_narration --negative` | **構造差 = 装置の異常終了**(+ 予定した型1) | 走査では **1.0 秒で exit 3221226505(0xC0000409 = STATUS_STACK_BUFFER_OVERRUN)**。§0e の検算 8 行と「旧版 = git show 0e8370d:audio.js」を出した直後に node が落ち、ページを 1 枚も開いていない。(5) で再走 |
+| `driver_field_step2` | **値差**(`D2-dragon-lair` の合否が 1 件反転 + 失敗の再掲行) | `mapCanvas` の SHA が `edf3960915a9251d`(golden `01b23f482dcdfe2f`)。⭐ 同じ走行の **D1(描画コマンドの引数列)は golden と完全一致** = 命令は同じで画素だけ違う |
+| `driver_monsters_hobgoblin` | **値差**(id の並びは同一・`(e)` 2 行の合否だけ反転) | `entries=0` / `minAc=0 maxAc=0` = **装置が 1 件も観測できなかった**(#73 §12-5 (4) と同じ形) |
+| `verify_world_heromark` | **値差**(`(1c)` の合否反転 + 失敗の再掲行) | 「ホップ 3: 1px も進まなかった / 進んだホップ 2/3 / heroNode が pier のまま」(実クリックで 3 ホップ歩かせる母集団ガード) |
+| `verify_mercenary_roster --negative` | **値差**(緑→緑) | ⭐ **凍結側の揺れ**: 凍結の走行では 10 本の変異の 1 本で `(2z3) [母集団]` が NG(編成に載った生 Lv = 1 = 名簿の抽選)。実装後は 10 本とも OK。exit は両方 0 |
+| `driver_grid_p5` | **構造差(経路②のキー)**・経路①は一致・緑のまま | 本文の職業名 `ally:elf` / `ally:rogue` → `ally:cleric`(抽選の編成)。#73 §12-5 (3) で既知 |
+
+#### (5) 緑→赤 4 本の帰属判定(⛔「既知フレークの一覧に載っている」で片付けていない)
+
+**① 構造: 4 本とも #74 のバイトを踏む。** `index.html` / `world.html` は `audio.js` を読み、`sfx-manifest.json` を取って `eagerPreloadSfx()` が**33 粒を取りに行く**(撤退の腕でも)。
+`verify_pen_narration` は #74 が書き換えた本そのもの。⇒ 「触れていないので無関係」とは言えない ⇒ **影のツリーとの対比較で測った**。
+
+**② 影のツリー** = `item5/shadow/`(作業ツリーを `.git` と `source_images` を除いて実体コピー → `item5/mkshadow.py` で本番バイトだけ `010822a`〔= #74 の実装前〕へ戻した)。
+戻したもの = `audio.js` / `tavern.html`(CRLF へ戻して配置)/ `assets/sfx/CREDITS.md` / `assets/sfx/sfx-manifest.json` / `sfx-pipeline/{data/sfx-sources.json, scripts/build_sfx.py, scripts/sfx_common.py}`(LF)+ 粒 33 本を削除。
+⭐ 検算: 各ファイルで「HEAD の blob を同じ行末変換にかけたもの == 作業ツリーのバイト」が **7/7 一致**(= 変換の作法が正しい)。`tools/` は実体コピー(#69 の教訓 = junction だと ROOT が本番へ戻る)。
+走らせ方 = `item5/pair75.py`: 本番と影を**交互に**(奇数回は本番が先・偶数回は影が先)直列で走らせ、毎回 `df_*` の Chrome を掃除。
+
+| 腕 | 見た assert | 本番(`13c2a42`) | 影(`010822a` 相当) | Fisher 両側 | 判定 |
+|---|---|---|---|---|---|
+| `driver_field_step2` | `D2-dragon-lair` | 赤 **0 / 6** | 赤 **1 / 6**(影の 3 回目・同じ FAIL) | p = 1.0 | **#74 前から在る非決定**。⭐ 影(= #74 の粒が無い)でも同じ D2 が赤くなった。`project_headless_verification` の既知(2026-08-10 から「D2-dragon-lair が約 1/16 で別ハッシュ」)と同じ形 |
+| `driver_monsters_hobgoblin` | 全体の exit(赤の中身) | 赤 **7 / 12**(`(e)` 観測 0 件 ×5・`(d)` pack/disc 0 ×2) | 赤 **5 / 12**(`(e)` 観測 0 件 ×3・`(d)` pack/disc 0 ×3。1 回は両方) | p = 0.68 | **#74 前から在る非決定**。赤の中身は両方とも「観測 0 件」の同じ 2 形 = フレークの指紋。#73 でも途中で一度赤くなり帰属なしと判定された本 |
+| `verify_world_heromark` | `(1c)`(⚠ exit ではない) | 赤 **0 / 6** | 赤 **0 / 6** | p = 1.0 | **再現しない 1 回きりの赤**(本番の再走 6/6 で緑)。凍結・本番の再走 6 回・影 6 回の計 13 回で赤は走査の 1 回だけ |
+| `verify_pen_narration --negative` | 全体 | 再走 **1 回 = 8/8 検出・空振り 0・exit 0**(924.4 秒) | —(この本は #74 後の本番を前提に書き換えた本なので影では測れない) | — | **装置の異常終了(1 回きり)**。落ちたのはページを開く前(node の fast-fail)。同じ本の `--negative` は項目3 でも緑(917.0 秒)⇒ 緑 2 / 落ち 1 |
+
+⚠ **影では `verify_world_heromark` の exit は比べられない。** 影には `.git` が無いので `(3a)`(`git show c1c85e0` で着手前のキー集合を取る)が**影では毎回赤**になる(6/6)。⇒ 対比較は**色が動いた assert `(1c)` の合否**で数えた。
+(`driver_field_step2` は `%TEMP%/df_step2_baseline` の既存 worktree を再利用するので影でも B 節が走る = exit で比べてよい。)
+
+⇒ **#74 に帰属する緑→赤 = 0 本。** 再走の総量 = `item5/rr_vpn/`(15.4 分)+ `item5/rr_pairs/`(3 本 × 6 対)+ `item5/rr_hob2/`(hobgoblin 6 対)。
+
+#### (6) 新規受入(別枠)と #73 受入
+
+- `node tools/verify_pen_sample.js` → **19/19 PASSED FAILED 0・exit 0**(16.0 秒)/ `--negative` → **7/7 検出・空振り 0・漏れ 0・exit 0**(123.0 秒)。項目4 の 3 回 + 本項目の 1 回。
+- `node tools/verify_pen_narration.js` → **19/19・exit 0**(173.1 秒)/ `--negative` → **8/8・exit 0**(再走・924.4 秒)。
+- 「全ページで起動時の要求が 33 本増える」(§8)で赤くなった本は**無かった**(要求数・ロード時間を測る golden に色の変化なし)。
+
+#### (7) 試遊サーバ 8765
+
+走査と再走をすべて終えてから、`ゲームを起動.vbs` と同じコマンド(`cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)`)を `Win32_Process.Create` でデタッチ起動。
+**`LISTEN :::8765`** ・ `http://localhost:8765/title.html` = **200**。居残りの Chrome(`df_*`)/ node(`tools/`)/ 8765 以外の `http.server` = **0**。
+
+#### (8) ⚠ 崩れた主張
+
+1. 一時中止の申し送り「再開は `py item1b/sweep74.py --out …`」⇒ `sweep74.py` は `item1/armlist74.json`(**153 腕**)を読む。新規 2 腕を含む **155 腕**の表を読むのは `item5/sweep75.py`(`armlist75.json`)で、中断前の 92 腕もこちらで走っていた(`sweep75.log` の 1 行目 = `arms=155`)。⇒ 再開は `sweep75.py` で行った。
+2. 「試遊サーバ 8765 は LISTEN 中(ユーザーのもの)」⇒ 再開の時点で **LISTEN 0 件**(`Get-NetTCPConnection` / `netstat` とも)。止める対象が無かった。
+3. §12-1 (5) の「非決定の既知候補」一覧は**また要約だった**。今回の緑→赤 4 本のうち一覧に載っていたのは `driver_monsters_hobgoblin` だけ。`driver_field_step2` の `D2-dragon-lair`(2026-08-10 からの既知フレーク = メモリにはある)/ `verify_world_heromark` の `(1c)` / `verify_pen_narration --negative` の node 異常終了の 3 本は載っていなかった。
+
+#### ⇒ 判定
+
+**155 腕(凍結 153 + 新規 2)で #74 に帰属する緑→赤は 0。** 緑→赤 4 本は、影のツリーとの交互の対比較(3 本)と再走(1 本)で、どれも #74 の前から在る非決定か 1 回きりの異常と決着。
+赤→緑 0・新規 2 腕は緑。指紋の差 7 本は、予定した言い直し 1・装置の異常終了 1・値差 4(うち 1 本は凍結側の揺れ)・既知の抽選の本文 1 で説明が付く。
+
+### 12-6. 総括
+
+**何を実装したか(プレイヤー向け)**
+
+1. 語りの文字送りに合わせて、**フェルトペンで紙に書く録音の音**が 1 画ずつ鳴る(#73 の合成の「シャッ」を置き換え)。
+   元素材(OtoLogic「Felt_Tip_Pen03 — 02 Write」)をモノラル化 → **全体で 1 回 loudnorm** → 1 画ずつ **33 粒**に切った(粒ごとの正規化はしない = 強弱 13.6dB が残る)。呼び口ごとに 33 粒からランダムに 1 粒。
+2. 録音の音は **voice バス**へ流れるので、設定の「**語り 音量**」でペンの音だけの大きさを変えられる(罠A の直し)。
+3. `?penvoice=0`(#73 の撤退)では録音を鳴らさず朗読 +「ピッ」へ戻る(罠B の関門)。新しい撤退 **`?pensample=0`** は #73 の合成ペンへ戻す。
+4. 設定のクレジット行に **`効果音  OtoLogic (CC BY 4.0)`**、`assets/sfx/CREDITS.md` に narration 行(`build_sfx.py` が最終 manifest の全 ID から書く = 罠D の直し)。
+
+- 実装 = `audio.js`(`PEN_SAMPLE`・関門・出口・クレジット)+ `sfx-pipeline`(`grains` モード・mapping の上書き・CREDITS の書き方・LF 固定 = 罠F)+ 粒 33 本 + manifest / CREDITS + changelog 1 行。`index.html` は無改造。
+- 受入 `tools/verify_pen_sample.js`(新規・base 10451 / 変異 10452〜10458)= 素 **19/19**(項目4 で 3 回 + 項目5 で 1 回)/ `--negative` **7/7**(空振り 0・漏れ 0)。
+- #73 受入 `tools/verify_pen_narration.js` の言い直し(項目3)= 素 **19/19**(3 回 + 項目5 で 1 回)/ `--negative` **8/8**(`sampledpen` 退役・`switchdead` の担当に (0c))。
+- 母集団の非退行 = **155 腕**(凍結 153 + 新規 2)で **#74 に帰属する緑→赤 0**(§12-5)。
+
+**崩れた主張 = 20 件**
+
+| # | 依頼書・申し送りの主張 | 実測 | 出典 |
+|---|---|---|---|
+| 1 | §2-6「`build_sfx.py` を全体で回すのは安全」 | 内容は正しいが **Windows では manifest / CREDITS が CRLF で書き直される**(罠F)⇒ LF 固定が要る | §12-0 (7)-1 |
+| 2 | §2-4「罠B で #73 受入の (4a) が崩れる」 | (4a) は `__renderSfxOffline` で `playSampled` を通らない。崩れるのは (2b)(2c) の off 腕と (5a) | §12-0 (7)-2 |
+| 3 | `index.html` の `sfx()` ラッパは `:3253` | **`:3252`** | §12-0 (7)-3 |
+| 4 | §2-1「峰 −3.2 dBFS」 | ステレオの true peak。モノラル化後は **−0.45 dBFS**(モノラル化 → loudnorm の順が要る) | §12-0 (7)-4 |
+| 5 | §2-8 / §1「約 31 粒」 | **33 粒**(loudnorm 後の包絡で切るので揺れる・範囲内) | §12-2 (8)-1 |
+| 6 | §12-0 (7)-2「罠B で (5a) が崩れる」 | 関門込みでは **(5a) は緑**。赤は (0c)(0e)(2b)(2c) | §12-2 (8)-2 |
+| 7 | §2-9 の「崩れる assert」の表 | **(0e)** が無い(`sampledpen` の注入点が消える) | §12-2 (8)-3 |
+| 8 | §2-5 の懸念(全体 loudnorm でも強弱が潰れるか) | 峰の最大 −0.45 → −1.47 dBFS、幅 14.15 → **13.61 dB** = ほぼ保たれた | §12-2 (8)-4 |
+| 9 | §2-9 / §7「言い直しは `sampledpen` の退役」 | **`switchdead` の担当も 1 件増える**((0c)) | §12-3 (5)-1 |
+| 10 | §7「(0c) を『在る』へ言い直す」 | 「在る」だけでは未 decode で合成へ落ちた緑と区別できない ⇒ 「全粒 decode 済」+「スイッチ無しの対照で粒が鳴る」を足した | §12-3 (5)-2 |
+| 11 | #73 本の header「変異 9 本 / 10442〜10450」 | **8 本 / 10442〜10449** | §12-3 (5)-3 |
+| 12 | §8 (2c) を `gain.value` で測れる | 鳴っていないバスの `gain.value` は動かない ⇒ **audio.js が書いた目標値**で測る | §12-4 (5)-1 |
+| 13 | §8 (2c)「voice バスの利得が変わる」で `busui` を捕まえる | 捕まえない(voice バス自体は動く)⇒「録音が流れ込むバスの利得も」を足した | §12-4 (5)-2 |
+| 14 | §8 (1e)「44.1kHz」を decode で測る | decode は文脈の sampleRate へリサンプル ⇒ **MPEG フレームヘッダ**で測る | §12-4 (5)-3 |
+| 15 | §8 の変異表の担当 | **3/7 が実測と違う**(`nogate` +(4a) / `nonarr` +11 / `leadpad` +(1a)) | §12-4 (5)-4 |
+| 16 | `lazy` は逐語の置換で差せる | `"preload": "eager",` が manifest に **2 件** ⇒ JSON で `narration.preload` だけ消す | §12-4 (5)-5 |
+| 17 | (2d) を buffer の長さで数える | 長さは 18 種しかない ⇒ **出所 URL** で数えた(33 種) | §12-4 (5)-6 |
+| 18 | 一時中止の申し送り「再開は `item1b/sweep74.py --out`」 | それは 153 腕の表を読む。155 腕の `item5/sweep75.py` で再開した | §12-5 (8)-1 |
+| 19 | 「8765 は LISTEN 中」 | 再開時 **LISTEN 0 件** | §12-5 (8)-2 |
+| 20 | §12-1 (5) の非決定の既知候補の一覧 | 緑→赤 4 本のうち載っていたのは 1 本だけ = **一覧は要約** | §12-5 (8)-3 |
+
+**残**
+
+- **§9 の実機確認 5 項目(ユーザー担当・そのまま)**: ① ダンジョン導入の語りでフェルトペンの音が文字に合わせて鳴るか・うるさくないか(`volume` は耳で詰める)② 「語り 音量」でペンの音だけの大きさが変わるか ③ 酒場の前口上でも同じ音か ④ `?pensample=0` で #73 の合成ペン・`?penvoice=0` で朗読 +「ピッ」へ戻るか ⑤ 文字送りを最速にしたときの重なりが耳障りでないか。⚠ http 起動が必須。
+- **素材の出所 OtoLogic は起草窓の推定**(CC BY 4.0 = クレジット必須)。**ユーザーの最終確認待ち**。違っていたら `sfx-sources.json` の `source` / `license` / `credit` と `audio.js` のクレジット行を差し替える。
+
+**別チケット候補(本チケットでは直さない)**: `driver_field_step2` の `D2-dragon-lair` の非決定(2026-08-10 から未解決・D1 は一致するので画像の decode の待ち方)/
+`driver_monsters_hobgoblin` の「観測 0 件」(12 対で本番 7・影 5 = 半分近く赤)/ `probe_s2_clear --negative` の `wipeblind` の検査力 0 / `probe_party_size` の両腕 /
+`auto_debug_run.js` のポート 8765 固定(#73 から継続)。
