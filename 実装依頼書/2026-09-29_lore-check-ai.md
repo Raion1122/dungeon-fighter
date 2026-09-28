@@ -503,4 +503,144 @@ AI は `mageAI` / `elfAI` を直接呼び、呼ばれた `ally*` 関数を記録
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(項目1・HEAD c4ec84b)
+
+⛔ 本番(`index.html` / `tavern.html` / `audio.js` / `js/*.js`)と `tools/` は 1 バイトも触っていない。変えたのは本書 §12 だけ。
+`git diff --stat 7402153 c4ec84b` = `実装依頼書/` の **docs 3 本だけ**(#75 の依頼書・本書・README)⇒ **§2 の行番号は HEAD `c4ec84b` でもそのまま有効**(起草時の `ba2e258` とも配信物は同一)。
+⚠ `index.html` はディスク上 **CRLF**(`git hash-object index.html` = HEAD の blob `acbc101a…`)。本書は LF。
+成果物(ログ・スクリプト)= scratchpad `…/f5deb037-8f94-4cba-becc-588ea310d3ff/scratchpad/item1/`(`scope_probe.js` = ページを開いて窓・差し替え・札・判定行を実測 / `keys_check.py` / `cr_check.py` / `golden/` / `fp_compare.py`)。
+
+#### (1) §2 の主張の突き合わせ — 成り立ったもの
+
+- **§2-1 #1 / 罠 1** ✅ `runEncounter` `:21481`。ボスの枝 `:21499〜21503`(`bossIdx` = `maxSummons > 0 || eyeStalks`)、`detectEnemyFamily(initialEngaged)` は **else の枝の中 `:21505`**。行動順 `updateInfo("行動順: …")` `:21662` / `tryStealthSurprise()` `:21668`。
+- **§2-1 #2** ✅ `detectEnemyFamily` `:14422〜14447`。構造体・ガーゴイル・単眼の暴君・キマイラ・グリフォン・残影の獣・ミミックなどは `generic`、ミノタウロスは `orc`(`:14443`)。
+- **§2-1 #3 / 罠 3** ✅ 呪文の定義(`MAGE_SKILLS` `:22196`〜 / `ELF_SKILLS` `:22263`〜)に属性は無い。演出は `'ice'`(コーンオブコールド `:29093` / アイスストーム `:29182`)。体質の表は `"cold"`(`:27494〜27496`)。
+- **§2-1 #4** ✅ `clericAI` `:30227`: 緊急回復 `:30242〜` → ホールド・パーソン `:30267`(`HOLD_SLOTS_ON`)→ ターン・アンデッド `:30270〜30278`(確率ゲートなし)。
+- **§2-1 #6** ✅ `resolveSkillCheck` `js/skill-check.js:459`。代表 `:464`・補助 `:468` を**渡された全員から**選ぶ。`opts.auto`(または `__autoplay`)は `:482` でパネルを出さず `d20()` を**ちょうど 1 回**(`:483`)。
+- **§2-1 #7** ✅ `AUTO_ROLL_MS = 2000` `:86` / `RESULT_HOLD_MS = 3600` `:93`。
+- **§2-2 罠 2** ✅ スリープの枝 `:30382` = `hasSleep && hasSpellSlot(ally,"sleep") && unstunnedEnemies.length >= 2 && Math.random() < apGateP(…)`(短絡評価 = 2 体未満なら乱数を引かない)。
+- **§2-3** ✅ `checkScore` `js/skill-check.js:105〜112`・能力値 `js/abilities.js:41〜48`・`CLASS_PROFICIENCIES` `:57〜64`(elf = perception/arcana・cleric = insight/religion・mage = arcana/history)・`PROFICIENCY_BONUS = 2` `:53`・`HELP_BONUS = 2` `:56`。判定値は 3 職とも +4(INT15 / INT14 / WIS15 → 5e 式 +2)。成功率 75/50%・補助込み 85/60% は再計算で一致。`isBossLikeDef` `:32114` ✅。
+- **§2-4** ✅ `ENEMY_TYPES` `:9645〜10853` = **51 キー**(§2-4 の awk をそのまま実行)。表の 26 + 7 + 7 + 11 = 51・重複 0・過不足 0。`undead: true` のキー = 7(skeleton 9868 / zombie 9888 / skeletonArcher 9907 / wraith 9925 / lich 9955 / caelum 9976 / ghostFlame 10602)= 宗教の 7 キーと一致。`isUndeadEnemy` `:27484`。
+  ボス格(`isBossLikeDef` が真)= goblinKing / lich / garrock / pharaxus / scar / lizardChieftain(`isBoss` + `maxSummons` 2〜3)・hydra(`isBoss` だけ)・sovereignEye(`eyeStalks`)・direBear / chimera / griffon / umber_hulk(`isBoss` + `maxSummons: 0` = 対象外の自然)。`boss_appear` の枝に入るのは §8 (1g) の 7 種どおり。敵の定義に `cr:` は 0 件。
+- **§2-6** ✅ `enemyElementMult` `:27504` / `enemySleepImmune` `:27513` / `window.__dfEnemyTraits` `:27521〜27524`(`on / table / mult / sleepImmune / resolve`)。表 `ENEMY_TRAITS` `:27493〜27502` の 8 キー。
+- **§2-10** ✅ SRD の `cr:` を実ファイルから読んだ(`cr_check.py`・前付けは BOM 付き CRLF・値は `0.125` 形式の小数)。§4 `LORE_CR` の 34 キーは slug 対応表(§2-10)の 34 キーと同じ集合で、**34/34 一致・不一致 0**。「出さない」17 キーとの重なり 0・和集合 = `ENEMY_TYPES` の 51 キー。分数は 1/8・1/4・1/2 の 3 種だけ。`umber-hulk.md` / `dire-bear.md` は**無い**(`dire-wolf.md` はある)。creature_type も確認: hydra = Monstrosity(§2-8 の 1 どおり)/ gargoyle = Elemental / stone-golem・animated-armor = Construct / ghost・will-o-wisp = Undead / young-red-dragon = Dragon。
+- **§2-11** ✅ 札は `createEnemyDom` `:12756` の中 `:12797〜12805`(`lb.className = "enemyLabel"` `:12798` / 名前 `<span>`(クラスなし)`:12800〜12801` / **`lb.appendChild(nameSpan)` `:12802`** / 状態列 `:12803` / `enemyLabelElements.push(lb)` `:12805`)。`?namelabel=0` は `:12809` で `null` を積む(実測: 2 枚とも null)。`createEnemyDom` の呼び口 9 か所(`:13878` / `:24283` / `:24486` / `:25791` / `:26413` / `:32734` / `:33550` / `:33665` / `:33796`)は**すべて `enemies.push` の後** ⇒ `createEnemyDom` の中で `enemies[index]` が引ける。`showRollAtPlayer(html, type)` `:20599` / `showRollAtAlly(ally, html, type)` `:20622` / `updateInfo(message)` `:15772` 実在。CSS `.enemyLabel` `:326` / `body.labelSmall .enemyLabel` `:341`。
+- **§2-9** ✅ ポート 10471〜10479: `tools/*.js` / `*.py` のヒット 0(10470 は `probe_s5s6_clear` `:76`)・`netstat` の LISTEN 0。
+- **名前の衝突** ✅ `?lore=` / `LORE_` / `__dfLore` / `enemyCr` / `loreK*` / `runLore` は `index.html` / `tavern.html` / `audio.js` / `js/*.js` / `title/town/world.html` / `tools/*` に 0 件(`index.html:24784` のコメント「lore ナレ」1 件だけ)。ページ実測でも §4 の 13 の名前はすべて `typeof` = undefined。
+
+#### (2) ⚠ 崩れた主張(予測の訂正。方針はどれも変えない)
+
+1. **§2-1 #6「習熟で絞る前例は `canSneak`」** → `canSneak`(`:25408〜25410`)は「習熟者が**居るか**」のゲートで、`resolveSkillCheck` へ渡すのは**絞らない全員**(`:25404` の `party` をそのまま `:25416`)。#53 の若い司祭(`:25024` 以降)も全員を渡して `extraBonus` で寄せている。⇒ 「絞った配列を渡す」前例は無い = 本チケットが初(罠 4 の方針どおり新しく書く)。
+2. **§4「`buildPerceptionParty()` は `{classKey, name}` の写し」** → 実物(`:25213〜25227`)は `{classKey, name, isHero: true, skillBonus}`(主人公)/ `{classKey, name, skillBonus}`(仲間)。しかも**主人公は `hp > 0 && !gameOver` のときだけ**入る(`:25215`)。
+   → 影響(項目3): 盤面の隔離レシピ(`installProbe` の `gameOver = true`)の下では**主人公が判定の編成から消える**(実測: `SEED_PARTY` = 戦士 + 魔法使い + 僧侶 で `buildPerceptionParty()` = 魔法使い・僧侶の 2 人)。(1a)(1b) で主人公を数えるなら `runLoreCheck` を呼ぶ間だけ `gameOver = false`。
+   → 影響(項目2): `unit` は `buildPerceptionParty()` 本体へ足すより、`runLoreCheck` の中で「主人公(居れば先頭)→ 生存仲間の順」に対応を取って写しへ足すほうが安全(本体は 10 か所から呼ばれ、ドライバ 2 本が中身を読む。`unit` に ally オブジェクト〔DOM を持つ〕を入れると、判定の結果 `o.rep` を `page.evaluate` で返すドライバが直列化で落ちうる)。どちらでも仕様は同じ。
+3. **§4 の吹き出し「`1d20(n)+b = total vs DC d`(#49 の判定行が乗る形)」** → `rollTargetLine` `:20564` は **`1d20(<b>n</b>)` の `<b>`** と **type が `hit` / `miss` / `crit` / `fumble`** のときだけ判定行を足す(実測: `<b>` 無し = 素通し / type `skill` = 素通し / `<b>` + `hit` = 「出目 6+ → 成功 +6」が付く)。
+   → 影響(項目2): 出目は `<b>` で囲み、type は成功 `hit`・失敗 `miss`(出目 20 = `crit`・1 = `fumble`)にする。
+4. **§2-5 / §5-5「狙点の評価は 2 か所 `:28188` / `:28224`」** → 数える所は **5 か所**: `:28188`(初期値)/ **`:28192`(`?aoecover=0` の旧経路のループ)** / `:28220` の `foeIdxs` を読む `:28224〜28225`(比較 2 回 + 代入)/ **`:28228`(候補が 0 のときの戻り)**。`:28221` の `aoeBoxReachable(aCX, aCY, foeIdxs, rangeTiles)` も `foeIdxs` を読むが、これは「届くか」の判定なので**全員の集合のまま**にする(撃つ・撃たないは変えない = §5-5 の方針どおり)。`affectedIdxs` `:28230` と空判定 `:28231` は触らない。
+5. **§8 (2c)「知らない時はファイアボルトが撃たれる」** → `mageAI` の `fallbackOrder` `:30433` は **magic-missile が fire-bolt より前**で、fire-bolt には閾値の枝も無い(`:30426〜30430`)⇒ ファイアボルト + マジックミサイルの魔法使いは**知らなくても毎回マジックミサイル**。(2c) はこの装備では差が出ない(両腕とも炎 0 回)。
+   → 影響(項目3): 装備を変えて同じ主張を測る。例 ① fireball + magic-missile で threatScore ≥ 30(知らない = fireball / 知っている = 炎を外して magic-missile)② fire-bolt だけ(知っている = 候補が空 → `return false` でスリング)。
+6. **§8 (2d) の暗黙の前提「知らない時はコーンオブコールドを選ぶ」** → 既定の選択は threatScore で決まる(`:30426〜30430`: ≥32 ice-storm / ≥30 fireball / ≥25 lightning-bolt / ≥25 cone-of-cold / ≥20 burning-hands / それ以外は fallbackOrder)。threatScore = 生存敵の HP 合計 + 5×体数 + ボス 20 + 窮地 10(`evaluateThreat` `:30207〜30224`)。流用元 `verify_aoe_coverage` の `board()` は敵を **maxHp = hp = 400** で置くので threatScore ≥ 400 ⇒ fireball を持っていれば**知らなくても fireball**。
+   → 影響(項目3): (2d) は敵の hp を小さく置いて threatScore < 25(fallbackOrder で cone-of-cold が fireball より前)にしないと「知らない = cone / 知っている = fireball」の差が出ない。窮地 +10(PT の誰かが HP 50% 未満)に注意。(2e) はマジックミサイル + ファイアボルトなら threatScore に依らず既定 = MM なので素直に測れる。
+7. **§8 (2e) の前提** → 成立。classic script 直下の**関数宣言は `window` に載る**(実測: `mageAI` / `elfAI` / `allySleep` / `enemyElementMult` / `buildPerceptionParty` / `createEnemyDom` など 29 関数すべて `typeof window[n] === "function"`)。`window.isUndeadEnemy` を差し替えると名前で呼ぶ `enemySleepImmune` の結果が変わり(skeleton: true → false)、`window.enemyElementMult` を差し替えると `resolveElementDefense` の結果が変わった(0 → IMMUNE)。⇒ `loreMult` が `enemyElementMult` を**関数宣言の名前で**呼べば、ドライバの `window.enemyElementMult` の包みが効く。
+   ⚠ ただし **`resolveElementDefense` は倍率 2 を「効きにくい」扱いで半減する**(実測 `{resisted: true, dmg: 5}` = 10 の半分)⇒ (2e) は**呪文の選び方だけ**を見ること(ダメージや吹き出しは RESIST になる。将来弱点を足すなら `resolveElementDefense` 側も直す必要がある = 本チケットの範囲外)。
+   ⚠ `const` / `let`(`ENEMY_TYPES` / `ENEMY_TRAITS` / `enemyLabelElements` / `encounterEnemyIndices` / `NAME_LABEL_ON`)は `window` に**無い**(裸の識別子でだけ読める)。コメント `:32172` / `:32508`「const/function は window に載らない」は function について誤り。
+8. **罠 3 の補強** → 演出の `element` は冷気だけでなく**雷もずれている**: ライトニングボルト `:28988` とライトニング・アロー `:31087` は `'arcane'`。演出から拾うと雷は `'arcane'` → 等倍になり、ウィル・オ・ウィスプ(雷が効かない)に撃ち続ける。⇒ §4 の `SPELL_ELEMENT` を持つ方針で過不足なし(属性を持つ攻撃呪文は 7 本 = `SPELL_ELEMENT` の 7 行と一致。magic-missile / magic-arrow / hail-of-thorns / conjure-volley は属性なし)。
+9. **行の小さな指し違い(中身は正しい)**: §2-1 #1 ボスの枝 `:21497〜` → **`:21499〜21503`** / §2-1 #3 `MAGE_SKILLS` `:22197` → **`:22196`**(`ELF_SKILLS` は `:22263〜`、最後の shadow-step `:22324`)/ §2-5・§5-4 候補のフィルタ `:32620〜32648` → **非戦士の枝 `:32627〜32646`**(戦士は `:32615〜32622`・`choices` `:32651`・呼び口 `:32652`)/ §2-1 #6 `canSneak` `:25407〜25411` → `profs` `:25407`・`canSneak` `:25408〜25410`・ゲート `:25411`。
+10. **§2-9「スイッチ表 `recruit / recruittalk / dndrange / mopup / s2fold / enemytraits`」** → `probe_s5s6_clear.js` の表 `INDEX_SWITCHES` `:101〜106` は **4 本(dndrange / mopup / s2fold / enemytraits)**。recruit / recruittalk は `parseArm` `:117〜118` の別処理。
+    → 影響(項目4): `lore: { name: 'LORE_ON', want: (v) => v !== '0' }` を足す。`:124` の `enemytraits` 特例(`a.traitsOn`)と `:133` の「明示が無くても ENEMY_TRAITS_ON を確かめる」行に、lore 用の同形を足すかは項目4 が決める。
+11. **§2-3 の判定値は既定の 5e 式の値** → `?ability5e=0`(B/X 式・`js/abilities.js:61〜69`)では 15・14 → +1 ⇒ 判定値 +3。受入は成功率を測らない(§8「測らないこと」)ので影響なし(注意だけ)。
+12. **罠 1「`:21662` の後・`:21668` の前」** → 間に `sleepMs(600)` `:21663` / `applyBattleStartConsumables()` `:21666` / `tryNegatePreemptive(units)` `:21667` がある。3 本とも `Math.random` / `d20` を引かない(実測)⇒ 間のどこに置いても乱数の順は同じ。推奨は **`tryStealthSurprise()` の直前**(`:21667` の後)。
+
+#### (3) 実装で使う行番号(HEAD `c4ec84b` = 配信物は `7402153` と同一)
+
+| 何 | 行 |
+|---|---|
+| `runEncounter` / ボスの枝 / `detectEnemyFamily` の呼び口 | `:21481` / `:21499〜21503` / `:21505`(else の中) |
+| 非ボス枝の叫びの抽選(`Math.random`) | `:21512` |
+| イニシアチブ `d20` / 行動順のログ / 差し込み候補 / `tryStealthSurprise()` | `:21645` / `:21662` / `:21667` の後 / `:21668` |
+| `detectEnemyFamily` / `ENEMY_FAMILY_MSG` | `:14422〜14447` / `:14410〜14421` |
+| `ENEMY_TYPES`(51 キー) | `:9645〜10853`(キーごとの行は scratchpad の `keys.tsv`) |
+| `createEnemyDom` / 札 / 名前 span の追加 / `enemyLabelElements` | `:12756` / `:12797〜12805` / `:12802` / `:12748`(窓 `__enemyLabels` `:12752`) |
+| `createEnemy` | `:12830` |
+| `.enemyLabel` の CSS / 70% 版 | `:326` / `:341` |
+| `NAME_LABEL_ON` | `:3752〜3753` |
+| `updateInfo` / `showRollAtPlayer` / `showRollAtEnemy` / `showRollAtAlly` / `rollTargetLine` | `:15772` / `:20599` / `:20610` / `:20622` / `:20564` |
+| `d20` / `rollDiceDD` / `signedDD` | `:20496` / `:20497` / `:20506` |
+| `isEscortObjective` / `getLeaderName` | `:17181` / `:19706` |
+| `buildPerceptionParty` / `tryStealthSurprise` | `:25213〜25227` / `:25399` |
+| `isUndeadEnemy` / `ENEMY_TRAITS_ON` / 表 / `enemyElementMult` / `enemySleepImmune` / `__dfEnemyTraits` | `:27484` / `:27491〜27492` / `:27493〜27502` / `:27504` / `:27513` / `:27521〜27524`(STEP1 はこの直後) |
+| `pickClosestEngagedEnemyFromAlly` | `:27244〜27257` |
+| `allySleep` / ローカル `enemiesInArea` / 狙点の評価 | `:28133` / `:28154〜28166` / `:28188`・`:28192`・`:28224〜28225`・`:28228` |
+| `allySleep` の命中ループ(#75 の免疫 `:28265`・`stunned` `:28270`) | `:28262〜28276` |
+| `evaluateThreat` | `:30207〜30224` |
+| `clericAI`(触らない) | `:30227` |
+| `mageAI` / シールド / スリープ / 攻撃呪文の候補 / 対象 / 既定の選択 / `fallbackOrder` / 呼び分け | `:30350` / `:30374` / `:30380〜30388` / `:30395〜30417` / `:30419` / `:30426〜30430` / `:30433` / `:30439〜30446` |
+| `elfAI` / ライトニング・アロー | `:31278` / `:31308〜31316`(対象 `:31311`) |
+| `isBossLikeDef` / `apGateP` / `apTryPreferred`(乱数 `:32269`) | `:32114` / `:32167` / `:32249` |
+| `pickLeaderAction` / クランプ / `AP_BOOST` / 床 / 抽選 | `:32378` / `:32471` / `:32472` / `:32474` / `:32486` |
+| `playerAttackTurn` / 候補のフィルタ(非戦士)/ `choices` / 呼び口 | `:32517` / `:32627〜32646` / `:32651` / `:32652` |
+| `executeSkillOn`(主人公のスリープ `:19997`) | `:19891` |
+| `js/skill-check.js`: `CLASS_PROFICIENCIES` / `CHECKS`(arcana 73・history 74・religion 75)/ `checkScore` / `resolveSkillCheck` / auto の枝 | `:57` / `:67〜` / `:105` / `:459` / `:482〜488` |
+
+#### (4) `Math.random` の順序(罠 2 の土台)
+
+- **戦いの始まり**: 非ボス枝の叫び `:21512`(pool > 0 のとき 1 回)→ イニシアチブ `d20` × 全ユニット `:21645` → 〔#76 新: 技能ごとに `d20` 1 回(`js/skill-check.js:163` を `:483` から)。習熟者 0 人の技能は引かない〕→ `tryStealthSurprise` の `d20`(auto / autoplay なら 1 回。パネル時は演出の `Math.random` が多数 `:287` / `:297`)→ 恐怖のオーラほか。
+  ⇒ 伝承判定を 1 回でも振る戦いでは、隠密の接近の出目以降が 1 つずれる(§2-2「判定を振った時」の想定どおり)。
+- **`mageAI`**: ① `apTryPreferred` `:32269`(酒場の指定があり・装備・スロット・無駄打ちでないときだけ 1 回)→ ② 自己シールド `:30374`(`hasAShield && slot && acBonus<=0 && hp<70% && threat>=15` のとき 1 回。緊急シールド `:30368` は乱数なし)→ ③ **スリープ `:30382`(`hasSleep && slot && 未スタン ≥ 2` のとき 1 回)** → ④ 攻撃呪文の選択は**乱数 0**(撃った `ally*` の中で `d20` / ダメージを引く)。
+- **`elfAI`**: ① `:32269` → 回復 0 → ヴォリー 0 → **ライトニング・アロー 0**(`allyLightningArrow` の中で引く)→ マジック・アロー `:31323` → ヘイル `:31333` → ハンターズ・マーク `:31343` → コードン `:31353` → エイムド `:31365` → ヘイスト `:31377`(それぞれ条件成立時 1 回)。
+  ⇒ 知っていてライトニング・アローを止めると、後段の枝の乱数が引かれる(= 「分岐が変わった時」の想定どおり)。
+- **主人公**: `playerAttackTurn` の粘着の脱出 `d20` `:32566`(粘着時だけ)→ `pickLeaderAction` の抽選 **ちょうど 1 回 `:32486`**(重みの掛け算は乱数を引かない)。
+  ⚠ 重みが 0 になると `:32474` で `nonFinite++` と `console.warn` → `window.__leaderPickWarns` が増え、重みは床 `LEADER_W_FLOOR` に戻る(= 外れない)。⇒ 倍率 0 の呪文は重みで殺さず、§5-4 のとおり**候補のフィルタで外す**こと(重みに掛けるのは 0.5 / 1 / 将来の 2 だけ)。
+- **`allySleep`**: 狙点選びは乱数 0。命中ループ `:28266` で免疫以外の敵ごとに `d20` 1 回。
+- **何も知らないとき**: §5-1 の `sleepPool`(= `unstunnedEnemies` と同じ長さ)と `sure = false` なら ③ の評価順と回数は同一。§5-2〜5-5 も「倍率 1・除外 0」なら分岐不変。
+
+#### (5) 既存 golden 11 本の着手前の色(素で 1 回ずつ・直列・HEAD `c4ec84b`)
+
+`run_golden11.sh`(`node tools/<本>.js` を引数なしで直列)。ログ = `item1/golden/<本>.log`。指紋 = #75 の `fp74.py` で経路①(assert の並び)・経路②(判定行の多重集合)を取り、`after75.tsv` の同じ腕と突き合わせた(`fp_compare.py`)。8765 を使う本は **0 本**(全本が自前のサーバ: 8831 / 8843 / 10141 / 9940 / 10101 / 10331 / 10351 / 10459 / 8845 / 8791 / 9850)。
+
+| 本 | port | exit | 総括行 | 秒 | `after75.tsv` の同じ腕 | 指紋 ①/② | 型 |
+|---|---|---|---|---|---|---|---|
+| `driver_leader_ai` | 8831 | **0** | RESULT: 42/42 passed | 32 | exit 0・42/42・32 秒 | 一致 / 一致 | 緑 |
+| `driver_action_priority` | 8843 | **0** | RESULT: PASSED 92 / FAILED 0 / PENDING 0 | 65 | exit 0・92/0・65 秒 | 一致 / 一致 | 緑 |
+| `verify_aoe_coverage` | 10141 | **0** | 28/28 PASSED FAILED 0 PENDING 0 | 3 | exit 0・28/28・3 秒 | 一致 / 一致 | 緑 |
+| `verify_cone_cast` | 9940 | **0** | 19/19 PASSED FAILED 0 PENDING 0 | 65 | exit 0・19/19・73 秒 | 一致 / 一致 | 緑 |
+| `verify_hold_person` | 10101 | **0** | 31/31 PASSED FAILED 0 PENDING 0 | 9 | exit 0・31/31・10 秒 | 一致 / 一致 | 緑 |
+| `verify_hold_pair` | 10331 | **0** | 21/21 PASSED FAILED 0 PENDING 0 | 904 | exit 0・21/21・904.6 秒 | 一致 / 一致 | 緑 |
+| `verify_spell_off` | 10351 | **0** | 51/51 PASSED FAILED 0 PENDING 0 | 6 | exit 0・51/51・6 秒 | 一致 / 一致 | 緑 |
+| `verify_enemy_traits` | 10459 | **0** | 15/15 PASSED FAILED 0 PENDING 0 | 4 | exit 0・15/15(総括行)・4 秒 | (判定行 0 件 = `✓` 形式を `fp74` が拾わない)/ 同 | 緑 |
+| `driver_sce1_events` | 8845 | **1** | `[drv] RESULT: 211/214 passed` | 50 | exit 1・211/214・49 秒 | 一致 / 一致 | **赤・型3(無関係)** |
+| `driver_skillcheck_roster` | 8791 | **0** | RESULT: 13/13 passed | 4 | exit 0・13/13・4 秒 | 一致 / 一致 | 緑 |
+| `verify_enemy_name_label` | 9850 | **0** | 30/30 PASSED FAILED 0 PENDING 0 | 2 | exit 0・30/30・3 秒 | 一致 / 一致 | 緑 |
+
+⇒ 着手前の色 = **緑 10 / 赤 1(型3)**。11 本とも `after75.tsv` と**同色同数・指紋まで一致**。合計 約 1,150 秒。
+
+- `driver_sce1_events` の赤 3 件は #75 §12-0 (9) と同じ型3(`sceneFlags` のキーが 3 本と焼かれているのに #53 の `s3_novice_swayed` で 4 本)= FAIL `(2)` / `(4d)` / `(N2-隣)`。G10 / G10b(隠密の接近)は緑。⇒ 項目5 で 211/214 から動いたら #76 を疑う。
+- ⚠ `driver_sce1_events` は `SkillCheck.resolveSkillCheck` を差し替えて**呼び出し回数を assert する**(差し替え `:451` / `:729` / `:1106`・`calls.length === 0 / 1` の assert `:645〜663` / `:972〜991` / `:1453〜1459` / `:1949〜2061`)。イベントの流れの中で `runEncounter` まで進むと伝承判定の呼び出しが数に混ざる = 名指し 11 本のうち**最も踏みやすい**。
+- `driver_skillcheck_roster` は `index.html` を**開かない**(エンジン単体を about:blank に注入 + `tavern.html`)⇒ #76 の `index.html` の変更では原理的に動かない(`js/skill-check.js` を触っていない証拠にだけなる)。
+- `verify_enemy_traits` の変異アンカー(#75 §12-3・起動時に原本で件数 1 を検算・崩れると素でも exit 3)のうち `stunguard` は `allySleep` の `:28265` と `:28270` の逐語を握る。⇒ 項目2 は `allySleep` を触るとき、この 2 行を**書き換えず・同じ文字列を複製しない**こと。
+- `verify_aoe_coverage` §4 は吹き出しの「範囲 N体」(= `affectedIdxs.length`)を読む ⇒ §5-5 の方針(`affectedIdxs` を変えない)なら不変。
+- `verify_hold_pair` は実プレイ(goblin-mine を本番の戦闘で回す)を含む ⇒ 伝承判定の `d20` で乱数列がずれる本。着手前の値を控えたので、項目2 は同色同数かを見る(値のゆらぎは記録)。
+- `verify_enemy_name_label` は札の大きさと CSS を測る ⇒ `.enemyCr` の CSS を足しても、盤面で判定を振らないので札の中身は変わらないはず(項目2 で確かめる)。
+
+#### (6) `after75.tsv` の流用 — **可**(154 腕すべてを #76 の着手前の色として使う)
+
+- 根拠(blob OID で測った。⛔ `git status` / grep では測っていない):
+  - `git diff --stat 7402153 c4ec84b` = `実装依頼書/` の 3 本だけ(+720 / −2)。`git ls-tree -r 7402153` と `c4ec84b` の差も**同じ 3 本だけ**(901 項目中)。
+  - `git ls-tree <rev> index.html tavern.html audio.js js tools assets` のハッシュ = `57a9ccf8…` で `7402153` / `ba2e258` / `c4ec84b` の 3 つとも同一。個別: `index.html` `acbc101a…` / `tavern.html` `f2a45902…` / `audio.js` `311aee29…` / `js` `00e2267a…` / `tools` `268a2c4b…` / `assets` `8bcc2bae…`。
+  - 作業ツリー: `git hash-object` が `index.html` / `tavern.html` / `audio.js` とも HEAD の blob と一致・`git diff --stat HEAD` = 0 行。
+  - `after75.tsv` は #75 §12-5 のとおり本番 HEAD `7402153` で走った(155 行 = ヘッダ + 154 腕・`started_at` 2026-09-29T01:26〜)。
+  - 追試: 名指し 11 本を今走らせた結果が `after75.tsv` の同じ腕と**同色同数**(上の表)。
+- ⚠ 使えるのは**素と #75 用の `--negative` の色**まで。#76 用の `--negative` の選び直し(#75 §12-5 (2) の ④「差分を含む関数の中のアンカー」)は項目5 が機械で行い、着手前の色は影のツリーとの交互の対比較で取る(#75 と同じ)。
+- **項目5 の道具**(#75 の scratchpad `…/77bd3943-0319-4699-9438-549ec95bd6b8/scratchpad/item5/`):
+  - 走行器 `sweep_75.py`(同じ場所の `fp74.py` を import)⇒ #76 の scratchpad へ**コピー**し、`ARMS`(`armlist_75.json` = `{arms, n_base_from_after74, neg_selected, new}`)を #76 の腕の表へ、`TSV` を `after76.tsv` へ書き換える(⛔ `after75.tsv` を上書きしない = 着手前の色そのもの)。`arm_id` の SKIP で再開できる。
+  - 影のツリー `mkshadow_75.py` ⇒ コピーして `BASE = 'c4ec84b'`(#76 の前の本番)にする。戻すファイルは `git diff --name-only BASE HEAD -- index.html tavern.html audio.js js assets title.html town.html world.html` から自動で決まる(#76 なら `index.html` と `tavern.html` の 2 本)。⚠⚠ 置き場 `S` は**新しい名前にする**: #75 の `shadow/`(287 MB・#75 前の本番バイト入り)が残っており、`mkshadow` は `S` が在るとコピーを飛ばす = そのまま使うと**#75 前の本番を「#76 前」と誤認する**。
+  - 対比較 `pair_75.py <outdir> <N> <book[:--negative]>…`(`SHAD` を新しい影へ)・比較 `cmp_75.py`・`--negative` の選別 `select_neg75.py` / `sel2.py` / `build_arms.py`。
+  - ⚠ `fp74.py` は `✓ (id)` 形式の判定行を拾わない(`verify_enemy_traits` の `after75.tsv` の pass_count が 0 なのはこのため。総括行は 15/15)。
+- 試遊サーバ 8765 は今 LISTEN 中(pid 26728 / 9600・ユーザーのもの・止めていない)。母集団の `auto_debug_run.js`(素)は既定で 8765 を立てる ⇒ 項目5 の前にユーザーの承認を取る(#75 と同じ)。
+
+#### (7) 項目2〜5 への注意
+
+- 項目2: `unit` の持たせ方(崩れ 2)/ 吹き出しの `<b>` と type(崩れ 3)/ 狙点の数える 5 か所と `aoeBoxReachable` は全員のまま(崩れ 4)/ 重みに 0 を掛けない(§(4))/ `verify_enemy_traits` のアンカー 2 行を書き換えない / 挿入位置は `tryStealthSurprise()` の直前(崩れ 12)/ `index.html` は CRLF。
+- 項目3: `gameOver` と主人公(崩れ 2)/ (2c)(2d) は装備と threatScore を選んで差を作る(崩れ 5・6)/ (2e) は `window.enemyElementMult` の包みが効く・ダメージは半減する(崩れ 7)/ (0d) の SRD は BOM 付き CRLF・`cr:` は小数 / (2g) の主人公の対象は「武器の射程内で HP が最も低い敵」(`:32585〜32607`)で最寄りではない・射程内に居ないと `pickLeaderAction` を呼ばずに前進する / (2h) は `?aoecover=0` だと候補が対象の周り 4 通りだけ(撤退の腕で当てるなら盤面の置き方に注意)。
+- 項目4: スイッチ表は 4 本(崩れ 10)。
+- 項目5: `after75.tsv` を着手前の色に使う / 影は新しい置き場で `BASE = c4ec84b` / 8765 の承認。
