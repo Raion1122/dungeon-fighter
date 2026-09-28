@@ -367,4 +367,165 @@ awk '/^    const ENEMY_TYPES = \{/{f=1;next} f&&/^    \};/{exit} f&&/^      [A-Z
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(項目1・HEAD 1951914)
+
+⛔ 本番(`index.html` / `tavern.html` / `audio.js` / `js/*.js`)と `tools/` は 1 バイトも触っていない。変えたのは本書 §12 だけ。
+`git diff --stat e3880ba 1951914` = `dev-meetings/2026-09-28_scouting-magic.md` / 本書 / `実装依頼書/README.md` の **docs 3 本だけ**
+(`13c2a42..1951914` でも docs 4 本 = #74 の依頼書を足しただけ)⇒ **§2 の行番号は HEAD `1951914` でもそのまま有効**(1 行もずれていない)。
+⚠ `index.html` はディスク上 **CRLF**(`git check-attr eol` = crlf・39,742 行すべて CRLF)。本書は LF。
+成果物(ログ・スクリプト)= scratchpad `…/77bd3943-0319-4699-9438-549ec95bd6b8/scratchpad/item1/`。
+
+#### (1) §2-1 敵の表と `e.type`
+
+- `ENEMY_TYPES` = `index.html:9645`〜`:10853`、**51 キー**(§2-1 の awk をそのまま実行)。✅
+- §2-2 の 10 キーの行: skeleton 9853 / zombie 9872 / skeletonArcher 9890 / wraith 9909 / lich 9928 / caelum 9962 / pharaxus 10122 / stoneGolem 10156 / animatedArmor 10176 / stoneLegionary 10199 / ghostFlame 10584(対照: goblin 9661 / orc 9982 / gargoyle 10227 / hydra 10519)。✅ 全一致
+- `undead: true` のプロパティ行 = **7 行・7 キー**(skeleton 9868 / zombie 9888 / skeletonArcher 9907 / wraith 9925 / lich 9955 / caelum 9976 / ghostFlame 10602)。✅
+  ⚠ ただし範囲内を `grep -c "undead: *true"` で数えると **8** になる(`:9871` のコメント「全て undead:true」を拾う)。⇒ ドライバで数えるなら**キー単位**で数えること。
+- `isUndeadEnemy(e)` `:27459` = `!!(e && ((e.def && e.def.undead) || e.type === "skeleton"))`。✅
+  `holdPersonImmune(t)` `:27744` = `!t || isUndeadEnemy(t) || !!(t.def && (t.def.isBoss || t.def.boss))`(⭐ ボスも免疫。眠りの関数へは写さない)。
+- **`e.type` は ENEMY_TYPES のキーと一致する**: 敵を作るのは `createEnemy(typeKey, tx, ty)` `:12830` の 1 本だけで、`{ def: ENEMY_TYPES[typeKey], type: typeKey, … }` を返す。
+  呼び口 9 か所(`:13876` / `:24253` / `:24447` / `:25763` / `:26382` / `:32648` / `:33459` / `:33575` / `:33706`)すべてが `createEnemy(…)` → `enemies.push`。
+  `.type =` / `.def =` の再代入は `index.html` に 0 件(ヒットは `btn.type = "button"` の 2 件だけ)。⇒ `ENEMY_TRAITS[e.type]` で引いてよい。✅
+- ⭐ stoneGolem / animatedArmor / stoneLegionary / gargoyle / shadowBeast は `faction: "beast"`(第三勢力)。
+- 新しく足す名前(`ENEMY_TRAITS` / `enemyElementMult` / `enemySleepImmune` / `resolveElementDefense` / `__dfEnemyTraits`)と URL キー `enemytraits` は `index.html` / `tavern.html` / `js/*.js` / `tools/*.js` に **0 件**(衝突なし)。✅
+
+#### (2) §2-3 属性の 11 か所 — 行番号の対照表(項目2 はこの表で入れる)
+
+「底上げ」= 最後の `Math.max(1, …)` の行。「差す位置」= **`tryDisplacement` の後・HP 行の直前**(下の崩れ 3)。表示・ログはすべて HP 行より**後**。
+
+| # | 関数(開始行) | 技 / 属性 | ダメージの乱数 | 底上げ | `tryDisplacement` | `__tookFireAcid` | **HP 行** | `showDmgAt` | ログ | 撃破 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `applyWeaponSpecialEffects` 23104(余波ループ 23141〜) | 余波 / `swIsFire ? fire : lightning` | `rollDiceDD` 23151 + セーヴ `d20` 23153 | 23155 `let sdmg = Math.max(1, sr.total)` / 23156 セーヴ半減 | なし | 23159(HP の**後**) | **23157** `e.hp = Math.max(0, e.hp - sdmg)` | 23161 | 23169(体数だけ) | 呼び側 |
+| 2 | 同上(追加属性) | `bonusDmgType` fire/cold/lightning(holy/acid は素通し) | `rollDiceDD` 23179 / 対アンデッド 23184 | 23180 `let extra = Math.max(1, br.total)` + 23185 `+= Math.max(1, …)` | なし | 23189(HP の**前**) | **23190** `target.hp = Math.max(0, target.hp - extra)` | 23215 | 23218(`extra`) | 呼び側 |
+| 3 | `allyFireBolt` 27960 | ファイアボルト / fire | `rollDiceDD` 28045 | 28047 **`const dmg`** = Math.max(1, …) | なし | 28054 | **28055** | 28058 | 28060(`${dmg} 炎ダメージ`) | 28063 |
+| 4 | `allyFireball` 28636 | ファイアボール / fire | **`Math.random`** 28706 + `d20` 28702 | 28709 | 28711 | 28712 | **28713** | 28717 | 28721(体数) | 28719 |
+| 5 | `allyLightningBolt` 28845 | ライトニングボルト / lightning | **`Math.random`** 28941 + `d20` 28937 | 28943 | 28944 | — | **28945** | 28949 | 28953(体数) | 28951 |
+| 6 | `allyConeOfCold` 28959 | コーンオブコールド / cold | **`Math.random`** 29038 + `d20` 29034 | 29040 | 29041 | — | **29042** | 29046 | 29055(体数) | 29053 |
+| 7 | `allyIceStorm` 29062 | アイスストーム / cold | **`Math.random`** 29123 + `d20` 29119 | 29126 | 29128 | — | **29129** | 29133 | 29140(体数) | 29138 |
+| 8 | `allyBurningHands` 29146 | バーニングハンズ / fire | **`Math.random`** 29231 + `d20` 29227 | 29234 | 29235 | 29236 | **29237** | 29241 | 29245(体数) | 29243 |
+| 9 | `allyLightningArrow` 30981(本命中) | lightning | **`Math.random`** 31039 | 31040 | 31041(`if (!tryDisplacement(enemyIdx)) {` の中) | — | **31042** | 31046 | 31047(`${dmg} 雷ダメージ`) | 31048 |
+| 10 | 同上(飛び散り) | lightning | **`Math.random`** 31076 + `d20` 31072 | 31078 | 31079 | — | **31080** | 31084 | 31087(体数) | 31085 |
+| 11 | `tryReflectEnemySpell` 32700 | 反射 / `spell.fireAcid` のときだけ fire | `spell.rollDamage()`(呼び側の関数) | 32729 **`const dmg`** = Math.max(1, …) | なし | 32730 | **32731** | 32733 | 32734(`${dmg} ダメージ`) | 32736 |
+
+- 範囲の 7 か所(#1 #4〜#8 #10)は**すべて敵ごとの `for` ループの中**(`for (const idx of affectedIdxs / lineEnemyIdxs / coneEnemyIdxs / splashIdxs)`・余波は `for (let i …)`)。⇒ 1 体ずつ判定できる形。✅
+- `applyWeaponSpecialEffects` の呼び口は 2 か所(主人公 `:23438` / 仲間 `:27449`)だけ。武器の属性キーの実数 = cold 5 / fire 4 / lightning 4 / holy 3 行(`bonusDmgType` + `shockwaveType`)。✅ `acid` を持つ武器は 0 本(`bonusType === "acid"` はガードだけ)。
+- 反射の `spell` は `{ name, rollDamage, fireAcid }` だけで、**冷気・雷の印を持たない**。呼び口は 2 か所: ブレス `:32803`(`fireAcid: true`)と敵の呪文 `:33087`(`fireAcid: meta.el === "fire"`)。`ENEMY_SPELLS` `:32932` の属性は fire / arcane の 2 種だけ ⇒ **反射で冷気・雷が出る経路は無い**(§5 の「`fireAcid` のときだけ fire」で過不足なし)。
+- 主人公の魔法使いも `executeSkillOn` `:19871` → `:19974〜19984` で同じ `ally*` を呼ぶ。✅ 主人公専用のスキル(`skill_*` `:23450〜23520`)は戦士の 7 本だけで属性なし。
+- **11 か所の外の属性経路を振る舞いで探した**(`fire` / `cold` / `lightning` / `ice` / `element:` / `bonusDmgType` / `shockwaveType` / `fireAcid` / `fireball-scorch` / 呪文の `flavor` の「炎・冷気・雷・氷・火」/ `ally*` 全 52 本の HP 行):
+  - パーティ発の属性ダメージは**上の 11 か所で全部**。`flavor` に属性語を持つ呪文は 7 本(22187 / 22207 / 22214 / 22222 / 22229 / 22238 / 22285)= #3〜#10 と 1 対 1。
+    `allyMagicArrow` / `allyMagicMissile`(arcane)、`allyHailOfThorns` / `allyConjureVolley` / コードン(`tickCordonZones` 31094〜・`fireball-scorch` の地面演出を流用しているだけ)/ `allyEarthShatter` / 斧系は属性なし。闇市は `wand_polymorph` だけでダメージなし。✅
+  - 範囲外(敵が敵を撃つ): `applyEnemySpellDamage` `:32947〜32953` = 敵のキャスターが**第三勢力(beast)**へ fireBolt / scorchingRay を撃つ経路。beast 側で表に載るのは石の 3 種(眠りだけ・属性なし)なので、**入れなくても数字は変わらない**。§11「敵が与える属性」と同じ扱いで**触らない**。
+- `resolvePhysDefense(enemyIdx, attackerEnh, dmg, label)` `:17046` ✅ / `applyPhysResistHalving(dmg)` `:17031` = `Math.max(1, Math.floor(dmg / 2))` ✅ /
+  `showRollAtEnemy(idx, html, type)` `:20590` ✅(`rollTargetLine` は `1d20(` と `vs AC|DC` を含む html にしか判定行を足さない = IMMUNE/RESIST の文言は素通し)/ `updateInfo(message)` `:15772` ✅ / `showDmgAt(worldX, worldY, dmg, isCrit)` `:21112`。
+  `resolvePhysDefense(` の呼び口は 11 か所(17235 / 26796 / 29330 / 29489 / 29575 / 29643 / 29904 / 30632 / 31639 / 31709 / 31772)。
+- 乱数: `d20()` `:20476` = `1 + Math.floor(Math.random() * 20)`、`rollDiceDD` `:20477` も `Math.random` を読む ⇒ **`Math.random` を 1 か所固定すれば 11 か所すべての乱数が止まる**(下の崩れ 1)。
+- 敵の HP を引く行は `grep -nE "(\b(t|target|e|enemy|tgt|foe|o)|enemies\[[^]]+\])\.hp *(= *Math\.max\(0,|-=)" index.html` で **31 行**(依頼書「32 か所」は数え方の違いの範囲。敵→敵の 1 行を含む)。
+
+#### (3) §2-4 眠り
+
+- パーティが敵を眠らせる経路は **`allySleep` `:28069` の 1 本だけ**。✅ 呼び口 = 味方 `mageAI` `:30305`(判断 `:30300〜30302`)と主人公 `executeSkillOn` `:19977`。
+  - 範囲 `const affectedIdxs = enemiesInArea(best.tx, best.ty)` `:28166` / 霧 `:28187` / `let hits = 0, resists = 0` `:28191` / **命中ループ `:28193〜28205`** / `t.stunned = Math.max(t.stunned || 0, skill.stunTarget)` **`:28200`** / 結果の吹き出し `:28207〜28210`(`命中 ${hits} / 抵抗 ${resists}<br>範囲 ${affectedIdxs.length}体`)/ ログ `:28212`。✅
+  - ⚠ `verify_aoe_coverage` の §4(依頼書の `:842-857` ⇒ 実際は **`:836〜857`**、(4a) は `:847`)は吹き出しの「**範囲 N体**」を `areaFromPops` で読む。⇒ 免疫の表記は「範囲 N体」の書式を崩さずに足すこと。
+- 敵の `stunned` を非 0 で書く箇所(`allySleep` を除く)= **13 か所**(依頼書「他に 15 種類」):
+  パーティ発 12 = メデューサの鏡 21421(`applyBattleStartConsumables`)/ 牙の魅了 21443(`tryNegatePreemptive`)/ 武器のクリティカル 23224 / 主人公の盾打ち 23504(`skill_shieldBash`)/ 不意打ち 25366(`applySurpriseStun` `:25363`)/ 廃坑の開幕 25785(`applyMineRangedOpening`)/ 街道の警戒 25809(`applyRoadVigilance`)/ ターン・アンデッド 27719 / ホールド・パーソン 27859 / **コーンオブコールドの凍結 29049** / アースシャッター 29652 / 仲間の盾打ち 29988。
+  敵発 1 = **単眼の暴君の「眠りの目」`:20884`**(第三勢力の敵を眠らせる)。0 へ戻す行は 21262 / 21510。
+  `applySurpriseStun(indices)` `:25363` は実在(呼び口 25398 / 26407)。✅ 味方用 `sleepImmune(unit)` `:20655` は実在・中身は依頼書どおり(エルフ + `hasFreeAction`)。✅
+- `helpless` 側: `grep -c "stunned > 0"` = 22 / `helpless *=` の行 = 19(依頼書「約 15」)。
+- ⭐ ⇒ §2-4 の方針(免疫は `allySleep` の命中ループの中だけ)は**そのまま成り立つ**。パーティ発の眠りの経路は他に無い。
+
+#### (4) §2-5 ハイドラの首
+
+- `__tookFireAcid = true` の行 = **6 か所** 23159 / 23189 / 28054 / 28712 / 29236 / 32730。✅ 読むのは `defeatEnemy` `:17390` の `:17394`、リセットは `:17395` と `initHydra` `:24811`。✅
+- ⚠ 23159(余波)だけは HP 行の**後**、他の 5 か所は**前**。どちらでも挙動は同じ(`defeatEnemy` は HP 行の後)だが、判定の挿入で**この順序を動かさない**。
+- ⚠ `createEnemy` は `hydraHeads` / `headHpMax` を初期化しない(`initHydra` `:24800〜` が本番の配置時に入れる)。⇒ 受入 (3b) で盤面にハイドラを置くときは、ドライバが `hydraHeads` / `headHpMax` を自分で入れる。
+
+#### (5) §2-8 撤退の定数
+
+- `AOE_COVER_ON` `:28393-28394` / `CONE_CAST_ON` `:28566-28567` = `new URLSearchParams(window.location.search).get("…") !== "0";`(2 行の形)。✅
+
+#### (6) ⚠ 崩れた主張(依頼書の記述 → 実測 → 影響)
+
+1. **§8 方針「乱数を固定し(`d20` / `rollDiceDD` を決まった値にする)」** → 11 か所のうち **7 か所(#4〜#10)はダメージを `Math.floor(Math.random() * sides) + 1` で直接振る**(`rollDiceDD` を通らない)。`rollDiceDD` は #1〜#3 だけ、#11 は呼び側の `rollDamage`。
+   → **影響(項目3)**: `d20` / `rollDiceDD` の差し替えでは 7 か所の素のダメージが揺れたまま。⇒ **`Math.random` そのものを固定する**(`d20` / `rollDiceDD` も内部で `Math.random` を読むので、これ 1 つで全部止まる)。(1b) の「素のダメージはゴブリンに撃った減りから取る」は、**同じ乱数列で 2 走行**(ゴブリン / 体質の敵)にして成立させる。
+2. **§2-3「`dmg = resolveElementDefense(idx, "<属性>", dmg).dmg;`」** → #3(`:28047`)と #11(`:32729`)は **`const dmg`**。そのまま代入すると TypeError。#1 の変数は `sdmg`、#2 は `extra`。
+   → **影響(項目2)**: #3 / #11 は `const` → `let`(または別名で受ける)。#1 / #2 は変数名を合わせる。⭐ HP 行より後の `showDmgAt` とログはすべて同じ変数を読むので、**変数を上書きすれば (1e) は自動で満たされる**(= `preshow` 変異は「表示にだけ判定前の値を渡す」形で書く)。
+3. **§2-3 罠 1「底上げの後、HP を引く行の直前」** → 正しい。ただし 7 か所(#4〜#10)では底上げと HP 行の間に **`tryDisplacement`(残影の回避)** が挟まる。判定をその前に置くと、回避された攻撃にも IMMUNE/RESIST の吹き出しが出る。
+   → **影響(項目2)**: 差す位置は「`tryDisplacement` の後 = HP 行の直前」(上の表の「HP 行」の真上)。#9 は `if (!tryDisplacement(enemyIdx)) {` の**中**。
+4. **§2-4「stunned を書く効果が他に 15 種類」** → **13 か所**(パーティ発 12 + 敵発 1)。方針は不変。
+5. **行の指し違い(中身は正しい)**: §2-3 物理の呼び口の例 `:29344` → **`:29330`**(`:29344` は閉じ括弧)/ §2-7 アイスストームの `dmgDice` `:22233` → **`:22234`**(`:22233` は `name`)/ §8 `verify_aoe_coverage` の §4 `:842-857` → **`:836〜857`**。
+6. **§2-1「`undead: true` が 7 行」** → プロパティは 7 行で正しいが、範囲を `grep -c` で数えると**コメントを拾って 8**。受入で数えるならキー単位で。
+7. **§8 盤面「ゴブリン・オーク・スケルトンを並べている」** → `verify_aoe_coverage` はゴブリンが主で、スケルトン/オークはホールド・パーソンの §5(`:911〜915`)にだけ出る。`verify_cone_cast` は合成盤面を**自前の LCG** で敷く。⇒ 流用するのは**盤面の据え付けの口**(下の (7))で、敵の種類は新受入が決める。
+8. **§8 勝率の記録「`probe_s2_clear.js` の `--arm qs:<key>=<val>` を S5/S6 へ広げる」** → そのままでは使えない(下の (10))。
+
+#### (7) 盤面の流用元(項目3 の雛形)
+
+- **`verify_aoe_coverage.js`**(port 10141): `openIndex`(`:258〜287`)が `evaluateOnNewDocument` で `currentScenario = 'goblin-mine'`・`partyMembers`(SEED_PARTY `:252`)・`xp = 45000`・`prologueSeen` を焼いて `index.html<qs>` を開き、**裸の識別子**(`allies` / `enemies` / `createEnemy` / `pickAoeOrigin` / `mapData`)で待つ。
+  `installProbe`(`:312〜`)= 隔離レシピ(`gameOver = true` / `encounterActive = false` / `window.sleepMs = () => new Promise(r => setTimeout(r, 0))`〔⛔ `Promise.resolve()` はマイクロタスク飢餓〕/ `moveEnemies` と `dfPlayCast` と await される rAF 演出 3 本〔`spawnFireballProjectile` / `spawnArrow` / `castMagicMissileBarrage`〕を即解決)+ `spawnGroundFx` と `.rollPop`(MutationObserver)の記録。
+  盤面 `__ap.board(spec)`(`:400〜`)= 既存の敵は消さずに `alive=false`(添字並列の配列を崩さない)→ 床が最長の行(lane)を実測して**相対オフセット**で置く → 敵は **`createEnemy` → `enemies.push` → `createEnemyDom` の 3 点セット**(el の無い偽の敵は `defeatEnemy` / `triggerEnemyDamageFlash` を壊す)で足し、`maxHp = hp = 400` で死なせない → `encounterEnemyIndices` を差し替え。
+  ⚠ **乱数は固定していない**(命中の揺れは「記録するが assert しない」で逃げている)。
+- **`verify_cone_cast.js`**(port 9940): `installBoard`(`:673〜`)が `renderWorld` / `moveEnemies` を黙らせ、`quiet(T)` で `sleepMs` / `dfPlayCast` / `showRollAtEnemy` / `showDmgAt` / `updateInfo` / `tryDisplacement`(→ false)/ `defeatEnemy`(→ alive=false)を `window.*` の差し替えで握る(⭐ 関数宣言は `window` に載るので本番の呼び口からも差し替えが効く)。盤面は `mkLcg(seed)`(`x = x*1664525+1013904223`)で敷く。撤退の対は `?conecast=0` を URL に付けた別ページ。
+- ⇒ 新受入は aoe_coverage の `openIndex` + `installProbe` + `board()` を土台に、`showRollAtEnemy` / `showDmgAt` / `updateInfo` を**記録付きで**包み(`quiet` の形)、`Math.random` を固定する。撤退の腕は `index.html?enemytraits=0` を別ページで開く(ページ単位の定数)。
+
+#### (8) 判断メモ(ブロックではない)
+
+- **単眼の暴君の「眠りの目」`:20884`** は第三勢力の敵も眠らせる。第三勢力には石の 3 種(本チケットで眠らない側)が居るが、**敵発**なので範囲外(§2-4 の方針どおり `allySleep` だけ)。単眼の暴君と石の 3 種が同じ戦場に並ぶ固定配置は無い(石の 3 種は砦の隠し `:10945〜10946` / `:38227〜38228` だけ)。
+- **コーンオブコールドの凍結 `:29047〜29050`** はセーヴ失敗で付く(ダメージと無関係)⇒ 冷気が**効かない**カエルムでも凍結は付く。§2-4 と (2c) の方針(凍結は今までどおり)に合うのでそのまま。
+- ウィル・オ・ウィスプの呪文は `spells: ["fireBolt"], projectile: "cold"` `:10600`(見た目は冷たい光・中身は fireBolt)⇒ 反射すると **fire** 扱い。ウィスプは炎・冷気とも半分なので数字は変わらない。
+
+#### (9) 既存 golden 7 本の着手前の色(素で 1 回ずつ・直列・HEAD `1951914`)
+
+`run_golden7.ps1`(PowerShell から `node tools/<本>.js` を引数なしで直列)。ログ = `item1/<本>.log`。#74 の実装後走査 `after74.tsv` の同じ腕と並べた。
+
+| 本 | port | exit | 総括行 | 秒 | `after74.tsv` の同じ腕 | 型 |
+|---|---|---|---|---|---|---|
+| `verify_aoe_coverage` | 10141 | **0** | 28/28 PASSED FAILED 0 PENDING 0 | 3 | exit 0・28/28 | 緑 |
+| `verify_cone_cast` | 9940 | **0** | 19/19 PASSED FAILED 0 PENDING 0 | 89 | exit 0・19/19 | 緑 |
+| `verify_bolt_aim` | 10301 | **0** | 23/23 PASSED FAILED 0 PENDING 0 | 2,246 | exit 0・23/23(2,245.8 秒) | 緑 |
+| `verify_bolt_bounce` | 10371 | **0** | 15/15 PASSED FAILED 0 | 10 | exit 0・15/15 | 緑 |
+| `driver_sce1_events` | 8845 | **1** | `[drv] RESULT: 211/214 passed` | 49 | exit 1・211/214 | **赤・型3(真に無関係)** |
+| `verify_road_boon` | 9790 | **0** | 20/20 PASSED FAILED 0 PENDING 0 | 70 | exit 0・20/20 | 緑 |
+| `driver_action_priority` | 8843 | **0** | RESULT: PASSED 92 / FAILED 0 / PENDING 0 | 64 | exit 0・92/0 | 緑 |
+
+- `driver_sce1_events` の赤 3 件の理由(1 行): **`sceneFlags` のキーが 3 本と焼かれているのに、#53 の `s3_novice_swayed` で 4 本になっている**(FAIL `(2)` / `(4d)` / `(N2-隣)` の 3 件とも `["mine_alerted","mine_ranged_opening","s3_novice_swayed","servant_rescued"]`)。⇒ 体質とも不意打ちとも無関係。⭐ 依頼書 §2-4 が名指しした **G10(不意打ち)は緑**(N14 の変異で G10/G10b が同時に赤くなる = 装置も生きている)。`verify_road_boon` の `(2c)`(街道の備え = 最初の交戦で stunned ≥ 1)も緑。
+- 7 本とも **#74 の実装後走査と色・件数が同一**(`driver_sce1_events` も 211/214 で同じ)。⇒ 着手前の色 = 緑 6 / 赤 1(型3)。項目5 で `driver_sce1_events` が 211/214 から動いたら #75 を疑う。
+
+#### (10) 勝率の記録の道具(§8 末尾)
+
+- **`probe_s2_clear.js` はそのままでは S5/S6 に使えない**(崩れ 8):
+  - 舞台が **`const SCEN = 'bandits-forest'` `:106` に固定**(`--scen` の口が無い)。期待値の表も `S2_EXPECT`(★2 / NPC 2)`:123` だけ。
+  - `--arm qs:<key>=<val>` は **白リスト `INDEX_SWITCHES = { dndrange, mopup, s2fold }` `:126`** に無いキーを exit 2 で止める。しかも表の 3 本はどれも「`=0` で const が **true** になる」極性(`RANGE_LEGACY` / `MOPUP_OFF` / `S2_FOLD_OFF`・`want: (v === '0')` `:146`)。`ENEMY_TRAITS_ON` は逆(`=0` で false)。
+  - 腕は **1 つの spec しか取らない**(`base` / `xp:<N>` / `qs:<k>=<v>` / `mine` のどれか)⇒ 「S5/S6 に見合う Lv(`xp:`)」と「`qs:enemytraits=0`」を**同時に**指定できない。
+  - ⭐ 使える部品: 酒場 → `prepScenario` → `regeneratePartyMembers()` → `departToScenario()` の本番の出発(人数が本番どおり)、`evaluateOnNewDocument` + `history.replaceState` で index 側の `location.search` を着弾前に書き換える口(`:254〜274`)= ページ単位の定数 `ENEMY_TRAITS_ON` にも届く、決着の 4 分類(clear / defeat / stall / timeout)と装置 assert。
+  - ⚠ `probe_s2_clear` は母集団の腕(素 + `--negative`)なので、中を広げると #75 の非退行の対象そのものが動く。
+- **`auto_debug_run.js --scen <id> --qs enemytraits=0` も使えない**: 巡回の 2 走行目以降は `index.html?autodebug=resume` `index.html:39596` へ飛ぶので **`--qs` が 1 走行目にしか付かない**(ページ単位の定数が黙って ON へ戻る)。さらに `index.html` の直起動は XP を焼かないので **Lv1 の既定パーティ**になる。
+  - 実測(1 回だけ): `node tools/auto_debug_run.js --scen dragon-lair --runs 1 --speed 15 --port 10470` → exit 0・**43 秒**・`#0 dragon-lair [defeat, 43s, R5] HP=0 生存=3`(主人公だけ倒れて終わり・critical 0 / warn 0)。⇒ Lv1 では竜の巣の最初の交戦で終わり、**ファラクサスにもアンデッドにも届かない** = 体質の差を測れない。
+- ⇒ **見立て = 新しい道具**(例 `tools/probe_enemy_traits_winrate.js`)。`probe_s2_clear.js` をコピーして次を変える: ① `--scen undead-temple|dragon-lair` と舞台ごとの期待値表 ② 腕を「`xp:<N>` + `qs:enemytraits=0|1`」の組で取る ③ スイッチ表に `enemytraits: 'ENEMY_TRAITS_ON'` を**極性つき**で足す(`=0` → false を装置 assert (0f) で確かめる)④ 到達ノード数を記録する列を足す(今の `probe_s2_clear` は決着と生存数だけ)。⛔ `probe_s2_clear.js` 本体は触らない(母集団の腕を動かさない)。
+  - シナリオ id: S5 = **`undead-temple`**、S6 = **`dragon-lair`**(`index.html:3367` の ALL 表)。酒場の出発では `prepScenario` にこの id を入れる。`index.html` を直に開くなら `sessionStorage["dragonfighters.currentScenario"]` を goto 前に焼く(`?scen=` は autodebug 経由でしか効かない)。
+  - XP は Lv の見合う値を焼く(D&D 3.5 の累積 = `500 × Lv × (Lv−1)`。S5/S6 の想定 Lv は未確認 = 道具を書く項目で酒場の推奨 Lv を実測して決める)。
+  - 所要の見込み: `probe_s2_clear` は 1 走行の上限 `--max 420` 秒(既定)・#74 の走査で 3 走行 117 秒。S5/S6 は長いので **1 走行 3〜7 分**と見る ⇒ S5・S6 × 2 腕 × N=10 = **40 走行 ≒ 2〜5 時間**(この機械は約 2.6 倍遅い)。`--workers` は 1(ポート衝突と CPU 競合で揺れを増やさない)。
+
+#### (11) 母集団の着手前の色 — #74 の実装後走査 `after74.tsv` を再利用できるか
+
+- **判定 = 素の 148 腕は #75 の着手前の色としてそのまま使える。`--negative` の 7 腕は使えない(#74 用に選んだ腕なので、#75 は選び直して影のツリーで測る)。**
+  - 根拠: `after74.tsv` は #74 の実装後の本番 `13c2a42` で走った(`sec12_5_6.md` の (1)〜(3))。`git diff --stat 13c2a42 1951914` = docs 4 本だけ(`index.html` / `tavern.html` / `audio.js` / `js/` / `tools/` / `assets/` は 0 バイト差)⇒ **本番のバイトも、走らせた本のバイトも #75 の着手前と同一**。
+  - 素の 148 腕 = `armlist75.json` の `union` 147 本(ページを開く本の和集合)+ `verify_pen_sample`(素)。`--negative` の 7 腕 = `driver_bgm_title` / `driver_bgm_town` / `probe_s2_clear` / `verify_eol_doorfix` / `verify_mercenary_roster` / `verify_pen_narration` / `verify_pen_sample` は、#74 の署名(narration / playSampled / sfx-manifest …)で選ばれた腕。
+    #75 は `index.html` の 11 か所 + `allySleep` を書き換えるので、**変異アンカーを `index.html` に持つ `--negative`** が壊れる候補になる(`--negative` を持つ本 51 本のうち、粗い grep で変異の口を持つ本 47 本。名指しの golden のうち `driver_sce1_events` だけは `--negative` なし)。
+    ⇒ 項目5 は「`index.html` へ変異を当てる `--negative` のうち、アンカーが #75 の差分に掛かる本」を**機械で**選び(各本のアンカー文字列を `1951914` と #75 後の `index.html` に当てて件数が変わるかで判定)、その着手前の色は **影のツリー**(本番のバイトだけ `1951914` に戻したコピー)との交互の対比較で取る。⛔ 表を目で選ばない。
+- **`after74.tsv` の中身**: 155 行 + ヘッダ・18 列 = `arm_id` / `book` / `arg` / `exit_code` / `pass_count` / `fail_count` / `pending_count` / `duration_sec` / `route1_n` / `route1_fingerprint`(assert id と合否の**並び**の sha256 先頭 16 桁)/ `route2_n` / `route2_fingerprint`(判定行の**多重集合**)/ `summary_line` / `strays_killed` / `killed` / `started_at` / `stdout_path` / `fp_json`(`fp_after/<arm_id>.json` に id 列と多重集合の全量)。腕の合計 **285.3 分**。
+- **赤の腕 = 24**(exit ≠ 0 か FAIL > 0):
+  - 素 20: `driver_field_step2`(63/64・`D2-dragon-lair`)/ `driver_field_step6`(55/59)/ `driver_grid_p4`(exit 3・変異 `n1ringonly` のアンカー不在)/ `driver_grid_p8`(55/56)/ `driver_mapeditor`(176/179)/ `driver_mapeditor_painting`(105/106)/ `driver_monsters_griffon`(14/17)/ `driver_monsters_hobgoblin`(12/14・観測 0 件)/ `driver_monsters_umberhulk`(21/22)/ **`driver_sce1_events`(211/214・exit 1)** / `driver_speech_engine`(16/17)/ `driver_speech_v2`(45/46)/ `probe_bandit_map` `probe_s2_fold` `probe_swamp_map`(exit 3・引数なしでは走らない調査道具)/ `probe_n4_stall`(exit 1・停滞が観測されない)/ `probe_party_size`(13/20・600 秒で打ち切り)/ `sweep_recruit_balance`(exit 1・装置 4/4 崩れ)/ `verify_walk_block`(22/23)/ `verify_world_heromark`(17/18・`(1c)`)。
+  - `--negative` 4: `probe_s2_clear`(exit 1・`wipeblind` が赤くならない)/ `verify_mercenary_roster`(exit 0・FAIL 16 は変異が意図どおり赤くした行)/ `verify_pen_narration`(exit 3221226505・node の異常終了 1 回きり)/ `verify_pen_sample`(exit 0・同上の意図した赤)。
+- **既知の非決定(着手前から揺れる = 緑→赤が出ても即 #75 のせいにしない・ただし影のツリーで決着を付ける)**: `driver_field_step2` の `D2-dragon-lair` / `driver_monsters_hobgoblin`(観測 0 件)/ `driver_monsters_griffon` / `driver_field_step6`(指紋が走行ごとに動く)/ `verify_world_heromark` の `(1c)` / `verify_pen_narration --negative`(node の fast-fail)/ `verify_mercenary_roster --negative` の `(2z3)`(名簿の抽選)/ `driver_grid_p5`(抽選の職業名が本文に出る = 経路②だけ揺れる)。⚠ この一覧も要約(#74 の崩れ 20)= 足りないと思って読むこと。
+- **項目5 の手順(再利用する道具と直すべき点)**:
+  1. 走行器 = `…/39a966a8-…/scratchpad/item5/sweep75.py`。⚠ **中身が他のフォルダを直に指している**: `HERE` = 兄弟の `item1b/`(指紋の抽出器 `fp74.py` をそこから import)、`ARMS` = `item5/armlist75.json`、`--out <dir>` を付けると出力名は `after74.tsv` / `after/` / `fp_after/` に**固定**。
+     ⇒ #75 用には `sweep75.py` と `item1b/fp74.py` を #75 の scratchpad へコピーし、`ARMS` を #75 の腕の表(素 148 + `verify_enemy_traits` の素/`--negative` + 上で選び直した `--negative`)へ、出力名を `after75.tsv` へ書き換える。⛔ `after74.tsv` を上書きしない(着手前の色そのもの)。
+  2. 中断と再開: 1 腕終わるごとに TSV へ 1 行追記し、再起動時は TSV にある `arm_id` を **SKIP**(`RESUME: N arms already done`)= 失うのは走行中の 1 腕だけ。直列のみ(ポートの同番が 20 組ある)。`timeout` で包まない(打ち切りは内部の `taskkill /T /F`・`probe_party_size`(素)だけ 600 秒、他は 5400 秒)。毎腕後に `df_*` の居残り Chrome を掃除(node は殺さない)。
+  3. 比較 = `item5/cmp75.py -v`(2 経路の指紋の突き合わせ)。緑→赤の帰属 = `item5/mkshadow.py` で影のツリー(`item5/shadow/` の型: 作業ツリーを `.git` と `source_images` を除いて**実体コピー**・`tools/` も実体〔junction だと ROOT が本番へ戻る〕)を作り、本番のバイトだけ着手前の blob へ戻す。⚠ `mkshadow.py` は #74 の 7 ファイル + 粒 33 本を**名指し**で戻す作り ⇒ #75 では `index.html` だけを `1951914` の blob から **CRLF へ変換して**置く(`git check-attr eol` を読んで変換し、「HEAD の blob を同じ変換にかけたもの == 作業ツリーのバイト」を検算する形はそのまま流用)。
+     `item5/pair75.py <outdir> <N> <book[:--negative]>…` で本番と影を**交互**(奇数回は本番が先)に N 対走らせる。
+  4. ⚠⚠ **試遊サーバ 8765**: 今は LISTEN 中(pid 5200・ユーザーのもの)。母集団の `auto_debug_run.js`(素)は**既定でポート 8765 を立てる**(`--port` の既定値)⇒ そのまま走らせると `EADDRINUSE` で偽の赤。#74 は再開時に 8765 が空いていた。⇒ 項目5 の前にユーザーへ「8765 を止めてよいか」を確かめる(止めない場合は `auto_debug_run` を走査から外して理由を §12 に書く)。走査の後は `ゲームを起動.vbs` と同じコマンドで立て直す(#74 §12-5 (7))。
+  5. 見積もり: 素 148 腕で約 **285 分**(#74 の実測)+ 新受入 2 腕 + 選び直した `--negative`。最長は `verify_bolt_aim` 約 37 分。
+
+#### (12) ポート
+
+- base **10459** / 変異 **10460〜10467**: `netstat -ano` で LISTEN 0 件。`tools/*.js` の `arg('port', …)` の台帳の最大は `verify_pen_sample` 10451(変異 〜10458)。`grep -E "104(59|6[0-7])" tools/*.js tools/*.py` のヒットは `verify_road_ambush.js:686` の乱数表の小数 1 件だけ(ポートではない)。✅
+- golden 7 本のポート = aoe_coverage 10141 / cone_cast 9940 / bolt_aim 10301 / bolt_bounce 10371 / sce1_events 8845 / road_boon 9790 / action_priority 8843 = **互いに衝突なし・8765 を使わない**(各本が自前のサーバを立てる)。試遊サーバ 8765 は LISTEN 中(pid 5200・ユーザーのもの)で、止めていない。
