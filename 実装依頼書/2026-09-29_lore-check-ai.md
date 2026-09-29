@@ -733,3 +733,69 @@ touched: `index.html`(+228 / −7・CRLF のまま 39,825 → 40,046 行・bare 
 
 13. **§4「`loreDecorateLabel` は `createEnemyDom` の札を作った直後に呼ぶ」をそのまま書くとページが起動時に死ぬ**(TDZ)。`createEnemyDom` は起動時 `spawnNodeEnemies()` で STEP1 の塊より前に走る。⇒ `var LORE_READY` の門(逸脱 1)。呼び口も `lb.appendChild(nameSpan)` の直後ではなく `enemyLabelElements.push(lb)` の直後(札を配列から引くため)。
 14. **§5-4「`sleep` は交戦中の未スタンの生存敵が全員 `loreSleepUseless` なら外す」**を `every` で素直に書くと、未スタンの敵が 0 体のとき(全員眠っている)に**何も知らなくても**スリープが候補から消える(空配列の `every` は真)= 罠 2 に触れる。⇒ 1 体以上を条件に足した(逸脱 7)。
+
+### 12-3. 新規受入(項目3)
+
+touched: `tools/verify_lore_check.js`(新規・LF・1,098 行)と本書 §12-3 だけ。本番(`index.html` / `tavern.html` / `audio.js` / `js/*.js`)と既存の golden・`tools/probe_s5s6_clear.js` は 0 バイト。
+走らせ方: `node tools/verify_lore_check.js`(素)/ `--negative`(素の基準 + 変異 11 本)/ `--mutate <key>`(1 本だけ手回し)/ `--only a,b`。ポート = 素 **10471**・変異 **10472〜10482**(`MUTATIONS` の並び順)。自前の http(8765 不使用)。exit 0 / 1(FAIL・空振り・担当の漏れ)/ 2(環境: puppeteer・Chrome・**SRD のフォルダが読めない**)/ 3(変異アンカーの腐敗)。
+
+#### (1) assert の一覧 — **25 本**(§8 の 24 本 + 起動確認 (0e))
+
+| 節 | id | 何を測るか(期待値の出所) |
+|---|---|---|
+| §0 | (0a) | [装置] 判定の呼び出し ≥1(走査で 40 回)・`mageAI` のスリープ ≥1(11 回)と攻撃呪文 ≥1・`elfAI` の LA ≥1・`pickLeaderAction` ≥1(120 回)・主人公の `choices` が取れた |
+| | (0b) | `__dfLore` の在・`on === true`・関数 6 本・`skillOf` の全キーが `ENEMY_TYPES` に実在・`ENEMY_TYPES` 51 キー = ドライバの表 40 + 対象外 11(重複 0・過不足 0) |
+| | (0c) | `skillOf` = ドライバの `DRV_SKILL`(51 種)**+ 実効の技能**(51 種を 1 種ずつ 2 体置いて `run()` した時に `resolveSkillCheck` へ渡った技能。caravanWagon は護衛対象なので振らない)+ `spellElement` 7 行 = `DRV_ELEMENT` + 属性語が `__dfEnemyTraits.table` の語(fire / cold / lightning)の中 |
+| | (0d) | ページの `cr` 34 キー = **起動時に SRD の `<slug>.md` の前付け `cr:` から読んだ値**(`DRV_SLUG` 34 行・slug 26 本)・「出さない」17 キーが表に無い・34 + 17 = `ENEMY_TYPES` |
+| | (0e) | [装置] 6 ページが起動・pageerror 0(favicon だけ除外)。⭐ `--negative` の起動確認(構文破壊の偽の検出を見分ける) |
+| §1 | (1a) | 戦士 + 盗賊の別ページ × スケルトン → 呼び出し 0・「正体を知る者はいない」1 行・`tried` 空・2 戦目は 0 行 |
+| | (1b) | 主人公 戦士 + 魔法使い + 僧侶(`gameOver = false` で主人公も編成に入る)× スケルトン → `religion` 1 回・`auto`・渡された classKey = `["cleric"]`(ドライバの習熟表 `DRV_PROF` で全員が宗教持ち) |
+| | (1c) | 出目 20 → `known` にスケルトン・`knows()` 真 / 出目 1 → 呼び出し 1・`tried` に入り `known` に入らない・`knows()` 偽・札なし |
+| | (1d) | 成功の後・失敗の後それぞれ同じ種類の 2 戦目 → 呼び出し 0 |
+| | (1e) | ラットだけ → 呼び出し 0・ログ 0 行 |
+| | (1f) | ゴブリン → DC 10 / ゴブリン + キング → DC 15 + **走査で振られた 40 回すべての DC** = 定義のフラグ(`isBoss` / `eyeStalks` / `maxSummons`)からドライバが出した値(`isBossLikeDef` を使わない) |
+| | (1g) | リッチ + スケルトンの `runEncounter`(`tryStealthSurprise` で止める)→ 宗教 1 回 DC 15 + 対照: ゴブリンの `runEncounter` も歴史 1 回 |
+| | (1h) | スケルトンを見抜く → 📜 行 1 つに `1/4`・2 体の札に `CR1/4` ちょうど 1 つ / ゴブリン + キング → キングの札なし / キングだけ → ログに「脅威度」なし / 出目 1 の札なし + **走査で見抜いた 40 種すべての札 = SRD の CR の分数表記か無し・ログの「脅威度 X」の有無も一致** |
+| | (1i) | 知っている種類を後から作る(`createEnemy` → `enemies.push` → `createEnemyDom`)→ 札に `CR1/4` が 1 つ・`decorate` 2 回でも 1 つ(戻り値 false)/ `?namelabel=0` のページ → 判定は成功・札は `null` のまま・例外なし |
+| §2 | (2a)〜(2h) | 項目2 の盤面どおり(§12-2 (3) ④)。(2c) は **fireball + MM**(threat ≥ 30)と **fire-bolt だけ**(知る = `false` / 知らない = fire-bolt)、(2d) は **hp 5 / 1** で threat < 25(§12-0 崩れ 5・6)。(2g) は主人公を魔法使いにした別ページ(ON / `?lore=0` の 2 枚)+ 重み(眠ると知るゴブリン 2 体で sleep 178/400 > 114/400・乱数 400 回・warn 0) |
+| §3 | (3a) | 何も知らない: `mageAI` 36 列 + `elfAI` 6 列 + `pickLeaderAction` 4 列 + warn の 47 列が `?lore=0` と完全一致(非自明 42・スリープを含む 30) |
+| | (3b) | `clericAI`: 6 盤面 × 味方の傷あり/なし × 6 手番(計 152 個)の呼び出し列と乱数の回数が「盤面の全種を知る」と「何も知らない」で完全一致。呼ばれた種類 = ホールド・パーソン / キュア・ウーンズ / ターン・アンデッド / シールド・オブ・フェイス、乱数 6 回 |
+| §4 | (4a) | (1b)(1c)(1g)(1h)(2a)(2b)(2c)(2f)(2g) の**同じ述語関数**を ON と `?lore=0` へ当て、OFF で全部偽 + OFF の窓 `on === false`(#75 (4a) と同じ形) |
+
+- 素 ×3(2026-09-29・HEAD `077c4c9` の配信物 = `index.html` は `06fd7de` と同一): **25/25 PASSED・exit 0・2.8 秒**(3 回とも同じ)。
+- `--srd C:/nonexistent` → **exit 2**「(0d) SRD のフォルダ … が読めない (環境)」(緑にしない)。
+- アンカーを 1 文字ずらした使い捨てのコピー → **exit 3**「変異 crdup の注入点がちょうど 1 箇所ではない (0 件)」。
+
+#### (2) 担当表の実測(`--negative` = **11/11**・赤の集合 = 担当に完全一致・exit 0・28.8 秒)
+
+| 変異 | 注入(配信だけ・本番は無改造) | §8 の予想 | 実測の赤(= 担当) | 差 |
+|---|---|---|---|---|
+| `bossbranch` | 呼び口をコメントへ・`detectEnemyFamily(initialEngaged);` の行末へ `await runLoreCheck();` | (1g) | (1g) | 同じ |
+| `rngparity` | スリープの条件 1 行目の先頭に `(LORE_ON ? Math.random() < 2 : true) &&` | (3a) | (3a) | 同じ(⚠ 注入の形は崩れ 15) |
+| `iceword` | `"cone-of-cold": "ice"` | (0c)(2d) | (0c)(2d) | 同じ |
+| `nogate` | `const party = all;` | (1a)(1b) | (1a)(1b) | 同じ |
+| `reroll` | `LORE_TRIED.add` の行をコメントへ | (1d) | **(1c)**(1d) | +1:(1c) の「出目 1 の後 `tried` に入る」 |
+| `alwaysknow` | `loreKnows` = `LORE_ON && !!e`(撤退スイッチは効く形) | (1c)(3a) | **(0a)**(1c)**(1h)(2a)(2b)(2c)(2d)(2e)(2f)(2g)(2h)**(3a) | +10:「知らない時」の側が全部崩れる(スリープ 0 回 = 装置 (0a) も赤・起動時の札で失敗した種類にも CR が付く) |
+| `familyreuse` | `const skill = ({goblinoid/bandit/orc/kobold/lizardman: history, undead: religion, dragon/hydra: arcana})[detectEnemyFamily([i])];` | (0c) | (0c) | 同じ(実効の技能の走査で拾う。ページの表は無傷なので**表の突き合わせだけでは空振り** = 崩れ 16) |
+| `switchdead` | `… !== "0" \|\| true` | (4a) | (4a) | 同じ |
+| `crguess` | `LORE_CR` に `goblinKing: 1` | (0d)(1h) | (0d)(1h) | 同じ |
+| `crdecimal` | `loreCrText` = `String(cr)` | (1h) | (1h)**(1i)** | +1:(1i) の後から作った札の文字が `CR0.25` |
+| `crdup` | 「既に `.enemyCr` があれば何もしない」をコメントへ | (1i) | (1i) | 同じ |
+
+- 予想より広がったのは 3 本(reroll / alwaysknow / crdecimal)。どれも**予想の節は実測の赤に含まれる**(ドライバが起動時に `NEG_PREDICTED ⊂ NEG_EXPECT` を検算し、崩れたら exit 3)。
+- 変異はすべて 1 行の中で閉じ、行数不変(起動時に原本で各 1 件・注入文字列が原本に無いことを検算)。
+
+#### (3) 崩れた主張の追加
+
+15. **§12-2 (5) の申し送り「rngparity は 1 行目の先頭で `Math.random()` を引く形(例 `if (Math.random() < 2 && hasSleep && …`)」では (3a) が赤くならない**。変異は配信の `index.html` に入るので ON と `?lore=0` の**両腕が同じだけ余分に引き**、(3a) の比較で差が出ない(使い捨てのコピーで実測: 赤 = なし)。⇒ #76 の経路でだけ引く形 `(LORE_ON ? Math.random() < 2 : true) &&` にした(= 「#76 の追加が乱数の順を変えた」欠陥の姿)。
+16. **§8 (0c)「ページの `skillOf` とドライバの表が 51 種すべてで一致」だけでは `familyreuse` が空振りする**(変異は `runLoreCheck` の中の技能の決め方を変えるだけで `LORE_SKILL_OF` と窓は無傷)。⇒ (0c) に**実効の技能**(51 種を 1 種ずつ `run()` して `resolveSkillCheck` に渡った技能)を足した。同じ走査を (1f)(全 DC)と (1h)(全種の札)にも使う。
+17. **§8 (1h) の文面だけだと `alwaysknow` の担当が (1c)(3a) に収まらない** — 「知っている」が常に真だと、盤面を作る時点(`createEnemyDom` → `loreDecorateLabel`)で失敗した種類にも札が付き、§2 の「知らない時」の側もすべて崩れる。担当は実測の 12 節にした(⛔ assert を弱めて絞っていない)。
+18. **§8 (0d) の SRD の前付けは本書 §12-0「BOM 付き CRLF」とは限らない** — 322 本のうち 321 本は CRLF だが **`goblin.md` だけ LF**(BOM 付き)。ドライバは BOM を剥がし CRLF / LF の両方を受ける(値は `0.125` / `5.0` 形式 → `parseFloat`)。
+
+#### (4) 母集団へ足す腕(項目5)
+
+- `verify_lore_check`(素)… `node tools/verify_lore_check.js` → 総括行 `25/25 PASSED   FAILED 0   PENDING 0`・exit 0・約 3 秒。
+- `verify_lore_check:--negative` … `node tools/verify_lore_check.js --negative` → `負のコントロール 11 / 11 が検出成功`・`[vet] --negative OK`・exit 0・約 29 秒。
+- ⚠ 判定行は `  ✓ (id) …` 形式 = `fp74.py` の経路①/② が拾わない(#75 の `verify_enemy_traits` と同じ)。指紋は総括行で見ること。
+- ⚠ Dropbox の SRD フォルダ(`C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\raw\srd\monsters`)が無い機械では exit 2(環境)。影のツリーから走らせても SRD は絶対パスで読むので同じ(`--srd <dir>` で差し替え可)。
+- 所要の内訳: ページ 6 枚(主 ON / 主 `?lore=0` / 主人公=魔法使い ON / 同 `?lore=0` / 戦士 + 盗賊 / `?namelabel=0`)。項目4 の走行と並走中の実測。
