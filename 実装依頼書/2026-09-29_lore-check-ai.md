@@ -1,6 +1,6 @@
 # #76 伝承判定 — 戦いの始まりに敵の正体を思い出し、効く呪文を選ぶ
 
-- **起草**: 2026-09-29(計画窓 = 起草窓) / **ステータス**: **承認済**(2026-09-29 ユーザー承認)
+- **起草**: 2026-09-29(計画窓 = 起草窓) / **ステータス**: **完了**(2026-09-30 実装窓・項目1〜5 / 承認 2026-09-29)
 - **着手**: 実装窓は**窓更新を挟んでから**着手する(2026-09-28 の恒久ルール)
 - **触るファイル**: `index.html` / `tavern.html`(changelog 1 行だけ)/ `tools/verify_lore_check.js`(新規)/ `tools/probe_s5s6_clear.js`(スイッチ表に 1 キー足すだけ)
 - ⛔ **触らないファイル**: `js/skill-check.js` / `js/abilities.js` / `audio.js` / `title.html` / `tavern.html` の changelog 以外(§2-9 で開く必要が無いことを確認済み)
@@ -804,6 +804,63 @@ touched: `tools/verify_lore_check.js`(新規・LF・1,098 行)と本書 §12-3 �
 - ⚠ Dropbox の SRD フォルダ(`C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\raw\srd\monsters`)が無い機械では exit 2(環境)。影のツリーから走らせても SRD は絶対パスで読むので同じ(`--srd <dir>` で差し替え可)。
 - 所要の内訳: ページ 6 枚(主 ON / 主 `?lore=0` / 主人公=魔法使い ON / 同 `?lore=0` / 戦士 + 盗賊 / `?namelabel=0`)。項目4 の走行と並走中の実測。
 
+### 12-4. 勝率の記録(項目4)
+
+決裁どおり**記録するだけ**で、難易度も AI も調整していない。道具 = `tools/probe_s5s6_clear.js`(コミット `077c4c9`。#75 の道具に `lore` スイッチと記録の列を足した)。
+
+- 走らせた版: 本番 = `06fd7de`(走行中の HEAD は `077c4c9` = tools の 1 本だけ)。道具は起動時に `git diff HEAD -- index.html tavern.html audio.js js/` が空であることを確かめている。
+- 設定: #75 と同じ。酒場 → `prepScenario` → `regeneratePartyMembers()` → `departToScenario()`(本番の出発)、`?autoplay=15`、**4 人編成**(`?recruittalk=0` = 従来の自動抽選)、XP は推奨 Lv で焼く(S5 = Lv8 = 28000 / S6 = Lv10 = 45000)。1 走行の上限は 1200 秒(打ち切り 0 件)。
+- 腕: ON = 既定 / OFF = `?lore=0`(`--off-qs lore=0`)。着地後に `LORE_ON` と `window.__dfLore.on` を読み、腕どおりであることを確かめた(装置 assert 0f)。体質は両腕とも ON(`ENEMY_TRAITS_ON=true` も 0f で確認)。
+- 並べ方: ペアごとに ON/OFF を 1 走行ずつ交互(奇数ペアは ON 先)。N = 各 10 ペア = **40 走行、装置 assert の崩れ 0 件**。
+- 数え方(本番には何も置いていない。道具が着地直後に包む):
+  - 伝承判定 = `SkillCheck.resolveSkillCheck` を `opts.auto === true` かつ history / religion / arcana の呼び出しだけ包み、回数・成功・DC を技能ごとに数えた。同時にログの「📜」行(思い出した / 思い出せない / 知る者はいない)を数え、**包みの回数 = 📜 の成否行の数**であることを装置 assert 0j で確かめた(40/40)。OFF 腕で判定 0 回・📜 行 0・`known` 0 であることを 0i で確かめた(20/20)。
+  - スリープの「眠らない」= `allySleep` の「N体は眠らない」の N(#75 と同じ)。⚠ これは**範囲内に居た**眠らない敵の数で、狙った敵の数ではない(眠る敵を狙っても、隣のスケルトンが巻き込まれれば数える)。
+  - 炎の IMMUNE = `resolveElementDefense` の「炎は通用しない!」を**敵の名前ごと**に数えた。
+
+| シナリオ | 腕 | 走行 | クリア | 敗北 | ボス部屋到達 | 所要秒 平均 (クリア/敗北) | スリープ詠唱 / 眠らない体数 (1 回あたり) | 伝承 成功/回数 (技能) | 「知る者はいない」行 | ファラクサスへの炎 IMMUNE | RESIST |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| S5 undead-temple | ON | 10 | **7/10** | 3 | 10/10 | 182 (175/199) | 17 / 30 (1.76) | 8/11(宗教 8/11) | 7 | 0 | 5 |
+| S5 undead-temple | OFF | 10 | **8/10** | 2 | 10/10 | 180 (173/210) | 18 / 32 (1.78) | 0/0 | 0 | 0 | 3 |
+| S6 dragon-lair | ON | 10 | **0/10** | 10 | 10/10 | 195 (—/195) | 32 / 1 (0.03) | 8/10(歴史 8/10) | 6 | 2 | 0 |
+| S6 dragon-lair | OFF | 10 | **0/10** | 10 | 10/10 | 185 (—/185) | 27 / 0 (0.00) | 0/0 | 0 | 2 | 0 |
+
+- 停滞・打ち切りは 4 腕とも 0。到達ノードは全走行 `n4>n7`。
+- 検定: S5 クリア ON 7/10 vs OFF 8/10 = **Fisher の正確検定 両側 p = 1.00** / S6 は 0/10 vs 0/10(p = 1.00)。眠らない体数(詠唱回数を露出量とした条件付き二項)は S5 30/17 vs 32/18 で p = 1.00。**N=10 では ON/OFF の差はどれも検出できない。**
+- 参考: #75 の S5 ON(伝承が無かった版)は 21 回で 40 体 = 1 回あたり 1.90。
+
+ペアごとの決着(左 = ON / 右 = OFF、c = クリア / d = 敗北):
+- S5: p1 cc / p2 cc / p3 cd / p4 cc / p5 **dc** / p6 cc / p7 **dc** / p8 cd / p9 **dc** / p10 cc
+- S5 ON で僧侶が居た走行は **3/10**(p2 = 戦士+僧侶,僧侶,魔法使い / p3 = 戦士+ドワーフ,僧侶,魔法使い / p4 = 戦士+盗賊,僧侶,魔法使い)。**3 本ともクリア**。
+- S6: 10 ペアとも dd。
+- 編成: 主人公は 40 走行すべて戦士(`leaderClassKey` = warrior)。仲間 3 人の抽選に魔法使いは 40/40 で入っている。僧侶は S5 ON 3 / S5 OFF 6 / S6 ON 4 / S6 OFF 4、エルフは 7 / 5 / 7 / 5(各 10 本中)。走行ごとの編成は TSV の `hero_class` / `ally_classes` 列。
+
+所見:
+1. **S5(地下神殿)の伝承は僧侶が居ないと起きない。** アンデッドは全部「宗教」で、宗教の習熟は僧侶だけ(`CLASS_PROFICIENCIES`: 魔法使い = 魔法学・歴史 / エルフ = 知覚・魔法学)。自動抽選で ON 腕に僧侶が入ったのは 3/10 で、残り 7 本は「📜 この敵の正体を知る者はいない」が 1 行出て終わる(「知る者はいない」行 7 = 僧侶の居ない走行の数と一致)。判定が起きた 3 本は宗教 8/11 成功で、スケルトン・ゾンビなどを知った。
+2. **手応えの指標「眠らない体数」は、知っている走行では確かに下がった。** 僧侶が居て判定が成功した 3 本(p2 / p3 / p4)は、スリープ詠唱が **3 本で計 1 回・眠らない 2 体**。知らない 7 本は 16 回で 28 体(1.75/回)。魔法使いは知っているとスリープ自体を撃たない方向に働いている(p2・p4 で 0 回)。⚠ ただし N=3 で、腕全体の 1 回あたり(1.76 vs 1.78)は編成の抽選に埋もれて差が出ない。**効果を測るなら編成を固定した腕**(僧侶を必ず入れる)が要る。
+3. **S6(竜の巣)ではファラクサスに一度も伝承判定が振られていない(ON 10/10 本とも)。** ON で知ったのはオーク(骨の谷 n4 の歴史判定、魔法使いが振る)だけで、`__dfLore.tried` にファラクサスが入った走行は 0。魔法学の習熟者(魔法使い)は 10/10 本に居る。
+   - 推定原因(本番は直していない): `runLoreCheck` は `runEncounter` の頭で `encounterEnemyIndices`(戦闘開始時の交戦敵)だけを見る。ボス部屋 n7 は護衛のミノタウロス 2 体(伝承表に無い = 振らない)がボスの手前に立ち、ファラクサスは奥(`index.html:38822〜38823`)。ファラクサスは戦闘の途中で**増援として合流**(`mergeReinforcements` `:21271`)するとみられ、この経路は伝承判定を通らない。依頼書 §2-2 罠 1 の「ファラクサス戦でも振る」は、ボスが最初の交戦に入る場合しか満たされない。⚠ 合流の経路そのものは未実測(増援のログ行を数えていない)。
+   - そのため S6 の ON/OFF の差は「オークを知る」だけで、竜への炎を避ける AI の分岐は 1 度も動いていない。**ファラクサスへの炎の IMMUNE は ON 2 回・OFF 2 回で同じ**(#75 の 40 走行では 0 回。今回は 20 走行中 4 本で 1 回ずつ)。
+4. **S6 は ON も OFF も 0/10**(#75 と同じ)。全走行がボス部屋に届き、ファラクサスの前で主人公が倒れる。伝承と無関係な難易度の話(#75 所見 2 の続き)。
+5. 所要時間は ON がわずかに長い(S5 +2 秒 / S6 +10 秒)。伝承判定は 1 回ごとに `sleepMs(400)` を挟むので、その分は構造的に伸びる。⚠ 項目3 の検証と CPU を分け合っていたので、絶対値は割り引いて読む。
+
+別チケット候補(項目5 / 起草窓へ):
+- (A) **増援・召喚で合流した敵にも伝承判定を振る**(`mergeReinforcements` などの合流点で判定を呼ぶ)。これが無いと S6 のファラクサス戦で伝承が働かない。決めるのは起草窓(仕様判断)。
+- (B) 手応えを測るなら、僧侶を必ず入れた S5 の腕(編成を固定する手段が要る。`?recruittalk=0` の抽選では 3/10)。
+- (C) S6 の難易度(#75 からの持ち越し)。
+
+道具の使い方:
+
+    node tools/probe_s5s6_clear.js --scen undead-temple,dragon-lair --pairs 10 --off-qs lore=0 \
+         --tsv <out.tsv> --detail <dir> --port 10470 --max 1200
+
+- `--off-qs` を省くと #75 と同じ腕(OFF = `?enemytraits=0`)。TSV の既存列の並びは #75 と同じで、#76 の列は末尾に足した(`traits_arm` `lore_arm` `hero_class` `ally_classes` `lore_n` `lore_ok` `lore_by_skill` `lore_log_ok` `lore_log_fail` `lore_nobody` `lore_known` `lore_tried` `immune_by_name`)。`arm` 列はその走行の腕のキー(ON/OFF)。
+- 中断しても同じコマンドで再開できる(TSV にある `run_id` = `<scen>:p<N>:<ON|OFF>` を SKIP)。今回は 40 走行で約 2 時間 5 分(`started_at` の 1 本目 00:00:20 〜 40 本目 02:01:37 UTC + 最後の 1 走行)。ポートは 10470 だけ(自前の http。試遊サーバ 8765 は使わない = 止めていない)。
+- 結果の置き場(scratchpad `f5deb037…\item4\`): `winrate76.tsv`(40 行)/ `winrate76.log` / `detail\<run_id>.json` / 集計 `agg76.py`(表・Fisher・ペア別・編成)。`smoke\` は道具の確かめ(S5 1 ペア・崩れ 0)で、表には含めていない。
+
+**仕様変更 (A) 後の追試(項目4b のコミット `986ce7d` の後・S6 × 1 ペア)**: 同じ道具・同じ設定(`--scen dragon-lair --pairs 1 --off-qs lore=0`・4 人・Lv10・道具の門「`git diff HEAD` が空」✓)で 1 ペアだけ走らせた。
+ON(戦士 + 僧侶・魔法使い・魔法使い)= 敗北・ボス部屋到達・伝承 **3 回**(歴史 1/1 DC10・宗教 0/1 DC10・**魔法学 0/1 DC15**)・`tried` = **orc, pharaxus, skeleton** / OFF(戦士 + 戦士・僧侶・魔法使い)= 敗北・判定 0 回・ファラクサスへの炎 IMMUNE 1。
+⇒ 項目4 の 10 本で 0 回だった**ファラクサスへの魔法学の判定が、合流の時に 1 回振られた**(出目は失敗 = DC 15 は判定値 +4 で 50%)。クリア率は問わない(記録だけ・N=1)。ログと TSV = scratchpad `f5deb037…\item4b\probe_s6_after.log` / `.tsv`。§12-4b (6) の `merge_probe.js` の 2 走行(2/2 で `tried` にファラクサス)と合わせて、仕様変更 (A) の狙いは実走で 3/3 成立。
+
 ### 12-4b. 仕様変更 (A) — 合流した敵にも伝承判定(項目4b)
 
 touched: `index.html`(+6 / −2・CRLF のまま 40,046 → 40,050 行・bare LF 0)/ `tavern.html` の `changelogList` 先頭の #76 の行の**書き換え**(行は増やさない・既定 4 件のまま・CRLF のまま)/ `tools/verify_lore_check.js`(節 (1j) と変異 `nomerge`)/ 本書 §2-7・§8・§12-4b。`js/*.js` / `audio.js` / `title/town/world.html` / `tools/probe_s5s6_clear.js` / 既存の golden は 0 バイト。
@@ -907,3 +964,167 @@ touched: `index.html`(+6 / −2・CRLF のまま 40,046 → 40,050 行・bare LF
 - 母集団の腕の総括行が変わる: `verify_lore_check`(素)= `26/26 PASSED   FAILED 0   PENDING 0` / `verify_lore_check:--negative` = `負のコントロール 12 / 12 が検出成功`・`[vet] --negative OK: 12 本すべて…`。ポートは 10471〜10483。
 - 差分を含む関数(`--negative` の母集団を選び直すときの ④): 項目2 の一覧に **`mergeReinforcements` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `spawnWave` / `runLoreCheck`** を足す。②〜④ を踏む本 = `driver_field_step0` / `_step5` / `_step6` / `_wagon` / `driver_mine_wall`(`grep -l` で `spawnWave` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `__waveProbe` / `__chariotProbe` / `__sovereignProbe` を引いた 5 本)。
 - 乱数がずれる場面が増えた: 未判定の種類が戦闘の途中で合流したとき(廃坑の道中の合流で goblinBrute / goblinRider / goblinArcher など・竜の巣のファラクサス・神殿のリッチ)。実プレイを回す本の緑→赤は影のツリーと交互に比べて帰属を決めること。
+
+### 12-5. 母集団の非退行(項目5) — 2026-09-29〜30 / 本番 = HEAD `986ce7d`
+
+⛔ 本番も `tools/` も 1 バイトも触っていない(走査・再走の前後で `git status --short` = 0 行・HEAD = `986ce7d`)。変えたのは本書 §12 と台帳の `| 76 |` 行だけ。
+#76 の本番の差分 = `git diff --name-only c4ec84b HEAD` のうち配信物 = `index.html` と `tavern.html`(changelog 1 行)の 2 本だけ。
+成果物 = scratchpad `…/f5deb037-8f94-4cba-becc-588ea310d3ff/scratchpad/item5/`(道具は #75 の `item5/` からコピーして直したもの。`fp74.py` は sha256 `818535166700358c` のまま)。
+
+#### (1) 腕の導出 = 160 腕(`item5/build_arms_76.py` → `armlist_76.json`)
+
+| 枠 | 腕 | 導出 | 着手前の色 |
+|---|---|---|---|
+| `after75.tsv` の全腕 | 154(素 149 + `--negative` 5) | 同じ順。154 本とも HEAD に実在を assert | `after75.tsv`(§12-0 (6) で流用可と判定) |
+| 新規受入 | 2 | `verify_lore_check` 素 / `--negative` | なし(緑であること) |
+| `--negative`(選び直しで増えた分) | 4 | `verify_enemy_name_label` / `verify_hold_person` / `verify_road_ambush` / `verify_run_chronicle` | なし ⇒ 影のツリーとの対 |
+
+#### (2) `--negative` の選び直し(`item5/sel2_76.py` → `select_neg76.json`)
+
+- #75 の `sel2.py` を `BASE = c4ec84b` / `AFTER = HEAD` にして当てた。対象 = コードに `--negative` を持つ本 31 本のうちページを読む 29 本(`verify_lore_check` は正のコントロール)。
+- #76 の差分を含む関数(④ の範囲)= 旧版 12 / 新版 23: `allySleep` / `elfAI` / `mageAI` / `mergeReinforcements` / `playerAttackTurn` / `runEncounter` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `spawnWave` / `createEnemyDom` / `enemySleepImmune`(STEP1 の塊の挿入点)/ `pickLeaderAction` + 新版は `runLoreCheck` と STEP1 の `lore*` 関数 10 本。= 申し送りの一覧と一致。
+- ⚠ #75 の選別器は「最初の `function` 宣言より前の行」(= `<style>` の CSS)を行 1 からの 1 つの範囲にしてしまう。#76 は CSS `.enemyCr` を足したので、そのままだと `js/town-map.js` / `title.html` / `display=` などの字面で **5 本が雑音で選ばれた**(`driver_heromark_signplate` / `verify_mercenary_roster` / `verify_player_sheet` / `verify_town_exit` ほか)。⇒ 最初の関数より前の行は「関数の中」に数えないよう直した。
+- 選ばれた本 = 6 本: `verify_aoe_coverage` / `verify_enemy_traits`(この 2 本は `after75.tsv` に `--negative` の腕がある)+ `verify_enemy_name_label` / `verify_hold_person` / `verify_road_ambush` / `verify_run_chronicle`(新たに足した 4 腕)。`after75.tsv` の `verify_bolt_aim` / `verify_bolt_bounce` / `verify_cone_cast` の `--negative` は #76 の差分に掛からないが、着手前の色があるので腕に残した。
+
+#### (3) 走査と所要
+
+- `item5/sweep_76.py`(直列・毎腕後に `df_*` の居残り Chrome を掃除 = 全 160 腕で 0)。2026-09-29 19:20:53 → 2026-09-30 00:46:31(**325.6 分**・中断なし)。共通 154 腕の合計 289.8 分(`after75.tsv` 283.9 分)。打ち切りは `probe_party_size`(素)の 600 秒だけ(着手前と同じ)。
+- 最長: `verify_bolt_aim` 2,239.6s / `probe_p9_tour` 1,654.7s / `driver_field_step6` 1,640.8s / `verify_run_chronicle --negative` 1,502.2s / `auto_debug_run` 952.3s(#75 721.2s・#74 1,039〜1,074s の範囲内)/ `verify_hold_pair` 904.5s。
+
+#### (4) 色の遷移(exit code が主・共通 154 腕)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | 136 | — |
+| 赤→赤 | 14 | `driver_field_step6` 54/59 / `driver_grid_p4` exit 3 / `driver_grid_p8` 55/56 / `driver_mapeditor` 176/179 / `driver_mapeditor_painting` 105/106 / `driver_monsters_hobgoblin` 12/14 / **`driver_sce1_events` 211/214(同じ 3 件)** / `driver_speech_v2` 45/46 / `probe_bandit_map` `probe_s2_fold` `probe_swamp_map` exit 3 / `probe_party_size` 13/20 / `sweep_recruit_balance` / `verify_walk_block` 22/23 — すべて着手前と同数 |
+| **緑→赤** | **3** | `driver_monsters_kobold` 12/12 → 11/12(`(e)` entries=0)/ `driver_monsters_umberhulk` 22/22 → 21/22(`(3) 再発火` maxGazesPerEnemy=1)/ `driver_speech_engine` 17/17 → 16/17(`(4) カメラが実際に動いた` camXレンジ 5.8px) |
+| 赤→緑 | 1 | `probe_n4_stall`(停滞を 87 秒で捕捉 = 調査の道具) |
+| 新規 | 6 | 全部 exit 0(下の表) |
+
+| 新規の腕 | exit | 総括 | 秒 |
+|---|---|---|---|
+| `verify_lore_check`(素) | 0 | `26/26 PASSED   FAILED 0   PENDING 0` | 3.0 |
+| `verify_lore_check --negative` | 0 | `負のコントロール 12 / 12 が検出成功` / `[vet] --negative OK: 12 本すべて担当ラベルだけが赤くなりました (空振り 0・漏れ 0)` | 32.0 |
+| `verify_enemy_name_label --negative` | 0 | 58/58 PASSED | 15.0 |
+| `verify_hold_person --negative` | 0 | `--negative OK: 8 本すべて担当ラベルが赤` | 80.0 |
+| `verify_road_ambush --negative` | 0 | 97/97 PASSED | 460.2 |
+| `verify_run_chronicle --negative` | 0 | `--negative OK: 8 本すべて担当ラベルが赤` | 1,502.2 |
+
+- 名指し golden 11 本 = 着手前と同色同数・指紋まで一致(`driver_sce1_events` は 211/214 のまま)。
+- 口②〜④を踏む本 = `driver_field_step0` 33/33 / `_step5` 48/48 / `_step6` 54/59(同じ 5 件)/ `_wagon` 18/18 / `driver_mine_wall` 66/66 — 5 本とも同色同数・指紋一致。実プレイの `verify_hold_pair` 21/21・`auto_debug_run` 緑。
+
+#### (5) 2 経路の突き合わせ(`item5/cmp_76.py -v`)
+
+比べられる腕 137(共通 154 − 判定行 0 行 15 − 指紋が走行ごとに動く 2)。経路① 133/137・経路② 131/137 が一致。差 = 緑→赤 3 本(値差)+ `driver_monsters_hobgoblin`(赤い assert が `(d)` 2 件 → `(e)` 2 件に入れ替わり・#74/#75 と同じ既知の形)+ `driver_field_step1`(位相の実測で本文が「予測が微小 = この位相では欠陥が物理的にほぼ無い」に替わった・合否同じ)+ `driver_grid_p5`(抽選の職業 `ally:warrior` → `ally:elf`・#73 以来の既知)。
+
+#### (6) 緑→赤の帰属(影のツリー `item5/shadow76/` = `index.html` / `tavern.html` だけ `c4ec84b` の blob を CRLF で置いた実体コピー。blob OID = `acbc101a…` / `f2a45902…` で c4ec84b と一致・他の配信物と `js/` `assets/` は作業ツリーと同一・`tools/` 192 = 192)
+
+| 本 | 本番(交互の対) | 影 | Fisher(両側) | 判定 |
+|---|---|---|---|---|
+| `driver_monsters_kobold` | 緑 6/6 | 緑 6/6 | 1.00 | 揺れ(走査の 1 回は 8 試行とも観測 0 件 = フレークの指紋) |
+| `driver_speech_engine` | 緑 13/36 | 緑 15/36 | 0.81 | 揺れ(赤の形 = camXレンジ 0〜10px と ±8px の 2 件落ちが両方の木に出る。#74 の凍結・after74 でも赤) |
+| `driver_monsters_umberhulk` | 緑 1/20(+ 走査 0/1) | 緑 5/20(+ `after75` 1/1) | 0.18(対だけ)/ 0.093(走査と `after75` を足す) | 揺れ・**要観察**(下) |
+
+`driver_monsters_umberhulk (3) 再発火`(#69 以来の既知の揺れ。#74 の凍結・`after74.tsv` でも赤・`after75.tsv` だけ緑)は、20 対で本番 1 / 影 5 と本番側に寄ったが有意ではない(p = 0.18)。構造では帰属の経路を消せない:
+種 = アンバーハルク 2 + ミノタウロス 1 + **コボルド 5**・編成に魔法使い(歴史の習熟)⇒ 戦闘開始で歴史の判定が 1 回(DC 10)振られ、成功するとコボルドを「眠る」と知り、魔法使いのスリープが確率ゲートなしで撃たれる(§5-1 の `sure`。アンバーハルクも眠る種類なので巻き込まれうる)。
+そこで**同じ本番のバイトで ON / `?lore=0` を交互に**回し、再発火までの時間を直接測った(`item5/probe_uh.js`・ドライバと同じ種と編成・1 ページ = ドライバの 1 試行):
+- 60 秒窓: 再発火 ON **13/20** / OFF **16/20**(p ≈ 0.48)。再発火までの秒の中央値 ON 45.8 / OFF 47.0 = **分布の本体は同じ**。ON は伝承の成功 17/20・スリープ 39 回 / 38 回。
+- 36 秒窓(ドライバの 1 試行 ≈ 100 回 × 300ms に近い): ON **0/30** / OFF **3/30**(p = 0.24)。再発火は大半が 37 秒以降で、ドライバの観測窓の**縁の外**で起きている。
+- ⇒ 判定 = **#76 に帰属する緑→赤とは言えない**(対 p = 0.18・足して 0.093・仕組みの計測 p = 0.24 / 0.48)。ただし早い裾(36 秒以内)は ON で 0 件で、仕様どおりの振る舞い(知っていればスリープを確実に撃つ)が実時間の観測窓の縁をわずかに動かしている可能性は残る ⇒ **要観察**。直すなら golden 側(観測窓を実時間でなく tick / 戦闘回数で測る = #69 の教訓)で、本チケットでは触らない(別チケット候補に挙げた)。
+
+#### (7) 着手前の色の無い `--negative` 4 腕 + 装置の確認(影との 1 対ずつ)
+
+| 腕 | 本番 | 影 | 経路① / ② |
+|---|---|---|---|
+| `verify_enemy_name_label --negative` | exit 0・58/0 | exit 0・58/0 | 一致 / 一致 |
+| `verify_road_ambush --negative` | exit 0・97/0 | exit 0・97/0 | 一致 / 一致 |
+| `verify_run_chronicle --negative` | exit 0・560/24 | exit 0・560/24 | 並びだけ違う / **多重集合は一致** |
+| `verify_hold_person --negative` | exit 0・235/21 | exit 0・220/36 | 差は `(5a)` `(4b)` の 2 件だけ = 影に `.git` が無く `git show b1143ac:index.html` が読めない(「装置の故障」)。それを除くと各変異の赤は同一 |
+| `verify_lore_check`(素・装置) | exit 0・26/26 | **exit 3**(変異 `bossbranch` の注入点 0 件) | — 影が #76 の前のバイトを配っている証拠 |
+
+#### (8) 試遊サーバ 8765
+
+走査の前に LISTEN を実測 = 2 系統: `cmd.exe`(pid 36320)→ `py -m http.server 8765`(18104)→ `python.exe`(**26728**)/ `cmd.exe`(34780)→ `py`(13504)→ `python.exe`(**9600**)。どちらも `ゲームを起動.vbs` と同じ `cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)`。cmd → py → python の順に止めた(先に cmd を止めないと `||` の後段が立ち直る)。走査と再走をすべて終えてから、同じコマンドを `Invoke-CimMethod Win32_Process Create` でデタッチ起動(ReturnValue 0・cmd の pid 18844)。`Get-NetTCPConnection` = **`[::]:8765 LISTEN 37916`**(`python.exe -m http.server 8765`・親 38736)・`http://localhost:8765/title.html` = **200**。居残りの Chrome(`df_*`)/ node = **0**。`auto_debug_run`(素)は既定ポート 8765 のまま **exit 0**(952.3 秒)。
+
+#### (9) ⚠ 崩れた主張(4 件)
+
+20. **#75 の選別器 ④「関数の範囲 = 直前の `function` 宣言行から次の宣言行まで」** ⇒ 差分が最初の関数より前(`<style>` の CSS `.enemyCr`)にあると、行 1 からを 1 つの「関数」にして**雑音 5 本**を選ぶ(`js/town-map.js` / `title.html` などの字面)。最初の関数より前は数えないよう直した。
+21. **「#76 用の `--negative` は `after75.tsv` の `--negative` 腕の中から選ぶ」** ⇒ 機械で選んだ 6 本のうち 4 本(`verify_enemy_name_label` / `verify_hold_person` / `verify_road_ambush` / `verify_run_chronicle`)は `after75.tsv` に `--negative` の腕が無い(= 着手前の色が無い ⇒ 影との対で見た)。`after75.tsv` の 5 腕のうち 3 本(`bolt_aim` / `bolt_bounce` / `cone_cast`)は #76 の差分に掛からない。
+22. **「影のツリー = #76 の前の本番」** ⇒ `git` を読むドライバには成り立たない。影に `.git` が無いので `verify_hold_person` の `(5a)` `(4b)`(`git show b1143ac:index.html`)が「装置の故障」で赤。本番との差はこの 2 件だけで、変異の赤の集合は同一。
+23. **既知の揺れの一覧はまた要約**: `driver_monsters_kobold` の `(e)`(孤立したコボルドが 8 試行とも攻撃しない = 観測 0 件)は一覧に無い(#74 の凍結・`after74`・`after75` は緑)。対では本番・影とも 6/6 緑。
+
+#### ⇒ 判定
+
+**160 腕(`after75.tsv` の 154 + 新規 2 + 選び直した `--negative` 4)で、#76 に帰属すると言える緑→赤は 0。** 緑→赤 3 本はすべて対で有意差なし(kobold p = 1.00・speech_engine p = 0.81・umberhulk p = 0.18 / 0.093 = 要観察)。赤→赤 14 は着手前と同数、赤→緑 1 は調査の道具。
+指紋を比べられる 137 腕で経路① 133・経路② 131 が一致し、差 6 本は緑→赤 3・既知の入れ替わり 1・本文だけの差 2 で説明が付く。着手前の色の無い `--negative` 4 腕は影との対で判定行の多重集合まで同一(`hold_person` は `git` を読む 2 件を除く)。新規受入は素 26/26・`--negative` 12/12。
+
+### 12-6. まとめ
+
+**何を実装したか(プレイヤー向け)**
+
+1. 戦いの始まりに、パーティの中で**習熟を持つ者だけ**が伝承判定(歴史 = 人型 / 宗教 = アンデッド / 魔法学 = 竜・構造体・元素・異形・ハイドラ)を振る。パネルは出さず自動。DC 10(ボス格 15)。
+2. 見抜くと、ログに「📜 ○○は伝承を思い出した — 敵 (脅威度 X): 眠りの術が効かない / 炎が効かない …」、名前札に **脅威度(SRD 5.1 の CR そのまま・`CR1/4` など)** が付く。1 種類につき 1 冒険 1 回。習熟者が居なければ「📜 この敵の正体を知る者はいない」を 1 冒険 1 技能 1 行。
+3. 知っている敵に対して、魔法使い・エルフ・主人公の AI が**眠らない敵へのスリープ**と**効かない属性**(ファラクサスへの炎など)を避け、効く呪文へ差し替える。知っている眠る敵が 2 体以上ならスリープを確実に撃つ。
+4. 戦闘の途中で合流した敵(増援・ボスの合流・召喚の手下・戦車の乱入・暴君の手下・隊商護衛の波)の未判定の種類にも振る(仕様変更 (A))。
+5. 撤退 **`?lore=0`**(何も知らない = 乱数の消費も今までと同じ)。
+
+**コミット**
+
+| 項目 | コミット | 中身 |
+|---|---|---|
+| 1 | `19cf889` | 着手前の実測(§12-0)・崩れ 12 件・名指し golden 11 本の色・`after75.tsv` 流用可 |
+| 2 | `06fd7de` | 本番(`index.html` +228 / −7)+ changelog 1 行 |
+| 4 | `077c4c9` | 勝率の記録の道具 `probe_s5s6_clear` に `lore` スイッチ |
+| 3 | `4e738da` | 新規受入 `tools/verify_lore_check.js`(base 10471 / 変異 10472〜10482) |
+| 4b | `986ce7d` | 仕様変更 (A) = 合流の口 4 つ + 受入 (1j) / 変異 `nomerge`(10483) |
+| 5 | 本節を書いたコミット | 母集団の非退行(§12-5)+ §12-4〜§12-6 + 台帳 |
+
+**受入の数字**
+
+- `tools/verify_lore_check.js` 素 = **26/26 PASSED FAILED 0 PENDING 0**(項目4b で 3 回 + 項目5 の走査 1 回 + 影との対 1 回・約 3 秒)/ `--negative` = **負のコントロール 12 / 12 が検出成功・空振り 0・漏れ 0**(項目4b + 項目5・約 32 秒)。
+- 名指し golden 11 本 = 項目2・項目4b・項目5 のどれでも着手前と同色同数(`driver_sce1_events` は 211/214・同じ型3 の 3 件のまま)。
+- 使い捨て検証(項目2)= 33/33。
+- 勝率の記録(§12-4・調整なし)= S5 ON 7/10・OFF 8/10(p = 1.00)/ S6 ON・OFF とも 0/10。仕様変更 (A) の後、S6 でファラクサスへ魔法学の判定が振られた = 3/3 走行(§12-4b (6) の 2 + §12-4 の追試 1)。
+- 母集団の非退行 = **160 腕**で **#76 に帰属すると言える緑→赤 0**(§12-5。`driver_monsters_umberhulk (3)` は有意差なしだが要観察)。
+
+**崩れた主張 = 通算 23 件**(一覧の場所: §12-0 (2) = 1〜12 / §12-2 (6) = 13〜14 / §12-3 (3) = 15〜18 / §12-4 所見 3 = 19 / §12-5 (9) = 20〜23)
+
+| # | 主張 → 実測(一行) | 出典 |
+|---|---|---|
+| 1 | `canSneak` が「絞った配列を渡す」前例 → ゲートだけ。前例は無い | §12-0 (2) |
+| 2 | `buildPerceptionParty()` は `{classKey, name}` → `isHero` / `skillBonus` 付き・主人公は `hp > 0 && !gameOver` のときだけ | §12-0 (2) |
+| 3 | 吹き出しに判定行が乗る → `1d20(<b>n</b>)` と type hit/miss/crit/fumble のときだけ | §12-0 (2) |
+| 4 | 狙点の評価は 2 か所 → 5 か所 | §12-0 (2) |
+| 5 | (2c) 知らない時はファイアボルト → MM が先 = 装備を変えて測る | §12-0 (2) |
+| 6 | (2d) 知らない時はコーン → threatScore 次第 = hp を小さくして測る | §12-0 (2) |
+| 7 | (2e) の前提 → 成立。ただし倍率 2 は半減扱い・`const` は `window` に無い | §12-0 (2) |
+| 8 | 雷の演出の `element` → `'arcane'` | §12-0 (2) |
+| 9 | 行の小さな指し違い 4 か所 | §12-0 (2) |
+| 10 | 道具のスイッチ表 6 本 → 4 本 | §12-0 (2) |
+| 11 | 判定値 +4 → `?ability5e=0` では +3 | §12-0 (2) |
+| 12 | 挿入位置は `:21662` の後・`:21668` の前 → 間の 3 本は乱数を引かない = どこでも同じ | §12-0 (2) |
+| 13 | 札の直後で `loreDecorateLabel` を呼ぶ → 起動時の TDZ でページが死ぬ ⇒ `var LORE_READY` | §12-2 (6) |
+| 14 | 主人公のスリープは「全員眠らない」なら外す → 空配列の `every` が真 ⇒ 1 体以上を条件に | §12-2 (6) |
+| 15 | `rngparity` は 1 行目の先頭で引く → 両腕に効いて赤くならない ⇒ `LORE_ON` で条件付け | §12-3 (3) |
+| 16 | (0c) は表の突き合わせで足りる → `familyreuse` が空振り ⇒ 実効の技能を走査 | §12-3 (3) |
+| 17 | `alwaysknow` の担当は (1c)(3a) → 実測 12 節 | §12-3 (3) |
+| 18 | SRD の前付けは BOM 付き CRLF → `goblin.md` だけ LF | §12-3 (3) |
+| 19 | §2-2 罠 1「ファラクサス戦でも振る」→ §2-7(増援は次の戦いまで振らない)の下では S6 で 0/10 = ボスは合流で入る ⇒ 仕様変更 (A) | §12-4 所見 3 / §12-4b |
+| 20 | 選別器 ④ の関数の範囲 → CSS(最初の関数より前)を行 1 からの範囲にして雑音 5 本 | §12-5 (9) |
+| 21 | #76 用の `--negative` は `after75.tsv` の中から → 6 本中 4 本は外 | §12-5 (9) |
+| 22 | 影のツリー = #76 の前の本番 → `git` を読むドライバには成り立たない(`.git` が無い) | §12-5 (9) |
+| 23 | 既知の揺れの一覧 → `driver_monsters_kobold (e)` が載っていない | §12-5 (9) |
+
+**残**
+
+- **§9 の実機確認(ユーザー担当・そのまま)**。⚠ http 起動が必須。
+
+**別チケット候補(本チケットでは直さない)**
+
+- **僧侶を固定した S5 の腕** — S5 の伝承(宗教)は僧侶が居ないと起きず、自動抽選の ON 腕では 3/10。手応え(眠らない体数)を測るには編成を固定する手段が要る(§12-4 所見 1・2)。
+- **S6 が Lv10・4 人でも 0/10** — #75 からの持ち越し。伝承と無関係な難易度(§12-4 所見 4)。
+- **`umber_hulk` / `direBear` の Product Identity の確認** — SRD 5.1 に `umber-hulk.md` / `dire-bear.md` が無い(§12-0 (1) §2-10)。本チケットは脅威度を出さない側に置いただけ。
+- **名前を伏せる案** — 見抜く前は敵の名前を伏せる(本チケットの範囲外)。
+- (要観察)`driver_monsters_umberhulk (3) 再発火` の観測窓を実時間でなく tick / 戦闘回数で測る(§12-5 (6)。#69 以来の揺れで、#76 の後は 20 対で本番 1 / 影 5)。
+
+**次の新規ドライバ base = 10484**(#76 が使ったのは 10470 = `probe_s5s6_clear`・10471〜10483 = `verify_lore_check`。10484 は `tools/*.js` `*.py` にヒット 0・LISTEN 0)。
