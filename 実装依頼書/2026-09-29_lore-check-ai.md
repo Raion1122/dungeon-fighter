@@ -131,7 +131,9 @@ A-1(#75)で敵に 5e SRD どおりの体質が付いた(アンデッドと構造
 - 知っている敵キーの集合 `LORE_KNOWN` と、振った敵キーの集合 `LORE_TRIED`(どちらもページ単位)。
 - `index.html` は出発のたびに読み直される(酒場 → `departToScenario()`、自動デバッグの 2 走行目も `?autodebug=resume` で読み直し)⇒ **1 回の冒険の間だけ覚えている**。ノードをまたいでも同じページなので残る。
 - 1 種類につき 1 回の冒険で 1 回だけ振る(失敗したら、その冒険中は思い出せない = 5e の知識判定の作法)。
-- 途中から加わる敵(増援・召喚)は、次の戦いの始まりまで判定しない(知らないまま扱う)。
+- ~~途中から加わる敵(増援・召喚)は、次の戦いの始まりまで判定しない(知らないまま扱う)。~~
+  ⇒ **2026-09-29 仕様変更 (A) で取り消し**(ユーザー承認・起草窓 claude-2e 経由)。項目4 の実走で S6 竜の巣のファラクサスに判定が **0/10 回**だった(ボスは戦闘の途中で増援として合流する = §2-2 罠 1 の目的「ファラクサス戦でも振る」が不成立)。
+  **新**: 戦闘の途中で合流した敵(増援・召喚された手下・戦車の乱入・暴君の手下・隊商護衛の波)のうち未判定の種類にも、合流したその場(イニシアチブの後)で判定を振る。1 種類 1 冒険 1 回(`LORE_TRIED`)・「正体を知る者はいない」は 1 冒険 1 技能 1 行・振る種類が無ければ `Math.random` を引かない(罠 2)は不変。実測と実装は §12-4b。
 
 ### 2-8. 判断を要した 4 点(起草者が決めた。変えたいなら承認時に)
 
@@ -392,6 +394,7 @@ AI は `mageAI` / `elfAI` を直接呼び、呼ばれた `ally*` 関数を記録
 
 - **(1h)** 脅威度の表示: スケルトンを見抜いた → ログの成功行に `1/4`、その場のスケルトン全員の札に `.enemyCr` がちょうど 1 つ(文字は `CR1/4`)。ゴブリンキング(表に無い)を見抜いた → 札に `.enemyCr` が無く、ログに「脅威度」の語が出ない。失敗した種類の札には付かない。
 - **(1i)** 見抜いた種類の敵を後から作る(`createEnemy` → `enemies.push` → `createEnemyDom`)→ 札に `.enemyCr` が 1 つ。同じ敵に `decorate` を 2 回呼んでも 1 つのまま。`?namelabel=0` の腕では例外なく何も付かない。
+- **(1j)**(2026-09-29 仕様変更 (A)・項目4b で追加)**戦闘中に合流した敵にも振る**: ミノタウロス 2 体の戦い(自然 = 振らない)へ本番の `mergeReinforcements` でファラクサスを合流させる → 魔法学の判定がちょうど 1 回・DC 15・習熟者だけ・札に `CR10`・吹き出しは REINFORCE の後。振る種類の無い合流(ミノタウロス)と判定済みの種類の合流(2 体目のファラクサス)は呼ばず、`Math.random` の回数が `?lore=0` の腕と同じ(ファラクサスの合流だけ +1)。(4a) の述語にも入れる。
 
 ### §2 AI
 
@@ -435,6 +438,7 @@ AI は `mageAI` / `elfAI` を直接呼び、呼ばれた `ally*` 関数を記録
 | `crguess` | 「出さない」のゴブリンキングに近い種族の値(`goblinKing: 1`)を表へ足す(規則 ③ を破る) | (0d)(1h) |
 | `crdecimal` | `loreCrText` が分数へ直さず `String(cr)`(`0.25` と出る) | (1h) |
 | `crdup` | `loreDecorateLabel` の「既に `.enemyCr` があれば何もしない」を外す | (1i) |
+| `nomerge`(項目4b で追加) | `mergeReinforcements` の中の `await runLoreCheck(list);` を外す(§2-7 の旧仕様 = S6 でファラクサスに 0/10 回の姿) | (1j) |
 
 ⭐ `--negative` は #75 と同じく「赤の集合 = 担当」の完全一致を要求する。担当は実走で決め直してよい(#75 は 7 本中 5 本が予想より広がった)。**予想の節が実測の赤に含まれていること**だけは崩さない。
 
@@ -799,3 +803,107 @@ touched: `tools/verify_lore_check.js`(新規・LF・1,098 行)と本書 §12-3 �
 - ⚠ 判定行は `  ✓ (id) …` 形式 = `fp74.py` の経路①/② が拾わない(#75 の `verify_enemy_traits` と同じ)。指紋は総括行で見ること。
 - ⚠ Dropbox の SRD フォルダ(`C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\raw\srd\monsters`)が無い機械では exit 2(環境)。影のツリーから走らせても SRD は絶対パスで読むので同じ(`--srd <dir>` で差し替え可)。
 - 所要の内訳: ページ 6 枚(主 ON / 主 `?lore=0` / 主人公=魔法使い ON / 同 `?lore=0` / 戦士 + 盗賊 / `?namelabel=0`)。項目4 の走行と並走中の実測。
+
+### 12-4b. 仕様変更 (A) — 合流した敵にも伝承判定(項目4b)
+
+touched: `index.html`(+6 / −2・CRLF のまま 40,046 → 40,050 行・bare LF 0)/ `tavern.html` の `changelogList` 先頭の #76 の行の**書き換え**(行は増やさない・既定 4 件のまま・CRLF のまま)/ `tools/verify_lore_check.js`(節 (1j) と変異 `nomerge`)/ 本書 §2-7・§8・§12-4b。`js/*.js` / `audio.js` / `title/town/world.html` / `tools/probe_s5s6_clear.js` / 既存の golden は 0 バイト。
+成果物 = scratchpad `…/f5deb037-…/scratchpad/item4b/`(`merge_probe.js` = 合流の口を包んで 1 走行を記録 / `patch.py` / `s*_*.log|json` / `vlc_*.log` / `golden/`)。
+
+#### (1) 経緯
+
+- 項目4(§12-4 の勝率の記録・`077c4c9`)で、**S6 竜の巣の ON 10 走行すべてでファラクサスに伝承判定が 1 回も振られなかった**(`__dfLore.tried` はオークだけ。魔法学の習熟者 = 魔法使いは 10/10 本に在籍)。原因の推定 = ボス部屋ではミノタウロス(自然 = 振らない)との戦闘が先に始まり、ファラクサスは途中で増援として合流する。§2-7「途中から加わる敵は次の戦いまで判定しない」のとおりだが、§2-2 罠 1 の目的「ファラクサス戦でも振る」が実走で不成立。
+- 2026-09-29、起草窓 claude-2e 経由で**ユーザーが (A) を承認**: 途中から合流した敵(増援・召喚)の未判定の種類にも振る。§2-7 の該当行は取り消し。守ること = 振る種類が無ければ `Math.random` を引かない(罠 2)/ 1 種類 1 冒険 1 回 /「正体を知る者はいない」は 1 冒険 1 技能 1 行。
+
+#### (2) 合流経路の実測(本番を触る前・HEAD `4e738da`)
+
+`merge_probe.js` = `probe_s5s6_clear` と同じ本番の出発(酒場 → `prepScenario` → `regeneratePartyMembers` → `departToScenario`・`?autoplay=15&recruittalk=0` = 4 人・推奨 Lv の XP)で 1 走行を回し、着地直後に `window.mergeReinforcements` / `runEncounter` / `bossTurnSummon` / `spawnMinionNearBoss` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `spawnWave` / `runLoreCheck` / `SkillCheck.resolveSkillCheck` / `updateInfo` を包んで、呼ばれた順と `encounterEnemyIndices` の種類を記録した(包みが裸の呼び出しに効くことは `mergeReinforcements === window.mergeReinforcements` で確認)。
+
+| 走行 | 編成 | 決着 | ボス部屋 n7 の入り方 |
+|---|---|---|---|
+| S6 `s6_a` | 戦士 + 盗賊・エルフ・魔法使い | 全滅 | `runEncounter` の初期交戦 = `[minotaur]` → **2 ラウンド目の `mergeReinforcements` で `[minotaur, pharaxus]` が合流** → 判定 0 回 |
+| S6 `s6_b` | 戦士 + 僧侶・盗賊・魔法使い | 全滅 | 同じ(初期 `[minotaur]` → 合流 `[minotaur, pharaxus]`)。続いて **`bossTurnSummon`(ファラクサス)→ `spawnMinionNearBoss` がオークを作る(`encounterEnemyIndices` へは入れない)→ 次のラウンドの `mergeReinforcements` で `[orc, orc]` が合流**(3 回とも同じ形) |
+| S5 `s5_a` | 戦士 + 盗賊・エルフ・魔法使い | クリア | **リッチも同じ**: 初期 `[skeleton]` → 合流 `[skeleton, lich]`(§12-4 の S5 で宗教の判定が振られたのは、道中のアンデッドが戦闘開始時の交戦に居たから) |
+| S1 `s1_a` / `s1_b` | 戦士 + 魔法使いほか | クリア 2/2 | 道中の合流で goblinBrute / goblinRider / goblinArcher / goblinShaman(未判定の種類)が合流 = 旧仕様では判定しない種類があった。戦車の乱入・キングの召喚は 2 走行とも起きず |
+
+- ⇒ 推定は**実測で確定**: ファラクサス(とリッチ)は `mergeReinforcements` で戦闘に入る。召喚(`maxSummons` のボスの `bossTurnSummon`)で生まれた手下は **`spawnMinionNearBoss` では交戦に入らず、次のラウンド頭の `detectReinforcements()` → `mergeReinforcements` を通る** = 召喚に別の口は無い。
+- `encounterEnemyIndices` へ入る口の全列挙(`grep -n "encounterEnemyIndices.push\|encounterEnemyIndices = "`): 戦闘開始 `runEncounter` の `encounterEnemyIndices = initialEngaged.slice()`(`:21492`)/ 終了時の `= []`(`:21905`)/ 検証の窓 `setEncEnemies`(`:13851`)/ **戦闘中の口 4 つ**: ① `mergeReinforcements` `:21271`(呼び口 = ラウンド頭 `:21711` と掃討 `:21813`。増援とボスの召喚の手下)② `spawnGoblinChariot` `:33740`(呼び口 `:21726`・廃坑のキングの戦車の乱入)③ `spawnSovereignAddWave` `:33857`(`:21733`・単眼の暴君の手下)④ `spawnWave` `:33968`(`:21746`・隊商護衛の波)。②〜④ は `enemies.push` → `createEnemyDom` → `encounterEnemyIndices.push` → イニシアチブを自前で振る(`mergeReinforcements` と同じ手順)。
+- 判断: ①〜④ はどれも「戦闘の途中で交戦に加わる敵」で、1 種類 1 冒険 1 回の門があるので振る回数は種類の数で頭打ち(波や召喚が毎ターン湧いても、判定済みの種類は振らない)⇒ 4 つとも同じ呼び出しを入れた(振る舞いの変化は「未判定の種類が合流した時に d20 が 1 回増える」だけ)。
+
+#### (3) 実装(行番号は項目4b のコミット時点)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| `runLoreCheck(onlyIdxs)` | 27624 / 走査 27628 | 対象の添字の配列を受ける。省略 = 従来どおり `encounterEnemyIndices`(戦闘開始の呼び口 `:21672` は引数なしのまま = 振る舞い不変)。走査の行は `for (const i of (onlyIdxs \|\| encounterEnemyIndices))` |
+| ① `mergeReinforcements` | 21307 | 合流した全員のイニシアチブを振った後・`sortUnits()` の前に `await runLoreCheck(list);` |
+| ② `spawnGoblinChariot` | 33798 | 同じ位置に `await runLoreCheck([idx]);` |
+| ③ `spawnSovereignAddWave` | 33902 | `await runLoreCheck(encounterEnemyIndices.slice(encounterEnemyIndices.length - count));`(ループで末尾へ積んだ `count` 体。⚠ `slice(-count)` は `count` 0 で**全員**を返すので使わない) |
+| ④ `spawnWave` | 34033 | ③ と同じ形(波の `count` は 0 が合法 = 「何も湧かない波」) |
+
+- 罠 2: `runLoreCheck` は振る種類が無ければ `resolveSkillCheck` を呼ばず、`sleepMs` も挟まない(技能の塊が空なら素通り)⇒ 振る種類の無い合流・判定済みの種類の合流・`?lore=0` では乱数も待ち時間も今までと同じ。
+- 1 種類 1 冒険 1 回(`LORE_TRIED`)・「知る者はいない」の 1 行(`LORE_NOBODY_SAID`)・習熟で絞る(罠 4)・DC(ボス格 15)・札の `CR…`(`loreDecorateLabel`)は `runLoreCheck` の中身をそのまま使う = 新しい規則は無い。
+- 吹き出しの順: REINFORCE(イニシアチブ)→ LORE(判定)。
+- ⚠ 変異アンカーの行は書き換えていない・複製していない(`py` の `str.count` で各 1 件: `bossbranch` の呼び口 `:21672`・`verify_enemy_traits` の stunguard 2 行・本節の `nomerge`)。`runLoreCheck` の関数宣言の行と走査の行はどの golden のアンカーでもない(`grep -rF` で tools/ scripts/ に 0 件。`verify_aoe_coverage.js:524` の同じ字面は自前の走査で、アンカーではない)。
+
+#### (4) 受入の追加(`tools/verify_lore_check.js`)
+
+- **(1j)**: ミノタウロス 2 体の戦い(`encounterEnemyIndices` = その 2 体)へ、本番の `mergeReinforcements(idxs, [], () => {})` で 3 段合流させる。① ミノタウロス(乱数 0.5)② ファラクサス(乱数 0.95 = 出目 20)③ 2 体目のファラクサス(判定済み)。
+  - ON: ① 呼び出し 0 / ② **魔法学 1 回・DC 15(定義のフラグからドライバが出す)・渡された全員が魔法学の習熟(= 魔法使いだけ)・`auto`・`known` にファラクサス・札 = `["CR10"]`(SRD の `young-red-dragon.md` の `cr: 10` から)・吹き出しは REINFORCE の後に LORE** / ③ 呼び出し 0。
+  - 乱数(罠 2): 各段の `Math.random` の回数を `?lore=0` の腕と突き合わせる — 実測 ① 1 / 1・② **2 / 1**(+1 = 判定の d20)・③ 1 / 1。
+  - (4a) の述語の集合に (1j) を足した(`?lore=0` で偽)。
+  - 実測の出力: `📜 ミラは伝承を思い出した — レッドドラゴン「ファラクサス」 (脅威度 10): 炎が効かない`。
+- 変異 **`nomerge`**(port **10483**): ① の `await runLoreCheck(list);` をコメントへ(= §2-7 の旧仕様)。
+- 担当は `--negative` の実走で決めた(予想 ⊂ 実測は起動時に検算):
+
+| 変異 | 旧担当 | 項目4b 後の赤(= 担当) | 増えた理由 |
+|---|---|---|---|
+| `nogate` | (1a)(1b) | (1a)(1b)**(1j)** | 合流の判定にも魔法学を持たない戦士・僧侶が混ざる |
+| `reroll` | (1c)(1d) | (1c)(1d)**(1j)** | 判定済みの 2 体目の合流でもう一度振る |
+| `familyreuse` | (0c) | (0c)**(1j)** | ミノタウロスが `detectEnemyFamily` で `orc` = 歴史になり、振る種類の無いはずの合流で振る |
+| `switchdead` | (4a) | **(1j)**(4a) | `?lore=0` の腕でも合流で振り、② の乱数の回数が ON と同じになる |
+| `nomerge`(新) | — | **(1j)** | 予想どおり |
+| 他 7 本 | — | 変化なし | — |
+
+- 結果: 素 ×3 = **26/26 PASSED・exit 0・2.9〜3.0 秒**(3 回とも同じ)/ `--negative` = **`負のコントロール 12 / 12 が検出成功`・`[vet] --negative OK`・exit 0・32.5 秒**。既存の 25 本の assert と担当は弱めていない(広げただけ)。
+
+#### (5) 名指し golden(素・項目4b の作業ツリー)= 着手前(§12-0 (5) / §12-2 (4))と**同色同数**
+
+| 本 | exit | 総括行 | 秒 |
+|---|---|---|---|
+| `driver_leader_ai` | 0 | 42/42 passed | 32 |
+| `driver_action_priority` | 0 | PASSED 92 / FAILED 0 / PENDING 0 | 65 |
+| `verify_aoe_coverage` | 0 | 28/28 PASSED | 3 |
+| `verify_cone_cast` | 0 | 19/19 PASSED | 76 |
+| `verify_hold_person` | 0 | 31/31 PASSED | 10 |
+| `verify_hold_pair` | 0 | 21/21 PASSED(実プレイ 6 走行・背景で並走) | 約 900 |
+| `verify_spell_off` | 0 | 51/51 PASSED | 5 |
+| `verify_enemy_traits` | 0 | 15/15 PASSED(`--negative` 7/7・exit 0・28 秒) | 5 |
+| `driver_sce1_events` | 1 | 211/214 passed(FAIL は着手前と同じ (2) / (4d) / (N2-隣) の 3 件 = 型3) | 48 |
+| `driver_skillcheck_roster` | 0 | 13/13 passed | 4 |
+| `verify_enemy_name_label` | 0 | 30/30 PASSED | 3 |
+
+- 追加で、書き換えた口 ②④ を踏む本のうち短い 2 本も素で走らせた: `driver_field_step5`(波の湧き位置)48/48 PASS・exit 0・4 秒 / `driver_mine_wall`(戦車の湧き)66/66 PASS・exit 0・264 秒(`after75.tsv` の同じ腕 = 48/0・66/0 と同じ)。長い `driver_field_step0` / `_step6` / `_wagon` は項目5 の母集団に任せた。
+
+#### (6) S6 の実走(項目4b の後)
+
+⚠ `tools/probe_s5s6_clear.js` は起動時に `git diff HEAD -- index.html tavern.html audio.js js/` が空でなければ exit 2 で止まる(記録の前後で別ビルドが混ざらないための門)⇒ コミット前の作業ツリーでは走らない。そこで同じ出発の手順の `merge_probe.js` で S6 を 2 走行した(ON・4 人・Lv10)。
+
+| 走行 | 編成 | 決着 | ボス部屋 | `tried` |
+|---|---|---|---|---|
+| `s6_after_1` | 戦士 + エルフ・僧侶・魔法使い | 全滅 | 合流 `[minotaur, pharaxus]` の直後に **魔法学 DC 15 を 1 回**(「ヴァレンは思い出せない… (魔法学 12 < DC 15)」)。召喚のオークの合流では振らない(判定済み) | orc, skeleton, **pharaxus** |
+| `s6_after_2` | 戦士 + 盗賊・魔法使い・魔法使い | 全滅 | 同じく **魔法学 DC 15 を 1 回**(「マグヌスは思い出せない… (魔法学 9 < DC 15)」) | orc, **pharaxus** |
+
+⇒ **ファラクサスが `tried` に入った = 2/2**(変更前は項目4 で 0/10・本節 (2) で 0/2)。2 本とも失敗の出目(DC 15 は判定値 +4 で 50%)。道中でも n4 のスケルトンの合流で宗教の判定が振られた(`s6_after_1`)。クリア率は問わない(記録だけ)。
+
+#### (7) 変異アンカー(逐語・`index.html` は CRLF・各 1 件)
+
+| 変異 | アンカー | 行 |
+|---|---|---|
+| `nomerge` | `      await runLoreCheck(list);   // ★[#76 項目4b] 増援 (ボスの合流・召喚された手下の合流) のうち未判定の種類だけ振る` | 21307 |
+
+- 既存 11 本(§12-2 (5))と `verify_enemy_traits` の stunguard 2 行は字面そのまま・各 1 件(行番号は `bossbranch` の呼び口が 21671 → 21672 に 1 行ずれただけ)。
+
+#### (8) 項目5 への申し送り
+
+- 母集団の腕の総括行が変わる: `verify_lore_check`(素)= `26/26 PASSED   FAILED 0   PENDING 0` / `verify_lore_check:--negative` = `負のコントロール 12 / 12 が検出成功`・`[vet] --negative OK: 12 本すべて…`。ポートは 10471〜10483。
+- 差分を含む関数(`--negative` の母集団を選び直すときの ④): 項目2 の一覧に **`mergeReinforcements` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `spawnWave` / `runLoreCheck`** を足す。②〜④ を踏む本 = `driver_field_step0` / `_step5` / `_step6` / `_wagon` / `driver_mine_wall`(`grep -l` で `spawnWave` / `spawnGoblinChariot` / `spawnSovereignAddWave` / `__waveProbe` / `__chariotProbe` / `__sovereignProbe` を引いた 5 本)。
+- 乱数がずれる場面が増えた: 未判定の種類が戦闘の途中で合流したとき(廃坑の道中の合流で goblinBrute / goblinRider / goblinArcher など・竜の巣のファラクサス・神殿のリッチ)。実プレイを回す本の緑→赤は影のツリーと交互に比べて帰属を決めること。

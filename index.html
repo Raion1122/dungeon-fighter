@@ -21304,6 +21304,7 @@
           "init");
         await sleepMs(400);
       }
+      await runLoreCheck(list);   // ★[#76 項目4b] 増援 (ボスの合流・召喚された手下の合流) のうち未判定の種類だけ振る
       sortUnits();
       await sleepMs(500);
     }
@@ -27620,11 +27621,11 @@
        ⭐ パネルは出さない (opts.auto)。出目は代表の頭上のロール吹き出し + ログ 1 行。
        ⚠ buildPerceptionParty() は写しを返す (主人公は hp>0 && !gameOver のときだけ先頭)。頭上に出すための
           unit は写しへ足さず、ここで同じ順に並べた対応表で引く (写しに DOM を持つ ally を入れない)。 */
-    async function runLoreCheck() {
+    async function runLoreCheck(onlyIdxs) {   // ★[#76 項目4b] onlyIdxs = 戦闘の途中で合流した敵の添字 (省略 = 交戦中の全員 = 戦闘開始の呼び口)
       if (!LORE_ON) return;
       if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return;
       const bySkill = {};
-      for (const i of encounterEnemyIndices) {
+      for (const i of (onlyIdxs || encounterEnemyIndices)) {
         const e = enemies[i];
         if (!e || !e.alive || isEscortObjective(e)) continue;
         const skill = LORE_SKILL_OF[e.type];
@@ -33794,6 +33795,7 @@
       units.push({ kind: "enemy", idx, name: cart.def.name, dex: dexV, initiative: init });
       showRollAtEnemy(idx,
         `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
+      await runLoreCheck([idx]);   // ★[#76 項目4b] 乱入した戦車も未判定なら振る
       sortUnits();
       await sleepMs(500);
     }
@@ -33897,6 +33899,7 @@
           `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
         await sleepMs(400);
       }
+      await runLoreCheck(encounterEnemyIndices.slice(encounterEnemyIndices.length - count));   // ★[#76 項目4b] 這い出た手下 (ループで count 体を末尾へ積んだ。count 0 = 空) のうち未判定の種類
       sortUnits();
       if (window.__sovereignProbe) window.__sovereignProbe.push({ site: "addWave", spawned: spawnedTypes.slice() });
       await sleepMs(500);
@@ -34027,6 +34030,7 @@
           `<span class="label">INITIATIVE</span>1d20(${n})${signedDD(dexV)} = <span class="big">${init}</span>`, "init");
         await sleepMs(400);
       }
+      await runLoreCheck(encounterEnemyIndices.slice(encounterEnemyIndices.length - count));   // ★[#76 項目4b] 新手の波 (ループで count 体を末尾へ積んだ。count 0 = 空) のうち未判定の種類
       sortUnits();
       if (window.__waveProbe) window.__waveProbe.push({ site: "spawnWave", waveNo, waveTotal, count, spawned: spawnedTypes.slice() });
       await sleepMs(500);

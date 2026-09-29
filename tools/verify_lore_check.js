@@ -4,7 +4,7 @@
  *                         (依頼書 2026-09-29_lore-check-ai.md §8 / §12-3)
  * ════════════════════════════════════════════════════════════════════════════════
  *   node tools/verify_lore_check.js                          # 素
- *   node tools/verify_lore_check.js --negative               # 変異 11 本 (port 10472〜10482)。先に素の基準を走らせる
+ *   node tools/verify_lore_check.js --negative               # 変異 12 本 (port 10472〜10483)。先に素の基準を走らせる
  *   node tools/verify_lore_check.js --negative --only nogate,crdup
  *   node tools/verify_lore_check.js --mutate nogate          # 変異 1 本を載せて手回し (担当表を実走で決める用)
  * exit 0=期待どおり / 1=FAIL あり・変異の空振り・担当が絞れていない / 2=環境不足 (SRD のフォルダが読めない等)・例外
@@ -43,6 +43,8 @@
  *      (1h) スケルトンを見抜いた → ログに 1/4・全員の札に .enemyCr がちょうど 1 つ (CR1/4) / ゴブリンキングは札なし・ログに「脅威度」なし /
  *           失敗した種類の札には付かない + 見抜いた全種の札 = SRD の CR (分数表記) か無し
  *      (1i) 見抜いた種類の敵を後から作る → 札に .enemyCr が 1 つ・decorate 2 回でも 1 つ / ?namelabel=0 では例外なく何も付かない
+ *      (1j) [項目4b・仕様変更 (A)] 戦闘中に合流したファラクサス (本番の mergeReinforcements) → 魔法学の判定がちょうど 1 回・DC 15・札に CR10・
+ *           REINFORCE の吹き出しの後 / 振る種類の無い合流 (ミノタウロス) と判定済みの合流 (2 体目) は呼ばず、乱数の回数も ?lore=0 と同じ
  *   §2 (2a) スケルトン 3 体を知る × スリープ + ファイアボルトで 20 手番 → allySleep 0 / 知らない → 1 回以上 (同じ乱数列)
  *      (2b) ゴブリン 3 体を知る × 乱数 0.99 → スリープ / 知らない → 撃たない
  *      (2c) ファラクサスを知る × ファイアボール + MM (threat ≥ 30) → 炎 0・MM / 知らない → ファイアボール
@@ -55,7 +57,7 @@
  *      (2h) 眠らないと知るスケルトン 3 体の塊 + ゴブリン 2 体 → スリープの 2x2 がゴブリン側 / 知らない → スケルトン側 (範囲 3 体)
  *   §3 (3a) 何も知らない状態で mageAI / elfAI / pickLeaderAction の「呼ばれた関数の列」と「Math.random の回数」が ?lore=0 と完全一致
  *      (3b) clericAI の呼び出し列と乱数の回数は、知っている時と知らない時で完全一致
- *   §4 (4a) ?lore=0 では (1b)(1c)(1g)(1h)(2a)(2b)(2c)(2f)(2g) の**同じ述語関数**がすべて偽 + 窓の on === false (「OFF で緑」ではない)
+ *   §4 (4a) ?lore=0 では (1b)(1c)(1g)(1h)(1j)(2a)(2b)(2c)(2f)(2g) の**同じ述語関数**がすべて偽 + 窓の on === false (「OFF で緑」ではない)
  *   ⛔ 測らないこと (依頼書 §8): ログと吹き出しの文言 (LORE のラベル・「正体を知る者はいない」・「脅威度」の有無以外)・成功率・勝敗
  *
  * ■ ⚠ 計測機構
@@ -63,8 +65,9 @@
  *   - 起動時に全変異のアンカーを**原本**で検算する (各 1 件・注入文字列が原本に無い・行数不変)。崩れたら素でも exit 3。
  *   - ⛔ このドライバを timeout コマンドで包まない。⛔ 8765 (ユーザーの試遊サーバ) に触らない。
  *
- * ■ ポート = **10471** (素) / 変異 **10472〜10482** (11 本・MUTATIONS の並び順)。10470 は probe_s5s6_clear。
+ * ■ ポート = **10471** (素) / 変異 **10472〜10483** (12 本・MUTATIONS の並び順。10483 = 項目4b の nomerge)。10470 は probe_s5s6_clear。
  * ■ 所要 (2026-09-29 この機械の実測・項目4 の走行と並走中) = 素 2.8 秒 (25 assert・3 回とも同じ) / --negative 28.8 秒 (素の基準 + 変異 11 本)。
+ *   項目4b の後 = 素 2.9〜3.0 秒 (26 assert・3 回とも同じ) / --negative 32.5 秒 (変異 12 本)。
  *   ページは 6 枚 (主 ON / 主 ?lore=0 / 主人公=魔法使い ON / 同 ?lore=0 / 戦士+盗賊 / ?namelabel=0)。
  */
 'use strict';
@@ -201,6 +204,11 @@ const MUTATIONS = {
   crdup: [
     { from: '      if (lb.querySelector(".enemyCr")) return false;   // 既に付いている = 何もしない',
       to:   '      /* ★変異crdup: 二重付与の門を外した */' }],
+  /* 項目4b (仕様変更 A): 戦闘の途中で合流した敵 (mergeReinforcements) に判定を振らない = §2-7 の旧仕様へ戻る
+     (S6 でファラクサスに 0/10 回だった実走の姿) */
+  nomerge: [
+    { from: '      await runLoreCheck(list);   // ★[#76 項目4b] 増援 (ボスの合流・召喚された手下の合流) のうち未判定の種類だけ振る',
+      to:   '      /* ★変異nomerge: 合流した敵へ伝承判定を振らない */' }],
 };
 /* 変異 → 赤くなるべき assert (担当)。⚠⚠⚠ 机上で書かない。--mutate <key> で実走し、実際に赤くなった集合で決めた
  * (2026-09-29・HEAD 06fd7de の上。依頼書 §12-3 の担当表)。⭐ --negative は「赤の集合 = 担当」の完全一致を要求する。 */
@@ -208,23 +216,25 @@ const NEG_EXPECT = {
   bossbranch:  ['(1g)'],
   rngparity:   ['(3a)'],
   iceword:     ['(0c)', '(2d)'],
-  nogate:      ['(1a)', '(1b)'],
-  reroll:      ['(1c)', '(1d)'],   // (1c) = 出目 1 の後 tried に入らない
+  nogate:      ['(1a)', '(1b)', '(1j)'],   // (1j) = 合流の判定にも習熟の無い者が混ざる (項目4b で実走)
+  reroll:      ['(1c)', '(1d)', '(1j)'],   // (1c) = 出目 1 の後 tried に入らない / (1j) = 判定済みの 2 体目の合流でもう一度振る (項目4b)
   /* 何でも知っている ⇒ 「知らない時」の側がすべて崩れる (スリープ 0 回 = (0a) の装置も赤) */
   alwaysknow:  ['(0a)', '(1c)', '(1h)', '(2a)', '(2b)', '(2c)', '(2d)', '(2e)', '(2f)', '(2g)', '(2h)', '(3a)'],
-  familyreuse: ['(0c)'],
-  switchdead:  ['(4a)'],
+  familyreuse: ['(0c)', '(1j)'],   // (1j) = ミノタウロスが detectEnemyFamily で orc = 歴史になり、振る種類の無い合流で振る (項目4b)
+  switchdead:  ['(1j)', '(4a)'],   // (1j) = ?lore=0 の腕でも合流で振り、乱数の回数が ON と同じになる (項目4b)
   crguess:     ['(0d)', '(1h)'],
   crdecimal:   ['(1h)', '(1i)'],   // (1i) = 後から作った札の文字が CR0.25
   crdup:       ['(1i)'],
+  nomerge:     ['(1j)'],
 };
 /* 依頼書 §8 の予想 (⭐ これが実測の赤に含まれていることは崩さない = 起動時に検算) */
 const NEG_PREDICTED = {
   bossbranch: ['(1g)'], rngparity: ['(3a)'], iceword: ['(0c)', '(2d)'], nogate: ['(1a)', '(1b)'], reroll: ['(1d)'],
   alwaysknow: ['(1c)', '(3a)'], familyreuse: ['(0c)'], switchdead: ['(4a)'], crguess: ['(0d)', '(1h)'], crdecimal: ['(1h)'], crdup: ['(1i)'],
+  nomerge: ['(1j)'],   // 項目4b の予想
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
-if (MUT_ORDER.length > 11) { console.error('[vet] 変異は 11 本まで (ポート 10472〜10482)'); process.exit(3); }
+if (MUT_ORDER.length > 12) { console.error('[vet] 変異は 12 本まで (ポート 10472〜10483)'); process.exit(3); }
 if (MUT_ORDER.some((k) => !NEG_EXPECT[k]) || Object.keys(NEG_EXPECT).some((k) => !MUTATIONS[k])) { console.error('[vet] NEG_EXPECT と MUTATIONS が揃っていない'); process.exit(3); }
 for (const k of MUT_ORDER) {
   const miss = (NEG_PREDICTED[k] || []).filter((x) => NEG_EXPECT[k].indexOf(x) < 0);
@@ -511,6 +521,37 @@ async function bossRun(page, types) {
   }, types);
 }
 
+/* (1j) 項目4b (仕様変更 A): 戦闘の途中で合流した敵にも振る。
+ *   戦闘開始の交戦 = ミノタウロス 2 体 (自然 = 振らない) に、本番の mergeReinforcements でもう 1 体ずつ合流させる
+ *   (S6 竜の巣 n7 の実測の姿 = 依頼書 §12-4b)。① ミノタウロス (振る種類なし) ② ファラクサス (魔法学) ③ 2 体目のファラクサス (判定済み)。
+ *   各段の Math.random の回数を数える (?lore=0 の腕と突き合わせる = 罠 2)。 */
+async function mergeRun(page) {
+  return page.evaluate(async () => {
+    const P = window.__lp; P.reset();
+    const made = P.board(['minotaur', 'minotaur', 'pharaxus', 'minotaur', 'pharaxus']);
+    encounterEnemyIndices = made.slice(0, 2);
+    const R = Math.random;
+    const step = async (idxs, rnd) => {
+      window.__rsc.length = 0; window.__pops.length = 0;
+      let nR = 0; Math.random = () => { nR++; return rnd; };
+      const units = []; let err = null;
+      try { await mergeReinforcements(idxs, units, () => {}); } catch (e) { err = String(e && e.stack || e).slice(0, 300); }
+      Math.random = R;
+      return { err, nR, rsc: window.__rsc.slice(), pops: window.__pops.map((p) => p.text), units: units.length,
+        joined: idxs.every((i) => encounterEnemyIndices.indexOf(i) >= 0) };
+    };
+    const d = ENEMY_TYPES.pharaxus;
+    const out = { flags: { isBoss: !!d.isBoss, eyeStalks: !!d.eyeStalks, maxSummons: d.maxSummons || 0 } };
+    out.nature = await step([made[3]], 0.5);
+    out.first = await step([made[2]], 0.95);
+    out.labels = P.labels([made[2]]);
+    out.known = Array.from(window.__dfLore ? window.__dfLore.known : []);
+    out.again = await step([made[4]], 0.95);
+    out.lines = window.__infos.filter((s) => s.indexOf('📜') >= 0);
+    return out;
+  });
+}
+
 /* (0c)(1f)(1h) の走査: ENEMY_TYPES の 51 種を 1 種ずつ 2 体置いて run() (出目 20)。 */
 async function scanAll(page) {
   return page.evaluate(async () => {
@@ -678,6 +719,8 @@ async function collectMain(page) {
   // (1g) ボス戦 + 対照
   A.boss = await bossRun(page, ['lich', 'skeleton']);
   A.plainEnc = await bossRun(page, ['goblin', 'goblin']);
+  // (1j) 戦闘の途中で合流 (項目4b)
+  A.merge = await mergeRun(page);
   // §2 AI
   const S = ['skeleton', 'skeleton', 'skeleton'], G = ['goblin', 'goblin', 'goblin'];
   A.a2a = { k: await mageRun(page, { fn: 'mageAI', types: S, known: ['skeleton'], skills: ['sleep', 'fire-bolt'], seed: 7, turns: 20 }),
@@ -761,6 +804,23 @@ function pred1h(A) {
   }
   if (nKnown < 30) bad.push('走査で見抜いた種が少なすぎる ' + nKnown);
   return { ok: bad.length === 0, bad, nKnown };
+}
+/* (1j) の ON 側の述語 (OFF へも同じ本体を当てる = (4a))。乱数の回数の突き合わせは judge で ON と OFF をまたいで見る。 */
+function pred1j(A) {
+  const M = A.merge;
+  if (!M) return { ok: false, why: '観測なし' };
+  const f = M.first, n = M.nature, g = M.again;
+  const c = f.rsc[0] || {};
+  const reinfAt = f.pops.findIndex((t) => t.indexOf('REINFORCE') >= 0), loreAt = f.pops.findIndex((t) => t.indexOf('LORE') >= 0);
+  const wantLabel = [['CR' + crText(DRV_CR.pharaxus)]];
+  const ok = !n.err && n.joined && n.rsc.length === 0
+    && !f.err && f.joined && f.rsc.length === 1 && c.k === DRV_SKILL.pharaxus && c.dc === DRV_BOSS_DC(M.flags) && c.auto === true
+    && c.cls.length >= 1 && c.cls.every((k) => (DRV_PROF[k] || []).indexOf(c.k) >= 0)
+    && M.known.indexOf('pharaxus') >= 0 && J(M.labels) === J(wantLabel)
+    && reinfAt >= 0 && loreAt > reinfAt
+    && !g.err && g.joined && g.rsc.length === 0;
+  return { ok, nature: { rsc: n.rsc, nR: n.nR, err: n.err }, first: { rsc: f.rsc, nR: f.nR, pops: f.pops.map((t) => t.slice(0, 24)), err: f.err },
+    labels: M.labels, wantLabel, known: M.known, again: { rsc: g.rsc, nR: g.nR, err: g.err }, lines: M.lines };
 }
 function pred2a(A) { const k = cnt(A.a2a.k.T, 'allySleep'), u = cnt(A.a2a.u.T, 'allySleep'); return { ok: !A.a2a.k.err && !A.a2a.u.err && k === 0 && u >= 1, k, u }; }
 function pred2b(A) { const k = cnt(A.a2b.k.T, 'allySleep'), u = cnt(A.a2b.u.T, 'allySleep'); return { ok: k === 1 && u === 0, k: A.a2b.k.T, u: A.a2b.u.T }; }
@@ -926,6 +986,15 @@ function judge(ctx, D, R) {
     R.check('(1i)', '見抜いた種類を後から作る → 札に CR が 1 つ・decorate 2 回でも 1 つ / ?namelabel=0 では例外なく何も付かない', okOn && okN,
       J({ on: L.r || L.err, nolabel: N }).slice(0, 500));
   }
+  {
+    /* (1j) 項目4b: 途中で合流した敵にも振る + 罠 2 (振る種類が無い合流では乱数が ?lore=0 と同じ回数) */
+    const p = pred1j(ON);
+    const MO = ON.merge, MF = OFF.merge;
+    const rngOk = !!(MO && MF) && MF.nature.nR >= 1 && MO.nature.nR === MF.nature.nR && MO.again.nR === MF.again.nR
+      && MO.first.nR === MF.first.nR + 1;
+    R.check('(1j)', '戦闘中に合流したファラクサス (mergeReinforcements) → 魔法学の判定がちょうど 1 回・DC 15・札に CR10・REINFORCE の後 / 振る種類の無い合流と判定済みの合流は呼ばず乱数も ?lore=0 と同数', p.ok && rngOk,
+      J({ rngOk, nR: MO && MF ? { nature: [MO.nature.nR, MF.nature.nR], first: [MO.first.nR, MF.first.nR], again: [MO.again.nR, MF.again.nR] } : null, p }).slice(0, 600));
+  }
   /* ── §2 ── */
   const p2a = pred2a(ON); R.check('(2a)', 'スケルトン 3 体を知る × スリープ + ファイアボルト 20 手番 → allySleep 0 / 知らない → 1 回以上', p2a.ok, J(p2a));
   const p2b = pred2b(ON); R.check('(2b)', 'ゴブリン 3 体を知る × 乱数 0.99 → スリープ / 知らない → 撃たない', p2b.ok, J(p2b));
@@ -954,12 +1023,12 @@ function judge(ctx, D, R) {
   }
   /* ── §4 (4a) 同じ述語を OFF へ ── */
   {
-    const preds = { '(1b)': (X) => pred1b(X.m), '(1c)': (X) => pred1c(X.m), '(1g)': (X) => pred1g(X.m), '(1h)': (X) => pred1h(X.m),
+    const preds = { '(1b)': (X) => pred1b(X.m), '(1c)': (X) => pred1c(X.m), '(1g)': (X) => pred1g(X.m), '(1h)': (X) => pred1h(X.m), '(1j)': (X) => pred1j(X.m),
       '(2a)': (X) => pred2a(X.m), '(2b)': (X) => pred2b(X.m), '(2c)': (X) => pred2c(X.m), '(2f)': (X) => pred2f(X.m), '(2g)': (X) => pred2g(X.h) };
     const safe = (f, X) => { try { return !!f(X).ok; } catch (e) { return false; } };
     const rows = Object.keys(preds).map((k) => ({ k, on: safe(preds[k], { m: ON, h: HON }), off: safe(preds[k], { m: OFF, h: HOFF }) }));
     const ok = rows.every((x) => x.off === false) && OFF.win.on === false;
-    R.check('(4a)', '?lore=0 では (1b)(1c)(1g)(1h)(2a)(2b)(2c)(2f)(2g) の同じ述語がすべて偽 (+ 窓の on === false)', ok,
+    R.check('(4a)', '?lore=0 では (1b)(1c)(1g)(1h)(1j)(2a)(2b)(2c)(2f)(2g) の同じ述語がすべて偽 (+ 窓の on === false)', ok,
       rows.map((x) => x.k + ' ON=' + x.on + '/OFF=' + x.off).join(' ') + ' / OFF の窓 on=' + OFF.win.on
       + ' / 例: OFF の判定 ' + OFF.rel.rsc.length + ' 回・スケルトン×スリープ OFF ' + cnt(OFF.a2a.k.T, 'allySleep') + ' 回');
   }
@@ -978,7 +1047,7 @@ function summarize(R, label) {
   return { passed, failed };
 }
 
-const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(0d)', '(0e)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(1g)', '(1h)', '(1i)',
+const ALL_IDS = ['(0a)', '(0b)', '(0c)', '(0d)', '(0e)', '(1a)', '(1b)', '(1c)', '(1d)', '(1e)', '(1f)', '(1g)', '(1h)', '(1i)', '(1j)',
   '(2a)', '(2b)', '(2c)', '(2d)', '(2e)', '(2f)', '(2g)', '(2h)', '(3a)', '(3b)', '(4a)'];
 async function runSuite(browser, port, label) {
   const ctx = { browser, port, errs: [], booted: 0, want: 6 };
