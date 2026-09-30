@@ -3326,10 +3326,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>武器防具屋に巻物の棚</b> — 初歩の呪文の巻物 4 種を 1 冊 80G で買えるように。買った巻物はマッチング画面の書庫で「読む」と覚えられる。</li>
         <li><b>伝承で敵の正体を見抜く</b> — 魔法使い・エルフ・僧侶が戦いの始まりに敵の伝承を思い出すことがある。戦いの途中で現れた敵(後から合流するボスや呼び出された手下)も見抜ける。思い出せば敵の脅威度が分かり、眠らない敵にスリープを撃たず、効かない属性の呪文を避ける。</li>
         <li><b>敵の体質が戦いに効くように</b> — アンデッドやゴーレムには眠りの呪文が効かず、赤竜に炎は通じない。レイスやリッチは冷気や雷を和らげる。</li>
         <li><b>ペンの音が本物になった</b> — 語りの文字に合わせて、フェルトペンで紙に書く録音の音が鳴るように。</li>
-        <li><b>語りがペンの音になった</b> — ダンジョンマスターの朗読をやめ、物語が紙に書き綴られていく音で進むように。設定の「語り 音量」で大きさを変えられる。</li>
       </ul>
     </div>
     <script>
@@ -5242,6 +5242,11 @@
       setShopTab: (t) => { shopTab = t; renderShop(); },
       shopListText: () => { const e = document.getElementById("shopList"); return e ? e.textContent : null; },
       shopScreenVisible: () => { const e = document.getElementById("shopScreen"); return !!e && getComputedStyle(e).display !== "none"; },
+      // #77: 巻物の棚
+      scrollShelf: () => scrollShelfIds().map(id => ({ id, state: scrollShelfState(id) })),
+      shopBuyScroll: (id) => dfShopBuyScroll(id),
+      scrollStock: () => Object.assign({}, scrollStockTV),
+      learnScroll: (id) => learnScroll(id),
       // 第3弾: 装備由来の技能判定ボーナス (Phase 1 基盤 / Phase 2 職業専用アクセ)
       skillBonusFor: (ck, hero) => tvSkillBonusFor(ck, !!hero),
       prepParty: () => buildPrepParty(),
@@ -6829,6 +6834,43 @@
     dfSetGold(dfGold() + price);
     return { ok: true, price, name: item.name, gold: dfGold() };
   }
+  /* ★[#77] 巻物の棚 — 初歩の呪文 (SCROLL_CATALOG_TV の rarity "common") を 1 冊 80G で売る。
+   * ⭐ 並べる品は表から導く (ID を焼かない) ⇒ B/C で足す透明化 (uncommon)・魔法の眼 (rare) は並ばない。
+   * ⭐ 主人公の職業に関係なく全部並べる —— 覚えた呪文は職業ごとで、NPC 仲間の呪文枠も
+   *   同じゲート (index.html isSpellKnown) を通る。戦士が買ったブレスの聖典は NPC 僧侶に効く。
+   * ⭐ 「習得済み」は isSpellKnownTV (初期習得 DEFAULT_KNOWN_TV を含む) で判定する。
+   *   ⛔ 保存値 dragonfighters.knownSpells だけを見ない —— #54 のスリープが「買える」に化ける。
+   * ⭐ 所持中 (未読 1 冊以上) も買えない —— 読めば永続習得なので 2 冊目に使い道は無い。
+   * ⛔ localStorage へ直接書かない。scrollStockTV を触って saveScrollStockTV ——
+   *   learnScroll は画面が握る scrollStockTV を丸ごと保存し直すので、直接書いた分は次の「読む」で消える。
+   * ⚠ 撤退 ?scrollshop=0 で棚の表示も購入も止まる (このページ内で完結・遷移はまたがない)。 */
+  const SCROLL_SHELF_PRICE = 80;
+  const SCROLL_CLASS_LABEL_TV = { mage: "魔法使い", cleric: "僧侶", elf: "エルフ" };
+  function isScrollShopOnTV() {
+    try { return new URLSearchParams(location.search).get("scrollshop") !== "0"; }
+    catch (e) { return true; }
+  }
+  function scrollShelfIds() {
+    if (!isScrollShopOnTV()) return [];
+    return Object.keys(SCROLL_CATALOG_TV).filter(id => SCROLL_CATALOG_TV[id].rarity === "common");
+  }
+  // "known" = 習得済み / "stocked" = 未読を所持中 / "buyable" = 買える
+  function scrollShelfState(id) {
+    const c = SCROLL_CATALOG_TV[id];
+    if (isSpellKnownTV(c.classKey, c.spellId)) return "known";
+    if ((scrollStockTV[id] || 0) > 0) return "stocked";
+    return "buyable";
+  }
+  function dfShopBuyScroll(id) {
+    if (scrollShelfIds().indexOf(id) < 0) return { ok: false, reason: "noitem" };
+    const st = scrollShelfState(id);
+    if (st !== "buyable") return { ok: false, reason: st };
+    if (dfGold() < SCROLL_SHELF_PRICE) return { ok: false, reason: "gold" };
+    dfSetGold(dfGold() - SCROLL_SHELF_PRICE);
+    scrollStockTV[id] = (scrollStockTV[id] || 0) + 1;
+    saveScrollStockTV();
+    return { ok: true, price: SCROLL_SHELF_PRICE, name: SCROLL_CATALOG_TV[id].name, gold: dfGold() };
+  }
 
   let shopTab = "buy";   // "buy" | "sell"
   const SHOP_KIND_LABEL = { weapon: "武器", armor: "防具", shield: "盾" };
@@ -6888,6 +6930,47 @@
                 dfShopSell(r.kind, r.tier);
                 renderShop(); renderCharLoadout();
               });
+            }
+          });
+        }
+        listEl.appendChild(row);
+      }
+    }
+    // ★[#77] 巻物の棚 (購入タブだけ)。⭐ 群を描いたら any を立てる —— 立てないと武器防具を
+    //   全部持っているとき「買える品はもうありません。」の下に棚が出る。⛔ 売却タブには出さない。
+    const shelfIds = shopTab === "buy" ? scrollShelfIds() : [];
+    if (shelfIds.length) {
+      any = true;
+      const head = document.createElement("div");
+      head.className = "shopGroupHead";
+      head.textContent = "巻物";
+      listEl.appendChild(head);
+      for (const id of shelfIds) {
+        const c = SCROLL_CATALOG_TV[id];
+        const sk = getSkillTV(c.spellId);
+        const spellNm = sk ? sk.name : c.spellId;
+        const st = scrollShelfState(id);
+        const colorCls = getItemColorClass(c.name, c.rarity);
+        const row = document.createElement("div");
+        row.className = "shopItem";
+        let btnHtml;
+        if (st === "buyable") {
+          const canBuy = dfGold() >= SCROLL_SHELF_PRICE;
+          btnHtml = `<button type="button" class="shopBtn buy"${canBuy ? "" : " disabled"}>購入 ${SCROLL_SHELF_PRICE}G</button>`;
+        } else {
+          btnHtml = `<span class="shopEquipped">${st === "known" ? "習得済み" : "所持中"}</span>`;
+        }
+        row.innerHTML =
+          `<span class="shopName ${colorCls}">${c.name}</span>` +
+          `<span class="shopSpec">習得呪文: ${spellNm} 〔${SCROLL_CLASS_LABEL_TV[c.classKey] || c.classKey}〕</span>` +
+          btnHtml;
+        const btn = row.querySelector("button.shopBtn");
+        if (btn) {
+          btn.addEventListener("click", () => {
+            const res = dfShopBuyScroll(id);
+            if (res.ok) {
+              renderShop();
+              showScrollToastTV("📜 " + res.name + " を買った — マッチング画面の書庫で「読む」");
             }
           });
         }
