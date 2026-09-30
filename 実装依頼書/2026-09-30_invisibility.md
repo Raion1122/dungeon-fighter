@@ -1,6 +1,6 @@
 # #78 透明化(インビジビリティ)— 忍べない編成でも、魔法使いが姿を消して不意打ちを狙う
 
-- **起草**: 2026-09-30(計画窓 = 起草窓) / **ステータス**: **承認済**(2026-09-30 ユーザー承認)
+- **起草**: 2026-09-30(計画窓 = 起草窓) / **ステータス**: **✅ 完了**(2026-10-01 実装窓・承認 2026-09-30)。実装結果は §12(残 = §9 の実機確認)
 - **着手**: 実装窓は**窓更新を挟んでから**着手する(2026-09-28 の恒久ルール)
 - **触るファイル**: `index.html`(呪文の定義・巻物の表・詠唱・半透明・撤退)/ `tavern.html`(呪文の鏡・巻物の表・傾向の候補・開発用 1G 陳列・changelog)/ `tools/verify_invisibility.js`(新規)/ `tools/verify_scroll_shelf.js`(固定件数の言い直しだけ)
 - ⛔ **触らないファイル**: `js/skill-check.js`(有利は付けない = §1 のユーザー決定)/ ほかの `js/*` / `audio.js` / `town.html` / `world.html` / `title.html`。
@@ -592,4 +592,203 @@ function getSpellSlotsRef(unit) {
 - ⚠ 流用の判定は「コードに語があるか」による(#77 と同じ引き方)。`index.html` から画面遷移で `tavern.html` へ抜ける本が語を書かずに酒場を踏む可能性は構造上残る ⇒ 項目4 の影の対比較で拾う。
 - 走行器・集計: このセッションの scratchpad `item1\`(`run_golden.sh` / `pop78.py` / `pop78.json` / `logs\*.r1.log` `*.r2.log`)。
 
-(実装窓が埋める)
+### 12-1. 本番実装(項目2・commit `abc2394`)
+
+`index.html`(+93 / −20)・`tavern.html`(+39 / −8)・`tools/verify_scroll_shelf.js`(+8 / −6・§6 の言い直しだけ)。`js/*` / `audio.js` / `town.html` / `world.html` / `title.html` は 0 バイト。
+行末は 2 ファイルとも全行 CRLF のまま(`index.html` 40123 行・`tavern.html` 11108 行・LF 単独 0)。行番号は `abc2394` 時点(= HEAD `cfff418` でも同じ)。
+
+| 部品 | 行 | 中身 |
+|---|---|---|
+| CSS | `index.html:3011`〜`:3017` | `@keyframes dfInvisShimmer`(0.30 ⇔ 0.55・1.4s)/ `.dfInvis { animation: … }` / reduced-motion は `animation: none; opacity: 0.45 !important` |
+| 巻物の表 | `index.html:13586` / `tavern.html:5352` | `"scroll-invisibility"`(uncommon・mage・`invisibility`)を `scroll-lightning-bolt` の直後に 1 行ずつ |
+| 撤退の判定 | `index.html:13627` / `tavern.html:6860` | `isInvisOn()` / `isInvisOnTV()`(`?invis=0`・各ページが独立に読む) |
+| 抽選 | `index.html:13714` | `pickScrollId` の `pool` に `&& (isInvisOn() \|\| id !== "scroll-invisibility")`(撤退時は #78 以前の uncommon 7 種) |
+| 呪文の定義 | `index.html:22289`〜 / `tavern.html:4503` | `MAGE_SKILLS.invisibility`(`range: "self", outOfCombat: true`・mpCost 5・levelReq 3)/ 鏡 `MAGE_SKILLS_UI`(`autoCast: true`) |
+| 詠唱 | `index.html:25435` / `:25445` | `setPartyInvisible(on)`(主人公 + 生きている仲間の `.dfInvis` をクラスで付け外し)/ `tryCastInvisibility()`(主人公 → 仲間の順・枠の残る最初の魔法使い・主人公は `consumeSpellSlot("player", …)`) |
+| 隠密の接近 | `index.html:25467`〜 | `tryStealthSurprise` の `if (!canSneak) return false;` を「唱えられたら続行・唱えなければ従来どおり false」へ・後ろを `try/finally` で包み `finally` で必ず外す。`flavor` だけ透明化の文へ。`extraBonus` / `title` / `voiceIds` は不変 |
+| 開発用 1G 陳列 | `tavern.html:6859`〜`:6880` | `SCROLL_DEV_SHELF_TV = ["scroll-invisibility"]` / `scrollShelfIdsDev()` / `scrollShelfPrice(id)`(開発用 = 1G・他は `SCROLL_SHELF_PRICE`)/ `scrollShelfIds` の頭で `if (DF_DEV_MAGIC_SHOP) return scrollShelfIdsDev();`。`dfShopBuyScroll` の価格 3 か所と `renderShop` の `canBuy` / 「購入 …G」を `scrollShelfPrice(id)` へ |
+| 傾向の候補 | `tavern.html:7863` / `:8000` / `:9269` | `isAutoCastSkillTV(slot, id)` + 傾向 2 か所の `equippedIds.slice()` を `equippedIds.filter(id => !isAutoCastSkillTV(slot, id))` へ |
+| changelog | `tavern.html:3329` | §10 の文面を先頭へ(既定 4 件維持・最古の「ペンの音」の行が落ちた) |
+| §6 言い直し | `tools/verify_scroll_shelf.js` | (0a)「全 17 件」→「common 4 件 + それ以外 13 件以上 + ページの表と全件一致」/ (1b)「13 件」→「13 件以上」。⛔ common 4 の固定は残す |
+
+- §3 の「1 バイトも変えない」行(`applySurpriseStun` / `buildPerceptionParty` / `defaultCasterMap` / `CLASS_DEFS.mage.defaultSkills` / `AP_TRAVEL_CASTABLE` / `TRAVEL_CASTABLE_IDS` / `const SCROLL_SHELF_PRICE = 80;` / `const DF_DEV_MAGIC_SHOP = !!window.__dfDevMode;` / `const equippedIds = apEquippedIdsFor(slot, classKey);` ×2 / `scrollShelfIds` の既存 3 行)は無変更。
+- #77 の変異アンカー `.filter(id => SCROLL_CATALOG_TV[id].rarity === "common")` と `idlist` の行は各 1 回のまま(K2 の注意どおり、`scrollShelfIdsDev` のコメントは文字列を崩して書いた)。
+- 使い捨て検証 `scratchpad item2/probe_invis.js` = 27/27・pageerror 0(⚠ その (1a)「ログに呪文名」は永久緑だった = K12)。名指し golden 7 本 = 着手前と同じ色(下の 12-3)。
+
+### 12-2. 新規受入(項目3・commit `cfff418`)
+
+`tools/verify_invisibility.js`(新規・858 行・LF)。`index.html` を開き、`page.evaluate` で編成・枠・交戦中の敵を直接組んで `tryStealthSurprise()` を呼ぶ(`driver_sce1_events` の V4b が先例)。`SkillCheck.resolveSkillCheck` を差し替えて引数を控え、成否を決め打ちする。酒場は `tavern.html` を別に開き `__equipTV` と DOM を見る。乱数に依る所は `Math.random` を差し替え = **決定的**。
+
+- 素 `node tools/verify_invisibility.js`(port **10493**)= **27/27 PASSED FAILED 0 PENDING 0**(項目3 で Git Bash から 3 回 + PowerShell から 1 回 + 項目4 の走査 1 回)。
+- `--negative`(基準 10493 + 変異 **10494〜10502**)= **負のコントロール 9 / 9 が検出成功(赤 = 担当に完全一致)・空振り 0・漏れ 0・注入行はすべて実行**(項目3 で 2 回 + 項目4 の走査 1 回)。
+- assert = §8 の 24 本 + 装置 (0a)(0b)(0c) = 27 本。(6c) は `tools/verify_scroll_shelf.js --negative` を入れ子で 1 回だけ走らせて全スイートで共有する(変異の影響を受けない)。
+- exit: 0 = 期待どおり / 1 = FAIL・空振り・担当の漏れ・注入行が未実行 / 2 = 環境不足 / 3 = 装置の腐敗(アンカーが期待の件数でない・行数が変わる・正規表現 0 件)。
+- ⚠ Git Bash から起動すると (6c) の入れ子 `verify_scroll_shelf --negative` が約 6 倍遅い(素で 142 秒 vs PowerShell から 26.5 秒・理由は未調査)⇒ 走査は PowerShell から。
+- ⚠ (6c) は `git show 54bb89a` を読む本を入れ子で呼ぶ ⇒ `.git` の無い影のツリーでは (6c) だけ赤(#77 K12 と同じ)。この本は #78 で新規 = 影には無いので対比較の対象外。
+
+担当表の実測(§8 の表は最小集合だった = K10。ドライバは実測の集合との**完全一致**を要求し、§8 の予想が含まれることを起動時に検算する):
+
+| 変異 | 注入する欠陥 | §8 の予想 | 実測の赤(= 担当) | 注入行の実行 |
+|---|---|---|---|---|
+| `leaderref` | 主人公の枠の**コピー** `{spellSlots: Object.assign({}, currentSpellSlots)}` を消費する(K1 で差し替え) | (1f) | (1f) | 1 回 |
+| `inlineopacity` | クラスでなく `el.style.opacity = "0.5"` | (3a) | (1f)(3a)(3b)(3c) | 48 回 |
+| `nofinally` | `finally` で外さず成功の枝でだけ外す | (3b) | (3b) | 4 回 |
+| `leakdev` | 開発モードでなくても `scrollShelfIdsDev` | (5b) | (5b) | 4 回 |
+| `nooutofcombat` | 定義から `outOfCombat` を外す | (4a) | (4a)(4c) | 2 回 |
+| `advantage` | 透明化のとき `opts.extraBonus = 5` | (2a) | (2a) | 6 回 |
+| `rogueToo` | 盗賊・外套が居ても唱える | (1b) | (1b)(1c)(2a)(3c)(6a) | 3 回 |
+| `bossburn` | ボスだけでも早期 return の前に唱える | (1e) | (1e)(3c) | 1 回 |
+| `noautocast` | 傾向の候補から外さない(アンカー 2 回 = 両方置換) | (5d) | (5d) | 6 回 |
+
+### 12-3. 母集団の非退行(項目4)— 2026-09-30〜10-01 / 本番 = HEAD `cfff418`
+
+⛔ 本番も `tools/` も 1 バイトも触っていない(走査・再走の前後で `git status --porcelain` = 0 行・HEAD = `cfff418`)。変えたのは本書 §12 と台帳の `| 78 |` 行だけ(走査が終わってから書いた = `git diff HEAD` を読む本に響かないように)。
+#78 の本番の差分 = `git diff --name-only 92a666e HEAD` のうち配信物は `index.html` / `tavern.html` の 2 本(`audio.js` / `js/` / `assets/` / `town.html` / `world.html` / `title.html` は `git diff --quiet` で同一)+ 道具 `tools/verify_scroll_shelf.js`(§6)/ `tools/verify_invisibility.js`(新規)。
+成果物 = scratchpad `…/5ad0d5a7-5060-4121-8374-c1d30985982b/scratchpad/item4/`(道具は #77 の `item4/` からコピーして直したもの。`fp74.py` / `fisher.py` はバイト同一のコピー。着手前の TSV 2 本は `item4/pre/` へ退避)。
+
+#### (1) 腕の導出 = 169 腕(`item4/build_arms_78.py` → `armlist_78.json`)
+
+| 枠 | 腕 | 導出 | 着手前の色 |
+|---|---|---|---|
+| 母集団 148 本の素 | 148 | §12-0 の 148 本(`tavern.html` を読む 54 + `index.html` だけ 94)。`item1/pop78.json` の順 | 54 本 = `after77.tsv` / 94 本 = `after76.tsv`(§12-0 の OID 判定どおり) |
+| 流用できる `--negative` | 11 | §12-0 の 11 本(77 = `aoe_coverage` / `bolt_aim` / `hold_person` / `run_chronicle` / `scroll_shelf`、76 = `bolt_bounce` / `cone_cast` / `enemy_name_label` / `enemy_traits` / `lore_check` / `road_ambush`) | 同上 |
+| 選び直しで増えた `--negative` | 4 | 下の (2)。`verify_hold_pair` / `verify_member_identity` / `verify_party_match_setup` / `verify_prep_retire` | なし(緑であること) |
+| 新規受入 | 2 | `verify_invisibility` 素 / `--negative` | なし(緑であること・影に無い本 = 対比較の対象外) |
+| 圏外の裏付け | 4 | 母集団の外で着手前の色がある本(`probe_town_mask` / `verify_road_events` / `verify_world_heromark` / `verify_world_steps`) | `after77` / `after76` |
+
+#### (2) `--negative` の選び直し(`item4/select_neg78.py` → `select_neg78.json`)
+
+- #77 の `select_neg77.py` を 2 ファイル用に直した(`BASE = 92a666e` / `AFTER = HEAD`・他の配信物に差分が無いことを assert・HEAD の blob を CRLF にしたものが作業ツリーと一致することを assert)。対象 = 92a666e の時点でコードに `--negative` を持つ本 32 本。
+- 差分を含む関数 = `index.html` 旧 6 / 新 9(`tryStealthSurprise` / `pickScrollId` / `isInvisOn` / `tryCastInvisibility` 等)・`tavern.html` 旧 9 / 新 11(`dfShopBuyScroll` / `renderShop` / `renderActionPriority` / `pmRenderDrawer` / `isInvisOnTV` / `isAutoCastSkillTV` 等)。
+- 選ばれた本 = **10 本**(`verify_bolt_aim` / `verify_enemy_traits` / `verify_hold_pair` / `verify_lore_check` / `verify_member_identity` / `verify_party_match_setup` / `verify_prep_retire` / `verify_road_ambush` / `verify_run_chronicle` / `verify_scroll_shelf`)。うち 6 本は流用の腕があり、**新たに足した腕 = 4**。4 本とも理由は「差分を含む関数の中」だけで、多くは関数と関数のあいだのトップレベル(`MAGE_SKILLS_UI` の表など)を直前の関数に数えた**雑音**(= #77 K11 と同じ型・K14)。実害なし(4 腕とも exit 0)。
+
+#### (3) 走査と所要
+
+- `item4/sweep_78.py`(直列・PowerShell から起動・毎腕後に `df_*` の居残り Chrome を掃除 = 全 169 腕で 0)。2026-09-30 18:48:36 → 10-01 00:54:21(**365.8 分**・中断なし・`timeout` で包んでいない)。着手前の色がある共通 163 腕の合計 340.0 分(着手前の記録 336.0 分)。打ち切りは `probe_party_size`(素)の 600 秒だけ(着手前と同じ)。
+- 最長: `verify_bolt_aim` 2,243.6s / `probe_p9_tour` 1,736.7s / `driver_field_step6` 1,685.6s / `verify_run_chronicle --negative` 1,540.0s / `auto_debug_run` 1,090.5s / `verify_hold_pair` 904.6s。
+
+#### (4) 色の遷移(exit code が主・着手前の色がある 163 腕)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | 142 | 名指し golden 7 本は着手前と同色同数(下の表)。圏外 4 本も全部緑 |
+| 赤→赤 | 15 | 既知の赤 = `driver_mapeditor` 176/179 / `driver_monsters_umberhulk` 21/22 / `probe_party_size` 13/20(600 秒打ち切り)/ `sweep_recruit_balance` / `driver_field_step6` **54/5 → 55/4** / `driver_grid_p4` / `driver_grid_p8` / `driver_mapeditor_painting` / `driver_monsters_hobgoblin` 12/14 / `driver_sce1_events` 211/214 / `driver_speech_v2` / `probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map` / `verify_walk_block`。`field_step6` 以外は pass/fail 件数も着手前と同じ(`field_step6` は 1 本良い方向) |
+| **緑→赤** | **3** | `driver_monsters_griffon` 17/17 → 15/17 / `probe_n4_stall`(exit 0 → 1)/ `verify_roll_target` 30/30 → 29/30 —— 下の (6) |
+| 赤→緑 | 3 | `driver_monsters_chimera` 16/17 → 17/17 / `driver_monsters_kobold` 11/12 → 12/12 / `driver_speech_engine` 16/17 → 17/17(いずれも既知の揺れ) |
+| 新規 | 6 | 全部 exit 0(下の表) |
+
+判定行の合計(共通 163 腕)= PASS 8106 → **8109** / FAIL 148 → **145** / PENDING 4 → 4。
+
+| 名指し golden(§8) | 着手前(§12-0) | 走査(HEAD `cfff418`) |
+|---|---|---|
+| `verify_scroll_shelf` 素 / `--negative` | 19/19 / 8/8 | **19/19**((0a) 全 18 件 = common 4 + それ以外 14・(1b) 14 件)/ **8/8**(担当に完全一致) |
+| `driver_sce1_events` | exit 1・211/214(FAIL (2)(4d)(N2-隣)) | exit 1・211/214・**同じ 3 本**(V4b (9) は PASS) |
+| `verify_lore_check` | 26/26 | 26/26(`--negative` も exit 0) |
+| `verify_enemy_traits` | 15/15 | 15/15(`--negative` も exit 0) |
+| `driver_action_priority` | 92/0/0 | 92/0/0 |
+| `verify_party_match_setup` | 36/0/0 | 36/0/0(`--negative` も exit 0) |
+| `driver_dev_gate2` | 62/62 | 62/62 |
+
+| 新規の腕 | exit | 総括 | 秒 |
+|---|---|---|---|
+| `verify_invisibility`(素) | 0 | `27/27 PASSED FAILED 0 PENDING 0` | 26.0 |
+| `verify_invisibility --negative` | 0 | `負のコントロール 9 / 9 が検出成功 (赤 = 担当に完全一致)` / `--negative OK: 9 本すべて担当ラベルだけが赤くなりました (空振り 0・漏れ 0・注入行はすべて実行)` | 160.1 |
+| `verify_hold_pair --negative` | 0 | `--negative OK: 12 本すべて担当ラベルが赤くなりました (空振り 0)` | 23.0 |
+| `verify_member_identity --negative` | 0 | `--negative OK: 12 本すべて担当ラベルが赤くなりました (空振り 0)` | 182.1 |
+| `verify_party_match_setup --negative` | 0 | `--negative OK (担当ラベルが全部赤くなりました)` | 341.1 |
+| `verify_prep_retire --negative` | 0 | `--negative OK: 12 本すべて担当ラベルが赤くなりました (空振り 0)` | 738.4 |
+
+流用した `--negative` 11 腕もすべて exit 0(`run_chronicle` は変異の巻き添えの赤が 560/24 → 562/22 = 減る方向・担当ラベルの判定は同じ)。
+⚠ `verify_invisibility --negative` は項目3(PowerShell から直接)の 41 秒に対して走査では 160 秒(PowerShell 配下の `py` から起動)。色と担当は同じ。理由は未調査。
+
+#### (5) 2 経路の突き合わせ(`item4/cmp_78.py -v`)
+
+比べられる腕 143(共通 163 − 判定行 0 行の本 18 − 指紋が走行ごとに動く `driver_field_step6` / `driver_monsters_griffon`)。経路① 137/143・経路② 135/143 が一致。差 8 本はすべて説明が付く:
+
+- 値差(id と本文は同じ・PASS/FAIL だけ)= 赤→緑 3 本(chimera / kobold / speech_engine)・緑→赤 `verify_roll_target`((4c))・`driver_monsters_hobgoblin`(赤の中身が (e) 2 本 → (d) 2 本へ入れ替わり・件数は 12/14 のまま)・`verify_run_chronicle --negative`(巻き添えの (1c)(1z1) が FAIL → PASS)。
+- 構造差(本文)= `driver_field_step1`(「予測が微小」の位相の行が走行ごとに 2〜3 本で入れ替わる = 本番の中だけで 2 本 / 3 本の両方を実測)/ `driver_grid_p5`(移動を測る仲間が走行ごとに違う = 本番で dwarf / rogue、影で cleric / elf / rogue を実測)。どちらも exit 0・件数同じ。
+
+#### (6) 緑→赤の帰属(影のツリー + clone との交互の対)
+
+影のツリー `item4/shadow78/` = 作業ツリーの実体コピー(`.git` / `source_images` なし・`tools/` 194 = 194 を実体コピー)に、`index.html` / `tavern.html` / `tools/verify_scroll_shelf.js` だけ `92a666e` の blob を `git check-attr eol` のとおり(配信物 2 本は crlf)で戻したもの。`git hash-object --path` で 3 本とも 92a666e の OID(`f1c6251e…` / `67299243…` / `a19f6f1a…`)と一致。
+clone `item4/clone78/` = `92a666e` のローカル clone(clean・同じ 3 本の OID 一致・影とバイト同一)。**`git` を読む本は影では走らない**(K15)ので `driver_field_step1` はこちらで対にした。
+
+| 本 | 本番(走査 + 交互の対) | 影 / clone | Fisher(両側) | 判定 |
+|---|---|---|---|---|
+| `driver_monsters_griffon` | 緑 4/7(赤 3 = `(3) swoop` の `grifRearMid=0` 系・`(4)`) | 影 緑 4/6(赤 2 = 同じ `(3) swoop` `grifRearMid=0`) | **1.00** | **揺れ**(#72 以来の両方向フレーク・同じ assert が影でも赤) |
+| `verify_roll_target` | 緑 6/7(赤 1 = `(4c)` `population: none` = 仲間が 1 度も技を撃たなかった run) | 影 緑 6/6 | **1.00** | **揺れ**。赤の内訳が「母集団なし」= 観測 0 件の指紋 |
+| `probe_n4_stall` | exit 0 = 2/5 | 影 exit 0 = 1/4 | **1.00** | **赤ではない**。この probe は「停滞は観測されませんでした」= **健全なときに exit 1**(#67 で既知)。着手前の exit 0 は停滞を 1 件拾った走行だった |
+| `driver_monsters_hobgoblin`(赤→赤・中身の入れ替わり) | 緑 2/5(赤 = (d) 2 本 / (e) 2 本) | 影 緑 2/4(赤 = (d) 2 本 / (d)(e) 4 本) | **1.00** | **揺れ**(本番・影とも (d) と (e) の両方が赤になる) |
+| `driver_grid_p5`(構造差) | 緑 3/3 + 走査 1 | 影 緑 3/3 | — | 測る仲間の職が走行ごとに違う(本番 dwarf / rogue・影 cleric / elf / rogue) |
+| `driver_field_step1`(構造差) | 緑 3/3 + 走査 1 | clone 緑 3/3 | — | 「予測が微小」の行の本数が走行ごとに違う(本番の中で 2 / 3) |
+
+- 構造の裏付け: 上の 6 本はどれも `index.html` だけを読む本(§12-0 の 94 本)。#78 の `index.html` の差分のうち、透明化の巻物を拾ったり習得したりしていない走行で振る舞いに届くのは ① `pickScrollId` の uncommon の抽選で当たる巻物の id が 1 種増える(`Math.random` を呼ぶ回数は同じ 2 回)② `tryStealthSurprise` の忍べない枝で `await tryCastInvisibility()`(枠が無いので即 `null`)を 1 回挟む、の 2 つだけ(`MAGE_SKILLS` を列挙するのは `_decorateSkillsWithSlotId` の飾り付けだけ・`CLASS_SKILL_DICTS` 経由の主人公の候補は `equippedSkills` で絞られる = コードで確認)。どちらも上の赤い assert(グリフォンの狙い・仲間の技の吹き出し・停滞・ホブゴブリンの命中内訳)の経路に乗らない。
+
+#### (7) 試遊サーバ 8765
+
+走査の前に LISTEN を実測 = **2 系統**が居た: ① `cmd.exe`(pid 36384・親 14592)→ `py -m http.server 8765`(34680)→ `python.exe`(37576・2026-09-30 15:27 起動)② `cmd.exe`(38676)→ `py`(37912)→ `python.exe`(18316・16:15 起動)。どちらも起動コマンドは `ゲームを起動.vbs` と同じ `cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)`・作業ディレクトリ = リポ直下(ユーザー承認済みで停止)。`taskkill /T /F` で止め、`||` の右側が起動し直さないことと LISTEN 0 を確認した。
+走査と再走をすべて終えてから、同じコマンドを `Invoke-CimMethod Win32_Process Create`(非表示・デタッチ・CurrentDirectory = リポ直下)で 1 系統だけ起動(ReturnValue 0・cmd の pid 31340)。`Get-NetTCPConnection` = **`[::]:8765 LISTEN 10692`**(`python.exe -m http.server 8765`)・`http://localhost:8765/title.html` = **200**・配信の `tavern.html` = 682,245 バイト = 作業ツリー。居残りの Chrome(`df_*`)= **0**。
+
+#### (8) ⚠ 崩れた主張(項目4 = 3 件)
+
+- **K14** 「neg 腕は差分を含む関数の中のアンカーで選ぶ」⇒ 選別器の「関数」は「直前の `function` 宣言から次の宣言まで」なので、関数と関数のあいだのトップレベル(`MAGE_SKILLS_UI` の表など)を直前の関数に数え、変わっていないアンカーを拾う(#77 K11 と同じ型がまだ残っている)。今回は 4 腕(約 21 分)を余計に回しただけで実害なし。
+- **K15** 「`git` を読む本は `probe_s5s6_clear` と `verify_scroll_shelf` の 2 本(#77 K12)」⇒ `tools/*.js` のうち `git` を呼ぶ本は **37 本**(`driver_field_step1`〜`step7` / `driver_action_priority` / `driver_dev_gate2` / `verify_run_chronicle` ほか)。影では `driver_field_step1` が `git log -1 … 40ad64a` で **exit 3**(0.2 秒)になった ⇒ `92a666e` の clone で対にした。影で赤くなった本は、まず `git` を読む本かを疑う。
+- **K16** 「既知の赤 = 流用した TSV の非緑 18 本」⇒ 流用した色の中の**揺れ**はそれより広い。18 本のうち 3 本(chimera / kobold / speech_engine)が緑へ、緑だった 3 本(griffon / roll_target / n4_stall)が赤へ動き、影でも同じ割合で両方に転ぶ。`probe_n4_stall` は exit の意味が逆(健全 = exit 1)なので、そもそも「緑→赤」と数えない。
+
+#### ⇒ 判定
+
+**169 腕(母集団 148 本の素 + `--negative` 15 + 新規受入 2 + 圏外の裏付け 4)で、#78 に帰属すると言える緑→赤は 0。** 緑→赤 3 本はどれも影との交互の対で p = 1.00(griffon・roll_target は同じ assert が影でも赤くなる揺れ、n4_stall は健全で exit 1 を返す probe)。赤→赤 15 本は件数も着手前と同じ(`field_step6` だけ 1 本良い方向)。判定行の合計は PASS +3 / FAIL −3。
+名指し golden 7 本は着手前と同色同数。新規受入は素 27/27・`--negative` 9/9。
+
+### 12-4. まとめ
+
+**何を実装したか(プレイヤー向け)**
+
+1. 珍しい(uncommon)巻物に「巻物・インビジビリティ」が加わった。宝箱やボスから拾える(店では売らない)。マッチング画面の書庫で読むと魔法使いが覚え、Lv3 から呪文の枠に置ける。
+2. 盗賊も隠密の外套も居ない一行で、枠が残っている魔法使い(主人公 → 仲間の順)が居れば、戦闘の始まりに自動で唱えて一行が揺らいで透け、隠密の接近の判定に進む。成功すれば従来どおり非ボスの敵が 1 ラウンド棒立ちになる。判定に有利は付かない(盗賊が居る一行より成功しにくい = ユーザー決定)。枠を 1 つ使う。
+3. 盗賊か外套が居れば唱えない(枠を使わない)。交戦中の敵がボスだけなら唱えない。戦闘中・道中には唱えない。傾向(行動の優先度)の候補にも出ない。
+4. 開発モード(`?dev=1`)の武器防具屋だけ、巻物の棚に「巻物・インビジビリティ」が **1G** で並ぶ(テスト用。普段の棚は common 4 種・80G のまま)。
+5. 撤退 **`?invis=0`**(唱えない・拾わない・開発用の陳列も止める。各ページが独立に読む)。
+
+**コミット**
+
+| 項目 | コミット | 中身 |
+|---|---|---|
+| 起草 | `92a666e` | 依頼書 + 台帳の行 |
+| 1 | `2db0154` | 着手前の実測(§12-0)・崩れ K1〜K6・名指し golden 7 本の色・母集団 148 本と流用の判定 |
+| 2 | `abc2394` | 本番(`index.html` +93 / −20・`tavern.html` +39 / −8・`tools/verify_scroll_shelf.js` §6 の言い直し + changelog) |
+| 3 | `cfff418` | 新規受入 `tools/verify_invisibility.js`(base 10493 / 変異 10494〜10502) |
+| 4 | 本節を書いたコミット | 母集団の非退行(§12-3)+ §12-1〜§12-4 + 台帳 |
+
+**受入の数字**
+
+- `tools/verify_invisibility.js` 素 = **27/27 PASSED FAILED 0 PENDING 0**(項目3 で 4 回 + 項目4 の走査 1 回)/ `--negative` = **9 / 9 検出・担当に完全一致・空振り 0・漏れ 0・注入行はすべて実行**(項目3 で 2 回 + 項目4 の走査 1 回)。担当の実測は §12-2 の表。
+- 名指し golden 7 本 = 項目1・項目2・項目4 のどれでも着手前と同色同数(`driver_sce1_events` は着手前からの赤 3 本のまま)。
+- 母集団の非退行 = **169 腕**で **#78 に帰属すると言える緑→赤 0**(§12-3)。
+
+**崩れた主張 = 通算 16 件**(仕様 = ユーザー決定に響くものは **0 件**・本番の不具合 **0 件**)
+
+| ID | 主張 → 実測(一行) | 出典 |
+|---|---|---|
+| K1 | 罠A「`makeLeaderActor()` で消費すると主人公の枠が減らない」→ actor は `currentSpellSlots` を**同一参照**で持つので減る。変異 `leaderref` を「枠のコピーを消費する」へ差し替えた | §12-0 / 項目3 |
+| K2 | §5-2 のコメント → それ自体が #77 の変異アンカーを逐語で含み、写経すると `verify_scroll_shelf` が exit 3。同じアンカーの変異は `allrarity` と `herofilter` | §12-0 |
+| K3 | §2-4 の計測 grep = 14 → 28(装備の表も拾う。巻物の表だけなら 7 × 2 = 14 で中身は正しい) | §12-0 |
+| K4 | 行番号 → 小ずれ 8 件(§12-0 の表で読み替え) | §12-0 |
+| K5 | 罠B「`player.style.opacity` は 10 か所」→ 12 行(結論は不変) | §12-0 |
+| K6 | 名指し golden 7 本は緑 → `driver_sce1_events` は着手前から赤(211/214)。非退行は「FAIL 集合が 3 本のまま」で判定 | §12-0 |
+| K7 | §6 (0a) の言い直し式 `DRV_CAT.length === DRV_COMMON.length + DRV_OTHER.length` → filter で作るので恒真。実効は「それ以外 ≥ 13・common = 4・ページの表と全件一致」(仕様どおり書いた・害なし) | 項目2 |
+| K8 | (3b)「例外を投げる」は 1 通り → 2 経路。`resolveSkillCheck` の throw は内側の catch で null 化、`applySurpriseStun` 等の例外は呼び出し元へ抜ける(#78 以前と同じ)。どちらでも `finally` で外れる | 項目2 |
+| K9 | 変異 `nooutofcombat` の担当 (4a) → §8 どおりの (4a) では赤くならない(`executeSkillOn` が名指しで false を返す二重の守り)。(4a) に「`apTryPreferred` から `executeSkillOn` へ届いた回数 = 0」を足し、唯一の関門である主人公の候補 (4c) も担当に | 項目3 |
+| K10 | §8 の担当表 → 最小集合だった。4 本(`inlineopacity` / `nooutofcombat` / `rogueToo` / `bossburn`)で広い(§12-2 の表)。ドライバは実測の集合との完全一致を要求 | 項目3 |
+| K11 | (4c)「候補を作る関数が呼べなければソースで」→ 呼べた。`playerAttackTurn(0)` の中で `pickLeaderAction` の `choices` を捕まえて実行の形で測った(対照 fireball は入る) | 項目3 |
+| K12 | 使い捨て検証 `probe_invis.js` の (1a)「ログに呪文名」→ `\|\| true` で永久緑だった(ログは `appendLog`)。受入ドライバは `appendLog` を包んで測る | 項目3 |
+| K13 | (3c)「一度も付かない」を `takeRecords()` で測る → 配送済みの記録は残らない(await の間にマイクロタスクで配送)。コールバックで貯める | 項目3 |
+| K14 | neg 腕を「差分を含む関数の中のアンカー」で選ぶ → 関数間のトップレベルを直前の関数に数える雑音で 4 腕を余計に選ぶ(#77 K11 と同型) | §12-3 (8) |
+| K15 | `git` を読む本は 2 本 → **37 本**。影では `driver_field_step1` も exit 3 ⇒ clone で対にする | §12-3 (8) |
+| K16 | 既知の赤 = 流用した TSV の非緑 → 揺れは両方向で広い(3 本が緑へ・3 本が赤へ)。`probe_n4_stall` は健全で exit 1 | §12-3 (8) |
+
+**残り**
+
+- ⚠ **§9 の実機確認は未**(ユーザーの手元の確認が残る): `?dev=1` で 1G の巻物を買って読み、Lv3 以上の魔法使いに枠を置いて盗賊なしで潜ったとき、戦闘の始まりに「魔法陣 → 一行が揺らいで透ける → 隠密判定のパネル」の順で出るか・テンポ(伝承判定 → 詠唱 → 隠密判定)・iPhone 縦で揺らぎがコマ落ちしないか・透けすぎて見失わないか。揺らぎの値(0.30 / 0.55 / 1.4s)は目で動かしてよい(§8「測らないこと」)。
+- 次の新規ドライバの base ポート = **10503**。
+- `verify_scroll_shelf` の (0a) は「common 4 + それ以外 ≥ 13」へ言い直し済み ⇒ C(魔法の眼)で uncommon / rare の巻物を足しても腐らない(common を足すときだけ直す)。
