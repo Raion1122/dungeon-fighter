@@ -487,6 +487,13 @@
       "walk_dir": "villager-old-woman/villager-old-woman-walk-right-6-v1-clean",
       "attack_dir": "villager-old-woman/villager-old-woman-walk-right-6-v1-clean",
       "note": "**村の老婆** (杖・肩掛け)。2026-07-17 に codex1 へ納品されていたが **台帳にも requests/README.md にも載らず眠っていた** 6 体のうちの 1 体 (2026-09-02 の #41 STEP4 の棚卸しで発見)。⭐ #41 依頼書 §2-2 の『町人は 1 枚も無い』は **ゲーム側の assets/*_walk.png を測った結果**で、codex1 の納品側は誰も見ていなかった。**walk 6 コマのみ**なので attack_out を持たない。⚠️ walk_dir は -clean 派生 (`py tools/clean_codex1_frames.py --all-townsfolk`)。 ⚠️ 納品に**マゼンタ残り 3.37%** があり -clean で除去。0.6144 = 58 ÷ 96 ÷ 0.9833。"
+    },
+    {
+      "key": "arcane-eye", "out": "assets/arcane_eye.png",
+      "format": "prop",
+      "src": "assets/arcane-eye/arcane-eye-v1.png",
+      "derive": "直接コピー (後処理なし)",
+      "note": "呪文アーケインアイ (魔法の眼) の眼の静止画 (2026-10-01 納品・実装依頼書 #79 §4-7 / 依頼文 codex1/requests/2026-10-01_arcane-eye.md)。⚠️ format:\"prop\" なので両パッカーの --all は触らない。受け取り側の実測 = RGBA 256x256 / 四隅 alpha 0 / alpha>0 の bbox 187x107 / alpha>=128 の重心 (129.4,127.5) / 充填率 0.415 / 連結成分 2 (1264・2748 px) / check_alpha_bg_residue の疑い 0。md5 C3D8932AFEA77D09791AD55606D92972。ゲームでは CSS で 48x48 に縮め drop-shadow を重ねる (.dfArcaneEye)。read-only の下見で出た原画 (1476x1066・放射状の虹彩) は採らず、本番投下の簡素な光の輪郭版を採用 (48px での可読性)。単眼の怪物に見える要素 (触手・眼柄・口) なし。"
     }
   ]
 }
