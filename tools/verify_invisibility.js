@@ -742,8 +742,10 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const rows = await shelfRows();
       const dev = await page.evaluate(() => DF_DEV_MAGIC_SHOP);
-      const ok = dev === true && rows.length === COMMON_TV.length && !rows.some((x) => x.name === INV_SCROLL.name);
-      R.check('(7b)', 'tavern.html?invis=0 + 開発 ⇒ 棚に並ばない (common ' + COMMON_TV.length + ' 件だけ)', ok, { dev, rows: rows.map((x) => x.name) });
+      /* ★[#79 §6] 件数で縛らない (開発用の集合に魔法の眼が増え、?invis=0 でも眼は並ぶ = 依頼書 #79 §2-3 罠F)。
+       *   「透明化の行が無い」+「common はすべて並ぶ」へ言い直した。⛔ COMMON_TV.length + 1 へ書き換えるだけにしない。 */
+      const ok = dev === true && !rows.some((x) => x.name === INV_SCROLL.name) && COMMON_TV.every((c) => rows.some((x) => x.name === c.name));
+      R.check('(7b)', 'tavern.html?invis=0 + 開発 ⇒ 棚に並ばない (透明化なし・common ' + COMMON_TV.length + ' 件はすべて並ぶ)', ok, { dev, rows: rows.map((x) => x.name) });
     }
 
     /* ══════════ (0a) ソース ⇔ ページ ══════════ */

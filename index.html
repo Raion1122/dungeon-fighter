@@ -3016,6 +3016,29 @@
     @media (prefers-reduced-motion: reduce) {
       .dfInvis { animation: none; opacity: 0.45 !important; }
     }
+    /* ★[#79] 魔法の眼。⛔ フォグ (canvas) には触らない —— 眼は DOM の要素を 1 つ飛ばすだけ (依頼書 §2-3 罠A)。
+       位置は flyArcaneEye が毎フレーム SX()/SY() で置く (left/top の transition は持たせない = rAF と喧嘩する)。 */
+    .dfArcaneEye {
+      position: absolute; width: 48px; height: 48px; pointer-events: none; z-index: 13;
+      background: url("assets/arcane_eye.png") center / contain no-repeat;
+      filter: drop-shadow(0 0 8px rgba(140, 200, 255, 0.9));
+      transition: opacity 0.4s;
+    }
+    .dfArcaneEye.noimg {                                   /* 素材が読めない時のフォールバック = 光の玉 */
+      background: radial-gradient(circle, #eaf6ff 0 20%, #7ec8ff 45%, rgba(126,200,255,0) 70%);
+    }
+    /* 影絵の羊皮紙 (#15 の立て札と同じ紙を暗幕なしで流用)。⚠ #dmMessage (top 90px・z80) の下へ置く
+       (依頼書の「上 12%」は 800px 級の画面で一行と重なる = 項目2 K7)。 */
+    #eyeScoutPanel {
+      position: fixed; left: 50%; top: 172px; transform: translateX(-50%); z-index: 81;
+      display: none; gap: 10px; padding: 10px 16px; max-width: min(92vw, 520px); flex-wrap: wrap; justify-content: center;
+      background: url("assets/parchment_plaza.jpg") center / cover; border-radius: 6px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5); pointer-events: none;
+    }
+    #eyeScoutPanel.show { display: flex; }
+    #eyeScoutPanel .eyeShade { display: flex; flex-direction: column; align-items: center; font: 12px/1.2 "Noto Serif JP", serif; color: #2a1a08; }
+    #eyeScoutPanel .eyeShade i { display: block; width: 48px; height: 48px; filter: brightness(0); opacity: 0.85; background-repeat: no-repeat; }
+    #eyeScoutPanel .eyeShade.boss i { width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle, #000 55%, transparent 72%); filter: none; }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -3138,6 +3161,8 @@
 
   <!-- DM イベントメッセージ (エンカ・宝箱・罠・フェーズ切替) -->
   <div id="dmMessage"></div>
+  <!-- ★[#79] 魔法の眼の影絵 (羊皮紙)。報告の間だけ .show -->
+  <div id="eyeScoutPanel"></div>
 
   <!-- DM ナレーションウィンドウ (ゲーム開始時に表示) -->
   <div id="dmNarration" style="display:none;">
@@ -13586,6 +13611,7 @@
       "scroll-invisibility":   { name: "巻物・インビジビリティ",    spellId: "invisibility",         classKey: "mage",   rarity: "uncommon" },
       "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
       "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
+      "scroll-arcane-eye":     { name: "巻物・アーケインアイ",      spellId: "arcane-eye",           classKey: "mage",   rarity: "rare"     },
       "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。戦闘呪文ではなく hasInnateDisguise 判定に使う
       // 📖 聖典 (cleric)
       "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
@@ -13626,6 +13652,12 @@
      * ⚠ 各ページが独立に読む (遷移はまたがない)。tavern.html は isInvisOnTV で開発用の陳列だけ止める。 */
     function isInvisOn() {
       try { return new URLSearchParams(window.location.search).get("invis") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#79] 撤退スイッチ ?eye=0 — 魔法の眼を唱えない + 巻物を拾わない (rare の抽選を 6 種へ戻す)。
+     * ⚠ 各ページが独立に読む (遷移はまたがない)。tavern.html は isEyeOnTV で開発用の陳列だけ止める。 */
+    function isEyeOn() {
+      try { return new URLSearchParams(window.location.search).get("eye") !== "0"; }
       catch (e) { return true; }
     }
     /* 呪文リストの **index 1** に sleep を挿す。⭐⭐⭐ 位置が効く:
@@ -13711,7 +13743,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility"));
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye"));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -14226,6 +14258,7 @@
       startScreen.style.display = "none";
       updateInfo("ゲームスタート！");
       setPhase("explore");
+      tryArcaneEyeOnEntry();   // ★[#79] ① 最初の部屋で魔法の眼 (await しない。旗は関数の頭で同期に立つ)
     }
 
     // Phase 2-G DEBUG: 残影回避モードのトグルボタン処理
@@ -22291,6 +22324,19 @@
         range: "self", outOfCombat: true,
         mpCost: 5, levelReq: 3,
         flavor: "戦闘の始まりに一行の姿を消して忍び寄る (盗賊・外套が居ない時だけ自動で唱える)",
+      },
+      /* ★[#79] アーケインアイ (魔法の眼・5e SRD の 4 レベル呪文)。探索中に自動で唱える:
+       *   ① 部屋に入った時 (今いる部屋の敵) ② 出口の前 (出口の先の部屋・知覚判定の代わり)。
+       *   効果 = 報告だけ (DM の一行 + 羊皮紙の影絵)。⛔ フォグは削らない (依頼書 §2-3 罠A)。
+       * ⭐ outOfCombat —— 主人公の技の候補と apTryPreferred がこの旗で外す (#78 と同じ)。
+       * ⛔ AP_TRAVEL_CASTABLE には足さない。
+       * ⚠⚠ tavern.html の MAGE_SKILLS_UI と二重定義 (levelReq / mpCost をそろえる)。 */
+      "arcane-eye": {
+        name: "アーケインアイ", category: "utility", target: "self",
+        range: "self",
+        outOfCombat: true,
+        mpCost: 8, levelReq: 7,
+        flavor: "魔法の眼を飛ばし、霧の奥の敵の種類と数を探る (部屋に入った時と出口の前に自動で唱える)",
       },
     };
 
@@ -36779,6 +36825,265 @@
       }
       return n;
     }
+    /* ════════════ ★[#79] 魔法の眼 (アーケインアイ) ════════════
+     * 報告の組み立て (純関数) → 術者探し → 眼の演出 → 口 2 つ (入った時 tryArcaneEyeOnEntry / 出口の前 tryArcaneEyeAtExits)。
+     * ⛔ exploredTiles / visibleTiles には一切書かない (依頼書 §2-3 罠A)。眼は DOM の要素を 1 つ飛ばすだけ。
+     * ⚠⚠ #78 の透明化の行と同じ文字列の行を書かない (verify_invisibility の変異アンカーが 2 回になる = 罠E)。 */
+
+    /* ★[#79] 魔法の眼に映さない敵 —— 隠し要素 (ネタバレ) と、まだ動いていない者 (依頼書 §2-3 罠G)。
+     *   生きた敵 (e あり) と、出口の先のスロット (def だけ) の両方をここ 1 か所で判定する。 */
+    function eyeHidesEnemy(def, e) {
+      if (!def) return true;
+      if (def.isHydra || def.faction === "beast" || def.isNpcSpirit || def.isSwampNovice) return true;
+      if (e && (e.type === "mimic" || e.inactive || e.passiveNpc || e.dormant)) return true;
+      return false;
+    }
+    /* 数え方: アンデッド・竜・ゴーレムは「体」、ほかは「匹」。 */
+    function eyeCountWord(type) {
+      const def = ENEMY_TYPES[type];
+      if (def && def.undead) return "体";
+      return /dragon|drake|wyrm|golem|pharaxus/i.test(String(type || "")) ? "体" : "匹";
+    }
+    function eyeEnemyName(type) {
+      const def = ENEMY_TYPES[type];
+      return (def && def.name) || "何か";
+    }
+    /* [{type, n}] (出現順・ボスは含めない) と boss (有無) から報告の一行を作る。⛔ 乱数を引かない。
+     * 規則: 敵 0・ボスなし ⇒ 「……静かだ。何もいない」
+     *   先頭 = 最多の種類 (同数なら出現順で先)。n ≥ 2 「〈名前〉どもが n 匹ほど待ち構えているようだ」/ n = 1 「〈名前〉が 1 匹潜んでいる」
+     *   名前を出すのは 2 種まで: 残りの出現順で先の 1 種を「〈名前〉の姿もある」。3 種目以降があれば「ほかにも影がある」
+     *   ボスあり ⇒ 先頭に「ただならぬ大きな影がひとつ」、護衛は「…どもが n 匹ほど従っている」(n = 1 は「…が 1 匹従っている」)。
+     *   文は「。」でつなぐ (末尾に「。」は付けない)。⛔ ボスの名前は出さない。 */
+    function eyeReportText(groups, boss) {
+      const gs = (groups || []).filter(g => g && g.n > 0);
+      if (!gs.length && !boss) return "……静かだ。何もいない";
+      const parts = [];
+      if (boss) parts.push("ただならぬ大きな影がひとつ");
+      if (gs.length) {
+        let lead = gs[0];
+        for (const g of gs) if (g.n > lead.n) lead = g;
+        const others = gs.filter(g => g !== lead);
+        const nm = eyeEnemyName(lead.type), cw = eyeCountWord(lead.type);
+        if (boss) parts.push(lead.n >= 2 ? nm + "どもが " + lead.n + " " + cw + "ほど従っている" : nm + "が 1 " + cw + "従っている");
+        else parts.push(lead.n >= 2 ? nm + "どもが " + lead.n + " " + cw + "ほど待ち構えているようだ" : nm + "が 1 " + cw + "潜んでいる");
+        if (others.length >= 1) parts.push(eyeEnemyName(others[0].type) + "の姿もある");
+        if (others.length >= 2) parts.push("ほかにも影がある");
+      }
+      return parts.join("。");
+    }
+    /* 入った時の集計 = 今いる部屋の生きた敵。pts は眼が飛ぶ先 (重心) を決めるためだけに返す。 */
+    function eyeGroupsLive() {
+      const byType = new Map();
+      const pts = [];
+      let boss = false;
+      for (const e of enemies) {
+        if (!e || !e.alive) continue;
+        const def = e.def || ENEMY_TYPES[e.type];
+        if (eyeHidesEnemy(def, e)) continue;
+        pts.push(e);
+        if (def.isBoss || def.boss) { boss = true; continue; }
+        const g = byType.get(e.type);
+        if (g) g.n += 1; else byType.set(e.type, { type: e.type, n: 1 });
+      }
+      return { groups: Array.from(byType.values()), boss: boss, pts: pts };
+    }
+    /* 出口の先の集計 = 著者が書いたスロットの型 (enemySlots[][2]) と bossSlot。⚠ exitEnemyCount とは別に数える
+     *   (あちらはボスと隠し要素も数える = 依頼書 §2-2 #3)。 */
+    function eyeGroupsSlots(toId) {
+      const nd = RUN && RUN.byId[toId];
+      const byType = new Map();
+      let boss = false;
+      if (nd && nd.mapDef && Array.isArray(nd.mapDef.rooms)) {
+        for (const r of nd.mapDef.rooms) {
+          for (const slot of (Array.isArray(r.enemySlots) ? r.enemySlots : [])) {
+            const type = Array.isArray(slot) ? slot[2] : null;
+            const def = type ? ENEMY_TYPES[type] : null;
+            if (eyeHidesEnemy(def, null)) continue;
+            if (def.isBoss || def.boss) { boss = true; continue; }
+            const g = byType.get(type);
+            if (g) g.n += 1; else byType.set(type, { type: type, n: 1 });
+          }
+          if (r.bossSlot) boss = true;
+        }
+      }
+      return { groups: Array.from(byType.values()), boss: boss };
+    }
+
+    /* ★[#79] 覗いた部屋 (ノード id)。⚠⚠ nodeState に書かない —— nodeStateFor は「今いるノード専用」で、
+     *   先のノードに対して呼ぶと visited が立ち exitsWithReturn の DFS 順が壊れる (依頼書 §2-3 罠C)。 */
+    const eyeScoutedNodes = new Set();
+
+    /* ★[#79] 魔法の眼を唱える術者を探して枠を 1 つ使う。唱えなければ null。
+     * ⚠ 主人公の枠は "player" で確かめて使い、makeLeaderActor() は演出にだけ使う (#78 と同じ役割分け)。
+     * ⭐ 順 = 主人公 → 仲間。 */
+    function takeArcaneEyeCaster() {
+      const EYE_ID = "arcane-eye";
+      if (hp > 0 && !gameOver && leaderClassKey === "mage" && hasSpellSlot("player", EYE_ID)) {
+        return consumeSpellSlot("player", EYE_ID)
+          ? { unit: "player", actor: makeLeaderActor(), name: getLeaderName() } : null;
+      }
+      for (const caster of allies) {
+        if (!caster || !caster.alive || caster.classKey !== "mage" || !hasSpellSlot(caster, EYE_ID)) continue;
+        return consumeSpellSlot(caster, EYE_ID)
+          ? { unit: caster, actor: caster, name: caster.npcName || (caster.def && caster.def.name) || "魔法使い" } : null;
+      }
+      return null;
+    }
+
+    /* 羊皮紙の影絵: 種類ごとに 1 マス (先頭コマを brightness(0) で黒く塗る + 「×n」)、最大 4 マス。ボスありは先頭に丸い影 +「?」。 */
+    function renderEyeScoutPanel(groups, boss) {
+      const panel = document.getElementById("eyeScoutPanel");
+      if (!panel) return;
+      panel.replaceChildren();
+      const cell = (cls, label) => {
+        const box = document.createElement("div");
+        box.className = cls;
+        const pic = document.createElement("i");
+        const cap = document.createElement("span");
+        cap.textContent = label;
+        box.appendChild(pic); box.appendChild(cap);
+        panel.appendChild(box);
+        return pic;
+      };
+      if (boss) cell("eyeShade boss", "?");
+      for (const g of (groups || []).slice(0, 4)) {
+        const pic = cell("eyeShade", "×" + g.n);
+        const def = ENEMY_TYPES[g.type];
+        if (def && def.sprite && def.frameW && def.frameH) {
+          const k = 48 / Math.max(def.frameW, def.frameH);
+          pic.style.backgroundImage = 'url("' + def.sprite + '")';
+          if (def.sheetW && def.sheetH) pic.style.backgroundSize = Math.round(def.sheetW * k) + "px " + Math.round(def.sheetH * k) + "px";
+          pic.style.backgroundPosition = "0px " + (-Math.round((def.rowOffset || 0) * def.frameH * k)) + "px";
+        }
+      }
+      panel.classList.toggle("show", panel.childElementCount > 0);
+    }
+    function hideEyeScoutPanel() {
+      const panel = document.getElementById("eyeScoutPanel");
+      if (!panel) return;
+      panel.classList.remove("show");
+      panel.replaceChildren();
+    }
+    /* ペンの音: 導入ナレと同じ比率 (1 文字 NARRATION_CHAR_MS・3 文字ごとに 1 回)。audio.js は触らない。 */
+    function eyePenScratch(text) {
+      const n = Math.ceil(String(text || "").length / 3);
+      for (let i = 0; i < n; i++) {
+        setTimeout(() => { try { if (typeof sfx === "function") sfx("narration"); } catch (e) {} }, i * 3 * NARRATION_CHAR_MS);
+      }
+    }
+    /* 報告 1 件 = 一行 (showDMMessage + ペンの音) + 羊皮紙の影絵 + ログ。保持の後に閉じる。 */
+    async function showArcaneEyeReport(casterName, rp) {
+      const line = rp.line;
+      const holdMs = Math.max(2600, line.length * 90);
+      renderEyeScoutPanel(rp.groups, rp.boss);
+      showDMMessage(line, holdMs);
+      eyePenScratch(line);
+      appendLog("👁 " + casterName + " の魔法の眼 — " + line);
+      try { await sleepMs(holdMs); }
+      finally { hideEyeScoutPanel(); }
+    }
+    /* ★[#79] 眼を飛ばして報告する (枠は呼ぶ前に取ってある)。target = 眼が飛ぶ先 (世界 px)。
+     *   順: 詠唱 (dfPlayCast) → 眼を術者の頭上に出して target へ飛ばす → 消す → 報告を 1 件ずつ。 */
+    async function flyArcaneEye(caster, target, reports) {
+      const actor = caster.actor;
+      const spell = MAGE_SKILLS["arcane-eye"];
+      try { await dfPlayCast(actor, { name: spell.name, element: "arcane" }, { duration: 900 }); } catch (e) {}
+      const size = (actor && actor.def && actor.def.displaySize) || 96;
+      const from = { x: (actor ? actor.x : playerX) + size / 2, y: (actor ? actor.y : playerY) - 24 };
+      const dest = target || from;
+      const eye = document.createElement("div");
+      eye.className = "dfArcaneEye";
+      const img = new Image();
+      img.onerror = () => eye.classList.add("noimg");      // 素材が無くても光の玉で飛ぶ
+      img.src = "assets/arcane_eye.png";
+      vfxHost().appendChild(eye);
+      const flightMs = Math.max(8, Math.floor(900 / (window.__autoplay || 1)));
+      const t0 = performance.now();
+      let raf = 0, flying = true;
+      const place = () => {
+        const k = Math.min(1, (performance.now() - t0) / flightMs);
+        const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+        const wx = from.x + (dest.x - from.x) * ease, wy = from.y + (dest.y - from.y) * ease;
+        eye.style.left = (SX(wx) - 24) + "px";
+        eye.style.top = (SY(wy) - 24) + "px";
+        if (flying) raf = requestAnimationFrame(place);
+      };
+      place();
+      try { await sleepMs(900); }
+      finally { flying = false; cancelAnimationFrame(raf); eye.remove(); }
+      for (const rp of reports) await showArcaneEyeReport(caster.name, rp);
+    }
+    function eyeRoomCenterWorld() {
+      const r = mainRoomRect(MAPDEF);
+      return { x: ((r[1] + r[3]) / 2) * TILE_SIZE + TILE_SIZE / 2, y: ((r[0] + r[2]) / 2) * TILE_SIZE + TILE_SIZE / 2 };
+    }
+
+    /* ★[#79] ① 入った時。startGame から await せずに呼ばれる ⇒ **最初の await より前に** dialogPaused を立てる。
+     *   ⚠ 罠B: autoplay では showDMMessage が narrationHold を立てない ⇒ 自分で時間を止める。 */
+    async function tryArcaneEyeOnEntry() {
+      if (!RUN || !isEyeOn() || !currentNodeId || eyeScoutedNodes.has(currentNodeId)) return false;
+      if (gameOver || encounterActive) return false;
+      const caster = takeArcaneEyeCaster();
+      if (!caster) return false;
+      eyeScoutedNodes.add(currentNodeId);
+      const prevSk = skillCheckActive, prevDp = dialogPaused;
+      skillCheckActive = true; dialogPaused = true;
+      try {
+        await awaitNarrationClear();                          // 到着の一行が消えてから (autoplay は即抜け)
+        const scan = eyeGroupsLive();
+        let target = null;
+        if (scan.pts.length) {
+          let sx = 0, sy = 0;
+          for (const e of scan.pts) { const d = (e.def && e.def.displaySize) || 96; sx += e.x + d / 2; sy += e.y + d / 2; }
+          target = { x: sx / scan.pts.length, y: sy / scan.pts.length };
+        } else {
+          target = eyeRoomCenterWorld();
+        }
+        const line = eyeReportText(scan.groups, scan.boss);
+        await flyArcaneEye(caster, target, [{ line: line, groups: scan.groups, boss: scan.boss }]);
+      } finally { skillCheckActive = prevSk; dialogPaused = prevDp; }
+      return true;
+    }
+    /* ★[#79] ③ 出口の前。revealExitHints の「まだ振っていない」枝から呼ばれる。
+     *   唱えたら先のノードを**全部** eyeScoutedNodes へ入れ、{ [to]: { groups, boss, text } } を返す
+     *   (分かれ道なら 1 回の詠唱で全部の先を見る)。唱えなければ旗を 1 つも触らず null。
+     * ⚠ 未発見の隠し扉の先は覗かない (報告の一行で道の存在を明かさない = exitsWithReturn と同じ扱い)。 */
+    async function tryArcaneEyeAtExits(node, outs) {
+      if (!RUN || !node || !isEyeOn() || gameOver || encounterActive) return null;
+      const fresh = [];
+      const seen = new Set();
+      for (const ex of (outs || [])) {
+        if (!ex || !ex.to || !RUN.byId[ex.to] || seen.has(ex.to) || eyeScoutedNodes.has(ex.to)) continue;
+        if (Array.isArray(ex.at) && doorHiddenAt(ex.at[0], ex.at[1])) continue;
+        seen.add(ex.to);
+        fresh.push(ex);
+      }
+      if (!fresh.length) return null;
+      const caster = takeArcaneEyeCaster();
+      if (!caster) return null;
+      const found = Object.create(null);
+      const reports = [];
+      for (const ex of fresh) {
+        eyeScoutedNodes.add(ex.to);
+        const scan = eyeGroupsSlots(ex.to);
+        const text = eyeReportText(scan.groups, scan.boss);
+        found[ex.to] = { groups: scan.groups, boss: scan.boss, text: text };
+        const way = ex.dir || (window.DFMapDef && Array.isArray(ex.at) ? DFMapDef.dirFromGeometry(mainRoomRect(MAPDEF), ex.at) : "right");
+        reports.push({ line: (DIR_LABELS[way] || way) + " — " + text, groups: scan.groups, boss: scan.boss });
+      }
+      const at0 = fresh[0].at;
+      const target = Array.isArray(at0)
+        ? { x: at0[0] * TILE_SIZE + TILE_SIZE / 2, y: at0[1] * TILE_SIZE + TILE_SIZE / 2 } : eyeRoomCenterWorld();
+      const prevSk = skillCheckActive, prevDp = dialogPaused;
+      skillCheckActive = true; dialogPaused = true;
+      try {
+        await awaitNarrationClear();
+        await flyArcaneEye(caster, target, reports);
+      } finally { skillCheckActive = prevSk; dialogPaused = prevDp; }
+      return found;
+    }
+    /* ════════════ ★[#79] 魔法の眼 ここまで ════════════ */
+
     function pickWrongKind(trueKind, salt) {
       const pool = EXIT_HINT_WRONG_KINDS.filter(k => k !== trueKind);
       if (!pool.length) return trueKind;
@@ -36844,6 +37149,11 @@
       const outs = node.exits || [];
       if (!outs.length) { st.hintsRevealed = { rolled: true, tier: "none", byExit: {} }; return st.hintsRevealed; }
       let tier = forcedTier || null;
+      /* ★[#79] 出口の前の魔法の眼。唱えたら知覚判定を振らない (呪文の結果は常に正しい = 会議のリスク欄)。
+       * ⚠ forcedTier は検証専用の口なので使わない (依頼書 §2-3 罠D)。rolled: true は下で同じく焼く。 */
+      let eyeByExit = null;
+      if (!tier) eyeByExit = await tryArcaneEyeAtExits(node, outs);
+      if (eyeByExit) tier = "crit";
       if (!tier) {
         const party = (window.SkillCheck && SkillCheck.resolveSkillCheck) ? buildPerceptionParty() : [];
         if (!party.length) {
@@ -36871,6 +37181,12 @@
       }
       const byExit = Object.create(null);
       for (const ex of outs) byExit[ex.to] = buildExitHint(node, ex, tier);
+      if (eyeByExit) {                                  // ★[#79] 眼の報告を出口の文へ足す (buildExitHint 本体は触らない)
+        for (const to of Object.keys(eyeByExit)) {
+          const hint = byExit[to];
+          if (hint) { hint.text = hint.text + " — " + eyeByExit[to].text; hint.eye = true; }
+        }
+      }
       st.hintsRevealed = { rolled: true, tier: tier, byExit: byExit };
       return st.hintsRevealed;
     }
@@ -37352,6 +37668,7 @@
          * ⚠ rest の後にも掛ける: setPhase("explore") が「英気を養った。再び前へ。」を出すので、
          *   ここを飛ばすと休憩明けの一文の上に羊皮紙が重なる (同じ欠陥の別経路)。 */
         nodeChoiceCooldownUntil = Date.now() + nodeArrivalHoldMs();
+        await tryArcaneEyeOnEntry();   // ★[#79] ② 入った部屋で魔法の眼 (出口の前で覗いた部屋では唱えない)
         if (window.__diag) window.__diag.beat("node-enter", toId + (revisit ? " (再訪)" : ""));
       } finally {
         nodeBusy = false;

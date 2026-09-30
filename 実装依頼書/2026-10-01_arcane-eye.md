@@ -672,3 +672,30 @@
   - ⚠ #78 項目4 のとおり、griffon / roll_target / n4_stall / hobgoblin / chimera / kobold / speech_engine は**どちらの色にも転ぶ**。1 回の色で退行と決めない。
 - ⚠ 本チケットも `index.html` と `tavern.html` の両方を変える ⇒ 149 本すべてが帰属の候補になる。項目4 では、影のツリー(`index.html` / `tavern.html` / `tools/verify_invisibility.js` を `cd32146` へ戻した実体コピー)と、`git` を読む本のための clone を交互に走らせて比べる(#78 の方式)。
   `--negative` の腕は「差分を含む関数の中にアンカーを持つ本」で、項目2 の差分が出てから選び直す。
+
+### 12-1. 項目2 — 本番実装(基準 HEAD `677e4de`・`index.html` / `tavern.html` / `tools/verify_invisibility.js`)
+
+- **差し込み**(行番号は実装後の `index.html`): 呪文 `"arcane-eye"` 22334 / 巻物 13614 / `isEyeOn` 13659 / `pickScrollId` の抽選 13746 / CSS `.dfArcaneEye` 3021・`#eyeScoutPanel` / DOM `#eyeScoutPanel` 3165 /
+  本体 36828〜37085(`eyeHidesEnemy` 36835・`eyeReportText` 36857・`eyeGroupsLive` 36875・`eyeGroupsSlots` 36892・`eyeScoutedNodes` 36914・`takeArcaneEyeCaster` 36919・`renderEyeScoutPanel` 36934・`showArcaneEyeReport` 36975・`flyArcaneEye` 36987・`tryArcaneEyeOnEntry` 37023・`tryArcaneEyeAtExits` 37051)/
+  口 ① `startGame` 14261 ② `enterNode` 37671 ③ `revealExitHints` 37155(眼の文を足す枝 37184〜37189)。
+  `tavern.html`: `MAGE_SKILLS_UI` 4505 / `SCROLL_CATALOG_TV` 5357 / `SCROLL_DEV_SHELF_TV` 6862 / `isEyeOnTV` 6868 / `devShelfSwitchOnTV` 6872 / 書き換え行 6883 / changelog 1 行。
+- 行末: 3 ファイルとも LF 単独 0(`index.html` 40440 行・`tavern.html` 11121 行は全行 CRLF / `verify_invisibility.js` は元どおり全行 LF)。
+- 削除行は 4 行だけ(`pickScrollId` の `let pool` 行・`SCROLL_DEV_SHELF_TV` の宣言・§5-2 で許された 6870 行・changelog の最古の 1 件)。§3 の「1 バイトも変えない」シンボルの grep は 0 件。
+- **使い捨て probe**(scratchpad `item2\probe_eye79.js`・自前サーバ 18991)34/34 PASS: (1a)(1c 神殿・沼地)(1d)(1f)(2a)(2b 両腕)(2c)(2d)(2e)(2f)(3a 入った時・出口の前)(3b autoplay 実走)(3c)(4b)(5a)(5b)(5c)(6b 素 7 種・`?eye=0` 6 種・uncommon 8 種)(7a)(7b)(7c)・`.noimg`(png を 404)と画像ありの両方・pageerror 0。
+- **名指し golden 10 本 12 腕**(本番の作業ツリー・1 回): 全部 exit 0 で着手前と同じ件数。verify_invisibility 27/27・`--negative` 9/9(空振り 0・漏れ 0)/ verify_scroll_shelf 19/19・8/8 / graph_arrows 80 / graph_sce1 106 / graph_run 99 / graph_kinds 66 / graph_reentry 57 / dev_gate2 62 / action_priority 92 / party_match_setup 36。
+  ⚠ git を読む 2 本は固定コミット(`54bb89a` 等)を `git show` するだけで HEAD を読まない ⇒ 本番の作業ツリー(それ自体が git リポ)で走らせた。影のツリーでは走らない点は変わらない。
+
+#### 崩れた主張・補足(K7〜K12)— 仕様に響くもの 0 件
+
+| K | 主張(依頼書) | 実測・実装 | 仕様に響くか |
+|---|---|---|---|
+| **K7** | §4-3 羊皮紙は「上 12%」 | `#dmMessage` は `top: 90px`・高さ約 60px ⇒ 800px 級の画面では 12% (96px) で一行と重なる。⇒ `top: 172px` に置いた | 響かない(§8 で測らない値・§9 で動かしてよい) |
+| **K8** | §4-3 `.dfArcaneEye` に `transition: left/top 0.9s` | 眼は `flyArcaneEye` が毎フレーム `SX()/SY()` で置く(カメラ追従・`dfPlayCast` と同じ方式)。CSS の left/top の transition は rAF と喧嘩するので opacity だけにした | 響かない |
+| **K9** | §4-5 ③「先のノードを全部覗く」 | 未発見の隠し扉(`doorHiddenAt`)の先は覗かない・報告しない(一行で道の存在を明かさない = `exitsWithReturn` と同じ扱い)。6 シナリオの本番グラフでは該当 0(沼地 n4 の 2 本とも false) | 響かない |
+| **K10** | §4-4「2 つ目以降(最大 2 種まで)…3 種目以降は『ほかにも影がある』」 | 読みを 1 つに決めた: **名前を出すのは先頭 + 1 種 = 計 2 種**、3 種目があれば「ほかにも影がある」。ボスあり + 護衛 n=1 は「〈名前〉が 1 匹従っている」、護衛なしは「ただならぬ大きな影がひとつ」だけ。文は「。」でつなぎ末尾に「。」を付けない | 響かない(受入は同じ規則をドライバで組む) |
+| **K11** | §8 (2a)「護衛 2 種の名前」 | 砦 n7 の護衛は orcBerserker 1・orcGrunt 1 ⇒ 実文は「ただならぬ大きな影がひとつ。オーク狂戦士が 1 匹従っている。オーク兵の姿もある」。出口の文は K5 のとおり二段(「地の底から重い足音が響く — 3 体ばかりの気配だ — ただならぬ…」) | 響かない |
+| **K12** | §8 (1c)「沼地 n4 に若き蛇神司祭が出ない」 | 沼地 n7 の護衛 lizardPriest の名前は「蛇神司祭」で、隠し要素 swampNovice は「若き蛇神司祭」。部分一致で測ると n7 の報告(出口の前)で誤検知しうる ⇒ 受入は**全名**で n4 の入った時の報告を見ること | 響かない(受入の書き方) |
+
+- ログの形: 入った時 `👁 〈術者〉 の魔法の眼 — 〈報告〉` / 出口の前 `👁 〈術者〉 の魔法の眼 — 〈DIR_LABELS〉 — 〈報告〉`(出口ごとに 1 行)。
+- 羊皮紙の影絵の数 = `min(4, 種類)` + ボスありで丸い影 1(砦 n4 は 4 種 = 4 マス)。
+- `executeSkillOn(ally, "mage", "arcane-eye", -1)` は元から偽(名指しの枝が無い)。

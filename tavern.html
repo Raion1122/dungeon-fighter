@@ -3326,10 +3326,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>魔法の眼の巻物を追加</b> — 稀少な巻物「巻物・アーケインアイ」を宝箱やボスから拾えるように。覚えた魔法使いは、部屋に入った時と出口の前に魔法の眼を飛ばし、霧の奥の敵の種類と数を教えてくれる(呪文の枠を 1 つ使う)。</li>
         <li><b>透明化の巻物を追加</b> — 珍しい巻物「巻物・インビジビリティ」を宝箱やボスから拾えるように。覚えた魔法使いは、盗賊のいない一行でも戦闘の始まりに姿を消して忍び寄れる(呪文の枠を 1 つ使う)。</li>
         <li><b>武器防具屋に巻物の棚</b> — 初歩の呪文の巻物 4 種を 1 冊 80G で買えるように。買った巻物はマッチング画面の書庫で「読む」と覚えられる。</li>
         <li><b>伝承で敵の正体を見抜く</b> — 魔法使い・エルフ・僧侶が戦いの始まりに敵の伝承を思い出すことがある。戦いの途中で現れた敵(後から合流するボスや呼び出された手下)も見抜ける。思い出せば敵の脅威度が分かり、眠らない敵にスリープを撃たず、効かない属性の呪文を避ける。</li>
-        <li><b>敵の体質が戦いに効くように</b> — アンデッドやゴーレムには眠りの呪文が効かず、赤竜に炎は通じない。レイスやリッチは冷気や雷を和らげる。</li>
       </ul>
     </div>
     <script>
@@ -4501,6 +4501,8 @@
     { id: "ice-storm",      name: "アイスストーム",   category: "攻撃", range: "spellAoE",   mpCost: 9, levelReq: 7, flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減)、PT 巻き込みなし" },
     // ★[#78] インビジビリティ (index.html MAGE_SKILLS と同期)。autoCast = 戦闘の始まりに自動で唱える (傾向の候補に出さない)。
     { id: "invisibility",   name: "インビジビリティ", category: "補助", range: "self", mpCost: 5, levelReq: 3, autoCast: true, flavor: "戦闘の始まりに一行の姿を消して忍び寄る (盗賊・外套が居ない時だけ自動)" },
+    // ★[#79] アーケインアイ (index.html MAGE_SKILLS と同期)。autoCast = 探索中に自動で唱える (傾向の候補に出さない)。
+    { id: "arcane-eye",     name: "アーケインアイ",   category: "補助", range: "self", mpCost: 8, levelReq: 7, autoCast: true, flavor: "魔法の眼で霧の奥の敵の種類と数を探る (部屋に入った時と出口の前に自動)" },
   ];
   /* ★[#72 §5-2] 撤退スイッチ ?drawerlv=0 — 引き出しの Lv 判定 (柱2) を着手前 (0e8370d) の姿へ戻す。
      戻るのは 3 つとも: (α) 下の呪文表の levelReq 同期 / (β) 新顔の Lv をマッチング画面で決める
@@ -5352,6 +5354,7 @@
     "scroll-invisibility":   { name: "巻物・インビジビリティ",    spellId: "invisibility",         classKey: "mage",   rarity: "uncommon" },
     "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
     "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
+    "scroll-arcane-eye":     { name: "巻物・アーケインアイ",      spellId: "arcane-eye",           classKey: "mage",   rarity: "rare"     },
     "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。hasInnateDisguise 判定に使う
     "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
     "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
@@ -6856,10 +6859,20 @@
   /* ★[#78] 開発用の陳列 —— 拾うだけの巻物 (uncommon / rare) を、開発モードのときだけ棚に 1G で並べる。
    * ⚠⚠ 旗を SCROLL_CATALOG_TV の行に足さない —— tools/verify_scroll_shelf.js の正規表現が行を
    *   rarity で閉じるので、その行だけ読めなくなる (依頼書 §2-2 罠D)。C (魔法の眼) はここへ 1 語足す。 */
-  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility"];
+  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility", "scroll-arcane-eye"];
   function isInvisOnTV() {
     try { return new URLSearchParams(location.search).get("invis") !== "0"; }
     catch (e) { return true; }
+  }
+  /* ★[#79] 開発用の陳列の撤退 —— 巻物ごとに自分の撤退スイッチを見る (?invis=0 は透明化だけ・?eye=0 は眼だけ)。 */
+  function isEyeOnTV() {
+    try { return new URLSearchParams(location.search).get("eye") !== "0"; }
+    catch (e) { return true; }
+  }
+  function devShelfSwitchOnTV(id) {
+    if (id === "scroll-invisibility") return isInvisOnTV();
+    if (id === "scroll-arcane-eye") return isEyeOnTV();
+    return true;
   }
   function scrollShelfIdsDev() {
     // ⛔ common で絞る既存の filter 行を、ここに写さない (for で書く)
@@ -6867,7 +6880,7 @@
     const out = [];
     for (const id of Object.keys(SCROLL_CATALOG_TV)) {
       const c = SCROLL_CATALOG_TV[id];
-      const dev = SCROLL_DEV_SHELF_TV.indexOf(id) >= 0 && (id !== "scroll-invisibility" || isInvisOnTV());
+      const dev = SCROLL_DEV_SHELF_TV.indexOf(id) >= 0 && devShelfSwitchOnTV(id);
       if (c.rarity === "common" || dev) out.push(id);
     }
     return out;
