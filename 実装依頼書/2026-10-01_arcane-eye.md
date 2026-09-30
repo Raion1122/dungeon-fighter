@@ -564,4 +564,111 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(項目1・基準 HEAD `cd32146`・本番ファイルは 1 バイトも触っていない)
+
+- **基準の HEAD**: 承認コミットは `00275b1`。項目1 の最中に起草窓が `cd32146`(眼の素材)を積んだので、基準を `cd32146` に置く。
+  `git diff --stat 00275b1 cd32146` の差分は 2 ファイルだけだった。`assets/arcane_eye.png`(新規・20,424 バイト)と `tools/codex1_sprites.json`(+7 行。`sheets` に `key: "arcane-eye"`・`format: "prop"` を 1 件足しただけ)。
+- **本番の同一性**: `git rev-parse <rev>:<path>` の値は `cfff418` / `620b844` / `00275b1` / `cd32146` の 4 点で次のとおり**全部同じ**。
+  `index.html` = `ac969497…` / `tavern.html` = `64130d22…` / `js` = `00e2267a…` / `audio.js` = `311aee29…` / `title.html` = `483e8cc6…` / `town.html` = `3db92db7…` / `world.html` = `65305dff…`。
+  ⇒ 起草時(`620b844`)にコードを測った結果は、そのまま `cd32146` にも当てはまる。
+- 行末: `index.html` は 40123 行、`tavern.html` は 11108 行。どちらも**全行 CRLF・LF 単独 0**(バイト数で確認)。⇒ 編集は `py` を使いバイト単位で行う。
+- **§2-1 のグラフは本番ページで組み直した**(`index.html?diag=1` で `DFMapDef.graphInfo(buildScenarioRun(id))`・pageerror 0)。**6 シナリオとも表と完全に一致**した。ノード・出口・スロットの型と数・ボスの型のすべてで一致し、型の入っていないスロットは全ノードで 0 だった。
+  隠し要素のスロットは沼地 n4 `swampNovice`(`isSwampNovice`)と神殿 n4 `caelum`(`isNpcSpirit`・`undead`)の 2 つだけ。**出口の先(n1 / n6 / n7)に隠し要素のスロットは 0**。
+  沼地 n6 のハイドラと森 n7 の残影の獣はスロットには居らず、`SCENARIO_NODE_EXTRAS`(`:11258`)が噂フラグを見て湧かせる。⇒ 出口の先の報告(スロット)には原理的に出ない。入った部屋の報告は `eyeHidesEnemy` で落とす。
+  ⚠ `:11255` の注記「砦の守護者は素の enemySlots に書く」はグラフ版では古い。畳んだ砦(n4 / n7)に守護者の型は 1 つも無い。
+
+#### 崩れた主張(K1〜K6)— **仕様(ユーザー決定)に響くものは 0 件**(blocked ではない)
+
+| K | 主張(依頼書) | 実測(`cd32146`) | 仕様に響くか |
+|---|---|---|---|
+| **K1** ⚠⚠ | §2-3 罠A / §8 (3a)「`exploredTiles` / `visibleTiles` の**集合の大きさと中身**」「`exploredTiles` に足すと『見えている敵』の判定にも響きうる」 | **崩れ(型と役割の 2 点)**。① 2 つとも集合ではない。`MAP_H` 本の `Uint8Array(MAP_W)` の配列(`:5061〜5062`)で、`buildNode` のたびに作り直される(`:36178〜36179`)⇒ 「大きさ」は常に同じで何も測れない。② 伏兵の判定 `isEnemyVisibleToParty`(`:18187`)に効くのは **`visibleTiles`** のほう。こちらは `computeVisibleTiles`(`:18114`)が毎回 0 に戻す(`:18128`)。`exploredTiles` は「影響は描画に閉じる」(`:18160〜18162` の注記)もので、そのほかにはノードの保存 `st.explored`(`:37123`)と屋外の計数 `__outdoorRevealProbe`(`:36099`)にしか効かない | **響かない**(「フォグに触らない」という方針はそのまま)。**受入の書き方が変わる** ⇒ 項目3 の (3a) は、行ごとのバイト列(例: 全行を連結した hash と 1 の個数)が詠唱の前後で同じかを見る。変異 `fogtouch` の `exploredTiles[ty][tx] = 1` は、この比較で赤くなる。戦闘の開始には効かない |
+| **K2** | 行番号(下表) | 小ずれが 4 件。**差す場所は一意に決まる** | 響かない |
+| **K3** | §2-6 ①「`gameStarted = true` の直後」と §4-5「`setPhase("explore");` の後」 | 同じ依頼書の中で食い違っている。`startGame`(`:14222`)の中で `gameStarted = true` は `:14224`、`setPhase("explore")` は `:14228`(最終行)。`setPhase("explore")` は `PHASE_NARRATION.explore` を `showDMMessage(…, 2200)` で出す(`:14667`)。⇒ **§4-5 のほうが正しい**(`setPhase` の後に呼べば `awaitNarrationClear` がこの一行を待てる。前に呼ぶと眼の報告の上にフェーズの一行がかぶる) | 響かない(§4-5 に従う) |
+| **K4** | §1 の例「…シャーマンの姿もある」 | §4-4 の規則は「〈名前〉の姿もある」で、名前は `ENEMY_TYPES[type].name` = **「ゴブリンシャーマン」**(`:9709`)。例は略記にすぎない | 響かない(規則が正。受入も規則から組む) |
+| **K5** | §4-5 ③「眼の結果がある出口の `text` に『 — 〈報告〉』を足す」 | 補足。`tier = "crit"` のとき、`buildExitHint`(`:36796`)は既に `sure + " — N 体ばかりの気配だ"` を返す。N は `exitEnemyCount` で、**ボスも +1 して数える**(`:36772`)。⇒ 眼の出口の文は「〈著者の文〉 — 3 体ばかりの気配だ — ただならぬ大きな影がひとつ。…」の二段になる(砦 n7 の例。n6 は N = 0 なので「— N 体」は付かない)。出口の先には隠し要素が居ない(上記)ので、N がネタバレになることは無い | 響かない(`buildExitHint` を触らない方針のまま。二段の文言が冗長かどうかは §9 の実機で見る) |
+| **K6** | §2-7「`driver_graph_arrows` は魔法使いに眼の枠が無い限り無風」 | 実際はもっと強い。`reveal(tier)` は `forcedTier` を渡すので、§4-5 の `if (!tier)` で**眼の枝そのものを通らない** ⇒ 枠の有無に関係なく無風。`driver_dev_gate2.js:450` は文字列ではなく**正規表現**(`/const DF_DEV_MAGIC_SHOP\s*=\s*!!window\.__dfDevMode;/`)で見ている。それでも「その行を変えない」で十分 | 響かない |
+
+**K2 の行番号(実測)**:
+
+| 依頼書の参照 | 実測 |
+|---|---|
+| `tickNodeChoice` `:37542` | 関数の頭は **37488**。37542 は中の呼び口 `await revealExitHints(node);`(参照先としてはこちらで正しい) |
+| DFS の注記 `:37590` 付近 | **37577**(「exitsWithReturn の DFS 順が壊れて ?autoplay が無限ループ」) |
+| `maybeGrantScrollDrop` のボス判定 `:13724` | 関数の頭は 13720、`def.isBoss \|\| def.boss` は **13726**(13725 は隠し要素 70) |
+| §5-2 開発用の陳列 `:6859〜6872` | `SCROLL_DEV_SHELF_TV` 6859 / `isInvisOnTV` 6860 / `scrollShelfIdsDev` **6864〜6874**(書き換える行 = **6870**)/ `scrollShelfPrice` 6875〜6877 / `scrollShelfIds` 6878〜6882(`leakdev` のアンカー 6880) |
+
+**そのまま正しかった主張**(抜粋。すべて `cd32146` で確認):
+- `index.html`: `MAGE_SKILLS` 22219(`"ice-storm"` 22275・`levelReq: 7` 22278 / `"invisibility"` 22289〜22294 / 表の閉じ `};` **22295**)。
+  `SCROLL_CATALOG` 13580(`scroll-ice-storm` 13588。rare は 13587/13588/13589/13594/13595/13600 の **6 種**)/ `isMageSleepOn` 13621 / `isInvisOn` 13627 / `pickScrollId` 13706(`let pool` 13714)。
+  拾う口は 3 つ(13725 = 隠し要素 70 / 13726 = ボス 35 / 24156 = 宝箱 10)。
+  `ENEMY_TYPES` 9658(`sprite` / `sheetW` / `sheetH` / `frameW` / `frameH` / `rowOffset` あり)/ `startGame` 14222(呼び口 5 = 18003 / 18023 / 18062 / 40076 autoplay / 40120 導入ナレの後)。
+  `showDMMessage` 14269(効果音なし・`narrationHold` は `:14280` で autoplay 以外だけ)/ `dialogPaused` 14291 / `detectEnemyFamily` 14443 / `isMidBossEnemy` 14570 / `setPhase` 14642。
+  `NARRATION_CHAR_MS = 70` 14717 / `typeNarrationParagraph` 14720(3 文字ごとの `sfx("narration")` 14732)/ `appendLog` 15522。
+  `moveEnemies` 18541(`dialogPaused` の早期 return 18544 → `tryStartEncounter()` 18549 → `heroAI()` 18750 = 詠唱中は主人公も止まる)/ `awaitNarrationClear` 20536 / `tryStartEncounter` 21330(`detectEngaged` 21276)。
+  `setPartyInvisible` 25435 / `tryCastInvisibility` 25445 / `tryStealthSurprise` 25467 / `AP_TRAVEL_CASTABLE` 32423 / `apTryPreferred` 32534 / `pickLeaderAction` 32663 / `playerAttackTurn` 32809。
+  `DIR_LABELS` 36317(right = 東へ進む / up = 奥へ進む)/ `EXIT_HINTS` 36723 / `exitHintTier` 36756 / `exitEnemyCount` 36772 / `buildExitHint` 36796 / `:36828` の「本編からは渡さない」/ `nodeStateFor` 36835(注記 36829〜36834)。
+  `revealExitHints` 36839(再入場ガード 36843・`let tier` 36846・`skillCheckActive = true; dialogPaused = true;` 36852・`finally` 36868 = **元の値へ戻さず false を書く**)/ `exitChoiceLabel` 36888。
+  `#dmMessage` z-index 80(`:932`・DOM は `:3140`)/ `NODE_ARRIVAL_HOLD_MS` 37265 / `enterNode` 37308(`nodeChoiceCooldownUntil = Date.now() + nodeArrivalHoldMs();` **37354**・`await tryInteractNodeEvent();` は try の外)/ `__graphRun.reveal` 39094(`enter` / `hints` / `choiceLabels` あり・dev ゲートの内側)。
+  `consumeSpellSlot` 14000 / `initAllySpellSlots` 14011(Lv と習得の関門あり)/ `dfPlayCast` 11775 / CSS `.dfInvis` 3015 / `</style>` 3019。
+- `tavern.html`: `MAGE_SKILLS_UI` 4490(ice-storm 4501・invisibility 4503)/ `?drawerlv=0` 4538 / `DF_DEV_MAGIC_SHOP` 5022 / `SCROLL_CATALOG_TV` 5347(ice-storm 5354)/ `SCROLL_SHELF_PRICE` 6850 / `isAutoCastSkillTV` 7863。
+- `js/df-mapdef.js:20`(`enemySlots = [tx, ty]`)/ `index.html:38017`(`[51, 20, "hobgoblin"]`)/ `scripts/hooks/check_changelog.py:24`(GAME_LOGIC)。
+- `assets/parchment_plaza.jpg` は在る(git 管理下・132,576 バイト・tavern / town / world が使用)。`index.html` からはまだ参照されていない(§4-3 が初めての参照になる)。
+- **§2-8 ポート**: `tools/*.js` に 10503 以上の 5 桁の数は在るが、ポートとして使われているものは 0(行番号や面積の数字)。最大ポートは **10502** ⇒ base **10503** のまま。
+- 名前の衝突なし: `eyeScout` / `ArcaneEye` / `arcane-eye` / `isEyeOn` / `eyeHidesEnemy` / `eyeReportText` / `get("eye")` / `?eye=` は、`index.html` `tavern.html` `js/*` `tools/*.js` のどれにも 0 件(`arcane-shield` と `element: "arcane"` は別物)。
+
+**罠E のアンカー((0d) の基準値)**:
+- `verify_invisibility.js:170〜206` の変異アンカーは 11 本(`from:` の数)。原本の出現回数は**全部要求どおり**だった(10 本が 1 回、`noautocast` = `tavern.html` 8000 / 9269 で 2 回)。
+  所在は index 25459 / 25439 / 25508 / 25498 / 22291 / 25492 / 25480 / 25484 / 25472、tavern 6880。
+- `driver_graph_sce1.js:78` の `      await tryInteractNodeEvent();` は `index.html` に **1 回**。
+- §5-2 で書き換える行(`tavern.html:6870` `const dev = … (id !== "scroll-invisibility" || isInvisOnTV());`)を `grep -F` した結果は、`verify_invisibility.js` で **0 件**、`tools/*` 全体でも 0 件。`SCROLL_DEV_SHELF_TV` の語を含む本も 0 本 ⇒ 書き換えてよい。
+- `verify_scroll_shelf.js` のアンカー(`.filter(id => SCROLL_CATALOG_TV[id].rarity === "common")` など 4 種)は `tavern.html` にどれも 1 回。
+- **依頼書のコード片 9 ブロックに、上のアンカー文字列はどれも含まれない**(機械照合で 0 件 = #78 K2 の型の事故は無い)。
+
+**補足(項目2 への注意・仕様不変)**:
+- 400ms の見回りのうち `tryInteractCage` / `tryAwakenGuardian` / `tryApproachCaelum` / `tryApproachAltar` は、`skillCheckActive` / `dialogPaused` を見ていない(条件は位置と戦闘中かどうかだけ)。
+  ただし詠唱中は `moveEnemies` の早期 return で `heroAI` も止まるので、条件が新しく真になることは無い。`tryDiscoverChest` / `tryApproachMimic` / `tickNodeChoice` / `tryInteractNodeEvent` はどちらかの旗を見ている。
+- `revealExitHints` の知覚判定の `finally` は `skillCheckActive = false; dialogPaused = false;` と書く(元の値へ戻さない)。眼の枝は判定の**代わり**に走るので衝突しない。
+  ただし `tryArcaneEyeAtExits` が唱えなかったとき(`null`)は、旗を 1 つも触らずに返すこと。
+
+#### 名指し golden 10 本の着手前の色(直列・各 2 回・PowerShell)
+
+`git` を読む 2 本(`verify_invisibility` / `verify_scroll_shelf`)は clone(scratchpad `item1\clone79`)で走らせた。1〜2 回目は `00275b1` で走らせ、`cd32146` へ fast-forward した後にもう 1 回(3 回目)走らせた。残る 8 本は本番の作業ツリー(`cd32146`)で走らせた。
+
+| 本 | 1 回目 | 2 回目 | 所要 | after78(`cfff418`) |
+|---|---|---|---|---|
+| `verify_invisibility.js` | exit 0・27/27 | exit 0・27/27(3 回目 `cd32146` も 27/27) | 26 秒(3 回目は 142 秒 ⚠ 機械の揺れ) | 27/27 |
+| `verify_invisibility.js --negative` | exit 0・**9/9**(空振り 0・漏れ 0) | exit 0・9/9(3 回目も 9/9) | 157 / 42 / 159 秒 | 9/9 |
+| `verify_scroll_shelf.js` | exit 0・19/19 | exit 0・19/19(3 回目も) | 3 秒 | 19/19 |
+| `verify_scroll_shelf.js --negative` | exit 0・8/8 | exit 0・8/8(3 回目も) | 24 秒 | 8/8 |
+| `driver_graph_arrows.js` | exit 0・80/80 | exit 0・80/80 | 15 秒 | 80/80 |
+| `driver_graph_sce1.js` | exit 0・106/106 | exit 0・106/106 | 207 / 184 秒 | 106/106 |
+| `driver_graph_run.js` | exit 0・99/99 | exit 0・99/99 | 62 / 71 秒 | 99/99 |
+| `driver_graph_kinds.js` | exit 0・66/66 | exit 0・66/66 | 38 秒 | 66/66 |
+| `driver_graph_reentry.js` | exit 0・57/57 | exit 0・57/57 | 2 秒 | 57/57 |
+| `driver_dev_gate2.js` | exit 0・62/62 | exit 0・62/62 | 26 秒 | 62/62 |
+| `driver_action_priority.js` | exit 0・PASSED 92 / FAILED 0 | 同じ | 64 秒 | 92/0 |
+| `verify_party_match_setup.js` | exit 0・PASSED 36 / FAILED 0 | 同じ | 43 秒 | 36/0 |
+
+⇒ **10 本 12 腕が全部緑で、決定的**(毎回同じ色・同じ件数)。after78 の色と件数とも一致した。**着手前から赤の本は 0**。
+ログは scratchpad `item1\logs\*.r1.log` / `*.r2.log`、集計は `item1\golden79.tsv`、走らせた道具は `item1\run_golden79.ps1`。
+
+#### 母集団と着手前の色の流用判定 — **#78 の走査(169 腕・本番 `cfff418`)をそのまま流用する**
+
+- **母集団** = `tools/` と `scripts/` の `.js` のうち、コメントを除いたコードに `index.html` / `tavern.html`(または `tavern` の語)を含む本 = **149 本**(#78 の 148 本 + `verify_invisibility.js`)。
+  内訳は `tavern` を読む本が 55、`index.html` だけの本が 94。`scripts/` に `.js` は無い。一覧は scratchpad `item1\pop79.json`。
+- **流用してよい理由(blob OID)**: `cfff418..cd32146` の差分は、実装依頼書 3 本・`assets/arcane_eye.png`(新規)・`tools/codex1_sprites.json` の 3 種類だけ。配信物(`index.html` / `tavern.html` / `js` / `audio.js` / `title` / `town` / `world`)の blob はすべて同じ。
+  - 実装依頼書を**読む**本は 0 本(`2026-09-30_invisibility.md` という語は `verify_invisibility.js:4` のコメントに出てくるだけ)。
+  - `tools/codex1_sprites.json` を読む母集団の本は **`driver_elf_sprites.js` の 1 本だけ**(`/tools/codex1_sprites.json` を fetch し、`key` が `elf` / `female-elf` の行だけを見る)。今回足されたのは `arcane-eye` の行なので無関係。ほかに読むのは `tools/*.py`(パッカー・検査器)で、母集団の外。
+  - `assets/` の一覧を読む本は `verify_codex_map_skill.js` の 1 本だけ(`readdirSync(assets)` で**前後の差**を取る)。この本は母集団の外で、ファイルが 1 枚増えても前後の差は変わらない。`arcane_eye.png` を参照するページも本も 0。
+  - `git` の `HEAD` を読む本(`_golden.js` の rev 記録や `driver_cleric_sprites` の `git show HEAD:index.html` など)も、読む blob は同じ。
+- **腕の突き合わせ**(機械で照合): 母集団 149 本は、after78 の素の腕 153 本(母集団外の 4 本 = `probe_town_mask` / `verify_road_events` / `verify_world_heromark` / `verify_world_steps` を含む)に**全部含まれている(漏れ 0)**。
+  `--negative` の腕は 16 本ある(`verify_invisibility` / `verify_scroll_shelf` / `verify_party_match_setup` などを含む)。
+  ⇒ 流用する着手前の色は **169 腕すべて**。#78 は 365.8 分かけて測っている。
+- **流用元**: #78 の scratchpad(`5ad0d5a7…\scratchpad\item4\run\after78.tsv` + `after\` + `fp_after\`)。本チケットの scratchpad `item1\from78\` へ**退避コピー済み**(4.9 MB。`sweep_78.py` / `cmp_78.py` / `fp74.py` / `mkshadow_78.py` / `pair_78.py` / `fisher.py` / `select_neg78.py` / `build_arms_78.py` / `armlist_78.json` も同梱)。
+- **after78 で緑でない腕は 18 本**(= 着手前から赤。項目4 では「同じ赤のままか」で判定する)。
+  - `driver_mapeditor` 176/179 / `driver_monsters_griffon` 15/17 / `driver_monsters_umberhulk` 21/22 / `driver_monsters_hobgoblin` 12/14 / `driver_field_step6` 55/59 / `driver_grid_p8` 55/56 / `driver_mapeditor_painting` 105/106
+  - `driver_sce1_events` 211/214 / `driver_speech_v2` 45/46 / `verify_roll_target` 29/30 / `verify_walk_block` 22/23 / `probe_party_size` / `sweep_recruit_balance` / `probe_n4_stall`(exit 1 が健全な probe)
+  - `driver_grid_p4` と、引数が要る probe 3 本(`probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map`)は exit 3
+  - ⚠ #78 項目4 のとおり、griffon / roll_target / n4_stall / hobgoblin / chimera / kobold / speech_engine は**どちらの色にも転ぶ**。1 回の色で退行と決めない。
+- ⚠ 本チケットも `index.html` と `tavern.html` の両方を変える ⇒ 149 本すべてが帰属の候補になる。項目4 では、影のツリー(`index.html` / `tavern.html` / `tools/verify_invisibility.js` を `cd32146` へ戻した実体コピー)と、`git` を読む本のための clone を交互に走らせて比べる(#78 の方式)。
+  `--negative` の腕は「差分を含む関数の中にアンカーを持つ本」で、項目2 の差分が出てから選び直す。
