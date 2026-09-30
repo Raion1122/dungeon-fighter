@@ -3005,6 +3005,17 @@
        ⚠ 既定の中心 origin のまま縮めると、長さ L の線が L(1-z)/2 だけ横へ滑る
        (6 タイル = 576 世界px の線なら z=0.25 で 216px のズレ)。 */
     body.zoomed .fxAimLine { transform-origin: 0 50%; }
+    /* ★[#78] 透明化中の揺らぎ。⭐ インラインの style.opacity でなくアニメーションにする ——
+       主人公の opacity は被弾・ガードの点滅と applyNormalPlayerVisual が 12 行で書き戻す (依頼書 §2-2 罠B)。
+       アニメーションの値はインライン (非 !important) より強いので書き戻しに負けない。 */
+    @keyframes dfInvisShimmer {
+      0%, 100% { opacity: 0.30; }
+      50%      { opacity: 0.55; }
+    }
+    .dfInvis { animation: dfInvisShimmer 1.4s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      .dfInvis { animation: none; opacity: 0.45 !important; }
+    }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -13572,6 +13583,7 @@
       "scroll-burning-hands":  { name: "巻物・バーニングハンズ",    spellId: "burning-hands",        classKey: "mage",   rarity: "common"   },
       "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
       "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
+      "scroll-invisibility":   { name: "巻物・インビジビリティ",    spellId: "invisibility",         classKey: "mage",   rarity: "uncommon" },
       "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
       "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
       "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。戦闘呪文ではなく hasInnateDisguise 判定に使う
@@ -13608,6 +13620,12 @@
      *   (tavern.html の isRecruitOn() と同じ作法)。 */
     function isMageSleepOn() {
       try { return new URLSearchParams(window.location.search).get("magesleep") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#78] 撤退スイッチ ?invis=0 — 透明化を唱えない + 巻物を拾わない (uncommon の抽選を 7 種へ戻す)。
+     * ⚠ 各ページが独立に読む (遷移はまたがない)。tavern.html は isInvisOnTV で開発用の陳列だけ止める。 */
+    function isInvisOn() {
+      try { return new URLSearchParams(window.location.search).get("invis") !== "0"; }
       catch (e) { return true; }
     }
     /* 呪文リストの **index 1** に sleep を挿す。⭐⭐⭐ 位置が効く:
@@ -13693,7 +13711,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity);
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility"));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -22262,6 +22280,18 @@
         slowTarget: 3,
         flavor: "5x5 範囲 2d8+INT 冷気 + 鈍足3T (DEX セーヴ半減、MP 9)",
       },
+      /* ★[#78] インビジビリティ (透明化・5e SRD の 2 レベル呪文)。戦闘の始まりに tryStealthSurprise の中で
+       *   「盗賊も外套も居ない」ときだけ自動で唱える (tryCastInvisibility)。効果 = 隠密の接近の条件を外すだけ。
+       *   ⛔ 有利は付けない (ユーザー決定 2026-09-30: 付けると S1〜S4 で盗賊より成功率が高くなる)。
+       * ⭐ outOfCombat: true —— 主人公の技の候補と apTryPreferred がこの旗で外す。mageAI / executeSkillOn は名指しなので拾わない。
+       * ⛔ AP_TRAVEL_CASTABLE には足さない (道中に唱える呪文ではない)。
+       * ⚠⚠ tavern.html の MAGE_SKILLS_UI と二重定義 (levelReq / mpCost をそろえる)。 */
+      "invisibility": {
+        name: "インビジビリティ", category: "utility", target: "party",
+        range: "self", outOfCombat: true,
+        mpCost: 5, levelReq: 3,
+        flavor: "戦闘の始まりに一行の姿を消して忍び寄る (盗賊・外套が居ない時だけ自動で唱える)",
+      },
     };
 
     // エルフスキル (Phase 2)
@@ -25401,8 +25431,42 @@
     // 第7弾「妖精郷の装い」: 隠密の接近（不意打ち）。stealth が得意なPT（盗賊 or エルフの外套）だけが
     //   戦闘開始時に隠密判定を試み、成功で非ボス敵に stunned=1 を付与 → enemyAttackTurn が初手を飛ばす。
     //   ボスは油断しない＝対象外（ボスのみ遭遇は判定自体を出さない＝無駄パネル回避）。
+    /* ★[#78] 透明化の半透明を一行 (主人公 + 生きている仲間) に付け外しする。 */
+    function setPartyInvisible(on) {
+      const els = [];
+      if (typeof player !== "undefined" && player) els.push(player);
+      for (const a of allies) if (a && a.el) els.push(a.el);
+      for (const el of els) el.classList.toggle("dfInvis", !!on);
+    }
+    /* ★[#78] 透明化を唱える。唱えた術者の名前を返す (唱えなければ null)。
+     * ⭐ 順 = 主人公 → 仲間 (buildPerceptionParty と同じ並び)。枠が残っている最初の魔法使いが唱える。
+     * ⭐ 主人公の枠の確認と消費は "player" で行い、makeLeaderActor() は演出 (dfPlayCast) にだけ使う
+     *   (依頼書 §2-2 罠A。⚠ #78 K1: actor も spellSlots を同一参照で持つので actor で消費しても減るが、役割は分けておく)。 */
+    async function tryCastInvisibility() {
+      if (!isInvisOn()) return null;
+      const ID = "invisibility";
+      let unit = null, actor = null, name = null;
+      if (hp > 0 && !gameOver && leaderClassKey === "mage" && hasSpellSlot("player", ID)) {
+        unit = "player"; actor = makeLeaderActor(); name = getLeaderName();
+      } else {
+        for (const a of allies) {
+          if (a && a.alive && a.classKey === "mage" && hasSpellSlot(a, ID)) {
+            unit = a; actor = a; name = a.npcName || (a.def && a.def.name) || "魔法使い"; break;
+          }
+        }
+      }
+      if (!unit) return null;
+      if (!consumeSpellSlot(unit, ID)) return null;
+      const sk = MAGE_SKILLS[ID];
+      await dfPlayCast(actor, { name: sk.name, element: "arcane" }, { duration: 1200 });
+      setPartyInvisible(true);
+      showBanner("🫥 " + sk.name + "!", 1300);
+      updateInfo(`${name} が ${sk.name} を唱えた — 一行の姿が揺らぎ、闇に溶けていく`);
+      return name;
+    }
     async function tryStealthSurprise() {
       if (!(window.SkillCheck && SkillCheck.resolveSkillCheck)) return false;
+      let invisCaster = null;   // ★[#78] 透明化を唱えた術者の名前 (唱えなければ null)
       const targets = encounterEnemyIndices.filter(i =>
         enemies[i] && enemies[i].alive && !(enemies[i].def && enemies[i].def.isBoss));
       if (targets.length === 0) return false;               // 非ボスの生存敵ゼロ（ボスのみ等）→ 忍ぶ意味なし
@@ -25413,27 +25477,36 @@
       const canSneak = party.some(m =>
         ((profs[m.classKey] || []).indexOf("stealth") >= 0) ||
         (m.skillBonus && m.skillBonus.stealth > 0));
-      if (!canSneak) return false;                          // 隠密無縁のPT（重装戦士等）は判定を出さない＝低摩擦
-      const dc = (currentScenario && currentScenario.perceptionDC) || 14;
-      let res = null;
-      try {
-        res = await SkillCheck.resolveSkillCheck("stealth", dc, party, {
-          title: "隠密判定",
-          flavor: "足音を殺し、敵の死角へ忍び寄る…",
-          voiceIds: PERCEPTION_VOICE,
-        });
-      } catch (e) { res = null; }
-      const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
-      if (res && res.success) {
-        const n = applySurpriseStun(targets);   // ★共有: EV-9 の奇襲成功もこの同じ付与を通る
-        showBanner("🥷 不意打ち成功!", 1500);
-        updateInfo(`${rep} が気配を殺して接近! 敵 ${n}体 の隙を突いた (隠密 ${res.total} ≧ DC ${res.dc}) — 初撃はこちらのもの`);
-        showDMMessage("息を殺し、影から忍び寄る。敵はまだ、こちらに気づいていない——最初の一手は、完全に我らのものだ。", 2600);
-        return true;
-      } else if (res) {
-        updateInfo(`${rep} は忍び寄ろうとしたが、足音を悟られた… (隠密 ${res.total} < DC ${res.dc})`);
+      if (!canSneak) {
+        // ★[#78] 忍べない編成だけ透明化を唱える (盗賊・外套が居れば唱えない = ユーザー決定)。
+        //   ⛔ 有利は付けない —— 下の resolveSkillCheck の引数は透明化の有無で数値に響くキーを変えない。
+        invisCaster = await tryCastInvisibility();
+        if (!invisCaster) return false;                     // 従来どおり: 隠密無縁のPT（重装戦士等）は判定を出さない＝低摩擦
       }
-      return false;
+      try {
+        const dc = (currentScenario && currentScenario.perceptionDC) || 14;
+        let res = null;
+        try {
+          res = await SkillCheck.resolveSkillCheck("stealth", dc, party, {
+            title: "隠密判定",
+            flavor: invisCaster ? "姿を消したまま、敵の死角へ忍び寄る…" : "足音を殺し、敵の死角へ忍び寄る…",
+            voiceIds: PERCEPTION_VOICE,
+          });
+        } catch (e) { res = null; }
+        const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
+        if (res && res.success) {
+          const n = applySurpriseStun(targets);   // ★共有: EV-9 の奇襲成功もこの同じ付与を通る
+          showBanner("🥷 不意打ち成功!", 1500);
+          updateInfo(`${rep} が気配を殺して接近! 敵 ${n}体 の隙を突いた (隠密 ${res.total} ≧ DC ${res.dc}) — 初撃はこちらのもの`);
+          showDMMessage("息を殺し、影から忍び寄る。敵はまだ、こちらに気づいていない——最初の一手は、完全に我らのものだ。", 2600);
+          return true;
+        } else if (res) {
+          updateInfo(`${rep} は忍び寄ろうとしたが、足音を悟られた… (隠密 ${res.total} < DC ${res.dc})`);
+        }
+        return false;
+      } finally {
+        if (invisCaster) setPartyInvisible(false);          // ⚠ 失敗・例外・null でも必ず外す (依頼書 §2-2 罠C)
+      }
     }
 
     // 罠解除判定: 知覚で発見済み(found)の罠に隣接(chebyshev 1タイル)したら、盗賊が得意な

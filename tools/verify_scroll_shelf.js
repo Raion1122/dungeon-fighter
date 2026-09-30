@@ -22,13 +22,13 @@
  *   - 撤退の腕 = tavern.html?scrollshop=0 を直接開く (ページ単位の判定 isScrollShopOnTV)。
  *
  * ■ 測っているもの (依頼書 §8 の番号)
- *   §0 (0a) [装置] ソースから引いた巻物が全 17 件・common 4 件 (0 件なら exit 3) + ページの表 (SCROLL_CATALOG_TV) と
+ *   §0 (0a) [装置] ソースから引いた巻物が common 4 件 + それ以外 13 件以上 (#78 §6 で全件数の固定をやめた・0 件なら exit 3) + ページの表 (SCROLL_CATALOG_TV) と
  *           id / name / spellId / classKey / rarity が全件一致
  *      (0b) [装置] __equipTV.scrollShelf / shopBuyScroll / scrollStock / learnScroll が関数・#shopList に .shopGroupHead が 1 つ以上
  *           ⭐ これが無いと全 assert が空振りで永久緑
  *      (0c) [装置] 全ページが起動し (__equipTV が立つ) pageerror 0 件 (⭐ 構文破壊で全部赤くなる偽の検出を見分ける)
  *   §1 (1a) 新しいセーブで「巻物」の見出しが 1 つ・その下の行の名前 = ソースの common 4 件 (順も)・ブリッジの id 列も同じ
- *      (1b) uncommon / rare の巻物 (13 件) の名前が #shopList に 1 件も無い・ブリッジも common だけ
+ *      (1b) uncommon / rare の巻物 (13 件以上) の名前が #shopList に 1 件も無い・ブリッジも common だけ
  *      (1c) 主人公を戦士・僧侶・魔法使い・エルフに変えても 4 件は同じ (shopHeroKey() が実際に変わったことも確かめる)
  *      (1d) 売却タブに「巻物」の見出しも巻物の名前も無い (shopTab === "sell" を確かめる)
  *      (1e) 武器防具を全部所持させても購入タブに「買える品はもうありません。」が出ない・見出しは「巻物」だけ (罠C)
@@ -366,8 +366,10 @@ async function runSuite(browser, port, mutKey, label) {
       const c = SCROLL_CATALOG_TV[id]; return { id, name: c.name, spellId: c.spellId, classKey: c.classKey, rarity: c.rarity };
     }));
     {
-      const ok = DRV_CAT.length === 17 && DRV_COMMON.length === 4 && J(pageCat) === J(DRV_CAT);
-      R.check('(0a)', '[装置] ソースから引いた巻物 = 全 17 件・common 4 件・ページの表と全件一致', ok,
+      /* ★[#78 §6] 全件数は固定しない (B/C で拾う巻物が増える)。⛔ common は 4 件で固定のまま —— common が増えたのか
+       *   uncommon / rare が増えたのかを見分けるため (「18 件」へ書き換えるだけにしない = #77 §12-4)。 */
+      const ok = DRV_CAT.length === DRV_COMMON.length + DRV_OTHER.length && DRV_OTHER.length >= 13 && DRV_COMMON.length === 4 && J(pageCat) === J(DRV_CAT);
+      R.check('(0a)', '[装置] ソースから引いた巻物 = 全 ' + DRV_CAT.length + ' 件 (common 4 件 + それ以外 ' + DRV_OTHER.length + ' 件 ≥ 13)・ページの表と全件一致', ok,
         '全 ' + DRV_CAT.length + ' / common ' + DRV_COMMON.length + ' [' + commonIds.join(',') + '] / ページ ' + pageCat.length + ' 件'
         + (J(pageCat) === J(DRV_CAT) ? ' (一致)' : ' ⛔ 不一致'));
     }
@@ -386,8 +388,8 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const leaked = DRV_OTHER.filter((c) => (d.text || '').indexOf(c.name) >= 0).map((c) => c.name);
       const bLeak = shelf0.filter((x) => commonIds.indexOf(x.id) < 0).map((x) => x.id);
-      const ok = DRV_OTHER.length === 13 && !!d.text && leaked.length === 0 && bLeak.length === 0;
-      R.check('(1b)', 'uncommon / rare の巻物 (13 件) の名前が #shopList に無い・ブリッジも common だけ', ok,
+      const ok = DRV_OTHER.length >= 13 && !!d.text && leaked.length === 0 && bLeak.length === 0;   // ★[#78 §6] 13 → ≥ 13
+      R.check('(1b)', 'uncommon / rare の巻物 (' + DRV_OTHER.length + ' 件) の名前が #shopList に無い・ブリッジも common だけ', ok,
         '対象 ' + DRV_OTHER.length + ' 件 / DOM に出た ' + J(leaked) + ' / ブリッジに出た ' + J(bLeak));
     }
     const sleepBuy = await page.evaluate((id) => {
