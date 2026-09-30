@@ -333,3 +333,98 @@ out[cls] = Array.from(new Set([...DEFAULT_KNOWN_TV[cls], ...stored]));
 ## 12. 実装結果
 
 (実装窓が埋める)
+
+### 12-0. 着手前の実測(HEAD f50412d・2026-09-30・項目1)
+
+⛔ 本番ファイル(`tavern.html` / `index.html` / `js/*` / `town.html` / `audio.js`)は 1 バイトも変えていない。作業ツリー clean で開始。
+`tavern.html` = 674,925 バイト・**CRLF 10,994 行 / LF 単独 0**(`py` でバイト計数・`git check-attr eol` = crlf)。
+
+#### 崩れた主張(期待値は緩めず、予測を訂正する)
+
+| ID | 依頼書の箇所 | 依頼書の主張 | 実測(HEAD f50412d) | 影響 |
+|---|---|---|---|---|
+| K1 | §2-4 表 3 行目 | `tools/sim_plaza_entry.js` = 「闇市のシム。`scrollStock` を読む」 | **読まない**。純 node のモンテカルロ(`tavern.html` も `index.html` も開かない・`scrollStock` の語 0 件。コメントに `index.html` の行番号を持つだけ) | 表から外す。非退行の母集団にも入らない |
+| K2 | §2-4 表(漏れ) | 店と巻物に触れる本は 3 本 | 他に 2 本: **`verify_tavern_map.js`**(`DOM_ROOTS` に `shopScreen`。(6c) が `#shopScreen` の**静的タグ構造**を `DOM_BASE = 638b479` + `DOM_ADDED.shopScreen = []` と突き合わせる)/ **`driver_equip_compact_ios.js`**(`__equipTV.getSel` の利用者) | ⚠ 項目2: 棚の行は `renderShop` が JS で描く ⇒ 静的署名に入らず (6c) は動かない。**`#shopScreen` の中へ静的 HTML を 1 タグでも足すと (6c) が赤**(足すなら `DOM_ADDED` へ宣言)。§5 どおり CSS も静的タグも足さなければ無風 |
+| K3 | §2-5 | 「STEP4: 武器防具屋」の群 = `:5237〜5243` | **`:5237〜5244`**(群の最後のキー `shopScreenVisible` が 5244)。`__equipTV` 全体 = `window.__equipTV = {` 5206 〜 `};` 5255(`try` 5205 / `catch` 5256)。次の群は 5245 のコメント `// 第3弾: 装備由来の…` | §6 の挿入点 = **5244 の直後・5245 の前** |
+| K4 | §2-3 表「ボスの財宝」 | `index.html:17495〜` | `200 + Math.floor(Math.random() * 101)` は **`:17499`**(`const hoardGold`)。17495 はミミックのコメント行 | 数値(200〜300)は正しい。行番号だけ訂正 |
+
+#### 主張どおりだったもの(行番号つき・HEAD f50412d)
+
+| 主張 | 実測 |
+|---|---|
+| §2-1 #1 `DEFAULT_KNOWN_TV.mage = withInnateSleepListTV(...)` | `tavern.html:5379` ✓(`isMageSleepOnTV` 5369) |
+| §2-1 #2 `shopPool` = `CHAR_EQUIP[shopHeroKey()]` | `function shopPool` `:6795`(`CHAR_EQUIP[shopHeroKey()]` は 6796)✓。`shopHeroKey()` 6794 = `selection.partyComposition[0] \|\| "warrior"` |
+| §2-1 #3 NPC 仲間の呪文枠も同じゲート | `index.html:13658` `isSpellKnown` / `:14006`(`initAllySpellSlots` 13993 の中)/ `:20090`(`initLeaderSpellSlots` 20080 の中)✓ |
+| §2-1 #4 書庫段 / 旧パネル | `tavern.html:9108〜9119`(`pmDrawerScrollList` 9115・`renderScrollLibrary({...})` 9119)✓ / `#scrollLibrarySection` `:3278`(`display:none`)✓ |
+| §2-1 #5 行の形・値段・購入 | `dfShopBuyPrice` `:5021` / `dfShopBuy` `:6810` ✓ |
+| §2-1 #6 表から導けば B/C は並ばない | `SCROLL_CATALOG_TV` `:5340`〜`};` 5358。**全 17 件・common 4 件**(5341 `scroll-sleep` / 5342 `scroll-burning-hands` / 5348 `tome-bless` / 5353 `grimoire-hail-of-thorns`)✓ 並び = 魔法使い 2 → 僧侶 1 → エルフ 1 ✓ |
+| 罠A `scrollStockTV` / `learnScroll` | `let scrollStockTV` `:5428`(IIFE は 5431 で閉じる)/ `saveScrollStockTV` `:5432` / `learnScroll` `:5444` ✓ |
+| 罠B `out[cls] = Array.from(...)` / `isSpellKnownTV` | `:5415` / `:5423` ✓(`let knownSpellsTV = loadKnownSpellsTV()` `:5419` = ページを開いた 1 回だけ読む。`learnScroll` が同じ配列へ push する) |
+| 罠B 書庫の `[習得済み]` | 判定の呼び出し `const alreadyKnown = isSpellKnownTV(...)` = **`:7654`** ✓ / 表示の文言 `[習得済み]` は **`:7662`**(補足。7678 はコメント) |
+| 罠C `renderShop` の `any` | `let any = false` `:6845` / `for (const kind of ["weapon", "armor", "shield"])` `:6846` / その閉じ `}` `:6896` / `if (!any)` **`:6897`**〜6902 ✓ |
+| §2-3 `DF_PRICE_BY_RARITY` | `:5003` = `{ common: 40, uncommon: 120, rare: 320, special: 640, epic: 900, legendary: 1500 }` ✓ |
+| §2-3 dev の 1G | `DF_DEV_MAGIC_SHOP` `:5020`(`!!window.__dfDevMode`)/ `:5021〜5022` は `item.gated` のときだけ 1G ✓。巻物の表に `gated` は無い ✓ |
+| §2-3 宝箱・街道 | `index.html:23787` 10〜20 / `:23789` 30〜50 ✓ / `js/road-events.js:487` `clearGold: 80` ✓ |
+| §2-3 計測コマンド 4 本 | 1 本目 = 4 行(5341/5342/5348/5353)/ 2 本目 = `:5003` / 3 本目 = 5021・5423・5428・5444・6810・6835 / 4 本目の末尾 3 つ = 10470・10471・**10483** ✓ |
+| §2-4 `shopListText\|shopBuy\|openShop` を使う本 | `tools/*.js` で **0 件** ✓ |
+| §2-5 `__equipTV` の利用者 | `driver_action_priority.js`(`setTab`)/ `driver_equip_compact_ios.js`(`getSel`)の 2 本 |
+| §2-6 `index.html` 側 | `SCROLL_CATALOG` `:13569` / `let scrollStock` `:13665`(開いた時に localStorage から)/ `addScroll` `:13672` が `+1` → `saveScrollStock()` ✓ |
+| §2-7 changelog | `scripts/hooks/check_changelog.py:24` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` ✓ |
+| §4 挿入点 | `dfShopSell` `:6821〜6831` ✓ → 空行 6832 → `let shopTab` `:6833` ✓(`renderShop` 6835) |
+| §5 で使う関数 | すべて**トップレベルの function 宣言**(`<script>` 3441〜10992 は classic script・全体を包む IIFE は無い)⇒ **window に載る**(実測 `typeof window.X === "function"`): `getItemColorClass` `:4439` / `getSkillTV` `:5436` / `showScrollToastTV` `:7687` / `dfGold` `:6789` / `dfSetGold` `:6790`(`localStorage` の `dragonfighters.gold` へも書く)/ `saveScrollStockTV` `:5432` / `isSpellKnownTV` / `learnScroll` / `renderShop` / `renderScrollLibrary` / `openShop` |
+| (補足)let/const は window に載らない | `scrollStockTV` / `SCROLL_CATALOG_TV` / `knownSpellsTV` / `DF_DEV_MAGIC_SHOP` / `selection` は `typeof window.X === "undefined"`。⭐ ただし `page.evaluate` の中から**素の名前**で読める(実測 `eval('scrollStockTV')` = `"{}"`) |
+| §8 (2c) `?magesleep=0` | 実在・`tavern.html` のページ単位。素 = `knownSpellsTV.mage` が `["magic-missile","sleep","fire-bolt","arcane-shield"]`・`isSpellKnownTV("mage","sleep") === true` / `?magesleep=0` = スリープ抜き・**`false`**。他 3 件(burning-hands / bless / hail-of-thorns)は両方で `false` ✓ |
+| §5 呪文名 | `getSkillTV` の `name`: スリープ / バーニングハンズ / ブレス / **ヘイル・オブ・ソーン**(中黒あり。巻物名「森の書・ヘイルオブソーン」と表記が違う = 表示はそのまま使う) |
+| ポート | 10484〜10492 は `tools/` `scripts/` で **0 件** ✓ / **10484 で `tavern.html` を実際に goto して `ERR_UNSAFE_PORT` 無し・pageerror 0** ✓ |
+| 撤退スイッチ名 | `scrollshop` / `SCROLL_SHELF` / `scrollShelf` / `dfShopBuyScroll` は `tavern.html` に 0 件(衝突なし) |
+
+⭐ 仕様(ユーザー決定)に響く崩れは **無し**。K1〜K4 はどれも表・行番号の訂正で、§4〜§8 の設計はそのまま通る。
+
+#### 実測で分かった、項目2・3 が最初に踏みそうなこと
+
+- **新しいセーブ(ヘッドレスの素プロファイル)の所持金は 0G**。(3a) は `__equipTV.setGold(200)` を先に。
+- 素の店 = 主人公 `warrior`(`partyComposition` の保存値なし)・購入タブに見出し **武器 / 防具 / 盾 の 3 つ・行 8**・空の文言なし。
+- 主人公を変えるブリッジは無い(`setTab` は装備タブ)。(1c) は `localStorage` の `dragonfighters.partyComposition = ["mage"]` を仕込んで読み込み直す(`:5695` が先頭だけ採用)か、
+  `page.evaluate` で `selection.partyComposition[0] = "mage"; renderShop();`(`selection` は `const` だが中身は書ける)。
+- (1e) で `買える品はもうありません。` を出すには、主人公の職の **gated でない**全ティアを所持させる(gated は `DF_DEV_MAGIC_SHOP` が偽なら購入タブに出ない)。`__equipTV.addOwned(kind, tier, item)` がある。
+- `.shopEquipped` の CSS は既存(`:1542`)。現状は売却タブの「装備中」だけが使っている。
+- 既存の書庫の 〔〕 は `SCROLL_KIND_LABEL_TV`(`:5407` 巻物/聖典/森の書)。§4 の `SCROLL_CLASS_LABEL_TV`(魔法使い/僧侶/エルフ)は**別の表**を新設する設計 = 書庫と棚で 〔〕 の中身が違う(設計どおり。気になるなら §9 の実機で)。
+
+#### 名指し golden 3 本の着手前の色(HEAD f50412d・2 回ずつ・逐次)
+
+| 本 | 起動 | 1 回目 | 2 回目 | after76(d440334) |
+|---|---|---|---|---|
+| `tools/verify_town_map.js` | `node tools/verify_town_map.js`(既定 port 8897) | **85 / 85**・EXIT=0・52 秒 | **85 / 85**・EXIT=0・51 秒 | 85 / 85・exit 0 |
+| `tools/verify_save_slots.js` | `node tools/verify_save_slots.js`(既定 port 8891) | **30/30 passed**・EXIT=0・5 秒 | **30/30 passed**・EXIT=0・5 秒 | 30/30・exit 0 |
+| `tools/driver_action_priority.js` | `node tools/driver_action_priority.js`(既定 port 8843) | **PASSED 92 / FAILED 0 / PENDING 0**・EXIT=0・65 秒 | **92 / 0 / 0**・EXIT=0・65 秒 | 92/0/0・exit 0 |
+
+- 3 本とも試遊サーバ 8765 と衝突しない(8765 は止めていない)。
+- ⚠ `verify_town_map.js` は変異アンカー `(0-hidebehind)` を `tavern.html` の CSS に 1 か所持つ(`position: absolute; left: 18px; top: 18px; z-index: 13;`)。§5 は CSS を足さないので無風。
+
+#### after76.tsv(#76 の凍結 160 腕)を着手前の色として流用できるか ⇒ **流用可**
+
+- `git diff --stat d440334 f50412d` = **`実装依頼書/` の 2 ファイルだけ**(`2026-09-30_scroll-shelf.md` 新規 + `README.md` 1 行)。
+- blob / tree OID が両コミットで**同一**: `tavern.html` e39546c4… / `index.html` f1c6251e… / `audio.js` 311aee29… / `town.html` 3db92db7… / `world.html` 65305dff… / `js/` tree 00e2267a… / `tools/` tree c3825e5f… / `assets/` tree 8bcc2bae…
+- ⇒ 配信物も測定器も d440334 とバイト同一。after76.tsv(本番 d440334 で採取)は **HEAD f50412d の着手前の色そのもの**。本項目では全数走査はしていない(名指し 3 本の再走が after76 と件数一致 = 追試 3 本)。
+
+#### #77 の母集団と after76 の覆い具合
+
+- 引き方: `tools/*.js` 155 本のうち、コメントを除いたコードに `tavern.html` を含む本 = **52 本** + `tavern` の語だけ持つ本 **1 本**(`driver_bgm_title.js`)= **53 本**。
+  (`town.html` / `world.html` / `title.html` を開くが `tavern` の語を持たない 5 本 = `driver_heromark_signplate` / `probe_paint_overlay` / `probe_town_mask` / `verify_road_events` / `verify_world_heromark` は酒場へ入らないので圏外。項目4 で気になれば 1 本ずつ実走で裏付ける)
+- after76 の 160 腕(素 150 + `--negative` 10)のうち母集団の腕 = **56 腕**(素 52 + `--negative` 4 = `verify_aoe_coverage` / `verify_bolt_aim` / `verify_hold_person` / `verify_run_chronicle`)。合計 130.4 分(全 160 腕は 324.7 分)。
+- **漏れ(素の腕が無い)= 1 本: `probe_s5s6_clear.js`**(#76 項目4 で `lore` スイッチを足した勝率の記録の道具。after76 に入っていない)⇒ 着手前の色が無い。項目4 で要るなら影のツリーと交互に対比較する。
+- **`--negative` を持つが after76 に `--negative` 腕が無い母集団の本 = 15 本**: `probe_party_size` / `verify_eol_doorfix` / `verify_hold_pair` / `verify_member_identity` / `verify_mercenary_roster` / `verify_party_match_setup` / `verify_party_promises` / `verify_pen_narration` / `verify_pen_sample` / `verify_player_sheet` / `verify_pm_drawer_fit` / `verify_prep_retire` / `verify_quest_visibility` / `verify_spell_off` / `verify_town_exit`。
+  ⭐ #75 の教訓どおり `--negative` の母集団は「**差分を含む関数の中のアンカー**」で選ぶ ⇒ 項目2 の差分が出てから選ぶ。
+  着手前の先読み: 挿入点の近くの語(`STEP4: 武器防具屋` / `shopScreenVisible` / `買える品はもうありません` / `let shopTab` / `function renderShop` / `function dfShopSell` / `normalizeAcc` / `SHOP_KIND_LABEL` / `shopGroupHead` / `if (!any)`)を持つ本は `tools/*.js` に **0 本**、`changelogList` を読む本も **0 本** ⇒ 変異アンカーが #77 の差分と重なる本は今のところ見当たらない(項目4 で差分に対して選び直すこと)。
+- after76 で母集団の素の腕が緑でないもの(= 既知の赤。#77 の帰属ではない): `driver_mapeditor` exit 1(176/179)/ `driver_monsters_umberhulk` exit 1(21/22・#76 で要観察のフレーク)/ `probe_party_size` exit 1(自力で終わらず 600 秒で打ち切る本)/ `sweep_recruit_balance` exit 1(装置 assert 4/4 崩れ)。`--negative` の 4 腕は exit 0(F>0 は変異の赤)。
+- ⚠ `tavern.html` を `fs.readFileSync` で**起動時に凍結して配る**本(`driver_party_view_reopen` / `verify_party_match_setup` / `verify_pm_drawer_fit` / `verify_prep_retire` / `verify_aoe_coverage` / `verify_hold_pair` / `verify_hold_person` / `verify_party_promises` / `verify_run_chronicle` / `verify_spell_off` ほか)がある ⇒ **走査中に `tavern.html` を編集しない**。
+
+#### 走行器(#76 の item5)の流用 — 項目4 へ
+
+置き場 = `%TEMP%\claude\c--Users-PC-User-Desktop------------\f5deb037-8f94-4cba-becc-588ea310d3ff\scratchpad\item5\`。`sweep_76.py` は #75 の `sweep_75.py` と**パスと表示以外同一**(差分 = `ARMS` / `TSV` の名前・`[76]` の表示・`--rerun`)。
+
+- `build_arms_76.py` → `build_arms_77.py`: 入力を `after75.tsv` から **`after76.tsv`**(`OLD` を f5deb037…\item5 へ)に、`new` を `verify_scroll_shelf.js`(素 / `--negative`)に、`select_neg76.json` を #77 版に差し替える。出力 `armlist_77.json`。
+- `sweep_76.py` → `sweep_77.py`: `ARMS='armlist_77.json'` / `TSV='after77.tsv'` と表示の `[77]` だけ。`fp74.py` はそのまま import(同じフォルダへコピー)。`KILL_AFTER`(`probe_party_size` 600 秒)と `SAFETY` 5400 秒はそのまま。⛔ 並列にしない・`timeout` で包まない。
+- `mkshadow_76.py` → `mkshadow_77.py`: `BASE = 'f50412d'`(= d440334 と配信物同一)・置き場を `shadow77/` へ。`git diff --name-only BASE HEAD -- index.html tavern.html …` で拾われるのは `tavern.html` だけのはず。`git check-attr eol` での変換(`tavern.html` は crlf)はそのまま使う。
+- `pair_76.py` → `pair_77.py`: `SHAD` を `shadow77` へ。コメントの HEAD 表記だけ直す。
+- `select_neg76.py` / `sel2_76.py`: `BASE` / `AFTER` と対象ファイルを差し替えれば「差分を含む関数の中のアンカー」の選別が回る。⚠ `sel2_76.py` は `files['index.html']` 決め打ちの `touched_fns_old/new` を持つ ⇒ `tavern.html` へ直す。
