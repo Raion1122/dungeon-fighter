@@ -518,4 +518,78 @@ function getSpellSlotsRef(unit) {
 
 ## 12. 実装結果
 
+### 12-0. 着手前の実測(HEAD 92a666e)
+
+- **本番の同一性**: `git rev-parse bb79124:index.html 92a666e:index.html` = `f1c6251e…` 同士、`tavern.html` = `67299243…` 同士。
+  `git diff --name-only bb79124 92a666e` = 実装依頼書の 2 ファイルだけ ⇒ **起草時(bb79124)の測りはコードについてそのまま有効**。
+  `d440334..92a666e` の差 = `tavern.html` / `tools/verify_scroll_shelf.js`(新規)/ 実装依頼書 3 ファイル(`index.html`・`js/*`・`audio.js`・他の `tools/*` は同一)。
+- 行末: `index.html` 40050 行・`tavern.html` 11077 行とも**全行 CRLF・LF 単独 0**(`py` でバイト計数)。`git check-attr eol` = crlf。⇒ 編集は `py` でバイト単位。
+
+#### 崩れた主張(K1〜K6)
+
+| K | 主張(依頼書) | 実測(92a666e) | 仕様に響くか |
+|---|---|---|---|
+| **K1** ⚠⚠ | §2-2 罠A「`makeLeaderActor()` の戻り値を `consumeSpellSlot(actor, …)` に渡すと `actor.spellSlots` は無いので `null` ⇒ 枠が減らない」 | **崩れ**。`makeLeaderActor()`(`:19819`)の actor は `spellSlots: currentSpellSlots`(`:19838`)を**同一参照**で持つ(直上のコメントは「コピー渡し」と書くが `{...}` でない)。`getSpellSlotsRef(actor)` は `actor.spellSlots` = `currentSpellSlots` そのものを返すので、`consumeSpellSlot(actor, id)` でも**主人公の枠は減る**。⇒ 「唱え放題」の欠陥は起きない。⇒ **変異 `leaderref` は (1f) を赤くしない(空振り)**。`"player"` で消費する §4-4 の設計は無害なのでそのままでよい | **響かない**(ユーザー決定に無関係)。**受入の設計に響く** ⇒ 項目3 で `leaderref` を別の欠陥へ差し替える(例: 主人公の枠を消費せずに唱える → (1f) が赤) |
+| **K2** ⚠ | §5-2 のコード片(`scrollShelfIdsDev` の中のコメント)/ §2-2 罠E「アンカーは `allrarity` / `idlist` の 2 本」 | §5-2 のコメント `// ⛔ ここで .filter(id => SCROLL_CATALOG_TV[id].rarity === "common") を書かない` は、**それ自体が #77 の変異アンカー文字列を逐語で含む**。`verify_scroll_shelf.js:209` の `countOf` は原本全文(コメント込み)を数え、`:217〜218` で 1 件でなければ exit 3 ⇒ **写経すると exit 3**。さらに同じアンカーを使う変異は `allrarity`(`:163`)だけでなく **`herofilter`(`:175`)** もある | **響かない**。実装の注意 ⇒ 項目2 はコメントの文字列を崩して書く(例: 「rarity が common の filter 行を複製しない」) |
+| **K3** | §2-4 計測コマンド `grep -n 'rarity: "uncommon"' index.html tavern.html \| wc -l` → 14 | **28**。装備の表(`index.html:13309` ほか・`tavern.html:4284` ほか)の `rarity: "uncommon"` 14 行も拾う。巻物の表に限れば `index.html:13573/13574/13580/13581/13586/13587/13589` + `tavern.html:5348/5349/5354/5355/5359/5360/5362` = **7 × 2 = 14** で、主張の中身(uncommon 7 種)は正しい | 響かない(計測コマンドの絞り不足) |
+| **K4** | 行番号(下表) | 小ずれ 8 件。**意図した場所は一意に決まる**(下表の実測で読み替える) | 響かない |
+| **K5** | §2-2 罠B「`player.style.opacity` は **10 か所**」 | 列挙も実測も **12 行**(`:15917 :15923 :15928 :15969 :15972 :16003 :16006 :17776 :19789 :33196 :33280 :34913`)。結論(CSS アニメーション)は不変。`#player`(`:125〜`)・`.ally`(`:241〜246`)に `animation` 無し・`player.className =` 0 件・仲間の `className` は生成時 `:14077` の 1 回だけ = 衝突なし | 響かない |
+| **K6** | §8「名指し golden」7 本(暗に緑を前提) | `driver_sce1_events.js` は**着手前から赤**(exit 1・211/214)。FAIL = (2)(4d)(N2-隣) の 3 本で、`sceneFlags` に `s3_novice_swayed`(#53)が増えた既知の赤。after76.tsv(d440334)と**同じ FAIL 集合**。本チケットが触る V4b = (9)「第7弾も同じ付与点を通る」は **PASS** | 響かない。非退行は「FAIL 集合が 3 本のまま」で判定する |
+
+**K4 の行番号(実測)**:
+
+| 依頼書の参照 | 実測 |
+|---|---|
+| `MAGE_SKILLS`(`:22205〜22265`)/ 挿入位置「`:22265` の `},` の直後」 | `const MAGE_SKILLS = {` = **22201**、`"ice-storm"` = 22257〜**22264**(`},`)、**22265 = `};`**(表の閉じ)。⇒ 挿入は **22264 の後・22265 の前** |
+| 既存 `levelReq`(`:22236〜22265`) | fireball 22230 / lightning-bolt 22237 / cone-of-cold 22244 / burning-hands 22252(=1)/ ice-storm 22260 |
+| `getSpellSlotsRef`(`:13971`) | **13972**(13971 は直前のコメント)。`hasSpellSlot` 13978 / `consumeSpellSlot` 13982 / `initAllySpellSlots` 13993 |
+| `isMageSleepOn`(`:13612`) | **13609**(13612 は関数の閉じ `}`)。⇒ `isInvisOn` は 13612 の後に置けば同じ作法 |
+| `canSneak`(`:25414〜25417`)/ 本体(`:25414〜25442`) | `const canSneak` = **25413〜25415**、`if (!canSneak) return false;` = **25416**、`const dc` 25417、`resolveSkillCheck` 25420、`return false;` 25436、関数の閉じ `}` = **25437**(25439〜 は罠解除のコメント) |
+| `verify_scroll_shelf.js:107`(表の正規表現) | **108** |
+| `CLASS_DEFS.mage.defaultSkills` の並び(`:22107〜22115`) | コメント 22107〜22115 + 代入 `CLASS_DEFS.mage.defaultSkills = withInnateSleepList(…)` = **22116** |
+| `apTryPreferred`(`:32474`) | 関数頭 32461・`outOfCombat` の除外が 32474(参照は除外行として正しい) |
+
+**そのまま正しかった行**(抜粋): `tryStealthSurprise` 25404 / `makeLeaderActor` 19819 / `#player` 3175 / `createAllyDom` 14073(`ally.el = el` 14091)/ `applyNormalPlayerVisual` 15912 / `index.html:20651`(有利のコメント・`advantage|有利` の grep はこの 1 行だけ)/ `</style>` 3008 / `SCROLL_CATALOG` 13569〜13590(`scroll-lightning-bolt` 13574)/ `pickScrollId` 13688(`let pool` 13696)/ 拾う口 13707・13708・24126 / `perceptionDC` 10863/10880/10908/10930/10955/10975 / `executeSkillOn` の魔法使いの枝 19996〜20008 / 候補の除外 32836・32848 / `mageAI` 30538 / `index.html:35415`(`hasPreset ? heroMap : defaultCasterMap`)/ `tryStealthSurprise()` の呼び口は 21673 の 1 か所(`runLoreCheck` の直後)。
+`tavern.html`: `MAGE_SKILLS_UI` 4490〜4502(`ice-storm` 4501)/ `?drawerlv=0` 4538〜4542 / `DF_DEV_MAGIC_SHOP` 5020 / `?dev=1` 2866〜2876 / `SCROLL_CATALOG_TV` 5345〜5363(`scroll-lightning-bolt` 5349)/ `SCROLL_SHELF_PRICE` 6847 / `isScrollShopOnTV` 6849 / `scrollShelfIds` 6853〜6856 / `dfShopBuyScroll` 6864(価格 3 か所 = 6868・6869・6872)/ `renderShop` 6877(`canBuy` 6958・`購入 ${…}G` 6959)/ `renderSpellSlotItem` 7627(`[Lv… 必要]` 7652)/ `equippedIds.slice()` 7969・9238 / `const equippedIds = apEquippedIdsFor(slot, classKey);` 7958・9218 / 魔法使いの `skillPool: MAGE_SKILLS_UI` 4617。
+`js/skill-check.js`: `d20()` 1 回振り 416・483 / `PROFICIENCY_BONUS = 2` 53 / `HELP_BONUS = 2` 56 / 盗賊だけ `stealth` 習熟 / `computeOutcome` 172 / `selectHelper` 150。`js/abilities.js:41〜48` の DEX 値も主張どおり。
+§2-3 の計算は計測コマンドで**同じ表を再現**(12: .75/.55/.65/.798/.878 … 20: .35/.15/.25/.278/.438)。
+§2-5 の 7 本の行番号(`driver_sce1_events.js:1334〜1352` / `verify_lore_check.js:511〜517` / `verify_enemy_traits.js:376` / `driver_action_priority.js:172` / `verify_party_match_setup.js:1021` / `driver_dev_gate2.js:450`)は全部そのまま。`grep -lF "if (!canSneak) return false;" tools/*.js` = 0 本。
+§2-6: `tools/` `scripts/` の 5 桁ポート最大 = **10492** ⇒ base **10493** のまま。
+§2-7: `scripts/hooks/check_changelog.py:24` = `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")`。
+名前の衝突なし: `invisib` / `dfInvis` / `isInvisOn` / `SCROLL_DEV_SHELF_TV` / `scrollShelfPrice` / `isAutoCastSkillTV` / `?invis` は `index.html` `tavern.html` `js/*` `tools/*.js` とも 0 件。
+
+⇒ **仕様(ユーザー決定)に響く崩れは 0 件**。K1 は受入の変異 1 本の差し替え(項目3)、K2 は実装時のコメントの書き方(項目2)で吸収できる。
+
+#### 名指し golden 7 本の着手前の色(本番ツリー・HEAD 92a666e・各 2 回・直列)
+
+| 本 | 1 回目 | 2 回目 | 所要 |
+|---|---|---|---|
+| `verify_scroll_shelf.js` | exit 0・19/19 | exit 0・19/19 | 3 秒 |
+| `verify_scroll_shelf.js --negative` | exit 0・**8/8**(担当に完全一致) | exit 0・8/8 | 25 秒 |
+| `driver_sce1_events.js` | **exit 1・211/214**(FAIL (2)(4d)(N2-隣) = K6・V4b (9) は PASS) | exit 1・211/214(同じ 3 本) | 48 秒 |
+| `verify_lore_check.js` | exit 0・26/26 | exit 0・26/26 | 3 秒 |
+| `verify_enemy_traits.js` | exit 0・15/15 | exit 0・15/15 | 4 秒 |
+| `driver_action_priority.js` | exit 0・PASSED 92 / FAILED 0 / PENDING 0 | 同じ | 65 秒 |
+| `verify_party_match_setup.js` | exit 0・PASSED 36 / FAILED 0 / PENDING 0 | 同じ | 44 秒 |
+| `driver_dev_gate2.js` | exit 0・62/62 PASS | exit 0・62/62 PASS | 27 秒 |
+
+⇒ 7 本とも**決定的**(2 回とも同じ色)。after76 / after77 の同じ本の色とも一致。赤は `driver_sce1_events` の既知 3 本だけ。
+
+#### 母集団と着手前の色の流用判定
+
+- **母集団** = `tools/` と `scripts/` の検証ドライバ(`.js`)のうち、コメントを除いたコードに `index.html` か `tavern.html` を含む本 + `driver_bgm_title.js`(`tavern` の語だけ・#77 の扱いを踏襲)= **148 本**
+  (`index.html` だけ 94 本 / `tavern.html` を読む 54 本)。`scripts/` に `.js` は無い。
+  ⚠ `.py` 16 本(`check_changelog.py` / `add_changelog.py` / アセット生成系)も語を含むが、検証ドライバではないので外した。
+- **流用可否(blob OID で判定)**:
+  - `after77.tsv`(本番 bb79124・64 腕)⇒ **全腕 流用可**。`bb79124..92a666e` の差は実装依頼書 2 ファイルだけで、配信物・`js/*`・`tools/*` は同一 OID。
+  - `after76.tsv`(本番 d440334・160 腕)⇒ **`tavern.html` を読まない本の腕だけ流用可**。`d440334..92a666e` で `tavern.html`(#77)と `tools/verify_scroll_shelf.js`(新規)が変わったため、`tavern.html` を読む本の腕は after77 から取る。`index.html`・`js/*`・`audio.js`・その他 `tools/*` は同一 OID。
+- **148 本の色の出どころ**: `tavern.html` を読む 54 本 = after77 の素の腕 / `index.html` だけの 94 本 = after76 の素の腕。**漏れ 0 本**(素の腕が無い本は無い)。
+  `--negative` の腕で流用できるのは 11 本(after77 = aoe_coverage / bolt_aim / hold_person / run_chronicle / scroll_shelf、after76 = bolt_bounce / cone_cast / enemy_name_label / enemy_traits / lore_check / road_ambush)。after76 の neg 腕のうち `tavern.html` を読む 4 本(aoe_coverage / bolt_aim / hold_person / run_chronicle)は after77 側を使う。
+  流用できる腕は計 **159**(記録上の所要 333.5 分)。
+- **既知の赤(流用する色の中の非緑)**: after76 由来 = `driver_field_step6`(54/59)/ `driver_grid_p4`(exit 3・変異アンカー)/ `driver_grid_p8`(exit 1)/ `driver_mapeditor_painting`(exit 1)/ `driver_monsters_hobgoblin`(12/14)/ `driver_monsters_kobold`(11/12)/ `driver_sce1_events`(211/214)/ `driver_speech_engine`(16/17)/ `driver_speech_v2`(45/46)/ `probe_bandit_map`・`probe_s2_fold`・`probe_swamp_map`(exit 3 = 引数必須の probe)/ `verify_walk_block`(22/23)。
+  after77 由来 = `driver_mapeditor`(176/179)/ `driver_monsters_chimera`(16/17)/ `driver_monsters_umberhulk`(21/22・フレーク)/ `probe_party_size`(600 秒で打ち切り)/ `sweep_recruit_balance`(装置 4/4 崩れ)。
+- ⚠ 本チケットは `index.html` と `tavern.html` の**両方**を変えるので、148 本すべてが帰属の候補。項目4 は #74〜#77 の方式(影のツリーと交互に対比較)で 148 本 + neg 腕を回す。上の流用は「着手前の色」の参照値で、帰属の判定は影との対比較で行う。
+- ⚠ 流用の判定は「コードに語があるか」による(#77 と同じ引き方)。`index.html` から画面遷移で `tavern.html` へ抜ける本が語を書かずに酒場を踏む可能性は構造上残る ⇒ 項目4 の影の対比較で拾う。
+- 走行器・集計: このセッションの scratchpad `item1\`(`run_golden.sh` / `pop78.py` / `pop78.json` / `logs\*.r1.log` `*.r2.log`)。
+
 (実装窓が埋める)
