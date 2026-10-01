@@ -699,3 +699,50 @@
 - ログの形: 入った時 `👁 〈術者〉 の魔法の眼 — 〈報告〉` / 出口の前 `👁 〈術者〉 の魔法の眼 — 〈DIR_LABELS〉 — 〈報告〉`(出口ごとに 1 行)。
 - 羊皮紙の影絵の数 = `min(4, 種類)` + ボスありで丸い影 1(砦 n4 は 4 種 = 4 マス)。
 - `executeSkillOn(ally, "mage", "arcane-eye", -1)` は元から偽(名指しの枝が無い)。
+
+### 12-2. 項目3 — 新規受入 `tools/verify_arcane_eye.js`(基準 HEAD `15200f4`・本番ファイルは 1 バイトも触っていない)
+
+- **assert 34 本**: §0 5 本 (0a)〜(0e) / §1 7 本 / §2 6 本 / §3 3 本 / §4 3 本 / §5 4 本 / §6 3 本 / §7 3 本。§8 の 33 節に、装置として (0e) を 1 本足した。(0e) は 2 腕。画像あり ⇒ `.noimg` が付かず報告が届く / png を 404 ⇒ `.noimg` の光の玉で飛び、報告が届き、眼が残らない。どちらも `__autoplay = 1` で眼を実際に飛ばす。
+- ページは index 11 枚と tavern 4 回。index は砦 8 枚・沼地・神殿・`?autoplay=10` の実走 1 枚。tavern は開発 / 非開発 / `?eye=0` / `?invis=0`。
+  報告の文は**ドライバ側で §4-4 + K10 の規則から組む**。`RUN.byId[id].mapDef.rooms[].enemySlots[][2]` と `ENEMY_TYPES` の生の旗をドライバ自身が数え、ページの答えと突き合わせる(ページの `eyeGroups*` / `eyeReportText` は答え合わせに使わない)。
+- **変異 10 本**(port 10504〜10513・base 10503)。アンカーはすべて**眼の側の行**から取った(罠E)。起動時に自己検査で 3 点を確かめる:
+  - #78 のアンカー 11 本と `noimmediate` のアンカーに、1 本も重ならないこと
+  - 原本での出現回数が期待どおりであること
+  - 行数が変わらないこと
+
+  注入行は `__MUTHIT__` を持ち、欠陥が効く枝でだけ鳴る。`--negative` は「注入行が実行された」と「赤の集合 = 担当」の完全一致の両方を要求する。
+
+| 変異 | 注入(アンカー = 眼の側の行) | §8 の予想 | **実測の担当** |
+|---|---|---|---|
+| `fogtouch` | `const dest = target \|\| from;` の後に、術者 → 行き先の線分が通るタイルを `exploredTiles` に 1 にする行 | (3a) | (3a) |
+| `nopause` | `prevSk/prevDp` + `skillCheckActive = true; dialogPaused = true;` の 2 行(2 か所)から `dialogPaused` を抜く | (3b)(1f) | (1f)(3b) |
+| `nodestate` | `eyeScoutedNodes.add(ex.to);` の後に `nodeStateFor(ex.to)` を足す | (2d) | (2d) |
+| `rollanyway` | `if (eyeByExit) tier = "crit";` を外す | (2b) | **(2a)(2b)(2c)** |
+| `invisoff` | tavern の `const dev = … devShelfSwitchOnTV(id);` を `isInvisOnTV()` へ | (7c) | **(7b)(7c)** |
+| `spoilhidden` | `eyeHidesEnemy` の 2 行を常に false | (1c) | (1c)。ただし **K13** で (1c) を強めた後 |
+| `bossname` | ボスの判定 2 か所と `bossSlot` で名前を持ち回り、文の頭に置く | (1a)(2a) | **(1a)(2a)(2c)** |
+| `recast` | 入った時・出口の前の `eyeScoutedNodes.has` を見ない | (1d)(2e) | (1d)(2e) |
+| `nooutofcombat` | 眼の 2 行版 `range: "self",` + `outOfCombat: true,` | (4a)(4c) | (4a)(4c)。(4a) は `executeSkillOn` へ届いた回数で見る(#78 K9) |
+| `leakdev` | tavern の眼の巻物の行で、開発モードでない時だけ `rarity` を `"common"` に化けさせる(**K16**) | (5b) | (5b) |
+
+#### 崩れた主張・補足(K13〜K19)— 仕様に響くもの 0 件・本番の不具合 0 件
+
+| K | 主張(依頼書) | 実測・受入での扱い | 仕様に響くか |
+|---|---|---|---|
+| **K13** ⚠⚠ | §8 (1c)「神殿 n4 の報告にカエルム、沼地 n4 の報告に若き蛇神司祭が出ない」で変異 `spoilhidden` が赤くなる | **空振りした**(注入行は 8 回実行・赤 0)。本番の 2 部屋では、隠し要素は**出現順で 5 種目**にあたる(沼地 = raider / warrior / hunter / priest の後、神殿 = zombie / wraith / skeletonArcher / skeleton の後)。文に名前が出るのは 2 種まで、影絵は 4 マスまでなので、除外をやめても**画面には原理的に出ない**。⇒ (1c) を強めた。報告の材料(`eyeGroupsLive()` の種類と数)と影絵の各マス(「×n」と、マス i の絵 = i 番目の種類の絵)を、ドライバの数えと突き合わせる | 響かない(今の部屋では漏れても見えない)。ただし種類の少ない部屋に隠し要素を置けば見えるので、守る価値はある |
+| **K14** | (暗黙)影絵の絵で隠し要素を見分けられる | `swampNovice` の `sprite` は `lizardPriest` と**同じ絵**(`assets/lizardPriest_anim.png?v=2`)。⇒「隠し要素の絵が無い」とは書けない(そう書いたら素で赤くなった)。⇒ 正の一致(マス i の絵 = i 番目の種類の絵)にした | 響かない |
+| **K15** | §8 (0d)「HEAD `620b844` と同じ回数」 | 受入は git を読まない(影のツリーで走らせるため)。代わりに、`verify_invisibility.js` の変異表の `count`(= 要求回数。§12-0 で `620b844` の実測と全部一致を確認済み)と、`driver_graph_sce1.js` の `noimmediate` を**ソースから正規表現で引いて**基準にした(12 本・`1,…,1,2,1`) | 響かない |
+| **K16** | 項目2 の申し送り「leakdev のアンカー = `const dev = …` か `if (id === "scroll-arcane-eye") return isEyeOnTV();`」 | どちらの行も `scrollShelfIdsDev` の中にあり、**開発モードでしか通らない**。開発モードでないときに通る行は、#78 の `if (DF_DEV_MAGIC_SHOP) return scrollShelfIdsDev();` と #77 の common の filter だけで、どちらも他ドライバのアンカー。⇒ 申し送りの 2 行では「開発モードでなくても並ぶ」という欠陥を注入できない。⇒ tavern の眼の巻物の行(`SCROLL_CATALOG_TV`)を使い、開発モードでない時だけ `rarity` が `"common"` になるようにした | 響かない |
+| **K17** | §8 (1e)「`partyComposition` を仕込んで読み込み直す」 | 読み込み直さずに、`leaderClassKey = "mage"` と `currentSpellSlots["arcane-eye"] = 1` を代入した(#78 の (1f) と同じ経路。`takeArcaneEyeCaster` は `hasSpellSlot("player")` と `getLeaderName()` を読む)。ログは「👁 あなた の魔法の眼 — …」 | 響かない |
+| **K18** | §8 (1a)「砦 n4 …**ボスの名前が出ない**」で変異 `bossname` が赤くなる | 砦 n4 には**ボスが居ない** ⇒ n4 だけでは空振りする。⇒ (1a) に、口②(`enterNode`)で**まだ覗いていない** n7 へ入る腕を足した。実際の報告は「ただならぬ大きな影がひとつ。オーク狂戦士が 1 匹従っている。オーク兵の姿もある」で、ボスの名前は出ない | 響かない |
+| **K19** | 担当表(§8)= 予想どおりに赤くなる | 担当が広がった(#78 K10 と同じ型)。`rollanyway` +(2a)(2c)(tier が crit でなくなる)/ `invisoff` +(7b)(`?eye=0` でも透明化のスイッチを見るので、眼が並ぶ)/ `bossname` +(2c)(沼地 n7 もボス部屋)。⚠ **非決定**: 1 回目の `--negative` では、`rollanyway` の (2a) が緑に転んだ。本物の出目で自然の crit を引くと tier が "crit" になるため。⇒ 出口の腕(砦 A・沼地 E)は `resolveSkillCheck` を決め打ち(crit でない成功)にした。素の実行では眼が唱えるので判定は 0 回 = 決め打ちは変異のときにしか効かない | 響かない |
+
+- 測り方の補足:
+  - (3a) は、2 つの `Uint8Array` 行の配列について全バイトの FNV hash と 1 の個数を見る(K1)。砦 n4 = `95/2016`・`90/2016` で、入った時・出口の前とも前後で一致した。
+  - (3b) は `?autoplay=10` の実走。`tryArcaneEyeOnEntry` を包み、報告の瞬間と詠唱の終わりの瞬間について `dialogPaused` / `encounterActive` / `playerX/Y` を見る。
+- **走らせ方**: PowerShell から `node tools/verify_arcane_eye.js`(素)/ `--negative`(素の基準 + 変異 10 本)/ `--mutate <key>` / `--skip-6c`。
+- **所要**(この機械・PowerShell):
+  - 素 = **約 65 秒**(うち (6c) の入れ子 `verify_invisibility --negative` が約 42 秒、本体は約 23 秒。1 回だけ 182 秒 = 機械の揺れ)
+  - `--negative` = **285〜403 秒**
+- **決定性**: 素 3 回 = 34/34 ×3 / `--negative` 2 回 = 10/10 ×2(空振り 0・漏れ 0)。ログは scratchpad の `item3\base.r*.log` / `neg.r*.log`。
+- ⚠ **git**: 本体は git を読まない。ただし (6c) の入れ子(`verify_invisibility` → `verify_scroll_shelf`)は `git show` を読む ⇒ **影のツリーでは (6c) だけが赤くなる**。項目4 の対比較では、clone で走らせるか、影のツリー側は `--skip-6c` で走らせて (6c) を除いて比べること。
