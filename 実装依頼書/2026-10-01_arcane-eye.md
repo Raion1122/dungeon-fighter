@@ -564,6 +564,14 @@
 
 ## 12. 実装結果
 
+> **総括(2026-10-01・dev-loop 4 項目・停止 0 回)** — ✅ 完了。
+> コミット: `677e4de` 着手前の実測 / `15200f4` 本番 + changelog / `67c5207` 新規受入 / 本節を書いたコミット = 母集団の非退行 + §12 の締め + 台帳。
+> - 受入 `tools/verify_arcane_eye.js`: 素 **34/34**(項目3 で 3 回 + 項目4 の走査 1 回)/ `--negative` **10/10 検出・担当に完全一致・空振り 0・漏れ 0**(項目3 で 2 回 + 走査 1 回)。
+> - 名指し golden 10 本 12 腕: 項目1・項目2・項目4 のどれでも着手前と同色同数。
+> - 母集団の非退行: **171 腕・368.3 分**で **#79 に帰属する緑→赤 0**(§12-3)。
+> - 崩れた主張: 通算 **21 件**(K1〜K21)。仕様(ユーザー決定)に響くもの **0 件**、本番の不具合 **0 件**。
+> - 残り = **§9 の実機確認**(ユーザー担当)。次の新規ドライバ base = **10514**。
+
 ### 12-0. 着手前の実測(項目1・基準 HEAD `cd32146`・本番ファイルは 1 バイトも触っていない)
 
 - **基準の HEAD**: 承認コミットは `00275b1`。項目1 の最中に起草窓が `cd32146`(眼の素材)を積んだので、基準を `cd32146` に置く。
@@ -746,3 +754,94 @@
   - `--negative` = **285〜403 秒**
 - **決定性**: 素 3 回 = 34/34 ×3 / `--negative` 2 回 = 10/10 ×2(空振り 0・漏れ 0)。ログは scratchpad の `item3\base.r*.log` / `neg.r*.log`。
 - ⚠ **git**: 本体は git を読まない。ただし (6c) の入れ子(`verify_invisibility` → `verify_scroll_shelf`)は `git show` を読む ⇒ **影のツリーでは (6c) だけが赤くなる**。項目4 の対比較では、clone で走らせるか、影のツリー側は `--skip-6c` で走らせて (6c) を除いて比べること。
+
+### 12-3. 項目4 — 母集団の非退行(2026-10-01 09:31〜15:39・本番 = HEAD `67c5207`)
+
+⛔ 本番も `tools/` も 1 バイトも触っていない(走査・対比較の前後で `git status --porcelain` = 0 行・HEAD = `67c5207`)。変えたのは本書 §12 と台帳の `| 79 |` 行だけ。書いたのは走査が終わった後(`git diff HEAD` を読む本に響かないようにするため)。
+#79 の差分(`git diff --stat cd32146 HEAD`)は 5 ファイル。配信物は `index.html`(+318 / −1)と `tavern.html`(+16 / −3)の 2 本だけ。残りは道具の `tools/verify_invisibility.js`(§6 (7b) の言い直し)と `tools/verify_arcane_eye.js`(新規)、それに本書。
+成果物は scratchpad `…/78a9dcec-5899-45e5-ad3c-d92781e85177/scratchpad/item4/` にある。道具は #78 の項目4 からコピーして直したもの(`sweep_79.py` / `build_arms_79.py` / `select_neg79.py` / `cmp_79.py` / `mkshadow_79.py` / `pair_79.py`)。`fp74.py` と `fisher.py` はバイト同一のコピー。
+
+#### (1) 腕の導出 = 171 腕(`build_arms_79.py` → `armlist_79.json`)
+
+| 枠 | 腕 | 着手前の色 |
+|---|---|---|
+| 母集団 149 本の素(§12-0 の `pop79.json`) | 149 | `after78.tsv`(§12-0 の流用判定どおり) |
+| `--negative`(after78 に色がある 16 本すべて。選び直しの 8 本はこの部分集合) | 16 | `after78.tsv` |
+| 新規受入 `verify_arcane_eye` 素 / `--negative` | 2 | なし(緑であること。影のツリーには眼の関数が無いので、対比較の対象外) |
+| 圏外の裏付け(`probe_town_mask` / `verify_road_events` / `verify_world_heromark` / `verify_world_steps`) | 4 | `after78.tsv` |
+
+`--negative` の選び直しは `select_neg79.py` で行った(#78 の `select_neg78.py` の `BASE` を `cd32146` に替えたもの)。
+- 差分を含む関数: `index.html` は `pickScrollId` / `startGame` / `revealExitHints` / `enterNode` / `exitEnemyCount` / `isInvisOn` / `recomputeAccessoryStock` / `runEncounter` と、眼の新しい関数 16 本。`tavern.html` は `scrollShelfIdsDev` / `isInvisOnTV` / `isHoldPairOnTV` / `isScrollShopOnTV` / `getMaxSpellSlotsForClassTV` と、新しい関数 `isEyeOnTV` / `devShelfSwitchOnTV`。
+- 選ばれた本は 8 本(`verify_bolt_aim` / `verify_hold_pair` / `verify_invisibility` / `verify_lore_check` / `verify_member_identity` / `verify_road_ambush` / `verify_run_chronicle` / `verify_scroll_shelf`)。**8 本とも after78 に色のある腕なので、新たに増えた腕は 0**。理由の多くは K21 の雑音。
+
+#### (2) 走査と所要
+
+- `sweep_79.py` は直列で、PowerShell から起動した。腕ごとに `df_*` の居残り Chrome を掃除した(全 171 腕で 0)。TSV に済んだ腕は SKIP するので、中断しても再開できる。
+- 時間: 09:31:37 → 15:39:54 = **368.3 分**(中断なし)。着手前の色がある共通 169 腕だけで比べると、359.4 分(着手前の記録は 364.5 分)。打ち切りは `probe_party_size`(素)の 600 秒だけで、着手前と同じ。
+- 長かった腕: `verify_bolt_aim` 2,243.4s / `driver_field_step6` 1,825.9s / `probe_p9_tour` 1,689.6s / `verify_run_chronicle --negative` 1,544.0s / `verify_hold_pair` 904.4s / `auto_debug_run` 830.3s。
+
+#### (3) 色の遷移(exit code が主・着手前の色がある 169 腕)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | 149 | 名指し golden 10 本 12 腕は着手前と同色同数(下の表)。`--negative` の 16 腕はすべて exit 0。圏外の 4 本も全部緑 |
+| 赤→赤 | 15 | 既知の赤(§12-0 の 18 本から、下の赤→緑 3 本を除いたもの)。pass/fail の件数も着手前とすべて同じ |
+| **緑→赤** | **2** | `driver_field_verge_gap` 39/39 → 0/4・`driver_speech_engine` 17/17 → 15/17。下の (5) |
+| 赤→緑 | 3 | `driver_monsters_griffon` 15/17 → 17/17・`driver_monsters_hobgoblin` 12/14 → 14/14・`verify_roll_target` 29/30 → 30/30(どれも #78 で記録済みの揺れ) |
+| 新規 | 2 | `verify_arcane_eye` 素 = exit 0・`34/34 PASSED FAILED 0 PENDING 0`(65.0 秒)/ `--negative` = exit 0・`--negative OK: 10 本すべて担当ラベルだけが赤くなりました (空振り 0・漏れ 0・注入行はすべて実行)`(401.2 秒) |
+
+判定行の合計(共通 169 腕): PASS 9052 → 9014 / FAIL 231 → 234 / PENDING 42 → 42。
+PASS の −38 は、`driver_field_verge_gap` の 39 本が 0 本(+ FAIL 4)になった分。残りは赤→緑 3 本と、`verify_run_chronicle --negative` の巻き添え(562/22 → 560/24。#77 と同じ値へ戻っただけで、担当の判定は同じ)。
+
+| 名指し golden(§8) | 着手前(§12-0) | 走査(HEAD `67c5207`) |
+|---|---|---|
+| `verify_invisibility` 素 / `--negative` | 27/27 / 9/9 | 27/27 / exit 0(9/9) |
+| `verify_scroll_shelf` 素 / `--negative` | 19/19 / 8/8 | 19/19 / exit 0(8/8) |
+| `driver_graph_arrows` / `sce1` / `run` / `kinds` / `reentry` | 80 / 106 / 99 / 66 / 57 | 80 / 106 / 99 / 66 / 57 |
+| `driver_dev_gate2` / `driver_action_priority` / `verify_party_match_setup` | 62 / 92 / 36 | 62 / 92 / 36 |
+
+#### (4) 2 経路の突き合わせ(`cmp_79.py -v`)
+
+比べられる腕は 148(共通 169 から、判定行が 0 行の本 19 と、指紋が走行ごとに動く `field_step6` / `griffon` を除いた数)。一致したのは経路① 143/148・経路② 141/148。差のある本はどれも説明が付く。
+- 色の動いた 5 本: verge_gap / speech_engine / hobgoblin / roll_target、それに `run_chronicle --negative`(巻き添えの値の差)。
+- 構造差だが exit 0 で件数が同じ本:
+  - `driver_grid_p5`: 移動を測る仲間の職が、走行ごとに違う(#78 と同じ)。
+  - `probe_s2_clear`: 残敵の数が実走で揺れる。
+
+#### (5) 緑→赤の帰属(影のツリーとの交互の対)
+
+影のツリー `item4/shadow79/` の作り方: 作業ツリーを実体でコピーし(`.git` と `source_images` は除く・`tools/` は 195 = 195 本を実体で)、そのうち `index.html` / `tavern.html` / `tools/verify_invisibility.js` の 3 本だけを `cd32146` の blob に戻した。行末は `git check-attr eol` のとおりで、配信物 2 本は crlf にした。HEAD の blob を同じ規則で変換すると作業ツリーのバイトと一致することを確かめてある(3 本とも True)。
+2 本とも `git` を読まない部分で赤くなっているので、影のツリーで対にした。clone(`item1/clone79`)は HEAD へ早送りして作業ツリーとのバイト一致まで確かめたが、出番は無かった。
+
+| 本 | 本番(走査 + 交互の対 5 組) | 影 | Fisher(両側) | 判定 |
+|---|---|---|---|---|
+| `driver_field_verge_gap` | 緑 0/6(毎回 `DRIVER 例外なし` = 起動待ち 30 秒のタイムアウト + `(G0)` ほか) | 緑 0/5(同じ赤) | **1.00** | **環境**。原因は K20(ほかのアプリがポート 8790 を握っていた)。`--port 18980` で走らせると、**本番も影も 39/39 ALL PASS** |
+| `driver_speech_engine` | 緑 2/6(赤 = `(4) カメラが実際に動いた` / `(4) カメラ追従`) | 緑 1/5(同じ `(4)`) | **1.00** | **揺れ**(#66 以来の既知フレーク。同じ assert が影でも赤くなる) |
+
+- 構造の裏付け:
+  - verge_gap は、ページが起動する前(`renderMap` の待ち)で落ちている。しかもブラウザが接続していたのは、ゲームとは別のサーバだった ⇒ #79 の差分へ帰属する経路が無い。
+  - speech_engine の `(4)` はカメラが動いたかどうかの観測窓の問題。`?autoplay` の実時間に依存し、眼の口(入った時・出口の前)は通らない。
+
+#### (6) 試遊サーバ 8765
+
+- 停止(ユーザー承認済み・2026-10-01): 走査の前に LISTEN を実測すると **1 系統**だった(`[::]:8765`)。中身は `py -m http.server 8765`(pid 36464)→ `python.exe -m http.server 8765`(pid 10692)。この 2 つを止め、LISTEN が 0 になったことを確かめた。
+- 立て直し: 走査と対比較を全部終えてから、`ゲームを起動.vbs` と同じコマンド `cmd /c cd /d "<リポ直下>" && (py -m http.server 8765 2>nul || python -m http.server 8765 2>nul)` を起動した。起動は `Invoke-CimMethod Win32_Process Create`(非表示・デタッチ・作業ディレクトリ = リポ直下)で、ReturnValue 0・cmd の pid は 29996。
+- 確認: `[::]:8765 LISTEN`(pid 34876)・`http://localhost:8765/title.html` = **200**・配信の `tavern.html` = 683,391 バイト(作業ツリーと同じ)。居残りの Chrome(`df_*`)= **0**。
+- ⚠ ポート 8790 のサーバ(K20)は、ユーザーの別アプリなので止めていない。
+
+#### (7) ⚠ 崩れた主張(項目4 = 2 件・仕様に響くもの 0)
+
+- **K20** ⚠⚠ 主張: 「緑→赤は #79 の帰属か、既知の揺れのどちらか」。
+  - 実測: **3 つ目の型 = 環境のポート衝突**があった。`driver_field_verge_gap` の既定ポート 8790 を、ユーザーの別プロジェクト `位置RPG制作\server.js`(「疑似GPS 地図ツール」・`node`・2026-10-01 08:13 起動)が `0.0.0.0:8790` で握っていた。
+  - ドライバ自身のサーバも `listen(8790)` に**成功してしまう**(`::` に結びつくので、IPv4 の `0.0.0.0` とは衝突しない)。そのため EADDRINUSE は出ない。一方、ブラウザは `127.0.0.1:8790` へつなぐので、**別アプリのページを読み込み、ゲームが起動しない**まま 30 秒でタイムアウトする。
+  - 本番と影で同じ色になる(0/6 vs 0/5)ので、影のツリーでは「帰属しない」までしか言えない。真因はポートの持ち主を `Get-NetTCPConnection` で引いて突き止めた。⇒ 影の両方で決定的に赤くなる本は、まず**ポートの持ち主**を疑う。
+- **K21** 主張: 「`--negative` の腕は、差分を含む関数の中のアンカーで選ぶ」。
+  - 実測: #78 K14 と同じ雑音が残っている。関数と関数のあいだのトップレベル(`MAGE_SKILLS_UI` の表など)を直前の関数に数えるので、`verify_bolt_aim` / `verify_member_identity` / `verify_hold_pair` などが変わっていないアンカーで選ばれる。
+  - 今回は、選ばれた 8 本がすべて after78 に色のある 16 腕の中に入っていた。余計に回した腕は 0 で、実害もない。
+
+#### ⇒ 判定
+
+**171 腕(母集団 149 本の素 + `--negative` 16 + 新規受入 2 + 圏外の裏付け 4)で、#79 に帰属する緑→赤は 0。**
+- 緑→赤の 2 本は、どちらも影との交互の対で p = 1.00 だった。verge_gap はポート衝突(K20)で、空いたポートなら本番も影も 39/39 になる。speech_engine は既知の揺れ。
+- 赤→赤の 15 本は、件数も着手前と同じ。
+- 名指し golden 10 本 12 腕は着手前と同色同数。新規受入は素 34/34・`--negative` 10/10。
