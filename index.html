@@ -3027,6 +3027,15 @@
     .dfArcaneEye.noimg {                                   /* 素材が読めない時のフォールバック = 光の玉 */
       background: radial-gradient(circle, #eaf6ff 0 20%, #7ec8ff 45%, rgba(126,200,255,0) 70%);
     }
+    /* ★[#80] メイジハンドの幽霊の手。⛔ 素材なし (CSS だけ・半透明の青白い光 + ぼかし)。
+       位置は flyMageHand が毎フレーム SX()/SY() で置く (left/top の transition は持たせない = rAF と喧嘩する)。 */
+    .dfMageHand {
+      position: absolute; width: 40px; height: 40px; pointer-events: none; z-index: 13;
+      border-radius: 50% 50% 42% 42%;
+      background: radial-gradient(circle at 50% 42%, rgba(244,251,255,0.95) 0 16%, rgba(168,218,255,0.72) 40%, rgba(120,190,255,0) 70%);
+      filter: blur(1px) drop-shadow(0 0 10px rgba(150,210,255,0.95));
+      opacity: 0.88;
+    }
     /* 影絵の羊皮紙 (#15 の立て札と同じ紙を暗幕なしで流用)。⚠ #dmMessage (top 90px・z80) の下へ置く
        (依頼書の「上 12%」は 800px 級の画面で一行と重なる = 項目2 K7)。 */
     #eyeScoutPanel {
@@ -11286,14 +11295,18 @@
        *   旧 (36,13) は 7x6 の小部屋の中心だが、52x26 の大部屋では**絵ローカル (26,12) =
        *   北東の岩場の内側**にあたる (依頼書 #11 が「起点の床保証がここに無言で穴を開ける」と
        *   名指ししたまさにそのタイル)。
-       * ⭐ 新座標 (41,17) の出所は**旧・単一マップ版のシナリオ2 が使っていた檻の座標**
+       * ⭐ #16 の座標 (41,17) の出所は**旧・単一マップ版のシナリオ2 が使っていた檻の座標**
        *   (ENEMY_SPAWNS / cageSpawns の "s2_beast_intel" 行)。本番の isTileWall で床、
        *   入場 (12,15) から本番 aStar で 31 歩、街道の南・丸太柵の門の手前 = 絵とも合う。
+       * ★[#80] 今の座標 (55,8) の出所は**ユーザー決定「盗賊アジトの奥」**= 野営地の北の奥・白い天幕と
+       *   焚き火の木箱の脇。本番の isTileWall で床・入場 (12,15) から本番 aStar で 50 歩。
+       *   ⚠ 柵の内側 (x ≥ 48) からしか視線が通らない (依頼書 #80 §2-1)。開くのは メイジハンド / 鍵束 / レバー
+       *   だけ = noAutoEscape: true で自然脱走②を止める。⛔ n6 の枝と旧単一マップの (41,17) は従来のまま。
        * ⚠ 檻と獣は**同一タイル**に置くこと (linkCagedBeasts が最寄りの檻へ吸着する)。
        * ⚠ 第 4 要素は酒場の噂フラグ。掴んでいなければ獣も檻も現れない (= 0 体が正常)。 */
       "bandits-forest": S2_FOLDED
-        ? { n7: { spawns: [["shadowBeast", 41, 17, "s2_beast_intel"]],
-                  cages:  [{ tx: 41, ty: 17, flag: "s2_beast_intel" }] } }
+        ? { n7: { spawns: [["shadowBeast", 55, 8, "s2_beast_intel"]],
+                  cages:  [{ tx: 55, ty: 8, flag: "s2_beast_intel", noAutoEscape: true }] } }
         : { n6: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],
                   cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] } },
       /* ★[#58] n6 を 34x22 の大部屋へ変えたので、封印中のハイドラ (inactive + passiveNpc)
@@ -13606,6 +13619,7 @@
       // 📜 巻物 (mage)
       "scroll-sleep":          { name: "巻物・スリープ",            spellId: "sleep",                classKey: "mage",   rarity: "common"   },
       "scroll-burning-hands":  { name: "巻物・バーニングハンズ",    spellId: "burning-hands",        classKey: "mage",   rarity: "common"   },
+      "scroll-mage-hand":      { name: "巻物・メイジハンド",        spellId: "mage-hand",            classKey: "mage",   rarity: "common"   },
       "scroll-fireball":       { name: "巻物・ファイアボール",      spellId: "fireball",             classKey: "mage",   rarity: "uncommon" },
       "scroll-lightning-bolt": { name: "巻物・ライトニングボルト",  spellId: "lightning-bolt",       classKey: "mage",   rarity: "uncommon" },
       "scroll-invisibility":   { name: "巻物・インビジビリティ",    spellId: "invisibility",         classKey: "mage",   rarity: "uncommon" },
@@ -13660,6 +13674,18 @@
       try { return new URLSearchParams(window.location.search).get("eye") !== "0"; }
       catch (e) { return true; }
     }
+    /* ★[#80] 撤退スイッチ ?magehand=0 — 手のダイアログを 1 つも出さない (罠は従来の showChoice) + 巻物を拾わない。
+     * ⚠ 各ページが独立に読む (遷移はまたがない)。⛔ 店の棚からは隠さない (依頼書 §2-3 罠G)。
+     * ⛔ 撤退しても檻の位置 (55,8) とアジトの自然脱走の停止は戻らない (戻すのは ?s2fold=0)。 */
+    function isMageHandOn() {
+      try { return new URLSearchParams(window.location.search).get("magehand") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#80] メイジハンド (5e SRD 初級呪文)。⛔ MAGE_SKILLS にも酒場の MAGE_SKILLS_UI にも足さない
+     *   (枠も技の候補も通らない = 依頼書 §2-3 罠A/罠B)。習得は巻物 → isSpellKnown("mage","mage-hand") だけ。
+     *   射程: 戦闘前 12 マス (戦闘外は手を何度も進められる読み) / 戦闘中 6 マス (= 5e の 30 ft)。 */
+    const MAGE_HAND = { id: "mage-hand", name: "メイジハンド",
+                        calmRangeTiles: 12, combatRangeTiles: 6 };
     /* 呪文リストの **index 1** に sleep を挿す。⭐⭐⭐ 位置が効く:
      *   呪文枠は先頭から `take = min(n, upperCap - used)` で配られ、Lv1 は upperCap = 3。
      *   末尾に置くと枠が尽きて**黙って落ちる** (受入 sleeplast がこれを守る)。 */
@@ -13743,7 +13769,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye"));
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand"));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -21797,6 +21823,11 @@
             await spawnWave(units, sortUnits, wd, waveNext, waveList.length);
           }
 
+          // ★[#80] メイジハンド — 戦闘中の口 (射程 6 マス + 視線)。⚠ ラウンドの頭 = actor ループの前だけ
+          //   (依頼書 §2-3 罠C)。開けた檻の獣はこのラウンドの units に入らず、次のラウンドの
+          //   mergeReinforcements で合流する (自然脱走が戦闘中に開けたときと同じ経路)。
+          await tryMageHandInCombat();
+
           for (const actor of units) {
             if (gameOver || hp <= 0) break;
             if (!encounterEnemyIndices.some(i => enemies[i].alive)) break;
@@ -24403,6 +24434,7 @@
           dialogActive: false,    // showChoice 表示中フラグ (重複起動防止)
           lured: false,           // 「誘導」選択で誘発状態 → 盗賊近接で確定脱走 (餅になる脱走)
           beastIdx: -1,           // linkCagedBeasts() で紐付け
+          noAutoEscape: !!sp.noAutoEscape,   // ★[#80] アジトの檻: 自然脱走②の対象外 (依頼書 §2-3 罠D)
           el: null,
         };
         cages.push(cage);
@@ -24736,6 +24768,137 @@
     }
 
     setInterval(tryInteractCage, 400);
+
+    // ═════════════════════════════════════════════════════════
+    // ★[#80] メイジハンド (5e SRD 初級呪文) — 幽霊の手で、離れた所の仕掛けに触る
+    //   口 3 つ = ① 眼の口 (tryArcaneEyeOnEntry の報告の後) ② 戦闘前 (tryMageHandCalm・400ms)
+    //   ③ 戦闘中 (ラウンドの頭) + 罠の解除の選択肢 (runTrapDisarmCheck)。
+    //   ⛔ 呪文枠は見ない・使わない (依頼書 §2-3 罠B — takeArcaneEyeCaster を写経しない)。
+    // ═════════════════════════════════════════════════════════
+    /* 手を出せる魔法使い。順 = 主人公 → 仲間 (#78/#79 と同じ)。⛔ エルフ・僧侶は唱えない。
+     *   返り値 = { actor, name, cx, cy } (cx/cy = 術者の中心の世界 px) / 居なければ null。 */
+    function mageHandCaster() {
+      if (!isMageHandOn() || !isSpellKnown("mage", MAGE_HAND.id) || gameOver) return null;
+      if (hp > 0 && leaderClassKey === "mage")
+        return { actor: makeLeaderActor(), name: getLeaderName(), cx: playerX + 48, cy: playerY + 58 };
+      for (const a of allies) {
+        if (!a || !a.alive || a.classKey !== "mage") continue;
+        const s = (a.def && a.def.displaySize) || TILE_SIZE;
+        return { actor: a, name: a.npcName || (a.def && a.def.name) || "魔法使い", cx: a.x + s / 2, cy: a.y + s / 2 };
+      }
+      return null;
+    }
+
+    /* 手の演出: 詠唱 (dfPlayCast) → 幽霊の手を術者の頭上から goal (世界 px) へ飛ばす → 消す。
+     * ⚠ 音は鳴らさない (openCage / awakenMimic が自分で鳴らす = 二重になる・依頼書 §12-0 K8)。
+     * ⚠ try/finally で DOM を必ず消す (#79 の眼と同じ)。 */
+    async function flyMageHand(caster, goal) {
+      try { await dfPlayCast(caster.actor, { name: MAGE_HAND.name, element: "arcane" }, { duration: 600 }); } catch (e) {}
+      const start = { x: caster.cx, y: caster.cy - 64 };
+      const end = goal || start;
+      const hand = document.createElement("div");
+      hand.className = "dfMageHand";
+      vfxHost().appendChild(hand);
+      const handMs = Math.max(8, Math.floor(700 / (window.__autoplay || 1)));
+      const h0 = performance.now();
+      let handRaf = 0, handFlying = true;
+      const step = () => {
+        const k = Math.min(1, (performance.now() - h0) / handMs);
+        const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+        hand.style.left = (SX(start.x + (end.x - start.x) * ease) - 20) + "px";
+        hand.style.top = (SY(start.y + (end.y - start.y) * ease) - 20) + "px";
+        if (handFlying) handRaf = requestAnimationFrame(step);
+      };
+      try { step(); await sleepMs(700); }
+      finally { handFlying = false; cancelAnimationFrame(handRaf); hand.remove(); }
+    }
+
+    /* ★[#80] メイジハンドの触り先。⭐ 新しい仕掛けは行を 1 つ足すだけで 3 つの口すべてに乗る。
+     *   list()  … 今いる部屋の候補 (未処理のものだけ)
+     *   at(t)   … 世界 px の中心 { x, y }
+     *   ask(t)  … ダイアログの本文 / label(t) … 「使う」の文言 / did(t) … ログの一行 (「✋ 誰々のメイジハンド — 」の後)
+     *   act(t)  … 手が着いた後にやること (await してよい)
+     * ⚠ 1 つの物に、同じ口から聞くのは 1 回だけ (t._handAsked[口] = true。断っても立てる)。
+     * ⚠ 罠はここに入れない (隣に立って解除するかの既存の口へ選択肢を足す = runTrapDisarmCheck)。 */
+    const MAGE_HAND_TARGETS = [
+      { key: "cage",
+        list: () => cages.filter(c => !c.opened && c.beastIdx >= 0),           // 空の檻には出さない (依頼書 §2-2)
+        at:   (c) => ({ x: c.tx * TILE_SIZE + TILE_SIZE / 2, y: c.ty * TILE_SIZE + TILE_SIZE / 2 }),
+        ask:  () => "鉄檻の脇に、錆びた開錠レバーが見える。\nメイジハンドで、離れた所から倒すか?\n(中の獣は敵味方の区別なく襲う)",
+        label: () => "メイジハンドでレバーを倒す",
+        did:  () => "錆びた開錠レバーを倒した",
+        act:  async (c) => { await openCage(c); } },
+      { key: "hoard",
+        list: () => (mimicChest && !mimicChest.awakened) ? [mimicChest] : [],   // 宝の山 (竜の巣) — 囮には触らない
+        at:   (c) => ({ x: c.tx * TILE_SIZE + TILE_SIZE / 2, y: c.ty * TILE_SIZE + TILE_SIZE / 2 }),
+        ask:  () => "整然と並んだ古びた宝箱。\nメイジハンドで、離れた所から蓋を叩いてみるか?",
+        label: () => "メイジハンドで宝箱を叩く",
+        did:  () => "古びた宝箱の蓋を叩いた",
+        act:  async (c) => { awakenMimic(c, { forewarned: true }); } },
+    ];
+
+    /* 共通の 1 回分。gate = "eye" | "calm" | "combat"。rangeTiles = null なら射程も視線も見ない (眼の口)。
+     *   返り値 = 手を使ったか。1 回の呼び出しで触るのは 1 つだけ。
+     * ⚠ showCharChoice は閉じる時に dialogPaused = false を書く ⇒ 押した後は呼ぶ前の値へ戻す
+     *   (眼の口 = 時間が止まった try の中で、手の飛行と咆哮の間も止めたままにする・依頼書 §12-0 K3)。
+     * ⚠ 檻へ聞いている間は cage.dialogActive を立てる (tryInteractCage の鍵束/レバーが同じ #choiceDialog に
+     *   重ならないように・自然脱走も dialogActive を見る・依頼書 §12-0 K7)。 */
+    let mageHandBusy = false;
+    async function offerMageHand(gate, rangeTiles) {
+      if (mageHandBusy) return false;
+      const caster = mageHandCaster();
+      if (!caster) return false;
+      mageHandBusy = true;
+      try {
+        for (const T of MAGE_HAND_TARGETS) {
+          for (const t of T.list()) {
+            t._handAsked = t._handAsked || {};
+            if (t._handAsked[gate]) continue;
+            const p = T.at(t);
+            if (rangeTiles != null) {
+              if (Math.hypot(caster.cx - p.x, caster.cy - p.y) > rangeTiles * TILE_SIZE) continue;
+              if (!hasLineOfSight(caster.cx, caster.cy, p.x, p.y)) continue;
+            }
+            t._handAsked[gate] = true;
+            const holdsFlag = ("dialogActive" in t);
+            const handPrevDp = dialogPaused;
+            if (holdsFlag) t.dialogActive = true;
+            try {
+              const pick = await showCharChoice(T.ask(t), [{ label: T.label(t) }], "触らない (Esc)",
+                { autoSkipMs: (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0 });   // 召喚の前例と同じ待ち
+              dialogPaused = handPrevDp;
+              if (pick !== 0) return false;
+              await flyMageHand(caster, p);
+              appendLog("✋ " + caster.name + " のメイジハンド — " + T.did(t));
+              await T.act(t);
+              return true;
+            } finally {
+              if (holdsFlag) t.dialogActive = false;
+            }
+          }
+        }
+        return false;
+      } catch (e) {
+        try { console.warn("[mageHand]", e); } catch (e2) {}
+        return false;
+      } finally {
+        mageHandBusy = false;
+      }
+    }
+
+    /* ② 戦闘前の口 (射程 12 マス + 視線)。ガード = tryInteractCage と同じ + 他のダイアログ・判定パネルが無いこと。 */
+    async function tryMageHandCalm() {
+      if (!gameStarted || gameOver || hp <= 0) return;
+      if (encounterActive || encounterRunning) return;
+      if (dialogPaused || skillCheckActive) return;
+      await offerMageHand("calm", MAGE_HAND.calmRangeTiles);
+    }
+    setInterval(tryMageHandCalm, 400);
+    /* ③ 戦闘中の口 (射程 6 マス + 視線)。戦闘ループのラウンドの頭からだけ呼ぶ。 */
+    async function tryMageHandInCombat() {
+      if (gameOver || hp <= 0) return false;
+      return offerMageHand("combat", MAGE_HAND.combatRangeTiles);
+    }
 
     // ── Sce4 隠し要素: 古代王国の守護者 (休眠 → 接近で覚醒、専用トリガー) ──
     // 残影の檻 (beast cage) には一切依存しない独立実装。faction:"beast" を流用して
@@ -25205,6 +25368,7 @@
       for (const cage of cages) {
         if (cage.opened) continue;
         if (cage.dialogActive) continue;
+        if (cage.noAutoEscape) continue;   // ★[#80] アジトの檻は自然には開かない (手 / 鍵束 / レバーだけ)。⛔ ①の誘導には足さない
         // 戦闘地点との距離 (檻中央 from player center)
         const cx = cage.tx * TILE_SIZE + TILE_SIZE / 2;
         const cy = cage.ty * TILE_SIZE + TILE_SIZE / 2;
@@ -25583,7 +25747,17 @@
       // まず意思決定モーダル (必須: 全画面タップ判定のため移動タップの誤ロールを防ぐ)。
       skillCheckActive = true;   // choice 中も相互排他を張る (二重発火防止)
       let goDisarm = false;
+      /* ★[#80] メイジハンド。⛔ 手が無い (覚えていない / ?magehand=0 / 魔法使いが居ない) ときは
+       *   従来の showChoice の 1 行をそのまま通す (依頼書 §2-3 罠H)。 */
+      const handCaster = mageHandCaster();
+      let viaHand = false;
       try {
+        if (handCaster) {
+          const handPick = await showCharChoice("見つけた罠を解除しますか?",
+            [{ label: "解除する" }, { label: "メイジハンドで解除する — 失敗しても傷を負わない" }], "迂回する (Esc)");
+          goDisarm = (handPick === 0 || handPick === 1);
+          viaHand = (handPick === 1);
+        } else
         goDisarm = await showChoice("見つけた罠を解除しますか?", "解除する", "迂回する");
       } catch (e) { goDisarm = false; }
       // 解除でも迂回でも「判定済」印を立てる (同ターンの毎フレーム再提示を防ぐ=テンポ維持)。
@@ -25597,6 +25771,11 @@
 
       // 解除判定 (tryPickLock を鏡写し: sleightOfHand / disarmDC)。
       dialogPaused = true;
+      if (viaHand) {   // ★[#80] 手を罠へ飛ばしてから判定する (振る人も DC も同じ = 仲間が手を介して操る読み)
+        try { await flyMageHand(handCaster, { x: target.tx * TILE_SIZE + TILE_SIZE / 2, y: target.ty * TILE_SIZE + TILE_SIZE / 2 }); } catch (e) {}
+        dialogPaused = true;
+        appendLog("✋ " + handCaster.name + " のメイジハンド — 罠の起爆機構に指を伸ばした");
+      }
       showDMMessage("罠の機構に手を伸ばす。起爆装置を見極め、慎重に無力化を試みる…", 1800);
       let res = null;
       try {
@@ -25609,7 +25788,7 @@
       } catch (e) { res = null; }
       skillCheckActive = false;
       dialogPaused = false;
-      applyDisarmResult(res, target);
+      applyDisarmResult(res, target, { viaHand: viaHand });
     }
 
     // ── Phase 2 (罠武器化) の器 ──
@@ -25628,7 +25807,7 @@
     // 罠解除判定の結果を反映。
     //   特大成功 (crit または total≧DC+5) → Phase 2: 罠を敵側へ武器化 (rearmed, owner='party')。
     //   通常成功 → 無害化 (disarmed) +XP / 通常失敗 → 起爆させず温存 / ファンブル → 起動。
-    function applyDisarmResult(res, trap) {
+    function applyDisarmResult(res, trap, opts) {
       if (!trap) return;
       const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
       const type = trap.type || "damage";
@@ -25660,6 +25839,16 @@
         showDisarmFloat(trap.tx * TILE_SIZE + TILE_SIZE / 2, trap.ty * TILE_SIZE + TILE_SIZE / 2);
         sfx("cageOpen");
         if (typeof gainXP === "function") gainXP(spec.disarmXP, "罠解除");
+      } else if (res && res.fumble && opts && opts.viaHand) {
+        // ★[#80] メイジハンドで解除していた: 牙を受けるのは幽霊の手。罠は起動済みになるが、誰も傷つかない。
+        trap.triggered = true;
+        trap.found = true;
+        if (trap.el) trap.el.classList.add("triggered");
+        sfx("trap");
+        showBanner("✋ 手が罠を受けた", 1400);
+        updateInfo(`${rep} は解除に失敗 (ファンブル) — 罠を受けたのは幽霊の手だった`);
+        showDMMessage("罠が牙を剥いた —— だが噛みついたのは幽霊の手だった。誰も傷つかない。", 2400);
+        appendLog("✋ 罠が牙を剥いた —— だが噛みついたのは幽霊の手だった。誰も傷つかない。");
       } else if (res && res.fumble) {
         // ファンブル(ナチュラル1): 唯一の被弾ケース。罠をプレイヤーに起動。
         showBanner("💥 手が滑った!", 1400);
@@ -37041,6 +37230,7 @@
         }
         const line = eyeReportText(scan.groups, scan.boss);
         await flyArcaneEye(caster, target, [{ line: line, groups: scan.groups, boss: scan.boss }]);
+        await offerMageHand("eye", null);   // ★[#80] 眼で見た物へ手を伸ばす (射程・視線を問わない)。⚠ 戻り値・ログ・eyeScoutedNodes は変えない
       } finally { skillCheckActive = prevSk; dialogPaused = prevDp; }
       return true;
     }

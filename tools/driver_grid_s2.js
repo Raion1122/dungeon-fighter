@@ -72,10 +72,11 @@ const ROWS = RECT[2] - RECT[0] + 1;        // 26
 const GATE_LEFT = [10, 15];                // 絵に描かれた街道の西口 (絵ローカル 0,14)
 const ENTRY = [12, 15];                    // ★ゲートではなく NODE_ENTRY_INSET=2 だけ内側
 const BOSS = [57, 12];                     // 赤い天幕の前 (絵ローカル 47,11)
-/* ★[#16] 残影の獣と檻。座標の出所は**旧・単一マップ版のシナリオ2 が使っていた檻**
- *   (index.html の ENEMY_SPAWNS / cageSpawns の "s2_beast_intel" 行)。本番の isTileWall で床、
- *   入場 (12,15) から本番 aStar で 31 歩、街道の南・丸太柵の門の手前。 */
-const CAGE_TILE = [41, 17];
+/* ★[#16] 残影の獣と檻。#16 当時の座標 (41,17) の出所は**旧・単一マップ版のシナリオ2 が使っていた檻**
+ *   (index.html の ENEMY_SPAWNS / cageSpawns の "s2_beast_intel" 行)。
+ * ★[#80] 今は **北の奥 (55,8)** (ユーザー決定「盗賊アジトの奥」= 野営地の北・白い天幕と木箱の脇)。
+ *   本番の isTileWall で床、入場 (12,15) から本番 aStar で 50 歩 (依頼書 #80 §12-0 (5))。 */
+const CAGE_TILE = [55, 8];
 const BRIDGE = [[30, 15], [31, 15], [30, 16], [31, 16]];   // 唯一の渡り
 /* 外周で歩けてよいのは 4 方向のゲートタイルだけ。
  *   left  = 絵の gates 指定 (10,15)
@@ -206,9 +207,9 @@ const MUTATIONS = {
    * ⚠ 獣と檻は**必ず 2 行とも**戻す。片方だけだと linkCagedBeasts が最寄りの檻へ
    *   吸着して辻褄が合ってしまい、負のコントロールが空振りする。 */
   nobeastmove: [
-    ['        ? { n7: { spawns: [["shadowBeast", 41, 17, "s2_beast_intel"]],',
+    ['        ? { n7: { spawns: [["shadowBeast", 55, 8, "s2_beast_intel"]],',
      '        ? { n7: { spawns: [["shadowBeast", 36, 13, "s2_beast_intel"]],  /* ★変異nobeastmove */'],
-    ['                  cages:  [{ tx: 41, ty: 17, flag: "s2_beast_intel" }] } }',
+    ['                  cages:  [{ tx: 55, ty: 8, flag: "s2_beast_intel", noAutoEscape: true }] } }',
      '                  cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] } }  /* ★変異nobeastmove2 */']],
 };
 const MUT_ORDER = ['nobridge', 'nostart', 'nodensity', 'noring',
