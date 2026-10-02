@@ -334,4 +334,92 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(項目1・2026-10-03・HEAD `04fa8ac`)
+
+#### (0) 基準 HEAD の差
+
+`git diff --stat 36f4ba0 04fa8ac` = `実装依頼書/2026-10-02_quest-draw-shop-room.md`(+337)と `実装依頼書/README.md`(+1)の 2 ファイルだけ。
+`git rev-parse <rev>:<path>` で `tavern.html` / `index.html` / `js` / `tools` / `audio.js` / `town.html` / `world.html` / `assets` の
+blob/tree OID が 36f4ba0 と 04fa8ac で**全一致** ⇒ §2 の行番号はそのまま `04fa8ac` でも有効。
+
+#### (1) §2 の主張の測り直し
+
+| 主張 | 実測 | 判定 |
+|---|---|---|
+| §2-1 `js/tavern-map.js:139-143` TABLES / `:153-160` DOORS / `:166-172` SPAWNS(`back:[13,3]` は `:170`) | 一致 | ✓ |
+| §2-1 `tavern.html:10604-10647` buildSigns / `:10767-10776` openBackroom・closeBackroom / `:6291-6295` isUnlocked / `:3391` `#shopEntry` / `:7048` 結線 / `:7027` openShop / `:10378` 店先入店 / `:5815` consumeResult / `:2752` `#tableArea{display:none}` / `:9810` renderTables() | 一致 | ✓ |
+| §2-1 enterDoor `:10733-10755` | 関数頭は `:10734`(`:10733` は `var leaving`)。`back` 分岐 `:10744` は一致 | ✓(1 行ずれ・害なし) |
+| §2-1 生成クエストの分け `:5862` | `:5864` | ✓(2 行ずれ・害なし) |
+| §2-1「buildSigns の呼び口は `:10826` の 1 箇所だけ」 | **K1** 下記 | 崩れ |
+| §2-2 一本道・新規で解放 1 件 | `scenarios`(`:3513`)の locked/unlockAfter は 廃坑→森→沼→砦→神殿→竜。`isUnlocked` は `!locked` か `cleared.has(unlockAfter)` ⇒ 新規は廃坑だけ | ✓ |
+| §2-3 consumeResult が buildSigns より先 | どちらも同じ `<script>`(`:3441`〜`:11120`)の同期 IIFE。`:5815` consumeResult → `:10421` initTavernMap → `:10826` buildSigns() | ✓ |
+| §2-3 LIVE_PREFIX の prefix コピー | `js/save-slots.js:45` `LIVE_PREFIX = "dragonfighters."`、`:77` 「キーをハードコード列挙しない」、`:84` で prefix 総なめ。`dragonfighters.questBoard` は既存キーと衝突なし(DOM の `#questBoard` は別物) | ✓ |
+| §2-4 種が食い違う経路 | `?unlockall=1` は `:4261` の IIFE で consumeResult より前に `cleared` を 6 本へ書く ⇒ 盤面の妥当性検査が要るのは正しい | ✓ |
+| §2-5 grep の全数 | 同じ grep を再実行 = 6 本で一致。ただし語を広げると **K2**(`verify_npc_crowd`)が漏れていた | 崩れ |
+| §2-5 店を開くドライバは全部シーム経由 | `verify_scroll_shelf` 8 回・`verify_arcane_eye`/`verify_invisibility`/`verify_mage_hand` 各 1 回、すべて `__equipTV.openShop()`。`#shopEntry` を押す本は 0。`verify_town_map:608` はコメントだけ | ✓ |
+| §2-5 5 本の構造(新規状態 ⇒ 廃坑が本筋で必ず盤面に居る) | 5 本とも `#questTable_goblin-mine, #tableArea .table`。種は `cleared:[]` か `{}`。`verify_quest_visibility` の帰還の腕(`:816-818`)は廃坑クリア ⇒ 解放 2 件 = 盤面は {廃坑, 森} 固定。⭐ t1 (4,4) は spawn (7,8) から**最も遠い席**なので、席が動いても歩数は減る方向だけ | ✓ |
+| §2-6 `?tavernmap=0` では `#shopEntry` が唯一の入口 | 地図 IIFE は `?tavernmap=0` で即 return(`:10426`)。openShop の呼び口は `:7049`(#shopEntry)と `:10378`(町の店先)だけで、後者は町からの遷移 = クエリが落ちて地図モードに戻る。`#shopEntry` にインライン display を書く JS は無い ⇒ CSS で隠せる | ✓ |
+| §2-7 changelog | `scripts/hooks/check_changelog.py:24` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")`・`core.hooksPath=scripts/hooks` | ✓ |
+
+**崩れた主張(K1〜K3)。どれも仕様には響かない(実装方針・受入条件はそのままで満たせる)。**
+
+- **K1** buildSigns の呼び口は 1 箇所ではない。`tavern.html:10824` `window.__tavernRefreshSigns = buildSigns;` があり、
+  `updatePlazaDoor()`(`:9868`、闇市の解禁は遊んでいる最中に起きる)と `verify_tavern_map` の (2c) `placeLinkProbe`(`:701`/`:704`)が**再実行**する。
+  ⇒ 響き: 盤面の読み出し(`loadOrDrawBoard`)は buildSigns が何度呼ばれても**保存値を読むだけ**で引き直さないこと(引き直しは consumeResult の鍵消し 1 つ、は変わらない)。
+- **K2** §2-5 の「全数 grep」の語では `tools/verify_npc_crowd.js` が漏れる。`:139` `POP.tavern.signs: 5`(卓 3 + 町 + 奥の間)を (0c) が**ちょうど一致**で見ているので、
+  抽選 ON(卓 2 + 町 + 武器防具屋 = 4 枚)で**必ず赤**。⇒ 言い直し対象に `tools/verify_npc_crowd.js` を 1 本足す(触るファイルが +1。§3 の表には無い)。
+  (1a) の札×NPC 交差は、盤面の席が既存 3 席の部分集合なので新しい交差は生まれない見込み。素 33/33・`--negative` 58/58(下表)。
+- **K3** §8 の言い直し表は (2a)(3a)(3b)(4b)(5b) だけだが、種の盤面 `{t1:goblin-mine, t2:bandits-forest}` でも次の 2 本が赤になる:
+  - **(2d)** `tableRows()`(`tools/verify_tavern_map.js:1067`)は `TABLES` の 3 行を回すので、盤面に居ない沼地の行が「DOM に無い」で bad ⇒ 赤。測定点を盤面(または `?questdraw=0`)へ移す。
+  - **(5c)** `(s.signs || []).length !== 3` で空振り扱い ⇒ 赤。(5b) と同じ言い直しが要る。
+  - (2b)(2c)(1b)(1c) は `TABLES` を残すかぎり緑のまま(2c は TABLES の先頭の解放済み = 廃坑 を種の盤面が含むので成立)。
+
+#### (2) 名指し golden の着手前の色(本番の作業ツリー・素 ×2)
+
+| 本 | 1 回目 | 2 回目 | 所要(秒) | ポート |
+|---|---|---|---|---|
+| `verify_tavern_map` 素 | exit 0 `43/43 PASSED FAILED 0 PENDING 0` | 同 43/43 | 24 / 21 | 9161〜9200 帯 |
+| `verify_tavern_map --negative` | exit 0 `67/67 PASSED`(変異 10/10、`(n9a)` PENDING 0) | 同 67/67 | 43 / 43 | 同上 |
+| `driver_depart_menu_clean` | exit 0 `41/41 PASS` | 41/41 | 52 / 52 | 内蔵サーバ |
+| `driver_party_view_reopen` | exit 0 `35/35 PASSED / 0 FAILED / 0 PENDING` | 35/35 | 36 / 35 | 9480 |
+| `verify_quest_walk` | exit 0 `25/25 PASSED FAILED 0 PENDING 0` | 25/25 | 98 / 97 | 9161〜9164 |
+| `verify_recruit_size` | exit 0 `91/91 PASS` | 91/91 | 35 / 35 | 内蔵サーバ |
+| `verify_quest_visibility` | exit 0 `素 39/39 PASSED (PENDING 0)` | 39/39 | 17 / 16 | 10221〜10228 |
+| `verify_town_map` | exit 0 `85 / 85` | 85/85 | 51 / 52 | 9000 |
+| `verify_scroll_shelf` | exit 0 `19/19 PASSED FAILED 0 PENDING 0` | 19/19 | 4 / 3 | 10484 |
+| `verify_npc_crowd`(K2) | exit 0 `33/33 PASSED FAILED 0 PENDING 0` | 33/33 | 72 / 72 | 9572〜9586 |
+| `verify_npc_crowd --negative`(K2) | exit 0 `58/58 PASSED`(1 回) | — | 195 | 同上 |
+| `verify_recruit_talk --negative`(下の (3)) | exit 0 `25/25 PASSED`・`負のコントロール: 11/11 本が期待どおり`(1 回) | — | 612 | — |
+
+⇒ 全 20 腕 + 2 腕が緑。2 回とも同色同数(揺れなし)。8765(試遊サーバ)は触っていない。
+
+`verify_tavern_map --negative` の変異アンカー 10 本は全部 HEAD で 1 ヒット(67/67 が証拠)。#81 で動く場所にあるのは:
+`reclick` `      if (walkingTo === t.key) return;`(`:10722`)/ `instant` `    function goToTable(t) {`(`:10717`)/
+**`hidelock` `        var unlocked = isUnlocked(sc);`(`:10610`・buildSigns の中)** / `plazashow`(`:10630`・buildSigns の扉ループ)/
+`gatetable`・`copyplace` `  var TABLES = [`(`js/tavern-map.js:139-140`)/ `noretreat`(`:2923`)。§8 の見込みどおり `  var TABLES = [` は生きる。
+
+#### (3) 母集団の着手前の色(流用)
+
+- 母集団 = 3 段の union(`item1/pop81.py`): ① コメントを落としたコードが `tavern.html` か `tavern-map` を読む **57 本** /
+  ② 舞台の語(`TAVERN_MAP` `__TAVERN_TV` `questTable_` `tavernDoor_` `shopEntry` `openShop` `backroom`)11 本 / ③ 母集団の本を名指しで読む本 3 本。
+  ②③ はどちらも ① の真部分集合で、union は **57 本**。`auto_debug_run` は母集団外(2026-10-02 ユーザー決定の「未走査」はそのまま)。
+- 流用の可否: (0) のとおりドライバが読む木(配信物 + `tools/`)の OID が 36f4ba0 と全一致 ⇒ #80 項目4 の走査 TSV
+  (`post80.tsv`・本番 36f4ba0・176 腕)を**着手前の色として流用可**。57 本はすべて post80 に在り(欠け 0)、
+  腕 **72**(素 57 + `--negative` 15)を `pre81.tsv` へ抜き出した(凍結コピー = scratchpad `item1/from80/`)。
+- 72 腕の色(exit code が主): **緑 66 / 非緑 6**。非緑は全部 #80 の §12-0/§12-3 で分類済みの既知:
+  `driver_mapeditor` 176/179・`driver_monsters_umberhulk` 21/22・`probe_party_size` 13/20(600 秒打ち切り)・
+  `sweep_recruit_balance`(装置 assert 4/4 = 調査の道具)・`verify_pm_drawer_fit` 74/75((5d) の揺れ・p=1.00)・
+  `verify_mage_hand --negative`(K26 の揺れ。単独再走 12/12 × 2)。腕の所要合計 13,483 秒(約 225 分)。
+- ⚠ 母集団で `--negative` を持つのに post80 に腕が無い本が 23 本ある(`verify_tavern_map` / `verify_npc_crowd` / `verify_quest_walk` ほか)。
+  #81 の差分が触る変異アンカーを持つのは `verify_tavern_map`(上の 7 本)と `verify_recruit_talk`(`DFRecruits.clear()` `:5854`・consumeResult の中)だけ
+  (`item1/anchor81.py` で 57 本の `from:` を tavern.html / js/tavern-map.js の変更区域へ当てた)⇒ この 2 本 + K2 の `verify_npc_crowd --negative` の着手前の色を上の表で取った。
+  項目4 で差分から選んだ `--negative` の腕がこれ以外に出たら、その腕だけ 04fa8ac の影のツリーで着手前の色を取る。
+
+#### (4) 項目2 への申し送り
+
+1. `hidelock` のアンカー `        var unlocked = isUnlocked(sc);` は buildSigns 内に**ちょうど 1 回**残すこと(ON/OFF の分岐で 2 回書くと `verify_tavern_map --negative` が exit 3)。`reclick` / `instant` のため `goToTable` も 1 バイトも変えない(盤面の写し `{key, enter, sign, scenarioId}` を渡すだけ)。
+2. `dropscen` は (4b) を `back` フェーズで見る ⇒ (4b) を `?questdraw=0` へ移すとき `back` フェーズの URL にも `?questdraw=0` を付ける(付けないと扉が無くて (4b) が空振り)。
+3. 言い直しが要る assert = `verify_tavern_map` (2a)(2d)(3a)(3b)(4b)(5b)(5c) + `verify_npc_crowd` (0c)(K2・K3)。数は盤面(または `__TAVERN_TV.board()`)から導出し、定数 4 を焼かない。
+4. buildSigns は `__tavernRefreshSigns` 経由で何度でも呼ばれる(K1)⇒ 盤面は buildSigns の中で「読む」だけ。
+5. 行末: `tavern.html` / `js/tavern-map.js` は純 CRLF(11122/11122・184/184)、`tools/verify_tavern_map.js` / `tools/verify_npc_crowd.js` は純 LF。
+6. 作業ツリーに `dev-meetings/2026-10-03_tower-mother-quest.md`(未追跡)が居る = 別窓の持ち物。⛔ add しない。
