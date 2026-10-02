@@ -1,6 +1,6 @@
 # #81 酒場の依頼を「戻るたびに入れ替わる 2 件」へ + 奥の小部屋を武器防具屋へ
 
-- **起草**: 2026-10-02(起草窓) / **ステータス**: **承認済**(2026-10-02 ユーザー承認)
+- **起草**: 2026-10-02(起草窓) / **ステータス**: **✅ 完了**(2026-10-03 実装窓。2026-10-02 ユーザー承認)
 - **基準 HEAD**: `36f4ba0`(作業ツリー clean・origin/main と一致)
 - **触るファイル**: `tavern.html` / `js/tavern-map.js` / `tools/verify_tavern_map.js`(言い直し)/ `tools/verify_quest_draw.js`(新規)
 - ⛔ **触らないファイル**: `index.html` / `town.html` / `world.html` / `js/world-map.js` / `js/save-slots.js` / `audio.js`
@@ -567,3 +567,79 @@ lockedpool (1a)(1b) = 各 6 回の引きが全部「森 / 廃坑」を引く確�
 - **D4** (0c) pageerror 0 を足した(§8 に無い)。(1e) は §1 の全 56 読み込みに当て、席の位置(札が `TABLES` の sign タイルに立つ)と「保存値の JSON === `board()`」も見る。
 - **D5** (3b) の種を §8 の 4 種 + **id 重複・存在しない id** の 6 種にした。(2b) は新規状態の ??? 入り / cleared 3 本の 2 つの種。
 - **D6** (4b) は「押した時点で主人公が (13,2) に居ない」ことも見る(歩いてから開く)。(5a) は「奥の間へ」を押して `body.backroomOn` と `#tableArea.backroomOpen` まで見る。
+
+### 12-3. 項目4 — 母集団の非退行(2026-10-03 01:59〜06:5x・本番 = HEAD `c918b69`)
+
+⛔ 本番も `tools/` も 1 バイトも触っていない(走査・対比較の前後で `git status --short` = 0 行・HEAD = `c918b69`)。変えたのは本書 §12 と台帳の `| 81 |` 行だけで、書いたのは走査と対比較が終わった後。
+HEAD `c918b69` は起草窓の #82 起草(`git diff --stat b72aa70 c918b69` = `dev-meetings/2026-10-03_tower-mother-quest.md`・`実装依頼書/2026-10-03_tower-mother-a.md`・`実装依頼書/README.md` の 3 本・docs のみ)⇒ 配信物と `tools/` は `b72aa70` と同一。
+なお #81 の差分(`git diff --stat 04fa8ac b72aa70`)のうち配信物は `tavern.html` と `js/tavern-map.js` の 2 本。道具は `tools/verify_tavern_map.js` / `tools/verify_npc_crowd.js`(言い直し)と `tools/verify_quest_draw.js`(新規)。
+成果物は scratchpad `…/fc9e134f-f7da-473d-a23a-a874bfd2e413/scratchpad/item4/`。道具は #80 項目4 のものをコピーして直した(`sweep_81post.py` / `build_arms_81post.py` / `cmp_81.py` / `mkshadow_81.py` / `pair_81.py`)。`fp74.py` と `fisher.py` はバイト同一のコピー。
+
+#### (1) 腕 = 74 腕(`build_arms_81post.py` → `armlist_81post.json`)
+
+| 枠 | 腕 | 着手前の色 |
+|---|---|---|
+| 母集団 57 本の素(§12-0 (3)) | 57 | `item1/pre81.tsv`(post80 の流用) |
+| `--negative`(§12-0 (3) の 15 腕) | 15 | 同上 |
+| 新規受入 `verify_quest_draw` 素 / `--negative` | 2 | なし(04fa8ac には盤面のコードが無いので赤が正しい ⇒ 対比較の対象外。HEAD で緑であることだけ) |
+
+- **走らせる場所**: §12-0 (3) の `root` 列のまま。コードが `git` を呼ぶ 18 腕は clone(`item4/clone81` = `c918b69` の `git clone`・追跡 916 本が本番と**バイト一致** mismatch 0)、残りは本番の作業ツリー。
+- ⛔ **`auto_debug_run` は走らせていない**(母集団外・2026-10-02 ユーザー決定の「未走査」を引き継ぎ)。試遊サーバ 8765 は止めていない・使っていない。
+
+#### (2) 走査と所要
+
+- `sweep_81post.py` は直列・SKIP 再開型(TSV に済んだ腕は飛ばす)。`Win32_Process.Create` で切り離して起動した(ツールの 2 時間上限で切れないように。最初の背景起動は 1 腕目の途中で止めて張り直し、その腕は TSV 未記録なので頭から走った)。腕ごとに `df_*` の居残り Chrome を掃除(全 74 腕で 0)。
+- 時間: 02:00:14 → 05:17:47 = **197.5 分**(腕の合計 197.0 分。着手前の 72 腕は約 225 分 — `verify_mage_hand --negative` が素の基準で止まり 157 秒で終わった分が主)。打ち切りは `probe_party_size`(素)の 600 秒だけで、着手前と同じ。
+- 長かった腕: `verify_bolt_aim` 2,268.0s / `verify_run_chronicle --negative` 1,546.7s / `verify_hold_pair` 906.5s / `verify_prep_retire --negative` 763.7s / `probe_s5s6_clear` 677.1s / `verify_quest_draw --negative` 453.6s。
+
+#### (3) 色の遷移(exit code が主・着手前の色がある 72 腕)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | 65 | 素 50 + `--negative` 15(うち着手前に揺れで赤だった `verify_mage_hand --negative` は下の赤→赤)。PASS 数は `verify_tavern_map` 43 → **47**(§12-1 の言い直し +4)以外すべて同数 |
+| 赤→赤 | 5 | `driver_mapeditor` 176/179・`driver_monsters_umberhulk` 21/22・`probe_party_size` 13/20(600 秒)・`sweep_recruit_balance`(装置 4/4)= **判定行の指紋(経路①②)が着手前とバイト一致** = 同じ型の非緑 / `verify_mage_hand --negative` = 下の (4) |
+| **緑→赤** | **1** | `driver_monsters_griffon` 17/17 → 14/17。下の (4) |
+| 赤→緑 | 1 | `verify_pm_drawer_fit` 74/75 → 75/75((5d) の揺れ・#80 で p = 1.00 と分類済み) |
+| 新規 | 2 | `verify_quest_draw` 素 = exit 0 `18/18 PASSED FAILED 0 PENDING 0`(41.0 秒)/ `--negative` = exit 0「10 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行」(453.6 秒) |
+
+着手前に非緑だった 6 腕: 5 腕は同じ型の非緑(上)、`verify_pm_drawer_fit` は緑へ戻った(揺れ)。
+
+#### (4) 緑→赤と、型の変わった赤の切り分け
+
+- **`driver_monsters_griffon`(緑→赤)**: 赤は (3) swoop の 2 本と (4) ミノタウロス既定の 1 本。どれも `pageA` / `pageC` = `index.html?autoplay=20` の戦闘のサンプル(`__pickProbe` / `__zoneProbe` の件数)で、
+  `index.html` は `tavern.html` も `js/tavern-map.js` も読まない(`<script src>` 8 本 = audio / abilities / skill-check / save-slots / hero-classes / class-sight / player-sheet / df-mapdef)= **#81 が触れたバイトはこの assert の経路に載らない**(構造)。
+  ① K25 の作法どおり本番の作業ツリーで再走 ⇒ ② 影のツリー `item4/shadow81`(本番の実体コピーから `tavern.html` / `js/tavern-map.js` / 言い直し 2 本だけ `04fa8ac` へ戻した。`check-attr eol` どおりに変換し、HEAD 側の変換 = 作業ツリーのバイトを確認)と交互の対 4 + 8 回:
+  本番 **6/12 赤** / 影 **6/12 赤**(影でも同じ (3)(4) が赤)・Fisher **p = 1.000** ⇒ **揺れ**(#81 に帰属しない)。→ **K12**
+- **`verify_mage_hand --negative`(赤→赤・型が変わった)**: 着手前は `escapeon` が担当外の (3a) へ漏れる揺れ(#80 K26)、今回は `--negative` 冒頭の素の基準で **(3a)** が赤(ダイアログが「そのラウンド最初の手番より前」に出ていない・`tBetween:0`)⇒ 変異を走らせずに exit 1。
+  (3a) は `index.html` の森の実戦闘で、#81 のバイトは経路に無い(上と同じ構造)。同じ走査の素の腕は 32/32。本番で単独再走 ⇒ **exit 0・12/12 担当ラベルだけが赤・空振り 0・漏れ 0**(1,867.9 秒)⇒ K26 と同じ (3a) の揺れの別の出方。→ **K13**
+- **#81 に帰属する緑→赤 = 0**。
+
+#### (5) 母集団の外で足した腕(D7)
+
+変更区域(#81)に変異アンカーを持つ `--negative` 3 腕は母集団 72 腕に入っておらず、実装後の色は §12-1 (4)(`d914fdc`)にしか無い ⇒ HEAD でも 1 回ずつ走らせた(本番の作業ツリー):
+`verify_tavern_map --negative` exit 0 **71/71**(変異 10/10・`(n9a)` PENDING 0・45 秒)/ `verify_npc_crowd --negative` exit 0 **58/58**(変異 13/13・244 秒)/ `verify_recruit_talk --negative` exit 0 **25/25**・負のコントロール **11/11**(613 秒)。§12-1 (4) と同数。
+
+#### (6) 崩れ(K12〜)
+
+- **K12** `driver_monsters_griffon` の (3)(4) は**約 50% で赤**(本番 6/12・`04fa8ac` の影 6/12)。着手前の 17/17 は 1 回の緑を拾っていただけ(#80 でも指紋が走行ごとに動く本として比較から外していた)。グリフォンが後列を狙った回数 0/8〜0/12 = 戦闘サンプルが少ない回に落ちる。直すならドライバのポール時間かサンプル数の下限(別チケット)。
+- **K13** `verify_mage_hand --negative` の (3a) の揺れ(#80 K26)は、変異の漏れとしてだけでなく**素の基準の (3a) 赤**としても出る ⇒ その回は変異を 1 本も走らせずに exit 1 で終わる(157 秒)。次に触るときは (3a) の詳細に `order` の各時刻を出して切り分ける。
+
+#### (7) 逸脱(D7〜)
+
+- **D7** 指示の 74 腕に加えて、変更区域にアンカーを持つ `--negative` 3 腕を HEAD で走らせた((5))。
+
+#### (8) まとめ
+
+- 74 腕(母集団 57 本 72 腕 + 新規受入 2)を直列で走査(197.5 分)し、**#81 に帰属する緑→赤 0**(緑→緑 65 / 赤→赤 5 / 緑→赤 1 / 赤→緑 1 / 新規 2)。
+- 緑→赤の `driver_monsters_griffon` は `index.html` だけの戦闘サンプルで、影との交互の対で p = 1.000 の揺れ(K12)。型の変わった `verify_mage_hand --negative` は本番の単独再走で 12/12(K13)。
+- 新規受入 `verify_quest_draw` は素 18/18・`--negative` 10/10(HEAD で緑)。着手前に非緑の 6 腕は同型 5 + 揺れで緑 1。
+- `auto_debug_run` は着手前・実装後とも未走査(ユーザー決定)。
+
+### 12. 総括
+
+- **commit**: `d8ec8cd`(項目1 着手前の実測 = 基準 HEAD `04fa8ac`・崩れ K1〜K3・名指し golden 10 本 ×2 + 2 腕・母集団 57 本 72 腕の色を post80 から流用)/ `d914fdc`(項目2 本番 = `js/tavern-map.js` の扉 `shop`「武器防具屋」+ `tavern.html` の盤面〔localStorage `dragonfighters.questBoard`・`boardValid` の 3 条件・引き直しは `consumeResult()` の鍵消し 1 行だけ〕+ `#shopEntry` を地図モードで CSS で隠す + 撤退 `?questdraw=0` + `__TAVERN_TV.board()/boardFacts()` + `verify_tavern_map`(43→47)/ `verify_npc_crowd` の言い直し + changelog)/ `b72aa70`(項目3 受入 `tools/verify_quest_draw.js` 18 assert・変異 10)/ 本節を書いたコミット(項目4 母集団の非退行 + 総括 + 台帳)。
+- **受入**: `tools/verify_quest_draw.js` 素 **18/18**・`--negative` **10/10**(必ず赤 ⊆ 実際の赤 ⊆ 必ず赤 ∪ 確率で赤)。名指し golden は着手前と同色(`verify_tavern_map` は言い直しで 43 → 47)。母集団 74 腕で **#81 に帰属する緑→赤 0**。
+- **崩れた主張は通算 13 件**(項目1 K1〜K3 / 項目2 K4 / 項目3 K5〜K11 / 項目4 K12〜K13)。**仕様に響いたもの 0・本番の不具合 0**。実装の作法へ響いたもの: K1(buildSigns は `__tavernRefreshSigns` で何度も呼ばれる = 盤面は読むだけ)/ K2・K3(言い直し対象が依頼書の表より多い = `verify_npc_crowd` (0c)・`verify_tavern_map` (2d)(5c))/ K4(札の出る席が減ると交差検査の母集団も痩せる = 盤面 B を追加)/ K7(本筋欠けは「捨てる側」でなく「引き直した盤面」で測る)/ K11(乱数を固定しない受入は必ず赤 / 確率で赤 の 2 表)。
+- **逸脱は 7 件**(D1〜D7)。どれも検査を足す方向(緩めた・削ったものは 0)。
+- **残り**: §9 の実機確認(ユーザー担当: 数回潜って戻ったときの入れ替わりの手応え・本筋が必ず居るか / 北東の扉の札「武器防具屋」の見つけやすさ・iPhone 縦で札が押せるか / 依頼の無い卓の寂しさ)。`auto_debug_run` は未走査のまま(8765 と衝突)。作業用コピー `item4/shadow81`(289MB)・`item4/clone81`(544MB)の削除はユーザー判断。
+- **次の新規ドライバ base = 10538**(`verify_quest_draw` が 10527〜10537 を使う)。
