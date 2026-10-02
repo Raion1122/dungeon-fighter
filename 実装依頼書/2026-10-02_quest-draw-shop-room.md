@@ -506,3 +506,64 @@ blob/tree OID が 36f4ba0 と 04fa8ac で**全一致** ⇒ §2 の行番号は�
 - シーム: `__TAVERN_TV.board()` = `{v:1, seats:{t?:id,...}, nonce}` の写し(OFF は null)。`__TAVERN_TV.boardFacts()` = `{unlocked:[id], frontier:id|null, nextLocked:id|null}`。
 - 罠: 種の盤面はページの `cleared` に照らして妥当でないと捨てられる(新規状態では {廃坑, 森} だけが妥当)。`?unlockall=1` は `cleared` を 6 本にするので、それ以前の種は本筋の条件で捨てられることがある。
   `verify_npc_crowd` の新規ページは purge(sessionStorage の `__drvSeeded`)のあと盤面を種まきする。新しいドライバで同じ作法を使うなら、席 t3 の扱い(K4)に注意。
+
+### 12-2. 新規受入(項目3・2026-10-03・基準 HEAD `d914fdc`)
+
+#### (1) `tools/verify_quest_draw.js` — **18 assert**(port 素 **10527** / 変異 **10528〜10537**)
+
+§8 の (0a)(0b)(1a)〜(1e)(2a)(2b)(3a)(3b)(4a)〜(4d)(5a)(5b) の 17 本 + 独自の **(0c)**(全ページ pageerror 0)。
+盤面は tavern.html を開くだけで本番の `buildSigns → loadOrDrawBoard` に作らせ、ドライバは空ページ `/__blank.html`(同じオリジン)で
+`dragonfighters.cleared` / `dragonfighters.questBoard` / `sessionStorage lastResult` をまいて、DOM の札・保存値・`board()` の写しで判定する。
+期待値(解放済み / 本筋 / 次の未解放 / 妥当性 3 条件)はページの `scenarios` の `{id, locked, unlockAfter}` とまいた cleared から
+**ドライバ側で独立に**計算する(`indepFacts` / `indepValid`)。`__TAVERN_TV.boardFacts()` は判定に使っていない。乱数は固定していない。
+町との往復 (2a) は town.html を実際に開き、`enterFacility` と同じ `enterVia="tavern"` + `location.href="tavern.html"` で戻る。
+
+| 実行 | 結果 | 所要 |
+|---|---|---|
+| `node tools/verify_quest_draw.js` ×3 | 3 回とも exit 0 `18/18 PASSED   FAILED 0   PENDING 0`(起動 86 ページ) | 32.0 / 32.1 / 32.2 秒 |
+| `node tools/verify_quest_draw.js --negative` ×2 | 2 回とも exit 0「負のコントロール 10 / 10 が検出成功」(素の基準 18/18 込み) | 350.8 / 349.9 秒 |
+
+#### (2) 変異の担当表(実走で決めた・`--mutate` 1 回 + `--negative` 2 回)
+
+合否 = **必ず赤 ⊆ 実際の赤 ⊆ 必ず赤 ∪ 確率で赤** + 注入行の実行 > 0(担当外の赤は NG)。注入行は `console.log("__MUTHIT__<key>")` を
+欠陥が効く枝に置いた(CSS の shopbtn だけは `--mut-shopbtn: 1` を宣言し、`#shopEntry` の計算値で数える)。
+
+| 変異 | §8 の予想 | 必ず赤(実測) | 確率で赤 | 1 回目の赤 | 2 回目の赤 |
+|---|---|---|---|---|---|
+| `memonly` | (2a)(2b) | (2a)(2b) | — | (2a)(2b) | (2a)(2b) |
+| `lockedpool` | (1c) | **(1a)(1b)**(1c)**(2b)** | (2a)(3a)(3b) | +(2a)(3a)(3b) | +(3a)(3b) |
+| `nofrontier` | (1c)(3b) | (1c)(3b) | (2a) | +(2a) | — |
+| `novalidate` | (3b) | (3b) | — | (3b) | (3b) |
+| `noreroll` | (3a) | (3a) | — | (3a) | (3a) |
+| `enterreroll` | (2a) | (2a)**(2b)** | — | (2a)(2b) | (2a)(2b) |
+| `oneonly` | (1a) | **(0a)**(1a)**(3a)** | — | 同左 | 同左 |
+| `backroomdoor` | (4b) | (4b) | — | (4b) | (4b) |
+| `shopbtn` | (4c)(5b) | (4c)(5b) | — | (4c)(5b) | (4c)(5b) |
+| `killshopdom` | (4c)(4d) | (4c)(4d)**(5a)(5b)** | — | 同左 | 同左 |
+
+「必ず赤」で乱数に依るものは、緑になる確率を回数で 1e-4 未満にしてある:
+lockedpool (1a)(1b) = 各 6 回の引きが全部「森 / 廃坑」を引く確率 (1/5)^6 ≒ 6.4e-5 / nofrontier (1c) ≒ 1e-14・(3b) = (1/2)^6 × 0.4^6 ≒ 6.4e-5。
+「確率で赤」は 2 回の `--negative` で実際に赤と緑の両方が出た((2a) は lockedpool・nofrontier とも 1 回目だけ赤)⇒ 完全一致を要求すると揺れる。
+
+#### (3) 崩れ(K5〜)
+
+- **K5** `oneonly` は (1a) だけでなく **(0a)(3a)** も必ず赤。新規状態の盤面が 1 件になる ⇒ (0a) の「2 件」と、(3a) の敗北/撤退/生成クエスト 3 通り
+  (帰還後も新規状態のまま引き直す)が 1 件の盤面になる。1 件の盤面は boardValid ① で毎回捨てられるので、保存しても毎読み込みで引き直される(notes_item2 の予告どおり)。
+- **K6** `lockedpool` は (1c) だけでなく **(1a)(1b)(2b)** も必ず赤。(1a)(1b) は 2 件目を全 5 件から引くので森/廃坑以外が出る。
+  (2b) は母集団が 6 件になると boardValid ② の「解放済みが 2 件未満なら次の未解放を許す」が成り立たなくなり、新規状態の ??? 入りの種が**捨てられる**。
+  ⇒ (1a)(1b) を 1 回ではなく 6 回引く形にした(1 回だと 80% でしか赤くならない)。
+- **K7** §8 の (3b) を文字どおり(`nonce !== "SEED"` だけ)書くと **`nofrontier` は赤くならない** — 捨てる側(boardValid ③)は無傷なので、本筋欠けの種は正しく捨てられる。
+  欠陥が出るのは「引き直した盤面に本筋が無い」こと ⇒ (3a)(3b) は**引き直した盤面も独立計算で妥当**であることを見る形にし、(3b) は解放済みが 4〜5 件の
+  cleared 3 本 / 4 本で 6 種ずつ(12 回)まく(cleared 1 本では引きが {廃坑, 森} しかなく本筋が必ず入るので変異が見えない)。
+- **K8** `enterreroll` は (2a) だけでなく **(2b)** も必ず赤(起動時に種そのものが消える)。
+- **K9** `killshopdom` は (4c)(4d) だけでなく **(5a)(5b)** も必ず赤((5a) は `?questdraw=0` で `#shopEntry` が見えること、(5b) は ON 側の (4c) 条件を含む)。
+- **K10** CSS の変異(shopbtn)は console を持てないので「注入行の実行」を測れない ⇒ 代わりに `--mut-shopbtn: 1` を宣言し、ドライバが `getComputedStyle(#shopEntry)` でその規則が当たったページを数える(84 回)。
+  killshopdom は要素の代わりに `<script>` を置いて印にした(`bindShop` は `if (entry)` で守られているので落ちない・(0c) 緑)。
+- **K11** 乱数を固定しない受入では、変異の赤の集合が実行ごとに揺れる(lockedpool の (2a) は最初の引きに未解放が入ったときだけ赤)⇒ verify_mage_hand の
+  「赤の集合 = 担当の完全一致」は使えない。必ず赤 / 確率で赤 の 2 表に分け、必ず赤は回数で決定的にした。
+
+#### (4) 逸脱(D4〜)
+
+- **D4** (0c) pageerror 0 を足した(§8 に無い)。(1e) は §1 の全 56 読み込みに当て、席の位置(札が `TABLES` の sign タイルに立つ)と「保存値の JSON === `board()`」も見る。
+- **D5** (3b) の種を §8 の 4 種 + **id 重複・存在しない id** の 6 種にした。(2b) は新規状態の ??? 入り / cleared 3 本の 2 つの種。
+- **D6** (4b) は「押した時点で主人公が (13,2) に居ない」ことも見る(歩いてから開く)。(5a) は「奥の間へ」を押して `body.backroomOn` と `#tableArea.backroomOpen` まで見る。
