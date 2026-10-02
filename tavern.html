@@ -2750,6 +2750,10 @@
     body.tavernMapOn #fireplace { display: none; }
     body.tavernMapOn #plazaDoor { display: none !important; }
     body.tavernMapOn #tableArea { display: none; }
+    /* ★[#81] 地図モード + 抽選 ON では店の入口は北東の扉「武器防具屋」だけ。
+       ⛔ #shopEntry の DOM は消さない — ?tavernmap=0 の 1 枚絵ではこれが唯一の店の入口。
+       ⭐ body.questDrawOn は地図 IIFE が起動時に 1 回付ける (?questdraw=0 / ?tavernmap=0 では付かない)。 */
+    body.tavernMapOn.questDrawOn #shopEntry { display: none; }
 
     /* ── 「奥の間」 ⚠⚠ 暫定 (実装依頼書 #25 STEP4) ──────────────────────────────
        #26 (復興評議会館) ができたら **この節と #backroomBar と DOORS "back" ごと撤去する**。
@@ -3326,10 +3330,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>酒場の依頼が入れ替わるように</b> — 卓に並ぶ依頼はダンジョンから戻るたびに変わる 2 件だけ。物語の次の依頼は必ず並ぶ。奥の小部屋は武器防具屋になった。</li>
         <li><b>メイジハンドの巻物を追加</b> — 魔法使いが幽霊の手で、離れた檻のレバーや罠・怪しい宝箱に触れる。盗賊アジトの檻は野営地の奥へ移った。</li>
         <li><b>魔法の眼の巻物を追加</b> — 稀少な巻物「巻物・アーケインアイ」を宝箱やボスから拾えるように。覚えた魔法使いは、部屋に入った時と出口の前に魔法の眼を飛ばし、霧の奥の敵の種類と数を教えてくれる(呪文の枠を 1 つ使う)。</li>
         <li><b>透明化の巻物を追加</b> — 珍しい巻物「巻物・インビジビリティ」を宝箱やボスから拾えるように。覚えた魔法使いは、盗賊のいない一行でも戦闘の始まりに姿を消して忍び寄れる(呪文の枠を 1 つ使う)。</li>
-        <li><b>武器防具屋に巻物の棚</b> — 初歩の呪文の巻物 4 種を 1 冊 80G で買えるように。買った巻物はマッチング画面の書庫で「読む」と覚えられる。</li>
       </ul>
     </div>
     <script>
@@ -5818,6 +5822,7 @@
     sessionStorage.removeItem("dragonfighters.lastResult");
     clearActiveQuest();            /* ★[#64] ⭐ クリア/敗北/撤退の 3 経路すべてがここへ来る
                                       (依頼書 §2-9)。⛔ 消し口を増やさない。 */
+    try { localStorage.removeItem("dragonfighters.questBoard"); } catch (e) {}   /* ★[#81] 戻るたびに卓の依頼を引き直す。⛔ 消し口はここ 1 つ */
     try {
       const r = JSON.parse(resultRaw);
       /* 年代記 (#37): lastResult に相乗りしてきた記録を受け取る。
@@ -10438,6 +10443,16 @@
       return;
     }
 
+    /* ══ 撤退スイッチ ?questdraw=0 (実装依頼書 #81 §7) ═════════════════════════
+       ⚠⚠ **判定はここ 1 か所だけ** (?tavernmap=0 と同じ作法・地図 IIFE の起動時に 1 回)。
+       OFF = 卓 3 つの固定配置 (TABLES の scenarioId) +「奥の間へ」の扉 + 右下の 🛡️ ボタン = #80 までの姿。
+       ⚠ クエリはページ遷移をまたがない (町から入り直すと ON に戻る) = dev 専用。
+       ⭐ ?tavernmap=0 では上の return でここまで来ない = 1 枚絵は 1 バイトも変わらない。 */
+    var QUEST_DRAW_ON = (function () {
+      try { return new URLSearchParams(location.search).get("questdraw") !== "0"; } catch (e) { return true; }
+    })();
+    document.body.classList.toggle("questDrawOn", QUEST_DRAW_ON);
+
     var TILE   = TVM.TILE;                       /* ⚠ 96。ここでも直書きしない */
     var MAP_W  = TVM.COLS * TILE, MAP_H = TVM.ROWS * TILE;
     var SPRITE = 96;                            /* 歩行シートのセル (<class>_walk.png は 576x384) */
@@ -10601,14 +10616,92 @@
       elStage.appendChild(s);
       return s;
     }
+    /* ══ 卓の依頼 = 戻るたびに入れ替わる 2 件 (実装依頼書 #81) ══════════════════
+       ⭐ 母集団 = 解放済み。本筋 (scenarios 順で最初の「解放済み かつ 未クリア」) は必ず 1 件入れる。
+       ⭐ 解放済みが 2 件未満の序盤は、空いた枠に「次の未解放」を ??? で出す (今日の見た目と同じ)。
+       ⚠⚠⚠ 抽選結果は localStorage に置く。メモリだけだと再読込や町との往復が「引き直し」に化ける。
+       ⚠⚠ 引き直す口は consumeResult() が鍵を消す 1 箇所だけ。⛔ ここに消し口を増やさない。
+       ⚠⚠ buildSigns() は __tavernRefreshSigns 経由で何度でも呼ばれる (闇市の解禁 / 検証)。
+         ⇒ loadOrDrawBoard() は **保存値が妥当なら読むだけ**。妥当でないときだけ引いて保存する。
+       ⭐ 鍵は dragonfighters. で始める = 記録スロット (js/save-slots.js の LIVE_PREFIX) が 1 行も足さずに追従する。 */
+    var BOARD_KEY = "dragonfighters.questBoard";
+    var BOARD_SIZE = 2;
+    var board = null;               /* 最後に採用した盤面 (localStorage が読めない環境の保険を兼ねる) */
+    function boardFacts() {
+      var unlocked = scenarios.filter(function (s) { return isUnlocked(s); });
+      var frontier = unlocked.find(function (s) { return !progress.cleared.has(s.id); }) || null;
+      var nextLocked = scenarios.find(function (s) { return !isUnlocked(s); }) || null;
+      return { unlocked: unlocked, frontier: frontier, nextLocked: nextLocked };
+    }
+    /* 依頼書 §2-4 の 3 条件。1 つでも外れたら false (= 捨てて引き直す)。
+       ① ちょうど 2 件 / 席が実在 (重複はオブジェクトの鍵なので起きない) / 依頼 id が重複せず scenarios に実在
+       ② 各 id が解放済み — ただし解放済みが 2 件未満のときに限り「次の未解放」1 件を許す
+       ③ 本筋が在るなら、それが含まれている */
+    function boardValid(b, f) {
+      if (!b || typeof b !== "object" || !b.seats || typeof b.seats !== "object") return false;
+      var seatKeys = TVM.TABLES.map(function (t) { return t.key; });
+      var keys = Object.keys(b.seats);
+      if (keys.length !== BOARD_SIZE) return false;
+      var ids = [];
+      for (var i = 0; i < keys.length; i++) {
+        if (seatKeys.indexOf(keys[i]) < 0) return false;
+        var id = b.seats[keys[i]];
+        if (typeof id !== "string" || ids.indexOf(id) >= 0) return false;
+        var sc = scenarios.find(function (s) { return s.id === id; });
+        if (!sc) return false;
+        if (!isUnlocked(sc)) {
+          var spare = f.unlocked.length < BOARD_SIZE && f.nextLocked && f.nextLocked.id === id;
+          if (!spare) return false;
+        }
+        ids.push(id);
+      }
+      if (f.frontier && ids.indexOf(f.frontier.id) < 0) return false;
+      return true;
+    }
+    function drawBoard(f) {
+      var ids = [];
+      if (f.frontier) ids.push(f.frontier.id);
+      var rest = f.unlocked.filter(function (s) { return ids.indexOf(s.id) < 0; });
+      while (ids.length < BOARD_SIZE && rest.length) {
+        ids.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0].id);
+      }
+      if (ids.length < BOARD_SIZE && f.nextLocked) ids.push(f.nextLocked.id);
+      var seats = TVM.TABLES.map(function (t) { return t.key; });
+      var out = {};
+      ids.forEach(function (id) { out[seats.splice(Math.floor(Math.random() * seats.length), 1)[0]] = id; });
+      /* nonce は「引き直したか」を機械で見分けるための印。⛔ ゲームの判定には使わない */
+      return { v: 1, seats: out, nonce: Date.now() + "-" + Math.random().toString(36).slice(2, 8) };
+    }
+    function loadOrDrawBoard() {
+      var f = boardFacts();
+      var b = null;
+      try { b = JSON.parse(localStorage.getItem(BOARD_KEY) || "null"); }
+      catch (e) { b = board; }      /* 読めない / 壊れている → メモリの盤面 (無ければ引く) */
+      if (!boardValid(b, f)) {
+        b = drawBoard(f);
+        try { localStorage.setItem(BOARD_KEY, JSON.stringify(b)); }
+        catch (e) { console.warn("[tavern] 卓の依頼を保存できない (この場の盤面で続ける)", e); }
+      }
+      board = b;
+      return b;
+    }
+
     function buildSigns() {
       Object.keys(signs).forEach(function (k) { if (signs[k]) signs[k].remove(); });
       signs = {}; tableKeys = [];
-      TVM.TABLES.forEach(function (t) {
+      var bd = QUEST_DRAW_ON ? loadOrDrawBoard() : null;
+      TVM.TABLES.forEach(function (t0) {
+        /* ⭐ 抽選 ON は盤面の 2 卓だけ札を出す (依頼の無い卓は客が座っている絵のまま)。
+           ⛔ TVM.TABLES の要素を書き換えない — goToTable へは盤面の id を載せた**写し**を渡す
+             (撤退 ?questdraw=0 の固定配置と verify_tavern_map (2b) の照合先が TABLES の scenarioId)。 */
+        var sid = bd ? bd.seats[t0.key] : t0.scenarioId;
+        if (!sid) return;
+        var t = bd ? { key: t0.key, enter: t0.enter, sign: t0.sign, scenarioId: sid } : t0;
         var sc = scenarios.find(function (s) { return s.id === t.scenarioId; });
         if (!sc) { console.warn("[tavern] 卓の scenarioId が scenarios に無い", t); return; }
         var unlocked = isUnlocked(sc);
-        /* ⚠ 未解放の卓も **3 つとも出す** (今日の挙動 = place が ???、diff が — 未解放 —)。
+        /* ⚠ 盤面の 2 件を出す。序盤に「次の未解放」が入っていたら **??? のまま出す**
+             (今日の挙動 = place が ???、diff が — 未解放 —)。
            ⛔ 隠さない。酒場は「次がある」ことがプレイヤーに見えている必要がある。 */
         var s = makeSign({
           id: "questTable_" + t.scenarioId,
@@ -10624,6 +10717,8 @@
         tableKeys.push(t.key);
       });
       TVM.DOORS.forEach(function (d) {
+        /* ★[#81] 撤退 ?questdraw=0 では武器防具屋の扉を旧「奥の間へ」へ戻す (写しで。DOORS は書き換えない) */
+        if (!QUEST_DRAW_ON && d.off) d = Object.assign({}, d, d.off);
         /* ⚠ ?town=0 のときは街への口を **DOM に作らない** (#townExit を消すのと同じ理由) */
         if (d.to && window.__townOff) return;
         /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
@@ -10741,6 +10836,7 @@
         location.href = "town.html";
         return;
       }
+      if (d.key === "shop") { openShop(); return; }   /* ★[#81] 奥の小部屋 = 武器防具屋。店を閉じたら扉の前に立ったまま */
       if (d.key === "back") { openBackroom(); return; }
       if (d.key === "plaza") {
         /* ⚠⚠ onTapPlazaDoor() を通す (enterPlaza() を直接呼ばない)。
@@ -10818,7 +10914,16 @@
       },
       geom: function () { return { tile: TILE, cols: TVM.COLS, rows: TVM.ROWS,
                                    mapW: MAP_W, mapH: MAP_H, sprite: SPRITE, foot: FOOT,
-                                   msPerTile: MS_PER_TILE }; }
+                                   msPerTile: MS_PER_TILE }; },
+      /* ★[#81] 卓の盤面 (読み取り専用の写し)。抽選 OFF (?questdraw=0) では null。
+         ⛔ 盤面を書き換えるシームは作らない (ドライバは localStorage へ種をまく)。 */
+      board: function () { return board ? JSON.parse(JSON.stringify(board)) : null; },
+      boardFacts: function () {
+        var f = boardFacts();
+        return { unlocked: f.unlocked.map(function (s) { return s.id; }),
+                 frontier: f.frontier ? f.frontier.id : null,
+                 nextLocked: f.nextLocked ? f.nextLocked.id : null };
+      }
     };
     /* 闇市が遊んでいる最中に解禁されたら札を生やし直す (updatePlazaDoor から呼ばれる) */
     window.__tavernRefreshSigns = buildSigns;

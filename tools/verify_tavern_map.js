@@ -510,7 +510,13 @@ const VIEW_DESKTOP = { width: 1440, height: 900 };
 const VIEW_COMPACT = { width: 390, height: 844 };
 /* 素の実行はこの順に全部回す。⚠ 負のコントロールは MUTATIONS[k].phases だけを回す
    (全部回すと 10 変異 x 8 フェーズで終わらない)。 */
-const ALL_PHASES = ['base', 'compact', 'off', 'walk1', 'walk6', 'walkbad', 'door', 'back'];
+const ALL_PHASES = ['base', 'compact', 'off', 'walk1', 'walk6', 'walkbad', 'door', 'back', 'qoff', 'qoffc'];
+/* ⭐ #81: 卓の依頼は「戻るたびに入れ替わる 2 件」(盤面 = localStorage dragonfighters.questBoard)。
+ *   地図の幾何を見る節を決定的にするため、ON のページには新規状態で妥当な盤面を種まきする
+ *   (本筋 = 廃坑 + 次の未解放 = 森 / 席 t1・t2 = 旧配置と同じ席)。
+ *   旧 3 卓の検査は撤退 ?questdraw=0 (qoff / qoffc / back フェーズ) へ移して残す。
+ *   ⛔ 種が捨てられて引き直されたら (2a) が nonce で赤くする (= 乱数の席で偶然緑、を許さない)。 */
+const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-vtm' };
 /* (5a) の許容。⚠ 依頼書の「zoom 1.5 以下」は港町 (TILE 64) の天井を zoom で書いたもの。
    項目 2 の layout() は Math.min(96 / TILE, ...) なので、不変量は **1 マスの実表示 px**。
    ⛔ zoom で書くと TILE を変えた瞬間に意味が変わる。 */
@@ -584,9 +590,11 @@ async function newTavPage(browser, o) {
   /* ⚠ 前口上 #prologueOverlay は全画面の暗幕。消しておかないと席札を押せない
        (手本 = verify_quest_walk.js の measureDepart)。⛔ 他のゲーム状態は仕込まない
        — 未解放の卓が「??? のまま出ている」ことを (2d) が見るので cleared は空のまま。 */
-  await page.evaluateOnNewDocument(() => {
+  await page.evaluateOnNewDocument((seed) => {
     try { localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
-  });
+    /* #81: 卓の盤面の種 (⚠ cleared は空のまま = 種は「本筋 + 次の未解放」で妥当) */
+    try { localStorage.setItem('dragonfighters.questBoard', seed); } catch (e) {}
+  }, JSON.stringify(QUEST_BOARD_SEED));
   await page.setViewport(opts.view || VIEW_DESKTOP);
   return { page: page, errs: errs, reqs: reqs };
 }
@@ -622,6 +630,7 @@ function pageSnapshot() {
   try {
     const TM = window.TAVERN_MAP;
     o.tableSids = TM ? TM.TABLES.map(function (t) { return t.scenarioId; }) : null;
+    o.tableKeys = TM ? TM.TABLES.map(function (t) { return t.key; }) : null;
     o.doorKeys  = TM ? TM.DOORS.map(function (d) { return d.key; }) : null;
   } catch (e) { o.err.push('TAVERN_MAP: ' + e.message); }
   try {
@@ -656,6 +665,9 @@ function pageSnapshot() {
     o.geom     = TV ? TV.geom() : null;
     o.signKeys = TV ? TV.signKeys() : null;
     o.heroTile = TV ? TV.heroTile() : null;
+    /* #81: 盤面 (抽選 OFF = ?questdraw=0 では null) */
+    o.board    = (TV && typeof TV.board === 'function') ? TV.board() : null;
+    o.questDrawOn = document.body.classList.contains('questDrawOn');
   } catch (e) { o.err.push('TV: ' + e.message); }
   try {
     /* ⭐ (6b): verify_world_map.js の (7a) と **同じ照合**を、tavern のページの中で行う。
@@ -735,12 +747,16 @@ async function tavWalk(browser, port, o) {
     const pre = await ctx.page.evaluate(() => {
       const TV = window.__TAVERN_TV, TM = window.TAVERN_MAP;
       if (!TV || !TM) return null;
+      /* #81: 押すのは種の盤面の t1 の卓 (= TABLES[0] の席 (4,4))。盤面が無ければ TABLES[0] のまま */
       const t = TM.TABLES[0], h = TV.heroTile();
+      const bd = (typeof TV.board === 'function') ? TV.board() : null;
+      const sid = bd ? bd.seats[t.key] : t.scenarioId;
+      if (!sid) return null;
       const p = TM.findPath(h.c, h.r, t.enter[0], t.enter[1]);
-      return { sel: '#questTable_' + t.scenarioId, enter: t.enter, key: t.key,
+      return { sel: '#questTable_' + sid, enter: t.enter, key: t.key,
                spawn: h, msPerTile: TV.geom().msPerTile, pathLen: p === null ? -1 : p.length };
     });
-    if (!pre) { out.err = '__TAVERN_TV / TAVERN_MAP が無い (地図が立ち上がっていない)'; return out; }
+    if (!pre) { out.err = '__TAVERN_TV / TAVERN_MAP が無い (地図が立ち上がっていない) か、盤面の t1 に依頼が無い'; return out; }
     Object.assign(out, pre);
     const iv = (o.intervalMs === 'trap')
       ? Math.max(50, Math.round(pre.msPerTile * 0.55)) : o.intervalMs;
@@ -890,12 +906,14 @@ async function tavDoor(browser, port) {
   return out;
 }
 
-/* ── フェーズ: 「奥の間へ」(back) ⚠⚠ 暫定 — #26 で扉ごと消える節 ────────────── */
+/* ── フェーズ: 「奥の間へ」(back) ⚠⚠ 暫定 — #26 で扉ごと消える節 ──────────────
+ *  ⭐ #81: 北東の扉は武器防具屋になった。「奥の間へ」は撤退 ?questdraw=0 だけに残るので、
+ *    このフェーズは ?questdraw=0 で開く (変異 dropscen もこの URL で (4b) を測る)。 */
 async function tavBack(browser, port) {
   const out = { err: null };
   const ctx = await newTavPage(browser, {});
   try {
-    await gotoTavern(ctx, port, '');
+    await gotoTavern(ctx, port, '?questdraw=0');
     const has = await ctx.page.$('#tavernDoor_back');
     if (!has) { out.err = '#tavernDoor_back が無い'; return out; }
     await ctx.page.click('#tavernDoor_back');
@@ -951,7 +969,9 @@ async function measureTavern(browser, port, phases, label) {
   }
   if (want('walkbad')) { say('walkbad (壁を押す + 陽性対照)'); t.walkbad = await tavWalkBad(browser, port); }
   if (want('door'))    { say('door (町へ出る)');       t.door    = await tavDoor(browser, port); }
-  if (want('back'))    { say('back (奥の間へ)');       t.back    = await tavBack(browser, port); }
+  if (want('back'))    { say('back (奥の間へ・?questdraw=0)'); t.back = await tavBack(browser, port); }
+  if (want('qoff'))    { say('qoff (?questdraw=0・1440x900)'); t.qoff  = await tavSnap(browser, port, { tag: 'qoff', view: VIEW_DESKTOP, query: '?questdraw=0' }); }
+  if (want('qoffc'))   { say('qoffc (?questdraw=0・390x844)'); t.qoffc = await tavSnap(browser, port, { tag: 'qoffc', view: VIEW_COMPACT, query: '?questdraw=0' }); }
   return t;
 }
 
@@ -1062,10 +1082,19 @@ const TAV = (m) => (m && m.tav) || {};
 const TB  = (m) => TAV(m).base || null;         // base フェーズ (1440x900)
 const TC  = (m) => TAV(m).compact || null;      // compact フェーズ (390x844)
 const TO  = (m) => TAV(m).off || null;          // ?tavernmap=0
+const TQ  = (m) => TAV(m).qoff || null;         // ?questdraw=0 (1440x900) — #81 で旧 3 卓の検査の置き場
+const TQC = (m) => TAV(m).qoffc || null;        // ?questdraw=0 (390x844)
 const snapOf = (ph) => (ph && ph.snap) || {};
-/* 席札 <-> シナリオの対応表 (data-scenario とページ内の scenarios[] だけから作る)。 */
+/* 席札 <-> シナリオの対応表 (data-scenario とページ内の scenarios[] だけから作る)。
+ * ⭐ #81: 盤面があれば **盤面の席** (TABLES の席順) を回す。無ければ (= ?questdraw=0) TABLES の 3 卓。 */
+function tableSidsOf(s) {
+  if (s.board && s.board.seats) {
+    return (s.tableKeys || []).map(function (k) { return s.board.seats[k]; }).filter(function (x) { return !!x; });
+  }
+  return s.tableSids || [];
+}
 function tableRows(s) {
-  return (s.tableSids || []).map(function (sid) {
+  return tableSidsOf(s).map(function (sid) {
     const i = (s.scenIds || []).indexOf(sid);
     return { sid: sid, idx: i, unlocked: i >= 0 ? s.unlocked[i] : null,
              place: i >= 0 ? s.scenPlaces[i] : null,
@@ -1207,20 +1236,42 @@ const ASSERT_OF = {};
  *    (「測っていないから緑」は #23 の事故そのもの)。 */
 [
   /* ── §2 卓が 3 つで、シナリオ1〜3 に対応している ─────────────────────────── */
-  ['2a', '#tavernStage 上の席札がちょうど 3 枚 / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身',
+  ['2a', '#tavernStage 上の席札が種の盤面どおりちょうど 2 枚 (#81: 戻るたびに入れ替わる 2 件) / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身',
     (m) => {
       const b = TB(m);
       if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const s = snapOf(b);
+      const n = Object.keys(QUEST_BOARD_SEED.seats).length;
+      /* ⭐ 種が採用されたこと (nonce が種のまま) を先に見る。引き直されていたら席が乱数 = 測定が決定的でない */
+      const seeded = !!(s.board && s.board.nonce === QUEST_BOARD_SEED.nonce);
+      const want = tableSidsOf(s).map(x => 'questTable_' + x);
+      const got  = (s.signs || []).map(x => x.id);
+      const cls  = (s.signs || []).every(x => (x.cls || []).indexOf('questTableSign') >= 0);
+      const hit  = (s.signs || []).every(x => x.hitSelf === true);
+      const ok = seeded && want.length === n && got.length === n && want.join(',') === got.join(',') && cls && hit;
+      return [ok, '席札 ' + got.length + ' 枚 ' + JSON.stringify(got)
+        + ' / 盤面から期待 ' + JSON.stringify(want) + ' (種 ' + n + ' 件)'
+        + ' / 盤面の nonce=' + JSON.stringify(s.board && s.board.nonce) + (seeded ? '' : ' ⛔ 種が採用されていない')
+        + ' / class に questTableSign=' + cls + ' / 中心が自分自身=' + hit
+        + '  ⚠ .tavernSign だけで数えると扉札こみで ' + s.signAll + ' 枚になる'];
+    }],
+  ['2aq', '撤退 ?questdraw=0 では #tavernStage 上の席札がちょうど 3 枚 = TABLES の固定配置 / id が questTable_<scenarioId> / 中心の elementFromPoint が自分自身 / 盤面は null',
+    (m) => {
+      const b = TQ(m);
+      if (!b) return [false, '⛔ qoff フェーズを測っていない'];
+      if (b.err) return [false, '⛔ 測定が失敗: ' + b.err];
       const s = snapOf(b);
       const want = (s.tableSids || []).map(x => 'questTable_' + x);
       const got  = (s.signs || []).map(x => x.id);
       const cls  = (s.signs || []).every(x => (x.cls || []).indexOf('questTableSign') >= 0);
       const hit  = (s.signs || []).every(x => x.hitSelf === true);
-      const ok = want.length === 3 && got.length === 3 && want.join(',') === got.join(',') && cls && hit;
-      return [ok, '席札 ' + got.length + ' 枚 ' + JSON.stringify(got)
+      const ok = s.board === null && s.questDrawOn === false
+        && want.length === 3 && got.length === 3 && want.join(',') === got.join(',') && cls && hit;
+      return [ok, 'search=' + JSON.stringify(s.search) + ' / 盤面=' + JSON.stringify(s.board)
+        + ' / body.questDrawOn=' + s.questDrawOn
+        + ' / 席札 ' + got.length + ' 枚 ' + JSON.stringify(got)
         + ' / TABLES から期待 ' + JSON.stringify(want)
-        + ' / class に questTableSign=' + cls + ' / 中心が自分自身=' + hit
-        + '  ⚠ .tavernSign だけで数えると扉札こみで ' + s.signAll + ' 枚になる'];
+        + ' / class に questTableSign=' + cls + ' / 中心が自分自身=' + hit];
     }],
   ['2b', '⭐ 2 経路の突き合わせ: TAVERN_MAP.TABLES[].scenarioId の 3 件が tavern.html の scenarios[].id の先頭 3 件と完全一致',
     (m) => {
@@ -1243,7 +1294,7 @@ const ASSERT_OF = {};
         + ' → place を "' + p.mark + '" へ書き換えると札は "' + p.after + '"'
         + ' → 戻すと "' + p.restored + '"' + (p.ok ? '' : '  ⛔ ' + p.why)];
     }],
-  ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない)',
+  ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない) — #81: 盤面の卓 (種 = 廃坑 + 次の未解放の森) で測る',
     (m) => {
       const b = TB(m);
       if (!b) return [false, '⛔ base フェーズを測っていない'];
@@ -1251,6 +1302,26 @@ const ASSERT_OF = {};
       const rows = tableRows(s);
       const locked = rows.filter(r => r.unlocked === false);
       if (!rows.length) return [false, '⛔ 卓の母集団が空 ((0a) を見よ)'];
+      if (!locked.length) return [false, '⛔ 未解放の卓が 1 つも無い = この assert は空振り'];
+      const bad = locked.filter(r => !r.sign || r.sign.name !== '???'
+        || (r.sign.cls || []).indexOf('locked') < 0);
+      return [bad.length === 0,
+        '未解放 ' + locked.length + ' 件 ' + JSON.stringify(locked.map(r => r.sid))
+        + ' / DOM に無い or ??? でない ' + bad.length + ' 件'
+        + (bad.length ? ' ⛔ ' + JSON.stringify(bad.map(r => ({ sid: r.sid, name: r.sign && r.sign.name })))
+                      : ' (札の文言 ' + JSON.stringify(locked.map(r => r.sign.name + '/' + r.sign.desc)) + ')')];
+    }],
+
+  ['2dq', '撤退 ?questdraw=0 でも未解放の卓 (TABLES の固定配置) は DOM に在り、かつ ??? 表示である (⛔ 隠していない)',
+    (m) => {
+      const b = TQ(m);
+      if (!b) return [false, '⛔ qoff フェーズを測っていない'];
+      if (b.err) return [false, '⛔ 測定が失敗: ' + b.err];
+      const s = snapOf(b);
+      if (s.board !== null) return [false, '⛔ ?questdraw=0 なのに盤面がある = 撤退が効いていない'];
+      const rows = tableRows(s);
+      const locked = rows.filter(r => r.unlocked === false);
+      if (rows.length !== 3) return [false, '⛔ 卓の母集団が 3 でない (' + rows.length + ')'];
       if (!locked.length) return [false, '⛔ 未解放の卓が 1 つも無い = この assert は空振り'];
       const bad = locked.filter(r => !r.sign || r.sign.name !== '???'
         || (r.sign.cls || []).indexOf('locked') < 0);
@@ -1276,7 +1347,7 @@ const ASSERT_OF = {};
         + ' / 罠走行 ' + tr.clicks + ' 回 (間隔 ' + tr.interval + 'ms, 実測 max ' + tr.maxGap + 'ms)'
         + (gapOk ? '' : '  ⛔ 罠走行の実測間隔が MS_PER_TILE 以上 = この機械では罠 A を再現できない')];
     }],
-  ['3a', '卓を 1 回押すと、押した直後は #dialog が閉じたままで、TABLES[0].enter へ到達した後に開く',
+  ['3a', '卓を 1 回押すと、押した直後は #dialog が閉じたままで、TABLES[0].enter へ到達した後に開く (#81: 押すのは種の盤面で TABLES[0] の席 t1 に居る卓)',
     (m) => {
       const w = TAV(m).walk1;
       if (!w) return [false, '⛔ walk1 フェーズを測っていない'];
@@ -1341,7 +1412,7 @@ const ASSERT_OF = {};
         + ' search=' + JSON.stringify(d.search) + ' hash=' + JSON.stringify(d.hash)
         + ' / sessionStorage[exitVia]=' + JSON.stringify(d.exitVia) + ' / ' + d.ms + 'ms'];
     }],
-  ['4b', '「奥の間へ」で #tableArea が開き、シナリオ4〜6 の 3 卓だけが並ぶ (⚠ 暫定 — #26 で扉ごと消える節)',
+  ['4b', '撤退 ?questdraw=0 の「奥の間へ」で #tableArea が開き、シナリオ4〜6 の 3 卓だけが並ぶ (⚠ 暫定 — #81 で ON の扉は武器防具屋。旧扉は撤退側に残る)',
     (m) => {
       const b = TAV(m).back;
       if (!b) return [false, '⛔ back フェーズを測っていない'];
@@ -1389,10 +1460,41 @@ const ASSERT_OF = {};
         + ' = 1 マス ' + px.toFixed(2) + 'px (許容 ' + MIN_TILE_PX + '〜' + MAX_TILE_PX + 'px'
         + ' = zoom ' + (MIN_TILE_PX / tile).toFixed(3) + '〜' + (MAX_TILE_PX / tile).toFixed(3) + ')'];
     }],
-  ['5b', '#title の下に席札が潜っていない (#title の矩形と 3 枚の席札の矩形が交差 0 件)',
+  ['5b', '#title の下に席札が潜っていない (#title の矩形と盤面の席札 (#81: 種の 2 枚) の矩形が交差 0 件)',
     (m) => {
       const c = TC(m);
       if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const s = snapOf(c);
+      if (!s.titleRect) return [false, '⛔ #title が無い'];
+      const n = Object.keys(QUEST_BOARD_SEED.seats).length;
+      if (!(s.board && s.board.nonce === QUEST_BOARD_SEED.nonce)) return [false, '⛔ 種の盤面が採用されていない (nonce=' + JSON.stringify(s.board && s.board.nonce) + ')'];
+      if ((s.signs || []).length !== n) return [false, '⛔ 席札が盤面どおり ' + n + ' 枚ない (' + (s.signs || []).length + ' 枚) = 空振り'];
+      const bad = s.signs.filter(x => rectHit(s.titleRect, x.rect));
+      return [bad.length === 0,
+        '#title ' + JSON.stringify(s.titleRect) + ' / 交差 ' + bad.length + ' 件'
+        + (bad.length ? ' ⛔ ' + JSON.stringify(bad.map(x => ({ id: x.id, rect: x.rect })))
+                      : ' ' + JSON.stringify(s.signs.map(x => x.id + '@' + Math.round(x.rect.t))))];
+    }],
+  ['5c', '@media (max-width:560px) の 2 列グリッドが席札へ効いていない (#questTable_* の position が relative ではない) — #81: 盤面の席札で測る',
+    (m) => {
+      const c = TC(m);
+      if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const s = snapOf(c);
+      const n = Object.keys(QUEST_BOARD_SEED.seats).length;
+      if (!(s.board && s.board.nonce === QUEST_BOARD_SEED.nonce)) return [false, '⛔ 種の盤面が採用されていない'];
+      if ((s.signs || []).length !== n) return [false, '⛔ 席札が盤面どおり ' + n + ' 枚ない = 空振り'];
+      const bad = s.signs.filter(x => x.pos === 'relative');
+      return [bad.length === 0,
+        '席札の position=' + JSON.stringify(s.signs.map(x => x.id + ':' + x.pos))
+        + ' / relative ' + bad.length + ' 件'
+        + '  ⚠ 括ってよい @media (max-width:560px) は卓のグリッドの 1 つだけ (他に #title 側と所持品カード側がある)'];
+    }],
+
+  ['5bq', '撤退 ?questdraw=0 (390x844) でも #title の下に席札が潜っていない (#title の矩形と 3 枚の席札の矩形が交差 0 件)',
+    (m) => {
+      const c = TQC(m);
+      if (!c) return [false, '⛔ qoffc フェーズを測っていない'];
+      if (c.err) return [false, '⛔ 測定が失敗: ' + c.err];
       const s = snapOf(c);
       if (!s.titleRect) return [false, '⛔ #title が無い'];
       if ((s.signs || []).length !== 3) return [false, '⛔ 席札が 3 枚ない (' + (s.signs || []).length + ' 枚) = 空振り'];
@@ -1402,17 +1504,17 @@ const ASSERT_OF = {};
         + (bad.length ? ' ⛔ ' + JSON.stringify(bad.map(x => ({ id: x.id, rect: x.rect })))
                       : ' ' + JSON.stringify(s.signs.map(x => x.id + '@' + Math.round(x.rect.t))))];
     }],
-  ['5c', '@media (max-width:560px) の 2 列グリッドが席札へ効いていない (#questTable_* の position が relative ではない)',
+  ['5cq', '撤退 ?questdraw=0 (390x844) でも @media (max-width:560px) の 2 列グリッドが 3 枚の席札へ効いていない',
     (m) => {
-      const c = TC(m);
-      if (!c) return [false, '⛔ compact フェーズを測っていない'];
+      const c = TQC(m);
+      if (!c) return [false, '⛔ qoffc フェーズを測っていない'];
+      if (c.err) return [false, '⛔ 測定が失敗: ' + c.err];
       const s = snapOf(c);
       if ((s.signs || []).length !== 3) return [false, '⛔ 席札が 3 枚ない = 空振り'];
       const bad = s.signs.filter(x => x.pos === 'relative');
       return [bad.length === 0,
         '席札の position=' + JSON.stringify(s.signs.map(x => x.id + ':' + x.pos))
-        + ' / relative ' + bad.length + ' 件'
-        + '  ⚠ 括ってよい @media (max-width:560px) は卓のグリッドの 1 つだけ (他に #title 側と所持品カード側がある)'];
+        + ' / relative ' + bad.length + ' 件'];
     }],
 
   /* ── §6 恒等 (非退行) ────────────────────────────────────────────────────── */
@@ -1536,10 +1638,10 @@ const ASSERT_OF = {};
 const SECTIONS = [
   ['§0 装置 — 先に母集団を確かめる',            ['0z1', '0z2', '0a', '0b', '0c']],
   ['§1 マップと絵が食い違っていない',            ['1z1', '1z2', '1a', '1b', '1c']],
-  ['§2 卓が 3 つで、シナリオ1〜3 に対応している', ['2a', '2b', '2c', '2d']],
+  ['§2 卓が 3 つで、シナリオ1〜3 に対応している (#81: ON は盤面の 2 卓 / 旧 3 卓は ?questdraw=0)', ['2a', '2aq', '2b', '2c', '2d', '2dq']],
   ['§3 歩いて着いてから開く',                    ['3z', '3a', '3b', '3c']],
   ['§4 扉',                                      ['4a', '4b', '4c']],
-  ['§5 compact (縦画面)',                        ['5a', '5b', '5c']],
+  ['§5 compact (縦画面)',                        ['5a', '5b', '5c', '5bq', '5cq']],
   ['§6 恒等 (非退行)',                           ['6z', '6a', '6b', '6c', '6c2']],
   ['§7 撤退',                                    ['7a', '7b', '7c']],
 ];

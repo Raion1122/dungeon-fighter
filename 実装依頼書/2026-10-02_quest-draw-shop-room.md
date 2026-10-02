@@ -423,3 +423,86 @@ blob/tree OID が 36f4ba0 と 04fa8ac で**全一致** ⇒ §2 の行番号は�
 4. buildSigns は `__tavernRefreshSigns` 経由で何度でも呼ばれる(K1)⇒ 盤面は buildSigns の中で「読む」だけ。
 5. 行末: `tavern.html` / `js/tavern-map.js` は純 CRLF(11122/11122・184/184)、`tools/verify_tavern_map.js` / `tools/verify_npc_crowd.js` は純 LF。
 6. 作業ツリーに `dev-meetings/2026-10-03_tower-mother-quest.md`(未追跡)が居る = 別窓の持ち物。⛔ add しない。
+
+### 12-1. 本番実装(項目2・2026-10-03・基準 HEAD `d8ec8cd`)
+
+#### (1) 変更
+
+| ファイル | 変更 |
+|---|---|
+| `js/tavern-map.js` | `DOORS` の `back` → **`shop`「武器防具屋」**(enter/sign 不動)。`off: {key:"back", name:"奥の間へ", desc, provisional:true}` を持たせた。`TABLES`・`SPAWNS.back` は残す。コメント 2 箇所を新しい役目へ |
+| `tavern.html` | 地図 IIFE の起動時に撤退判定 `QUEST_DRAW_ON`(`?questdraw=0`・`?tavernmap=0` と同じ関数宣言の作法)+ `body.questDrawOn` / 盤面 `BOARD_KEY` `boardFacts()` `boardValid()`(§2-4 の 3 条件)`drawBoard()` `loadOrDrawBoard()` / `buildSigns()` は盤面の 2 卓だけ札を作り、`goToTable` へは `{key,enter,sign,scenarioId}` の写しを渡す(`TVM.TABLES` 不変)/ OFF は扉を `Object.assign({}, d, d.off)` で旧「奥の間へ」へ / `enterDoor` に `shop` → `openShop()` / `consumeResult()` の `clearActiveQuest();` 直後に鍵消し 1 行(消し口はここだけ)/ CSS `body.tavernMapOn.questDrawOn #shopEntry{display:none}`(DOM は残す)/ `__TAVERN_TV.board()`(写し・OFF は null)`boardFacts()`(id 配列)/ changelog 1 行(§10 の文面そのまま。最古の 1 件が押し出された) |
+| `tools/verify_tavern_map.js` | 言い直し(下の (3))。43 → **47** 本 |
+| `tools/verify_npc_crowd.js` | (0c)(4d) の枚数を盤面から導出 + 盤面の種まき + (1a) へ盤面 B の 2 面(下の (3))。本数 33 のまま |
+
+⛔ 触っていない: `openBackroom` / `closeBackroom` / `#backroomBar` / `scenarios` / `isUnlocked` / `openDialog` / `#questBoard` / `goToTable`(1 バイトも変えていない)/ `?tavernmap=0` の 1 枚絵(地図 IIFE が先に return するので `questDrawOn` は付かず、(7a)(7b) 緑)。
+行末: `tavern.html` 11227/11227・`js/tavern-map.js` 188/188 の純 CRLF、ドライバ 2 本は純 LF のまま(py でバイト単位に編集)。
+`git diff` の削除行は全部、上の表の置き換え(コメント・`back` の 2 行・buildSigns の頭 2 行・`geom` の閉じ・ドライバの言い直し対象・changelog の最古 1 件)だけ。
+
+#### (2) 使い捨て probe(scratchpad `item2/probe81.js`・port 10031)= **25/25**
+
+新規で {廃坑(押せる), 森(???・.locked)} の 2 枚 / 保存値 = `board()` / 再読込 3 回 + 町→酒場で nonce 不変 / `__tavernRefreshSigns()` 2 回でも nonce 不変(K1)/
+`lastResult` の cleared(廃坑)・defeated・retreated・generated-quest の 4 通りで引き直し(廃坑クリア後は {廃坑, 森} とも押せる)/
+不正な盤面 6 種(本筋欠け+未解放・3 件・存在しない席・id 重複・存在しない id・1 件)を全部捨てる / 妥当な種は nonce `SEED` のまま採用 /
+6 本クリア = 本筋なし・2 件とも解放済み / 3 本クリアで 8 回引き直して砦が毎回入り未解放 0 /
+扉 `#tavernDoor_shop`「武器防具屋」→ (13,2) まで歩いて `#shopScreen` が flex・`#backroomBar` 出ない / 地図モードで `#shopEntry` は DOM に在り `checkVisibility()` false /
+`?tavernmap=0` で `#shopEntry` が見えて押すと店が開く・6 卓 / `?questdraw=0` で 3 卓固定・「奥の間へ」・`#shopEntry` 見える・`board()` null / `DOORS`/`TABLES` 不変 / ページエラー 0。
+
+#### (3) 既存 golden の言い直し(⛔ 緩めない・本数を減らさない)
+
+- `verify_tavern_map`: ON のページへ `{v:1, seats:{t1:"goblin-mine", t2:"bandits-forest"}, nonce:"SEED-vtm"}` を種まき。
+  (2a) = 盤面どおりちょうど 2 枚 **かつ nonce が種のまま**(引き直されたら赤)/ (2d) = 盤面の卓で測る(`tableSidsOf()`)/ (3a)(3b) = 盤面の t1 の卓(= 同じ (4,4))/
+  (5b)(5c) = 盤面の枚数 + 種の採用を確認 / (4b) = back フェーズを `?questdraw=0` で開く(dropscen も同じ URL)。
+  旧 3 卓の検査は新フェーズ `qoff` / `qoffc`(`?questdraw=0` の desktop / compact)へ **(2aq)(2dq)(5bq)(5cq)** として移して残した = +4 本。
+- `verify_npc_crowd`: `POP.tavern.signs: 5` → `doors: 2` + `wantSigns()` = **そのページの `board()` の席数 + 扉**(盤面が測れなければ NaN = 赤)。(0c)(4d) とも。
+  種 `{t1, t2}` を purge の直後にまく(乱数の席だと desktop/compact で札の並びが変わり (4d) の id 一致が揺れる)。
+
+#### (4) 名指し golden の色(着手前 §12-0 (2) → 実装後)
+
+| 本 | 着手前 | 実装後 |
+|---|---|---|
+| `verify_tavern_map` 素 | 43/43 ×2 | **47/47 ×2**(+4 = (2aq)(2dq)(5bq)(5cq)) |
+| `verify_tavern_map --negative` | 67/67(変異 10/10) | **71/71**(変異 10/10・`(n9a)` PENDING 0) |
+| `driver_depart_menu_clean` | 41/41 | 41/41(261 秒。並走中の `--negative` 2 本と CPU を取り合った) |
+| `driver_party_view_reopen` | 35/35 | 35/35 |
+| `verify_quest_walk` | 25/25 | 25/25 |
+| `verify_recruit_size` | 91/91 | 91/91 |
+| `verify_quest_visibility` | 39/39 | 39/39 |
+| `verify_town_map` | 85/85 | 85/85 |
+| `verify_scroll_shelf` | 19/19 | 19/19 |
+| `verify_npc_crowd` 素 | 33/33 | 33/33 |
+| `verify_npc_crowd --negative` | 58/58 | 1 回目 **57/58**(K4)→ 直して **58/58** |
+| `verify_recruit_talk --negative` | 25/25(11/11) | 25/25(11/11) |
+
+緑→赤 = 0(K4 は言い直しの漏れで、直した後は 0)。
+
+#### (5) 崩れ(K4〜)
+
+- **K4** `verify_npc_crowd` の変異 `strollsign`(酒場 server の巡回を (8,3)⇄(8,6) へ)が空振りした。交差する相手は **t3 の席札 (9,3)**。
+  #81 で札が出る席は 3 つのうち 2 つになり、種 {t1, t2} では t3 に札が無い ⇒ (1a) が t3 を覆わなくなっていた。
+  本番はどの 2 席も引き得るので (1a) は 3 席すべてで守る必要がある ⇒ (1a) 専用に **盤面 B `{t3:廃坑, t2:森}` の酒場 2 面**(desktop / compact)を足し、
+  B の面は `boardSeats.t3` が在ることも見る(種が捨てられたら赤)。直した後は `strollsign` が盤面 B の desktop で ①② 各 2 件の交差として赤 = 58/58。
+  ⭐ 依頼書 §2-5 / §12-0 K2 は (0c) の枚数だけを影響として挙げていたが、**「札が出る席が減る」は札を相手にした交差検査の母集団も痩せさせる**。
+
+#### (6) 逸脱(D1〜)
+
+- **D1** 依頼書 §8 は「(4b) を `?questdraw=0` へ移す」だけだったが、(2a)(2d)(5b)(5c) の旧 3 卓の検査も削らずに `?questdraw=0` 側へ別 assert として残した(本数 +4)。
+  ON 側の (2a)(5b)(5c) には「種が採用されたこと(nonce)」を足した(乱数の席で偶然緑になるのを塞ぐ)。
+- **D2** `boardValid()` は `v` も `nonce` も検査しない(依頼書 §2-4 の 3 条件だけ)。ドライバが `v` 抜きの種をまいても採用される。
+- **D3** `loadOrDrawBoard()` は localStorage が読めない/壊れているときに、メモリの盤面(`board`)を使う(依頼書 §4-2 の「try/catch で握る」の具体化。K1 の再実行で引き直さないため)。
+
+#### (7) 項目3 への申し送り
+
+- 変異アンカー(HEAD = 本コミット・すべて `tavern.html` で 1 ヒットを確認):
+  `memonly` → `      try { b = JSON.parse(localStorage.getItem(BOARD_KEY) || "null"); }`(:10678)/
+  `lockedpool` → `      var unlocked = scenarios.filter(function (s) { return isUnlocked(s); });`(:10631)/
+  `nofrontier` → `      if (f.frontier) ids.push(f.frontier.id);`(:10663)。⚠ これだけだと `boardValid` ③ が捨て続けるので (3b) と (1c) が赤になる見込み /
+  `novalidate` → `    function boardValid(b, f) {`(:10640)/ `noreroll` → `    try { localStorage.removeItem("dragonfighters.questBoard"); } catch (e) {}`(:5825)/
+  `enterreroll` → `    document.body.classList.toggle("questDrawOn", QUEST_DRAW_ON);`(:10454)の後ろに removeItem を足す形 /
+  `oneonly` → `      if (ids.length < BOARD_SIZE && f.nextLocked) ids.push(f.nextLocked.id);`(:10668)。⚠ 1 件の盤面は `boardValid` ① で捨てられ、毎回引き直す(保存値は毎回変わる)/
+  `backroomdoor` → `      if (d.key === "shop") { openShop(); return; }`(:10839)/ `shopbtn` → `    body.tavernMapOn.questDrawOn #shopEntry { display: none; }`(:2756)/
+  `killshopdom` → `    <div id="shopEntry" title="武器防具屋">🛡️ 武器防具屋</div>`(:3395)。
+- ⛔ `hidelock` のアンカー `        var unlocked = isUnlocked(sc);` は buildSigns 内に 1 回だけ。`lockedpool` のアンカーは `var unlocked = scenarios.filter` で別の行(衝突しない)。
+- シーム: `__TAVERN_TV.board()` = `{v:1, seats:{t?:id,...}, nonce}` の写し(OFF は null)。`__TAVERN_TV.boardFacts()` = `{unlocked:[id], frontier:id|null, nextLocked:id|null}`。
+- 罠: 種の盤面はページの `cleared` に照らして妥当でないと捨てられる(新規状態では {廃坑, 森} だけが妥当)。`?unlockall=1` は `cleared` を 6 本にするので、それ以前の種は本筋の条件で捨てられることがある。
+  `verify_npc_crowd` の新規ページは purge(sessionStorage の `__drvSeeded`)のあと盤面を種まきする。新しいドライバで同じ作法を使うなら、席 t3 の扱い(K4)に注意。

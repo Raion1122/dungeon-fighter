@@ -135,10 +135,25 @@ const NPC_SETTLE_MS = 1500;
 
 /* 2026-09-01 / 2026-09-02 に実測した母集団。⛔ 期待値ではなく **母集団ガード** として使う。
  * ⚠ ここが動いたら「マスクを 1 文字も変えない」(依頼書 §2-5) が破れている。 */
+/* ⭐ #81: 酒場の札は「盤面の卓 (戻るたびに入れ替わる依頼) + 扉 2 枚 (町へ出る / 武器防具屋)」。
+ *   卓の枚数は **ページの __TAVERN_TV.board() から導出**する (⛔ 4 を焼かない)。
+ *   ⚠ 盤面は newPage() で {t1:廃坑, t2:森} を種まきして決定的にしてある
+ *     (乱数の席のままだと desktop / compact で札の並びが変わり (4d) の id 一致が揺れる)。 */
 const POP = {
-  tavern: { blocked: 87,  walkable: 63,  signs: 5 },
+  tavern: { blocked: 87,  walkable: 63,  doors: 2 },
   town:   { blocked: 216, walkable: 129, signs: 3 },
 };
+const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-npc' };
+/* ⚠⚠ #81 で札が出る卓は 3 席のうち 2 席だけになった。(1a) の「札と NPC が交差しない」は **3 席すべて**で
+ *   守られていないといけない (本番はどの 2 席も引き得る) ⇒ (1a) 専用に、残る席 t3 を含む盤面の
+ *   酒場ページ (desktop / compact) を足して測る。⛔ これを外すと変異 strollsign (t3 の席札 (9,3) と
+ *   巡回経路 (8,3) が交差) が空振りする (#81 項目2 で実測)。 */
+const QUEST_BOARD_SEED_B = { v: 1, seats: { t3: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-npc-B' };
+/* 期待する札の枚数。酒場 = そのページで測った盤面の卓数 + 扉。盤面が測れなければ NaN (= 必ず赤) */
+function wantSigns(pop, p) {
+  if (pop.doors === undefined) return pop.signs;
+  return (p && typeof p.boardN === 'number') ? p.boardN + pop.doors : NaN;
+}
 
 /* ⚠⚠⚠ (I6) — 既存 golden が **タイル中心の実座標で押す**タイル (2026-09-02 実測)
  *  項目 3 で吹き出しに ev.stopPropagation() を足した瞬間、NPC は「タップを食う板」になった。
@@ -397,7 +412,7 @@ function mark(msg) { console.log('\n[drv] ' + (++step) + ' ' + msg); }
 //   ⚠ prologueSeen を立てるのは、酒場の全画面暗幕 #prologueOverlay がステージに
 //     被さるのを避けるため。⛔ 闇市は解禁しない (解禁すると札が 6 枚 / 4 枚になる)。
 // ══════════════════════════════════════════════════════════════════════════════
-async function newPage(browser, view) {
+async function newPage(browser, view, seedBoard) {
   const page = await browser.newPage();
   const errs = [], reqs = [];
   page.on('pageerror', e => errs.push('pageerror: ' + e.message));
@@ -409,7 +424,7 @@ async function newPage(browser, view) {
     errs.push('console: ' + m.text());
   });
   page.on('request', r => { try { reqs.push(r.url()); } catch (e) {} });
-  await page.evaluateOnNewDocument(() => {
+  await page.evaluateOnNewDocument((seed) => {
     try {
       if (sessionStorage.getItem('__drvSeeded')) return;
       sessionStorage.setItem('__drvSeeded', '1');
@@ -427,8 +442,10 @@ async function newPage(browser, view) {
       kill2.forEach(k => sessionStorage.removeItem(k));
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
+      /* #81: 卓の盤面を種まき (新規状態で妥当な盤面 = 本筋の廃坑 + 次の未解放の森) */
+      localStorage.setItem('dragonfighters.questBoard', seed);
     } catch (e) {}
-  });
+  }, JSON.stringify(seedBoard || QUEST_BOARD_SEED));
   /* ⭐⭐⭐ (4a) の「**起動前**」— 通行マスクを、地図モジュールが window へ載せた
    *  **その瞬間**に写し取る。⚠ waitForFunction の後で採ると、その時点では既に
    *  NPC の初期化が済んでいるので「前」にならない (永久に前後同一 = 永久緑)。
@@ -501,6 +518,13 @@ function pageProbe(cfg) {
         });
     }
   } catch (e) { out.err.push('signs: ' + e.message); out.signs = out.signs || []; }
+  /* #81: 酒場の卓の札の枚数 = 盤面の席の数 (⛔ 定数を焼かない)。街には盤面が無い = null */
+  try {
+    const TV = window.__TAVERN_TV;
+    const bd = (TV && typeof TV.board === 'function') ? TV.board() : null;
+    out.boardN = (bd && bd.seats) ? Object.keys(bd.seats).length : null;
+    out.boardSeats = bd ? bd.seats : null;
+  } catch (e) { out.err.push('board: ' + e.message); out.boardN = null; }
 
   /* ── 通行マスクの母集団 (本番の isWalkable を呼ぶ。⛔ 自前で判定を書き直さない) ── */
   try {
@@ -710,7 +734,7 @@ function pageProbe(cfg) {
 
 async function measure(browser, port, o) {
   const out = { tag: o.tag, err: null, injected: false, reqSawNpcJs: false };
-  const ctx = await newPage(browser, o.view);
+  const ctx = await newPage(browser, o.view, o.seedBoard);
   try {
     await ctx.page.goto('http://localhost:' + port + '/' + o.file, { waitUntil: 'load', timeout: 40000 });
     await ctx.page.waitForFunction(o.ready, { timeout: 25000 });
@@ -1293,6 +1317,8 @@ const P  = (ph) => (ph && ph.probe) || {};
 const PH = (m, k) => (m && m[k]) || null;
 const ALL4 = (m) => [['酒場/desktop', PH(m, 'tav')], ['酒場/compact', PH(m, 'tavC')],
                      ['街/desktop', PH(m, 'town')], ['街/compact', PH(m, 'townC')]];
+/* #81: (1a) は 3 席すべてを覆うため、席 t3 の盤面 B の酒場 2 面も足して回す */
+const ALL4B = (m) => ALL4(m).concat([['酒場/desktop(盤面B)', PH(m, 'tavB')], ['酒場/compact(盤面B)', PH(m, 'tavBC')]]);
 const PAIRS = (m) => [['酒場', PH(m, 'tav'), PH(m, 'tavC'), POP.tavern],
                       ['街',   PH(m, 'town'), PH(m, 'townC'), POP.town]];
 /* §3 の 4 面 (吹き出しは押して測るので、§0〜§4 とは別の測定オブジェクトを持つ) */
@@ -1358,8 +1384,11 @@ const ASSERT_OF = {};
     }],
   ['0c', '[装置] 札を実 DOM から 1 枚以上測れている (⭐ 0 枚だと (1a) の交差検査が空振りする)',
     (m) => {
-      const want = { '酒場/desktop': POP.tavern.signs, '酒場/compact': POP.tavern.signs,
-                     '街/desktop': POP.town.signs,     '街/compact': POP.town.signs };
+      /* ⭐ #81: 酒場は盤面の卓数 + 扉 POP.tavern.doors 枚をそのページから導出 (⛔ 定数を焼かない) */
+      const popOf = { '酒場/desktop': POP.tavern, '酒場/compact': POP.tavern,
+                      '街/desktop': POP.town,     '街/compact': POP.town };
+      const want = {};
+      ALL4(m).forEach(function (x) { want[x[0]] = wantSigns(popOf[x[0]], P(x[1])); });
       const rows = ALL4(m).map(function (x) {
         const p = P(x[1]);
         return { name: x[0], n: (p.signs || []).length,
@@ -1370,7 +1399,7 @@ const ASSERT_OF = {};
       const exact = rows.every(function (r) { return r.n === want[r.name]; });
       return [guard && exact, rows.map(function (r) {
         return r.name + ' ' + r.n + ' 枚 (期待 ' + want[r.name] + ', zoom ' + r.zoom + ') [' + r.keys + ']'; }).join('  /  ')
-        + (exact ? '' : '  ⛔ 枚数が違う — 闇市が解禁されていないか (解禁すると酒場 6 / 街 4)、'
+        + (exact ? '' : '  ⛔ 枚数が違う — 闇市が解禁されていないか (解禁すると酒場 +1 / 街 4)、盤面の種が捨てられていないか、'
           + 'または札そのものが増減した。⚠ 期待値を書き換える前に理由を突き止めること')];
     }],
   ['0d', '[装置] 通行マスクの母集団が空でない — 歩けないマスが 酒場 ' + POP.tavern.blocked
@@ -1439,9 +1468,9 @@ const ASSERT_OF = {};
     }],
   ['1a', '★★ 札と NPC の矩形が 1 件も交差しない — **3 経路** '
     + '(① 本番の validate / ② ドライバ自前のデータ矩形 / ③ **実 DOM の .npcUnit 矩形**) '
-    + 'かつ **desktop と compact の両方**',
+    + 'かつ **desktop と compact の両方** (#81: 卓の席 3 つすべて = 盤面 {t1,t2} と {t3,t2} の 2 通りで)',
     (m) => {
-      const rows = ALL4(m).map(function (x) {
+      const rows = ALL4B(m).map(function (x) {
         const p = P(x[1]);
         const v = p.validate || { ok: null, problems: [] };
         const d = drvCross({ list: p.list, signs: p.signs, TILE: p.TILE, SPRITE: p.SPRITE, FOOT: p.FOOT });
@@ -1452,13 +1481,15 @@ const ASSERT_OF = {};
           (p.signs || []).forEach(function (s) {
             if (domHit(u, s)) dom.push((u.key || '?') + 'x' + s.key); });
         });
+        /* #81: 盤面 B の面は t3 に札が出ていること (種が捨てられたら t3 が覆えていない = 赤) */
+        const seatOk = x[0].indexOf('盤面B') < 0 || !!(p.boardSeats && p.boardSeats.t3);
         return { name: x[0], ok: v.ok, probs: v.problems || [], hits: d.hits, dom: dom,
-                 signs: (p.signs || []).length, cells: d.cellCount,
+                 signs: (p.signs || []).length, cells: d.cellCount, seatOk: seatOk,
                  units: (p.npcRects || []).length, broken: d.broken };
       });
       const ok = rows.every(function (r) {
         return r.ok === true && r.probs.length === 0 && r.hits.length === 0 && r.dom.length === 0
-          && r.signs > 0 && r.cells > 0 && r.units > 0 && !r.broken;
+          && r.signs > 0 && r.cells > 0 && r.units > 0 && !r.broken && r.seatOk;
       });
       return [ok, rows.map(function (r) {
         return r.name + ' ①problems ' + r.probs.length
@@ -1467,7 +1498,8 @@ const ASSERT_OF = {};
           + (r.hits.length ? ' [' + r.hits.join(' | ') + ']' : '')
           + ' / ③DOM 矩形の交差 ' + r.dom.length
           + (r.dom.length ? ' [' + r.dom.join(' | ') + ']' : '')
-          + ' (札 ' + r.signs + ' 枚 x セル ' + r.cells + ' / 描かれた NPC ' + r.units + ' 体)'; }).join('  //  ')];
+          + ' (札 ' + r.signs + ' 枚 x セル ' + r.cells + ' / 描かれた NPC ' + r.units + ' 体)'
+          + (r.seatOk ? '' : ' ⛔ 盤面 B の種が採用されず t3 の席札が無い'); }).join('  //  ')];
     }],
   ['1b', '定点 NPC 全員が isWalkable()===false のタイルに立ち、マンハッタン距離 2 以内に歩けるマスを持つ'
     + ' (⭐ 本番の isWalkable を呼んで測る)',
@@ -1927,7 +1959,7 @@ const ASSERT_OF = {};
         + (ok ? '' : '  ⛔ NPC の初期化が主人公を動かした / 観測窓が生えていない')];
     }],
   ['4d', '#tavernStage / #townStage の札の枚数と id と z-index が従来どおり'
-    + ' (酒場 ' + POP.tavern.signs + ' / 街 ' + POP.town.signs + ' 枚、z-index は全部同じ)',
+    + ' (酒場 = 盤面の卓 + 扉 ' + POP.tavern.doors + ' / 街 ' + POP.town.signs + ' 枚、z-index は全部同じ)',
     (m) => {
       const rows = PAIRS(m).map(function (x) {
         const d = P(x[1]), c = P(x[2]);
@@ -1935,14 +1967,16 @@ const ASSERT_OF = {};
         const kc = (c.signs || []).map(function (s) { return s.key; });
         const zs = (d.signs || []).map(function (s) { return String(s.zIndex); });
         const uz = zs.filter(function (v, i) { return zs.indexOf(v) === i; });
-        return { name: x[0], nd: kd.length, nc: kc.length, want: x[3].signs,
+        /* ⭐ #81: 酒場の枚数は desktop / compact それぞれのページの盤面から導出する (⛔ 定数を焼かない) */
+        return { name: x[0], nd: kd.length, nc: kc.length,
+                 want: wantSigns(x[3], d), wantC: wantSigns(x[3], c),
                  same: kd.join(',') === kc.join(','), keys: kd, uz: uz,
                  units: (d.npcRects || []).length };
       });
       const ok = rows.every(function (r) {
-        return r.units > 0 && r.nd === r.want && r.nc === r.want && r.same && r.uz.length === 1; });
+        return r.units > 0 && r.nd === r.want && r.nc === r.wantC && r.same && r.uz.length === 1; });
       return [ok, rows.map(function (r) {
-        return r.name + ' desktop ' + r.nd + ' / compact ' + r.nc + ' 枚 (期待 ' + r.want + ')'
+        return r.name + ' desktop ' + r.nd + ' / compact ' + r.nc + ' 枚 (期待 ' + r.want + ' / ' + r.wantC + ')'
           + ' / id 一致=' + r.same + ' / z-index=' + JSON.stringify(r.uz)
           + ' [' + r.keys.join(' ') + ']'; }).join('  //  ')];
     }],
@@ -2094,7 +2128,13 @@ function emit(id, m) {
     const town  = await measure(browser, port, Object.assign({ tag: '街/desktop', view: VIEW_DESKTOP }, TOWN_CFG));
     console.log('[drv]   街   compact 390x844');
     const townC = await measure(browser, port, Object.assign({ tag: '街/compact', view: VIEW_COMPACT }, TOWN_CFG));
-    for (const pair of [['酒場/desktop', tav], ['酒場/compact', tavC], ['街/desktop', town], ['街/compact', townC]]) {
+    /* #81: (1a) 専用 — 席 t3 に札が出る盤面 (QUEST_BOARD_SEED_B) */
+    console.log('[drv]   酒場 desktop 1440x900 (盤面 B: t3 の席札)');
+    const tavB  = await measure(browser, port, Object.assign({ tag: '酒場/desktop(盤面B)', view: VIEW_DESKTOP, seedBoard: QUEST_BOARD_SEED_B }, TAV_CFG));
+    console.log('[drv]   酒場 compact 390x844 (盤面 B: t3 の席札)');
+    const tavBC = await measure(browser, port, Object.assign({ tag: '酒場/compact(盤面B)', view: VIEW_COMPACT, seedBoard: QUEST_BOARD_SEED_B }, TAV_CFG));
+    for (const pair of [['酒場/desktop', tav], ['酒場/compact', tavC], ['街/desktop', town], ['街/compact', townC],
+                        ['酒場/desktop(盤面B)', tavB], ['酒場/compact(盤面B)', tavBC]]) {
       const k = pair[0], ph = pair[1];
       if (ph.err) console.log('[drv]   ⛔ ' + k + ' の測定が失敗: ' + ph.err);
       if (ph.pageErrs && ph.pageErrs.length) {
@@ -2106,7 +2146,7 @@ function emit(id, m) {
       if (ph.injected) console.log('[drv]   ⭐ ' + k + ' は addScriptTag で js/npc-crowd.js を **暫定注入**した'
         + ' (⛔ (0a-tavern) はこれで緑にしない)');
     }
-    return { tav: tav, tavC: tavC, town: town, townC: townC };
+    return { tav: tav, tavC: tavC, town: town, townC: townC, tavB: tavB, tavBC: tavBC };
   }
   async function measureBub4(port) {
     console.log('[drv]   酒場 desktop / compact → 街 desktop / compact');
