@@ -1,11 +1,11 @@
 # #82 新しい依頼「塔の母」— A: 器と戦闘(見張りの塔 2 枚 + ワイバーンを追い払う)
 
 - **起草**: 2026-10-03(起草窓) / **ステータス**: **承認済**(2026-10-03 ユーザー承認)
-- **着手**: ⏸ **保留 — #81 の完了待ち**(#82 は #81 の `boardFacts()` を書き換え、非退行に #81 の `verify_quest_draw.js` が要る)
-- **基準 HEAD**: `d914fdc`(#81 項目2 まで着地済み)
+- **着手**: **2026-10-03(実装窓・dev-loop)**。#81 は `1a2859b` で完了(`verify_quest_draw.js` は出来上がっている)
+- **基準 HEAD**: `1a2859b`(#81 完了。起草時の基準 `d914fdc` から配信物の OID は不変 = §12-0 (0))
 - **会議**: `dev-meetings/2026-10-03_tower-mother-quest.md`(第1段 → 素材発注 → 第2段の開発計画書。ユーザー承認 2026-10-03)
 - **触るファイル**: `index.html` / `tavern.html` / `js/world-map.js` / `js/df-mapdef.js` / `tools/make_grid_map.py`(台帳 2 行)/ `tools/codex1_sprites.json`(台帳 1 行)/ `assets/`(焼き上がり 2 枚 + ワイバーンのシート)/ 既存 golden の言い直し / `tools/verify_tower_mother.js`(新規)
-- ⛔ **着手の前提**: **#81 の完了**(実装窓が項目3〜4 を実行中)。#82 は #81 の `boardFacts()`(`tavern.html:10630`)を書き換えるので、#81 の受入 `tools/verify_quest_draw.js` が出来上がってからでないと非退行を測れない。
+- ✅ **着手の前提(満たされた)**: **#81 の完了** = `1a2859b`(項目1〜4 すべて着地・受入 `tools/verify_quest_draw.js` 18 assert・変異 10)。#82 は #81 の `boardFacts()`(`tavern.html:10630`)を書き換えるので、#81 の受入 `tools/verify_quest_draw.js` が出来上がってからでないと非退行を測れない。
 - ⛔ **やらない(チケット B #83 へ)**: 母(老婆)の配置・勝利後に出てきて付いて歩く場面・酒場での再会とお礼の場面
 
 ---
@@ -231,7 +231,7 @@
 
 ---
 
-## 8. 受入条件 — `tools/verify_tower_mother.js`(新規・port base **#81 完了時に決める**。#81 は 10527〜を使用中)
+## 8. 受入条件 — `tools/verify_tower_mother.js`(新規・port base **10538**・変異は **10539〜**。#81 の `verify_quest_draw` が 10527〜10537)
 
 方針: 登録の整合は**ブラウザに載った実体どうし**で突き合わせる(写経しない)。追い払いは本番の `runEncounter` を回して観測し、数値のダメージを注入して境界を踏む。強さは assert にせず**実測値を報告**する(⑤)。
 
@@ -324,4 +324,118 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(項目1・2026-10-03・HEAD `1a2859b`)
+
+⛔ 本番ファイル(`index.html` / `tavern.html` / `js/*` / `world.html` / `tools/*`)は 1 バイトも触っていない(測定の前後で `git status --short` = 本書だけ)。作業物は scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/item1/`。
+
+#### (0) 基準 HEAD の差
+
+`git diff --stat d914fdc 1a2859b` = `tools/verify_quest_draw.js`(新規)・`dev-meetings/2026-10-03_tower-mother-quest.md`・`実装依頼書/` の 3 本だけ。
+`git rev-parse <rev>:<path>` で `index.html` / `tavern.html` / `audio.js` / `js` / `js/world-map.js` / `js/df-mapdef.js` / `js/tavern-map.js` / `world.html` / `town.html` / `assets` の OID が `d914fdc` と `1a2859b` で**全一致**(`tools` だけ `verify_quest_draw.js` の追加で違う)⇒ 起草時の行番号は配信物の上ではそのまま測り直せる。
+`36f4ba0`(#80 完了)→ `1a2859b` で変わった配信物は `tavern.html` と `js/tavern-map.js` の 2 本だけ。`index.html` / `js/world-map.js` / `js/df-mapdef.js` / `world.html` / `assets` は #80 から不変。
+
+#### (1) §2 の主張の測り直し
+
+| 主張 | 実測(HEAD `1a2859b`) | 判定 |
+|---|---|---|
+| §2-1 素材 md5 | `tower-road-v1.png` = `7e96ec474b7d…`・`tower-top-v1.png` = `2c6a8a47eac3…`。どちらも 1536x1024 RGB | ✓ |
+| §2-1 丘の道の一次解 | `--fit-around 48` / 51 で同じ解 phase (50.65, 51.45) / period (51.195, 51.620) / cells (29, 18)。自己相関も縦 51/102・横 52/103。3 倍拡大の目視で線間隔 51.3 / 51.5px | ✓ |
+| §2-1 最上階の一次解・縦横差 3.6% | **K1** 下記(偽解) | 崩れ |
+| §2-1 ワイバーン | `wyvern-walk-attack-right-6-aligned\` = walk 6 + attack 6 コマ(各 502x786 RGBA・md5 12 個全相違)+ シート 2 枚(3012x786)+ `anchor-check.png` = 15 ファイル | ✓ |
+| §2-2 `:26665-26666` / `defeatEnemy :17490` / 呼び口 `:27277 :29291 :32320 :34815` / `runEncounter :21562` / `:21834` / `pickAliveEngagedIdx :23219`(`!alive` を飛ばす)/ 勝利判定 `:19634 :19668 :36616 :37632 :37891`(コード 5 + コメント `:11216`)/ `applyGrixAdds :26697-26702` | 一致。`encounterEnemyIndices` を書くのは `:21569`(開始)と `:21987`(終了)だけで剪定しない | ✓ |
+| §2-3 HP の書き込み口 `:17341 :23290 :23327 :23562 :27136 :29285 :29813 :34807 :35505` / ハイドラ `:17493-17521` / `RunChronicle.endTurn(__chSnap) :21862` / `tickCordonZones :21797` / `ragePhaseHpRatio :34867` / `CHARIOT_HP_TRIGGER :33941` | 一致 | ✓ |
+| §2-3「33 の呼び口」 | `defeatEnemy(` の出現は 33 だが関数定義 1 を含む = **呼び口 32**(コード内コメントの「呼び口 33 箇所」も同じ数え方)| ✓(数え方だけ・先頭割り込みは全部を覆うので害なし) |
+| §2-4 `RunChronicle.kill :17524` / `__diagDead :17525` / 蘇生検出 `:40349` / ドロップ `:17538-17542` | 一致。⚠ 撃破音・シェイクの分岐は `def.boss`(`:17532`)、撃破ナレは `def.isBoss`(`:17547`) | ✓ |
+| §2-5 `resolve :1973` / `FIELD_THEME_IDS :2150` / `THEMES :39-47` / `:1554` / 街道 `index.html:5555-5575` / 参道 `:5692-5695` | 一致 | ✓ |
+| §2-6 `index.html` の口 | `SCENARIO_TEX` は `:3562` 開始(`:3699` は神殿の行)・落ち先 `:3768` / `NODE_EXTRA_SPAWN_KINDS :4305` / `ROOM_PAINTINGS_DEF` は `:5244` 開始(`:6011-6321` は神殿と竜の 2 ブロック)・`node` の門 `:6444` / `SCENARIOS :10904`・`clearGold :39823`・落ち先 `:11115` / `SCENE_BGM :14647`・落ち先 `:14680` / `SCENARIO_NARRATIONS :14733` / `const ALL :3414` | ✓(開始行の違いだけ) |
+| §2-6 `buildScenarioRun` の振り分け `:38268-38272` | **6 行 = `:38268-38273`**(竜の行が `:38273`)。縦に揃えない注記は `:38263-38266` に在る | ✓(1 行ずれ) |
+| §2-6 `js/df-mapdef.js` | `THEME_DEFAULT_ENEMIES :1879-1889` 一致 / `LINT_PAINTING_ASPECTS` は `:2154` 開始(`:2189-2215` は中の注記と行)| ✓ |
+| §2-6 `LINT_PAINTING_ASPECTS`「絵の寸法しだいで要」 | **K5** 29:18 も 26:17 も既存 12 行に無い ⇒ **要**(2 行) | 確定 |
+| §2-6 `tavern.html` | `scenarios` は **`:3517-3651`**(起草 `:3513-3646`)/ `ALL_MAIN_SCENARIOS :4257` 一致 / `CLIENT_ART` **`:6318`**(起草 `:6324`)/ `renderTables` **`:6338`**(起草 `:6333`)/ `boardFacts :10630` 一致 / `openBackroom :10863`・`scenarios.slice(3) :10864` 一致 | ✓(数行ずれ・害なし) |
+| §2-6 `js/world-map.js` | `NODES :60` / `pass_n :73` = `{ kind: "way", x: 736, y: 96 }` / `SITES :152`(6 件)/ **`UNLOCK :168`**(起草 `:171` は中の行)/ コメント「ちょうど 7 つ」`:42` | ✓ |
+| §2-7 在庫 | **K3** `direBear` は `isBoss:true`(`ruinSpider` / `orcArcher` は非ボス) | 崩れ |
+| §2-8 `griffon :10743`(192px・`flight`・`attacksPerTurn:2`・`xp:850`)/ `applyPoison :17484` | 一致。**K2** `griffon` は `isBoss:true`(写し元をそのまま写すと isBoss が付く) | ✓ + 注記 |
+| §5-2 竜の巣 `:39321-39447` / `p6Node :38678` / マスク `:6245-6265` | 一致(実名 `buildDragonLairRun`)| ✓ |
+| §5-3 `setEnemyVfx :16142` / `hydraEmerge :1494-1499` | 一致 | ✓ |
+| §2-10 `check_changelog.py:24` | (#81 §12-0 で確認済み・ファイル不変) | ✓ |
+
+**崩れた主張(K1〜K7)。K1 は数値が全部入れ替わるが、仕様(2 ノード・最上階の絵・検算 3 指標)は変わらない = blocked にしない。**
+
+- **K1 ⭐⭐⭐ 最上階の `--fit-around 48` の一次解は偽解。** 床の格子の本当の周期は **縦線 55.8 / 横線 59.2px** で、中心 48 の探索窓(44.16〜51.84)の**外**にある。
+  - 根拠 3 本: ① `line_response` の自己相関の山が縦 56/110・横 59/118(46 や 44 に山は無い)② 床の中央を 2 倍に拡大した目視で線の間隔 56〜57 / 59px ③ 床の領域だけで線の位置を拾って直線回帰 = 縦 T 55.881・位相 38.87(残差 ±2.4px)/ 横 T 59.131・位相 0.75(残差 ±1.2px)。
+  - 起草の一次解 phase (16.75, 29.95) / period (46.010, 44.390) / cells (33, 22) で焼くと **横線 NG(位相ズレ 31.20 world-px / 許容 2.0)**。縦線の「OK」は石積みを拾った見かけ。
+  - `--fit-around 57.5`(56 / 59 でも同じ)= phase (40.15, 0.50) / period (55.775, 59.155) / cells (26, 17)。これでも縦線は **drift 4.26 NG**(横は 0.00 OK)⇒ 竜 n7 と同じく **(位相 x 周期) の 2 次元掃引**(縦: 位相 38.0〜40.5 x 周期 55.750〜56.000、tile 48 / 64 の各 231 点)。OK 領域は斜めの稜線で、上下左右の隣が全部 OK の basin の中心は:
+    - **tile 64: phase x = 39.00 / period x = 55.875**(drift 1.52 / 位相 0.75 / score比 85.6〜86.0%)← 床の回帰 (38.87, 55.881) にいちばん近い
+    - tile 48: phase x = 38.50 / period x = 55.900(drift 1.98 / 位相 1.00 / 84.8〜84.9%)
+    - 横は一次解 (0.50, 59.155) がそのまま basin の中心(tile 48 / 64 とも上下左右 OK)
+  - 縦横差は **(59.155 − 55.875) / 57.5 = 5.87%**(起草の 3.6% ではない)= 台帳で廃坑 7.75% に次ぐ 2 番目。マス数は **26 x 17**(起草の 33 x 22 ではない)。
+  - 響き: 項目2 の `GRIDS["tower-top"]`・`n1` の rect・出口の唯一解・MASK の行数がこの値で決まる。焼き上がりへ重ねた目視で、赤線(tile 64)が床の描線に乗っていることを確認した(`fit/ov_tr_top_t64.png`)。
+- **K2** 指示の例と §2-8 の写し元 `griffon` は **`isBoss:true`**(`ragePhaseHpRatio:0.5` の汎用激怒・`maxSummons:0` 付き)。写し元から `wyvern` を作るとき、`isBoss` を残すか消すかを §5-2 の結論に合わせて決めること。
+- **K3** §2-7 の初期案「前庭 = `direBear` ×1」の `direBear` は **`isBoss:true`**(プラザのボス)。道中に置くと激怒・ボス撃破ナレ(`:17547`)・スクロール確定ドロップ(`:13784` `:13806`)・リーダー AI のボス扱い(`isBossLikeDef :32634`)に乗る。非ボスの獣は `ruinSpider`(xp 260)のほか `minotaur` / `stoneGolem` / `shadowBeast`(192px)など(全一覧 = scratchpad の作業記録)。§2-7 は「強さの実測で決める」としているので仕様には響かない。
+- **K4** §2-6 の行番号は `tavern.html` で 4〜6 行・`js/world-map.js` の `UNLOCK` で 3 行・`buildScenarioRun` で 1 行ずれていた(上表)。害なし。
+- **K5** `LINT_PAINTING_ASPECTS` に 29:18(丘の道)と 26:17(最上階)の 2 行が**要る**(どちらも既存の比率と一致しない)。
+- **K6** 名指し以外で「6 本」「6 テーマ」を焼いている本の候補(項目2 が実走で確かめること。⛔ 期待値を緩めず測定点を移す):
+  `driver_mapeditor_painting` §1 1a(`c1.themes.length === 6` = `ROOM_PAINTINGS_DEF` のテーマ数・`:519`)/ `verify_quest_draw`(`:451` `sc.length === 6` の鎖・`:516` (1c) の `fx.unlocked.length === 6`)/ `verify_tavern_map`(`:1541` `scenLen === 6`・`:1554`)/ `verify_world_map`(`:1825` `rows.length === 6`)/ `verify_codex_map_skill` (3a)(3b)(台帳の全件を焼き直して `assets/` と突き合わせる = `GRIDS` に足した 2 件の焼き上がりが `assets/` に要る)。
+- **K7** `verify_codex_map_skill` は `make_grid_map.py` を読むので今回の母集団に新しく入った。**着手前から素が赤**(16/17・(3a) が `stag-tavern` の検算 NG を拾う = #25 の罠 G/H「板目の床で `--check` が誤報」。SHA は 15 件とも一致)。`--negative` は 21/21 緑。⛔ 緑にしにいかない。
+
+#### (2) 名指し golden の着手前の色(本番の作業ツリー・素 ×2・`--negative` ×1)
+
+| 本 | 素 1 回目 | 素 2 回目 | `--negative` |
+|---|---|---|---|
+| `verify_quest_visibility` | exit 0 `39/39` | 39/39 | exit 0 変異 `10 / 10`・空振り 0 |
+| `verify_quest_walk` | exit 0 `25/25` | 25/25 | exit 0 `46/46` |
+| `verify_road_ambush` | exit 0 `41/41` | 41/41 | exit 0 `97/97` |
+| `verify_road_boon` | exit 0 `20/20` | 20/20 | exit 0 `48/48` |
+| `verify_road_events` | exit 0 `25/25` | 25/25 | exit 0 `43/43` |
+| `verify_tavern_map` | exit 0 `47/47` | 47/47 | exit 0 `71/71` |
+| `verify_world_heromark` | exit 0 `18/18` | 18/18 | exit 0 `24/24` |
+| `verify_world_map` | exit 0 `57/57` | 57/57 | exit 0 `44/44` |
+| `verify_world_steps` | exit 0 `33/33` | 33/33 | exit 0 `56/56` |
+| `verify_quest_draw` | exit 0 `18/18` | 18/18 | exit 0「10 本すべて担当ラベルが赤・担当外の赤 0」 |
+| `verify_npc_crowd` | exit 0 `33/33` | 33/33 | exit 0 `58/58` |
+| `driver_graph_p6` | exit 0 `250/250` | 250/250 | (無し) |
+| `verify_dragon_fold` | exit 0 `35/35` | 35/35 | exit 0 変異 `9 / 9` |
+| `driver_encounter_mopup` | exit 0 `36/36` | 36/36 | (無し) |
+| `verify_run_chronicle` | exit 0 `73/73` | 73/73 | exit 0「8 本すべて担当ラベルが赤 (空振り 0)」 |
+
+⇒ 素 30 腕 + `--negative` 13 腕 = 43 腕がすべて緑・素は 2 回とも同数(揺れなし)。所要 101.8 分(直列・`sweep82.py`・`run_named82/named82.tsv`)。`--negative` の 2 回目の色は、OID が同一の木で採られた `post81`(`verify_quest_visibility` / `verify_run_chronicle` / `verify_quest_draw`)にもある(全部 exit 0)。
+
+#### (3) §5-2 ボススロットに `isBoss` でない型を置いたら(使い捨て実験 `probe52/probe_bossslot.js`・port 10561〜10564)
+
+竜の巣の配信をメモリ上で差し替え、`n7` のボススロット `[25, 16, "pharaxus"]` を 4 腕で比べた(本番の `enterNode('n7')` → 玉座の 3 タイル西へ主人公 → 2.5 秒 → 本番の `defeatEnemy` で全滅 → `checkDungeonClear`)。
+
+| 腕 | lint | 盤面 | `bossApproachReachedNow` / ラッチ / `__inBossRoom` | 撃破後 | 語り |
+|---|---|---|---|---|---|
+| 素(`pharaxus`・isBoss) | e0 / w0 | 3 体 | true / true / **true** | `dungeonCleared` true・`lastResult.cleared` true | `boss_defeat`・`quest_complete` |
+| `griffon`(isBoss) | e0 / w0 | 3 体 | true / true / **true** | 同上 | `boss_defeat`・`quest_complete` |
+| `griffon` + `isBoss:false` | e0 / w0 | 3 体 | **false / false / false**(最後まで)| 同上 | `quest_complete` だけ |
+| `minotaur`(元から非ボス) | e0 / w0 | 3 体 | **false / false / false** | 同上 | `quest_complete` だけ |
+
+- 組み上げ・湧き・戦闘・クリア判定・帰還(`lastResult.cleared`)は**4 腕とも無傷**(エラー 0。`spawnsFromMapDef` はボススロットを型のまま 1 体足すだけで、クリアは `graphBossDefeated()` = 全滅しか見ない)。
+- ただし大部屋では「ボス部屋に居る」が**一度も立たない**: `bossApproachReachedNow()`(`:36567`)は `def.isBoss` の個体だけを見るので、ラッチ(`:36587`)も入室の語り `boss_room_enter`(`:19447` の門)も起きず、`__inBossRoom` が false のまま ⇒ `currentBgmId()`(`:14691`)がボス曲(`boss_battle`)へ切り替わらない。(竜の巣は `pharaxus_stage` の通し曲なので BGM 差は出ないが、塔は既存の曲を流用するので差が出る。)ほかに魔法の眼の報告の「ボス」(`:37073`)・リーダー AI のボス重み(`isBossLikeDef`)も立たない。
+- **結論 = `wyvern` の変種(isBoss 付き)を 1 つ作る必要あり**(ボススロット用。2 匹目は非ボスの `wyvern`)。⚠ `isBoss` を付けると汎用激怒(`:34866` `def.isBoss && … hp <= maxHp * (ragePhaseHpRatio || 0.5)`)が**飛び去りと同じ HP 50%** で発火する ⇒ 項目2 は「飛び去りが先」になる順序か、変種の `ragePhaseHpRatio` を明示して激怒が先に出ないことを確かめること。`maxSummons: 0` も写すこと(griffon の型)。⛔ 群れの長の仕組みは作らない。
+
+#### (4) 素材の検算(`make_grid_map.py` の一時コピー `fit/mgm_tmp/` に台帳を足して `--name` → `--check`。⛔ 本番の `GRIDS` と `assets/` は触らない)
+
+| 候補 | tile | 縦線 drift / 位相 / score比 | 横線 drift / 位相 / score比 | 判定 |
+|---|---|---|---|---|
+| 丘の道 phase (50.65, 51.45) / period (51.195, 51.620) / cells (29, 18) | 48 | 0.00 / 1.00 / 100.0% | 1.15 / 1.00 / 99.3% | **OK**(焼き上がり 1392x864・歪み 0.83%。上下左右の隣も OK。⚠ 縦の位相 +0.25 は素材の右端をはみ出す) |
+| **最上階 A** phase (39.00, 0.50) / period (55.875, 59.155) / cells (26, 17) | 64 | 1.52 / 0.75 / 86.0% | 0.00 / 0.75 / 100.0% | **OK**(1664x1088・歪み 5.87%) |
+| 最上階 B phase (38.50, 0.50) / period (55.900, 59.155) / cells (26, 17) | 48 | 1.98 / 1.00 / 84.9% | 0.00 / 1.00 / 100.0% | OK(1248x816) |
+| 最上階 `--fit-around 57.5` の一次解 (40.15, 0.50) / (55.775, 59.155) | 48 | **4.26** / 1.00 / 94.0% | 0.00 / 1.00 / 100.0% | NG |
+| 最上階 起草の一次解 (16.75, 29.95) / (46.010, 44.390) / (33, 22) | 48 | 0.00 / 1.00 / 100.0% | 2.55 / **31.20** / 96.5% | NG |
+
+⇒ **最上階は通る = v2 発注は不要**(blocked にしない)。⛔ 閾値は緩めていない。tile は項目2 が決める(A は床の回帰に最も近い・素材 55.9px に対して 1.15x。B は 0.86x)。
+
+#### (5) 母集団の着手前の色(流用 + 差分だけ実走)
+
+- 母集団(`pop82.py` = 3 段の和集合): ① コメントを落としたコードが `index.html` / `tavern.html` / `world-map` / `df-mapdef` / `world.html`(`js/world-map.js` を読み込む)/ `map-editor.html`(`js/df-mapdef.js` を読み込む)/ `make_grid_map` / `codex1_sprites` を読む **157 本** ② 変更区域の語 62 本 ③ 母集団の本を名指しで読む本 148 本 ⇒ union = **`tools/*.js` の全 160 本**。腕 = 素 160 + `--negative` 24 = **184 腕**(`verify_codex_map_skill --negative` を含む)。`auto_debug_run` 1 腕は母集団から外して記録(#80 のユーザー決定)。
+- 流用の可否(`reuse82.py`): ① `post81`(#81 項目4・本番 `c918b69`)は `c918b69`→`1a2859b` の差が docs だけ = 配信物と `tools` の OID が同一 ⇒ **74 腕そのまま流用** ② `post80`(#80 項目4・本番 `1a77bd4` = `36f4ba0` と OID 同一)は、`36f4ba0`→`1a2859b` の差が `tavern.html` / `js/tavern-map.js` / `tools/verify_tavern_map.js` / `tools/verify_npc_crowd.js` / `tools/verify_quest_draw.js`(新規)だけ ⇒ コードがこの 5 つのどれも読まない本の腕は流用可 = **104 腕**(`driver_field_verge_gap` は #80 と同じ `--port 18980` の腕)。この 5 つを読む本はすべて `post81` に在る(漏れ 0)。
+- 前の走査に腕が無い 4 本 5 腕だけ HEAD で実走(`run_pre82new/`): `_doors_fixture`(exit 0)/ `driver_doors_p1` 44/44 / `sim_plaza_entry`(exit 0)/ `verify_codex_map_skill` **16/17(K7)** / 同 `--negative` 21/21。走査後 `git status` は本書だけ(`fitwrite` 変異が書く `assets/town_phlan.jpg` はバイト同一)。
+- 183 腕の色(exit code が主): **緑 162 / 非緑 21**。非緑はすべて分類済み: #80 §12-0 の既知 17(使い方ガード・調査の道具 5 = `probe_bandit_map` / `probe_s2_fold` / `probe_swamp_map` / `probe_n4_stall` / `sweep_recruit_balance`・既知の赤 = `driver_grid_p4` / `driver_grid_p8` / `driver_mapeditor` / `driver_mapeditor_painting` / `driver_monsters_umberhulk` / `driver_sce1_events` / `driver_speech_v2` / `probe_party_size` / `verify_walk_block` / `driver_mapdef_step1` (K25)・揺れ = `driver_field_step6` / `driver_monsters_hobgoblin` / `verify_lore_check --negative`)+ #81 の K12 `driver_monsters_griffon` 14/17・K13 `verify_mage_hand --negative`(素の基準の (3a))+ 今回の K7。
+- 置き場: `item1/pre82.tsv`(184 行・出所の列つき)/ 凍結コピー `item1/from80/post80.tsv`・`item1/from81/post81.tsv` / `pop82.json` / `reuse82.json`。
+- ⚠ 項目4 は実装後の差分から `--negative` の腕を選び直す。上の 24 腕に無い腕が選ばれたら、その腕だけ `1a2859b` の影のツリーで着手前の色を取る(#81 と同じ)。
+
+#### (6) 項目2 への申し送り
+
+scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/notes_item1.md` に原文。要点 = K1 の新しい台帳値(最上階 26x17・tile 64 なら phase (39.00, 0.50) / period (55.875, 59.155))/ K5 の `LINT_PAINTING_ASPECTS` 2 行 / §5-2 の isBoss 変種と激怒の順序 / K6 の言い直し候補 / 行末(本書は純 LF)。
