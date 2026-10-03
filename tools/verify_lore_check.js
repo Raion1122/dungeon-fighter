@@ -102,6 +102,8 @@ for (const k of ['goblin', 'goblinArcher', 'goblinShaman', 'goblinBrute', 'gobli
   'banditHeavy', 'scar', 'lizardWarrior', 'lizardHunter', 'lizardRaider', 'lizardPriest', 'swampNovice', 'lizardChieftain']) DRV_SKILL[k] = 'history';
 for (const k of ['skeleton', 'zombie', 'skeletonArcher', 'wraith', 'lich', 'caelum', 'ghostFlame']) DRV_SKILL[k] = 'religion';
 for (const k of ['pharaxus', 'stoneGolem', 'animatedArmor', 'stoneLegionary', 'gargoyle', 'sovereignEye', 'hydra']) DRV_SKILL[k] = 'arcana';
+/* ★[#82 2026-10-03] 塔の母のワイバーン = SRD wyvern.md の creature_type: Dragon ⇒ 竜 = 魔法学 (#76 の規則)。ボス変種も同じ。 */
+for (const k of ['wyvern', 'wyvernBoss']) DRV_SKILL[k] = 'arcana';
 const DRV_NATURE = ['rat', 'plagueFrog', 'ruinSpider', 'direBear', 'chimera', 'griffon', 'umber_hulk', 'minotaur', 'shadowBeast', 'mimic', 'caravanWagon'];
 const DRV_ELEMENT = { 'fire-bolt': 'fire', 'fireball': 'fire', 'burning-hands': 'fire', 'lightning-bolt': 'lightning',
   'lightning-arrow': 'lightning', 'cone-of-cold': 'cold', 'ice-storm': 'cold' };
@@ -116,7 +118,10 @@ const DRV_SLUG = {
   gargoyle: 'gargoyle', minotaur: 'minotaur', hydra: 'hydra', mimic: 'mimic', plagueFrog: 'giant-frog', ruinSpider: 'giant-spider',
   chimera: 'chimera', griffon: 'griffon', orc: 'orc', orcGrunt: 'orc', orcArcher: 'orc', bandit: 'bandit', banditArcher: 'bandit',
   banditHeavy: 'thug', scar: 'bandit-captain', lizardWarrior: 'lizardfolk', lizardHunter: 'lizardfolk', lizardRaider: 'lizardfolk',
+  wyvern: 'wyvern', wyvernBoss: 'wyvern',   /* ★[#82 2026-10-03] 規則 ① (SRD に元がある) */
 };
+/* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。 */
+const N_TYPES = 51 + 2, N_SKILL = 40 + 2, N_NATURE = 11, N_CRKEYS = 34 + 2, N_NOCR = 17;
 /* 規則 ③ = 表に載せない (脅威度を出さない) 17 キー */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
   'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon'];
@@ -894,10 +899,10 @@ function judge(ctx, D, R) {
     const drv = Object.keys(DRV_SKILL), nat = DRV_NATURE;
     const both = drv.filter((k) => nat.indexOf(k) >= 0);
     const union = drv.concat(nat).sort();
-    if (w.types.length !== 51) bad.push('ENEMY_TYPES ' + w.types.length + ' キー');
-    if (drv.length !== 40 || nat.length !== 11 || both.length) bad.push('ドライバの表 ' + drv.length + '/' + nat.length + ' 重複 ' + J(both));
-    if (J(union) !== J(w.types.slice().sort())) bad.push('51 キーとドライバの表の和が不一致: 過 ' + J(union.filter((k) => w.types.indexOf(k) < 0)) + ' 欠 ' + J(w.types.filter((k) => union.indexOf(k) < 0)));
-    R.check('(0b)', '__dfLore が在り on === true・skillOf の全キーが ENEMY_TYPES に実在・51 キーがドライバの表で技能あり 40 / 対象外 11', bad.length === 0,
+    if (w.types.length !== N_TYPES) bad.push('ENEMY_TYPES ' + w.types.length + ' キー');
+    if (drv.length !== N_SKILL || nat.length !== N_NATURE || both.length) bad.push('ドライバの表 ' + drv.length + '/' + nat.length + ' 重複 ' + J(both));
+    if (J(union) !== J(w.types.slice().sort())) bad.push(N_TYPES + ' キーとドライバの表の和が不一致: 過 ' + J(union.filter((k) => w.types.indexOf(k) < 0)) + ' 欠 ' + J(w.types.filter((k) => union.indexOf(k) < 0)));
+    R.check('(0b)', '__dfLore が在り on === true・skillOf の全キーが ENEMY_TYPES に実在・' + N_TYPES + ' キーがドライバの表で技能あり ' + N_SKILL + ' / 対象外 ' + N_NATURE, bad.length === 0,
       bad.length ? '⛔ ' + bad.join(' / ') : 'on=true・skillOf ' + Object.keys(w.skillOf).length + ' キー・ENEMY_TYPES ' + w.types.length);
   }
   /* ── (0c) 振り分け・実効の技能・呪文の属性 ── */
@@ -918,8 +923,8 @@ function judge(ctx, D, R) {
       for (const k of Object.keys(DRV_ELEMENT)) if (pe[k] !== DRV_ELEMENT[k]) bad.push('spellElement ' + k + ' page=' + pe[k] + ' drv=' + DRV_ELEMENT[k]);
       for (const k of Object.keys(pe)) if (w.vocab.indexOf(pe[k]) < 0) bad.push('属性語 ' + pe[k] + ' (' + k + ') が __dfEnemyTraits の表に無い (語 ' + J(w.vocab) + ')');
     } else bad.push('__dfLore が無い');
-    R.check('(0c)', 'skillOf = ドライバの表 (51 種)・実効の技能 (1 種ずつ run) も一致・spellElement 7 行一致・属性語は体質の表の語', bad.length === 0,
-      bad.length ? '⛔ ' + bad.slice(0, 10).join(' / ') + (bad.length > 10 ? ' …他 ' + (bad.length - 10) : '') : '51 種一致 (実効で振った ' + Object.values(ON.scan).filter((s) => s.rsc.length).length + ' 種)・属性語 ' + J(w.vocab));
+    R.check('(0c)', 'skillOf = ドライバの表 (' + N_TYPES + ' 種)・実効の技能 (1 種ずつ run) も一致・spellElement 7 行一致・属性語は体質の表の語', bad.length === 0,
+      bad.length ? '⛔ ' + bad.slice(0, 10).join(' / ') + (bad.length > 10 ? ' …他 ' + (bad.length - 10) : '') : N_TYPES + ' 種一致 (実効で振った ' + Object.values(ON.scan).filter((s) => s.rsc.length).length + ' 種)・属性語 ' + J(w.vocab));
   }
   /* ── (0d) 脅威度 = SRD ── */
   {
@@ -931,9 +936,9 @@ function judge(ctx, D, R) {
     const leak = DRV_NO_CR.filter((k) => Object.prototype.hasOwnProperty.call(pc, k));
     if (leak.length) bad.push('出さない 17 キーが表に在る ' + J(leak));
     const u = dk.concat(DRV_NO_CR).sort();
-    if (dk.length !== 34 || DRV_NO_CR.length !== 17 || J(u) !== J(w.types.slice().sort())) bad.push('34 + 17 ≠ ENEMY_TYPES');
-    R.check('(0d)', 'ページの cr の 34 キー = SRD の cr: (ドライバが slug で読む)・「出さない」17 キーは表に無い', bad.length === 0,
-      bad.length ? '⛔ ' + bad.slice(0, 8).join(' / ') : '34/34 一致 (例 lich=' + DRV_CR.lich + ' pharaxus=' + DRV_CR.pharaxus + ' rat=' + DRV_CR.rat + ')');
+    if (dk.length !== N_CRKEYS || DRV_NO_CR.length !== N_NOCR || J(u) !== J(w.types.slice().sort())) bad.push(N_CRKEYS + ' + ' + N_NOCR + ' ≠ ENEMY_TYPES');
+    R.check('(0d)', 'ページの cr の ' + N_CRKEYS + ' キー = SRD の cr: (ドライバが slug で読む)・「出さない」' + N_NOCR + ' キーは表に無い', bad.length === 0,
+      bad.length ? '⛔ ' + bad.slice(0, 8).join(' / ') : N_CRKEYS + '/' + N_CRKEYS + ' 一致 (例 lich=' + DRV_CR.lich + ' pharaxus=' + DRV_CR.pharaxus + ' rat=' + DRV_CR.rat + ')');
   }
   /* ── (0e) 起動 ── */
   R.check('(0e)', '[装置] 全ページが起動した + pageerror 0 件 (favicon は除外)', ctx.booted === ctx.want && ctx.errs.length === 0,

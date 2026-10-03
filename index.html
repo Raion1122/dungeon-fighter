@@ -10897,7 +10897,7 @@
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,                        // griffon と同じ 2 倍サイズ (192px 原寸→アップスケール)
         // ★体の実寸比 (2026-10-03 実測・row2 = 移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
-        bodyRatioX: 0.932, bodyRatioY: 0.797, bodyOffX: 0.021, bodyOffY: 0.151,
+        bodyRatioX: 0.932, bodyRatioY: 0.802, bodyOffX: 0.021, bodyOffY: 0.146,   // row2 の alpha>0 bbox (L4 T28 R183 B182 / 192px。driver_wallbox (2a) の規則)
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -10929,7 +10929,7 @@
         sheetW: 1152, sheetH: 960,
         frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
         displaySize: 240,
-        bodyRatioX: 0.932, bodyRatioY: 0.797, bodyOffX: 0.021, bodyOffY: 0.151,
+        bodyRatioX: 0.932, bodyRatioY: 0.802, bodyOffX: 0.021, bodyOffY: 0.146,   // row2 の alpha>0 bbox (L4 T28 R183 B182 / 192px。driver_wallbox (2a) の規則)
         hp: 80, speed: 0.7,
         hasAttackAnim: true,
         meleeRange: 200, hitRange: 280,
@@ -28139,6 +28139,7 @@
       // 魔法学 (竜・構造体・元素・異形。hydra は会議決定 = 依頼書 §2-8)
       pharaxus: "arcana", stoneGolem: "arcana", animatedArmor: "arcana", stoneLegionary: "arcana",
       gargoyle: "arcana", sovereignEye: "arcana", hydra: "arcana",
+      wyvern: "arcana", wyvernBoss: "arcana",   // ★[#82] 5e SRD の Wyvern は竜 (creature_type: Dragon) ⇒ 魔法学
     };
     /* 呪文 → 体質の表と同じ属性語。⚠ 演出の dfPlayCast の element ('ice' 等) を読まない (依頼書 §2-2 罠 3)。 */
     const SPELL_ELEMENT = {
@@ -28165,6 +28166,7 @@
       skeleton: 0.25, skeletonArcher: 0.25, zombie: 0.25, wraith: 5, lich: 21, caelum: 4, ghostFlame: 2,
       pharaxus: 10, stoneGolem: 10, animatedArmor: 1, gargoyle: 2, minotaur: 3, hydra: 8, mimic: 2,
       plagueFrog: 0.25, ruinSpider: 1, chimera: 6, griffon: 2,
+      wyvern: 6, wyvernBoss: 6,   // ★[#82] SRD raw/srd/monsters/wyvern.md の cr: 6.0 (ボス変種も同じ元)
       orc: 0.5, orcGrunt: 0.5, orcArcher: 0.5, bandit: 0.125, banditArcher: 0.125, banditHeavy: 0.5, scar: 2,
       lizardWarrior: 0.5, lizardHunter: 0.5, lizardRaider: 0.5,
     };

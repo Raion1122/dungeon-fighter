@@ -607,3 +607,96 @@ scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/notes_item1.md` 
 - **K19** `viadefeat` の (3d) はドロップの乱数しだいで赤(確率で赤)。
 - **K20** `__TAVERN_TV.boardFacts()` の `frontier` は**文字列の id**(オブジェクトでない)。`.id` を付けると `undefined` になり、素で (1c) が赤くなった(ドライバ側の誤りで、直した)。
 - **K21** `gainXP` のクリア報酬(1000)は `encounterRunning` がまだ真のうちに入る ⇒ 「戦闘中の XP = 追い払いの XP」では数えられない。ワイバーンの `def.name` で入った呼び出しを数え、XP 増分 = 記録した全呼び出しの和で記録外の経路が無いことを見る形にした。
+
+### 12-3. 項目4 — 母集団の非退行(2026-10-03 14:04〜23:49・本番 = HEAD `b89a5c5`)
+
+成果物は scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/item4/`。道具は #81 項目4 のものをコピーして直した(`sweep_82post.py` / `build_arms_82post.py` / `cmp_82.py` / `mkshadow_82.py` / `pair_82.py`)。`fp74.py` と `fisher.py` はバイト同一のコピー。新設 = `anchors82.py`(差分を含む関数の中のアンカーを持つ `--negative` を探す)/ `litcount.py`(全ドライバの文字列リテラルの出現数の前後比較)/ `patch_item4.py`(下の (5) の直し)。
+走査と対比較の間は本番を 1 バイトも触っていない(`git status --short` = 0 行・HEAD = `b89a5c5`)。`b89a5c5` は項目3 で、項目2 `ab2d180` からの差は `tools/verify_tower_mother.js` と本書だけ = 配信物は `ab2d180` と同一。直し((5))は走査・対比較がすべて終わった後に入れた。
+
+#### (1) 腕 = 185 腕 + 追加 19 腕 + 直した後の 16 腕
+
+| 枠 | 腕 | 着手前の色 |
+|---|---|---|
+| 母集団 160 本の素 + `--negative` 24(§12-0 (5)・`auto_debug_run` を除く) | 183 | `item1/pre82.tsv` |
+| 新規受入 `verify_tower_mother` 素 / `--negative` | 2 | なし(`1a2859b` には塔の母が無いので赤が正しい ⇒ HEAD で緑であることだけ) |
+| 追加の `--negative`(下の (2)) | 14 + 5 | 名指し 9 腕 = §12-0 (2) の項目1 の実走(`item1/run_named82`)/ 新しく選んだ 5 腕 = `1a2859b` の clone(`item4/clone82pre`)で同じ走査器で実走(この 5 腕が「+ 5」) |
+| 直した後の再走((5)) | 16 | 同じ走査の色 + `clone82pre` 1 腕 |
+
+- **走らせる場所**: §12-0 (5) の `root` 列のまま。コードが `git` を呼ぶ 31 腕は clone(`item4/clone82` = `b89a5c5` の `git clone`・追跡 922 本中 921 本が本番と**バイト一致**。違う 1 本は起草窓の `tools/probe_magehand_reach.js` = `.gitattributes` は `eol=lf` なのに本番の作業ツリーだけ CRLF。#84 の測定台で母集団の外 = 走らせていない)、残りは本番の作業ツリー。
+- ⛔ **`auto_debug_run` は走らせていない**(#80 のユーザー決定)。試遊サーバ 8765 は止めていない・使っていない。
+
+#### (2) `--negative` の選び直し(#75 の教訓 = 差分を含む関数の中のアンカー)
+
+`anchors82.py` = `1a2859b..b89a5c5` の配信物 5 本(`index.html` / `tavern.html` / `world.html` / `js/df-mapdef.js` / `js/world-map.js`)の差分の各行について、それを囲む関数(400 行未満。超えたら前後 3 行)を新旧両側で切り出し、`--negative` を持つ 60 本の文字列リテラル(24 文字以上)がその中に在るかを見た。
+母集団の 24 腕に無かった腕のうち、アンカーが変更区域に在ったもの = `verify_dragon_fold` / `verify_fort_fold` / `verify_swamp_fold` / `verify_temple_fold`(`NODE_EXTRA_SPAWN_KINDS` の IIFE)・`verify_quest_walk` / `verify_world_map` / `verify_world_steps`(`js/world-map.js` の `NODES` / `SITES` / `STEPS`)・`verify_world_heromark`(`world.html`)・`probe_s2_clear`(`defeatEnemy` の `enemy.def && enemy.def.isBoss`)。これに項目2 で言い直した本の `--negative`(`verify_road_boon` / `verify_road_events` / `verify_tavern_map` / `verify_npc_crowd` / `verify_party_four`)を足して **14 腕**。区切り線(`────`)や保存キーの一致は除いた。
+
+| 腕 | 着手前(`1a2859b`) | HEAD `b89a5c5` |
+|---|---|---|
+| `verify_quest_walk` / `verify_road_boon` / `verify_road_events` / `verify_tavern_map` / `verify_world_heromark` / `verify_world_map` / `verify_world_steps` / `verify_npc_crowd` / `verify_dragon_fold` `--negative` | 全部 exit 0(46 / 48 / 43 / 71 / 24 / 44 / 56 / 58 / 変異 9) | 全部 exit 0・同数(§12-1 (6) の項目2 とも同数) |
+| `verify_temple_fold --negative` | exit 0(177/22) | exit 0(177/22)・判定行の指紋がバイト一致 |
+| `verify_party_four --negative` | exit 0(80/22) | exit 0(80/22)・指紋一致 |
+| `verify_fort_fold --negative` | **exit 3**(変異 `addn6` のアンカーが 3 箇所) | exit 3・指紋一致 |
+| `verify_swamp_fold --negative` | **exit 3**(変異 `entryn0` のアンカーが 4 箇所) | exit 3・指紋一致 |
+| `probe_s2_clear --negative` | **exit 1**(変異 `wipeblind` が赤くならない) | exit 1・同じ型 |
+
+⇒ 14 腕すべて着手前と同じ色。exit≠0 の 3 腕は**着手前から壊れていたアンカー腐敗 / 空振り**(アンカーの出現数は `1a2859b` と `b89a5c5` で同じ 3 / 4)= #82 に帰属しない。→ **K27**
+
+#### (3) 走査と所要
+
+- `sweep_82post.py` は直列・SKIP 再開型。`Start-Process` で切り離して起動した(最初の背景起動は 4 腕目の途中で止めて張り直し、その腕は TSV 未記録なので頭から走った)。腕ごとに `df_*` の居残り Chrome を掃除(全腕で 0)。
+- 本走査 185 腕: 14:04:34 → 21:04:22 = **約 420 分**(腕の合計 418.2 分・腕あたり 2.26 分)。打ち切りは `probe_party_size`(素)の 600 秒だけで、着手前と同じ。追加 19 腕(14 + clone82pre 5): 21:04 → 22:14 = **69.9 分**。直した後の 16 腕: **20.1 分**。`driver_mine_wall` の単独再走 1 + 対比較 18 走行: 約 75 分。
+- 長かった腕: `verify_bolt_aim` 2,239.5s / `driver_field_step6` 1,907.9s / `probe_p9_tour` 1,888.6s / `verify_mage_hand --negative` 1,880.7s / `verify_run_chronicle --negative` 1,691.4s / `verify_temple_fold --negative` 1,410.5s。
+
+#### (4) 色の遷移(exit code が主・着手前の色がある 183 腕)
+
+| 遷移 | 件数 | 本 |
+|---|---|---|
+| 緑→緑 | 158 | PASS 数は全部同数(`verify_run_chronicle --negative` の内部 PASS 562 → 560 は変異の赤の数の揺れ = 項目2 の 2 回でも 560 / 562。exit・「8 本すべて担当ラベルが赤」は不変)。⭐ 項目2 で言い直した本は §12-1 (6) の項目2 の値と**全部同数**(`verify_tavern_map` 47 / `verify_quest_walk` 25 / `verify_world_map` 57 / `verify_world_heromark` 18 / `verify_world_steps` 33 / `verify_road_ambush` 41・`--negative` 97 / `verify_road_events` 25 / `verify_quest_visibility` 39・変異 10 / `verify_quest_draw` 18・変異 10 / `verify_dragon_fold` 44 / `verify_party_four` 17。`driver_mapeditor_painting` 105/106 = 着手前から赤の 1d2 だけ・赤→赤に計上) |
+| 赤→赤 | 18 | 15 腕は判定行の指紋(経路①②)か PASS/FAIL 数が着手前と同じ型(使い方ガード 4・調査の道具 `probe_n4_stall` / `sweep_recruit_balance` / `probe_party_size`・既知の赤 `driver_grid_p4` / `driver_grid_p8` / `driver_mapdef_step1` / `driver_mapeditor` / `driver_mapeditor_painting` / `driver_sce1_events` / `verify_walk_block` / `verify_codex_map_skill` (K7))/ 揺れの型 2 腕 = `driver_field_step6` 54 → 55/59・`driver_speech_v2` 44 → 45/46 / `driver_monsters_griffon` 14/17(#81 K12)/ **型が変わった 1 腕 = `verify_lore_check --negative`**(着手前は `nomerge` の揺れ、今回は素の基準で (0b)(0d) が赤 = 下の (5) K23 と同じ原因 ⇒ 直した後 12/12) |
+| **緑→赤** | **4** | `driver_wallbox` 28 → 22/28 / `verify_lore_check` 26 → 24/26 / `verify_swamp_novice` 34 → 33/34 / `driver_mine_wall` 66 → 64/66。下の (5) |
+| 赤→緑 | 3 | `driver_monsters_hobgoblin` 10/14 → 14/14・`driver_monsters_umberhulk` 21/22 → 22/22(既知の揺れ)/ `verify_mage_hand --negative`(#81 K13 の揺れ。今回は 12/12 担当ラベルだけ赤・exit 0) |
+| 新規 | 2 | `verify_tower_mother` 素 = exit 0 **19/19**(83.1 秒)/ `--negative` = exit 0「9 本すべて担当ラベルが赤・担当外 0」(722.3 秒) |
+
+#### (5) 緑→赤の切り分けと直し
+
+**#82 に帰属する緑→赤 = 3 本(すべて決定的・構造で帰属)。直して緑へ戻した。**
+
+- **`driver_wallbox`(K22)**: (a) 「比率を持つ大型 def は**ちょうど 12 本**」を 7 つの assert が焼いていた(`wyvern` / `wyvernBoss` = displaySize 240 で 14 本に)⇒ ⛔ 緩めずに `N_LARGE = 12 + 2` を名前つきで足して 14 へ移した。(b) **(2a) が本物の欠陥を捕まえた**: ワイバーンの箱の中心が仕様(シート row2 の alpha > 0 の bbox)より 0.6px 下(実 131.9 / 仕様 131.3・許容 0.5px)。シートの row2 の最上段 y=28 に alpha 1 と 7 の画素が 2 つだけあり、項目2 はそれを閾値で落として T=29 で測っていた(`bodyRatioY 0.797 / bodyOffY 0.151`)⇒ 仕様どおりの値 **`0.802 / 0.146`**(L4 T28 R183 B182)へ直した(`wyvern` / `wyvernBoss` の 2 行)。
+- **`verify_lore_check`(K23)⭐⭐⭐**: #76 の規則は「`ENEMY_TYPES` の全キーを技能の表(歴史 / 宗教 / 魔法学)か自然(載せない)へ、脅威度の表(SRD の cr)か『出さない』へ振り分ける」。項目2 はワイバーン 2 キーをどちらの表にも載せていなかった ⇒ 本番では**伝承判定がワイバーンに一度も振られず、正体を知っても脅威度が出ない**(獣と同じ扱い)。SRD `wyvern.md` は `creature_type: Dragon` / `cr: 6.0` ⇒ 規則どおり **`LORE_SKILL_OF` に魔法学(竜)・`LORE_CR` に 6**(ボス変種も同じ元)を足した。ドライバの表にも同じ 2 キーを足し、本数の期待値を 51 → 53 / 40 → 42 / 34 → 36 へ名前つきで移した(⛔ ≥ にしていない)。直した後 (0c) は実効で振った技能が 42 種 = ワイバーンにも魔法学が振られることを 1 種ずつの実走で確認。
+- **`verify_swamp_novice`(K24)**: (4b)「他テーマの `ROOM_PAINTINGS_DEF` が着手前 `cdaaf91` と完全一致」に新テーマ `tower-mother` が差分として出た ⇒ #63 / #66 / #67 と同じ例外表へ `'tower-mother': '#82 …'` を 1 行足した((4b2) が「例外が本当に差分を持つ」ことを見るので免罪符にはならない)。⛔ `BASELINE_REV` は進めていない。
+- **`driver_mine_wall`(揺れ・K26)**: 赤は (4z)(4z2)「戦車が実際に乱入した」= 廃坑の autoplay のボス戦で戦車が一度も出なかった回(装置の空振り)。廃坑には `fleeAtHpRatio` を持つ敵が居ない ⇒ `checkFleeEnemies` は 0 件で返る同期の関数・`defeatEnemy` 先頭行も素通り = #82 の挙動の差分は経路に無い(構造)。本番で単独再走 ⇒ 66/66。影のツリー `item4/shadow82`(本番の実体コピーから配信物 5 本だけ `1a2859b` へ戻した。`check-attr eol` どおりに CRLF へ変換し、HEAD 側の変換 = 作業ツリーのバイトを確認)と交互の対 3 + 6 組: 本番 **2/9 赤** / 影 **1/9 赤**(影でも同じ (4z))・Fisher **p = 1.000** ⇒ **揺れ**。
+- **直しの範囲**: `index.html` 4 行(箱 2 行の値 + 表に 2 行追加)/ `tavern.html` = changelog の既存の #82 行の書き換え(下)/ `tools/driver_wallbox.js` / `tools/verify_lore_check.js` / `tools/verify_swamp_novice.js`。`litcount.py` で全ドライバの文字列リテラル(50,069 個・異なり 27,329)の出現数を直す前後で数え、**変わったもの 0**(他の本の変異アンカーを動かしていない)。行末は `index.html` / `tavern.html` が純 CRLF のまま、ドライバ 3 本が純 LF のまま。
+- **changelog**: #82 の行はまだ push されていない(`origin/main` = `0b9e263`)ので、新しい行は足さず既存の行を書き換えた: 「塔の屋上のワイバーン**(竜の一種・魔法学で正体を思い出せる・脅威度 6)**は、傷つくと空へ逃げ去る。」= 今回の直し(伝承判定と脅威度)そのものの説明で、嘘の行ではない。
+- **直した後の再走 16 腕**(`ENEMY_TYPES` を全数で回す本 + 伝承 + 塔の母。`git` を読む本は直しを当てた clone `item4/clone82fix` で): `driver_wallbox` **28/28** / `verify_lore_check` **26/26**・`--negative` **12/12**(空振り 0・漏れ 0)/ `verify_tower_mother` **19/19**・`--negative` 9/9(判定行の指紋は本走査とバイト一致)/ `driver_mine_wall` 66/66 / `driver_trap_weaponize` 43/43 / `verify_enemy_name_label` 30/30・`--negative` 58/58 / `verify_enemy_traits` exit 0・`--negative` exit 0 / `verify_swamp_novice` **34/34** / `driver_speech_v2` 45/46・`verify_walk_block` 22/23(どちらも着手前からの赤と同型)/ 母集団外の `verify_swamp_novice --negative` は exit 3(変異 `nostart` のアンカーが 4 箇所)= `clone82pre`(`1a2859b`)でも同じ exit 3・同じ指紋 → K27。
+
+#### (6) 崩れ(K22〜)
+
+- **K22** ⭐⭐ `driver_wallbox` は大型の本数を 12 で焼いていた(7 assert)+ ワイバーンの箱の値は閾値つきの bbox で測られていて仕様(alpha > 0)と 1px ずれていた。⇒ **アセットの比率を def に書くときは、それを測る本と同じ規則で測る**(row2・alpha > 0)。半透明 1〜7 の画素 2 つで値が変わる。
+- **K23** ⭐⭐⭐ `ENEMY_TYPES` にキーを足すと、**全敵を表で振り分ける規則**(#76 の伝承判定・脅威度)へも載せる必要がある。依頼書 §2-6「新シナリオを足す口」は敵を足す口を列挙していなかった。項目2 の「全リテラル 26,453 個の出現数が変わっていない」走査は、本数や表の和を焼いた assert を原理的に捕まえない(K11 と同型)。⇒ **敵を足すチケットの口の表に `LORE_SKILL_OF` / `LORE_CR` を入れる**。
+- **K24** 「他テーマは固定コミットと完全一致」の型は、畳みだけでなく**テーマの新設**でも腐る(#62 / #66 の教訓の 5 例目)。
+- **K25** 名指しの外で壊れた 3 本(`driver_wallbox` / `verify_lore_check` / `verify_swamp_novice`)は、項目2 の名指し 15 本・言い直し 12 本のどれにも入っていなかった = 「6 本 / site 7」の語では引けない(数が「12 体」「51 キー」「3 テーマ」)。⇒ 敵を足すときは `Object.keys(ENEMY_TYPES)` を回す本(9 本)を名指しへ入れる。
+- **K26** `driver_mine_wall` (4z)「戦車が実際に乱入した」は揺れ(本番 2/9・`1a2859b` の影 1/9・p = 1.000)。既知フレークの一覧へ足す。
+- **K27** 着手前から壊れていた `--negative` が 4 本ある(`verify_fort_fold` = `addn6` 3 箇所 / `verify_swamp_fold` = `entryn0` 4 箇所 / `verify_swamp_novice` = `nostart` 4 箇所 / `probe_s2_clear` = `wipeblind` が赤くならない)。どれも `1a2859b` と `b89a5c5` で同じ指紋 = #82 の外。母集団の `--negative` 24 腕に入っていなかったので、これまでの走査では見えていなかった。直すなら別チケット(アンカーを 1 箇所に絞る)。
+
+#### (7) 逸脱(D1〜)
+
+- **D1** 本番(`index.html` / `tavern.html`)を直した。指示の「本番の直しが要る場合」に当たる(K22 の箱の値 / K23 の伝承の表)。changelog は既存の未 push の #82 行の書き換えで足した(行は増やしていない)。
+- **D2** 指示の 185 腕に、変更区域にアンカーを持つ / 言い直した本の `--negative` 14 腕を足した((2))。うち 5 腕は `1a2859b` の clone で着手前の色を取った。
+- **D3** 直した後に 16 腕を再走した((5))。`git` を読む本は直しを当てた使い捨ての clone(`clone82fix`・ローカルコミット)で走らせた。
+- **D4** 母集団外の `verify_swamp_novice --negative` を直した後の確認に入れた(素が直しの対象だったため)。結果は K27。
+
+#### (8) まとめ
+
+- 185 腕(母集団 160 本 183 腕 + 新規受入 2)を直列で走査(約 420 分)し、緑→緑 158 / 赤→赤 18 / 緑→赤 4 / 赤→緑 3 / 新規 2。
+- 緑→赤 4 本のうち **#82 に帰属するのは 3 本**(`driver_wallbox` / `verify_lore_check` / `verify_swamp_novice`・すべて決定的)。2 本は本番の取りこぼし(ワイバーンの箱の値 1px / 伝承判定と脅威度の表に未登録)で、本番とドライバを直して**直した後は全部緑**。1 本は golden の例外表。残り 1 本 `driver_mine_wall` は影との対で p = 1.000 の揺れ。⇒ **直した後の #82 帰属の緑→赤 = 0**。
+- 追加の `--negative` 14 腕はすべて着手前と同じ色。exit≠0 の 3 腕(+ 確認で見つけた 1 腕)は着手前からのアンカー腐敗(K27)。
+- 新規受入 `verify_tower_mother` は素 19/19・`--negative` 9/9(直す前も直した後も)。`auto_debug_run` は着手前・実装後とも未走査(ユーザー決定)。
+
+### 12. 総括
+
+- **commit**: `78dbfe2`(項目1 着手前の実測 = 基準 HEAD `1a2859b`・崩れ K1〜K7・名指し golden 15 本 ×2 + `--negative` 13 腕・§5-2 の isBoss 変種・最上階の偽解・母集団 160 本 184 腕の色)/ `ab2d180`(項目2 本番 = `tower-mother`〔`side:true`・砦の後〕・卓上マップ 2 枚 tile 48・`wyvern` / `wyvernBoss` と `fleeEnemy`〔致死の口 1 + 非致死の口 2〕・`pass_n` を拠点「見張りの塔」へ・撤退 `?tower=0` + 既存 golden 12 本の言い直し + changelog)/ `b89a5c5`(項目3 受入 `tools/verify_tower_mother.js` 19 assert・変異 9 + ⑤ 強さの実測)/ 本節を書いたコミット(項目4 母集団の非退行 + 直し 3 本 + 総括 + 台帳)。
+- **受入**: `tools/verify_tower_mother.js` 素 **19/19**・`--negative` **9/9**(必ず赤 ⊆ 実際の赤 ⊆ 必ず赤 ∪ 確率で赤)。名指し golden は着手前と同色(言い直した 12 本は本数を変えずに期待値を移した)。母集団 185 腕 + 追加 14 腕で、直した後の **#82 に帰属する緑→赤 0**。
+- **崩れた主張は通算 27 件**(項目1 K1〜K7 / 項目2 K8〜K15 / 項目3 K16〜K21 / 項目4 K22〜K27)。仕様に響いたもの: K1(最上階の格子は偽解だった)/ K3(`direBear` は isBoss = 丘の道に置けない)/ §5-2(ボススロットに isBoss の無い型を置くとボス部屋の演出が立たない ⇒ `wyvernBoss`)/ K9(道中の停留所が 17 → 16)/ K18(テーマを外すと地図ごと既定へ落ちる)/ K23(ワイバーンが伝承判定の表に無かった)。**本番の不具合は 2 件で、どちらも項目4 で直した**(K22 箱の値 1px / K23 伝承判定と脅威度)。
+- **逸脱は 4 件**(D1〜D4)。どれも直すか検査を足す方向(緩めた・削ったものは 0)。
+- **残り**: §9 の実機確認(ユーザー担当)。⭐ ワイバーン戦は約 10 秒と短い(HP の半分 = 40 で飛び去る)⇒「怖いが勝てる」の「怖さ」は実機で判断(直すなら HP か頭数。`fleeAtHpRatio` は仕様値)/ 飛び去る瞬間が「追い払った」と読めるか / 見張りの塔の札が縦画面で押せるか / 母の小部屋の前振り / K9 で道中イベントの停留所が 17 → 16 に減った手応え / 魔法学で正体を思い出したワイバーンの名前札に「CR6」が出るか。`auto_debug_run` は未走査のまま(8765 と衝突)。作業用コピー(`item4/clone82` / `clone82pre` / `clone82fix` / `shadow82`)の削除はユーザー判断。
+- **次の新規ドライバ base = 10548**(`verify_tower_mother` が 10538〜10547 を使う)。

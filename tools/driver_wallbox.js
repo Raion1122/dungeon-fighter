@@ -48,6 +48,9 @@ const HEADFUL = flag('headful');
 /* ⚠ ポートは既存ドライバと空ける。9080-9085=driver_mine_wall / 9090-9093=driver_bgm_mine。 */
 const PORT = parseInt(arg('port', '9100'), 10);
 const SCENARIOS = ['goblin-mine', 'bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple', 'dragon-lair'];
+/* ★[#82 2026-10-03] 比率を持つ大型 def の本数。当初の 12 体 + 塔の母のワイバーン wyvern / wyvernBoss (displaySize 240) = 14。
+ * ⛔ 期待値を緩めない (≥ にしない) — 大型を足すチケットはここへ名前つきで足す。 */
+const N_LARGE = 12 + 2;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 変異 (配信をメモリ上で差し替える)
@@ -423,8 +426,8 @@ async function knockbackProbe(page) {
       check('(1a) 比率を持たない def x 6 原点で新旧の箱が 4 辺とも一致する',
         r.badN === 0, r.nPlain + ' def x ' + r.nOrigins + ' 原点 / 不一致 ' + r.badN
           + (r.bad.length ? ' 例: ' + r.bad.join(' | ') : ''));
-      check('(1a-装置) 母集団が実在する (比率なし 40 本以上 / 比率あり ちょうど 12 本)',
-        r.nPlain >= 40 && r.nRatio === 12,
+      check('(1a-装置) 母集団が実在する (比率なし 40 本以上 / 比率あり ちょうど ' + N_LARGE + ' 本)',
+        r.nPlain >= 40 && r.nRatio === N_LARGE,
         '比率なし=' + r.nPlain + ' 比率あり=' + r.nRatio + ' [' + r.ratioKeys.join(',') + ']');
     }
 
@@ -458,11 +461,11 @@ async function knockbackProbe(page) {
         off.push(k + '=' + (c.cx - c.S / 2).toFixed(0) + ',' + (c.cy - c.S / 2).toFixed(0));
       }
       check('(2a) 箱の中心が「体の中心へ寄せる・ただしスプライト中心から ±28px まで」を満たす',
-        badSpec.length === 0 && errKeys.length === 0 && resNew.length === 12,
+        badSpec.length === 0 && errKeys.length === 0 && resNew.length === N_LARGE,
         (errKeys.length ? 'シート測定不能=' + errKeys.join(',') + ' / ' : '')
-          + (badSpec.length ? badSpec.join(' | ') : '12 体一致 / ズレ(スプライト中心比) ' + off.join(' ')));
-      check('(2a-装置1) シートの alpha bbox が非退化 (12 体すべてで不透明画素と幅高さがある)',
-        keys.length === 12 && keys.every(k => sheets[k] && !sheets[k].err
+          + (badSpec.length ? badSpec.join(' | ') : N_LARGE + ' 体一致 / ズレ(スプライト中心比) ' + off.join(' ')));
+      check('(2a-装置1) シートの alpha bbox が非退化 (' + N_LARGE + ' 体すべてで不透明画素と幅高さがある)',
+        keys.length === N_LARGE && keys.every(k => sheets[k] && !sheets[k].err
           && sheets[k].R > sheets[k].L && sheets[k].B > sheets[k].T && sheets[k].opaque > 1000),
         keys.map(k => k + ':' + (sheets[k].err || ((sheets[k].R - sheets[k].L) + 'x' + (sheets[k].B - sheets[k].T)))).join(' '));
       check('(2a-装置2) 実装側の定数がドライバの仕様と一致 (箱 40px / 上限 28px / タイル 96px)',
@@ -472,9 +475,9 @@ async function knockbackProbe(page) {
         notBetter.length === 0,
         notBetter.length ? notBetter.join(' | ') : '新 ' + resNew.join(' '));
       check('(2a-3) 箱 40x40 が体の外接矩形の内側に完全に収まる',
-        outside.length === 0, outside.join(' | ') || '12 体すべて内側');
-      check('(2b) 旧箱では 12 体すべてが体の中心から 16px を超えてずれていた (= 直す価値が実在した)',
-        resOld.length === 12 && resOld.every(t => parseFloat(t.split('=')[1]) > 16), resOld.join(' '));
+        outside.length === 0, outside.join(' | ') || N_LARGE + ' 体すべて内側');
+      check('(2b) 旧箱では ' + N_LARGE + ' 体すべてが体の中心から 16px を超えてずれていた (= 直す価値が実在した)',
+        resOld.length === N_LARGE && resOld.every(t => parseFloat(t.split('=')[1]) > 16), resOld.join(' '));
       check('(2b-装置) 箱の大きさは 40x40 のまま (通れた隙間が通れなくなる危険を作らない)',
         keys.every(k => Math.abs(centers[k].w - 40) < 1e-6 && Math.abs(centers[k].h - 40) < 1e-6),
         keys.map(k => k + ':' + centers[k].w.toFixed(3) + 'x' + centers[k].h.toFixed(3)).slice(0, 3).join(' ') + ' ...');
@@ -514,7 +517,7 @@ async function knockbackProbe(page) {
       const noStop = keys.filter(k => r[k].edgeTile && !(r[k].stopAt > 0));
       const noSite = keys.filter(k => !r[k].openTile || !r[k].edgeTile);
       check('(2d-1) 開けた床 (5x5 すべて床) では 4 方向すべてへ動ける (= 全く動かないでない)',
-        stuck.length === 0 && noSite.length < 12,
+        stuck.length === 0 && noSite.length < N_LARGE,
         stuck.length ? stuck.map(k => k + ':' + r[k].freeDirs + '方向').join(' ')
           : keys.filter(k => r[k].openTile).length + ' 体で確認');
       check('(2d-2) 壁へ向かって進めると必ず止まる位置がある (= 壁へめり込まない)',
@@ -569,8 +572,8 @@ async function knockbackProbe(page) {
       const p = await bootPage(browser, PORT, '?diag=1&intel=0&wallbox=0', errs);
       const c = await boxCenters(p);
       const keys = Object.keys(c).filter(k => k !== '__const');
-      check('(5a) ?wallbox=0 では大型 12 体も箱の中心が原点 +(36,38) に戻る',
-        keys.length === 12 && keys.every(k => c[k].cx === 36 && c[k].cy === 38),
+      check('(5a) ?wallbox=0 では大型 ' + N_LARGE + ' 体も箱の中心が原点 +(36,38) に戻る',
+        keys.length === N_LARGE && keys.every(k => c[k].cx === 36 && c[k].cy === 38),
         keys.map(k => k + ':' + c[k].cx + ',' + c[k].cy).slice(0, 3).join(' ') + ' ...');
       await p.close();
     }
@@ -587,8 +590,8 @@ async function knockbackProbe(page) {
       });
       const rate = await wallOverlapRate(p);
       const anyWall = Object.keys(rate).some(k => rate[k].badNew > 0);
-      check('(6-oldbox) 全 def を旧箱へ戻すと §2a が赤くなる (12 体すべて仕様と不一致)',
-        over.length === 12, '不一致 = ' + over.length + ' 体');
+      check('(6-oldbox) 全 def を旧箱へ戻すと §2a が赤くなる (' + N_LARGE + ' 体すべて仕様と不一致)',
+        over.length === N_LARGE, '不一致 = ' + over.length + ' 体');
       check('(6-oldbox-2) 旧箱では箱が壁の中に居る床タイルが実在する (§2c の物差しが効いている)',
         anyWall, Object.keys(rate).map(k => k + ':' + rate[k].badNew + '/' + rate[k].floor).slice(0, 4).join(' '));
       await p.close();
