@@ -43,6 +43,9 @@
     { id: "orc-fort",       name: "砦 (orc-fort)" },
     { id: "undead-temple",  name: "神殿 (undead-temple)" },
     { id: "dragon-lair",    name: "竜の巣 (dragon-lair)" },
+    /* ★[#82] 塔の母 (本筋外の 7 本目)。⚠ ここに無いと validate が「themeId が既存テーマに無い」で落ち、
+     *   1 枚絵が黙って消える。⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない = 規則④で絵が載らなくなる。 */
+    { id: "tower-mother",   name: "見張りの塔 (tower-mother)" },
     { id: "caravan-road",   name: "屋外・街道 (caravan-road)" },
   ];
   var THEME_IDS = THEMES.map(function (t) { return t.id; });
@@ -1883,6 +1886,7 @@
     "orc-fort":       { mob: ["orcGrunt", "orcArcher", "orcBerserker"],          boss: "garrock" },
     "undead-temple":  { mob: ["skeleton", "zombie", "wraith"],                   boss: "lich" },
     "dragon-lair":    { mob: ["skeleton", "minotaur", "orcBerserker"],           boss: "pharaxus" },
+    "tower-mother":   { mob: ["ruinSpider", "minotaur", "orcArcher"],            boss: "wyvernBoss" },   // ★[#82] 2026-10-03 index.html 実読で確認
     // 屋外は resolve() でカスタム幾何を排他にしているのでこの経路には来ないが、
     // テーマ表の穴を作らないために置く (穴があると || の既定へ落ちて廃坑の敵が出る)。
     "caravan-road":   { mob: ["goblin", "goblinArcher", "hobgoblin"],            boss: "goblinRider" },
@@ -2213,6 +2217,15 @@
      *   判定式にも、KIND_SPAWNS_TRAPS / KIND_SPAWNS_ROOM_CHESTS にも手を入れていない。 */
     { w: 31, h: 20, label: "ノード大部屋 31×20 (31:20)" },
     { w: 30, h: 19, label: "ノード大部屋 30×19 (30:19)" },
+    /* ★[#82 2026-10-03] 同じ理由で **塔の母の大部屋 2 枚** (tower-mother/n0 = 29×18 / n1 = 26×17)。
+     *   足さないと起動時 (カタログ登録より前) の lintRun がこの一覧へ落ちて毎回 graph-painting-aspect の
+     *   warning を出す (#11 / #53 / #58 / #66 / #67 と同じ形の 6 例目)。
+     * ⚠ 値は**焼き上がりの実測**。1392x864 / tile 48 = 29×18、1248x816 / tile 48 = 26×17。
+     * ⭐ どちらも既存 12 種のどれとも比が一致しない
+     *   (29×18 = 1.6111 / 26×17 = 1.5294 vs 最も近い 20×13 = 1.5385 → 26*13=338 ≠ 17*20=340)。
+     * ⛔ 触ったのはこの在庫 2 行だけ。 */
+    { w: 29, h: 18, label: "ノード大部屋 29×18 (29:18)" },
+    { w: 26, h: 17, label: "ノード大部屋 26×17 (26:17)" },
   ];
   /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
    *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、

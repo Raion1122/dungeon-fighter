@@ -1497,6 +1497,14 @@
       100% { clip-path: inset(0 0 0 0);  opacity: 1; }
     }
     .hydra-emerge { animation: hydraEmerge 0.85s ease-out; }
+    /* ★[#82] 追い払い: ワイバーンが空へ逃げ去る (HP 半分で飛び去る)。
+       ⛔ transform は使わない = 左向きの反転 scaleX(-1) を上書きしない (hydraEmerge と同じ理由)。
+       ⭐ 動かすのは fleeEnemy が描画ループの外に置く**複製**。本体は alive=false で次のフレームに消える。 */
+    @keyframes enemyFlyAway {
+      0%   { margin-top: 0;      opacity: 1; clip-path: inset(0 0 0 0); }
+      100% { margin-top: -170px; opacity: 0; clip-path: inset(0 0 40% 0); }
+    }
+    .enemy-fly-away { animation: enemyFlyAway 0.45s ease-in forwards; pointer-events: none; }
 
     /* Sce2 隠し要素: 鉄檻オブジェクト (残影の獣を閉じ込めている、2タイル分=192px) */
     /* ══ [sce1-events] 縛られた従者 (EV-5 の横穴 / EV-9 の玉座) ═════════════════
@@ -3736,6 +3744,13 @@
                           wallFace: "wall_face_dragon-lair.png",
                           wallTop:  "wall_top_dragon-lair.png",
                           wallTint: { color: "224,216,208", a: 0.28 } },
+      /* ★[#82] 塔の母 (本筋外の 7 本目)。⭐ 新しい素材は足さない = 砦の石の床/壁をそのまま流用する
+       *   (丘の道も最上階も 1 枚絵が覆うので、見えるのは絵の外側の縁だけ)。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる。 */
+      "tower-mother":   { floor: "シナリオ4床.png", wall: "シナリオ4壁.png",
+                          wallFace: "wall_face_orc-fort.png",
+                          wallTop:  "wall_top_orc-fort.png",
+                          wallTint: { color: "232,236,242", a: 0.26 } },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -4332,6 +4347,11 @@
        * ⚠ 畳んでいないとき (?dragonfold=0) は載せない。旧構成では n2 が search /
        *   n3 と n6 が loot を持っているので、n4 に兼務させると旧構成が別物になる。 */
       if (DRAGON_FOLDED) t["dragon-lair"] = { n4: ["search", "loot"] };
+      /* ★[#82] 塔の母は最初から 2 ノード (丘の道 n0 → 崩れた最上階 n1) で、search / loot の
+       *   ノードを持たない。罠と玄室の宝箱の湧き口を n0 (丘の道) へ兼務させる。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。
+       * ⭐ 畳みではないので撤退スイッチの条件は付けない (?tower=0 は酒場とワールドマップが読む)。 */
+      t["tower-mother"] = { n0: ["search", "loot"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -6317,6 +6337,98 @@
                ".############################.",   // 16  南の溶岩原と玄武岩の柱
                ".############################.",   // 17
                "..............................",   // 18  外周 (フェザー帯) = 規則①
+             ] },
+      },
+      /* ══ ★[#82] 塔の母 — codex1 納品の卓上バトルマップ 2 枚 ══════════════════════════════
+       *   n0big = 塔へ至る丘の道 (道中・屋外) / n1big = 崩れた最上階 (ボス)。
+       * ⚠⚠⚠ テーマは **tower-mother** (js/df-mapdef.js の THEMES に載せた非屋外テーマ)。
+       *   ⛔ FIELD_THEMES (屋外テーマ) に入れない — resolve() の規則④が屋外テーマ x カスタム幾何を
+       *   排他にしているので、入れた瞬間に絵が 1 枚も出なくなる (#52 街道の襲撃と同じ罠)。
+       *   ⭐ 屋外の見え方 (霧が晴れる) は絵の outdoor: true で出す (沼の参道 #53 と同じ経路)。
+       * ⚠⚠⚠ **node: true が必須** (無いと従来経路が ROOM_PAINTINGS_DEF[theme] を舐めて貼る)。
+       * ⚠ 2 枚でマス数が違う (丘の道 29x18 / 最上階 26x17)。マス数は測って出てくる値で、
+       *   焼き込み格子の実測は tools/make_grid_map.py の tower-road / tower-top の注記が唯一の正。
+       * ⚠ tileBounds は buildTowerMotherRun の rect と**同値** (paintingAspectFits が縦横比の完全一致を要求)。 */
+      "tower-mother": {
+        n0big: { src: "assets/room_tower-mother_n0_map.jpg",
+             tileBounds: [5, 11, 22, 39], node: true,      // 18 行 x 29 列 (塔へ至る丘の道)。⚠ 行が先
+             sealRing: true,   /* 丘の外周 1 タイルを通行不能に (西の口と塔の扉だけが外周に開く) */
+             outdoor: true,    /* 丘の道は屋外。入った瞬間から道の全体が見えているのが正しい */
+             /*  ★障害物 (18 行 x 29 列)。作法は竜 n4big / 沼 n4big と同じ 5 規則を**この絵に当て直した**:
+              *   (1) 外周には '#' を書かない (描画のフェザー帯)。外周は sealRing が別に塞ぐ
+              *   (2) 平置きの物は塞がない — 草地・小石・花は跨げる
+              *       (岩場・灌木・石垣・柵・菜園・井戸・薪の山・立石・塔の壁は塞ぐ)
+              *   (3) 通れない地形を塞ぐ — 北の岩場と菜園、南の岩場と廃屋の基礎
+              *   (4) ゲートへのレーンを明示的に空ける — **row 8 と row 9 の 2 行**が col 0 から col 28 まで
+              *       1 マスも切れずに通っている (絵にそのまま描かれた土の道)。左右の辺の中点 =
+              *       絵ローカル (0,8) が西の口 / (28,8) が塔の扉 = n1 への出口 = global (39,13)
+              *       = nodeGateTile(rect, right)。gates の上書きは不要
+              *   (5) 魔物 6 体を置くタイルは必ず '.' にする (buildTowerMotherRun の slots)
+              *   ⚠⚠ 連結の検査は 4 近傍で (本番の aStar は斜めを踏まない)。歩ける 290 マスは全部
+              *     西の口から到達できる (柵の裏・廃屋の基礎の中の孤立した草地は塞いで孤立 0)。
+              *   ⭐ 開けた土の地面は 3 区画: 北西 (col 4-8 / row 3-7)・南西 (col 3-8 / row 10-13)・
+              *     東の前庭 (col 19-26 / row 4-13)。西の 2 区画と前庭は 14 マス以上離れている
+              *     (DETECTION_RANGE 12.5 タイル超 = 西の群れと前庭の群れは別々の戦闘)。
+              *   写像: 絵ローカル (col,row) + (11, 5) = global。 */
+             blocked: [
+               ".............................",   //  0  外周 (フェザー帯) = 規則①
+               ".###..#........#############.",   //  1  北西の灌木と石垣 / 北の岩場 / 北東の菜園の柵と菜園
+               ".###...##...################.",   //  2  北の石垣 (col7-8) / 岩場と灌木 / 菜園・物干し / 塔の壁 (col27)
+               ".#.......##...##########.###.",   //  3  石垣の東端 (col9-10) / 岩場 / 柵と手押し車 / 井戸 (col25)
+               ".#........#......###..#..###.",   //  4  柵 / 手押し車の車輪 (col22) / 薪の山 (col25-26)
+               "..............###.#......###.",   //  5  岩場 (col14-16) / 柵 (col18) / 薪の山と塔の壁
+               "...........#...##.........##.",   //  6  立石 (col11) / 岩場 / 塔の壁
+               "...........................#.",   //  7  塔の壁 (col27)
+               ".............................",   //  8  ★★★ 丘の道 = 規則④ (col0 → col28 を切らさない。col28 = 塔の扉)
+               ".............................",   //  9  ★★★ 丘の道 (道は 2 行ぶんの幅がある)
+               "...........................#.",   // 10  塔の壁 (col27)
+               ".#...........##............#.",   // 11  南西の岩 (col1) / 灌木 (col13-14)
+               ".#...........##...##.......#.",   // 12  灌木 / 崩れた石垣 (col18-19)
+               ".#..............#..##......#.",   // 13  岩 (col16) / 崩れた石垣 (col19-20)
+               ".#........###..#...#######.#.",   // 14  灌木 (col10-12) / 崩れた石垣と廃屋の基礎 (col19-25)
+               "....####..######.....#######.",   // 15  南の灌木と岩場 / 廃屋の基礎の中 (孤立) も塞ぐ
+               ".#..##...#######..##########.",   // 16  南の岩場 / 灌木 / 廃屋の基礎
+               ".............................",   // 17  外周 (フェザー帯) = 規則①
+             ] },
+        n1big: { src: "assets/room_tower-mother_n1_map.jpg",
+             tileBounds: [5, 14, 21, 39], node: true,      // 17 行 x 26 列 (崩れた最上階)。⚠ 行が先
+             sealRing: true,   /* 最上階の外周 1 タイルを通行不能に (塔の外の草地へ降りられない) */
+             /*  ★障害物 (17 行 x 26 列)。⭐ 5 規則を n0big とは**別に**絵へ当て直した。
+              *   ⚠ outdoor は付けない (依頼書 §5-1: 屋根は崩れているが塔の中 = 霧を効かせる)。
+              *   (1) 外周には '#' を書かない = 規則①
+              *   (2) 平置きの物は塞がない — 床の亀裂・散った小石
+              *   (3) 通れない物を塞ぐ — 塔の外壁 (円の外側は全部)、螺旋階段の囲い、
+              *       **母の小部屋 (北西 col 4-10 / row 1-5) と扉のタンス (col 6-8 / row 6)**、
+              *       東のワイバーンの巣 (col 19-24 / row 6-11)、竜の骨・瓦礫・落ちた鐘
+              *   ⚠⚠ 母の小部屋は B (#83) で使う。扉はタンスで塞がれている絵なので、ここでは**扉ごと塞いでおく**
+              *     (B で開ける)。⛔ ここを開けると、B より前に小部屋へ駒が入れてしまう。
+              *   (4) 入口のレーン — **西の壁の内側の螺旋階段**から入る。入場地点は西辺の中点
+              *       (0,8) + NODE_ENTRY_INSET(2) = 絵ローカル **(2,8)** = 螺旋階段の上
+              *       (行数 17 = 奇数なので midR = floor((5+21)/2) = 13 は部屋のちょうど中心行)。
+              *       階段 col 1-3 → 階段の扉 col 4 → 広い石の床。⭐ col 1 も開けてある: sealRing は
+              *       西辺の中点 (0,8) を外周に残すので、そこへ仲間が置かれても歩いて入れるように
+              *       (塞ぐと (0,8) が 4 近傍で孤立する)。
+              *   (5) ワイバーン 2 体を置くタイルは '.' (巣の前の col 17 / row 6 と row 10)
+              *   ⚠⚠ 連結は 4 近傍で確認済み (歩ける 166 マス = 全部が入場地点から到達できる)。
+              *   写像: 絵ローカル (col,row) + (14, 5) = global。 */
+             blocked: [
+               "..........................",   //  0  外周 (フェザー帯) = 規則①
+               ".##########......########.",   //  1  塔の外壁 / 母の小部屋 (col4-10) / 北東の崩れた壁と瓦礫
+               ".##########......########.",   //  2  ★母の小部屋の中 (B #83 で使う) は全部塞ぐ
+               ".##########......########.",   //  3  母の小部屋 / 瓦礫 (col17-18) / 骨 (col19)
+               ".##########........######.",   //  4  母の小部屋 / 竜の骨 (col19-21)
+               ".##########.........#####.",   //  5  母の小部屋の南壁 / 巣の縁 (col20 以東)
+               ".####.###..........######.",   //  6  螺旋階段の囲い (col1-4) / ★母の小部屋の扉 = タンスで塞がれている (col6-8) / 巣 (col19-24)
+               ".#..#..............######.",   //  7  螺旋階段 (col2-3) / 囲い (col4) / 巣
+               "...................######.",   //  8  ★入場の行。col0 = 西辺の中点 (入場口) → 螺旋階段 col1-3 → 階段の扉 col4
+               ".#..#..............######.",   //  9  螺旋階段 / 囲い (col4) / 巣
+               ".####..............######.",   // 10  螺旋階段の囲い / 巣
+               ".##................######.",   // 11  外壁 / 巣 (col19-24)
+               ".###...............######.",   // 12  外壁 / 骨・卵の殻・板 (col19 以東)
+               ".#####...........########.",   // 13  外壁と瓦礫 / 落ちた鐘 (col17-18)
+               ".######.........#########.",   // 14  外壁 / 鐘と板
+               ".#########.....##########.",   // 15  外壁 (南の弧)
+               "..........................",   // 16  外周 (フェザー帯) = 規則①
              ] },
       },
     };
@@ -10766,6 +10878,74 @@
         deathLine: "…翼が…墜ちる……",
         xp: 850,
       },
+      /* ── ★[#82] 塔の母: ワイバーン (5e SRD Wyvern を本作の尺度へ。写し元 = griffon) ──
+       *   SRD: Large・AC 13・HP 110・噛みつき 2d6+4 / 毒針 2d6+4 + 毒 (DC15 CON 7d6)・飛行・CR 6。
+       *   本作の尺度 (griffon CR2 = HP 70 / AC 16 / chimera CR6 = HP 85 / AC 16) へ:
+       *     HP 80 / AC 15 / 命中 +7 / 2d6+6 x2 (噛みつき + 毒針)。
+       *   ⭐ 毒は状態異常にしない (味方側に毒の状態が無い = 依頼書 §2-8)。毒針の毒は **dmgBonus の
+       *     上乗せ** (+4 の素に +2) で表す。⛔ 新しい状態異常は作らない。
+       *   ⭐ fleeAtHpRatio: 0.5 = HP が半分を切ると空へ逃げ去る (fleeEnemy)。⛔ 他の敵には付けない。
+       *     XP は撃破と同額 (ユーザー決定) / ドロップなし / 年代記の撃破に数えない。
+       *   ⚠ isBoss は付けない (2 匹目 = 道連れ)。ボススロットは下の wyvernBoss が受ける。
+       *   ⚠ 強さの実測は依頼書 §8 ⑤ (項目3) で直してよい。 */
+      wyvern: {
+        name: "ワイバーン",
+        flavor: "毒針の尾を持つ竜の眷属。塔の上に巣を構え、近づく者へ急降下して襲いかかる",
+        badge: "🐲",
+        sprite: "assets/wyvern_anim.png?v=1",   // codex1 納品 (台帳 tools/codex1_sprites.json の wyvern・192px セル)
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,                        // griffon と同じ 2 倍サイズ (192px 原寸→アップスケール)
+        // ★体の実寸比 (2026-10-03 実測・row2 = 移動中の行の 6 コマの alpha bbox)。壁の箱の中心をここから導く
+        bodyRatioX: 0.932, bodyRatioY: 0.797, bodyOffX: 0.021, bodyOffY: 0.151,
+        hp: 80, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 44, attackHitFrame: 21, attackCooldown: 66,
+        str: 4, dex: 0, atkBonus: 7, ac: 15,
+        dmgDice: "2d6", dmgBonus: 6, critRange: 20, critMult: 2,   // 噛みつき / 毒針 2d6+4 (+毒 2)
+        range: "melee",
+        attacksPerTurn: 2,                       // 噛みつき + 毒針: 1 ターン 2 連撃 (多攻撃ループがそのまま拾う)
+        flight: true,                            // 飛行: 前列バイアス無効 (zonePullFor)
+        swoop: true,                             // 急降下: 前列を飛び越え後衛/中衛を優先
+        fleeAtHpRatio: 0.5,                      // ★[#82] HP 半分で飛び去る (fleeEnemy)
+        xp: 800,
+      },
+      /* ★[#82] ボススロット用の変種 (中身は wyvern と同じ + isBoss)。
+       * ⭐ 項目1 §12-0 (3) の実測: ボススロットに isBoss でない型を置くと、大部屋では
+       *   bossApproachReachedNow() が一度も立たず、入室の語り・ボス曲・__inBossRoom が起きない。
+       *   ⇒ 1 匹だけ isBoss を付ける。⛔ 群れの長の仕組みは作らない (見た目も名前も同じワイバーン)。
+       * ⚠ isBoss を付けると汎用激怒 (def.isBoss && hp <= maxHp * (ragePhaseHpRatio || 0.5)) が
+       *   飛び去りと**同じ HP 50%** で発火する ⇒ ragePhaseHpRatio を 0.25 に明示して、
+       *   飛び去り (0.5) が必ず先に来るようにした (飛び去った個体は手番が来ない)。
+       *   ⭐ しかも非致死の割り込み口は「手番の終わり」と「ラウンド頭のコードン直後」= 本人の
+       *     手番 (激怒の判定点) より前に必ず通る。
+       * ⚠ maxSummons: 0 を写す (isBoss の行動抽選 pickBossAction が召喚を引かないように = griffon の型)。 */
+      wyvernBoss: {
+        name: "ワイバーン",
+        flavor: "毒針の尾を持つ竜の眷属。塔の上に巣を構え、近づく者へ急降下して襲いかかる",
+        badge: "🐲",
+        sprite: "assets/wyvern_anim.png?v=1",
+        sheetW: 1152, sheetH: 960,
+        frameW: 192, frameH: 192, cols: 6, rowOffset: 0,
+        displaySize: 240,
+        bodyRatioX: 0.932, bodyRatioY: 0.797, bodyOffX: 0.021, bodyOffY: 0.151,
+        hp: 80, speed: 0.7,
+        hasAttackAnim: true,
+        meleeRange: 200, hitRange: 280,
+        attackDuration: 44, attackHitFrame: 21, attackCooldown: 66,
+        str: 4, dex: 0, atkBonus: 7, ac: 15,
+        dmgDice: "2d6", dmgBonus: 6, critRange: 20, critMult: 2,
+        range: "melee",
+        isBoss: true,
+        ragePhaseHpRatio: 0.25,                  // ⚠ 飛び去り (0.5) より下 = 激怒は実質起きない (上の注記)
+        maxSummons: 0,                           // 召喚なし (summon 抽選を無効化)
+        attacksPerTurn: 2,
+        flight: true,
+        swoop: true,
+        fleeAtHpRatio: 0.5,                      // ★[#82] HP 半分で飛び去る (fleeEnemy)
+        xp: 800,
+      },
       // ── ポドルプラザ・ボス: アンバーハルク (burrow + confusion_gaze / 2倍サイズ・3ボス中で最硬) ──
       //   岩を掘り進む甲殻の巨獣。direBear シート/幾何を暫定流用 (192px・完全一致)。
       //   burrow      = 地中奇襲 → zonePullFor が burrow 分岐 (swoop と同じ前列を飛び越え後衛/中衛優先) を返す。
@@ -11030,6 +11210,26 @@
           ["minotaur", 41, 14], ["orc", 42, 13],
           // 最終ボス: レッドドラゴン「ファラクサス」(中盤の minotaur は雑魚で据置)
           ["pharaxus", 57, 13],
+        ],
+      },
+      /* ★[#82] 塔の母 (本筋外の 7 本目・砦クリア後に酒場の卓へ並ぶことがある)。
+       * ⭐ 実際の盤面は buildTowerMotherRun (卓上マップ 2 枚)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⚠ clearGold は勝利時に払う礼金 (index.html の結果処理が currentScenario.clearGold を読む)。
+       *   初期案 300G (依頼書 §6)。clearXp は砦と同程度。強さの実測 (§8 ⑤) と合わせて直してよい。 */
+      "tower-mother": {
+        title: "見張りの塔 — 塔の母",
+        flavor: "屋上のワイバーンを追い払い、塔に独り住む母を町へ連れ帰れ",
+        perceptionDC: 15,
+        trapCount: 4,
+        hiddenChestCount: 3,
+        clearXp: 1000,
+        clearGold: 300,
+        spawns: [
+          // 丘の道の魔物 (?graph=0 の単一マップ用)
+          ["ruinSpider", 27, 13], ["ruinSpider", 28, 12], ["ruinSpider", 28, 14],
+          ["minotaur", 39, 13], ["orcArcher", 41, 12], ["orcArcher", 41, 14],
+          // 屋上のワイバーン 2 匹 (うち 1 匹がボス扱い)
+          ["wyvernBoss", 57, 13], ["wyvern", 56, 15],
         ],
       },
     };
@@ -14650,6 +14850,7 @@
       "bandits-forest": "dungeon_normal", "lizard-swamp": "dungeon_normal",
       "orc-fort": "dungeon_climax", "undead-temple": "dungeon_climax",
       "dragon-lair": "pharaxus_stage",
+      "tower-mother": "dungeon_climax",   // ★[#82] 既存の曲を流用 (砦・神殿と同じ。ボス部屋は boss_battle へ切り替わる)
     };
     /* ── ★[廃坑 BGM] ノード別ファイル BGM (2026-08-21) ──────────────────────────
      *   SCENE_BGM が「シナリオ 1 曲」を決めるのに対し、こちらは**その中の例外ノードだけ**を
@@ -14766,6 +14967,13 @@
         "天井は高く、溶岩の光が洞窟全体を赤く照らしている。足元には焼け焦げた骨が散乱し、空気は焦げた硫黄の臭いに満ちていた。",
         "奥から、地鳴りのような息遣いが聞こえる。ファラクサスだ。",
         "これが最後の戦いだ。ようやく立ち直りかけたフランの町の命運は、君たちの双肩にかかっている。",
+      ],
+      /* ★[#82] 塔の母。⛔ 母 (老婆) の場面は B (#83)。ここでは丘を登って塔の屋上を目指すところまで。 */
+      "tower-mother": [
+        "君たちは、港町の北の丘を登り、古い見張りの塔を目指していた。",
+        "道の脇には荒らされた菜園と、獣の足跡が点々と続いている。塔の周りを魔物がうろつき、年老いた母は外へ出ることもできずにいるのだ。",
+        "見上げれば、崩れた屋上の上を大きな翼の影が旋回している。ワイバーン — 毒針の尾を持つ竜の眷属だ。",
+        "倒し切る必要はない。追い払えば、母は町へ帰ると言うだろう。さあ、丘を登れ。",
       ],
     };
 
@@ -17489,6 +17697,10 @@
 
     function defeatEnemy(index) {
       const enemy = enemies[index];
+      /* ★[#82] 致死の割り込み口: 追い払い持ち (ワイバーン) は HP 0 でも撃破せず飛び去る。
+       *   ⭐ 32 の呼び口すべて (一撃で 0 になる場合) をこの 1 行で覆う。⛔ 本体は 1 行も触らない。
+       *   ⚠ 既に飛び去った個体へ再び来ても撃破に化けない (XP / 年代記の二重計上を防ぐ)。 */
+      if (enemy && enemy.def && enemy.def.fleeAtHpRatio) { if (!enemy.__fled) fleeEnemy(index, "lethal"); return; }
       // ── 多頭ハイドラ: hp→0 は「頭が落ちた」イベント。炎/酸=永久切除、物理=完全再生 ──
       if (enemy.def && enemy.def.multiHead && (enemy.hydraHeads || 0) > 0) {
         const burned = !!enemy.__tookFireAcid;   // この頭の生存中に炎/酸を浴びたか
@@ -17609,6 +17821,77 @@
         gainXP(enemy.def.xp || 0, nm);
       }
     }
+
+    /* ══ ★[#82] 追い払い — HP が半分を切った追い払い持ち (ワイバーン) が空へ逃げ去る ══════════
+     * ⭐ 戦闘中に alive=false を立てるのは安全 (依頼書 §2-2): 撃破 defeatEnemy() も日常的にそうしており、
+     *   runEncounter は encounterEnemyIndices を剪定せず !alive の手番を飛ばす。勝利判定 5 箇所は
+     *   enemies.every(e => !e.alive || e.passiveNpc) なので**1 行も触らない**。
+     * ⚠⚠ defeatEnemy() 経由にしない (依頼書 §2-4): あちらは RunChronicle.kill (撃破の唯一の集約点)・
+     *   __diagDead (自動デバッグの蘇生検出)・ドロップ 5 種・死亡の効果音を出す = 飛び去りでは全部嘘になる。
+     * ⭐ XP は撃破と同額を 1 回だけ (ユーザー決定。5e の「脅威を乗り越えた」)。
+     * 割り込み口は 2 つ (依頼書 §2-3。HP の書き込み口が約 40 あるため):
+     *   ① 致死 = defeatEnemy() の先頭 1 行 (HP 0 になったとき)
+     *   ② 非致死 = runEncounter の手番の終わり (RunChronicle.endTurn の直後) と、ラウンド頭の
+     *      tickCordonZones() の直後 → checkFleeEnemies()
+     *   ⚠ ①だけだと HP が半分を切っても 0 まで戦い続ける (= 追い払いが撃破と同じ長さになる)。 */
+    const fleeLog = [];   // 検証シーム (__towerMotherTV.fleeLog) の唯一の出所。⛔ ゲームの判定には使わない
+    function fleeEnemy(index, site) {
+      const enemy = enemies[index];
+      if (!enemy || !enemy.alive || enemy.__fled) return false;
+      const def = enemy.def || {};
+      enemy.__fled = true;
+      enemy.alive = false;
+      enemy.coinVisible = false;
+      enemy.knockbackVX = 0;
+      enemy.knockbackVY = 0;
+      enemy.hitStun = 0;
+      enemy.damageFlashTimer = 0;
+      enemy.state = "idle";
+      enemy.poisonRemaining = 0;
+      fleeLog.push({ idx: index, type: enemy.type, site: site || "", hp: enemy.hp, maxHp: enemy.maxHp, xp: def.xp || 0 });
+      playEnemyFlyAway(index);
+      const nm = def.name || "敵";
+      updateInfo(`${nm}は空へ逃げ去った`);
+      if (typeof gainXP === "function") gainXP(def.xp || 0, nm);
+      return true;
+    }
+    /* 非致死の割り込み口の本体。⭐ 追い払い持ちで、まだ居て、HP が閾値以下の個体を飛び去らせる。 */
+    function checkFleeEnemies(site) {
+      let n = 0;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.__fled || !e.def || !e.def.fleeAtHpRatio) continue;
+        if (e.hp <= e.maxHp * e.def.fleeAtHpRatio && fleeEnemy(i, site)) n++;
+      }
+      return n;
+    }
+    /* 飛び去る演出 (依頼書 §5-3)。⭐ 本体は alive=false で次のフレームに描画ループが隠すので、
+     *   **複製**を同じ層に置いて上へずらしながら薄くし、終わったら捨てる。
+     * ⛔ transform を上書きしない (左向きの反転 scaleX(-1) が壊れる) = CSS は margin-top / opacity / clip-path だけ。 */
+    function playEnemyFlyAway(index) {
+      const el = enemyElements[index];
+      if (!el || !el.parentNode || el.style.display === "none") return;
+      try {
+        const g = el.cloneNode(true);
+        g.removeAttribute("id");
+        g.querySelectorAll("[id]").forEach(n => n.removeAttribute("id"));
+        g.classList.add("enemy-fly-away");
+        el.parentNode.appendChild(g);
+        setTimeout(() => { try { g.remove(); } catch (e) {} }, 520);
+      } catch (e) { /* 演出だけの失敗はゲームを止めない */ }
+    }
+    /* ★[#82] 検証シーム。⚠ classic script 直下の let/const は window に載らないので明示する。
+     *   ⛔ 状態の置き場にしない (読むための窓)。 */
+    window.fleeEnemy = fleeEnemy;
+    window.checkFleeEnemies = checkFleeEnemies;
+    window.buildTowerMotherRun = buildTowerMotherRun;
+    window.__towerMotherTV = {
+      ENEMY_TYPES: { wyvern: ENEMY_TYPES.wyvern, wyvernBoss: ENEMY_TYPES.wyvernBoss },
+      buildTowerMotherRun: buildTowerMotherRun,
+      fleeEnemy: fleeEnemy,
+      checkFleeEnemies: checkFleeEnemies,
+      fleeLog: function () { return fleeLog.map(o => Object.assign({}, o)); },
+    };
 
     // ハイドラ: 頭数しきい値で 沼の引き込み / 激怒の咆哮 を各1回発火 (頭は炎でしか減らない=しきい値は確定1回通過)
     function maybeHydraDragRoar(enemy, index) {
@@ -21795,6 +22078,7 @@
 
           // エルフ コードン・オブ・アロー: 設置ゾーンをラウンド開始時に発動
           await tickCordonZones();
+          checkFleeEnemies("cordon");      // ★[#82] 非致死の割り込み口 (コードンや戦闘外の傷で半分を切っていたら手番の前に飛び去る)
 
           // [chariot-7.9-2] ゴブリン戦車の乱入 (廃坑ボス戦・噂を掴んだ回のみ)。
           // actor ループの前に units へ参戦させるので、この場での units 変更は安全。
@@ -21860,6 +22144,7 @@
               }
             } finally {
               RunChronicle.endTurn(__chSnap);
+              checkFleeEnemies("turnEnd");   // ★[#82] 非致死の割り込み口 (HP 半分を切った追い払い持ちが飛び去る)
             }
             await sleepMs(220);
             /* ★★★[#9 / 2026-08-22] **戦闘中も「玉座へ詰めたか」を見る**。
@@ -38270,6 +38555,7 @@
       if (scenId === "orc-fort") return buildOrcFortRun();
       if (scenId === "undead-temple") return buildUndeadTempleRun();
       if (scenId === "dragon-lair") return buildDragonLairRun();
+      if (scenId === "tower-mother") return buildTowerMotherRun();   // ★[#82] 本筋外の 7 本目
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -39442,6 +39728,54 @@
            *   そのまま持ち上げる。新しい rect の右辺の中点と同値なので触らない。 */
           { id: "n4", kind: "start", mapDef: n4.mapDef, exits: n4.exits },
           n7,
+        ],
+      };
+    }
+
+    /* ── ★[#82] 塔の母 (本筋外の 7 本目) — 卓上マップ 2 枚 ──────────────────────────
+     *
+     *   n0 start 塔へ至る丘の道 ── right → n1 boss 崩れた最上階
+     *
+     * ⭐ 竜の巣 (#67) の型だが、buildP6Run の 8 ノード骨格を経由せず **p6Node() を直接 2 回**呼ぶ
+     *   (n4/n7 の名前を流用しない = id は n0/n1。NODE_EXTRA_SPAWN_KINDS の n0 と対)。
+     * ⚠ p6Node の既定 3 つは全部明示する (#53 の罠): density 0 (絵の上に草を湧かせない) /
+     *   start (起点の床保証がマスクに穴を開けない位置) / paint (大部屋の絵のキー)。
+     * ⚠ rect は ROOM_PAINTINGS_DEF["tower-mother"] の tileBounds と**同値**。
+     * ⭐ 出口を持つ n0 の rect は唯一解 (#53): 右辺の中点が出口ゲート (39,13) に一致する
+     *   18 行 x 29 列の矩形は [5, 11, 22, 39] だけ (行数 18 = 偶数なので midR = floor((5+22)/2) = 13 は
+     *   部屋の中心より半行上 = 絵ローカル row 8 = 土の道の上の行 = 塔の扉の上の行)。
+     * ⚠ 座標はすべて global。n0 は 絵ローカル + (11, 5) / n1 は 絵ローカル + (14, 5)。 */
+    function buildTowerMotherRun() {
+      /* n0 塔へ至る丘の道。入場 = 西の口 (11,13) + 2 = (13,13) = 絵ローカル (2,8) = 道の上。
+       * 魔物 2 群 (⚠ direBear は isBoss なので使わない = 項目1 §12-0 K3。非ボスの既存型だけ):
+       *   西の群れ = 廃墟の大蜘蛛 x3 (北西の土の地面 2 体 + 南西 1 体。互いに 8 マス以内 = 1 つの戦闘)
+       *   前庭     = ミノタウロス x1 + オーク弓兵 x2 (塔の前の開けた地面)
+       *   ⭐ 入場からの最短は (17,17) の 5.66 タイル (543px) > melee 交戦距離 400px。
+       *   ⭐ 2 群の最短は (19,10)-(33,11) の 14.04 タイル > DETECTION_RANGE 12.5 = 別々の戦闘。
+       *   ⚠ 敵のタイルは n0big のマスクで全部 '.' (塞いだタイルに置くと絵に穴が開く)。 */
+      const n0 = p6Node("tower-mother", "tower-mother", "n0", "塔へ至る丘の道", [5, 11, 22, 39], {
+        paint: "n0big", density: 0, start: { tx: 13, ty: 13 },
+        slots: [[17, 9, "ruinSpider"], [19, 10, "ruinSpider"], [17, 17, "ruinSpider"],
+                [33, 11, "minotaur"], [35, 10, "orcArcher"], [34, 16, "orcArcher"]],
+      });
+      /* n1 崩れた最上階 (ボス)。入場 = 西辺の中点 (14,13) + NODE_ENTRY_INSET(2) = (16,13) =
+       *   絵ローカル (2,8) = 螺旋階段の上 (start も同じ値にしてある)。
+       * ワイバーン 2 匹 = 巣の前 (絵ローカル (17,6) / (17,10))。うち 1 匹をボススロット (wyvernBoss)。
+       *   ⭐ 入場からは 15 タイル以上 = 入場ナレの最中に戦闘が始まらない。
+       *   ⭐ 2 匹は 4 マス差 = 同じ戦闘に入る。全部いなくなれば (飛び去りも alive=false) クリア。 */
+      const n1 = p6Node("tower-mother", "tower-mother", "n1", "崩れた最上階", [5, 14, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 16, ty: 13 },
+        slots: [[31, 11, "wyvern"]],
+        boss: [31, 15, "wyvernBoss"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13)。⚠ ズレると lintRun の
+           *   graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
         ],
       };
     }

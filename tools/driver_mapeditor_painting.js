@@ -515,14 +515,21 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
        *   room_goblin-mine_n0 を足した)。⚠ ここで 24→25 と数え直すと**次にマップを 1 枚足した
        *   日にまた赤くなる**ので、総数は「本編カタログの実数と一致するか」= 列挙で落として
        *   いないかだけを見る形へ変えた。守りたい構成 (全テーマが中核 4 キーを持つ) は 1a2 が測る。 */
-      check('§1 1a ★paintingEntries() が本編カタログを 1 件も落としていない / 6 テーマ',
-        CAT_N > 0 && c1.n === CAT_N && c1.n >= 24 && c1.themes.length === 6,
+      /* ★[#82] テーマは本筋 6 + 本筋の外 (塔の母 tower-mother) 1 = 7。⭐ 本筋 6 は名前で数えず
+       *   「中核 4 キーを持つテーマ」の数で数える (1a2 と同じ物差し)。 */
+      check('§1 1a ★paintingEntries() が本編カタログを 1 件も落としていない / 7 テーマ (★[#82] 本筋 6 + 塔の母 1)',
+        CAT_N > 0 && c1.n === CAT_N && c1.n >= 24 && c1.themes.length === 7 &&
+        c1.themes.filter(t => ['1', '2', 'n4', 'n7'].every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)).length === 6,
         'n=' + c1.n + ' index.html の実数=' + CAT_N + ' themes=' + c1.themes.join(','));
       /* ⚠ 完全一致 (=== ['1','2','n4','n7']) だと**キーを 1 つ増やしただけで赤くなる**。
        *   測りたいのは「取りこぼしゼロ」なので **超集合**で見る (欠けたら赤 / 増えても緑)。 */
-      check('§1 1a2 ★全テーマが 1 / 2 / n4 / n7 の 4 キーをそろえている (取りこぼしゼロ)',
-        c1.themes.every(t => ['1', '2', 'n4', 'n7']
-          .every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)), J(c1.byTheme));
+      /* ★[#82] 塔の母は旧タイプの小部屋を持たない (最初から卓上マップ 2 枚) ⇒ 中核 4 キーの要求は
+       *   本筋 6 テーマへ、塔の母には自分の 2 枚 (n0big / n1big) を要求する (⛔ どちらも緩めない)。 */
+      check('§1 1a2 ★本筋 6 テーマが 1 / 2 / n4 / n7 の 4 キーをそろえている (取りこぼしゼロ) / ★[#82] 塔の母は n0big / n1big をそろえている',
+        c1.themes.filter(t => t !== 'tower-mother').length === 6 &&
+        c1.themes.filter(t => t !== 'tower-mother').every(t => ['1', '2', 'n4', 'n7']
+          .every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)) &&
+        ['n0big', 'n1big'].every(k => (c1.byTheme['tower-mother'] || []).indexOf(k) >= 0), J(c1.byTheme));
       check('§1 1b 山場 (key=1) 6 件がすべて tw=20 / th=16',
         c1.climax.length === 6 && c1.climax.every(e => e.tw === 20 && e.th === 16),
         J(c1.climax.map(e => e.tw + 'x' + e.th)));
@@ -634,8 +641,8 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       });
       /* ★P3: 在庫の総数を直書きしない。UI は「カタログ全件 + 『なし』1 件」であるべきなので、
        *   基準は上で index.html から数えた CAT_N (別経路なので両方が同じ誤りを共有しない)。 */
-      check('§3 3e ★paintSel = 「なし」+ カタログ全件 / optgroup 6 (テーマごと)',
-        ui.options === CAT_N + 1 && ui.groups.length === 6,
+      check('§3 3e ★paintSel = 「なし」+ カタログ全件 / optgroup 7 (テーマごと。★[#82] 塔の母を足した数)',
+        ui.options === CAT_N + 1 && ui.groups.length === 7,
         'options=' + ui.options + ' 期待=' + (CAT_N + 1) + ' groups=' + J(ui.groups));
       check('§3 3f optgroup の label は M.THEMES の name (themeSel と同じ表記)',
         ui.groups.length > 0 && ui.groups.every(g => ui.themeNames.indexOf(g) >= 0), J(ui.groups));

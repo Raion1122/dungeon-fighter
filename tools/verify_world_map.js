@@ -1732,12 +1732,12 @@ const ASSERTS = [
       return [Object.keys(m.map.sites).length > 0 && bad.length === 0,
         bad.length ? '⛔ ' + bad.join(' / ') : Object.keys(m.map.sites).length + ' 件一致'];
     }],
-  ['7b-data', 'kind === "site" がちょうど 7 件 / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
+  ['7b-data', 'kind === "site" がちょうど 8 件 (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔の 1 枚を足した数) / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
     m => {
       const sites = siteIds(m), ents = enterIds(m);
       const scenTargets = Object.keys(m.map.sites).map(k => m.map.sites[k]);
       const one = ents.length === 1 ? ents[0] : null;
-      const ok = sites.length === 7 && one !== null
+      const ok = sites.length === 8 && one !== null
         && m.map.nodes[one].kind === 'site'
         && scenTargets.indexOf(one) < 0
         && String(m.map.nodes[one].enter).indexOf('?') < 0;
@@ -1774,7 +1774,7 @@ const ASSERTS = [
         '最小 ' + (isFinite(mn) ? mn.toFixed(1) : '-') + 'px (' + who + ')'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7b-dom', '★札の DOM が **ちょうど 7 枚**。kind === "site" の件数と一致し、way には 1 枚も無く、'
+  ['7b-dom', '★札の DOM が **ちょうど 8 枚** (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔の 1 枚を足した数)。kind === "site" の件数と一致し、way には 1 枚も無く、'
     + 'enter を持つのは 1 つだけ。文言は js/world-map.js の label / desc そのまま (⛔ 写経しない)',
     m => {
       if (!m.signs) return [false, 'signs 未測定'];
@@ -1789,7 +1789,7 @@ const ASSERTS = [
         if (r.name !== n.label) bad.push(r.id + ':name="' + r.name + '" != label="' + n.label + '"');
         if ((n.desc || null) !== (r.desc || null)) bad.push(r.id + ':desc ズレ "' + r.desc + '"');
       }
-      const ok = m.signs.total === 7 && m.signs.rows.length === sites.length && sites.length === 7
+      const ok = m.signs.total === 8 && m.signs.rows.length === sites.length && sites.length === 8
         && JSON.stringify(got) === JSON.stringify(want) && ents.length === 1
         && got.indexOf(ents[0]) >= 0 && bad.length === 0;
       return [ok, '.worldSign=' + m.signs.total + ' / kind:"site"=' + sites.length
@@ -1802,7 +1802,7 @@ const ASSERTS = [
       if (!m.signs) return [false, 'signs 未測定'];
       const bad = m.signs.rows.filter(r => !r.onScreen || !r.self)
         .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
-      return [m.signs.rows.length === 7 && bad.length === 0,
+      return [m.signs.rows.length === 8 && bad.length === 0,   /* ★[#82] 8 枚 */
         m.signs.rows.length + ' 枚とも自分に当たる  実効文字高 name/desc='
         + (m.signs.rows[0] ? (m.signs.rows[0].fontName * m.render.zoom).toFixed(1) + 'px/'
           + (m.signs.rows[0].fontDesc * m.render.zoom).toFixed(1) + 'px (zoom '
@@ -1810,7 +1810,7 @@ const ASSERTS = [
         + '  札の寸法=' + JSON.stringify(m.signs.rows.map(r => r.id + ':' + r.w + 'x' + r.h))
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (6 枚とも)'
+  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (7 枚とも。★[#82] 見張りの塔を足した数)'
     + ' ⛔ 依頼の受注は今日どおり酒場 (依頼書 §12-3)',
     m => {
       if (!m.walk) return [false, 'walk 未測定'];
@@ -1822,7 +1822,7 @@ const ASSERTS = [
         if (r.search !== '') bad.push(r.id + ':search="' + r.search + '"');
         if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
       }
-      return [rows.length === 6 && bad.length === 0,
+      return [rows.length === 7 && bad.length === 0,
         rows.length + ' 枚 (' + rows.map(r => r.id).join(',') + ') を実クリック'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '  全部 world.html のまま歩いただけ')];
     }],
@@ -1832,8 +1832,8 @@ const ASSERTS = [
     + ' ⭐ 実際に歩かせず座標から出す (enter を持つ港町の札は押すと town.html へ遷移してしまう)',
     m => {
       if (!m.cover) return [false, 'cover 未測定'];
-      if (m.cover.signCount !== 7 || m.cover.nodeCount !== 14) {
-        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/7 ノード='
+      if (m.cover.signCount !== 8 || m.cover.nodeCount !== 14) {   /* ★[#82] 札 8 枚 */
+        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/8 ノード='
           + m.cover.nodeCount + '/14 (装置の cleared 仕込みが効いていない可能性)'];
       }
       const bad = m.cover.rows.filter(r => r.ratio >= COVER_MAX)

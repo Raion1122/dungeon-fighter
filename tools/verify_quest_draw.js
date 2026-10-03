@@ -233,8 +233,10 @@ function indepFacts(scen, cleared) {
   const cs = new Set(cleared || []);
   const isU = (s) => !s.locked || cs.has(s.unlockAfter);
   const unlocked = scen.filter(isU).map((s) => s.id);
-  const fr = scen.find((s) => isU(s) && !cs.has(s.id));
-  const nl = scen.find((s) => !isU(s));
+  /* ★[#82] 本筋と次の未解放は本筋 (side でない) だけから引く。抽選の母集団 (unlocked) には side も入る。 */
+  const main = scen.filter((s) => !s.side);
+  const fr = main.find((s) => isU(s) && !cs.has(s.id));
+  const nl = main.find((s) => !isU(s));
   return { unlocked, frontier: fr ? fr.id : null, nextLocked: nl ? nl.id : null, ids: scen.map((s) => s.id) };
 }
 /* 盤面の妥当性 (§2-4 の 3 条件)。seatKeys = TAVERN_MAP.TABLES の key (データ) */
@@ -361,7 +363,7 @@ const SNAP = (BKEY, CKEY) => {
     mapOn: window.__tavernMapOn === true,
     tables: TM ? TM.TABLES.map((t) => ({ key: t.key, scenarioId: t.scenarioId, sign: t.sign.slice() })) : null,
     tile: TM ? TM.TILE : null,
-    scen: (typeof scenarios !== 'undefined') ? scenarios.map((s) => ({ id: s.id, locked: !!s.locked, unlockAfter: s.unlockAfter || null })) : null,
+    scen: (typeof scenarios !== 'undefined') ? scenarios.map((s) => ({ id: s.id, locked: !!s.locked, unlockAfter: s.unlockAfter || null, side: !!s.side })) : null,
   };
 };
 
@@ -447,12 +449,14 @@ async function runSuite(browser, port, mutKey, label) {
       s0.hasTM && s0.hasBoardFn && s0.board && s0.board.seats && Object.keys(s0.board.seats).length === 2,
       { hasTM: s0.hasTM, hasBoardFn: s0.hasBoardFn, board: s0.board });
     {
-      const sc = SC_ALL;
-      const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id);
-      R.check('(0b)', '[装置] scenarios が 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前)', chain,
-        sc.map((x) => x.id + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
+      /* ★[#82] 本筋 6 件は一本道のまま + 本筋の外 (side) がちょうど 1 件で、locked かつ前提が本筋のどれか。 */
+      const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
+      const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
+        && sd.length === 1 && sd[0].locked && sc.some((x) => x.id === sd[0].unlockAfter) && SC_ALL.length === 7;
+      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 1 件 (locked・前提は本筋)', chain,
+        SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
-    const ID = SC_ALL.map((x) => x.id);   // 一本道の並び (0b が守る)
+    const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び (0b が守る)
     const F = (cl) => indepFacts(SC_ALL, cl);
 
     /* ══════════ §1 ══════════ */
@@ -513,7 +517,7 @@ async function runSuite(browser, port, mutKey, label) {
       const cl = ID.slice();
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 6;
+      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 7;   /* ★[#82] 本筋 6 + side 1 が全部解放済み */
       for (let i = 0; i < N_1D; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1d#' + i, s]);

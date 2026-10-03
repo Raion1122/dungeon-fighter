@@ -544,6 +544,20 @@ async function measure(browser, port, errs, opts) {
       enterIds: Object.keys(WM.NODES).filter(k => WM.NODES[k].enter !== undefined),
       enterMap: Object.keys(WM.NODES).filter(k => WM.NODES[k].enter !== undefined)
         .map(k => k + '→' + WM.NODES[k].enter),
+      /* ★[#82] (1d) の材料 — 本番の撤退 WORLD_MAP.retireTower() を呼んだ後の地図 (= 塔の母の前の地図)。
+         ⚠ **必ず最後の項目**に置く (地図を書き換えるので、上の項目を測り終えてから呼ぶ)。 */
+      retired: (() => {
+        if (typeof WM.retireTower !== 'function') return null;
+        WM.retireTower();
+        return {
+          sites: JSON.parse(JSON.stringify(WM.SITES)),
+          nodesFP: Object.keys(WM.NODES).map(id => {
+            const n = WM.NODES[id];
+            return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—');
+          }),
+          edgesFP: WM.EDGES.map(e => e[0] + '__' + e[1]),
+        };
+      })(),
     };
   });
   await page.close();
@@ -1378,19 +1392,19 @@ const ASSERTS = [
        ⚠ 依頼書 §2-3 の表が「奪われ 0 件」と読めるのは **札の中心 1 点だけ**を測っていたため。
          ⭐⭐⭐ 中心は 4 通りとも無傷 — 破れるのは **四隅**。「矩形の交差」「中心の奪取」
          「隅の奪取」は 3 つとも別条件だと実測で確定した。 */
-  ['2d', '刻み点マーカーが **7 枚の .worldSign のどのクリック点も奪わない**'
+  ['2d', '刻み点マーカーが **8 枚 (★[#82] 見張りの塔を足した数) の .worldSign のどのクリック点も奪わない**'
     + ' (札ごとに中心 + 四隅の内側 8px の 5 点を elementFromPoint)'
     + ' ⭐ 各マーカーの中心が札の矩形から逃げている距離の最小値を必ず detail に出す'
-    + ' ⚠ 札 7 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
+    + ' ⚠ 札 8 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
     m => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM の観測が無い'];
       if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
       /* ⚠⚠ 母集団ガード 2 本立て: 札の実数と、データ側の site ノード数の両方を見る。
          ⛔ 0 枚でも「奪わなかった」で緑になる書き方をしない (#42 でもここは 1 バイトも緩めない)。 */
-      if (d.siteCount !== 7 || d.signs.length !== 7) {
+      if (d.siteCount !== 8 || d.signs.length !== 8) {
         return [false, '⛔ 母集団が壊れている: .worldSign=' + d.signs.length + ' 枚 / site ノード='
-          + d.siteCount + ' 件 (どちらも 7 のはず)  札の所有者='
+          + d.siteCount + ' 件 (どちらも 8 のはず)  札の所有者='
           + JSON.stringify(d.signs.map(s => s.node))];
       }
       /* ⛔ 観測側が 5 点を採っていない (measureSteps の改修漏れ) を「奪われ 0 件」で
@@ -1584,7 +1598,7 @@ const ASSERTS = [
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
   ['1d', '⭐⭐⭐ [恒等] {nodesFP, edges, sites} の sha1 が 876c5f6336f96811'
-    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件)'
+    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件 = ★[#82] 本番の撤退 retireTower() 後の地図。既定は SITES 7 の 647e71f6b2956389)'
     + ' ⚠ tools/verify_quest_walk.js:1511 の (5a) と **同じ式**を同居させて 2 本で縛る',
     m => {
       const md = m.map;
@@ -1595,14 +1609,24 @@ const ASSERTS = [
          ⭐⭐⭐ 刻み点は **派生レイヤ** (STEPS) に居るので、正しく実装されている限りここは動かない。 */
       const canon = JSON.stringify({ nodes: md.nodesFP, edges: md.edgesFP, sites: md.sites });
       const got = crypto.createHash('sha1').update(canon).digest('hex').slice(0, 16);
+      /* ★[#82] 固定値 876c5f6336f96811 は 1 文字も変えず、本番の撤退 retireTower() 後の地図
+         (= 塔の母の前の地図) へ当てる。既定の地図 (pass_n が拠点・SITES 7) は 2 本目の固定値で縛る
+         (verify_quest_walk (5a) と同じ 2 値)。 */
       const WANT = '876c5f6336f96811';   /* 2026-08-26 実測 (NODES 14 / EDGES 14 / SITES 6) */
+      const WANT_ON = '647e71f6b2956389';   /* ★[#82] 2026-10-03 実測 (NODES 14 / EDGES 14 / SITES 7) */
       const counts = md.nodesFP.length === 14 && md.edgesFP.length === 14
-        && Object.keys(md.sites).length === 6;
-      return [got === WANT && counts,
+        && Object.keys(md.sites).length === 7;
+      const rt = md.retired;
+      const canonOff = rt ? JSON.stringify({ nodes: rt.nodesFP, edges: rt.edgesFP, sites: rt.sites }) : '';
+      const gotOff = rt ? crypto.createHash('sha1').update(canonOff).digest('hex').slice(0, 16) : '(retireTower が無い)';
+      const countsOff = !!rt && rt.nodesFP.length === 14 && rt.edgesFP.length === 14 && Object.keys(rt.sites).length === 6;
+      return [got === WANT_ON && counts && gotOff === WANT && countsOff,
         'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edgesFP.length
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
-        + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT + ')'
-        + (got === WANT ? '' : '  ⛔ 実測の中身= ' + canon)];
+        + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT_ON + ')'
+        + '  / 撤退後 (retireTower) SITES ' + (rt ? Object.keys(rt.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + (got === WANT_ON ? '' : '  ⛔ 実測の中身= ' + canon)
+        + (gotOff === WANT ? '' : '  ⛔ 撤退後の中身= ' + canonOff)];
     }],
   ['1e', '⭐⭐⭐ 刻みの粗さが **要求どおり** か — ページの STEPS が、ドライバが **独立に計算した**'
     + ' expectSteps(NODES, EDGES, ' + REQUIRED_STEP_MAX_PX + ') と 1 件残らず一致する'
@@ -2045,7 +2069,7 @@ const ASSERTS = [
         + '  (NODES ' + nn + ' 件 / 刻み点 ' + sc + ' 件を母集団に)'
         + (why.length ? '  ' + why.join(' ') : '')];
     }],
-  ['5c', '札 (.worldSign) の DOM が **ちょうど 7 枚** (刻み点に札が生えていない)'
+  ['5c', '札 (.worldSign) の DOM が **ちょうど 8 枚** (刻み点に札が生えていない。★[#82] 見張りの塔を足した数)'
     + ' ⭐ DOM の枚数と、データ側の site ノード数を **2 経路**で突き合わせる'
     + ' ⚠ 刻み点マーカーが 1 枚以上ある母集団で測る',
     m => {
@@ -2053,8 +2077,8 @@ const ASSERTS = [
       if (!d) return [false, '⛔ DOM の観測が無い'];
       const why = [];
       const owners = d.signs.map(s => s.node);
-      if (d.signs.length !== 7) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 7 枚)');
-      if (d.siteCount !== 7) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 7 件)');
+      if (d.signs.length !== 8) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 8 枚)');
+      if (d.siteCount !== 8) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 8 件)');
       if (d.signs.length !== d.siteCount) why.push('⛔ 2 経路が食い違う (DOM ' + d.signs.length + ' / データ ' + d.siteCount + ')');
       if (owners.some(o => o === null)) why.push('⛔ .worldNode に属さない札がある: ' + JSON.stringify(owners));
       const stepy = owners.filter(o => o !== null && String(o).indexOf('@') >= 0);

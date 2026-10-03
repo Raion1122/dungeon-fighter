@@ -1015,9 +1015,12 @@ async function runSuite(browser, port, label) {
     ' tileBounds=' + JSON.stringify((dl.n4 || {}).bounds) +
     ' / 旧 n7 rect=' + JSON.stringify(rc7B) + '(' + (wh(rc7B) || []).join('x') + ') paint=' + (byB.n7 || {}).paint +
     ' / http 旧=' + stOld4 + ',' + stOld7 + ' 新=' + stBig4 + ',' + stBig7);
-  check('7b', '★?dragonfold=0 で NODE_EXTRA_SPAWN_KINDS に竜の行が載らず、他 4 シナリオの行はそのまま残る (畳んだ舞台だけが兼務を宣言する)',
+  /* ★[#82] 塔の母 (tower-mother) は畳みではなく最初から 2 ノードの舞台で、兼務の宣言は ?dragonfold に
+   *   関係なく常に載る ⇒ 旧側の期待は「他 4 シナリオ + tower-mother」。両腕で同じ中身であることも見る。 */
+  check('7b', '★?dragonfold=0 で NODE_EXTRA_SPAWN_KINDS に竜の行が載らず、他 4 シナリオ (+ ★[#82] 塔の母) の行はそのまま残る (畳んだ舞台だけが兼務を宣言する)',
     GB.hasDragonKinds === false && !!GB.kindsTable &&
-    Object.keys(GB.kindsTable).sort().join(',') === ['bandits-forest', 'lizard-swamp', 'orc-fort', 'undead-temple'].join(','),
+    Object.keys(GB.kindsTable).sort().join(',') === ['bandits-forest', 'lizard-swamp', 'orc-fort', 'tower-mother', 'undead-temple'].join(',') &&
+    !!GA.kindsTable && JSON.stringify(GA.kindsTable['tower-mother']) === JSON.stringify(GB.kindsTable['tower-mother']),
     '旧側の台帳のキー=' + JSON.stringify(Object.keys(GB.kindsTable || {}).sort()) +
     ' / 畳んだ側=' + JSON.stringify(Object.keys(GA.kindsTable || {}).sort()));
 

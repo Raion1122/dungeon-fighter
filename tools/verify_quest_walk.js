@@ -433,10 +433,12 @@ async function readTavernScenarios(port) {
     const chunk = region.slice(h.at, (i + 1 < hits.length) ? hits[i + 1].at : region.length);
     const lk = /\blocked:\s*(true|false)\b/.exec(chunk);
     const ua = /\bunlockAfter:\s*"([^"]+)"/.exec(chunk);
+    const sd = /\bside:\s*true\b/.exec(chunk);   /* ★[#82] 本筋の外 (塔の母) の印 */
     return {
       id: h.id, place: h.place,
       locked: lk ? (lk[1] === 'true') : null,
       unlockAfter: ua ? ua[1] : null,
+      side: !!sd,
     };
   });
   const map = {}; for (const row of rows) map[row.id] = row;
@@ -609,6 +611,16 @@ async function measureWorld(browser, port, errs, opts) {
   }, KEY_CLEARED);
   out.storage = await readStorage(page);
   if (o.keepOpen) { out.page = page; return out; }
+  /* ★[#82] (5a) の材料 — 本番の撤退 WORLD_MAP.retireTower() を呼んだ後の地図 (= 塔の母の前の地図)。
+     ⭐ 撤退の変換をドライバへ写経せず、本番の関数を呼ぶ。⚠ 閉じる直前なので後の測定を汚さない。 */
+  out.retiredMap = await page.evaluate(() => {
+    const WM = window.WORLD_MAP;
+    if (!WM || typeof WM.retireTower !== 'function') return null;
+    WM.retireTower();
+    return { sites: WM.SITES, edges: WM.EDGES.map(e => e[0] + '__' + e[1]),
+      nodesFP: Object.keys(WM.NODES).map(id => { const n = WM.NODES[id];
+        return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) };
+  }).catch(() => null);
   await page.close();
   return out;
 }
@@ -1172,14 +1184,15 @@ async function negMeasure(browser, port, errs, tav, need) {
 
 const ASSERTS = [
   // ── §0 装置 (先に母集団を確かめる) ─────────────────────────────────────────
-  ['0z', '[装置] 配信中の tavern.html から id / place / locked / unlockAfter を 6 組抜けている'
+  ['0z', '[装置] 配信中の tavern.html から id / place / locked / unlockAfter を 7 組 (★[#82] 本筋 6 + side 1) 抜けている'
     + ' (正規表現が空振りしていない) ⭐⭐⭐ これが無いと (2z) の照合が「両方 0 件で一致」= 永久緑になる',
     m => {
       const t = m.tavern;
-      const ok = t.status === 200 && t.found === true && t.rows.length === 6
+      const ok = t.status === 200 && t.found === true && t.rows.length === 7
         && t.rows.every(r => !!r.id && !!r.place && r.locked !== null)
         && t.rows.filter(r => r.locked === false).length === 1
-        && t.rows.filter(r => r.unlockAfter !== null).length === 5;
+        && t.rows.filter(r => r.unlockAfter !== null).length === 6
+        && t.rows.filter(r => r.side).length === 1;   /* ★[#82] side 印もちょうど 1 組 */
       return [ok, 'status=' + t.status + ' region=' + t.regionBytes + 'B 組数=' + t.rows.length
         + ' locked:false=' + t.rows.filter(r => r.locked === false).length
         + ' unlockAfter有=' + t.rows.filter(r => r.unlockAfter !== null).length
@@ -1311,7 +1324,8 @@ const ASSERTS = [
         }
       }
       for (const k of keys) if (!tav.map[k]) diffs.push(k + ':tavern に無い');
-      return [tav.rows.length === 6 && keys.length === 6 && diffs.length === 0,
+      /* ★[#82] 本筋 6 + 本筋の外 (side) 1 = 7 件どうし。side の件数も配信バイトから数えて 1 を要求する。 */
+      return [tav.rows.length === 7 && keys.length === 7 && tav.rows.filter(r => r.side).length === 1 && diffs.length === 0,
         'js/world-map.js UNLOCK=' + JSON.stringify(unlock)
         + '  vs  配信中の tavern.html='
         + JSON.stringify(tav.rows.reduce((o, r) => { o[r.id] = (r.locked ? r.unlockAfter : null); return o; }, {}))
@@ -1347,7 +1361,7 @@ const ASSERTS = [
         bad.push('revealed()=' + JSON.stringify(st.revealed) + ' ≠ 期待 ' + JSON.stringify(wantRevealed));
       }
       const ok = JSON.stringify(st.clearedParsed) === '[]'
-        && wantShown.length === 2 && wantHidden.length === 5
+        && wantShown.length === 2 && wantHidden.length === 6   /* ★[#82] 未解放 = 本筋 5 + side 1 */
         && st.signCount === 2 && bad.length === 0;
       return [ok, 'cleared=[] → .worldSign ' + st.signCount + ' 枚 (' + st.signIds.join(',') + ')'
         + '  ⭐ UNLOCK から導いた 出す=' + JSON.stringify(wantShown)
@@ -1359,8 +1373,11 @@ const ASSERTS = [
   ['2b', 'cleared を 0 → 1 → 2 → 3 → 4 → 5 本と伸ばすと、札が 2 → 3 → 4 → 5 → 6 → 7 枚へ'
     + ' 1 枚ずつ増える (6 段階を実測。順序も UNLOCK の鎖どおり)',
     m => {
+      /* ★[#82] side (本筋の外) の拠点。⭐ 配信中の tavern.html の side 印 → SITES で引く (⛔ 直書きしない)。 */
+      const sideIds = (m.tavern.rows || []).filter(r => r.side).map(r => r.id);
       const rows = m.stages.map((st, n) => {
         const md = st.mapData;
+        const sideNodes = sideIds.map(sc => md.sites[sc]).filter(Boolean);
         const scOf = {}; for (const sc of Object.keys(md.sites)) scOf[md.sites[sc]] = sc;
         const siteIds = Object.keys(st.nodes).filter(id => st.nodes[id].kind === 'site');
         const cleared = st.clearedParsed || [];
@@ -1372,15 +1389,19 @@ const ASSERTS = [
           const need = md.unlock[sc];
           return !need || cleared.indexOf(need) >= 0;
         });
-        return { n: n, cleared: cleared, want: want, got: st.signIds, count: st.signCount };
+        return { n: n, cleared: cleared, want: want, got: st.signIds, count: st.signCount,
+                 sideShown: want.filter(id => sideNodes.indexOf(id) >= 0).length };
       });
       const bad = [];
       rows.forEach((r, i) => {
         if (JSON.stringify(r.got) !== JSON.stringify(r.want)) {
           bad.push('cleared=' + r.n + '本:札=' + JSON.stringify(r.got) + ' ≠ 鎖から導いた ' + JSON.stringify(r.want));
         }
-        if (r.count !== i + 2) bad.push('cleared=' + r.n + '本:' + r.count + ' 枚 (期待 ' + (i + 2) + ')');
+        /* ★[#82] 本筋の札は 1 枚ずつ増える (i + 2) + 解放された side の札 (砦の後に 1 枚)。 */
+        if (r.count !== i + 2 + r.sideShown) bad.push('cleared=' + r.n + '本:' + r.count + ' 枚 (期待 ' + (i + 2 + r.sideShown) + ')');
       });
+      /* ★[#82] side の札が少なくとも 1 段で実際に出ている (⛔ side 0 件の母集団で緑にしない)。 */
+      if (sideIds.length !== 1 || !rows.some(r => r.sideShown === 1)) bad.push('side の札が 1 段も出ていない sideIds=' + JSON.stringify(sideIds));
       return [m.stages.length === 6 && bad.length === 0,
         rows.map(r => r.n + '本[' + r.cleared.length + ']→' + r.count + '枚(' + r.got.join(',') + ')').join('   ')
         + (bad.length ? '  ⛔ ' + bad.join(' / ') : '')];
@@ -1425,8 +1446,8 @@ const ASSERTS = [
         if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
         if (r.askOpen !== false) bad.push(r.id + ':askOpen=' + r.askOpen);
       }
-      const ok = w.signCount === 2 && hidden.length === 5
-        && w.clickIds.length === 6 && bad.length === 0;
+      const ok = w.signCount === 2 && hidden.length === 6   /* ★[#82] 未解放 = 本筋 5 + side 1 / 拠点 = 7 */
+        && w.clickIds.length === 7 && bad.length === 0;
       return [ok, 'cleared=[] (札 ' + w.signCount + ' 枚) で 拠点 ' + w.clickIds.length
         + ' 件を実クリック — うち **未解放が ' + hidden.length + ' 件** (' + hidden.join(',') + ')'
         + '  着いた先=' + JSON.stringify(w.clicks.map(r => r.id + '→' + r.node))
@@ -1507,7 +1528,7 @@ const ASSERTS = [
     + 'まま森をタップ) → 歩くだけ・遷移せず・確認も出ない',
     m => {
       const o = m.askOther, s = o.st || {}, st = o.storage ? o.storage.session : {};
-      const ok = !!o.seam && o.seam.signCount === 7            /* ★ 母集団: 全部解放済み */
+      const ok = !!o.seam && o.seam.signCount === 8            /* ★ 母集団: 全部解放済み (★[#82] side を足して 8 枚) */
         && o.seam.questDest === 'goblin-mine'                  /* ★ 受注はしている */
         && !!o.target && o.targetScenario !== 'goblin-mine'    /* ★ 押したのは受注地ではない */
         && s.heroNode === o.target                             /* 歩けている */
@@ -1531,7 +1552,7 @@ const ASSERTS = [
       const bad = rows.filter(r => !r.onScreen || !r.self)
         .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
       const ok = st.askOpen === false && st.askDisplay === 'none'
-        && rows.length === 7 && bad.length === 0;
+        && rows.length === 8 && bad.length === 0;   /* ★[#82] side を足して 8 枚 */
       return [ok, 'cleared=6本 → 札 ' + rows.length + ' 枚 (' + rows.map(r => r.id).join(',')
         + ') の中心の elementFromPoint がすべて自分自身か子孫'
         + '  ダイアログ: askOpen=' + st.askOpen + ' / display=' + st.askDisplay
@@ -1572,8 +1593,8 @@ const ASSERTS = [
          ⚠ 今は world.html が未実装なので 7 枚は自明だが、項目 3 の実装後も 7 枚のままで
            あることを守る番人になる (撤退スイッチが効いている証明)。 */
       const ok = w.search === '?questwalk=0'        /* 装置: クエリが本当に届いている */
-        && w.signCount === 7
-        && w.clickIds.length === 6                  /* 港町フラン以外 = enter を持たない site */
+        && w.signCount === 8                        /* ★[#82] side を足して 8 枚 */
+        && w.clickIds.length === 7                  /* 港町フラン以外 = enter を持たない site (★[#82] 7) */
         && bad.length === 0;
       return [ok, 'URL search="' + w.search + '"  .worldSign=' + w.signCount + ' 枚'
         + '  押した札 ' + w.clickIds.length + ' 枚 (' + w.clickIds.join(',') + ')'
@@ -1652,11 +1673,21 @@ const ASSERTS = [
             「地図のデータを触った」= 依頼書 §11 の禁止事項を踏んだということ。 */
       const canon = JSON.stringify({ nodes: md.nodesFP, edges: md.edges, sites: md.sites });
       const got = crypto.createHash('sha1').update(canon).digest('hex').slice(0, 16);
+      /* ★[#82] 固定値 876c5f6336f96811 は **1 文字も変えない**。当てる先を「本番の撤退
+         WORLD_MAP.retireTower() を呼んだ後の地図」(= 塔の母の前の地図) へ移した。
+         既定の地図は、pass_n が拠点「見張りの塔」になり SITES に tower-mother が 1 件増えた姿で、
+         その実測 (2026-10-03 #82) を 2 本目の固定値として焼く。 */
       const WANT = '876c5f6336f96811';   /* 2026-08-26 実測 (NODES 14 / EDGES 14 / SITES 6) */
-      return [got === WANT, 'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edges.length
+      const WANT_ON = '647e71f6b2956389';   /* ★[#82] 2026-10-03 実測 (NODES 14 / EDGES 14 / SITES 7) */
+      const rm = m.stages[0].retiredMap;
+      const canonOff = rm ? JSON.stringify({ nodes: rm.nodesFP, edges: rm.edges, sites: rm.sites }) : '';
+      const gotOff = rm ? crypto.createHash('sha1').update(canonOff).digest('hex').slice(0, 16) : '(retireTower が無い)';
+      return [got === WANT_ON && gotOff === WANT, 'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edges.length
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
-        + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT + ')'
-        + (got === WANT ? '' : '  ⛔ 実測の中身= ' + canon)];
+        + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT_ON + ')'
+        + '  / 撤退後 (retireTower) sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + (got === WANT_ON ? '' : '  ⛔ 実測の中身= ' + canon)
+        + (gotOff === WANT ? '' : '  ⛔ 撤退後の中身= ' + canonOff)];
     }],
   ['5b', 'enter を持つノードは 今も phlan ただ 1 つ'
     + ' (⛔ 受注地の入場を NODES.enter で実装していないことの証明)',
@@ -1830,8 +1861,8 @@ const SECTIONS = [
 
       mark('欠陥を注入すると担当の節が赤くなること (⭐ 素と同じ装置・同じ述語を変異ポートへ)');
       const negTav = await readTavernScenarios(PORT);
-      check('(n1z) [装置] 変異の母集団 — 配信中の tavern.html から解放の鎖を 6 組読めている',
-        negTav.status === 200 && negTav.rows.length === 6,
+      check('(n1z) [装置] 変異の母集団 — 配信中の tavern.html から解放の鎖を 7 組 (★[#82] 本筋 6 + side 1) 読めている',
+        negTav.status === 200 && negTav.rows.length === 7 && negTav.rows.filter(r => r.side).length === 1,
         'status=' + negTav.status + ' 組数=' + negTav.rows.length
         + ' order=' + JSON.stringify(negTav.order));
 

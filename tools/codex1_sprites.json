@@ -225,6 +225,14 @@
       "attack_dir": "orc-chieftain/orc-chieftain-walk-attack-right-6-aligned/*attack*frame-*.png",
       "note": "Sce4 ボス オーク将軍ガロック (2026-07-29 差替)。codex1 が『基準コマ統一 + %フレーミング』の新テンプレ (tools/sprite_batches/README_scale_rules.md) で描き直した第3陣素材の第1号。⚠ 第3陣は walk と attack を同一ディレクトリ (…-walk-attack-right-6-aligned) に出すので walk_dir / attack_dir に **glob パターン** を直接書いて分離する (ディレクトリを渡すと 12 枚拾って弾かれる)。素材段階の実測で既に walk 体高 median 506.5 / attack 492.5 = -2.76% と WARN 閾値内 (旧素材は -33%〜+23%)、接地線も全 12 コマで bbox 下端 626〜627 に一致。残りは attack_scale=auto が打ち消す。char_ratio は bbox 実測 (--match-current 相当 = 116/192 = 0.604167) ではなく **体基準の逆算** を採用: 現行シートのかさ上げ (bbox 116 / 体 103.5 = 1.121) と新素材のかさ上げ (547 / 506.5 = 1.080) が 3.8% ずれており、bbox 実測をそのまま焼くと体が 3.8% 伸びる。解析解 0.58217 = 103.5 x 547 / (506.5 x 192) は出力実測で体 102.5px (目標 103.5 に -1px) だったので、出力実測で 1 回校正して 0.58785 (= 0.58217 x 103.5/102.5) を焼き込んだ。displaySize 120 据置 = 当たり判定不変、画面上の体高も 64.7px で不変。⚠ 現行 garrock は画面上 64.7px とミノタウロス (76.4px) より小さい『ボスなのに小柄』だが差替前からの性質なので据え置いた (大きくするなら char_ratio を上げる)"
     },
+    {
+      "key": "wyvern", "out": "assets/wyvern_anim.png", "format": "enemy",
+      "cell": 192, "cols": 6, "char_ratio": 0.8, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "wyvern/wyvern-walk-attack-right-6-aligned-clean/*walk*frame-*.png",
+      "attack_dir": "wyvern/wyvern-walk-attack-right-6-aligned-clean/*attack*frame-*.png",
+      "note": "塔の母 (#82) の屋上のワイバーン (2026-10-03 新設)。codex1 の第3陣テンプレ (walk と attack が同一ディレクトリ …-walk-attack-right-6-aligned) なので garrock と同じく glob で分離する。⚠ 素の -aligned は walk 6 コマ中 4 コマに 1〜33px の浮遊点があるので tools/clean_codex1_frames.py で -clean 派生を作って指す (町人 6 体の前例。specks 517 / bbox 縮み最大 8px)。新設なので --match-current の対象は無い。--match-current assets/griffon_anim.png (同じ 192px セル・displaySize 240 の飛行種) の 0.8333 では翼が左へ 2px はみ出す (CLIP WARNING) ので 0.80 へ下げた = fit left=2 right=184 top=23 / cell=192 でクリップ無し。attack_scale=auto (walk 体高 294 / attack 292 = 1.0068)。ゲーム側は ENEMY_TYPES.wyvern / wyvernBoss の 2 型が同じシートを使う"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",

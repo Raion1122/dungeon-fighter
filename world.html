@@ -660,6 +660,14 @@
       if (new URLSearchParams(location.search).get("heromark") === "0") HERO_MARK_ON = false;
     } catch (e) {}
 
+    /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ══════════════════════════════
+       ⭐ 読むのは各ページが独立 (tavern.html も自分で読む)。⛔ sessionStorage へ写さない。
+       拠点「見張りの塔」(pass_n) を今日の中継点へ戻す。器はワールドマップのデータ (WORLD_MAP) の retireTower。
+       ⛔ world.html が #82 で触るのはこの読み取りだけ。 */
+    try {
+      if (new URLSearchParams(location.search).get("tower") === "0" && window.WORLD_MAP) window.WORLD_MAP.retireTower();
+    } catch (e) {}
+
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
 

@@ -984,8 +984,9 @@ async function dismissRoadEvent(page, armWait) {
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 A) 素のページ — (0a)(0b) の材料
 // ══════════════════════════════════════════════════════════════════════════════
-async function measureBoot(browser, port, errs) {
-  const page = await openWorld(browser, port, errs, { tag: 'boot' });
+async function measureBoot(browser, port, errs, query) {
+  /* ★[#82] query = '?tower=0' で撤退の腕 (= 塔の母の前の地図) も同じ装置で測る ((4c) が使う)。 */
+  const page = await openWorld(browser, port, errs, query ? { tag: 'boot' + query, query: query } : { tag: 'boot' });
   const out = await safeEval(page, () => {
     const RE = window.ROAD_EVENTS, SC = window.SkillCheck, WM = window.WORLD_MAP;
     const A = RE ? RE.AMBUSH : undefined;
@@ -1037,6 +1038,11 @@ async function measureBoot(browser, port, errs) {
           return h;
         })()
         : null,
+      /* ★[#82] (4c) の材料 — 停留所ごとの地形 (撤退の腕との差分を「どの停留所が消えたか」で見る)。 */
+      stopTerrainById: (RE && typeof RE.stops === 'function' && typeof RE.terrainOf === 'function')
+        ? (function () { const o = {}; RE.stops().forEach(function (s) { o[s] = RE.terrainOf(s) || '(none)'; }); return o; })()
+        : null,
+      nodeKinds: WM ? (function () { const o = {}; Object.keys(WM.NODES).forEach(function (k) { o[k] = WM.NODES[k].kind; }); return o; })() : null,
       /* ⭐ (1c) の材料 — 細分化グラフ (NODES ∪ STEPS) の id。⛔ ドライバへ写経しない。 */
       walkNodeIds: (WM && typeof WM.walkNodes === 'function') ? Object.keys(WM.walkNodes()) : null,
       pop: WM ? {
@@ -2622,19 +2628,36 @@ const ASSERTS = [
       if (!Array.isArray(rows)) return popFail('(4c) EVENTS', 'ROAD_EVENTS.EVENTS を読めていない');
       const got = JSON.stringify(rows), wantRows = JSON.stringify(BASE_EVENT_ROWS);
       const rowsOk = got === wantRows;
+      /* ★[#82] 地形割りの「着手前の固定表」は **撤退の腕 (?tower=0) = 塔の母の前の地図**へ当てる
+         (⛔ 表は 1 文字も緩めない)。既定の腕は「pass_n が拠点になって停留所から抜けた」ぶんだけ違う:
+         撤退の腕との差が **ちょうど 1 停留所の削除**で、それが既定の腕では拠点 (site)・撤退の腕では
+         中継点 (way) であり、既定の地形割り = 固定表からその停留所の地形を 1 つ引いたもの、を見る。 */
+      const bo = m.bootTowerOff;
+      if (!bo || !bo.stopTerrain || !bo.stopTerrainById) return popFail('(4c) 撤退の腕', '?tower=0 の measureBoot が値を返していない');
+      const histEq = (h, base) => { const ks = Object.keys(base).filter(k => base[k] > 0).sort();
+        const gk = Object.keys(h).filter(k => h[k] > 0).sort();
+        return JSON.stringify(gk) === JSON.stringify(ks) && ks.every(k => h[k] === base[k]); };
+      const histOff = bo.stopTerrain;
+      const histOk = histEq(histOff, BASE_STOP_TERRAIN);
       const hist = b.stopTerrain;
-      if (!hist) return popFail('(4c) 地形割り', 'ROAD_EVENTS.stops / terrainOf を読めていない');
-      const keys = Object.keys(BASE_STOP_TERRAIN).sort();
-      const gotKeys = Object.keys(hist).sort();
-      const histOk = JSON.stringify(gotKeys) === JSON.stringify(keys)
-        && keys.every(k => hist[k] === BASE_STOP_TERRAIN[k]);
+      if (!hist || !b.stopTerrainById) return popFail('(4c) 地形割り', 'ROAD_EVENTS.stops / terrainOf を読めていない');
+      const onIds = Object.keys(b.stopTerrainById), offIds = Object.keys(bo.stopTerrainById);
+      const removed = offIds.filter(k => onIds.indexOf(k) < 0), added = onIds.filter(k => offIds.indexOf(k) < 0);
+      const wantOn = Object.assign({}, BASE_STOP_TERRAIN);
+      removed.forEach(k => { const t = bo.stopTerrainById[k]; wantOn[t] = (wantOn[t] || 0) - 1; });
+      const diffOk = removed.length === 1 && added.length === 0
+        && !!b.nodeKinds && b.nodeKinds[removed[0]] === 'site' && !!bo.nodeKinds && bo.nodeKinds[removed[0]] === 'way';
+      const onOk = diffOk && histEq(hist, wantOn);
       const nStops = Object.keys(hist).reduce((s, k) => s + hist[k], 0);
-      const ok = rowsOk && histOk;
+      const nOff = Object.keys(histOff).reduce((s, k) => s + histOff[k], 0);
+      const ok = rowsOk && histOk && onOk;
       return [ok,
         'EVENTS ' + rows.length + ' 件 = ' + (rowsOk ? '着手前と一致' : '⛔ 不一致')
         + (rowsOk ? '' : '\n           実測 ' + got + '\n           基準 ' + wantRows)
-        + ' / 地形割り ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 = '
-        + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')];
+        + ' / 撤退の腕 (?tower=0) の地形割り ' + JSON.stringify(histOff) + ' 計 ' + nOff + ' 箇所 = '
+        + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')
+        + ' / 既定の腕 ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 (撤退の腕から消えた停留所=' + JSON.stringify(removed)
+        + ' 増えた=' + JSON.stringify(added) + ' → 期待 ' + JSON.stringify(wantOn) + ') = ' + (onOk ? '一致' : '⛔ 不一致')];
     }],
 
   // ── §5 撤退 ?ambush=0 (⚠⚠⚠ 撤退アームだけを受入条件にしない = #39 の「永久緑」の轍) ──
@@ -3052,6 +3075,8 @@ async function collect(browser, port, errs, keys) {
     legsRun: Array.from(need) };
 
   if (need.has('boot')) m.boot = await measureBoot(browser, port, errs);
+  /* ★[#82] 撤退の腕 (?tower=0) = 塔の母の前の地図。(4c) の「着手前の固定表」はこちらへ当てる。 */
+  if (need.has('boot')) m.bootTowerOff = await measureBoot(browser, port, errs, '?tower=0');
   if (need.has('rnd')) {
     m.rnd = [];
     for (const s of RND_SEEDS) m.rnd.push(await measureRnd(browser, port, errs, s));

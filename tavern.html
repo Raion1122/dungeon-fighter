@@ -3330,10 +3330,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>新しい依頼「塔の母」</b> — 砦を越えた冒険者の卓に、町外れの塔に住む母を迎えに行く依頼が並ぶことがある。塔の屋上のワイバーンは、傷つくと空へ逃げ去る。</li>
         <li><b>酒場の依頼が入れ替わるように</b> — 卓に並ぶ依頼はダンジョンから戻るたびに変わる 2 件だけ。物語の次の依頼は必ず並ぶ。奥の小部屋は武器防具屋になった。</li>
         <li><b>メイジハンドの巻物を追加</b> — 魔法使いが幽霊の手で、離れた檻のレバーや罠・怪しい宝箱に触れる。盗賊アジトの檻は野営地の奥へ移った。</li>
         <li><b>魔法の眼の巻物を追加</b> — 稀少な巻物「巻物・アーケインアイ」を宝箱やボスから拾えるように。覚えた魔法使いは、部屋に入った時と出口の前に魔法の眼を飛ばし、霧の奥の敵の種類と数を教えてくれる(呪文の枠を 1 つ使う)。</li>
-        <li><b>透明化の巻物を追加</b> — 珍しい巻物「巻物・インビジビリティ」を宝箱やボスから拾えるように。覚えた魔法使いは、盗賊のいない一行でも戦闘の始まりに姿を消して忍び寄れる(呪文の枠を 1 つ使う)。</li>
       </ul>
     </div>
     <script>
@@ -3648,7 +3648,45 @@
       locked: true,
       unlockAfter: "undead-temple",
     },
+    /* ★[#82] 本筋の外の 7 本目「塔の母」。⭐ side フラグ (真) = 卓の抽選 (#81) の母集団には入るが、
+       「本筋」と「次の未解放」の判定 (boardFacts) からは外す。1 枚絵 (?tavernmap=0) と奥の間
+       (?questdraw=0) にも出さない (mainScenarios())。⛔ ALL_MAIN_SCENARIOS には入れない (本筋 6 本のまま)。
+       ⚠ id は index.html の SCENARIOS / ワールドマップの SITES・UNLOCK と同じ (verify_world_map (4s) が照合)。 */
+    {
+      id: "tower-mother",
+      place: "見張りの塔",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,                 /* ★[#82] 本筋の外。#81 の盤面で「本筋」「次の未解放」の判定から外す */
+      title: "塔の母",
+      difficulty: "★★★",
+      recommendedLevel: 7,        /* 砦 6 と神殿 8 の間。⚠ 強さの実測 (依頼書 §8 ⑤) で直してよい */
+      reward: "十分な礼金",
+      client: { name: "ハロルド", role: "港の石工", type: "villager" },
+      dialog:
+        "「町外れの古い見張りの塔に、年老いた母が独りで住んでいるんです。町で一緒に暮らそうと言っても、" +
+        "息子の私の言葉は聞いてくれない。どうか説得して、連れてきてもらえませんか。お礼は十分にお払いします」",
+      enemies: [
+        { name: "塔を囲む魔物", boss: false },
+        { name: "屋上のワイバーン", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "orc-fort",
+    },
   ];
+  /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
+     ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
+     ⛔ sessionStorage へ写さない。index.html は判定しない (卓に出なければ入れない)。
+     ON/OFF で配列から tower-mother を外し、同じページのワールドマップの写し (window.WORLD_MAP) も
+     今日の姿へ戻す (verify_world_map (4s) の照合が撤退時も成り立つように)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("tower") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "tower-mother") scenarios.splice(i, 1);
+    try { if (window.WORLD_MAP && window.WORLD_MAP.retireTower) window.WORLD_MAP.retireTower(); } catch (e) {}
+  })();
+  /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
+     ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */
+  function mainScenarios() { return scenarios.filter(function (s) { return !s.side; }); }
 
   // ════════════ 事前情報チェック (examine/talk/pray) のテキスト ════════════
   // 準備画面で潜るパーティが判定を宣言 → 成否で攻略前情報を開示。固定6シナリオのみ
@@ -6338,7 +6376,7 @@
   function renderTables(list) {
     const area = document.getElementById("tableArea");
     area.innerHTML = "";
-    (list || scenarios).forEach((sc, i) => {
+    (list || mainScenarios()).forEach((sc, i) => {   /* ★[#82] 既定は本筋 6 本 (side は 1 枚絵の 6 枠に載せない) */
       const slot = tableSlots[i] || tableSlots[tableSlots.length - 1];
       const unlocked = isUnlocked(sc);
       const table = document.createElement("div");
@@ -10628,9 +10666,10 @@
     var BOARD_SIZE = 2;
     var board = null;               /* 最後に採用した盤面 (localStorage が読めない環境の保険を兼ねる) */
     function boardFacts() {
+      var main = scenarios.filter(function (s) { return !s.side; });   /* ★[#82] 本筋の判定は本筋 6 本だけで */
       var unlocked = scenarios.filter(function (s) { return isUnlocked(s); });
-      var frontier = unlocked.find(function (s) { return !progress.cleared.has(s.id); }) || null;
-      var nextLocked = scenarios.find(function (s) { return !isUnlocked(s); }) || null;
+      var frontier = main.find(function (s) { return isUnlocked(s) && !progress.cleared.has(s.id); }) || null;   /* 抽選の母集団 (unlocked) には side も入る */
+      var nextLocked = main.find(function (s) { return !isUnlocked(s); }) || null;
       return { unlocked: unlocked, frontier: frontier, nextLocked: nextLocked };
     }
     /* 依頼書 §2-4 の 3 条件。1 つでも外れたら false (= 捨てて引き直す)。
@@ -10861,7 +10900,7 @@
        ⚠⚠ #26 (復興評議会館) ができたら **扉ごと撤去する前提**。撤去するのは
          この 2 関数 / #backroomBar の DOM と CSS / js/tavern-map.js の DOORS "back"。 */
     function openBackroom() {
-      renderTables(scenarios.slice(3));        /* ★ orc-fort / undead-temple / dragon-lair */
+      renderTables(mainScenarios().slice(3));  /* ★ orc-fort / undead-temple / dragon-lair (★[#82] side は出さない) */
       document.getElementById("tableArea").classList.add("backroomOpen");
       document.body.classList.add("backroomOn");
     }

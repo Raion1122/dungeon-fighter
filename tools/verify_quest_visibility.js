@@ -477,7 +477,7 @@ function probeTown() {
 function probeTavern() {
   var out = { threw: '' };
   /* ⚠ classic script 直下の const は window に載らない。**裸の識別子**で読む。 */
-  try { out.scenarios = scenarios.map(function (s) { return { id: s.id, place: s.place, title: s.title }; }); }
+  try { out.scenarios = scenarios.map(function (s) { return { id: s.id, place: s.place, title: s.title, side: !!s.side }; }); }
   catch (e) { out.threw += 'scenarios:' + ((e && e.message) || e) + ' '; }
   var t  = document.getElementById('title');
   var sm = t ? t.querySelector('small') : null;
@@ -710,6 +710,11 @@ function runNegative(audit) {
     /* ⭐ 「クリア済 5 件」も写経しない。scenarios の並びの先頭 5 件から導く
        (これが無いと札は 2 枚しか立たず、(0c) が永久に赤くなる)。 */
     const CLEARED = T.scenarios ? T.scenarios.slice(0, 5).map(s => s.id) : [];
+    /* ★[#82] 本筋 6 本 + 本筋の外 (side) 1 本 = 7 件。⭐ 件数は写経せずブラウザの scenarios から数える。
+       CLEARED (先頭 5 件 = 本筋の砦まで) で side の 1 本 (unlockAfter 砦) も解放されるので、札は
+       本筋 6 + side 1 + 港町 1 = **8 枚**になる (⛔ 期待値を緩めず、side の 1 枚を足した形へ移した)。 */
+    const MAIN_N = (T.scenarios || []).filter(s => !s.side).length;
+    const SIDE_N = (T.scenarios || []).filter(s => s.side).length;
 
     /* (0b) 写経していないことの静的検査。⭐ 自分のソースに place / title の
        リテラルが 1 つも無いことを機械的に落とす (verify_title_screen (6z0) と同型)。 */
@@ -724,14 +729,14 @@ function runNegative(audit) {
     const dfTavern = defaultSubline('tavern.html', 'title');
     check('(0b) [装置] 期待文言を写経していない — place / title はブラウザの scenarios から引き、'
       + '既定の副行は配信元 HTML から抜いている (ドライバのソースに実データのリテラルが 0 件)',
-      leaked.length === 0 && (T.scenarios || []).length === 6
+      leaked.length === 0 && (T.scenarios || []).length === 7 && MAIN_N === 6 && SIDE_N === 1
         && !!SC.place && !!SC.title
         && EXPECT.indexOf(SC.place) >= 0 && EXPECT.indexOf(SC.title) >= 0
         && !!dfWorld && !!dfTown && !!dfTavern
         && selfSrc.indexOf(dfWorld) < 0 && selfSrc.indexOf(dfTown) < 0 && selfSrc.indexOf(dfTavern) < 0,
       'ソースへの漏れ=' + J(leaked) + '  組み立てた期待文言=' + J(EXPECT)
         + '  既定の副行 (HTML から抜いた) world=' + J(dfWorld) + ' town=' + J(dfTown) + ' tavern=' + J(dfTavern)
-        + '  cleared に仕込む id=' + J(CLEARED));
+        + '  cleared に仕込む id=' + J(CLEARED) + '  本筋=' + MAIN_N + ' 件 / side=' + SIDE_N + ' 件');
 
     /* 世界地図の 2 状態 (素 / 器あり)。(0a) はこの 2 つが **違う値**を返すこと。 */
     const B0  = await openWorld(browser, base, '[B0 世界地図 素]',    { cleared: CLEARED });
@@ -746,9 +751,10 @@ function runNegative(audit) {
         && B0.small.length > 0 && B1.small.length > 0 && B0.small !== B1.small,
       '素=' + J(B0.small) + '  /  器あり=' + J(B1.small));
 
-    check('(0c) [装置] 素の world.html で .worldSign が 7 枚ある (封蝋の母集団が立っている)'
-      + ' — 直書きせず WORLD_MAP.SITES の件数 + 港町 1 枚からも導いて突き合わせる',
-      B0.signCount === 7 && B0.signCount === B0.wm.sites + 1,
+    check('(0c) [装置] 素の world.html で .worldSign が 8 枚ある (封蝋の母集団が立っている)'
+      + ' — 直書きせず WORLD_MAP.SITES の件数 + 港町 1 枚からも導いて突き合わせる'
+      + ' (★[#82] 本筋 6 + 本筋の外 1 + 港町 1。scenarios の本筋/side の件数とも突き合わせる)',
+      B0.signCount === 8 && B0.signCount === B0.wm.sites + 1 && B0.signCount === MAIN_N + SIDE_N + 1,
       '.worldSign=' + B0.signCount + ' 枚 [' + (B0.signNodes || []).join(',') + ']'
         + '  SITES=' + B0.wm.sites + ' (+港町 1 = ' + (B0.wm.sites + 1) + ')');
 
@@ -920,8 +926,8 @@ function runNegative(audit) {
       'questDest(seam)=' + J(B2.questDestSeam) + '  .worldSeal=' + B2.sealCount + ' 枚'
         + '  親=' + J(sp) + '  (期待 scenario=' + J(SC.id) + ')');
 
-    check('(3b) .worldSign の枚数が **7 のまま** (封蝋は子として足されている)',
-      B2.signCount === 7 && B2.signCount === B0.signCount,
+    check('(3b) .worldSign の枚数が **8 のまま** (封蝋は子として足されている。★[#82] side の 1 枚を足した数)',
+      B2.signCount === 8 && B2.signCount === B0.signCount,
       '素=' + B0.signCount + ' 枚 → 封蝋あり=' + B2.signCount + ' 枚 [' + (B2.signNodes || []).join(',') + ']');
 
     check('(3c) ⭐⭐ **器はあるが questDest が無い**状態 → .worldSeal は 0 枚'
@@ -932,9 +938,10 @@ function runNegative(audit) {
         + '  (副行は出ている=' + (B1.small === EXPECT) + ' ので「器を読めていない」ではない)');
 
     const hits = B2.signHits || [];
-    check('(3d) 7 枚の札の中心の elementFromPoint が自分自身か子孫 (封蝋が奪っていない)'
-      + ' — ⛔ 「押せない」と「画面外」を混ぜないため inView も併記し、desktop 1440x900 で 7 枚とも画面内',
-      hits.length === 7 && hits.every(h => h.inView === true && h.self === true),
+    check('(3d) 8 枚の札の中心の elementFromPoint が自分自身か子孫 (封蝋が奪っていない)'
+      + ' — ⛔ 「押せない」と「画面外」を混ぜないため inView も併記し、desktop 1440x900 で 8 枚とも画面内'
+      + ' (★[#82] side の拠点 1 枚を足した数)',
+      hits.length === 8 && hits.every(h => h.inView === true && h.self === true),
       hits.map(h => h.node + ':' + (h.inView ? '' : '画面外/') + J(h.got) + (h.self ? '' : ' ⛔奪われた')).join('  '));
 
     check('(3e) ⭐ 追加条件 — ?questwalk=0 + questDest あり → .worldSeal が 0 枚'
@@ -1092,8 +1099,8 @@ function runNegative(audit) {
         + ' 件 / sessionStorage.removeItem=' + srm + ' 件 (期待 1) / sessionStorage.setItem=' + sset
         + ' 件 (撤退フラグ・縛られていない)');
 
-    check('(5c) WORLD_MAP の NODES / EDGES / STEPS / SITES が無傷 (14 / 14 / 10 / 6)',
-      eq(B0.wm, { nodes: 14, edges: 14, steps: 10, sites: 6 }),
+    check('(5c) WORLD_MAP の NODES / EDGES / STEPS / SITES が無傷 (14 / 14 / 10 / 7。★[#82] SITES は side の 1 件を足した数)',
+      eq(B0.wm, { nodes: 14, edges: 14, steps: 10, sites: 7 }),
       J(B0.wm));
 
     const C2 = await openTown(browser, base, '[C2 街 compact390]',

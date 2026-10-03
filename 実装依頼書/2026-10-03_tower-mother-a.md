@@ -439,3 +439,99 @@
 #### (6) 項目2 への申し送り
 
 scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/notes_item1.md` に原文。要点 = K1 の新しい台帳値(最上階 26x17・tile 64 なら phase (39.00, 0.50) / period (55.875, 59.155))/ K5 の `LINT_PAINTING_ASPECTS` 2 行 / §5-2 の isBoss 変種と激怒の順序 / K6 の言い直し候補 / 行末(本書は純 LF)。
+
+### 12-1. 実装結果(項目2・2026-10-03・基準 HEAD `78dbfe2`)
+
+作業物は scratchpad `…/82a8d302-9bcb-4710-938b-eb3290afc0e7/scratchpad/item2/`(使い捨て検証 `probe_item2.js`・port 10580〜10582 / 走査 `sweep82.py` の写し / マスク `masks.py`)。⚠ 起草窓が並走で `0b9e263`(#84 起草 = `実装依頼書/2026-10-03_mage-hand-reach.md`・`実装依頼書/README.md`・`tools/probe_magehand_reach.js` の 3 本だけ)を積んだ。本項目のコミットはファイル単位で add し、その 3 本は巻き込んでいない。
+
+#### (1) 触った箇所
+
+| ファイル | 中身 |
+|---|---|
+| `tavern.html` | `scenarios` の末尾に `tower-mother`(`side:true`・`unlockAfter:"orc-fort"`・依頼人 ハロルド / 港の石工 / 人形 `villager`・`recommendedLevel:7`)/ 撤退 `?tower=0`(配列から外す + 同じページの `WORLD_MAP.retireTower()`)/ `mainScenarios()`(side を除いた配列。毎回 `scenarios` から引く)/ `boardFacts()` の本筋・次の未解放を `main` から(`var unlocked = …` の行は 1 バイトも変えていない = `verify_quest_draw` 変異 `lockedpool` のアンカー)/ `renderTables()` の既定と `openBackroom()` を `mainScenarios()` へ / changelog 1 行 |
+| `index.html` | `SCENARIO_TEX`(砦の床・壁を流用)/ `NODE_EXTRA_SPAWN_KINDS` `t["tower-mother"] = { n0: ["search","loot"] }`(撤退条件なし)/ `ROOM_PAINTINGS_DEF["tower-mother"]`(`n0big` = `outdoor:true, node:true, sealRing:true` / `n1big` = `node:true, sealRing:true`)/ `ENEMY_TYPES.wyvern` と `wyvernBoss` / `SCENARIOS["tower-mother"]` / `SCENE_BGM` `dungeon_climax` / `SCENARIO_NARRATIONS` 4 段落 / `buildScenarioRun` に 1 行(既存 6 行は揃え直していない)/ `buildTowerMotherRun()` / `defeatEnemy()` 先頭 1 行(致死の口)/ `fleeEnemy()`・`checkFleeEnemies()`・`playEnemyFlyAway()` / 非致死の口 2 つ(`RunChronicle.endTurn(__chSnap)` の直後 = finally の中、`await tickCordonZones()` の直後)/ CSS `@keyframes enemyFlyAway`(`margin-top` / `opacity` / `clip-path` だけ。`transform` は触らない)/ 検証シーム `window.fleeEnemy` / `window.checkFleeEnemies` / `window.buildTowerMotherRun` / `window.__towerMotherTV`(`ENEMY_TYPES.{wyvern,wyvernBoss}` / `fleeLog()`)|
+| `js/df-mapdef.js` | `THEMES` に `tower-mother`(⛔ `FIELD_THEME_IDS` には入れていない)/ `THEME_DEFAULT_ENEMIES["tower-mother"]` / `LINT_PAINTING_ASPECTS` に 29×18 と 26×17(K5)|
+| `js/world-map.js` | `pass_n` を `kind:"site"`・label「見張りの塔」・desc「北の丘に立つ古い物見の塔」へ(id・座標・EDGES は不変)/ `SITES` と `UNLOCK` に 1 行 / コメント「7 つ」→「8 つ」/ `retireTower()`(撤退の器。`NODES.pass_n` を今日の中継点へ戻し SITES・UNLOCK から外す。`WORLD_MAP` には**行を足しただけ**)|
+| `world.html` | `?tower=0` を読んで `WORLD_MAP.retireTower()` を呼ぶ 1 か所だけ(`rnd(` 0 件のまま / `__world` の窓は増やしていない / `removeItem` も増やしていない)|
+| `tools/make_grid_map.py` | `GRIDS["tower-road"]` / `GRIDS["tower-top"]`(経緯をコメントへ)|
+| `tools/codex1_sprites.json` | `wyvern`(192px セル・`-clean` 派生を glob で walk / attack に分離)|
+| `assets/` | `room_tower-mother_n0_map.jpg`(1392x864)/ `room_tower-mother_n1_map.jpg`(1248x816)/ `wyvern_anim.png`(1152x960)|
+| codex1 側 | `assets/wyvern/wyvern-walk-attack-right-6-aligned-clean/`(`tools/clean_codex1_frames.py` の派生。specks 517 / bbox の縮み最大 8px / マゼンタ 0)|
+
+#### (2) 選んだ値と根拠
+
+- **焼き付け**: 丘の道 = 項目1 の値どおり tile 48(48/51.195 = 0.94x)。最上階 = **tile 48 の B 解**(phase (38.50, 0.50) / period (55.900, 59.155) / 26×17)。項目1 は「床の回帰に最も近いのは tile 64 の A」と書いたが、台帳の規則は「素材の情報量より大きくしない」(神殿の広間 53px → 48 / 竜 48〜51px → 48 と同じ)で、64 は 1.15x の水増しになるので採らなかった。⛔ 閾値は緩めていない。
+- **マスク**: 両方とも外周 1 マス `.`・敵タイル全部 `.`・4 近傍の BFS で孤立 0(丘の道 歩ける 290 マス / 最上階 166 マス、いずれも入口から全部到達)。丘の道は row 8〜9 が col 0→28 まで切れない土の道(塔の扉 = 絵ローカル (28,8) = global (39,13) = 出口 `at`)。柵の裏・廃屋の基礎の中の孤立した草地は塞いだ。最上階は母の小部屋(col 4-10 / row 1-5)と扉のタンス(col 6-8 / row 6)・巣(col 19-24 / row 6-11)を塞ぎ、螺旋階段 col 1-3 → 階段の扉 col 4 → 床。⭐ **col 1 を開けた**のは、sealRing が西辺の中点 (0,8) を外周に残すため(塞ぐとそこへ置かれた仲間が 4 近傍で孤立する)。
+- **rect**: n0 `[5, 11, 22, 39]`(18 行 x 29 列で右辺の中点が (39,13) になる唯一解・行数偶数なので midR は絵ローカル row 8)/ n1 `[5, 14, 21, 39]`(17 行・入場 = (14,13)+2 = (16,13) = 絵ローカル (2,8) = 螺旋階段の上)。
+- **丘の道の魔物 2 群**(K3 で `direBear` を外した): 西 = `ruinSpider` x3((17,9)(19,10)(17,17))/ 前庭 = `minotaur` x1 (33,11) + `orcArcher` x2 (35,10)(34,16)。入場からの最短 5.66 タイル(> 交戦 400px)/ 2 群の最短 14.04 タイル(> DETECTION_RANGE 12.5)。⚠ 強さは未実測(項目3 ⑤)。
+- **ワイバーン**: `griffon` を写し元に HP 80 / AC 15 / 命中 +7 / `2d6+6` x2(毒は +2 の上乗せ)/ `flight` `swoop` / `attacksPerTurn 2` / `fleeAtHpRatio 0.5` / xp 800 / `displaySize 240`・body 比は焼き上がりシートの row2 実測。`wyvernBoss` = 同じ値 + `isBoss` + `ragePhaseHpRatio 0.25` + `maxSummons 0`(ボススロット 1 匹。もう 1 匹は非ボス)。
+- **シナリオ**: `clearXp 1000`(砦と同じ)/ `clearGold 300` / `perceptionDC 15` / `trapCount 4` / `hiddenChestCount 3` / `spawns` は `?graph=0` の退避用。
+- **スプライト**: `char_ratio 0.80`(griffon の `--match-current` 0.8333 では翼が左へ 2px はみ出す)→ fit left=2 right=184 top=23 / cell=192。`check_alpha_bg_residue.py` = 6 セルとも充填率 0.23〜0.24・疑い 0 件。`check_sprite_doubling.py` = 候補あり(要目視)だが全部 `clusters=2 2nd=16〜24px` = 細い 2nd(尾)。シートを Read で目視し 1 体ずつ。⭐ 本番の床(最上階の石の床)の上でヘッドレスのスクショを Read し、白枠・背景残りなし・左向き反転も正常。
+
+#### (3) 使い捨て検証の観測(`probe_item2.js`)
+
+- 酒場: `cleared` = 砦まで 4 本で `boardFacts` = 本筋 `undead-temple` / 次の未解放 `dragon-lair` / 母集団に `tower-mother` 入り。鍵を消して 10 回引き直し → `tower-mother` が 1 回出た(本筋は毎回神殿)。6 本全部 → 本筋 null。`?tavernmap=0` の 1 枚絵 6 卓 / `?questdraw=0` の奥の間 3 卓(`renderTables(mainScenarios().slice(3))`)。`?tower=0` → `scenarios` 6 件・`SITES` から消え `pass_n` が `way`。`ALL_MAIN_SCENARIOS` は 6 本のまま。
+- ワールドマップ: 砦クリア後 `pass_n` = `worldNode-site`・札「見張りの塔 / 北の丘に立つ古い物見の塔」・site 8 / 砦前は `worldNode-way` / `?tower=0` は `way`・site 7。
+- 潜行: entry `n0` / `n0:start, n1:boss` / lint e0 w0 / 両ノード `isCustom` / テーマ `tower-mother` / 丘の道は `__outdoorRevealProbe` で 522 タイル(= 29×18)が晴れる / 最上階は 0(霧)/ 罠 4・宝箱 3(n0)/ 敵 6 体とも壁でないタイル・本番 `aStar` で入口→出口 25 手・全敵に到達。BGM `dungeon_climax`。
+- 追い払い(手番を差し替えて境界を踏む): 非ボスを 0.55 → 0.45 にした手番の終わりに `alive=false`・`__fled=true`・hp 36(> 0)・その時点の XP +800 / ボスを致死(hp 0 → `defeatEnemy`)→ `__fled=true`・`__diagDead=false`・`ragePhaseEntered=false`。`fleeLog` = `turnEnd` / `lethal` の 2 件。XP 合計 +1600(`gainXP` 呼び出し 800 x2 + クリア 1000)・年代記の撃破 0 のまま・ドロップ 0。2 匹とも居なくなって戦闘終了 → `isNodeSettled` / `graphBossDefeated` true → `lastResult.cleared === true`(`scenarioId: tower-mother`)・語りは `quest_complete` だけ(`boss_defeat` なし)。丘の道の `ruinSpider` を 0.4 にしても `checkFleeEnemies` は 0 件。
+- ⭐ 激怒と飛び去りの順序: ボスは HP が半分を切った手番の終わり / ラウンド頭のコードン直後で必ず先に飛び去る ⇒ 自分の手番(激怒の判定点)が来ない。観測では激怒 0 回。`ragePhaseHpRatio 0.25` は二重の守り。
+
+#### (4) 崩れた主張 K8〜
+
+- **K8** ⭐⭐ 配信バイトを正規表現で読むドライバがある(`verify_quest_walk` の `readTavernScenarios` = `id:"…",\s*place:` の並びを要求)。起草の §4-1 のとおり `side` を 2 行目に置くと 7 本目が**見えなくなる** ⇒ `place` を `id` の直後に置き、`side` はその後へ。さらにコメントに `side: true` と書いた行が前の依頼の塊へ混ざって「side が 2 件」に読まれた ⇒ コメントの語を言い換えた。
+- **K9** ⭐ `pass_n` が拠点になると道中イベントの停留所から 1 つ抜ける(`ROAD_EVENTS.stops()` は way + 刻み点。mountain 4 → 3・17 → 16 箇所)。依頼書は触れていない副作用。`verify_road_ambush (4c)` は固定表を `?tower=0` の腕へ当て、既定の腕は「その 1 停留所だけが消えた」ことを見る形へ言い直した。
+- **K10** 地図の恒等ハッシュを焼いた本が 3 本(`verify_quest_walk (5a)` / `verify_world_steps (1d)` = `876c5f6336f96811`、`verify_road_events (4a)` = `4c0a8a6b3d65cda0`)。⛔ 固定値は書き換えず、**本番の `retireTower()` を呼んだ後の地図**へ当て直し、既定の地図は 2 本目の固定値(`647e71f6b2956389` / `391c6d4c0c6b4857`)で縛った。⚠ `road_events` は `sites` を参照のまま返していたので、同じ evaluate の後段で `retireTower()` を呼ぶと既定側の SITES まで 6 件に化けた ⇒ 写しで持つよう直した。
+- **K11** 名指し 15 本の外で `verify_party_four (0a)`(`scenarios.length === 6`)が壊れる ⇒ 本筋 6 + 全体 7 へ言い直し(17/17)。⚠ 項目4 の母集団走査で他にも出うる。
+- **K12** `driver_mapeditor_painting`(着手前から赤 = 1d2)の 1a / 1a2 / 3e がテーマ数 6 / 「全テーマが中核 4 キー」を焼いていた ⇒ 1a = 7 テーマ(中核 4 キーを持つのが 6)/ 1a2 = 本筋 6 が中核 4 キー + 塔の母が `n0big` / `n1big` / 3e = optgroup 7。言い直し後 105/106(着手前と同じ 1d2 だけ赤)。
+- **K13** `verify_dragon_fold (7b)` が `NODE_EXTRA_SPAWN_KINDS` のキーを 4 シナリオで完全一致させていた ⇒ `tower-mother` を足し、両腕で同じ中身であることも見る形へ。
+- **K14** 使い捨て検証で、`tryStartEncounter()` から戦闘開始まで 23 秒前後かかった(ボス部屋の入室の語りの待ち)。ゲームの欠陥ではない。項目3 の受入で戦闘を起こすときは待ち時間を長めに取ること。
+- **K15** 最上階の tile は項目1 の推奨(A = 64)ではなく B = 48(上の (2))。
+
+#### (5) 言い直した既存 golden(期待値は緩めず side 1 件 / site 8 つを足した形へ。本数は減らしていない)
+
+| 本 | 言い直した assert |
+|---|---|
+| `verify_quest_visibility` | (0b) 7 件 = 本筋 6 + side 1 / (0c) 札 8 = SITES+1 = 本筋+side+1 / (3b) 8 / (3d) 8 / (5c) SITES 7 |
+| `verify_quest_walk` | (0z) 7 組・side 1 / (2z) 7 対 7・side 1 / (2a) 隠す 6 / (2b) `i+2+side` と「side が 1 段以上出る」/ (2d) 未解放 6・拠点 7 / (3d) 8 / (3e) 8 / (4b) 8 と 7 / (5a) 2 値(上の K10)/ (n1z) 7 組 |
+| `verify_road_ambush` | (4c)(K9) |
+| `verify_road_events` | (4a)(K10) |
+| `verify_tavern_map` | (4b) 期待 = ページの本筋 `.slice(3)` / (6a) 7 = 本筋 6 + side 1・SITES 7 / (6b) 7 / (7b) 本筋と同数 6 |
+| `verify_world_heromark` | `EXPECT_SIGNS` 7 → 8(1e の組は 14×8 = 112)|
+| `verify_world_map` | (7b-data)(7b-dom)(7d) 8 / (7e) 7 / (7f) 8 |
+| `verify_world_steps` | (1d)(K10) / (2d)(5c) 8 |
+| `verify_quest_draw` | (0b) 本筋 6 の一本道 + side 1 / `indepFacts` の本筋・次の未解放を本筋から / (1d) 解放 7 |
+| `verify_dragon_fold` | (7b)(K13) |
+| `driver_mapeditor_painting` | 1a / 1a2 / 3e(K12)|
+| `verify_party_four` | (0a)(K11) |
+
+⚠ 全ドライバの文字列リテラル 26,453 個を走査し、着手前 1 か所だった語の件数が変わったものは 0(変異アンカーを壊していない)。⛔ 漏れ検査を持つ `verify_quest_visibility (0b)` には塔の名前・依頼名を 1 文字も書いていない。
+
+#### (6) 名指し golden(本番の作業ツリー・素 ×1 + `--negative` 13 腕)
+
+| 本 | 項目1 素 | 項目2 素 | 項目1 `--negative` | 項目2 `--negative` | 言い直し |
+|---|---|---|---|---|---|
+| `verify_quest_visibility` | 39/39 | exit 0 39/39 | 変異 10/10 | exit 0 変異 10/10 | 有 |
+| `verify_quest_walk` | 25/25 | exit 0 25/25 | 46/46 | exit 0 46/46 | 有 |
+| `verify_road_ambush` | 41/41 | exit 0 41/41 | 97/97 | exit 0 97/97 | 有 |
+| `verify_road_boon` | 20/20 | exit 0 20/20 | 48/48 | exit 0 48/48 | — |
+| `verify_road_events` | 25/25 | exit 0 25/25 | 43/43 | exit 0 43/43 | 有 |
+| `verify_tavern_map` | 47/47 | exit 0 47/47 | 71/71 | exit 0 71/71 | 有 |
+| `verify_world_heromark` | 18/18 | exit 0 18/18 | 24/24 | exit 0 24/24 | 有 |
+| `verify_world_map` | 57/57 | exit 0 57/57 | 44/44 | exit 0 44/44 | 有 |
+| `verify_world_steps` | 33/33 | exit 0 33/33 | 56/56 | exit 0 56/56 | 有 |
+| `verify_quest_draw` | 18/18 | exit 0 18/18 | 10 本すべて担当が赤 | exit 0 10 本すべて担当が赤・担当外 0 | 有 |
+| `verify_npc_crowd` | 33/33 | exit 0 33/33 | 58/58 | exit 0 58/58 | — |
+| `driver_graph_p6` | 250/250 | exit 0 250/250 | — | (無し) | — |
+| `verify_dragon_fold` | 35/35 | exit 0 35/35 (§ 判定)  | 変異 9/9 | exit 0 変異 9/9 (内部 PASS 324 / FAIL 35 = 項目1 と同数) | 有 |
+| `driver_encounter_mopup` | 36/36 | exit 0 36/36 | — | (無し) | — |
+| `verify_run_chronicle` | 73/73 | exit 0 73/73 | 8 本すべて担当が赤 | exit 0 8 本すべて担当が赤 (空振り 0) | — |
+
+⇒ 素 15 腕 + `--negative` 13 腕 = 28 腕すべて exit 0・件数は項目1 と同数(言い直した 10 本は assert の本数を変えずに期待値を移した)。所要は走査 1 回(`run_final82/final82.tsv`)。⚠ 1 回目(言い直し前)の赤は quest_visibility 5 / quest_walk 8 / road_ambush 2 / road_events 1 / tavern_map 4 / world_heromark 4 / world_map 5 / world_steps 3 / quest_draw 2 / dragon_fold 1 = 全部が「6 件 / 7 枚 / site 7 / 固定ハッシュ」の焼き込みで、本番の振る舞いの退行は 0。
+
+名指し外で同じ走査に入れた 3 本: `verify_party_four` 17/17(K11 言い直し後)/ `driver_mapeditor_painting` 105/106(着手前から赤の 1d2 だけ = K12)/ `verify_codex_map_skill` 16/17(K7 の `stag-tavern` だけ。台帳 17 件の焼き直しは SHA 全件一致 = 塔 2 枚の焼き上がりも `assets/` と一致)。
+
+#### (7) 副作用
+
+- 道中イベントの停留所が 1 つ減る(K9)。
+- `pass_n` が拠点になったので、砦クリア後はそこへ着くと入場の確認が出る(依頼を受けていれば)。未解放のうちは今日どおり中継点の見た目。
+- `tower-mother` を卓で受けると `SITES` に在るのでワールドマップ経由で出発する(本筋 6 と同じ導線)。
