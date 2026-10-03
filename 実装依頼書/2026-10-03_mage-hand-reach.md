@@ -1,10 +1,10 @@
 # #84 メイジハンドが実機で一度も出ない — 覚えていることを見せる + 檻に届かせる + 2 秒で消さない
 
 - **起草**: 2026-10-03(起草窓) / **ステータス**: **承認済**(2026-10-03 ユーザー承認)
-- **着手**: ⏸ **保留 — #82 の完了待ち**(同じ `index.html` / `tavern.html` を #82 が編集中)
-- **基準 HEAD**: `1a2859b`(⚠ 作業ツリーの `index.html` / `tavern.html` は実装窓の #82 が編集中。本書の行番号は **`git show HEAD:`** で測った値)
+- **着手**: 2026-10-04 実装窓(dev-loop・4 項目)。#82 完了 `06ee666` の後
+- **基準 HEAD**: `1a2859b`(⚠ 作業ツリーの `index.html` / `tavern.html` は実装窓の #82 が編集中。本書の行番号は **`git show HEAD:`** で測った値)/ **実装の基準は `06ee666`(§10-0)**
 - **触るファイル**: `index.html`(2 行)/ `tavern.html`(引き出しに表示 1 行ぶん)/ `tools/verify_mage_hand_reach.js`(新規)/ 既存 golden の言い直し(要れば)
-- ⛔ **着手の前提**: **#82 の完了**。#82 が `index.html` / `tavern.html` を大きく書き換え中で、同じファイルを並走で触ると取り違えが起きる(`git add` のファイル単位でも防げない)
+- ⛔ **着手の前提**(✅ 満たした — #82 は `06ee666` で完了・作業ツリー clean): **#82 の完了**。#82 が `index.html` / `tavern.html` を大きく書き換え中で、同じファイルを並走で触ると取り違えが起きる(`git add` のファイル単位でも防げない)
 - 元のチケット: #80 `実装依頼書/2026-10-01_mage-hand.md`(完了 `36f4ba0`)
 
 ---
@@ -176,3 +176,83 @@
 ## 10. 実装結果
 
 (実装窓が埋める)
+
+### 10-0. 着手前の実測(項目1・2026-10-04・基準 HEAD `06ee666`)
+
+- 作業ツリー clean・本番(`index.html` / `tavern.html` / `audio.js` / `js/*`)は 1 バイトも触っていない。測定中に起草窓が `09b729d` を積んだ(**`実装依頼書/2026-10-04_tower-mother-b.md` の新規 1 本だけ = docs のみ**。`git diff --name-status 06ee666 09b729d` で確認)⇒ 配信物は `06ee666` と同一なので基準は `06ee666` のまま。
+- 作業物は scratchpad `…/8952464a-dc76-4a52-9528-5d559bedff3f/scratchpad/item1/`。
+
+#### (1) 行番号の訂正表(`git show 06ee666:` で測定。中身は `1a2859b` と同一 — `git diff 1a2859b 06ee666` はこの区域を 1 行も触らない)
+
+| 対象 | §2 の値(`1a2859b`) | `06ee666` |
+|---|---|---|
+| `MAGE_HAND` 定義 `calmRangeTiles: 12, combatRangeTiles: 6` | `index.html:13688` | **`:13888`**(射程の注記 `:13884-13886`「戦闘中 6 マス (= 5e の 30 ft)」) |
+| `calmRangeTiles` / `combatRangeTiles` の参照(全数 2) | — | `:25179` `tryMageHandCalm` → `"calm"` / `:25185` `tryMageHandInCombat` → `"combat"`。戦闘中の口の呼び口は `:22113`(ラウンドの頭・注記 `:22110`「射程 6 マス」)、`:25182` の注記も「射程 6 マス」 |
+| `offerMageHand` 本体 / `t._handAsked[gate] = true` | — | `:25132` / **`:25147`(`showCharChoice` より前 = 聞く前に立つ・§2-3 罠 2 どおり)** |
+| `offerMageHand` の `showCharChoice` + `{ autoSkipMs: … }` | `:24868` | **`:25152-25153`**(次の行 `:25155` が `if (pick !== 0) return false;`) |
+| `showCharChoice` 本体 / `__autoplay` で 1 番目を即決 / 自動スキップの `setTimeout` | — | `:14614` / `:14616-14619` / `:14682-14685` |
+| `AUTO_ROLL_MS = 2000` | `js/skill-check.js:86` | 同じ(`:504` で公開) |
+| `autoSkipMs` を渡す呼び口(全数) | 2 | **2**: 召喚 `:14467-14468`(⛔ 触らない)/ 手 `:25152-25153`。他の `showCharChoice` 呼び口 11 箇所(`:17625` `:24959` `:24967` `:25303` `:25405` `:25539` `:26041` `:26473` `:26773` `:27195` `:37202`)は渡していない。`js/*` / `audio.js` / `tavern.html` に `autoSkipMs` は 0 件 |
+| `runTrapDisarmCheck` / 手の 2 択 | `:25730` | `:26015` / `:26041-26042`(`autoSkipMs` なし = もともと待つ) |
+| 檻の行 `s2_beast_intel` | `:11308-11309` | `:11508-11509` |
+| `?magehand=0` の読み口 | — | `index.html:13879-13882` `isMageHandOn` だけ(→ K5) |
+| `pmRenderDrawer` | `tavern.html:9076` | **`:9114`**。`listEl.id = "pmDrawerSkillList"` `:9187` / `magics` `:9189` / `magics.forEach` **`:9198`(魔法職)/ `:9200`(それ以外)** / `skillSec` へ付けるのは `:9203-9205` |
+| `isSpellKnownTV` | — | `:5477`(`DEFAULT_KNOWN_TV` `:5414` に `mage` キーが在る ⇒ `isSpellKnownTV("mage","mage-hand")` は未習得で false になる = ゲートとして使える) |
+
+#### (2) 崩れ(K1〜K9)
+
+- **K1** 行番号は上表のとおり移動(`index.html` +200 / `tavern.html` +38)。中身は同一 ⇒ §2-3 の 3 点はそのまま成立する(直す 3 点に構造上の支障なし)。
+- **K2** ⚠ §2-4「`verify_mage_hand` は `__ccHold` で `autoSkipMs` を外してから測る ⇒ 自動スキップを外しても壊れない」は**押す腕だけの話**。押さない腕(`:557` (2b) の注記「押さない腕 = 自動スキップのまま」)は 2 秒の自動スキップで `offerMageHand` が返る前提。素では押さない腕にダイアログは出ない(0 件を測る)ので緑のままだが、**ダイアログを出してしまう変異の腕**(`nogate` の (0c) `:551` `await offerMageHand('calm', 12)` / `nolos`・`cageold` の (2b) `:566` / `rollbackleak` の (11a) `:771-779`)と、(a) 後の **(3b) の素**は、待つようになると `page.evaluate` が返らない(またはダイアログが開いたまま `mageHandBusy` が立ち続け、同じページの後段が別の理由で赤くなる)。⇒ 項目2/3 でドライバ側に「押さない腕のダイアログを閉じる装置」(包み側で明示の `autoSkipMs` を渡す / 「触らない」を押す)を足し、担当表を実走で取り直すこと。
+- **K3** ⚠ `verify_mage_hand` **(9b)**(`:932-940`)は「読んだ後の引き出しに『メイジハンド』が**出ない**」を測っている = (c) と正面から逆。⇒ 「`MAGE_SKILLS_UI` に無い・技 / 呪文の行(`.skillItem` / `.spellCountItem`)に無い・表示の 1 行がちょうど 1 つ」へ言い直す。変異 `handinpool`(`:172-174`・担当 (9b) `:218`)が言い直し後も赤くなることを確かめる。
+- **K4** ⚠ `verify_mage_hand` **(3b)**(`:617-628`)は「戦闘中の口は 6 マス超・12 マス以内では出ない」= (a) と逆。⇒ 12 マス境界(11 / 13)へ言い直す。変異 **`combatfar`**(`:187-190`「戦闘中も calmRangeTiles で聞く」)は (a) 後 calm = combat = 12 で**挙動が変わらない = 空振り**(注入行は鳴るので exit 1)⇒ 定義し直しが要る(新ドライバの `range6` / `calm13` と同型へ)。ヘッダ `:41` `:43`(≤6 / 7〜12 マス)と (3a) の文言も。
+- **K5** `tavern.html` には `?magehand=0` の読み口が無い(`magehand` の語は棚の巻物 1 行だけ)。§4 の「迷うなら出さない側」を採るなら酒場側に読み口を新設することになる(⛔ 既存の `isEyeOnTV` 型を写す)。出す側なら何も要らない。
+- **K6** §2-4「`pmDrawerSkillList` を見るのは 2 本・存在だけ」は正しい(`verify_pm_drawer_fit.js:464` / `verify_prep_retire.js:609`)。ただし引き出しの **`.skillItem` を数える本**が別に在る: `verify_member_identity.js:400`・`verify_party_match_setup.js:541` `:1102` `:1129`。どれもメイジハンドを覚えさせない ⇒ 1 行は出ず影響なし。⭐ 表示の 1 行は `.skillItem` / `.spellCountItem` を付けない専用の class にする(数える本と (1c) を汚さない)。
+- **K7** 変異アンカーと変更区域: 変更する行そのもの(`index.html:13888` / `:25152-25153` / `tavern.html` の `:9198-9200` 直後)に掛かるアンカーは **0**(`tools/*.js` 162 本の全文で各行を突き合わせた)。隣接は 3 つ — `verify_mage_hand` の `slotburn` `:169`(`index.html:25155` `if (pick !== 0) return false;`。(b) の直後の行 = 消さない・重複させない)/ 同 `combatfar` `:189`(`:25185`。K4)/ `verify_member_identity` の `lvhero` `:117`・`capfromhero` `:121`(`tavern.html:9194` `:9195`。範囲 `pmRenderDrawer` の中で**ちょうど 1 行**を要求 ⇒ (c) で同じ行を複製しない)。
+- **K8** §2-2 の測定台を `06ee666` 相当(配信 = `09b729d` の HEAD blob = `06ee666` と同一)で N=5: **戦闘中に聞かれた 2/5**(§2-2 は 3/5)。さらに**戦闘外の口が 2/5 で成立**した(走行 2・3。野営地の戦闘が終わった後 = クリアの直前 133 / 161 秒に、柵の内側で魔法使い 7.0 マス・視線あり)⇒ §2-2「戦闘外の口は 5 回とも成立しない」は崩れたが、出るのは敵を倒し切った後なので実用上の結論(戦闘前の口では檻に届かない)は変わらない。⚠ 測定台の「主人公」(`*` = `isHero`)と `leaderClassKey` が 3/5 で違う(走行 2・4 = warrior / 走行 3 = dwarf が先頭)。
+- **K9** フレーク(着手前の色として控える): `verify_pm_drawer_fit` の **(5d)**(開いて閉じるだけで localStorage が変わる)が素 r1 で赤・r2 で緑・`--negative` の `norestore` 腕でも漏れ(post82 は緑)。`verify_mage_hand --negative` の **`escapeon` が (3a)(3c)(6a) へ漏れ**て exit 1(= #80 K26 の揺れ)→ `--only escapeon` の単独再走は 32/32・担当どおり exit 0。
+
+#### (3) 名指し golden の着手前の色(本番の作業ツリー・直列・既定ポート)
+
+| 本 | 素 r1 | 素 r2 | `--negative` |
+|---|---|---|---|
+| `verify_mage_hand` | exit 0・32/32(142 秒) | exit 0・32/32 | **exit 1**(11/12・`escapeon` の漏れ = K9)/ 単独再走 `--only escapeon` exit 0 |
+| `verify_pm_drawer_fit` | **exit 1**・74/79・PENDING 4((5d) = K9) | exit 0・75/79・PENDING 4 | exit 0(9 本すべて担当が赤・空振り 0) |
+| `verify_prep_retire` | exit 0・30/30 | exit 0・30/30 | exit 0(12 本すべて担当が赤) |
+| `driver_trap_disarm` | exit 0・44/44 | exit 0・44/44 | (`--negative` なし) |
+
+#### (4) 項目2 で赤くなる既存 golden の予告表(`combatRangeTiles` / `calmRangeTiles` / `autoSkipMs` / `AUTO_ROLL_MS` / `__ccHold` / `pmDrawerSkillList` / `offerMageHand` / `mage-hand` + `メイジハンド` / `showCharChoice` / `.skillItem` で grep し、中身を読んで判定)
+
+| ファイル:行 | 前提にしていること | 項目2 後 |
+|---|---|---|
+| `verify_mage_hand.js:617-628` (3b) | 戦闘中 6 マス超・12 以内で出ない | **赤**(+ ダイアログが閉じず evaluate が返らない恐れ・同じページの (3a)(3c)(6a) へ連鎖しうる)→ K4 |
+| `verify_mage_hand.js:187-190` `combatfar` / `:224` | 戦闘中と戦闘前の射程が違う | **空振り**(exit 1)→ K4 |
+| `verify_mage_hand.js:932-940` (9b) / `:172-174` `handinpool` / `:218` | 引き出しにメイジハンドが出ない | **赤**(素)→ K3 |
+| `verify_mage_hand.js:549-575` (0c)(2b)・`:771-779` (11a)・ヘッダ `:18-19` | 押さない腕のダイアログは 2 秒で閉じる | 素は緑のまま / **変異 `nogate`・`nolos`・`cageold`・`rollbackleak` の腕が返らない・担当が動く** → K2 |
+| `verify_mage_hand.js` ヘッダ `:41` `:43`・(3a) の文言 `:661` | 「≤6 マス」「7〜12 マス」 | 文言の言い直し(判定は (3a) = 5 マスで緑のまま) |
+| `driver_scroll_autoskip.js:11-14` `:103-150` | `AUTO_ROLL_MS === 2000`・`showCharChoice` の `autoSkipMs` の機構(直に呼ぶ) | 緑のまま(機構と召喚の口は残る)。⭐ 項目2 の名指しに足すとよい |
+| `verify_pm_drawer_fit.js:464` / `verify_prep_retire.js:609` | `#pmDrawerSkillList` の存在だけ | 緑のまま |
+| `verify_member_identity.js:117` `:121`(アンカー)/ `:400`・`verify_party_match_setup.js:541` `:1102` `:1129`(`.skillItem` の数) | アンカー 1 行一致 / メイジハンド未習得 | 緑のまま(K6・K7 の条件つき) |
+| `verify_scroll_shelf.js:169` / `driver_choice_logslot.js:184` / `verify_road_ambush.js:941`・`verify_road_boon.js:648`・`verify_road_events.js:697` | 巻物 id の並び / 注記だけ | 緑のまま |
+| `probe_magehand_reach.js` | 測定台(母集団外) | 項目4 で N=5 を再測(待つようになってもオートプレイは即決) |
+
+#### (5) 測定台 N=5(`node tools/probe_magehand_reach.js --runs 5 --max 240 --workers 5 --port 10601`・出力 = scratchpad `item1/mh5_pre.json`・`git status` clean のまま)
+
+| 走行(`*` 主人公 / 先頭) | 結果 / 秒 | 最初の戦闘 | ラウンドの頭の最小距離 | 聞かれた(戦闘中 / 戦闘外) | 魔法使いの死亡 |
+|---|---|---|---|---|---|
+| 0 戦士 / 戦士 | クリア 142 | 32.3 秒 (24,15) | 5.61・視線あり | **1** / 0 | なし |
+| 1 ドワーフ / ドワーフ | 敗北 158 | 26.0 (22,15) | 8.06・視線なし | 0 / 0 | 145.8 秒(戦闘中) |
+| 2 盗賊 / 戦士 | クリア 134 | 32.9 (24,15) | 7.0・視線あり | 0 / **1**(133 秒) | なし |
+| 3 僧侶 / ドワーフ | クリア 161 | 26.0 (22,15) | 7.0・視線あり | 0 / **1**(161 秒) | なし |
+| 4 エルフ / 戦士 | 敗北 157 | 30.5 (24,15) | 4.88・視線あり | **1** / 0 | なし |
+
+⇒ 戦闘中 **2/5**(§2-2 は 3/5)。ラウンドの頭で 12 マス以内 + 視線ありは 4/5(走行 1 は視線なし)= 項目2 後の期待は 4〜5/5。
+
+#### (6) 母集団の着手前の色(流用)
+
+- 母集団 = `index.html` / `tavern.html` を読む既存ドライバ(#82 の 160 本 183 腕 + `verify_tower_mother` 2 腕 = 185 腕)。
+- `b89a5c5..06ee666` の配信物の差は 3 点だけ: ① ワイバーン 2 種の `bodyRatioY`/`bodyOffY`(塔の母でだけ湧く)② `LORE_SKILL_OF` / `LORE_CR` にワイバーン 2 行 ③ `tavern.html` の changelog の #82 行の書き換え。ツールの差は `driver_wallbox` / `verify_lore_check` / `verify_swamp_novice`。
+  - ①② を読む腕 = `ENEMY_TYPES` を全数で回す本・伝承の表・塔の母 = `driver_wallbox` / `driver_mine_wall` / `driver_speech_v2` / `driver_trap_weaponize` / `verify_enemy_name_label` / `verify_enemy_traits` / `verify_lore_check` / `verify_swamp_novice` / `verify_tower_mother` / `verify_walk_block` の**全腕が #82 の `fix82`(直した後 = `06ee666` 相当)で再走済み**。他に `tower-mother` を名指す `driver_mapeditor_painting` / `verify_dragon_fold` / `verify_quest_walk` / `verify_road_ambush` / `probe_s5s6_clear` は、読むのがテーマ一覧・湧きの種類表・拠点・`?tower=0` の地図・S5/S6 の伝承 = ①②③に触れない(構造)。
+  - ③ は changelog の文字列を読む本 0 本(`changelogBox`/`changelogList` の grep 0 件)。`#changelogBox` は `position:absolute` なので他の要素の配置は動かさず、覆う範囲だけが問題 ⇒ `b89a5c5` と `06ee666` の `tavern.html` を同じ配信で 7 画面(1280x800 / 1024x768 / 1366x768 / 844x390 / 390x844 / 375x667 / 414x896)開いて**矩形が全画面で完全一致**(PC は max-height で頭打ち・縦持ちは畳まれている。中の `scrollHeight` だけ 326→343)。
+  - ⇒ **流用可**。合成 = `post82.tsv`(`b89a5c5`)を `fix82.tsv` の 15 腕(`pre_` を除く)で置換 + `extra82.tsv` の `--negative` 14 腕(`pre_` を除く)。
+- 合成した **`item1/pre84.tsv`(列は `post82.tsv` と同じ・出所は `pre84_src.tsv`)= 200 腕・緑 179 / 非緑 21**。内訳: 母集団 185 腕 = **緑 168 / 非緑 17**(既知の赤・使い方ガード・調査の道具・揺れ = #82 §12-3 の分類のまま)/ 追加の `--negative` 15 腕 = 緑 11 / 非緑 4(`verify_swamp_novice` `nostart`・`verify_fort_fold` `addn6`・`verify_swamp_fold` `entryn0` のアンカー腐敗 exit 3 と `probe_s2_clear` `wipeblind` の空振り exit 1 = #82 K27)。実走し直した腕は 0。
+- ⚠ 上の (3) の名指しの色は本項で実走した値。`pre84.tsv` の同じ腕(`post82`)は `verify_pm_drawer_fit` 素 exit 0・`verify_mage_hand --negative` exit 0 ⇒ 違いは K9 の揺れ。
