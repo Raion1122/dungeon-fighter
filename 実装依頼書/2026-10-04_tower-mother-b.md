@@ -1,8 +1,8 @@
 # #83 塔の母 B — 母が小部屋から出てきて一緒に帰り、酒場で息子と並んで迎える
 
 - **起草**: 2026-10-04(起草窓) / **ステータス**: **承認済**(2026-10-04 ユーザー承認)
-- **着手**: ⏸ **保留 — #84(メイジハンドの到達)の完了待ち**(2026-10-04)。同じ `index.html` / `tavern.html` を触るため。⚠ README の #83 行は #84 の実装窓へ一声かけてから足す(文面は §11)
-- **基準 HEAD**: `06ee666`(#82 完了)。⚠ 着手時に**必ず測り直す**: #84(メイジハンドの到達)を実装窓が実装中で、`index.html` / `tavern.html` が動く
+- **着手**: 2026-10-04 実装窓 dev-loop 開始(#84 完了 `5d5b32b`・README 行 `35ad1fc` の後)。旧: ⏸ 保留 — #84(メイジハンドの到達)の完了待ち
+- **基準 HEAD**: **`35ad1fc`**(項目1 の実測の基準 = §12-0)。起草時の値は `06ee666`(#82 完了)= 本文 §2 の行番号はこちらで測ったもの。訂正は §12-0 の (1)
 - **会議**: `dev-meetings/2026-10-03_tower-mother-quest.md` 第 2 段の開発計画書の「チケット B(③)」(ユーザー承認 2026-10-03)
 - **前のチケット**: #82 `実装依頼書/2026-10-03_tower-mother-a.md`(§12 の崩れ K1〜K27 を読んでから着手すること)
 - **触るファイル**: `index.html` / `tavern.html` / `js/npc-crowd.js` / `tools/verify_tower_mother.js`(#82 の受入の言い直し)/ 既存 golden の言い直し / `tools/verify_tower_mother_b.js`(新規)
@@ -365,4 +365,138 @@ let towerMother = null;   // { phase, tx, ty, x, y, alive:true, def:{displaySize
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+(実装窓が埋める。§12-0 着手前 / §12-1 本番 / §12-2 受入 / §12-3 母集団 / §12-4 総括)
+
+### 12-0. 項目1 — 着手前の実測(基準 35ad1fc)
+
+- 作業ツリー clean・本番(`index.html` / `tavern.html` / `js/*` / `audio.js`)は 1 バイトも触っていない。`45319e4..35ad1fc` の差は `実装依頼書/` の 2 本だけ(`git diff --name-status`)で、`index.html` / `tavern.html` / `js` / `audio.js` / `tools` の blob / tree OID は `45319e4` と `35ad1fc` で 5/5 同一。
+- 作業物は scratchpad `…/32f9ad8a-5bb9-47de-a7bd-ed50fd3a2b22/scratchpad/item1/`(`walk_n1.js` / `reunion_seat.js` / `anchors.py` / `run_named.ps1` / `named/` / `from84/post84.tsv`)。測定ポートは 10605〜10609(受入用の 10555〜 は使っていない)。
+
+#### (1) 行番号の訂正表(HEAD `35ad1fc` で `grep -n`)
+
+`06ee666 → 35ad1fc` の配信物の差は #84 の 2 本だけ: `index.html` 11 行(hunk `@@ -13883` / `-22107` / `-25149 +25149,7` / `-25179`)= **25,149 行までは不動・25,157 行以降は −1** / `tavern.html` 15 行(`@@ -2325 +2325,8` / `-9199 +9201,17`)= **2,325 行以降 +2・9,210 行以降 +13**。`js/` と `audio.js` は不変。中身は §2 の記述と同一(下の (2) の崩れは行番号以外)。
+
+| 対象 | §2 の値 | `35ad1fc` |
+|---|---|---|
+| `updateEnemyAnim()` / 行 0〜4 の分岐 | `:13124` / `:13144-13160` | **`:13125` / `:13145-13161`**(`06ee666` でも同じ = §2 の 1 行ずれ)|
+| `.sce1Captive` の CSS / `body.zoomed .sce1Captive` | `:1519-1528` / `:2978` | 同じ(状態クラス `.bound` `:1533` / `.hanging` `:1547` が背景画像を付ける。基底には `background-image` が無い)|
+| `#nodeLayer` / `initSce1CaptiveForNode()` / 注記 | `:11634` / `:26630` / `:26614-26623` | `:3258`(DOM)・`:11634`(const)/ **`:26629`** / `:26613-26622` |
+| `renderWorld()` / 捕虜の位置ブロック | `:16586` / `:16885-16894` | `:16586` / **`:16886-16894`** |
+| ノード遷移の撤去点 `resetNodeState()` / `sce1CaptiveEl = null` | — | `:36306-36312` / `:36287`(母の DOM 参照もここで落とす必要がある)|
+| `SPEECH_LINES` / `SPEECH_MS` / `speechKind` / `sayLine` | `:12660` / — / — / `:12831` | `:12660` / `:12752` / `:12790` / `:12831`。`window.__speech.log` = `:12973` |
+| `moveEnemies()` 末尾の `checkDungeonClear()` | `:19101` | `:19101`(`moveEnemies` は `:18883`・ナレ/ダイアログ中の早期 return は `:18886`)|
+| `checkDungeonClear()` / 判定式 / `dungeonCleared = true` | `:19899` / `:19917` / `:19918` | 同じ |
+| `isQuestClearSettled()` | `:19948` | 同じ |
+| heroAI / ② の `RUN && heroForcedGoal` / `nodeGateReached = true` | `:19623` / `:19771-19788` / `:19783` | 同じ |
+| `heroSlideOneTileExplore` / 探索ターン(仲間→敵) | — | `:19578` / `:19610-19611`(1 マスごとに `exploreAllyTurn` + `exploreEnemyTurn`)|
+| `heroForcedGoal` / `nodeChoiceCooldownUntil` | `:36793` / — | **`:36792`** / `:36796` |
+| `graphBossDefeated()` / `snapToWalkable()` | `:36901` / `:36957` | **`:36900` / `:36956`** |
+| `exitsWithReturn()` / `chooseExit()` / autoplay の `showCharChoice` | `:37149` / `:37186` / `:37200-37204` | **`:37148` / `:37185` / `:37199-37203`**(`showCharChoice` の即決は `:14616-14619`)|
+| `showExitArrows()`(非 autoplay・`dialogPaused = true`)| — | `:37808` / `:37812` |
+| `enterNode()` / 冷却を 0 に戻す / 到着の冷却 | — | `:38100` / `:38111` / `:38146` |
+| `tickNodeChoice()` / ① / `if (heroForcedGoal) return;` / ② | `:38282` / `:38290` / `:38306` / `:38318` | **`:38281` / `:38289` / `:38305` / `:38317`**。登録 `:38346` |
+| `buildTowerMotherRun()` / n1 の `start` / n1 の `exits: []` | — / `:39768` / `:39780` | `:39749` / `:39768` / **`:39779`** |
+| n1 のマスク `n1big` | `:6393-6430` | 同じ(`blocked` は `:6414-6431`)|
+| 寄り道 `pickSpot` の `snapToWalkable` | `:40047` | **`:40046`** |
+| `showResult()` / `clearGold` / `lastResult` | `:40133` / `:40158-40160` / `:40285` | **`:40132`** / `:40158-40160` / **`:40284`** |
+| 撤退クリック / その条件 | `:40308-40315` / `:40313` | `:40309-40315` / **`:40311`**(`if (gameOver \|\| dungeonCleared) return;`)|
+| `updateRetreatBtnState()` / 条件 | `:40371-40378` / `:40373` | **`:40370-40378` / `:40372-40374`** |
+| 制覇の監視 | `:40456-40460` | **`:40455-40458`** |
+| `fleeEnemy` / `window.__towerMotherTV` | — | `:17838` / `:17888-17894`(`window.fleeEnemy = fleeEnemy;` `:17885` は verify_tower_mother の変異アンカー)|
+| `tavern.html` `consumeResult()` / `if (r && r.cleared && r.scenarioId)` | `:5857` | **`:5859`** / `:5901`。`DFSlots.snapshot()` が直後 `:5926` |
+| `showReturnBanner()`(5.5 秒で消える)| — | `:5929` / `:5962-5963` |
+| `initTavernMap()`(⚠ NPC はこの中)/ `__TAVERN_TV` / `initNpcCrowd()` | — / — / `:10993` | `:10476` / `:10947` / **`:11006`**。`CROWD.TAVERN.forEach` `:11027`・`npcTapped` `:11094`・`npcBubbleShow` `:11174`(`BUBBLE_MS = 4000` `:11153`)|
+| `js/npc-crowd.js` `TAVERN` / `validate()` / `NPC_CROWD` | `:37-63` / `:125` | **`:36-62`** / `:125` / `:157-161` |
+| `js/tavern-map.js` `MASK` / `TABLES` | `:54-65` / `:139-143` | `:54-65` / `:139-143` |
+| `js/save-slots.js` `LIVE_PREFIX` | `:45` | 同じ |
+| `scripts/hooks/check_changelog.py` `GAME_LOGIC` | `:24` | 同じ |
+| `tools/verify_tower_mother.js` (3d) の待ち | `:678-692` | `:679-692`(判定 `:745`)|
+
+#### (2) §2 の主張の実測(✓ = 本番どおり / K = 崩れ)
+
+- ✓ §2-1 ① 老婆 `assets/villager_oldwoman_walk.png` は 576x384・中身は**行 3 だけ**(行 0〜2 の 18 コマは alpha の bbox なし・行 3 の 6 コマは bbox の左端 31〜36・上端 31〜33・右端 63〜65・下端 91)。息子 `assets/town_mason_walk.png` も同じ形(行 3 だけ)。PIL(`py`)で実測。
+- ✓ §2-1 ② n1 のマスクで絵ローカル (8,3)(8,4)(8,5)(8,6) は `isTileWall` 真・(8,7) は偽(本番の `isTileWall` をブラウザで 9 走行)。⇒ 母は (8,7) = global (22,12) から A* を使える。(8,7) → 追い払い直後の主人公 (28,11) まで A* 7 マス・(8,7) → n1 の `start` (16,13) まで 7 マス。
+- ✓ §2-1 の前例 `.sce1Captive`: 96px・`576px 384px`・`0 -288px`・`pointer-events:none`・`z-index:3`。⚠ 基底は背景画像を持たず状態クラスが付ける。⚠ `driver_graph_sce1` / `driver_graph_reentry` / `driver_sce1_events` が `.sce1Captive` を**数える**(`querySelectorAll('.sce1Captive')`)⇒ 母に同じ class を付けず、規則を写した別 class(例 `.towerMother`)にすること。
+- ✓ §2-2 クリアまでの流れ・呼び口 `moveEnemies` 末尾 1 か所・`dungeonCleared = true` の代入は全文で 1 か所(`:19918`)。
+- ✓ §2-3 `exitsWithReturn` は n1(`exits: []`)に親 n0 への「引き返す」を足す(`RUN.parent.n1 = "n0"`・`nodeEnteredVia = "right"` を実測)。autoplay の `showCharChoice` は候補 0 を即返す。非 autoplay は `showExitArrows` が `dialogPaused = true` を立てて**ゲーム時間ごと止まる**(→ K4 で実際に踏んだ)。
+- ✓ §2-4 撤退は 2 か所(`:40311` / `:40372-40374`)。ミニバーの撤退チップ(`:16016-16020`)と委譲クリック(`:40432-40436`)は `retreatBtn.disabled` に従うので、2 か所を封じれば足りる。
+- ✓ §2-6 `heroForcedGoal` → heroAI ② → 到達で `nodeGateReached = true`。① は `nodeGateReached && nodePendingExit` のときだけ(`nodePendingExit` を立てなければ遷移しない = 9 走行すべて `currentNodeId` は n1 のまま)。`snapToWalkable(MAPDEF.start)` = (16,13)(start は壁でない = そのまま返る)。`MAPDEF.start` と `RUN.byId.n1.mapDef.start` は同じ (16,13)。
+- ✓ §2-6 絵ローカル → global = `+ (rect[1], rect[0]) = + (14, 5)`(n1 の rect `[5,14,21,39]`)。
+- ✓ §2-8 `sayLine(key, speaker)` は `{x, y, alive, def.displaySize}` を持つ物を話し手にできる(`speechAnchor` / `speechAlive`)。→ ただし K5。
+- ✓ §2-9 `consumeResult()` は `initNpcCrowd()` と同じ `<script>`(`:3447` 起点)の中で先に走る即実行の IIFE。印の直後に `DFSlots.snapshot()` があるので `dragonfighters.towerMotherHome` は記録スロットへ載る。`wipeAdventureRecord` も接頭辞の総なめ(新しい冒険で消える)。
+- ✓ §2-9 卓 t2 の円卓は `T` の (4-5, 6-7)・札 (4,5)・入口 (4,8)。客(#54 の patronA-D)は (3,3)(4,3)(9,5)(10,5) = t1 と t3 だけ。絵(`assets/tavern_map.jpg` を切り出して目視)にも t2 に人物は描かれていない。→ ただし K7。
+- ✓ §2-11 `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` ⇒ changelog は鳴る。
+- ✓ `index.html` は `?tower=0` を読まない(`:4353` の注記)= §7 の「`?tower=0` では B も起きない」は酒場とワールドマップの側だけで成り立つ。
+
+#### (3) 崩れ(K1〜K12)
+
+- **K1** 行番号は上表のとおり(`index.html` は 25,157 行以降 −1、§2 自身の 1 行ずれが 3 件、`tavern.html` +2 / +13、`js/npc-crowd.js` の `TAVERN` は `:36-62`)。中身は同一 ⇒ 仕様への影響なし。
+- **K2 ⭐⭐⭐ 主人公が階段の口まで歩くのに 45.1 秒かかる ⇒ §2-5 の上限 40 秒では素で必ず fail-open に倒れる。** 測定台(`walk_n1.js`・追い払いは verify_tower_mother の手順の写し・制覇の代わりに `checkDungeonClear` を記録係へ差し替え)で、非 autoplay(`?diag=1` = 実プレイの速さ)・追い払い直後の主人公 (28,11) → `start` (16,13) = A* 14 マス: **8/8 走行で 45,112〜45,180 ms**(+ 1 走行は K4 で停止)。内訳は探索ターン(1 マスごとの仲間/敵の手番)25.9 秒・後衛待ち 7.0 秒・語り 3.8 秒 = 1 マス ≈ 3.2 秒。⚠ autoplay でも縮まない: `?autoplay=20` で 14 マス 39.7 秒 / `?autoplay=1` で 7 マス 21.7 秒(slide と手番の間隔が実時間)。⚠ 後衛待ち 7 秒は測定装置の副作用(仲間の手番を空にしたので戦闘中に仲間が動かず 12 マス離れていた)= 実戦では短いが、上限は母の emerge / approach(7 マス)/ talk(2 件 × 2.26 秒)の上に乗る。⇒ **2a への指示**: 上限は「起動から 40 秒」をやめ、**follow を始めてからの時間**で数え、**90 秒以上**(目安 = 経路の長さ × 4 秒 + 30 秒)にする。§2-5 は「項目1 の実測で決めてよい」と委ねているので実装窓の判断で決めてよい。受入 (1e)「上限による done ではない」は素で緑になる値にすること。
+- **K3 ⭐⭐ ゲートは戦闘の後始末の最中に初めて当たる。** 条件(敵が全部 `!alive` かつ `graphBossDefeated()`)が初めて真になる `checkDungeonClear` の呼び出しは、11/11 走行で `encounterActive && encounterRunning` がまだ真(終戦の 29〜67 ms 前・autoplay では 146〜452 ms 前)。今の本番は `dungeonCleared` がこの瞬間に立つ。⇒ **2a**: `towerMotherHolds()` のラッチはここで立ってよいが、emerge(揺れ・音・土埃・語り)は tick の側で **`!encounterActive && !encounterRunning` を待ってから**始める(戦闘の終わりの語り・吹き出しの剪定 `pruneSpeechQueue` `:22283` と重ねない)。
+- **K4 ⭐⭐ ゲーム時間が止まっている間も実時間は進む。** 9 走行のうち 1 走行で、歩き出す直前に 400ms tick が ② へ進み(測定台は出口の冷却を `enterNode` の前に遠い未来へ置いたが、`enterNode` が `:38111` で 0 に戻し `:38146` で到着の冷却に置き換える = 装置が効いていなかった)、**非 autoplay の `showExitArrows` が `dialogPaused = true` を立てて 90 秒間 主人公が 1 マスも動かなかった**(= 罠 1 の手動版を実際に踏んだ)。ナレ・ダイアログ・矢印の間は `moveEnemies` が `:18886` で早期 return する = heroAI も `checkDungeonClear` も止まる。⇒ **2a**: 上限を `Date.now() - t0` の実時間で数えると、プレイヤーが判定パネルや語りを読んでいる間に上限が満ちて fail-open する。**止まっていない時間だけ**数える(`moveEnemies` の中で加算する / `dialogPaused` / `narrationHold` / `narrationPlaying` の間は数えない)。⇒ **受入ドライバへ**: 出口の冷却を装置にするなら `enterNode` の**後**に置くこと。
+- **K5 ⚠ 母の吹き出しはそのままだと「ボスの台詞」の血赤になる。** `speechKind(u)` は `classKey` を持たない話し手を `"enemy"` と見なし、`_renderBubble` が `.speechBubble.enemySpeech`(`:2632` 「ボスの台詞: 血赤」)を付ける。⇒ 2a で母の状態オブジェクトに `classKey: null`(`!== undefined` = `"ally"` 扱い・頭上 −24)を持たせるか、血赤のままにするかを決める(見た目は §9)。⚠ ほかに 2 点: `SPEECH_LINES` の値は**配列**(`resolveSpeechLines` は `Array.isArray` で弾く = §4-5 の文字列のままだと 1 件も出ない)/ §2-8「優先度 2 は押し出されない」は厳密でない(キューが 3 件とも優先度 2 なら最古が押し出される `:12838-12844`・6 秒で賞味期限 `SPEECH_STALE_MS`)。
+- **K6 ⚠ 「主人公の 2 歩遅れ」は仲間の電車と同じタイルを取り合う。** `exploreAllyTurn` は仲間 1 人目を主人公の旧タイルへ、2 人目を 1 人目の旧タイルへ…と辿らせる(`:19114-19117` の注記)⇒ 2 歩遅れ = 2 人目の仲間の居るタイル。到着時の仲間のチェビシェフ距離は [3,4,5](後衛待ちあり)/ [2,3,3](autoplay=1)。⇒ 2a: done の「母が主人公から 2 以内」は母が足跡を辿る限り満たせるので仕様は整合している。重なりは見た目の問題(`resolveUnitOverlaps` は母を知らない)= §9 で確かめる。最後尾の仲間の後ろに付けるなら done の判定を「足跡の位置に着いた」へ言い直すこと(距離を緩めて済ませない)。
+- **K7 ⚠ t2 の席札は 2/3 の盤面で出る。** `drawBoard` は 3 卓から 2 卓をランダムに選ぶ(`tavern.html:10713-10723`)= §2-9「t2 は空いている」は客の話で、依頼の札は出る。下の (5) のとおり初期案 (4,7)/(5,7) は札があってもなくても `ok`、上の行 (4,6)/(5,6) は札がある盤面で I5 に落ちる。⚠ さらに NPC は `initTavernMap()` の中にある ⇒ `?tavernmap=0` と `?npc=0` では母子も生えない(受入 (3a)(3b)(4b) は既定のスイッチで測る)。
+- **K8 ⚠ done から制覇までの隙間にも ② が入る。** done で `heroForcedGoal = null` に戻すと、次の `checkDungeonClear`(`moveEnemies` の末尾・30ms 周期)より先に 400ms tick が `:38305` を抜けて ② に進みうる。`moveEnemies` がナレで止まっていれば隙間は長い。⇒ 2a: `towerMotherActive()` を「起動済み かつ `!dungeonCleared`」にする(done の後も `dungeonCleared` が立つまで真)か、done と同じ処理の中で制覇まで進める。⚠ 主人公が着いた後は `nodeGateReached = true` のまま残る(`nodePendingExit` が null なので ① は走らない = 害なし)。
+- **K9 ⚠⚠ `verify_tower_mother` は非 autoplay(`?diag=1`)で、追い払いの後に主人公は (28,11) に居る。** ⇒ 2a の後、随伴の分(K2 の 45 秒 + emerge/approach/talk)が (3d) の待ち(12 + 15 秒)を超える = 素で (3d) が赤。`--negative` も (3d) を担当に持たない 7 本(`lethalonly` / `sidefrontier` / `inmain` / `sixslots` / `nokinds` / `fleeall`・`viadefeat` は MAYBE)で想定外の赤 = exit 1。⇒ 依頼書 §8 のとおり (3d) を「随伴の `phase === "done"` を見てから `lastResult`」へ言い直す(⛔ 待ち時間だけ伸ばさない)。
+- **K10 ⚠ 変異アンカーが変更区域に 6 本ある**(`anchors.py`・`tools/*.js` 全文の `from:` を本番 3 ファイルで突き合わせた):`verify_npc_crowd` が `js/npc-crowd.js` の porter `:55` / server `:59`(2 本)/ strollB `:96` / strollC `:98` / `global.NPC_CROWD = {` `:157`、`verify_recruit_talk` が patronA `:40` と `tavern.html:5899`(`DFRecruits.clear()`)、`verify_quest_draw` が `tavern.html:5865`(`questBoard` の削除)、`verify_tower_mother` が `index.html:17885`(`window.fleeEnemy = fleeEnemy;`)。どれも「配信ファイル合算でちょうど 1 件」を要求する ⇒ 2a/2b はこれらの行を**書き換えない・複製しない**(`REUNION` の行に既存の行の文字列を写さない / `NPC_CROWD` の書き出しは `TAVERN: TAVERN, TOWN: TOWN,` の行へ足す / `__towerMotherTV` のシームは `:17888` 以降へ足す)。`checkDungeonClear` / `tickNodeChoice` / 撤退 2 か所 / `renderWorld` / `SPEECH_LINES` / `initNpcCrowd` / `npcBubbleShow` に掛かるアンカーは 0。
+- **K11** `driver_speech_engine` (0) は判定行の詳細に `lineKeys=<SPEECH_LINES のキー数>` を出す ⇒ 台詞 2 キーを足すと**色は変わらず詳細の数字だけ +2**(項目4 の指紋の突き合わせで「差分」に見えるので先に記録)。`driver_speech_v2` (A) は `ENEMY_TYPES` の全種に鳴き声を要求する = 母を `ENEMY_TYPES` に足さない限り無関係。
+- **K12** 名指しの `driver_encounter_mopup` / `verify_run_chronicle` / `driver_graph_p6` は塔の母を 1 度も走らない(`tower` の語 0 件)。`tower-mother` を名指す本は `verify_tower_mother` / `verify_quest_walk` / `verify_dragon_fold` / `verify_swamp_novice` / `driver_mapeditor_painting` の 5 本で、後ろ 4 本が読むのは地図・テーマ・湧きの種類表・伝承 = B が触らない所。
+
+#### (4) 測定台の結果(本番の作業ツリー・新しい素材なし)
+
+**主人公の歩行時間**(`walk_n1.js`・port 10605/10606/10608/10609)
+
+| 腕 | 走行 | 出発 → `start` | A* | 着くまで | 内訳(50ms 標本) |
+|---|---|---|---|---|---|
+| 非 autoplay `?diag=1` | 8 | (28,11) → (16,13) | 14 | **45,112〜45,180 ms**(8/8 到着)| 探索ターン 518〜519・後衛待ち 140・語り 76〜77・ダイアログ 0 |
+| 非 autoplay(K4 の 1 走行) | 1 | (28,11) → (16,13) | 14 | **90 秒で到着せず**(打ち切り)| ダイアログ 1,501(= 出口の矢印)|
+| `?autoplay=1` | 1 | (23,13) → (16,13) | 7 | 21,744 ms | 探索ターン 241 |
+| `?autoplay=20` | 1 | (28,11) → (16,13) | 14 | 39,720 ms | 探索ターン 488・後衛待ち 130 |
+
+**REUNION の席**(`reunion_seat.js`・port 10607・本番の `NPC_CROWD.validate(list, TAVERN_MAP, 実 DOM の札)` + 同じ式で置いた実 DOM の矩形 + 札の中心の `elementFromPoint`)。盤面 3 種(t1+t2 / t3+t2 / t1+t3)x 画面 2 種(1440x900 = zoom 0.825 / 390x844 = zoom 0.674)= 6 ページ。素の `TAVERN` は 6/6 で `ok`・`.npcUnit` 8/8。
+
+| 案 | 札あり(t2 に札の盤面 4 ページ)| 札なし(2 ページ)| 他の NPC・名札との重なり | 判定 |
+|---|---|---|---|---|
+| **A = 初期案** 息子 (4,7) dx −14 dy 6 / 母 (5,7) dx 14 dy 6 | **ok 4/4** | ok 2/2 | 0 | **採用可**。ステージ px の矩形 = 息子 l370 t637 r466 b733 / 母 l494 t637 r590 b733(t2 の札の下端 553 から 84px 下)|
+| B (4,6)/(5,6) dy 6 | I5 で落ちる(desktop は 2 人とも・compact は息子だけ)| ok | 0 | 不可 |
+| C (4,6)/(5,6) dy −6 | I5 で落ちる | ok | 0 | 不可 |
+
+⚠ compact の 3 ページは全案(と素)で `tavernDoor_shop` の札の中心が画面外(`elementFromPoint` が null)= REUNION と無関係の既存の姿。
+
+#### (5) 名指し golden の着手前の色
+
+本番の作業ツリー・直列・既定ポート(`run_named.ps1`・PowerShell・ログ = `item1/named/`)。**22 腕すべて exit 0・揺れなし**。
+
+| 本 | 素 r1 | 素 r2 | `--negative` |
+|---|---|---|---|
+| `verify_tower_mother` | exit 0・19/19(76 秒)| exit 0・19/19(68 秒)| exit 0(663 秒・9 本すべて担当が赤・担当外 0。`viadefeat` の (3d) は今回緑)|
+| `verify_npc_crowd` | exit 0・33/33・PENDING 0 | exit 0・33/33 | exit 0・58/58(239 秒)|
+| `verify_recruit_talk` | exit 0・25/25 | exit 0・25/25 | exit 0(612 秒・全変異 OK)|
+| `verify_quest_draw` | exit 0・18/18 | exit 0・18/18 | exit 0(349 秒・10 本すべて担当が赤)|
+| `verify_tavern_map` | exit 0・47/47 | exit 0・47/47 | exit 0・71/71(44 秒)|
+| `driver_encounter_mopup` | exit 0・36/36(328 秒・休憩 5 回)| exit 0・36/36(休憩 6 回)| (`--negative` なし)|
+| `verify_run_chronicle` | exit 0・73/73(257 秒)| exit 0・73/73 | exit 0(1,455 秒・8 本すべて担当が赤・空振り 0)|
+| `driver_graph_p6` | exit 0・250/250 | exit 0・250/250 | (`--negative` なし)|
+
+⇒ post84 の同じ腕(`45319e4`)とも全部同じ色。
+
+#### (6) 母集団の着手前の色(流用)
+
+- `45319e4..35ad1fc` で `index.html` / `tavern.html` / `js` / `audio.js` / `tools` の OID が 5/5 同一 ⇒ **#84 の `post84.tsv`(HEAD `45319e4` で走査・204 腕)をそのまま流用できる(実走 0)**。凍結コピー = scratchpad `item1/from84/post84.tsv`。204 腕の終了コード = 0: 180 / 1: 17 / 3: 7(非緑 24 = #84 §10-3 の「非緑 21 + 揺れ 3」と同じ顔ぶれ)。
+- #83 が触る `js/npc-crowd.js` を読む本: 直接 `NPC_CROWD` を読む `verify_npc_crowd`(素 / `--negative`)・`verify_recruit_talk`(素 / `--negative`)/ `.npcUnit` を測る `verify_enemy_name_label`(素 / `--negative`)・`verify_hold_person`(素 / `--negative`)・`verify_party_promises`(素)/ `tavern.html` か `town.html` を開く本(npc-crowd.js を踏む)22 本 = **全部 post84 に在る**。post84 に無いのは `auto_debug_run`(走らせない)と `probe_magehand_reach`(測定台)だけ。
+- ⚠ 足りない腕 = **`verify_party_promises --negative`**(`.npcUnit` を読み `--negative` を持つのに post84 に無い)。着手前の色を 1 回実走して控えた = **exit 0**(550 秒・「9 本すべて担当ラベルが赤くなりました (空振り 0)」・ログ `item1/named/23_verify_party_promises_neg.log`)。項目4 の母集団は post84 の 204 腕 + この 1 腕 = 205 腕を基準にする。他に `--negative` を持つのに post84 に腕が無い本(`driver_action_priority` / `driver_bgm_title` / `driver_bgm_town` / `driver_party_view_reopen` / `verify_ability_scores` / `verify_darkvision` / `verify_mercenary_roster` / `verify_pen_narration` / `verify_pen_sample` / `verify_player_sheet` / `verify_spell_off`)は、変異アンカーが #83 の変更区域に 0(K10)・npc-crowd.js を読まない ⇒ 項目4 で足すかは変更後の差分を見て決める。
+
+#### (7) 予告表 — 2a / 2b で色が動く見込みの既存 golden
+
+| 本:行 | 前提にしていること | 2a/2b の後 |
+|---|---|---|
+| `verify_tower_mother.js:679-692` (3d) 素 | 追い払いの後 12 + 15 秒以内に `lastResult` | **赤**(K9)→ 随伴の done を見てから待つ形へ言い直す |
+| `verify_tower_mother --negative` | 各変異の腕で (3d) は緑 | **exit 1**(7 本で (3d) が想定外の赤)→ 言い直しで戻る |
+| `verify_tower_mother.js` の変異アンカー `window.fleeEnemy = fleeEnemy;` | `index.html` にちょうど 1 件 | シームを足しても行を触らなければ緑(K10)|
+| `verify_npc_crowd` (0b-dom) | `.npcUnit` の数 = `TAVERN.length` | 素の保存(印なし)では緑のまま。`TAVERN.concat(REUNION)` を印ありのときだけにすれば動かない |
+| `verify_npc_crowd` の変異アンカー 6 本(K10)| `js/npc-crowd.js` に各 1 件 | `REUNION` を別配列で足し既存行を写さなければ緑 |
+| `verify_recruit_talk` / `verify_quest_draw` のアンカー(`tavern.html:5865` / `:5899` / npc-crowd `:40`)| 各 1 件 | `consumeResult` へ印の 1 行を `:5901` の塊の中に足すだけなら緑 |
+| `verify_tavern_map` / `verify_quest_draw` / `verify_recruit_talk` / `verify_run_chronicle` / `driver_encounter_mopup` / `driver_graph_p6` | 印の無い保存・塔の母を走らない | 緑のまま(構造: 母は塔の母のボスノード、母子は印ありの酒場にしか出ない)|
+| `driver_speech_engine` (0) | 詳細 `lineKeys=N` | 色は不変・詳細 +2(K11)|
+| `driver_graph_sce1` / `driver_graph_reentry` / `driver_sce1_events` | `.sce1Captive` の数 | 母に `.sce1Captive` を付けなければ不変(塔の母を走らないので付けても実害は無いが、数える本の前提を汚さない)|
