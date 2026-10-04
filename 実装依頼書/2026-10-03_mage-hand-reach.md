@@ -330,3 +330,67 @@
 - **K11** `#choiceDialog` は最初のダイアログまで DOM に無い(`getElementById` が null)⇒ 新しい受入で「開いたまま」を測るときは null を偽として扱うこと。
 - **D1** 注記 3 行の書き換え(上表)。
 - **D2** 変異キー `combatfar` → `combat6`(意味が変わったので名前も変えた。母集団の TSV は腕 = 本 + `--negative` 単位なので影響なし)。
+
+### 10-2. 新規受入 + 測定台(項目3・2026-10-04・基準 HEAD `c7e60d1`)
+
+- 本番(`index.html` / `tavern.html` / `audio.js` / `js/*`)は 1 バイトも触っていない。新規は `tools/verify_mage_hand_reach.js` だけ(LF・`.gitattributes` の `tools/*.js` 既定)。作業物は scratchpad `…/scratchpad/item3/`。
+
+#### (1) `tools/verify_mage_hand_reach.js`(port **10548** 素 / 変異 **10549〜10554**)
+
+| assert | 測り方 |
+|---|---|
+| (0a) [装置] | `sessionStorage dragonfighters.questFlags = {s2_beast_intel:true}`(酒場で噂に成功した後と同じ)で森 n7 に獣つきの檻がちょうど 1 つ・(55,8)・獣が同じタイル / 対照: `{s2_beast_intel:false}` で獣つきの檻 0 |
+| (0b) [装置] | 魔法使いの仲間が居る(実走では自然に 1 人)・`isSpellKnown` 真・`mageHandCaster()` がその仲間・主人公は魔法使いでない・`__autoplay = 0`・静止 |
+| (0c) [装置] | 全 5 ページ(index 3 + tavern 2)起動・pageerror 0 |
+| (1a) | 覚えた魔法使いの引き出し: `#pmDrawerSkillList` に `#pmDrawerMageHand.pmDrawerInnateRow` が 1 つ・技 / 呪文の class なし・`onclick` なし・押しても `selection.partySkills`・見出し「スキル (n/m)」・± 欄の文字列が不変 |
+| (1b) | 覚えていない魔法使い → 0 行 / 覚えている僧侶・エルフ・戦士 → 0 行(対照: 覚えた魔法使い 1 行) |
+| (1c) | 魔法使い・僧侶・エルフで `.skillItem` / `.spellCountItem` の件数と並び・見出しが覚える前(localStorage なし)と後(`knownSpells = {mage:["mage-hand"]}` を読み込み前に焼く)で同じ |
+| (2a) | 戦闘中の口 `tryMageHandInCombat`(`encounterActive` を同期区間だけ立てる): 12 < d ≤ 13 + 視線あり(実測 (58,20) 12.37)で聞かれない・鍵も立たない → 10.5〜11.5 + 視線あり((50,18) 11.18)で聞かれる。出ない側を先に測る |
+| (2b) | 戦闘前の口 `tryMageHandCalm`(`gameStarted` を同期区間だけ立てる = 仲間は 1 tick も動かない): 同じ 2 点で 出ない / 出る |
+| (3a) | `__autoplay = 0`・戦闘中の口・檻から 4 マス((51,8)): 0.4 秒で開いた(`#choiceDialog` が在って `.show`)ことを先に assert → 5.5 秒後も `.show`・口が返っていない・`mageHandBusy`・`cage.dialogActive`・`showCharChoice` の第 4 引数なし(argc 3) |
+| (3b) | 戦闘前の口・4 マス: 聞かれる → 「触らない」をクリック → 閉じる・口が返る・檻は閉じたまま・鍵 calm → 同じ口をもう一度呼んでも聞かれない |
+| (3c) | 別ページ・`window.__autoplay = 1`・戦闘中の口・4 マス: `showCharChoice` が 0ms で 0 を返す・`#choiceDialog` は DOM に一度も作られない・口が true・檻が開く・✋ 1 行 |
+
+- 包みは `showCharChoice` を**記録だけ**する(⛔ 引数を変えない。`verify_mage_hand` の `__ccAutoClose` は持たない = 待つかどうかそのものを測る)。開いたダイアログは毎回ドライバが「触らない」を押して閉じる。
+- (3a)(3b)(3c) は檻から 4 マスで測る = 射程の変異が漏れない。射程は (2a)(2b) だけが持つ。
+- 罠E の自己検査は `tools/*.js` の他 162 本すべてを走査(重なり 0)。`handinpool` は `verify_mage_hand` と同じアンカー(`const MAGE_SKILLS_UI = [`)を避け、表の 1 行目(magic-missile)の行に前置する。
+
+#### (2) 結果
+
+| 走らせ方 | 結果 |
+|---|---|
+| 素 ×5(連続) | 5 回とも exit 0・**11/11 PASSED**・各 14.2 秒(揺れなし) |
+| `--negative` ×2(連続) | 2 回とも exit 0「6 本すべて担当ラベルだけが赤くなりました」・各 96 秒 |
+| `--negative --only range6,asklater` | exit 0(2/2) |
+
+#### (3) 担当表(予測 vs 実測)
+
+| 変異 | 注入(アンカー = 原本で 1 件) | 予測 (§5) | 実測の赤 | 注入行の実行 |
+|---|---|---|---|---|
+| handinpool | tavern `MAGE_SKILLS_UI` の magic-missile 行の前に mpCost 1 のメイジハンド | (1c) | (1c) | 2 |
+| autoskip | index `offerMageHand` の `showCharChoice(…, "触らない (Esc)")` に `{autoSkipMs: AUTO_ROLL_MS}` | (3a) | (3a) | 5 |
+| range6 | index `calmRangeTiles: 12, combatRangeTiles: 12 };` の combat をゲッター 6 に | (2a) | (2a) | 4 |
+| calm13 | 同じ行の calm をゲッター 13 に | (2b) | (2b)(⚠ 初回は空振り → K12) | 4 |
+| asklater | index `if (t._handAsked[gate]) continue;` を効かせない | (3b) | (3b) | 1 |
+| showall | tavern `if (classKey === "mage" && isSpellKnownTV("mage", "mage-hand")) {` に「覚えていなくても」 | (1b) | (1b) | 1 |
+
+⇒ 6 本とも予測どおり(K12 の測定点を直した後)。
+
+#### (4) 測定台 N=5(`node tools/probe_magehand_reach.js --runs 5 --max 240 --workers 5 --port 10601`・配信 = `git show HEAD:` = `c7e60d1`・`git show HEAD:index.html` に `calmRangeTiles: 12, combatRangeTiles: 12 };` が 1 件 = 実装後を配っている・出力 scratchpad `item3/mh5_post.json`)
+
+| 走行(主人公 / 先頭) | 結果 / 秒 | 聞かれた(戦闘中 / 外)・時刻・距離 | ラウンドの頭の最小距離 | 魔法使いの死亡 | 着手前 `mh5_pre`(戦闘中 / 外) |
+|---|---|---|---|---|---|
+| 0 戦士 / 戦士 | 敗北 157 | **1** / 0・139.7 秒・5.83・視線あり | 5.0 | なし | 1 / 0(5.75) |
+| 1 ドワーフ / ドワーフ | クリア 124 | **1** / 0・106.4 秒・9.22・視線あり | 5.0 | なし | 0 / 0(視線なし・145.8 秒に死亡) |
+| 2 盗賊 / 戦士 | クリア 124 | **1** / 0・100.0 秒・8.06・視線あり | 4.75 | なし | 0 / 1(クリア直前 133 秒) |
+| 3 僧侶 / 戦士 | 敗北 156 | **1** / 0・124.4 秒・5.16・視線あり | 5.16 | 146.4 秒(聞かれた後) | 0 / 1(クリア直前 161 秒) |
+| 4 エルフ / ドワーフ | クリア 174 | **1** / 0・138.5 秒・8.57・視線あり | 8.57 | 166.4 秒(聞かれた後) | 1 / 0(4.88) |
+
+⇒ **戦闘中に聞かれた 5/5**(着手前 2/5)= §5 §4 の目標どおり。N=10 の追加は不要と判断。5 本とも聞かれた時点は魔法使いの生存中・最初の戦闘から続く野営地の戦闘の中。
+
+#### (5) 崩れ
+
+- **K12** §5 の (2a)(2b)「13 マス → 聞かれない」を d = 13.04((54,21)・項目2 の申し送りの値)で測ると、変異 `calm13`(戦闘前の射程を 13 へ)が **13.04 > 13 で聞かない = 空振り**(初回の `--negative` で exit 1)。⇒ 期待は変えず測定点を **12 < d ≤ 13 の床で 13 に最も近いもの**(実測 (58,20) 12.37)へ移した。森 n7 の檻からの視線ありの床は 12.37 の次が 13.04 = (12.37, 13] は空。
+- **K13** 射程 12 マスでも、実際に聞かれる距離は 5.2〜9.2 マス(測定台 5 本)。柵が視線を遮るので「12 マス以内に入った瞬間」ではなく「柵の内側で視線が通った瞬間」に出る(§2-2「柵の内側へは戦闘中に入る」と同じ)。5 本中 3 本(9.22 / 8.06 / 8.57)は旧 6 マスでは届かない距離 ⇒ 12 への変更が 5/5 に効いている。
+- **K14** 着手前に 2/5 あった「戦闘外の口」(クリア直前・柵の内側 7.0 マス)は実装後 0/5。戦闘中の口が先に聞いて鍵ではなく**檻を開けてしまう**(オートプレイは 1 番目 = 開ける)ため、戦闘外で聞く対象が残らない。実害なし。
+- **K15** `.spellCountItem` の行は `.skillItem` も持つ(引き出しの魔法使いで skills = spells の 4 行)。(1c) は両方の件数と並びを比べているので重複は判定に影響しない。
