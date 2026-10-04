@@ -500,3 +500,94 @@ let towerMother = null;   // { phase, tx, ty, x, y, alive:true, def:{displaySize
 | `verify_tavern_map` / `verify_quest_draw` / `verify_recruit_talk` / `verify_run_chronicle` / `driver_encounter_mopup` / `driver_graph_p6` | 印の無い保存・塔の母を走らない | 緑のまま(構造: 母は塔の母のボスノード、母子は印ありの酒場にしか出ない)|
 | `driver_speech_engine` (0) | 詳細 `lineKeys=N` | 色は不変・詳細 +2(K11)|
 | `driver_graph_sce1` / `driver_graph_reentry` / `driver_sce1_events` | `.sce1Captive` の数 | 母に `.sce1Captive` を付けなければ不変(塔の母を走らないので付けても実害は無いが、数える本の前提を汚さない)|
+
+### 12-1. 項目2a — 塔の中(`index.html`・基準 `56d4578`)
+
+触ったのは `index.html`(+283 / −1)・`tavern.html`(changelog の `<li>` 1 行の追加と最古 1 行の脱落のみ)・`tools/verify_tower_mother.js`((3d) の言い直し)。`tavern.html` の本体・`js/*`・`audio.js` は触っていない。改行は `index.html` / `tavern.html` とも CRLF のまま(bare LF 0・bare CR 0 を `py` で確認)。
+
+#### (1) 実装の要点と実装後の行番号(項目2a の commit)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| CSS `.towerMother` / `.towerMother.faceLeft` | `:1551-1567` | `.sce1Captive` の基底を写した**別 class**(§12-0 の注記どおり `.sce1Captive` は付けない)。背景画像 = `assets/villager_oldwoman_walk.png`・`576px 384px`・`pointer-events:none`・`z-index:3`。⚠ `background-position` は CSS に書かず JS が毎フレーム書く(段の出所を 1 か所 = `TOWER_MOTHER_ROW_Y` にする) |
+| `body.zoomed .towerMother,` | `:3001` | 拡大表示の一覧へ 1 行(軸 = 左上)|
+| `body.zoomed .towerMother.faceLeft` | `:3018-3021` | 拡大中の左向き = `translateX(96px×camz) scale(-camz, camz)`(軸が左上なので幅だけ戻してから反転)。母は敵/味方でない = `composeSpriteTransform` を通らない要素なので、`transform` を上書きする相手が居ない |
+| `SPEECH_LINES` の 2 キー | `:12700-12702` | `"tower.mother.meet"` / `"tower.mother.follow"`(**配列**・K5)|
+| `renderWorld` の位置ブロック | `:16921-16931` | 捕虜の直後。`SX(towerMother.x)` / `SY(towerMother.y)`・歩いている間だけ 6 コマ(110ms)・`faceLeft` の付け外し。DOM が無ければ `towerMotherEnsureEl()` で作り直す |
+| `moveEnemies` 末尾の `tickTowerMother();` | `:19137` | `checkDungeonClear()` の直前。⭐ `moveEnemies` の早期 return(`dialogPaused` / `narrationHold` / `narrationPlaying`)の内側 = **止まっている間は随伴も上限も進まない**(K4)|
+| `checkDungeonClear` のゲート | `:19955` | `if (towerMotherHolds()) return;` を `dungeonCleared = true` の直前に 1 行。判定式 `enemies.every(...) && objectiveDone` は 1 文字も変えていない |
+| 随伴の本体(状態・tick・シーム) | `:26718-26956` | `hideSce1Captive` の直後。下の (2) |
+| `clearNodeArrays` で `towerMotherEl = null` | `:36566` | DOM はノード寿命・状態 `towerMother` は落とさない(捕虜と同じ分け方)|
+| `tickNodeChoice` の入口 | `:38561` | `if (!RUN) return;` の直後に `if (towerMotherActive()) return;`(罠 1)|
+| 撤退クリック | `:40592` | `if (gameOver \|\| dungeonCleared) return;` の次の行に `if (towerMotherActive()) return;`(罠 2)|
+| `updateRetreatBtnState` | `:40655` | `\|\| retreatInProgress` の次の行に `\|\| towerMotherActive();`(罠 2)|
+
+#### (2) 随伴の形
+
+- 状態 `towerMother` = `{ phase, tx, ty, x, y, alive:true, classKey:null, def:{displaySize:96}, facing, path, stepTo, phaseMs, followMs, capMs, goal, trail, forced, doneBy, ... }`。⛔ 敵配列には入れない(`enemies.length` は追い払いの前後で 2 のまま = 下の (4))。
+- `towerMotherHolds()` = 塔の母の RUN(`RUN.scenarioId === "tower-mother"`)・ボスノード・`?towermother=0` でない、のときに**初回だけ**状態を作って `phase:"hidden"` でラッチし、以後は `phase !== "done"` を返す。`towerMotherActive()` = `!!towerMother && !dungeonCleared`(**K8 の決定**: done から制覇までの隙間も真)。
+- `hidden`: `encounterActive` と `encounterRunning` が両方偽になるまで何もしない(**K3 の決定**)。
+- `emerge`: `triggerScreenShake(6, 450)`(⚠ 既存の関数どおり `__autoplay` では揺らさない)+ `sfx("cageOpen")`(既存の重い仕掛けの音)+ 土埃 = 既存の `spawnGroundFx(タンスの 3 マス, "axestorm", 900)`(アックスストームの茶色 = 土埃)+ `updateInfo("ゴトリ、と重い音。扉を塞いでいたタンスが、内側から押し退けられた")`。900ms 待ってから絵ローカル (8,4)→(8,5)→(8,6)→(8,7) を決め打ちで歩く(塞いだタイル = A* を使わない)。同時に主人公を `heroForcedGoal = 今のタイル` で**その場に留める**(D1)。
+- `approach`: 本番の `aStar(母, 主人公)` の最後の 1 マスを除いた経路を 380ms/マスで歩く(⛔ 自前の BFS なし)。経路が取れなければ主人公の足元へ寄せる。
+- `talk`: `sayLine("tower.mother.meet", 母)` → `sayLine("tower.mother.follow", 母)`。キューと表示中に母の吹き出しが無くなるまで(最低 600ms・最大 9 秒)待つ。
+- `follow`: `heroForcedGoal = snapToWalkable(RUN.byId[ボスノード].mapDef.start)`(⛔ 座標の直書きなし = (16,13))。⛔ `nodePendingExit` は立てない。母は主人公の足跡の列 `trail` を **2 歩遅れ**で 1 歩ずつ辿る(経路が取れなければ足跡へ寄せる)。
+- `done`: 主人公が `goal` に居て、母が主人公からチェビシェフ 2 以内 = `doneBy:"arrived"`。または follow の上限 = `doneBy:"cap"`。tick の中の例外も `doneBy:"error"` で done へ倒す(D4)。done で自分が立てた `heroForcedGoal` だけ null に戻し、`nodeGateReached = false`(`nodePendingExit` が null のときだけ)。次の `checkDungeonClear`(同じ `moveEnemies` の直後)で今の流れへ合流する。
+- 絵ローカル → global は `RUN.byId[ボスノード].mapDef.rooms[0].rect` から(`+ (c1, r1)` = `+ (14, 5)`)。⛔ global の数字は書いていない。
+- シーム(`window.__towerMotherTV` に相乗り・`:26947-26956`): `mother()` = `{ on, phase, tx, ty, x, y, facing, walking, latchedAt, emergeAt, talkAt, followAt, followMs, capMs, goal, trailLen, doneAt, doneBy, el }`(起動前は `{ on, phase:null }`)/ `holds()` = 起動済みかつ done でない(⚠ **副作用なし** = 本番の `towerMotherHolds()` のラッチは呼ばない)/ `active()` = `towerMotherActive()`。⛔ `window.fleeEnemy = fleeEnemy;`(`verify_tower_mother` のアンカー)の行は触らず、シームは随伴の本体の末尾で別の文として足した。
+
+#### (3) 上限の値と根拠(K2 / K4 の決定)
+
+- **follow を始めてからの、止まっていない時間だけ**を数える: `tickTowerMother` は `moveEnemies` の早期 return の内側で呼ばれ、1 回の加算 `dt` は 100ms で頭打ち(止まっていた間が明けた最初の 1 回に、止まっていた時間を足さない)。
+- 値 = `max(90 秒, follow 開始時の 主人公 → 階段の口 の A* の長さ × 4 秒 + 30 秒)`。追い払い直後の主人公 (28,12) → (16,13) では A* 14 マス ⇒ 86 秒 ⇒ **90 秒**(実測の `capMs` は 6/6 走行で 90,000)。
+- 実測(測定台 scratchpad `item2a/run_mother.js`・本番のまま・ポート 10600〜10604): follow の所要 = 非 autoplay `?diag=1` で **44,462 / 43,590 / 43,650 / 38,700 ms**(4/4 `doneBy:"arrived"`)・390x844 で 37,890 ms・`?autoplay=1` で 35,460 ms。**最大 44.5 秒 = 上限の 49%**。主人公の 1 マス ≈ 3.2 秒(K2 と一致)。
+
+#### (4) 測定台の結果(6 走行 + 撤退 1 走行)
+
+| 腕 | 走行 | 終戦 → 制覇 | 内訳 | 違反 |
+|---|---|---|---|---|
+| `?diag=1` 1280x800 | 4 | **52.4〜58.2 秒** | hidden ≈ 2.0 秒 / emerge 2.4 秒 / approach 4.9 秒 / talk 4.3 秒 / follow 38.7〜44.5 秒 | 0 |
+| `?diag=1` 390x844 | 1 | 51.6 秒 | 同じ形 | 0 |
+| `?autoplay=1` | 1 | 44.6 秒 | hidden は 100ms 未満 | 0 |
+| `?diag=1&towermother=0` | 1 | **0.1 秒**(#82 の姿 = 即制覇)| `mother().phase === null`・DOM なし | — |
+
+- 違反 = 100ms 標本で「done より前に `dungeonCleared`」「随伴中に撤退ボタンが押せる」「現在ノードが n1 でない」「`#choiceDialog` が出る」の数 = **全走行 0**。随伴中の `enterNode` 呼び出し 0・`chooseExit` 0・`showExitArrows` 0(罠 1 の穴が塞がっている)。
+- 母の DOM: `#towerMother.towerMother` が `#nodeLayer` の中・`display:block`・`background-position: 0px -288px`・`background-size: 576px 384px`。`enemies.length` は 2 のまま。
+- 吹き出し: `tower.mother.meet` → `tower.mother.follow` → `quest.clear` の順で `__speech.log` に載る。母の 2 件の `kind` は **`"ally"`**(血赤の `.enemySpeech` は付かない)。
+- `lastResult` = `{ cleared:true, scenarioId:"tower-mother", reward.gold: 300 }`(#82 と同額)。pageerror 0。
+
+#### (5) K5 / K6 の判断
+
+- **K5**: 母の状態に `classKey: null` を持たせた。`speechKind` は `classKey !== undefined` を味方と見る ⇒ 吹き出しは通常の(味方の)見た目・頭上 −24。CSS は足していない(既存の作法のまま)。
+- **K6**: 仕様どおり **2 歩遅れ**のまま。2 人目の仲間と同じタイルに重なりうるのは見た目(§9 で確かめる)。done の距離(チェビシェフ 2)は緩めていない。⚠ 3 歩遅れにすると、主人公が着いたとき母がチェビシェフ 3 に残りうる(足跡はもう伸びない)ので done の判定の言い直しまで要る ⇒ 採らなかった。
+
+#### (6) 逸脱
+
+- **D1** §4-3 の emerge の間、依頼書に無い「主人公をその場に留める」(`heroForcedGoal = 今のタイル`)を足した。理由 = follow までの間 `heroForcedGoal` が null だと heroAI の ③(未訪問の部屋)で主人公が動き、母の approach の行き先がずれる。到達済みのタイルなので `nodeGateReached` が立つだけで遷移は起きない(`nodePendingExit` を立てない・tickNodeChoice は入口で返る)。
+- **D2** §4-4 の上限を「起動から 40 秒(実時間)」から「follow 開始から・止まっていない時間・`max(90 秒, A*×4 秒+30 秒)`」へ(DEV_QUEUE の K2/K4 決定どおり)。
+- **D3** §4-6 の `towerMotherActive()` を「起動済み かつ `phase !== "done"`」から「起動済み かつ `!dungeonCleared`」へ(DEV_QUEUE の K8 決定どおり)。
+- **D4** tick の例外を done へ倒す try/catch を足した(`verify_tower_mother` の `fieldtheme` / `nothemes` の変異腕では地図が既定へ落ちて母の座標が意味を失う。pageerror で (0c) を赤くしない・制覇を止めない)。
+
+#### (7) 新たな崩れ
+
+- **K13** 終戦(`encounterActive` / `encounterRunning` が落ちた)から emerge まで **約 2.0 秒**(非 autoplay 5/5)。その間 `moveEnemies` は止まっている(戦闘の終わりの語り)= hidden の tick が進まない。仕様どおり(K3)。見た目の「間」は §9 で確かめる。
+- **K14** approach は経路 5 マス(380ms/マス = 1.9 秒)の予定に対し 4.9 秒。止まっている時間を `dt` に数えないので、語り・遅い tick の分だけ歩きが伸びる。上限には効かない(上限は follow だけ)。
+- **K15** `verify_tower_mother` の所要が素で 68〜76 秒 → **121〜122 秒**、`--negative` が 663 秒 → **1,099 秒**(9 腕 × 随伴約 55 秒)。項目4 の母集団走査の時間見積もりに入れること。
+
+#### (8) 既存 golden
+
+`verify_tower_mother` の (3d) を言い直した: 追い払いの後、`__towerMotherTV.mother()` が `done` になるまで待ち(待ちの上限 `MOTHER_WAIT_MS` = 180 秒・**合否ではない**)、その間に `dungeonCleared` が立ったら `clearedBeforeDone = true`。(3d) の合否に「終戦時点で随伴が起動している(phase が null でない)」「`phase === "done"`」「`clearedBeforeDone === false`」を**足した**(既存の条件は 1 つも外していない)。⛔ 待ち時間を伸ばしただけではない = 随伴が 1 度も起動しない(項目3 の `nogate`)・随伴を待たずに制覇する、のどちらも赤になる。`doneBy`(到着 / 上限)は合否にしない(項目3 の受入 (1e) の担当)。`viadefeat` の (3d) は確率の赤(NEG_MAYBE)のまま。
+
+名指し golden(本番の作業ツリー・直列・既定ポート・ログ = scratchpad `item2a/named/`):
+
+| 本 | 着手前(§12-0) | 項目2a の後 |
+|---|---|---|
+| `verify_tower_mother` 素 x2 | exit 0・19/19(68〜76 秒)| **exit 0・19/19 x2**(122 / 121 秒)。(3d) の詳細 = `mother.atEnd:"hidden"` → `phase:"done"`・`doneBy:"arrived"`・`clearedBeforeDone:false` |
+| `verify_tower_mother --negative` | exit 0(663 秒)| **exit 0**(1,099 秒・「9 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行」・`viadefeat` の (3d) は今回も緑)|
+| `driver_encounter_mopup` | exit 0・36/36 | **exit 0・36/36**(307 秒)|
+| `verify_run_chronicle` 素 | exit 0・73/73 | **exit 0・73/73**(181 秒)|
+| `verify_run_chronicle --negative` | exit 0 | **exit 0**(1,619 秒・「8 本すべて担当ラベルが赤くなりました (空振り 0)」)|
+| `driver_graph_p6` | exit 0・250/250 | **exit 0・250/250**(41 秒)|
+| `driver_speech_engine` | (§12-0 では未走・K11 の予告)| **exit 0・17/17**。(0) の詳細 `lineKeys=79`(`SPEECH_LINES` のキーは `56d4578` で 77 → 79 = +2 を静的にも数えた = K11 の予告どおり色は不変)|
+
+- 既存ドライバの変異アンカー(`tools/*.js` の `from:` のうち `index.html` に当たる 169 本)の件数は `56d4578` と作業ツリーで **169/169 同一**(scratchpad `item2a/anchor_diff.py`)= K10 のアンカーを書き換え・複製していない。
+- tavern 側の本(`verify_npc_crowd` / `verify_recruit_talk` / `verify_quest_draw` / `verify_tavern_map`)は 2b の担当(本項目の `tavern.html` の変化は changelog の `<li>` 1 行の入れ替えだけ)。

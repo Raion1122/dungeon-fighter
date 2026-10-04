@@ -49,6 +49,8 @@
  *           ドロップ関数 5 種の呼び出し 0・__diagDead が立たない
  *      (3d) 2 匹とも追い払うと戦闘が終わり、ノードが落ち着き (isNodeSettled / graphBossDefeated)、
  *           帰還の lastResult.cleared === true (scenarioId tower-mother)
+ *           ★[#83] 言い直し: 制覇は塔の母の随伴 (__towerMotherTV.mother().phase) が done になってから。
+ *           随伴が起動していること・done を見たこと・done より前に dungeonCleared が立っていないことも見る
  *      (3e) 他の敵 (丘の道の廃墟の大蜘蛛) は HP 0.4 で checkFleeEnemies に拾われず、HP 0 では普通に撃破される
  *   §4 (4a) tavern.html?tower=0 で scenarios に tower-mother が無い / world.html?tower=0 で pass_n が中継点 (データと DOM)
  *      (4b) (1a)(1c)(4a) の条件を ON/OFF の両方へ当てて反転 (ON = true x3 / OFF = false x3)
@@ -105,6 +107,10 @@ const FALSE_RED = Math.pow(1 - P_TOWER_PER_DRAW, N_1C_ON);
 if (!(FALSE_RED < 1e-4)) { console.error('[vet] ⛔ N_1C_ON=' + N_1C_ON + ' では偽赤の確率 ' + FALSE_RED + ' が 1e-4 以上'); process.exit(3); }
 const ENC_START_WAIT_MS = 90000;   // K14: 入室の語りの待ちで 23 秒前後
 const ENC_END_WAIT_MS = 100000;
+/* ★[#83] 追い払いの後、塔の母の随伴 (小部屋から出る → 主人公の隣 → ひと言 → 階段の口まで付いてくる) が done に
+ *   なるまでの待ちの上限。随伴は follow の上限 (本番 90 秒〜・止まっていない時間だけ) で必ず done へ倒れるので、
+ *   emerge〜talk と止まっている時間の分を足した 180 秒で打ち切る (⛔ これは (3d) の合否ではなく待ちの上限)。 */
+const MOTHER_WAIT_MS = 180000;
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * 配信スナップショット (起動時に 1 回だけ読んで凍結)
@@ -651,7 +657,7 @@ async function runSuite(browser, port, mutKey, label) {
       });
       await sleep(300);
     }
-    const FL = await ip.evaluate(async (START_MS, END_MS) => {
+    const FL = await ip.evaluate(async (START_MS, END_MS, MOTHER_WAIT_MS) => {
       const o = {};
       const S = window.__tmS;
       const W = enemies.map((e, i) => i).filter((i) => enemies[i].def && enemies[i].def.fleeAtHpRatio);
@@ -673,6 +679,23 @@ async function runSuite(browser, port, mutKey, label) {
       o.xp1 = currentTotalXp; o.kills1 = RunChronicle.snapshot().kills;
       o.xpCallsAtEnd = S.xpCalls.slice();
       o.settled = isNodeSettled(); o.bossDefeated = graphBossDefeated();
+      /* ★[#83] 随伴を待つ。⭐ 制覇は「母が階段の口に着いて随伴が done」の後 (依頼書 #83 §4-2)。
+       *   (3d) は done を見たこと + done より前に dungeonCleared が 1 度も立たなかったこと + その後の帰還、で判定する
+       *   (⛔ 待ち時間を伸ばすだけにしない = 随伴が 1 度も起動しない / 随伴を待たずに制覇する、の両方を赤にする)。 */
+      const tv = window.__towerMotherTV;
+      o.motherAtEnd = (tv && tv.mother) ? tv.mother() : null;
+      o.clearedBeforeDone = false;
+      if (tv && tv.mother) {
+        const tm = performance.now();
+        while (performance.now() - tm < MOTHER_WAIT_MS) {
+          const m = tv.mother();
+          if (m.phase === 'done' || !m.phase) break;
+          if (dungeonCleared) o.clearedBeforeDone = true;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        o.motherWaitMs = Math.round(performance.now() - tm);
+      }
+      o.mother = (tv && tv.mother) ? tv.mother() : null;
       /* 帰還 (自然に待ってから。来なければ本番の checkDungeonClear を 1 回だけ蹴る) */
       let lr = null;
       const t2 = performance.now();
@@ -693,7 +716,7 @@ async function runSuite(browser, port, mutKey, label) {
       o.lastResult = lr ? { cleared: lr.cleared, scenarioId: lr.scenarioId } : null;
       o.S = JSON.parse(JSON.stringify(S));
       return o;
-    }, ENC_START_WAIT_MS, ENC_END_WAIT_MS);
+    }, ENC_START_WAIT_MS, ENC_END_WAIT_MS, MOTHER_WAIT_MS);
 
     /* ── §0 ── */
     R.check('(0a)', '[装置] __towerMotherTV.ENEMY_TYPES.wyvern / window.buildTowerMotherRun / window.fleeEnemy / checkFleeEnemies が見える',
@@ -742,10 +765,17 @@ async function runSuite(browser, port, mutKey, label) {
       typeof wxp === 'number' && wxp > 0 && xpIn.length === 2 && xpW.length === 2 && FL.xp1 - N1.xp0 === xpSum
         && FL.kills1 === N1.kills0 && drops === 0 && Object.keys(S.drops || {}).length === 5 && !!S.wrapped && S.wrapped.drop === true && (FL.after || []).every((e) => !e.diag),
       { defXp: wxp, name: wname, xpCalls: FL.xpCallsAtEnd, xpDelta: FL.xp1 - N1.xp0, kills: [N1.kills0, FL.kills1], drops: S.drops, diag: (FL.after || []).map((e) => e.diag), wrapped: S.wrapped });
-    R.check('(3d)', '2 匹とも追い払うと戦闘が終わり、ノードが落ち着き、帰還の lastResult.cleared === true',
+    /* ★[#83] 言い直し (依頼書 #83 §8 既存 golden / §12-0 K9): 追い払い → 塔の母の随伴が done → 制覇 → 帰還。
+     *   ⭐ 随伴が起動している (終戦時点で phase が null でない) / done を見た / done より前に dungeonCleared が立っていない、
+     *     を足した (⛔ 待ちを伸ばしただけにしない)。done の理由 (到着 / 上限) は (3d) の合否にしない = #83 の受入 (1e) の担当。 */
+    const fm = FL.mother || {};
+    R.check('(3d)', '2 匹とも追い払うと戦闘が終わり、ノードが落ち着き、塔の母の随伴が done になってから制覇し、帰還の lastResult.cleared === true',
       FL.started && FL.ended && (FL.after || []).length === 2 && FL.after.every((e) => !e.alive && e.fled) && FL.settled === true && FL.bossDefeated === true
+        && !!FL.motherAtEnd && !!FL.motherAtEnd.phase && fm.phase === 'done' && FL.clearedBeforeDone === false
         && !!FL.lastResult && FL.lastResult.cleared === true && FL.lastResult.scenarioId === TOWER,
-      { ended: FL.ended, encMs: FL.encMs, after: FL.after, settled: FL.settled, bossDefeated: FL.bossDefeated, lastResult: FL.lastResult, manualClear: FL.manualClear, fallback: S.fallback, fleeLog: FL.fleeLog });
+      { ended: FL.ended, encMs: FL.encMs, after: FL.after, settled: FL.settled, bossDefeated: FL.bossDefeated,
+        mother: { atEnd: FL.motherAtEnd && FL.motherAtEnd.phase, phase: fm.phase, doneBy: fm.doneBy, followMs: fm.followMs, capMs: fm.capMs, waitMs: FL.motherWaitMs, clearedBeforeDone: FL.clearedBeforeDone },
+        lastResult: FL.lastResult, manualClear: FL.manualClear, fallback: S.fallback, fleeLog: FL.fleeLog });
     const sp = N0.spider || {};
     R.check('(3e)', '他の敵 (廃墟の大蜘蛛) は HP 0.4 で checkFleeEnemies に拾われず、HP 0 では普通に撃破される',
       sp.idx >= 0 && sp.nonLethalCaught === 0 && sp.afterNonLethal.alive === true && sp.afterNonLethal.fled === false

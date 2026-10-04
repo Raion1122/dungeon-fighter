@@ -1548,6 +1548,23 @@
       background-image: url("assets/servant_post.png");
       animation: sce1CaptiveIdle 1.8s steps(6) infinite;
     }
+    /* ★[#83] 塔の母 — .sce1Captive の基底を写した別 class (⚠ .sce1Captive を付けない =
+     *   driver_graph_sce1 / graph_reentry / sce1_events が querySelectorAll('.sce1Captive') で数える)。
+     * ⚠ 老婆のシートは 3 段目 (右向き) にしか中身が無い (0〜2 段は透明)。背景の位置は JS が
+     *   TOWER_MOTHER_ROW_Y から毎フレーム書く (歩くときだけ 6 コマを回す) = 段の出所は 1 か所。
+     * ⚠ 左向きは faceLeft の scaleX(-1)。body.zoomed では軸が左上なので下の規則で合成する。 */
+    .towerMother {
+      width: 96px; height: 96px;
+      position: absolute;
+      z-index: 3;
+      background-image: url("assets/villager_oldwoman_walk.png");
+      background-size: 576px 384px;   /* 96px セル 6列 × 4行 */
+      background-repeat: no-repeat;
+      image-rendering: pixelated;
+      pointer-events: none;
+      filter: drop-shadow(0 0 6px rgba(0,0,0,0.7));
+    }
+    .towerMother.faceLeft { transform: scaleX(-1); }
     .roomCage {
       width: 192px;
       height: 192px;
@@ -2976,6 +2993,7 @@
     body.zoomed .roomChest,
     body.zoomed .roomCage,
     body.zoomed .sce1Captive,
+    body.zoomed .towerMother,
     body.zoomed .trap,
     body.zoomed .altarGlow,
     body.zoomed .coin,
@@ -2996,6 +3014,10 @@
       /* 左上アンカー (left/top = 世界の左上) の絵。軸を左上に固定して縮める。 */
       transform-origin: 0 0;
       transform: scale(var(--camz, 1));
+    }
+    /* ★[#83] 塔の母の左向き (軸が左上なので、縮めた幅だけ右へ戻してから反転する) */
+    body.zoomed .towerMother.faceLeft {
+      transform: translateX(calc(96px * var(--camz, 1))) scale(calc(-1 * var(--camz, 1)), var(--camz, 1));
     }
     /* 中央アンカー (margin で自分の半分だけ戻している) の絵は、既定の中心 origin のまま
        scale すれば中心が動かない。inline transform を持つものは JS 側 zTf() が合成する。 */
@@ -12675,6 +12697,9 @@
       // ── フェーズ系 (話者=生存パーティ) ──
       "phase.rest":  ["ふう…少し休ませてくれ。", "傷を見せろ、手当てする。", "携行食はまだ残ってるか?", "少しだけだぞ。気を抜くな。"],
       "quest.clear": ["終わったな…帰ろう。", "俺たちの勝ちだ!", "酒場で祝杯だ!", "生きて帰れた。それが一番だ。"],
+      // ── ★[#83] 塔の母 (話し手 = 母本人。⚠ 値は配列 = resolveSpeechLines が Array.isArray で見る) ──
+      "tower.mother.meet":   ["……あの子の差し金かい。余計な世話を焼いて"],
+      "tower.mother.follow": ["でも、助かったよ。さあ、行こうか"],
       // ── ボス系 (話者=ボス本人固定) ──
       "boss.appear": ["よく来た。ここが貴様らの墓場だ。", "定命の者が…身の程を知れ!", "跪け。慈悲はくれてやる。", "面白い。楽しませてみせろ。"],
       "boss.rage":   ["この程度で終わると思うな!", "遊びは終わりだ!", "貴様ら…許さん!", "ならば、本気を出すまで!"],
@@ -16893,6 +16918,17 @@
           sce1CaptiveEl.style.top  = SY(cs.ty * TILE_SIZE + TILE_SIZE / 2 - 48) + "px";
         }
       }
+      // ★[#83] 塔の母 (捕虜と同じくカメラ追従。x/y は世界の左上 = 歩きの補間込み)
+      if (towerMother && towerMother.phase !== "hidden") {
+        if (!towerMotherEl) towerMotherEnsureEl();
+        if (towerMotherEl) {
+          towerMotherEl.style.left = SX(towerMother.x) + "px";
+          towerMotherEl.style.top  = SY(towerMother.y) + "px";
+          const f = towerMother.stepTo ? (Math.floor(Date.now() / 110) % 6) : 0;   // 歩くときだけ 6 コマ
+          towerMotherEl.style.backgroundPosition = (-96 * f) + "px " + TOWER_MOTHER_ROW_Y + "px";
+          towerMotherEl.classList.toggle("faceLeft", towerMother.facing === "left");
+        }
+      }
       /* ★[P3] 出口の矢印 + 羊皮紙 (宝箱 / 檻 / 捕虜 に続く 4 ブロック目。式も同型)。
        * ⚠ 矢印の表示中は dialogPaused=true で moveEnemies が早期 return するため、
        *   **この関数は毎フレームは回らない**。位置は showExitArrows が表示直後に 1 回
@@ -19098,6 +19134,7 @@
       checkPlayerCollision();
       checkCoinPickup();
       checkAutoChestPickup();
+      tickTowerMother();   // ★[#83] 塔の母の随伴。⭐ ここ = 上の早期 return (対話/ナレ) の内側 = 止まっている間は進まない
       checkDungeonClear();
     }
 
@@ -19915,6 +19952,7 @@
                           : RUN            ? graphBossDefeated()
                           :                  (visitedRooms.size >= OBJECTIVE_ROOMS);
       if (enemies.every(e => !e.alive || e.passiveNpc) && objectiveDone) {
+        if (towerMotherHolds()) return;   // ★[#83] 塔の母が階段の口に着くまで制覇を待つ (撤退 ?towermother=0 では常に false)
         dungeonCleared = true;
         // Phase 2-J: シナリオクリア時に全 ally + リーダーの呪文スロットを完全回復
         for (const a of allies) {
@@ -26678,6 +26716,245 @@
       if (sce1CaptiveEl) sce1CaptiveEl.style.display = "none";
       return true;
     }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+     * ★[#83] 塔の母 — 最後のワイバーンが去った後に小部屋から出てきて、階段の口まで付いてくる
+     * ══════════════════════════════════════════════════════════════════════════
+     * ⭐ 敵配列に入れない (勝利判定・標的・押し退け・lint のどれにも触れない = 依頼書 §2-1)。
+     * ⭐ DOM はノード寿命 (#nodeLayer・clearNodeArrays で参照を落とす)、状態はこのページ (= 潜行) の寿命
+     *   (.sce1Captive と同じ分け方)。
+     * 流れ: hidden → emerge → approach → talk → follow → done
+     *   起動 = checkDungeonClear のゲート towerMotherHolds() が初めて真を返したとき (ラッチ)。
+     *   進行 = moveEnemies の末尾の tickTowerMother() (= 対話/ナレで止まっている間は時間ごと進まない)。
+     * ⚠ ゲートは戦闘の後始末の最中に初めて当たる (項目1 K3) ⇒ emerge は encounterActive /
+     *   encounterRunning が両方落ちてから始める。
+     * ⚠ 随伴の間は tickNodeChoice を入口で返す (n1 にも親への「引き返す」が出る = 罠 1) /
+     *   撤退ボタンも封じる (罠 2)。どちらも towerMotherActive() = 起動済み かつ 制覇前 (K8:
+     *   done から dungeonCleared が立つまでの隙間にも ② が入りうる)。
+     * ⚠ 詰みを作らない (罠 3): follow の上限 (止まっていない時間だけ数える・K2/K4) で必ず done へ倒す。
+     *   経路が取れないときは母を寄せる / 例外は done へ倒す (飾りが制覇を止めない)。
+     * ⛔ 撤退 ?towermother=0 では holds() が常に偽 = 1 要素も作らない (#82 の姿 = 即制覇)。
+     * ⛔ 「酒場に母が居るなら塔に出さない」は足さない (ユーザー決定 = 再挑戦でも母は塔に居る)。 */
+    const TOWER_MOTHER_ON = new URLSearchParams(window.location.search).get("towermother") !== "0";
+    const TOWER_MOTHER_ROW_Y = -288;            // 老婆のシートは 3 段目だけに中身がある (0〜2 段は透明 = 依頼書 §2-1 ①)
+    const TOWER_MOTHER_STEP_MS = 380;           // 1 マスの歩き (主人公の HERO_SLIDE_MS と同じ速さ)
+    const TOWER_MOTHER_EMERGE_HOLD_MS = 900;    // 「ゴトリ」の揺れ・土埃を見せてから歩き出す
+    const TOWER_MOTHER_TALK_MAX_MS = 9000;      // 台詞 2 件 (2 秒 + 間) が押し出されても先へ進む
+    const TOWER_MOTHER_LAG = 2;                 // 主人公の足跡を 2 歩遅れで辿る
+    /* follow の上限 = max(90 秒, 階段の口までの A* の長さ x 4 秒 + 30 秒)。⭐ 止まっていない時間だけ数える。
+     *   根拠 (項目1 K2): 追い払い直後の (28,11) → 階段の口 (16,13) = 14 マスを非 autoplay で 45.1 秒
+     *   (1 マス ≈ 3.2 秒・8/8 走行)。40 秒では素で必ず上限に倒れる。 */
+    const TOWER_MOTHER_CAP_FLOOR_MS = 90000;
+    const TOWER_MOTHER_CAP_PER_TILE_MS = 4000;
+    const TOWER_MOTHER_CAP_PAD_MS = 30000;
+    let towerMother = null;     // { phase, tx, ty, x, y, alive, classKey:null, def:{displaySize}, ... }
+    let towerMotherEl = null;   // ノード寿命の DOM (clearNodeArrays が null に戻す)
+
+    function towerMotherRect() {   // ボスノード (n1) の rect [r1,c1,r2,c2]。⛔ global の数字を直書きしない
+      const node = RUN && RUN.byId && RUN.byId[RUN.bossNodeId];
+      const room = node && node.mapDef && node.mapDef.rooms && node.mapDef.rooms[0];
+      return (room && Array.isArray(room.rect)) ? room.rect : null;
+    }
+    function towerMotherLocal(c, r) {   // 絵ローカル → global (n1 は + (c1, r1) = + (14, 5))
+      const rc = towerMotherRect();
+      return { tx: c + rc[1], ty: r + rc[0] };
+    }
+    function towerMotherHeroTile() {   // heroAI と同じ式
+      return { tx: Math.floor((playerX + 48) / TILE_SIZE), ty: Math.floor((playerY + 58) / TILE_SIZE) };
+    }
+    function towerMotherSceneHere() {
+      return TOWER_MOTHER_ON && !!RUN && RUN.scenarioId === "tower-mother"
+        && currentNodeId === RUN.bossNodeId && !!towerMotherRect();
+    }
+    function towerMotherSetTile(m, t) {
+      m.tx = t.tx; m.ty = t.ty;
+      m.x = t.tx * TILE_SIZE + TILE_SIZE / 2 - 48;   // 96px の絵をタイル中心へ (捕虜と同じ式)
+      m.y = t.ty * TILE_SIZE + TILE_SIZE / 2 - 48;
+    }
+    /* checkDungeonClear のゲート。塔の母のボスノードで、随伴が done でなければ真 (制覇を待たせる)。
+     *   初めて真を返すときに随伴を起動する (多重起動しないラッチ)。 */
+    function towerMotherHolds() {
+      if (towerMother) return towerMother.phase !== "done";
+      if (!towerMotherSceneHere()) return false;
+      const m = {
+        phase: "hidden", tx: 0, ty: 0, x: 0, y: 0,
+        alive: true, classKey: null,   // ⭐ 吹き出しの話し手。classKey を持つ = 味方の見え方 (ボスの血赤にしない・項目1 K5)
+        def: { displaySize: 96 },
+        facing: "right", path: [], stepFrom: null, stepTo: null, stepMs: 0,
+        phaseMs: 0, lastTickAt: 0, latchedAt: Date.now(), emergeAt: 0, talkAt: 0,
+        followAt: 0, followMs: 0, capMs: 0, goal: null, trail: [], forced: null,
+        doneAt: 0, doneBy: null,
+      };
+      towerMotherSetTile(m, towerMotherLocal(8, 3));   // 小部屋の中 (揺り椅子のそば)
+      towerMother = m;
+      return true;
+    }
+    function towerMotherActive() {   // 随伴が起動済み かつ 制覇前 (K8)
+      return !!towerMother && !dungeonCleared;
+    }
+    function towerMotherEnsureEl() {
+      if (towerMotherEl || !towerMother || towerMother.phase === "hidden") return;
+      if (!towerMotherSceneHere()) return;
+      const el = document.createElement("div");
+      el.className = "towerMother";
+      el.id = "towerMother";
+      el.style.backgroundPosition = "0px " + TOWER_MOTHER_ROW_Y + "px";
+      nodeLayer.appendChild(el);   // ★[#83] 母の DOM はノード寿命 (#nodeLayer = 遷移で一掃)
+      towerMotherEl = el;
+    }
+    /* 主人公に行き先を与える (heroAI ② の唯一のレバー)。⛔ nodePendingExit は立てない (立てると到達で enterNode が走る) */
+    function towerMotherForceHero(m, t) {
+      m.forced = t;
+      heroForcedGoal = t;
+    }
+    function towerMotherFinish(by) {
+      const m = towerMother;
+      if (!m || m.phase === "done") return;
+      m.phase = "done"; m.doneBy = by; m.doneAt = Date.now();
+      m.path = []; m.stepTo = null;
+      if (m.forced && heroForcedGoal === m.forced) heroForcedGoal = null;   // 自分が立てた行き先だけ戻す
+      if (!nodePendingExit) nodeGateReached = false;
+      // ⭐ 次の checkDungeonClear (同じ moveEnemies の直後) で dungeonCleared が立つ = 今の流れへ合流
+    }
+    /* 1 マスずつの歩き (path の先頭へ補間)。歩いていれば true */
+    function towerMotherAdvance(m, dt) {
+      if (!m.stepTo) {
+        if (!m.path.length) return false;
+        m.stepFrom = { tx: m.tx, ty: m.ty };
+        m.stepTo = m.path.shift();
+        m.stepMs = 0;
+        if (m.stepTo.tx < m.tx) m.facing = "left";
+        else if (m.stepTo.tx > m.tx) m.facing = "right";
+      }
+      m.stepMs += dt;
+      const k = Math.min(1, m.stepMs / TOWER_MOTHER_STEP_MS);
+      const f = m.stepFrom, t = m.stepTo;
+      m.x = (f.tx + (t.tx - f.tx) * k) * TILE_SIZE + TILE_SIZE / 2 - 48;
+      m.y = (f.ty + (t.ty - f.ty) * k) * TILE_SIZE + TILE_SIZE / 2 - 48;
+      if (k >= 1) { towerMotherSetTile(m, t); m.stepTo = null; }
+      return true;
+    }
+    function towerMotherGo(m, phase) { m.phase = phase; m.phaseMs = 0; }
+    /* emerge: 揺れ + 音 + 土埃 + 一文。母は小部屋から決め打ちの数歩で出る (塞いだタイルなので A* を使わない) */
+    function towerMotherBeginEmerge(m) {
+      towerMotherGo(m, "emerge");
+      m.emergeAt = Date.now();
+      m.path = [towerMotherLocal(8, 4), towerMotherLocal(8, 5), towerMotherLocal(8, 6), towerMotherLocal(8, 7)];
+      towerMotherEnsureEl();
+      triggerScreenShake(6, 450);
+      sfx("cageOpen");
+      const w = towerMotherLocal(6, 5);   // タンス (絵ローカル col 6-8 / row 5)
+      spawnGroundFx(w.tx, w.ty, 3, 1, "axestorm", 900);
+      updateInfo("ゴトリ、と重い音。扉を塞いでいたタンスが、内側から押し退けられた");
+      // 主人公をその場に留める (母が来るまで部屋を歩き回らない)
+      towerMotherForceHero(m, snapToWalkable(towerMotherHeroTile()));
+    }
+    /* approach: 小部屋の口から主人公の隣のタイルまで、本番の aStar で歩く */
+    function towerMotherBeginApproach(m) {
+      towerMotherGo(m, "approach");
+      const h = towerMotherHeroTile();
+      const p = aStar(m.tx, m.ty, h.tx, h.ty);
+      if (p) m.path = p.slice(0, Math.max(0, p.length - 1));   // 主人公のタイルの 1 つ手前で止まる
+      else {
+        m.path = [];
+        towerMotherSetTile(m, snapToWalkable(h));   // 経路が取れない = 主人公の足元へ寄せる (詰みを作らない)
+      }
+    }
+    function towerMotherBeginTalk(m) {
+      towerMotherGo(m, "talk");
+      m.talkAt = Date.now();
+      m.facing = (playerX < m.x) ? "left" : "right";
+      sayLine("tower.mother.meet", m);
+      sayLine("tower.mother.follow", m);
+    }
+    function towerMotherTalkPending(m) {
+      if (speechQueue.some(q => q.speaker === m)) return true;
+      return speechBubbles.some(b => b.unit === m);
+    }
+    function towerMotherBeginFollow(m) {
+      towerMotherGo(m, "follow");
+      m.followAt = Date.now();
+      m.followMs = 0;
+      const start = RUN.byId[RUN.bossNodeId].mapDef.start;   // ⛔ 座標を直書きしない = そのノードの start (螺旋階段の上)
+      const g = snapToWalkable({ tx: start.tx, ty: start.ty });
+      m.goal = g;
+      const h = towerMotherHeroTile();
+      m.trail = [h];
+      const p = aStar(h.tx, h.ty, g.tx, g.ty);
+      m.capMs = Math.max(TOWER_MOTHER_CAP_FLOOR_MS, (p ? p.length : 0) * TOWER_MOTHER_CAP_PER_TILE_MS + TOWER_MOTHER_CAP_PAD_MS);
+      towerMotherForceHero(m, g);
+    }
+    function towerMotherFollowStep(m, dt) {
+      m.followMs += dt;
+      const h = towerMotherHeroTile();
+      const last = m.trail[m.trail.length - 1];
+      if (h.tx !== last.tx || h.ty !== last.ty) m.trail.push(h);
+      if (!m.stepTo && !m.path.length) {
+        const n = m.trail.length - 1 - TOWER_MOTHER_LAG;   // 主人公の 2 歩遅れの足跡
+        if (n >= 0) {
+          const want = m.trail[n];
+          if (want.tx !== m.tx || want.ty !== m.ty) {
+            const p = aStar(m.tx, m.ty, want.tx, want.ty);
+            if (p && p.length) m.path = [p[0]];        // 1 歩ずつ (足跡は伸び続ける)
+            else if (!p) towerMotherSetTile(m, want);   // 経路が取れない = 足跡へ寄せる
+          }
+        }
+      }
+      towerMotherAdvance(m, dt);
+      const g = m.goal;
+      const cheb = Math.max(Math.abs(m.tx - h.tx), Math.abs(m.ty - h.ty));
+      if (h.tx === g.tx && h.ty === g.ty && cheb <= 2) { towerMotherFinish("arrived"); return; }
+      if (m.followMs >= m.capMs) { towerMotherFinish("cap"); return; }   // ★[#83] 上限 = 詰み防止 (罠 3)
+    }
+    function towerMotherStep(m, dt) {
+      m.phaseMs += dt;
+      if (m.phase === "hidden") {
+        if (encounterActive || encounterRunning) return;   // 戦闘の後始末が終わるまで出てこない (K3)
+        towerMotherBeginEmerge(m);
+        return;
+      }
+      if (m.phase === "emerge") {
+        if (m.phaseMs < TOWER_MOTHER_EMERGE_HOLD_MS) return;
+        if (!towerMotherAdvance(m, dt)) towerMotherBeginApproach(m);
+        return;
+      }
+      if (m.phase === "approach") {
+        if (!towerMotherAdvance(m, dt)) towerMotherBeginTalk(m);
+        return;
+      }
+      if (m.phase === "talk") {
+        if (m.phaseMs < 600) return;
+        if (towerMotherTalkPending(m) && m.phaseMs < TOWER_MOTHER_TALK_MAX_MS) return;
+        towerMotherBeginFollow(m);
+        return;
+      }
+      if (m.phase === "follow") towerMotherFollowStep(m, dt);
+    }
+    /* moveEnemies の末尾 (30ms)。⭐ dt は 1 回 100ms で頭打ち = 止まっていた間 (早期 return) を数えない (K4) */
+    function tickTowerMother() {
+      const m = towerMother;
+      if (!m || m.phase === "done") return;
+      const now = Date.now();
+      const dt = m.lastTickAt ? Math.min(now - m.lastTickAt, 100) : 0;
+      m.lastTickAt = now;
+      try { towerMotherStep(m, dt); }
+      catch (e) {
+        try { console.warn("[#83] 塔の母の随伴で例外 — 制覇へ倒す", e); } catch (e2) {}
+        towerMotherFinish("error");
+      }
+    }
+    /* ★[#83] 検証シーム (#82 の窓に相乗り)。⛔ 状態の置き場にしない (読むための窓) */
+    window.__towerMotherTV.mother = function () {
+      const m = towerMother;
+      if (!m) return { on: TOWER_MOTHER_ON, phase: null };
+      return { on: TOWER_MOTHER_ON, phase: m.phase, tx: m.tx, ty: m.ty, x: m.x, y: m.y, facing: m.facing,
+               walking: !!m.stepTo, latchedAt: m.latchedAt, emergeAt: m.emergeAt, talkAt: m.talkAt,
+               followAt: m.followAt, followMs: m.followMs, capMs: m.capMs,
+               goal: m.goal ? { tx: m.goal.tx, ty: m.goal.ty } : null, trailLen: m.trail.length,
+               doneAt: m.doneAt, doneBy: m.doneBy, el: !!towerMotherEl };
+    };
+    window.__towerMotherTV.holds = function () { return !!towerMother && towerMother.phase !== "done"; };
+    window.__towerMotherTV.active = function () { return towerMotherActive(); };
 
     // 従者の参戦。★手順は executeSummon (9813) の写しだが、決定的に 2 行だけ違う:
     //   ・a.isSummon を立てない  ・summonSlot に代入しない
@@ -36286,6 +36563,7 @@
        *   ⚠ RUN が null の既存経路では従来どおり "none" へ戻す (1 bit も変えない)。 */
       sce1CaptiveEl = null; _sce1ThroneCaptiveSpot = null;
       if (!RUN) sce1CaptiveState = "none";
+      towerMotherEl = null;   // ★[#83] 塔の母の DOM もノード寿命 (状態 towerMother は落とさない = 捕虜と同じ分け方)
       campfireSpot = null;
       // 部屋踏破の記憶 (部屋 index はノードごとに意味が変わる)
       visitedRooms.clear();
@@ -38280,6 +38558,7 @@
      *   消費することで、暗転が二重に掛かる事故が原理的に起きない。 */
     async function tickNodeChoice() {
       if (!RUN) return;                                   // ★従来経路は 1 命令も走らない
+      if (towerMotherActive()) return;                    // ★[#83] 塔の母の随伴中は出口 (n1 にも出る「引き返す」) を選ばない (罠 1)
       if (!gameStarted || gameOver || dungeonCleared) return;
       if (encounterActive || encounterRunning) return;    // 戦闘中は出さない
       if (hp <= 0) return;
@@ -40310,6 +40589,7 @@
         if (retreatInProgress) return;
         if (encounterActive || encounterRunning) return;
         if (gameOver || dungeonCleared) return;
+        if (towerMotherActive()) return;   // ★[#83] 塔の母の随伴中は撤退させない (罠 2)
         if (!gameStarted) return;
         retreatInProgress = true;
         retreatBtnEl.disabled = true;
@@ -40371,7 +40651,8 @@
       if (!retreatBtnEl) return;
       const blocked = !gameStarted || gameOver || dungeonCleared
         || encounterActive || encounterRunning
-        || retreatInProgress;
+        || retreatInProgress
+        || towerMotherActive();   // ★[#83] 塔の母の随伴中も撤退できない見た目に (罠 2)
       retreatBtnEl.disabled = blocked;
       // E: 下部ミニバーの撤退チップにも disabled を同期 (毎フレーム再描画の合間を埋める belt-and-suspenders)
       const rchip = document.querySelector("#hpMiniBar .retreatChip");
