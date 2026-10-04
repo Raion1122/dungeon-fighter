@@ -1,6 +1,6 @@
 # #84 メイジハンドが実機で一度も出ない — 覚えていることを見せる + 檻に届かせる + 2 秒で消さない
 
-- **起草**: 2026-10-03(起草窓) / **ステータス**: **承認済**(2026-10-03 ユーザー承認)
+- **起草**: 2026-10-03(起草窓) / **ステータス**: **✅ 完了**(2026-10-04 実装窓・項目1〜4 = `ba2d4e7` / `c7e60d1` / `45319e4` / 項目4 のコミット。§10-4 総括)/ 承認 2026-10-03 ユーザー
 - **着手**: 2026-10-04 実装窓(dev-loop・4 項目)。#82 完了 `06ee666` の後
 - **基準 HEAD**: `1a2859b`(⚠ 作業ツリーの `index.html` / `tavern.html` は実装窓の #82 が編集中。本書の行番号は **`git show HEAD:`** で測った値)/ **実装の基準は `06ee666`(§10-0)**
 - **触るファイル**: `index.html`(2 行)/ `tavern.html`(引き出しに表示 1 行ぶん)/ `tools/verify_mage_hand_reach.js`(新規)/ 既存 golden の言い直し(要れば)
@@ -175,7 +175,7 @@
 
 ## 10. 実装結果
 
-(実装窓が埋める)
+(実装窓が埋めた。§10-0 着手前 / §10-1 本番 / §10-2 受入 / §10-3 母集団 / §10-4 総括)
 
 ### 10-0. 着手前の実測(項目1・2026-10-04・基準 HEAD `06ee666`)
 
@@ -394,3 +394,54 @@
 - **K13** 射程 12 マスでも、実際に聞かれる距離は 5.2〜9.2 マス(測定台 5 本)。柵が視線を遮るので「12 マス以内に入った瞬間」ではなく「柵の内側で視線が通った瞬間」に出る(§2-2「柵の内側へは戦闘中に入る」と同じ)。5 本中 3 本(9.22 / 8.06 / 8.57)は旧 6 マスでは届かない距離 ⇒ 12 への変更が 5/5 に効いている。
 - **K14** 着手前に 2/5 あった「戦闘外の口」(クリア直前・柵の内側 7.0 マス)は実装後 0/5。戦闘中の口が先に聞いて鍵ではなく**檻を開けてしまう**(オートプレイは 1 番目 = 開ける)ため、戦闘外で聞く対象が残らない。実害なし。
 - **K15** `.spellCountItem` の行は `.skillItem` も持つ(引き出しの魔法使いで skills = spells の 4 行)。(1c) は両方の件数と並びを比べているので重複は判定に影響しない。
+
+### 10-3. 母集団の非退行(項目4・2026-10-04・基準 HEAD `45319e4`)
+
+- 本番(`index.html` / `tavern.html` / `audio.js` / `js/*`)・`tools/*` は 1 バイトも触っていない(本項目の直し 0)。走査の前後で作業ツリー clean・`index.html` / `tavern.html` の blob OID 不変。作業物は scratchpad `…/8952464a-dc76-4a52-9528-5d559bedff3f/scratchpad/item4/`。
+- 腕 = 着手前の色 `pre84.tsv`(§10-0 (6)・200 腕)と同じ腕 + **`verify_mage_hand_reach` 素 / `--negative`**(新規・基準は §10-2 の exit 0 / exit 0)+ 変更区域にアンカー・測定を持つのに母集団に無かった **`--negative` 2 腕**(`verify_pm_drawer_fit --negative` = 名指し golden・`pmRenderDrawer` を測る / `verify_recruit_talk --negative` = 走査で `index.html:13882` に当たった。⚠ 当たった行は `catch (e) { return true; }` という汎用の 1 行 = 偽の当たりだが走らせた)= **204 腕**。
+- 走らせ方: 直列・SKIP 再開型(`sweep_84post.py` = 項目1 の `sweep_84.py` の写し)。git を読む本(`root` が `clone` / `fix` の 32 腕)は `--shared` clone `clone84`(`45319e4`・追跡 924 本のうち作業ツリーと違うのは `tools/probe_magehand_reach.js` の改行だけ = 母集団外)で、残りは本番の作業ツリーで。⛔ `auto_debug_run` は未走査(#80 からの決定)。試遊サーバ 8765 は触っていない。
+- 所要: **469.6 分**(204 腕・腕あたり 2.30 分)+ 対比較 30 走行 42.2 分。
+
+#### (1) 結果
+
+| | 腕数 | 緑 | 非緑 |
+|---|---|---|---|
+| 着手前 `pre84`(同じ 200 腕) | 200 | 179 | 21 |
+| 実装後 `post84`(同じ 200 腕) | 200 | **176** | 24 |
+| 追加 4 腕(新規受入 2 + `--negative` 2) | 4 | 4 | 0 |
+
+- **緑→赤 3**(下表)/ 赤→緑 0 / 両方で非緑 21(着手前の非緑 21 と同じ腕・同じ型 = 既知の赤・使い方ガード・調査の道具・#82 K27 のアンカー腐敗 4 本)。
+- 名指し golden はすべて緑: `verify_mage_hand` 素 32/32・`--negative` exit 0(今回は `escapeon` の漏れなし)/ `verify_pm_drawer_fit` 素 75/79 PENDING 4・`--negative` exit 0 / `verify_prep_retire` 素 30/30・`--negative` exit 0 / `driver_trap_disarm` 44/44 / `driver_scroll_autoskip` 9/9 / `verify_member_identity` 素 28/28・`--negative` exit 0 / `verify_recruit_talk` 素・`--negative` exit 0 / `verify_mage_hand_reach` 素 11/11・`--negative` exit 0。
+- `#changelogBox`: `06ee666` と `45319e4` の `tavern.html` を同じ配信で 7 画面(1280x800 / 1024x768 / 1366x768 / 844x390 / 390x844 / 375x667 / 414x896)開いて**矩形が全画面で完全一致**(中の `scrollHeight` だけ 343→308)。changelog の文字列を読む本は 0 本(§10-0 (6) と同じ)。
+
+#### (2) 緑→赤の切り分け
+
+| 腕 | 赤い assert | 構造 | 影との交互の対(各 5 走行) | 帰属 |
+|---|---|---|---|---|
+| `driver_field_step2` 素 | `D2-dragon-lair` の `mapCanvas` のピクセル SHA(同じ走行の `D1` = 描画コマンドの引数列は golden と完全一致) | 竜の巣の地図描画。手の口に経路なし | 本番 0/5 赤・着手前(`clone84pre` = `06ee666` の clone。git を読むので影ではなく clone)0/5 赤・p = 1.000 | **揺れ**(既知フレーク・`D2-dragon-lair` は画像デコードの待ち方) |
+| `driver_monsters_umberhulk` 素 | (3) 再発火(同じ敵が 2 回以上 gaze)+ 走査の 1 回だけ (4) chimera `entries=0`(= 観測 0 件のフレークの指紋) | 下の「手の口に届かない」 | 本番 4/5 赤・影 4/5 赤・p = 1.000(赤はどちらも (3) 再発火だけ) | **揺れ**(#69 以来の既知。⚠ 今は両方の木で赤寄り = K17) |
+| `driver_speech_engine` 素 | (4) カメラが実際に動いた(± (4) 吹き出しの追従) | 同上 | 本番 3/5 赤・影 3/5 赤・p = 1.000 | **揺れ**(既知フレーク) |
+
+- 影のツリー `shadow84` = 本番の作業ツリーの実体コピー(`.git` / `source_images` 抜き・`tools/` は実体)で、**`index.html` / `tavern.html` だけを `06ee666` に戻したもの**(#84 が変えた配信物はこの 2 本だけ。`git show` の LF を CRLF へ戻して配った)。
+- ⭐ **手の口に届かない(構造)**: #84 が変えた `index.html` のコード 2 点(`MAGE_HAND.combatRangeTiles` / `offerMageHand` の `showCharChoice`)は、どちらも `mageHandCaster()` が null 以外を返したときだけ実行される。`mageHandCaster()` の関門は `isSpellKnown("mage","mage-hand")` で、`DEFAULT_KNOWN.mage` に `mage-hand` は無く、`index.html` の中に `knownSpells` を書き換える口も無い(`saveKnownSpells` の呼び口 0)= 習得は酒場で巻物を読んだ localStorage からだけ。上の 3 本はどれも毎回新しいプロファイル(`_pptr_profile` / puppeteer の既定)で起動し、`mage-hand` / `knownSpells` / `magehand` を 1 語も持たない ⇒ 変わったバイトに届く経路が無い。`tavern.html` の 2 点(引き出しの 1 行・CSS)も同じ関門(`isSpellKnownTV`)の内側。
+- ⇒ **#84 帰属の緑→赤 0**。直したもの 0。
+
+#### (3) 崩れ
+
+- **K16** §10-0 (6) の母集団 `pre84`(200 腕)には、名指し golden `verify_pm_drawer_fit` の **`--negative` が入っていなかった**(素だけ)。`pmRenderDrawer` は (c) の変更区域 ⇒ 本項目で足した(着手前の色は §10-0 (3) の exit 0・実装後も exit 0)。`verify_recruit_talk --negative` も同じく足した(走査が当てた行は汎用の 1 行 = 偽の当たり)。
+- **K17** `driver_monsters_umberhulk` の (3) 再発火は、`pre84`(= #82 の走査)では緑だったが、今回は本番 / 影とも **5 回中 4 回赤**(走査を含めると本番 5/6 赤)。帰属は無い(上表)が、「揺れ」より「両方の木で赤寄り」= 観測窓が実時間に依存している(#69 の注記どおり)。⇒ 別チケット候補(観測窓を tick / 戦闘回数へ)。
+- **K18** `driver_field_step2` は git を読む本(baseline `609c9d7` を `git show`)なので影のツリーでは走らない ⇒ 対比較の相手は影ではなく `06ee666` の `--shared` clone(`clone84pre`)にした(→ D3)。
+- **K19** `tools/probe_magehand_reach.js` は `.gitattributes` で LF なのに本番の作業ツリーだけ CRLF(`git status` は clean)= #82 の申し送りどおりのまま。clone との差はこの 1 本だけ。測定台は母集団外なので走査では使っていない。
+
+### 10-4. 総括(項目1〜4・2026-10-04)
+
+- **コミット**: `ba2d4e7`(項目1 着手前の実測)/ `c7e60d1`(項目2 本番 3 点 + changelog + `verify_mage_hand` の言い直し)/ `45319e4`(項目3 新規受入 `tools/verify_mage_hand_reach.js` + 測定台)/ 本書の §10-3・§10-4 と README を書いたコミット(項目4)。push はしていない。
+- **本番の変更**: `index.html` = `MAGE_HAND.combatRangeTiles` 6 → 12 / `offerMageHand` の自動スキップを外す(押すまで待つ)/ 注記 3 行(D1)。`tavern.html` = 引き出しに押せない 1 行「✋ メイジハンド — 枠なし・いつでも(…)」(`.pmDrawerInnateRow`・`MAGE_SKILLS_UI` 不変・`?magehand=0` でも出す = K5 の決定)+ CSS + changelog。撤退は既存 `?magehand=0`(手のダイアログを止める)。
+- **受入**: `tools/verify_mage_hand_reach.js` 素 **11/11**(×5)/ `--negative` **6/6** 担当だけが赤(×2・§5 の予測と全部一致)。母集団 204 腕で **#84 帰属の緑→赤 0**(§10-3)。
+- **測定台**(§2-2 の `probe_magehand_reach`・N=5): 戦闘中に聞かれた **2/5 → 5/5**。聞かれた距離 5.2〜9.2 マス(3/5 は旧 6 マスでは届かない距離)。
+- **崩れ 19 件**: K1〜K9(項目1: 行番号の移動・押さない腕の 2 秒前提・(9b)(3b) が逆向き・`combatfar` の空振り・tavern に `?magehand=0` の読み口なし・`.skillItem` を数える本・隣接アンカー・測定台 2/5・フレーク)/ K10〜K11(項目2: (3a) の文言・`#choiceDialog` は最初まで null)/ K12〜K15(項目3: 13.04 マスで `calm13` が空振り・実際に聞かれる距離・戦闘外の口 0/5・`.spellCountItem` は `.skillItem` も持つ)/ K16〜K19(項目4: 上記)。
+- **逸脱 3 件**: **D1** 注記 3 行の書き換え(項目2・嘘になる注記を残さない)/ **D2** 変異キー `combatfar` → `combat6`(項目2)/ **D3** `driver_field_step2` の対比較は影でなく `06ee666` の clone(項目4・git を読む本のため)。
+- **作業コピー**(削除はユーザー判断・scratchpad `…/item4/`): `clone84` 229MB(`45319e4`)/ `clone84pre` 229MB(`06ee666`)/ `shadow84` 290MB(配信物 2 本だけ `06ee666`)= 計 約 750MB。
+- **§6 実機確認の宿題(ユーザー担当)**: ① 噂に成功した回の盗賊の森で、野営地に踏み込んだあたりで「メイジハンドで、離れた所から倒すか?」が出て、**押すまで待ってくれるか**(戦闘は止まったまま)② 出撃前の引き出しの 1 行で「覚えている・セット不要」と伝わるか。⚠ 噂に失敗した回は檻が無い = 出ない(原因 B・仕様のまま)。
+- **別チケット候補**: 自分から唱える場面(#80 の案 B「新しいレバー仕掛け」・§7)/ K17 `driver_monsters_umberhulk` (3) の観測窓 / #82 K27 の `--negative` 4 本(着手前から壊れている・今回も同じ)。
+- **次の新規ドライバ base = 10555**(本項目は新しいポートを使っていない。`#changelogBox` の測定は測定台の枠 10602)。
