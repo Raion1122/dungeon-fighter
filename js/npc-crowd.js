@@ -99,6 +99,22 @@
       sprite: "assets/villager_woman_walk.png", say: "……見ない顔だな。" }
   ];
 
+  /* ★[#83] 塔の母を連れ帰った後だけ、空いている卓 t2 (円卓 T = (4-5, 6-7)) に座る息子と母。
+   *   ⚠ TAVERN とは別の配列 (TAVERN の 8 人と verify_npc_crowd の数え方を 1 バイトも動かさない)。
+   *     酒場は印 dragonfighters.towerMotherHome があるときだけ TAVERN.concat(REUNION) で生やす。
+   *   ⭐ 不変条件 I1〜I5 は TAVERN と同じ validate() で検査する (T = 円卓のタイル = 歩けない)。
+   *   ⚠ 席は円卓の **下の行** (4,7)/(5,7)。上の行 (4,6)/(5,6) は t2 の札 (4,5) が出る盤面で
+   *     I5 に落ちる (#83 依頼書 §12-0 (4) の実測)。⛔ 札・マスク・卓の側は動かさない。
+   *   ⚠ 酒場の 8 人とシートは重ならない (石工 / 老婆は街にしか居ない = 同じ画面で 2 人に当てない)。 */
+  var REUNION = [
+    { key: "harold", kind: "stand", tile: [4, 7], dx: -14, dy: 6, face: "right",
+      sprite: "assets/town_mason_walk.png", hold: 2,
+      say: "母さんが毎朝パンを焼いてくれる。……悪くないもんだね。" },
+    { key: "towerMother", kind: "stand", tile: [5, 7], dx: 14, dy: 6, face: "left",
+      sprite: "assets/villager_oldwoman_walk.png", hold: 1,
+      say: "塔の上より、ここのほうが騒がしいねえ。" }
+  ];
+
   /* ── 不変条件の検査 (⭐ ドライバはこれを **呼ぶ**。自前で書き直さないこと) ─────────
    *  map  … TAVERN_MAP か TOWN_MAP (isWalkable / inBounds / TILE を持つもの)
    *  signs… [{ key, cx, cy, w, h }] を **実 DOM から測って**渡す
@@ -156,7 +172,7 @@
 
   global.NPC_CROWD = {
     SPRITE: SPRITE, FOOT: FOOT,
-    TAVERN: TAVERN, TOWN: TOWN,
+    TAVERN: TAVERN, TOWN: TOWN, REUNION: REUNION,
     cellsOf: cellsOf, boxOf: boxOf, validate: validate
   };
 })(typeof window !== "undefined" ? window : this);

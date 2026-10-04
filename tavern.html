@@ -3332,7 +3332,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>塔の母を連れて帰れるように</b> — ワイバーンを追い払うと、塔に立てこもっていた母が部屋から出てきて一緒に階段を下りる。</li>
+        <li><b>塔の母を連れて帰れるように</b> — ワイバーンを追い払うと、塔に立てこもっていた母が部屋から出てきて一緒に階段を下りる。酒場に戻ると、息子と母が卓で迎えてくれる。</li>
         <li><b>メイジハンドが使いやすく</b> — 覚えていると出撃前の画面に表示される。檻のレバーに手が届く距離が戦闘中も 12 マスに伸び、「触りますか?」は押すまで待つようになった。</li>
         <li><b>新しい依頼「塔の母」</b> — 砦を越えた冒険者の卓に、町外れの塔に住む母を迎えに行く依頼が並ぶことがある。塔の屋上のワイバーン(竜の一種・魔法学で正体を思い出せる・脅威度 6)は、傷つくと空へ逃げ去る。</li>
         <li><b>酒場の依頼が入れ替わるように</b> — 卓に並ぶ依頼はダンジョンから戻るたびに変わる 2 件だけ。物語の次の依頼は必ず並ぶ。奥の小部屋は武器防具屋になった。</li>
@@ -5855,6 +5855,33 @@
     catch (e) { console.warn("[chronicle] 記録棚への保存に失敗", e); return null; }
     return a;
   }
+  /* ★[#83] 塔の母 B — 酒場で迎える。
+     ⭐ 印 dragonfighters.towerMotherHome = "1" は「母を連れ帰ったことがある」。常に "1" (2 回目も 1 のまま)。
+       接頭辞 dragonfighters. なので記録スロット (save-slots の keysOf) へ 1 行も足さずに載る。
+     ⭐ 初めて印を立てた回だけ window.__towerReunionPending = true (このページの寿命だけ。
+       ⛔ sessionStorage へ写さない)。consumeResult() は NPC より先に走る即実行の IIFE なので、
+       ここでは印と pending を立てるだけ。⛔ DOM を作らない (場面は initNpcCrowd() が生やした後で出す)。
+     ⚠ 撤退 ?towermother=0 — 印を立てない・印があっても母子と場面を出さない・印は消さない。
+       ⚠ const に畳まない (isRecruitTalkOn と同じ TDZ 回避)。呼ぶたびに読む。 */
+  var TOWER_MOTHER_HOME_KEY = "dragonfighters.towerMotherHome";
+  function isTowerMotherOn() {
+    try { return new URLSearchParams(location.search).get("towermother") !== "0"; } catch (e) { return true; }
+  }
+  /* 印があり、かつ撤退していない = 卓 t2 に母子を生やす */
+  function towerMotherHomeShown() {
+    if (!isTowerMotherOn()) return false;
+    try { return localStorage.getItem(TOWER_MOTHER_HOME_KEY) === "1"; } catch (e) { return false; }
+  }
+  /* 再会の場面に実際に出した一言の記録 (検証シーム __TAVERN_TV.reunion() が読む) */
+  var towerReunionSceneLog = [];
+  function markTowerMotherHome() {
+    if (!isTowerMotherOn()) return;
+    try {
+      var wasHome = (localStorage.getItem(TOWER_MOTHER_HOME_KEY) === "1");
+      localStorage.setItem(TOWER_MOTHER_HOME_KEY, "1");   /* ★[#83] 母を連れ帰った印 */
+      if (!wasHome) window.__towerReunionPending = true;   /* ★[#83] 初めて立てた回だけ再会の場面 */
+    } catch (e) { console.warn("[towerMother] 印の保存に失敗", e); }
+  }
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
@@ -5910,6 +5937,7 @@
           progress.cleared.add(r.scenarioId);
           saveClearedSet(progress.cleared);
         }
+        if (r.scenarioId === "tower-mother") markTowerMotherHome();   // ★[#83] 印だけ (DOM は作らない)
         // 次 tick でバナー表示(renderTables 後)
         setTimeout(() => showReturnBanner(r), 100);
       } else if (r && (r.defeated || r.retreated)) {
@@ -10975,6 +11003,18 @@
         return { unlocked: f.unlocked.map(function (s) { return s.id; }),
                  frontier: f.frontier ? f.frontier.id : null,
                  nextLocked: f.nextLocked ? f.nextLocked.id : null };
+      },
+      /* ★[#83] 塔の母 B — 読み取り専用。on = 撤退していない / mark = 印 / pending = 初回の場面の予約 /
+         keys = 実際に生えた母子の data-npc / scene = 場面で出した一言 (順・key・時刻)。 */
+      reunion: function () {
+        var mark = null;
+        try { mark = localStorage.getItem(TOWER_MOTHER_HOME_KEY); } catch (e) { mark = null; }
+        var want = (window.NPC_CROWD && window.NPC_CROWD.REUNION) ? window.NPC_CROWD.REUNION.map(function (n) { return n.key; }) : [];
+        var keys = Array.prototype.map.call(document.querySelectorAll("#npcLayer .npcUnit"), function (el) {
+          return el.getAttribute("data-npc");
+        }).filter(function (k) { return want.indexOf(k) >= 0; });
+        return { on: isTowerMotherOn(), mark: mark === "1", pending: window.__towerReunionPending === true,
+                 keys: keys, scene: towerReunionSceneLog.map(function (s) { return { key: s.key, idx: s.idx, at: s.at }; }) };
       }
     };
     /* 闇市が遊んでいる最中に解禁されたら札を生やし直す (updatePlazaDoor から呼ばれる) */
@@ -11024,7 +11064,11 @@
       /* ⭐ 主人公より **前** に挿す。z-index が同じ 3 なので DOM 順で主人公が手前に来る。 */
       elStage.insertBefore(layer, elShadow);
 
-      CROWD.TAVERN.forEach(function (n, i) {
+      /* ★[#83] 塔の母を連れ帰った印があるときだけ、卓 t2 の母子 (REUNION) を足す。
+         ⛔ 生やす処理を 2 本書かない = 同じ forEach を通す (押すと一言・立ち姿・影も全部同じ)。
+         ⚠ 印が無い保存では今の姿 (.npcUnit の数 = TAVERN.length)。 */
+      var npcList = (towerMotherHomeShown() && CROWD.REUNION) ? CROWD.TAVERN.concat(CROWD.REUNION) : CROWD.TAVERN;
+      npcList.forEach(function (n, i) {
         var cells = CROWD.cellsOf(n);
         if (!cells || !cells.length) return;
         var sh = document.createElement("div");
@@ -11152,6 +11196,7 @@
          ⚠ 撤退 ?npc=0 のときは initNpcCrowd() が即 return する (レイヤごと生えない)。 */
       var BUBBLE_MS = 4000;
       var bubbleEl = null, bubbleOwner = null, bubbleTimer = null, bubbleW = 0, bubbleH = 0;
+      var bubbleInView = false;   /* ★[#83] 再会の場面の一言 (npcBubbleShow に文面を渡した) のときだけ真 */
       function npcBubbleHide() {
         if (bubbleTimer !== null) { clearTimeout(bubbleTimer); bubbleTimer = null; }
         if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl);
@@ -11165,16 +11210,27 @@
         var x = u.lx + u.dx;
         if (x < half) x = half;
         if (x > MAP_W - half) x = MAP_W - half;
+        /* ★[#83] 再会の場面の一言だけは **画面の見えている幅** にも収める。
+           ⚠ compact (390x844) はカメラが主人公 (入口) を追うので、卓 t2 の息子が左端で半分
+             画面外になり、ステージ端の clamp だけでは文面の左が切れる (項目2b の実測)。
+           ⛔ 押したときの一言 (従来の吹き出し) の位置は 1px も動かさない = bubbleInView のときだけ。 */
+        if (bubbleInView && zoom > 0) {
+          var viewL = -camX / zoom + half, viewR = (elViewport.clientWidth - camX) / zoom - half;
+          if (viewR > viewL) { if (x < viewL) x = viewL; if (x > viewR) x = viewR; }
+        }
         /* 縦 = 頭の上。CSS の translateY(-100%) があるので top は **下端**。 */
         var y = u.ly + u.dy - SPRITE * FOOT - 8;
         if (y < bubbleH + 4) y = bubbleH + 4;      /* 上端でも紙が切れないように */
         bubbleEl.style.left = x + "px";
         bubbleEl.style.top  = y + "px";
       }
-      function npcBubbleShow(u) {
+      /* ★[#83] text を渡すとその文面を出す (再会の場面)。省略時は従来どおり u.n.say。
+         ⛔ n.say を書き換えて済ませない (配置データが動く)。 */
+      function npcBubbleShow(u, text) {
         npcBubbleHide();                          /* ⭐ 先に消す = 常に 1 枚 */
-        var say = (u && u.n && u.n.say) ? String(u.n.say) : "";
+        var say = (text != null) ? String(text) : ((u && u.n && u.n.say) ? String(u.n.say) : "");
         if (!say) return;
+        bubbleInView = (text != null);            /* ★[#83] 場面の一言だけ見えている幅へ収める */
         var b = document.createElement("div");
         b.className = "npcBubble";
         b.setAttribute("data-npc-say", u.n.key);   /* ⚠ ドライバは誰の一言かをここで見る */
@@ -11242,6 +11298,28 @@
       /* 最初の 1 枚は rAF を待たずに置く (1 フレームだけ左上に取り残さない) */
       for (var k = 0; k < npcUnits.length; k++) npcUpdate(npcUnits[k], npcClock);
       if (document.visibilityState !== "hidden") npcResume();
+
+      /* ★[#83] 再会の場面 — 母を初めて連れ帰った回だけ、母子が生えた後に 3 件を順に話す。
+         ⭐ 吹き出しは常に 1 枚 (npcBubbleShow が前を消す) なので BUBBLE_MS ずつ順番に。
+         ⭐ 礼金は帰還の帯 (showReturnBanner の「金貨 +N」) が出す。⛔ 場面は数値を出さない。
+         ⚠ 2 回目以降のクリア / 印だけの保存では pending が立たない = 母子は座っているだけ。 */
+      var REUNION_SCENE = [
+        { key: "harold",      say: "母さん……! 本当に連れて帰ってきてくれたのか" },
+        { key: "towerMother", say: "大げさだねえ。……ただいま" },
+        { key: "harold",      say: "約束の礼だ。受け取ってくれ。本当にありがとう" }
+      ];
+      var REUNION_FIRST_MS = 900;   /* 帰還の帯 (100ms 後に出る) が先に目に入ってから話し始める */
+      if (window.__towerReunionPending === true && towerMotherHomeShown()) {
+        REUNION_SCENE.forEach(function (line, idx) {
+          setTimeout(function () {
+            var who = null;
+            for (var j = 0; j < npcUnits.length; j++) if (npcUnits[j].n.key === line.key) { who = npcUnits[j]; break; }
+            if (!who) { console.warn("[towerMother] 再会の話し手が居ない: " + line.key); return; }
+            npcBubbleShow(who, line.say);
+            towerReunionSceneLog.push({ key: line.key, idx: idx, at: Date.now() });
+          }, REUNION_FIRST_MS + idx * BUBBLE_MS);
+        });
+      }
     })();
   })();
 

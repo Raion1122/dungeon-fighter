@@ -591,3 +591,67 @@ let towerMother = null;   // { phase, tx, ty, x, y, alive:true, def:{displaySize
 
 - 既存ドライバの変異アンカー(`tools/*.js` の `from:` のうち `index.html` に当たる 169 本)の件数は `56d4578` と作業ツリーで **169/169 同一**(scratchpad `item2a/anchor_diff.py`)= K10 のアンカーを書き換え・複製していない。
 - tavern 側の本(`verify_npc_crowd` / `verify_recruit_talk` / `verify_quest_draw` / `verify_tavern_map`)は 2b の担当(本項目の `tavern.html` の変化は changelog の `<li>` 1 行の入れ替えだけ)。
+
+### 12-2. 項目2b — 酒場(`tavern.html` / `js/npc-crowd.js`・基準 `34675e3`)
+
+触ったのは `js/npc-crowd.js`(+17 / −1)と `tavern.html`(本体 + changelog の `<li>` 1 行の書き換え)だけ。`index.html` / `js/tavern-map.js` / `town.html` / `world.html` / 卓の抽選・`boardFacts` / 礼金は触っていない。改行は 2 本とも CRLF のまま(bare LF 0・bare CR 0 を `py` で確認)。既存ドライバの変異アンカー(`tools/*.js` の `from:`)の件数は HEAD と作業ツリーで `tavern.html` 66 本・`js/npc-crowd.js` 10 本・`index.html` 168 本とも**変化 0**(scratchpad `item2b/anchor_diff.py`)= K10 のアンカーを書き換え・複製していない。
+
+#### (1) 実装の要点と実装後の行番号(項目2b の commit)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| `REUNION`(息子 `harold` / 母 `towerMother`)| `js/npc-crowd.js:101-116` | `TAVERN` / `TOWN` とは**別の配列**。席は §12-0 の結論どおり (4,7) dx −14 dy 6 face right hold 2 / (5,7) dx 14 dy 6 face left hold 1。シート = `town_mason_walk.png` / `villager_oldwoman_walk.png`(酒場の 8 人とは重ならない)。`say` は §5-2 の文面のまま。⛔ `TAVERN` の 8 人は 1 バイトも触っていない |
+| `NPC_CROWD` への公開 | `js/npc-crowd.js:175` | `TAVERN: TAVERN, TOWN: TOWN, REUNION: REUNION,`(K10 の指示どおり `global.NPC_CROWD = {` の行は触らず、この行へ足した)|
+| 印・撤退・pending の関数 | `tavern.html:5858-5883` | `TOWER_MOTHER_HOME_KEY = "dragonfighters.towerMotherHome"` / `isTowerMotherOn()`(`?towermother=0` で偽・呼ぶたびに読む)/ `towerMotherHomeShown()`(撤退していない かつ 印 = "1")/ `towerReunionSceneLog`(場面で出した一言の記録)/ `markTowerMotherHome()`(撤退中は何もしない・印は常に "1"・**立てる前が "1" でなかったときだけ** `window.__towerReunionPending = true`)。`consumeResult()` より前に置いた(IIFE が呼ぶ時点で定義済み)|
+| `consumeResult()` の印 | `tavern.html:5940` | `if (r && r.cleared && r.scenarioId) {` の塊の中(`saveClearedSet` の後・バナー予約の前)に `if (r.scenarioId === "tower-mother") markTowerMotherHome();` の 1 行。⛔ DOM は作らない。直後の `DFSlots.snapshot()` が印を記録スロットへ焼く |
+| シーム `__TAVERN_TV.reunion()` | `tavern.html:11007-11018` | 読み取り専用 `{ on, mark, pending, keys, scene }`(下の (2))|
+| 生やす | `tavern.html:11067-11071` | `var npcList = (towerMotherHomeShown() && CROWD.REUNION) ? CROWD.TAVERN.concat(CROWD.REUNION) : CROWD.TAVERN;` → 既存の forEach を `npcList.forEach` へ。⛔ 生やす処理を 2 本書いていない(影・立ち姿・押すと一言・`stopPropagation`・アイドル周期は全部同じ経路)|
+| `npcBubbleShow(u, text)` | `tavern.html:11227-11233` | 第 2 引数 `text` を渡すとその文面(省略時は従来どおり `u.n.say`)。⛔ `n.say` は書き換えない。`data-npc-say` は話し手の key のまま |
+| 場面の吹き出しだけ見えている幅へ収める | `tavern.html:11199` / `:11213-11220` / `:11233` | `bubbleInView`(文面を渡したときだけ真)。`npcBubbleFollow` の既存のステージ端 clamp の後に、真のときだけ画面の見えている幅(`-camX/zoom` 〜 `(vw-camX)/zoom`)でも clamp。⛔ 押したときの一言の位置は 1px も変わらない(D5)|
+| 再会の場面 | `tavern.html:11302-11322` | `initNpcCrowd()` の末尾(NPC が生えて最初の位置に置いた後)。`window.__towerReunionPending === true && towerMotherHomeShown()` のときだけ、`REUNION_SCENE` の 3 件(§5-3 の文面そのまま)を `900ms + idx × BUBBLE_MS(4000)` で順に `npcBubbleShow(話し手, 文面)`。数値は出さない(礼金は帰還の帯が出す)。話し手が居なければ warn して飛ばす |
+| changelog | `tavern.html:3335` | 2a の `<li>` を §10 の完成文面へ書き換え(`add_changelog.py` は呼んでいない = `<li>` は #83 全体で 1 本のまま・既定 4 件のまま)|
+
+#### (2) シームの形
+
+`window.__TAVERN_TV.reunion()` → `{ on: isTowerMotherOn(), mark: 印 === "1", pending: window.__towerReunionPending === true, keys: #npcLayer の .npcUnit のうち REUNION の key(DOM 順 = ["harold","towerMother"]), scene: [{ key, idx, at }] }`。`?npc=0` では `#npcLayer` が無いので `keys` は空、`?tavernmap=0` では `__TAVERN_TV` 自体が無い(K7)。
+
+#### (3) 手早い動作確認(scratchpad `item2b/reunion_check.js`・port 10610/10611・本番のまま)
+
+desktop 1440x900 と compact 390x844 の両方で **42/42 OK**(ログ `item2b/reunion_check_10611.log`):
+
+- 初回(`lastResult` = `{cleared:true, scenarioId:"tower-mother"}` を置いて開く): 印 "1"・`.npcUnit` 10(= TAVERN 8 + 2)・`keys` = harold, towerMother・`pending` true・吹き出しが harold → towerMother → harold の順に 3 件(`data-npc-say` と文面で確認・数字 0)・`NPC_CROWD.validate(REUNION, TAVERN_MAP, 実 DOM の札)` ok・`validate(TAVERN, …)` ok・画面内の札の中心の `elementFromPoint` は全部札自身・pageerror 0・背景 = 3 段目(`-288px`)・母は `scaleX(-1)`
+- 母子を押す: 2 人とも自分の `say` が出て、`isMoving` false・`walkingTo` null・主人公のタイル不変
+- 同じ保存でもう一度 tower-mother のクリアで戻る(同じタブで `lastResult` を置き直して reload): 母子は居る・`pending` false・場面 0 件(10 秒観測)
+- 印なし: `.npcUnit` 8 = `TAVERN.length`・`keys` 空 / 他シナリオ(goblin-mine)のクリア: 印 null・母子なし
+- `?towermother=0` + 印あり: 母子なし・`.npcUnit` 8・印 "1" のまま / `?towermother=0` + tower-mother の初クリア: 印を立てない・場面なし
+- 印だけ(帰還なし): 母子あり・場面なし
+- 場面の吹き出しは 3 件とも画面内に収まる(compact も)。スクショ = `item2b/shot_{desktop,compact}_{scene1,seated}.png`。帰還の帯(画面上部・top 110px)と場面の吹き出し(卓 t2 の上)は desktop / compact とも重ならない
+
+#### (4) 逸脱
+
+- **D5** 場面の一言だけ、吹き出しを「画面の見えている幅」にも収めるようにした(依頼書に無い)。理由 = compact(390x844)はカメラが入口の主人公を追うので、卓 t2 の息子(stage x 418)が画面の左端で半分外に出る(中心 x ≈ −8.5px)。ステージ端の clamp だけでは息子の 1 件目・3 件目の文面の左側が画面外で切れた(初回の走行のスクショで確認)。⛔ 押したときの一言(既存の吹き出し)は `bubbleInView` が偽なので 1px も動かない。吹き出しの尾は息子の真上から少し右へずれる(見た目は §9)。
+
+#### (5) 新たな崩れ
+
+- **K16** compact では息子が画面の左端で半分見切れる(上の D5)。母子を押す受入 (3e) は、要素の**画面内の部分**を押すこと(要素の中心は画面外 = `elementFromPoint` が null)。
+- **K17** 卓 t2 の絵の円卓は、マスクの `T` (4-5, 6-7) の真ん中ではなく **col 4 の中心付近(stage x ≈ 436)**に描かれている。dx −14 の息子(stage x 418)は**天板の上**に立って見え、母(542)は天板の右の縁の外に立つ(スクショ `item2b/crop_desktop_t2.png`)。席と dx/dy は指定どおり(4,7)/(5,7)・∓14・6 のまま(I1〜I5 は ok)。直すなら息子の dx を I3 の上限 −48 側へ寄せる案があるが、天板の左の縁の内側までしか動かせない(左隣 (3,7) は歩ける = I1 で置けない)⇒ §9 の目視で決める。
+- **K18** `?npc=0` / `?tavernmap=0` では母子も場面も出ない(K7 の予告どおり・印は立つ)。
+- **K19** 場面の 3 件は `BUBBLE_MS` と同じ 4 秒刻みで、前の吹き出しの自動消去(4 秒)とちょうど同時に次が出る(`npcBubbleShow` が先に前を消すので常に 1 枚)。場面の最中にプレイヤーが別の NPC を押すと、その一言は次の場面の一言で上書きされる(場面は止めない)。
+
+#### (6) 名指し golden(本番の作業ツリー・直列・既定ポート・ログ = scratchpad `item2b/named/`)
+
+| 本 | 着手前(§12-0) | 項目2b の後 |
+|---|---|---|
+| `verify_npc_crowd` 素 x2 | exit 0・33/33 | **exit 0・33/33・PENDING 0 x2**(76 / 76 秒)|
+| `verify_npc_crowd --negative` | exit 0・58/58 | **exit 0・58/58・PENDING 0**(244 秒)|
+| `verify_recruit_talk` 素 | exit 0・25/25 | **exit 0・25/25**(45 秒)|
+| `verify_recruit_talk --negative` | exit 0 | **exit 0**(612 秒・負のコントロール 11/11 本が期待どおり)|
+| `verify_quest_draw` 素 | exit 0・18/18 | **exit 0・18/18**(32 秒)|
+| `verify_quest_draw --negative` | exit 0 | **exit 0**(349 秒・負のコントロール 10/10 が検出成功)|
+| `verify_tavern_map` 素 | exit 0・47/47 | **exit 0・47/47・PENDING 0**(22 秒)|
+| `verify_tavern_map --negative` | exit 0・71/71 | **exit 0・71/71**(43 秒)|
+| `verify_party_promises` 素 | exit 0・35/35 | **exit 0・35/35**(39 秒)|
+| `verify_party_promises --negative` | exit 0(550 秒)| **exit 0**(549 秒)|
+| `verify_tower_mother` 素(changelog の `<li>` 変更の確認)| exit 0・19/19(2a 後 121 秒)| **exit 0・19/19**(121 秒)|
+
+⇒ 全 12 腕 exit 0・着手前と同じ色。`--negative` のログに出る「FAILED n」は変異腕の中の想定どおりの赤(本の終了コードは 0)。
