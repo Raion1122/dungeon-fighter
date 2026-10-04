@@ -655,3 +655,74 @@ desktop 1440x900 と compact 390x844 の両方で **42/42 OK**(ログ `item2b/re
 | `verify_tower_mother` 素(changelog の `<li>` 変更の確認)| exit 0・19/19(2a 後 121 秒)| **exit 0・19/19**(121 秒)|
 
 ⇒ 全 12 腕 exit 0・着手前と同じ色。`--negative` のログに出る「FAILED n」は変異腕の中の想定どおりの赤(本の終了コードは 0)。
+
+### 12-3. 項目3 — 受入 `tools/verify_tower_mother_b.js`(基準 `96298f0`)
+
+新規 1 本だけ(LF・`.gitattributes` の既定どおり)。本番(`index.html` / `tavern.html` / `js/*` / `audio.js`)・既存 golden・README は 1 バイトも触っていない。ポート = 素 **10555** / 変異 **10556〜10566**(11 本)。**次の新規ドライバ base = 10567**。作業物 = scratchpad `item3/`(`base1.log` / `base2.log` / `mut_*.log` / `mut_summary.txt` / `neg1.log` / `neg2.log`)。
+
+#### (1) 腕と assert(22 本 = §8 の 21 本 + (0c) pageerror 0)
+
+| 腕 | 中身 | 担う assert |
+|---|---|---|
+| 塔 A(`?diag=1`・1280x800) | #82 の受入と同じ口で 2 匹を追い払い(手番の関数だけ差し替え)、終戦から帰還まで 50ms で標本。随伴のコード・tick・ゲート・経路は本番のまま。enterNode / chooseExit / showExitArrows は **enterNode('n1') の後**に「数えるだけ」で包む。follow 中に 1 度だけ撤退ボタンの disabled を外して `click()`(本番はクリックの条件で返る)| (0a)(0b)(1a)〜(1h) |
+| 塔 B(`?diag=1`) | **装置**: follow が始まったら `heroForcedGoal` を「その時の主人公のタイル」へ付け替え続ける = 主人公が階段の口に着かない(⭐ 母の経路を壊すだけでは母が足跡へ寄せられて詰まない = 2a の申し送り)。上限まで本当に待つ | (2a) |
+| 塔 C(`?diag=1&towermother=0`) | 同じ追い払い | (4a)(4c) OFF |
+| 酒場 T1 desktop | 種 = `cleared` に unlockAfter (`orc-fort`) まで + `lastResult` tower-mother のクリア → 本番の `consumeResult()`。場面を 12.5 秒標本 → 母子を押す → 同じタブで `lastResult` を置き直して reload(2 回目)| (0a)(3a)(3b)(3d)(3e)(3g)(4c) ON |
+| 酒場 T1c compact 390x844 | 印あり。札で validate・母子を押す(**要素の画面内の部分**の中心 = K16)| (3d)(3e) |
+| 酒場 T2〜T6 | 印なし / 他シナリオ(本筋の先頭 = goblin-mine)のクリア / `?towermother=0` + 印 / `?towermother=0` + 初クリア / (3g) の対照(unlockAfter の 1 本手前まで)| (3c)(3f)(4b)(4c) OFF・(3g) |
+
+- (1b) は follow の最初の標本で `#towerMother` が `#nodeLayer` の子・display/visibility/opacity・96x96・`background-position` の Y が −288・X/Y がシート 576x384 の内側・画像が `villager_oldwoman_walk.png`・`background-size` 576px 384px。
+- (1c) は入室時の `enemies.length`(2)が終戦〜帰還の全標本で不変・`enemies` に母の状態(裸の `towerMother`)が無い・`enemyElements` に母の DOM が無い・母の DOM が 1 度は在った(空振り防止)。
+- (1g) は「随伴中(`active()`)の全標本で disabled」+「disabled を外して押しても `retreatInProgress` が偽」+ 帰還が retreated でない。
+- (1h) は `reward.gold − coins === SCENARIOS["tower-mother"].clearGold === 300`(内訳で見る。額の妥当性は測らない)。
+- (3c) は ⚠ intavern で TAVERN.length も 10 になる罠のとおり、`.npcUnit` 数 = TAVERN.length に **`reunion().keys` が空 + `[data-npc=harold]` / `[data-npc=towerMother]` が無い**を併せた。
+- (3g) は **対照**(`cleared` = goblin-mine〜lizard-swamp)で `unlocked` に塔の母が無く、`unlocked` 自体は空でないことまで見る(空振りで緑にしない)。
+- (4c) = [(0b) 母が出た, (3a) 印と母子, (4a) 母なしで帰還] を ON = [true,true,false] / OFF = [false,false,true]。
+
+#### (2) 担当表(`--mutate` で 1 本ずつ実走して決めた・`--negative` x2 で同じ集合)
+
+| 変異 | 依頼書 §8 の予想 | 実走の赤(= 担当)| 差の理由 |
+|---|---|---|---|
+| `backexit` | (1f)(1h) | (0b)(1a)(1b)(1c)(1d)(1e)(1f)(1g)(1h)(2a)(4c) | K20: 終戦の **61ms 後**(hidden の間)に ② が走り chooseExit + 矢印 → `dialogPaused` でゲームごと止まる = 母が出ない |
+| `retreatopen`(2 行とも外す)| (1g) | (1a)(1e)(1f)(1g)(1h) | 押下で撤退が始まる ⇒ 観測を打ち切る(K21)⇒ done も帰還も無い。見た目の行だけでも (1g) の標本 262/263 が enabled |
+| `nofailopen` | (2a) | (2a) | 一致 |
+| `nogate` | (0b)(1a) | (0b)(1a)〜(1h)(2a)(4c) | 母が 1 度も起動しない ⇒ 母に依存する節が全部空 |
+| `asenemy` | (1c) | (0c)(1a)(1c)(1d)(1e)(1g)(1h)(2a) | K22: 生きた母が敵配列 ⇒ 勝利判定が永久に偽(follow は上限で done になるが帰還しない)+ pageerror + 母の吹き出しが出ない |
+| `rowzero` | (1b) | (1b) | 一致 |
+| `nonodelayer` | (1b) | (1b) | 一致 |
+| `nomark` | (3a) | (3a)(3b)(3e)(4c) | 母子が生えない ⇒ 場面・desktop の押下・(4c) の ON も赤 |
+| `everytime` | (3b) | (3b) | 一致 |
+| `intavern` | (3c) | (3a)(3b)(3c)(3e)(3f)(4b)(4c) | 母子が全画面に常駐(印ありは 2 重 = keys 4 つ)|
+| `noretire` | (4b) | (4b)(4c) | (4c) OFF の酒場で印が立ち母子が生える |
+
+⇒ 11 本すべて「予想の節 ⊆ 実走の赤」(ドライバの起動時に検算)。予想どおりは 4 本(nofailopen / rowzero / nonodelayer / everytime)。NEG_MAYBE(確率で赤)は 0 本。注入行の実行は全変異で > 0(backexit 2 / retreatopen 479 / nofailopen 1 / nogate 3 / asenemy 2 / rowzero 3 / nonodelayer 2 / nomark 3 / everytime 1 / intavern 9 / noretire 6 回)。アンカーは配信 3 本 + town/world の合算で各 1 件・他ドライバのソースとの重なり 0(起動時の検算)。
+
+#### (3) 実走の結果・所要・揺れ
+
+| 走行 | 結果 | 所要 |
+|---|---|---|
+| 素 #1 | **exit 0・22/22** | 339 秒 |
+| 素 #2 | **exit 0・22/22** | 364 秒 |
+| `--negative` #1(素の基準 22/22 を含む)| **exit 0**・「11 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行」| 4,151 秒(基準 343 秒)|
+| `--negative` #2(同上)| **exit 0**・同上・担当表は #1 と全く同じ集合 | 4,194 秒(基準 349 秒)|
+
+- 素は 4/4(単独 2 + 基準 2)で緑・揺れなし。素の (1e) は follow 39.3〜44.2 秒・doneBy `arrived`・主人公 (16,13) = n1 の `start`・母はチェビシェフ 2 以内。(2a) は 4/4 で `followMs` 90,000〜90,030 ≥ `capMs` 90,000 で `cap`・主人公 (28,11) のまま・帰還 cleared。(4a) は終戦から 58〜60ms で制覇。
+- 変異の所要: backexit 182〜189 / retreatopen 300〜311 / nofailopen 463〜466 / nogate 191〜198 / asenemy 613〜630 / 他 330〜351 秒。
+
+#### (4) 新たな崩れ
+
+- **K20 ⭐⭐ 罠 1 の穴は「短いから当たらない」ではなく、終戦の 61ms 後に必ず当たる。** backexit(入口の 1 行を外す)では `--mutate` 1/1 + `--negative` 2/2 で、hidden の間(`heroForcedGoal` は emerge まで null・出口の冷却は入室から 23 秒以上経って切れている)に `tickNodeChoice` が ② へ進み `chooseExit` 1 回 + `showExitArrows` 1 回。非 autoplay では矢印の `dialogPaused` で `moveEnemies` ごと止まり、母は hidden のまま出てこない(= 依頼書 §2-3 の予言どおりの実害・手動プレイなら矢印の前で止まる)。
+- **K21 ⚠ 撤退のクリックの条件は、disabled のボタンでは測れない。** disabled の `<button>` の `click()` はリスナーを呼ばない ⇒ 1 行目(クリックの条件)を外しただけの欠陥は見た目の行が健在な限り表に出ない。受入は「disabled を一瞬外して押す」で 1 行目を単独で測る。⚠ 欠陥があると押した 2.1 秒後に酒場へ遷移して puppeteer の文脈が消え、**スイート全体が例外で全赤**になった(初回の `--mutate retreatopen` = 22/22 赤)⇒ 撤退が始まったら観測を打ち切る + 塔の腕ごとに例外を閉じ込める、へ直した(素の判定は不変)。
+- **K22 ⚠ 母を敵配列へ足すと、勝利判定が永久に偽 + `renderWorld` が `enemyElements[i].style` を読んで pageerror(`index.html:16741`)。** follow は上限(90 秒)で done になるが帰還は来ない。母を敵にしない設計(§2-1 ③)の実害をそのまま示す。
+- **K23** (2a) の装置は「follow 開始時の主人公のタイルへ `heroForcedGoal` を固定」で足りた(付け替えは 4/4 で 1 回 = 本番は follow の開始時にしか `heroForcedGoal` を書かない)。主人公が `start` に居ないので `arrived` にならず、上限で `cap`。
+- **K24**(項目4 の見積もり)素 1 本 ≈ 6 分(塔 3 腕のうち (2a) の腕が上限待ちで ≈ 2.5 分)/ `--negative` ≈ 70 分。
+
+#### (5) 逸脱
+
+- **D6** §8 に無い (0c)「全ページで pageerror 0 件」を足した(#82 の受入と同じ型。asenemy の実害がここに出る)。
+- **D7** (1g) に「disabled を外して押す」を足した(K21 = 依頼書の「disabled」だけでは撤退の 1 行目が測れない)。
+- **D8** (3e) は desktop と compact の両方で押す(compact は K16 の画面内の部分)/ (3g) は対照(解放前の進行)を足した / (1h) の礼金は `reward.gold − coins` の内訳で見た(拾った金貨があっても崩れない)。
+
+#### (6) 項目4 の母集団へ
+
+- 足す腕 = **`verify_tower_mother_b` 素**(exit 0・22/22)と **`verify_tower_mother_b --negative`**(exit 0)。どちらも #83 の新規 = 着手前の色は無い(post84 の 204 腕 + `verify_party_promises --negative` の 205 腕に足して 207 腕)。
