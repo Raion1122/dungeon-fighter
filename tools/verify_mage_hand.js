@@ -17,6 +17,8 @@
  *     (包んで答えを返すと「出たか」と「押した結果」が同じ道具になる・依頼書 §8)。⚠ 押す腕だけ、記録の後で
  *     opts.autoSkipMs を外して元の関数へ渡す (window.__ccHold)。召喚の前例と同じ 2000ms の自動スキップは
  *     クリックの遅れと競るので、押す腕の決定性のために外す (#80 §12-2)。押さない腕は元の opts のまま。
+ *     ★[#84] 本番の手のダイアログは自動スキップを持たない (押すまで待つ)。押さない腕 (__ccHold が偽) の手のダイアログ
+ *     (取り消し「触らない (Esc)」) にだけ、ドライバが明示の自動スキップ window.__ccAutoClose (既定 2000ms) を渡して閉じる。
  *   - 手を使ったかは 2 経路: ① appendLog の「✋」行 ② 対象の状態 (cage.opened / mimicChest.awakened / trap.triggered)。
  *   - 習得は localStorage "dragonfighters.knownSpells" を焼く (新しいドキュメントの前) か、knownSpells.mage へ push。
  *   - 酒場は tavern.html を別に開き、棚のボタンを実際に押して買う → __equipTV.learnScroll で読む。
@@ -38,9 +40,9 @@
  *           獣が最寄りの盗賊の左隣 (openCage のワープ式をドライバが独立に計算)・「✋」1 行・.dfMageHand が残らない
  *      (2b) 視線なし (47,15)(38,15) と 12 マス超で視線あり の床では戦闘前の口が出ない
  *      (2c) 断った (「触らない」を押した) 後、同じ口 (実の interval) からは二度と出ない
- *   §3 (3a) 実の戦闘 (tryStartEncounter) で魔法使いが ≤6 マス + 視線 ⇒ ダイアログが ROUND N のバナーの後・
+ *   §3 (3a) 実の戦闘 (tryStartEncounter) で魔法使いが 3〜5 マス + 視線 ⇒ ダイアログが ROUND N のバナーの後・
  *           そのラウンド最初の手番 (RunChronicle.beginTurn) より前・押すと開く
- *      (3b) 7〜12 マス (視線あり) では tryMageHandInCombat が出さない
+ *      (3b) ★[#84] 戦闘中の口の 12 マス境界 (視線あり): 12 マス超で最も近い床では出さない / 12 マス以内で最も遠い床 (≥10.5) では出す
  *      (3c) 開けた次のラウンドのバナーの時点で獣が encounterEnemyIndices に入っている
  *   §4 (4a) n7 の檻から 800px 以内で戦闘中 (encounterActive)・Math.random = 0 で自然脱走②の判定が 2 回以上走っても開かない
  *      (4b) 同じ仕込みを ?s2fold=0 の n6 へ ⇒ 開く (停止がアジトだけであることの対)
@@ -60,7 +62,9 @@
  *      (8b) 手なしで主人公が近づく (実の tryApproachMimic) ⇒ forewarned:false
  *   §9 (9a) 酒場の棚に「巻物・メイジハンド」= 「購入 <SCROLL_SHELF_PRICE>G」(80G)・ボタンを押すと買える → learnScroll ⇒
  *           knownSpellsTV.mage と localStorage に mage-hand
- *      (9b) MAGE_SKILLS_UI に mage-hand が無い・読んだ後の引き出し (#pmDrawer) に「メイジハンド」が出ない (対照: 呪文の行は出る)
+ *      (9b) MAGE_SKILLS_UI に mage-hand が無い・読んだ後の引き出し (#pmDrawer) の技 / 呪文の行 (.skillItem / .spellCountItem) に
+ *           「メイジハンド」が無く、押せない表示の 1 行 (.pmDrawerInnateRow) がちょうど 1 つ・押しても設定が変わらない
+ *           (★[#84] の言い直し。#80 は「出ない」を測っていた。対照: 呪文の行は出る)
  *   §10 (10a) 手を覚えていない新しいセーブ・同じ乱数種 (Math.random を種付き PRNG に差し替え) で、森 n7 の
  *           「見つけた罠の隣 + 檻を射程に収めた魔法使い」の盤面を gameStarted で 15 秒進めた showChoice / showCharChoice の
  *           呼び出し列が ?magehand=0 の腕と完全一致 (列は空でない)。⚠ 罠の解除の口は主人公が 1 マス進んだ時にしか
@@ -89,6 +93,9 @@
  * ■ 担当表の依頼書 §8 との差 (実走で決めた。予想は全部含む = 依頼書 §12-2):
  *   nogate +(5c)(7d) / cageold +(1d)(2b)(2c)(3a)(3c)(6a) / trapchoice +(11a) / eyechainoff +(6a) / rollbackleak +(5c)。
  *   (6a) は「手を使わなかった腕は枠の対が取れない = 赤」(⛔ 取れない対を緑にしない)。
+ * ■ #84 (2026-10-04・依頼書 2026-10-03_mage-hand-reach.md §10-1) で言い直した: (3b) 6 マス超・12 以内で出ない → 12 マス境界 /
+ *   (9b) 引き出しに出ない → 技 / 呪文の行に無く表示 1 行だけ / 変異 combatfar (空振りになった) → combat6 (戦闘中 6 マスへ戻す・担当 (3b)) /
+ *   押さない腕の手のダイアログはドライバの __ccAutoClose で閉じる。担当表は #84 の実走で取り直し、12 本とも #80 と同じ集合。
  * ■ 依頼書と違えた測り方 (期待は弱めていない・依頼書 §12-2): (4a) 30 秒 → 自然脱走②の判定が 2 回以上走ったこと /
  *   (5b) n6 → n0 + offerMageHand の呼び出し数 / (10a) 60 秒の autoplay → 罠の口を 1 回直に呼んで 15 秒 /
  *   (3a) 主人公を (53,12) 付近へ (増援の届く距離) / (5c) 2 腕とも同じ乱数種 (編成が乱数で決まる)。
@@ -184,10 +191,11 @@ const MUTATIONS = {
   escapeall: [
     { file: F_INDEX, from: '                  cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel" }] } },',
       to: '                  cages:  [{ tx: 36, ty: 13, flag: "s2_beast_intel", noAutoEscape: (' + HIT('escapeall') + ', true) }] } },   /* ★変異escapeall */' }],
-  /* 戦闘中も 12 マスで聞く (印は戦闘中の口を呼んだとき) */
-  combatfar: [
+  /* ★[#84] 戦闘中の射程を #80 の 6 マスへ戻す (印は戦闘中の口を呼んだとき)。⚠ #80 の combatfar (戦闘中も calm で聞く) は
+   *   #84 で calm = combat = 12 になり挙動が変わらない = 空振りになったので定義し直した (依頼書 §10-0 K4) */
+  combat6: [
     { file: F_INDEX, from: '      return offerMageHand("combat", MAGE_HAND.combatRangeTiles);',
-      to: '      return offerMageHand("combat", (' + HIT('combatfar') + ', MAGE_HAND.calmRangeTiles));   /* ★変異combatfar */' }],
+      to: '      return offerMageHand("combat", (' + HIT('combat6') + ', 6));   /* ★変異combat6 */' }],
   /* 視線を見ない (印は視線の通らない物を通したとき) */
   nolos: [
     { file: F_INDEX, from: '              if (!hasLineOfSight(caster.cx, caster.cy, p.x, p.y)) continue;',
@@ -221,7 +229,7 @@ const NEG_EXPECT = {
   cageold:      ['(0b)', '(1a)', '(1d)', '(2b)', '(2c)', '(3a)', '(3c)', '(6a)'],
   escapeon:     ['(4a)'],
   escapeall:    ['(1c)', '(4b)'],
-  combatfar:    ['(3b)'],
+  combat6:      ['(3b)'],
   nolos:        ['(2b)'],
   fumblehurts:  ['(7b)'],
   /* ?magehand=0 の罠も 2 択へ倒れる ⇒ (11a) の罠の部分も赤 */
@@ -234,7 +242,7 @@ const NEG_EXPECT = {
 /* 依頼書 §8 の予想 (⭐ 実測の赤に含まれていることは崩さない = 起動時に検算) */
 const NEG_PREDICTED = {
   nogate: ['(0c)', '(10a)'], slotburn: ['(6a)'], handinpool: ['(9b)'], cageold: ['(0b)', '(1a)'], escapeon: ['(4a)'],
-  escapeall: ['(1c)', '(4b)'], combatfar: ['(3b)'], nolos: ['(2b)'], fumblehurts: ['(7b)'], trapchoice: ['(7d)'],
+  escapeall: ['(1c)', '(4b)'], combat6: ['(3b)'], nolos: ['(2b)'], fumblehurts: ['(7b)'], trapchoice: ['(7d)'],
   eyechainoff: ['(5a)'], rollbackleak: ['(11a)', '(11b)'],
 };
 const MUT_ORDER = Object.keys(MUTATIONS);
@@ -370,7 +378,7 @@ function summarize(R, label) {
  * ページ内の道具 (読み込み後に 1 回入れる)。⚠ 包むのは window に出ている関数宣言だけ (内部の呼び出しも包んだ側を引く)。
  * ══════════════════════════════════════════════════════════════════════════════ */
 const INSTALL = (HAND, EYE) => {
-  window.__seq = 0; window.__ev = []; window.__ccHold = false;
+  window.__seq = 0; window.__ev = []; window.__ccHold = false; window.__ccAutoClose = 2000;
   const snapSlots = () => JSON.stringify({ cur: (typeof currentSpellSlots !== 'undefined') ? currentSpellSlots : null, al: allies.map((a) => (a && a.spellSlots) || null) });
   window.__slots = snapSlots;
   const push = (o) => { o.n = ++window.__seq; window.__ev.push(o); return o; };
@@ -385,6 +393,10 @@ const INSTALL = (HAND, EYE) => {
     push({ t: 'cc', msg: String(msg), labels: (cands || []).map((c) => c.label), cancel, opts: opts || null, dp: dialogPaused, slots: snapSlots() });
     const a = Array.prototype.slice.call(arguments);
     if (window.__ccHold && a[3] && a[3].autoSkipMs) a[3] = Object.assign({}, a[3], { autoSkipMs: 0 });
+    /* ★[#84] 本番の手のダイアログは押すまで待つ (自動スキップなし)。押さない腕 (素で出ない所に変異で出てしまう腕・(3b) の射程内) が
+     *   閉じずに evaluate が返らなくならないよう、**ドライバ側で**手のダイアログ (取り消し =「触らない (Esc)」) にだけ明示の
+     *   自動スキップを渡す (= #80 当時の 2 秒と同じ「押さない」)。⛔ 押す腕 (__ccHold) と罠の 2 択には掛けない。 */
+    else if (!window.__ccHold && window.__ccAutoClose > 0 && cancel === '触らない (Esc)' && !(a[3] && a[3].autoSkipMs)) a[3] = Object.assign({}, a[3] || {}, { autoSkipMs: window.__ccAutoClose });
     return oCC.apply(this, a);
   };
   const oC = showChoice;
@@ -554,7 +566,7 @@ async function runSuite(browser, port, mutKey, label) {
     const A3 = await p.evaluate(() => { knownSpells.mage.push('mage-hand'); const c = mageHandCaster(); return c ? { name: c.name, isAlly: !!(c.actor && c.actor.classKey === 'mage' && allies.indexOf(c.actor) >= 0) } : null; });
     R.check('(0c)', '覚えていない ⇒ mageHandCaster() null・offerMageHand でダイアログ 0・_handAsked が生えない / 覚える ⇒ 仲間の魔法使い',
       A.known === false && A.caster === null && B0.r === false && B0.ev === 0 && B0.asked === true && !!A3 && A3.isAlly, { before: { known: A.known, caster: A.caster, offer: B0 }, after: A3 });
-    /* (2b) 視線なし (47,15)(38,15) と 12 マス超で視線あり の床 (直に offerMageHand。押さない腕 = 自動スキップのまま) */
+    /* (2b) 視線なし (47,15)(38,15) と 12 マス超で視線あり の床 (直に offerMageHand。押さない腕 = ドライバの自動スキップ __ccAutoClose) */
     const B = await p.evaluate(async () => {
       const a = __mageAlly(); const c = cages[0]; const out = { tiles: [] };
       delete c._handAsked;   // (0c) の仕込みの名残を (2b) へ持ち込まない (変異 nogate で (0c) の鍵が立つ)
@@ -614,18 +626,27 @@ async function runSuite(browser, port, mutKey, label) {
     const D2 = await p.evaluate(() => { gameStarted = false; window.__ccHold = false; return { n: __ev.filter((e) => e.t === 'cc').length, opened: cages[0].opened, enc: encounterActive }; });
     R.check('(2c)', '断った (「触らない」を押した) 後、同じ口 (実の interval) からは二度と出ない',
       !!dlg2c && D1.n === 1 && D1.opened === false && D1.asked.join() === 'calm' && D2.n === 1 && D2.opened === false, { dlg: dlg2c, D1, D2 });
-    /* (3b) 7〜12 マス (視線あり) では戦闘中の口が出ない */
+    /* (3b) ★[#84] 戦闘中の口の 12 マス境界 (視線あり): 12 マス超で最も近い床では出ない → 12 マス以内で最も遠い床 (≥10.5) では出る。
+     *   ⚠ 出ない側を先に測る (出た側で _handAsked.combat が立つと、後の呼び出しは射程と無関係に素通りする = 永久緑)。
+     *   出る側は押さない腕 = ドライバの自動スキップ (__ccAutoClose) で閉じ、offerMageHand は false を返す */
     const E3b = await p.evaluate(async () => {
       const a = __mageAlly(); const c = cages[0];
-      const far = __tilesAround(c.tx, c.ty, 6.01, 12, true);
-      const t = far[0] || null; const out = { tile: t, n: far.length };
-      if (t) { __putAlly(a, t[0], t[1]); const n0 = __ev.length; out.r = await tryMageHandInCombat(); out.cc = __ev.slice(n0).filter((e) => e.t === 'cc').length; }
-      out.opened = c.opened; out.combatKey = !!(c._handAsked && c._handAsked.combat);
+      const outT = __tilesAround(c.tx, c.ty, 12.01, 20, true)[0] || null;
+      const inL = __tilesAround(c.tx, c.ty, 10.5, 12, true);
+      const inT = inL.length ? inL[inL.length - 1] : null;
+      const out = { outTile: outT, inTile: inT };
+      if (outT) { __putAlly(a, outT[0], outT[1]); const n0 = __ev.length; out.outR = await tryMageHandInCombat(); out.outCc = __ev.slice(n0).filter((e) => e.t === 'cc').length;
+        out.outKey = !!(c._handAsked && c._handAsked.combat); }
+      if (c._handAsked) delete c._handAsked.combat;
+      if (inT) { __putAlly(a, inT[0], inT[1]); const n0 = __ev.length; out.inR = await tryMageHandInCombat(); out.inCc = __ev.slice(n0).filter((e) => e.t === 'cc').length;
+        out.inKey = !!(c._handAsked && c._handAsked.combat); }
+      out.opened = c.opened;
       if (c._handAsked) delete c._handAsked.combat;   // (3a) の前の後始末
       return out;
     });
-    R.check('(3b)', '戦闘中の口は 6 マス超・12 マス以内 (視線あり) では出ない (tryMageHandInCombat)',
-      !!E3b.tile && E3b.r === false && E3b.cc === 0 && E3b.opened === false && E3b.combatKey === false, E3b);
+    R.check('(3b)', '戦闘中の口は 12 マス境界: 12 マス超 (視線あり・最寄り) では出ない / 12 マス以内で最も遠い床 (≥10.5・視線あり) では出る (tryMageHandInCombat)',
+      !!E3b.outTile && E3b.outTile[2] > 12 && E3b.outR === false && E3b.outCc === 0 && E3b.outKey === false
+      && !!E3b.inTile && E3b.inTile[2] >= 10.5 && E3b.inTile[2] <= 12 && E3b.inCc === 1 && E3b.inKey === true && E3b.opened === false, E3b);
     /* (3a) 実の戦闘 */
     const E0 = await p.evaluate(() => {
       const a = __mageAlly(); __putAlly(a, 52, 12);
@@ -658,7 +679,7 @@ async function runSuite(browser, port, mutKey, label) {
         roundOk = !!lastR && tBetween === 0 && tAfter >= 1;
         nextBeast = nextR ? nextR.beastIn : null;
       }
-      R.check('(3a)', '実の戦闘・≤6 マス + 視線: ダイアログが ROUND N のバナーの後・そのラウンド最初の手番より前・押すと開く',
+      R.check('(3a)', '実の戦闘・3〜5 マス + 視線: ダイアログが ROUND N のバナーの後・そのラウンド最初の手番より前・押すと開く',
         E0.enc && !!dlg3 && cc.length === 1 && roundOk && E3.opened === true && hl.length === 1 && E3.asked.indexOf('combat') >= 0,
         { hero: E0.hero, dlg: dlg3 && dlg3.msg.slice(0, 20), cc: cc.length, order, opened: E3.opened, hl: hl.length, asked: E3.asked });
       R.check('(3c)', '開けた次のラウンドのバナーの時点で獣が encounterEnemyIndices に入っている',
@@ -933,11 +954,22 @@ async function runSuite(browser, port, mutKey, label) {
         pmOrdered = [{ classKey: 'mage', isHero: true, name: '', zone: 'rear', variant: 0 }];
         pmRenderDrawer(0);
         const dr = document.getElementById('pmDrawer');
-        return { inUI: MAGE_SKILLS_UI.some((s) => s.id === 'mage-hand'), items: dr ? dr.querySelectorAll('.spellCountItem').length : -1,
-          hand: dr ? dr.textContent.indexOf('メイジハンド') : -2, sleep: dr ? dr.textContent.indexOf('スリープ') : -2 };
+        if (!dr) return { dr: false };
+        const has = (el) => el.textContent.indexOf('メイジハンド') >= 0;
+        const rows = Array.from(dr.querySelectorAll('#pmDrawerSkillList .pmDrawerInnateRow')).filter(has);
+        const sel0 = JSON.stringify(selection.partySkills || null), html0 = dr.innerHTML.length;
+        if (rows[0]) rows[0].click();
+        return { inUI: MAGE_SKILLS_UI.some((s) => s.id === 'mage-hand'), items: dr.querySelectorAll('.spellCountItem').length,
+          handInPool: Array.from(dr.querySelectorAll('.skillItem, .spellCountItem')).filter(has).length,
+          rows: rows.length, rowSkillCls: rows.filter((e) => e.classList.contains('skillItem') || e.classList.contains('spellCountItem')).length,
+          handN: dr.textContent.split('メイジハンド').length - 1, sleep: dr.textContent.indexOf('スリープ'),
+          clickSame: JSON.stringify(selection.partySkills || null) === sel0 && document.getElementById('pmDrawer').innerHTML.length === html0 };
       });
-      R.check('(9b)', 'MAGE_SKILLS_UI に mage-hand が無い・読んだ後の引き出しに「メイジハンド」が出ない (対照: 呪文の行「スリープ」は出る)',
-        U.inUI === false && U.items >= 1 && U.hand === -1 && U.sleep >= 0, U);
+      /* ★[#84] 言い直し: #80 は「引き出しに『メイジハンド』が出ない」を測っていた = #84 (c) の表示 1 行と正面から逆 (依頼書 §10-0 K3)。
+       *   守りたいのは #80 罠A (技 / 呪文枠への漏れ) ⇒ 「表 MAGE_SKILLS_UI に無い・技 / 呪文の行 (.skillItem / .spellCountItem) に無い・
+       *   表示の 1 行 (.pmDrawerInnateRow) がちょうど 1 つ・押しても設定が変わらない・引き出しの『メイジハンド』はその 1 回だけ」へ */
+      R.check('(9b)', 'MAGE_SKILLS_UI に mage-hand が無い・読んだ後の引き出しの技 / 呪文の行に「メイジハンド」が無く、押せない表示の 1 行だけがある (対照: 呪文の行「スリープ」は出る)',
+        U.inUI === false && U.items >= 1 && U.handInPool === 0 && U.rows === 1 && U.rowSkillCls === 0 && U.handN === 1 && U.clickSame === true && U.sleep >= 0, U);
     }
     {
       const same = (a, b) => !!a && !!b && a.name === b.name && a.spellId === b.spellId && a.classKey === b.classKey && a.rarity === b.rarity;

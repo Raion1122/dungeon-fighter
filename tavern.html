@@ -2325,6 +2325,8 @@
     .pmDrawerSec { border-top: 1px solid rgba(224,180,60,0.18); padding-top: 9px; margin-top: 9px; }
     .pmDrawerSecHead { font-size: 12.5px; letter-spacing: 2px; color: #cbb98a; margin-bottom: 7px; }
     .pmDrawerHint { display: block; font-size: 11px; letter-spacing: 0; color: #8a7c5a; margin-top: 3px; line-height: 1.45; }
+    /* ★[#84] 枠なしで覚えている呪文の表示 1 行 (押せない)。⛔ .skillItem の規則を流用しない (数え上げる本を汚さない)。 */
+    #pmDrawer .pmDrawerInnateRow { grid-column: 1 / -1; padding: 6px 10px; font-size: 12px; line-height: 1.45; color: #cbbd98; border: 1px dashed rgba(224,180,60,0.30); border-radius: 3px; cursor: default; user-select: none; }
     /* 暗幕の上では羊皮紙色の字が読めないので、引き出しの中だけラベル色を上書きする。
        ⛔ .apRow / .apSel 本体は触らない (準備画面の見た目が変わる)。 */
     #pmDrawer .apRows { gap: 6px; }
@@ -3330,10 +3332,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>メイジハンドが使いやすく</b> — 覚えていると出撃前の画面に表示される。檻のレバーに手が届く距離が戦闘中も 12 マスに伸び、「触りますか?」は押すまで待つようになった。</li>
         <li><b>新しい依頼「塔の母」</b> — 砦を越えた冒険者の卓に、町外れの塔に住む母を迎えに行く依頼が並ぶことがある。塔の屋上のワイバーン(竜の一種・魔法学で正体を思い出せる・脅威度 6)は、傷つくと空へ逃げ去る。</li>
         <li><b>酒場の依頼が入れ替わるように</b> — 卓に並ぶ依頼はダンジョンから戻るたびに変わる 2 件だけ。物語の次の依頼は必ず並ぶ。奥の小部屋は武器防具屋になった。</li>
         <li><b>メイジハンドの巻物を追加</b> — 魔法使いが幽霊の手で、離れた檻のレバーや罠・怪しい宝箱に触れる。盗賊アジトの檻は野営地の奥へ移った。</li>
-        <li><b>魔法の眼の巻物を追加</b> — 稀少な巻物「巻物・アーケインアイ」を宝箱やボスから拾えるように。覚えた魔法使いは、部屋に入った時と出口の前に魔法の眼を飛ばし、霧の奥の敵の種類と数を教えてくれる(呪文の枠を 1 つ使う)。</li>
       </ul>
     </div>
     <script>
@@ -9198,6 +9200,17 @@
       magics.forEach(sk => listEl.appendChild(renderSpellSlotItem(sk, classKey, totalUsed, totalMax, lv)));
     } else {
       magics.forEach(sk => listEl.appendChild(renderSkillItem(sk, equippedSet, full, classKey)));
+    }
+    /* ★[#84] メイジハンド (枠なしの初級呪文) を覚えていることだけを見せる 1 行。
+       ⛔ MAGE_SKILLS_UI / 呪文枠には足さない (#80 罠A = mpCost で技か枠へ振り分けられて漏れる)。
+       ⛔ .skillItem / .spellCountItem を付けない・ハンドラを持たない (押しても何も起きない・数え上げる本を汚さない)。
+       ⭐ ?magehand=0 でも出す (覚えている事実は変わらない。撤退スイッチが止めるのは手のダイアログ・依頼書 §10-1)。 */
+    if (classKey === "mage" && isSpellKnownTV("mage", "mage-hand")) {
+      const innate = document.createElement("div");
+      innate.className = "pmDrawerInnateRow";
+      innate.id = "pmDrawerMageHand";
+      innate.textContent = "✋ メイジハンド — 枠なし・いつでも(檻のレバー・罠・怪しい宝箱に離れて触る)";
+      listEl.appendChild(innate);
     }
     skillSec.appendChild(skHead);
     skillSec.appendChild(listEl);

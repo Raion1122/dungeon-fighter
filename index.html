@@ -13883,9 +13883,9 @@
     }
     /* ★[#80] メイジハンド (5e SRD 初級呪文)。⛔ MAGE_SKILLS にも酒場の MAGE_SKILLS_UI にも足さない
      *   (枠も技の候補も通らない = 依頼書 §2-3 罠A/罠B)。習得は巻物 → isSpellKnown("mage","mage-hand") だけ。
-     *   射程: 戦闘前 12 マス (戦闘外は手を何度も進められる読み) / 戦闘中 6 マス (= 5e の 30 ft)。 */
+     *   射程: 戦闘前 12 マス (戦闘外は手を何度も進められる読み) / 戦闘中も 12 マス (★[#84] 6 → 12。6 では檻に届かない = 依頼書 §2-2)。 */
     const MAGE_HAND = { id: "mage-hand", name: "メイジハンド",
-                        calmRangeTiles: 12, combatRangeTiles: 6 };
+                        calmRangeTiles: 12, combatRangeTiles: 12 };
     /* 呪文リストの **index 1** に sleep を挿す。⭐⭐⭐ 位置が効く:
      *   呪文枠は先頭から `take = min(n, upperCap - used)` で配られ、Lv1 は upperCap = 3。
      *   末尾に置くと枠が尽きて**黙って落ちる** (受入 sleeplast がこれを守る)。 */
@@ -22107,7 +22107,7 @@
             await spawnWave(units, sortUnits, wd, waveNext, waveList.length);
           }
 
-          // ★[#80] メイジハンド — 戦闘中の口 (射程 6 マス + 視線)。⚠ ラウンドの頭 = actor ループの前だけ
+          // ★[#80] メイジハンド — 戦闘中の口 (射程 12 マス + 視線・#84)。⚠ ラウンドの頭 = actor ループの前だけ
           //   (依頼書 §2-3 罠C)。開けた檻の獣はこのラウンドの units に入らず、次のラウンドの
           //   mergeReinforcements で合流する (自然脱走が戦闘中に開けたときと同じ経路)。
           await tryMageHandInCombat();
@@ -25149,8 +25149,7 @@
             const handPrevDp = dialogPaused;
             if (holdsFlag) t.dialogActive = true;
             try {
-              const pick = await showCharChoice(T.ask(t), [{ label: T.label(t) }], "触らない (Esc)",
-                { autoSkipMs: (window.SkillCheck && SkillCheck.AUTO_ROLL_MS) || 0 });   // 召喚の前例と同じ待ち
+              const pick = await showCharChoice(T.ask(t), [{ label: T.label(t) }], "触らない (Esc)");   // ★[#84] 押すまで待つ (自動スキップなし)
               dialogPaused = handPrevDp;
               if (pick !== 0) return false;
               await flyMageHand(caster, p);
@@ -25179,7 +25178,7 @@
       await offerMageHand("calm", MAGE_HAND.calmRangeTiles);
     }
     setInterval(tryMageHandCalm, 400);
-    /* ③ 戦闘中の口 (射程 6 マス + 視線)。戦闘ループのラウンドの頭からだけ呼ぶ。 */
+    /* ③ 戦闘中の口 (射程 12 マス + 視線・#84)。戦闘ループのラウンドの頭からだけ呼ぶ。 */
     async function tryMageHandInCombat() {
       if (gameOver || hp <= 0) return false;
       return offerMageHand("combat", MAGE_HAND.combatRangeTiles);

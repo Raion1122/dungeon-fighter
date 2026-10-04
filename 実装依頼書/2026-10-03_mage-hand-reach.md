@@ -256,3 +256,77 @@
   - ⇒ **流用可**。合成 = `post82.tsv`(`b89a5c5`)を `fix82.tsv` の 15 腕(`pre_` を除く)で置換 + `extra82.tsv` の `--negative` 14 腕(`pre_` を除く)。
 - 合成した **`item1/pre84.tsv`(列は `post82.tsv` と同じ・出所は `pre84_src.tsv`)= 200 腕・緑 179 / 非緑 21**。内訳: 母集団 185 腕 = **緑 168 / 非緑 17**(既知の赤・使い方ガード・調査の道具・揺れ = #82 §12-3 の分類のまま)/ 追加の `--negative` 15 腕 = 緑 11 / 非緑 4(`verify_swamp_novice` `nostart`・`verify_fort_fold` `addn6`・`verify_swamp_fold` `entryn0` のアンカー腐敗 exit 3 と `probe_s2_clear` `wipeblind` の空振り exit 1 = #82 K27)。実走し直した腕は 0。
 - ⚠ 上の (3) の名指しの色は本項で実走した値。`pre84.tsv` の同じ腕(`post82`)は `verify_pm_drawer_fit` 素 exit 0・`verify_mage_hand --negative` exit 0 ⇒ 違いは K9 の揺れ。
+
+### 10-1. 本番実装(項目2・2026-10-04・基準 `ba2d4e7` = 配信物は `06ee666` と同一)
+
+#### (1) diff の要約(行番号は実装後)
+
+| ファイル:行 | 変更 |
+|---|---|
+| `index.html:13888` `MAGE_HAND` | `combatRangeTiles: 6` → **`12`**(`calmRangeTiles: 12` は不変) |
+| `index.html:25152` `offerMageHand` | `showCharChoice(…, "触らない (Esc)", { autoSkipMs: … })` の 2 行 → 第 4 引数なしの 1 行(**押すまで待つ**)。`_handAsked[gate] = true` は `:25147`(聞く前)のまま = 罠 2 は仕様どおり。次の行 `if (pick !== 0) return false;` は `:25154`(1 行上へ詰まっただけ・複製なし) |
+| `index.html:13886` `:22110` `:25181`(注記) | 「戦闘中 6 マス」→「12 マス・#84」(コメントのみ。⚠ 指示の「3 点 + changelog 以外 1 バイトも変えない」からの逸脱 **D1**: 嘘になる注記を残さないため。この 3 行をアンカーに持つツールは 0 本(`tools/*.js` `*.py` を grep)) |
+| `tavern.html:2328-2329`(CSS) | `#pmDrawer .pmDrawerInnateRow`(全幅 `grid-column: 1 / -1`・点線枠・`cursor: default`・`user-select: none`・色は既存 `#cbbd98`)+ 注記 1 行 |
+| `tavern.html:9204-9214` `pmRenderDrawer` | `magics.forEach` の if/else の直後: `classKey === "mage" && isSpellKnownTV("mage","mage-hand")` のとき `<div class="pmDrawerInnateRow" id="pmDrawerMageHand">✋ メイジハンド — 枠なし・いつでも(檻のレバー・罠・怪しい宝箱に離れて触る)</div>` を `#pmDrawerSkillList` の末尾へ。`.skillItem` / `.spellCountItem` なし・ハンドラなし。`MAGE_SKILLS` / `MAGE_SKILLS_UI` / 呪文枠は不変 |
+| `tavern.html:3335` changelog | §8 の 1 行を先頭へ(最古の「魔法の眼の巻物を追加」を落とした = 4 件維持) |
+
+- 差分の削除行の全数(`git diff -U0` の `-` 行): `index.html` 6 行 = 上の (a) 1 + (b) 2 + 注記 3 / `tavern.html` 1 行 = changelog の最古行。これ以外の行は 1 バイトも変えていない。
+- 改行: `index.html` CRLF 40965・LF のみ 0 / `tavern.html` CRLF 11279・LF のみ 0(`py` のバイト数え)。
+- ⭐ 召喚スクロールの `autoSkipMs`(`:14467-14468`)・罠の解除の口(`runTrapDisarmCheck`)・`showCharChoice` 本体は触っていない(`driver_scroll_autoskip` 9/9 で機構が残ることを確認)。
+
+#### (2) K5 の決定(orchestrator)
+
+表示の 1 行は **`?magehand=0` でも出す**。tavern に新しい URL の読み口は作らない。理由 = 覚えている事実は撤退しても変わらない / 撤退スイッチ `?magehand=0` が止めるのは手のダイアログ(`index.html` の `isMageHandOn`)で、表示の 1 行は押せず何も起こさない = 無害。実測: `tavern.html?magehand=0` で覚えた魔法使いの引き出しに 1 行出る。
+
+#### (3) 既存 golden の言い直し(`tools/verify_mage_hand.js`・⛔ assert は緩めていない)
+
+| 何を | → 何へ | 理由 |
+|---|---|---|
+| (3b) 戦闘中は 6 マス超・12 マス以内(視線あり)で出ない | **12 マス境界**: 12 マス超で最も近い視線ありの床(実測 (47,17) 12.04)では出ない・`_handAsked.combat` も立たない / 12 マス以内で最も遠い視線ありの床(≥10.5・実測 (58,19) 11.4)では**ちょうど 1 回出る**・鍵が立つ。出ない側を先に測る(出た側の鍵が残ると射程と無関係に素通り = 永久緑) | (a) と逆向き(K4) |
+| 変異 `combatfar`(戦闘中も calm の射程で聞く) | **`combat6`**(戦闘中の射程を #80 の 6 マスへ戻す・担当 (3b)・アンカー行は同じ `return offerMageHand("combat", …)`) | (a) 後は calm = combat = 12 で空振り(K4)。⚠ キー名を変えた(ポートは並び順で同じ 10521) |
+| (9b) 引き出しに「メイジハンド」が出ない | `MAGE_SKILLS_UI` に無い・`.skillItem` / `.spellCountItem` に「メイジハンド」0・`#pmDrawerSkillList .pmDrawerInnateRow` がちょうど 1 で技/呪文の class を持たない・引き出しの「メイジハンド」は 1 回だけ・その行を押しても `selection.partySkills` と引き出しが変わらない・対照「スリープ」は出る | (c) と逆向き(K3)。守るのは #80 罠A(技 / 枠への漏れ)。`handinpool` は言い直し後も (9b) だけが赤 |
+| 押さない腕(包み `INSTALL` の `showCharChoice`) | `__ccHold` が偽の腕で、取り消しが「触らない (Esc)」(= 手のダイアログだけ。`index.html` で 1 箇所)のとき、ドライバが明示の `autoSkipMs = window.__ccAutoClose`(既定 2000)を渡して閉じる。押す腕と罠の 2 択には掛けない | 本番に自動スキップが無くなり、変異で出てしまう腕と (3b) の出る側が閉じない(K2) |
+| ヘッダ :18-19 / :41 / :43 / (9b) の説明 / (3a) の文言 | 新仕様へ(≤6 → 3〜5 マス = 仕込みの実距離)+ #84 の言い直しの段落 | — |
+
+#### (4) 担当表の取り直し(実走)
+
+`verify_mage_hand --negative`(1886.8 秒): 11/12 が担当と完全一致。`escapeon` だけ (3a)(3c)(6a) へ漏れて exit 1 = **着手前と同じ揺れ**(K9・#80 K26。漏れた腕の (3a) は `opened:true / asked:["calm"]` = 戦闘の前に自然脱走で開いていた = 手の変更と無関係)→ `--negative --only escapeon` 単独で (4a) だけが赤・exit 0。
+
+| 変異 | 担当(赤) | 注入行の実行 |
+|---|---|---|
+| nogate | (0c)(5c)(7d)(10a) | 7 |
+| slotburn | (6a) | 4 |
+| handinpool | (9b) | 2 |
+| cageold | (0b)(1a)(1d)(2b)(2c)(3a)(3c)(6a) | 9 |
+| escapeon | (4a)(単独再走) | 7 |
+| escapeall | (1c)(4b) | 1 |
+| **combat6**(旧 combatfar) | (3b) | 6 |
+| nolos | (2b) | 1 |
+| fumblehurts | (7b) | 1 |
+| trapchoice | (7d)(11a) | 4 |
+| eyechainoff | (5a)(6a) | 3 |
+| rollbackleak | (5c)(11a)(11b) | 10008 |
+
+⇒ 集合は #80 の担当表と全部同じ(`combatfar` → `combat6` の名前だけ)。`NEG_EXPECT` / `NEG_PREDICTED` は書き換え不要だった(キー名のみ)。
+
+#### (5) 検証
+
+- 使い捨ての確認(scratchpad `item2/probe84.js`・port 10580・`__autoplay = 0`): 射程 `[12,12]` / 戦闘中・13.04 マス (54,21) で聞かない(鍵も立たない)/ 11.18 マス (50,18) で聞く → **5.8 秒後も `#choiceDialog.show`・`mageHandBusy`・`cage.dialogActive` が立ったまま** → 「触らない」で閉じ false・同じ口から再度聞かない(`_handAsked = ["combat"]`)/ 酒場: 未習得の魔法使い・僧侶 0 行 → 習得後 魔法使い 1 行(末尾・`cursor: default`・`grid-column: 1 / -1`・onclick なし)・僧侶 / エルフ / 戦士 0 行 / `?magehand=0` でも 1 行 / pageerror 0。
+- 名指し golden(本番の作業ツリー・直列・既定ポート):
+
+| 本 | 結果 |
+|---|---|
+| `verify_mage_hand` 素 | r1 exit 0・32/32(138.9 秒)/ r2 exit 0・32/32(140.6 秒) |
+| `verify_mage_hand --negative` | exit 1(11/12・escapeon の揺れ = K9)→ `--only escapeon` exit 0 |
+| `verify_pm_drawer_fit` 素 / `--negative` | exit 0・75/79・PENDING 4 / exit 0(9 本・空振り 0) |
+| `verify_prep_retire` 素 / `--negative` | exit 0・30/30 / exit 0(12 本・空振り 0) |
+| `driver_trap_disarm` 素 | exit 0・44/44 |
+| `driver_scroll_autoskip` 素 | exit 0・9/9 |
+| `verify_member_identity` 素 / `--negative --only lvhero,capfromhero` | exit 0・28/28(アンカー lvhero=9196 / capfromhero=9197 = CSS 2 行ぶん下がっただけ・範囲内ちょうど 1 行)/ exit 0(2/2) |
+
+#### (6) 崩れ・逸脱
+
+- **K10** 依頼書 §10-0 の「ヘッダ :41 の ≤6 マス」は (3a) の実際の仕込み(主人公の脇・檻から 3〜5 マス)の言い方だった ⇒ 判定は不変・文言だけ「3〜5 マス」へ。
+- **K11** `#choiceDialog` は最初のダイアログまで DOM に無い(`getElementById` が null)⇒ 新しい受入で「開いたまま」を測るときは null を偽として扱うこと。
+- **D1** 注記 3 行の書き換え(上表)。
+- **D2** 変異キー `combatfar` → `combat6`(意味が変わったので名前も変えた。母集団の TSV は腕 = 本 + `--negative` 単位なので影響なし)。
