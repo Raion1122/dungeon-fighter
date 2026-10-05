@@ -348,3 +348,82 @@ DM の語りの間はカメラが止まっているので、**フェードの途
 4. `driver_field_verge_gap` は固定 2500ms 待ち + `?graph=0`。遅い機械で床がそれより遅れると、今も白い丸石を撮るし、直した後は暗い盤面を撮る(どちらも赤)。帰属の切り分けで思い出すこと。
 5. 名指し 8 本の着手前はすべて exit 0(合計 6.3 分)。項目2 の後に同じ 8 本を回せばよい。
 6. プローブは `item1/probe85.js`(`--jpgdelay` で絵だけ遅らせられる・`--mode 404`・`--q boardfade=0`・`--vp 1440x900`)。項目3 の受入へ同じ仕組みを移せる。
+
+### 12-1. 項目2 — 本番実装
+
+触ったのは `index.html`(+84 / −3 行)と `tavern.html`(changelog 1 行の入れ替え)だけ。行番号は実装後の `index.html`。
+
+#### 変更箇所
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| 撤退・定数・フェードの係 | 3513-3547(予備床 `floorTex` の直前 = 床の読み込みより前) | `BOARD_FADE_ON`(`?boardfade=0` を 1 回読む・3521)/ `BOARD_FADE_MS = 300` / `BOARD_FADE_MIN_WAIT_MS = 1500`(3524)/ `boardFadeAlpha(at)` / `boardFadeActive()` / `boardFadeTick()` / `kickBoardFade()`(rAF は 3545 の 1 行だけ・フラグ `boardFadeLoopOn` 1 本) |
+| 本来の床の印 | 3984-3985 | `floorPatternAt` / `floorTex1Failed` |
+| `floorTex1.onload` / `onerror` | 4012-4019 | onload で `floorPatternAt = performance.now()` → `renderMap()` → `kickBoardFade()`。`onerror` を新設(4019・`floorTex1Failed = true` + 撤退でなければ `renderMap()`) |
+| `addPainting` | 6524-(entry 6532-6533 / onload 6577-6582 / onerror 6583-6587) | entry に `failed: false` / `loadedAt: null`。onload でフェザー焼き後に `loadedAt = performance.now()`、`loaded = true` の後に **撤退でなければ `renderMap(); kickBoardFade();`**(K1)。onerror = `entry.failed = true;`(6585)+ 撤退でなければ `renderMap()` |
+| `isPaintedPending(tx, ty)` | 6674-6685 | 絵の内側(`isPaintedTile`)で、覆う絵が loaded でも failed でもない。撤退時は常に false |
+| `renderMap` Pass 1a | 9121 | `isPaintedPending` のマスは天井を敷かない |
+| Pass 1b 共通 | 9131-9132 | `boardFloorWaiting = BOARD_FADE_ON && !floorPattern && !floorTex1Failed` |
+| Pass 1b パターン枝 | 9137-9139 / 9156 | `floorFadeA = boardFadeAlpha(floorPatternAt)`。1 未満のときだけ `globalAlpha`(既存の save/restore の内側)。`isPaintedPending` のマスは塗らない |
+| Pass 1b フォールバック枝 | 9161-9162 / 9169 | `} else {` → `} else if (!boardFloorWaiting) {`(9161)。`isPaintedPending` のマスは塗らない |
+| Pass 1b.5 絵 | 9193-9202 | `paintFadeA = boardFadeAlpha(p.loadedAt)` が 1 未満のときだけ save / `globalAlpha` / drawImage / restore。1 なら従来の 1 行と同じ drawImage |
+
+削除行は 3 行だけ(`git diff -U0 index.html | grep '^-'`): 空の `entry.img.onerror` / `} else {` / Pass 1b.5 の `drawImage` 1 行(同じ文が if/else の両枝に残る)。
+当たり判定(`blocked` / `sealRing` / `paintedTileMask`)・壁(Pass 2 以降)・Pass 1b.6 以降は触っていない。
+
+#### 決定事項の反映
+
+- **K1**: 絵の onload で `renderMap()` + `kickBoardFade()`。⚠ 撤退(`?boardfade=0`)のときは呼ばない(撤退は「今と 1 画素も変えない」なので、K1 の直しごと外す)。床の onerror / 絵の onerror の `renderMap()` も同じく撤退時は呼ばない(印だけ立つが、撤退時は誰も読まない)。
+- **K3**: 到着時刻は `performance.now()`。アルファは `boardFadeAlpha(at)` が毎回 `performance.now() - at` から出す(積算しない)。`Date.now()` は使っていない。rAF を潰した golden が自分で `renderMap()` を呼んでも、届いてから 300ms 過ぎていれば 1。
+
+#### プローブ(`item2/probe85b.js` = 項目1 の probe85 に `--floordelay` / `--index <file>`(index.html の差し替え配信)/ `--fade`(揃った時刻 +100/+1000/+1500 で撮る)/ ハッシュを足したもの・port 10610・390x844)
+
+| 確認 | 結果 |
+|---|---|
+| (a) 遅延 4000ms・1500ms | 森・砦とも `床2.png` の drawImage **0**、平均輝度 **10.0**(= `#0a0a0a`)、明るい画素 0%。`floorPattern:false` / `floorTexLoaded:true` / 絵 `loaded:false` |
+| (b) 届いた後 | 森: tAll 4252 → +100ms 輝度 **39.2** / +1000ms **76.6** `51518e6eac42` / +1500ms 同ハッシュ。砦: +100 **41.5** / +1000・+1500 **85.6** `b515e82d2193`。強制 `renderMap()` で変わらない(`stale:false` = ループが最後の濃さまで描いて止まった) |
+| (b)(2c) 遅延なしと一致 | 森 `51518e6eac42` / 砦 `b515e82d2193` = 遅延なしの落ち着いた盤面と同じ |
+| (c) 遅延なし 6 シナリオ | 揃った瞬間 = +1000 = +1500 のハッシュが 6 本とも一致(tAll 309〜338ms)。さらに 1500ms のハッシュが **e3ce2b0 の index.html と 6 本とも一致**(鉱山 `2a15cdce8982` / 森 `51518e6eac42` / 沼 `c3d069dc96cd` / 砦 `b515e82d2193` / 神殿 `5e7e49b66259` / 竜 `34d93f43e2c9`)。`床2.png` の drawImage は 0(e3ce2b0 では 60〜140 = K5 も消えた) |
+| (d) 床と絵を 404 | 森 200 回・砦 190 回 `床2.png` を描き、1500 / 3000ms とも輝度 186.2(予備床の盤面・永久に暗くならない) |
+| (e) `?boardfade=0` + 遅延 4000 | 1500ms のハッシュ 森・砦とも `53fd14001932` = e3ce2b0 を配信した同じ腕と一致(白い丸石・drawImage 森 240 / 砦 180 = 旧と同数)。届いた後の最終も旧と同じ |
+| (f) 床 3000・絵 5000(K1) | 森: 4000ms 輝度 20.1(床だけ・絵のマスは暗い)→ 7000ms 76.6 `51518e6eac42`(絵が描かれ、遅延なしと一致)。砦: 23.3 → 85.6 `b515e82d2193`。`stale:false` |
+| (g) pageerror | 全腕 0 |
+
+#### 名指し golden 8 本(実装後・逐次・単独)
+
+| 本 | exit | 要約 | 所要 |
+|---|---|---|---|
+| driver_field_step1 | 0 | 95/95 PASS | 74.1s |
+| driver_field_step1_geo | 0 | 71/71 PASS | 101.4s |
+| driver_field_step2 | 0 | 64/64 ALL PASS | 39.8s |
+| driver_field_step3 | 0 | 65/65 ALL PASS | 69.5s |
+| driver_field_step05_hud | 0 | 測定妥当性 6/6 PASS | 44.0s |
+| driver_field_verge_gap | 0 | 39/39 ALL PASS | 25.5s |
+| driver_mapdef_step1 | 0 | 208/208 PASS | 18.9s |
+| driver_paint_blocked | 0 | PASS 65 / FAIL 0 | 6.8s |
+
+合計 380.0 秒。assert 数は 8 本とも着手前(§12-0)と同じ。
+
+#### 改行
+
+`index.html` CRLF 41246 → 41327(+81 = 追加 84 − 削除 3)・bare LF 0・bare CR 0。`tavern.html` CRLF 11357 → 11357(1 行入れ替え)・bare LF 0・bare CR 0。
+
+#### 崩れ / 気づき
+
+- **K7(仕様どおりに実装・項目4 で見ること)** 閾値はページの開始からの時刻なので、**分岐ノードへ入って絵を積み直したとき**(`buildNode` → `loadRoomPaintings`)は、キャッシュから数 ms で届いても `loadedAt ≥ 1500` になり、**絵が 300ms でフェードインする**(届くまでの数 ms は絵の内側が暗い)。§5 の式どおりの挙動で、見た目としても自然だと考えて変えていない(未計測)。ただし「ノードへ入った直後に画素を撮る」本があると、300ms 以内に撮れば途中の濃さを撮る。項目4 の母集団で緑→赤が出たらまずこれを疑う。別解(「その絵を読み始めてからの待ち時間」で閾値を見る)は依頼書の式から外れるので採っていない。
+- K5 は STEP1 で消えた(遅延なしでも `床2.png` の drawImage 0)。
+
+#### 項目3(受入)への申し送り — 変異アンカー(すべて `index.html` で 1 件だけ・複製しないこと)
+
+| 変異 | 置換元(一意) | 置換先の例 |
+|---|---|---|
+| `fallback` | `      } else if (!boardFloorWaiting) {`(9161) | `      } else {` |
+| `noloop` | `      requestAnimationFrame(boardFadeTick);`(3545) | `      /* noloop */` |
+| `nogate` | `    const BOARD_FADE_MIN_WAIT_MS = 1500;`(3524) | `    const BOARD_FADE_MIN_WAIT_MS = 0;` |
+| `nofail` | `    floorTex1.onerror = () => { floorTex1Failed = true; if (BOARD_FADE_ON) renderMap(); };`(4019)と `          entry.failed = true;`(6585)の 2 か所 | 前者 = `    floorTex1.onerror = () => {};` / 後者 = `          /* nofail */` |
+| `nooff` | `    const BOARD_FADE_ON = new URLSearchParams(window.location.search).get("boardfade") !== "0";`(3521) | `    const BOARD_FADE_ON = true;` |
+
+- ⚠ `nogate` は閾値 0 = 常にフェード。(3a) は「揃った直後」と「1000ms 後」を比べるので、揃った直後が途中の濃さになって赤くなるはず。
+- ⚠ `nooff` を当てると `?boardfade=0` の腕でも暗いまま ⇒ (0c) の `床2.png` 計数が 0 になる。
+- (5a) の基準は §12-0 の推奨どおり `git show e3ce2b0:index.html` を CRLF に戻して配る(プローブで実証済み = (e))。
+- プローブ `item2/probe85b.js` の `--index` / `--fade` / ハッシュはそのまま移せる。

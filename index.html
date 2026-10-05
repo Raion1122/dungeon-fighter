@@ -3510,6 +3510,41 @@
     let tilesetLoaded = false;
     tileset.onload = () => { tilesetLoaded = true; computeCameraTarget(); camX = camTargetX; camY = camTargetY; renderMap(); renderLighting(); };
 
+    /* ★[#85 白い石床のちらつき] 読み込み中の盤面は暗いまま + 遅れて届いた床/絵はフェードイン。
+     *   予備床 床2.png (12KB) は本来の床 (2〜3MB) と絵より先に届くので、直す前は 4G で
+     *   白い丸石が一瞬敷かれていた。床2.png は「本来の床が落ちた (404) とき」だけの予備へ戻す。
+     *   ⚠ ここ (床の読み込みより前) で 1 回だけ読む。撤退 = ?boardfade=0 (今までの姿へ戻す)。
+     *   ⚠⚠ 時刻は performance.now() だけ。Date.now() は freeze 系 golden が T0 (1.7e12) に
+     *     固定しているので、使うと「遅れて届いた」扱いになり盤面が消える (§12-0 K3)。
+     *   ⚠⚠ アルファは時刻から導出する (rAF のコマ数で積まない)。golden は rAF を潰してから
+     *     自分で renderMap() を呼ぶので、時刻ベースなら必ず最後の濃さで撮れる。 */
+    const BOARD_FADE_ON = new URLSearchParams(window.location.search).get("boardfade") !== "0";
+    const BOARD_FADE_MS = 300;
+    // ページの開始から閾値より前に届いたものはフェードしない (速い読み込み = 既存のピクセル golden を守る)
+    const BOARD_FADE_MIN_WAIT_MS = 1500;
+    function boardFadeAlpha(at) {
+      if (!BOARD_FADE_ON || at == null || at < BOARD_FADE_MIN_WAIT_MS) return 1;
+      return Math.max(0, Math.min(1, (performance.now() - at) / BOARD_FADE_MS));
+    }
+    // renderMap は毎フレーム呼ばれていない (語りの間はカメラも止まる) ⇒ フェード中だけ自前で回す
+    let boardFadeLoopOn = false;   // 多重起動しないためのフラグ 1 本
+    function boardFadeActive() {
+      if (!BOARD_FADE_ON) return false;
+      if (floorPattern && boardFadeAlpha(floorPatternAt) < 1) return true;
+      for (const p of roomPaintings) if (p.loaded && boardFadeAlpha(p.loadedAt) < 1) return true;
+      return false;
+    }
+    function boardFadeTick() {
+      boardFadeLoopOn = false;
+      renderMap();
+      kickBoardFade();
+    }
+    function kickBoardFade() {
+      if (boardFadeLoopOn || !boardFadeActive()) return;
+      boardFadeLoopOn = true;
+      requestAnimationFrame(boardFadeTick);
+    }
+
     // ── 統一床テクスチャ (93x93 石畳、回転バリエーションで単調さ防止) ──
     const floorTex = new Image();
     floorTex.src = "assets/床2.png";
@@ -3946,6 +3981,8 @@
     function fieldApronRow(ty) { return FIELD_MODE && FIELD_GEO_ACTIVE && ty > FIELD_HORIZON_ROW; }
 
     let floorPattern = null;
+    let floorPatternAt = null;     // ★[#85] 本来の床が届いた時刻 (performance.now)。フェードの起点
+    let floorTex1Failed = false;   // ★[#85] 本来の床が落ちた印。立ったときだけ予備床 (床2.png → tileset) へ
     const floorTex1 = new Image();
     // [縮尺リデザイン 2026-07-30] _texSet.floorScale があれば、その倍率へ焼き直した
     //   オフスクリーン canvas をパターン源にする (屋外 caravan-road のみ。詳細は SCENARIO_TEX の注記)。
@@ -3974,8 +4011,12 @@
     floorTex1.src = "assets/" + _texSet.floor;
     floorTex1.onload = () => {
       floorPattern = ctx.createPattern(makeFloorPatternSource(floorTex1), "repeat");
+      floorPatternAt = performance.now();
       renderMap();
+      kickBoardFade();
     };
+    // ★[#85] 落ちたら従来の予備床へ (「届くまで暗く」を「永久に暗い」にしない)
+    floorTex1.onerror = () => { floorTex1Failed = true; if (BOARD_FADE_ON) renderMap(); };
     let wallPattern = null;      // 壁1.png のパターン (= 壁の素材が全部そろった印。下の ⚠⚠ 参照)
     let wallFaceImg = null;      // 北壁の立面ストリップ (専用素材を持つシナリオだけ非 null)
     let wallTopPattern = null;   // リングの見下ろし天面 (同上)
@@ -6488,6 +6529,8 @@
            *   通れる場所が変わる (下の blocked の注記と同じ理由)。 */
           sealRing: !!sealRing,
           loaded: false,
+          failed: false,     // ★[#85] onerror で true (待つのをやめて床で塗る)
+          loadedAt: null,    // ★[#85] loaded にした時刻 (performance.now)
           canvas: null,
           /* ★[卓上グリッド P2] 絵に描かれた障害物のマスク (行文字列の配列 | null)。
            * ⚠⚠ **img.onload を待たない**。当たり判定が画像の読み込み完了に依存すると、
@@ -6531,9 +6574,17 @@
           g.addColorStop(0, "rgba(0,0,0,1)"); g.addColorStop(1, "rgba(0,0,0,0)");
           octx.fillStyle = g; octx.fillRect(w - featherW, 0, featherW, h);
           entry.canvas = off;
+          entry.loadedAt = performance.now();   // ★[#85] フェードの起点 (フェザー焼き後)
           entry.loaded = true;
+          /* ★[#85 K1] 絵が床より後に届くと、語りの間は誰も renderMap を呼ばず絵が出なかった。
+           *   届いたら描き直し、遅れて届いたならフェードのループを起こす。 */
+          if (BOARD_FADE_ON) { renderMap(); kickBoardFade(); }
         };
-        entry.img.onerror = () => { /* フォールバック: 通常タイル描画のまま */ };
+        entry.img.onerror = () => {
+          /* フォールバック: 通常タイル描画のまま。★[#85] 落ちた印を立て、待つのをやめて床で塗る */
+          entry.failed = true;
+          if (BOARD_FADE_ON) renderMap();
+        };
         entry.img.src = src;
         roomPaintings.push(entry);
         // painted-skip マスクは内側 (feather 帯を除く) のみ
@@ -6619,6 +6670,18 @@
         if (tx >= p.tx && tx < p.tx + p.tw && ty >= p.ty && ty < p.ty + p.th) return true;
       }
       return false;
+    }
+    /* ★[#85] 絵の内側で、覆う絵がまだ届いていない (loaded でも failed でもない) マス。
+     *   描画だけが見る (当たり判定は従来どおり onload を待たずに確定済み)。撤退時は常に false。 */
+    function isPaintedPending(tx, ty) {
+      if (!BOARD_FADE_ON || !isPaintedTile(tx, ty)) return false;
+      let pending = false;
+      for (const p of roomPaintings) {
+        if (!(tx >= p.tx && tx < p.tx + p.tw && ty >= p.ty && ty < p.ty + p.th)) continue;
+        if (p.loaded) return false;
+        if (!p.failed) pending = true;
+      }
+      return pending;
     }
 
     // ── 情景スプライト (草/葦/倒木/雑多) ─────────────────────────────
@@ -9055,6 +9118,7 @@
           if (fieldSkyRow(ty)) continue;      // 地平線より上 = 空。天井を敷かない
           if (fieldApronRow(ty)) continue;    // 帯より南 = 前景エプロン。下の Pass 1b が床で塗る
           if (isPaintedAndLoaded(tx, ty)) continue;
+          if (isPaintedPending(tx, ty)) continue;   // ★[#85] 絵が届くまで暗いまま
           const screenX = Math.round(tx * TILE_SIZE - camX);
           const screenY = Math.round(ty * TILE_SIZE - camY);
           const [sx, sy, sw, sh] = SPR_CEILING;
@@ -9064,10 +9128,15 @@
       // ── Pass 1b: 床セル — 床1 シームレステクスチャをワールド座標アンカーで pattern fill ──
       // (隣接セルで模様が連続する。fall back は 床2 (1セル1枚) → tileset)
       // 部屋ペインティングが覆うセルはスキップ(painting に含まれる)
+      // ★[#85] 本来の床がまだ届かず、落ちてもいない = 待っている (暗いまま。予備床を敷かない)
+      const boardFloorWaiting = BOARD_FADE_ON && !floorPattern && !floorTex1Failed;
       if (floorPattern) {
         ctx.save();
         ctx.translate(-camX, -camY);
         ctx.fillStyle = floorPattern;
+        // ★[#85] 遅れて届いたときだけフェードイン (速い読み込みは 1 = 今と同じ画素)
+        const floorFadeA = boardFadeAlpha(floorPatternAt);
+        if (floorFadeA < 1) ctx.globalAlpha = floorFadeA;
         // [屋外] セルを 0.5px ずつ膨張させて隣と重ねる。
         // ⚠️ これが無いと Pass 1.2 のグリッド線を消しても 96px 格子は消えない。camX/camY は
         //    cameraFollowTick が小数を渡すので、隣接 fillRect の境界画素はどちらも被覆率が 100%
@@ -9084,17 +9153,20 @@
             // [屋外 STEP2] 帯より南の tile===2 も床で塗る = 前景エプロン (mapData は 2 のまま)
             if (mapData[ty][tx] === 2 && !fieldApronRow(ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
+            if (isPaintedPending(tx, ty)) continue;   // ★[#85] 絵が届くまで暗いまま
             ctx.fillRect(tx * TILE_SIZE - INF, ty * TILE_SIZE - INF, TILE_SIZE + INF2, TILE_SIZE + INF2);
           }
         }
         ctx.restore();
-      } else {
+      } else if (!boardFloorWaiting) {
+        // ★[#85] 予備床 (床2.png → tileset) は本来の床が落ちたとき (と撤退時) だけ
         for (let ty = startTY; ty <= endTY; ty++) {
           for (let tx = startTX; tx <= endTX; tx++) {
             // [屋外 STEP2] ⚠️ フォールバック側も必ず同時に。片方だけだと画像未ロード中と
             //    404 時に帯より南が暗い天井へ戻り、前景エプロンが消える。
             if (mapData[ty][tx] === 2 && !fieldApronRow(ty)) continue;
             if (isPaintedAndLoaded(tx, ty)) continue;
+            if (isPaintedPending(tx, ty)) continue;   // ★[#85] 絵が届くまで暗いまま
             const screenX = Math.round(tx * TILE_SIZE - camX);
             const screenY = Math.round(ty * TILE_SIZE - camY);
             if (floorTexLoaded) {
@@ -9118,7 +9190,16 @@
         const sy = Math.round(p.py - camY);
         if (sx + p.pw < 0 || sx > viewPxW()) continue;
         if (sy + p.ph < 0 || sy > viewPxH()) continue;
-        ctx.drawImage(p.canvas || p.img, sx, sy, p.pw, p.ph);
+        // ★[#85] 遅れて届いた絵だけフェードイン (速い読み込みは今と同じ 1 枚描き)
+        const paintFadeA = boardFadeAlpha(p.loadedAt);
+        if (paintFadeA < 1) {
+          ctx.save();
+          ctx.globalAlpha = paintFadeA;
+          ctx.drawImage(p.canvas || p.img, sx, sy, p.pw, p.ph);
+          ctx.restore();
+        } else {
+          ctx.drawImage(p.canvas || p.img, sx, sy, p.pw, p.ph);
+        }
       }
 
       // ── Pass 1b.6: 情景スプライト (草/葦/倒木/雑多) ──
