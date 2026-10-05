@@ -427,3 +427,88 @@ DM の語りの間はカメラが止まっているので、**フェードの途
 - ⚠ `nooff` を当てると `?boardfade=0` の腕でも暗いまま ⇒ (0c) の `床2.png` 計数が 0 になる。
 - (5a) の基準は §12-0 の推奨どおり `git show e3ce2b0:index.html` を CRLF に戻して配る(プローブで実証済み = (e))。
 - プローブ `item2/probe85b.js` の `--index` / `--fade` / ハッシュはそのまま移せる。
+
+### 12-1b. 項目2b — 閾値を待ち時間へ(K7・ユーザー決定)
+
+#### 決定(ユーザー・2026-10-05)
+
+K7(§12-1)への答えは「**待ち時間で判定**」。フェードするのは「**その素材を読み始めてから届くまでの待ち時間が 1500ms を超えたとき**」だけ。クエスト開始時の挙動は項目2 と同じで、分岐ノードへ入って絵を積み直したときは、すぐ届けば従来どおりパッと出る。§5 の「アルファ: `at < BOARD_FADE_MIN_WAIT_MS` なら 1」は「`at − 読み始め < BOARD_FADE_MIN_WAIT_MS` なら 1」と読み替える(残りの式 `min(1, (now − at) / BOARD_FADE_MS)` はそのまま)。
+
+#### 変更箇所(`index.html` +13 / −7・行番号は実装後)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| `boardFadeAlpha(at, requestedAt)` | 3523-3531 | 判定を `at - (requestedAt \|\| 0) < BOARD_FADE_MIN_WAIT_MS` なら 1 へ(`<` のまま = `nogate` の 0 で常にフェード)。注記 2 行(K7・ユーザー決定) |
+| `boardFadeActive()` | 3535-3536 | 床 = `boardFadeAlpha(floorPatternAt, floorRequestAt)` / 絵 = `boardFadeAlpha(p.loadedAt, p.requestedAt)` |
+| 本来の床を読み始めた時刻 | 3987 / 4014 | `let floorRequestAt = null;` を新設し、`floorTex1.src = …` の直前で `floorRequestAt = performance.now();` |
+| 絵を読み始めた時刻 | 6538 / 6593 | entry に `requestedAt: null`。`entry.img.src = src;` の直前で `entry.requestedAt = performance.now();` |
+| Pass 1b / Pass 1b.5 | 9144 / 9200 | `boardFadeAlpha` へ読み始めの時刻を渡すだけ |
+
+削除行 7 行の内訳 = 判定の if 1 行・関数の頭 1 行・呼び出し 4 行(引数を 1 つ足しただけ)・閾値の注記 1 行(`git diff -U0 index.html` で目視)。到着時刻(`floorPatternAt` / `entry.loadedAt`)・`?boardfade=0`・rAF ループ・暗いまま(STEP1)は触っていない。時刻は `performance.now()` だけで、積み上げもしない。
+`tavern.html` は #85 の `<li>` の説明文だけを直した(1 行のまま・4 件のまま):「…一瞬見えていたのを直し、地図が届くまで盤面を暗く保つようにした。届くのに時間がかかったときは、暗い盤面から地図が浮かび上がる。」
+
+#### (h) 分岐ノードへの入場(新設プローブ `item2b/probe85h.js`・port 10611・390x844・**キャッシュを許す配信**(`max-age=3600`)・揃った 4000ms 後に `enterNode(id)` を page 内で直接呼ぶ・`mapCanvas` 上の絵の drawImage の `globalAlpha` を全部記録)
+
+| 腕 | 入場先 | 待ち時間(読み始め→到着) | 届いた直後 / +50 / +150 / +1000ms の `boardFadeAlpha` | 絵の drawImage(回数・最小アルファ・1 未満の回数) |
+|---|---|---|---|---|
+| 実装後・砦 | n7(初めて) | 19.6ms | 1 / 1 / 1 / 1 | 1 回・1・0 |
+| 実装後・砦 | n4(再訪・キャッシュ = 配信 1 回だけ) | 4.9ms | 1 / 1 / 1 / 1 | 1 回・1・0 |
+| **対照 a3e193e**・砦 | n7 | — | 0.027 / 0.204 / 0.534 / 1 | 20 回・**0**・19 |
+| **対照 a3e193e**・砦 | n4(再訪) | — | 0.039 / 0.225 / 0.556 / 1 | 21 回・**0.002**・20 |
+| 実装後・沼 | n6 / n7 | 20.0 / 10.1ms | 全部 1 | 各 1 回・1・0 |
+| 実装後・砦・絵だけ遅延 2500ms | n7 | 2512ms | 0.029 / 0.195 / 0.544 / 1 | 20 回・0.001・19(= 遅いときはノードでもフェード) |
+
+⇒ 項目2 の実装では入場直後のアルファが 1 未満(K7 の再現)、項目2b では入場直後から 1。pageerror 全腕 0。森(bandits-forest)は `RUN.byId` が n7 の 1 ノードだけなので入場の腕が立たない。
+
+#### (i) 遅いときは従来どおりフェード
+
+下の (b) が緑(床は読み込みの冒頭で読み始めるので、遅延 4000ms なら待ち時間も約 4000ms)+ 上の「絵だけ遅延 2500ms」の腕。
+
+#### プローブ (a)〜(g) の再走(`item2/probe85b.js`・port 10610)
+
+| 確認 | 結果(項目2 と同じか) |
+|---|---|
+| (a) 遅延 4000ms・1500ms | 森・砦とも `床2.png` 0 回・輝度 10・`31002f77b485` ○ |
+| (b) 届いた後 | 森 +100 輝度 37.4 → +1000 / +1500 `51518e6eac42`。砦 +100 42.7 → `b515e82d2193`。`stale:false` ○(+100 の輝度は届いた時刻との位相で ±2 動く) |
+| (c) 遅延なし 6 シナリオ | 揃った瞬間 = +100 = +1000 = +1500 = 1500ms のハッシュが 6 本とも項目2 と同じ値(鉱山 `2a15cdce8982` / 森 `51518e6eac42` / 沼 `c3d069dc96cd` / 砦 `b515e82d2193` / 神殿 `5e7e49b66259` / 竜 `34d93f43e2c9`)・`床2.png` 0 ○ |
+| (d) 404 | 1500 / 3000ms とも輝度 186.2(森 250 回・砦 190 回 `床2.png`)○ |
+| (e) `?boardfade=0` + 遅延 4000 | 1500ms のハッシュ 森・砦とも `53fd14001932`(e3ce2b0 と同じ)○ |
+| (f) 床 3000・絵 5000 | 森 4000ms 20.1 → 7000ms `51518e6eac42`、砦 23.3 → `b515e82d2193` ○ |
+| (g) pageerror | 全腕 0 ○ |
+
+- **K8(既存・項目2b 由来ではない)** (e) の砦で「届いた後の最終盤面」が 6 回に 1〜2 回 `stale:true`(`c54f5c8de522` = 絵が届いたのに誰も描き直していない)。**e3ce2b0 の index.html を配っても同じ腕で出た**(`item2b/e_timing.txt` の交互 6 対: 着手前 1/6・実装後 0/6。それ以前の走行: 実装後 2/4・着手前 0/10・a3e193e 0/6 = 床と絵の到着順しだいの競合)。撤退時は K1 の直しごと外す決定(§12-1)なので、もとの K1 の競合がそのまま残っているだけ。撤退時の分岐は `BOARD_FADE_ON` が false で `boardFadeAlpha` が 1 を返す道しか通らず、項目2b の差分は関わらない。項目3 の (5a) は **1500ms の盤面**を比べるので影響しない。⚠ 届いた後の最終盤面を撤退の腕で比べる assert は作らないこと。
+
+#### 名指し golden 8 本(実装後・逐次・単独)
+
+| 本 | exit | 要約 | 所要 |
+|---|---|---|---|
+| driver_field_step1 | 0 | 95/95 PASS | 74.1s |
+| driver_field_step1_geo | 0 | 71/71 PASS | 100.9s |
+| driver_field_step2 | 0 | 64/64 ALL PASS | 39.8s |
+| driver_field_step3 | 0 | 65/65 ALL PASS | 69.5s |
+| driver_field_step05_hud | 0 | 測定妥当性 6/6 PASS | 44.2s |
+| driver_field_verge_gap | 0 | 39/39 ALL PASS | 25.5s |
+| driver_mapdef_step1 | 0 | 208/208 PASS | 18.8s |
+| driver_paint_blocked | 0 | PASS 65 / FAIL 0 | 6.7s |
+
+assert 数は 8 本とも §12-0 / §12-1 と同じ。
+
+#### 改行
+
+`index.html` CRLF 41327 → 41333(+6 = 追加 13 − 削除 7)・bare LF 0・bare CR 0。`tavern.html` CRLF 11357 → 11357(1 行の入れ替え)・bare LF 0・bare CR 0。
+
+#### 項目3(受入)への申し送り
+
+- **受入 §3 に分岐ノード入場の腕を足す提案**: (3b) 遅延なし・キャッシュを許す配信で、砦(`RUN.byId` = n4 / n7)の盤面が揃ってから `enterNode("n7")` → 絵が届いた直後の `boardFadeAlpha(p.loadedAt, p.requestedAt)` が 1、`mapCanvas` 上の絵の drawImage の `globalAlpha` が全部 1。続けて `enterNode("n4")`(再訪)でも同じ。`item2b/probe85h.js` の page 内の手順をそのまま移せる。⚠ 森は 1 ノードしかないので砦か沼(n4 / n6 / n7)を使う。⚠ 砦の n7 を 2500ms 遅らせた腕では 1 未満が出る(負のコントロールの代わりにもなる)。
+- **変異アンカー表の更新**(§12-1 の表の置換元・置換先は 1 文字も変わっていない。行番号だけ +2〜+6・すべて `index.html` で 1 件だけ):
+
+| 変異 | 置換元(一意) | 新しい行 |
+|---|---|---|
+| `fallback` | `      } else if (!boardFloorWaiting) {` | 9167 |
+| `noloop` | `      requestAnimationFrame(boardFadeTick);` | 3547 |
+| `nogate` | `    const BOARD_FADE_MIN_WAIT_MS = 1500;` | 3526 |
+| `nofail` | `    floorTex1.onerror = () => { floorTex1Failed = true; if (BOARD_FADE_ON) renderMap(); };` / `          entry.failed = true;` | 4023 / 6590 |
+| `nooff` | `    const BOARD_FADE_ON = new URLSearchParams(window.location.search).get("boardfade") !== "0";` | 3521 |
+
+- ⚠ `nogate`(閾値 0)は判定が `<` なので、待ち時間がいくら短くても常にフェードする ⇒ (3a) も (3b) も赤くなるはず。
+- 足すなら新しい変異 `noreq`(読み始めの時刻を渡さない = 項目2 の挙動へ戻す): 置換元 `      if (!BOARD_FADE_ON || at == null || at - (requestedAt || 0) < BOARD_FADE_MIN_WAIT_MS) return 1;` → 置換先は `(requestedAt || 0)` を `0` に。(3b) だけが赤くなり、(3a) は緑のまま(遅延なしの初回は 1500ms より前に届く)のはず。

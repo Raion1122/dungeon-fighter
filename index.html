@@ -3520,18 +3520,20 @@
      *     自分で renderMap() を呼ぶので、時刻ベースなら必ず最後の濃さで撮れる。 */
     const BOARD_FADE_ON = new URLSearchParams(window.location.search).get("boardfade") !== "0";
     const BOARD_FADE_MS = 300;
-    // ページの開始から閾値より前に届いたものはフェードしない (速い読み込み = 既存のピクセル golden を守る)
+    // 読み始めてから届くまでの待ち時間が閾値に届かなければフェードしない (速い読み込み = 既存のピクセル golden を守る)
+    //   ★[#85 K7] 起点はページの開始ではなく「その素材を読み始めた時刻」。分岐ノードで絵を積み直したとき
+    //   キャッシュから即着した絵まで毎回フェードしないように (ユーザー決定 2026-10-05)。
     const BOARD_FADE_MIN_WAIT_MS = 1500;
-    function boardFadeAlpha(at) {
-      if (!BOARD_FADE_ON || at == null || at < BOARD_FADE_MIN_WAIT_MS) return 1;
+    function boardFadeAlpha(at, requestedAt) {
+      if (!BOARD_FADE_ON || at == null || at - (requestedAt || 0) < BOARD_FADE_MIN_WAIT_MS) return 1;
       return Math.max(0, Math.min(1, (performance.now() - at) / BOARD_FADE_MS));
     }
     // renderMap は毎フレーム呼ばれていない (語りの間はカメラも止まる) ⇒ フェード中だけ自前で回す
     let boardFadeLoopOn = false;   // 多重起動しないためのフラグ 1 本
     function boardFadeActive() {
       if (!BOARD_FADE_ON) return false;
-      if (floorPattern && boardFadeAlpha(floorPatternAt) < 1) return true;
-      for (const p of roomPaintings) if (p.loaded && boardFadeAlpha(p.loadedAt) < 1) return true;
+      if (floorPattern && boardFadeAlpha(floorPatternAt, floorRequestAt) < 1) return true;
+      for (const p of roomPaintings) if (p.loaded && boardFadeAlpha(p.loadedAt, p.requestedAt) < 1) return true;
       return false;
     }
     function boardFadeTick() {
@@ -3982,6 +3984,7 @@
 
     let floorPattern = null;
     let floorPatternAt = null;     // ★[#85] 本来の床が届いた時刻 (performance.now)。フェードの起点
+    let floorRequestAt = null;     // ★[#85 K7] 本来の床を読み始めた時刻 (performance.now)。待ち時間の起点
     let floorTex1Failed = false;   // ★[#85] 本来の床が落ちた印。立ったときだけ予備床 (床2.png → tileset) へ
     const floorTex1 = new Image();
     // [縮尺リデザイン 2026-07-30] _texSet.floorScale があれば、その倍率へ焼き直した
@@ -4008,6 +4011,7 @@
         return img;
       }
     }
+    floorRequestAt = performance.now();
     floorTex1.src = "assets/" + _texSet.floor;
     floorTex1.onload = () => {
       floorPattern = ctx.createPattern(makeFloorPatternSource(floorTex1), "repeat");
@@ -6531,6 +6535,7 @@
           loaded: false,
           failed: false,     // ★[#85] onerror で true (待つのをやめて床で塗る)
           loadedAt: null,    // ★[#85] loaded にした時刻 (performance.now)
+          requestedAt: null, // ★[#85 K7] img.src を入れた時刻 (performance.now)。待ち時間の起点
           canvas: null,
           /* ★[卓上グリッド P2] 絵に描かれた障害物のマスク (行文字列の配列 | null)。
            * ⚠⚠ **img.onload を待たない**。当たり判定が画像の読み込み完了に依存すると、
@@ -6585,6 +6590,7 @@
           entry.failed = true;
           if (BOARD_FADE_ON) renderMap();
         };
+        entry.requestedAt = performance.now();
         entry.img.src = src;
         roomPaintings.push(entry);
         // painted-skip マスクは内側 (feather 帯を除く) のみ
@@ -9135,7 +9141,7 @@
         ctx.translate(-camX, -camY);
         ctx.fillStyle = floorPattern;
         // ★[#85] 遅れて届いたときだけフェードイン (速い読み込みは 1 = 今と同じ画素)
-        const floorFadeA = boardFadeAlpha(floorPatternAt);
+        const floorFadeA = boardFadeAlpha(floorPatternAt, floorRequestAt);
         if (floorFadeA < 1) ctx.globalAlpha = floorFadeA;
         // [屋外] セルを 0.5px ずつ膨張させて隣と重ねる。
         // ⚠️ これが無いと Pass 1.2 のグリッド線を消しても 96px 格子は消えない。camX/camY は
@@ -9191,7 +9197,7 @@
         if (sx + p.pw < 0 || sx > viewPxW()) continue;
         if (sy + p.ph < 0 || sy > viewPxH()) continue;
         // ★[#85] 遅れて届いた絵だけフェードイン (速い読み込みは今と同じ 1 枚描き)
-        const paintFadeA = boardFadeAlpha(p.loadedAt);
+        const paintFadeA = boardFadeAlpha(p.loadedAt, p.requestedAt);
         if (paintFadeA < 1) {
           ctx.save();
           ctx.globalAlpha = paintFadeA;
