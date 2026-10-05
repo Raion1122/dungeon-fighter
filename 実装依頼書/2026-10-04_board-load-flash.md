@@ -1,10 +1,9 @@
 # #85 クエスト開始時に白い石床が一瞬見える — 読み込み中は暗く、届いたらフェードイン
 
 - **起草**: 2026-10-04(起草窓 claude-27) / **ステータス**: **承認済**(2026-10-04 ユーザー承認)
-- **着手**: ⏸ **保留 — #83 塔の母 B の完了待ち**(同じ `index.html` を実装窓が dev-loop で編集中)。README の #85 行も #83 着地後に足す(文面は §11)。
+- **着手**: 2026-10-05 実装窓(dev-loop)・基準 `e3ce2b0`(#83 完了 `183a969` + README の #85 行)。§2 の行番号は §12-0 で `e3ce2b0` へ測り直し済み。
 - **触るファイル**: `index.html`(描画の 2 か所 + 読み込みの 3 か所)/ `tools/verify_board_load_flash.js`(新規)
-- ⛔ **着手の順番**: 実装窓が **#83 塔の母 B** を dev-loop で実装中(`index.html` / `tavern.html` を触る)。
-  本チケットも `index.html` を触る ⇒ **着手は #83 の完了後**。行番号は #83 で必ず動くので、着手時に §2 を測り直すこと。
+- ✅ **着手の順番**: #83 塔の母 B は `183a969` で完了済み。#83 で動いた行番号は §12-0 で測り直した(§2 の表は `35ad1fc` 基準のまま残す)。
   `git add .` 禁止・**ファイル単位 add**・`git diff --cached <file>` を読んでから commit。
 
 ---
@@ -235,4 +234,117 @@ DM の語りの間はカメラが止まっているので、**フェードの途
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 項目1 — 着手前の実測(基準 e3ce2b0)
+
+本番ファイルは 1 バイトも触っていない(`git status --porcelain` はこの依頼書だけ)。
+測定プローブ = 実装窓の scratchpad `item1/probe85.js`(内蔵 node http・port 10601・390x844・Chrome headless。
+§2-3 の正規表現に当たる応答だけを `setTimeout` / 404。`drawImage` を包んで `床2.png` の描画回数、
+`#mapCanvas` への `fillRect(0,0,…,'#0a0a0a')` を包んで `renderMap` の回数を数える。10ms 間隔で `floorPattern` / 絵の `loaded` を見張る)。
+
+#### 行番号(`35ad1fc` → `e3ce2b0`)
+
+| 何 | 35ad1fc(§2-1 の記載) | e3ce2b0 |
+|---|---|---|
+| `tileset.png`(onload で `renderMap()`) | 3486-3489 | **3508-3511** |
+| 予備床 `floorTex.src = "assets/床2.png"` / `floorTexLoaded` / onload | 3492-3495 | **3514-3517**(src = 3515) |
+| `_texSet = SCENARIO_TEX[...] \|\| goblin-mine` | 3783 | **3805** |
+| `floorPattern` / `floorTex1`(onload = 3975-3978・`onerror` 無し) | 3926-3956 | **3948-3978** |
+| `addPainting`(onload 6505-6535 / `entry.loaded = true` 6534 / 空の `onerror` 6536 / マスク 6539-6547) | 6461-6528 | **6483-6548** |
+| `isPaintedTile` / `isPaintedAndLoaded` | 6629-6637(⚠ 35ad1fc でも実は 6593) | **6611-6614 / 6615-6622** |
+| `renderMap()` 本体 | — | **9018** |
+| Pass 1a 天井 | 9027-9040 | **9045-9063** |
+| Pass 1b 床・パターン枝 | 9045-9068 | **9064-9090** |
+| Pass 1b 床・フォールバック枝(`floorTexLoaded` なら `床2.png` = 9100-9101) | 9069-9086 | **9091-9109** |
+| Pass 1b.5 絵 | 9088-9098 | **9111-9122** |
+| `cameraFollowTick`(rAF 7712 / 7726)/ `renderWorld` → `renderMap()` | 7690 / 7704 | **7711-7728 / 16625** |
+| `fxTick`(rAF 8296 / 8407) | 8274 | **8396-8408** |
+| 壁の予備描画(§11 で触らない) | 9314 以降 | (Pass 2 以降・未計測) |
+
+#### §2 の主張の実測(○ = 成立)
+
+- ○ `床2.png` の読み口はリポジトリで 1 か所(`index.html:3515`。ほかは 9065 のコメントだけ。tavern/town/world/js は 0 件)。
+- ○ `floorTex1` に `onerror` が無い(`grep -n "floorTex1\."` = `.src` 3974 と `.onload` 3975 だけ)。
+- ○ `addPainting` の `onerror` は空関数(6536)。`isPaintedAndLoaded` は「マスクの内側 かつ loaded」のときだけ真。
+- ○ Pass 1a / 1b パターン枝 / フォールバック枝 / 1b.5 の構造は §2-1 のとおり。
+- ○ §2-4: 語りの間は `renderMap` が毎フレーム呼ばれていない。遅延 4000ms の森で、呼び出しは 6 回(176〜264ms)の後、床の onload の 1 回(4219ms)だけで、9 秒まで 0 回。
+- △ 呼び口は直接の `renderMap()` が 12 か所(3511/3517/3977/4031/4064/4402/4470/4472/4480/4487/8735/16625)。rAF で `renderMap` に届くのはカメラ(`cameraFollowTick` → `renderWorldWithShake` → `renderWorld` :16625)だけ。→ K2
+- △ §2-5: 名指しの golden は「非 null になった直後」には撮っていない。→ K3
+
+#### 崩れた主張
+
+- **K1 ⚠⚠⚠ 絵の onload は `renderMap()` を呼ばない**(6505-6535)。床より後に届いた絵は、語りの間ずっと描かれない。
+  実測: 床 3000ms / 絵 5000ms 遅延で、森・砦とも 7000ms の時点で `paints:true` なのに `renderMap` の回数は増えず、
+  強制で `renderMap()` を 1 回呼ぶと mapCanvas が変わった(`staleBeforeForcedRender:true`・絵は画面内)。
+  床と絵を同じ 4000ms 遅らせると競争になる: 森 1 回目は絵の到着 4234ms が最後の描画 4202ms より後(6500ms の輝度 59.3 = 絵が出ていない)、2 回目は先(輝度 76.6 = 出ている)。
+  ⇒ 項目2: **絵の onload でも描画を起こす(フェードのループを起動する)こと**。§4 は `onerror` にだけ `renderMap()` を足すと書いているが、onload 側にも要る。これが無いと §8 (2a)〜(2c) が競争のせいで非決定になる。
+- **K2(軽微)** §2-4 の「rAF で回っているのはカメラと fx」の fx は `renderMap` を呼ばない(`fxTick` は `fxctx` の粒子だけ)。結論(フェード中は自前の rAF が要る)は変わらない。
+- **K3 §2-5 の「`floorPattern` が非 null になった直後にハッシュを撮る」は不正確。** 実際の撮り方:
+  - `driver_field_step1` / `_step1_geo` / `_step2` / `_step3` / `_step05_hud` / `driver_mapdef_step1` は `waitImages`(追跡した Image が全部 complete で、250ms 間隔の 3 回連続で変わらない)を待ち、パターンが非 null かを assert し、**`requestAnimationFrame` を空関数に差し替えて**から(`P.freeze`)、自分で `renderMap()` を呼んでハッシュを撮る。
+  - `driver_field_verge_gap` は画像を待たず、`tilesetLoaded` → `startGame()` → **固定で 2500ms** 待ち → rAF を潰して → `?graph=0` で撮る(8 本の中でいちばん脆い)。
+  - `driver_field_step1` は `performance.now = () => 0`。ほかの freeze 系は **`Date.now` / `new Date()` を T0 = 1700000000000 に固定**している。
+  - ⇒ 閾値 1500ms の方針は維持でよい(撮る瞬間には余裕がある)。ただし項目2 は次を守ること。
+    ① 到着時刻とアルファは **`performance.now()` で取る。`Date.now()` は使わない**(T0 = 1.7e12 ≥ 1500 になってフェードに入り、`(T0−T0)/300 = 0` = 盤面が消えて golden が赤くなる)。
+    ② アルファは **時刻から導出する**(rAF のコマ数で積み上げない)。golden は rAF を潰した後で `renderMap()` を直接呼ぶので、時刻ベースなら 1 になる。
+    ③ step1 は perf = 0 ⇒ 到着時刻も 0 ⇒ フェードしない(安全)。
+- **K4(軽微)** §2-1 の `isPaintedAndLoaded` の行番号は `35ad1fc` でも 6593(表の 6629 は番地違い)。内容は正しい。
+- **K5(参考)** 遅延なしでも `床2.png` は最初の約 300ms に描かれている(`drawImage` 60〜336 回・6 シナリオ全部)。速い回線でも 1〜2 コマは白い丸石が出ている。STEP1 が入ればこれも 0 回になるはず(§8 (1a) は遅延の腕だけを測るので、遅延なしの 0 回は受入の外。入れるかは項目3 で判断)。
+- **K6(参考)** `caravan-road` は絵が 0 枚で、同じフォールバック枝(`床2.png`)を通る(遅延なしでも 126〜196 回)。§8 §1 の 6 シナリオに入っておらず、(0a) は「絵が 1 枚以上」を要求するので、そのままでは入れられない。床の規則(STEP1)はこのテーマにも効く。
+
+#### 揃う時刻(遅延なし・`floorPattern` 非 null と全部の絵の loaded が揃った時刻・`performance.now()` ms)
+
+| | goblin-mine | bandits-forest | dragon-lair | undead-temple | orc-fort | lizard-swamp |
+|---|---|---|---|---|---|---|
+| 390x844 3 回 | 314 / 330 / 334 | 360 / 364 / 329 | 324 / 299 / 306 | 307 / 308 / 377 | 330 / 311 / 287 | 329 / 321 / 324 |
+| 1440x900 1 回 | 315 | 349 | 319 | 320 | 325 | 329 |
+
+最大 377ms(依頼書の 451〜675ms より速い)。今日のこの機械は速いほう。過去の「約 2.6 倍遅い」状態でも 377×2.6 ≒ 980ms で、1500ms の内側。
+
+#### 再現(遅延 4000ms・390x844・1500ms 時点)
+
+| | floorPattern | floorTexLoaded | 絵 | 床2 drawImage | 盤面の平均輝度 / 明るい画素(L>120) | 6500ms |
+|---|---|---|---|---|---|---|
+| bandits-forest(2 回) | false | true | `n7_map.jpg:false` | 240 | 186.2 / 93.5% | 本来の床(輝度 59.3〜76.6) |
+| orc-fort | false | true | `n4_map.jpg:false` | 180 | 186.2 / 93.5% | 本来の床(85.6) |
+
+スクショ(1500ms)は iPhone の報告と同じ白い丸石。語りの枠も出ている(`narr:true`)。
+⇒ §8 (1b) の閾値の材料: 白い丸石の盤面は平均輝度 **186.2**、落ち着いた盤面は 52〜86(遅延なし 1500ms: 鉱山 80.7 / 森 76.6 / 竜 52.4 / 神殿 79.1 / 砦 85.6 / 沼 66.0)。
+
+#### 名指し golden 8 本 — 着手前の色(`e3ce2b0`・逐次・単独)
+
+| 本 | exit | 要約 | 所要 |
+|---|---|---|---|
+| driver_field_step1 | 0 | 95/95 PASS | 74.5s |
+| driver_field_step1_geo | 0 | 71/71 PASS | 102.2s |
+| driver_field_step2 | 0 | 64/64 ALL PASS | 40.0s |
+| driver_field_step3 | 0 | 65/65 ALL PASS | 70.0s |
+| driver_field_step05_hud | 0 | 測定妥当性 6/6 PASS | 38.4s |
+| driver_field_verge_gap | 0 | 39/39 ALL PASS | 25.5s |
+| driver_mapdef_step1 | 0 | 208/208 PASS | 19.1s |
+| driver_paint_blocked | 0 | PASS 65 / FAIL 0 | 7.1s |
+
+合計 **376.8 秒(約 6.3 分)**。8 本とも `--negative` を持たない(`driver_mapdef_step1` / `driver_paint_blocked` は `--mutate` の口を持つ)。
+⚠ post83 の走査では `driver_mapdef_step1` が 207/208(`(0b)` = baseline の worktree 登録。clone83 で走った環境由来)だったが、本番ツリーでは 208/208。
+
+#### 母集団(項目4)
+
+- `183a969` → `e3ce2b0` の差分は `実装依頼書/README.md` の 1 行だけ。`d7766d0` / `183a969` / `e3ce2b0` で `index.html` `491abf55…` / `tavern.html` `5030cb12…` / `audio.js` / `js/` / `tools/` / `assets/` のツリー OID が全部同じ。トップレベルで違うのは `実装依頼書/` だけ。
+  ⇒ **post83(207 腕・#83 項目4 の `post83.tsv`)は着手前の色にそのまま流用できる**(走査し直さない)。
+- 再利用できるもの(#83 の scratchpad `item4\`): 走行器 `sweep_83post.py` + `armlist_83post.json` + `run_all83post.ps1` / 比較 `cmp_83.py` / 対比較 `pair_83.py` + `fisher.py` / 影の作り方 `mkshadow_83.py`(#85 では `index.html` だけを `e3ce2b0` にした影でよい)。⚠ `clone83` / `shadow83` は `d7766d0` = 今の本番と同じ中身だが、`clone83` の `index.html` は #85 の実装後には古い ⇒ clone で走る腕は clone を作り直すか、本番で再走する。
+- 床と絵の読み込みの時刻に敏感な本(画素ハッシュ / 描画コマンド / パターンを読む本。post83 の色):
+  名指し 8 本(全部緑)+ `driver_field_scale`(緑)/ `driver_field_step6_png`(緑)/ `driver_field_step7`(golden・緑)/ `driver_paint_grid`(緑・`performance.now` を `_p0` に固定して撮る)/ `driver_wall_face`(golden・緑)/ `driver_wall_props`(緑)/ `driver_wallbox`(緑)/ `driver_grid_p7`(緑)/ `driver_doors_p2`(緑)/ `driver_grid_s2`(緑)/ `driver_mapdef_step2`(緑)/ `driver_graph_p7`・`driver_graph_reentry`(緑)/ `driver_mine_wall`(緑)/ `probe_paint_overlay`(exit 0)/ `verify_fort_fold`・`verify_swamp_fold`・`verify_swamp_novice`(素は緑・`--negative` は着手前から exit 3)/ `verify_swamp_lair` / `verify_road_ambush` / `verify_tower_mother`(緑)。
+  ⚠ 着手前から非緑: `driver_mapeditor`(176/3)・`driver_mapeditor_painting`(105/1)= マップエディタのページで `index.html` の盤面ではない。
+
+#### §5 (5a) の基準の推奨
+
+**`35ad1fc` ではなく `e3ce2b0`(= #85 着手前)の `index.html` を `git show e3ce2b0:index.html` で配る。**
+理由: `35ad1fc`→`e3ce2b0` で `index.html` は #83 により +283 行変わっている。(5a) が示したいのは「撤退すると #85 の直前の姿へ戻る」。`35ad1fc` と比べると #83 の差まで巻き込む(1500ms の森の盤面ではたぶん同じ画素だが、#83 の差を混ぜない理由が無い)。
+⚠ blob は LF(41246 行)、作業ツリーは純 CRLF(CRLF 41246 = LF 41246)⇒ **配る前に CRLF へ戻す**(変異アンカーや配信バイトの照合を揃えるため)。
+
+#### 項目2 への申し送り
+
+1. K1: 絵の `onload` でも描画(フェードのループ)を起こす。床が先・絵が後の順でも絵が出ること。
+2. K3: 到着時刻・アルファは `performance.now()`。`Date.now()` は禁止。アルファは時刻から導出し、rAF のコマ数で積まない。
+3. 閾値 1500ms は今日の実測(最大 377ms)で十分に余裕がある。
+4. `driver_field_verge_gap` は固定 2500ms 待ち + `?graph=0`。遅い機械で床がそれより遅れると、今も白い丸石を撮るし、直した後は暗い盤面を撮る(どちらも赤)。帰属の切り分けで思い出すこと。
+5. 名指し 8 本の着手前はすべて exit 0(合計 6.3 分)。項目2 の後に同じ 8 本を回せばよい。
+6. プローブは `item1/probe85.js`(`--jpgdelay` で絵だけ遅らせられる・`--mode 404`・`--q boardfade=0`・`--vp 1440x900`)。項目3 の受入へ同じ仕組みを移せる。
