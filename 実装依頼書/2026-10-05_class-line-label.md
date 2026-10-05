@@ -1,7 +1,7 @@
 # #86 名前札の職業を文字で — 「(戦士)」の段を名前の上に
 
 - **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)
-- **着手**: ⏸ **保留 — #85(白い石床のちらつき)の完了待ち**。#85 が `index.html` と `tavern.html` の changelog を触るため。port base も #85 §12 で決まる。
+- **着手**: ✅ 着手可(2026-10-06)— #85 完了 `345d0f7`。受入の port base = **10574**(#85 §12)。⚠ #85 で `index.html` が動いたので §2 の行番号は関数名で引き直すこと。
 - **触るファイル**: `tavern.html`(札の描き口 1 関数 + CSS 1 規則 + 撤退スイッチ + changelog)/ `index.html`(`createAllyDom` の名前札 + CSS 1 規則 + 撤退スイッチ)/ `tools/verify_hold_person.js`(既存 golden の言い直し 2 節)/ `tools/verify_class_line.js`(新規)
 - ⛔ **触らないファイル(着手まで)**: `index.html` / `tavern.html` — **実装窓が #85 を実装中**。#85 は `index.html` の描画と読み込みを直し、changelog のため `tavern.html` の `changelogList` も触る。
   ⇒ 本チケットは **#85 の完了コミットを待ってから着手**する(同じファイルの並走は、ファイル単位 add でも相手のコミットへ hunk ごと入る)。
@@ -245,7 +245,7 @@ CSS(`.allyLabel` の規則群の近く。⛔ 素の `.allyLabel` と `body.label
 
 ## 8. 受入条件 — `tools/verify_class_line.js`(新規)
 
-port base = **#85 §12 に書かれる「次の新規ドライバ base」**(#85 の受入が 10567 から使う)。
+port base = **10574**(#85 §12)。変異は 10575 から。
 
 方針: 酒場とダンジョンの札を**実 Chrome の DOM と `getBoundingClientRect`** で測る。職業名の期待値は**ドライバが `PARTY_SLOTS` / `CLASS_DEFS` から自分で引く**(実装が使う `recruitClassLabel` を呼ばない)。色・字の大きさの具体値は縛らない。
 
