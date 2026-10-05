@@ -1,6 +1,6 @@
 # #83 塔の母 B — 母が小部屋から出てきて一緒に帰り、酒場で息子と並んで迎える
 
-- **起草**: 2026-10-04(起草窓) / **ステータス**: **承認済**(2026-10-04 ユーザー承認)
+- **起草**: 2026-10-04(起草窓) / **ステータス**: **✅ 完了**(2026-10-05 実装窓・項目1〜4 = `56d4578` / `34675e3` / `96298f0` / `d7766d0` / 項目4 のコミット。§12-5 総括)/ 承認 2026-10-04 ユーザー
 - **着手**: 2026-10-04 実装窓 dev-loop 開始(#84 完了 `5d5b32b`・README 行 `35ad1fc` の後)。旧: ⏸ 保留 — #84(メイジハンドの到達)の完了待ち
 - **基準 HEAD**: **`35ad1fc`**(項目1 の実測の基準 = §12-0)。起草時の値は `06ee666`(#82 完了)= 本文 §2 の行番号はこちらで測ったもの。訂正は §12-0 の (1)
 - **会議**: `dev-meetings/2026-10-03_tower-mother-quest.md` 第 2 段の開発計画書の「チケット B(③)」(ユーザー承認 2026-10-03)
@@ -726,3 +726,118 @@ desktop 1440x900 と compact 390x844 の両方で **42/42 OK**(ログ `item2b/re
 #### (6) 項目4 の母集団へ
 
 - 足す腕 = **`verify_tower_mother_b` 素**(exit 0・22/22)と **`verify_tower_mother_b --negative`**(exit 0)。どちらも #83 の新規 = 着手前の色は無い(post84 の 204 腕 + `verify_party_promises --negative` の 205 腕に足して 207 腕)。
+
+### 12-4. 項目4 — 母集団の非退行(基準 HEAD `d7766d0`・2026-10-05)
+
+- 本番(`index.html` / `tavern.html` / `js/*` / `audio.js`)・`tools/*` は 1 バイトも触っていない(本項目で直したもの 0)。走査の前後で作業ツリーは clean のまま。`index.html` / `tavern.html` / `js/npc-crowd.js` の blob OID(`491abf5` / `5030cb1` / `5f9c275`)も変わっていない。作業物は scratchpad `…/32f9ad8a-5bb9-47de-a7bd-ed50fd3a2b22/scratchpad/item4/`。
+- 腕 = 着手前の色 `post84`(§12-0 (6)・204 腕・`45319e4` = `35ad1fc` と配信物が同一)+ **`verify_party_promises --negative`**(§12-0 で exit 0)+ **`verify_tower_mother_b` 素 / `--negative`**(新規・§12-3)= **207 腕**。
+- 足りない `--negative` の洗い出し(#84 K16 の型。`anchorsfn83.py`): `35ad1fc..HEAD` の差分が入った関数(関数の外の差分は ±40 行)に、`--negative` を持つ本の文字列リテラルが当たるかを全 164 本で走査した。当たりのうち変異アンカーとして意味があるのは `verify_tower_mother_b`(新規・足した)/ `verify_npc_crowd` / `verify_run_chronicle` / `verify_tower_mother`(3 本とも `--negative` は post84 に在る)だけだった。残りの当たりは `dragonfighters.` / 罫線 `═══` / コメント内の `?castanchor=0` `?recruittalk=0` / assert の説明文の中の語 / `showResult` の `lastResult` の行(`verify_mercenary_roster`。#83 は `showResult` の外のリスナー 1 行だけを触った)= 偽の当たり。⇒ **足した `--negative` は項目1 の `verify_party_promises` の 1 本だけ**。
+- 走らせ方: 直列・SKIP 再開型(`sweep_83post.py` = #84 の `sweep_84post.py` の写し)。git を読む本(`root` が `clone` / `fix` の 32 腕)は `--shared` clone `clone83`(`d7766d0`)で走らせた。追跡している 926 本のうち作業ツリーと違うのは `tools/probe_magehand_reach.js` の改行だけ(#84 K19 と同じ・母集団外)。残りは本番の作業ツリーで走らせた。⛔ `auto_debug_run` は走査していない(#80 からの決定)。試遊サーバ 8765 には触れていない(走査中は待ち受けも無かった)。
+- 所要: **562.0 分**(207 腕・腕あたり 2.71 分。#84 は 2.30 分。`verify_tower_mother` の素 120 秒・`--negative` 1,100 秒〔K15〕と `verify_tower_mother_b --negative` 4,182 秒〔K24〕が増えた分)+ 対比較 56 走行 約 4.4 時間。
+
+#### (1) 結果
+
+| | 腕数 | 緑 | 非緑 |
+|---|---|---|---|
+| 着手前 `post84` + `verify_party_promises --negative`(同じ 205 腕) | 205 | 181 | 24 |
+| 実装後 `post83`(同じ 205 腕) | 205 | **177** | 28 |
+| 新規 2 腕(`verify_tower_mother_b` 素 / `--negative`) | 2 | 2 | 0 |
+
+- **緑→赤 5**(下表)/ **赤→緑 1**(`driver_field_step2` = #84 で揺れと決めた `D2-dragon-lair` のピクセル SHA が今回は緑)/ **両方で非緑 23**。この 23 は着手前の非緑 24 から `driver_field_step2` を除いた全部で、型も同じ(既知の赤・使い方のガード・調査の道具・#82 K27 のアンカー腐敗 4 本・`driver_speech_engine` (4) カメラ・`driver_monsters_umberhulk` (3)・`driver_monsters_griffon`)。
+- 緑のまま指紋(assert の id 列)が動いた腕は 2 本(`verify_run_chronicle --negative` / `verify_pm_drawer_fit --negative`)。どちらも変異腕の中の PASS 件数が ±1 揺れただけで、本の終了コードは 0。
+- **名指し golden はすべて緑**(走査の結果):
+  - `verify_tower_mother`: 素 19/19(120 秒)・`--negative` exit 0(1,100 秒)
+  - `verify_tower_mother_b`: 素 **22/22**(331 秒)・`--negative` exit 0(4,182 秒・「11 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行」・担当表は §12-3 (2) と同じ集合)
+  - `verify_npc_crowd`: 素 33/33・`--negative` 58/58
+  - `verify_recruit_talk`: 素 25/25・`--negative` exit 0
+  - `verify_quest_draw`: 素 18/18・`--negative` exit 0
+  - `verify_tavern_map`: 素 47/47・`--negative` 71/71
+  - `verify_run_chronicle`: 素 73/73・`--negative` exit 0(8 本すべて担当が赤・空振り 0)
+  - `verify_party_promises`: 素 35/35・`--negative` exit 0
+  - `driver_encounter_mopup` 36/36・`driver_graph_p6` 250/250
+  - 塔の母の型を数える本(`driver_graph_sce1` / `driver_graph_reentry`)も緑。`driver_sce1_events` は着手前と同じ 211/214。`driver_speech_engine` は (0) の詳細 `lineKeys=79`(K11 の予告どおり)で、赤は着手前と同じ (4) カメラだけ。
+- `#changelogBox`: `35ad1fc` と `d7766d0` の `tavern.html` を同じ配信で 7 画面(1280x800 / 1024x768 / 1366x768 / 844x390 / 390x844 / 375x667 / 414x896)開いて測った(`clbox83.js`・port 10602 = 測定台の枠)。**矩形は全画面で完全一致**。中の `scrollHeight`(370 / 308、畳んだ画面は 45 / 0)も同じ。`<li>` の入れ替えで高さは動いていない ⇒ この矩形を読む他の golden への影響は無い。
+
+#### (2) 緑→赤の切り分け(影 = `shadow83` と交互に対比較)
+
+影のツリー `shadow83` は、本番の作業ツリーの実体コピー(`.git` / `source_images` 抜き・`tools/` は実体)のうち、**`index.html` / `tavern.html` / `js/npc-crowd.js` だけを `35ad1fc` に戻したもの**(#83 が変えた配信物はこの 3 本だけ。`git show` の LF を CRLF へ戻して配った)。緑→赤の 5 本はどれも git を読まないので、clone ではなく影と対比較した(`pair_83.py`・1 回ごとに先攻を入れ替えた)。
+
+| 腕 | 赤い assert | 本番 | 影 | p(Fisher)| 帰属 |
+|---|---|---|---|---|---|
+| `driver_diag_watchdog` 素 | (7a) 終わらない戦闘(目安 2 ラウンドへ縮めた変異)が 90 秒以内に `combat-runaway` で鳴る — 「なし」 | 1/5 赤(走査を含めると 2/6) | 0/5 赤 | 1.000 | **揺れ**(K25) |
+| `driver_field_step0` 素 | (2e-desktop) 3 ウェーブ完走 — `waves=2/3 reason=gameOver` | 0/5 | 0/5 | 1.000 | **揺れ**(隊商護衛で全滅。乱数) |
+| `driver_monsters_chimera` 素 | (4) 非 flight ミノタウロスの列バイアス — `entries=0`(1 回だけ (3) `maxHit=1`) | 3/10 赤 | 1/10 赤 | 0.582 | **揺れ**(観測 0 件はフレークの指紋・K26) |
+| `driver_monsters_hobgoblin` 素 | (d) pack +2 / disciplined +1 が命中内訳に出る — `maxPack=0` / (e) `entries=0` | 3/5 赤 | 3/5 赤 | 1.000 | **揺れ**(K26) |
+| `verify_mage_hand --negative` | 変異 `escapeon` が担当 (4a) の外の (3a)(3c)(6a) へ漏れる | `--only escapeon` 0/3 | 1/3(**影でも同じ形で漏れた**) | 1.000 | **揺れ**(#80 K26 / #84 K9 の既知・K27) |
+
+- ⭐ **構造の証明(変わったバイトに届く経路が無い)**: #83 が `index.html` に足したコードはすべて `towerMother` が null でないときだけ動く。`towerMother` に代入する口は `towerMotherHolds()` の 1 か所だけで、そこは `towerMotherSceneHere()` = `TOWER_MOTHER_ON && RUN.scenarioId === "tower-mother" && currentNodeId === RUN.bossNodeId` を通らないと起動しない。他のシナリオで実際に走るのは次の 4 か所だけで、どれも即座に返る(偽を返す)。乱数も状態も触らない。
+  - `checkDungeonClear` のゲート(偽を返す)
+  - `moveEnemies` の末尾の `tickTowerMother()`(`towerMother` が null なので即 return)
+  - `renderWorld` の `if (towerMother && …)`
+  - `tickNodeChoice` と撤退 2 か所の `towerMotherActive()`(偽)
+
+  `SPEECH_LINES` の 2 キーは、キーを名指しで引く口(`resolveSpeechLines`)しか無く、キーを列挙する口は 0。`.towerMother` の CSS は要素が無ければ効かない。`tavern.html` / `js/npc-crowd.js` の変更も同じ形で閉じている:
+  - 印 `dragonfighters.towerMotherHome` は `consumeResult` で `scenarioId === "tower-mother"` のときだけ立つ。
+  - REUNION は印があるときだけ生える。
+  - `npcBubbleShow` の第 2 引数は無ければ従来どおり。
+  - 場面の clamp は場面の一言だけに掛かる。
+
+  上の 5 本はどれも `tower` の語を 0 件しか持たず、毎回まっさらなプロファイルで起動する(印は無い)⇒ **変わったバイトに届く経路が無い**。
+- ⇒ **#83 帰属の緑→赤 0**。直したもの 0。
+
+#### (3) 崩れ
+
+- **K25** `driver_diag_watchdog` の (7a) は、観測窓 90 秒(実時間)の中で廃坑の最初の戦闘が 3 ラウンド目に入るかどうかに懸かっている。鳴った時刻は 36 秒(影)〜 89 秒(#84 の post84 = 窓の 1 秒手前)とばらつき、本番の 2 走行は窓の中で鳴らなかった。⇒ 着手前の「緑」も窓すれすれの緑だった。帰属は無い(上表)。別チケット候補 = 観測窓を実時間からラウンド数 / tick 数へ。
+- **K26** `driver_monsters_chimera` (4) / `driver_monsters_hobgoblin` (d)(e) は `entries=0` / `maxPack=0` = 装置が 1 件も観測できなかった型(#72 の「観測 0 件はフレークの指紋」)。hobgoblin は本番と影の両方で 3/5 赤 = 「揺れ」より「両方の木で赤寄り」(#84 K17 の umberhulk と同じ型)。
+- **K27** `verify_mage_hand --negative` の `escapeon` の漏れ((3a)(3c)(6a))は、**#83 の無い影でも同じ形で再現した**(1/3)。#80 K26 / #84 K9 の既知の揺れで、今回の走査ではそれを踏んだだけ。
+- (項目1 の予告の検算)K11 `driver_speech_engine` の `lineKeys` は 77 → 79 で色は不変・K12 名指しの 3 本(`driver_encounter_mopup` / `verify_run_chronicle` / `driver_graph_p6`)は緑のまま・(7) 予告表の各行は全部予告どおり。
+
+#### (4) 逸脱
+
+- **D9** `verify_mage_hand --negative` の対比較は、`--negative` 全体(1 本 31 分)ではなく **`--only escapeon` を各 3 走行**にした。赤くなったのが `escapeon` の 1 変異だけで、ほかの 11 変異は走査の中で担当どおりだったため。`driver_monsters_chimera` は 5 走行で 3/5 対 1/5 だったので、**5 走行を足して各 10 走行**にした。
+
+### 12-5. 総括(項目1〜4・2026-10-05)
+
+- **コミット**: `56d4578`(項目1 着手前の実測)/ `34675e3`(項目2a 塔の中)/ `96298f0`(項目2b 酒場)/ `d7766d0`(項目3 受入 `tools/verify_tower_mother_b.js`)/ 本書の §12-4・§12-5 と README を書いたコミット(項目4)。push はしていない。
+- **本番の変更**:
+  - `index.html`: 母は敵配列に入れない `.towerMother`(#nodeLayer・ノード寿命)にした。
+    - 最後のワイバーンが去ると、`checkDungeonClear` のゲート 1 行で制覇を待たせ、emerge → approach → talk(2 件・味方の色)→ follow(主人公が階段の口へ・母は足跡を 2 歩遅れ)→ done の順に進んでから制覇する。
+    - 穴を 2 つ塞いだ: `tickNodeChoice` の入口と撤退 2 か所(`towerMotherActive()` = 起動済み && `!dungeonCleared`)。
+    - 上限は follow 開始から、止まっていない時間だけで `max(90 秒, A*×4+30 秒)`。例外も done へ倒す。
+  - `tavern.html` / `js/npc-crowd.js`:
+    - 塔の母のクリアで印 `dragonfighters.towerMotherHome` を立てる。
+    - 印があるときだけ卓 t2 に息子 harold (4,7) と母 (5,7) を生やす(`REUNION` は別配列)。
+    - 初回だけ再会の吹き出しを 3 件出す(見えている幅へ clamp = D5)。
+  - changelog は 1 行。撤退は `?towermother=0`(塔では母を出さず即制覇・酒場では印を立てず母子と場面を出さない・印は消さない)。
+- **受入**: `tools/verify_tower_mother_b.js` 素 **22/22**(×5 = 単独 2 + 基準 2 + 走査 1)/ `--negative` **11/11** 担当だけが赤(×3)。`verify_tower_mother` の (3d) は「随伴が done → その後に制覇」へ言い直した。母集団 207 腕で **#83 帰属の緑→赤 0**(§12-4)。
+- **崩れ 27 件**:
+  - K1〜K12(項目1): 行番号・主人公の歩行 45 秒で上限 40 秒が必ず fail-open・ゲートは戦闘の後始末中・止まっている間も実時間は進む・吹き出しの血赤と配列・2 歩遅れは仲間の電車・t2 の札・done→制覇の隙間・(3d) の待ち・変異アンカー 6 本・`lineKeys` +2・名指しの 3 本は塔を走らない
+  - K13〜K15(項目2a): 終戦→emerge 2 秒・approach が伸びる・`verify_tower_mother` の所要
+  - K16〜K19(項目2b): compact で息子が見切れる・天板の上に立って見える・`?npc=0` / `?tavernmap=0` では出ない・場面は 4 秒刻み
+  - K20〜K24(項目3): 罠 1 は終戦の 61ms 後に必ず当たる・disabled の click・敵配列の実害・(2a) の装置・所要
+  - K25〜K27(項目4): 上記
+- **逸脱 9 件**:
+  - D1 emerge の間は主人公をその場に留める(項目2a)
+  - D2 上限の数え方(項目2a)
+  - D3 `towerMotherActive` = `!dungeonCleared`(項目2a)
+  - D4 tick の例外を done へ倒す(項目2a)
+  - D5 場面の吹き出しを見えている幅へ clamp(項目2b)
+  - D6 (0c) pageerror 0(項目3)
+  - D7 disabled を外して押す(項目3)
+  - D8 (3e) は両方の画面・(3g) の対照・(1h) の内訳(項目3)
+  - D9 対比較の回数(項目4)
+- **作業コピー**(削除はユーザー判断・scratchpad `…/32f9ad8a-5bb9-47de-a7bd-ed50fd3a2b22/scratchpad/item4/`): `clone83` 229MB(`d7766d0`・`--shared`)/ `shadow83` 290MB(配信物 3 本だけ `35ad1fc`)= 計 約 520MB。
+- **§9 実機/目視の宿題(ユーザー担当)**:
+  - ① タンスが押し退けられる瞬間が「中に誰か居た」と読めるか(揺れ・音・土埃・一文。⚠ 揺れは `__autoplay` では出ない既存の仕様)
+  - ② 霧の中から母が出てくるとき暗すぎないか
+  - ③ 母が後ろを付いてくる姿が iPhone 縦で「一緒に帰っている」と読めるか。2 人目の仲間と同じタイルに重なって見えないか(K6)
+  - ④ 待ち時間: 終戦から制覇まで非 autoplay で約 52〜58 秒(follow 約 40 秒)が長すぎないか(K2/K13/K14)
+  - ⑤ 酒場の卓 t2 で息子が**天板の上に立って見える**(K17・dx を −48 側へ寄せる案あり)/ 母子が親子に見えるか / compact で息子が左端で見切れる(K16)
+  - ⑥ 再会の吹き出し 3 件が帰還の帯(5.5 秒)と喧嘩しないか。吹き出しの尾が息子の真上から少しずれる(D5)
+- **別チケット候補**:
+  - K25 `driver_diag_watchdog` (7a) の観測窓を実時間からラウンド数へ
+  - K26 `driver_monsters_hobgoblin` / `chimera` の観測 0 件(#84 K17 の umberhulk と一緒に)
+  - K27 `verify_mage_hand` `escapeon` の漏れ(#80 から続く)
+  - #82 K27 の `--negative` 4 本(着手前から壊れている・今回も同じ)
+  - #85(クエスト開始時の白い床・承認済・本チケットの完了待ちだった)
+- **次の新規ドライバ base = 10567**(本項目は新しいポートを使っていない。`#changelogBox` の測定は測定台の枠 10602)。
