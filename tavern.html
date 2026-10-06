@@ -2639,6 +2639,23 @@
       background: rgba(12,8,3,0.92);
       border-color: #e0b43c;
     }
+    /* ★[#86] 職業の段 (札の上に小さく「(戦士)」)。⚠ 絶対配置 = 札の箱の大きさを 1px も変えない
+       (#57 の 3 条件・verify_hold_person / verify_party_promises の測る箱が不変)。
+       ⚠ font-size は em —— body.compact の 11px にそのまま追従させる。
+       ⛔ 反転を足さない —— 札の子なので .npcUnit.faceLeft の二重反転の内側に入って正しい向きになる
+         (足すと左向きの席だけ鏡文字になる)。⛔ .patronLabel 本体の規則は 1 文字も触らない。 */
+    .patronLabel .labelClass {
+      position: absolute;
+      left: 50%;
+      bottom: 100%;
+      transform: translateX(-50%);
+      font-size: 0.85em;
+      line-height: 1.1;
+      white-space: nowrap;
+      color: #d9c9a3;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      pointer-events: none;
+    }
     /* 足元の楕円影。⭐ 主人公の影より一回り小さくして「脇役」に見せる */
     .npcShadow {
       position: absolute;
@@ -3332,10 +3349,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>名前札に職業を文字で表示</b> — 酒場の客とダンジョンの仲間の名前の上に「(戦士)」のように職業が出るようになった。</li>
         <li><b>クエスト開始時のちらつきを修正</b> — 地図が届く前に古い石の床が一瞬見えていたのを直し、地図が届くまで盤面を暗く保つようにした。届くのに時間がかかったときは、暗い盤面から地図が浮かび上がる。</li>
         <li><b>塔の母を連れて帰れるように</b> — ワイバーンを追い払うと、塔に立てこもっていた母が部屋から出てきて一緒に階段を下りる。酒場に戻ると、息子と母が卓で迎えてくれる。</li>
         <li><b>メイジハンドが使いやすく</b> — 覚えていると出撃前の画面に表示される。檻のレバーに手が届く距離が戦闘中も 12 マスに伸び、「触りますか?」は押すまで待つようになった。</li>
-        <li><b>新しい依頼「塔の母」</b> — 砦を越えた冒険者の卓に、町外れの塔に住む母を迎えに行く依頼が並ぶことがある。塔の屋上のワイバーン(竜の一種・魔法学で正体を思い出せる・脅威度 6)は、傷つくと空へ逃げ去る。</li>
       </ul>
     </div>
     <script>
@@ -8804,13 +8821,31 @@
     try { return new URLSearchParams(location.search).get("patronlabel") !== "0"; }
     catch (e) { return true; }
   }
+  /* ★[#86] 職業を文字で (札の上の段)。撤退 ?classline=0 = #57 のアイコン札へ戻す。
+     ⚠ const に畳まない — 呼ぶたびに読む (isPatronLabelOn と同じ TDZ 回避の作法)。 */
+  function isClassLineOn() {
+    try { return new URLSearchParams(location.search).get("classline") !== "0"; }
+    catch (e) { return true; }
+  }
   /* 札の文字を作る **唯一の場所**。⛔ 2 箇所に書かない — 約束の付け外しで食い違う。
      ⭐ 表を写経せず PM_CLASS_EMOJI と member の実体から引く。 */
   function patronLabelPaint(lb, m) {
     if (!lb || !m) return;
     let promised = false;
     try { promised = !!(window.DFRecruits && DFRecruits.has(m.name)); } catch (e) {}
-    lb.textContent = (promised ? "🤝 " : "") + (PM_CLASS_EMOJI[m.classKey] || "") + " " + (m.name || "");
+    if (!isClassLineOn()) {
+      lb.textContent = (promised ? "🤝 " : "") + (PM_CLASS_EMOJI[m.classKey] || "") + " " + (m.name || "");
+    } else {
+      /* ★[#86] ⚠⚠ 順序は [名前][職業の段] —— 札の textContent は 🤝 で始まっていなければならない
+           (verify_hold_person (1f) / verify_party_promises)。段は CSS で箱の上へ浮かせる。
+         ⚠ 毎回ここで作り直す —— textContent で中身ごと消えるので、初期描画だけで足すと
+           約束の付け外しで段が消える。 */
+      lb.textContent = (promised ? "🤝 " : "") + (m.name || "");
+      const clsLine = document.createElement("span");
+      clsLine.className = "labelClass";
+      clsLine.textContent = "(" + recruitClassLabel(m.classKey) + ")";
+      lb.appendChild(clsLine);
+    }
     /* ★[#60 STEP4] 約束済みの札だけ金枠へ。⛔ 2 箇所目の付け口を作らない ——
        初期描画 (initNpcCrowd) も付け外し (refreshPatronLabelFor) も必ずここを通る。
        ⚠ 文字 (🤝 の前置) は #57 の出荷済み分なので ?promisemark=0 でも残す。

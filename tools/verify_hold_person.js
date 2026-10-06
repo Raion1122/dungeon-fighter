@@ -270,7 +270,7 @@ async function openTavern(browser, qs) {
   return page;
 }
 
-/* 席 → 札の実測。⭐ 期待値は **PM_CLASS_EMOJI と todaysPatrons の実体**から引く
+/* 席 → 札の実測。⭐ 期待値は **PARTY_SLOTS (職業名・#86 以降) / PM_CLASS_EMOJI と todaysPatrons の実体**から引く
    (⛔ ドライバに職業アイコンの表を写経しない)。 */
 function readSeats() {
   const out = { seats: {}, labelTotal: 0, nonSeatLabels: [], seatKeys: [], unitRects: {}, err: [] };
@@ -304,6 +304,16 @@ function readSeats() {
         name: m ? m.name : null,
         emoji: (m && typeof PM_CLASS_EMOJI === 'object') ? (PM_CLASS_EMOJI[m.classKey] || null) : null,
         classLabel: (m && typeof recruitClassLabel === 'function') ? recruitClassLabel(m.classKey) : null,
+        /* ★[#86] 期待値の職業名は **PARTY_SLOTS からドライバが自分で**引く
+           (⛔ 実装が使う recruitClassLabel を呼ばない = 実装と同じ関数を写さない)。 */
+        slotName: (function () {
+          if (!m || typeof PARTY_SLOTS === 'undefined' || !Array.isArray(PARTY_SLOTS)) return null;
+          const sl = PARTY_SLOTS.find(function (x) { return x && x.classKey === m.classKey; });
+          return sl ? sl.name : null;
+        })(),
+        /* ★[#86] 札の上の職業の段 (.labelClass)。枚数と文字。 */
+        classLineCount: lb ? lb.querySelectorAll('.labelClass').length : 0,
+        classLine: (lb && lb.querySelector('.labelClass')) ? lb.querySelector('.labelClass').textContent : null,
         hasUnit: !!unit,
         hasLabel: !!lb,
         isChildOfUnit: !!(lb && unit && lb.parentElement === unit),
@@ -619,19 +629,26 @@ function installProbe() {
       + (S.err && S.err.length ? ' / err=' + S.err.join(' ; ') : ''));
 
     const classKeys = seatArr.map((s) => s && s.classKey);
-    const emojis    = seatArr.map((s) => s && s.emoji);
-    check('(0b) [装置] 4 席の職業が相異なり、PM_CLASS_EMOJI から引いたアイコンも 4 種類そろっている '
-      + '(⭐ 全席が同じ値だと「表を写経した実装」でも緑になる)',
-      new Set(classKeys).size === 4 && new Set(emojis).size === 4 && emojis.every((e) => !!e),
-      '職 ' + JSON.stringify(classKeys) + ' / アイコン ' + JSON.stringify(emojis));
+    /* ★[#86 §6] (0b)(1a) をアイコン → 職業名へ言い直した (札が「🗡️ ニカ」から
+       「ニカ」+ 上の段「(戦士)」になった)。旧 (0b) は PM_CLASS_EMOJI の表しか読まず
+       #86 の後も緑のままだった (§12-0 K5) が、(1a) の期待値の母集団を守る装置として
+       (1a) と同じ「PARTY_SLOTS から引いた職業名」へそろえた。
+       ⚠ アイコン札の旧挙動 (?classline=0) は新規受入 verify_class_line §3 が見る。 */
+    const slotNames = seatArr.map((s) => s && s.slotName);
+    check('(0b) [装置] 4 席の職業が相異なり、PARTY_SLOTS から引いた職業名も 4 種類そろっている '
+      + '(⭐ 全席が同じ値だと「職業を取り違えた実装」でも緑になる)',
+      new Set(classKeys).size === 4 && new Set(slotNames).size === 4 && slotNames.every((e) => !!e),
+      '職 ' + JSON.stringify(classKeys) + ' / 職業名 ' + JSON.stringify(slotNames));
 
-    check('(1a) ★★ 4 席すべてで、札のテキストが **その席の** 職業アイコンと名前を含む '
-      + '(⭐ 期待値は todaysPatrons と PM_CLASS_EMOJI の実体からドライバが独立に組む)',
+    check('(1a) ★★ 4 席すべてで、札の職業の段 (.labelClass) が "(" + **その席の** 職業名 + ")" で、'
+      + '札のテキストが **その席の** 名前を含む '
+      + '(⭐ 期待値は todaysPatrons と PARTY_SLOTS の実体からドライバが独立に組む)',
       seatArr.length === 4 && seatArr.every((s) => s && s.text
-        && s.emoji && s.text.indexOf(s.emoji) >= 0
+        && s.slotName && s.classLineCount === 1 && s.classLine === '(' + s.slotName + ')'
         && s.name && s.text.indexOf(s.name) >= 0),
-      seatKeys.map((k) => k + ':"' + (S.seats[k].text || '') + '" (期待 ' + S.seats[k].emoji
-        + ' / ' + S.seats[k].name + ')').join('  //  '));
+      seatKeys.map((k) => k + ':"' + (S.seats[k].text || '') + '" 段=' + JSON.stringify(S.seats[k].classLine)
+        + ' x' + S.seats[k].classLineCount + ' (期待 (' + S.seats[k].slotName
+        + ') / ' + S.seats[k].name + ')').join('  //  '));
 
     check('(1a2) 札に **他の席の名前**が混ざっていない (席と札の対応が正しい)',
       seatArr.length === 4 && seatArr.every((s) => s && s.text

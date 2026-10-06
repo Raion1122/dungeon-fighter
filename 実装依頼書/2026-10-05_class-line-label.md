@@ -1,6 +1,6 @@
 # #86 名前札の職業を文字で — 「(戦士)」の段を名前の上に
 
-- **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)・**実装中(項目1/4)**(2026-10-06・基準 `cdebd24`・§12-0。⚠ K1 = 頭の NPC の札の扱いはユーザー判断待ち)
+- **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)・**実装中(項目2/4 完了)**(2026-10-06・基準 `cdebd24`・§12-0 / 実装 §12-1。K1 = ユーザー決定 (b) 頭が NPC のときだけ `#warriorLabel` にも段)
 - **着手**: ✅ 着手可(2026-10-06)— #85 完了 `345d0f7`。受入の port base = **10574**(#85 §12)。⚠ #85 で `index.html` が動いたので §2 の行番号は関数名で引き直すこと。
 - **触るファイル**: `tavern.html`(札の描き口 1 関数 + CSS 1 規則 + 撤退スイッチ + changelog)/ `index.html`(`createAllyDom` の名前札 + CSS 1 規則 + 撤退スイッチ)/ `tools/verify_hold_person.js`(既存 golden の言い直し 2 節)/ `tools/verify_class_line.js`(新規)
 - ⛔ **触らないファイル(着手まで)**: `index.html` / `tavern.html` — **実装窓が #85 を実装中**。#85 は `index.html` の描画と読み込みを直し、changelog のため `tavern.html` の `changelogList` も触る。
@@ -453,3 +453,67 @@ port base = **10574**(#85 §12)。変異は 10575 から。
 - `tavern.html` をコードで読む本 61 本・`index.html` をコードで読む本 149 本(コメントを剥いで数えた)は、`probe_magehand_reach`(両方)と `auto_debug_run`(index)以外**全部 post85 の腕名簿に入っている**(この 2 本は #83 / #85 でも外している)。
 - #86 が触る領域(tavern の `.patronLabel` CSS・`changelogList`・`recruitClassLabel`・`PM_CLASS_EMOJI`〜`refreshPatronLabelFor`・初期描画 / index の `.allyLabel` CSS・`NAME_LABEL_ON` の周辺・`createAllyDom`)の文字列を掴む `--negative` の本 = **`verify_hold_person`**(`labelhit` / `labelz` / `labelsib`)と **`verify_party_promises`**(`m4`)。どちらの `--negative` 腕も post85 に入っている。`verify_enemy_name_label --negative`(`.enemyLabel` の CSS が `.allyLabel` の隣)も入っている。ほかの当たりは罫線 `═══` / クエリ文字列 / コメントの語で偽の当たり(`item1/anchors86b.py`)。
 - **項目4 で足す腕** = ① 新規 `verify_class_line`(素 + `--negative`)② `verify_walk_block --negative`(post85 の名簿に無い。着手前の色は上の表 = 54/54・exit 0)。
+
+### 12-1. 実装(項目2・基準 `d5f2dff`)
+
+2026-10-06(実装窓・dev-loop 項目2)。push していない。
+
+#### 差分の要約
+
+| ファイル | 変更 |
+|---|---|
+| `tavern.html` | CSS `.patronLabel .labelClass`(`.patronLabel.promised` の直後・§4 のとおり絶対配置・`0.85em`・反転なし)/ `isClassLineOn()`(`isPatronLabelOn` の直後・呼ぶたびに URL を読む)/ `patronLabelPaint` を「`?classline=0` なら #57 の 1 行のまま、既定は `textContent = (🤝 ) + 名前` → `span.labelClass`「(職業名)」を append」(毎回作り直す = 罠 B・段は後ろ = 罠 C・職業名は `recruitClassLabel`)/ changelog 1 行 |
+| `index.html` | CSS `.allyLabel .labelClass`(`body.labelSmall .allyLabel` の直後。`#warriorLabel` も class `allyLabel` なのでこの 1 規則で効く)/ `CLASS_LINE_ON`(`NAME_LABEL_ON` の直後・起動時 1 回)/ `createAllyDom` で `CLASS_LINE_ON && !ally.isHero && ally.npcName` の札に段(`statusSlot` の前・参照は不変)/ **頭の札のヘルパー `paintHeadClassLine(isNpcHead, classKey)`**(`tryPromoteNewHead` の直前)と呼び口 2 か所 |
+| `tools/verify_hold_person.js` | (0b)(1a) をアイコン → 職業名へ言い直し(下) |
+
+⛔ 触っていない: `.patronLabel` / `.allyLabel` / `body.labelSmall .allyLabel` / `#warriorLabel` 本体の規則、`PM_CLASS_EMOJI`(約束の一覧・肖像の代わりで現役)、敵の札、`placeUnscaledUi` の dy。
+
+#### K1 の決定の反映(§11「主人公の札の書式は触らない」を上書きする分)
+
+**ユーザー決定(2026-10-06)= (b) 頭が NPC のときだけ `#warriorLabel` にも同じ職業の段**(「(戦士)」+ 名前)。頭が主人公なら付けない(「あなた」のまま)。⇒ §11 の「⛔ 主人公の札の書式」は、**頭が NPC のとき `#warriorLabel` に段を足す分だけ**上書きされる(主人公が頭のときの書式・`#warriorName` の文字は 1 文字も変えていない)。
+
+- 書く所は `paintHeadClassLine` の 1 つだけ。呼び口 = 起動時(`headDisplayName` を `#warriorName` へ書いた直後)と頭の委譲 `tryPromoteNewHead`(同)の 2 か所。
+- **毎回作り直す**: `#warriorLabel` 直下の `.labelClass` を全部消してから、条件が立つときだけ付ける。段は `#warriorName` の兄弟なので `#warriorName.textContent` の上書きでは消えない ⇒ 明示的に消す(消さないと委譲で NPC→主人公 のとき段が残る)。
+- 「NPC」の条件 = **名前のある仲間**(委譲: `!nh.isHero && !!nh.npcName` / 起動: `!headMember.isHero && !!headMember.name`)= `createAllyDom` と同じ。⚠ probe の 1 回目は `!isHero` だけで書いており、**委譲で従者 `servant`(`isSummon` でない = 頭になれる)やゴーレムが頭になると「(ゴーレム兵)」が付いた**(probe で発見 → 直した)。名前の無い頭は `headDisplayName` が既に職業名なので付けない。
+- `?classline=0` で頭の段も付かない。職業名は `CLASS_DEFS[classKey].name`。
+
+#### (0b) の判断
+
+**言い直した。** K5 のとおり旧 (0b) は `PM_CLASS_EMOJI` の表しか読まず #86 の後も緑のままだが、(0b) の役目は「(1a) の期待値の母集団が 4 種そろっている」装置であり、(1a) の期待値がアイコンから職業名へ替わった以上、装置も同じ値(`PARTY_SLOTS` から引いた職業名が 4 種)を見ないと (1a) を守らない。アイコンの旧挙動は新規受入 §3 (`?classline=0`) が見る。
+- (1a) = `.labelClass` がちょうど 1 枚・文字が `"(" + PARTY_SLOTS の職業名 + ")"`・札のテキストがその席の名前を含む。期待値は `readSeats` 内で **`PARTY_SLOTS.find` をドライバが自分で**引く(`recruitClassLabel` を呼ばない)。
+- 言い直し前に素を走らせて **(1a) だけが赤**(30/31・「イグナツ(僧侶)」に ✨ が無い)を確認 → 言い直し後 31/31。`(5c-1) ?patronlabel=0` は不変。
+
+#### probe(実装窓 scratchpad `item2/probe86i2.js`・port 10612・本番をそのまま測る = 注入なし)
+
+- 酒場 desktop / compact × 4 席(左向き B・D を含む): 段の文字 = `PARTY_SLOTS` の職業名で全一致、札にアイコン無し、段の下端 = 札の上端 + 枠(0.825 / 0.674)、横中心 ±1px 内、**段の実効横倍率が正**(+0.825 / +0.674 = 鏡文字でない)、札の高さ = `?classline=0` と一致(16.5 / 12.637)。
+- 約束 → 取り消し(`DFRecruits.add` + `refreshPatronLabelFor` → `doPromiseDrop`): 約束中「🤝 アデラ(戦士)」(🤝 先頭・段 1 枚・`.promised`)→ 取り消し後「アデラ(戦士)」(段 1 枚が残る)。高さ不変。
+- `tavern.html?classline=0`: 4 席とも「🗝️ クヌート」型(`PM_CLASS_EMOJI + " " + 名前`)に**完全一致**・段 0 枚・約束中は「🤝 🗝️ クヌート」。pageerror 0。
+- ダンジョン(`labelSmall`): 直起動(主人公が頭)= NPC 3 人の札に段(「トルガ(エルフ)」等)、`#warriorLabel`「あなた」段なし。召喚(ゴーレム兵)・従者(商人の従者)の札に段なし。敵の札の段 0。札の高さはどの札も 14.375 で `?classline=0` と一致。
+- [戦士 NPC イレーナ, 僧侶 NPC ヨナ, 魔法使い=主人公]: `#warriorLabel`「イレーナ」+ 段「(戦士)」、主人公の札「魔法使い（あなた）」段なし。委譲 → ヨナ「(僧侶)」へ付け替え → 主人公「あなた」で**段が消える** → ゴーレム兵 段なし。`#warriorLabel` の高さは全段階 14.375。
+- [戦士=主人公, ドワーフ NPC, 魔法使い NPC]: 頭「あなた」段なし → 委譲でダグ「(ドワーフ)」→ オズ「(魔法使い)」(段は常に 1 枚)。
+- `index.html?classline=0`: どの編成・委譲でも `.labelClass` 0 個。
+
+#### 変異アンカーと行末
+
+- `tools/*.js` の全文字列リテラル(8 字以上)を `d5f2dff` と作業ツリーの `tavern.html` / `index.html` で数え比べ(`item2/anchors_diff.py`): **0 件 / 1 件だったリテラルの件数が変わったものは 0**(増えたのは `'function'` `'.patronLabel'` `'pointer-events: none;'` 等の汎用語だけ)。名指しのアンカー(tavern `z-index: 3; …[#57]` / `el.appendChild(lb);` / `if (isPatronLabelOn() && seatMember) {` / index `    .enemyLabel {` / `    body.labelSmall .enemyLabel {` / `lb.appendChild(st);` / `if (NAME_LABEL_ON) …labelSmall…`)はすべて 1 件のまま。
+- 行末(`py` のバイト数え): `tavern.html` CRLF 11392 / LF のみ 0、`index.html` CRLF 41390 / LF のみ 0、`tools/verify_hold_person.js` は元から LF(0 / 1072)。
+
+#### 名指し golden(実装後・逐次・本番ツリー)— 着手前(§12-0)と同色
+
+| 本 | 素 | `--negative` |
+|---|---|---|
+| `verify_hold_person` | 0 / 31/31(言い直し後) | 0 / 8 本すべて担当が赤・空振り 0 |
+| `verify_party_promises` | 0 / 35/35 | 0 / 9 本すべて担当が赤・空振り 0 |
+| `verify_member_identity` | 0 / 28/28 | (省略 — 着手前 0。下) |
+| `verify_enemy_name_label` | 0 / 30/30 | 0 / 58/58 |
+| `verify_walk_block` | 1 / 22/23(赤 = (3d) のみ・着手前と同じ型3) | 0 / 54/54 |
+| `verify_npc_crowd` | 0 / 33/33 | (省略) |
+| `verify_recruit_talk` | 0 / 25/25 | (省略) |
+| `verify_tower_mother_b` | 0 / 22/22 | **省略**(70 分) |
+
+`--negative` の省略理由: `verify_tower_mother_b` の変異アンカー(塔の母の `towerMotherActive` / `towerMotherHolds` / `markTowerMotherHome` / `TOWER_MOTHER_ROW_Y` ほか)は #86 の差分の領域に 1 つも当たらず、上のアンカー件数比較でも件数変化 0。`member_identity` / `npc_crowd` / `recruit_talk` の `--negative` も同じ比較で件数変化 0 ⇒ 項目4 の母集団(post85 の名簿に全部入っている)で回す。
+
+#### 崩れ(項目2 で見つかったもの)
+
+- **K12(直した)頭の段の条件は `!isHero` だけでは足りない。** 委譲で従者 `servant` は頭になれる(`pickNextHeadIndex` は `isSummon` だけを除く)。⇒ 条件を「名前のある仲間」へ揃えた(上)。項目3 の受入は委譲先に従者を置いた腕で「段なし」を見ること。
+- **K13(項目3 向け)段の下端は全面で「札の上端 + 枠の太さ」**(酒場 +0.825 / +0.674、ダンジョン +1.000・`#warriorLabel` も +1.000)= §12-0 K3 どおり。(1c)(2d) の許容は枠の実測から導出すること。

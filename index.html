@@ -316,6 +316,24 @@
       padding: 0.7px 3.5px;
       border-width: 0.7px;
     }
+    /* ★[#86] 職業の段 (NPC 仲間の札と、頭が NPC のときの #warriorLabel の上に小さく「(戦士)」)。
+     * ⚠ 絶対配置 = 札の箱の高さが変わらない (placeUnscaledUi は上端固定 -28・HP バーは -10。
+     *   箱が伸びると HP バーと状態アイコンを覆う / verify_enemy_name_label (2c) の 3 種同高)。
+     * ⚠ font-size は em = body.labelSmall (70%) に自動で追従。#warriorLabel も class allyLabel なので
+     *   この 1 規則で効く。⛔ 素の .allyLabel / body.labelSmall .allyLabel は 1 行も触らない。 */
+    .allyLabel .labelClass {
+      position: absolute;
+      left: 50%;
+      bottom: 100%;
+      transform: translateX(-50%);
+      font-size: 0.85em;
+      line-height: 1.1;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      color: #b8d4ea;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.95);
+      pointer-events: none;
+    }
 
     /* ══ #44 STEP2: 敵の名前札 ════════════════════════════════════════════════
      * 味方 (.allyLabel) と同じ幾何・同じ 70%。色だけ敵側の語彙へ寄せる
@@ -3873,6 +3891,13 @@
     const NAME_LABEL_ON =
       new URLSearchParams(window.location.search).get("namelabel") !== "0";
     if (NAME_LABEL_ON) document.body.classList.add("labelSmall");
+
+    /* ══ #86 撤退スイッチ ?classline=0 — 仲間の札 (と頭が NPC のときの頭の札) の職業の段を出さない ══
+     * ⚠ 判定はブート時に 1 回だけ。ページ遷移はまたがない (各ページが自分の URL を読む)。 */
+    const CLASS_LINE_ON = (() => {
+      try { return new URLSearchParams(window.location.search).get("classline") !== "0"; }
+      catch (e) { return true; }
+    })();
 
     /* ══ #49 撤退スイッチ ?rolltarget=0 ══════════════════════════════════
      * OFF のとき、判定行の append を一切行わない = 吹き出しは #49 以前の
@@ -14491,6 +14516,14 @@
       const nameSpan = document.createElement("span");
       nameSpan.textContent = ally.isHero ? (cd.name + "（あなた）") : (ally.npcName || cd.name);
       label.appendChild(nameSpan);
+      // ★[#86] NPC の仲間だけ、名前の上に職業の段。主人公 (札が既に職業名) / 召喚 / 従者 (npcName 無し) には付けない。
+      //   ⚠ 絶対配置 (CSS .allyLabel .labelClass) = 札の箱の高さが変わらない。
+      if (CLASS_LINE_ON && !ally.isHero && ally.npcName) {
+        const clsLine = document.createElement("span");
+        clsLine.className = "labelClass";
+        clsLine.textContent = "(" + cd.name + ")";
+        label.appendChild(clsLine);
+      }
       // status-effect v1.1: 名前の右に状態アイコン列
       const statusSlot = document.createElement("span");
       statusSlot.className = "status-slot";
@@ -20228,6 +20261,28 @@
       return -1;
     }
 
+    /* ★[#86] 頭の札 #warriorLabel の職業の段。頭が NPC のときだけ「(戦士)」を名前の上に出す
+     * (2026-10-06 ユーザー決定 K1)。頭が主人公なら付けない (「あなた」のまま)。
+     * ⚠ 「NPC」= 名前のある仲間 (createAllyDom の条件 !isHero && npcName と同じ)。委譲で従者 servant
+     *   (isSummon ではないので頭になれる) が頭になっても付けない —— 頭の名前が既に職業名になる。
+     * ⚠ 書く所は 2 か所 (起動時と頭の委譲) —— どちらもここを通す。⛔ 2 か所目の付け口を作らない。
+     * ⚠ 毎回作り直す: 古い段を消してから付ける = 委譲で頭が NPC→主人公 / 別 NPC に替わっても
+     *   段が残ったり二重になったりしない。#warriorName の textContent では段は消えない
+     *   (段は #warriorLabel の直下の子) ので、ここで明示的に消す。 */
+    function paintHeadClassLine(isNpcHead, classKey) {
+      const wl = document.getElementById("warriorLabel");
+      if (!wl) return;
+      const olds = wl.querySelectorAll(".labelClass");
+      for (let i = 0; i < olds.length; i++) olds[i].remove();
+      if (!CLASS_LINE_ON || !isNpcHead) return;
+      const def = (typeof CLASS_DEFS === "object" && CLASS_DEFS) ? CLASS_DEFS[classKey] : null;
+      if (!def || !def.name) return;
+      const clsLine = document.createElement("span");
+      clsLine.className = "labelClass";
+      clsLine.textContent = "(" + def.name + ")";
+      wl.appendChild(clsLine);
+    }
+
     // ── 頭委譲 (Q1=B): 頭(player)が倒れたら次の最前生存メンバーを頭に昇格 ──
     // グローバル群 + #player を新頭へ差し替え、旧頭(ally)の DOM を撤去。true=昇格成功 / false=不能(全滅)
     function tryPromoteNewHead(context) {
@@ -20270,6 +20325,7 @@
         : (nh.npcName || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
       const lbl = document.getElementById("warriorName");
       if (lbl) lbl.textContent = headDisplayName;
+      paintHeadClassLine(!nh.isHero && !!nh.npcName, nh.classKey);   // ★[#86] 頭が替わったら段も付け替え / 消す (従者など名前の無い仲間には付けない)
       // 旧頭(player)の見た目をリセット
       if (typeof player !== "undefined" && player) { player.style.opacity = "1"; player.style.filter = "none"; }
       // 新頭の ally DOM を撤去 (#player が描画を担う → 二重描画防止)
@@ -36288,6 +36344,7 @@
     headDisplayName = headMember.isHero ? "あなた"
       : (headMember.name || (CLASS_DEFS[leaderClassKey] && CLASS_DEFS[leaderClassKey].name) || "戦士");
     { const lbl = document.getElementById("warriorName"); if (lbl) lbl.textContent = headDisplayName; }
+    paintHeadClassLine(!headMember.isHero && !!headMember.name, headMember.classKey);   // ★[#86] 頭が NPC なら職業の段
 
     // 頭のレベル (主人公=永続XP由来 / NPC=ティア帯Lv)。スキルスロット算定に使用 (仲間のフォールバックも兼ねる)
     const headLevel = headMember.isHero
