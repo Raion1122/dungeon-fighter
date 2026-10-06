@@ -1,6 +1,6 @@
 # #86 名前札の職業を文字で — 「(戦士)」の段を名前の上に
 
-- **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)
+- **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)・**実装中(項目1/4)**(2026-10-06・基準 `cdebd24`・§12-0。⚠ K1 = 頭の NPC の札の扱いはユーザー判断待ち)
 - **着手**: ✅ 着手可(2026-10-06)— #85 完了 `345d0f7`。受入の port base = **10574**(#85 §12)。⚠ #85 で `index.html` が動いたので §2 の行番号は関数名で引き直すこと。
 - **触るファイル**: `tavern.html`(札の描き口 1 関数 + CSS 1 規則 + 撤退スイッチ + changelog)/ `index.html`(`createAllyDom` の名前札 + CSS 1 規則 + 撤退スイッチ)/ `tools/verify_hold_person.js`(既存 golden の言い直し 2 節)/ `tools/verify_class_line.js`(新規)
 - ⛔ **触らないファイル(着手まで)**: `index.html` / `tavern.html` — **実装窓が #85 を実装中**。#85 は `index.html` の描画と読み込みを直し、changelog のため `tavern.html` の `changelogList` も触る。
@@ -344,4 +344,112 @@ port base = **10574**(#85 §12)。変異は 10575 から。
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 基準取り(項目1・HEAD cdebd24)
+
+測定日 2026-10-06(実装窓・dev-loop 項目1)。本番ファイル(`index.html` / `tavern.html` / `audio.js` / `js/*` / `tools/*`)は 1 バイトも触っていない。
+測定プローブ = 実装窓の scratchpad `item1/probe86.js` / `probe86b.js`(内蔵 node http・port **10611**・実 Chrome headless。§4 / §5 の CSS と描き方を**ページ内へ実行時に注入**して測る)。
+
+⭐ `345d0f7`(#85 完了)と `cdebd24` で `index.html` `19a7304a` / `tavern.html` `673e8044` / `audio.js` `311aee29` / `js` `86e8ad50` / `tools` `00147812` / `assets` `d1b418e2` の OID が全部同じ(差分は `実装依頼書/*.md` 2 本だけ)。
+
+#### 行番号(`e3ce2b0` → `cdebd24`)
+
+| 何 | §2 の記載(e3ce2b0) | cdebd24 |
+|---|---|---|
+| `PM_CLASS_EMOJI` | tavern 8795 | **8795**(ほかの使い道 = 約束の一覧 8887 / 肖像の代わり 9018) |
+| `isPatronLabelOn()` | — | **8803-8806** |
+| `patronLabelPaint(lb, m)` | 8809-8820 | **8809-8820**(`lb.textContent = …` = **8813** / `.promised` の toggle = 8818) |
+| `refreshPatronLabelFor(m)` | 8827 | **8822-8829**(呼び口 8827) |
+| 呼び口: 初期描画 `initNpcCrowd` | 11098 | **11093-11100**(`if (isPatronLabelOn() && seatMember)` 11093 / `lb.title = recruitClassLabel(…)` 11097 / `patronLabelPaint` 11098 / `el.appendChild(lb)` 11099) |
+| 呼び口: 約束の付け外し | 7320 / 8827 | **7320 = `doPromiseDisband()`(7309〜)が `patronLabelPaint` を直接呼ぶ** / 8827 = `refreshPatronLabelFor` ← `btnRecruitYes` 6628・6634 / `doPromiseDrop` 8866 |
+| `PROMISE_MARK_ON` | — | **8042-8045** |
+| `recruitClassLabel(k)` | 6577 | **6577-6580** |
+| `PARTY_SLOTS`(職業名) | 4659〜4671 | **4658-4671** |
+| 名前表 | 4681〜 | `NPC_NAMES` **4680** / `NPC_NAMES_BY_CLASS` **4691-4704** |
+| CSS `.patronLabel` | — | **2602-2618**(`body.compact` 2619 / `.npcUnit.faceLeft .patronLabel` **2626** / `.promised` 2637-2641) |
+| `changelogList` | — | **3334-3339** |
+| `createAllyDom` | index 14401-14413 | **14461-14504**(札 = 14488-14500 / `nameSpan.textContent = …` **14492** / `label.appendChild(nameSpan)` 14493 / `statusSlot` 14495-14497 / `ally.nameLabelEl = label` 14500) |
+| 呼び口 闇市の召喚 | 14457 | **14544** |
+| 呼び口 廃坑の従者 `servant` | 26989 | **27076** |
+| 呼び口 通常の編成 | 36263(npcName 36238) | **36350**(`ally.npcName = …` **36325**) |
+| `placeUnscaledUi(ally.nameLabelEl, …, 20, -28)` | 16874 | **16961**(本体 `placeUnscaledUi` = 4655) |
+| HP バー `-10` | 16862 | **16949** |
+| `CLASS_DEFS` | 22334〜 | **22421〜**(6 職 22422-22514 / 従者 `servant`「商人の従者」22580 / 召喚「ゴーレム兵」22537・「アンデッド小隊」22555) |
+| `#warriorLabel` | 3252 | **3252**(⚠ 中身は起動時に書き換わる = K1) |
+| `NAME_LABEL_ON` | 3837 | **3873-3875** |
+| CSS `.allyLabel` | — | **283-297**(`position:absolute`)/ `body.labelSmall .allyLabel` **313-318** / `.enemyLabel` 326-339 |
+| #76 の脅威度 | 28454 | **28541-28560**(`loreDecorateLabel` 28543) |
+| 頭の札の文字を書く所 | — | `applyLeaderStats` 20657(職業名)→ 起動時 **36290**(`headDisplayName`)/ 頭の委譲 **20267-20272** |
+
+#### §2 の主張の実測(○ = 成立 / × = 崩れ → K)
+
+- ○ `patronLabelPaint` が酒場の頭上札の文字を作る唯一の場所(`tavern.html` の `.patronLabel` を書く所を全数 grep。`js/` ほかの HTML は 0 件)。呼び口 3 経路(初期描画 / `doPromiseDisband` / `refreshPatronLabelFor`)もすべてここを通る。
+- ○ `createAllyDom` の呼び口は 3 か所。`npcName` を持つのは通常の編成の NPC だけ(召喚・従者は `createAlly` の戻り値に `npcName` が無い = undefined)。
+- ○ `recruitClassLabel` と `CLASS_DEFS[k].name` の 6 職の名前は一致(戦士 / ドワーフ / 僧侶 / 魔法使い / エルフ / 盗賊)。
+- ○ 名前は最長 5 文字(「ガウェイン」のみ。⚠ `NPC_NAMES_BY_CLASS` では**僧侶**の名前 = `?namejob=0` 以外で「魔法使い + ガウェイン」は出ない。§8 (1e) の合成の最悪としては問題ない)。職業名の最長は 4 文字(魔法使い / ドワーフ)。
+- ○ 隣の席 `js/npc-crowd.js:40-49`(A(3,3)/B(4,3)・C(9,5)/D(10,5))。札の中心どうしは desktop で 102.3px。
+- ○ `scripts/hooks/check_changelog.py:24` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")` ⇒ 鳴る。
+- ○ 罠 A の前提(実 Chrome・下の表): `.patronLabel` も `.allyLabel` も `position:absolute`(= 段の基準になる)。段を `position:absolute` で足しても札の箱の**高さは 1px も変わらない**(getBoundingClientRect は絶対配置の子を含まない)。⚠ ただし「普通の行」の振る舞いは §2-2 の書き方と違う = K2。
+- ○ 罠 C: 段を後ろに付けると `textContent` = 「イレーナ(戦士)」(約束中は「🤝 イレーナ(戦士)」)= 🤝 で始まる。
+- ○ (1g) 左向きの席(B / D)は札の実効の横倍率が**正**(desktop +0.825 / compact +0.674 = 舞台の縮尺そのもの)。段に `scaleX(-1)` を足すと −0.825 / −0.674 になる ⇒ 変異 `mirror` は (1g) で捕まる。⚠ 倍率は 1 ではなく舞台の縮尺が掛かる = 受入は**符号**で見ること。
+- ○ (1e) 最悪の組(4 席を「🤝 ガウェイン」+「(魔法使い)」)で隣の席と重ならない: desktop A-B / C-D とも 札-札 の横の隙間 **23.9px**、札(A)-段(B) **43.2px**、段どうしは縦に重ならない(10px ずれ・段の高さ 9.3px)。compact は 札-札 **25.3px** / 札-段 **39.5px**。
+- × §2-4「札を読む本は 5 本」→ **4 本**(K4)。× (0b) は「必ず赤」ではない(K5)。× `#warriorLabel` は静的な「戦士」ではない(K1)。
+
+#### 罠 A の実測(probe86・札の箱の getBoundingClientRect)
+
+| 画面 | 段なし(今) | 段 = absolute(§4/§5) | 段 = position:static(inline) | 段 = display:block |
+|---|---|---|---|---|
+| 酒場 desktop 1280×900(舞台縮尺 0.825) | h 16.5 | h **16.5**(段の下端 = 札の上端 + 0.825) | h **16.5**・幅 +23〜39px | h **25.755** |
+| 酒場 compact 390×844(縮尺 0.674) | h 12.637 | h **12.637**(+0.674) | h **12.637**・幅 +17〜24px | h **19.555** |
+| ダンジョン(`body.labelSmall`・NPC 3 人) | h 14.375 | h **14.375**(+**1.000**) | h **14.375**・幅 +19〜34px | h **21.563** |
+| ダンジョン `?namelabel=0` | h 20 | h **20**(+**1.000**) | h **20**・幅 +27〜47px | h **30.266** |
+
+段の文字の大きさ(computed): 酒場 10.2px(desktop)/ 9.35px(compact)、ダンジョン 6.545px(labelSmall)/ 9.35px(`?namelabel=0`)。⚠ 酒場は舞台ごと縮尺されるので**画面上は ≈ 8.4px / ≈ 6.3px**(K8)。
+`.npcUnit` の矩形は段を足しても 79.2×79.2(desktop)/ 64.7×64.7(compact)のまま・札の無い NPC とも一致。
+
+#### 崩れた主張
+
+- **K1 ⚠⚠⚠(ユーザー判断が要る)`#warriorLabel` の中身は「戦士」で固定ではない。頭が NPC のとき、その NPC の札は `createAllyDom` を通らないので §5 では職業の段が付かない。**
+  起動時に `index.html:36290` が `#warriorName` を `headDisplayName` で上書きする = 主人公が頭なら「**あなた**」、NPC が頭なら**その NPC の名前**(`applyLeaderStats` 20657 が入れた職業名は消える)。頭の委譲(20267-20272)でも同じ。`orderFormation` は前衛(戦士・ドワーフ)を先頭へ並べるので、**主人公が前衛でない編成(魔法使い・僧侶・エルフ・盗賊)では前衛の NPC が頭になる**のが普通。
+  実測(probe86b・`partyMembers` を仕込んで直起動): [戦士 NPC イレーナ, 僧侶 NPC ヨナ, 魔法使い=主人公] ⇒ `heroIsHead=false`・`#warriorLabel`「イレーナ」(段なし)・仲間の札「ヨナ(僧侶)」「魔法使い（あなた）」。[戦士=主人公, ドワーフ NPC, 魔法使い NPC] ⇒ `#warriorLabel`「あなた」。
+  ⇒ §2-1 の「主人公の札 `#warriorLabel`(静的・「戦士」)= 職業名そのもの」と §2-1 末尾の「主人公は札の文字が既に職業名なので付けない」は、**主人公が仲間の列にいるとき(「魔法使い（あなた）」)だけ**正しい。頭の主人公は「あなた」で職業名が出ていない。
+  選択肢: (a) 依頼書どおり(頭の NPC には段を付けない・頭の主人公もそのまま)/ (b) 頭が NPC のときだけ `#warriorLabel` にも段を付ける(起動 36290 と委譲 20271 の 2 経路・撤退 `?classline=0` も効かせる)/ (c) (b) に加えて頭の主人公の「あなた」の上にも職業。⇒ **項目2 の前に決めること。**
+- **K2 罠 A の「普通の行にすると箱の高さが変わる」は半分だけ正しい。** 札は `white-space: nowrap` なので、`position:absolute` を外しただけの段(inline の span)は**同じ行に並んで横に伸びる**だけで、高さは 1px も変わらない(上の表)。高さが伸びるのは段がブロック(`display:block` / `<br>`)のとき。⇒ HP バーを覆う危険は「段を div や block で足す」実装に限られる。
+  ⇒ **§8 の変異 `inline`(`position:absolute` を外す)は (1c)(2d) しか赤くしない**。依頼書の担当 (1b)(2c) を赤くしたいなら、項目3 は変異を「段を普通の 2 行目にする = `display:block; position:static`」として作るか、担当表を実走で書き直すこと(⛔ 机上で書かない)。
+- **K3 (1c)/(2d) の許容「段の下端 ≤ 札の上端 + 1px」は、ダンジョンで余裕が 0。** `bottom:100%` は札の**パディングの縁**から測るので、段の下端は札の上端 + **枠の太さ**になる: 酒場 0.825 / 0.674(1px × 舞台の縮尺)、ダンジョン **1.000**(labelSmall の `border-width:0.7px` は端末の 1px へ丸まる)、`?namelabel=0` も 1.000。⇒ 浮動小数の揺れで赤くなりうる。項目3 は許容を「札の上端 + `border-top-width` の実測 + 0.5px」のように**枠の実測から導出**すること(⛔ 本番の CSS を測定に合わせて変えない)。
+- **K4 §2-4「札の文字を読む本は 5 本」→ 4 本。** `grep -rln "patronLabel\|PM_CLASS_EMOJI\|allyLabel\|labelClass" tools/` = `verify_hold_person` / `verify_party_promises` / `verify_member_identity` / `verify_enemy_name_label`。`verify_walk_block` は**敵の札**(`enemyLabelElements`・`tools/verify_walk_block.js:973-980`)の文字を記録しているだけで、仲間・客の札は読まない(影響なし)。
+  語を広げた和集合(`nameLabelEl` / `createAllyDom` / `heroLabel` / `warriorLabel` / `recruitClassLabel` / `patronLabelPaint` / `data-patron` / `todaysPatrons` / `npcName`)で増える本 = `driver_heromark_signplate`(主人公 ally の札の矩形 = 段は付かない)/ `driver_grid_p7`(`#warriorLabel` の矩形)/ `driver_sce1_events`(DOM の撤去)/ `verify_arcane_eye`・`verify_invisibility`(`createAllyDom` を名前なしの魔法使いで呼ぶ = 段は付かない)/ `verify_recruit_talk`(`todaysPatrons`)ほか `npcName` を読む本(戦闘ログ)。どれも段の有無で読む値は変わらない見込み = 項目4 の母集団で確かめる。
+  ⚠ `verify_hold_person (1d)` と `verify_party_promises (4a2)` が測っているのは **`.npcUnit` の矩形**であって札の箱ではない(`verify_hold_person.js:283-288` / `verify_party_promises.js:433-445`)。札の箱の高さを測っている既存の本は `verify_enemy_name_label (2c)` だけ。
+- **K5 `verify_hold_person (0b)` は実装しても赤くならない。** (0b) が読むのは `PM_CLASS_EMOJI` の表と席の `classKey`(`verify_hold_person.js:621-626`)で、札の文字を読まない。§3 は `PM_CLASS_EMOJI` を消さないので緑のまま。**必ず赤になるのは (1a)(628-634 = 札の文字が「その席のアイコン」を含む)だけ**。§6 の (0b) の言い直しは「(1a) の装置を職業名へそろえる」ための任意の言い直しとして扱う。
+  (1f)(`verify_hold_person.js:745-748`)と `verify_party_promises` (3c)(4a)(4b) は `textContent` の先頭の 🤝 を見る = 罠 C どおり。`verify_member_identity (1d)`(475・1160)は札の `textContent` と `className` を 2 腕で突き合わせる恒等 = 両腕に段が付くので不変。
+- **K6(軽微)変異アンカー 0 本は実質で成立。** `grep -rlF 'nameSpan.textContent = ' tools/` は 1 件当たるが、`verify_enemy_name_label.js:288`(変異 `typekey`)の `nameSpan.textContent = def.name || "";` = **敵の札**(`index.html:13164`)で、`createAllyDom` の 14492 ではない。`lb.textContent = ` は 0 件。
+  ⚠ #86 が触る領域のすぐ隣に、**1 件ちょうど**でなければならない既存の変異アンカーがある(全部いま 1 件): `verify_hold_person` の `labelz`(tavern 2607)/ `labelhit`(2608)/ `labelsib`(11099 `el.appendChild(lb);`)、`verify_party_promises` の `m4`(11093)、`verify_enemy_name_label` の `noenemycss`(326 `.enemyLabel {`)/ `nocss`(343)/ `statusdetach`(13166 `lb.appendChild(st);`)。⇒ 新しい CSS 規則や JS にこれらの行を**同じ文字列で写さない**こと。
+- **K7(軽微)§2-1 の「約束の付け外し `refreshPatronLabelFor` `:8827` / `:7320`」の 7320 は `refreshPatronLabelFor` ではなく `doPromiseDisband()` が `patronLabelPaint` を直接呼ぶ口**。どちらにしても `patronLabelPaint` を通るので罠 B の設計は変わらない。
+- **K8(§9 向け)酒場の段の見た目の大きさ。** §9 の「font 11px × 0.85 ≈ 9.4px」は CSS 上の値で、酒場の舞台は縮尺される(desktop 0.825 / compact 0.674)ので**画面上は compact で ≈ 6.3px**(ダンジョンの labelSmall の 6.5px とほぼ同じ)。実機で読めなければ §9 のとおり font-size だけ上げる。
+- **K9(参考)** 札にはもう `title = recruitClassLabel(classKey)`(11097)= ホバーで職業名が出る(PC のみ)。
+- **K10(受入の作り方)** `index.html` を直起動(`partyMembers` なし)すると `heroIsHead=true`・仲間は NPC 3 人だけで、主人公の ally(`.heroLabel`)も召喚・従者も居ない。⇒ §8 (0b) の「主人公の札」「名前の無い仲間の札」は、`partyMembers` に**前衛でない主人公**を入れる(K1 の probe86b の型)+ 召喚(`createAlly` + `createAllyDom`・`verify_invisibility.js:389` の型)で作ること。⚠ K1 の決定次第で「主人公の札」に `#warriorLabel` を含めるかが変わる。
+- **K11(参考)** compact 390×844 の酒場では patronA の札が画面の左外(left −102px)にある(舞台が横にはみ出す)。幾何の assert には影響しないが、`elementFromPoint` 系で測ると当たらない。
+
+#### 名指し golden — 着手前の色(`cdebd24`・逐次・単独・本番ツリー)
+
+| 本 | 素: exit / 集計 / 所要 | `--negative`: exit / 結果 / 所要 |
+|---|---|---|
+| `verify_hold_person` | 0 / 31/31 / 10.1s | 0 / 8 本すべて担当が赤・空振り 0 / 80.3s |
+| `verify_party_promises` | 0 / 35/35 / 38.9s | 0 / 9 本すべて担当が赤・空振り 0 / 547.6s |
+| `verify_member_identity` | 0 / 28/28 / 139.4s | 0 / 12 本すべて担当が赤・空振り 0 / 181.9s |
+| `verify_enemy_name_label` | 0 / 30/30 / 2.5s | 0 / 58/58(変異 17 本・PENDING 0)/ 14.9s |
+| `verify_walk_block` | **1 / 22/23(赤 = (3d))** / 15.1s | 0 / 54/54(変異 16 本・PENDING 0)/ 50.2s |
+| `verify_npc_crowd` | 0 / 33/33 / 76.4s | 0 / 58/58(変異 13 本)/ 238.1s |
+| `verify_recruit_talk` | 0 / 25/25 / 44.5s | 0 / 11/11 本が期待どおり / 611.8s |
+| `verify_tower_mother_b` | 0 / 22/22 / 347.8s | 0 / 11 本すべて担当が赤・担当外の赤 0 / **4160.8s** |
+
+合計 **109.3 分**(素 11.3 分 / `--negative` 98.1 分)。8 本とも `--negative` を持つ。port: hold_person 10101〜 / party_promises 10161〜 / member_identity 10401〜 / enemy_name_label 9850〜9870 / walk_block 9410〜 / npc_crowd 9573〜9586 / recruit_talk 10020〜 / tower_mother_b 10555〜。直列なので衝突なし。試遊サーバ 8765(pid 7088)は着手前から居たもので、触っていない・使っていない。
+
+⚠ `verify_walk_block` 素の (3d)「badge を持つ ENEMY_TYPES 定義が 44 件のまま」は実測 **47 件**で赤(期待 44 を固定値で焼いた assert = 件数が腐った型)。post85 でも同じ 22/23・exit 1 = **#86 とは無関係(型3)**。#86 は `ENEMY_TYPES` を触らない。
+
+#### 母集団(項目4)
+
+- **post85(208 腕・`345d0f7` で走査・緑 181 / 非緑 27)は着手前の色にそのまま流用できる。** `345d0f7`→`cdebd24` の差分は `実装依頼書/*.md` 2 本だけで、ドライバの読む木の OID が全部同じ(上)。資産 = #85 実装窓の scratchpad `item4\`(`armlist_85post.json` / `run_post85\post85.tsv` / `sweep_85post.py` / `cmp_85.py` / `pair_85.py` / `mkshadow_85.py`)。⚠ 前のセッションの scratchpad は消えうる ⇒ 項目4 は着手時に自分の scratchpad へ写すこと。
+  非緑 27 腕: `driver_field_step6` / `driver_grid_p4`(exit 3)/ `driver_grid_p8` / `driver_mapdef_step1`(clone の (0b))/ `driver_mapeditor` / `driver_mapeditor_painting` / `driver_mine_wall` / `driver_monsters_griffon` / `driver_monsters_hobgoblin` / `driver_monsters_umberhulk` / `driver_sce1_events` / `driver_speech_engine` / `driver_speech_v2` / `driver_wall_props` / `probe_bandit_map`・`probe_s2_fold`・`probe_swamp_map`(引数ガードの exit 3)/ `probe_n4_stall`(正常で exit 1)/ `probe_party_size` / `sweep_recruit_balance` / `verify_codex_map_skill` / `verify_walk_block` / `verify_mage_hand --negative` / `verify_swamp_novice --negative`・`verify_fort_fold --negative`・`verify_swamp_fold --negative`(exit 3)/ `probe_s2_clear --negative`。
+- `tavern.html` をコードで読む本 61 本・`index.html` をコードで読む本 149 本(コメントを剥いで数えた)は、`probe_magehand_reach`(両方)と `auto_debug_run`(index)以外**全部 post85 の腕名簿に入っている**(この 2 本は #83 / #85 でも外している)。
+- #86 が触る領域(tavern の `.patronLabel` CSS・`changelogList`・`recruitClassLabel`・`PM_CLASS_EMOJI`〜`refreshPatronLabelFor`・初期描画 / index の `.allyLabel` CSS・`NAME_LABEL_ON` の周辺・`createAllyDom`)の文字列を掴む `--negative` の本 = **`verify_hold_person`**(`labelhit` / `labelz` / `labelsib`)と **`verify_party_promises`**(`m4`)。どちらの `--negative` 腕も post85 に入っている。`verify_enemy_name_label --negative`(`.enemyLabel` の CSS が `.allyLabel` の隣)も入っている。ほかの当たりは罫線 `═══` / クエリ文字列 / コメントの語で偽の当たり(`item1/anchors86b.py`)。
+- **項目4 で足す腕** = ① 新規 `verify_class_line`(素 + `--negative`)② `verify_walk_block --negative`(post85 の名簿に無い。着手前の色は上の表 = 54/54・exit 0)。
