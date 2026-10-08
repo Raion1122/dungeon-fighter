@@ -1,6 +1,6 @@
 # #86 名前札の職業を文字で — 「(戦士)」の段を名前の上に
 
-- **起草**: 2026-10-05(計画窓) / **ステータス**: **承認済**(2026-10-05 ユーザー承認)・**実装中(項目3/4 完了)**(2026-10-06・基準 `cdebd24`・§12-0 / 実装 §12-1 / 受入 §12-2 `verify_class_line`。K1 = ユーザー決定 (b) 頭が NPC のときだけ `#warriorLabel` にも段)
+- **起草**: 2026-10-05(計画窓) / **ステータス**: **完了(push 待ち)**(2026-10-09・本番 `ee203cd`・受入 `1eaf8c4` `verify_class_line`・母集団 211 腕で #86 帰属の緑→赤 0 = §12-3 / §12-4。K1 = ユーザー決定 (b) 頭が NPC のときだけ `#warriorLabel` にも段)
 - **着手**: ✅ 着手可(2026-10-06)— #85 完了 `345d0f7`。受入の port base = **10574**(#85 §12)。⚠ #85 で `index.html` が動いたので §2 の行番号は関数名で引き直すこと。
 - **触るファイル**: `tavern.html`(札の描き口 1 関数 + CSS 1 規則 + 撤退スイッチ + changelog)/ `index.html`(`createAllyDom` の名前札 + CSS 1 規則 + 撤退スイッチ)/ `tools/verify_hold_person.js`(既存 golden の言い直し 2 節)/ `tools/verify_class_line.js`(新規)
 - ⛔ **触らないファイル(着手まで)**: `index.html` / `tavern.html` — **実装窓が #85 を実装中**。#85 は `index.html` の描画と読み込みを直し、changelog のため `tavern.html` の `changelogList` も触る。
@@ -590,3 +590,104 @@ port base = **10574**(#85 §12)。変異は 10575 から。
 
 - 次の新規ドライバ base = **10586**(使った最大 port 10585 + 1)。
 - 項目4 の母集団に足す腕 = `verify_class_line`(素 約 15 秒 / `--negative` 約 2.8 分)+ `verify_walk_block --negative`(§12-0)。
+
+### 12-3. 母集団の非退行(項目4)
+
+本番ファイル(`index.html` / `tavern.html` / `audio.js` / `js/*`)と `tools/*` は 1 バイトも触っていない(直し 0)。基準 HEAD `1eaf8c4`(本番の配信物は `ee203cd` と同じ)。
+
+#### 腕と走らせ方
+
+- **211 腕** = #85 の `post85`(208 腕)+ ① 新規 `verify_class_line` 素 ② 同 `--negative` ③ `verify_walk_block --negative`(post85 の名簿に無かった・§12-0)。着手前の色は §12-0 のとおり `post85.tsv` を流用した(`345d0f7` / `cdebd24` で配信物と `tools` のツリー OID が同じ ⇒ 走査し直さない)。
+- `--negative` の追加はこの 2 腕だけ。`cdebd24..HEAD` の差分領域(差分を含む関数 `createAllyDom` / `tryPromoteNewHead` / `patronLabelPaint` + 各 hunk ±40 行)に `--negative` を持つ本の文字列が当たるかを洗った(実装窓の scratchpad `item4/anchorsfn86.py` → `anchorsfn86.out`)。意味のある当たりは `verify_hold_person` / `verify_party_promises` / `verify_enemy_name_label` / `verify_member_identity` ほか**名簿に `--negative` 腕が既に在る本**と新規の `verify_class_line` だけで、名簿に無い本の当たりは罫線 `═══` / `dragonfighters.` / `document.body.appendChild(el);` などの偽の当たり ⇒ 追加不要と判定。
+- 直列・SKIP 再開型の走行器(`sweep_86post.py` = `sweep_85post.py` の写し)。git を読む本(`root` が `clone` / `fix` の 32 腕)は `--shared` clone `clone86`(`1eaf8c4`)で、残り 179 腕は本番ツリーで走らせた。⛔ `auto_debug_run` / `probe_magehand_reach` は走査していない(#80 からの決定・§12-0)。試遊サーバ 8765 には触れていない。
+- **所要 564.6 分**(腕あたり 2.68 分)。2026-10-06 10:19 開始 → 12:22 に PC 更新のため **71 腕で一時中止**(72 腕目 `driver_monsters_hobgoblin` の途中)→ 2026-10-08 21:04 に SKIP 再開(「RESUME: 71 arms already done」)→ 10-09 04:29 完了(再開後 444.2 分)。中止中の腕は再開時に頭から走り直しており、結果の欠けは 0(`missing []`)。
+- 対比較 10 走行 108.7 分(下)。
+
+#### 結果(同じ 208 腕 + 新規 3)
+
+| | 腕数 |
+|---|---|
+| 緑(着手前 → 実装後) | 181 → 183(+新規 3 = **186 / 211**・非緑 25) |
+| **緑→赤** | **1**(`driver_field_step0`) |
+| 赤→緑 | 3(`driver_monsters_hobgoblin` 12/14 → 14/14 / `driver_speech_engine` 16/17 → 17/17 / `driver_wall_props` 28/29 → 29/29 = #83 / #85 の項目4 で揺れと判定済みの本) |
+| 両方非緑 | 24(着手前と同じ顔ぶれ・同じ exit。§12-0 の非緑 27 腕から上の赤→緑 3 本を除いたもの。`driver_mine_wall` は 64/66 → 65/66 で非緑のまま) |
+| 新規 | `verify_class_line` 素 **18/18** exit 0(15.0 秒)/ 同 `--negative` exit 0(166.1 秒・11 変異すべて担当が赤)/ `verify_walk_block --negative` **54/54** exit 0(50.0 秒・§12-0 の着手前と同じ) |
+
+- **名指し golden 8 本(§8)は全部着手前と同色**(`post86.tsv` の行で確認):
+
+  | 本 | 素 | `--negative` |
+  |---|---|---|
+  | `verify_hold_person` | 0 / 31/31(clone) | 0(clone) |
+  | `verify_party_promises` | 0 / 35/35 | 0(546.2 秒) |
+  | `verify_member_identity` | 0 / 28/28 | 0 |
+  | `verify_enemy_name_label` | 0 / 30/30 | 0 / 58/58 |
+  | `verify_walk_block` | **1 / 22/23**(赤 = (3d)・着手前から同じ型3・clone) | 0 / 54/54(新規腕) |
+  | `verify_npc_crowd` | 0 / 33/33 | 0 / 58/58 |
+  | `verify_recruit_talk` | 0 / 25/25 | 0 |
+  | `verify_tower_mother_b` | 0 / 22/22 | 0(4149.7 秒) |
+
+  (`--negative` の要約行に出る「30/31」「6/10」などは最後に走った変異の行で、exit 0 = 全変異が担当どおり赤。)
+- `driver_mapdef_step1` 207/208 は着手前と同じ(clone で走るため (0b) の固定パスが `git worktree list` に無い環境要因・#80 K25)。
+
+#### 緑→赤と帰属(#86 帰属 0・直し 0)
+
+対比較 = 本番 HEAD `1eaf8c4` ↔ 影 `shadow86`(本番の実体コピーで `index.html` / `tavern.html` だけ `cdebd24` の CRLF 版 = #86 が変えた配信バイトだけを戻した木・`mkshadow_86.py`)を交互に 5 対(実装窓の scratchpad `item4/pairs_g2r/pairs.tsv`)。
+
+| 本 | 走査での赤 | 本番 5 走行 | 影 5 走行 | 判断 |
+|---|---|---|---|---|
+| `driver_field_step0` | (2e-desktop)「3 ウェーブ完走」`waves=2/3 reason=gameOver`(32/33)= 隊商護衛のオートプレイで PT が 2 ウェーブ目に全滅 | **5/5 緑**(33/33・519〜772 秒) | **5/5 緑**(33/33・648〜754 秒) | 揺れ |
+
+- 届く経路: (2e) は「母集団がクエスト全体を覆っている」ことを見る装置 assert で、全滅は戦闘の乱数。#86 の差分は札の DOM(`.labelClass` の span 1 枚・絶対配置で札の箱の大きさ不変 = §12-1 / §12-2 (1b)(2c))と頭の札の段だけで、戦闘・AI・HP・移動の値には触れない。
+- #85 の項目4 では同じ `driver_field_step0` が**逆向き(赤→緑)**に揺れていた(#83 の項目4 では緑→赤)= 着手前から非決定の本。
+- ⇒ 本番の欠陥でも golden の腐った前提でもないので直さない。
+
+#### 作業コピー(削除はユーザー判断・実装窓の scratchpad `…/4a3c9bb1-3cff-4574-b3f0-3e1a9f632119/scratchpad/item4/`)
+
+`clone86` **229MB**(`1eaf8c4`・`--shared`)/ `shadow86` **291MB**(`index.html` / `tavern.html` だけ `cdebd24`)= 計 約 520MB(`du -sh` 実測)。結果は `run_post86/post86.tsv`・比較は `cmp_86.out`・対比較は `pairs_g2r/pairs.tsv`・アンカー判定は `anchorsfn86.out`。
+
+### 12-4. 締め
+
+- **本番**: `ee203cd`(項目2: 酒場の頭上札 + ダンジョンの NPC 仲間の札 + 頭が NPC のときの `#warriorLabel` に職業の段・撤退 `?classline=0`・changelog・`verify_hold_person` (0b)(1a) の言い直し)。**受入**: `1eaf8c4` `tools/verify_class_line.js`(18 assert・素 約 15 秒 / `--negative` 11 変異 約 166 秒・port 10574 / 10575〜10585)。**項目4**: 211 腕で #86 帰属の緑→赤 0・本番の直し 0。
+- **撤退**: `?classline=0`(酒場は #57 の「🗡️ ニカ」1 行・ダンジョンは名前だけの札へ戻る)。
+
+#### 崩れた主張(K1〜K15)
+
+| | 中身 |
+|---|---|
+| K1 | `#warriorLabel` は「戦士」固定ではない(起動時に `headDisplayName` で上書き = 主人公なら「あなた」・NPC が頭ならその名前)⇒ ユーザー決定 (b) 頭が NPC のときだけ段を付ける |
+| K2 | 罠 A の「普通の行にすると箱の高さが変わる」は半分だけ(`nowrap` なので inline は横に伸びるだけ)。高さが変わるのは段が block のとき |
+| K3 | (1c)(2d) の許容「札の上端 + 1px」はダンジョンで余裕 0(段の下端 = 札の上端 + 枠の太さ)⇒ 許容は枠の実測から導出 |
+| K4 | §2-4「札の文字を読む本は 5 本」→ 4 本(`verify_walk_block` は敵の札しか読まない) |
+| K5 | `verify_hold_person` (0b) は実装しても赤くならない(必ず赤は (1a) だけ) |
+| K6 | (軽微)変異アンカー 0 本は実質で成立(`nameSpan.textContent = ` の 1 件は敵の札)。隣接する既存アンカーを写さないこと |
+| K7 | (軽微)§2-1 の 7320 は `refreshPatronLabelFor` ではなく `doPromiseDisband` の直呼び。罠 B の設計は不変 |
+| K8 | (§9 向け)酒場の段は舞台ごと縮尺され、画面上は compact で ≈ 6.3px |
+| K9 | (参考)札にはもう `title = recruitClassLabel(classKey)`(PC のホバーで職業名) |
+| K10 | (受入の作り方)直起動では主人公の ally・召喚・従者が居ない ⇒ `partyMembers` を仕込み、召喚・従者は factory で足す |
+| K11 | (参考)compact の酒場では patronA の札が画面の左外(left −102px) |
+| K12 | (直した)頭の段の条件は `!isHero` だけでは足りない(委譲で従者・ゴーレム兵が頭になる)⇒「名前のある仲間」へ |
+| K13 | (項目3 向け)段の下端は全面で「札の上端 + 枠の太さ」(+0.825 / +0.674 / +1.000) |
+| K14 | (予想の訂正)§8 の変異の担当表は 5 本で狭かった(`--mutate` の実走で広げた) |
+| K15 | (K11 の確認)compact の patronA は画面外のままだが (1e) は矩形の幾何だけで判定するので影響なし |
+
+#### 依頼書からの逸脱(D1〜D5)
+
+- **D1** §11「⛔ 主人公の札の書式」を、**頭が NPC のときだけ** `#warriorLabel` に職業の段を足す分だけ上書きした(K1・ユーザー決定 2026-10-06 (b))。書く所は `paintHeadClassLine` 1 つ・呼び口は起動時と委譲 `tryPromoteNewHead` の 2 か所。頭が主人公のときの書式・`#warriorName` の文字は不変。
+- **D2** 受入に §8 の表に無い節と変異を足した: (0c) pageerror 0 / (2e)(2f) 頭の札(K1)/ 変異 `headnone` / `headstale` / `headany`(頭の札の 3 本)。
+- **D3** §8 の変異の担当表を実走(`--mutate`)で広げた(K14: `inline` → +(2e) / `paintonce`・`classfirst` → +(1e) / `wrongclass` → +(1f) / `emojistay` → +(1e) / `headstale` → +(2e))。変異 `inline` は K2 のため「`position:absolute` を外す」でなく「`display:block; position:static`」で作った。
+- **D4** (1c)(2d) の許容を固定の +1px でなく「札の上端 + `border-top-width` × 実効の縦倍率 + 0.5px」= 枠の実測から導出した(K3 / K13・本番の CSS は測定に合わせて変えていない)。
+- **D5** `verify_hold_person` (0b) は「必ず赤」ではない(K5)が、(1a) の装置として職業名へそろえて言い直した。項目4 の着手前の色は走査し直さず `post85` を流用(配信物のツリー OID が同じ)。
+
+#### §9 実機/目視の宿題(ユーザー担当)
+
+- iPhone 縦(compact)の酒場で、4 人の上の「(魔法使い)」などが読めるか(画面上 ≈ **6.3px** = K8)。
+- ダンジョンの札は `body.labelSmall` で 70% ⇒ 段は ≈ **6.5px**。読めなければ §9 のとおり font-size だけ上げる(箱の外なので他の golden は動かない)。
+- **頭の札**(`#warriorLabel`)の段の見え方: 主人公が前衛でない編成(魔法使い・僧侶・エルフ・盗賊)で頭の NPC の上に「(戦士)」が出るか、頭が替わったとき段が正しく付け替わる / 消えるか。
+- 段が席札(卓の名札)や上の仲間のスプライト・HP バーに被って見えないか。
+- `?classline=0` で今の姿へ戻ること。⚠ ローカルは http 起動が必須。
+
+#### 次
+
+- 次の新規ドライバ base = **10586**。
+- 作業コピー `clone86`(229MB)+ `shadow86`(291MB)の削除はユーザー判断(§12-3)。
+- 別チケット候補: (揺れ)`driver_field_step0` (2e-desktop) は隊商護衛のオートプレイの全滅で揺れる装置 assert(#83 で緑→赤・#85 で赤→緑・#86 で緑→赤)= 全滅の走行を引き直すか、全滅を母集団から除いて数える形へ。
