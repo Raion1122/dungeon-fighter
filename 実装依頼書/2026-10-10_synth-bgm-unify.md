@@ -405,4 +405,137 @@ if (!TRACKS[name]) return;                           // ← 無ければ黙っ�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0 基準取り(項目1・2026-10-10・HEAD `bbc6183`・本番は 1 バイトも変えていない)
+
+#### 実測で主張どおりだったもの
+
+- **在庫**: `TRACKS` 6 曲(`audio.js:297-328`)/ `BGM_FILES` 11 曲(`:340-410`)/ `assets/bgm/` は
+  `git -c core.quotepath=false ls-files` で **11 本・計 23,776,636 bytes**(`酒場.mp3` を含む)。
+- **Section F1** = `:334-456`(`playBgmFile` の閉じ括弧が `:456`)。F1 の外から mp3 層を呼ぶのは
+  `:116` / `:128` / `:514` / `:516` / `:534` / `:959-968` の **6 か所で過不足なし**(`grep -n "bgmEl\b|bgmFileId|…"` で全件)。
+- **呼び口**(`grep -n "playBgm(\|[^a-zA-Z_.]bgm(" *.html audio.js`): §2-2 の表の行番号は**全部一致**
+  (`title.html:871/873`・`town.html:862/865`・`world.html:1565`・`tavern.html:9912`・
+  `index.html:15145/15379/19984/22434/25318/25504/25613/25714`)。`battle.html` / `map-editor.html` / `js/*.js` に BGM の呼び口は無い。
+  ID 定義 = `title.html:467` / `town.html:474` / `world.html:1564` / `tavern.html:9908`。
+- **曲選びの表** = `index.html:15072-15137`(コメント込み。`MINE_BGM_OFF :15079` / `SCENE_BGM :15083` / `NODE_BGM :15098` /
+  `SCENARIO_BOSS_BGM :15103` / `sceneBgmId :15104` / `combatBgmTrack :15119` / `currentBgmId :15128`)。
+  他所参照は **`__graphRun.bgm()`(`:40584-40591`)だけ**(`grep -n "MINE_BGM_OFF\|sceneBgmId\|currentBgmId\|SCENE_BGM\|NODE_BGM"`)。
+- **クレジット**: `audio.js:916` / `index.html:15320-15322`(音楽)/ `:15324`(効果音 `魔王魂 ／ Kenney (CC0)`)。
+  `git grep "魔王魂\|ユーフルカ\|Wingless"` で他に画面へ出る箇所は無い(`sfx-pipeline/` は効果音の手順書)。
+- **changelog**: `scripts/hooks/check_changelog.py:24` `GAME_LOGIC = ("index.html", "tavern.html", "audio.js")`(basename 照合)→ **鳴る**。
+- **§8 の前提**(headless Chrome で実測。プローブ = scratchpad `item1/probe_base88.js`):
+  - `setPhase` は classic script 直下の function 宣言 = **`window.setPhase` で呼べる**。`setPhase(kind)` は `PHASE_LABELS`
+    (`explore` / `combat` / `rest`)に無い kind を黙って捨てる。
+  - `combatBgmTrack()` は **`window.__inMidBoss` → `window.__inBossRoom` の順に読む**(実測: bossRoom で `boss`、midBoss で `midboss`)。
+    書き込み点は `__inBossRoom` = ノード入室 `syncBossRoomFlag`(`:37461`、呼び元 `:38707` だけ)/ 初入室 `:19983` / ラッチ `:37452` / 結果 `:40714`、
+    `__inMidBoss` = 交戦の開始・終了 `:22123` `:22554` / 覚醒 4 か所 / シナリオ開始 `:36734` / 結果 `:40715`
+    ⇒ 交戦が始まらない限り、ドライバが立てたフラグは上書きされない。
+  - `scenarioId` / `_genScenario` は evaluate から**再代入できる**(実測: `scenarioId='dragon-lair'` で `pharaxus_stage`、
+    `_genScenario={tierKey:'tier3'}` で `dungeon_climax` が渡った = (3e) の母集団は今は実在する)。
+  - `__renderBgmOffline(name, seconds, opts)` は在る(`audio.js:794`・`length===3`)。⚠ `TRACKS` しか見ない。
+  - 設定モーダルのクレジット = `GameAudio.openSettings()` → `#gameSettingsOverlay` の箱の **`lastElementChild`**(id 無し)。
+    ⚠ `openSettings()` は先頭で `unlock()` を呼び(`pendingBgm` が鳴る)、2 回目の呼び出しは**閉じる**(トグル)。
+  - エンディングの「音楽」= `const ENDING_CREDITS_HTML`(`:15310`)。⚠ **`window` には載らない**(classic script 直下の const)が
+    evaluate から**裸の識別子で読める**。実測: 「音楽」の後の `erItem` = `["魔王魂", "Wingless Seraph（ユーフルカ）"]`、
+    「効果音」の後 = `"魔王魂 ／ Kenney (CC0)"`。`#endingRoll` は常設 DOM(`playStaffroll` が innerHTML へ流し込む)。
+- **5 ページの着手前の姿**(経路 A = setter スパイ / 経路 B = `__bgmFileState()` / 要求ログ):
+
+  | ページ | ロード時の A | pointerdown 後の A | B(`id`/`paused`) | `/assets/bgm/` 要求 |
+  |---|---|---|---|---|
+  | title | `["title"]` | `["title","title"]` | `title` / false | `opening.mp3` |
+  | town | `["town"]` | `["town","town"]` | `town` / false | `village08.mp3` |
+  | world | `["world"]` | `["world","world"]` | `world` / false | `fierd.mp3` |
+  | tavern | `[]` | `["tavern_room"]` | `tavern_room` / false | `酒場.mp3` |
+  | title `?titlebgm=0` | `[]` | `[]` | `null` / 合成も鳴らない | なし |
+  | town `?townbgm=0` | `["tavern"]` | `["tavern","tavern"]` | `null`(合成 `tavern` が鳴る・`__bgmRunning=true`) | なし |
+  | index(廃坑・`startGame()` 後) | `["mine_entrance"]` | (下の K3) | 未解錠 | なし |
+
+#### 崩れた主張(K 番号)
+
+- **K1 — `verify_title_screen` は 85/85 ではなく 86/86**(§2-7 / §8「既存 golden の非退行」)。
+  今回の素の走行で `[title-screen] RESULT: 86/86 passed`、#87 の母集団走査 post87 でも 86/86。
+  ⇒ **項目2 以降の期待値は 86/86**(受入条件 10 系 = `(10z0)(10)(10a)(10n)` は ID `title` を見るだけ = 無改修で緑のはず、は成立)。
+- **K2 — §2-7 の表に無い依存が 2 本ある**(`grep -lE` を `__bgmFile|BGM_FILES|sceneBgmId|currentBgmId|bgmFileId|playBgmFile|assets/bgm|minebgm|townbgm|titlebgm|worldbgm|__bgmRunning|renderBgmOffline|\.bgm\(|tavern_room|dungeon_normal|…|mine_boss|playBgm|stopBgm` へ広げて全 tools を引き直した):
+  - ⚠⚠ **`tools/probe_boss_latch.js`**(母集団 213 腕に**入っている**・root prod・post87 は `5/5 PASS` exit 0)。
+    `:218` `pre.bgm !== 'mine_boss'` / `:295` `post.flip.seamBgm === 'mine_boss' && post.flip.played === 'mine_boss'` を
+    **`__graphRun.bgm().id` とスパイの両方で**見ている ⇒ #88 後は**必ず赤**(#88 帰属)。
+    ⇒ 項目2 で `'mine_boss'` → `'boss'` へ言い直すのが筋(新シームは combat フェーズ + `__inBossRoom` で `combatBgmTrack()` = `boss`、
+    ラッチの呼び口 `:22434` は `bgm("boss")` になるので**経路 A・B とも `boss` で揃う**)。⚠ 依頼書冒頭の「触るファイル」に無いので、
+    触るなら §12 に逸脱として記録する。触らないなら「#88 帰属の想定内の赤」として母集団の比較で除外理由を書く。
+  - **`tools/verify_title_screen.js`** は `__bgmFileState` / `BGM_FILES` / `assets/bgm/opening.mp3` を**コメントでだけ**参照
+    (`:300-307` / `:2022`)。機能上の依存は無い(緑のまま)。コメントは任意で直す。
+  - ⚠ **`tools/driver_grid_p8.js:500`** は `bgm: currentBgmId()` を**裸で呼んでいる**(§6 の「`:497-518` の (6a2)」の範囲内だが、
+    `check` の行だけ直すと `currentBgmId` が消えた時点で **evaluate ごと ReferenceError** になり (6a) も道連れで死ぬ)。
+    ⇒ `:500` の取得側も必ず直す。
+  - ⭐ (6a2) の言い直し案(§6-4 `A0.bgm !== 'boss' && A0.bgm !== 'midboss'`)は、新シームの `id` が **`currentPhase` しか見ない**
+    (`dungeonBgmTrack(currentPhase)`)ため、n1 入室直後の探索フェーズでは `__inBossRoom` が true でも `explore` を返す ⇒
+    **ほぼ恒等緑**になる。測りたいのは「乱戦をボス曲で戦わない」なので、**`combatBgmTrack()` の戻り値も採って `!== 'boss'`** を
+    併せて見ること(`combatBgmTrack` は残る関数。`__inBossRoom` を直接反映する)。
+  - 機能依存の無い確認済みの本: `verify_pen_sample.js` (5b) はクレジット行に `OtoLogic` が在るかだけ(#88 後も在る)/
+    `verify_mercenary_roster.js` は `audio.js` を凍結配信するだけ / `driver_dev_gate.js` は `closeSettings` の正規表現だけ /
+    `verify_eol_doorfix.js` は「配信物 `audio.js` は CRLF」の契約(⚠ 項目2 で `audio.js` の行末を崩すと赤)/
+    `probe_p9_tour.js:129` は `__graphRun.bgm().id` を記録するだけ(§2-7 どおり)。
+- **K3 — `index.html` は `pointerdown` で解錠しない**。解錠は `click`(`:18586`)/ `mousedown`(`:18608`)/ `keydown`(`:18647`)の
+  中の `GameAudio.unlock()` だけ。実測: 合成 `pointerdown` を送っても `__bgmRunning=false`・何も鳴らない。
+  ⇒ §8 (1e)(1f) の index 腕は **`GameAudio.unlock()` を evaluate で呼ぶ**(内部の `playBgm(pendingBgm)` を通る = 本番と同じ経路)か
+  `mousedown` を送る(⚠ こちらは `narrationAwaitingBegin` を倒す副作用あり)。
+- **K4 — `index.html:15379` の `bgm("rest")` は「休憩」ではなく エンディング(`playEnding`)の余韻 BGM**。
+  休憩は `setPhase("rest")`(`:22475` / `:38653`)経由で `:15145` を通る。⇒ 変更方針は変わらない(行は据え置き・コメントだけ直す)。
+- **K5 — `7275613` の差分の呼び口は 6 本**(setPhase 1 + ボス部屋入室 1 + 中ボス覚醒 4)+ `SCENE_BGM` / `sceneBgmId` の追加。
+  7 本目のラッチ `:22434` は **`24dbb60`(2026-08-22 P8)で `currentBgmId() || "boss"` の形で生まれた**ので mp3 導入前の姿は無い。
+  ⇒ 「3 形へ戻す」結論は変わらない(`:22434` は `bgm("boss")` が自然な対応)。
+- **K6 — 行番号の小ずれ**(方針に影響なし): `TRACKS` は `:297-328`(`:330-332` は `LOOKAHEAD` / `bgmState` / `crossfading` の変数)/
+  `scheduleStep` のドラム記号は `:468-472`(§4-3 の `:470-474` ではない)/ `world.html` ヘッダの BGM 行は `:24`(`:25` ではない)/
+  ⚠ `world.html:1555-1559` のコメントが**経路 B = `__bgmFileState()`** と書いている(書き換え対象に足す)/
+  `voicevox-pipeline/CREDITS.md` の BGM 節は **`:35-54` 全体**(見出し・`assets/bgm/` の説明 `:37`・設定画面の文言 `:44`・
+  ユーフルカの「再配布・直リンク不可」`:49-51` まで mp3 前提)= `:41-42` だけでは足りない。
+- **K7 — RMS は再現・ピークは再現しない**(§2-5)。12 秒・先頭 10% 捨て:
+
+  | id | RMS dBFS(今回) | 依頼書 | ピーク(今回) | 依頼書 |
+  |---|---|---|---|---|
+  | tavern | −15.0 | −15.0 | −6.8 | −6.8 |
+  | explore | −13.4 | −13.4 | −6.7 | −6.6 |
+  | combat | −13.8 | −13.8 | −7.8 | −7.6 |
+  | boss | −14.6 | −14.6 | −9.0 | −8.4 |
+  | midboss | −15.9 | −15.9 | −8.2 | −7.6 |
+  | rest | −16.2 | −16.2 | −7.4 | −7.4 |
+
+  ドラムが乱数ノイズなのでピークは 1 回ごとに ±0.6 dB 揺れる。⇒ **ピークを assert しない**(§8 は RMS だけなので整合)。
+- **K8 — クロスフェード中の `playBgm` は `pendingTrack` に積まれるだけ**(`audio.js:518` `if (crossfading) { pendingTrack = name; return; }`)。
+  `bgmState.name` が新しい曲になるのは前の切替から 0.65 秒後。⇒ §8 (3a)〜(3d) の経路 B は **`setPhase` ごとに 700ms 以上待ってから**読む
+  (プローブは 700ms で全段取れた)。
+
+#### 既存 golden の着手前の色(素の作業ツリー `bbc6183`・逐次・8765 は不使用)
+
+| 本 | port | 結果 | 備考 |
+|---|---|---|---|
+| `verify_world_map.js` | 9120 | **57/57 PASSED** exit 0(71 s) | (8a)(8b)(8c) 緑 |
+| `verify_world_map.js --negative` | 9121-9130 | **44/44 PASSED** exit 0(77 s) | `silent` / `spyonly` 含む 11 変異 |
+| `driver_grid_p8.js` | 9050-9057 | **PASS 55 / FAIL 1** exit 1(298 s) | ⚠ 赤は **(6d)**(`{"inBoss":false,"size":{"w":29,"h":20},"bigRoom":true}`)= BGM と無関係・post87 でも同じ行で赤(着手前から赤・型 = 既存)。**(6a2) は緑**(`bgm=mine_depths scene=mine_depths`) |
+| `verify_title_screen.js` | 8893 | **86/86** exit 0(66 s) | K1 |
+| `driver_bgm_mine.js` | 9090 | **37/37 PASS** exit 0 | 項目2 で `git rm` |
+| `driver_bgm_town.js` | 9100 | **17/17 PASS** exit 0 | 同上 |
+| `driver_bgm_title.js` | 9110 | **16/16 PASS** exit 0 | 同上 |
+
+- 3 ドライバの全文は scratchpad `item1/drivers_copy/`(sha1 一致を確認済み)。項目3 の `bootPage`(setter スパイ)と
+  `firstGesture`(合成 pointerdown を document へ)は `driver_bgm_town.js:222-263` が雛形。
+- ポート: §8 の **10598 / 10599 / 10601〜10605 は tools/ に使用なし**(10600 = `probe_magehand_reach.js`、10586〜10597 = `verify_corner_check.js`)。
+
+#### 母集団の判断
+
+- ⭐ **post87(#87 項目5 の 213 腕・HEAD `171112e`)をそのまま「#88 の前」として使える。** `git diff --stat 171112e bbc6183` は
+  `実装依頼書/` の md 3 本だけ = 本番も tools/ も 1 バイトも動いていない(15b23ab 以後に足された tools/ の本は **0 本**)。
+  ⇒ pre の再走査は不要。比較は `cmp_87.py --pre <post87.tsv> --post <post88.tsv>` の形で流用できる。
+- post87 での BGM/audio を読む本の色: `driver_bgm_mine/title/town` 緑 / `verify_world_map` 基・負 緑 / `driver_grid_p8` **赤(6d)** /
+  `verify_title_screen` 86/86 / `probe_boss_latch` 5/5 / `probe_p9_tour` 緑(1774.8 s)/ `verify_pen_sample` 緑 /
+  `verify_pen_narration`(clone)緑 / `verify_eol_doorfix` 基・負(clone)緑 / `verify_mercenary_roster` 緑 / `driver_dev_gate` / `driver_dev_gate2`(clone)緑。
+- #88 後の腕: **213 − 3(`driver_bgm_*` を `git rm`)+ 2(`verify_synth_bgm` 基・負・root prod)= 212 腕**。消える 3 腕は「対象消滅」で比較から外す。
+- ⚠⚠ **影のツリーは #87 の作りでは足りない**。#87 は `index.html` + `tavern.html` だけを戻したが、#88 は**全ページが読む `audio.js`** と
+  `town.html` / `title.html` / `world.html`、それに **`assets/bgm/*.mp3` 11 本(削除)** を動かす ⇒ `mkshadow_88` は
+  この 6 本 + mp3 11 本を `15b23ab` へ戻す(HTML/JS は CRLF、`git check-attr eol` で)。旧ツール版は `driver_bgm_*` 3 本 +
+  言い直した `verify_world_map` / `driver_grid_p8`(+ `probe_boss_latch` を直すならそれも)を戻す。
+- clone root の腕(`verify_pen_narration` / `verify_eol_doorfix` / `driver_dev_gate*` 等)は **#88 の HEAD で clone を作り直す**
+  (`git clone --shared` + `cmptree` でバイト一致を確かめる。#87 の `clone87` は `171112e` のまま)。
+- ⛔ 213 腕の全走査は項目1 ではしていない(項目4 で orchestrator が回す)。
+
+(以降の項目は実装窓が埋める)
