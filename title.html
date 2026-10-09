@@ -20,7 +20,7 @@
     ★ 読み込むのは 3 本だけ (依頼書の指定。これ以上増やさない)
         js/save-slots.js  … DFSlots.list()/switchTo()/newGame()
         js/hero-classes.js… HERO_CLASSES (名乗りカードの文言 + zone)
-        audio.js          … 効果音 + BGM ("title" = assets/bgm/opening.mp3。依頼書 #20。下記)
+        audio.js          … 効果音 + BGM ("title" = 合成曲 TRACKS.title。#88。下記)
 
     ★ 前口上 (フランの記録) を **ここへ移設していない**
       羊皮紙 CSS も playNarration() も VOICEVOX manifest も全部 tavern.html 側の資産。
@@ -38,16 +38,16 @@
         判定順は **?town=0 → ?world=0 → world.html** の 3 段 (逆にすると罠 B)。
 
     ★ 音 (依頼書 #20)
-      - **BGM = GameAudio.playBgm("title")** — assets/bgm/opening.mp3 (魔王魂)。?titlebgm=0 で無音へ戻る。
+      - **BGM = GameAudio.playBgm("title")** — 合成曲 TRACKS.title (荘厳な幕開け / #88)。?titlebgm=0 で無音へ戻る。
         #6 の Phase 1 が無音だった理由 (tavern の曲を鳴らすと遷移した瞬間に同じ曲が頭出しへ戻る) は、
-        街が village08 = **別の曲**なので消えている。曲が変わるのは粗ではなく場面転換。
+        街が town = **別の曲**なので消えている。曲が変わるのは粗ではなく場面転換。
       - 効果音だけでなく BGM も鳴る。最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
       - ⚠⚠ 鳴り出すのは **最初のタップから**。ブラウザの自動再生ポリシーで、ページを開いた
         だけでは音が出ない (バグではない。依頼書 #20 §6)。
       - ⚠⚠ 呼び口は **2 本**。ロード時 (pendingBgm へ落ちる) と最初の pointerdown の中。
         unlock() が鳴らす分は **モジュール内部の playBgm** を通るので外から観測できない
         → タップ中の 1 本が「実装が生きている」ことを見せる唯一の窓になる (town.html と同じ形)。
-      - ⚠ 実機で耳障りなら audio.js の BGM_FILES.title の volume を下げる (assert は壊れない)。
+      - ⚠ 実機で耳障りなら audio.js の TRACKS.title の makeup を下げる。
 
     ★ 紋章 (2026-08-23 追加)
       画面最上部の `#titleEmblem` = `assets/title_emblem.png`。codex1 への依頼文は

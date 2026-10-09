@@ -15070,79 +15070,19 @@
       return enemies.some(e => e && e.alive && !e.inactive && !e.passiveNpc && isMidBossEnemy(e));
     }
     // 戦闘BGM優先順位: 中ボス > メインボス部屋 > 通常戦闘
-    // ── シーン別ファイルBGM (mp3) マッピング: シナリオ単位で 1 曲を通しでループ ──
-    //   該当シナリオでは探索/戦闘/ボスを問わず同一 ID を渡す → playBgm の dedup で
-    //   途切れず継続 (Pharaxus の道中→ボス戦「通し」要件もこれで満たす)。
-    /* ★[廃坑 BGM] 撤退スイッチ ?minebgm=0 — NODE_BGM / SCENARIO_BOSS_BGM を丸ごと無視し、
-     *   廃坑を 2026-08-20 以前 (探索 dungeon_normal / ボス boss_battle) へ戻す。
-     * ⚠ dev チートではなく退避口なので __dfDevCheat では包まない (?minefold=0 と同じ扱い)。 */
-    const MINE_BGM_OFF = (() => {
-      try { return new URLSearchParams(window.location.search).get("minebgm") === "0"; }
-      catch (e) { return false; }
-    })();
-    const SCENE_BGM = {
-      // ★[廃坑 BGM] 廃坑の**既定**は坑内曲。入口 n0 だけを NODE_BGM が上書きする (下の理由参照)
-      "goblin-mine": MINE_BGM_OFF ? "dungeon_normal" : "mine_depths",
-      "bandits-forest": "dungeon_normal", "lizard-swamp": "dungeon_normal",
-      "orc-fort": "dungeon_climax", "undead-temple": "dungeon_climax",
-      "dragon-lair": "pharaxus_stage",
-      "tower-mother": "dungeon_climax",   // ★[#82] 既存の曲を流用 (砦・神殿と同じ。ボス部屋は boss_battle へ切り替わる)
-    };
-    /* ── ★[廃坑 BGM] ノード別ファイル BGM (2026-08-21) ──────────────────────────
-     *   SCENE_BGM が「シナリオ 1 曲」を決めるのに対し、こちらは**その中の例外ノードだけ**を
-     *   別曲へ振り替える。指定の無いノードは SCENE_BGM の既定へ落ちる。
-     * ⚠⚠ **「鳴らしたいノードを全部列挙する」形にしないこと**。廃坑は ?minefold=0 で
-     *   旧 5 ノード構成 (n0/n1/n4/n5/n7) に戻るので、列挙側は書き漏らした瞬間に
-     *   そのノードだけ**無言で** dungeon_normal へ戻る。既定を坑内曲にして「例外の 1 枚
-     *   (入口 n0) だけ書く」形なら、どちらの構成でも正しく鳴る。 */
-    const NODE_BGM = { "goblin-mine": { n0: "mine_entrance" } };
-    /* ── ★[廃坑 BGM] シナリオ別のボス曲 ────────────────────────────────────────
-     * ⚠⚠ **未指定は従来どおり boss_battle**。currentBgmId はボス部屋で無条件に boss_battle を
-     *   返していたが、boss_battle は **5 シナリオ共有**なので、そこを 1 曲に差し替えると
-     *   盗賊/沼地/砦/神殿のボス曲まで全部変わる。廃坑だけを上書きする表にしてある。 */
-    const SCENARIO_BOSS_BGM = { "goblin-mine": "mine_boss" };
-    function sceneBgmId() {
-      if (_genScenario) {                                  // 生成クエストは tier で割当 (pharaxus_stage は dragon-lair 専用に予約)
-        const tk = _genScenario.tierKey;
-        if (tk === "tier1" || tk === "tier2") return "dungeon_normal";
-        if (tk === "tier3" || tk === "tier4") return "dungeon_climax";
-        const ql = Number(_genScenario.questLevel) || 0;
-        return (ql > 0 && ql <= 10) ? "dungeon_normal" : "dungeon_climax";
-      }
-      /* ★[廃坑 BGM] ノード別の例外を先に引く。
-       * ⚠ currentNodeId の宣言はここより下 (分岐マップの節) にある let だが、この関数は
-       *   setPhase / bgm() 経由で**モジュール初期化が終わった後にしか呼ばれない**ので TDZ に
-       *   当たらない (startGame はボタン/オートプレイ由来で、module level の直呼びは無い)。 */
-      const nb = MINE_BGM_OFF ? null : (NODE_BGM[scenarioId] || {})[currentNodeId];
-      return nb || SCENE_BGM[scenarioId] || null;
-    }
     function combatBgmTrack() {
       if (window.__inMidBoss) return "midboss";
       if (window.__inBossRoom) return "boss";
       return "combat";
     }
-    // ── 現在鳴らすべきファイルBGM の決定 (シーン連続 + ボス部屋のみ専用曲へ切替) ──
-    //   通常のボス部屋 → 専用ボス曲 boss_battle (fantasy12)。
-    //   最終ボス pharaxus (dragon-lair = pharaxus_stage) → 既存エピック曲を「通し」で継続 (切替なし)。
-    //   探索/通常戦闘/中ボス(隠し要素) → シーン曲のまま (ユーザー確定「シーン連続」を維持)。
-    function currentBgmId() {
-      const sb = sceneBgmId();
-      /* ★[廃坑 BGM] ボス曲はシナリオ別の表を引く。未指定は従来どおり boss_battle。
-       * ⚠ 廃坑では n1 が「坑道の奥」と「玉座の間」を兼ねるので、ここで mine_depths →
-       *   mine_boss へ切り替わる瞬間を作っているのは **syncBossRoomFlag の「玉座へ 8 タイル
-       *   以内」** (P8-2)。入室ではまだ鳴らない = 「グリクス戦」の意図どおり。 */
-      if (window.__inBossRoom && sb && sb !== "pharaxus_stage")
-        return (MINE_BGM_OFF ? null : SCENARIO_BOSS_BGM[scenarioId]) || "boss_battle";
-      return sb;
-    }
+    /* ダンジョンの BGM = 合成曲だけ (#88)。探索 explore / 休憩 rest / 戦闘 combat・ボス部屋 boss・隠し中ボス midboss。
+     * ⚠ mp3 導入前 (7275613 より前) の鳴らし分けそのもの。 */
+    function dungeonBgmTrack(kind) { return kind === "combat" ? combatBgmTrack() : kind; }
     function setPhase(kind) {
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
       currentPhase = kind;
-      // BGM: シーンBGM(mp3)があれば通しで継続。ボス部屋では専用ボス曲へ切替 (currentBgmId)。
-      //   無ければ従来の合成 (中ボス→midboss / ボス部屋→boss / 通常戦闘→combat)。
-      const cb = currentBgmId();
-      bgm(cb ? cb : (kind === "combat" ? combatBgmTrack() : kind));
+      bgm(dungeonBgmTrack(kind));
       const el = document.getElementById("phaseIndicator");
       if (el) {
         el.classList.remove("phase-explore", "phase-combat", "phase-rest");
@@ -15318,8 +15258,7 @@
       '<div class="erItem">村の長老マリア　VOICEVOX：九州そら</div>',
       '<div class="erItem">司祭マーテル　VOICEVOX：麒ヶ島宗麟</div>',
       '<div class="erHead">音楽</div>',
-      '<div class="erItem">魔王魂</div>',
-      '<div class="erItem">Wingless Seraph（ユーフルカ）</div>',
+      '<div class="erItem">オリジナル楽曲(Web Audio 合成)</div>',
       '<div class="erHead">効果音</div>',
       '<div class="erItem">魔王魂 ／ Kenney (CC0)</div>',
       '<div class="erHead">ゲームルール</div>',
@@ -15376,7 +15315,7 @@
       if (scene) scene.classList.add("show");
       if (skipBtn) { skipBtn.style.display = "block"; skipBtn.addEventListener("click", goTavern, { once: true }); }
 
-      bgm("rest");   // 余韻 BGM (既存の合成 rest トラック。Phase D で専用曲に差替余地)
+      bgm("rest");   // エンディングの余韻 BGM (合成 rest トラック)
 
       // ── 1) エピローグ朗読 (前口上 playNarration を流用) ──
       const narrEl = document.getElementById("dmNarration");
@@ -19981,7 +19920,7 @@
             bossRoomNarrationShown = true;
             bossApproachLatched = true;
             window.__inBossRoom = true;
-            bgm(currentBgmId() || "boss");   // ボス部屋: 専用ボス曲 (fantasy12=boss_battle)。dragon-lair は Pharaxus 曲を通しで継続
+            bgm("boss");   // ボス部屋: 合成ボス曲 (#88)
             narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
           }
         }
@@ -22431,7 +22370,7 @@
              * ⚠ ラウンド先頭ではなく**手番ごと**に置く。最後の 1 手番で帯へ入って決着すると
              *   ラウンド先頭の点は二度と回らない (ボス撃破後は reached が false へ戻る)。
              * ⚠ setPhase("combat") はもう走り終わっているので、BGM はここで切り替える。 */
-            if (latchBossApproachIfReached()) bgm(currentBgmId() || "boss");
+            if (latchBossApproachIfReached()) bgm("boss");
           }
           /* ★★★[#13 / 2026-08-23] **参加者が全滅した瞬間にも増援を見る**。
            * ⚠⚠ 既存の増援点は上の `if (round > 1)` = **ラウンド先頭のただ 1 点**しかない。
@@ -25315,7 +25254,7 @@
           beast.inactive = false;
           beast.passiveNpc = false;   // 解放したらクリア判定の対象に戻す
           window.__inMidBoss = true;
-          if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
+          if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の檻破壊なら即座に midboss 曲へ
           const el = enemyElements[cage.beastIdx];
           if (el) {
             el.classList.remove("beast-caged");
@@ -25501,7 +25440,7 @@
         }
       }
       window.__inMidBoss = true;
-      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中の守護者覚醒なら即座に midboss 曲へ
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中の守護者覚醒なら即座に midboss 曲へ
       await sleepMs(900);
     }
 
@@ -25610,7 +25549,7 @@
       const e = enemies[caelumIdx];
       if (e) { e.passiveNpc = false; e.inactive = false; }
       window.__inMidBoss = true;
-      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中のカエルム敵対化なら即座に midboss 曲へ
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のカエルム敵対化なら即座に midboss 曲へ
       const el = enemyElements[caelumIdx];
       if (el) {
         el.classList.remove("caelum-spirit");
@@ -25711,7 +25650,7 @@
       }
       if (e) { e.passiveNpc = false; e.inactive = false; e.everSeen = true; }  // 戦闘化 (描画ガードを抜け display:block へ。everSeen でフォグ消失を防止)
       window.__inMidBoss = true;
-      if (encounterActive) bgm(sceneBgmId() || combatBgmTrack());   // 戦闘中のハイドラ覚醒なら即座に midboss 曲へ
+      if (encounterActive) bgm(combatBgmTrack());   // 戦闘中のハイドラ覚醒なら即座に midboss 曲へ
       const el = enemyElements[hydraIdx];
       if (el) {
         el.style.display = "block";
@@ -38685,7 +38624,7 @@
         /* ★[P4] ボス部屋フラグをノードの kind から引き直す。
          * ⚠⚠ heroAI の入室検出 (:14753) は bossRoomNarrationShown が one-shot なので、
          *   一度ボスノードへ入って引き返すと __inBossRoom が true のまま残る。すると
-         *   applyRoomClearHeal / maybeOfferRestSummon / currentBgmId が以後ずっと
+         *   applyRoomClearHeal / maybeOfferRestSummon / combatBgmTrack が以後ずっと
          *   「ボス部屋に居る」前提で動く = rest ノードが無言で効かなくなる。
          *   分岐マップでは「今どのノードに居るか」が唯一の正なので、遷移のたびにここで確定させる。 */
         /* ★[P8] ここでは **落とすだけ**。真にするのは buildNode の後 (下の syncBossRoomFlag)。
@@ -38700,7 +38639,7 @@
         /* ★[P4] ボス部屋フラグをノードの kind から引き直す。
          * ⚠⚠ heroAI の入室検出 (:16963) は bossRoomNarrationShown が one-shot なので、
          *   一度ボスノードへ入って引き返すと __inBossRoom が true のまま残る。すると
-         *   applyRoomClearHeal / maybeOfferRestSummon / currentBgmId が以後ずっと
+         *   applyRoomClearHeal / maybeOfferRestSummon / combatBgmTrack が以後ずっと
          *   「ボス部屋に居る」前提で動く = rest ノードが無言で効かなくなる。
          *   分岐マップでは「今どのノードに居るか」が唯一の正なので、遷移のたびに確定させる。
          * ★[P8] 大部屋では「玉座へ詰めたか」も見る (syncBossRoomFlag が唯一の規則)。 */
@@ -40581,13 +40520,9 @@
         // 「まだ休んでいない rest ノード」へ戻す (回復を 2 通りの前提で測り直すため)
         clearRested: (id) => { const st = nodeState[id || currentNodeId]; if (st) st.rested = false; },
         inBossRoom: () => !!window.__inBossRoom,
-        /* ── ★[廃坑 BGM] 検証シーム: 今どの mp3 キーを鳴らすべきか ────────────────
-         * ⚠ 「表を引く規則」ではなく **currentBgmId / sceneBgmId そのもの**を呼ぶ。ドライバが
-         *   NODE_BGM を写経すると、実装とドライバが同じ間違いを共有して両方緑になる。
-         * ⚠ 純粋な読み取り (曲を鳴らさない)。実際に鳴った ID の側は driver_bgm_mine が
-         *   GameAudio.playBgm を包んで別に記録する = 2 経路で突き合わせる。 */
-        bgm: () => ({ id: currentBgmId(), scene: sceneBgmId(),
-                      off: MINE_BGM_OFF, inBossRoom: !!window.__inBossRoom,
+        /* ★[#88] 検証シーム: 今のフェーズで鳴らすべき合成曲 (曲を鳴らさない純粋な読み取り)。
+         * ⚠ 実際に鳴った側は __bgmTrack() (audio.js) で別に測る = 2 経路で突き合わせる。 */
+        bgm: () => ({ id: dungeonBgmTrack(currentPhase), inBossRoom: !!window.__inBossRoom,
                       scenarioId: scenarioId, nodeId: currentNodeId }),
         /* ★[P8] ボス部屋化を「入室」から「接近」へ遅らせた配線を、ドライバが写経せずに測る口。
          *   ⚠ bigRoom は largeRoomSize() の戻り値そのもの = 実装と同じ 1 本を見る。 */

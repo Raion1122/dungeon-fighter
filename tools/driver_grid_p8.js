@@ -497,25 +497,25 @@ async function closeAnyDialog(page) {
     mark('§6 ボス部屋化 (専用 BGM + 到達ナレ) が接近で起きる');
     const A0 = await page.evaluate(() => {
       const a = window.__graphRun.bossApproach();
-      return { inBoss: window.__graphRun.inBossRoom(), bgm: currentBgmId(),
-               /* ★[2026-08-22] 曲名を写経せず、実装自身の「シーン曲」を読む ((6a2) が使う) */
-               scene: window.__graphRun.bgm().scene,
+      return { inBoss: window.__graphRun.inBossRoom(),
+               /* ★[#88] 今のフェーズで鳴らすべき合成曲 (検証シーム) と、
+                *   「今戦闘が始まったら何を鳴らすか」= combatBgmTrack() の両方を採る ((6a2) が使う) */
+               bgm: window.__graphRun.bgm().id, cbt: combatBgmTrack(),
                bigRoom: a.bigRoom, latched: a.latched, reached: a.reached, tiles: a.tiles };
     });
     check('(6a) ★★n1 に入った直後は「ボス部屋」ではない (乱戦をボス曲で戦わない)',
       A0.bigRoom === true && A0.inBoss === false && A0.latched === false && A0.reached === false,
       JSON.stringify(A0));
-    /* ⚠⚠⚠ [2026-08-22] 期待値を 'dungeon_normal' の直書きから言い直した。
-     *   #4 (4090a99) で **廃坑 n1 のシーン曲が dungeon_normal → mine_depths** になったのに
-     *   この 1 本だけ golden を更新し忘れており、**HEAD 567fa98 でもずっと赤**だった
-     *   (2026-08-22 に素の worktree で実測: 54 PASS / 1 FAIL・FAIL 行まで完全一致)。
-     *   ⭐⭐ 曲名の直書きは「表を差し替える変更」で必ず腐る。測りたかったのは
-     *     **「まだボス曲へ切り替わっていない = currentBgmId() がシーン曲そのもの」**なので、
-     *     sceneBgmId() の戻り値 (検証シーム bgm().scene) と突き合わせる不変条件へ直す。
-     *   ⚠ 実装の写経にはならない: currentBgmId が常にボス曲を返すよう壊れれば
-     *     bgm !== scene で赤くなる (「接近で切り替わる」側は §8 の (8d)(8e) が押さえている)。 */
-    check('(6a2) ★そのとき BGM はシーン曲のまま (ボス曲へ切り替わっていない)',
-      !!A0.scene && A0.bgm === A0.scene, 'bgm=' + A0.bgm + ' scene=' + A0.scene);
+    /* ⚠⚠⚠ [2026-08-22] 期待値を 'dungeon_normal' の直書きから言い直した (#4 で mine_depths へ変わって腐った)。
+     * ⚠⚠⚠ [#88] mp3 層の廃止で currentBgmId / sceneBgmId が消えたので、もう一度言い直した。
+     *   測りたいのは「乱戦をボス曲で戦わない」= **まだボス曲へ切り替わっていない**こと。
+     *   ⭐ 曲名を 'explore' などで直書きしない (表を差し替える変更で必ず腐る)。ボス曲で**ない**ことを見る。
+     *   ⚠⚠ シーム bgm().id は dungeonBgmTrack(currentPhase) = 探索フェーズでは __inBossRoom に関係なく
+     *     explore を返す ⇒ それだけでは**ほぼ恒等緑**。だから実際のボス判定 combatBgmTrack()
+     *     (__inMidBoss / __inBossRoom を直接読む) も採り、こちらも 'boss' / 'midboss' でないことを見る。 */
+    check('(6a2) ★そのとき BGM はボス曲ではない (シームも combatBgmTrack() もボス曲へ切り替わっていない)',
+      !!A0.bgm && A0.bgm !== 'boss' && A0.bgm !== 'midboss' && !!A0.cbt && A0.cbt !== 'boss' && A0.cbt !== 'midboss',
+      'bgm=' + A0.bgm + ' combatBgmTrack=' + A0.cbt);
     /* 玉座の 5 タイル手前へワープする。⚠ 護衛が生きていると交戦して heroAI の
      *   `!encounterActive` 枝に入らないので、**ボス以外を先に伏せてから**測る
      *   (測りたいのは「接近でフラグが立つか」であって戦闘の可否ではない)。 */

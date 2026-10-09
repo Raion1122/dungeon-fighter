@@ -20,7 +20,7 @@
  *   ・修正前 (HEAD の index.html を --index で配ると再現できる): 戦闘中は誰も評価しないので
  *     latched は false のまま = **RED**
  *   ・修正後: runEncounter の手番ループが latchBossApproachIfReached() を回すので
- *     latched=true / GameAudio.playBgm に mine_boss が渡る = **GREEN**
+ *     latched=true / GameAudio.playBgm に boss が渡る = **GREEN** (#88 で mp3 の mine_boss から合成 boss へ言い直し)
  *
  * 使い方:
  *   node tools/probe_boss_latch.js                       (作業ツリーの index.html)
@@ -215,7 +215,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     if (!pre) { hardFail = '「帯の外で戦闘中」の状態を 90 秒作れなかった'; throw new Error(hardFail); }
     console.log('[prb]   戦闘開始 ' + JSON.stringify(pre));
     check('(a) 装置: 帯の外で戦闘が始まっており、まだラッチもボス曲も立っていない',
-      pre.enc && !pre.reached && !pre.latched && pre.bigRoom && pre.bgm !== 'mine_boss',
+      pre.enc && !pre.reached && !pre.latched && pre.bigRoom && pre.bgm !== 'boss',
       JSON.stringify(pre));
 
     // ── 戦闘中のまま帯の中へ押し込む ──
@@ -292,7 +292,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
                      ? ' ← **別の戦闘**で立った = tryStartEncounter 経路' : ''))
                 : 'ラッチが最後まで立たなかった (latched=' + post.latched + ' enc=' + post.enc + ')');
     check('(d) ★★★そのとき実際に鳴らす曲がボス曲になる (bgm.id / playBgm の 2 経路)',
-      !!(sameEnc && post.flip.seamBgm === 'mine_boss' && post.flip.played === 'mine_boss'),
+      !!(sameEnc && post.flip.seamBgm === 'boss' && post.flip.played === 'boss'),
       post.flip ? ('seamBgm=' + post.flip.seamBgm + ' played=' + post.flip.played +
                    ' log=' + JSON.stringify(post.log))
                 : 'ラッチが立たないので曲も切り替わらない  log=' + JSON.stringify(post.log));

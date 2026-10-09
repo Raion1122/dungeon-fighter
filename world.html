@@ -22,7 +22,7 @@
         js/save-slots.js  … 記録の切り替えは title.html の担当。ここでは同席させるだけ
         js/hero-classes.js… 主人公のクラスキーの妥当性確認 (未知なら warrior へ)
         js/world-map.js   … ルートグラフ / 拠点 / 立ち位置
-        audio.js          … BGM ("world" = fierd.mp3) と効果音
+        audio.js          … BGM ("world" = 合成曲 TRACKS.world / #88) と効果音
                             ⚠ 呼び口は **ロード時 + 最初の pointerdown の 2 本** (下の「音」の節)。
 
     ★⭐⭐⭐ 罠 C — 「絵の道」と「歩けるデータ」を別々に持つと必ずズレる (依頼書 §2-4)
@@ -74,7 +74,7 @@
       title.html の nextAfterTitle() が 3 段でこの順に判定する。
 
     ★ BGM (依頼書 §6-2 の 6 / §12-1)
-      GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
+      GameAudio.playBgm("world") = 合成曲 TRACKS.world (広野の叙事詩 / #88)。?worldbgm=0 で探索の合成曲 explore へ戻る。
       呼び口は **ロード時 + 最初の pointerdown (unlock()) の 2 本** = town.html / title.html と
       同じ形。⭐ 実体は playWorldBgm() ただ 1 つへ畳んである (同じ 1 行を 2 箇所へ書くと
       負のコントロール silent の変異アンカーが 2 ヒットして exit 3 になる = #20 で実測)。
@@ -1546,7 +1546,7 @@
     function goToNode(id) { return goToPoint(id); }
 
     /* ══ 音 (依頼書 §6-2 の 6 / §12-1) ══════════════════════════════════
-       BGM = GameAudio.playBgm("world") = assets/bgm/fierd.mp3 (魔王魂 / volume 0.48)。
+       BGM = GameAudio.playBgm("world") = 合成曲 TRACKS.world (広野の叙事詩 / #88)。
 
        ⚠⚠ 呼び口は **2 本**。town.html / title.html とまったく同じ形にしてある。
          ① ロード時    … ブラウザはユーザー操作の外で音を出せないので、この 1 本は
@@ -1556,12 +1556,19 @@
        ⚠⚠⚠ unlock() が鳴らす分は **モジュール内部の playBgm** を通る (audio.js の
          `if (pendingBgm) { … playBgm(p); }`) ので、GameAudio.playBgm を包んだスパイからは
          **永久に見えない**。だから検証は 2 経路 = 経路A (渡した ID) + 経路B
-         (__bgmFileState() が実際に何を掴んで鳴らしているか) で測る (#20 で実測)。
+         (__bgmTrack() = 実際に鳴っている合成曲) で測る (#20 で実測 / #88 で合成曲の口へ)。
 
        ⭐ 呼び口の実体を **playWorldBgm() ただ 1 つ**に畳んである。2 箇所へ同じ 1 行を
          書くと、負のコントロール silent の変異アンカーが 2 ヒットして exit 3 になる
-         (#20 の title.html で実測した罠)。⛔ この関数を展開して 2 行に戻さないこと。 */
+         (#20 の title.html で実測した罠)。⛔ この関数を展開して 2 行に戻さないこと。
+
+       ══ BGM の撤退スイッチ ?worldbgm=0 (#88 §7) ══
+       新曲 world の代わりに探索の合成曲 explore を鳴らす。⚠ sessionStorage へ写さない
+         (?titlebgm=0 / ?townbgm=0 と同じく、ページごとに独立)。 */
     var WORLD_BGM_ID = "world";
+    try {
+      if (new URLSearchParams(location.search).get("worldbgm") === "0") WORLD_BGM_ID = "explore";
+    } catch (e) {}
     function playWorldBgm() { try { if (window.GameAudio && GameAudio.playBgm) GameAudio.playBgm(WORLD_BGM_ID); } catch (e) {} }
     function bootAudio() {
       try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}

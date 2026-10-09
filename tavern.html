@@ -3349,10 +3349,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>BGM をオリジナルの合成曲に統一</b> — タイトル・港町・ワールドマップに新曲。ダンジョンは探索・戦闘・ボスで曲が切り替わる。</li>
         <li><b>判定は画面左上に小さく</b> — 探索や罠の判定が画面の隅に出るようになり、戦闘中は判定の窓を出さない。道中の宝箱はいったん無くし、そのぶんクリア報酬の金貨を増やした。</li>
         <li><b>名前札に職業を文字で表示</b> — 酒場の客とダンジョンの仲間の名前の上に「(戦士)」のように職業が出るようになった。</li>
         <li><b>クエスト開始時のちらつきを修正</b> — 地図が届く前に古い石の床が一瞬見えていたのを直し、地図が届くまで盤面を暗く保つようにした。届くのに時間がかかったときは、暗い盤面から地図が浮かび上がる。</li>
-        <li><b>塔の母を連れて帰れるように</b> — ワイバーンを追い払うと、塔に立てこもっていた母が部屋から出てきて一緒に階段を下りる。酒場に戻ると、息子と母が卓で迎えてくれる。</li>
       </ul>
     </div>
     <script>
@@ -9900,15 +9900,9 @@
   // ─────────────────────────────────────────────────────────────
   // 初期化
   // ─────────────────────────────────────────────────────────────
-  // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM (tavern_room = 酒場.mp3 / 依頼書 #17)、UIクリックで効果音、⚙で設定 ──
+  // ── オーディオ: 初回ジェスチャで unlock + 酒場BGM (合成トラック TRACKS.tavern = メタルバラード / #88)、UIクリックで効果音、⚙で設定 ──
   document.addEventListener("pointerdown", function () {
-    /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
-       0 を渡すと従来どおり合成トラック TRACKS.tavern を鳴らす。
-       ⚠ クエリはページ遷移をまたがらないので town.html とは**独立に**読む。 */
-    var TAVERN_BGM_ID = "tavern_room";
-    try {
-      if (new URLSearchParams(location.search).get("townbgm") === "0") TAVERN_BGM_ID = "tavern";
-    } catch (e) {}
+    var TAVERN_BGM_ID = "tavern";
     if (window.GameAudio) { GameAudio.unlock(); GameAudio.playBgm(TAVERN_BGM_ID); }
   }, { once: true });
   document.addEventListener("click", function (e) {

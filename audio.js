@@ -113,7 +113,6 @@
     setGain(buses.sfx, s.sfx, t);
     setGain(buses.ui, s.sfx * 0.9, t);
     setGain(buses.voice, s.voice, t);
-    applyFileBgmVolume();                                     // ファイルBGM(mp3)の音量/ミュートも同期
   }
   function unlock() {
     if (!ensureContext()) return;
@@ -125,7 +124,6 @@
       } catch (e) {}
       unlocked = true;
     }
-    ensureBgmEl();   // ファイルBGM用 <audio>+MediaElementSource をジェスチャ内で用意 (iOS で後続 play() を許可)
     if (pendingBgm) { var p = pendingBgm; pendingBgm = null; playBgm(p); }
   }
 
@@ -294,6 +292,8 @@
   };
 
   // ===== Section F: BGM スケジューラ + トラック ==============================
+  // ⚠ BGM は合成 (TRACKS) だけ。2026-10-10 (#88) に mp3 層 (BGM_FILES) を廃止した。
+  //   ⛔ 別名の表を TRACKS より先に引く分岐を足さないこと — 同じ ID を食って黙って無音になる (#88 §2-3)。
   var TRACKS = {
     // 酒場バラード (Em・低速・歪みギターのロングトーン・短3度の哀愁ハモリ・控えめビート)
     tavern: { bpm: 80, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.38, power: 1, harmony: 1, makeup: 0.34, leadGain: 0.12, bassGain: 0.13, drumGain: 0.07,
@@ -325,135 +325,27 @@
       lead: ["A4","-","-","-","C5","-","-","E5","-","-","-","D5","C5","-","-","-","G4","-","-","-","A4","-","-","C5","-","-","-","B4","A4","-","-","-"],
       bass: ["A1","-","-","-","-","-","-","-","F1","-","-","-","-","-","-","-","C2","-","-","-","-","-","-","-","E1","-","-","-","-","-","-","-"],
       drum: ["k","-","-","-","-","-","h","-","s","-","-","-","-","-","h","-","k","-","-","-","-","-","h","-","s","-","-","-","h","-","h","-"] },
+    // ── #88 新曲 3 曲 (タイトル・街・ワールドマップ。2026-10-10 ユーザー選択の曲調) ──
+    // 荘厳な幕開け (Dm→F→C・ロングトーンのリード・長3度ハモリ・タム風の重い4つ打ち) — タイトル画面
+    title: { bpm: 96, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.55, cabCut: 3000, power: 1, harmony: 2, makeup: 0.36, leadGain: 0.12, bassGain: 0.15, drumGain: 0.12,
+      lead: ["D5","-","-","-","-","-","-","-","A4","-","-","-","D5","-","-","-","F5","-","-","-","-","-","-","-","E5","-","-","-","C5","-","-","-"],
+      bass: ["D1","-","-","-","D1","-","-","-","D1","-","-","-","D1","-","-","-","F1","-","-","-","F1","-","-","-","C2","-","-","-","C2","-","-","-"],
+      drum: ["c","-","-","-","k","-","-","-","k","-","-","-","k","-","-","-","c","-","-","-","k","-","-","-","k","-","-","-","k","-","-","-"] },
+    // にぎやかな港町 (G・跳ねる8分のリード・単線・ドラム軽め) — 港町フラン
+    town: { bpm: 112, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.4, power: 1, harmony: 0, makeup: 0.34, leadGain: 0.12, bassGain: 0.13, drumGain: 0.09,
+      lead: ["G4","-","-","B4","D5","-","B4","-","C5","-","-","E5","D5","-","B4","-","A4","-","-","B4","C5","-","A4","-","D5","-","-","C5","B4","-","A4","-"],
+      bass: ["G1","-","-","-","D2","-","-","-","C2","-","-","-","G1","-","-","-","D2","-","-","-","A1","-","-","-","D2","-","-","-","G1","-","-","-"],
+      drum: ["k","-","h","-","s","-","h","-","k","-","h","k","s","-","h","-","k","-","h","-","s","-","h","-","k","-","h","k","s","-","o","-"] },
+    // 広野の叙事詩 (Am→F→G・5度/オクターブで大きく跳ぶリード・ドラム控えめ) — ワールドマップ
+    world: { bpm: 92, stepsPerBeat: 4, leadType: "sawtooth", bassType: "sawtooth", dist: 0.45, power: 1, harmony: 1, makeup: 0.36, leadGain: 0.12, bassGain: 0.13, drumGain: 0.065,
+      lead: ["A4","-","-","E5","-","-","A5","-","-","-","-","-","E5","-","-","-","F4","-","-","C5","-","-","F5","-","G4","-","-","D5","-","-","G5","-"],
+      bass: ["A1","-","-","-","-","-","-","-","A1","-","-","-","-","-","-","-","F1","-","-","-","-","-","-","-","G1","-","-","-","-","-","-","-"],
+      drum: ["k","-","-","-","-","-","-","-","s","-","-","-","-","-","-","-","k","-","-","-","-","-","k","-","s","-","-","-","-","-","h","-"] },
   };
 
   var LOOKAHEAD = 25, SCHEDULE_AHEAD = 0.12, CROSSFADE = 0.6;
   var bgmState = { name: null, voice: null };
   var crossfading = false, pendingTrack = null, bgmRunning = false;
-
-  // ===== Section F1: ファイルBGM (mp3) レイヤー — シーン連続再生 =============
-  //   合成 BGM (上の TRACKS) とは別系統。市販/フリー素材の mp3 を <audio> で
-  //   ループ再生し、MediaElementSource 経由で buses.bgm に繋ぐ → 既存の BGM
-  //   音量スライダー/ミュート/AudioContext アンロックにそのまま相乗りさせる。
-  //   合成 BGM とは相互排他 (playBgm/stopBgm 側で一方を必ず止める)。
-  //   入口は playBgm(name) に統合 — 呼び元は ID を渡すだけ。
-  var BGM_FILES = {
-    dungeon_normal: { src: "assets/bgm/maou_game_dangeon22.mp3",  loop: true, volume: 0.60, credit: "魔王魂" },
-    dungeon_climax: { src: "assets/bgm/maou_bgm_orchestra25.mp3", loop: true, volume: 0.60, credit: "魔王魂" },
-    boss_battle:    { src: "assets/bgm/maou_bgm_fantasy12.mp3",   loop: true, volume: 0.65, credit: "魔王魂" },
-    pharaxus_stage: { src: "assets/bgm/Ariadne-LastBoss.mp3",     loop: true, volume: 0.55, credit: "ユーフルカ" },
-    /* ── タイトル画面 (title.html) — 開始画面と名乗り (依頼書 #20) ──────────────
-     *   #6 の Phase 1 は「無音」だった。見送り理由は「遷移先と同じ曲が頭出しへ戻る」で、
-     *   ⭐ 今回は街が village08 = **別の曲**なので原理的に起きない。
-     *
-     *   ⚠⚠⚠ ブラウザはユーザー操作の外で音を出せない。ロード時の playBgm は
-     *     pendingBgm へ落ちて、最初の pointerdown の unlock() が鳴らす (audio.js:119)。
-     *     その再生は **モジュール内部の playBgm** を通るので、GameAudio.playBgm を
-     *     包んだスパイからは見えない → title.html 側は「ロード」と「最初のタップ」の
-     *     2 本を持ち、検証は __bgmFileState() と 2 経路で突き合わせる (依頼書 #20 §2-2)。
-     *
-     *   ⚠ volume は実測ラウドネスからの逆算。opening −10.3 LUFS → 0.33 (実効 −19.9 = 基準どおり)。
-     *     ⭐ タイトルは安全地帯なので耳で動かしてよい
-     *        (volume を動かしても driver_bgm_title の assert は 1 つも変わらない)。
-     *   ⭐ 出所は 2026-08-25 にユーザー確認済み = 魔王魂。 */
-    title:          { src: "assets/bgm/opening.mp3",             loop: true, volume: 0.33, credit: "魔王魂" },
-    /* ── 街 (港町フラン) と 酒場 (銀の鹿亭) ───────────────────────
-     *   town.html / tavern.html はどちらも合成トラック TRACKS.tavern を鳴らしていた
-     *   (= 街と酒場が同じ音)。専用の mp3 へ分ける (依頼書 #17)。
-     *
-     *   ⚠⚠⚠ ID を "tavern" にしないこと。playBgm は BGM_FILES を TRACKS より先に見るの
-     *     で、"tavern" で登録すると呼び口を直していない playBgm("tavern") が黙って
-     *     mp3 へ逸れ、renderBgmOffline("tavern") だけが合成トラックを指す
-     *     = 同じ名前が 2 つの別物になる。
-     *
-     *   ⚠ volume は曲ごとの実測ラウドネスからの逆算。式は volume = 10^((目標 − 実測)/20)、
-     *     目標 = 探索の基準 −19.9 LUFS (dungeon_normal −15.5 × 0.60 の実効値)。
-     *       village08 −14.6 → 0.54 / 酒場 −12.6 → 0.43
-     *     ⭐ 街と酒場は安全地帯なので耳で下げてよい (volume を動かしても
-     *        driver_bgm_town の assert は 1 つも変わらない)。 */
-    town:           { src: "assets/bgm/village08.mp3",           loop: true, volume: 0.54, credit: "魔王魂" },
-    tavern_room:    { src: "assets/bgm/酒場.mp3",              loop: true, volume: 0.43, credit: "魔王魂" },
-    /* ── 地方全景 (world.html) — 街道を歩いて渡る (依頼書 #21) ──────────────────
-     *   キャラ選択の後と、ダンジョンからの帰り道に 1 枚絵のワールドマップを挟む。
-     *
-     *   ⚠⚠⚠ ID は "world"。⛔ "field" や "town" にしないこと。playBgm は BGM_FILES を
-     *     TRACKS より先に見る (playBgm の先頭) ので、既存 ID と衝突させると呼び口を
-     *     1 行も直していない playBgm がその瞬間から黙って別の曲へ逸れる (#17 の罠)。
-     *
-     *   ⚠ 街と地図は **必ず別の曲**でなければならない。同一ページ内の dedup
-     *     (playBgmFile の bgmFileId === id) はページ遷移をまたがず、遷移のたびに
-     *     <audio> 要素ごと作り直される = 同じ曲にしても街へ入った瞬間に頭出しへ戻る。
-     *
-     *   ⚠ volume は実測ラウドネスからの逆算。fierd −13.5 LUFS → 0.48 (実効 −19.9 = 基準どおり)。
-     *     ⭐ 地図は戦闘の無い安全地帯なので耳で動かしてよい
-     *        (volume を動かしても verify_world_map の assert は 1 つも変わらない)。
-     *   ⚠ 58.1 秒とループが短い。継ぎ目が気になったら曲ごと差し替える判断もある。
-     *   ⭐ 出所は 2026-08-25 にユーザー確認済み = 魔王魂。 */
-    world:          { src: "assets/bgm/fierd.mp3",               loop: true, volume: 0.48, credit: "魔王魂" },
-    /* ── 廃坑 (goblin-mine) 専用の 3 曲 (2026-08-21) ────────────────────────────
-     *   入口 n0 / 坑内 / グリクス戦 を場面ごとに分ける。**どの場面でどれを鳴らすか**は
-     *   index.html の NODE_BGM / SCENARIO_BOSS_BGM が持つ (ここは曲の実体と音量だけ)。
-     *
-     *   ⚠ volume は per-track の係数。**曲ごとの実測ラウドネスから逆算した値**であって
-     *     好みで置いた数字ではない。式は volume = 10^((目標 − 実測) / 20)。
-     *       探索の基準 = 既存 dungeon_normal の実効 −15.5 LUFS × 0.60 = −19.9 LUFS 相当
-     *       d1     −17.3 → 0.74 (実効 −19.9 = 基準どおり)
-     *       haikou −12.6 → 0.43 (実効 −19.9 = 基準どおり)
-     *       boss01 −11.2 → 0.52 (実効 −16.9 = 基準 +3 dB)
-     *     ⚠ 既存 boss_battle は実効 −10.6 = 探索より 9.3 dB 大きい。同じ差にすると
-     *       廃坑だけ突出するので、ボスは +3 dB に留めてある。耳で違ったら動かしてよい
-     *       (volume を動かしても driver_bgm_mine の assert は 1 つも変わらない)。
-     *   ⭐ 出所は 2026-08-23 にユーザー確認済み = 3 曲とも 魔王魂。 */
-    mine_entrance:  { src: "assets/bgm/d1.mp3",                   loop: true, volume: 0.74, credit: "魔王魂" },
-    mine_depths:    { src: "assets/bgm/haikou.mp3",               loop: true, volume: 0.43, credit: "魔王魂" },
-    mine_boss:      { src: "assets/bgm/boss01.mp3",               loop: true, volume: 0.52, credit: "魔王魂" },
-  };
-  var bgmEl = null, bgmElNode = null, bgmFileId = null, bgmElSrcId = null;
-
-  function ensureBgmEl() {
-    if (typeof Audio !== "function") return null;
-    if (!bgmEl) {
-      try { bgmEl = new Audio(); bgmEl.loop = true; bgmEl.preload = "auto"; bgmEl.crossOrigin = "anonymous"; }
-      catch (e) { bgmEl = null; return null; }
-    }
-    // MediaElementSource は ctx/buses 準備後に一度だけ接続。失敗時は要素直 volume にフォールバック。
-    if (bgmEl && !bgmElNode && ctx && buses) {
-      try { bgmElNode = ctx.createMediaElementSource(bgmEl); bgmElNode.connect(buses.bgm); }
-      catch (e) { bgmElNode = null; }
-    }
-    return bgmEl;
-  }
-  function applyFileBgmVolume() {
-    if (!bgmEl) return;
-    var def = bgmFileId && BGM_FILES[bgmFileId];
-    var tv = def ? def.volume : 1;
-    var v;
-    if (bgmElNode) {
-      v = tv;                                   // master*bgm*mute はバス側で乗算 → 要素は per-track のみ
-    } else {
-      var s = GameSettings.get();               // フォールバック: バス未接続なら要素 volume に全部合成
-      v = (s.muted ? 0 : 1) * s.master * s.bgm * tv;
-    }
-    try { bgmEl.volume = Math.max(0, Math.min(1, v)); } catch (e) {}
-  }
-  function stopBgmFile() {
-    if (bgmEl) { try { bgmEl.pause(); bgmEl.currentTime = 0; } catch (e) {} }
-    bgmFileId = null;
-  }
-  function playBgmFile(id) {
-    var def = BGM_FILES[id]; if (!def) return;
-    if (!ensureContext()) { pendingBgm = id; return; }
-    if (!unlocked) { pendingBgm = id; return; }
-    if (bgmFileId === id && bgmEl && !bgmEl.paused) return;   // dedup: 同曲は途切れさせない (Pharaxus 道中→ボス戦の通し)
-    // 合成 BGM が鳴っていれば停止 (相互排他)
-    if (bgmState.voice) { stopVoice(bgmState.voice, 0.4); bgmState.voice = null; bgmState.name = null; }
-    if (!ensureBgmEl()) return;
-    if (bgmElSrcId !== id) { try { bgmEl.src = def.src; } catch (e) {} bgmElSrcId = id; }
-    bgmEl.loop = def.loop !== false;
-    bgmFileId = id; bgmRunning = true;
-    applyFileBgmVolume();
-    try { var p = bgmEl.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
-  }
 
   function stepDurOf(tr) { return 60 / tr.bpm / tr.stepsPerBeat; }
   function scheduleStep(vs, when, c) {
@@ -511,9 +403,7 @@
   function playBgm(name) {
     if (!ensureContext()) { pendingBgm = name; return; }
     if (!unlocked) { pendingBgm = name; return; }
-    if (BGM_FILES[name]) { playBgmFile(name); return; }       // ファイルBGM(mp3)は別レイヤーへ
     if (!TRACKS[name]) return;
-    if (bgmFileId) stopBgmFile();                             // 合成 BGM へ移る時はファイルBGMを停止 (相互排他)
     if (bgmState.name === name && bgmState.voice) return;     // dedup: 同トラックは再起動しない
     if (crossfading) { pendingTrack = name; return; }
     var old = bgmState.voice;
@@ -531,7 +421,6 @@
     }
   }
   function stopBgm() {
-    stopBgmFile();                                            // ファイルBGM(mp3)も停止 (結果画面の stopBgm→jingle 経路を流用)
     if (bgmState.voice) stopVoice(bgmState.voice, 0.4);
     bgmState.voice = null; bgmState.name = null; bgmRunning = false; pendingTrack = null;
   }
@@ -913,7 +802,7 @@
     }
     // クレジット表記 (VOICEVOX 利用規約: キャラクター名のクレジット表示が必須)
     var cred = document.createElement("div");
-    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  魔王魂 / ユーフルカ　｜　効果音  OtoLogic (CC BY 4.0)";
+    cred.textContent = "ナレーション音声  VOICEVOX:青山龍星 / 玄野武宏 / 剣崎雌雄 / 九州そら / 麒ヶ島宗麟　｜　BGM  オリジナル(Web Audio 合成)　｜　効果音  OtoLogic (CC BY 4.0)";
     cred.style.cssText = "margin-top:14px;padding-top:8px;border-top:1px solid rgba(139,105,20,0.3);font-size:11px;color:#6a5418;text-align:center;letter-spacing:0.02em;";
     box.appendChild(cred);
     ov.appendChild(box);
@@ -956,16 +845,12 @@
     __renderSfxOffline: renderOffline,
     __renderBgmOffline: renderBgmOffline,
     __bgmRunning: function () { return bgmRunning; },
-    __bgmFileState: function () { return { id: bgmFileId, srcId: bgmElSrcId, hasEl: !!bgmEl, paused: bgmEl ? bgmEl.paused : null, node: !!bgmElNode }; },
-    /* ファイル BGM の登録表そのものを返す (検証用の読み取り口)。
-     * ⚠ driver_bgm_mine の §3a が「src が 404 でないか」を測るのに使う。mp3 の読み込み失敗は
-     *   **静かに無音になるだけ**で画面には何も出ないので、表を写経せず実体から引く。 */
-    __bgmFiles: function () {
-      var a = [];
-      for (var k in BGM_FILES) a.push({ id: k, src: BGM_FILES[k].src, volume: BGM_FILES[k].volume, credit: BGM_FILES[k].credit });
-      return a;
-    },
-    __bgmFileIds: function () { var a = []; for (var k in BGM_FILES) a.push(k); return a; },
+    /* 今鳴っている合成曲 (経路 B)。unlock() 経由の再生はスパイから見えないので、これで測る (#88 §2-4) */
+    __bgmTrack: function () { return { name: bgmState.name, voice: !!bgmState.voice, running: bgmRunning }; },
+    /* 合成曲の登録表 (表を写経せず実体から引く) */
+    __bgmTrackIds: function () { var a = []; for (var k in TRACKS) a.push(k); return a; },
+    /* 曲データの読み取り口 (lead の重複検査用・コピーを返す) */
+    __bgmTrackLead: function (id) { var t = TRACKS[id]; return t && t.lead ? t.lead.slice() : null; },
     __duckLevel: function () { return _duckLevel; },                 // 検証: 現在の duck 目標値
     __voiceDuckTest: function () { duckForVoice(); return _duckLevel; },  // startVoiceBuffer が呼ぶ duck 経路
     __voiceUnduckTest: function () { unduck(); return _duckLevel; },      // voice onended が呼ぶ unduck 経路

@@ -22,15 +22,16 @@
  *     (6b) 撤退     … index.html?world=0 の dfReturnPage() → town.html (⭐ 実際に飛ばして着地も見る)
  *     (6c-index)    … index.html?town=0 → tavern.html (?world=0 の有無によらず = 2 モードとも)
  *     (8a) 経路A    … ロード時に GameAudio.playBgm へ渡った ID が "world" (スパイ)
- *     (8b) 経路B    … 最初の pointerdown 後、__bgmFileState() が world を掴んで paused:false、
- *                      かつ **assets/bgm/fierd.mp3 を実際に要求している** (リクエストログ = 別経路)
- *     (8c) 表       … BGM_FILES.world の src / credit。⛔ volume は縛らない
+ *     (8b) 経路B    … 最初の pointerdown 後、__bgmTrack() が { name: "world", voice: true }、
+ *                      かつ **「/assets/bgm/」への要求が 0 件** (リクエストログ = 別経路。#88 で mp3 層を廃止)
+ *     (8c) 表       … __bgmTrackIds() に world が在り、__renderBgmOffline("world", 0.5) が resolve する
+ *                      (⛔ makeup / gain は縛らない)
  *
  * ■ ⭐⭐⭐ BGM は **必ず 2 経路で測る** (#20 で実測した罠)
  *   audio.js の unlock() は `if (pendingBgm) { … playBgm(p); }` で **モジュール内部の**
  *   playBgm を呼ぶ。window.GameAudio.playBgm を包んだスパイは**この再生を永久に見られない**。
  *   逆に「鳴っているか」だけを見ると、ロード時の呼び口が 1 本死んでも緑のまま。
- *   ⭐ だから 経路A (渡した ID) と 経路B (__bgmFileState + mp3 の実要求) の両方が要る。
+ *   ⭐ だから 経路A (渡した ID) と 経路B (__bgmTrack() = 実際に鳴っている合成曲) の両方が要る。
  *     負のコントロール spyonly が「(8a) は緑のまま (8b) だけ赤」でこれを機械証明する。
  *
  * ■ 項目 3 で足したもの (遷移 / 一回性のキー / 画面 / 撤退 / 札)
@@ -82,8 +83,8 @@
  *     唯一 enter を持つ札 (港町) は逆に描かれた港町の **96px 以内**に在ること。
  *
  * ■ ⛔ 測らないこと (依頼書 §8「測らないこと」)
- *   ルート線の色 / 太さ / 点の間隔・ノードの px 座標そのもの・`BGM_FILES.world.volume`・
- *   既存 10 曲の volume・札の説明文 (`desc`)。
+ *   ルート線の色 / 太さ / 点の間隔・ノードの px 座標そのもの・`TRACKS.world` の makeup / gain・
+ *   札の説明文 (`desc`)。
  *   ⛔ **道マスクは受入条件にしない** (依頼書 §2-6: 東半分の岩肌が道と同じ色域に入る)。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────────
@@ -137,7 +138,7 @@ const flag = (n) => argv.includes('--' + n);
 const HEADFUL = flag('headful');
 const NEGATIVE = flag('negative');
 const MUTATE = arg('mutate', null);
-/* ⚠ ポートは既存ドライバと空ける。9100-9105 = driver_bgm_town / 9110-9114 = driver_bgm_title。
+/* ⚠ ポートは既存ドライバと空ける。9100-9114 は旧 driver_bgm_town / driver_bgm_title (#88 で削除)。
  *   9120-9130 が空いていることは tools 全体のポート直書きの数え上げで実測済み。 */
 const PORT = parseInt(arg('port', '9120'), 10);
 
@@ -1262,8 +1263,8 @@ async function measureResultChannel(browser, port, errs) {
  *   経路A は evaluateOnNewDocument で window.GameAudio に **setter を仕掛け**、audio.js 末尾の
  *   `global.GameAudio = GameAudio;` が走った瞬間に playBgm を包む
  *   (page.evaluate で後から包むと **ロード時の 1 本が原理的に見えない**)。
- *   経路B は __bgmFileState() に加えて **mp3 を実際に要求したか** をリクエストログで見る
- *   (テーブルの src を読み直すと「写経どうしの突き合わせ」になるため、ネットワーク側から採る)。
+ *   経路B は __bgmTrack() (今鳴っている合成曲) を読み、別経路のリクエストログで
+ *   **「/assets/bgm/」を 1 件も要求していない** (= mp3 層の消し残しが無い。#88) ことも見る。
  * ⚠ ジェスチャは **実座標クリック**。ただし押す場所は「線もノードも無い所」を
  *   その場で実測してから押す (ノードを押すと駒が歩き出して測りたい経路と関係ない差が入る)。
  * ══════════════════════════════════════════════════════════════════════════════ */
@@ -1305,11 +1306,14 @@ async function measureBgm(browser, port, errs) {
   out.spyInstalled = await page.evaluate(() => window.__spyInstalled === true);
   /* ★ どのクリックよりも前に採る = 「ロード時に渡した ID」(経路A) */
   out.loadCalls = await page.evaluate(() => window.__bgmCalls.slice());
-  out.files = await page.evaluate(() => { try { return window.GameAudio.__bgmFiles(); } catch (e) { return []; } });
-  out.beforeState = await page.evaluate(() => {
-    try { return window.GameAudio.__bgmFileState(); } catch (e) { return { err: String(e && e.message) }; }
+  out.trackIds = await page.evaluate(() => { try { return window.GameAudio.__bgmTrackIds(); } catch (e) { return []; } });
+  out.render = await page.evaluate(async () => {
+    try { const d = await window.GameAudio.__renderBgmOffline('world', 0.5); return { ok: true, len: d ? d.length : 0 }; }
+    catch (e) { return { ok: false, err: String(e && e.message) }; }
   });
-  out.trackBefore = reqs.some(p => /\/assets\/bgm\/fierd\.mp3$/.test(p));
+  out.beforeState = await page.evaluate(() => {
+    try { return window.GameAudio.__bgmTrack(); } catch (e) { return { err: String(e && e.message) }; }
+  });
 
   /* ジェスチャの位置は「線もノードも無い所」を実測してから決める (⛔ 決め打ちで押さない)。 */
   const gp = await page.evaluate(() => {
@@ -1331,16 +1335,16 @@ async function measureBgm(browser, port, errs) {
   await page.mouse.click(Math.round(gp.c.x), Math.round(gp.c.y));
   /* ⚠ 鳴り出すまでポーリング。鳴らなければ待ち切って、そのまま assert に落とす。 */
   await page.waitForFunction(() => {
-    try { const s = window.GameAudio.__bgmFileState(); return !!s && !!s.id && s.paused === false; }
+    try { const s = window.GameAudio.__bgmTrack(); return !!s && !!s.name && s.voice === true; }
     catch (e) { return false; }
   }, { timeout: 9000 }).catch(() => {});
   out.afterCalls = await page.evaluate(() => window.__bgmCalls.slice());
   out.state = await page.evaluate(() => {
-    try { return window.GameAudio.__bgmFileState(); } catch (e) { return { err: String(e && e.message) }; }
+    try { return window.GameAudio.__bgmTrack(); } catch (e) { return { err: String(e && e.message) }; }
   });
   out.heroNode = await page.evaluate(() => window.__world.heroNode());
   await page.close();
-  out.sawTrack = reqs.some(p => /\/assets\/bgm\/fierd\.mp3$/.test(p));
+  out.bgmReqs = reqs.filter(p => p.indexOf('/assets/bgm/') >= 0);
   return out;
 }
 
@@ -1854,9 +1858,9 @@ const ASSERTS = [
     m => {
       if (!m.bgm) return [false, 'bgm 未測定'];
       const g = m.bgm.gesture;
-      const ok = m.bgm.spyInstalled === true && m.bgm.files.length > 0
+      const ok = m.bgm.spyInstalled === true && m.bgm.trackIds.length > 0
         && g.onScreen === true && g.onNode === false && g.near >= 100;
-      return [ok, 'spy=' + m.bgm.spyInstalled + ' 曲数=' + m.bgm.files.length
+      return [ok, 'spy=' + m.bgm.spyInstalled + ' 曲数=' + m.bgm.trackIds.length
         + ' ジェスチャ点: 最近ノード ' + g.who + ' まで ' + g.near.toFixed(0) + 'px 押した先=' + g.top
         + ' / 押した後の駒=' + m.bgm.heroNode];
     }],
@@ -1868,28 +1872,26 @@ const ASSERTS = [
       return [m.bgm.spyInstalled === true && c.length === 1 && c[0] === 'world',
         'ロード時の呼び=' + JSON.stringify(c) + ' / ジェスチャ後=' + JSON.stringify(m.bgm.afterCalls)];
     }],
-  ['8b', '★[経路B] 最初の pointerdown の後、__bgmFileState() が **world を掴んで paused:false** で、'
-    + 'かつ **assets/bgm/fierd.mp3 を実際に要求している** '
+  ['8b', '★[経路B] 最初の pointerdown の後、__bgmTrack() が **{ name: "world", voice: true }** で、'
+    + 'かつ **/assets/bgm/ への要求が 0 件** (#88 で mp3 層を廃止) '
     + '(⚠⚠⚠ (8a) だけでは足りない — unlock() はモジュール内部の playBgm を呼ぶので'
     + 'スパイからは pendingBgm 経由の再生が永久に見えない = #20 で実測)',
     m => {
       if (!m.bgm) return [false, 'bgm 未測定'];
       const s = m.bgm.state || {};
-      const ok = s.id === 'world' && s.srcId === 'world' && s.paused === false
-        && m.bgm.sawTrack === true;
+      const ok = s.name === 'world' && s.voice === true && m.bgm.bgmReqs.length === 0;
       return [ok, 'ジェスチャ前=' + JSON.stringify(m.bgm.beforeState)
         + ' / 後=' + JSON.stringify(s)
-        + ' / fierd.mp3 を要求した=' + m.bgm.sawTrack + ' (前=' + m.bgm.trackBefore + ')'];
+        + ' / /assets/bgm/ への要求=' + JSON.stringify(m.bgm.bgmReqs)];
     }],
-  ['8c', 'BGM_FILES.world の src / credit が assets/bgm/fierd.mp3 / "魔王魂" '
-    + '(⛔ volume は assert しない — 地図は安全地帯なので耳で下げてよい。数値であることだけ見る)',
+  ['8c', '合成曲の表 __bgmTrackIds() に world が在り、__renderBgmOffline("world", 0.5) が resolve する '
+    + '(⛔ makeup / gain は assert しない — 地図は安全地帯なので耳で動かしてよい)',
     m => {
       if (!m.bgm) return [false, 'bgm 未測定'];
-      const f = m.bgm.files.filter(x => x.id === 'world')[0];
-      if (!f) return [false, '⛔ BGM_FILES に world が無い ids=' + JSON.stringify(m.bgm.files.map(x => x.id))];
-      const ok = f.src === 'assets/bgm/fierd.mp3' && f.credit === '魔王魂'
-        && typeof f.volume === 'number' && f.volume > 0 && f.volume <= 1;
-      return [ok, JSON.stringify(f) + '  (volume は縛らない = 0 < v <= 1 だけ)'];
+      const has = m.bgm.trackIds.indexOf('world') >= 0;
+      const r = m.bgm.render || {};
+      return [has && r.ok === true && r.len > 0,
+        'ids=' + JSON.stringify(m.bgm.trackIds) + ' / render=' + JSON.stringify(r)];
     }],
 
   ['7c-3', '[対照] 唯一 enter を持つ札は逆に「絵に描かれた港町」の 96px 以内に在る (例外扱いではなく実測で縛る)',
@@ -2047,10 +2049,7 @@ for (const a of ASSERTS) ASSERT_OF[a[0]] = a;
 
       mark('§8 BGM (2 経路)');
       for (const key of ['8z', '8a', '8b', '8c']) { const a = ASSERT_OF[key]; const r = a[2](m); check('(' + a[0] + ') ' + a[1], r[0], r[1]); }
-      console.log('       [記録] BGM_FILES の在庫 (⛔ volume は縛らない = 耳で動かしてよい):');
-      for (const f of m.bgm.files) {
-        console.log('         ' + f.id + '  ' + f.src + '  volume=' + f.volume + '  credit="' + f.credit + '"');
-      }
+      console.log('       [記録] 合成曲の在庫 (__bgmTrackIds): ' + JSON.stringify(m.bgm.trackIds));
 
       mark('§9 ページエラー');
       check('(9a) 測定ページで pageerror / console.error が出ていない', errs.length === 0, errs.slice(0, 6).join(' | '));

@@ -54,9 +54,9 @@
         足元をタイル下端に置くと水の上に立つ。⚠ この 0.93 を動かすと橋の見え方が壊れる。
 
     ★ 音 (依頼書 §9)
-      GameAudio.playBgm("town") — assets/bgm/village08.mp3 (依頼書 #17)。?townbgm=0 で合成へ戻る。
+      GameAudio.playBgm("town") — 合成曲 TRACKS.town (にぎやかな港町 / #88)。?townbgm=0 で酒場の合成曲 tavern へ戻る。
       最初の pointerdown で GameAudio.unlock() (iOS Safari の音声解錠に必須)。
-      ⚠ 実機で耳障りなら audio.js の BGM_FILES.town の volume を下げる (assert は壊れない)。
+      ⚠ 実機で耳障りなら audio.js の TRACKS.town の makeup を下げる。
 
     ★ 撤退スイッチ `?town=0` (依頼書 §11)
       街を丸ごと素通りして、今日とまったく同じ「タイトル → 酒場」に戻す。
@@ -468,7 +468,7 @@
     } catch (e) {}
 
     /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
-       0 を渡すと街も酒場も従来どおり合成トラック TRACKS.tavern を鳴らす。
+       0 を渡すと街は新曲 town の代わりに酒場と同じ合成トラック TRACKS.tavern を鳴らす (#88)。
        ⚠ クエリはページ遷移をまたがらない。tavern.html 側は**独立に**読む
          (#15 の ?heromark=0 と同じ作法)。 */
     var TOWN_BGM_ID = "town";

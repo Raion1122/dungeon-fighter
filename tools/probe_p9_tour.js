@@ -125,7 +125,7 @@ async function oneRun(browser, idx) {
                  fg: fg ? (fg.tx + ',' + fg.ty) : null,
                  ne: ne ? ((ne.def.name || ne.def.key || '?') + '@' + tile(ne)) : null,
                  boss: b ? ((b.alive ? 'A' : 'D') + tile(b)) : null,
-                 /* ★ボス曲が本当に鳴ったか。__inBossRoom と currentBgmId の両方を採る。 */
+                 /* ★ボス曲が本当に鳴ったか。__inBossRoom とシーム __graphRun.bgm().id の両方を採る。 */
                  bgm: (() => { const g = window.__graphRun.bgm();
                                return (g.id || '-') + (g.inBossRoom ? '/inBoss' : ''); })(),
                  enc: (encounterActive ? 'A' : '') + (encounterRunning ? 'R' : '') || '-',

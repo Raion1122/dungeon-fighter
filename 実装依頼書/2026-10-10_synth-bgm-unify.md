@@ -538,4 +538,65 @@ if (!TRACKS[name]) return;                           // ← 無ければ黙っ�
   (`git clone --shared` + `cmptree` でバイト一致を確かめる。#87 の `clone87` は `171112e` のまま)。
 - ⛔ 213 腕の全走査は項目1 ではしていない(項目4 で orchestrator が回す)。
 
+### 12-1 実装(項目2・2026-10-10・基準 `f02604b`)— STEP1+STEP2+STEP3 を 1 commit
+
+#### やったこと
+
+- **`audio.js`**: Section F1(`BGM_FILES` / `bgmEl` 系 / `ensureBgmEl` / `applyFileBgmVolume` / `stopBgmFile` / `playBgmFile`)を丸ごと削除し、
+  `TRACKS` の直前へ §4-1 の警告コメント 2 行。F1 外の 5 行(`applyVolumes` / `unlock` / `playBgm` ×2 / `stopBgm`)を削除 ⇒ `playBgm` は
+  `if (!TRACKS[name]) return;` から始まる。`TRACKS` に `title` / `town` / `world` を追加(各 32 step・ドラムは k/h/s/o/c のみ)。
+  検証フックを §4-4 のとおり差し替え(`__bgmTrack` / `__bgmTrackIds` / `__bgmTrackLead` を追加、`__bgmFileState` / `__bgmFiles` / `__bgmFileIds` を削除)。
+  設定モーダルのクレジットを `BGM  オリジナル(Web Audio 合成)` へ。
+  ⭐ 既存 6 曲は **HEAD の `TRACKS` 本体 30 行がバイト一致で残っている**ことを py で照合済み(`git diff` にも - 行なし)。
+- **新曲 3 曲の RMS**(`__renderBgmOffline(id, 12)`・先頭 10% 捨て・scratchpad `item2/probe_rms.js`、2 回走らせて同値):
+
+  | id | 曲調 | bpm | dist | harmony | makeup | RMS dBFS | ピーク dBFS(参考) |
+  |---|---|---|---|---|---|---|---|
+  | `title` | 荘厳な幕開け(Dm→F→C・ロングトーン・4 分の `k` + 小節頭 `c`) | 96 | 0.55 | 2 | 0.36 | **−14.9** | −4.0〜−4.5 |
+  | `town` | にぎやかな港町(G・跳ねる 8 分・drumGain 0.09) | 112 | 0.4 | 0 | 0.34 | **−14.1** | −6.6 |
+  | `world` | 広野の叙事詩(Am→F→G・5 度/オクターブ跳躍・drumGain 0.065) | 92 | 0.45 | 1 | 0.36 | **−15.0** | −6.2 |
+
+  makeup の初期値(title 0.30 / world 0.32)では −16.5 / −16.0 だったので上げた。⚠ `title` のピークは既存 6 曲(−6.6〜−9.0)より 2 dB ほど高い(K11)。
+- **`index.html`**: 曲選びの表(`MINE_BGM_OFF` / `SCENE_BGM` / `NODE_BGM` / `SCENARIO_BOSS_BGM` / `sceneBgmId` / `currentBgmId`)を削除し
+  `dungeonBgmTrack(kind)` を追加(`combatBgmTrack` は無改修)。呼び口: `setPhase` → `bgm(dungeonBgmTrack(kind))`(cb 行とコメント 2 行を削除)/
+  ボス部屋初入室・ラッチ → `bgm("boss")` / 中ボス覚醒 4 か所 → `bgm(combatBgmTrack())`。`bgm("rest")` は K4 を踏まえ
+  コメントを「エンディングの余韻 BGM」へ直しただけ。`__graphRun.bgm()` を §5-3 のとおり。エンディング「音楽」を 1 行へ(効果音行は不変)。
+- **`tavern.html`**: `var TAVERN_BGM_ID = "tavern";` だけにし `?townbgm=0` 判定を削除。**`town.html` / `title.html`**: コメントのみ(呼び口・ID 不変)。
+  **`world.html`**: コメント(K6 の `:24` ヘッダ・`:77`・`:1549`・`:1559` の `__bgmFileState`)+ `?worldbgm=0`(`WORLD_BGM_ID = "explore"`、
+  `?titlebgm=0` と同じ try/URLSearchParams 形・`var WORLD_BGM_ID` の直下)。⛔ `playWorldBgm()` の 1 行は不変(`silent` のアンカー健在)。
+- **`voicevox-pipeline/CREDITS.md`**: BGM 節(旧 `:35-54` 全体)を「オリジナル合成曲」へ。
+- **`git rm`**: `assets/bgm/*.mp3` 11 本(`git -c core.quotepath=false ls-files assets/bgm` = **0 行**)+ `tools/driver_bgm_{mine,town,title}.js`。
+- **ツールの言い直し**: `verify_world_map.js` (8b)(8c)・ヘッダ・`measureBgm`(`__bgmTrack()` / `__bgmTrackIds()` / `__renderBgmOffline("world", 0.5)` /
+  `/assets/bgm/` 要求ログ)/ `driver_grid_p8.js` (6a2)(`:500` の裸の `currentBgmId()` を除去。シーム `bgm().id` と `combatBgmTrack()` の
+  **両方**が `boss` / `midboss` でないことを見る = K2 の恒等緑対策)。
+- changelog: `py tools/add_changelog.py`(§10 の文面どおり)。行末: `audio.js` + 5 html は CRLF 100%(LF のみ 0)、CREDITS.md / tools は LF。
+
+#### 依頼書からの逸脱(触るファイル表の外)
+
+- **K9 — `tools/probe_boss_latch.js` を言い直した**(orchestrator 決定)。`:218` `pre.bgm !== 'mine_boss'` → `'boss'` / `:295` の 2 経路 `'mine_boss'` → `'boss'` /
+  ヘッダ `:23`。#88 後は経路 A・B とも `boss` で揃う(実測 `seamBgm=boss played=boss`)。
+- **K10 — コメントだけの追随 3 件**: `tools/verify_title_screen.js:300/306-307/2022`(mp3・`__bgmFileState`・`BGM_FILES` の記述)/
+  `tools/probe_p9_tour.js:128`(`currentBgmId` の記述)/ `index.html` の `applyRoomClearHeal / maybeOfferRestSummon / currentBgmId` 2 か所 →
+  `combatBgmTrack`。いずれも機能は不変。`verify_world_map.js:140` のポート注記(削除した `driver_bgm_*`)も直した。
+- **K11 — `title` のピークが既存曲より高い**(−4.0〜−4.5 dBFS)。RMS は目安内。ピークは assert しない(K7)ので §9 で耳で確かめる。
+- **K12 — 自分で踏んだ罠**: ドライバのブロックコメントに `**/assets/bgm/` と書くと `*/` でコメントが閉じて SyntaxError(素の走行が即 exit 1)。
+  「/assets/bgm/」とかぎ括弧で囲んで回避。⭐ 依頼書の文面をそのままコメントへ写すときは `*/` に注意。
+
+#### 検証(項目2・素の作業ツリー・8765 は不使用)
+
+| 本 | 結果 | 着手前 |
+|---|---|---|
+| `node tools/verify_world_map.js` | **57/57 PASSED** exit 0((8b) `後={"name":"world","voice":true,"running":true}` 要求 `[]`) | 57/57 |
+| `node tools/verify_world_map.js --negative` | **44/44 PASSED** exit 0(`silent` で (8a)(8b) 赤 / `spyonly` で (8b) だけ赤・(8a) 緑のまま) | 44/44 |
+| `node tools/driver_grid_p8.js` | **PASS 55 / FAIL 1** exit 1。赤は **(6d) のみ**(着手前と同じ行・同じ JSON)。(6a2) 緑 `bgm=explore combatBgmTrack=combat` | 55/1 (6d) |
+| `node tools/verify_title_screen.js` | **86/86** exit 0 | 86/86 |
+| `node tools/probe_boss_latch.js` | **5/5 PASS** exit 0 | 5/5 |
+
+- 簡易の実地確認(scratchpad `item2/probe_pages.js`・port 10622): title / town / world / tavern で pointerdown 後に `__bgmTrack()` が
+  `title` / `town` / `world` / `tavern` で `voice:true`、`/assets/bgm/` 要求 0 件、pageerror 0。撤退: `?worldbgm=0` → `explore` /
+  `?townbgm=0` → `tavern` / `?titlebgm=0` → 経路 A `[]`・経路 B `null`。index(廃坑・`startGame()` 後 `GameAudio.unlock()`・各 900ms 待ち):
+  `explore` → `combat` → `boss`(`__inBossRoom`)→ `midboss`(`__inMidBoss`)→ `explore`、`scenarioId='dragon-lair'` と `_genScenario={tierKey:'tier3'}` でも同じ ID。
+  シーム `bgm().id`・スパイ・`__bgmTrack().name` の 3 つが全段一致。クレジット: 設定 = `…｜　BGM  オリジナル(Web Audio 合成)　｜…`、
+  エンディング「音楽」= `["オリジナル楽曲(Web Audio 合成)"]`、「効果音」= `魔王魂 ／ Kenney (CC0)`(不変)。旧フック 3 つは `undefined`。
+
 (以降の項目は実装窓が埋める)

@@ -297,14 +297,14 @@ function judgeLayoutPopulated(o, kind) {
      ③ は呼び出し側の別 assert。ここでは ①② と回数/ID を束ねる。
 
    ⚠⚠⚠ 【依頼書 #20 で反転】Phase 1 の「BGM は 0 回」は仕様ごと変わった。
-     タイトルは assets/bgm/opening.mp3 を鳴らす (BGM_FILES.title)。
+     タイトルは合成曲 title を鳴らす (TRACKS.title / #88 で mp3 から差し替え)。
      ⭐ **`=== 1` であって `>= 1` ではない。** このスパイは openPage() の **後**に掛かるので、
        title.html の **ロード時の呼び口 (pendingBgm へ落ちる 1 本) は原理的に見えず**、
        最初の pointerdown の中の 1 本だけを数える。
      ⚠ さらに unlock() が pendingBgm を鳴らす経路は **モジュール内部の playBgm** を通るので、
        GameAudio.playBgm を包んだこのスパイからは**永久に見えない** (audio.js:119)。
-       「実際に mp3 を掴んで鳴っているか」は tools/driver_bgm_title.js の (2b) が
-       __bgmFileState() で測る。ここは「渡した ID」だけを見る。 */
+       「実際に鳴っているか」は tools/verify_synth_bgm.js が __bgmTrack() で測る (#88)。
+       ここは「渡した ID」だけを見る。 */
 function judgeTitleAudio(o) {
   if (!o) return false;
   const ins = o.installed || {};
@@ -2019,7 +2019,7 @@ function probeLayout() {
       JSON.stringify({ n: spy2.sfxCalls.length, ids: spy2.sfxCalls.map(a => a[0]) }));
 
     /* ── 負のコントロール: その playBgm スパイは本当に数えられるのか ──────
-       ⚠ 存在しないトラック名を渡す。playBgm は TRACKS/BGM_FILES のどちらにも無い名前なら
+       ⚠ 存在しないトラック名を渡す。playBgm は TRACKS に無い名前なら
          早期 return するので、**測定のために音を鳴らさずに**ラッパだけを通せる。 */
     const NO_SUCH = '__df_probe_no_such_track';
     /* ⚠ #20 で反転: タイトルが自分で title を 1 本鳴らしているので **開始点は 0 でなく 1**。 */
