@@ -599,4 +599,66 @@ if (!TRACKS[name]) return;                           // ← 無ければ黙っ�
   シーム `bgm().id`・スパイ・`__bgmTrack().name` の 3 つが全段一致。クレジット: 設定 = `…｜　BGM  オリジナル(Web Audio 合成)　｜…`、
   エンディング「音楽」= `["オリジナル楽曲(Web Audio 合成)"]`、「効果音」= `魔王魂 ／ Kenney (CC0)`(不変)。旧フック 3 つは `undefined`。
 
+### 12-2 受入(項目3・2026-10-10・基準 `2643ef3`)— `tools/verify_synth_bgm.js`(新規・LF)
+
+#### 作り
+
+- 素 port **10598** / 変異 **10599(shadow)・10601(ghostscene)・10602(silent)・10603(staleCredit)・10604(copytrack)・10605(bossstuck)**。
+  10600(`probe_magehand_reach`)と 8765(試遊)は起動時ガードで弾く。Chrome は `--autoplay-policy=no-user-gesture-required --mute-audio`、
+  プロファイルは `tools/_pptr_profile.js`。
+- 測定は 8 ページ(title / town / world / tavern / world `?worldbgm=0` / town `?townbgm=0` / title `?titlebgm=0` / index 廃坑)。
+  静的ページ = ロード → 合成 pointerdown → 900ms。index = `startGame()` → `GameAudio.unlock()`(K3)→ `setPhase` ごとに 900ms(K8)。
+  経路 A = setter スパイ(`driver_bgm_town.js:222-263` の雛形)/ 経路 B = `__bgmTrack()` / 別経路 = 内蔵サーバの「/assets/bgm/」要求ログ。
+- 変異は**配信スナップショットへの実行時の文字列置換**(本番ファイルは無変更)。アンカーは 1 行・ちょうど 1 ヒット・置換前後で長さが違う、を起動時に検査(崩れたら exit 3)。
+  `--mutate <name>` で 1 変異だけ載せて受入を回せる(赤の一覧と予測の一致を `[記録]` に出す)。
+
+#### assert(素 35 本)
+
+| 節 | assert |
+|---|---|
+| §0 装置 | (0z) 配信 audio.js が作業ツリーとバイト一致 / (0y) 変異アンカー 6 本 / (0a-title・town・world・tavern・index) スパイが掛かり経路 A ≥ 1 件 / (0b) `__bgmTrackIds()` = 9 件(直書き)で title・town・world を含む / (0c) 全ページの経路 A の ID がすべて表に在る(23 件)/ (0d) 旧フック 3 つが 5 ページとも undefined |
+| §1 | (1a)〜(1e) を **-A(スパイ)と -B(`__bgmTrack` の name + voice:true)に分割**(10 本)/ (1f) 8 ページとも「/assets/bgm/」要求 0 |
+| §2 | (2a) render resolve・RMS > −40 / (2b) lead が他 8 曲と不一致 / (2c) RMS −18.0〜−12.0(実測 title −14.94 / town −14.09 / world −14.96) |
+| §3 | (3a)〜(3d) を **シーム・スパイの最後の ID・`__bgmTrack().name` の 3 つ**で / (3e) dragon-lair と `_genScenario={tierKey:'tier3'}` の ID 列が基準列と一致(相対比較) |
+| §4 | (4a) 設定モーダルの箱の `lastElementChild` / (4b) 「音楽」直後の erItem(効果音行の 魔王魂 は `[記録]` に出すだけ) |
+| §5 | (5a) worldbgm=0 → explore / (5b) townbgm=0 → tavern / (5c) titlebgm=0 → A 0 件・B null・スパイは掛かっている |
+| §9 | (9a) pageerror 0 件 |
+
+#### 負のコントロール(`--negative` 34 本 = 配信検算 12 + 変異の担当 15 + 範囲 6 + 罠A1 1)
+
+各変異で「担当の assert が赤」かつ「**担当外の assert が全部緑**」(範囲 = 35 本から担当を引いた残り全部)。
+
+| port | 変異 | 担当(赤) | 実測 |
+|---|---|---|---|
+| 10599 | `shadow` | (1a-B) | ⭐ (1a-A)・(0c) は緑のまま (1a-B) だけ赤 = 罠 A-1 の機械証明(`(neg-shadow-罠A1)` で名指し)。B = `{name:null}` |
+| 10601 | `ghostscene` | (0c)(1e-A)(1e-B)(3a)(3b)(3c)(3d) | 表に無い = `index:dungeon_normal`。(3e) は相対比較なので緑のまま |
+| 10602 | `silent` | (0a-world)(1c-A)(1c-B)(5a) | world の経路 A `[]`・B null |
+| 10603 | `staleCredit` | (4b) | 音楽 = `["オリジナル楽曲(Web Audio 合成)","Wingless Seraph（ユーフルカ）"]` |
+| 10604 | `copytrack` | (2b) | 一致 = `world==explore`。(2c) は緑のまま(RMS は帯の中) |
+| 10605 | `bossstuck` | (3c) | `seam=combat spy=combat track=combat`。(3e) は緑のまま |
+
+#### 崩れた予測(K13〜)
+
+- **K13 — `ghostscene` の担当は §8 の表 (0c)(1e)(3a) より広い**。`setPhase` は**ダンジョンの全フェーズの唯一の呼び口**なので、
+  旧 ID を渡すと combat / boss / midboss も全部無音になり **(3b)(3c)(3d) も赤**(実測 `spy=dungeon_normal track=null`)。
+  変異点の誤りではなく予測の狭さ ⇒ 担当に足した。(3e) は「基準列と同じか」の相対比較なので両方とも同じく壊れて緑のまま(意図どおり)。
+- **K14 — `silent` は (5a) も赤**。`?worldbgm=0` は `WORLD_BGM_ID` を差し替えるだけで、鳴らすのは同じ `playWorldBgm()` ⇒ 呼び口を殺すと撤退側も無音
+  (実測 A `[]`・B null)。正しい検出なので担当に足した(§8 表は (0a) world 腕・(1c) のみ)。
+- **K15 — (1a)〜(1e) を -A / -B に分割した**。§8 は「(1a) の経路 B だけ赤」を求めるので、1 本の assert に 2 経路を混ぜると
+  `shadow` の「経路 A は緑」を機械で言えない。分割で素の assert は 35 本(§8 の節の数より多い)。
+- 本番側の欠陥: **なし**(素 35/35・負 34/34)。
+
+#### 検証(素の作業ツリー・8765 は不使用)
+
+| 本 | 結果 | 所要 |
+|---|---|---|
+| `node tools/verify_synth_bgm.js`(1 回目) | **35/35 PASSED** exit 0 | 25 s |
+| `node tools/verify_synth_bgm.js`(2 回目) | **35/35 PASSED** exit 0 | 24 s |
+| `node tools/verify_synth_bgm.js --negative` | **34/34 PASSED** exit 0 | 139 s |
+| `node tools/verify_synth_bgm.js --mutate shadow` | 34/35(赤 = (1a-B) だけ・「予測どおり」)exit 1 = 期待どおり | 25 s |
+| `node tools/verify_world_map.js` | **57/57 PASSED** exit 0 | 69 s |
+| `node tools/verify_title_screen.js` | **86/86** exit 0 | 66 s |
+
+- ⭐ 次の新規ドライバ base = **10606**(10606〜10625 は tools/ に使用なし。scratchpad の使い捨てプローブが 10620〜10622 を使ったが repo 外)。
+
 (以降の項目は実装窓が埋める)
