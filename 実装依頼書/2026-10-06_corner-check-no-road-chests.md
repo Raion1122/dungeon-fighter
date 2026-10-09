@@ -1,6 +1,6 @@
 # #87 判定パネルを左上へ小さく + 戦闘中は判定を出さない + 道中の宝箱を廃止
 
-- **起草**: 2026-10-06(計画窓 claude-27) / **ステータス**: **承認済**(2026-10-06 ユーザー承認)
+- **起草**: 2026-10-06(計画窓 claude-27) / **ステータス**: **完了(push 待ち)**(2026-10-10・本番 `bd04a1a` + `b289f59`・受入 `171112e` `verify_corner_check`・母集団 213 腕で #87 帰属の緑→赤 0 = §12-4。K6 = ユーザー決定 (a)。⚠ 隊商護衛は宝箱 3 個が補填 0G で消える = K19 要判断)
 - **着手**: ✅ **着手可** — #86 完了(`baa5a67`・2026-10-09)。受入の port base = **10586**(#86 §12)。⚠ #86 が `index.html` を触ったので §2 の行番号は必ず引き直すこと
 - **触るファイル**: `index.html` / 言い直す既存 golden(§8 末尾の表)/ `tools/verify_corner_check.js`(新規)/ 本依頼書 / `実装依頼書/README.md`
 - ⛔ **触らないファイル**: `js/skill-check.js`(酒場 `tavern.html` と街道 `world.html` も読む共有ファイル。§2-1)/ `tavern.html` / `world.html`
@@ -758,3 +758,75 @@ DOM の矩形と呼び出しの記録を 2 経路で突き合わせる。どの�
 - **K28** 変異 `hoardgone` の素直なアンカー `if (!isBossNodeNow()) return;` は `driver_graph_p6.js` のソースに逐語で在る(罠E)⇒ `spawnDragonHoard` の 1 行上 `if (scenarioId !== "dragon-lair") return;` で握った。⚠ 将来この 2 行を動かすときは本ドライバのアンカーも数え直すこと。
 - **K29** (5a) を赤くできる変異は無い(tavern / world / `js/skill-check.js` はこのチケットの範囲外 = 変異を注入する先が無い)。(5a) は「index の上書きが共有ファイルへ漏れていない」の恒等 assert として素でだけ効く。同じページの (1a)(1c) が左上・暗幕なしを測っているので、両者の対で「index だけが変わった」を言える。
 - **K30** `allchoice` と `trapsgone` は §8 の予想より 1 本ずつ広い(上の表)。どちらも決定論で、巻き添えではなく本物の検出(撤退の腕まで壊す / 鍵束まで消す)なので担当へ入れた。
+
+### 12-4. 母集団の非退行と締め(項目5・2026-10-10・基準 `171112e`)
+
+触ったファイル = 本依頼書 / `実装依頼書/README.md` だけ。⛔ 本番(`index.html` / `tavern.html` / `world.html` / `js/*`)と tools は 1 バイトも触っていない。
+
+- **本番**: `bd04a1a`(項目2: 判定パネルを左上へ + 罠の選択を左上へ + 戦闘中は判定を出さない + 探索ターンの穴 + `?cornercheck=0`)+ `b289f59`(項目3: 道中の宝箱を廃止 + クリア金貨で補填 + `?roadchest=0` + 既存 golden 16 本の言い直し)。**受入**: `171112e` `tools/verify_corner_check.js`(20 assert・素 約 81 秒 / `--negative` 11 変異 約 960 秒・port 10586 / 10587〜10597)。**基準取り**: `23925bf`。
+- **撤退**: `?cornercheck=0`(判定パネルは画面中央 + 暗幕・罠の選択は下の帯・戦闘中の隠密はパネル)/ `?roadchest=0`(道中の宝箱と寄り道が戻り、補填の金貨は 0)。
+
+#### 母集団の走査(213 腕・577.0 分・完了 2026-10-10T04:51)
+
+- 腕 = post86 の 211 腕(順序そのまま)+ `verify_corner_check` の素 / `--negative`(prod 181 / clone 29 / fix 3)。基準 = #86 の `post86`(211 腕)。道具と資産は scratchpad `49373113-…/scratchpad/item5/`(`armlist_87post.json` / `sweep_87post.py` / `run_all87post.ps1` / `run_post87/post87.tsv` / `cmp_87.py` → `cmp_87.out` / `mkshadow_87.py` / `pair_87.py`)。
+- clone87 = `171112e` の `git clone --shared` で、本番の作業ツリーと追跡ファイルの内容の差 0(行末だけの差 1 本 = 下の別チケット候補)。
+
+| 区分 | 本数 | 中身 |
+|---|---|---|
+| 緑 | 189 | — |
+| 非緑 | 24 | — |
+| **緑→赤** | **2** | `driver_monsters_hobgoblin` 素(14/14 → 13/14)/ `verify_run_chronicle` 素(73/73 → (1z1)(1c) 赤)。⇒ 下の切り分けで **2 本とも #87 帰属 0** |
+| 赤→緑 | 3 | `driver_field_step0` 素(32/33 → 33/33 = 隊商護衛の全滅の揺れ)/ `driver_mine_wall` 素(65/66 → 66/66 = 観測窓の揺れ)/ `verify_mage_hand --negative`(post86 の `rollbackleak` の揺れ) |
+| 非緑のまま | 22 | post86 と同じ顔ぶれ・同じ理由(`driver_sce1_events` 211/214・`driver_mapdef_step1` 207/208・`driver_grid_p4` / `probe_*` の exit 3・fort / swamp_fold `--negative` の exit 3 ほか) |
+| 新規 | 2 | `verify_corner_check` 素 **20/20**・`--negative` **exit 0**(11/11 担当どおり) |
+
+#### 緑→赤 2 本の切り分け(単独再走 → 交互の対比較)
+
+影 = `mkshadow_87.py` の `shadow87`(本番作業ツリーの実体コピーで、`index.html` / `tavern.html` だけ `f0a9626` = #87 前の CRLF 版へ戻したもの。#87 の配信物の差はこの 2 本だけ)。`pair_87.py` で本番と影を交互に走らせた。
+
+| 本 | 走査 | 単独再走 | 交互の対比較 | 判定 |
+|---|---|---|---|---|
+| `driver_monsters_hobgoblin` | 13/14 | 12/14((e) 孤立配置で攻撃記録 0 = 観測窓の空振り) | 5 対(`pairs_g2r`): **本番 3/5 緑・影 2/5 緑** | 影(#87 前)でも同じ型で赤 = #68 以来の既知フレーク ⇒ **#87 帰属 0** |
+| `verify_run_chronicle` | (1z1)(1c) 赤 | **73/73 緑** | 5 対(`pairs_g2r`): 本番 4/5(赤の 1 回は (2z3)(2a) = 観測窓の空振り)・影 5/5。追加 10 対(`pairs_chron10`): **本番 10/10・影 8/10**(影の赤 2 回は (1z1)(1c) = 走査と同じ型)。合計 15 対で本番の赤 1・影の赤 2 | 装置 assert(後の敵が全滅すると空振り)が #87 前から揺れる ⇒ **#87 帰属 0** |
+
+- ⇒ **#87 帰属の緑→赤 0・本番の直し 0**。
+
+#### 崩れた主張(K1〜K30 = 30 件)
+
+- **前提の訂正(依頼書 §2 / §8 の主張が崩れた・16 件)**: K2(穴は探索判定だけでなく罠の選択・開錠にも = 待ちは `exploreAllyTurn` の前で 1 行)/ K4(罠の器は `#choiceDialog` のまま class を足す)/ K5・K15(狭幅は `#phaseIndicator` と重なる ⇒ 768px 以下で top 80)/ K6((1b) は幾何的に成立しない姿勢がある ⇒ ユーザー決定 (a))/ K7(消える宝箱の個数の目安が盤面と合わない)/ K9(「罠も鍵束も無い部屋では振らない」は条件の追加が要らない)/ K10(金貨の期待値 ≈ 11.7G)/ K11(生成クエストは `clearGold` が勝利処理まで届かない)/ K13(`verify_tower_mother_b` (1h) が §8 の表に無い)/ K16(隠密は二重の守り ⇒ 変異 `stealthpanel` が空振り)/ K19(隊商護衛は宣言 0 と実際の宝箱 3 が違う)/ K20(予告に無かった赤 5 本)/ K21(`driver_grid_s2` (13e) は自明な緑)/ K26((1a) の「right < 50%」は compact で原理的に不成立)/ K30(変異の担当が予想より広い)。
+- **軽微・参考・条件・装置の記録(14 件)**: K1 / K3 / K8 / K12 / K14 / K17 / K18 / K22 / K23 / K24 / K25 / K27 / K28 / K29。
+
+#### 依頼書からの逸脱
+
+- **K6 ユーザー決定 (a)**: (1b)「上中央の `#battleBanner` / `#dmMessage` と交わらない」(全姿勢)を「PC 畳み / compact の ☰ と交わらない・compact の `#phaseIndicator` と交わらない・PC 畳みでは上中央の帯と交わらない」へ言い直した。PC 展開と compact の DM 文との重なりはパネルが上で受け入れる(§12-3)。
+- **(1a) の言い直し(K15 / K26)**: 「top < 80」→ top ≤ 80、「right < 画面幅の 50%」は PC 2 姿勢だけ・compact は right ≤ 画面幅。§4 の「4 人で縦 ≤ 300」をロール前 / 結果表示の両方で測る形を足した。
+- **K4 罠の器**: 新しい器を作らず `#choiceDialog` のまま、罠のときだけ `body.dfCornerChoice` を付け外す。`showChoice` / `showCharChoice` の引数は不変。左上なのでログ枠は伏せない。
+- **門の置き場所**: 呼び口 12 本へ個別に `auto` を書かず、薄いラッパ `dfSkillCheck` 1 本へ寄せた(呼ぶたびに `window.SkillCheck.resolveSkillCheck` を引く = tools 10 本の差し替えがそのまま効く)。
+- **K16 二重の守り**: 戦闘中の隠密は opts の `auto: CORNER_CHECK_ON` と門の 2 段で止まる。受入に (3a2)(門へ渡る前の opts)/ (3a3)(門単独)と変異 `gateoff` を足して 1 段ずつ測った。
+- **寄り道も停止**: §12-0 の推奨どおり、宝箱と一緒に寄り道の提示も止めた(`detourNodeDef` の新しい 1 行 = `?detour=0` の盤面)。廃坑 n1 の乱数列の位置だけ撤退の腕と違う(K22・後段は無い)。
+- **宝箱の捨て方**: K8 の別解「末尾で一括で抜く」(`dropRoadChests`)。湧き口の乱数・占有は今どおりなので、鍵束・罠・檻・敵・竜の財宝の位置は撤退の腕とビット単位で一致。
+- **言い直した golden 16 本**: `verify_fort_fold` / `verify_swamp_fold` / `verify_dragon_fold` / `verify_temple_fold` / `verify_tower_mother` / `verify_tower_mother_b` / `driver_grid_s2` / `driver_mapdef_step1` / `driver_graph_kinds` / `driver_graph_run` / `driver_graph_reentry` / `driver_graph_p6` / `driver_grid_p9` / `driver_mine_wall` / `probe_p9_tour` / `probe_s4_relocate`。check 名と期待値は変えず「どの腕で測るか」を `?roadchest=0` へ移したのが 15 本。**`verify_tower_mother_b` (1h) だけ新しい値 375 = 礼金 300 + 補填 75 へ言い直した**(`SCENARIOS` の礼金 300 は不変・補填は数値で持つ)。
+- **K19 ⚠⚠ 隊商護衛は宝箱 3 個が補填 0G で消える(要判断)**: tavern の `caravan-escort` は `hiddenChestCount = 0` を宣言するが、index の生成クエストの `|| 2` / `|| 3` で実際には宝箱 3 個(玄室 1 + 隠し 2)・罠 3 個が湧いていた。補填は依頼書の表どおり宣言の値(0)から求めたので、**この 3 個は補填なしで消える**。ウェーブ防衛で部屋を踏破しない盤面なので元から拾われにくいが、補填を足すか(例 75G)はユーザー判断。
+- 受入に §8 に無い節を足した: (0d) 全ページ pageerror 0 / (3a2)(3a3) / 変異 `gateoff`。変異 `allchoice` / `trapsgone` は担当が 1 本ずつ広い(K30・本物の検出)。
+
+#### §9 実機/目視の宿題(ユーザー担当)
+
+- PC と iPhone 縦で、左上のパネル(幅 260px・4 人で縦 ≈ 232px)が小さすぎて読めない / 邪魔、になっていないか。PC 展開と compact では DM 文の左がパネルに隠れる(K6 (a) で受け入れた仕様)が気にならないか。
+- 罠の「解除する / 迂回する」を左上で押せるか(ボタン 234×44px)。
+- 戦闘開始時の奇襲の吹き出し(`STEALTH 隠密 1d20(…)+b = … vs DC`)で何が起きたか伝わるか。戦闘開始が約 7 秒早まった体感。
+- クリア金貨の補填の量(廃坑 +100 / 森 +75 / 沼 +75 / 砦 +100 / 神殿 +100 / 竜 +125 / 塔の母 +75 / 生成 tier1〜4 +50〜+125)で宝箱が無くなって物足りないか。
+- **隊商護衛の補填 0G**(K19)でよいか。
+- ⚠ ローカルは http 起動が必須。`?cornercheck=0` / `?roadchest=0` で今の姿へ戻ること。
+
+#### 別チケット候補
+
+- **`verify_run_chronicle` の装置の空振り**: (1z1)(1c) / (2z3)(2a) は「後の敵が全滅すると観測が起きない」装置 assert で、#87 前の影でも揺れる。全滅した走行を引き直すか、観測が起きた走行だけで数える形へ。
+- **`driver_monsters_hobgoblin` の観測窓**: (e) 孤立配置で攻撃記録 0(#68 以来の既知フレーク・影でも 3/5 赤)。
+- **`tools/probe_magehand_reach.js` の行末**: 宣言(`eol=lf`)に反して本番の作業ツリーだけ CRLF(`i/lf w/crlf`・`0b9e263` 以来・blob は同じなので `git status` は clean)。本番ツリーで `verify_eol_doorfix` を走らせると (1a)(1b) が赤の見込み(clone を同じバイトにすると 25/27 で赤を実測。走査の腕は clone で走るので出ない)。⇒ 作業ツリーで LF へ取り出し直すだけで直る見込み。
+- **生成クエストの `hiddenChestCount || 2` / `trapCount || 3`**: 宣言の 0 が 2 / 3 に化ける(K19)。隊商護衛の補填と合わせて判断。
+- (継続)`driver_field_step0` (2e) の揺れ(#86 §12-4)。
+
+#### 次
+
+- 次の新規ドライバ base = **10598**(⚠ 10598・10599 の 2 つしか空いていない。10600 は `probe_magehand_reach` が使用中 ⇒ 変異を 3 本以上持つ次のドライバは **10601 以降**へ跨いで取ること)。
+- 作業コピー `clone87` + `shadow87` + `shadow87git`(合計 ≈ 750MB・scratchpad `item5/`)の削除はユーザー判断(削除フォルダ経由)。
