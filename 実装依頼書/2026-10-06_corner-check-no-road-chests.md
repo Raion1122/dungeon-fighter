@@ -703,3 +703,58 @@ DOM の矩形と呼び出しの記録を 2 経路で突き合わせる。どの�
 - **K23 探索判定が出る部屋は既定と撤退で変わらない。** 隠し宝箱が湧く部屋はどれも罠の部屋でもあるので(森 n7 / 沼・砦・神殿・竜 n4 / 塔 n0)、宝箱が消えても判定は罠のために振る。廃坑は寄り道の箱が `hidden:false`(判定の対象外)なので**着手前から判定 0 回**。宝箱が消えて判定が消える部屋は、既定の盤面には無い(自作マップ・`?xxfold=0` の旧構成の「宝箱だけの部屋」でだけ効く)。
 - **K24(記録)** `verify_invisibility` の素が今回 **143.9 秒**(項目2 は 24.2 秒)。差は同じ本の中で入れ子に走る `verify_scroll_shelf --negative`((6c))の所要(項目2 は 21.9 秒、今回は 141.6 秒)で、#87 の差分とは関係が無い。隠密のパネル廃止による短縮(項目1 の着手前は (6c) 21.5 秒で全体 143.5 秒)はそのまま。所要で比べるときは (6c) の秒数を引くこと。
 - **K25(項目4 向け)** 印の 1 行 `        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] …` は **3 箇所同じ文字列**(玄室 / 隠し / 寄り道)。変異アンカーにするなら count 3 を前提にするか、1 箇所ずつ区別できる別の行を使うこと。`dropRoadChests();` の呼び出し(36750)・`if (ROAD_CHEST_ON) return null;`(39261)・`const roadChestGold = roadChestBonusGold();`(40735)は各 1 箇所。
+
+### 12-3. 項目4 — 受入 `tools/verify_corner_check.js`(2026-10-09・基準 `b289f59`)
+
+触ったファイル = `tools/verify_corner_check.js`(新規・LF)/ 本依頼書。⛔ 本番(`index.html` / `tavern.html` / `world.html` / `js/*`)は 1 バイトも触っていない(走行前後で `index.html` の sha1 一致・`git status` は上の 2 本だけ)。変異は手本 `verify_class_line.js`(#86)と同じく**起動時に凍結した `index.html` の配信バイトへ実行時に文字列置換で注入**(ちょうど 1 件・注入文字列が原本に無い・行数不変・他 tools のソースとアンカーが重ならない、を起動時に検算し、崩れたら exit 3)。
+
+- 起動: `node tools/verify_corner_check.js`(素)/ `--negative`(素の基準 + 変異 11 本)/ `--mutate <名前>`(手回し)/ `--negative --only a,b`
+- **port = 10586(素)/ 変異 10587〜10597**(MUTATIONS の並び順: centered 10587 / veil 10588 / trapband 10589 / allchoice 10590 / stealthpanel 10591 / noawait 10592 / chests 10593 / hoardgone 10594 / trapsgone 10595 / nogold 10596 / gateoff 10597)。⇒ **次の新規ドライバ base = 10598**(⚠ 10598・10599 の 2 つしか無い。10600 は `probe_magehand_reach` が使用中 ⇒ 変異を 3 本以上持つ次のドライバは 10601 以降へ跨いで取ること)
+- **assert 20 本**: §0 (0a)(0b)(0c)(0d) / §1 (1a)(1b)(1c) / §2 (2a)(2b) / §3 (3a)(3a2)(3a3)(3b) / §4 (4a)(4b)(4c) / §5 (5a)(5b) / §6 (6a)(6b)。(0d) は「全ページ pageerror 0」の装置、(3a2)(3a3) は K16 の二重の守りを割るために足した(下)
+- ページ = 素 1 回 24 枚(UI 8 枚: PC 展開 / PC 畳み / compact / 戦闘中の隠密 / `?cornercheck=0` の 2 枚 / tavern / world + 盤面 16 枚: 7 シナリオ + 生成クエスト tier3 × 既定 / `?roadchest=0`)。盤面のページだけ `Math.random` を mulberry32(87003) で種付け(生成クエストの単一マップを 2 腕で比べるため)。UI のページは種付けしない(乱数に依存する assert は無い — 隠密の成否はどちらでも (3a) のログの文が当たる)
+
+#### 所要(この機械・逐次・本番ツリー)
+
+| 走行 | 結果 | 所要 |
+|---|---|---|
+| 素 1〜3 回目(連続) | **20/20 / 20/20 / 20/20**(exit 0 ×3) | 81.0 / 81.1 / 81.2 秒 |
+| `--negative` 1 回目 | **exit 0**・11/11 担当どおり・担当外の赤 0 | 960.1 秒 |
+| `--negative` 2 回目 | **exit 0**・11/11 担当どおり・担当外の赤 0(1 回目と赤の集合が完全一致) | 960.3 秒 |
+| 走行の前後 | `index.html` sha1 `3a15ba79…` 一致(本番無変更)・8765 の試遊サーバは触っていない | — |
+
+#### 担当表(変異 → 赤くなる assert。`--mutate` で 2 巡実走して決めた)
+
+| 変異 | 注入する欠陥(アンカー) | 赤 | §8 の予想との差 |
+|---|---|---|---|
+| `centered` | `if (CORNER_CHECK_ON) document.documentElement.classList.add("dfCornerCheck");` を消す | (1a)(1c) | 同 |
+| `veil` | `background: transparent !important;` だけ外す(pointer-events は none のまま) | (1c) | 同(背景色の alpha で測るので空振りしない) |
+| `trapband` | `document.body.classList.add("dfCornerChoice")` の行を消す | (2a) | 同 |
+| `allchoice` | `body.dfCornerChoice #choiceDialog {` → `body #choiceDialog {` | (2b)(**6a**) | **(6a) を追加**: この規則は `?cornercheck=0` でも効くので撤退の腕の罠の器まで左上 (288,8) へ飛ぶ = 撤退も壊す欠陥を (6a) が捕まえた(本物の検出) |
+| `stealthpanel` | `auto: CORNER_CHECK_ON,` を消す | (**3a2**) | **(3a) → (3a2)**: K16 のとおり門が auto を足し直すので (3a)「パネル 0」は緑のまま(実測)。門へ渡る前の opts を `window.dfSkillCheck` の包みで測る (3a2) だけが赤 |
+| `noawait` | `await waitSkillCheckIdle();` を消す | (3b) | 同 |
+| `chests` | `dropRoadChests();` の呼び出しを消す | (4a) | 同(廃坑は寄り道を別の行が止めるので廃坑以外で赤 = 森 / 沼 / 砦 / 神殿 / 竜 / 塔 / 生成) |
+| `hoardgone` | `if (scenarioId !== "dragon-lair") return;` → `return;` | (4b) | 同(⚠ `if (!isBossNodeNow()) return;` は `driver_graph_p6` のソースに在る = 罠E ⇒ 1 行上で握った) |
+| `trapsgone` | `EXCLUDED_ROOMS = DFMapDef.excludedRoomIdxForKind(…)` の kind を `ROAD_CHEST_ON` のときだけ `"boss"` へ | (**4b**)(5b) | **(4b) を追加**: 鍵束も kind 関門の内側 (`spawnHiddenChests`) なので一緒に消える = §2-6 の警告そのもの。⚠ 変異は `ROAD_CHEST_ON` でだけ効かせた — 両腕へ等しく効く形にすると (5b)「両腕で一致」が原理的に緑のまま(memory の恒等 assert の罠)。(5b) には絶対量「`?roadchest=0` で罠のある構成は既定でも罠 > 0」も併設 |
+| `nogold` | `const roadChestGold = roadChestBonusGold();` → `= 0` | (4c) | 同 |
+| `gateoff`(新) | 門の条件行の頭に `false &&` | (3a3) | §8 に無い(K16 で追加)。隠密は opts の auto で止まるので (3a) は緑のまま・門単独の (3a3) だけが赤 |
+
+#### (1a)(1b) の言い直し
+
+- **(1b) = ユーザー決定 K6 (a) の言い直し版**: 「PC 畳み / compact の ☰ と交わらない・compact の `#phaseIndicator` と交わらない・PC 畳みでは上中央の `#battleBanner` / `#dmMessage` と交わらない」。パネルと罠の器(±メイジハンド)の両方で測る。帯は本物の `showBanner` / `showDMMessage`(2 行になる長い文)で出した。⛔ PC 展開と compact の DM 文との重なりは**測らない**(K6 (a) で受け入れた仕様)。§8 の文言「上中央の帯とも交わらない」(全姿勢)との差はここ。
+- **(1a)**: §8 の「top < 80px」は **top ≤ 80**(K15 で 768px 以下は 80 ちょうど)。「right < 画面幅の 50%」は **PC 2 姿勢だけ**、compact は right ≤ 画面幅(K26)。加えて §4 の「4 人編成で縦 ≤ 300」をロール前 / 結果表示の両方で測る(実測 232.3 / 222.3)。
+- **(2a)** は §1 と同じ絶対の帯(left ≥ `--ui-menu-w`・top ≤ 80・幅 ≤ 260・PC は right < 50%)で測る。パネルの矩形との相対(±1px)で書いた初版は `centered` でパネルと一緒に動いて (2a) が巻き添えで赤になった(本番の欠陥ではなく測り方の欠陥)。
+
+#### 実測値(素)
+
+- パネル: PC 展開 (288,8)-(548,240.3) / 畳み (8,63)-(268,295.3) / compact (8,80)-(268,312.3)・背景 `rgba(0,0,0,0)`・pointer-events none・カード外の点 = `HTML`・カード上の実クリックでロール → 閉じる(3 姿勢)。罠の器 なし 140.2 / 手あり 200.2 の高さ・他の showChoice は下の帯 (280,730)-(1280,900) 等。
+- 隠密(戦闘中): パネル 0・門へ `auto:true`・本体へ `auto:true`・吹き出し `STEALTH 隠密 1d20(…)+6 = … vs DC 15`・ログ「…気配を殺して接近!…」/「…忍び寄ろうとしたが…」。門単独: `sleightOfHand` が auto 付きで届きパネル 0。`?cornercheck=0`: 隠密パネル 1 回・auto false・門は素通し(パネル 1)。
+- 穴: パネル表示 70 サンプル (100ms 刻み) の間 敵 (17,13) 不動 → 敵の手番はパネルが閉じた後 (16,13)。
+- 盤面と金貨: §12-2 の表と同じ(既定の道中の宝箱 0・竜 n7 財宝 4 (ミミック 1)・森 n7 鍵束 (11,19)・金貨の差 +100/+75/+75/+100/+100/+125/+75/生成 tier3 +100 = EACH 25 × `?roadchest=0` の道中の宝箱 4/3/3/4/4/5/3/4)。tavern / world のパネルは画面全体・暗幕 0.55・カード (430,329)-(850,571) = 中央。
+
+#### 新しい崩れ(K26〜)
+
+- **K26** §8 (1a) の「right < 画面幅の 50%」は compact (390px) では原理的に成立しない(幅 260 = 67%)。⇒ compact は right ≤ 画面幅で測る。「top < 80」も K15 で compact が 80 ちょうどになったので ≤ 80。
+- **K27(測定器)** パネルの表示回数を `setInterval`(30ms)で数えた初版は、headless の 1 タブ運用でタイマーが間引かれ、`?cornercheck=0` で実際に出た隠密パネルを取りこぼした(素では 1・変異の走行では 0 = (6a) が 6 本の変異で偽の赤)。さらに `startGame()` 直後に heroAI が歩いて開いた**探索判定**のパネルを隠密の窓の中で数えて (3a) が偽の赤になった(§12-0 K2 の再演)。⇒ (1) 回数は `MutationObserver` で class の変化そのものを数える (2) `startGame` の直後に `encounterActive = true` にし、開いていたパネルを閉じ切ってから数え始める。直した後の 2 巡目は担当外の赤 0。
+- **K28** 変異 `hoardgone` の素直なアンカー `if (!isBossNodeNow()) return;` は `driver_graph_p6.js` のソースに逐語で在る(罠E)⇒ `spawnDragonHoard` の 1 行上 `if (scenarioId !== "dragon-lair") return;` で握った。⚠ 将来この 2 行を動かすときは本ドライバのアンカーも数え直すこと。
+- **K29** (5a) を赤くできる変異は無い(tavern / world / `js/skill-check.js` はこのチケットの範囲外 = 変異を注入する先が無い)。(5a) は「index の上書きが共有ファイルへ漏れていない」の恒等 assert として素でだけ効く。同じページの (1a)(1c) が左上・暗幕なしを測っているので、両者の対で「index だけが変わった」を言える。
+- **K30** `allchoice` と `trapsgone` は §8 の予想より 1 本ずつ広い(上の表)。どちらも決定論で、巻き添えではなく本物の検出(撤退の腕まで壊す / 鍵束まで消す)なので担当へ入れた。
