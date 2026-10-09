@@ -251,7 +251,10 @@ const monotonicUp = (series, k) => {
    *   P1 の主題は「従来の単一マップで同じノードへ入り直してもリークしない」ことなので、
    *   計画書どおり `?graph=0` を付けて**負のコントロールとして生かし続ける**のが正しい。
    *   ⚠ assert は 1 つも消していない (測る対象を元の主題へ固定し直しただけ)。 */
-  const Q = '/index.html?diag=1&renode=0&graph=0';
+  /* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。この本は宝箱の湧き口 (玄室 / 隠し / 寄り道) の機構そのものを
+   *   測るので、URL は全部 ?roadchest=0 の腕で開く (期待値は 1 文字も変えない)。既定の腕で 0 個になったことは
+   *   verify_corner_check (4a) が測る。 */
+  const Q = '/index.html?diag=1&renode=0&graph=0&roadchest=0';
 
   // ── §0 変異が本当に配信へ載っているか (空振り検出) ────────────────────────
   mark('変異の配信検算');
@@ -371,7 +374,7 @@ const monotonicUp = (series, k) => {
     /* ⚠ ?diag / ?autoplay / ?autodebug を一切付けない = 素のプレイヤーと同じ条件
      * ⚠ ?graph=0 は上の Q と同じ理由 (P5 で廃坑が既定で分岐版になったため)。
      *   (6d)「ゲートで止めても盤面は正常に立ち上がる」は敵が湧く盤面でしか意味を持たない。 */
-    await gate.goto('http://localhost:' + PORT + '/index.html?renode=5&graph=0',
+    await gate.goto('http://localhost:' + PORT + '/index.html?renode=5&graph=0&roadchest=0',
       { waitUntil: 'domcontentloaded', timeout: 30000 });
     await gate.waitForFunction("typeof mapData !== 'undefined' && typeof buildNode === 'function'", { timeout: 20000 });
     const g = await gate.evaluate(() => ({

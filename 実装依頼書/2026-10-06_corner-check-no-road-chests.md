@@ -613,3 +613,93 @@ DOM の矩形と呼び出しの記録を 2 経路で突き合わせる。どの�
 - **K16 ⚠ 隠密は二重の守り。** opts の `auto: CORNER_CHECK_ON`(26246)だけを外しても、門 `dfSkillCheck`(25987-25990)が戦闘中なので `auto` を足し直す ⇒ パネルは出ない。§8 の変異 `stealthpanel` を「26246 の行を消す」だけで作ると (3a) は**空振り**する。⇒ 項目4 は (a) 門を通る前の opts を測る(`window.dfSkillCheck` は function 宣言 = 差し替え可・tryStealthSurprise が渡した opts に `auto` が在るかを見る)か、(b) 変異で 26246 と門の条件を同時に外すか、を選ぶ。memory の「二重の守りは後段へ届いた回数で測る」の型。
 - **K17** 判定が `auto` になると `showPanelAndRoll` の d20 / アニメの `Math.random` を引かない(K3 の再確認)。戦闘中の乱数列は着手前とずれる(戦闘は元から非決定)。既存 golden で赤くなった本は 0。
 - **K18** 穴ふさぎの待ちは `skillCheckActive` だけを見る。罠の選択・開錠(`tryPickLock`)・Sce1 / 司祭の対話・出口ヒント・扉の開錠も同じフラグを立てるので、探索ターンの途中でそれらが開けば全部待つ。autoplay では判定が microtask で解けるので待ちは 40ms × 1 回(探索判定が出た歩だけ)。フラグが落ちない経路は `gameOver` で抜ける。`skillCheckActive = true` を含む 11 行はどれも対で false に戻す(finally / 直後の行)= 立てっぱなしの既存経路は無い。
+
+### 12-2. 項目3 — 道中の宝箱を廃止 + クリア金貨で補填 + 撤退 `?roadchest=0`(2026-10-09・基準 `bd04a1a`)
+
+触ったファイル = `index.html`(+57 / −1)/ `tavern.html`(changelog の `<li>` 1 本を §10 の全文へ書き換えただけ)/ 言い直した tools 16 本(下の表 + `probe_s4_relocate`)/ 本依頼書。⛔ `js/skill-check.js` / `world.html` / `js/df-mapdef.js` / 項目2 の判定パネル・罠・隠密・門・穴ふさぎは触っていない。index / tavern とも行末は全部 CRLF のまま(index 41543/41543・tavern 11392/11392)。
+
+#### 実装の要点(行番号は作業ツリー = この項目の commit)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| 撤退スイッチ | **3596** | `    const ROAD_CHEST_ON = new URLSearchParams(window.location.search).get("roadchest") !== "0";`(`CORNER_CHECK_ON` の 2 行の直後に別ブロックで挿した) |
+| 補填の表 | **3603-3612** | `ROAD_CHEST_GOLD_EACH = 25` と `ROAD_CHEST_GOLD = { "goblin-mine": 100, "bandits-forest": 75, "lizard-swamp": 75, "orc-fort": 100, "undead-temple": 100, "dragon-lair": 125, "tower-mother": 75 }`(§12-0 の実測の個数 × 25) |
+| 補填額 | **3613-3621** | `function roadChestBonusGold()` = 撤退なら 0 / `escortWagonLost()` なら 0 / 生成クエストは**依頼が宣言した** `_genScenario.hiddenChestCount` × 25(K19)/ それ以外は表を引く(表に無い = 街道の襲撃ほか = 0) |
+| 宝箱の印 | **24520 / 24564 / 36791** | `spawnRoomChests` / `spawnHiddenChests`(鍵束より前の通常の箱だけ)/ `spawnDetourChests` の `roomChests.push(chest);` の直前に同じ 1 行 `        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] …`。鍵束(`keyChest`)と竜の財宝(`spawnDragonHoard`)には付けない |
+| 一括で抜く | **36750** | `spawnNodeEntities` の末尾(`spawnDetourChests();` の次)に `      dropRoadChests();     // ★[#87] …` |
+| 抜く本体 | **36797-36815** | `function dropRoadChests()` = 撤退なら何もしない / 印の付いた箱の DOM を外し、`roomChests.length = 0` → 残す箱を push し直して DOM の id を `roomChest<新しい添字>` へ振り直す(配列の identity を保つ) |
+| 寄り道も止める | **39261** | `detourNodeDef()` の `if (DETOUR_OFF \|\| MINE_FOLD_OFF) return null;`(書き換えていない)の次に新しい行 `      if (ROAD_CHEST_ON) return null;   // ★[#87] …`(= `?detour=0` と同じ盤面) |
+| 金貨の加算 | **40735-40736** | `const clearGold = …` の行(verify_road_ambush `goldalways` のアンカー)は 1 文字も変えず、次に新しい行 `        const roadChestGold = roadChestBonusGold();   // ★[#87] …` を足し、`const earnedGold = coins + clearGold;` を `coins + clearGold + roadChestGold` へ |
+
+- **鍵束の位置の守り方 = K8 の別解「末尾で一括で抜く」を採った。** 理由: 湧き口では抽選・床選び・施錠・中身・push・DOM 生成まで今どおり走らせるので、(1) `Math.random` の消費が 1 回も変わらない (2) 後段が読む `roomChests` の占有(隠し宝箱の候補・鍵束の `usedTiles`・竜の財宝の `isOccupied`・寄り道の重複)も変わらない ⇒ 鍵束・罠・檻・敵・竜の財宝の位置が `?roadchest=0` とビット単位で一致する(下のプローブで実証)。局所配列で `usedTiles` 等へ足す案は、占有を読む箇所を 4 つ書き換える必要があり、どれか 1 つを忘れると位置がずれる。一括で抜くなら書き足すのは関数 1 つで済む。「湧き口の関数の中でスイッチを見る」(§6) は印の 1 行で守っている(kind の関門と除外集合は 1 バイトも変えていない = 罠は不変)。
+- **寄り道** = §12-0 の推奨どおり宝箱と一緒に提示も止めた(中身が宝箱だけなので、矢印を残すと空の場所へ歩かせる選択肢が 4 本残る)。止めるのは `detourNodeDef` の新しい 1 行なので、`detourSpotsFor` / `detourAdvanceFor` / 寄り道の羊皮紙がそろって `?detour=0` の盤面(P8)へ落ちる。⚠ `spawnDetourChests` は寄り道が出ない間は湧き口そのものが 0 回になる(乱数を引かない)。末尾なので後段は無い(下の「廃坑 n1 の乱数」)。
+- **馬車を失った盤面** = `roadChestBonusGold()` が `escortWagonLost()` で 0 を返す = 既存の `clearGold` と同じ扱い(罰は結末で与える #51 の方針に揃えた)。実際には補填の対象は馬車の無い盤面だけ(隊商護衛は 0・K19)なので、この分岐が効く盤面は今は無い。
+- **探索判定** = §12-0 K9 のとおり条件は足していない。判定の対象(罠・隠し宝箱・ミミック・隠し扉)が 0 の部屋は今の `return` で振らない。隠し扉は条件から外していない。
+- changelog = `tavern.html` の `changelogList` 先頭の `<li>` を §10 の全文へ書き換えた(`<li>` は 1 本のまま・CRLF・インデント同じ)。
+
+#### 実測(scratchpad `item3/probe87_3.js`・port 10624・実 Chrome headless・2 腕 = 既定 / `?roadchest=0`)
+
+装置: 全腕で盗賊入り 4 人(戦士 / 盗賊 / 僧侶 / 魔法使い。森の鍵束が湧く条件)、`Math.random` を `evaluateOnNewDocument` で同じ種(87003)に固定。全ノードを本番の入口 `resetNodeState(); currentNodeId = id; buildNode(resolveNodeMapDef(id), id);` で組み、湧き口 4 本を window 上で包んで箱に出所を付け、`spawnNodeEntities` を包んで直後の `Math.random()` を 1 回引いた値(= 乱数列の位置)も採る。金貨は `coins = 7; showResult(true);` → `lastResult.reward.gold`。突き合わせ = `analyze87_3.js`(既定の箱 = 撤退の箱から玄室・隠し(鍵束以外)・寄り道を除いたもの、の位置・施錠・中身が一致 / 罠・檻・敵の位置が一致 / 乱数列の位置が一致 / DOM の数と id が添字どおり)。
+
+| 盤面 | ノード | 宝箱 既定 / 撤退 | 残った箱 | 罠 既定 / 撤退(位置) | 檻・敵・乱数列 | 金貨 既定 / 撤退(差) |
+|---|---|---|---|---|---|---|
+| 廃坑 | n0 / n1 | 0 / 0 ・ 0 / **4**(寄り道) | — | 0 / 0 | 一致(n1 の乱数列だけ違う = K22) | **107 / 7(+100)** |
+| 森 | n7 | **1 / 4** | 鍵束 1 = **(11,19) / (11,19)** | 4 / 4(一致) | 一致 | **82 / 7(+75)** |
+| 森(盗賊なし) | n7 | 0 / 3 | — | 4 / 4(一致) | 一致 | 82 / 7(+75) |
+| 沼 | n4 / n6 / n7 | 0 / 3 ・ 0 / 0 ・ 0 / 0 | — | 4 / 4(一致) | 一致 | **82 / 7(+75)** |
+| 砦 | n4 / n7 | 0 / 4 ・ 0 / 0 | — | 5 / 5(一致) | 一致 | **107 / 7(+100)** |
+| 神殿 | n4 / n7 | 0 / 4 ・ 0 / 0 | — | 5 / 5(一致) | 一致 | **107 / 7(+100)** |
+| 竜 | n4 / n7 | 0 / 5 ・ **4 / 4** | 財宝 囮 3 + **ミミック 1**(位置一致) | 6 / 6(一致) | 一致 | **132 / 7(+125)** |
+| 塔の母 | n0 / n1 | 0 / 3 ・ 0 / 0 | — | 4 / 4(一致) | 一致 | **382 / 307(+75・礼金 300 + 75 = 375)** |
+| 生成 tier1〜4 | 単一 | 0 / 2・3・4・5 | — | 3・4・5・6(一致) | 一致 | 57・82・107・132 / 7(**+50 / +75 / +100 / +125**) |
+| 隊商護衛(caravan-road) | 単一 | 0 / **3** | — | 3 / 3(一致) | 一致 | 7 / 7(**+0**・K19) |
+| 街道の襲撃 | 単一 | 0 / 0 | — | 3 / 3 | 一致 | 87 / 87(clearGold 80 のみ・+0) |
+| 廃坑 `?graph=0` | 単一 | 0 / 2 | — | 3 / 3(一致) | 一致 | 107 / 7(+100) |
+| 森 `?graph=0` | 単一 | 1 / 4 | 鍵束 **(41,12) / (41,12)** | 4 / 4(一致) | 一致 | 82 / 7(+75) |
+| 竜 `?graph=0` | 単一 | 4 / 9 | 財宝 4(ミミック 1・位置一致) | 6 / 6(一致) | 一致 | 132 / 7(+125) |
+
+- ⇒ 7 シナリオ + 塔の母 + 生成クエストで**道中の `roomChests` が 0**(残るのは鍵束と竜の財宝だけ)。竜 n7 の財宝は 4(ミミック 1)のまま。鍵束は 1 個で位置が撤退の腕と同じ。罠の数と位置・檻・敵・乱数列の位置は撤退の腕とビット単位で一致(廃坑 n1 の乱数列だけ K22)。金貨の差は表の加算額どおり、撤退の腕は従来値。`?roadchest=0` の腕は宝箱・寄り道(廃坑 n1 の `detourSpotsFor` = s1〜s4)が従来どおり出る。
+- 起動時のビルド(`startGame` 前の最初のノード)でも DOM の `.roomChest` の数 = `roomChests.length`(森 1・竜 n4 0 / 撤退 4・5 …)= 抜いた箱の DOM は残っていない。
+- 探索判定(`item3/probe87_3s.js`・port 10625・各部屋で `runRoomSearchCheck()` を直に呼んで `dfSkillCheck` を数えた): 判定が出る部屋は**既定と撤退で同じ**(森 n7 / 沼・砦・神殿・竜 n4 / 竜 n7(ミミック)/ 塔 n0 が各 1 回・それ以外 0)。廃坑は**両腕とも 0 回**(寄り道の箱は `hidden:false` で判定の対象外・罠 0)= K23。
+- 実プレイの金貨(`verify_tower_mother_b` の素・本物の autoplay で塔の母をクリア): `lastResult.reward.gold = 375`・coins 0・`SCENARIOS['tower-mother'].clearGold = 300`・`roadChestBonusGold() = 75`。
+
+#### 既存 golden の言い直し(赤くなった本を先に変更後の素で特定 = `item3/runA`、言い直した後の色 = `item3/runB`)
+
+⛔ check の名前(` — ` の前)は 1 文字も変えていない(指紋の id は不変)。期待値も変えていない。変えたのは「どの腕で測るか」と detail の文字列だけ。
+
+| 本 | 変更後の素(言い直し前) | 手当て | 言い直し後 |
+|---|---|---|---|
+| `verify_fort_fold` (4a) | 29/30(宝箱 0) | 宝箱だけ `?diag=1&roadchest=0` のページを 1 枚足して n4 で数える(罠は既定の腕のまま) | **30/30**・`--negative` は着手前と同じ exit 3(`addn6` のアンカー 3 箇所)・`nokinds` は (4a) を担当どおり赤 |
+| `verify_swamp_fold` (3d) | 29/30 | 同上 | **30/30**・`--negative` exit 3(着手前と同じ `entryn0` 4 箇所) |
+| `verify_dragon_fold` (4a) | 34/35 | 同上 | **35/35**・`--negative` exit 0 |
+| `verify_temple_fold` (4b) | 23/24(buildNode / autoplay の 2 経路とも 0) | buildNode の経路は `?roadchest=0` のページ、autoplay の経路は `runAutoplayOnce` に `extraQ` / `stopAtN4` を足して `&roadchest=0` で **n4 の初観測まで**覗く(既定の走行は従来どおり・罠は既定の autoplay の初観測) | **24/24**・`--negative` exit 0(`noextraspawn` が (4a)(4b) を赤) |
+| `verify_tower_mother` (2c) | 18/19(`{"traps":4,"chests":0}`) | 宝箱だけ `?diag=1&roadchest=0` のページの起動ノード n0 で数える | **19/19**・`--negative` exit 0(`nokinds` が (2c) を担当どおり赤) |
+| `verify_tower_mother_b` (1h) | 21/22(`gold − coins = 375 ≠ 300`) | **新しい値へ言い直し**: `lr.gold − coins === clearGold (300) + ROAD_CHEST_BONUS (75)`。`clearGold === 300` は残す。理由: (1h) は既定の腕で「今の流れでクリアして礼金が払われる」を測る本で、`?roadchest=0` の腕へ移すと 6 分の実走ごと撤退の腕になり既定の支払いが無測定になる。補填は数値 75 で持つ(ページの `roadChestBonusGold()` を読むと補填が消えても緑になる)。`SCENARIOS` の礼金 300 は #83 §1 どおり動かしていない | **22/22**(375 = 300 + 75)・`--negative` は下 |
+| `driver_grid_s2` (13e) | 124/124(**赤くならなかった** = K21) | `?roadchest=0` のページを 1 枚足して数える | **124/124**(撤退の腕 9 個 / 既定の腕 2 個 = 鍵束だけ) |
+| `driver_mapdef_step1` (G8)(4b) | 193/208(G8・4b が 8 盤面ずつ) | 測定の URL に `&roadchest=0`(baseline の旧版は引数を無視 = 両側とも従来の盤面) | **208/208** |
+| `driver_graph_kinds` | 60/66((1b)(1c)(1d)(3a)(3e)(10b)) | URL を全部 `?roadchest=0` の腕へ(宝箱の湧き口の機構そのものを測る本) | **66/66** |
+| `driver_graph_run` | **exit 2**(§4 の行き止まり往復で宝箱が無く TypeError で FATAL) | 同上 | **99/99** |
+| `driver_graph_reentry` (7) | 56/57(変異 `nodom` の DOM リーク検出が 0 個で空振り) | 同上 | **57/57** |
+| `driver_graph_p6` (4b-×5) | 245/250(loot ノードの玄室宝箱の保証) | 同上 | **250/250** |
+| `driver_grid_p9` | **exit 3**((1a)(1d) 赤 → §5a で TypeError) | `bootPage` の goto に `roadchest=0` を足して全ページを撤退の腕へ(内蔵変異 `nodetour` / `foldleak` / `navchest` / `spotsouth` のアンカー 39109 / 19677 / s3 行は無傷) | **52/52** |
+| `driver_mine_wall` | 62/66((1b)(1c)(1c2)(5-noring) = 寄り道 s1〜s4 の区間が無い) | 寄り道の区間を測る 3 ページ(§1 / §1d の `?paintring=0` / §5 の変異)だけ `&roadchest=0` | **66/66** |
+| `probe_p9_tour` / `probe_s4_relocate` | (probe・寄り道を回る / 測る) | `bootPage` の goto に `roadchest=0` | `probe_s4_relocate` exit 0 / `probe_p9_tour` は下 |
+
+#### 非退行(変更後・逐次・本番ツリー・2026-10-09 13:18〜・`item3/runB`)
+
+§12-1 の 52 腕 + 言い直した本(graph_reentry / graph_p6 / mine_wall の再走 / probe_p9_tour / `verify_tower_mother_b --negative`)。走行中 `index.html` は不変(sha1 `3a15ba79…` を控えてから回した)。
+
+- **素は全部、着手前と同じ色。** 緑: driver_trap_disarm 44/44 / driver_skillcheck_roster 13/13 / driver_fix4_help_bonus 13/13 / driver_room_search_roll 39/39(母集団は痩せていない)/ driver_choice_logslot 29/29 / driver_scroll_autoskip 9/9 / driver_wallbox 28/28 / driver_bgm_mine 37/37 / verify_lore_check 26/26 / verify_swamp_novice 34 / driver_doors_p6 40/40 / driver_action_priority 92 / verify_arcane_eye 34/34 / verify_mage_hand_reach 11/11 / verify_prep_retire 30/30 / verify_road_ambush 41/41 / verify_road_boon 20/20 / verify_road_events 25/25 / verify_mage_hand 32/32 / verify_invisibility 27/27 / driver_grid_p5 103 / driver_encounter_mopup 36/36 + 上の表の言い直した本。runA の段階で緑のまま: driver_graph_arrows 80 / driver_paint_grid / driver_field_scale / driver_field_step5 / driver_mapdef_step2 / driver_mapdef_step3 / driver_graph_sce1 106。
+- 非緑の素は着手前と同じ顔ぶれ・同じ理由: `verify_walk_block` (3d)(badge 44→47)/ `driver_sce1_events` (2)(4d)(N2-隣)(sceneFlags 4 本目)。
+- `--negative`: verify_lore_check / verify_mage_hand_reach / verify_dragon_fold / verify_invisibility / verify_road_events 43/43 / verify_road_boon 48/48 / verify_walk_block 54/54 / verify_arcane_eye / verify_road_ambush **97/97(`goldalways` が (2f) を担当どおり赤 = clearGold の行は無傷)** / verify_prep_retire / verify_tower_mother(`nokinds` → (2c))/ verify_temple_fold / verify_mage_hand はすべて exit 0。fort / swamp_fold の exit 3 と driver_action_priority の exit 1 は着手前と同じ(型3)。
+- 言い直した本の残り: `probe_p9_tour`(撤退の腕)= **「4 か所すべて回れた: 4 / 4」**(post86 と同じ・1715.5 秒)/ `verify_tower_mother_b --negative` = **exit 0・11 本すべて担当ラベルが赤・担当外の赤 0**((1h) を担当する `backexit` / `retreatopen` / `nogate` / `asenemy` がどれも (1h) を赤 = 言い直した (1h) は空振りしていない・4041 秒)/ `driver_mine_wall` は再走で **66/66**(着手前は観測窓の揺れで 64〜66)/ `probe_s4_relocate` exit 0。
+
+#### 新たな崩れ(K19〜)
+
+- **K19 ⚠ 隊商護衛は宣言と実際の宝箱の数が違う(既存)。** tavern の `caravan-escort` は `hiddenChestCount = 0` / `trapCount = 0` を宣言するが、index の生成クエストの `currentScenario` は `_genScenario.hiddenChestCount || 2` / `trapCount || 3`(11483-11484 付近)で 0 を 2 / 3 に化けさせる ⇒ caravan-road の盤面で `?roadchest=0` なら宝箱 3 個(玄室 1 + 隠し 2)・罠 3 個が実際に湧く(§12-0 の「隊商 0」は tavern の宣言を読んだ値)。補填は依頼書の表どおり 0G にした = `roadChestBonusGold()` は `currentScenario` ではなく**宣言の値** `_genScenario.hiddenChestCount` を読む(読まないと隊商が 50G を受け取る)。⇒ 隊商護衛ではこの 3 個が補填なしで消える(ウェーブ防衛で部屋を踏破しない盤面 = もともと拾われにくい)。`|| 2` / `|| 3` は #87 の範囲外なので触っていない。
+- **K20 §12-0 の予告に無かった赤**: `driver_graph_run`(exit 2・FATAL)/ `driver_graph_reentry` (7)(変異 `nodom` の検出器が 0 個で空振り)/ `driver_graph_p6` (4b-×5)/ `driver_mine_wall` (1b)(1c)(1c2)(5-noring)(寄り道の区間)/ `driver_grid_p9` は exit 3(予告では赤の assert のみ)。全部「宝箱の湧き口 / 寄り道の機構そのもの」を測る本 = 型1(#87 が構造的に殺す)⇒ 撤退の腕へ移して回収した。`probe_s4_relocate`(寄り道 s4 の候補を測る probe)も同じ理由で撤退の腕へ。
+- **K21 `driver_grid_s2` (13e) は既定の腕でも赤くならなかった = 自明な緑。** `foldSrc` が `buildNode` の後に `spawnNodeEntities()` をもう 1 回直に呼ぶので、鍵束(盗賊 + 噂)が 2 個できて「1 個以上」を満たす。§12-0 の予告どおり撤退の腕へ移した(既定の腕の個数は detail に併記)。⚠ 2 回目の呼び出しは `withNodeRng` の外 = 実乱数なので、撤退の腕の個数は走るたびに揺れる(着手前 6・今回 9)。
+- **K22 廃坑 n1 だけ `spawnNodeEntities` 直後の乱数列の位置が撤退の腕と違う。** 寄り道を止めたので `spawnDetourChests` の湧き口が 0 回になる(施錠・中身の抽選を引かない)。`spawnDetourChests` は「必ず最後」なので後段は無く、敵・罠・檻・従者の位置は一致(プローブで実証)。他のノードは乱数列の位置まで一致。
+- **K23 探索判定が出る部屋は既定と撤退で変わらない。** 隠し宝箱が湧く部屋はどれも罠の部屋でもあるので(森 n7 / 沼・砦・神殿・竜 n4 / 塔 n0)、宝箱が消えても判定は罠のために振る。廃坑は寄り道の箱が `hidden:false`(判定の対象外)なので**着手前から判定 0 回**。宝箱が消えて判定が消える部屋は、既定の盤面には無い(自作マップ・`?xxfold=0` の旧構成の「宝箱だけの部屋」でだけ効く)。
+- **K24(記録)** `verify_invisibility` の素が今回 **143.9 秒**(項目2 は 24.2 秒)。差は同じ本の中で入れ子に走る `verify_scroll_shelf --negative`((6c))の所要(項目2 は 21.9 秒、今回は 141.6 秒)で、#87 の差分とは関係が無い。隠密のパネル廃止による短縮(項目1 の着手前は (6c) 21.5 秒で全体 143.5 秒)はそのまま。所要で比べるときは (6c) の秒数を引くこと。
+- **K25(項目4 向け)** 印の 1 行 `        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] …` は **3 箇所同じ文字列**(玄室 / 隠し / 寄り道)。変異アンカーにするなら count 3 を前提にするか、1 箇所ずつ区別できる別の行を使うこと。`dropRoadChests();` の呼び出し(36750)・`if (ROAD_CHEST_ON) return null;`(39261)・`const roadChestGold = roadChestBonusGold();`(40735)は各 1 箇所。

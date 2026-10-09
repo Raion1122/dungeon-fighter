@@ -628,7 +628,8 @@ const AP_TICK = (bkey) => {
  * ⚠⚠ 完走の判定は終了コードではなく**観測**で行う (#64)。
  * ⚠ クリアすると index.html は autoplay の分岐で dfReturnPage() へ**遷移する**ので、
  *   evaluate は必ず try で包み、取れなくなったら打ち切る。 */
-async function runAutoplayOnce(browser, port) {
+/* ★[#87] extraQ / stopAtN4: (4b) の宝箱を ?roadchest=0 の腕で「n4 の初観測」まで覗くための口 (既定の走行は従来どおり)。 */
+async function runAutoplayOnce(browser, port, extraQ, stopAtN4) {
   const out = { ticks: 0, seq: [], firstN4: null, caelum: null, bless: null,
                 blessNode: null, reachedN7: false, bossTotal: 0, bossKilled: false,
                 cleared: false, defeat: false, party: null, elapsedS: 0, choiceLogs: [], err: null };
@@ -644,7 +645,7 @@ async function runAutoplayOnce(browser, port) {
     try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
     try { localStorage.removeItem(bkey); } catch (e) {}
   }, THEME, BLESS_KEY);
-  const url = 'http://127.0.0.1:' + port + '/index.html?autoplay=' + AP_SPEED + '&diag=1&scen=' + THEME;
+  const url = 'http://127.0.0.1:' + port + '/index.html?autoplay=' + AP_SPEED + '&diag=1&scen=' + THEME + (extraQ || '');
   const t0 = Date.now();
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -666,6 +667,7 @@ async function runAutoplayOnce(browser, port) {
     if (out.party === null && t.party > 0) out.party = t.party;
     if (t.node && t.node !== lastNode) { out.seq.push(t.node + '@' + Math.round(el) + 's'); lastNode = t.node; }
     if (t.node === 'n4' && !out.firstN4) out.firstN4 = { traps: t.traps, chests: t.chests, foes: t.foesLeft, spirits: t.spirits };
+    if (stopAtN4 && out.firstN4) break;   // ★[#87] (4b) の宝箱の覗き見はここまで
     if (t.caelumResolved === true && !out.caelum) out.caelum = { node: t.node, s: el };
     if (t.bless === '1' && out.bless === null) { out.bless = el; out.blessNode = t.node; }
     if (t.node === 'n7') out.reachedN7 = true;
@@ -924,11 +926,19 @@ async function runSuite(browser, port, label) {
       JSON.stringify(['search', 'loot']),
     '台帳=' + JSON.stringify(GA.kindsTable));
   const S4old = await pageB.evaluate(SNAP_FN, 'n4', 'right');
+  /* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。(4b) は「兼務宣言で罠と宝箱が湧く」を測るので、
+   *   宝箱だけは撤退の腕 (?roadchest=0) で 2 経路 (buildNode / autoplay の n4 初観測) とも数える (期待値は変えない)。
+   *   罠は既定の腕のまま。既定の腕で 0 個になったことは verify_corner_check (4a) が測る。 */
+  const pageRC = await bootPage(browser, base + '/index.html?diag=1&roadchest=0', THEME, errs);
+  const S4rc = await pageRC.evaluate(SNAP_FN, 'n4', 'right');
+  await pageRC.close();
+  const apRC = apOK ? await runAutoplayOnce(browser, port, '&roadchest=0', true) : null;
   check('4b', '★実走で罠と玄室の宝箱が 1 個以上湧く (⛔ 0 個なら赤) — 本番の buildNode で組んだ盤面と autoplay 走行の 2 経路。?templefold=0 側の n4 では 0 / 0',
-    S4.traps > 0 && S4.chests > 0 && S4old.traps === 0 && S4old.chests === 0 &&
-    (!apOK || (!!ap.firstN4 && ap.firstN4.traps > 0 && ap.firstN4.chests > 0)),
-    '畳んだ n4 (buildNode): 罠=' + S4.traps + ' 宝箱=' + S4.chests +
+    S4.traps > 0 && S4rc.chests > 0 && S4old.traps === 0 && S4old.chests === 0 &&
+    (!apOK || (!!ap.firstN4 && ap.firstN4.traps > 0 && !!apRC && !!apRC.firstN4 && apRC.firstN4.chests > 0)),
+    '畳んだ n4 (buildNode): 罠=' + S4.traps + ' 宝箱(?roadchest=0)=' + S4rc.chests + ' (既定の腕=' + S4.chests + ')' +
     ' / autoplay の初観測: ' + JSON.stringify(apOK ? ap.firstN4 : 'skip') +
+    ' / ?roadchest=0 の autoplay の初観測: ' + JSON.stringify(apRC ? apRC.firstN4 : 'skip') +
     ' / ?templefold=0 の n4: 罠=' + S4old.traps + ' 宝箱=' + S4old.chests);
   check('4c', '★森 (bandits-forest n7) / 沼 (lizard-swamp n4) / 砦 (orc-fort n4) の兼務宣言が 1 ビットも動いていない',
     !!GA.kindsTable &&

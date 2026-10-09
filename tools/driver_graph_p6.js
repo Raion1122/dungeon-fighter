@@ -382,12 +382,14 @@ const TOUR_SRC = `(async () => {
     'dragon-lair':    { arm: '&dragonfold=0', sw: '?dragonfold', nodes: 2, entry: 'n4' },
   };
   const P6_ARM = (sid) => (FOLDED[sid] ? FOLDED[sid].arm : '');
+  /* ★[#87] この本の URL は全部 ?roadchest=0 の腕で開く。(4b)「loot ノードには玄室宝箱が必ず湧く」は宝箱の湧き口の
+   *   機構そのものを測るため (道中の宝箱は既定で廃止。期待値は 1 文字も変えない)。 */
 
   for (const sid of SCENS) {
     const S = SCEN[sid];
     mark('§1-§5 ' + sid + ' (' + S.title + ')');
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1' + P6_ARM(sid), sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&roadchest=0' + P6_ARM(sid), sid, warns, errs);
 
     // ── §1 骨格 ────────────────────────────────────────────────────────────
     const sh = await page.evaluate(SHAPE_SRC);
@@ -409,7 +411,7 @@ const TOUR_SRC = `(async () => {
     if (FOLDED[sid]) {
       const F = FOLDED[sid];
       const w2 = [], e2 = [];
-      const pf = await bootPage(browser, base + '/index.html?diag=1', sid, w2, e2);
+      const pf = await bootPage(browser, base + '/index.html?diag=1&roadchest=0', sid, w2, e2);
       const shf = await pf.evaluate(SHAPE_SRC);
       check('(1' + F.sw.slice(1) + '-' + sid + ') ★装置: 既定 (' + F.sw + ' なし) では ' +
             F.nodes + ' ノードへ畳まれている',
@@ -619,7 +621,7 @@ const TOUR_SRC = `(async () => {
   mark('§6 撤退スイッチ ?graph=0 (恒久の契約)');
   for (const sid of SCENS) {
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1&graph=0' + P6_ARM(sid), sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&roadchest=0&graph=0' + P6_ARM(sid), sid, warns, errs);
     const st = await page.evaluate('({ active: window.__graphRun.active(), rooms: ROOMS.length })');
     check('(6a-' + sid + ') ?graph=0 で分岐が死ぬ (従来の単一マップへ戻る)',
       st.active === false, 'active=' + st.active + ' rooms=' + st.rooms);
@@ -634,7 +636,7 @@ const TOUR_SRC = `(async () => {
   mark('§6b 撤退スイッチを外すと分岐が生きる (スイッチが効いている証拠)');
   for (const sid of SCENS) {
     const warns = [], errs = [];
-    const page = await bootPage(browser, base + '/index.html?diag=1' + P6_ARM(sid), sid, warns, errs);
+    const page = await bootPage(browser, base + '/index.html?diag=1&roadchest=0' + P6_ARM(sid), sid, warns, errs);
     const a = await page.evaluate('window.__graphRun.active()');
     check('(6c-' + sid + ') ?graph 無指定なら分岐が生きる', a === true, 'active=' + a);
     await page.close();
@@ -647,7 +649,7 @@ const TOUR_SRC = `(async () => {
     const want = SCEN[sid].hidden;
     for (const v of ['0', '1']) {
       const warns = [], errs = [];
-      const page = await bootPage(browser, base + '/index.html?diag=1&intel=' + v + P6_ARM(sid), sid, warns, errs);
+      const page = await bootPage(browser, base + '/index.html?diag=1&roadchest=0&intel=' + v + P6_ARM(sid), sid, warns, errs);
       const r = await page.evaluate(`(async () => {
         const g = window.__graphRun;
         await g.enter('n2', 'up'); await g.enter('n6', 'right');

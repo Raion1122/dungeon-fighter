@@ -695,7 +695,9 @@ async function bootPage(browser, url, viewport, pre, side) {
        *   ⚠ baseline は ?paintblock を知らないが、未知のクエリは無視されるので両側に投げてよい。
        *   ⚠ 期待値 (baseline との一致) は**1 文字も書き換えていない**。ピンが空振りしていない
        *     ことは下の (G0) が実測する。障害物そのものの検証は driver_paint_blocked.js の担当。 */
-      const q = '/index.html?intel=0&autoplay=0&graph=0&paintblock=0';
+      /* ★[#87] ?roadchest=0 = 道中の宝箱を従来どおり湧かせる (G8)(4b) は宝箱の座標列を baseline と突き合わせる。
+       *   baseline (旧版) はこの引数を知らないので無視する = 両側とも従来の盤面。期待値は 1 文字も変えない。 */
+      const q = '/index.html?intel=0&autoplay=0&graph=0&paintblock=0&roadchest=0';
       const pre = { mode: t.mode, scen: t.scen, payload: t.payload, seed: SEED, t0: T_BASE_MS };
       const cur = await bootPage(browser, BASE + q, t.vp, pre, 'cur');
       const base = await bootPage(browser, BBASE + q, t.vp, pre, 'base');

@@ -90,7 +90,10 @@ async function bootPage(browser, port, query) {
     } catch (e) {}
     try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
   });
-  await page.goto('http://localhost:' + port + '/index.html' + query,
+  /* ★[#87] 道中の宝箱の廃止中 (既定) は廃坑 n1 の寄り道も出さない (index.html detourNodeDef)。この本は寄り道そのものを
+   *   測るので、全ページを撤退の腕 ?roadchest=0 で開く (期待値は 1 文字も変えない)。既定の腕で寄り道が出ないことは
+   *   verify_corner_check が測る。 */
+  await page.goto('http://localhost:' + port + '/index.html' + query + (query && query.indexOf('?') === 0 ? '&' : '?') + 'roadchest=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     "typeof mapData !== 'undefined' && typeof buildNode === 'function' && typeof isTileWall === 'function'",

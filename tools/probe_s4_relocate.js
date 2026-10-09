@@ -69,7 +69,8 @@ async function bootPage(browser, port, query) {
     } catch (e) {}
     try { localStorage.setItem('dragonfighters.xp', '45000'); } catch (e) {}
   });
-  await page.goto('http://localhost:' + port + '/index.html' + query,
+  /* ★[#87] 道中の宝箱の廃止中 (既定) は寄り道も出さない。このプローブは寄り道 s4 の候補を測るので ?roadchest=0 で開く。 */
+  await page.goto('http://localhost:' + port + '/index.html' + query + (query && query.indexOf('?') === 0 ? '&' : '?') + 'roadchest=0',
     { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(
     "typeof mapData !== 'undefined' && typeof buildNode === 'function' && typeof isTileWall === 'function'",

@@ -707,6 +707,12 @@ function ringOpenCount(m) {
   {
     const F = await page.evaluate(foldSrc(SCEN, CAGE_TILE));
     const O = await foldOff.evaluate(foldSrc(SCEN, CAGE_TILE, NODE));
+    /* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。(13e) は「kind:"boss" のノードが loot / search を兼務して
+     *   宝箱が湧く」を測るので、宝箱だけは撤退の腕 (?roadchest=0) で数える (期待値は変えない)。
+     *   ⚠ 既定の腕の F.chests は鍵束の宝箱 (盗賊 + 噂で残す) だけになる = 総数で測ると鍵束で自明に緑になる。 */
+    const rcPage = await bootPage(browser, PURE + '?roadchest=0', errsAll);
+    const Frc = await rcPage.evaluate(foldSrc(SCEN, CAGE_TILE));
+    await rcPage.close();
 
     check('(13a) 既定のグラフが 1 ノードだけ', F.ids.length === 1, 'ノード ' + JSON.stringify(F.ids));
     check('(13b) その 1 ノードが entry かつ kind:"boss" かつ行き止まり',
@@ -721,7 +727,7 @@ function ringOpenCount(m) {
           F.flagOn === true, 'flagOn=' + F.flagOn);
     check('(13d) 罠が 1 個以上湧く (kind:"boss" なのに search を兼務できている)',
           F.traps > 0, F.traps + ' 個');
-    check('(13e) 宝箱が 1 個以上湧く', F.chests > 0, F.chests + ' 個');
+    check('(13e) 宝箱が 1 個以上湧く', Frc.chests > 0, Frc.chests + ' 個 (既定の腕=' + F.chests + ' 個 = 鍵束だけ)');
     /* ⚠ 総数では 2 系統を切り分けられないので、門番の除外集合が**両方とも空**であることを直接見る
      *   (空 = そのノードでは湧かせてよい。全部屋入り = 湧かせない)。 */
     check('(13e2) 罠と玄室宝箱の除外集合が両方とも空 (2 系統とも兼務が効いている)',

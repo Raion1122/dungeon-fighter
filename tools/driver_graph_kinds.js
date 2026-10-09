@@ -197,8 +197,11 @@ async function bootPage(browser, url, warns, errs, scen, pre) {
  *   ペイロード経路なら scenarioId="generated-quest" なので isGoblinMineScenario() が false になり、
  *   EV-2/5/9 は 1 命令も走らない。**EV の再アンカーは P5 の担当**であってここではない。
  * ⚠ ?graphtest は「内蔵テストグラフを取り出す」ためだけに 1 回使う (下の bootstrap)。 */
-const QT_SEAM = '/index.html?diag=1&graphtest=1';
-const QT = '/index.html?diag=1';
+/* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。この本は宝箱の湧き口 (玄室 / 隠し / 寄り道) の機構そのものを
+ *   測るので、URL は全部 ?roadchest=0 の腕で開く (期待値は 1 文字も変えない)。既定の腕で 0 個になったことは
+ *   verify_corner_check (4a) が測る。 */
+const QT_SEAM = '/index.html?diag=1&graphtest=1&roadchest=0';
+const QT = '/index.html?diag=1&roadchest=0';
 const PAYLOAD = { title: '分岐テスト', flavor: '', themeId: 'goblin-mine', perceptionDC: 14,
                   trapCount: 3, hiddenChestCount: 2, clearXp: 0, spawns: [] };
 function payloadPre(runJson) {
@@ -634,7 +637,7 @@ const TOUR_SRC = `(async () => {
       const w = [], e = [];
       // ⚠ ?graphtest は付けない = dev シームの内蔵テストグラフは 1 命令も走らない
       const p = await bootPage(browser,
-        'http://localhost:' + PORT + '/index.html?diag=1' + (c.g0 ? '&graph=0' : ''), w, e, c.scen);
+        'http://localhost:' + PORT + '/index.html?diag=1&roadchest=0' + (c.g0 ? '&graph=0' : ''), w, e, c.scen);
       const r = await p.evaluate(() => ({
         active: window.__graphRun.active(),
         kind: window.__graphRun.kindOf('n0'),
@@ -659,7 +662,7 @@ const TOUR_SRC = `(async () => {
        *   ([[project-headless-verification]]「張り替えたら装置 assert を必ず 1 本足す」)。 */
       if (c.g0) {
         const w2 = [], e2 = [];
-        const p2 = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1', w2, e2, c.scen);
+        const p2 = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&roadchest=0', w2, e2, c.scen);
         const r2 = await p2.evaluate(() => ({ active: window.__graphRun.active(),
                                               nodes: (window.__graphRun.graph() || { nodes: [] }).nodes.length }));
         /* ★[#16] しきい値を `nodes >= 2` から `>= 1` へ下げたが、**緩めていない** —

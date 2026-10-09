@@ -41,7 +41,7 @@
  *      (1e) done の時点で主人公が n1 の mapDef.start に居て、母が主人公からチェビシェフ 2 以内・doneBy "arrived" (上限ではない)
  *      (1f) 随伴の間 enterNode / chooseExit / showExitArrows の呼び出し 0・現在ノードは n1 のまま・#choiceDialog が出ない
  *      (1g) 随伴の間 撤退ボタンが disabled (全標本)・disabled を外して押しても撤退が始まらない (クリックの条件)
- *      (1h) done の後 今の流れでクリア: lastResult.cleared・scenarioId tower-mother・reward.gold − coins = clearGold (300)
+ *      (1h) done の後 今の流れでクリア: lastResult.cleared・scenarioId tower-mother・reward.gold − coins = clearGold (300) + 道中の宝箱の補填 (#87: 75) = 375
  *   §2 (2a) 主人公が階段の口に着かない盤面でも、上限で done (doneBy "cap") になりクリアする
  *   §3 (3a) tower-mother のクリアを置いて酒場を開く → 印 "1"・[data-npc=harold] と [data-npc=towerMother] が在る
  *      (3b) 初回は再会の吹き出しが順に 3 件 (harold → towerMother → harold)。同じ保存で 2 回目は母子は居るが場面 0 件
@@ -98,6 +98,9 @@ const TOWER = 'tower-mother';
 const REUNION_KEYS = ['harold', 'towerMother'];
 const SCENE_ORDER = ['harold', 'towerMother', 'harold'];   // 依頼書 §5-3 の 3 件の話し手
 const CLEAR_GOLD = 300;                                    // 依頼書 §1「既存の礼金 (clearGold 300G) を動かさない」
+/* ★[#87] 道中の宝箱を廃止したぶんの補填 (index.html ROAD_CHEST_GOLD['tower-mother'] = 隠し宝箱 3 × 25G)。勝利時に礼金へ足して払う
+ *   (SCENARIOS の clearGold 300 は動かさない)。撤退 ?roadchest=0 なら 0。⛔ ページから読まず数値で持つ (読むと補填が消えても緑)。 */
+const ROAD_CHEST_BONUS = 75;
 const ROW3_Y = -288;                                       // 老婆のシートの 3 段目 (依頼書 §2-1 ①)
 const SHEET = { w: 576, h: 384, cell: 96 };
 const VIEW_I = { width: 1280, height: 800 };
@@ -515,6 +518,7 @@ const RUN_FLOW = async (opt) => {
   o.lastResult = lr ? { cleared: lr.cleared, retreated: !!lr.retreated, scenarioId: lr.scenarioId, gold: lr.reward ? lr.reward.gold : null } : null;
   o.coins = coins;
   o.clearGold = SCENARIOS['tower-mother'] ? SCENARIOS['tower-mother'].clearGold : null;
+  o.roadChestBonus = (typeof roadChestBonusGold === 'function') ? roadChestBonusGold() : null;   // ★[#87] 参考 (assert は数値 ROAD_CHEST_BONUS で測る)
   o.speech = (window.__speech && window.__speech.log ? window.__speech.log : []).filter((x) => x.key.indexOf('tower.mother') === 0).map((x) => [x.key, x.kind]);
   o.enterNodeCalls = S.enterNodeCalls.length; o.chooseExitCalls = S.chooseExitCalls; o.arrows = S.arrows;
   o.cur = currentNodeId;
@@ -698,8 +702,8 @@ async function runSuite(browser, port, mutKey, label) {
       { activeSamples: fa.viol.activeSamples, retreatEnabled: fa.viol.retreatEnabled, click: fa.click || null, lastResult: fa.lastResult });
     const lr = fa.lastResult;
     R.check('(1h)', 'done の後 今の流れでクリア: lastResult.cleared・scenarioId tower-mother・reward.gold − coins = clearGold (' + CLEAR_GOLD + ')',
-      !!ds && !!lr && lr.cleared === true && lr.scenarioId === TOWER && fa.clearGold === CLEAR_GOLD && typeof lr.gold === 'number' && lr.gold - fa.coins === fa.clearGold,
-      { lastResult: lr, coins: fa.coins, clearGold: fa.clearGold, obsMs: fa.obsMs });
+      !!ds && !!lr && lr.cleared === true && lr.scenarioId === TOWER && fa.clearGold === CLEAR_GOLD && typeof lr.gold === 'number' && lr.gold - fa.coins === fa.clearGold + ROAD_CHEST_BONUS,
+      { lastResult: lr, coins: fa.coins, clearGold: fa.clearGold, roadChestBonus: ROAD_CHEST_BONUS, roadChestBonusPage: fa.roadChestBonus, obsMs: fa.obsMs });
     /* ── §2 ── */
     const fb = B.FL, dsB = fb.doneSnap || null;
     R.check('(2a)', '主人公が階段の口に着かない盤面でも、上限で done (doneBy cap) になりクリアする',

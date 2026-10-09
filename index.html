@@ -3589,6 +3589,36 @@
      *   CSS は html.dfCornerCheck の下にだけ効く (撤退なら付けない)。 */
     const CORNER_CHECK_ON = new URLSearchParams(window.location.search).get("cornercheck") !== "0";
     if (CORNER_CHECK_ON) document.documentElement.classList.add("dfCornerCheck");
+    /* ★[#87] 道中の宝箱を廃止 + 消えたぶんをクリア金貨で補う (同依頼書 §2-6・§2-7・§12-2)。ここで 1 回だけ読む。
+     *   止めるのは 玄室宝箱 (spawnRoomChests)・隠し宝箱 (spawnHiddenChests)・廃坑 n1 の寄り道 (宝箱と寄り道の提示)。
+     *   残すのは 森の鍵束の宝箱 と 竜の巣ボスの財宝 (囮 3 + ミミック)。探索判定は対象 0 の部屋で今どおり振らない。
+     *   撤退 ?roadchest=0 = 宝箱が湧く / 寄り道あり / クリア金貨の加算なし (従来)。 */
+    const ROAD_CHEST_ON = new URLSearchParams(window.location.search).get("roadchest") !== "0";
+    /* 消えた宝箱のぶんのクリア金貨 (加算額 = 既定の盤面で消える宝箱の個数 × ROAD_CHEST_GOLD_EACH・§12-0 の実測)。
+     *   既に clearGold を持つシナリオ (塔の母 300) にも足す。表に無いシナリオ (街道の襲撃ほか) は 0。
+     *   生成クエストは id が 1 つ ("generated-quest") なので表に載せず、依頼が宣言した hiddenChestCount から求める。
+     *   ⚠ 宣言の値 (_genScenario) を読む。currentScenario 側は `|| 2` の既定で 0 が 2 に化けるので、
+     *   隠し宝箱 0 を宣言する隊商護衛 (tavern の caravan-escort) が 50G を受け取ってしまう (§12-2 K19)。
+     *   単価 25G はプレイテストで動かす (宝箱の金貨の期待値 ≈ 12G + 装備・巻物のぶん)。 */
+    const ROAD_CHEST_GOLD_EACH = 25;
+    const ROAD_CHEST_GOLD = {
+      "goblin-mine":    100,   // 寄り道 4
+      "bandits-forest":  75,   // 隠し 3 (鍵束は残る)
+      "lizard-swamp":    75,   // 隠し 3
+      "orc-fort":       100,   // 隠し 4
+      "undead-temple":  100,   // 隠し 4
+      "dragon-lair":    125,   // 隠し 5 (ボスの財宝は残る)
+      "tower-mother":    75,   // 隠し 3 (礼金 300 と合わせて 375)
+    };
+    function roadChestBonusGold() {
+      if (!ROAD_CHEST_ON || !currentScenario) return 0;
+      if (escortWagonLost()) return 0;   // clearGold と同じ扱い (馬車を失った盤面では払わない)
+      if (scenarioId === "generated-quest") {
+        const n = (_genScenario && _genScenario.hiddenChestCount > 0) ? _genScenario.hiddenChestCount : 0;
+        return n * ROAD_CHEST_GOLD_EACH;
+      }
+      return ROAD_CHEST_GOLD[scenarioId] || 0;
+    }
     /* ★[#85 白い石床のちらつき] 読み込み中の盤面は暗いまま + 遅れて届いた床/絵はフェードイン。
      *   予備床 床2.png (12KB) は本来の床 (2〜3MB) と絵より先に届くので、直す前は 4G で
      *   白い丸石が一瞬敷かれていた。床2.png は「本来の床が落ちた (404) とき」だけの予備へ戻す。
@@ -24487,6 +24517,7 @@
           loot: pickChestLoot(),
           el: null,
         };
+        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] 道中の宝箱は廃止: 抽選・配置は今どおり (乱数と占有を動かさない)・spawnNodeEntities の末尾で抜く
         roomChests.push(chest);
         createRoomChestDom(chest, roomChests.length - 1);
       }
@@ -24530,6 +24561,7 @@
           loot: pickChestLoot(),
           el: null,
         };
+        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] 道中の宝箱は廃止: 抽選・配置は今どおり (乱数と占有を動かさない)・spawnNodeEntities の末尾で抜く
         roomChests.push(chest);
         createRoomChestDom(chest, roomChests.length - 1);
       }
@@ -36715,6 +36747,7 @@
       spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
       initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
       spawnDetourChests();  // ★[P9] 寄り道スポットの宝箱。⚠ **必ず最後**に呼ぶ (下の注記)
+      dropRoadChests();     // ★[#87] 印の付いた道中の宝箱をここで一括に抜く (Math.random を引かない = 上の「必ず最後」を崩さない)
     }
 
     /* ★[P9] 寄り道スポットの宝箱 (廃坑 n1)。廃坑は n2/n3 撤去 (2026-08-19) 以来
@@ -36755,9 +36788,30 @@
           loot: pickChestLoot(),
           el: null,
         };
+        if (ROAD_CHEST_ON) chest.roadChestDrop = true;   // ★[#87] 道中の宝箱は廃止: 抽選・配置は今どおり (乱数と占有を動かさない)・spawnNodeEntities の末尾で抜く
         roomChests.push(chest);
         createRoomChestDom(chest, roomChests.length - 1);
       }
+    }
+
+    /* ★[#87] 道中の宝箱を廃止 (依頼書 §2-6・§12-2)。spawnNodeEntities の**末尾**で 1 回だけ、
+     *   印 (roadChestDrop) の付いた 玄室・隠し・寄り道の宝箱を roomChests から抜き、DOM も外す。
+     * ⭐ 湧き口では今どおり抽選・配置・push までさせる ⇒ Math.random の消費も、後段が読む roomChests の
+     *   占有 (隠し宝箱の候補・鍵束の空きタイル・竜の財宝の isOccupied・寄り道の重複) も 1 ビットも動かない
+     *   = 鍵束・罠・檻・ハイドラ・竜の財宝・従者の位置は ?roadchest=0 と同じ (§12-0 K8 の別解)。
+     * ⭐ 印を付けないもの = 鍵束の宝箱 (loot.kind "key") と竜の巣ボスの財宝 (囮 3 + ミミック) → 残る。
+     * ⚠ 配列は identity を保つ (clearNodeArrays と同じ理由)。添字が詰まるので DOM の id を振り直す
+     *   (saveNodeState は添字で開封済みを覚えるが、ビルドごとに同じ順で抜くので決定論)。
+     * ⛔ kind 関門 (js/df-mapdef.js) や除外集合では止めない — spawnTraps と共有なので罠まで消える。 */
+    function dropRoadChests() {
+      if (!ROAD_CHEST_ON) return;
+      const keep = roomChests.filter(ch => !ch.roadChestDrop);
+      if (keep.length === roomChests.length) return;
+      for (const ch of roomChests) {
+        if (ch.roadChestDrop && ch.el && ch.el.parentNode) ch.el.parentNode.removeChild(ch.el);
+      }
+      roomChests.length = 0;
+      keep.forEach((ch, i) => { roomChests.push(ch); if (ch.el) ch.el.id = "roomChest" + i; });
     }
 
     /* ══════════════════════════════════════════════════════════════════════════
@@ -39204,6 +39258,7 @@
      *   母集団が動く。**期待値を書き換えないための母集団固定**であって好みの問題ではない。 */
     function detourNodeDef(nodeId) {
       if (DETOUR_OFF || MINE_FOLD_OFF) return null;
+      if (ROAD_CHEST_ON) return null;   // ★[#87] 寄り道の中身は宝箱だけ = 宝箱の廃止中は寄り道も出さない (撤退 ?roadchest=0 で戻る = ?detour=0 と同じ盤面)
       /* ⚠⚠ **RUN.scenarioId で引く** (_builtinScenId ではない)。シナリオ id は
        *   「どのテクスチャを敷くか」でしかなく、dev シーム ?graphtest=1 の内蔵テストグラフでも
        *   "goblin-mine" のまま。ノード id だけで引くと、テストグラフの "n1" にも寄り道 4 本と
@@ -40677,7 +40732,8 @@
          *   常に 0 = 1 バイトも変わらない (escortWagonLost() も馬車の無い盤面では常に false)。 */
         const clearGold = (currentScenario && currentScenario.clearGold > 0 && !escortWagonLost())
           ? currentScenario.clearGold : 0;
-        const earnedGold = coins + clearGold;
+        const roadChestGold = roadChestBonusGold();   // ★[#87] 道中の宝箱を廃止したぶんの補填 (撤退 ?roadchest=0 で 0)
+        const earnedGold = coins + clearGold + roadChestGold;
         const newTotalGold = persistent.gold + earnedGold;
         // ✨ クリア報酬: 既定 1% でマジックアイテム抽選 (「クリア報酬の宝箱」)。付与は currentWeaponIndex に反映。
         //    闇市・稀少ボス「単眼の暴君」戦のみ currentScenario.magicItemChance(=0.25) で確率を上書き。

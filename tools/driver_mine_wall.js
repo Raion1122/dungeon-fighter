@@ -473,7 +473,9 @@ function HEAVY_TABLE() {
 
     // ══ §1 外周 ═══════════════════════════════════════════════════════════════
     mark('§1 廃坑 n0/n1 の外周 1 タイルが塞がり、迂回するようになった');
-    const page = await bootPage(browser, PORT, '?diag=1&intel=0', errs);
+    /* ★[#87] 道中の宝箱の廃止中 (既定) は廃坑 n1 の寄り道も出さない (index.html detourNodeDef)。§1 / §1d / §5 は
+     *   寄り道スポット s1〜s4 への区間を測るので、撤退の腕 ?roadchest=0 で開く (期待値は 1 文字も変えない)。 */
+    const page = await bootPage(browser, PORT, '?diag=1&intel=0&roadchest=0', errs);
     await closeDialogs(page);
     const R0 = await page.evaluate(RING_MEASURE);
     check('(1z) 装置: __paintBlockProbe が ring / skipGate を数値で返す (検出器が空振りしていない)',
@@ -507,7 +509,7 @@ function HEAVY_TABLE() {
 
     // ── §1d/§3a: 撤退スイッチとの A/B ────────────────────────────────────────
     mark('§1d/§3a ?paintring=0 との A/B (期待値の直書きではなく同条件どうしの差分)');
-    const pageOff = await bootPage(browser, PORT, '?diag=1&intel=0&paintring=0', errs);
+    const pageOff = await bootPage(browser, PORT, '?diag=1&intel=0&paintring=0&roadchest=0', errs);   // ★[#87] 寄り道の区間を測る (上の注記)
     await closeDialogs(pageOff);
     const R0off = await pageOff.evaluate(RING_MEASURE);
     const S0off = await pageOff.evaluate(SPAWN_LEGS);
@@ -738,7 +740,7 @@ function HEAVY_TABLE() {
     // ══ §5 負のコントロール ═══════════════════════════════════════════════════
     mark('§5 負のコントロール (変異を注入して assert が本当に赤くなるか)');
     async function neg(key, fn) {
-      const p = await bootPage(browser, PORT_OF[key], '?diag=1&intel=0', errs);
+      const p = await bootPage(browser, PORT_OF[key], '?diag=1&intel=0&roadchest=0', errs);   // ★[#87] 寄り道の区間を測る (§1 の注記)
       await closeDialogs(p);
       await fn(p);
       await p.close();

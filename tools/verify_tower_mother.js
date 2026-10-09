@@ -583,6 +583,17 @@ async function runSuite(browser, port, mutKey, label) {
       o.encActive = !!encounterActive;
       return o;
     });
+    /* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。(2c) は「兼務宣言で罠と宝箱が湧く」を測るので、
+     *   宝箱だけは撤退の腕 (?roadchest=0) の起動ノード n0 で数える (期待値は変えない)。罠は既定の腕 (N0) のまま。 */
+    const ipRC = await newPage();
+    await ipRC.evaluateOnNewDocument((SID) => {
+      try { sessionStorage.setItem('dragonfighters.currentScenario', SID); } catch (e) {}
+      try { localStorage.setItem('dragonfighters.xp', '20000'); localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
+    }, TOWER);
+    await ipRC.goto(base + F_INDEX + '?diag=1&roadchest=0', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await ipRC.waitForFunction("typeof RUN !== 'undefined' && RUN && typeof enterNode === 'function'", { timeout: 60000 });
+    const N0rc = await ipRC.evaluate(() => ({ cur: currentNodeId, traps: traps.length, chests: roomChests.length }));
+    await ipRC.close().catch(() => {});
     /* n1 へ。⭐ 手番の関数は enterNode の前に差し替える (入室直後に主人公が自力で戦闘を始めても同じ観測になるように) */
     await ip.evaluate(() => {
       const S = window.__tmS = { seq: 0, turns: [], snapAfterT1: null, t1done: false, fallback: 0, xpCalls: [], drops: {}, err: [] };
@@ -738,7 +749,8 @@ async function runSuite(browser, port, mutKey, label) {
         && N1.pathToEnemies.length === 2 && N1.pathToEnemies.every((x) => typeof x === 'number') && N0.enemyWall.length === 0 && N1.enemyWall.length === 0,
       { n0: { from: N0.player, exitInner: N0.exitInner, pathToExit: N0.pathToExit, toEnemies: N0.pathToEnemies, wall: N0.enemyWall },
         n1: { from: N1.player, toEnemies: N1.pathToEnemies, wall: N1.enemyWall } });
-    R.check('(2c)', '丘の道 n0 の罠と宝箱が 0 でない', N0.traps > 0 && N0.chests > 0, { traps: N0.traps, chests: N0.chests });
+    R.check('(2c)', '丘の道 n0 の罠と宝箱が 0 でない', N0.traps > 0 && N0rc.cur === 'n0' && N0rc.chests > 0,
+      { traps: N0.traps, chests: N0rc.chests, roadchest0: N0rc, chestsDefaultArm: N0.chests });
     const area0 = (p0.tw || 0) * (p0.th || 0);
     R.check('(2d)', '丘の道は isCustom (テーマ ' + TOWER + ')・絵が読み込まれ、霧が絵の範囲 (tw x th) 以上晴れている。最上階も isCustom',
       N0.custom && N0.themeId === TOWER && !!p0.loaded && area0 > 0 && !!N0.outdoor && N0.outdoor.exploredNow >= area0 && N1.custom && !!p1.loaded,

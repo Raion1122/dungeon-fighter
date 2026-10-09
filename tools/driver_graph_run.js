@@ -195,7 +195,10 @@ async function bootPage(browser, url, warns, errs, pre) {
  *   (テストグラフの entry の右出口が抽選に当たり、出口 3 本 → 2 本になって (1e)(1f)(8a) が
  *   母集団ごと消えた = 実測)。⚠ **期待値は 1 文字も変えていない**。隠し扉そのものは
  *   driver_doors_p6 が測る。⚠ ?secret=0 が黙って効かなくなればここが再び赤くなる = 自己検出する。 */
-const QT = '/index.html?diag=1&graphtest=1&secret=0';
+/* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。この本は宝箱の湧き口 (玄室 / 隠し / 寄り道) の機構そのものを
+ *   測るので、URL は全部 ?roadchest=0 の腕で開く (期待値は 1 文字も変えない)。既定の腕で 0 個になったことは
+ *   verify_corner_check (4a) が測る。 */
+const QT = '/index.html?diag=1&graphtest=1&secret=0&roadchest=0';
 
 (async () => {
   const puppeteer = loadPuppeteer();
@@ -721,7 +724,7 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
         run: JSON.parse(testRunJson),
       })) + ');';
     /* ⚠ [P6 追随] ここも ?secret=0 (上の QT と同じ理由 = 出口の本数が母集団)。 */
-    const pP = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&secret=0',
+    const pP = await bootPage(browser, 'http://localhost:' + PORT + '/index.html?diag=1&secret=0&roadchest=0',
       wP, eP, pre);
     const rP = await pP.evaluate(() => ({
       active: window.__graphRun.active(), nodeId: window.__graphRun.nodeId(),
@@ -847,7 +850,7 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
       try { localStorage.removeItem('df.devMode'); } catch (e) {}
     });
     // ⚠ ?diag / ?autoplay / ?autodebug を一切付けない = 素のプレイヤーと同じ条件
-    await gate.goto('http://localhost:' + PORT + '/index.html?graphtest=1',
+    await gate.goto('http://localhost:' + PORT + '/index.html?graphtest=1&roadchest=0',
       { waitUntil: 'domcontentloaded', timeout: 30000 });
     await gate.waitForFunction("typeof mapData !== 'undefined' && typeof buildNode === 'function'",
       { timeout: 25000 });
@@ -889,7 +892,7 @@ const QT = '/index.html?diag=1&graphtest=1&secret=0';
     mark('?autoplay 完走 (最大 ' + Math.round(FULL_TIMEOUT_MS / 1000) + 's)');
     const wF = [], eF = [];
     const pF = await bootPage(browser,
-      'http://localhost:' + PORT + '/index.html?autoplay=25&diag=1&graphtest=1', wF, eF);
+      'http://localhost:' + PORT + '/index.html?autoplay=25&diag=1&graphtest=1&roadchest=0', wF, eF);
     const t0 = Date.now();
     const visited = [];
     let lastNode = null, cleared = false, over = false;

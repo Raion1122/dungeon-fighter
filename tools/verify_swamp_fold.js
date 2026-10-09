@@ -661,9 +661,15 @@ async function runSuite(browser, port, label) {
   /* (3d) 罠と玄室の宝箱が n4 で湧く。⭐ 「実在すること」と「旧構成では 0 だったこと」の
    *   両方を測る (差分だけを測る assert には実在を必ず添える)。 */
   const S4old = await pageB.evaluate(SNAP_FN, 'n4', 'right');
+  /* ★[#87] 道中の宝箱は廃止した (撤退 ?roadchest=0 で従来)。この assert は「兼務宣言で宝箱が湧く」を測るので、
+   *   宝箱だけは撤退の腕 (?roadchest=0) の n4 で数える (期待値は 1 文字も変えない)。罠は既定の腕のまま。
+   *   既定の腕で 0 個になったことは verify_corner_check (4a) が測る。 */
+  const pageRC = await bootPage(browser, base + '/index.html?diag=1&roadchest=0', THEME, errs, FLAGS);
+  const S4rc = await pageRC.evaluate(SNAP_FN, 'n4', 'right');
+  await pageRC.close();
   check('3d', '★罠と玄室の宝箱が n4 で湧く (兼務宣言が効いている。⛔ 忘れると無言でゼロ) — ?swampfold=0 側の n4 では 0 / 0',
-    S4.traps > 0 && S4.chests > 0 && S4old.traps === 0 && S4old.chests === 0,
-    '畳んだ n4: 罠=' + S4.traps + ' 宝箱=' + S4.chests +
+    S4.traps > 0 && S4rc.chests > 0 && S4old.traps === 0 && S4old.chests === 0,
+    '畳んだ n4: 罠=' + S4.traps + ' 宝箱(?roadchest=0)=' + S4rc.chests + ' (既定の腕=' + S4.chests + ')' +
     ' / ?swampfold=0 の n4: 罠=' + S4old.traps + ' 宝箱=' + S4old.chests +
     ' / 台帳=' + JSON.stringify(GA.kindsTable));
   /* (3e) 若い司祭。⛔ (33,12) を写経せず**旧腕の座標**から導く (#53 の不変条件)。 */
