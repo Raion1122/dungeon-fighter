@@ -3096,6 +3096,60 @@
     #eyeScoutPanel .eyeShade { display: flex; flex-direction: column; align-items: center; font: 12px/1.2 "Noto Serif JP", serif; color: #2a1a08; }
     #eyeScoutPanel .eyeShade i { display: block; width: 48px; height: 48px; filter: brightness(0); opacity: 0.85; background-repeat: no-repeat; }
     #eyeScoutPanel .eyeShade.boss i { width: 64px; height: 64px; border-radius: 50%; background: radial-gradient(circle, #000 55%, transparent 72%); filter: none; }
+    /* ★[#87] 判定パネルを画面左上へ小さく (暗幕なし)。⛔ js/skill-check.js は触らない (酒場 / 街道も読む共有ファイル)。
+       ⚠ js/skill-check.js の CSS は最初のパネル表示時に <head> 末尾へ注入される = 同じ詳細度なら向こうが後勝ち ⇒ ここは !important。
+       ⚠ display は JS (.show) が切り替えるので触らない。カードの外の click はゲームへ通す (overlay は pointer-events:none)。
+         カード上の click は overlay の listener へバブリングで届く (ロール / 閉じる は今のまま)。
+       位置 = ユーザー決定 K6 (a): left = メニュー幅 + 8px / top = PC 展開 8px・畳み 63px (☰ 11+44+8 の下)・
+         幅 768px 以下 80px (上中央のフェーズ札 bottom 72px の下)。DM 文・上中央の帯とは重なってよい (パネルが上)。
+       撤退 ?cornercheck=0 = html.dfCornerCheck が付かない = 従来の中央の大パネル。 */
+    html.dfCornerCheck #skillCheckOverlay {
+      inset: auto !important; top: 8px !important; left: calc(var(--ui-menu-w) + 8px) !important;
+      right: auto !important; bottom: auto !important;
+      background: transparent !important; pointer-events: none !important;
+      align-items: flex-start !important; justify-content: flex-start !important;
+    }
+    html.dfCornerCheck body.ui-collapsed #skillCheckOverlay { top: 63px !important; }
+    @media (max-width: 768px) {
+      html.dfCornerCheck body #skillCheckOverlay, html.dfCornerCheck body.ui-collapsed #skillCheckOverlay { top: 80px !important; }
+    }
+    html.dfCornerCheck #skillCheckCard {
+      pointer-events: auto !important; width: 260px !important; max-width: calc(100vw - 16px) !important;
+      box-sizing: border-box !important; padding: 6px 9px 5px !important; border-width: 3px !important;
+      box-shadow: 0 4px 14px rgba(0,0,0,.55) !important;
+    }
+    html.dfCornerCheck #skillCheckCard .scIcon { float: left !important; width: 22px !important; height: 22px !important; margin: 0 6px 0 0 !important; border-width: 2px !important; }
+    html.dfCornerCheck #skillCheckCard .scTitle { font-size: 13px !important; line-height: 22px !important; text-align: left !important; }
+    html.dfCornerCheck #skillCheckCard .scFlavor { display: none !important; }
+    html.dfCornerCheck #skillCheckCard .scMeta { clear: both !important; font-size: 10px !important; line-height: 1.35 !important; margin: 2px 0 3px !important; text-align: left !important; }
+    html.dfCornerCheck #skillCheckCard .scMeta b { font-size: 11px !important; }
+    html.dfCornerCheck #skillCheckCard .scRoster { gap: 2px !important; margin: 3px 0 4px !important; }
+    html.dfCornerCheck #skillCheckCard .scRow { grid-template-columns: 1fr auto 20px 26px !important; gap: 4px !important; padding: 1px 5px !important; }
+    html.dfCornerCheck #skillCheckCard .scName { font-size: 11px !important; }
+    html.dfCornerCheck #skillCheckCard .scMod { font-size: 9px !important; }
+    html.dfCornerCheck #skillCheckCard .scDie { width: 20px !important; height: 20px !important; font-size: 11px !important; border-width: 2px !important; border-radius: 5px !important; }
+    html.dfCornerCheck #skillCheckCard .scTotal { font-size: 11px !important; }
+    html.dfCornerCheck #skillCheckCard .scResult { font-size: 11px !important; min-height: 15px !important; margin-bottom: 0 !important; }
+    html.dfCornerCheck #skillCheckCard .scHint { font-size: 9px !important; margin-top: 1px !important; }
+    html.dfCornerCheck #scRollBtn { margin-top: 2px !important; padding: 3px 12px !important; font-size: 11px !important; }
+    /* ★[#87] 罠の「解除する / 迂回する」だけ左上の小さな器で出す。⛔ #choiceDialog の基本の CSS と他の呼び元は触らない。
+       器は #choiceDialog のまま (閉じる装置と verify_mage_hand (7d) の 3 引数を守る)。runTrapDisarmCheck が開く直前に
+       body.dfCornerChoice を付け、閉じたら外す。位置・幅は判定パネルと揃える。transition は切る (閉じた瞬間に
+       class を外すので、フェード中の器が下の帯へ飛んで見えるのを防ぐ)。左上なのでログ枠は伏せない。 */
+    body.dfCornerChoice #choiceDialog {
+      left: calc(var(--ui-menu-w) + 8px); right: auto; top: 8px; bottom: auto;
+      width: 260px; max-width: calc(100vw - 16px); height: auto; max-height: calc(100vh - 96px);
+      padding: 8px 10px; border: 3px double #6a3a10; border-radius: 8px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.6); transform: none; transition: none;
+    }
+    body.dfCornerChoice.ui-collapsed #choiceDialog { top: 63px; }
+    @media (max-width: 768px) {
+      body.dfCornerChoice #choiceDialog, body.dfCornerChoice.ui-collapsed #choiceDialog { top: 80px; }
+    }
+    body.dfCornerChoice #choiceDialog .choiceMessage { font-size: 13px; line-height: 1.4; letter-spacing: 0.5px; margin: 0 0 6px; }
+    body.dfCornerChoice #choiceDialog .choiceButtons { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 6px; margin-bottom: 0; }
+    body.dfCornerChoice #choiceDialog button { min-height: 44px; padding: 6px 8px; font-size: 13px; letter-spacing: 0.5px; white-space: normal; }
+    body.dfCornerChoice.choice-open #combatLog, body.dfCornerChoice.choice-open #hpMiniBar { visibility: visible; }
   </style>
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。tavern.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
@@ -3528,6 +3582,13 @@
     let tilesetLoaded = false;
     tileset.onload = () => { tilesetLoaded = true; computeCameraTarget(); camX = camTargetX; camY = camTargetY; renderMap(); renderLighting(); };
 
+    /* ★[#87] 判定パネルを左上へ小さく + 罠の選択も左上 + 戦闘中は判定の窓を出さない
+     *   (実装依頼書 2026-10-06_corner-check-no-road-chests)。ここで 1 回だけ読む。
+     *   撤退 ?cornercheck=0 = 中央の大パネル / 罠の選択は下の帯 / 戦闘開始時に隠密パネル (従来)。
+     *   ⚠ 探索ターンの穴ふさぎ (waitSkillCheckIdle) は不具合の修正なので撤退でも戻さない。
+     *   CSS は html.dfCornerCheck の下にだけ効く (撤退なら付けない)。 */
+    const CORNER_CHECK_ON = new URLSearchParams(window.location.search).get("cornercheck") !== "0";
+    if (CORNER_CHECK_ON) document.documentElement.classList.add("dfCornerCheck");
     /* ★[#85 白い石床のちらつき] 読み込み中の盤面は暗いまま + 遅れて届いた床/絵はフェードイン。
      *   予備床 床2.png (12KB) は本来の床 (2〜3MB) と絵より先に届くので、直す前は 4G で
      *   白い丸石が一瞬敷かれていた。床2.png は「本来の床が落ちた (404) とき」だけの予備へ戻す。
@@ -19764,6 +19825,7 @@
         if (typeof runRoomSearchCheck === "function") runRoomSearchCheck();
         if (typeof runTrapDisarmCheck === "function") runTrapDisarmCheck();
         if (typeof checkTrapTrigger === "function") checkTrapTrigger();
+        await waitSkillCheckIdle();   // ★[#87] 判定・罠の選択・開錠が閉じるまで仲間/敵の手番を待つ (§2-3 の穴)
         await exploreAllyTurn(oldPlayerTile);
         await exploreEnemyTurn();
         if (typeof checkTrapTrigger === "function") checkTrapTrigger();
@@ -25735,7 +25797,7 @@
       if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
         dialogPaused = true;       // 判定中は探索を停止 (runRoomSearchCheck と同方針)
         try {
-          res = await SkillCheck.resolveSkillCheck(spec.check, SWAMP_NOVICE_DC, party, {
+          res = await dfSkillCheck(spec.check, SWAMP_NOVICE_DC, party, {
             title: spec.title,
             flavor: spec.flavor,
             // ★DC ではなく加算側に効かせる (js/skill-check.js の contract。DC を動かすと表示 DC まで変わる)
@@ -25918,6 +25980,21 @@
     // ★2026-08-10: 発火単位を「半径内に未判定の対象が入るたび」から
     //   **「部屋に入って 1 回だけ」**へ変更した (runRoomSearchCheck)。理由と設計はそちらの注記。
     let skillCheckActive = false;  // 判定パネル表示中ガード (多重起動防止)
+    /* ★[#87 STEP3-3] 判定の呼び口の門。index.html の resolveSkillCheck は全部ここを通す (12 口)。
+     *   戦闘中 (encounterActive || encounterRunning) は auto:true で即決し、判定の窓を出さない (宝箱の開錠も含む)。
+     *   ⚠ 本体は**呼んだ時点で** window.SkillCheck.resolveSkillCheck を引く。tools の 10 本がこのプロパティを
+     *     差し替えて出目を決めている (関数を変数に握ると差し替えが効かなくなる)。撤退 ?cornercheck=0 では素通し。 */
+    function dfSkillCheck(checkKey, dc, party, opts) {
+      if (CORNER_CHECK_ON && (encounterActive || encounterRunning) && !(opts && opts.auto))
+        opts = Object.assign({}, opts, { auto: true });
+      return window.SkillCheck.resolveSkillCheck(checkKey, dc, party, opts);
+    }
+    /* ★[#87 STEP3-2] 探索ターンの穴ふさぎ。判定パネル・罠の選択・開錠 (どれも skillCheckActive を立てる) が
+     *   閉じるまで、探索ターンの仲間・敵の手番を待たせる (exploreAllyTurn / exploreEnemyTurn は dialogPaused を見ない)。
+     *   ⚠ 不具合の修正なので ?cornercheck=0 でも戻さない。立っていなければ 1 tick も待たない。 */
+    async function waitSkillCheckIdle() {
+      while (skillCheckActive && !gameOver) await new Promise(r => setTimeout(r, 40));
+    }
 
     // 判定パーティ: 主人公 + 生存仲間を {classKey, name} 配列に (隊列順)。
     function buildPerceptionParty() {
@@ -26073,7 +26150,7 @@
       dialogPaused = true;  // 判定中は探索を停止 (showChoice と同方針)
       /* ★[P6] **Promise を返す**ようにした。呼び側 (毎歩の探索ループ) は今までどおり無視するが、
        *   tickNodeChoice は「出口を見せる前に隠し扉を決着させる」ために await する。 */
-      return SkillCheck.resolveSkillCheck(pickSearchCheckKey(party), dc, party, {
+      return dfSkillCheck(pickSearchCheckKey(party), dc, party, {
         title: "探索判定",
         flavor: hasTrap
           ? "部屋をひととおり検分する。罠の気配、隠されたものは…"
@@ -26162,12 +26239,14 @@
         const dc = (currentScenario && currentScenario.perceptionDC) || 14;
         let res = null;
         try {
-          res = await SkillCheck.resolveSkillCheck("stealth", dc, party, {
+          res = await dfSkillCheck("stealth", dc, party, {
             title: "隠密判定",
             flavor: invisCaster ? "姿を消したまま、敵の死角へ忍び寄る…" : "足音を殺し、敵の死角へ忍び寄る…",
             voiceIds: PERCEPTION_VOICE,
+            auto: CORNER_CHECK_ON,   // ★[#87] 戦闘中は窓を出さず裏で振る (撤退 ?cornercheck=0 = 従来のパネル)
           });
         } catch (e) { res = null; }
+        if (res && CORNER_CHECK_ON) showStealthRoll(res, party);   // ★[#87] 裏で振った出目を頭上の吹き出しで見せる
         const rep = (res && res.rep && res.rep.name) ? res.rep.name : getLeaderName();
         if (res && res.success) {
           const n = applySurpriseStun(targets);   // ★共有: EV-9 の奇襲成功もこの同じ付与を通る
@@ -26184,6 +26263,22 @@
       }
     }
 
+    /* ★[#87] 隠密判定の出目を代表の頭上に出す (runLoreCheck と同じ作法)。ログは tryStealthSurprise の updateInfo が出す。
+     *   party は buildPerceptionParty() の並び = 主人公 (生存時) → 生存仲間 の順。 */
+    function showStealthRoll(res, party) {
+      try {
+        const units = [];
+        if (hp > 0 && !gameOver) units.push("player");
+        for (const a of allies) if (a.alive) units.push(a);
+        const k = res.rep ? party.indexOf(res.rep) : -1;
+        const unit = k >= 0 ? units[k] : null;
+        const rollType = res.crit ? "crit" : res.fumble ? "fumble" : res.success ? "hit" : "miss";
+        const html = `<span class="label">STEALTH</span>隠密 1d20(<b>${res.roll}</b>)${signedDD(res.bonus)}` +
+                     ` = <span class="big">${res.total}</span> vs DC ${res.dc}`;
+        if (unit === "player") showRollAtPlayer(html, rollType);
+        else if (unit && unit.def) showRollAtAlly(unit, html, rollType);
+      } catch (e) {}
+    }
     // 罠解除判定: 知覚で発見済み(found)の罠に隣接(chebyshev 1タイル)したら、盗賊が得意な
     //   手先の早業(sleightOfHand)で「解除」を試みる。tryPickLock(宝箱開錠) の鏡写し。
     //   ⚠移動タップの誤ロールを防ぐため、ロール前に必ず showChoice(解除する/迂回する) を挟む。
@@ -26216,6 +26311,7 @@
        *   従来の showChoice の 1 行をそのまま通す (依頼書 §2-3 罠H)。 */
       const handCaster = mageHandCaster();
       let viaHand = false;
+      if (CORNER_CHECK_ON) document.body.classList.add("dfCornerChoice");   // ★[#87] 罠の選択だけ左上の小さな器 (下で必ず外す)
       try {
         if (handCaster) {
           const handPick = await showCharChoice("見つけた罠を解除しますか?",
@@ -26225,6 +26321,7 @@
         } else
         goDisarm = await showChoice("見つけた罠を解除しますか?", "解除する", "迂回する");
       } catch (e) { goDisarm = false; }
+      document.body.classList.remove("dfCornerChoice");   // ★[#87] 閉じたら外す (罠以外の選択へ残さない)
       // 解除でも迂回でも「判定済」印を立てる (同ターンの毎フレーム再提示を防ぐ=テンポ維持)。
       target._disarmRolled = true;
 
@@ -26244,7 +26341,7 @@
       showDMMessage("罠の機構に手を伸ばす。起爆装置を見極め、慎重に無力化を試みる…", 1800);
       let res = null;
       try {
-        res = await SkillCheck.resolveSkillCheck("sleightOfHand", disarmDC(), party, {
+        res = await dfSkillCheck("sleightOfHand", disarmDC(), party, {
           title: "罠解除判定",
           flavor: "細い針と糸で起爆機構を探り、慎重に殺す…",
           voiceIds: PERCEPTION_VOICE,
@@ -26438,7 +26535,7 @@
       showDMMessage("宝箱には錠前がかかっている。開錠を試みる…", 1800);
       let res = null;
       try {
-        res = await SkillCheck.resolveSkillCheck("sleightOfHand", dc, party, {
+        res = await dfSkillCheck("sleightOfHand", dc, party, {
           title: "開錠判定",
           flavor: "錠前に細い針を差し込み、慎重に回す…",
           voiceIds: PERCEPTION_VOICE,
@@ -26681,7 +26778,7 @@
       if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
         dialogPaused = true;          // 判定中は探索を停止 (runRoomSearchCheck と同方針)
         try {
-          res = await SkillCheck.resolveSkillCheck(spec.check, SCE1_WATCH_DC, party, {
+          res = await dfSkillCheck(spec.check, SCE1_WATCH_DC, party, {
             title: spec.title,
             flavor: spec.flavor,
             // ★DC ではなく加算側に効かせる。⚠ 枝ごとの classes を優先 (無い枝は従来どおり)
@@ -27224,7 +27321,7 @@
       if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
         dialogPaused = true;
         try {
-          res = await SkillCheck.resolveSkillCheck(spec.check, SCE1_SERVANT_DC, party, {
+          res = await dfSkillCheck(spec.check, SCE1_SERVANT_DC, party, {
             title: spec.title,
             flavor: spec.flavor,
             extraBonus: sceneClassBonus(SCE1_SERVANT_CLASSES),   // ★DC ではなく加算側に効かせる
@@ -27638,7 +27735,7 @@
       if (party.length > 0 && window.SkillCheck && SkillCheck.resolveSkillCheck) {
         dialogPaused = true;
         try {
-          res = await SkillCheck.resolveSkillCheck(spec.check, sce1GrixDc(choice), party, {
+          res = await dfSkillCheck(spec.check, sce1GrixDc(choice), party, {
             title: spec.title,
             // ★救出済のとき、判定パネルの一文も「縄に吊るされた男」から開く (ラベルと同じ理由)
             flavor: (spec.flavorRescued && sceneFlags.servant_rescued) ? spec.flavorRescued : spec.flavor,
@@ -28671,7 +28768,7 @@
         }
         let res = null;
         try {
-          res = await SkillCheck.resolveSkillCheck(skill, g.dc, party, { auto: true });
+          res = await dfSkillCheck(skill, g.dc, party, { auto: true });
         } catch (err) { res = null; }
         if (!res) continue;
         for (const t of g.types) LORE_TRIED.add(t);
@@ -37477,12 +37574,12 @@
           /* ⚠⚠ auto: !!RUN.auto を**必ず**渡す。?graph=auto は autoplay ではないので、
            *   渡さないとパネルが出たまま進まず巡回検証が軒並みタイムアウトする。 */
           const shared = { voiceIds: PERCEPTION_VOICE, iconContext: "treasure", auto: !!RUN.auto };
-          let res = await SkillCheck.resolveSkillCheck("sleightOfHand", dc, party,
+          let res = await dfSkillCheck("sleightOfHand", dc, party,
             Object.assign({ title: "開錠判定", flavor: "扉の錠前に細い針を差し込む…" }, shared));
           rep = (res && res.rep) || null;
           if (res && res.success) outcome = "pick";
           else {
-            res = await SkillCheck.resolveSkillCheck("athletics", dc, party,
+            res = await dfSkillCheck("athletics", dc, party,
               Object.assign({ title: "体当たり", flavor: "肩から扉へ。蝶番ごと押し破る…" }, shared));
             rep = (res && res.rep) || rep;
             outcome = (res && res.success) ? "force" : "break";
@@ -38064,7 +38161,7 @@
            *   畳むと、戦闘前にヒントが確定してしまい P3 のヒント信頼度の設計が壊れる。 */
           let res = null;
           try {
-            res = await SkillCheck.resolveSkillCheck("perception", exitHintDc(outs.length), party, {
+            res = await dfSkillCheck("perception", exitHintDc(outs.length), party, {
               title: "知覚判定",
               flavor: "この先の気配を探る…",
               extraBonus: perceptionExtraBonus(),

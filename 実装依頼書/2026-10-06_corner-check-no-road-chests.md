@@ -548,3 +548,68 @@ DOM の矩形と呼び出しの記録を 2 経路で突き合わせる。どの�
 - `--negative` を持つ本で #87 の領域を逐語で握るもの(K12)= `verify_road_ambush` / `verify_invisibility` / `verify_mage_hand` / `verify_arcane_eye` / `verify_lore_check` / `verify_tower_mother(_b)` / `verify_dragon_fold` / `verify_mage_hand_reach` — どれも `--negative` 腕が armlist に在る。`driver_grid_p9` / `driver_mapdef_step1` / `driver_choice_logslot` / `driver_doors_p6` は内蔵変異(素の腕の中で走る)。
 - **項目5 で足す腕** = 新規 `verify_corner_check` の素 + `--negative`(2 腕 → 213 腕)。
 - port: 10586 と 10596 で実 Chrome の goto が通ることを実測(`ERR_UNSAFE_PORT` なし・`item1/portcheck.js`)。
+
+### 12-1. 項目2 — 判定パネルを左上へ + 罠の選択を左上へ + 戦闘中は判定を出さない + 探索ターンの穴 + 撤退 `?cornercheck=0`(2026-10-09・基準 `23925bf`)
+
+触ったファイル = `index.html`(+109 / −12)/ `tavern.html`(changelog の `<li>` 1 本だけ)/ 本依頼書。⛔ `js/skill-check.js` / `world.html` / 宝箱・`clearGold`・`?roadchest` は触っていない(項目3)。tools の言い直しは **0 本**(下の非退行で赤くなった本が無い)。index / tavern とも行末は全部 CRLF のまま(index 41487/41487・tavern 11392/11392)。
+
+#### 実装の要点(行番号は作業ツリー = この項目の commit)
+
+| 何 | 行 | 中身 |
+|---|---|---|
+| STEP1 CSS | **3099-3133** | `</style>` の直前。`html.dfCornerCheck #skillCheckOverlay { inset:auto; top:8px; left:calc(var(--ui-menu-w) + 8px); background:transparent; pointer-events:none; align-items/justify-content:flex-start }`(全部 `!important`・`display` は触らない)/ `html.dfCornerCheck body.ui-collapsed …{ top:63px }` / `@media (max-width:768px)` で 80px(K15)/ カード 260px・padding 6/9/5・border 3・アイコン 22px を左へ float・タイトル 13px・flavor 非表示・行 11px・ダイス 20px |
+| STEP2 CSS | **3134-3152** | `body.dfCornerChoice #choiceDialog`(位置・幅はパネルと同じ / `transform:none; transition:none` / ボタンは縦積み・min-height 44px)+ `body.dfCornerChoice.choice-open #combatLog, … #hpMiniBar { visibility: visible; }`(左上なのでログ枠は伏せない)。⛔ `#choiceDialog` の基本の CSS(1993-2101)は 1 バイトも変えていない |
+| 撤退スイッチ | **3585-3591** | `const CORNER_CHECK_ON = new URLSearchParams(window.location.search).get("cornercheck") !== "0";` + `if (CORNER_CHECK_ON) document.documentElement.classList.add("dfCornerCheck");`(#85 の `BOARD_FADE_ON` の注記ブロックの直前に別ブロックで挿した = #85 のアンカーは無傷) |
+| STEP3-2 穴 | **19828** | `heroSlideOneTileExplore` の `checkTrapTrigger()` と `await exploreAllyTurn(oldPlayerTile);` の間に `        await waitSkillCheckIdle();   // ★[#87] …`(1 行)。K2 の推奨 (b) |
+| 門 + 待ち | **25983-25997** | `function dfSkillCheck(checkKey, dc, party, opts)` = `CORNER_CHECK_ON && (encounterActive \|\| encounterRunning) && !(opts && opts.auto)` なら `opts = Object.assign({}, opts, { auto: true })` → **呼んだ時点で** `window.SkillCheck.resolveSkillCheck(...)`。`async function waitSkillCheckIdle()` = `while (skillCheckActive && !gameOver) await new Promise(r => setTimeout(r, 40));`(立っていなければ 1 tick も待たない) |
+| 呼び口 12 本 | 25800 / 26153 / 26242 / 26344 / 26538 / 26781 / 27324 / 27738 / 28771 / 37577 / 37582 / 38164 | `SkillCheck.resolveSkillCheck(` → `dfSkillCheck(`(引数は 1 文字も変えていない)。入口のガード `window.SkillCheck && SkillCheck.resolveSkillCheck` は従来のまま |
+| STEP3-1 隠密 | **26246 / 26249 / 26266-26281** | opts に**新しい行** `            auto: CORNER_CHECK_ON,   // ★[#87] …`(撤退でもキーは常に在る = verify_invisibility (2a) のキー集合は 2 腕で一致)/ `catch` の次に新しい行 `        if (res && CORNER_CHECK_ON) showStealthRoll(res, party);` / `function showStealthRoll(res, party)` = runLoreCheck と同じ並び(主人公 → 生存仲間)で代表の頭上へ `<span class="label">STEALTH</span>隠密 1d20(…)±b = total vs DC`。ログは既存の `updateInfo`(成功 / 失敗)がそのまま出す。K12 の 6 行は無傷・奇襲の効果は不変 |
+| STEP2 罠 | **26314 / 26324** | `let viaHand = false;` の次 `      if (CORNER_CHECK_ON) document.body.classList.add("dfCornerChoice");` / 罠の `} catch (e) { goDisarm = false; }` の次 `      document.body.classList.remove("dfCornerChoice");`(catch が全部受けるので必ず通る)。`showChoice` / `showCharChoice` の引数・本体は不変(verify_mage_hand (7d) argc = 3 のまま) |
+
+- 門の置き場所の判断: 呼び口へ個別に `auto` を書かず、index の 12 口を薄いラッパ 1 本へ寄せた。tools の 10 本の「`SkillCheck.resolveSkillCheck` を差し替えて出目を決める」は、ラッパが呼ぶたびにプロパティを引くので全部そのまま効く(下の非退行で実証)。
+- ⚠ 二重の守り: 戦闘中の隠密は (i) opts の `auto: CORNER_CHECK_ON` と (ii) 門 の 2 段で止まる。**(i) だけを外しても (ii) が止めるので見た目は変わらない**(K16)。
+
+#### 実測(scratchpad `item2/probe87_2.js`・port 10623・沼・4 人編成 = 戦士 / 盗賊 / 僧侶 / 魔法使い・実 Chrome headless)
+
+判定パネル(探索判定・アイコンあり・4 人のロスター。本物の `SkillCheck.resolveSkillCheck`):
+
+| 姿勢 | `--ui-menu-w` | overlay = card の矩形 | 高さ ロール前 / 結果表示 | 背景 | overlay の pointer-events | カードの外の点 | カード上の点 |
+|---|---|---|---|---|---|---|---|
+| PC 展開 1280×900 | 280px | (288,8)-(548,240.3) | **232.3 / 222.3** | `rgba(0,0,0,0)` | none | `HTML`(ゲームへ届く) | カード内 |
+| PC 畳み 1280×900 | 0px | (8,63)-(268,295.3)・☰ (11,11)-(55,55) と交わらない | 232.3 / 222.3 | 同 | none | `HTML` | カード内 |
+| compact 390×844 | 0px | (8,80)-(268,312.3)・`#phaseIndicator` (44.1,8)-(345.9,72) と交わらない | 232.3 / 222.3 | 同 | none | `HTML` | カード内 |
+
+- ⇒ **4 人編成で縦 232.3px(< 300)**。3 姿勢ともカード上の**実クリック**(page.mouse)でロール → 結果 → 再クリックで閉じた(`show` = false・Promise が結果を返した)。z-index 105 のまま。
+- 罠の選択(`runTrapDisarmCheck` を直に呼ぶ・隣に発見済みの罠・`resolveSkillCheck` は固定の失敗):
+
+| 姿勢 | メイジハンドなし | メイジハンドあり | ボタン |
+|---|---|---|---|
+| PC 展開 | (288,8)-(548,148.2) | (288,8)-(548,208.2) | 234×44 ×2 / 234×44・234×54・234×44 |
+| PC 畳み | (8,63)-(268,203.2) | (8,63)-(268,263.2) | 同 |
+| compact | (8,80)-(268,220.2) | (8,80)-(268,280.2) | 同 |
+
+  - 開いている間 `body.dfCornerChoice` = true・`dialogPaused` = true・ログ枠 `visibility: visible`・画面右寄りの点は器に当たらない。Esc で迂回 → `dfCornerChoice` = false・`dialogPaused` / `skillCheckActive` = false・判定 0 回。
+  - 続けて罠以外の `showChoice`(檻の問いを模した文)を開くと**従来の下の帯**: PC 展開 (280,730)-(1280,900) / 畳み (0,730)-(1280,900) / compact (0,660)-(390,844)・ログ枠 hidden(= 着手前と同じ)。
+- 戦闘中の隠密(`startGame` → `encounterActive = true` + 交戦敵 1 体 → `tryStealthSurprise()`): パネル表示 **0 回**・`resolveSkillCheck` 1 回 `stealth`・opts のキー `auto,flavor,title,voiceIds`・`auto` = true・所要 15ms(従来はパネル 1 枚 ≈ 7 秒)・吹き出し `STEALTH 隠密 1d20(9)+6 = 15 vs DC 15`(+ #49 の判定行)・ログ「ニカ が気配を殺して接近! 敵 1体 の隙を突いた (隠密 15 ≧ DC 15) …」。
+- 門: 同じ戦闘中に `dfSkillCheck('sleightOfHand', …, { title, voiceIds })`(auto なし = 開錠と同じ形)→ 本体へ `auto: true` が付いて届き、パネル 0・即決。
+- 穴(B2 と同じ型: `narrationHold = true` + `gameStarted = true` + 追跡状態の lizardRaider を主人公の 5 マス東 + `heroSlideOneTileExplore` を直に呼ぶ): パネル表示 t=2187〜9187ms(100ms 刻みのサンプル 71 個)の間、敵は **(17,13) のまま**。`exploreEnemyTurn` の開始は t=11185(パネル閉・`skillCheckActive` = false)→ 終了で (16,13)。⇒ 着手前(B2: パネル表示中の t=4090 に敵の手番が始まり (16,13) へ詰めた)から直った。
+- `?cornercheck=0` の腕: `html` に class なし / overlay は全面 (0,0)-(1280,900)・背景 `rgba(8, 6, 2, 0.55)`・pointer-events auto・カード 472×527.5(compact 390×527.5)= 着手前と同じ / 罠の選択は 6 腕とも下の帯(`dfCornerChoice` は一度も付かない・ログ hidden)/ 戦闘中の隠密はパネルが出る(opts の `auto` = false・キー集合は同じ 4 つ)・門も素通し(開錠形の呼び出しでパネルが出た)/ **穴ふさぎは撤退でも効く**(敵の手番はパネルが閉じた後 t=10870)。
+
+#### 既存 golden の非退行(変更後・逐次・本番ツリー・2026-10-09 10:06〜12:06・52 腕)
+
+§12-0 の 45 腕 + `verify_swamp_novice` / `driver_doors_p6` / `driver_action_priority`(素 + `--negative`)/ `verify_arcane_eye`(素 + `--negative`)/ `verify_walk_block --negative`。走行中 `index.html` は不変(着手時に hash を控えてから回した)。
+
+- **素は全部、着手前と同じ色。** 緑のまま: driver_trap_disarm 44/44 / driver_skillcheck_roster 13/13 / driver_fix4_help_bonus 13/13 / driver_room_search_roll 39/39 / driver_choice_logslot 29/29 / driver_scroll_autoskip 9/9 / driver_grid_s2 124/124 / driver_wallbox 28/28 / driver_bgm_mine 37/37 / verify_fort_fold 30 / verify_swamp_fold 30 / verify_dragon_fold 35 / verify_lore_check 26/26 / driver_mapdef_step1 208/208 / driver_graph_kinds 66/66 / driver_graph_run 99/99 / verify_swamp_novice 34 / driver_doors_p6 40/40 / driver_action_priority 92 / verify_arcane_eye 34/34 / verify_mage_hand_reach 11/11 / verify_prep_retire 30/30 / verify_road_ambush 41/41 / verify_road_boon 20/20 / verify_road_events 25/25 / verify_temple_fold 24 / verify_tower_mother 19/19 / verify_mage_hand 32/32 / verify_invisibility 27/27 / driver_grid_p5 103 / verify_tower_mother_b 22/22 / driver_encounter_mopup 36/36 / driver_grid_p9 52/52。
+- 非緑の素は着手前と同じ顔ぶれ・同じ理由: `verify_walk_block` (3d)(badge 44→47)/ `driver_sce1_events` (2)(4d)(N2-隣)(sceneFlags 4 本目)。`driver_mine_wall` は今回 **66/66 緑**(着手前 64/66 は観測窓の揺れ = 既知)。
+- `--negative`: verify_lore_check / verify_mage_hand_reach / verify_dragon_fold / verify_invisibility(9/9)/ verify_road_events / verify_road_boon / verify_walk_block(54/54)/ verify_arcane_eye(10/10・`nopause` の count 2 は無傷)/ verify_road_ambush(97/97・`goldalways` 無傷)/ verify_prep_retire / verify_tower_mother(9/9)/ verify_temple_fold / verify_mage_hand(**12/12**・`trapchoice` は (7d)(11a) を担当どおり赤 = 罠の 3 引数と `if (handCaster) {` のアンカーが生きている)はすべて exit 0。fort / swamp_fold の exit 3 は着手前と同じ(型3・畳みで多重ヒット)。
+  - ⚠ `verify_lore_check --negative` は連続走行の中で 1 回だけ exit 1(変異 `crguess` で担当外の (1j) が赤 = 「again」の乱数 `nR` が [2,1])。**単独で 2 回走らせ直して 2 回とも exit 0**(12/12)⇒ 型2(偽の赤)。#87 の差分は伝承の経路に `dfSkillCheck` の名前替えしか入れておらず、伝承は元から `auto: true` なので門も効かない。
+  - `driver_action_priority --negative` は exit 1・0.1 秒(N3 のアンカー `const equippedIds = apEquippedIdsFor(slot, classKey);` が `tavern.html` に 2 箇所)。**`git show HEAD:tavern.html` でも 2 箇所** = 着手前からの腐り(型3・#35 以来の既知。post86 の母集団にこの腕は無い)。#87 の tavern の差分は changelog の 1 行だけ。
+- ⇒ **言い直した golden は 0 本**。(1) 判定パネルの DOM は不変で、既存の閉じ装置は `ov.click()`(K14)なので pointer-events:none でも閉じる。(2) 罠は `#choiceDialog` の器と 3 引数のまま(K4)で、`clickChoice()` / `.choiceButtons button` の押し方がそのまま通る。(3) 隠密の opts には `auto` を**常に**足したので、verify_invisibility (2a) のキー集合は 2 腕で一致する。
+- ⭐ 副作用: `verify_invisibility` の素が **143.5 → 24.2 秒**。戦闘開始の隠密パネル(≈ 7 秒 × 回数)が消えたから(K3 の予告どおり。戦闘開始が約 7 秒早まる)。
+
+#### 新たな崩れ(K15〜)
+
+- **K15** `#phaseIndicator` が上中央の札になるのは `@media (max-width: 768px)`(index 1091 付近)で、`ui-compact`(560px)より広い。⇒ パネルと罠の器の top 80px は **768px 以下**で切った。561〜768px の PC 幅でも札と交わらない。
+- **K16 ⚠ 隠密は二重の守り。** opts の `auto: CORNER_CHECK_ON`(26246)だけを外しても、門 `dfSkillCheck`(25987-25990)が戦闘中なので `auto` を足し直す ⇒ パネルは出ない。§8 の変異 `stealthpanel` を「26246 の行を消す」だけで作ると (3a) は**空振り**する。⇒ 項目4 は (a) 門を通る前の opts を測る(`window.dfSkillCheck` は function 宣言 = 差し替え可・tryStealthSurprise が渡した opts に `auto` が在るかを見る)か、(b) 変異で 26246 と門の条件を同時に外すか、を選ぶ。memory の「二重の守りは後段へ届いた回数で測る」の型。
+- **K17** 判定が `auto` になると `showPanelAndRoll` の d20 / アニメの `Math.random` を引かない(K3 の再確認)。戦闘中の乱数列は着手前とずれる(戦闘は元から非決定)。既存 golden で赤くなった本は 0。
+- **K18** 穴ふさぎの待ちは `skillCheckActive` だけを見る。罠の選択・開錠(`tryPickLock`)・Sce1 / 司祭の対話・出口ヒント・扉の開錠も同じフラグを立てるので、探索ターンの途中でそれらが開けば全部待つ。autoplay では判定が microtask で解けるので待ちは 40ms × 1 回(探索判定が出た歩だけ)。フラグが落ちない経路は `gameOver` で抜ける。`skillCheckActive = true` を含む 11 行はどれも対で false に戻す(finally / 直後の行)= 立てっぱなしの既存経路は無い。
