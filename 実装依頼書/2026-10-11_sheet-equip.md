@@ -355,4 +355,46 @@ atkBonus: st.atkBonus, dmgDice: st.dmgDice, dmgBonus: st.dmgBonus,   // ← 頭�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0 基準取り(項目1・2026-10-11 worker)
+
+- **HEAD** `76e2e6a`。`e7b877d..HEAD` は md 2 本だけ(本依頼書 + README)。本番 6 ファイル + `js/` の blob は e7b877d == HEAD == 作業ツリー。
+- **§2 の行番号・コード片はすべて一致**(player-sheet.js / index.html / tavern.html の全参照を `sed -n` で確認)。
+  `applyAllyEquipment(` の呼び口 = :36465 の 1 件 / `ownedEquip` in index.html = :24285 のコメント 1 件 / `dfIsTwoHanded`・`dfWeaponLocksShield` の呼び口 0 /
+  `setPhase("combat")` は :22063 の 1 箇所 / 罠 C(:22414 rest → :22485 `encounterActive=false` → :22500)も記述どおり。
+
+#### 崩れた主張(K)
+
+| K | 依頼書の主張 | 実測 | 実装への影響 |
+|---|---|---|---|
+| K1 | §3/§2-8: `verify_player_sheet` は (0s9) の 11→12 だけ直す・他の期待値は変えない | (0s9) は**定義の数**を数える(`SECTION_IDS` / `__state().sections` 全件 / shown+hidden の和。スタブページ)⇒ 11→12 は正しい。**だが (2c)(:1640-1683)** がページごとの hidden 集合を厳密比較 + 伏せ計 `hiddenWant=20` で見ている。装備区画は town/world/title で hidden ⇒ 伏せ計 20→23 で必ず赤 | (2c) も言い直しが要る: `hiddenWantOf` に「装備の供給口が無いページ(index/tavern 以外)は `dfSheetSecEquip`」を規則で足し、`hiddenWant` 20→23(STALE 側 22→25)。`allShown===1` は不変。(8a) v1 は不変 |
+| K2 | §2-6/§8 (1d)・変異 `twohand`: ダンジョンでも両手武器の規則を通す | index の 7 表(`weapons` + `ALLY_EQUIP_POOLS` 6 職)すべてで `dfWeaponLocksShield` が **false**(実測)。酒場で盾を塞ぐのは `DWARF_WEAPONS[1]`「戦斧」だけ(tavern.html:4361 の flavor)で、index の写し :23124 は flavor も `twoHanded` も持たない | (1d) と `twohand` にダンジョン側の母集団が無い。index :23124 の戦斧に `twoHanded: true`(か酒場と同じ flavor)を足して同期する必要あり(他の呼び口 0 = 戦闘へ波及しない)。種 = ドワーフ頭 + 戦斧 + 盾 |
+| K3 | §2-4 罠 B: 帰還時の書き方を直せば「拾った品が消える」は防げる | (a) 敵ドロップ `tryEquipOnLeader`(:18401-18421)は `current*Index` を上げるだけで localStorage を書かない(帰還時の max だけが拾っていた)。(b) 宝箱(:24648-24710)は `current+1` を渡し高水位を素の `setItem` で書く ⇒ 装備を下げた状態で開けると保存済み高水位を**下げる**。例「1 → 宝箱で 3」は起きない(+1 ずつ) | 高水位 = `max(runMax, startedWith, 保存済み)`(`runMax` = ラン中の `current*Index` の最大)にし、宝箱の書き込みは `bumpStoredIdx` へ |
+| K4 | §8 (3d): ラン中に宝箱で上位品を得る | #87 で道中の宝箱は既定で廃止(`ROAD_CHEST_ON` index.html:3592-3596)。残るのは森の鍵束と竜の巣の財宝だけ | (3d) は `?roadchest=0` を付けるか、ドロップ / 注入で作る |
+| K5 | §2-10/§8 (5b): 見るのは置き場所からのはみ出しと `#townHud` の段数 | はみ出しは 0。**だが酒場の「✨ 依頼を引く」(`#btnDrawQuest`)をさらに覆う**。390x844: 押せる面積 53% → **24%**(残りは上端 9px の帯)、重なり 86x26 → 140x26。1280x900: 80% → 59%、中心点が `#btnDrawQuest` → `#dfSheetBtn` に変わる。title 390 の「はじめから」も下端 9px で 6% → 11% | **ユーザー判断待ち**(位置を動かす / 受け入れる)。文字は縮めない |
+| K6 | §2-10: 長くすると `#townHud` が 2 段になることがある | 390 では**書き換え前から 2 段**(子 4・行 top 744/796・高さ 108)。書き換え後も 2 段・108 のまま | 段数の変化は無し |
+
+軽微(詳細メモ): K7 戦士の選べる品は本表 `weapons/armors/shields` で作る(`WARRIOR_ALLY_*` は gated を持たない。他 5 職の index/tavern 表は名前・gated とも一致を実測)/
+K8 戦闘終了の描き直しは `setPhase` でなく :22485 の直後へ(`setPhase("explore")` は gameOver / dungeonCleared では呼ばれない)。
+
+#### 幅の実測(390x844・isMobile・`#dfSheetBtn` の textContent だけ実行時に書き換え)
+
+| ページ | 置き場所 | ボタン幅 前→後 | 置き場所の余り(後) | 段数・重なり |
+|---|---|---|---|---|
+| index | `#partyPanel`(compact ドロワー 300px) | 281 → 281(列 flex で全幅。scrollW 277 = clientW 277) | 3px | 文字は収まる |
+| tavern | body 固定 | 102 → 191.4(右端 120 → 209.4) | 180.6px | K5 |
+| town | `#townHud` | 102 → 191.4 | 89.3px | 2 段 → 2 段・高さ 108 → 108 |
+| world | body 固定 | 102 → 191.4 | 180.6px | 固定 UI との重なり 0 |
+| title | body 固定 | 102 → 191.4 | 180.6px | `.slotBtn` 下端 9px |
+
+5 ページとも pageerror 0・ボタン中心は覆われていない。
+
+#### 既存 golden の現在値(HEAD `76e2e6a`)
+
+`verify_player_sheet` 73/73(PENDING 0)・`--negative` 111/111 / `verify_darkvision` 25/25 / `verify_party_match_setup` 36/36 /
+`verify_town_map` 85/85 / `verify_title_screen` 86/86 — **全部記録どおり**、exit 0。
+
+#### 母集団の pre
+
+**post88(212 腕・e7b877d で走査)をそのまま pre に流用可**(e7b877d..HEAD は md のみ)。clone は #89 の HEAD で作り直し、
+影のツリーで戻すのは `js/player-sheet.js` / `index.html` / `tavern.html`。`verify_player_sheet` は RESTATED 扱い((0s9) + K1 の (2c))。
+⚠ post88 に `verify_player_sheet --negative` の腕は無い(#89 で player-sheet.js を触るので個別に回すこと)。
