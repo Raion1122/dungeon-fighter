@@ -1,6 +1,6 @@
 # #88 BGM を Claude の合成曲へ統一(mp3 11 曲を廃止 + 新曲 3 曲)
 
-- **起草**: 2026-10-10(計画窓 claude-67) / **ステータス**: **承認済**(2026-10-10 ユーザー承認)
+- **起草**: 2026-10-10(計画窓 claude-67) / **ステータス**: **完了(push 待ち)**(2026-10-11・本番 `2643ef3`・受入 `2a7df3d` `verify_synth_bgm`・母集団 212 腕で #88 帰属の緑→赤 0 = §12-3。残 = §9 実機〔新曲 3 曲の曲調・切替とクロスフェード・音量 K11〕)
 - **触るファイル**: `audio.js` / `index.html` / `tavern.html` / `town.html` / `title.html` / `world.html` /
   `assets/bgm/*.mp3`(11 本を `git rm`)/ `voicevox-pipeline/CREDITS.md` /
   `tools/verify_synth_bgm.js`(新規)/ `tools/verify_world_map.js` / `tools/driver_grid_p8.js` /
@@ -661,4 +661,61 @@ if (!TRACKS[name]) return;                           // ← 無ければ黙っ�
 
 - ⭐ 次の新規ドライバ base = **10606**(10606〜10625 は tools/ に使用なし。scratchpad の使い捨てプローブが 10620〜10622 を使ったが repo 外)。
 
-(以降の項目は実装窓が埋める)
+### 12-3 母集団の非退行(項目4・2026-10-11・基準 `2a7df3d`)
+
+触ったファイル = 本依頼書 / `実装依頼書/README.md` だけ。⛔ 本番(`audio.js` / 5 html / `assets/`)と tools は 1 バイトも触っていない。
+
+- **本番**: `2643ef3`(項目2: mp3 層撤去 + 新曲 3 曲 `title` / `town` / `world` + ダンジョンの鳴らし分けを mp3 導入前へ + `?worldbgm=0` + changelog)。**受入**: `2a7df3d` `tools/verify_synth_bgm.js`(素 35 assert 約 25 秒 / `--negative` 34 本 約 140 秒・port 10598 / 10599・10601〜10605)。**基準取り**: `f02604b`。
+- **撤退**: mp3 へは `git revert` だけ(§7)。ワールドマップの新曲だけは `?worldbgm=0`(合成 `explore` へ)。
+
+#### 母集団の走査(212 腕・575.7 分・完了 2026-10-11T05:28)
+
+- 腕 = post87 の 213 腕 − `driver_bgm_mine` / `driver_bgm_title` / `driver_bgm_town`(#88 で `git rm` = 対象消滅で比較から外す)+ `verify_synth_bgm` の素 / `--negative`(prod 180 / clone 29 / fix 3)。基準 = #87 の `post87`(`171112e`。`171112e..bbc6183` は md だけ = §12-0「母集団の判断」どおり再走査なしで流用)。
+- 道具と資産は scratchpad `fdbd1b77-…/scratchpad/item4/`(`armlist_88post.json` / `sweep_88post.py` / `run_all88post.ps1` / `run_post88/post88.tsv` / `cmp_88.py` / `mkshadow_88.py` / `pair_88.py` / 切り分けは `triage/`)。clone88 = `2a7df3d` の `git clone --shared`(`cmptree88.py` で追跡ファイル 919 本の内容の差 0 = 本依頼書の本節を除く。行末だけの差 1 本 = #87 §12-4 で既知の `tools/probe_magehand_reach.js`)。
+
+| 区分 | 本数 | 中身 |
+|---|---|---|
+| 緑 | 188 | — |
+| 非緑 | 24 | 下の緑→赤 3 + 非緑のまま 21 |
+| **緑→赤** | **3** | `driver_mine_wall` 素(66/66 → 64/66)/ `driver_speech_engine` 素(17/17 → 16/17)/ `verify_mage_hand --negative`(exit 0 → 1)。⇒ 下の切り分けで **3 本とも #88 帰属 0** |
+| 赤→緑 | 3 | `driver_monsters_griffon` / `driver_monsters_hobgoblin` / `verify_run_chronicle`(#87 §12-4 で既知の揺れ) |
+| 非緑のまま | 21 | post87 と同じ顔ぶれ・同じ理由(`driver_grid_p8` (6d) は #88 で言い直した `[#88-RESTATED]` 腕だが (6d) は #88 前から赤 = §12-0) |
+| 新規 | 2 | `verify_synth_bgm` 素 **35/35**・`--negative` **34/34** exit 0 |
+| 消滅 | 3 | `driver_bgm_*`(`git rm`) |
+
+#### 緑→赤 3 本の切り分け(ログ → 単独再走 → 交互の対比較)
+
+影 = `mkshadow_88.py` の `shadow88`(本番作業ツリーの実体コピーで、`audio.js` / `index.html` / `tavern.html` / `town.html` / `title.html` / `world.html` + `assets/bgm/*.mp3` 11 本 + `CREDITS.md` を `15b23ab` = #88 前へ戻したもの)。`pair_88.py` で本番と影を交互に走らせた(`triage/pairs_g2r/pairs.tsv`)。
+
+| 本 | 走査の赤 | 赤い assert が読むもの | 再走 | 判定 |
+|---|---|---|---|---|
+| `driver_mine_wall` | (4z)(4z2) 装置「戦車が実際に乱入した」(`__chariotProbe` 空・(2e) はクリア到達で緑) | 戦車の乱入は**ラウンド開始時**に「グリクスの HP ≤ 70%」を見る(`shouldSpawnChariot`)⇒ 1 ラウンドで 70% 超から倒し切ると出ない = 乱数。#88 の差分(BGM の表・呼び口・クレジット)はこの経路に 1 バイトも触れない | 交互 5 対: **本番 5/5・影 5/5 緑**(10 回とも乱入あり) | 観測窓の揺れ ⇒ **#88 帰属 0** |
+| `driver_speech_engine` | (4) 「カメラが実際に動いた」(camXレンジ 12.5px < 20・`phase=combat`・`follow=000111`) | `playerX` を 45px ずつ動かし camX を見る節。戦闘に入るとカメラ追従が止まり空回りする(装置の自己申告どおり)。カメラ・吹き出しのコードは #88 で不変 | 交互 5 対: **本番 3/5 緑・影 1/5 緑**(赤はすべて (4) の 2 本のどちらか = 影でも同じ型) | 影(#88 前)のほうが赤い既知型の揺れ ⇒ **#88 帰属 0** |
+| `verify_mage_hand --negative` | 変異 `escapeon` の担当 (4a) に加えて (3a)(3c)(6a) も赤 = 「担当が絞れていない」で exit 1(素の 32 本と他 11 変異は post87 と同じ) | `escapeon` は n7 の檻の `noAutoEscape` を殺す変異 ⇒ 戦闘中 5 秒ごとに `Math.random() < 20%` で自然脱走が走る。(3a) の実戦闘で手のダイアログより先に檻が開くと `dlg:null・asked:["calm"]` になり (3a)(3c)(6a) が連れ赤 = 変異の中の乱数の競争。檻・手のコードは #88 で不変 | 本番で単独 1 回(1879 秒): **exit 0・12/12 担当どおり**(`escapeon` は (4a) だけ赤) | 変異腕の中の乱数 ⇒ **#88 帰属 0**(対比較は不要と判断: 赤の経路が #88 の差分と交わらない) |
+
+- ⇒ **#88 帰属の緑→赤 0・本番の直し 0**。
+
+#### 崩れた主張(K16〜)
+
+- **K16 — `driver_speech_engine` (4) は #88 前から揺れる**(影 4/5 赤)。走査 1 回の緑(post87 の 17/17)は「安定して緑」の根拠にならない。
+- **K17 — `verify_mage_hand --negative` の `escapeon` は担当が乱数で広がる**。自然脱走 20% × 5 秒が (3a) の実戦闘と競争するので、`--negative` の exit が変異腕の中の乱数で揺れる(post87 と本番の再走では (4a) だけ)。
+- **K18 — `driver_mine_wall` (4z) は戦車の乱入が HP しきい値のラウンド開始判定に依存**。1 ラウンドで落とし切る走行では装置 assert が空振りする(#87 §12-4 の赤→緑と同じ揺れの裏返し)。
+
+#### §9 実機/実感の宿題(ユーザー担当)
+
+- 新曲 3 曲(`title` 荘厳な幕開け / `town` にぎやかな港町 / `world` 広野の叙事詩)の曲調が選んだものになっているか。
+- ダンジョンで探索 → 戦闘 → ボス部屋の切り替えと、クロスフェード(0.6 秒)が唐突でないか。
+- ⭐ 音量: 合成曲は旧 mp3 より 5〜6 dB 大きい可能性(§2-5)。`title` のピークは −4.0〜−4.5 dBFS で既存曲より 2 dB ほど高い(K11)。DM の語り・効果音とかぶるなら設定の BGM 音量で済むか、`makeup` を下げるか(⚠ 既存 6 曲を下げるならユーザー確認)。
+- 酒場(`tavern` = メタルバラード)へ戻ったときの印象。
+- ⚠ ローカルは http 起動が必須(`file://` では音が出ない)。
+
+#### 別チケット候補
+
+- `driver_speech_engine` (4) の空回り: 測定前に戦闘を抜ける / 戦闘中なら測り直す形へ(K16)。
+- `verify_mage_hand` の変異 `escapeon`: (3a) の実戦闘中は自然脱走の乱数を止める / 担当に (3a)(3c)(6a) を「確率赤」として持つ(K17)。
+- (継続)`driver_mine_wall` (4z) / `driver_monsters_hobgoblin` / `verify_run_chronicle` の観測窓の揺れ。
+
+#### 次
+
+- 次の新規ドライバ base = **10606**(10606〜10625 は tools/ に使用なし)。
+- 作業コピー `clone88` + `shadow88` + `shadow88git`(合計 ≈ 730MB・scratchpad `item4/`)の削除はユーザー判断(削除フォルダ経由)。
