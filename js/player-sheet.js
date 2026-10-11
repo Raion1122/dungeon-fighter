@@ -15,10 +15,14 @@
  *   ⚠ 依存: js/abilities.js (window.DFAbilities)。**本ファイルより前**に読み込むこと。
  *      無くても落ちない (能力値区画が行ごと消えるだけ) が、それは「壊れて見える」状態。
  *
- * ★ v1 は閲覧専用。装備欄は出さない (依頼書 §2-3)
- *   装備テーブル 41 定義が index.html / tavern.html へ手作業ミラーされており、
- *   localStorage に入っているのは索引だけ。よって town/world/title では
- *   「今どの武器を持っているか」を**原理的に表示できない**。装備欄は #30。
+ * ★ #89: 装備区画 dfSheetSecEquip は「装備の供給口を登録したページ」だけに出る
+ *   装備テーブルは index.html / tavern.html へ手作業ミラーされており、localStorage に
+ *   入っているのは索引だけ。よって town/world/title では「今どの武器を持っているか」を
+ *   **原理的に表示できない** = 供給口を登録しない = 区画は avail=false で行ごと消える。
+ *   供給口 setEquipProvider({canEdit, slots, equip}) は「選べる品・付け替え・変更できるか」を
+ *   ページ側が持つ (規則の正はページ側)。シートは描いてボタンを押すだけ。
+ *   ⛔ 開閉では localStorage を 1 バイトも書かない。書くのは equip() を呼んだときだけ。
+ *   ⚠ ?sheet5e=0 (v1) には装備区画を足さない (撤退用の旧体裁は 1 区画も変えない)。
  *
  * ★ 取れなかった区画は「空文字で描く」のではなく **行ごと DOM から消す** (依頼書 §2-4)
  *   HP/AC は index.html のランタイム変数で、他 4 ページには存在しない。
@@ -43,6 +47,8 @@
  *   - heroClassKey()         partyComposition の先頭 (未知 / 未保存なら warrior)
  *   - classLabel(classKey)   職業の表示名
  *   - setBodyProvider(fn)    HP/AC の供給口。index.html だけが登録する
+ *   - setEquipProvider(p)    ★#89 装備の供給口 {canEdit, slots, equip}。酒場とダンジョンだけが登録する
+ *   - hasEquipProvider()     ★#89 供給口が登録済みか (検証用)
  *   - __state()              ⭐ 検証用シーム: 何を取れて何を伏せたかを本番の描画結果から返す
  */
 (function (global) {
@@ -147,7 +153,9 @@
     { id: "dfSheetSecCombat",      label: "",                   col: "B" },
     { id: "dfSheetSecBody",        label: "ヒット・ポイント",   col: "B" },
     { id: "dfSheetSecAttacks",     label: "攻撃 & 呪文発動",    col: "B" },
-    { id: "dfSheetSecPersona",     label: "人物",               col: "C", blank: true },
+    /* ★#89 装備区画。⭐ 装備の供給口 (setEquipProvider) を登録したページ (酒場 / ダンジョン) だけ avail。 */
+    { id: "dfSheetSecEquip",       label: "装備",               col: "B" },
+    { id: "dfSheetSecPersona",    label: "人物",               col: "C", blank: true },
     { id: "dfSheetSecTraits",      label: "特徴 & 特性",        col: "C" },
     { id: "dfSheetSecLanguages",   label: "その他の習熟と言語", col: "C" },
   ];
@@ -326,6 +334,36 @@
     return out;
   }
 
+  /* ── ★#89 装備の供給口 ────────────────────────────────────────────────
+   *  p = { canEdit(): {ok, reason}, slots(): [{kind, label, current:{idx,name,note}, options:[...],
+   *        locked, lockReason}], equip(kind, idx): {ok, reason} }
+   *  ⭐ 「選べる品」「変更できるか」「付け替え」の規則は全部ページ側。シートは写経しない。
+   *  ⭐ 登録しないページ (town / world / title) では区画が avail=false で行ごと消える。 */
+  var EQUIP_PROVIDER = null;
+  var EQUIP_LAST_MSG = null;    // 直近の付け替えが弾かれた理由 (次の render で 1 回だけ出す)
+  function setEquipProvider(p) {
+    EQUIP_PROVIDER = (p && typeof p.slots === "function" && typeof p.equip === "function") ? p : null;
+    if (OPEN) render();
+  }
+  function hasEquipProvider() { return !!EQUIP_PROVIDER; }
+  function equipData() {
+    if (!EQUIP_PROVIDER) return null;
+    var slots = null, ce = null;
+    try { slots = EQUIP_PROVIDER.slots(); } catch (e) { slots = null; }
+    if (!Array.isArray(slots) || !slots.length) return null;
+    try { ce = (typeof EQUIP_PROVIDER.canEdit === "function") ? EQUIP_PROVIDER.canEdit() : { ok: true }; }
+    catch (e) { ce = { ok: false, reason: "" }; }
+    return { canEdit: { ok: !!(ce && ce.ok), reason: (ce && ce.reason) || "" }, slots: slots };
+  }
+  function equipTap(kind, idx) {
+    if (!EQUIP_PROVIDER) return { ok: false, reason: "" };
+    var r = null;
+    try { r = EQUIP_PROVIDER.equip(kind, idx); } catch (e) { r = { ok: false, reason: "" }; }
+    EQUIP_LAST_MSG = (r && !r.ok && r.reason) ? r.reason : null;
+    render();
+    return r;
+  }
+
   // ══ データ採取 ════════════════════════════════════════════════════════
   //  ⭐ 「描けるか」の判断はここ 1 箇所。render() も __state() も同じ結果を見る。
   function collect() {
@@ -427,6 +465,8 @@
 
     // ── 体: index.html だけが供給できる。
     d.body = bodyStats();
+    // ── ★#89 装備: 供給口を登録したページだけ。⚠ v1 (?sheet5e=0) には区画が無いので採らない。
+    d.equip = SHEET5E ? equipData() : null;
     return d;
   }
 
@@ -482,6 +522,11 @@
     '  background: rgba(255, 255, 255, 0.34);',
     '}',
     '#' + OVERLAY_ID + ' .dfSheetChip.fixed { background: rgba(201, 169, 97, 0.42); }',
+    /* ★#89 紙の題名。閉じる ✕ (右上 34px) に掛からないよう右を空ける。 */
+    '#' + OVERLAY_ID + ' .dfSheetTitle {',
+    '  margin: 0 44px 10px 0; font-size: 17px; font-weight: 600; letter-spacing: 3px; line-height: 1.3;',
+    '  color: #6b4f2a; font-family: inherit;',
+    '}',
   ];
 
   /* #29 の紙 (v1)。⛔ 1 文字も変えない — ?sheet5e=0 のときの姿そのもの。 */
@@ -594,6 +639,23 @@
     '  display: block; height: 0; margin-top: 10px;',
     '  border-bottom: 1px dotted rgba(122, 90, 44, 0.55);',
     '}',
+    /* ── ★#89 装備: 今の装備 1 行 + 選べる品のボタン列。戦闘中は灰色で押せない ── */
+    '#' + OVERLAY_ID + ' .dfSheetEquipSlot { margin: 0 0 8px; }',
+    '#' + OVERLAY_ID + ' .dfSheetEquipOpts { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 4px 0; }',
+    '#' + OVERLAY_ID + ' .dfSheetEquipOpt {',
+    '  display: inline-flex; flex-direction: column; align-items: flex-start; box-sizing: border-box;',
+    '  min-height: 34px; max-width: 100%; padding: 4px 9px; font-size: 13px; line-height: 1.25;',
+    '  color: #2a2118; background: rgba(255, 255, 255, 0.45); cursor: pointer;',
+    '  border: 1px solid rgba(122, 90, 44, 0.7); border-radius: 6px;',
+    '  user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;',
+    '}',
+    '#' + OVERLAY_ID + ' .dfSheetEquipOpt .es { font-size: 11px; color: #6b4f2a; }',
+    '#' + OVERLAY_ID + ' .dfSheetEquipOpt.off { opacity: 0.45; filter: grayscale(1); cursor: not-allowed; }',
+    '#' + OVERLAY_ID + ' .dfSheetEquipNone { font-size: 12px; color: #6b4f2a; font-style: italic; }',
+    '#' + OVERLAY_ID + ' .dfSheetEquipReason {',
+    '  margin: 2px 0 4px; padding: 3px 6px; font-size: 12px; color: #7a2a18;',
+    '  background: rgba(122, 42, 24, 0.08); border-left: 3px solid rgba(122, 42, 24, 0.5);',
+    '}',
   ].join('\n');
 
   var CSS = CSS_BASE.join('\n') + '\n' + (SHEET5E ? CSS_V2 : CSS_PAPER_V1.join('\n'));
@@ -654,6 +716,117 @@
 
   var btnEl = null;
   var mountVia = null;
+  var placedAt = null;   // ★#89 K5: 画面固定のときに選んだ置き場所 (検証用に __state へ出す)
+
+  /* ★#89 K5 拡張 (ユーザー決定 2026-10-11) ─────────────────────────────────
+   *  ボタンの文字が「📜 キャラクターシート」へ伸びて、左下固定のままでは酒場の「✨ 依頼を引く」や
+   *  タイトルの「はじめから」を覆った。⇒ 画面固定で置くページ (酒場 / タイトル / 地方全景) では
+   *  **押せる物と重ならない場所を実測で選ぶ**。
+   *  ⭐ ページ名で座標を決めない (ページの UI が動くたびに腐る)。四隅を起点に、縁から 8px ずつ
+   *     内側へずらした候補を「動かす量が小さい順」に試し、押せる物との重なり面積が 0 の最初の点を採る。
+   *  押せる物 = button / a[href] / [onclick] / [role=button] / input / select / textarea / summary /
+   *     label[for] / cursor:pointer の要素 / position:fixed|sticky の固定 UI。
+   *     ⚠ 画面の半分以上を占める物 (酒場の歩ける床・全画面の幕) は除く (除かないと置き場所が無くなる)。
+   *  ⚠ ページが縦にスクロールする (タイトルの 390 幅) ときは fixed だとスクロールで下を流れる押せる物に
+   *     必ず重なるので、**文書の上に absolute** で置く (一緒にスクロールして離れない)。上の隅を優先。
+   *  ⚠ iPhone の安全領域 (viewport-fit=cover) は env(safe-area-inset-*) を実測して余白に足す。
+   *  ⛔ #partyPanel (ダンジョン) / #townHud (町) は従来の置き場所のまま。町のデスクトップ (#townHud が
+   *     非表示で body 固定になる) も従来の左下のまま = 町のページには一切手を出さない。 */
+  var CLICKABLE_SEL = 'button, a[href], [onclick], [role="button"], input, select, textarea, summary, label[for]';
+  function elShown(el) {
+    try {
+      if (typeof el.checkVisibility === "function") {
+        return el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+      }
+    } catch (e) { /* 古い端末 */ }
+    return el.getClientRects().length > 0;
+  }
+  function safeInsets() {
+    var o = { t: 0, r: 0, b: 0, l: 0 };
+    try {
+      var p = document.createElement("div");
+      p.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;"
+        + "padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);";
+      document.body.appendChild(p);
+      var cs = global.getComputedStyle(p);
+      o = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0,
+            b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+      document.body.removeChild(p);
+    } catch (e) { /* 0 のまま */ }
+    return o;
+  }
+  /* 押せる物の矩形。abs=true なら文書座標 (スクロール量を足す)。 */
+  function obstacleRects(abs) {
+    var out = [];
+    var ov = document.getElementById(OVERLAY_ID);
+    var vwA = global.innerWidth * global.innerHeight;
+    var sx = abs ? (global.scrollX || 0) : 0, sy = abs ? (global.scrollY || 0) : 0;
+    var all = document.body.getElementsByTagName("*");
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el === btnEl || (btnEl && btnEl.contains(el)) || (ov && ov.contains(el))) continue;
+      var cs = global.getComputedStyle(el);
+      var fixedUi = cs.position === "fixed" || cs.position === "sticky";
+      var clickable = cs.cursor === "pointer";
+      if (!clickable) { try { clickable = el.matches(CLICKABLE_SEL); } catch (e) { clickable = false; } }
+      if (!clickable && !fixedUi) continue;
+      if (cs.pointerEvents === "none") continue;
+      var r = el.getBoundingClientRect();
+      if (!(r.width > 0 && r.height > 0)) continue;
+      if (r.width * r.height >= vwA * 0.5) continue;      // 歩ける床 / 全画面の幕
+      if (!elShown(el)) continue;
+      out.push({ l: r.left + sx, t: r.top + sy, r: r.right + sx, b: r.bottom + sy });
+    }
+    return out;
+  }
+  function overlapArea(a, b) {
+    return Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+  }
+  function clearPlacement() {
+    if (!btnEl) return;
+    btnEl.style.position = ""; btnEl.style.left = ""; btnEl.style.top = "";
+    btnEl.style.right = ""; btnEl.style.bottom = "";
+    btnEl.removeAttribute("data-place");
+    placedAt = null;
+  }
+  function autoPlace() {
+    if (!btnEl || !btnEl.classList.contains("dfSheetBtn-fixed")) return;
+    if (document.getElementById("townHud")) return;        // 町は従来の左下のまま
+    var de = document.documentElement;
+    var vw = de.clientWidth || global.innerWidth;
+    var vh = global.innerHeight;
+    var abs = de.scrollHeight > vh + 1;                     // 縦スクロールするページ
+    var H0 = abs ? de.scrollHeight : vh;
+    var W = btnEl.offsetWidth, H = btnEl.offsetHeight;
+    if (!(W > 0 && H > 0)) return;
+    var ins = safeInsets();
+    var M = 18;
+    var ml = M + ins.l, mr = M + ins.r, mt = M + ins.t, mb = M + ins.b;
+    var obs = obstacleRects(abs);
+    var order = abs ? ["TL", "TR", "BL", "BR"] : ["BL", "BR", "TL", "TR"];
+    var best = null;
+    var maxD = Math.max(0, (H0 - mt - mb - H) / 2);   // ⚠ 切り捨て関数は使わない ((0s13) がシートのコード部での使用を禁じている)
+    for (var d = 0; d <= maxD && !best; d += 8) {
+      for (var k = 0; k < order.length; k++) {
+        var c = order[k];
+        var x = (c.charAt(1) === "L") ? ml : (vw - mr - W);
+        var y = (c.charAt(0) === "T") ? (mt + d) : (H0 - mb - H - d);
+        if (x < 0 || y < 0 || x + W > vw || y + H > H0) continue;
+        var box = { l: x, t: y, r: x + W, b: y + H };
+        var hit = false;
+        for (var j = 0; j < obs.length; j++) { if (overlapArea(box, obs[j]) > 0) { hit = true; break; } }
+        if (!hit) { best = { corner: c, d: d, x: x, y: y }; break; }
+      }
+    }
+    if (!best) { clearPlacement(); return; }             // 空きが無い: 従来の左下 (CSS) のまま
+    btnEl.style.position = abs ? "absolute" : "fixed";
+    btnEl.style.left = Math.round(best.x) + "px";
+    btnEl.style.top = Math.round(best.y) + "px";
+    btnEl.style.right = "auto";
+    btnEl.style.bottom = "auto";
+    btnEl.setAttribute("data-place", best.corner + "+" + best.d + (abs ? "/doc" : "/view"));
+    placedAt = { corner: best.corner, d: best.d, mode: abs ? "doc" : "view" };
+  }
 
   function rehome() {
     if (!btnEl || !document.body) return;
@@ -663,6 +836,8 @@
     if (pick.fixed) btnEl.classList.add("dfSheetBtn-fixed");
     else btnEl.classList.remove("dfSheetBtn-fixed");
     mountVia = pick.via;
+    clearPlacement();
+    if (pick.fixed) { try { autoPlace(); } catch (e) { clearPlacement(); } }
   }
 
   function ensureButton() {
@@ -675,7 +850,7 @@
     btnEl.setAttribute("role", "button");
     btnEl.setAttribute("tabindex", "0");
     btnEl.setAttribute("aria-label", "キャラクターシートを開く");
-    btnEl.textContent = "📜 シート";
+    btnEl.textContent = "📜 キャラクターシート";
     onTap(btnEl, function () { toggle(); });
     btnEl.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
@@ -707,10 +882,18 @@
     closeEl.textContent = "✕";
     onTap(closeEl, function (ev) { if (ev && ev.stopPropagation) ev.stopPropagation(); close(); });
 
+    /* ★#89 紙の題名。⭐ v1 (?sheet5e=0) でも出す (依頼書 §4-2)。#dfSheetBody の外なので
+       render() の描き直しで消えない。 */
+    var titleEl = document.createElement("h2");
+    titleEl.id = "dfSheetTitle";
+    titleEl.className = "dfSheetTitle";
+    titleEl.textContent = "キャラクターシート";
+
     var bodyEl = document.createElement("div");
     bodyEl.id = BODY_ID;
 
     paper.appendChild(closeEl);
+    paper.appendChild(titleEl);
     paper.appendChild(bodyEl);
     ov.appendChild(paper);
     // 背景タップで閉じる (紙の上のタップでは閉じない)
@@ -899,6 +1082,7 @@
       dfSheetSecCombat:      !!b,
       dfSheetSecBody:        !!b,
       dfSheetSecAttacks:     !!b,
+      dfSheetSecEquip:       !!d.equip,   // ★#89 装備の供給口があるページだけ
       /* ⭐ 人物欄は **実データが 1 つも無い**。avail は false のまま置く。
          DOM には blank として出る = __state() の inDom === (avail || blank) を通る。 */
       dfSheetSecPersona:     false,
@@ -1025,6 +1209,72 @@
       drow.setAttribute("data-stat", "damage");
       xg.appendChild(drow);
       inner.dfSheetSecAttacks = xg;
+    }
+
+    // ── ★#89 装備: 今の装備 1 行 + 選べる品のボタン列 (武器 / 防具 / 盾)。
+    //    ⛔ 開閉では何も書かない。書くのはボタンを押して供給口の equip() が通ったときだけ。
+    if (avail.dfSheetSecEquip) {
+      var eg = wrapDiv("");
+      var editOk = d.equip.canEdit.ok;
+      eg.setAttribute("data-equip-edit", editOk ? "1" : "0");
+      if (!editOk) {
+        var why = wrapDiv("dfSheetEquipReason");
+        why.setAttribute("data-equip-reason", "edit");
+        why.textContent = d.equip.canEdit.reason || "今は装備を変えられない";
+        eg.appendChild(why);
+      } else if (EQUIP_LAST_MSG) {
+        var lm = wrapDiv("dfSheetEquipReason");
+        lm.setAttribute("data-equip-reason", "last");
+        lm.textContent = EQUIP_LAST_MSG;
+        eg.appendChild(lm);
+      }
+      EQUIP_LAST_MSG = null;
+      for (var es = 0; es < d.equip.slots.length; es++) {
+        var sl = d.equip.slots[es] || {};
+        var cur = sl.current || {};
+        var box2 = wrapDiv("dfSheetEquipSlot");
+        box2.setAttribute("data-equip-slot", sl.kind);
+        var crow = rowEl(null, sl.label || sl.kind, cur.name || "なし", cur.note || null);
+        crow.setAttribute("data-stat", "equip_" + sl.kind);
+        crow.setAttribute("data-equip-current", String(cur.idx));
+        box2.appendChild(crow);
+        if (sl.locked && sl.lockReason) {
+          var lk = wrapDiv("dfSheetEquipReason");
+          lk.setAttribute("data-equip-lock", sl.kind);
+          lk.textContent = sl.lockReason;
+          box2.appendChild(lk);
+        }
+        var opts = wrapDiv("dfSheetEquipOpts");
+        var olist = Array.isArray(sl.options) ? sl.options : [];
+        if (!olist.length) {
+          var none = document.createElement("span");
+          none.className = "dfSheetEquipNone";
+          none.textContent = "(他に所持なし)";
+          opts.appendChild(none);
+        }
+        for (var oi = 0; oi < olist.length; oi++) {
+          var op = olist[oi] || {};
+          var ob = document.createElement("div");
+          var off = !editOk || !!sl.locked;
+          ob.className = "dfSheetEquipOpt" + (off ? " off" : "");
+          ob.setAttribute("role", "button");
+          ob.setAttribute("tabindex", off ? "-1" : "0");
+          ob.setAttribute("aria-disabled", off ? "true" : "false");
+          ob.setAttribute("data-equip-kind", sl.kind);
+          ob.setAttribute("data-equip-idx", String(op.idx));
+          var on = document.createElement("span"); on.className = "en"; on.textContent = op.name || ""; ob.appendChild(on);
+          if (op.note) { var nt = document.createElement("span"); nt.className = "es"; nt.textContent = op.note; ob.appendChild(nt); }
+          if (!off) {
+            (function (k, ix) {
+              onTap(ob, function (ev) { if (ev && ev.stopPropagation) ev.stopPropagation(); equipTap(k, ix); });
+            })(sl.kind, op.idx);
+          }
+          opts.appendChild(ob);
+        }
+        box2.appendChild(opts);
+        eg.appendChild(box2);
+      }
+      inner.dfSheetSecEquip = eg;
     }
 
     // ── 人物: 4 枠すべて空。⭐ #37 で文章が入ったら BLANK_FIELD_IDS から外すだけで済む形。
@@ -1169,6 +1419,7 @@
       open: isOpen(),
       rendered: LAST_AVAIL !== null,
       mountVia: mountVia,
+      placedAt: placedAt ? { corner: placedAt.corner, d: placedAt.d, mode: placedAt.mode } : null,   // ★#89 K5
       sectionIds: SECTION_IDS.slice(),
       sections: secs,
       shown: shown,
@@ -1189,6 +1440,8 @@
     /* #townHud は town.html 側の JS が後から中身を入れ、compact 判定も後で決まる。
        レイアウトが落ち着いたところで置き場所を測り直す。 */
     try { global.setTimeout(rehome, 0); } catch (e) {}
+    /* ★#89 K5: 酒場などはページ側の JS が後から UI (依頼の札・更新情報など) を組むので、落ち着いた頃に置き場所を測り直す。 */
+    try { global.setTimeout(rehome, 800); global.setTimeout(rehome, 2500); } catch (e) {}
     try { global.addEventListener("load", rehome); } catch (e) {}
     try { global.addEventListener("resize", rehome); } catch (e) {}
     try { global.addEventListener("orientationchange", rehome); } catch (e) {}
@@ -1223,7 +1476,9 @@
     classLabel: classLabel,
     levelFromXp: levelFromXp,
     setBodyProvider: setBodyProvider,
-    __body: bodyStats,                     // ★#36 検証シーム: 供給口を通した「体」の生値
+    setEquipProvider: setEquipProvider,    // ★#89 装備の供給口 (酒場 / ダンジョンだけが登録する)
+    hasEquipProvider: hasEquipProvider,    // ★#89 検証用: このページに装備の供給口があるか
+    __body: bodyStats,                    // ★#36 検証シーム: 供給口を通した「体」の生値
     __state: __state,
     __rehome: rehome,
   };

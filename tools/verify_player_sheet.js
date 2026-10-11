@@ -797,6 +797,8 @@ async function probeRealPage(browser, base, spec, query, opts) {
        「別の場所に空で置いた」が素通りする。 */
     out.secInDom = {};
     if (S) for (const id of S.SECTION_IDS) out.secInDom[id] = !!document.getElementById(id);
+    /* ★#89: 装備の供給口 (setEquipProvider) が登録されたページか。(2c) の伏せる規則の材料。 */
+    out.hasEquipProvider = !!(S && typeof S.hasEquipProvider === 'function' && S.hasEquipProvider());
 
     const ck = S ? S.heroClassKey() : null;
     out.classKey = ck;
@@ -1384,20 +1386,20 @@ const ASSERTS = [
         : (m.langKeyAfterOpen === null ? '増減 0 件 / languages キーも未生成'
           : '⛔ languages キーが書かれた: ' + m.langKeyAfterOpen)];
   }],
-  /* ⚠⚠ #36 で 5 -> 11。件数の直書きは 3 箇所。**区画を足した瞬間に赤くなる**のは
-     退行ではなく設計どおり (依頼書 #36 §2-3 罠 B)。 */
-  ['0s9', '区画 id が 11 件で、__state() が avail / blank / inDom を **別々に** 返す', (M) => {
+  /* ⚠⚠ #36 で 5 -> 11、#89 で装備区画を足して 11 -> 12。件数の直書きは 3 箇所。
+     **区画を足した瞬間に赤くなる**のは退行ではなく設計どおり (依頼書 #36 §2-3 罠 B)。 */
+  ['0s9', '区画 id が 12 件で、__state() が avail / blank / inDom を **別々に** 返す', (M) => {
     const m = M.mod;
     if (!m || !m.has) return [false, '⛔ 母集団が無い'];
     const st = m.state || {};
     const secs = st.sections || [];
-    const shape = secs.length === 11 && secs.every(s =>
+    const shape = secs.length === 12 && secs.every(s =>
       typeof s.id === 'string' && typeof s.avail === 'boolean' && typeof s.inDom === 'boolean'
       && typeof s.blank === 'boolean');
     const ids = (m.sectionIds || []);
-    const idsOk = ids.length === 11 && sameSet(ids, secs.map(s => s.id));
+    const idsOk = ids.length === 12 && sameSet(ids, secs.map(s => s.id));
     const listOk = Array.isArray(st.shown) && Array.isArray(st.hidden)
-      && st.shown.length + st.hidden.length === 11;
+      && st.shown.length + st.hidden.length === 12;
     return [shape && idsOk && listOk,
       '区画 ' + ids.length + ' 件 ' + JSON.stringify(ids)
       + '  shown=' + JSON.stringify(st.shown) + ' hidden=' + JSON.stringify(st.hidden)
@@ -1644,8 +1646,11 @@ const ASSERTS = [
           「world では技能を伏せる」のまま取り残され、着手前から赤が常態になっていた。 */
     /* ⚠ STALE_ON (変異 stalepages) のときだけ #45 以前の固定表へ巻き戻す。⛔ 判定ロジック本体は
        1 行も変えない — 「導出が飾りでないこと」を機械証明するための三項 1 段だけ。 */
+    /* ★#89: 伏せる理由の 3 つ目 = ③装備の供給口が無い。⭐ ページ名ではなく **供給口の有無** で決める
+       (項目2b で酒場が供給口を持っても、この規則は 1 文字も変えずに通る)。 */
     const hiddenWantOf = (p) => (p.file === 'index.html' ? [] : SUPPLY)
-      .concat((STALE_ON ? SC_PRE45.indexOf(p.file) >= 0 : p.hasSkillCheck) ? [] : SKILLC);
+      .concat((STALE_ON ? SC_PRE45.indexOf(p.file) >= 0 : p.hasSkillCheck) ? [] : SKILLC)
+      .concat(p.hasEquipProvider ? [] : ['dfSheetSecEquip']);
     const bad = [];
     for (const p of P) {
       const st = p.state;
@@ -1660,6 +1665,11 @@ const ASSERTS = [
       const has = (id) => !!(p.secInDom && p.secInDom[id]);
       for (const id of SKILLC) if (has(id) !== (p.hasSkillCheck === true)) bad.push(p.label + ' ' + id + '=' + has(id));
       for (const id of SUPPLY) if (has(id) !== (p.file === 'index.html')) bad.push(p.label + ' ' + id + '=' + has(id));
+      // ★#89: 装備区画は供給口の有無と一致。⛔ 供給口はダンジョン (index) には必ず在り、町/地方/タイトルには無い
+      if (has('dfSheetSecEquip') !== (p.hasEquipProvider === true)) bad.push(p.label + ' dfSheetSecEquip=' + has('dfSheetSecEquip'));
+      if (p.file === 'index.html' && p.hasEquipProvider !== true) bad.push(p.label + ' ⛔ 装備の供給口が無い');
+      if (['town.html', 'world.html', 'title.html'].indexOf(p.file) >= 0 && p.hasEquipProvider !== false)
+        bad.push(p.label + ' ⛔ 装備の供給口が在る (依頼書 #89 §3: town/world/title は登録しない)');
       for (const id of ['dfSheetSecHeader', 'dfSheetSecAbilities', 'dfSheetSecLanguages',
                         'dfSheetSecTraits', 'dfSheetSecPersona']) {
         if (!has(id)) bad.push(p.label + ' ⛔ ' + id + ' が無い');
@@ -1671,10 +1681,14 @@ const ASSERTS = [
     }
     /* 母集団ガード: 伏せ計 = index 0 + tavern 4 + town 6 + world 4 + title 6 = 20 / 全部出たページ 1 (index)。
        ⚠ #45 で world.html に js/skill-check.js が載り 22 → 20 になった (#48 で更新)。
+       ★#89: + 装備の供給口が無いページの数 (装備区画を伏せる)。#89 項目2a 時点 = tavern/town/world/title の 4 → 24、
+         項目2b で酒場が供給口を持つと 3 → 23 (STALE 側は 22 + 同じ数)。⭐ 供給口の有無は上の独立 assert が
+         index=有 / town・world・title=無 で固定しているので、ここで足しても自己参照の永久緑にはならない。
        ⛔ allShown === 1 は動かさない (index だけが全部出る、は今も真)。 */
     const hiddenTotal = P.reduce((n, p) => n + ((p.state && p.state.hidden) || []).length, 0);
     const allShown = P.filter(p => ((p.state && p.state.hidden) || []).length === 0).length;
-    const hiddenWant = STALE_ON ? 22 : 20;   // ⚠ #45 以前は 22 (world が技能を伏せていた)
+    const hiddenWant = (STALE_ON ? 22 : 20)   // ⚠ #45 以前は 22 (world が技能を伏せていた)
+      + P.filter(p => !p.hasEquipProvider).length;   // ★#89 装備区画を伏せたページの数
     return [bad.length === 0 && hiddenTotal === hiddenWant && allShown === 1,
       P.map(p => p.label + ':伏' + JSON.stringify(((p.state && p.state.hidden) || []).map(s => s.replace('dfSheetSec', '')))).join(' ')
       + '  伏せた区画 計 ' + hiddenTotal + ' / 全部出たページ ' + allShown

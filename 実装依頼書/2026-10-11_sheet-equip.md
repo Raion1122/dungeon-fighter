@@ -398,3 +398,34 @@ K8 戦闘終了の描き直しは `setPhase` でなく :22485 の直後へ(`setP
 **post88(212 腕・e7b877d で走査)をそのまま pre に流用可**(e7b877d..HEAD は md のみ)。clone は #89 の HEAD で作り直し、
 影のツリーで戻すのは `js/player-sheet.js` / `index.html` / `tavern.html`。`verify_player_sheet` は RESTATED 扱い((0s9) + K1 の (2c))。
 ⚠ post88 に `verify_player_sheet --negative` の腕は無い(#89 で player-sheet.js を触るので個別に回すこと)。
+
+### 12-1 項目2a — STEP1 (シート) + STEP2 (ダンジョン)(2026-10-11 worker)
+
+- 範囲: `js/player-sheet.js` / `index.html` / `tools/verify_player_sheet.js`((0s9)(2c) の言い直し)。酒場 STEP3 と K5 は項目2b。
+- 採用した K: **K1** (0s9) 11→12 + (2c) に「装備の供給口が無いページは `dfSheetSecEquip` を伏せる」を**供給口の有無**で足す。
+  ⚠ 伏せ計は依頼の「20→23」ではなく **`20 + 供給口の無いページ数`** で導出 = 項目2a 時点は **24**(酒場もまだ無い)、項目2b で自動的に 23。
+  代わりに「index は供給口あり / town・world・title は無し」を独立 assert で固定(自己参照の永久緑を防ぐ)。
+  **K2** 戦斧に `twoHanded: true`。**K3** 帰還時は `dfReturnEquipValues()` 1 本(高水位 = max(current, runMax, 出発時, 保存済み) / 選択 = current そのまま)、
+  ラン中の最高値 `dfRunMaxIdx` を持つ。宝箱 3 + マジックアイテム(戦士)2 の高水位の書き込み計 5 箇所を `bumpStoredIdx` へ。**K7** 戦士は本表。
+  **K8** 描き直しは `encounterActive = true/false` の直後 + `runEncounter(...).finally` の `encounterRunning = false` の直後
+  (⚠ :22485 の時点では encounterRunning がまだ真なので、押せるに戻るのは finally 側)。
+- 依頼書からの逸脱: ① 宝箱だけでなくマジックアイテム(戦士)の高水位の書き込み 2 箇所も bump へ(同じ穴)。
+  ② 撤退 `?sheetequip=0` は bump も従来の `setItem` へ戻す。③ 頭でない戦士(稀)は選べる段を `WARRIOR_ALLY_*` の長さで打ち切る(焼き込み先の表が短いため)。
+- 検証: 自分用プローブ 32/32(390x844、付け替えの 3 経路一致・戦闘中の灰色と関数内ガード・rest 表示中も不可・頭でない主人公の A→B→A・両手武器・
+  `?sheetequip=0`・町/地方/タイトル/酒場に区画なし)+ 実戦闘 2 回で灰色⇔押せるが即時に切り替わる(不一致サンプル 0)。
+- golden(最終・K5 拡張の後): verify_player_sheet 73/73・--negative 111/111・verify_title_screen 86/86・darkvision 25/25・
+  town_map 85/85・party_match_setup 36/36 = 6 本とも exit 0。既存ドライバの変異アンカー 217 件の出現回数は HEAD と同じ。
+  ⚠ 置き場所の計算に切り捨て関数を書くと (0s13)(シートのコード部に Math.floor 禁止)が赤くなる = 書かない。
+  (経緯) K5 拡張の前は **verify_title_screen が exit 3**(受入条件 3 の startNewGame :806 でタイムアウト)。真因 = ボタンの文字が長くなり、
+  800x600 の title.html で fixed のボタン (x18-209, y542-582) が **スロット 1 の「はじめから」(x30-247, y555-598) の中心を覆う**
+  (旧文字 x18-120 では中心は自分自身)。旧文字に戻すと 86/86 = 帰属は表記の変更だけ。
+- **K5 拡張(ユーザー決定 2026-10-11)**: 表記は「📜 キャラクターシート」のまま。画面固定で置くページ(酒場・タイトル・地方全景)では
+  ボタンを押せる物と重ならない場所へ移す。ダンジョン(#partyPanel)と町(#townHud・デスクトップの町の左下も)は従来のまま。
+  - 実装 = `js/player-sheet.js` の `autoPlace()`(`rehome()` から。読み込み直後 / 800ms / 2500ms / load / resize)。
+    四隅から縁へ 8px ずつ内側へずらす候補を「動かす量が小さい順」に試し、押せる物(button / a[href] / [onclick] / [role=button] /
+    input / select / textarea / summary / label[for] / cursor:pointer / 固定 UI。画面の半分以上を占める床・幕は除く)との重なり面積 0 の最初の点。
+    縦スクロールするページは文書に absolute(上の隅優先)。安全領域は env(safe-area-inset-*) を実測して余白 18px に足す。ページ側 HTML は無変更。
+  - 実測(scratchpad `probe_k5.js`、重なり面積の最大 / はみ出し / ボタン中心が最前面 / pageerror):
+    酒場 390x844 = 右下+32 (181,754)-(372,794)・800x600 = 右上+48 (591,66)-(782,106)・1280x800 = 右下+32 (1071,710)-(1262,750) /
+    タイトル 390x844・800x600 = 文書の左上 (18,18)-(209,58) absolute(スクロール 0/25/50/75/100% の 5 点とも重なり 0)・1280x800 = 左下 (18,742)-(209,782) /
+    地方全景 3 幅とも左下(390: (18,786)-(209,826))。9 点すべて重なり 0・はみ出し 0・中心が最前面・pageerror 0。

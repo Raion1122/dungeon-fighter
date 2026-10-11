@@ -7509,6 +7509,10 @@
     // ── パーティ編成 (Q1=B): 頭(player アバター)と主人公(isHero)を分離 ──
     let heroIsHead = true;       // 頭(player)が主人公本人か (主人公が前衛=warrior/dwarf なら true)
     let heroRef = null;          // 主人公が ally の場合の参照 (頭でない時=主人公が mid/rear)
+    /* ★#89 撤退スイッチ ?sheetequip=0 — キャラクターシートの装備区画 (供給口を登録しない)・
+       帰還時の装備の保存 (罠 B の手当て)・シートの「攻撃」欄の武器名/AC の出所 を従来へ戻す。
+       ⚠ ページ単位で完結 (?heromark=0 と同じ作法)。ボタン / 題名の表記は戻さない。 */
+    const SHEET_EQUIP_ON = !/[?&]sheetequip=0(&|$)/.test(location.search);
 
     /* ══ 自キャラの ▽ マーカー (依頼書 #15 STEP A-2) ═══════════════════════════
      * ⭐⭐⭐ **▽ は 1 枚だけ。毎フレーム「今の主人公」を引き直す。**
@@ -13804,6 +13808,16 @@
       : persistent.armorIdx;
     let currentArmorIndex = Math.min(chosenArmorIdx, armors.length - 1);
     const startedWithArmorIdx = currentArmorIndex;
+    /* ★#89 罠 B: ラン中に current*Index が達した最高値 (宝箱・敵ドロップ・マジックアイテムで上がる)。
+       ⚠ シートで装備を下げられるようになったので「帰還時の current」は高水位ではなくなった。
+         敵ドロップ (tryEquipOnLeader) は localStorage を書かないので、ここで覚えておかないと
+         「拾ってからシートで下げて帰る」で拾った品が消える。dfNoteRunMax() で追い付かせる。 */
+    const dfRunMaxIdx = { weapons: startedWithWeaponIdx, armors: startedWithArmorIdx, shields: startedWithShieldIdx };
+    function dfNoteRunMax() {
+      dfRunMaxIdx.weapons = Math.max(dfRunMaxIdx.weapons, currentWeaponIndex);
+      dfRunMaxIdx.armors  = Math.max(dfRunMaxIdx.armors,  currentArmorIndex);
+      dfRunMaxIdx.shields = Math.max(dfRunMaxIdx.shields, currentShieldIndex);
+    }
 
     // ── Phase 2-G: アクセサリー (2 枠装備可能、同一不可) ──
     // accessories[0] = "なし"。残影の獣撃破で「残影の首飾り」が解放され、persistent.accessoryIds に保存される。
@@ -20232,8 +20246,13 @@
             : { hp: hp, maxHp: maxHp, st: playerStats,
                 def: CLASS_DEFS[leaderClassKey], skills: equippedSkills, unit: "player" };
           const st = src.st || {};
+          /* ★#89 §2-9: 武器名 / 防具名 / AC / 命中 / ダメージを「実際の装備」から出す。
+             ⚠ 従来は CLASS_DEFS の「職の初期武器名」と playerStats の素の値 (装備の強化値なし) だった
+               = シートの装備区画から付け替えても攻撃欄が変わらない食い違いが必ず見えた。
+             ⚠ ?sheetequip=0 では eqv=null = 従来の出所へ戻る。 */
+          const eqv = (SHEET_EQUIP_ON && typeof dfSheetBodyEquip === "function") ? dfSheetBodyEquip(src) : null;
           return {
-            hp: src.hp, maxHp: src.maxHp, ac: st.ac,        // ← 既存 3 つ。契約は 1 文字も変えない
+            hp: src.hp, maxHp: src.maxHp, ac: eqv ? eqv.ac : st.ac,        // ← 既存 3 つ (#89: AC だけ実際の装備込みへ)
             /* ── ここから #36 で足す分 (5E キャラクターシートの材料) ──────────────
                ⛔ セーヴを js/abilities.js の 5e 修正値から出さないこと。本作で実際に
                   振られているのは playerStats / ally の 戦闘系 0〜4 (依頼書 #36 §2-2 罠 A)。
@@ -20242,9 +20261,11 @@
             saveBonus: (typeof getSaveBonus === "function") ? getSaveBonus(src.unit) : 0,
             initiative: st.dex | 0,   // ⚠ u.initiative = d20() + u.dex と同じ系統 (5e 修正値ではない)
             speedTiles: 1,            // パーティは 1 手番 1 タイル前進 (ブレス/ヘイストで 2)
-            weaponName: (src.def && src.def.weaponName) || null,
-            armorName:  (src.def && src.def.armorName)  || null,
-            atkBonus: st.atkBonus, dmgDice: st.dmgDice, dmgBonus: st.dmgBonus,
+            weaponName: (eqv ? eqv.weaponName : (src.def && src.def.weaponName)) || null,
+            armorName:  (eqv ? eqv.armorName  : (src.def && src.def.armorName))  || null,
+            atkBonus: eqv ? eqv.atkBonus : st.atkBonus,
+            dmgDice:  eqv ? eqv.dmgDice  : st.dmgDice,
+            dmgBonus: eqv ? eqv.dmgBonus : st.dmgBonus,
             critRange: st.critRange, critMult: st.critMult, weaponRange: st.weaponRange,
             skillNames: (src.skills || []).map(function (id) {
               const sk = (typeof getSkill === "function") ? getSkill(id) : null;
@@ -20254,6 +20275,250 @@
         });
       }
     } catch (e) { /* シート未搭載 (?sheet=0) でも本体は落ちない */ }
+
+    /* ══ ★#89 キャラクターシートから主人公の装備を変える (依頼書 2026-10-11_sheet-equip.md §5) ══════
+     * ⭐ 主人公は 3 通り。**付け替えのたびに** heroIsHead / heroRef / leaderClassKey から引き直す
+     *   (戦闘中の頭の昇格 tryPromoteNewHead で当たる枝が変わるので覚えておかない)。
+     *     頭 + 戦士      → current*Index (+ equip*Idx を保存)
+     *     頭 + 戦士以外  → allyEquipSelection[leaderClassKey] (+ allyEquip を保存)。読み出し時に効く
+     *     頭でない       → allyEquipSelection[cls] を heroRef へ焼き直す (罠 A: 前回の差分を先に引く)
+     * ⭐ 選べる品の規則は酒場の dfIsOwnedTier + loadOwnedEquip (高水位の足し込み) と同じ。
+     *   ⛔ ダンジョン側は ownedEquip / ownedGatedNames を **読むだけ** (書くのは酒場の仕事のまま)。
+     * ⛔ applyLeaderStats() は呼ばない (HP まで満タンにする)。頭の数値は読み出し時に計算される。 */
+    const DF_SHEET_SLOT  = { weapon: "weapons", armor: "armors", shield: "shields" };
+    const DF_SHEET_LABEL = { weapon: "武器", armor: "防具", shield: "盾" };
+    const DF_SHEET_HWM_KEY = { weapons: "dragonfighters.weaponIdx", armors: "dragonfighters.armorIdx", shields: "dragonfighters.shieldIdx" };
+    // 酒場 DF_GATED_LEGACY と同じ (ownedGatedNames が未作成のセーブの一度きりの種まき)
+    const DF_SHEET_GATED_LEGACY = ["フレームタング", "フロストブランド", "聖別された剣", "軽業師の革装束"];
+    // 職 → 装備表 (酒場の CHAR_EQUIP と同じ割り当て)。⚠ 戦士は本表 (WARRIOR_ALLY_* は gated を持たない)
+    function dfSheetPools(cls) {
+      if (cls === "warrior") return { weapons: weapons, armors: armors, shields: shields };
+      return (typeof ALLY_EQUIP_POOLS !== "undefined" && ALLY_EQUIP_POOLS[cls]) || null;
+    }
+    // 酒場 dfSlotTierGated と同じ: slot の tier t が「いずれかの職の表で gated」か
+    function dfSheetSlotTierGated(slot, t) {
+      for (const ck of ALL_CLASS_KEYS) {
+        const p = dfSheetPools(ck);
+        const arr = p && p[slot];
+        if (arr && arr[t] && arr[t].gated) return true;
+      }
+      return false;
+    }
+    // 高水位 = 保存済み と ラン中の最高値 (敵ドロップは localStorage を書かないので runMax で拾う)
+    function dfSheetHwm(slot) {
+      dfNoteRunMax();
+      return Math.max(readStoredIdx(DF_SHEET_HWM_KEY[slot]), dfRunMaxIdx[slot]);
+    }
+    function dfSheetInitRange(slot, max) {
+      const a = [];
+      for (let i = 0; i <= (max | 0); i++) { if (!dfSheetSlotTierGated(slot, i)) a.push(i); }
+      return a;
+    }
+    // 酒場 loadOwnedEquip と同じ: 保存済みの所持ティア + 「_hwm より上へ上がった高水位」(gated 以外)
+    function dfSheetOwnedTiers(slot) {
+      const max = dfSheetHwm(slot);
+      let data = null;
+      try { data = JSON.parse(localStorage.getItem("dragonfighters.ownedEquip") || "null"); } catch (e) { data = null; }
+      if (!data || typeof data !== "object") return dfSheetInitRange(slot, max);
+      const arr = Array.isArray(data[slot]) ? data[slot].slice() : dfSheetInitRange(slot, max);
+      const h0 = (data._hwm && data._hwm[slot] != null) ? (data._hwm[slot] | 0) : -1;
+      for (let t = h0 + 1; t <= max; t++) {
+        if (dfSheetSlotTierGated(slot, t)) continue;
+        if (!arr.includes(t)) arr.push(t);
+      }
+      return arr.sort((a, b) => a - b);
+    }
+    // 酒場 dfLoadGatedOwned と同じ: gated の所持は名前の集合
+    function dfSheetGatedOwned() {
+      let arr = null;
+      try { arr = JSON.parse(localStorage.getItem("dragonfighters.ownedGatedNames") || "null"); } catch (e) { arr = null; }
+      if (Array.isArray(arr)) return arr;
+      const seeded = [];
+      for (const ck of ALL_CLASS_KEYS) {
+        const p = dfSheetPools(ck); if (!p) continue;
+        for (const slot of ["weapons", "armors", "shields"]) {
+          for (const t of dfSheetOwnedTiers(slot).concat([dfSheetHwm(slot)])) {
+            const it = p[slot] && p[slot][t];
+            if (it && it.gated && DF_SHEET_GATED_LEGACY.includes(it.name) && !seeded.includes(it.name)) seeded.push(it.name);
+          }
+        }
+      }
+      return seeded;
+    }
+    // 酒場 dfIsOwnedTier と同じ。⚠ item を必ず渡す (gated は名前キー = 共有ティアの漏れを塞ぐ)
+    function dfSheetIsOwned(kind, tier, item) {
+      if (item && item.gated) return dfSheetGatedOwned().includes(item.name);
+      return dfSheetOwnedTiers(DF_SHEET_SLOT[kind]).includes(tier | 0);
+    }
+    // 両手武器の規則 (酒場 dfEquip / dfShieldLocked と同じ判定関数)
+    function dfSheetLocksShield(w) {
+      return dfWeaponLocksShield(w);
+    }
+    // 主人公の 3 通りを **毎回** 引き直す
+    function dfSheetHeroCtx() {
+      const pick = (s) => s ? { weapon: s.weapon | 0, armor: s.armor | 0, shield: s.shield | 0 } : null;
+      if (heroIsHead) {
+        const cls = leaderClassKey;
+        const pool = dfSheetPools(cls);
+        const sel = (cls === "warrior")
+          ? { weapon: currentWeaponIndex, armor: currentArmorIndex, shield: currentShieldIndex }
+          : pick(typeof allyEquipSelection !== "undefined" ? allyEquipSelection[cls] : null);
+        return (pool && sel) ? { mode: "head", cls: cls, pool: pool, sel: sel, unit: null } : null;
+      }
+      const h = heroRef || (typeof allies !== "undefined" ? allies.find(a => a && a.isHero) : null);
+      if (!h) return null;
+      const pool = dfSheetPools(h.classKey);
+      const sel = pick(allyEquipSelection[h.classKey]);
+      return (pool && sel) ? { mode: "ally", cls: h.classKey, pool: pool, sel: sel, unit: h } : null;
+    }
+    function dfSheetOwnedOptions(kind) {
+      const c = dfSheetHeroCtx();
+      const slot = DF_SHEET_SLOT[kind];
+      if (!c || !slot) return [];
+      const items = c.pool[slot] || [];
+      // 頭でない戦士は焼き込みが仲間表 (WARRIOR_ALLY_*) なので、その長さを超える段は選ばせない
+      const lim = (c.mode === "ally" && c.cls === "warrior")
+        ? Math.min(items.length, ((ALLY_EQUIP_POOLS.warrior || {})[slot] || []).length) : items.length;
+      const out = [];
+      for (let i = 0; i < lim; i++) {
+        if (i === c.sel[kind]) continue;                 // 装備中は除く (酒場の renderEquipSlot と同じ)
+        if (dfSheetIsOwned(kind, i, items[i])) out.push(i);
+      }
+      return out;
+    }
+    // 変更できるか。⚠ 罠 C: 勝った直後の rest 表示でも encounterActive はまだ真 = 戦闘中
+    function dfSheetCanEdit() {
+      if (encounterActive || encounterRunning) return { ok: false, reason: "戦闘中は装備を変えられない" };
+      if (gameOver || !isHeroAlive()) return { ok: false, reason: "倒れているので装備を変えられない" };
+      return { ok: true };
+    }
+    function dfSheetItemNote(kind, it) {
+      if (!it) return "";
+      const enh = it.enhancement || 0;
+      if (kind === "weapon") return (it.dmgDice || "") + (enh ? " +" + enh : "") + (it.bonusDmgDice ? " (+" + it.bonusDmgDice + ")" : "");
+      return enh ? "AC +" + enh : "";
+    }
+    function dfSheetSlots() {
+      const c = dfSheetHeroCtx();
+      if (!c) return [];
+      const locked = dfSheetLocksShield(c.pool.weapons[c.sel.weapon]);
+      return ["weapon", "armor", "shield"].map(function (kind) {
+        const items = c.pool[DF_SHEET_SLOT[kind]] || [];
+        const ci = c.sel[kind];
+        const cur = items[ci];
+        const lk = (kind === "shield") && locked;
+        return {
+          kind: kind, label: DF_SHEET_LABEL[kind],
+          current: { idx: ci, name: cur ? cur.name : "なし", note: dfSheetItemNote(kind, cur) },
+          options: dfSheetOwnedOptions(kind).map(function (i) {
+            return { idx: i, name: items[i].name, note: dfSheetItemNote(kind, items[i]) };
+          }),
+          locked: lk,
+          lockReason: lk ? "両手武器を持っているので盾は使えない" : null,
+        };
+      });
+    }
+    // 付け替え。⭐ 画面だけでなく **この関数の中でも** 所持と変更可否を守る
+    function dfSheetEquip(kind, idx) {
+      idx = idx | 0;
+      const ce = dfSheetCanEdit();
+      if (!ce.ok) return ce;
+      const c = dfSheetHeroCtx();
+      if (!c || !DF_SHEET_SLOT[kind]) return { ok: false, reason: "主人公の装備が見つからない" };
+      if (idx === c.sel[kind]) return { ok: false, reason: "既に装備している" };
+      if (!dfSheetOwnedOptions(kind).includes(idx)) return { ok: false, reason: "持っていない品は装備できない" };
+      const next = { weapon: c.sel.weapon, armor: c.sel.armor, shield: c.sel.shield };
+      if (kind === "shield" && idx !== 0 && dfSheetLocksShield(c.pool.weapons[next.weapon])) {
+        return { ok: false, reason: "両手武器を持っているので盾は使えない" };
+      }
+      next[kind] = idx;
+      if (kind === "weapon" && dfSheetLocksShield(c.pool.weapons[idx])) next.shield = 0;   // 両手武器 → 盾は「なし」
+      if (c.cls === "warrior") {
+        dfNoteRunMax();                                  // 下げる前の最高値を覚える (罠 B)
+        currentWeaponIndex = next.weapon;
+        currentArmorIndex  = next.armor;
+        currentShieldIndex = next.shield;
+        allyEquipSelection.warrior = { weapon: next.weapon, armor: next.armor, shield: next.shield };
+        try {
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(next.weapon));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(next.armor));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(next.shield));
+        } catch (e) { /* silent */ }
+      } else {
+        allyEquipSelection[c.cls] = { weapon: next.weapon, armor: next.armor, shield: next.shield };
+        persistAllyEquipSelection();
+      }
+      if (c.mode === "ally" && c.unit) {
+        const h = c.unit;
+        // 罠 A: applyAllyEquipment は足し算で焼くので、前回の差分を先に引いてから焼き直す
+        h.dmgBonus = (h.dmgBonus || 0) - (h._dmgEnhDelta || 0); h.ac = (h.ac || 0) - (h._acEnhDelta || 0);
+        applyAllyEquipment(h, c.cls);
+      }
+      updateInfo();
+      try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+      return { ok: true };
+    }
+    // §2-9: シートの「攻撃 & 呪文発動」欄の材料を実際の装備から
+    function dfSheetBodyEquip(src) {
+      if (src && src.unit && src.unit !== "player") {
+        const h = src.unit;
+        return {
+          weaponName: h.weaponName || (h.def && h.def.weaponName) || null,
+          armorName:  h.armorName  || (h.def && h.def.armorName)  || null,
+          ac: h.ac, atkBonus: h.atkBonus, dmgDice: h.dmgDice, dmgBonus: h.dmgBonus,
+        };
+      }
+      const w = getCurrentWeapon(), a = getCurrentArmor();
+      return {
+        weaponName: w ? w.name : null, armorName: a ? a.name : null,
+        ac: currentPlayerAc(), atkBonus: currentPlayerAtkBonus(),
+        dmgDice: (w && w.dmgDice) || playerStats.dmgDice, dmgBonus: currentPlayerDmgBonus(),
+      };
+    }
+    // 罠 B: 帰還時 (勝利 / 撤退) の装備の保存値。⭐ 選択 = 今の装備そのまま / 高水位 = 下げない
+    function dfReturnEquipValues() {
+      const w = Math.max(currentWeaponIndex, startedWithWeaponIdx);
+      const a = Math.max(currentArmorIndex,  startedWithArmorIdx);
+      const s = Math.max(currentShieldIndex, startedWithShieldIdx);
+      if (!SHEET_EQUIP_ON) {   // ?sheetequip=0 = #89 以前の保存そのもの
+        return { weaponIdx: w, armorIdx: Math.max(a, readStoredIdx("dragonfighters.armorIdx")), shieldIdx: s,
+                 equipWeaponIdx: w, equipArmorIdx: a, equipShieldIdx: s };
+      }
+      dfNoteRunMax();
+      const hwm = (cur, runMax, started, key) => Math.max(cur, runMax, started, readStoredIdx(key));
+      return {
+        weaponIdx: hwm(currentWeaponIndex, dfRunMaxIdx.weapons, startedWithWeaponIdx, "dragonfighters.weaponIdx"),
+        armorIdx:  hwm(currentArmorIndex,  dfRunMaxIdx.armors,  startedWithArmorIdx,  "dragonfighters.armorIdx"),
+        shieldIdx: hwm(currentShieldIndex, dfRunMaxIdx.shields, startedWithShieldIdx, "dragonfighters.shieldIdx"),
+        equipWeaponIdx: currentWeaponIndex, equipArmorIdx: currentArmorIndex, equipShieldIdx: currentShieldIndex,
+      };
+    }
+    // 開いたままのシートの装備欄を、戦闘の開始 / 終了で描き直す (灰色 ⇔ 押せる)
+    function dfSheetRefresh() {
+      try {
+        if (SHEET_EQUIP_ON && window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render();
+      } catch (e) { /* シートが無くても本体は落ちない */ }
+    }
+    try {
+      if (SHEET_EQUIP_ON && window.DFSheet && window.DFSheet.setEquipProvider) {
+        window.DFSheet.setEquipProvider({ canEdit: dfSheetCanEdit, slots: dfSheetSlots, equip: dfSheetEquip });
+      }
+    } catch (e) { /* シート未搭載 (?sheet=0) でも本体は落ちない */ }
+    // 検証用の読み取り窓 (classic script 直下の function は window に載らないので明示)
+    window.__sheetEquip = {
+      on: SHEET_EQUIP_ON,
+      canEdit: dfSheetCanEdit, slots: dfSheetSlots, equip: dfSheetEquip,
+      ownedOptions: dfSheetOwnedOptions, isOwned: dfSheetIsOwned,
+      ownedTiers: dfSheetOwnedTiers, gatedOwned: dfSheetGatedOwned, hwm: dfSheetHwm,
+      returnValues: dfReturnEquipValues,
+      runMax: () => ({ weapons: dfRunMaxIdx.weapons, armors: dfRunMaxIdx.armors, shields: dfRunMaxIdx.shields }),
+      ctx: () => { const c = dfSheetHeroCtx(); return c ? { mode: c.mode, cls: c.cls, sel: Object.assign({}, c.sel) } : null; },
+      current: () => ({ weapon: currentWeaponIndex, armor: currentArmorIndex, shield: currentShieldIndex }),
+      allySel: () => JSON.parse(JSON.stringify(allyEquipSelection)),
+      hero: () => { const h = heroRef; return h ? { classKey: h.classKey, ac: h.ac, dmgBonus: h.dmgBonus, dmgDice: h.dmgDice,
+        weaponName: h.weaponName, armorName: h.armorName, shieldName: h.shieldName } : null; },
+      fight: () => ({ encounterActive: encounterActive, encounterRunning: encounterRunning, phase: currentPhase }),
+    };
     // リーダー名を動的に取得 (ログ表示用)
     function getLeaderName() {
       // 頭の表示名 (主人公="あなた" / NPC=個人名)。未設定時はクラス名にフォールバック
@@ -21899,7 +22164,7 @@
          *   条件も代入も同じなので恒等。戦闘中のラッチ点 (runEncounter) と同じ 1 本を見る。 */
         latchBossApproachIfReached();
         encounterRunning = true;
-        runEncounter(engaged).finally(() => { encounterRunning = false; });
+        runEncounter(engaged).finally(() => { encounterRunning = false; dfSheetRefresh(); });   // ★#89 ここで初めて装備を変えられる
       }
     }
 
@@ -22056,6 +22321,7 @@
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
       encounterActive = true;
+      dfSheetRefresh();   // ★#89 開いたままのシートの装備欄を灰色へ
       if (window.__diag) window.__diag.beat("combat", true);   // 自動デバッグ: 戦闘開始
       encounterStartedAt = (typeof performance !== "undefined" && performance.now)
         ? performance.now() : Date.now();   // Phase 2-B: 確率脱走の経過時間基準
@@ -22483,6 +22749,7 @@
       } finally {
         encounterEnemyIndices = [];
         encounterActive = false;
+        dfSheetRefresh();   // ★#89 K8: setPhase は gameOver / dungeonCleared で呼ばれないのでここで描き直す
         camFocus = null;            // 要望②終了処理: 戦闘注視点を解除 → 探索の主人公センタリングへ滑らかに復帰
         updatePositions();          // 解除を即反映してカメラを主人公へグライドさせ始める
         // backline 待機状態を戦闘終了でリセット: 戦闘中は heroAI が早期 return するため warp の
@@ -23121,7 +23388,7 @@
     // ── 仲間装備プール (Phase 9d、tavern.html と同期) ──
     const DWARF_WEAPONS = [
       { name: "ハンドアックス",         dmgDice: "1d6", range: "melee", enhancement: 0 },
-      { name: "戦斧",                   dmgDice: "1d8", range: "melee", enhancement: 0 },
+      { name: "戦斧",                   dmgDice: "1d8", range: "melee", enhancement: 0, twoHanded: true },   // ★#89 酒場の flavor「両手で振るう」と同期 (dfWeaponLocksShield が見る)
       { name: "鍛えしバトルアックス +1", dmgDice: "1d8", range: "melee", enhancement: 1, rarity: "rare" },
       { name: "雷鳴の斧",               dmgDice: "1d8", range: "melee", enhancement: 0,
         bonusDmgDice: "1d8", bonusDmgType: "lightning",
@@ -24335,7 +24602,10 @@
         if (leaderClassKey === "warrior") {
           currentWeaponIndex = pick.idx;
           try {
-            localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
+            // ★#89 罠 B (K3): 高水位は bumpStoredIdx で「下げない」(シートで装備を下げた後に拾うと
+            //   current が保存済みの高水位より低いことがある = 素の setItem だと高水位を下げてしまう)
+            if (SHEET_EQUIP_ON) bumpStoredIdx("dragonfighters.weaponIdx", currentWeaponIndex);
+            else localStorage.setItem("dragonfighters.weaponIdx", String(currentWeaponIndex));
             localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
           } catch (e) { /* silent */ }
         } else {
@@ -24358,7 +24628,10 @@
         if (leaderClassKey === "warrior") {
           currentArmorIndex = pick.idx;
           try {
-            localStorage.setItem("dragonfighters.armorIdx",      String(currentArmorIndex));
+            // ★#89 罠 B (K3): 高水位は bumpStoredIdx で「下げない」(シートで装備を下げた後に拾うと
+            //   current が保存済みの高水位より低いことがある = 素の setItem だと高水位を下げてしまう)
+            if (SHEET_EQUIP_ON) bumpStoredIdx("dragonfighters.armorIdx", currentArmorIndex);
+            else localStorage.setItem("dragonfighters.armorIdx", String(currentArmorIndex));
             localStorage.setItem("dragonfighters.equipArmorIdx", String(currentArmorIndex));
           } catch (e) { /* silent */ }
         } else {
@@ -24655,7 +24928,10 @@
           showBanner(`武器 "${w.name}" を手に入れた!`, 1800);
           // 即時保存 (撤退/敗北/タブ閉じで失わないセーフネット)
           try {
-            localStorage.setItem("dragonfighters.weaponIdx",      String(currentWeaponIndex));
+            // ★#89 罠 B (K3): 高水位は bumpStoredIdx で「下げない」(シートで装備を下げた後に拾うと
+            //   current が保存済みの高水位より低いことがある = 素の setItem だと高水位を下げてしまう)
+            if (SHEET_EQUIP_ON) bumpStoredIdx("dragonfighters.weaponIdx", currentWeaponIndex);
+            else localStorage.setItem("dragonfighters.weaponIdx", String(currentWeaponIndex));
             localStorage.setItem("dragonfighters.equipWeaponIdx", String(currentWeaponIndex));
           } catch (e) { /* silent */ }
         } else {
@@ -24686,7 +24962,10 @@
           updateInfo(`宝箱の中身: 防具『${a.name}』`);
           showBanner(`防具 "${a.name}" を手に入れた!`, 1800);
           try {
-            localStorage.setItem("dragonfighters.armorIdx",      String(currentArmorIndex));
+            // ★#89 罠 B (K3): 高水位は bumpStoredIdx で「下げない」(シートで装備を下げた後に拾うと
+            //   current が保存済みの高水位より低いことがある = 素の setItem だと高水位を下げてしまう)
+            if (SHEET_EQUIP_ON) bumpStoredIdx("dragonfighters.armorIdx", currentArmorIndex);
+            else localStorage.setItem("dragonfighters.armorIdx", String(currentArmorIndex));
             localStorage.setItem("dragonfighters.equipArmorIdx", String(currentArmorIndex));
           } catch (e) { /* silent */ }
         } else {
@@ -24703,7 +24982,10 @@
           updateInfo(`宝箱の中身: 盾『${s.name}』`);
           showBanner(`盾 "${s.name}" を手に入れた!`, 1800);
           try {
-            localStorage.setItem("dragonfighters.shieldIdx",      String(currentShieldIndex));
+            // ★#89 罠 B (K3): 高水位は bumpStoredIdx で「下げない」(シートで装備を下げた後に拾うと
+            //   current が保存済みの高水位より低いことがある = 素の setItem だと高水位を下げてしまう)
+            if (SHEET_EQUIP_ON) bumpStoredIdx("dragonfighters.shieldIdx", currentShieldIndex);
+            else localStorage.setItem("dragonfighters.shieldIdx", String(currentShieldIndex));
             localStorage.setItem("dragonfighters.equipShieldIdx", String(currentShieldIndex));
           } catch (e) { /* silent */ }
         } else {
@@ -40685,22 +40967,20 @@
 
         // 持ち物 (最強所持) は出発時の値より下げない (戦士の武器が下がると
         // tavern.html 側の min(allyWeapon, inventory.weaponIdx) で仲間装備も clip されてしまう)
-        const winSafeWeaponIdx = Math.max(currentWeaponIndex, startedWithWeaponIdx);
-        const winSafeArmorIdx  = Math.max(currentArmorIndex,  startedWithArmorIdx);
-        const winSafeShieldIdx = Math.max(currentShieldIndex, startedWithShieldIdx);
+        // ★#89 罠 B: 保存値は dfReturnEquipValues() が決める。高水位 (*Idx) = 下げない
+        //   (ラン中の最高値 / 出発時 / 保存済み の max)・選択 (equip*Idx) = シートで変えた今の装備そのまま。
+        //   ⚠ armorIdx は従来から「非戦士リーダーが拾った gated 防具の水位」を保存済みとの max で守っていた。
+        //   ?sheetequip=0 では従来の Math.max(current, startedWith) へ戻る。
+        const winEq = dfReturnEquipValues();
         try {
           localStorage.setItem("dragonfighters.gold",      String(newTotalGold));
-          localStorage.setItem("dragonfighters.weaponIdx", String(winSafeWeaponIdx));
-          // armorIdx は「所持の高水位」。非戦士リーダーが拾った gated 防具の水位を、戦士配列由来の
-          //   winSafeArmorIdx で下げてしまわないよう max を取る (equipArmorIdx は"選択"なので従来通り)。
-          localStorage.setItem("dragonfighters.armorIdx",
-            String(Math.max(winSafeArmorIdx, readStoredIdx("dragonfighters.armorIdx"))));
-          localStorage.setItem("dragonfighters.shieldIdx", String(winSafeShieldIdx));
+          localStorage.setItem("dragonfighters.weaponIdx", String(winEq.weaponIdx));
+          localStorage.setItem("dragonfighters.armorIdx",  String(winEq.armorIdx));
+          localStorage.setItem("dragonfighters.shieldIdx", String(winEq.shieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
-          // 装備選択も同様に保護 (拾った上位装備があれば反映、ランで下がっても出発時を維持)
-          localStorage.setItem("dragonfighters.equipWeaponIdx", String(winSafeWeaponIdx));
-          localStorage.setItem("dragonfighters.equipArmorIdx",  String(winSafeArmorIdx));
-          localStorage.setItem("dragonfighters.equipShieldIdx", String(winSafeShieldIdx));
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(winEq.equipWeaponIdx));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(winEq.equipArmorIdx));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(winEq.equipShieldIdx));
           // Phase 2-G: アクセサリー所持リストと装備中スロット (リーダー)
           localStorage.setItem("dragonfighters.accessoryIds",
             JSON.stringify(persistent.accessoryIds || []));
@@ -40835,21 +41115,17 @@
         // (勝利時 L11559-11565 と同等。ただし clearXp ボーナスは未付与)
         const retreatTotalGold = persistent.gold + coins;
         // 持ち物 (最強所持) は出発時の値より下げない (撤退中に装備が下がる事故防止)
-        const safeWeaponIdx = Math.max(currentWeaponIndex, startedWithWeaponIdx);
-        const safeArmorIdx  = Math.max(currentArmorIndex,  startedWithArmorIdx);
-        const safeShieldIdx = Math.max(currentShieldIndex, startedWithShieldIdx);
+        // ★#89 罠 B: 勝利時と同じ dfReturnEquipValues() (高水位は下げない / 選択は今の装備そのまま)
+        const retEq = dfReturnEquipValues();
         try {
           localStorage.setItem("dragonfighters.gold",      String(retreatTotalGold));
-          localStorage.setItem("dragonfighters.weaponIdx", String(safeWeaponIdx));
-          // 勝利時と同じく armorIdx (所持の高水位) は下げない。
-          localStorage.setItem("dragonfighters.armorIdx",
-            String(Math.max(safeArmorIdx, readStoredIdx("dragonfighters.armorIdx"))));
-          localStorage.setItem("dragonfighters.shieldIdx", String(safeShieldIdx));
+          localStorage.setItem("dragonfighters.weaponIdx", String(retEq.weaponIdx));
+          localStorage.setItem("dragonfighters.armorIdx",  String(retEq.armorIdx));
+          localStorage.setItem("dragonfighters.shieldIdx", String(retEq.shieldIdx));
           localStorage.setItem("dragonfighters.xp",        String(currentTotalXp));
-          // 装備選択は「出発時より下がらない」を保証しつつ、ランで拾った装備があれば反映
-          localStorage.setItem("dragonfighters.equipWeaponIdx", String(safeWeaponIdx));
-          localStorage.setItem("dragonfighters.equipArmorIdx",  String(safeArmorIdx));
-          localStorage.setItem("dragonfighters.equipShieldIdx", String(safeShieldIdx));
+          localStorage.setItem("dragonfighters.equipWeaponIdx", String(retEq.equipWeaponIdx));
+          localStorage.setItem("dragonfighters.equipArmorIdx",  String(retEq.equipArmorIdx));
+          localStorage.setItem("dragonfighters.equipShieldIdx", String(retEq.equipShieldIdx));
           // Phase 2-G/H: アクセサリー状態 + 道具袋 + 在庫
           if (typeof savePersistentAccessoryStock === "function") savePersistentAccessoryStock();
           if (typeof saveInventoryBag === "function") saveInventoryBag();
