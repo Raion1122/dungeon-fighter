@@ -3349,7 +3349,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>キャラクターシートから装備を変えられるように</b> — ダンジョンの探索中に、シートから主人公の武器・防具・盾を付け替えられる(戦闘中は不可)。</li>
+        <li><b>キャラクターシートから装備を変えられるように</b> — 酒場とダンジョンの探索中に、シートから主人公の武器・防具・盾を付け替えられる(戦闘中は不可)。</li>
         <li><b>BGM をオリジナルの合成曲に統一</b> — タイトル・港町・ワールドマップに新曲。ダンジョンは探索・戦闘・ボスで曲が切り替わる。</li>
         <li><b>判定は画面左上に小さく</b> — 探索や罠の判定が画面の隅に出るようになり、戦闘中は判定の窓を出さない。道中の宝箱はいったん無くし、そのぶんクリア報酬の金貨を増やした。</li>
         <li><b>名前札に職業を文字で表示</b> — 酒場の客とダンジョンの仲間の名前の上に「(戦士)」のように職業が出るようになった。</li>
@@ -9528,6 +9528,23 @@
       val.textContent = names.length ? names.join("・") : "—";
       skillsEl.appendChild(lab); skillsEl.appendChild(val);
     }
+    /* ★#89 STEP3: 装備の 3 行。⚠ 以前は fill の中で 1 回描くだけで、pmRefreshCards (= renderSkills) は
+       技の行しか描き直さなかった ⇒ キャラクターシート (や引き出し) で付け替えてもカードが古い品のまま。
+       ⭐ refresh から装備の行も描き直す (行の数・構造は同じ = カードの高さは変わらない)。 */
+    function renderEquipRows() {
+      if (!filled) return;
+      equipEl.innerHTML = "";
+      const eq = pmEquipItems(m.classKey);
+      [["武器", eq.weapon], ["防具", eq.armor], ["盾", eq.shield]].forEach(([label, item]) => {
+        const row = document.createElement("div"); row.className = "pmEquipRow";
+        const lab = document.createElement("span"); lab.className = "pmEquipLabel"; lab.textContent = label;
+        const val = document.createElement("span");
+        val.className = "pmEquipVal " + (item ? getItemColorClass(item.name, item.rarity) : "item-normal");
+        val.textContent = item ? item.name : "—";
+        row.appendChild(lab); row.appendChild(val);
+        equipEl.appendChild(row);
+      });
+    }
     function fill(animate) {
       if (filled) return;
       filled = true;
@@ -9559,17 +9576,7 @@
       }
       zoneEl.textContent = PM_ZONE_LABEL[m.zone] || m.zone;
       if (sightEl) sightEl.textContent = DFSight.sightLabel(m.classKey, true);
-      equipEl.innerHTML = "";
-      const eq = pmEquipItems(m.classKey);
-      [["武器", eq.weapon], ["防具", eq.armor], ["盾", eq.shield]].forEach(([label, item]) => {
-        const row = document.createElement("div"); row.className = "pmEquipRow";
-        const lab = document.createElement("span"); lab.className = "pmEquipLabel"; lab.textContent = label;
-        const val = document.createElement("span");
-        val.className = "pmEquipVal " + (item ? getItemColorClass(item.name, item.rarity) : "item-normal");
-        val.textContent = item ? item.name : "—";
-        row.appendChild(lab); row.appendChild(val);
-        equipEl.appendChild(row);
-      });
+      renderEquipRows();
       /* ★[#60 STEP4] 「酒場で声を掛けた」仲間だけ出自を出す。
          ⚠⚠ 判定は DFRecruits.has(m.name) = **名前引き**。同名の別人が名簿に居ると
            両方に付く。⭐ 卓は 4 席・上限は RECRUIT_MAX (3 人) なので実害の出る確率は
@@ -9585,7 +9592,7 @@
       }
       renderSkills();
     }
-    return { el, fill, refresh: renderSkills };
+    return { el, fill, refresh: function () { renderEquipRows(); renderSkills(); } };
   }
 
   // 演出本体。Promise を返し、閉じ切ってから resolve (openPrep の await チェーンを止めない)。
@@ -9966,6 +9973,90 @@
     try { return (selection.partyComposition && selection.partyComposition[0]) || "warrior"; }
     catch (e) { return "warrior"; }
   }
+  /* ★#89 STEP3: キャラクターシートの装備の供給口 (酒場)。撤退 ?sheetequip=0 = 登録しない (区画が出ない)。
+     ⭐ 規則の正は酒場の既存関数: 職 = getHeroClass / 表 = CHAR_EQUIP / 所持 = dfIsOwnedTier (item を必ず渡す) /
+       盾の塞がり = dfShieldLocked / 付け替え = dfEquip (両手武器の規則を写経しない)。
+     ⭐ slots の形 (kind, label, current{idx,name,note}, options[{idx,name,note}], locked, lockReason) と
+       note の作り方は index.html の dfSheetSlots / dfSheetItemNote と揃える (受入が同じ assert を両ページに当てる)。
+     ⛔ 開閉では書かない。書くのは equip() が通ったときの saveSelections() だけ。 */
+  const SHEET_EQUIP_ON_TV = !/[?&]sheetequip=0(&|$)/.test(location.search);
+  const DF_SHEET_LABEL_TV = { weapon: "武器", armor: "防具", shield: "盾" };
+  function dfSheetPoolTV() {
+    const cls = getHeroClass();
+    const pool = CHAR_EQUIP[cls];
+    return pool ? { cls: cls, pool: pool } : null;
+  }
+  function dfSheetItemNoteTV(kind, it) {
+    if (!it) return "";
+    const enh = it.enhancement || 0;
+    if (kind === "weapon") return (it.dmgDice || "") + (enh ? " +" + enh : "") + (it.bonusDmgDice ? " (+" + it.bonusDmgDice + ")" : "");
+    return enh ? "AC +" + enh : "";
+  }
+  // 選べる品 = 所持している段 (装備中は除く。酒場の renderEquipSlot と同じ)
+  function dfSheetOwnedOptionsTV(kind) {
+    const c = dfSheetPoolTV();
+    const items = c && c.pool[DF_SLOT_KEY[kind]];
+    if (!items) return [];
+    const cur = getEquipSelection(c.cls)[kind] | 0;
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      if (i === cur) continue;
+      if (dfIsOwnedTier(kind, i, items[i])) out.push(i);
+    }
+    return out;
+  }
+  function dfSheetCanEditTV() { return { ok: true }; }   // 酒場に戦闘は無い
+  function dfSheetSlotsTV() {
+    const c = dfSheetPoolTV();
+    if (!c) return [];
+    const sel = getEquipSelection(c.cls);
+    const locked = dfShieldLocked(c.cls);
+    return ["weapon", "armor", "shield"].map(function (kind) {
+      const items = c.pool[DF_SLOT_KEY[kind]] || [];
+      const ci = sel[kind] | 0;
+      const cur = items[ci];
+      const lk = (kind === "shield") && locked;
+      return {
+        kind: kind, label: DF_SHEET_LABEL_TV[kind],
+        current: { idx: ci, name: cur ? cur.name : "なし", note: dfSheetItemNoteTV(kind, cur) },
+        options: dfSheetOwnedOptionsTV(kind).map(function (i) {
+          return { idx: i, name: items[i].name, note: dfSheetItemNoteTV(kind, items[i]) };
+        }),
+        locked: lk,
+        lockReason: lk ? "両手武器を持っているので盾は使えない" : null,
+      };
+    });
+  }
+  // 付け替え。⭐ 画面だけでなく **この関数の中でも** 所持を守る (持っていない段は拒否)
+  function dfSheetEquipTV(kind, idx) {
+    idx = idx | 0;
+    const c = dfSheetPoolTV();
+    if (!c || !DF_SLOT_KEY[kind]) return { ok: false, reason: "主人公の装備が見つからない" };
+    if (idx === (getEquipSelection(c.cls)[kind] | 0)) return { ok: false, reason: "既に装備している" };
+    if (!dfSheetOwnedOptionsTV(kind).includes(idx)) return { ok: false, reason: "持っていない品は装備できない" };
+    if (!dfEquip(c.cls, kind, idx)) return { ok: false, reason: "両手武器を持っているので盾は使えない" };
+    saveSelections();
+    // 開いている画面へ反映: マッチング画面の引き出し + カード / 準備画面 (?prepskip=0 の旧導線)
+    if (pmDrawerIdx >= 0) pmRenderDrawer(pmDrawerIdx);
+    if (pmCols.length) pmRefreshCards();
+    if (prepEl && prepEl.style.display !== "none" && prepEl.style.display !== "") renderCharLoadout();
+    try { if (window.DFSheet && window.DFSheet.isOpen && window.DFSheet.isOpen()) window.DFSheet.render(); } catch (e) {}
+    return { ok: true };
+  }
+  try {
+    if (SHEET_EQUIP_ON_TV && window.DFSheet && window.DFSheet.setEquipProvider) {
+      window.DFSheet.setEquipProvider({ canEdit: dfSheetCanEditTV, slots: dfSheetSlotsTV, equip: dfSheetEquipTV });
+    }
+  } catch (e) { /* シート未搭載 (?sheet=0) でも酒場は落ちない */ }
+  // 検証用の窓 (IIFE 内の関数は window に載らないので明示)
+  window.__sheetEquipTV = {
+    on: SHEET_EQUIP_ON_TV,
+    canEdit: dfSheetCanEditTV, slots: dfSheetSlotsTV, equip: dfSheetEquipTV,
+    ownedOptions: dfSheetOwnedOptionsTV,
+    heroClass: () => getHeroClass(),
+    sel: () => Object.assign({}, getEquipSelection(getHeroClass())),
+    drawerIdx: () => pmDrawerIdx,
+  };
   // 裏技ルート: 主人公が高レベル術者(魔法使い/エルフ)でポリモーフを習得済みなら杖不要
   function hasInnateDisguise() {
     const hc = getHeroClass();

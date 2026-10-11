@@ -429,3 +429,25 @@ K8 戦闘終了の描き直しは `setPhase` でなく :22485 の直後へ(`setP
     酒場 390x844 = 右下+32 (181,754)-(372,794)・800x600 = 右上+48 (591,66)-(782,106)・1280x800 = 右下+32 (1071,710)-(1262,750) /
     タイトル 390x844・800x600 = 文書の左上 (18,18)-(209,58) absolute(スクロール 0/25/50/75/100% の 5 点とも重なり 0)・1280x800 = 左下 (18,742)-(209,782) /
     地方全景 3 幅とも左下(390: (18,786)-(209,826))。9 点すべて重なり 0・はみ出し 0・中心が最前面・pageerror 0。
+
+### 12-2 項目2b — STEP3 (酒場)(2026-10-11 worker)
+
+- 範囲: `tavern.html`(供給口 + カードの描き直し + changelog の文面)/ `tools/verify_player_sheet.js`((7b) の言い直し + (2c) に酒場の供給口の固定)。
+- 実装: `getHeroClass()` の直後に供給口 (`dfSheetSlotsTV` / `dfSheetEquipTV` / `dfSheetCanEditTV` = 常に ok)。職 = `getHeroClass`・表 = `CHAR_EQUIP`・
+  所持 = `dfIsOwnedTier(kind, i, item)`・盾の塞がり = `dfShieldLocked`・付け替え = `dfEquip` へ委譲 → `saveSelections()` → 引き出し (`pmDrawerIdx >= 0`) なら
+  `pmRenderDrawer` + カードの `pmRefreshCards` / 準備画面 (#prep が flex) なら `renderCharLoadout` → シートの render。持っていない段・装備中の段は関数の中で `{ok:false}`。
+  slots の形と note の式はダンジョン (`dfSheetSlots` / `dfSheetItemNote`) と同じ。撤退 `?sheetequip=0` = 登録しない。検証の窓 `window.__sheetEquipTV`。
+- 崩れ **K9**: `pmRefreshCards()`(= 各カードの refresh)は **技の行しか描き直していなかった**(`refresh: renderSkills`)。カードの装備 3 行は fill で 1 回描くだけ
+  ⇒ §6 のとおり呼んでもカードは古い品のまま ((1e) が赤)。既存の引き出しからの付け替えも同じ欠陥。⇒ カード内に `renderEquipRows()` を切り出し、
+  refresh = 装備の行 + 技の行(行の数・構造は不変 = カードの高さは変わらない)。
+- **(7b) の言い直し(承認済・K1 と同じ扱い)**: 「B 段は index だけ」の固定表 → 「B 段 = index か、本番から読んだ `hasEquipProvider` が真のページ」で導出。
+  ページ名で酒場を A/B/C にしない。代わりに (2c) へ「酒場は供給口あり」を独立 assert で足した。emptycol 変異は town/world/title の B 段で赤のまま
+  (17 変異すべて赤 = 捕捉力は落ちていない)。(2c) の伏せ計は予告どおり 24 → **23**。
+- changelog: 2a の行を新しい行を足さずに完成文面へ(「酒場とダンジョンの探索中に…」)。件数 4 のまま。
+- 検証: 自分用プローブ 19/19(390x844。酒場で区画が出る / 開閉で書かない / 選べる品 = `dfIsOwnedTier`(gated 入りのセーブ)/ 関数内で未所持・装備中を拒否 /
+  実タップで localStorage = `getEquipSelection` = シート / 引き出しを開いたまま付け替え → 引き出しの「装備中」とカードが同じ品 / 酒場の選択がダンジョンの
+  シートに出る(戦士 = equip*Idx・魔法使い = allyEquip の同じ形)/ 両手武器で盾なし + 灰色 + 拒否 / `?sheetequip=0` で区画なし)。
+  変異 2 本(引き出しを描き直さない / カードを描き直さない)で該当 assert が赤になるのを確認。酒場のボタンの重なり 3 幅とも 0(位置は 2a と同じ)。
+- golden: verify_player_sheet 73/73・--negative 111/111・party_match_setup 36/36・darkvision 25/25・title_screen 86/86・town_map 85/85・
+  class_line 18/18・quest_draw 18/18・corner_check 20/20・pm_drawer_fit 75/79 (PENDING 4 = 既知)・member_identity 28/28・party_promises 35/35・
+  driver_party_view_reopen 35/35 = 全部 exit 0。

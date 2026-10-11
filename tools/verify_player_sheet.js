@@ -1668,6 +1668,8 @@ const ASSERTS = [
       // ★#89: 装備区画は供給口の有無と一致。⛔ 供給口はダンジョン (index) には必ず在り、町/地方/タイトルには無い
       if (has('dfSheetSecEquip') !== (p.hasEquipProvider === true)) bad.push(p.label + ' dfSheetSecEquip=' + has('dfSheetSecEquip'));
       if (p.file === 'index.html' && p.hasEquipProvider !== true) bad.push(p.label + ' ⛔ 装備の供給口が無い');
+      // ★#89 項目2b: 酒場も供給口を登録する (依頼書 §6)。(7b) の B 段の導出はこの値に依存するので独立に固定
+      if (p.file === 'tavern.html' && p.hasEquipProvider !== true) bad.push(p.label + ' ⛔ 装備の供給口が無い (依頼書 #89 §6)');
       if (['town.html', 'world.html', 'title.html'].indexOf(p.file) >= 0 && p.hasEquipProvider !== false)
         bad.push(p.label + ' ⛔ 装備の供給口が在る (依頼書 #89 §3: town/world/title は登録しない)');
       for (const id of ['dfSheetSecHeader', 'dfSheetSecAbilities', 'dfSheetSecLanguages',
@@ -2051,15 +2053,18 @@ const ASSERTS = [
       W.marks.map(k => k.w + 'px:' + k.gridTracks + '列' + (k.open ? '' : '(⛔開いていない)')).join('  ')
       + (bad.length ? '  ⛔ 期待 1200:3 / 760:2 / 390:1' : '')];
   }],
-  ['7b', '★#36 中身が 0 の段は DOM に置かない (index は A/B/C・他 4 枚は A/C)', (M) => {
+  ['7b', '★#36 中身が 0 の段は DOM に置かない (B 段 = index か装備の供給口があるページだけ・他は A/C)', (M) => {
     const P = M.pages || [];
     if (P.length !== 5) return [false, '⛔ 母集団が 5 でない'];
-    const want = { 'index.html': ['A', 'B', 'C'], 'tavern.html': ['A', 'C'],
-      'town.html': ['A', 'C'], 'world.html': ['A', 'C'], 'title.html': ['A', 'C'] };
-    const bad = P.filter(p => !deepEq(p.colsInDom || [], want[p.file]));
+    /* ★#89 言い直し (項目2b・承認済): B 段の中身は「HP/AC の供給 4 区画 (index だけ)」+「装備区画 (供給口を登録したページだけ)」。
+       ⭐ 供給口の有無は **本番から読んだ** p.hasEquipProvider (DFSheet.hasEquipProvider()) で導出する。
+       ⛔ ページ名で酒場を A/B/C にしない (供給口を外したら B が残る、を捕まえられなくなる)。
+       供給口の有無そのもの (index/tavern は有り・town/world/title は無し) は (2c) が独立に固定している。 */
+    const wantOf = (p) => (p.file === 'index.html' || p.hasEquipProvider === true) ? ['A', 'B', 'C'] : ['A', 'C'];
+    const bad = P.filter(p => !deepEq(p.colsInDom || [], wantOf(p)));
     return [bad.length === 0,
-      P.map(p => p.label + ':' + JSON.stringify(p.colsInDom || [])).join(' ')
-      + (bad.length ? '  ⛔ B 段 (供給口の 4 区画) は index にしか中身が無い' : '')];
+      P.map(p => p.label + ':' + JSON.stringify(p.colsInDom || []) + (p.hasEquipProvider ? '(装備)' : '')).join(' ')
+      + (bad.length ? '  ⛔ B 段は index と装備の供給口があるページにしか中身が無い' : '')];
   }],
   ['7c', '★#36 6 つの能力値ボックスが縦 1 列に積まれている (left 同一 / top 単調増加)', (M) => {
     const p = (M.pages || []).find(x => x.file === 'index.html');
