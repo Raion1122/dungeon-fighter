@@ -451,3 +451,34 @@ K8 戦闘終了の描き直しは `setPhase` でなく :22485 の直後へ(`setP
 - golden: verify_player_sheet 73/73・--negative 111/111・party_match_setup 36/36・darkvision 25/25・title_screen 86/86・town_map 85/85・
   class_line 18/18・quest_draw 18/18・corner_check 20/20・pm_drawer_fit 75/79 (PENDING 4 = 既知)・member_identity 28/28・party_promises 35/35・
   driver_party_view_reopen 35/35 = 全部 exit 0。
+
+### 12-3 項目3 受入(2026-10-11 worker)
+
+- 新規 `tools/verify_sheet_equip.js`。素 port **10606** / 変異 **10607〜10616**(10 本・MUTATIONS の並び順)。次の新規ドライバ base = **10617**。
+  変異は index.html / tavern.html / js/player-sheet.js の配信スナップショットへ実行時に注入(本番ファイルは無変更・行数不変・原本でちょうど 1 件・他ドライバとアンカーの重なり 0 を起動時に検算)。
+- **素 21/21 PASSED**(§0 5・§1 5・§2 3・§3 4・§4 1・§5 2・§6 1)。`--negative` **10/10**(必ず赤 ⊆ 赤 ⊆ 必ず赤 ∪ 確率で赤、NEG_MAYBE は全部空)。
+  `--negative` を 2 回続けて走らせて 2 回とも exit 0・担当の赤も同じ(揺れなし)。所要: 素 約 165 秒 / `--negative` 約 32 分。
+- 測り方の要点:
+  - 付け替えはすべてシートの装備区画のボタンを**実タップ**(390x844 isMobile。座標から visualViewport.offsetLeft/Top を引く)。主人公 = 戦士(頭)と魔法使い(頭でない)の 2 腕で、(0b) が本番の `heroIsHead` で両方起きたことを固定。
+  - (2a)(2b)(2c) は合成(`encounterActive` + `currentPhase` を立てて render)と、`?autoplay=4` の**実戦闘**を開いたままのシートで 100ms ごとに標本する 2 経路。
+    上限 150 秒で、(0d) が「戦闘が始まり探索へ戻った」を assert(実測: 戦闘開始 22〜26 秒・rest 表示中の標本 4 前後)。
+  - (3a) は gated を含む同じセーブ(高水位 5・所持名 フロストブランドだけ)で、戦士 / 盗賊の全段について ダンジョンの `__sheetEquip.isOwned` = 酒場の `__equipTV.isOwnedFor`、選べる品 = 所持 − 装備中 = シートの DOM。
+    母集団: 戦士の gated 武器で所持 1・未所持 2。
+  - (3c)(3d)(6a) の帰還は本物の `#retreatBtn` の click(→ `dfReturnEquipValues` → localStorage → world.html)の後、同じタブで tavern.html を開いて読む。
+  - ⭐ **(3d) の作り方**: `?roadchest=0` は使わず、本番の宝箱の開封関数 `discoverChest({loot:{kind:"weapon"}, el:null})` を探索開始前に直接呼ぶ
+    (current 1 → 2、`bumpStoredIdx` で高水位 `weaponIdx` = 2 が即時に書かれる)→ シートで 1 に下げる → 撤退 → 酒場で tier 2 が所持・選べる品(関数と DOM)に在る。
+    盤面の箱へ歩かせる手順(K4)を避けて決定的にした。
+  - (6a) は `(3c)` と**同じ判定関数 `judge3c`** を `?sheetequip=0` の帰還に当て、偽になる(equipWeaponIdx が Math.max で 2 へ戻る)ことで確かめる。OFF では装備区画が無いので、付け替えは `__sheetEquip.equip` を直接呼ぶ。
+  - (5b) の押せる物の判定はドライバに独立に書いた(本番の autoPlace は呼ばない)。酒場・タイトル・地方全景 × 3 幅 = 9 点で重なり面積 0・はみ出し 0・中心が最前面(縦スクロールするページは 5 点)。
+    ダンジョン(#partyPanel)・町 × 390x844 / 1280x800 = 4 点で置き場所と画面からはみ出さない・文字が切れない。座標は焼いていない。
+
+#### 崩れた §8 の主張(K)
+
+| K | §8 の主張 | 実測 | 扱い |
+|---|---|---|---|
+| K10 | 変異 `phaseonly` は (2b) だけ赤 | **(2a) も赤**。`runEncounter` は `encounterActive = true` → `dfSheetRefresh()` → `setPhase("combat")` の順(同期)。phase だけを見ると、描き直しの時点ではまだ explore なので、開いたままのシートが**実戦闘の間ずっと押せるまま**(実戦闘の標本 21/21 が押せる) | 欠陥そのものの見え方で決定的 ⇒ 担当 = (2a)(2b) |
+| K11 | 変異 `combatopen` は (2a) だけ赤 | (2b) も赤(合成の rest 表示でも canEdit が真) | 担当 = (2a)(2b) |
+| K12 | 変異 `oldname` は (4a) だけ赤 | **(1b) も赤**。`eqv = null` は §2-9 の AC(`ac: eqv ? eqv.ac : st.ac`)まで素の値へ戻すので、シートの AC 欄 ≠ `currentPlayerAc()` | 担当 = (1b)(4a) |
+
+- 本番の欠陥: なし(素で 21/21・本番 3 ファイルは無変更)。
+- 既存の名指し golden(本番を変えていないので確認だけ): verify_player_sheet 73/73・verify_party_match_setup 36/36・verify_title_screen 86/86 = 3 本とも exit 0。
