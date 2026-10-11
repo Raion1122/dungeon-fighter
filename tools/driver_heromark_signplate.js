@@ -60,11 +60,14 @@ const MUT_TARGETS = ['town.html', 'index.html', 'js/town-map.js'];
 const MUTATIONS = {
   /* ▽ の追従先を**常に頭**へ固定する → (A3) が赤くなる。
      ⭐ 「heroRef を null にする」ではダメ。それだと ▽ が消えるだけで、
-       「頭に付いてしまう」という本チケットの真のリスクを測っていない。 */
+       「頭に付いてしまう」という本チケットの真のリスクを測っていない。
+     ⚠ #89 (2026-10-12): 旧アンカー `      if (heroIsHead) {` は #89 の dfSheetHeroCtx に同じ行が増えて 2 箇所になり
+       (Z3) が exit 3 で止めた。heroMarkTarget の関数頭 (index.html で 1 箇所) へ移し、本体を同値に書く
+       (gameOver なら元の本体へ落ちて null・それ以外は頭が死んでいれば null・生きていれば常に頭)。 */
   markhead: [
     ['index.html',
-     '      if (heroIsHead) {',
-     '      if (true) {   /* \u2605\u5909\u7570markhead: \u5e38\u306b\u982d\u3078\u4ed8\u3051\u308b */'],
+     '    function heroMarkTarget() {',
+     '    function heroMarkTarget() { if (!gameOver) { if (hp <= 0) return null; return { x: playerX, y: playerY, size: playerWidth, isHead: true }; }   /* ★変異markhead: 常に頭へ付ける */'],
   ],
   /* ▽ を頭上から体へ落とす → 街は (A1)、ダンジョンは (A5) が赤くなる。
      ⚠ 街とダンジョンは**別の定数**を持つので両方を落とす (片方だけだと片肺で緑)。 */

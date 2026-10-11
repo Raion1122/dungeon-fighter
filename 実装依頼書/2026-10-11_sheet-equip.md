@@ -1,6 +1,6 @@
 # #89 キャラクターシートから主人公の装備を変える + 表記を「キャラクターシート」へ
 
-- **起草**: 2026-10-11(計画窓 claude-67) / **ステータス**: **承認済**(2026-10-11 ユーザー承認)
+- **起草**: 2026-10-11(計画窓 claude-67) / **ステータス**: **完了**(2026-10-11 ユーザー承認 → 2026-10-12 項目4 まで完了・push 待ち。結果は §12)
 - **触るファイル**: `js/player-sheet.js` / `index.html` / `tavern.html` /
   `tools/verify_sheet_equip.js`(新規)/ `tools/verify_player_sheet.js`(区画数の直書き 11→12 のみ)
 - ⛔ **触らないファイル**: なし(起草時点で作業ツリーは clean・HEAD `e7b877d`、実装窓 claude-17 は #88 を完了済み)。
@@ -482,3 +482,59 @@ K8 戦闘終了の描き直しは `setPhase` でなく :22485 の直後へ(`setP
 
 - 本番の欠陥: なし(素で 21/21・本番 3 ファイルは無変更)。
 - 既存の名指し golden(本番を変えていないので確認だけ): verify_player_sheet 73/73・verify_party_match_setup 36/36・verify_title_screen 86/86 = 3 本とも exit 0。
+
+### 12-4 項目4 母集団(2026-10-12 worker)
+
+- **pre = post88**(212 腕・`e7b877d` で走査。`e7b877d..76e2e6a` は md のみ = 項目1 で流用可と判定)。
+  **post89 = 215 腕**(post88 と同じ並びの 212 腕 + `verify_player_sheet --negative` + `verify_sheet_equip` 素 / `--negative`、3 本とも root prod)。
+  git を読む本 29 腕 + fix 3 腕は `git clone --shared` @`cf7aa64` の clone89 で走らせた(作業ツリーとバイト一致を確かめた: content differ 0。
+  例外は既知の eol だけの差 1 本 `tools/probe_magehand_reach.js`)。直列・SKIP 再開型・`timeout` で包まない。所要 **610.2 分**(1 腕あたり 2.84 分)。8765 を使う腕は無し。
+- 結果: 緑 189 / 非緑 26。**緑→赤 5 / 赤→緑 3 / 両方とも非緑 21**。新しい 3 腕は全部緑
+  (`verify_player_sheet --negative` 111/111・`verify_sheet_equip` 21/21・`--negative` 10/10)。
+- **緑→赤 5 本の帰属**(影のツリー `shadow89` = 本番の `index.html` / `tavern.html` / `js/player-sheet.js` を `e7b877d` へ戻したもの。
+  他の配信物 19 本は本番とバイト一致・全部 CRLF。tools は今のまま実体コピー):
+  | 腕 | post89 | 判定 | 根拠 |
+  |---|---|---|---|
+  | `driver_heromark_signplate` 素 / `--negative` | exit 3(1 秒) | **#89 帰属(測定器の衝突)→ 項目4 で直した** | (Z3) 変異 `markhead` のアンカー `      if (heroIsHead) {` が `index.html` で 2 箇所になった。増えた 1 行は #89 の `dfSheetHeroCtx`(:20360)。製品の挙動ではなく、ドライバの「1 ファイル 1 箇所」の検算が止めたもの = K13 |
+  | `driver_monsters_griffon` | 15/17 | #89 帰属なし(型 2 のフレーク) | 交互 5 対: 本番 緑 3/5・影 緑 4/5(走査を足すと本番 3/6)。Fisher p=0.55。赤の中身は `entries=0` / `mino=0/0` = 装置が 1 件も観測できなかった指紋(#72 の既知フレーク) |
+  | `driver_monsters_kobold` | 11/12 | #89 帰属なし(型 2) | (d) `maxPack=0`(コボルドは攻撃したが、その時に対象の隣に味方の敵が居なかった)。交互 5 対: 本番 3/5・影 3/5。p=1.0 |
+  | `probe_boss_latch` | 1/5 | #89 帰属なし(型 2) | (b) 装置 = `snapPlayerToTile` で帯へ押し込んだ後の位置が 27,13 へ戻る(進行中の移動が上書きする競争)。交互 5 対: 本番 緑 3/5・**影 緑 1/5**(影の方が赤が多い)。p=0.55。#89 が戦闘の流れに足したのは `dfSheetRefresh()` 3 箇所だけで、位置は書かない |
+- **項目4 で触ったファイル = `tools/driver_heromark_signplate.js` だけ**(本番 3 ファイルは無変更・changelog 不要の範囲)。
+  変異 `markhead` のアンカーを `    function heroMarkTarget() {`(`index.html` で 1 箇所・town.html / js/town-map.js で 0 箇所)へ移し、
+  置換後の本体を元の変異と同値に書いた(gameOver なら元の本体へ落ちて null / 頭が死んでいれば null / それ以外は常に頭)。
+  再走: 素 **46/46**(post88 と同じ数)・`--negative` **4/4 変異が赤**(markhead → (A3) を含む)・影でも素 46/46 で exit 0。
+  ⇒ **#89 帰属の緑→赤は直した後 0**。
+  ⚠ 項目2a の「既存ドライバの変異アンカー 217 件の出現回数は HEAD と同じ」はこの 1 件を取りこぼしていた。#89 が足した/消した行を
+  全ドライバの文字列リテラルと突き合わせ直すと、当たったのはこの 1 行だけ。
+- **赤→緑 3 本**(#89 と無関係): `driver_mine_wall`(64/66 → 66/66・戦車の乱入の乱数 = #88 の K16 候補)/ `driver_speech_engine`
+  ((4) カメラ追従の空回り = #88 の K17 候補)/ `verify_mage_hand --negative`(変異 `escapeon` の中の自然脱走 20% = #88 の K18 候補)。
+- **両方とも非緑 21 本**: 中身は post88 と同じ(既知の赤・引数が要る probe・exit 1 が正常な probe・600 秒で打ち切る probe・変異アンカーの空振り 3 本ほか)。
+  1 本だけ件数が動いた: `driver_field_step6` 56/59 → 55/59。増えた赤は `(C-lizard-swamp)` の「`?graph=auto` が entry から前進した」で、
+  同じ assert が post88 でも他の 3 シナリオで赤(post88 の lizard-swamp も 167 秒で辛うじて緑)= 時間切れ型の既存の赤が 1 シナリオ増えただけ。#89 の帰属経路は見当たらない。
+
+#### 別チケット候補(K13〜)
+
+| K | 内容 |
+|---|---|
+| K13 | (済・項目4)`driver_heromark_signplate` の変異 `markhead` のアンカーが #89 の新しい行と重なった。教訓 = 変異アンカーの非退行は「既存アンカーの出現回数」を全ドライバの文字列リテラルから引く(固定の一覧に頼らない) |
+| K14 | `probe_boss_latch` (b) は 2 色になる(本番 3/5・影 1/5)。`snapPlayerToTile` の直後に進行中の移動が位置を戻す。押し込みを移動の手番の外で行うか、押し込み後の位置を装置 assert で待つべき |
+| K15 | `driver_monsters_kobold` (d) は 2 色(両方の木で 3/5)。生存者が攻撃する瞬間に「対象の隣に味方の敵」が居ない回がある |
+| K16 | `driver_field_step6` Part C の「`?graph=auto` が前進した」は時間切れ型で、post89 では 4 シナリオすべて赤 |
+
+#### 作業コピー(削除しない。後片付けはユーザー判断)
+
+scratchpad `56b80b01-…\scratchpad\item4\` の `clone89`(207MB)/ `shadow89`(268MB)/ `shadow89git`(207MB)= 計 約 680MB。
+道具は同じフォルダの `armlist_89post.json` / `sweep_89post.py` / `run_all89post.ps1`(pwsh で起動)/ `cmp_89.py` / `pair_89.py` / `mkshadow_89.py` / `cmptree89.py`、
+結果は `run_post89\post89.tsv`・`pairs_g2r\pairs.tsv`・`triage\`。
+
+### 12-5 まとめ(#89 完了)
+
+- **commit**: `640e59d`(項目1 基準取り)/ `bc7e385`(項目2a シート + ダンジョン + 表記 + K5 拡張の置き場所)/ `b97007e`(項目2b 酒場 + カードの描き直し K9 + (7b) の言い直し)/
+  `cf7aa64`(項目3 受入 `tools/verify_sheet_equip.js`)/ 本節のコミット(項目4 母集団 + `driver_heromark_signplate` のアンカー直し)。
+- **受入**: `verify_sheet_equip` 素 **21/21**・`--negative` **10/10**(素 port 10606 / 変異 10607〜10616)。既存 golden: `verify_player_sheet` 73/73・`--negative` 111/111 /
+  `verify_darkvision` 25/25 / `verify_party_match_setup` 36/36 / `verify_town_map` 85/85 / `verify_title_screen` 86/86。
+  母集団 215 腕で **#89 帰属の緑→赤 0**(1 件は測定器の衝突 = 項目4 で直した)。
+- **崩れた主張**: K1〜K12(§12-0〜§12-3)+ 項目4 の K13〜K16。
+- **撤退**: `?sheetequip=0`(装備区画を出さない・帰還時の書き込みと高水位の書き込みも従来へ)。
+- **残り**: §9 実機(iPhone で装備区画のボタンが押しやすいか・酒場 / タイトル / 地方全景でボタンが動いた位置の違和感・戦闘中の灰色の見え方)。
+- 次の新規ドライバ base = **10617**。
