@@ -480,8 +480,15 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       shape.api && shape.api.length === 6, JSON.stringify(shape.api));
 
     // ── (1c) defeatEnemy を通さない alive=false は撃破数に混ざらない ─────────
-    const cage = await page.evaluate(() => {
-      const out = {};
+    /* #91 §6-1: 生きた敵を待つのと触るのを **同じ evaluate の中で**行う。
+       ⚠ 以前は arm A の 1500ms の待ちの間に部屋の最後の敵が倒れ、touched=0 で (1z1)(1c) が
+          空振り赤になった (`{"before":4,"touched":0,"after":4}`)。待ち (await) を抜けた直後から
+          触り終えるまでは同期 = ゲームが割り込まない。60 秒待っても 0 体なら本当に装置が壊れている = 赤でよい。 */
+    const cage = await page.evaluate(async () => {
+      const t0 = performance.now();
+      while (!enemies.some(e => e && e.alive) && performance.now() - t0 < 60000)
+        await new Promise(r => setTimeout(r, 200));
+      const out = { waitedMs: Math.round(performance.now() - t0) };
       const before = RunChronicle.snapshot(null);
       out.before = before.kills;
       /* 檻の解放 (applyGrixGuardFlee) と一括消去 (restoreNodeState) が実際にやっているのと
@@ -800,7 +807,9 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
     const waitEncounter = (page, ms) => pollUntil(page, () => {
       let enc = false, n = 0;
       try { enc = !!encounterActive; } catch (e) {}
-      try { n = enemies.filter(x => x && x.alive).length; } catch (e) {}
+      /* #91 §6-1: 数えるのは**交戦中の敵**だけ。encounterActive は勝った後の休憩中も真なので、
+         盤面の全敵を数えると「勝った直後の休憩」を交戦中と誤認する (verify_sheet_equip.js:52 と同じ注記)。 */
+      try { n = encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive).length; } catch (e) {}
       return { done: enc && n >= 1, enc: enc, alive: n };
     }, ms || 150000, 700);
     const armGate = async (page, ms) => {
@@ -839,13 +848,25 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       } catch (e) {}
     });
 
+    /* #91 §6-1: 固定 6 秒 (≒ 1 ラウンド) をやめ、敵の HP が減るまで窓を伸ばす (上限 8 窓 = 48 秒)。
+       ⚠ 6 秒の窓で全員が外すと boardEnemyLoss=0 で (2z3)(2a) が空振り赤になっていた。
+       ⭐ (2a) の帳尻 (dealtΔ === enemyLoss) は関所から関所までのどの窓でも成り立つ ⇒ 伸ばしても主張は弱くならない。
+       入れ替わり (enemyN の変化・戦闘終了) で抜けた場合は (2z2) が捕まえる。 */
     const p0 = await armGate(page);
     const D0 = await page.evaluate(() => window.__chLedger());
-    await releaseGate(page);
-    await sleep(6000);
-    const p1 = await armGate(page);
-    const D1 = await page.evaluate(() => window.__chLedger());
-    console.log('  [arm D] park0=' + JSON.stringify(p0) + ' park1=' + JSON.stringify(p1));
+    let D1 = D0, p1 = null, win = 0;
+    for (; win < 8; win++) {
+      await releaseGate(page);
+      await sleep(6000);
+      p1 = await armGate(page);
+      D1 = await page.evaluate(() => window.__chLedger());
+      if (D1.enemyN !== D0.enemyN || D1.enc !== true || D0.enemyHp - D1.enemyHp >= 1) break;
+    }
+    const windows = Math.min(win + 1, 8);
+    console.log('  [arm D] park0=' + JSON.stringify(p0) + ' park1=' + JSON.stringify(p1) + ' windows=' + windows);
+    /* ⚠ 依頼書 §6-1 の例は (2z5) だが、(2z5) は (2c) の装置が既に使っている ⇒ 番号を (2z10) にした。 */
+    check('(2z10) [装置] 関所に 2 回とも停まれた (窓の前後で同じ関所の上で読んでいる)',
+      !!(p0 && p0.done && p1 && p1.done), JSON.stringify({ p0: p0, p1: p1, windows: windows }));
     console.log('  [arm D] L0 = ' + JSON.stringify(D0));
     console.log('  [arm D] L1 = ' + JSON.stringify(D1));
 
@@ -856,7 +877,7 @@ async function pollUntil(page, fn, timeoutMs, stepMs) {
       D0.enemyN === D1.enemyN && D0.allyN === D1.allyN && D1.enc === true,
       'enemyN ' + D0.enemyN + '→' + D1.enemyN + ' / allyN ' + D0.allyN + '→' + D1.allyN + ' / enc=' + D1.enc);
     check('(2z3) [装置] 母集団が空でない — 窓の間に敵の HP が実際に減っている',
-      dEnemyLoss >= 1, 'boardEnemyLoss=' + dEnemyLoss);
+      dEnemyLoss >= 1, 'boardEnemyLoss=' + dEnemyLoss + ' windows=' + windows);
     check('(2z4) [装置] 敵の手番を黙らせたので味方の HP は減っていない (同士討ちが与ダメに混ざらない)',
       D1.partyHp >= D0.partyHp && dTaken === 0,
       'partyHp ' + D0.partyHp + '→' + D1.partyHp + ' / takenΔ=' + dTaken);
