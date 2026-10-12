@@ -417,3 +417,36 @@ _lastCageEscapeCheck = Infinity;   // (3a) の間は自然脱走②の 5 秒判�
     カメラも追従しない(`follow=000001`)ので不採用。⇒ (7) は **`combat-no-round` の 1 種だけ数えない**(detail には出す)。
     無限ループの実体は `combat-runaway`(100 ラウンド)/ `run-timeout` が critical のまま測る。
   - アンカー `b.el.style.left = SX(a.x) + "px";` は起動時に「配信物で 1 件・他の tools 全部(.js/.mjs/.py/.ps1)の文字列に 0 件」を自己検査する。
+
+### 12-2. STEP2(実装窓)— kobold / hobgoblin / mine_wall
+
+`index.html` sha1 は全走行中 `3a5dbd8e…` のまま。3 本とも LF。変異は 3 本とも speech_engine の `--negative` の形を写した
+(配信スナップショットへ実行時注入・子プロセス・最終行 `__RESULT__{json}`・`window.__MUTHIT__<key>` で到達を数える・
+起動時に新アンカーの「配信物で 1 件・他 tools の文字列 0 件」を自己検査・担当と完全一致・到達 > 0・担当外の赤 0)。
+
+- `driver_monsters_kobold`(`37b21fb`): §5-1 + **K3**。(d) 密集・(e) 孤立とも HP 999、装置 (d0)(e0)。
+  素 5 回 = 15/15 ×5(`__pumped=8 / 1`・7〜29 s)。`--negative` 1 回 = exit 0(nopack は (d) pack +2 だけ赤・到達 252 回 /
+  allyside は (e) pack/disc=0 だけ赤 `maxPack=2`・到達 2 回・所要 152 s)。
+- `driver_monsters_hobgoblin`(`8678504`): §5-2。(d)(e) 両配置 HP 999・装置 (d0)(e0)。(e) の pack/disc=0 を
+  「反撃記録 ≥ 1 && 全 0」に言い直し、観測ループの抜け条件を `iAc.n >= 3 && iAgg.n >= 1` に(上限 160 回 ≈ 48 秒は不変)。
+  素 3 回 = 16/16 ×3(反撃記録 atkN=1・所要 17〜22 s)。`--negative` 1 回 = exit 0(discac は (e) 実効AC=16 だけ赤 `minAc=17 maxAc=17`・到達 8 回)。
+- `driver_mine_wall`(`8d4bde6`): §5-3 + (4z3) + nochariot。素 2 回 = 67/67 ×2(`__kingCut={"before":54,"max":54,"chariotBefore":0,"after":37}` /
+  `{"before":45,…,"after":31}`・乱入 sawAt 166 s / 203 s・所要 239 / 254 s)。`--negative` = exit 0・**6/6 担当どおり**
+  (素の子で既存 5 変異の (5-*) が全緑 + nochariot は (4z)(4z2) だけ赤・(4z3) 緑・到達 3 回・所要 480 s)。
+  既存 5 変異は従来どおり 1 プロセス内の §5 で測り、子プロセスの nochariot の子でも §5 は既定の 9081〜9085 に立てる(10627〜 を掴まない)。
+
+**崩れた前提**:
+
+- **K3** kobold の allyside(担当 (e))は §5-1 の注入(`:208` = (d) だけ)では**測れない日がある**。旧 (e) は最初の 1 撃で抜け、
+  その口が隊長(36107)か仲間(36349)かは不定 ⇒ 隊長を殴った回は仲間側の口を一度も通らず allyside が空振る。
+  ⇒ (e) の孤立配置にも HP 999 を注入し、**仲間を狙う攻撃(site=ally)を 1 回以上観測するまで待つ** + 装置 (e0) で観測を assert。
+  実測: HP 999 の孤立コボルドは開戦 3 秒で仲間を殴り始める(36 秒で 28 撃中 27 撃が仲間)。孤立の条件(単体スポーン)は不変。
+- **K4** mine_wall の素で 1 回、**(6a) が赤**(`[:9080?diag=1&intel=0&roadchest=0] CONSOLE [DIAG][stall] 探索停滞: 10秒間動きなし @ (2016,1056)`)。
+  §1 の測定ページ(§3 の間ずっと開きっぱなし)で自動デバッグの停滞検出が鳴った型で、§4 の注入より前・本チケットの変更と無関係
+  (素 4 回中 1 回・(4z)(4z2)(4z3) はその回も緑)。#91 の 7 本の範囲外なので**直していない** ⇒ 項目 4 の素 3 回で再発したら
+  「(6a) は測定ページの [DIAG] を数えない or ページを閉じてから待つ」を別チケット候補にする。
+- **K5** mine_wall の既存変異 noring のアンカー `const sealing = !!(p.sealRing && !PAINT_RING_OFF);` は `driver_grid_s2.js` にも在る
+  (他 3 本は mine_wall だけ)。#91 では既存アンカーを動かさないので、アンカー衝突の自己検査は**新しい nochariot だけ**に掛けた。
+- **K6**(K2 の申し送りの確認): HP 999 のページで `__diag` の critical を assert している本は 3 本とも無い
+  (kobold/hob の (c) は HP を触らない page1 だけ / mine_wall は play を (6b) で見るが `[DIAG]` を除外、HP も触らない)⇒ `combat-no-round` の扱いの変更は不要。
+- 行番号: §2-3〜§2-5 の tools 側・index.html 側の引用はずれなし(36107 / 36349 / 24171 / 35005 / 28361)。
