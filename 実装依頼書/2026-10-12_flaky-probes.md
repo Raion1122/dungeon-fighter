@@ -1,6 +1,6 @@
 # #91 測定器の揺れ回収 — 乱数で空振りする装置 7 本を決定的にする(tools のみ)
 
-- **起草**: 2026-10-12(起草窓) / **ステータス**: **承認済**(2026-10-12 ユーザー承認)
+- **起草**: 2026-10-12(起草窓) / **ステータス**: **✅ 完了**(2026-10-12 ユーザー承認 → 2026-10-13 実装窓で受入完了・§12-4)
 - **触るファイル**: `tools/probe_boss_latch.js` / `tools/driver_speech_engine.js` / `tools/driver_monsters_kobold.js` / `tools/driver_monsters_hobgoblin.js` / `tools/driver_mine_wall.js` / `tools/verify_run_chronicle.js` / `tools/verify_mage_hand.js` / 本依頼書 / `実装依頼書/README.md`(完了時の行更新)
 - ⛔ **触らないファイル**: `index.html` / `tavern.html` / `audio.js` / `js/*`(**読むだけ**)。2026-10-12 時点で作業ツリーは clean・並走なし。
 - 新しいポートの base = **10623**(§8 で 10623〜10627 を使う。次の base = **10628**)
@@ -473,3 +473,69 @@ _lastCageEscapeCheck = Infinity;   // (3a) の間は自然脱走②の 5 秒判�
 - K2 の申し送り(`combat-no-round`)の確認: run_chronicle は `__diag` の critical を assert していない(窓を伸ばしても影響なし)。今回の 4 走行で K4 型の `[DIAG][stall]` 赤も出ていない。
 - 行番号: §2-6 / §2-7 の tools 側の引用はずれなし(`index.html` 側は §12-0 の 26150 / 22595 のとおり)。
 - §1 の残り: run_chronicle 素 **あと 2 回**(合計 5)、`verify_mage_hand --negative` **あと 1 回**(合計 2)= 項目 4 で回す。
+
+### 12-4. 受入(実装窓)
+
+基準: HEAD `a54596f`・作業ツリー clean・`index.html` sha1 = `3a5dbd8ed7f7d57e3c7fec73a80dfeb017d12593`。項目 4 の 17 走行すべてで、走行の前後に sha1 を測って不変だった。
+走らせ方は 1 本ずつ順番(並列なし・2026-10-13 00:18〜01:04)。**赤は 0 件** ⇒ 範囲外の既知の赤による追加の走行も 0 回。
+
+#### §0 + §1 素の繰り返し(項目 1〜3 の回数 + 項目 4 の回数)
+
+| 本 | 回数(項目1〜3 + 項目4) | 結果 | 装置値の例(項目 4 の回) |
+|---|---|---|---|
+| `probe_boss_latch` | 3 + 2 = **5** | **5/5 で 5/5 PASS** | `to=47,19 held=47,19 slidingAtPush=false reachedNow=true`・ラッチ時の playBgm=boss・戦闘 ID が押し込み時と同じ(所要 37 / 38 s) |
+| `driver_speech_engine` | 3 + 2 = **5** | **5/5 で 18/18** | `explored=true phases=eeeeee`・一時停止 1625 / 1618 ms・camXレンジ 165.1 / 194.6px・maxDiff 0.0px(所要 70 / 53 s)。(7) は 1 回 `combat-no-round` n=2 を記録して緑(K2 のとおり数えない種別・除くと critical 0) |
+| `driver_monsters_kobold` | 5 + 5 = **10** | **10/10 で 15/15** | (d0) `__pumped=8 / 配置 8 体`・(e0) `__pumped=1 / 配置 1 体`・site=ally を観測(所要 8〜28 s) |
+| `driver_monsters_hobgoblin` | 3 + 2 = **5** | **5/5 で 16/16** | (d0) `__pumped=4 / 配置 4 体`・(e0) `__pumped=1`・(e) 反撃記録 ≥ 1 で pack/disc=0(所要 26 / 15 s) |
+| `driver_mine_wall` | 2 + 1 = **3** | **3/3 で 67/67**((4z)(4z2)(4z3)・(6a) も緑) | `__kingCut={"before":45,"max":45,"chariotBefore":0,"after":31}`・乱入 sawAt=168s・体の壁 0 マス・(2e) クリア(所要 216 s) |
+| `verify_run_chronicle` | 3 + 2 = **5** | **5/5 で 74/74** | (1z1) `{"waitedMs":0,"before":4,"touched":3,"after":4}` / `{"waitedMs":0,"before":3,"touched":3,"after":3}`・(2z10) `windows=1`・boardEnemyLoss=318 / 62(所要 201 / 183 s) |
+| `verify_mage_hand --negative` | 1 + 1 = **2** | **2/2 で exit 0・12/12 担当どおり** | 素(基準)32/32・`escapeon` は **(4a) だけ赤**(31/32・注入行 5 回)・所要 1879 s |
+
+- K4 型の `[DIAG][stall]`((6a) の赤)は今回の mine_wall では出なかった(項目 1〜4 の素 5 回中 1 回のまま)。
+- K8: `waitedMs` は素 5 回とも **0**(待ちのループを実際に回した回は未観測)。守りは「待ちと触りの間に await が無い」構造で立っている(§12-3)。
+
+#### §2 負のコントロール(再掲 + 項目 4)
+
+| 本 | 変異 | 結果 | 走らせた項目 |
+|---|---|---|---|
+| boss_latch | `--index <24dbb60^:index.html>` | (a)(b) 緑・**(c)(d)(e) だけ赤**(2/5・exit 1) | 項目 1 |
+| speech_engine | `bubblepin`(10627) | exit 0・**(4) ±8px だけ赤**(maxDiff 56.4px)・camXレンジ / (4-装置) 緑・注入行 1066 回 | 項目 1 |
+| kobold | `nopack`(10623) / `allyside`(10624) | exit 0・nopack は **(d) pack +2 だけ赤**(到達 252 回)/ allyside は **(e) pack/disc=0 だけ赤**(`maxPack=2`・到達 2 回) | 項目 2 |
+| hobgoblin | `discac`(10625) | exit 0・**(e) 実効AC=16 だけ赤**(`minAc=17 maxAc=17`・到達 8 回) | 項目 2 |
+| mine_wall | `nochariot`(10626) | exit 0・**(4z)(4z2) だけ赤**・(4z3) 緑・到達 3 回 | 項目 2 |
+
+**変異アンカーの全数走査(項目 4・#89 の教訓)**: 新しい 5 本のアンカー文字列を、配信物 `index.html` と全 tools(.js/.mjs/.py/.ps1・198 本・再帰)で数えた。
+
+| 変異 | アンカー | index.html | 持ち主の本 | 他の tools | 他の配信物(tavern / audio / js/*) |
+|---|---|---|---|---|---|
+| nopack | `if (tileChebyshev(cx, cy, oCX, oCY) <= tiles) n++;` | 1 | 1 | 0 | 0 |
+| allyside | `nearbyAlliedEnemies(enemyIdx, tCX, tCY, 1) > 0` | 1 | 1 | 0 | 0 |
+| discac | `if (nearbyAlliedEnemies(idx, cx, cy, 2) > 0) ac += 1;` | 1 | 1 | 0 | 0 |
+| nochariot | `return king.hp <= king.maxHp * CHARIOT_HP_TRIGGER;` | 1 | 1 | 0 | 0 |
+| bubblepin | `b.el.style.left = SX(a.x) + "px";` | 1 | 1 | 0 | 0 |
+
+- 部分語(`oCX, oCY) <= tiles` / `enemyIdx, tCX, tCY, 1)` / `idx, cx, cy, 2) > 0` / `CHARIOT_HP_TRIGGER` / `SX(a.x)`)でも tools 全ファイル中ヒットは持ち主の 1 本だけ(エスケープ表記の写しも無い)。
+- 既知(K5・除外): 既存 noring のアンカー `const sealing = !!(p.sealRing && !PAINT_RING_OFF);` は index.html 1 件・mine_wall 2 件・**`driver_grid_s2.js` に 1 件**。#91 では既存アンカーを動かさない。
+
+#### §3 既存の負のコントロールの非退行
+
+- `verify_run_chronicle --negative` → exit 0・N1〜N8 すべて担当どおり(項目 3・1555 s)
+- `driver_mine_wall --negative` の素の子で既存 5 変異(noring / ringall / centeronly / nofallback / nomass)の (5-*) 全緑(項目 2)。項目 4 の素でも (5-*) 5 本とも緑
+- `verify_mage_hand --negative` → exit 0・12/12 担当どおり ×2(項目 3・項目 4)
+
+#### 崩れた前提 K1〜K8(1 行要約)
+
+- **K1** boss_latch: 帯で決着すると boss→rest が 50ms 標本の間に済む ⇒ (d) は playBgm の包みで「ラッチ後の最初の曲」を同期に見る。
+- **K2** speech_engine: (7) の `combat-no-round` は Lv10 の種が 1 ラウンドを閾値近くまで伸ばすのが真因(変異・一時停止とは無関係)⇒ その 1 種だけ数えない。
+- **K3** kobold: allyside は (d) だけへの注入では測れない日がある ⇒ (e) にも HP 999 + site=ally の観測待ち + 装置 (e0)。
+- **K4** mine_wall: (6a) `[DIAG][stall] 探索停滞` は測定ページの停滞検出 = 範囲外の既知(項目 1〜4 の素 5 回中 1 回)。
+- **K5** mine_wall: 既存 noring のアンカーは `driver_grid_s2.js` と衝突 ⇒ 自己検査は新しい nochariot だけ。
+- **K6** HP 999 のページで `__diag` critical を assert する本は無い ⇒ K2 の扱いの波及なし。
+- **K7** run_chronicle: 例の装置ラベル `(2z5)` は既存と衝突 ⇒ `(2z10)`。
+- **K8** run_chronicle: (1z1) の `waitedMs` は素 5 回とも 0(待ちのループは未観測・構造で守る)。
+
+#### 残り
+
+- §9 実機: **無し**(tools だけ・プレイヤーに見える変化なし)。changelog も不要(§2-10)。
+- 別チケット候補: K4(mine_wall の (6a) が測定ページの `[DIAG][stall]` を数える)/ K5(noring のアンカー衝突)/ `driver_field_step6` Part C(§11)。
+- ポート: 10623〜10627 を使用 ⇒ **次の新規ドライバ base = 10628**。
