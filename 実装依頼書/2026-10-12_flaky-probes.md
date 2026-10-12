@@ -397,3 +397,23 @@ _lastCageEscapeCheck = Infinity;   // (3a) の間は自然脱走②の 5 秒判�
 | `verify_mage_hand` 素 | 148 s | 緑 32/32 | — |
 
 崩れた前提(挙動レベル)は **無し**。
+
+### 12-1. 項目1 — STEP1(boss_latch / speech_engine)
+
+- `probe_boss_latch`(`d1c804a`): §4-1 どおり + **K1**。素 3 回 = 5/5・5/5・5/5(全回 `slidingAtPush=false`・`held=47,19 === to`)。
+  負のコントロール `--index <24dbb60^:index.html>` → (a)(b) 緑・(c)(d)(e) 赤(2/5・exit 1)。
+  - **K1** §4-1 の形だけで素を 3 回回すと 1 回 (d) が赤(`seamBgm=rest played=rest`)。帯へ入った**最後の手番で決着**すると
+    ラッチ → `bgm("boss")` → 勝利の `bgm("rest")` が 50ms 標本の間に全部済み、標本に rest が写る(同じ戦闘 ID の休憩中 = `encounterActive` は真のまま)。
+    ⇒ 既存の `playBgm` の包みで、呼ばれた瞬間のラッチ・`__graphRun.bgm().id`・戦闘 ID を**同期に**記録し、(d) は
+    「押し込んだ戦闘の中でラッチが立った状態の最初の playBgm」が boss かで見る(主張は不変)。直後の素で実際に
+    「標本 rest / ラッチ時 boss」の回が出て緑になった。
+- `driver_speech_engine`(`187406c`): §4-2 どおり + `--negative`(bubblepin・port 10627)+ **K2**。素 3 回 = 18/18 ×3
+  (phases=eeeeee・maxDiff 0.0・camXレンジ 164〜209px・一時停止 1.7 秒・所要 42〜50 s)。`--negative` 1 回 = exit 0
+  (素 18/18 / bubblepin は ±8px だけ赤 maxDiff 56.4px・camXレンジと (4-装置) は緑・注入行 1066 回・所要 134 s)。
+  - **K2** (7) `__diag` の `combat-no-round` は **bubblepin とも一時停止とも無関係**。素(変異なし)でも 9 回中 2 回赤。
+    鳴った時刻は一時停止の 21 秒前(最初の戦闘のラウンド 2)。**ドライバ無しの素のページ**(Lv10・同じ Q)でも
+    8 回中 1 回鳴った(1 ラウンド最大 17.0 秒 vs 閾値 15 秒)= **Lv10 の種がこの機械で 1 ラウンドを閾値近くまで伸ばす**のが真因。
+    `autoplay=30` でも最大 10.2 秒(4 回)で余裕が保証されない。起動直後の探索の窓で止める案は (1)(2) が出ず(吹き出しが出ない)・
+    カメラも追従しない(`follow=000001`)ので不採用。⇒ (7) は **`combat-no-round` の 1 種だけ数えない**(detail には出す)。
+    無限ループの実体は `combat-runaway`(100 ラウンド)/ `run-timeout` が critical のまま測る。
+  - アンカー `b.el.style.left = SX(a.x) + "px";` は起動時に「配信物で 1 件・他の tools 全部(.js/.mjs/.py/.ps1)の文字列に 0 件」を自己検査する。
