@@ -236,4 +236,29 @@ Part C 本体の後に、`DUNGEONS` の各シナリオで**別ページ**を起�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(2026-10-13・HEAD `6154caf`)
+
+- `index.html` sha1 = `3a5dbd8ed7f7d57e3c7fec73a80dfeb017d12593`(CRLF 41762 行・末尾改行なし)。`tools/driver_field_step6.js` と本依頼書は**純 LF**。
+- §2-5 の行番号: `chooseExit` 37987(`if (RUN.auto) return opts[0];` は **37990**)/ `showExitArrows` 38610・`.exitArrow` 38635 / `isNodeSettled` 38978-38982 / `buildBanditsForestRun` 39878・`return { entry: "n7", nodes: [boss] }` 39952 … **一致**。
+  - ⚠ ずれ 1 件: `tickNodeChoice` は **39083-39148**、`if (RUN) setInterval(tickNodeChoice, 400);` は **39149**(依頼書の 39155 ではない)。
+  - ⚠ ずれ 1 件(driver 側): gameOver で抜ける行は着手前 **:624**(依頼書の :625 ではない)。他の driver 行番号(:546-631 / :587-605 / :615-623 / :749-788 / :770-784 / :841 / :189-196 / :555-557)は一致。
+- §2-6 アンカー: `if (RUN.auto) return opts[0];` = index.html **1 回**・`tools/` の全ファイル **0 件** / `if (RUN) setInterval(tickNodeChoice, 400);` = index.html **1 回**・`tools/` **0 件** … **一致**(衝突なし)。
+- ⚠ §2-0 の「Part C だけで 27/31」は総数が数え違い。`--skip-a --skip-b` の判定は (S1)〜(S5) 5 本 + シナリオごと 4 本 × 6 + (C0) 1 本 = **30 本**(赤 4 なら 26/30)。フル = 30 + Part A 13 本((A-*) 12 + (A0))+ Part B 12 本 + (J1)(J1b)(J1c)(J2) 4 本 = **59 本**で依頼書と一致。
+- **素の色(フル走行・port 10628)= 56/59・EXIT=1・所要約 25 分**。ログ = scratchpad `f6_base_92.txt`(JSON = `f6_base_92/field_step6_metrics.json`)。
+  - 赤 3 本 = `(C-bandits-forest)`(entry n7・前進せず)/ `(C-orc-fort)`(**27s** で終了)/ `(C-dragon-lair)`(**51s** で終了)。
+  - 沼地は今回 **緑(191s で前進)**・神殿は緑(149s)・廃坑は緑(67s)= §2-1 の「二峰」どおり(依頼書の今回 4 赤 → この走行は 3 赤)。
+  - (C0) = **390 回**(依頼書の 368 は別走行の値。実プレイの非決定な標本なので回数は揺れる)。内訳 呼出/救済発火/完全に進めず: 廃坑 76/5/0・森 94/1/1・沼地 67/7/0・砦 16/2/0・神殿 86/10/0・竜 51/1/0。
+  - Part A(決定的・非退行の基準): 切断率 帯3行 救済なし **45.450%** → あり **76.300%** / 帯5行 **0.300%** → **0.200%**、移動不能 3行 **17239/20396 → 0/4236**、5行 **6889/11379 → 0/4808**、救済発火 0 / 1225 / 0 / 400。
+  - Part B(実プレイ・非決定・合否は 12 本の PASS だけ): 切断率 iphone_port 44.063% → 12.121%・desktop 29.194% → 24.784%、全腕 waves-cleared・最大同時敵 3。
+
+### 12-1. STEP1(Part C 本体を救済の母集団へ戻す)
+
+- `runPartC(browser, base, scenarioId, speed, budgetMs)` — 第 6 引数 `extraMs` と延長条件を削除。ループは **`el >= budgetMs` で必ず抜ける**(gameOver ならその前)。標本 `sample` は従来どおり抜けた時点の `last.rescue`(= 90 秒窓、gameOver ならそれより短い)。
+- 戻り値に `endReason`(`budget@90s` / `gameOver@27s` / `evaluate-failed@Ns`)を追加。ログ行 `→ 90s (標本 90s) / 終了理由 budget@90s / …`、分岐行に `自然な前進: 66s / せず`、Part C サマリ表に「終了理由」「自然な前進」列。
+- `(C-<sid>) ★?graph=auto が出口を自動選択して entry から前進した` の check を削除(観測ログは残す)。冒頭注記と該当箇所の注記を #92 の事実へ更新。
+- ⛔ 変えていない: `(C-<sid>) 屋外テーマではない` / `経路探索が実際に走った` / `pageerror 0` / `(C0) ≥100` / 種 20260719 / speed 8 / budgetMs 90000 / ダイアログの代役。
+- 検証(Part C だけ・`--skip-a --skip-b --port 10628`)= **24/24 PASS・EXIT=0**(30 − 前進 assert 6 本)。終了理由 = 廃坑 budget@90s(自然な前進 66s)/ 森 budget@90s(せず)/ 沼地 budget@90s(せず)/ 砦 **gameOver@27s** / 神殿 budget@90s(せず)/ 竜 **gameOver@51s**。(C0) = 395 回。
+- 検証(フル・`--port 10628`)= **53/53 PASS・EXIT=0**(59 − 6)。ログ = scratchpad `f6_step1_full.txt`。
+  - Part A は 12-0 と**完全一致**(45.450 / 76.300 / 0.300 / 0.200%・移動不能 17239→0 / 6889→0・救済発火 0/1225/0/400)。Part B は 12 本とも PASS(切断率は実プレイで揺れる: 18.487/23.221/46.570/34.229%・全腕 waves-cleared)。(J1)(J1b)(J1c)(J2) PASS。
+  - Part C: (C0) = 432 回。終了理由 = 廃坑 budget@90s(自然な前進 74s)/ 森・沼地・神殿 budget@90s(せず)/ 砦 **gameOver@27s** / 竜 **budget@90s**(この走行では 90 秒以内に倒れなかった = 竜の終わり方も揺れる)。
+  - `index.html` sha1 は着手前と同値 `3a5dbd8e…`(本番は 1 バイトも変えていない)。
