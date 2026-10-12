@@ -1,7 +1,7 @@
-# #90 罠を宣言どおりに — 隊商護衛と街道の襲撃から罠を撤去
+# #90 罠を宣言どおりに — 隊商護衛から罠を撤去(街道の襲撃は出荷中の積荷では元から罠 0 だった・K1)
 
-- **起草**: 2026-10-12(起草窓) / **ステータス**: **承認済**(2026-10-12 ユーザー承認)
-- **触るファイル**: `index.html`(2 行 + 撤退の定数 1 本)/ `tavern.html`(changelog の `<li>` 1 本だけ)/ `tools/driver_mapdef_step1.js`(言い直し)/ `tools/verify_declared_traps.js`(新規)/ 本依頼書
+- **起草**: 2026-10-12(起草窓) / **ステータス**: **完了**(2026-10-12 ユーザー承認 → 同日 項目4 まで完了・push 待ち。結果は §12)
+- **触るファイル**: `index.html`(2 行 + 撤退の定数 1 本)/ `tavern.html`(changelog の `<li>` 1 本だけ)/ `tools/driver_mapdef_step1.js`(言い直し)/ `tools/verify_declared_traps.js`(新規)/ 本依頼書 / (項目4 で追加)`tools/driver_field_step5.js`(言い直し・§12-4)
 - ⛔ **触らないファイル**: なし(2026-10-12 時点で作業ツリーは clean・並走なし)。`js/road-events.js` / `tavern.html` の生成ロジックは**読むだけ**。
 
 ---
@@ -254,6 +254,11 @@
 
 ## 12. 実装結果
 
+> **✅ 完了(2026-10-12・push 待ち)** — `852dd0d`(項目1 着手前の実測 + pre 色・K1)+ `8ed7c63`(項目2 罠の数を宣言どおりに = `index.html` 2 段の化けを直す + 撤退 `?trapdecl=0` + `driver_mapdef_step1` の言い直し + changelog)+ `4a73684`(項目3 受入 `tools/verify_declared_traps.js` 素 10/10・負 5/5)+ 本 §12-4 を書いたコミット(項目4 母集団の非退行 + `driver_field_step5` の言い直し)。
+> 母集団 25 腕(§8 の 20 本 + 負の腕 + 受入 2)で **#90 帰属の緑→赤は `driver_field_step5` の 1 本 = 欠陥に頼っていた型1 → tools 側で言い直して緑**(本番 index/tavern/audio.js は項目2 以降無変更)。アンカー衝突の全数走査で衝突 0。
+> ⭐ K1(ユーザー決定): 街道の襲撃は出荷中の積荷(`AMBUSH_FIELD` = カスタム 1 部屋 `role:"boss"`)では**元から罠 0**。プレイヤー向けの変化は隊商護衛だけ。
+> 残 = §9 実機(隊商護衛で罠が出ないこと・探索判定パネルの出方)。次の新規ドライバ base = **10623**。
+
 ### 12-0 着手前の実測(項目1・2026-10-12・HEAD `7c4070d` = 本番は `7ea29ac` と同一)
 
 #### 主張ごとの照合
@@ -375,3 +380,38 @@ pageerror は全腕 0。
 
     node tools/verify_declared_traps.js              # 10/10 PASSED・exit 0・約 47 秒
     node tools/verify_declared_traps.js --negative   # 5/5・exit 0・約 276 秒
+
+### 12-4 母集団の非退行(項目4・2026-10-12・HEAD `4a73684`)
+
+- **pre** = #89 項目4 の `post89.tsv`(`7ea29ac`。本番 index/tavern/audio.js は #90 起草 `7c4070d` と同一 = §12-0 の表)。**post** = HEAD `4a73684` で同じ腕定義を逐次実走。
+- 母集団 = **25 腕**: §2-5 の 17 本 + `verify_recruit_size` / `verify_synth_bgm` / `verify_corner_check`(post89 の `armlist_89post.json` の腕定義をそのまま = 23 腕。git を読む 6 本は `git clone --shared` の clone90 で実走、`cmptree` で本番と内容差 0)+ `verify_declared_traps` 素 / `--negative`。所要 **86.6 分**(逐次)。
+- 道具: この窓の scratchpad `item4/`(`armlist_90post.json` / `sweep_90post.py` / `run_all90post.ps1` / `cmp_90.py` / `pair_90.py` / `mkshadow_90.py` / `anchor_scan90.py`。#89 の道具を複製して腕を絞った)。
+
+#### 結果(`cmp_90.py`)
+
+| 区分 | 件数 | 内訳 |
+|---|---|---|
+| 緑のまま | 19 | route2 指紋(判定行の多重集合)が pre と**完全一致**: field_scale / step0 / step05_hud / step1_geo / step2 / step3 / step6_png / step7 / verge_gap / wagon / paint_grid / recruit_size / road_ambush 素・負 / synth_bgm 素・負 / corner_check 素・負(corner は件数行なし・exit 0)/ probe_paint_overlay(extra 行のみ) |
+| **緑→赤** | **1** | `driver_field_step5` 48/48 → **42/48**(下記・#90 帰属 → 言い直して緑) |
+| 赤→緑 | 0 | |
+| 両方とも非緑 | 3 | `driver_field_step6` 55/59 → 55/59(赤 4 本はすべて `(C-*) ?graph=auto が前進` = 時間依存の既知 K16。シナリオの組み合わせは pre と 1 つ入れ替わり〔swamp ↔ temple〕)/ `driver_mapdef_step1` 207/208 → 207/208(route2 指紋 `39113bb9…` が pre と一致 = (0b) clone 実行の装置の赤だけ。隊商 2 腕 (G7)(4a) は項目2 の言い直しで緑。本番ツリーでは 208/208 = §12-3 の前に確認済)/ `driver_sce1_events` 211/214 → 211/214(route2 指紋 `a8004ff9…` が pre と一致 = `s3_novice_swayed` の既知の赤) |
+| 新規(期待どおり) | 2 | `verify_declared_traps` 素 **10/10**(47 秒)/ `--negative` **5/5・exit 0**(277 秒) |
+
+#### 緑→赤 `driver_field_step5` の切り分け — #90 帰属(型1)→ tools 側で言い直した
+
+- 赤は (A5)(B6)(C3-負値)(C3-範囲外)(C3-縦だけ範囲外)(D4) の 6 本で、すべて「`Math.random` の呼び出し回数が baseline と一致」= **fix=501 / baseline=499**。座標・壁・フットプリントの assert(主題)は全部緑。
+- 影のツリー `shadow90git`(index.html / tavern.html だけ `7c4070d` へ戻した clone・tools は現行・CRLF 保持・git clean)と交互に 5 対: **本番 0/5 緑 vs 影 5/5 緑**(Fisher 両側 p=0.008)= **#90 帰属**。決定的(乱数は LCG 固定)。
+- 原因: 本ドライバの積荷は出荷の隊商護衛と同形で `trapCount: 0`。baseline `68b7ec9` は 0 を `|| 3` で 3 へ化かし、HEAD は宣言どおり 0 個 ⇒ 罠の数が食い違い、後続のスポーンの乱数消費が +2(読みでは `spawnHiddenChests` が罠のタイルを候補から除いてからシャッフルする)。§2-4 の `driver_mapdef_step1` と同じ「欠陥に頼っていた golden」(型1)で、§2-5 の「罠の数が動く腕」の予想どおり。
+- 言い直し(tools のみ): `tools/driver_field_step5.js` の積荷を **`trapCount: 3`** へ(+ 理由のコメント 4 行)。両者とも罠 3 個になり、本ドライバの主題(spawnWagon / findSovereignAddWaveTile / spawnWave の座標安全化と RNG 非汚染)だけを比べられる。`driver_mapdef_step1` の言い直し(項目2)と同じ方針。
+- 再走: clone90 で **48/48 PASS**(fix=499 baseline=499)・影でも 48/48。⇒ **言い直し後の #90 帰属の緑→赤 = 0**。
+
+#### アンカー衝突の全数走査(#89 K13 の教訓)
+
+- `anchor_scan90.py`: 全 `tools/*.js` 167 本の文字列リテラル(長さ 3 以上・本ごとに重複除去 = 48,288 個)について、`index.html` / `tavern.html` / `audio.js` の出現数を `7c4070d` と HEAD で比べた。
+- 出現数が変わったリテラルは 156 件(長さ 6 以上なら 78 件)。**変異アンカー(置換対象)は `verify_declared_traps` 自身の 6 本だけ**(項目3 が起動時に「原本でちょうど 1 か所」を検算済み・`--negative` 5/5 で実証)。残りはすべて汎用の語(`'number'`(typeof 比較)/ `'search'`(ノード種別)/ `'window.'` / `'new'` / `'const'` / `'.md'`(MIME 表)/ `'trap'`(アイコン名)/ `'隊商護衛'`(題名)など)で、置換・分割のアンカーとして使われている箇所は 0。
+- ⇒ **#90 の本番差分による他の本の変異アンカー衝突 = 0**。母集団の外から追加で走らせる本は無し。
+
+#### 作業コピー(削除はユーザー判断・消していない)
+
+- scratchpad `item4/clone90`(`git clone --shared` @`4a73684` + 言い直した step5)/ `item4/shadow90git`(index/tavern を `7c4070d` へ戻した clone)。各 **207 MB**(計約 414 MB)。
+- `df_step5_baseline` などのドライバ自身が作る worktree は各ドライバの既存の流儀のまま。

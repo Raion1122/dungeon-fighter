@@ -52,12 +52,16 @@ const WAGON_DS = 240;          // ENEMY_TYPES.caravanWagon.displaySize (index.ht
 // ── 隊商護衛の生成クエストペイロード (driver_field_step0.js と同形) ──────────
 // ⚠️ themeId:"caravan-road" が FIELD_THEMES 唯一の屋外キー。ここを外すと別シナリオを測ることになる。
 // ⚠️ 敵キーは ENEMY_TYPES 実在のもののみ (未知キーは無言消去され goblin-mine へフォールバックする)。
+// ⚠️ [#90] trapCount は 3 を明示する。出荷の隊商護衛は宣言 0 で、#90 から罠は 0 個 (それまでは `|| 3` で 3 個)。
+//    baseline 68b7ec9 は 0 を 3 へ化かすので、0 のままだと両者の罠の数が食い違い、Math.random の回数が
+//    499 → 501 にずれる (読みでは spawnHiddenChests が罠のタイルを候補から除いてからシャッフルするため) =
+//    (A5)(B6)(C3)(D4) が座標安全化と無関係に赤くなる。宣言 3 なら両者とも 3 個で、本ドライバの主題だけを比べられる。
 function payload(wagonSpawns) {
   return {
     title: '隊商の街道 — 積荷の護衛',
     flavor: '隊商の馬車を街道の果てまで守り抜け。',
     spawns: [['goblin', 14, 13], ['goblinArcher', 15, 13], ['goblin', 14, 14]],
-    clearXp: 600, trapCount: 0, hiddenChestCount: 0, perceptionDC: 14,
+    clearXp: 600, trapCount: 3, hiddenChestCount: 0, perceptionDC: 14,
     themeId: 'caravan-road', questLevel: 3, tierKey: 'T2', source: 'plaza', fangReward: 0,
     waves: [{ count: 3, pool: ['goblin', 'goblinArcher'] }],
     wagonSpawns: wagonSpawns,
