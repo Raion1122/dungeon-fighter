@@ -328,3 +328,50 @@ pageerror は全腕 0。
 - K3 `driver_mapdef_step1` の言い直し点 = 244 行の `trapCount: 0`(依頼書の 243-250 ではなく 240-252 のオブジェクト)。コメント 51 の `index.html:6992` も 11517 へ。
 - K4 母集団のうち街道の積荷を置くのは `probe_paint_overlay` と `verify_road_ambush` の 2 本だけで、どちらも実物(AMBUSH_FIELD / world.html)⇒ 罠の数は動かない見込み。隊商の積荷(trapCount:0)を置くのは field 系 12 本 + mapdef + paint_grid + sce1_events(sce1 は自前で `traps.length = 0`)。
 - K5 pre 色の生データ: `56b80b01-…\scratchpad\item4\run_post89\post89.tsv`。3 本の実走ログ: `8dc0dd47-…\scratchpad\item1\pre_*.log`。
+
+### 12-3 受入(項目3・2026-10-12・HEAD `8ed7c63`)
+
+`tools/verify_declared_traps.js`(新規・素 port **10617** / 変異 **10618〜10622**・次の新規 base = **10623**)。
+ポートは `tools/*.js` の 10500〜10699 の数値を grep して衝突 0 を確かめた(直前は `verify_sheet_equip` 10606〜10616)。
+
+- 測り方: `index.html` を直接開き、sessionStorage に積荷を置いて読み込み直後の `traps.length` と `#nodeLayer .trap` を突き合わせる。全 index ページで `Math.random` を mulberry32(90017) へ差し替えてから読み込む。
+- ⭐ 期待値は写経しない(項目2 の probe は隊商の積荷を写経していた ⇒ 受入では直した):
+  - 隊商護衛 = `tavern.html` を開き、本物の `QuestGen.generateQuest(1, {source:"plaza", forceFamilyId:"caravan-escort"})` → `buildPlazaSynthetic(q).__generated` を**そのまま** index.html へ渡す(isCaravan 分岐の `trapCount = 0` を実体で通す)。
+  - tier 表 = 同じページの `QuestGen.combatParams({tierKey})` の trapCount(3/4/5/6)。
+  - 街道 = `js/road-events.js` を vm で読んだ `ROAD_EVENTS.AMBUSH_FIELD`(実物)。(1b') の合成積荷はそこから `themeId`・`mapDef`・`start` を外して作る(`start` は `mapDef.start` の写し)。
+  - 引けなければ (0b) が赤(固定値へ落とさない)。
+
+#### 節ごとの結果(素・10/10 PASSED・46 秒)
+
+| 節 | 結果 |
+|---|---|
+| (0a) 対照 tier1(宣言 3) | 3/3 |
+| (0b) 実体の宣言 | 隊商 family `caravan-escort`・trapCount **0**・waves/wagonSpawns あり / 街道 AMBUSH_FIELD trapCount **0**(mapDef あり)/ tier 表 [3,4,5,6] |
+| (0c) scenarioId・pageerror | 25 腕すべて一致・26 ページで pageerror 0 |
+| (1a) 隊商護衛 | `currentScenario.trapCount` 0・罠 0/0(部屋 3・除外 [0,2]) |
+| (1b) 街道(実物) | 0/0(部屋 1・除外 [0])、`?trapdecl=0` でも 0/0(不変) |
+| (1b') 街道(合成の単一マップ) | 宣言 0・罠 0/0(部屋 2・除外 [1]) |
+| (1c) 生成 宣言なし | 3/3 |
+| (1d) tier1〜4 | 3/3・4/4・5/5・6/6 |
+| (2a) 既定 7 シナリオ `?graph=0` | 全シナリオで RUN=false・座標列が `?trapdecl=0` と一致・合計 31 個(3/4/4/5/5/6/4) |
+| (3a) `?trapdecl=0` | 隊商 3/3(宣言 3 へ化ける)・街道(合成)3/3(宣言 0 のまま spawnTraps で 3) |
+
+#### 負のコントロール(`--negative`・5/5・276 秒)— 担当は `--mutate` で 1 本ずつ実走して決めた
+
+| 変異 | 注入 | 依頼書 §8 の予想 | 実測の赤 | 備考 |
+|---|---|---|---|---|
+| `onlyscen` | spawnTraps の count を `_tc \|\| 3` へ | (1a)(1b') | **(1a)(1b')** | (1a) は宣言 0 なのに罠 3 = §2-2 の罠そのもの |
+| `onlyspawn` | 生成クエストの trapCount を `_genScenario.trapCount \|\| 3` へ(2 行 → 1 行 + 注記で行数不変) | (1a) の trapCount 側 | **(1a)** | 宣言 3・罠 3(両方の側で赤) |
+| `zeroall` | count を常に 0 | (0a)(1c)(1d) | **(0a)(1c)(1d)(2a)(3a)** | K1 |
+| `earlyret` | count 0 でシャッフル前に return | 緑 | **(なし)** | 指紋(全腕の罠の数・座標の sha1)が素と完全一致 = §2-3 の主張どおり罠には効かない |
+| `nodecl` | `TRAP_DECL_ON` を常に false | (1a)(1b') | **(1a)(1b')** | (3a) は緑のまま(撤退腕は元から decl=false) |
+
+- 装置: 変異 5 本の注入点は原本でちょうど 1 か所・行数不変・他の `tools/*.js` とアンカー(各行)の重なり 0 を起動時に検算(崩れたら exit 3)。index.html は配信スナップショットだけを差し替え、本番ファイルは無変更(`git status` で確認)。
+- 決定性: 素 2 回・`--negative` 2 回の計 4 走で、素の指紋 `3d47edb474…` が全部一致、変異 5 本の指紋も 2 回で一致、判定行も一致。
+- **K1** `zeroall` の赤が予想より 2 節多い = (2a)(3a)。どちらも「絶対量の併設」の帰結: (2a) は両腕とも 0 個で座標列は一致するが合計 > 0 の絶対量で赤、(3a) は撤退腕でも count 0 なので 3 個にならない。変異の帰結として説明でき、担当外の漏れではないので担当へ入れた。
+- **K2** `earlyret` は測っている量(罠の数・座標)では見えない。早期 return が動かすのは後続のスポーン(隠し宝箱など)の乱数列だが、宣言 0 の腕は隊商(除外 [0,2])と街道で、本チケットは隠し宝箱を測らない(§8 ⛔)。既定シナリオに宣言 0 は無いので (2a) にも現れない。
+
+**再測定コマンド**:
+
+    node tools/verify_declared_traps.js              # 10/10 PASSED・exit 0・約 47 秒
+    node tools/verify_declared_traps.js --negative   # 5/5・exit 0・約 276 秒
