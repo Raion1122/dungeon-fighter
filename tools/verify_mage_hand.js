@@ -649,6 +649,8 @@ async function runSuite(browser, port, mutKey, label) {
       && !!E3b.inTile && E3b.inTile[2] >= 10.5 && E3b.inTile[2] <= 12 && E3b.inCc === 1 && E3b.inKey === true && E3b.opened === false, E3b);
     /* (3a) 実の戦闘 */
     const E0 = await p.evaluate(() => {
+      _lastCageEscapeCheck = Infinity;   // #91 §6-2: (3a) の間は自然脱走②の 5 秒判定を走らせない (now - Infinity < 5000 で即 return)。
+                                         // 素では noAutoEscape で元々開かない = 素の挙動は不変。escapeon の担当 (4a) は別ページ = 検出力も不変
       const a = __mageAlly(); __putAlly(a, 52, 12);
       const c = cages[0];
       /* ⚠ 主人公は野営地の脇 (53,12) 付近 = 獣のワープ先 (最寄りの盗賊の左隣) から増援の届く距離 (melee 400 + 160px) の内側。
