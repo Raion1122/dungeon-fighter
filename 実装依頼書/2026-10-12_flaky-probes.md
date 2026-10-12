@@ -369,4 +369,31 @@ _lastCageEscapeCheck = Infinity;   // (3a) の間は自然脱走②の 5 秒判�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0. 着手前の実測(実装窓)
+
+- 基準: HEAD `638624b`・作業ツリー clean・`index.html` sha1 = `3a5dbd8ed7f7d57e3c7fec73a80dfeb017d12593`(以後の走行中は不変)。
+- tools 7 本はすべて LF(CRLF 0)。
+
+**行番号の測り直し(§2-1〜§2-7)** — tools 側の引用行は全部一致。`index.html` 側も挙動の前提は全部一致し、ずれは次の 3 点だけ(数行):
+
+| 依頼書 | 実際 | 内容 |
+|---|---|---|
+| §2-7「書くのは本番では 26147 だけ」 | **26150** `_lastCageEscapeCheck = now;` | 26147 は `now - encounterStartedAt < CAGE_ESCAPE_INTERVAL_MS` の門(26149 が 5 秒門) |
+| §2-7 手の口 `tryMageHandInCombat`(22594) | **22595** | 22594 はコメント行 |
+| §5-3「runEncounter は 22334 で `encounterEnemyIndices` を立てる」 | **22335** | 22334 は `setPhase("combat")` |
+
+**変異アンカー 5 本**(nopack / allyside / discac / nochariot / bubblepin)— 配信物 `index.html` で各 **1 件**、`tavern.html` / `audio.js` / `js/*.js` に 0 件、`tools/*` の文字列にも 0 件(`SX(a.x)` / `CHARIOT_HP_TRIGGER` 等の部分語でも 0 件)。
+
+**素の 1 回ずつ(順番に・並列なし)**:
+
+| 本 | 所要 | 色 | 赤の check |
+|---|---|---|---|
+| `probe_boss_latch` | 36 s | 緑 5/5(今回は揺れが出なかった) | — |
+| `driver_speech_engine` | 15 s | **赤 16/17** | (4) ±8px `maxDiff=651.8px (samples=2)` |
+| `driver_monsters_kobold` | 10 s | 緑 12/12 | — |
+| `driver_monsters_hobgoblin` | 129 s | **赤 11/14** | (d) `maxPack=0` / `maxDisc=0` / `maxAc=16` の 3 件(§2-0 の「12/14」より 1 件多いが同じ根 = 密集配置で観測ゼロ) |
+| `driver_mine_wall` | 214 s | 緑 66/66((4z)(4z2) 緑) | — |
+| `verify_run_chronicle` | 200 s | 緑 73/73 | — |
+| `verify_mage_hand` 素 | 148 s | 緑 32/32 | — |
+
+崩れた前提(挙動レベル)は **無し**。
