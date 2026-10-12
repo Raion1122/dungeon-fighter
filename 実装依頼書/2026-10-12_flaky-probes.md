@@ -450,3 +450,26 @@ _lastCageEscapeCheck = Infinity;   // (3a) の間は自然脱走②の 5 秒判�
 - **K6**(K2 の申し送りの確認): HP 999 のページで `__diag` の critical を assert している本は 3 本とも無い
   (kobold/hob の (c) は HP を触らない page1 だけ / mine_wall は play を (6b) で見るが `[DIAG]` を除外、HP も触らない)⇒ `combat-no-round` の扱いの変更は不要。
 - 行番号: §2-3〜§2-5 の tools 側・index.html 側の引用はずれなし(36107 / 36349 / 24171 / 35005 / 28361)。
+
+### 12-3. STEP3(実装窓)— run_chronicle / mage_hand
+
+`index.html` sha1 は全走行中 `3a5dbd8e…` のまま。2 本とも LF。
+
+- `verify_run_chronicle`(`7c0e6db`): §6-1 どおり。(1z1)(1c) は生きた敵を待つ(最大 60 秒)のと `alive=false` で触るのを 1 回の evaluate で行い、出力に `waitedMs`。
+  `waitEncounter` は `encounterEnemyIndices` の生存数で数える。arm D の固定 6 秒を「敵の HP が減る / 敵配列が入れ替わる / 戦闘が終わる」まで最大 8 窓へ伸ばし、
+  装置 **(2z10)** に `windows`、(2z3) の detail にも `windows`。881 の (2c) の窓は触っていない(§11)。`--negative` の担当表 N1〜N8 は不変。
+  素 3 回 = **74/74 ×3**(73 + (2z10)・所要 173〜188 s・`waitedMs=0`・`windows=1` ×3)。
+  `--negative` 1 回 = **exit 0**(N1〜N8 すべて担当どおり・所要 1555 s)。その子 8 本の arm D で `windows=2` が 2 回出た
+  (`boardEnemyLoss=120` / `19`)= 旧 6 秒窓なら (2z3)(2a) が空振り赤になっていた回を伸びる窓が拾った。
+- `verify_mage_hand`(`40e4272`): §6-2 の 1 行(E0 の先頭・`tryStartEncounter` の前)。素 1 回 = **32/32**(142 s・(3a) `asked:["calm","combat"]`・opened=true)。
+  `--negative` 1 回 = **exit 0・12/12 担当どおり**(`escapeon` は (4a) だけ赤・注入行 5 回・所要 1871 s)。完全一致の判定は不変。
+
+**崩れた前提**:
+
+- **K7** §6-1 の例の装置ラベル `(2z5)` は、既存の (2c) の装置 `(2z5) 本番の手番の中で実際に回復が起きた` と**衝突**する(`(2z8)(2z9)` も使用済み)。
+  ⇒ 新しい装置は **`(2z10)`** にした。`--negative` の担当表はラベル名で引くので、同名のまま足すと片方の赤がもう片方に紛れる。
+- **K8** (1z1) の `waitedMs` は素 3 回とも **0**(arm A の後に生きた敵がちょうど居た)= 待ちのループを実際に回した回はまだ観測していない。
+  守りの主張は「待ちと触りの間に await が無い」構造で立っているので受入は満たすが、項目 4 の残り 2 回で `waitedMs > 0` が出れば記録する。
+- K2 の申し送り(`combat-no-round`)の確認: run_chronicle は `__diag` の critical を assert していない(窓を伸ばしても影響なし)。今回の 4 走行で K4 型の `[DIAG][stall]` 赤も出ていない。
+- 行番号: §2-6 / §2-7 の tools 側の引用はずれなし(`index.html` 側は §12-0 の 26150 / 22595 のとおり)。
+- §1 の残り: run_chronicle 素 **あと 2 回**(合計 5)、`verify_mage_hand --negative` **あと 1 回**(合計 2)= 項目 4 で回す。
