@@ -13,6 +13,8 @@
 起草中の実測で、**街道の襲撃(#51)も同じ理由で罠が 3 個湧いている**ことが分かった(宣言 0 / `currentScenario.trapCount === 0` なのに置き場の段で 3 へ戻る)。
 どちらも「部屋を踏破しない」戦闘なので、罠は停滞要因と被ダメージにしかならない(`tavern.html` 10266 のコメント「罠/隠し宝箱は停滞要因なので 0 にする」が意図)。
 
+> ⚠ 項目1 で訂正: 出荷中の街道の襲撃(実物の積荷 = `AMBUSH_FIELD`・#52 以降カスタム 1 部屋 `role:"boss"`)は `EXCLUDED_ROOMS = [0]` で罠の置き場が 0 = **今も罠は 0 個**(§12-0 K1)。上の「街道にも 3 個」は合成の積荷(themeId・mapDef なし)での値。罠が実際に湧いて撤去されるのは**隊商護衛だけ**。街道の襲撃は 2 段目(26175)の化けを同じく抱えるので、修正は街道の経路も守るが、プレイヤーに見える変化は無い。
+
 **ユーザー決定(2026-10-12)**:
 
 - 「罠を消去」= 宣言 0 を尊重し、隊商護衛(と同じ欠陥を持つ街道の襲撃)に罠を湧かせない。
@@ -55,6 +57,8 @@
 ⇒ `11517` だけ直すと、隊商の `currentScenario.trapCount` は 0 になるが **26175 が 0 を 3 へ戻す**ので罠は 3 個のまま(街道の襲撃が今まさにその姿)。**2 段とも直す**。
 ⭐ この罠は §8 の変異 `onlyscen`(11517 だけ直して 26175 を戻す)として装置に内蔵する。
 
+> ⚠ 項目1 で訂正: 表の「街道の襲撃 3 / 3」は合成の積荷(themeId・mapDef なし = 廃坑の単一マップへ落ちる)の値。実物の積荷(`AMBUSH_FIELD`)では **0 / 0**(部屋 1・`EXCLUDED_ROOMS = [0]`)。再測定の表は §12-0。「2 段とも直す」の結論は隊商護衛で成り立つ(合成の街道腕も 2 段目の化けを示す)。
+
 ### 2-3. ⚠⚠ 乱数の消費を動かさない
 
 `spawnTraps()` は候補を全部集めて **Fisher-Yates を回してから** `spawnN = Math.min(count, candidates.length)` を取る(26196-26200)。
@@ -89,6 +93,8 @@
 
 `runRoomSearchCheck`(26347-)は「罠も鍵束もミミックも無い部屋では振らない」(#87 K9)。#87 で宝箱が消えた今、隊商 / 街道の部屋で
 探索判定が振られる理由は**罠だけ**だった ⇒ 修正後は**隊商護衛と街道の襲撃で探索判定のパネルが出なくなる**(意図どおり・§9 で目視)。
+
+> ⚠ 項目1 で訂正: 街道の襲撃は修正前から罠 0 個なので、パネルが出なくなる変化は**隊商護衛だけ**(§12-0 K1)。
 
 ### 2-7. changelog の要否
 
@@ -160,6 +166,7 @@
 ⭐ 罠の数は **2 経路**で突き合わせる: 内部配列 `traps.length` と DOM の `.trap` 要素数(`#nodeLayer` の子)。
 ⭐ 期待値は**ドライバに写経しない**: 隊商の宣言は `tavern.html` の生成関数から、街道は `js/road-events.js` の積荷から実体を引く
 (引けない場合は (0b) を赤にする。⛔ 握り潰して固定値へ落とさない)。
+> ⚠ 項目1 で訂正: (1b') の合成積荷は実物ではないので、`js/road-events.js` の実体から themeId・mapDef を外して作る((0b) の「宣言 0 を実体から引けた」はそのまま)。
 
 ### §0 装置
 
@@ -171,6 +178,9 @@
 
 - **(1a)** 隊商護衛: `currentScenario.trapCount === 0` **かつ** 罠 0 個(配列・DOM の両方)。
 - **(1b)** 街道の襲撃: 罠 0 個(配列・DOM の両方)。
+  > ⚠ 項目1 で訂正: (1b) を 2 腕に分ける(ユーザー決定 2026-10-12)。
+  > - **(1b)** 実物の積荷(`AMBUSH_FIELD` / `world.html` が書くのと同じ形)で罠 0 個**のまま**(不変の確認。修正前から緑)。
+  > - **(1b')** 合成の単一マップ積荷(themeId・mapDef なし)で宣言 0 なら罠 0 個(配列・DOM の両方)= 2 段目を測る。変異 `onlyscen` / `nodecl` で赤くなる。
 - **(1c)** 生成クエスト 宣言なし: 罠 3 個(既定値 3 は残る)。
 - **(1d)** 生成クエスト tier1〜4: 罠 = 宣言値(3/4/5/6。tier 表は `tavern.html` から引く)。
 
@@ -182,6 +192,7 @@
 ### §3 撤退
 
 - **(3a)** `?trapdecl=0` で隊商 / 街道とも罠 3 個(従来の姿)。
+  > ⚠ 項目1 で訂正: 街道の腕は**合成の単一マップ積荷**で 3 個とする(実物の積荷は撤退でも 0 個)。
 
 ### ⛔ 測らないこと
 
@@ -198,6 +209,8 @@
 | `earlyret` | count 0 で早期 return(シャッフル前) | 期待 = 緑(既定シナリオに 0 が無い)⇒ ⭐ **赤にならないことを記録する腕**(担当外の赤 0 を確かめる。§2-3 の主張の裏取り) |
 | `nodecl` | `TRAP_DECL_ON` を常に false | (1a)(1b) |
 
+> ⚠ 項目1 で訂正: 上表の `onlyscen` / `nodecl` の「赤くなるべき節」の (1b) は **(1b')** と読み替える((1b) = 実物の積荷は修正前から 0 個なので赤くならない)。
+
 ### 既存 golden の非退行(実装後に必ず走らせる)
 
 - §2-5 の 17 本 + `verify_recruit_size` / `verify_synth_bgm` / `verify_corner_check`。⭐ **着手前の色を先に控える**(項目1)。
@@ -212,6 +225,7 @@
 
 - 隊商護衛を 1 回遊び、罠の発見・踏みつけのログが出ない / 探索判定パネルが出ないこと。
 - 街道の襲撃でも同じ。
+  > ⚠ 項目1 で訂正: 街道の襲撃は修正前から罠 0 個(§12-0 K1)なので、見えるのは「今どおり罠が出ない」こと。確認の主対象は隊商護衛。
 - 通常の依頼(tier)では今どおり罠が見つかること。
 
 ---
@@ -219,6 +233,10 @@
 ## 10. changelog(⚠ `index.html` / `tavern.html` を触るので必須)
 
     py tools/add_changelog.py "<b>隊商護衛と街道の襲撃から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。"
+
+> ⚠ 項目1 で訂正: 街道の襲撃には元から罠が湧いていないので、上の文面はプレイヤー向けに偽になる。**ユーザー決定(2026-10-12)で隊商護衛だけ**を書く。実際に足すのは項目2:
+
+    py tools/add_changelog.py "<b>隊商護衛から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。"
 
 ---
 
@@ -236,4 +254,77 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-0 着手前の実測(項目1・2026-10-12・HEAD `7c4070d` = 本番は `7ea29ac` と同一)
+
+#### 主張ごとの照合
+
+| 主張 | 結果 |
+|---|---|
+| §2-1 `index.html` 11495 / 11517 / 11518 / 24741 / 26175 / 3596 `ROAD_CHEST_ON` / 3617 | **一致**(行・式とも) |
+| §2-1 `tavern.html` 10267 / 3885-3909、`js/road-events.js` 486 | **一致** |
+| §2-3 シャッフル→`spawnN` | 一致(シャッフル 26195-26199・`spawnN` 26200)。`withNodeRng` は注記 11694- / 本体 **11702** |
+| §5 ⚠ TDZ | **ならない**。3354-41753 の 1 本の classic script の**トップレベル**に 3596 / 11517(`if (_genScenario)` の組み立て = 読み込み時に逐次評価)が並び、3596 が先。`spawnTraps` は 37526 の `withNodeRng(..., spawnNodeEntities)`(起動シーケンス)からしか呼ばれない。実例: 同じ位置の `ROAD_CHEST_ON` を `spawnHiddenChests`(同じ連鎖)が既に読んでいる / probe で `typeof ROAD_CHEST_ON === "boolean"` |
+| §2-4 `driver_mapdef_step1` 51-52 のコメント | 一致(ただし文中の `index.html:6992` は古い行番号 = 今は 11517) |
+| §2-4 `CARAVAN_PAYLOAD` | 実体は **240-252**(`trapCount: 0` は **244**)。隊商 2 腕の (G7)(4a) は実在(下の実走で n=3) |
+| §2-5 母集団 grep | **17 本で一致**。`driver_field_step6:310` / `step7:402` の `traps.length = 0` も一致。`verify_road_ambush:1428` も一致 |
+| **§1 / §2-2「街道の襲撃も罠が 3 個湧く」** | ⛔ **崩れた(K1)** |
+
+#### §2-2 の probe(scratchpad `item1/probe_trap_count.js`・素の本番・`?intel=0`・各腕 2 回・port 10617)
+
+| 腕 | 積荷 | scenarioId | `currentScenario.trapCount` | `traps.length` / `#nodeLayer .trap` | 部屋 / EXCLUDED_ROOMS |
+|---|---|---|---|---|---|
+| 隊商護衛(宣言 0) | tavern.html の isCaravan と同形 | generated-quest | **3** | **3/3, 3/3** | 3 / [0,2] |
+| **街道の襲撃(実物)** | `ROAD_EVENTS.AMBUSH_FIELD`(js/road-events.js を vm で読んだ実体) | road-ambush | 0 | **0/0, 0/0** | **1 / [0]**(カスタム 1 部屋・role boss) |
+| 街道の襲撃(実物から trapCount/hiddenChestCount を削除) | 同上 | road-ambush | 0 | 0/0, 0/0 | 1 / [0] |
+| 街道の襲撃(**起草時の合成積荷**: themeId/mapDef 無し) | 起草窓 probe の `ROAD` | road-ambush | 0 | **3/3, 3/3** | 2 / [1](廃坑の単一マップへ落ちる) |
+| 生成クエスト tier1(宣言 3) | | generated-quest | 3 | 3/3, 3/3 | 2 / [1] |
+| 生成クエスト 宣言なし | | generated-quest | 3 | 3/3, 3/3 | 2 / [1] |
+| 廃坑 既定(分岐マップ・入口ノード) | | goblin-mine | 3 | 0/0, 0/0 | 1 / [0] |
+
+pageerror は全腕 0。
+
+#### 項目4 の pre 色(post89.tsv を流用・`7ea29ac`・本番コード同一)
+
+| 本 | 腕 | exit | 件数 | root |
+|---|---|---|---|---|
+| driver_field_scale | base | 0 | 49/49 | prod |
+| driver_field_step0 | base | 0 | 33/33 | prod |
+| driver_field_step05_hud | base | 0 | 6/6 | prod |
+| driver_field_step1_geo | base | 0 | 71/71 | clone |
+| driver_field_step2 | base | 0 | 64/64 | clone |
+| driver_field_step3 | base | 0 | 65/65 | clone |
+| driver_field_step5 | base | 0 | 48/48 | clone |
+| driver_field_step6 | base | **1** | 55/59(C-* の `?graph=auto` 前進 4 本 = 既知・K16) | prod |
+| driver_field_step6_png | base | 0 | 16/16 | prod |
+| driver_field_step7 | base | 0 | 79/79 | prod |
+| driver_field_verge_gap | --port 18980 | 0 | 39/39 | clone |
+| driver_field_wagon | base | 0 | 18/18 | prod |
+| driver_mapdef_step1 | base | **1** | 207/208((0b) だけ赤 = clone 実行で worktree list に載らない装置の赤。隊商 2 腕の (G7)(4a) は緑・n=3) | clone |
+| driver_paint_grid | base | 0 | 21/21 | prod |
+| driver_sce1_events | base | **1** | 211/214((2)(4d)(N2-隣) = sceneFlags に `s3_novice_swayed` が増えた既知の赤) | prod |
+| probe_paint_overlay | base | 0 | (件数なし・extra 行) | prod |
+| verify_road_ambush | base / --negative | 0 / 0 | 41/41 / 97/97 | prod |
+| verify_recruit_size | base | 0 | 91/91 | prod |
+| verify_synth_bgm | base / --negative | 0 / 0 | 35/35 / 34/34 | prod |
+| verify_corner_check | base / --negative | 0 / 0 | 20/20 / 変異 14 本捕捉 | prod |
+| (参考)driver_heromark_signplate | base / --negative | 3 / 3 | (Z3) アンカー衝突 → #89 後に tools 側で直した(46/46・4/4) | prod |
+
+#### 今の本番で実走した 3 本(2026-10-12・素の本番ツリー・既定ポート)
+
+- `node tools/driver_mapdef_step1.js` → **exit 0 / 208/208 PASS**(本番ツリーで走らせたので (0b) も緑。隊商 2 腕 (G7)(4a) = n=3 `[[37,15],[33,15],[32,13]]` / `[[35,8],[43,17],[34,19]]`)
+- `node tools/verify_road_ambush.js` → **exit 0 / 41/41 PASSED**((2a) の積荷 = world.html が書いた実物で `trap:0`・themeId bandits-forest・mapDef 1 部屋)
+- `node tools/verify_corner_check.js` → **exit 0 / 20/20 PASSED**(82 秒)
+
+⇒ post89 と一致(mapdef の差は clone 実行時の (0b) だけ)。
+
+#### 実装へのメモ
+
+- **K1 ⛔ 街道の襲撃には今も罠が湧いていない**。出荷中の積荷(`world.html` `writeAmbushBattle` が `AMBUSH_FIELD` を丸写し)は #52 以降カスタム 1 部屋 `role:"boss"` ⇒ `EXCLUDED_ROOMS = [0]` ⇒ `spawnTraps` の候補 0 でシャッフル前に return。§2-2 の「街道 3/3」は起草窓の**合成積荷**(themeId/mapDef 無し = 廃坑の単一マップへ落ちる)で測った値で、実プレイの姿ではない。
+  - コード変更(2 段)は**そのまま必要**: 隊商護衛で 11517 だけ直すと 26175 が 0 を 3 へ戻す(合成の街道腕が「宣言 0 → 3 個」で 2 段目の化けを実証)。
+  - 崩れる箇所: §1 の題 / changelog の「街道の襲撃から罠を撤去」(プレイヤー向けに**偽**)/ §2-6 の「街道で判定パネルが出なくなる」/ §8 (1b) は実物の積荷だと修正前から緑 ⇒ 変異 `onlyscen` / `nodecl` で赤くならない / §9 の街道の確認。
+  - 言い直し案: (1b) を「実物の積荷で 0 個(不変)」+「合成積荷(単一マップ)で宣言 0 → 0 個」の 2 腕にする。changelog は隊商護衛だけを書く。⇒ **文面はユーザー判断**。
+  - ✅ **ユーザー決定(2026-10-12)**: ① changelog は隊商護衛だけ =「<b>隊商護衛から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。」(足すのは項目2)。② §8 を (1b) 実物の積荷で 0 個のまま(不変)+ (1b') 合成の単一マップ積荷で宣言 0 なら 0 個(変異 `onlyscen` / `nodecl` で赤)に分ける。負のコントロール表の (1b) は (1b') へ。(3a) の街道腕も合成の積荷で 3 個。③ §1・§2-2・§2-6・§8・§9・§10 は本文を残して訂正注記で直した。依頼書の題(1 行目)と README の #90 行は起草窓の持ち物 = 項目4 の完了時に一緒に直す。
+- K2 `index.html` は全行 CRLF(41754 行)。編集は `py` のバイト単位か Edit で。
+- K3 `driver_mapdef_step1` の言い直し点 = 244 行の `trapCount: 0`(依頼書の 243-250 ではなく 240-252 のオブジェクト)。コメント 51 の `index.html:6992` も 11517 へ。
+- K4 母集団のうち街道の積荷を置くのは `probe_paint_overlay` と `verify_road_ambush` の 2 本だけで、どちらも実物(AMBUSH_FIELD / world.html)⇒ 罠の数は動かない見込み。隊商の積荷(trapCount:0)を置くのは field 系 12 本 + mapdef + paint_grid + sce1_events(sce1 は自前で `traps.length = 0`)。
+- K5 pre 色の生データ: `56b80b01-…\scratchpad\item4\run_post89\post89.tsv`。3 本の実走ログ: `8dc0dd47-…\scratchpad\item1\pre_*.log`。
