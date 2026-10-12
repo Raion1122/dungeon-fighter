@@ -125,10 +125,17 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     /* ⚠⚠ playBgm の包み込みは startGame() の前 (driver_bgm_mine と同じ理由)。 */
     await page.evaluate(() => {
       window.__bgmLog = [];
+      window.__bgmEv = [];   // [#91] playBgm の呼び出しごとに、その瞬間のラッチと戦闘 ID を同期で記録する
       const orig = window.GameAudio.playBgm;
       window.GameAudio.playBgm = function (n) {
         try { window.__bgmLog.push(n); } catch (e) {}
-        return orig.apply(this, arguments);
+        const r = orig.apply(this, arguments);
+        try {
+          window.__bgmEv.push({ n: n, latched: !!window.__graphRun.bossApproach().latched,
+                                seamBgm: window.__graphRun.bgm().id,
+                                enc: !!encounterActive, startedAt: encounterStartedAt });
+        } catch (e) {}
+        return r;
       };
     });
     await page.evaluate(() => { try { startGame(); } catch (e) {} });
@@ -220,7 +227,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     // ── 戦闘中のまま帯の中へ押し込む ──
     console.log('[prb] 3 **戦闘中のまま** パーティを玉座の隣 (帯の中) へ動かす');
-    const moved = await page.evaluate(() => {
+    /* ★[#91 §4-1] 押し込みの直前に、探索の 1 タイル滑走 (heroSlideOneTileExplore) と戦闘の前進
+     *   (playerAdvanceOneTile) が終わるのを待つ。⚠ 滑走中に押し込むと slideAnim のコールバック
+     *   (playerX = x; playerY = y;) が次の rAF で元の位置へ書き戻し、ラッチが評価される手番の
+     *   終わりには帯の外へ戻っている (= (b)〜(e) が乱数で空振りしていた真因)。 */
+    await page.waitForFunction('!heroSliding && !playerMovingThisFrame', { timeout: 10000, polling: 'raf' }).catch(() => {});
+    const moved = await page.evaluate(async () => {
       const b = enemies.find(e => e.def && e.def.isBoss && e.alive);
       if (!b || !encounterActive) return null;
       const sz = b.def.displaySize || 96;
@@ -234,9 +246,14 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
             const tx = bTX + dx, ty = bTY + dy;
             if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) continue;
             if (isTileWall(tx, ty)) continue;
+            const sliding = heroSliding;   // 押し込んだ瞬間に滑走中だったか (装置の記録)
+            const startedAt = encounterStartedAt;
             snapPlayerToTile(tx, ty);   // ★本番の関数。1 手番 1 タイル前進の短縮版
-            return { to: tx + ',' + ty, boss: bTX + ',' + bTY, enc: !!encounterActive,
-                     startedAt: encounterStartedAt };
+            // 3 フレーム跨いでも押し込んだ位置が残るか (書き戻しに上書きされていないか)
+            for (let k = 0; k < 3; k++) await new Promise((r) => requestAnimationFrame(r));
+            const held = Math.floor((playerX + 48) / TILE_SIZE) + ',' + Math.floor((playerY + 58) / TILE_SIZE);
+            return { to: tx + ',' + ty, held: held, sliding: sliding, boss: bTX + ',' + bTY, enc: !!encounterActive,
+                     startedAt: startedAt, reachedNow: !!window.__graphRun.bossApproach().reached };
           }
         }
       }
@@ -258,6 +275,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
                    bgm: window.__graphRun.bgm().id,
                    played: window.__bgmLog[window.__bgmLog.length - 1] || null,
                    log: window.__bgmLog.slice(-4),
+                   bgmEv: window.__bgmEv.slice(),
                    flip: window.__bl.flip,
                    p: Math.floor((playerX + 48) / TILE_SIZE) + ',' +
                       Math.floor((playerY + 58) / TILE_SIZE) };
@@ -281,8 +299,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
      *   この列を入れないと修正前の index.html でも (c) が緑になる (実測済)。 */
     const sameEnc = !!(post.flip && post.flip.enc && moved.startedAt &&
                        post.flip.startedAt === moved.startedAt);
-    check('(b) 装置: 押し込んだ後は帯の中に居る (reached が真)', !!post.reached,
-      'p=' + post.p + ' reached=' + post.reached);
+    /* ★[#91 §4-1] (b) は「押し込んだ位置が 3 フレーム後も残り、帯の中に居る」を押し込みの evaluate の
+     *   中で測る (待ちループの最後の post.reached は、戦闘の前進が後から動かした位置を読んでしまう)。 */
+    check('(b) 装置: 押し込んだ位置が 3 フレーム後も残り、帯の中に居る',
+      moved.held === moved.to && !!moved.reachedNow,
+      'to=' + moved.to + ' held=' + moved.held + ' slidingAtPush=' + moved.sliding +
+      ' reachedNow=' + moved.reachedNow + ' (後の p=' + post.p + ' reached=' + post.reached + ')');
     check('(c) ★★★**帯の外で始まったその戦闘のまま**帯へ入ったらボス到達ラッチが立つ',
       sameEnc,
       post.flip ? ('ラッチ時 enc=' + post.flip.enc + ' narrated=' + post.flip.narrated +
@@ -291,11 +313,16 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
                    (post.flip.startedAt !== moved.startedAt
                      ? ' ← **別の戦闘**で立った = tryStartEncounter 経路' : ''))
                 : 'ラッチが最後まで立たなかった (latched=' + post.latched + ' enc=' + post.enc + ')');
+    /* ★[#91] (d) は「ラッチが立った瞬間に鳴らした曲」を playBgm の包みで**同期に**記録したもので見る。
+     *   ⚠ 50ms の標本 (flip) だけで見ると、帯へ入った最後の手番で決着したとき、ラッチ → bgm("boss") →
+     *     勝利の bgm("rest") が標本の間に全部済み、flip には rest が写る (2026-10-12 実測・素 1/3)。
+     *   latchEv = 押し込んだ戦闘の中で、ラッチが立った状態で最初に呼ばれた playBgm。 */
+    const latchEv = (post.bgmEv || []).find((e) => e.latched && e.startedAt === moved.startedAt) || null;
     check('(d) ★★★そのとき実際に鳴らす曲がボス曲になる (bgm.id / playBgm の 2 経路)',
-      !!(sameEnc && post.flip.seamBgm === 'boss' && post.flip.played === 'boss'),
-      post.flip ? ('seamBgm=' + post.flip.seamBgm + ' played=' + post.flip.played +
-                   ' log=' + JSON.stringify(post.log))
-                : 'ラッチが立たないので曲も切り替わらない  log=' + JSON.stringify(post.log));
+      !!(sameEnc && latchEv && latchEv.seamBgm === 'boss' && latchEv.n === 'boss'),
+      (latchEv ? ('ラッチ時の playBgm=' + latchEv.n + ' seamBgm=' + latchEv.seamBgm) : 'ラッチ後の playBgm 無し') +
+      (post.flip ? (' / 標本 seamBgm=' + post.flip.seamBgm + ' played=' + post.flip.played) : ' / ラッチが立たない') +
+      ' log=' + JSON.stringify(post.log));
     check('(e) 戦闘中はボス到達ナレを出さない (narrate は heroAI 側のまま)',
       !!(sameEnc && post.flip.narrated === false),
       post.flip ? ('narrated=' + post.flip.narrated) : '(c) が赤なので測れない');
