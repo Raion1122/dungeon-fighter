@@ -3594,6 +3594,10 @@
      *   残すのは 森の鍵束の宝箱 と 竜の巣ボスの財宝 (囮 3 + ミミック)。探索判定は対象 0 の部屋で今どおり振らない。
      *   撤退 ?roadchest=0 = 宝箱が湧く / 寄り道あり / クリア金貨の加算なし (従来)。 */
     const ROAD_CHEST_ON = new URLSearchParams(window.location.search).get("roadchest") !== "0";
+    /* ★[#90] 罠の数は宣言どおり (隊商護衛の宣言 0 を 3 へ化けさせない。街道の襲撃の実物は 1 部屋で元から 0)。依頼書 2026-10-12_declared-traps.md。
+     *   化けていたのは 2 段 = 生成クエストの組み立て (_genScenario.trapCount || 3) と spawnTraps (trapCount || 3)。
+     *   撤退 ?trapdecl=0 = 従来どおり 0 を 3 として扱う。 */
+    const TRAP_DECL_ON = new URLSearchParams(window.location.search).get("trapdecl") !== "0";
     /* 消えた宝箱のぶんのクリア金貨 (加算額 = 既定の盤面で消える宝箱の個数 × ROAD_CHEST_GOLD_EACH・§12-0 の実測)。
      *   既に clearGold を持つシナリオ (塔の母 300) にも足す。表に無いシナリオ (街道の襲撃ほか) は 0。
      *   生成クエストは id が 1 つ ("generated-quest") なので表に載せず、依頼が宣言した hiddenChestCount から求める。
@@ -11514,7 +11518,8 @@
         title: _genScenario.title || "依頼",
         flavor: _genScenario.flavor || "",
         perceptionDC: _genScenario.perceptionDC || 14,
-        trapCount: _genScenario.trapCount || 3,
+        trapCount: (TRAP_DECL_ON && typeof _genScenario.trapCount === "number" && _genScenario.trapCount >= 0)
+                     ? _genScenario.trapCount : (_genScenario.trapCount || 3),
         hiddenChestCount: _genScenario.hiddenChestCount || 2,
         clearXp: _genScenario.clearXp || 0,
         // ⚠⚠ [Phase 2 落とし穴④] カスタム幾何 (MAPDEF.isCustom) のときは**空フォールバックを禁じる**。
@@ -26172,7 +26177,10 @@
      *   (残すと「まだ半径で絞っている」という嘘の手がかりになる)。→ runRoomSearchCheck */
 
     function spawnTraps() {
-      const count = currentScenario.trapCount || 3;
+      /* ★[#90] 宣言 0 を尊重する。⚠ count が 0 でもシャッフルは今どおり回す (早期 return を足さない) —
+       *   分岐マップの withNodeRng の下では後続のスポーンが同じ乱数列を引くため (依頼書 §2-3)。 */
+      const _tc = currentScenario.trapCount;
+      const count = (TRAP_DECL_ON && typeof _tc === "number" && _tc >= 0) ? _tc : (_tc || 3);
       const candidates = [];
       for (let r = 0; r < MAP_H; r++) {
         for (let c = 0; c < MAP_W; c++) {

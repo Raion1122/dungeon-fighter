@@ -48,8 +48,8 @@
  *   6 シナリオ (goblin-mine / bandits-forest / lizard-swamp / orc-fort / undead-temple / dragon-lair)
  *   + 隊商護衛 caravan-road を **縦持ち (FIELD_GEO_ACTIVE=true = 帯マスクあり)** と
  *     **横持ち (FIELD_GEO_ACTIVE=false = 帯マスクなし)** の 2 通り。
- *   ⚠ 生成クエストの trapCount は index.html:6992 が `_genScenario.trapCount || 3` なので、
- *     隊商護衛の実ペイロード (trapCount:0) でも罠は 3 個湧く = 屋外でも assert 4 は空振りしない。
+ *   ⚠ 隊商護衛の実ペイロードは trapCount:0 だが、#90 で宣言 0 は罠 0 個になった (index.html:11521 の組み立てと spawnTraps)。
+ *     ここでは宣言 3 を明示して屋外テーマでの spawnTraps の除外ロジックを測る = 屋外でも assert 4 は空振りしない。
  *
  * ■ baseline は必ず git worktree に展開する (--baseline-rev で上書き可)
  *   ⚠ 過去に「ベースライン置換が空振りして作業ツリーを 2 回測る」事故が 2 回起きている。
@@ -241,7 +241,7 @@ const CARAVAN_PAYLOAD = {
   title: '隊商の街道 — 積荷の護衛',
   flavor: '隊商の馬車を街道の果てまで守り抜け。',
   spawns: [['goblin', 14, 13], ['goblinArcher', 15, 13], ['goblin', 14, 14]],
-  clearXp: 600, trapCount: 0, hiddenChestCount: 0, perceptionDC: 14,
+  clearXp: 600, trapCount: 3, hiddenChestCount: 0, perceptionDC: 14,
   themeId: 'caravan-road', questLevel: 3, tierKey: 'T2', source: 'plaza', fangReward: 0,
   waves: [
     { count: 3, pool: ['goblin', 'goblinArcher'] },
