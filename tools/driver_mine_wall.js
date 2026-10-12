@@ -40,9 +40,19 @@
  *   PORT+4 | nofallback | 合法タイルを探さず旧起点 (部屋の東端 = 外周) を返す   | §2a §2b
  *   PORT+5 | nomass     | heavyOverlap の口を殺す (= 176 のまま軽くなる)        | §2f §2g
  *
+ * ── [#91 §8 §2] --negative (子プロセス方式・driver_speech_engine.js の形を写した) ───────────────
+ *   上の 5 変異は 1 プロセスの中で §5 の (5-*) check が測る (緑 = 変異を検出できた)。
+ *   §4 (autoplay 1 周) を担当する変異はそれとは別に、**配信スナップショットへ実行時注入した子プロセス**で測る:
+ *   port   | mutate     | 注入する欠陥                                          | 赤くなるべき check
+ *   10626  | nochariot  | shouldSpawnChariot の HP 判定を return false に       | (4z) (4z2)。(4z3) は緑のまま
+ *   --negative = 素の基準 1 回 (= 既存 5 変異の (5-*) も含めて全緑) + nochariot の子 1 本。
+ *   担当と**完全一致**・注入行の到達 (window.__MUTHIT__nochariot) > 0・担当外の赤 0 を要求する。
+ *   ⚠ 子 (--mutate) でも §5 の 5 変異サーバは既定の 9081〜9085 に立てる (10627〜 は他の本の port)。
+ *
  * 使い方:
  *   node tools/driver_mine_wall.js
  *   node tools/driver_mine_wall.js --no-full   (§4 の autoplay 1 周を飛ばす)
+ *   node tools/driver_mine_wall.js --negative  (素 + 変異 nochariot:10626 を子プロセスで。約 7 分)
  * exit 0=全 PASS / 1=FAIL あり / 2=環境不足 / 3=変異の空振り
  */
 'use strict';
@@ -58,10 +68,16 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return (i >= 0 && argv
 const flag = (n) => argv.includes('--' + n);
 const HEADFUL = flag('headful');
 const NO_FULL = flag('no-full');
+const NEGATIVE = flag('negative');
+const MUTATE = arg('mutate', null);
+const T_START = Date.now();
 /* ⚠ ポートは既存ドライバと 5 以上空ける。本ドライバは PORT..PORT+5 の **6 本**を掴む。
  *   9080-9085 が未使用であることは既存ドライバの --port 既定値一覧で実測 (2026-08-20。
  *   9070 は driver_diag_watchdog / 9060 は driver_grid_p9)。 */
-const PORT = parseInt(arg('port', '9080'), 10);
+const PORT = parseInt(arg('port', MUTATE ? '10626' : '9080'), 10);
+/* [#91] §5 の 5 変異サーバの土台。子 (--mutate) では PORT=10626 なので、+1〜+5 が 10627〜 (他の本の port) を
+ *   掴まないよう既定の 9080 を土台にする (--negative は子を順番に起こすので素の子と重ならない)。 */
+const OLD_MUT_BASE = MUTATE ? 9080 : PORT;
 /* ⚠ §4 は廃坑を 1 周する。P8 実測の直行 184s に戦車戦が乗るので上限は余裕を持たせる。
  *   短くすると「詰んだ」ではなく「まだ歩いている」で赤くなる = 別の理由で色が決まる。 */
 const FULL_TIMEOUT_MS = parseInt(arg('fulltimeout', '600000'), 10);
@@ -93,7 +109,7 @@ const MUTATIONS = {
 };
 const MUT_ORDER = ['noring', 'ringall', 'centeronly', 'nofallback', 'nomass'];
 const PORT_OF = {};
-MUT_ORDER.forEach((k, i) => { PORT_OF[k] = PORT + 1 + i; });
+MUT_ORDER.forEach((k, i) => { PORT_OF[k] = OLD_MUT_BASE + 1 + i; });
 
 const SRC_INDEX = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const MUT_SRC = {};
@@ -110,6 +126,110 @@ for (const k of MUT_ORDER) {
     process.exit(3);
   }
   MUT_SRC[k] = SRC_INDEX.split(from).join(to);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * [#91 §8 §2] 子プロセス方式の変異 (素のポート PORT の配信そのものへ注入する)。
+ *   印はページの変数 window.__MUTHIT__<key> に数え、§4 の実プレイページを閉じる前に読む。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+function vetFail(msg) { console.error('[vet] ⛔ ' + msg); process.exit(3); }
+function countOf(hay, needle) { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; }
+const HITVAR = (k) => 'window.__MUTHIT__' + k;
+const NEW_MUTATIONS = {
+  /* 戦車の乱入判定 (ラウンド開始時の HP しきい値) が常に偽。印は判定に到達した 1 回ごと (噂あり・王が生存の時だけ届く) */
+  nochariot: [
+    { from: 'return king.hp <= king.maxHp * CHARIOT_HP_TRIGGER;',
+      to: 'return (' + HITVAR('nochariot') + ' = (' + HITVAR('nochariot') + ' || 0) + 1, false);   /* ★変異nochariot */' }],
+};
+const NEW_MUT_PORT = { nochariot: 10626 };
+const L4Z = '(4z) 装置: 戦車が実際に乱入した (でなければ (2e) は空振りで緑になる)';
+const L4Z2 = '(4z2) 装置: 乱入位置の体が壁を 0 マス含む (実プレイ経路で測る)';
+const L4Z3 = '(4z3) 装置: 開戦後に王を 70% 以下へ削れた (__kingCut あり・削る前は戦車 0 件)';
+const NEG_EXPECT = {
+  nochariot: [L4Z, L4Z2],
+};
+const NEW_MUT_ORDER = Object.keys(NEW_MUTATIONS);
+if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(NEW_MUTATIONS, MUTATE)) vetFail('未知の --mutate: ' + MUTATE + '  (' + NEW_MUT_ORDER.join(' / ') + ')');
+if (countOf(SRC_INDEX, '__MUTHIT__') !== 0) vetFail('原本に __MUTHIT__ が在る');
+{
+  /* ⭐ #89 の教訓: 新しいアンカーが他の tools の文字列に出てこないこと (同じ行を測る本と衝突しない)。
+   *   ⚠ 既存 5 変異のアンカーは対象外 (noring のアンカーは driver_grid_s2.js にも在る = 既知・#91 では触らない)。 */
+  const self = path.basename(__filename);
+  const peers = fs.readdirSync(__dirname).filter((f) => /\.(js|mjs|py|ps1)$/.test(f) && f !== self);
+  for (const k of NEW_MUT_ORDER) for (const e of NEW_MUTATIONS[k]) {
+    const c = countOf(SRC_INDEX, e.from);
+    if (c !== 1) vetFail('変異 ' + k + ' の注入点が 1 箇所ではない (index.html に ' + c + ' 件)');
+    if (countOf(SRC_INDEX, e.to) !== 0) vetFail('変異 ' + k + ' の注入文字列が原本に既に在る');
+    if (e.to.indexOf('__MUTHIT__' + k) < 0) vetFail('変異 ' + k + ' に実行の印が無い');
+    const core = e.from.trim();
+    const clash = peers.filter((f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8').indexOf(core) >= 0; } catch (x) { return false; } });
+    if (clash.length) vetFail('変異 ' + k + ' のアンカーが他の tools に出てくる: ' + clash.join(','));
+  }
+}
+function servedIndex(key) {
+  if (!key) return SRC_INDEX;
+  let t = SRC_INDEX;
+  for (const e of NEW_MUTATIONS[key]) t = t.split(e.from).join(e.to);
+  if (t === SRC_INDEX) vetFail('変異 ' + key + ' が何も変えていない');
+  if (t.split('\n').length !== SRC_INDEX.split('\n').length) vetFail('変異 ' + key + ' が行数を変えた');
+  return t;
+}
+/* 素のポートが配る index.html (起動時に凍結したスナップショット。--mutate の時は注入済み) */
+const SERVED_INDEX = servedIndex(MUTATE);
+
+/* --negative: 自分を子プロセスで 1 本ずつ起こし、最後の 1 行 (__RESULT__{json}) で判定する */
+if (NEGATIVE) {
+  const { spawnSync } = require('child_process');
+  const runChild = (extra, label) => {
+    console.log('\n[vet] ════════ ' + label + ' ════════');
+    const r = spawnSync(process.execPath, [__filename].concat(extra).concat(HEADFUL ? ['--headful'] : []),
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60 * 1000 });
+    const out = (r.stdout || '') + (r.stderr || '');
+    process.stdout.write(out.split('\n').filter((l) => l.indexOf('__RESULT__') !== 0).map((l) => '    ' + l).join('\n') + '\n');
+    const line = out.split('\n').reverse().find((l) => l.indexOf('__RESULT__') === 0);
+    if (!line) return null;
+    try { return JSON.parse(line.slice('__RESULT__'.length)); } catch (e) { return null; }
+  };
+  let exitCode = 0;
+  const R0 = runChild(['--port', String(PORT)], '(素・基準 = 既存 5 変異の (5-*) を含む) port ' + PORT);
+  const red0 = R0 ? R0.results.filter((x) => !x.ok).map((x) => x.name) : null;
+  if (!R0 || red0.length || Object.keys(R0.hits).length) {
+    console.error('[vet] ⛔ 素の基準で FAIL がある / 結果が取れない / 変異の印が出た (' + JSON.stringify(R0 && R0.hits) + ') — 先にそれを直すこと (変異は走らせない)'
+      + (red0 && red0.length ? '  赤=' + red0.join(' | ') : ''));
+    exitCode = 1;
+  } else {
+    const names0 = R0.results.map((x) => x.name);
+    const report = [];
+    /* 既存 5 変異 = 素の子の (5-*) check がそれぞれ緑 (= 担当の節を赤くできた) */
+    for (const k of MUT_ORDER) {
+      const r5 = R0.results.find((x) => x.name.indexOf('(5-' + k + ')') === 0);
+      const ok5 = !!r5 && r5.ok;
+      console.log('[vet] 既存変異 ' + k + ': ' + (r5 ? r5.name : '(5-' + k + ') が出ていない') + ' → ' + (ok5 ? '✓ OK' : '✗'));
+      report.push({ key: k, ok: ok5 });
+      if (!ok5) exitCode = 1;
+    }
+    for (const key of NEW_MUT_ORDER) {
+      const R = runChild(['--mutate', key, '--port', String(NEW_MUT_PORT[key])], '[変異 ' + key + '] port ' + NEW_MUT_PORT[key]);
+      const want = NEG_EXPECT[key] || [];
+      const red = R ? R.results.filter((x) => !x.ok).map((x) => x.name) : [];
+      const hit = R ? (R.hits[key] || 0) : 0;
+      const bootOk = !!R && R.results.filter((x) => /^\(0/.test(x.name)).every((x) => x.ok);
+      const absent = R ? names0.filter((n) => !R.results.some((x) => x.name === n)) : names0;
+      const miss = want.filter((w) => red.indexOf(w) < 0);
+      const leak = red.filter((x) => want.indexOf(x) < 0);
+      const ok = !!R && bootOk && hit > 0 && want.length > 0 && miss.length === 0 && leak.length === 0 && absent.length === 0;
+      console.log('[vet] --negative ' + key + ': 担当=' + want.join(' | ') + ' / 実際に赤くなった=' + (red.join(' | ') || '(なし)')
+        + ' / 注入行の実行 ' + hit + ' 回 / 起動確認 ' + (bootOk ? 'OK' : 'NG') + ' → ' + (ok ? '✓ OK' : '✗ '
+        + (!R ? '結果が取れない ' : '') + (!bootOk ? '起動確認 NG ' : '') + (hit ? '' : '注入行が実行されていない ')
+        + (miss.length ? '空振り ' + miss.join(' | ') + ' ' : '') + (leak.length ? '担当が絞れていない ' + leak.join(' | ') + ' ' : '')
+        + (absent.length ? '判定が出ていない ' + absent.join(' | ') : '')));
+      report.push({ key, ok });
+      if (!ok) exitCode = 1;
+    }
+    console.log('\n[vet] 負のコントロール ' + report.filter((r) => r.ok).length + ' / ' + report.length + ' が担当どおり (既存 5 + 子プロセス ' + NEW_MUT_ORDER.length + ')');
+  }
+  console.log('[vet] 所要 ' + ((Date.now() - T_START) / 1000).toFixed(1) + ' 秒 / exit ' + exitCode);
+  process.exit(exitCode);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -148,6 +268,11 @@ function startServer(port, mutKey) {
           res.setHeader('Content-Type', MIME['.html']);
           res.setHeader('Cache-Control', 'no-store');
           res.end(MUT_SRC[mutKey]); return;
+        }
+        if (!mutKey && u === '/index.html') {   // [#91] 素のポートは凍結スナップショット (--mutate の時は注入済み) を配る
+          res.setHeader('Content-Type', MIME['.html']);
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(SERVED_INDEX); return;
         }
         const fp = path.join(ROOT, u);
         if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) {
@@ -436,7 +561,7 @@ function HEAVY_TABLE() {
   const profile = require('./_pptr_profile')('df_minewall_');
   const browserPath = findBrowser();
   console.log('[drv] serving ' + ROOT);
-  console.log('[drv]   base:' + PORT + '   ' + MUT_ORDER.map(k => k + ':' + PORT_OF[k]).join(' / '));
+  console.log('[drv]   base:' + PORT + (MUTATE ? ' (変異 ' + MUTATE + ' を注入して配信)' : '') + '   ' + MUT_ORDER.map(k => k + ':' + PORT_OF[k]).join(' / '));
 
   const servers = [await startServer(PORT, null)];
   for (const k of MUT_ORDER) servers.push(await startServer(PORT_OF[k], k));
@@ -450,6 +575,7 @@ function HEAVY_TABLE() {
   /* ★ autoplay の実プレイページ専用の受け皿。測定用ページは長く開きっぱなしにするので
    *   ゲーム内蔵の自動デバッグ [DIAG] が必ず鳴る。それはドライバ側の事情なので混ぜない。 */
   const playErrs = [];
+  const playHits = {};   // [#91] 変異の印 (§4 の実プレイページの window.__MUTHIT__*)
 
   try {
     // ══ §0 装置 ═══════════════════════════════════════════════════════════════
@@ -701,6 +827,19 @@ function HEAVY_TABLE() {
     if (!NO_FULL) {
       mark('§4 目的そのもの: 戦車が乱入するボス戦で潜行がクリアに到達する (autoplay 1 周)');
       const play = await bootPage(browser, PORT, '?autoplay=30&intel=1', playErrs);
+      /* ★[#91 §5-3] 開戦後に王を 69% へ削る。乱入判定 shouldSpawnChariot は**ラウンド開始時の 1 点だけ** HP を見るので、
+       *   70% 超から 1 ラウンドで倒し切ると戦車が出ない (probe 3 回中 1 回)。applyGrixEnrage が戦闘前に hp = maxHp へ
+       *   戻すので削るのは**戦闘開始後** (runEncounter が encounterEnemyIndices を立てた後・ラウンド 1 の判定より前)。
+       *   判定は本物の shouldSpawnChariot を通る ⇒ 乱入経路が壊れれば (4z) は赤のまま (変異 nochariot が測る)。 */
+      await play.evaluate(() => { const iv = setInterval(() => { try {
+        if (!encounterActive || window.__kingCut) return;
+        const ki = encounterEnemyIndices.find(i => enemies[i] && enemies[i].alive && enemies[i].type === 'goblinKing');
+        if (ki === undefined) return;
+        const k = enemies[ki];
+        window.__kingCut = { before: k.hp, max: k.maxHp, chariotBefore: (window.__chariotProbe || []).length };
+        if (k.hp > k.maxHp * 0.70) k.hp = Math.floor(k.maxHp * 0.69);
+        window.__kingCut.after = k.hp;
+        clearInterval(iv); } catch (e) {} }, 10); });
       const t0 = Date.now();
       let cleared = false, saw = null;
       for (;;) {
@@ -718,11 +857,16 @@ function HEAVY_TABLE() {
       const fin = await play.evaluate(() => ({
         chariot: (window.__chariotProbe || []).slice(),
         tramples: (window.__trampleProbe || []).slice(),
+        kingCut: window.__kingCut || null,
       }));
-      check('(4z) 装置: 戦車が実際に乱入した (でなければ (2e) は空振りで緑になる)',
+      try { Object.assign(playHits, await play.evaluate(() => { const o = {}; for (const k of Object.keys(window)) if (k.indexOf('__MUTHIT__') === 0) o[k.slice(10)] = window[k]; return o; })); } catch (e) {}
+      check(L4Z3, !!fin.kingCut && typeof fin.kingCut.before === 'number' && fin.kingCut.chariotBefore === 0 &&
+        fin.kingCut.after <= fin.kingCut.max * 0.70,
+        '__kingCut=' + JSON.stringify(fin.kingCut));
+      check(L4Z,
         fin.chariot.length > 0 && fin.chariot.some(r => r.cancelled === false),
         JSON.stringify(fin.chariot).slice(0, 400) + ' sawAt=' + (saw !== null ? saw + 's' : '-'));
-      check('(4z2) 装置: 乱入位置の体が壁を 0 マス含む (実プレイ経路で測る)',
+      check(L4Z2,
         (() => { const r = fin.chariot.find(x => x.cancelled === false);
                  return !!r && (r.body || []).length > 0 && (r.body || []).every(b => !b.wall); })(),
         JSON.stringify((fin.chariot.find(x => x.cancelled === false) || {}).body || []));
@@ -813,5 +957,9 @@ function HEAVY_TABLE() {
     console.log('  FAIL:');
     for (const b of bad) console.log('    - ' + b.name + (b.detail ? '  — ' + b.detail : ''));
   }
+  if (MUTATE) console.log('[drv] 変異 ' + MUTATE + ' の注入行の実行 ' + (playHits[MUTATE] || 0) + ' 回');
+  console.log('[drv] 所要 ' + ((Date.now() - T_START) / 1000).toFixed(1) + ' 秒');
+  console.log('__RESULT__' + JSON.stringify({ results: results.map(r => ({ name: r.name, ok: r.ok })), hits: playHits }));
+  if (MUTATE) process.exit(0);
   process.exit(bad.length ? 1 : 0);
 })();
