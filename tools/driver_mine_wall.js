@@ -45,14 +45,20 @@
  *   §4 (autoplay 1 周) を担当する変異はそれとは別に、**配信スナップショットへ実行時注入した子プロセス**で測る:
  *   port   | mutate     | 注入する欠陥                                          | 赤くなるべき check
  *   10626  | nochariot  | shouldSpawnChariot の HP 判定を return false に       | (4z) (4z2)。(4z3) は緑のまま
- *   --negative = 素の基準 1 回 (= 既存 5 変異の (5-*) も含めて全緑) + nochariot の子 1 本。
- *   担当と**完全一致**・注入行の到達 (window.__MUTHIT__nochariot) > 0・担当外の赤 0 を要求する。
+ *   10628  | diagfake   | [#93] 主ページへ偽の [DIAG][fakecrit] を console.error | (6a) だけ
+ *          |            |   (配信は原本のまま = ドライバ側の注入 DRIVER_MUTATIONS) |
+ *   --negative = 素の基準 1 回 (= 既存 5 変異の (5-*) も含めて全緑) + nochariot / diagfake の子 2 本 (= 7 変異)。
+ *   担当と**完全一致**・注入行の到達 (window.__MUTHIT__nochariot / diagfake は注入した回数) > 0・担当外の赤 0 を要求する。
+ *   ⭐ diagfake は §1 不採用 A の罠の検査: (6a) の除外を [DIAG] 全体へ広げると偽の critical まで消えて
+ *     (6a) が緑のまま = 空振り (exit 1)。除外してよいのは時間しだいの 2 種 (DIAG_TIMING_IDS) だけ。
  *   ⚠ 子 (--mutate) でも §5 の 5 変異サーバは既定の 9081〜9085 に立てる (10627〜 は他の本の port)。
+ *   ⚠ 次の新規ポートの base は 10629。
  *
  * 使い方:
  *   node tools/driver_mine_wall.js
  *   node tools/driver_mine_wall.js --no-full   (§4 の autoplay 1 周を飛ばす)
- *   node tools/driver_mine_wall.js --negative  (素 + 変異 nochariot:10626 を子プロセスで。約 7 分)
+ *   node tools/driver_mine_wall.js --negative  (素 + 変異 nochariot:10626 / diagfake:10628 を子プロセスで)
+ *   node tools/driver_mine_wall.js --mutate diagfake   (子の単独起動。port 既定 10628・nochariot は 10626)
  * exit 0=全 PASS / 1=FAIL あり / 2=環境不足 / 3=変異の空振り
  */
 'use strict';
@@ -74,7 +80,7 @@ const T_START = Date.now();
 /* ⚠ ポートは既存ドライバと 5 以上空ける。本ドライバは PORT..PORT+5 の **6 本**を掴む。
  *   9080-9085 が未使用であることは既存ドライバの --port 既定値一覧で実測 (2026-08-20。
  *   9070 は driver_diag_watchdog / 9060 は driver_grid_p9)。 */
-const PORT = parseInt(arg('port', MUTATE ? '10626' : '9080'), 10);
+const PORT = parseInt(arg('port', MUTATE === 'diagfake' ? '10628' : MUTATE ? '10626' : '9080'), 10);
 /* [#91] §5 の 5 変異サーバの土台。子 (--mutate) では PORT=10626 なので、+1〜+5 が 10627〜 (他の本の port) を
  *   掴まないよう既定の 9080 を土台にする (--negative は子を順番に起こすので素の子と重ならない)。 */
 const OLD_MUT_BASE = MUTATE ? 9080 : PORT;
@@ -141,7 +147,14 @@ const NEW_MUTATIONS = {
     { from: 'return king.hp <= king.maxHp * CHARIOT_HP_TRIGGER;',
       to: 'return (' + HITVAR('nochariot') + ' = (' + HITVAR('nochariot') + ' || 0) + 1, false);   /* ★変異nochariot */' }],
 };
-const NEW_MUT_PORT = { nochariot: 10626 };
+/* ★[#93 §6] ドライバ側の注入 (配信は原本のまま・index.html を触らない)。値 = 何を注入するか (説明)。
+ *   ⚠ 起動時の vet (アンカーが index.html に 1 回 / 注入文字列が原本に無い) とアンカー自己検査は掛けない。 */
+const DRIVER_MUTATIONS = {
+  /* 主ページ (§1〜§2b の測定ページ) を起こした直後に偽の critical を 1 回 console.error する。
+   *   (6a) が赤くなれば「本物の別種の critical は除外されない」ことが示せる (§1 不採用 A の罠の検査) */
+  diagfake: '主ページへ console.error("[DIAG][fakecrit] …") を 1 回',
+};
+const NEW_MUT_PORT = { nochariot: 10626, diagfake: 10628 };
 const L4Z = '(4z) 装置: 戦車が実際に乱入した (でなければ (2e) は空振りで緑になる)';
 const L4Z2 = '(4z2) 装置: 乱入位置の体が壁を 0 マス含む (実プレイ経路で測る)';
 const L4Z3 = '(4z3) 装置: 開戦後に王を 70% 以下へ削れた (__kingCut あり・削る前は戦車 0 件)';
@@ -154,9 +167,13 @@ const L6A = '(6a) 測定ページで pageerror / console.error が出ていな�
 const DIAG_TIMING_IDS = /\[DIAG\]\[(stall|combat-no-round)\]/;
 const NEG_EXPECT = {
   nochariot: [L4Z, L4Z2],
+  diagfake: [L6A],
 };
 const NEW_MUT_ORDER = Object.keys(NEW_MUTATIONS);
-if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(NEW_MUTATIONS, MUTATE)) vetFail('未知の --mutate: ' + MUTATE + '  (' + NEW_MUT_ORDER.join(' / ') + ')');
+const DRIVER_MUT_ORDER = Object.keys(DRIVER_MUTATIONS);
+const CHILD_MUT_ORDER = NEW_MUT_ORDER.concat(DRIVER_MUT_ORDER);   // --negative が子プロセスで回す変異
+const IS_DRIVER_MUT = (k) => !!k && Object.prototype.hasOwnProperty.call(DRIVER_MUTATIONS, k);
+if (MUTATE !== null && CHILD_MUT_ORDER.indexOf(MUTATE) < 0) vetFail('未知の --mutate: ' + MUTATE + '  (' + CHILD_MUT_ORDER.join(' / ') + ')');
 if (countOf(SRC_INDEX, '__MUTHIT__') !== 0) vetFail('原本に __MUTHIT__ が在る');
 /* ★[#93 K5] 既知の共有アンカー。同じ本番の 1 行を 2 本が測るのは正しい (その行が動けば両方赤くなるべき)。
  *   ⚠ 表は**両方向**で検査する: 表に無い衝突 = vetFail / 表に書いたのに実際は衝突していない = vetFail (表が腐ったら止まる)。
@@ -204,14 +221,14 @@ const KNOWN_SHARED_ANCHORS = {
     + (sharedFiles.length ? ' (' + sharedFiles.join(', ') + ')' : ''));
 }
 function servedIndex(key) {
-  if (!key) return SRC_INDEX;
+  if (!key || IS_DRIVER_MUT(key)) return SRC_INDEX;   // [#93] ドライバ側の注入は配信を変えない
   let t = SRC_INDEX;
   for (const e of NEW_MUTATIONS[key]) t = t.split(e.from).join(e.to);
   if (t === SRC_INDEX) vetFail('変異 ' + key + ' が何も変えていない');
   if (t.split('\n').length !== SRC_INDEX.split('\n').length) vetFail('変異 ' + key + ' が行数を変えた');
   return t;
 }
-/* 素のポートが配る index.html (起動時に凍結したスナップショット。--mutate の時は注入済み) */
+/* 素のポートが配る index.html (起動時に凍結したスナップショット。--mutate の時は注入済み・diagfake は原本のまま) */
 const SERVED_INDEX = servedIndex(MUTATE);
 
 /* --negative: 自分を子プロセスで 1 本ずつ起こし、最後の 1 行 (__RESULT__{json}) で判定する */
@@ -245,7 +262,7 @@ if (NEGATIVE) {
       report.push({ key: k, ok: ok5 });
       if (!ok5) exitCode = 1;
     }
-    for (const key of NEW_MUT_ORDER) {
+    for (const key of CHILD_MUT_ORDER) {
       const R = runChild(['--mutate', key, '--port', String(NEW_MUT_PORT[key])], '[変異 ' + key + '] port ' + NEW_MUT_PORT[key]);
       const want = NEG_EXPECT[key] || [];
       const red = R ? R.results.filter((x) => !x.ok).map((x) => x.name) : [];
@@ -263,7 +280,7 @@ if (NEGATIVE) {
       report.push({ key, ok });
       if (!ok) exitCode = 1;
     }
-    console.log('\n[vet] 負のコントロール ' + report.filter((r) => r.ok).length + ' / ' + report.length + ' が担当どおり (既存 5 + 子プロセス ' + NEW_MUT_ORDER.length + ')');
+    console.log('\n[vet] 負のコントロール ' + report.filter((r) => r.ok).length + ' / ' + report.length + ' が担当どおり (既存 5 + 子プロセス ' + CHILD_MUT_ORDER.length + ')');
   }
   console.log('[vet] 所要 ' + ((Date.now() - T_START) / 1000).toFixed(1) + ' 秒 / exit ' + exitCode);
   process.exit(exitCode);
@@ -598,7 +615,7 @@ function HEAVY_TABLE() {
   const profile = require('./_pptr_profile')('df_minewall_');
   const browserPath = findBrowser();
   console.log('[drv] serving ' + ROOT);
-  console.log('[drv]   base:' + PORT + (MUTATE ? ' (変異 ' + MUTATE + ' を注入して配信)' : '') + '   ' + MUT_ORDER.map(k => k + ':' + PORT_OF[k]).join(' / '));
+  console.log('[drv]   base:' + PORT + (MUTATE ? (IS_DRIVER_MUT(MUTATE) ? ' (変異 ' + MUTATE + ' = ドライバ側で注入・配信は原本)' : ' (変異 ' + MUTATE + ' を注入して配信)') : '') + '   ' + MUT_ORDER.map(k => k + ':' + PORT_OF[k]).join(' / '));
 
   const servers = [await startServer(PORT, null)];
   for (const k of MUT_ORDER) servers.push(await startServer(PORT_OF[k], k));
@@ -639,6 +656,17 @@ function HEAVY_TABLE() {
     /* ★[#87] 道中の宝箱の廃止中 (既定) は廃坑 n1 の寄り道も出さない (index.html detourNodeDef)。§1 / §1d / §5 は
      *   寄り道スポット s1〜s4 への区間を測るので、撤退の腕 ?roadchest=0 で開く (期待値は 1 文字も変えない)。 */
     const page = await bootPage(browser, PORT, '?diag=1&intel=0&roadchest=0', errs);
+    if (MUTATE === 'diagfake') {
+      /* ★[#93 §6] 変異 diagfake: 主ページへ偽の critical を 1 回。bootPage の console リスナーは付いた後。
+       *   ⚠ console イベントは evaluate の戻りと前後しうるので、errs に実際に積まれるまで待つ (積まれなければ空振り = vetFail) */
+      const FAKE = '[DIAG][fakecrit] 注入した critical (#93 diagfake)';
+      await page.evaluate((m) => console.error(m), FAKE);
+      const tf = Date.now();
+      while (!errs.some(e => e.indexOf(FAKE) >= 0) && Date.now() - tf < 5000) await sleep(50);
+      if (!errs.some(e => e.indexOf(FAKE) >= 0)) vetFail('変異 diagfake の偽 critical が errs に積まれない (5 秒待った)');
+      playHits.diagfake = (playHits.diagfake || 0) + 1;
+      console.log('[drv] 変異 diagfake: 主ページへ偽の [DIAG][fakecrit] を 1 回注入 (errs に積まれたのを確認)');
+    }
     await closeDialogs(page);
     const R0 = await page.evaluate(RING_MEASURE);
     check('(1z) 装置: __paintBlockProbe が ring / skipGate を数値で返す (検出器が空振りしていない)',
