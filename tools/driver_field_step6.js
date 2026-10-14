@@ -34,7 +34,11 @@
  *                終了理由 `gameOver@27s` / `budget@90s` をログに出すだけ)。理由 = 森は 1 ノードに畳まれ
  *                entry の出口が 0 本、沼地/砦/神殿/竜は entry が敵 10〜11 体の大部屋で Lv1 の主人公が
  *                倒れる(砦は毎回 27 秒)= 前進が勝敗に依存して揺れていた。前進の装置は STEP2 で
- *                別ページ(entry の敵をテストダブルで倒してから測る)へ移す。
+ *                別ページ(entry の敵をテストダブルで倒してから測る)へ移した。
+ *   装置 [#92]   runGraphAutoDevice。シナリオごとに別ページで `?graph=auto` を起動し、MutationObserver で
+ *                `.exitArrow` / `#choiceDialog.show` を数えつつ、entry の非 passiveNpc の敵を倒して
+ *                「矢印 0 で entry から前進したか」= (Cd-<sid>) を見る(イベントのダイアログは代役)。母集団は
+ *                `RUN.byId[entry].exits` の実体(出口 0 本は母集団外ログ)、(Cd0) が空振りを止める。
  *                依頼書: 実装依頼書/2026-10-13_graph-auto-device.md
  *
  * ■ ★受け入れ基準の差し替え (2026-07-19)
@@ -66,7 +70,7 @@
  * 使い方:
  *   node tools/driver_field_step6.js [--headful] [--browser <path>] [--port N]
  *        [--baseline-rev ad6f648] [--trials 20] [--turns 200]
- *        [--skip-a] [--skip-b] [--skip-c] [--budget-ms N] [--out <dir>]
+ *        [--skip-a] [--skip-b] [--skip-c] [--skip-device] [--budget-ms N] [--out <dir>]
  *        [--scenarios goblin-mine,orc-fort]   (Part C の切り分け専用。絞ったまま合否を語らない)
  */
 const http = require('http');
@@ -89,6 +93,8 @@ const BASELINE_DIR = arg('baseline-dir', path.join(os.tmpdir(), 'df_step6_baseli
 const SKIP_A = flag('skip-a');
 const SKIP_B = flag('skip-b');
 const SKIP_C = flag('skip-c');
+// [#92] 装置ステージだけを走らせるなら `--skip-a --skip-b --skip-c`。装置を外すなら `--skip-device`。
+const SKIP_DEVICE = flag('skip-device');
 // ⚠️ 実行が長いので、出力は `| tail` に通さず `> file 2>&1` で直接受けること。
 //    パイプはブロックバッファなので、途中で落ちると末尾の集計がまるごと失われる。
 const BUDGET_MS = parseInt(arg('budget-ms', '300000'), 10);   // Part B の1実走あたり上限
@@ -637,13 +643,158 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
            elapsedMs: Date.now() - t0, pageErrors, dialogsAnswered };
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * 装置ステージ — `?graph=auto` が矢印を出さずに entry から前進するか (#92 STEP2)
+ * ══════════════════════════════════════════════════════════════════════════
+ * Part C 本体(救済の母集団)とは**別ページ**。本体の標本には 1 バイトも触れない。
+ * 前進を勝敗から切り離すため、entry の非 passiveNpc の敵をドライバ側で倒してから見る
+ * (テストダブル。本番は 1 バイトも変えない)。依頼書 §2-4: 倒せば 5 本とも前進する。
+ *
+ * ⚠⚠ [#92 §12-2・ユーザー決定 A] **ダイアログは数えるが合否に使わない**(代役で答える)。
+ *   entry には出口と無関係なイベントのダイアログがある(廃坑 = 見張りの描写 0 秒 / 沼地 = 罠解除・
+ *   若い司祭 / 神殿 = 墓碑の霊)。一方、出口選択のダイアログは chooseExit の `__autoplay` 経路だけ
+ *   (index.html:38001-38003)で、装置は __autoplay を立てない = 自動選択が壊れたときに出るのは
+ *   **矢印(showExitArrows)だけ**。⇒ 守りは「矢印 0 で前進」。ダイアログの回数と本文はログに残す。
+ *
+ *   opts.killEnemies … 既定 true。false = テストダブルを止める(STEP3 の `nokill` 変異の口)。
+ *                      false なら Lv1 の実戦に勝たないと前進しない = §2-3 の罠の再現。
+ *   opts.answerDialogs … 既定 true = Part C と同じ代役(開いた選択ダイアログの先頭ボタンを押す)。
+ *                      false = ダイアログを見た時点で打ち切る(依頼書 §5 の当初案。イベントで構造的に赤)。
+ *   opts.speed       … sleepMs の短縮倍率(Part C と同じ 8)。
+ *   opts.readyMs     … entry で敵が湧くまでの上限(60 秒)。
+ *   opts.advanceMs   … 前進までの上限(240 秒 = 最遅 117 秒の約 2 倍)。
+ * ⚠ 配信の書き換え(STEP3 の noauto / notick)は startServer の SERVE.bandRows と同じ場所に足す。
+ *   この関数は SERVE.root / bandRows を素に戻すだけで、書き換えの有無を知らない。
+ * ⚠ 母集団は `RUN.byId[RUN.graph.entry].exits` の**実体**で決める(シナリオ名で森を除外しない)。
+ */
+async function runGraphAutoDevice(browser, base, scenarioId, opts) {
+  const o = Object.assign({ killEnemies: true, answerDialogs: true, speed: 8, readyMs: 60000, advanceMs: 240000 }, opts || {});
+  SERVE.root = ROOT; SERVE.bandRows = 3;
+  const page = await bootPage(browser, base, VIEWPORTS[1],
+    { scenarioId, seed: 20260719, qs: '&graph=auto' });
+  const out = { scenarioId, killEnemies: o.killEnemies, ready: false, readyMs: null,
+                entryId: null, exits: null, inPopulation: false, killed: 0,
+                advancedAt: null, toNode: null, arrows: 0, dialogs: 0, dialogsAnswered: 0, dialogMsgs: [],
+                gameOver: false, endReason: null, pageErrors: [] };
+  try {
+    /* ① 観測器を startGame より**先に**入れる。2 秒ごとのポーリングだと短く出た矢印を取りこぼすので
+     *    MutationObserver で数える(矢印 = `.exitArrow` の要素が増えた回数 / ダイアログ = #choiceDialog に
+     *    `show` が付いた回数)。⚠ showExitArrows は createElement → className 設定 → append の順だが、
+     *    MO のコールバックはマイクロタスクで後から来るので、addedNodes の時点で class は付いている。 */
+    await page.evaluate((sp) => {
+      if (sp > 1) { const _sl = window.sleepMs; window.sleepMs = function (ms) { return _sl(Math.max(4, Math.floor(ms / sp))); }; }
+      const D = { arrows: 0, arrowMax: 0, dialogs: 0, dialogMsgs: [] };
+      window.__dev = D;
+      const dlgShown = () => { const d = document.getElementById('choiceDialog'); return !!(d && d.classList.contains('show')); };
+      // ★どのダイアログだったかをログに残す(赤の切り分け用。判定には使わない)。
+      const dlgMsg = () => { const m = document.querySelector('#choiceDialog .choiceMessage'); return m ? String(m.textContent).slice(0, 60) : ''; };
+      let wasShown = dlgShown();
+      if (wasShown) { D.dialogs++; D.dialogMsgs.push(dlgMsg()); }
+      D.arrowMax = document.querySelectorAll('.exitArrow').length;
+      D.arrows += D.arrowMax;
+      const mo = new MutationObserver((recs) => {
+        for (const r of recs) {
+          if (r.type === 'childList') {
+            for (const n of r.addedNodes) {
+              if (n.nodeType !== 1) continue;
+              if (n.classList && n.classList.contains('exitArrow')) D.arrows++;
+              if (n.querySelectorAll) D.arrows += n.querySelectorAll('.exitArrow').length;
+            }
+          }
+        }
+        const now = dlgShown();
+        if (now && !wasShown) { D.dialogs++; D.dialogMsgs.push(dlgMsg()); }
+        wasShown = now;
+        const live = document.querySelectorAll('.exitArrow').length;
+        if (live > D.arrowMax) D.arrowMax = live;
+      });
+      mo.observe(document.documentElement, { childList: true, subtree: true,
+                                             attributes: true, attributeFilter: ['class'] });
+    }, o.speed);
+    await page.evaluate(() => { try { startGame(); } catch (e) {} });
+
+    // ② entry で敵が湧くのを待つ(⚠ classic script 直下の let は bare 識別子でしか読めない)。
+    const t0 = Date.now();
+    try {
+      await page.waitForFunction(() => {
+        try {
+          return gameStarted && enemies.length > 0 && typeof RUN !== 'undefined' && !!RUN &&
+                 currentNodeId === RUN.graph.entry;
+        } catch (e) { return false; }
+      }, { timeout: o.readyMs, polling: 200 });
+      out.ready = true;
+    } catch (e) { out.endReason = 'not-ready@' + Math.round((Date.now() - t0) / 1000) + 's'; }
+    out.readyMs = Date.now() - t0;
+    if (!out.ready) return out;
+
+    // ③ entry の出口を実体から読む → 母集団の判定 → テストダブルで倒す
+    const st = await page.evaluate((kill) => {
+      const entry = RUN.graph.entry;
+      const node = RUN.byId[entry];
+      const exits = ((node && node.exits) || []).map(ex => ex.to + ':' + (ex.dir || '?'));
+      let killed = 0;
+      if (exits.length && kill) {
+        for (const e of enemies) {
+          if (!e || !e.alive || e.passiveNpc) continue;
+          e.alive = false; e.hp = 0; killed++;
+        }
+      }
+      return { entry, exits, killed };
+    }, o.killEnemies);
+    out.entryId = st.entry; out.exits = st.exits; out.killed = st.killed;
+    out.inPopulation = st.exits.length > 0;
+    if (!out.inPopulation) { out.endReason = 'no-exit'; return out; }
+
+    // ④ currentNodeId が entry から変わるのを 400ms ごとに見る。矢印を見たらその場で打ち切る
+    //    (負のコントロール noauto が速く終わる)。イベントのダイアログには代役で答えて進める。
+    const t1 = Date.now();
+    for (;;) {
+      const el = Date.now() - t1;
+      if (el >= o.advanceMs) { out.endReason = 'budget@' + Math.round(el / 1000) + 's'; break; }
+      await new Promise(r => setTimeout(r, 400));
+      let s;
+      try {
+        s = await page.evaluate(() => ({ node: currentNodeId, go: !!gameOver,
+                                         arrows: window.__dev.arrows, dialogs: window.__dev.dialogs }));
+      } catch (e) { out.endReason = 'evaluate-failed@' + Math.round((Date.now() - t1) / 1000) + 's'; break; }
+      out.arrows = s.arrows; out.dialogs = s.dialogs; out.gameOver = s.go;
+      if (o.answerDialogs) {
+        // Part C と同じ代役 = 開いている選択ダイアログの先頭ボタンを押す(打ち切らない)。
+        const clicked = await page.evaluate(() => {
+          const d = document.getElementById('choiceDialog');
+          if (!d || !d.classList.contains('show')) return false;
+          const b = d.querySelector('.choiceButtons button'); if (b) b.click(); return !!b;
+        }).catch(() => false);
+        if (clicked) out.dialogsAnswered++;
+        if (s.arrows > 0) { out.endReason = 'ui-seen@' + Math.round((Date.now() - t1) / 1000) + 's'; break; }
+      } else if (s.arrows > 0 || s.dialogs > 0) { out.endReason = 'ui-seen@' + Math.round((Date.now() - t1) / 1000) + 's'; break; }
+      if (s.node && s.node !== out.entryId) {
+        out.advancedAt = Date.now() - t1; out.toNode = s.node;
+        out.endReason = 'advanced@' + Math.round(out.advancedAt / 1000) + 's'; break;
+      }
+      if (s.go) { out.endReason = 'gameOver@' + Math.round((Date.now() - t1) / 1000) + 's'; break; }
+    }
+    // 前進の直後に矢印/ダイアログが来ていないかも最後に 1 回だけ読み直す(数え漏れの防止)。
+    try {
+      // ⚠ gameOver は前進の時点の値を使う(前進した先のノードで倒れても装置の判定には関係ない)。
+      const f = await page.evaluate(() => ({ arrows: window.__dev.arrows, dialogs: window.__dev.dialogs,
+                                             msgs: window.__dev.dialogMsgs.slice() }));
+      out.arrows = f.arrows; out.dialogs = f.dialogs; out.dialogMsgs = f.msgs;
+    } catch (e) {}
+    return out;
+  } finally {
+    out.pageErrors = page.__pageErrors.slice();
+    try { await page.close(); } catch (e) {}
+  }
+}
+
 // ── メイン ──────────────────────────────────────────────────────────────────
 (async () => {
   const puppeteer = loadPuppeteer();
   const browserPath = findBrowser();
   let srv = null, browser = null;
   const report = { generatedAt: new Date().toISOString(), baselineRev: BASELINE_REV,
-                   trials: TRIALS, turns: TURNS, partA: [], partB: [], partC: [] };
+                   trials: TRIALS, turns: TURNS, partA: [], partB: [], partC: [], device: [] };
 
   // ── 静的 assert: 3つの合流点が本当に firstTileStep 1本か ────────────────
   mark('静的スキャン: 戦闘移動3経路が firstTileStep に合流しているか');
@@ -790,6 +941,50 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
       }
     }
 
+    // ── 装置ステージ (#92 STEP2): ?graph=auto が矢印 0 で entry から前進するか (ダイアログは代役) ──
+    if (!SKIP_DEVICE) {
+      for (const sid of DUNGEONS) {
+        mark('装置 ?graph=auto の前進 (entry の敵をテストダブルで倒す): ' + sid);
+        const d = await runGraphAutoDevice(browser, BASE, sid, { killEnemies: true });
+        report.device.push(d);
+        const ex = '[' + (d.exits || []).join(',') + ']';
+        if (!d.ready) {
+          console.log('    → entry で敵が湧かなかった (' + d.endReason + ')');
+        } else if (!d.inPopulation) {
+          console.log('    (dev) ' + sid + ': entry ' + d.entryId + ' の出口 0 本 = 判定しない (母集団外)');
+        } else {
+          console.log('    → entry ' + d.entryId + ' / 出口 ' + ex + ' / 倒した ' + d.killed + ' 体 / ' +
+            '終了 ' + d.endReason + (d.toNode ? ' → ' + d.toNode : '') +
+            ' / 矢印 ' + d.arrows + ' / ダイアログ ' + d.dialogs + ' / gameOver ' + d.gameOver +
+            ((d.dialogMsgs && d.dialogMsgs.length) ? ' / ダイアログ本文 ' + JSON.stringify(d.dialogMsgs) : ''));
+        }
+        /* ⚠ 湧かなかった (ready=false) ものは母集団の外へ黙って落とさない = (Cd-*) を赤にする。
+         *   出口の数が読めていないので「出口 0 本だから判定しない」とは言えない。 */
+        if (!d.ready || d.inPopulation) {
+          /* ⚠ [ユーザー決定 A] ダイアログは合否に使わない(イベントのダイアログに代役で答える)。
+           *   出口選択のダイアログは __autoplay 経路にしか無い = 自動選択が壊れたら出るのは矢印。 */
+          check('(Cd-' + sid + ') ★?graph=auto が矢印を出さずに entry から前進した (イベントのダイアログには代役で答える)',
+            d.ready && d.killed >= 1 && d.advancedAt !== null && d.arrows === 0 && !d.gameOver,
+            '倒した ' + d.killed + ' 体 / 出口 ' + ex + ' / 前進 ' +
+            (d.advancedAt === null ? 'せず' : Math.round(d.advancedAt / 1000) + 's') +
+            ' / 矢印 ' + d.arrows + ' / ダイアログ ' + d.dialogs + ' (答えた ' + d.dialogsAnswered + ')' +
+            ((d.dialogMsgs && d.dialogMsgs.length) ? ' ' + JSON.stringify(d.dialogMsgs) : '') +
+            (d.gameOver ? ' / gameOver' : '') + ' / 終了 ' + d.endReason);
+        }
+        check('(Cd-' + sid + ') 装置ページ pageerror 0', d.pageErrors.length === 0,
+          d.pageErrors.slice(0, 3).join(' | ') || 'none');
+      }
+      /* ⚠ (Cd0) は**シナリオ名を書かない**。森が将来 2 ノードへ戻れば自然に判定へ入る。
+       *   これが無いと全部「出口 0 本」に落ちたとき装置が空振り緑になる。 */
+      const judged = report.device.filter(d => !d.ready || d.inPopulation).length;
+      const withExits = report.device.filter(d => d.ready && d.inPopulation).length;
+      const outside = report.device.filter(d => d.ready && !d.inPopulation).map(d => d.scenarioId);
+      check('(Cd0) 装置の母集団 (判定した数 ≥1 かつ entry の出口 1 本以上の数と一致)',
+        judged >= 1 && judged === withExits,
+        '判定 ' + judged + ' / 出口 1 本以上 ' + withExits + ' / 母集団外 ' + outside.length +
+        (outside.length ? ' (' + outside.join(',') + ')' : ''));
+    }
+
   } finally {
     if (browser) { try { await browser.close(); } catch (e) {} }
     if (srv) { try { srv.close(); } catch (e) {} }
@@ -847,6 +1042,18 @@ async function runPartC(browser, base, scenarioId, speed, budgetMs) {
       '合計 ' + totalCalls + ' 回');
     report.dungeonRescueFired = totalFired;
     report.dungeonCalls = totalCalls;
+  }
+
+  if (report.device.length) {
+    console.log('\n─── 装置 (#92)  ?graph=auto が矢印 0 で entry から前進するか (ダイアログは代役) (entry の敵はテストダブルで倒す) ───');
+    console.log('  シナリオ          entry  出口                 倒した  前進      矢印  ダイアログ  終了');
+    for (const d of report.device) {
+      console.log('  ' + d.scenarioId.padEnd(18) + String(d.entryId).padEnd(7) +
+        ('[' + (d.exits || []).join(',') + ']').padEnd(21) + String(d.killed).padStart(6) + '  ' +
+        (d.advancedAt === null ? 'せず' : Math.round(d.advancedAt / 1000) + 's').padEnd(10) +
+        String(d.arrows).padStart(4) + String(d.dialogs).padStart(12) + '  ' +
+        (d.ready && !d.inPopulation ? '母集団外 (出口 0 本)' : d.endReason));
+    }
   }
 
   // ── ★判定 ────────────────────────────────────────────────────────────

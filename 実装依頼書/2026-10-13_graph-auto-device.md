@@ -262,3 +262,49 @@ Part C 本体の後に、`DUNGEONS` の各シナリオで**別ページ**を起�
   - Part A は 12-0 と**完全一致**(45.450 / 76.300 / 0.300 / 0.200%・移動不能 17239→0 / 6889→0・救済発火 0/1225/0/400)。Part B は 12 本とも PASS(切断率は実プレイで揺れる: 18.487/23.221/46.570/34.229%・全腕 waves-cleared)。(J1)(J1b)(J1c)(J2) PASS。
   - Part C: (C0) = 432 回。終了理由 = 廃坑 budget@90s(自然な前進 74s)/ 森・沼地・神殿 budget@90s(せず)/ 砦 **gameOver@27s** / 竜 **budget@90s**(この走行では 90 秒以内に倒れなかった = 竜の終わり方も揺れる)。
   - `index.html` sha1 は着手前と同値 `3a5dbd8e…`(本番は 1 バイトも変えていない)。
+
+### 12-2. STEP2(装置ステージ `runGraphAutoDevice`)
+
+**実装の要点**(`tools/driver_field_step6.js` のみ)
+
+- `runGraphAutoDevice(browser, base, scenarioId, opts)` を `runPartC` の直後に新設。opts 既定 = `{ killEnemies: true, answerDialogs: true, speed: 8, readyMs: 60000, advanceMs: 240000 }`。
+  - `killEnemies:false` = テストダブルを止める口(STEP3 の `nokill` 用)。`answerDialogs:false` = ダイアログを見た時点で打ち切る(§5 の当初案)。
+  - 手順: `SERVE.root = ROOT; SERVE.bandRows = 3` → `bootPage(…, VIEWPORTS[1], { scenarioId, seed: 20260719, qs: '&graph=auto' })` → `sleepMs` を 1/8 にし、**`startGame()` より先に** MutationObserver(`.exitArrow` の追加数・`#choiceDialog` に `show` が付いた回数と本文 `.choiceMessage`)を `window.__dev` に入れる → `gameStarted && enemies.length > 0 && RUN && currentNodeId === RUN.graph.entry` を待つ(60 秒)→ `RUN.byId[entry].exits` を実体で読み、0 本なら母集団外で返す → 非 `passiveNpc` の生きている敵を `alive=false; hp=0` → 400ms ごとに `currentNodeId` を見る(240 秒)。開いた選択ダイアログには Part C と同じ代役(先頭ボタン)で答え、**矢印を 1 本でも観測したらその場で打ち切る**。
+  - 戻り値: `{ scenarioId, killEnemies, ready, readyMs, entryId, exits, inPopulation, killed, advancedAt, toNode, arrows, dialogs, dialogsAnswered, dialogMsgs, gameOver, endReason, pageErrors }`。`endReason` = `advanced@Ns` / `ui-seen@Ns` / `gameOver@Ns` / `budget@Ns` / `not-ready@Ns` / `no-exit` / `evaluate-failed@Ns`。
+- メイン: Part C の後に `if (!SKIP_DEVICE)` で `DUNGEONS` を回し、`report.device[]` へ積む(JSON にも出る)。サマリ表「装置 (#92)」を Part C 表の後に出す。
+- フラグ: `--skip-device`(装置を外す)。装置だけ = `--skip-a --skip-b --skip-c`。
+- 判定:
+  - **(Cd-<sid>) ★?graph=auto が矢印を出さずに entry から前進した (イベントのダイアログには代役で答える)** = `ready && killed >= 1 && advancedAt !== null && arrows === 0 && !gameOver`。`ready=false`(湧かなかった)は母集団外へ黙って落とさず、この check を赤にする。
+  - **(Cd-<sid>) 装置ページ pageerror 0** … 母集団外を含む全シナリオ。
+  - **(Cd0) 装置の母集団** = `判定した数 ≥ 1 && 判定した数 === (ready かつ出口 1 本以上の数)`。シナリオ名は書かない。
+- STEP3 用: 配信の書き換え(noauto / notick)は `startServer` の `SERVE.bandRows` と同じ場所に足す。装置関数は `SERVE.root/bandRows` を素に戻すだけで書き換えの有無を知らない。
+
+**⚠ 崩れた前提(§5 の「ダイアログ 0」)**
+
+- §5 どおり「ダイアログ 0」を合格条件にした初回の装置のみ走行 = **14/17**(廃坑・沼地・神殿が赤、砦 79s・竜 81s は緑、森は母集団外、(Cd0) 緑)。赤の中身は**出口と無関係なイベントのダイアログ**:
+  - 廃坑 n0 = 「坑道の入口に見張りが二匹。…」(倒した直後 **0 秒**)
+  - 沼地 n4 = 「見つけた罠を解除しますか?」×3 + 「若い司祭が、供物を抱えたまま立ち尽くしている。」(初出 **25 秒**)
+  - 神殿 n4 = 「墓碑の前の霊が、こちらを見つめている。」(**68 秒**)
+- §2-4 の起草窓プローブは砦だけでダイアログを数えていた(砦はイベント 0)ので、この差は見えていなかった。
+- 出口選択のダイアログは `chooseExit` の `window.__autoplay` 経路にしか無い(`index.html:37990` `if (RUN.auto) return opts[0];` / `:38001` `if (!window.__autoplay) return await showExitArrows(...)`)。装置は `__autoplay` を立てない ⇒ 自動選択が壊れたときに出るのは**矢印だけ**で、ダイアログを数えても出口の検出には効かない。
+
+**ユーザー決定 A(2026-10-13)**: 装置もダイアログには Part C と同じ代役で答える(`answerDialogs: true`)。(Cd-<sid>) の合格条件 = `advancedAt !== null && arrows === 0 && !gameOver`(+ `ready && killed >= 1`)。矢印を見たら打ち切りは維持。答えたダイアログの回数と本文はログ・詳細に残すだけ。名前も「矢印を出さずに entry から前進した(イベントのダイアログには代役で答える)」へ。
+
+**走行結果**(port 10628・`index.html` sha1 `3a5dbd8e…` = 着手前と同値)
+
+- 装置のみ(`--skip-a --skip-b --skip-c`)= **17/17 PASS・EXIT=0**((S1)〜(S5) 5 + (Cd-*) 前進 5 + pageerror 6 + (Cd0) 1)。ログ = scratchpad `f6_dev_only3.txt`。
+- フル(`node tools/driver_field_step6.js --port 10628`)= **65/65 PASS・EXIT=0**・所要 **約 27.5 分**(13:01→13:28)。総数 = STEP1 の 53 + 装置 12。ログ = scratchpad `f6_step2_full.txt`(JSON = `f6_step2_full/field_step6_metrics.json`)。
+  - Part A は 12-0 と**完全一致**(45.450 / 76.300 / 0.300 / 0.200%・移動不能 17239→0 / 6889→0・救済発火 0/1225/0/400)。Part B 12 本 PASS(実プレイ切断率 21.139/16.872/17.753/10.185%)。(J1)(J1b)(J1c)(J2) PASS。
+  - Part C: (C0) = 431 回。終了理由 = 廃坑 budget@90s(自然な前進 66s)/ 森・沼地・神殿・竜 budget@90s(せず)/ 砦 **gameOver@27s**。
+
+| シナリオ | entry | 出口 | 倒した | 前進(装置のみ / フル) | 矢印 | 答えたダイアログ |
+|---|---|---|---|---|---|---|
+| goblin-mine | n0 | `n1:right` | 2 | 52s / 52s | 0 | 1(見張り) |
+| bandits-forest | n7 | `[]` | — | 母集団外 | 0 | 0 |
+| lizard-swamp | n4 | `n7:right`,`n6:up` | 11 | 113s / 113s | 0 | 4(罠解除 ×3・若い司祭) |
+| orc-fort | n4 | `n7:right` | 11 | 79s / 79s | 0 | 0 |
+| undead-temple | n4 | `n7:right` | 11 | 83s / 83s | 0 | 1(墓碑の霊) |
+| dragon-lair | n4 | `n7:right` | 10 | 81s / 81s | 0 | 0 |
+
+- 終了後、ポート 10628 の LISTEN なし(TIME_WAIT のみ)・新規 node プロセスなし。
+- 未了: STEP3 `--negative`(noauto / notick / nokill)と §8 の「3 回連続で素の全緑」は項目3 以降。
