@@ -8,15 +8,17 @@
  *   ⚠ unlock() 経由の再生 (pendingBgm) はモジュール内部の playBgm を呼ぶのでスパイには写らない (#20 / 依頼書 §2-4)。
  *     だから経路 A だけでは「渡した ID は正しいのに鳴らない」(罠 A) を永久に見逃す。
  *
- *   §0 装置   (0a-<page>) 経路 A が 1 件以上 / (0b) __bgmTrackIds() = 9 件 (直書き) で title/town/world を含む /
+ *   §0 装置   (0a-<page>) 経路 A が 1 件以上 / (0b) __bgmTrackIds() = 11 件 (#88 の 9 + #94 の 2・名前で全部) /
  *             (0c) 全ページの経路 A の ID がすべて __bgmTrackIds() に在る (罠 A の検出器) / (0d) 旧フック 3 つが undefined
  *   §1 ページ (1a)〜(1e) title/town/world/tavern/index を -A (スパイ) と -B (__bgmTrack) に分けて見る /
  *             (1f) どのページも「/assets/bgm/」を要求しない (サーバの要求ログ = 別経路)
- *   §2 新曲   (2a) __renderBgmOffline(id,12) が resolve し RMS > -40 dBFS / (2b) lead が他 8 曲と不一致 /
+ *   §2 新曲   (2a) __renderBgmOffline(id,12) が resolve し RMS > -40 dBFS / (2b) lead が他の全曲と不一致 /
  *             (2c) RMS が -18.0〜-12.0 dBFS (ピークは揺れるので測らない = 依頼書 K7)
- *   §3 ダンジョン (3a) explore / (3b) combat / (3c) __inBossRoom で boss / (3d) __inMidBoss で midboss
+ *   §3 ダンジョン (3a) 森で explore・廃坑 entry で mine_gate / (3b) combat / (3c) __inBossRoom で boss / (3d) __inMidBoss で midboss
  *             を シーム __graphRun.bgm().id・スパイの最後の ID・__bgmTrack().name の 3 つで /
- *             (3e) scenarioId='dragon-lair' と _genScenario={tierKey:'tier3'} でも (3a)〜(3c) と同じ ID 列
+ *             (3e) シナリオ別の差し替えは sceneBgmTrack の 2 件だけ (基準列 = 森・dragon-lair・生成クエスト tier3)
+ *   ★[#94 2026-10-15] (0b)(2b)(1e-A)(1e-B)(3a)(3e) を言い直した (依頼書 2026-10-15_scene-bgm-mine-dragon.md §2-5)。
+ *     #94 の選曲そのものの受入は tools/verify_scene_bgm.js。
  *   §4 クレジット (4a) 設定モーダル (openSettings() の #gameSettingsOverlay の箱の lastElementChild) /
  *             (4b) エンディング「音楽」見出し直後の erItem (ENDING_CREDITS_HTML は裸の識別子で読める)。
  *             ⛔ 効果音の行の「魔王魂」は在ってよい (ページ全体で数えると必ず赤になる)
@@ -106,7 +108,8 @@ const MUTATIONS = {
   // ボス部屋でも通常戦闘曲のまま。(3e) は相対比較なので巻き込まれない。
   bossstuck: {
     port: 10605, file: 'index.html', targets: ['3c'],
-    from: '      if (window.__inBossRoom) return "boss";',
+    // ★[#94] 本番の行が sceneBgmTrack("boss") を返す形になったのでアンカーを追従 (欠陥の中身は同じ)。
+    from: '      if (window.__inBossRoom) return sceneBgmTrack("boss");',
     to: '      /* mut-bossstuck __inBossRoom を見ない */',
   },
 };
@@ -345,12 +348,18 @@ async function measureIndex(browser, sv, errs) {
       window.__inMidBoss = true; setPhase('combat'); await w(900); out.mid = snap('combat+mid');
       window.__inMidBoss = false;
       const s0 = scenarioId;
+      // ★[#94] 基準列 = sceneBgmTrack が何も差し替えないシナリオ (森) の ID 列。(3a) と (3e) の物差し。
+      scenarioId = 'bandits-forest';
+      out.other = await seq('bandits-forest ');
       scenarioId = 'dragon-lair';
       out.dragon = await seq('dragon-lair ');
       scenarioId = s0;
+      // ★[#94] 生成クエストの実際の姿 = scenarioId "generated-quest" + _genScenario (#88 は _genScenario だけ差していた)。
       const g0 = _genScenario;
       _genScenario = { tierKey: 'tier3' };
+      scenarioId = 'generated-quest';
       out.gen = await seq('gen-tier3 ');
+      scenarioId = s0;
       _genScenario = g0;
       setPhase('explore'); await w(900);
       out.allCalls = window.__bgmCalls.slice();
@@ -417,8 +426,10 @@ for (const key of ['title', 'town', 'world', 'tavern', 'index']) {
     return [spy === true && c.length >= 1, 'spy=' + spy + ' calls=' + J(c)];
   }]);
 }
-ASSERTS.push(['0b', '__bgmTrackIds() が 9 件 (直書き) で title / town / world を含む',
-  m => { const ids = idsOf(m); return [ids.length === 9 && NEW3.every(x => ids.indexOf(x) >= 0), J(ids)]; }]);
+// ★[#94 言い直し] 9 件 (#88) → 11 件 (#88 の 9 曲 + #94 の mine_gate / finalboss)。件数だけでなく名前で全部縛る。
+const ALL11 = ['tavern', 'explore', 'combat', 'boss', 'midboss', 'rest', 'title', 'town', 'world', 'mine_gate', 'finalboss'];
+ASSERTS.push(['0b', '__bgmTrackIds() が 11 件 (#88 の 9 曲 + #94 の 2 曲) で、名前が全部一致する',
+  m => { const ids = idsOf(m); return [ids.length === ALL11.length && ALL11.every(x => ids.indexOf(x) >= 0), J(ids)]; }]);
 ASSERTS.push(['0c', '⭐ 全ページで経路 A に渡った ID がすべて __bgmTrackIds() に在る (罠 A の検出器)',
   m => {
     const ids = idsOf(m);
@@ -438,7 +449,8 @@ ASSERTS.push(['0d', 'GameAudio.__bgmFileState / __bgmFiles / __bgmFileIds が 5 
     return [ok, J(got)];
   }]);
 // §1
-for (const [n, id] of PAGE_EXPECT.concat([['1e', 'explore']])) {
+// ★[#94 言い直し] index は廃坑の entry (n0) で起動する ⇒ 探索曲は explore でなく mine_gate (sceneBgmTrack の差し替え ①)。
+for (const [n, id] of PAGE_EXPECT.concat([['1e', 'mine_gate']])) {
   const key = n === '1e' ? 'index' : id;
   ASSERTS.push([n + '-A', key + ': 経路 A (スパイ) に渡った ID がすべて "' + id + '"',
     m => { const c = callsOf(m, key); return [c.length >= 1 && c.every(x => x === id), J(c)]; }]);
@@ -458,7 +470,8 @@ ASSERTS.push(['2a', '新曲 3 曲の __renderBgmOffline(id, 12) が resolve し�
     const r = m.tracks.render;
     return [NEW3.every(id => r[id] && r[id].ok && r[id].len > 0 && r[id].rmsDb > -40), J(r)];
   }]);
-ASSERTS.push(['2b', '新曲 3 曲の lead が、他の 8 曲のどれとも一致しない',
+// ★[#94 言い直し] 「他の 8 曲」→「他の全曲」。比較相手の数は直書きせず実体 (__bgmTrackIds) から数える。
+ASSERTS.push(['2b', '新曲 3 曲の lead が、他の全曲 (実体から数える) のどれとも一致しない',
   m => {
     const L = m.tracks.leads;
     const ids = Object.keys(L);
@@ -467,7 +480,8 @@ ASSERTS.push(['2b', '新曲 3 曲の lead が、他の 8 曲のどれとも一�
       if (!Array.isArray(L[a]) || L[a].length === 0) { dup.push(a + '=lead 無し'); continue; }
       for (const b of ids) if (b !== a && J(L[a]) === J(L[b])) dup.push(a + '==' + b);
     }
-    return [ids.length === 9 && dup.length === 0, '比較 ' + ids.length + ' 曲 / 一致=' + J(dup)];
+    const n = idsOf(m).length;
+    return [n >= 9 && ids.length === n && dup.length === 0, '比較 ' + ids.length + ' 曲 (在庫 ' + n + ') / 一致=' + J(dup)];
   }]);
 ASSERTS.push(['2c', '新曲 3 曲の RMS が -18.0〜-12.0 dBFS',
   m => {
@@ -478,15 +492,30 @@ ASSERTS.push(['2c', '新曲 3 曲の RMS が -18.0〜-12.0 dBFS',
 // §3
 const snapOk = (s, id) => s && s.seam === id && s.spy === id && s.track === id && s.voice === true;
 const snapStr = (s) => s ? (s.label + ' seam=' + s.seam + ' spy=' + s.spy + ' track=' + s.track) : 'null';
-ASSERTS.push(['3a', '探索フェーズ → シーム・スパイ・__bgmTrack とも explore', m => [snapOk(m.index.base[0], 'explore'), snapStr(m.index.base[0])]]);
+// ★[#94 言い直し] 廃坑の entry の探索は mine_gate に変わったので、explore は差し替えの無いシナリオ (森) で見る。
+//   廃坑 entry の mine_gate は (1e) が経路 A/B で見ている。ここでは 3 つの口 (シーム・スパイ・__bgmTrack) で両方を見る。
+ASSERTS.push(['3a', '探索フェーズ → 森 (差し替え無し) で explore / 廃坑の entry で mine_gate (シーム・スパイ・__bgmTrack とも)',
+  m => [snapOk(m.index.other[0], 'explore') && snapOk(m.index.base[0], 'mine_gate'), snapStr(m.index.other[0]) + ' / ' + snapStr(m.index.base[0])]]);
 ASSERTS.push(['3b', 'setPhase("combat") → combat', m => [snapOk(m.index.base[1], 'combat'), snapStr(m.index.base[1])]]);
 ASSERTS.push(['3c', '__inBossRoom = true で setPhase("combat") → boss', m => [snapOk(m.index.base[2], 'boss'), snapStr(m.index.base[2])]]);
 ASSERTS.push(['3d', '__inMidBoss = true で setPhase("combat") → midboss', m => [snapOk(m.index.mid, 'midboss'), snapStr(m.index.mid)]]);
-ASSERTS.push(['3e', '⭐ scenarioId="dragon-lair" / _genScenario={tierKey:"tier3"} でも (3a)〜(3c) と同じ ID 列 (シナリオ別の表が残っていない)',
+// ★[#94 言い直し — 消さずに主張を狭める] #88 の「シナリオ別の表が残っていない」は #94 で意図して崩れた。
+//   残す主張 = 「シナリオ別の差し替えは sceneBgmTrack の 2 件 (廃坑 entry の探索 → mine_gate / 竜の巣のボス → finalboss)
+//   だけ。それ以外のシナリオと生成クエストは基準列 (森) と同じ」。
+//   ⚠ 基準列は実測した森の列 (相対比較)。直書きにすると bossstuck / ghostscene が (3e) を巻き込む。
+const SCENE_SUB = { base: { explore: 'mine_gate' }, dragon: { boss: 'finalboss' }, gen: {} };
+ASSERTS.push(['3e', '⭐ シナリオ別の差し替えは 2 件だけ: 廃坑 entry = 基準列 (森) の explore→mine_gate / dragon-lair = boss→finalboss / 生成クエスト (tier3) = 基準列そのまま',
   m => {
-    const key = (arr) => arr.map(s => [s.seam, s.spy, s.track].join('/')).join(' | ');
-    const b = key(m.index.base), d = key(m.index.dragon), g = key(m.index.gen);
-    return [b === d && b === g && m.index.base.length === 3, '基=' + b + ' / dragon=' + d + ' / gen=' + g];
+    const key = (arr, sub) => arr.map(s => [s.seam, s.spy, s.track].map(x => (sub && sub[x]) || x).join('/')).join(' | ');
+    const ref = m.index.other;
+    const bad = [];
+    let txt = '基準(森)=' + key(ref);
+    for (const k of ['base', 'dragon', 'gen']) {
+      const want = key(ref, SCENE_SUB[k]), got = key(m.index[k]);
+      txt += ' / ' + k + '=' + got;
+      if (want !== got) bad.push(k + ' 期待=' + want);
+    }
+    return [ref.length === 3 && bad.length === 0, txt + (bad.length ? ' ⛔ ' + bad.join(' ; ') : '')];
   }]);
 // §4
 ASSERTS.push(['4a', '設定モーダルのクレジット行に 魔王魂・ユーフルカ が無く、オリジナル が在る',
