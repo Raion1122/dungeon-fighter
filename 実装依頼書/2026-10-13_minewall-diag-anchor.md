@@ -1,6 +1,6 @@
 # #93 driver_mine_wall の (6a) を時間しだいの [DIAG] から切り離す + 変異アンカーの自己検査を全変異へ(tools のみ)
 
-- **起草**: 2026-10-13(起草窓) / **ステータス**: **承認済**(2026-10-13 ユーザー承認)
+- **起草**: 2026-10-13(起草窓) / **ステータス**: **完了**(2026-10-14 実装窓・受入 §12-3。未 push)
 - **触るファイル**: `tools/driver_mine_wall.js` / 本依頼書 / `実装依頼書/README.md`(完了時の行更新)
 - ⛔ **触らないファイル**: `index.html` / `tavern.html` / `audio.js` / `js/*`(**読むだけ**)。
   ⛔ `tools/driver_field_step6.js` は**実装窓が #92 で編集中**(本チケットは一度も開かない)。`tools/driver_grid_s2.js` も**読むだけ**。
@@ -205,4 +205,67 @@ const KNOWN_SHARED_ANCHORS = {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**コミット**
+
+| 項目 | コミット | 内容 |
+|---|---|---|
+| 1 | `f3e7ed0` | (6a) を `[DIAG][stall]` / `[DIAG][combat-no-round]` の 2 種だけ除外(`DIAG_TIMING_IDS`・除外件数は緑でもログへ・判定名は定数 `L6A`)+ 変異アンカーの自己検査を全 6 変異へ(`KNOWN_SHARED_ANCHORS` を両方向・index.html にちょうど 1 回も全変異で) |
+| 2 | `6c54619` | `--negative` に `diagfake`(新しい表 `DRIVER_MUTATIONS` = ドライバ側で主ページへ `console.error('[DIAG][fakecrit] …')` を 1 回・port 10628・担当 (6a) だけ)。`CHILD_MUT_ORDER` = nochariot + diagfake |
+| 3 | 本節を書いたコミット | 受入(§12-3)+ README の #93 行を完了へ |
+
+`index.html` は 1 バイトも変えていない(作業ツリーの sha1 = `3a5dbd8ed7f7d57e3c7fec73a80dfeb017d12593` = #92 §12-4 と同値)・changelog 不要(§2-4)。
+
+### 12-0. 着手前の色(2026-10-14・項目1 の先頭・HEAD `272b7c4`)
+
+- `node tools/driver_mine_wall.js` = **67/67・252 s・(6a) 緑**。
+
+### 12-1. STEP1・STEP2(項目1 `f3e7ed0`)
+
+- 変更後 67/67(262 s)・除外 0 件・起動ログ `[vet] アンカー自己検査: 6 変異 / 既知の共有 1 行 (driver_grid_s2.js)`(§8 §0 の文言どおり)。
+- **手動 vetFail の確認(§8 §1・恒久の装置にはしない)**:
+  - 許可表を `[]` にする(`driver_grid_s2.js` を抜く)→ 起動直後に「表に無い衝突: driver_grid_s2.js」で停止 = **exit 3**。
+  - 逆向き: 架空の `driver_bogus.js` を足す → 「表に書いたのに衝突していない」で停止 = **exit 3**。
+  - 両方とも元へ戻して `cmp` 一致。
+  - ⚠ **依頼書 §8 §1 の「exit 2」は誤り**。`driver_mine_wall.js` の既存の `vetFail()` は `process.exit(3)`(装置の不成立 = 3 がこのドライバの流儀)なので、新しい自己検査もそれに乗せた。
+
+### 12-2. STEP3(項目2 `6c54619`)
+
+- 子単独 `--mutate diagfake` = **66/67**・赤は **(6a) だけ**・注入行の実行 1 回(243 s)。
+- **罠の再現(§1 不採用 A)**: `DIAG_TIMING_IDS` を一時的に `/\[DIAG\]/` へ広げる → 子が 67/67 = (6a) 緑のまま = 変異が空振り。戻して `cmp` 一致。
+- 偽の critical は `errs` に実際に積まれるまで待つ(5 秒以内に積まれなければ vetFail)= console イベントと evaluate の戻りの前後に依らない。
+- 起動時の vet とアンカー自己検査は `DRIVER_MUTATIONS` に掛けない(6 変異のまま・§6 どおり)。
+
+### 12-3. 受入(§8・2026-10-14・HEAD `6c54619`)
+
+すべて 1 本ずつ直列(素 → `--negative` → grid_s2)。ログ = scratchpad `plain_1.log` / `plain_2.log` / `plain_3.log` / `neg.log` / `grid_s2.log`。
+
+| コマンド | 結果 | 所要 | (6a) の除外件数 |
+|---|---|---|---|
+| `node tools/driver_mine_wall.js`(1 回目) | **67/67 PASS**・exit 0 | 191 s | 0 件 |
+| 同(2 回目) | **67/67 PASS**・exit 0 | 216 s | 0 件 |
+| 同(3 回目) | **67/67 PASS**・exit 0 | 188 s | 0 件 |
+| `node tools/driver_mine_wall.js --negative` | **`[vet] 負のコントロール 7 / 7 が担当どおり (既存 5 + 子プロセス 2)`**・exit 0 | 667.3 s | 素の基準 0 件 |
+| `node tools/driver_grid_s2.js`(⛔ 開かず走らせただけ) | **`[drv] 124/124 PASS`**・exit 0 | 6 s | — |
+
+- 3 回とも起動ログに `[vet] アンカー自己検査: 6 変異 / 既知の共有 1 行 (driver_grid_s2.js)`。(0a)/(0b) は既存 5 変異とも全緑(§8 §0)。
+- `--negative` の内訳: 素の基準 67/67 → 既存 5 変異(noring / ringall / centeronly / nofallback / nomass)の (5-*) が全部 ✓ / `nochariot`(port 10626)= 65/67・赤 (4z)(4z2) = 担当どおり / **`diagfake`(port 10628)= 66/67・赤は (6a) だけ**(`CONSOLE [DIAG][fakecrit] 注入した critical (#93 diagfake)`)・注入行の実行 1 回・起動確認 OK → ✓。
+- grid_s2 は本チケットで触れていない(衝突は自己検査の許可表に名指しで載るだけ)= 全緑で非退行。
+- 後始末: ポート 9080〜9085 / 10626 / 10628 の LISTEN 0・作業ツリー clean。受入で driver の修正は要らなかった。
+
+### 12-4. 行番号のずれ(起草時 `dc45bd5` → 今 `6c54619`)
+
+| 依頼書の行 | 今 |
+|---|---|
+| 主ページ `:604` | **`:658`**(diagfake の注入はその直後 `:659-669`) |
+| (6a) `:939-940` | **`:1005-1011`**(除外 `:1005-1006`・件数ログ `:1008`・判定 `:1010`) |
+| (6b) `:941-944` | `:1013` 前後 |
+| 自己検査 `:154-170` | **`:178-221`**(`KNOWN_SHARED_ANCHORS` `:181`・件数ログ `:220`) |
+| `vetFail` | `:141`(`process.exit(3)`) |
+
+### 12-5. 崩れた前提 / 測らなかったこと
+
+1. **§8 §1 の「vetFail = exit 2」**は誤り → 実際は **exit 3**(既存の `vetFail()` の流儀・§12-1)。
+2. 素 3 回 + `--negative` の素の基準 1 回 = 計 4 回とも、除外した時間しだいの [DIAG] は **0 件**。起草時のプローブ(§2-2・90 秒放置で combat-no-round が出た)とは手順が違うので矛盾ではない。率は §8 のとおり測らない(ログに出るだけ)。
+3. 測らなかったこと: 時間しだいの [DIAG] の発生率 / 自動デバッグの閾値(§8 ⛔)。
+
+**別チケット候補**: なし(§11 の申し送り = combat-no-round の閾値 15 秒を Lv10 向けに直す件は #91 K2 のまま `index.html` の別件)。
