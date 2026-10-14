@@ -4293,6 +4293,11 @@
       try { return new URLSearchParams(window.location.search).get("bossapproach") === "0"; }
       catch (e) { return false; }
     })();
+    /* ★[#94] シナリオ別 BGM (sceneBgmTrack) の撤退スイッチ。?scenebgm=0 で #88 の 9 曲だけの選曲へ戻る
+     *   (TRACKS に mine_gate / finalboss は在っても鳴らない)。ページ読み込み時に 1 回だけ読む。 */
+    const SCENE_BGM_OFF = (() => {
+      try { return new URLSearchParams(window.location.search).get("scenebgm") === "0"; } catch (e) { return false; }
+    })();
     /* 玉座からこのチェビシェフ距離まで詰めたら「ボス部屋に着いた」。
      * ⚠ 8 という数字は発明ではなく **既存のボス部屋 BOSSR [11,32,16,40] の最大チェビシェフ距離**。
      *   小部屋では「部屋に入った瞬間に必ず満たされる」= 恒等になるように選んである。 */
@@ -15089,14 +15094,28 @@
       return enemies.some(e => e && e.alive && !e.inactive && !e.passiveNpc && isMidBossEnemy(e));
     }
     // 戦闘BGM優先順位: 中ボス > メインボス部屋 > 通常戦闘
+    /* ★[#94] シナリオと場面ごとの BGM の差し替え (唯一の口)。差し替えは 2 件だけ:
+     *   ① 既定の廃坑の entry ノードの探索 → mine_gate  ② 既定の竜の巣のボス戦 → finalboss
+     * ⚠⚠ シナリオは scenarioId で見る。_scenIdForTex (= themeId) で見ると生成クエストに漏れる (罠 A)。
+     * ⚠ ボス曲の直呼び 2 本 (ボス部屋に入った / 戦闘中に玉座へ詰めた) も必ずここを通す (罠 B)。
+     * ⚠ 呼ばれるのは startGame 以降だけ (scenarioId / RUN / currentNodeId は宣言済み)。
+     *   ?graph=0 の旧単一マップは RUN=null なので mine_gate は鳴らない (それでよい)。
+     * ⛔ 中ボス (midboss)・休憩 (rest)・エンディング・酒場は差し替えない。撤退 ?scenebgm=0。 */
+    function sceneBgmTrack(id) {
+      if (SCENE_BGM_OFF) return id;
+      if (id === "explore" && scenarioId === "goblin-mine" &&
+          typeof RUN !== "undefined" && RUN && currentNodeId === RUN.graph.entry) return "mine_gate";
+      if (id === "boss" && scenarioId === "dragon-lair") return "finalboss";
+      return id;
+    }
     function combatBgmTrack() {
       if (window.__inMidBoss) return "midboss";
-      if (window.__inBossRoom) return "boss";
+      if (window.__inBossRoom) return sceneBgmTrack("boss");
       return "combat";
     }
     /* ダンジョンの BGM = 合成曲だけ (#88)。探索 explore / 休憩 rest / 戦闘 combat・ボス部屋 boss・隠し中ボス midboss。
      * ⚠ mp3 導入前 (7275613 より前) の鳴らし分けそのもの。 */
-    function dungeonBgmTrack(kind) { return kind === "combat" ? combatBgmTrack() : kind; }
+    function dungeonBgmTrack(kind) { return kind === "combat" ? combatBgmTrack() : sceneBgmTrack(kind); }
     function setPhase(kind) {
       if (!PHASE_LABELS[kind]) return;
       const prev = currentPhase;
@@ -19939,7 +19958,7 @@
             bossRoomNarrationShown = true;
             bossApproachLatched = true;
             window.__inBossRoom = true;
-            bgm("boss");   // ボス部屋: 合成ボス曲 (#88)
+            bgm(sceneBgmTrack("boss"));   // ボス部屋: 合成ボス曲 (#88)。竜の巣は finalboss (#94)
             narrate("boss_room_enter");   // ボス部屋到達: 音声付き DM 語り (置換)
           }
         }
@@ -22641,7 +22660,7 @@
              * ⚠ ラウンド先頭ではなく**手番ごと**に置く。最後の 1 手番で帯へ入って決着すると
              *   ラウンド先頭の点は二度と回らない (ボス撃破後は reached が false へ戻る)。
              * ⚠ setPhase("combat") はもう走り終わっているので、BGM はここで切り替える。 */
-            if (latchBossApproachIfReached()) bgm("boss");
+            if (latchBossApproachIfReached()) bgm(sceneBgmTrack("boss"));   // ★[#94] 罠 B: 直呼びも包む
           }
           /* ★★★[#13 / 2026-08-23] **参加者が全滅した瞬間にも増援を見る**。
            * ⚠⚠ 既存の増援点は上の `if (round > 1)` = **ラウンド先頭のただ 1 点**しかない。
