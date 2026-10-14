@@ -145,26 +145,63 @@ const NEW_MUT_PORT = { nochariot: 10626 };
 const L4Z = '(4z) 装置: 戦車が実際に乱入した (でなければ (2e) は空振りで緑になる)';
 const L4Z2 = '(4z2) 装置: 乱入位置の体が壁を 0 マス含む (実プレイ経路で測る)';
 const L4Z3 = '(4z3) 装置: 開戦後に王を 70% 以下へ削れた (__kingCut あり・削る前は戦車 0 件)';
+/* [#93] (6a) の判定名。⚠ 接頭辞 (6a) を保つこと (母集団走査の突き合わせが判定名の頭で引く) */
+const L6A = '(6a) 測定ページで pageerror / console.error が出ていない (時間しだいの [DIAG] 2 種を除く)';
+/* ★[#93 K4] 測定ページ (?diag=1) の裏では Lv10 の実プレイが進み続け、自動デバッグの
+ *   「時間しだい」の critical が鳴りうる (stall = 探索中 10 秒静止 / combat-no-round = ラウンド 15 秒)。
+ *   どちらも測定の手順が作った状態で、測っている規則とは無関係。⚠ 除外するのはこの 2 種だけ —
+ *   [DIAG] を全部消すと、測定ページで本当に鳴った別種の critical まで見えなくなる (変異 diagfake が検査)。 */
+const DIAG_TIMING_IDS = /\[DIAG\]\[(stall|combat-no-round)\]/;
 const NEG_EXPECT = {
   nochariot: [L4Z, L4Z2],
 };
 const NEW_MUT_ORDER = Object.keys(NEW_MUTATIONS);
 if (MUTATE !== null && !Object.prototype.hasOwnProperty.call(NEW_MUTATIONS, MUTATE)) vetFail('未知の --mutate: ' + MUTATE + '  (' + NEW_MUT_ORDER.join(' / ') + ')');
 if (countOf(SRC_INDEX, '__MUTHIT__') !== 0) vetFail('原本に __MUTHIT__ が在る');
+/* ★[#93 K5] 既知の共有アンカー。同じ本番の 1 行を 2 本が測るのは正しい (その行が動けば両方赤くなるべき)。
+ *   ⚠ 表は**両方向**で検査する: 表に無い衝突 = vetFail / 表に書いたのに実際は衝突していない = vetFail (表が腐ったら止まる)。
+ *   キー = アンカー原文 (比較は trim 後)、値 = そのアンカーを共有してよい tools のファイル名。 */
+const KNOWN_SHARED_ANCHORS = {
+  '        const sealing = !!(p.sealRing && !PAINT_RING_OFF);': ['driver_grid_s2.js'],   // noring / ringall
+};
 {
-  /* ⭐ #89 の教訓: 新しいアンカーが他の tools の文字列に出てこないこと (同じ行を測る本と衝突しない)。
-   *   ⚠ 既存 5 変異のアンカーは対象外 (noring のアンカーは driver_grid_s2.js にも在る = 既知・#91 では触らない)。 */
+  /* ⭐ #89 の教訓: 変異のアンカーが他の tools の文字列に出てこないこと (同じ行を測る本と黙って衝突しない)。
+   *   [#93 K5] 既存 5 変異 (MUTATIONS の [from,to]) と子プロセス変異 (NEW_MUTATIONS の {from,to}) の**全変異**を見る。
+   *   既知の共有は KNOWN_SHARED_ANCHORS に名指しで書き、「他の tools の集合 === 許可表の集合」を要求する。 */
   const self = path.basename(__filename);
   const peers = fs.readdirSync(__dirname).filter((f) => /\.(js|mjs|py|ps1)$/.test(f) && f !== self);
+  const peerText = {};
+  for (const f of peers) { try { peerText[f] = fs.readFileSync(path.join(__dirname, f), 'utf8'); } catch (x) { peerText[f] = ''; } }
+  const allowed = {};   // trim 後のアンカー → 許可された tools
+  for (const a of Object.keys(KNOWN_SHARED_ANCHORS)) allowed[a.trim()] = KNOWN_SHARED_ANCHORS[a].slice().sort();
+  const anchors = [];   // { key, from }
+  for (const k of MUT_ORDER) anchors.push({ key: k, from: MUTATIONS[k][0] });
   for (const k of NEW_MUT_ORDER) for (const e of NEW_MUTATIONS[k]) {
-    const c = countOf(SRC_INDEX, e.from);
-    if (c !== 1) vetFail('変異 ' + k + ' の注入点が 1 箇所ではない (index.html に ' + c + ' 件)');
     if (countOf(SRC_INDEX, e.to) !== 0) vetFail('変異 ' + k + ' の注入文字列が原本に既に在る');
     if (e.to.indexOf('__MUTHIT__' + k) < 0) vetFail('変異 ' + k + ' に実行の印が無い');
-    const core = e.from.trim();
-    const clash = peers.filter((f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8').indexOf(core) >= 0; } catch (x) { return false; } });
-    if (clash.length) vetFail('変異 ' + k + ' のアンカーが他の tools に出てくる: ' + clash.join(','));
+    anchors.push({ key: k, from: e.from });
   }
+  const usedAllowed = {};
+  for (const a of anchors) {
+    const c = countOf(SRC_INDEX, a.from);
+    if (c !== 1) vetFail('変異 ' + a.key + ' の注入点が 1 箇所ではない (index.html に ' + c + ' 件)');
+    const core = a.from.trim();
+    const clash = peers.filter((f) => peerText[f].indexOf(core) >= 0).sort();
+    const want = Object.prototype.hasOwnProperty.call(allowed, core) ? allowed[core] : [];
+    if (want.length) usedAllowed[core] = true;
+    if (clash.join(',') !== want.join(',')) {
+      const extra = clash.filter((f) => want.indexOf(f) < 0), gone = want.filter((f) => clash.indexOf(f) < 0);
+      vetFail('変異 ' + a.key + ' のアンカーの共有先が許可表と食い違う'
+        + (extra.length ? ' / 表に無い衝突: ' + extra.join(',') : '')
+        + (gone.length ? ' / 表に書いたのに衝突していない (表が腐った): ' + gone.join(',') : ''));
+    }
+  }
+  const orphan = Object.keys(allowed).filter((a) => !usedAllowed[a]);
+  if (orphan.length) vetFail('KNOWN_SHARED_ANCHORS にどの変異のアンカーでもない行がある (表が腐った): ' + orphan.map((a) => JSON.stringify(a.slice(0, 60))).join(' / '));
+  const sharedFiles = [];
+  for (const a of Object.keys(allowed)) for (const f of allowed[a]) if (sharedFiles.indexOf(f) < 0) sharedFiles.push(f);
+  console.log('[vet] アンカー自己検査: ' + anchors.length + ' 変異 / 既知の共有 ' + Object.keys(allowed).length + ' 行'
+    + (sharedFiles.length ? ' (' + sharedFiles.join(', ') + ')' : ''));
 }
 function servedIndex(key) {
   if (!key) return SRC_INDEX;
@@ -936,8 +973,15 @@ function HEAVY_TABLE() {
 
     // ══ §6 ページエラー ═══════════════════════════════════════════════════════
     mark('§6 ページエラーが出ていないこと');
-    check('(6a) 測定ページで pageerror / console.error が出ていない',
-      errs.length === 0, errs.slice(0, 6).join(' | '));
+    {
+      const timingDiag = errs.filter(e => DIAG_TIMING_IDS.test(e));
+      const realErrs = errs.filter(e => !DIAG_TIMING_IDS.test(e));
+      /* ⭐ 除外件数は緑のときも出す (時間しだいの赤が実際に何件消えているかを後で読めるように) */
+      console.log('[drv] (6a) 除外した時間しだいの [DIAG] (stall / combat-no-round) ' + timingDiag.length + ' 件'
+        + (timingDiag.length ? ': ' + timingDiag.slice(0, 3).join(' | ') : ''));
+      check(L6A, realErrs.length === 0,
+        realErrs.slice(0, 6).join(' | ') + (timingDiag.length ? ' / 除外した時間しだいの [DIAG] ' + timingDiag.length + ' 件' : ''));
+    }
     if (!NO_FULL) {
       const fatal = playErrs.filter(e => !/\[DIAG\]/.test(e));
       check('(6b) 実プレイページで [DIAG] 以外のエラーが出ていない',
