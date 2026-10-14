@@ -308,3 +308,31 @@ Part C 本体の後に、`DUNGEONS` の各シナリオで**別ページ**を起�
 
 - 終了後、ポート 10628 の LISTEN なし(TIME_WAIT のみ)・新規 node プロセスなし。
 - 未了: STEP3 `--negative`(noauto / notick / nokill)と §8 の「3 回連続で素の全緑」は項目3 以降。
+
+### 12-3. STEP3(`--negative`)
+
+**実装の要点**(`tools/driver_field_step6.js` のみ)
+
+- `SERVE` に別キー `mutate`(`{ name, from, to, served, serveErrors }` / 素は `null`)。`startServer` の `/index.html` 配信は `SERVE.bandRows !== 3 || SERVE.mutate` のとき本文を読み、帯幅の置換(従来どおり)に続けて目印を置換する。目印のヒット数が**ちょうど 1 でなければ 500** を返し `serveErrors++`(黙って素の本文を配らない)。`runGraphAutoDevice` が冒頭で戻すのは `root` / `bandRows` だけなので `mutate` は消されない。
+- `NEG_MUTATIONS`(3 本): `noauto` = `if (RUN.auto) return opts[0];` → 空 / `notick` = `if (RUN) setInterval(tickNodeChoice, 400);` → 空 / `nokill` = 配信は無変更・装置に `{ killEnemies: false }`・判定対象は `orc-fort` だけ(goblin-mine は走らせない = 所要を抑える)。
+- 合格条件を `devicePass(d)` に括り出し、素の (Cd-<sid>) と `--negative` で同じ式を使う(写経しない)。
+- `runNegative`: 変異ごとに ① 配信元 `index.html` で目印の自己検査(ちょうど 1 回でなければその変異は赤くならない扱い = 失敗)→ ② `SERVE.mutate` を立てて装置を走らせる(`finally` で必ず `null`)→ ③ 対象シナリオすべてで「`devicePass` が偽」**かつ**「狙った理由で赤」(noauto = `arrows > 0` / notick = `advancedAt === null` / nokill = `advancedAt === null`、いずれも `ready` 必須・noauto/notick は `killed >= 1` 必須)→ ④ 配信が実際に変異を配った(`served ≥ 対象数`・`serveErrors 0`)。pageerror は記録だけ。
+- `--negative` は静的スキャン・Part A/B/C・baseline worktree を走らせない。`--scenarios` の既定はこのモードだけ `goblin-mine,orc-fort`。出力 = `NEG <name>: RED as expected / STAYED GREEN` + `=== negative N/3 ===`、JSON = `<out>/field_step6_negative.json`。3/3 でなければ exit 1。
+
+**走行結果**(port 10628・`index.html` sha1 `3a5dbd8e…` = 着手前と同値)
+
+- `node tools/driver_field_step6.js --negative --port 10628` = **`=== negative 3/3 ===`・EXIT=0**・所要 **約 8.5 分**(13:32→13:41)。ログ = scratchpad `f6_neg.txt`。
+
+| 変異 | 目印 | 配信 | シナリオ | 赤の中身 |
+|---|---|---|---|---|
+| noauto | 1 回 | 2 回 / 500 0 | goblin-mine | 倒した 2 → **矢印 1**・`ui-seen@0s`(前進せず) |
+| | | | orc-fort | 倒した 11 → **矢印 1**・`ui-seen@0s` |
+| notick | 1 回 | 2 回 / 500 0 | goblin-mine | 倒した 2 → **前進せず `budget@240s`**(矢印 0・見張りのダイアログ 1 に代役) |
+| | | | orc-fort | 倒した 11 → **前進せず `budget@240s`**(矢印 0) |
+| nokill | — | 無変更 | orc-fort | 倒した 0 → **`gameOver@27s`**(前進せず)= §2-3 の 27 秒と一致 |
+
+- pageerror は 5 ページとも 0。
+- 素の装置のみ(`--skip-a --skip-b --skip-c --port 10628`)= **17/17 PASS・EXIT=0**(変異の仕込みが素を汚していない)。前進 = 廃坑 52s / 沼地 113s / 砦 79s / 神殿 87s / 竜 81s・森は母集団外。ログ = scratchpad `f6_dev_step3.txt`。
+- アンカー衝突の走査(`grep -rlF '<目印>' tools/`・部分文字列 `RUN.auto) return opts` / `setInterval(tickNodeChoice` も): 実装前は 2 目印とも **0 件**、実装後は **`tools/driver_field_step6.js` のみ**(自分の `NEG_MUTATIONS` 定義)。他の tools とは衝突なし。`index.html` では各 1 回。
+- 終了後、ポート 10628 の LISTEN なし・新規 node プロセスなし。
+- 未了: §8 の「3 回連続で素の全緑」と README 行の更新は項目4。

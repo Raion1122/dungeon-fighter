@@ -72,6 +72,9 @@
  *        [--baseline-rev ad6f648] [--trials 20] [--turns 200]
  *        [--skip-a] [--skip-b] [--skip-c] [--skip-device] [--budget-ms N] [--out <dir>]
  *        [--scenarios goblin-mine,orc-fort]   (Part C の切り分け専用。絞ったまま合否を語らない)
+ *   node tools/driver_field_step6.js --negative [--port N] [--out <dir>] [--scenarios goblin-mine,orc-fort]
+ *        [#92 STEP3] 装置ステージの負のコントロール(配信時の変異 noauto / notick + テストダブル停止 nokill)。
+ *        Part A/B/C 本体は走らせない。3 本とも狙いどおり赤なら exit 0(`=== negative 3/3 ===`)。
  */
 const http = require('http');
 const fs = require('fs');
@@ -95,6 +98,27 @@ const SKIP_B = flag('skip-b');
 const SKIP_C = flag('skip-c');
 // [#92] 装置ステージだけを走らせるなら `--skip-a --skip-b --skip-c`。装置を外すなら `--skip-device`。
 const SKIP_DEVICE = flag('skip-device');
+/* [#92 STEP3] `--negative` = 負のコントロール。Part A/B/C 本体も静的スキャンも走らせず、装置ステージだけを
+ * 変異ごとに走らせて「赤くなるべき節が赤になったか」を見る。`--scenarios` の既定はここだけ goblin-mine,orc-fort。 */
+const NEGATIVE = flag('negative');
+/* ⚠ 目印は index.html の 1 行内の部分文字列(CRLF なので改行を跨がない)。配信元でちょうど 1 回ヒットすることを
+ *   変異の適用前に自己検査する(0 回 / 2 回以上なら変異そのものを赤 = 空振りの緑を作らない)。
+ *   judge(d) は「その変異が狙った理由で赤くなったか」。素の合格条件 devicePass(d) が偽であることに加えて
+ *   赤の中身(矢印を観測 / 前進せず)まで見る。pageerror は記録だけ(赤の理由にしない)。 */
+const NEG_MUTATIONS = [
+  { name: 'noauto', from: 'if (RUN.auto) return opts[0];', to: '',
+    killEnemies: true, judgeOnly: null,
+    expect: '矢印を観測 (自動選択が消えて showExitArrows へ落ちる)',
+    judge: d => d.ready && d.killed >= 1 && d.arrows > 0 },
+  { name: 'notick', from: 'if (RUN) setInterval(tickNodeChoice, 400);', to: '',
+    killEnemies: true, judgeOnly: null,
+    expect: '240 秒前進せず (出口を選ぶ tick が回らない)',
+    judge: d => d.ready && d.killed >= 1 && d.advancedAt === null },
+  { name: 'nokill', from: null, to: null,
+    killEnemies: false, judgeOnly: ['orc-fort'],
+    expect: '前進せず (テストダブルを止めると Lv1 の主人公が entry で倒れる = 勝敗依存の再現)',
+    judge: d => d.ready && d.advancedAt === null },
+];
 // ⚠️ 実行が長いので、出力は `| tail` に通さず `> file 2>&1` で直接受けること。
 //    パイプはブロックバッファなので、途中で落ちると末尾の集計がまるごと失われる。
 const BUDGET_MS = parseInt(arg('budget-ms', '300000'), 10);   // Part B の1実走あたり上限
@@ -113,6 +137,7 @@ const VIEWPORTS = [
  *   ⚠ 絞ったまま合否を語らないこと — (C0) の母集団が変わる。切り分け専用の道具。 */
 const DUNGEONS = (arg('scenarios', '') || '')
   .split(',').map(s => s.trim()).filter(Boolean);
+if (!DUNGEONS.length && NEGATIVE) DUNGEONS.push('goblin-mine', 'orc-fort');   // [#92 STEP3] 所要を抑える
 if (!DUNGEONS.length) DUNGEONS.push('goblin-mine', 'bandits-forest', 'lizard-swamp',
                                     'orc-fort', 'undead-temple', 'dragon-lair');
 
@@ -183,7 +208,9 @@ function prepareBaseline() {
 const MIME = { '.html': 'text/html;charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
-const SERVE = { root: ROOT, bandRows: 3, rewrites: 0 };
+/* ⚠ mutate は --negative 専用({ name, from, to, served, serveErrors } / 素は null)。
+ *   runGraphAutoDevice は冒頭で root / bandRows を素へ戻すが mutate には触れない(別キーにしてある)。 */
+const SERVE = { root: ROOT, bandRows: 3, rewrites: 0, mutate: null };
 const BAND_ROWS_LITERAL = 'const FIELD_BAND_ROWS       = 3;';
 
 function startServer(port) {
@@ -200,11 +227,22 @@ function startServer(port) {
         res.setHeader('Cache-Control', 'no-store');
         // ★帯幅アーム: 配信時に FIELD_BAND_ROWS のリテラルだけを差し替える。
         //   mapData を後から塗るより厳密 (buildMap の ROOMS/CORRIDORS 由来の列がそのまま生きる)。
-        if (u === '/index.html' && SERVE.bandRows !== 3) {
+        if (u === '/index.html' && (SERVE.bandRows !== 3 || SERVE.mutate)) {
           let src = fs.readFileSync(fp, 'utf8');
-          if (src.indexOf(BAND_ROWS_LITERAL) < 0) { res.statusCode = 500; res.end('band-rows literal not found'); return; }
-          src = src.replace(BAND_ROWS_LITERAL, 'const FIELD_BAND_ROWS       = ' + SERVE.bandRows + ';');
-          SERVE.rewrites++;
+          if (SERVE.bandRows !== 3) {
+            if (src.indexOf(BAND_ROWS_LITERAL) < 0) { res.statusCode = 500; res.end('band-rows literal not found'); return; }
+            src = src.replace(BAND_ROWS_LITERAL, 'const FIELD_BAND_ROWS       = ' + SERVE.bandRows + ';');
+            SERVE.rewrites++;
+          }
+          /* ★[#92 STEP3] --negative の変異。目印(1 行内の部分文字列・index.html は CRLF)がちょうど 1 回で
+           *   なければ 500 を返し、変異そのものを赤にする(黙って素の本文を配らない)。 */
+          if (SERVE.mutate) {
+            const M = SERVE.mutate;
+            const hits = src.split(M.from).length - 1;
+            if (hits !== 1) { M.serveErrors++; res.statusCode = 500; res.end('mutation anchor hits=' + hits); return; }
+            src = src.replace(M.from, M.to);
+            M.served++;
+          }
           res.end(src);
           return;
         }
@@ -788,11 +826,111 @@ async function runGraphAutoDevice(browser, base, scenarioId, opts) {
   }
 }
 
+/* (Cd-<sid>) の合格条件 [ユーザー決定 A]。素の装置ステージと --negative で同じ式を使う(写経しない)。 */
+function devicePass(d) {
+  return !!(d && d.ready && d.killed >= 1 && d.advancedAt !== null && d.arrows === 0 && !d.gameOver);
+}
+function devSummary(d) {
+  return 'ready ' + d.ready + ' / 倒した ' + d.killed + ' / 出口 [' + (d.exits || []).join(',') + '] / 前進 ' +
+    (d.advancedAt === null ? 'せず' : Math.round(d.advancedAt / 1000) + 's') + ' / 矢印 ' + d.arrows +
+    ' / ダイアログ ' + d.dialogs + ' (答えた ' + d.dialogsAnswered + ') / gameOver ' + d.gameOver +
+    ' / 終了 ' + d.endReason + ' / pageerror ' + d.pageErrors.length;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * --negative [#92 STEP3] — 装置ステージの負のコントロール
+ * ══════════════════════════════════════════════════════════════════════════
+ * 変異ごとに: ① 目印の自己検査(配信元 index.html でちょうど 1 回)→ ② SERVE.mutate を立てて装置を走らせる
+ * → ③ 判定対象シナリオで「素の合格条件が偽」かつ「狙った理由(judge)で赤」か → ④ 配信が実際に変異を
+ * 配ったか(served ≥ 1・serveErrors 0)。どれか欠けたら STAYED GREEN / BROKEN として exit 1。
+ * ⚠ SERVE.mutate は finally で必ず null に戻す。
+ */
+async function runNegative(browser, base) {
+  const srcText = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const out = [];
+  for (const m of NEG_MUTATIONS) {
+    const targets = m.judgeOnly ? DUNGEONS.filter(s => m.judgeOnly.includes(s)) : DUNGEONS.slice();
+    const r = { name: m.name, expect: m.expect, anchorHits: null, served: 0, serveErrors: 0,
+                targets, runs: [], red: false, why: '' };
+    out.push(r);
+    mark('負のコントロール ' + m.name + ': ' + m.expect + ' / 対象 ' + (targets.join(',') || '(なし)'));
+    if (m.from !== null) {
+      r.anchorHits = srcText.split(m.from).length - 1;
+      console.log('    目印の自己検査: index.html に ' + r.anchorHits + ' 回 — ' + JSON.stringify(m.from));
+      if (r.anchorHits !== 1) { r.why = '目印が ' + r.anchorHits + ' 回 (ちょうど 1 回でない)'; continue; }
+    }
+    if (!targets.length) { r.why = '判定対象のシナリオが --scenarios に無い (' + m.judgeOnly.join(',') + ')'; continue; }
+    if (m.from !== null) SERVE.mutate = { name: m.name, from: m.from, to: m.to, served: 0, serveErrors: 0 };
+    try {
+      for (const sid of targets) {
+        let d;
+        try {
+          d = await runGraphAutoDevice(browser, base, sid, { killEnemies: m.killEnemies });
+        } catch (e) {
+          d = { scenarioId: sid, ready: false, killed: 0, exits: null, advancedAt: null, arrows: 0, dialogs: 0,
+                dialogsAnswered: 0, gameOver: false, endReason: 'boot-failed: ' + String(e && e.message).slice(0, 80),
+                pageErrors: [] };
+        }
+        const pass = devicePass(d), hit = !pass && m.judge(d);
+        r.runs.push({ scenarioId: sid, pass, hit, endReason: d.endReason, advancedAt: d.advancedAt,
+                      arrows: d.arrows, dialogs: d.dialogs, killed: d.killed, gameOver: d.gameOver,
+                      ready: d.ready, pageErrors: d.pageErrors.slice(0, 3) });
+        console.log('    ' + sid + ': ' + (hit ? '赤 (狙いどおり)' : (pass ? '緑のまま' : '赤だが狙いと違う理由')) +
+          ' — ' + devSummary(d) + (d.pageErrors.length ? ' / pageerror(記録のみ) ' + JSON.stringify(d.pageErrors.slice(0, 2)) : ''));
+      }
+    } finally {
+      if (SERVE.mutate) { r.served = SERVE.mutate.served; r.serveErrors = SERVE.mutate.serveErrors; }
+      SERVE.mutate = null;
+    }
+    const allHit = r.runs.length === targets.length && r.runs.every(x => x.hit);
+    const serveOK = m.from === null || (r.served >= targets.length && r.serveErrors === 0);
+    r.red = allHit && serveOK;
+    if (!serveOK) r.why = '変異の配信 served=' + r.served + ' serveErrors=' + r.serveErrors;
+    else if (!allHit) r.why = '狙いどおり赤にならなかった: ' + r.runs.filter(x => !x.hit).map(x => x.scenarioId).join(',');
+    if (m.from !== null) console.log('    配信: 変異を配った ' + r.served + ' 回 / 500 ' + r.serveErrors + ' 回');
+  }
+  return out;
+}
+
 // ── メイン ──────────────────────────────────────────────────────────────────
 (async () => {
   const puppeteer = loadPuppeteer();
   const browserPath = findBrowser();
   let srv = null, browser = null;
+
+  if (NEGATIVE) {
+    let neg = [];
+    try {
+      fs.mkdirSync(OUT_DIR, { recursive: true });
+      srv = await startServer(PORT);
+      const BASE = 'http://127.0.0.1:' + PORT;
+      console.log('[drv] http サーバ: ' + BASE + ' / --negative (装置ステージのみ・対象 ' + DUNGEONS.join(',') + ')');
+      const profile = require('./_pptr_profile')('df_pptr_profile_step6_');
+      browser = await puppeteer.launch({
+        executablePath: browserPath, headless: !HEADFUL,
+        args: ['--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+               '--disable-extensions', '--force-device-scale-factor=1', '--mute-audio',
+               '--user-data-dir=' + profile],
+      });
+      neg = await runNegative(browser, BASE);
+    } finally {
+      if (browser) { try { await browser.close(); } catch (e) {} }
+      if (srv) { try { srv.close(); } catch (e) {} }
+    }
+    console.log('\n════════ --negative (#92 STEP3) ════════');
+    for (const r of neg) {
+      console.log('NEG ' + r.name + ': ' + (r.red ? 'RED as expected' : 'STAYED GREEN') +
+        '  — 期待: ' + r.expect + (r.why ? ' / ' + r.why : '') +
+        (r.runs.length ? ' / ' + r.runs.map(x => x.scenarioId + '=' + x.endReason +
+          (x.arrows ? ' 矢印' + x.arrows : '') + (x.gameOver ? ' gameOver' : '')).join(', ') : ''));
+    }
+    const nRed = neg.filter(r => r.red).length;
+    const outFile = path.join(OUT_DIR, 'field_step6_negative.json');
+    fs.writeFileSync(outFile, JSON.stringify({ generatedAt: new Date().toISOString(), scenarios: DUNGEONS, negative: neg }, null, 1));
+    console.log('\n[drv] 実測値 JSON: ' + outFile);
+    console.log('\n=== negative ' + nRed + '/' + NEG_MUTATIONS.length + ' ===');
+    process.exit(nRed === NEG_MUTATIONS.length ? 0 : 1);
+  }
   const report = { generatedAt: new Date().toISOString(), baselineRev: BASELINE_REV,
                    trials: TRIALS, turns: TURNS, partA: [], partB: [], partC: [], device: [] };
 
@@ -964,7 +1102,7 @@ async function runGraphAutoDevice(browser, base, scenarioId, opts) {
           /* ⚠ [ユーザー決定 A] ダイアログは合否に使わない(イベントのダイアログに代役で答える)。
            *   出口選択のダイアログは __autoplay 経路にしか無い = 自動選択が壊れたら出るのは矢印。 */
           check('(Cd-' + sid + ') ★?graph=auto が矢印を出さずに entry から前進した (イベントのダイアログには代役で答える)',
-            d.ready && d.killed >= 1 && d.advancedAt !== null && d.arrows === 0 && !d.gameOver,
+            devicePass(d),
             '倒した ' + d.killed + ' 体 / 出口 ' + ex + ' / 前進 ' +
             (d.advancedAt === null ? 'せず' : Math.round(d.advancedAt / 1000) + 's') +
             ' / 矢印 ' + d.arrows + ' / ダイアログ ' + d.dialogs + ' (答えた ' + d.dialogsAnswered + ')' +
