@@ -268,4 +268,53 @@ function sceneBgmTrack(id) {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-17 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/notes94_item1.md` / `notes94_item2.md` / `notes94_item3.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `0e26e3d` | 項目1 本番: `audio.js` に `mine_gate` / `finalboss`(`TRACKS` 2 曲)・`index.html` に `sceneBgmTrack(id)` + 呼び口 4 か所(`combatBgmTrack` / `dungeonBgmTrack` / ボス部屋入室 / 戦闘中のラッチ)+ 撤退 `?scenebgm=0`・`tavern.html` changelog 1 行(§10 の文面どおり) |
+| `a0c348a` | 項目1 tools: `verify_synth_bgm` の言い直し (0b)(2b)(1e-A)(1e-B)(3a)(3e) + 変異 bossstuck のアンカー追従 |
+| `cf11341` | 項目2: 新規受入 `tools/verify_scene_bgm.js`(素 port 10629 / 変異 10630〜10633) |
+| 本節のコミット | 項目3: 母集団の非退行 + 本節 + README の #94 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_scene_bgm` 素 | **21/21** ×3(項目2)+ 全数走査の中で 1 回 21/21 | 148〜150 |
+| `verify_scene_bgm --negative` | **16/16**(4 変異とも担当だけ赤: themekey=(3b) / latchleak=(2b) / entryall=(1c) / noswitch=(5a)・巻き込み 0)×2 | 590〜591 |
+| `verify_synth_bgm` 素 / `--negative` | **35/35** / **34/34**(変異 6/6) | 27 / 156 |
+| 名指し golden(§8) | `probe_boss_latch` 5/5・`probe_p9_tour` 4/4・`driver_graph_sce1` 106/106・`driver_graph_kinds` 66/66・`verify_title_screen` 86/86・`verify_world_map` 57/57(neg 44/44)= 着手前と同色。`driver_grid_p8` 55/56 は (6d) だけ赤 = **#94 以前からの赤**(K2) | — |
+
+- RMS 実測(実行時に同じ式): `mine_gate` = **−13.49 dB**(上限 = `explore` −13.38 + 1)/ `finalboss` = **−15.76 dB**(上限 = `boss` −14.58 + 1)。
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `index.html` / `audio.js` / `tavern.html` = 全ページが踏むファイルなので全数。HEAD `cf11341` で **224 腕・659.2 分**(2.94 分/腕)= #89 の 215 腕 + `verify_declared_traps` 素/neg + `verify_scene_bgm` 素/neg + #91〜#93 で足された `--negative` 5 本(mine_wall / field_step6 / hobgoblin / kobold / speech_engine)。git を読む本は `git clone --shared @cf11341`(本番とバイト差 0)で。
+- 結果: 緑 202 / 非緑 22。直近の全数走査 post89(`7ea29ac`)と比べて **緑→赤 1**・赤→緑 5(#90〜#93 の修正)・両方非緑 21(要約行と赤の種類が同じ)・新規 9 腕は全部緑。
+- 緑→赤 = `verify_tower_mother_b --negative`(変異 everytime / noretire で担当外の (4a) が `lastResult:null`)。⇒ 影のツリー(本番 3 ファイルを `9a97706` へ戻した実体コピー)と**交互 3 組**: 本番 **3/3 緑**・影 **1/3 赤**(同じ型)= 着手前でも出る**揺れ**。構造でも、赤い節は tower-mother の流れで `sceneBgmTrack` は恒等 = 帰属経路なし。⇒ **#94 帰属の緑→赤 = 0**。
+- 変異アンカー衝突: 全 tools 199 ファイルの文字列リテラル 53,217 個を `9a97706`→`cf11341` の 3 ファイルで数え直し、1 ヒットが崩れた/新たに出たものは #94 自身の 2 本以外に `'explore'`(audio.js 1→2)の 7 本だけ = 7 本とも `audio.js` を参照しない(フェーズ名)⇒ **衝突 0**。
+
+### 12-4. 崩れた主張(K 番号)
+
+- **K1**(項目1): §2-5「素の色 35/35」は言い直し後も 35/35(同じ id のまま主張を差し替えた)。
+- **K2**(項目1): §8「`driver_grid_p8` 影響なしの見込み」— 全緑ではない。(6d) が **#62 以来の赤**(沼の n7 は畳まれて 29x20 の大部屋)。#94 帰属の緑→赤は 0(影 3 走行とも同じ赤)。
+- **K3**(項目1・別チケット候補): grid_p8 (6d) の代表を「今も 9x6 の n7 を持つシナリオ」へ付け替える(無ければ (6d) を大部屋側の主張へ)。
+- **K4**(項目1・別チケット候補): grid_p8 (8e) は変異 noapproach の autoplay を**実時間 90 秒**で見る — 影でも 79 秒まで延びた(前 worker の赤 1 件は n1 に入る前の時間切れ)。窓を「n1 入室まで」へ。
+- **K5**(項目2): (1d) は setPhase 経路に加え heroAI の入室経路でも見た(強める方向)。
+- **K6**(項目2): themekey で赤くなるのは genDragon のボス曲だけ。生成クエストは RUN=null なので廃坑テーマへの入口曲の漏れは現状の構造上起きない(将来 run を持てば genMine 側も番人になる)。
+- **K7**(項目2): (5a) の竜の巣は `__inBossRoom` + `setPhase("combat")` 経路だけで見る / 森は entry = ボスノード 1 つ(主張は不変)。
+- **K8**(項目3): `verify_tower_mother_b --negative` は変異の間の素の流れ (4a)(2a) が時間内に制覇へ届かないことがある(影でも 1/3)= 別チケット候補。
+- 本番の行番号(§2-1 の 15092- 等)は `0e26e3d` で +5〜+19 ずれた(現行は notes94_item1.md §4)。
+
+### 12-5. 別チケット候補
+
+- K3 `driver_grid_p8` (6d) の代表シナリオ付け替え / K4 (8e) の 90 秒実時間窓 / K8 `verify_tower_mother_b --negative` の (4a)(2a) の時間切れ揺れ。
+- §11 の保留: グリクス戦・玉座の間(n1)の専用曲 / 合成曲の音量 +5〜6dB(§9 の試聴の後で判断)。
+
+### 12-6. 残り
+
+- **§9 実機の試聴**(#88 の新曲 3 曲と合わせて 5 曲・`mine_gate` の戦闘→戻り・玉座の間で汎用曲へ・`finalboss` と語りのかぶり・音量)。
+- 次の新規ドライバ base = **10634**。
