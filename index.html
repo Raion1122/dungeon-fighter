@@ -814,6 +814,48 @@
       animation-duration: 9s;
       animation-direction: reverse;
     }
+    /* ══ ★[#95 STEP2] 霊の武器の浮遊メイス (スピリチュアルウェポン) ════════════════════════
+     * 対象の敵の頭上に浮かぶ、半透明で青白く光るメイス (縦の柄 + 頭)。⭐ CSS のみ・アセット追加 0 枚。
+     * ⭐ 位置合わせは JS (updateSpiritMace) が毎フレーム inline の left / top / transform に書く。
+     * ⚠⚠⚠ 位置合わせの要素 (.swMace) の transform は animate しない (#57 と同じ罠)。
+     *   メイスの絵と振り下ろしは **::before** に持たせる (別ボックスなので衝突しない)。
+     *   ::after は後光 = opacity だけを animate する。
+     * ⛔ blur を使わない。z-index は 3 (JS が inline で書く) = 敵 (.enemy 2) の前・仲間 (6) の後ろ。 */
+    .swMace {
+      --swGlow: 0.85;                /* ⭐ 光量のレバーはこの 1 本 */
+      --swBlue: 170, 220, 255;
+      position: absolute;
+      width: 40px; height: 72px;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .swMace::before {
+      content: ""; position: absolute; inset: 0;
+      transform-origin: 50% 100%;
+      transform: rotate(-18deg);
+      opacity: calc(0.9 * var(--swGlow));
+      background:
+        radial-gradient(circle at 50% 13px, rgba(245,252,255,0.95) 0, rgba(var(--swBlue),0.9) 7px, rgba(var(--swBlue),0.55) 11px, rgba(var(--swBlue),0) 14px),
+        radial-gradient(ellipse 15px 4px at 50% 24px, rgba(var(--swBlue),0.75) 0, rgba(var(--swBlue),0) 100%),
+        linear-gradient(to right, rgba(var(--swBlue),0) 44%, rgba(225,245,255,0.85) 44%, rgba(225,245,255,0.85) 56%, rgba(var(--swBlue),0) 56%);
+      background-repeat: no-repeat;
+      background-size: 100% 100%, 100% 100%, 100% 46px;
+      background-position: 0 0, 0 0, 0 24px;
+    }
+    .swMace::after {
+      content: ""; position: absolute; left: -10px; right: -10px; top: -8px; height: 44px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 50%, rgba(var(--swBlue), calc(0.35 * var(--swGlow))) 0, rgba(var(--swBlue), 0) 70%);
+      animation: hrPulse 1.6s ease-in-out infinite;
+    }
+    /* 一撃ごとに 1 回だけ振り下ろす (JS がクラスを付け外し)。⭐ animate するのは ::before の transform だけ。 */
+    .swMace.swSwing::before { animation: swSwing 0.5s ease-in 1; }
+    @keyframes swSwing {
+      0%   { transform: rotate(-18deg); }
+      35%  { transform: rotate(-50deg); }
+      70%  { transform: rotate(55deg); }
+      100% { transform: rotate(-18deg); }
+    }
     .groundFx.sleep {
       background: radial-gradient(ellipse at center,
         rgba(180,90,220,0.50) 0%,
@@ -13030,6 +13072,7 @@
         if (r.kind === row.kind && sameClericSpiritOwner(r.owner, row.owner)) removeClericSpirit(i);
       }
       if (row.kind === "guardians") row.fx = spawnGuardianRing();
+      if (row.kind === "weapon") row.fx = spawnSpiritMace();   // ★[#95 STEP2] 霊の武器の浮遊メイス
       clericSpirits.push(row);
       return row;
     }
@@ -13055,11 +13098,43 @@
       void el.offsetWidth;   // animation を頭から掛け直す
       el.classList.add("sgFlash");
     }
+    /* ★[#95 STEP2] 霊の武器の浮遊メイス (1 部品)。位置は updateSpiritMace が **row.target (敵オブジェクト)** から
+       毎フレーム引く (⛔ 添字を握らない)。最初の追従までは出さない (左上 0,0 に一瞬出るのを防ぐ)。 */
+    function spawnSpiritMace() {
+      const el = document.createElement("div");
+      el.className = "swMace";
+      el.style.zIndex = "3";
+      el.style.transformOrigin = "50% 100%";
+      el.style.display = "none";
+      enemyLayer.appendChild(el);
+      return { els: [el] };
+    }
+    /* 対象の頭上へ。対象が倒れた / 居ないあいだは隠す (移り先は次の一撃で spiritWeaponStrike が選び直す)。 */
+    function updateSpiritMace(row) {
+      const el = row.fx.els[0];
+      const t = row.target;
+      if (!t || !t.alive || !t.def) { el.style.display = "none"; return; }
+      const size = t.def.displaySize || 96;
+      el.style.display = "";
+      el.style.left = SX(t.x + size / 2) + "px";
+      el.style.top  = SY(t.y + size * 0.12) + "px";
+      el.style.transform = zTfAnchored("translate(-50%, -100%)");
+    }
+    /* 一撃ごとに振り下ろしを 1 回だけ掛ける (::before の animation。位置合わせの transform には触らない)。 */
+    function swingSpiritMace(row) {
+      const el = row && row.fx && row.fx.els[0];
+      if (!el) return;
+      updateSpiritMace(row);   // 移った先へすぐ寄せる
+      el.classList.remove("swSwing");
+      void el.offsetWidth;     // animation を頭から掛け直す
+      el.classList.add("swSwing");
+    }
     /* renderWorld から毎フレーム (updateHoldRings の隣)。中心は owner の**今の**マスの中心。 */
     function updateClericSpirits() {
       for (let i = clericSpirits.length - 1; i >= 0; i--) {
         const r = clericSpirits[i];
         if (!clericSpiritOwnerAlive(r.owner)) { removeClericSpirit(i); continue; }   // 僧侶が倒れたら外す
+        if (r.fx && r.kind === "weapon") { updateSpiritMace(r); continue; }   // ★[#95 STEP2] メイスは対象の敵に付いて回る
         if (!r.fx || r.kind !== "guardians") continue;
         const c = clericSpiritCenter(r.owner);
         const cx = (Math.floor(c.x / TILE_SIZE) + 0.5) * TILE_SIZE;
@@ -21003,9 +21078,10 @@
              変えると既存 golden (92/92) が起動時検算で落ちる。枝を足すのは関数の**中**。 */
         if (skillId === "hold-person") { await allyHoldPerson(actor, targetIdx); return true; }
         /* ★[#95] 戦う祈り。撤退 ?clericspirit=0 では覚えていても唱えない (false = 呼び元が従来の連鎖へ落ちる)。
-           ⚠ 霊の武器 (spiritual-weapon) の枝は項目2 で足す (それまでは下の末尾の false に落ちる)。 */
+           ⭐ 霊の武器 (spiritual-weapon) の枝は守護霊の直下 (★[#95 STEP2])。 */
         if ((skillId === "spirit-guardians" || skillId === "spiritual-weapon") && !isClericSpiritOn()) return false;
         if (skillId === "spirit-guardians") { await allySpiritGuardians(actor); return true; }
+        if (skillId === "spiritual-weapon") { await allySpiritualWeapon(actor, targetIdx); return true; }   // ★[#95 STEP2]
         if (skillId === "striking") {
           // 前衛/近接の未バフ PT 員を選んで武器強化
           const cands = [];
@@ -29734,6 +29810,12 @@
     function spellAtkBonus(ally) {
       return ally.atkBonus + (ally.int || 0) + (ally.def.spellAtkBonus || 0) - allyAtkStatusPenalty(ally);
     }
+    /* ★[#95 STEP2] 僧侶の呪文攻撃の命中補正 = atkBonus + **WIS** + def.spellAtkBonus − 状態異常の罰。
+       ⚠ spellAtkBonus は INT (僧侶は int 0 = WIS が効かない・依頼書 §2-7 罠 E)。霊の武器はこちらを使う。
+       ⛔ spellAtkBonus 自体とホールド・パーソンは直さない (verify_hold_pair のアンカー・別チケット K1)。 */
+    function clericSpellAtkBonus(u) {
+      return u.atkBonus + (u.wis || 0) + (u.def.spellAtkBonus || 0) - allyAtkStatusPenalty(u);
+    }
 
     // 必中ダメージ演出を含む魔法単体攻撃 (マジックミサイル)
     async function allyMagicMissile(ally, enemyIdx) {
@@ -32096,6 +32178,10 @@
         }
       }
 
+      /* ★[#95 STEP2] 霊の武器: 脅威度 10 以上・射程内に生きた交戦敵・まだ出していない・枠あり (述語 1 本に畳んである)。
+         ⭐ ブレスの後・ストライキングの前。確率ゲートは掛けない (撃てる場面で撃たないと出ない)。 */
+      if (threat.score >= 10 && spiritWeaponWanted(ally)) { await allySpiritualWeapon(ally, pickSpiritWeaponTarget(ally)); return true; }
+
       // 3b. ストライキング: 前衛/近接の未バフ PT 員の武器を強化 (脅威度 10 以上)
       if (ally.equippedSkills.includes("striking") && hasSpellSlot(ally, "striking") && threat.score >= 10) {
         const cands = [];
@@ -33057,7 +33143,9 @@
         const __chSp = RunChronicle.beginTurn(owner);
         try {
           if (!blocked && row.kind === "guardians") await spiritGuardiansTick(row);
-          /* ★[#95 STEP2] 霊の武器 (kind "weapon") の毎ラウンドの一撃はここに置く (項目2)。 */
+          /* ★[#95 STEP2] 霊の武器: ラウンドの頭ごとに 1 回打つ (唱えた手番の 1 回は allySpiritualWeapon の中)。
+             ⭐ 帰属は上の __chSp (owner) の中 = 手番の外でも唱えた僧侶の与ダメージに数えられる。 */
+          if (!blocked && row.kind === "weapon") await spiritWeaponStrike(row);
           row.roundsLeft -= 1;
           if (row.roundsLeft <= 0) removeClericSpirit(clericSpirits.indexOf(row));
         } finally {
@@ -33131,10 +33219,127 @@
       if (findClericSpirit(owner, "guardians") >= 0) return false;
       return clericSpiritFoesNear(owner, CLERIC_SPIRIT_RADIUS).length >= 2;
     }
-    /* 霊の武器の述語。⚠ 項目2 (唱える関数・tick の一撃・絵) が入るまでは常に偽 =
-       AI にも頭の候補にも上がらない (executeSkillOn にも枝が無いので撃てない)。 */
+    /* ★[#95 STEP2] owner (仲間 / {head:true}) に一番近い、生きた交戦敵の添字 (無ければ -1)。
+       霊の武器の「狙った敵が倒れたときの移り先」。⚠ 距離は owner の**今の**中心から測る (罠 B)。 */
+    function clericSpiritNearestFoe(owner) {
+      const c = clericSpiritCenter(owner);
+      let best = -1, bestD = Infinity;
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive || !e.def) continue;
+        if (isEscortObjective(e)) continue;   // 護衛対象は狙わない (pickClosestEngagedEnemyFromAlly と同じ)
+        const d = Math.hypot(c.x - (e.x + e.def.displaySize / 2), c.y - (e.y + e.def.displaySize / 2));
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+    /* 霊の武器を今すぐ向けられる敵 = 射程 (long) 内・視線ありの生きた交戦敵のうち一番近いもの (無ければ -1)。 */
+    function pickSpiritWeaponTarget(unit) {
+      const owner = clericSpiritOwnerOf(unit);
+      const c = clericSpiritCenter(owner);
+      const rangeTiles = getRange(CLERIC_SKILLS["spiritual-weapon"].range).tiles;
+      let best = -1, bestD = Infinity;
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive || !e.def) continue;
+        if (isEscortObjective(e)) continue;
+        const ex = e.x + e.def.displaySize / 2, ey = e.y + e.def.displaySize / 2;
+        if (tileChebyshev(c.x, c.y, ex, ey) > rangeTiles || !hasLineOfSight(c.x, c.y, ex, ey)) continue;
+        const d = Math.hypot(c.x - ex, c.y - ey);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+    /* 霊の武器の述語 (仲間の clericAI / 頭の候補 / apIsWastedCast の 3 か所が共有する)。
+     * = 撤退していない かつ 知っていて枠がある かつ その unit の武器がまだ無い かつ 射程内に生きた交戦敵が居る。 */
     function spiritWeaponWanted(unit) {
-      return false;
+      if (!isClericSpiritOn() || !unit) return false;
+      const head = isClericSpiritHead(unit);
+      const eq = head ? equippedSkills : unit.equippedSkills;
+      if (!Array.isArray(eq) || eq.indexOf("spiritual-weapon") < 0) return false;
+      if (!hasSpellSlot(head ? "player" : unit, "spiritual-weapon")) return false;
+      if (findClericSpirit(clericSpiritOwnerOf(unit), "weapon") >= 0) return false;
+      return pickSpiritWeaponTarget(unit) >= 0;
+    }
+    /* ★[#95 STEP2] 霊の武器を唱える (allyHoldPerson の作法)。頭も仲間もここを通る (executeSkillOn の僧侶の枝)。
+     * ① 対象が死んでいれば僧侶に一番近い生きた交戦敵へ選び直す ② 射程 (long) 外 / 視線なし → 1 タイル前進して
+     * 手番を終える (枠は減らさない) ③ 枠を消費 → 詠唱 → 登録簿へ積む (target = 敵オブジェクト・⛔ 添字を握らない)
+     * ④ その場で 1 回打つ (以後はラウンドの頭に tickClericSpirits が打つ = 5 ラウンドで計 6 回)。 */
+    async function allySpiritualWeapon(actor, enemyIdx) {
+      const skill = CLERIC_SKILLS["spiritual-weapon"];
+      const owner = clericSpiritOwnerOf(actor);
+      let t = enemies[enemyIdx];
+      if (!t || !t.alive) { enemyIdx = clericSpiritNearestFoe(owner); t = enemies[enemyIdx]; }
+      if (!t || !t.alive) return;
+      const c = clericSpiritCenter(owner);
+      const ex = t.x + t.def.displaySize / 2;
+      const ey = t.y + t.def.displaySize / 2;
+      const rangeTiles = getRange(skill.range).tiles;
+      if (tileChebyshev(c.x, c.y, ex, ey) > rangeTiles || !hasLineOfSight(c.x, c.y, ex, ey)) {
+        await allyAdvanceTowardPoint(actor, ex, ey);
+        return;
+      }
+      // 発動確定 → スロット消費
+      actor.mp = Math.max(0, (actor.mp || 0) - (skill.mpCost || 0));
+      if (actor.spellSlots && skill._slotId && actor.spellSlots[skill._slotId] != null) {
+        actor.spellSlots[skill._slotId] = Math.max(0, actor.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(actor.el, "skill");
+      const dfx = ex - c.x;
+      if (Math.abs(dfx) > 2) actor.facing = dfx > 0 ? "right" : "left";
+      showRollAtAlly(actor, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(actor);
+      /* ⚠ element は既存の 4 キー (fire / ice / arcane / holy) から選ぶ (新しい語は白い陣になる)。 */
+      await dfPlayCast(actor, { name: skill.name, element: 'holy' }, { duration: 1800 });
+      const row = addClericSpirit({ kind: "weapon", owner: owner, roundsLeft: skill.duration, target: t, fx: null });
+      updateInfo(`${clericSpiritOwnerName(owner)}: スピリチュアルウェポン! 霊の武器が ${skill.duration} ラウンド ${t.def.name} に襲いかかる`);
+      await sleepMs(300);
+      await spiritWeaponStrike(row);
+    }
+    /* ★[#95 STEP2] 霊の武器の一撃 (唱えた手番と tickClericSpirits の両方から呼ぶ 1 本)。
+     * ⚠ 添字は呼ぶたびに enemies.indexOf(row.target) で引く。-1 か死んでいれば、僧侶に一番近い生きた交戦敵へ移る
+     *   (居なければ何もしない)。⚠ 一撃には射程を見ない (武器は宙を飛んで付いて回る)。
+     * 命中 = d20 + clericSpellAtkBonus (**WIS**・罠 E)。自然 1 は外れ / effectiveCritRange 以上は命中 (クリティカル) /
+     *   それ以外は >= effectiveEnemyAc。当たれば 1d8 + WIS (クリティカルは d8 を 2 回)・最低 1。
+     * ⚠ 乱数の順 = 「d20 → (命中なら) tryDisplacement → d8 (クリティカルならもう 1 回)」。
+     * ⚠ 頭の owner は {head:true} なので、命中の補正はその場で makeLeaderActor() から引く (武器の強化・恐怖の罰も今の値)。
+     * ⛔ resolveElementDefense を呼ばない (力場は SPELL_ELEMENT / ENEMY_TRAITS に無い属性。コードンと同じ)。 */
+    async function spiritWeaponStrike(row) {
+      const owner = row.owner;
+      let idx = row.target ? enemies.indexOf(row.target) : -1;
+      if (idx < 0 || !row.target.alive) {
+        idx = clericSpiritNearestFoe(owner);
+        row.target = idx >= 0 ? enemies[idx] : null;
+      }
+      const t = row.target;
+      if (idx < 0 || !t) return false;
+      const u = (owner.head === true) ? makeLeaderActor() : owner;
+      const atkBonus = clericSpellAtkBonus(u);
+      const natD20 = d20();
+      const ac = effectiveEnemyAc(t);
+      const crit = natD20 !== 1 && natD20 >= effectiveCritRange(u);
+      const hit = natD20 !== 1 && (crit || natD20 + atkBonus >= ac);
+      const who = clericSpiritOwnerName(owner);
+      swingSpiritMace(row);
+      if (!hit) {
+        showRollAtEnemy(idx, `<span class="label">MISS</span>霊の武器 d20(${natD20})+${atkBonus} vs AC ${ac}`, "miss");
+        updateInfo(`${who}: スピリチュアルウェポン — ${t.def.name} に外れ`);
+        await sleepMs(320);
+        return true;
+      }
+      if (tryDisplacement(idx)) { await sleepMs(320); return true; }
+      let dmg = Math.floor(Math.random() * 8) + 1;
+      if (crit) dmg += Math.floor(Math.random() * 8) + 1;
+      dmg = Math.max(1, dmg + clericSpiritWis(owner));
+      t.hp = Math.max(0, t.hp - dmg);
+      triggerEnemyDamageFlash(idx);
+      noteDisplacementHit(idx);
+      showRollAtEnemy(idx, `<span class="label">${crit ? "CRIT!" : "HIT"}</span>霊の武器 d20(${natD20})+${atkBonus} vs AC ${ac}`, crit ? "crit" : "skill");
+      showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, crit);
+      updateInfo(`${who}: スピリチュアルウェポン — ${t.def.name} に ${dmg} ダメージ${crit ? " (クリティカル)" : ""}`);
+      await sleepMs(320);
+      if (t.hp <= 0) defeatEnemy(idx);
+      return true;
     }
 
     // ─── コードン・オブ・アロー (Phase 2-V): 3x3 に矢を仕込む。3R 間ラウンド開始時に範囲内の敵へ 1d6 ───

@@ -3349,7 +3349,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。</li>
+        <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。覚えると酒場の呪文一覧にも並ぶ。</li>
         <li><b>廃坑の入口とファラクサス戦に専用曲</b> — 廃坑の最初の部屋では暗い坑道の曲が、竜の巣の決戦では業火の行進が流れるようになった。</li>
         <li><b>隊商護衛から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。</li>
         <li><b>キャラクターシートから装備を変えられるように</b> — 酒場とダンジョンの探索中に、シートから主人公の武器・防具・盾を付け替えられる(戦闘中は不可)。</li>
@@ -4533,6 +4533,10 @@
        CLERIC_SLOTS_TABLE が「自動 1」を返していても [Lv5 必要] の赤札 + .full で
        灰色に落ちるため、表を直しただけでは Lv3-4 の僧侶が「1 枚持っているのに使えなさそう」に見える。 */
     { id: "hold-person", name: "ホールド・パーソン", category: "妨害", range: "long", mpCost: 7, levelReq: 3, flavor: "敵2体まで 4ターン 金縛り (2体目は1体目の近く。アンデッド/ボスには無効)" },
+    /* ★[#95] 戦う祈り (聖典で覚える)。⚠⚠ index.html の CLERIC_SKILLS と**二重定義**
+       (levelReq / range / mpCost / flavor を揃える)。⛔ DEFAULT_KNOWN_TV には足さない。 */
+    { id: "spiritual-weapon", name: "スピリチュアルウェポン", category: "攻撃", range: "long", mpCost: 6, levelReq: 3, flavor: "霊の武器が 5 ラウンド宙を舞い、毎ラウンド 1d8+WIS で打つ" },
+    { id: "spirit-guardians", name: "スピリットガーディアンズ", category: "攻撃", range: "self", mpCost: 8, levelReq: 5, flavor: "周囲 3 マスの敵を毎ラウンド 3d8 光輝で焼く (WIS セーヴ半減・5 ラウンド)" },
   ];
   /* ★[#69] 撤退 ?holdpair=0 — ホールド・パーソンの説明文を **1 体版** へ戻す。
    * ⚠⚠ index.html の HOLD_PAIR_ON と同じクエリを **ページ内で** 読む
@@ -5341,6 +5345,9 @@
        ★[#59] turn-undead と同一の数列へ (Lv3 解禁 / Lv7 で 2 枚)。
        ⚠ 撤退 ?holdslots=0 の判定は index.html 側だけなので、酒場の表示はここでは戻らない。 */
     "hold-person":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],
+    /* ★[#95] 戦う祈り。⚠⚠ index.html の CLERIC_SLOTS_TABLE と**二重定義**。数字を揃えること。 */
+    "spiritual-weapon":     [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // ★[#95] Lv3 解禁 (2 レベル呪文 = turn-undead / hold-person と同じ列)
+    "spirit-guardians":     [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],   // ★[#95] Lv5 解禁 (3 レベル呪文 = cure-serious と同じ列)
   };
   function isCasterClassTV(classKey) {
     return classKey === "cleric" || classKey === "mage" || classKey === "elf";
@@ -5423,6 +5430,8 @@
     "tome-striking":         { name: "聖典・ストライキング",      spellId: "striking",             classKey: "cleric", rarity: "uncommon" },
     "tome-cure-serious":     { name: "聖典・キュアシリアス",      spellId: "cure-serious-wounds",  classKey: "cleric", rarity: "rare"     },
     "tome-cure-critical":    { name: "聖典・キュアクリティカル",  spellId: "cure-critical-wounds", classKey: "cleric", rarity: "rare"     },
+    "tome-spiritual-weapon": { name: "聖典・スピリチュアルウェポン", spellId: "spiritual-weapon",   classKey: "cleric", rarity: "uncommon" },  // ★[#95]
+    "tome-spirit-guardians": { name: "聖典・スピリットガーディアンズ", spellId: "spirit-guardians", classKey: "cleric", rarity: "rare"     },  // ★[#95]
     "grimoire-hail-of-thorns":   { name: "森の書・ヘイルオブソーン",   spellId: "hail-of-thorns",   classKey: "elf", rarity: "common"   },
     "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
     "grimoire-lightning-arrow":  { name: "森の書・ライトニングアロー", spellId: "lightning-arrow",  classKey: "elf", rarity: "uncommon" },
@@ -6950,7 +6959,7 @@
   /* ★[#78] 開発用の陳列 —— 拾うだけの巻物 (uncommon / rare) を、開発モードのときだけ棚に 1G で並べる。
    * ⚠⚠ 旗を SCROLL_CATALOG_TV の行に足さない —— tools/verify_scroll_shelf.js の正規表現が行を
    *   rarity で閉じるので、その行だけ読めなくなる (依頼書 §2-2 罠D)。C (魔法の眼) はここへ 1 語足す。 */
-  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility", "scroll-arcane-eye"];
+  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility", "scroll-arcane-eye", "tome-spiritual-weapon", "tome-spirit-guardians"];   // ★[#95] 聖典 2 冊
   function isInvisOnTV() {
     try { return new URLSearchParams(location.search).get("invis") !== "0"; }
     catch (e) { return true; }
@@ -6960,9 +6969,17 @@
     try { return new URLSearchParams(location.search).get("eye") !== "0"; }
     catch (e) { return true; }
   }
+  /* ★[#95] 撤退 ?clericspirit=0 —— 戦う祈りの聖典 2 冊を開発用の棚に並べない。
+   * ⚠ index.html の isClericSpiritOn と同じクエリを**ページ内で**読む (遷移はまたがない)。 */
+  function isClericSpiritOnTV() {
+    try { return new URLSearchParams(location.search).get("clericspirit") !== "0"; }
+    catch (e) { return true; }
+  }
   function devShelfSwitchOnTV(id) {
     if (id === "scroll-invisibility") return isInvisOnTV();
     if (id === "scroll-arcane-eye") return isEyeOnTV();
+    if (id === "tome-spiritual-weapon") return isClericSpiritOnTV();   // ★[#95]
+    if (id === "tome-spirit-guardians") return isClericSpiritOnTV();   // ★[#95]
     return true;
   }
   function scrollShelfIdsDev() {
