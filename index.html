@@ -756,6 +756,64 @@
       animation: hrPulse 1.9s ease-in-out infinite;
     }
     @keyframes hrPulse { 0%, 100% { opacity: 0.40; } 50% { opacity: 1; } }
+    /* ══ ★[#95] 守護霊の輪 (スピリットガーディアンズ) ═══════════════════════════════
+     * 足元の大きな円盤 (直径 7 マス = 守護霊の届く範囲) + その上を回る光の粒。色は金と白。⭐ CSS のみ。
+     * ⭐ z-index は 1 (JS が inline で書く)。主人公 #player と .ally は **6**、.enemy は **2**
+     *   (このファイルの #player / .ally / .enemy 規則で実測。⛔ コメントを信じず実 CSS を引いた)
+     *   ⇒ 1 なら僧侶の足元にも敵の足元にも潜る (床の上・全ユニットの下)。
+     * ⚠⚠⚠ 位置合わせの要素の transform は animate しない (#57 と同じ罠)。回転は ::before / ::after だけ。
+     * ⛔ blur を使わない (672px 角の大きさで iPhone が重くなる)。 */
+    .sgFx {
+      --sgGold: 255, 214, 120;
+      --sgGlow: 0.8;                 /* ⭐ 光量のレバーはこの 1 本 */
+      position: absolute;
+      pointer-events: none;
+      border-radius: 50%;
+      will-change: transform;
+    }
+    .sgDisc {
+      background: radial-gradient(circle at center,
+        rgba(var(--sgGold), 0) 0%,
+        rgba(var(--sgGold), 0) 52%,
+        rgba(var(--sgGold), calc(0.10 * var(--sgGlow))) 80%,
+        rgba(255, 250, 230, calc(0.22 * var(--sgGlow))) 97%,
+        rgba(255, 250, 230, 0) 100%);
+      border: 2px solid rgba(var(--sgGold), calc(0.55 * var(--sgGlow)));
+      box-sizing: border-box;
+    }
+    .sgDisc::before {
+      content: ""; position: absolute; inset: 6%;
+      border-radius: 50%;
+      border: 2px dashed rgba(var(--sgGold), calc(0.45 * var(--sgGlow)));
+      animation: hrSpin 14s linear infinite;
+    }
+    /* 被弾の瞬間だけ明るくする。⭐ opacity だけを animate する (transform には触らない)。 */
+    .sgDisc.sgFlash { animation: sgFlash 0.6s ease-out 1; }
+    @keyframes sgFlash { 0% { opacity: 1; } 30% { opacity: 0.35; } 100% { opacity: 1; } }
+    /* 回る光の粒 = 箱いっぱいの ::before / ::after に点を描き、箱ごと回す (粒ごとの DOM は作らない)。 */
+    .sgOrbit::before, .sgOrbit::after {
+      content: ""; position: absolute; inset: 0;
+      border-radius: 50%;
+      animation: hrSpin 6s linear infinite;
+    }
+    .sgOrbit::before {
+      background:
+        radial-gradient(circle at 50% 5%,  rgba(255,255,240,0.95) 0, rgba(var(--sgGold),0.55) 7px, rgba(var(--sgGold),0) 14px),
+        radial-gradient(circle at 95% 50%, rgba(255,255,240,0.95) 0, rgba(var(--sgGold),0.55) 7px, rgba(var(--sgGold),0) 14px),
+        radial-gradient(circle at 50% 95%, rgba(255,255,240,0.95) 0, rgba(var(--sgGold),0.55) 7px, rgba(var(--sgGold),0) 14px),
+        radial-gradient(circle at 5% 50%,  rgba(255,255,240,0.95) 0, rgba(var(--sgGold),0.55) 7px, rgba(var(--sgGold),0) 14px);
+      opacity: var(--sgGlow);
+    }
+    .sgOrbit::after {
+      inset: 22%;
+      background:
+        radial-gradient(circle at 85% 15%, rgba(255,255,255,0.9) 0, rgba(var(--sgGold),0.45) 5px, rgba(var(--sgGold),0) 10px),
+        radial-gradient(circle at 15% 85%, rgba(255,255,255,0.9) 0, rgba(var(--sgGold),0.45) 5px, rgba(var(--sgGold),0) 10px),
+        radial-gradient(circle at 15% 15%, rgba(255,255,255,0.9) 0, rgba(var(--sgGold),0.45) 5px, rgba(var(--sgGold),0) 10px);
+      opacity: calc(0.85 * var(--sgGlow));
+      animation-duration: 9s;
+      animation-direction: reverse;
+    }
     .groundFx.sleep {
       background: radial-gradient(ellipse at center,
         rgba(180,90,220,0.50) 0%,
@@ -12892,6 +12950,128 @@
       }
     }
 
+    /* ══════════ ★[#95] 戦う祈りの登録簿 (守護霊 / 霊の武器) ══════════════════════════
+     * ⭐ 「場に残って戦う」呪文はラウンドの頭に回る**登録簿の 1 行**として持つ (コードンと同じ口)。
+     *   ⛔ 仲間ユニット (createAlly) にしない —— 戦闘中に味方を増やすと pickEnemyTarget の添字と
+     *     イニシアチブが崩れる (executeSummon / joinServantAlly の規則・依頼書 §2-2 罠 A)。
+     * ⚠⚠ owner は **仲間ならその ally オブジェクト / 頭なら { head: true }**。
+     *   makeLeaderActor() の actor は playerX/playerY を**値で写した**ものなので、握ると守護霊の
+     *   中心が唱えた瞬間の位置に凍る (依頼書 §2-4 罠 B)。中心と生死は下の 2 関数で毎回引き直す。
+     * ⚠ target は敵オブジェクトの参照 (霊の武器・項目2)。⛔ 添字を握らない (#44 / #46 の罠)。
+     * ⚠ ここ (holdRings の隣) に置くのは TDZ よけ: renderWorld は resize 経由で早く呼ばれ得る。
+     *   行: { kind: "guardians"|"weapon", owner, roundsLeft, target: 敵|null, fx: { els: [...] }|null } */
+    const clericSpirits = [];
+    const CLERIC_SPIRIT_RADIUS = 3;   // 守護霊の届く距離 (チェビシェフ・マス)。5e: 15ft
+    function isClericSpiritHead(u) {
+      return u === "player" || !!(u && (u.isLeader || u.head === true));
+    }
+    /* 唱えた unit (頭の actor / "player" / 仲間) → 登録簿の owner。 */
+    function clericSpiritOwnerOf(u) { return isClericSpiritHead(u) ? { head: true } : (u || null); }
+    function sameClericSpiritOwner(a, b) {
+      if (!a || !b) return false;
+      if (a.head === true || b.head === true) return a.head === true && b.head === true;
+      return a === b;
+    }
+    /* owner の中心 (ワールド px)。頭 = isOnSovereignRay("player") と同じ playerX+48, playerY+58。 */
+    function clericSpiritCenter(owner) {
+      if (owner && owner.head === true) return { x: playerX + 48, y: playerY + 58 };
+      const size = (owner && owner.def && owner.def.displaySize) || 96;
+      return { x: owner.x + size / 2, y: owner.y + size / 2 };
+    }
+    function clericSpiritOwnerAlive(owner) {
+      if (!owner) return false;
+      if (owner.head === true) return hp > 0 && !gameOver;
+      return !!owner.alive;
+    }
+    function clericSpiritWis(owner) {
+      if (owner && owner.head === true) return (playerStats && playerStats.wis) || 0;
+      return (owner && owner.wis) || 0;
+    }
+    function clericSpiritOwnerName(owner) {
+      if (owner && owner.head === true) return getLeaderName();
+      return (owner && (owner.npcName || (owner.def && owner.def.name))) || "僧侶";
+    }
+    function findClericSpirit(owner, kind) {
+      for (let i = 0; i < clericSpirits.length; i++) {
+        const r = clericSpirits[i];
+        if (r.kind === kind && sameClericSpiritOwner(r.owner, owner)) return i;
+      }
+      return -1;
+    }
+    /* owner の中心マスからチェビシェフ距離 r 以内の、生きた交戦敵の添字。
+       ⛔ enemiesInArea の箱では「中心から 3」を正しく表せない (箱の原点が左上) ので tileChebyshev で書く。
+       ⚠ 視線は見ない (コードンと同じ。5e でも自分の周りに広がる効果)。 */
+    function clericSpiritFoesNear(owner, r) {
+      const c = clericSpiritCenter(owner);
+      const out = [];
+      for (const i of encounterEnemyIndices) {
+        const e = enemies[i];
+        if (!e || !e.alive || e.inactive || !e.def) continue;
+        if (isEscortObjective(e)) continue;   // 護衛対象は PT の AoE に巻き込まない (enemiesInArea と同じ)
+        if (tileChebyshev(c.x, c.y, e.x + e.def.displaySize / 2, e.y + e.def.displaySize / 2) <= r) out.push(i);
+      }
+      return out;
+    }
+    function removeClericSpirit(i) {
+      const r = clericSpirits[i];
+      if (!r) return;
+      if (r.fx) for (const el of r.fx.els) { try { el.remove(); } catch (e) {} }
+      clericSpirits.splice(i, 1);
+    }
+    /* 戦闘の finally とノード遷移で呼ぶ。⚠ ノード遷移では DOM が enemyLayer 側で一掃済み
+       (remove は切り離し済みの要素に対しては何もしない) = 記録を落とすのが本題。 */
+    function clearClericSpirits() {
+      for (let i = clericSpirits.length - 1; i >= 0; i--) removeClericSpirit(i);
+    }
+    /* 1 人 1 つまで: 同じ owner・同じ kind の既存の行を外してから積む (掛け直しは上書き)。 */
+    function addClericSpirit(row) {
+      for (let i = clericSpirits.length - 1; i >= 0; i--) {
+        const r = clericSpirits[i];
+        if (r.kind === row.kind && sameClericSpiritOwner(r.owner, row.owner)) removeClericSpirit(i);
+      }
+      if (row.kind === "guardians") row.fx = spawnGuardianRing();
+      clericSpirits.push(row);
+      return row;
+    }
+    /* 守護霊の輪の DOM (円盤 + 回る粒)。直径 = (2*半径+1) マス = 届く範囲の外接円。 */
+    function spawnGuardianRing() {
+      const diam = (CLERIC_SPIRIT_RADIUS * 2 + 1) * TILE_SIZE;
+      const els = [];
+      for (const cls of ["sgFx sgDisc", "sgFx sgOrbit"]) {
+        const el = document.createElement("div");
+        el.className = cls;
+        el.style.zIndex = "1";
+        el.style.width = diam + "px"; el.style.height = diam + "px";
+        el.style.transformOrigin = "50% 50%";
+        enemyLayer.appendChild(el);
+        els.push(el);
+      }
+      return { els: els };
+    }
+    function flashGuardianRing(row) {
+      const el = row && row.fx && row.fx.els[0];
+      if (!el) return;
+      el.classList.remove("sgFlash");
+      void el.offsetWidth;   // animation を頭から掛け直す
+      el.classList.add("sgFlash");
+    }
+    /* renderWorld から毎フレーム (updateHoldRings の隣)。中心は owner の**今の**マスの中心。 */
+    function updateClericSpirits() {
+      for (let i = clericSpirits.length - 1; i >= 0; i--) {
+        const r = clericSpirits[i];
+        if (!clericSpiritOwnerAlive(r.owner)) { removeClericSpirit(i); continue; }   // 僧侶が倒れたら外す
+        if (!r.fx || r.kind !== "guardians") continue;
+        const c = clericSpiritCenter(r.owner);
+        const cx = (Math.floor(c.x / TILE_SIZE) + 0.5) * TILE_SIZE;
+        const cy = (Math.floor(c.y / TILE_SIZE) + 0.5) * TILE_SIZE;
+        for (const el of r.fx.els) {
+          el.style.left = SX(cx) + "px";
+          el.style.top  = SY(cy) + "px";
+          el.style.transform = zTfAnchored("translate(-50%, -50%)");
+        }
+      }
+    }
+
     // ══════════ セリフ吹き出し (speech-bubble v1: index.html 専用) ══════════
     // tavern.html には同期しない (戦闘ランタイムを持たない。status-effect v1.1 と同じ方針)。
     // 表示は groundFx と同じ「レジストリ + 毎フレーム再配置」方式 →
@@ -13594,6 +13774,9 @@
          実質 1 ラン 1 発で実プレイに一度も出なかった。
          ⚠⚠ tavern.html の CLERIC_SLOTS_TABLE と二重定義 — 数字を必ず揃えること。 */
       "hold-person":          [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // ★[#59] turn-undead と同一
+      /* ★[#95] 戦う祈り。⚠⚠ tavern.html の CLERIC_SLOTS_TABLE と二重定義 — 数字を必ず揃えること。 */
+      "spiritual-weapon":     [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2],   // ★[#95] Lv3 解禁 (2 レベル呪文 = turn-undead / hold-person と同じ列)
+      "spirit-guardians":     [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2],   // ★[#95] Lv5 解禁 (3 レベル呪文 = cure-serious と同じ列)
       // 将来呪文を追加する場合はここに [0, ...] テーブルを追記
     };
     /* ★[#59] 撤退スイッチ ?holdslots=0 — hold-person の資源配分・解禁 Lv・梯子の位置を
@@ -14085,6 +14268,8 @@
       "tome-striking":         { name: "聖典・ストライキング",      spellId: "striking",             classKey: "cleric", rarity: "uncommon" },
       "tome-cure-serious":     { name: "聖典・キュアシリアス",      spellId: "cure-serious-wounds",  classKey: "cleric", rarity: "rare"     },
       "tome-cure-critical":    { name: "聖典・キュアクリティカル",  spellId: "cure-critical-wounds", classKey: "cleric", rarity: "rare"     },
+      "tome-spiritual-weapon": { name: "聖典・スピリチュアルウェポン", spellId: "spiritual-weapon",   classKey: "cleric", rarity: "uncommon" },  // ★[#95]
+      "tome-spirit-guardians": { name: "聖典・スピリットガーディアンズ", spellId: "spirit-guardians", classKey: "cleric", rarity: "rare"     },  // ★[#95]
       // 🍃 森の書 (elf)
       "grimoire-hail-of-thorns":   { name: "森の書・ヘイルオブソーン",   spellId: "hail-of-thorns",   classKey: "elf", rarity: "common"   },
       "grimoire-cordon-of-arrows": { name: "森の書・コードンオブアロー", spellId: "cordon-of-arrows", classKey: "elf", rarity: "uncommon" },
@@ -14131,6 +14316,14 @@
      * ⛔ 撤退しても檻の位置 (55,8) とアジトの自然脱走の停止は戻らない (戻すのは ?s2fold=0)。 */
     function isMageHandOn() {
       try { return new URLSearchParams(window.location.search).get("magehand") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#95] 撤退スイッチ ?clericspirit=0 — 戦う祈り 2 呪文を唱えない + 聖典を拾わない。
+     * ⚠ const に畳まず関数にする (この行より前から呼ばれても TDZ で落ちない。#54 isMageSleepOn と同じ)。
+     * ⚠ 各ページが独立に読む (遷移はまたがない)。tavern.html は isClericSpiritOnTV で開発用の陳列だけ止める。
+     * ⚠ 既に覚えた呪文は撤退しても「知っている」まま (セーブを壊さない)。戦闘で唱えないだけ。 */
+    function isClericSpiritOn() {
+      try { return new URLSearchParams(window.location.search).get("clericspirit") !== "0"; }
       catch (e) { return true; }
     }
     /* ★[#80] メイジハンド (5e SRD 初級呪文)。⛔ MAGE_SKILLS にも酒場の MAGE_SKILLS_UI にも足さない
@@ -14221,7 +14414,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand"));
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand") && (isClericSpiritOn() || (id !== "tome-spiritual-weapon" && id !== "tome-spirit-guardians")));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -16816,6 +17009,7 @@
       updateGroundFx();
       updateSpeechBubbles();   // ★ speech-bubble: カメラ追従のため毎フレーム再配置
       updateHoldRings();       // ★[#57] 金縛りの輪: 同上 (⛔ 3 本目の掃除ループを別の場所に作らない)
+      updateClericSpirits();   // ★[#95] 守護霊の輪: 同上 (中心は僧侶の今のマス)
       // [隊商護衛] 護衛対象マーカーもカメラ追従なので毎フレーム更新する。
       // ⚠️ renderWorld は resize イベント経由で ESCORT_MARKER_ON 等の let 宣言より前に呼ばれ得る
       //    (TDZ)。起動中の数フレームだけ静かに skip されるのが正しい挙動だが、「静かに失敗し続ける」
@@ -20808,6 +21002,10 @@
              tools/driver_action_priority.js:131 が逐語アンカーで計測シームを注入しており、
              変えると既存 golden (92/92) が起動時検算で落ちる。枝を足すのは関数の**中**。 */
         if (skillId === "hold-person") { await allyHoldPerson(actor, targetIdx); return true; }
+        /* ★[#95] 戦う祈り。撤退 ?clericspirit=0 では覚えていても唱えない (false = 呼び元が従来の連鎖へ落ちる)。
+           ⚠ 霊の武器 (spiritual-weapon) の枝は項目2 で足す (それまでは下の末尾の false に落ちる)。 */
+        if ((skillId === "spirit-guardians" || skillId === "spiritual-weapon") && !isClericSpiritOn()) return false;
+        if (skillId === "spirit-guardians") { await allySpiritGuardians(actor); return true; }
         if (skillId === "striking") {
           // 前衛/近接の未バフ PT 員を選んで武器強化
           const cands = [];
@@ -22581,6 +22779,9 @@
           // エルフ コードン・オブ・アロー: 設置ゾーンをラウンド開始時に発動
           await tickCordonZones();
           checkFleeEnemies("cordon");      // ★[#82] 非致死の割り込み口 (コードンや戦闘外の傷で半分を切っていたら手番の前に飛び去る)
+          // ★[#95] 戦う祈り (守護霊 / 霊の武器) の登録簿。⛔ 上の 2 行は書き換えない (逐語アンカー)
+          await tickClericSpirits();
+          checkFleeEnemies("spirit");      // ★[#95] 守護霊の傷で半分を切った追い払い持ちも手番の前に飛び去る
 
           // [chariot-7.9-2] ゴブリン戦車の乱入 (廃坑ボス戦・噂を掴んだ回のみ)。
           // actor ループの前に units へ参戦させるので、この場での units 変更は安全。
@@ -22783,6 +22984,7 @@
         heroBacklineWarpedThisWait = false;
         window.__inMidBoss = isMidBossActive();   // 中ボス撃破済なら false (撃破済は alive=false)。逃げて生存中なら true 維持
         clearCordonZones();   // 設置ゾーンを次エンカへ持ち越さない
+        clearClericSpirits(); // ★[#95] 守護霊 / 霊の武器も次エンカへ持ち越さない (記録 + 絵の DOM)
         pruneSpeechQueue(k => k === "boss.defeat" || k === "quest.clear");   // ★ speech: 戦闘スコープの未表示台詞は破棄 (歓声は残す)
         if (window.__diag) window.__diag.beat("combat", false);   // 自動デバッグ: 戦闘終了
         // エンカウンター終了でセカンドウィンドの使用権を回復 (次戦の立て直し用)
@@ -23052,6 +23254,25 @@
         holdTurns: 4, range: "long",
         mpCost: 7, levelReq: 3,   // ★[#59] turn-undead と同格 (⚠ tavern の CLERIC_SKILLS_UI が鏡)
         flavor: "敵2体まで 4ターン 金縛りにする (2体目は1体目の近く。アンデッド/ボスには無効、MP 7)",
+      },
+      /* ── ★[#95] 戦う祈り (5e SRD)。聖典で覚える (⛔ DEFAULT_KNOWN に入れない) ──────────────
+       * ⭐ どちらも「場に残って戦う」呪文。⛔ 仲間ユニットにしない (戦闘中に味方を増やすと
+       *   pickEnemyTarget の添字とイニシアチブが崩れる = 依頼書 §2-2 罠 A)。
+       *   ラウンドの頭に回る登録簿 clericSpirits の 1 行として持つ (コードンと同じ口)。
+       * ⚠ mpCost は枠の順位 (levelReq*1000+mpCost) にだけ効く。
+       * ⚠ target: "single" = 敵対象 / "self" = 自分中心。AP_TRAVEL_CASTABLE には足さない (敵が居ないと無意味)。
+       * ⚠⚠ tavern.html の CLERIC_SKILLS_UI が鏡 (levelReq / range / mpCost / flavor を揃える)。 */
+      "spiritual-weapon": {
+        name: "スピリチュアルウェポン", category: "攻撃", target: "single",
+        range: "long", duration: 5,
+        mpCost: 6, levelReq: 3,
+        flavor: "霊の武器が 5 ラウンド宙を舞い、毎ラウンド 1d8+WIS で打つ",
+      },
+      "spirit-guardians": {
+        name: "スピリットガーディアンズ", category: "攻撃", target: "self",
+        range: "self", duration: 5, radiusTiles: 3, dmgDice: "3d8",
+        mpCost: 8, levelReq: 5,
+        flavor: "周囲 3 マスの敵を毎ラウンド 3d8 光輝で焼く (WIS セーヴ半減・5 ラウンド)",
       },
     };
     /* ★[#59] 撤退 ?holdslots=0 では #57 着地時の levelReq へ戻す (判定は HOLD_SLOTS_ON の 1 箇所)。
@@ -31824,6 +32045,10 @@
         if (healId) { await allyCureWounds(ally, low, healId); return true; }
       }
 
+      /* ★[#95] 守護霊: 3 マス以内に生きた交戦敵が 2 体以上・まだ張っていない・枠あり (述語 1 本に畳んである)。
+         ⛔ 緊急回復より先に出させない。確率ゲートは掛けない (撃てる場面で撃たないと出ない)。 */
+      if (spiritGuardiansWanted(ally)) { await allySpiritGuardians(ally); return true; }
+
       /* ★[#57]/[#59] ホールド・パーソン: 射程内 (long=12) に「効く相手」がいてスロットあり。
          ⛔ 緊急回復より先に出させない (梯子の順そのものが優先度)。
          ⭐ 対象の絞りは pickHoldPersonTarget に畳んである (⛔ 条件をここへ写経しない)。
@@ -32812,6 +33037,104 @@
           RunChronicle.endTurn(__chOut);
         }
       }
+    }
+
+    /* ─── ★[#95] 戦う祈り: 登録簿 clericSpirits のラウンド頭の処理 ───
+     * 呼び口はラウンドループ先頭の tickCordonZones の直後 **1 か所だけ** (続けて checkFleeEnemies("spirit"))。
+     * 各行: ① owner が倒れていれば外す ② 反魔法 (殻 / owner がレイの上) ならダメージを出さず持続だけ減らす
+     *       ③ 年代記の帰属を owner で開く ④ 種類ごとの効果 ⑤ roundsLeft -= 1、0 で外す (絵も外す)。
+     * ⚠⚠ 年代記の変数名は __chSp (⛔ __chOut と書かない —— verify_run_chronicle の N7 が
+     *   「const __chOut = RunChronicle.beginTurn(...)」をちょうど 6 本と数える = 依頼書 §2-5 罠 C)。
+     * ⚠ owner が { head: true } なら actorName が主人公の名前を返す (actor を渡すと頭として数えられない)。 */
+    async function tickClericSpirits() {
+      if (clericSpirits.length === 0) return;
+      for (const row of clericSpirits.slice()) {
+        if (clericSpirits.indexOf(row) < 0) continue;   // 途中で外れた行 (別の行の処理中に owner が倒れた等)
+        const owner = row.owner;
+        if (!clericSpiritOwnerAlive(owner)) { removeClericSpirit(clericSpirits.indexOf(row)); continue; }
+        /* 単眼の暴君の反魔法: 殻が展開中 / 僧侶がレイの上 ⇒ このラウンドは出さない (持続は減る)。 */
+        const blocked = isSovereignShellActive() || isOnSovereignRay(owner.head === true ? "player" : owner);
+        const __chSp = RunChronicle.beginTurn(owner);
+        try {
+          if (!blocked && row.kind === "guardians") await spiritGuardiansTick(row);
+          /* ★[#95 STEP2] 霊の武器 (kind "weapon") の毎ラウンドの一撃はここに置く (項目2)。 */
+          row.roundsLeft -= 1;
+          if (row.roundsLeft <= 0) removeClericSpirit(clericSpirits.indexOf(row));
+        } finally {
+          RunChronicle.endTurn(__chSp);
+        }
+      }
+    }
+    /* 守護霊の 1 ラウンドぶん。中心マスからチェビシェフ 3 以内の生きた交戦敵 **全員** に 3d8 光輝。
+     * ⚠ セーヴは手書き (⛔ セーヴ機構を新設しない・依頼書 §2-6): DC = 12 + 僧侶の WIS 修正値 /
+     *   セーヴ = d20 + (敵の def.wis || 0)。成功で半分 (切り捨て・最低 1)。
+     * ⚠ 乱数の順 = 敵ごとに「tryDisplacement → セーヴの d20 → 3d8 の d8 を 3 回」。
+     * ⛔ resolveElementDefense を呼ばない (光輝は SPELL_ELEMENT / ENEMY_TRAITS に無い属性。コードンと同じ)。 */
+    async function spiritGuardiansTick(row) {
+      const skill = CLERIC_SKILLS["spirit-guardians"];
+      const owner = row.owner;
+      const dc = 12 + clericSpiritWis(owner);
+      const { n, sides } = parseDiceDD(skill.dmgDice);
+      let hitCount = 0;
+      for (const idx of clericSpiritFoesNear(owner, CLERIC_SPIRIT_RADIUS)) {
+        const t = enemies[idx];
+        if (!t || !t.alive) continue;
+        if (tryDisplacement(idx)) continue;
+        const saveRoll = d20() + ((t.def && t.def.wis) || 0);
+        const saved = saveRoll >= dc;
+        let dmg = 0;
+        for (let k = 0; k < n; k++) dmg += Math.floor(Math.random() * sides) + 1;
+        if (saved) dmg = Math.floor(dmg / 2);
+        dmg = Math.max(1, dmg);
+        t.hp = Math.max(0, t.hp - dmg);
+        triggerEnemyDamageFlash(idx);
+        noteDisplacementHit(idx);
+        showDmgAt(t.x + t.def.displaySize / 2, t.y, dmg, false);
+        hitCount++;
+        if (t.hp <= 0) defeatEnemy(idx);
+      }
+      if (hitCount > 0) {
+        flashGuardianRing(row);
+        updateInfo(`${clericSpiritOwnerName(owner)}: スピリットガーディアンズ — 守護霊が ${hitCount}体を焼いた`);
+        await sleepMs(320);
+      }
+    }
+    /* 守護霊を唱える (allyHoldPerson の作法)。頭も仲間もここを通る (executeSkillOn の僧侶の枝)。 */
+    async function allySpiritGuardians(actor) {
+      const skill = CLERIC_SKILLS["spirit-guardians"];
+      // 発動確定 → スロット消費
+      actor.mp = Math.max(0, (actor.mp || 0) - (skill.mpCost || 0));
+      if (actor.spellSlots && skill._slotId && actor.spellSlots[skill._slotId] != null) {
+        actor.spellSlots[skill._slotId] = Math.max(0, actor.spellSlots[skill._slotId] - 1);
+      }
+      flashAction(actor.el, "skill");
+      showRollAtAlly(actor, `<span class="label">SKILL</span><span class="big">${skill.name}</span>`, "skill");
+      startAllyAttackAnim(actor);
+      /* ⚠ element は既存の 4 キー (fire / ice / arcane / holy) から選ぶ (新しい語は白い陣になる)。 */
+      await dfPlayCast(actor, { name: skill.name, element: 'holy' }, { duration: 2000 });
+      const owner = clericSpiritOwnerOf(actor);
+      addClericSpirit({ kind: "guardians", owner: owner, roundsLeft: skill.duration, target: null, fx: null });
+      updateInfo(`${clericSpiritOwnerName(owner)}: スピリットガーディアンズ! 守護霊が周囲 ${CLERIC_SPIRIT_RADIUS} マスを ${skill.duration} ラウンド守る`);
+      await sleepMs(500);
+    }
+    /* AI の述語 (仲間の clericAI / 頭の候補 / apIsWastedCast の 3 か所が共有する)。
+     * = 撤退していない かつ 知っていて枠がある かつ その unit の守護霊がまだ無い
+     *   かつ unit の中心から 3 マス以内に生きた交戦敵が 2 体以上。
+     * ⚠ unit は仲間オブジェクト / 頭の actor / "player" のどれでも来る (中心は clericSpiritCenter で共有)。 */
+    function spiritGuardiansWanted(unit) {
+      if (!isClericSpiritOn() || !unit) return false;
+      const head = isClericSpiritHead(unit);
+      const eq = head ? equippedSkills : unit.equippedSkills;
+      if (!Array.isArray(eq) || eq.indexOf("spirit-guardians") < 0) return false;
+      if (!hasSpellSlot(head ? "player" : unit, "spirit-guardians")) return false;
+      const owner = clericSpiritOwnerOf(unit);
+      if (findClericSpirit(owner, "guardians") >= 0) return false;
+      return clericSpiritFoesNear(owner, CLERIC_SPIRIT_RADIUS).length >= 2;
+    }
+    /* 霊の武器の述語。⚠ 項目2 (唱える関数・tick の一撃・絵) が入るまでは常に偽 =
+       AI にも頭の候補にも上がらない (executeSkillOn にも枝が無いので撃てない)。 */
+    function spiritWeaponWanted(unit) {
+      return false;
     }
 
     // ─── コードン・オブ・アロー (Phase 2-V): 3x3 に矢を仕込む。3R 間ラウンド開始時に範囲内の敵へ 1d6 ───
@@ -33834,6 +34157,9 @@
          ⭐ 述語は pickHoldPersonTarget 1 本に畳んである (⛔ アンデッド/ボス/既に held の
            3 条件をここへ写経すると、片方だけ直った日に静かに食い違う)。 */
       if (skillId === "hold-person") return pickHoldPersonTarget(unit) < 0;
+      // ★[#95] 戦う祈り: 述語 (clericAI / 頭の候補と共有) が偽なら無駄打ち
+      if (skillId === "spirit-guardians") return !spiritGuardiansWanted(unit);
+      if (skillId === "spiritual-weapon") return !spiritWeaponWanted(unit);
       // ハンターズ・マーク: 最寄り敵が既に烙印済みなら無駄 (elfAI の 2.7 と同じ条件)
       if (skillId === "hunters-mark") {
         const ti = pickClosestEngagedEnemyFromAlly(unit);
@@ -34255,6 +34581,9 @@
             // ★[#76] 伝承: 対象に効かないと知っている属性の呪文 / 眠らないと知っている敵しか居ないスリープを外す
             if (loreMult(enemies[targetIdx], id) === 0) return false;
             if (id === "sleep" && loreSleepAllUseless()) return false;
+            // ★[#95] 戦う祈り: 述語 (clericAI / apIsWastedCast と共有) が偽なら外す
+            if (id === "spirit-guardians" && !spiritGuardiansWanted("player")) return false;
+            if (id === "spiritual-weapon" && !spiritWeaponWanted("player")) return false;
             return true;
           });
         }
@@ -37093,6 +37422,7 @@
       // 一過性の追従リスト (DOM は #vfxLayer / #enemyLayer 側で一掃済み。ここは記録の方を落とす)
       groundFxElements.length = 0; speechBubbles.length = 0; spellLightSources.length = 0;
       holdRings.length = 0;   // ★[#57] 忘れると前の潜行の輪が記録として残る (DOM は enemyLayer 側で一掃済み)
+      clearClericSpirits();   // ★[#95] 同上 (守護霊 / 霊の武器の記録を落とす。DOM は enemyLayer 側で一掃済み)
       // 敵の添字を握っている参照 (遷移後は必ず無効)
       wagonIndices.length = 0; encounterEnemyIndices.length = 0;
       // 隠し要素のハンドル (どれも「そのノードにしか居ない」もの)

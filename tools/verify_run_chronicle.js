@@ -275,7 +275,10 @@ const pageErrors = [];
  *   ⚠ 正規表現は文字列から組む (テンプレートリテラルの中に書くとエスケープが消える)。
  *   ⚠ この定数の周りに測定対象そのものを平文で書かない (コメントまで数えられる)。
  * ══════════════════════════════════════════════════════════════════════════ */
-const HP_WRITE_EXPECTED = 43;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29)
+/* ★[#95] 43 → 44 (14 + 30)。増えた 1 点 = 守護霊 (spiritGuardiansTick) のラウンド頭の傷。
+   手番の外だが、tickClericSpirits が owner (唱えた僧侶 / 頭は {head:true}) で年代記の帰属を開いてから
+   呼ぶ = 加害者は唱えた僧侶 (2026-10-17 実測: 仲間の僧侶の dealt が傷の合計と一致)。 */
+const HP_WRITE_EXPECTED = 44;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44
 function countHpWrites(src) {
   const reA = new RegExp('\\bhp\\s*-=', 'g');
   const reB = new RegExp('\\bhp\\s*=\\s*Math\\.max\\(\\s*0\\s*,\\s*[A-Za-z0-9_.\\[\\]]*\\.?hp\\s*-', 'g');
