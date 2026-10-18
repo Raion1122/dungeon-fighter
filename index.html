@@ -927,6 +927,37 @@
     .fxCastCircle--fire   { filter: sepia(1) saturate(7)   hue-rotate(-45deg); }
     .fxCastCircle--ice    { filter: sepia(1) saturate(5)   hue-rotate(165deg) brightness(1.05); }
     .fxCastCircle--holy   { filter: sepia(1) saturate(3)   hue-rotate(-6deg)  brightness(1.25); }
+    /* ★[#96] カウンタースペルで割られる陣。詠唱の陣は割り込む時点でもう消えているので、
+     *   敵の足元へ新しく 1 枚出して割る (依頼書 §2-3 罠 A)。
+     * ⛔ blur を使わない。⛔ 本体の transform は spawnCastCircle が毎フレーム inline で書く (位置合わせ) ので
+     *   animation で動かさない (#46 / #95 罠 F) ⇒ 本体は opacity だけ、ひびと震えは ::before / ::after に持たせる。 */
+    .fxCastCircle--broken { animation: fxCastCircleShatter 600ms ease-in forwards; }
+    .fxCastCircle--broken::before,
+    .fxCastCircle--broken::after {
+      content: "";
+      position: absolute;
+      left: 14%; top: 63%;
+      width: 72%; height: 3px;
+      background: linear-gradient(90deg, rgba(255,255,255,0), rgba(235,245,255,0.95) 30%, #fff 50%, rgba(235,245,255,0.95) 70%, rgba(255,255,255,0));
+      pointer-events: none;
+    }
+    .fxCastCircle--broken::before { animation: fxCastCrackA 600ms linear forwards; }
+    .fxCastCircle--broken::after  { animation: fxCastCrackB 600ms linear forwards; }
+    @keyframes fxCastCircleShatter { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+    @keyframes fxCastCrackA {
+      0%   { transform: rotate(22deg) scaleX(0.1); }
+      15%  { transform: rotate(22deg) scaleX(1) translate(2px, -1px); }
+      30%  { transform: rotate(22deg) scaleX(1) translate(-2px, 1px); }
+      45%  { transform: rotate(22deg) scaleX(1) translate(1px, 0); }
+      100% { transform: rotate(22deg) scaleX(1.15) translate(0, 0); }
+    }
+    @keyframes fxCastCrackB {
+      0%   { transform: rotate(-34deg) scaleX(0.1); }
+      15%  { transform: rotate(-34deg) scaleX(1) translate(-2px, 1px); }
+      30%  { transform: rotate(-34deg) scaleX(1) translate(2px, -1px); }
+      45%  { transform: rotate(-34deg) scaleX(1) translate(-1px, 0); }
+      100% { transform: rotate(-34deg) scaleX(1.15) translate(0, 0); }
+    }
 
     .enemyHpBar {
       width: 52px;
@@ -14336,6 +14367,7 @@
       "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
       "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
       "scroll-arcane-eye":     { name: "巻物・アーケインアイ",      spellId: "arcane-eye",           classKey: "mage",   rarity: "rare"     },
+      "scroll-counterspell":   { name: "巻物・カウンタースペル",    spellId: "counterspell",         classKey: "mage",   rarity: "uncommon" },  // ★[#96]
       "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。戦闘呪文ではなく hasInnateDisguise 判定に使う
       // 📖 聖典 (cleric)
       "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
@@ -14399,6 +14431,13 @@
      * ⚠ 既に覚えた呪文は撤退しても「知っている」まま (セーブを壊さない)。戦闘で唱えないだけ。 */
     function isClericSpiritOn() {
       try { return new URLSearchParams(window.location.search).get("clericspirit") !== "0"; }
+      catch (e) { return true; }
+    }
+    /* ★[#96] 撤退スイッチ ?counterspell=0 — カウンタースペルで打ち消さない + 巻物を拾わない。
+     * ⚠ const に畳まず関数にする (TDZ 回避。#54 isMageSleepOn と同じ)。各ページが独立に読む (遷移はまたがない)。
+     * ⚠ 既に覚えた呪文と割り当てた枠はそのまま (セーブを壊さない)。撤退中は枠が残るが使われない。 */
+    function isCounterspellOn() {
+      try { return new URLSearchParams(window.location.search).get("counterspell") !== "0"; }
       catch (e) { return true; }
     }
     /* ★[#80] メイジハンド (5e SRD 初級呪文)。⛔ MAGE_SKILLS にも酒場の MAGE_SKILLS_UI にも足さない
@@ -14489,7 +14528,7 @@
       if (roll < (w.common || 0)) rarity = "common";
       else if (roll < (w.common || 0) + (w.uncommon || 0)) rarity = "uncommon";
       else rarity = "rare";
-      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand") && (isClericSpiritOn() || (id !== "tome-spiritual-weapon" && id !== "tome-spirit-guardians")));
+      let pool = Object.keys(SCROLL_CATALOG).filter(id => SCROLL_CATALOG[id].rarity === rarity && (isInvisOn() || id !== "scroll-invisibility") && (isEyeOn() || id !== "scroll-arcane-eye") && (isMageHandOn() || id !== "scroll-mage-hand") && (isClericSpiritOn() || (id !== "tome-spiritual-weapon" && id !== "tome-spirit-guardians")) && (isCounterspellOn() || id !== "scroll-counterspell"));
       if (!pool.length) pool = Object.keys(SCROLL_CATALOG);
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -23453,6 +23492,14 @@
         outOfCombat: true,
         mpCost: 8, levelReq: 7,
         flavor: "魔法の眼を飛ばし、霧の奥の敵の種類と数を探る (部屋に入った時と出口の前に自動で唱える)",
+      },
+      /* ★[#96] カウンタースペル (5e SRD 3 レベル・反応・60ft)。reactive の旗で AI の 3 つの口 (主人公の技の候補 2 箇所 /
+       *   apTryPreferred) から自然に外れる (新しい除外の条件は書かない)。唱えるのは tryCounterEnemySpell だけ。 */
+      "counterspell": {
+        name: "カウンタースペル", category: "defense", target: "reactive",
+        range: "long", reactive: "onEnemySpell",
+        mpCost: 6, levelReq: 3,
+        flavor: "敵の詠唱に割り込んで呪文を打ち消す (範囲の呪文・スコーチングレイ・仲間が危ない時に自動)",
       },
     };
 
@@ -34967,6 +35014,108 @@
       return true;
     }
 
+    // ── ★[#96] カウンタースペル (5e SRD 3 レベル・反応・60ft): 敵の詠唱に魔法使いが割り込んで打ち消す ──
+    // 呼び口は enemyCastSpell の 1 箇所だけ (指輪 tryReflectEnemySpell の直後 = 指輪が先・カウンターは後)。
+    // ブレス・眼柄・視線・オーラ・召喚はこの口を通らない = 打ち消さない (ユーザー決定 2026-10-18)。
+    // 判定は振らない (敵の呪文は全部 3 レベル以下 = 自動成功)。
+    // ⛔ 打ち消さないときは乱数を 1 つも引かない・狙いを見ない (依頼書 §2-4 罠 B。狙いは差し込み口の後で引かれる)。
+    // ⛔ 枠は hasSpellSlot だけで見る。equippedSkills を条件にしない (§2-5 罠 C)。
+    // ⛔ RunChronicle.usedSkill を呼ばない (敵の手番の中で起きる。使った記録は枠の台帳 = max − 残 が拾う)。
+    let counterspellNarrated = false;   // 最初の 1 回だけ語る (ページ内の旗。開き直せば戻ってよい)
+
+    /* 呪文の最大ダメージ = ダイスの最大 + flat、rays があれば本数倍 (クリティカルは数えない)。
+     *   fireBolt = 12 / magicMissile = 13 / scorchingRay = 24。 */
+    function enemySpellMaxDamage(meta) {
+      if (!meta) return 0;
+      const dd = parseDiceDD(meta.dmgDice || "0d0");
+      return (dd.n * dd.sides + (meta.flat || 0)) * (meta.rays || 1);
+    }
+    /* 打ち消すに値する呪文か (ユーザー決定 2026-10-18「重い呪文と危ない時だけ」)。表と HP だけで決める。 */
+    function counterspellWanted(meta) {
+      if (!meta) return false;
+      if (meta.kind === "aoe") return true;                 // ファイアボール / シャター
+      if ((meta.rays || 1) > 1) return true;                // スコーチングレイ
+      const mx = enemySpellMaxDamage(meta);
+      if (hp > 0 && !gameOver && hp <= mx) return true;     // 主人公が一撃で倒れうる
+      return allies.some(a => a && a.alive && a.hp <= mx);  // 仲間の誰かが一撃で倒れうる
+    }
+    /* 唱える人 (依頼書 §2-7 の 5 条件: ①枠 ②生存 ③動ける ④届く ⑤反魔法の外)。順 = 主人公 → allies の並び順。
+     * 戻り値 { unit: "player" | ally, actor, name, cx, cy } か null。⛔ ここでは枠を減らさない (探すだけ)。
+     * ⚠ 主人公の枠は "player" で確かめ、makeLeaderActor() は演出にだけ使う (#78 / #79 の役割分け)。 */
+    function findCounterspeller(enemy) {
+      const ID = "counterspell";
+      if (!enemy || !enemy.def) return null;
+      const ecx = enemy.x + enemy.def.displaySize / 2, ecy = enemy.y + enemy.def.displaySize / 2;
+      const reachTiles = getRange("long").tiles;            // 12 マス = 60ft (?dndrange=0 では 6)
+      const reaches = (cx, cy) => tileChebyshev(cx, cy, ecx, ecy) <= reachTiles && hasLineOfSight(cx, cy, ecx, ecy);   // ④ 届く
+      if (leaderClassKey === "mage" && hasSpellSlot("player", ID) && hp > 0 && !gameOver) {
+        const pcx = playerX + 48, pcy = playerY + 58;
+        const leaderCanAct = !playerBuffs.skipNextTurn && !(playerBuffs.confused > 0) && !((playerBuffs.sleepRemaining || 0) > 0) && !(playerBuffs.wildConfused > 0);   // ③ 主人公が動ける
+        if (leaderCanAct && reaches(pcx, pcy) && !isSovereignShellActive() && !isOnSovereignRay("player")) {
+          return { unit: "player", actor: makeLeaderActor(), name: getLeaderName(), cx: pcx, cy: pcy };
+        }
+      }
+      for (const a of allies) {
+        if (!a || a.classKey !== "mage" || !a.alive || !hasSpellSlot(a, ID)) continue;
+        const allyCanAct = !(a.stunned > 0) && !(a.confused > 0) && !(a.wildConfused > 0);   // ③ 仲間が動ける (眠りは stunned)
+        if (!allyCanAct) continue;
+        const acx = a.x + a.def.displaySize / 2, acy = a.y + a.def.displaySize / 2;
+        if (!reaches(acx, acy) || isSovereignShellActive() || isOnSovereignRay(a)) continue;
+        return { unit: a, actor: a, name: a.npcName || (a.def && a.def.name) || "魔法使い", cx: acx, cy: acy };
+      }
+      return null;
+    }
+    /* 見せ場 (依頼書 §5): ② こちらの輪 → ③ 光の線 (await) → ① 敵の足元で陣が割れる + 札 + バナー → 450ms。
+     * ⚠ spawnCastCircle はシート未ロードで null を返す ⇒ null でも落ちない。
+     * ⚠ __autoplay > 1 では dfPlayCast と同じく絵を省く (バナーと札は残す)。 */
+    async function playCounterspellFx(enemyIdx, c, meta) {
+      const enemy = enemies[enemyIdx];
+      const def = enemy.def;
+      const ecx = enemy.x + def.displaySize / 2, ecy = enemy.y + def.displaySize / 2;
+      const quick = (window.__autoplay || 1) > 1;
+      if (!quick) {
+        spawnCastCircle(c.actor, "ice", 700);                                                     // ② こちらの足元に青白い輪
+        try { await spawnEnemySpellBolt("magicMissile", c.cx, c.cy, ecx, ecy); } catch (e) {}     // ③ 光の線 (敵の弾を逆向きに流用)
+        const broken = spawnCastCircle({ x: enemy.x, y: enemy.y, def }, "arcane", 600);          // ① 新しい陣を 1 枚出して割る (罠 A)
+        if (broken && broken.el) broken.el.classList.add("fxCastCircle--broken");
+        if (fxEnabled()) {
+          const fy = enemy.y + def.displaySize * CAST_CIRCLE_FOOT_FY;
+          for (let i = 0; i < 12; i++) {                                                          // 破片は 12 個まで
+            const ang = (Math.PI * 2 * i) / 12;
+            emitParticle({
+              x: ecx, y: fy, vx: Math.cos(ang) * 90, vy: Math.sin(ang) * 45 - 20, ay: 120,
+              life: 520, size0: 6, size1: 1.5, r: 200, g: 225, b: 255, a0: 0.95, a1: 0,
+              kind: "flake", blend: true, rot: ang, vrot: 6,
+            });
+          }
+        }
+      }
+      showRollAtEnemy(enemyIdx, '<span class="label">COUNTERED</span>' + meta.jp, "miss");
+      showBanner(`🚫 カウンタースペル! ── ${meta.jp} を打ち消した`, 1700);
+      sfx("counter");                                      // 指輪と同じ既存 SE の流用
+      if (!counterspellNarrated && typeof showDMMessage === "function") {
+        counterspellNarrated = true;
+        showDMMessage("「術が編み上がる刹那、もう一つの声がその綾を断ち切る。」", 3200);
+      }
+      await sleepMs(450);
+    }
+    /* 打ち消したら true (呼出側は被弾の解決を丸ごと飛ばす。敵のクールダウンは呼び口が通常どおり立てる)。 */
+    async function tryCounterEnemySpell(enemyIdx, spellId, meta) {
+      if (gameOver || !isCounterspellOn()) return false;
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive) return false;
+      if (!counterspellWanted(meta)) return false;
+      const c = findCounterspeller(enemy);
+      if (!c) return false;
+      if (!consumeSpellSlot(c.unit, "counterspell")) return false;
+      await playCounterspellFx(enemyIdx, c, meta);
+      updateInfo(`${c.name} のカウンタースペル! ${enemy.def.name} の ${meta.jp} を打ち消した`);
+      if (window.__counterspellProbe) {
+        window.__counterspellProbe.push({ caster: c.name, unit: c.unit === "player" ? "player" : allies.indexOf(c.unit), enemy: enemy.def.name, spell: spellId });
+      }
+      return true;
+    }
+
     // ── Sce3 ハイドラ: 火炎ブレス (火球) ──
     // 龍の血脈の片鱗。着弾点周辺 3x3 のパーティ全員 (頭+生存仲間) に火ダメージ、各自 DEX セーヴで半減。
     // 「敵→パーティ」方向の AoE はこれが初。partyWillSave の反復 × allyFireball のセーヴ半減を合成。
@@ -35324,6 +35473,8 @@
           return Math.max(1, total);
         },
       })) return;
+      // ── ★[#96] カウンタースペル: 指輪が跳ね返さなかったときだけ、魔法使いが割り込んで打ち消す ──
+      if (await tryCounterEnemySpell(idx, spellId, meta)) return;
 
       // ── AoE 系 (Fireball=DEX / Shatter=CON) ──
       if (meta.kind === "aoe") { await enemyCastAoE(idx, spellId, meta, dc, projEl); return; }

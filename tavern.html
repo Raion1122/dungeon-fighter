@@ -3349,10 +3349,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
         <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。覚えると酒場の呪文一覧にも並ぶ。</li>
         <li><b>廃坑の入口とファラクサス戦に専用曲</b> — 廃坑の最初の部屋では暗い坑道の曲が、竜の巣の決戦では業火の行進が流れるようになった。</li>
         <li><b>隊商護衛から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。</li>
-        <li><b>キャラクターシートから装備を変えられるように</b> — 酒場とダンジョンの探索中に、シートから主人公の武器・防具・盾を付け替えられる(戦闘中は不可)。</li>
       </ul>
     </div>
     <script>
@@ -4568,6 +4568,8 @@
     { id: "invisibility",   name: "インビジビリティ", category: "補助", range: "self", mpCost: 5, levelReq: 3, autoCast: true, flavor: "戦闘の始まりに一行の姿を消して忍び寄る (盗賊・外套が居ない時だけ自動)" },
     // ★[#79] アーケインアイ (index.html MAGE_SKILLS と同期)。autoCast = 探索中に自動で唱える (傾向の候補に出さない)。
     { id: "arcane-eye",     name: "アーケインアイ",   category: "補助", range: "self", mpCost: 8, levelReq: 7, autoCast: true, flavor: "魔法の眼で霧の奥の敵の種類と数を探る (部屋に入った時と出口の前に自動)" },
+    // ★[#96] カウンタースペル (index.html MAGE_SKILLS と同期)。autoCast = 敵の詠唱に自動で割り込む (傾向の候補に出さない)。
+    { id: "counterspell",   name: "カウンタースペル", category: "防御", range: "long", mpCost: 6, levelReq: 3, autoCast: true, flavor: "敵の詠唱に割り込んで呪文を打ち消す (範囲の呪文・スコーチングレイ・仲間が危ない時に自動)" },
   ];
   /* ★[#72 §5-2] 撤退スイッチ ?drawerlv=0 — 引き出しの Lv 判定 (柱2) を着手前 (0e8370d) の姿へ戻す。
      戻るのは 3 つとも: (α) 下の呪文表の levelReq 同期 / (β) 新顔の Lv をマッチング画面で決める
@@ -5424,6 +5426,7 @@
     "scroll-cone-of-cold":   { name: "巻物・コーンオブコールド",  spellId: "cone-of-cold",         classKey: "mage",   rarity: "rare"     },
     "scroll-ice-storm":      { name: "巻物・アイスストーム",      spellId: "ice-storm",            classKey: "mage",   rarity: "rare"     },
     "scroll-arcane-eye":     { name: "巻物・アーケインアイ",      spellId: "arcane-eye",           classKey: "mage",   rarity: "rare"     },
+    "scroll-counterspell":   { name: "巻物・カウンタースペル",    spellId: "counterspell",         classKey: "mage",   rarity: "uncommon" },  // ★[#96]
     "scroll-polymorph":      { name: "巻物・ポリモーフ",          spellId: "polymorph",            classKey: "mage",   rarity: "rare"     },  // 闇市の裏技ルート用トークン (変装術)。hasInnateDisguise 判定に使う
     "tome-bless":            { name: "聖典・ブレス",              spellId: "bless",                classKey: "cleric", rarity: "common"   },
     "tome-cure-moderate":    { name: "聖典・キュアモデレート",    spellId: "cure-moderate-wounds", classKey: "cleric", rarity: "uncommon" },
@@ -6959,7 +6962,7 @@
   /* ★[#78] 開発用の陳列 —— 拾うだけの巻物 (uncommon / rare) を、開発モードのときだけ棚に 1G で並べる。
    * ⚠⚠ 旗を SCROLL_CATALOG_TV の行に足さない —— tools/verify_scroll_shelf.js の正規表現が行を
    *   rarity で閉じるので、その行だけ読めなくなる (依頼書 §2-2 罠D)。C (魔法の眼) はここへ 1 語足す。 */
-  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility", "scroll-arcane-eye", "tome-spiritual-weapon", "tome-spirit-guardians"];   // ★[#95] 聖典 2 冊
+  const SCROLL_DEV_SHELF_TV = ["scroll-invisibility", "scroll-arcane-eye", "tome-spiritual-weapon", "tome-spirit-guardians", "scroll-counterspell"];   // ★[#95] 聖典 2 冊 / ★[#96] カウンタースペル
   function isInvisOnTV() {
     try { return new URLSearchParams(location.search).get("invis") !== "0"; }
     catch (e) { return true; }
@@ -6975,11 +6978,18 @@
     try { return new URLSearchParams(location.search).get("clericspirit") !== "0"; }
     catch (e) { return true; }
   }
+  /* ★[#96] 撤退 ?counterspell=0 —— カウンタースペルの巻物を開発用の棚に並べない。
+   * ⚠ index.html の isCounterspellOn と同じクエリを**ページ内で**読む (遷移はまたがない)。 */
+  function isCounterspellOnTV() {
+    try { return new URLSearchParams(location.search).get("counterspell") !== "0"; }
+    catch (e) { return true; }
+  }
   function devShelfSwitchOnTV(id) {
     if (id === "scroll-invisibility") return isInvisOnTV();
     if (id === "scroll-arcane-eye") return isEyeOnTV();
     if (id === "tome-spiritual-weapon") return isClericSpiritOnTV();   // ★[#95]
     if (id === "tome-spirit-guardians") return isClericSpiritOnTV();   // ★[#95]
+    if (id === "scroll-counterspell") return isCounterspellOnTV();     // ★[#96]
     return true;
   }
   function scrollShelfIdsDev() {
