@@ -428,4 +428,57 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-18 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/notes95_item1.md` / `notes95_item2.md` / `notes95_item3.md` / `notes95_item4.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `14c71d8` | 項目1 本番: 守護霊(`spirit-guardians`)と土台。登録簿 `clericSpirits` + `tickClericSpirits` / `clearClericSpirits`・撤退 `?clericspirit=0`(`isClericSpiritOn`)・聖典 2 冊(`SCROLL_CATALOG` + `pickScrollId` の撤退条件)・`CLERIC_SKILLS` / `CLERIC_SLOTS_TABLE` 各 2 行・`executeSkillOn` / `clericAI` / 頭の候補 / `apIsWastedCast`・輪の絵(CSS `.sgFx`)・呼び口 4 か所。`tavern.html` changelog 1 行(§10 の文面どおり)。`tools/verify_run_chronicle.js` の (0c) 43→44 |
+| `e6a6bdb` | 項目2 本番: 霊の武器(`spiritual-weapon`)= `clericSpellAtkBonus`(WIS)・`spiritWeaponStrike`・浮遊メイス `.swMace`・`spiritWeaponWanted`。`tavern.html` の写し 4 枚(`CLERIC_SKILLS_UI` / `CLERIC_SLOTS_TABLE` / `SCROLL_CATALOG_TV` / 開発用の棚 + `isClericSpiritOnTV`)+ changelog の行の末尾に 1 文。(0c) 44→45 |
+| `d2f6ce4` | 項目3: 新規受入 `tools/verify_cleric_spirits.js`(port 10634・素も変異も同じ port を順に) |
+| 本節のコミット | 項目4: 母集団の非退行(全数走査)+ 本節 + README の #95 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_cleric_spirits` 素 | **23/23** ×4(項目3)+ 全数走査の中で 1 回 23/23 | 10〜11 |
+| `verify_cleric_spirits --negative` | **7/7**(frozen=(1d) / square=(1a)+(1c) / nohalf=(1b) / intatk=(2b) / noclear=(3a) / nochron=(4c) / leak=(5b)。巻き込みは square → (1c) の 1 件 = 距離 4 の敵が毎ラウンド焼かれる自然な連鎖)×2 | 71〜72 |
+| §8 の既存 golden 15 本(+ `--negative`) | 項目1・項目2 とも着手前と同色。`verify_run_chronicle` は (0c) を言い直した後 74/74・neg 8/8(N7 の `__chOut` は 6 件のまま) | — |
+| 一時プローブ(コミットしない) | `probe95.js` 36/36(項目1)/ `probe95b.js` 24/24(項目2)= 頭の中心の追従・DC 12+WIS・補正 WIS(INT 版なら 11 になるところ 14)・年代記の帰属・酒場の写しの一致 | — |
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `index.html` / `tavern.html` = 全ページが踏むファイルなので全数。HEAD `d2f6ce4` で **226 腕・663.6 分**(2026-10-18 07:02→18:06・2.93 分/腕)= #94 の post94 の 224 腕(同順)+ `verify_cleric_spirits` 素 / neg。直列・SKIP 再開型。git を読む本(32 腕)は `git clone --shared @d2f6ce4`(本番と 933 ファイルのバイト差 0)で。8765 は走査の前後とも LISTEN なし(post94 と同じ条件)。
+- 結果: 緑 206 / 非緑 20。基準 post94(`cf11341` = #95 の直前)と比べて **緑→赤 0**・赤→緑 2(`driver_monsters_griffon` 15/17→17/17・`verify_tower_mother_b --negative` 11/11 担当どおり = どちらも #95 の触った経路の外で、緑へ戻った側)・両方非緑 20・新規 2 腕は緑。
+- 両方非緑の 20 腕は FAIL 行を集合で突き合わせ、**20 腕とも中身が同じ**(`driver_mapdef_step1` (0b) は clone 根のパスの文字が違うだけ)。件数だけ一致して中身が入れ替わった腕は 0。
+- 緑→赤が 0 なので、影のツリー(`shadow95` = 本番 3 ファイルを `7be0e4b` へ戻した実体コピー・base95 とバイト一致を確認済)との対比較は不要だった。⇒ **#95 帰属の緑→赤 = 0**(項目1・2 の (0c) は着手中に帰属を実測して言い直し済 = 12-4 K1)。
+- 変異アンカー衝突: 全 tools 200 ファイルの文字列リテラル 53,604 個を `7be0e4b`→`d2f6ce4` の 3 ファイルで数え直した。件数が変わった 867 組のうち「1 だった / 1 になった / 0→出現」は 25 組で、24 組は `verify_cleric_spirits` 自身(変異アンカー 7 本 + 聖典名・ID・CSS クラス名)、残り 1 組は `verify_bolt_aim.js` の `' の中心 ('`(ログ表示用の連結文字列)⇒ **衝突 0**。
+
+### 12-4. 崩れた主張・依頼書から変えた点(K 番号)
+
+- **K1**(§2-11「新しい行を足すだけなら崩れない」): `verify_run_chronicle` (0c) =「HP を引く点」の総数が崩れた。43 → 44(項目1 `spiritGuardiansTick` の傷)→ 45(項目2 `spiritWeaponStrike` の一撃)。どちらも tick の `const __chSp = RunChronicle.beginTurn(owner)` の中(唱えた手番の一撃は `executeSkillOn` の中)で、仲間の僧侶・頭とも dealt の増分 = 傷の合計を実測してから `HP_WRITE_EXPECTED` を 45 へ言い直した(理由のコメント付き・正規表現をよける書き換えはしていない)。
+- **K2**(§4 登録簿の位置「`cordonZones` の近く」): TDZ よけで `holdRings` の直後へ移した。共有関数もすべてそこ。
+- **K3**(§8 (0a)「習得済みに仕込んだ僧侶の `equippedSkills` に載る」): 仲間は枠どおり載るが、**頭の `equippedSkills` は酒場の選択(`partySkillsMap`)かクラスの既定 3 個から来る**。酒場の呪文一覧に 2 呪文が並ぶ(項目2)ので選べば候補に入る。受入は頭の `equippedSkills` を直に置く。
+- **K4**(§5 `clericAI` の段): 梯子ではホールド・パーソンが霊の武器より先に来る。AI を受入で測るときはホールドの枠を 0 にした。
+- **K5**(§8 乱数の固定): 霊の武器を**唱えた手番**は、一撃の前に演出(台詞の抽選など)が乱数を 1〜5 回引き、走行ごとに揺れる。⇒ 唱えた手番は列ではなく定数で固定し、引いた目を `showRollAtEnemy` の `d20(n)` で読み戻した。
+- **K6**(§10 changelog): 項目1 で §10 の文面どおり 1 行。項目2 は pre-commit フックが「staged の `changelogList` が HEAD と違うか」を見るので、実在する変化(覚えると酒場の呪文一覧にも並ぶ)を同じ行の**末尾に 1 文**足した(元の文言は 1 字も変えていない)。
+- **K7**(述語の仮置き): 項目1 では `spiritWeaponWanted` を `return false` で仮置きし、頭の候補と `apIsWastedCast` を先に配線した。項目2 で本体を書いた(既存の行の書き換えはこの仮置きとコメント数行・`pickScrollId` の filter 1 行・`SCROLL_DEV_SHELF_TV` の配列 1 行だけ)。
+- **K8**(依頼の「既知の赤」): `verify_lore_check` (1j) は項目1・2 で「着手前から決定的に赤」と記録したが、それは **6 レーン並列で回したときの赤**(合流の乱数の回数が 1 つずれる)。直列の全数走査では post94・post95 とも **26/26・neg 12/12 で緑** ⇒ 決定的ではなく負荷しだいの揺れ。`driver_action_priority --negative` の N3(注入点 2 箇所 = 起動時 exit 1)は #87 以来、全数走査の腕の外で、着手前と同じ。
+
+### 12-5. 別チケット候補
+
+- `spellAtkBonus` の INT → WIS(ホールド・パーソンの命中も WIS が効いていない・§11)。
+- カエルムの `dex` / `wis` が能力値そのもの(修正値ではない)= 守護霊のセーヴにも常に成功する(§11)。
+- 頭の僧侶の装備スキルの出所(K3): 聖典で覚えても、酒場で選ぶまで頭は 2 呪文を候補に持てない。覚えたら自動で載せるかどうか。
+- 唱えた手番の乱数の消費数の揺れ(K5): 乱数の列で固定する受入が「唱えた手番」に列を置けない。
+- `driver_action_priority --negative` の N3 アンカー腐り(`const equippedIds = apEquippedIdsFor(slot, classKey);` が 2 箇所)。
+- `verify_lore_check` (1j) の乱数回数の assert が負荷で 1 回ずれる(K8)。余分な引きに頑丈な測り方へ。
+- #94 から持ち越し: `driver_grid_p8` (6d)(#62 以来の赤・今回も同じ中身)/ (8e) の 90 秒実時間窓 / `verify_tower_mother_b --negative` の時間切れ揺れ(今回は緑)。
+- §11 の保留: 集中(コンセントレーション)/ 守護霊を張った僧侶を前へ出す AI / アンデッド特効と光輝の属性 / コードンが殻の中でも回る件 / 霊の武器の専用スプライト。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(開発モード `tavern.html?dev=1` で 2 冊を 1G で買い、酒場で読む): 守護霊の輪が回ってもフレームが落ちないか(iPhone)・7×7 マスの大きさ / 浮遊メイスの追従と振り下ろしが「何が殴っているか」分かるか / 「張ったのに誰も入らない」が多すぎないか / 地下神殿でターンアンデッドとの使い分けが見えるか / 3d8 × 5 ラウンドが強すぎないか(Lv5 以降)。
+- 次の新規ドライバ base = **10635**。
