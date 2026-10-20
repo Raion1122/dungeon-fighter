@@ -420,6 +420,16 @@ GRIDS = {
         # ⚠⚠ **行数 18 = 偶数**。nodeGateTile の midR は部屋の中心より半行上になる
         #   (rect と start は index.html の buildTowerMotherRun の注記が唯一の正)。
     },
+    "plaza-undercity": {
+        "src": r"..\assets\maps\plaza-undercity-v1.png",
+        "out": "plaza_undercity",          # ★貼り先 = 闇市ポドルプラザの地下街 (dev-meetings/2026-10-20_plaza-undercity.md 段2 / #98 予定)
+        "desc": "闇市の地下街 (北西=銀の鹿亭への木の階段と扉 / 南西=港町への石段 / 広場に露店 4 軒 / 北=掲示板 / 東=地下水路と小橋)",
+        "phase": (28.45, 13.25),
+        "period": (63.120, 63.230),
+        "cells": (23, 15),
+        "tile": 64,               # 64/63.120 = 1.014x / 64/63.230 = 1.012x = 港町 (1.00x) とほぼ同じ。水増しは目に見えない
+        # 2026-10-20 --fit-around 64 で測った値 (素朴な割り算なら 24x16 → 答えは 23x15)。
+    },
     "tower-top": {
         "src": r"..\assets\maps\tower-top-v1.png",
         "out": "room_tower-mother_n1_map",   # ★貼り先 = 塔の母のボスノード n1「崩れた最上階」(#82)
