@@ -3349,10 +3349,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
         <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
         <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。覚えると酒場の呪文一覧にも並ぶ。</li>
         <li><b>廃坑の入口とファラクサス戦に専用曲</b> — 廃坑の最初の部屋では暗い坑道の曲が、竜の巣の決戦では業火の行進が流れるようになった。</li>
-        <li><b>隊商護衛から罠を撤去</b> — 馬車を守る戦いの最中に、見えない罠を踏むことはなくなった。</li>
       </ul>
     </div>
     <script>
@@ -5559,31 +5559,57 @@
 
   // 闇市アイテムカタログ。⚠ index.html PLAZA_ITEMS / PLAZA_ITEMS_COMMON と二重定義・同期必須。
   const PLAZA_ITEMS_TV = {
-    ring_spell_turning: { name: "スペルターニングリング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
+    ring_spell_turning: { name: "リングオブスペルターニング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
       consumeTrigger: "onEnemySpellAuto",
       effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
-    wand_polymorph: { name: "ポリモーフ(変装)の杖", type: "key_item", maxCharges: 3, tier: 1, price: 6,
+    wand_polymorph: { name: "ワンドオブポリモーフ", type: "key_item", maxCharges: 3, tier: 1, price: 6,
       consumeTrigger: "onPlazaEnter", alwaysInStock: true,
       effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
-    scroll_create_golem: { name: "スクロール・オブ・クリエイトゴーレム", type: "consumable", maxCharges: 1, tier: 3, price: 20,
+    scroll_create_golem: { name: "マニュアルオブゴーレムズ", type: "consumable", maxCharges: 1, tier: 3, price: 20,
       consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
       summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },
-      effect: "なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
-    scroll_animate_dead: { name: "スクロール・オブ・アニメイトデッド", type: "consumable", maxCharges: 2, tier: 2, price: 10,
+      effect: "ゴーレムを組み上げる手引き書。なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
+    scroll_animate_dead: { name: "スペルスクロール(アニメイトデッド)", type: "consumable", maxCharges: 2, tier: 2, price: 10,
       consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
       summon: { unitId: "undead_squad", zone: "front", duration: "untilQuestEnd" },
       effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
+    // ★[#97] 目玉の新しい品 (5e SRD 5.1)。在庫の目玉ローテに加わる。
+    wand_magic_missiles: { name: "ワンドオブマジックミサイル", type: "consumable", maxCharges: 7, tier: 2, price: 12,
+      consumeTrigger: "onMageNoSpellAuto",
+      effect: "魔法使い(主人公・仲間)が攻撃呪文を撃てなくなると、代わりにマジックミサイル(3 本)を撃つ。1 回で 1 チャージ。" },
+    pearl_of_power: { name: "パールオブパワー", type: "consumable", maxCharges: 3, tier: 3, price: 15,
+      consumeTrigger: "onRoomClearAuto",
+      effect: "部屋をクリアしたときと休憩で、使い切った呪文の枠のうち一番重いものを 1 つ戻す。1 回で 1 チャージ。" },
   };
   const PLAZA_ITEMS_COMMON_TV = {
-    potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-      effect: "1戦闘の間、盗賊系の回避率上昇。" },
-    fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto",
-      effect: "モンスターからの先制攻撃を1回無効。" },
-    cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-      effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
-    medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-      effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+    // ★[#97] 古い 4 品は retired (店に並べない)。⛔ 行を消さない・id を変えない = 手持ちは今までどおり効く (依頼書 §2-6 罠 C)。
+    potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+      effect: "(取り扱い終了・手持ちは使える)1戦闘の間、盗賊系の回避率上昇。" },
+    fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto", retired: true,
+      effect: "(取り扱い終了・手持ちは使える)モンスターからの先制攻撃を1回無効。" },
+    cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+      effect: "(取り扱い終了・手持ちは使える)攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+    medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+      effect: "(取り扱い終了・手持ちは使える)戦闘中1回、敵全体を石化(ボス無効)。" },
+    // ★[#97] 一般の新しい品 (5e SRD 5.1)。potion_healing は常設 (無作為の候補から外す)。
+    potion_healing:         { name: "ポーションオブヒーリング", tier: 1, price: 3, type: "consumable", maxCharges: 1, consumeTrigger: "onLowHpTurnAuto",
+      effect: "HP が半分を切ると、その人が手番を使って飲む。2d4+2 回復。" },
+    potion_greater_healing: { name: "ポーションオブグレーターヒーリング", tier: 2, price: 8, type: "consumable", maxCharges: 1, consumeTrigger: "onLowHpTurnAuto",
+      effect: "HP が半分を切ると、その人が手番を使って飲む。4d4+4 回復。足りない HP が 15 以上ならヒーリングより先に飲む。" },
+    potion_fire_resistance: { name: "ポーションオブファイアレジスタンス", tier: 1, price: 5, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "戦闘の始め、炎を使う敵が居ると主人公が飲む。その戦闘の間、炎のダメージが半分。" },
+    potion_invisibility:    { name: "ポーションオブインビジビリティ", tier: 1, price: 5, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "戦闘の始め、ボスが居るか敵が 3 体以上だと主人公が飲む。その戦闘の間、AC +4。" },
+    oil_of_sharpness:       { name: "オイルオブシャープネス", tier: 2, price: 7, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "戦闘の始め、ボスが居るか敵が 3 体以上だと主人公が武器に塗る。その戦闘の間、命中 +3・ダメージ +3。" },
+    dust_sneezing_choking:  { name: "ダストオブスニージングアンドチョーキング", tier: 3, price: 15, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+      effect: "戦闘の始め、ボス以外の敵が 2 体以上だと撒く。CON セーヴ(DC 15)に失敗した敵は 3 ターン咳き込んで動けない。" },
   };
+  // ★[#97] 新しい 8 品 (開発用の陳列に並べる) と、持てる本数に上限があるポーション 4 種。
+  const PLAZA_SRD_NEW_IDS_TV = ["potion_healing", "potion_greater_healing", "potion_fire_resistance", "potion_invisibility",
+                                "oil_of_sharpness", "dust_sneezing_choking", "wand_magic_missiles", "pearl_of_power"];
+  const PLAZA_POTION_IDS_TV = ["potion_healing", "potion_greater_healing", "potion_fire_resistance", "potion_invisibility"];
+  const PLAZA_POTION_CAP_TV = 3;   // ポーションは種類ごとに個体 3 つまで
   function plazaItemDefTV(id) { return PLAZA_ITEMS_TV[id] || PLAZA_ITEMS_COMMON_TV[id] || null; }
 
   // チャージ品インベントリ: { itemId: [残チャージ, ...] } (個体別・[0]=最古)。run を跨いで永続。
@@ -6982,6 +7008,12 @@
    * ⚠ index.html の isCounterspellOn と同じクエリを**ページ内で**読む (遷移はまたがない)。 */
   function isCounterspellOnTV() {
     try { return new URLSearchParams(location.search).get("counterspell") !== "0"; }
+    catch (e) { return true; }
+  }
+  /* ★[#97] 撤退 ?plazasrd=0 —— 闇市の在庫を着手前 (3ca8938) と同じ品ぞろえ・同じ引き方へ戻す + 開発用の陳列を出さない + 上限を外す。
+   * ⚠ index.html の isPlazaSrdOn と同じクエリを**ページ内で**読む (遷移はまたがない)。const に畳まない (TDZ 回避)。 */
+  function isPlazaSrdOnTV() {
+    try { return new URLSearchParams(location.search).get("plazasrd") !== "0"; }
     catch (e) { return true; }
   }
   function devShelfSwitchOnTV(id) {
@@ -10121,7 +10153,7 @@
   }
   async function playGatekeeperRejection(firstReject) {
     const paras = ["……人間の匂いだ。失せな。\n『姿を変える術』も持たねえくせに、用はねえ。"];
-    if (firstReject) paras.push("(変装の手段が要るらしい。低位のダンジョンで『ポリモーフの杖』が見つかるという噂だ——)");
+    if (firstReject) paras.push("(変装の手段が要るらしい。低位のダンジョンで『ワンドオブポリモーフ』が見つかるという噂だ——)");
     await playPlazaOverlayNarration("📜 ポドルプラザ — 門番", paras, "plaza_gatekeeper_reject");
   }
   function updatePlazaFangCount() {
@@ -10390,17 +10422,25 @@
   function shuffled(arr) { return arr.slice().sort(() => Math.random() - 0.5); }
   function refreshPlazaStock() {
     const stock = [];
-    const commonIds = shuffled(Object.keys(PLAZA_ITEMS_COMMON_TV));
+    const srd = isPlazaSrdOnTV();
+    // ★[#97] 一般の候補: retired (古い 4 品) を外し、常設のヒーリングも無作為の候補から外す。
+    //   撤退中 (?plazasrd=0) は着手前と同じ候補 = 古い 4 品 (表の並びも同じ) を同じ引き方で。
+    const commonAll = Object.keys(PLAZA_ITEMS_COMMON_TV);
+    const commonPool = srd ? commonAll.filter(id => !PLAZA_ITEMS_COMMON_TV[id].retired && id !== "potion_healing") : commonAll.filter(id => PLAZA_ITEMS_COMMON_TV[id].retired);   // ★[#97] 在庫の抽選は retired を外す (罠 C)
+    const commonIds = shuffled(commonPool);
     const n = 3 + Math.floor(Math.random() * 3);   // 一般枠 3〜5 品
     for (let i = 0; i < Math.min(n, commonIds.length); i++) {
       const id = commonIds[i]; stock.push({ itemId: id, price: PLAZA_ITEMS_COMMON_TV[id].price, kind: "common" });
     }
-    // 目玉商品ローテ (リング/ゴーレム/アンデッド から 1〜2)
-    const featured = shuffled(["ring_spell_turning", "scroll_create_golem", "scroll_animate_dead"]);
+    // 目玉商品ローテ (リング/ゴーレム/アンデッド + ★[#97] ワンドオブマジックミサイル/パールオブパワー から 1〜2)
+    const featured = shuffled(srd ? ["ring_spell_turning", "scroll_create_golem", "scroll_animate_dead", "wand_magic_missiles", "pearl_of_power"]
+                                  : ["ring_spell_turning", "scroll_create_golem", "scroll_animate_dead"]);
     const fn = 1 + Math.floor(Math.random() * 2);
     for (let i = 0; i < fn; i++) { const id = featured[i]; stock.push({ itemId: id, price: PLAZA_ITEMS_TV[id].price, kind: "featured" }); }
     // ポリモーフの杖は常設在庫 (供給ループ維持・仕様書 §3.3)
     stock.push({ itemId: "wand_polymorph", price: PLAZA_ITEMS_TV.wand_polymorph.price, kind: "always" });
+    // ★[#97] ポーションオブヒーリングも常設 (売り切れない)
+    if (srd) stock.push({ itemId: "potion_healing", price: PLAZA_ITEMS_COMMON_TV.potion_healing.price, kind: "always" });
     plazaStateTV.currentStock = stock;
     plazaStateTV.stockRefreshCount = (plazaStateTV.stockRefreshCount || 0) + 1;
     savePlazaStateTV();
@@ -10408,15 +10448,26 @@
   function refreshPlazaStockIfNeeded() {
     if (!plazaStateTV.currentStock || !plazaStateTV.currentStock.length) refreshPlazaStock();
   }
+  // ★[#97] ポーション 4 種は種類ごとに個体 3 つまで (撤退中は上限なし = 着手前どおり)。
+  function plazaAtCapTV(itemId) {
+    return isPlazaSrdOnTV() && PLAZA_POTION_IDS_TV.indexOf(itemId) >= 0 && (plazaInventoryTV[itemId] || []).length >= PLAZA_POTION_CAP_TV;   // ★[#97] 所持上限
+  }
+  // ★[#97] 店に並ぶ行 = 在庫 + (開発モードのときだけ) 新しい 8 品を 1 牙貨で。開発用の行は在庫の後ろに付くので、在庫の添字は変わらない。
+  function plazaShopRowsTV() {
+    const stock = plazaStateTV.currentStock || [];
+    if (!(DF_DEV_MAGIC_SHOP && isPlazaSrdOnTV())) return stock;
+    return stock.concat(PLAZA_SRD_NEW_IDS_TV.map(id => ({ itemId: id, price: 1, kind: "dev" })));
+  }
   function onPlazaBuy(idx) {
     const stock = plazaStateTV.currentStock || [];
-    const s = stock[idx]; if (!s) return;
+    const s = plazaShopRowsTV()[idx]; if (!s) return;
     let fang = getFang();
     if (fang < s.price) return;                   // 残高不足
+    if (plazaAtCapTV(s.itemId)) return;           // ★[#97] 所持上限 (ポーションは 3 つまで)
     setFang(fang - s.price);
     addChargeItemTV(s.itemId);
     if (s.price >= 12) { try { voice("plaza_buy_highvalue"); } catch (e) {} }
-    if (s.kind !== "always") stock.splice(idx, 1); // 杖以外は売り切れ (杖は常設)
+    if (s.kind !== "always" && s.kind !== "dev") stock.splice(idx, 1); // 杖以外は売り切れ (杖は常設・★[#97] ヒーリングと開発用の陳列も売り切れない)
     plazaStateTV.currentStock = stock;
     savePlazaStateTV();
     updatePlazaFangCount();
@@ -10425,7 +10476,7 @@
   function renderPlazaShop() {
     const shop = document.getElementById("plazaShop");
     if (!shop) return;
-    const stock = plazaStateTV.currentStock || [];
+    const stock = plazaShopRowsTV();
     if (!stock.length) { shop.innerHTML = '<div class="plazaStub">品揃えは、追って並ぶ……</div>'; return; }
     const fang = getFang();
     let html = '<div class="pshopList">';
@@ -10433,15 +10484,17 @@
       const def = plazaItemDefTV(s.itemId); if (!def) return;
       const inst = plazaInventoryTV[s.itemId] || [];
       const chips = def.maxCharges ? inst.map(ch => ch + '/' + def.maxCharges).join('  ') : ('×' + inst.length);
-      const canBuy = fang >= s.price;
+      const capped = plazaAtCapTV(s.itemId);       // ★[#97] 所持上限ならボタンを無効にして「所持上限」
+      const canBuy = fang >= s.price && !capped;
       html += '<div class="pshopItem">' +
         '<div class="pshopMain"><span class="pshopName">' + def.name + '</span>' +
         (def.maxCharges ? '<span class="pshopMax">' + def.maxCharges + 'チャージ</span>' : '') +
-        (s.kind === 'always' ? '<span class="pshopTag">常設</span>' : '') + '</div>' +
+        (s.kind === 'always' ? '<span class="pshopTag">常設</span>' : '') +
+        (s.kind === 'dev' ? '<span class="pshopTag">開発用</span>' : '') + '</div>' +
         '<div class="pshopEffect">' + (def.effect || '') + '</div>' +
         (inst.length ? '<div class="pshopOwned">所持: ' + chips + '</div>' : '') +
         '<div class="pshopBuy"><span class="pshopPrice">牙貨 ' + s.price + '</span>' +
-        '<button type="button" class="plazaBtn small pbuy" data-idx="' + i + '"' + (canBuy ? '' : ' disabled') + '>購入</button></div>' +
+        '<button type="button" class="plazaBtn small pbuy" data-idx="' + i + '"' + (canBuy ? '' : ' disabled') + '>' + (capped ? '所持上限' : '購入') + '</button></div>' +
         '</div>';
     });
     html += '</div>';
@@ -10469,6 +10522,9 @@
         // M5 検証フック
         refreshPlazaStock, renderPlazaShop, onPlazaBuy,
         getStock: () => plazaStateTV.currentStock, getFang, setFang,
+        // ★[#97] 検証フック: 撤退スイッチ / 所持上限 / 店に並ぶ行 (在庫 + 開発用の陳列)
+        srdOn: isPlazaSrdOnTV, atCap: plazaAtCapTV, shopRows: plazaShopRowsTV,
+        newIds: PLAZA_SRD_NEW_IDS_TV.slice(), potionIds: PLAZA_POTION_IDS_TV.slice(), potionCap: PLAZA_POTION_CAP_TV,
         departPlaza: () => { plazaSelectedIdx = 0; onPlazaDepart(); },
       });
     } catch (e) {}

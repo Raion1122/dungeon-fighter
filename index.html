@@ -14440,6 +14440,13 @@
       try { return new URLSearchParams(window.location.search).get("counterspell") !== "0"; }
       catch (e) { return true; }
     }
+    /* ★[#97] 撤退スイッチ ?plazasrd=0 — 闇市の棚を着手前 (3ca8938) の品ぞろえへ戻す + 新しい品の効き目の口を閉じる。
+     * ⚠ const に畳まず関数にする (TDZ 回避)。各ページが独立に読む (遷移はまたがない)。
+     * ⚠ 目玉 4 品の名前は戻さない (表示名だけ・id と効き目は同じ)。 */
+    function isPlazaSrdOn() {
+      try { return new URLSearchParams(window.location.search).get("plazasrd") !== "0"; }
+      catch (e) { return true; }
+    }
     /* ★[#80] メイジハンド (5e SRD 初級呪文)。⛔ MAGE_SKILLS にも酒場の MAGE_SKILLS_UI にも足さない
      *   (枠も技の候補も通らない = 依頼書 §2-3 罠A/罠B)。習得は巻物 → isSpellKnown("mage","mage-hand") だけ。
      *   射程: 戦闘前 12 マス (戦闘外は手を何度も進められる読み) / 戦闘中も 12 マス (★[#84] 6 → 12。6 では檻に届かない = 依頼書 §2-2)。 */
@@ -14566,8 +14573,8 @@
       const chance = isLowTierRun() ? POLYMORPH_WAND_DROP_CHANCE : POLYMORPH_WAND_DROP_CHANCE_HIGH;
       if (Math.random() >= chance) return;
       addChargeItem("wand_polymorph");
-      if (typeof showBanner === "function") showBanner("🪄 ポリモーフの杖 を手に入れた!", 1900);
-      if (typeof updateInfo === "function") updateInfo("入手: ポリモーフの杖 — 闇市『ポドルプラザ』への入場に使える");
+      if (typeof showBanner === "function") showBanner("🪄 ワンドオブポリモーフ を手に入れた!", 1900);
+      if (typeof updateInfo === "function") updateInfo("入手: ワンドオブポリモーフ — 闇市『ポドルプラザ』への入場に使える");
       if (typeof sfx === "function") sfx("chestFound");
     }
 
@@ -14591,30 +14598,51 @@
 
     // 闇市アイテムカタログ (目玉 + 一般)。⚠ tavern.html と二重定義・同期必須。
     const PLAZA_ITEMS = {
-      ring_spell_turning: { name: "スペルターニングリング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
+      ring_spell_turning: { name: "リングオブスペルターニング", type: "passive_item", maxCharges: 5, tier: 3, price: 18,
         consumeTrigger: "onEnemySpellAuto",
         effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
-      wand_polymorph: { name: "ポリモーフ(変装)の杖", type: "key_item", maxCharges: 3, tier: 1, price: 6,
+      wand_polymorph: { name: "ワンドオブポリモーフ", type: "key_item", maxCharges: 3, tier: 1, price: 6,
         consumeTrigger: "onPlazaEnter", alwaysInStock: true,
         effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
-      scroll_create_golem: { name: "スクロール・オブ・クリエイトゴーレム", type: "consumable", maxCharges: 1, tier: 3, price: 20,
+      scroll_create_golem: { name: "マニュアルオブゴーレムズ", type: "consumable", maxCharges: 1, tier: 3, price: 20,
         consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
         summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },
-        effect: "なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
-      scroll_animate_dead: { name: "スクロール・オブ・アニメイトデッド", type: "consumable", maxCharges: 2, tier: 2, price: 10,
+        effect: "ゴーレムを組み上げる手引き書。なかなか壊れない高耐久のゴーレム兵を呼び出し、クエスト終了まで同行させる。" },
+      scroll_animate_dead: { name: "スペルスクロール(アニメイトデッド)", type: "consumable", maxCharges: 2, tier: 2, price: 10,
         consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
         summon: { unitId: "undead_squad", zone: "front", duration: "untilQuestEnd" },
         effect: "ゾンビ・スケルトンのアンデッド小隊を呼び出し、クエスト終了まで同行させる。ゴーレムより脆い。" },
+      // ★[#97] 目玉の新しい品 (5e SRD 5.1)。在庫の目玉ローテに加わる。
+      wand_magic_missiles: { name: "ワンドオブマジックミサイル", type: "consumable", maxCharges: 7, tier: 2, price: 12,
+        consumeTrigger: "onMageNoSpellAuto",
+        effect: "魔法使い(主人公・仲間)が攻撃呪文を撃てなくなると、代わりにマジックミサイル(3 本)を撃つ。1 回で 1 チャージ。" },
+      pearl_of_power: { name: "パールオブパワー", type: "consumable", maxCharges: 3, tier: 3, price: 15,
+        consumeTrigger: "onRoomClearAuto",
+        effect: "部屋をクリアしたときと休憩で、使い切った呪文の枠のうち一番重いものを 1 つ戻す。1 回で 1 チャージ。" },
     };
     const PLAZA_ITEMS_COMMON = {
-      potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-        effect: "1戦闘の間、盗賊系の回避率上昇。" },
-      fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto",
-        effect: "モンスターからの先制攻撃を1回無効。" },
-      cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-        effect: "攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
-      medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
-        effect: "戦闘中1回、敵全体を石化(ボス無効)。" },
+      // ★[#97] 古い 4 品は retired (店に並べない)。⛔ 行を消さない・id を変えない = 手持ちは今までどおり効く (依頼書 §2-6 罠 C)。
+      potion_shadow: { name: "影渡りの薬",   tier: 1, price: 4,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+        effect: "(取り扱い終了・手持ちは使える)1戦闘の間、盗賊系の回避率上昇。" },
+      fang_charm:    { name: "牙の護符",     tier: 1, price: 5,  type: "consumable", maxCharges: 1, consumeTrigger: "onPreemptiveAuto", retired: true,
+        effect: "(取り扱い終了・手持ちは使える)モンスターからの先制攻撃を1回無効。" },
+      cursed_blade:  { name: "呪われた曲刀", tier: 2, price: 9,  type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+        effect: "(取り扱い終了・手持ちは使える)攻撃力大幅上昇、ただし戦闘終了時にHP小減少。" },
+      medusa_mirror: { name: "セリアの手鏡", tier: 4, price: 25, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto", retired: true,
+        effect: "(取り扱い終了・手持ちは使える)戦闘中1回、敵全体を石化(ボス無効)。" },
+      // ★[#97] 一般の新しい品 (5e SRD 5.1)。potion_healing は常設 (無作為の候補から外す)。
+      potion_healing:         { name: "ポーションオブヒーリング", tier: 1, price: 3, type: "consumable", maxCharges: 1, consumeTrigger: "onLowHpTurnAuto",
+        effect: "HP が半分を切ると、その人が手番を使って飲む。2d4+2 回復。" },
+      potion_greater_healing: { name: "ポーションオブグレーターヒーリング", tier: 2, price: 8, type: "consumable", maxCharges: 1, consumeTrigger: "onLowHpTurnAuto",
+        effect: "HP が半分を切ると、その人が手番を使って飲む。4d4+4 回復。足りない HP が 15 以上ならヒーリングより先に飲む。" },
+      potion_fire_resistance: { name: "ポーションオブファイアレジスタンス", tier: 1, price: 5, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "戦闘の始め、炎を使う敵が居ると主人公が飲む。その戦闘の間、炎のダメージが半分。" },
+      potion_invisibility:    { name: "ポーションオブインビジビリティ", tier: 1, price: 5, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "戦闘の始め、ボスが居るか敵が 3 体以上だと主人公が飲む。その戦闘の間、AC +4。" },
+      oil_of_sharpness:       { name: "オイルオブシャープネス", tier: 2, price: 7, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "戦闘の始め、ボスが居るか敵が 3 体以上だと主人公が武器に塗る。その戦闘の間、命中 +3・ダメージ +3。" },
+      dust_sneezing_choking:  { name: "ダストオブスニージングアンドチョーキング", tier: 3, price: 15, type: "consumable", maxCharges: 1, consumeTrigger: "onBattleStartAuto",
+        effect: "戦闘の始め、ボス以外の敵が 2 体以上だと撒く。CON セーヴ(DC 15)に失敗した敵は 3 ターン咳き込んで動けない。" },
     };
     function plazaItemDef(id) { return PLAZA_ITEMS[id] || PLAZA_ITEMS_COMMON[id] || null; }
 
@@ -14647,6 +14675,11 @@
       return list ? list.reduce((a, b) => a + b, 0) : 0;
     }
     function hasChargeItem(itemId) { return countCharges(itemId) > 0; }
+    /* ★[#97] 新しい品の効き目の口は、すべて最初にここを通る (撤退スイッチ + 持っているか)。
+     * ⚠⚠ 乱数も DOM も触らない (依頼書 §2-5 罠 B: 全員の手番・全部の戦闘がここを通る)。 */
+    function plazaSrdHas(itemId) {
+      return isPlazaSrdOn() && hasChargeItem(itemId);   // ★[#97] 撤退スイッチ ?plazasrd=0 を効き目の口で見る
+    }
     // 検証用ブリッジ (puppeteer から IIFE 内のチャージ API / 状態へ到達する手段。本番動作には無害)
     try {
       window.__plaza = {
@@ -14687,6 +14720,16 @@
         pAtk: () => currentPlayerAtkBonus(),
         pAc: () => currentPlayerAc(),
         aAc: (a) => currentAllyAc(a),
+        // ★[#97] 検証フック: 新しい品の効き目の口 (ポーション / ワンド / 後継品 / オイル / 炎の軽減)
+        srdOn: () => isPlazaSrdOn(),
+        srdHas: (id) => plazaSrdHas(id),
+        drinkPotion: (unit) => tryDrinkHealingPotion(unit),
+        wandMM: (actor, unit, idx) => tryWandMagicMissile(actor, unit, idx),
+        battleStartSrd: () => applyBattleStartSrdConsumables(),
+        roomClearHeal: () => applyRoomClearHeal(),
+        pDmg: () => currentPlayerDmgBonus(),
+        fireMult: (unit) => getFireResistMult(unit),
+        resetPBuffs: () => resetPlayerBuffs(),
       };
     } catch (e) {}
     // ════════════ 闇市 ここまで ════════════
@@ -15857,6 +15900,7 @@
       if (unit === "player") { const w = getCurrentWeapon(); wFR = w && w.fireResist; }
       else if (unit) { wFR = unit.weaponFireResist; }
       if (typeof wFR === "number") mult = Math.min(mult, wFR);
+      if (unit === "player" && playerBuffs.fireResistPotion) mult = Math.min(mult, 0.5);   // ★[#97] ポーションオブファイアレジスタンス (その戦闘の間・帯の上では先頭の 1 行が等倍に戻す)
       return mult;
     }
 
@@ -22655,6 +22699,111 @@
     }
     // ════════════ M9 ここまで ════════════
 
+    // ════════════ ★[#97] 闇市の薬屋と杖屋 (5e SRD 5.1 の品) ════════════
+    // ⚠ どの口も最初に plazaSrdHas(id) を見る。持っていなければ乱数も DOM も触らない (依頼書 §2-5 罠 B)。
+    const SRD_INVIS_AC_BONUS   = 4;     // ポーションオブインビジビリティ: 主人公 AC + (影渡りの薬の shadowAcBonus を流用・重ねない)
+    const SRD_OIL_BONUS        = 3;     // オイルオブシャープネス: 命中 + / ダメージ + (1 戦)
+    const SRD_DUST_DC          = 15;    // ダストオブスニージングアンドチョーキング: CON セーヴの DC
+    const SRD_DUST_TURNS       = 3;     // 同: セーヴに失敗した敵が動けないターン数
+    const SRD_WAND_ATTACK_SPELLS = ["fire-bolt", "magic-missile", "fireball", "lightning-bolt", "cone-of-cold", "burning-hands", "ice-storm"];   // mageAI の attackSpells と同じ 7 つ
+    // 炎を使う敵 = 炎の息 (breathDice) を持つか、炎の呪文を唱える。
+    function srdEnemyUsesFire(def) {
+      if (!def) return false;
+      if (def.breathDice) return true;
+      return Array.isArray(def.spells) && def.spells.some(s => s === "fireBolt" || s === "scorchingRay" || s === "fireball");
+    }
+
+    // 戦闘の始めの後継品 3 つ + ファイアレジスタンス (使うのは主人公)。
+    // ⛔ 古い品の applyBattleStartConsumables / tryNegatePreemptive は 1 文字も変えない (罠 C)。呼び口はその次の行。
+    function applyBattleStartSrdConsumables() {
+      const live = encounterEnemyIndices.filter(i => enemies[i] && enemies[i].alive);
+      const bigFight = live.some(i => enemies[i].def.isBoss || enemies[i].def.boss) || live.length >= 3;   // ボスが居るか敵が 3 体以上
+      // ── ポーションオブファイアレジスタンス: 炎を使う敵が居るときだけ ──
+      if (plazaSrdHas("potion_fire_resistance") && live.some(i => srdEnemyUsesFire(enemies[i].def)) && consumeCharge("potion_fire_resistance")) {
+        playerBuffs.fireResistPotion = true;
+        showBanner("🧪 ポーションオブファイアレジスタンス! 炎のダメージ半分", 1500);
+        updateInfo(`ポーションオブファイアレジスタンス: ${getLeaderName()} は炎のダメージが半分 (1戦)`);
+      }
+      // ── ポーションオブインビジビリティ: ボスか 3 体以上 ──
+      if (plazaSrdHas("potion_invisibility") && bigFight && consumeCharge("potion_invisibility")) {
+        playerBuffs.shadowAcBonus = Math.max(playerBuffs.shadowAcBonus || 0, SRD_INVIS_AC_BONUS);   // 影渡りの薬と重ねない
+        showBanner("🧪 ポーションオブインビジビリティ! 姿が消えた", 1500);
+        updateInfo(`ポーションオブインビジビリティ: ${getLeaderName()} の AC +${SRD_INVIS_AC_BONUS} (1戦)`);
+      }
+      // ── オイルオブシャープネス: ボスか 3 体以上 ──
+      if (plazaSrdHas("oil_of_sharpness") && bigFight && consumeCharge("oil_of_sharpness")) {
+        playerBuffs.oilSharpnessBonus = SRD_OIL_BONUS;
+        showBanner("🗡 オイルオブシャープネス! 刃が冴える", 1500);
+        updateInfo(`オイルオブシャープネス: ${getLeaderName()} の命中 +${SRD_OIL_BONUS}・ダメージ +${SRD_OIL_BONUS} (1戦)`);
+      }
+      // ── ダストオブスニージングアンドチョーキング: 非ボスの敵が 2 体以上。敵ごとに CON セーヴ ──
+      if (plazaSrdHas("dust_sneezing_choking")) {
+        const dustIdx = live.filter(i => !(enemies[i].def.isBoss || enemies[i].def.boss));
+        if (dustIdx.length >= 2 && consumeCharge("dust_sneezing_choking")) {
+          let choked = 0;
+          for (const i of dustIdx) {
+            const save = d20() + (enemies[i].def.con || 0);
+            if (save >= SRD_DUST_DC) continue;                 // セーヴ成功 = 平気
+            enemies[i].stunned = Math.max(enemies[i].stunned || 0, SRD_DUST_TURNS);
+            showRollAtEnemy(i, `<span class="label">CHOKING</span>咳き込む`, "miss");
+            choked++;
+          }
+          showBanner("💨 ダストオブスニージングアンドチョーキング!", 1600);
+          updateInfo(`ダスト: 非ボスの敵 ${dustIdx.length}体 のうち ${choked}体 が咳き込んで動けない (${SRD_DUST_TURNS}ターン・CON DC ${SRD_DUST_DC})`);
+        }
+      }
+    }
+
+    // ポーションを飲む (手番を使う)。unit = "player" | 仲間。飲んだら true = 呼び口はその手番を終える。
+    // 対象: HP が半分を切った本人だけ (召喚は飲まない)。足りない HP が 15 以上でグレーターがあればグレーター。
+    async function tryDrinkHealingPotion(unit) {
+      const hasHeal = plazaSrdHas("potion_healing"), hasGreater = plazaSrdHas("potion_greater_healing");
+      if (!hasHeal && !hasGreater) return false;   // ★[#97] 持っていなければ乱数も DOM も触らない (罠 B)
+      const isPlayer = unit === "player";
+      if (isPlayer ? !(hp > 0 && hp < maxHp / 2) : !(unit && unit.alive && unit.hp < unit.maxHp / 2 && !unit.isSummon)) return false;
+      const missing = isPlayer ? (maxHp - hp) : (unit.maxHp - unit.hp);
+      const potionId = (hasGreater && (missing >= 15 || !hasHeal)) ? "potion_greater_healing" : "potion_healing";
+      if (!consumeCharge(potionId)) return false;
+      const greater = potionId === "potion_greater_healing";
+      const dd = parseDiceDD(greater ? "4d4" : "2d4");
+      const gain = rollDiceDD(dd.n, dd.sides).total + (greater ? 4 : 2);
+      const pName = plazaItemDef(potionId).name;
+      if (isPlayer) {
+        hp = Math.min(maxHp, hp + gain);
+        showHealAt(playerX + 48, playerY + 40, gain);
+        flashAction(player, "skill");
+        updateInfo(`${getLeaderName()} は${pName}を飲んだ: HP +${gain} (${hp}/${maxHp})`);
+      } else {
+        unit.hp = Math.min(unit.maxHp, unit.hp + gain);
+        showHealAt(unit.x + unit.def.displaySize / 2, unit.y, gain);
+        flashAction(unit.el, "skill");
+        updateInfo(`${unit.npcName || unit.def.name} は${pName}を飲んだ: HP +${gain} (${unit.hp}/${unit.maxHp})`);
+      }
+      showBanner(`🧪 ${pName}! +${gain}`, 1300);
+      await sleepMs(700);
+      return true;
+    }
+
+    // ワンドオブマジックミサイルを振る (魔法使いが攻撃呪文を 1 つも撃てないとき)。撃ったら true。
+    // actor = 仲間 or makeLeaderActor() / unit = 枠を見る相手 ("player" | 仲間) / targetIdx = null なら最寄りの交戦中の敵。
+    async function tryWandMagicMissile(actor, unit, targetIdx) {
+      if (!plazaSrdHas("wand_magic_missiles")) return false;    // 持っていなければ乱数も DOM も触らない (罠 B)
+      if (!actor || actor.classKey !== "mage") return false;
+      if (isSovereignShellActive() || isOnSovereignRay(unit)) return false;   // 反魔法の上ではワンドも働かない
+      if (SRD_WAND_ATTACK_SPELLS.some(id => hasSpellSlot(unit, id))) return false;   // 攻撃呪文の枠が 1 つでも残っていれば使わない
+      const tIdx = (targetIdx == null) ? pickClosestEngagedEnemyFromAlly(actor) : targetIdx;
+      const target = enemies[tIdx];
+      if (tIdx < 0 || !target || !target.alive) return false;
+      const wx = target.x + target.def.displaySize / 2, wy = target.y + target.def.displaySize / 2;
+      const wcx = actor.x + actor.def.displaySize / 2, wcy = actor.y + actor.def.displaySize / 2;
+      if (tileChebyshev(wcx, wcy, wx, wy) > getRange(MAGE_SKILLS["magic-missile"].range).tiles || !hasLineOfSight(wcx, wcy, wx, wy)) return false;   // ⛔ 届かなければ回数を減らさない (罠 A: allyMagicMissile は前進しても何も返さない)
+      if (!consumeCharge("wand_magic_missiles")) return false;
+      await allyMagicMissile(actor, tIdx);
+      showBanner(`🪄 ワンドオブマジックミサイル (残 ${countCharges("wand_magic_missiles")})`, 1300);
+      return true;
+    }
+    // ════════════ ★[#97] ここまで ════════════
+
     // ── エンカウンターメインフロー ──
     async function runEncounter(initialEngaged) {
       encounterActive = true;
@@ -22843,6 +22992,7 @@
 
         // ── 闇市 一般消費アイテムの自動発動 (M9) ──
         applyBattleStartConsumables();   // 影渡りの薬 / 呪われた曲刀 / セリアの手鏡
+        applyBattleStartSrdConsumables();   // ★[#97] ファイアレジスタンス / インビジビリティ / オイル / ダスト (持っていなければ何もしない)
         tryNegatePreemptive(units);      // 牙の護符: 先制された時のみ
         await runLoreCheck();             // ★[#76] 伝承判定。⚠ ボスの分岐の外 (リッチ・ファラクサス戦でも振る = 依頼書 §2-2 罠 1)
         await tryStealthSurprise();       // 第7弾: 隠密の接近（不意打ち）。stealth 得意PTのみ・非ボス敵の初手を封じる
@@ -24051,6 +24201,7 @@
       fearImmuneRemaining: 0,                         // 恐怖免疫 (カエルム 神官の祝福、現状未付与)
       cursedBladeAtkBonus: 0, cursedBladeActive: false,  // 闇市 呪われた曲刀 (M9): リーダー攻撃+ / 終了時HP減フラグ
       shadowAcBonus: 0,                                  // 闇市 影渡りの薬 (M9): 盗賊系(リーダー) AC+ フラット
+      fireResistPotion: false, oilSharpnessBonus: 0,     // ★[#97] ポーションオブファイアレジスタンス / オイルオブシャープネス (1 戦)
       stuck: false,                                   // 粘着 (ミミック Adhesive): リーダーが1ターン拘束、STR脱出
     };
     function resetPlayerBuffs() {
@@ -24083,6 +24234,8 @@
       playerBuffs.cursedBladeAtkBonus = 0;   // 闇市 呪われた曲刀 (M9)
       playerBuffs.cursedBladeActive = false;
       playerBuffs.shadowAcBonus = 0;         // 闇市 影渡りの薬 (M9)
+      playerBuffs.fireResistPotion = false;  // ★[#97] ポーションオブファイアレジスタンス
+      playerBuffs.oilSharpnessBonus = 0;     // ★[#97] オイルオブシャープネス
       playerBuffs.stuck = false;
       playerStatusEffects.length = 0;        // status-effect v1.1
     }
@@ -24291,12 +24444,15 @@
       const onRay = sovereignSuppressed("player");
       return playerStats.atkBonus + weaponEnh +
         (playerBuffs.atkBonusRemaining > 0 ? playerBuffs.atkBonusAmount : 0) +
+        (onRay ? 0 : (playerBuffs.oilSharpnessBonus || 0)) +     // ★[#97] オイルオブシャープネス: 命中 + (帯の上では抑制)
         (onRay ? 0 : (playerBuffs.cursedBladeAtkBonus || 0)) -   // 闇市 呪われた曲刀 (M9): C4 ④b で抑制
         playerAtkStatusPenalty();
     }
     function currentPlayerDmgBonus() {
       // 武器エンハンスメントをダメージにも加算 (C4 ④b: 帯の上では 0)。第5弾 豪傑の武具の近接ダメージ + も加算。
-      return playerStats.dmgBonus + effectiveWeaponEnh("player") + getAccessoryDmgBonus("player");
+      const onRay = sovereignSuppressed("player");
+      return playerStats.dmgBonus + effectiveWeaponEnh("player") + getAccessoryDmgBonus("player") +
+        (onRay ? 0 : (playerBuffs.oilSharpnessBonus || 0));      // ★[#97] オイルオブシャープネス: ダメージ + (帯の上では抑制)
     }
     function currentPlayerAc() {
       const a = getCurrentArmor();
@@ -28954,6 +29110,41 @@
           await sleepMs(300);
         }
       }
+
+      // ★[#97] パールオブパワー: 使い切った枠のうち一番位の高い (levelReq×1000+mpCost が最大の) 呪文を 1 つ戻す。
+      //   主人公 (魔法使い・僧侶・エルフ) → 仲間の順で、減った枠を持つ最初の 1 人だけ。見つかったときだけ 1 チャージ使う。
+      //   ⛔ 休憩ノードの呼び口の行は変えない (driver_graph_kinds のアンカー)。ボス部屋は先頭の return で来ない。
+      if (plazaSrdHas("pearl_of_power")) {
+        const pearlPick = (slots, maxSlots) => {
+          if (!slots || !maxSlots) return null;
+          let pearlId = null, pearlRank = -Infinity;
+          for (const id of Object.keys(maxSlots)) {
+            if ((slots[id] || 0) >= (maxSlots[id] || 0)) continue;   // 満タンは対象外
+            const sk = (typeof getSkill === "function") ? getSkill(id) : null;
+            const rank = ((sk && sk.levelReq) || 1) * 1000 + ((sk && sk.mpCost) || 0);
+            if (rank > pearlRank) { pearlRank = rank; pearlId = id; }   // ★[#97] 一番位の高い枠を選ぶ
+          }
+          return pearlId;
+        };
+        let pSlots = null, pMax = null, pId = null, pWho = "";
+        if (!gameOver && hp > 0 && isCasterClass(leaderClassKey)) {
+          pId = pearlPick(currentSpellSlots, currentMaxSpellSlots);
+          if (pId) { pSlots = currentSpellSlots; pMax = currentMaxSpellSlots; pWho = getLeaderName(); }
+        }
+        for (const a of allies) {
+          if (pId) break;
+          if (!a.alive || a.hp <= 0 || !isCasterClass(a.classKey)) continue;
+          pId = pearlPick(a.spellSlots, a.maxSpellSlots);
+          if (pId) { pSlots = a.spellSlots; pMax = a.maxSpellSlots; pWho = a.npcName || a.def.name; }
+        }
+        if (pId && consumeCharge("pearl_of_power")) {
+          pSlots[pId] = Math.min(pMax[pId], (pSlots[pId] || 0) + 1);
+          const pSk = (typeof getSkill === "function") ? getSkill(pId) : null;
+          const pName = (pSk && pSk.name) || pId;
+          showBanner(`⚪ パールオブパワー! ${pWho}の${pName}が戻った`, 1400);
+          updateInfo(`パールオブパワー: ${pWho}の${pName}の枠が 1 つ戻った (残 ${countCharges("pearl_of_power")})`);
+        }
+      }
     }
 
     function findLowestHpPartyMember() {
@@ -32099,6 +32290,9 @@
         return;
       }
 
+      // ★[#97] HP が半分を切っていて回復のポーションを持っていれば、手番を使って飲む (その手番は攻撃しない)
+      if (await tryDrinkHealingPotion(ally)) return;
+
       // クラス別 AI 分岐
       if (ally.classKey === "cleric") {
         if (await clericAI(ally)) return;
@@ -32408,6 +32602,8 @@
         }
       }
 
+      // ★[#97] 攻撃呪文の枠が尽きたら、ワンドオブマジックミサイルを持っていれば振る (届かなければ従来どおりスリングへ)
+      if (await tryWandMagicMissile(ally, ally, null)) return true;
       // 呪文撃たない判断 → スリングで通常攻撃 (allyBasicAttack にフォールバック)
       return false;
     }
@@ -34765,6 +34961,9 @@
         }
       }
 
+      // ★[#97] HP が半分を切っていて回復のポーションを持っていれば、手番を使って飲む (その手番は攻撃しない)
+      if (await tryDrinkHealingPotion("player")) return;
+
       // ── 事前射程判定: 武器射程内の敵がいなければ
       //    スキル発動せず即座に前進 (敵に詰める) ──
       const weaponRangeTiles = getRange(playerStats.weaponRange || "melee").tiles;
@@ -34842,6 +35041,14 @@
       }
       // [英雄の眼] 一様ランダムをやめ、状況 (対象HP・ボス格・PT最弱者・開幕かどうか) で重み付けして引く。
       // RNG 消費は旧実装と同じくちょうど1回なので、既存ドライバの乱数順序は動かない。
+      // ★[#97] 主人公が魔法使いで攻撃呪文の枠が尽きていれば、ワンドオブマジックミサイルを振る (撃てば pickLeaderAction を呼ばない)
+      if (leaderClassKey === "mage" && plazaSrdHas("wand_magic_missiles")) {
+        const wandActor = makeLeaderActor();
+        let wandFired = false;
+        try { wandFired = await tryWandMagicMissile(wandActor, "player", targetIdx); }
+        finally { if (wandFired) syncLeaderFromActor(wandActor); }
+        if (wandFired) return;
+      }
       const choices = ["normal", ...activeEquipped];
       const picked = pickLeaderAction(choices, { target: enemies[targetIdx] });
       const pick = picked.id;
