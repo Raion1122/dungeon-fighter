@@ -429,4 +429,68 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-20 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/r96/notes96_item1.md` / `notes96_item2.md` / `notes96_item3.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `b7c9689` | 項目1 本番: カウンタースペル。`MAGE_SKILLS["counterspell"]`(arcane-eye の後)・巻物 `scroll-counterspell`(uncommon・`pickScrollId` の filter 末尾に撤退条件)・撤退 `?counterspell=0`(`isCounterspellOn`)・`tryReflectEnemySpell` の直後に `enemySpellMaxDamage` / `counterspellWanted` / `findCounterspeller` / `playCounterspellFx` / `tryCounterEnemySpell`・`enemyCastSpell` の指輪の行の直後に 1 行(指輪の呼び口は無改変)・CSS `.fxCastCircle--broken`(quick のときは輪・光の線・割れる陣・破片を省く)。`tavern.html` の写し(`MAGE_SKILLS_UI` / `SCROLL_CATALOG_TV` / 開発用の棚 + `isCounterspellOnTV`)+ changelog 1 行(§10 の文面どおり) |
+| `51c9146` | 項目2: 新規受入 `tools/verify_counterspell.js`(port 10635・素も変異も同じ port を順に・純 LF) |
+| 本節のコミット | 項目3: 母集団の非退行(全数走査)+ 変異アンカーの衝突 + 本節 + README の #96 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_counterspell` 素 | **25/25** ×4(項目2)+ 全数走査の中で 1 回 25/25 | 52〜53 |
+| `verify_counterspell --negative` | **7/7** ×2(項目2)+ 全数走査の中で 1 回 7/7。noslot=(1b) / reach=(2d) / ringlast=(3a) / sleepcast=(2c) / rngdrift=(1a) / oldcircle=(4a) / leak=(5b)。巻き込みは noslot だけ = 「誰が唱えたか」を probe と枠の増減の両方で読むので、打ち消しを見る全節に出る自然な連鎖 | 371 |
+| §8 の既存 golden 19 本(34 腕) | 項目1 で着手前(post95)と同色。`verify_run_chronicle` (0c) の HP を引く点は 45 のまま(言い直し不要)・`verify_cleric_spirits` の leak アンカー 1 hit のまま | — |
+| 一時プローブ(コミットしない) | `r96/probe96.js` 12/12 ×2(1 回目の (c) 赤は測定器の誤り = 飛翔体の rAF 火の粉の乱数。「tryCounterEnemySpell の中で引いた回数」で測り直した) | — |
+
+assert の中身(25 本・§8 の番号と 1 対 1):
+
+| ラベル | 測ること(要点) |
+|---|---|
+| (0a) | getSkill / reactive=onEnemySpell / 巻物 uncommon / isSpellKnown / 主人公・仲間の枠に Lv3 で載り Lv2 で 0 |
+| (0b) | 盤面: 届く(主人公 7・仲間 6 マス)/ 13 マス / 壁越し(本番 hasLineOfSight とドライバ自前の線分の両方で切れる床)を作れている |
+| (0c) | 写し 3 枚(index / tavern / 巻物の行)が 1 行ずつで中身一致・酒場の autoCast・開発用の棚に 1 回 |
+| (1a) | ファイアボルト 3 腕(カウンター無し / 枠 0 / 枠 2 で使う条件外)で被弾 14・乱数の総回数 6 が一致・**tryCounter の中で引いた回数 0**・枠 2/2 |
+| (1b) | リッチのファイアボール: 被弾 0・主人公 2→1・仲間 2→2・probe 1 件。対照は被弾 48 |
+| (1c) | シャター / スコーチングレイを全員満タンで打ち消す(対照 24 / 48) |
+| (1d) | 最大値 12/13/24 をダイスの式から計算(本番 `enemySpellMaxDamage` と一致)。HP 13 → 打ち消さない / 12 → 打ち消す |
+| (1e) | `enemyAttackTurn` 経由でも打ち消された詠唱のクールダウン 0→3 |
+| (1f) | 順: 主人公 → allies の先頭 → 次 |
+| (2a)〜(2e) | 枠 0 / 倒れている / 眠り・混乱など 7 状態 / 13 マス・壁越し / 暴君の殻と帯の上 = 唱えない、もう 1 人が唱える |
+| (3a)〜(3d) | 指輪が先(5→4・tryCounter は呼ばれない)/ 指輪 0 回ならカウンター / ブレス・眼柄は対象外 |
+| (4a)〜(4c) | 敵の足元に新しい陣 1 枚 + `.fxCastCircle--broken` 1 枚 + COUNTERED の札 / 語りは 1 回目だけ / 年代記の「使わなかった技」と HP を引く点 45(= `7ae53c7`) |
+| (5a)〜(5c) | `?counterspell=0` で被弾 48・枠そのまま / 巻物の抽選に出ない / 酒場の棚から消える |
+| (9a) | pageerror / console error 0 |
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `index.html` / `tavern.html` = 全ページが踏むファイルなので全数。HEAD `51c9146` で **228 腕・667.4 分**(2.93 分/腕)= #95 の post95 の 226 腕(同順)+ `verify_counterspell` 素 / neg。直列・SKIP 再開型(2026-10-19 に 71 腕で窓が落ち、2026-10-20 00:02 に再開 → 09:14 完了)。git を読む本(29 腕)は `git clone --shared @51c9146`(本番と 935 ファイルのバイト差 0・再開前にも測り直した)で。8765 は走査中 LISTEN なし(post95 と同じ条件)。
+- 結果: 緑 208 / 非緑 20。基準 post95(本番は `7ae53c7` と同一 = #96 の直前)と比べて **緑→赤 0**・赤→緑 0・両方非緑 20・新規 2 腕は緑。
+- 両方非緑の 20 腕は FAIL 行を集合で突き合わせ、**20 腕とも中身が同じ**(`driver_mapdef_step1` (0b) は clone の commit の hash が違うだけ)。件数だけ一致して中身が入れ替わった腕は 0。
+- 緑→赤が 0 なので、影のツリーとの対比較は不要だった ⇒ **#96 帰属の緑→赤 = 0**。
+- 変異アンカー衝突: 全 tools 201 ファイルの文字列リテラル 53,938 個を `7ae53c7`→`51c9146` の 3 ファイルで数え直した。件数が変わった 607 組のうち「1 だった / 1 になった / 0→出現」は 21 組で、**21 組すべて `verify_counterspell` 自身**(変異アンカー・撤退スイッチ・呪文名・巻物 ID・CSS クラス名)⇒ **衝突 0**(項目1 の 43,020 行の走査とも一致)。
+
+### 12-4. 崩れた主張・依頼書から変えた点(K 番号)
+
+- **K1**(「既知の赤」`verify_lore_check` (1j)): #95 K8 は「並列負荷でだけ揺れる・直列では緑」としたが、項目1 の機械では**直列でも揺れた**。`7ae53c7` の木(#96 無し)と実装後の木で素を交互 6 回ずつ ⇒ 着手前 赤 4/6・実装後 赤 1/6。--negative の担当外の赤 11 件もすべて (1j) で変異名は毎回違う ⇒ **#96 非帰属**(#96 のコードは `enemyCastSpell` の中でしか走らず、(1j) の合流判定は敵の詠唱を通らない)。全数走査の 1 回は素 26/26・neg 12/12 で緑。
+- **K2**(申し送り「`enemyAttackTurn` 経由のクールダウンは未確認」): 呼び口が await の後でクールダウンを立てるので、打ち消されても 3 = 本番の欠陥なし。(1e) で固定した。
+- **K3**(受入の測り方): 「乱数を引かない」を Math.random の総回数で測ると、飛翔体の絵(`spawnFireballProjectile` の毎フレームの火の粉)で ±1 揺れて偽の赤になる ⇒ 飛翔体を即解決に差し替え + 「tryCounterEnemySpell の中で引いた回数 = 0」で測った。
+- **K4**(年代記): 主人公の行は `equippedSkills` に counterspell が無いと「使わなかった技」に載らない(枠と装備技は別物 = 罠 C の写し)。(4c) の主人公の腕は `equippedSkills` に入れて測った。
+- 本番の欠陥: なし。
+
+### 12-5. 別チケット候補
+
+- `verify_lore_check` (1j) の乱数回数の assert が直列でも揺れる(K1)。測る窓の中に裏のループ(rAF / setInterval)の乱数が混ざっている疑い。余分な引きに頑丈な測り方へ。
+- 打ち消した回数を「戦いの記録」(#37)に出す欄(§11)。
+- #95 から持ち越し: `spellAtkBonus` の INT → WIS / カエルムの能力値 / 頭の僧侶の装備スキルの出所 / 唱えた手番の乱数の消費数の揺れ / `driver_action_priority --negative` N3 のアンカー腐り / `driver_grid_p8` (6d)(#62 以来の赤・今回も同じ中身)。
+- §11 の保留: ブレス・眼柄などの打ち消し(ユーザー決定で対象外)/ 専用の SFX / ボールト `spells.md` の更新(別 PC の宿題)。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(開発モード `tavern.html?dev=1` で巻物を 1G で買い、酒場で読み、枠を 1〜2 個割り当てる): 砦(オーク呪術師)や神殿(リッチ)で「打ち消した」が片手で見て分かるか / リッチ戦で破片の演出がフレームを落とさないか(iPhone)/ 出る頻度(少なすぎないか・ボスの前に空にならないか)/ 「暴君の火球は消せない」が不具合に見えないか。
+- 次の新規ドライバ base = **10636**。
