@@ -378,4 +378,70 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-21 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/r97/notes97_item1.md` / `notes97_item2.md` / `notes97_item3.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `3868b5f` | 項目1 本番: 品の表(新 8 品 + 古い 4 品を `retired: true` で残す + 目玉 4 品を SRD 名へ)・撤退 `?plazasrd=0`(`isPlazaSrdOn` / 効き目の口は全部 `plazaSrdHas` を通る)・`applyBattleStartSrdConsumables`(`runEncounter` の既存 2 行の間に 1 行)・`tryDrinkHealingPotion`(主人公と仲間の手番の頭)・`tryWandMagicMissile`(`mageAI` の末尾と主人公の `pickLeaderAction` の前)・パール(`applyRoomClearHeal` の既存の回復の後)・`getFireResistMult` / `currentPlayerAtkBonus` / `currentPlayerDmgBonus` にポーションとオイルの項。`tavern.html` の表の写し・在庫の抽選(`retired` とヒーリングを外し、ヒーリングは常設)・ポーション 3 本の上限(`plazaAtCapTV`)・開発用の行 + changelog 1 行(§10 の文面どおり) |
+| `8ad1982` | 項目2: 新規受入 `tools/verify_plaza_srd.js`(port 10636・素も変異も同じ port を順に・純 LF) |
+| 本節のコミット | 項目3: 母集団の非退行(全数走査)+ 変異アンカーの衝突 + 本節 + README の #97 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_plaza_srd` 素 | **27/27** ×4(項目2)+ 全数走査の中で 1 回 27/27 | 18〜22 |
+| `verify_plaza_srd --negative` | **8/8** ×2(項目2)+ 全数走査の中で 1 回 8/8。rngleak=(1a) / turnfree=(1b) / wandadvance=(3b) / pearllow=(4a) / oilnodmg=(2c) / nocap=(5a) / retiredshow=(5b) / leak=(6a)。巻き込みは rngleak の (1b)(1c) だけ = 乱数を列で固定して回復量を比べるので、頭で 1 つ余計に引くと列がずれる自然な連鎖 | 156〜160 |
+| §8 の既存 golden 11 本(20 腕) | 項目1 で着手前(post96)と同色。`driver_graph_kinds` の norestheal のアンカー健在・`verify_run_chronicle` (0c) の HP を引く点は不変(回復は `Math.min` で足す書き方だけ) | — |
+| 一時プローブ(コミットしない) | `r97/probe97.js` 26/26 ×3 | — |
+
+assert の中身(27 本 = 23 ラベル・§8 の番号と 1 対 1):
+
+| ラベル | 測ること(要点) |
+|---|---|
+| (0a) | 両ファイルの表に新 8 品(retired でない)/ 古 4 品 `retired: true` / 目玉 4 品の新しい名前 / 撤退スイッチと新しい関数 4 つ。赤なら以降を全部赤で打ち切る |
+| (0b) | 配信バイトから表の塊を読み、id ごとに name / maxCharges / price / tier / retired を両ファイルで突き合わせ(16 品)+ 実行時の定義も一致 |
+| (0c) | 盤面(goblin-mine の lane)が立つ・新 8 品 + 呪われた曲刀を仕込むと `countCharges` で読め、片付けで 0 |
+| (1a) | 持ち物なしの主人公 → 仲間の手番を種 3 つで回し、新しい木と **着手前の木(`git show f7b427e:index.html` を同じ port で配る)** で乱数の総回数・敵 HP・両者 HP が完全一致 + `tryDrinkHealingPotion` の中で引いた乱数 0 |
+| (1b)〜(1d) | 半分未満で飲む(2d4+2 をドライバが計算・持ち物 -1・その手番は攻撃しない)/ グレーターとの選び分け 4 通り / 半分ちょうど・召喚・眠り・スタンは飲まない |
+| (2a)〜(2d) | 炎の敵が居るときだけ 0.5 / ボスか 3 体で AC +4 / 同条件で命中とダメージ +3・`resetPlayerBuffs` で 0 / ダストは失敗した非ボスだけ stunned 3・乱数 2 回 |
+| (3a)〜(3d) | 枠 0 の仲間がワンドで撃つ / 11 マス・壁越しでは減らない / 枠が残れば使わない / 主人公は撃てば `pickLeaderAction` 0 回・撃たなければ 1 回 |
+| (4a)(4b) | 位の高い枠だけ +1(主人公満タンなら仲間)/ 減った枠なし・ボス部屋では減らない |
+| (5a)〜(5d) | 4 回買って 3 個・「所持上限」/ 抽選 200 回で古 4 品 0・ヒーリング常設・新品全部 1 回以上 / 開発モードだけ 8 品 1 牙貨 / 呪われた曲刀は着手前の木と同じ値 |
+| (6a)(6b) | `?plazasrd=0` で効き目の口が全部閉じる / 酒場の抽選に新品 0・古 4 品は出る |
+| (9a) | pageerror / console error 0 |
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `index.html` / `tavern.html` = 全ページが踏むファイルなので全数。HEAD `8ad1982` で **230 腕・671.0 分**(2.92 分/腕)= #96 の post96 の 228 腕(同順)+ `verify_plaza_srd` 素 / neg。直列・SKIP 再開型(窓落ちなし・2026-10-21 07:57 → 19:09)。git を読む本(32 腕)は `git clone --shared @8ad1982`(本番と 939 ファイルのバイト差 0)で。8765 は走査中 LISTEN なし(post96 と同じ条件)。
+- 結果: 緑 208 / 非緑 22。基準 post96(本番は `f7b427e` と index / tavern / audio が同一 = #97 の直前)と比べて 緑→赤 2・赤→緑 0・両方非緑 20・新規 2 腕は緑。
+- **緑→赤 2 腕はどちらも #97 非帰属**:
+  - `verify_tower_mother_b --negative`: 変異 intavern で担当外の (4a) が赤 = `index.html?towermother=0` の流れが制覇・帰還まで届かず `lastResult: null`(装置が観測できなかった型)。素は 22/22。本番で単独に再走 → **11/11 OK・担当外の赤 0・exit 0**。
+  - `driver_monsters_griffon` 素: `grifRearMid=0/N`・`mino=0/1` = #72 で既知の非決定な本と同じ指紋。本番で単独 3 回 → 緑 2 / 赤 1。#97 の無い影(`f7b427e` の clone・本番との差は #97 の 3 ファイルだけ)と交互 4 組 → **本番 緑 1/4・影 緑 2/4**(影でも同じ型で赤)。構造面でも、まっさらなプロファイルの autoplay は闇市の持ち物 0 ⇒ #97 の口は全部 `plazaSrdHas` で閉じ、乱数も DOM も触らない((1a) で着手前の木と乱数の総回数まで一致)。
+- 両方非緑の 20 腕は FAIL 行を集合で突き合わせ、18 腕は中身が同じ。DIFF 2 腕は `driver_mapdef_step1` (0b) = clone の commit の hash が違うだけ / `verify_codex_map_skill` (3a) = 焼き直しの件数 17 → 18(`3ca8938` の地下街の地図 = #97 の前の commit。NG の中身は同じ)。
+- ⇒ **#97 帰属の緑→赤 = 0**。tools の言い直しなし。
+- 変異アンカー衝突: 全 tools 202 ファイルの文字列リテラル 54,340 個を `f7b427e`→`8ad1982` の 3 ファイルで数え直した。件数が変わった 708 組のうち「1 だった / 1 になった / 0→出現」は 44 組で、38 組は `verify_plaza_srd` 自身(変異アンカー・撤退スイッチ・品 id・新しい名前)。残り 6 組は変異アンカーではない(`'missing'` = dict キー / 配列要素 / catch の戻り値 4 本、`' || 0) + 1)'` = hobgoblin / kobold の probe 注入文字列の部品 2 本。どれも index.html を検索・置換していない)⇒ **衝突 0**。
+
+### 12-4. 崩れた主張・依頼書から変えた点(K 番号)
+
+- 依頼書 §2 の再測定(基準 `3ca8938` の行番号まで)は全部一致 = **崩れた主張なし**。
+- 補足 1: `currentPlayerDmgBonus` には `onRay` の変数が無かった ⇒ 関数の頭に `const onRay = sovereignSuppressed("player");` を 1 行足し、§5-4 と同じ `(onRay ? 0 : …)` の形にした。
+- 補足 2(**依頼書に無い追加**): ワンドは反魔法の殻(shell)と光線の帯(ray)の上では使わない(`mageAI` の先頭と同じ扱い)。
+- 補足 3: 在庫は `enterPlaza` が来訪のたびに引き直すので、古い在庫の移行処理は不要(足していない)。
+- **K1**(port 8897 の共有): `verify_town_map` / `verify_run_chronicle` / `verify_party_four` / `verify_recruit_size` の 4 本が port 8897 を共有 ⇒ 並列に割ると EADDRINUSE で偽の赤(項目1 で 1 回踏んだ・#97 非帰属)。直列の全数走査では問題なし。
+- **K2**(受入の作り方): 複数タブを開くドライバは、裏のタブで rAF が止まる ⇒ 主人公の通常攻撃(飛び道具の演出待ち)が終わらず 300 秒で FATAL になった。index の検査の前に `page.bringToFront()`、酒場の検査の前に `tv0.bringToFront()` で解決。⭐ 一般形 = rAF に乗る演出を待つ関数を叩く前に、そのタブを表へ戻す。
+- 本番の欠陥: なし。
+
+### 12-5. 別チケット候補
+
+- K1 の port 8897 の共有をほどく(どれかの本を別 port へ)。
+- `driver_monsters_griffon` (3)(4) と `verify_tower_mother_b` の (4a)(autoplay の流れが帰還まで届かない)の揺れ。どちらも「1 件も観測できなかった」型 = 観測数の下限を装置 assert として分けると、揺れと退行を見分けやすい。
+- §11 の保留: 地下街の地図(段 2・#98)/ 装備品の独自品の置き換えと牙貨の橋渡し(段 3・#99)/ `consumeTrigger` の文字列の整理 / ボールトの更新(別 PC の宿題)。
+- #96 からの持ち越し: `verify_lore_check` (1j) の揺れ(今回の 1 回は素 26/26・neg 12/12 で緑)/ `driver_grid_p8` (6d) など両方非緑の既知 20 腕。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(`tavern.html?dev=1` の闇市で新しい品を 1 牙貨で買う): 仲間がポーションを飲む瞬間が分かるか / 手番を使って飲むことで押し負けていないか / 枠を使い切った魔法使いがワンドで撃ち続けるのが見えるか / 3 本の上限と値段が牙貨の稼ぎに合うか。
+- 次の新規ドライバ base = **10637**。
