@@ -539,12 +539,17 @@ const DOM_ROOTS = ['dialog', 'prep', 'shopScreen', 'plazaScreen'];
  *   2026-08-29 準備画面から マッチング画面 を開き直す 🎴 編成を見る:
  *     パーティ欄のヘッダで 2 つのボタンを span で包み、その中へ #btnPartyView を足した。
  *     → 増えたタグは span 1 つと button#btnPartyView.equipToggleBtn 1 つ (#btnReroll は不動)。
+ *
+ *   2026-10-21 #98 闇市の地下街 (実装依頼書 2026-10-21_plaza-undercity-map.md §2-6 / §5-1):
+ *     #plazaScreen の最初の子に、歩ける地図の器 div#plazaViewport を 1 枚足した。
+ *     → 増えたタグは div#plazaViewport 1 つだけ。舞台・主人公・暗幕・札・「← 地下街へ」は
+ *       js/map-walk.js と tavern.html の JS が実行時に生やすので、ここ (静的な HTML の形) には写らない。
  */
 const DOM_ADDED = {
   dialog:      [],
   prep:        ['span', 'button#btnPartyView.equipToggleBtn'],
   shopScreen:  [],
-  plazaScreen: [],
+  plazaScreen: ['div#plazaViewport'],
 };
 
 /* 現在の署名が「基準の署名 + 宣言済みの追加タグ (順序どおり)」ちょうどかを調べる。

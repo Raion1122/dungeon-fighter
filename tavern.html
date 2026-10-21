@@ -1966,6 +1966,62 @@
     .plazaBtn:hover { background: rgba(80,40,120,0.5); box-shadow: 0 0 10px rgba(69,224,168,0.4); }
     .plazaBtn.small { font-size: 13px; padding: 6px 14px; }
     .plazaBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* ── ★[#98] 闇市の地下街 (body.plazaMapOn = ?undercity=0 でない + 部品が読めたとき) ──────────
+       一枚絵 plaza_bg.png を敷かず、#plazaViewport (js/map-walk.js が舞台・主人公・暗幕・札を生やす) が全面。
+       パネルの板 #plazaInner は既定で隠し、露店か掲示板に着いたときだけ地図の上に浮かせる
+       (#plazaScreen[data-board="shop" | "quest"])。
+       ⭐ 露店ごとに絞るのは下の 4 行の CSS だけ (data-idx は通し = 購入の添字を崩さない)。
+       ⛔ .mwSign に transform: translate を書かない (中心寄せは JS のインライン translate)。
+       ⛔ 暗幕・舞台に filter / backdrop-filter / mix-blend-mode を使わない (会議の決定)。 */
+    body.plazaMapOn #plazaScreen { background: #07040c; }
+    #plazaViewport { position: absolute; inset: 0; overflow: hidden; z-index: 0; touch-action: manipulation; }
+    body.plazaMapOn #plazaInner {
+      position: relative; z-index: 10; display: none;
+      width: 560px; max-width: 94vw; max-height: 86vh;
+      background: rgba(10,6,18,0.86); border: 2px solid var(--parchment-border); border-radius: 8px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.8);
+    }
+    body.plazaMapOn #plazaScreen[data-board] #plazaInner { display: block; }
+    body.plazaMapOn #plazaSign { display: none; }
+    body.plazaMapOn #plazaScreen[data-board="shop"] .plazaPanel:has(#plazaQuestBoard),
+    body.plazaMapOn #plazaScreen[data-board="quest"] .plazaPanel:has(#plazaShop) { display: none; }
+    body.plazaMapOn .plazaCols { margin-top: 0; }
+    #plazaShop[data-open-stall] .plazaStub { display: none; }
+    #plazaShop[data-open-stall="potion"] .pshopItem:not([data-stall="potion"]),
+    #plazaShop[data-open-stall="wand"] .pshopItem:not([data-stall="wand"]),
+    #plazaShop[data-open-stall="summon"] .pshopItem:not([data-stall="summon"]),
+    #plazaShop[data-open-stall="curio"] .pshopItem:not([data-stall="curio"]) { display: none; }
+    #plazaStallEmpty[hidden] { display: none; }
+    .plazaActions .plazaBtn + .plazaBtn { margin-left: 10px; }
+    /* 地下街の札 = 酒場の .tavernSign と同じ羊皮紙の作法 (⛔ セレクタは共有しない) */
+    .mwSign {
+      --sp-paper-img: url("assets/parchment_plaza.jpg");
+      --sp-wash: 0.30;
+      --sp-ink: #2e2113;
+      --sp-ink-soft: #4a3413;
+      --sp-edge: rgba(120,86,44,0.85);
+      min-width: 128px; max-width: 260px;
+      padding: 5px 14px 6px;
+      text-align: center;
+      font-family: 'MedievalSharp', 'Cinzel', serif;
+      color: var(--sp-ink);
+      border: 1px solid var(--sp-edge);
+      border-radius: 2px;
+      background-image: linear-gradient(rgba(246,232,198,var(--sp-wash)), rgba(246,232,198,var(--sp-wash))),
+                        var(--sp-paper-img);
+      background-size: auto, cover;
+      background-position: center, center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6), 0 0 14px rgba(255,190,110,0.25), inset 0 0 18px rgba(120,80,30,0.25);
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.2s ease;
+    }
+    .mwSign:hover { transform: scale(1.06); }
+    .mwSign .mwSignName { display: block; font-size: 16px; line-height: 1.25; letter-spacing: 0.04em; color: var(--sp-ink); pointer-events: none; }
+    .mwSign .mwSignDesc { display: block; margin-top: 1px; font-size: 12px; line-height: 1.3; color: var(--sp-ink-soft); pointer-events: none; }
+    .mwSign.mwExitSign { min-width: 108px; }
+    .mwSign.mwExitSign .mwSignName { font-size: 15px; }
+    .mwHero { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)); }
+    .mwGoal { border: 2px dashed rgba(255,214,140,0.75); border-radius: 50%; box-sizing: border-box; transition: opacity 0.15s ease; }
     /* ════════ 闇クエスト掲示板 = 依頼札 (羊皮紙カード) ════════
        紙の質感は【直下の #plazaQuestBoard 変数ブロック】だけで決まる (他のルールは触らない)。
        将来 酒場側へ同じ札を展開する時も、変数の上書きだけで色が変わる。
@@ -2879,6 +2935,8 @@
          → tools/verify_tavern_map.js の (0a) が母集団ガードとして毎回これを見る。
        ⭐ 撤退 ?tavernmap=0 のときも読み込みは残す (分岐は body.tavernMapOn の 1 か所だけ)。 -->
   <script src="js/tavern-map.js"></script>
+  <script src="js/map-walk.js"></script><!-- ★[#98] 歩きの部品 (闇市の地下街だけが使う。酒場の店内 initTavernMap は使わない) -->
+  <script src="js/plaza-map.js"></script><!-- ★[#98] 地下街の通行マスク / 露店 / 出口 / 立ち位置の唯一の正。⚠ 外すと闇市はパネル 2 枚へ落ちる -->
   <script src="js/npc-crowd.js"></script><!-- 酒場と街の NPC 配置の唯一の正 (#41)。⚠ *-map.js より後。撤退 ?npc=0 -->
 </head>
 <body>
@@ -3349,10 +3407,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市が歩ける地下街に</b> — 薬屋・杖屋・召喚屋・古物商の露店を灯りを手に巡れる。港町の石段からも出入りできる。</li>
         <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
         <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
         <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。覚えると酒場の呪文一覧にも並ぶ。</li>
-        <li><b>廃坑の入口とファラクサス戦に専用曲</b> — 廃坑の最初の部屋では暗い坑道の曲が、竜の巣の決戦では業火の行進が流れるようになった。</li>
       </ul>
     </div>
     <script>
@@ -3390,6 +3448,7 @@
 
     <!-- 闇市 ポドルプラザ 画面 (theme-plaza) -->
     <div id="plazaScreen" class="theme-plaza">
+      <div id="plazaViewport"></div>
       <div id="plazaInner">
         <div id="plazaSign">ポドルプラザ<small>闇市 — 表の世界には無い品が揃う場所</small></div>
         <div class="plazaCols">
@@ -10188,7 +10247,135 @@
       head.setAttribute("aria-expanded", "false");
     });
   }
-  function openPlazaScreen() {
+  /* ══ 闇市の地下街 = 歩ける地図 (実装依頼書 #98 §5) ══════════════════════════════
+     ★ 歩きの部品は js/map-walk.js (window.MAP_WALK)、通行マスク / 露店 / 掲示板 / 出口 / 立ち位置 /
+       品と露店の対応は js/plaza-map.js (window.PLAZA_MAP) が唯一の正。⛔ ここに写しを作らない。
+     ⛔ 酒場の店内の歩き (initTavernMap) とは何も共有しない (ユーザー決定 = 酒場は 1 バイトも変えない)。
+     ⭐ 露店ごとに絞るのは CSS だけ (#plazaShop[data-open-stall] × .pshopItem[data-stall])。
+       renderPlazaShop は今までどおり全行を描き、data-idx は通しのまま (罠 B = #97 (5a))。
+     ⭐ 舞台・主人公・暗幕・札・「← 地下街へ」は全部 JS が生やす。静的 DOM は #plazaViewport 1 枚だけ
+       (tools/verify_tavern_map.js の DOM_ADDED.plazaScreen に申告済み)。 */
+
+  /* ★[#98] 撤退 ?undercity=0 — 闇市を #97 までのパネル 2 枚の画面へ戻す。
+     ⚠ 判定はここ 1 か所 (酒場の ?questdraw=0 と同じ作法)。⚠ クエリはページ遷移をまたがない (dev 専用)。 */
+  function isUndercityOnTV() {
+    try { return new URLSearchParams(location.search).get("undercity") !== "0"; } catch (e) { return true; }
+  }
+  /* 起動時に 1 回だけ決める (initUndercityTV)。部品が読めていないときも OFF と同じ姿へ落とす。 */
+  var plazaUndercityOnTV = false;
+  var plazaWalkTV = null;            // MAP_WALK.create の戻り値 (初回の入場で 1 回だけ作る)
+  var plazaOpenStallTV = null;       // 開いている露店の key (板が閉じていれば null)
+
+  /* renderPlazaShop の行に付ける露店の印。OFF のときは空文字 = #97 と 1 バイトも同じ HTML */
+  function plazaStallAttrTV(itemId) {
+    if (!plazaUndercityOnTV) return "";
+    const k = window.PLAZA_MAP.stallOf(itemId);
+    return ' data-stall="' + (k || "") + '"';
+  }
+  function plazaPanelOfTV(innerId) {
+    const el = document.getElementById(innerId);
+    return el ? el.closest(".plazaPanel") : null;
+  }
+  /* 開いている露店に並ぶ行が 0 なら「今日は何も並んでいない……」を出す */
+  function plazaSyncEmptyStallTV() {
+    const note = document.getElementById("plazaStallEmpty");
+    const shop = document.getElementById("plazaShop");
+    if (!note || !shop) return;
+    const k = plazaOpenStallTV;
+    note.hidden = !k || !!shop.querySelector('.pshopItem[data-stall="' + k + '"]');
+  }
+  function plazaCloseBoardTV() {
+    const s = document.getElementById("plazaScreen");
+    const shop = document.getElementById("plazaShop");
+    if (s) s.removeAttribute("data-board");
+    if (shop) shop.removeAttribute("data-open-stall");
+    plazaOpenStallTV = null;
+    plazaSyncEmptyStallTV();
+  }
+  function plazaOpenBoardTV(which) {
+    const s = document.getElementById("plazaScreen");
+    if (!s) return;
+    s.setAttribute("data-board", which);
+    const panel = plazaPanelOfTV(which === "shop" ? "plazaShop" : "plazaQuestBoard");
+    const head = document.getElementById(which === "shop" ? "plazaShopHead" : "plazaQuestHead");
+    if (panel) panel.classList.remove("collapsed");
+    if (head) head.setAttribute("aria-expanded", "true");
+    const inner = document.getElementById("plazaInner");
+    if (inner) inner.scrollTop = 0;
+  }
+  /* 露店に着いた: その露店の品だけを見せる品の板を開く */
+  function openStall(key) {
+    const shop = document.getElementById("plazaShop");
+    if (!shop) return;
+    plazaOpenStallTV = key;
+    shop.setAttribute("data-open-stall", key);
+    plazaOpenBoardTV("shop");
+    plazaSyncEmptyStallTV();
+  }
+  /* 掲示板に着いた: 闇クエストの板だけを開く */
+  function openBoard() {
+    const shop = document.getElementById("plazaShop");
+    if (shop) shop.removeAttribute("data-open-stall");
+    plazaOpenStallTV = null;
+    plazaSyncEmptyStallTV();
+    plazaOpenBoardTV("quest");
+  }
+  /* 港町への石段: exitVia を書いてから港町へ。⛔ enterVia を書かない / ⛔ クエリを足さない */
+  function plazaExitToTownTV() {
+    try { sessionStorage.setItem("dragonfighters.exitVia", "plaza"); } catch (e) {}
+    location.href = "town.html";
+  }
+  function plazaHeroSheetTV() {
+    let k = "warrior";
+    try { k = getHeroClass(); } catch (e) {}
+    if (ALL_CLASS_KEYS.indexOf(k) < 0) k = "warrior";   // ⚠ 知らないキーは 404 で主人公が消える
+    return "assets/" + k + "_walk.png";
+  }
+  /* 地図を初回だけ生やし、札を立てる */
+  function plazaBuildWalkTV(spawn) {
+    const vp = document.getElementById("plazaViewport");
+    const PM = window.PLAZA_MAP;
+    const w = window.MAP_WALK.create({
+      map: PM, viewport: vp,
+      image: "assets/plaza_undercity.jpg",
+      heroSheet: plazaHeroSheetTV(),
+      spawn: spawn,
+      light: { inner: 192, outer: 384, alpha: 0.72 },   // 初期値 (内 3 マス / 外 6 マス)。§9 の実機で動かす
+      signPrefix: "plazaSign_"
+    });
+    const goSign = function (f, onArrive) {
+      return function () {
+        plazaCloseBoardTV();
+        w.walkTo(f.enter[0], f.enter[1], onArrive, f.key);   // ⭐ key を渡す = 連打の吸収 (罠 A)
+      };
+    };
+    PM.STALLS.forEach(function (st) {
+      w.addSign({ key: st.key, name: st.name, desc: st.desc, tile: st.sign,
+                  onClick: goSign(st, function () { openStall(st.key); }) });
+    });
+    w.addSign({ key: PM.BOARD.key, name: PM.BOARD.name, desc: PM.BOARD.desc, tile: PM.BOARD.sign,
+                onClick: goSign(PM.BOARD, openBoard) });
+    PM.EXITS.forEach(function (ex) {
+      if (ex.to && window.__townOff) return;     // ⛔ ?town=0 では港町への札を DOM に作らない
+      const done = ex.to ? plazaExitToTownTV : closePlaza;
+      w.addSign({ key: ex.key, name: ex.name, desc: ex.desc, tile: ex.sign, cls: "mwExitSign",
+                  onClick: goSign(ex, done) });
+    });
+    /* 地図の空きタイルを押したら (歩きは部品が始める) 板を閉じる */
+    vp.addEventListener("click", function () { plazaCloseBoardTV(); });
+    return w;
+  }
+  /* openPlazaScreen の最後 (display = "flex" の後) に呼ぶ */
+  function plazaMapAfterOpenTV(from) {
+    if (!plazaUndercityOnTV) return;
+    const sp = window.PLAZA_MAP.spawnFor(from === "town" ? "town" : "tavern");
+    if (!plazaWalkTV) plazaWalkTV = plazaBuildWalkTV(sp);
+    else plazaWalkTV.hero.style.backgroundImage = 'url("' + plazaHeroSheetTV() + '")';
+    plazaCloseBoardTV();
+    plazaWalkTV.placeAt(sp.c, sp.r);
+    plazaWalkTV.layout();                        // ⚠ 隠れていた間の寸法 0 を捨てる (見せた後に必ず)
+  }
+  function openPlazaScreen(from) {
     const s = document.getElementById("plazaScreen");
     if (!s) return;
     wirePlazaPanelToggles();
@@ -10199,9 +10386,12 @@
     try { renderPlazaShop(); } catch (e) {}
     try { updatePlazaFangCount(); } catch (e) {}
     s.style.display = "flex";
+    try { plazaMapAfterOpenTV(from); } catch (e) { console.warn("[plaza] 地下街の地図を開けなかった", e); }   // ★[#98]
   }
   function closePlaza() {
     const s = document.getElementById("plazaScreen");
+    if (plazaWalkTV) { try { plazaWalkTV.stop(); } catch (e) {} }   // ★[#98] 歩きの rAF を残さない
+    if (plazaUndercityOnTV) plazaCloseBoardTV();
     if (s) s.style.display = "none";
   }
   async function enterPlaza(opts) {
@@ -10215,12 +10405,15 @@
       await playPlazaOverlayNarration("📜 ポドルプラザ — 門番",
         ["……ほう。本物の術師か。通りな……。"], "plaza_enter_innate");
     }
-    openPlazaScreen();
+    openPlazaScreen(opts && opts.from);          // ★[#98] どこから入ったか = 地下街の立ち位置
   }
-  async function onTapPlazaDoor() {
+  async function onTapPlazaDoor(opts) {
     try { if (window.GameAudio && GameAudio.unlock) GameAudio.unlock(); } catch (e) {}
-    if (hasInnateDisguise()) { await enterPlaza({ chargeConsumed: false, innate: true }); return; }
-    if (consumeChargeTV("wand_polymorph")) { await enterPlaza({ chargeConsumed: true, innate: false }); return; }
+    /* ★[#98] 港町の石段から来たときだけ from = "town" (initEnterVia)。扉のクリック (event) は酒場側へ落ちる。
+       ⚠ 門番の判定はどこから来ても必ず通す。 */
+    const from = (opts && opts.from === "town") ? "town" : "tavern";
+    if (hasInnateDisguise()) { await enterPlaza({ chargeConsumed: false, innate: true, from: from }); return; }
+    if (consumeChargeTV("wand_polymorph")) { await enterPlaza({ chargeConsumed: true, innate: false, from: from }); return; }
     // 変装手段なし → 門番に追い返される (初回は杖の低Tierドロップを解放 = チュートリアル)
     const firstReject = !plazaStateTV.gatekeeperEventSeen;
     if (firstReject) {
@@ -10486,7 +10679,7 @@
       const chips = def.maxCharges ? inst.map(ch => ch + '/' + def.maxCharges).join('  ') : ('×' + inst.length);
       const capped = plazaAtCapTV(s.itemId);       // ★[#97] 所持上限ならボタンを無効にして「所持上限」
       const canBuy = fang >= s.price && !capped;
-      html += '<div class="pshopItem">' +
+      html += '<div class="pshopItem"' + plazaStallAttrTV(s.itemId) + '>' +   // ★[#98] 露店の印 (ON のときだけ)
         '<div class="pshopMain"><span class="pshopName">' + def.name + '</span>' +
         (def.maxCharges ? '<span class="pshopMax">' + def.maxCharges + 'チャージ</span>' : '') +
         (s.kind === 'always' ? '<span class="pshopTag">常設</span>' : '') +
@@ -10526,6 +10719,64 @@
         srdOn: isPlazaSrdOnTV, atCap: plazaAtCapTV, shopRows: plazaShopRowsTV,
         newIds: PLAZA_SRD_NEW_IDS_TV.slice(), potionIds: PLAZA_POTION_IDS_TV.slice(), potionCap: PLAZA_POTION_CAP_TV,
         departPlaza: () => { plazaSelectedIdx = 0; onPlazaDepart(); },
+      });
+    } catch (e) {}
+  })();
+  /* ★[#98] 闇市の地下街の起動 — ON / OFF をここで 1 回だけ決める (判定は isUndercityOnTV の 1 か所)。
+     OFF (?undercity=0) / 部品の読み込み失敗 = #plazaViewport を DOM から remove する
+     (display:none で残さない = 酒場の ?tavernmap=0 と同じ作法)。data-stall も付かない = #97 と同じ姿。 */
+  (function initUndercityTV() {
+    const vp = document.getElementById("plazaViewport");
+    const want = isUndercityOnTV();
+    const parts = !!(window.PLAZA_MAP && window.MAP_WALK);
+    if (want && !parts) console.warn("[plaza] js/map-walk.js / js/plaza-map.js が読めていない → 闇市はパネル 2 枚の画面へ落とす");
+    plazaUndercityOnTV = want && parts && !!vp;
+    if (!plazaUndercityOnTV) {
+      if (vp) vp.remove();
+      try { window.__plazaTV.map = Object.freeze({ on: false }); } catch (e) {}
+      return;
+    }
+    document.body.classList.add("plazaMapOn");
+    /* 板を閉じて地図へ戻るボタン (静的 DOM を増やさない = JS で生やす) */
+    const acts = document.querySelector("#plazaInner .plazaActions");
+    if (acts) {
+      const back = document.createElement("button");
+      back.type = "button";
+      back.id = "btnPlazaBackToMap";
+      back.className = "plazaBtn";
+      back.textContent = "← 地下街へ";
+      back.addEventListener("click", plazaCloseBoardTV);
+      acts.insertBefore(back, acts.firstChild);
+    }
+    /* 空の露店の一言 (品の板の中・#plazaShop の直後)。renderPlazaShop の描き直しのたびに数え直す */
+    const shop = document.getElementById("plazaShop");
+    if (shop && shop.parentNode) {
+      const note = document.createElement("div");
+      note.id = "plazaStallEmpty";
+      note.className = "plazaStub";
+      note.textContent = "今日は何も並んでいない……";
+      note.hidden = true;
+      shop.parentNode.insertBefore(note, shop.nextSibling);
+      try { new MutationObserver(plazaSyncEmptyStallTV).observe(shop, { childList: true }); } catch (e) {}
+    }
+    /* 検証の窓 (読み取り専用)。⛔ 状態を書き換える口は作らない */
+    const W = function () { return plazaWalkTV; };
+    try {
+      window.__plazaTV.map = Object.freeze({
+        on: true,
+        heroTile:  function () { return W() ? W().heroTile() : null; },
+        heroPx:    function () { return W() ? W().heroPx() : null; },
+        isMoving:  function () { return W() ? W().isMoving() : false; },
+        zoom:      function () { return W() ? W().zoom() : null; },
+        walkingTo: function () { return W() ? W().walkingTo() : null; },
+        geom:      function () { return W() ? W().geom() : null; },
+        clientFromTile: function (c, r) { return W() ? W().clientFromTile(c, r) : null; },
+        tileFromClient: function (x, y) { return W() ? W().tileFromClient(x, y) : null; },
+        signKeys:  function () { return W() ? W().signKeys() : []; },
+        openStall: function () { return plazaOpenStallTV; },
+        board:     function () { const s = document.getElementById("plazaScreen"); return s ? s.getAttribute("data-board") : null; },
+        lightCenter: function () { return W() ? W().lightCenter() : null; },
+        footClient:  function () { return W() ? W().footClient() : null; }
       });
     } catch (e) {}
   })();
@@ -10663,7 +10914,7 @@
     if (!via || via === "tavern") return;      // 🦌 と「キー無し」は素の酒場 = 今日と同じ
     try {
       if (via === "shop") openShop();
-      else if (via === "plaza") onTapPlazaDoor();
+      else if (via === "plaza") onTapPlazaDoor({ from: "town" });   // ★[#98] 地下街は港町の石段の踊り場に立つ
     } catch (e) {
       /* ⛔ 握り潰さない。開けなかったら素の酒場に居る = 詰まないが、原因は残す。 */
       console.warn("[town] enterVia=" + via + " の受け口で失敗", e);
