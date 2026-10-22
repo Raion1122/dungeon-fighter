@@ -308,7 +308,7 @@
     var parts = [];
     if (bd.abilityAbbr) parts.push(bd.abilityAbbr + sgn(bd.abilityMod));
     if (bd.prof) parts.push("習" + sgn(bd.prof));
-    if (bd.item) parts.push("装" + sgn(bd.item));   // 装備由来 (軽業師の革装束など)
+    if (bd.item) parts.push("装" + sgn(bd.item));   // 装備由来 (グラマードスタデッドレザーなど)
     if (bd.help) parts.push("助" + sgn(bd.help));   // 補助役からの Help ボーナス
     if (bd.extra) parts.push("技" + sgn(bd.extra));
     return (parts.length ? parts.join(" ") + " " : "") + totalStr;

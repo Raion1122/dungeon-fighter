@@ -3407,10 +3407,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>装備品の名前を D&amp;D の品の名前に</b> — 独自の名前だった装備品 19 品を、D&amp;D の品の名前に改めた(強さはそのまま。持っている品もそのまま残る)。</li>
         <li><b>闇市が歩ける地下街に</b> — 薬屋・杖屋・召喚屋・古物商の露店を灯りを手に巡れる。港町の石段からも出入りできる。</li>
         <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
         <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
-        <li><b>僧侶に戦う祈り</b> — 聖典で覚える新呪文。守護霊が周りの敵を焼き、霊の武器が宙を舞って打ちかかる。覚えると酒場の呪文一覧にも並ぶ。</li>
       </ul>
     </div>
     <script>
@@ -4396,7 +4396,7 @@
       bonusDmgDice: "1d6", bonusDmgType: "fire", gated: true },
     { name: "フロストブランド",    dmgDice: "1d8", spec: "1d8 +1 +1d6氷 / 火半減", range: "melee", flavor: "凍気を宿す刃。竜の業火をも刃で殺ぎ落とす対竜の剣 (+1d6 cold)", enhancement: 1, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "cold", fireResist: 0.5, gated: true },
-    { name: "聖別された剣",        dmgDice: "1d8", spec: "1d8 +1 +1d6聖 / 対アンデッド特効", range: "melee", flavor: "神殿の祭壇で清められた刃。振るえば金色の光を放ち、死せる者を灼き浄める (+1d6 holy)", enhancement: 1, rarity: "special",
+    { name: "サンブレード",        dmgDice: "1d8", spec: "1d8 +1 +1d6聖 / 対アンデッド特効", range: "melee", flavor: "柄だけの剣に陽光の刃が宿る。光は死せる者をことさら灼く", enhancement: 1, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "holy", vsUndead: true, gated: true },
   ];
   const ARMORS = [
@@ -4419,12 +4419,12 @@
     { name: "ハンドアックス",         dmgDice: "1d6", spec: "1d6",       range: "melee", flavor: "ドワーフ族の標準的な片手斧", enhancement: 0, rarity: "common" },
     { name: "戦斧",                   dmgDice: "1d8", spec: "1d8",       range: "melee", flavor: "両手で振るう重量級の戦斧", enhancement: 0, rarity: "common" },
     { name: "鍛えしバトルアックス +1", dmgDice: "1d8", spec: "1d8 +1",    range: "melee", flavor: "氏族の鍛冶神に祝福された逸品", enhancement: 1, rarity: "rare" },
-    { name: "雷鳴の斧",               dmgDice: "1d8", spec: "1d8 +1d8雷 / 周囲1マス余波 1d4雷 (STR DC13 半減)", range: "melee", flavor: "命中時に雷鳴を放ち、衝撃波で周囲1マスの敵にも追撃する", enhancement: 0, rarity: "special",
+    { name: "ジャイアントスレイヤー",               dmgDice: "1d8", spec: "1d8 +1d8雷 / 周囲1マス余波 1d4雷 (STR DC13 半減)", range: "melee", flavor: "巨人殺しの大斧。命中のたびに雷鳴が轟き、衝撃が周りの敵へ走る", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d8", bonusDmgType: "lightning",
       shockwaveDice: "1d4", shockwaveType: "lightning", shockwaveSaveDC: 13 },
-    // 第4弾「五職のマジック武器」: 熔鉄の戦鎚。⚠ index.html の DWARF_WEAPONS と
+    // 第4弾「五職のマジック武器」: ドワーヴンスロウワー。⚠ index.html の DWARF_WEAPONS と
     //   name / enhancement / bonus* / shockwave* を完全一致させること (所持は名前キー)。
-    { name: "熔鉄の戦鎚",             dmgDice: "1d8", spec: "1d8 +1 +1d6炎 / 周囲1マス熱波 1d6炎 (STR DC14)", range: "melee", flavor: "地の底の溶鉄溜まりで鍛えられた戦鎚。打ち下ろすたび赤熱し、砕けた床から熱波が周囲へ噴き上がる", enhancement: 1, rarity: "special", gated: true,
+    { name: "ドワーヴンスロウワー",             dmgDice: "1d8", spec: "1d8 +1 +1d6炎 / 周囲1マス熱波 1d6炎 (STR DC14)", range: "melee", flavor: "ドワーフの鍛冶が鍛えた戦鎚。打てば炉の熱が噴き出し、周りの敵まで焼く", enhancement: 1, rarity: "special", gated: true,
       bonusDmgDice: "1d6", bonusDmgType: "fire",
       shockwaveDice: "1d6", shockwaveType: "fire", shockwaveSaveDC: 14 },
   ];
@@ -4432,10 +4432,10 @@
     { name: "チェインメイル",      spec: "AC +2",     flavor: "ドワーフが好む鎖編みの鎧", enhancement: 2, rarity: "common" },
     { name: "スケイルメイル +1",   spec: "AC +3",     flavor: "鱗状の金属片を縫い込んだ鎧", enhancement: 3, rarity: "uncommon" },
     { name: "ドワーフの板金鎧",     spec: "AC +4",     flavor: "氏族伝統の鎧、重いが頑丈", enhancement: 4, rarity: "common" },
-    // 第3弾「生き延びる者の遺品」: 山守りの板金鎧。AC は最上位と同値のまま、セービングスロー
+    // 第3弾「生き延びる者の遺品」: ドワーヴンプレート。AC は最上位と同値のまま、セービングスロー
     //   全般 (恐怖・眩惑・眠り・畏怖・重圧・ブレス・轢殺) に +2。効果は index.html の getSaveBonus が読む。
     //   ⚠ index.html の DWARF_ARMORS と name / enhancement / saveBonus を完全一致させること。
-    { name: "山守りの板金鎧",      spec: "AC +4 / セーヴ +2", flavor: "山の民が坑道の毒と落盤を生き延びるために誂えた板金鎧。鉄に山の芯が編み込まれ、纏う者の心胆を揺るがせない", enhancement: 4, rarity: "special", gated: true,
+    { name: "ドワーヴンプレート",      spec: "AC +4 / セーヴ +2", flavor: "ドワーフの名工が鍛えた板金鎧。山の芯が編み込まれ、毒にも呪いにも耐える", enhancement: 4, rarity: "special", gated: true,
       saveBonus: 2 },
   ];
   const DWARF_SHIELDS = [
@@ -4449,10 +4449,10 @@
     { name: "ヘビーメイス",        dmgDice: "1d8", spec: "1d8",       range: "melee", flavor: "神殿で使われる重い片手メイス", enhancement: 0, rarity: "common" },
     { name: "モーニングスター",    dmgDice: "1d10", spec: "1d10",     range: "melee", flavor: "棘付きの頭部を持つ威力重視のメイス", enhancement: 0, rarity: "common" },
     { name: "聖印のメイス +1",     dmgDice: "1d10", spec: "1d10 +1",  range: "melee", flavor: "神官の聖印が刻まれた祝福の武器", enhancement: 1, rarity: "rare" },
-    { name: "吸命のメイス",        dmgDice: "1d8",  spec: "1d8 / 命中時 1d4回復", range: "melee", flavor: "命中時に敵の生命力を1d4 HP吸収", enhancement: 0, rarity: "special",
+    { name: "メイスオブスマイティング",        dmgDice: "1d8",  spec: "1d8 / 命中時 1d4回復", range: "melee", flavor: "打ち据えた敵から生命を奪う鎚矛(命中時 1d4 回復)", enhancement: 0, rarity: "special",
       lifeStealDice: "1d4" },
-    // 第4弾「五職のマジック武器」: 贖罪のメイス。⚠ index.html の CLERIC_WEAPONS と完全一致させること。
-    { name: "贖罪のメイス",        dmgDice: "1d10", spec: "1d10 +1 +1d6聖 / 命中時 1d6回復", range: "melee", flavor: "罪を購う者に授けられた鈍器。打ち据えた不浄を聖なる光に変え、その熱を振るい手の傷へ返す", enhancement: 1, rarity: "special", gated: true,
+    // 第4弾「五職のマジック武器」: メイスオブディスラプション。⚠ index.html の CLERIC_WEAPONS と完全一致させること。
+    { name: "メイスオブディスラプション",        dmgDice: "1d10", spec: "1d10 +1 +1d6聖 / 命中時 1d6回復", range: "melee", flavor: "不浄を砕く聖なる鎚矛。打ち据えるたび、聖なる光が持ち主の傷を塞ぐ", enhancement: 1, rarity: "special", gated: true,
       bonusDmgDice: "1d6", bonusDmgType: "holy", lifeStealDice: "1d6" },
   ];
   const CLERIC_ARMORS = [
@@ -4472,11 +4472,11 @@
     { name: "スリング",                dmgDice: "1d4", spec: "1d4",      range: "medium", flavor: "投石器、距離はあるが威力は控えめ", enhancement: 0, rarity: "common" },
     { name: "クォータースタッフ",      dmgDice: "1d6", spec: "1d6",      range: "melee",  flavor: "頑丈な木の杖、両端で打ち合う近接武器", enhancement: 0, rarity: "common" },
     { name: "鉄鋲のクォータースタッフ +1", dmgDice: "1d6", spec: "1d6 +1", range: "melee", flavor: "鉄鋲を打ち込んだ強化スタッフ", enhancement: 1, rarity: "rare" },
-    { name: "嵐のスタッフ",            dmgDice: "1d6", spec: "1d6 +1d6雷", range: "melee", flavor: "命中時に雷の力を放つ秘術の杖 (+1d6 lightning)", enhancement: 0, rarity: "special",
+    { name: "スタッフオブサンダーアンドライトニング",            dmgDice: "1d6", spec: "1d6 +1d6雷", range: "melee", flavor: "雷を宿す杖。打てば稲妻が走る(+1d6 雷)", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "lightning" },
-    // 第4弾「五職のマジック武器」: 星詠みの杖。射程が中距離になり、仲間の魔法使いが近接へ出なくなる。
+    // 第4弾「五職のマジック武器」: スタッフオブフロスト。射程が中距離になり、仲間の魔法使いが近接へ出なくなる。
     //   ⚠ index.html の MAGE_WEAPONS と name / range / enhancement / bonus* を完全一致させること。
-    { name: "星詠みの杖",              dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 中距離", range: "medium", flavor: "先端に星の欠片を戴く長杖。詠み手は間合いの外から凍える光を落とし、埃ひとつ被らずに戦を終える", enhancement: 1, rarity: "special", gated: true,
+    { name: "スタッフオブフロスト",              dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 中距離", range: "medium", flavor: "霜をまとう長杖。間合いの外から凍気の一撃を放つ", enhancement: 1, rarity: "special", gated: true,
       bonusDmgDice: "1d6", bonusDmgType: "cold" },
   ];
   const MAGE_ARMORS = [
@@ -4495,10 +4495,10 @@
     { name: "ロングボウ",          dmgDice: "1d8", spec: "1d8",      range: "bow", flavor: "森エルフ伝統の長弓、遠距離精密射撃用", enhancement: 0, rarity: "common" },
     { name: "複合弓",              dmgDice: "1d8", spec: "1d8",      range: "bow", flavor: "層状に貼り合わせた強化弓、貫通力に優れる", enhancement: 0, rarity: "uncommon" },
     { name: "エルフの精霊弓 +1",   dmgDice: "1d8", spec: "1d8 +1",   range: "bow", flavor: "森の精霊が祝福した銀の弓", enhancement: 1, rarity: "rare" },
-    { name: "霜咬みの弓",          dmgDice: "1d8", spec: "1d8 +1d6氷 / クリ時 1Tスタン", range: "bow", flavor: "凍てつく矢を放つ氷雪魔法弓 (+1d6 cold)", enhancement: 0, rarity: "special",
+    { name: "ヴィシャスウェポン(ロングボウ)",          dmgDice: "1d8", spec: "1d8 +1d6氷 / クリ時 1Tスタン", range: "bow", flavor: "凍てつく矢を放つ獰猛な弓。会心の一矢は敵を凍りつかせ動きを止める", enhancement: 0, rarity: "special",
       bonusDmgDice: "1d6", bonusDmgType: "cold", critStun: 1 },
-    // 第4弾「五職のマジック武器」: 風斬りの弓。⚠ index.html の ELF_WEAPONS と完全一致させること。
-    { name: "風斬りの弓",          dmgDice: "1d8", spec: "1d8 +1 +1d6雷 / クリ時 1Tスタン", range: "bow", flavor: "弦を引くと大気が鳴く長弓。放たれた矢は風を裂いて雷を纏い、貫かれた者は一瞬だけ痺れて立ち尽くす", enhancement: 1, rarity: "special", gated: true,
+    // 第4弾「五職のマジック武器」: オースボウ。⚠ index.html の ELF_WEAPONS と完全一致させること。
+    { name: "オースボウ",          dmgDice: "1d8", spec: "1d8 +1 +1d6雷 / クリ時 1Tスタン", range: "bow", flavor: "エルフ語の誓いが刻まれた長弓。矢は雷をまとい、会心の一矢は敵を痺れさせる", enhancement: 1, rarity: "special", gated: true,
       bonusDmgDice: "1d6", bonusDmgType: "lightning", critStun: 1 },
   ];
   const ELF_ARMORS = [
@@ -4517,20 +4517,20 @@
     { name: "盗賊の短剣",        dmgDice: "1d4", spec: "1d4",      range: "melee", flavor: "盗賊ギルドで支給される標準ダガー", enhancement: 0, rarity: "common" },
     { name: "レイピア",          dmgDice: "1d6", spec: "1d6",      range: "melee", flavor: "細身の刺突剣、貴族や暗殺者が好む", enhancement: 0, rarity: "common" },
     { name: "暗殺者の刃 +1",     dmgDice: "1d4", spec: "1d4 +1",   range: "melee", flavor: "影の組合に伝わる細工の短剣", enhancement: 1, rarity: "rare" },
-    { name: "影縫の刃",          dmgDice: "1d6", spec: "1d6 / クリ時 1Tスタン", range: "melee", flavor: "クリティカル時に対象の影を縫い 1ターン拘束する妖刀", enhancement: 0, rarity: "special",
+    { name: "デイガーオブヴェノム",          dmgDice: "1d6", spec: "1d6 / クリ時 1Tスタン", range: "melee", flavor: "毒を滴らせる短剣。会心の一撃は相手を 1 ターン動けなくする", enhancement: 0, rarity: "special",
       critStun: 1 },
-    // 第4弾「五職のマジック武器」: 吸命の短剣。⚠ index.html の ROGUE_WEAPONS と完全一致させること。
-    { name: "吸命の短剣",        dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 命中時 1d6回復", range: "melee", flavor: "獲物の急所を貫くと同時に、傷口から生命をひそかに啜り取る暗殺者の刃。凍てつく刀身が奪った温もりは、振るう者の傷を静かに塞いでゆく", enhancement: 1, rarity: "special", gated: true,
+    // 第4弾「五職のマジック武器」: ソードオブライフスティーリング。⚠ index.html の ROGUE_WEAPONS と完全一致させること。
+    { name: "ソードオブライフスティーリング",        dmgDice: "1d6", spec: "1d6 +1 +1d6氷 / 命中時 1d6回復", range: "melee", flavor: "斬りつけた傷から命を啜る冷たい小剣。啜った命は持ち主の傷を癒やす", enhancement: 1, rarity: "special", gated: true,
       bonusDmgDice: "1d6", bonusDmgType: "cold", lifeStealDice: "1d6" },
   ];
   const ROGUE_ARMORS = [
     { name: "盗賊の革装束",      spec: "AC +0",    flavor: "黒く染め抜かれた軽量の革装、足音を吸収する", enhancement: 0, rarity: "common" },
     { name: "革紐鎧 +1",         spec: "AC +1",    flavor: "革紐で編み上げた強化軽鎧、関節を縛らない", enhancement: 1, rarity: "uncommon" },
     { name: "影紋のレザー +2",   spec: "AC +2",    flavor: "暗紋を刻んだ高級革鎧、闇に溶け込む紋様入り", enhancement: 2, rarity: "rare" },
-    // 第3弾「生き延びる者の遺品」: 軽業師の革装束。AC は最上位と同値のまま、罠解除/開錠
+    // 第3弾「生き延びる者の遺品」: グラマードスタデッドレザー。AC は最上位と同値のまま、罠解除/開錠
     //   (どちらも sleightOfHand 判定) に +2。効果は js/skill-check.js の checkScore が skillBonus を読む。
     //   ⚠ index.html の ROGUE_ARMORS と name / enhancement / skillBonus を完全一致させること。
-    { name: "軽業師の革装束",    spec: "AC +2 / 罠・鍵 +2", flavor: "軽業師が誂えた革装。指先の感覚を殺さぬよう薄く鞣され、錠前と罠の気配をよく拾う", enhancement: 2, rarity: "special", gated: true,
+    { name: "グラマードスタデッドレザー",    spec: "AC +2 / 罠・鍵 +2", flavor: "幻術を織り込んだ鋲打ち革鎧。指先の感覚を殺さず、罠と錠前の気配をよく拾う", enhancement: 2, rarity: "special", gated: true,
       skillBonus: { sleightOfHand: 2 } },
   ];
   const ROGUE_SHIELDS = [
@@ -5237,14 +5237,31 @@
   const DF_GATED_OWNED_KEY = "dragonfighters.ownedGatedNames";
   // 旧セーブ互換の**一度きりの**種まき対象。名前キー化より前に出荷済みの gated だけを並べる。
   // ⚠ 新しい gated をここに足してはいけない。足すと「共有ティアで持っていたことにする」= 漏れの復活。
-  const DF_GATED_LEGACY = ["フレームタング", "フロストブランド", "聖別された剣", "軽業師の革装束"];
+  const DF_GATED_LEGACY = ["フレームタング", "フロストブランド", "サンブレード", "グラマードスタデッドレザー"];
+  // ★[#99] 独自品 → SRD の品へ改名した 8 品の旧名 → 新名。gated の所持は名前キーなので、読んだ直後に必ず通す。
+  //   ⚠ index.html / tavern.html で同じ中身にすること。⛔ ここ以外に旧名を書かない (verify_plaza_curio (1c) が数える)。
+  const DF_GATED_RENAME = {
+    "聖別された剣": "サンブレード", "熔鉄の戦鎚": "ドワーヴンスロウワー", "贖罪のメイス": "メイスオブディスラプション",
+    "星詠みの杖": "スタッフオブフロスト", "風斬りの弓": "オースボウ", "吸命の短剣": "ソードオブライフスティーリング",
+    "山守りの板金鎧": "ドワーヴンプレート", "軽業師の革装束": "グラマードスタデッドレザー",
+  };
+  function dfRenameGatedNames(arr) {   // 旧名を新名へ・重複を落とす。変わったかどうかも返す
+    const out = []; let changed = false;
+    for (const n of arr) { const m = DF_GATED_RENAME[n] || n; if (m !== n) changed = true; if (!out.includes(m)) out.push(m); else changed = true; }
+    return { names: out, changed };
+  }
   function dfPersistGatedOwned(set) {
     try { localStorage.setItem(DF_GATED_OWNED_KEY, JSON.stringify([...set])); } catch (e) { /* ignore */ }
   }
   function dfLoadGatedOwned() {
     let arr = null;
     try { arr = JSON.parse(localStorage.getItem(DF_GATED_OWNED_KEY) || "null"); } catch (e) { arr = null; }
-    if (Array.isArray(arr)) return new Set(arr);
+    if (Array.isArray(arr)) {
+      const r = dfRenameGatedNames(arr);   // ★[#99] 旧名 → 新名。酒場は書く係なので、変わったら書き戻す
+      const s = new Set(r.names);
+      if (r.changed) dfPersistGatedOwned(s);
+      return s;
+    }
     // 初回のみ: 旧セーブが共有ティアで持っていた legacy gated を名前へ移し替える (失わせない)。
     // 旧セーブが所持を記録していた場所は 2 つある。両方見ないと拾った激レアを黙って没収する:
     //   ① 所持ティア配列 ownedEquip[slot]
@@ -6889,19 +6906,19 @@
   // ⚠ index.html の accessories[] とカタログ同期必須。効果は index.html 側で発動 (ここは選択のみ)。
   const ACCESSORIES_TV = [
     { id: "none",          name: "なし",         rarity: "common" },
-    { id: "shadow-amulet", name: "残影の首飾り", rarity: "special" },
+    { id: "shadow-amulet", name: "クロークオブディスプレイスメント", rarity: "special" },
     // v7.4 対竜マジックアイテム (STEP3/4)。unlockedAccessoriesTV が accessoryIds で所持ゲートするため
     // 未所持の指輪は選択肢に出ない (= gated 相当)。効果は index.html 側で発動。
-    { id: "ring-free-action", name: "自由の指輪",   rarity: "special", gated: true },
-    { id: "ring-fire-resist", name: "火耐性の指輪", rarity: "special", gated: true },
-    // 第2弾 対アンデッド: 生命の護符 (最大HP+8)。効果は index.html 側で発動。
-    { id: "amulet-health",    name: "生命の護符",   rarity: "special", gated: true },
-    // 第2弾 対アンデッド (3系統目): 不浄を退ける聖印 (アンデッド被ダメ固定軽減)。効果は index.html 側で発動。
-    { id: "amulet-undead-ward", name: "不浄を退ける聖印", rarity: "special", gated: true },
-    // 第3弾 Phase 2: 囁きの護符 (魔法使い専用)。準備画面の情報収集 (説得/捜査) に +2。
+    { id: "ring-free-action", name: "リングオブフリーアクション",   rarity: "special", gated: true },
+    { id: "ring-fire-resist", name: "リングオブレジスタンス(炎)", rarity: "special", gated: true },
+    // 第2弾 対アンデッド: アミュレットオブヘルス (最大HP+8)。効果は index.html 側で発動。
+    { id: "amulet-health",    name: "アミュレットオブヘルス",   rarity: "special", gated: true },
+    // 第2弾 対アンデッド (3系統目): スカラベオブプロテクション (アンデッド被ダメ固定軽減)。効果は index.html 側で発動。
+    { id: "amulet-undead-ward", name: "スカラベオブプロテクション", rarity: "special", gated: true },
+    // 第3弾 Phase 2: ストーンオブグッドラック (魔法使い専用)。準備画面の情報収集 (説得/捜査) に +2。
     //   ⚠ この効果は index ではなく酒場側 (tvSkillBonusFor) で読むので skillBonus をこちらにも持たせる。
     //   ⚠ index.html の accessories[] と id / classReq / skillBonus を完全一致させること。
-    { id: "amulet-silver-tongue", name: "囁きの護符", rarity: "special", gated: true,
+    { id: "amulet-silver-tongue", name: "ストーンオブグッドラック", rarity: "special", gated: true,
       classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 } },
     // 第5弾 豪傑の武具 (SRD 5.1: Gauntlets of Ogre Power / Belt of Giant Strength)。近接ダメージ +。効果は index.html 側で発動。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (dmgBonus は index 側だけが戦闘で読む)。
@@ -6913,7 +6930,7 @@
     { id: "cloak-protection", name: "クロークオブプロテクション", rarity: "special", gated: true },
     // 第7弾 妖精郷の装い (SRD 5.1: Eyes of the Eagle / Cloak of Elvenkind)。知覚 +2 / 隠密 +2。効果は index.html 側で発動。
     //   ⚠ 第5/6弾 (dmg/AC/save) と同型で、ここには skillBonus を持たせない。理由=perception/stealth は酒場 prep-intel
-    //     (investigation/persuasion/religion) の対象外で tvSkillBonusFor が読まないため。囁きの護符が tavern 側に
+    //     (investigation/persuasion/religion) の対象外で tvSkillBonusFor が読まないため。ストーンオブグッドラックが tavern 側に
     //     skillBonus を持つのは酒場が読む persuasion/investigation だから＝今回は読まれる場面が無いので index 側のみ。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること。
     { id: "eyes-eagle", name: "アイズオブジイーグル", rarity: "special", gated: true },
@@ -6964,7 +6981,7 @@
     saveSelections();
     (repaint || renderCharLoadout)();
   }
-  // 主人公の職業を変えると classReq 付きアクセ (囁きの護符など) が装備不能になる。
+  // 主人公の職業を変えると classReq 付きアクセ (ストーンオブグッドラックなど) が装備不能になる。
   //   所持台帳 accessoryIds は単調なので外しても失われない。放置すると装身具チップに
   //   「着いているのに効かない」名前が残るため、描画のたびに正規化する。
   function normalizeHeroAccessories() {
@@ -7532,7 +7549,7 @@
     }
     // アクセサリー2枠: 主人公は酒場の選択 (equipAccessory1/2)、仲間は index が書き出した
     //   accessoryState のスナップショットが権威 (仲間の枠は酒場に UI が無く、拾得で自動装着される)。
-    //   classReq 不一致 (例: 戦士が囁きの護符) は着けていても効果ゼロ。
+    //   classReq 不一致 (例: 戦士がストーンオブグッドラック) は着けていても効果ゼロ。
     const accIds = isHero
       ? [selection.equipAccessory1, selection.equipAccessory2]
       : tvAllyAccessoryIds(classKey);

@@ -515,7 +515,9 @@ async function mainFlow(browser, vpName) {
     const r = await page.evaluate((k) => {
       const T = window.__plazaTV, PM = window.PLAZA_MAP; const rows = T.shopRows();
       const all = Object.assign({}, PLAZA_ITEMS_TV, PLAZA_ITEMS_COMMON_TV);
-      const vis = [...document.querySelectorAll('#plazaShop .pshopItem')].filter((e) => e.offsetParent !== null);
+      /* ★[#99] 古物商の装備品の行 (data-gear 付き) は闇市の品の表に無い品なので、ここでは数えない
+       *   (装備品の行そのものは verify_plaza_curio が見る)。除くのは data-gear の行だけ = 在庫の行の捕捉は着手前と同じ。 */
+      const vis = [...document.querySelectorAll('#plazaShop .pshopItem')].filter((e) => e.offsetParent !== null && !e.hasAttribute('data-gear'));
       /* 見えている行の品 = 行に描かれた名前 → 品の表 (data-idx を信じない) */
       const visIds = vis.map((e) => { const n = e.querySelector('.pshopName'); const nm = n ? n.textContent : null; return Object.keys(all).find((x) => all[x].name === nm) || null; });
       const want = rows.filter((s) => PM.stallOf(s.itemId) === k).map((s) => s.itemId);
@@ -733,11 +735,13 @@ async function mainFlow(browser, vpName) {
     check('(5a) 配信中の tavern.html の initTavernMap ("(function initTavernMap() {" 〜 次の "})();") が ' + BASE_REV + ' とバイト一致 (LF に揃えて)',
       !!itmNow && itmNow.length > 20000 && itmNow === itmBase,
       { now: itmNow && itmNow.length, base: itmBase && itmBase.length, lines: itmNow && itmNow.split('\n').length, crlfServed: (frozen('tavern.html').toString('utf8').match(/\r\n/g) || []).length });
-    const b5 = ['js/tavern-map.js', 'js/town-map.js', 'town.html', 'index.html', 'js/npc-crowd.js'].map((rel) => {
+    /* ★[#99] index.html は (5b) の対象から外した。理由 = #99 で装備の名前を変えた (独自品 19 品を SRD の名前へ・
+     *   旧名の移し替え DF_GATED_RENAME)。index の恒等は verify_plaza_curio が 54f6409 との差で見る。 */
+    const b5 = ['js/tavern-map.js', 'js/town-map.js', 'town.html', 'js/npc-crowd.js'].map((rel) => {
       const now = frozen(rel), base = BASE[rel];
       return { rel, same: lf(now) === lf(base), raw: Buffer.compare(now, base) === 0, bytes: now.length };
     });
-    check('(5b) js/tavern-map.js / js/town-map.js / town.html / index.html / js/npc-crowd.js が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
+    check('(5b) js/tavern-map.js / js/town-map.js / town.html / js/npc-crowd.js が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
     const parts5c = [['const PLAZA_ITEMS_TV = {', '\n  };'], ['const PLAZA_ITEMS_COMMON_TV = {', '\n  };'], ['function refreshPlazaStock(', '\n  }\n']].map(([a, z]) => {
       const n = sliceTo(tvNow, a, z), bb = sliceTo(tvBase, a, z);
       return { from: a, len: n && n.length, same: !!n && n.length > 200 && n === bb };
