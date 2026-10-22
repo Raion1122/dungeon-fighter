@@ -569,4 +569,66 @@ function isUndercityOnTV() {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-22 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/r98/notes98_item1.md` / `notes98_item2.md` / `notes98_item3.md` / `notes98_item4.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `b444422` | 項目1: 新しい部品 `js/map-walk.js`(歩き・灯りの輪・札・カメラ)と `js/plaza-map.js`(通行マスク・露店 4 軒と掲示板・出口 2 つ・立ち位置)+ マスクの検査 `tools/probe_plaza_mask.js`。`tavern.html` は不触 |
+| `498ceda` | 項目2: `tavern.html` に地下街をつなぐ(`#plazaViewport`・札 7 枚・露店で板を絞る CSS・「← 地下街へ」・空の露店の一言・港町への石段・撤退 `?undercity=0`)+ `tools/verify_tavern_map.js` の `DOM_ADDED` 申告 + changelog 1 行(§10 の文面どおり「闇市が歩ける地下街に」) |
+| `8463482` | 項目3: 新規受入 `tools/verify_plaza_map.js`(port 10637・負のコントロール 10 本内蔵・純 LF) |
+| 本節のコミット | 項目4: 母集団の非退行(全数走査)+ 変異アンカーの衝突 + 本節 + README の #98 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_plaza_map` 素 | **43/43**(27 節)×3(項目3)+ 全数走査の中で 1 回 43/43 | 101〜102 |
+| `verify_plaza_map --negative` | **10/10**(担当の節が赤)×2(項目3)+ 全数走査の中で 1 回 10/10。filteridx=(2c) / missingitem=(2a) / reclick=(1e) / nolayout=(1d) / lightblock=(1c)(3a) / signunder=(3c) / wrongvia=(4b) / townleak=(4c) / blockenter=(1b) / noretreat=(6a) | 1063〜1064 |
+| §8 の名指しの既存 golden | 項目1 の着手前(`c310d8c`)と項目2 の後で同色(`verify_tavern_map` 素 47/47・neg 71/71 / `verify_town_map` 85/85 / `verify_plaza_srd` 27/27・neg 8/8 / `verify_npc_crowd` 33/33 / `verify_recruit_talk` 25/25 / `verify_quest_draw` 18/18 / `verify_eol_doorfix` 27/27 / `check_tree_eol` ship 22→24・食い違い 0) | — |
+| 単体の動作確認(コミットしない) | 項目1 `check_map_walk.js` 52/52 / 項目2 `check_item2.js` 63/63(desktop 1440x900 / compact 390x844) | — |
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `tavern.html` を触るので全数。HEAD `8463482` で **232 腕・692.3 分**(2.98 分/腕)= #97 の post97 の 230 腕(同順)+ `verify_plaza_map` 素 / neg。直列・SKIP 再開型(窓落ちなし・2026-10-22 01:17 → 12:50)。git を読む本(32 腕)は `git clone --shared @8463482`(本番と 944 ファイルのバイト差 0)で。8765 は走査の前後とも LISTEN なし(post97 と同じ条件)。
+- 結果: 緑 211 / 非緑 21。基準 post97(本番 `c310d8c` と同じバイト・緑 208 / 非緑 22)と比べて **緑→赤 0**・赤→緑 1・両方非緑 21・新規 2 腕は緑。
+  - 赤→緑 1 = `verify_tower_mother_b --negative`(post97 では intavern の担当外 (4a) が赤 = 既知の「観測 0」型の揺れ。今回は exit 0)。
+  - 既知の揺れの本: `driver_monsters_griffon` 素 = 基準と同じく赤(15/17)/ `verify_lore_check` 素 26/26・neg 緑。
+- 両方非緑の 21 腕は FAIL 行を集合で突き合わせ、19 腕は中身が同じ。DIFF 2 腕はどちらも非帰属:
+  - `driver_mapdef_step1` (0b): worktree list に載る clone の commit の hash が `8ad1982` → `8463482`(#96・#97 と同じ型)。
+  - `verify_walk_block`: FAIL 行は同じ。差は PASS 行に出る `scale(0.82)` → `scale(0.820086)` の数値の書式だけ(突き合わせの正規表現が ⛔ を含む PASS 行も拾う)。
+  - `verify_codex_map_skill` (3a)(着手前からの赤・§11 で対象外)は SAME。
+- `readdirSync(tools)` で他の tools のソースを読む本(罠E)は全部緑: `verify_board_load_flash` 14/14 / `verify_class_line` 素・neg / `verify_corner_check` 素・neg / `verify_declared_traps` 素・neg / `verify_mage_hand` 素・neg / `verify_mage_hand_reach` 素・neg ⇒ `verify_plaza_map` の変異アンカーは他の本と衝突していない。
+- ⇒ **#98 帰属の緑→赤 = 0**。tools の言い直しなし・本番ファイルは触っていない。
+- 変異アンカー衝突: 全 tools 204 ファイルの文字列リテラル 54,814 個を `c310d8c`→`8463482` の `index.html` / `audio.js` / `tavern.html` + 新しい `js/map-walk.js` / `js/plaza-map.js` で数え直した。
+  - 3 ファイル側の「1 だった / 1 になった / 0→出現」は 34 組(`index.html` / `audio.js` は不変 = 全部 `tavern.html`)。17 組は `verify_plaza_map` 自身、3 組は `probe_plaza_mask` 自身。残り 14 組はどれも**変異アンカーではない**: メッセージ文字列(`' / 出口 '` `' マス / '` `' / OFF '` `' / OFF'` `'heroTile: '` `' / 立ち位置 '` `'board='` `' (want '`)/ キーや名前の列挙(`'isMoving'` ×2 = world の窓のキー一覧 / `'freeze'` = watchdog の変異名 / `'verify_tavern_map.js'` = quest_draw の PEER_DRIVERS / `'plaza_undercity'` = make_grid_map.py の地図名)/ `'childList'` = field_step6 の MutationObserver の型比較。どれも `tavern.html` を検索・置換していない。
+  - 新しい js 2 本は着手前に存在しないので、どのリテラルも「0→出現」になる(1,623 組)。意味があるのは新しい js を名指しする tools だけ = `verify_plaza_map` / `probe_plaza_mask` / `verify_tavern_map`。`verify_tavern_map` は新しい js をコメントで名指すだけで、その js を置換しない。
+  - ⇒ **衝突 0**。
+
+### 12-4. 依頼書と違えた点
+
+- **マスク(項目1)**: 歩けるマス `.` は下書きの 125 → **131**。絵を 64px 格子で拡大して 1 マスずつ確かめた: (7,1)(8,1)(9,1) `c`→`.`(樽と木箱は行の上半分だけ)/ (12,4) `.`→`c`(杖屋の左の木箱が中心の角に乗る)/ (1,5)(1,6)(2,6) `W`→`.`(張り出しの小部屋と柵の切れ目)/ (8,5) `s`→`.`(薬屋の敷物の前の店先)。enter・sign・立ち位置は下書きのまま。2 つの立ち位置から歩けるマスとどの enter へも全部届く。
+- **受入の言い直し(項目3・§8 の文言から 8 点)**:
+  1. (1d): 文言(主人公が見える・1 マス 34〜96px)だけでは nolayout が空振りする(layout を呼ばなくても zoom 1 = 64px で範囲内)⇒ 「layout() が走った証拠」を AND で足した(desktop = 地図全体が収まり縦か横が viewport に一致 / compact = 縦か横が可視域に一致するか 1 マスが 34 か 96)。
+  2. (3c): 暗幕は pointer-events:none なので、札が暗幕の下でも elementFromPoint は札を返す(signunder が空振りする)⇒ 2 腕の AND = (i) そのままで札 / (ii) 測る間だけ暗幕を pointer-events:auto にしても札。灯りの外の札を 1 枚以上含める。
+  3. (3c)(3d) compact: 立ち位置から見える札は少ない ⇒ (3c) は (2,2)→(5,6)→(11,7)→(17,7) と歩いて寄りながら画面内の札を測り、7 枚の和集合が全部であることも assert / (3d) は画面外も含めて 7 枚の矩形を比べる。
+  4. (1e): desktop だけで、(2,2) から薬屋の札を実クリックで連打(187ms 間隔・実測 3.6 秒で着く)。
+  5. (4a) 石段の押し方: 酒場の `tavernDoor_plaza` を押して歩いて入る経路で測る。desktop = 実クリック / compact = 札が画面外か覆われていて `el.click()`(detail に押し方を出す)。
+  6. (2b)(2c): 見えている行と押した行の品は**行に描かれた名前 → 品の表**で引く(`data-idx` を信じない)。
+  7. (4e): 「門番の追い返しを経る」= `gatekeeperEventSeen` を false で種まきし、true に変わることで測る。
+  8. (5a)〜(5c): `git show c310d8c:<file>`(LF)と配信中のバイト(CRLF)を CRLF→LF に揃えて比べる(生のバイトは改行だけの差で全部不一致)。
+- **負のコントロールの巻き込み 2 件**(どちらも欠陥の性質どおり): nolayout → (3c)(compact で zoom 1 のままだと立ち寄り 3 か所の画面に札が 4 枚しか入らず和集合が 7 にならない)/ blockenter → (2b)(2c)(杖屋の enter が歩けず札を押しても着かない)。
+- 項目2 の補足: 地図の insets は渡していない(闇市の画面は fixed 全面 = 0/0)。品の板の見出しは「闇市商店」のまま(露店名は出していない)。主人公の drop-shadow と行き先の印の見た目は `tavern.html` の CSS で付けた。
+- §2 の再測定(基準 `c310d8c` の行番号まで)は全部一致 = **崩れた主張なし**。本番の欠陥なし。
+
+### 12-5. 別チケット候補
+
+- 依頼書 §11 の保留: 酒場の店内の歩きを `js/map-walk.js` へ付け替える / 地下街の住人と露店の店主の絵(codex1 発注)/ 古物商の装備品・独自品の SRD への置き換えと牙貨の橋渡し(段 3・#99)/ 門番を地図の上に立たせる / 東の水路の向こう岸。
+- §9 で露店名を板の見出しに出したくなったら別途(今は「闇市商店」)。
+- #97 からの持ち越し: port 8897 の共有(K1)/ `driver_monsters_griffon` と `verify_tower_mother_b --negative` (4a) の「観測 0」型の揺れ / `verify_codex_map_skill` (3a) / 両方非緑の既知 21 腕。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(http 起動): iPhone で地下街を端から端まで歩いて灯りの輪がカクつかないか / 灯りの外の札が読めて 1 タップで店の前まで歩いて板が開くか / 輪の大きさと濃さ(内 3 マス・外 6 マス・0.72)/ 空の露店の一言が「闇市らしさ」に見えるか / 港町の石段 → 地下街 → 石段 → 港町 の往復が自然か。
+- 次の新規ドライバ base = **10638**。
