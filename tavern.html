@@ -3407,7 +3407,7 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
-        <li><b>装備品の名前を D&amp;D の品の名前に</b> — 独自の名前だった装備品 19 品を、D&amp;D の品の名前に改めた(強さはそのまま。持っている品もそのまま残る)。</li>
+        <li><b>古物商で装備品が買えるように</b> — 闇市の地下街の古物商に、ボスの落とし物の装備品が来るたび 1〜2 品並ぶ(牙貨 25〜30)。独自の名前だった装備品 19 品は D&amp;D の品の名前に(強さはそのまま)。</li>
         <li><b>闇市が歩ける地下街に</b> — 薬屋・杖屋・召喚屋・古物商の露店を灯りを手に巡れる。港町の石段からも出入りできる。</li>
         <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
         <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
@@ -6909,32 +6909,32 @@
     { id: "shadow-amulet", name: "クロークオブディスプレイスメント", rarity: "special" },
     // v7.4 対竜マジックアイテム (STEP3/4)。unlockedAccessoriesTV が accessoryIds で所持ゲートするため
     // 未所持の指輪は選択肢に出ない (= gated 相当)。効果は index.html 側で発動。
-    { id: "ring-free-action", name: "リングオブフリーアクション",   rarity: "special", gated: true },
-    { id: "ring-fire-resist", name: "リングオブレジスタンス(炎)", rarity: "special", gated: true },
+    { id: "ring-free-action", name: "リングオブフリーアクション",   rarity: "special", gated: true, effect: "恐怖・混乱・粘着・転倒が効かない" },
+    { id: "ring-fire-resist", name: "リングオブレジスタンス(炎)", rarity: "special", gated: true, effect: "受ける炎のダメージを半分にする" },
     // 第2弾 対アンデッド: アミュレットオブヘルス (最大HP+8)。効果は index.html 側で発動。
-    { id: "amulet-health",    name: "アミュレットオブヘルス",   rarity: "special", gated: true },
+    { id: "amulet-health",    name: "アミュレットオブヘルス",   rarity: "special", gated: true, effect: "最大 HP +8" },
     // 第2弾 対アンデッド (3系統目): スカラベオブプロテクション (アンデッド被ダメ固定軽減)。効果は index.html 側で発動。
-    { id: "amulet-undead-ward", name: "スカラベオブプロテクション", rarity: "special", gated: true },
+    { id: "amulet-undead-ward", name: "スカラベオブプロテクション", rarity: "special", gated: true, effect: "アンデッドから受けるダメージ -3" },
     // 第3弾 Phase 2: ストーンオブグッドラック (魔法使い専用)。準備画面の情報収集 (説得/捜査) に +2。
     //   ⚠ この効果は index ではなく酒場側 (tvSkillBonusFor) で読むので skillBonus をこちらにも持たせる。
     //   ⚠ index.html の accessories[] と id / classReq / skillBonus を完全一致させること。
     { id: "amulet-silver-tongue", name: "ストーンオブグッドラック", rarity: "special", gated: true,
-      classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 } },
+      classReq: "mage", skillBonus: { persuasion: 2, investigation: 2 }, effect: "酒場の聞き込み・依頼の吟味 +2 (魔法使いだけに効く)" },
     // 第5弾 豪傑の武具 (SRD 5.1: Gauntlets of Ogre Power / Belt of Giant Strength)。近接ダメージ +。効果は index.html 側で発動。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (dmgBonus は index 側だけが戦闘で読む)。
-    { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", rarity: "special", gated: true },
-    { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", rarity: "special", gated: true },
+    { id: "gauntlets-ogre-power", name: "ガントレットオブオーガパワー", rarity: "special", gated: true, effect: "近接ダメージ +2" },
+    { id: "belt-giant-strength", name: "ベルトオブジャイアントストレングス", rarity: "special", gated: true, effect: "近接ダメージ +3" },
     // 第6弾 守りの装身具 (SRD 5.1: Ring of Protection / Cloak of Protection)。AC +1 / 全セーヴ +1。効果は index.html 側で発動。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること (acBonus / saveBonus は index 側だけが読む)。
-    { id: "ring-protection", name: "リングオブプロテクション", rarity: "special", gated: true },
-    { id: "cloak-protection", name: "クロークオブプロテクション", rarity: "special", gated: true },
+    { id: "ring-protection", name: "リングオブプロテクション", rarity: "special", gated: true, effect: "AC +1 / 全セーヴ +1" },
+    { id: "cloak-protection", name: "クロークオブプロテクション", rarity: "special", gated: true, effect: "AC +1 / 全セーヴ +1" },
     // 第7弾 妖精郷の装い (SRD 5.1: Eyes of the Eagle / Cloak of Elvenkind)。知覚 +2 / 隠密 +2。効果は index.html 側で発動。
     //   ⚠ 第5/6弾 (dmg/AC/save) と同型で、ここには skillBonus を持たせない。理由=perception/stealth は酒場 prep-intel
     //     (investigation/persuasion/religion) の対象外で tvSkillBonusFor が読まないため。ストーンオブグッドラックが tavern 側に
     //     skillBonus を持つのは酒場が読む persuasion/investigation だから＝今回は読まれる場面が無いので index 側のみ。
     //   ⚠ index.html の accessories[] と id / name / gated / rarity を完全一致させること。
-    { id: "eyes-eagle", name: "アイズオブジイーグル", rarity: "special", gated: true },
-    { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", rarity: "special", gated: true },
+    { id: "eyes-eagle", name: "アイズオブジイーグル", rarity: "special", gated: true, effect: "知覚 +2 (罠や隠された宝を見つけやすい)" },
+    { id: "cloak-elvenkind", name: "クロークオブエルヴンカインド", rarity: "special", gated: true, effect: "隠密 +2 (気づかれずに近づきやすい)" },
   ];
   function accDefTV(id) { return ACCESSORIES_TV.find(a => a.id === id) || ACCESSORIES_TV[0]; }
   // 職業専用アクセ (classReq)。指定職以外は装備候補に出さず、効果も乗らない (index と同じ規約)。
@@ -10413,6 +10413,7 @@
   }
   async function enterPlaza(opts) {
     try { refreshPlazaStock(); } catch (e) {}      // 来訪ごとに在庫を再抽選
+    try { refreshCurioGearTV(); } catch (e) {}     // ★[#99] 古物商の装備品も来訪ごとに抽選 (在庫とは別の置き場)
     const firstVisit = !plazaStateTV.everEntered;
     if (firstVisit) {
       plazaStateTV.everEntered = true; savePlazaStateTV();
@@ -10662,15 +10663,102 @@
   function plazaAtCapTV(itemId) {
     return isPlazaSrdOnTV() && PLAZA_POTION_IDS_TV.indexOf(itemId) >= 0 && (plazaInventoryTV[itemId] || []).length >= PLAZA_POTION_CAP_TV;   // ★[#97] 所持上限
   }
+  // ── ★[#99] 古物商の装備品: ゲート付きの 21 品 (武器 8・鎧 2・装飾品 11) から、まだ持っていない品を来るたび 1〜2 品 ──
+  //   ⚠ 罠 C: 在庫 (currentStock) には混ぜない。置き場は plazaStateTV.curioGear、店の行では在庫の後ろ・開発用の行の前。
+  //   ⚠ 品は名前で持たない (改名に弱い) = 職と行の番号 { slot, cls, tier } か装飾品の id { acc }。名前は実行時の表から引く。
+  /* 撤退 ?curio=0 — 装備品の行を出さない・抽選しない。⚠ 判定はここ 1 か所 (isPlazaSrdOnTV と同じ形・遷移はまたがない)。 */
+  function isCurioOnTV() {
+    try { return new URLSearchParams(location.search).get("curio") !== "0"; }
+    catch (e) { return true; }
+  }
+  function curioGearPoolTV() {
+    const out = [];
+    for (const cls of Object.keys(CHAR_EQUIP)) {
+      const p = CHAR_EQUIP[cls]; if (!p) continue;
+      for (const slot of ["weapons", "armors"]) {
+        (p[slot] || []).forEach((it, tier) => { if (it && it.gated) out.push({ slot, cls, tier }); });
+      }
+    }
+    ACCESSORIES_TV.forEach(a => { if (a.gated) out.push({ acc: a.id }); });   // shadow-amulet は gated を持たない = 隠し要素の報酬なので売らない
+    return out;
+  }
+  function curioItemTV(g) {
+    if (!g) return null;
+    if (g.acc) return ACCESSORIES_TV.find(a => a.id === g.acc && a.id !== "none") || null;   // 売る品を絞るのは母集団 (curioGearPoolTV) だけ
+    const p = CHAR_EQUIP[g.cls]; const arr = p && p[g.slot];
+    const it = arr && arr[g.tier | 0];
+    return (it && it.gated) ? it : null;
+  }
+  function curioSameTV(a, b) {
+    if (!a || !b) return false;
+    return a.acc ? a.acc === b.acc : (!b.acc && a.slot === b.slot && a.cls === b.cls && (a.tier | 0) === (b.tier | 0));
+  }
+  function curioAccIdsTV() {
+    try { const raw = JSON.parse(localStorage.getItem("dragonfighters.accessoryIds") || "[]"); return Array.isArray(raw) ? raw : []; }
+    catch (e) { return []; }
+  }
+  function curioOwnedTV(g) {
+    const it = curioItemTV(g); if (!it) return true;
+    if (g.acc) return curioAccIdsTV().indexOf(g.acc) >= 0;
+    return dfIsGatedOwned(it.name);
+  }
+  function curioPriceTV(g) { return g && g.acc ? 25 : 30; }   // 装飾品 25 / 武器・鎧 30 牙貨 (ユーザー決定)
+  function refreshCurioGearTV() {
+    if (!isCurioOnTV()) { plazaStateTV.curioGear = []; savePlazaStateTV(); return; }
+    const pool = shuffled(curioGearPoolTV().filter(g => !curioOwnedTV(g)));
+    const n = Math.min(1 + Math.floor(Math.random() * 2), pool.length);
+    plazaStateTV.curioGear = pool.slice(0, n).map(g => ({ gear: g, price: curioPriceTV(g) }));
+    savePlazaStateTV();
+  }
+  function curioRowsTV() {
+    if (!isCurioOnTV()) return [];
+    const cg = Array.isArray(plazaStateTV.curioGear) ? plazaStateTV.curioGear : [];   // 古いセーブ (curioGear 無し) でも壊れない
+    return cg.filter(g => g && curioItemTV(g.gear)).map(g => ({ gear: g.gear, price: g.price, kind: "gear" }));
+  }
+  const CURIO_CLASS_LABEL_TV = { warrior: "戦士", dwarf: "ドワーフ", cleric: "僧侶", mage: "魔法使い", elf: "エルフ", rogue: "盗賊" };
+  function curioRowHtmlTV(s, i, fang) {
+    const it = curioItemTV(s.gear); if (!it) return "";
+    const text = s.gear.acc ? (it.effect || "") : ((it.spec || "") + " — " + (it.flavor || ""));
+    const tag = s.gear.acc ? "装飾品" : ((CURIO_CLASS_LABEL_TV[s.gear.cls] || "") + (s.gear.slot === "weapons" ? "の武器" : "の鎧"));
+    const canBuy = fang >= s.price;
+    return '<div class="pshopItem" data-gear="1"' + (plazaUndercityOnTV ? ' data-stall="curio"' : '') + '>' +
+      '<div class="pshopMain"><span class="pshopName">' + it.name + '</span><span class="pshopTag">' + tag + '</span></div>' +
+      '<div class="pshopEffect">' + text + '</div>' +
+      '<div class="pshopBuy"><span class="pshopPrice">牙貨 ' + s.price + '</span>' +
+      '<button type="button" class="plazaBtn small pbuy" data-idx="' + i + '"' + (canBuy ? '' : ' disabled') + '>購入</button></div>' +
+      '</div>';
+  }
+  function buyCurioGearTV(s) {
+    const it = curioItemTV(s.gear); if (!it) return;
+    const fang = getFang();
+    if (fang < s.price) return;                   // 残高不足
+    setFang(fang - s.price);
+    if (s.gear.acc) {
+      try {
+        const set = new Set(curioAccIdsTV()); set.add(s.gear.acc);
+        localStorage.setItem("dragonfighters.accessoryIds", JSON.stringify([...set]));
+      } catch (e) { /* ignore */ }
+    } else {
+      dfAddOwnedTier(s.gear.slot === "weapons" ? "weapon" : "armor", s.gear.tier, it);   // gated なので名前キーの所持へ回る
+    }
+    try { voice("plaza_buy_highvalue"); } catch (e) {}
+    plazaStateTV.curioGear = (plazaStateTV.curioGear || []).filter(g => !(g && curioSameTV(g.gear, s.gear)));
+    savePlazaStateTV();
+    updatePlazaFangCount();
+    renderPlazaShop();
+  }
   // ★[#97] 店に並ぶ行 = 在庫 + (開発モードのときだけ) 新しい 8 品を 1 牙貨で。開発用の行は在庫の後ろに付くので、在庫の添字は変わらない。
   function plazaShopRowsTV() {
     const stock = plazaStateTV.currentStock || [];
-    if (!(DF_DEV_MAGIC_SHOP && isPlazaSrdOnTV())) return stock;
-    return stock.concat(PLAZA_SRD_NEW_IDS_TV.map(id => ({ itemId: id, price: 1, kind: "dev" })));
+    const gear = curioRowsTV();                   // ★[#99] 古物商の装備品は在庫の後ろ・開発用の行の前 (在庫の添字を守る)
+    const rows = gear.length ? stock.concat(gear) : stock;
+    if (!(DF_DEV_MAGIC_SHOP && isPlazaSrdOnTV())) return rows;
+    return rows.concat(PLAZA_SRD_NEW_IDS_TV.map(id => ({ itemId: id, price: 1, kind: "dev" })));
   }
   function onPlazaBuy(idx) {
     const stock = plazaStateTV.currentStock || [];
     const s = plazaShopRowsTV()[idx]; if (!s) return;
+    if (s.kind === "gear") { buyCurioGearTV(s); return; }   // ★[#99] 装備品は消耗品の買い方 (addChargeItemTV / stock.splice) へ落とさない
     let fang = getFang();
     if (fang < s.price) return;                   // 残高不足
     if (plazaAtCapTV(s.itemId)) return;           // ★[#97] 所持上限 (ポーションは 3 つまで)
@@ -10691,6 +10779,7 @@
     const fang = getFang();
     let html = '<div class="pshopList">';
     stock.forEach((s, i) => {
+      if (s.kind === "gear") { html += curioRowHtmlTV(s, i, fang); return; }   // ★[#99] 古物商の装備品の行 (所持チップは出さない)
       const def = plazaItemDefTV(s.itemId); if (!def) return;
       const inst = plazaInventoryTV[s.itemId] || [];
       const chips = def.maxCharges ? inst.map(ch => ch + '/' + def.maxCharges).join('  ') : ('×' + inst.length);
@@ -10736,6 +10825,9 @@
         srdOn: isPlazaSrdOnTV, atCap: plazaAtCapTV, shopRows: plazaShopRowsTV,
         newIds: PLAZA_SRD_NEW_IDS_TV.slice(), potionIds: PLAZA_POTION_IDS_TV.slice(), potionCap: PLAZA_POTION_CAP_TV,
         departPlaza: () => { plazaSelectedIdx = 0; onPlazaDepart(); },
+        // ★[#99] 検証フック: 古物商の装備品 (撤退スイッチ / 母集団 / 抽選 / 置き場)
+        curioOn: isCurioOnTV, curioPool: curioGearPoolTV, refreshCurioGear: refreshCurioGearTV,
+        curioGear: () => plazaStateTV.curioGear,
       });
     } catch (e) {}
   })();
