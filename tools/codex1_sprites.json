@@ -502,6 +502,33 @@
       "src": "assets/arcane-eye/arcane-eye-v1.png",
       "derive": "直接コピー (後処理なし)",
       "note": "呪文アーケインアイ (魔法の眼) の眼の静止画 (2026-10-01 納品・実装依頼書 #79 §4-7 / 依頼文 codex1/requests/2026-10-01_arcane-eye.md)。⚠️ format:\"prop\" なので両パッカーの --all は触らない。受け取り側の実測 = RGBA 256x256 / 四隅 alpha 0 / alpha>0 の bbox 187x107 / alpha>=128 の重心 (129.4,127.5) / 充填率 0.415 / 連結成分 2 (1264・2748 px) / check_alpha_bg_residue の疑い 0。md5 C3D8932AFEA77D09791AD55606D92972。ゲームでは CSS で 48x48 に縮め drop-shadow を重ねる (.dfArcaneEye)。read-only の下見で出た原画 (1476x1066・放射状の虹彩) は採らず、本番投下の簡素な光の輪郭版を採用 (48px での可読性)。単眼の怪物に見える要素 (触手・眼柄・口) なし。"
+    },
+    {
+      "key": "plaza-goblin", "out": "assets/plaza_goblin_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.59, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "goblin/final/walk",
+      "attack_dir": "goblin/final/walk",
+      "note": "#100 地下街の住人。敵 goblin の歩き 6 コマを住人の形式 (576x384・段 3) へ畳み直した流用 (codex1 発注なし・ユーザー決定。武器・鎧はそのまま = 闇市の荒くれ)。char_ratio 0.59 は戦闘の背丈 52px (= 敵シート段 0 の体高 76/96 x displaySize 66) を再現する値: 0.58 出発で段 3 の体高 (alpha>64) 52/50/51/54/51/50 = 中央値 51 → 0.59 で 53/50/52/55/51/50 = 中央値 52。H_max(walk)=499px / scale 0.1135 / fit left=28 right=71 top=34。⚠ 敵シート goblin_anim.png (576x480・段 3 = 攻撃) を住人に直接当てると攻撃の動きで歩く。walk のみ = attack_out を持たない (attack_dir が walk と同じなのはパッカの必須要件。merchant-bound と同じ形)。"
+    },
+    {
+      "key": "plaza-hobgoblin", "out": "assets/plaza_hobgoblin_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.60, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "hobgoblin/final/walk",
+      "attack_dir": "hobgoblin/final/walk",
+      "note": "#100 地下街の住人。敵 hobgoblin の歩き 6 コマを住人の形式 (576x384・段 3) へ畳み直した流用 (codex1 発注なし・ユーザー決定)。walk_dir の選定: codex1 には hobgoblin/final/walk と hobgoblin/hobgoblin-walk-right-6 (safe-frame) の 2 つがあるが、6 枚とも md5 完全一致 (= 同じ絵) で、本番 hobgoblin_anim.png 段 0 (台帳 hobgoblin の walk_dir null = final/walk フォールバック) と並べて目視でも同じ絵と確認したので final/walk を採った。char_ratio 0.60 = 戦闘の背丈 56px (= 73/96 x displaySize 74) を再現: 段 3 の体高 56/54/56/58/56/57 = 中央値 56。H_max(walk)=464px / scale 0.1241 / fit left=31 right=68 top=33。⚠ hobgoblin_anim.png を住人に直接当てると段 3 = 攻撃で歩く。attack_out を持たない。"
+    },
+    {
+      "key": "plaza-lizardfolk", "out": "assets/plaza_lizardfolk_walk.png",
+      "format": "player",
+      "cell": 96, "cols": 6, "char_ratio": 0.78, "scale_from": "walk", "center": "feet",
+      "attack_scale": 1.0,
+      "walk_dir": "lizardman/lizardman-walk-right-6",
+      "attack_dir": "lizardman/lizardman-walk-right-6",
+      "note": "#100 地下街の住人。敵 lizardWarrior の歩き 6 コマ (lizardman-walk-right-6 の safe-frame) を住人の形式 (576x384・段 3) へ畳み直した流用 (codex1 発注なし・ユーザー決定)。char_ratio 0.78 = 戦闘の背丈 73px (= 80/96 x displaySize 88) を再現: 0.79 出発で体高 74/72/74/75/74/74 = 中央値 74 → 0.78 で 73/71/72/74/73/72 = 中央値 73。H_max(walk)=366px / scale 0.2046 / fit left=1 right=86 top=16 (尾が左へ伸びるが 96px セルに収まる)。主人公 warrior_walk の 57px より頭ひとつ大きい = 戦闘と同じ比。⚠ lizardWarrior_anim.png を住人に直接当てると段 3 = 攻撃で歩く。attack_out を持たない。"
     }
   ]
 }
