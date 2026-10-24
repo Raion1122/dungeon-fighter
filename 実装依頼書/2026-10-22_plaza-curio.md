@@ -386,4 +386,64 @@ py tools/add_changelog.py "<b>古物商で装備品が買えるように</b> —
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-25 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/r99/notes99_item1.md` / `notes99_item2.md` / `notes99_item3.md` / `notes99_item4.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `a0def5a` | 項目1: 独自品 19 品を SRD の名前へ(`name` と説明だけ・数値の欄と並びは不変)+ 旧名の移し替えの表 `DF_GATED_RENAME` と `dfRenameGatedNames` を両ファイルへ・読む 3 か所(酒場 `dfLoadGatedOwned` は書き戻す / index `dfSheetGatedOwned` は読むだけ / `markGatedOwned`)で通す + 種まきの表 2 つ + `js/skill-check.js:311` のコメント + `tools/verify_plaza_map.js` (5b)(2b) の言い直し + changelog(仮の 1 行) |
+| `11e792d` | 項目2: `tavern.html` の古物商に装備品(`curioGear`・在庫の後ろ・武器/鎧 30・装飾品 25 牙貨)+ 撤退 `?curio=0` + `ACCESSORIES_TV` のゲート付き 11 品に `effect` + 検証の口 + changelog を §10 の文面へ差し替え |
+| `9d0e157` | 項目3: 新規受入 `tools/verify_plaza_curio.js`(port 10638・負のコントロール 12 本内蔵・純 LF) |
+| 本節のコミット | 項目4: 母集団の非退行(全数走査)+ 変異アンカーの衝突 + `tools/verify_scroll_shelf.js` (4a)(4b) の言い直し + 本節 + README の #99 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_plaza_curio` 素 | **28/28**(22 節)×3(項目3)+ 全数走査の中で 1 回 28/28 | 36〜37 |
+| `verify_plaza_curio --negative` | **12/12**(担当の節が赤・空振り 0)×3(項目3)+ 全数走査の中で 1 回 | 約 440 |
+| §8 の名指しの既存 golden(全数走査の中) | `verify_plaza_map` **43/43**・neg **10/10** / `verify_plaza_srd` **27/27**・neg **8/8** / `verify_sheet_equip` **21/21**・neg **10/10**(担当外の赤 0)/ `driver_equip_compact_ios` **31/31**(旧名の種のまま = 移し替えの実例) | — |
+| 単体の動作確認(コミットしない) | 項目1 `check_item1.js` 14/14 / 項目2 `check_item2.js` 14/14(変異 6 本も担当どおり) | — |
+
+- 負のコントロールの巻き込み(どれも欠陥の性質どおり): nomapidx → (2a)(2c) / nomaptv → (2b)(2c) / legacyold → (1c)(2d) / oneside → (1a)(1b)(1c) / gearfall → (3d)(3e) / gearshadow → (0a)(3a)(3b)(shadow-amulet の行が抽選に出た回は (3c) も)/ gearprice → (3c)(3d)、全数走査の回は (3e) も(観測した値段で仕込むので、装飾品の差も実クリックの差も −30 になる)。残り 5 本は担当の節だけ。
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `index.html` / `tavern.html` を触るので全数。HEAD `9d0e157` で **234 腕・687.2 分**(2.94 分/腕)= #98 の post98 の 232 腕(同順)+ `verify_plaza_curio` 素 / neg。直列・SKIP 再開型(2026-10-24 09:47 → 21:16・窓落ちなし)。git を読む本は `git clone --shared @9d0e157`(本番と 946 ファイルのバイト差 0)で。
+- 結果: 緑 207 / 非緑 27。基準 post98(本番 `54f6409` と同じバイト・緑 211 / 非緑 21)と比べて緑→赤 7・赤→緑 1・両方非緑 20・新規 2 腕は緑。
+  - **緑→赤 6 = #99 帰属(原因は 1 つ・本番の欠陥ではない)**: `verify_scroll_shelf` 素・neg の (4a)(4b) は、武器防具屋の品を基準 `54bb89a`(「HEAD~1」= 固定ハッシュ)の酒場と**品の名前ごと**突き合わせていた。#99 は名前を変える機能そのものなので、差は名前だけ(例: 戦士 weapons 5 = サンブレード ↔ 聖別された剣 / ドワーフ weapons 3 = ジャイアントスレイヤー ↔ 雷鳴の斧)。値段と金貨の増減は一致。これを入れ子で走らせる `verify_invisibility` 素・neg と `verify_arcane_eye` 素・neg の (6c) も連鎖で赤。影のツリー(`9d0e157` に `54f6409` の本番 3 ファイルを戻したもの)との対比較で、本番 6/6 赤・影 6/6 緑。
+  - 緑→赤 1 = 非帰属: `driver_mine_wall --negative`(素の基準の装置 (4z)(4z2)「戦車が実際に乱入した」が空振り)。単独で再走すると本番 2/2・影 2/2 とも exit 0(198/5 で同じ)= スイープ中だけの揺れ(#66 の記録と同じ型)。素は 67/67。
+  - 赤→緑 1 = `driver_monsters_griffon` 素(#72 既知の非決定な本)。
+  - 両方非緑の 20 腕は FAIL 行を集合で突き合わせ、18 腕は中身が同じ。DIFF 2 腕はどちらも非帰属(#98 と同じ 2 型): `driver_mapdef_step1` (0b) = worktree list に載る clone の hash が `8463482` → `9d0e157` / `verify_walk_block` = PASS 行に出る `scale(0.820086)` ↔ `scale(0.82)` の数値の書式だけ。
+  - exit 3 は 7 腕で、全部 post98 でも exit 3(引数なし起動の probe 3 本・`driver_grid_p4`・既知のアンカー多重 3 本)⇒ #99 が増やしたアンカー腐敗は 0。
+- **言い直し(ユーザー決定 2026-10-24)**: `tools/verify_scroll_shelf.js` (4a)(4b) で、**HEAD~1 との比較だけ品の名前を除く**(`noName()` = (4a) は `name` キーを再帰で落とす / (4b) は行の添字 3 を落とす)。素 ↔ `?scrollshop=0` の比較は名前込みのまま。名前の正しさは `verify_plaza_curio` (1a) が `54f6409` の表と突き合わせている。
+  - 捕捉力: 内蔵の変異 8 本は (4a)(4b) を担当しないので、`noName` を本番の tools から取り出して単体で確かめた。名前だけの差 → 一致 / 値段 700→701 → 不一致 / 行の位置 5→6 → 不一致(名前以外の欄のずれは今までどおり赤くなる)。
+  - 言い直し後の再走(パッチを当てた本番の作業ツリー・17 腕・全部 exit 0): `verify_scroll_shelf` 素 **19/19**・neg **8/8**(担当に完全一致)/ `verify_invisibility` 素 27/27・neg 9/9 / `verify_arcane_eye` 素 34/34・neg(担当どおり)+ 他の tools のソースを読む本(罠E)`verify_board_load_flash` 14/14 / `verify_class_line` 素・neg / `verify_corner_check` 素・neg / `verify_declared_traps` 素・neg / `verify_mage_hand` 素・neg / `verify_mage_hand_reach` 素・neg。
+  - ⇒ **#99 帰属の緑→赤 = 0**(言い直し後)。本番ファイルは項目4 では触っていない。
+- ⚠ **依頼書 §8 の名指しに `verify_scroll_shelf` が漏れていた**。起草時の「旧名の git grep」は tools では `driver_equip_compact_ios` の 2 か所しか拾わない(scroll_shelf は名前をソースに書かず、実行時に基準のコミットと比べる)。変異アンカーの監査も置換アンカーしか見ないので拾えない。⭐ 名前・文言を変えるチケットでは「**基準のコミットと実行時の値を突き合わせる本**」(`git show <hash>` を読む本)も名指しの候補に入れること。
+- 変異アンカー衝突: 全 tools 205 ファイルの文字列リテラル 55,265 個を `54f6409`→`9d0e157` の `index.html` / `audio.js` / `tavern.html` / `js/skill-check.js` / `js/plaza-map.js` / `js/map-walk.js` で数え直した(1 分 46 秒)。件数が変わった組のうち「1 だった / 1 になった / 0→出現」は 69 組。65 組は `verify_plaza_curio` 自身。残り 4 組はどれも**変異アンカーではない**: `driver_equip_compact_ios` の `'聖別された剣'` ×2(種のセーブに入れる旧名 = 移し替えの実例)/ `verify_plaza_map` の `'data-gear'`(項目1 の (2b) の除外そのもの)/ `verify_road_events` の `' / 母集団 '`(メッセージの連結)。1→0 は 0 組 ⇒ **衝突 0**。
+
+### 12-4. 依頼書と違えた点
+
+- **項目1**: index:24519 のコメントに旧名の変種「吸命メイス」(「の」抜け)があった。(1c) の 19 語の grep には掛からないが旧名なので、「メイスオブスマイティング」へ直した。
+- **項目2**: `curioItemTV` は装飾品で `gated` を見ない(武器・鎧は gated の行だけ)。売る品を絞るのは母集団 `curioGearPoolTV` の 1 か所に寄せ、`gearshadow`(母集団に shadow-amulet を入れる変異)で (0a) だけでなく (3a) も赤くするため。
+- **項目3(受入の言い直し)**:
+  1. (1a) は 19 品だけでなく**全 182 行**(index の本表 3・仲間の表 18・accessories / 酒場の 18・ACCESSORIES_TV)で、名前以外の欄が `54f6409` と完全一致かを見た(numdrift のような他の行の数値のずれも拾う)。基準は `git show 54f6409` の表のリテラルを node の vm で評価 = 写した期待値を持たない。
+  2. (1d)「ソースの文字列で数える」を**字句走査**で実装(文字列リテラルの中の出現だけ数える・コメントと `name:` 行は除く)。基準のソースで 8+8 が取れることを装置の検算にした。
+  3. (2d) は「ownedEquip と高水位だけ」のうち**高水位(weaponIdx / armorIdx)だけ**で仕込んだ(ownedEquip の形を合成すると別の経路を測ることになるため)。
+  4. 計測機構: `window.__dfGatedRename` の実行時注入は**使わなかった**(表はソースの vm 評価で、振る舞いは既存の口 `__sheetEquip` / `__equipTV` / `__plazaTV` で足りた)。配信スナップショットに足した行は負のコントロールの変異だけ。
+  5. (3c) は `refreshCurioGear` が付けた値段で測る(仕込みの値段だと gearprice が空振りする)。(3b) の後半「全所持で古物商には在庫の品だけ」は (3e) の地下街のページで測った。
+- **項目4**: `tools/verify_scroll_shelf.js` (4a)(4b) の言い直し(12-3)。
+- §2 の再測定(基準 `54f6409`・行番号まで)は全部一致 = **崩れた主張なし**。本番の欠陥なし。
+
+### 12-5. 別チケット候補
+
+- 依頼書 §11 の保留: SRD の効き目に合わせた数値の作り直し / 地下街を歩く住人・`consumeTrigger` の件・珍しい依頼 2 種の出現率 / ボールトの `items.md` の更新(別 PC)。
+- #98 からの持ち越し: port 8897 の共有(K1)/ `driver_monsters_griffon` と `verify_tower_mother_b --negative` の「観測 0」型の揺れ / `driver_mine_wall --negative` の装置 (4z) がスイープ中だけ空振りする揺れ / `verify_codex_map_skill` (3a) / 両方非緑の既知 20 腕。
+- 起草の作法: 名前・文言を変えるチケットの名指し golden に「基準のコミットと実行時の値を突き合わせる本」を入れる(12-3 の ⚠)。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(http 起動): iPhone 縦で長い名前(スタッフオブサンダーアンドライトニング・ソードオブライフスティーリング・クロークオブディスプレイスメント)が装備の札・キャラクターシート・闇市の品の板に収まるか / リングオブフリーアクションの吹き出しの長さ / 古物商で装備品が 1〜2 品並び、買うと準備画面の装備に出るか・30 / 25 牙貨が貯めやすすぎないか / 既存のセーブの持ち物が新しい名前で残っているか。
+- 次の新規ドライバ base = **10639**。

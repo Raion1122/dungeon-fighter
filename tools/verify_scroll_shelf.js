@@ -125,6 +125,11 @@ const SLEEP = DRV_COMMON.filter((c) => c.classKey === 'mage' && c.spellId === 's
 const BURN = byId('scroll-burning-hands'), BLESS = byId('tome-bless'), HAIL = byId('grimoire-hail-of-thorns');
 if (!SLEEP || !BURN || !BLESS || !HAIL) { console.error('[vet] ⛔ ソースの表に scroll-sleep / scroll-burning-hands / tome-bless / grimoire-hail-of-thorns のどれかが無い'); process.exit(3); }
 
+/* ★[#99] 名前を除いた写し: 配列は添字 3 (CHAR_EQUIP の行の name)、オブジェクトは name キーを再帰的に落とす */
+function noName(x) {
+  if (Array.isArray(x)) return x.filter((_, j) => j !== 3);
+  return x == null ? x : JSON.parse(JSON.stringify(x, (k, v) => (k === 'name' ? undefined : v)));
+}
 /* (4b) の比較範囲 = DF_PRICE_BY_RARITY の行 〜 dfShopSellPrice の行末 (改行は LF に揃える) */
 function priceBlock(src) {
   const s = src.replace(/\r\n/g, '\n');
@@ -589,7 +594,8 @@ async function runSuite(browser, port, mutKey, label) {
       const diffs = [];
       for (const hk of ['warrior', 'mage']) for (let i = 0; i < Math.max(s[hk].out.length, off[hk].out.length, base[hk].out.length); i++) {
         const a = J(s[hk].out[i]), b = J(off[hk].out[i]), c = J(base[hk].out[i]);
-        if (a !== b || a !== c) diffs.push({ hk, i, now: a, off: b, base: c });
+        /* ★[#99] HEAD~1 (54bb89a) とは名前を除いて比べる (#99 で独自品 19 品を SRD の名前へ改名した。名前は verify_plaza_curio (1a) が 54f6409 と突き合わせる) */
+        if (a !== b || J(noName(s[hk].out[i])) !== J(noName(base[hk].out[i]))) diffs.push({ hk, i, now: a, off: b, base: c });
       }
       const ok = heroesOk && all.length >= 10 && okBuys >= 3 && okSells >= 3 && diffs.length === 0;
       R.check('(4a)', '武器防具の shopBuy / shopSell の戻り値と金貨の増減が 素 = ?scrollshop=0 = HEAD~1 (54bb89a) で全品一致 (戦士・魔法使い)', ok,
@@ -598,7 +604,8 @@ async function runSuite(browser, port, mutKey, label) {
     {
       const blkNow = priceBlock(servedTavern(mutKey)), blkBase = priceBlock(BASE_SRC);
       const p = prices['素'], pb = prices['HEAD~1'], po = prices['?scrollshop=0'];
-      const rowDiff = p.rows.map((r, i) => (J(r) === J(pb.rows[i]) && J(r) === J(po.rows[i]) ? null : { now: r, base: pb.rows[i] })).filter(Boolean);
+      /* ★[#99] HEAD~1 とは名前の列 (添字 3) を除いて比べる (理由は (4a) と同じ) */
+      const rowDiff = p.rows.map((r, i) => (J(noName(r)) === J(noName(pb.rows[i])) && J(r) === J(po.rows[i]) ? null : { now: r, base: pb.rows[i] })).filter(Boolean);
       const ok = !!blkNow && !!blkBase && blkNow === blkBase && p.rar === pb.rar && p.rar === po.rar
         && p.rows.length >= 20 && p.rows.length === pb.rows.length && p.rows.length === po.rows.length && rowDiff.length === 0;
       R.check('(4b)', 'DF_PRICE_BY_RARITY 〜 dfShopSellPrice のソースが HEAD~1 と同一・buyPrice / sellPrice / dfShopBuyPrice / dfShopSellPrice が全品一致', ok,
