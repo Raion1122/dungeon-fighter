@@ -2022,6 +2022,24 @@
     .mwSign.mwExitSign .mwSignName { font-size: 15px; }
     .mwHero { filter: drop-shadow(0 0 2px rgba(0,0,0,0.85)); }
     .mwGoal { border: 2px dashed rgba(255,214,140,0.75); border-radius: 50%; box-sizing: border-box; transition: opacity 0.15s ease; }
+    /* ★[#100] 地下街の住人の一言 (紙・文字・角丸・尻尾の見た目だけ)。
+       位置 / z 7 / pointer-events: none / translate は js/map-walk.js がインラインで入れる。
+       ⛔ 酒場・港町の .npcBubble とセレクタを共有しない。⛔ 影に filter を使わない (box-shadow)。 */
+    .mwNpcBubble {
+      max-width: 240px; padding: 7px 12px 8px;
+      font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+      font-size: 14px; line-height: 1.45; text-align: center; white-space: normal;
+      color: #2b1d0e; background: rgba(247,236,209,0.97);
+      border: 1px solid rgba(120,86,44,0.9); border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.6), 0 0 12px rgba(69,224,168,0.18);
+      animation: mwNpcBubbleIn 0.16s ease-out;
+    }
+    .mwNpcBubble::after {
+      content: ""; position: absolute; left: 50%; top: 100%; margin-left: -7px; width: 0; height: 0;
+      border-left: 7px solid transparent; border-right: 7px solid transparent;
+      border-top: 8px solid rgba(247,236,209,0.97);
+    }
+    @keyframes mwNpcBubbleIn { from { opacity: 0; } to { opacity: 1; } }
     /* ════════ 闇クエスト掲示板 = 依頼札 (羊皮紙カード) ════════
        紙の質感は【直下の #plazaQuestBoard 変数ブロック】だけで決まる (他のルールは触らない)。
        将来 酒場側へ同じ札を展開する時も、変数の上書きだけで色が変わる。
@@ -3407,10 +3425,10 @@
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
       <ul class="changelogList">
+        <li><b>闇市の地下街に住人</b> — ゴブリン・ホブゴブリン・リザードフォークが通路を行き交う。押すと一言。</li>
         <li><b>古物商で装備品が買えるように</b> — 闇市の地下街の古物商に、ボスの落とし物の装備品が来るたび 1〜2 品並ぶ(牙貨 25〜30)。独自の名前だった装備品 19 品は D&amp;D の品の名前に(強さはそのまま)。</li>
         <li><b>闇市が歩ける地下街に</b> — 薬屋・杖屋・召喚屋・古物商の露店を灯りを手に巡れる。港町の石段からも出入りできる。</li>
         <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
-        <li><b>魔法使いにカウンタースペル</b> — 巻物で覚える新呪文。敵の詠唱に割り込み、火球などの呪文が完成する前に打ち消す。</li>
       </ul>
     </div>
     <script>
@@ -10348,6 +10366,17 @@
     if (ALL_CLASS_KEYS.indexOf(k) < 0) k = "warrior";   // ⚠ 知らないキーは 404 で主人公が消える
     return "assets/" + k + "_walk.png";
   }
+  /* ★[#100] 地下街を歩く住人 — 撤退の判定はここ 1 か所 (依頼書 §7)。次のどれかなら null = 住人を生やさない:
+     ?undercrowd=0 / ?npc=0 (window.__tavernNpcOn === false) / 地下街そのものが OFF (?undercity=0) /
+     NPC_CROWD.PLAZA が無い。⚠ 配置の唯一の正は js/npc-crowd.js、描くのは js/map-walk.js (⛔ ここに写さない)。
+     ⚠ クエリはページ遷移をまたがない (dev 専用・?undercity=0 と同じ扱い)。 */
+  function plazaCrowdTV() {
+    let off = false;
+    try { off = new URLSearchParams(location.search).get("undercrowd") === "0"; } catch (e) { off = false; }
+    if (off || window.__tavernNpcOn === false || !isUndercityOnTV()) return null;
+    const C = window.NPC_CROWD;
+    return (C && Array.isArray(C.PLAZA) && C.PLAZA.length) ? C.PLAZA : null;
+  }
   /* 地図を初回だけ生やし、札を立てる */
   function plazaBuildWalkTV(spawn) {
     const vp = document.getElementById("plazaViewport");
@@ -10358,7 +10387,8 @@
       heroSheet: plazaHeroSheetTV(),
       spawn: spawn,
       light: { inner: 192, outer: 384, alpha: 0.72 },   // 初期値 (内 3 マス / 外 6 マス)。§9 の実機で動かす
-      signPrefix: "plazaSign_"
+      signPrefix: "plazaSign_",
+      crowd: plazaCrowdTV()                             // ★[#100] 歩く住人 (撤退時は null = レイヤごと無し)
     });
     const goSign = function (f, onArrive) {
       return function () {
@@ -10391,6 +10421,7 @@
     plazaCloseBoardTV();
     plazaWalkTV.placeAt(sp.c, sp.r);
     plazaWalkTV.layout();                        // ⚠ 隠れていた間の寸法 0 を捨てる (見せた後に必ず)
+    if (plazaWalkTV.crowdResume) plazaWalkTV.crowdResume();   // ★[#100] 住人の巡回を再開 (閉じている間は止めてある)
   }
   function openPlazaScreen(from) {
     const s = document.getElementById("plazaScreen");
@@ -10408,6 +10439,7 @@
   function closePlaza() {
     const s = document.getElementById("plazaScreen");
     if (plazaWalkTV) { try { plazaWalkTV.stop(); } catch (e) {} }   // ★[#98] 歩きの rAF を残さない
+    if (plazaWalkTV && plazaWalkTV.crowdPause) { try { plazaWalkTV.crowdPause(); } catch (e) {} }   // ★[#100] 隠れている間に住人の rAF を回さない
     if (plazaUndercityOnTV) plazaCloseBoardTV();
     if (s) s.style.display = "none";
   }
@@ -10885,7 +10917,8 @@
         openStall: function () { return plazaOpenStallTV; },
         board:     function () { const s = document.getElementById("plazaScreen"); return s ? s.getAttribute("data-board") : null; },
         lightCenter: function () { return W() ? W().lightCenter() : null; },
-        footClient:  function () { return W() ? W().footClient() : null; }
+        footClient:  function () { return W() ? W().footClient() : null; },
+        crowdUnits:  function () { return W() ? W().crowdUnits() : []; }   // ★[#100] 住人の位置 (読み取りのみ)
       });
     } catch (e) {}
   })();

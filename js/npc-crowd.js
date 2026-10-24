@@ -115,6 +115,24 @@
       say: "塔の上より、ここのほうが騒がしいねえ。" }
   ];
 
+  /* ★[#100] 闇市の地下街を歩く住人 3 体。⚠ TAVERN / TOWN / REUNION とは別の配列。
+   *   地図は PLAZA_MAP (23x15・TILE 64)。不変条件 I1〜I5 は同じ validate() で検査する
+   *   (validate(NPC_CROWD.PLAZA, PLAZA_MAP, signs))。描くのは js/map-walk.js の opts.crowd
+   *   (tavern.html は渡す・止める・再開するだけ。撤退 ?undercrowd=0 / ?npc=0 / ?undercity=0)。
+   *   ⚠ 巡回の矩形は verify_plaza_map (1c) の押し所 (5,6) (17,12) (21,7) (11,7) (17,7) を覆わない (#100 §2-4)。
+   *   ⚠ 絵は敵の歩きを住人の形式へ畳み直したもの (assets/plaza_*_walk.png)。⛔ *_anim.png を当てない (段 3 = 攻撃)。 */
+  var PLAZA = [
+    { key: "lizardfolk", kind: "stroll", from: [7, 6],  to: [18, 6], face: "right",
+      sprite: "assets/plaza_lizardfolk_walk.png",
+      say: "地上の者か……。牙貨は持っているか、シャァ…" },
+    { key: "hobgoblin",  kind: "stroll", from: [11, 9], to: [11, 13], face: "right",
+      sprite: "assets/plaza_hobgoblin_walk.png",
+      say: "通り道を塞ぐな。ここは闇市だ、フン" },
+    { key: "goblin",     kind: "stroll", from: [6, 13], to: [15, 13], face: "right",
+      sprite: "assets/plaza_goblin_walk.png",
+      say: "ヒヒッ、いい品が入ったぜ。見るだけならタダだぜ" }
+  ];
+
   /* ── 不変条件の検査 (⭐ ドライバはこれを **呼ぶ**。自前で書き直さないこと) ─────────
    *  map  … TAVERN_MAP か TOWN_MAP (isWalkable / inBounds / TILE を持つもの)
    *  signs… [{ key, cx, cy, w, h }] を **実 DOM から測って**渡す
@@ -172,7 +190,7 @@
 
   global.NPC_CROWD = {
     SPRITE: SPRITE, FOOT: FOOT,
-    TAVERN: TAVERN, TOWN: TOWN, REUNION: REUNION,
+    TAVERN: TAVERN, TOWN: TOWN, REUNION: REUNION, PLAZA: PLAZA,
     cellsOf: cellsOf, boxOf: boxOf, validate: validate
   };
 })(typeof window !== "undefined" ? window : this);

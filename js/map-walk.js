@@ -3,6 +3,8 @@
  * ------------------------------------------------------------------
  * 実装依頼書 `実装依頼書/2026-10-21_plaza-undercity-map.md` (#98) §4-1。
  * 今のところ使うのは闇市の地下街 (tavern.html の #plazaViewport) だけ。
+ *   ★[#100] 地下街を歩く住人 (opts.crowd・配置は js/npc-crowd.js の NPC_CROWD.PLAZA) もこの部品が描く。
+ *   ⛔ 港町・酒場の住人 (town.html / tavern.html の initNpcCrowd) はこの部品を使わない (別チケット)。
  *
  * ★ 写経元 = tavern.html の酒場の店内の歩き (initTavernMap の placeHero / layout /
  *   applyCamera / walkPath / walkTo / tileFromClient / makeSign)。
@@ -24,9 +26,13 @@
  *      公開物は末尾で **明示的に window へ代入**している (js/tavern-map.js と同じ作法)。
  *
  * ★ DOM は全部この部品が生やす (静的 DOM を増やさない = verify_tavern_map (6c))
- *   viewport > .mwStage > img.mwMapImg / .mwGoal / .mwHeroShadow / .mwHero / .mwLight / .mwSign*
- *   重なりの順 (z-index): 絵 0 < 行き先 1 < 影 2 < 主人公 3 < 暗幕 5 < 札 6。
+ *   viewport > .mwStage > img.mwMapImg / .mwGoal / .mwNpcLayer (> .mwNpcShadow + .mwNpc) /
+ *                         .mwHeroShadow / .mwHero / .mwLight / .mwSign* / .mwNpcBubble (最大 1 枚)
+ *   重なりの順 (z-index): 絵 0 < 行き先 1 < 影 2 < 住人 3 = 主人公 3 < 暗幕 5 < 札 6 < 吹き出し 7。
  *   ⭐ 札は暗幕より上 = 灯りの外でも見えて押せる。
+ *   ⭐ 住人は主人公と同じ z 3 で DOM が前 = 主人公が手前。暗幕の下 = 灯りの外では暗く沈む。
+ *   ⭐ 吹き出しは pointer-events: none = elementFromPoint を素通りする (札の判定を濁さない)。
+ *   ⚠ opts.crowd が null / 空なら .mwNpcLayer ごと作らない (撤退 = #98 と同じ DOM)。
  *   ⚠ 位置・重なり・当たり判定に効く値は**インライン style** で入れる
  *     (CSS が読み込めなくても壊れない)。見た目 (札の紙・文字) は呼び出し側の CSS (.mwSign)。
  *
@@ -46,8 +52,10 @@
  *     light: { inner: 192, outer: 384, alpha: 0.72 },   // null で灯り無し
  *     insets: function () { return { top: 0, bottom: 0 }; },  // 帯を引いた可視域
  *     signPrefix: "plazaSign_",          // 札の id の頭 (既定 "plazaSign_")
- *     clickToWalk: true                  // 地図の空きタイルを押したらそこへ歩く (既定 true)
+ *     clickToWalk: true,                 // 地図の空きタイルを押したらそこへ歩く (既定 true)
+ *     crowd: NPC_CROWD.PLAZA             // ★[#100] 歩く住人 ({ key, kind:"stroll", from, to, sprite, say })。null / 空で無し
  *   });
+ *   // 住人: w.crowdPause() (rAF を止めて吹き出しを消す) / w.crowdResume() / w.crowdUnits() (読み取りのみ)
  *   // 隠れている間に create したら、見えるようにした**後で**必ず w.layout() を呼ぶ。
  */
 (function (global) {
@@ -364,6 +372,192 @@
       return s;
     }
 
+    /* ══ 住人 (★[#100] opts.crowd) ═══════════════════════════════════════════
+       港町 #41 の住人のふるまいを、この部品の中で書き起こしたもの (⛔ tavern.html へ写さない =
+       tools/verify_npc_crowd.js の変異アンカーが「ファイルに 2 回」になって exit 3)。
+       ・class は .mwNpcLayer / .mwNpcShadow / .mwNpc[data-mw-npc] / .mwNpcBubble[data-mw-npc-say]。
+         ⛔ .npcUnit / data-npc / .npcBubble を使わない (酒場の住人の数え上げに混ざる)。
+       ・位置は主人公と同じ 2 行の式 (足元 = タイル中心)。速さ MS_PER_TILE・コマ送り FRAME_DIV。
+       ・経路は from→to の直線のマスだけ (⛔ findPath を呼ばない = すり抜けは港町と同じく許容)。
+       ・端点で向きを反転し 1.5〜3 秒止まる (mode "pause")。歩いている間は mode "walk"。
+       ・rAF は 1 本。仮想時計は 1 フレーム最大 100ms (タブ復帰のワープ防止)。タブが隠れたら止める。
+       ⛔ 主人公の stop() / placeAt() からここへ触らない (住人は主人公と独立に歩き続ける)。 */
+    var crowdSrc = (opts.crowd && opts.crowd.length) ? opts.crowd : null;
+    var folk = [];                              /* 住人ごとの状態 */
+    var elFolkLayer = null;
+    var folkRaf = null, folkPrevNow = null, folkClock = 0;
+    var folkWanted = true;                      /* crowdPause() で false。visibilitychange の再開はこれを見る */
+    var SAY_MS = 4000;
+    var sayEl = null, sayOwner = null, sayTimer = null, sayW = 0, sayH = 0;
+
+    function lineCells(n) {
+      if (global.NPC_CROWD && typeof global.NPC_CROWD.cellsOf === "function") return global.NPC_CROWD.cellsOf(n);
+      if (n.kind !== "stroll") return [n.tile];
+      var a = n.from, b = n.to, cells = [], k;
+      if (a[0] === b[0]) for (k = Math.min(a[1], b[1]); k <= Math.max(a[1], b[1]); k++) cells.push([a[0], k]);
+      else               for (k = Math.min(a[0], b[0]); k <= Math.max(a[0], b[0]); k++) cells.push([k, a[1]]);
+      return cells;
+    }
+
+    function sayHide() {
+      if (sayTimer !== null) { clearTimeout(sayTimer); sayTimer = null; }
+      if (sayEl && sayEl.parentNode) sayEl.parentNode.removeChild(sayEl);
+      sayEl = null; sayOwner = null;
+    }
+    function sayFollow(p) {
+      if (!sayEl || sayOwner !== p) return;
+      /* 横 = 足元の中心 (translate -50%)。舞台の左右端では紙が切れないよう寄せる。 */
+      var half = sayW / 2 + 4;
+      var bx = Math.min(MAP_W - half, Math.max(half, p.x + p.dx));
+      /* 縦 = 頭の上 (translate -100% なので top は紙の下端)。上端でも切れないよう寄せる。 */
+      var by = Math.max(sayH + 4, p.y + p.dy - SPRITE * FOOT - 8);
+      sayEl.style.left = bx + "px";
+      sayEl.style.top  = by + "px";
+    }
+    function sayShow(p) {
+      sayHide();                                /* 前の 1 枚を必ず先に消す = 舞台に常に 1 枚 */
+      var text = (p && p.n && p.n.say != null) ? String(p.n.say) : "";
+      if (!text) return;
+      var el = mk("div", "mwNpcBubble");
+      el.setAttribute("data-mw-npc-say", p.n.key);
+      el.textContent = text;                    /* ⛔ innerHTML にしない (say は自由文のデータ) */
+      el.style.position = "absolute";
+      el.style.transform = "translate(-50%,-100%)";
+      el.style.zIndex = "7";                    /* 札 (6) より上 = 灯りの外で押しても読める */
+      el.style.pointerEvents = "none";          /* ⛔ 押せる紙にしない (札の elementFromPoint を濁さない) */
+      elStage.appendChild(el);
+      sayEl = el; sayOwner = p;
+      sayW = el.offsetWidth; sayH = el.offsetHeight;   /* 出した時に 1 回だけ測る (毎フレーム読まない) */
+      sayFollow(p);
+      sayTimer = setTimeout(function () { if (sayEl === el) sayHide(); }, SAY_MS);
+    }
+
+    function folkDraw(p) {
+      var fx = p.x + p.dx, fy = p.y + p.dy;
+      p.el.style.left = (fx - SPRITE / 2) + "px";
+      p.el.style.top  = (fy - SPRITE * FOOT) + "px";
+      p.el.style.transform = p.left ? "scaleX(-1)" : "none";
+      p.el.style.backgroundPosition = (-SPRITE * p.frame) + "px " + (-SPRITE * SHEET_ROW_RIGHT) + "px";
+      p.sh.style.left = fx + "px";
+      p.sh.style.top  = fy + "px";
+      if (sayOwner === p) sayFollow(p);
+    }
+    function folkTick(p, t) {
+      var last = p.cells.length - 1;
+      if (p.n.kind !== "stroll" || last < 1) {
+        /* 立ち止まり (今の PLAZA には居ない)。hold のコマで静止。 */
+        var c0 = tileCenter(p.cells[0][0], p.cells[0][1]);
+        p.x = c0.x; p.y = c0.y; p.frame = p.hold; p.mode = "stand";
+        folkDraw(p);
+        return;
+      }
+      if (p.mode === "pause") {
+        if (t >= p.until) { p.mode = "walk"; p.legT0 = t; p.animT0 = t; }
+      } else if (t - p.legT0 >= MS_PER_TILE) {
+        p.at += p.step;
+        p.legT0 += MS_PER_TILE;
+        if (p.at <= 0 || p.at >= last) {
+          p.at = Math.max(0, Math.min(last, p.at));
+          p.step = -p.step;
+          p.left = !p.left;                     /* 端点で向きを反転して止まる */
+          p.mode = "pause";
+          p.until = t + p.restMs;
+        }
+      }
+      var u = (p.mode === "walk") ? Math.max(0, Math.min(1, (t - p.legT0) / MS_PER_TILE)) : 0;
+      var nx = Math.max(0, Math.min(last, p.at + p.step));
+      var pa = tileCenter(p.cells[p.at][0], p.cells[p.at][1]);
+      var pb = tileCenter(p.cells[nx][0], p.cells[nx][1]);
+      p.x = pa.x + (pb.x - pa.x) * u;
+      p.y = pa.y + (pb.y - pa.y) * u;
+      p.frame = (p.mode === "walk") ? (Math.floor((t - p.animT0) / FRAME_DIV) % 6) : 0;   /* ⚠ MS_PER_TILE と同率 */
+      folkDraw(p);
+    }
+    function folkLoop(now) {
+      folkRaf = null;
+      if (folkPrevNow === null) folkPrevNow = now;
+      folkClock += Math.min(100, Math.max(0, now - folkPrevNow));   /* 仮想時計: 1 フレーム最大 100ms */
+      folkPrevNow = now;
+      for (var i = 0; i < folk.length; i++) folkTick(folk[i], folkClock);
+      folkRaf = requestAnimationFrame(folkLoop);
+    }
+    function folkStart() {
+      if (!folk.length || folkRaf !== null) return;
+      if (document.visibilityState === "hidden") return;
+      folkPrevNow = null;
+      folkRaf = requestAnimationFrame(folkLoop);
+    }
+    function folkHalt() {
+      if (folkRaf !== null) { cancelAnimationFrame(folkRaf); folkRaf = null; }
+      folkPrevNow = null;
+    }
+    function crowdPause() { folkWanted = false; folkHalt(); sayHide(); }
+    function crowdResume() { folkWanted = true; folkStart(); }
+
+    if (crowdSrc) {
+      elFolkLayer = mk("div", "mwNpcLayer");
+      elFolkLayer.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;";
+      /* ⭐ 主人公の影より前に挿す = 同じ z 3 でも主人公が手前 */
+      elStage.insertBefore(elFolkLayer, elShadow);
+      crowdSrc.forEach(function (n, i) {
+        var cells = lineCells(n);
+        if (!cells || !cells.length) return;
+        var sh = mk("div", "mwNpcShadow");
+        sh.style.cssText = "position:absolute;width:40px;height:14px;margin-left:-20px;margin-top:-7px;" +
+          "border-radius:50%;background:radial-gradient(ellipse at center, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 70%);" +
+          "pointer-events:none;z-index:2;";
+        var el = mk("div", "mwNpc");
+        el.setAttribute("data-mw-npc", n.key);
+        el.style.position = "absolute";
+        el.style.width  = SPRITE + "px";
+        el.style.height = SPRITE + "px";
+        el.style.backgroundRepeat = "no-repeat";
+        el.style.backgroundSize = (SPRITE * 6) + "px " + (SPRITE * 4) + "px";
+        el.style.backgroundImage = 'url("' + n.sprite + '")';
+        el.style.transformOrigin = "50% 100%";
+        el.style.zIndex = "3";
+        el.style.pointerEvents = "auto";
+        el.style.cursor = "pointer";
+        elFolkLayer.appendChild(sh);
+        elFolkLayer.appendChild(el);
+        var p = {
+          n: n, el: el, sh: sh, cells: cells,
+          dx: n.dx || 0, dy: n.dy || 0,
+          left: n.face === "left",
+          hold: (((n.hold || 0) % 6) + 6) % 6, frame: 0,
+          at: 0, step: 1, mode: "walk", legT0: 0, animT0: 0, until: 0,
+          restMs: 1500 + (i * 613) % 1500,      /* 端点で 1.5〜3 秒 (住人ごとに固定でずらす) */
+          x: 0, y: 0
+        };
+        folk.push(p);
+        /* 押すと一言。伝播は止める (止めないと viewport の click が住人の下のタイルへ主人公を歩かせる)。
+           ⛔ preventDefault はしない (スクロール / ズームを殺さない)。click と touchend の両方が来ても
+           sayShow() が前を先に消すので紙は 1 枚のまま。 */
+        var onPress = function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          sayShow(p);
+        };
+        el.addEventListener("click", onPress);
+        el.addEventListener("touchend", onPress);
+      });
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") folkHalt();
+        else if (folkWanted) folkStart();
+      });
+      /* 最初の 1 枚は rAF を待たずに置く (左上に 1 フレーム取り残さない) */
+      for (var fi = 0; fi < folk.length; fi++) folkTick(folk[fi], folkClock);
+      folkStart();
+    }
+
+    /* ドライバ用の読み取り口 (⛔ 書き換え口は作らない)。c / r は足元のタイル。 */
+    function crowdUnits() {
+      return folk.map(function (p) {
+        var fx = p.x + p.dx, fy = p.y + p.dy;
+        return { key: p.n.key, c: Math.floor(fx / TILE), r: Math.floor(fy / TILE),
+                 x: fx, y: fy, left: p.left, frame: p.frame, mode: p.mode };
+      });
+    }
+
     function geom() {
       return { tile: TILE, cols: map.COLS, rows: map.ROWS, mapW: MAP_W, mapH: MAP_H,
                sprite: SPRITE, foot: FOOT, msPerTile: MS_PER_TILE };
@@ -395,7 +589,11 @@
         var rect = elStage.getBoundingClientRect();
         return { x: rect.left + heroPx.x * zoom, y: rect.top + heroPx.y * zoom };
       },
-      geom: geom
+      geom: geom,
+      /* ★[#100] 住人 (opts.crowd が無ければ crowdUnits() は [] / pause・resume は何もしない) */
+      crowdPause: crowdPause,
+      crowdResume: crowdResume,
+      crowdUnits: crowdUnits
     };
   }
 
