@@ -427,4 +427,63 @@ merchant-bound(l.355)と同じ形。`attack_dir` が `walk_dir` と同じなの�
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+**ステータス: ✅ 完了(2026-10-26 実装窓・未 push)**。記録の詳細は `~/.claude/dev-loop/r100/notes100_item1.md` / `notes100_item2.md` / `notes100_item3.md` / `notes100_item4.md`。
+
+### 12-1. コミット
+
+| commit | 内容 |
+|---|---|
+| `1f3eb5c` | 項目1: 台帳 `tools/codex1_sprites.json` に住人 3 行(`plaza-goblin` 0.59 / `plaza-hobgoblin` 0.60 / `plaza-lizardfolk` 0.78・format player・walk のみ)+ `assets/plaza_{goblin,hobgoblin,lizardfolk}_walk.png`(576x384・段 3 だけ中身)を `pack_codex1_player.py --all` で(既存シートはバイト不変)。段 3 の体高の中央値 52 / 56 / 73 px = 戦闘の背丈。ホブゴブリンは `hobgoblin/final/walk`(safe-frame 版と 6 枚とも md5 一致)。分身チェック clean・背景残り 601 セル 疑い 0 |
+| `b3d6ccf` | 項目2: `js/npc-crowd.js` に `PLAZA` 3 本 / `js/map-walk.js` に `opts.crowd`(住人・影・吹き出し・rAF の群衆ループ・戻り値 `crowdPause` / `crowdResume` / `crowdUnits`)/ `tavern.html` に `plazaCrowdTV()`(撤退 `?undercrowd=0` ほか 4 条件)・入場で再開・`closePlaza` で停止・`.mwNpcBubble` の CSS(`box-shadow` のみ)・`__plazaTV.map.crowdUnits`・changelog「闇市の地下街に住人」/ `tools/verify_plaza_map.js` の押し所(§6 の 1 条件)と (5b) の言い直し |
+| `5c19070` | 項目3: 新規受入 `tools/verify_plaza_crowd.js`(port 10639・desktop / compact・負のコントロール 14 本内蔵・純 LF 802 行) |
+| 本節のコミット | 項目4: 母集団の非退行(全数走査)+ 変異アンカーの監査 + 本節 + README の #100 行 |
+
+### 12-2. 受入の色と秒
+
+| 走行 | 色 | 秒 |
+|---|---|---|
+| `verify_plaza_crowd` 素 | **41/41**(22 節)×3(項目3)+ 全数走査の中で 1 回 41/41 | 82〜84(並走時 143) |
+| `verify_plaza_crowd --negative` | **14/14**(担当の節が赤・空振り 0)×2(項目3)+ 全数走査の中で 1 回(赤の集合は 3 回とも同じ) | 約 1070 |
+| §8 の名指しの既存 golden(全数走査の中) | `verify_npc_crowd` **33/33**(PENDING 0)・neg 58/58 / `verify_plaza_map` **43/43**・neg **10/10**(担当どおり・**住人あり**で)/ `verify_plaza_srd` **27/27**・neg 8/8 / `verify_plaza_curio` **28/28**・neg 12/12 / `verify_tavern_map` **47/47**・neg 71/71 / `verify_town_map` **85/85** | — |
+| 単体の動作確認(コミットしない) | 項目2 `smoke.js` 16/16(3 体・移動・反転時 pause・frame 0..5・吹き出し 1 枚・pe none・z 7・主人公不動・closePlaza 後 2 秒不変・再入場で再開・compact・撤退 3 種・エラー 0) | — |
+
+- 負のコントロールの巻き込み(どれも欠陥の性質どおり): nocrowd → (0a) と以降の画面節すべて(0a が赤なら測らない設計)/ animsheet・samesheet → (1d)(1f) / walkable・oversign → (1a)(1b) / twobubble → (3b)(3d) / innerhtml → (3a)(3d)。残り 8 本は担当の節だけ。
+- `oversign`([10,9]→[10,13])は空振りしなかった(I4 = (10,9)〜(10,11) の露店と I5 = 札 summon との交差の両方が出た)。
+
+### 12-3. 母集団の非退行(全数走査)
+
+- `tavern.html` / `js/*` を触るので全数。HEAD `5c19070` で **236 腕・650.4 分**(2.76 分/腕)= #99 の 234 腕(同順)+ `verify_plaza_crowd` 素 / neg。直列・SKIP 再開型(2026-10-25 23:16 → 10-26 10:08・窓落ちなし)。git を読む本は `git clone --shared @5c19070`(本番と 951 ファイルのバイト差 0)で。
+- 基準 = **8567dff 時点の色**: #99 の post99(本番 `9d0e157`)の表に、#99 項目4 の再走 2 回(言い直し後の 17 腕 / commit 後の 12 腕)の行を上書きしたもの = 緑 213 / 非緑 21。
+- 結果: 緑 214 / 非緑 22。緑→赤 2・赤→緑 1・両方非緑 20・新規 2 腕は緑。
+  - **緑→赤 2 = どちらも非帰属(揺れ)**。どちらも #100 が触っていない `index.html` の上の本:
+    - `driver_monsters_griffon` 素(15/17・#72 既知の非決定な本)。影のツリー(`5c19070` に `8567dff` の `tavern.html` / `js/map-walk.js` / `js/npc-crowd.js` / `tools/verify_plaza_map.js` を戻したもの)との対比較で、本番 2/2 緑・影 1/2 緑(影でも同じ 15/17 で落ちる)。
+    - `verify_tower_mother_b --negative`(変異の前の素の走行で (4a)(4c) が赤 = `index.html?towermother=0` の走行が帰還まで届かなかった → 変異を走らせず exit 1)。同じ走査の素は 22/22・対比較の素は本番 2/2・影 2/2 緑。本番で neg を全長(4072 秒)走らせ直すと **exit 0**(11 本すべて担当が赤・担当外の赤 0)。#98・#99 で既知の「観測 0」型の揺れと同じ本。
+  - 赤→緑 1 = `driver_mine_wall --negative`(#99 で揺れと判定した腕が戻った)。
+  - 両方非緑の 20 腕は FAIL 行を集合で突き合わせ、19 腕は中身が同じ。DIFF 1 腕 = `driver_mapdef_step1` (0b) の worktree list に載る clone の hash(`9d0e157` → `5c19070`・#98・#99 と同じ型)。
+  - exit 3 は 7 腕で、全部基準でも exit 3(引数なし起動の probe 3 本・`driver_grid_p4`・既知のアンカー多重 3 本)⇒ #100 が増やしたアンカー腐敗は 0。
+  - ⇒ **#100 帰属の緑→赤 = 0**。本番の欠陥なし。項目4 では本番も tools も触っていない。
+- 変異アンカーの監査: 全 tools 206 ファイルの文字列リテラル 55,607 個を `8567dff`→`5c19070` の `index.html` / `audio.js` / `tavern.html` / `js/skill-check.js` / `js/plaza-map.js` / `js/map-walk.js` / `js/npc-crowd.js` で数え直した(1 分 43 秒)。「1 だった / 1 になった / 0→出現」は 211 組。43 組は `verify_plaza_crowd` 自身と `verify_plaza_map`(項目2 の言い直し)、166 組は**その本がそのファイルを読まない**一般語(`'goblin'` `'hidden'` など)。残り 2 組も変異アンカーではない(`verify_class_line` の `createEnemy('goblin', …)` の引数 / `verify_npc_crowd` の URL `?npc=0`)。1→0 は 0 組・1→2 以上はそのファイルを読む本で 0 組 ⇒ **衝突 0**。`verify_npc_crowd` のアンカー 6 本は `tavern.html` / `town.html` とも 1 回のまま((4a) で確認)。
+
+### 12-4. 依頼書と違えた点
+
+- **項目1**: `char_ratio` をゴブリン 0.58→**0.59**・リザードフォーク 0.79→**0.78** に寄せた(依頼書の値だと体高の中央値が 51 / 74 で目標の端だったため)。
+- **項目2**:
+  1. `verify_plaza_map` (5b) の言い直し。(5b) は #98 時点の「`js/npc-crowd.js` を触らない」の恒等だったので、§5-1 が `PLAZA` を足すことと**構造的にぶつかる**(依頼書が見落とし)。#99 `a0def5a` で `index.html` を (5b) から外した前例に倣い、**足した 2 つ(`PLAZA` のブロックと公開行の ` PLAZA: PLAZA,`)だけを取り除いた残りが基準と一致**へ言い直した(TAVERN などを 1 文字変えると赤のまま)。
+  2. `__plazaTV.map` に読み取り口 `crowdUnits` を足した(項目3 のドライバが部品の戻り値を読むため。書き換え口は作っていない)。
+- **項目3(受入の言い直し)**:
+  1. (1b)(1c)(2a)(2b) の観測窓を 6 秒から **全員の 1 往復以上**(最大 2×(区間×MS_PER_TILE+3000)+600 = **14.1 秒**)へ。6 秒だと tapcover の端点を踏まない窓がありうる。(1b) に「経路の全マスを踏んだ」(窓の検算)を足した。(2a) の「位置が変わる」は最初の 6 秒で判定。
+  2. (1c) は「押し所の点を含まない」に加え、**住人の矩形 +24px(`walkByClicks` が押さない範囲)にも入らない**を見る。
+  3. (3a) 押す住人は「中心が画面内・`elementFromPoint` が本人・中心の下が歩けて主人公の足元でない」で選ぶ(compact で 15 秒見つからなければ主人公を (11,7) へ寄せる)。(3c) は画面内の札だけ測り、吹き出しの中心の `elementFromPoint` が吹き出しでないことも見る。(3d) は測定の間だけ `say` を `<b>` 入りにして押す。
+  4. 注入点: `nostop` は `if (ev && ev.stopPropagation) ev.stopPropagation();` が `verify_npc_crowd` のアンカーの部分文字列(罠 E)なので `var onPress = function (ev) {` の直後に `ev = null;` を入れる形に、`anchorcopy` は `function plazaCrowdTV() {` の行末のコメントに `A_BGPOS` を入れる形にした(効果は依頼書どおり)。
+- §2 の主張で崩れたものは (5b) の衝突(上の項目2-1)だけ。本番の欠陥なし。
+
+### 12-5. 別チケット候補
+
+- 依頼書 §11 の保留: 露店の店主を立たせる / 酒場の店内の歩きを `js/map-walk.js` へ / 港町・酒場の住人の描き方を `js/map-walk.js` へ寄せる(写経の解消)。
+- 揺れ: `driver_monsters_griffon` と `verify_tower_mother_b --negative` の「観測 0」型 / `driver_mine_wall --negative` の装置 (4z) / 両方非緑の既知 20 腕。
+- 検証道具: 対比較の道具(`pair_*.py`)の 1 本 3600 秒の上限は `verify_tower_mother_b --negative`(約 4100 秒)に足りない。
+
+### 12-6. 残り
+
+- **§9 実機の確認**(http 起動・ユーザー作業): 暗がりの中を住人が行き来するのが見えるか / 灯りの外で沈みすぎていないか / 武装した住人が「敵」に見えて紛らわしくないか / iPhone で住人をタップして一言が読めるか / 住人のせいで行きたい所へ歩けない場面が無いか。
+- 次の新規ドライバ base = **10640**(10641 は項目2・3 で `verify_plaza_map --port 10641` の臨時に使っただけで、固定で使う tools は無い)。
