@@ -2929,6 +2929,7 @@
   <script src="audio.js"></script>
   <!-- 技能判定エンジン (知覚チェック等)。index.html と共有 (変更は js/skill-check.js 1か所で済む)。 -->
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
+  <script src="js/changelog.js"></script><!-- 更新情報の文面の唯一の正 (#101)。酒場と港町が共有 -->
   <script src="js/skill-check.js"></script>
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。index.html と共有。撤退 ?slots=0 -->
   <script src="js/recruit-candidates.js"></script><!-- 同行候補 (#54)。酒場で声を掛けた相手を次の潜行まで保管。⛔ キーの前置詞は dragonfighters. のまま。撤退 ?recruittalk=0 -->
@@ -3421,21 +3422,17 @@
       </div>
     </div>
 
-    <!-- 更新情報 (暫定): 最新の変更をここに簡単に記述。更新時はこの中身を書き換える (先頭=最新) -->
+    <!-- 更新情報 (暫定): 最新の変更を簡単に掲示 (先頭=最新)。中身は js/changelog.js (#101)。py tools/add_changelog.py で追記 -->
     <div id="changelogBox">
       <div class="changelogHeader">📜 更新情報</div>
-      <ul class="changelogList">
-        <li><b>闇市の地下街に住人</b> — ゴブリン・ホブゴブリン・リザードフォークが通路を行き交う。押すと一言。</li>
-        <li><b>古物商で装備品が買えるように</b> — 闇市の地下街の古物商に、ボスの落とし物の装備品が来るたび 1〜2 品並ぶ(牙貨 25〜30)。独自の名前だった装備品 19 品は D&amp;D の品の名前に(強さはそのまま)。</li>
-        <li><b>闇市が歩ける地下街に</b> — 薬屋・杖屋・召喚屋・古物商の露店を灯りを手に巡れる。港町の石段からも出入りできる。</li>
-        <li><b>闇市に薬屋と杖屋</b> — 回復のポーションやワンドオブマジックミサイルなど、D&D の品が並ぶ。HP が減った仲間は自分でポーションを飲む。</li>
-      </ul>
+      <ul class="changelogList"></ul>
     </div>
     <script>
       /* 更新情報パネル: スマホ/横持ち/タッチ端末では既定で折りたたみ、ヘッダタップで開閉 (タイトルとの重なり回避) */
       (function () {
         var box = document.getElementById('changelogBox');
         if (!box) return;
+        if (window.dfFillChangelog) window.dfFillChangelog(box.querySelector('.changelogList'));
         var header = box.querySelector('.changelogHeader');
         var compact = window.matchMedia('(max-width: 560px)').matches
                    || window.matchMedia('(max-height: 480px)').matches

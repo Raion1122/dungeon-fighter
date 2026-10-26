@@ -66,6 +66,12 @@
   -->
   <style>
     :root {
+      /* ★[#101] 更新情報の箱が使う 4 つ (値は tavern.html:12-17 と同じ。⛔ 闇市版 tavern.html:1418- の値は写さない)。
+         ⚠ 消すと箱の背景が透明になり、地図の上で文字が読めない (依頼書 §2-4)。 */
+      --parchment-bg: linear-gradient(135deg, #f1e2bb 0%, #e9d49a 50%, #d8bc7e 100%);
+      --parchment-ink-soft: #5a4323;
+      --parchment-border: #8b6914;
+      --parchment-shadow: 0 0 12px rgba(40,20,0,0.6), inset 0 0 20px rgba(120,80,30,0.25);
       --parchment-ink: #3a2912;
       --parchment-gold: #8b6914;
       --wood-dark: #3a2614;
@@ -313,6 +319,58 @@
     body.compact #townHud { display: flex; }
     body.compact #townTitle { font-size: 16px; }
 
+    /* ── ★[#101] 更新情報 (📜) ───────────────────────────────────────────
+       tavern.html:1179-1220 の写し。⛔ 酒場とセレクタを共有しない (#41 と同じ流儀)。港町用に変えたのは 3 点:
+       ① position: fixed / right: 10px / z-index: 12 (= #townBack と同じ。帯 10・#townHud 11 より上)。
+       ② top = **帯 (#townTitle) の下**。帯の高さはデスクトップ 69px / compact 63px (依頼書 §2-3)。
+          ⚠ 帯は全幅・中央寄せなので、酒場のように top:20px に置くと 390 幅で副題に重なる。
+          ⚠ 帯の高さは下側 padding に safe-area を足しているので、こちらも同じ env() を足す。
+       ③ 開いたときの max-height = 帯の下〜画面下 (compact は #townHud の上) に収まる値。
+          ⚠ compact の #townHud は 390 幅で 2 段 (高さ 160px)。180px + safe-area を空ける。
+       ⛔ 開閉の初期状態は compact 判定で変えない — 常に collapsed で始める (720 幅で開くと武器防具屋の看板を覆う)。 */
+    #changelogBox {
+      position: fixed;
+      top: calc(75px + env(safe-area-inset-top, 0px)); right: 10px;
+      width: min(280px, 60vw);
+      max-height: calc(100vh - 95px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      overflow-y: auto;
+      padding: 12px 14px;
+      background: var(--parchment-bg);
+      border: 2px double var(--parchment-border);
+      box-shadow: var(--parchment-shadow);
+      color: var(--parchment-ink);
+      font-family: 'Noto Serif JP', serif;
+      z-index: 12;
+      pointer-events: auto;   /* スクロール可 */
+    }
+    body.compact #changelogBox {
+      top: calc(69px + env(safe-area-inset-top, 0px));
+      max-height: calc(100vh - 69px - 180px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    }
+    #changelogBox .changelogHeader {
+      font-family: 'MedievalSharp', serif;
+      color: var(--parchment-gold);
+      font-size: 15px; font-weight: bold;
+      text-align: center;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--parchment-border);
+      padding-bottom: 5px; margin-bottom: 6px;
+      cursor: pointer; user-select: none;
+    }
+    #changelogBox .changelogHeader::after { content: " ▾"; font-size: 12px; opacity: 0.65; }
+    #changelogBox .changelogList { margin: 0; padding-left: 16px; }
+    #changelogBox .changelogList li {
+      font-size: 11.5px; line-height: 1.5;
+      color: var(--parchment-ink-soft); margin-bottom: 5px;
+    }
+    #changelogBox .changelogList li b { color: var(--parchment-ink); }
+    #changelogBox.collapsed .changelogHeader::after { content: " ▸"; }
+    #changelogBox.collapsed { width: auto; max-width: none; max-height: none; }
+    #changelogBox.collapsed .changelogHeader {
+      margin-bottom: 0; border-bottom: none; padding-bottom: 0;
+    }
+    #changelogBox.collapsed .changelogList { display: none; }
+
     /* ── NPC 群衆 (実装依頼書 #41 STEP2) ────────────────────────────────────
        ⛔ tavern.html と **セレクタを共有しない** = 同じ規則を両ページが別々に持つ。
          インライン style なので、片方を直しても他方は 1 ピクセルも動かない。
@@ -405,7 +463,17 @@
          (elementFromPoint に写って受入条件が濁る)。 -->
   <button type="button" id="townBack">← はじめの画面へ</button>
 
+  <!-- ★[#101] 更新情報。文面は js/changelog.js (酒場と共有)。
+       ⚠ 常にたたんで出す — 720px 幅で開いて出すと武器防具屋の看板を覆う (依頼書 §2-3)。
+       ⛔ #townHud / #townTitle の子にしない (前者は golden 2 本の button 数、後者は pointer-events:none)。
+       ⚠ ?townlog=0 のときは JS が DOM ごと remove する。 -->
+  <div id="changelogBox" class="collapsed">
+    <div class="changelogHeader">📜 更新情報</div>
+    <ul class="changelogList"></ul>
+  </div>
+
   <script src="js/abilities.js"></script><!-- D&D 5e 6能力値の唯一の正 (#28)。5ページ全部が読む。⚠ js/skill-check.js より前。撤退 ?ability5e=0 -->
+  <script src="js/changelog.js"></script><!-- 更新情報の文面の唯一の正 (#101)。酒場と港町が共有 -->
   <script src="js/save-slots.js"></script>
   <script src="js/hero-classes.js"></script>
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
@@ -466,6 +534,19 @@
     try {
       if (new URLSearchParams(location.search).get("npc") === "0") NPC_ON = false;
     } catch (e) {}
+
+    /* ★[#101] 更新情報 — 撤退 ?townlog=0 (このページだけ。sessionStorage へ写さない = ?heromark=0 と同じ型) */
+    (function () {
+      var box = document.getElementById("changelogBox");
+      if (!box) return;
+      if (new URLSearchParams(location.search).get("townlog") === "0") { box.remove(); return; }
+      if (window.dfFillChangelog) window.dfFillChangelog(box.querySelector(".changelogList"));
+      var header = box.querySelector(".changelogHeader");
+      if (header) header.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        box.classList.toggle("collapsed");
+      });
+    })();
 
     /* ══ 撤退スイッチ ?townbgm=0 (依頼書 #17 §7) ═══════════════════════
        0 を渡すと街は新曲 town の代わりに酒場と同じ合成トラック TRACKS.tavern を鳴らす (#88)。
