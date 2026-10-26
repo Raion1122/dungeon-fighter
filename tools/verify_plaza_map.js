@@ -746,11 +746,28 @@ async function mainFlow(browser, vpName) {
      *   TAVERN / TOWN / REUNION / validate は 1 バイトも動いていない、を見る (足した以外の変化は今までどおり赤)。 */
     const drop100 = (rel, s) => rel !== 'js/npc-crowd.js' ? s
       : s.replace(/\n  \/\* ★\[#100\][^\n]*\n(?:   \*[^\n]*\n)*  var PLAZA = \[\n[\s\S]*?\n  \];\n/, '').replace(' PLAZA: PLAZA,', '');
+    /* ★[#101] town.html は #101 で「📜 更新情報」の窓を**足した** (依頼書 2026-10-26_town-changelog.md §5):
+     *   ① :root の CSS 変数 4 つ (★[#101] コメント付き) ② #changelogBox の CSS 1 ブロック ③ 箱の HTML ④ js/changelog.js の
+     *   script 1 行 ⑤ 撤退 ?townlog=0 の IIFE。その 5 つだけを取り除いた残りが基準とバイト一致 = 港町の他の部分は
+     *   1 バイトも動いていない、を見る (足した以外の変化は今までどおり赤)。窓そのものは verify_town_changelog が見る。
+     *   ⚠ 各ブロックは 0 回 (= #101 以前の姿) か 1 回だけ取り除く。2 回以上当たったら取り除かない (= 赤になる)。 */
+    const DROP101 = [
+      /\n      \/\* ★\[#101\][^\n]*\n[^\n]*\*\/\n      --parchment-bg:[^\n]*\n      --parchment-ink-soft:[^\n]*\n      --parchment-border:[^\n]*\n      --parchment-shadow:[^\n]*(?=\n)/g,
+      /\n    \/\* ── ★\[#101\] 更新情報[\s\S]*?\n    #changelogBox\.collapsed \.changelogList \{ display: none; \}\n(?=\n)/g,
+      /\n  <!-- ★\[#101\] 更新情報[\s\S]*?\n  <div id="changelogBox" class="collapsed">\n[^\n]*\n    <ul class="changelogList"><\/ul>\n  <\/div>\n(?=\n)/g,
+      /\n  <script src="js\/changelog\.js"><\/script>[^\n]*(?=\n)/g,
+      /\n    \/\* ★\[#101\] 更新情報 — 撤退 \?townlog=0[^\n]*\n    \(function \(\) \{\n[\s\S]*?\n    \}\)\(\);\n(?=\n)/g,
+    ];
+    const drop101 = (rel, s) => {
+      if (rel !== 'town.html') return s;
+      for (const re of DROP101) { const m = s.match(re); if (m && m.length === 1) s = s.replace(re, ''); }
+      return s;
+    };
     const b5 = ['js/tavern-map.js', 'js/town-map.js', 'town.html', 'js/npc-crowd.js'].map((rel) => {
       const now = frozen(rel), base = BASE[rel];
-      return { rel, same: drop100(rel, lf(now)) === lf(base), raw: Buffer.compare(now, base) === 0, bytes: now.length };
+      return { rel, same: drop101(rel, drop100(rel, lf(now))) === lf(base), raw: Buffer.compare(now, base) === 0, bytes: now.length };
     });
-    check('(5b) js/tavern-map.js / js/town-map.js / town.html / js/npc-crowd.js (#100 の PLAZA を除いて) が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
+    check('(5b) js/tavern-map.js / js/town-map.js / town.html / js/npc-crowd.js (#100 の PLAZA・#101 の更新情報の窓を除いて) が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
     const parts5c = [['const PLAZA_ITEMS_TV = {', '\n  };'], ['const PLAZA_ITEMS_COMMON_TV = {', '\n  };'], ['function refreshPlazaStock(', '\n  }\n']].map(([a, z]) => {
       const n = sliceTo(tvNow, a, z), bb = sliceTo(tvBase, a, z);
       return { from: a, len: n && n.length, same: !!n && n.length > 200 && n === bb };

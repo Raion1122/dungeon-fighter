@@ -122,21 +122,25 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 
 ## 更新情報(changelog)の運用 ⚠️ コミット時必須
 
-銀の鹿亭(`tavern.html`)右上の「📜 更新情報」(`#changelogBox` の `changelogList`)は、
+「📜 更新情報」の文面は **`js/changelog.js` の 1 か所**にあり(`/* CHANGELOG:BEGIN */`〜`/* CHANGELOG:END */`
+の目印の間に、1 件 = JSON 文字列 1 行・先頭 = 最新)、銀の鹿亭(`tavern.html`)と港町フラン(`town.html`)の
+右上の `#changelogBox` が**同じ文面を共有して描く**(#101)。この文面は
 **コミット/プッシュの度に必ず最新化する**(ユーザー要望: 毎回必ず更新)。仕組みは
 A(Claude 手順)+ B(チェックフック)の二重化(方式 D)。
+⛔ `tavern.html` / `town.html` の `<ul class="changelogList">` に `<li>` を直書きしない(二重管理になる)。
 
 - **書く内容**: *プレイヤー向けに整えた日本語要約*。コミット件名(開発者語彙)のコピペは禁止。
   先頭 = 最新、既定 4 件維持(古いものを 1 件落とす)。例:
-  `<li><b>古代ハイドラに火炎ブレスを追加</b> — 頭が多いほど高確率で全体に炎を吐く。</li>`
+  `<b>古代ハイドラに火炎ブレスを追加</b> — 頭が多いほど高確率で全体に炎を吐く。`
 - **手順(A)**: `index.html` / `tavern.html` / `audio.js` のロジックを変更したコミットでは、
-  コミット前に必ず 1 行追記する。ヘルパー:
+  コミット前に必ず 1 行追記する。ヘルパー(`js/changelog.js` の目印の間の先頭へ足し、4 件に保つ):
   ```bash
   py tools/add_changelog.py "<b>見出し</b> — 説明文"
   ```
 - **機械強制(B)**: `scripts/hooks/pre-commit`(`core.hooksPath=scripts/hooks` 経由)が、
-  上記3ファイルを変更したのに `changelogList` が未更新のコミットを**中止**する。
-  検査本体は `scripts/hooks/check_changelog.py`。
+  上記3ファイルを変更したのに `js/changelog.js`(目印の間)が未更新のコミットを**中止**する。
+  `js/changelog.js` の目印が見つからない(壊れた・消えた)場合も**中止**する
+  (「判定不能なら通す」にすると永久に素通しになるため)。検査本体は `scripts/hooks/check_changelog.py`。
 - **`--no-verify` での迂回は禁止**。⚠⚠⚠ **そもそも Claude からは実行できない**(2026-08-23 実測)。
   ハーネス側のフック `pre:bash:block-no-verify` が `--no-verify` / `-n` / `-c core.hooksPath=` を
   **全部ハードブロック**し、`settings.json` での無効化・免除口の追加・env 経由の迂回も

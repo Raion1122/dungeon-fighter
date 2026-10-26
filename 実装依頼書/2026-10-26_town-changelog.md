@@ -1,6 +1,6 @@
 # #101 港町フランにも「📜 更新情報」の窓を置く(中身は js/changelog.js の 1 か所へ)
 
-- **起草**: 2026-10-26(計画窓) / **ステータス**: **承認済**(2026-10-26 ユーザー承認)
+- **起草**: 2026-10-26(計画窓) / **ステータス**: **✅ 完了**(2026-10-26 ユーザー承認 → 2026-10-27 実装完了・未 push)
 - **基準**: `de7617e`(clean・push 済) / 新規ドライバの port base **10640**
 - **触るファイル**: `js/changelog.js`(新規)・`tavern.html`・`town.html`・`tools/add_changelog.py`・
   `scripts/hooks/check_changelog.py`・`tools/verify_town_changelog.js`(新規)・`CLAUDE.md`(運用節の書き換え)・
@@ -390,4 +390,35 @@ window.dfFillChangelog = function (ul) {
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+- **状態**: ✅ 実装完了(2026-10-27 実装窓・**未 push**)。残 = §9 の実機確認(ユーザー)と push。
+- **コミット**:
+  - `af45b85` 項目1(STEP1)— `js/changelog.js` 新規(目印 `/* CHANGELOG:BEGIN */`〜`END`・作業ツリーは CRLF)・`tools/add_changelog.py` の書き先を js の目印の間へ(`<li>` 剥がし・4 件維持・目印 / JSON 不正は error)・`scripts/hooks/check_changelog.py` の比較対象を js の目印の間へ(§2-2 の 4 分岐。目印不在は止める)。
+  - `35c1692` 項目2(STEP2)— 酒場の `<ul>` を空にして `dfFillChangelog` で描く / 港町に `#changelogBox`(常に畳んで開始・帯の下の右上・`z-index:12`・CSS 変数 4 つ・撤退 `?townlog=0`)+ changelog 1 行「港町フランにも更新情報」(js へ書かれ、チェックは js の目印の間の変化で通過)。
+  - `ced733a` 項目3(STEP3)— 受入 `tools/verify_town_changelog.js`(port 10640・負のコントロール 8 本内蔵)。
+  - 本節を書いたコミット 項目4(STEP4)— 母集団の非退行 + `CLAUDE.md` の changelog 運用節 + 本節 + README の #101 行 + `tools/verify_plaza_map.js` (5b) の言い直し(下記)。
+- **受入**: `node tools/verify_town_changelog.js` 素 **56/56**(節 24・約 18 秒・×3 で揺れなし)/ `--negative` **8/8**(約 143 秒・×2)。
+  担当どおり: town-copy → (1c)(1a) / tavern-static → (1c)(+1a 巻き込み) / town-open → (2a)×3・(2c)@720(+2d 巻き込み) / town-top20 → (2b)×3 / no-vars → (2f)×3 / bubble → (2e)×3 / hook-silent → (4c) / hook-tavern → (4b)。
+- **§8 の名指し golden**(全部 母集団の走査の中で 1 回・本番 ced733a): `verify_town_map` **85/85** / `verify_town_exit` **23/23** / `driver_heromark_signplate` **46/46** / `verify_sheet_equip` **21/21**(項目2 の窓でも同じ値)。
+- **母集団の非退行(#100 §12 と同じ手順)**: 基準 = `r100\item4\run_post100\post100.tsv`(236 腕・本番 5c19070。5c19070..de7617e は md だけ)に `rerun100a`(tower_mother_b neg = exit 0)を後勝ちで重ねたもの = 緑 215 / 非緑 21。
+  腕 = その 236 腕 + `verify_town_changelog` 素 / --negative = **238 腕**。clone 根 = `git clone --shared` → ced733a(本番とバイト一致 954 本)。走行器 = SKIP 再開型・直列・1 腕上限 5400 秒・timeout で包まない。
+  **2026-10-26 16:37 → 10-27 04:34・715.9 分(3.01 分/腕)・窓落ち / 張り直しなし** ⇒ 緑 215 / 非緑 23。
+  - **緑→赤 2**:
+    - `verify_plaza_map` 素(42/43・(5b) だけ赤)= ⚠ **#101 帰属**。(5b) は「`town.html` などが c310d8c とバイト一致」を見る恒等の assert で、#101 が `town.html` に窓を足したので赤くなった(本番の欠陥ではない。依頼書 §8 の名指しにこの本が無かった)。
+      ⇒ #99(index.html を外す)・#100(npc-crowd.js の PLAZA を除く)と同じ型で (5b) を言い直した: `town.html` から #101 が足した 5 ブロック(:root の変数 4 つ・`#changelogBox` の CSS・箱の HTML・`js/changelog.js` の script 1 行・`?townlog=0` の IIFE)を**各 0 回か 1 回だけ**取り除いた残りが c310d8c と一致(2 回以上当たれば取り除かない = 赤)。
+      言い直しの検算: 本番 ced733a = 一致 / 影(de7617e の town.html)= 一致 / #101 の外を 1 文字変える = 不一致 / script 行を 2 回にする = 不一致。
+      再走: 素 **43/43**・`--negative` **10/10**(巻き込みは nolayout → (3c)・blockenter → (2b)(2c) = #98・#100 と同じ。走査中の neg は (5b) を全 10 本で巻き込んでいたが消えた)。
+    - `driver_field_step0` 素(32/33・(2e-iphone_land) が `waves=2/3 reason=gameOver` = 戦闘の勝敗で落ちた)= 非帰属。この本は `index.html` しか開かず、#101 は index.html とそれが読むファイルに触れていない(構造上の帰属経路なし)。pair(本番 / 影 交互 2 組)= 本番 2/2・影 2/2 とも 33/33。
+  - **赤→緑 0** / **両方非緑 21**: FAIL 行まで同じ 20 腕・DIFF 1 = `driver_mapdef_step1` (0b) の worktree list に載る clone の hash `5c19070` → `ced733a`(#98〜#100 と同じ型)。
+  - **exit 3 = 7 腕、全部基準でも exit 3**(driver_grid_p4・probe_bandit_map・probe_s2_fold・probe_swamp_map = 引数なし起動 / verify_swamp_novice・fort_fold・swamp_fold neg = 既知のアンカー多重)⇒ **#101 が増やした exit 3 = 0**。
+  - ⇒ (5b) を言い直したあとの **#101 帰属の緑→赤 = 0**。
+- **変異アンカー監査**: BASE de7617e → HEAD ced733a・対象 `tavern.html` / `town.html` / `js/changelog.js` / `tools/add_changelog.py` / `scripts/hooks/check_changelog.py`・tools 207 本・リテラル 55,982 個。件数が変わった組のうち交差(1 だった / 1 になった / 0→出現)528 組 = 自分の本・変えたファイル自身 68 + そのファイルを名指ししていない本 452 + 残り 8(add_changelog.py 自身 5・`typeof … 'object'`・表示ラベル `' / compact '`・verify_town_exit の説明語 `'武器防具屋'` = どれも変異アンカーではない)⇒ **#101 が他の tools の変異アンカーを壊した件数 = 0**。
+  ⚠ 監査は「アンカーの件数」を見るので、verify_plaza_map (5b) のような**ファイル丸ごとの恒等**は拾えない(走査で初めて出た)。
+- **依頼書から外れた点**:
+  - 項目1: チェックは「ステージ版で `js/changelog.js` が消えた」も止める(§2-2 の 4 分岐に加えて)。HEAD に js が無いとき(移行コミット)は通す。
+  - 項目2: 酒場 1440×900 の箱の下端が **343**(依頼書 §2-3 の 360 ではない)= 文面の長さ由来(de7617e の 4 件を js に入れると 360 に戻る = legacy で確認)。390 は [230,20,370,69] のまま。
+    `town.html` は `<head>` に script が無いので、`js/changelog.js` の script は body 内の並び(`js/abilities.js` の直後・箱より後・本体 IIFE より前)に置いた。
+  - 項目3(ドライバ冒頭コメントにも記載): (1a)(1b) は (A) を DOM の innerHTML 往復で正規化して比べる(素の `D&D` → `D&amp;D`)/ (1b) は「de7617e の 1 件目が酒場の k 件目にあり、そこから末尾まで一致」へ一般化(今日 k=1)+ (1b-hist) = af45b85 の js 4 件 == de7617e の直書き 4 件 / (3a) 1440 は left・top・right ±1 + bottom ≤ legacy の bottom+1、legacy で [1140,20,1420,360] ±1 / (2e) に「見出し発のクリックが `#townViewport` に届いた回数 0」を追加 / (2b) は畳・開の両方 / (0c) は stderr にフックの文言 / (err) pageerror・console error 0 を各画面に / bubble 変異は元の箱の `<ul>` を `changelogListGone` に改名((1c) の巻き込み回避)/ §4 の使い捨てリポに `tools/a.txt` と最小の `tavern.html`(空 ul 1 行)を足した(hook-tavern が「移行として通す」へ逃げないため)/ hook-silent = `if False and (...)`。
+  - 項目4: §8 の名指しに無い `tools/verify_plaza_map.js` の (5b) を言い直した(上記)。`CLAUDE.md` は changelog 運用節だけ書き換え(置き場 = `js/changelog.js`・酒場と港町が共有・目印・`<li>` を直書きしない・目印不在も中止)。トリガー 3 ファイルの記述は不変。
+- **§9 実機確認**: ⏳ ユーザーが行う残件(PC の港町で右上の窓が帯に被らずタップで開いて読める / スマホ縦で「← はじめの画面へ」・帯の副題・下の施設ボタンに被らず、開いても施設ボタンを隠さない / 酒場の更新情報が今日と同じ見た目)。
+- **揺れの知見**: `driver_field_step0` 素はウェーブ防衛の勝敗(gameOver)で 1 本落ちることがある(本番 / 影 とも 4 走行は緑)。`driver_monsters_griffon` 素は基準でも非緑のまま(#72 既知)。
+- 次の新規ドライバの port base = **10641**。
