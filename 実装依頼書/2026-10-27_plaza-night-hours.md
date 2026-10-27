@@ -1,6 +1,6 @@
 # #102 闇市は夜だけ開く — 20 時〜深夜 1 時なら誰でも入れる(変装の関門を時刻の関門へ)
 
-- **起草**: 2026-10-27(計画窓) / **ステータス**: **承認済**(2026-10-27 ユーザー承認)
+- **起草**: 2026-10-27(計画窓) / **ステータス**: **✅ 完了**(2026-10-27 ユーザー承認 → 2026-10-28 実装完了・未 push)
 - **基準**: `3cb06b5`(clean・push 済) / 新規ドライバの port base **10641**
 - **触るファイル**: `js/plaza-hours.js`(新規)・`tavern.html`・`town.html`・`index.html`・
   `tools/verify_plaza_hours.js`(新規)・既存ドライバ 10 本の種まき 1 行(§6-2)・`tools/verify_plaza_map.js`((4e) の言い直し)・
@@ -525,4 +525,40 @@
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+- **状態**: ✅ 実装完了(2026-10-28 実装窓・**未 push**)。残 = §9 の実機確認(ユーザー)と push。
+- **コミット**:
+  - `bec6b5f` 項目1(STEP1)— `js/plaza-hours.js` 新規(開く時間の唯一の正 `OPEN_HOUR 20` / `CLOSE_HOUR 1` = 20:00〜24:59・`isOpenAt` / `hourNow` / `isOpenNow` / `on`・`?plazaclock=H` の上書きと `?plazanight=0` の撤退を sessionStorage で遷移またぎ・`?plazanight=1` で消える)。単体 17/17。
+  - `e456d43` 項目2(STEP2)— 3 ページ配線 + changelog 1 行「闇市は夜だけ開くように」+ 既存ドライバ 11 本に時計の種まき + `verify_plaza_map` (4e) の言い直し。
+    tavern.html = `plazaNightOnTV` / `plazaOpenNowTV` / `playPlazaClosed`・`onTapPlazaDoor` の夜の分岐(旧の門番は撤退用に残す)・`updatePlazaDoor` と地図の札に時刻判定(11398 の行は不変・直後に 1 行 = 罠 B)・30 秒 tick・杖の常設 push は撤退中だけ・杖カタログ `retired`・`__plazaTV.nightOn` / `openNow`。
+    town.html = `buildSigns` に時刻判定・30 秒 tick(舞台の看板を外し `signs = {}` にしてから作り直す)。index.html = script 1 行・`maybeGrantPolymorphWand` を夜の関門では止める・杖カタログを tavern と同じ文字列へ。`js/plaza-map.js` は 1 バイトも変えていない(罠 C)。
+  - `bb39583` 項目3(STEP3)— 受入 `tools/verify_plaza_hours.js`(port 10641・負のコントロール 12 本内蔵・変異は配信スナップショットをメモリで差し替え)。
+  - 本節を書いたコミット 項目4(STEP4)— 母集団の非退行 + 本節 + README の #102 行 + `CLAUDE.md` に闇市の営業時間の注意 1 節。
+- **受入**: `node tools/verify_plaza_hours.js` 素 **49/49**(節 29・約 103 秒・昼 09:35 と夜 21:58 の 2 回とも)/ `--negative` **12/12**(担当の節が全部赤・空振り 0・約 23 分・2 回とも exit 0)。
+  担当どおり: nocarry → (0b)(Xa) / overrideonly → (0c)(1b) / closeoff → (1a)(1b) / daysign → (1b)(2a) / notap → (4a)(4b) / notick → (5a)(5b) / stilldisguise → (3a)(3b) / kickout → (6a) / stillstock → (7a) / dropalive → (7b) / rewriteline → (9a)(罠 B) / retiredone → (7c)。
+- **§8 の既存 golden の非退行**(昼に走らせた。項目2 の窓 08:43〜 と、母集団の走査の中 10:57〜12:31 の 2 回とも基準と一致): `verify_plaza_map` **43/43**(neg exit 0)/ `verify_plaza_crowd` **41/41** / `verify_plaza_curio` **28/28** / `verify_plaza_srd` **27/27** /
+  `verify_town_map` **85/85** / `verify_town_exit` 素 **23/23** / `verify_tavern_map` **47/47**・`--negative` **71/71**(plazashow が罠 B の行を見つける)/ `verify_quest_visibility` 素 **39/39** / `verify_save_slots` **30/30** / `verify_town_changelog` **56/56** / `driver_heromark_signplate` **46/46** / `driver_room_search_roll` **39/39**。
+- **母集団の非退行(#101 §12 と同じ手順)**: 基準 = `r101\item4\run_post101\post101.tsv`(238 腕・本番 ced733a)の `verify_plaza_map` 素を #101 の言い直し後の再走(43/43)で上書きしたもの = 3cb06b5 の色 = 緑 216 / 非緑 22(ced733a..3cb06b5 は CLAUDE.md・md・その本だけ / 3cb06b5..242303c は md だけ)。
+  腕 = その 238 腕 + `verify_plaza_hours` 素 / --negative = **240 腕**。clone 根 = `git clone --shared` → bb39583(本番とバイト一致 957 本)。走行器 = SKIP 再開型・直列・1 腕上限 5400 秒・timeout で包まない。
+  ⭐ #101 と違い**腕の並びを入れ替えた**(`plaza` の語がある本 59 腕 → tavern/town を開く本 89 腕 → 残り)= 時計に触れうる腕を全部昼に走らせるため(最後の 1 腕は 19:21 開始。20 時以降に走った闇市の本は時刻を自前で固定する verify_plaza_hours だけ)。
+  **2026-10-27 10:05 → 22:23・736.1 分(3.07 分/腕)・窓落ち / 張り直しなし** ⇒ 緑 219 / 非緑 21。
+  - **緑→赤 1**: `verify_tower_mother_b --negative`(変異 nogate が担当外 (4a) を、asenemy が担当外 (0b)(1b)(1f)(4c) を巻き込んで exit 1)。どちらも `index.html` の戦闘の進み(`?towermother=0` の走行が制覇まで届かない / 随伴が起動しない)で、#100 で記録済みの揺れと同じ型。
+    #102 の index.html の変更(script 1 行・`maybeGrantPolymorphWand` の先頭 return = 既定の `wandDropEnabled=false` では元から乱数を引く前に return・杖の文言)には戦闘へ届く経路がない。
+    全長再走(走行器で 1 腕ずつ・上限 5400 秒): 本番 **exit 0**(4065.5 秒)・影(3cb06b5 の本番 + 種まき前の tools)**exit 0**(4062.0 秒)。両方とも vet 22/22 → 変異 11 本すべて担当ラベルが赤・担当外の赤 0・注入行はすべて実行(出力の指紋も一致)⇒ **揺れ・非帰属**。
+  - **赤→緑 2**: `driver_field_step0` 素(#101 の揺れが戻った)・`driver_monsters_umberhulk` 素(21/22 → 22/22)。
+  - **両方非緑 20**: FAIL 行まで同じ 19 腕・DIFF 1 = `driver_mapdef_step1` (0b) の worktree list に載る clone の hash `ced733a` → `bb39583`(#98〜#101 と同じ型)。
+  - **exit 3 = 7 腕、全部基準でも exit 3** ⇒ **#102 が増やした exit 3 = 0**。
+  - ⇒ **#102 帰属の緑→赤 = 0**。
+- **変異アンカー監査**: BASE 3cb06b5 → HEAD bb39583・対象 `tavern.html` / `town.html` / `index.html` / `js/plaza-hours.js`(新規)/ `js/changelog.js`・tools 208 本・リテラル 56,365 個。
+  件数が変わった組 1050、うち交差(1 だった / 1 になった / 0→出現)623 組。**「1 だった」組は 0**。623 = 自分の本 32 + そのファイルを名指ししていない本 571(全部 js/plaza-hours.js の 0→出現)+ 残り 20
+  (verify_plaza_map 16 = 項目2 が自分で書いた UNDO102 の部品 / verify_player_sheet `'isOpen'` = 実行時 API 名 / verify_plaza_crowd `'\n      },'` = index.html を読む文字列 / verify_tavern_map `'plazashow'` = 変異の名前が tavern.html の #102 のコメントに出ただけ。plazashow のアンカー行は 1→1)
+  ⇒ **#102 が他の tools の変異アンカーを壊した件数 = 0**。
+- **依頼書から外れた点**:
+  - 項目2: (i) 種まきは依頼書 §6-2 の 10 本 + **`verify_tavern_map`**(依頼書は「種まき不要」としていたが、昼に `--negative` を回すと変異 plazashow(解禁の判定を外す)の後ろで時刻の 1 行が札を消し (4c) が空振りした = 実測)= 11 本。
+    (ii) `verify_plaza_map` (5a)(5b)(5c) と `verify_plaza_curio` (4a) の恒等(過去コミットとのバイト比較)は、#102 で足した / 書き換えた行を正規表現で戻してから比べる形(`UNDO102`)へ言い直した(依頼書は (4e) の言い直しだけを挙げていた。#99〜#101 と同じ型)。
+  - 項目3(ドライバ冒頭コメントにも記載): (4a)(5a)(5b)(6a) の開始を HH:59:50 ではなく **HH:59:00** に(読み込み中に境界をまたぐ日がある)/ (4a) の「札が消える」は店じまいのオーバーレイが閉じてから **10 秒以内**(tick ではなく onTapPlazaDoor が消したこと)/ (5c) に他施設の看板の二重化も /
+    (7b) は既存の検証ブリッジ `window.__plaza.maybeGrantPolymorphWand`(本番に計測シームを足さない)/ (8a) は `git hash-object --path` と配信バイトの CRLF→LF 比較の 2 本 / (Xc) は昼 12 で / 追加 (err) pageerror 0。
+  - 項目4: 母集団の腕の並びを入れ替えた(上記)。
+- **§9 実機確認**: ⏳ ユーザーが行う残件(PC: 昼に港町・酒場で石段が無い → 20 時過ぎ(または `?plazaclock=21`)で現れ、戦士・杖なしで入れる / 端末の時計で開いたまま 1 時をまたぐと石段が消え、中に居れば追い出されない / iPhone: 夜に港町から入れる / 杖を持っていたセーブで入った後も杖の本数が変わらない)。
+- **揺れの知見**: `verify_tower_mother_b --negative` は index.html の戦闘の進みで変異の巻き込みが増えて exit 1 になることがある(#100 に続き 2 回目)。`driver_field_step0` 素・`driver_monsters_umberhulk` 素も時々 1 本落ちる。
+- ⭐ 次に闇市の入り口(酒場の石段・港町の看板 / HUD)を測るドライバを書くときは、種まきに `sessionStorage['dragonfighters.plazaClock'] = '21'` を入れる(入れないと昼に走らせたとき入り口が DOM に無く空振りする)。
+- 次の新規ドライバの port base = **10642**。

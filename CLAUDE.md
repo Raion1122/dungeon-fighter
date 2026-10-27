@@ -106,6 +106,13 @@ C:\Users\PC_User\Dropbox\🔷ナレッジ🔷\wiki\dungeon-fighters\
 - Lv1 = 0、Lv10 = 45,000 累積
 - 6シナリオ + 最終 2周クリアで Lv10 到達想定
 
+### 🌙 闇市(ポドルプラザ)は夜だけ開く(#102)
+
+- 開く時間の唯一の正 = `js/plaza-hours.js`(20:00〜24:59。`?plazaclock=H` で時刻を上書き・撤退 `?plazanight=0`。どちらも sessionStorage で遷移をまたぐ)。
+- ⚠ 酒場の石段・港町の看板 / HUD に触れるドライバは、種まきに `sessionStorage.setItem('dragonfighters.plazaClock', '21')` を入れる。
+  入れないと**昼に走らせたとき入り口が DOM に無く**赤・空振りになる(夜だけ緑 = 走らせた時刻で色が変わる)。
+- 全数走査では闇市 / 酒場 / 港町を開く本を**昼に**走らせる(#102 項目4 は腕の並びを入れ替えた)。
+
 ## 実装の進め方
 
 1. 新機能を実装する前: 必ず該当する spec.md の項目を読む
