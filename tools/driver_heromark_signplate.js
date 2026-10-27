@@ -229,6 +229,7 @@ async function openTown(browser, base, opts) {
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
       localStorage.setItem('dragonfighters.plazaState',
         JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: true }));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       localStorage.setItem('dragonfighters.prologueSeen', '1');
     } catch (e) {}
   });

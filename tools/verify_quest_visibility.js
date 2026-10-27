@@ -354,6 +354,7 @@ async function newPage(browser, tag, o) {
       /* ⚠ 闇市は解禁前は DOM に作られない (札の母集団ガード)。 */
       localStorage.setItem('dragonfighters.plazaState',
         JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: true }));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       if (sd.vessel) localStorage.setItem('dragonfighters.activeQuest', JSON.stringify(sd.vessel));
       if (sd.questDest) sessionStorage.setItem('dragonfighters.questDest', sd.questDest);
       if (sd.lastResult) sessionStorage.setItem('dragonfighters.lastResult', sd.lastResult);

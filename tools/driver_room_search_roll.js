@@ -109,6 +109,7 @@ function mark(s) { console.log('[drv] ' + s); }
 
   await page.evaluateOnNewDocument(() => {
     try { sessionStorage.setItem('dragonfighters.currentScenario', 'goblin-mine'); } catch (e) {}
+    try { sessionStorage.setItem('dragonfighters.plazaClock', '21'); } catch (e) {}   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
   });
   await page.goto('http://localhost:' + PORT + '/index.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(

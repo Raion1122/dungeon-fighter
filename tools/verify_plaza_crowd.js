@@ -319,6 +319,7 @@ async function openTavern(browser, vpName, qs) {
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.plazaState', JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: true }));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       localStorage.setItem('dragonfighters.plazaInventory', JSON.stringify({ wand_polymorph: [3, 3, 3, 3, 3, 3] }));
     } catch (e) {}
   });

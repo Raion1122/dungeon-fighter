@@ -400,6 +400,7 @@ async function openPage(browser, file, opt) {
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify([sd.cls]));
       sessionStorage.setItem('dragonfighters.partyComposition', JSON.stringify([sd.cls]));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       for (const k of Object.keys(sd.ls)) localStorage.setItem(k, sd.ls[k]);
     } catch (e) {}
   }, { cls: o.cls, ls: o.ls });
@@ -542,12 +543,21 @@ const PLAZA_SEED = (extra) => ({
 
   /* ══ (4a) 恒等: 闇市の品の表 2 つと refreshPlazaStock / js/plaza-map.js が 54f6409 とバイト一致 (LF) ══ */
   const sliceTo = (s, startStr, endStr) => { const a = s.indexOf(startStr); if (a < 0) return null; const b = s.indexOf(endStr, a); return b < 0 ? null : s.slice(a, b + endStr.length); };
+  /* ★[#102] 夜の関門 (依頼書 2026-10-27_plaza-night-hours.md §5-1 ⑦⑧) で書き換えた杖の 2 か所**だけ**を #102 以前の姿へ戻してから比べる
+   *   (カタログの retired と効果文 / refreshPlazaStock の杖の常設 push)。それ以外の変化は今までどおり赤。各パターンは 1 回だけ当てる。
+   *   ⚠ 正規表現にしてあるのは、後続の変異ドライバのアンカー文字列と字面で重ねないため (罠E)。 */
+  const UNDO102 = [
+    [/(consumeTrigger: "onPlazaEnter", alwaysInStock: true), retired: true,\n(      effect: "パーティ全員をモンスターの姿に変える。)" \},/g, '$1,\n$2ポドルプラザへの入場に必要。" },'],
+    [/\n    \/\/ ポリモーフの杖の常設在庫は #101 までの門番のため。★\[#102\][^\n]*\n    if \(!plazaNightOnTV\(\)\) (stock\.push\(\{ itemId: "wand_polymorph")/g, '\n    // ポリモーフの杖は常設在庫 (供給ループ維持・仕様書 §3.3)\n    $1'],
+  ];
+  let nowTv102 = nowTvSrc;
+  for (const [re, to] of UNDO102) { const m = nowTv102.match(re); if (m && m.length === 1) nowTv102 = nowTv102.replace(re, to); }
   const parts4a = [['const PLAZA_ITEMS_TV = {', '\n  };'], ['const PLAZA_ITEMS_COMMON_TV = {', '\n  };'], ['function refreshPlazaStock(', '\n  }\n']].map(([a, z]) => {
-    const n = sliceTo(nowTvSrc, a, z), bb = sliceTo(baseTvSrc, a, z);
+    const n = sliceTo(nowTv102, a, z), bb = sliceTo(baseTvSrc, a, z);
     return { from: a, len: n && n.length, same: !!n && n.length > 200 && n === bb };
   });
   const pm = { same: lf(frozen('js/plaza-map.js')) === lf(BASE['js/plaza-map.js']), bytes: frozen('js/plaza-map.js').length };
-  check('(4a) tavern.html の PLAZA_ITEMS_TV / PLAZA_ITEMS_COMMON_TV の宣言と refreshPlazaStock の関数本体・js/plaza-map.js が ' + BASE_REV + ' とバイト一致 (LF に揃えて)',
+  check('(4a) tavern.html の PLAZA_ITEMS_TV / PLAZA_ITEMS_COMMON_TV の宣言と refreshPlazaStock の関数本体・js/plaza-map.js が ' + BASE_REV + ' とバイト一致 (LF に揃えて・#102 の杖の 2 か所を除いて)',
     parts4a.every((x) => x.same) && pm.same, { parts4a, pm });
 
   const puppeteer = loadPuppeteer();

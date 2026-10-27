@@ -221,6 +221,7 @@ async function openTown(browser, base, opts) {
         if (k && k.indexOf('dragonfighters.') === 0) kill2.push(k);
       }
       kill2.forEach(k => sessionStorage.removeItem(k));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify([seed.cls]));
       if (seed.plazaUnlocked) {
         /* ⚠ 闇市は「解禁 (5 回クリア)」と「門番 (変装手段)」の **2 段**。

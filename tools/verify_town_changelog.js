@@ -284,6 +284,7 @@ async function openPage(browser, url, vp) {
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify(['warrior']));
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.plazaState', JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: true }));
+      sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
     } catch (e) {}
   });
   await page.goto('http://127.0.0.1:' + PORT + url, { waitUntil: 'load', timeout: 30000 });

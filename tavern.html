@@ -2956,6 +2956,7 @@
   <script src="js/tavern-map.js"></script>
   <script src="js/map-walk.js"></script><!-- ★[#98] 歩きの部品 (闇市の地下街だけが使う。酒場の店内 initTavernMap は使わない) -->
   <script src="js/plaza-map.js"></script><!-- ★[#98] 地下街の通行マスク / 露店 / 出口 / 立ち位置の唯一の正。⚠ 外すと闇市はパネル 2 枚へ落ちる -->
+  <script src="js/plaza-hours.js"></script><!-- ★[#102] 闇市が開いている時間 (20:00〜24:59) の唯一の正。⚠ 外すと撤退と同じ姿 (時刻を見ない・変装の門番) -->
   <script src="js/npc-crowd.js"></script><!-- 酒場と街の NPC 配置の唯一の正 (#41)。⚠ *-map.js より後。撤退 ?npc=0 -->
 </head>
 <body>
@@ -5654,8 +5655,8 @@
       consumeTrigger: "onEnemySpellAuto",
       effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
     wand_polymorph: { name: "ワンドオブポリモーフ", type: "key_item", maxCharges: 3, tier: 1, price: 6,
-      consumeTrigger: "onPlazaEnter", alwaysInStock: true,
-      effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
+      consumeTrigger: "onPlazaEnter", alwaysInStock: true, retired: true,
+      effect: "パーティ全員をモンスターの姿に変える。" },
     scroll_create_golem: { name: "マニュアルオブゴーレムズ", type: "consumable", maxCharges: 1, tier: 3, price: 20,
       consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
       summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },
@@ -10207,6 +10208,9 @@
     sel: () => Object.assign({}, getEquipSelection(getHeroClass())),
     drawerIdx: () => pmDrawerIdx,
   };
+  /* ★[#102] 闇市の時刻の関門。唯一の正は js/plaza-hours.js。部品が無ければ撤退と同じ姿 (時刻を見ない)。 */
+  function plazaNightOnTV() { try { return !!(window.PLAZA_HOURS && PLAZA_HOURS.on()); } catch (e) { return false; } }
+  function plazaOpenNowTV() { try { return !window.PLAZA_HOURS || PLAZA_HOURS.isOpen(); } catch (e) { return true; } }
   // 裏技ルート: 主人公が高レベル術者(魔法使い/エルフ)でポリモーフを習得済みなら杖不要
   function hasInnateDisguise() {
     const hc = getHeroClass();
@@ -10216,7 +10220,7 @@
   }
   function updatePlazaDoor() {
     const d = document.getElementById("plazaDoor");
-    if (d) d.style.display = plazaStateTV.unlocked ? "flex" : "none";
+    if (d) d.style.display = (plazaStateTV.unlocked && plazaOpenNowTV()) ? "flex" : "none";   // ★[#102] 昼は旧扉も隠す
     /* ⭐ 地図側の「地下への石段」の札も生やし直す (解禁は遊んでいる最中に起きる)。
        ⚠ 解禁前は札を **DOM に作らない**ので、display の切り替えでは足りない。 */
     try { if (window.__tavernRefreshSigns) window.__tavernRefreshSigns(); } catch (e) {}
@@ -10246,6 +10250,11 @@
     const paras = ["……人間の匂いだ。失せな。\n『姿を変える術』も持たねえくせに、用はねえ。"];
     if (firstReject) paras.push("(変装の手段が要るらしい。低位のダンジョンで『ワンドオブポリモーフ』が見つかるという噂だ——)");
     await playPlazaOverlayNarration("📜 ポドルプラザ — 門番", paras, "plaza_gatekeeper_reject");
+  }
+  /* ★[#102] 店じまいの一言 (入る瞬間に 1 時を過ぎていた)。声は付けない (voiceId = null) */
+  async function playPlazaClosed() {
+    await playPlazaOverlayNarration("📜 ポドルプラザ — 門番",
+      ["……店じまいだ。日が落ちてから来な。", "(ポドルプラザが開くのは 20 時〜深夜 1 時)"], null);
   }
   function updatePlazaFangCount() {
     const el = document.getElementById("plazaFangCount");
@@ -10459,6 +10468,14 @@
     /* ★[#98] 港町の石段から来たときだけ from = "town" (initEnterVia)。扉のクリック (event) は酒場側へ落ちる。
        ⚠ 門番の判定はどこから来ても必ず通す。 */
     const from = (opts && opts.from === "town") ? "town" : "tavern";
+    if (plazaNightOnTV()) {
+      /* ★[#102] 夜なら誰でも通れる。変装 (杖・習得) は見ない・杖を消費しない。
+         ⭐ 入る瞬間にもう一度時刻を見る (札を出したまま 1 時を過ぎた / 港町で押して酒場が開いたら 1 時だった)。 */
+      if (!plazaOpenNowTV()) { await playPlazaClosed(); updatePlazaDoor(); return; }
+      await enterPlaza({ chargeConsumed: false, innate: false, from: from });
+      return;
+    }
+    // ⛔ ここから下は撤退 (?plazanight=0) の旧の門番。消さない
     if (hasInnateDisguise()) { await enterPlaza({ chargeConsumed: false, innate: true, from: from }); return; }
     if (consumeChargeTV("wand_polymorph")) { await enterPlaza({ chargeConsumed: true, innate: false, from: from }); return; }
     // 変装手段なし → 門番に追い返される (初回は杖の低Tierドロップを解放 = チュートリアル)
@@ -10677,8 +10694,8 @@
                                   : ["ring_spell_turning", "scroll_create_golem", "scroll_animate_dead"]);
     const fn = 1 + Math.floor(Math.random() * 2);
     for (let i = 0; i < fn; i++) { const id = featured[i]; stock.push({ itemId: id, price: PLAZA_ITEMS_TV[id].price, kind: "featured" }); }
-    // ポリモーフの杖は常設在庫 (供給ループ維持・仕様書 §3.3)
-    stock.push({ itemId: "wand_polymorph", price: PLAZA_ITEMS_TV.wand_polymorph.price, kind: "always" });
+    // ポリモーフの杖の常設在庫は #101 までの門番のため。★[#102] 夜の関門では売らない (撤退中だけ並べる)
+    if (!plazaNightOnTV()) stock.push({ itemId: "wand_polymorph", price: PLAZA_ITEMS_TV.wand_polymorph.price, kind: "always" });
     // ★[#97] ポーションオブヒーリングも常設 (売り切れない)
     if (srd) stock.push({ itemId: "potion_healing", price: PLAZA_ITEMS_COMMON_TV.potion_healing.price, kind: "always" });
     plazaStateTV.currentStock = stock;
@@ -10835,10 +10852,19 @@
     const leave = document.getElementById("btnLeavePlaza");
     if (leave) leave.addEventListener("click", closePlaza);
     updatePlazaDoor();
+    /* ★[#102] ページを開いたまま 20:00 / 01:00 をまたいだら石段を出し入れする。⚠ 闇市の中に居ても閉じない (判定は入る時だけ) */
+    if (plazaNightOnTV()) {
+      let lastOpen = plazaOpenNowTV();
+      setInterval(function () {
+        const now = plazaOpenNowTV();
+        if (now !== lastOpen) { lastOpen = now; updatePlazaDoor(); }
+      }, (window.PLAZA_HOURS && PLAZA_HOURS.TICK_MS) || 30000);
+    }
     // 検証用ブリッジ拡張 (puppeteer から扉/入場フローを駆動)
     try {
       Object.assign(window.__plazaTV, {
         onTapPlazaDoor, enterPlaza, hasInnateDisguise, updatePlazaDoor, openPlazaScreen, closePlaza,
+        nightOn: plazaNightOnTV, openNow: plazaOpenNowTV,   // ★[#102] 検証の窓 (時刻の関門)
         heroClass: getHeroClass,
         doorVisible: () => { const d = document.getElementById("plazaDoor"); return !!d && getComputedStyle(d).display !== "none"; },
         plazaOpen: () => { const s = document.getElementById("plazaScreen"); return !!s && getComputedStyle(s).display !== "none"; },
@@ -11396,6 +11422,8 @@
         if (d.to && window.__townOff) return;
         /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
         if (d.requiresPlazaUnlock && !plazaUnlocked()) return;
+        /* ★[#102] 昼は闇市の石段を DOM に作らない (時刻の判定は js/plaza-hours.js)。⚠ 上の行は変えない (verify_tavern_map の plazashow が文字列で探す) */
+        if (d.requiresPlazaUnlock && !plazaOpenNowTV()) return;
         var s2 = makeSign({
           id: "tavernDoor_" + d.key,
           cls: "tavernSign tavernDoorSign",

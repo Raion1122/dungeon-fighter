@@ -599,6 +599,9 @@ async function newTavPage(browser, o) {
     try { localStorage.setItem('dragonfighters.prologueSeen', '1'); } catch (e) {}
     /* #81: 卓の盤面の種 (⚠ cleared は空のまま = 種は「本筋 + 次の未解放」で妥当) */
     try { localStorage.setItem('dragonfighters.questBoard', seed); } catch (e) {}
+    /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定。⚠ 依頼書 §6-2 の 10 本には入っていなかったが、
+       昼に --negative を回すと変異 plazashow (解禁の判定を外す) の後ろで時刻の 1 行が札を消し、(4c) が空振りした (実測)。 */
+    try { sessionStorage.setItem('dragonfighters.plazaClock', '21'); } catch (e) {}
   }, JSON.stringify(QUEST_BOARD_SEED));
   await page.setViewport(opts.view || VIEW_DESKTOP);
   return { page: page, errs: errs, reqs: reqs };

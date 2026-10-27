@@ -366,6 +366,7 @@ const BUILD_MAX_LIVE = function () {
           if (k.indexOf('df.') === 0 || k.indexOf('dragonfighters.') === 0) sessionStorage.removeItem(k);
         });
         localStorage.setItem('dragonfighters.prologueSeen', '1');
+        sessionStorage.setItem('dragonfighters.plazaClock', '21');   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定 */
       } catch (e) {}
     });
     await page.goto('http://localhost:' + PORT + (query || '/tavern.html'),

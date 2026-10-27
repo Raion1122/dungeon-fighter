@@ -478,6 +478,7 @@
   <script src="js/hero-classes.js"></script>
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <script src="js/town-map.js"></script>
+  <script src="js/plaza-hours.js"></script><!-- ★[#102] 闇市が開いている時間 (20:00〜24:59) の唯一の正。⚠ 外すと時刻を見ない (撤退と同じ姿) -->
   <script src="js/npc-crowd.js"></script><!-- 酒場と街の NPC 配置の唯一の正 (#41)。⚠ *-map.js より後。撤退 ?npc=0 -->
   <script src="audio.js"></script>
   <script>
@@ -779,6 +780,8 @@
       TM.FACILITIES.forEach(function (f) {
         /* ⚠ 闇市は解禁前は **DOM に作らない**。display:none で残すと押せてしまう事故の芽になる */
         if (f.requiresPlazaUnlock && !plazaUnlocked()) return;
+        /* ★[#102] 昼は闇市の石段を DOM に作らない (時刻の唯一の正は js/plaza-hours.js。部品が無ければ時刻を見ない) */
+        if (f.requiresPlazaUnlock && window.PLAZA_HOURS && !PLAZA_HOURS.isOpen()) return;
         /* ⚠ ?world=0 のときは出口を **DOM に作らない**。display:none で残すと押せてしまう
            (闇市の作法と同じ)。 */
         if (f.to && worldOff) return;
@@ -826,6 +829,27 @@
       });
     }
     buildSigns();
+    /* ★[#102] ページを開いたまま 20:00 / 01:00 をまたいだら看板を作り直す (開閉が変わったときだけ)。
+       ⚠ buildSigns は #townHud しか空にしない → 舞台の看板は自分で外し、signs = {} に戻してから作り直す (二重生成の防止)。
+       撤退中 (?plazanight=0) と部品が無いときは tick を立てない。 */
+    (function () {
+      var PH = window.PLAZA_HOURS;
+      var nightOn = false;
+      try { nightOn = !!(PH && PH.on()); } catch (e) { nightOn = false; }
+      if (!nightOn) return;
+      var lastOpen = PH.isOpen();
+      setInterval(function () {
+        var now = PH.isOpen();
+        if (now === lastOpen) return;
+        lastOpen = now;
+        Object.keys(signs).forEach(function (k) {
+          var n = signs[k];
+          if (n && n.parentNode) n.parentNode.removeChild(n);
+        });
+        signs = {};
+        buildSigns();
+      }, PH.TICK_MS || 30000);
+    })();
 
     /* ══ 移動 ═══════════════════════════════════════════════════════════
        ⭐ 歩きはタイル 1 マスずつの補間。経路は TOWN_MAP.findPath (4 近傍) が出したものだけを辿る。

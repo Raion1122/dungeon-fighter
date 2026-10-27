@@ -3289,6 +3289,7 @@
   <script src="js/save-slots.js"></script><!-- セーブスロット基盤 (3スロット・アーカイブ方式)。tavern.html と共有。撤退 ?slots=0 -->
   <script src="js/hero-classes.js"></script><!-- 職の立ち位置/役割/持ち味 (#36 特徴&特性)。⚠ js/player-sheet.js より前 -->
   <script src="js/class-sight.js"></script><!-- 職業別の視界 8/10/12 の唯一の正 (#39)。index/tavern/title と js/player-sheet.js が読む。⚠ 下の const CLASS_SIGHT より前。撤退 ?darkvision=0 (表示のみ) -->
+  <script src="js/plaza-hours.js"></script><!-- ★[#102] 闇市が開いている時間の唯一の正。ここでは撤退 (?plazanight=0) の判定だけ使う (杖のドロップ) -->
   <script src="js/player-sheet.js"></script><!-- プレイヤーシート v1 (#29)。5ページ共通。⚠ js/abilities.js より後。撤退 ?sheet=0 -->
   <!-- マップ定義 df-map/1 の純粋関数群 (幾何の単一の情報源)。map-editor.html と共有。
        ⚠ 本ファイルが 404 になると幾何が作れずゲーム全損 → index.html 側に
@@ -14567,6 +14568,7 @@
     // 門番拒絶イベント解放後、ボス撃破で稀に「ポリモーフの杖」をドロップ (闇市入場の供給ループ)
     // 低Tier優遇だが全Tierで出る → 高Tierしか周回しない非キャスターでも入場不能にならない
     function maybeGrantPolymorphWand(enemy) {
+      if (window.PLAZA_HOURS && PLAZA_HOURS.on()) return;   // ★[#102] 夜の関門では杖を落とさない (撤退中だけ #101 までのドロップ)
       if (!enemy || !enemy.def) return;
       if (!plazaState.wandDropEnabled) return;            // 門番拒絶イベントで解放されるまで出ない
       if (!(enemy.def.isBoss || enemy.def.boss)) return;  // ボス撃破のみ
@@ -14602,8 +14604,8 @@
         consumeTrigger: "onEnemySpellAuto",
         effect: "所持しているだけで効果を発揮。敵がPTに呪文を放った瞬間、自動で術者へ跳ね返す。1詠唱につき1チャージ消費。" },
       wand_polymorph: { name: "ワンドオブポリモーフ", type: "key_item", maxCharges: 3, tier: 1, price: 6,
-        consumeTrigger: "onPlazaEnter", alwaysInStock: true,
-        effect: "パーティ全員をモンスターの姿に変える。ポドルプラザへの入場に必要。" },
+        consumeTrigger: "onPlazaEnter", alwaysInStock: true, retired: true,
+        effect: "パーティ全員をモンスターの姿に変える。" },
       scroll_create_golem: { name: "マニュアルオブゴーレムズ", type: "consumable", maxCharges: 1, tier: 3, price: 20,
         consumeTrigger: "onSummon", summonTiming: ["dungeonStart", "restPhase"],
         summon: { unitId: "golem_soldier", zone: "front", duration: "untilQuestEnd" },

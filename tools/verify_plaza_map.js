@@ -33,7 +33,11 @@
  *       「灯りの外に居る札」= 主人公から 7 マス以上離れた札 (灯りの初期値 外 384px = 6 マス) を 1 枚以上含む。
  *  (3d) 札の矩形は全部 (画面外も) 比べる。どの札も同じ舞台の transform に乗るので交差は camera によらない。
  *  (4a) 酒場の石段 = tavernDoor_plaza を押して歩いて入る経路で測った (依頼書どおり)。
- *  (4e) 「門番の追い返しを経る」= plazaState.gatekeeperEventSeen を false で種まきし、true に変わること。
+ *  (4e) ★[#102] 言い直し: 「昼 (sessionStorage plazaClock = 12) は港町から来ても開かない」= 店じまいの一言
+ *       (#prologueOverlay) を経て、#plazaScreen は閉じたまま・gatekeeperEventSeen は false のまま (門番の追い返しを経ない)。
+ *       #101 までの「杖 0・戦士 → 門番の追い返し (gatekeeperEventSeen false → true)」は夜の関門では仕様どおり開くので、
+ *       その検査は verify_plaza_hours.js の撤退節 (Xb) (?plazanight=0) が引き継ぐ。
+ *  ★[#102] 種まきで sessionStorage plazaClock = 21 (夜) に固定する (時刻で結果が揺れないため・依頼書 §2-2 罠 A)。
  *  (5a)〜(5c) は git show c310d8c:<file> と CRLF→LF に揃えてから比べる (作業ツリーは CRLF・blob は LF)。
  *
  * ── 負のコントロール (--negative) ────────────────────────────────────────
@@ -278,10 +282,11 @@ async function openTavern(browser, vpName, qs, seed) {
       localStorage.setItem('dragonfighters.partyComposition', JSON.stringify([sd.cls]));
       localStorage.setItem('dragonfighters.prologueSeen', '1');
       localStorage.setItem('dragonfighters.plazaState', JSON.stringify({ unlocked: true, everEntered: true, gatekeeperEventSeen: sd.gateSeen }));
+      sessionStorage.setItem('dragonfighters.plazaClock', sd.clock);   /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜 (21) に固定。(4e) だけ昼 (12) */
       if (sd.wands) localStorage.setItem('dragonfighters.plazaInventory', JSON.stringify({ wand_polymorph: sd.wands }));
       if (sd.enterVia) sessionStorage.setItem('dragonfighters.enterVia', sd.enterVia);
     } catch (e) {}
-  }, Object.assign({ cls: 'warrior', wands: [3, 3, 3, 3, 3, 3], gateSeen: true, enterVia: null }, seed || {}));
+  }, Object.assign({ cls: 'warrior', wands: [3, 3, 3, 3, 3, 3], gateSeen: true, enterVia: null, clock: '21' }, seed || {}));
   await page.goto('http://localhost:' + PORT + '/tavern.html' + (qs || ''), { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => !!window.__plazaTV && typeof window.__plazaTV.onTapPlazaDoor === 'function', { timeout: 60000 });
   await sleep(600);
@@ -692,15 +697,20 @@ async function mainFlow(browser, vpName) {
         ok && t && t.c === 2 && t.r === 9, { opened: ok, tile: t });
       await p.close();
     }
-    /* ══ (4e) 変装の手段が無い (杖 0・戦士) と港町から来ても地図が開かない (門番の追い返しを経る) ══ */
+    /* ══ (4e) ★[#102] 昼 (plazaClock = 12) は港町から来ても地図が開かない (店じまいの一言を経る) ══
+       ⚠ #101 までの (4e) =「杖 0・戦士 → 門番の追い返し」は、夜の関門では仕様どおり開くので言い直した。
+         追い返しの検査は verify_plaza_hours.js の撤退節 (Xb) (?plazanight=0) が引き継ぐ。ラベル (4e) と ALL_LABELS の並びは変えない。 */
     {
-      const p = await openTavern(browser, 'desktop', '', { enterVia: 'plaza', wands: null, gateSeen: false, tag: 'noWand' });
-      const seenFlip = await waitFn(p, () => window.__plazaTV.state().gatekeeperEventSeen === true, 20000);
+      const p = await openTavern(browser, 'desktop', '', { enterVia: 'plaza', wands: null, gateSeen: false, clock: '12', tag: 'dayFromTown' });
+      const closedSeen = await waitFn(p, () => { const o = document.getElementById('prologueOverlay'); return !!o && getComputedStyle(o).display !== 'none'; }, 20000);
       await sleep(1500);
       const r = await p.evaluate(() => ({ open: window.__plazaTV.plazaOpen(), stage: !!document.querySelector('#plazaViewport .mwStage'),
-        innate: window.__plazaTV.hasInnateDisguise(), cls: window.__plazaTV.heroClass(), gate: window.__plazaTV.state().gatekeeperEventSeen }));
-      check('(4e) 杖 0・戦士で港町から来ても地図が開かない (#plazaScreen 閉・舞台なし)・門番の追い返しを経る (gatekeeperEventSeen false → true)',
-        seenFlip && r.gate === true && !r.open && !r.stage && r.innate === false && r.cls === 'warrior', Object.assign({ seenFlip }, r));
+        nightOn: window.__plazaTV.nightOn(), openNow: window.__plazaTV.openNow(), hour: window.PLAZA_HOURS.hourNow(),
+        door: !!document.getElementById('tavernDoor_plaza'),
+        cls: window.__plazaTV.heroClass(), gate: window.__plazaTV.state().gatekeeperEventSeen }));
+      check('(4e) 昼 (plazaClock = 12)・杖 0・戦士で港町から来ても地図が開かない (#plazaScreen 閉・舞台なし)・店じまいの一言を経る (#prologueOverlay が出た)・石段の札は DOM に無い・門番の追い返しは経ない (gatekeeperEventSeen false のまま)',
+        closedSeen && !r.open && !r.stage && r.nightOn === true && r.openNow === false && r.hour === 12 && !r.door && r.gate === false && r.cls === 'warrior',
+        Object.assign({ closedSeen }, r));
       await p.close();
     }
     /* ══ (4c) ?town=0 では石段の札が DOM に無い ══ */
@@ -733,10 +743,29 @@ async function mainFlow(browser, vpName) {
 
     /* ══ §5 恒等 (git show c310d8c と、CRLF→LF に揃えて比べる) ══ */
     const lf = (b) => b.toString('utf8').replace(/\r\n/g, '\n');
-    const tvNow = lf(frozen('tavern.html')), tvBase = lf(BASE['tavern.html']);
+    /* ★[#102] 夜の関門 (依頼書 2026-10-27_plaza-night-hours.md §5) で足した/書き換えた行**だけ**を #102 以前の姿へ戻してから比べる:
+     *   tavern.html ① 地図の札の時刻の 1 行 (+ コメント) ② 杖のカタログの retired と効果文 ③ refreshPlazaStock の杖の常設 push
+     *   town.html   ④ js/plaza-hours.js の script 1 行 ⑤ buildSigns の時刻の 1 行 (+ コメント) ⑥ 30 秒 tick の IIFE
+     *   それ以外の変化は今までどおり赤。各パターンは 0 回 (= #102 以前) か 1 回だけ当てる (2 回以上は戻さない = 赤)。
+     *   ⚠ 正規表現にしてあるのは、後続の変異ドライバのアンカー文字列と字面で重ねないため (罠E: 他の tools/*.js に同じ文字列 → exit 3)。 */
+    const UNDO102_TV = [
+      [/\n        \/\* ★\[#102\] 昼は闇市の石段を DOM に作らない[^\n]*\n        if \(d\.requiresPlazaUnlock && !plazaOpenNowTV\(\)\) return;(?=\n)/g, ''],
+      [/(consumeTrigger: "onPlazaEnter", alwaysInStock: true), retired: true,\n(      effect: "パーティ全員をモンスターの姿に変える。)" \},/g, '$1,\n$2ポドルプラザへの入場に必要。" },'],
+      [/\n    \/\/ ポリモーフの杖の常設在庫は #101 までの門番のため。★\[#102\][^\n]*\n    if \(!plazaNightOnTV\(\)\) (stock\.push\(\{ itemId: "wand_polymorph")/g, '\n    // ポリモーフの杖は常設在庫 (供給ループ維持・仕様書 §3.3)\n    $1'],
+    ];
+    const UNDO102_TOWN = [
+      [/\n  <script src="js\/plaza-hours\.js"><\/script>[^\n]*(?=\n)/g, ''],
+      [/\n        \/\* ★\[#102\] 昼は闇市の石段を DOM に作らない[^\n]*\n        if \(f\.requiresPlazaUnlock && window\.PLAZA_HOURS && !PLAZA_HOURS\.isOpen\(\)\) return;(?=\n)/g, ''],
+      [/\n    \/\* ★\[#102\] ページを開いたまま[\s\S]*?\n    \}\)\(\);(?=\n)/g, ''],
+    ];
+    const undo102 = (s, list) => {
+      for (const [re, to] of list) { const m = s.match(re); if (m && m.length === 1) s = s.replace(re, to); }
+      return s;
+    };
+    const tvNow = undo102(lf(frozen('tavern.html')), UNDO102_TV), tvBase = lf(BASE['tavern.html']);
     const sliceTo = (s, startStr, endStr) => { const a = s.indexOf(startStr); if (a < 0) return null; const b = s.indexOf(endStr, a); return b < 0 ? null : s.slice(a, b + endStr.length); };
     const itmNow = sliceTo(tvNow, '(function initTavernMap() {', '\n  })();'), itmBase = sliceTo(tvBase, '(function initTavernMap() {', '\n  })();');
-    check('(5a) 配信中の tavern.html の initTavernMap ("(function initTavernMap() {" 〜 次の "})();") が ' + BASE_REV + ' とバイト一致 (LF に揃えて)',
+    check('(5a) 配信中の tavern.html の initTavernMap ("(function initTavernMap() {" 〜 次の "})();") が ' + BASE_REV + ' とバイト一致 (LF に揃えて・#102 の時刻の 1 行を除いて)',
       !!itmNow && itmNow.length > 20000 && itmNow === itmBase,
       { now: itmNow && itmNow.length, base: itmBase && itmBase.length, lines: itmNow && itmNow.split('\n').length, crlfServed: (frozen('tavern.html').toString('utf8').match(/\r\n/g) || []).length });
     /* ★[#99] index.html は (5b) の対象から外した。理由 = #99 で装備の名前を変えた (独自品 19 品を SRD の名前へ・
@@ -765,14 +794,15 @@ async function mainFlow(browser, vpName) {
     };
     const b5 = ['js/tavern-map.js', 'js/town-map.js', 'town.html', 'js/npc-crowd.js'].map((rel) => {
       const now = frozen(rel), base = BASE[rel];
-      return { rel, same: drop101(rel, drop100(rel, lf(now))) === lf(base), raw: Buffer.compare(now, base) === 0, bytes: now.length };
+      const n102 = (r, s) => r === 'town.html' ? undo102(s, UNDO102_TOWN) : s;   // ★[#102]
+      return { rel, same: n102(rel, drop101(rel, drop100(rel, lf(now)))) === lf(base), raw: Buffer.compare(now, base) === 0, bytes: now.length };
     });
-    check('(5b) js/tavern-map.js / js/town-map.js / town.html / js/npc-crowd.js (#100 の PLAZA・#101 の更新情報の窓を除いて) が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
+    check('(5b) js/tavern-map.js / js/town-map.js / town.html / js/npc-crowd.js (#100 の PLAZA・#101 の更新情報の窓・#102 の夜の関門を除いて) が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', b5.every((x) => x.same), b5);
     const parts5c = [['const PLAZA_ITEMS_TV = {', '\n  };'], ['const PLAZA_ITEMS_COMMON_TV = {', '\n  };'], ['function refreshPlazaStock(', '\n  }\n']].map(([a, z]) => {
       const n = sliceTo(tvNow, a, z), bb = sliceTo(tvBase, a, z);
       return { from: a, len: n && n.length, same: !!n && n.length > 200 && n === bb };
     });
-    check('(5c) tavern.html の品の表 2 つ (宣言 〜 閉じ括弧) と refreshPlazaStock の関数本体が ' + BASE_REV + ' とバイト一致 (LF に揃えて)', parts5c.every((x) => x.same), parts5c);
+    check('(5c) tavern.html の品の表 2 つ (宣言 〜 閉じ括弧) と refreshPlazaStock の関数本体が ' + BASE_REV + ' とバイト一致 (LF に揃えて・#102 の杖の 2 か所を除いて)', parts5c.every((x) => x.same), parts5c);
 
     await sleep(500);
     check('(9a) pageerror / console error 0 件 (酒場・港町。favicon の 404 と [DIAG] は除外)', pageErrors.length === 0, pageErrors.slice(0, 6).join('  |  ') || '(なし)');
