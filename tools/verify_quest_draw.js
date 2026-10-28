@@ -28,15 +28,17 @@
  * ■ 測っているもの (依頼書 §8 の番号)
  *   §0 (0a) [装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が 2 件 (⭐ 無いと全部空振りで緑)
  *      (0b) [装置] scenarios が 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前)
+ *           ★[#103] + side 2 件 (塔の母 = locked / 巣穴 kobold-warren = locked なし)
  *      (0c) [装置] 全ページで pageerror 0 件 (本ドライバ独自の追加)
- *   §1 (1a) 新規 (cleared=[]) を 6 回引く → 毎回 札は questTable_goblin-mine (押せる) + questTable_bandits-forest (???・.locked) の 2 枚ちょうど
- *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {廃坑, 森} (順不同)・両方押せる
+ *   §1 (1a) 新規 (cleared=[]) を 6 回引く → 毎回 札は questTable_goblin-mine + questTable_kobold-warren (両方押せる) の 2 枚ちょうど (★[#103])
+ *           + 撤退 ?warren=0 で 6 回 → 毎回 questTable_goblin-mine (押せる) + questTable_bandits-forest (???・.locked) の 2 枚ちょうど (#82 までの (1a))
+ *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {森 (本筋), 廃坑 か 巣穴}・両方押せる (★[#103] 解放済みが 3 件になった)
  *      (1c) cleared 1〜5 本の各状態で鍵を消して 8 回読み直す → 全回で本筋が入り、もう 1 件は解放済み、未解放の札 0 枚・盤面が独立計算で妥当
  *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし
  *      (1e) 2 経路: §1 の全読み込みで DOM の札 id 集合 === board().seats の値集合 === localStorage の保存値の集合
  *           (+ 保存値 === board() の写し・各札が自分の席 (TABLES の sign タイル) に立っている)
  *   §2 (2a) cleared 3 本で盤面を作らせた後、再読込 5 回・町へ出て戻る 3 回で nonce も席も 1 文字も変わらない
- *      (2b) 妥当な盤面の種 2 つ (新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce が種のまま・保存値も種のまま)
+ *      (2b) 妥当な盤面の種 3 つ (新規状態の廃坑 + 巣穴 / ?warren=0 の新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce が種のまま・保存値も種のまま)
  *   §3 (3a) 種の盤面 (nonce "SEED") + lastResult を cleared / defeated / retreated / generated-quest の 4 通り → 4 通りとも
  *           nonce !== "SEED" かつ引き直した盤面が (帰還後の cleared で) 独立計算で妥当
  *      (3b) 妥当でない種 6 種 (本筋欠け / 未解放 id / 3 件 / 存在しない席 / id 重複 / 存在しない id) を cleared 3 本と 4 本で
@@ -91,6 +93,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BOARD_KEY = 'dragonfighters.questBoard';
 const CLEARED_KEY = 'dragonfighters.cleared';
 const RESULT_KEY = 'dragonfighters.lastResult';
+const WARREN = 'kobold-warren';   /* ★[#103] 本筋の外・最初から受けられる行き先 (撤退 ?warren=0 で配列から外れる) */
 const SHOP_NAME = '武器防具屋';
 const BACK_NAME = '奥の間へ';
 const VIEW = { width: 1440, height: 900 };
@@ -160,8 +163,10 @@ const NEG_EXPECT = {
   novalidate:   ['(3b)'],
   noreroll:     ['(3a)'],
   enterreroll:  ['(2a)', '(2b)'],
-  /* 新規状態で引き直す (3a) の敗北/撤退/生成クエストの 3 通りも 1 件の盤面になる */
-  oneonly:      ['(0a)', '(1a)', '(3a)'],
+  /* ★[#103] 開始直後の解放済みが 2 件 (廃坑 + 巣穴) になり ??? 埋めは撤退 ?warren=0 の世界でしか走らない ⇒
+     #82 までの (0a)(3a) (新規状態が 1 件の盤面になる) は巣穴で埋まって赤くならない (2026-10-28 実走)。
+     ??? 埋めの経路は (1a) の ?warren=0 側が必ず赤で握る (6 回とも札 1 枚) */
+  oneonly:      ['(1a)'],
   backroomdoor: ['(4b)'],
   shopbtn:      ['(4c)', '(5b)'],
   killshopdom:  ['(4c)', '(4d)', '(5a)', '(5b)'],
@@ -171,8 +176,10 @@ const NEG_MAYBE = {
   memonly: [], novalidate: [], noreroll: [], enterreroll: [], oneonly: [], backroomdoor: [], shopbtn: [], killshopdom: [],
   /* 最初の引きに未解放が入ると次の読み込みで捨てられる (2a) / 引き直した盤面に未解放が入る (3a)(3b) */
   lockedpool:   ['(2a)', '(3a)', '(3b)'],
-  /* cleared 3 本の最初の引きが本筋を欠くと、次の読み込みで捨てられる */
-  nofrontier:   ['(2a)'],
+  /* cleared 3 本の最初の引きが本筋を欠くと、次の読み込みで捨てられる
+     ★[#103] cleared=[廃坑] の解放済みが 3 件 (廃坑・森・巣穴) になり、本筋の森を欠く盤面 {廃坑, 巣穴} が引ける
+     (1 回 1/3 = 6 回とも本筋入りは (2/3)^6 ≒ 9%) ⇒ (1b) と、帰還後に cleared=[廃坑] で引き直す (3a) は確率で赤 (2026-10-28 実走) */
+  nofrontier:   ['(2a)', '(1b)', '(3a)'],
 };
 /* 依頼書 §8 の予想 (⭐ 実測と違うものは依頼書 §12-2 に理由を書いた) */
 const NEG_PREDICTED = {
@@ -408,9 +415,9 @@ async function runSuite(browser, port, mutKey, label) {
     return snap();
   }
   /* 鍵だけ消して読み直す (= 次の引き)。cleared はそのまま */
-  async function redraw() {
+  async function redraw(q) {
     await page.evaluate((BK) => localStorage.removeItem(BK), BOARD_KEY);
-    return open('');
+    return open(q || '');
   }
   /* 1 枚の読み込みの「2 経路」(1e) を判定する。⛔ ここで期待値の盤面は作らない (三者の一致と席の位置だけ) */
   function twoRoutes(s) {
@@ -449,46 +456,72 @@ async function runSuite(browser, port, mutKey, label) {
       s0.hasTM && s0.hasBoardFn && s0.board && s0.board.seats && Object.keys(s0.board.seats).length === 2,
       { hasTM: s0.hasTM, hasBoardFn: s0.hasBoardFn, board: s0.board });
     {
-      /* ★[#82] 本筋 6 件は一本道のまま + 本筋の外 (side) がちょうど 1 件で、locked かつ前提が本筋のどれか。 */
+      /* ★[#82] 本筋 6 件は一本道のまま + 本筋の外 (side) が #82 の塔の母 1 件 (locked かつ前提が本筋のどれか)
+         ★[#103] + 巣穴 kobold-warren 1 件 (side・locked なし = 最初から受けられる) = side ちょうど 2 件・全 8 件。 */
       const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
+      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN);
       const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
-        && sd.length === 1 && sd[0].locked && sc.some((x) => x.id === sd[0].unlockAfter) && SC_ALL.length === 7;
-      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 1 件 (locked・前提は本筋)', chain,
+        && sd.length === 2 && sdL.length === 1 && sc.some((x) => x.id === sdL[0].unlockAfter)
+        && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter && SC_ALL.length === 8;
+      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 2 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし)', chain,
         SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
     const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び (0b が守る)
     const F = (cl) => indepFacts(SC_ALL, cl);
+    /* ★[#103] 撤退 ?warren=0 の世界 (= #102 までの姿)。ページの scenarios から巣穴を外したもの */
+    const SC_OFF = SC_ALL.filter((x) => x.id !== WARREN);
+    const F0 = (cl) => indepFacts(SC_OFF, cl);
 
     /* ══════════ §1 ══════════ */
     {
+      /* ★[#103] 開始直後の卓は「廃坑 + 巣穴」(解放済み 2 件 = 次の未解放で埋めない・依頼書 §2-5)。
+         #82 までの「廃坑 + ??? (森の予告)」は撤退 ?warren=0 の世界で同じ回数だけ測る (⛔ ??? の経路の検査を落とさない)。 */
       const fx = F([]);
-      const det = []; let ok = fx.unlocked.length === 1 && fx.frontier === ID[0] && fx.nextLocked === ID[1];
+      const det = []; let ok = fx.unlocked.length === 2 && setEq(fx.unlocked, [ID[0], WARREN]) && fx.frontier === ID[0] && fx.nextLocked === ID[1];
       for (let i = 0; i < N_1A; i++) {
         const s = i === 0 ? s0 : await redraw();
         routes.push(['1a#' + i, s]);
         const ids = s.signs.map((x) => x.id).sort();
-        const g = s.signs.find((x) => x.sid === ID[0]), f = s.signs.find((x) => x.sid === ID[1]);
-        const one = ids.length === 2 && !!g && !!f && !g.locked && f.locked && f.name === '???' && g.name !== '???'
+        const g = s.signs.find((x) => x.sid === ID[0]), w = s.signs.find((x) => x.sid === WARREN);
+        const one = ids.length === 2 && !!g && !!w && !g.locked && !w.locked && g.name !== '???' && w.name !== '???'
           && indepValid(s.board, fx, seatKeysOf(s)).ok;
         if (!one) ok = false;
-        det.push(ids.join('+') + (f ? (f.locked ? '(L:' + f.name + ')' : '(open)') : '') + '@' + (s.board ? Object.keys(s.board.seats || {}).join('') : '-'));
+        det.push(ids.join('+') + (w ? (w.locked ? '(L:' + w.name + ')' : '(open)') : '') + '@' + (s.board ? Object.keys(s.board.seats || {}).join('') : '-'));
       }
-      R.check('(1a)', '新規 (cleared=[]) を ' + N_1A + ' 回引く → 毎回 札は ' + ID[0] + ' (押せる) + ' + ID[1] + ' (???・.locked) の 2 枚ちょうど', ok, det.join(' '));
+      /* 撤退 ?warren=0: 札は ID[0] (押せる) + ID[1] (???・.locked) の 2 枚ちょうど (#82 までの (1a) そのもの) */
+      const fx0 = F0([]);
+      let ok0 = fx0.unlocked.length === 1 && fx0.frontier === ID[0] && fx0.nextLocked === ID[1];
+      for (let i = 0; i < N_1A; i++) {
+        if (i === 0) await prep({});
+        const s = i === 0 ? await open('?warren=0') : await redraw('?warren=0');
+        const ids = s.signs.map((x) => x.id).sort();
+        const g = s.signs.find((x) => x.sid === ID[0]), f = s.signs.find((x) => x.sid === ID[1]);
+        const scenOk = !!s.scen && setEq(s.scen.map((x) => x.id), SC_OFF.map((x) => x.id));
+        const one = scenOk && ids.length === 2 && !!g && !!f && !g.locked && f.locked && f.name === '???' && g.name !== '???'
+          && indepValid(s.board, fx0, seatKeysOf(s)).ok && twoRoutes(s).ok;
+        if (!one) ok0 = false;
+        det.push('off:' + ids.join('+') + (f ? (f.locked ? '(L:' + f.name + ')' : '(open)') : '') + (scenOk ? '' : '[scen≠]'));
+      }
+      R.check('(1a)', '新規 (cleared=[]) を ' + N_1A + ' 回引く → 毎回 札は ' + ID[0] + ' + ' + WARREN + ' (両方押せる) の 2 枚ちょうど / 撤退 ?warren=0 で '
+        + N_1A + ' 回 → 毎回 ' + ID[0] + ' (押せる) + ' + ID[1] + ' (???・.locked) の 2 枚ちょうど', ok && ok0, det.join(' '));
     }
     {
+      /* ★[#103] cleared=[廃坑] の解放済みは {廃坑, 森, 巣穴} の 3 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴} のどちらか */
       const cl = [ID[0]];
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = true;
+      const det = []; let ok = setEq(fx.unlocked, [ID[0], ID[1], WARREN]) && fx.frontier === ID[1];
       for (let i = 0; i < N_1B; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1b#' + i, s]);
         const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
-        const one = setEq(v, [ID[0], ID[1]]) && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s)).ok;
+        const other = v.filter((x) => x !== ID[1]);
+        const one = v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN)
+          && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s)).ok;
         if (!one) ok = false;
         det.push(v.join('+') + (s.signs.some((x) => x.locked) ? '(L)' : ''));
       }
-      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回引く → 毎回 盤面 = {' + ID[0] + ', ' + ID[1] + '}・両方押せる', ok, det.join(' '));
+      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回引く → 毎回 盤面 = {' + ID[1] + ' (本筋), ' + ID[0] + ' か ' + WARREN + '}・両方押せる', ok, det.join(' '));
     }
     {
       const det = []; let ok = true;
@@ -517,7 +550,7 @@ async function runSuite(browser, port, mutKey, label) {
       const cl = ID.slice();
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 7;   /* ★[#82] 本筋 6 + side 1 が全部解放済み */
+      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 8;   /* ★[#82][#103] 本筋 6 + side 2 (塔の母・巣穴) が全部解放済み */
       for (let i = 0; i < N_1D; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1d#' + i, s]);
@@ -569,23 +602,25 @@ async function runSuite(browser, port, mutKey, label) {
         ok, 'nonce=' + (a.board && a.board.nonce) + ' seats=' + J(a.board && a.board.seats) + ' ' + det.join(' '));
     }
     {
+      /* ★[#103] 新規状態の妥当な種は「廃坑 + 巣穴」。??? 入りの種は撤退 ?warren=0 の世界でだけ妥当 (q / F0 で測る) */
       const seeds = [
-        { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: ID[1] }, nonce: 'SEED-2b-new' } },
+        { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: WARREN }, nonce: 'SEED-2b-new' } },
+        { cleared: [], board: { v: 1, seats: { t3: ID[0], t2: ID[1] }, nonce: 'SEED-2b-new-off' }, q: '?warren=0' },
         { cleared: ID.slice(0, 3), board: { v: 1, seats: { t3: ID[3], t1: ID[2] }, nonce: 'SEED-2b-c3' } },
       ];
       const det = []; let ok = true;
       for (const sd of seeds) {
-        const pre = indepValid(sd.board, F(sd.cleared), ['t1', 't2', 't3']);
+        const pre = indepValid(sd.board, (sd.q ? F0 : F)(sd.cleared), ['t1', 't2', 't3']);
         if (!pre.ok) { ok = false; det.push('[装置] 種が独立計算で妥当でない ' + pre.why); continue; }
         const str = J(sd.board);
         await prep({ cleared: sd.cleared, board: str });
-        const s = await open('');
+        const s = await open(sd.q || '');
         const dom = s.signs.map((x) => x.sid);
         const one = J(s.board) === str && s.saved === str && setEq(dom, Object.values(sd.board.seats));
         if (!one) ok = false;
         det.push(sd.board.nonce + (one ? ' 採用' : ' ✗ board=' + J(s.board)));
       }
-      R.check('(2b)', '妥当な盤面の種 (新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce・保存値が種のまま)', ok, det.join(' | '));
+      R.check('(2b)', '妥当な盤面の種 (新規状態の廃坑 + 巣穴 / 撤退 ?warren=0 の新規状態の ??? 入り / cleared 3 本) がそのまま採用される (nonce・保存値が種のまま)', ok, det.join(' | '));
     }
 
     /* ══════════ §3 ══════════ */

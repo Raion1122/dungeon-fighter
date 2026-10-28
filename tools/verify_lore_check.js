@@ -100,6 +100,8 @@ const DRV_SKILL = {};
 for (const k of ['goblin', 'goblinArcher', 'goblinShaman', 'goblinBrute', 'goblinRider', 'goblinKing', 'goblinChariot', 'hobgoblin',
   'kobold', 'orc', 'orcGrunt', 'orcArcher', 'orcShaman', 'orcBerserker', 'garrock', 'bandit', 'banditArcher', 'banditMage',
   'banditHeavy', 'scar', 'lizardWarrior', 'lizardHunter', 'lizardRaider', 'lizardPriest', 'swampNovice', 'lizardChieftain']) DRV_SKILL[k] = 'history';
+/* ★[#103 2026-10-28] コボルドの族長 = SRD のコボルド (humanoid) をもとにした独自の頭目 ⇒ 人型 = 歴史 (コボルドと同じ。依頼書 §2-6)。 */
+DRV_SKILL.koboldChief = 'history';
 for (const k of ['skeleton', 'zombie', 'skeletonArcher', 'wraith', 'lich', 'caelum', 'ghostFlame']) DRV_SKILL[k] = 'religion';
 for (const k of ['pharaxus', 'stoneGolem', 'animatedArmor', 'stoneLegionary', 'gargoyle', 'sovereignEye', 'hydra']) DRV_SKILL[k] = 'arcana';
 /* ★[#82 2026-10-03] 塔の母のワイバーン = SRD wyvern.md の creature_type: Dragon ⇒ 竜 = 魔法学 (#76 の規則)。ボス変種も同じ。 */
@@ -120,11 +122,14 @@ const DRV_SLUG = {
   banditHeavy: 'thug', scar: 'bandit-captain', lizardWarrior: 'lizardfolk', lizardHunter: 'lizardfolk', lizardRaider: 'lizardfolk',
   wyvern: 'wyvern', wyvernBoss: 'wyvern',   /* ★[#82 2026-10-03] 規則 ① (SRD に元がある) */
 };
-/* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。 */
-const N_TYPES = 51 + 2, N_SKILL = 40 + 2, N_NATURE = 11, N_CRKEYS = 34 + 2, N_NOCR = 17;
-/* 規則 ③ = 表に載せない (脅威度を出さない) 17 キー */
+/* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。
+   ★[#103 2026-10-28] + コボルドの族長 koboldChief 1 キー (技能あり = history / 脅威度は出さない = 規則 ③)。
+   数え直し (2026-10-28・HEAD e9abf8e のページの ENEMY_TYPES) = 54 キー = 51 + 2 + 1 (技能あり 43 / 対象外 11・cr 36 / 出さない 18)。 */
+const N_TYPES = 51 + 2 + 1, N_SKILL = 40 + 2 + 1, N_NATURE = 11, N_CRKEYS = 34 + 2, N_NOCR = 17 + 1;
+/* 規則 ③ = 表に載せない (脅威度を出さない) 18 キー (★[#103] koboldChief = SRD に族長は無い) */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
-  'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon'];
+  'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon',
+  'koboldChief'];
 const FRAC = { 0.125: '1/8', 0.25: '1/4', 0.5: '1/2' };
 const crText = (cr) => (cr == null ? '' : (FRAC[cr] || String(cr)));
 const DRV_BOSS_DC = (f) => ((f.isBoss || f.eyeStalks || (f.maxSummons || 0) > 0) ? 15 : 10);   // ⛔ isBossLikeDef を使わない

@@ -193,9 +193,11 @@ const MUTATIONS = {
     from: '  function isUnlocked(sc) {',
     to:   '  scenarios.length = 3;  /* mut-dropscen: シナリオ4〜6 を配列ごと削る */  function isUnlocked(sc) {',
     evaluable: ['0a', '2a', '2b', '2c', '2d', '4b', '4c', '6a', '6b', '6c'],
-    allowRed: ['6b'],
+    allowRed: ['6b', '2a'],
     /* ⭐ (6b) が道連れになるのは欠陥の性質そのもの: WORLD_MAP.SITES の 6 件に対し
-       scenarios が 3 件しか無いので、後半 3 件の place が引けなくなる。 */
+       scenarios が 3 件しか無いので、後半 3 件の place が引けなくなる。
+       ★[#103] (2a) も道連れ: ON のページの種は「廃坑 + 巣穴 (scenarios の 8 件目)」なので、配列を 3 件に削ると
+       種が「存在しない id」で捨てられて引き直される (nonce が種でない) = 削った欠陥がそのまま見えている (2026-10-28 実走)。 */
     why: '卓を 3 つにするために scenarios から 4〜6 を配列ごと削る誘惑。'
       + '⚠ 配列リテラルは複数行なので、1 行アンカーで **後から length を切り詰める**形にした。' },
   hidelock: { impl: true, file: TAVERN_HTML, targets: ['2d'], phases: ['base'],
@@ -516,7 +518,12 @@ const ALL_PHASES = ['base', 'compact', 'off', 'walk1', 'walk6', 'walkbad', 'door
  *   (本筋 = 廃坑 + 次の未解放 = 森 / 席 t1・t2 = 旧配置と同じ席)。
  *   旧 3 卓の検査は撤退 ?questdraw=0 (qoff / qoffc / back フェーズ) へ移して残す。
  *   ⛔ 種が捨てられて引き直されたら (2a) が nonce で赤くする (= 乱数の席で偶然緑、を許さない)。 */
-const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-vtm' };
+/* ★[#103] 巣穴 kobold-warren が最初から解放済みになり、新規状態の解放済みは 2 件 (廃坑 + 巣穴) = 「次の未解放」は卓に出ない。
+ *   ⇒ ON のページの種は「廃坑 + 巣穴」(席 t1・t2 は旧配置と同じ)。
+ *   ⇒ 未解放の卓が ??? で出ること ((2d)) は撤退 ?warren=0 の世界 (= #102 までの姿) で、#81 の種「廃坑 + 次の未解放の森」で測る
+ *     (base フェーズの中で base0 として採る。⛔ ??? の経路の検査を落とさない)。 */
+const QUEST_BOARD_SEED = { v: 1, seats: { t1: 'goblin-mine', t2: 'kobold-warren' }, nonce: 'SEED-vtm' };
+const QUEST_BOARD_SEED_OFF = { v: 1, seats: { t1: 'goblin-mine', t2: 'bandits-forest' }, nonce: 'SEED-vtm-off' };
 /* (5a) の許容。⚠ 依頼書の「zoom 1.5 以下」は港町 (TILE 64) の天井を zoom で書いたもの。
    項目 2 の layout() は Math.min(96 / TILE, ...) なので、不変量は **1 マスの実表示 px**。
    ⛔ zoom で書くと TILE を変えた瞬間に意味が変わる。 */
@@ -602,7 +609,7 @@ async function newTavPage(browser, o) {
     /* ★[#102] 闇市は夜だけ開く。時計で揺れないよう夜に固定。⚠ 依頼書 §6-2 の 10 本には入っていなかったが、
        昼に --negative を回すと変異 plazashow (解禁の判定を外す) の後ろで時刻の 1 行が札を消し、(4c) が空振りした (実測)。 */
     try { sessionStorage.setItem('dragonfighters.plazaClock', '21'); } catch (e) {}
-  }, JSON.stringify(QUEST_BOARD_SEED));
+  }, JSON.stringify(opts.seed || QUEST_BOARD_SEED));
   await page.setViewport(opts.view || VIEW_DESKTOP);
   return { page: page, errs: errs, reqs: reqs };
 }
@@ -735,7 +742,7 @@ function placeLinkProbe() {
 /* ── フェーズ: 静的な姿 (base / compact / off) ─────────────────────────────── */
 async function tavSnap(browser, port, o) {
   const out = { tag: o.tag, err: null };
-  const ctx = await newTavPage(browser, { view: o.view });
+  const ctx = await newTavPage(browser, { view: o.view, seed: o.seed });
   try {
     await gotoTavern(ctx, port, o.query || '');
     out.snap = await ctx.page.evaluate(pageSnapshot);
@@ -970,6 +977,8 @@ async function measureTavern(browser, port, phases, label) {
   if (!phases.length) return t;
   const say = (s) => console.log('[drv]   ' + (label || '') + ' フェーズ ' + s);
   if (want('base'))    { say('base (1440x900)');       t.base    = await tavSnap(browser, port, { tag: 'base', view: VIEW_DESKTOP, query: '', place: true }); }
+  /* ★[#103] (2d) の置き場: 撤退 ?warren=0 + #81 の種 (廃坑 + 次の未解放の森)。base を採るときは必ず一緒に採る */
+  if (want('base'))    { say('base0 (?warren=0・1440x900)'); t.base0 = await tavSnap(browser, port, { tag: 'base0', view: VIEW_DESKTOP, query: '?warren=0', seed: QUEST_BOARD_SEED_OFF }); }
   if (want('compact')) { say('compact (390x844)');     t.compact = await tavSnap(browser, port, { tag: 'compact', view: VIEW_COMPACT, query: '' }); }
   if (want('off'))     { say('off (?tavernmap=0)');    t.off     = await tavSnap(browser, port, { tag: 'off', view: VIEW_DESKTOP, query: '?tavernmap=0' }); }
   if (want('walk1'))   { say('walk1 (1 回押す)');      t.walk1   = await tavWalk(browser, port, { tag: 'walk1', intervalMs: null, budgetMs: 9000 }); }
@@ -1092,6 +1101,7 @@ const kinds = (m, k) => ((S(m).enters) || []).filter(e => e.kind === k);
 /* tavern.html を開いた測定。⚠ フェーズを採っていなければ null。⛔ null を緑にしない。 */
 const TAV = (m) => (m && m.tav) || {};
 const TB  = (m) => TAV(m).base || null;         // base フェーズ (1440x900)
+const TB0 = (m) => TAV(m).base0 || null;        // ★[#103] base フェーズの ?warren=0 (種 = 廃坑 + 次の未解放の森) — (2d) の置き場
 const TC  = (m) => TAV(m).compact || null;      // compact フェーズ (390x844)
 const TO  = (m) => TAV(m).off || null;          // ?tavernmap=0
 const TQ  = (m) => TAV(m).qoff || null;         // ?questdraw=0 (1440x900) — #81 で旧 3 卓の検査の置き場
@@ -1306,11 +1316,15 @@ const ASSERT_OF = {};
         + ' → place を "' + p.mark + '" へ書き換えると札は "' + p.after + '"'
         + ' → 戻すと "' + p.restored + '"' + (p.ok ? '' : '  ⛔ ' + p.why)];
     }],
-  ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない) — #81: 盤面の卓 (種 = 廃坑 + 次の未解放の森) で測る',
+  ['2d', '未解放の卓は DOM に在り、かつ ??? 表示である (⛔ 隠していない) — #81: 盤面の卓 (種 = 廃坑 + 次の未解放の森) で測る'
+    + ' (★[#103] 開始直後の解放済みが 2 件になり ??? は出ないので、撤退 ?warren=0 の世界で測る)',
     (m) => {
-      const b = TB(m);
-      if (!b) return [false, '⛔ base フェーズを測っていない'];
+      const b = TB0(m);
+      if (!b) return [false, '⛔ base0 (?warren=0) を測っていない'];
+      if (b.err) return [false, '⛔ 測定が失敗: ' + b.err];
       const s = snapOf(b);
+      if (!(s.board && s.board.nonce === QUEST_BOARD_SEED_OFF.nonce)) return [false, '⛔ ?warren=0 の種が採用されていない (nonce=' + JSON.stringify(s.board && s.board.nonce) + ')'];
+      if ((s.scenIds || []).indexOf('kobold-warren') >= 0) return [false, '⛔ ?warren=0 なのに scenarios に kobold-warren が居る'];
       const rows = tableRows(s);
       const locked = rows.filter(r => r.unlocked === false);
       if (!rows.length) return [false, '⛔ 卓の母集団が空 ((0a) を見よ)'];
@@ -1542,7 +1556,7 @@ const ASSERT_OF = {};
           + '/base=' + (d.roots[id].base ? d.roots[id].base.n : 'null')).join(' ')
         + (bad.length ? '  ⛔ 抽出できていない: ' + bad.join(',') : '')];
     }],
-  ['6a', 'scenarios は 本筋 6 件のまま + 本筋の外 (side) 1 件 = 7 件 (⛔ 卓を 3 つにするために配列を削らない。★[#82] 塔の母の 1 件を足した)',
+  ['6a', 'scenarios は 本筋 6 件のまま + 本筋の外 (side) 2 件 = 8 件 (⛔ 卓を 3 つにするために配列を削らない。★[#82] 塔の母・★[#103] 巣穴の 1 件ずつを足した)',
     (m) => {
       const b = TB(m);
       if (!b) return [false, '⛔ base フェーズを測っていない'];
@@ -1550,11 +1564,11 @@ const ASSERT_OF = {};
       const nw = (s.world || []).length;
       /* ⭐ 「6」は依頼書の数だが、js/world-map.js の SITES 件数とも突き合わせる
          (片方だけ削られたら必ず気づく)。 */
-      const ok = s.scenLen === 7 && s.mainLen === 6 && s.sideLen === 1 && nw === 7;
+      const ok = s.scenLen === 8 && s.mainLen === 6 && s.sideLen === 2 && nw === 8;
       return [ok, 'scenarios ' + s.scenLen + ' 件 (本筋 ' + s.mainLen + ' / side ' + s.sideLen + ') ' + JSON.stringify(s.scenIds)
         + ' / WORLD_MAP.SITES ' + nw + ' 件'];
     }],
-  ['6b', 'place の 7 件 (★[#82] 本筋 6 + side 1) が js/world-map.js の label と 1 文字も違わない'
+  ['6b', 'place の 8 件 (★[#82][#103] 本筋 6 + side 2) が js/world-map.js の label と 1 文字も違わない'
     + ' (⭐ verify_world_map.js の (7a) と同じ照合を tavern のページの中で行う。⛔ HEAD とは比べない)',
     (m) => {
       const b = TB(m);
@@ -1563,7 +1577,7 @@ const ASSERT_OF = {};
       const w = s.world;
       if (!w || !w.length) return [false, '⛔ WORLD_MAP が tavern.html から見えない = 空振り'];
       const bad = w.filter(x => x.label === null || x.place === null || x.label !== x.place);
-      return [w.length === 7 && bad.length === 0,
+      return [w.length === 8 && bad.length === 0,
         w.length + ' 件照合 / 不一致 ' + bad.length + ' 件'
         + (bad.length ? ' ⛔ ' + JSON.stringify(bad) : ' ' + JSON.stringify(w.map(x => x.sid + ':' + x.place)))];
     }],
@@ -1624,7 +1638,7 @@ const ASSERT_OF = {};
       if (!(s.scenLen > 0)) return [false, '⛔ OFF のページが立ち上がっていない = 空振り'];
       const bg = String(s.tavernBg || '').indexOf('tavern_bg.png') >= 0;
       /* ⭐ 「6 枚」は直書きせずページの scenarios から引く (件数そのものは (6a) の担当)。 */
-      const ok = s.tableCount === s.mainLen && s.mainLen === 6 && s.scenLen === s.mainLen + 1 && s.tableAreaShown === true && bg;
+      const ok = s.tableCount === s.mainLen && s.mainLen === 6 && s.scenLen === s.mainLen + 2 && s.tableAreaShown === true && bg;   /* ★[#103] side 2 件 */
       return [ok, '#tableArea .table ' + s.tableCount + ' 枚 (scenarios ' + s.scenLen + ' 件 / 本筋 ' + s.mainLen + ' 件)'
         + ' / #tableArea が見えている=' + s.tableAreaShown
         + ' / #tavern の background-image=' + JSON.stringify(String(s.tavernBg || '').slice(0, 70))];
