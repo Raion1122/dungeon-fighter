@@ -372,6 +372,12 @@ async function openIndex(ctx, qs, party, tag) {
 /* ─────────── ページ側の計測器 (page.evaluate で注入) ─────────── */
 function installProbe() {
   gameOver = true;
+  /* ★[#103 項目4 2026-10-28] 結果の監視 (index.html の 300ms 周期 setInterval) を寝かせる。gameOver = true の凍結を見て
+     showResult(false) → narrate("quest_defeat") → resolveNarrationLine が Math.random を 1 回引く。その 1 回が (1j) の
+     「乱数の回数を ?lore=0 と比べる」窓 (Math.random を差し替えている間) に落ちると赤になっていた (実測: 余分な 1 回の
+     呼び出し元のスタック = showResult ← setInterval)。どの節も結果画面を見ないので、表示済みにして監視を止める。
+     ⭐ 窓に落ちる率は ENEMY_TYPES の走査の長さ (= 時間) で変わる (a110066 で 1/90・koboldChief を足した後で 5/40〜3/40)。 */
+  try { resultShown = true; } catch (e) {}
   try { encounterActive = false; } catch (e) {}
   window.sleepMs = () => new Promise((r) => setTimeout(r, 0));   // ⛔ Promise.resolve() はマイクロタスク飢餓
   try { window.moveEnemies = function () {}; } catch (e) {}
