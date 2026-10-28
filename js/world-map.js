@@ -39,7 +39,7 @@
   var W = 1536, H = 1024;              // ★assets/world_region.jpg の実寸。座標は全部この px 系
 
   /* ── ノード ───────────────────────────────────────────────────────
-   *  kind: "site" … 拠点 (札が出る。ちょうど 8 つ。★[#82] 8 つ目 = pass_n「見張りの塔」)
+   *  kind: "site" … 拠点 (札が出る。ちょうど 9 つ。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」)
    *        "way"  … 中継点 (札は出ない。線の折れ目)
    *  enter: 入ると遷移するページ。⛔ クエリを足さない (#6 / #12 の確定作法)。
    *         ⭐ v1 で enter を持つのは phlan ただ 1 つ (依頼書 §12-3 のユーザー決定)。
@@ -75,7 +75,10 @@
      *   ⭐ 撤退 ?tower=0 は world.html / tavern.html が自ページで読み、retireTower() で中継点へ戻す。 */
     pass_n:    { kind: "site", x:  736, y:  96, label: "見張りの塔", desc: "北の丘に立つ古い物見の塔" },
     lake_n:    { kind: "way",  x:  736, y: 288 },
-    village_s: { kind: "way",  x:  736, y: 864 },
+    /* ★[#103] 湖の南の農村 village_s を拠点「南の村」(本筋外の依頼「コボルドの巣穴」) へ格上げ。
+     *   ⛔ id と座標は変えない・EDGES も触らない (沼地と砦をつなぐ道の途中のまま)。
+     *   ⭐ 撤退 ?warren=0 は world.html / tavern.html が自ページで読み、retireWarren() で中継点へ戻す。 */
+    village_s: { kind: "site", x:  736, y: 864, label: "南の村", desc: "湖の南の農村。丘の下にコボルドの巣穴" },
     lakeside:  { kind: "way",  x: 1056, y: 544 }
   };
 
@@ -159,7 +162,8 @@
     "orc-fort":       "fort",
     "undead-temple":  "temple",
     "dragon-lair":    "dragon",
-    "tower-mother":   "pass_n"     /* ★[#82] 本筋外の 7 本目 (tavern.html の scenarios[] の side:true) */
+    "tower-mother":   "pass_n",    /* ★[#82] 本筋外の 7 本目 (tavern.html の scenarios[] の side:true) */
+    "kobold-warren":  "village_s"  /* ★[#103] 本筋外の 8 本目 (最初から受けられる初仕事) */
   };
 
   /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
@@ -176,7 +180,8 @@
     "orc-fort":       "lizard-swamp",
     "undead-temple":  "orc-fort",
     "dragon-lair":    "undead-temple",
-    "tower-mother":   "orc-fort"   /* ★[#82] 砦のクリア後 (tavern.html の unlockAfter と同じ) */
+    "tower-mother":   "orc-fort",  /* ★[#82] 砦のクリア後 (tavern.html の unlockAfter と同じ) */
+    "kobold-warren":  null         /* ★[#103] 最初から解放済み (tavern.html の locked:false と同じ) */
   };
 
   /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
@@ -376,12 +381,21 @@
     delete UNLOCK["tower-mother"];
   }
 
+  /* ★[#103] 撤退 ?warren=0 の器 (retireTower と同じ形)。village_s を今日の中継点へ戻し、
+   *   SITES / UNLOCK から kobold-warren を外す。⭐ クエリを読むのは各ページ。 */
+  function retireWarren() {
+    NODES.village_s = { kind: "way",  x:  736, y: 864 };
+    delete SITES["kobold-warren"];
+    delete UNLOCK["kobold-warren"];
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
     has: has, neighbors: neighbors, findPath: findPath, spawnFor: spawnFor,
     isRevealed: isRevealed, scenarioOfNode: scenarioOfNode,
     retireTower: retireTower,   /* ★[#82] 撤退 ?tower=0 の器 (行を足しただけ。前後の行は 1 バイトも変えない) */
+    retireWarren: retireWarren, /* ★[#103] 撤退 ?warren=0 の器 */
     /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
     STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
     walkNodes: walkNodes, walkEdges: walkEdges,

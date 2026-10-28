@@ -3745,6 +3745,7 @@
       "undead-temple":  100,   // 隠し 4
       "dragon-lair":    125,   // 隠し 5 (ボスの財宝は残る)
       "tower-mother":    75,   // 隠し 3 (礼金 300 と合わせて 375)
+      "kobold-warren":   50,   // ★[#103] 隠し 2 (謝礼 120 と合わせて 170)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4055,6 +4056,13 @@
                           wallFace: "wall_face_orc-fort.png",
                           wallTop:  "wall_top_orc-fort.png",
                           wallTint: { color: "232,236,242", a: 0.26 } },
+      /* ★[#103] コボルドの巣穴 (本筋外の 8 本目)。⭐ 新しい素材は足さない = 廃坑の床/壁をそのまま流用する
+       *   (丘も祭壇の間も 1 枚絵が覆うので、見えるのは絵の外側の縁だけ)。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 見た目は同じだが、宣言して落ちていないことを明示する。 */
+      "kobold-warren":  { floor: "床1.png",        wall: "壁1.png",
+                          wallFace: "wall_face_goblin-mine.png",
+                          wallTop:  "wall_top_goblin-mine.png",
+                          wallTint: { color: "228,234,244", a: 0.34 } },
       // 隊商護衛 (7.9-3): 屋外の街道。専用テクスチャ = 踏み固めた土の道 + 街道脇の路肩(低い乾式石積み)。
       // ChatGPT 自動生成 (painterly・シームレス)。iOS の 96px/タイル制約に合わせ粒度は粗め。
       // ⚠️ [地平線ビュー STEP4] wall は**路肩専用の横長ストリップ 1024×96**。旧 caravan_road_wall.png は
@@ -4676,6 +4684,10 @@
        *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。
        * ⭐ 畳みではないので撤退スイッチの条件は付けない (?tower=0 は酒場とワールドマップが読む)。 */
       t["tower-mother"] = { n0: ["search", "loot"] };
+      /* ★[#103] コボルドの巣穴は最初から 2 ノード (丘 n0 → 祭壇の間 n1)。罠は「部屋ごとに 1 つ」
+       *   (trapCount:1 × search を両方に宣言) / 玄室の宝箱は n0 (丘) だけ。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
+      t["kobold-warren"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -6753,6 +6765,65 @@
                ".######.........#########.",   // 14  外壁 / 鐘と板
                ".#########.....##########.",   // 15  外壁 (南の弧)
                "..........................",   // 16  外周 (フェザー帯) = 規則①
+             ] },
+      },
+      /* ══ ★[#103] コボルドの巣穴 — codex1 納品の卓上バトルマップ 2 枚 ══════════════════════
+       *   n0big = 村はずれの丘と巣穴の口 (道中・屋外) / n1big = 赤い竜の祭壇の間 (ボス)。
+       * ⚠⚠⚠ テーマは **kobold-warren** (js/df-mapdef.js の THEMES に載せた非屋外テーマ)。
+       *   ⛔ FIELD_THEMES に入れない (塔の母と同じ理由)。屋外の見え方は n0big の outdoor: true で出す。
+       * ⚠⚠⚠ **node: true が必須**。
+       * ⚠ 格子は 64px (tools/make_grid_map.py の warren-hill / warren-altar の注記が唯一の正)。
+       *   丘 23x15 (1472x960) / 祭壇 23x16 (1472x1024)。
+       * ⚠ tileBounds は buildKoboldWarrenRun の rect と**同値**。
+       * ⭐ MASK は依頼書 §12-1 (5) の草案 (5 規則・4 近傍 BFS)。外周 1 マスは '.' (sealRing の仕事)。
+       *   敵のタイル (buildKoboldWarrenRun の slots) は全部 '.'。写像: 絵ローカル (col,row) + (17, 6) = global。 */
+      "kobold-warren": {
+        n0big: { src: "assets/room_kobold-warren_n0_map.jpg",
+             tileBounds: [6, 17, 20, 39], node: true,      // 15 行 x 23 列 (村はずれの丘)。⚠ 行が先
+             sealRing: true,   /* 丘の外周 1 タイルを通行不能に (西の口と巣穴の口だけが外周に開く) */
+             outdoor: true,    /* 丘は屋外。入った瞬間から全体が見えている */
+             /*  ★障害物 (15 行 x 23 列)。row 6 と row 7 が col 0 → col 22 を 1 マスも切らさない (絵の土の道)。
+              *   西の口 (0,7) → 東の巣穴の口 (22,7) = n1 への出口 = global (39,13)。 */
+             blocked: [
+               ".......................",   //  0  外周
+               ".#.####..#########.###.",   //  1  北の灌木と岩 / 北の大岩場 (col 9-17) / 北東の岩と灌木
+               ".#...##.#######....###.",   //  2
+               "..........###......###.",   //  3  岩場の南端 (col 10-12) / 巣穴の盛り土 (col 19-21)
+               ".##.......#......#####.",   //  4  岩 (col 1-2) / 岩 (col 10) / 岩 (col 17-18) / 巣穴の柵 (col 19-21)
+               "........##.#.......###.",   //  5  灌木 (col 8-9) / 岩 (col 11) / 柵
+               ".......................",   //  6  ★土の道
+               ".......................",   //  7  ★土の道 = 入場の行 (col 0 = 西の口 / col 22 = 巣穴の口 = n1 への出口)
+               ".##................###.",   //  8  羊の囲いの柵 (col 1-2) / 骨と柵 (col 19-21)
+               ".###..#.##.##.....####.",   //  9  囲いの柵 / 倒れた丸太 (col 6) / 灌木 (col 8-9) / 岩 (col 11-12) / 灌木と骨の柵
+               ".######.#####......###.",   // 10  羊の囲いの中 (col 1-6) は塞ぐ / 灌木と岩場 / 盛り土
+               ".######...######.#..##.",   // 11  岩場と灌木 (col 10-15) / 灌木 (col 17) / 灌木 (col 20-21)
+               ".########.############.",   // 12  南の大岩場
+               ".########.############.",   // 13
+               ".......................",   // 14  外周
+             ] },
+        n1big: { src: "assets/room_kobold-warren_n1_map.jpg",
+             tileBounds: [6, 17, 21, 39], node: true,      // 16 行 x 23 列 (赤い竜の祭壇の間)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西のトンネルだけが外周に開く) */
+             /*  ★障害物 (16 行 x 23 列)。⚠ outdoor は付けない (地の底 = 霧を効かせる)。
+              *   西のトンネル (0,7) → 祭壇の前 col 17 / row 6〜9。**祭壇と卵 (col 18-21 / row 4-11) は全部 '#'**
+              *   (卵 = col 20 / row 7-8)。東の中点 (22,7) は祭壇の裏の行き止まり (ボス部屋なので出口は使わない)。 */
+             blocked: [
+               ".......................",   //  0  外周
+               ".#############.##.####.",   //  1  北の岩壁・槍の束・ろうそくの岩・羊毛の寝床 / 岩 (col 15-16) / 北東の寝床と岩
+               ".###.##.###....##...##.",   //  2  北西の寝床 (col 1-3) / 槍 (col 5-6) / 岩と肋骨 (col 8-10) / 岩 / 肋骨と岩 (col 20-21)
+               ".###..#.##.........###.",   //  3  寝床 / 槍の根元 (col 6) / 岩 (col 8-9) / ろうそくと骨
+               ".###....##........####.",   //  4  寝床と岩 / 岩 (col 8-9) / 祭壇の北の岩・骨 (col 18-21)
+               ".###..............####.",   //  5  西の岩 / ★祭壇 (col 18-21)
+               "..................####.",   //  6  ★西のトンネル (col 0-1) / 祭壇の縁石 (col 18)
+               "..................####.",   //  7  ★入場の行 / 卵 (col 20)
+               "..................####.",   //  8
+               ".##...............####.",   //  9  南西の岩 / 祭壇
+               ".##.###...........####.",   // 10  岩とろうそく / 掘りかけの穴と板 (col 4-6) / 祭壇の南のろうそく
+               ".#######..........####.",   // 11  寝床・穴・板 (col 1-7) / 骨・頭骨・ろうそく (col 18-21)
+               ".#########.........###.",   // 12  寝床・板・縄・槍・ろうそくの岩 (col 1-9) / 骨と槍 (col 19-21)
+               ".###########...#######.",   // 13  南の岩と寝床 / 岩とろうそく・寝床・骨 (col 15-21)
+               ".#####################.",   // 14  南の岩壁
+               ".......................",   // 15  外周
              ] },
       },
     };
@@ -10379,6 +10450,32 @@
         packTactics: true,   // 群れ戦術: 対象の隣に味方の敵が居ると +2命中
         xp: 70,
       },
+      /* ★[#103] コボルドの族長。5e SRD のコボルド (CR1/8) をもとにした独自の頭目 (SRD に族長は無い)。
+       * ⭐ 竜を崇める部族の長。竜の頭骨をかぶり杖を持つ。戦闘の最初の手番に 1 度だけ「仕掛け罠」(koboldSnare)。
+       * ⚠ LORE_CR には載せない (SRD に元が無い = #76 の決まり)。LORE_SKILL_OF は history (コボルドと同じ)。
+       * ⚠ シートは手下と同じ 576x480・96px・6 列 (tools/codex1_sprites.json の koboldChief)。攻撃の間合いと
+       *   拍子 (meleeRange / hitRange / attack*) も手下の kobold から写した。
+       * ⚠ 値は出発点。強さの実測 (依頼書 §8 ⑤) で直してよい。 */
+      koboldChief: {
+        name: "コボルドの族長",
+        flavor: "竜の頭骨をかぶったコボルドの長。赤き翼への貢ぎ物を集め、巣を罠で固める",
+        sprite: "assets/koboldChief_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 72,     // 手下 56 より一回り大きく、主人公 (96) より小さい
+        hp: 27, speed: 1.0,
+        hasAttackAnim: true,
+        meleeRange: 110, hitRange: 180,
+        attackDuration: 26, attackHitFrame: 11, attackCooldown: 32,
+        str: 0, dex: 2, atkBonus: 4, ac: 14,
+        dmgDice: "1d6", dmgBonus: 2, critRange: 20, critMult: 2,
+        range: "melee",
+        packTactics: true,
+        isBoss: true,
+        maxSummons: 0,
+        snareDC: 12, snareDice: "1d6",   /* ★[#103] 仕掛け罠: 1 戦闘に 1 回 (koboldSnare)。⛔ 他の敵に付けない */
+        xp: 200,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -11600,6 +11697,29 @@
           ["minotaur", 39, 13], ["orcArcher", 41, 12], ["orcArcher", 41, 14],
           // 屋上のワイバーン 2 匹 (うち 1 匹がボス扱い)
           ["wyvernBoss", 57, 13], ["wyvern", 56, 15],
+        ],
+      },
+      /* ★[#103] コボルドの巣穴 (本筋外の 8 本目・最初から受けられる初仕事・推奨 Lv2)。
+       * ⭐ 実際の盤面は buildKoboldWarrenRun (卓上マップ 2 枚)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを変える (ダイスは同じ 1d6・乱数を 1 つも足さない = 依頼書 §2-4)。
+       * ⚠ 値は出発点。強さの実測 (依頼書 §8 ⑤) と合わせて直してよい。 */
+      "kobold-warren": {
+        title: "コボルドの巣穴 — 赤き翼の祭壇",
+        flavor: "家畜をさらうコボルドを追い、丘の下の巣穴を一掃せよ",
+        perceptionDC: 11,
+        trapCount: 1,
+        trapTypeByNode: { n0: "pit", n1: "rockfall" },
+        hiddenChestCount: 2,
+        clearXp: 200,
+        clearGold: 120,
+        spawns: [
+          // 丘のコボルド (?graph=0 の単一マップ用)
+          ["kobold", 27, 13], ["kobold", 28, 12], ["kobold", 28, 14],
+          ["kobold", 39, 13], ["kobold", 40, 14],
+          // 祭壇の間: 手下 3 + 族長
+          ["kobold", 55, 12], ["kobold", 55, 14], ["kobold", 56, 13],
+          ["koboldChief", 57, 13],
         ],
       },
     };
@@ -15323,7 +15443,7 @@
                  || t === "skeletonArcher" || t === "lich" || t === "caelum") fam = "undead";  // Sce5 アンデッド軍 + ボス リッチ + 霊カエルム(敵対時)
         else if (t.startsWith("orc") || t === "garrock") fam = "orc";  // orcGrunt/Archer/Shaman/Berserker + ボス garrock
         else if (t === "rat" || t === "direBear" || t === "plagueFrog" || t === "ruinSpider") fam = "beast";  // v2: 生成クエストの獣も beast へ (従来 generic)
-        else if (t === "kobold") fam = "kobold";   // v2: 廃坑の主力雑魚なのに generic に落ちていた
+        else if (t === "kobold" || t === "koboldChief") fam = "kobold";   // v2: 廃坑の主力雑魚なのに generic に落ちていた / ★[#103] 族長もコボルドの家系
         else if (t === "ghostFlame") fam = "undead";   // v2: def.undead を持つのに generic に落ちていた
         else if (t.startsWith("lizard")) fam = "lizardman";   // Sce3 沼の敵 (Warrior/Hunter/Raider/Priest/Chieftain)。従来 generic に落ちていた
         else if (t === "hydra") fam = "hydra";   // Sce3 隠し要素: 沼の守護神 (専用エンカ気配)
@@ -15540,6 +15660,13 @@
         "道の脇には荒らされた菜園と、獣の足跡が点々と続いている。塔の周りを魔物がうろつき、年老いた母は外へ出ることもできずにいるのだ。",
         "見上げれば、崩れた屋上の上を大きな翼の影が旋回している。ワイバーン — 毒針の尾を持つ竜の眷属だ。",
         "倒し切る必要はない。追い払えば、母は町へ帰ると言うだろう。さあ、丘を登れ。",
+      ],
+      /* ★[#103] コボルドの巣穴 */
+      "kobold-warren": [
+        "君たちは、湖の南の小さな村に着いた。柵は壊され、羊の囲いは空だった。",
+        "泥に残る小さな足跡は、村はずれの丘を登り、草に隠れた穴へと消えている。甲高い鳴き声が、地の底から響いてくる。",
+        "コボルド——竜を崇める小さな種族だ。数を頼みに群れ、罠を好む。足元に気をつけろ。",
+        "さあ、穴へ降りろ。",
       ],
     };
 
@@ -18463,6 +18590,18 @@
     window.fleeEnemy = fleeEnemy;
     window.checkFleeEnemies = checkFleeEnemies;
     window.buildTowerMotherRun = buildTowerMotherRun;
+    /* ★[#103] 検証シーム (コボルドの巣穴)。⛔ 状態の置き場にしない (読むための窓)。 */
+    window.buildKoboldWarrenRun = buildKoboldWarrenRun;
+    window.koboldSnare = koboldSnare;
+    window.__koboldWarrenTV = {
+      ENEMY_TYPES: { kobold: ENEMY_TYPES.kobold, koboldChief: ENEMY_TYPES.koboldChief },
+      buildKoboldWarrenRun: buildKoboldWarrenRun,
+      koboldSnare: koboldSnare,
+      TRAP_TYPES: function () { return TRAP_TYPES; },   // ⚠ const の宣言 (罠の節) はここより下 = 関数で包む (TDZ)
+      trapTypeForNode: function () { return trapTypeForNode(); },
+      traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
+      nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+    };
     window.__towerMotherTV = {
       ENEMY_TYPES: { wyvern: ENEMY_TYPES.wyvern, wyvernBoss: ENEMY_TYPES.wyvernBoss },
       buildTowerMotherRun: buildTowerMotherRun,
@@ -20508,6 +20647,11 @@
         }
         updateInfo("ダンジョン制覇！\n全ての敵を倒した");
         sayLine("quest.clear");   // ★ speech: showResult(z=200 のオーバーレイ)ではなく、世界がまだ映っている制覇の瞬間に出す
+        /* ★[#103] 祭壇の赤い卵。⭐ 印は酒場 (tavern.html の markRedEgg) が帰還で立てる。⛔ 卵の効果は作らない */
+        if (scenarioId === "kobold-warren" && typeof showDMMessage === "function") {
+          showDMMessage("祭壇の上に、赤い卵が 1 つ残されていた。君たちはそれを布に包んだ。", 3600);
+          window.__redEggNarrated = true;   // 検証シーム (⛔ ゲームの判定には使わない)
+        }
       }
     }
 
@@ -22327,6 +22471,100 @@
         `1d20(<b>${roll}</b>)${saveModDD(dexMod, saveB)} = ${total}<br>vs DC ${dc}`,
         saved ? "hit" : "miss");
       if (window.__pressEyeProbe) window.__pressEyeProbe.push(rec);
+    }
+
+    /* ★[#103] コボルドの族長の「仕掛け罠」(1 戦闘に 1 回・族長の手番の行動)。
+     * ⚠⚠⚠ 罠の仕組み (traps[]) には乗せない: checkTrapTrigger は戦闘中に 1 つも調べず、見えている罠は
+     *   踏まれもしない (依頼書 §2-3)。⇒ 手番の行動として、その場で DEX セーヴを解決する。
+     * 写し元 = sovereignPressEye: pickEnemyTarget で 1 体 → d20 + DEX + セーヴボーナス vs def.snareDC
+     *   → 失敗で def.snareDice のダメージ + 転倒 (1 手番)。リングオブフリーアクションは**転倒だけ**を防ぐ。
+     * 検証用 probe = window.__snareProbe (1 件 = 1 回の発動)。⛔ ゲームの判定には使わない。 */
+    window.__snareProbe = window.__snareProbe || [];
+    async function koboldSnare(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const dc = def.snareDC || 12;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      let dexMod = 0, showAtTarget = null, unit = null, targetName = "", hasFree = false, saveB = 0, ally = null;
+      if (pick.kind === "leader") {
+        dexMod = playerStats.dex || 0;
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+        unit = "player";
+        hasFree = hasFreeAction("player");
+        saveB = getSaveBonus("player");
+      } else if (pick.kind === "ally") {
+        ally = allies[pick.idx];
+        if (!ally || !ally.alive) return;
+        dexMod = ally.dex || 0;
+        targetName = ally.npcName || ally.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(ally, t, c);
+        unit = ally;
+        hasFree = hasFreeAction(ally);
+        saveB = getSaveBonus(ally);
+      } else {  // enemy (第三勢力の乱入個体など)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        dexMod = (o.def.dex != null) ? o.def.dex : 0;
+        targetName = o.def.name;
+        showAtTarget = (t, c) => showRollAtEnemy(pick.idx, t, c);
+        unit = o;
+      }
+
+      showBanner("🪤 仕掛け罠 🪤", 1500);
+      if (typeof showDMMessage === "function") showDMMessage("族長が杖で床を叩いた——足元の縄が跳ね上がる!", 2600);
+      updateInfo(`${def.name} の仕掛け罠が ${targetName} の足元で跳ね上がる! (DEX セーヴ DC ${dc})`);
+
+      const rec = { site: "snare", enemyIdx, dc, kind: pick.kind, idx: (pick.idx != null ? pick.idx : null),
+                    target: targetName, roll: null, total: null, saved: false, prone: false, ring: false, dmg: 0,
+                    trapsLen: traps.length };
+      const roll = d20();
+      const total = roll + dexMod + saveB;
+      const saved = total >= dc;
+      rec.roll = roll; rec.total = total; rec.saved = saved;
+      if (saved) {
+        showAtTarget(`<span class="label">SAVE</span>1d20(<b>${roll}</b>)${saveModDD(dexMod, saveB)} = ${total}<br>vs DC ${dc}`, "hit");
+        updateInfo(`${targetName} は縄をかわした`);
+        window.__snareProbe.push(rec);
+        return;
+      }
+      const r = parseDice(def.snareDice || "1d6");
+      const dmg = Math.max(1, r.total);
+      rec.dmg = dmg;
+      if (hasFree) { rec.ring = true; } else { applyStatus(unit, "prone", 1); rec.prone = true; }
+      showAtTarget(
+        `<span class="label">SNARED</span>1d20(<b>${roll}</b>)${saveModDD(dexMod, saveB)} = ${total}<br>vs DC ${dc}` +
+        (hasFree ? `<br>フリーアクションで転倒は免れた` : ``), "miss");
+      window.__snareProbe.push(rec);
+      await sleepMs(300);
+      if (ally) {
+        /* 仲間へのダメージ (applyFireBreathToAlly と同じ手順。語りだけ「仕掛け罠」) */
+        const tCX = ally.x + ally.def.displaySize / 2;
+        if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+            && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+          ally.buffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(tCX, ally.y, dmg, false);
+          ally.hp = sRoll.total;
+          showRollAtAlly(ally, `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+          return;
+        }
+        ally.hp -= dmg; if (ally.hp < 0) ally.hp = 0;
+        showDmgAt(tCX, ally.y, dmg, false);
+        updateInfo(`${targetName} は仕掛け罠で ${dmg} ダメージ! HP ${ally.hp}/${ally.maxHp}`);
+        if (ally.hp <= 0) {
+          RunChronicle.fall(ally, "仕掛け罠");
+          ally.alive = false;
+          updateInfo(`${targetName} は倒れた…`);
+          if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+        }
+        return;
+      }
+      await applyEnemySpellDamage(pick, dmg, false, "仕掛け罠");   // 頭 / 第三勢力 (不屈・頭の委譲・全滅は既存経路)
     }
 
     function resetAllyBuffs(ally) {
@@ -26743,7 +26981,7 @@
         const [tx, ty] = candidates[i];
         const trap = {
           tx, ty,
-          type: "damage",
+          type: trapTypeForNode(),   // ★[#103] 宣言の無いシナリオは "damage" (今日どおり)。⛔ 乱数を引かない
           damageDice: "1d6",
           found: false,
           triggered: false,
@@ -27152,7 +27390,25 @@
     // damageDice = 味方が踏んだ時 (Phase 1) / weaponizeDice = 敵に付け替えた時 (Phase 2, 強化) / disarmXP = 解除成功XP。
     const TRAP_TYPES = {
       damage: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25 },
+      /* ★[#103] 落とし穴 / 落石 = **語りだけ**違う罠 (ダイス・解除 XP は damage と同じ = Lv2 の強さを崩さない)。
+       *   種類はシナリオがノードごとに宣言する (SCENARIOS[id].trapTypeByNode)。宣言の無いシナリオは今日どおり damage。 */
+      pit:      { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "足元の板が抜けた——落とし穴だ!" },
+      rockfall: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "頭上で縄が切れる音——落石だ!" },
     };
+    /* ★[#103] いまのノードの罠の種類。⛔ Math.random を呼ばない (spawnTraps の乱数の消費順を変えない = 依頼書 §2-4)。 */
+    function trapTypeForNode() {
+      const decl = currentScenario && currentScenario.trapTypeByNode;
+      if (!decl) return "damage";
+      let nid = null;
+      try { nid = currentNodeId; } catch (e) { nid = null; }   // ⚠ let の宣言より前に呼ばれても落ちない
+      const t = nid != null ? decl[nid] : null;
+      return (t && TRAP_TYPES[t]) ? t : "damage";
+    }
+    /* ★[#103] 罠を踏んだときの語り。種類の語りが無ければ今日の「しまった! 罠だ!」。 */
+    function trapDmText(trap) {
+      const spec = trap && TRAP_TYPES[trap.type];
+      return (spec && spec.dmText) || "しまった! 罠だ!";
+    }
     // "NdX" を解析して即振り (rollDiceDD/parseDiceDD の薄いラッパ)。戻り値 { rolls, total }。
     // ⚠決定論: この関数 (=Math.random 消費) は「敵が実際に武器化罠に乗った瞬間」だけ呼ぶ (triggerTrapOnEnemy 内)。
     function parseDice(notation) {
@@ -28653,7 +28909,7 @@
           hp = Math.max(0, hp - dmg);
         }
         showBanner("罠発動!", 1200);
-        showDMMessage(dmText || "しまった! 罠だ!", 1800);   // 既定=不意の踏み抜き / 引数=ファンブル等の文脈別の語り
+        showDMMessage(dmText || trapDmText(trap), 1800);   // 既定=不意の踏み抜き / 引数=ファンブル等の文脈別の語り (★[#103] 引数を優先・無ければ罠の種類の語り)
         updateInfo(`${getLeaderName()}が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ`);
         showDmgAt(playerX + 48, playerY + 48, dmg, false);
         if (hp <= 0) { if (!onHeadDowned("explore")) gameOver = true; }
@@ -28682,7 +28938,7 @@
           ally.hp = Math.max(0, ally.hp - dmg);
         }
         showBanner("罠発動!", 1200);
-        showDMMessage("しまった! 罠だ!", 1800);
+        showDMMessage(trapDmText(trap), 1800);   // ★[#103] 罠の種類の語り (damage は今日どおり)
         updateInfo(`${ally.def.name} が罠を踏んだ! 1d6(${r.rolls.join("+")}) = ${dmg} ダメージ${trapResilientNote}`);
         showDmgAt(ally.x + ally.def.displaySize / 2, ally.y + 40, dmg, false);
         if (ally.hp <= 0) {
@@ -29478,6 +29734,7 @@
       banditMage: "history", banditHeavy: "history", scar: "history", lizardWarrior: "history",
       lizardHunter: "history", lizardRaider: "history", lizardPriest: "history", swampNovice: "history",
       lizardChieftain: "history",
+      koboldChief: "history",   // ★[#103] コボルドと同じ。⛔ LORE_CR には載せない (SRD に元が無い)
       // 宗教 (アンデッド)
       skeleton: "religion", zombie: "religion", skeletonArcher: "religion", wraith: "religion",
       lich: "religion", caelum: "religion", ghostFlame: "religion",
@@ -36878,6 +37135,15 @@
         await sleepMs(1300);
       }
 
+      // ── ★[#103] コボルドの族長の仕掛け罠: 戦闘の最初の手番に 1 度だけ (この手番は罠で消費) ──
+      // ⭐ 行動選択 (pickBossAction の Math.random) より**前**に置く = 最初の手番が smash に当たって後ろへずれない。
+      //   snareDC を持つのは koboldChief だけ = 既存の敵の手番と乱数列は 1 ビットも動かない。
+      if (def.snareDC && !enemy.__snareUsed) {
+        enemy.__snareUsed = true;
+        await koboldSnare(idx);
+        await sleepMs(1100);
+        return;
+      }
       // ── ボス: 行動選択 (normal / smash / summon) ──
       let bossAction = "normal";
       if (def.isBoss && !def.multiHead) {   // ハイドラは召喚/smash抽選せず頭数ぶん噛撃
@@ -40286,6 +40552,7 @@
       if (scenId === "undead-temple") return buildUndeadTempleRun();
       if (scenId === "dragon-lair") return buildDragonLairRun();
       if (scenId === "tower-mother") return buildTowerMotherRun();   // ★[#82] 本筋外の 7 本目
+      if (scenId === "kobold-warren") return buildKoboldWarrenRun();   // ★[#103] 本筋外の 8 本目
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -41504,6 +41771,51 @@
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13)。⚠ ズレると lintRun の
            *   graph-gate-not-floor / graph-dir-mismatch が鳴る。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[#103] コボルドの巣穴 (本筋外の 8 本目) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 村はずれの丘 ── right → n1 boss 赤い竜の祭壇の間
+     *
+     * ⭐ 塔の母 (#82) の型 = p6Node() を直接 2 回呼ぶ。id は n0/n1 (NODE_EXTRA_SPAWN_KINDS の n0/n1 と対)。
+     * ⚠ p6Node の既定 3 つは全部明示する (#53 の罠): density 0 / start / paint。
+     * ⚠ rect は ROOM_PAINTINGS_DEF["kobold-warren"] の tileBounds と**同値**。格子は 64px の焼き上がり
+     *   (丘 23x15 / 祭壇 23x16 = 依頼書 §12-1 (3)。起草時の 31x19 / 31x21 ではない)。
+     * ⭐ 出口を持つ n0 の rect は唯一解 (#53): 右辺の中点が出口ゲート (39,13) に一致する 15 行 x 23 列は
+     *   [6, 17, 20, 39] だけ (行数 15 = 奇数 → midR = 13 = 絵ローカル row 7 = 土の道 = 巣穴の口)。
+     *   n1 も同じ位置に揃える (16 行 → midR = floor((6+21)/2) = 13 = 絵ローカル row 7 = 入場の行)。
+     * ⚠ 座標はすべて global = 絵ローカル + (17, 6)。 */
+    function buildKoboldWarrenRun() {
+      /* n0 村はずれの丘 (屋外)。入場 = 西の口 (17,13) + NODE_ENTRY_INSET(2) = (19,13) = 絵ローカル (2,7) = 土の道。
+       * コボルド 2 群:
+       *   丘の群れ     = 3 体 (北西の土の地面 絵ローカル (5,3) (6,3) (6,4))
+       *   巣穴の見張り = 2 体 (巣穴の口の前 絵ローカル (19,6) (20,7))
+       *   ⭐ 入場からの最短は (5,3) の 5.0 タイル (480px) > melee 交戦距離 400px。
+       *   ⭐ 2 群の最短は (6,4)-(19,6) の 13.15 タイル > DETECTION_RANGE 12.5 = 別々の戦闘。
+       *   ⚠ 敵のタイルは n0big のマスクで全部 '.'。 */
+      const n0 = p6Node("kobold-warren", "kobold-warren", "n0", "村はずれの丘", [6, 17, 20, 39], {
+        paint: "n0big", density: 0, start: { tx: 19, ty: 13 },
+        slots: [[22, 9, "kobold"], [23, 9, "kobold"], [23, 10, "kobold"],
+                [36, 12, "kobold"], [37, 13, "kobold"]],
+      });
+      /* n1 赤い竜の祭壇の間 (ボス)。入場 = 西辺の中点 (17,13) + 2 = (19,13) = 絵ローカル (2,7) = 西のトンネルの先。
+       * 族長 = 祭壇の前 (絵ローカル (17,7))。手下 3 体 = その前 (16,5) / (16,9) / (15,7)。
+       *   ⭐ 入場からは 13 タイル以上 = 入場ナレの最中に戦闘が始まらない。4 体は 1 つの戦闘に入る。
+       *   ⚠ 祭壇と卵 (絵ローカル col 18-21 / row 4-11) は n1big のマスクで塞いである = 上に敵を置かない。 */
+      const n1 = p6Node("kobold-warren", "kobold-warren", "n1", "赤い竜の祭壇の間", [6, 17, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 19, ty: 13 },
+        slots: [[33, 11, "kobold"], [33, 15, "kobold"], [32, 13, "kobold"]],
+        boss: [34, 13, "koboldChief"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (22,7) = 巣穴の口。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },

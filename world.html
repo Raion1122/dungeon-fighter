@@ -667,6 +667,11 @@
     try {
       if (new URLSearchParams(location.search).get("tower") === "0" && window.WORLD_MAP) window.WORLD_MAP.retireTower();
     } catch (e) {}
+    /* ★[#103] 撤退スイッチ ?warren=0 (実装依頼書 #103 §7)。?tower=0 と同じ「ページ単位で独立」。
+       拠点「南の村」(village_s) を今日の中継点へ戻す。 */
+    try {
+      if (new URLSearchParams(location.search).get("warren") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireWarren) window.WORLD_MAP.retireWarren();
+    } catch (e) {}
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ

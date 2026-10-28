@@ -375,6 +375,10 @@ const DRAWN_SETTLEMENTS = [
   { name: '港町', tx: 5.5, ty: 8.5 },
 ];
 const HARBOR = DRAWN_SETTLEMENTS[3];
+/* ★[#103] 「描かれた集落そのもの」を拠点にした依頼。コボルドの巣穴の拠点「南の村」(village_s) は、
+ *   依頼書 #103 §2-1 が絵の村 (南の森の村) を実測して**その村として**札を立てた ⇒ (7c-2) はこの組だけ
+ *   向きを逆にして縛る (= 96px 未満 = 絵の村の上に立っている)。他の集落からは今どおり 96px 以上。 */
+const SITE_ON_SETTLEMENT = { 'kobold-warren': '南の森の村' };
 const MIN_SIGN_GAP = 96;      // 1.5 タイル (依頼書 §8 (7c))
 const WATER_MAX = 0.40;       // 依頼書 §8 (1a)
 /* (7f) 札 1 枚の面積に対して主人公の矩形が覆ってよい上限。
@@ -1765,11 +1769,16 @@ const ASSERTS = [
   ['7c-2', '6 つのシナリオ札が「絵に描かれた集落」4 つから 96px 以上離れている',
     m => {
       const targets = Object.keys(m.map.sites).map(k => m.map.sites[k]);
+      const onOf = {}; Object.keys(m.map.sites).forEach(k => { if (SITE_ON_SETTLEMENT[k]) onOf[m.map.sites[k]] = SITE_ON_SETTLEMENT[k]; });
       const bad = []; let mn = Infinity, who = '-';
       for (const id of targets) {
         const n = m.map.nodes[id]; if (!n) continue;
         for (const s of DRAWN_SETTLEMENTS) {
           const d = hypot(n.x, n.y, px(s.tx), px(s.ty));
+          if (onOf[id] === s.name) {   /* ★[#103] この組は「村の上に立っている」ことを縛る */
+            if (!(d < MIN_SIGN_GAP)) bad.push(id + '<->' + s.name + '=' + d.toFixed(1) + 'px (村そのものの拠点なのに村から離れている)');
+            continue;
+          }
           if (d < mn) { mn = d; who = id + '<->' + s.name; }
           if (d < MIN_SIGN_GAP) bad.push(id + '<->' + s.name + '=' + d.toFixed(1) + 'px');
         }

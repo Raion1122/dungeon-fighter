@@ -46,6 +46,9 @@
     /* ★[#82] 塔の母 (本筋外の 7 本目)。⚠ ここに無いと validate が「themeId が既存テーマに無い」で落ち、
      *   1 枚絵が黙って消える。⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない = 規則④で絵が載らなくなる。 */
     { id: "tower-mother",   name: "見張りの塔 (tower-mother)" },
+    /* ★[#103] コボルドの巣穴 (本筋外の 8 本目)。塔の母と同じ理由でここに要る。
+     *   ⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない (n0 の丘だけ ROOM_PAINTINGS_DEF の outdoor:true で霧を晴らす)。 */
+    { id: "kobold-warren",  name: "コボルドの巣穴 (kobold-warren)" },
     { id: "caravan-road",   name: "屋外・街道 (caravan-road)" },
   ];
   var THEME_IDS = THEMES.map(function (t) { return t.id; });
@@ -1887,6 +1890,7 @@
     "undead-temple":  { mob: ["skeleton", "zombie", "wraith"],                   boss: "lich" },
     "dragon-lair":    { mob: ["skeleton", "minotaur", "orcBerserker"],           boss: "pharaxus" },
     "tower-mother":   { mob: ["ruinSpider", "minotaur", "orcArcher"],            boss: "wyvernBoss" },   // ★[#82] 2026-10-03 index.html 実読で確認
+    "kobold-warren":  { mob: ["kobold"],                                         boss: "koboldChief" },  // ★[#103] 2026-10-28 index.html の ENEMY_TYPES に koboldChief を足した
     // 屋外は resolve() でカスタム幾何を排他にしているのでこの経路には来ないが、
     // テーマ表の穴を作らないために置く (穴があると || の既定へ落ちて廃坑の敵が出る)。
     "caravan-road":   { mob: ["goblin", "goblinArcher", "hobgoblin"],            boss: "goblinRider" },
@@ -2226,6 +2230,14 @@
      * ⛔ 触ったのはこの在庫 2 行だけ。 */
     { w: 29, h: 18, label: "ノード大部屋 29×18 (29:18)" },
     { w: 26, h: 17, label: "ノード大部屋 26×17 (26:17)" },
+    /* ★[#103 2026-10-28] 同じ理由で **コボルドの巣穴の大部屋 2 枚** (kobold-warren/n0 = 23×15 / n1 = 23×16)。
+     *   7 例目。値は焼き上がりの実測 (1472x960 / tile 64 = 23×15、1472x1024 / tile 64 = 23×16)。
+     * ⭐ どちらも既存 14 種のどれとも比が一致しない
+     *   (23×15 vs 20×13: 23*13=299 ≠ 15*20=300 / 26×17: 23*17=391 ≠ 15*26=390。
+     *    23×16 vs 30×21: 23*21=483 ≠ 16*30=480)。
+     * ⛔ 触ったのはこの在庫 2 行だけ。 */
+    { w: 23, h: 15, label: "ノード大部屋 23×15 (23:15)" },
+    { w: 23, h: 16, label: "ノード大部屋 23×16 (23:16)" },
   ];
   /* ⚠ Phase 0 にあった LINT_PAINTING_MIN_AREA (面積 150 以上なら貼るだろう、という推測) は
    *   ★Phase 4 項目2 で**廃止**した。「絵を貼るか」が rooms[i].painting に明示されるので、

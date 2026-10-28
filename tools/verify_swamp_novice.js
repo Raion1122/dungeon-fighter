@@ -729,6 +729,8 @@ async function runSuite(browser, port, label) {
     'dragon-lair': '#67 (2026-09-16) 竜の巣を卓上大部屋 2 枚へ畳み n4big / n7big を追加',
     /* ★[#82 2026-10-03] 新しいテーマ (着手前 cdaaf91 に無いキー = (4b2) は「差分あり」と数える)。 */
     'tower-mother': '#82 (2026-10-03) 塔の母を新設 (n0big 丘の道 / n1big 崩れた最上階)',
+    /* ★[#103 2026-10-28] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
+    'kobold-warren': '#103 (2026-10-28) コボルドの巣穴を新設 (n0big 村はずれの丘 / n1big 赤い竜の祭壇の間)',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

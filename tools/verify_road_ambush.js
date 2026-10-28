@@ -2645,8 +2645,10 @@ const ASSERTS = [
       const removed = offIds.filter(k => onIds.indexOf(k) < 0), added = onIds.filter(k => offIds.indexOf(k) < 0);
       const wantOn = Object.assign({}, BASE_STOP_TERRAIN);
       removed.forEach(k => { const t = bo.stopTerrainById[k]; wantOn[t] = (wantOn[t] || 0) - 1; });
-      const diffOk = removed.length === 1 && added.length === 0
-        && !!b.nodeKinds && b.nodeKinds[removed[0]] === 'site' && !!bo.nodeKinds && bo.nodeKinds[removed[0]] === 'way';
+      /* ★[#103] 撤退の腕を ?tower=0&warren=0 にしたので、差は **ちょうど 2 停留所の削除** (pass_n と village_s)。
+         どちらも既定の腕では拠点 (site)・撤退の腕では中継点 (way) であることを 1 件ずつ見る (⛔ 緩めない)。 */
+      const diffOk = removed.length === 2 && added.length === 0
+        && removed.every(k => !!b.nodeKinds && b.nodeKinds[k] === 'site' && !!bo.nodeKinds && bo.nodeKinds[k] === 'way');
       const onOk = diffOk && histEq(hist, wantOn);
       const nStops = Object.keys(hist).reduce((s, k) => s + hist[k], 0);
       const nOff = Object.keys(histOff).reduce((s, k) => s + histOff[k], 0);
@@ -2654,7 +2656,7 @@ const ASSERTS = [
       return [ok,
         'EVENTS ' + rows.length + ' 件 = ' + (rowsOk ? '着手前と一致' : '⛔ 不一致')
         + (rowsOk ? '' : '\n           実測 ' + got + '\n           基準 ' + wantRows)
-        + ' / 撤退の腕 (?tower=0) の地形割り ' + JSON.stringify(histOff) + ' 計 ' + nOff + ' 箇所 = '
+        + ' / 撤退の腕 (?tower=0&warren=0) の地形割り ' + JSON.stringify(histOff) + ' 計 ' + nOff + ' 箇所 = '
         + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')
         + ' / 既定の腕 ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 (撤退の腕から消えた停留所=' + JSON.stringify(removed)
         + ' 増えた=' + JSON.stringify(added) + ' → 期待 ' + JSON.stringify(wantOn) + ') = ' + (onOk ? '一致' : '⛔ 不一致')];
@@ -3076,7 +3078,8 @@ async function collect(browser, port, errs, keys) {
 
   if (need.has('boot')) m.boot = await measureBoot(browser, port, errs);
   /* ★[#82] 撤退の腕 (?tower=0) = 塔の母の前の地図。(4c) の「着手前の固定表」はこちらへ当てる。 */
-  if (need.has('boot')) m.bootTowerOff = await measureBoot(browser, port, errs, '?tower=0');
+  /* ★[#103] 撤退の腕は ?warren=0 も合わせる (= 塔の母とコボルドの巣穴の前の地図)。 */
+  if (need.has('boot')) m.bootTowerOff = await measureBoot(browser, port, errs, '?tower=0&warren=0');
   if (need.has('rnd')) {
     m.rnd = [];
     for (const s of RND_SEEDS) m.rnd.push(await measureRnd(browser, port, errs, s));

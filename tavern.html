@@ -3765,6 +3765,28 @@
       locked: true,
       unlockAfter: "orc-fort",
     },
+    /* ★[#103] 新しい行き先の 1 か所目「コボルドの巣穴」(本筋の外・最初から受けられる初仕事)。
+       ⭐ side フラグ = 卓の抽選 (#81) の母集団には入るが、「本筋」「次の未解放」の判定からは外れる (#82 と同じ)。
+       ⚠ locked:false = 開始直後から解放済み → 卓の 2 枠目が「森の予告」から「巣穴」に変わる (依頼書 §2-5)。
+       ⚠ id は index.html の SCENARIOS / js/world-map.js の SITES・UNLOCK と同じ (verify_world_map (4s) が照合)。 */
+    {
+      id: "kobold-warren",
+      place: "南の村",            /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "コボルドの巣穴",
+      difficulty: "★",
+      recommendedLevel: 2,        /* 廃坑 3 の手前。⚠ 強さの実測 (依頼書 §8 ⑤) で直してよい */
+      reward: "村の謝礼",
+      client: { name: "トビン", role: "南の村の若者", type: "villager" },
+      dialog:
+        "「湖の南の村から来ました。夜ごと羊がさらわれるんです。足跡をたどったら、丘の下の穴に続いていて……" +
+        "中から甲高い鳴き声がしました。村の者では手に負えません。どうか助けてください」",
+      enemies: [
+        { name: "巣穴のコボルド", boss: false },
+        { name: "コボルドの族長", boss: true },
+      ],
+      locked: false,
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -3777,6 +3799,17 @@
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "tower-mother") scenarios.splice(i, 1);
     try { if (window.WORLD_MAP && window.WORLD_MAP.retireTower) window.WORLD_MAP.retireTower(); } catch (e) {}
+  })();
+  /* ══ 撤退スイッチ ?warren=0 (実装依頼書 #103 §7) ═════════════════════════════
+     ⭐ ?tower=0 と同じ「ページ単位で独立」(world.html も自分で読む)。⛔ sessionStorage へ写さない。
+     配列から kobold-warren を外し、ワールドマップの写しの village_s も中継点へ戻す
+     (開始直後の卓は今日どおり「廃坑 + 森の予告」へ戻る)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("warren") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "kobold-warren") scenarios.splice(i, 1);
+    try { if (window.WORLD_MAP && window.WORLD_MAP.retireWarren) window.WORLD_MAP.retireWarren(); } catch (e) {}
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */
@@ -6029,6 +6062,21 @@
       if (!wasHome) window.__towerReunionPending = true;   /* ★[#83] 初めて立てた回だけ再会の場面 */
     } catch (e) { console.warn("[towerMother] 印の保存に失敗", e); }
   }
+  /* ★[#103] コボルドの巣穴 — 祭壇の赤い卵を持ち帰った印。
+     ⭐ 印 dragonfighters.redEgg = "1"(2 回目以降も 1 のまま)。接頭辞 dragonfighters. なので記録スロットへ載る。
+     ⭐ 初めて印を立てた回だけ window.__redEggPending = true (このページの寿命だけ。⛔ sessionStorage へ写さない)。
+       酒場の主人 (keeper) の一言は initNpcCrowd() が NPC を生やした後で出す。⛔ ここでは DOM を作らない。
+     ⛔ 卵の効果・売買・後日談は作らない (依頼書 §11)。 */
+  var RED_EGG_KEY = "dragonfighters.redEgg";
+  var RED_EGG_LINE = "その卵……赤い鱗の色をしている。まさか、あの竜の……。悪いことは言わない、それは誰にも見せるな";
+  var redEggSceneLog = [];   /* 主人が実際にしゃべった記録 (検証シーム __TAVERN_TV.redEgg() が読む) */
+  function markRedEgg() {
+    try {
+      var had = (localStorage.getItem(RED_EGG_KEY) === "1");
+      localStorage.setItem(RED_EGG_KEY, "1");
+      if (!had) window.__redEggPending = true;
+    } catch (e) { console.warn("[redEgg] 印の保存に失敗", e); }
+  }
   // 直前ダンジョンからのリザルト受け取り(index.html がクリア時に書き込む)
   (function consumeResult() {
     const resultRaw = sessionStorage.getItem("dragonfighters.lastResult");
@@ -6085,6 +6133,7 @@
           saveClearedSet(progress.cleared);
         }
         if (r.scenarioId === "tower-mother") markTowerMotherHome();   // ★[#83] 印だけ (DOM は作らない)
+        if (r.scenarioId === "kobold-warren") markRedEgg();             // ★[#103] 卵の印だけ (DOM は作らない)
         // 次 tick でバナー表示(renderTables 後)
         setTimeout(() => showReturnBanner(r), 100);
       } else if (r && (r.defeated || r.retreated)) {
@@ -11636,6 +11685,13 @@
         }).filter(function (k) { return want.indexOf(k) >= 0; });
         return { on: isTowerMotherOn(), mark: mark === "1", pending: window.__towerReunionPending === true,
                  keys: keys, scene: towerReunionSceneLog.map(function (s) { return { key: s.key, idx: s.idx, at: s.at }; }) };
+      },
+      /* ★[#103] 卵の印 — 読み取り専用。mark = 印 / pending = 初回の一言の予約 / scene = 主人が話した記録 */
+      redEgg: function () {
+        var mark = null;
+        try { mark = localStorage.getItem(RED_EGG_KEY); } catch (e) { mark = null; }
+        return { mark: mark === "1", pending: window.__redEggPending === true,
+                 scene: redEggSceneLog.map(function (s) { return { key: s.key, say: s.say, at: s.at }; }) };
       }
     };
     /* 闇市が遊んでいる最中に解禁されたら札を生やし直す (updatePlazaDoor から呼ばれる) */
@@ -11940,6 +11996,17 @@
             towerReunionSceneLog.push({ key: line.key, idx: idx, at: Date.now() });
           }, REUNION_FIRST_MS + idx * BUBBLE_MS);
         });
+      }
+      /* ★[#103] 赤い卵を初めて持ち帰った回だけ、帰還の帯の後に酒場の主人が 1 回しゃべる。
+         ⚠ 2 回目以降のクリアでは pending が立たない = 主人は黙っている。 */
+      if (window.__redEggPending === true) {
+        setTimeout(function () {
+          var who = null;
+          for (var j = 0; j < npcUnits.length; j++) if (npcUnits[j].n.key === "keeper") { who = npcUnits[j]; break; }
+          if (!who) { console.warn("[redEgg] 酒場の主人が居ない"); return; }
+          npcBubbleShow(who, RED_EGG_LINE);
+          redEggSceneLog.push({ key: "keeper", say: RED_EGG_LINE, at: Date.now() });
+        }, REUNION_FIRST_MS);
       }
     })();
   })();
