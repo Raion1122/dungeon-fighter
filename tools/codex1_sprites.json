@@ -233,6 +233,14 @@
       "attack_dir": "wyvern/wyvern-walk-attack-right-6-aligned-clean/*attack*frame-*.png",
       "note": "塔の母 (#82) の屋上のワイバーン (2026-10-03 新設)。codex1 の第3陣テンプレ (walk と attack が同一ディレクトリ …-walk-attack-right-6-aligned) なので garrock と同じく glob で分離する。⚠ 素の -aligned は walk 6 コマ中 4 コマに 1〜33px の浮遊点があるので tools/clean_codex1_frames.py で -clean 派生を作って指す (町人 6 体の前例。specks 517 / bbox 縮み最大 8px)。新設なので --match-current の対象は無い。--match-current assets/griffon_anim.png (同じ 192px セル・displaySize 240 の飛行種) の 0.8333 では翼が左へ 2px はみ出す (CLIP WARNING) ので 0.80 へ下げた = fit left=2 right=184 top=23 / cell=192 でクリップ無し。attack_scale=auto (walk 体高 294 / attack 292 = 1.0068)。ゲーム側は ENEMY_TYPES.wyvern / wyvernBoss の 2 型が同じシートを使う"
     },
+    {
+      "key": "koboldChief", "out": "assets/koboldChief_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.86, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "kobold-chief/kobold-chief-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "kobold-chief/kobold-chief-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "コボルドの巣穴 (#103) のボス、コボルドの族長 (2026-10-28 新設・codex1 依頼文 2026-10-28_kobold-chief.md)。第3陣テンプレ (walk と attack が同一ディレクトリ …-walk-attack-right-6-aligned) なので wyvern と同じく glob で分離する。セル 96 / char_ratio 0.86 は手下の kobold (v8.2) と同じ物差し (displaySize で一回り大きく見せる = ENEMY_TYPES 側の仕事)。新設なので --match-current の対象は無い。attack_scale=auto (walk 体高 340.5 / attack 330.5 = 1.0303)。H_max(walk)=351px / scale 0.2352 / fit left=23 right=94 top=6 (cell=96) クリップ無し。⭐ -clean 派生は不要: 依頼書 §2-11 が気にした足元のマゼンタの縁は、パック後のシートで品紅色の画素 2 / 不透明 74234 (手下の kobold_anim は 78 / 77109) = 既存より少ない。暗い土 #2a1c14 と本番の祭壇の間 (room_kobold-warren_n1_map.jpg) の上で目視して縁は見えない"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
