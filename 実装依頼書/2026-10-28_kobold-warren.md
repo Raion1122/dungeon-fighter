@@ -255,6 +255,7 @@ function checkTrapTrigger() {
 - 写し元 = `sovereignPressEye()`(`index.html:22272`)。`pickEnemyTarget(enemyIdx)` で 1 体を狙う → DEX セーヴ(`d20 + dex + getSaveBonus`)vs `def.snareDC` → 失敗で `snareDice` のダメージ + `applyStatus(unit, "prone", 1)`。リングオブフリーアクションは転倒だけを防ぐ(ダメージは受ける)
 - 演出: `showBanner("🪤 仕掛け罠 🪤")` / 吹き出しは `SAVE` / `SNARED`。DM の一言「族長が杖で床を叩いた——足元の縄が跳ね上がる!」
 - 入口: ボスの手番の特別行動の並び(`index.html:36911` の眩惑の視線の**前**)に `if (def.snareDC && !enemy.__snareUsed && bossAction === "normal") { enemy.__snareUsed = true; koboldSnare(idx); await sleepMs(1100); return; }`
+  - ⚠ **実装に合わせて変更(項目2)**: 入口は**ボスの行動選択 `pickBossAction` の前**に置き、`bossAction === "normal"` の条件は持たない(最初の手番が強打・召喚の抽選でずれないため。`snareDC` を持つのは族長だけ = 既存の敵の乱数列は不変)。受入 (3a) はこの形を測る
 - 検証用 probe: `window.__snareProbe`(`__pressEyeProbe` と同じ形)。⛔ ゲームの判定には使わない
 - ⛔ `traps[]` へ足さない(§2-3)。⛔ 他の敵に `snareDC` を付けない
 
@@ -306,6 +307,8 @@ function checkTrapTrigger() {
 ## 8. 受入条件 — `tools/verify_kobold_warren.js`(新規・port base **10642**・変異は **10643〜**。#102 の `verify_plaza_hours` が 10641 まで)
 
 方針: 登録の整合は**ブラウザに載った実体どうし**で突き合わせる(写経しない)。仕掛け罠は本番の `runEncounter` を回して probe で観測する。強さは assert にせず**実測値を報告**する(⑤)。
+
+⚠ **実装に合わせて変更(項目3)**: 仕掛け罠の入口はボスの行動選択の前(§5-3 の注記)。地図は格子 64px・丘 23x15 / 祭壇 23x16(§2-11 の訂正)= (2b) の祭壇の矩形は global col 35-38 / row 10-17(§12-1 (5) の MASK)。(2c) の宝箱は #87 により `?roadchest=0` の腕で数える。(6a) の「着手前」は `2a6333b`(項目1。index.html は項目2 の前)の index.html を同じ種で回して比べる。
 
 ### §0 装置
 
