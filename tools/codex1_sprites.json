@@ -241,6 +241,14 @@
       "attack_dir": "kobold-chief/kobold-chief-walk-attack-right-6-aligned/*attack*frame-*.png",
       "note": "コボルドの巣穴 (#103) のボス、コボルドの族長 (2026-10-28 新設・codex1 依頼文 2026-10-28_kobold-chief.md)。第3陣テンプレ (walk と attack が同一ディレクトリ …-walk-attack-right-6-aligned) なので wyvern と同じく glob で分離する。セル 96 / char_ratio 0.86 は手下の kobold (v8.2) と同じ物差し (displaySize で一回り大きく見せる = ENEMY_TYPES 側の仕事)。新設なので --match-current の対象は無い。attack_scale=auto (walk 体高 340.5 / attack 330.5 = 1.0303)。H_max(walk)=351px / scale 0.2352 / fit left=23 right=94 top=6 (cell=96) クリップ無し。⭐ -clean 派生は不要: 依頼書 §2-11 が気にした足元のマゼンタの縁は、パック後のシートで品紅色の画素 2 / 不透明 74234 (手下の kobold_anim は 78 / 77109) = 既存より少ない。暗い土 #2a1c14 と本番の祭壇の間 (room_kobold-warren_n1_map.jpg) の上で目視して縁は見えない"
     },
+    {
+      "key": "plaguePriest", "out": "assets/plaguePriest_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.80, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "plague-priest/plague-priest-walk-attack-right-6-aligned/*walk*frame-*.png",
+      "attack_dir": "plague-priest/plague-priest-walk-attack-right-6-aligned/*attack*frame-*.png",
+      "note": "消えた積み荷 (#104) のボス、疫病の司祭 (2026-10-29 新設・codex1 依頼文 2026-10-29_plague-priest.md)。第3陣テンプレ (walk と attack が同一ディレクトリ …-walk-attack-right-6-aligned) なので koboldChief と同じく glob で分離する。セル 96 は手下 (rat / zombie / plagueFrog) と同じ物差し。新設なので --match-current の対象は無い。⚠ char_ratio は 0.86 (zombie / scar / koboldChief と同じ) だと attack 3〜4 コマ目の伸ばした腕が右へ 3px はみ出す (CLIP WARNING left=18 right=99)。0.81 でも 1px はみ出すので 0.80 へ下げた (wyvern の前例) = fit left=20 right=95 top=12 (cell=96) クリップ無し。attack_scale=auto (walk 体高 470 / attack 466 = 1.0086)。H_max(walk)=486px / scale 0.1580。check_sprite_doubling = clean / check_alpha_bg_residue = 疑い 0 件。暗い床 #1c1814・本番素材の祠の石床・倉庫の板床の上で目視して縁の残りなし (#104 項目1)。画面上の身長 = displaySize x 76/96 (displaySize 100 で 79px・scar 85px / zombie 69px)。"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",

@@ -503,4 +503,91 @@ Lv4・4 人・N=10 で: クリア率 / 全滅率 / 所要 / 残り HP / **「傷
 
 ## 12. 実装結果
 
-(実装窓が埋める)
+### 12-1. 項目1 — 着手前の実測 + 素材の取り込み(2026-10-29・基準 HEAD `c6aa85f`)
+
+⚠⚠⚠ **地図 2 枚は焼き付けできない = ユーザー判断待ち(v2 の発注が要る)**。司祭のシート・§2 の測り直し・札の実測・golden の控えは済み。
+
+#### (1) §2 の測り直し
+
+- `git diff --stat ddf3368 HEAD` = 依頼書と README だけ ⇒ 本番ファイルは無変更。§2-3 の表の行番号(index / tavern / world-map / df-mapdef / world.html / make_grid_map / codex1_sprites / verify_lore_check:128 / check_changelog:32)と §2-5・§2-6 の出所は**全部一致**(訂正なし)。
+- §2-9 の grep = **17 本**(主張どおり)。`pier` を名指しする本は主張の 2 本の外に `verify_road_ambush` / `verify_road_boon` / `verify_road_events` / `verify_world_steps` / `verify_town_exit` も在る(控えの名簿に入れた)。
+- **§2-1 補足**: `world.html:1535` `goToPoint` は「立っているノードを押す」と即 `onArriveNode` を呼ぶ ⇒ 桟橋に湧いた直後に**桟橋そのものを押すと**、受注中なら即ダイアログが開く(歩いて戻らなくてよい)。湧いた瞬間に開かないのは主張どおり。⇒ (1g) はこの経路も縛ると強い。
+
+#### (2) 札の重なり(§2-2)— 実ブラウザで実測
+
+pier を拠点にした `js/world-map.js` を**メモリ上で**配り(本番は 1 バイトも触らない・道具 = `~/.claude/dev-loop/r104/item1/sign/measure_signs.js`・port 10690)、`cleared=["goblin-mine"]` で world.html を開いた。
+
+| 画面 | 主人公の立ち位置 | 札どうしの交わり | 縦の隙間 | 主人公が倉庫街の札を隠す面積 |
+|---|---|---|---|---|
+| 1440x900 | pier(exitVia 無し = title) | **0** | 13.7px | 0 |
+| 1440x900 | **phlan(exitVia "town")** | **0** | 13.7px | ⚠ **2987px² = 35.9%** |
+| 390x844 | pier | **0** | 14.9px | 0 |
+| 390x844 | **phlan** | **0** | 14.9px | ⚠ **2496px² = 39.1%** |
+
+- 札の高さは 38.2px(1440)/ 34px(390)。§2-2 の 47px は別の測り方の値。
+- ⇒ **札どうしは重ならない**(§2-2 の見込みどおり)。
+- ⚠⚠ **新発見**: 主人公が **phlan に立つ**(町を出た直後 = いちばん多い状態)と、78px 角の主人公が倉庫街の札の右側(説明文の右半分)を隠す。phlan の `signDx: -72` を決めた理由の 39.9%(`js/world-map.js:50`)と同じ規模。札の右端を主人公の左端(1440 で 395)より左へ出すには、pier に `signDx` ≈ **−100** が要る。⛔ 項目1 では決めない(項目2 / ユーザー判断)。
+- ⚠ §8 の負のコントロール `signclash`(倉庫街に `signDx: -72`)では札どうしは**重ならない**(縦に 13.7px 空いているため)⇒ その変異は (1f) を赤くしない。項目3 は別の注入を実走で選ぶこと。
+
+#### (3) 地図 2 枚 — ⛔ 格子が素材の側で崩れている(v2 の発注が要る)
+
+床を 4 倍に拡大して目で数え(`r104/item1/fit/wh_zoom_*.png` / `sh_zoom_*.png`)、明るい細線の位置を列・行ごとの平均輝度の山で測って直線回帰した:
+
+| 素材 | 軸 | 線の本数 | 回帰の周期 | 残差の最大(本物は ≤ 0.2px) | 線の間隔 |
+|---|---|---|---|---|---|
+| 倉庫 `cargo-warehouse-v1` | 縦 | 18(x 102.0〜1420.9) | **77.35** | ⚠ **9.2px** | 77〜81、中ほどの 2 マスだけ 68.8 / 69.9 |
+| 〃 | 横 | 8(y 169.0〜733.9) | **81.09** | 2.8px | 77〜86 |
+| 祠 `cargo-shrine-v1` | 縦 | 16(x 107.0〜1199.0) | **72.61** | ⚠ **8.1px** | 72 前後、西の 2 マスだけ 79 / 78 |
+| 〃 | 横 | 8(y 238.9〜757.6) | **74.01** | 3.9px | 69〜80 |
+
+- ⇒ 起草窓の一次解(65.98 / 61.54 / 59.98 / 67.98)は**偽解**(疑いどおり)。ただ、本当の格子のほうも **64px ではなく**(72〜81px)、**等間隔でもない**。依頼文(`codex1/requests/2026-10-29_lost-cargo-maps.md`)の要件「**1 マス 64px 相当**」と「**間隔が一定であること**」(§193)の両方を満たしていない。
+- さらに線が**暗い床の上の明るい細線**になっている(台帳の既存の素材は明るい床の上の暗い線。巣穴の祭壇・地下街で目視して確かめた)。`make_grid_map.py` の `line_response` は**暗い線しか拾わない**ので、`--fit` も `verify()` も描かれた格子ではなく**板の継ぎ目・石の目地**を測ってしまう(fit64 で焼いた絵に 64px の格子を重ねると、明るい線と合わない = `r104/item1/fit/*_overlay.png`)。
+- 試し焼き(scratch のみ・`assets/` には置いていない・⛔ 閾値は緩めていない):
+
+| 台帳の値 | 倉庫 縦 | 倉庫 横 | 祠 縦 | 祠 横 |
+|---|---|---|---|---|
+| 明るい線の回帰(77.35 / 81.09・72.61 / 74.01) | NG drift 10.09 | NG drift 22.88 | NG drift 38.40 | NG drift 20.20 |
+| 起草窓の一次解 fit64 | NG drift 21.58 | OK | OK | NG drift 4.43 |
+
+- ⇒ `GRIDS` の 2 行・焼き上がり 2 枚・MASK 草案・`LINT_PAINTING_ASPECTS` の要否・行数の偶奇と midR は**出せない**(v2 待ち)。
+- v2 発注の要点案(⛔ 起草と投下はユーザーの承認の後): ① **等間隔**(全域で ±1px)② 1 マス **64px** 相当 ③ 線は**暗い細線**(巣穴・地下街と同じ見え方)④ 構図は v1 のまま(倉庫 = 西の入口・東の床の穴、祠 = 西の梯子・北と南の汚水・東の祭壇。どれも目視で◎)。
+
+#### (4) 疫病の司祭のシート(§5-2)— 取り込み済み
+
+| 項目 | 値 |
+|---|---|
+| 台帳 | `tools/codex1_sprites.json` の `plaguePriest`(koboldChief の直後・第3陣テンプレの glob)。`py tools/pack_codex1_sprites.py --all --only plaguePriest` で再生成できる |
+| シート | `assets/plaguePriest_anim.png` 576x480・`frameW/frameH 96`・`cols 6`・`rowOffset 0`(行 0/1/4 = 待機・2 = 歩き・3 = 攻撃 = 既存の敵と同じ並び)・`sprite: "assets/plaguePriest_anim.png?v=1"` |
+| char_ratio | **0.80**(0.86 だと攻撃 3〜4 コマ目の腕が右へ 3px、0.81 でも 1px はみ出す → wyvern の前例にならって下げた)。attack_scale auto = 1.0086・fit left=20 right=95 top=12 でクリップ無し |
+| 検査 | `py tools/check_sprite_doubling.py assets/plaguePriest_anim.png` → `✅ plaguePriest_anim.png (6x5 cell96): clean` / `py tools/check_alpha_bg_residue.py` → 疑い 0 件(613 枚) |
+| 目視 | 暗い床 #1c1814・祠の石床・倉庫の板床の上で、縁の残りなし。突き出し + 緑の光は 3〜4 コマ目 |
+| 攻撃の値 | koboldChief を写す(`meleeRange 110 / hitRange 180 / attackDuration 26 / attackHitFrame 11 / attackCooldown 32`)。hitFrame 11 = col 2 = 突き出しのコマと合う |
+
+`displaySize` の実測(画面上の身長 = displaySize × walk の体高 / 96):
+
+| 敵 | displaySize | 体高 / 96 | 画面上の身長 |
+|---|---|---|---|
+| zombie(手下) | 82 | 81 | 69.2px |
+| bandit | 72 | 82 | 61.5px |
+| banditHeavy | 88 | 83 | 76.1px |
+| scar(人間の中ボス) | 100 | 82 | 85.4px |
+| lizardPriest | 84 | 56 | 49.0px |
+| koboldChief | 72 | 82 | 61.5px |
+| **plaguePriest** | — | **76** | 100 なら 79px / 108 なら 85.5px |
+
+⇒ **推奨 `displaySize: 100`**(当たり判定が scar と同じ・手下のゾンビ 69px より一回り大きい)。scar と同じ身長に揃えるなら 108。⛔ 項目1 では決めない(項目2 で `ENEMY_TYPES` に書く値)。
+
+#### (5) 名指し golden の着手前の色
+
+2026-10-29 20:00〜20:26 に 25 本を素で逐次に走らせた(控え = `~/.claude/dev-loop/r104/item1_baseline.md`・ログ `r104/item1/golden_logs/`)。名簿 = §2-9 の 17 本 + `verify_lore_check` + `driver_graph_p6` + 件数系(`verify_party_four` / `verify_counterspell` / `verify_run_chronicle` / `driver_cleanup_phase1`)+ `verify_town_exit`(pier を名指し)+ 参考 `verify_codex_map_skill`。
+
+- **緑 23 本**: dragon_fold 35/35・kobold_warren 21/21・plaza_map 43/43・quest_draw 18/18・quest_visibility 39/39・quest_walk 25/25・road_ambush 41/41・road_boon 20/20・road_events 25/25・swamp_novice 34/34・tavern_map 47/47・tower_mother 19/19・tower_mother_b 22/22・world_heromark 18/18・world_map 57/57・world_steps 33/33・lore_check 26/26・graph_p6 250/250・party_four 17/17・counterspell 25/25・run_chronicle 74/74・cleanup_phase1 28/28・town_exit 23/23
+- **着手前から赤 2 本**(#103 項目1 と同じ・範囲外): `driver_mapeditor_painting` §1 1d2(105/106。labels 21 種 / サイズ 20 種)/ `verify_codex_map_skill` (3a)(16/17。stag-tavern の検算 NG・SHA は 20 件一致)
+- ⚠ 走り始めが 20:00 = 闇市の開く時刻をまたいだ(plaza_map は 20:01 開始)。闇市を名指しするドライバは自分で時刻を種まきしているので色は変わらない見込みだが、記録として残す。
+
+#### (6) 項目2 への申し送り
+
+- ⏸ 地図(`ROOM_PAINTINGS_DEF` の tileBounds と MASK・`buildLostCargoRun` の rect・敵の置き場・`GRIDS` 2 行・`LINT_PAINTING_ASPECTS`)は **v2 の焼き上がり待ち**。
+- `ENEMY_TYPES.plaguePriest` のシート値は (4) のとおり(`displaySize` 100 を推奨・ユーザー確認)。
+- pier の `signDx`(主人公が phlan に立つと札の 36〜39% が隠れる)をどうするか決める。
+- 項目1 では `index.html` / `tavern.html` / `audio.js` に触れていない(changelog は不要)。
