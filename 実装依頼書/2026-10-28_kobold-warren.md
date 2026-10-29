@@ -1,6 +1,6 @@
 # #103 新しい行き先「コボルドの巣穴」— 南の村から、竜を崇めるコボルドの巣へ(推奨 Lv2・本筋の外)
 
-- **起草**: 2026-10-28(起草窓) / **ステータス**: **承認済**(2026-10-28 ユーザー承認)
+- **起草**: 2026-10-28(起草窓) / **ステータス**: ✅ **完了**(2026-10-29 実装窓・未 push。§12-2)/ 承認 2026-10-28
 - **着手**: ✅ 着手できる(2026-10-28 素材 3 本とも納品・起草窓が受け取りの目視と検算まで済ませた = §2-11)
 - **基準 HEAD**: `4928049`(#102 完了。⚠ 着手時に必ず測り直すこと)
 - **会議**: `dev-meetings/2026-10-28_new-locations.md`(第1段 → ユーザー決裁「①から順に進もうか」→ 第2段の開発計画書 → 追加決裁「ダンジョンは、新規で作ってほしい」)
@@ -511,3 +511,78 @@ n1big「赤い竜の祭壇の間」(16 行 x 23 列・霧あり)— 歩ける 15
 ```
 
 目視: 2 枚とも焼き上がりへ MASK を赤で重ねた画像を見て、岩・灌木・柵・寝床・祭壇の上に `#` が、土の道・床の上に `.` が乗っていることを確かめた(半マスずれ・1 マスずれは見当たらない)。
+
+### 12-2. 実装結果のまとめ(項目1〜4・2026-10-28〜29 実装窓)
+
+- **状態**: ✅ 実装完了(**未 push**)。残 = §9 の実機確認と ⑤ の強さの判断(ユーザー)と push。
+- **コミット**:
+  - `2a6333b` 項目1 — 着手前の実測(§12-1)+ 素材の取り込み(地図 2 枚を格子 64px で焼いて `GRIDS` 2 行・族長シート `koboldChief_anim.png` 576x480 + 台帳 1 行・MASK 草案)。
+  - `2c8a255` 項目2 — 本体(§4〜§6・撤退 `?warren=0`・changelog 1 行)+ 予告外で赤くなった golden 4 本(`verify_dragon_fold` (7b) / `verify_swamp_novice` (4b) / `verify_road_ambush` (4c) / `verify_world_map` (7c-2))の言い直し。
+  - `e9abf8e` 項目3 — 受入 `tools/verify_kobold_warren.js`(port 10642・変異 10643〜10652・21 assert)+ 依頼書の「実装に合わせて変更」2 か所。
+  - `4ca9c40` 項目4 — 予告どおり赤のまま置いた golden 10 本の言い直し(下の表)。
+  - `ecc0d08` 項目4 — `verify_lore_check` (1j) の装置の揺れを止める(下)。
+  - `d091100` 項目4 — 全数走査で見つかった予告外の golden 5 本の言い直し(下)。
+  - 本節を書いたコミット 項目4 — 本節 + README の #103 行 + `実装依頼書/_TEMPLATE_new_location.md`(新しい行き先を 1 か所足す手順の型)+ `CLAUDE.md` に 1 行。
+- **受入**: `node tools/verify_kobold_warren.js` 素 **21/21**(約 105 秒・項目3 で 3 回・母集団の走査の中でもう 1 回)/ `--negative` **10/10**(担当の節が全部赤・担当外の赤 0・注入行はすべて実行・約 1105 秒)。
+  担当: snareastrap (3a) / snareevery (3b) / typerng (6a) / nosearch (2c) / inmain (1b) / snareall (3e) / ringall (3d) / locked (1a)(1c)(4b) / nositeflag (1a)(4b) / fieldtheme = 地図ごと既定へ落ちる (0b)(2a)(2b)(2d)(3a)〜(3d)(4c)(塔の母の K18 と同型)。
+
+#### 依頼書から変えた点
+
+- **格子 64px**(起草時の中心 48 の一次解は 2 枚とも偽解)⇒ 焼き上がりは 丘 **23x15** / 祭壇 **23x16**・tile 64(31x19 / 31x21 ではない)。縦横比が既存の在庫と合わないので `LINT_PAINTING_ASPECTS` に 2 行(7 例目)。詳細は §12-1 (3)。
+- **仕掛け罠の入口**は「`bossAction === "normal"` の後」ではなく**ボスの行動選択 `pickBossAction` の前**(最初の手番が強打の抽選で後ろへずれないため。`snareDC` を持つのは族長だけ = 既存の敵の乱数列は不変)。§5-3 に注記。
+- 族長の **`displaySize` 72**(手下のコボルド 56 より一回り大きく主人公より小さい)。シートの寸法と `meleeRange` / `hitRange` / `attackDuration` / `attackHitFrame` / `attackCooldown` は手下の `kobold` から写した。
+- MASK は §12-1 (5) のまま、ただし n0 の row 4 の外周 col 22 だけ `#` → `.`(外周 1 マスは `.` の規則)。
+- 受入の測り方(§8 の注記): (2b) の祭壇の矩形 = global col 35-38 / row 10-17 / (2c) の宝箱は #87 により `?roadchest=0` の腕で / (6a) の「着手前」= `2a6333b` の index.html を同じ種で回す。
+
+#### ⑤ 強さの実測(assert しない・⛔ 値は変えていない)
+
+- 道具 = `r103/item3/probe_warren_clear.js`(本番 0 バイト変更)。酒場から本番の出発・自動抽選 4 人・XP 1000(Lv2)・HEAD `2c8a255`。
+- **kobold-warren・Lv2・4 人・N=10**: 勝率 **10/10**・全滅 **0/10**・仲間の戦死 0・所要 平均 **106 秒**(95〜123)。主人公の残り HP 平均 33.2/40(最小 18)・仲間の最小 19/28・魔法使いは 10 回とも無傷。
+  仕掛け罠 = 10 回とも 1 戦闘 1 回で発動(SAVE 7 / FAIL 3 = 転倒 + 6・3・4 ダメージ・標的は頭 8 / 仲間 2)。部屋の罠を踏んだのは 10 回で 1 回だけ(落とし穴 4)・落石 0 回。
+- 比較 = 廃坑・同じ Lv2・4 人・N=5: クリア 5/5 だが仲間の戦死 1・主人公の最小 HP 6/15/40/40/9・所要 166〜260 秒・罠を 3〜4 回踏む回あり。
+- ⇒ 目安(Lv2 の 4 人で全滅しない・廃坑より易しい)は満たす。ただし**被害がほぼ無い側に寄っていて、Lv2 には甘め**。直すなら候補 = n1 の手下 3 → 4 / 族長 HP 27 → 33 前後(仕掛け罠の DC を上げるのは初仕事として理不尽寄り)。
+  **⏳ 値は未変更・ユーザー判断待ち**(§9 の実機の体感と合わせて決める)。
+
+#### 既存 golden の言い直し(期待値は緩めない・前の値は撤退の世界へ当て直して残す)
+
+| 本 | 言い直し | 再走 |
+|---|---|---|
+| `verify_quest_draw` | (0b) side 2 件 / (1a) 廃坑 + 巣穴 + 撤退 `?warren=0` で ??? の経路を同じ 6 回 / (1b) 本筋の森 + 廃坑か巣穴 / (1d) 8 件 / (2b) 種 3 つ。NEG: oneonly = (1a)・nofrontier の確率で赤に (1b)(3a)(実走) | 18/18・neg exit 0 |
+| `verify_tavern_map` | 種 = 廃坑 + 巣穴・(2d) は `?warren=0` の base0 で・(6a)(6b)(7b) 8 件 / side 2。dropscen の巻き添えに (2a)(実走) | 47/47・neg 71/71 |
+| `verify_quest_visibility` | scenarios 8 / side 2・札 9 枚・SITES 8 | 39/39・neg exit 0 |
+| `verify_quest_walk` | 8 組・`locked:false` 2・開始時の札 3 枚・拠点 8・地図 sha1 の 3 値(既定 `3918d569…` / `retireWarren` 後 `647e71f6…` / + `retireTower` 後 `876c5f63…`) | 25/25・neg 46/46 |
+| `verify_road_events` (4a) | 地図 sha1 の 3 値(既定 `23ee1c56…` / `391c6d4c…` / `4c0a8a6b…`) | 25/25・neg 43/43 |
+| `verify_world_steps` (1d)(2d)(5c) | sha1 の 3 値・札 9 枚 | 33/33・neg 56/56 |
+| `verify_world_heromark` | `EXPECT_SIGNS` 9(照合 126 組) | 18/18・neg 24/24 |
+| `verify_world_map` | (7b-data)(7b-dom)(7d)(7e)(7f) の札の枚数 | 57/57・neg 44/44 |
+| `driver_mapeditor_painting` | (1a) テーマ 8・(1a2) 巣穴も n0big / n1big・(3e) optgroup 8 | 105/106(1d2 だけ = 着手前から赤・範囲外) |
+| `verify_lore_check` | **数え直し = ENEMY_TYPES 54 キー**(51 + 2 + 1)= 技能あり 43(koboldChief = history)/ 対象外 11・cr 36 / 出さない 18 | 26/26・neg 12/12 |
+| ↓ 全数走査で見つかった予告外 | | |
+| `verify_party_four` (0a) | scenarios = 本筋 6 + side 2 | 17/17・neg exit 0 |
+| `verify_counterspell` (4c) / `verify_run_chronicle` (0c) | 「HP を引く点」45 → **46** = koboldSnare の `ally.hp -= dmg`(呼び口は `enemyAttackTurn` の中 = 手番の内 = 加害者は族長)。counterspell は「#96 の前の 45 + #103 の 1 点」で測る | 25/25・neg exit 0 / 74/74・neg exit 0 |
+| `verify_plaza_map` (5a) | initTavernMap の恒等に UNDO103(卵の検証シームと主人の一言の 2 ブロックだけを外す) | 43/43・neg exit 0 |
+| `driver_cleanup_phase1` (D4) | `MSG_DEFEAT_*` の参照 14 → 15 = 仕掛け罠で主人公が倒れたときの 1 行 | 28/28 |
+
+- ⭐ 装置の揺れ: `verify_lore_check` (1j) が本番で 3/40〜5/40 赤(a110066 の影では 1/90)。余分な `Math.random` の呼び出し元のスタックを実測 = index.html の 300ms 周期の結果監視が装置の `gameOver = true` を見て `showResult(false)` → `narrate` → `resolveNarrationLine`。
+  これが (1j) の乱数比較の窓に落ちると赤(走査が 1 種ぶん長くなって窓に当たる率が上がった)。⇒ 装置の `installProbe` で `resultShown = true`(期待値は不変)→ 素 0/60 失敗・neg 12/12(`ecc0d08`)。本番の欠陥ではない。
+
+#### 母集団の非退行(#102 §12 と同じ手順)
+
+- 基準 = `r102\item4\run_post102\post102.tsv`(240 腕・本番 bb39583)の `verify_tower_mother_b --negative` を #102 の本番の全長再走(exit 0)で上書きしたもの = 緑 220 / 非緑 20。
+  `bb39583..4928049` = CLAUDE.md・md だけ / `4928049..a110066` = md だけ(`git diff --stat` = 依頼書・README・会議記録)⇒ 本番のバイトは post102 と同じ。
+- 腕 = その 240 腕(#102 と同じ並び: `plaza` の語がある本 → tavern/town を開く本 → 残り)+ `verify_kobold_warren` 素 / `--negative` = **242 腕**。clone 根 = `git clone --shared` → `ecc0d08`(本番とバイト一致 963 本・md 2 本の改行だけ違う)。
+  走行器 = SKIP 再開型・直列・1 腕上限 5400 秒・timeout で包まない。⭐ 闇市が開いている 20:00〜24:59 を避けて **01:05 開始**(`-NotBefore 01:05`)= 時計に触れうる腕は全部昼に走った。
+- **2026-10-29 01:05 → 13:45・758.4 分(3.13 分/腕)・窓落ち / 張り直しなし** ⇒ 緑 214 / 非緑 28。
+  - **緑→赤 9**:
+    - **#103 帰属 6 腕(5 本)** = `verify_party_four` 素 / neg・`verify_counterspell` 素・`verify_plaza_map` 素・`verify_run_chronicle` 素・`driver_cleanup_phase1` 素 = どれも件数 / 恒等の言い直し漏れ(名指しの grep の外)→ 上の表のとおり言い直して全部緑(`d091100`)。
+    - **非帰属 3 腕**(本番 / 影 `shadow103` の対比較 N=3): `driver_monsters_umberhulk` 素 = 本番 3/3・影 3/3 とも同じ (3) で赤(#103 前から同じ)/ `verify_tower_mother_b` 素 = 本番 3/3 緑・影 1/3 赤 = 揺れ(#100・#102 と同じ型)/ `driver_speech_hooks` 素 = 本番 3/3 緑 = 揺れ(goblin-mine の最初の遭遇の顔ぶれしだい)。
+  - **赤→緑 1**: `driver_monsters_griffon` 素(15/17 → 17/17)。
+  - **両方非緑 19**: FAIL 行まで同じ 17 腕・DIFF 2 = `driver_mapdef_step1` (0b) の clone の hash(#98〜#102 と同じ型)/ `verify_codex_map_skill` (3a) の SHA 一致の件数 18 → 20(新しい 2 行も一致・赤の理由は着手前からの stag-tavern の検算 NG のまま)。
+  - **exit 3 = 7 腕、全部基準でも exit 3** ⇒ #103 が増やした exit 3 = 0。
+  - ⇒ **言い直し後の #103 帰属の緑→赤 = 0**。
+- **変異アンカー監査**: BASE a110066 → HEAD・対象 `index.html` / `tavern.html` / `world.html` / `js/world-map.js` / `js/df-mapdef.js` / `js/changelog.js` / `tools/make_grid_map.py` / `tools/codex1_sprites.json`・tools 209 本・リテラル 56,754 個。
+  件数が変わった組 2025、うち交差 112 = 自分の本 36 + そのファイルを名指ししない本 46 + 残り 30。「1 だった」組 10 = 自分の本 / `'js/world-map.js'`(変異の file 名)/ `'?tower=0'`(撤退の URL)/ `'D&amp;D'`(コメント)/ `'ENEMY_TYPES'`(エラーの名札)= どれもアンカーの 1 回性に使っていない。
+  言い直した本と項目2 の 4 本の `--negative` は全部 exit 0 ⇒ **#103 が他の tools の変異アンカーを壊した件数 = 0**。
+- **§9 実機確認**: ⏳ ユーザーが行う残件(新しく始めた Lv1〜2 で卓に巣穴が並ぶ / ワールドマップの「南の村」の札が縦画面で押せる / 罠の吹き出しが 1 回の潜行で 2 回 + 仕掛け罠 1 回に収まる / 祭壇の卵が目に留まる / 主人の一言でファラクサスの影が伝わる)。
+- **手順の型**: `実装依頼書/_TEMPLATE_new_location.md`(足す口の全数・地図の格子の検算 = 一次解は周期から疑う・敵とスプライト・罠の 3 つの落とし穴・撤退・受入ドライバの型・言い直しが要る golden の表・port)。次の ③ 倉庫街の教団で使う。
+- 次の新規ドライバの port base = **10653**。
