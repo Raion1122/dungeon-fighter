@@ -378,7 +378,14 @@ const HARBOR = DRAWN_SETTLEMENTS[3];
 /* ★[#103] 「描かれた集落そのもの」を拠点にした依頼。コボルドの巣穴の拠点「南の村」(village_s) は、
  *   依頼書 #103 §2-1 が絵の村 (南の森の村) を実測して**その村として**札を立てた ⇒ (7c-2) はこの組だけ
  *   向きを逆にして縛る (= 96px 未満 = 絵の村の上に立っている)。他の集落からは今どおり 96px 以上。 */
-const SITE_ON_SETTLEMENT = { 'kobold-warren': '南の森の村' };
+/* ★[#104] 消えた積み荷の拠点「港の倉庫街」(pier) は港町フランの桟橋そのもの (依頼書 #104 §2-1: id・座標は変えない)。
+ *   ⇒ 絵の港町から 64px = 港町の上に立っている。(7c-2) はこの組も向きを逆にして縛る。 */
+const SITE_ON_SETTLEMENT = { 'kobold-warren': '南の森の村', 'lost-cargo': '港町' };
+/* ★[#104] (7c-1) の例外の組。pier と phlan は座標が両方とも動かせない隣どうし (ノード間 90.5px = 64√2)。
+ *   札どうしが混まないことは座標の距離ではなく、pier の signDx (負 = 札を左へ逃がす) で守っている
+ *   (依頼書 #104 §2-2・§12。実描画の札の交わり 0 は verify_lost_cargo (1f) が縛る)。
+ *   ⇒ この組だけ向きを逆にして縛る (= 96px 未満の隣どうしであり、かつ pier の札が左へ逃げている)。他の組は今どおり 96px 以上。 */
+const ADJACENT_SIGN_PAIRS = { 'phlan<->pier': 'pier' };   // 組 → signDx < 0 を持つべき側
 const MIN_SIGN_GAP = 96;      // 1.5 タイル (依頼書 §8 (7c))
 const WATER_MAX = 0.40;       // 依頼書 §8 (1a)
 /* (7f) 札 1 枚の面積に対して主人公の矩形が覆ってよい上限。
@@ -1759,6 +1766,14 @@ const ASSERTS = [
       for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
         const a = m.map.nodes[ids[i]], b = m.map.nodes[ids[j]];
         const d = hypot(a.x, a.y, b.x, b.y);
+        const pairKey = ADJACENT_SIGN_PAIRS[ids[i] + '<->' + ids[j]] ? ids[i] + '<->' + ids[j]
+                      : ADJACENT_SIGN_PAIRS[ids[j] + '<->' + ids[i]] ? ids[j] + '<->' + ids[i] : null;
+        if (pairKey) {   /* ★[#104] この組は「隣どうし + 札を逃がしている」ことを縛る (向きを逆に) */
+          const side = m.map.nodes[ADJACENT_SIGN_PAIRS[pairKey]];
+          if (!(d < MIN_SIGN_GAP)) bad.push(pairKey + '=' + d.toFixed(1) + 'px (隣どうしの組なのに離れている)');
+          if (!(side && typeof side.signDx === 'number' && side.signDx < 0)) bad.push(pairKey + ' (' + ADJACENT_SIGN_PAIRS[pairKey] + ' の signDx が負でない = 札を逃がしていない)');
+          continue;
+        }
         if (d < mn) { mn = d; who = ids[i] + '<->' + ids[j]; }
         if (d < MIN_SIGN_GAP) bad.push(ids[i] + '<->' + ids[j] + '=' + d.toFixed(1) + 'px');
       }
