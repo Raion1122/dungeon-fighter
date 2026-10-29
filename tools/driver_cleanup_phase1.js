@@ -295,7 +295,9 @@ const QUIET = `
     check('(D3) 定数定義が 2 本', defs === 2, 'defs=' + defs);
     /* ★[#103 2026-10-28] 14 → 15。増えた 1 出現 = コボルドの族長の仕掛け罠 (koboldSnare) で主人公が倒れたときの
        `updateInfo(MSG_DEFEAT_YOU)` (単文 1 行・既存の敗北文言の定数を使う = 旧文言のリテラルは増えていない (D1))。 */
-    check('(D4) 参照が 15 出現 (三項式 5 行 x2 + 単文 5 行 = ★[#103] 仕掛け罠の 1 行)', uses === 15, 'uses=' + uses);
+    /* ★[#104 2026-10-29] 15 → 16。増えた 1 出現 = 疫病の司祭の「傷を腐らせる手」(inflictWoundsTouch) で主人公が倒れたときの
+       `updateInfo(MSG_DEFEAT_YOU)` (単文 1 行・既存の敗北文言の定数を使う = 旧文言のリテラルは増えていない (D1))。 */
+    check('(D4) 参照が 16 出現 (三項式 5 行 x2 + 単文 6 行 = ★[#103] 仕掛け罠の 1 行 + ★[#104] 傷を腐らせる手の 1 行)', uses === 16, 'uses=' + uses);
     check('(D4b) MSG_DEFEAT_HERO の残骸が 0 件 (MSG_DEFEAT_YOU へ統合済み)',
       heroLeft === 0, 'hits=' + heroLeft);
 

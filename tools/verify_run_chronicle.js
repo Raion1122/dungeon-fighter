@@ -283,7 +283,9 @@ const pageErrors = [];
    加害者は唱えた僧侶 (2026-10-17 実測: tick の一撃で 仲間の僧侶の dealt +20 = 傷 20 / 頭は主人公の dealt +20 = 傷 20)。 */
 /* ★[#103] 45 → 46 (15 + 31)。増えた 1 点 = コボルドの族長の仕掛け罠 (koboldSnare) が仲間に与える傷。
    呼び口は enemyAttackTurn の中 (ボスの行動選択の前) = 手番の内 = 加害者は族長 (2026-10-28 確認: koboldSnare の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
-const HP_WRITE_EXPECTED = 46;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46
+/* ★[#104] 46 → 47 (16 + 31)。増えた 1 点 = 疫病の司祭の「傷を腐らせる手」(inflictWoundsTouch) が仲間に与える傷 `ally.hp -= dmg`。
+   呼び口は enemyAttackTurn の中 (ボスの手番の入口) = 手番の内 = 加害者は司祭 (2026-10-30 確認: inflictWoundsTouch の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
+const HP_WRITE_EXPECTED = 47;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46 → #104 で 47
 function countHpWrites(src) {
   const reA = new RegExp('\\bhp\\s*-=', 'g');
   const reB = new RegExp('\\bhp\\s*=\\s*Math\\.max\\(\\s*0\\s*,\\s*[A-Za-z0-9_.\\[\\]]*\\.?hp\\s*-', 'g');

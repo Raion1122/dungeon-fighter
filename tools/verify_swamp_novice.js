@@ -731,6 +731,8 @@ async function runSuite(browser, port, label) {
     'tower-mother': '#82 (2026-10-03) 塔の母を新設 (n0big 丘の道 / n1big 崩れた最上階)',
     /* ★[#103 2026-10-28] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
     'kobold-warren': '#103 (2026-10-28) コボルドの巣穴を新設 (n0big 村はずれの丘 / n1big 赤い竜の祭壇の間)',
+    /* ★[#104 2026-10-29] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
+    'lost-cargo': '#104 (2026-10-29) 消えた積み荷を新設 (n0big 港の倉庫 / n1big 地下水道の祠)',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

@@ -1024,12 +1024,14 @@ async function runSuite(browser, port, label) {
   /* ★[#82] 塔の母 (tower-mother) は畳みではなく最初から 2 ノードの舞台で、兼務の宣言は ?dragonfold に
    *   関係なく常に載る ⇒ 旧側の期待は「他 4 シナリオ + tower-mother」。両腕で同じ中身であることも見る。
    * ★[#103] コボルドの巣穴 (kobold-warren) も同じ扱い (最初から 2 ノード・兼務の宣言は常に載る) ⇒ 名指しで 1 件足し、
-   *   両腕で同じ中身であることも同じ形で見る (⛔ 集合の一致は緩めない)。 */
-  check('7b', '★?dragonfold=0 で NODE_EXTRA_SPAWN_KINDS に竜の行が載らず、他 4 シナリオ (+ ★[#82] 塔の母 + ★[#103] コボルドの巣穴) の行はそのまま残る (畳んだ舞台だけが兼務を宣言する)',
+   *   両腕で同じ中身であることも同じ形で見る (⛔ 集合の一致は緩めない)。
+   * ★[#104] 消えた積み荷 (lost-cargo) も同じ扱い (最初から 2 ノード・兼務の宣言は常に載る) ⇒ 名指しで 1 件足す。 */
+  check('7b', '★?dragonfold=0 で NODE_EXTRA_SPAWN_KINDS に竜の行が載らず、他 4 シナリオ (+ ★[#82] 塔の母 + ★[#103] コボルドの巣穴 + ★[#104] 消えた積み荷) の行はそのまま残る (畳んだ舞台だけが兼務を宣言する)',
     GB.hasDragonKinds === false && !!GB.kindsTable &&
-    Object.keys(GB.kindsTable).sort().join(',') === ['bandits-forest', 'kobold-warren', 'lizard-swamp', 'orc-fort', 'tower-mother', 'undead-temple'].join(',') &&
+    Object.keys(GB.kindsTable).sort().join(',') === ['bandits-forest', 'kobold-warren', 'lizard-swamp', 'lost-cargo', 'orc-fort', 'tower-mother', 'undead-temple'].join(',') &&
     !!GA.kindsTable && JSON.stringify(GA.kindsTable['tower-mother']) === JSON.stringify(GB.kindsTable['tower-mother']) &&
-    JSON.stringify(GA.kindsTable['kobold-warren']) === JSON.stringify(GB.kindsTable['kobold-warren']),
+    JSON.stringify(GA.kindsTable['kobold-warren']) === JSON.stringify(GB.kindsTable['kobold-warren']) &&
+    JSON.stringify(GA.kindsTable['lost-cargo']) === JSON.stringify(GB.kindsTable['lost-cargo']),
     '旧側の台帳のキー=' + JSON.stringify(Object.keys(GB.kindsTable || {}).sort()) +
     ' / 畳んだ側=' + JSON.stringify(Object.keys(GA.kindsTable || {}).sort()));
 

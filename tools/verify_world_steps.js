@@ -547,8 +547,9 @@ async function measure(browser, port, errs, opts) {
       /* ★[#82] (1d) の材料 — 本番の撤退 WORLD_MAP.retireTower() を呼んだ後の地図 (= 塔の母の前の地図)。
          ⚠ **必ず最後の項目**に置く (地図を書き換えるので、上の項目を測り終えてから呼ぶ)。 */
       /* ★[#103] 撤退を 2 段で採る: ① retireWarren() だけ (= 巣穴の前 = #82 の地図) → ② さらに retireTower() (= 塔の母の前)。 */
+      /* ★[#104] その前にもう 1 段: ⓪ retireCargo() だけ (= 倉庫街の前 = #103 の地図) → ① → ②。 */
       retired: (() => {
-        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function') return null;
+        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function') return null;
         const fp = () => ({
           sites: JSON.parse(JSON.stringify(WM.SITES)),
           nodesFP: Object.keys(WM.NODES).map(id => {
@@ -557,11 +558,14 @@ async function measure(browser, port, errs, opts) {
           }),
           edgesFP: WM.EDGES.map(e => e[0] + '__' + e[1]),
         });
+        WM.retireCargo();
+        const cargoOff = fp();
         WM.retireWarren();
         const warrenOff = fp();
         WM.retireTower();
         const both = fp();
         both.warrenOff = warrenOff;
+        both.cargoOff = cargoOff;
         return both;
       })(),
     };
@@ -1398,19 +1402,19 @@ const ASSERTS = [
        ⚠ 依頼書 §2-3 の表が「奪われ 0 件」と読めるのは **札の中心 1 点だけ**を測っていたため。
          ⭐⭐⭐ 中心は 4 通りとも無傷 — 破れるのは **四隅**。「矩形の交差」「中心の奪取」
          「隅の奪取」は 3 つとも別条件だと実測で確定した。 */
-  ['2d', '刻み点マーカーが **9 枚 (★[#82] 見張りの塔・★[#103] 南の村を足した数) の .worldSign のどのクリック点も奪わない**'
+  ['2d', '刻み点マーカーが **10 枚 (★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街を足した数) の .worldSign のどのクリック点も奪わない**'
     + ' (札ごとに中心 + 四隅の内側 8px の 5 点を elementFromPoint)'
     + ' ⭐ 各マーカーの中心が札の矩形から逃げている距離の最小値を必ず detail に出す'
-    + ' ⚠ 札 9 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
+    + ' ⚠ 札 10 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
     m => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM の観測が無い'];
       if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
       /* ⚠⚠ 母集団ガード 2 本立て: 札の実数と、データ側の site ノード数の両方を見る。
          ⛔ 0 枚でも「奪わなかった」で緑になる書き方をしない (#42 でもここは 1 バイトも緩めない)。 */
-      if (d.siteCount !== 9 || d.signs.length !== 9) {
+      if (d.siteCount !== 10 || d.signs.length !== 10) {
         return [false, '⛔ 母集団が壊れている: .worldSign=' + d.signs.length + ' 枚 / site ノード='
-          + d.siteCount + ' 件 (どちらも 9 のはず)  札の所有者='
+          + d.siteCount + ' 件 (どちらも 10 のはず)  札の所有者='
           + JSON.stringify(d.signs.map(s => s.node))];
       }
       /* ⛔ 観測側が 5 点を採っていない (measureSteps の改修漏れ) を「奪われ 0 件」で
@@ -1604,8 +1608,8 @@ const ASSERTS = [
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
   ['1d', '⭐⭐⭐ [恒等] {nodesFP, edges, sites} の sha1 が 876c5f6336f96811'
-    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件 = ★[#82][#103] 本番の撤退 retireWarren() + retireTower() 後の地図。'
-    + 'retireWarren() だけの後は SITES 7 の 647e71f6b2956389・既定は SITES 8 の 3918d569e7f3f7db)'
+    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件 = ★[#82][#103][#104] 本番の撤退 retireCargo() + retireWarren() + retireTower() 後の地図。'
+    + 'retireCargo() + retireWarren() の後は SITES 7 の 647e71f6b2956389・retireCargo() だけの後は SITES 8 の 3918d569e7f3f7db・既定は SITES 9 の 44b1de14f8b2c9d0)'
     + ' ⚠ tools/verify_quest_walk.js:1511 の (5a) と **同じ式**を同居させて 2 本で縛る',
     m => {
       const md = m.map;
@@ -1621,11 +1625,14 @@ const ASSERTS = [
          (verify_quest_walk (5a) と同じ 2 値)。 */
       /* ★[#103] 同じ作法をもう 1 段 (verify_quest_walk (5a) と同じ 3 値): 既定 = SITES 8 の 2026-10-28 実測。
          #82 の 647e71f6b2956389 は 1 文字も変えず retireWarren() だけの後 (= 巣穴の前) へ当てる。 */
+      /* ★[#104] さらにもう 1 段 (verify_quest_walk (5a) と同じ 4 値): 既定 = SITES 9 の 2026-10-29 実測。
+         #103 の 3918d569e7f3f7db は 1 文字も変えず retireCargo() だけの後 (= 倉庫街の前) へ当てる。 */
       const WANT = '876c5f6336f96811';   /* 2026-08-26 実測 (NODES 14 / EDGES 14 / SITES 6) */
       const WANT_W0 = '647e71f6b2956389';   /* ★[#82] 2026-10-03 実測 (NODES 14 / EDGES 14 / SITES 7) */
-      const WANT_ON = '3918d569e7f3f7db';   /* ★[#103] 2026-10-28 実測 (NODES 14 / EDGES 14 / SITES 8) */
+      const WANT_C0 = '3918d569e7f3f7db';   /* ★[#103] 2026-10-28 実測 (NODES 14 / EDGES 14 / SITES 8) */
+      const WANT_ON = '44b1de14f8b2c9d0';   /* ★[#104] 2026-10-29 実測 (NODES 14 / EDGES 14 / SITES 9) */
       const counts = md.nodesFP.length === 14 && md.edgesFP.length === 14
-        && Object.keys(md.sites).length === 8;
+        && Object.keys(md.sites).length === 9;
       const rt = md.retired;
       const canonOff = rt ? JSON.stringify({ nodes: rt.nodesFP, edges: rt.edgesFP, sites: rt.sites }) : '';
       const gotOff = rt ? crypto.createHash('sha1').update(canonOff).digest('hex').slice(0, 16) : '(retireTower / retireWarren が無い)';
@@ -1634,12 +1641,18 @@ const ASSERTS = [
       const canonW0 = rw ? JSON.stringify({ nodes: rw.nodesFP, edges: rw.edgesFP, sites: rw.sites }) : '';
       const gotW0 = rw ? crypto.createHash('sha1').update(canonW0).digest('hex').slice(0, 16) : '(retireWarren が無い)';
       const countsW0 = !!rw && rw.nodesFP.length === 14 && rw.edgesFP.length === 14 && Object.keys(rw.sites).length === 7;
-      return [got === WANT_ON && counts && gotW0 === WANT_W0 && countsW0 && gotOff === WANT && countsOff,
+      const rc = rt && rt.cargoOff;
+      const canonC0 = rc ? JSON.stringify({ nodes: rc.nodesFP, edges: rc.edgesFP, sites: rc.sites }) : '';
+      const gotC0 = rc ? crypto.createHash('sha1').update(canonC0).digest('hex').slice(0, 16) : '(retireCargo が無い)';
+      const countsC0 = !!rc && rc.nodesFP.length === 14 && rc.edgesFP.length === 14 && Object.keys(rc.sites).length === 8;
+      return [got === WANT_ON && counts && gotC0 === WANT_C0 && countsC0 && gotW0 === WANT_W0 && countsW0 && gotOff === WANT && countsOff,
         'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edgesFP.length
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
         + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT_ON + ')'
-        + '  / 撤退後 (retireWarren) SITES ' + (rw ? Object.keys(rw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + WANT_W0 + ')'
-        + '  / 撤退後 (retireWarren + retireTower) SITES ' + (rt ? Object.keys(rt.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + '  / 撤退後 (retireCargo) SITES ' + (rc ? Object.keys(rc.sites).length : '?') + ' sha1=' + gotC0 + ' (固定値 ' + WANT_C0 + ')'
+        + '  / 撤退後 (retireCargo + retireWarren) SITES ' + (rw ? Object.keys(rw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + WANT_W0 + ')'
+        + '  / 撤退後 (retireCargo + retireWarren + retireTower) SITES ' + (rt ? Object.keys(rt.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + (gotC0 === WANT_C0 ? '' : '  ⛔ retireCargo 後の中身= ' + canonC0)
         + (gotW0 === WANT_W0 ? '' : '  ⛔ retireWarren 後の中身= ' + canonW0)
         + (got === WANT_ON ? '' : '  ⛔ 実測の中身= ' + canon)
         + (gotOff === WANT ? '' : '  ⛔ 撤退後の中身= ' + canonOff)];
@@ -2085,7 +2098,7 @@ const ASSERTS = [
         + '  (NODES ' + nn + ' 件 / 刻み点 ' + sc + ' 件を母集団に)'
         + (why.length ? '  ' + why.join(' ') : '')];
     }],
-  ['5c', '札 (.worldSign) の DOM が **ちょうど 9 枚** (刻み点に札が生えていない。★[#82] 見張りの塔・★[#103] 南の村を足した数)'
+  ['5c', '札 (.worldSign) の DOM が **ちょうど 10 枚** (刻み点に札が生えていない。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街を足した数)'
     + ' ⭐ DOM の枚数と、データ側の site ノード数を **2 経路**で突き合わせる'
     + ' ⚠ 刻み点マーカーが 1 枚以上ある母集団で測る',
     m => {
@@ -2093,8 +2106,8 @@ const ASSERTS = [
       if (!d) return [false, '⛔ DOM の観測が無い'];
       const why = [];
       const owners = d.signs.map(s => s.node);
-      if (d.signs.length !== 9) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 9 枚)');
-      if (d.siteCount !== 9) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 9 件)');
+      if (d.signs.length !== 10) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 10 枚)');
+      if (d.siteCount !== 10) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 10 件)');
       if (d.signs.length !== d.siteCount) why.push('⛔ 2 経路が食い違う (DOM ' + d.signs.length + ' / データ ' + d.siteCount + ')');
       if (owners.some(o => o === null)) why.push('⛔ .worldNode に属さない札がある: ' + JSON.stringify(owners));
       const stepy = owners.filter(o => o !== null && String(o).indexOf('@') >= 0);

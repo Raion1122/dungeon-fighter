@@ -29,12 +29,14 @@
  *   §0 (0a) [装置] window.TAVERN_MAP と __TAVERN_TV.board が在り、新規状態の盤面が 2 件 (⭐ 無いと全部空振りで緑)
  *      (0b) [装置] scenarios が 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前)
  *           ★[#103] + side 2 件 (塔の母 = locked / 巣穴 kobold-warren = locked なし)
+ *           ★[#104] + side 3 件目 lost-cargo (locked・前提は本筋の廃坑)
  *      (0c) [装置] 全ページで pageerror 0 件 (本ドライバ独自の追加)
  *   §1 (1a) 新規 (cleared=[]) を 6 回引く → 毎回 札は questTable_goblin-mine + questTable_kobold-warren (両方押せる) の 2 枚ちょうど (★[#103])
  *           + 撤退 ?warren=0 で 6 回 → 毎回 questTable_goblin-mine (押せる) + questTable_bandits-forest (???・.locked) の 2 枚ちょうど (#82 までの (1a))
- *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {森 (本筋), 廃坑 か 巣穴}・両方押せる (★[#103] 解放済みが 3 件になった)
+ *      (1b) cleared=[廃坑] を 6 回引く → 毎回 盤面 = {森 (本筋), 廃坑 か 巣穴 か 倉庫街}・両方押せる (★[#103] 解放済みが 3 件・★[#104] 4 件になった)
+ *           + 撤退 ?cargo=0 で 6 回 → 毎回 {森, 廃坑 か 巣穴} (#103 までの (1b) そのもの)
  *      (1c) cleared 1〜5 本の各状態で鍵を消して 8 回読み直す → 全回で本筋が入り、もう 1 件は解放済み、未解放の札 0 枚・盤面が独立計算で妥当
- *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし
+ *      (1d) cleared 6 本を 4 回引く → 本筋なし・2 件とも解放済み・重複なし (★[#104] 解放済み 9 件)
  *      (1e) 2 経路: §1 の全読み込みで DOM の札 id 集合 === board().seats の値集合 === localStorage の保存値の集合
  *           (+ 保存値 === board() の写し・各札が自分の席 (TABLES の sign タイル) に立っている)
  *   §2 (2a) cleared 3 本で盤面を作らせた後、再読込 5 回・町へ出て戻る 3 回で nonce も席も 1 文字も変わらない
@@ -94,6 +96,7 @@ const BOARD_KEY = 'dragonfighters.questBoard';
 const CLEARED_KEY = 'dragonfighters.cleared';
 const RESULT_KEY = 'dragonfighters.lastResult';
 const WARREN = 'kobold-warren';   /* ★[#103] 本筋の外・最初から受けられる行き先 (撤退 ?warren=0 で配列から外れる) */
+const CARGO = 'lost-cargo';       /* ★[#104] 本筋の外・廃坑の後に受けられる行き先 (撤退 ?cargo=0 で配列から外れる) */
 const SHOP_NAME = '武器防具屋';
 const BACK_NAME = '奥の間へ';
 const VIEW = { width: 1440, height: 900 };
@@ -457,13 +460,15 @@ async function runSuite(browser, port, mutKey, label) {
       { hasTM: s0.hasTM, hasBoardFn: s0.hasBoardFn, board: s0.board });
     {
       /* ★[#82] 本筋 6 件は一本道のまま + 本筋の外 (side) が #82 の塔の母 1 件 (locked かつ前提が本筋のどれか)
-         ★[#103] + 巣穴 kobold-warren 1 件 (side・locked なし = 最初から受けられる) = side ちょうど 2 件・全 8 件。 */
+         ★[#103] + 巣穴 kobold-warren 1 件 (side・locked なし = 最初から受けられる) = side ちょうど 2 件・全 8 件。
+         ★[#104] + lost-cargo 1 件 (side・locked・前提 = 本筋の先頭 = 廃坑) = side ちょうど 3 件・全 9 件。 */
       const sc = SC_ALL.filter((x) => !x.side), sd = SC_ALL.filter((x) => x.side);
-      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN);
+      const sdL = sd.filter((x) => x.locked), sdW = sd.filter((x) => x.id === WARREN), sdC = sd.filter((x) => x.id === CARGO);
       const chain = sc.length === 6 && !sc[0].locked && sc.slice(1).every((x, i) => x.locked && x.unlockAfter === sc[i].id)
-        && sd.length === 2 && sdL.length === 1 && sc.some((x) => x.id === sdL[0].unlockAfter)
-        && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter && SC_ALL.length === 8;
-      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 2 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし)', chain,
+        && sd.length === 3 && sdL.length === 2 && sdL.every((y) => sc.some((x) => x.id === y.unlockAfter))
+        && sdW.length === 1 && !sdW[0].locked && !sdW[0].unlockAfter
+        && sdC.length === 1 && sdC[0].locked && sdC[0].unlockAfter === sc[0].id && SC_ALL.length === 9;
+      R.check('(0b)', '[装置] scenarios が本筋 6 件・一本道 (先頭だけ locked なし、以後は locked かつ unlockAfter = 1 つ前) + 本筋の外 (side) 3 件 (塔の母 = locked・前提は本筋 / 巣穴 ' + WARREN + ' = locked なし / ' + CARGO + ' = locked・前提は本筋の先頭)', chain,
         SC_ALL.map((x) => x.id + (x.side ? '[side]' : '') + (x.locked ? '<' + x.unlockAfter : '')).join(' → '));
     }
     const ID = SC_ALL.filter((x) => !x.side).map((x) => x.id);   // 本筋の一本道の並び (0b が守る)
@@ -506,22 +511,40 @@ async function runSuite(browser, port, mutKey, label) {
         + N_1A + ' 回 → 毎回 ' + ID[0] + ' (押せる) + ' + ID[1] + ' (???・.locked) の 2 枚ちょうど', ok && ok0, det.join(' '));
     }
     {
-      /* ★[#103] cleared=[廃坑] の解放済みは {廃坑, 森, 巣穴} の 3 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴} のどちらか */
+      /* ★[#103] cleared=[廃坑] の解放済みは {廃坑, 森, 巣穴} の 3 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴} のどちらか
+         ★[#104] + 倉庫街 (前提 = 廃坑) で 4 件 → 盤面 = 本筋の森 + {廃坑 / 巣穴 / 倉庫街} のどれか。
+         #103 までの {森, 廃坑 か 巣穴} は撤退 ?cargo=0 の世界で同じ回数だけ測る (⛔ 前の期待を落とさない)。 */
       const cl = [ID[0]];
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = setEq(fx.unlocked, [ID[0], ID[1], WARREN]) && fx.frontier === ID[1];
+      const det = []; let ok = setEq(fx.unlocked, [ID[0], ID[1], WARREN, CARGO]) && fx.frontier === ID[1];
       for (let i = 0; i < N_1B; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1b#' + i, s]);
         const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
         const other = v.filter((x) => x !== ID[1]);
-        const one = v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN)
+        const one = v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN || other[0] === CARGO)
           && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fx, seatKeysOf(s)).ok;
         if (!one) ok = false;
         det.push(v.join('+') + (s.signs.some((x) => x.locked) ? '(L)' : ''));
       }
-      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回引く → 毎回 盤面 = {' + ID[1] + ' (本筋), ' + ID[0] + ' か ' + WARREN + '}・両方押せる', ok, det.join(' '));
+      /* ★[#104] 撤退 ?cargo=0: ページの scenarios から倉庫街が外れ、盤面 = {森, 廃坑 か 巣穴} (#103 までの (1b) そのもの) */
+      const SC_C0 = SC_ALL.filter((x) => x.id !== CARGO);
+      const fxc = indepFacts(SC_C0, cl);
+      let okc = setEq(fxc.unlocked, [ID[0], ID[1], WARREN]) && fxc.frontier === ID[1];
+      for (let i = 0; i < N_1B; i++) {
+        if (i === 0) await prep({ cleared: cl });
+        const s = i === 0 ? await open('?cargo=0') : await redraw('?cargo=0');
+        const v = s.board && s.board.seats ? Object.values(s.board.seats) : [];
+        const other = v.filter((x) => x !== ID[1]);
+        const scenOk = !!s.scen && setEq(s.scen.map((x) => x.id), SC_C0.map((x) => x.id));
+        const one = scenOk && v.length === 2 && v.indexOf(ID[1]) >= 0 && other.length === 1 && (other[0] === ID[0] || other[0] === WARREN)
+          && s.signs.length === 2 && s.signs.every((x) => !x.locked) && indepValid(s.board, fxc, seatKeysOf(s)).ok && twoRoutes(s).ok;
+        if (!one) okc = false;
+        det.push('off:' + v.join('+') + (s.signs.some((x) => x.locked) ? '(L)' : '') + (scenOk ? '' : '[scen≠]'));
+      }
+      R.check('(1b)', 'cleared=[' + ID[0] + '] を ' + N_1B + ' 回引く → 毎回 盤面 = {' + ID[1] + ' (本筋), ' + ID[0] + ' か ' + WARREN + ' か ' + CARGO + '}・両方押せる / 撤退 ?cargo=0 で '
+        + N_1B + ' 回 → 毎回 {' + ID[1] + ', ' + ID[0] + ' か ' + WARREN + '}', ok && okc, det.join(' '));
     }
     {
       const det = []; let ok = true;
@@ -550,7 +573,7 @@ async function runSuite(browser, port, mutKey, label) {
       const cl = ID.slice();
       await prep({ cleared: cl });
       const fx = F(cl);
-      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 8;   /* ★[#82][#103] 本筋 6 + side 2 (塔の母・巣穴) が全部解放済み */
+      const det = []; let ok = fx.frontier === null && fx.unlocked.length === 9;   /* ★[#82][#103][#104] 本筋 6 + side 3 (塔の母・巣穴・倉庫街) が全部解放済み */
       for (let i = 0; i < N_1D; i++) {
         const s = i === 0 ? await open('') : await redraw();
         routes.push(['1d#' + i, s]);

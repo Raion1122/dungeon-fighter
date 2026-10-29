@@ -1556,7 +1556,7 @@ const ASSERT_OF = {};
           + '/base=' + (d.roots[id].base ? d.roots[id].base.n : 'null')).join(' ')
         + (bad.length ? '  ⛔ 抽出できていない: ' + bad.join(',') : '')];
     }],
-  ['6a', 'scenarios は 本筋 6 件のまま + 本筋の外 (side) 2 件 = 8 件 (⛔ 卓を 3 つにするために配列を削らない。★[#82] 塔の母・★[#103] 巣穴の 1 件ずつを足した)',
+  ['6a', 'scenarios は 本筋 6 件のまま + 本筋の外 (side) 3 件 = 9 件 (⛔ 卓を 3 つにするために配列を削らない。★[#82] 塔の母・★[#103] 巣穴・★[#104] 倉庫街の 1 件ずつを足した)',
     (m) => {
       const b = TB(m);
       if (!b) return [false, '⛔ base フェーズを測っていない'];
@@ -1564,11 +1564,11 @@ const ASSERT_OF = {};
       const nw = (s.world || []).length;
       /* ⭐ 「6」は依頼書の数だが、js/world-map.js の SITES 件数とも突き合わせる
          (片方だけ削られたら必ず気づく)。 */
-      const ok = s.scenLen === 8 && s.mainLen === 6 && s.sideLen === 2 && nw === 8;
+      const ok = s.scenLen === 9 && s.mainLen === 6 && s.sideLen === 3 && nw === 9;   /* ★[#104] side 3 / SITES 9 */
       return [ok, 'scenarios ' + s.scenLen + ' 件 (本筋 ' + s.mainLen + ' / side ' + s.sideLen + ') ' + JSON.stringify(s.scenIds)
         + ' / WORLD_MAP.SITES ' + nw + ' 件'];
     }],
-  ['6b', 'place の 8 件 (★[#82][#103] 本筋 6 + side 2) が js/world-map.js の label と 1 文字も違わない'
+  ['6b', 'place の 9 件 (★[#82][#103][#104] 本筋 6 + side 3) が js/world-map.js の label と 1 文字も違わない'
     + ' (⭐ verify_world_map.js の (7a) と同じ照合を tavern のページの中で行う。⛔ HEAD とは比べない)',
     (m) => {
       const b = TB(m);
@@ -1577,7 +1577,7 @@ const ASSERT_OF = {};
       const w = s.world;
       if (!w || !w.length) return [false, '⛔ WORLD_MAP が tavern.html から見えない = 空振り'];
       const bad = w.filter(x => x.label === null || x.place === null || x.label !== x.place);
-      return [w.length === 8 && bad.length === 0,
+      return [w.length === 9 && bad.length === 0,   /* ★[#104] 9 件 */
         w.length + ' 件照合 / 不一致 ' + bad.length + ' 件'
         + (bad.length ? ' ⛔ ' + JSON.stringify(bad) : ' ' + JSON.stringify(w.map(x => x.sid + ':' + x.place)))];
     }],
@@ -1638,7 +1638,7 @@ const ASSERT_OF = {};
       if (!(s.scenLen > 0)) return [false, '⛔ OFF のページが立ち上がっていない = 空振り'];
       const bg = String(s.tavernBg || '').indexOf('tavern_bg.png') >= 0;
       /* ⭐ 「6 枚」は直書きせずページの scenarios から引く (件数そのものは (6a) の担当)。 */
-      const ok = s.tableCount === s.mainLen && s.mainLen === 6 && s.scenLen === s.mainLen + 2 && s.tableAreaShown === true && bg;   /* ★[#103] side 2 件 */
+      const ok = s.tableCount === s.mainLen && s.mainLen === 6 && s.scenLen === s.mainLen + 3 && s.tableAreaShown === true && bg;   /* ★[#103] side 2 件・★[#104] 3 件 */
       return [ok, '#tableArea .table ' + s.tableCount + ' 枚 (scenarios ' + s.scenLen + ' 件 / 本筋 ' + s.mainLen + ' 件)'
         + ' / #tableArea が見えている=' + s.tableAreaShown
         + ' / #tavern の background-image=' + JSON.stringify(String(s.tavernBg || '').slice(0, 70))];

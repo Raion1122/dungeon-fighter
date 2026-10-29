@@ -103,6 +103,8 @@ for (const k of ['goblin', 'goblinArcher', 'goblinShaman', 'goblinBrute', 'gobli
 /* ★[#103 2026-10-28] コボルドの族長 = SRD のコボルド (humanoid) をもとにした独自の頭目 ⇒ 人型 = 歴史 (コボルドと同じ。依頼書 §2-6)。 */
 DRV_SKILL.koboldChief = 'history';
 for (const k of ['skeleton', 'zombie', 'skeletonArcher', 'wraith', 'lich', 'caelum', 'ghostFlame']) DRV_SKILL[k] = 'religion';
+/* ★[#104 2026-10-29] 疫病の司祭 = SRD の Cult Fanatic (humanoid) だが、疫病の教団の聖職者 = 宗教 (依頼書 #104 §2-6)。 */
+DRV_SKILL.plaguePriest = 'religion';
 for (const k of ['pharaxus', 'stoneGolem', 'animatedArmor', 'stoneLegionary', 'gargoyle', 'sovereignEye', 'hydra']) DRV_SKILL[k] = 'arcana';
 /* ★[#82 2026-10-03] 塔の母のワイバーン = SRD wyvern.md の creature_type: Dragon ⇒ 竜 = 魔法学 (#76 の規則)。ボス変種も同じ。 */
 for (const k of ['wyvern', 'wyvernBoss']) DRV_SKILL[k] = 'arcana';
@@ -121,11 +123,14 @@ const DRV_SLUG = {
   chimera: 'chimera', griffon: 'griffon', orc: 'orc', orcGrunt: 'orc', orcArcher: 'orc', bandit: 'bandit', banditArcher: 'bandit',
   banditHeavy: 'thug', scar: 'bandit-captain', lizardWarrior: 'lizardfolk', lizardHunter: 'lizardfolk', lizardRaider: 'lizardfolk',
   wyvern: 'wyvern', wyvernBoss: 'wyvern',   /* ★[#82 2026-10-03] 規則 ① (SRD に元がある) */
+  plaguePriest: 'cult-fanatic',             /* ★[#104 2026-10-29] 規則 ① (SRD cult-fanatic.md の cr: 2.0) */
 };
 /* ★[#82 2026-10-03] 本数の期待値 = 着手時 (#76) の数 + 塔の母のワイバーン 2 キー。⛔ 緩めない (≥ にしない)。
    ★[#103 2026-10-28] + コボルドの族長 koboldChief 1 キー (技能あり = history / 脅威度は出さない = 規則 ③)。
-   数え直し (2026-10-28・HEAD e9abf8e のページの ENEMY_TYPES) = 54 キー = 51 + 2 + 1 (技能あり 43 / 対象外 11・cr 36 / 出さない 18)。 */
-const N_TYPES = 51 + 2 + 1, N_SKILL = 40 + 2 + 1, N_NATURE = 11, N_CRKEYS = 34 + 2, N_NOCR = 17 + 1;
+   数え直し (2026-10-28・HEAD e9abf8e のページの ENEMY_TYPES) = 54 キー = 51 + 2 + 1 (技能あり 43 / 対象外 11・cr 36 / 出さない 18)。
+   ★[#104 2026-10-29] + 疫病の司祭 plaguePriest 1 キー (技能あり = religion / 脅威度を出す = 規則 ① cult-fanatic の CR 2)。
+   数え直し (2026-10-30・HEAD bf90ecb のページの ENEMY_TYPES) = 55 キー = 51 + 2 + 1 + 1 (技能あり 44 / 対象外 11・cr 37 / 出さない 18 = 依頼書 §2-6)。 */
+const N_TYPES = 51 + 2 + 1 + 1, N_SKILL = 40 + 2 + 1 + 1, N_NATURE = 11, N_CRKEYS = 34 + 2 + 1, N_NOCR = 17 + 1;
 /* 規則 ③ = 表に載せない (脅威度を出さない) 18 キー (★[#103] koboldChief = SRD に族長は無い) */
 const DRV_NO_CR = ['goblinShaman', 'goblinBrute', 'goblinKing', 'goblinChariot', 'orcShaman', 'orcBerserker', 'garrock', 'banditMage',
   'lizardPriest', 'swampNovice', 'lizardChieftain', 'stoneLegionary', 'sovereignEye', 'shadowBeast', 'direBear', 'umber_hulk', 'caravanWagon',
