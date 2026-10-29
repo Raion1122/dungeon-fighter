@@ -758,14 +758,20 @@ async function mainFlow(browser, vpName) {
       [/\n        \/\* ★\[#102\] 昼は闇市の石段を DOM に作らない[^\n]*\n        if \(f\.requiresPlazaUnlock && window\.PLAZA_HOURS && !PLAZA_HOURS\.isOpen\(\)\) return;(?=\n)/g, ''],
       [/\n    \/\* ★\[#102\] ページを開いたまま[\s\S]*?\n    \}\)\(\);(?=\n)/g, ''],
     ];
+    /* ★[#103] コボルドの巣穴 (依頼書 2026-10-28_kobold-warren.md §5-6) が initTavernMap に足したブロック**だけ**を外してから比べる:
+     *   ⑦ 検証シーム __TAVERN_TV.redEgg (読み取り専用) ⑧ 赤い卵を初めて持ち帰った回の酒場の主人の一言。それ以外の変化は今までどおり赤。 */
+    const UNDO103_TV = [
+      [/\n      \},\n      \/\* ★\[#103\] 卵の印 — 読み取り専用[\s\S]*?\n                 scene: redEggSceneLog\.map\([^\n]*(?=\n)/g, ''],
+      [/\n      \/\* ★\[#103\] 赤い卵を初めて持ち帰った回だけ[\s\S]*?\n        \}, REUNION_FIRST_MS\);\n      \}(?=\n)/g, ''],
+    ];
     const undo102 = (s, list) => {
       for (const [re, to] of list) { const m = s.match(re); if (m && m.length === 1) s = s.replace(re, to); }
       return s;
     };
-    const tvNow = undo102(lf(frozen('tavern.html')), UNDO102_TV), tvBase = lf(BASE['tavern.html']);
+    const tvNow = undo102(undo102(lf(frozen('tavern.html')), UNDO102_TV), UNDO103_TV), tvBase = lf(BASE['tavern.html']);
     const sliceTo = (s, startStr, endStr) => { const a = s.indexOf(startStr); if (a < 0) return null; const b = s.indexOf(endStr, a); return b < 0 ? null : s.slice(a, b + endStr.length); };
     const itmNow = sliceTo(tvNow, '(function initTavernMap() {', '\n  })();'), itmBase = sliceTo(tvBase, '(function initTavernMap() {', '\n  })();');
-    check('(5a) 配信中の tavern.html の initTavernMap ("(function initTavernMap() {" 〜 次の "})();") が ' + BASE_REV + ' とバイト一致 (LF に揃えて・#102 の時刻の 1 行を除いて)',
+    check('(5a) 配信中の tavern.html の initTavernMap ("(function initTavernMap() {" 〜 次の "})();") が ' + BASE_REV + ' とバイト一致 (LF に揃えて・#102 の時刻の 1 行と #103 の卵の 2 ブロックを除いて)',
       !!itmNow && itmNow.length > 20000 && itmNow === itmBase,
       { now: itmNow && itmNow.length, base: itmBase && itmBase.length, lines: itmNow && itmNow.split('\n').length, crlfServed: (frozen('tavern.html').toString('utf8').match(/\r\n/g) || []).length });
     /* ★[#99] index.html は (5b) の対象から外した。理由 = #99 で装備の名前を変えた (独自品 19 品を SRD の名前へ・

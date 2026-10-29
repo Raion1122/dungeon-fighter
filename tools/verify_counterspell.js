@@ -794,10 +794,13 @@ function countHpWrites(src) {
     let hpPre = null;
     try { hpPre = countHpWrites(execFileSync('git', ['show', PRE96_REV + ':index.html'], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }).toString('utf8')); } catch (e) { hpPre = { err: String(e.message || e).slice(0, 120) }; }
     const HERO_CH = 'あなた';   // 年代記の profileOf は主人公 (heroIsHead) を「あなた」と名乗る
-    check('(4c) 年代記: カウンターの枠を使ったら「使わなかった技」に入らない / 使わなければ入る (仲間 = ' + A.m1Name + ' / 主人公)。HP を引く点の総数は #96 の前 (' + PRE96_REV + ') と同じ ' + (hpPre && hpPre.total) + ' (verify_run_chronicle (0c) = 45)',
+    /* ★[#103 2026-10-28] 本番の HP を引く点は #103 の koboldSnare (族長の仕掛け罠・enemyAttackTurn の中 = 手番の内) で 1 つ増えて 46。
+       #96 が点を増やしていないこと (= #96 の前と同じ数) は「今の数 − #103 の 1 点 = #96 の前の数」で測る (⛔ 期待値を緩めない)。 */
+    const HP_ADDED_103 = 1;
+    check('(4c) 年代記: カウンターの枠を使ったら「使わなかった技」に入らない / 使わなければ入る (仲間 = ' + A.m1Name + ' / 主人公)。HP を引く点の総数は #96 の前 (' + PRE96_REV + ') の ' + (hpPre && hpPre.total) + ' + #103 の仕掛け罠 1 点 (verify_run_chronicle (0c) = 46)',
       ch.allyUsed.probe.length === 1 && ch.allyUsed.probe[0] === A.m1Idx && ch.allyUsed.who.indexOf(A.m1Name) < 0 && ch.allyUnused.who.indexOf(A.m1Name) >= 0
       && ch.heroUsed.probe.length === 1 && ch.heroUsed.probe[0] === 'player' && ch.heroUsed.who.indexOf(HERO_CH) < 0 && ch.heroUnused.who.indexOf(HERO_CH) >= 0
-      && hpPre && hpPre.total === hpNow.total && hpNow.total === 45,
+      && hpPre && hpPre.total + HP_ADDED_103 === hpNow.total && hpNow.total === 46 && hpPre.total === 45,
       { ch: ch, hp: { now: hpNow, pre: hpPre } });
 
     /* ══ (5b) 素の側の pickScrollId 全区間 ══ */

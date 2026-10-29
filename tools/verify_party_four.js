@@ -411,7 +411,7 @@ async function runSuite(browser, port, label) {
 
   check('0a', '★装置: scenarios が ' + SCENARIO_IDS.length + ' 件 / recruitCountOf が function / RECRUIT_MAX が数値 — 裸の識別子で読めた (これが無いと全 assert が空振りで永久緑)',
     meta.threw === '' && meta.seam.scenarios === 'object'
-    && meta.seam.mainCount === SCENARIO_IDS.length && meta.seam.scenarioCount === SCENARIO_IDS.length + 1   /* ★[#82] 本筋 6 + side 1 */
+    && meta.seam.mainCount === SCENARIO_IDS.length && meta.seam.scenarioCount === SCENARIO_IDS.length + 2   /* ★[#82] 本筋 6 + side 1 (塔の母) / ★[#103] + side 1 (コボルドの巣穴) */
     && SCENARIO_IDS.every(id => (meta.seam.allIds || []).indexOf(id) >= 0)
     && meta.seam.recruitCountOf === 'function' && meta.seam.recruitCountLegacy === 'function'
     && meta.seam.isRecruitOn === 'function' && meta.seam.departToScenario === 'function'

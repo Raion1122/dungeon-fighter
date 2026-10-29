@@ -293,7 +293,9 @@ const QUIET = `
     const uses = (code.match(/MSG_DEFEAT_(PARTY|YOU)/g) || []).length - defs;
     const heroLeft = (code.match(/MSG_DEFEAT_HERO/g) || []).length;
     check('(D3) 定数定義が 2 本', defs === 2, 'defs=' + defs);
-    check('(D4) 参照が 14 出現 (三項式 5 行 x2 + 単文 4 行)', uses === 14, 'uses=' + uses);
+    /* ★[#103 2026-10-28] 14 → 15。増えた 1 出現 = コボルドの族長の仕掛け罠 (koboldSnare) で主人公が倒れたときの
+       `updateInfo(MSG_DEFEAT_YOU)` (単文 1 行・既存の敗北文言の定数を使う = 旧文言のリテラルは増えていない (D1))。 */
+    check('(D4) 参照が 15 出現 (三項式 5 行 x2 + 単文 5 行 = ★[#103] 仕掛け罠の 1 行)', uses === 15, 'uses=' + uses);
     check('(D4b) MSG_DEFEAT_HERO の残骸が 0 件 (MSG_DEFEAT_YOU へ統合済み)',
       heroLeft === 0, 'hits=' + heroLeft);
 
