@@ -3787,6 +3787,29 @@
       ],
       locked: false,
     },
+    /* ★[#104] 新しい行き先の 2 か所目「消えた積み荷」(本筋の外・廃坑の後)。
+       ⭐ side = 卓の抽選の母集団には入るが、「本筋」「次の未解放」の判定からは外れる (#82 と同じ)。
+       ⭐ locked:true = 開始直後の卓は今日のまま (廃坑 + 巣穴)。廃坑のクリアで森と同時に解放。
+       ⚠ id は index.html の SCENARIOS / js/world-map.js の SITES・UNLOCK と同じ (verify_world_map (4s) が照合)。 */
+    {
+      id: "lost-cargo",
+      place: "港の倉庫街",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "消えた積み荷",
+      difficulty: "★★",
+      recommendedLevel: 4,        /* 廃坑 3 の後・森 4 と同じ帯。⚠ 強さの実測 (依頼書 §8 ⑤) で直してよい */
+      reward: "荷主の礼金",
+      client: { name: "マーロウ", role: "港の荷主", type: "villager" },
+      dialog:
+        "「倉庫に入れた積み荷が、夜のうちに消えるんです。錠は壊されていない。番人も一人、戻ってこない……" +
+        "床下から歌が聞こえると言う者もいます。気味が悪くて、誰も夜の倉庫に入りたがらない。どうか調べてください」",
+      enemies: [
+        { name: "倉庫と地下水道の魔物", boss: false },
+        { name: "疫病の司祭", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "goblin-mine",
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -3810,6 +3833,17 @@
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "kobold-warren") scenarios.splice(i, 1);
     try { if (window.WORLD_MAP && window.WORLD_MAP.retireWarren) window.WORLD_MAP.retireWarren(); } catch (e) {}
+  })();
+  /* ══ 撤退スイッチ ?cargo=0 (実装依頼書 #104 §7) ═════════════════════════════
+     ⭐ ?tower=0 / ?warren=0 と同じ「ページ単位で独立」(world.html も自分で読む)。⛔ sessionStorage へ写さない。
+     配列から lost-cargo を外し、ワールドマップの写しの pier も中継点へ戻す
+     (cleared=[廃坑] の卓の母集団は今日どおり「廃坑・森・巣穴」の 3 件へ戻る)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("cargo") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "lost-cargo") scenarios.splice(i, 1);
+    try { if (window.WORLD_MAP && window.WORLD_MAP.retireCargo) window.WORLD_MAP.retireCargo(); } catch (e) {}
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */

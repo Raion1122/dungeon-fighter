@@ -39,7 +39,7 @@
   var W = 1536, H = 1024;              // ★assets/world_region.jpg の実寸。座標は全部この px 系
 
   /* ── ノード ───────────────────────────────────────────────────────
-   *  kind: "site" … 拠点 (札が出る。ちょうど 9 つ。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」)
+   *  kind: "site" … 拠点 (札が出る。ちょうど 10 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」)
    *        "way"  … 中継点 (札は出ない。線の折れ目)
    *  enter: 入ると遷移するページ。⛔ クエリを足さない (#6 / #12 の確定作法)。
    *         ⭐ v1 で enter を持つのは phlan ただ 1 つ (依頼書 §12-3 のユーザー決定)。
@@ -67,7 +67,17 @@
     dragon:    { kind: "site", x: 1312, y: 672, label: "ドラゴンの巣", desc: "溶岩の荒地。火口が煙を上げる" },
 
     /* 中継点。⚠ pier は桟橋の上 = 図の中で唯一わずかに水が掛かる (実測 6.1%)。 */
-    pier:      { kind: "way",  x:  352, y: 608 },
+    /* ★[#104] 船着き場 pier を拠点「港の倉庫街」(本筋外の依頼「消えた積み荷」) へ格上げ。
+     *   ⛔ id と座標は変えない・EDGES も触らない (phlan からの行き止まりのまま)。
+     *   ⚠ pier は spawnFor("title") の立ち位置。依頼の解放 (廃坑の後) までは札が出ない = 開始直後は今日のまま。
+     *   ⭐ 撤退 ?cargo=0 は world.html / tavern.html が自ページで読み、retireCargo() で中継点へ戻す。
+     *   ⭐ signDx: -100 (ユーザー決定 2026-10-29「≈ −100」→ 項目2 で実測して決めた): 主人公が phlan に立つ (町を出た直後)
+     *      と、78px 角の主人公がこの札の右側を 35.9% (1440x900) / 39.1% (390x844) 隠した (依頼書 §12-1 (2))。札だけを左へ逃がす。
+     *      実測 (-100): 主人公との重なり 6.7% (1440) / 2.9% (390・箱の余白だけで絵は重ならない)・札どうし (フランほか) の交わり 0。
+     *      ⚠ 390 幅で phlan に立つと札の左端が画面の外へ 24px 出る (説明文の 1 文字目)。画面内に収まる下限は −68 だが
+     *        そのとき主人公が 16% を覆う = 両立する値は無い (依頼書 §12)。
+     *      ⛔ phlan の signDx は動かさない (北の辻の理由が生きている)。 */
+    pier:      { kind: "site", x:  352, y: 608, label: "港の倉庫街", desc: "桟橋の脇に並ぶ古い倉庫。床下は地下水道へ続く", signDx: -100 },
     cross_n:   { kind: "way",  x:  480, y: 480 },
     farm_n:    { kind: "way",  x:  608, y: 224 },
     /* ★[#82] 北の丘陵の行き止まり pass_n を拠点「見張りの塔」(本筋外の依頼「塔の母」) へ格上げ。
@@ -163,7 +173,8 @@
     "undead-temple":  "temple",
     "dragon-lair":    "dragon",
     "tower-mother":   "pass_n",    /* ★[#82] 本筋外の 7 本目 (tavern.html の scenarios[] の side:true) */
-    "kobold-warren":  "village_s"  /* ★[#103] 本筋外の 8 本目 (最初から受けられる初仕事) */
+    "kobold-warren":  "village_s", /* ★[#103] 本筋外の 8 本目 (最初から受けられる初仕事) */
+    "lost-cargo":     "pier"       /* ★[#104] 本筋外の 9 本目 (廃坑の後に解放) */
   };
 
   /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
@@ -181,7 +192,8 @@
     "undead-temple":  "orc-fort",
     "dragon-lair":    "undead-temple",
     "tower-mother":   "orc-fort",  /* ★[#82] 砦のクリア後 (tavern.html の unlockAfter と同じ) */
-    "kobold-warren":  null         /* ★[#103] 最初から解放済み (tavern.html の locked:false と同じ) */
+    "kobold-warren":  null,        /* ★[#103] 最初から解放済み (tavern.html の locked:false と同じ) */
+    "lost-cargo":     "goblin-mine" /* ★[#104] 廃坑のクリア後 (tavern.html の unlockAfter と同じ) */
   };
 
   /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
@@ -389,6 +401,14 @@
     delete UNLOCK["kobold-warren"];
   }
 
+  /* ★[#104] 撤退 ?cargo=0 の器 (retireWarren と同じ形)。pier を今日の中継点へ戻し、
+   *   SITES / UNLOCK から lost-cargo を外す。⭐ クエリを読むのは各ページ。 */
+  function retireCargo() {
+    NODES.pier = { kind: "way",  x:  352, y: 608 };
+    delete SITES["lost-cargo"];
+    delete UNLOCK["lost-cargo"];
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
@@ -396,6 +416,7 @@
     isRevealed: isRevealed, scenarioOfNode: scenarioOfNode,
     retireTower: retireTower,   /* ★[#82] 撤退 ?tower=0 の器 (行を足しただけ。前後の行は 1 バイトも変えない) */
     retireWarren: retireWarren, /* ★[#103] 撤退 ?warren=0 の器 */
+    retireCargo: retireCargo,   /* ★[#104] 撤退 ?cargo=0 の器 */
     /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
     STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
     walkNodes: walkNodes, walkEdges: walkEdges,

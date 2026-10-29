@@ -3746,6 +3746,7 @@
       "dragon-lair":    125,   // 隠し 5 (ボスの財宝は残る)
       "tower-mother":    75,   // 隠し 3 (礼金 300 と合わせて 375)
       "kobold-warren":   50,   // ★[#103] 隠し 2 (謝礼 120 と合わせて 170)
+      "lost-cargo":      50,   // ★[#104] 隠し 2 (礼金 200 と合わせて 250)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4060,6 +4061,12 @@
        *   (丘も祭壇の間も 1 枚絵が覆うので、見えるのは絵の外側の縁だけ)。
        * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 見た目は同じだが、宣言して落ちていないことを明示する。 */
       "kobold-warren":  { floor: "床1.png",        wall: "壁1.png",
+                          wallFace: "wall_face_goblin-mine.png",
+                          wallTop:  "wall_top_goblin-mine.png",
+                          wallTint: { color: "228,234,244", a: 0.34 } },
+      /* ★[#104] 消えた積み荷 (本筋外の 9 本目)。巣穴と同じく新しい素材は足さない (倉庫も祠も 1 枚絵が覆う)。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
+      "lost-cargo":     { floor: "床1.png",        wall: "壁1.png",
                           wallFace: "wall_face_goblin-mine.png",
                           wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
@@ -4688,6 +4695,10 @@
        *   (trapCount:1 × search を両方に宣言) / 玄室の宝箱は n0 (丘) だけ。
        *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
       t["kobold-warren"] = { n0: ["search", "loot"], n1: ["search"] };
+      /* ★[#104] 消えた積み荷も最初から 2 ノード (倉庫 n0 → 地下水道の祠 n1)。罠は「部屋ごとに 1 つ」
+       *   (trapCount:1 × search を両方に宣言) / 玄室の宝箱は n0 (倉庫) だけ。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
+      t["lost-cargo"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -6824,6 +6835,66 @@
                ".###########...#######.",   // 13  南の岩と寝床 / 岩とろうそく・寝床・骨 (col 15-21)
                ".#####################.",   // 14  南の岩壁
                ".......................",   // 15  外周
+             ] },
+      },
+      /* ══ ★[#104] 消えた積み荷 — codex1 納品の卓上バトルマップ 2 枚 (v2) ══════════════════════
+       *   n0big = 港の倉庫 (道中) / n1big = 地下水道の祠 (ボス)。⭐ **2 枚とも屋内 = outdoor を付けない** (霧を効かせる)。
+       * ⚠⚠⚠ テーマは **lost-cargo** (js/df-mapdef.js の THEMES に載せた非屋外テーマ)。⛔ FIELD_THEMES に入れない。
+       * ⚠⚠⚠ **node: true が必須**。
+       * ⚠ 格子は 64px (tools/make_grid_map.py の cargo-warehouse / cargo-shrine の注記が唯一の正)。
+       *   2 枚とも 24x16 (1536x1024)。行数 16 = 偶数 → midR = 絵ローカル row 7 (半行上)。
+       * ⚠ tileBounds は buildLostCargoRun の rect と**同値**。
+       * ⭐ MASK は依頼書 §12-1 (3-6) の草案 (5 規則・sealRing を模した 4 近傍 BFS)。外周 1 マスは '.' (sealRing の仕事)。
+       *   ⚠ 本番で塞ぐのは '#' だけ (df-mapdef.js PAINTING_BLOCK_CHAR)。歩けない理由は行コメントで分ける。
+       *   敵のタイル (buildLostCargoRun の slots) は全部 '.'。写像: 絵ローカル (col,row) + (16, 6) = global。 */
+      "lost-cargo": {
+        n0big: { src: "assets/room_lost-cargo_n0_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (港の倉庫)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の大扉と東の床の穴だけが外周に開く) */
+             /*  ★障害物 (16 行 x 24 列)。row 7 が col 0 → col 23 を 1 マスも切らさない (板張りの床)。
+              *   西の大扉 (0,7) → 東の床の穴 (22,7) → n1 への出口 (23,7) = global (39,13)。 */
+             blocked: [
+               "........................",   //  0  外周
+               ".######################.",   //  1  北の積み荷 (樽・木箱・麻袋・荷車の輪・帆布・縄・かじられた木箱) col 1-22
+               ".###.##..#######.....##.",   //  2  樽と木箱と麻袋 (col 1-3) / こぼれた穀物 (col 4) は平置き / 木箱 (col 5-6) / 樽・荷車の輪・帆布・樽・木箱 (col 9-15) / 縄と麻袋 (col 21-22)
+               "........................",   //  3
+               "........................",   //  4
+               "........................",   //  5
+               ".#....................#.",   //  6  大扉の北の扉板 (col 1) / 傾いた木箱 (col 22)。ろうそく (col 21) は平置き
+               "........................",   //  7  ★入場の行 (col 0 = 西の大扉 / col 22 = 床の穴の北半分 / col 23 = n1 への出口)
+               "......................#.",   //  8  床の穴の南半分 (col 22)
+               ".#......................",   //  9  大扉の南の扉板 (col 1)
+               "........................",   // 10
+               "........................",   // 11
+               ".####...#...##...######.",   // 12  木箱と麻袋 (col 1-4) / こぼれた穀物と縄 (col 5-7) は平置き / 椅子 (col 8) / 麻袋と縄 (col 12-13) / 錠のかかった大箱・木箱・麻袋・樽 (col 17-22)
+               ".#############...######.",   // 13  樽・麻袋・木箱・縄・机 (col 1-13) / ランタン・ろうそく・帽子 (col 14-16) は平置き / 大箱と木箱 (col 17-22)
+               ".#############...######.",   // 14  樽・木箱・机の脚・壊れた木箱・麻袋 (col 1-13) / 大箱・木箱・こぼれた穀物 (col 17-22)
+               "........................",   // 15  外周
+             ] },
+        n1big: { src: "assets/room_lost-cargo_n1_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (地下水道の祠)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の梯子だけが外周に開く) */
+             /*  ★障害物 (16 行 x 24 列)。⚠ outdoor は付けない (地下水道 = 霧を効かせる)。
+              *   西の梯子 (0,7) → 祭壇の前 (19,7) (20,7)。**祭壇 (col 21-22 / row 6-8) と周りのろうそく・供物の鉢・
+              *   積み荷 (col 20-22 / row 4-5・9-10 と col 21-22 / row 11) は全部 '#'**。光る緑の汚水の水路 (北 row 1-3 / 南 row 12-14) も '#'。
+              *   東の中点 (23,7) は祭壇の裏の行き止まり (ボス部屋なので出口は使わない)。 */
+             blocked: [
+               "........................",   //  0  外周
+               ".######################.",   //  1  北の水路 (光る緑の汚水・排水口の滝) + 水路の縁の麻袋・樽・木箱・帆布
+               ".######################.",   //  2  北の水路 / 西の排水格子 (col 1) / 東の梯子と木箱 (col 21-22)
+               ".######################.",   //  3  北の水路 + 縁石 + 排水口の格子 (col 4 / col 19)
+               "....................###.",   //  4  ★床 (煉瓦 col 1-13 / 石畳 col 14-19) / 麻袋とろうそく (col 20)・縄と樽 (col 21)・木箱 (col 22)
+               "....................###.",   //  5  ろうそく (col 20)・供物の鉢 (col 21)・麻袋と木箱 (col 22)
+               ".....................##.",   //  6  ★祭壇 (col 21-22)。col 20 は祭壇の縁石 = 立てる
+               ".....................##.",   //  7  ★入場の行 (col 0 = 梯子 / col 1 = 梯子の足元) / 祭壇 (col 21-22)
+               ".....................##.",   //  8  祭壇 (col 21-22)
+               "....................###.",   //  9  ろうそく (col 20)・藁とろうそく (col 21)・木箱 (col 22)
+               "....................###.",   // 10  ろうそく (col 20)・供物の鉢 (col 21)・木箱 (col 22)
+               ".....................##.",   // 11  床 (縁石の手前) / 麻袋と木箱 (col 21-22)
+               ".######################.",   // 12  南の水路 + 縁石 + 排水口の格子 (col 4 / col 19) / 木箱 (col 21-22)
+               ".######################.",   // 13  南の水路
+               ".######################.",   // 14  南の水路 + 水路の縁の麻袋・木箱・樽・ろうそく・帆布
+               "........................",   // 15  外周
              ] },
       },
     };
@@ -10476,6 +10547,32 @@
         snareDC: 12, snareDice: "1d6",   /* ★[#103] 仕掛け罠: 1 戦闘に 1 回 (koboldSnare)。⛔ 他の敵に付けない */
         xp: 200,
       },
+      /* ★[#104] 疫病の司祭。5e SRD の Cult Fanatic (CR2・AC13・HP22・短剣 +4 1d4+2・呪文攻撃 +3) をもとにしたボス。
+       * ⭐ 疫病の神を拝む教団の司祭。戦闘の最初の手番に 1 度だけ「傷を腐らせる手」(inflictWoundsTouch =
+       *   SRD の Inflict Wounds・呪文攻撃 vs AC・命中で 3d10)。⛔ 敵の呪文表 (spells) には足さない・他の敵に付けない。
+       * ⭐ LORE_CR に載せる (2 = SRD に元がある)。LORE_SKILL_OF は religion (教団の知識)。detectEnemyFamily は generic のまま。
+       * ⚠ シートは手下と同じ 576x480・96px・6 列 (tools/codex1_sprites.json の plaguePriest)。攻撃の間合いと
+       *   拍子 (meleeRange / hitRange / attack*) は koboldChief から写した (hitFrame 11 = 突き出しのコマ)。
+       * ⚠ hp 33 = SRD 22 × 1.5 (ボス補正)。値は出発点。強さの実測 (依頼書 §8 ⑤) で直してよい。 */
+      plaguePriest: {
+        name: "疫病の司祭",
+        flavor: "疫病の神を拝む教団の司祭。腐った手で触れた傷は膿み崩れる",
+        sprite: "assets/plaguePriest_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 100,    // ★[#104 ユーザー決定] 人間大のボス scar と同じ当たり判定 (画面上の身長 ≈ 79px)
+        hp: 33, speed: 1.0,
+        hasAttackAnim: true,
+        meleeRange: 110, hitRange: 180,
+        attackDuration: 26, attackHitFrame: 11, attackCooldown: 32,
+        str: 0, dex: 2, atkBonus: 4, ac: 13,
+        dmgDice: "1d4", dmgBonus: 2, critRange: 20, critMult: 2,   // 短剣 (SRD)
+        range: "melee",
+        isBoss: true,
+        maxSummons: 0,
+        inflictAtk: 3, inflictDice: "3d10",   /* ★[#104] 傷を腐らせる手: 1 戦闘に 1 回 (inflictWoundsTouch)。⛔ 他の敵に付けない */
+        xp: 450,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -11720,6 +11817,30 @@
           // 祭壇の間: 手下 3 + 族長
           ["kobold", 55, 12], ["kobold", 55, 14], ["kobold", 56, 13],
           ["koboldChief", 57, 13],
+        ],
+      },
+      /* ★[#104] 消えた積み荷 (本筋外の 9 本目・廃坑の後・推奨 Lv4)。
+       * ⭐ 実際の盤面は buildLostCargoRun (卓上マップ 2 枚)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを変える (乱数を 1 つも足さない)。
+       * ⚠ 値は出発点。強さの実測 (依頼書 §8 ⑤) と合わせて直してよい。 */
+      "lost-cargo": {
+        title: "消えた積み荷 — 疫病の祠",
+        flavor: "倉庫の床下に潜む者を突き止め、消えた積み荷の行方を暴け",
+        perceptionDC: 13,
+        trapCount: 1,
+        trapTypeByNode: { n0: "pit", n1: "miasma" },
+        hiddenChestCount: 2,
+        clearXp: 400,
+        clearGold: 200,
+        spawns: [
+          /* ?graph=0 用。buildLostCargoRun の slots と同じ顔ぶれを並べる */
+          // 倉庫: ネズミ 3 + 消えた番人のゾンビ 2
+          ["rat", 27, 13], ["rat", 28, 12], ["rat", 28, 14],
+          ["zombie", 39, 13], ["zombie", 40, 14],
+          // 祠: ゾンビ 1 + 巨大ガエル 2 + 司祭
+          ["plagueFrog", 55, 12], ["plagueFrog", 55, 14], ["zombie", 56, 13],
+          ["plaguePriest", 57, 13],
         ],
       },
     };
@@ -15668,6 +15789,13 @@
         "コボルド——竜を崇める小さな種族だ。数を頼みに群れ、罠を好む。足元に気をつけろ。",
         "さあ、穴へ降りろ。",
       ],
+      /* ★[#104] 消えた積み荷 */
+      "lost-cargo": [
+        "君たちは、桟橋の脇の古い倉庫に入った。かじられた木箱が転がり、湿った床板の下から、かすかな歌声が聞こえる。",
+        "床板が一枚、外されていた。穴の下は、港町の地下を流れる古い水道だ。汚水が、ぼんやりと緑に光っている。",
+        "疫病の神を拝む者たちがいる——港ではそう噂されてきた。噂ではなかったのかもしれない。",
+        "さあ、穴へ降りろ。",
+      ],
     };
 
     let narrationSkipRequested = false;
@@ -18597,6 +18725,19 @@
       ENEMY_TYPES: { kobold: ENEMY_TYPES.kobold, koboldChief: ENEMY_TYPES.koboldChief },
       buildKoboldWarrenRun: buildKoboldWarrenRun,
       koboldSnare: koboldSnare,
+      TRAP_TYPES: function () { return TRAP_TYPES; },   // ⚠ const の宣言 (罠の節) はここより下 = 関数で包む (TDZ)
+      trapTypeForNode: function () { return trapTypeForNode(); },
+      traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
+      nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+    };
+    /* ★[#104] 検証シーム (消えた積み荷)。⛔ 状態の置き場にしない (読むための窓)。__koboldWarrenTV と同じ形。 */
+    window.buildLostCargoRun = buildLostCargoRun;
+    window.inflictWoundsTouch = inflictWoundsTouch;
+    window.__lostCargoTV = {
+      ENEMY_TYPES: { rat: ENEMY_TYPES.rat, zombie: ENEMY_TYPES.zombie, plagueFrog: ENEMY_TYPES.plagueFrog,
+                     plaguePriest: ENEMY_TYPES.plaguePriest },
+      buildLostCargoRun: buildLostCargoRun,
+      inflictWoundsTouch: inflictWoundsTouch,
       TRAP_TYPES: function () { return TRAP_TYPES; },   // ⚠ const の宣言 (罠の節) はここより下 = 関数で包む (TDZ)
       trapTypeForNode: function () { return trapTypeForNode(); },
       traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
@@ -22565,6 +22706,98 @@
         return;
       }
       await applyEnemySpellDamage(pick, dmg, false, "仕掛け罠");   // 頭 / 第三勢力 (不屈・頭の委譲・全滅は既存経路)
+    }
+
+    /* ★[#104] 疫病の司祭の「傷を腐らせる手」(5e SRD Inflict Wounds・1 戦闘に 1 回・司祭の手番の行動)。
+     * 写し元 = koboldSnare。違いは「DEX セーヴ」の代わりに **呪文攻撃 vs AC** と、転倒が無いことだけ。
+     * ⚠⚠⚠ 罠の仕組み (traps[]) には乗せない (checkTrapTrigger は戦闘中に 1 つも調べない)。
+     * ⚠ 敵の呪文表 (ENEMY_SPELLS / def.spells) にも足さない = AI の呪文選び・クールダウンに混ざらない (依頼書 §2-7)。
+     * 命中の作法は enemyCastSpell の単体呪文と同じ: d20 + def.inflictAtk vs AC・20 はクリティカル (ダイス 2 倍)。
+     *   1 の出目は外れ (攻撃側のファンブルの作法)。間合いは見ない (最初の手番で必ず 1 回 = 依頼書 §5-3)。
+     * 乱数の順 = pickEnemyTarget → d20 → (命中なら) inflictDice。
+     * 検証用 probe = window.__inflictProbe (1 件 = 1 回の発動)。⛔ ゲームの判定には使わない。 */
+    window.__inflictProbe = window.__inflictProbe || [];
+    async function inflictWoundsTouch(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return;
+      const def = enemy.def;
+      const atk = def.inflictAtk || 0;
+      const pick = pickEnemyTarget(enemyIdx);
+      if (!pick) return;
+      if (enemyElements[enemyIdx]) flashAction(enemyElements[enemyIdx], "skill");
+
+      let ac = 10, showAtTarget = null, targetName = "", ally = null;
+      if (pick.kind === "leader") {
+        ac = currentPlayerAc();
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+      } else if (pick.kind === "ally") {
+        ally = allies[pick.idx];
+        if (!ally || !ally.alive) return;
+        ac = currentAllyAc(ally);
+        targetName = ally.npcName || ally.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(ally, t, c);
+      } else {  // enemy (第三勢力の乱入個体など)
+        const o = enemies[pick.idx];
+        if (!o || !o.alive) return;
+        ac = effectiveEnemyAc(o);
+        targetName = o.def.name;
+        showAtTarget = (t, c) => showRollAtEnemy(pick.idx, t, c);
+      }
+
+      showBanner("☠ 傷を腐らせる手 ☠", 1500);
+      if (typeof showDMMessage === "function") showDMMessage("司祭が汚れた祈りを唱える——腐った手が伸びる!", 2600);
+      updateInfo(`${def.name} の腐った手が ${targetName} へ伸びる! (呪文攻撃 ${signedDD(atk)} vs AC ${ac})`);
+
+      const rec = { site: "inflict", enemyIdx, atk, ac, roll: null, total: null, hit: false, crit: false, dmg: 0,
+                    kind: pick.kind, idx: (pick.idx != null ? pick.idx : null), target: targetName,
+                    trapsLen: traps.length };
+      const roll = d20();
+      const total = roll + atk;
+      const crit = roll >= 20;
+      const hit = crit || (roll !== 1 && total >= ac);
+      rec.roll = roll; rec.total = total; rec.hit = hit; rec.crit = crit;
+      if (!hit) {
+        showAtTarget(`<span class="label">MISS</span>1d20(<b>${roll}</b>)${signedDD(atk)} = ${total}<br>vs AC ${ac}`, "hit");
+        updateInfo(`${targetName} は腐った手を振り払った`);
+        window.__inflictProbe.push(rec);
+        return;
+      }
+      const dd = parseDiceDD(def.inflictDice || "3d10");
+      const times = crit ? 2 : 1;
+      let rolls = [];
+      for (let k = 0; k < times; k++) rolls = rolls.concat(rollDiceDD(dd.n, dd.sides).rolls);
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0));
+      rec.dmg = dmg;
+      showAtTarget(
+        `<span class="label">${crit ? "CRIT!" : "HIT"}</span>1d20(<b>${roll}</b>)${signedDD(atk)} = ${total}<br>vs AC ${ac}`,
+        crit ? "crit" : "miss");
+      window.__inflictProbe.push(rec);
+      await sleepMs(300);
+      if (ally) {
+        /* 仲間へのダメージ (koboldSnare と同じ手順。語りだけ「傷を腐らせる手」) */
+        const tCX = ally.x + ally.def.displaySize / 2;
+        if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+            && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+          ally.buffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(tCX, ally.y, dmg, crit);
+          ally.hp = sRoll.total;
+          showRollAtAlly(ally, `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+          return;
+        }
+        ally.hp -= dmg; if (ally.hp < 0) ally.hp = 0;
+        showDmgAt(tCX, ally.y, dmg, crit);
+        updateInfo(`${targetName} は傷を腐らせる手で ${dmg} ダメージ! HP ${ally.hp}/${ally.maxHp}`);
+        if (ally.hp <= 0) {
+          RunChronicle.fall(ally, "傷を腐らせる手");
+          ally.alive = false;
+          updateInfo(`${targetName} は倒れた…`);
+          if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+        }
+        return;
+      }
+      await applyEnemySpellDamage(pick, dmg, crit, "傷を腐らせる手");   // 頭 / 第三勢力 (不屈・頭の委譲・全滅は既存経路)
     }
 
     function resetAllyBuffs(ally) {
@@ -27394,6 +27627,8 @@
        *   種類はシナリオがノードごとに宣言する (SCENARIOS[id].trapTypeByNode)。宣言の無いシナリオは今日どおり damage。 */
       pit:      { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "足元の板が抜けた——落とし穴だ!" },
       rockfall: { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "頭上で縄が切れる音——落石だ!" },
+      /* ★[#104] 瘴気 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。消えた積み荷の n1 (地下水道の祠) が宣言する。 */
+      miasma:   { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "汚水から緑の瘴気が噴き上がった!" },
     };
     /* ★[#103] いまのノードの罠の種類。⛔ Math.random を呼ばない (spawnTraps の乱数の消費順を変えない = 依頼書 §2-4)。 */
     function trapTypeForNode() {
@@ -29735,6 +29970,7 @@
       lizardHunter: "history", lizardRaider: "history", lizardPriest: "history", swampNovice: "history",
       lizardChieftain: "history",
       koboldChief: "history",   // ★[#103] コボルドと同じ。⛔ LORE_CR には載せない (SRD に元が無い)
+      plaguePriest: "religion", // ★[#104] 疫病の教団の司祭 = 宗教 (SRD の Cult Fanatic・LORE_CR にも載せる)
       // 宗教 (アンデッド)
       skeleton: "religion", zombie: "religion", skeletonArcher: "religion", wraith: "religion",
       lich: "religion", caelum: "religion", ghostFlame: "religion",
@@ -29771,6 +30007,7 @@
       wyvern: 6, wyvernBoss: 6,   // ★[#82] SRD raw/srd/monsters/wyvern.md の cr: 6.0 (ボス変種も同じ元)
       orc: 0.5, orcGrunt: 0.5, orcArcher: 0.5, bandit: 0.125, banditArcher: 0.125, banditHeavy: 0.5, scar: 2,
       lizardWarrior: 0.5, lizardHunter: 0.5, lizardRaider: 0.5,
+      plaguePriest: 2,   // ★[#104] SRD raw/srd/monsters/cult-fanatic.md の CR 2 (ボス補正は HP だけ)
     };
     function loreCrText(type) {   // 0.125 → "1/8"。表に無ければ "" (= 出さない)
       const cr = LORE_CR[type];
@@ -37144,6 +37381,15 @@
         await sleepMs(1100);
         return;
       }
+      // ── ★[#104] 疫病の司祭の「傷を腐らせる手」: 戦闘の最初の手番に 1 度だけ (この手番は呪文で消費) ──
+      // ⭐ 行動選択 (pickBossAction の Math.random) より**前** = 仕掛け罠と同じ理由。
+      //   inflictDice を持つのは plaguePriest だけ = 既存の敵の手番と乱数列は 1 ビットも動かない。
+      if (def.inflictDice && !enemy.__inflictUsed) {
+        enemy.__inflictUsed = true;
+        await inflictWoundsTouch(idx);
+        await sleepMs(1100);
+        return;
+      }
       // ── ボス: 行動選択 (normal / smash / summon) ──
       let bossAction = "normal";
       if (def.isBoss && !def.multiHead) {   // ハイドラは召喚/smash抽選せず頭数ぶん噛撃
@@ -40553,6 +40799,7 @@
       if (scenId === "dragon-lair") return buildDragonLairRun();
       if (scenId === "tower-mother") return buildTowerMotherRun();   // ★[#82] 本筋外の 7 本目
       if (scenId === "kobold-warren") return buildKoboldWarrenRun();   // ★[#103] 本筋外の 8 本目
+      if (scenId === "lost-cargo") return buildLostCargoRun();   // ★[#104] 本筋外の 9 本目
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -41816,6 +42063,51 @@
         entry: "n0",
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (22,7) = 巣穴の口。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[#104] 消えた積み荷 (本筋外の 9 本目) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 港の倉庫 ── right → n1 boss 地下水道の祠
+     *
+     * ⭐ 巣穴 (#103) の型 = p6Node() を直接 2 回呼ぶ。id は n0/n1 (NODE_EXTRA_SPAWN_KINDS の n0/n1 と対)。
+     * ⚠ p6Node の既定 3 つは全部明示する (#53 の罠): density 0 / start / paint。
+     * ⚠ rect は ROOM_PAINTINGS_DEF["lost-cargo"] の tileBounds と**同値**。格子は 64px の焼き上がり
+     *   (倉庫も祠も 24x16 = 依頼書 §12-1 (3-4))。
+     * ⭐ 出口を持つ n0 の rect は唯一解 (#53): 右辺の中点が出口ゲート (39,13) に一致する 16 行 x 24 列は
+     *   [6, 16, 21, 39] だけ (16 行 = 偶数 → midR = floor((6+21)/2) = 13 = 絵ローカル row 7 = 大扉と床の穴の行)。
+     *   n1 も同じ位置に揃える (入場の行 = 絵ローカル row 7 = 梯子の足元)。
+     * ⚠ 座標はすべて global = 絵ローカル + (16, 6)。 */
+    function buildLostCargoRun() {
+      /* n0 港の倉庫 (屋内)。入場 = 西の大扉 (16,13) + NODE_ENTRY_INSET(2) = (18,13) = 絵ローカル (2,7)。
+       * 2 群:
+       *   積み荷の山のあいだのネズミ = 3 体 (北西の板張り 絵ローカル (5,3) (6,3) (6,4))
+       *   床の穴の前のゾンビ       = 2 体 (消えた番人。絵ローカル (20,7) (21,8))
+       *   ⭐ 入場からの最短は (5,3) の 5.0 タイル (480px) > melee 交戦距離 400px。
+       *   ⭐ 2 群の最短は (6,4)-(20,7) の 14.32 タイル > DETECTION_RANGE 12.5 = 別々の戦闘。
+       *   ⚠ 敵のタイルは n0big のマスクで全部 '.'。 */
+      const n0 = p6Node("lost-cargo", "lost-cargo", "n0", "港の倉庫", [6, 16, 21, 39], {
+        paint: "n0big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[21, 9, "rat"], [22, 9, "rat"], [22, 10, "rat"],
+                [36, 13, "zombie"], [37, 14, "zombie"]],
+      });
+      /* n1 地下水道の祠 (ボス・屋内)。入場 = 西辺の中点 (16,13) + 2 = (18,13) = 絵ローカル (2,7) = 梯子の足元。
+       * 司祭 = 祭壇の前 (絵ローカル (19,7))。手下 = その前: ゾンビ (16,7) / 巨大ガエル (17,5) (17,9)。
+       *   ⭐ 入場からの最短は (16,7) の 14.0 タイル ≥ 13 = 入場ナレの最中に戦闘が始まらない。4 体は 1 つの戦闘に入る。
+       *   ⚠ 祭壇とろうそく・積み荷 (絵ローカル col 20-22) と汚水の水路 (row 1-3 / 12-14) は n1big のマスクで塞いである。 */
+      const n1 = p6Node("lost-cargo", "lost-cargo", "n1", "地下水道の祠", [6, 16, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[32, 13, "zombie"], [33, 11, "plagueFrog"], [33, 15, "plagueFrog"]],
+        boss: [35, 13, "plaguePriest"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 床の穴の先。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },

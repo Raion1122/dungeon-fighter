@@ -672,6 +672,11 @@
     try {
       if (new URLSearchParams(location.search).get("warren") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireWarren) window.WORLD_MAP.retireWarren();
     } catch (e) {}
+    /* ★[#104] 撤退スイッチ ?cargo=0 (実装依頼書 #104 §7)。?warren=0 と同じ「ページ単位で独立」。
+       拠点「港の倉庫街」(pier) を今日の中継点へ戻す。 */
+    try {
+      if (new URLSearchParams(location.search).get("cargo") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireCargo) window.WORLD_MAP.retireCargo();
+    } catch (e) {}
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
