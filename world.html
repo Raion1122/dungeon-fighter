@@ -677,6 +677,11 @@
     try {
       if (new URLSearchParams(location.search).get("cargo") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireCargo) window.WORLD_MAP.retireCargo();
     } catch (e) {}
+    /* ★[#105] 撤退スイッチ ?tomb=0 (実装依頼書 #105 §7)。?cargo=0 と同じ「ページ単位で独立」。
+       拠点「湖の北の島」(lake_n) を今日の中継点へ戻す。 */
+    try {
+      if (new URLSearchParams(location.search).get("tomb") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireTomb) window.WORLD_MAP.retireTomb();
+    } catch (e) {}
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ

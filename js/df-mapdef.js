@@ -52,6 +52,9 @@
     /* ★[#104] 消えた積み荷 (本筋外の 9 本目)。塔の母と同じ理由でここに要る。
      *   ⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない (倉庫も祠も屋内 = 霧を効かせる)。 */
     { id: "lost-cargo",     name: "消えた積み荷 (lost-cargo)" },
+    /* ★[#105] 沈黙の墓所 (本筋外の 10 本目)。塔の母と同じ理由でここに要る。
+     *   ⛔ 屋外テーマ (FIELD_THEME_IDS) には入れない (前室も玄室も屋内 = 霧を効かせる)。 */
+    { id: "silent-tomb",    name: "沈黙の墓所 (silent-tomb)" },
     { id: "caravan-road",   name: "屋外・街道 (caravan-road)" },
   ];
   var THEME_IDS = THEMES.map(function (t) { return t.id; });
@@ -1895,6 +1898,7 @@
     "tower-mother":   { mob: ["ruinSpider", "minotaur", "orcArcher"],            boss: "wyvernBoss" },   // ★[#82] 2026-10-03 index.html 実読で確認
     "kobold-warren":  { mob: ["kobold"],                                         boss: "koboldChief" },  // ★[#103] 2026-10-28 index.html の ENEMY_TYPES に koboldChief を足した
     "lost-cargo":     { mob: ["rat", "zombie", "plagueFrog"],                    boss: "plaguePriest" }, // ★[#104] 2026-10-29 index.html の ENEMY_TYPES に plaguePriest を足した
+    "silent-tomb":    { mob: ["skeleton", "tombArmor", "tombGargoyle"],          boss: "mummy" },        // ★[#105] 2026-10-30 index.html の ENEMY_TYPES に mummy / tombArmor / tombGargoyle を足した (⛔ 砦の animatedArmor / gargoyle ではない)
     // 屋外は resolve() でカスタム幾何を排他にしているのでこの経路には来ないが、
     // テーマ表の穴を作らないために置く (穴があると || の既定へ落ちて廃坑の敵が出る)。
     "caravan-road":   { mob: ["goblin", "goblinArcher", "hobgoblin"],            boss: "goblinRider" },

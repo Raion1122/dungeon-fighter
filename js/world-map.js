@@ -39,7 +39,7 @@
   var W = 1536, H = 1024;              // ★assets/world_region.jpg の実寸。座標は全部この px 系
 
   /* ── ノード ───────────────────────────────────────────────────────
-   *  kind: "site" … 拠点 (札が出る。ちょうど 10 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」)
+   *  kind: "site" … 拠点 (札が出る。ちょうど 11 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」/ ★[#105] 11 個目 = lake_n「湖の北の島」)
    *        "way"  … 中継点 (札は出ない。線の折れ目)
    *  enter: 入ると遷移するページ。⛔ クエリを足さない (#6 / #12 の確定作法)。
    *         ⭐ v1 で enter を持つのは phlan ただ 1 つ (依頼書 §12-3 のユーザー決定)。
@@ -84,7 +84,18 @@
      *   ⛔ id と座標は変えない・EDGES も触らない (行き止まりのまま = 塔は丘の上の袋小路)。
      *   ⭐ 撤退 ?tower=0 は world.html / tavern.html が自ページで読み、retireTower() で中継点へ戻す。 */
     pass_n:    { kind: "site", x:  736, y:  96, label: "見張りの塔", desc: "北の丘に立つ古い物見の塔" },
-    lake_n:    { kind: "way",  x:  736, y: 288 },
+    /* ★[#105] 湖の北岸 lake_n を拠点「湖の北の島」(本筋外の依頼「沈黙の墓所」) へ格上げ。
+     *   ⛔ id と座標は変えない・EDGES も触らない (farm_n と lakeside をつなぐ通り道のまま = 廃坑・神殿への経路の途中)。
+     *   ⚠ 通り過ぎても入場ダイアログは開かない (押して着いたときだけ)。街道の出来事・襲撃は拠点では出ない (isRoadSite)。
+     *   ⭐ 小島は絵の中でこの点の南の湖上 (≈ 725,375)。拠点は北岸の渡し場 = 島へは舟で渡る (語りで吸う)。
+     *   ⭐ 撤退 ?tomb=0 は world.html / tavern.html が自ページで読み、retireTomb() で中継点へ戻す。
+     *   ⭐ signDx: 64 (項目2 で実測して決めた・依頼書 #105 §12-2): signDx 0 だと札が北西の刻み点 farm_n__pass_n@1 (672,160) の
+     *      マーカーの上に被さり、**刻み点が押せなくなる** (elementFromPoint が札を返す = verify_world_steps (2c) が赤)。
+     *      押せるようになる下限は 1280/1440 幅で 56 (52 は赤)。余白を見て 64。実測 (64): 刻み点 10 個とも押せる・札 11 枚の 5 点は
+     *      奪われない・札どうしの交わり 0・主人公が farm_n__pass_n@1 に立つと墓所の札を隠す割合 8.1% (1440) / 6.2% (390)
+     *      (signDx 0 では 20.6% / 20.3%)。⚠ 390 幅で主人公が farm_n に立つと札の右端が画面外へ 34px 出る (signDx 0 でも 375/390 = 寸前)。
+     *      ⛔ 他の拠点の signDx は動かさない。 */
+    lake_n:    { kind: "site", x:  736, y: 288, label: "湖の北の島", desc: "湖に浮かぶ小島。古の魔法使いが眠る墓所", signDx: 64 },
     /* ★[#103] 湖の南の農村 village_s を拠点「南の村」(本筋外の依頼「コボルドの巣穴」) へ格上げ。
      *   ⛔ id と座標は変えない・EDGES も触らない (沼地と砦をつなぐ道の途中のまま)。
      *   ⭐ 撤退 ?warren=0 は world.html / tavern.html が自ページで読み、retireWarren() で中継点へ戻す。 */
@@ -174,7 +185,8 @@
     "dragon-lair":    "dragon",
     "tower-mother":   "pass_n",    /* ★[#82] 本筋外の 7 本目 (tavern.html の scenarios[] の side:true) */
     "kobold-warren":  "village_s", /* ★[#103] 本筋外の 8 本目 (最初から受けられる初仕事) */
-    "lost-cargo":     "pier"       /* ★[#104] 本筋外の 9 本目 (廃坑の後に解放) */
+    "lost-cargo":     "pier",      /* ★[#104] 本筋外の 9 本目 (廃坑の後に解放) */
+    "silent-tomb":    "lake_n"     /* ★[#105] 本筋外の 10 本目 (森の後に解放) */
   };
 
   /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
@@ -193,7 +205,8 @@
     "dragon-lair":    "undead-temple",
     "tower-mother":   "orc-fort",  /* ★[#82] 砦のクリア後 (tavern.html の unlockAfter と同じ) */
     "kobold-warren":  null,        /* ★[#103] 最初から解放済み (tavern.html の locked:false と同じ) */
-    "lost-cargo":     "goblin-mine" /* ★[#104] 廃坑のクリア後 (tavern.html の unlockAfter と同じ) */
+    "lost-cargo":     "goblin-mine", /* ★[#104] 廃坑のクリア後 (tavern.html の unlockAfter と同じ) */
+    "silent-tomb":    "bandits-forest" /* ★[#105] 森のクリア後 (tavern.html の unlockAfter と同じ) */
   };
 
   /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
@@ -409,6 +422,14 @@
     delete UNLOCK["lost-cargo"];
   }
 
+  /* ★[#105] 撤退 ?tomb=0 の器 (retireCargo と同じ形)。lake_n を今日の中継点へ戻し、
+   *   SITES / UNLOCK から silent-tomb を外す。⭐ クエリを読むのは各ページ。 */
+  function retireTomb() {
+    NODES.lake_n = { kind: "way",  x:  736, y: 288 };
+    delete SITES["silent-tomb"];
+    delete UNLOCK["silent-tomb"];
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
@@ -417,6 +438,7 @@
     retireTower: retireTower,   /* ★[#82] 撤退 ?tower=0 の器 (行を足しただけ。前後の行は 1 バイトも変えない) */
     retireWarren: retireWarren, /* ★[#103] 撤退 ?warren=0 の器 */
     retireCargo: retireCargo,   /* ★[#104] 撤退 ?cargo=0 の器 */
+    retireTomb: retireTomb,     /* ★[#105] 撤退 ?tomb=0 の器 */
     /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
     STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
     walkNodes: walkNodes, walkEdges: walkEdges,

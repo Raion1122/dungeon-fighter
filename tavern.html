@@ -3810,6 +3810,30 @@
       locked: true,
       unlockAfter: "goblin-mine",
     },
+    /* ★[#105] 新しい行き先の 3 か所目「沈黙の墓所」(本筋の外・森の後)。
+       ⭐ side = 卓の抽選の母集団には入るが、「本筋」「次の未解放」の判定からは外れる (#82 と同じ)。
+       ⭐ locked:true = 開始直後の卓・廃坑の後の卓は今日のまま。森のクリアで沼地と同時に解放。
+       ⭐ difficulty "★★" = 本筋外の帯 (巣穴 Lv2「★」/ 倉庫街 Lv4「★★」/ 塔の母 Lv7「★★★」・☆ なし) に揃えた (依頼書 #105 §12-2)。
+       ⚠ id は index.html の SCENARIOS / js/world-map.js の SITES・UNLOCK と同じ (verify_world_map (4s) が照合)。 */
+    {
+      id: "silent-tomb",
+      place: "湖の北の島",        /* ⚠ id の直後に置く (検証ドライバが id → place の並びで配信バイトを読む) */
+      side: true,
+      title: "沈黙の墓所",
+      difficulty: "★★",
+      recommendedLevel: 5,        /* 森 4 の後・沼地 5 と同じ帯。⚠ 強さの実測 (依頼書 §8 ⑤) で直してよい */
+      reward: "渡し守の礼金",
+      client: { name: "オズウィン", role: "湖の渡し守", type: "villager" },
+      dialog:
+        "「北の小島の墓所に、夜になると青い灯がともるんです。墓荒らしが三人、わしの舟を借りて渡ったきり戻らない……" +
+        "舟は出します。ですが、あそこの入口には『眠りを妨げる者に沈黙を』と刻まれている。罠には、よくよくお気をつけて」",
+      enemies: [
+        { name: "墓所の番人たち", boss: false },
+        { name: "墓所の主(マミー)", boss: true },
+      ],
+      locked: true,
+      unlockAfter: "bandits-forest",
+    },
   ];
   /* ══ 撤退スイッチ ?tower=0 (実装依頼書 #82 §7) ═════════════════════════════
      ⭐ このページだけで読む (world.html も自分で読む = ?heromark=0 と同じ「ページ単位で独立」)。
@@ -3844,6 +3868,17 @@
     if (!off) return;
     for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "lost-cargo") scenarios.splice(i, 1);
     try { if (window.WORLD_MAP && window.WORLD_MAP.retireCargo) window.WORLD_MAP.retireCargo(); } catch (e) {}
+  })();
+  /* ══ 撤退スイッチ ?tomb=0 (実装依頼書 #105 §7) ═════════════════════════════
+     ⭐ ?tower=0 / ?warren=0 / ?cargo=0 と同じ「ページ単位で独立」(world.html も自分で読む)。⛔ sessionStorage へ写さない。
+     配列から silent-tomb を外し、ワールドマップの写しの lake_n も中継点へ戻す
+     (cleared=[廃坑, 森] の卓の母集団は今日どおりの件数へ戻る)。 */
+  (function () {
+    var off = false;
+    try { off = new URLSearchParams(location.search).get("tomb") === "0"; } catch (e) { off = false; }
+    if (!off) return;
+    for (var i = scenarios.length - 1; i >= 0; i--) if (scenarios[i].id === "silent-tomb") scenarios.splice(i, 1);
+    try { if (window.WORLD_MAP && window.WORLD_MAP.retireTomb) window.WORLD_MAP.retireTomb(); } catch (e) {}
   })();
   /* ★[#82] 本筋 6 本 (side を除いた scenarios)。1 枚絵 (renderTables の既定) と奥の間が使う。
      ⭐ 毎回 scenarios から引く (別表を作らない = side を足し引きしても写しがズレない)。 */

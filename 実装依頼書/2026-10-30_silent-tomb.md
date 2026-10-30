@@ -743,3 +743,39 @@ n1big 魔法使いの玄室 (24x16)
 | verify_enemy_traits | 0 | 15/15 PASSED FAILED 0 PENDING 0 | 4 |
 | verify_fort_fold | 0 | PASS 30 / FAIL 0 | 2 |
 | verify_temple_fold | 0 | PASS 24 / FAIL 0 | 158 |
+
+### 12-2. 項目2 — 本体(2026-10-30・基準 HEAD `0014d8f`)
+
+⭐ §4〜§7 を全部入れた。作業の置き場 = `~/.claude/dev-loop/r105/item2/`(申し送り `r105/item2_notes.md`)。依頼書からの差は下の「決めた値」の 3 つだけ。
+
+#### (1) 決めた値と根拠
+
+| 論点 | 決定 | 根拠 |
+|---|---|---|
+| `difficulty` | **「★★」**(出発点「★★★」から変えた) | §12-1 (1) の帯: 本筋外は ☆ なしで数だけ(巣穴 Lv2「★」/ 倉庫街 Lv4「★★」/ 塔の母 Lv7「★★★」)。Lv5 は 4 と 7 の間で 4 寄り = 「★★」。★★★ は塔の母と同じ = Lv7 相当に見える |
+| `lake_n` の `signDx` | **64**(⚠ 項目1 の見込み「足さない」から変えた) | ⚠⚠ 予告外の赤: `verify_world_steps` (2c)「刻み点マーカーが押せる」— signDx 0 だと墓所の札が北西の刻み点 `farm_n__pass_n@1` (672,160) のマーカーの上に被さり、elementFromPoint が札を返す(**刻み点が押せない** = 本物の欠陥。項目1 は主人公と札の重なりしか測っていなかった)。道具 `r105/item2/measure_signdx.js`(本番の world-map.js の lake_n 行だけをメモリで差し替え・cleared = 10 本)で掃引: 1280/1440 幅では 52 が赤・**56 から緑**(390 幅は 48 から緑)。余白を見て 64。実測 (64) = 刻み点 10 個とも押せる・札 11 枚の 5 点は奪われない・札どうしの交わり 0・主人公が farm_n__pass_n@1 に立つと墓所の札を隠す割合 **8.1% (1440) / 6.2% (390)**(signDx 0 は 20.6% / 20.3%)。⚠ **390 幅で主人公が `farm_n` に立つと札の右端が画面外へ 34px 出る**(signDx 0 でも右端 375/390 = 寸前・#104 の倉庫街の 24px と同じ種類 = §9 実機・ユーザー判断の材料)。参考: 390 幅で `pass_n` の札の 1 点が `worldBack`(戻るボタン)に奪われるのは signDx 0 でも同じ = 本件の前から |
+| `LINT_PAINTING_ASPECTS` | **足さない** | `driver_graph_p6` 250/250 PASS(24x16 = 3:2 が在庫にある) |
+| `detectEnemyFamily` | `mummy` を undead へ(**新しい行**を 1 本足した・既存の行は触らない) | §5-2 の「可」。台詞は既存のアンデッドのものを引くだけ。墓所専用の動く鎧 / ガーゴイルは元の 2 種と同じく generic のまま |
+| 鳴き声 | `SPEECH_LINES` の閉じの直後に**参照の代入** 2 行(`SPEECH_LINES["enemy.cry.tombArmor"] = SPEECH_LINES["enemy.cry.animatedArmor"]` ほか) | 文言を新しく書かない(§5-2b)。文字列の写しではない = 変異アンカーが 2 回ヒットする罠E は起きない。煙検査の画面で「ガシャン! ガシャン!」を目視 |
+| `tombGargoyle` の `physicalResistance` | 写した | SRD の Gargoyle の体質(守護者の仕掛けではない)。持たせないのは `faction` / `startsDormant` だけ |
+
+#### (2) 煙検査(`r105/item2/smoke_tomb.js`・port 10695/10696/10711-10714 ・ ⚠ 10697/10698 は別窓のプロセスが握っていた)
+
+| 回 | 条件 | 結果 |
+|---|---|---|
+| A,B | 酒場 / ワールドマップ | **SMOKE 12/12** — 開始直後は廃坑 + 巣穴・cleared=[廃坑] は 4 件のまま・cleared=[廃坑, 森] で墓所が解放・`?tomb=0` で件数が 1 減り lake_n は中継点 / 港町 → 廃坑の経路が lake_n を通り(母集団)、**通過しても開かず廃坑で開く** / lake_n を押して着くと「〈湖の北の島〉へ入りますか?」→ index の silent-tomb (n0 start / n1 boss) / world.html?tomb=0 で札なし |
+| C,D #1 | xp 10000・マミー HP 400 に上げる(手番を稼ぐ操作) | 7/9 — まなざし 1 回(主人公 roll 2 = **恐怖 + 行動不能**: frightenedRemaining 3・skipNextTurn true)・マミーの手番 13・partyWillSave 0・awakenGuardians 0。HP 400 のマミーに主人公が倒れた = C3/D1 の 2 本だけ赤(操作の結果) |
+| C,D #2 | xp 20000・HP 150 | 7/9 — まなざし 1 回(roll 11 = 成功)・手番 20・同上。同じく HP を上げたマミーに主人公が倒れた |
+| C,D #3 | **xp 10000 (Lv5)・HP そのまま (87)** | **SMOKE 9/9** — n0 → n1 → マミー撃破 → `lastResult.cleared` (181 秒)・まなざし 1 回(仲間ミラ roll 13 成功・sleepWatchHp null)・手番 11 |
+| C,D #4 | 同上 | **SMOKE 9/9** — 221 秒でクリア・まなざし 1 回(主人公 roll 14 成功)・手番 5 |
+| 絵 | `shot_armor.js`(Lv5・HP そのまま) | 2 回とも VICTORY。新しい動く鎧の歩き(前室・頭上札「動く鎧」・鳴き声)・攻撃(玄室)・倒れ(宝箱を落とす)を全画面で目視。範囲スリープの語り「2体は眠らない (動く鎧, 墓所の主(マミー))」= 体質と undead の眠り免疫が効いている |
+
+4 回すべてで: n0 = 骸骨 3 + 動く鎧 2・罠 1 つ `dart` / n1 = マミー 1 (31,13) + 動く鎧 1 + ガーゴイル 2・罠 1 つ `glyph`・**誰も inactive / dormant / faction beast でない(200ms ごとに全期間監視して 0 件)**・「古代王国の守護者」のバナー 0・「👁 恐怖のまなざし 👁」のバナーちょうど 1 回・`traps.length` は発動の前後で 1 のまま・pageerror / console.error 0。⇒ ⚠ 強さは ⑤ で測る(HP を上げた 2 回の敗北は強さの参考にしない)。
+砦の守護者(元の `animatedArmor` / `gargoyle`)は `verify_fort_fold` PASS 30 / FAIL 0(休眠 5 体の旧 n6 を含む)・`verify_temple_fold` 24/24 = 従来どおり。
+
+#### (3) 名指し golden(基準 = §12-1 (7)。走らせ方 `bash r105/item2/run_golden.sh`・18:49〜19:21 = 昼。signDx 後に世界地図系 8 本を再走 = `r105/item2/golden_logs2/`)
+
+- 緑のまま: driver_graph_p6 250/250・verify_kobold_warren 21/21・verify_plaza_map 43/43・verify_road_boon・verify_tower_mother 19/19・verify_tower_mother_b 22/22・verify_counterspell 25/25(まなざしは HP を引かない = 予告どおり)・verify_run_chronicle 74/0・driver_cleanup_phase1 28/28・verify_fort_fold 30/0・verify_temple_fold 24/0
+- 着手前から赤(範囲外): verify_codex_map_skill (3a) stag-tavern・driver_mapeditor_painting §1 1d2(labels / サイズの差は同じ 2)
+- **予告外で赤 → 本体で直した**: verify_world_steps (2c) → `signDx: 64`(上の表)。再走で緑
+- **予告どおり赤(項目4 で言い直す)** = `r105/item2_notes.md` の表(件数・枚数・sha1・行の集合だけ)
