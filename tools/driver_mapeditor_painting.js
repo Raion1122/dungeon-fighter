@@ -518,9 +518,10 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       /* ★[#82] テーマは本筋 6 + 本筋の外 (塔の母 tower-mother) 1 = 7。⭐ 本筋 6 は名前で数えず
        *   「中核 4 キーを持つテーマ」の数で数える (1a2 と同じ物差し)。
        * ★[#103] + 本筋の外 (コボルドの巣穴 kobold-warren) 1 = 8。
-       * ★[#104] + 本筋の外 (消えた積み荷 lost-cargo) 1 = 9。 */
-      check('§1 1a ★paintingEntries() が本編カタログを 1 件も落としていない / 9 テーマ (★[#82][#103][#104] 本筋 6 + 塔の母 1 + 巣穴 1 + 積み荷 1)',
-        CAT_N > 0 && c1.n === CAT_N && c1.n >= 24 && c1.themes.length === 9 &&
+       * ★[#104] + 本筋の外 (消えた積み荷 lost-cargo) 1 = 9。
+       * ★[#105] + 本筋の外 (沈黙の墓所 silent-tomb) 1 = 10。 */
+      check('§1 1a ★paintingEntries() が本編カタログを 1 件も落としていない / 10 テーマ (★[#82][#103][#104][#105] 本筋 6 + 塔の母 1 + 巣穴 1 + 積み荷 1 + 墓所 1)',
+        CAT_N > 0 && c1.n === CAT_N && c1.n >= 24 && c1.themes.length === 10 &&
         c1.themes.filter(t => ['1', '2', 'n4', 'n7'].every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)).length === 6,
         'n=' + c1.n + ' index.html の実数=' + CAT_N + ' themes=' + c1.themes.join(','));
       /* ⚠ 完全一致 (=== ['1','2','n4','n7']) だと**キーを 1 つ増やしただけで赤くなる**。
@@ -528,9 +529,10 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       /* ★[#82] 塔の母は旧タイプの小部屋を持たない (最初から卓上マップ 2 枚) ⇒ 中核 4 キーの要求は
        *   本筋 6 テーマへ、塔の母には自分の 2 枚 (n0big / n1big) を要求する (⛔ どちらも緩めない)。
        * ★[#103] 巣穴 kobold-warren も同じ型 (新規の卓上マップ 2 枚 n0big / n1big) ⇒ 同じ要求を足す。
-       * ★[#104] 消えた積み荷 lost-cargo も同じ型 (n0big 港の倉庫 / n1big 地下水道の祠) ⇒ 同じ要求を足す。 */
-      const SIDE_THEMES = ['tower-mother', 'kobold-warren', 'lost-cargo'];
-      check('§1 1a2 ★本筋 6 テーマが 1 / 2 / n4 / n7 の 4 キーをそろえている (取りこぼしゼロ) / ★[#82][#103][#104] 塔の母・巣穴・積み荷は n0big / n1big をそろえている',
+       * ★[#104] 消えた積み荷 lost-cargo も同じ型 (n0big 港の倉庫 / n1big 地下水道の祠) ⇒ 同じ要求を足す。
+       * ★[#105] 沈黙の墓所 silent-tomb も同じ型 (n0big 墓所の前室 / n1big 魔法使いの玄室) ⇒ 同じ要求を足す。 */
+      const SIDE_THEMES = ['tower-mother', 'kobold-warren', 'lost-cargo', 'silent-tomb'];
+      check('§1 1a2 ★本筋 6 テーマが 1 / 2 / n4 / n7 の 4 キーをそろえている (取りこぼしゼロ) / ★[#82][#103][#104][#105] 塔の母・巣穴・積み荷・墓所は n0big / n1big をそろえている',
         c1.themes.filter(t => SIDE_THEMES.indexOf(t) < 0).length === 6 &&
         c1.themes.filter(t => SIDE_THEMES.indexOf(t) < 0).every(t => ['1', '2', 'n4', 'n7']
           .every(k => (c1.byTheme[t] || []).indexOf(k) >= 0)) &&
@@ -646,8 +648,8 @@ const inRect = (s, rc) => (s.ty >= rc[0] && s.ty <= rc[2] && s.tx >= rc[1] && s.
       });
       /* ★P3: 在庫の総数を直書きしない。UI は「カタログ全件 + 『なし』1 件」であるべきなので、
        *   基準は上で index.html から数えた CAT_N (別経路なので両方が同じ誤りを共有しない)。 */
-      check('§3 3e ★paintSel = 「なし」+ カタログ全件 / optgroup 9 (テーマごと。★[#82] 塔の母・★[#103] 巣穴・★[#104] 積み荷を足した数)',
-        ui.options === CAT_N + 1 && ui.groups.length === 9,
+      check('§3 3e ★paintSel = 「なし」+ カタログ全件 / optgroup 10 (テーマごと。★[#82] 塔の母・★[#103] 巣穴・★[#104] 積み荷・★[#105] 墓所を足した数)',
+        ui.options === CAT_N + 1 && ui.groups.length === 10,
         'options=' + ui.options + ' 期待=' + (CAT_N + 1) + ' groups=' + J(ui.groups));
       check('§3 3f optgroup の label は M.THEMES の name (themeSel と同じ表記)',
         ui.groups.length > 0 && ui.groups.every(g => ui.themeNames.indexOf(g) >= 0), J(ui.groups));

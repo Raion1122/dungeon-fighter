@@ -93,6 +93,10 @@ const SRD = {
   stoneGolem:     { sleep: true, construct: true },                              // Stone Golem (魅了に免疫)
   animatedArmor:  { sleep: true, construct: true },                              // Animated Armor
   stoneLegionary: { sleep: true, construct: true },                              // 独自 (ゴーレムと揃える §2-7)
+  /* ★[#105 2026-10-30] 沈黙の墓所の 2 種。⚠ マミーの SRD の体質 (火に弱い・非魔法の武器に抵抗・死霊/毒に免疫) は
+   *   #105 §11 で「足さない」(ユーザー決定 = 弱点 0 件) ⇒ 眠らない (アンデッド = isUndeadEnemy) だけを写す。 */
+  mummy:          { sleep: true },                                               // Mummy (アンデッド・表に書かない)
+  tombArmor:      { sleep: true, construct: true },                              // Animated Armor (墓所専用 = animatedArmor と同じ)
 };
 const ELEMENTS = ['fire', 'cold', 'lightning'];
 function srdMult(type, el) { const s = SRD[type]; return (s && s.el && Object.prototype.hasOwnProperty.call(s.el, el)) ? s.el[el] : 1; }
@@ -513,8 +517,8 @@ function judge(ctx, D, R) {
   /* ── (0b) 窓と表 ── */
   {
     const t = ON.traits, to = OFF.traits;
-    const ok = !!t && t.on === true && t.keys.length === 8 && t.missing.length === 0 && t.fns === 'function,function,function' && !!to && to.on === false;
-    R.check('(0b)', '__dfEnemyTraits が在り on === true・表のキー 8 個・全キーが ENEMY_TYPES に実在 (?enemytraits=0 の腕で on === false)', ok,
+    const ok = !!t && t.on === true && t.keys.length === 9 && t.missing.length === 0 && t.fns === 'function,function,function' && !!to && to.on === false;
+    R.check('(0b)', '__dfEnemyTraits が在り on === true・表のキー 9 個 (★[#105] tombArmor の 1 行を足した)・全キーが ENEMY_TYPES に実在 (?enemytraits=0 の腕で on === false)', ok,
       t ? 'on=' + t.on + ' keys(' + t.keys.length + ')=' + t.keys.join(',') + ' 実在しない=' + J(t.missing) + ' fns=' + t.fns + ' / OFF on=' + (to && to.on) : '⛔ 窓が無い');
   }
   /* ── (0c) SRD の表 (ドライバ) とページの表の中身 ── */
