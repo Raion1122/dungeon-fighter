@@ -573,3 +573,173 @@ Lv5・4 人・N=10 で: クリア率 / 全滅率 / 所要 / 残り HP / 倒れ�
 ## 12. 実装結果
 
 (実装窓が書く)
+
+### 12-1. 項目1 — 着手前の実測 + 素材の取り込み(2026-10-30・基準 HEAD `fa21d59`)
+
+⭐ 本番 3 ファイル(`index.html` / `tavern.html` / `audio.js`)と `js/*.js` / `world.html` は**無変更**。足したのは `tools/make_grid_map.py`(GRIDS 2 行)/ `tools/codex1_sprites.json`(2 行)/ `assets/` 4 枚 / 本節。作業の置き場 = `~/.claude/dev-loop/r105/item1/`(申し送り `r105/item1_notes.md`)。
+
+#### (1) §2 の測り直し
+
+| 主張 | 実測(`fa21d59`) |
+|---|---|
+| §2-3 の行番号(index / tavern / world-map / df-mapdef / world.html / road-events / verify_lore_check / check_changelog) | `2e2e291..fa21d59` の差は依頼書と README の 2 本だけ ⇒ **全部一致**(41 か所を `sed -n <行>p` で照合。`__lostCargoTV` の代入は 18736 = 範囲 18734-18739 の中) |
+| §2-1 `lake_n` は通り道の途中 | ✅ `findPath("phlan", "mine" / "temple" / "dragon")` は 3 本とも `…farm_n>lake_n>lakeside>…` を通る(node で world-map.js を直接読んだ)。`findWalkPath("phlan","mine")` = `…farm_n>lake_n>lake_n__lakeside@1>lake_n__lakeside@2>lakeside>…` |
+| §2-6 / §2-12 動く鎧・ガーゴイルの定義 | ✅ `animatedArmor` HP33・AC18・atk+4・1d6+2・XP150・`displaySize 78`・`attackDuration 24 / attackHitFrame 12`・`faction:"beast"`・`startsDormant:true` / `gargoyle` HP42・`displaySize 80`・同じ 2 鍵。`initGuardians()` は 38407 で無条件に呼ばれる |
+| §2-7 `fearDC` の器 | ✅ 23487-23496 `def.isBoss && def.fearDC` → `partyWillSave(fb.def.fearDC)` |
+| §4-1 `difficulty` の帯 | 本筋 = ☆ 付き 3 桁(廃坑 Lv3「★☆☆」/ 森 Lv4・沼地 Lv5「★★☆」/ 砦 Lv6「★★★」)、本筋外 = ☆ なしで数だけ(巣穴 Lv2「★」/ 倉庫街 Lv4「★★」/ 塔の母 Lv7「★★★」)⇒ Lv5 の墓所は **「★★」が帯に揃う**(出発点「★★★」は塔の母と同じ = 一段重い)。⚠ 項目2 で決める(提案) |
+
+#### (2) 札と主人公の重なり(§2-2)
+
+道具 = `r105/item1/sign/measure_signs.js`(port 10694。`lake_n` を拠点にした world-map.js をメモリで配る・本番は触らない)。主人公の立ち位置は `sessionStorage["dragonfighters.roadReturn"]`(襲撃からの再開の口)で置いた。
+
+| 世界 | 画面 | 主人公の立ち位置 | 札の枚数 | 墓所の札と他の札の交わり | 主人公が墓所の札を隠す割合 | 墓所の札が画面内 |
+|---|---|---|---|---|---|---|
+| cleared=[廃坑, 森] | 1440x900 | lake_n / pass_n / lake_n__lakeside@1 | 7 | **0** | 0 | ✅ |
+| 〃 | 1440x900 | **farm_n__pass_n@1** (672,160) | 7 | 0 | **20.8%**(札の左上の角) | ✅ |
+| 〃 | 1440x900 | farm_n(廃坑・神殿への経路の途中) | 7 | 0 | 16.0% | ✅ |
+| 〃 | 390x844 | lake_n / pass_n / lake_n__lakeside@1 | 7 | **0** | 0 | ✅ |
+| 〃 | 390x844 | farm_n__pass_n@1 / farm_n | 7 | 0 | 20.3% / 13.0% | ✅ |
+| 〃 | 390x844 | title 起点(主人公は pier) | 7 | 0 | 0 | ⚠ 画面外(カメラが南西 = 遠くの札は見えない。倉庫街の 390 幅と同じ種類) |
+| 本筋 6 本クリア | 1440 / 390 | lake_n / farm_n__pass_n@1 / pass_n | 11 | **0**(見張りの塔の札の下端 → 墓所の札の上端 = 117.7px / 112.6px) | 20.8% / 20.3%(farm_n__pass_n@1) | ✅ |
+
+- 札の寸法: 1440 = 190.9x38.2px(t=184.1)/ 390 = 165x34px。
+- ⇒ #104 で `signDx` を足した基準(phlan に立つと倉庫街の札を 35.9〜39.9% 隠す)の**約半分**。札の文字「湖の北の島」は隠れない(`r105/item1/sign/crop_1440_farmpass.png`)。**`signDx` は足さない見込み**(⛔ 項目1 では決めない。項目2 / ユーザー判断)。(1f) は「札どうしの交わり 0」なので現状で緑の見込み。
+
+#### (3) 地図 2 枚(段 3〜4)
+
+| 指標 | 墓所の前室 `tomb-hall` → n0 | 魔法使いの玄室 `tomb-crypt` → n1 |
+|---|---|---|
+| 本命と `-nogrid` の差分 | 79015 画素・**x / y ∈ {64k, 64k+1} の外 0** | 83691 画素・外 0 |
+| 線 | ⚠ **2px 幅**(x = 64k と 64k+1。#104 v2 の 1px と違う)。全行が変わる列 = x 0,1,…,1472,1473。行の被覆が 1 未満なのは黒い余白(暗い線を黒に重ねても変わらない) | 同じ |
+| 線の明度(格子あり / 無し) | 12.9 / 23.6 = 暗い線 | 16.0 / 29.3 |
+| ⇒ 台帳 | **(0,0) / 64.000 / 24x16 / tile 64**(恒等の焼き) | 同じ |
+| `--fit --fit-around 64` の一次解(貼らない) | (64.05, 64.10) / (64.060, 64.105) / **22x14** = 外周 4 辺を落とす | (63.95, 63.75) / (64.035, 64.080) / 22x14 |
+| 目地を拾っていない証拠(`-nogrid` の fit) | score 2.75 / 5.27・周期 65.3 / 63.7(格子あり 8.64 / 8.92) | 2.95 / 4.53・66.1 / 65.9(格子あり 10.67 / 11.20) |
+| 焼き上がり | `assets/room_silent-tomb_n0_map.jpg` **1536x1024 = 24x16**(0.24 MB) | `assets/room_silent-tomb_n1_map.jpg` 1536x1024 = 24x16(0.29 MB) |
+| `--check`(drift ≤ 4.0 / 位相 ≤ 2.0 / score ≥ 70%) | 縦 1.30 / 0.90 / 97.9% OK・横 2.42 / 0.90 / 95.5% OK | 縦 1.66 / 0.90 / 96.6% OK・横 0.00 / 0.75 / 100% OK |
+
+- ⚠ drift が #104 の 0.00 でなく 1.2〜2.4 world-px なのは線が 2px(中心 = 64k+0.5)だから。閾値は緩めていない。
+- 行数 16 = 偶数 ⇒ midR = 絵ローカル **row 7**(前室 = 大扉と石段の行 / 玄室 = 石段の足元と石棺の行)。rect の出発点 = #104 と同じ `[6, 16, 21, 39]`・写像 = 絵ローカル + (16, 6)・入場 global (18,13) = 絵ローカル (2,7)・n0 の出口 (39,13) = 絵ローカル (23,7) = 石段。
+- 24x16 = 3:2 = 在庫「ノードボス 9×6 (3:2)」と同比 ⇒ `LINT_PAINTING_ASPECTS` に行は要らない見込み(項目2 で `driver_graph_p6` (2c))。
+- 2 枚とも屋内(⛔ `outdoor` を付けない = §8 (2d))。
+
+**MASK 草案(⭐ 唯一の正。`#` = 塞ぐ・`.` = 歩ける。外周 1 マスは `.` = sealRing の仕事)** — 道具 `r105/item1/map/masks.py`(sealRing を模した 4 近傍 BFS・重ね絵 `overlay_hall.png` / `overlay_crypt.png` で目視済み)
+
+```
+n0big 墓所の前室 (24x16)
+"........................",  // 0  外周 (sealRing)
+".######################.",  // 1  北の黒い余白・控えの間の北壁
+".######################.",  // 2  控えの間の北の壁龕 (青い灯)・回廊の北の余白
+".#.....################.",  // 3  控えの間の床 col 2-6 / 回廊の北壁
+".#.....###########....#.",  // 4  col 7 崩れた石 / 回廊の北の壁龕の足元と台座の上半分 col 8-17 / 東の間 col 18-21
+".#......#.#.#.#.#.....#.",  // 5  回廊の北の台座 col 8,10,12,14,16 (間の床・墓石の蓋 col 13・折れた矢 col 15 は平置き)
+".#......................",  // 6  col 1 = 大扉の北の扉板 / col 22-23 = 石段
+"........................",  // 7  ⭐ 入口の行 = 大扉 → 石段まで端から端まで開ける (midR)
+".#......................",  // 8  col 1 = 大扉の南の扉板
+".#......................",  // 9
+".#......#.#.#.#.#.....#.",  // 10 回廊の南の台座 col 8,10,12,14,16
+".#.....################.",  // 11 回廊の南壁 (壁龕) / col 7 崩れた石の角
+".#.###.################.",  // 12 控えの間の南の壁龕 col 3-5
+".######################.",  // 13
+".######################.",  // 14
+"........................",  // 15
+```
+歩ける 140 / 入場 (2,7) から到達 138 / 孤立 = (11,0)(11,15)(sealRing が残す辺の中点 = #104 と同じ)だけ。出口 (23,7) 到達 ✅。col 1 は大扉の行 row 7 を除き全部 `#`(扉板・倒れた石板・瓦礫)。墓荒らしの松明 (2,3)・背負い袋 (2,4)(3,3)・折れた矢は平置き = 塞がない。
+
+```
+n1big 魔法使いの玄室 (24x16)
+"........................",  // 0
+".######################.",  // 1
+".######################.",  // 2  北壁・壁龕 (柱の足元が row 2 に掛かる)
+".##....####.##......###.",  // 3  col 1-2 瓦礫と倒れた石板 / 空の台座 col 7-8, 9-10, 12-13 / col 20-22 倒れた燭台・古書・東の角
+".##..................##.",  // 4  col 21-22 古書の山
+".##.............#####...",  // 5  ⭐ 石棺の台座 col 16-20 / row 5-9 (上に立たせない)
+".#..............#####.#.",  // 6  col 1 = 石段の北の縁 / col 22 = 水晶球の破片
+"................#####.#.",  // 7  ⭐ 入口の行 (石段 col 0-1 → 足元 col 2-3 → 魔法陣 → 石棺の台座で止まる) / col 22 砕けた水晶球
+".#..............#####...",  // 8  col 1 = 石段の南の縁 (col 22 の破片は平置き)
+".##.............#####.#.",  // 9  col 2 瓦礫 / col 22 杖立て
+".##...................#.",  // 10 col 22 杖立て
+".###...####.##.......##.",  // 11 col 3 倒れた石板 / 空の台座 col 7-8, 9-10, 12-13 / col 21-22 倒れた書架
+".##########.##..###..##.",  // 12 南の壁龕 col 4-6 (+瓦礫 col 1-3) / 台座 col 7-10, 12-13 / 壁龕 col 16-18 / 書架 col 21-22
+".######################.",  // 13
+".######################.",  // 14
+"........................",  // 15
+```
+歩ける 144 / 到達 141 / 孤立 = (11,0)(11,15)(23,7)(砕けた水晶球の裏 = #104 の祭壇の裏と同じ)。魔法陣の床は平置き = 塞がない。⚠ 空の台座は絵の上で 2 列にまたがる(x 470-535 / 615-670 / 800-855)ので両列とも `#`。石棺の西 col 3-15 は開けた床。
+
+#### (4) 敵の置き場(出発点。絵ローカル → global = + (16, 6))
+
+| ノード | 敵 | 絵ローカル | global | 入場 (2,7) からの距離 |
+|---|---|---|---|---|
+| n0 | 骸骨 ×3(戻らなかった墓荒らし) | (5,3)(6,3)(6,4) | (21,9)(22,9)(22,10) | 5.0 / 5.66 / 5.0(480px > melee 交戦 400px) |
+| n0 | 墓所の動く鎧 ×2(石段の前) | (21,6)(21,8) | (37,12)(37,14) | 19.03 |
+| n0 | 2 群の最短 | (6,4)-(21,6) | | **15.13 > DETECTION_RANGE 12.5** = 別々の戦闘 |
+| n1 | マミー(ボス・石棺の西) | (15,7) | **(31,13)** | **13.0** ≥ 13 |
+| n1 | 墓所の動く鎧 | (15,9) | (31,15) | 13.15 |
+| n1 | 墓所のガーゴイル ×2 | (15,4)(15,10) | (31,10)(31,16) | 13.34 |
+
+全部 MASK で `.`・入場から到達可・マミーの隣 (14,7)(15,6)(15,8) も到達可(本番の `aStar` は受入 (2b))。
+
+#### (5) シート 2 枚の取り込み
+
+| | `mummy`(墓所の主) | `tombArmor`(墓所の動く鎧) |
+|---|---|---|
+| 素材 | `codex1/assets/tomb-mummy/tomb-mummy-walk-attack-right-6-v2-aligned/`(⭐ v2) | `codex1/assets/tomb-armor/tomb-armor-walk-attack-right-6-aligned/` |
+| 台帳 | `tools/codex1_sprites.json` に 1 行(plaguePriest の直後) | 同(mummy の直後) |
+| シート | `assets/mummy_anim.png` 576x480 / 96px / 6 列 / rowOffset 0 | `assets/tombArmor_anim.png` 576x480 / 96px / 6 列(⛔ `animatedArmor_anim.png` は上書きしていない = mtime 2026-06-06 のまま) |
+| char_ratio | **0.80**(0.86 だと attack の腕が fit right=96・top=1 で余白 0 = plaguePriest と同じ理由で下げた) | **0.86**(skeleton / zombie と同じ物差し) |
+| fit(cell 96) | left=26 right=93 top=6 クリップ無し・attack_scale auto 1.0209 | left=26 right=76 top=5 クリップ無し・attack_scale auto 1.0367 |
+| 再現性 | 台帳から `--out-dir` へ再パック = バイト一致 | 同 |
+| `check_sprite_doubling.py` | 候補なし(attack 4 コマに wide-pose の WARN = 伸ばした腕・clusters=1 = 分身ではない) | **clean** |
+| `check_alpha_bg_residue.py` | 疑い 0 件(6 セル) | 疑い 0 件(6 セル) |
+| 縁のマゼンタ(ユーザー判断「このまま使う」・⛔ 色は加工していない) | 本番の玄室の床の上で 2 倍で目視 = **包帯の垂れの先が赤みがかって見える**(walk / attack とも・`r105/item1/sprite/mummy_on_crypt.png`)。等倍では「包帯の汚れ」にも読める程度。画素(r ≥ b−10 かつ b, r > g+50)186 / 不透明 35978 | 本番の前室の床の上で 2 倍で目視 = **attack の輪郭に紫の縁がうっすら**(`tombArmor_on_hall.png`)。画素 92 / 39144。参考: 採用済みの koboldChief 95 / lich 92 |
+| 体高(walk の bbox 最大) | 77 / 96 | 82 / 96 |
+| **displaySize(推奨)** | **100** = 画面 80px(plaguePriest 100 → 79 / scar 100 → 85 / zombie 82 → 70 / skeleton 72 → 57)= 人間大のボス | **78**(写し元のまま)= 画面 67px(skeleton 57 / gargoyle 80 → 62 / zombie 70 の間・マミー 80 より小さい)。並べ絵 `lineup.png` で不自然なし |
+| 攻撃の当たりコマ | 腕の伸びが col 2〜3 ⇒ plaguePriest の `attackDuration 26 / attackHitFrame 11`(フレーム = floor(attackTimer/4)・index.html:13918 → col 2)をそのまま写せば合う | 突きが col 3 ⇒ 写し元 `animatedArmor` の `24 / 12`(→ col 3)がそのまま合う |
+
+- ⚠ 縁は**記録のみ**。目立つかどうかはユーザーの判断(別チケット候補 = 受け取り側の色の分離)。
+
+#### (6) ターン・アンデッドの扱い(⛔ 仕組みは触らない)
+
+- `allyTurnUndead`(index.html 30353-)の対象は `isUndeadEnemy(e)`(`def.undead || type === "skeleton"`)**だけ** = ボスを除外しない。既存のアンデッドのボス **`lich`(`isBoss` + `undead`)と同じ扱い**になる: HP ≤ Lv×3(Lv5 = 15)なら浄化、それ以外は `stunned = max(.., turnDuration 3)`。
+  ⇒ `mummy` に `undead: true` を付けるだけで足りる。SRD の Mummy にターン耐性は無い(リッチにはある)ので、本作の扱いは SRD に反しない。
+- ホールド・パーソンはアンデッドとボスに無効(`holdPersonImmune`)。眠りは `isUndeadEnemy` で自動の免疫(⛔ `ENEMY_TRAITS` に mummy を書かない)。
+- ⚠ Lv5 の僧侶はマミーを 3 手番止められる = ⑤ の強さに効く。⑤ で僧侶入りの盤面とターン・アンデッドの回数も記録するとよい。
+
+#### (7) 名指し golden の着手前の色(`fa21d59`)
+
+- 測った日: 2026-10-30 17:37〜18:09(昼 = 闇市の夜の窓の外)。走らせ方 `bash ~/.claude/dev-loop/r105/item1/run_golden.sh`(28 本を素で直列・timeout で包まない)。ログ `r105/item1/golden_logs/`
+- 名簿 = §2-9 の grep 17 本(verify_lost_cargo を含む)+ verify_lore_check + driver_graph_p6 + 件数系 4 本(party_four / counterspell / run_chronicle / cleanup_phase1)+ §8 末尾の verify_enemy_traits / verify_fort_fold / verify_temple_fold + 参考 verify_codex_map_skill
+- ⭐ 着手前から赤 = **2 本だけ**(#103 / #104 と同じ・#105 帰属ではない): driver_mapeditor_painting §1 1d2 / verify_codex_map_skill (3a) stag-tavern。他の 26 本は緑。
+- 走行中に並行した作業: GRIDS 2 行・地図 2 枚・シート 2 枚・台帳 2 行の追加(本番ページは読まない資産)と札の実測(port 10694)。verify_codex_map_skill は GRIDS を触る前に走り終えた(17:37:48)。
+
+| ドライバ | exit | 色 | 秒 |
+|---|---|---|---|
+| **verify_codex_map_skill** | 1 | **16/17 PASSED FAILED 1 PENDING 0** — (3a) stag-tavern の検算 NG だけ赤(着手前から)。⭐ GRIDS 2 行を足した後に再走 = 台帳 24 件・SHA 24 件一致・(3b) 24 行 OK・赤は同じ (3a) stag-tavern だけ | 22 |
+| driver_graph_p6 | 0 | ══ 結果: 250/250 PASS ══ | 41 |
+| verify_dragon_fold | 0 | PASS 35 / FAIL 0 | 2 |
+| verify_kobold_warren | 0 | 21/21 PASSED FAILED 0 PENDING 0 | 103 |
+| verify_lost_cargo | 0 | 22/22 PASSED FAILED 0 PENDING 0 | 174 |
+| verify_plaza_map | 0 | 43/43 PASSED FAILED 0 節 27 (101 秒) | 101 |
+| verify_quest_draw | 0 | 18/18 PASSED FAILED 0 PENDING 0 | 36 |
+| verify_quest_visibility | 0 | 素 39/39 PASSED (PENDING 0) | 16 |
+| verify_quest_walk | 0 | 25/25 PASSED FAILED 0 PENDING 0 | 130 |
+| verify_road_ambush | 0 | 41/41 PASSED | 68 |
+| verify_road_boon | 0 | 20/20 PASSED FAILED 0 PENDING 0 | 68 |
+| verify_road_events | 0 | 25/25 PASSED FAILED 0 PENDING 0 | 81 |
+| verify_swamp_novice | 0 | PASS 34 / FAIL 0 | 10 |
+| verify_tavern_map | 0 | 47/47 PASSED FAILED 0 PENDING 0 | 21 |
+| verify_tower_mother | 0 | 19/19 PASSED FAILED 0 PENDING 0 | 125 |
+| verify_tower_mother_b | 0 | 22/22 PASSED FAILED 0 PENDING 0 | 332 |
+| verify_world_heromark | 0 | 18/18 PASSED FAILED 0 PENDING 0 | 10 |
+| verify_world_map | 0 | 57/57 PASSED FAILED 0 PENDING 0 | 68 |
+| verify_world_steps | 0 | 33/33 PASSED FAILED 0 PENDING 0 | 54 |
+| **driver_mapeditor_painting** | 1 | **PASS 105 / FAIL 1 (合計 106)** — §1 1d2 だけ赤(labels 23 種 / サイズ 21 種 = 差 2。#104 と同じ・着手前から) | 8 |
+| verify_lore_check | 0 | 26/26 PASSED FAILED 0 PENDING 0 | 3 |
+| verify_party_four | 0 | PASS 17 / FAIL 0 | 8 |
+| verify_counterspell | 0 | 25/25 PASSED FAILED 0 (52 秒) | 52 |
+| verify_run_chronicle | 0 | [run-chronicle] 74 PASSED / 0 FAILED / 0 PENDING | 188 |
+| driver_cleanup_phase1 | 0 | [driver] RESULT: 28/28 passed | 18 |
+| verify_enemy_traits | 0 | 15/15 PASSED FAILED 0 PENDING 0 | 4 |
+| verify_fort_fold | 0 | PASS 30 / FAIL 0 | 2 |
+| verify_temple_fold | 0 | PASS 24 / FAIL 0 | 158 |
