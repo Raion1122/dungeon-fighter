@@ -543,8 +543,13 @@ function hookSection() {
         check('(1a)', S, '酒場の <li> (B) == js (A) (件数・順・innerHTML。(A) は innerHTML 往復で正規化)', A.length === 4 && eq(t.lis, normA),
           { n: t.lis.length, diff: t.lis.map((x, i) => x === normA[i] ? null : i).filter((x) => x !== null) });
         const k = t.lis.indexOf(normL[0]);
-        check('(1b)', S, '酒場の <li> の k 件目以降 == ' + LEGACY_REV + ' の直書きの先頭 (今日は k=1 = 依頼書の「2〜4 件目 == 1〜3 件目」)',
-          t.lis.length === 4 && k >= 0 && eq(t.lis.slice(k), normL.slice(0, 4 - k)), { k });
+        /* ★[#104 2026-10-30] 冒頭の注記 (行 30) の予告どおり畳む: af45b85 以後に #101 / #102 / #103 / #104 の 4 件が積まれ、
+           de7617e の直書きは酒場の 4 件から全部押し出された (k = -1)。⇒ (1b) は「de7617e の 4 件が 1 件も残っていない
+           (= 4 件以上新しく積まれた)」をちょうど縛り、履歴の一致は (1b-hist) が持つ。⛔ k >= 0 の分岐は消さない
+           (積まれた件数が 4 未満へ戻ったら従来の「k 件目以降 == 先頭」を測る)。 */
+        const gone = k < 0 && t.lis.every((x) => normL.indexOf(x) < 0);
+        check('(1b)', S, '酒場の <li> の k 件目以降 == ' + LEGACY_REV + ' の直書きの先頭 / ★[#104] 4 件以上積まれた今日は ' + LEGACY_REV + ' の 4 件が 1 件も残っていない (k = -1・履歴は (1b-hist))',
+          t.lis.length === 4 && (k >= 0 ? eq(t.lis.slice(k), normL.slice(0, 4 - k)) : gone), { k, gone });
         if (S === 'd1440') {
           const b = t.box;
           check('(3a)', S, '酒場の矩形 left/top/right == [1140,20,1420] ±1・bottom ≤ legacy の bottom + 1 (高さは文面で動く)',

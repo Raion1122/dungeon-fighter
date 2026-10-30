@@ -463,6 +463,7 @@ const MOVE_EPS = 2;
 const HOPS = 3;
 /* 1 タップ後の落ち着き待ち (tools/verify_world_steps.js と同じ)。 */
 const TAP_SETTLE_MS = 140;
+const PLAY_QUERY = '?roadevent=0';   /* ★[#104 項目4] (1c)(1d) の実操作は街道の出来事の器を消して測る (下の measurePlay の呼び口の注記) */
 /* (1e) の母集団。⚠ これは「幾何の期待値」ではなく **数え上げの母集団** で、
  *  依頼書 §8 が「照合した組が 14 x 7 = 98 件あること」と明記している。
  *  ⛔ 19.72px のような幾何の期待値はドライバへ書かない (縛るのは「交差 0」だけ)。 */
@@ -1534,7 +1535,10 @@ const PENDINGS = [];
       /* ⭐ §1 の 2 経路目 (DOM 専用) と 3 経路目 (実操作)。
          ⛔ measure() の 1 フレームだけで §1 を測らない — bob のぶん間欠フレークする。 */
       m.mark = await measureMark(browser, PORT, errs, {});
-      m.play = await measurePlay(browser, PORT, errs, {});
+      /* ★[#104 項目4 2026-10-30] 実操作の 3 ホップは街道の出来事を切って測る (PLAY_QUERY = ?roadevent=0)。
+         出来事の器 #worldEventBox (z-index 15・全画面) が刻み点で開くと 3 回目のクリックを食い、(1c) が「1px も進まなかった」で落ちる
+         (本番 / 影 (#104 の前) とも 1/15 = 実測 hm_probe.js。▽ の追従とは無関係の装置の競合)。⛔ 期待値は 1 文字も変えていない。 */
+      m.play = await measurePlay(browser, PORT, errs, { query: PLAY_QUERY });
       /* ⭐ §2 の 4 経路目 (当たり判定を実際に突く)。 */
       m.hits = await measureHits(browser, PORT, errs, {});
       /* ⭐⭐ §4 (4b) は「実装済みの assert を **両アームへ当てる**」ので、撤退アームでも
@@ -1743,7 +1747,7 @@ const PENDINGS = [];
             m.mark = await measureMark(browser, port, negErrs, {});
           }
           if (tg.some(t => ['1c', '1d'].indexOf(t) >= 0)) {
-            m.play = await measurePlay(browser, port, negErrs, {});
+            m.play = await measurePlay(browser, port, negErrs, { query: PLAY_QUERY });
           }
           /* ⭐ §2 を狙う変異 (markhit) は **当たり判定の観測**が要る (項目 3 が足した経路)。
              ⛔ 素の m だけ渡すと (2a) が「観測が無い」で機械的に赤くなり、
