@@ -131,7 +131,10 @@ const MUTATIONS = {
      印は「外した口が、本来なら飛び去らせていた個体が居たとき」 */
   lethalonly: [
     { file: F_INDEX, from: 'checkFleeEnemies("turnEnd");', to: 'if (' + SHOULD_FLEE + ') ' + HIT('lethalonly') + ';' },
-    { file: F_INDEX, from: 'checkFleeEnemies("cordon");', to: 'if (' + SHOULD_FLEE + ') ' + HIT('lethalonly') + ';' }],
+    { file: F_INDEX, from: 'checkFleeEnemies("cordon");', to: 'if (' + SHOULD_FLEE + ') ' + HIT('lethalonly') + ';' },
+    /* ★[#105 項目4] #95 がラウンド頭に足した 3 つ目の非致死の口 (守護霊の直後)。これを残すと、主人公が行動順の最後の回は
+       次のラウンド頭でここが飛び去らせ (3a) が緑のまま = 空振り (全数走査 post105 と再走で実測。#105 の前 fa21d59 でも 11 回中 1 回空振り = 非帰属の揺れ) */
+    { file: F_INDEX, from: 'checkFleeEnemies("spirit");', to: 'if (' + SHOULD_FLEE + ') ' + HIT('lethalonly') + ';' }],
   /* 罠 2: 飛び去りを fleeEnemy でなく defeatEnemy の本体経由にする (撃破の集約点・__diagDead・ドロップを通る)。
      先頭の行は「印を付けて本体へ落ちる」、非致死の口は defeatEnemy を呼ぶ */
   viadefeat: [

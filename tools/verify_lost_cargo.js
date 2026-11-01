@@ -217,7 +217,8 @@ const NEG_EXPECT = {
   /* ⚠ (4b) も赤 = (4b) の ON 腕は「(1a) の条件が真」を含む (依頼書の「ON/OFF で反転」)。verify_kobold_warren の locked と同じ構造 */
   unlockfree:    ['(1a)', '(1c)', '(4b)'],
   /* ⚠ (1g) は緑のまま = 入場の可否は SITES (scenarioOfNode) と questDest で決まり、kind を見ない。札が消えるので (1f) は赤 */
-  nosite:        ['(1a)', '(1d)', '(1f)', '(4b)'],
+  /* ★[#105] (4c) も赤 = (4c) を 4 段 (先頭 retireTomb()) にしたので、pier が way のままの既定・retireTomb() 後の地図は固定値と食い違う (決定的) */
+  nosite:        ['(1a)', '(1d)', '(1f)', '(4b)', '(4c)'],
   signclash:     ['(1f)'],
   spawnenter:    ['(1g)'],
   nosearch:      ['(2c)'],
@@ -767,12 +768,16 @@ async function runSuite(browser, port, mutKey, label) {
     const np = await newPage();
     await prep(np, null, idxSeed(LC));
     await np.evaluateOnNewDocument(() => {
+      /* ★[#105 項目4] 揺れ止め: #dmBody の文字が変わるたびに拾う (MutationObserver・verify_silent_tomb と同じ)。
+       *   ⚠ setInterval の間引きだと、負荷の高い時に 1 段落が書き上がった瞬間を取りこぼす (全数走査後の再走で outdoor の腕が (4a) 赤・all:false)。 */
       const seen = window.__narrSeen = [];
+      const take = (b) => { const t = (b.textContent || '').trim(); if (t && seen[seen.length - 1] !== t) seen.push(t); };
       const iv = setInterval(() => {
         const b = document.getElementById('dmBody');
         if (!b) return;
-        const t = (b.textContent || '').trim();
-        if (t && seen[seen.length - 1] !== t) seen.push(t);
+        clearInterval(iv);
+        take(b);
+        new MutationObserver(() => take(b)).observe(b, { childList: true, characterData: true, subtree: true });
       }, 15);
       window.__narrStop = () => clearInterval(iv);
     });
