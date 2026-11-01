@@ -849,3 +849,68 @@ n1big 魔法使いの玄室 (24x16)
 - ターン・アンデッド: 僧侶が居た 3 回(run 1・2・7)すべてでマミーを畏怖。run 7 はマミーの手番 8 のうち 3 が行動不能(その回は主人公が倒れて敗北)。
 - 罠: 発見 n0 **10/10**・n1 **5/10**。踏んだ 3 回(すべて n0 の矢・主人公・2〜4 点)。
 - ⚠ 敗北 2 回は「マミーは倒したが主人公が倒れた」= 主人公の HP 次第(クリア回も 5/70・14/70 がある)。沼地より短く、勝率はやや高い。数値をどうするかはユーザー判断。
+
+### 12-4. 項目4 — 既存 golden の言い直し + 母集団の非退行(2026-10-30〜11-01・基準 HEAD `b5fe415`)
+
+作業の置き場 = `~/.claude/dev-loop/r105/item4/`(申し送り `r105/item4_notes.md`)。本番ファイル(`index.html` / `tavern.html` / `world.html` / `js/*`)は 1 バイトも触っていない(changelog なし)。
+
+#### (1) 予告どおり赤の 16 本の言い直し(commit `d4e2a55`・⛔ 期待値は緩めず、前の値は撤退の世界へ当て直して残す)
+
+| 本 | 言い直し | 素の再走 |
+|---|---|---|
+| `verify_quest_walk` | (0z)(2z) 10 組・unlockAfter 8・side 4 / (2a)(2d) 未解放 8・拠点 10 / (2b) 札 3 → 5 → 7 → 8 → 10 → 11 枚 / (3d)(3e)(4b) 札 11 / (5a) 地図 sha1 の 5 値 = 既定 `3dd5550782057025` → `retireTomb()` 後 `44b1de14f8b2c9d0`(#104 の既定を 1 文字も変えず当て直し)→ + `retireCargo()` `3918d569e7f3f7db` → + `retireWarren()` `647e71f6b2956389` → + `retireTower()` `876c5f6336f96811` | 25/25 |
+| `verify_world_steps` (1d)(2d)(5c) | 同じ 5 値・札 11 | 33/33 |
+| `verify_road_events` (4a) | 5 値 = 既定 `2145a1b895486427` → `cba6eec82b479584` → `23ee1c56f280c2e7` → `391c6d4c0c6b4857` → `4c0a8a6b3d65cda0` | 25/25 |
+| `verify_lost_cargo` (4c) | 撤退の段を 4 段(先頭 `retireTomb()`)へ・各段の sha1 は上と同じ固定値 | 22/22 |
+| `verify_quest_draw` | (0b) side 4(silent-tomb = locked・前提は本筋の 2 番目)/ (1d) 解放済み 10。(1b) `cleared=[廃坑]` は墓所が入らない(前提 = 森)ので触らない | 18/18 |
+| `verify_quest_visibility` | scenarios 10 / side 4・札 11・SITES 10 | 39/39 |
+| `verify_tavern_map` (6a)(6b)(7b) | 10 件 / side 4 / SITES 10 | 47/47 |
+| `verify_party_four` (0a) | 本筋 6 + side 4 | 17/17 |
+| `verify_world_map` | (7b-data)(7b-dom)(7d)(7e)(7f) の札 11 枚 | 57/57 |
+| `verify_world_heromark` | `EXPECT_SIGNS` 11(照合 154 組) | 18/18 |
+| `verify_road_ambush` (4c)(9b) | 撤退の腕を `?tower=0&warren=0&cargo=0&tomb=0` へ・差はちょうど 4 停留所(pass_n / village_s / pier / lake_n) | 41/41 |
+| `verify_dragon_fold` (7b) / `verify_swamp_novice` (4b) | silent-tomb を名指しで 1 件 | 35/35 / 34/34 |
+| `driver_mapeditor_painting` | 1a テーマ 10・1a2 silent-tomb も n0big / n1big・3e optgroup 10 | 105/106(1d2 だけ = 着手前から赤・labels 23 / サイズ 21 のまま) |
+| `verify_lore_check` | **数え直し = 58 キー**(51 + 2 + 1 + 1 + 3)= 技能あり 47(mummy = religion・tombArmor / tombGargoyle = arcana)/ 対象外 11・cr 40(mummy 3 / animated-armor 1 / gargoyle 2)/ 出さない 18 | 26/26 |
+| `verify_enemy_traits` (0b)(0c) | 体質の表のキー 9(tombArmor の眠り免疫)・ドライバの SRD 表に mummy(アンデッド = 眠らない)/ tombArmor(構造体)を足した。マミーの火の弱点などは §11 で足さない | 15/15 |
+
+#### (2) 母集団の非退行(全数走査・#104 §12-4 と同じ手順)
+
+- 基準 `base105.tsv` = #104 の走査 `r104/item4/run_post104/post104.tsv`(244 腕)の #104 帰属 2 腕(`verify_town_changelog` 素 / `verify_world_heromark` 素)を `6a48701` の再走(緑)で上書きしたもの。`2e2e291..fa21d59` は md だけ ⇒ 着手前 = `2e2e291` の色。
+- 腕 = その 244 腕(同じ並び)+ `verify_silent_tomb` 素 / `--negative` = **246 腕**。clone 根 = `git clone --shared` → `d4e2a55`(本番とバイト一致・md 2 本の改行だけ違う = #104 と同じ)。直列・SKIP 再開型・1 腕上限 5400 秒。
+- ⭐ 2 回に分けて走らせた(ユーザー指示で 10-31 08:13 に一時中止 → 11-01 に再開): **10-31 01:05〜08:13(137 腕)+ 11-01 01:05〜07:20(残り 109 腕・138 本目は途中で止めたので再走)= 合計 798.2 分**。どちらも `-NotBefore 01:05` = 闇市の開く 20:00〜24:59 を一度もまたがない。⇒ **緑 219 / 非緑 27**。
+  - **緑→赤 5**:
+    - **#105 帰属 1** = `verify_lost_cargo --negative` の `nosite` が担当外の (4c) も赤。`d4e2a55` で (4c) を 4 段(先頭 `retireTomb()`)にしたため、pier が `way` のままの変異では既定・`retireTomb()` 後の地図が固定値と食い違う(決定的)= 正しい赤。⇒ 担当表 `NEG_EXPECT.nosite` に (4c) を足した(期待値は緩めていない)。
+    - **非帰属 4**(本番 / 着手前 `fa21d59` の clone `pre105` の対比較):
+      - `verify_tower_mother --negative` の `lethalonly` が (3a) を空振り。⚠ 走査後の再走で本番 3/3 空振り・着手前 3/3 検出と分かれたので掘った(`rerun/_probe_tm.cjs` = 手番の記録を足した写し)⇒ 原因 = **#95 がラウンド頭に足した 3 つ目の非致死の口 `checkFleeEnemies("spirit")`** を変異が外していない。主人公が行動順の最後の回は、次のラウンド頭でここが飛び去らせ (3a) が緑のまま。行動順はイニシアチブの d20 で決まり、**着手前でも 11 回中 1 回空振り**(本番は 14 回中 5 回・空振りは前半に偏った)= #105 とは無関係の揺れ。⇒ 揺れ止め: 変異 `lethalonly` に 3 つ目の口を足した(変異の意図「非致死の口を全部外す = 致死の口だけ」どおり)→ `--only lethalonly` 3/3 検出(注入行 14〜15 回)・`--negative` 9/9。
+      - `verify_tower_mother_b --negative` の素・基準 (2a) = 本番の素 3/3 緑(22/22)。#102 / #103 の走査でも揺れと判定済みの本。
+      - `driver_field_step1` 素 (12) 小数位相の筋の測り = clone で 3/3 緑(95/95)。数値の測りの揺れ。
+      - `driver_speech_hooks` 素 (1)(3) = 本番 3/3・着手前 3/3 緑(13/13)。#103 / #104 の走査でも揺れと判定済み。
+  - 走査後の再走で `verify_lost_cargo --negative` の `outdoor` が担当外の (4a) も 1 回赤(開幕の語りの拾い漏れ `all: false`)。原因 = (4a) が `#dmBody` を `setInterval` の間引きで拾っていた(負荷が高いと 1 段落が書き上がった瞬間を取りこぼす。#105 項目3 で `verify_silent_tomb` が踏んだのと同じ)= 非帰属。⇒ 揺れ止め: `verify_silent_tomb` と同じ MutationObserver へ(期待値は変えていない)。
+  - **赤→緑 0**。**両方非緑 22**: FAIL 行まで同じ 20 腕。DIFF 2 = `verify_tower_mother_b --negative`(上)/ `driver_speech_v2`(44/46 → 45/46 = 着手前から赤の節 + 揺れ)。
+  - **exit 3 = 7 腕、基準と同じ 7 腕** ⇒ #105 が増やした exit 3 = 0。
+  - 新規 2 = `verify_silent_tomb` 素 24/24・`--negative` exit 0(12/12)。言い直した 16 本の `--negative` は `verify_lost_cargo` の上の 1 件を除いて全部 exit 0。
+  - 直したあとの再走(本番): `verify_lost_cargo --negative` = 素 22/22 → `[vet] --negative OK: 10 本すべて担当ラベルが赤・担当外の赤 0`(exit 0)・素 22/22 / `verify_tower_mother --negative` = 素 19/19 → `[vet] --negative OK: 9 本すべて担当ラベルが赤・担当外の赤 0`(exit 0)。
+  - ⇒ **直したあとの #105 帰属の緑→赤 = 0**。
+- **変異アンカー監査**(`r105/item4/anchorscan105.py` / `anchorfilter105.py`・BASE `2e2e291` → HEAD): tools 211 本・リテラル 57,627 個・件数が変わった組 1,913、交差 113 = 自分の本 39 + そのファイルを名指ししない本 45 + 残り 29。「1 だった」組 = 表示文字列 `' / 仲間 '` / `'cleared='` `'cleared=['` / `'?cargo=0'`(URL のクエリ・#105 の注記で 1 → 2)/ `'animatedArmor'`(台帳に tombArmor の行)/ `verify_silent_tomb` 自身の `'farm_n__pass_n@1'` `'lake_n'` = どれもアンカーの 1 回性に使っていない(全数走査の exit 3 が基準と同じ 7 腕で裏づけ)⇒ **#105 が他の tools の変異アンカーを壊した件数 = 0**。
+
+#### (3) ユーザー判断待ち(⛔ 値は変えていない)
+
+| 件 | 中身 | 出所 |
+|---|---|---|
+| ⑤ 強さ | 墓所 Lv5・4 人・N=10 = **クリア 8 / 敗北 2**(敗北 2 回とも**主人公だけ**倒れた・マミーは撃破済み)・所要 平均 127 秒。比較 = 沼地 Lv5 N=5 で 3/5。沼地よりやや甘い・主人公の HP 次第 | §12-3 (4) |
+| 390 幅の札 | 主人公が `farm_n` に立つと墓所の札の右端が **34px 画面外**(`signDx` 64 の代償。刻み点を覆わないための値) | §12-2 (1)・項目2 申し送り |
+| 縁のマゼンタ | マミー(包帯の垂れの先)・墓所の動く鎧(attack の輪郭)にうっすら赤紫。項目1 で「このまま使う」と決定済み = §9 の実機で気になるか | §12-1 |
+| ターン・アンデッド | Lv5 の僧侶のターン・アンデッドがマミー(ボス)を畏怖で止める(僧侶が居た 3 回すべて)。ボスが止まってよいか | §12-3 (4) |
+| §9 実機 | §9 の項目(iPhone の縦画面で札が押せる・まなざしの吹き出しが 1 回・罠の語り・絵の読み込みで白い床が出ない) | §9 |
+
+#### (4) まとめ
+
+- **状態**: ✅ 実装完了(**未 push**)。残 = 上の (3) のユーザー判断と push。
+- **コミット**:
+  - `0014d8f` 項目1 — 着手前の実測 + 素材の取り込み
+  - `f1b0d6b` 項目2 — 本体 + changelog
+  - `b5fe415` 項目3 — 受入 `tools/verify_silent_tomb.js`(24 判定・素 24/24 x3・`--negative` 12/12)+ ⑤ の実測
+  - `d4e2a55` 項目4 — 予告どおり赤の 16 本の言い直し
+  - 本節を書いたコミット群 項目4 — 全数走査で見つかった 2 本(`verify_lost_cargo` の担当表 + 語りの揺れ止め・`verify_tower_mother` の `lethalonly` の揺れ止め)+ 本節 + README の #105 行 + `_TEMPLATE_new_location.md` の追記 + `CLAUDE.md` の 1 行
+- 次の新規ドライバの port base = **10677**(`verify_silent_tomb` = 10664〜10676)。
