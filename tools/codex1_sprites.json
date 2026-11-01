@@ -265,6 +265,14 @@
       "attack_dir": "tomb-armor/tomb-armor-walk-attack-right-6-aligned/*attack*frame-*.png",
       "note": "沈黙の墓所 (#105) の手下、墓所の動く鎧 (2026-10-30 新設・codex1 依頼文 2026-10-30_tomb-armor.md・ユーザー指示「もっとリアルな D&D 風に」)。⛔ 砦の守護者の animatedArmor (assets/animatedArmor_anim.png・デフォルメの騎士) とは別のシート = 上書きしない。第3陣テンプレなので glob で分離する。セル 96 / char_ratio 0.86 は skeleton / zombie と同じ物差し = fit left=26 right=76 top=5 (cell=96) クリップ無し。attack_scale=auto (walk 体高 536.5 / attack 517.5 = 1.0367)。H_max(walk)=556px / scale 0.1485。check_sprite_doubling = clean / check_alpha_bg_residue = 疑い 0 件。⚠ attack の輪郭に紫〜マゼンタの縁が薄く残る = ユーザー判断「このまま使う」。本番の前室の床 (room_silent-tomb_n0_map.jpg) の上で 2 倍で目視して記録 (#105 項目1)。体高 82/96 (walk)。displaySize 78 (写し元 animatedArmor と同じ) で画面上 67px (skeleton 57 / gargoyle 62 / zombie 70)。"
     },
+    {
+      "key": "greenHag", "out": "assets/greenHag_anim.png", "format": "enemy",
+      "cell": 96, "cols": 6, "char_ratio": 0.71, "scale_from": "walk", "center": "feet",
+      "attack_scale": "auto",
+      "walk_dir": "green-hag/green-hag-walk-attack-right-6-v2-aligned/*walk*frame-*.png",
+      "attack_dir": "green-hag/green-hag-walk-attack-right-6-v2-aligned/*attack*frame-*.png",
+      "note": "霧の中の魔女の小屋 (#106) のボス、霧の魔女 (グリーン・ハグ) (2026-11-02 新設・codex1 依頼文 2026-11-01_green-hag.md → v2 2026-11-02_green-hag-v2.md)。⚠ v2 のフォルダ (…-v2-aligned) を使う (v1 は attack 01〜05 に隣のコマの絵が入り込んでいた)。第3陣テンプレ (walk と attack が同一ディレクトリ) なので mummy と同じく glob で分離する。セル 96 は手下 (rat / zombie) と同じ物差し。新設なので --match-current の対象は無い。⚠ char_ratio は 0.80 だと attack 3〜4 コマ目の伸ばした爪が右へ 5px はみ出す (CLIP WARNING right=101)。0.73 / 0.72 は右端ちょうど (right=96) なので 0.71 へ下げた = fit left=30 right=95 top=22 (cell=96) クリップ無し。attack_scale=auto (walk 体高 470.5 / attack 474.5 = 0.9916)。H_max(walk)=480px / scale 0.1420。check_sprite_doubling = 候補 2 コマ (attack col 2-3) は指先の 1px の点 (2 つ目以降の塊は全部 1 画素) で体は 1 塊 = 分身ではない / check_alpha_bg_residue = 疑い 0 件。本番の小屋の床 (room_witch-hut_n1_map.jpg) と森の小道 (room_witch-hut_n0_map.jpg) の上で 2 倍で目視して縁の残りなし (#106 項目1)。体高 67/96 (walk・前かがみの老婆)。displaySize 115 で画面上 80px (mummy 80 / plaguePriest 79 / zombie 69)。"
+    },
 
     {
       "key": "warrior", "out": "assets/warrior_walk.png", "attack_out": "assets/warrior_attack.png",
