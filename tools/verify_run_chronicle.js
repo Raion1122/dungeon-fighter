@@ -285,7 +285,9 @@ const pageErrors = [];
    呼び口は enemyAttackTurn の中 (ボスの行動選択の前) = 手番の内 = 加害者は族長 (2026-10-28 確認: koboldSnare の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
 /* ★[#104] 46 → 47 (16 + 31)。増えた 1 点 = 疫病の司祭の「傷を腐らせる手」(inflictWoundsTouch) が仲間に与える傷 `ally.hp -= dmg`。
    呼び口は enemyAttackTurn の中 (ボスの手番の入口) = 手番の内 = 加害者は司祭 (2026-10-30 確認: inflictWoundsTouch の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
-const HP_WRITE_EXPECTED = 47;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46 → #104 で 47
+/* ★[#106] 47 → 48 (17 + 31)。増えた 1 点 = 霧の魔女の「霧渡り」(hagMistPassage) の爪が仲間に与える傷 `ally.hp -= dmg`。
+   呼び口は enemyAttackTurn の中 (ボスの手番の入口・pickBossAction の前) = 手番の内 = 加害者は魔女 (2026-11-02 確認: hagMistPassage の呼び出しは enemyAttackTurn の 1 か所だけ)。 */
+const HP_WRITE_EXPECTED = 48;   // 2026-08-29 / 基準 4f7710d 実測 (14 + 29) → #95 で 44 → #95 STEP2 で 45 → #103 で 46 → #104 で 47 → #106 で 48
 function countHpWrites(src) {
   const reA = new RegExp('\\bhp\\s*-=', 'g');
   const reB = new RegExp('\\bhp\\s*=\\s*Math\\.max\\(\\s*0\\s*,\\s*[A-Za-z0-9_.\\[\\]]*\\.?hp\\s*-', 'g');

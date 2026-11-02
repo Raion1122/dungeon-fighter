@@ -735,6 +735,8 @@ async function runSuite(browser, port, label) {
     'lost-cargo': '#104 (2026-10-29) 消えた積み荷を新設 (n0big 港の倉庫 / n1big 地下水道の祠)',
     /* ★[#105 2026-10-30] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
     'silent-tomb': '#105 (2026-10-30) 沈黙の墓所を新設 (n0big 墓所の前室 / n1big 魔法使いの玄室)',
+    /* ★[#106 2026-11-02] 同じく新しいテーマ (着手前 cdaaf91 に無いキー)。 */
+    'witch-hut': '#106 (2026-11-02) 霧の中の魔女の小屋を新設 (n0big 霧の森の小道 / n1big 魔女の小屋)',
   };
   const otherThemes = Object.keys(cat).filter(t => t !== 'lizard-swamp' && !THEME_EXCEPTIONS[t]);
   const themeDiff = baseCat ? otherThemes.filter(t => JSON.stringify(cat[t]) !== JSON.stringify(baseCat[t])) : null;

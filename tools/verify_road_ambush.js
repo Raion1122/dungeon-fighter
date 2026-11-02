@@ -2648,8 +2648,9 @@ const ASSERTS = [
       /* ★[#103] 撤退の腕を ?tower=0&warren=0 にしたので、差は **ちょうど 2 停留所の削除** (pass_n と village_s)。
          どちらも既定の腕では拠点 (site)・撤退の腕では中継点 (way) であることを 1 件ずつ見る (⛔ 緩めない)。
          ★[#104] 撤退の腕を ?tower=0&warren=0&cargo=0 にしたので、差は **ちょうど 3 停留所の削除** (pass_n / village_s / pier)。
-         ★[#105] 撤退の腕を ?tower=0&warren=0&cargo=0&tomb=0 にしたので、差は **ちょうど 4 停留所の削除** (pass_n / village_s / pier / lake_n)。 */
-      const diffOk = removed.length === 4 && added.length === 0
+         ★[#105] 撤退の腕を ?tower=0&warren=0&cargo=0&tomb=0 にしたので、差は **ちょうど 4 停留所の削除** (pass_n / village_s / pier / lake_n)。
+         ★[#106] 撤退の腕を ?tower=0&warren=0&cargo=0&tomb=0&hag=0 にしたので、差は **ちょうど 5 停留所の削除** (pass_n / village_s / pier / lake_n / lakeside)。 */
+      const diffOk = removed.length === 5 && added.length === 0
         && removed.every(k => !!b.nodeKinds && b.nodeKinds[k] === 'site' && !!bo.nodeKinds && bo.nodeKinds[k] === 'way');
       const onOk = diffOk && histEq(hist, wantOn);
       const nStops = Object.keys(hist).reduce((s, k) => s + hist[k], 0);
@@ -2658,7 +2659,7 @@ const ASSERTS = [
       return [ok,
         'EVENTS ' + rows.length + ' 件 = ' + (rowsOk ? '着手前と一致' : '⛔ 不一致')
         + (rowsOk ? '' : '\n           実測 ' + got + '\n           基準 ' + wantRows)
-        + ' / 撤退の腕 (?tower=0&warren=0&cargo=0&tomb=0) の地形割り ' + JSON.stringify(histOff) + ' 計 ' + nOff + ' 箇所 = '
+        + ' / 撤退の腕 (?tower=0&warren=0&cargo=0&tomb=0&hag=0) の地形割り ' + JSON.stringify(histOff) + ' 計 ' + nOff + ' 箇所 = '
         + (histOk ? '着手前と一致' : '⛔ 不一致 (基準 ' + JSON.stringify(BASE_STOP_TERRAIN) + ')')
         + ' / 既定の腕 ' + JSON.stringify(hist) + ' 計 ' + nStops + ' 箇所 (撤退の腕から消えた停留所=' + JSON.stringify(removed)
         + ' 増えた=' + JSON.stringify(added) + ' → 期待 ' + JSON.stringify(wantOn) + ') = ' + (onOk ? '一致' : '⛔ 不一致')];
@@ -3083,7 +3084,8 @@ async function collect(browser, port, errs, keys) {
   /* ★[#103] 撤退の腕は ?warren=0 も合わせる (= 塔の母とコボルドの巣穴の前の地図)。 */
   /* ★[#104] さらに ?cargo=0 も合わせる (= 塔の母・巣穴・消えた積み荷の前の地図。pier が中継点 = 停留所へ戻る)。 */
   /* ★[#105] さらに ?tomb=0 も合わせる (= 沈黙の墓所の前の地図。lake_n が中継点 = 停留所へ戻る)。 */
-  if (need.has('boot')) m.bootTowerOff = await measureBoot(browser, port, errs, '?tower=0&warren=0&cargo=0&tomb=0');
+  /* ★[#106] さらに ?hag=0 も合わせる (= 霧の中の魔女の小屋の前の地図。lakeside が中継点 = 停留所へ戻る)。 */
+  if (need.has('boot')) m.bootTowerOff = await measureBoot(browser, port, errs, '?tower=0&warren=0&cargo=0&tomb=0&hag=0');
   if (need.has('rnd')) {
     m.rnd = [];
     for (const s of RND_SEEDS) m.rnd.push(await measureRnd(browser, port, errs, s));

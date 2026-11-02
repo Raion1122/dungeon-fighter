@@ -136,8 +136,11 @@ const BASE_REV = '0014d8f';          // #105 項目1 (index.html は項目2 の�
 /* 石棺の台座 (MASK §12-1 (3) の 絵ローカル col 16-20 / row 5-9) を global (+16, +6) へ */
 const SARC = { c1: 32, c2: 36, r1: 11, r2: 15 };
 /* (4c) 撤退の各段の地図の sha1 (先頭 16)。
- *   1 段目 = git show 2e2e291:js/world-map.js を node の vm で読んだ既定の地図 (#104 完了・墓所の前)。
+ *   ★[#106 項目4] 魔女の小屋 (lakeside) が足されたので、その前にもう 1 段 retireHag() を挟む
+ *     (= 6213fcb (#105 完了) の既定の地図 3dd5550782057025・verify_quest_walk (5a) の WANT_H0)。以後の 4 値は 1 文字も変えない。
+ *   (以下、#105 時点の段の数え方) 1 段目 = git show 2e2e291:js/world-map.js を node の vm で読んだ既定の地図 (#104 完了・墓所の前)。
  *   2〜4 段目 = verify_quest_walk (5a) / verify_lost_cargo (4c) が既に焼いた固定値 (#103 / #82 / #23 の実測)。 */
+const SHA_AFTER_HAG = '3dd5550782057025';   /* ★[#106] */
 const SHA_AFTER_TOMB = '44b1de14f8b2c9d0';
 const SHA_AFTER_CARGO = '3918d569e7f3f7db';
 const SHA_AFTER_WARREN = '647e71f6b2956389';
@@ -244,6 +247,8 @@ const MUTATIONS = {
  *   - usefeardc: glareDC が消える = まなざし自体が起きない ⇒ (0a) 型の検算・(3a) 発動・(3b) 直接呼び・(3e) 型の集合も赤 (本命は (3d))
  *   - unlockfree: 配信バイトの locked が world-map の UNLOCK と食い違う (1a)・卓の抽選 (1c)・?tomb=0 の反転 (4b)
  *   - nosite: lake_n に札が出ない ⇒ (1a)(1d)(1f)(1g)(4b)
+ *     ★[#106 項目4] + (4c): 撤退の 1 段目を retireHag() にしたので、lake_n が way のままの既定・retireHag() 後の地図は
+ *     固定値と食い違う (決定的・verify_lost_cargo の nosite に #105 で (4c) を足したのと同じ理由)
  *   - useguardian: 台帳と実体 (0c) + 玄室の手下が休眠して手番 0 = (3e) の「手下の手番」が空 */
 const NEG_EXPECT = {
   usefeardc:   ['(0a)', '(3a)', '(3b)', '(3d)', '(3e)'],
@@ -253,7 +258,7 @@ const NEG_EXPECT = {
   stunassleep: ['(3b)'],
   typerng:     ['(6a)'],
   unlockfree:  ['(1a)', '(1c)', '(4b)'],
-  nosite:      ['(1a)', '(1d)', '(1f)', '(1g)', '(4b)'],
+  nosite:      ['(1a)', '(1d)', '(1f)', '(1g)', '(4b)', '(4c)'],
   signclash:   ['(1f)'],
   passopen:    ['(1g)'],
   nosearch:    ['(2c)'],
@@ -763,14 +768,15 @@ async function runSuite(browser, port, mutKey, label) {
     const w1 = (await openWorld({ cleared: [MINE] })).snap;             /* (1c) */
     const w2 = (await openWorld({ cleared: MF })).snap;                 /* (1a)(1d) */
     const w2off = (await openWorld({ cleared: MF, q: '?tomb=0' })).snap;   /* (4b) */
-    /* (4c) 撤退 4 段 (本番の関数を呼ぶ。⚠ 閉じる直前のページで) */
+    /* (4c) 撤退 4 段 (本番の関数を呼ぶ。⚠ 閉じる直前のページで)。★[#106] 先頭に retireHag() を足して 5 段 */
     const wr = await openWorld({ cleared: [], keep: true });
     const retired = await wr.page.evaluate(() => {
       const W = window.WORLD_MAP;
       const fp = () => ({ sites: JSON.parse(JSON.stringify(W.SITES)), edges: W.EDGES.map((e) => e[0] + '__' + e[1]),
         nodesFP: Object.keys(W.NODES).map((id) => { const n = W.NODES[id]; return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) });
-      if (['retireTomb', 'retireCargo', 'retireWarren', 'retireTower'].some((f) => typeof W[f] !== 'function')) return null;
+      if (['retireHag', 'retireTomb', 'retireCargo', 'retireWarren', 'retireTower'].some((f) => typeof W[f] !== 'function')) return null;
       const o = { on: fp() };
+      W.retireHag(); o.hag = fp();
       W.retireTomb(); o.tomb = fp();
       W.retireCargo(); o.cargo = fp();
       W.retireWarren(); o.warren = fp();
@@ -876,10 +882,10 @@ async function runSuite(browser, port, mutKey, label) {
     R.check('(4b)', '?tomb=0 で tavern の配列から消え・' + ST_SITE + ' が中継点 (tavern と world.html)・cleared=[' + MF.join(', ') + '] の解放済みから墓所が消える (件数 −1)・(1a)(1d) の条件が ON/OFF で反転',
       offOk && onPair.every((x) => x === true) && offPair.every((x) => x === false),
       { offOk, on: onPair, off: offPair, offFacts: off2.facts, worldOff: { cls: w2off.cls, node: w2off.node, sign: w2off.sign } });
-    const rs = retired ? { on: sha16(retired.on), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
-    const shaWant = [SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER];
-    R.check('(4c)', 'retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + shaWant.join(' / ') + ' (1 段目 = 2e2e291 の既定)・既定の地図はそのどれとも違う',
-      !!rs && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && shaWant.indexOf(rs.on) < 0,
+    const rs = retired ? { on: sha16(retired.on), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
+    const shaWant = [SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER];
+    R.check('(4c)', 'retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + shaWant.join(' / ') + ' (★[#106] 1 段目 = 6213fcb の既定・2 段目 = 2e2e291 の既定)・既定の地図はそのどれとも違う',
+      !!rs && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && shaWant.indexOf(rs.on) < 0,
       { sha: rs, sitesOn: retired && Object.keys(retired.on.sites).length, sitesTower: retired && Object.keys(retired.tower.sites).length });
 
     /* ══════════ index: 開幕の語り (?autoplay=1 のページで #dmBody に実際に出た文) ══════════ */

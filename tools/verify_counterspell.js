@@ -801,10 +801,14 @@ function countHpWrites(src) {
        呼び口は enemyAttackTurn の中 (ボスの手番の入口・pickBossAction の前) の 1 か所だけ = 手番の内 = 加害者は司祭 (2026-10-30 確認)。
        #96 の前の数は「今の数 − #103 の 1 点 − #104 の 1 点」で測る (⛔ 期待値を緩めない)。 */
     const HP_ADDED_104 = 1;
-    check('(4c) 年代記: カウンターの枠を使ったら「使わなかった技」に入らない / 使わなければ入る (仲間 = ' + A.m1Name + ' / 主人公)。HP を引く点の総数は #96 の前 (' + PRE96_REV + ') の ' + (hpPre && hpPre.total) + ' + #103 の仕掛け罠 1 点 + #104 の傷を腐らせる手 1 点 (verify_run_chronicle (0c) = 47)',
+    /* ★[#106 2026-11-02] さらに 1 点 = 霧の魔女の「霧渡り」(hagMistPassage) の爪が仲間に与える傷 `ally.hp -= dmg`。
+       呼び口は enemyAttackTurn の中 (ボスの手番の入口・pickBossAction の前) の 1 か所だけ = 手番の内 = 加害者は魔女 (2026-11-02 確認)。
+       #96 の前の数は「今の数 − #103 − #104 − #106 の 1 点ずつ」で測る (⛔ 期待値を緩めない)。 */
+    const HP_ADDED_106 = 1;
+    check('(4c) 年代記: カウンターの枠を使ったら「使わなかった技」に入らない / 使わなければ入る (仲間 = ' + A.m1Name + ' / 主人公)。HP を引く点の総数は #96 の前 (' + PRE96_REV + ') の ' + (hpPre && hpPre.total) + ' + #103 の仕掛け罠 1 点 + #104 の傷を腐らせる手 1 点 + #106 の霧渡り 1 点 (verify_run_chronicle (0c) = 48)',
       ch.allyUsed.probe.length === 1 && ch.allyUsed.probe[0] === A.m1Idx && ch.allyUsed.who.indexOf(A.m1Name) < 0 && ch.allyUnused.who.indexOf(A.m1Name) >= 0
       && ch.heroUsed.probe.length === 1 && ch.heroUsed.probe[0] === 'player' && ch.heroUsed.who.indexOf(HERO_CH) < 0 && ch.heroUnused.who.indexOf(HERO_CH) >= 0
-      && hpPre && hpPre.total + HP_ADDED_103 + HP_ADDED_104 === hpNow.total && hpNow.total === 47 && hpPre.total === 45,
+      && hpPre && hpPre.total + HP_ADDED_103 + HP_ADDED_104 + HP_ADDED_106 === hpNow.total && hpNow.total === 48 && hpPre.total === 45,
       { ch: ch, hp: { now: hpNow, pre: hpPre } });
 
     /* ══ (5b) 素の側の pickScrollId 全区間 ══ */

@@ -45,6 +45,8 @@
  *     +retireTower() = 塔の母の前の地図 (固定値は verify_quest_walk (5a) の WANT_ON / WANT_W0 / WANT)。
  *     ★[#105 項目4] 墓所 (lake_n) が足されたので、その前にもう 1 段 retireTomb() を挟む (= #104 の既定の地図 44b1de14f8b2c9d0)。
  *     以後の 3 値は 1 文字も変えない (verify_silent_tomb (4c) と同じ 4 段)。
+ *     ★[#106 項目4] 魔女の小屋 (lakeside) が足されたので、さらにその前に retireHag() を挟む (= #105 の既定の地図 3dd5550782057025)。
+ *     以後の 4 値は 1 文字も変えない (verify_witch_hut (4c) と同じ 5 段)。
  *   - (6a) の基準は f80543c (項目1 後半。index.html は項目2 の前)。既存 8 シナリオ = 本筋 6 + 塔の母 + 巣穴。
  *
  * ■ 測っているもの (依頼書 §8 の番号)
@@ -69,7 +71,7 @@
  *      (3d) 傷を腐らせる手の手番の前後で traps.length が変わらない (probe の trapsLen とも一致)
  *   §4 (4a) 開幕の語り 4 行が出る・n0 = 落とし穴 / n1 = 瘴気の語り (頭・仲間)・第 2 引数が優先・既存 8 シナリオは BASE_REV と同じ語り
  *      (4b) ?cargo=0 で tavern の配列から消え・pier が中継点・cleared=[廃坑] の解放済みが 3 件・(1a)(1d) の条件が ON/OFF で反転
- *      (4c) (★[#105] retireTomb() →) retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 が既存の固定値
+ *      (4c) (★[#106] retireHag() → ★[#105] retireTomb() →) retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 が既存の固定値
  *   §6 (6a) 既存 8 シナリオで spawnTraps の罠 (座標・種類)・乱数の呼び出し回数・次の乱数が BASE_REV と同じ
  *   ⛔ 測らないこと (依頼書 §8): 司祭の displaySize・語りの文面の良し悪し・バナーの絵文字・クリアの XP と金貨・札の位置の px。
  *      ⑤ 強さは記録のみ。
@@ -122,6 +124,7 @@ const BASE_REV = 'f80543c';          // #104 項目1 後半 (index.html は項�
 /* 祭壇 (MASK §12-1 (3-6) の 絵ローカル col 21-22 / row 6-8) を global (+16, +6) へ */
 const ALTAR = { c1: 37, c2: 38, r1: 12, r2: 14 };
 /* (4c) 撤退の各段の地図の sha1 (先頭 16)。⚠ 値は verify_quest_walk (5a) が既に焼いた固定値 (#103 / #82 / #23 の実測)。 */
+const SHA_AFTER_HAG = '3dd5550782057025';              // ★[#106] retireHag() 後 = #105 の既定の地図 (verify_quest_walk の WANT_H0)
 const SHA_AFTER_TOMB = '44b1de14f8b2c9d0';             // ★[#105] retireTomb() 後 = #104 (本件) の既定の地図 (verify_quest_walk の WANT_T0)
 const SHA_AFTER_CARGO = '3918d569e7f3f7db';            // retireCargo() 後 = #103 の地図 (verify_quest_walk の WANT_C0)
 const SHA_AFTER_WARREN = '647e71f6b2956389';           // + retireWarren() = #82 の地図 (WANT_W0)
@@ -217,7 +220,8 @@ const NEG_EXPECT = {
   /* ⚠ (4b) も赤 = (4b) の ON 腕は「(1a) の条件が真」を含む (依頼書の「ON/OFF で反転」)。verify_kobold_warren の locked と同じ構造 */
   unlockfree:    ['(1a)', '(1c)', '(4b)'],
   /* ⚠ (1g) は緑のまま = 入場の可否は SITES (scenarioOfNode) と questDest で決まり、kind を見ない。札が消えるので (1f) は赤 */
-  /* ★[#105] (4c) も赤 = (4c) を 4 段 (先頭 retireTomb()) にしたので、pier が way のままの既定・retireTomb() 後の地図は固定値と食い違う (決定的) */
+  /* ★[#105] (4c) も赤 = (4c) を 4 段 (先頭 retireTomb()) にしたので、pier が way のままの既定・retireTomb() 後の地図は固定値と食い違う (決定的)
+     ★[#106] 5 段 (先頭 retireHag()) でも同じ理由で (4c) が赤 (retireHag() 後の地図が固定値と食い違う) */
   nosite:        ['(1a)', '(1d)', '(1f)', '(4b)', '(4c)'],
   signclash:     ['(1f)'],
   spawnenter:    ['(1g)'],
@@ -639,14 +643,15 @@ async function runSuite(browser, port, mutKey, label) {
     const w0 = (await openWorld({ cleared: [] })).snap;               /* (1c)(1e)(4c) */
     const w1 = (await openWorld({ cleared: [MINE] })).snap;           /* (1a)(1d) */
     const w1off = (await openWorld({ cleared: [MINE], q: '?cargo=0' })).snap;   /* (4b) */
-    /* (4c) 撤退 3 段 (本番の関数を呼ぶ。⚠ 閉じる直前のページで)。★[#105] 先頭に retireTomb() を足して 4 段 */
+    /* (4c) 撤退 3 段 (本番の関数を呼ぶ。⚠ 閉じる直前のページで)。★[#105] 先頭に retireTomb() を足して 4 段・★[#106] さらに先頭に retireHag() を足して 5 段 */
     const wr = await openWorld({ cleared: [], keep: true });
     const retired = await wr.page.evaluate(() => {
       const W = window.WORLD_MAP;
       const fp = () => ({ sites: JSON.parse(JSON.stringify(W.SITES)), edges: W.EDGES.map((e) => e[0] + '__' + e[1]),
         nodesFP: Object.keys(W.NODES).map((id) => { const n = W.NODES[id]; return id + ':' + n.kind + ':' + n.x + ',' + n.y + ':' + (n.enter !== undefined ? 'enter' : '—'); }) });
-      if (typeof W.retireTomb !== 'function' || typeof W.retireCargo !== 'function' || typeof W.retireWarren !== 'function' || typeof W.retireTower !== 'function') return null;
+      if (typeof W.retireHag !== 'function' || typeof W.retireTomb !== 'function' || typeof W.retireCargo !== 'function' || typeof W.retireWarren !== 'function' || typeof W.retireTower !== 'function') return null;
       const o = { on: fp() };
+      W.retireHag(); o.hag = fp();
       W.retireTomb(); o.tomb = fp();
       W.retireCargo(); o.cargo = fp();
       W.retireWarren(); o.warren = fp();
@@ -759,9 +764,9 @@ async function runSuite(browser, port, mutKey, label) {
     R.check('(4b)', '?cargo=0 で tavern の配列から消え・' + LC_SITE + ' が中継点 (tavern と world.html)・cleared=[' + MINE + '] の解放済み 3 件・(1a)(1d) の条件が ON/OFF で反転',
       offOk && onPair.every((x) => x === true) && offPair.every((x) => x === false),
       { offOk, on: onPair, off: offPair, offFacts: off1.facts, worldOff: { cls: w1off.cls, node: w1off.node, sign: w1off.sign } });
-    const rs = retired ? { on: sha16(retired.on), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
-    R.check('(4c)', 'retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + SHA_AFTER_TOMB + ' / ' + SHA_AFTER_CARGO + ' / ' + SHA_AFTER_WARREN + ' / ' + SHA_AFTER_TOWER + ' (★[#105] 1 段目 = 墓所の前・塔の母より前)・既定の地図はそのどれとも違う',
-      !!rs && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && [SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER].indexOf(rs.on) < 0,
+    const rs = retired ? { on: sha16(retired.on), hag: sha16(retired.hag), tomb: sha16(retired.tomb), cargo: sha16(retired.cargo), warren: sha16(retired.warren), tower: sha16(retired.tower) } : null;
+    R.check('(4c)', 'retireHag() → retireTomb() → retireCargo() → retireWarren() → retireTower() の各段の地図の sha1 = ' + SHA_AFTER_HAG + ' / ' + SHA_AFTER_TOMB + ' / ' + SHA_AFTER_CARGO + ' / ' + SHA_AFTER_WARREN + ' / ' + SHA_AFTER_TOWER + ' (★[#106] 1 段目 = 魔女の小屋の前・★[#105] 2 段目 = 墓所の前・塔の母より前)・既定の地図はそのどれとも違う',
+      !!rs && rs.hag === SHA_AFTER_HAG && rs.tomb === SHA_AFTER_TOMB && rs.cargo === SHA_AFTER_CARGO && rs.warren === SHA_AFTER_WARREN && rs.tower === SHA_AFTER_TOWER && [SHA_AFTER_HAG, SHA_AFTER_TOMB, SHA_AFTER_CARGO, SHA_AFTER_WARREN, SHA_AFTER_TOWER].indexOf(rs.on) < 0,
       { sha: rs, sitesOn: retired && Object.keys(retired.on.sites).length, sitesTower: retired && Object.keys(retired.tower.sites).length });
 
     /* ══════════ index: 開幕の語り (?autoplay=1 のページで #dmBody に実際に出た文) ══════════ */

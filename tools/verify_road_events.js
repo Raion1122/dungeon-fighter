@@ -502,8 +502,9 @@ async function measureBoot(browser, port, errs, opts) {
       /* ★[#103] 撤退を 2 段で採る: ① retireWarren() だけ (= 巣穴の前 = #82 の地図) → ② さらに retireTower() (= 塔の母の前)。 */
       /* ★[#104] その前にもう 1 段: ⓪ retireCargo() だけ (= 倉庫街の前 = #103 の地図) → ① → ②。 */
       /* ★[#105] さらにその前にもう 1 段: retireTomb() だけ (= 墓所の前 = #104 の地図) → ⓪ → ① → ②。 */
+      /* ★[#106] さらにその前にもう 1 段: retireHag() だけ (= 魔女の小屋の前 = #105 の地図) → retireTomb → ⓪ → ① → ②。 */
       identRetired: (function () {
-        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function') return null;
+        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function' || typeof WM.retireHag !== 'function') return null;
         const fp = function () {
           const nodesFP = Object.keys(WM.NODES).map(function (id) {
             const n = WM.NODES[id];
@@ -517,6 +518,8 @@ async function measureBoot(browser, port, errs, opts) {
           });
           return { nodesFP: nodesFP, edgesFP: edgesFP, stepsFP: stepsFP, sites: JSON.parse(JSON.stringify(WM.SITES)) };
         };
+        WM.retireHag();
+        const hagOff = fp();
         WM.retireTomb();
         const tombOff = fp();
         WM.retireCargo();
@@ -528,6 +531,7 @@ async function measureBoot(browser, port, errs, opts) {
         both.warrenOff = warrenOff;
         both.cargoOff = cargoOff;
         both.tombOff = tombOff;
+        both.hagOff = hagOff;
         return both;
       })(),
     };
@@ -1076,11 +1080,15 @@ const IDENT_WANT = '4c0a8a6b3d65cda0';
    IDENT_WANT_W0 は retireCargo() + retireWarren() の後・IDENT_WANT は 3 段すべての後。
    ★[#105] さらにもう 1 段: 既定の地図 (lake_n が拠点「湖の北の島」・SITES 10) の実測 2026-10-30 (signDx 64 の後) を IDENT_WANT_ON に焼き、
    #104 の値 cba6eec82b479584 は **1 文字も変えず** IDENT_WANT_T0 = 撤退 retireTomb() だけの後の地図 (= 墓所の前) へ当てる。
-   IDENT_WANT_C0 は + retireCargo()・IDENT_WANT_W0 は + retireWarren()・IDENT_WANT は 4 段すべての後。 */
+   IDENT_WANT_C0 は + retireCargo()・IDENT_WANT_W0 は + retireWarren()・IDENT_WANT は 4 段すべての後。
+   ★[#106] さらにもう 1 段: 既定の地図 (lakeside が拠点「湖畔の集落」・SITES 11) の実測 2026-11-02 (signDx 160 の後) を IDENT_WANT_ON に焼き、
+   #105 の値 2145a1b895486427 は **1 文字も変えず** IDENT_WANT_H0 = 撤退 retireHag() だけの後の地図 (= 魔女の小屋の前) へ当てる。
+   IDENT_WANT_T0 は + retireTomb()・IDENT_WANT_C0 は + retireCargo()・IDENT_WANT_W0 は + retireWarren()・IDENT_WANT は 5 段すべての後。 */
 const IDENT_WANT_W0 = '391c6d4c0c6b4857';
 const IDENT_WANT_C0 = '23ee1c56f280c2e7';
 const IDENT_WANT_T0 = 'cba6eec82b479584';
-const IDENT_WANT_ON = '2145a1b895486427';
+const IDENT_WANT_H0 = '2145a1b895486427';
+const IDENT_WANT_ON = '62a182595bd19ac4';
 
 const ASSERTS = [
   ['0a', '[装置] 素の world.html で window.SkillCheck が object かつ '
@@ -1516,8 +1524,8 @@ const ASSERTS = [
   // ── §4 恒等 (非退行) ──────────────────────────────────────────────────────
   ['4a', '⭐⭐⭐ [恒等] WORLD_MAP の NODES / EDGES / STEPS / SITES が **1 件も変わっていない** — '
     + '{nodesFP, edgesFP, stepsFP, sites} の sha1 が ' + IDENT_WANT
-    + ' (NODES 14 / EDGES 14 / STEPS 10 / SITES 6 = ★[#82][#103][#104][#105] 本番の撤退 retireTomb() + retireCargo() + retireWarren() + retireTower() 後の地図。'
-    + '+ retireWarren() までの後は SITES 7 の ' + IDENT_WANT_W0 + '・+ retireCargo() までの後は SITES 8 の ' + IDENT_WANT_C0 + '・retireTomb() だけの後は SITES 9 の ' + IDENT_WANT_T0 + '・既定の地図は SITES 10 の ' + IDENT_WANT_ON + ')。'
+    + ' (NODES 14 / EDGES 14 / STEPS 10 / SITES 6 = ★[#82][#103][#104][#105][#106] 本番の撤退 retireHag() + retireTomb() + retireCargo() + retireWarren() + retireTower() 後の地図。'
+    + '+ retireWarren() までの後は SITES 7 の ' + IDENT_WANT_W0 + '・+ retireCargo() までの後は SITES 8 の ' + IDENT_WANT_C0 + '・+ retireTomb() までの後は SITES 9 の ' + IDENT_WANT_T0 + '・retireHag() だけの後は SITES 10 の ' + IDENT_WANT_H0 + '・既定の地図は SITES 11 の ' + IDENT_WANT_ON + ')。'
     + ' ⚠ ここが赤くなったら「地図のデータを触った」= #45 依頼書 §11 の禁止事項を踏んだということ',
     (m) => {
       const b = m.boot;
@@ -1527,7 +1535,7 @@ const ASSERTS = [
         steps: id.stepsFP, sites: id.sites });
       const got = crypto.createHash('sha1').update(canon).digest('hex').slice(0, 16);
       const counts = id.nodesFP.length === 14 && id.edgesFP.length === 14
-        && id.stepsFP.length === 10 && Object.keys(id.sites).length === 10;   /* ★[#82][#103][#104][#105] SITES は塔の母・巣穴・倉庫街・墓所の 1 件ずつを足して 10 */
+        && id.stepsFP.length === 10 && Object.keys(id.sites).length === 11;   /* ★[#82][#103][#104][#105][#106] SITES は塔の母・巣穴・倉庫街・墓所・魔女の小屋の 1 件ずつを足して 11 */
       const ir = b.identRetired;
       const canonOff = ir ? JSON.stringify({ nodes: ir.nodesFP, edges: ir.edgesFP, steps: ir.stepsFP, sites: ir.sites }) : '';
       const gotOff = ir ? crypto.createHash('sha1').update(canonOff).digest('hex').slice(0, 16) : '(retireTower / retireWarren が無い)';
@@ -1548,14 +1556,21 @@ const ASSERTS = [
       const gotT0 = it ? crypto.createHash('sha1').update(canonT0).digest('hex').slice(0, 16) : '(retireTomb が無い)';
       const countsT0 = !!it && it.nodesFP.length === 14 && it.edgesFP.length === 14
         && it.stepsFP.length === 10 && Object.keys(it.sites).length === 9;
-      return [got === IDENT_WANT_ON && counts && gotT0 === IDENT_WANT_T0 && countsT0 && gotC0 === IDENT_WANT_C0 && countsC0 && gotW0 === IDENT_WANT_W0 && countsW0 && gotOff === IDENT_WANT && countsOff,
+      const ih = ir && ir.hagOff;
+      const canonH0 = ih ? JSON.stringify({ nodes: ih.nodesFP, edges: ih.edgesFP, steps: ih.stepsFP, sites: ih.sites }) : '';
+      const gotH0 = ih ? crypto.createHash('sha1').update(canonH0).digest('hex').slice(0, 16) : '(retireHag が無い)';
+      const countsH0 = !!ih && ih.nodesFP.length === 14 && ih.edgesFP.length === 14
+        && ih.stepsFP.length === 10 && Object.keys(ih.sites).length === 10;
+      return [got === IDENT_WANT_ON && counts && gotH0 === IDENT_WANT_H0 && countsH0 && gotT0 === IDENT_WANT_T0 && countsT0 && gotC0 === IDENT_WANT_C0 && countsC0 && gotW0 === IDENT_WANT_W0 && countsW0 && gotOff === IDENT_WANT && countsOff,
         'NODES ' + id.nodesFP.length + ' / EDGES ' + id.edgesFP.length
         + ' / STEPS ' + id.stepsFP.length + ' / SITES ' + Object.keys(id.sites).length
         + '  sha1(先頭16)=' + got + ' (固定値 ' + IDENT_WANT_ON + ')'
-        + '  / 撤退後 (retireTomb) SITES ' + (it ? Object.keys(it.sites).length : '?') + ' sha1=' + gotT0 + ' (固定値 ' + IDENT_WANT_T0 + ')'
-        + '  / 撤退後 (retireTomb + retireCargo) SITES ' + (ic ? Object.keys(ic.sites).length : '?') + ' sha1=' + gotC0 + ' (固定値 ' + IDENT_WANT_C0 + ')'
-        + '  / 撤退後 (retireTomb + retireCargo + retireWarren) SITES ' + (iw ? Object.keys(iw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + IDENT_WANT_W0 + ')'
-        + '  / 撤退後 (4 段すべて) SITES ' + (ir ? Object.keys(ir.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + IDENT_WANT + ')'
+        + '  / 撤退後 (retireHag) SITES ' + (ih ? Object.keys(ih.sites).length : '?') + ' sha1=' + gotH0 + ' (固定値 ' + IDENT_WANT_H0 + ')'
+        + '  / 撤退後 (+ retireTomb) SITES ' + (it ? Object.keys(it.sites).length : '?') + ' sha1=' + gotT0 + ' (固定値 ' + IDENT_WANT_T0 + ')'
+        + '  / 撤退後 (+ retireCargo) SITES ' + (ic ? Object.keys(ic.sites).length : '?') + ' sha1=' + gotC0 + ' (固定値 ' + IDENT_WANT_C0 + ')'
+        + '  / 撤退後 (+ retireWarren) SITES ' + (iw ? Object.keys(iw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + IDENT_WANT_W0 + ')'
+        + '  / 撤退後 (5 段すべて) SITES ' + (ir ? Object.keys(ir.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + IDENT_WANT + ')'
+        + (gotH0 === IDENT_WANT_H0 ? '' : '  ⛔ retireHag 後の中身= ' + canonH0.slice(0, 400))
         + (gotT0 === IDENT_WANT_T0 ? '' : '  ⛔ retireTomb 後の中身= ' + canonT0.slice(0, 400))
         + (gotC0 === IDENT_WANT_C0 ? '' : '  ⛔ retireCargo 後の中身= ' + canonC0.slice(0, 400))
         + (gotW0 === IDENT_WANT_W0 ? '' : '  ⛔ retireWarren 後の中身= ' + canonW0.slice(0, 400))
