@@ -3748,6 +3748,7 @@
       "kobold-warren":   50,   // ★[#103] 隠し 2 (謝礼 120 と合わせて 170)
       "lost-cargo":      50,   // ★[#104] 隠し 2 (礼金 200 と合わせて 250)
       "silent-tomb":     75,   // ★[#105] 隠し 3 (礼金 250 と合わせて 325)
+      "witch-hut":       75,   // ★[#106] 隠し 3 (礼金 250 と合わせて 325。取り引きを選ぶと礼金 0 = 75 だけ)
     };
     function roadChestBonusGold() {
       if (!ROAD_CHEST_ON || !currentScenario) return 0;
@@ -4074,6 +4075,12 @@
       /* ★[#105] 沈黙の墓所 (本筋外の 10 本目)。積み荷と同じく新しい素材は足さない (前室も玄室も 1 枚絵が覆う)。
        * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
       "silent-tomb":    { floor: "床1.png",        wall: "壁1.png",
+                          wallFace: "wall_face_goblin-mine.png",
+                          wallTop:  "wall_top_goblin-mine.png",
+                          wallTint: { color: "228,234,244", a: 0.34 } },
+      /* ★[#106] 霧の中の魔女の小屋 (本筋外の 11 本目)。墓所と同じく新しい素材は足さない (森の小道も小屋も 1 枚絵が覆う)。
+       * ⚠ 無いと SCENARIO_TEX の既定 (廃坑) へ落ちる = 宣言して落ちていないことを明示する。 */
+      "witch-hut":      { floor: "床1.png",        wall: "壁1.png",
                           wallFace: "wall_face_goblin-mine.png",
                           wallTop:  "wall_top_goblin-mine.png",
                           wallTint: { color: "228,234,244", a: 0.34 } },
@@ -4710,6 +4717,10 @@
        *   (trapCount:1 × search を両方に宣言) / 玄室の宝箱は n0 (前室) だけ。
        *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
       t["silent-tomb"] = { n0: ["search", "loot"], n1: ["search"] };
+      /* ★[#106] 霧の中の魔女の小屋も最初から 2 ノード (森の小道 n0 → 魔女の小屋 n1)。罠は「部屋ごとに 1 つ」
+       *   (trapCount:1 × search を両方に宣言) / 宝箱は n0 (森の小道) だけ。
+       *   ⛔ **忘れると罠も宝箱も無言でゼロになる** (森 #16 で実際に踏んだ)。 */
+      t["witch-hut"] = { n0: ["search", "loot"], n1: ["search"] };
       return t;
     })();
     /* ★[P9 / 2026-08-20 ユーザー決定] 大部屋 n1 の「行かない小部屋」への寄り道の撤退スイッチ。
@@ -6965,6 +6976,68 @@
                ".##########.##..###..##.",   // 12  南の壁龕 col 4-6 (+瓦礫 col 1-3) / 台座 col 7-10, 12-13 / 壁龕 col 16-18 / 書架 col 21-22
                ".######################.",   // 13
                ".######################.",   // 14
+               "........................",   // 15  外周
+             ] },
+      },
+      /* ══ ★[#106] 霧の中の魔女の小屋 — codex1 納品の卓上バトルマップ 2 枚 (v1) ══════════════════════
+       *   n0big = 霧の森の小道 (道中) / n1big = 魔女の小屋 (ボス)。
+       * ⭐⭐ **2 枚とも outdoor を付けない** (森の小道でも)。暗幕 (探索の記憶 α178 / 未探索 α255) を「霧」として効かせる
+       *   (依頼書 #106 §5-1・§12-1 (4) で焼き上がりの上を目視 = 夜の霧の森に見える・小道は読める)。
+       * ⚠⚠⚠ テーマは **witch-hut** (js/df-mapdef.js の THEMES に載せた非屋外テーマ)。⛔ FIELD_THEMES に入れない。
+       * ⚠⚠⚠ **node: true が必須**。
+       * ⚠ 格子は 64px (tools/make_grid_map.py の hag-woods / hag-hut の注記が唯一の正。線は 1px 幅・原点 0)。
+       *   2 枚とも 24x16 (1536x1024)。行数 16 = 偶数 → midR = 絵ローカル row 7 (半行上)。
+       * ⚠ tileBounds は buildWitchHutRun の rect と**同値**。
+       * ⭐ MASK は依頼書 #106 §12-1 (3) の草案 (5 規則・sealRing を模した 4 近傍 BFS)。外周 1 マスは '.' (sealRing の仕事)。
+       *   ⚠ 本番で塞ぐのは '#' だけ (df-mapdef.js PAINTING_BLOCK_CHAR)。歩けない理由は行コメントで分ける。
+       *   敵のタイル (buildWitchHutRun の slots) は全部 '.'。写像: 絵ローカル (col,row) + (16, 6) = global。 */
+      "witch-hut": {
+        n0big: { src: "assets/room_witch-hut_n0_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (霧の森の小道)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の小道の入口と東の小屋の戸口だけが外周に開く) */
+             /*  ★障害物 (16 行 x 24 列)。row 7 が col 0 → col 23 を 1 マスも切らさない (西の小道 → 小屋の戸口)。
+              *   西の小道の入口 (0,7) → 東の小屋の戸口 (23,7) = n1 への出口 global (39,13)。
+              *   落ち葉・苔・霧の溜まり・片方の靴 (10,7)・木のおもちゃ (15,8)・白い小石の輪 (row 11 col 17-19) は平置き = 塞がない。 */
+             blocked: [
+               "........................",   //  0  外周 (sealRing)
+               ".######################.",   //  1  北の森 (大木の幹・枝の人形・骨の飾り・茂み・霧)
+               ".######################.",   //  2
+               ".######################.",   //  3  茂み・きのこ (col 10-12)・倒木 (col 12-15)
+               ".###....########....###.",   //  4  西の空き地の北の縁 col 4-7 / 東の空き地の北の縁 col 16-19 (落ち葉 = 平置き)
+               ".##.....#######.....###.",   //  5  西の空き地 col 3-7 / 苔の岩と茂み col 8-14 / 東の空き地 col 15-19 / col 20 岩
+               ".........######......##.",   //  6  小道 col 1-8 / 苔の岩 col 9-14 / 東の空き地 col 15-20
+               "........................",   //  7  ★入場の行 = 西の端 → 小屋の戸口 (23,7) まで端から端まで開ける (midR)
+               "......................#.",   //  8  小道 col 1-21 / col 22 小屋の壁
+               ".##.....#...........###.",   //  9  西の空き地の南 col 3-7 / col 8 苔の岩 / 小道の南の縁と東の空き地 col 9-19
+               ".###...#########....###.",   // 10  col 4-6 / col 16-19
+               ".################...###.",   // 11  白い小石の輪 col 17-19 (平置き = 塞がない)
+               ".######################.",   // 12  南の森 (大木・茂み・霧)
+               ".######################.",   // 13
+               ".######################.",   // 14
+               "........................",   // 15  外周
+             ] },
+        n1big: { src: "assets/room_witch-hut_n1_map.jpg",
+             tileBounds: [6, 16, 21, 39], node: true,      // 16 行 x 24 列 (魔女の小屋)。⚠ 行が先
+             sealRing: true,   /* 外周 1 タイルを通行不能に (西の戸口だけが外周に開く) */
+             /*  ★障害物 (16 行 x 24 列)。⚠ outdoor は付けない (小屋 = 暗幕を効かせる)。
+              *   西の戸口 (0,7) → 中央の丸い敷物 (平置き) → **炉と大鍋 col 15-19 / row 5-10 は '#'** (上に立たせない)。
+              *   東の中点 (23,7) は炉の裏の行き止まり (ボス部屋なので出口は使わない)。 */
+             blocked: [
+               "........................",   //  0  外周
+               ".######################.",   //  1  北の壁・干した薬草・骨の飾り
+               ".######################.",   //  2  北の棚 (瓶・大鉢)・空の檻 (col 16-17)・藁の寝床 (col 19-21)
+               ".##................####.",   //  3  col 1-2 西の棚と卓 / 床 col 3-18 / 寝床 col 19-21・壁の薬草 col 22
+               ".##................####.",   //  4
+               ".#..............###...#.",   //  5  ★大鍋の炉の石組み col 16-18 (上に立たせない) / col 19-21 床・箒の束
+               ".#.............#####..#.",   //  6  col 1 = 内開きの扉板 / ★炉と大鍋 col 15-19
+               "...............######...",   //  7  ★入場の行 (西の戸口 col 0 → 敷物 → 炉で止まる) / col 20 すり鉢 / col 21-22 床
+               ".#.............######.#.",   //  8  col 1 = 戸口の南の枠 / 炉 col 15-19・すり鉢 col 20 / col 22 壁の骨
+               ".#.............######.#.",   //  9  炉 col 15-19・鉢 col 20
+               ".##............#####..#.",   // 10  col 1-2 西の棚 (ラベンダー) / 炉 col 15-19 / col 22 東の棚
+               ".##..................##.",   // 11  大鍋の南の床 col 3-20 / col 21-22 瓶の棚
+               ".#####..............###.",   // 12  南西の籠 col 1-5 / 床 col 6-19 / 樽と箱 col 20-22
+               ".######################.",   // 13  南の棚 (瓶・きのこ・頭骨)
+               ".######################.",   // 14  南の壁
                "........................",   // 15  外周
              ] },
       },
@@ -10676,6 +10749,39 @@
         glareDC: 11, glareStunGap: 5,   /* ★[#105] 恐怖のまなざし: 1 戦闘に 1 回 (mummyDreadfulGlare)。⛔ 他の敵に付けない */
         xp: 700,
       },
+      /* ★[#106] 霧の魔女 (グリーン・ハグ)。5e SRD の Green Hag (Fey・CR3・AC17・HP82・爪 +6 2d8+4・Invisible Passage) をもとにしたボス。
+       * ⭐ 戦闘の最初の手番に 1 度だけ「霧渡り」(hagMistPassage = SRD の Invisible Passage を 1 手番の瞬間移動 + 有利の爪に畳んだもの。
+       *   後衛 → 中衛 → 前衛の順で最初に見つかった帯の、ハグから一番遠い 1 人の脇へ現れる)。⛔ 敵に「透明」の持続状態は作らない。
+       * ⭐ isWitchHag = 戦う / 取り引きの 2 択の器 (initWitchHag) の目印。未解決の間は inactive だけ (⛔ passiveNpc を付けない =
+       *   ボスの部屋に入った瞬間に制覇する罠・依頼書 #106 §2-4)。
+       * ⛔ undead を付けない (妖精 = ターン・アンデッドの対象外)。⛔ fearDC / glareDC / inflictDice / snareDC を持たせない
+       *   (他のボスの入口が誤って動く)。⛔ ENEMY_TRAITS には書かない (SRD に耐性なし)。
+       * ⭐ LORE_SKILL_OF は arcana (妖精 = 次元界の住人・依頼書 §12-1 (1))・LORE_CR は 3。
+       * ⚠ 霧渡りの爪は普通の爪と同じ atkBonus / dmgDice / dmgBonus を使う (⛔ 専用の値を持たない)。
+       * ⚠ シートは手下と同じ 576x480・96px・6 列 (tools/codex1_sprites.json の greenHag)。攻撃の伸びは col 2-3 = マミーと同じ
+       *   attackDuration 26 / attackHitFrame 11 (依頼書 §12-1 (5))。
+       * ⚠ displaySize 115 = 前かがみの体高 67/96 → 画面上 80px (マミー・疫病の司祭と同じボスの帯。100 だと手下のゾンビと同じ背丈)。
+       * ⚠ hp 123 = SRD 82 × 1.5 (ボス補正)。値は出発点。強さの実測 (依頼書 §8 ⑤) で直してよい。 */
+      greenHag: {
+        name: "霧の魔女(グリーン・ハグ)",
+        flavor: "霧の森に棲む緑の肌の老婆。姿を消して霧を渡り、背後から爪で裂く",
+        sprite: "assets/greenHag_anim.png?v=1",
+        sheetW: 576, sheetH: 480,
+        frameW: 96, frameH: 96, cols: 6, rowOffset: 0,
+        displaySize: 115,    // ★[#106] 画面上の身長 ≈ 80px (依頼書 §12-1 (5))。⚠ 当たり判定に直結
+        hp: 123, speed: 0.8, // 歩行 30ft (skeleton と同じ)
+        hasAttackAnim: true,
+        meleeRange: 110, hitRange: 180,
+        attackDuration: 26, attackHitFrame: 11, attackCooldown: 32,
+        str: 4, dex: 1, atkBonus: 6, ac: 17,
+        dmgDice: "2d8", dmgBonus: 4, critRange: 20, critMult: 2,   // 爪 (SRD の Claws)
+        range: "melee",
+        isBoss: true,
+        maxSummons: 0,
+        mistPassage: true,   /* ★[#106] 霧渡り: 1 戦闘に 1 回 (hagMistPassage)。⛔ 他の敵に付けない */
+        isWitchHag: true,    /* ★[#106] 戦う / 取り引きの 2 択の器 (initWitchHag) の目印 */
+        xp: 700,
+      },
       skeleton: {
         name: "スケルトン",
         flavor: "墓から甦りし骨の兵士",
@@ -12016,6 +12122,32 @@
           ["mummy", 57, 13],
         ],
       },
+      /* ★[#106] 霧の中の魔女の小屋 (本筋外の 11 本目・沼地の後・推奨 Lv6)。
+       * ⭐ 実際の盤面は buildWitchHutRun (卓上マップ 2 枚)。spawns は ?graph=0 の単一マップ用の退避先。
+       * ⭐ trapCount:1 × NODE_EXTRA_SPAWN_KINDS の n0/n1 両方の search = 罠は部屋ごとに 1 つ。
+       *   trapTypeByNode は罠の**語り**だけを変える (乱数を 1 つも足さない)。
+       * ⭐ 取り引きを選ぶと clearGold 0 / clearXp 半分 (currentScenario を浅い写しへ差し替える・依頼書 #106 §2-6)。
+       *   ⛔ この表そのものは書き換えない。
+       * ⚠ 値は出発点。強さの実測 (依頼書 §8 ⑤) と合わせて直してよい。 */
+      "witch-hut": {
+        title: "霧の中の魔女の小屋 — 霧の森の奥",
+        flavor: "霧の森の小屋に棲む魔女から、帰らない子どもを取り戻せ",
+        perceptionDC: 15,
+        trapCount: 1,
+        trapTypeByNode: { n0: "thorn", n1: "hex" },
+        hiddenChestCount: 3,
+        clearXp: 700,
+        clearGold: 250,
+        spawns: [
+          /* ?graph=0 用。buildWitchHutRun の slots と同じ顔ぶれを並べる (⚠ ?graph=0 では 2 択を開かない = 普通のボス戦) */
+          // 森の小道: 霧の獣 (ネズミ) 3 + 溺れた村人 (ゾンビ) 2
+          ["rat", 27, 13], ["rat", 28, 12], ["rat", 28, 14],
+          ["zombie", 39, 13], ["zombie", 40, 14],
+          // 小屋: 溺れた村人 3 + 霧の魔女
+          ["zombie", 55, 12], ["zombie", 55, 14], ["zombie", 56, 13],
+          ["greenHag", 57, 13],
+        ],
+      },
     };
 
     // 生成クエスト (酒場の掲示板) があれば ad-hoc シナリオとして採用 (敵キーは ENEMY_TYPES で検証)
@@ -12174,6 +12306,8 @@
        *   **null と false が同じ扱い**になり、「話しかけていない」と「失敗した」が
        *   区別できずに n7 の顔ぶれが勝手に増える。 */
       s3_novice_swayed: null,
+      /* ★[#106] 魔女の小屋の 2 択。"fight" / "bargain" / null (未解決)。再入場の復元に使う (initWitchHag)。 */
+      hag_choice: null,
     };
     // [sce1-events] シナリオ1 (既定クエスト) でだけイベントを出すゲート。
     //   生成クエスト (酒場/闇市の掲示板) は scenarioId が別 ID なので false になる。
@@ -15980,6 +16114,13 @@
         "墓荒らしたちは、この警告を笑い飛ばしたのだろう。罠に気をつけろ。床も、壁も、信じるな。",
         "さあ、墓所へ踏み込め。",
       ],
+      /* ★[#106] 霧の中の魔女の小屋 (3 行目 = 魔女の取り引きの噂 = ボスの部屋の 2 択の前ふり) */
+      "witch-hut": [
+        "湖畔の集落を出ると、白い霧が足もとから立ちのぼってきた。森の木々が、霧の中で黒い影になる。",
+        "霧の向こうから、子どもの声がする——いや、本当に子どもの声だろうか。",
+        "このあたりの者は言う。霧の深い夜、森の奥の小屋の魔女は、欲しいものと引き換えに、なんでも返してくれると。",
+        "さあ、霧の森へ踏み込め。",
+      ],
     };
 
     let narrationSkipRequested = false;
@@ -18941,6 +19082,22 @@
       trapTypeForNode: function () { return trapTypeForNode(); },
       traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
       nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+    };
+    /* ★[#106] 検証シーム (霧の中の魔女の小屋)。⛔ 状態の置き場にしない (読むための窓)。__silentTombTV と同じ形。 */
+    window.buildWitchHutRun = buildWitchHutRun;
+    window.hagMistPassage = hagMistPassage;
+    window.pickHagPassageTile = pickHagPassageTile;
+    window.__witchHutTV = {
+      ENEMY_TYPES: { greenHag: ENEMY_TYPES.greenHag, zombie: ENEMY_TYPES.zombie, rat: ENEMY_TYPES.rat },
+      buildWitchHutRun: buildWitchHutRun,
+      hagMistPassage: hagMistPassage,
+      pickHagPassageTile: pickHagPassageTile,
+      TRAP_TYPES: function () { return TRAP_TYPES; },   // ⚠ const の宣言 (罠の節) はここより下 = 関数で包む (TDZ)
+      trapTypeForNode: function () { return trapTypeForNode(); },
+      traps: function () { return traps.map(t => ({ tx: t.tx, ty: t.ty, type: t.type, found: t.found, triggered: t.triggered })); },
+      nodeId: function () { try { return currentNodeId; } catch (e) { return null; } },
+      hag: function () { return { hagIdx: hagIdx, hagResolved: hagResolved, choice: sceneFlags.hag_choice }; },   // ⚠ let の宣言はここより下 = 関数で包む (TDZ)
+      scenario: function () { return currentScenario; },
     };
     window.__towerMotherTV = {
       ENEMY_TYPES: { wyvern: ENEMY_TYPES.wyvern, wyvernBoss: ENEMY_TYPES.wyvernBoss },
@@ -23088,6 +23245,171 @@
       else if (stun) updateInfo(`${targetName} は恐怖に凍りつき、動けない!`);
       else updateInfo(`${targetName} は恐怖に囚われた!`);
       window.__glareProbe.push(rec);
+    }
+
+    /* ★[#106] 霧の魔女 (グリーン・ハグ) の「霧渡り」(5e SRD Invisible Passage・1 戦闘に 1 回・ハグの手番の行動)。
+     * ⭐ SRD の「攻撃か呪文で解ける透明」を**1 手番の中で完結する行動**に畳んだ = 霧に溶ける → 後衛の脇へ現れる → 有利の爪。
+     *   ⛔ 敵に「透明」の持続状態を作らない (狙い・感知・自動の狙いの 20 箇所以上に波及する・依頼書 #106 §2-7)。
+     * 写し元 = inflictWoundsTouch (probe・命中・仲間へのダメージ・不屈) + allyShadowStep (煙・透明度・ワープ)。⛔ 元の関数は変えない。
+     * 狙い (pickHagPassageTarget): 生きている隊員 (主人公 + 仲間) のうち zone が rear → mid → front の順で最初に見つかった帯の、
+     *   **ハグから一番遠い 1 人**。⛔ Math.random を引かない (乱数列を動かさない)。第三勢力の敵は狙わない。
+     * 移動先 (pickHagPassageTile): 狙った相手の隣 8 マスのうち、歩けて (isTileWall = aStar と同じ判定)・誰も立っていない・
+     *   発見済みの罠でない、**ハグから一番遠い** (= 相手の向こう側の) タイル。無ければ霧渡りをせず普通の手番へ落ちる (fellBack)。
+     * 爪: 有利 = d20 を 2 回振って高い方 vs AC。命中で def.dmgDice + def.dmgBonus (クリティカルはダイス 2 倍)。
+     *   ⛔ 霧渡り専用の命中・ダメージの値を持たない (普通の爪と同じ)。
+     * ⚠ 透明度は**必ず戻す** (例外でも戻す = finally・#78 の罠C と同じ作法)。
+     * 乱数の順 = (移動先が決まれば) d20 → d20 → (命中なら) dmgDice。
+     * 検証用 probe = window.__hagPassageProbe (1 件 = 1 回の発動。fellBack も 1 件)。⛔ ゲームの判定には使わない。 */
+    window.__hagPassageProbe = window.__hagPassageProbe || [];
+    function pickHagPassageTarget(enemyIdx) {
+      const e = enemies[enemyIdx];
+      const eCX = e.x + e.def.displaySize / 2;
+      const eCY = e.y + e.def.displaySize / 2;
+      const cands = [];
+      if (hp > 0 && !gameOver) cands.push({ kind: "leader", idx: null, zone: PARTY_ZONES[leaderClassKey] || "front", cx: playerX + 48, cy: playerY + 58 });
+      for (let i = 0; i < allies.length; i++) {
+        const a = allies[i];
+        if (!a || !a.alive) continue;
+        cands.push({ kind: "ally", idx: i, zone: a.zone || PARTY_ZONES[a.classKey] || "mid",
+                     cx: a.x + a.def.displaySize / 2, cy: a.y + a.def.displaySize / 2 });
+      }
+      const farthest = (list) => {
+        let best = null, bd = -1;
+        for (const c of list) {
+          const d = Math.hypot(c.cx - eCX, c.cy - eCY);
+          if (d > bd) { bd = d; best = c; }
+        }
+        return best;
+      };
+      for (const z of ["rear", "mid", "front"]) {
+        const best = farthest(cands.filter(c => c.zone === z));
+        if (best) return best;
+      }
+      return farthest(cands);   // 帯の名前が想定外でも、誰かは狙う (空なら null)
+    }
+    function pickHagPassageTile(enemy, tgtCX, tgtCY) {
+      const tTX = Math.floor(tgtCX / TILE_SIZE), tTY = Math.floor(tgtCY / TILE_SIZE);
+      const hTX = Math.floor((enemy.x + enemy.def.displaySize / 2) / TILE_SIZE);
+      const hTY = Math.floor((enemy.y + enemy.def.displaySize / 2) / TILE_SIZE);
+      const occupied = getUnitOccupiedTiles(enemy);
+      const adj = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+      let best = null, bestD = -1;
+      for (const [dx, dy] of adj) {
+        const tx = tTX + dx, ty = tTY + dy;
+        if (isTileWall(tx, ty)) continue;                       // 盤の外も壁扱い
+        if (occupied.has(tx + "," + ty)) continue;
+        if (traps.some(t => t.tx === tx && t.ty === ty && t.found && !t.disarmed)) continue;
+        const d = (tx - hTX) * (tx - hTX) + (ty - hTY) * (ty - hTY);
+        if (d > bestD) { bestD = d; best = { tx, ty }; }
+      }
+      return best;
+    }
+    async function hagMistPassage(enemyIdx) {
+      const enemy = enemies[enemyIdx];
+      if (!enemy || !enemy.alive || enemy.inactive || gameOver) return false;
+      const def = enemy.def;
+      const fromTX = Math.floor((enemy.x + def.displaySize / 2) / TILE_SIZE);
+      const fromTY = Math.floor((enemy.y + def.displaySize / 2) / TILE_SIZE);
+      const pick = pickHagPassageTarget(enemyIdx);
+      const rec = { site: "passage", enemyIdx, zone: pick ? pick.zone : null, kind: pick ? pick.kind : null,
+                    idx: (pick && pick.idx != null) ? pick.idx : null, target: "", from: [fromTX, fromTY], to: null,
+                    rolls: [], roll: null, total: null, ac: null, hit: false, crit: false, dmg: 0, fellBack: false,
+                    trapsLen: traps.length };
+      const dest = pick ? pickHagPassageTile(enemy, pick.cx, pick.cy) : null;
+      if (!dest) {   // 移動先が無い = 霧渡りをしない (この手番は普通の行動へ落ちる)
+        rec.fellBack = true;
+        window.__hagPassageProbe.push(rec);
+        return false;
+      }
+      let ac = 10, targetName = "", ally = null, showAtTarget = null;
+      if (pick.kind === "leader") {
+        ac = currentPlayerAc();
+        targetName = getLeaderName();
+        showAtTarget = (t, c) => showRollAtPlayer(t, c);
+      } else {
+        ally = allies[pick.idx];
+        ac = currentAllyAc(ally);
+        targetName = ally.npcName || ally.def.name;
+        showAtTarget = (t, c) => showRollAtAlly(ally, t, c);
+      }
+      rec.target = targetName; rec.ac = ac; rec.to = [dest.tx, dest.ty];
+
+      showBanner("🌫 霧渡り 🌫", 1500);
+      if (typeof showDMMessage === "function") showDMMessage("魔女の姿が霧に溶けた——次の瞬間、背後で笑い声がした!", 2600);
+      updateInfo(`${def.name} が霧に溶けた…… ${targetName} の背後に現れる!`);
+
+      const el = enemyElements[enemyIdx];
+      const prevOpacity = enemy.vfxOpacity || "";
+      const prevTransition = el ? el.style.transition : "";
+      try {
+        if (el) { flashAction(el, "skill"); el.style.transition = "opacity 180ms ease"; }
+        spawnShadowPuff(enemy.x + def.displaySize / 2, enemy.y + def.displaySize / 2);   // 元の位置で霧 (盗賊の煙を流用)
+        setEnemyVfx(enemyIdx, undefined, "0");
+        await sleepMs(220);
+        enemy.x = dest.tx * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
+        enemy.y = dest.ty * TILE_SIZE + TILE_SIZE / 2 - def.displaySize / 2;
+        enemy.path = []; enemy.slideTargetTile = null;
+        const toCX = enemy.x + def.displaySize / 2, toCY = enemy.y + def.displaySize / 2;
+        spawnShadowPuff(toCX, toCY);
+        enemy.facing = pick.cx >= toCX ? "right" : "left";
+        if (!window.__autoplay) focusCameraOn(toCX, toCY);
+      } finally {
+        setEnemyVfx(enemyIdx, undefined, prevOpacity);   // ⚠ 透明度は必ず戻す (例外でも)
+      }
+      await sleepMs(220);
+      if (el) el.style.transition = prevTransition;
+
+      // 有利の爪: d20 を 2 回・高い方
+      const atk = def.atkBonus || 0;
+      const r1 = d20(), r2 = d20();
+      const roll = Math.max(r1, r2);
+      const total = roll + atk;
+      const crit = roll >= (def.critRange || 20);
+      const hit = crit || (roll !== 1 && total >= ac);
+      rec.rolls = [r1, r2]; rec.roll = roll; rec.total = total; rec.hit = hit; rec.crit = crit;
+      if (el) flashAction(el, "attack");
+      if (!hit) {
+        showAtTarget(`<span class="label">MISS</span>有利 1d20(<b>${r1}</b>/<b>${r2}</b>)${signedDD(atk)} = ${total}<br>vs AC ${ac}`, "hit");
+        updateInfo(`${targetName} は霧の中の爪をかわした`);
+        window.__hagPassageProbe.push(rec);
+        return true;
+      }
+      const dd = parseDiceDD(def.dmgDice || "2d8");
+      const times = crit ? 2 : 1;
+      let rolls = [];
+      for (let k = 0; k < times; k++) rolls = rolls.concat(rollDiceDD(dd.n, dd.sides).rolls);
+      const dmg = Math.max(1, rolls.reduce((a, b) => a + b, 0) + (def.dmgBonus || 0));
+      rec.dmg = dmg;
+      showAtTarget(
+        `<span class="label">${crit ? "CRIT!" : "HIT"}</span>有利 1d20(<b>${r1}</b>/<b>${r2}</b>)${signedDD(atk)} = ${total}<br>vs AC ${ac}`,
+        crit ? "crit" : "miss");
+      window.__hagPassageProbe.push(rec);
+      await sleepMs(300);
+      if (ally) {
+        /* 仲間へのダメージ (inflictWoundsTouch と同じ手順。語りだけ「霧渡りの爪」) */
+        const tCX = ally.x + ally.def.displaySize / 2;
+        if (ally.equippedSkills && ally.equippedSkills.includes("resilient")
+            && !ally.buffs.resilientFired && (ally.hp - dmg) <= 0 && dmg > 0) {
+          ally.buffs.resilientFired = true;
+          const sRoll = rollDiceDD(1, 4);
+          showDmgAt(tCX, ally.y, dmg, crit);
+          ally.hp = sRoll.total;
+          showRollAtAlly(ally, `<span class="label">不屈!</span>致命傷を 1d4(<span class="big">${sRoll.total}</span>) HP で耐える`, "crit");
+          return true;
+        }
+        ally.hp -= dmg; if (ally.hp < 0) ally.hp = 0;
+        showDmgAt(tCX, ally.y, dmg, crit);
+        updateInfo(`${targetName} は霧渡りの爪で ${dmg} ダメージ! HP ${ally.hp}/${ally.maxHp}`);
+        if (ally.hp <= 0) {
+          RunChronicle.fall(ally, "霧渡りの爪");
+          ally.alive = false;
+          updateInfo(`${targetName} は倒れた…`);
+          if (ally.isHero) { gameOver = true; updateInfo(MSG_DEFEAT_YOU); }
+        }
+        return true;
+      }
+      await applyEnemySpellDamage({ kind: "leader" }, dmg, crit, "霧渡りの爪");   // 頭 (不屈・頭の委譲・全滅は既存経路)
+      return true;
     }
 
     function resetAllyBuffs(ally) {
@@ -27400,6 +27722,119 @@
       }
     }
 
+    /* ══ ★[#106] 霧の中の魔女の小屋 n1: 戦う / 取り引きの 2 択 (greenHag) ═══════════════════════
+     * 写し元 = 沼の若い司祭 (initSwampNovice 〜 applyNoviceResult)。違いは 2 つ:
+     * ⚠⚠⚠ (1) 未解決の間は **inactive だけ** (⛔ passiveNpc を付けない)。司祭とハイドラは「ボスのノードではない」から
+     *   inactive + passiveNpc で成り立つ。ボスのノードで passiveNpc を付けると、クリアの式
+     *   enemies.every(e => !e.alive || e.passiveNpc) が入った瞬間に真になり、2 択の前に制覇する (依頼書 #106 §2-4)。
+     *   ⇒ 戦う = inactive を外す (倒せばクリア) / 取り引き = passiveNpc を立てる (その場でクリア)。checkDungeonClear は触らない。
+     * ⭐ (2) 近づくのを待たず「**n1 に入って落ち着いたら開く**」(主人公の AI が inactive だけの敵へ寄る保証が無い = 寄らなければ
+     *   永久に開かず永久にクリアしない)。落ち着き = 戦闘・語り・選択・遷移・判定のどれも握っていない (#105 の学び)。
+     * ⭐ 選択肢の並び: index 0 = 戦う (?autoplay は先頭を自動で選ぶ = 全自動と全数走査はいつも戦う道)。Esc も戦う
+     *   (⛔ 何も起きない道を作らない = inactive だけの敵が残って永久に止まる)。⛔ 判定 (ダイス) は挟まない。
+     * ⭐ 取り引きの報酬: currentScenario を**浅い写しへ差し替える** (clearGold 0 / clearXp 半分)。⛔ SCENARIOS の表を書き換えない・
+     *   報酬の処理そのもの (const clearGold の行) は 1 バイトも触らない (verify_road_ambush が逐語で握っている・依頼書 §2-6)。
+     * ⚠ ?graph=0 の単一マップ (RUN = null) では 2 択を開かない = 普通のボス戦。⛔ Math.random を 1 度も引かない。 */
+    let hagIdx = -1, hagResolved = false;
+    window.__hagChoiceProbe = window.__hagChoiceProbe || [];
+
+    function initWitchHag() {
+      hagIdx = -1;
+      hagResolved = false;
+      if (!RUN) return;
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (e && e.def && e.def.isWitchHag) { hagIdx = ei; break; }
+      }
+      if (hagIdx < 0) return;
+      const choice = sceneFlags.hag_choice;   // ★再入場の復元 (sceneFlags が唯一の記憶)
+      if (choice === "fight" || choice === "bargain") hagResolved = true;   // 二度と 2 択を開かない
+      for (let ei = 0; ei < enemies.length; ei++) {   // ハグと同じノードの敵 = ハグと手下 (敵の配列はノードごと)
+        const e = enemies[ei];
+        if (!e || !e.alive) continue;
+        if (choice === "fight") { e.inactive = false; e.passiveNpc = false; continue; }
+        if (choice === "bargain") { e.inactive = true; e.passiveNpc = true; setEnemyVfx(ei, undefined, "0"); continue; }
+        e.inactive = true;                                     // ⛔ passiveNpc は付けない (§2-4)
+        setEnemyVfx(ei, "brightness(0.8) saturate(0.6)", "0.75");   // 霧の中に淡く立つ
+      }
+    }
+
+    // tick: n1 に入って落ち着いたら 2 択を 1 回だけ起動 (戦闘外)。
+    async function tryWitchHagDialog() {
+      if (!gameStarted || gameOver || hagResolved || hagIdx < 0) return;
+      if (!RUN || currentNodeId !== RUN.bossNodeId) return;
+      if (encounterActive || encounterRunning) return;
+      if (dialogPaused || nodeBusy || skillCheckActive || narrationPlaying) return;
+      if (hp <= 0) return;
+      const e = enemies[hagIdx];
+      if (!e || !e.alive || !e.def || !e.def.isWitchHag) return;   // 添字の本人確認
+      hagResolved = true;               // 多重起動防止 (async 前に確定)
+      await runWitchHagDialog();
+    }
+    setInterval(tryWitchHagDialog, 400);
+
+    async function runWitchHagDialog() {
+      showDMMessage("大鍋の湯気の向こうで、緑の肌の老婆が笑った。霧の中に、溺れた村人たちが立ち尽くしている。", 4200);
+      await sleepMs(1200);
+      let c = null;
+      try {
+        c = await showCharChoice(
+          "「その子が欲しいかい? なら、代わりに何をくれる?」",
+          [{ label: "戦って子を取り返す" }, { label: "礼金を渡して取り引きする" }],
+          "戦う (Esc)");
+      } catch (e) { c = null; }
+      await applyWitchHagChoice(c === 1 ? 1 : 0);   // null (Esc) と 0 は戦う
+    }
+
+    async function applyWitchHagChoice(choice) {
+      const rec = { node: currentNodeId, at: Date.now(), choice, autoplay: !!window.__autoplay, scaledXp: null, scaledGold: null };
+      if (choice === 1) {
+        sceneFlags.hag_choice = "bargain";
+        // ① **先に**報酬を差し替える (passiveNpc を立てると次の tick で制覇が立つ)。⛔ SCENARIOS の表は書き換えない
+        currentScenario = Object.assign({}, currentScenario,
+          { clearGold: 0, clearXp: Math.floor((currentScenario.clearXp || 0) / 2) });
+        rec.scaledXp = currentScenario.clearXp; rec.scaledGold = currentScenario.clearGold;
+        window.__hagChoiceProbe.push(rec);
+        // ② ハグと手下は霧に溶ける (inactive のまま姿を消す)
+        for (let ei = 0; ei < enemies.length; ei++) {
+          const e = enemies[ei];
+          if (!e || !e.alive) continue;
+          e.inactive = true;
+          const el = enemyElements[ei];
+          if (el) el.style.transition = "opacity 1.2s";
+          setEnemyVfx(ei, undefined, "0");
+        }
+        showBanner("🌫 取り引きは成った", 1700);
+        updateInfo("礼金の袋を差し出した — 魔女は霧の中へ消え、子どもが戻ってきた");
+        showDMMessage("魔女は金貨の袋をつかむと、霧の中へ溶けていった。藁の寝床で、子どもが目をこすっている。", 4200);
+        await sleepMs(2600);
+        showDMMessage("霧の向こうから、笑い声だけが届いた——『また霧の深い夜に、会おうじゃないか』", 3600);
+        await sleepMs(2600);
+        /* ⑤ 語りを読ませてから passiveNpc を立てる (生きたまま = クリアを止めない)。次の tick で checkDungeonClear が制覇を拾う。
+         *   ⚠ 先に立てると 0.5 秒後に勝利の画面が出て、去り際の一言がその下に隠れる (煙検査 2026-11-02 で実測)。 */
+        for (let ei = 0; ei < enemies.length; ei++) {
+          const e = enemies[ei];
+          if (e && e.alive) e.passiveNpc = true;
+        }
+        return;
+      }
+      sceneFlags.hag_choice = "fight";
+      rec.scaledXp = currentScenario.clearXp || 0; rec.scaledGold = currentScenario.clearGold || 0;
+      window.__hagChoiceProbe.push(rec);
+      for (let ei = 0; ei < enemies.length; ei++) {
+        const e = enemies[ei];
+        if (!e || !e.alive) continue;
+        e.inactive = false; e.passiveNpc = false; e.everSeen = true;
+        setEnemyVfx(ei, "brightness(1.5) saturate(1.2)", "1");   // 霧の淡さを解いて実体化
+      }
+      nodeTimeout(() => {
+        for (let ei = 0; ei < enemies.length; ei++) if (enemies[ei] && enemies[ei].alive) setEnemyVfx(ei, "");
+      }, 700);
+      showBanner("🌫 霧の魔女が牙をむいた", 1700);
+      updateInfo("霧の魔女と溺れた村人たちが動き出した!");
+      showDMMessage("「なら、その子と一緒に鍋で煮てやろうかね!」", 3200);
+    }
+
     // ── Phase 2-B: 確率脱走 (檻近くで戦闘 → 5秒ごとに 20% で自動解放) ──
     // 戦闘開始から 5 秒経過したら、5 秒ごとに、戦闘地点 (player) と檻の距離が 800px 以内の
     // 閉じた檻について 20% で自動解放判定。発動したら openCage() を呼ぶ (咆哮 → ワープ → 第三勢力化)。
@@ -27922,6 +28357,9 @@
       /* ★[#105] 矢の罠 / 魔法の紋 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。沈黙の墓所の n0 (前室) / n1 (玄室) が宣言する。 */
       dart:     { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "壁の小穴から矢が放たれた!" },
       glyph:    { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "床の銀の紋が光った——魔法の罠だ!" },
+      /* ★[#106] 茨の罠 / 呪いの人形 = 語りだけ違う罠 (ダイス・解除 XP は damage と同じ)。霧の中の魔女の小屋の n0 (森の小道) / n1 (小屋) が宣言する。 */
+      thorn:    { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "落ち葉の下の茨の罠が、足に絡みついた!" },
+      hex:      { damageDice: "1d6", weaponizeDice: "2d6", disarmXP: 25, dmText: "吊るされた枝の人形がけたけた笑った——呪いの罠だ!" },
     };
     /* ★[#103] いまのノードの罠の種類。⛔ Math.random を呼ばない (spawnTraps の乱数の消費順を変えない = 依頼書 §2-4)。 */
     function trapTypeForNode() {
@@ -30274,6 +30712,7 @@
       gargoyle: "arcana", sovereignEye: "arcana", hydra: "arcana",
       wyvern: "arcana", wyvernBoss: "arcana",   // ★[#82] 5e SRD の Wyvern は竜 (creature_type: Dragon) ⇒ 魔法学
       tombArmor: "arcana", tombGargoyle: "arcana",   // ★[#105] 墓所専用の動く鎧 / ガーゴイル (元の 2 種と同じ)
+      greenHag: "arcana",   // ★[#106] 霧の魔女 (SRD の Green Hag = Fey。妖精は次元界の住人 = 魔法学・依頼書 #106 §12-1 (1))
     };
     /* 呪文 → 体質の表と同じ属性語。⚠ 演出の dfPlayCast の element ('ice' 等) を読まない (依頼書 §2-2 罠 3)。 */
     const SPELL_ELEMENT = {
@@ -30306,6 +30745,7 @@
       plaguePriest: 2,   // ★[#104] SRD raw/srd/monsters/cult-fanatic.md の CR 2 (ボス補正は HP だけ)
       mummy: 3,          // ★[#105] SRD raw/srd/monsters/mummy.md の CR 3 (ボス補正は HP だけ)
       tombArmor: 1, tombGargoyle: 2,   // ★[#105] 元の animatedArmor / gargoyle と同じ SRD の CR
+      greenHag: 3,       // ★[#106] SRD raw/srd/monsters/green-hag.md の CR 3 (ボス補正は HP だけ)
     };
     function loreCrText(type) {   // 0.125 → "1/8"。表に無ければ "" (= 出さない)
       const cr = LORE_CR[type];
@@ -37698,6 +38138,15 @@
         await sleepMs(1100);
         return;
       }
+      // ── ★[#106] 霧の魔女 (グリーン・ハグ) の「霧渡り」: 戦闘の最初の手番に 1 度だけ (この手番は霧渡りで消費) ──
+      // ⭐ 行動選択 (pickBossAction の Math.random) より**前** = 仕掛け罠・傷を腐らせる手・まなざしと同じ理由。
+      //   mistPassage を持つのは greenHag だけ = 既存の敵の手番と乱数列は 1 ビットも動かない。
+      //   ⛔ 敵に「透明」の持続状態を作らない (狙い・感知の 20 箇所以上に波及する・依頼書 #106 §2-7)。
+      if (def.mistPassage && !enemy.__passageUsed) {
+        enemy.__passageUsed = true;
+        if (await hagMistPassage(idx)) { await sleepMs(1100); return; }
+        // 移動先が無い = 霧渡りをしない。この手番は下の普通の行動へ落ちる
+      }
       // ── ボス: 行動選択 (normal / smash / summon) ──
       let bossAction = "normal";
       if (def.isBoss && !def.multiHead) {   // ハイドラは召喚/smash抽選せず頭数ぶん噛撃
@@ -38718,6 +39167,8 @@
       initSwampNovice(); // ★[#53] Sce3 山場 n4: 若き蛇神司祭を inactive+passiveNpc 化 (接近で 4 択)
                          //   ⚠ Math.random を 1 度も引かないので、後続の乱数列は 1 ビットも動かない。
                          //   ⛔ spawnDetourChests より後に置かない (あれは「必ず最後」)。
+      initWitchHag();    // ★[#106] 魔女の小屋 n1: ハグと手下を inactive だけにする (⛔ passiveNpc は付けない・入場で 2 択)
+                         //   ⚠ Math.random を 1 度も引かない。⛔ spawnDetourChests より後に置かない。
       spawnDragonHoard();  // 最終シナリオ 隠し要素: ボス部屋の財宝の山 (ダミー宝箱+ミミック1個) を擬態配置
       initSce1Captive();   // Sce1 EV-5: 縛られた従者を横穴に配置 (装飾 DOM。goblin-mine 以外では何もしない)
       spawnDetourChests();  // ★[P9] 寄り道スポットの宝箱。⚠ **必ず最後**に呼ぶ (下の注記)
@@ -41109,6 +41560,7 @@
       if (scenId === "kobold-warren") return buildKoboldWarrenRun();   // ★[#103] 本筋外の 8 本目
       if (scenId === "lost-cargo") return buildLostCargoRun();   // ★[#104] 本筋外の 9 本目
       if (scenId === "silent-tomb") return buildSilentTombRun();   // ★[#105] 本筋外の 10 本目
+      if (scenId === "witch-hut") return buildWitchHutRun();   // ★[#106] 本筋外の 11 本目
       return null;                         // 生成クエスト / 未対応 ID は従来の単一マップ
     }
 
@@ -42465,6 +42917,51 @@
         entry: "n0",
         nodes: [
           /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 下り階段の先。 */
+          { id: "n0", kind: "start", mapDef: n0,
+            exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
+          { id: "n1", kind: "boss", mapDef: n1, exits: [] },
+        ],
+      };
+    }
+
+    /* ── ★[#106] 霧の中の魔女の小屋 (本筋外の 11 本目) — 卓上マップ 2 枚 ──────────────────────
+     *
+     *   n0 start 霧の森の小道 ── right → n1 boss 魔女の小屋
+     *
+     * ⭐ 墓所 (#105) の型 = p6Node() を直接 2 回呼ぶ。id は n0/n1 (NODE_EXTRA_SPAWN_KINDS の n0/n1 と対)。
+     * ⚠ p6Node の既定 3 つは全部明示する (#53 の罠): density 0 / start / paint。
+     * ⚠ rect は ROOM_PAINTINGS_DEF["witch-hut"] の tileBounds と**同値**。格子は 64px の焼き上がり
+     *   (森の小道も小屋も 24x16 = 依頼書 #106 §12-1 (3))。
+     * ⭐ 出口を持つ n0 の rect は唯一解 (#53): 右辺の中点が出口ゲート (39,13) に一致する 16 行 x 24 列は
+     *   [6, 16, 21, 39] だけ (16 行 = 偶数 → midR = floor((6+21)/2) = 13 = 絵ローカル row 7 = 小道と戸口の行)。
+     *   n1 も同じ位置に揃える (入場の行 = 絵ローカル row 7 = 西の戸口)。
+     * ⚠⚠⚠ n1 の敵は**全員** initWitchHag() が inactive にする (2 択が開くまで戦闘は起きない・⛔ passiveNpc は付けない)。
+     * ⚠ 座標はすべて global = 絵ローカル + (16, 6)。 */
+    function buildWitchHutRun() {
+      /* n0 霧の森の小道。入場 = 西の小道の入口 (16,13) + NODE_ENTRY_INSET(2) = (18,13) = 絵ローカル (2,7)。
+       * 2 群:
+       *   西の空き地の霧の獣 = ネズミ 3 (絵ローカル (7,5) (7,6) (7,9))。入場から 5.10〜5.39 タイル。
+       *   小屋の戸口の手前の溺れた村人 = ゾンビ 2 (絵ローカル (20,6) (20,8))。
+       *   ⭐ 2 群の最短は 13.00 タイル > DETECTION_RANGE 12.5 = 別々の戦闘 (⚠ 余裕 0.5。動かすなら東へ)。
+       *   ⚠ 敵のタイルは n0big のマスクで全部 '.'。 */
+      const n0 = p6Node("witch-hut", "witch-hut", "n0", "霧の森の小道", [6, 16, 21, 39], {
+        paint: "n0big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[23, 11, "rat"], [23, 12, "rat"], [23, 15, "rat"],
+                [36, 12, "zombie"], [36, 14, "zombie"]],
+      });
+      /* n1 魔女の小屋 (ボス)。入場 = 西の戸口 (16,13) + 2 = (18,13) = 絵ローカル (2,7)。
+       * ハグ = 大鍋の北の床 (絵ローカル (16,4))。手下 = ゾンビ 3 (ハグの操り人形・(15,3) (17,3) (15,5))。
+       *   ⭐ 入場からの最短は (15,5) の 13.15 タイル ≥ 13 = 入場の語り・2 択の最中に戦闘が始まらない。4 体は 1 つの戦闘に入る。
+       *   ⚠ 炉と大鍋 (絵ローカル col 15-19 / row 5-10) は n1big のマスクで塞いである。 */
+      const n1 = p6Node("witch-hut", "witch-hut", "n1", "魔女の小屋", [6, 16, 21, 39], {
+        paint: "n1big", density: 0, start: { tx: 18, ty: 13 },
+        slots: [[31, 9, "zombie"], [33, 9, "zombie"], [31, 11, "zombie"]],
+        boss: [32, 10, "greenHag"],
+      });
+      return {
+        entry: "n0",
+        nodes: [
+          /* ⭐ 出口 at = nodeGateTile(n0 の rect, "right") = (39, 13) = 絵ローカル (23,7) = 小屋の戸口。 */
           { id: "n0", kind: "start", mapDef: n0,
             exits: [{ to: "n1", dir: "right", at: [39, 13], hint: null }] },
           { id: "n1", kind: "boss", mapDef: n1, exits: [] },

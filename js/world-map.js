@@ -39,7 +39,7 @@
   var W = 1536, H = 1024;              // ★assets/world_region.jpg の実寸。座標は全部この px 系
 
   /* ── ノード ───────────────────────────────────────────────────────
-   *  kind: "site" … 拠点 (札が出る。ちょうど 11 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」/ ★[#105] 11 個目 = lake_n「湖の北の島」)
+   *  kind: "site" … 拠点 (札が出る。ちょうど 12 個。★[#82] 8 つ目 = pass_n「見張りの塔」/ ★[#103] 9 つ目 = village_s「南の村」/ ★[#104] 10 個目 = pier「港の倉庫街」/ ★[#105] 11 個目 = lake_n「湖の北の島」/ ★[#106] 12 個目 = lakeside「湖畔の集落」)
    *        "way"  … 中継点 (札は出ない。線の折れ目)
    *  enter: 入ると遷移するページ。⛔ クエリを足さない (#6 / #12 の確定作法)。
    *         ⭐ v1 で enter を持つのは phlan ただ 1 つ (依頼書 §12-3 のユーザー決定)。
@@ -100,7 +100,16 @@
      *   ⛔ id と座標は変えない・EDGES も触らない (沼地と砦をつなぐ道の途中のまま)。
      *   ⭐ 撤退 ?warren=0 は world.html / tavern.html が自ページで読み、retireWarren() で中継点へ戻す。 */
     village_s: { kind: "site", x:  736, y: 864, label: "南の村", desc: "湖の南の農村。丘の下にコボルドの巣穴" },
-    lakeside:  { kind: "way",  x: 1056, y: 544 }
+    /* ★[#106] 湖の東岸の集落 lakeside を拠点「湖畔の集落」(本筋外の依頼「霧の中の魔女の小屋」) へ格上げ。
+     *   ⛔ id と座標は変えない・EDGES も触らない (lake_n / fort / mine / dragon をつなぐ 4 叉路のまま = 廃坑・神殿・竜の巣への経路の途中)。
+     *   ⚠ 通り過ぎても入場ダイアログは開かない (押して着いたときだけ)。街道の出来事・襲撃は拠点では出ない (isRoadSite)。
+     *   ⚠⚠ 札の真下に廃坑への刻み点 lakeside__mine@1 (1056,448) がある = signDx は依頼書 #106 §12-1 (2) の掃引で決めた値。
+     *      signDx 0 だと札の下端がそのマーカーに掛かる (1440: 583.5px² / 390: 514.1px²)・主人公が lakeside__mine@1 に立つと
+     *      札を 35.9% 隠す。東へ逃がす境目は 156 = 余白 4px を見て 160 (マーカー 0・他の札 0・主人公が隠す最大 8.2% / 4.5%)。
+     *      西 (負) は lake_n__lakeside@2 に乗るので逃げ道にならない。⚠ 390 幅で主人公が lakeside に立つと札の右端が 21px 画面外 (§9)。
+     *      ⛔ 他の拠点の signDx は動かさない。
+     *   ⭐ 撤退 ?hag=0 は world.html / tavern.html が自ページで読み、retireHag() で中継点へ戻す。 */
+    lakeside:  { kind: "site", x: 1056, y: 544, label: "湖畔の集落", desc: "湖の東岸の小さな集落。霧の森の奥に魔女の小屋", signDx: 160 }
   };
 
   /* ── エッジ ───────────────────────────────────────────────────────
@@ -186,7 +195,8 @@
     "tower-mother":   "pass_n",    /* ★[#82] 本筋外の 7 本目 (tavern.html の scenarios[] の side:true) */
     "kobold-warren":  "village_s", /* ★[#103] 本筋外の 8 本目 (最初から受けられる初仕事) */
     "lost-cargo":     "pier",      /* ★[#104] 本筋外の 9 本目 (廃坑の後に解放) */
-    "silent-tomb":    "lake_n"     /* ★[#105] 本筋外の 10 本目 (森の後に解放) */
+    "silent-tomb":    "lake_n",    /* ★[#105] 本筋外の 10 本目 (森の後に解放) */
+    "witch-hut":      "lakeside"   /* ★[#106] 本筋外の 11 本目 (沼地の後に解放) */
   };
 
   /* ── 解放の鎖 (依頼書 #23 §2-5) ─────────────────────────────
@@ -206,7 +216,8 @@
     "tower-mother":   "orc-fort",  /* ★[#82] 砦のクリア後 (tavern.html の unlockAfter と同じ) */
     "kobold-warren":  null,        /* ★[#103] 最初から解放済み (tavern.html の locked:false と同じ) */
     "lost-cargo":     "goblin-mine", /* ★[#104] 廃坑のクリア後 (tavern.html の unlockAfter と同じ) */
-    "silent-tomb":    "bandits-forest" /* ★[#105] 森のクリア後 (tavern.html の unlockAfter と同じ) */
+    "silent-tomb":    "bandits-forest", /* ★[#105] 森のクリア後 (tavern.html の unlockAfter と同じ) */
+    "witch-hut":      "lizard-swamp" /* ★[#106] 沼地のクリア後 (tavern.html の unlockAfter と同じ) */
   };
 
   /* シナリオが地図に出るか。cleared は localStorage["dragonfighters.cleared"] の配列そのもの。
@@ -430,6 +441,14 @@
     delete UNLOCK["silent-tomb"];
   }
 
+  /* ★[#106] 撤退 ?hag=0 の器 (retireTomb と同じ形)。lakeside を今日の中継点へ戻し、
+   *   SITES / UNLOCK から witch-hut を外す。⭐ クエリを読むのは各ページ。 */
+  function retireHag() {
+    NODES.lakeside = { kind: "way",  x: 1056, y: 544 };
+    delete SITES["witch-hut"];
+    delete UNLOCK["witch-hut"];
+  }
+
   global.WORLD_MAP = {
     W: W, H: H,
     NODES: NODES, EDGES: EDGES, SITES: SITES, UNLOCK: UNLOCK,
@@ -439,6 +458,7 @@
     retireWarren: retireWarren, /* ★[#103] 撤退 ?warren=0 の器 */
     retireCargo: retireCargo,   /* ★[#104] 撤退 ?cargo=0 の器 */
     retireTomb: retireTomb,     /* ★[#105] 撤退 ?tomb=0 の器 */
+    retireHag: retireHag,       /* ★[#106] 撤退 ?hag=0 の器 */
     /* ── #40 の追加。⛔ 上の行は 1 バイトも変えない ── */
     STEP_MAX_PX: STEP_MAX_PX, STEPS: STEPS, stepsOfEdge: stepsOfEdge,
     walkNodes: walkNodes, walkEdges: walkEdges,

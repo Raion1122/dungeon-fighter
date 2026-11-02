@@ -682,6 +682,11 @@
     try {
       if (new URLSearchParams(location.search).get("tomb") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireTomb) window.WORLD_MAP.retireTomb();
     } catch (e) {}
+    /* ★[#106] 撤退スイッチ ?hag=0 (実装依頼書 #106 §7)。?tomb=0 と同じ「ページ単位で独立」。
+       拠点「湖畔の集落」(lakeside) を今日の中継点へ戻す。 */
+    try {
+      if (new URLSearchParams(location.search).get("hag") === "0" && window.WORLD_MAP && window.WORLD_MAP.retireHag) window.WORLD_MAP.retireHag();
+    } catch (e) {}
 
     var WM = window.WORLD_MAP;
     if (!WM) { location.replace("town.html"); return; }   // 保険: データが無ければ街へ
