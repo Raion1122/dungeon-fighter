@@ -380,7 +380,32 @@ const HARBOR = DRAWN_SETTLEMENTS[3];
  *   向きを逆にして縛る (= 96px 未満 = 絵の村の上に立っている)。他の集落からは今どおり 96px 以上。 */
 /* ★[#104] 消えた積み荷の拠点「港の倉庫街」(pier) は港町フランの桟橋そのもの (依頼書 #104 §2-1: id・座標は変えない)。
  *   ⇒ 絵の港町から 64px = 港町の上に立っている。(7c-2) はこの組も向きを逆にして縛る。 */
-const SITE_ON_SETTLEMENT = { 'kobold-warren': '南の森の村', 'lost-cargo': '港町' };
+/* ★[#106] 霧の中の魔女の小屋の拠点「湖畔の集落」(lakeside) は絵の東の湖畔村そのもの (依頼書 #106 §2-1 の目視: id・座標は変えない)。
+ *   ⇒ 絵の村から 32px = 村の上に立っている。(7c-2) はこの組も向きを逆にして縛る。 */
+const SITE_ON_SETTLEMENT = { 'kobold-warren': '南の森の村', 'lost-cargo': '港町', 'witch-hut': '東の湖畔村' };
+/* ★[#106] ユーザー決定 (a) 2026-11-02: 拠点「湖畔の集落」(lakeside) の札 (signDx 160) は地下神殿の点 temple (1184,416) に
+ *   被さる (依頼書 #106 §12-2 (4)。x だけでは両立しない = 受け入れた)。⇒ その点は**神殿の札を押して**神殿へ向かうのが正。
+ * ⚠⚠⚠ 緩めない作法: 札へ逃がすのは**この組だけ**で、① 点の elementFromPoint が本当にその持ち主の札に当たり、
+ *   ② 逃がし先の札の中心の elementFromPoint が自分の拠点の子孫であるときだけ。崩れたら点のまま押す (= 退行は今日どおり赤)。
+ *   (3b) の「押した先が自分か子孫」・着地の座標の期待は 1 つも変えていない。 */
+const COVERED_BY_SIGN = { temple: 'lakeside' };
+async function pressPointOf(page, id) {
+  return page.evaluate((a) => {
+    const pt = window.__world.clientFromNode(a.id);
+    if (!pt) return null;
+    const owner = a.cover[a.id];
+    if (!owner) return { x: pt.x, y: pt.y, via: 'point' };
+    const hit = document.elementFromPoint(Math.round(pt.x), Math.round(pt.y));
+    const oh = document.getElementById('worldNode_' + owner);
+    const os = oh && oh.querySelector('.worldSign');
+    if (!(hit && os && os.contains(hit))) return { x: pt.x, y: pt.y, via: 'point', coverGone: true };
+    const host = document.getElementById('worldNode_' + a.id);
+    const s = host && host.querySelector('.worldSign');
+    if (!s) return { x: pt.x, y: pt.y, via: 'point', noSign: true };
+    const r = s.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, via: 'sign', coveredBy: owner };
+  }, { id: id, cover: COVERED_BY_SIGN });
+}
 /* ★[#104] (7c-1) の例外の組。pier と phlan は座標が両方とも動かせない隣どうし (ノード間 90.5px = 64√2)。
  *   札どうしが混まないことは座標の距離ではなく、pier の signDx (負 = 札を左へ逃がす) で守っている
  *   (依頼書 #104 §2-2・§12。実描画の札の交わり 0 は verify_lost_cargo (1f) が縛る)。
@@ -392,6 +417,10 @@ const WATER_MAX = 0.40;       // 依頼書 §8 (1a)
  * ⭐ 2026-08-26 の実測から決めた: 直した後の最大は mine に立ったときの temple、
  *   signDx を消して戻すと cross_n に立ったときの phlan が跳ね上がる。その間に置く。 */
 const COVER_MAX = 0.10;
+/* ★[#106] (7f) の例外の組 (ユーザー決定 (a) 2026-11-02 の帰結)。lakeside の札 (signDx 160) は temple の点の上に被さるので、
+ *   主人公が temple に立つと駒が lakeside の札の下端に掛かる (実測 18.1% = 96.0x23.8px・2026-11-02)。
+ *   ⇒ この組だけ上限を実測の直上 0.20 に置く (他の組は今どおり 10%)。⛔ これ以上に増えたら赤 (札の位置・駒の寸法の退行)。 */
+const COVER_EXCEPT = { 'temple->lakeside': 0.20 };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 観測 (⭐ 素でも変異でも **この同じ関数**を回す)
@@ -800,7 +829,7 @@ async function measureWalk(browser, port, errs, opts) {
   const skipped = all.filter(id => ids.indexOf(id) < 0);
   const rows = [];
   for (const id of ids) {
-    let pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+    let pt = await pressPointOf(page, id);   /* ★[#106] 札に覆われた点 (明示の組だけ) は自分の札を押す */
     /* 装置: そのノードが本当に画面に出ていて、押した先が自分 (か子孫) であること。
        ⛔ ここを省くと「帯の下に潜って押せない」を永久に緑と報告する。
        ⚠ **1 回目のタップの前**に採る (#40 の押し直しループを回した後だとカメラが
@@ -830,7 +859,7 @@ async function measureWalk(browser, port, errs, opts) {
       if (now === id) { taps++; break; }
       if (now === lastNode) break;      /* 1px も進まなくなったら打ち切り (assert 側が赤にする) */
       lastNode = now;
-      pt = await page.evaluate((i) => window.__world.clientFromNode(i), id);
+      pt = await pressPointOf(page, id);   /* ★[#106] */
       if (!pt) { errs.push(tag + 'clientFromNode が null: ' + id); break; }
     }
     const r = await page.evaluate((i) => {
@@ -1747,12 +1776,12 @@ const ASSERTS = [
       return [Object.keys(m.map.sites).length > 0 && bad.length === 0,
         bad.length ? '⛔ ' + bad.join(' / ') : Object.keys(m.map.sites).length + ' 件一致'];
     }],
-  ['7b-data', 'kind === "site" がちょうど 11 件 (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島の 1 枚ずつを足した数) / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
+  ['7b-data', 'kind === "site" がちょうど 12 件 (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落の 1 枚ずつを足した数) / enter を持つのはただ 1 つで、それはシナリオ拠点ではない / enter にクエリが無い',
     m => {
       const sites = siteIds(m), ents = enterIds(m);
       const scenTargets = Object.keys(m.map.sites).map(k => m.map.sites[k]);
       const one = ents.length === 1 ? ents[0] : null;
-      const ok = sites.length === 11 && one !== null
+      const ok = sites.length === 12 && one !== null
         && m.map.nodes[one].kind === 'site'
         && scenTargets.indexOf(one) < 0
         && String(m.map.nodes[one].enter).indexOf('?') < 0;
@@ -1802,7 +1831,7 @@ const ASSERTS = [
         '最小 ' + (isFinite(mn) ? mn.toFixed(1) : '-') + 'px (' + who + ')'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7b-dom', '★札の DOM が **ちょうど 11 枚** (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島の 1 枚ずつを足した数)。kind === "site" の件数と一致し、way には 1 枚も無く、'
+  ['7b-dom', '★札の DOM が **ちょうど 12 枚** (★[#82] 本筋 6 + 港町 1 に本筋の外 = 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落の 1 枚ずつを足した数)。kind === "site" の件数と一致し、way には 1 枚も無く、'
     + 'enter を持つのは 1 つだけ。文言は js/world-map.js の label / desc そのまま (⛔ 写経しない)',
     m => {
       if (!m.signs) return [false, 'signs 未測定'];
@@ -1817,7 +1846,7 @@ const ASSERTS = [
         if (r.name !== n.label) bad.push(r.id + ':name="' + r.name + '" != label="' + n.label + '"');
         if ((n.desc || null) !== (r.desc || null)) bad.push(r.id + ':desc ズレ "' + r.desc + '"');
       }
-      const ok = m.signs.total === 11 && m.signs.rows.length === sites.length && sites.length === 11
+      const ok = m.signs.total === 12 && m.signs.rows.length === sites.length && sites.length === 12
         && JSON.stringify(got) === JSON.stringify(want) && ents.length === 1
         && got.indexOf(ents[0]) >= 0 && bad.length === 0;
       return [ok, '.worldSign=' + m.signs.total + ' / kind:"site"=' + sites.length
@@ -1830,7 +1859,7 @@ const ASSERTS = [
       if (!m.signs) return [false, 'signs 未測定'];
       const bad = m.signs.rows.filter(r => !r.onScreen || !r.self)
         .map(r => r.id + '[' + (r.onScreen ? '' : '画面外/') + '押した先=' + r.top + ']');
-      return [m.signs.rows.length === 11 && bad.length === 0,   /* ★[#82][#103][#104] 10 枚・★[#105] 11 枚 */
+      return [m.signs.rows.length === 12 && bad.length === 0,   /* ★[#82][#103][#104] 10 枚・★[#105] 11 枚・★[#106] 12 枚 */
         m.signs.rows.length + ' 枚とも自分に当たる  実効文字高 name/desc='
         + (m.signs.rows[0] ? (m.signs.rows[0].fontName * m.render.zoom).toFixed(1) + 'px/'
           + (m.signs.rows[0].fontDesc * m.render.zoom).toFixed(1) + 'px (zoom '
@@ -1838,7 +1867,7 @@ const ASSERTS = [
         + '  札の寸法=' + JSON.stringify(m.signs.rows.map(r => r.id + ':' + r.w + 'x' + r.h))
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
-  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (10 枚とも。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島を足した数)'
+  ['7e', '★港町フラン **以外**の札をタップ → 歩くだけで location が変わらない (11 枚とも。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落を足した数)'
     + ' ⛔ 依頼の受注は今日どおり酒場 (依頼書 §12-3)',
     m => {
       if (!m.walk) return [false, 'walk 未測定'];
@@ -1850,7 +1879,7 @@ const ASSERTS = [
         if (r.search !== '') bad.push(r.id + ':search="' + r.search + '"');
         if (r.node !== r.id) bad.push(r.id + ':歩けていない heroNode=' + r.node);
       }
-      return [rows.length === 10 && bad.length === 0,   /* ★[#104] 9 枚・★[#105] 10 枚 */
+      return [rows.length === 11 && bad.length === 0,   /* ★[#104] 9 枚・★[#105] 10 枚・★[#106] 11 枚 */
         rows.length + ' 枚 (' + rows.map(r => r.id).join(',') + ') を実クリック'
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '  全部 world.html のまま歩いただけ')];
     }],
@@ -1860,11 +1889,11 @@ const ASSERTS = [
     + ' ⭐ 実際に歩かせず座標から出す (enter を持つ港町の札は押すと town.html へ遷移してしまう)',
     m => {
       if (!m.cover) return [false, 'cover 未測定'];
-      if (m.cover.signCount !== 11 || m.cover.nodeCount !== 14) {   /* ★[#82][#103][#104] 札 10 枚・★[#105] 11 枚 */
-        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/11 ノード='
+      if (m.cover.signCount !== 12 || m.cover.nodeCount !== 14) {   /* ★[#82][#103][#104] 札 10 枚・★[#105] 11 枚・★[#106] 12 枚 */
+        return [false, '⛔ 母集団が壊れている 札=' + m.cover.signCount + '/12 ノード='
           + m.cover.nodeCount + '/14 (装置の cleared 仕込みが効いていない可能性)'];
       }
-      const bad = m.cover.rows.filter(r => r.ratio >= COVER_MAX)
+      const bad = m.cover.rows.filter(r => r.ratio >= (COVER_EXCEPT[r.at + '->' + r.sign] || COVER_MAX))   /* ★[#106] 例外の組だけ別の上限 */
         .map(r => r.at + ' に立つと ' + r.sign + ' の札を ' + (r.ratio * 100).toFixed(1)
           + '% 覆う (' + r.ow.toFixed(1) + 'x' + r.oh.toFixed(1) + 'px)');
       const top3 = m.cover.rows.slice().sort((a, b) => b.ratio - a.ratio).slice(0, 3)

@@ -549,8 +549,9 @@ async function measure(browser, port, errs, opts) {
       /* ★[#103] 撤退を 2 段で採る: ① retireWarren() だけ (= 巣穴の前 = #82 の地図) → ② さらに retireTower() (= 塔の母の前)。 */
       /* ★[#104] その前にもう 1 段: ⓪ retireCargo() だけ (= 倉庫街の前 = #103 の地図) → ① → ②。 */
       /* ★[#105] さらにその前にもう 1 段: retireTomb() だけ (= 墓所の前 = #104 の地図) → ⓪ → ① → ②。 */
+      /* ★[#106] さらにその前にもう 1 段: retireHag() だけ (= 魔女の小屋の前 = #105 の地図) → retireTomb → ⓪ → ① → ②。 */
       retired: (() => {
-        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function') return null;
+        if (typeof WM.retireTower !== 'function' || typeof WM.retireWarren !== 'function' || typeof WM.retireCargo !== 'function' || typeof WM.retireTomb !== 'function' || typeof WM.retireHag !== 'function') return null;
         const fp = () => ({
           sites: JSON.parse(JSON.stringify(WM.SITES)),
           nodesFP: Object.keys(WM.NODES).map(id => {
@@ -559,6 +560,8 @@ async function measure(browser, port, errs, opts) {
           }),
           edgesFP: WM.EDGES.map(e => e[0] + '__' + e[1]),
         });
+        WM.retireHag();
+        const hagOff = fp();
         WM.retireTomb();
         const tombOff = fp();
         WM.retireCargo();
@@ -570,6 +573,7 @@ async function measure(browser, port, errs, opts) {
         both.warrenOff = warrenOff;
         both.cargoOff = cargoOff;
         both.tombOff = tombOff;
+        both.hagOff = hagOff;
         return both;
       })(),
     };
@@ -825,6 +829,36 @@ async function dismissRoadEvent(page) {
   return { ok: closed && !why, event: seen.event, at: seen.at, label: seen.label, why: why.trim() };
 }
 
+/* ★[#106] ユーザー決定 (a) 2026-11-02: 拠点「湖畔の集落」(lakeside) の札 (signDx 160) は **地下神殿の停留所の点**
+ *   temple (1184,416) の上に被さる (依頼書 #106 §12-2 (4)。x だけでは両立しない = 受け入れた)。
+ *   ⇒ その世界では**神殿の札 (.worldSign) を押して神殿へ向かう**のが正。
+ * ⚠⚠⚠ 緩めない作法: 札へ逃がすのは **明示した組 (被さられる点 → 被さる札の持ち主) だけ**で、しかも
+ *   ① 点の elementFromPoint が**本当にその持ち主の札**に当たっていること
+ *   ② 逃がし先の札の中心の elementFromPoint が**自分の拠点の子孫**であること
+ *   の両方を実測したときだけ。どちらかが崩れたら点をそのまま押す (= 本当の退行は今日どおり赤)。
+ *   組に無い点が他の札に覆われたら、それも点のまま押して赤にする。 */
+const COVERED_BY_SIGN = { temple: 'lakeside' };
+async function resolveTap(page, id, how) {
+  return safeEval(page, (a) => {
+    const W = window.__world;
+    const pt = a.how === 'node' ? W.clientFromNode(a.id) : W.clientFromPoint(a.id);
+    if (!pt) return null;
+    const owner = a.cover[a.id];
+    if (!owner) return { x: pt.x, y: pt.y, via: 'point' };
+    const hit = document.elementFromPoint(pt.x, pt.y);
+    const ownerHost = document.getElementById('worldNode_' + owner);
+    const ownerSign = ownerHost && ownerHost.querySelector('.worldSign');
+    if (!(hit && ownerSign && ownerSign.contains(hit))) return { x: pt.x, y: pt.y, via: 'point', coverGone: true };
+    const host = document.getElementById('worldNode_' + a.id);
+    const sign = host && host.querySelector('.worldSign');
+    if (!sign) return { x: pt.x, y: pt.y, via: 'point', noSign: true };
+    const r = sign.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const h2 = document.elementFromPoint(cx, cy);
+    if (!(h2 && host.contains(h2))) return { x: pt.x, y: pt.y, via: 'point', signStolen: true };
+    return { x: cx, y: cy, via: 'sign', coveredBy: owner };
+  }, { id: id, how: how || 'point', cover: COVERED_BY_SIGN });
+}
 /* クライアント座標を 1 点押す。⭐ 返り値に **押す前と後の全状態**を持たせる
  *  (assert 側が突き合わせる = ドライバは判定しない)。 */
 async function tapAt(page, cx, cy, id, why) {
@@ -856,12 +890,14 @@ async function tapPoint(page, id, why) {
     return { ok: false, id: id, why: why, before: pre, after: pre, dist: null,
       err: 'ページが world.html を離れている: ' + pre.path };
   }
-  const pt = await safeEval(page, i => window.__world.clientFromPoint(i), id);
+  const pt = await resolveTap(page, id, 'point');   /* ★[#106] 札に覆われた点 (明示の組だけ) は自分の札を押す */
   if (!pt) {
     return { ok: false, id: id, why: why, before: pre, after: pre, dist: null,
       err: 'clientFromPoint が null: ' + id };
   }
-  return tapAt(page, pt.x, pt.y, id, why);
+  const t = await tapAt(page, pt.x, pt.y, id, why);
+  t.via = pt.via;
+  return t;
 }
 /* 着くまで押し直す。⛔ 上限を外さない。⭐ 押した回数と全タップの記録を返す。 */
 async function tapUntil(page, id, sink, why) {
@@ -1198,7 +1234,7 @@ async function measureRetreat(browser, port, errs) {
   const tapOnce = async (page, id) => {
     const before = await readPlay(page);
     if (before.dead) return { ok: false, before: before, after: before, err: 'ページが world.html を離れている' };
-    const pt = await safeEval(page, i => window.__world.clientFromNode(i), id);
+    const pt = await resolveTap(page, id, 'node');   /* ★[#106] 札に覆われた点 (明示の組だけ) は自分の札を押す */
     if (!pt) return { ok: false, before: before, after: before, err: 'clientFromNode が null: ' + id };
     await page.mouse.click(Math.round(pt.x), Math.round(pt.y));
     const still = await waitStill(page);
@@ -1406,17 +1442,17 @@ const ASSERTS = [
        ⚠ 依頼書 §2-3 の表が「奪われ 0 件」と読めるのは **札の中心 1 点だけ**を測っていたため。
          ⭐⭐⭐ 中心は 4 通りとも無傷 — 破れるのは **四隅**。「矩形の交差」「中心の奪取」
          「隅の奪取」は 3 つとも別条件だと実測で確定した。 */
-  ['2d', '刻み点マーカーが **11 枚 (★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島を足した数) の .worldSign のどのクリック点も奪わない**'
+  ['2d', '刻み点マーカーが **12 枚 (★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落を足した数) の .worldSign のどのクリック点も奪わない**'
     + ' (札ごとに中心 + 四隅の内側 8px の 5 点を elementFromPoint)'
     + ' ⭐ 各マーカーの中心が札の矩形から逃げている距離の最小値を必ず detail に出す'
-    + ' ⚠ 札 11 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
+    + ' ⚠ 札 12 枚の母集団 (cleared 焼き込み) が立っていることを同じ assert で確かめる',
     m => {
       const d = m.dom;
       if (!d) return [false, '⛔ DOM の観測が無い'];
       if (d.marks.length === 0) return [false, '⛔ 母集団 0 枚 (マーカーが 1 つも描かれていない)'];
       /* ⚠⚠ 母集団ガード 2 本立て: 札の実数と、データ側の site ノード数の両方を見る。
          ⛔ 0 枚でも「奪わなかった」で緑になる書き方をしない (#42 でもここは 1 バイトも緩めない)。 */
-      if (d.siteCount !== 11 || d.signs.length !== 11) {   /* ★[#105] 11 */
+      if (d.siteCount !== 12 || d.signs.length !== 12) {   /* ★[#105] 11 / ★[#106] 12 */
         return [false, '⛔ 母集団が壊れている: .worldSign=' + d.signs.length + ' 枚 / site ノード='
           + d.siteCount + ' 件 (どちらも 10 のはず)  札の所有者='
           + JSON.stringify(d.signs.map(s => s.node))];
@@ -1612,8 +1648,8 @@ const ASSERTS = [
         + (bad.length ? '  ⛔ ' + bad.join(' ') : '')];
     }],
   ['1d', '⭐⭐⭐ [恒等] {nodesFP, edges, sites} の sha1 が 876c5f6336f96811'
-    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件 = ★[#82][#103][#104][#105] 本番の撤退 retireTomb() + retireCargo() + retireWarren() + retireTower() 後の地図。'
-    + '+ retireWarren() までの後は SITES 7 の 647e71f6b2956389・+ retireCargo() までの後は SITES 8 の 3918d569e7f3f7db・retireTomb() だけの後は SITES 9 の 44b1de14f8b2c9d0・既定は SITES 10 の 3dd5550782057025)'
+    + ' (NODES 14 件 / EDGES 14 本 / SITES 6 件 = ★[#82][#103][#104][#105][#106] 本番の撤退 retireHag() + retireTomb() + retireCargo() + retireWarren() + retireTower() 後の地図。'
+    + '+ retireWarren() までの後は SITES 7 の 647e71f6b2956389・+ retireCargo() までの後は SITES 8 の 3918d569e7f3f7db・+ retireTomb() までの後は SITES 9 の 44b1de14f8b2c9d0・retireHag() だけの後は SITES 10 の 3dd5550782057025・既定は SITES 11 の 63f3bce7696bf14a)'
     + ' ⚠ tools/verify_quest_walk.js:1511 の (5a) と **同じ式**を同居させて 2 本で縛る',
     m => {
       const md = m.map;
@@ -1637,9 +1673,12 @@ const ASSERTS = [
       const WANT_W0 = '647e71f6b2956389';   /* ★[#82] 2026-10-03 実測 (NODES 14 / EDGES 14 / SITES 7) */
       const WANT_C0 = '3918d569e7f3f7db';   /* ★[#103] 2026-10-28 実測 (NODES 14 / EDGES 14 / SITES 8) */
       const WANT_T0 = '44b1de14f8b2c9d0';   /* ★[#104] 2026-10-29 実測 (NODES 14 / EDGES 14 / SITES 9) */
-      const WANT_ON = '3dd5550782057025';   /* ★[#105] 2026-10-30 実測 (NODES 14 / EDGES 14 / SITES 10) */
+      /* ★[#106] さらにもう 1 段: #105 の既定 3dd5550782057025 は 1 文字も変えず retireHag() だけの後 (= 魔女の小屋の前) へ当てる。
+         既定 = SITES 11 の 2026-11-02 実測 (lakeside の signDx 160 の後。signDx は nodesFP に入らない)。 */
+      const WANT_H0 = '3dd5550782057025';   /* ★[#105] 2026-10-30 実測 (NODES 14 / EDGES 14 / SITES 10) */
+      const WANT_ON = '63f3bce7696bf14a';   /* ★[#106] 2026-11-02 実測 (NODES 14 / EDGES 14 / SITES 11) */
       const counts = md.nodesFP.length === 14 && md.edgesFP.length === 14
-        && Object.keys(md.sites).length === 10;
+        && Object.keys(md.sites).length === 11;
       const rt = md.retired;
       const canonOff = rt ? JSON.stringify({ nodes: rt.nodesFP, edges: rt.edgesFP, sites: rt.sites }) : '';
       const gotOff = rt ? crypto.createHash('sha1').update(canonOff).digest('hex').slice(0, 16) : '(retireTower / retireWarren が無い)';
@@ -1656,14 +1695,20 @@ const ASSERTS = [
       const canonT0 = rb ? JSON.stringify({ nodes: rb.nodesFP, edges: rb.edgesFP, sites: rb.sites }) : '';
       const gotT0 = rb ? crypto.createHash('sha1').update(canonT0).digest('hex').slice(0, 16) : '(retireTomb が無い)';
       const countsT0 = !!rb && rb.nodesFP.length === 14 && rb.edgesFP.length === 14 && Object.keys(rb.sites).length === 9;
-      return [got === WANT_ON && counts && gotT0 === WANT_T0 && countsT0 && gotC0 === WANT_C0 && countsC0 && gotW0 === WANT_W0 && countsW0 && gotOff === WANT && countsOff,
+      const rh = rt && rt.hagOff;
+      const canonH0 = rh ? JSON.stringify({ nodes: rh.nodesFP, edges: rh.edgesFP, sites: rh.sites }) : '';
+      const gotH0 = rh ? crypto.createHash('sha1').update(canonH0).digest('hex').slice(0, 16) : '(retireHag が無い)';
+      const countsH0 = !!rh && rh.nodesFP.length === 14 && rh.edgesFP.length === 14 && Object.keys(rh.sites).length === 10;
+      return [got === WANT_ON && counts && gotH0 === WANT_H0 && countsH0 && gotT0 === WANT_T0 && countsT0 && gotC0 === WANT_C0 && countsC0 && gotW0 === WANT_W0 && countsW0 && gotOff === WANT && countsOff,
         'NODES ' + md.nodesFP.length + ' 件 / EDGES ' + md.edgesFP.length
         + ' 本 / SITES ' + Object.keys(md.sites).length + ' 件'
         + '  sha1(先頭16)=' + got + ' (固定値 ' + WANT_ON + ')'
-        + '  / 撤退後 (retireTomb) SITES ' + (rb ? Object.keys(rb.sites).length : '?') + ' sha1=' + gotT0 + ' (固定値 ' + WANT_T0 + ')'
-        + '  / 撤退後 (retireTomb + retireCargo) SITES ' + (rc ? Object.keys(rc.sites).length : '?') + ' sha1=' + gotC0 + ' (固定値 ' + WANT_C0 + ')'
-        + '  / 撤退後 (retireTomb + retireCargo + retireWarren) SITES ' + (rw ? Object.keys(rw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + WANT_W0 + ')'
-        + '  / 撤退後 (4 段すべて) SITES ' + (rt ? Object.keys(rt.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + '  / 撤退後 (retireHag) SITES ' + (rh ? Object.keys(rh.sites).length : '?') + ' sha1=' + gotH0 + ' (固定値 ' + WANT_H0 + ')'
+        + '  / 撤退後 (+ retireTomb) SITES ' + (rb ? Object.keys(rb.sites).length : '?') + ' sha1=' + gotT0 + ' (固定値 ' + WANT_T0 + ')'
+        + '  / 撤退後 (+ retireCargo) SITES ' + (rc ? Object.keys(rc.sites).length : '?') + ' sha1=' + gotC0 + ' (固定値 ' + WANT_C0 + ')'
+        + '  / 撤退後 (+ retireWarren) SITES ' + (rw ? Object.keys(rw.sites).length : '?') + ' sha1=' + gotW0 + ' (固定値 ' + WANT_W0 + ')'
+        + '  / 撤退後 (5 段すべて) SITES ' + (rt ? Object.keys(rt.sites).length : '?') + ' sha1=' + gotOff + ' (固定値 ' + WANT + ')'
+        + (gotH0 === WANT_H0 ? '' : '  ⛔ retireHag 後の中身= ' + canonH0)
         + (gotT0 === WANT_T0 ? '' : '  ⛔ retireTomb 後の中身= ' + canonT0)
         + (gotC0 === WANT_C0 ? '' : '  ⛔ retireCargo 後の中身= ' + canonC0)
         + (gotW0 === WANT_W0 ? '' : '  ⛔ retireWarren 後の中身= ' + canonW0)
@@ -2111,7 +2156,7 @@ const ASSERTS = [
         + '  (NODES ' + nn + ' 件 / 刻み点 ' + sc + ' 件を母集団に)'
         + (why.length ? '  ' + why.join(' ') : '')];
     }],
-  ['5c', '札 (.worldSign) の DOM が **ちょうど 11 枚** (刻み点に札が生えていない。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島を足した数)'
+  ['5c', '札 (.worldSign) の DOM が **ちょうど 12 枚** (刻み点に札が生えていない。★[#82] 見張りの塔・★[#103] 南の村・★[#104] 港の倉庫街・★[#105] 湖の北の島・★[#106] 湖畔の集落を足した数)'
     + ' ⭐ DOM の枚数と、データ側の site ノード数を **2 経路**で突き合わせる'
     + ' ⚠ 刻み点マーカーが 1 枚以上ある母集団で測る',
     m => {
@@ -2119,8 +2164,8 @@ const ASSERTS = [
       if (!d) return [false, '⛔ DOM の観測が無い'];
       const why = [];
       const owners = d.signs.map(s => s.node);
-      if (d.signs.length !== 11) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 11 枚)');
-      if (d.siteCount !== 11) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 11 件)');
+      if (d.signs.length !== 12) why.push('⛔ .worldSign=' + d.signs.length + ' 枚 (期待 12 枚)');
+      if (d.siteCount !== 12) why.push('⛔ データ側の site ノード=' + d.siteCount + ' 件 (期待 12 件)');
       if (d.signs.length !== d.siteCount) why.push('⛔ 2 経路が食い違う (DOM ' + d.signs.length + ' / データ ' + d.siteCount + ')');
       if (owners.some(o => o === null)) why.push('⛔ .worldNode に属さない札がある: ' + JSON.stringify(owners));
       const stepy = owners.filter(o => o !== null && String(o).indexOf('@') >= 0);
